@@ -1,0 +1,51 @@
+# @furongjun1999/dsh-memory 插件配置示例
+# 复制到 DSH profile 的 cordis.patch.yml（或 cordis.yml）启用
+#
+# 说明：
+# - !!js process.env.X 语法在加载期求值，密钥不入库
+# - dbPath 建议用绝对路径；目录不存在会自动创建
+
+- id: lingshu-memory
+  name: '@furongjun1999/dsh-memory'
+  config:
+    # 工具命名空间：Agent 看到的工具名是 lingshu_remember / lingshu_recall ...
+    serverName: 'lingshu'
+
+    # 灵枢记忆库持久化路径（SQLite）
+    dbPath: 'D:/data/lingshu.db'
+
+    # 灵枢身份标识
+    identity: '灵枢'
+
+    # Python 与启动参数（默认即可，若 aeis 已 pip 安装）
+    python: 'python'
+    moduleArgs: ['-m', 'aeis.mcp.server']
+
+    # 暴露的工具集合：'core'（默认 12 个）| 'all'（38 个）| 自定义数组
+    tools: 'core'
+
+    # 自动记忆（对话沉淀进灵枢）
+    memory:
+      userMessage: true        # 用户消息 → remember
+      assistantMessage: false  # agent 回复（默认关，防噪音）
+      toolResult: false        # 工具结果（默认关）
+      importance: 0.6
+
+    # 密钥经环境变量注入（不进配置库）
+    env:
+      BOCHA_API_KEY: !!js process.env.BOCHA_API_KEY
+      # AEIS_DESIGNER_KEY: !!js process.env.AEIS_DESIGNER_KEY   # 设计者裁决工具所需
+
+    # 容错
+    toolCallTimeoutMs: 60000
+    maxRetryDelayMs: 30000
+    failOnStartupError: false
+
+# 多实例示例：第二个灵枢（不同记忆库/身份/命名空间）
+# - id: lingshu-memory-2
+#   name: '@furongjun1999/dsh-memory'
+#   config:
+#     serverName: 'lingshu2'
+#     dbPath: 'D:/data/lingshu2.db'
+#     identity: '灵枢二号'
+#     tools: ['remember', 'recall']
