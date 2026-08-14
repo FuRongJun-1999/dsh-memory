@@ -5,9 +5,9 @@
 [![npm](https://img.shields.io/npm/v/@furongjun1999/dsh-memory)](https://www.npmjs.com/package/@furongjun1999/dsh-memory)
 
 **Multi-agent spatiotemporal memory graph for DeepSeek Harness.**
-Cross-session persistence, knowledge flywheel, importance-gated memory — trust governed by an auditable charter.
+Multi-agent spatiotemporal memory graph with cross-session persistence, knowledge flywheel, importance-gated memory, and charter-governed trust.
 
-灵枢（Lingshu）的完整大脑接入 DeepSeek Harness：多智能体时空记忆图——跨会话持久化、知识飞轮、自我认知与重要性门控的长期记忆写入。
+灵枢（Lingshu）的完整大脑接入 DeepSeek Harness：多智能体时空记忆图：跨会话持久化、知识飞轮、重要性门控记忆与宪章治理的信任。
 
 ## Install
 
