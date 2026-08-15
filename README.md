@@ -1,36 +1,11 @@
 # @furongjun1999/dsh-memory
 
-[!npm[v](https://img.shields.io/npm/v/@furongjun1999/dsh-memory)] <a href="https://www.npmjs.com/package/@furongjun1999/dsh-memory"><img src="https://img.shields.io/npm/dt/@furongjun1999/dsh-memory" alt="npm downloads"></a>
-[![GitHub Releases](https://img.shields.io/github/v/release/FuRongJun-1999/dsh-memory)](https://github.com/FuRongJun-1999/dsh-memory/releases)
-
 **灵枢（AEIS）× DeepSeek Harness 插件**：把灵枢的时空记忆/知识飞轮/自我认知接入 DSH，
-让 Agent 拥有跨会话的长期记忆与认知能力。已收录于 **DSH 官方插件列表（Memory 分类）**。
+让 Agent 拥有跨会话的长期记忆与认知能力。
 
 > 灵枢（AEIS）是一个遵循「智能论 v3.2」协议的时空记忆引擎：五层记忆（锚点/结构/知识/情境/自我）、
 > 知识飞轮（验证→归纳→联想→蒸馏→推演）、自我认知循环（P0 系列）、外部知识摄取。
 > 本插件是它在 DeepSeek Harness 生态中的桥。
-
-## ⚡ 快速上手（30 秒）
-
-```bash
-# ① 装引擎（一条命令，零外部依赖）
-pip install "aeis @ git+https://github.com/FuRongJun-1999/CommonTrustProtocol@main#subdirectory=aeis"
-# 或离线最稳：pip install aeis-0.3.0-py3-none-any.whl（仓库 aeis/dist/ 下）
-
-# ② 装插件
-npm i @furongjun1999/dsh-memory
-
-# ③ 启用（cordis.yml）
-```
-
-```yaml
-- id: lingshu-memory
-  name: '@furongjun1999/dsh-memory'
-  config:
-    serverName: 'lingshu'
-    dbPath: 'data/lingshu.db'
-```
-
 
 ## 特性
 
@@ -91,28 +66,22 @@ pip install "aeis @ git+https://github.com/FuRongJun-1999/CommonTrustProtocol@ma
 
 ### 安装插件本体
 
-本插件为**独立 npm 包 / 独立仓库**（`@furongjun1999/dsh-memory`），已加入 DSH 官方插件列表（Memory 分类）。
+本插件为官方列表形态的**独立仓库**（`FuRongJun-1999/dsh-memory`），两种方式：
 
-**方式 A：npm 安装 ★ 最快（推荐）**
-
-```bash
-npm i @furongjun1999/dsh-memory
-```
-
-**方式 B：作为 profile bundle（DSH 官方入口）**
-
-在 DSH profile 目录：
+**方式 A：从 GitHub 克隆**
 
 ```bash
-dsh plugin --profile web add @furongjun1999/dsh-memory
-```
-
-**方式 C：从本仓库克隆（开发）**
-
-```bash
-git clone https://github.com/FuRongJun-1999/dsh-memory.git
-cd dsh-memory
+git clone https://github.com/FuRongJun-1999/CommonTrustProtocol.git
+cd CommonTrustProtocol/plugins/dsh-memory
 npm install && npm run build
+```
+
+**方式 B：作为 profile 依赖安装**
+
+在 DSH profile 目录执行：
+
+```bash
+dsh plugin --profile <name> add <本插件本地路径或 git 地址>
 ```
 
 ### 启用插件
@@ -219,6 +188,7 @@ DeepSeek Harness 为 DeepSeek 官方开源项目（MIT），本插件与之无�
 
 ## 护栏宪章（接入即接受约束）
 
-本插件接入即接受 **[灵枢护栏宪章 v2.0-published](../docs/guardrail-charter.md)** 约束——
+本插件接入即接受 **[灵枢护栏宪章 v2.0-published](docs/guardrail-charter.md)** 约束——
 对外部智能体与人类使用者的行为边界作出公开、可执行、可审计的规定，并保护人类使用者。
 宪章效力不高于智能论协议本身（协议＝自我约束，宪章＝对外约束）。
+本插件随包自带宪章全文（`docs/guardrail-charter.md`），安装即可查阅。
