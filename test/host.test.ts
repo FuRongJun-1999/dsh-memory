@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import { ToolRegistry } from '@deepseek-ai/dsh-tools'
+import { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 import * as plugin from '../src/index.js'
 
@@ -22,7 +22,7 @@ const AEIS_DIR = 'D:\\Program Files\\2_ai\\AEIS'
 async function mountHost(dbPath: string) {
   const root = new Context()
   const promptFiber = await root.plugin(SystemPrompt)
-  const toolsFiber = await root.plugin(ToolRegistry)
+  const toolsFiber = await root.plugin(ToolRuntime)
   const pluginFiber = await root.plugin(
     {
       name: plugin.name,
@@ -36,7 +36,7 @@ async function mountHost(dbPath: string) {
       identity: 'dsh-host-test',
       python: 'python',
       moduleArgs: ['-m', 'aeis.mcp.server'],
-      env: { PYTHONPATH: AEIS_DIR, PYTHONIOENCODING: 'utf-8' },
+      env: { PYTHONPATH: AEIS_DIR, PYTHONIOENCODING: 'utf-8', AEIS_SEED_DISABLED: '1' },
       cwd: AEIS_DIR,
       tools: 'core',
       memory: { userMessage: true, assistantMessage: false, toolResult: false, importance: 0.6 },

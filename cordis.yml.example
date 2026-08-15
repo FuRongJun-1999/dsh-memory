@@ -41,6 +41,12 @@
     maxRetryDelayMs: 30000
     failOnStartupError: false
 
+    # 互维维护（Mutual Sustain Loop v1.1）：心跳10min写戳 + 守护A + 任务验证双通道
+    # 需在双沙箱环境中启用（与 A 侧 guardian 对称）；单实例可关
+    mutual:
+      enabled: true
+      heartbeatMs: 600000        # 10min，任务不阻塞心跳
+
 # 多实例示例：第二个灵枢（不同记忆库/身份/命名空间）
 # - id: lingshu-memory-2
 #   name: '@furongjun1999/dsh-memory'

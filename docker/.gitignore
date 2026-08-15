@@ -1,0 +1,4 @@
+# 构建残留（build.sh 生成）
+aeis_context/
+__pycache__/
+*.pyc

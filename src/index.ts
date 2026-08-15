@@ -26,7 +26,7 @@ import { installMemoryHooks, type MemoryHooksOptions } from './hooks.js'
 export const name = 'dsh-memory'
 
 /** 本插件依赖的工具注册服务。 */
-export const inject = ['tools']
+export const inject = ['tools', 'timer']
 
 /** 插件配置。 */
 export interface Config {
@@ -54,6 +54,11 @@ export interface Config {
   maxRetryDelayMs: number
   /** 启动失败是否让插件激活失败（否则告警后继续重试）。 */
   failOnStartupError: boolean
+  /** 互维维护（Mutual Sustain Loop v1.1）：心跳写戳 + 守护 A + 任务验证。 */
+  mutual: {
+    enabled: boolean
+    heartbeatMs: number
+  }
 }
 
 export const Config: z<Config> = z.object({
@@ -77,6 +82,13 @@ export const Config: z<Config> = z.object({
   toolCallTimeoutMs: z.number().default(60_000),
   maxRetryDelayMs: z.number().default(30_000),
   failOnStartupError: z.boolean().default(false),
+  /** 互维维护（v1.1）：心跳 10min / 任务验证双通道。 */
+  mutual: z
+    .object({
+      enabled: z.boolean().default(false),
+      heartbeatMs: z.number().default(10 * 60 * 1000),
+    })
+    .default({ enabled: false, heartbeatMs: 10 * 60 * 1000 }),
 })
 
 /**
@@ -120,6 +132,39 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       )
     }
     installMemoryHooks(ctx, bridge, config.memory)
+
+    // 互维维护（v1.1）：心跳写戳 + 守护 A + 任务验证双通道
+    if (config.mutual.enabled) {
+      const { installMutualMaintenance } = await import('./mutual.js')
+      // 双通道 hooks：白箱 base_verify（走 bridge 调灵枢）+ DeepSeek 复核
+      installMutualMaintenance(
+        ctx as never,
+        { heartbeatMs: config.mutual.heartbeatMs },
+        {
+          verify: async (claim: string) => {
+            const r = await bridge.callTool('wisdom_verify', { knowledge: claim, limit: 4 })
+            const data = (r as { result?: { judgment?: string; best?: { name?: string }; D_norm?: number; record_id?: string } })?.result ?? {}
+            return {
+              judgment: data.judgment ?? '分析中',
+              best: data.best?.name ?? '',
+              d_norm: typeof data.D_norm === 'number' ? data.D_norm : -1,
+              record_id: data.record_id ?? '',
+            }
+          },
+          review: async (claim: string, w) => {
+            // DeepSeek 复核（在白箱判定之上，不重复白箱工作）
+            const reviewResult = await bridge.callTool('think', {
+              query: `复核以下主张（白箱判定已给出，请独立评估是否同意）：${claim.slice(0, 200)}。白箱判定：${w.judgment}，best=${w.best}。只输出 同意/质疑/不同意 + 一句话理由`,
+            })
+            const text = String(((reviewResult as { result?: unknown })?.result) ?? '')
+            const conclusion = text.includes('同意') ? '同意' :
+              text.includes('质疑') ? '质疑' : '不同意'
+            return { conclusion, reason: text.slice(0, 120) }
+          },
+        },
+      )
+      ctx.logger.info('dsh-memory: 互维维护已启用（心跳 10min + 守护 A + 任务验证双通道）')
+    }
   } catch (err) {
     bridge.dispose()
     throw err
