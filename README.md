@@ -13,12 +13,10 @@
 # ① 装灵枢大脑（一条命令，零外部依赖）
 pip install aeis-0.3.0-py3-none-any.whl          # 或 git+ 在线安装
 
-# ② 克隆并启用插件
-git clone https://github.com/FuRongJun-1999/dsh-memory.git
-cd dsh-memory
-npm install && npm run build
+# ② 装进 DSH 的 web profile（pnpm 协调入口，不要用裸 npm install 装进 profile）
+dsh plugin --profile web add @furongjun1999/dsh-memory
 
-# ③ 在 DSH profile 配置 cordis.yml 启用
+# ③ 配置 cordis.yml 启用
 ```
 ```yaml
 - id: lingshu-memory
@@ -29,7 +27,11 @@ npm install && npm run build
     tools: 'brain'      # 'brain' 全心智 | 'core' 精选
 ```
 
-> 从"看"到"用"，三条命令 + 一段配置。已兼容 DSH 官方列表（Memory 分类）与 npm `@furongjun1999/dsh-memory`。
+> ⚠️ **安装方式**：插件必须通过 **`dsh plugin --profile <name> add`** 装进 profile（它会用 pnpm + `autoInstallPeers: false` 正确解析 peer 依赖）。
+> **不要**用 `npm install` 把插件装进 profile 的 `node_modules`——那会引入错误版本的 `@deepseek-ai` peer 包，导致插件加载失败 / 浏览器报错。
+> 想自己改源码？克隆 `FuRongJun-1999/dsh-memory` 后用 `npm install && npm run build`（构建插件本身），再用 `dsh plugin add <本地路径>` 部署。
+>
+> 兼容：DSH 官方列表（Memory 分类）· npm `@furongjun1999/dsh-memory`（0.2.8）。
 
 ---
 
@@ -155,22 +157,22 @@ pip install "aeis @ git+https://github.com/FuRongJun-1999/CommonTrustProtocol@ma
 
 ### 安装插件本体
 
-本插件为官方列表形态的**独立仓库**（`FuRongJun-1999/dsh-memory`），两种方式：
-
-**方式 A：从 GitHub 克隆**
+**方式 A：装进 DSH profile（推荐，pnpm 协调正确入口）**
 
 ```bash
-git clone https://github.com/FuRongJun-1999/CommonTrustProtocol.git
-cd CommonTrustProtocol/plugins/dsh-memory
-npm install && npm run build
+dsh plugin --profile web add @furongjun1999/dsh-memory
 ```
 
-**方式 B：作为 profile 依赖安装**
+> `dsh plugin --profile <name> add` 会用 pnpm + `autoInstallPeers: false` 正确解析插件依赖。
+> **避免**用 `npm install` 把它装进 profile 的 `node_modules`（会导致 `@deepseek-ai` peer 版本污染，插件加载/浏览器报错）。
 
-在 DSH profile 目录执行：
+**方式 B：从独立仓库克隆（开发 / 自定义）**
 
 ```bash
-dsh plugin --profile <name> add <本插件本地路径或 git 地址>
+git clone https://github.com/FuRongJun-1999/dsh-memory.git
+cd dsh-memory
+npm install && npm run build     # 构建插件本身（tsc → lib/）
+# 然后：dsh plugin --profile <name> add <本地路径>  部署进 profile
 ```
 
 ### 启用插件
