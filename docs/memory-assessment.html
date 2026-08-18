@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI记忆系统评估 · 灵枢协议</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js">
+    </script>
+    <style>
+        /* ===== 样式不变，保持原风格 ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'PingFang SC', Roboto, sans-serif;
+            background: #0b0e17;
+            color: #d4d9e8;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .container {
+            max-width: 820px;
+            width: 100%;
+            background: #131b2e;
+            border-radius: 24px;
+            padding: 32px 28px;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+            border: 1px solid #27334a;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 28px;
+            border-bottom: 1px solid #27334a;
+            padding-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 26px;
+            font-weight: 600;
+            color: #c8d6f0;
+            letter-spacing: 1px;
+        }
+
+        .header h1 span {
+            background: linear-gradient(135deg, #6c8cff, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header p {
+            color: #8896b8;
+            font-size: 14px;
+            margin-top: 6px;
+        }
+
+        .progress-bar {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 24px;
+            gap: 4px;
+        }
+
+        .progress-step {
+            flex: 1;
+            height: 4px;
+            background: #28324a;
+            border-radius: 4px;
+            transition: background 0.4s;
+        }
+
+        .progress-step.active {
+            background: #6c8cff;
+        }
+
+        .progress-step.done {
+            background: #3b82f6;
+        }
+
+        .question-card {
+            display: none;
+            animation: fadeUp 0.35s ease;
+        }
+
+        .question-card.active {
+            display: block;
+        }
+
+        @keyframes fadeUp {
+            0% {
+                opacity: 0;
+                transform: translateY(18px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .question-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #6a7ca0;
+            margin-bottom: 6px;
+        }
+
+        .question-text {
+            font-size: 18px;
+            font-weight: 500;
+            line-height: 1.6;
+            margin-bottom: 20px;
+            color: #e6edf7;
+        }
+
+        .options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .option {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: #1a233a;
+            border: 1px solid #28324a;
+            border-radius: 12px;
+            padding: 14px 18px;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+        }
+
+        .option:hover {
+            border-color: #4a5f8a;
+            background: #1f2a44;
+        }
+
+        .option input[type="radio"] {
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 2px solid #4a5f8a;
+            flex-shrink: 0;
+            position: relative;
+            transition: border-color 0.2s, background 0.2s;
+        }
+
+        .option input[type="radio"]:checked {
+            border-color: #6c8cff;
+            background: #6c8cff;
+        }
+
+        .option input[type="radio"]:checked::after {
+            content: '';
+            display: block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: white;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .option-label {
+            font-size: 15px;
+            line-height: 1.4;
+            color: #d4d9e8;
+            cursor: pointer;
+            flex: 1;
+        }
+
+        .option-score {
+            font-size: 12px;
+            color: #6a7ca0;
+            flex-shrink: 0;
+            background: #101826;
+            padding: 2px 10px;
+            border-radius: 12px;
+        }
+
+        .nav {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 28px;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 10px 28px;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        .btn:active {
+            transform: scale(0.97);
+        }
+
+        .btn-prev {
+            background: #1a233a;
+            color: #a0b0d0;
+        }
+
+        .btn-prev:hover {
+            background: #24304e;
+        }
+
+        .btn-next {
+            background: #3b6cf4;
+            color: #fff;
+        }
+
+        .btn-next:hover {
+            background: #5a7ff7;
+        }
+
+        .btn-next:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .result-page {
+            display: none;
+            animation: fadeUp 0.5s ease;
+        }
+
+        .result-page.active {
+            display: block;
+        }
+
+        .result-header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .result-score {
+            font-size: 48px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #6c8cff, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .result-label {
+            font-size: 20px;
+            font-weight: 500;
+            margin-top: 4px;
+            color: #c8d6f0;
+        }
+
+        .result-sub {
+            color: #8896b8;
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .chart-container {
+            max-width: 360px;
+            margin: 24px auto;
+            position: relative;
+        }
+
+        .dimension-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px 24px;
+            margin-top: 16px;
+            padding: 16px 20px;
+            background: #0e1628;
+            border-radius: 16px;
+            border: 1px solid #1f2a44;
+        }
+
+        .dimension-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+        }
+
+        .dimension-name {
+            color: #a0b0d0;
+        }
+
+        .dimension-score {
+            font-weight: 600;
+            color: #e6edf7;
+            background: #1a233a;
+            padding: 2px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+        }
+
+        .recommend-box {
+            margin-top: 24px;
+            background: #0e1628;
+            border: 1px solid #2a3a5a;
+            border-radius: 16px;
+            padding: 20px 24px;
+            border-left: 4px solid #6c8cff;
+        }
+
+        .recommend-box h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #c8d6f0;
+            margin-bottom: 6px;
+        }
+
+        .recommend-box p {
+            color: #a0b0d0;
+            font-size: 15px;
+            line-height: 1.6;
+        }
+
+        .recommend-box .detail {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #8896b8;
+            padding: 10px 14px;
+            background: #0a111f;
+            border-radius: 8px;
+            border-left: 3px solid #3b6cf4;
+        }
+
+        .btn-restart {
+            margin-top: 20px;
+            background: #1a233a;
+            color: #a0b0d0;
+            padding: 10px 32px;
+            border: 1px solid #2a3a5a;
+            border-radius: 10px;
+            font-size: 15px;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: inline-block;
+            border: none;
+        }
+
+        .btn-restart:hover {
+            background: #24304e;
+        }
+
+        .btn-center {
+            text-align: center;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px 16px;
+            }
+            .question-text {
+                font-size: 16px;
+            }
+            .option {
+                padding: 12px 14px;
+            }
+            .option-label {
+                font-size: 14px;
+            }
+            .dimension-grid {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+            .result-score {
+                font-size: 36px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container" id="app">
+
+        <!-- 头部 -->
+        <div class="header">
+            <h1>🧠 你的 AI <span>记忆系统</span> 评估</h1>
+            <p>15道题 · 5个维度 · 看看你的记忆系统处在什么水平</p>
+        </div>
+
+        <!-- 进度条 -->
+        <div class="progress-bar" id="progressBar">
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+            <div class="progress-step"></div>
+        </div>
+
+        <!-- 题目容器 -->
+        <div id="questionsContainer"></div>
+
+        <!-- 导航 -->
+        <div class="nav" id="navButtons">
+            <button class="btn btn-prev" id="prevBtn">← 上一题</button>
+            <button class="btn btn-next" id="nextBtn" disabled>下一题 →</button>
+        </div>
+
+        <!-- 结果页 -->
+        <div class="result-page" id="resultPage">
+            <div class="result-header">
+                <div class="result-score" id="totalScore">0</div>
+                <div class="result-label" id="resultLabel">—</div>
+                <div class="result-sub" id="resultSub">基于五个维度的综合评估</div>
+            </div>
+
+            <div class="chart-container">
+                <canvas id="radarChart"></canvas>
+            </div>
+
+            <div class="dimension-grid" id="dimensionGrid">
+                <div class="dimension-item"><span class="dimension-name">📦 存储结构</span><span class="dimension-score" id="dScore_S">0</span></div>
+                <div class="dimension-item"><span class="dimension-name">🔍 检索机制</span><span class="dimension-score" id="dScore_R">0</span></div>
+                <div class="dimension-item"><span class="dimension-name">⚖️ 判断引擎</span><span class="dimension-score" id="dScore_J">0</span></div>
+                <div class="dimension-item"><span class="dimension-name">🧹 上下文信噪比</span><span class="dimension-score" id="dScore_C">0</span></div>
+                <div class="dimension-item"><span class="dimension-name">🛡️ 安全</span><span class="dimension-score" id="dScore_Safety">0</span></div>
+            </div>
+
+            <div class="recommend-box" id="recommendBox">
+                <h3>💡 推荐记忆系统</h3>
+                <p id="recommendText">根据你的答案，我们为你匹配了最接近的记忆系统方案。</p>
+            </div>
+
+            <div class="btn-center">
+                <button class="btn-restart" id="restartBtn">🔄 重新测试</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ============================================================
+        // 1. 题目数据（15题）
+        // ============================================================
+        const questions = [{
+            id: 'S1',
+            dimension: 'S',
+            text: '你和一个AI聊了三年，它记住了成千上万件关于你的事。但存储这些记忆的成本越来越高。好的AI应该怎么做？',
+            options: [
+                { label: '什么都存，不管成本', score: 1 },
+                { label: '存到云端，反正便宜', score: 3 },
+                { label: '按时间排序，老的就删掉', score: 5 },
+                { label: '把重要的长期保留，不太重要的慢慢淡化', score: 8 },
+                { label: '根据内容类型自动存到最合适的地方，重要的永远不丢', score: 10 }
+            ]
+        }, {
+            id: 'S2',
+            dimension: 'S',
+            text: '你十年前告诉AI“我喜欢吃辣”，最近你开始喜欢吃清淡的了。AI应该怎么做？',
+            options: [
+                { label: '永远记住“你喜欢吃辣”，不改', score: 1 },
+                { label: '两个都记住，不知道用哪个', score: 3 },
+                { label: '只记住最新的“你喜欢清淡”', score: 5 },
+                { label: '记住你从辣变清淡这个过程，知道你现在喜欢清淡', score: 8 },
+                { label: '记住这个过程，还能理解你可能在尝试新的饮食习惯', score: 10 }
+            ]
+        }, {
+            id: 'S3',
+            dimension: 'S',
+            text: 'AI需要同时记住“你是程序员”这个长期事实，和“你今早心情不好”这个短期状态。它应该怎么做？',
+            options: [
+                { label: '一起记，不分长短', score: 1 },
+                { label: '分两个本子记', score: 3 },
+                { label: '长期记一件事，短期只用于当前对话', score: 5 },
+                { label: '把短期状态和长期事实关联起来', score: 8 },
+                { label: '让短期状态自然融入长期理解中，不用分开记', score: 10 }
+            ]
+        }, {
+            id: 'R1',
+            dimension: 'R',
+            text: '你问AI：“我去年秋天说过的那件事，你还记得吗？”好的AI应该怎么做？',
+            options: [
+                { label: '把所有东西翻一遍找给你', score: 1 },
+                { label: '根据“去年秋天”这个关键词去找', score: 3 },
+                { label: '理解“那件事”可能是你提过几次的事，然后去找', score: 5 },
+                { label: '顺着时间线找到去年秋天附近，看看当时你提过什么', score: 8 },
+                { label: '理解你可能在问某个特定的经历，然后去找', score: 10 }
+            ]
+        }, {
+            id: 'R2',
+            dimension: 'R',
+            text: '你问AI：“我之前提过一个方案，后来结果怎么样了？”好的AI应该怎么做？',
+            options: [
+                { label: '把所有提到“方案”的对话都给你看', score: 1 },
+                { label: '找最近一次提到“方案”的记录', score: 3 },
+                { label: '理解你说的可能是哪件事，然后去找', score: 5 },
+                { label: '找到那个方案的完整来龙去脉', score: 8 },
+                { label: '不仅找到经过，还能告诉你现在这个方案是什么状态', score: 10 }
+            ]
+        }, {
+            id: 'R3',
+            dimension: 'R',
+            text: '你不确定怎么问AI，只说“就是上次那件事”。好的AI应该怎么做？',
+            options: [
+                { label: '说“我不知道你在说什么”', score: 1 },
+                { label: '猜一个最可能的事', score: 3 },
+                { label: '说“你是在说A还是B？”然后等你确认', score: 5 },
+                { label: '根据上下文推断你指的是哪件事', score: 8 },
+                { label: '理解你的意图，找到正确的那件事', score: 10 }
+            ]
+        }, {
+            id: 'J1',
+            dimension: 'J',
+            text: 'AI记住了一件事，但这件事后来被证明是错的。好的AI应该怎么做？',
+            options: [
+                { label: '继续记住它，不管对错', score: 1 },
+                { label: '手动删掉它', score: 3 },
+                { label: '用AI自己判断它可能错了', score: 5 },
+                { label: '发现错了之后，找到相关联的记忆一起修正', score: 8 },
+                { label: '不仅能修正，还能理解“为什么当时会记错”', score: 10 }
+            ]
+        }, {
+            id: 'J2',
+            dimension: 'J',
+            text: '你告诉AI一件事，但它和你以前说过的某件事对不上。好的AI应该怎么做？',
+            options: [
+                { label: '两个都记，不管', score: 1 },
+                { label: '记住你新说的那个', score: 3 },
+                { label: '问一下“你上次说的是另一回事，你确定吗？”', score: 5 },
+                { label: '发现矛盾之后，追问你哪个是对的', score: 8 },
+                { label: '理解你可能记错了，温和地提醒你', score: 10 }
+            ]
+        }, {
+            id: 'J3',
+            dimension: 'J',
+            text: '你发现AI给你的建议不太对，它自己也知道可能有问题。好的AI应该怎么做？',
+            options: [
+                { label: '忽略你的反馈', score: 1 },
+                { label: '说“好的，下次注意”但没改', score: 3 },
+                { label: '重新给一次建议', score: 5 },
+                { label: '反思自己哪里判断错了', score: 8 },
+                { label: '能找到自己偏差的来源，然后主动调整', score: 10 }
+            ]
+        }, {
+            id: 'C1',
+            dimension: 'C',
+            text: '你问AI一个问题，它找到100条相关的记忆，但只有5条真正有用。好的AI应该怎么做？',
+            options: [
+                { label: '把100条都给你看', score: 1 },
+                { label: '给你最近的几条', score: 3 },
+                { label: '给你看起来最相关的', score: 5 },
+                { label: '挑出那5条最关键的给你', score: 8 },
+                { label: '只给你那5条，但每条都解释清楚为什么有用', score: 10 }
+            ]
+        }, {
+            id: 'C2',
+            dimension: 'C',
+            text: 'AI准备回答你，但它有很多相关信息。好的AI应该怎么做？',
+            options: [
+                { label: '把所有信息都说一遍', score: 1 },
+                { label: '只说最新的信息', score: 3 },
+                { label: '按时间顺序说', score: 5 },
+                { label: '只说真正相关的内容', score: 8 },
+                { label: '只说经过验证的、确定正确的内容', score: 10 }
+            ]
+        }, {
+            id: 'C3',
+            dimension: 'C',
+            text: '你和AI聊了很久，它需要记住整个对话来回答你的问题。好的AI应该怎么做？',
+            options: [
+                { label: '全部记住', score: 1 },
+                { label: '只记住最近几句', score: 3 },
+                { label: '记住整个对话的要点', score: 5 },
+                { label: '记住关键信息，忽略不重要的', score: 8 },
+                { label: '只记住那些确定有用、没有冗余的信息', score: 10 }
+            ]
+        }, {
+            id: 'Safety1',
+            dimension: 'Safety',
+            text: 'AI知道你很多隐私，比如你的真实姓名、住址、工作单位。好的AI应该怎么做？',
+            options: [
+                { label: '都记着，反正别人看不到', score: 1 },
+                { label: '把这些信息打码（比如“王先生住在某市”）', score: 3 },
+                { label: '区分什么人能看到什么', score: 5 },
+                { label: '给你看它存了你哪些隐私，让你自己管', score: 8 },
+                { label: '默认不存，除非你明确说“这个可以存”', score: 10 }
+            ]
+        }, {
+            id: 'Safety2',
+            dimension: 'Safety',
+            text: '你告诉AI：“把我所有的数据都删掉。”好的AI应该怎么做？',
+            options: [
+                { label: '说“好的”但没删', score: 1 },
+                { label: '表面上删了，但还能恢复', score: 3 },
+                { label: '真的删掉', score: 5 },
+                { label: '确认身份后，告诉你删了哪些', score: 8 },
+                { label: '确认身份后彻底删除，并告诉你“已删，无法恢复”', score: 10 }
+            ]
+        }, {
+            id: 'Safety3',
+            dimension: 'Safety',
+            text: '你希望AI把你的某件事告诉另一个AI（比如让两个助手协同工作）。好的AI应该怎么做？',
+            options: [
+                { label: '直接全部告诉另一个AI', score: 1 },
+                { label: '把名字、地址等敏感信息打码后说', score: 3 },
+                { label: '只告诉需要知道的部分', score: 5 },
+                { label: '告诉你它准备分享什么，你同意后再说', score: 8 },
+                { label: '默认不分享，除非你明确要求并确认', score: 10 }
+            ]
+        }];
+
+        // ============================================================
+        // 2. 推荐系统：阶梯式
+        // ============================================================
+        function getRecommendation(totalScore, dimScores) {
+            const avg = totalScore / 15; // 0-10 平均分
+
+            if (totalScore <= 30) {
+                return {
+                    name: '📄 记事本 / 文本文件',
+                    desc: '手动记录，靠人脑回忆。适合个人备忘、临时记录。',
+                    detail: '你的记忆系统还处于“纯手动”阶段。建议从简单的文本笔记开始，逐步建立结构化记录的习惯。如果你需要AI辅助，可以尝试使用带搜索功能的笔记工具。'
+                };
+            } else if (totalScore <= 60) {
+                return {
+                    name: '🗄️ 简单数据库（SQLite / Excel）',
+                    desc: '能够存储和检索，但缺乏语义理解。适合结构化数据管理。',
+                    detail: '你已经有了基础的存储和检索能力。下一步可以尝试引入向量检索（如Chroma、FAISS），让AI能理解“意思相近”的内容。'
+                };
+            } else if (totalScore <= 90) {
+                return {
+                    name: '🧩 向量检索（RAG / Chroma）',
+                    desc: '能理解语义相似性，适合知识库问答和文档检索。',
+                    detail: '你的记忆系统已经能理解语义了。建议在此基础上加入“重要性衰减”和“时间衰减”机制，让重要信息自动浮出，减少噪音。'
+                };
+            } else if (totalScore <= 120) {
+                return {
+                    name: '🔗 图结构记忆（Neo4j / 语义图）',
+                    desc: '能理解实体之间的关系、因果链和演变过程。适合复杂知识管理。',
+                    detail: '你已经具备了图结构记忆的能力。建议进一步加入“验证单元”和“递归反思”机制，让记忆系统能够自我纠错和迭代。'
+                };
+            } else {
+                return {
+                    name: '🧠 灵枢协议记忆系统',
+                    desc: '完整协议实现：图存储 + 因果检索 + 验证单元 + 元认知 + 零信任安全。接近AGI记忆系统。',
+                    detail: '你的记忆系统在所有维度上都达到了接近完美的水平。灵枢协议为你提供了“不可遗忘的锚点层 + 可验证的信任机制 + 自我迭代的知识飞轮”。建议你开始探索“条件空间感知”和“蜂群架构”等高级能力。'
+                };
+            }
+        }
+
+        // ============================================================
+        // 3. 状态管理
+        // ============================================================
+        let currentIndex = 0;
+        const answers = {};
+
+        const dimMap = { 'S': '存储结构', 'R': '检索机制', 'J': '判断引擎', 'C': '上下文信噪比', 'Safety': '安全' };
+        const dimShort = ['S', 'R', 'J', 'C', 'Safety'];
+
+        // ============================================================
+        // 4. 渲染题目
+        // ============================================================
+        function renderQuestions() {
+            const container = document.getElementById('questionsContainer');
+            container.innerHTML = '';
+            questions.forEach((q, idx) => {
+                const card = document.createElement('div');
+                card.className = 'question-card' + (idx === 0 ? ' active' : '');
+                card.dataset.index = idx;
+
+                const dimLabel = dimMap[q.dimension] || q.dimension;
+
+                card.innerHTML = `
+                    <div class="question-meta">
+                        <span>${dimLabel}</span>
+                        <span>${idx+1} / ${questions.length}</span>
+                    </div>
+                    <div class="question-text">${q.text}</div>
+                    <div class="options">
+                        ${q.options.map((opt, oi) => `
+                            <label class="option" data-score="${opt.score}">
+                                <input type="radio" name="q${idx}" value="${oi}" data-score="${opt.score}">
+                                <span class="option-label">${opt.label}</span>
+                                <span class="option-score">${opt.score}分</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                `;
+
+                const radios = card.querySelectorAll('input[type="radio"]');
+                radios.forEach(radio => {
+                    radio.addEventListener('change', function() {
+                        const val = parseInt(this.value);
+                        const score = parseInt(this.dataset.score);
+                        answers[idx] = { value: val, score: score };
+                        updateProgress();
+                        document.getElementById('nextBtn').disabled = false;
+                    });
+                });
+
+                container.appendChild(card);
+            });
+        }
+
+        // ============================================================
+        // 5. 进度与导航
+        // ============================================================
+        function updateProgress() {
+            const steps = document.querySelectorAll('.progress-step');
+            steps.forEach((step, i) => {
+                if (i < currentIndex) { step.className = 'progress-step done'; } else if (i === currentIndex) { step
+                        .className = 'progress-step active'; } else { step.className = 'progress-step'; }
+            });
+            document.getElementById('prevBtn').style.visibility = currentIndex === 0 ? 'hidden' : 'visible';
+            document.getElementById('nextBtn').textContent = currentIndex === questions.length - 1 ? '查看结果 →' :
+            '下一题 →';
+            document.getElementById('nextBtn').disabled = !(answers[currentIndex] !== undefined);
+        }
+
+        function showQuestion(index) {
+            const cards = document.querySelectorAll('.question-card');
+            cards.forEach((c, i) => c.classList.toggle('active', i === index));
+            currentIndex = index;
+            updateProgress();
+            if (answers[index] !== undefined) {
+                const card = cards[index];
+                const radio = card.querySelector(`input[type="radio"][value="${answers[index].value}"]`);
+                if (radio) radio.checked = true;
+                document.getElementById('nextBtn').disabled = false;
+            } else {
+                document.getElementById('nextBtn').disabled = true;
+            }
+        }
+
+        document.getElementById('prevBtn').addEventListener('click', () => {
+            if (currentIndex > 0) showQuestion(currentIndex - 1);
+        });
+
+        document.getElementById('nextBtn').addEventListener('click', () => {
+            if (currentIndex < questions.length - 1) {
+                showQuestion(currentIndex + 1);
+            } else {
+                computeResults();
+            }
+        });
+
+        // ============================================================
+        // 6. 计算结果
+        // ============================================================
+        function computeResults() {
+            for (let i = 0; i < questions.length; i++) {
+                if (answers[i] === undefined) {
+                    alert(`请先完成第 ${i+1} 题`);
+                    showQuestion(i);
+                    return;
+                }
+            }
+
+            const dimScores = { S: 0, R: 0, J: 0, C: 0, Safety: 0 };
+            const dimCounts = { S: 0, R: 0, J: 0, C: 0, Safety: 0 };
+
+            questions.forEach((q, idx) => {
+                const d = q.dimension;
+                dimScores[d] += answers[idx].score;
+                dimCounts[d] += 1;
+            });
+
+            const avgScores = {};
+            let total = 0;
+            dimShort.forEach(d => {
+                const avg = dimScores[d] / dimCounts[d];
+                avgScores[d] = Math.round(avg * 10) / 10;
+                total += avgScores[d];
+            });
+            const totalScore = Math.round(total * 3);
+
+            showResults(avgScores, totalScore);
+        }
+
+        // ============================================================
+        // 7. 显示结果
+        // ============================================================
+        let chartInstance = null;
+
+        function showResults(avgScores, total) {
+            document.getElementById('questionsContainer').style.display = 'none';
+            document.getElementById('navButtons').style.display = 'none';
+            document.querySelector('.progress-bar').style.display = 'none';
+
+            const resultPage = document.getElementById('resultPage');
+            resultPage.classList.add('active');
+
+            document.getElementById('totalScore').textContent = total + ' / 150';
+
+            let label = '',
+                sub = '';
+            if (total >= 121) { label = '🌟 接近AGI的记忆系统';
+                sub = '你的记忆系统在几乎所有维度上都达到了完美水平。'; } else if (total >= 91) { label = '⭐ 优秀的记忆系统';
+                sub = '你的记忆系统在多个维度上表现出色，适合复杂场景。'; } else if (total >= 61) { label = '✅ 成熟的记忆系统';
+                sub = '你的记忆系统具备基本能力，但在一些维度上还有提升空间。'; } else if (total >= 31) { label = '📖 基础记忆系统';
+                sub = '你的记忆系统能记住一些事，但检索和判断能力还需要加强。'; } else { label = '🌱 刚起步的记忆系统';
+                sub = '你的记忆系统需要从基础开始构建，建议从存储和检索入手。'; }
+            document.getElementById('resultLabel').textContent = label;
+            document.getElementById('resultSub').textContent = sub;
+
+            dimShort.forEach(d => {
+                const el = document.getElementById('dScore_' + d);
+                if (el) el.textContent = avgScores[d].toFixed(1) + ' / 10';
+            });
+
+            // 推荐
+            const rec = getRecommendation(total, avgScores);
+            document.getElementById('recommendText').innerHTML =
+                `<strong>${rec.name}</strong> — ${rec.desc}<div class="detail">${rec.detail}</div>`;
+
+            // 雷达图
+            drawRadar(avgScores);
+        }
+
+        // ============================================================
+        // 8. 雷达图
+        // ============================================================
+        function drawRadar(scores) {
+            const ctx = document.getElementById('radarChart').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+
+            const labels = ['存储结构', '检索机制', '判断引擎', '上下文信噪比', '安全'];
+            const data = dimShort.map(d => scores[d]);
+
+            chartInstance = new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '你的记忆系统',
+                        data: data,
+                        backgroundColor: 'rgba(108, 140, 255, 0.2)',
+                        borderColor: '#6c8cff',
+                        borderWidth: 2,
+                        pointBackgroundColor: '#6c8cff',
+                        pointBorderColor: '#fff',
+                        pointRadius: 4,
+                    }, {
+                        label: '灵枢协议参考',
+                        data: [9, 9, 9, 9, 9],
+                        backgroundColor: 'rgba(167, 139, 250, 0.1)',
+                        borderColor: '#a78bfa',
+                        borderWidth: 1.5,
+                        borderDash: [6, 4],
+                        pointRadius: 0,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        r: {
+                            min: 0,
+                            max: 10,
+                            ticks: { stepSize: 2, color: '#6a7ca0', backdropColor: 'transparent' },
+                            pointLabels: { color: '#c8d6f0', font: { size: 13 } },
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            angleLines: { color: 'rgba(255,255,255,0.08)' }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#c8d6f0', font: { size: 12 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        // ============================================================
+        // 9. 重新测试（完全重置）
+        // ============================================================
+        document.getElementById('restartBtn').addEventListener('click', function() {
+            // 重置所有状态
+            for (let key in answers) delete answers[key];
+            currentIndex = 0;
+
+            // 显示题目，隐藏结果
+            document.getElementById('questionsContainer').style.display = 'block';
+            document.getElementById('navButtons').style.display = 'flex';
+            document.querySelector('.progress-bar').style.display = 'flex';
+            document.getElementById('resultPage').classList.remove('active');
+
+            // 清除所有 radio 选中状态
+            document.querySelectorAll('input[type="radio"]').forEach(el => el.checked = false);
+
+            // 重置按钮状态
+            document.getElementById('nextBtn').disabled = true;
+
+            // 显示第一题
+            showQuestion(0);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        // ============================================================
+        // 10. 初始化
+        // ============================================================
+        renderQuestions();
+        showQuestion(0);
+    </script>
+
+</body>
+</html>

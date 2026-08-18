@@ -142,6 +142,13 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 - 对话摄入 CONTEXT 情境层（记忆衰减/主动遗忘原料就位）
 - 迁移可复现：`migrate_wisdom.py`（幂等 + 备份 + 报告）
 
+### 🎮 一分钟自测你的 AI 记忆系统
+
+**给普通人的互动评估页**：15 道选择题测你的 AI 助手记忆能力（存储/检索/判断/信噪比/安全），
+最后雷达图对比灵枢——打开试试：[memory-assessment.html](docs/memory-assessment.html)
+
+（B 站宣传素材：[封面](docs/promo/bilibili-cover.jpg) · [视觉图 ×5](docs/promo/)）
+
 ## 大脑模式（v0.2.0 · 轻量版）
 
 **去掉身体的完整大脑**——默认工具集 `brain`（心智全量，不含身体/视觉设备）：
