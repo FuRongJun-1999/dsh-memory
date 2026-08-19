@@ -44,6 +44,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 | 黑箱不可审计，无法验证行为边界 | **可验证性**（可信） | **可审计信任**：对抗护栏五规则 + 宪章 + 全量事件留痕 + 白箱智能 |
 | 只处理当下 token，没有稳定世界结构 | **世界模型**（理解） | **条件空间 + 语义时空图**：信息差 D_norm 驱动的预测与决策 |
 | 无自我表征，不能反思自己的认知/情绪 | **自我认知**（元认知） | **P0 系列**：cognition / self_reliability / emotional_bias / 递归反思 |
+| 角色扮演总 OOC / 记不住设定 / 世界观矛盾 | **扮演一致性**（角色） | **角色扮演引擎（v3.3）**：自我锚点（SELF 不可遗忘）· 特化价值观（条件触发）· 跨会话记忆 · 世界认知（子知识）· 自定义翻译（名词替换表） |
 
 > **一句话定位**：dsh-memory 不是 DeepSeek 插件，是 **AGI 的长期记忆基底**——
 > 给 Agent 注入跨会话的自洽能力，让每次对话都是同一段生命的延续，而非一次次遗忘的重新开始。
@@ -85,8 +86,34 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 - **自演化知识飞轮**：`distill / flywheel / learn / induce` 把经验验证→归纳→联想→蒸馏为可复用模式，记忆越用越强。
 - **可审计的信任**：护栏宪章 v2 ——对外部与人类使用者的行为边界成文、可执行、可审计、可终裁（[宪章全文](docs/guardrail-charter.md) 随包自带）。
 - **自我认知**（大脑模式 brain）：`cognition / cognition_report / self_reliability / emotional_bias / recursive_reflect` ——能反思自己的认知状态与情绪倾向。
+- **角色扮演**（v3.3 扮演论）：自我锚点（SELF 层 no_forget 不可遗忘）· 特化价值观（条件触发）· 跨会话角色记忆 · 世界认知（子知识·虚拟化世界观）· 自定义翻译（现实↔虚拟名词表）——角色人设长对话不崩（100 轮测试零漂移）。
 - **零运行时依赖**：手写 stdio MCP 桥，与灵枢 D-005「核心零外部依赖」哲学一致——你拿到的是一个干净、可信、可审的大脑。
 - **动态 schema + 进程自愈**：工具清单运行时拉取（灵枢升级 DSH 零改动），Python 子进程崩溃自动指数退避重启。
+
+## 🎭 角色扮演引擎（v3.3 · 扮演论）
+
+灵枢的角色扮演机制底座——**机制是灵枢的，载体是酒馆的**。自建两种交互方式（网页 / MCP），信息处理全部由灵枢完成。
+
+**核心能力：**
+- **自我锚点**：角色人设核心（身份/性格/底线），SELF 层不可遗忘——OOC 测试 100 轮零漂移
+- **特化价值观**：带触发条件的角色行为准则（条件空间即触发时机）
+- **历史记忆**：跨会话持久（角色记得你聊过什么）+ 世界书导入（Lorebook 兼容）
+- **世界认知（子知识）**：虚拟化世界观模型——虚构世界 = 宿主机（真实知识）上的虚拟机，白箱判定 = Hypervisor（识别/完整性/边界）
+- **自定义翻译（名词替换表）**：现实词 ↔ 虚拟词映射（星星→发光水母 / 城市→珊瑚城），条件空间对齐
+- **编辑/交互双模式**：交互只读；编辑需 `ROLEPLAY_EDIT_KEY`；角色人设 ≠ 灵枢自身锚点（后者需设计者验证）
+
+**接入方式：**
+```bash
+# 网页服务（浏览器对话 + 人设编辑器）
+python -m aeis.roleplay_web --port 8793 --data-dir roleplay_data
+
+# MCP 工具（roleplay_chat / role_create / role_import / role_block）
+python -m aeis.mcp.server
+```
+
+**质量验证：** `python tools/rp_quality_gate.py --role <id>`（OOC + 世界观一致性自检）· `python tools/run_whale_100.py`（100 轮长对话压力测试）
+
+**详细文档：** 主仓库 [README](https://github.com/FuRongJun-1999/CommonTrustProtocol) 角色扮演引擎板块 · [扮演论接入方案](https://github.com/FuRongJun-1999/CommonTrustProtocol/blob/main/docs/扮演论接入酒馆-协议扩散方案.md) · [虚拟化世界观](https://github.com/FuRongJun-1999/CommonTrustProtocol/blob/main/docs/虚拟化世界观-子知识与白箱判定.md)
 
 ## 📊 记忆系统使用性评分（五维标尺）
 
