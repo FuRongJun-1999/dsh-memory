@@ -86,9 +86,12 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 - **自演化知识飞轮**：`distill / flywheel / learn / induce` 把经验验证→归纳→联想→蒸馏为可复用模式，记忆越用越强。
 - **可审计的信任**：护栏宪章 v2 ——对外部与人类使用者的行为边界成文、可执行、可审计、可终裁（[宪章全文](docs/guardrail-charter.md) 随包自带）。
 - **自我认知**（大脑模式 brain）：`cognition / cognition_report / self_reliability / emotional_bias / recursive_reflect` ——能反思自己的认知状态与情绪倾向。
-- **角色扮演**（v3.3 扮演论）：自我锚点（SELF 层 no_forget 不可遗忘）· 特化价值观（条件触发）· 跨会话角色记忆 · 世界认知（子知识·虚拟化世界观）· 自定义翻译（现实↔虚拟名词表）——角色人设长对话不崩（100 轮测试零漂移）。
+- **角色扮演**（v3.3 扮演论）：自我锚点（SELF 层 no_forget 不可遗忘）· 特化价值观（条件触发）· 跨会话角色记忆 · 世界认知（子知识·虚拟化世界观）· 自定义翻译（现实↔虚拟名词表）· **同源角色扮演网页（/roleplay）**——角色人设长对话不崩（100 轮测试零漂移）。
 - **零运行时依赖**：手写 stdio MCP 桥，与灵枢 D-005「核心零外部依赖」哲学一致——你拿到的是一个干净、可信、可审的大脑。
 - **动态 schema + 进程自愈**：工具清单运行时拉取（灵枢升级 DSH 零改动），Python 子进程崩溃自动指数退避重启。
+- **工具注册竞态补注册**：启动时 python 未就绪（竞态）→ 桥重连成功后自动补注册工具（2s 轮询），不再"工具永久缺失"。
+- **白箱 wisdom_* 全工具**（`tools: all`）：71 个 MCP 工具含 wisdom_verify/analyze/predict/trust_judge/compose/respond/chat 白箱族，Agent 可直接调用。
+- **内容分级门控**：成人向角色扮演需**满 18 岁确认 + 个人对话场景**；**拒绝一切涉及未成年人的性内容**（服务端硬拦截，`route=refused`，附法律与协议说明）。
 
 ## 🎭 角色扮演引擎（v3.3 · 扮演论）
 
@@ -104,12 +107,24 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 
 **接入方式：**
 ```bash
-# 网页服务（浏览器对话 + 人设编辑器）
+# A. DSH 同源网页（推荐，v0.2.8+）：插件挂载 /roleplay 到 DSH webServer
+#    （与 GUI 同源 127.0.0.1:3080，浏览器/内置 WebView 必达；GUI 首页右上角有「🎭 角色扮演」入口）
+#    功能：角色选择/创建 · 完整对话转录（JSONL，无限上下文）· 双向翻译面板 ·
+#          角色详情三导入 UI（记忆/锚点/价值观）· 内容分级门控（满18确认/拒未成年人性内容）
+
+# B. 独立网页服务（浏览器对话 + 人设编辑器）
 python -m aeis.roleplay_web --port 8793 --data-dir roleplay_data
 
-# MCP 工具（roleplay_chat / role_create / role_import / role_block）
+# C. MCP 工具（roleplay_chat / role_create / role_import / role_block）
 python -m aeis.mcp.server
 ```
+
+**DSH 同源网页（/roleplay）能力：**
+- **完整转录**：引擎记忆只存 80 字摘要，网页层按角色持久化完整对话（`roleplay_data/transcripts/<role>.jsonl`）+ 历史加载——无限上下文
+- **三导入 UI**：角色详情面板（⚙ 详情）编辑 name/scenario/开场白 + **记忆/锚点/价值观**页签（条目=内容+重要性+标签），保存即生效（引擎每次重读 meta）
+- **双向翻译**：输入现实→扮演（引擎自动）+ 输出扮演→现实（网页层可逆替换，长词优先）；词对/模式持久化
+- **内容分级门控**：首次进入弹「成人内容确认」（满 18 周岁 + 个人对话场景）；**未成年人 + 性内容请求 → 服务端硬拦截**（`route=refused`，法律与协议保护）
+- **移动端适配**：输入框聚焦自动居中（不依赖 WebView 键盘行为）、safe-area、键盘不遮挡
 
 **质量验证：** `python tools/rp_quality_gate.py --role <id>`（OOC + 世界观一致性自检）· `python tools/run_whale_100.py`（100 轮长对话压力测试）
 
@@ -291,7 +306,7 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 | `moduleArgs` | string[] | `['-m', 'aeis.mcp.server']` | 灵枢 server 启动参数 |
 | `dbPath` | string | `data/lingshu.db` | 记忆库 SQLite 路径（自动建目录） |
 | `identity` | string | `灵枢` | 灵枢身份标识 |
-| `env` | object | `{}` | 追加环境变量（`BOCHA_API_KEY` / `AEIS_DESIGNER_KEY`…） |
+| `env` | object | `{}` | 追加环境变量（`BOCHA_API_KEY` / `AEIS_DESIGNER_KEY` / `DEEPSEEK_API_KEY`（角色扮演 LLM 续答）…，可用 `!!js process.env.X` 从宿主环境注入） |
 | `tools` | `'brain' \| 'core' \| 'all' \| string[]` | `'brain'` | 暴露的工具集合 |
 | `memory.userMessage` | boolean | `true` | 用户消息 → 自动 remember |
 | `memory.assistantMessage` | boolean | `false` | agent 回复 → 自动 remember |
@@ -308,6 +323,17 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 - `user/message`（仅 `source.kind === 'user'` 的真实用户消息）→ `remember`（importance 0.6，tags `dsh`）
 - 插件注入的系统上下文（AGENTS.md、文件变更通知等 `kind: 'plugin'`）**不写入**，防止记忆噪音
 - 灵枢自带去重（相似度基准 + 时间窗口），重复消息不会堆积
+
+## 🛟 DSH 看门狗（scripts/）
+
+DSH 宿主（node 进程）的延时自动重启守护——灵枢桥只重连灵枢 python 进程，本看门狗守护 DSH 宿主（对齐移动端 APK 的 EngineService）：
+
+- `scripts/dsh-watchdog.ps1`：监控 3080 端口，进程退出 → 延时 `DelaySec` 秒再确认 → 自动拉起 `dsh web`
+  - `-Once` 模式：供 Windows 计划任务每分钟调用（`schtasks /Create /TN dsh-watchdog /TR "wscript.exe ...\dsh-watchdog-launcher.vbs" /SC MINUTE /MO 1`），可靠持久、不依赖驻留进程
+  - 驻留模式：`wscript.exe scripts\dsh-watchdog-launcher.vbs -loop`（5 秒快速拉起层）
+- `scripts/dsh-watchdog-launcher.vbs`：vbs 隐藏启动器（`WScript.Shell.Run ..., 0` = 零弹窗）
+- **用法**：改完插件/配置 → 直接 kill DSH 进程 → 看门狗自动拉起新版（无需手敲启动命令）
+- **注意**：脚本输出全英文（powershell 5.1 GBK 读取 UTF-8 无 BOM 中文会解析崩溃）；计划任务 /TR 路径必须带引号（`D:\Program Files\...` 空格截断会弹「没有文件扩展名」）
 
 ## 开发
 
