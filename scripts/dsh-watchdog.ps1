@@ -1,0 +1,51 @@
+# dsh-watchdog.ps1 —— DSH web 看门狗（延时自动重启）
+#
+# 对齐移动端 APK 的 EngineService 看门狗（5 秒拉起）：监控 DSH web 服务
+# （端口监听），若进程退出/崩溃/被杀 → 延时 DelaySec 秒再次确认 → 自动重启。
+# 灵枢桥（LingshuBridge）只重连灵枢 python 进程；本看门狗守护 DSH 宿主。
+#
+# 用法：
+#   .\dsh-watchdog.ps1                    # 默认 3080 端口，5 秒延时
+#   .\dsh-watchdog.ps1 -DelaySec 10       # 10 秒延时（留出保存/清理时间）
+# 停止：Ctrl+C 或 Stop-Process（看门狗自身）
+#
+# 配合「配置/插件更新后重启」：改完文件 → 直接 kill DSH 进程 → 看门狗
+# 延时后自动拉起新版（不再需要手敲启动命令）。
+
+param(
+    [int]$Port = 3080,
+    [int]$DelaySec = 5,
+    [string]$NodeBin = "node",
+    [string]$DshBin = "C:\Users\FuRongJun\AppData\Roaming\npm\node_modules\@deepseek-ai\dsh\lib\bin.js",
+    [string]$LogDir = "$env:USERPROFILE\.dsh\logs",
+    [switch]$StartNow
+)
+
+# 启动 dsh web（后台，日志重定向）
+function Start-DshWeb {
+    $ts = Get-Date -Format "yyyyMMdd-HHmmss"
+    New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+    $out = Join-Path $LogDir "dsh-$ts.out.log"
+    $err = Join-Path $LogDir "dsh-$ts.err.log"
+    Start-Process -FilePath $NodeBin -ArgumentList @($DshBin, "web") `
+        -RedirectStandardOutput $out -RedirectStandardError $err `
+        -WindowStyle Hidden
+    Write-Output "[$(Get-Date -Format 'HH:mm:ss')] dsh web 已启动 (out=$out err=$err)"
+}
+
+Write-Output "dsh-watchdog: 监控端口 $Port，进程退出后 $DelaySec 秒自动重启（Ctrl+C 停止）"
+if ($StartNow) { Start-DshWeb }
+
+while ($true) {
+    $listening = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if (-not $listening) {
+        # 服务不在 → 延时等待（给进程保存/清理时间），再确认一次避免误判
+        Start-Sleep -Seconds $DelaySec
+        $stillDown = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+        if (-not $stillDown) {
+            Write-Output "[$(Get-Date -Format 'HH:mm:ss')] 检测到 dsh web 已退出，自动重启…"
+            Start-DshWeb
+        }
+    }
+    Start-Sleep -Seconds 3
+}
