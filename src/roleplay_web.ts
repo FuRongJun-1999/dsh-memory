@@ -1,5 +1,6 @@
 // @ts-nocheck
 // @ts-nocheck
+// @ts-nocheck
 /**
  * dsh-memory 扩展：角色扮演网页（同源挂载到 webServer /roleplay 前缀）。
  * 复用插件的 LingshuBridge 调 roleplay_chat / role_create，data_dir 取 dbPath 同目录。
@@ -166,6 +167,7 @@ footer button:disabled { opacity:.5; cursor:wait; }
   </div>
 </div>
 <script>
+const $ = (id) => document.getElementById(id);
 // —— 内容分级：年龄门控 + NSFW 检测（法律与协议保护）——
 // 国家法律：涉未成年人性内容一律拒绝；成人内容仅限满 18 岁 + 个人对话场景。
 const AGE_KEY = 'lingshu_roleplay_age_confirmed';
@@ -194,7 +196,6 @@ function nsfwCheck(text) {
   return { refuse: false };
 }
 let roles = [];
-const $ = (id) => document.getElementById(id);
 async function refreshRoles() {
   const r = await fetch('/roleplay/api/roles').then(x => x.json());
   roles = r.roles || [];
@@ -615,8 +616,8 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                     const role = p.role_id || 'protocol-guide';
                     // —— 服务端内容分级硬拦截（不依赖前端，法律与协议保护）——
                     // 未成年 + 性 = 一律拒绝（国家法律 + 未成年人保护）；NSFW 词提示年龄确认
-                    const NSFW_WORDS = ['做爱','性交','性行为','口交','肛交','高潮','自慰','射精','色情','裸体','脱光','爱抚','挑逗','性器官','插入','内射','强暴'];
-                    const MINOR_WORDS = ['未成年','儿童','小孩','小女孩','小男孩','幼女','萝莉','幼童','初中生','小学生','14岁','13岁','12岁','学生妹','女童','男童'];
+                    const NSFW_WORDS = ['做爱', '性交', '性行为', '口交', '肛交', '高潮', '自慰', '射精', '色情', '裸体', '脱光', '爱抚', '挑逗', '性器官', '插入', '内射', '强暴'];
+                    const MINOR_WORDS = ['未成年', '儿童', '小孩', '小女孩', '小男孩', '幼女', '萝莉', '幼童', '初中生', '小学生', '14岁', '13岁', '12岁', '学生妹', '女童', '男童'];
                     const hasNsfw = NSFW_WORDS.some(w => p.message.includes(w));
                     const hasMinor = MINOR_WORDS.some(w => p.message.includes(w));
                     if (hasMinor && hasNsfw) {
