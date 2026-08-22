@@ -22,11 +22,12 @@ import z from '@deepseek-ai/schemastery'
 import { LingshuBridge } from './bridge.js'
 import { registerLingshuTools, type ToolSelection } from './tools.js'
 import { installMemoryHooks, type MemoryHooksOptions } from './hooks.js'
+import { installRoleplayWeb } from './roleplay_web.js'
 
 export const name = 'dsh-memory'
 
 /** 本插件依赖的工具注册服务。 */
-export const inject = ['tools', 'timer']
+export const inject = ['tools', 'timer', 'webServer']
 
 /** 插件配置。 */
 export interface Config {
@@ -122,16 +123,32 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 
   const disposers: Array<() => void> = []
   try {
-    // 工具注册（就绪后执行；未就绪时 tools/list 会报错，由重连机制兜底）
-    if (ready) {
-      disposers.push(
-        await registerLingshuTools(ctx, bridge, {
+    // 工具注册：初始就绪立即注册；若启动时未就绪（python 暂不可用/aeis 未装等
+    // 竞态），桥重连成功后自动补注册——修复"工具永久缺失"问题。
+    let toolsRegistered = false
+    const tryRegister = async () => {
+      if (toolsRegistered || bridge.readyState !== 'ok') return
+      try {
+        const dispose = await registerLingshuTools(ctx, bridge, {
           selection: config.tools,
           toolPrefix: `${config.serverName}_`,
-        }),
-      )
+        })
+        disposers.push(dispose)
+        toolsRegistered = true
+        ctx.logger.info('dsh-memory: 灵枢工具已注册（就绪后补注册）')
+      }
+      catch (err) {
+        ctx.logger.warn(`dsh-memory: 工具注册失败，稍后重试: ${String(err)}`)
+      }
+    }
+    if (ready) await tryRegister()
+    if (!toolsRegistered) {
+      const poll = setInterval(() => { void tryRegister() }, 2000)
+      disposers.push(() => clearInterval(poll))
     }
     installMemoryHooks(ctx, bridge, config.memory)
+    // 角色扮演网页（同源挂载 /roleplay，复用本插件 bridge）
+    await installRoleplayWeb(ctx, bridge, config, disposers)
 
     // 互维维护（v1.1）：心跳写戳 + 守护 A + 任务验证双通道
     if (config.mutual.enabled) {

@@ -154,7 +154,7 @@ export async function registerLingshuTools(
         },
         timeoutMs: 120_000,
         isConcurrencySafe: () => true,
-        async execute(args) {
+        async execute(args: Record<string, unknown>) {
           const result = await bridge.callTool(tool.name, args as Record<string, unknown>)
           if (result.isError) {
             throw new Error(extractText(result.content) || `灵枢 ${tool.name} 执行失败`)
