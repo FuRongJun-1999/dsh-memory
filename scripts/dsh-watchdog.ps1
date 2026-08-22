@@ -37,30 +37,43 @@ function Start-DshWeb {
 Write-Output "dsh-watchdog: watching port $Port, auto-restart after $DelaySec s (Ctrl+C to stop)"
 if ($StartNow) { Start-DshWeb }
 
+# guard: never let the script crash (hidden-window crash still pops an error dialog)
+function Test-Port {
+    try { return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) }
+    catch { return $false }
+}
+
 if ($Once) {
     # Once mode: for Windows Task Scheduler (reliable, no resident process)
-    $listening = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-    if (-not $listening) {
-        Start-Sleep -Seconds $DelaySec
-        $stillDown = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-        if (-not $stillDown) {
-            Write-Output "[$(Get-Date -Format 'HH:mm:ss')] dsh web is down, restarting..."
-            Start-DshWeb
+    try {
+        if (-not (Test-Port)) {
+            Start-Sleep -Seconds $DelaySec
+            if (-not (Test-Port)) {
+                Write-Output "[$(Get-Date -Format 'HH:mm:ss')] dsh web is down, restarting..."
+                Start-DshWeb
+            }
         }
+    }
+    catch {
+        Write-Output "[$(Get-Date -Format 'HH:mm:ss')] once-check error: $_"
     }
     exit 0
 }
 
 while ($true) {
-    $listening = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-    if (-not $listening) {
-        # Wait, then double-check to avoid false positives
-        Start-Sleep -Seconds $DelaySec
-        $stillDown = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-        if (-not $stillDown) {
-            Write-Output "[$(Get-Date -Format 'HH:mm:ss')] dsh web is down, restarting..."
-            Start-DshWeb
+    try {
+        if (-not (Test-Port)) {
+            # Wait, then double-check to avoid false positives
+            Start-Sleep -Seconds $DelaySec
+            if (-not (Test-Port)) {
+                Write-Output "[$(Get-Date -Format 'HH:mm:ss')] dsh web is down, restarting..."
+                Start-DshWeb
+            }
         }
+    }
+    catch {
+        Write-Output "[$(Get-Date -Format 'HH:mm:ss')] watchdog error: $_"
+        Start-Sleep -Seconds 10
     }
     Start-Sleep -Seconds 3
 }
