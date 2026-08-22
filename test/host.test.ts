@@ -36,7 +36,7 @@ async function mountHost(dbPath: string) {
       identity: 'dsh-host-test',
       python: 'python',
       moduleArgs: ['-m', 'aeis.mcp.server'],
-      env: { PYTHONPATH: AEIS_DIR, PYTHONIOENCODING: 'utf-8', AEIS_SEED_DISABLED: '1' },
+      env: { PYTHONPATH: AEIS_DIR, PYTHONIOENCODING: 'utf-8', AEIS_SEED_DISABLED: '1', AEIS_LIFECYCLE: '0' },
       cwd: AEIS_DIR,
       tools: 'core',
       memory: { userMessage: true, assistantMessage: false, toolResult: false, importance: 0.6 },
@@ -67,13 +67,29 @@ function safeCleanup(dir: string): void {
   }
 }
 
+/** 等待工具注册（适配竞态补注册：灵枢进程就绪后 2s 轮询补注册）。 */
+async function waitForTool(host: unknown, name: string, timeoutMs = 8000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      const schemas = (host as { root: { tools: { schemas(): Array<{ name: string }> } } }).root.tools.schemas()
+      if (schemas.some((s) => s.name === name)) return true
+    } catch {
+      /* 宿主未就绪 */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  }
+  return false
+}
+
 test('插件激活：lingshu_* 工具注册进 ctx.tools', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'lingshu-host-'))
   const host = await mountHost(join(dir, 'host.db'))
   try {
+    const ready = await waitForTool(host, 'lingshu_remember')
+    assert.ok(ready, '等待补注册后应有 lingshu_remember（竞态补注册 2s 轮询）')
     const schemas = host.root.tools.schemas()
     const names = schemas.map((s) => s.name)
-    assert.ok(names.includes('lingshu_remember'), `应注册 lingshu_remember（实际有: ${names.slice(0, 5).join(', ')}…）`)
     assert.ok(names.includes('lingshu_recall'), '应注册 lingshu_recall')
     // core 集合精选 12 个，不应注册全部（如 designer_decide 不在 core）
     assert.ok(!names.includes('lingshu_designer_decide'), 'core 集合不应包含 designer_decide')
@@ -88,7 +104,8 @@ test('插件卸载：工具注销且进程退出', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'lingshu-host-'))
   const host = await mountHost(join(dir, 'host.db'))
   try {
-    assert.ok(host.root.tools.schemas().some((s) => s.name === 'lingshu_remember'), '激活后应有工具')
+    const ready = await waitForTool(host, 'lingshu_remember')
+    assert.ok(ready, '等待补注册后激活应有工具')
     host.disposePlugin()
     await new Promise((resolve) => setTimeout(resolve, 300))
     assert.ok(
