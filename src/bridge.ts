@@ -107,6 +107,11 @@ export class LingshuBridge {
     return this.proc !== null && this.proc.exitCode === null
   }
 
+  /** 桥是否已握手就绪（工具注册用；防止轮询访问 private readyState）。 */
+  isReady(): boolean {
+    return this.readyState === 'ok'
+  }
+
   /** 等待握手完成（用于 apply 阶段同步就绪）。 */
   waitReady(): Promise<boolean> {
     if (this.readyState === 'ok') return Promise.resolve(true)

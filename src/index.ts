@@ -127,7 +127,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // 竞态），桥重连成功后自动补注册——修复"工具永久缺失"问题。
     let toolsRegistered = false
     const tryRegister = async () => {
-      if (toolsRegistered || bridge.readyState !== 'ok') return
+      if (toolsRegistered || !bridge.isReady()) return
       try {
         const dispose = await registerLingshuTools(ctx, bridge, {
           selection: config.tools,
