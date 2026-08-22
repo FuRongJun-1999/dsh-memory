@@ -18,7 +18,8 @@ param(
     [string]$NodeBin = "node",
     [string]$DshBin = "C:\Users\FuRongJun\AppData\Roaming\npm\node_modules\@deepseek-ai\dsh\lib\bin.js",
     [string]$LogDir = "$env:USERPROFILE\.dsh\logs",
-    [switch]$StartNow
+    [switch]$StartNow,
+    [switch]$Once
 )
 
 # 启动 dsh web（后台，日志重定向）
@@ -30,20 +31,34 @@ function Start-DshWeb {
     Start-Process -FilePath $NodeBin -ArgumentList @($DshBin, "web") `
         -RedirectStandardOutput $out -RedirectStandardError $err `
         -WindowStyle Hidden
-    Write-Output "[$(Get-Date -Format 'HH:mm:ss')] dsh web 已启动 (out=$out err=$err)"
+    Write-Output "[$(Get-Date -Format 'HH:mm:ss')] dsh web started (out=$out err=$err)"
 }
 
-Write-Output "dsh-watchdog: 监控端口 $Port，进程退出后 $DelaySec 秒自动重启（Ctrl+C 停止）"
+Write-Output "dsh-watchdog: watching port $Port, auto-restart after $DelaySec s (Ctrl+C to stop)"
 if ($StartNow) { Start-DshWeb }
+
+if ($Once) {
+    # Once mode: for Windows Task Scheduler (reliable, no resident process)
+    $listening = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    if (-not $listening) {
+        Start-Sleep -Seconds $DelaySec
+        $stillDown = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+        if (-not $stillDown) {
+            Write-Output "[$(Get-Date -Format 'HH:mm:ss')] dsh web is down, restarting..."
+            Start-DshWeb
+        }
+    }
+    exit 0
+}
 
 while ($true) {
     $listening = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     if (-not $listening) {
-        # 服务不在 → 延时等待（给进程保存/清理时间），再确认一次避免误判
+        # Wait, then double-check to avoid false positives
         Start-Sleep -Seconds $DelaySec
         $stillDown = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
         if (-not $stillDown) {
-            Write-Output "[$(Get-Date -Format 'HH:mm:ss')] 检测到 dsh web 已退出，自动重启…"
+            Write-Output "[$(Get-Date -Format 'HH:mm:ss')] dsh web is down, restarting..."
             Start-DshWeb
         }
     }
