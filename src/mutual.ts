@@ -99,11 +99,23 @@ function execP(cmd: string): Promise<string> {
   })
 }
 
-/** 检测 harness 进程是否存在（wmic） */
+/** 检测 harness 进程是否存在
+ * P1 完善（GPT 审查·wmic 兼容）：wmic 在 Win11+ 已被移除——失败时
+ * fallback PowerShell Get-CimInstance（Win）；非 Windows 用 ps 查询。 */
 export async function harnessRunning(): Promise<boolean> {
-  const out = await execP(
-    `wmic process where "name='python.exe'" get commandline 2>nul`)
-  return out.includes('harness.guardian') || out.includes('harness.main')
+  if (process.platform === 'win32') {
+    // ① wmic（旧 Win10 可用）
+    const out = await execP(
+      `wmic process where "name='python.exe'" get commandline 2>nul`)
+    if (out.includes('harness.guardian') || out.includes('harness.main')) return true
+    // ② wmic 不可用（Win11 移除）→ PowerShell
+    const psOut = await execP(
+      `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name='python.exe'\\" | Select-Object -ExpandProperty CommandLine"`)
+    return psOut.includes('harness.guardian') || psOut.includes('harness.main')
+  }
+  // 非 Windows（Linux/macOS）：ps 查询
+  const psOut = await execP(`ps -eo command | grep -E 'harness\\.(guardian|main)' | grep -v grep`)
+  return !!psOut
 }
 
 /** detached 拉起 A 侧 harness.guardian（幂等：先确认不存在） */
