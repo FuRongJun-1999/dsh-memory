@@ -130,7 +130,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, "node": _serialize(r)})
             elif path == "/selfcheck":
                 import subprocess
-                from demo_selfcheck import run_selfcheck
+                # P1 修复（GPT 审查）：仓库实际文件是 selfcheck.py——
+                # 此前 import demo_selfcheck（不存在）→ /selfcheck 恒 500
+                from selfcheck import run_selfcheck
                 out = run_selfcheck()  # 返回 dict
                 self._send(200, {"ok": True, "report": out})
             else:

@@ -58,7 +58,7 @@
     "url": "https://github.com/FuRongJun-1999/dsh-memory.git"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.19"
   },
   "dsh": {
     "bundle": {
