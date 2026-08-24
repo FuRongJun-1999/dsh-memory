@@ -5,18 +5,21 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LingshuBridge } from '../src/bridge.js'
 
-/** AEIS 库源码目录（未安装时靠 PYTHONPATH 解析）。 */
+/** AEIS 库源码目录（未安装时靠 PYTHONPATH 解析；不存在则跳过集成测试）。 */
 const AEIS_DIR = 'D:\\Program Files\\2_ai\\AEIS'
+const HAS_AEIS = existsSync(AEIS_DIR)
 
-/** Windows 下 python 进程可能短暂持有 DB 句柄，清理失败不阻塞测试。 */
+/** Windows 下 python 进程可能短暂持有 DB 句柄，清理失败不阻塞测试。
+ * P1 修复（GPT 审查）：此前递归调用自身而非 rmSync——目录永不被删除，
+ * 靠栈溢出进 catch。改为真正的递归删除。 */
 function safeCleanup(dir: string): void {
   try {
-    safeCleanup(dir)
+    rmSync(dir, { recursive: true, force: true })
   } catch {
     /* 句柄未释放，tmp 目录由系统清理 */
   }
@@ -38,7 +41,7 @@ function createBridge(dbPath: string): LingshuBridge {
   })
 }
 
-test('握手：进程启动并完成 initialize 握手', async () => {
+test('握手：进程启动并完成 initialize 握手', { skip: !HAS_AEIS && 'AEIS 未安装（跳过集成测试）' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'lingshu-bridge-'))
   const bridge = createBridge(join(dir, 'test.db'))
   bridge.start()
@@ -52,7 +55,7 @@ test('握手：进程启动并完成 initialize 握手', async () => {
   }
 })
 
-test('工具发现：listTools 返回灵枢全部工具（含 remember/recall）', async () => {
+test('工具发现：listTools 返回灵枢全部工具（含 remember/recall）', { skip: !HAS_AEIS && 'AEIS 未安装（跳过集成测试）' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'lingshu-bridge-'))
   const bridge = createBridge(join(dir, 'test.db'))
   bridge.start()
@@ -70,7 +73,7 @@ test('工具发现：listTools 返回灵枢全部工具（含 remember/recall）
   }
 })
 
-test('数据往返：remember → recall 命中写入的记忆', async () => {
+test('数据往返：remember → recall 命中写入的记忆', { skip: !HAS_AEIS && 'AEIS 未安装（跳过集成测试）' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'lingshu-bridge-'))
   const bridge = createBridge(join(dir, 'test.db'))
   bridge.start()
@@ -94,7 +97,7 @@ test('数据往返：remember → recall 命中写入的记忆', async () => {
   }
 })
 
-test('错误处理：调用不存在的工具应报错', async () => {
+test('错误处理：调用不存在的工具应报错', { skip: !HAS_AEIS && 'AEIS 未安装（跳过集成测试）' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'lingshu-bridge-'))
   const bridge = createBridge(join(dir, 'test.db'))
   bridge.start()
@@ -107,7 +110,7 @@ test('错误处理：调用不存在的工具应报错', async () => {
   }
 })
 
-test('dispose：进程优雅退出', async () => {
+test('dispose：进程优雅退出', { skip: !HAS_AEIS && 'AEIS 未安装（跳过集成测试）' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'lingshu-bridge-'))
   const bridge = createBridge(join(dir, 'test.db'))
   bridge.start()

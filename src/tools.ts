@@ -58,6 +58,21 @@ export const BRAIN_TOOLS = [
 /** tools 配置：'core' | 'brain' | 'all' | 显式名称数组。 */
 export type ToolSelection = 'core' | 'brain' | 'all' | string[]
 
+/** P1 修复（GPT 审查）：只读/无副作用工具才允许并发——写操作（记忆/关系/
+ * 生命周期/摄取/学习）标 false，防止 DSH 并行调用导致 SQLite 写入竞争、
+ * 状态顺序错乱、关系边重复等。 */
+const READ_TOOLS = new Set([
+  'recall', 'search', 'timeline', 'think', 'reason', 'predict_routes',
+  'self_check', 'service_info', 'session_recall', 'gap_trend', 'transfer_test',
+  'cognition_report', 'self_reliability', 'emotional_bias', 'flywheel_report',
+  'distill', 'insight_report', 'prediction_stats', 'blindspots', 'pattern_separation',
+])
+
+/** 按工具名判定并发安全（只读查询 true；写操作 false） */
+export function isToolConcurrencySafe(name: string): boolean {
+  return READ_TOOLS.has(name)
+}
+
 /** 按配置筛选工具名。 */
 export function selectTools(all: string[], selection: ToolSelection): string[] {
   if (selection === 'all') return all
@@ -113,7 +128,11 @@ function toValueSpec(raw: unknown): ValueSchemaSpec {
     }
     case 'object': {
       const props = schemaToParameters(node)
-      return { type: 'object', properties: props, additionalProperties: true, ...annotations }
+      // P1 修复（GPT 审查）：尊重后端 additionalProperties 声明（false 保留），
+      // 不再无条件 true——此前后端写 false 也会被覆盖成 true，DSH 侧认为
+      // 参数合法但后端拒绝。
+      const additional = node['additionalProperties'] === false ? false : true
+      return { type: 'object', properties: props, additionalProperties: additional, ...annotations }
     }
     default:
       return { type: 'json', ...annotations }
@@ -153,9 +172,14 @@ export async function registerLingshuTools(
           },
         },
         timeoutMs: 120_000,
-        isConcurrencySafe: () => true,
-        async execute(args: Record<string, unknown>) {
-          const result = await bridge.callTool(tool.name, args as Record<string, unknown>)
+        // P1 修复（GPT 审查）：按工具分类——只读查询可并发，写操作串行
+        isConcurrencySafe: () => isToolConcurrencySafe(tool.name),
+        // P1 修复（GPT 审查）：接收 exec.signal（用户取消/上层超时）——
+        // 此前完全忽略取消，取消后写操作（remember/relate/ingest 等）仍可能产生副作用
+        async execute(args: Record<string, unknown>, exec: { signal: AbortSignal }) {
+          if (exec.signal.aborted) throw new Error(`灵枢 ${tool.name} 已取消`)
+          const result = await bridge.callTool(tool.name, args as Record<string, unknown>, exec.signal)
+          if (exec.signal.aborted) throw new Error(`灵枢 ${tool.name} 已取消`)
           if (result.isError) {
             throw new Error(extractText(result.content) || `灵枢 ${tool.name} 执行失败`)
           }

@@ -19,15 +19,24 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { LingshuBridge } from './bridge.js'
+import { LingshuBridge, type McpCallResult } from './bridge.js'
 import { registerLingshuTools, type ToolSelection } from './tools.js'
 import { installMemoryHooks, type MemoryHooksOptions } from './hooks.js'
 import { installRoleplayWeb } from './roleplay_web.js'
 
 export const name = 'dsh-memory'
 
-/** 本插件依赖的工具注册服务。 */
-export const inject = ['tools', 'timer', 'webServer']
+/** P1 修复（GPT 审查）：MCP 调用的标准结果在 content[].text，
+ * 代码此前误读不存在的 .result 字段导致互维拿不到 judgment/best/复核文本 */
+function mcpText(r: McpCallResult): string {
+  return (r.content ?? []).map((c) => c.text ?? '').join('\n')
+}
+
+/** 本插件依赖的工具注册服务。
+ * P1 修复（GPT 审查）：timer/webServer 是可选增强（互维/角色网页），此前强声明
+ * 导致最小 host（只有 tools）插件永远 PENDING 不激活。只强依赖 tools；
+ * timer/webServer 在 apply 内动态检测（存在则启用，缺失则告警跳过）。 */
+export const inject = ['tools']
 
 /** 插件配置。 */
 export interface Config {
@@ -117,11 +126,17 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const ready = await bridge.waitReady()
   if (!ready) {
     const message = '灵枢进程无法启动（检查 python 是否可用、aeis 是否安装：pip install aeis）'
-    if (config.failOnStartupError) throw new Error(message)
+    if (config.failOnStartupError) {
+      // P1 修复（GPT 审查）：启动失败抛错前必须 dispose——此前 throw 在 try 之前，
+      // 桥接对象泄漏 + 后台重试计时器继续跑
+      bridge.dispose()
+      throw new Error(message)
+    }
     ctx.logger.warn(`dsh-memory: ${message}，继续后台重试`)
   }
 
   const disposers: Array<() => void> = []
+  let toolsPoll: NodeJS.Timeout | null = null
   try {
     // 工具注册：初始就绪立即注册；若启动时未就绪（python 暂不可用/aeis 未装等
     // 竞态），桥重连成功后自动补注册——修复"工具永久缺失"问题。
@@ -135,6 +150,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         })
         disposers.push(dispose)
         toolsRegistered = true
+        // P1 修复（GPT 审查）：注册成功后清除轮询——此前 setInterval 永久保留
+        if (toolsPoll) {
+          clearInterval(toolsPoll)
+          toolsPoll = null
+        }
         ctx.logger.info('dsh-memory: 灵枢工具已注册（就绪后补注册）')
       }
       catch (err) {
@@ -143,8 +163,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     }
     if (ready) await tryRegister()
     if (!toolsRegistered) {
-      const poll = setInterval(() => { void tryRegister() }, 2000)
-      disposers.push(() => clearInterval(poll))
+      toolsPoll = setInterval(() => { void tryRegister() }, 2000)
+      disposers.push(() => { if (toolsPoll) clearInterval(toolsPoll) })
     }
     installMemoryHooks(ctx, bridge, config.memory)
     // 角色扮演网页（同源挂载 /roleplay，复用本插件 bridge）
@@ -152,35 +172,52 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
 
     // 互维维护（v1.1）：心跳写戳 + 守护 A + 任务验证双通道
     if (config.mutual.enabled) {
-      const { installMutualMaintenance } = await import('./mutual.js')
-      // 双通道 hooks：白箱 base_verify（走 bridge 调灵枢）+ DeepSeek 复核
-      installMutualMaintenance(
-        ctx as never,
-        { heartbeatMs: config.mutual.heartbeatMs },
-        {
-          verify: async (claim: string) => {
-            const r = await bridge.callTool('wisdom_verify', { knowledge: claim, limit: 4 })
-            const data = (r as { result?: { judgment?: string; best?: { name?: string }; D_norm?: number; record_id?: string } })?.result ?? {}
-            return {
-              judgment: data.judgment ?? '分析中',
-              best: data.best?.name ?? '',
-              d_norm: typeof data.D_norm === 'number' ? data.D_norm : -1,
-              record_id: data.record_id ?? '',
-            }
+      // P1 修复（GPT 审查）：timer 是可选服务——缺失时告警跳过互维，
+      // 不让插件因互维而阻塞（inject 已不再强声明 timer）
+      const hasTimer = (ctx as { timer?: unknown }).timer !== undefined
+      if (!hasTimer) {
+        ctx.logger.warn('dsh-memory: timer 服务不可用，跳过互维维护（mutual.enabled=true 但无 timer）')
+      } else {
+        const { installMutualMaintenance } = await import('./mutual.js')
+        // 双通道 hooks：白箱 base_verify（走 bridge 调灵枢）+ DeepSeek 复核
+        installMutualMaintenance(
+          ctx as never,
+          { heartbeatMs: config.mutual.heartbeatMs },
+          {
+            verify: async (claim: string) => {
+              const r = await bridge.callTool('wisdom_verify', { knowledge: claim, limit: 4 })
+              // P1 修复（GPT 审查）：结果在 content[].text（JSON），非 .result
+              const text = mcpText(r)
+              let data: { judgment?: string; best?: { name?: string }; D_norm?: number; record_id?: string } = {}
+              try {
+                data = JSON.parse(text) as typeof data
+              } catch { /* 非 JSON 时用默认 */ }
+              return {
+                judgment: data.judgment ?? '分析中',
+                best: data.best?.name ?? '',
+                d_norm: typeof data.D_norm === 'number' ? data.D_norm : -1,
+                record_id: data.record_id ?? '',
+              }
+            },
+            review: async (claim: string, w) => {
+              // DeepSeek 复核（在白箱判定之上，不重复白箱工作）
+              const reviewResult = await bridge.callTool('think', {
+                query: `复核以下主张（白箱判定已给出，请独立评估是否同意）：${claim.slice(0, 200)}。白箱判定：${w.judgment}，best=${w.best}。只输出 同意/质疑/不同意 + 一句话理由`,
+              })
+              // P1 修复（GPT 审查）：文本在 content[].text；结论解析必须先查
+              // 「不同意/不通过」再「质疑」再「同意」——「不同意」含子串「同意」，
+              // 此前先匹配「同意」→ 不同意被误判为同意
+              const text = mcpText(reviewResult)
+              const conclusion = text.includes('不同意') || text.includes('不通过')
+                ? '不同意'
+                : text.includes('质疑') ? '质疑'
+                : text.includes('同意') ? '同意' : '不同意'
+              return { conclusion, reason: text.slice(0, 120) }
+            },
           },
-          review: async (claim: string, w) => {
-            // DeepSeek 复核（在白箱判定之上，不重复白箱工作）
-            const reviewResult = await bridge.callTool('think', {
-              query: `复核以下主张（白箱判定已给出，请独立评估是否同意）：${claim.slice(0, 200)}。白箱判定：${w.judgment}，best=${w.best}。只输出 同意/质疑/不同意 + 一句话理由`,
-            })
-            const text = String(((reviewResult as { result?: unknown })?.result) ?? '')
-            const conclusion = text.includes('同意') ? '同意' :
-              text.includes('质疑') ? '质疑' : '不同意'
-            return { conclusion, reason: text.slice(0, 120) }
-          },
-        },
-      )
-      ctx.logger.info('dsh-memory: 互维维护已启用（心跳 10min + 守护 A + 任务验证双通道）')
+        )
+        ctx.logger.info('dsh-memory: 互维维护已启用（心跳 10min + 守护 A + 任务验证双通道）')
+      }
     }
   } catch (err) {
     bridge.dispose()

@@ -82,8 +82,9 @@ export class LingshuBridge {
   }
 
   /** 调用灵枢的一个工具，返回标准化 MCP 结果。 */
-  async callTool(name: string, args: Record<string, unknown>): Promise<McpCallResult> {
-    const result = await this.request('tools/call', { name, arguments: args })
+  async callTool(name: string, args: Record<string, unknown>,
+                 signal?: AbortSignal): Promise<McpCallResult> {
+    const result = await this.request('tools/call', { name, arguments: args }, signal)
     return result as McpCallResult
   }
 
@@ -228,23 +229,39 @@ export class LingshuBridge {
     proc.stdin.write(JSON.stringify(msg) + '\n')
   }
 
-  private request(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private request(method: string, params: Record<string, unknown>,
+                  signal?: AbortSignal): Promise<unknown> {
     const id = this.nextId++
     const timeout = this.options.timeoutMs
+    // P0 修复（GPT 审查）：定时器直接调 settle——settle 内部会 delete + clearTimeout
+    // 并 reject。此前先 pending.delete(id) 再 settle()，settle 找不到 entry 直接
+    // return，Promise 永不 resolve/reject（超时逻辑完全失效，子进程挂死时插件永久挂住）。
     const timer = setTimeout(() => {
-      this.pending.delete(id)
       this.settle(id, {
         error: { code: -32000, message: `灵枢调用超时（${timeout}ms）：${method}` },
       })
     }, timeout)
+    if (signal?.aborted) {
+      clearTimeout(timer)
+      return Promise.reject(new Error(`已取消：${method}`))
+    }
+    const onAbort = (): void => {
+      this.settle(id, { error: { code: -32800, message: `已取消：${method}` } })
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
     const promise = new Promise<unknown>((resolve, reject) => {
       this.pending.set(id, { resolve, reject, timer })
     })
+    // settle 后移除 abort 监听，避免内存积累
+    promise.finally(() => {
+      signal?.removeEventListener('abort', onAbort)
+    }).catch(() => { /* finally 链的 catch 防未处理拒绝 */ })
     try {
       this.writeRaw({ jsonrpc: '2.0', id, method, params })
     } catch (err) {
       clearTimeout(timer)
       this.pending.delete(id)
+      signal?.removeEventListener('abort', onAbort)
       return Promise.reject(err)
     }
     return promise

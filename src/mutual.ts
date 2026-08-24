@@ -111,19 +111,53 @@ export async function ensureHarness(python = 'python',
                                     opts: MutualOptions = DEFAULTS): Promise<'started' | 'already' | 'failed'> {
   const running = await harnessRunning()
   if (running) return 'already'
-  try {
-    const child = spawn(python, ['-m', 'harness.guardian'], {
-      windowsHide: true,
-      detached: true,
-      stdio: 'ignore',
+  // P1 修复（GPT 审查）：spawn 找不到可执行文件是异步 error 事件，无监听
+  // 会直接崩 Node（Unhandled 'error' event）。加监听 + 超时判定拉起失败。
+  return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn> | null = null
+    let failTimer: NodeJS.Timeout | null = null
+    let okTimer: NodeJS.Timeout | null = null
+    let settled = false
+    const finish = (r: 'started' | 'failed'): void => {
+      if (settled) return
+      settled = true
+      if (failTimer) clearTimeout(failTimer)
+      if (okTimer) clearTimeout(okTimer)
+      resolve(r)
+    }
+    try {
+      child = spawn(python, ['-m', 'harness.guardian'], {
+        windowsHide: true,
+        detached: true,
+        stdio: 'ignore',
+      })
+    } catch (e) {
+      log(opts, `守护失败：${String(e)}`)
+      finish('failed')
+      return
+    }
+    // 拉起失败（python 不存在等）→ 记录 + failed，不崩 Node。
+    // spawn 的 error 事件是异步的：不能立即判 started——等 50ms error 窗口，
+    // 无 error 才算拉起成功（GPT 审查：此前立即返回 started，错误路径也报成功）。
+    child.on('error', (err) => {
+      log(opts, `守护拉起错误：${err.message}`)
+      finish('failed')
     })
+    // 拉起成功但立即退出（harness.guardian 不存在）→ failed
+    child.on('exit', (code) => {
+      if (code !== null && code !== 0) {
+        log(opts, `守护进程退出 code=${code}（guardian 可能不可用）`)
+        finish('failed')
+      }
+    })
+    okTimer = setTimeout(() => finish('started'), 50)
+    failTimer = setTimeout(() => {
+      log(opts, `守护拉起超时（10s 无健康确认）`)
+      finish('failed')
+    }, 10_000)
     child.unref()
     log(opts, `守护动作：拉起 harness.guardian（pid=${child.pid ?? '?'}）`)
-    return 'started'
-  } catch (e) {
-    log(opts, `守护失败：${String(e)}`)
-    return 'failed'
-  }
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +224,11 @@ export async function llmReview(claim: string, whitebox: VerifyResult['whitebox'
 export function combineVerdict(w: VerifyResult['whitebox'],
                                l: VerifyResult['llm_review']): VerifyResult['verdict'] {
   const c = l.conclusion || ''
+  // P1 修复（GPT 审查）：白箱通道异常 → fail-closed（不因复核「同意」而 pass）
+  if (w.judgment.startsWith('whitebox_error') || w.judgment.startsWith('llm_error')
+      || w.d_norm < 0) {
+    return 'needs_revision'
+  }
   if (w.judgment.startsWith('采纳')) {
     // 白箱采纳：复核质疑/不同意→needs_revision（白箱优先，记录分歧）；否则 pass
     return c.includes('质疑') || c.includes('不同意') || c.includes('不通过')
@@ -198,8 +237,18 @@ export function combineVerdict(w: VerifyResult['whitebox'],
   if (w.judgment.includes('fail') || w.judgment.includes('不成立')) return 'fail'
   // 证据不足/无法判断 → 白箱不确定，交给复核决定（「不同意」须排除「同意」子串）
   if (c.includes('不同意') || c.includes('不通过')) return 'needs_revision'
-  if (c.includes('通过') || c.includes('同意') || c.includes('质疑')) return 'pass'
+  if (c.includes('通过') || c.includes('同意')) return 'pass'
+  // P1 修复（GPT 审查）：「质疑」是分歧信号——白箱不确定 + 复核质疑 → 需要修订，
+  // 此前把「质疑」当 pass 与白箱采纳分支语义矛盾。
+  if (c.includes('质疑')) return 'needs_revision'
   return 'needs_revision'
+}
+
+/** 任务 ID 安全校验（P1 修复：防路径穿越——task.id 可含 ../../ 写目录外） */
+const TASK_ID_RE = /^[A-Za-z0-9._-]{1,64}$/
+
+export function safeTaskId(id: string): boolean {
+  return TASK_ID_RE.test(id) && !id.includes('..')
 }
 
 /** 处理单个任务：双通道验证 → 写回 result */
@@ -208,6 +257,11 @@ export async function processTask(task: VerifyTask,
                                   reviewFn: (c: string, w: VerifyResult['whitebox']) => Promise<{ conclusion: string; reason: string }>,
                                   opts: MutualOptions = DEFAULTS): Promise<VerifyResult> {
   const dir = path.join(netDir(opts), 'tasks')
+  // P1 修复（GPT 审查）：task.id 路径穿越——非法 id 拒绝处理，不写任何文件
+  if (!safeTaskId(task.id)) {
+    log(opts, `任务 ${JSON.stringify(task.id)} 非法（路径穿越风险），拒绝处理`)
+    throw new Error(`非法任务 id: ${task.id}`)
+  }
   const taskPath = path.join(dir, `task-${task.id}.json`)
   // 标记 processing
   try {
@@ -262,7 +316,7 @@ export function writeLastContact(opts: MutualOptions = DEFAULTS): void {
 // ---------------------------------------------------------------------------
 
 export function installMutualMaintenance(
-  ctx: { logger: { info(m: string): void }; interval(ms: number, fn: () => void): () => void; effect(fn: () => () => void, name?: string): void },
+  ctx: { logger: { info(m: string): void }; interval(fn: () => void, ms: number): () => void; effect(fn: () => () => void, name?: string): void },
   config: Partial<MutualOptions> = {},
   hooks: {
     verify?: (c: string) => Promise<{ judgment: string; best: string; d_norm: number; record_id: string }>
@@ -272,7 +326,10 @@ export function installMutualMaintenance(
   const opts: MutualOptions = { ...DEFAULTS, ...config }
 
   // 1. 心跳写戳 + 守护 A（10min 周期）
-  const heartbeatDispose = ctx.interval(opts.heartbeatMs, () => {
+  // P1 修复（GPT 审查）：cordis-plugin-timer 签名是 interval(callback, delay)
+  // ——此前 (ms, fn) 写反：数字被当 callback、函数被当 delay，回调永不执行，
+  // 互维心跳/任务扫描实际不工作。
+  const heartbeatDispose = ctx.interval(() => {
     try {
       writeHeartbeat(opts)
       // 守护 A：harness 不在 → 拉起
@@ -286,10 +343,10 @@ export function installMutualMaintenance(
       if (verdict === 'dead') ctx.logger.info('mutual: A 侧失联（>35min），等待 guardian 自愈或告警')
       writeLastContact(opts)
     } catch (e) { /* 单次失败不中断 */ }
-  })
+  }, opts.heartbeatMs)
 
   // 2. 任务轮询（30s 周期，检查 A→B 任务）
-  const taskDispose = ctx.interval(30_000, () => {
+  const taskDispose = ctx.interval(() => {
     try {
       const tasks = scanTasks(opts)
       for (const t of tasks) {
@@ -299,7 +356,7 @@ export function installMutualMaintenance(
         })
       }
     } catch (e) { /* 单次失败不中断 */ }
-  })
+  }, 30_000)
 
   // 3. effect 作用域清理
   ctx.effect(() => {
