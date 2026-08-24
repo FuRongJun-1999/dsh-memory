@@ -32,6 +32,8 @@ export interface MemoryHooksOptions {
   autoRecall: boolean
   /** 自动召回条数（默认 4）。 */
   autoRecallLimit: number
+  /** 自动记忆脱敏：写入前过滤敏感信息（密钥/密码/令牌/身份证/手机号，默认 true）。 */
+  desensitize: boolean
 }
 
 /** 从 ContentBlock[] 提取纯文本。 */
@@ -45,12 +47,47 @@ function extractText(blocks: ContentBlock[]): string {
   return parts.join('\n').trim()
 }
 
+/**
+ * 敏感信息模式（GPT 审查·自动记忆脱敏）：写入记忆库前过滤凭据/个人标识。
+ * 命中 → 替换为 [已过滤:类别]（保留对话主体）；过滤后只剩占位符/空白 → 整条跳过。
+ * 纯内容过滤，不涉及身份认证——开源场景下的隐私保护。
+ */
+const SENSITIVE_PATTERNS: Array<{ re: RegExp; label: string }> = [
+  { re: /sk-[A-Za-z0-9_-]{8,}/g, label: 'API密钥' },
+  { re: /\b(?:api[_-]?key|apikey|access[_-]?token)\b\s*[:=]\s*[^\s,，。;；]+/gi, label: 'API密钥' },
+  { re: /\b(?:password|passwd|pwd)\b\s*[:=]\s*[^\s,，。;；]+/gi, label: '密码' },
+  { re: /Bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, label: '令牌' },
+  // 中文密码：值限定非中文连续串（凭据特征），避免误伤「密码是重要的安全概念」
+  { re: /密码\s*[:：是]\s*[A-Za-z0-9_@#$%^&*!.-]{4,}/g, label: '密码' },
+  { re: /\b\d{17}[\dXx]\b/g, label: '身份证号' },
+  { re: /\b1[3-9]\d{9}\b/g, label: '手机号' },
+]
+
+/** 脱敏：替换敏感片段；返回 null 表示整条都是敏感内容（应跳过写入）。 */
+export function desensitize(text: string): string | null {
+  let out = text
+  for (const { re, label } of SENSITIVE_PATTERNS) {
+    out = out.replace(re, `[已过滤:${label}]`)
+  }
+  // 过滤后只剩占位符/空白 → 纯凭据消息，不写（或全部被替换）
+  const residue = out.replace(/\[已过滤:[^\]]+\]/g, '').trim()
+  if (!residue) return null
+  return out
+}
+
 /** 安装自动记忆钩子（effect 作用域内，随插件卸载自动移除）。 */
 export function installMemoryHooks(ctx: Context, bridge: LingshuBridge, opts: MemoryHooksOptions): void {
   const memorize = (tool: string, args: Record<string, unknown>): void => {
     void bridge
       .callTool(tool, args)
       .catch((err: Error) => ctx.logger.warn(`dsh-memory: ${tool} 自动记忆失败: ${err.message}`))
+  }
+
+  // P1 完善（GPT 审查·自动记忆脱敏）：写入前过滤敏感信息（默认开启）。
+  // 命中敏感模式 → 替换为 [已过滤:类别]；纯凭据消息 → 跳过写入（不落库）。
+  const sanitize = (text: string): string | null => {
+    if (!opts.desensitize) return text
+    return desensitize(text)
   }
 
   // P1 完善（自动 recall 注入）：每次模型请求组装 system prompt 时，注入灵枢最近记忆。
@@ -80,16 +117,22 @@ export function installMemoryHooks(ctx: Context, bridge: LingshuBridge, opts: Me
       if (event.data.source?.kind !== 'user') return
       const text = extractText(event.data.content)
       if (!text) return
-      memorize('remember', { content: text, importance: opts.importance, tags: ['dsh', 'user'] })
+      const safe = sanitize(text)  // 脱敏：纯凭据消息 → null → 跳过写入
+      if (safe === null) return
+      memorize('remember', { content: safe, importance: opts.importance, tags: ['dsh', 'user'] })
     } else if (event.type === 'assistant/message' && opts.assistantMessage) {
       const text = extractText(event.data.message.content)
       if (!text) return
-      memorize('remember', { content: text, importance: opts.importance * 0.8, tags: ['dsh', 'assistant'] })
+      const safe = sanitize(text)
+      if (safe === null) return
+      memorize('remember', { content: safe, importance: opts.importance * 0.8, tags: ['dsh', 'assistant'] })
     } else if (event.type === 'tool/result' && opts.toolResult) {
       if (event.data.error) return
       const text = extractText(event.data.message.content)
       if (!text) return
-      memorize('remember', { content: text, importance: opts.importance * 0.6, tags: ['dsh', 'tool'] })
+      const safe = sanitize(text)
+      if (safe === null) return
+      memorize('remember', { content: safe, importance: opts.importance * 0.6, tags: ['dsh', 'tool'] })
     }
   })
 }

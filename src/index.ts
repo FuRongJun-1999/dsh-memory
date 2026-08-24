@@ -89,8 +89,9 @@ export const Config: z<Config> = z.object({
       importance: z.number().default(0.6),
       autoRecall: z.boolean().default(true),
       autoRecallLimit: z.number().default(4),
+      desensitize: z.boolean().default(true),
     })
-    .default({ userMessage: true, assistantMessage: false, toolResult: false, importance: 0.6, autoRecall: true, autoRecallLimit: 4 }),
+    .default({ userMessage: true, assistantMessage: false, toolResult: false, importance: 0.6, autoRecall: true, autoRecallLimit: 4, desensitize: true }),
   toolCallTimeoutMs: z.number().default(60_000),
   maxRetryDelayMs: z.number().default(30_000),
   failOnStartupError: z.boolean().default(false),
