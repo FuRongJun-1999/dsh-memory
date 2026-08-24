@@ -515,19 +515,38 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
         // —— 自定义翻译（现实词 ↔ 扮演词）——
         // 翻译表写入角色 meta（_roles.json）：引擎每次 roleplay_chat 都新建引擎并重读
         // meta，因此写入立即生效（输入翻译 real→virtual + LLM 沉浸注入块都会应用）。
+        // P1 完善（GPT 审查·meta 嵌套格式）：读取归一化——文件可能是根格式
+        // {r:{...}} 或嵌套格式 {meta:{r:{...}}}（外部 AEIS 可能用嵌套），统一返回
+        // 「角色字典」视角；写入保持原顶层结构（嵌套则写回 meta 内），读写一致——
+        // 此前读兼容嵌套但写永远写根，保存成功但列表读旧值。
         const roleMetaFile = join(roleDataDir, 'roleplay', '_roles.json');
         const readRoleMeta = () => {
             try {
-                return JSON.parse(readFileSync(roleMetaFile, 'utf8'));
+                const raw = JSON.parse(readFileSync(roleMetaFile, 'utf8'));
+                if (raw && typeof raw === 'object'
+                    && raw.meta && typeof raw.meta === 'object')
+                    return raw.meta;  // 嵌套格式 → meta 内角色字典
+                return raw;
             }
             catch {
                 return {};
             }
         };
-        const writeRoleMeta = (meta) => {
+        const writeRoleMeta = (flat) => {
             try {
+                let raw;
+                try {
+                    raw = JSON.parse(readFileSync(roleMetaFile, 'utf8'));
+                }
+                catch {
+                    raw = {};
+                }
+                // 保持原顶层结构：原文件嵌套 {meta:{...}} → 写回 meta 内；根格式 → 写根
+                const out = (raw && typeof raw === 'object'
+                    && raw.meta && typeof raw.meta === 'object')
+                    ? { ...raw, meta: flat } : flat;
                 const tmp = roleMetaFile + '.tmp';
-                writeFileSync(tmp, JSON.stringify(meta, null, 2), 'utf8');
+                writeFileSync(tmp, JSON.stringify(out, null, 2), 'utf8');
                 renameSync(tmp, roleMetaFile);
             }
             catch (e) {
