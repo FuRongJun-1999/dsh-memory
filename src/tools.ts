@@ -73,9 +73,31 @@ export function isToolConcurrencySafe(name: string): boolean {
   return READ_TOOLS.has(name)
 }
 
-/** 按配置筛选工具名。 */
+/**
+ * P1 完善（GPT 审查·tools:all 自动扩权）：即使 selection='all' 也排除的宿主级
+ * 风险工具——此前后端新增工具即自动暴露给 Agent（动态扩权无 denylist）。
+ * 排除原则：宿主命令执行/权限终裁/外部设备/自主生命周期控制/角色卡写入。
+ * 显式名称数组（显式配置）不受此名单限制（配置者已明确选择）。
+ */
+export const RISK_TOOLS = new Set([
+  'run_command',        // 宿主命令执行（安全边界：不由 Agent 动态调用）
+  'designer_decide',    // 设计者裁决（fail-closed 权限，绝不由 Agent 调用）
+  'device_call',        // 外部设备统一调用（屏幕/进程/音频/浏览器）
+  'see',                // 视觉感知（身体工具）
+  'world3d',            // 时空 3D 重建（身体工具）
+  'vprim',              // 视觉原语（身体工具）
+  'visual_check',       // 视觉面检查（身体工具）
+  'start_lifecycle',    // 启动自主生命周期循环
+  'stop_lifecycle',     // 中断生命周期循环
+  'web_ingest_search',  // 外部搜索摄取（网络调用 + 写知识层）
+  'role_create',        // 角色卡创建（写角色数据）
+  'role_import',        // 角色导入（写角色数据）
+  'role_block',         // 角色扮演注入块组装
+])
+
+/** 按配置筛选工具名（'all' 时排除 RISK_TOOLS 宿主级危险工具）。 */
 export function selectTools(all: string[], selection: ToolSelection): string[] {
-  if (selection === 'all') return all
+  if (selection === 'all') return all.filter((name) => !RISK_TOOLS.has(name))
   const allowed = new Set(
     selection === 'core' ? CORE_TOOLS
       : selection === 'brain' ? BRAIN_TOOLS
