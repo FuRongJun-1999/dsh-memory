@@ -168,6 +168,13 @@ footer button:disabled { opacity:.5; cursor:wait; }
 </div>
 <script>
 const $ = (id) => document.getElementById(id);
+// P1 修复（GPT 审查·XSS）：innerHTML 拼接角色/翻译内容必须转义——
+// 否则保存 </textarea><script>… 之类内容会在角色详情页执行脚本
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+}
 // —— 内容分级：年龄门控 + NSFW 检测（法律与协议保护）——
 // 国家法律：涉未成年人性内容一律拒绝；成人内容仅限满 18 岁 + 个人对话场景。
 const AGE_KEY = 'lingshu_roleplay_age_confirmed';
@@ -289,11 +296,12 @@ async function loadRoleDetailItems() {
 function rdRenderRow(box, it, i) {
   const row = document.createElement('div');
   row.className = 'rd-row';
+  // P1 修复（GPT 审查·XSS）：it.content/it.importance/it.tags 来自用户/文件，须转义
   row.innerHTML =
-    '<textarea placeholder="内容（该' + (rdKind === 'memory' ? '记忆' : rdKind === 'anchor' ? '锚点' : '价值观') + '的文本）">' + (it.content || '') + '</textarea>' +
+    '<textarea placeholder="内容（该' + (rdKind === 'memory' ? '记忆' : rdKind === 'anchor' ? '锚点' : '价值观') + '的文本）">' + esc(it.content || '') + '</textarea>' +
     '<div class="rd-sub">' +
-      '<input class="rd-imp" type="number" step="0.1" min="0" max="1" placeholder="重要性" value="' + (it.importance != null ? it.importance : '0.6') + '">' +
-      '<input class="rd-tags" placeholder="标签（逗号分隔）" value="' + (it.tags || []).join(',') + '">' +
+      '<input class="rd-imp" type="number" step="0.1" min="0" max="1" placeholder="重要性" value="' + esc(it.importance != null ? it.importance : '0.6') + '">' +
+      '<input class="rd-tags" placeholder="标签（逗号分隔）" value="' + esc((it.tags || []).join(',')) + '">' +
       '<button class="rd-del" onclick="this.parentNode.parentNode.remove()">✕</button>' +
     '</div>';
   box.appendChild(row);
@@ -346,11 +354,12 @@ function closeTrans() { $('transpanel').style.display = 'none'; }
 function addTransRow(real, virtual, note) {
   const row = document.createElement('div');
   row.className = 'tp-row';
+  // P1 修复（GPT 审查·XSS）：real/virtual/note 来自文件/导入，须转义
   row.innerHTML =
-    '<input class="tp-real" placeholder="现实词（如：手机）" value="' + (real || '') + '">' +
+    '<input class="tp-real" placeholder="现实词（如：手机）" value="' + esc(real || '') + '">' +
     '<span>→</span>' +
-    '<input class="tp-virtual" placeholder="扮演词（如：神之眼终端）" value="' + (virtual || '') + '">' +
-    '<input class="tp-note" placeholder="备注（可选）" value="' + (note || '') + '">' +
+    '<input class="tp-virtual" placeholder="扮演词（如：神之眼终端）" value="' + esc(virtual || '') + '">' +
+    '<input class="tp-note" placeholder="备注（可选）" value="' + esc(note || '') + '">' +
     '<button class="tp-del" onclick="this.parentNode.remove()">✕</button>';
   $('tp_rows').appendChild(row);
 }
@@ -419,6 +428,32 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
             ctx.logger.warn('dsh-memory: webServer 服务不可用，跳过角色扮演网页挂载');
             return;
         }
+        // P1 修复（GPT 审查）：
+        // ① 请求体大小限制（此前 for-await 无限累加，恶意请求可制造内存压力）
+        const readBody = async (req, maxBytes = 1_000_000) => {
+            let body = '';
+            let size = 0;
+            for await (const chunk of req) {
+                size += chunk.length;
+                if (size > maxBytes) {
+                    const err = new Error('请求体过大（>1MB）');
+                    err.status = 413;
+                    throw err;
+                }
+                body += chunk;
+            }
+            return body;
+        };
+        // ② 编辑鉴权：README 声称「编辑需 ROLEPLAY_EDIT_KEY」——此前代码未实现。
+        // 配置了 ROLEPLAY_EDIT_KEY 环境变量则写操作（meta/import/translate/创建角色）
+        // 必须带 x-edit-key 头；未配置时保持本地开发默认开放（README 已如实说明）。
+        const EDIT_KEY = process.env.ROLEPLAY_EDIT_KEY || '';
+        const requireEditKey = (req) => {
+            if (!EDIT_KEY)
+                return true;
+            const h = (req.headers && req.headers['x-edit-key']) || '';
+            return h === EDIT_KEY;
+        };
         const roleDataDir = join(dirname(config.dbPath), 'roleplay_data');
         try {
             mkdirSync(join(roleDataDir, 'roleplay'), { recursive: true });
@@ -557,9 +592,21 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                     return;
                 }
                 if (req.method === 'POST' && url.pathname.startsWith('/roleplay/api/roles/') && url.pathname.endsWith('/import')) {
-                    let body = '';
-                    for await (const chunk of req)
-                        body += chunk;
+                    // P1 修复（GPT 审查）：写操作鉴权（ROLEPLAY_EDIT_KEY）+ 请求体大小限制
+                    if (!requireEditKey(req)) {
+                        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: '缺少编辑密钥（x-edit-key 头）' }));
+                        return;
+                    }
+                    let body;
+                    try {
+                        body = await readBody(req);
+                    }
+                    catch (e) {
+                        res.writeHead(e.status || 400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: String((e && e.message) || e) }));
+                        return;
+                    }
                     const p = JSON.parse(body);
                     const role = decodeURIComponent(url.pathname.split('/')[4]);
                     const kind = p.kind || 'memory';
@@ -583,13 +630,27 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                         }
                     }
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-                    res.end(JSON.stringify({ ok: true, kind, items, import: impResult }));
+                                        // P1 修复（GPT 审查）：引擎导入失败不得返回 ok:true（前端会显示「已保存」）
+                    const importOk = !(impResult && (impResult.error || impResult.isError));
+                    res.end(JSON.stringify({ ok: importOk, kind, items, import: impResult }));
                     return;
                 }
                 if (req.method === 'POST' && url.pathname.startsWith('/roleplay/api/roles/') && url.pathname.endsWith('/meta')) {
-                    let body = '';
-                    for await (const chunk of req)
-                        body += chunk;
+                    // P1 修复（GPT 审查）：写操作鉴权（ROLEPLAY_EDIT_KEY）+ 请求体大小限制
+                    if (!requireEditKey(req)) {
+                        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: '缺少编辑密钥（x-edit-key 头）' }));
+                        return;
+                    }
+                    let body;
+                    try {
+                        body = await readBody(req);
+                    }
+                    catch (e) {
+                        res.writeHead(e.status || 400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: String((e && e.message) || e) }));
+                        return;
+                    }
                     const p = JSON.parse(body);
                     const role = decodeURIComponent(url.pathname.split('/')[4]);
                     const meta = readRoleMeta();
@@ -609,9 +670,16 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                     return;
                 }
                 if (req.method === 'POST' && url.pathname === '/roleplay/api/chat') {
-                    let body = '';
-                    for await (const chunk of req)
-                        body += chunk;
+                    // P1 修复（GPT 审查）：对话接口加请求体大小限制（用户聊天不需编辑密钥）
+                    let body;
+                    try {
+                        body = await readBody(req);
+                    }
+                    catch (e) {
+                        res.writeHead(e.status || 400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: String((e && e.message) || e) }));
+                        return;
+                    }
                     const p = JSON.parse(body);
                     const role = p.role_id || 'protocol-guide';
                     // —— 服务端内容分级硬拦截（不依赖前端，法律与协议保护）——
@@ -656,9 +724,21 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                     return;
                 }
                 if (req.method === 'POST' && url.pathname === '/roleplay/api/translate') {
-                    let body = '';
-                    for await (const chunk of req)
-                        body += chunk;
+                    // P1 修复（GPT 审查）：写操作鉴权（ROLEPLAY_EDIT_KEY）+ 请求体大小限制
+                    if (!requireEditKey(req)) {
+                        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: '缺少编辑密钥（x-edit-key 头）' }));
+                        return;
+                    }
+                    let body;
+                    try {
+                        body = await readBody(req);
+                    }
+                    catch (e) {
+                        res.writeHead(e.status || 400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: String((e && e.message) || e) }));
+                        return;
+                    }
                     const p = JSON.parse(body);
                     const role = p.role_id || 'protocol-guide';
                     const pairs = (Array.isArray(p.pairs) ? p.pairs : [])
@@ -679,9 +759,21 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                     return;
                 }
                 if (req.method === 'POST' && url.pathname === '/roleplay/api/roles') {
-                    let body = '';
-                    for await (const chunk of req)
-                        body += chunk;
+                    // P1 修复（GPT 审查）：写操作鉴权（ROLEPLAY_EDIT_KEY）+ 请求体大小限制
+                    if (!requireEditKey(req)) {
+                        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: '缺少编辑密钥（x-edit-key 头）' }));
+                        return;
+                    }
+                    let body;
+                    try {
+                        body = await readBody(req);
+                    }
+                    catch (e) {
+                        res.writeHead(e.status || 400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: String((e && e.message) || e) }));
+                        return;
+                    }
                     const p = JSON.parse(body);
                     const r = await bridge.callTool('role_create', {
                         role_id: p.role_id, name: p.name || '', scenario: p.scenario || '', first_mes: p.first_mes || '', data_dir: roleDataDir,
