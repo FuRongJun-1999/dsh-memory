@@ -255,7 +255,7 @@ export function safeTaskId(id: string): boolean {
 export async function processTask(task: VerifyTask,
                                   verifyFn: (c: string) => Promise<{ judgment: string; best: string; d_norm: number; record_id: string }>,
                                   reviewFn: (c: string, w: VerifyResult['whitebox']) => Promise<{ conclusion: string; reason: string }>,
-                                  opts: MutualOptions = DEFAULTS): Promise<VerifyResult> {
+                                  opts: MutualOptions = DEFAULTS): Promise<VerifyResult | null> {
   const dir = path.join(netDir(opts), 'tasks')
   // P1 修复（GPT 审查）：task.id 路径穿越——非法 id 拒绝处理，不写任何文件
   if (!safeTaskId(task.id)) {
@@ -263,34 +263,51 @@ export async function processTask(task: VerifyTask,
     throw new Error(`非法任务 id: ${task.id}`)
   }
   const taskPath = path.join(dir, `task-${task.id}.json`)
-  // 标记 processing
+  // P1 完善（GPT 审查·任务竞态）：原子 claim——rename task→processing。
+  // 多实例同时 scanTasks 读到同一 pending 时，rename 只有一方成功；
+  // 失败（文件已被 rename/不存在）= 其他实例正在处理 → 跳过（返回 null）。
+  // 此前无锁：多实例都写 processing/result/done，结果互相覆盖。
+  const claimPath = path.join(dir, `processing-${task.id}.json`)
   try {
-    fs.writeFileSync(taskPath, JSON.stringify({ ...task, status: 'processing' }, null, 2), 'utf-8')
-  } catch { /* 非阻塞 */ }
-
-  const w = await whiteboxVerify(task.payload.claim, verifyFn)
-  const l = await llmReview(task.payload.claim, w, reviewFn)
-  const verdict = combineVerdict(w, l)
-  const result: VerifyResult = {
-    task_id: task.id,
-    verdict,
-    whitebox: w,
-    llm_review: l,
-    reasons: [
-      `白箱判定：${w.judgment}（best=${w.best}，d_norm=${w.d_norm}）`,
-      `复核结论：${l.conclusion}`,
-    ],
-    evidence: [task.payload.source_ref || ''].filter(Boolean),
-    verifier: 'B',
-    at: Date.now() / 1000,
+    fs.renameSync(taskPath, claimPath)
   }
-  fs.writeFileSync(path.join(dir, `result-${task.id}.json`), JSON.stringify(result, null, 2), 'utf-8')
-  // 标记 done
+  catch {
+    return null // 已被其他实例 claim，或文件不存在
+  }
   try {
-    fs.writeFileSync(taskPath, JSON.stringify({ ...task, status: 'done' }, null, 2), 'utf-8')
-  } catch { /* 非阻塞 */ }
-  log(opts, `任务 ${task.id} 验证完成：${verdict}`)
-  return result
+    const w = await whiteboxVerify(task.payload.claim, verifyFn)
+    const l = await llmReview(task.payload.claim, w, reviewFn)
+    const verdict = combineVerdict(w, l)
+    const result: VerifyResult = {
+      task_id: task.id,
+      verdict,
+      whitebox: w,
+      llm_review: l,
+      reasons: [
+        `白箱判定：${w.judgment}（best=${w.best}，d_norm=${w.d_norm}）`,
+        `复核结论：${l.conclusion}`,
+      ],
+      evidence: [task.payload.source_ref || ''].filter(Boolean),
+      verifier: 'B',
+      at: Date.now() / 1000,
+    }
+    // 结果先写 tmp 再 rename（原子，防半写文件）
+    const resultTmp = path.join(dir, `result-${task.id}.json.tmp`)
+    fs.writeFileSync(resultTmp, JSON.stringify(result, null, 2), 'utf-8')
+    fs.renameSync(resultTmp, path.join(dir, `result-${task.id}.json`))
+    // 完成：清理 claim 文件（rename 回 done 标记供审计）
+    fs.renameSync(claimPath, path.join(dir, `done-${task.id}.json`))
+    log(opts, `任务 ${task.id} 验证完成：${verdict}`)
+    return result
+  }
+  catch (e) {
+    // 处理失败：释放 claim（rename 回 task 供重试）
+    try {
+      fs.renameSync(claimPath, taskPath)
+    }
+    catch { /* 文件可能已不在 */ }
+    throw e
+  }
 }
 
 // ---------------------------------------------------------------------------
