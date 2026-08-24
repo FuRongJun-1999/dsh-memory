@@ -175,6 +175,21 @@ function esc(s) {
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[c]);
 }
+// P1 完善（会话隔离）：浏览器客户端实例 ID（localStorage 持久化）——
+// 服务端按 x-client-id 隔离 session 与转录；多浏览器/多设备互不串线
+let CLIENT_ID = '';
+try {
+  CLIENT_ID = localStorage.getItem('lingshu_client_id');
+  if (!CLIENT_ID) {
+    CLIENT_ID = 'c' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem('lingshu_client_id', CLIENT_ID);
+  }
+} catch (e) { /* localStorage 不可用（隐私模式）→ 空，服务端落 shared */ }
+function apiHeaders(extra) {
+  const h = { 'Content-Type': 'application/json' };
+  if (CLIENT_ID) h['x-client-id'] = CLIENT_ID;
+  return Object.assign(h, extra || {});
+}
 // —— 内容分级：年龄门控 + NSFW 检测（法律与协议保护）——
 // 国家法律：涉未成年人性内容一律拒绝；成人内容仅限满 18 岁 + 个人对话场景。
 const AGE_KEY = 'lingshu_roleplay_age_confirmed';
@@ -228,7 +243,7 @@ async function loadHistory(roleId) {
   const chatEl = $('chat');
   chatEl.innerHTML = '';
   try {
-    const r = await fetch('/roleplay/api/history?role_id=' + encodeURIComponent(roleId)).then(x => x.json());
+    const r = await fetch('/roleplay/api/history?role_id=' + encodeURIComponent(roleId), { headers: apiHeaders() }).then(x => x.json());
     const h = r.history || [];
     if (!h.length) {
       const hint = document.createElement('div');
@@ -255,7 +270,7 @@ async function send() {
   const role = $('roleSel').value;
   const btn = $('send'); btn.disabled = true; $('typing').style.display = 'block';
   try {
-    const r = await fetch('/roleplay/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ role_id: role, message: text }) }).then(x => x.json());
+    const r = await fetch('/roleplay/api/chat', { method:'POST', headers: apiHeaders(), body: JSON.stringify({ role_id: role, message: text }) }).then(x => x.json());
     addMsg(r.reply || '（无回应：' + (r.error || '未知错误') + '）', 'bot', r.route, r.memories);
   } catch (e) { addMsg('网络错误：' + e, 'bot'); }
   btn.disabled = false; $('typing').style.display = 'none';
@@ -465,9 +480,9 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
             mkdirSync(transcriptsDir, { recursive: true });
         }
         catch { /* 忽略 */ }
-        const transcriptFile = (roleId) => join(transcriptsDir, `${roleId.replace(/[^\w.-]/g, '_')}.jsonl`);
-        const readTranscript = (roleId) => {
-            const f = transcriptFile(roleId);
+        const transcriptFile = (roleId, clientId) => join(transcriptsDir, `${roleId.replace(/[^\w.-]/g, '_')}__${clientId}.jsonl`);
+        const readTranscript = (roleId, clientId = 'shared') => {
+            const f = transcriptFile(roleId, clientId);
             if (!existsSync(f))
                 return [];
             const out = [];
@@ -481,14 +496,22 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
             }
             return out;
         };
-        const appendTranscript = (roleId, entry) => {
+        const appendTranscript = (roleId, entry, clientId = 'shared') => {
             try {
-                appendFileSync(transcriptFile(roleId), JSON.stringify(entry) + '\n');
+                appendFileSync(transcriptFile(roleId, clientId), JSON.stringify(entry) + '\n');
             }
             catch { /* 忽略 */ }
         };
         // 稳定会话：角色+固定会话 id，让引擎的会话上下文与记忆标签跨轮连续（无限上下文）
-        const sessionFor = (roleId) => `web-main:${roleId}`;
+        // P1 完善（GPT 审查·会话隔离）：开源无身份认证，但必须做客户端实例隔离——
+        // 此前所有用户共用 session `web-main:<role>` + 同一转录文件，多浏览器/多设备
+        // 对话互相串线、看到彼此历史。现在按浏览器客户端生成的 client_id（x-client-id
+        // 头，localStorage 持久化）隔离 session 与转录文件；无 header 的旧客户端落 shared。
+        const clientIdOf = (req) => {
+            const h = (req.headers && req.headers['x-client-id']) || '';
+            return /^[A-Za-z0-9_-]{1,64}$/.test(h) ? h : 'shared';
+        };
+        const sessionFor = (roleId, clientId) => `web-${clientId}:${roleId}`;
         // —— 自定义翻译（现实词 ↔ 扮演词）——
         // 翻译表写入角色 meta（_roles.json）：引擎每次 roleplay_chat 都新建引擎并重读
         // meta，因此写入立即生效（输入翻译 real→virtual + LLM 沉浸注入块都会应用）。
@@ -682,6 +705,8 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                     }
                     const p = JSON.parse(body);
                     const role = p.role_id || 'protocol-guide';
+                    // P1 完善（会话隔离）：按客户端实例隔离 session 与转录
+                    const cid = clientIdOf(req);
                     // —— 服务端内容分级硬拦截（不依赖前端，法律与协议保护）——
                     // 未成年 + 性 = 一律拒绝（国家法律 + 未成年人保护）；NSFW 词提示年龄确认
                     const NSFW_WORDS = ['做爱', '性交', '性行为', '口交', '肛交', '高潮', '自慰', '射精', '色情', '裸体', '脱光', '爱抚', '挑逗', '性器官', '插入', '内射', '强暴'];
@@ -693,9 +718,9 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                         res.end(JSON.stringify({ reply: '⛔ 已拒绝：涉及未成年人的性内容违反国家法律与灵枢协议（未成年人保护）。灵枢不提供任何涉及未成年人的性扮演内容。', route: 'refused', refused: 'minor_nsfw' }));
                         return;
                     }
-                    appendTranscript(role, { time: Date.now(), role: 'user', text: p.message });
+                    appendTranscript(role, { time: Date.now(), role: 'user', text: p.message }, cid);
                     const r = await bridge.callTool('roleplay_chat', {
-                        message: p.message, role_id: role, session_id: sessionFor(role), data_dir: roleDataDir,
+                        message: p.message, role_id: role, session_id: sessionFor(role, cid), data_dir: roleDataDir,
                     });
                     const text = typeof r === 'string' ? r : (r?.content?.[0]?.text ?? JSON.stringify(r));
                     let parsed;
@@ -711,7 +736,7 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                     if ((settings[role] && settings[role].mode) === 'bidirectional') {
                         replyText = applyTranslate(replyText, getTranslations(role), 'out');
                     }
-                    appendTranscript(role, { time: Date.now(), role: 'bot', text: replyText, route: parsed.route ?? '', memories: parsed.memories ?? undefined });
+                    appendTranscript(role, { time: Date.now(), role: 'bot', text: replyText, route: parsed.route ?? '', memories: parsed.memories ?? undefined }, cid);
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
                     res.end(JSON.stringify({ reply: replyText, route: parsed.route ?? '', memories: parsed.memories ?? undefined, error: parsed.error ?? undefined }));
                     return;
@@ -754,8 +779,9 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                 }
                 if (req.method === 'GET' && url.pathname === '/roleplay/api/history') {
                     const role = url.searchParams.get('role_id') || 'protocol-guide';
+                    // P1 完善（会话隔离）：按客户端实例读各自转录
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-                    res.end(JSON.stringify({ history: readTranscript(role) }));
+                    res.end(JSON.stringify({ history: readTranscript(role, clientIdOf(req)) }));
                     return;
                 }
                 if (req.method === 'POST' && url.pathname === '/roleplay/api/roles') {
