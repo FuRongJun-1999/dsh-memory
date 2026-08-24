@@ -293,6 +293,8 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
       userMessage: true                # 用户消息自动沉淀
       assistantMessage: false          # agent 回复沉淀（默认关，防噪音）
       toolResult: false                # 工具结果沉淀（默认关）
+      autoRecall: true                 # 模型请求前自动注入最近记忆
+      desensitize: true                # 写入前过滤敏感信息（密钥/密码/身份证/手机号）
 ```
 
 完整示例见 [`cordis.yml.example`](./cordis.yml.example)。
@@ -312,6 +314,9 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 | `memory.assistantMessage` | boolean | `false` | agent 回复 → 自动 remember |
 | `memory.toolResult` | boolean | `false` | 工具结果 → 自动 remember |
 | `memory.importance` | number | `0.6` | 自动记忆的重要性（0~1） |
+| `memory.autoRecall` | boolean | `true` | 模型请求前自动注入灵枢最近记忆（`system-prompt/assemble` 注入，失败静默） |
+| `memory.autoRecallLimit` | number | `4` | 自动召回条数（1~10） |
+| `memory.desensitize` | boolean | `true` | 写入前过滤敏感信息（`sk-`密钥/密码/`Bearer`令牌/18位身份证/11位手机号 → `[已过滤]`；纯凭据消息跳过写入） |
 | `toolCallTimeoutMs` | number | `60000` | 单次工具调用超时 |
 | `maxRetryDelayMs` | number | `30000` | 进程重启最大退避间隔 |
 | `failOnStartupError` | boolean | `false` | 启动失败是否让插件激活失败 |
@@ -323,6 +328,8 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 - `user/message`（仅 `source.kind === 'user'` 的真实用户消息）→ `remember`（importance 0.6，tags `dsh`）
 - 插件注入的系统上下文（AGENTS.md、文件变更通知等 `kind: 'plugin'`）**不写入**，防止记忆噪音
 - 灵枢自带去重（相似度基准 + 时间窗口），重复消息不会堆积
+- **敏感信息脱敏**（`memory.desensitize`）：写入前过滤 `sk-`密钥 / API key / 密码 / `Bearer`令牌 / 18位身份证 / 11位手机号（替换为 `[已过滤:类别]`）；纯凭据消息整条跳过，不落库
+- **自动召回注入**（`memory.autoRecall`）：每次模型请求组装 system prompt 时自动注入灵枢最近记忆（`system-prompt/assemble` 事件），记忆"自动可用"；召回失败静默不阻塞请求
 
 ## 🛟 DSH 看门狗（scripts/）
 
