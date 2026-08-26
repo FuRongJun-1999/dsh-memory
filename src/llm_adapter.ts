@@ -107,11 +107,45 @@ export async function* wrapTextStream(
   yield { type: 'finish', reason: 'stop' }
 }
 
+/**
+ * 白箱知识卡片格式检测：REVERSE_DAILY 直答是知识库内部格式——
+ * 「X是什么…，是『A』vs『B』的矛盾——X（是…（…（…）…）…真相：①…」
+ * 特征（任一强信号命中即判定）：
+ * ① 卡片开头句式：内容含「，是『X』vs『Y』的矛盾——」（矛盾标记+破折号）
+ * ② 「真相：」结构化标记（卡片分段标题）+ 括号密集（>8）
+ * ③ 长文本（>300）+ 高括号密度（>20）+ 无自然语言标点分隔（顿号密集）
+ */
+export function isCardFormat(text: string): boolean {
+  if (!text) return false
+
+  // ① 强信号：矛盾标记句式（「，是『A』vs『B』的矛盾——」）——卡片开头的
+  //    标志性结构，不受长度门槛限制（短卡片也判定）
+  if (/，是『[^』]{1,12}』vs『[^』]{1,12}』的矛盾[——\-]/.test(text)) return true
+
+  // 短文本（<150）无矛盾标记 → 正常文本
+  if (text.length < 150) return false
+
+  // ② 「真相：」+ 括号密集（卡片的分段结构）
+  if (text.includes('真相：')) {
+    const parens = (text.match(/（/g) ?? []).length
+    if (parens >= 8) return true
+  }
+
+  // ③ 超长 + 极高括号密度（卡片展开体）
+  const parens2 = (text.match(/（/g) ?? []).length
+  if (text.length > 300 && parens2 > 20) return true
+
+  return false
+}
+
 /** 白箱 adapter 依赖注入。 */
 export interface WhiteboxAdapterDeps {
   /** 灵枢桥（MCP stdio）——白箱引擎通道。 */
   bridge?: LingshuBridge
-  /** 降级 LLM 调用器（占位；后续接 dsh-llm-deepseek 复用）。 */
+  /**
+   * 降级 LLM：白箱未命中（route=llm / 桥未就绪）时转发。由 installWhiteboxLlm
+   * 注入 DSH 的 llm 服务（走 fallbackProvider 路由），实现「白箱优先 + LLM 降级」。
+   */
   fallback?: { stream(o: LlmGenerateOptions): AsyncIterable<LlmStreamChunk> }
 }
 
@@ -179,8 +213,15 @@ export class WhiteboxLlmAdapter {
           else if (parsed.reply !== undefined) text = JSON.stringify(parsed.reply)
         }
         catch { /* 非 JSON = 纯文本回复 */ }
-        if (route !== 'llm' && text && text.trim()) {
+        // 质量门槛（v0.4.1）：REVERSE_DAILY 卡片直答是知识库内部格式——
+        // 「X是什么…是『A』vs『B』的矛盾——X（是…（…）」重复+括号嵌套，
+        // 直接当 LLM 输出喂给用户=「重复回答」。检测到卡片特征 → 视为
+        // 未命中，走降级 LLM（白箱不输出内部格式垃圾）。
+        if (route !== 'llm' && text && text.trim() && !isCardFormat(text)) {
           whitebox = { text: text.trim(), route }
+        }
+        else if (text && isCardFormat(text)) {
+          console.warn('[whitebox-llm] 白箱返回知识卡片格式，降级 LLM（内部格式不直出）')
         }
       }
       catch (err) {
@@ -221,14 +262,31 @@ export function installWhiteboxLlm(ctx: Context, bridge: LingshuBridge | undefin
   // 注意：不能直接读 ctx.llm——Cordis 未声明 inject 的属性访问会抛
   // "cannot get property without inject"；ctx.get('llm') 安全返回 undefined。
   const llm = ctx.get('llm') as
-    | { registerAdapter?: (p: string[], a: unknown) => { replace?: (p: string[]) => void }; registerConfigurableProviders?: (e: unknown[]) => void }
+    | {
+      registerAdapter?: (p: string[], a: unknown) => { replace?: (p: string[]) => void }
+      registerConfigurableProviders?: (e: unknown[]) => void
+      stream?: (o: Record<string, unknown>) => AsyncIterable<LlmStreamChunk>
+      listProviders?: () => Array<{ id: string }>
+    }
     | undefined
   if (!llm?.registerAdapter) {
     ctx.logger?.info?.('dsh-memory: llm 服务不可用，跳过白箱 provider 注册（最小 host）')
     return () => {}
   }
 
-  const adapter = new WhiteboxLlmAdapter({ bridge })
+  // 降级 LLM：白箱未命中时转发给 fallbackProvider 路由（默认 deepseek-official，
+  // 可在 settings.yaml 的 llm-whitebox.fallbackProvider 覆盖）。通过 llm.stream
+  // 重路由——保持 DSH 的全链路（重试/瀑布流/用量计量）。
+  const fallbackProvider = 'deepseek-official'
+  const fallback: WhiteboxAdapterDeps['fallback'] | undefined = llm.stream
+    ? {
+      stream(options) {
+        return llm.stream!({ ...options, provider: fallbackProvider })
+      },
+    }
+    : undefined
+
+  const adapter = new WhiteboxLlmAdapter({ bridge, fallback })
   try {
     llm.registerConfigurableProviders?.([{
       provider: WHITEBOX_PROVIDER,
@@ -237,7 +295,7 @@ export function installWhiteboxLlm(ctx: Context, bridge: LingshuBridge | undefin
       settingsPath: [],
     }])
     const registration = llm.registerAdapter([WHITEBOX_PROVIDER], adapter)
-    ctx.logger?.info?.('dsh-memory: 白箱 LLM provider 已注册: %s', WHITEBOX_PROVIDER)
+    ctx.logger?.info?.('dsh-memory: 白箱 LLM provider 已注册: %s（降级→%s）', WHITEBOX_PROVIDER, fallbackProvider)
     return () => { try { registration?.replace?.([]) } catch { /* 忽略注销异常 */ } }
   }
   catch (err) {
