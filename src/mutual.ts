@@ -345,7 +345,7 @@ export function writeLastContact(opts: MutualOptions = DEFAULTS): void {
 // ---------------------------------------------------------------------------
 
 export function installMutualMaintenance(
-  ctx: { logger: { info(m: string): void }; interval(fn: () => void, ms: number): () => void; effect(fn: () => () => void, name?: string): void },
+  ctx: { logger: { info(m: string): void }; effect(fn: () => () => void, name?: string): void },
   config: Partial<MutualOptions> = {},
   hooks: {
     verify?: (c: string) => Promise<{ judgment: string; best: string; d_norm: number; record_id: string }>
@@ -358,7 +358,10 @@ export function installMutualMaintenance(
   // P1 修复（GPT 审查）：cordis-plugin-timer 签名是 interval(callback, delay)
   // ——此前 (ms, fn) 写反：数字被当 callback、函数被当 delay，回调永不执行，
   // 互维心跳/任务扫描实际不工作。
-  const heartbeatDispose = ctx.interval(() => {
+  // P2 修复：不能用 ctx.interval——那是 cordis-plugin-timer 注入的快捷属性，
+  // 未声明 `timer` inject 时访问抛 "cannot get property without inject"。
+  // 改用 Node 原生 setInterval（互维不需要 Cordis effect 生命周期管理）。
+  const heartbeatTimer = setInterval(() => {
     try {
       writeHeartbeat(opts)
       // 守护 A：harness 不在 → 拉起
@@ -373,9 +376,10 @@ export function installMutualMaintenance(
       writeLastContact(opts)
     } catch (e) { /* 单次失败不中断 */ }
   }, opts.heartbeatMs)
+  heartbeatTimer.unref?.()
 
   // 2. 任务轮询（30s 周期，检查 A→B 任务）
-  const taskDispose = ctx.interval(() => {
+  const taskTimer = setInterval(() => {
     try {
       const tasks = scanTasks(opts)
       for (const t of tasks) {
@@ -386,13 +390,14 @@ export function installMutualMaintenance(
       }
     } catch (e) { /* 单次失败不中断 */ }
   }, 30_000)
+  taskTimer.unref?.()
 
   // 3. effect 作用域清理
   ctx.effect(() => {
     return () => {
       try {
-        heartbeatDispose()
-        taskDispose()
+        clearInterval(heartbeatTimer)
+        clearInterval(taskTimer)
       } catch { /* 清理失败不阻塞 */ }
     }
   }, 'dsh-memory-mutual')

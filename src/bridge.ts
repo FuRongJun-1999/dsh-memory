@@ -9,8 +9,14 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, appendFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+
+/** 调试探针：记录桥生命周期到独立文件（绕过 DSH 日志系统，便于定位启动问题）。 */
+const DEBUG_LOG = 'C:/Users/FuRongJun/.dsh/logs/lingshu-bridge-debug.log'
+function probe(msg: string): void {
+  try { appendFileSync(DEBUG_LOG, `[${new Date().toISOString()}] ${msg}\n`) } catch { /* 探针失败忽略 */ }
+}
 
 /** 灵枢 MCP server 暴露的原始工具（tools/list 结果项）。 */
 export interface McpTool {
@@ -166,6 +172,7 @@ export class LingshuBridge {
       // 进程无法启动（python 不存在等）——响亮失败
       if (!this.disposed) {
         console.error(`[lingshu-bridge] 灵枢进程启动失败: ${err.message}`)
+        probe(`spawn error: ${String(err)}`)
         this.readyState = 'failed'
         this.flushBootQueue(false)
         this.scheduleRetry()
@@ -173,6 +180,8 @@ export class LingshuBridge {
     })
 
     proc.on('exit', (code, signal) => {
+      // 探针：写独立文件记录退出（绕过 DSH 日志系统，便于定位）
+      probe(`exit code=${code} signal=${signal} disposed=${this.disposed} ready=${this.readyState} started=${this.started}`)
       console.error(`[lingshu-bridge] 灵枢进程退出 code=${code} signal=${signal}`)
       this.rl?.close()
       this.rl = null
@@ -203,6 +212,7 @@ export class LingshuBridge {
     } catch (err) {
       if (!this.disposed) {
         console.error(`[lingshu-bridge] 握手失败: ${(err as Error).message}`)
+        probe(`handshake failed: ${String(err)}`)
         this.readyState = 'failed'
         this.flushBootQueue(false)
         this.scheduleRetry()

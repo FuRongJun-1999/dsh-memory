@@ -438,7 +438,9 @@ window.addEventListener('resize', function () { if (chat) chat.scrollTop = chat.
 /** 在 webServer 上挂载 /roleplay 前缀路由（页面 + API）。失败不影响插件主体。 */
 export async function installRoleplayWeb(ctx, bridge, config, disposers) {
     try {
-        const webServer = ctx.webServer;
+        // 注意：不能直接读 ctx.webServer——Cordis 未声明 inject 的属性访问会抛
+        // "cannot get property without inject"；ctx.get() 安全返回 undefined。
+        const webServer = ctx.get('webServer');
         if (!webServer) {
             ctx.logger.warn('dsh-memory: webServer 服务不可用，跳过角色扮演网页挂载');
             return;

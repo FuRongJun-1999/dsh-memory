@@ -19,10 +19,17 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { appendFileSync } from 'node:fs'
 import { LingshuBridge, type McpCallResult } from './bridge.js'
 import { registerLingshuTools, type ToolSelection } from './tools.js'
 import { installMemoryHooks, type MemoryHooksOptions } from './hooks.js'
 import { installRoleplayWeb } from './roleplay_web.js'
+
+/** 调试探针：记录 apply 失败到独立文件（绕过 DSH 日志系统）。 */
+const APPLY_ERROR_LOG = 'C:/Users/FuRongJun/.dsh/logs/dsh-memory-apply-error.log'
+function probeApplyError(err: unknown): void {
+  try { appendFileSync(APPLY_ERROR_LOG, `[${new Date().toISOString()}] apply failed: ${String(err)}\n${(err as Error).stack ?? ''}\n`) } catch { /* 探针失败忽略 */ }
+}
 
 export const name = 'dsh-memory'
 
@@ -184,8 +191,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // 互维维护（v1.1）：心跳写戳 + 守护 A + 任务验证双通道
     if (config.mutual.enabled) {
       // P1 修复（GPT 审查）：timer 是可选服务——缺失时告警跳过互维，
-      // 不让插件因互维而阻塞（inject 已不再强声明 timer）
-      const hasTimer = (ctx as { timer?: unknown }).timer !== undefined
+      // 不让插件因互维而阻塞（inject 已不再强声明 timer）。
+      // 注意：不能直接读 ctx.timer——Cordis 未声明 inject 的属性访问会抛
+      // "cannot get property without inject"（getter 严格）；ctx.get() 安全。
+      const hasTimer = ctx.get('timer') !== undefined
       if (!hasTimer) {
         ctx.logger.warn('dsh-memory: timer 服务不可用，跳过互维维护（mutual.enabled=true 但无 timer）')
       } else {
@@ -231,6 +240,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       }
     }
   } catch (err) {
+    // 探针：记录 apply 失败的具体错误（定位插件加载失败根因）
+    probeApplyError(err)
     bridge.dispose()
     throw err
   }
