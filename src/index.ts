@@ -173,6 +173,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // 角色扮演网页（同源挂载 /roleplay，复用本插件 bridge）
     await installRoleplayWeb(ctx, bridge, config, disposers)
 
+    // 白箱 LLM 服务商（v0.4 新能力）：把灵枢注册为 DSH 的 provider，
+    // Web/QQ/飞书等所有会话可选「白箱灵枢」模型——白箱直答（零 LLM），
+    // 输入/输出/缓存命中 token 计数对齐 dsh-llm 协议。动态检测 llm 服务。
+    {
+      const { installWhiteboxLlm } = await import('./llm_adapter.js')
+      disposers.push(installWhiteboxLlm(ctx, bridge))
+    }
+
     // 互维维护（v1.1）：心跳写戳 + 守护 A + 任务验证双通道
     if (config.mutual.enabled) {
       // P1 修复（GPT 审查）：timer 是可选服务——缺失时告警跳过互维，
