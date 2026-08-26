@@ -44,11 +44,11 @@ export const BRAIN_TOOLS = [
   // 学习与盲区
   'blindspots', 'learn', 'induce',
   // 知识飞轮
-  'distill', 'flywheel_report', 'transfer_test', 'calibrate',
+  'distill', 'flywheel_metrics', 'transfer_test', 'calibrate',
   // 外部知识摄取
   'ingest_text', 'ingest_file', 'ingest_url', 'web_search',
   // 生命周期
-  'step', 'lifecycle_state',
+  'lifecycle_step', 'lifecycle_state',
   // 长期记忆门（v1.15：重要性评估主动沉淀）
   'longterm_snapshot', 'promote_memories',
   // 服务
@@ -64,7 +64,7 @@ export type ToolSelection = 'core' | 'brain' | 'all' | string[]
 const READ_TOOLS = new Set([
   'recall', 'search', 'timeline', 'think', 'reason', 'predict_routes',
   'self_check', 'service_info', 'session_recall', 'gap_trend', 'transfer_test',
-  'cognition_report', 'self_reliability', 'emotional_bias', 'flywheel_report',
+  'cognition_report', 'self_reliability', 'emotional_bias', 'flywheel_metrics',
   'distill', 'insight_report', 'prediction_stats', 'blindspots', 'pattern_separation',
 ])
 
