@@ -1,6 +1,8 @@
 # 让 AI Agent 拥有不可遗忘的自我
 ## 灵枢（AEIS）× DeepSeek Harness · 白箱智能研究平台（AGI 研究人员向）
 
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![npm version](https://img.shields.io/npm/v/@furongjun1999/dsh-memory.svg)](https://www.npmjs.com/package/@furongjun1999/dsh-memory) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > **一句话**：dsh-memory 把灵枢（AEIS）的**白箱智能**（条件路由表 → 组合生成 → 自校验 → 知识固化 → LLM 降级外部校验器）与 **AGI 级长期记忆**（跨会话、自演化、可审计）接入 DeepSeek Harness。
 
 **项目定位**：个人的大型研究项目——目标用户是**对 AGI 有需要的研究人员**（白箱智能 / 可解释性 / 协议工程 / 记忆机制 / 扮演论研究者），不是面向普通用户的消费级插件。它把「智能论 v3.3」协议的理论（条件论 / 扮演论 / 信息差）工程化为**可运行、可审计、可复现**的机制：
