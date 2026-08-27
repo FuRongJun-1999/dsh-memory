@@ -17,8 +17,8 @@
 ## ⚡ 三步快启（30 秒上手）
 
 ```bash
-# ① 装灵枢大脑（一条命令，零外部依赖）
-pip install aeis-0.3.0-py3-none-any.whl          # 或 git+ 在线安装
+# ① 装灵枢大脑（一条命令，零外部依赖；v0.4.0 完整自包含：核心+白箱+知识库随包）
+pip install aeis-0.4.0-py3-none-any.whl          # 或 git+ 在线安装
 
 # ② 装进 DSH 的 web profile（pnpm 协调入口，不要用裸 npm install 装进 profile）
 dsh plugin --profile web add @furongjun1999/dsh-memory
@@ -413,13 +413,15 @@ python -m aeis.mcp.server
 
 **方式 A：本地 wheel 离线安装 ★ 最稳（不依赖网络）**
 
-在 `CommonTrustProtocol/aeis/dist/` 找到 `aeis-0.3.0-py3-none-any.whl`：
+在 `CommonTrustProtocol/aeis/dist/` 找到 `aeis-0.4.0-py3-none-any.whl`（**完整自包含发布版**）：
 
 ```bash
-pip install aeis-0.3.0-py3-none-any.whl
+pip install aeis-0.4.0-py3-none-any.whl
 ```
 
-> 单文件、离线可用、装一次管用。遇到网络不稳（GitHub clone 失败）时首选。
+> **v0.4.0 起为完整自包含单包**（10.2MB / 343 条目）：灵枢核心（aeis）+ 白箱智慧模块（wisdom，含 **2846 个 KCCS 注释知识点 + 学科知识库**）+ 三入口（harness）+ 种子知识（seed_knowledge，智能论 3.3 + 116 学科卡）。单文件、离线可用、装一次管用——知识库随包分发，无需另装。
+>
+> 遇到网络不稳（GitHub clone 失败）时首选本地 wheel。
 
 **方式 B：git 安装（需网络）**
 
@@ -427,7 +429,7 @@ pip install aeis-0.3.0-py3-none-any.whl
 pip install "aeis @ git+https://github.com/FuRongJun-1999/CommonTrustProtocol@main#subdirectory=aeis"
 ```
 
-> 依赖 GitHub 实时可达，网络不稳时可能失败。aeis 库核心**零外部依赖**（纯标准库），安装即得完整大脑（五层记忆 · 知识飞轮 · 安全护栏 · MCP · 身体层）。
+> 依赖 GitHub 实时可达，网络不稳时可能失败。aeis 库核心**零外部依赖**（纯标准库），安装即得完整大脑（五层记忆 · 知识飞轮 · 安全护栏 · 白箱智慧模块 · MCP · 身体层）。
 
 ### 安装插件本体
 
