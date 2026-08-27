@@ -99,7 +99,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 - **零运行时依赖**：手写 stdio MCP 桥，与灵枢 D-005「核心零外部依赖」哲学一致——你拿到的是一个干净、可信、可审的大脑。
 - **动态 schema + 进程自愈**：工具清单运行时拉取（灵枢升级 DSH 零改动），Python 子进程崩溃自动指数退避重启。
 - **工具注册竞态补注册**：启动时 python 未就绪（竞态）→ 桥重连成功后自动补注册工具（2s 轮询），不再"工具永久缺失"。
-- **白箱 wisdom_* 全工具**（`tools: all`）：75 个 MCP 工具含 wisdom_verify/analyze/predict/trust_judge/compose/respond/chat 白箱族，Agent 可直接调用。
+- **白箱 wisdom_* 全工具**（`tools: all`）：73 个 MCP 工具含 wisdom_verify/analyze/predict/trust_judge/compose/respond/chat 白箱族，Agent 可直接调用。
 - **内容分级门控**：**拒绝一切涉及未成年人的性内容**（服务端关键词组合硬拦截——未成年人特征词 + 性内容词同时命中即拒绝，`route=refused`）；成人内容由前端本地弹窗提示（满 18 周岁 + 个人对话场景自述）。注：开源项目不实现身份认证/年龄核验（那是绑定身份系统的商业 App 范畴）；内容过滤保护的是"未成年人 + 性内容"组合的明文请求。
 
 ## 🧠 白箱智能管线（知识查询零 LLM）
@@ -255,9 +255,9 @@ python -m aeis.mcp.server
 
 （B 站宣传素材：[封面](docs/promo/bilibili-cover.jpg) · [视觉图 ×5](docs/promo/)）
 
-## 🧰 工具清单（75 个 MCP 工具 · 全量）
+## 🧰 工具清单（73 个 MCP 工具 · 全量）
 
-灵枢 MCP server 注册 **75 个工具**，按心智功能分 10 大模块。工具清单运行时动态拉取（灵枢升级 DSH 零改动），下方为当前全量：
+灵枢 MCP server 注册 **73 个工具**，按心智功能分 9 大模块。工具清单运行时动态拉取（灵枢升级 DSH 零改动），下方为当前全量：
 
 ### 记忆与长期记忆（16）
 | 工具 | 功能 |
@@ -350,12 +350,6 @@ python -m aeis.mcp.server
 | `role_import` | 灵枢 · 角色导入三接口（扮演论）：kind ∈ memory(历史→知识层)/anchor(自我锚点→SELF层 no_forget)/values(特化价值观→STRUCTURE层带条件)。items 为条目数组。 |
 | `role_block` | 灵枢 · 角色扮演注入块（锚点/价值观/条件空间组装，供外部前端注入）。 |
 
-### 代码（2）
-| 工具 | 功能 |
-|---|---|
-| `code_compose` | 白箱代码组合生成（零 LLM）：语言识别 → 任务识别 → 代码单元 → 模板填充 → 自校验。未预写完整代码，单元库未覆盖时诚实拒绝。question 必填。 |
-| `code_qa` | 白箱代码问答（零 LLM）：代码理解路由——影响分析/依赖/并行测试/仓库统计。repo 为代码仓库路径（可选，默认当前目录）。未覆盖时诚实拒绝。 |
-
 ### 身体与设备（8）
 | 工具 | 功能 |
 |---|---|
@@ -378,14 +372,14 @@ python -m aeis.mcp.server
 
 | 模式 | 暴露数 | 说明 |
 |---|---|---|
-| `'all'` | **62** | 75 个全量中排除 13 个**宿主级风险工具**（见下），含全部身体/视觉/白箱/角色/智慧之书能力 |
+| `'all'` | **60** | 73 个全量中排除 13 个**宿主级风险工具**（见下），含全部身体/视觉/白箱/角色/智慧之书能力 |
 | `'brain'`（默认） | **36** | 去掉身体的完整大脑：记忆/推理/认知/学习/飞轮/反思/摄取/生命周期/长期记忆门/服务，**不含**身体视觉与风险工具 |
 | `'core'` | **12** | 精选核心：remember/recall/search/timeline/think/relate/predict_routes/ingest_text/ingest_url/session_note/self_check/service_info |
 | 字符串数组 | 自定义 | 显式列出的工具名（不受风险名单限制，配置者已明确选择） |
 
 **`'all'` 也排除的宿主级风险工具（13 个）**——`run_command`（宿主命令执行）/ `designer_decide`（设计者裁决·fail-closed）/ `device_call`（外部设备）/ `see`·`world3d`·`vprim`·`visual_check`（身体视觉）/ `start_lifecycle`·`stop_lifecycle`（自主生命周期控制）/ `web_ingest_search`（网络写知识层）/ `role_create`·`role_import`·`role_block`（角色卡写入）。
 
-> 数字说明：MCP server 共注册 **75 个工具**（上面全量清单）；`'all'` 实际暴露 62 个，`'brain'` 实际暴露 36 个，`'core'` 实际暴露 12 个。
+> 数字说明：MCP server 共注册 **73 个工具**（上面全量清单）；`'all'` 实际暴露 60 个，`'brain'` 实际暴露 36 个，`'core'` 实际暴露 12 个。
 
 ## 架构
 
@@ -404,7 +398,7 @@ python -m aeis.mcp.server
 │ 灵枢 Python 子进程 (spawn)                   │
 │ python -m aeis.mcp.server                    │
 │ AEIS_DB=<path> · AEIS_IDENTITY=<identity>    │
-│ 75 工具 · SQLite 五层记忆 · 时空记忆图        │
+│ 73 工具 · SQLite 五层记忆 · 时空记忆图        │
 └──────────────────────────────────────────────┘
 ```
 
