@@ -19,16 +19,28 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 import { LingshuBridge, type McpCallResult } from './bridge.js'
 import { registerLingshuTools, type ToolSelection } from './tools.js'
 import { installMemoryHooks, type MemoryHooksOptions } from './hooks.js'
 import { installRoleplayWeb } from './roleplay_web.js'
 
-/** 调试探针：记录 apply 失败到独立文件（绕过 DSH 日志系统）。 */
-const APPLY_ERROR_LOG = 'C:/Users/FuRongJun/.dsh/logs/dsh-memory-apply-error.log'
+/**
+ * 调试探针：记录 apply 失败到独立文件（绕过 DSH 日志系统）。
+ * 路径从用户家目录动态解析（issue #5，与 bridge.ts 同因同修）。
+ */
+const APPLY_ERROR_LOG = join(homedir(), '.dsh', 'logs', 'dsh-memory-apply-error.log')
+let applyLogDirReady = false
 function probeApplyError(err: unknown): void {
-  try { appendFileSync(APPLY_ERROR_LOG, `[${new Date().toISOString()}] apply failed: ${String(err)}\n${(err as Error).stack ?? ''}\n`) } catch { /* 探针失败忽略 */ }
+  try {
+    if (!applyLogDirReady) {
+      mkdirSync(dirname(APPLY_ERROR_LOG), { recursive: true })
+      applyLogDirReady = true
+    }
+    appendFileSync(APPLY_ERROR_LOG, `[${new Date().toISOString()}] apply failed: ${String(err)}\n${(err as Error).stack ?? ''}\n`)
+  } catch { /* 探针失败忽略 */ }
 }
 
 export const name = 'dsh-memory'

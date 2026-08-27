@@ -10,12 +10,24 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { mkdirSync, appendFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 
-/** 调试探针：记录桥生命周期到独立文件（绕过 DSH 日志系统，便于定位启动问题）。 */
-const DEBUG_LOG = 'C:/Users/FuRongJun/.dsh/logs/lingshu-bridge-debug.log'
+/**
+ * 调试探针：记录桥生命周期到独立文件（绕过 DSH 日志系统，便于定位启动问题）。
+ * 路径从用户家目录动态解析（issue #5）——此前硬编码作者本机绝对路径，
+ * 其他用户机器上目录不存在且无权限，探针静默失效，恰在排查启动问题时失明。
+ */
+const DEBUG_LOG = join(homedir(), '.dsh', 'logs', 'lingshu-bridge-debug.log')
+let debugLogDirReady = false
 function probe(msg: string): void {
-  try { appendFileSync(DEBUG_LOG, `[${new Date().toISOString()}] ${msg}\n`) } catch { /* 探针失败忽略 */ }
+  try {
+    if (!debugLogDirReady) {
+      mkdirSync(dirname(DEBUG_LOG), { recursive: true })
+      debugLogDirReady = true
+    }
+    appendFileSync(DEBUG_LOG, `[${new Date().toISOString()}] ${msg}\n`)
+  } catch { /* 探针失败忽略 */ }
 }
 
 /** 灵枢 MCP server 暴露的原始工具（tools/list 结果项）。 */
@@ -53,6 +65,14 @@ interface PendingCall {
   timer: NodeJS.Timeout
 }
 
+/**
+ * 连续启动失败的最大重试次数（issue #6）：指数退避到 maxRetryDelayMs 后
+ * 若无上限，python 环境损坏时会以 30s 间隔永久空转（假激活 + 资源浪费）。
+ * 达到上限即进入 failed 终态并停止调度；后续所有请求快速失败并给出
+ * 明确的修复指引。握手成功后计数归零——运行期偶发崩溃重启不受影响。
+ */
+const MAX_RETRIES = 8
+
 export class LingshuBridge {
   private readonly options: BridgeOptions
   private proc: ChildProcess | null = null
@@ -62,6 +82,7 @@ export class LingshuBridge {
   private started = false
   private disposed = false
   private retryDelayMs = 1000
+  private retries = 0
   private retryTimer: NodeJS.Timeout | null = null
   private bootQueue: Array<(ok: boolean) => void> = []
   private readyState: 'pending' | 'ok' | 'failed' = 'pending'
@@ -117,6 +138,11 @@ export class LingshuBridge {
   /** 桥是否已握手就绪（工具注册用；防止轮询访问 private readyState）。 */
   isReady(): boolean {
     return this.readyState === 'ok'
+  }
+
+  /** 是否已达放弃终态（连续启动失败超上限，不再自动重启）。 */
+  get gaveUp(): boolean {
+    return this.retries >= MAX_RETRIES
   }
 
   /** 等待握手完成（用于 apply 阶段同步就绪）。 */
@@ -206,7 +232,10 @@ export class LingshuBridge {
       })
       // 初始化通知：无 id、无响应
       this.writeRaw({ jsonrpc: '2.0', method: 'notifications/initialized' })
+      // 握手成功：重置退避与失败计数（issue #6）——运行期偶发崩溃重启
+      // 不累积启动失败；只有「从未握手成功的连续失败」才走向放弃终态
       this.retryDelayMs = 1000
+      this.retries = 0
       this.readyState = 'ok'
       this.flushBootQueue(true)
     } catch (err) {
@@ -221,9 +250,22 @@ export class LingshuBridge {
   }
 
   private scheduleRetry(): void {
-    if (this.disposed || this.retryTimer) return
+    if (this.disposed || this.retryTimer || this.gaveUp) return
+    this.retries += 1
+    if (this.gaveUp) {
+      // issue #6：放弃机制——明确终态，停止后台空转；请求方收到清晰错误而非超时
+      this.readyState = 'failed'
+      this.flushBootQueue(false)
+      console.error(
+        `[lingshu-bridge] 连续启动失败 ${this.retries} 次，已停止自动重启（不再后台空转）。` +
+        '请检查 python 可执行文件与 aeis 安装（pip install aeis），修复后在 DSH 中重新启用 dsh-memory 插件。')
+      probe(`give up: ${this.retries} consecutive failures, entering failed terminal state`)
+      return
+    }
     const delay = this.retryDelayMs
     this.retryDelayMs = Math.min(this.retryDelayMs * 2, this.options.maxRetryDelayMs)
+    console.error(`[lingshu-bridge] 将进行第 ${this.retries}/${MAX_RETRIES} 次重试（${delay}ms 后）`)
+    probe(`schedule retry ${this.retries}/${MAX_RETRIES} in ${delay}ms`)
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null
       if (!this.disposed) this.spawnAndHandshake()
@@ -241,6 +283,12 @@ export class LingshuBridge {
 
   private request(method: string, params: Record<string, unknown>,
                   signal?: AbortSignal): Promise<unknown> {
+    // issue #6：放弃终态下快速失败——之前进程不在且不再重启，请求只能白等超时
+    if (this.gaveUp) {
+      return Promise.reject(new Error(
+        '灵枢进程不可用：连续启动失败已达上限，已停止重试。' +
+        '请检查 python 可执行文件与 aeis 安装（pip install aeis），修复后重新启用 dsh-memory 插件。'))
+    }
     const id = this.nextId++
     const timeout = this.options.timeoutMs
     // P0 修复（GPT 审查）：定时器直接调 settle——settle 内部会 delete + clearTimeout
