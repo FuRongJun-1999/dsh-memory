@@ -81,6 +81,17 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 
 ---
 
+## 🧰 灵枢自我认知技能包（lingshu-skills · Agent Plugins）
+
+> **本质：灵枢了解自身的工具**——用灵枢自己构建的条件单元，描述灵枢自己如何认知（白箱自举的对外投影）。我们自身就是完整且强大的生态：**知识 → 说明书 → 执行** 三层自洽。
+
+- **Agent Plugins 1.0.0 兼容包**（主仓库 `CommonTrustProtocol/aeis/skills/`）：**688 个 Agent Skills**（六域条件单元：compiler 116 / pylang 122 / graph 117 / os 112 / browser 104 / net 117）
+- **比标准 Agent Skills 多 KCCS 四要素**：生效条件/子功能/执行/**不适用条件**（三通道：description「Not for」+ metadata.kccs.not_applicable + 正文克制条款）
+- **三层关系**：知识真源（条件单元库）→ 说明书（技能包——何时用/怎么用/克制什么）→ 执行（**本插件挂载的灵枢 MCP 77 工具**·物理基底裁决）
+- 使用：任意符合 agentskills.io / agent-plugins.org 规范的 agent 可加载本技能包；Verification 由灵枢 MCP 执行
+
+---
+
 ## 为什么是 AGI 的长期记忆基底，而非"记忆插件"
 
 - **普通 SQLite 记忆插件**：KEY→VALUE 字面存储，跨会话基本靠睁眼不见。无自省、无演化、无信任。
