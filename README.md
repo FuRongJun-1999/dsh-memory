@@ -46,6 +46,16 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 
 ---
 
+## 🗺️ 功能使用教学 · 条件路由图
+
+**想做什么 → 找对应泳道 → 走条件边到功能**（流程图 = 认知图 = 条件路由图，77 工具全收录）：
+
+[![灵枢使用教学认知图](docs/lingshu_tutorial.html)](docs/lingshu_tutorial.html)
+
+> 图中每条边 = 一个使用条件：比如「问知识」走 `wisdom_chat`（白箱优先），「验证说法」走 `wisdom_verify`（互维双通道），「记住信息」走 `remember`。找不到路径时用 `service_info` 看协议实例身份。
+
+---
+
 ## AGI 需要什么 · 灵枢提供了什么
 
 | AGI 缺失的能力 | 这是 AGI 的什么 | 灵枢提供 |
