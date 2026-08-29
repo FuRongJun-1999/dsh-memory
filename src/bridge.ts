@@ -86,6 +86,10 @@ export class LingshuBridge {
   private retryTimer: NodeJS.Timeout | null = null
   private bootQueue: Array<(ok: boolean) => void> = []
   private readyState: 'pending' | 'ok' | 'failed' = 'pending'
+  /** issue #7：当前子进程启动时间（计算 uptime，区分秒退与长存后外部关闭） */
+  private procStartedAt = 0
+  /** issue #7：运行期反复退出的滑动窗口（时间戳列表）——防无限重启刷屏 */
+  private unexpectedExits: number[] = []
 
   constructor(options: BridgeOptions) {
     this.options = options
@@ -154,6 +158,7 @@ export class LingshuBridge {
 
   private spawnAndHandshake(): void {
     if (this.disposed) return
+    this.procStartedAt = Date.now()
     const { python, args, env, cwd } = this.options
     const childEnv = { ...process.env, ...env }
     // 确保 DB 目录存在（灵枢 server 也会防御性创建，这里提前为可读错误）
@@ -207,12 +212,39 @@ export class LingshuBridge {
 
     proc.on('exit', (code, signal) => {
       // 探针：写独立文件记录退出（绕过 DSH 日志系统，便于定位）
-      probe(`exit code=${code} signal=${signal} disposed=${this.disposed} ready=${this.readyState} started=${this.started}`)
-      console.error(`[lingshu-bridge] 灵枢进程退出 code=${code} signal=${signal}`)
+      const uptimeS = this.procStartedAt
+        ? Math.round((Date.now() - this.procStartedAt) / 1000)
+        : -1
+      probe(`exit code=${code} signal=${signal} disposed=${this.disposed} ready=${this.readyState} started=${this.started} uptime=${uptimeS}s`)
+      console.error(`[lingshu-bridge] 灵枢进程退出 code=${code} signal=${signal}（存活 ${uptimeS}s）`)
       this.rl?.close()
       this.rl = null
       this.rejectAll(new Error(`灵枢进程已退出（code=${code} signal=${signal ?? 'none'}）`))
       if (!this.disposed) {
+        // issue #7：长存后 code=0 退出 = stdin 被外部关闭（非崩溃）。
+        // 记录滑动窗口（10 分钟内 ≥3 次）→ 进入冷却，防「外部反复关闭 +
+        // 无限重启」刷屏；冷却结束自动恢复，不进入放弃终态。
+        this.unexpectedExits = this.unexpectedExits.filter(
+          (t) => Date.now() - t < 600_000,
+        )
+        this.unexpectedExits.push(Date.now())
+        if (uptimeS >= 0 && uptimeS < 5) {
+          console.error(
+            '[lingshu-bridge] 进程启动后 5 秒内即退出——请检查 python 可执行文件与 aeis 安装。')
+        } else if (this.unexpectedExits.length >= 3) {
+          console.error(
+            `[lingshu-bridge] 10 分钟内已意外退出 ${this.unexpectedExits.length} 次，` +
+            '冷却 5 分钟后自动恢复。若持续出现，请检查是否有多个插件/脚本'
+            + '同时管理灵枢进程（重复 spawn 会互相关闭对方子进程的 stdin）。')
+          probe(`cooldown: ${this.unexpectedExits.length} unexpected exits in 10min`)
+          this.retryTimer = setTimeout(() => {
+            this.retryTimer = null
+            this.unexpectedExits = []
+            if (!this.disposed) this.spawnAndHandshake()
+          }, 300_000)
+          this.retryTimer.unref()
+          return
+        }
         // 有挂起请求的失败是异常的；仅启动失败的等待者得到 false
         this.readyState = 'failed'
         this.flushBootQueue(false)
