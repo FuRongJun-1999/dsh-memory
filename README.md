@@ -57,7 +57,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 
 ## 🗺️ 功能使用教学 · 条件路由图
 
-**想做什么 → 找对应泳道 → 走条件边到功能**（流程图 = 认知图 = 条件路由图，**79 工具**全收录，[工具总表 → docs/灵枢MCP工具总表_v3.4.md](docs/灵枢MCP工具总表_v3.4.md)）：
+**想做什么 → 找对应泳道 → 走条件边到功能**（流程图 = 认知图 = 条件路由图，**75 工具**全收录，[工具总表 → docs/灵枢MCP工具总表_v3.4.md](docs/灵枢MCP工具总表_v3.4.md)）：
 
 [![灵枢使用教学认知图](docs/lingshu_tutorial.html)](docs/lingshu_tutorial.html)
 
@@ -87,7 +87,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 
 - **Agent Plugins 1.0.0 兼容包**（主仓库 `CommonTrustProtocol/aeis/skills/`）：**688 个 Agent Skills**（六域条件单元：compiler 116 / pylang 122 / graph 117 / os 112 / browser 104 / net 117）
 - **比标准 Agent Skills 多 KCCS 四要素**：生效条件/子功能/执行/**不适用条件**（三通道：description「Not for」+ metadata.kccs.not_applicable + 正文克制条款）
-- **三层关系**：知识真源（条件单元库）→ 说明书（技能包——何时用/怎么用/克制什么）→ 执行（**本插件挂载的灵枢 MCP 79 工具**·物理基底裁决）
+- **三层关系**：知识真源（条件单元库）→ 说明书（技能包——何时用/怎么用/克制什么）→ 执行（**本插件挂载的灵枢 MCP 75 工具**·物理基底裁决）
 - 使用：任意符合 agentskills.io / agent-plugins.org 规范的 agent 可加载本技能包；Verification 由灵枢 MCP 执行
 
 ---
@@ -133,7 +133,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 - **零运行时依赖**：手写 stdio MCP 桥，与灵枢 D-005「核心零外部依赖」哲学一致——你拿到的是一个干净、可信、可审的大脑。
 - **动态 schema + 进程自愈**：工具清单运行时拉取（灵枢升级 DSH 零改动），Python 子进程崩溃自动指数退避重启。
 - **工具注册竞态补注册**：启动时 python 未就绪（竞态）→ 桥重连成功后自动补注册工具（2s 轮询），不再"工具永久缺失"。
-- **白箱 wisdom_* 全工具**（`tools: all`）：79 个 MCP 工具含 wisdom_verify/analyze/predict/trust_judge/compose/respond/chat 白箱族，Agent 可直接调用。
+- **白箱 wisdom_* 全工具**（`tools: all`）：75 个 MCP 工具含 wisdom_verify/analyze/predict/trust_judge/compose/respond/chat 白箱族，Agent 可直接调用。
 - **内容分级门控**：**拒绝一切涉及未成年人的性内容**（服务端关键词组合硬拦截——未成年人特征词 + 性内容词同时命中即拒绝，`route=refused`）；成人内容由前端本地弹窗提示（满 18 周岁 + 个人对话场景自述）。注：开源项目不实现身份认证/年龄核验（那是绑定身份系统的商业 App 范畴）；内容过滤保护的是"未成年人 + 性内容"组合的明文请求。
 
 ## 🧠 白箱智能管线（知识查询零 LLM）
@@ -295,13 +295,13 @@ python -m aeis.mcp.server
 
 （B 站宣传素材：[封面](docs/promo/bilibili-cover.jpg) · [视觉图 ×5](docs/promo/)）
 
-## 🧰 工具清单（79 个 MCP 工具 · 全量）
+## 🧰 工具清单（75 个 MCP 工具 · 全量）
 
-灵枢 MCP server 注册 **79 个工具**，按心智功能分 13 大模块（智能论 v3.4：端口架构/锚定验证/认知图与条件路由/原生神经网络）。工具清单运行时动态拉取（灵枢升级 DSH 零改动），**完整总表（每个工具一条说明，不重复不遗漏）见 [docs/灵枢MCP工具总表_v3.4.md](docs/灵枢MCP工具总表_v3.4.md)**。下方为分类概览：
+灵枢 MCP server 注册 **75 个工具**，按心智功能分 11 大模块（智能论 v3.4：端口架构/锚定验证/认知图与条件路由/原生神经网络）。工具清单运行时动态拉取（灵枢升级 DSH 零改动），**完整总表（每个工具一条说明，不重复不遗漏）见 [docs/灵枢MCP工具总表_v3.4.md](docs/灵枢MCP工具总表_v3.4.md)**。下方为分类概览：
 
-### 记忆（13）
+### 记忆（12）
 
-remember / add_context / recall / search / timeline / longterm_snapshot / prefeed / promote_memories / pattern_separation / reconstruct_scene / session_note / session_recall / compact_context
+remember / recall / search / timeline / longterm_snapshot / prefeed / promote_memories / pattern_separation / reconstruct_scene / session_note / session_recall / compact_context
 
 ### 知识图谱与推理（11）
 
@@ -323,13 +323,9 @@ wisdom_verify / recursive_reflect / preflight / self_reliability / emotional_bia
 
 lifecycle_step / lifecycle_state / start_lifecycle / stop_lifecycle
 
-### 条件空间（1）
+### 世界模型 · 游戏服务器（4）
 
-condition_space_operate
-
-### 自修改安全（4）
-
-lingshu_sensor_report / lingshu_vitality_report / lingshu_auto_snapshot / lingshu_rollback
+voxel_world（小型我的世界 · 4D 时空占用） / world_server（AI 游戏世界服务器 · tick/快照回滚/反馈/同步/预测验证） / scene_simulator（场景级模拟器 · 自主行为玩家） / spacetime_consistency（时空一致性验证 · 持续运行 + 滚动命中率 + 漂移检测 + 自洽判定）
 
 ### 智慧之书（6）
 
@@ -347,23 +343,21 @@ insight_record / insight_verify / insight_report / insight_window
 
 web_search / web_ingest_search / export / service_info / designer_decide
 
-### 代码/编译器（2）
-
-code_test / compile_exec
-
 > 每个工具的功能说明见工具总表（不重复、不遗漏）。
+
+> **引擎内部能力（按安全边界未挂载 MCP）**：condition_space_operate（条件空间 7 操作）、add_context（情境层写入）、code_test / compile_exec（代码执行）、lingshu_sensor_report / lingshu_vitality_report / lingshu_auto_snapshot / lingshu_rollback（自修改安全闭环）——存在于引擎中，但刻意不暴露给外部 Agent 调用。
 ## 工具筛选机制（tools 配置）
 
 | 模式 | 暴露数 | 说明 |
 |---|---|---|
-| `'all'` | **66** | 79 个全量中排除 13 个**宿主级风险工具**（见下），含全部身体/视觉/白箱/角色/智慧之书能力 |
+| `'all'` | **62** | 75 个全量中排除 13 个**宿主级风险工具**（见下），含全部身体/视觉/白箱/角色/智慧之书能力 |
 | `'brain'`（默认） | **36** | 去掉身体的完整大脑：记忆/推理/认知/学习/飞轮/反思/摄取/生命周期/长期记忆门/服务，**不含**身体视觉与风险工具 |
 | `'core'` | **12** | 精选核心：remember/recall/search/timeline/think/relate/predict_routes/ingest_text/ingest_url/session_note/self_check/service_info |
 | 字符串数组 | 自定义 | 显式列出的工具名（不受风险名单限制，配置者已明确选择） |
 
 **`'all'` 也排除的宿主级风险工具（13 个）**——`run_command`（宿主命令执行）/ `designer_decide`（设计者裁决·fail-closed）/ `device_call`（外部设备）/ `see`·`world3d`·`vprim`·`visual_check`（身体视觉）/ `start_lifecycle`·`stop_lifecycle`（自主生命周期控制）/ `web_ingest_search`（网络写知识层）/ `role_create`·`role_import`·`role_block`（角色卡写入）。
 
-> 数字说明：MCP server 共注册 **79 个工具**（上面全量清单）；`'all'` 实际暴露 66 个（79-13 风险），`'brain'` 实际暴露 36 个，`'core'` 实际暴露 12 个。
+> 数字说明：MCP server 共注册 **75 个工具**（上面全量清单，运行时 tools/list 实测）；`'all'` 实际暴露 62 个（75-13 风险），`'brain'` 实际暴露 36 个，`'core'` 实际暴露 12 个。
 
 ## 架构
 

@@ -1,16 +1,15 @@
-# 灵枢 AEIS MCP 工具总表（79 个 · 智能论 v3.4）
+# 灵枢 AEIS MCP 工具总表（75 个 · 智能论 v3.4）
 
 > 生成：2026-08-29 · 来源：aeis/mcp/server.py · 版本：aeis 0.5.0（智能论 v3.4）
 > 规则：每个工具一条说明，不重复、不遗漏。
 
 ---
 
-## 记忆（13）
+## 记忆（12）
 
 | 工具 | 功能 |
 |---|---|
 | `remember` | 写入一条感知记忆（知识层，自动去重） |
-| `add_context` | 写入情境层记忆（短时会话，FIFO+1h 窗口，可衰减） |
 | `recall` | 组合联想召回（内容0.5+重要性0.3+近因0.2） |
 | `search` | 内容检索（LIKE 预筛 + 中文二元组 Jaccard 排序） |
 | `timeline` | 记忆时间线（按时间倒序） |
@@ -23,7 +22,7 @@
 | `session_recall` | 会话要点恢复（按 session 或语义检索） |
 | `compact_context` | 上下文压缩（超长会话摘要节点） |
 
-## 知识图谱与推理（10）
+## 知识图谱与推理（11）
 
 | 工具 | 功能 |
 |---|---|
@@ -88,21 +87,6 @@
 | `start_lifecycle` | 启动生命周期自发循环（后台线程） |
 | `stop_lifecycle` | 中断生命周期自发循环 |
 
-## 条件空间（1）
-
-| 工具 | 功能 |
-|---|---|
-| `condition_space_operate` | 条件空间 7 操作（identify/declare/separate/compose/switch/reverse/loop） |
-
-## 自修改安全（4）
-
-| 工具 | 功能 |
-|---|---|
-| `lingshu_sensor_report` | 信息差传感器（五维结构质量信号扫描） |
-| `lingshu_vitality_report` | 维生状态（心跳/影响面/回滚能力/判定） |
-| `lingshu_auto_snapshot` | 前置快照（sha256 指纹+修改意图） |
-| `lingshu_rollback` | 一键回滚（快照指纹校验） |
-
 ## 智慧之书（6）
 
 | 工具 | 功能 |
@@ -142,13 +126,32 @@
 | `service_info` | 服务信息（身份/版本/协议/工具数） |
 | `designer_decide` | 设计者裁决（需 AEIS_DESIGNER_KEY） |
 
-## 代码/编译器（2）
+## 世界模型 · 游戏服务器（4）
 
 | 工具 | 功能 |
 |---|---|
-| `code_test` | 结构化代码测试（隔离环境断言执行） |
-| `compile_exec` | 中文协议编译器（认知图→代码图→编译执行） |
+| `voxel_world` | 小型我的世界（里程碑2.1 · 4D 时空占用沙盒：build/spawn/simulate/trail/state） |
+| `world_server` | AI 游戏世界服务器（里程碑2.2 · tick 多路并行/快照记忆/反馈/同步/错误回滚/预测验证） |
+| `scene_simulator` | 场景级世界模拟器（里程碑2.3 · 场景/实体/自主行为玩家：wander/seek/avoid/flee/follow + 决策循环） |
+| `spacetime_consistency` | 时空一致性验证（里程碑2.4 · 阶段2收官 · 持续运行：预测 vs 实际→滚动命中率/漂移检测/自洽判定） |
 
 ---
 
-**总计：79 个工具**（不重复、不遗漏）
+## 引擎内部能力（未挂载 MCP · 8）
+
+> 存在于引擎中，按安全边界刻意不暴露给外部 Agent 调用：
+
+| 工具 | 功能 |
+|---|---|
+| `condition_space_operate` | 条件空间 7 操作（identify/declare/separate/compose/switch/reverse/loop） |
+| `add_context` | 情境层记忆写入（短时会话，FIFO+1h 窗口，可衰减） |
+| `code_test` | 结构化代码测试（隔离环境断言执行） |
+| `compile_exec` | 中文协议编译器（认知图→代码图→编译执行） |
+| `lingshu_sensor_report` | 信息差传感器（五维结构质量信号扫描） |
+| `lingshu_vitality_report` | 维生状态（心跳/影响面/回滚能力/判定） |
+| `lingshu_auto_snapshot` | 前置快照（sha256 指纹+修改意图） |
+| `lingshu_rollback` | 一键回滚（快照指纹校验） |
+
+---
+
+**总计：75 个 MCP 工具 + 8 个引擎内部能力**（不重复、不遗漏）
