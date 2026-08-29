@@ -219,6 +219,11 @@ node{class_type, inputs} + 边引用[上游,idx] + prompt图 → 拓扑执行 + 
 # B. 独立网页服务（浏览器对话 + 人设编辑器）
 python -m aeis.roleplay_web --port 8793 --data-dir roleplay_data
 
+# B2. 交互式世界游戏（实时生成场景和对话 · 七层闭环实际验证）
+python -m aeis.game_web.server --port 8791
+#   浏览器打开 http://127.0.0.1:8791/ —— 实时体素世界 + 自然语言生成场景 + 世界感知对话 +
+#   七层闭环可视化（L5命中率/L7好奇/L3关系实时可见）
+
 # C. MCP 工具（roleplay_chat / role_create / role_import / role_block）
 python -m aeis.mcp.server
 ```
