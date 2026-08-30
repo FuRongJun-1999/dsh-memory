@@ -114,12 +114,20 @@ export function installMemoryHooks(ctx: Context, bridge: LingshuBridge, opts: Me
   ctx.on('session/event', (_session, event: SessionEvent) => {
     if (event.type === 'user/message' && opts.userMessage) {
       // 只记真实用户输入（kind='user'），跳过插件注入/系统上下文
-      if (event.data.source?.kind !== 'user') return
+      if (event.data.source?.kind !== 'user') {
+        // T4 诊断（2026-08-30）：dsh 端对话零写入排查——记录被滤事件的实际
+        // source.kind（若 dsh 新版改了 kind 值，此处日志可定位）
+        ctx.logger.info(`dsh-memory: user/message 事件被滤（source.kind=${event.data.source?.kind ?? 'undefined'}）`)
+        return
+      }
       const text = extractText(event.data.content)
       if (!text) return
       const safe = sanitize(text)  // 脱敏：纯凭据消息 → null → 跳过写入
       if (safe === null) return
       memorize('remember', { content: safe, importance: opts.importance, tags: ['dsh', 'user'] })
+      // T4：用用户消息做一次语义召回——触发灵枢 _note_reuse 落库（复用观测），
+      // 召回结果同时预热灵枢检索缓存（timeline 只读不触发复用统计）
+      memorize('recall', { query: safe.slice(0, 200), limit: 3 })
     } else if (event.type === 'assistant/message' && opts.assistantMessage) {
       const text = extractText(event.data.message.content)
       if (!text) return
