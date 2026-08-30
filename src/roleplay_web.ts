@@ -839,13 +839,36 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
         };
         disposers.push(webServer.register({ kind: 'prefix', path: '/roleplay', handler }));
         // 在 GUI 首页注入浮动入口按钮（APP 内置页面内一键进入角色扮演，右上角）
-        disposers.push(webServer.tapIndex((html) => {
-            if (html.includes('href="/roleplay"'))
-                return html;
-            const btn = '<a href="/roleplay" style="position:fixed;top:12px;right:14px;z-index:999999;background:#7c8cff;color:#0b0d14;border-radius:999px;padding:9px 15px;font:600 13px/1 system-ui,sans-serif;text-decoration:none;box-shadow:0 4px 14px rgba(0,0,0,.45)">🎭 角色扮演</a>';
-            return html.replace('</body>', `${btn}\n</body>`);
-        }));
-        ctx.logger.info(`dsh-memory: 角色扮演网页已挂载 /roleplay（data_dir=${roleDataDir}）`);
+        // issue #8：按钮可隐藏（roleplayEntryButton=false 不注入）+ 可拖动
+        // （pointer 拖拽，位置记忆在 localStorage；移动 >6px 视为拖动，否则放行点击跳转）
+        if (config.roleplayEntryButton) {
+            disposers.push(webServer.tapIndex((html) => {
+                if (html.includes('href="/roleplay"'))
+                    return html;
+                const btn = '<a id="dshm-rp" href="/roleplay" style="position:fixed;top:12px;right:14px;z-index:999999;background:#7c8cff;color:#0b0d14;border-radius:999px;padding:9px 15px;font:600 13px/1 system-ui,sans-serif;text-decoration:none;box-shadow:0 4px 14px rgba(0,0,0,.45);touch-action:none;user-select:none;cursor:grab">🎭 角色扮演</a>' +
+                    '<script>(function(){var b=document.getElementById("dshm-rp");if(!b)return;' +
+                    'try{var p=JSON.parse(localStorage.getItem("dshm_rlp")||"null");' +
+                    'if(p&&p.l!=null){b.style.right="auto";b.style.left=p.l+"px";b.style.top=p.t+"px";}}catch(e){}' +
+                    'var sx=0,sy=0,sl=0,st=0,drag=false;' +
+                    'b.addEventListener("pointerdown",function(e){sx=e.clientX;sy=e.clientY;' +
+                    'var r=b.getBoundingClientRect();sl=r.left;st=r.top;drag=false;' +
+                    'try{b.setPointerCapture(e.pointerId);}catch(err){}});' +
+                    'b.addEventListener("pointermove",function(e){' +
+                    'if(e.buttons===0||!drag&&!sx&&!sy)return;' +
+                    'var dx=e.clientX-sx,dy=e.clientY-sy;' +
+                    'if(!drag&&Math.sqrt(dx*dx+dy*dy)>6){drag=true;b.style.right="auto";b.style.cursor="grabbing";}' +
+                    'if(drag){var L=Math.max(4,Math.min(window.innerWidth-b.offsetWidth-4,sl+dx)),' +
+                    'T=Math.max(4,Math.min(window.innerHeight-b.offsetHeight-4,st+dy));' +
+                    'b.style.left=L+"px";b.style.top=T+"px";e.preventDefault();}});' +
+                    'b.addEventListener("pointerup",function(e){' +
+                    'if(drag){e.preventDefault();' +
+                    'try{var r=b.getBoundingClientRect();' +
+                    'localStorage.setItem("dshm_rlp",JSON.stringify({l:r.left,t:r.top}));}catch(err){}}' +
+                    'drag=false;sx=0;sy=0;});})();</script>';
+                return html.replace('</body>', `${btn}\n</body>`);
+            }));
+        }
+        ctx.logger.info(`dsh-memory: 角色扮演网页已挂载 /roleplay（data_dir=${roleDataDir}，入口按钮=${config.roleplayEntryButton ? '显示（可拖动）' : '隐藏'}）`);
     }
     catch (err) {
         ctx.logger.warn(`dsh-memory: 角色扮演网页挂载失败（不影响其他功能）: ${String(err && err.message || err)}`);

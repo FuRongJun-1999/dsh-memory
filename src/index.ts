@@ -114,6 +114,10 @@ export const Config: z<Config> = z.object({
   toolCallTimeoutMs: z.number().default(60_000),
   maxRetryDelayMs: z.number().default(30_000),
   failOnStartupError: z.boolean().default(false),
+  /** 角色扮演入口按钮（issue #8）：注入 dsh 首页右上角浮动入口；
+   * 关闭后不注入（/roleplay 页面仍可直接访问）。按钮本身支持拖动，
+   * 位置记忆在浏览器 localStorage。 */
+  roleplayEntryButton: z.boolean().default(true),
   /** 互维维护（v1.1）：心跳 10min / 任务验证双通道。 */
   mutual: z
     .object({
