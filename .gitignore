@@ -1,3 +1,12 @@
 node_modules/
 lib/
 *.tsbuildinfo
+
+# 历史遗留参考文件（防 git add -A 误提交，issue#8 修复时曾污染 360 文件）
+/awesome*
+/wf_*.yml
+/dsh-bridge_*
+/build-site.mjs
+/check-submission.mjs
+/site_locales.mjs
+/scripts_lib_entries.mjs
