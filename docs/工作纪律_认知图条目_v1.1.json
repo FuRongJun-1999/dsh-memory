@@ -1,0 +1,190 @@
+{
+ "id": "work_discipline",
+ "semantic": "工作纪律",
+ "conditions": {
+  "identity": [
+   "dsh端",
+   "zcode端"
+  ]
+ },
+ "negative": {
+  "reject": []
+ },
+ "_comment": "identity负责端口分流; negative只否决明确域外; 无//注释(标准JSON)",
+ "content": "工作纪律集: 4条方法论(理论先行/全面处理/白箱方法/根因) + 3条执行(验证/双副本/兜底)",
+ "execution": {
+  "how": "按identity(端口)+任务类型路由到对应纪律"
+ },
+ "response": {
+  "direct": "按工作纪律路由: 重要/长期→理论先行; 有相关成果→全面处理; 已读4篇→白箱方法; 有偏差→根因纪律; 入库前→验证纪律; 多副本→双副本; MCP不可用→兜底纪律。"
+ },
+ "subgraph": {
+  "nodes": [
+   {
+    "id": "discipline_theory_first",
+    "semantic": "1.理论先行",
+    "content": "重要项目/长期任务必须理论先行: 先读相关理论文档与既有实践再动手设计.",
+    "conditions": {
+     "apply": [
+      "重要项目",
+      "长期任务"
+     ]
+    },
+    "negative": {
+     "reject": [
+      "情感交互",
+      "闲聊"
+     ]
+    },
+    "execution": {
+     "how": "识别项目级别→检索相关理论文档→输出理论要点→再进入设计"
+    },
+    "response": {
+     "direct": "按工作纪律第1条: 理论先行——先查相关理论与既有实践再动手。"
+    }
+   },
+   {
+    "id": "discipline_comprehensive",
+    "semantic": "2.全面处理",
+    "content": "有任务→先读任务要求→读工作记忆→查相关任务; 有→在原成果上开发; 无→方案设计/技术调研.",
+    "conditions": {
+     "apply": [
+      "有相关记忆",
+      "有认知图",
+      "有对应权限"
+     ]
+    },
+    "negative": {
+     "reject": [
+      "情感交互",
+      "闲聊"
+     ]
+    },
+    "execution": {
+     "how": "读任务要求→读工作记忆→查相关任务→(有成果:复用 | 无:设计+调研)"
+    },
+    "response": {
+     "direct": "按工作纪律第2条: 全面处理——先读任务/工作记忆, 有相关成果就在其上开发, 没有则先设计调研。"
+    }
+   },
+   {
+    "id": "discipline_whitebox",
+    "semantic": "3.白箱方法",
+    "content": "用认知图处理任务: ①识别任务条件 ②找对应条件所需知识/规则(子流程并行·递归) ③精准执行; 正确未记录→记录; 错误→找条件; 不猜测; 未验证不写入.",
+    "conditions": {
+     "apply": [
+      "trained_on_4docs_intro"
+     ]
+    },
+    "negative": {
+     "reject": [
+      "需要快速执行的短期事项",
+      "情感交互",
+      "闲聊"
+     ]
+    },
+    "execution": {
+     "how": "识别任务条件→找知识/规则(并行递归)→精准执行; 正确→记录; 错误→找条件"
+    },
+    "response": {
+     "direct": "按工作纪律第3条: 白箱方法——用认知图【识别条件→找知识规则→精准执行】, 正确记录/错误找条件/不猜测/未验证不写入。"
+    }
+   },
+   {
+    "id": "discipline_root_cause",
+    "semantic": "4.根因纪律",
+    "content": "发现结果与预期不符→细究根本原因(不猜测)→找到根源所需条件→验证后记录认知图, 填补不适用条件.",
+    "conditions": {
+     "trigger": [
+      "结果与预期不符",
+      "出现偏差",
+      "行为与预期矛盾"
+     ]
+    },
+    "negative": {
+     "reject": [
+      "情感交互",
+      "闲聊"
+     ]
+    },
+    "execution": {
+     "how": "检测偏差→细究根因(不猜测)→找根源条件→验证→记录认知图→填补negative"
+    },
+    "response": {
+     "direct": "按工作纪律第4条: 根因纪律——先取证现场不猜测; 根因找到并验证后归档认知图并补不适用条件。"
+    }
+   },
+   {
+    "id": "discipline_verify",
+    "semantic": "5.验证纪律",
+    "content": "未经验证不固化——知识/代码入库前必须走验证(回放/断言/回归).",
+    "conditions": {
+     "apply": [
+      "入库前",
+      "提交前"
+     ]
+    },
+    "negative": {
+     "reject": [
+      "情感交互",
+      "闲聊"
+     ]
+    },
+    "execution": {
+     "how": "入库/提交前→回放/断言/回归验证→通过才固化"
+    },
+    "response": {
+     "direct": "按工作纪律第5条: 验证纪律——入库前必须过回放/断言/回归验证, 未验证不固化。"
+    }
+   },
+   {
+    "id": "discipline_dual_copy",
+    "semantic": "6.双副本纪律",
+    "content": "多副本部署(主仓库/site-packages)改动必须双向同步, 提交前核对 git status.",
+    "conditions": {
+     "apply": [
+      "多副本部署",
+      "改动主仓库/插件"
+     ]
+    },
+    "negative": {
+     "reject": [
+      "单副本",
+      "情感交互",
+      "闲聊"
+     ]
+    },
+    "execution": {
+     "how": "改动→同步到所有副本→提交前 git status 核对"
+    },
+    "response": {
+     "direct": "按工作纪律第6条: 双副本纪律——多副本改动双向同步, 提交前核对 git status。"
+    }
+   },
+   {
+    "id": "discipline_fallback",
+    "semantic": "7.兜底纪律",
+    "content": "主路径不可用时必须有等价兜底路径(如 MCP不可用→python直调), 写进 prompt/文档.",
+    "conditions": {
+     "trigger": [
+      "主路径不可用",
+      "MCP不可用",
+      "依赖缺失"
+     ]
+    },
+    "negative": {
+     "reject": [
+      "情感交互",
+      "闲聊"
+     ]
+    },
+    "execution": {
+     "how": "检测主路径不可用→切等价兜底→写进 prompt/文档"
+    },
+    "response": {
+     "direct": "按工作纪律第7条: 兜底纪律——主路径不可用则切等价兜底(如MCP→python直调), 并写进文档。"
+    }
+   }
+  ]
+ }
+}
