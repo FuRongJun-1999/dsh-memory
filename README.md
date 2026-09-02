@@ -371,6 +371,10 @@ insight_record / insight_verify / insight_report / insight_window
 
 web_search / web_ingest_search / export / service_info / designer_decide
 
+### 维护（1）
+
+nightly_cleanup（知识层夜间整理：分拣迁移无边孤岛→情境层+联想补边+情境层随机联想）
+
 > 每个工具的功能说明见工具总表（不重复、不遗漏）。
 
 > **引擎内部能力（按安全边界未挂载 MCP）**：condition_space_operate（条件空间 7 操作）、add_context（情境层写入）、code_test / compile_exec（代码执行）、lingshu_sensor_report / lingshu_vitality_report / lingshu_auto_snapshot / lingshu_rollback（自修改安全闭环）——存在于引擎中，但刻意不暴露给外部 Agent 调用。
