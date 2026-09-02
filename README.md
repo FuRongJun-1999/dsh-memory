@@ -421,17 +421,17 @@ nightly_cleanup（知识层夜间整理：分拣迁移无边孤岛→情境层+�
 
 ### 安装灵枢大脑（aeis 库）
 
-**方式 A：本地 wheel 离线安装 ★ 最稳（不依赖网络）**
+**方式 A：Release 下载 wheel 离线安装 ★ 最稳（不依赖网络）**
 
-在 `CommonTrustProtocol/aeis/dist/` 找到 `aeis-0.4.0-py3-none-any.whl`（**完整自包含发布版**）：
+从 [GitHub Releases](https://github.com/FuRongJun-1999/CommonTrustProtocol/releases) 下载 `aeis-0.5.0-py3-none-any.whl`（**完整自包含发布版**）：
 
 ```bash
-pip install aeis-0.4.0-py3-none-any.whl
+pip install aeis-0.5.0-py3-none-any.whl
 ```
 
-> **v0.4.0 起为完整自包含单包**（10.2MB / 343 条目）：灵枢核心（aeis）+ 白箱智慧模块（wisdom，含 **2846 个 KCCS 注释知识点 + 学科知识库**）+ 三入口（harness）+ 种子知识（seed_knowledge，智能论 3.3 + 116 学科卡）。单文件、离线可用、装一次管用——知识库随包分发，无需另装。
+> **v0.5.0 为完整自包含单包**：灵枢核心（aeis）+ 白箱智慧模块（wisdom，含 **2800+ 个 KCCS 注释知识点 + 学科知识库**）+ 三入口（harness）+ 种子知识（seed_knowledge，智能论 3.4 + 学科卡）。单文件、离线可用、装一次管用——知识库随包分发，无需另装。
 >
-> 遇到网络不稳（GitHub clone 失败）时首选本地 wheel。
+> 遇到网络不稳（GitHub clone 失败）时首选 wheel 离线安装。
 
 **方式 B：git 安装（需网络）**
 
