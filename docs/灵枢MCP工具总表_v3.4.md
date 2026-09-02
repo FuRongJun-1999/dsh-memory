@@ -75,6 +75,7 @@
 | `cognition` | P0-2 自我认知循环一步（行为↔价值观一致性） |
 | `cognition_report` | P0-2 认知报告（评分/失调/候选） |
 | `action_log` | P0-1 行为日志（引擎行为记录面） |
+| `nightly_cleanup` | 知识层夜间整理（分拣迁移无边孤岛→情境层+联想补边+情境层随机联想） |
 | `learning_impact` | P0-5b 学习效果测量（模式命中率 vs D_norm） |
 | `self_check` | 完整性自检（孤儿边/表统计/integrity_ok） |
 
