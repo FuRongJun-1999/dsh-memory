@@ -21,8 +21,8 @@
 ## ⚡ 三步快启（30 秒上手）
 
 ```bash
-# ① 装灵枢大脑（一条命令，零外部依赖；v0.4.0 完整自包含：核心+白箱+知识库随包）
-pip install aeis-0.4.0-py3-none-any.whl          # 或 git+ 在线安装
+# ① 装灵枢大脑（一条命令，零外部依赖；v0.5.0 完整自包含：核心+白箱+知识库随包）
+pip install aeis-0.5.0-py3-none-any.whl          # wheel 从 Releases 页下载，或 git+ 在线安装
 
 # ② 装进 DSH 的 web profile（pnpm 协调入口，不要用裸 npm install 装进 profile）
 dsh plugin --profile web add @furongjun1999/dsh-memory
