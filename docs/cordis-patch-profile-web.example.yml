@@ -1,0 +1,35 @@
+# zcode-web profile 实际生效的 dsh-memory config override（备份模板）
+#
+# ⚠️ 工程依赖（2026-09-04 dsh 端排查确认）：插件包内自带的 cordis.patch.yml
+# 只有裸 insert（id+name 无 config），完整 config 全靠 profile 层的
+# cordis.patch.yml override 补全。换 profile / 重装 profile / 升级插件时，
+# 必须确认本文件内容仍在 <profile>/cordis.patch.yml 中——否则插件以默认
+# 配置运行：dbPath 落到相对路径 data/lingshu.db（cwd 错位→角色数据读不到）、
+# tools=brain（缺 wisdom_* 白箱工具族）、lifecycle 不启动。
+#
+# 本机生效值（2026-09-04 备份）：dbPath=AEIS 主库 / tools=all / lifecycle=600s
+
+# 灵枢 dsh-memory 插件：注入密钥（密钥来自宿主进程环境变量，不入配置库）
+- id: dsh-memory
+  config:
+    # 灵枢记忆库绝对路径（roleDataDir 由它推导：<dir>/roleplay_data——相对路径会
+    # 因 node/python 进程 cwd 不同而解析错位，导致角色列表读不到）
+    dbPath: D:/Program Files/2_ai/AEIS/data/aeis_memory.db
+    # 全部工具（含记忆/认知/白箱 wisdom_* 工具族），供 Agent 直接调用
+    tools: all
+    env:
+      BOCHA_API_KEY: !!js process.env.BOCHA_API_KEY
+      AEIS_DESIGNER_KEY: !!js process.env.AEIS_DESIGNER_KEY
+      # 角色扮演 LLM 续答密钥（插件桥 env 透传；优先从 .credentials.yaml 读取——
+      # 文件热加载，避免宿主进程环境变量快照导致的旧 key 问题；文件缺失才回退环境变量）
+      DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY
+      # 自主生命周期（v1.15 主动性）：MCP 启动即开始自发循环（感知→好奇→缩小信息差→巩固）
+      AEIS_LIFECYCLE: '1'
+      AEIS_LIFECYCLE_INTERVAL: '600'
+    # 互维维护（Mutual Sustain Loop v1.1）：心跳10min + 守护A + 任务验证双通道。
+    # 2026-08-26 关闭：守护 A 每 10min 拉起 harness.guardian → main → ai_voice，
+    # 深层子进程无 windowsHide → 频繁闪蓝色控制台窗口；本场景不跑独立 harness
+    # 服务，守护无必要（白箱 provider 由 DSH 内灵枢桥提供，不依赖 guardian）。
+    mutual:
+      enabled: false
+      heartbeatMs: 600000
