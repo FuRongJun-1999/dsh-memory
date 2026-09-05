@@ -148,7 +148,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 - **索引**：语义→节点；层级边 part_of(child→parent) + parent_of(parent→child) 双向（out 写死 API 也能查）。
 - **加载**：启动加载 SELF 层（身份/价值观/认知图接口）→ 按 session 从认知图读 目标/感觉/工作记忆/知识。
 
-### 工作纪律（7 条 · docs/工作纪律_认知图条目_v1.1.json）
+### 工作纪律（13 条 · docs/工作纪律_认知图条目_v1.1.json）
 | # | 纪律 | 触发/适用 | 不适用 |
 |---|---|---|---|
 | 1 | 理论先行 | 重要项目/长期任务 | 情感交互/闲聊 |
@@ -158,6 +158,12 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 | 5 | 验证纪律 | 入库前/提交前 | 情感交互/闲聊 |
 | 6 | 双副本纪律 | 多副本部署 | 单副本/情感交互/闲聊 |
 | 7 | 兜底纪律 | 主路径不可用/MCP不可用 | 情感交互/闲聊 |
+| 8 | 中文思考 | 中文区域/中文项目开发 | 英文场景/英文环境 |
+| 9 | 敏感信息隔离 | 文档含敏感/隐私/私有内容 | 无敏感信息的公开技术内容 |
+| 10 | 图像选源护栏 | 构建图像四类图/选图像处理源 | 已核对规范源/纯公开数据 |
+| 11 | 历史查询优先 | 选图像/算法/源、复现已有能力 | 已有记录且已核对/无历史可查的纯新算法 |
+| 12 | 算法权威唯一 | 选图像/视觉算法 | 无对应权威文档的探索期 |
+| 13 | 访谈澄清 | 重要项目/需求模糊/新任务启动 | 情感交互/闲聊/明确单步小改动 |
 
 ### 使用认知图流程
 识别任务条件 → 按条件路由到对应纪律/知识 → 精准执行 → 正确记录(未记录→记录)/错误找条件 → 验证 → 固化；不猜测、未验证不写入。
@@ -331,11 +337,11 @@ python -m aeis.mcp.server
 
 ### 记忆（12）
 
-remember / recall / search / timeline / longterm_snapshot / prefeed / promote_memories / pattern_separation / reconstruct_scene / session_note / session_recall / compact_context
+remember / recall / search / timeline / longterm_snapshot / prefeed / promote_memories / pattern_separation / reconstruct_scene / context（note/recall/compact）
 
 ### 知识图谱与推理（11）
 
-relate / reason / induce / distill / think / ingest_text / ingest_file / ingest_url / importance_recalc / transfer_test / flywheel_metrics
+relate / reason / induce / distill / think / ingest（text/file/url） / importance_recalc / transfer_test / flywheel_metrics
 
 ### 预测与盲区（7）
 
@@ -386,7 +392,7 @@ nightly_cleanup（知识层夜间整理：分拣迁移无边孤岛→情境层+�
 |---|---|---|
 | `'all'` | **68** | 82 个全量中排除 13 个**宿主级风险工具**（见下），含全部身体/视觉/白箱/角色/智慧之书能力 |
 | `'brain'`（默认） | **36** | 去掉身体的完整大脑：记忆/推理/认知/学习/飞轮/反思/摄取/生命周期/长期记忆门/服务，**不含**身体视觉与风险工具 |
-| `'core'` | **12** | 精选核心：remember/recall/search/timeline/think/relate/predict_routes/ingest_text/ingest_url/session_note/self_check/service_info |
+| `'core'` | **12** | 精选核心：remember/recall/search/timeline/think/relate/predict_routes/ingest/context/self_check/service_info |
 | 字符串数组 | 自定义 | 显式列出的工具名（不受风险名单限制，配置者已明确选择） |
 
 **`'all'` 也排除的宿主级风险工具（13 个）**——`run_command`（宿主命令执行）/ `designer_decide`（设计者裁决·fail-closed）/ `device_call`（外部设备）/ `see`·`world3d`·`vprim`·`visual_check`（身体视觉）/ `start_lifecycle`·`stop_lifecycle`（自主生命周期控制）/ `web_ingest_search`（网络写知识层）/ `role_create`·`role_import`·`role_block`（角色卡写入）。
