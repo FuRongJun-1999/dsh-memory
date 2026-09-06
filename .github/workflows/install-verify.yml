@@ -1,0 +1,46 @@
+name: install-verify
+
+# 用户视角装机验证（issue #10 复现矩阵）：
+# 三平台 × 两 Node 版本，从 npm registry 干净安装 @furongjun1999/dsh-memory
+# 并验证 ESM 导入；另附「全局安装」诊断步（issue #10 最可能的错误安装方式）。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/install-verify.yml']
+
+jobs:
+  consumer-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Consumer clean install (registry view)
+        shell: bash
+        run: |
+          mkdir consumer && cd consumer
+          npm init -y
+          npm install @furongjun1999/dsh-memory
+          echo "--- peer deps tree ---"
+          npm ls @deepseek-ai/dsh-llm @deepseek-ai/cordis 2>&1 | head -10
+
+      - name: ESM import check
+        shell: bash
+        run: |
+          cd consumer
+          node --input-type=module -e "import('@furongjun1999/dsh-memory').then(m=>{console.log('ESM OK:',Object.keys(m).join(','))}).catch(e=>{console.error('ESM FAIL:',e.code,e.message.split('\n')[0]);process.exit(1)})"
+
+      - name: Diagnose issue-10 (global install, expected to fail)
+        continue-on-error: true
+        shell: bash
+        run: |
+          npm install -g @furongjun1999/dsh-memory
+          cd "$(mktemp -d)"
+          node --input-type=module -e "import('@furongjun1999/dsh-memory').then(m=>{console.log('global import OK (unexpected)')}).catch(e=>{console.log('global import FAIL as expected:',e.code,'- 用户在错误目录 import 全局包即得到此报错')})" || true
