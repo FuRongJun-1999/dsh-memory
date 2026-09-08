@@ -10,7 +10,7 @@
 # 本机生效值（2026-09-04 备份）：dbPath=AEIS 主库 / tools=all / lifecycle=600s
 
 # 灵枢 dsh-memory 插件：注入密钥（密钥来自宿主进程环境变量，不入配置库）
-- id: dsh-memory
+- id: furongjun1999-dsh-memory
   config:
     # 灵枢记忆库绝对路径（roleDataDir 由它推导：<dir>/roleplay_data——相对路径会
     # 因 node/python 进程 cwd 不同而解析错位，导致角色列表读不到）
