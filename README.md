@@ -1,9 +1,9 @@
 # 让 AI Agent 拥有不可遗忘的自我
 ## 灵枢（AEIS）× DeepSeek Harness · 白箱智能研究平台（AGI 研究人员向）
 
-[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![dsh.so security](https://www.dsh.so/badge/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7) [![dsh.so install](https://www.dsh.so/badge/install/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7) [![npm version](https://img.shields.io/npm/v/@furongjun1999/dsh-memory.svg)](https://www.npmjs.com/package/@furongjun1999/dsh-memory) [![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-0.1.1--rc.2-4E9BF1)](https://github.com/deepseek-ai/deepseek-harness/releases) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![dsh.so security](https://www.dsh.so/badge/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7) [![dsh.so install](https://www.dsh.so/badge/install/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7) [![npm version](https://img.shields.io/npm/v/@furongjun1999/dsh-memory.svg)](https://www.npmjs.com/package/@furongjun1999/dsh-memory) [![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)](https://github.com/deepseek-ai/deepseek-harness/releases) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> 上排徽章：Awesome DSH Plugin 官方列表收录 · [dsh.so](https://www.dsh.so/artifact/dsh-memory-7) 静态安全扫描 **100/100**（Trust: Gold, L1-L3 verified）· npm 版本 · **已适配 DSH 0.1.1-rc.2**（2026-08-28 实测：MCP 桥接 / 自动记忆 / 工具注册全正常）· MIT License
+> 上排徽章：Awesome DSH Plugin 官方列表收录 · [dsh.so](https://www.dsh.so/artifact/dsh-memory-7) 静态安全扫描 **100/100**（Trust: Gold, L1-L3 verified）· npm 版本 · **要求 DSH 内核 ≥ 0.1.2-rc.1**（0.4.x 用新版 dsh-tools 调度器；旧内核 0.1.1-rc.2 不兼容，请用 DSH ≥ 0.1.2-rc.1 或回退 0.4.2）· MIT License
 
 > **一句话**：dsh-memory 把灵枢（AEIS）的**白箱智能**（条件路由表 → 组合生成 → 自校验 → 知识固化 → LLM 降级外部校验器）与 **AGI 级长期记忆**（跨会话、自演化、可审计）接入 DeepSeek Harness。
 
@@ -44,7 +44,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 > **不要**用 `npm install` 把插件装进 profile 的 `node_modules`——那会引入错误版本的 `@deepseek-ai` peer 包，导致插件加载失败 / 浏览器报错。
 > 想自己改源码？克隆 `FuRongJun-1999/dsh-memory` 后用 `npm install && npm run build`（构建插件本身），再用 `dsh plugin add <本地路径>` 部署。
 >
-> 兼容：DSH 官方列表（Memory 分类）· npm `@furongjun1999/dsh-memory`（0.3.1）· **已适配 DSH 0.1.1-rc.2**（2026-08-28 实测通过；npm 发布 0.1.2-alpha.1 后会再验证一次）。
+> 兼容：DSH 官方列表（Memory 分类）· npm `@furongjun1999/dsh-memory`（0.4.3）· **要求 DSH 内核 ≥ 0.1.2-rc.1**（0.4.x 用新版 `dsh-tools` 调度器/`defineTool`；旧内核 0.1.1-rc.2 结构不兼容、会 `scheduler_prepare` 崩——**旧内核用户请用 0.4.2**）。
 
 ---
 
