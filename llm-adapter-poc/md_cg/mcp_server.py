@@ -155,8 +155,27 @@ TOOLS = [
         "inputSchema": _s(""),
     },
     {
+        "name": "mdcg_whoami",
+        "description": "身份与权限：tenant / actor / clearance / 可见节点数 / 可读密级列表。",
+        "inputSchema": _s(""),
+    },
+    {
+        "name": "mdcg_ingest",
+        "description": "设备驱动：从会话文件增量摄取事件（自动 fix-pair 挖掘 + watermark 去重）。"
+                       "source=auto 时自动发现本机 DSH 会话。",
+        "inputSchema": _s("", source=_p("string", "会话文件路径，或 'auto' 自动发现 DSH 会话"),
+                          max_events=_p("integer", "单次最多摄取事件数"),
+                          mine_fix_pairs=_p("boolean", "是否自动挖掘错误→修复对（默认是）"),
+                          dry_run=_p("boolean", "只统计不写入")),
+    },
+    {
+        "name": "mdcg_watermarks",
+        "description": "各事件源的摄取水位（增量摄取状态，可审计）。",
+        "inputSchema": _s(""),
+    },
+    {
         "name": "mdcg_service_info",
-        "description": "服务信息（信任透明度）：身份/版本/根目录/节点统计/工具数。",
+        "description": "服务信息（信任透明度）：身份/版本/根目录/节点统计/工具数/权限。",
         "inputSchema": _s(""),
     },
 ]
@@ -168,6 +187,27 @@ TOOLS = [
 
 def _j(obj) -> str:
     return json.dumps(obj, ensure_ascii=False, default=str)
+
+
+def _pick_source(path):
+    """按内容嗅探源类型：DSH 会话格式 vs 通用 JSONL。"""
+    from .sources import DSHSessionSource, JsonlSource
+    if path.endswith(".zstd"):
+        return DSHSessionSource(path)
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                o = json.loads(line)
+                if o.get("type") == "session" or ("type" in o and "seq" in o
+                                                  and "data" in o):
+                    return DSHSessionSource(path)
+                return JsonlSource(path)
+    except (ValueError, OSError):
+        pass
+    return JsonlSource(path)
 
 
 def _node_view(node):
@@ -187,7 +227,7 @@ def call_tool(cg, name, args):
         return {"server": SERVER_NAME, "version": SERVER_VERSION,
                 "protocol": PROTOCOL_VERSION, "root": cg.root, "actor": cg.actor,
                 "nodes": len(cg.index["nodes"]), "tools": len(TOOLS),
-                "layers": list(cg.index["nodes"].values())[0]["layer"] if cg.index["nodes"] else None}
+                "principal": getattr(cg, "principal", None) and cg.principal.as_dict()}
 
     if name == "mdcg_remember":
         nid = a.get("node_id") or ("mem_" + str(int(__import__("time").time() * 1000)))
@@ -261,6 +301,29 @@ def call_tool(cg, name, args):
     if name == "mdcg_health":
         return cg.health_os()
 
+    if name == "mdcg_whoami":
+        return cg.whoami()
+
+    if name == "mdcg_ingest":
+        from .sources import DSHSessionSource, JsonlSource, Ingestor
+        src_arg = (a.get("source") or "auto").strip()
+        ing = Ingestor(cg)
+        if src_arg == "auto":
+            files = DSHSessionSource.discover(limit=1)
+            if not files:
+                return {"error": "no_dsh_session_found"}
+            src = DSHSessionSource(files[0])
+        else:
+            src = _pick_source(src_arg)
+        return ing.ingest(src,
+                          mine_fix_pairs=bool(a.get("mine_fix_pairs", True)),
+                          max_events=a.get("max_events"),
+                          dry_run=bool(a.get("dry_run")))
+
+    if name == "mdcg_watermarks":
+        from .sources import Ingestor
+        return {"watermarks": Ingestor(cg).watermarks()}
+
     raise ValueError(f"未知工具：{name}")
 
 
@@ -283,9 +346,18 @@ def main():
     if not root:
         sys.stderr.write("[mdcg-mcp] 缺少 MDCG_ROOT 环境变量\n")
         return 2
-    actor = os.environ.get("MDCG_ACTOR", "mcp-client")
-    from .mdcos import MdCGOS
-    cg = MdCGOS(root, actor=actor)
+    # 权限模型：clearance / tenant / 写权限 / 管理权限（默认 internal，只读为主）
+    from .mdcos import MdCGSecure
+    from .security import Principal
+    clearance = os.environ.get("MDCG_CLEARANCE", "internal")
+    principal = Principal(
+        tenant=os.environ.get("MDCG_TENANT", "default"),
+        actor=os.environ.get("MDCG_ACTOR", "mcp-client"),
+        clearance=clearance,
+        can_write=os.environ.get("MDCG_CAN_WRITE", "1") not in ("0", "false", "False"),
+        can_admin=os.environ.get("MDCG_CAN_ADMIN", "0") in ("1", "true", "True"),
+    )
+    cg = MdCGSecure(root, principal=principal)
 
     for line in sys.stdin:
         line = line.strip()

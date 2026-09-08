@@ -30,11 +30,14 @@ def check(name, cond, detail=""):
 class McpClient:
     """最小 MCP stdio 客户端（逐行 JSON-RPC 2.0）。"""
 
-    def __init__(self, root, actor="mcp-test"):
+    def __init__(self, root, actor="mcp-test", extra_env=None):
         env = dict(os.environ)
         env["MDCG_ROOT"] = root
         env["MDCG_ACTOR"] = actor
+        env["MDCG_CAN_ADMIN"] = "1"          # 测试默认带管理权限
         env["PYTHONIOENCODING"] = "utf-8"
+        if extra_env:
+            env.update(extra_env)
         here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         env["PYTHONPATH"] = here + os.pathsep + env.get("PYTHONPATH", "")
         self.p = subprocess.Popen(
@@ -170,6 +173,66 @@ def main():
         check("未知工具返回 error 而非崩溃", isinstance(bad, dict) and "error" in bad, str(bad)[:80])
         again = cli.call("mdcg_get", {"node_id": "n1"})
         check("错误后服务仍可用", again is not None, str(again)[:60])
+
+        # 9. 权限（#2）：无管理权限时管理操作被拒
+        print("\n【9】权限（无 can_admin 的管理操作被拒）")
+        ro = McpClient(root, actor="readonly", extra_env={"MDCG_CAN_ADMIN": "0"})
+        try:
+            ro.send("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
+                                   "clientInfo": {"name": "ro", "version": "0"}})
+            denied = ro.call("mdcg_forget", {"node_id": "n1"})
+            check("无 can_admin 的 forget 被拒", isinstance(denied, dict) and "error" in denied,
+                  str(denied)[:90])
+            w = ro.call("mdcg_whoami")
+            check("mdcg_whoami 报告权限", w.get("principal", {}).get("can_admin") is False,
+                  str(w.get("principal"))[:100])
+        finally:
+            ro.close()
+
+        # 10. 设备驱动（#3）：ingest / watermarks
+        print("\n【10】设备驱动（ingest / watermarks）")
+        sess = os.path.join(root, "sess.jsonl")
+        with open(sess, "w", encoding="utf-8") as f:
+            for i, (role, text) in enumerate([
+                    ("user", "跑测试"),
+                    ("tool-output", "Traceback (most recent call last):\nError: boom"),
+                    ("assistant", "npm install foo")]):
+                f.write(json.dumps({"time": 1780000000000 + i * 1000, "seq": i,
+                                    "role": role, "text": text, "session": "s9"},
+                                   ensure_ascii=False) + "\n")
+        # 会话默认 sensitivity=private → 需要 private clearance 才能写入
+        ing_cli = McpClient(root, actor="ingestor",
+                            extra_env={"MDCG_CLEARANCE": "private", "MDCG_CAN_ADMIN": "1"})
+        try:
+            ing_cli.send("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
+                                        "clientInfo": {"name": "ing", "version": "0"}})
+            ing = ing_cli.call("mdcg_ingest", {"source": sess})
+            check("mdcg_ingest 增量摄取", ing.get("written") == 3, str(ing)[:130])
+            ing2 = ing_cli.call("mdcg_ingest", {"source": sess})
+            check("mdcg_ingest 幂等（重复无新增）", ing2.get("new_events") == 0, str(ing2)[:90])
+            wm = ing_cli.call("mdcg_watermarks")
+            check("mdcg_watermarks 记录水位", bool(wm.get("watermarks")), str(wm)[:110])
+        finally:
+            ing_cli.close()
+
+        # 10b. 权限不足时写入被拒（且不静默）
+        print("\n【10b】会话写入需 private clearance")
+        lo = McpClient(root, actor="low",
+                       extra_env={"MDCG_CLEARANCE": "internal", "MDCG_CAN_ADMIN": "1"})
+        try:
+            lo.send("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
+                                   "clientInfo": {"name": "lo", "version": "0"}})
+            sess2 = os.path.join(root, "sess2.jsonl")
+            with open(sess2, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"time": 1780000009000, "seq": 0, "role": "user",
+                                    "text": "新会话", "session": "s10"},
+                                   ensure_ascii=False) + "\n")
+            r = lo.call("mdcg_ingest", {"source": sess2})
+            check("clearance 不足时写入被拒并报告",
+                  r.get("denied") == 1 and r.get("written") == 0 and "hint" in r,
+                  str(r)[:130])
+        finally:
+            lo.close()
 
     finally:
         if cli:

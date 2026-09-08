@@ -29,6 +29,8 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, STATE_ACCEPT, STATE_REJECT
                    GLOBAL_CAP)
 from . import nodefile, routing
 from .fsutil import FileLock, atomic_write, append_jsonl, read_jsonl
+from .security import (Principal, TenantRegistry, AccessDenied,
+                       SENSITIVITY_ORDER, DEFAULT_SENSITIVITY, _rank)
 
 # ---- 常量 ----------------------------------------------------------------
 
@@ -576,4 +578,144 @@ class MdCGOS(MdCG):
         for e in self.index["nodes"].values():
             r = e.get("role") or "(none)"
             c[r] = c.get(r, 0) + 1
+        return c
+
+
+# ==========================================================================
+# 记忆 OS #2 · 权限模型（公开知识 / 私有记忆隔离）
+# ==========================================================================
+
+class MdCGSecure(MdCGOS):
+    """带权限的记忆 OS：租户 + 密级（clearance）× 节点敏感度（sensitivity）。
+
+    动机：灵枢是开源仓库，私有记忆不能混进公开根。本类保证：
+      · 读隔离：clearance 之下的节点对调用方不可见（search/recall/get 一致过滤）
+      · 写隔离：写入高于 clearance 的敏感度 → AccessDenied
+      · 管理隔离：forget/restore/review_decide 需 can_admin
+      · 审计带 tenant/actor/session（可追溯到哪个会话做了什么）
+    """
+
+    def __init__(self, root: str, principal: Principal = None, **kw):
+        self.principal = principal or Principal()
+        super().__init__(root, actor=self.principal.actor, **kw)
+        self.session = self.principal.session
+
+    # ---------- 索引：把 role / sensitivity 一并索引 ----------
+
+    def _scan_nodes(self):
+        nodes = super()._scan_nodes()
+        for nid, e in nodes.items():
+            fm, _c = self._read(e)
+            if fm:
+                e["role"] = fm.get("role")
+                e["sensitivity"] = fm.get("sensitivity") or DEFAULT_SENSITIVITY
+        return nodes
+
+    def _index_sensitivity(self, nid, sens):
+        e = self.index["nodes"].get(nid)
+        if e is not None:
+            e["sensitivity"] = sens
+            self._dirty[nid] = e
+
+    # ---------- 写：权限校验 ----------
+
+    def add(self, node_id: str, content: str, layer: str = "knowledge",
+            sensitivity: str = None, **kw) -> str:
+        sens = sensitivity or DEFAULT_SENSITIVITY
+        _rank(sens)
+        self.principal.require_write(sens)
+        nid = super().add(node_id, content, layer=layer, sensitivity=sens, **kw)
+        self._index_sensitivity(nid, sens)
+        return nid
+
+    def add_rejected(self, hypothesis: str, reason: str, sensitivity: str = None, **kw) -> str:
+        sens = sensitivity or DEFAULT_SENSITIVITY
+        self.principal.require_write(sens)
+        nid = super().add_rejected(hypothesis, reason, sensitivity=sens, **kw)
+        self._index_sensitivity(nid, sens)
+        return nid
+
+    def add_unresolved(self, question: str, known_clues: str = "", goal: str = "",
+                       sensitivity: str = None, **kw) -> str:
+        sens = sensitivity or DEFAULT_SENSITIVITY
+        self.principal.require_write(sens)
+        nid = super().add_unresolved(question, known_clues, goal, sensitivity=sens, **kw)
+        self._index_sensitivity(nid, sens)
+        return nid
+
+    def propose(self, node_id: str, content: str, sensitivity: str = None, **kw):
+        sens = sensitivity or DEFAULT_SENSITIVITY
+        self.principal.require_write(sens)
+        return super().propose(node_id, content, sensitivity=sens, **kw)
+
+    # ---------- 读：密级过滤 ----------
+
+    def _readable(self, e) -> bool:
+        return self.principal.allows(e.get("sensitivity") or DEFAULT_SENSITIVITY)
+
+    def _candidates(self, layer=None, roles=None, include_work=False):
+        out = super()._candidates(layer=layer, roles=roles, include_work=include_work)
+        return [e for e in out if self._readable(e)]
+
+    def _neg_coverage(self, terms):
+        return [e for e in super()._neg_coverage(terms) if self._readable(e)]
+
+    def get(self, node_id: str):
+        e = self.index["nodes"].get(node_id)
+        if e is not None and not self._readable(e):
+            return None                     # 读隔离：不可见即不存在
+        return super().get(node_id)
+
+    def search_rrf(self, *a, **kw):
+        """RRF 路径里的图扩展会绕过 _candidates，这里显式再过滤一次。"""
+        res, meta = super().search_rrf(*a, **kw)
+        res = [r for r in res
+               if self._readable(self.index["nodes"].get(r[0]["id"], r[0]))]
+        return res, meta
+
+    # ---------- 管理：需 can_admin ----------
+
+    def forget(self, node_id: str, reason: str = ""):
+        self.principal.require_admin("forget")
+        return super().forget(node_id, reason)
+
+    def restore(self, node_id: str, force: bool = False):
+        self.principal.require_admin("restore")
+        return super().restore(node_id, force=force)
+
+    def review_decide(self, *a, **kw):
+        self.principal.require_admin("review_decide")
+        return super().review_decide(*a, **kw)
+
+    # ---------- 身份/审计 ----------
+
+    def whoami(self):
+        p = self.principal
+        return {"principal": p.as_dict(), "root": self.root,
+                "readable_sensitivities": [s for s in SENSITIVITY_ORDER
+                                           if p.allows(s)],
+                "nodes_visible": sum(1 for e in self.index["nodes"].values()
+                                     if self._readable(e)),
+                "nodes_total": len(self.index["nodes"])}
+
+    def _audit(self, op, node_id, **meta):
+        meta.setdefault("tenant", self.principal.tenant)
+        meta.setdefault("session", self.principal.session)
+        meta.setdefault("clearance", self.principal.clearance)
+        super()._audit(op, node_id, **meta)
+
+    def health_os(self):
+        h = super().health_os()
+        h["security"] = {
+            "tenant": self.principal.tenant,
+            "clearance": self.principal.clearance,
+            "sensitivity_counts": self._sensitivity_counts(),
+        }
+        return h
+
+    def _sensitivity_counts(self):
+        c = {}
+        for e in self.index["nodes"].values():
+            s = e.get("sensitivity") or DEFAULT_SENSITIVITY
+            c[s] = c.get(s, 0) + 1
         return c
