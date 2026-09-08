@@ -132,6 +132,24 @@ class MdCGOS(MdCG):
             out.append(e)
         return out
 
+    # ================= 资格判定（legacy 记忆豁免） =================
+
+    @staticmethod
+    def judge_qualification(node_dict, query: str, context=None):
+        """在父类四态之上支持 legacy 记忆（迁移进来的自由文本）。
+
+        迁移进来的历史记忆没有 CCG 5 要素注释。若直接按父类判 BLINDSPOT，
+        整库检索结果全是「停止猜测」，信息差 D 恒为 1、反思无意义。
+        故对显式标记 `ccg_exempt=true` 且内容非空的节点判 **DEFER**
+        （可检索、可继续补条件），并在 reason 里诚实说明缺什么。
+        """
+        fm = (node_dict or {}).get("frontmatter") or {}
+        content = (node_dict or {}).get("content") or ""
+        if fm.get("ccg_exempt") and content.strip():
+            return {"state": STATE_DEFER,
+                    "reason": "legacy 记忆（无 CCG 5 要素）：可检索；建议补生效条件/不适用条件/验证方式"}
+        return MdCG.judge_qualification(node_dict, query, context)
+
     # ================= 检索（含 role 过滤 + 四路召回） =================
 
     def _neg_coverage(self, terms):
@@ -231,13 +249,16 @@ class MdCGOS(MdCG):
         return self._score(docs, query, bigrams(query))
 
     def _path_entity(self, query, entries):
-        """实体路径：tags 命中。"""
-        terms = expand_query_terms(query)
+        """实体路径：tags 命中。（返回节点字典，与 _lexical 同构）"""
         out = []
         for e in entries:
             tags = [str(t) for t in (e.get("tags") or [])]
             if any(t in query or query in t for t in tags if len(t) >= 2):
-                out.append((e, 1.0))
+                fm, c = self._read(e)
+                if c is None:
+                    continue
+                out.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
+                             "content": c, "path": e["path"]}, 1.0))
         return out
 
     def _path_graph(self, query, entries, seeds, depth=1):
@@ -257,7 +278,12 @@ class MdCGOS(MdCG):
             for edge in (node["frontmatter"].get("edges") or []):
                 tid = edge.get("target") if isinstance(edge, dict) else str(edge)
                 if tid in by_id and tid not in seed_ids:
-                    out.append((by_id[tid], s * 0.5))
+                    e = by_id[tid]
+                    fm, c = self._read(e)
+                    if c is None:
+                        continue
+                    out.append(({"id": fm.get("id") or tid, "frontmatter": fm,
+                                 "content": c, "path": e["path"]}, s * 0.5))
         return out
 
     def search_rrf(self, query: str, k: int = 20, layer: str = None,
