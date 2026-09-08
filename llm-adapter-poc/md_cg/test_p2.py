@@ -42,6 +42,30 @@ def main():
     try:
         cg = MdCGOS(root, actor="test")
 
+        # ---------------- 0. 观测时间（条件论「观测时间」栏） ----------------
+        print("\n【0】观测时间（条件论）")
+        cg.add("ts1", mk("无观测时间参数", "问观测", "调用方未提供 condition_space"))
+        fm1 = cg.get("ts1")["frontmatter"]
+        cs1 = fm1.get("condition_space") or {}
+        tw1 = cs1.get("time_window")
+        check("写入自动补 time_window", isinstance(tw1, list) and len(tw1) == 2, str(tw1))
+        check("time_window 锚定写入时刻",
+              bool(tw1) and abs(tw1[0] - fm1.get("created_at", 0)) < 1e-6,
+              f"tw[0]={tw1[0] if tw1 else None} created_at={fm1.get('created_at')}")
+        check("默认观测窗口为 1 小时", bool(tw1) and abs((tw1[1] - tw1[0]) - 3600) < 1e-6,
+              f"跨度={tw1[1]-tw1[0] if tw1 else None}")
+
+        cg.add("ts2", mk("显式观测时间", "问观测", "调用方给了 time_window"),
+               condition_space={"observation_position": "测试", "time_window": [1000.0, 2000.0]})
+        tw2 = (cg.get("ts2")["frontmatter"].get("condition_space") or {}).get("time_window")
+        check("显式 time_window 被保留", tw2 == [1000.0, 2000.0], str(tw2))
+
+        cg.add("ts3", mk("指定 created_at", "问观测", "回填历史时间"), created_at=1700000000.0)
+        fm3 = cg.get("ts3")["frontmatter"]
+        tw3 = (fm3.get("condition_space") or {}).get("time_window")
+        check("created_at 回填时 time_window 同步锚定",
+              bool(tw3) and abs(tw3[0] - 1700000000.0) < 1e-6, str(tw3))
+
         # ---------------- 2. role 分层索引 ----------------
         print("\n【2】role 分层索引")
         cg.add("k1", mk("红按钮移动", "问红按钮", "红按钮控制角色左移"), role="knowledge")
