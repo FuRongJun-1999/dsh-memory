@@ -14,3 +14,9 @@ lib/
 # llm-adapter-poc：AI 实验工作区（非公开内容，仅本地保留）
 # 约 12k 实验产物文件 + venv + 本地大 db；与插件源码/发布产物无关
 llm-adapter-poc/
+
+# md_cg 运行时数据与产物（可重跑 migrate 再生，不入库）
+/_md_cg_p*/
+/_md_cg_membench/
+/wisdom-book-cloud-new.db
+/md_cg/__pycache__/

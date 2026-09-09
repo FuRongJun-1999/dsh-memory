@@ -41,7 +41,7 @@
 ```bash
 MDCG_ROOT="D:/Program Files/2_ai/AEIS/data/mdcg" \
 MDCG_ACTOR="dsh" \
-PYTHONPATH="D:/Program Files/2_ai/dsh-memory/llm-adapter-poc" \
+PYTHONPATH="D:/Program Files/2_ai/dsh-memory" \
 python -m md_cg.mcp_server
 ```
 
@@ -56,7 +56,7 @@ python -m md_cg.mcp_server
     env:
       MDCG_ROOT: "D:/Program Files/2_ai/AEIS/data/mdcg"
       MDCG_ACTOR: "dsh"
-      PYTHONPATH: "D:/Program Files/2_ai/dsh-memory/llm-adapter-poc"
+      PYTHONPATH: "D:/Program Files/2_ai/dsh-memory"
 ```
 
 ### 3.3 工具面（17）
@@ -84,7 +84,7 @@ python -m md_cg.mcp_server
 ## 四、验证命令
 
 ```bash
-cd "D:/Program Files/2_ai/dsh-memory/llm-adapter-poc"
+cd "D:/Program Files/2_ai/dsh-memory"
 set PYTHONPATH=.
 python -m md_cg.test_p2        # 31/31  七项能力
 python -m md_cg.test_p2_mcp    # 23/23  MCP 协议
