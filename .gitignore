@@ -10,3 +10,7 @@ lib/
 /check-submission.mjs
 /site_locales.mjs
 /scripts_lib_entries.mjs
+
+# llm-adapter-poc：AI 实验工作区（非公开内容，仅本地保留）
+# 约 12k 实验产物文件 + venv + 本地大 db；与插件源码/发布产物无关
+llm-adapter-poc/
