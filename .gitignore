@@ -20,3 +20,9 @@ llm-adapter-poc/
 /_md_cg_membench/
 /wisdom-book-cloud-new.db
 /md_cg/__pycache__/
+
+# 他项目遗留参考文件与旧打包产物（非本仓库内容，防 git add -A 误提交）
+/dsh-bridge-readme.md
+/generate-readme.mjs
+/lingshu_entry.yml
+/*.tgz
