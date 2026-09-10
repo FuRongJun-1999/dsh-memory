@@ -43,7 +43,12 @@ def _deepseek() -> tuple[str, str]:
     k = os.environ.get("DEEPSEEK_API_KEY")
     if k:
         return k, "https://api.deepseek.com"
-    r = _load_key("314007fa") or _load_key("deepseek")
+    # provider 名片段优先由环境变量提供（避免把本地标识写死在源码里）；
+    # 未提供时回退到 ZCode config 中既有的可匹配片段
+    hint = (os.environ.get("DEEPSEEK_PROVIDER_HINT") or "").strip()
+    r = ((_load_key(hint) if hint else None)
+         or _load_key("314007fa")
+         or _load_key("deepseek"))
     return (r[0], "https://api.deepseek.com") if r else (None, None)
 
 

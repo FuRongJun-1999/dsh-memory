@@ -21,8 +21,8 @@
 ## ⚡ 三步快启（30 秒上手）
 
 ```bash
-# ① 装灵枢大脑（一条命令，零外部依赖；v0.5.0 完整自包含：核心+白箱+知识库随包）
-pip install aeis-0.5.0-py3-none-any.whl          # wheel 从 Releases 页下载，或 git+ 在线安装
+# ① 灵枢大脑：零安装 —— 白箱大脑（md_cg）随插件包自带，无需 pip 安装任何引擎
+#    （旧版需 pip install aeis wheel；三层拆分 S4 后大脑随包，见 docs/灵枢三层拆分规划_v0.1.md）
 
 # ② 装进 DSH 的 web profile（pnpm 协调入口，不要用裸 npm install 装进 profile）
 dsh plugin --profile web add @furongjun1999/dsh-memory
@@ -35,9 +35,9 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
   config:
     mdcg:               # 记忆唯一真源：认知图（md 文档）
       root: 'data/mdcg'
-    dbPath: 'data/lingshu.db'   # 旧通道：AEIS 能力库 SQLite
+    dbPath: 'data/lingshu.db'   # 遗留：仅「身体」能力后端 / 角色数据目录推导用
     identity: '灵枢'
-    tools: 'brain'      # 'brain' 全心智 | 'core' 精选
+    tools: 'core'       # 'core' 两基元(默认) | 'brain' 完整认知面 | 'all'
 ```
 
 > ⚠️ **profile config override 依赖（2026-09-04 dsh 0.1.2 排查确认）**：插件包内自带的 `cordis.patch.yml` 只有裸 insert（id+name，无 config），完整 config 全靠 profile 层的 `cordis.patch.yml` override 补全（**mdcg**/dbPath/tools/env/lifecycle）。**换 profile、重装 profile 或升级插件时，必须确认该 override 仍在** `<profile>/cordis.patch.yml`——完整备份模板见 `docs/cordis-patch-profile-web.example.yml`，丢失会导致插件以默认配置运行（**mdcg.root 落到 data/mdcg 致记忆真源错位**、dbPath 相对路径错位→角色数据读不到、tools=brain 缺白箱工具族、lifecycle 不启动）。
@@ -52,10 +52,13 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 
 ## 🧩 架构与显式调用映射（v0.1 · 2026-09-10）
 
-> **记忆只有一个真源**：md_cg 认知图。AEIS 降为**能力库**（白箱引擎 / 角色生成），不再存记忆。
+> **记忆只有一个真源**：md_cg 认知图（大脑，随插件包自带）。白箱引擎与知识库已内迁 `md_cg/`；
+> AEIS 仅作**可选「身体」能力后端**（角色扮演生成），不再存记忆、默认不启动。
 
-- **唯一真源**：`md_cg/`（MCP 面仅 `cg` / `stg` 两个认知基元，kernel surface）。
-- **能力库调用**：白箱 LLM provider **已下线**（不再注册 `lingshu-whitebox`）；白箱的「编码 / 已有知识回答」能力改由 md_cg 显式调用并留痕 —— `cg(op=whitebox, action=verify_encoding|verify_existing)` → `md_cg/whitebox.py`。
+- **唯一真源**：`md_cg/`（MCP 面 `cg` / `stg` 两个认知基元；`MDCG_MCP_SURFACE=full` 时另含 31 个 `mdcg_*` 细粒度工具）。
+- **单进程**：插件只拉起**一个**子进程 `python -m md_cg.mcp_server`（工具面 / 记忆写入 / 互维核验 / 角色落图共用）。历史上并存的第二个 aeis 进程已在 S4 删除（双进程下两侧工具名交集为 0，切换会静默丢功能）。
+- **白箱调用**：白箱 LLM provider **已下线**（不再注册 `lingshu-whitebox`）；白箱的「编码 / 已有知识回答」能力由 md_cg 显式调用并留痕 —— `cg(op=whitebox, action=verify_encoding|verify_existing)` → `md_cg/whitebox.py`。
+- **「身体」能力（可选）**：角色扮演生成（`roleplay_chat` / `role_create` / `role_import`）属「身」，主仓已剥离；需在配置打开 `capability.enabled` 并给出 `capability.args` 才挂载。未挂载时接口 **fail-closed**（返回明确原因，不编造回复），而转录 / 历史 / 翻译 / 落图（走大脑）始终可用。
 - **LIB 本地库**：`src/lib/` 收纳 `mdcg_client.ts`（插件侧唯一显式入口）、`roleplay_web.ts`、`mutual.ts`、`whitebox_llm.ts`（已下线保留）。角色扮演与互维的数据改由认知图承载。
 - **数据迁移**：`python -m md_cg.migrate_aeis`（AEIS→认知图）、`python -m md_cg.migrate_roleplay`（角色/转录/互维→认知图）。
 - **功能 → 代码 全表**：[docs/功能调用映射表_v0.1.md](docs/功能调用映射表_v0.1.md) —— 任何功能都能查到它调用哪段代码（含行号、MCP op、配置项生效位置）。
@@ -103,7 +106,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 
 - **Agent Plugins 1.0.0 兼容包**（主仓库 `CommonTrustProtocol/aeis/skills/`）：**688 个 Agent Skills**（六域条件单元：compiler 116 / pylang 122 / graph 117 / os 112 / browser 104 / net 117）
 - **比标准 Agent Skills 多 KCCS 四要素**：生效条件/子功能/执行/**不适用条件**（三通道：description「Not for」+ metadata.kccs.not_applicable + 正文克制条款）
-- **三层关系**：知识真源（条件单元库）→ 说明书（技能包——何时用/怎么用/克制什么）→ 执行（**本插件挂载的灵枢 MCP 82 工具**·物理基底裁决）
+- **三层关系**：知识真源（条件单元库）→ 说明书（技能包——何时用/怎么用/克制什么）→ 执行（**本插件挂载的灵枢 MCP 33 工具**：`cg`/`stg` 基元 + 31 细粒度·物理基底裁决）
 - 使用：任意符合 agentskills.io / agent-plugins.org 规范的 agent 可加载本技能包；Verification 由灵枢 MCP 执行
 
 ---
@@ -261,15 +264,15 @@ node{class_type, inputs} + 边引用[上游,idx] + prompt图 → 拓扑执行 + 
 #    功能：角色选择/创建 · 完整对话转录（JSONL，无限上下文）· 双向翻译面板 ·
 #          角色详情三导入 UI（记忆/锚点/价值观）· 内容分级门控（满18确认/拒未成年人性内容）
 
-# B. 独立网页服务（浏览器对话 + 人设编辑器）
+# B. 独立网页服务（浏览器对话 + 人设编辑器）—— 属「身体」仓（AEIS 独立库）
 python -m aeis.roleplay_web --port 8793 --data-dir roleplay_data
 
-# B2. 交互式世界游戏（实时生成场景和对话 · 七层闭环实际验证）
+# B2. 交互式世界游戏（实时生成场景和对话 · 七层闭环实际验证）—— 属「身体」仓
 python -m aeis.game_web.server --port 8791
 #   浏览器打开 http://127.0.0.1:8791/ —— 实时体素世界 + 自然语言生成场景 + 世界感知对话 +
 #   七层闭环可视化（L5命中率/L7好奇/L3关系实时可见）
 
-# C. MCP 工具（roleplay_chat / role_create / role_import / role_block）
+# C. MCP 工具（roleplay_chat / role_create / role_import / role_block）—— 属「身体」仓
 python -m aeis.mcp.server
 ```
 
@@ -419,7 +422,7 @@ nightly_cleanup（知识层夜间整理：分拣迁移无边孤岛→情境层+�
 ┌─────────────────────────────────────────────┐
 │ DeepSeek Harness (cordis)                    │
 │                                             │
-│  Agent Loop ──┬── lingshu_remember/recall…   │
+│  Agent Loop ──┬── lingshu_cg / lingshu_stg   │
 │               │   (ctx.tools 注册)           │
 │  session/event│                              │
 │  (自动记忆钩子)│                              │
@@ -427,11 +430,14 @@ nightly_cleanup（知识层夜间整理：分拣迁移无边孤岛→情境层+�
                 │ stdio · 逐行 JSON-RPC
                 │ (initialize → tools/list → tools/call)
 ┌───────────────▼─────────────────────────────┐
-│ 灵枢 Python 子进程 (spawn)                   │
-│ python -m aeis.mcp.server                    │
-│ AEIS_DB=<path> · AEIS_IDENTITY=<identity>    │
-│ 73 工具 · SQLite 五层记忆 · 时空记忆图        │
+│ 灵枢大脑子进程 (spawn · 唯一)                │
+│ python -m md_cg.mcp_server                   │
+│ MDCG_ROOT=<path> · MDCG_MCP_SURFACE=full     │
+│ cg/stg 基元 + 31 细粒度 · md 认知图(唯一真源) │
 └──────────────────────────────────────────────┘
+
+（可选）「身体」能力后端 —— 仅当 capability.enabled=true 时另起一个
+能力库子进程（AEIS / 角色扮演生成），默认不启动 → 主仓保持纯大脑单进程。
 ```
 
 ## 安装
@@ -441,27 +447,25 @@ nightly_cleanup（知识层夜间整理：分拣迁移无边孤岛→情境层+�
 - Node.js ≥ 22.19（DeepSeek Harness 要求）
 - DeepSeek Harness（`npx @deepseek-ai/dsh web`）
 
-### 安装灵枢大脑（aeis 库）
+### 灵枢大脑：零安装（随插件自带）
 
-**方式 A：Release 下载 wheel 离线安装 ★ 最稳（不依赖网络）**
-
-从 [GitHub Releases](https://github.com/FuRongJun-1999/CommonTrustProtocol/releases) 下载 `aeis-0.5.0-py3-none-any.whl`（**完整自包含发布版**）：
-
-```bash
-pip install aeis-0.5.0-py3-none-any.whl
-```
-
-> **v0.5.0 为完整自包含单包**：灵枢核心（aeis）+ 白箱智慧模块（wisdom，含 **2800+ 个 KCCS 注释知识点 + 学科知识库**）+ 三入口（harness）+ 种子知识（seed_knowledge，智能论 3.4 + 学科卡）。单文件、离线可用、装一次管用——知识库随包分发，无需另装。
->
-> 遇到网络不稳（GitHub clone 失败）时首选 wheel 离线安装。
-
-**方式 B：git 安装（需网络）**
+三层拆分（S4）后，**白箱大脑（md_cg）随插件包分发**——`package.json` 的 `files` 已含 `md_cg`，
+插件启动时以 `python -m md_cg.mcp_server` 拉起**唯一**大脑子进程。无需 pip 安装任何引擎。
 
 ```bash
-pip install "aeis @ git+https://github.com/FuRongJun-1999/CommonTrustProtocol@main#subdirectory=aeis"
+# 自检（可选）：确认自带大脑可导入
+python -c "import md_cg.mcp_server as m; print(len(m.tools_for_surface()), 'tools')"
 ```
 
-> 依赖 GitHub 实时可达，网络不稳时可能失败。aeis 库核心**零外部依赖**（纯标准库），安装即得完整大脑（五层记忆 · 知识飞轮 · 安全护栏 · 白箱智慧模块 · MCP · 身体层）。
+> **仅当需要「身体」生成能力**（角色扮演对话 / 角色卡创建等）时，才需可选挂载能力后端：
+> 在配置中打开 `capability.enabled` 并给出 `capability.args`（见 `cordis.yml.example`）。
+> 默认关闭 → 主仓保持**纯大脑单进程**；未挂载时角色生成接口 fail-closed，而
+> 转录 / 历史 / 翻译 / 落图（走大脑）始终可用。
+
+> 历史（已下线）：旧版需 `pip install aeis-0.5.0-py3-none-any.whl`（从
+> [GitHub Releases](https://github.com/FuRongJun-1999/CommonTrustProtocol/releases) 下载 wheel），
+> 或 `pip install "aeis @ git+https://github.com/FuRongJun-1999/CommonTrustProtocol@main#subdirectory=aeis"`。
+> 该路径在三层拆分 S4 中下线：大脑随包自带，不再依赖外部 `aeis` 库。
 
 ### 安装插件本体
 
@@ -507,9 +511,9 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
       # 打开②（最小权限）：--role recorder → 只能自动记忆 / 转录 / 角色定义；
       #   whitebox、identity、verify 与写 self 层会被拒
       # 打开③（兼容旧部署，不推荐）：MDCG_LEGACY_ENV_AUTH: '1'（写 self 层再加 MDCG_CAN_ADMIN: '1'）
-    dbPath: 'data/lingshu.db'           # 旧通道：AEIS 能力库 SQLite（不再存记忆）
+    dbPath: 'data/lingshu.db'           # 遗留：仅角色数据目录 roleDataDir 推导用（不存记忆）
     identity: '灵枢'
-    tools: 'brain'                     # 'brain'(默认) | 'core' | 'all'
+    tools: 'core'                      # 'core'(默认,仅 cg/stg) | 'brain' | 'all'
     memory:
       userMessage: true                # 用户消息自动沉淀
       assistantMessage: false          # agent 回复沉淀（默认关，防噪音）
@@ -524,10 +528,13 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `serverName` | string | `lingshu` | 工具命名空间前缀（工具名 `lingshu_<name>`） |
+| `serverName` | string | `lingshu` | 工具命名空间前缀（工具名 `lingshu_<name>`，记忆面为 `lingshu_cg` / `lingshu_stg`） |
 | `python` | string | `python` | Python 可执行文件 |
-| `moduleArgs` | string[] | `['-m', 'aeis.mcp.server']` | 灵枢 server 启动参数 |
-| `dbPath` | string | `data/lingshu.db` | ⚠️ 旧通道：AEIS SQLite 库文件（自动建目录）。**不再存记忆**，仅供 AEIS 能力库（白箱/角色生成）与角色数据目录 roleDataDir（由其父目录推导）使用 |
+| `moduleArgs` | string[] | `['-m', 'md_cg.mcp_server']` | 大脑（md_cg）server 启动参数 |
+| `capability.enabled` | boolean | `false` | 是否挂载「身体」能力后端（角色扮演生成）。关闭 = 纯大脑单进程 |
+| `capability.python` | string | `''`（回退 `python`） | 能力后端 Python 可执行文件 |
+| `capability.args` | string[] | `[]` | 能力后端启动参数（如 `['-m', 'aeis.mcp.server']`）；enabled=true 但为空则跳过并告警 |
+| `dbPath` | string | `data/lingshu.db` | ⚠️ 遗留：角色数据目录 `roleDataDir` 由其父目录推导。**不存记忆**（记忆真源 = md_cg） |
 | `mdcg.enabled` | boolean | `true` | 启用认知图（md_cg）——**记忆唯一真源（md 文档）** |
 | `mdcg.root` | string | `data/mdcg` | 认知图根目录（`MDCG_ROOT`；相对路径按插件进程 cwd 解析）。记忆写在这里 |
 | `mdcg.actor` | string | `dsh-memory` | 调用主体（`MDCG_ACTOR`）；私有内容按 (tenant, actor) 派生 DEK，须与迁移脚本 `--actor` 一致 |

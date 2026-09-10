@@ -3,30 +3,49 @@
 #
 # 说明：
 # - !!js process.env.X 语法在加载期求值，密钥不入库
-# - 下面所有路径都用相对路径（相对插件进程 cwd）；若你的 cwd 不稳定，
-#   改成自己机器上的绝对路径即可。目录不存在会自动创建。
+# - 记忆写入路径（下面 mdcg.root）默认锚定**插件仓自身** data/，与进程 cwd
+#   解耦——历史事故：cwd 落在别的仓时，相对路径会把记忆真源写偏。目录不存在
+#   会自动创建。想换位置有三种方式（优先级由高到低）：
+#     ① 环境变量 MDCG_DATA_ROOT（数据根）/ MDCG_ROOT（认知图根）
+#     ② 编辑 <插件仓>/data/paths.json 的 "data_root" / "root"
+#     ③ 本文件的 mdcg.root（填绝对路径或相对插件仓的路径）
+#   查当前解析结果：python md_cg/datapath.py
 
 - id: lingshu-memory
   name: '@furongjun1999/dsh-memory'
   config:
-    # 工具命名空间：Agent 看到的工具名是 lingshu_remember / lingshu_recall ...
+    # 工具命名空间：Agent 看到的工具名是 lingshu_cg / lingshu_stg（记忆面已基元化）
     serverName: 'lingshu'
 
-    # ⚠️ 旧通道：AEIS SQLite 库文件（经环境变量 AEIS_DB 传给 aeis.mcp.server）。
-    # 记忆真源已统一到 md_cg 认知图（见下面的 mdcg 块）；此项现仅供 AEIS
-    # 能力库（白箱 / 角色生成）与角色数据目录 roleDataDir（由它的父目录推导）使用，
-    # 不再存记忆。
+    # ⚠️ 遗留项：SQLite 库文件路径（经环境变量 AEIS_DB 传给子进程）。
+    # 大脑真源已统一到 md_cg 认知图（见下面的 mdcg 块）；此项现仅供角色
+    # 数据目录 roleDataDir（由它的父目录推导）使用，**不再存记忆**，
+    # md_cg server 也不读取它。
     dbPath: 'data/lingshu.db'
 
     # 灵枢身份标识
     identity: '灵枢'
 
-    # Python 与启动参数（默认即可，若 aeis 已 pip 安装）
+    # Python 与启动参数（默认即可；md_cg 随插件自带，无需 pip 安装第三方包）
     python: 'python'
-    moduleArgs: ['-m', 'aeis.mcp.server']
+    # 大脑进程：md_cg（主仓自带，不再依赖 pip aeis）
+    moduleArgs: ['-m', 'md_cg.mcp_server']
 
-    # 暴露的工具集合：'core'（默认 12 个）| 'all'（38 个）| 自定义数组
+    # 暴露的工具集合：'core'（默认，仅 cg/stg 两基元）| 'brain' | 'all' | 自定义数组
+    # 进程侧 MDCG_MCP_SURFACE=full 暴露 cg/stg 基元 + mdcg_* 细粒度工具（共 33）；
+    # 此处选择表再筛一遍：'core' = 2 基元；'brain' = 完整认知面（30，排除管理类
+    # forget/restore/review_decide）；'all' 同样排除管理类（RISK_TOOLS）。
     tools: 'core'
+
+    # 「身体」能力后端（可选）：角色扮演生成等「身」的生成能力。
+    # 默认关闭 → 主仓保持**纯大脑单进程**（只起 md_cg）。开启后额外起一个
+    # 能力库子进程（如 AEIS），仅角色扮演生成使用；记忆真源仍是 md_cg。
+    # 未开启时 /roleplay 的生成接口 fail-closed（返回明确原因，不编造回复），
+    # 但转录 / 历史 / 翻译 / 落图始终可用（走大脑）。
+    # capability:
+    #   enabled: false
+    #   python: 'python'
+    #   args: ['-m', 'aeis.mcp.server']
 
     # 自动记忆（对话沉淀进灵枢）
     memory:
@@ -88,7 +107,11 @@
     # 功能 → 代码 对照见 docs/功能调用映射表_v0.1.md
     mdcg:
       enabled: true
-      root: 'data/mdcg'          # MDCG_ROOT（相对 cwd；可用 MDCG_ROOT 环境变量覆盖）
+      # root = 记忆写入路径（用户可改）。留空 '' = 走解析优先级，默认落在
+      # **插件仓自身** data/mdcg（与 cwd 解耦）：
+      #   env MDCG_ROOT > data/paths.json 的 "root" > 本项 > 默认 <插件仓>/data/mdcg
+      # 想换位置：填绝对路径（如 'D:/lingshu/mdcg'），或改 data/paths.json。
+      root: ''
       actor: 'dsh-memory'        # MDCG_ACTOR：私有内容按 (tenant, actor) 派生 DEK
       tenant: 'default'          # MDCG_TENANT：须与迁移脚本 --tenant 一致
       clearance: 'private'       # MDCG_CLEARANCE：可读写密级上限
@@ -100,4 +123,4 @@
 #     serverName: 'lingshu2'
 #     dbPath: 'data/lingshu2.db'
 #     identity: '灵枢二号'
-#     tools: ['remember', 'recall']
+#     tools: ['cg', 'stg']

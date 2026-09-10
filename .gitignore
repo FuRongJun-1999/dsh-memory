@@ -31,8 +31,27 @@ llm-adapter-poc/
 /md_cg/__pycache__/
 /scripts/__pycache__/
 
+# 白箱自举/图谱迁移的运行时产物（可由脚本重跑再生，不入库）
+/_md_cg_wisdom_graph/
+/data/verify_cache.json
+/data/vision/
+
 # 他项目遗留参考文件与旧打包产物（非本仓库内容，防 git add -A 误提交）
 /dsh-bridge-readme.md
 /generate-readme.mjs
 /lingshu_entry.yml
 /*.tgz
+
+# 白箱知识库（md_cg/whitebox_kb）：真源为 *.py 与 *.md；
+# 下列为编译产物 / 可再生索引 / SQLite 运行态，不入库
+/md_cg/whitebox_kb/**/__pycache__/
+*.pyc
+*.pyo
+/md_cg/whitebox_kb/**/*.npz
+/md_cg/whitebox_kb/**/*.db
+/md_cg/whitebox_kb/**/*.db-shm
+/md_cg/whitebox_kb/**/*.db-wal
+/md_cg/whitebox_kb/**/neural_index.json
+/md_cg/whitebox_kb/knowledge/_ccg_dump.json
+/md_cg/whitebox_kb/knowledge/_index.json
+/md_cg/whitebox_kb/data/
