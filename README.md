@@ -48,6 +48,18 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 
 ---
 
+## 🧩 架构与显式调用映射（v0.1 · 2026-09-10）
+
+> **记忆只有一个真源**：md_cg 认知图。AEIS 降为**能力库**（白箱引擎 / 角色生成），不再存记忆。
+
+- **唯一真源**：`md_cg/`（MCP 面仅 `cg` / `stg` 两个认知基元，kernel surface）。
+- **能力库调用**：白箱 LLM provider **已下线**（不再注册 `lingshu-whitebox`）；白箱的「编码 / 已有知识回答」能力改由 md_cg 显式调用并留痕 —— `cg(op=whitebox, action=verify_encoding|verify_existing)` → `md_cg/whitebox.py`。
+- **LIB 本地库**：`src/lib/` 收纳 `mdcg_client.ts`（插件侧唯一显式入口）、`roleplay_web.ts`、`mutual.ts`、`whitebox_llm.ts`（已下线保留）。角色扮演与互维的数据改由认知图承载。
+- **数据迁移**：`python -m md_cg.migrate_aeis`（AEIS→认知图）、`python -m md_cg.migrate_roleplay`（角色/转录/互维→认知图）。
+- **功能 → 代码 全表**：[docs/功能调用映射表_v0.1.md](docs/功能调用映射表_v0.1.md) —— 任何功能都能查到它调用哪段代码（含行号、MCP op、配置项生效位置）。
+
+---
+
 ## 📖 教学入门（给 AI / 研究者的白箱智能导读 · 建议按顺序读）
 
 > 三篇构成完整理论链：**是什么 → 怎么认知 → 凭什么成立**。写给想理解「白箱智能 / 智能论」的 AI 与研究者——每个概念都有工程对应，每处断言都标注性质（定义/推论/假设），文末均有术语表。

@@ -38,17 +38,34 @@ def _rank(level: str) -> int:
 class Principal:
     """调用方身份（一次会话一个）。
 
-    tenant     —— 租户（决定根目录）
-    actor      —— 调用者标识（写入审计）
-    clearance  —— 最高可读/可写敏感度
-    can_write  —— 是否允许写
-    can_admin  —— 是否允许管理操作（forget/restore/review_decide）
-    session    —— 会话 id（进程/会话模型：每次连接一个）
+    tenant        —— 租户（决定根目录）
+    actor         —— 调用者标识（写入审计）
+    clearance     —— 最高可读/可写敏感度
+    can_write     —— 是否允许写
+    can_admin     —— 是否允许管理操作（forget/restore/review_decide）
+    session       —— 会话 id（进程/会话模型：每次连接一个）
+
+    令牌扩展（由 `tokens.verify_token` 填充；直接构造时为 None = 不限制）：
+    role          —— 角色（designer/reflection/verifier/recorder/output/sustain/guest）
+    token_id      —— 令牌 id（可追溯到签发记录）
+    parent        —— 派生来源令牌 id（权职分离的委派链）
+    expires_at    —— 过期时间戳（None = 不过期）
+    layers_allow  —— 可写层白名单（None = 不限制；"*" = 全部）
+    ops_allow     —— 可执行 op 白名单（同上）
+    auth_mode     —— direct（直接构造）/ token / legacy_env / anonymous
+
+    版本层扩展（蜂群互联层0，由 `theory.check` 填充）：
+    theory_ok      —— 版本声明是否合法；False 时**全部写/管理操作被拒**（只读降级）
+    theory_version —— 当前声明的协议版本（审计与 whoami 用）
     """
 
     def __init__(self, tenant: str = "default", actor: str = "system",
                  clearance: str = DEFAULT_SENSITIVITY, can_write: bool = True,
-                 can_admin: bool = False, session: str = None):
+                 can_admin: bool = False, session: str = None,
+                 role: str = None, token_id: str = None, parent: str = None,
+                 expires_at: float = None, layers_allow=None, ops_allow=None,
+                 auth_mode: str = "direct", theory_ok: bool = True,
+                 theory_version: str = None):
         _rank(clearance)                      # 校验
         self.tenant = tenant
         self.actor = actor
@@ -56,31 +73,97 @@ class Principal:
         self.can_write = can_write
         self.can_admin = can_admin
         self.session = session or ("sess_" + uuid.uuid4().hex[:12])
+        self.role = (role or "system")
+        self.token_id = token_id
+        self.parent = parent
+        self.expires_at = float(expires_at) if expires_at else None
+        self.layers_allow = None if layers_allow is None else tuple(layers_allow)
+        self.ops_allow = None if ops_allow is None else tuple(ops_allow)
+        self.auth_mode = auth_mode
+        self.theory_ok = bool(theory_ok)
+        self.theory_version = theory_version
+
+    # ---------- 基础判定 ----------
 
     def allows(self, sensitivity: str) -> bool:
         """clearance 是否覆盖该敏感度（可读/可写）。"""
         return _rank(sensitivity) <= _rank(self.clearance)
 
+    def expired(self) -> bool:
+        return self.expires_at is not None and time.time() > self.expires_at
+
+    @staticmethod
+    def _in_scope(allow, name: str) -> bool:
+        if allow is None:                     # 未声明 = 不限制（兼容直接构造）
+            return True
+        return "*" in allow or name in allow
+
+    def allows_layer(self, layer: str) -> bool:
+        return self._in_scope(self.layers_allow, layer or "knowledge")
+
+    def allows_op(self, op: str) -> bool:
+        return self._in_scope(self.ops_allow, (op or "").strip().lower())
+
+    # ---------- 强制校验（越权即 AccessDenied） ----------
+
+    def _require_live(self):
+        if self.expired():
+            raise AccessDenied(f"actor={self.actor} 令牌已过期")
+
+    def require_op(self, op: str):
+        self._require_live()
+        if not self.allows_op(op):
+            raise AccessDenied(
+                f"角色 {self.role} 无权执行 op={op}（作用域 "
+                f"{list(self.ops_allow) if self.ops_allow is not None else '不限'}）")
+
     def require_write(self, sensitivity: str):
+        self._require_live()
+        if not self.theory_ok:
+            raise AccessDenied(
+                "版本层校验未通过（theory_ok=False）：全部写操作被拒，"
+                "仅保留 theory 修复入口")
         if not self.can_write:
             raise AccessDenied(f"actor={self.actor} 无写权限")
         if not self.allows(sensitivity):
             raise AccessDenied(
                 f"写入敏感度 {sensitivity} 超出 clearance {self.clearance}")
 
+    def require_layer_write(self, layer: str, sensitivity: str):
+        """写层校验：密级 + 层白名单双闸门（核心私有内容不可越权修改）。"""
+        self.require_write(sensitivity)
+        layer = layer or "knowledge"
+        if not self.allows_layer(layer):
+            raise AccessDenied(
+                f"角色 {self.role} 无权写入 {layer} 层"
+                f"（可写层 {list(self.layers_allow) if self.layers_allow is not None else '不限'}）")
+
     def require_admin(self, op: str):
+        self._require_live()
+        if not self.theory_ok:
+            raise AccessDenied(
+                f"版本层校验未通过（theory_ok=False）：管理操作 {op} 被拒")
         if not self.can_admin:
             raise AccessDenied(f"actor={self.actor} 无管理权限（{op}）")
 
     def as_dict(self):
         return {"tenant": self.tenant, "actor": self.actor,
                 "clearance": self.clearance, "can_write": self.can_write,
-                "can_admin": self.can_admin, "session": self.session}
+                "can_admin": self.can_admin, "session": self.session,
+                "role": self.role, "token_id": self.token_id,
+                "parent": self.parent, "auth_mode": self.auth_mode,
+                "expires_at": self.expires_at,
+                "theory_ok": self.theory_ok,
+                "theory_version": self.theory_version,
+                "layers_allow": (None if self.layers_allow is None
+                                 else list(self.layers_allow)),
+                "ops_allow": (None if self.ops_allow is None
+                              else list(self.ops_allow))}
 
     def __repr__(self):
         return (f"Principal(tenant={self.tenant!r}, actor={self.actor!r}, "
-                f"clearance={self.clearance!r}, write={self.can_write}, "
-                f"admin={self.can_admin})")
+                f"role={self.role!r}, clearance={self.clearance!r}, "
+                f"write={self.can_write}, admin={self.can_admin})")
 
 
 class TenantRegistry:

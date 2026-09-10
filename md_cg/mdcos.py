@@ -29,7 +29,9 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, STATE_ACCEPT, STATE_REJECT
                    TIER_BUCKET_SCAN, TIER_GLOBAL_LIKE, TIER_GLOBAL_SCAN,
                    GLOBAL_CAP, expand_query_terms_weighted,
                    expand_query_terms_llm)
-from . import nodefile, routing
+from . import (nodefile, routing, chain, subgraph, forgetting, protect,
+               identity, consistency, metacognition, crypto, sustain,
+               self_state, predict, evolution)
 from .fsutil import FileLock, atomic_write, append_jsonl, read_jsonl
 from .security import (Principal, TenantRegistry, AccessDenied,
                        SENSITIVITY_ORDER, DEFAULT_SENSITIVITY, _rank)
@@ -322,6 +324,9 @@ class MdCGOS(MdCG):
             if e.get("layer") not in ("rejected", "unresolved"):
                 continue
             fm, content = self._read(e)
+            if not fm:
+                continue
+            content = self._open_content(fm.get("id"), fm, content)
             if content and any(t in content for t in terms):
                 out.append(e)
         return out
@@ -420,6 +425,9 @@ class MdCGOS(MdCG):
                 fm, c = self._read(e)
                 if c is None:
                     continue
+                c = self._open_content(fm.get("id"), fm, c)
+                if c is None:
+                    continue
                 out.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
                              "content": c, "path": e["path"]}, 1.0))
         return out
@@ -445,9 +453,65 @@ class MdCGOS(MdCG):
                     fm, c = self._read(e)
                     if c is None:
                         continue
+                    c = self._open_content(fm.get("id"), fm, c)
+                    if c is None:
+                        continue
                     out.append(({"id": fm.get("id") or tid, "frontmatter": fm,
                                  "content": c, "path": e["path"]}, s * 0.5))
         return out
+
+    def _path_chain(self, query, entries, seeds, context=None,
+                    relation_types=None, max_depth=None, decay=0.9):
+        """关系链路径：沿 causal/sequential/applies_to 边**多跳**扩散。
+
+        理论依据：`causal` = 条件依赖因果（A 是 B 成立的条件），
+        `dex_chain` 沿 causal 边正向展开、每步标注条件，**链 = 条件序列**。
+        所以本路的语义是「推理可达性」——与词法/模糊的「词面相似」正交：
+
+            score = 种子分 × 链累积权重（Π 边权重） × decay^跳数
+
+        与既有 `_path_graph` 的区别：graph 只走 1 跳且权重硬编码 0.5；
+        本路按边类型权重（causal .85 / sequential .60 …）、逐跳乘边置信度、
+        默认 5 跳、visited 剪枝——「检索使用关系链」的落地。
+
+        返回 (scored, prov)；prov[nid] 带该节点**最强链**的节点序列与条件序列，
+        使「为什么召回它」可审计。
+        """
+        if not seeds:
+            return [], {}
+        seed_map = {}
+        for n, s in seeds[:8]:
+            nid = n.get("id")
+            if nid and nid not in seed_map:
+                seed_map[nid] = float(s)
+        if not seed_map:
+            return [], {}
+        rels = tuple(relation_types) if relation_types else chain.CHAIN_TYPES_DEFAULT
+        depth = chain.MAX_DEPTH_DEFAULT if max_depth is None else max_depth
+        best = chain.expand_from_seeds(self, seed_map, relation_types=rels,
+                                       max_depth=depth, decay=decay)
+        if not best:
+            return [], {}
+        allowed = {id(e) for e in entries}
+        scored, prov = [], {}
+        for nid, info in best.items():
+            e = self.index["nodes"].get(nid)
+            if e is None or id(e) not in allowed:
+                continue
+            fm, c = self._read(e)
+            if c is None:
+                continue
+            c = self._open_content(fm.get("id"), fm, c)
+            if c is None:
+                continue
+            out_id = fm.get("id") or nid
+            scored.append(({"id": out_id, "frontmatter": fm,
+                            "content": c, "path": e["path"]}, info["score"]))
+            prov[out_id] = {"chain": info["chain"]["nodes"],
+                            "conditions": info["conditions"],
+                            "depth": info["depth"]}
+        scored.sort(key=lambda x: -x[1])
+        return scored, prov
 
     def _path_fuzzy(self, query, entries, context=None, expand=None):
         """模糊路径（分级隶属度）：返回 (scored, source)。
@@ -616,6 +680,7 @@ class MdCGOS(MdCG):
         stat = {"scanned": 0}
         ranked = {}          # path -> [(node, score)]
         fuzzy_source = None
+        chain_prov = {}
         if "lexical" in paths:
             ranked["lexical"] = self._lexical(q, entries, stat)
         if "bucket" in paths:
@@ -624,6 +689,9 @@ class MdCGOS(MdCG):
             ranked["entity"] = self._path_entity(q, entries)
         if "graph" in paths:
             ranked["graph"] = self._path_graph(q, entries, ranked.get("lexical") or [])
+        if "chain" in paths:
+            seeds = (ranked.get("lexical") or []) + (ranked.get("entity") or [])
+            ranked["chain"], chain_prov = self._path_chain(q, entries, seeds, context)
         if "fuzzy" in paths:
             ranked["fuzzy"], fuzzy_source = self._path_fuzzy(
                 q, entries, context, expand=query_expand)
@@ -652,7 +720,11 @@ class MdCGOS(MdCG):
                     rrf[nid] = max(rrf.get(nid, 0.0), contrib)
                 else:
                     rrf[nid] = rrf.get(nid, 0.0) + contrib
-                prov.setdefault(nid, []).append({"path": name, "rank": rank})
+                entry = {"path": name, "rank": rank}
+                if name == "chain" and nid in chain_prov:
+                    entry["chain"] = chain_prov[nid]["chain"]
+                    entry["conditions"] = chain_prov[nid]["conditions"]
+                prov.setdefault(nid, []).append(entry)
         for name in ro:                     # 仅召回：补候选，不改排序
             for rank, (node, _s) in enumerate((ranked.get(name) or [])[:50], 1):
                 nid = node["id"]
@@ -918,7 +990,7 @@ class MdCGOS(MdCG):
         extra = {}
         if hasattr(self, "principal"):     # MdCGSecure：审计记录按裁决者密级写
             extra["sensitivity"] = getattr(self.principal, "clearance", None)
-        self.add(nid, body, layer="self", role=self.AUDIT_ROLE,
+        self.add(nid, body, layer="self", override=True, role=self.AUDIT_ROLE,
                  tags=["audit", self.AUDIT_TAG, f"pid:{rec['pid']}",
                        f"round:{rec['round']}"],
                  importance=0.2, verification_basis="data",
@@ -1096,8 +1168,8 @@ class MdCGOS(MdCG):
                 if x not in neg:
                     neg.append(x)
             fm["non_applicable_conditions"] = neg
-            atomic_write(os.path.join(self.root, tgt["path"]),
-                         nodefile.dumps(fm, merged_content))
+            self._write_node(target, os.path.join(self.root, tgt["path"]),
+                             fm, merged_content)
             self.rebuild_index()
             result.update(ok=True, node_id=target)
 
@@ -1111,11 +1183,16 @@ class MdCGOS(MdCG):
 
     # ================= 5. tombstone + 恢复时删除检查 =================
 
-    def forget(self, node_id: str, reason: str = ""):
-        """软删除：节点文件移入 trash/，写入删除清单（payload-free）。"""
+    def forget(self, node_id: str, reason: str = "", override: bool = False):
+        """软删除：节点文件移入 trash/，写入删除清单（payload-free）。
+
+        写保护：受保护节点（self/anchor 层、protected 标记、importance≥0.7）
+        不可遗忘——需显式 override=True，且旧版本先快照、动作全程留痕。
+        """
         e = self.index["nodes"].get(node_id)
         if not e:
             return {"ok": False, "error": "not_found"}
+        protect.guard_forget(self, node_id, override=override, actor=self.actor)
         src = os.path.join(self.root, e["path"])
         fm, content = self._read(e)
         h = _sig(content or "", 16)
@@ -1131,6 +1208,8 @@ class MdCGOS(MdCG):
                                                    .replace("\\", "/")})
         self.index["nodes"].pop(node_id, None)
         self._dirty.pop(node_id, None)
+        subgraph.invalidate_cache(self)
+        chain.invalidate_cache(self)
         self._audit("forget", node_id, reason=reason, payload_hash=h)
         return {"ok": True, "id": node_id, "tombstone": h}
 
@@ -1153,7 +1232,8 @@ class MdCGOS(MdCG):
             fm, content = nodefile.loads(f.read())
         layer = fm.get("layer", "knowledge")
         tags = fm.get("tags") or []
-        self.add(node_id, content, layer=layer, tags=tags,
+        self.add(node_id, content, layer=layer, tags=tags, override=True,
+                 sensitivity=fm.get("sensitivity"),
                  condition_space=fm.get("condition_space"),
                  importance=fm.get("importance", 0.5),
                  confidence=fm.get("confidence", 0.6),
@@ -1177,6 +1257,20 @@ class MdCGOS(MdCG):
             "goals": {"total": len(self.list_goals()),
                       "active": len(self.active_goals(limit=0))},
             "recent_events": len(self.recent_events(limit=0)),
+            # 写保护 + 主动遗忘面（可审计；ids 列表不塞进健康度，避免膨胀）
+            "protection": {k: v for k, v in self.protect_stats().items()
+                           if k not in ("ids", "immutable_ids")},
+            "forgetting": forgetting.summary(self),
+            # 身份特征识别（智能论 v3.4 位置效应 + 扮演论三接口）
+            "identity": identity.summary(self),
+            # 节点间自动冲突检测（三级决策：情绪 → 反思 → 递归反思）
+            "consistency": consistency.summary(self),
+            # 独立元认知（观察自身认知的二阶单元，不参与裁决）
+            "metacognition": metacognition.summary(self),
+            # 自我状态层（薄自我 + 富索引：八项自我信息的一致性载体）
+            "self_state": self_state.summary(self),
+            # 演化账本（md 载体：每一次修改 = 补一条缺失条件，记录规律与状态）
+            "evolution": evolution.summary(self),
         }
         return h
 
@@ -1192,6 +1286,332 @@ class MdCGOS(MdCG):
 # 记忆 OS #2 · 权限模型（公开知识 / 私有记忆隔离）
 # ==========================================================================
 
+    # ============ 8. 嵌套子图 + 关系链（结构要素的可递归化 / 因果链＝条件链）============
+
+    def subgraph_expand(self, node_id, max_depth=None):
+        """递归展开嵌套子图：`max_depth=None` 数据驱动（展开到自然耗尽）。"""
+        return subgraph.expand(self, node_id, max_depth=max_depth)
+
+    def subgraph_flatten(self, node_id, max_depth=None):
+        """摊平为「节点 + 对称父子边」（part_of / parent_of）。"""
+        return subgraph.flatten(self, node_id, max_depth=max_depth)
+
+    def subgraph_validate(self, limit=50):
+        """树一致性：多父 / 环 / 悬空 / 自环（不一致 → 该层判定应退回 DEFER）。"""
+        return subgraph.validate(self, limit=limit)
+
+    def subgraph_roots(self):
+        return subgraph.roots(self)
+
+    # ---- 主动遗忘（写入侧三问闸门）+ 写保护盘点 ----
+
+    def remember_gated(self, node_id, content, layer="contextual", **kw):
+        """写入情景层记忆前的**主动遗忘闸门**：三问 → 四态。
+
+        理论：J 判断引擎 9-10 档「独立元认知 + 主动遗忘」；
+        prefeed（新奇检测）/ pattern_separation（相似分离）/ nightly_cleanup
+        三者的**写入侧前置版**——不等夜间整理，写之前就裁决。
+
+        ACCEPT 写入 / MERGE 并入既有（不新增，强化既有节点）/
+        DROP 丢弃（低熵噪音）/ DEFER 待定（不写）。
+        四种结果都写进 `_forgetting.jsonl`，可审计。
+        """
+        role = kw.get("role")
+        vb = kw.get("verification_basis")
+        hint = kw.pop("importance_hint", kw.get("importance"))
+        gated = kw.pop("gated", True)
+        override = kw.pop("override", False)
+        do_consistency = kw.pop("consistency", False)
+        on_conflict = kw.pop("on_conflict", "defer")
+        if not gated:
+            return {"verdict": "ACCEPT", "bypass": True, "gate": None,
+                    "node_id": node_id,
+                    "written": self.add(node_id, content, layer=layer,
+                                        override=override, **kw)}
+        verdict = forgetting.assess(self, content, layer=layer, role=role,
+                                    verification_basis=vb, importance_hint=hint,
+                                    node_id=node_id)
+        v = verdict["verdict"]
+        out = {"verdict": v, "node_id": node_id, "gate": verdict}
+        if v == "ACCEPT":
+            if hint is not None and "importance" not in kw:
+                kw["importance"] = hint
+            try:
+                out["written"] = self.add(node_id, content, layer=layer,
+                                          override=override,
+                                          consistency=do_consistency,
+                                          on_conflict=on_conflict, **kw)
+            except consistency.ConsistencyError as e:
+                v = out["verdict"] = "DEFER"
+                out["conflict"] = {"verdict": e.verdict, "reason": e.reason,
+                                   "conflicts": e.conflicts}
+            else:
+                if out.get("written") is None:  # on_conflict=defer：冲突未落盘
+                    v = out["verdict"] = "DEFER"
+        elif v == "MERGE":
+            tgt = verdict["redundancy"]["with"]
+            out["merged_into"] = tgt
+            out["reinforced"] = forgetting.reinforce(self, tgt) if tgt else None
+        # DROP / DEFER：不落库，只留痕
+        forgetting.log(self, {"t": time.time(), "node_id": node_id,
+                              "layer": layer, "verdict": v,
+                              "reason": verdict["reason"],
+                              "importance": verdict["importance"],
+                              "entropy": verdict["entropy"],
+                              "actor": self.actor})
+        return out
+
+    def forgetting_history(self, limit=100):
+        """遗忘裁决留痕：为什么没记住，与为什么记住同样可查。"""
+        return forgetting.history(self, limit=limit)
+
+    def protect_stats(self):
+        """写保护面盘点：受保护节点数、分层分布、自动保护命中数。"""
+        return protect.stats(self)
+
+    # ---- 身份特征识别（智能论 v3.4 位置效应 + 扮演论三接口）----
+
+    def identity_observe(self, subject_id, text, **kw):
+        """memory 接口：记录主体行为证据（供位置效应推断）。"""
+        return identity.observe(self, subject_id, text, **kw)
+
+    def identity_anchor(self, subject_id, text, **kw):
+        """anchor 接口：写身份锚点（不可遗忘；role/user 不得进 self 层）。"""
+        return identity.set_anchor(self, subject_id, text, **kw)
+
+    def identity_trait(self, subject_id, trait, **kw):
+        """values 接口：写条件触发的特征 / 特化价值观（落结构层）。"""
+        return identity.add_trait(self, subject_id, trait, **kw)
+
+    def identity_profile(self, subject_id):
+        """主体画像：身份锚点 + 位置效应 + 条件特征（不止「用户画像」）。"""
+        return identity.profile(self, subject_id)
+
+    def identity_positions(self, limit=0):
+        """所有主体的位置效应分布（谁在记录/反思/验证/输出/维生）。"""
+        return identity.positions(self, limit=limit)
+
+    def identity_history(self, limit=100):
+        """身份操作留痕。"""
+        return identity.history(self, limit=limit)
+
+    def identity_catalog(self):
+        """自描述：位置效应表 + 扮演论三接口。"""
+        return identity.catalog()
+
+    # ---- 节点间自动冲突检测（三级决策：情绪 → 反思 → 递归反思）----
+
+    def check_consistency(self, content, layer=None, condition_space=None,
+                          non_applicable_conditions=None, tags=None,
+                          exclude=None, limit=consistency.MAX_SCAN,
+                          depth=consistency.MAX_DEPTH, auto_flywheel=False):
+        """不落盘地预检一条待写内容是否与既有节点/纪律冲突（三级决策）。
+
+        对齐《智能的公理化基石》§十一（情绪=信息差二阶变化，独立不参与信任）、
+        条件论「反题」（预测与事实冲突）、:273（递归受深度/节点/循环/增益门槛约束）。
+        """
+        return consistency.check(
+            self, content, layer=layer, condition_space=condition_space,
+            non_applicable_conditions=non_applicable_conditions, tags=tags,
+            exclude=exclude, limit=limit, depth=depth,
+            auto_flywheel=auto_flywheel)
+
+    def consistency_history(self, limit=100):
+        """冲突判定留痕：为什么冲突 / 为什么放行。"""
+        return consistency.history(self, limit=limit)
+
+    def consistency_stats(self):
+        """冲突面汇总（供 health / 运维审计）。"""
+        return consistency.summary(self)
+
+    def consistency_catalog(self):
+        """自描述：三级决策 + 四态 + 递归约束（供协议对照验证）。"""
+        return consistency.catalog()
+
+    # ============ 独立元认知（观察自身认知的二阶单元，不参与裁决）============
+
+    def metacognition_report(self, window=50):
+        """元认知报告：轨迹 / 校准 / 盲区 / 信任 + 确定性建议。
+
+        智能论出处：情绪=d²D/dt²（§十一）、五大单元外部观察者（§十三）、
+        推论三「局部不可知」（盲区即知识）、P_trust/P_gap（§十）。
+        独立性：只读留痕，不写 confidence / 资格 / 召回打分。
+        """
+        return metacognition.report(self, window=window)
+
+    def metacognition_trace(self, window=50):
+        """信息差轨迹 D(t) → dD/dt（方向）→ d²D/dt²（情绪）。"""
+        return metacognition.trace(self, window=window)
+
+    def metacognition_calibration(self, max_scan=2000):
+        """自信校准：期望正确率 vs 实际验证通过率（过度自信 / 过度保守）。"""
+        return metacognition.calibration(self, max_scan=max_scan)
+
+    def metacognition_blindspots(self, limit=20, window=200):
+        """盲区地图：反复 BLINDSPOT 的查询邻域 + 未解问题清单。"""
+        return metacognition.blindspots(self, limit=limit, window=window)
+
+    def metacognition_trust(self, window=100):
+        """P_gap（信息差置信）+ P_trust（验证稳定置信）+ d²T/dt²（情感）。"""
+        return metacognition.trust(self, window=window)
+
+    def self_check(self, query, k=5, min_sim=0.25):
+        """元认知闸门：回答前先自问「我对这件事的认知状态如何」。"""
+        return metacognition.self_check(self, query, k=k, min_sim=min_sim)
+
+    def metacognition_history(self, limit=100):
+        """元认知留痕（倒序）。"""
+        return metacognition.history(self, limit=limit)
+
+    def metacognition_summary(self):
+        """一句话元认知状态（供 health / 面板）。"""
+        return metacognition.summary(self)
+
+    def metacognition_catalog(self):
+        """自描述：观测面 + 理论出处 + 独立性约束。"""
+        return metacognition.catalog()
+
+    # ============ 自我状态层（薄自我 + 富索引）============
+    # self 层只放状态卡（单例）+ 关系节点；八项自我信息只登记当前值与指针，
+    # 具体任务/人物/会话/时间/信任的细节由认知图按五维索引连接（不搬运内容）。
+
+    def self_state_snapshot(self, subject=self_state.DEFAULT_SUBJECT):
+        """读自我状态卡（薄）：信息差/信任/情绪/情感/短期记忆/重要性/身份/关系。"""
+        return self_state.snapshot(self, subject)
+
+    def self_state_refresh(self, subject=self_state.DEFAULT_SUBJECT, **kw):
+        """刷新状态卡：聚合八项自我信息 → 写卡 + 版本链留痕（幂等）。"""
+        return self_state.refresh(self, subject, **kw)
+
+    def self_state_bootstrap(self, subject=self_state.DEFAULT_SUBJECT, **kw):
+        """会话启动加载：状态卡 + 关系 + 最近留痕 + 五维索引（跨会话自我续接）。"""
+        return self_state.bootstrap(self, subject, **kw)
+
+    def self_state_relate(self, frm, to, **kw):
+        """写一条有向关系（自我 ↔ 其他智能），reciprocal=True 时双向。"""
+        return self_state.relate(self, frm, to, **kw)
+
+    def self_state_relations(self, subject=None, direction="both"):
+        """列出关系节点（按 subject 过滤出/入）。"""
+        return self_state.relations(self, subject=subject, direction=direction)
+
+    def self_state_index(self, dim, value, **kw):
+        """按五维索引（task/person/session/time/trust）反查具体详情节点。"""
+        return self_state.index(self, dim, value, **kw)
+
+    def self_state_dimensions(self, subject=self_state.DEFAULT_SUBJECT):
+        """状态卡登记的五维索引标签。"""
+        return self_state.dimensions(self, subject)
+
+    def self_state_audit(self, subject=self_state.DEFAULT_SUBJECT, **kw):
+        """自我信息一致性审计：单例/版本链/时序/派生自洽/跨面一致/身份/关系/保护/索引。"""
+        return self_state.audit(self, subject, **kw)
+
+    def self_state_history(self, limit=100, subject=None):
+        """自我状态留痕（倒序，含版本链 hash）。"""
+        return self_state.history(self, limit=limit, subject=subject)
+
+    def self_state_summary(self, subject=self_state.DEFAULT_SUBJECT):
+        """一句话自我状态（供 health / 面板）。"""
+        return self_state.summary(self, subject)
+
+    def self_state_catalog(self):
+        """自描述：八项自我信息 + 五维索引 + 审计规则。"""
+        return self_state.catalog()
+
+    def causal_chain(self, node_id, relation_types=None,
+                     max_depth=chain.MAX_DEPTH_DEFAULT, direction="out",
+                     max_chains=50, sort="strength"):
+        """沿关系链展开：`causal` = 条件依赖因果，链 = 条件序列。
+
+        返回链列表，每条含 nodes / hops（带条件与权重）/ conditions / weight。
+        """
+        return chain.walk(self, node_id,
+                          relation_types=relation_types or chain.CAUSAL_TYPES,
+                          max_depth=max_depth, direction=direction,
+                          max_chains=max_chains, sort=sort)
+
+    def explain_chain(self, node_id, **kw):
+        """人类可读链式解释：「什么条件下 → 发生什么」。"""
+        return chain.explain(self, node_id, **kw)
+
+    # ============ 生成式预测 / 因果推理 ============
+
+    def predict_routes(self, start_id=None, blindspot_id=None,
+                       horizon=predict.HORIZON_DEFAULT,
+                       max_branches=predict.MAX_BRANCHES_DEFAULT,
+                       sort="composite", limit=0, semantic=True):
+        """生成候选未来路线（D-001~D-005）：**候选未来，非必然未来**。"""
+        return predict.routes(self, start_id=start_id,
+                              blindspot_id=blindspot_id, horizon=horizon,
+                              max_branches=max_branches, sort=sort,
+                              limit=limit, semantic=semantic)
+
+    def predict_feedback(self, predicted_node_id, actual_node_id=None,
+                         hit=None, note="", actor="predict"):
+        """预测反馈（D-006）：命中 → 边置信度 +0.05；未命中 → 登记 rejected。"""
+        return predict.feedback(self, predicted_node_id, actual_node_id,
+                                hit=hit, note=note, actor=actor)
+
+    def predict_stats(self, limit=20):
+        """预测统计：调用数 / 路线数 / 命中率 / 动态阈值。"""
+        return predict.stats(self, limit=limit)
+
+    def predict_catalog(self):
+        """自描述：D-001~D-006 决策、权重、校准参数、与 AEIS 的差异。"""
+        return predict.catalog()
+
+    def causal_path(self, a_id, b_id, max_depth=5):
+        """因果路径推理：A 能否沿因果/时序边到达 B（伪因果防护的完整语义）。"""
+        return predict.causal_path(self, a_id, b_id, max_depth=max_depth)
+
+    def causal_gate(self, a_id, b_id):
+        """D-002 伪因果过滤门 → (准入?, 理由)。"""
+        return predict.causal_gate(self, a_id, b_id)
+
+    # ============ 演化账本（md 载体：规律 + 状态，可回滚）============
+    # 每一次修改 = 对一条缺失条件的补充；记录的是认知规律与状态，不是实现。
+
+    def evolution_record(self, node_id=None, pattern="", missing="", action="",
+                         evidence="", source="", kind=None, before=None,
+                         after=None, **extra):
+        """追加一条演化条目（pattern=规律 必填）。"""
+        return evolution.record(
+            self, node_id=node_id, pattern=pattern, missing=missing,
+            action=action, evidence=evidence, source=source,
+            kind=kind or evolution.KIND_CONDITION_GAP,
+            before=before, after=after, extra=extra or None)
+
+    def evolution_entries(self, limit=50, node_id=None, kind=None):
+        """账本条目（倒序）。"""
+        return {"entries": evolution.entries(
+            self, limit=limit, node_id=node_id, kind=kind)}
+
+    def evolution_show(self, entry_id):
+        """单条演化条目。"""
+        return {"entry": evolution.show(self, entry_id)}
+
+    def evolution_history(self, node_id, limit=50):
+        """某节点的演化史（倒序）。"""
+        return evolution.history(self, node_id, limit=limit)
+
+    def evolution_patterns(self, limit=10):
+        """规律统计：哪一维条件反复缺失、由谁触发、哪些规律重复出现。"""
+        return evolution.patterns(self, limit=limit)
+
+    def evolution_summary(self):
+        """一句话演化状态（供 health / 面板）。"""
+        return evolution.summary(self)
+
+    def evolution_rollback(self, entry_id, dry_run=False, note=""):
+        """把某条演化撤回其 before 状态；撤销本身也记一条条目。"""
+        return evolution.rollback(self, entry_id, dry_run=dry_run, note=note)
+
+    def evolution_catalog(self):
+        """自描述：载体 + 原则 + 字段 + 可回滚范围。"""
+        return evolution.catalog()
+
+
 class MdCGSecure(MdCGOS):
     """带权限的记忆 OS：租户 + 密级（clearance）× 节点敏感度（sensitivity）。
 
@@ -1202,10 +1622,125 @@ class MdCGSecure(MdCGOS):
       · 审计带 tenant/actor/session（可追溯到哪个会话做了什么）
     """
 
-    def __init__(self, root: str, principal: Principal = None, **kw):
+    def __init__(self, root: str, principal: Principal = None,
+                 master_key=None, **kw):
         self.principal = principal or Principal()
+        self.kek = None
+        self.dek = None
+        self._crypto_error = None
         super().__init__(root, actor=self.principal.actor, **kw)
         self.session = self.principal.session
+        self._init_crypto(master_key)
+
+    # ---------- 私有内容加密（密钥即访问权 + 身份一致性识别）----------
+
+    def _init_crypto(self, master_key=None):
+        """解析 KEK（显式 → 环境变量 → 仓库外主密钥文件），签发本身份 DEK。
+
+        主密钥缺失时自动生成于仓库外 `~/.mdcg/master.key`（0600）；
+        仍取不到才 `dek=None`，写 private/secret 时 fail-closed。
+        """
+        try:
+            kek = (self._resolve_master_key(master_key)
+                   if master_key is not None
+                   else crypto.load_master_key())
+            if not kek:
+                self._crypto_error = "no_master_key"
+                self.kek = self.dek = None
+                return
+            self.kek = kek
+            self.dek = crypto.provision_dek(
+                self.root, kek, self.principal.tenant, self.principal.actor,
+                clearance=self.principal.clearance)
+            self._crypto_error = None
+        except (crypto.CryptoError, OSError) as e:
+            self._crypto_error = str(e)
+            self.kek = self.dek = None
+
+    @staticmethod
+    def _resolve_master_key(master_key):
+        """接受 32B bytes / 64 位 hex / base64 / 密钥文件路径。"""
+        if isinstance(master_key, (bytes, bytearray)):
+            k = bytes(master_key)
+        else:
+            s = str(master_key).strip()
+            if os.path.exists(s):
+                with open(s, encoding="utf-8") as f:
+                    s = f.read().strip()
+            try:
+                k = bytes.fromhex(s) if len(s) == 64 else crypto._b64d(s)
+            except ValueError as e:
+                raise crypto.CryptoError(
+                    "主密钥须为 32 字节 / 64 位 hex / base64 / 密钥文件") from e
+        if len(k) != crypto.KEY_LEN:
+            raise crypto.CryptoError("主密钥须为 32 字节")
+        return k
+
+    def unlock(self, master_key=None):
+        """运行时解锁（显式密钥 / 重新加载环境变量或主密钥文件）。"""
+        self._init_crypto(master_key)
+        return self.crypto_status()
+
+    def lock(self):
+        """锁定：丢弃内存中的密钥（已落盘密文不受影响）。"""
+        self.kek = self.dek = None
+        self._crypto_error = "locked"
+        return self.crypto_status()
+
+    def crypto_status(self):
+        """当前加密状态（不含密钥材料）。"""
+        return {
+            "unlocked": self.dek is not None,
+            "tenant": self.principal.tenant,
+            "actor": self.principal.actor,
+            "id_fp": crypto.identity_fingerprint(self.principal.tenant,
+                                                 self.principal.actor),
+            "kek_fp": crypto.kek_fingerprint(self.kek) if self.kek else None,
+            "encrypted_levels": list(crypto.ENCRYPTED_LEVELS),
+            "error": self._crypto_error,
+            "keys_file": crypto.keys_path(self.root),
+            "envelopes": crypto.envelopes(self.root),
+        }
+
+    def _seal_content(self, node_id, content, sensitivity=None):
+        """私有内容（private / secret）写入前加密；无密钥 → fail-closed。"""
+        sens = sensitivity or DEFAULT_SENSITIVITY
+        if sens not in crypto.ENCRYPTED_LEVELS or crypto.is_encrypted(content):
+            return content
+        if not self.dek:
+            crypto.audit(self.root, {"op": "seal_denied", "node_id": node_id,
+                                     "tenant": self.principal.tenant,
+                                     "actor": self.principal.actor,
+                                     "reason": self._crypto_error or "no_dek"})
+            raise crypto.LockedError(
+                f"{sens} 内容需加密，但当前无可用密钥（{self._crypto_error}）")
+        sealed = crypto.seal_node(content, self.dek, node_id,
+                                  self.principal.tenant, self.principal.actor)
+        crypto.audit(self.root, {"op": "seal", "node_id": node_id,
+                                 "sensitivity": sens,
+                                 "tenant": self.principal.tenant,
+                                 "actor": self.principal.actor})
+        return sealed
+
+    def _open_content(self, node_id, fm, content):
+        """密文解封；无密钥 / 身份不符 → None（不可读），失败留审计。"""
+        if content is None or not crypto.is_encrypted(content):
+            return content
+        if not self.dek:
+            crypto.audit(self.root, {"op": "read_locked", "node_id": node_id,
+                                     "tenant": self.principal.tenant,
+                                     "actor": self.principal.actor,
+                                     "reason": self._crypto_error or "no_dek"})
+            return None
+        try:
+            return crypto.open_node(content, self.dek, node_id,
+                                    self.principal.tenant, self.principal.actor)
+        except crypto.CryptoError as e:
+            crypto.audit(self.root, {"op": "open_failed", "node_id": node_id,
+                                     "tenant": self.principal.tenant,
+                                     "actor": self.principal.actor,
+                                     "reason": str(e)[:120]})
+            return None
 
     # ---------- 索引：把 role / sensitivity 一并索引 ----------
 
@@ -1230,14 +1765,14 @@ class MdCGSecure(MdCGOS):
             sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
         _rank(sens)
-        self.principal.require_write(sens)
+        self.principal.require_layer_write(layer, sens)
         nid = super().add(node_id, content, layer=layer, sensitivity=sens, **kw)
         self._index_sensitivity(nid, sens)
         return nid
 
     def add_rejected(self, hypothesis: str, reason: str, sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
-        self.principal.require_write(sens)
+        self.principal.require_layer_write("rejected", sens)
         nid = super().add_rejected(hypothesis, reason, sensitivity=sens, **kw)
         self._index_sensitivity(nid, sens)
         return nid
@@ -1245,26 +1780,26 @@ class MdCGSecure(MdCGOS):
     def add_unresolved(self, question: str, known_clues: str = "", goal: str = "",
                        sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
-        self.principal.require_write(sens)
+        self.principal.require_layer_write("unresolved", sens)
         nid = super().add_unresolved(question, known_clues, goal, sensitivity=sens, **kw)
         self._index_sensitivity(nid, sens)
         return nid
 
     def propose(self, node_id: str, content: str, sensitivity: str = None, **kw):
         sens = sensitivity or DEFAULT_SENSITIVITY
-        self.principal.require_write(sens)
+        self.principal.require_layer_write(kw.get("layer") or "contextual", sens)
         return super().propose(node_id, content, sensitivity=sens, **kw)
 
     def add_goal(self, goal: str, sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
         _rank(sens)
-        self.principal.require_write(sens)
+        self.principal.require_layer_write("goals", sens)
         gid = super().add_goal(goal, sensitivity=sens, **kw)
         self._index_sensitivity(gid, sens)
         return gid
 
     def set_goal_status(self, node_id: str, status: str):
-        self.principal.require_write(DEFAULT_SENSITIVITY)
+        self.principal.require_layer_write("goals", DEFAULT_SENSITIVITY)
         return super().set_goal_status(node_id, status)
 
     def remember_event(self, role: str, text: str, tags=None, meta=None,
@@ -1276,6 +1811,7 @@ class MdCGSecure(MdCGOS):
         m.setdefault("tenant", self.principal.tenant)
         m.setdefault("session", self.principal.session)
         m["sensitivity"] = sens
+        text = self._seal_content("_recent", text, sens)
         if window is None:
             return super().remember_event(role, text, tags=tags, meta=m)
         return super().remember_event(role, text, tags=tags, meta=m, window=window)
@@ -1306,6 +1842,12 @@ class MdCGSecure(MdCGOS):
                 continue
             if not self.principal.allows(m.get("sensitivity") or DEFAULT_SENSITIVITY):
                 continue
+            if crypto.is_encrypted(r.get("text")):
+                t = self._open_content("_recent", m, r["text"])
+                if t is None:
+                    continue
+                r = dict(r)
+                r["text"] = t
             keep.append(r)
         return keep[:limit] if limit else keep
 
@@ -1335,9 +1877,9 @@ class MdCGSecure(MdCGOS):
 
     # ---------- 管理：需 can_admin ----------
 
-    def forget(self, node_id: str, reason: str = ""):
+    def forget(self, node_id: str, reason: str = "", override: bool = False):
         self.principal.require_admin("forget")
-        return super().forget(node_id, reason)
+        return super().forget(node_id, reason, override=override)
 
     def restore(self, node_id: str, force: bool = False):
         self.principal.require_admin("restore")
@@ -1347,16 +1889,31 @@ class MdCGSecure(MdCGOS):
         self.principal.require_admin("review_decide")
         return super().review_decide(*a, **kw)
 
+    def evolution_rollback(self, entry_id, dry_run=False, note=""):
+        """回滚是管理操作：撤回结构变更 → 需 can_admin。"""
+        self.principal.require_admin("evolution_rollback")
+        return super().evolution_rollback(entry_id, dry_run=dry_run, note=note)
+
     # ---------- 身份/审计 ----------
 
     def whoami(self):
         p = self.principal
-        return {"principal": p.as_dict(), "root": self.root,
-                "readable_sensitivities": [s for s in SENSITIVITY_ORDER
-                                           if p.allows(s)],
-                "nodes_visible": sum(1 for e in self.index["nodes"].values()
-                                     if self._readable(e)),
-                "nodes_total": len(self.index["nodes"])}
+        out = {"principal": p.as_dict(), "root": self.root,
+               "readable_sensitivities": [s for s in SENSITIVITY_ORDER
+                                          if p.allows(s)],
+               "nodes_visible": sum(1 for e in self.index["nodes"].values()
+                                    if self._readable(e)),
+               "nodes_total": len(self.index["nodes"]),
+               "encryption": self.crypto_status()}
+        try:                                  # 角色职责自描述（未知角色不阻塞）
+            from . import tokens as _tk
+            spec = _tk.role_spec(p.role)
+            out["role_label"] = spec["label"]
+            out["duty"] = spec["duty"]
+            out["forbidden"] = spec["forbidden"]
+        except Exception:                     # noqa: BLE001
+            pass
+        return out
 
     def _audit(self, op, node_id, **meta):
         meta.setdefault("tenant", self.principal.tenant)
@@ -1366,10 +1923,13 @@ class MdCGSecure(MdCGOS):
 
     def health_os(self):
         h = super().health_os()
+        # 持续性自维持（常驻 / 心跳 / 会话续接）：只读摘要，不做巡检
+        h["os"]["sustain"] = sustain.summary(self)
         h["security"] = {
             "tenant": self.principal.tenant,
             "clearance": self.principal.clearance,
             "sensitivity_counts": self._sensitivity_counts(),
+            "encryption": self.crypto_status(),
         }
         return h
 

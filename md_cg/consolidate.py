@@ -70,8 +70,8 @@ import time
 import urllib.error
 import urllib.request
 
-from . import nodefile
-from .fsutil import append_jsonl, atomic_write
+from . import crypto, evolution, nodefile
+from .fsutil import append_jsonl
 from .mdcg import bigrams, expand_query_terms_weighted
 from .mdcos import (MdCGOS, _ccg_field, _declared_conditions, _neg_hit, _sig,
                     _weighted_coverage)
@@ -472,9 +472,39 @@ def _upsert_ccg_line(content: str, field: str, value: str) -> str:
     return newline + "\n" + (content or "")
 
 
+def _evo_pattern(kept: dict) -> str:
+    """规律（一句话）：这一类节点反复缺的正是这批条件。"""
+    names = "、".join(kept.keys())
+    return f"缺「{names}」的节点条件不可判；补齐后四要素完整、可路由"
+
+
+def _evo_evidence(prov: dict) -> str:
+    """证据：本次固化凭什么成立（模型 / 闸门 / 回放）。"""
+    parts = []
+    rf = (prov.get("reflect") or {}).get("model") or ""
+    vf = (prov.get("verify") or {}).get("model") or ""
+    if rf:
+        parts.append(f"reflect={rf}")
+    if vf:
+        parts.append(f"verify={vf}")
+    if prov.get("grounding"):
+        parts.append("grounding通过")
+    if prov.get("replay"):
+        parts.append("replay通过")
+    vb = prov.get("verification_basis") or ""
+    if vb:
+        parts.append(vb)
+    return " · ".join(parts)
+
+
 def _apply_node(cg, e, fm: dict, content: str, kept: dict, prov: dict,
                 basis: str = "", basis_enum: str = BASIS_ENUM_DEFAULT):
-    """把通过验证的字段固化进 md：正文 CCG 行 + frontmatter.comment + 负条件 + provenance。"""
+    """把通过验证的字段固化进 md：正文 CCG 行 + frontmatter.comment + 负条件 + provenance。
+
+    固化 = 对一条缺失条件的补充 → 同步落一条演化条目（md 账本，可回滚）。
+    """
+    nid = e.get("id") or os.path.basename(e["path"])[:-3]
+    before = evolution.state_of(cg, nid) or {}
     comment = (fm.get("state_attributes") or {}).get("comment")
     if not isinstance(comment, dict):
         fm["state_attributes"] = dict(fm.get("state_attributes") or {})
@@ -498,8 +528,17 @@ def _apply_node(cg, e, fm: dict, content: str, kept: dict, prov: dict,
             # 枚举里没有「LLM 交叉验证」这一档，只能落到 other（声明文本在 CCG 行里）
             fm["verification_basis"] = basis_enum
     fm["llm_consolidation"] = prov
-    atomic_write(os.path.join(cg.root, e["path"]),
-                 nodefile.dumps(fm, content), durable=True)
+    cg._write_node(nid, os.path.join(cg.root, e["path"]), fm, content,
+                   durable=True)
+    # 每一次修改都是对缺失条件的补充：记录规律 + 状态，不记录实现。
+    evolution.record(
+        cg, node_id=nid,
+        pattern=_evo_pattern(kept),
+        missing="、".join(kept.keys()),
+        action="补齐 CCG 字段：" + "、".join(kept.keys()),
+        evidence=_evo_evidence(prov),
+        source="consolidate", kind=evolution.KIND_CONDITION_GAP,
+        before=before, after=evolution.state_of(cg, nid) or {})
 
 
 def consolidate(root: str, layer: str = None, limit: int = None, apply: bool = False,
@@ -538,6 +577,9 @@ def consolidate(root: str, layer: str = None, limit: int = None, apply: bool = F
         fm, content = cg._read(e)
         if fm is None:
             _bump("read_failed")
+            continue
+        if crypto.is_encrypted(content):
+            _bump("locked")           # 无密钥 → fail-closed：绝不改写密文
             continue
         have = existing_fields(fm, content)
         missing = [f for f in CCG_FIELDS if f not in have]
@@ -662,12 +704,16 @@ def fill_verification_basis(root: str, basis: str, layer: str = None,
     entries = cg._candidates(layer=layer)
     rep = {"root": root, "layer": layer, "dry_run": not apply, "basis": basis,
            "basis_enum": basis_enum, "nodes_scanned": len(entries),
-           "targeted": 0, "skipped_present": 0, "written": 0}
+           "targeted": 0, "skipped_present": 0, "skipped_locked": 0,
+           "written": 0}
     for e in entries:
         if limit is not None and rep["written"] >= limit:
             break
         fm, content = cg._read(e)
         if fm is None:
+            continue
+        if crypto.is_encrypted(content):
+            rep["skipped_locked"] += 1    # 无密钥 → fail-closed：绝不改写密文
             continue
         if _has_ccg_line(content, "验证方式"):
             rep["skipped_present"] += 1
@@ -684,8 +730,9 @@ def fill_verification_basis(root: str, basis: str, layer: str = None,
         comment["验证方式"] = basis
         if not nodefile.verification_basis_valid(fm):
             fm["verification_basis"] = basis_enum
-        atomic_write(os.path.join(cg.root, e["path"]),
-                     nodefile.dumps(fm, content), durable=True)
+        nid = e.get("id") or os.path.basename(e["path"])[:-3]
+        cg._write_node(nid, os.path.join(cg.root, e["path"]), fm, content,
+                       durable=True)
         rep["written"] += 1
     if apply and rep["written"]:
         cg.rebuild_index()

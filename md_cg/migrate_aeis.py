@@ -121,6 +121,7 @@ def migrate(db: str, root: str, layers=None, limit=None, dry_run=False,
                 layer = "knowledge"
             cg.add(
                 r["id"], _norm_text(r["content"] or ""), layer=layer,
+                override=True,     # 迁移是受控整库写入：按 id 幂等覆盖，显式越权
                 sensitivity=DEFAULT_SENSITIVITY if clearance != "private" else "private",
                 tags=_j(r.get("tags"), []),
                 condition_space=_j(r.get("condition_space"), {}),

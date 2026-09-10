@@ -23,7 +23,7 @@ import time
 import hashlib
 import threading
 
-from . import nodefile, routing
+from . import nodefile, protect, routing, subgraph, chain
 from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
                      read_jsonl, sweep_stale_temps)
 
@@ -353,6 +353,14 @@ class MdCG:
                         "spatial": fm.get("spatial"),
                         "time_window": (fm.get("condition_space") or {}).get("time_window"),
                         "evidence_count": fm.get("evidence_count", 0),
+                        # 嵌套子图 / 关系边入索引快照：递归展开与链式遍历免读文件
+                        "subgraph": fm.get("subgraph"),
+                        "edges": fm.get("edges") or [],
+                        "protected": fm.get("protected"),
+                        "protection_reason": fm.get("protection_reason"),
+                        "immutable": fm.get("immutable"),
+                        # 自我状态卡标记：protect 据此豁免「不可覆盖」（仍不可遗忘）
+                        "self_state": fm.get("self_state"),
                     }
         return nodes
 
@@ -372,7 +380,9 @@ class MdCG:
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             tags=None, condition_space=None, importance: float = 0.5,
             confidence: float = 0.6, edges=None, verification_basis: str = None,
-            non_applicable_conditions=None, **extra) -> str:
+            non_applicable_conditions=None, override: bool = False,
+            consistency: bool = False, on_conflict: str = "reject",
+            **extra) -> str:
         """写入一个节点。
 
         verification_basis: 外部验证基底（白箱信任的硬门槛），
@@ -380,11 +390,35 @@ class MdCG:
                             knowledge/self/anchor/structural 层强烈建议填写；
                             负记忆层（rejected/unresolved）通常填 "test" 或 "data"。
         non_applicable_conditions: 不适用条件列表，第 1 篇第 10 章 28%→88% 的关键。
+        consistency: 是否做节点间自动冲突检测（三级决策：情绪→反思→递归反思）。
+        on_conflict: 冲突处置——"reject" 抛 ConsistencyError（默认）/
+                     "defer" 不写盘返回 None / "record" 记录后放行。
         """
         if layer not in LAYERS:
             raise ValueError(f"未知层：{layer}（允许：{LAYERS}）")
         if verification_basis is not None and verification_basis not in VERIFICATION_BASIS:
             raise ValueError(f"未知验证基底：{verification_basis}（允许：{VERIFICATION_BASIS}）")
+        # 写保护：self/anchor 层、protected 标记、importance≥0.7 的**既有**节点
+        # 不可被任意覆写；覆盖需 override=True（旧版本自动快照 + 审计留痕）。
+        protect.guard_write(self, node_id, layer=layer, override=override,
+                            actor=extra.get("actor"))
+        # 节点间自动冲突检测（智能论 §十一 情绪二阶 / 条件论「反题」/ :273 递归约束）
+        if consistency:
+            from . import consistency as _cons
+            vd = _cons.check(self, content, layer=layer,
+                             condition_space=condition_space,
+                             non_applicable_conditions=non_applicable_conditions,
+                             tags=tags, exclude=node_id, auto_flywheel=True)
+            v = vd["verdict"]
+            if v == "REJECT" and on_conflict == "reject":
+                raise _cons.ConsistencyError(v, vd["reason"], vd["conflicts"])
+            if v in ("REJECT", "BLINDSPOT") and on_conflict == "defer":
+                return None
+            extra["consistency"] = {
+                "verdict": v, "reason": vd["reason"],
+                "strength": vd["conflict_strength"],
+                "emotional": (vd.get("emotional") or {}).get("bias"),
+                "unresolved_id": vd.get("unresolved_id")}
         tags = list(tags or [])
         bucket = None
         d = os.path.join(self.root, layer)
@@ -413,18 +447,34 @@ class MdCG:
             "evidence_count": 0, "positive_evidence": 0, "negative_evidence": 0,
         }
         fm.update(extra)
-        atomic_write(path, nodefile.dumps(fm, content))
+        # 重要性 ≥0.7 自动打保护标记（对齐 tool_table：≥0.7 触发不可遗忘保护）
+        if (float(importance or 0.0) >= protect.AUTO_PROTECT_IMPORTANCE
+                and not fm.get("protected")):
+            fm["protected"] = True
+            fm["protection_reason"] = (f"importance={float(importance):.2f}"
+                                       f"≥{protect.AUTO_PROTECT_IMPORTANCE}")
+        # 私有内容封装（默认恒等；MdCGSecure 覆盖为 AEAD 加密）。
+        # 索引派生同样基于落盘内容，保证与 _scan_nodes 重建结果一致。
+        sealed = self._write_node(node_id, path, fm, content)
         self._stage(node_id, {
             "path": os.path.relpath(path, self.root).replace("\\", "/"),
             "layer": layer, "tags": tags, "bucket": bucket,
             "importance": importance, "created_at": fm["created_at"],
             "verification_basis": verification_basis,
-            "has_neg_conditions": nodefile.has_non_applicable(content),
-            "content_hash": hashlib.sha256(content.encode("utf-8")).hexdigest()[:12],
+            "has_neg_conditions": nodefile.has_non_applicable(sealed),
+            "content_hash": hashlib.sha256(sealed.encode("utf-8")).hexdigest()[:12],
             "temporal": fm.get("temporal"),
             "spatial": fm.get("spatial"),
             "time_window": cs.get("time_window"),
+            "subgraph": fm.get("subgraph"),
+            "edges": fm.get("edges") or [],
+            "protected": fm.get("protected"),
+            "protection_reason": fm.get("protection_reason"),
+            "immutable": fm.get("immutable"),
+            "self_state": fm.get("self_state"),
         })
+        subgraph.invalidate_cache(self)
+        chain.invalidate_cache(self)
         return node_id
 
     def add_rejected(self, hypothesis: str, reason: str, verification_basis: str = "test",
@@ -530,8 +580,8 @@ class MdCG:
         fm = node["frontmatter"]
         fm["goal_status"] = status
         fm["status_changed_at"] = time.time()
-        atomic_write(os.path.join(self.root, node["path"]),
-                     nodefile.dumps(fm, node["content"]))
+        self._write_node(node_id, os.path.join(self.root, node["path"]),
+                         fm, node["content"])
         return {"id": node_id, "status": status}
 
     def goal_text(self, goal=None, limit: int = 5) -> str:
@@ -592,6 +642,25 @@ class MdCG:
         if len(self._dirty) >= self.autoflush:
             self.flush()
 
+    # ---------- 内容封装钩子（默认恒等；MdCGSecure 覆盖为「私有内容加密」）----
+
+    def _seal_content(self, node_id: str, content: str,
+                      sensitivity: str = None) -> str:
+        """写入前的正文封装钩子。默认原样返回；加密实现见 `crypto.seal_node`。"""
+        return content
+
+    def _open_content(self, node_id: str, fm: dict, content: str):
+        """读取后的正文解封钩子。返回 None 表示不可读（无密钥 / 身份不符）。"""
+        return content
+
+    def _write_node(self, node_id: str, path: str, fm: dict, content: str,
+                    durable: bool = False):
+        """统一节点写盘口：先封装再原子写。**所有写盘点都应走这里**，
+        否则 `get()` 解密后的明文会被直接回写（破坏加密）。"""
+        sealed = self._seal_content(node_id, content, fm.get("sensitivity"))
+        atomic_write(path, nodefile.dumps(fm, sealed), durable=durable)
+        return sealed
+
     # ---------- 读 ----------
 
     def get(self, node_id: str):
@@ -604,6 +673,9 @@ class MdCG:
                 fm, content = nodefile.loads(f.read())
         except OSError:
             return None
+        content = self._open_content(node_id, fm, content)
+        if content is None:
+            return None                     # 有节点但无密钥 → 不可读即不存在
         return {"id": node_id, "frontmatter": fm, "content": content, "path": e["path"]}
 
     def _read(self, entry):
@@ -756,8 +828,12 @@ class MdCG:
         docs = []
         for e in entries:
             fm, c = self._read(e)
-            if c is not None:
-                docs.append((e, fm, c))
+            if c is None:
+                continue
+            c = self._open_content(fm.get("id"), fm, c)
+            if c is None:
+                continue                    # 无密钥 / 身份不符 → 不参与检索
+            docs.append((e, fm, c))
         stat["scanned"] += len(docs)
         return docs
 
@@ -887,13 +963,15 @@ class MdCG:
         from_layer = fm.get("layer") or node["path"].split("/")[0]
         if from_layer == to_layer:
             return None
+        # 写保护：受保护节点（self/anchor/标记/高重要性）不得被降级移出保护层
+        protect.guard_move(self, node_id, to_layer)
         fm["layer"] = to_layer
         fm["demotion"] = {"t": time.time(), "from": from_layer,
                           "to": to_layer, "reason": reason}
         d = os.path.join(self.root, to_layer)
         os.makedirs(d, exist_ok=True)
         new_path = os.path.join(d, f"{node_id}.md")
-        atomic_write(new_path, nodefile.dumps(fm, node["content"]))
+        self._write_node(node_id, new_path, fm, node["content"])
         old_full = os.path.join(self.root, node["path"])
         if (os.path.abspath(old_full) != os.path.abspath(new_path)
                 and os.path.exists(old_full)):
@@ -963,8 +1041,8 @@ class MdCG:
                 node_id, "contextual",
                 reason=f"confidence {fm['confidence']} < {DEMOTE_CONFIDENCE}")
         else:
-            atomic_write(os.path.join(self.root, node["path"]),
-                         nodefile.dumps(fm, node["content"]))
+            self._write_node(node_id, os.path.join(self.root, node["path"]),
+                             fm, node["content"])
             e = self.index["nodes"].get(node_id)
             if e is not None:
                 e["evidence_count"] = fm["evidence_count"]
@@ -1026,7 +1104,7 @@ class MdCG:
                 continue
             fm["access_count"] = int(fm.get("access_count") or 0) + c
             fm["last_access"] = max(float(fm.get("last_access") or 0), last.get(nid, 0))
-            atomic_write(os.path.join(self.root, e["path"]), nodefile.dumps(fm, content))
+            self._write_node(nid, os.path.join(self.root, e["path"]), fm, content)
             n += 1
         with FileLock(self.access_log):
             atomic_write(self.access_log, "")

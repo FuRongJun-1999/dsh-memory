@@ -35,6 +35,7 @@ class McpClient:
         env["MDCG_ROOT"] = root
         env["MDCG_ACTOR"] = actor
         env["MDCG_CAN_ADMIN"] = "1"          # 测试默认带管理权限
+        env["MDCG_LEGACY_ENV_AUTH"] = "1"    # 旧 env 直连身份（令牌方案前兼容）
         env["PYTHONIOENCODING"] = "utf-8"
         if extra_env:
             env.update(extra_env)
@@ -86,7 +87,7 @@ def main():
     root = tempfile.mkdtemp(prefix="mdcg_mcp_")
     cli = None
     try:
-        # 细粒度工具面（20 个）仍需可用：显式 full 暴露面做回归
+        # 细粒度工具面（24 个）仍需可用：显式 full 暴露面做回归
         cli = McpClient(root, extra_env={"MDCG_MCP_SURFACE": "full"})
 
         # 1. 握手
@@ -276,6 +277,131 @@ def main():
             check("stg timeline 可查", "items" in st, str(st.get("count"))[:60])
         finally:
             kc.close()
+
+        # 12. 主动遗忘闸门 + 写保护（P9 能力接入 MCP 面）
+        print("\n【12】主动遗忘闸门 / 写保护")
+        CODE = "def f():\n    return 1\n"
+        g1 = cli.call("mdcg_remember", {"node_id": "g1", "content": CODE,
+                                        "role": "command", "gated": True})
+        check("gated 首写 ACCEPT", g1.get("ok") and g1.get("verdict") == "ACCEPT",
+              str(g1)[:110])
+        g2 = cli.call("mdcg_remember", {"node_id": "g2", "content": CODE,
+                                        "role": "command", "gated": True})
+        check("gated 确定性内部冗余 → DROP（不落库）",
+              g2.get("verdict") == "DROP" and not g2.get("ok"), str(g2)[:130])
+        g2get = cli.call("mdcg_get", {"node_id": "g2"})
+        check("DROP 未新增节点",
+              not g2get or (isinstance(g2get, dict)
+                            and ("error" in g2get or not g2get.get("content"))),
+              str(g2get)[:80])
+        g3 = cli.call("mdcg_remember", {"node_id": "g3", "content": CODE,
+                                        "role": "command", "gated": True,
+                                        "importance_hint": 0.9})
+        check("importance_hint≥0.7 保护优先 → ACCEPT",
+              g3.get("ok") and g3.get("verdict") == "ACCEPT", str(g3)[:110])
+        fh = cli.call("mdcg_forgetting_history", {"limit": 20})
+        vs = [r.get("verdict") for r in fh.get("records", [])]
+        check("mdcg_forgetting_history 四态留痕可查", {"ACCEPT", "DROP"} <= set(vs),
+              str(vs)[:120])
+        ps = cli.call("mdcg_protect", {"action": "stats"})
+        check("mdcg_protect stats 盘点保护面", ps.get("protected_count", -1) >= 0,
+              str(ps)[:110])
+
+        # 12b. 不可遗忘（self 层）+ 不可覆盖（强信号）
+        cli.call("mdcg_remember", {"node_id": "self_x", "content": "身份：MCP 测试",
+                                   "layer": "self"})
+        chk = cli.call("mdcg_protect", {"action": "check", "node_id": "self_x"})
+        check("mdcg_protect check：self 层不可遗忘且不可覆盖",
+              chk.get("protected") and chk.get("immutable"), str(chk)[:120])
+        fk = cli.call("mdcg_forget", {"node_id": "self_x", "reason": "测试"})
+        check("受保护节点 forget 被拒（不可遗忘）",
+              isinstance(fk, dict) and not fk.get("ok"), str(fk)[:110])
+        fok = cli.call("mdcg_forget", {"node_id": "self_x", "reason": "测试",
+                                       "override": True})
+        check("override 后 forget 放行（快照 + 留痕）", fok.get("ok"), str(fok)[:110])
+
+        # 12c. 显式标记保护：拦删除、不拦系统幂等更新
+        cli.call("mdcg_remember", {"node_id": "markme", "content": "普通知识：mcp"})
+        mk = cli.call("mdcg_protect", {"action": "mark", "node_id": "markme",
+                                       "reason": "MCP 显式保护"})
+        check("mdcg_protect mark 打保护标记", mk.get("protected") is True, str(mk)[:90])
+        fk2 = cli.call("mdcg_forget", {"node_id": "markme", "reason": "测试"})
+        check("标记后不可遗忘", isinstance(fk2, dict) and not fk2.get("ok"), str(fk2)[:90])
+        up = cli.call("mdcg_remember", {"node_id": "markme", "content": "普通知识：mcp 更新"})
+        check("标记保护不阻断幂等更新（不可遗忘≠不可覆盖）", up.get("ok"), str(up)[:90])
+
+        # 12d. cg 基元面：op=protect + op=write gated
+        kp = cli.call("cg", {"op": "protect", "action": "stats"})
+        check("cg op=protect 与 mdcg_protect 同源", kp.get("protected_count", -1) >= 0,
+              str(kp)[:90])
+        CODE2 = "import os\n\nprint(os.getcwd())\n"
+        w1 = cli.call("cg", {"op": "write", "content_kind": "code", "content": CODE2,
+                             "node_id": "wg1", "role": "command", "gated": True})
+        check("cg op=write gated 落库并附闸门裁决",
+              w1.get("committed") and w1.get("gate", {}).get("verdict") == "ACCEPT",
+              str(w1)[:140])
+        w2 = cli.call("cg", {"op": "write", "content_kind": "code", "content": CODE2,
+                             "node_id": "wg2", "role": "command", "gated": True})
+        check("cg op=write gated 冗余 → DROP",
+              w2.get("committed") is False and w2.get("gate", {}).get("verdict") == "DROP",
+              str(w2)[:140])
+        # 12e. cg 唯一入口的「写入前必须通过校验」（kernel 模式下冲突检测）
+        BAD = "# 生效条件：执行 shell\n# 不适用条件：执行 shell\nprint(1)\n"
+        c1 = cli.call("cg", {"op": "write", "content_kind": "code", "content": BAD,
+                             "node_id": "wc_bad"})
+        check("cg op=write 冲突默认拦截 → 进审核队列",
+              c1.get("committed") is False
+              and c1.get("moved_to") == "review_queue"
+              and (c1.get("consistency") or {}).get("verdict") == "REJECT",
+              str(c1)[:150])
+        c2 = cli.call("cg", {"op": "write", "content_kind": "code", "content": BAD,
+                             "node_id": "wc_bad2", "on_conflict": "reject"})
+        check("cg op=write on_conflict=reject 明确拒绝",
+              c2.get("committed") is False
+              and c2.get("moved_to") == "conflict_rejected",
+              str(c2)[:150])
+        h2 = cli.call("mdcg_health")
+        check("health 报告 protection / forgetting 面",
+              "protection" in h2.get("os", {}) and "forgetting" in h2.get("os", {}),
+              str(h2.get("os", {}).get("forgetting"))[:80])
+
+        # 13. 身份特征识别（智能论 v3.4 位置效应 + 扮演论三接口）
+        print("\n【13】身份特征识别")
+        ob = cli.call("mdcg_identity", {"action": "observe", "subject_id": "agent:rec",
+                                        "content": "执行抓取命令", "role": "command"})
+        check("mdcg_identity observe 记行为证据（memory 接口）",
+              ob.get("ok") and ob.get("node_id"), str(ob)[:100])
+        pf = cli.call("mdcg_identity", {"action": "profile", "subject_id": "agent:rec"})
+        check("profile 推断位置效应=记录单元",
+              pf.get("position") == "record" and pf.get("effect") == "全",
+              f'{pf.get("position")}/{pf.get("unit")}')
+        an = cli.call("mdcg_identity", {"action": "anchor", "subject_id": "role:whale",
+                                        "content": "我是鲸鱼，负责深潜检索"})
+        check("anchor 落锚点层且不可遗忘",
+              an.get("layer") == "anchor" and an.get("protected"), str(an)[:100])
+        bad = cli.call("mdcg_identity", {"action": "anchor", "subject_id": "role:whale",
+                                         "content": "伪装", "requested_layer": "self"})
+        check("扮演论边界：role 不得进 self 层",
+              isinstance(bad, dict) and "error" in bad, str(bad)[:100])
+        tr = cli.call("mdcg_identity", {"action": "trait", "subject_id": "role:whale",
+                                        "trait": "遇到深水先降速",
+                                        "condition_space": {"trigger": "deep_water"}})
+        check("trait 写条件特征（values 接口，落结构层）",
+              tr.get("layer") == "structural", str(tr)[:100])
+        pos = cli.call("mdcg_identity", {"action": "positions"})
+        check("positions 给出主体位置分布", len(pos.get("positions", [])) >= 2,
+              str([s.get("position") for s in pos.get("positions", [])])[:100])
+        cat = cli.call("mdcg_identity", {"action": "catalog"})
+        check("catalog 五单元 + 三接口自描述",
+              len(cat.get("positions", {})) == 5 and len(cat.get("interfaces", {})) == 3,
+              str(list(cat.get("positions", {})))[:80])
+        ci = cli.call("cg", {"op": "identity", "action": "profile",
+                             "subject_id": "agent:rec"})
+        check("cg op=identity 与 mdcg_identity 同源", ci.get("position") == "record",
+              str(ci.get("position")))
+        h3 = cli.call("mdcg_health")
+        check("health 报告 identity 面", "identity" in h3.get("os", {}),
+              str(h3.get("os", {}).get("identity"))[:90])
 
     finally:
         if cli:
