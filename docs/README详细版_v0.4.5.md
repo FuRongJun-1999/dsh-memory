@@ -1,4 +1,4 @@
-> **本文件 = README 详细版（v0.4.4 全文归档）**
+> **本文件 = README 详细版（v0.4.5 全文归档）**
 > 精简版入口：[README.md](../README.md) —— 以「AGI 七维评分标尺」组织。
 > 本文件保留完整的能力说明、配置项全表、工具面全量、安装与验证细节；文内相对链接已按 `docs/` 目录修正。
 
@@ -52,7 +52,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 > **不要**用 `npm install` 把插件装进 profile 的 `node_modules`——那会引入错误版本的 `@deepseek-ai` peer 包，导致插件加载失败 / 浏览器报错。
 > 想自己改源码？克隆 `FuRongJun-1999/dsh-memory` 后用 `npm install && npm run build`（构建插件本身），再用 `dsh plugin add <本地路径>` 部署。
 >
-> 兼容：DSH 官方列表（Memory 分类）· npm `@furongjun1999/dsh-memory`（0.4.4）· **要求 DSH 内核 ≥ 0.1.2-rc.1**（0.4.x 用新版 `dsh-tools` 调度器/`defineTool`；旧内核 0.1.1-rc.2 结构不兼容、会 `scheduler_prepare` 崩——**旧内核用户请用 0.4.2**）。
+> 兼容：DSH 官方列表（Memory 分类）· npm `@furongjun1999/dsh-memory`（0.4.5）· **要求 DSH 内核 ≥ 0.1.2-rc.1**（0.4.x 用新版 `dsh-tools` 调度器/`defineTool`；旧内核 0.1.1-rc.2 结构不兼容、会 `scheduler_prepare` 崩——**旧内核用户请用 0.4.2**）。
 
 ---
 
@@ -401,7 +401,10 @@ python -m aeis.mcp.server
 
 > **引擎内部能力（按安全边界未挂载 MCP）**：条件空间 7 操作、情境层直写（`add_context`）、代码执行（`code_test` / `compile_exec`）、自修改安全闭环（快照 / 回滚）等存在于引擎中，但刻意不暴露给外部 Agent 调用。
 
-## 🔬 本轮修复与验证（0.4.4）
+## 🔬 本轮修复与验证（0.4.4 → 0.4.5）
+
+> **0.4.5 变更**：移除失效的 `docker/`（一键部署四个入口全部不可用）· `src/`+`test/` datapath 路径解析统一 · `package-lock.json` 同步当前 npm（`npm ci` 可复现）· 写入闸门文档化（`committed: false`）。
+> 完整清单见 [release_v0.4.5.md](release_v0.4.5.md)。
 
 ### ① 白箱冷启动死锁修复（`md_cg/whitebox_kb/engine.py`）
 
