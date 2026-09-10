@@ -3,7 +3,13 @@
 // @ts-nocheck
 /**
  * dsh-memory 扩展：角色扮演网页（同源挂载到 webServer /roleplay 前缀）。
- * 复用插件的 LingshuBridge 调 roleplay_chat / role_create，data_dir 取 dbPath 同目录。
+ *
+ * 职责边界（三层拆分后）：
+ *  · 大脑（mdcg）：角色定义 / 对话转录显式落认知图（md_cg = 唯一真源）——
+ *    转录、历史、翻译、落图全部不依赖「身体」，始终可用。
+ *  · 身体（可选 capability 后端）：生成能力 roleplay_chat / role_create /
+ *    role_import 属「身」，主仓默认不挂载；未挂载时这些接口 **fail-closed**
+ *    返回明确原因（不编造回复）。启用见 config.capability（cordis.yml.example）。
  */
 import { join, dirname } from 'node:path';
 import { readFileSync, mkdirSync, appendFileSync, existsSync, writeFileSync, renameSync } from 'node:fs';
@@ -435,8 +441,17 @@ window.addEventListener('resize', function () { if (chat) chat.scrollTop = chat.
 </script>
 </body>
 </html>`;
-/** 在 webServer 上挂载 /roleplay 前缀路由（页面 + API）。失败不影响插件主体。 */
-export async function installRoleplayWeb(ctx, bridge, config, disposers, mdcg: any = null) {
+/** 在 webServer 上挂载 /roleplay 前缀路由（页面 + API）。失败不影响插件主体。
+ *
+ * @param capability 「身体」能力后端桥（可选）；为 null 时生成接口 fail-closed。
+ * @param mdcg       大脑客户端（认知图，唯一真源）；为 null 时落图静默跳过。
+ */
+export async function installRoleplayWeb(ctx, capability, config, disposers, mdcg: any = null) {
+    // 身体能力后端未接入时的统一提示（fail-closed：不编造回复）。
+    const CAP_ABSENT_MSG = '角色生成能力未接入：该能力属「身体」（AEIS 能力库），'
+        + '主仓已剥离，仅保留转录/历史/翻译/落图。'
+        + '如需启用，在配置中打开 capability.enabled 并给出 capability.args。';
+    const capReady = () => !!(capability && typeof capability.isReady === 'function' && capability.isReady());
     try {
         // 注意：不能直接读 ctx.webServer——Cordis 未声明 inject 的属性访问会抛
         // "cannot get property without inject"；ctx.get() 安全返回 undefined。
@@ -678,13 +693,18 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers, mdcg: a
                     // 真导入引擎（记忆→知识层/锚点→SELF no_forget/价值观→STRUCTURE 带条件）
                     let impResult = null;
                     if (items.length) {
-                        try {
-                            impResult = await bridge.callTool('role_import', {
-                                role_id: role, kind, items, data_dir: roleDataDir,
-                            });
+                        if (!capReady()) {
+                            impResult = { error: CAP_ABSENT_MSG };
                         }
-                        catch (e) {
-                            impResult = { error: String((e && e.message) || e) };
+                        else {
+                            try {
+                                impResult = await capability.callTool('role_import', {
+                                    role_id: role, kind, items, data_dir: roleDataDir,
+                                });
+                            }
+                            catch (e) {
+                                impResult = { error: String((e && e.message) || e) };
+                            }
                         }
                     }
                     // 导入项显式落认知图：memory→knowledge / anchors→self / values→structural。
@@ -764,7 +784,12 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers, mdcg: a
                     }
                     appendTranscript(role, { time: Date.now(), role: 'user', text: p.message }, cid);
                     void toGraph('user-turn', (g) => g.writeTranscript(role, cid, 'user', p.message));
-                    const r = await bridge.callTool('roleplay_chat', {
+                    if (!capReady()) {
+                        res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ reply: '', route: 'unavailable', error: CAP_ABSENT_MSG }));
+                        return;
+                    }
+                    const r = await capability.callTool('roleplay_chat', {
                         message: p.message, role_id: role, session_id: sessionFor(role, cid), data_dir: roleDataDir,
                     });
                     const text = typeof r === 'string' ? r : (r?.content?.[0]?.text ?? JSON.stringify(r));
@@ -847,7 +872,12 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers, mdcg: a
                         return;
                     }
                     const p = JSON.parse(body);
-                    const r = await bridge.callTool('role_create', {
+                    if (!capReady()) {
+                        res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: CAP_ABSENT_MSG }));
+                        return;
+                    }
+                    const r = await capability.callTool('role_create', {
                         role_id: p.role_id, name: p.name || '', scenario: p.scenario || '', first_mes: p.first_mes || '', data_dir: roleDataDir,
                     });
                     void toGraph('role-create', (g) => g.writeRole(p.role_id, JSON.stringify({ name: p.name || '', scenario: p.scenario || '', first_mes: p.first_mes || '' })));

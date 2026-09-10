@@ -9,50 +9,42 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type ParameterPropertySpec, type ParameterSchemaSpec, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type { LingshuBridge, McpTool } from './bridge.ts'
 
-/** 默认暴露的核心工具集合（记忆/推理/摄取/元认知）。 */
+/** 默认暴露的核心工具集合：**记忆面已基元化**，只注册 `cg` / `stg` 两个认知基元。
+ *
+ * 三层拆分 S4 收敛后，插件工具面真源是 `md_cg.mcp_server`（不再是 pip aeis）；
+ * 旧的 aeis 工具名（remember/recall/think…）已不存在，写在这里只会被筛成空集
+ * ——「工具永久缺失」的根因，故一并移除。全部记忆/召回/时间线/落图能力由
+ * `cg(op=…)` / `stg(op=…)` 覆盖（见 src/lib/mdcg_client.ts 的显式映射）。 */
 export const CORE_TOOLS = [
-  'remember',       // 写入记忆
-  'recall',         // 组合联想召回
-  'search',         // 内容检索
-  'timeline',       // 记忆时间线
-  'think',          // 推理前记忆注入
-  'relate',         // 建立关系边
-  'predict_routes', // 生成式预测
-  'ingest_text',    // 外部知识摄取
-  'ingest_url',     // URL 摄取
-  'session_note',   // 会话要点外部化
-  'self_check',     // 完整性自检
-  'service_info',   // 服务状态
+  'cg',   // md_cg 认知图统一入口（op 分发：route/read/recent/identity/verify/whitebox…）
+  'stg',  // md_cg 时空图入口（timeline/relation/anchor/consistency…）
 ] as const
 
 /**
- * 大脑模式工具集（轻量版：去掉身体的完整大脑）。
- * 保留灵枢全部心智能力（记忆/认知/推理/学习/飞轮/反思/长期记忆门），
- * 排除身体/视觉类工具（body/device_call/see/world3d 等）。
+ * 大脑模式工具集：`cg`/`stg` 基元 + md_cg 全部细粒度工具（`MDCG_MCP_SURFACE=full`）。
+ *
+ * 即「完整认知面」。不再区分身体/视觉——那些工具随 aeis 剥离，主仓无对应物。
+ * 管理类（forget / restore / review_decide）按映射表裁定「收窄后不留」，不在此列
+ * （如需显式启用，用 `tools: ['mdcg_forget', …]` 显式数组——显式配置不受 RISK 限制）。
  */
 export const BRAIN_TOOLS = [
-  // 记忆
-  'remember', 'recall', 'search', 'timeline',
-  'session_note', 'session_recall', 'compact_context',
-  // 推理与关系
-  'think', 'relate', 'reason', 'predict_routes',
-  // 认知与元认知
-  'self_check', 'gap_trend', 'cognition', 'cognition_report',
-  'emotional_bias', 'self_reliability', 'action_log', 'preflight',
-  // 反思
-  'recursive_reflect',
-  // 学习与盲区
-  'blindspots', 'learn', 'induce',
-  // 知识飞轮
-  'distill', 'flywheel_metrics', 'transfer_test', 'calibrate',
-  // 外部知识摄取
-  'ingest_text', 'ingest_file', 'ingest_url', 'web_search',
-  // 生命周期
-  'lifecycle_step', 'lifecycle_state',
-  // 长期记忆门（v1.15：重要性评估主动沉淀）
-  'longterm_snapshot', 'promote_memories',
-  // 服务
-  'service_info',
+  'cg', 'stg',
+  // 记忆读写
+  'mdcg_remember', 'mdcg_recall', 'mdcg_search', 'mdcg_get',
+  // 反思 / 验证 / 飞轮 / 负记忆
+  'mdcg_reflect', 'mdcg_verify', 'mdcg_flywheel', 'mdcg_mine_fix_pairs',
+  'mdcg_rejected', 'mdcg_unresolved',
+  // 审核队列（入队 / 列队 / 记录审计；裁决 review_decide 属管理类，不在此列）
+  'mdcg_propose', 'mdcg_review_list', 'mdcg_review_records',
+  // 保护 / 遗忘留痕（forget 属管理类，不在此列）
+  'mdcg_protect', 'mdcg_forgetting_history',
+  // 身份 / 一致性 / 元认知 / 自我状态
+  'mdcg_identity', 'mdcg_consistency', 'mdcg_metacognition', 'mdcg_self_state',
+  // 预测 / 因果 / 演化账本
+  'mdcg_predict', 'mdcg_causal', 'mdcg_evolution',
+  // 服务 / 状态
+  'mdcg_health', 'mdcg_whoami', 'mdcg_ingest', 'mdcg_watermarks',
+  'mdcg_whitebox', 'mdcg_service_info',
 ] as const
 
 /** tools 配置：'core' | 'brain' | 'all' | 显式名称数组。 */
@@ -62,10 +54,12 @@ export type ToolSelection = 'core' | 'brain' | 'all' | string[]
  * 生命周期/摄取/学习）标 false，防止 DSH 并行调用导致 SQLite 写入竞争、
  * 状态顺序错乱、关系边重复等。 */
 const READ_TOOLS = new Set([
-  'recall', 'search', 'timeline', 'think', 'reason', 'predict_routes',
-  'self_check', 'service_info', 'session_recall', 'gap_trend', 'transfer_test',
-  'cognition_report', 'self_reliability', 'emotional_bias', 'flywheel_metrics',
-  'distill', 'insight_report', 'prediction_stats', 'blindspots', 'pattern_separation',
+  // —— md_cg 细粒度只读工具（非多态：无 action 写分支）——
+  'mdcg_recall', 'mdcg_search', 'mdcg_get', 'mdcg_review_list', 'mdcg_review_records',
+  'mdcg_forgetting_history', 'mdcg_health', 'mdcg_whoami', 'mdcg_watermarks', 'mdcg_service_info',
+  // 注：cg / stg 是多态基元（op=focus/route 只读，op=write 写），一律按写处理（串行）。
+  // 多态工具（mdcg_predict/causal/evolution/protect/identity/self_state/whitebox…）
+  // 含 action=写 分支，同样保守按写处理。
 ])
 
 /** 按工具名判定并发安全（只读查询 true；写操作 false） */
@@ -80,19 +74,11 @@ export function isToolConcurrencySafe(name: string): boolean {
  * 显式名称数组（显式配置）不受此名单限制（配置者已明确选择）。
  */
 export const RISK_TOOLS = new Set([
-  'run_command',        // 宿主命令执行（安全边界：不由 Agent 动态调用）
-  'designer_decide',    // 设计者裁决（fail-closed 权限，绝不由 Agent 调用）
-  'device_call',        // 外部设备统一调用（屏幕/进程/音频/浏览器）
-  'see',                // 视觉感知（身体工具）
-  'world3d',            // 时空 3D 重建（身体工具）
-  'vprim',              // 视觉原语（身体工具）
-  'visual_check',       // 视觉面检查（身体工具）
-  'start_lifecycle',    // 启动自主生命周期循环
-  'stop_lifecycle',     // 中断生命周期循环
-  'web_ingest_search',  // 外部搜索摄取（网络调用 + 写知识层）
-  'role_create',        // 角色卡创建（写角色数据）
-  'role_import',        // 角色导入（写角色数据）
-  'role_block',         // 角色扮演注入块组装
+  // —— md_cg 管理类（映射表裁定「收窄后不留」，需 can_admin）：即使 tools:'all'
+  //    也不自动暴露；要启用须用显式名称数组 ——
+  'mdcg_forget',        // 软删除（管理隔离：需 can_admin）
+  'mdcg_restore',       // 强恢复校验（管理隔离：需 can_admin）
+  'mdcg_review_decide', // 审核终裁（管理隔离：需 can_admin，等效设计者裁决）
 ])
 
 /** 按配置筛选工具名（'all' 时排除 RISK_TOOLS 宿主级危险工具）。 */

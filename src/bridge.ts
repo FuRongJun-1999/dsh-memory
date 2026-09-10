@@ -1,5 +1,5 @@
 /**
- * 灵枢 MCP stdio 桥：管理灵枢（AEIS）Python 子进程的生命周期，
+ * 灵枢 MCP stdio 桥：管理大脑（md_cg）Python 子进程的生命周期，
  * 通过逐行 JSON-RPC 完成握手、工具发现与调用。
  *
  * 与官方 @deepseek-ai/dsh-mcp-client 不同，本桥零运行时依赖（不引入
@@ -45,11 +45,11 @@ export interface McpCallResult {
 
 /** 启动灵枢子进程的配置。 */
 export interface BridgeOptions {
-  /** Python 可执行文件（或 aeis-mcp console script），默认 python。 */
+  /** Python 可执行文件（或 md_cg-mcp console script），默认 python。 */
   python: string
-  /** 传给 python 的参数，默认 ['-m', 'aeis.mcp.server']。 */
+  /** 传给 python 的参数，默认 ['-m', 'md_cg.mcp_server']。 */
   args: string[]
-  /** 追加到子进程的环境变量（AEIS_DB / AEIS_IDENTITY / 密钥等）。 */
+  /** 追加到子进程的环境变量（MDCG_* / MDCG_MCP_SURFACE / 密钥等）。 */
   env: Record<string, string>
   /** 子进程工作目录。 */
   cwd?: string
@@ -230,7 +230,7 @@ export class LingshuBridge {
         this.unexpectedExits.push(Date.now())
         if (uptimeS >= 0 && uptimeS < 5) {
           console.error(
-            '[lingshu-bridge] 进程启动后 5 秒内即退出——请检查 python 可执行文件与 aeis 安装。')
+            '[lingshu-bridge] 进程启动后 5 秒内即退出——请检查 python 可执行文件与 md_cg 依赖（python -m md_cg.mcp_server 可自检）。')
         } else if (this.unexpectedExits.length >= 3) {
           console.error(
             `[lingshu-bridge] 10 分钟内已意外退出 ${this.unexpectedExits.length} 次，` +
@@ -290,7 +290,7 @@ export class LingshuBridge {
       this.flushBootQueue(false)
       console.error(
         `[lingshu-bridge] 连续启动失败 ${this.retries} 次，已停止自动重启（不再后台空转）。` +
-        '请检查 python 可执行文件与 aeis 安装（pip install aeis），修复后在 DSH 中重新启用 dsh-memory 插件。')
+        '请检查 python 可执行文件与 md_cg 依赖（python -m md_cg.mcp_server 可自检），修复后在 DSH 中重新启用 dsh-memory 插件。')
       probe(`give up: ${this.retries} consecutive failures, entering failed terminal state`)
       return
     }
@@ -319,7 +319,7 @@ export class LingshuBridge {
     if (this.gaveUp) {
       return Promise.reject(new Error(
         '灵枢进程不可用：连续启动失败已达上限，已停止重试。' +
-        '请检查 python 可执行文件与 aeis 安装（pip install aeis），修复后重新启用 dsh-memory 插件。'))
+        '请检查 python 可执行文件与 md_cg 依赖（python -m md_cg.mcp_server 可自检），修复后重新启用 dsh-memory 插件。'))
     }
     const id = this.nextId++
     const timeout = this.options.timeoutMs

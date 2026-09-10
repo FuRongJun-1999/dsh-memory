@@ -1,14 +1,15 @@
 /**
  * @furongjun1999/dsh-memory —— 灵枢 DeepSeek Harness 插件
- * （记忆唯一真源 = md_cg 认知图；AEIS 降为能力库）
+ * （大脑唯一真源 = md_cg 认知图；aeis 能力库已下线）
  *
  * 把灵枢的时空记忆/知识飞轮/自我认知接入 DSH：
  * - 记忆唯一真源：**md_cg 认知图（md 文档）**，插件侧唯一显式入口
  *   `src/lib/mdcg_client.ts`（每个方法 = 一条 MCP cg / stg 调用）
- * - 工具桥接：Agent 可调用 lingshu_remember / recall / search / think 等
- *   （AEIS 能力库工具面，经 bridge 注册为 `lingshu_<name>`）
+ * - 工具桥接：Agent 可调用工具，经**唯一的大脑桥**（同一 md_cg 子进程）从
+ *   **md_cg.mcp_server** 拉取（`MDCG_MCP_SURFACE=full`：`cg` / `stg` 基元 +
+ *   `mdcg_*` 细粒度全家，再由 `config.tools` 选择表筛），注册为 `lingshu_<name>`
  * - 自动记忆：DSH 对话经**认知图**自动沉淀（主动遗忘闸门去重 + 重要性 + 脱敏）
- * - 旧通道：AEIS 能力库（白箱 / 角色生成），仅其库文件仍由 dbPath 指定
+ * - 使命分离：理论仓（CTP）只留方法论文档，工程代码全部在主仓 md_cg
  *
  * 用法（cordis.yml）：
  * ```yaml
@@ -16,7 +17,9 @@
  *   name: '@furongjun1999/dsh-memory'
  *   config:
  *     mdcg:                              # 记忆真源：认知图（md 文档）
- *       root: 'data/mdcg'
+ *       # root = 记忆写入路径（用户可改）。缺省 = 插件仓自身 data/mdcg。
+ *       # 覆盖优先级：env MDCG_ROOT > <插件仓>/data/paths.json > 本项 > 默认
+ *       # root: 'D:/somewhere/mdcg'        # 例：把记忆库放到别处
  *       actor: 'dsh-memory'
  *     env:                               # 写入凭据：默认【关闭】，由你决定是否打开
  *       # 不配 → 只读 guest：读/召回/时间线可用，自动记忆/转录/落图不落盘（启动会告警）
@@ -28,7 +31,10 @@
  *       # MDCG_TOKEN: !!js process.env.MDCG_TOKEN
  *       # 打开②最小权限：--role recorder（无 whitebox/identity/verify，不能写 self 层）
  *       # 打开③兼容旧部署（不推荐）：MDCG_LEGACY_ENV_AUTH: '1'
- *     dbPath: '/path/to/aeis_memory.db'  # 旧通道：AEIS 能力库（可省）
+ *     dbPath: '/path/to/legacy.db'       # 遗留：仅角色数据目录推导用（不存记忆）
+ *     capability:                        # 可选「身体」后端（默认关 → 单进程纯大脑）
+ *       enabled: false
+ *       args: ['-m', 'aeis.mcp.server']
  *     identity: '灵枢'
  *     memory:
  *       userMessage: true
@@ -46,6 +52,7 @@ import { installMemoryHooks, type MemoryHooksOptions } from './hooks.js'
 // LIB 本地库：角色扮演网页 / 互维维护 / 白箱 LLM 适配器统一收在 src/lib/。
 import { installRoleplayWeb } from './lib/roleplay_web.js'
 import { MdcgClient } from './lib/mdcg_client.js'
+import { describeDataPaths, mdcgRoot } from './lib/datapath.js'
 
 /**
  * 调试探针：记录 apply 失败到独立文件（绕过 DSH 日志系统）。
@@ -81,19 +88,20 @@ export const inject = ['tools']
 export interface Config {
   /** 工具命名空间前缀（默认 lingshu → lingshu_remember）。 */
   serverName: string
-  /** Python 可执行文件（或 aeis-mcp console script）。 */
+  /** Python 可执行文件（或 md_cg-mcp console script）。 */
   python: string
-  /** 传给 python 的参数（默认启动灵枢 MCP server）。 */
+  /** 传给 python 的参数（默认启动 md_cg MCP server）。 */
   moduleArgs: string[]
-  /** ⚠️ 旧通道：AEIS SQLite 库文件（经 `AEIS_DB` 传给 aeis.mcp.server），目录自动创建。
-   * 记忆真源已统一到 `mdcg`（认知图）；此项现仅供 AEIS 能力库（白箱 / 角色生成）
-   * 与角色数据目录 roleDataDir（由它的父目录推导）使用，不再存记忆。 */
+  /** ⚠️ 遗留项：SQLite 库文件路径（经 `AEIS_DB` 传给子进程），目录自动创建。
+   * 大脑真源已统一到 `mdcg`（认知图）；此项仅供角色数据目录 roleDataDir
+   * （由它的父目录推导）使用，**不再存记忆**，md_cg server 也不读取它。 */
   dbPath: string
   /** 灵枢身份标识（写入记忆的自我模型）。 */
   identity: string
   /** 额外环境变量（BOCHA_API_KEY / AEIS_DESIGNER_KEY 等，可 !!js 注入）。 */
   env: Record<string, string>
-  /** 暴露的工具集合：'core' | 'brain' | 'all' | 工具名数组。 */
+  /** 暴露的工具集合：'core'（默认，仅 cg/stg 两基元）| 'brain'（完整认知面）
+   *  | 'all' | 工具名数组。 */
   tools: ToolSelection
   /** 护栏宪章版本声明（接入即接受宪章约束，docs/guardrail-charter.md）。 */
   charter: string
@@ -118,16 +126,26 @@ export interface Config {
     tenant: string
     clearance: string
   }
+  /** 「身体」能力后端（可选）：角色扮演生成等「身」的生成能力。
+   *
+   *  默认**不挂载** —— 主仓保持纯大脑单进程（只起 md_cg）。配置 enabled 后
+   *  额外起一个能力库子进程（如 AEIS），仅角色扮演生成使用；记忆真源仍是
+   *  md_cg（大脑），本后端不存记忆。未挂载时角色生成接口 fail-closed。 */
+  capability: {
+    enabled: boolean
+    python: string
+    args: string[]
+  }
 }
 
 export const Config: z<Config> = z.object({
   serverName: z.string().default('lingshu'),
   python: z.string().default('python'),
-  moduleArgs: z.array(String).default(['-m', 'aeis.mcp.server']),
+  moduleArgs: z.array(String).default(['-m', 'md_cg.mcp_server']),
   dbPath: z.string().default('data/lingshu.db'),
   identity: z.string().default('灵枢'),
   env: z.dict(String).default({}),
-  tools: z.union([z.const('core'), z.const('brain'), z.const('all'), z.array(String)]).default('brain'),
+  tools: z.union([z.const('core'), z.const('brain'), z.const('all'), z.array(String)]).default('core'),
   /** 护栏宪章版本声明（接入即接受宪章约束，docs/guardrail-charter.md）。 */
   charter: z.string().default('v2.0-published'),
   memory: z
@@ -155,18 +173,32 @@ export const Config: z<Config> = z.object({
       heartbeatMs: z.number().default(10 * 60 * 1000),
     })
     .default({ enabled: false, heartbeatMs: 10 * 60 * 1000 }),
-  /** 认知图（md_cg）：记忆唯一真源。root 为 MDCG_ROOT（相对路径按工作目录解析）。
+  /** 认知图（md_cg）：记忆唯一真源。
+   *  root 为**记忆写入路径**（用户可改）。缺省空串 = 未指定，按优先级解析：
+   *    ① env MDCG_ROOT ② `<插件仓>/data/paths.json` 的 root
+   *    ③ 本项 ④ 默认 `<插件仓>/data/mdcg`
+   *  相对路径一律相对**插件仓根**解析——历史教训：相对 cwd 的相对路径随
+   *  宿主 cwd 漂移，cwd 落在别仓时记忆真源分裂成互不可见的两处。
    *  tenant/actor 决定私有内容加解密的身份：与 migrate_roleplay 的
    *  --tenant/--actor 必须一致，否则读不到已迁移节点。 */
   mdcg: z
     .object({
       enabled: z.boolean().default(true),
-      root: z.string().default('data/mdcg'),
+      root: z.string().default(''),
       actor: z.string().default('dsh-memory'),
       tenant: z.string().default('default'),
       clearance: z.string().default('private'),
     })
-    .default({ enabled: true, root: 'data/mdcg', actor: 'dsh-memory', tenant: 'default', clearance: 'private' }),
+    .default({ enabled: true, root: '', actor: 'dsh-memory', tenant: 'default', clearance: 'private' }),
+  /** 「身体」能力后端（可选）：默认关闭 → 单进程纯大脑。
+   *  开启需同时给出 args（能力库启动参数），否则跳过并告警。 */
+  capability: z
+    .object({
+      enabled: z.boolean().default(false),
+      python: z.string().default(''),
+      args: z.array(String).default([]),
+    })
+    .default({ enabled: false, python: '', args: [] }),
 })
 
 /**
@@ -179,37 +211,20 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     `dsh-memory: 灵枢插件激活（大脑模式）· 接受护栏宪章 ${config.charter} —— ` +
     '接入即接受宪章约束（公开/可执行/可审计/设计者终裁）',
   )
-  const bridge = new LingshuBridge({
-    python: config.python,
-    args: config.moduleArgs,
-    env: {
-      AEIS_DB: config.dbPath,
-      AEIS_IDENTITY: config.identity,
-      ...config.env,
-    },
-    timeoutMs: config.toolCallTimeoutMs,
-    maxRetryDelayMs: config.maxRetryDelayMs,
-  })
-  bridge.start()
-  const ready = await bridge.waitReady()
-  if (!ready) {
-    const message = '灵枢进程无法启动（检查 python 是否可用、aeis 是否安装：pip install aeis）'
-    if (config.failOnStartupError) {
-      // P1 修复（GPT 审查）：启动失败抛错前必须 dispose——此前 throw 在 try 之前，
-      // 桥接对象泄漏 + 后台重试计时器继续跑
-      bridge.dispose()
-      throw new Error(message)
-    }
-    ctx.logger.warn(`dsh-memory: ${message}，继续后台重试`)
-  }
-
-  // 认知图（md_cg）= 记忆唯一真源。AEIS 降为能力库（白箱 / 角色生成等）。
-  // 插件侧唯一显式入口：src/lib/mdcg_client.ts（每个方法 = 一条 MCP 调用）。
+  // ═══ 大脑进程：md_cg（主仓自带）——**唯一**子进程 ═══
+  // 工具面 / 记忆写入 / 互维核验 / 角色落图共用这一个桥。S4（2026-09-10）已删除
+  // 历史上并存的第二个 aeis 进程：双进程方案下两侧工具名互不交集（86 vs 33，
+  // 交集为 0），切换时会静默丢功能；收敛为单进程后由 MDCG_MCP_SURFACE=full
+  // 提供完整认知面。插件侧唯一显式入口：src/lib/mdcg_client.ts（一方法 = 一条 MCP 调用）。
   let mdcg: MdcgClient | null = null
+  let brainReady = false
+  /** 记忆真源解析结果（「新写入去哪」）——用户可改：env > paths.json > 配置 > 默认自身仓 data/。 */
+  const resolvedRoot = mdcgRoot(config.mdcg.root)
   if (config.mdcg.enabled) {
     mdcg = new MdcgClient({
       python: config.python,
-      root: config.mdcg.root,
+      args: config.moduleArgs,
+      root: resolvedRoot,
       actor: config.mdcg.actor,
       tenant: config.mdcg.tenant,
       clearance: config.mdcg.clearance,
@@ -219,13 +234,21 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       maxRetryDelayMs: config.maxRetryDelayMs,
     })
     mdcg.start()
-    const mdcgReady = await mdcg.waitReady()
-    if (mdcgReady) {
-      ctx.logger.info(`dsh-memory: 认知图已就绪（MDCG_ROOT=${config.mdcg.root}）`)
+    // 启动留痕：把「记忆真源在哪、由谁决定、路径是否存在」写进可审计日志，
+    // 避免再次出现「以为在记忆、其实写到了别仓」的静默分裂（历史事故）。
+    const dp = describeDataPaths(config.mdcg.root)
+    ctx.logger.info(
+      `dsh-memory: 记忆真源路径 = ${dp.mdcgRoot}（来源 ${dp.source}，`
+      + `dataRoot=${dp.dataRoot}，存在=${dp.mdcgRootExists ? '是' : '否（首次写入将创建）'}，`
+      + `用户可改：${dp.pathsFile}）`,
+    )
+    brainReady = await mdcg.waitReady()
+    if (brainReady) {
+      ctx.logger.info(`dsh-memory: 认知图已就绪（MDCG_ROOT=${resolvedRoot}）`)
     } else {
       ctx.logger.warn(
-        `dsh-memory: 认知图未就绪（MDCG_ROOT=${config.mdcg.root}），`
-        + '互维将回退 AEIS 能力库通道（迁移期兼容）',
+        `dsh-memory: 认知图未就绪（MDCG_ROOT=${resolvedRoot}），`
+        + '核验按白箱纪律 fail-closed；桥将后台重连并在就绪后补注册工具。',
       )
     }
     // 写入凭据检查（fail-closed，且**默认关闭**）：md_cg 身份优先级
@@ -241,16 +264,59 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         + '要打开：签发令牌 MDCG_TOKEN（推荐）或设 MDCG_LEGACY_ENV_AUTH=1，'
         + '经 config.env 注入，见 cordis.yml.example。')
     }
+  } else {
+    ctx.logger.warn('dsh-memory: mdcg.enabled=false —— 大脑（认知图）未启动，工具与自动记忆不可用')
+  }
+
+  /** 大脑桥：工具面 + 互维 + 角色落图共用的唯一 md_cg 通道（mdcg 关闭时为 null）。 */
+  const bridge = mdcg?.bridge ?? null
+  if (!brainReady) {
+    const message = '灵枢大脑（md_cg）未就绪（检查 python 是否可用、md_cg 是否可导入：python -m md_cg.mcp_server）'
+    if (config.failOnStartupError && config.mdcg.enabled) {
+      // P1 修复（GPT 审查）：启动失败抛错前必须 dispose——此前 throw 在 try 之前，
+      // 桥接对象泄漏 + 后台重试计时器继续跑
+      mdcg?.dispose()
+      throw new Error(message)
+    }
+    ctx.logger.warn(`dsh-memory: ${message}，继续后台重试`)
+  }
+
+  // ═══ 「身体」能力后端（可选）—— 角色扮演生成等「身」的生成能力 ═══
+  // 默认**不挂载**：主仓保持纯大脑单进程（只起 md_cg）。开启后额外起一个能力库
+  // 子进程（如 AEIS），**仅**角色扮演生成使用；记忆真源仍是 md_cg（大脑）。
+  // 未挂载时角色生成接口 fail-closed（返回明确原因，不编造回复）。
+  let capability: LingshuBridge | null = null
+  if (config.capability.enabled) {
+    if (!config.capability.args.length) {
+      ctx.logger.warn('dsh-memory: capability.enabled=true 但未配置 capability.args，跳过身体能力后端')
+    } else {
+      capability = new LingshuBridge({
+        python: config.capability.python || config.python,
+        args: config.capability.args,
+        env: {
+          // 能力库的旧版数据目录约定（AEIS_* 为遗留名，md_cg 不读）。
+          AEIS_DB: config.dbPath,
+          AEIS_IDENTITY: config.identity,
+          ...config.env,
+        },
+        timeoutMs: config.toolCallTimeoutMs,
+        maxRetryDelayMs: config.maxRetryDelayMs,
+      })
+      capability.start()
+      if (!(await capability.waitReady())) {
+        ctx.logger.warn('dsh-memory: 身体能力后端未就绪，角色生成接口将 fail-closed（不编造回复）')
+      }
+    }
   }
 
   const disposers: Array<() => void> = []
   let toolsPoll: NodeJS.Timeout | null = null
   try {
-    // 工具注册：初始就绪立即注册；若启动时未就绪（python 暂不可用/aeis 未装等
+    // 工具注册：初始就绪立即注册；若启动时未就绪（python 暂不可用等
     // 竞态），桥重连成功后自动补注册——修复"工具永久缺失"问题。
     let toolsRegistered = false
     const tryRegister = async () => {
-      if (toolsRegistered || !bridge.isReady()) return
+      if (toolsRegistered || !bridge?.isReady()) return
       try {
         const dispose = await registerLingshuTools(ctx, bridge, {
           selection: config.tools,
@@ -269,16 +335,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         ctx.logger.warn(`dsh-memory: 工具注册失败，稍后重试: ${String(err)}`)
       }
     }
-    if (ready) await tryRegister()
+    if (brainReady) await tryRegister()
     if (!toolsRegistered) {
       toolsPoll = setInterval(() => { void tryRegister() }, 2000)
       disposers.push(() => { if (toolsPoll) clearInterval(toolsPoll) })
     }
     // 自动记忆：沉淀进 md_cg 认知图（记忆唯一真源）。mdcg=null 时整体停用。
     installMemoryHooks(ctx, mdcg, config.memory)
-    // 角色扮演网页（同源挂载 /roleplay，复用本插件 bridge）
-    // mdcg：角色定义/对话转录显式落认知图（md_cg = 唯一真源）。
-    await installRoleplayWeb(ctx, bridge, config, disposers, mdcg)
+    // 角色扮演网页（同源挂载 /roleplay）：生成能力走可选「身体」后端（capability），
+    // 转录/历史/翻译/落图走大脑（mdcg）。capability=null 时生成接口 fail-closed。
+    await installRoleplayWeb(ctx, capability, config, disposers, mdcg)
 
     // 白箱 LLM provider 已下线（2026-09-10）：功能尚不完善，不再注册
     // 'lingshu-whitebox' provider。适配器保留为 LIB 本地库
@@ -297,45 +363,65 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         ctx.logger.warn('dsh-memory: timer 服务不可用，跳过互维维护（mutual.enabled=true 但无 timer）')
       } else {
         const { installMutualMaintenance } = await import('./lib/mutual.js')
-        // 双通道 hooks：白箱 base_verify（走 bridge 调灵枢）+ DeepSeek 复核
+        // 双通道 hooks：白箱 base_verify（mdcg.verifyClaim 走认知图）+ 宿主 LLM 复核
         installMutualMaintenance(
           ctx as never,
           { heartbeatMs: config.mutual.heartbeatMs },
           {
             // memory 通道 → 认知图（md_cg = 唯一真源）。
             // 显式调用：MdcgClient.verifyClaim → cg(op=read) + 依据强度判定。
-            // 认知图未就绪时回退 AEIS 能力库 wisdom_verify（迁移期兼容）。
+            // 回退通道已下线（aeis 能力库随进程剥离；md_cg 是唯一大脑）：
+            // 认知图不可用时按白箱纪律 fail-closed，不编造判定。
             verify: async (claim: string) => {
               if (mdcg?.isReady()) {
                 try {
                   return await mdcg.verifyClaim(claim)
                 } catch (err) {
-                  ctx.logger.warn(`dsh-memory: 认知图核验失败，回退能力库：${String(err)}`)
+                  ctx.logger.warn(`dsh-memory: 认知图核验失败，按 fail-closed 处理：${String(err)}`)
                 }
+              } else {
+                ctx.logger.warn('dsh-memory: 认知图未就绪，核验按 fail-closed 处理')
               }
-              const r = await bridge.callTool('wisdom_verify', { knowledge: claim, limit: 4 })
-              // P1 修复（GPT 审查）：结果在 content[].text（JSON），非 .result
-              const text = mcpText(r)
-              let data: { judgment?: string; best?: { name?: string }; D_norm?: number; record_id?: string } = {}
-              try {
-                data = JSON.parse(text) as typeof data
-              } catch { /* 非 JSON 时用默认 */ }
-              return {
-                judgment: data.judgment ?? '分析中',
-                best: data.best?.name ?? '',
-                d_norm: typeof data.D_norm === 'number' ? data.D_norm : -1,
-                record_id: data.record_id ?? '',
-              }
+              return { judgment: '无法核验', best: '', d_norm: -1, record_id: '' }
             },
             review: async (claim: string, w) => {
-              // DeepSeek 复核（在白箱判定之上，不重复白箱工作）
-              const reviewResult = await bridge.callTool('think', {
-                query: `复核以下主张（白箱判定已给出，请独立评估是否同意）：${claim.slice(0, 200)}。白箱判定：${w.judgment}，best=${w.best}。只输出 同意/质疑/不同意 + 一句话理由`,
-              })
-              // P1 修复（GPT 审查）：文本在 content[].text；结论解析必须先查
-              // 「不同意/不通过」再「质疑」再「同意」——「不同意」含子串「同意」，
-              // 此前先匹配「同意」→ 不同意被误判为同意
-              const text = mcpText(reviewResult)
+              // 复核通道改走**宿主 LLM**（aeis 的 think 工具随进程下线）。
+              // 取 llm 服务：Cordis 未 inject 的属性访问会抛，ctx.get 安全返回 undefined。
+              const llm = ctx.get('llm') as
+                | {
+                  stream?: (o: Record<string, unknown>) => AsyncIterable<{ type?: string; text?: string }>
+                  listProviders?: () => Array<{ id?: string; model?: string }>
+                }
+                | undefined
+              const prov = llm?.listProviders?.()
+                ?.find((p) => p?.id && p.id !== 'lingshu-whitebox')
+              if (!llm?.stream || !prov?.id) {
+                ctx.logger.warn('dsh-memory: 宿主 LLM 不可用，复核按 fail-closed 处理（不编造结论）')
+                return { conclusion: '不同意', reason: '复核通道不可用（宿主 LLM 未就绪）' }
+              }
+              let text = ''
+              try {
+                const stream = llm.stream({
+                  provider: prov.id,
+                  model: prov.model ?? prov.id,
+                  messages: [{
+                    role: 'user',
+                    content: [{
+                      type: 'text',
+                      text: `复核以下主张（白箱判定已给出，请独立评估是否同意）：${claim.slice(0, 200)}。白箱判定：${w.judgment}，best=${w.best}。只输出 同意/质疑/不同意 + 一句话理由`,
+                    }],
+                  }],
+                  maxTokens: 256,
+                })
+                for await (const chunk of stream) {
+                  if (typeof chunk?.text === 'string' && chunk.type !== 'reasoning-delta') text += chunk.text
+                }
+              } catch (err) {
+                ctx.logger.warn(`dsh-memory: 复核 LLM 调用失败，按 fail-closed 处理：${String(err)}`)
+                return { conclusion: '不同意', reason: '复核调用失败（fail-closed）' }
+              }
+              // 结论解析：必须先查「不同意/不通过」再「质疑」再「同意」——「不同意」
+              // 含子串「同意」，颠倒顺序会把不同意误判为同意（P1 修复，勿回退）。
               const conclusion = text.includes('不同意') || text.includes('不通过')
                 ? '不同意'
                 : text.includes('质疑') ? '质疑'
@@ -351,7 +437,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // 探针：记录 apply 失败的具体错误（定位插件加载失败根因）
     probeApplyError(err)
     mdcg?.dispose()
-    bridge.dispose()
+    capability?.dispose()
     throw err
   }
 
@@ -359,8 +445,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return () => {
       for (const dispose of disposers) dispose()
       mdcg?.dispose()
-      bridge.dispose()
-      ctx.logger.info('dsh-memory: 已卸载（工具已注销，灵枢/认知图进程已退出）')
+      capability?.dispose()
+      ctx.logger.info('dsh-memory: 已卸载（工具已注销，md_cg 大脑 / 可选身体后端进程已退出）')
     }
   }, 'dsh-memory')
 }

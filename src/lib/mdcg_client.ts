@@ -56,6 +56,13 @@ export interface MdcgOptions {
   identity?: string
   /** 额外环境变量。 */
   env?: Record<string, string>
+  /** MCP 工具面（MDCG_MCP_SURFACE）：'kernel' = 仅 cg/stg 两基元；
+   *  'full' = 另含 `mdcg_*` 细粒度工具。
+   *
+   *  ⚠️ 本客户端**必须**用 full：唯一写入通道是 `mdcg_remember`（细粒度），
+   *  kernel 面下该工具不存在 → 写入静默失败（角色/转录/自动记忆全部不落盘）。
+   *  默认 'full'，勿改。 */
+  surface?: 'kernel' | 'full'
   timeoutMs?: number
   maxRetryDelayMs?: number
 }
@@ -81,8 +88,9 @@ function collectItems(payload: unknown): Array<Record<string, unknown>> {
 /**
  * 认知图显式客户端。
  *
- * 生命周期与 AEIS 桥一致：懒启动 + 自动重连；未就绪时调用会快速失败，
- * 调用方应回退到能力库路径（见 index.ts 的互维 verify 注入）。
+ * 生命周期与桥一致：懒启动 + 自动重连；未就绪时调用会快速失败。
+ * 未就绪的处置：互维 verify 走 fail-closed（见 index.ts 的注入），
+ * 自动记忆静默跳过——**不再有"回退 aeis 能力库"路径**（该库已剥离）。
  */
 export class MdcgClient {
   readonly bridge: LingshuBridge
@@ -96,6 +104,8 @@ export class MdcgClient {
       // PYTHONIOENCODING=utf-8 启动子进程，此处对齐该约定；opts.env 可覆盖。
       PYTHONIOENCODING: 'utf-8',
       MDCG_ROOT: opts.root,
+      // 工具面必须是 full：写入通道 mdcg_remember 属细粒度工具（见 MdcgOptions.surface）。
+      MDCG_MCP_SURFACE: opts.surface ?? 'full',
       MDCG_TENANT: opts.tenant ?? 'default',
       MDCG_CLEARANCE: opts.clearance ?? 'private',
       ...(opts.actor ? { MDCG_ACTOR: opts.actor } : {}),
