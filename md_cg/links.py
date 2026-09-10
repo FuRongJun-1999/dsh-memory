@@ -160,6 +160,24 @@ def _cap_for(alignment: dict, position_map: dict = None) -> float:
     return cap
 
 
+def position_preference(position: str) -> dict:
+    """该位置的分量偏好序（委派 `md_cg.weights`，纯结构、无数值）。
+
+    仅作查询/自描述，**不改动** `_cap_for` 的既有默认行为——对齐「先声明
+    结构、数值标定 DEFER」的纪律（文档 §4.3）。
+    """
+    from . import weights as _w
+    return {"position": position, "dominant": _w.dominant(position),
+            "secondary": _w.secondary(position), "excluded": _w.excluded(position),
+            "class": (VIEWPOINT if _w.is_viewpoint(position) else FUNCTIONAL),
+            "order": _w.order(position)}
+
+
+#: 位置类别（与 `md_cg.weights` 同名常量保持一致，供连接层自描述引用）
+VIEWPOINT = "viewpoint"
+FUNCTIONAL = "functional"
+
+
 # --------------------------------------------------------------------------
 # 签名载荷（确定性：同参数必同字节）
 # --------------------------------------------------------------------------
@@ -489,6 +507,14 @@ def catalog() -> dict:
                       "decision": "D-4：内核只定义契约，子系统自决用法"},
         "clauses": {"handshake": "宪章第二十八条", "degrade": "宪章第七条",
                     "ladder": "宪章第二十二条", "audit": "宪章第二十四条"},
+        "position_weights": {
+            "module": "md_cg.weights",
+            "formula": "P_trust = f(一致性, 位置可预测性, 版本对齐度)",
+            "note": "位置偏好序已标定；数值未标定（占位）",
+            "classes": {VIEWPOINT: "认知视角（3 项都涉及，不设零）",
+                        FUNCTIONAL: "功能单元（身份即排除）"},
+            "daily_eval": "设计者为元参照系，不参与日常评估",
+        },
     }
 
 
