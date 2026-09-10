@@ -8,6 +8,9 @@ node_modules/
 # md_cg 运行时数据（含 _keys.json 密钥，绝不入库）
 /data/mdcg/
 
+# 自举循环运行态数据（持续增长的日志/队列/草稿；仅本地留存，不入库）
+/data/bootstrap/
+
 # 历史遗留参考文件（防 git add -A 误提交，issue#8 修复时曾污染 360 文件）
 /awesome*
 /wf_*.yml
@@ -26,6 +29,7 @@ llm-adapter-poc/
 /_md_cg_membench/
 /wisdom-book-cloud-new.db
 /md_cg/__pycache__/
+/scripts/__pycache__/
 
 # 他项目遗留参考文件与旧打包产物（非本仓库内容，防 git add -A 误提交）
 /dsh-bridge-readme.md
