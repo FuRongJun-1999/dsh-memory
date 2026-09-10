@@ -1,15 +1,26 @@
 # -*- coding: utf-8 -*-
 """md 认知图 P0 验收测试 · 逐条对应四个风险
 
-跑法（用带 aeis 的解释器，基线对比需要真实 LayeredStore）：
+语料：自建 md 文档记忆库（14 域 × 6 知识点 × 4 侧面 = 336 个 md 节点，CCG 五要素
+正文），不依赖任何外部数据库。旧版依赖 wisdom-book-cloud-new.db 做「迁移等价」与
+「sqlite 基线对比」；本仓库没有该库（也不该有），故按「用新的 md 文档记忆库做验证」
+把三处绑定全部换成 md 原生等价物：
+  · 迁移节点数/字段等价        → md 语料完整落盘 + md 文档形态（五要素齐备）
+  · sqlite 读 condition_space  → 直接从 md 节点 frontmatter 读（退化对照）
+  · sqlite 版 recall@10 基线   → md 原生：无 context 全量阶梯 vs 有 context 桶路由
+
+幂等：重跑 ≡ 首跑，且**不靠清空目录**——`corpus.seed()` 按固定 node id 原子覆盖，
+清空多余且脆弱（依赖 rmtree 全量删除，在批量删除安全策略下会被拦截并中断进程，
+见 corpus.reset_root 的说明）。守门断言是本用例的**等号**断言「索引节点数 ==
+语料期望数」：一旦有残留污染，它会被打红，而不会被清空动作悄悄掩盖。
+
+跑法：
     python -m md_cg.test_p0
 """
 import os
-import io
 import sys
 import json
 import time
-import sqlite3
 import subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,13 +28,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from md_cg.mdcg import (MdCG, TIER_BUCKET_LIKE, TIER_BUCKET_SCAN,
                         TIER_GLOBAL_LIKE, TIER_GLOBAL_SCAN)
 from md_cg import routing
-from md_cg.migrate import migrate
+from md_cg import corpus
 
-DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                  "wisdom-book-cloud-new.db")
-ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    "_md_cg_p0")
+BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.join(BASE, "_md_cg_p0")
 CONC_ROOT = ROOT + "_conc"
+
+# 语料、域划分与根目录重置见 md_cg/corpus.py（P0/P1 共用一套，避免两个验收测试
+# 各写一份 14 域清单后互相漂移）
 
 PASS, FAIL = [], []
 
@@ -53,13 +65,24 @@ def main():
 
     # ============================================================ 风险1
     print("\n【风险1】分桶键退化 —— 归一化路由键 vs 文档原方案")
-    # 迁移是幂等的（按 node id 原子覆盖），不需要清空目录重来
-    cg, rep = migrate(DB, ROOT, verbose=False)
-    print(f"  迁移：sqlite {rep['sqlite_nodes']} 节点 → md {rep['md_nodes']} 节点，"
-          f"边 {rep['edges_total']} 条")
-    check("迁移节点数等价", rep["count_equal"], f"{rep['sqlite_nodes']}=={rep['md_nodes']}")
-    check("全量字段等价（content/tags/importance/edges）",
-          rep["field_mismatches"] == 0, f"不一致 {rep['field_mismatches']} 个 {rep['samples']}")
+    # 先重置根目录再灌语料：写入幂等，但残留会让「首跑」与「重跑」不等价
+    corpus.reset_root(ROOT)
+    corpus.reset_root(CONC_ROOT)
+    cg = MdCG(ROOT, autoflush=64)
+    written = corpus.seed(cg, marks=True)
+    # 落盘 _index.json 快照（等价于旧版 migrate 的收尾动作）：风险4 要断言
+    # 「检索不改写索引快照」，前提是快照本身已经存在
+    cg.rebuild_index()
+    print(f"  自建语料：{len(corpus.DOMAINS)} 域 × {len(corpus.ASPECTS)} 侧面 → "
+          f"写入 {written} 节点，索引 {len(cg.index['nodes'])} 节点")
+    check("自建 md 语料完整落盘（节点数一致）",
+          written == corpus.EXPECTED_NODES
+          and len(cg.index["nodes"]) == corpus.EXPECTED_NODES,
+          f"{written} == {corpus.EXPECTED_NODES}")
+    sample_ids = list(cg.index["nodes"])[:30]
+    bad = [nid for nid in sample_ids
+           if not all(m in (cg.get(nid)["content"] or "") for m in corpus.MARKS)]
+    check("节点是 md 文档形态（CCG 五要素齐备）", not bad, f"缺要素 {len(bad)} 个 {bad[:3]}")
 
     h = cg.health()
     print(f"  归一化路由键：{h['buckets']} 桶 / {h['total_nodes']} 节点，"
@@ -69,12 +92,12 @@ def main():
     check("期望扫描占比 < 10%（条件路由确实非全量）", h["expected_scan"] < 0.10,
           f"{h['expected_scan']:.1%}")
 
-    # 对照：文档原方案（原始四元组哈希）在同一批数据上的表现
-    con = sqlite3.connect(DB)
+    # 对照：文档原方案（原始四元组哈希）在同一批 md 节点上的表现
     raw = {}
-    for (cs,) in con.execute("select condition_space from nodes"):
-        raw[routing.bucket_dir(json.dumps(json.loads(cs or "{}"), sort_keys=True))] = \
-            raw.get(routing.bucket_dir(json.dumps(json.loads(cs or "{}"), sort_keys=True)), 0) + 1
+    for nid in cg.index["nodes"]:
+        cs = cg.get(nid)["frontmatter"].get("condition_space") or {}
+        key = routing.bucket_dir(json.dumps(cs, sort_keys=True))
+        raw[key] = raw.get(key, 0) + 1
     raw_h = routing.bucket_health(raw)
     print(f"  对照·原四元组哈希：{raw_h['buckets']} 桶，单例桶率 {raw_h['singleton_ratio']:.1%}")
     check("原方案确被判定为退化（自检能抓到）", not raw_h["ok"], str(raw_h["problems"]))
@@ -185,29 +208,28 @@ def main():
     check(f"多进程写：索引无覆盖丢失（{ROUNDS} 轮 × {W} 进程 × {N} 条）", ok_idx)
 
     # ============================================================ 基线对比
-    print("\n【基线】md 版 vs sqlite 版 search_content 的召回一致性")
-    try:
-        from aeis.core import LayeredStore, MemoryLayer
-        store = LayeredStore(DB)
-        queries = ["能量守恒", "二分查找", "细胞呼吸", "贝塞尔不等式", "牛顿第二定律",
-                   "数据结构 排序", "光合作用", "文明礼貌", "内力与截面法", "熵增"]
-        rows = []
-        for q in queries:
-            sq = store.search_content(q, layers=[MemoryLayer.KNOWLEDGE], limit=10)
-            sids = [n.id for n, _ in sq]
-            mres, mmeta = cg.search(q, layer="knowledge", k=10, context=None, record=False)
-            mids = [r[0]["id"] for r in mres]
-            inter = len(set(sids) & set(mids))
-            rec = inter / len(sids) if sids else 1.0
-            rows.append((q, len(sids), len(mids), inter, rec, mmeta["tier"]))
-        print(f"  {'query':<16}{'sqlite':>7}{'md':>5}{'交集':>6}{'recall@10':>11}  tier")
-        for q, a, b, i, r, t in rows:
-            print(f"  {q:<16}{a:>7}{b:>5}{i:>6}{r:>10.0%}  {t}")
-        avg = sum(r[4] for r in rows) / len(rows)
-        check("平均 recall@10 ≥ 0.9（无 context 时与 sqlite 同路径）", avg >= 0.9,
-              f"avg={avg:.1%}")
-    except ImportError as e:
-        print(f"  [SKIP] 未装 aeis，跳过基线对比：{e}")
+    print("\n【基线】条件路由不得丢召回：无 context 全量阶梯 vs 有 context 桶路由")
+    queries = [("能量守恒", "物理学"), ("牛顿第二定律", "物理学"), ("熵增", "物理学"),
+               ("二分查找", "计算机科学"), ("事务隔离", "计算机科学"),
+               ("细胞呼吸", "生物学"), ("光合作用", "生物学"),
+               ("贝塞尔不等式", "数学"), ("内力与截面法", "机械工程"),
+               ("机会成本", "经济学")]
+    rows = []
+    for q, dom in queries:
+        r_all, _ma = cg.search(q, layer="knowledge", k=10, context=None, record=False)
+        r_bk, mb = cg.search(q, layer="knowledge", k=10,
+                             context={"tags": [f"domain:{dom}"]}, record=False)
+        a_ids = [r[0]["id"] for r in r_all]
+        b_ids = [r[0]["id"] for r in r_bk]
+        inter = len(set(a_ids) & set(b_ids))
+        rec = inter / len(a_ids) if a_ids else 1.0
+        rows.append((q, dom, len(a_ids), len(b_ids), inter, rec, mb["tier"]))
+    print(f"  {'query':<16}{'域':<11}{'全量':>5}{'桶内':>5}{'交集':>5}{'recall@10':>11}  tier")
+    for q, dom, a, b, i, r, t in rows:
+        print(f"  {q:<16}{dom:<11}{a:>5}{b:>5}{i:>5}{r:>10.0%}  {t}")
+    avg = sum(x[5] for x in rows) / len(rows)
+    check("桶路由平均 recall@10 ≥ 0.9（加 context 不丢召回）", avg >= 0.9,
+          f"avg={avg:.1%}")
 
     print("\n" + "=" * 68)
     print(f"通过 {len(PASS)} / 失败 {len(FAIL)}")
@@ -221,5 +243,8 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--worker":
         _conc_worker(sys.argv[2], sys.argv[3], int(sys.argv[4]))
         sys.exit(0)
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+    # 用 reconfigure 而非「包一层 TextIOWrapper」：后者在 stdout 被重定向到文件时
+    # 会在解释器退出阶段丢缓冲（实测只落盘 444 字节），CI 里会看不到失败原因。
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     sys.exit(main())

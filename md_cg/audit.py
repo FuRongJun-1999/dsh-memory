@@ -164,8 +164,13 @@ def _verify_code(payload, ctx):
     except ValueError as exc:
         return _verdict(DEFER, "code", f"test_cmd 解析失败：{exc}")
     try:
+        # encoding 必须显式指定：`text=True` 会退回 locale 编码（Windows 常为 gbk），
+        # 被测命令只要输出非 gbk 字节，读取线程就抛 UnicodeDecodeError →
+        # p.stdout/p.stderr 可能为空 → 下一行的失败证据丢失，
+        # 「实测失败」会退化成一句没有依据的 REJECT（对齐 whitebox.py 的写法）。
         p = subprocess.run(argv, cwd=ctx.get("cwd"), capture_output=True,
-                           text=True, shell=False,
+                           text=True, encoding="utf-8", errors="replace",
+                           shell=False,
                            timeout=int(os.environ.get("MDCG_CODE_TEST_TIMEOUT", "60")))
     except (OSError, subprocess.SubprocessError) as exc:
         return _verdict(DEFER, "code", f"测试无法执行：{type(exc).__name__}: {exc}")

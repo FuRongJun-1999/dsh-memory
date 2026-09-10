@@ -5,32 +5,36 @@
   1. MARKS 5 要素 + 验证基底 + 不适用条件
   2. 负记忆目录（rejected/unresolved）
   3. 资格判定四态（ACCEPT/REJECT/DEFER/BLINDSPOT）
-  4. Top-1/Top-5/盲区触发率指标（vs sqlite 基线）
+  4. Top-1/Top-5/盲区触发率指标（vs 客观真值 oracle）
   5. 两阶段并行收敛路由（14 大域 → 桶内 KCCS）
   6. 信息差 D(t,C) 与 d²D/dt²
   7. 知识飞轮：错误→补条件→结构更新
   8. 五大单元之反思/验证
   9. CCG 完整度 + 验证基底覆盖率健康度自检
 
+语料：md_cg/corpus.py 自建的 md 文档记忆库（336 节点），但用 **marks=False 的纯
+叙述正文** 写入 —— 模拟「从旧库迁移来的节点」，这样维度9 的「完整度不得虚报」
+才有对照物（只有本测试显式写的完整 CCG 节点才该被 health 计入）。
+旧版依赖 wisdom-book-cloud-new.db（迁移 + sqlite Top-5 基线）；本仓库按「用新的
+md 文档记忆库做验证」改为 md 原生，不再依赖任何外部数据库。
+
 说明：测试自建节点全部用「完整 CCG 正文」格式 + domain:数学 tag（否则
 资格判定会因 MARKS 不全而 BLINDSPOT——那是正确行为，不是 bug）。
-固定 id → 幂等可重跑；不清空目录（沿用 P0 的安全策略）。
+固定 id → 幂等可重跑；不靠清空目录（见 corpus.reset_root），重跑 ≡ 首跑由
+「knowledge 层节点数 == 语料数 + 本测试显式写入数」的等号断言守门。
 
 跑法：python -m md_cg.test_p1
 """
 import os
-import io
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from md_cg.mdcg import (MdCG, STATE_ACCEPT, STATE_REJECT, STATE_DEFER,
                         STATE_BLINDSPOT)
-from md_cg import nodefile, routing
-from md_cg.migrate import migrate
+from md_cg import nodefile, routing, corpus
 
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB = os.path.join(_BASE, "wisdom-book-cloud-new.db")
 ROOT = os.path.join(_BASE, "_md_cg_p1")
 DOM_TAG = ["domain:数学"]
 
@@ -60,8 +64,13 @@ def main():
     print("md 认知图 P1 验收 · 白箱认知架构 9 维度")
     print("=" * 68)
 
-    cg, rep = migrate(DB, ROOT, verbose=False)
-    print(f"基线迁移：{rep['md_nodes']} 节点，{rep['edges_total']} 边\n")
+    # 自建 md 语料（纯叙述正文、无 MARKS）替代「从 sqlite 迁移」这一步：
+    # 维度9 要验「叙述节点不得被计为 CCG 完整」，迁移节点只是它的一个实例
+    corpus.reset_root(ROOT)
+    cg = MdCG(ROOT, autoflush=64)
+    written = corpus.seed(cg, marks=False)
+    cg.rebuild_index()
+    print(f"自建 md 语料：{written} 节点（纯叙述正文，模拟旧库迁移节点）\n")
 
     # ===================================================== 维度 1
     print("【维度1】MARKS 5 要素 + 验证基底 + 不适用条件（白箱第 1 篇第 17 章）")
@@ -142,38 +151,38 @@ def main():
 
     # ===================================================== 维度 4
     print("\n【维度4】Top-1 / Top-5 / 盲区触发率（第 1 篇第 9 章 CCG 指标）")
-    try:
-        from aeis.core import LayeredStore, MemoryLayer
-        store = LayeredStore(DB)
-        queries = ["能量守恒", "二分查找", "细胞呼吸", "贝塞尔不等式",
-                   "牛顿第二定律", "光合作用", "文明礼貌", "内力与截面法",
-                   "熵增", "量子力学"]
-        t1 = t5 = 0
-        n = 0
-        blindspots = []
-        for q in queries:
-            sq = store.search_content(q, layers=[MemoryLayer.KNOWLEDGE], limit=5)
-            if not sq:
-                continue
-            n += 1
-            truth = [x.id for x, _ in sq]
-            r, _m = cg.search(q, layer="knowledge", k=5, context=None, judge=False)
-            got = [x[0]["id"] for x in r]
-            if not got:
-                blindspots.append(q)
-                continue
-            if got[0] in truth:
-                t1 += 1
-            if set(got) & set(truth):
-                t5 += 1
-        top1, top5 = t1 / n, t5 / n
-        print(f"  Top-1 = {top1:.0%}（md Top-1 vs sqlite Top-5 基线）")
-        print(f"  Top-5 = {top5:.0%}，盲区查询 = {blindspots}")
-        check("Top-1 ≥ 0.7（最强证据放在最前）", top1 >= 0.7, f"{top1:.0%}")
-        check("Top-5 ≥ 0.9（不漏召回）", top5 >= 0.9, f"{top5:.0%}")
-        check("盲区可观测（列表为空即盲区率 0）", True)
-    except ImportError as e:
-        print(f"  [SKIP] 未装 aeis：{e}")
+    # 真值来源：客观 oracle —— 正文含查询词的 knowledge 节点全集（即 LIKE 的严格定义）。
+    # 旧版拿 sqlite 版 Top-5 当基线，本质是「拿另一个实现的排序偏好当真值」；
+    # md 原生下换成 oracle 反而更硬：它不依赖任何实现的排序，只依赖语料事实。
+    queries = ["能量守恒", "二分查找", "细胞呼吸", "贝塞尔不等式", "牛顿第二定律",
+               "光合作用", "事务隔离", "内力与截面法", "熵增", "机会成本"]
+    contents = {nid: (cg.get(nid) or {}).get("content", "")
+                for nid, e in cg.index["nodes"].items() if e["layer"] == "knowledge"}
+    t1 = t5 = 0
+    n = 0
+    blindspots = []
+    print(f"  {'query':<14}{'真值集':>7}{'召回':>6}{'Top-1':>7}")
+    for q in queries:
+        gold = [nid for nid, c in contents.items() if q in c]
+        if not gold:
+            blindspots.append(q)
+            continue
+        n += 1
+        r, _m = cg.search(q, layer="knowledge", k=5, context=None, judge=False)
+        got = [x[0]["id"] for x in r]
+        hit = set(got) & set(gold)
+        top1_ok = bool(got) and got[0] in gold
+        if top1_ok:
+            t1 += 1
+        if hit:
+            t5 += 1
+        print(f"  {q:<14}{len(gold):>7}{len(hit):>6}{'是' if top1_ok else '否':>7}")
+    top1, top5 = (t1 / n if n else 0.0), (t5 / n if n else 0.0)
+    print(f"  Top-1 = {top1:.0%}（md Top-1 落在客观真值集内）")
+    print(f"  Top-5 = {top5:.0%}，无真值（盲区）查询 = {blindspots}")
+    check("Top-1 ≥ 0.7（最强证据放在最前）", top1 >= 0.7, f"{top1:.0%}")
+    check("Top-5 ≥ 0.9（不漏召回）", top5 >= 0.9, f"{top5:.0%}")
+    check("无盲区（每个查询在语料中都有真值）", not blindspots, str(blindspots))
 
     # ===================================================== 维度 5
     print("\n【维度5】两阶段并行收敛路由（第 2 篇第 5 章 + 第 3 篇第 4 章）")
@@ -260,27 +269,35 @@ def main():
 
     # ===================================================== 维度 9
     print("\n【维度9】CCG 完整度 + 验证基底覆盖率（health 自检）")
+    # 守门断言（重跑 ≡ 首跑）：既然不再靠清空目录（见 corpus.reset_root），
+    # 「knowledge 层恰好 = 语料 + 本测试显式写入」就必须被显式守住——
+    # 有残留节点会在这里打红，而不是被 rmtree 静默掩盖。
+    explicit_knowledge = ("p1_ok", "p1_accept", "p1_defer", "p1_spot", "p1_reject")
+    n_know = sum(1 for e in cg.index["nodes"].values() if e["layer"] == "knowledge")
+    check("重跑 ≡ 首跑：knowledge 层节点数不多不少（无残留污染）",
+          n_know == corpus.EXPECTED_NODES + len(explicit_knowledge),
+          f"{n_know} == {corpus.EXPECTED_NODES} + {len(explicit_knowledge)}")
     h = cg.health()
     kb = h.get("ccg_by_layer", {}).get("knowledge", {})
     rej_cnt = h.get("neg_memory_counts", {}).get("rejected", 0)
     unr_cnt = h.get("neg_memory_counts", {}).get("unresolved", 0)
     check("health 报告 knowledge 层 CCG 完整度统计",
-          kb.get("total", 0) > 3000 and "ccg_complete" in kb,
+          kb.get("total", 0) >= corpus.EXPECTED_NODES and "ccg_complete" in kb,
           f"total={kb.get('total')}")
     check("health 报告负记忆密度（rejected/unresolved 均 >0）",
           rej_cnt >= 1 and unr_cnt >= 1,
           f"rejected={rej_cnt}, unresolved={unr_cnt}")
-    # 迁移节点（无 MARKS）不得被计为完整；只有我们显式写的完整 CCG 才算
+    # 叙述节点（无 MARKS）不得被计为完整；只有我们显式写的完整 CCG 才算
     full_ids = [nid for nid in ("p1_ok", "p1_accept", "p1_defer", "p1_reject")
                 if cg.get(nid) and nodefile.ccg_completeness(
                     cg.get(nid)["content"])["complete"]]
     expected_full = len(full_ids)
-    # 迁移的 3048 节点正文来自 sqlite 旧正文（不含 MARKS 行）→ 不被计入；
+    # corpus.seed(marks=False) 的 336 个节点是纯叙述正文（不含 MARKS 行）→ 不被计入；
     # 我们显式写的完整 CCG 节点必须都被统计到
     check("所有完整 CCG 测试节点均被 health 计入",
           kb.get("ccg_complete", 0) >= expected_full,
           f"expected>= {expected_full}, got={kb.get('ccg_complete')}")
-    check("迁移节点完整度不虚报（完整数远小于总数）",
+    check("叙述节点完整度不虚报（完整数远小于总数）",
           kb.get("ccg_complete", 0) < kb.get("total", 0) * 0.05,
           f"complete={kb.get('ccg_complete')}/{kb.get('total')}")
 
@@ -293,6 +310,8 @@ def main():
 
 
 if __name__ == "__main__":
-    if hasattr(sys.stdout, "buffer"):
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+    # 用 reconfigure 而非「包一层 TextIOWrapper」：后者在 stdout 重定向到文件时
+    # 会在解释器退出阶段丢缓冲，CI 里会看不到失败原因。
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     sys.exit(main())

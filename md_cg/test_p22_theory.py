@@ -156,7 +156,8 @@ def main():
         r = subprocess.run(
             [sys.executable, "-m", "md_cg.theory", "check"],
             env={**os.environ, "MDCG_THEORY_FILE": tf},
-            cwd=root, capture_output=True, text=True, timeout=120)
+            cwd=root, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=120)
         check("CLI check 退出码 0", r.returncode == 0, (r.stderr or "")[:200])
         check("CLI 输出 theory_ok=True", '"theory_ok": true' in r.stdout,
               (r.stdout or "")[:200])

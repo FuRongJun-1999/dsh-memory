@@ -223,4 +223,11 @@ def main():
 
 if __name__ == "__main__":
     import sys
+    # 用 reconfigure 而非「包一层 TextIOWrapper」：后者在 stdout 被重定向到文件时
+    # 会在解释器退出阶段丢缓冲，CI 里会看不到失败原因。
+    # 本用例原先缺这一步：Windows 默认 gbk 控制台下打印「d²D/dt²」的 ²(U+00B2)
+    # 直接 UnicodeEncodeError，崩在**第一条断言之前**，输出只剩 725 字节——
+    # 于是「P11 通过」这件事从未被真正执行过，也从未被任何人看见。
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.exit(0 if main() else 1)
