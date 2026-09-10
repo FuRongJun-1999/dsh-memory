@@ -56,7 +56,7 @@ ALL_LAYERS = ("anchor", "structural", "knowledge", "contextual", "self",
 ALL_OPS = ("info", "route", "read", "write", "goal", "recent", "verify",
            "review", "forget", "protect", "identity", "consistency",
            "metacognition", "self_state", "evolution", "sustain", "scrub",
-           "predict", "causal", "whitebox", "index_code", "theory")
+           "predict", "causal", "whitebox", "index_code", "theory", "link")
 
 
 class TokenError(Exception):
@@ -122,7 +122,7 @@ ROLE_SPECS = OrderedDict([
         "can_write": True, "can_admin": False, "clearance_cap": "internal",
         "layers_allow": ["self"],
         "ops_allow": ["info", "read", "write", "sustain", "scrub", "evolution",
-                      "self_state", "metacognition"],
+                      "self_state", "metacognition", "link"],
         "delegable": False,
         "forbidden": ["knowledge/anchor 层", "private/secret 密级", "裁决与删除"],
     }),

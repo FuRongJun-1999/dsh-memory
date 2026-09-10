@@ -1157,14 +1157,59 @@ def _cg_call(cg, a):
                                actor=(_p.actor if _p is not None else "designer"))
         raise ValueError(f"theory 未知 action：{act}")
 
+    if op == "link":
+        from . import links as _lk
+        act = (a.get("action") or "ls").strip().lower()
+        _actor = _p.actor if _p is not None else "system"
+        if act == "catalog":
+            return _lk.catalog()
+        if act == "ls":
+            return _lk.ls(status=a.get("status"), subsystem=a.get("subsystem"))
+        if act == "show":
+            return _lk.get(a.get("peer"))
+        if act == "handshake":
+            pm = a.get("position_map")
+            if isinstance(pm, str):
+                pm = dict(x.split("=", 1) for x in pm.split(",") if "=" in x)
+            th = a.get("peer_theory")
+            if not th and a.get("peer_version"):
+                th = {"version": a.get("peer_version")}
+            return _lk.handshake(
+                a.get("peer"), peer_theory=th, position_map=pm,
+                declared_charter=bool(a.get("declared_charter", True)),
+                subsystem=a.get("subsystem"),
+                peer_signature=a.get("peer_signature"), actor=_actor)
+        if act == "observe":
+            return _lk.observe(
+                a.get("peer"), evidence=a.get("evidence") or "",
+                positive=not bool(a.get("negative")),
+                subsystem=a.get("subsystem"),
+                peer_signature=a.get("peer_signature"), actor=_actor)
+        if act in ("promote", "degrade", "isolate", "withdraw"):
+            return getattr(_lk, act)(a.get("peer"), reason=a.get("reason"),
+                                     actor=_actor)
+        if act == "decay":
+            return _lk.decay_all(actor=_actor)
+        if act == "policy":                       # 子系统签名策略（D-4）
+            from . import signer as _sg
+            if a.get("set"):
+                return _sg.set_policy(a.get("subsystem"), **{
+                    k: a[k] for k in ("signer", "sign_on",
+                                      "require_peer_signature",
+                                      "on_verify_fail") if k in a})
+            return _sg.show()
+        raise ValueError(f"link 未知 action：{act}")
+
     if op == "info":
         from . import audit
         from . import theory as _th
+        from . import links as _lk
         h = cg.health_os()
         h.update({"surface": SURFACE,
                   "tools": [t["name"] for t in tools_for_surface()],
                   "audit_kinds": audit.kinds(), "whoami": cg.whoami()})
         h["theory"] = _th.check()
+        h["links"] = _lk.ls()
         return h
 
     if op == "route":
