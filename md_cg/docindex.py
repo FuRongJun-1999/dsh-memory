@@ -249,18 +249,22 @@ def node_id(item):
     return "doc_" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
 
 
-def index_dir(root, patterns=None, max_files=500, max_items=2000):
+def index_dir(root, patterns=None, max_files=500, max_items=2000,
+              fresh=None, on_file=None):
     """按大域（目录）遍历 md，产出 `(items, errors, stats)`。零 LLM。
 
     stats 语义与 `codeindex.index_dir` 一致：`truncated`/`truncated_reason` 显式上报
     （截断不静默），`skipped_suffixes` 列出扫到但没被索引的后缀（覆盖缺口可审计）。
+
+    `fresh(rel, fp)` / `on_file(rel, fp, items)` 是给 `refindex.Ledger` 留的增量钩子
+    （默认 None → 行为与改造前逐字一致）：未变文件不读盘、计入 `skipped_unchanged`。
     """
     pats = tuple(patterns or SUFFIX)
     items, errors, files = [], [], 0
     seen_suffix = set()
     stats = {"root": root, "patterns": list(pats), "files": 0, "truncated": False,
              "truncated_reason": "", "max_files": max_files, "max_items": max_items,
-             "skipped_suffixes": []}
+             "skipped_suffixes": [], "skipped_unchanged": 0}
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fn in sorted(filenames):
@@ -281,10 +285,16 @@ def index_dir(root, patterns=None, max_files=500, max_items=2000):
             files += 1
             fp = os.path.join(dirpath, fn)
             rel = os.path.relpath(fp, root).replace("\\", "/")
+            if fresh is not None and fresh(rel, fp):
+                stats["skipped_unchanged"] += 1
+                continue
             try:
                 with open(fp, encoding="utf-8") as f:
                     src = f.read()
-                items.extend(extract(src, rel))
+                got = extract(src, rel)
+                items.extend(got)
+                if on_file is not None:
+                    on_file(rel, fp, got)
             except (OSError, UnicodeDecodeError, ValueError) as exc:
                 errors.append(f"{rel}: {exc}")
             if len(items) >= max_items:

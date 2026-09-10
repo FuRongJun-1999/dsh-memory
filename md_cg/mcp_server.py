@@ -536,9 +536,11 @@ KERNEL_TOOLS = [
                        "只存标题+摘要、不存全文），doc_ref 指回原文行区间；layer 与"
                        "密级显式声明（默认 knowledge/internal，路径命中私有提示降为 "
                        "private）；正文里的 --- 与围栏代码块内的 # 不会被误切；"
-                       "op=ref：按 code_ref/doc_ref 回读源区间（需 node_id 或 ref 对象，"
-                       "root 可覆盖；返回 text 与 hash_match，hash_match=False "
-                       "即源已漂移、索引位置不再可信）；"
+                       "op=ref：ref 协议入口（action=read 按 code_ref/doc_ref 回读源区间 / "
+                       "check 漂移·悬空巡检 / stat 看 _refindex.json 水位）。read 需 "
+                       "node_id 或 ref 对象，root 可覆盖；返回 text 与 hash_match，"
+                       "hash_match=False 即源已漂移、索引位置不再可信；check 只读、不抛、"
+                       "不改源文件，报 stale（源已改动）/dangling（源文件已删除）；"
                        "op=whitebox：显式调用白箱能力库（AEIS 已下线为本地库）并验证其"
                        "编码/已有知识回答能力（action=ask|remember|verify_encoding|"
                        "verify_existing|ping|report；结论写回 self 层留痕）；"
@@ -614,7 +616,8 @@ KERNEL_TOOLS = [
                                 "summary|rollback|catalog；"
                                 "link: ls|show|handshake|observe|promote|degrade|"
                                 "isolate|withdraw|decay|policy|card|publish|peers|"
-                                "evidence|export|import|catalog"),
+                                "evidence|export|import|catalog；"
+                                "ref: read|check|stat"),
             pid=_p("string", "review decide 的提案 id"),
             decision=_p("string", "review 裁决：accept|reject|edit|merge"),
             edits=_p("object", "review edit 的覆盖字段（不可含 verify）"),
@@ -627,6 +630,12 @@ KERNEL_TOOLS = [
                                  "（代码 .py/.ts/.tsx/.js/.mjs/.cjs；文档 .md/.markdown）"),
             max_files=_p("integer", "index_code/index_doc 最多扫描文件数（被截断时"
                                     "返回里会显式给 truncated，不再静默不完整）"),
+            max_items=_p("integer", "index_code/index_doc 最多产出条目数（越限即截断并上报）"),
+            incremental=_p("boolean", "index_code/index_doc：按 _refindex.json 水位跳过"
+                                     "未变文件（默认否=全量重切，保证不漏召回）；"
+                                     "传 sensitivity 覆盖时自动退回全量"),
+            max_nodes=_p("integer", "ref action=check：最多巡检节点数（默认 2000，"
+                                    "越限返回 truncated=true）"),
             sensitivity=_p("string", "index_doc 的密级（默认 internal 并显式写入；"
                                      "路径命中私有提示时保守降为 private）"),
             ref=_p("object", "ref op：直接给 code_ref/doc_ref 对象（与 node_id 二选一）"),
@@ -1324,11 +1333,13 @@ def _cg_call(cg, a):
                              goal_text=a.get("goal"),
                              include_recent=bool(a.get("include_recent")),
                              recent_limit=int(a.get("limit") or 10))
+        from . import refindex
         res, meta = cg.search(q, layer=a.get("layer"), k=int(a.get("k") or 20),
                               context=a.get("context"))
         return {"meta": meta, "results": [
             {"node": _node_view(n), "score": s, "state": q2.get("state"),
-             "reason": q2.get("reason")} for n, s, q2 in res]}
+             "reason": q2.get("reason"), **refindex.ref_fields(n)}
+            for n, s, q2 in res]}
 
     if op == "write":
         from . import audit
@@ -1505,34 +1516,25 @@ def _cg_call(cg, a):
         return _whitebox_call(cg, a)
 
     if op == "index_code":
-        from . import codeindex
+        from . import refindex
         root = a.get("path") or cg.root
         if not os.path.isdir(root):
             return {"ok": False, "error": f"目录不存在：{root}"}
-        items, errors, stats = codeindex.index_dir(
-            root, patterns=a.get("patterns"),
-            max_files=int(a.get("max_files") or 500))
-        ids = []
-        for it in items:
-            nid = codeindex.node_id(it)
-            cg.add(nid, codeindex.render(it),
-                   layer=a.get("layer") or "knowledge",
-                   tags=["code", "code:" + it["kind"]],
-                   condition_space={"observation_position":
-                                    it["path"].split("/")[0]},
-                   verification_basis=it.get("basis") or "compiler",
-                   code_ref={"path": it["path"], "name": it["name"],
-                             "kind": it["kind"], "lineno": it["lineno"],
-                             "end": it["end"], "lang": it.get("lang"),
-                             "precise": bool(it.get("precise", True)),
-                             "hash": it.get("hash"), "root": root})
-            ids.append(nid)
+        items, errors, stats = refindex.index_dir(
+            root, kind="code_ref", patterns=a.get("patterns"),
+            max_files=int(a.get("max_files") or 500),
+            max_items=int(a.get("max_items") or 2000),
+            incremental=bool(a.get("incremental")),
+            ledger=refindex.Ledger(cg.root))
+        ids, _sens = refindex.add_items(cg, items, kind="code_ref", root=root,
+                                        layer=a.get("layer"))
         note = ("只索引注释/接口（AST 已校验），未存完整代码；"
                 "正文用 frontmatter.code_ref + op=ref 指回源文件。"
                 "skipped_suffixes 是扫到但**没有提取器**的后缀，用于审计覆盖缺口")
         out = {"ok": True, "indexed": len(ids), "error_count": len(errors),
                "errors": errors[:10], "ids": ids[:20],
                "files": stats["files"], "truncated": stats["truncated"],
+               "skipped_unchanged": stats.get("skipped_unchanged", 0),
                "skipped_suffixes": stats["skipped_suffixes"], "note": note}
         if stats["truncated"]:
             # 截断必须显式说出来：以前静默 return，调用方以为索引是完整的。
@@ -1542,33 +1544,21 @@ def _cg_call(cg, a):
         return out
 
     if op == "index_doc":
-        from . import docindex
+        from . import refindex
         root = a.get("path") or cg.root
         if not os.path.isdir(root):
             return {"ok": False, "error": f"目录不存在：{root}"}
-        items, errors, stats = docindex.index_dir(
-            root, patterns=a.get("patterns"),
-            max_files=int(a.get("max_files") or 500))
         layer = a.get("layer") or "knowledge"
-        ids, sens_counts = [], {}
-        for it in items:
-            nid = docindex.node_id(it)
-            # 密级显式写入 frontmatter，不依赖节点默认值（计划 §1.3-3 裁定）：
-            # 默认 internal；路径段命中私有提示再保守降为 private（只可能更严）。
-            sens, _why = docindex.sensitivity_for(it["path"], a.get("sensitivity"))
-            sens_counts[sens] = sens_counts.get(sens, 0) + 1
-            cg.add(nid, docindex.render(it), layer=layer,
-                   tags=["doc", "doc:md", f"level:{it['level']}"],
-                   condition_space={"observation_position":
-                                    it["path"].split("/")[0]},
-                   verification_basis="data", sensitivity=sens,
-                   doc_ref={"path": it["path"], "heading": it["heading"],
-                            "heading_path": it["heading_path"],
-                            "level": it["level"], "lineno": it["lineno"],
-                            "end": it["end"], "anchor": it["anchor"],
-                            "lang": it.get("lang"), "precise": True,
-                            "hash": it.get("hash"), "root": root})
-            ids.append(nid)
+        # 显式改密级时必须全量重切（增量会跳过未变文件、覆盖不生效）。
+        incremental = bool(a.get("incremental")) and not a.get("sensitivity")
+        items, errors, stats = refindex.index_dir(
+            root, kind="doc_ref", patterns=a.get("patterns"),
+            max_files=int(a.get("max_files") or 500),
+            max_items=int(a.get("max_items") or 2000),
+            incremental=incremental, ledger=refindex.Ledger(cg.root))
+        ids, sens_counts = refindex.add_items(
+            cg, items, kind="doc_ref", root=root, layer=layer,
+            sensitivity=a.get("sensitivity"))
         note = ("只索引章节（level<=3）的标题与摘要，未存全文；正文用 "
                 "frontmatter.doc_ref + op=ref 回读。layer 与密级按计划 §1.3-3 "
                 "显式声明（默认 knowledge / internal，路径命中私有提示降为 "
@@ -1576,6 +1566,7 @@ def _cg_call(cg, a):
         out = {"ok": True, "indexed": len(ids), "error_count": len(errors),
                "errors": errors[:10], "ids": ids[:20], "files": stats["files"],
                "truncated": stats["truncated"],
+               "skipped_unchanged": stats.get("skipped_unchanged", 0),
                "skipped_suffixes": stats["skipped_suffixes"],
                "layer": layer, "sensitivity": sens_counts, "note": note}
         if stats["truncated"]:
@@ -1604,8 +1595,31 @@ def _ref_call(cg, a):
     语义一致（相对 path + lineno..end + hash + root），只是 ref 字段名不同。
     `root` 可用参数覆盖（ref 里的 root 是索引时的机器本地绝对路径，跨机器搬迁
     后需显式给 root）。
+
+    `action`（默认 read）：
+      · read  —— 回读源区间（本函数主体）；
+      · check —— 全库漂移/悬空巡检（stale / dangling），只读、不抛、不改源文件；
+      · stat  —— 看 `_refindex.json` 水位（files/nodes/最近一次索引是否被截断）。
+    回读与巡检共用 `refindex.probe_ref` 的唯一判定实现，避免两套口径打架。
     """
-    from . import codeindex
+    from . import refindex
+    action = (a.get("action") or "read").strip().lower()
+    if action == "stat":
+        return {"ok": True, "action": "stat",
+                "ledger": refindex.Ledger(cg.root).summary(),
+                "note": "ref 索引水位（_refindex.json）：files/nodes 是已登记量；"
+                        "last_index.truncated=true 表示最近一次索引被截断。"}
+    if action == "check":
+        res = refindex.check_refs(
+            cg, ledger=refindex.Ledger(cg.root),
+            max_nodes=int(a.get("max_nodes") or refindex.MAX_CHECK))
+        res["action"] = "check"
+        res["note"] = ("stale=源已改动（区间哈希不匹配）、dangling=源文件已删除。"
+                       "巡检只读、不改源文件；修复：op=index_code / op=index_doc 重建，"
+                       "或 op=sustain action=heal。")
+        return res
+    if action not in ("read", "get"):
+        raise ValueError(f"ref 未知 action：{action}（支持 read|check|stat）")
     nid = (a.get("node_id") or "").strip()
     node = None
     if nid:
@@ -1615,46 +1629,13 @@ def _ref_call(cg, a):
     ref = a.get("ref") if isinstance(a.get("ref"), dict) else None
     ref_kind = "ref"
     if ref is None and node is not None:
-        fm = node.get("frontmatter") or {}
-        ref = fm.get("code_ref")
-        if ref:
-            ref_kind = "code_ref"
-        else:
-            ref = fm.get("doc_ref")
-            if ref:
-                ref_kind = "doc_ref"
+        ref_kind, ref = refindex.ref_of(node)
     if not ref:
         return {"ok": False,
                 "error": "该节点没有 code_ref/doc_ref（不是索引节点）"}
-    rel = ref.get("path") or ""
-    root = a.get("root") or ref.get("root") or ""
-    if not root:
-        return {"ok": False, "ref": ref,
-                "error": "ref 未记录 root，请显式传 root 参数"
-                         "（索引里存的是相对 root 的 path）"}
-    fp = os.path.join(root, rel)
-    if not os.path.isfile(fp):
-        return {"ok": False, "ref": ref, "stale": True,
-                "error": f"源文件不存在（索引已悬空）：{fp}"}
-    try:
-        with open(fp, encoding="utf-8") as f:
-            lines = f.read().split("\n")
-    except (OSError, UnicodeDecodeError) as exc:
-        return {"ok": False, "ref": ref, "error": f"读取失败：{exc}"}
-    lineno = int(ref.get("lineno") or 1)
-    end = int(ref.get("end") or lineno)
-    text = "\n".join(lines[max(0, lineno - 1):max(0, end)])
-    got = codeindex.region_hash(lines, lineno, end)
-    expect = ref.get("hash")
-    match = (got == expect) if expect else None
-    return {"ok": True, "ref": ref, "ref_kind": ref_kind, "text": text,
-            "total_lines": len(lines),
-            "hash": got, "hash_expected": expect, "hash_match": match,
-            "stale": bool(expect) and not match,
-            "precise": bool(ref.get("precise", True)),
-            "note": "hash_match=False 表示源已漂移，索引位置不再可信，需重跑 "
-                    "index_code / index_doc 重建；precise=False 表示该后缀是弱提取器，"
-                    "区间本身就是上界（不是精确范围）。"}
+    out = refindex.read_ref(ref, root=a.get("root"), ref_kind=ref_kind)
+    out["node_id"] = nid or None
+    return out
 
 
 def _whitebox_call(cg, a):
@@ -1768,13 +1749,15 @@ def call_tool(cg, name, args):
                          query_expand=_make_query_expand(a.get("expand")))
 
     if name == "mdcg_search":
+        from . import refindex
         res, meta = cg.search(a.get("query", ""), layer=a.get("layer"),
                               k=int(a.get("k") or 20), context=a.get("context"),
                               roles=tuple(a["roles"]) if a.get("roles") else None,
                               include_work=bool(a.get("include_work")))
         return {"meta": meta,
                 "results": [{"node": _node_view(n), "score": s, "state": q.get("state"),
-                             "reason": q.get("reason")} for n, s, q in res]}
+                             "reason": q.get("reason"), **refindex.ref_fields(n)}
+                            for n, s, q in res]}
 
     if name == "mdcg_get":
         return _node_view(cg.get(a.get("node_id", "")))

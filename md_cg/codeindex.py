@@ -259,20 +259,27 @@ def node_id(item):
     return "code_" + hashlib.sha1(key).hexdigest()[:12]
 
 
-def index_dir(root, patterns=None, max_files=500, max_items=2000):
+def index_dir(root, patterns=None, max_files=500, max_items=2000,
+              fresh=None, on_file=None):
     """按大域（目录）遍历代码，产出 `(items, errors, stats)`。零 LLM。
 
     `stats["truncated"]` 必须显式上报——截断**不再是静默的**：改造前达到上限
     直接 `return`，调用方只看到 `indexed`/`error_count`，**索引不全却不告警**，
     于是「不完整」被当成「完整」用。同时上报 `skipped_suffixes`：扫到但没被
     索引的后缀要能看见，否则「不漏召回」这句话无法审计。
+
+    `fresh(rel, fp)` / `on_file(rel, fp, items)` 是给 `refindex.Ledger` 留的
+    增量钩子（默认 None → 行为与改造前逐字一致）：
+      · `fresh` 返回 True → 该文件自上次索引后未变，**不读盘**直接跳过，
+        计入 `skipped_unchanged`（仍计入 `files`，故截断语义不变）；
+      · `on_file` 在成功提取后回调，用于记录水位。
     """
     pats = tuple(patterns or SUFFIX)
     items, errors, files = [], [], 0
     seen_suffix = set()
     stats = {"root": root, "patterns": list(pats), "files": 0, "truncated": False,
              "truncated_reason": "", "max_files": max_files, "max_items": max_items,
-             "skipped_suffixes": []}
+             "skipped_suffixes": [], "skipped_unchanged": 0}
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fn in sorted(filenames):
@@ -293,11 +300,16 @@ def index_dir(root, patterns=None, max_files=500, max_items=2000):
             files += 1
             fp = os.path.join(dirpath, fn)
             rel = os.path.relpath(fp, root).replace("\\", "/")
+            if fresh is not None and fresh(rel, fp):
+                stats["skipped_unchanged"] += 1
+                continue
             try:
                 with open(fp, encoding="utf-8") as f:
                     src = f.read()
                 got = extract(src, rel)
                 items.extend(got)
+                if on_file is not None:
+                    on_file(rel, fp, got)
                 if len(items) >= max_items:
                     # 单文件就可能越限：越限即记截断并立刻停，不装看不见、
                     # 也不继续往下扫（继续扫只会让「截断」这件事更不明显）。

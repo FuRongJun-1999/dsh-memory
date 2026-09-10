@@ -250,6 +250,25 @@ def diagnose(cg, *, name: str = "md_cg", stale_temp_age: float = STALE_TEMP_AGE,
                        "detail": f"{locked} 个私有节点密文不可解（缺密钥）",
                        "fix": None})   # 权限事实，不自愈
 
+    # ref 漂移 / 悬空（R3）：索引是派生物，源变了就报 stale，源没了就报 dangling。
+    # 只读、不抛；修复动作是重跑 index_code / index_doc（rebuild_refs）。
+    from . import refindex
+    refs = refindex.check_refs(cg, ledger=refindex.Ledger(root))
+    if refs["stale"]:
+        issues.append({"code": "ref_stale", "severity": "warning",
+                       "detail": f"{len(refs['stale'])} 个 ref 漂移（源文件已改动）",
+                       "sample": [r.get("path") for r in refs["stale"][:5]],
+                       "fix": "rebuild_refs"})
+    if refs["dangling"]:
+        issues.append({"code": "ref_dangling", "severity": "warning",
+                       "detail": f"{len(refs['dangling'])} 个 ref 悬空（源文件已删除）",
+                       "sample": [r.get("path") for r in refs["dangling"][:5]],
+                       "fix": "rebuild_refs"})
+    if refs.get("truncated"):
+        issues.append({"code": "ref_check_truncated", "severity": "info",
+                       "detail": f"ref 巡检只覆盖前 {refs['max_nodes']} 个节点，结果不完整",
+                       "fix": None})   # 覆盖缺口，显式说出来而非静默
+
     if check_heartbeat:
         st = read_stamp(name)
         state = (judge(st["age"], task_running=bool(st.get("task_running")))
@@ -262,7 +281,10 @@ def diagnose(cg, *, name: str = "md_cg", stale_temp_age: float = STALE_TEMP_AGE,
             "root": root, "issues": issues, "t": time.time(),
             "stats": {"nodes_indexed": len(nodes), "nodes_on_disk": disk,
                       "index_log_shards": len(shards), "stale_temps": len(temps),
-                      "half_line_logs": len(half), "locked_nodes": locked}}
+                      "half_line_logs": len(half), "locked_nodes": locked,
+                      "ref_checked": refs["checked"],
+                      "ref_stale": len(refs["stale"]),
+                      "ref_dangling": len(refs["dangling"])}}
 
 
 # --------------------------------------------------------------------------
@@ -303,6 +325,11 @@ def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
 
     if "index_drift" in codes or "index_orphan" in codes:
         act("rebuild_index", "重建索引（漂移 / 孤儿）", cg.rebuild_index)
+    if "ref_stale" in codes or "ref_dangling" in codes:
+        from . import refindex as _ri
+        _led = _ri.Ledger(root)
+        act("rebuild_refs", "按 ref 重建源索引（修复漂移；悬空需人工处置）",
+            lambda: _ri.rebuild(cg, ledger=_led))
     if "index_log_backlog" in codes:
         act("flush_index", "合并索引增量分片", cg.flush)
     if "stale_temps" in codes:
