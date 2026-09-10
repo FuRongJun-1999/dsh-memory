@@ -11,12 +11,12 @@
   "reject": []
  },
  "_comment": "identity负责端口分流; negative只否决明确域外; 无//注释(标准JSON)",
- "content": "工作纪律集: 4条方法论(理论先行/全面处理/白箱方法/根因) + 3条执行(验证/双副本/兜底) + 1条思考(中文思考/协作模式分级) + 1条保密(敏感信息隔离) + 3条图像线(选源护栏/历史查询优先/算法权威唯一) + 1条协作(访谈澄清:先问清再动手) + 1条合规(内容政策合规:公开产物过内容政策+隐私双清单)",
+ "content": "工作纪律集: 4条方法论(理论先行/全面处理/白箱方法/根因) + 3条执行(验证/双副本/兜底) + 1条思考(中文思考/协作模式分级) + 1条保密(敏感信息隔离) + 3条图像线(选源护栏/历史查询优先/算法权威唯一) + 1条协作(访谈澄清:先问清再动手) + 1条合规(内容政策合规:公开产物过内容政策+隐私双清单) + 1条执行环境(命令执行统一走python/UTF-8: 显式encoding+PYTHONUTF8=1, 规避GBK)",
  "execution": {
   "how": "按identity(端口)+任务类型路由到对应纪律"
  },
  "response": {
-  "direct": "按工作纪律路由: 重要/长期→理论先行; 有相关成果→全面处理; 已读4篇→白箱方法; 有偏差→根因纪律; 入库前→验证纪律; 多副本→双副本; MCP不可用→兜底纪律; 对外公开→内容政策合规(内容政策+隐私双清单)。"
+  "direct": "按工作纪律路由: 重要/长期→理论先行; 有相关成果→全面处理; 已读4篇→白箱方法; 有偏差→根因纪律; 入库前→验证纪律; 多副本→双副本; MCP不可用→兜底纪律; 对外公开→内容政策合规(内容政策+隐私双清单)。命令执行→python/UTF-8(见第15条)。"
  },
  "subgraph": {
   "nodes": [
@@ -349,6 +349,30 @@
     },
     "response": {
      "direct": "按工作纪律第14条: 内容政策合规——对外公开产物必须过「内容政策+隐私」双清单，过滤在生成阶段做；已发布发现违规要删条+重写git历史+通知平台清缓存。"
+    }
+   },
+   {
+    "id": "discipline_python_exec",
+    "semantic": "15.命令执行统一走python",
+    "content": "一切命令执行统一经 python 子进程并显式 UTF-8(encoding='utf-8', errors='replace')，不经 Windows shell(cmd/PowerShell) 直接执行；子进程环境置 PYTHONUTF8=1 使 locale 不回落 GBK，规避 _readerthread 的 UnicodeDecodeError 与 stdout 的 UnicodeEncodeError。",
+    "conditions": {
+     "apply": [
+      "执行命令",
+      "运行测试/脚本",
+      "跨进程读写文本"
+     ]
+    },
+    "negative": {
+     "reject": [
+      "IDE 内置工具直调",
+      "无跨进程的纯内存计算"
+     ]
+    },
+    "execution": {
+     "how": "构造 argv 列表→subprocess.run(capture_output=True, text=True, encoding='utf-8', errors='replace')→env 带 PYTHONUTF8=1→shell=False"
+    },
+    "response": {
+     "direct": "按工作纪律第15条: 命令执行统一走python——argv列表+显式UTF-8+PYTHONUTF8=1, 不经Windows shell, 规避GBK解码异常。"
     }
    }
   ]
