@@ -26,7 +26,12 @@ import threading
 
 from . import DEFAULT_DB, KNOWLEDGE_DIR, SEED_DIR, WISDOM_DIR  # noqa: F401
 
-_OPEN_LOCK = threading.Lock()
+#: 可重入锁（RLock）。**勿改回 Lock**：`get_engine()` 是持锁构造引擎的，
+#: 而引擎首启播种（`_do_seed`）会经 `dex` 属性再次申请同一把锁；
+#: 普通 Lock 在同线程重入时即自死锁——表现为「全新库冷启动永久挂死」
+#: （已实测 >400s 不返回），而库已播种时因跳过播种而侥幸正常。
+#: RLock 允许同线程重入，跨线程互斥语义不变。
+_OPEN_LOCK = threading.RLock()
 
 
 # --------------------------------------------------------------------------
