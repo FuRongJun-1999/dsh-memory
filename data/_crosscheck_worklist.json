@@ -1,0 +1,73 @@
+{
+ "root": "D:\\Program Files\\2_ai\\AEIS\\data\\mdcg",
+ "nodes": 4526,
+ "baseline_states": {
+  "ACCEPT": 0,
+  "REJECT": 0,
+  "DEFER": 4523,
+  "BLINDSPOT": 3
+ },
+ "ccg_exempt": 4523,
+ "ccg5_complete": 0,
+ "partial": 4526,
+ "worklist_agg": {
+  "dry_run": true,
+  "nodes_scanned": 2962,
+  "skipped_locked": 0,
+  "skipped_derived": 0,
+  "skipped_internal": 0,
+  "skipped_present": 0,
+  "skipped_denied": 0,
+  "skipped_placeholder": 401,
+  "skipped_unreadable": 0,
+  "undetermined": 782,
+  "targeted": 2561
+ },
+ "worklist_tracks": {
+  "humanities": 487,
+  "undetermined": 782,
+  "science": 1292
+ },
+ "worklist_need": {
+  "verification_basis+验证方式": 2561
+ },
+ "exempt_plan": {
+  "dry_run": true,
+  "require_ready": true,
+  "nodes_scanned": 4524,
+  "skipped_locked": 2,
+  "skipped_denied": 0,
+  "skipped_not_exempt": 1,
+  "skipped_unready": 4523,
+  "targeted": 0
+ },
+ "exempt_total": 4523,
+ "exempt_unready_reasons": {
+  "verification_basis": 4523,
+  "ccg5": 4523
+ },
+ "placeholder_sample": [
+  "kp_1137864596_1787025941997",
+  "kp_1292064296_1787025941997",
+  "kp_1385931042_1787025941997",
+  "kp_1461974436_1787025941997",
+  "kp_1520422075_1787025941997",
+  "kp_2311298834_1787025941997",
+  "kp_2455796731_1787025941997",
+  "kp_2490732939_1787025941997",
+  "kp_2733281945_1787025941997",
+  "kp_2901792086_1787025941997"
+ ],
+ "undetermined_sample": [
+  "kp_archaeo_1787284200818",
+  "kp_archaeo_1787284200840",
+  "kp_archaeo_1787284200863",
+  "kp_archaeo_1787284200912",
+  "kp_archaeo_1787284200935",
+  "kp_archaeo_1787284200959",
+  "kp_card_axiom_layers",
+  "kp_card_error_update",
+  "kp_card_four_states",
+  "kp_card_llm_division"
+ ]
+}

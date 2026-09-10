@@ -29,7 +29,7 @@ import shutil
 import sys
 import tempfile
 
-from . import corpus, docindex, nodefile, tokens
+from . import corpus, docindex, nodefile, routing, tokens
 from . import mcp_server
 from .mdcg import MdCG
 from .mcp_server import call_tool
@@ -196,6 +196,20 @@ def main():
               raw_section not in rendered and len(exec_line) <= 200 + len("# 执行："),
               f"exec_len={len(exec_line)}")
 
+        # 生效条件必须与 frontmatter 同源：四槽合成，单槽不是生效条件。
+        # 改造前正文写「文档=X；检索…时」（第三种方言），frontmatter 只写单槽
+        # observation_position → condition_space_text(require_full=True) 恒为 ""。
+        cs = docindex.condition_space(s9)
+        check("condition_space 四槽齐备",
+              set(cs) == set(nodefile.CONDITION_SLOTS_REQUIRED), str(sorted(cs)))
+        synth = nodefile.condition_space_text(cs)
+        check("四槽合成出非空生效条件（单槽冒充已废止）", bool(synth), synth)
+        check("正文生效条件 = 四槽合成结果（正文与 frontmatter 同源）",
+              f"# 生效条件：{synth}" in rendered, synth)
+        check("时间槽用全时窗哨兵（不把索引时刻伪造成条件）",
+              nodefile.is_full_time_window(cs.get("time_window")),
+              str(cs.get("time_window")))
+
         # ===================================================== ③ 索引 + 密级
         print("\n【3】index_doc：落盘 / 密级 / 层（§1.3-3 裁定）")
         mt_before = {}
@@ -223,6 +237,17 @@ def main():
         check("guide 节点 layer=knowledge", g_fm.get("layer") == "knowledge")
         check("verification_basis=data（文档以原文为准）",
               g_fm.get("verification_basis") == "data")
+        check("frontmatter.condition_space 四槽齐备（单槽冒充已废止）",
+              set(g_fm.get("condition_space") or {}) ==
+              set(nodefile.CONDITION_SLOTS_REQUIRED),
+              str(sorted(g_fm.get("condition_space") or {})))
+        check("frontmatter 条件空间与正文生效条件同源（同一纯函数）",
+              g_fm.get("condition_space") == docindex.condition_space(s9),
+              str(g_fm.get("condition_space")))
+        check("路由域由 domain: 标签显式承担（分桶结果与改造前逐字相同）",
+              routing.route_key(g_fm.get("condition_space"), g_fm.get("tags"))
+              == routing.normalize_domain("guide.md"),
+              str(routing.route_key(g_fm.get("condition_space"), g_fm.get("tags"))))
         sec = docindex.extract(SECRET, "private/secret.md")[0]
         s_fm = (cg.get(docindex.node_id(sec)) or {}).get("frontmatter") or {}
         check("私有目录文档密级=private（保守降级）",

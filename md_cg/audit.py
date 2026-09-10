@@ -30,7 +30,8 @@ CONTENT_KINDS = {
     "work_wip": "工作进行 → 是否已有完整成果 + 是否符合纪律",
 }
 
-# content_kind → 建议的 verification_basis（compiler|test|measurement|formal_proof|data|other）
+# content_kind → 建议的 verification_basis
+# （见 nodefile.VERIFICATION_BASIS：compiler|test|measurement|formal_proof|data|textbook|public_kb|other）
 KIND_BASIS = {"code": "test", "image_desc": "measurement", "text": "other",
               "permission": "data", "work_done": "test", "work_wip": "other"}
 

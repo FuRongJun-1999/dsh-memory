@@ -13,14 +13,26 @@
  * ------------------------------------------------
  *   路由/召回     → MdcgClient.route()      → MCP cg(op=route)
  *   读取节点      → MdcgClient.read()       → MCP cg(op=read)
- *   写入记忆      → MdcgClient.write()      → MCP cg(op=write)
+ *   记忆沉淀      → MdcgClient.remember()   → MCP mdcg_remember(gated=true)
+ *   语义召回      → MdcgClient.recall()     → MCP cg(op=read, query)
+ *   写入记忆      → MdcgClient.write()      → MCP mdcg_remember(gated=false)
  *   外部裁决回填  → MdcgClient.verify()     → MCP cg(op=verify)
- *   最近记忆      → MdcgClient.recent()     → MCP cg(op=recent)
+ *   最近记忆时间线 → MdcgClient.timeline()  → MCP stg(op=timeline)
+ *   近期事件窗口  → MdcgClient.recent()     → MCP cg(op=recent)
  *   身份读取      → MdcgClient.identity()   → MCP cg(op=identity)
  *   白箱能力验证  → MdcgClient.whitebox()   → MCP cg(op=whitebox)
  *   服务信息      → MdcgClient.serviceInfo()→ MCP cg(op=info)
  *   互维主张核验  → MdcgClient.verifyClaim()→ cg(op=read) + 依据强度判定
- *   角色/转录落图 → MdcgClient.writeRole() / writeTranscript() → cg(op=write)
+ *   角色/转录落图 → MdcgClient.writeRole() / writeTranscript() → mdcg_remember
+ *
+ * 写入为什么不能走 cg(op=write)（关键约束，勿回退）
+ * ------------------------------------------------
+ *   `cg(op=write)` 是**带审核**的写路径：先过 `audit.audit(content_kind)`，
+ *   未声明 content_kind 且未配置 `MDCG_POLICY_FILE` 时恒判 BLINDSPOT/DEFER ——
+ *   只进审核队列、**永不落盘**（自动记忆会静默全失败，实测 0 篇 md 文档）。
+ *   而 `mdcg_remember`（`md_cg/mcp_server.py:1691`）直接调 `MdCG.remember_gated`
+ *   / `MdCG.add`，跳过审核，是 mcp_server 顶部文档定义的「写」入口。故本客户端
+ *   的**所有写入**（记忆沉淀 / 角色定义 / 对话转录）统一经 `mdcg_remember`。
  */
 
 import { LingshuBridge, type McpCallResult } from '../bridge.js'
@@ -74,10 +86,15 @@ function collectItems(payload: unknown): Array<Record<string, unknown>> {
  */
 export class MdcgClient {
   readonly bridge: LingshuBridge
-  private ready = false
 
   constructor(opts: MdcgOptions) {
     const env: Record<string, string> = {
+      // ⚠️ 必须显式 utf-8：Windows 下 piped 子进程默认 gbk + surrogateescape，
+      // Node 写出的 UTF-8 中文会被解成孤立代理字符（\udcXX），md_cg 在落盘 /
+      // 回写 stdout 时抛 UnicodeEncodeError —— 中文记忆（本插件的主场景）全部失败。
+      // md_cg 自带测试（test_p2_mcp.py）与 test/bridge.test.ts 均以
+      // PYTHONIOENCODING=utf-8 启动子进程，此处对齐该约定；opts.env 可覆盖。
+      PYTHONIOENCODING: 'utf-8',
       MDCG_ROOT: opts.root,
       MDCG_TENANT: opts.tenant ?? 'default',
       MDCG_CLEARANCE: opts.clearance ?? 'private',
@@ -99,12 +116,17 @@ export class MdcgClient {
   }
 
   async waitReady(): Promise<boolean> {
-    this.ready = await this.bridge.waitReady()
-    return this.ready
+    return this.bridge.waitReady()
   }
 
+  /** 桥是否已握手就绪。
+   *
+   * ⚠️ 不可缓存 waitReady() 的结果：waitReady() 在**首次心跳失败**时会立即
+   * resolve(false)（见 bridge.ts 的 failed 分支），但桥仍会后台重连成功——
+   * 若把这次 false 缓存下来，isReady() 将永久为假，自动记忆 / 互维核验会在
+   * 重连成功后静默失效。故一律以桥的实时状态为准。 */
   isReady(): boolean {
-    return this.ready && this.bridge.isReady()
+    return this.bridge.isReady()
   }
 
   dispose(): void {
@@ -152,9 +174,38 @@ export class MdcgClient {
     return this.cg({ op: 'read', node_id: nodeId })
   }
 
-  /** 写入：新增/覆盖一个记忆节点。 */
+  /** 认知图写入入口（MCP `mdcg_remember`）。
+   *
+   * ⚠️ 唯一写入通道：**不可**改用 `cg(op=write)`（那条路径会被 audit 拦住，
+   * 见文件头「写入为什么不能走 cg(op=write)」）。gated=false 直写 `MdCG.add`
+   * （默认 layer=knowledge），gated=true 走主动遗忘闸门。 */
+  private writeNode(args: Record<string, unknown>): Promise<unknown> {
+    return this.call('mdcg_remember', args)
+  }
+
+  /** 写入：新增/覆盖一个记忆节点（直写 `MdCG.add`，不经审核队列）。 */
   write(content: string, extra: Record<string, unknown> = {}): Promise<unknown> {
-    return this.cg({ op: 'write', content, ...extra })
+    return this.writeNode({ content, ...extra })
+  }
+
+  /** 记忆沉淀（AEIS `remember` 的对应物）：写入情景层并过**主动遗忘闸门**。
+   *
+   * `mdcg_remember(gated=true)` → `MdCG.remember_gated`：三问 → 四态，
+   * ACCEPT 落盘 / MERGE 并入既有（= 去重强化，不新增节点）/ DROP 丢弃低熵
+   * 噪音 / DEFER 待定；四种结果都写 `_forgetting.jsonl`，可审计。
+   * `importance` 作为 importance_hint 传入（≥0.7 时保护优先、直接 ACCEPT）。
+   *
+   * layer 默认 contextual：md_cg 对 DSH 会话事件约定的落层就是 contextual，
+   * role 取 user | assistant | tool-output（见 md_cg/sources.py 的
+   * SESSION_LAYER / DSHSessionSource 事件映射）。 */
+  remember(content: string, extra: Record<string, unknown> = {}): Promise<unknown> {
+    return this.writeNode({ content, gated: true, layer: 'contextual', ...extra })
+  }
+
+  /** 语义召回（AEIS `recall` 的对应物）：`cg(op=read, query)` → md_cg 检索。
+   *  读取会记 access log（复用观测），供 importance / scrub 陈旧度使用。 */
+  recall(query: string, k = 5): Promise<unknown> {
+    return this.read(query, { k })
   }
 
   /** 外部裁决回填：为已有节点写 confirmed/weakened/falsified。 */
@@ -165,6 +216,17 @@ export class MdcgClient {
   /** 最近记忆。 */
   recent(limit = 20): Promise<unknown> {
     return this.cg({ op: 'recent', limit })
+  }
+
+  /** 最近记忆**时间线**（AEIS `timeline` 的对应物）：`stg(op=timeline)` →
+   *  `{count, limit, items:[{id, layer, start, end, preview}]}`，按时间倒序。
+   *
+   *  只收录带时间区间的节点；而 `cg.add()` 在调用方未给 time_window 时会以
+   *  **写入时刻**自动填充（见 mdcg.py 的 OBSERVATION_WINDOW_SEC 分支），故经
+   *  本客户端写入的记忆都能进入时间线。
+   *  要原始近期**事件**（未结构化对话窗口）请用 `recent()`。 */
+  timeline(limit = 4, extra: Record<string, unknown> = {}): Promise<unknown> {
+    return this.stg({ op: 'timeline', limit, desc: true, ...extra })
   }
 
   /** 身份维度读取。 */

@@ -24,6 +24,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import time
@@ -54,6 +55,17 @@ W_BALANCE = 0.15
 
 SORT_KEYS = ("composite", "trend", "verification", "boundary", "balance")
 LOG_FILE = "_prediction.jsonl"
+
+# 锚点解析纪律（盲区 → 锚点）：推断脚手架与负记忆都不得充当锚点。
+#  - `gap_hint`（待补线索）与 `scene`（情景重构产物）是「推断得出的引子/回放」，
+#    本身不构成可起推的事实；尤其 gap_hint 会把盲区描述逐字抄进自己的
+#    `# 生效条件`，因而在该盲区的检索里必然排第一，若被当成锚点就形成
+#    「线索 → 0 条路线 → 永远 unresolved」的自我污染，learn 重复执行也不再幂等。
+#  - `unresolved` / `rejected` 层是负记忆（已否决/未决问题），只能作为覆盖率
+#    提示，不能作为起点。
+ANCHOR_FETCH_K = 5
+ANCHOR_SKIP_TAGS = ("gap_hint", "scene")
+ANCHOR_SKIP_LAYERS = ("unresolved", "rejected")
 
 
 # ---------------------------------------------------------------- 基础
@@ -348,24 +360,41 @@ def predictability(blindspot):
 
 
 def anchor_from_description(cg, description):
-    """盲区描述 → 锚点节点（检索器打分，与 AEIS 的 LIKE→坐标回退同构）。"""
+    """盲区描述 → 锚点节点（检索器打分，与 AEIS 的 LIKE→坐标回退同构）。
+
+    只取**首个可用候选**：按标签/层过滤掉推断脚手架（`gap_hint`/`scene`）与
+    负记忆（`unresolved`/`rejected`），其余按检索名次顺延。过滤理由见上方常量注释。
+    候选全被过滤时返回 None（等价「无锚点」），由调用方按 no_anchor 处理，
+    而不是硬凑一个不可起推的节点。
+    """
     q = str(description or "").strip()
     if not q:
         return None
     try:
-        results, _meta = cg.search(q, k=1, record=False, judge=False)
+        results, _meta = cg.search(q, k=ANCHOR_FETCH_K, record=False, judge=False)
     except Exception:
         return None
-    if not results:
-        return None
-    nd = results[0][0] if isinstance(results[0], (tuple, list)) else results[0]
-    if not isinstance(nd, dict):
-        return None
-    nid = nd.get("id")
-    if not nid:
-        p = str(nd.get("path") or "")
-        nid = os.path.basename(p)[:-3] if p.endswith(".md") else None
-    return nid
+    for item in results:
+        nd = item[0] if isinstance(item, (tuple, list)) else item
+        if not isinstance(nd, dict):
+            continue
+        fm = nd.get("frontmatter") or {}
+        path = str(nd.get("path") or "")
+        layer = str(fm.get("layer") or path.split("/")[0])
+        if layer in ANCHOR_SKIP_LAYERS:
+            continue
+        if set(ANCHOR_SKIP_TAGS) & set(fm.get("tags") or []):
+            continue
+        nid = nd.get("id")
+        if not nid:
+            nid = os.path.basename(path)[:-3] if path.endswith(".md") else None
+        if not nid:
+            continue
+        # 兜底：fs 派生的 id 可能是相对路径（如 unresolved/bs_x.md），归一为裸节点名
+        if "/" in str(nid) and str(nid).endswith(".md"):
+            nid = os.path.basename(str(nid))[:-3]
+        return nid
+    return None
 
 
 # ---------------------------------------------------------------- 路线生成
@@ -606,6 +635,172 @@ def feedback(cg, predicted_node_id, actual_node_id=None, hit=None, note="",
             out["rejected_error"] = str(exc)
     out.update(dynamic_hit_threshold(cg))
     return out
+
+
+# ---------------------------------------------------------------- P2 盲区学习闭环
+
+LEARN_LOG = "_learn.jsonl"
+LEARN_MAX_STEPS = 8
+
+
+def learn_log_path(cg):
+    return os.path.join(getattr(cg, "root", "."), LEARN_LOG)
+
+
+def _learn_append(cg, rec):
+    try:
+        append_jsonl(learn_log_path(cg), rec)
+    except Exception:                              # noqa: BLE001
+        pass
+
+
+def _is_settled(cg, nid):
+    """终点是否已达「可判定」态：知识层 ∧ CCG 五要素齐全。"""
+    nid = str(nid or "").strip()
+    if not nid:
+        return False
+    try:
+        node = cg.get(nid) or {}
+    except Exception:                              # noqa: BLE001
+        return False
+    fm = node.get("frontmatter") or {}
+    if fm.get("layer") != "knowledge":
+        return False
+    try:
+        from . import consolidate
+        content = node.get("content") or ""
+        return all(consolidate._has_ccg_line(content, k)
+                   for k in consolidate.CCG_REQUIRED)
+    except Exception:                              # noqa: BLE001
+        return False
+
+
+def _terminal_node(route):
+    path = list((route or {}).get("path") or [])
+    return path[-1] if path else None
+
+
+def _write_gap(cg, bid, step, actor):
+    """把待补线索写成 contextual 的 ``gap_hint`` 节点（幂等，非事实断言）。"""
+    nid = "gap_%s" % hashlib.sha1(bid.encode("utf-8")).hexdigest()[:10]
+    try:
+        if cg.get(nid):
+            return None
+    except Exception:                              # noqa: BLE001
+        pass
+    content = ("# 功能名：盲区补全线索\n"
+               "# 生效条件：%s\n"
+               "# 子功能：为盲区补上条件/路径（待补，非既有事实）\n"
+               "# 执行：%s\n"
+               "# 不适用条件：结构性不可知\n"
+               % (step.get("description") or bid, step.get("hint") or ""))
+    try:
+        cg.add(nid, content, layer="contextual",
+               tags=["gap_hint", "learn"], importance=0.3,
+               verification_basis="data", actor=actor,
+               gap_blindspot=bid, gap_terminal=step.get("terminal"))
+        return nid
+    except Exception as exc:                       # noqa: BLE001
+        step["write_error"] = "%s: %s" % (type(exc).__name__, exc)
+        return None
+
+
+def learn_blindspots(cg, blindspot_id=None, limit=LEARN_MAX_STEPS,
+                     horizon=HORIZON_DEFAULT, max_branches=MAX_BRANCHES_DEFAULT,
+                     apply=False, actor="insight", **extra):
+    """盲区学习闭环（P2）：盲区 → 路线假设 → 终态判定 → 登记。
+
+    终态五态（诚实优先，绝不编造）：
+
+    - ``unknowable`` 盲区声明结构性不可知 → 不生成路线；
+    - ``no_anchor``  描述检索不到锚点 → 无法起推；
+    - ``unresolved`` 无任何可用路线 → 回填为待补线索；
+    - ``carried``    有路线但终点未达可判定态 → 记为待验证假设；
+    - ``resolved``   有路线且终点已在「知识层 + 五要素齐全」→ 认定补全。
+
+    ``apply=True`` 时把 carried/unresolved 落成 contextual 的 ``gap_hint`` 节点
+    （待补线索，非既有事实）；节点 id 由盲区 id 派生 ⇒ 重复执行幂等。
+    """
+    from . import metacognition
+    if blindspot_id:
+        one = find_blindspot(cg, blindspot_id)
+        if not one:
+            return {"ok": False, "action": "learn", "status": "not_found",
+                    "reason": "未找到盲区：%s" % blindspot_id, "steps": [],
+                    "summary": {}}
+        items = [one]
+    else:
+        # 注意：metacognition.blindspots 返回的是**报表 dict**，不是条目列表。
+        # 必须显式取 unresolved（未解问题，含 node_id/content）与 items（盲区聚类，
+        # 含 query/blindspot/defer）两段，并归一成 find_blindspot 的同构条目，
+        # 否则 list(dict) 只会拿到键名并在 dict(it) 处崩溃。
+        try:
+            blind = metacognition.blindspots(cg) or {}
+        except Exception:                          # noqa: BLE001
+            blind = {}
+        items = []
+        for it in (blind.get("items") or []):
+            q = str(it.get("query") or "").strip()
+            if not q:
+                continue
+            items.append({"id": q, "kind": "blindspot_cluster", "description": q,
+                          "blindspot": it.get("blindspot"), "defer": it.get("defer")})
+        for u in (blind.get("unresolved") or []):
+            nid = str(u.get("node_id") or "").strip()
+            if not nid:
+                continue
+            items.append({"id": nid, "kind": "unresolved",
+                          "description": u.get("content") or ""})
+    steps, written = [], []
+    summary = {"unknowable": 0, "no_anchor": 0, "unresolved": 0,
+               "carried": 0, "resolved": 0}
+    for it in items[:max(1, int(limit))]:
+        bs = dict(it or {})
+        bid = str(bs.get("id") or bs.get("query") or "").strip()
+        desc = str(bs.get("description") or bs.get("query") or bid)
+        pred = predictability(bs)
+        step = {"blindspot_id": bid, "description": desc[:200],
+                "predictability": pred, "routes": 0, "terminal": None,
+                "terminal_node": None, "hint": "", "written": None}
+        if pred == "unknowable":
+            step["terminal"] = "unknowable"
+            step["hint"] = "盲区声明结构性不可知：不生成路线（拒绝编造）"
+        else:
+            res = (routes_from_blindspot(cg, bid, horizon=horizon,
+                                         max_branches=max_branches, limit=3)
+                   if bid else {"status": "no_start", "routes": []})
+            rts = list(res.get("routes") or [])
+            step["routes"] = len(rts)
+            if res.get("status") in ("no_start", "no_anchor",
+                                     "blindspot_not_found", "unpredictable"):
+                step["terminal"] = "no_anchor"
+                step["hint"] = "无可检索锚点：需先补描述或入口条件"
+            elif not rts:
+                step["terminal"] = "unresolved"
+                step["hint"] = "无可用路线：需补因果边或放宽检索条件"
+            else:
+                settled = [r for r in rts if _is_settled(cg, _terminal_node(r))]
+                if settled:
+                    step["terminal"] = "resolved"
+                    step["terminal_node"] = _terminal_node(settled[0])
+                    step["hint"] = "已存在通往「知识层 + 五要素齐全」终点的路线"
+                else:
+                    step["terminal"] = "carried"
+                    step["terminal_node"] = _terminal_node(rts[0])
+                    step["hint"] = "路线终点未达可判定态：记为待验证假设"
+        summary[step["terminal"]] = summary.get(step["terminal"], 0) + 1
+        if apply and step["terminal"] in ("carried", "unresolved") and bid:
+            step["written"] = _write_gap(cg, bid, step, actor)
+            if step["written"]:
+                written.append(step["written"])
+        steps.append(step)
+        rec = {"type": "learn_step", "t": time.time(), "actor": actor}
+        rec.update(step)
+        _learn_append(cg, rec)
+    return {"ok": True, "action": "learn", "apply": bool(apply),
+            "steps": steps, "summary": summary, "written": written,
+            "note": ("apply=True：carried/unresolved 已落 gap_hint 待补线索；"
+                     "resolved 仅表示已有可判定终点，未改动任何事实层节点")}
 
 
 def stats(cg, limit=20):

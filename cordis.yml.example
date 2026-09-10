@@ -3,7 +3,8 @@
 #
 # 说明：
 # - !!js process.env.X 语法在加载期求值，密钥不入库
-# - dbPath 建议用绝对路径；目录不存在会自动创建
+# - 下面所有路径都用相对路径（相对插件进程 cwd）；若你的 cwd 不稳定，
+#   改成自己机器上的绝对路径即可。目录不存在会自动创建。
 
 - id: lingshu-memory
   name: '@furongjun1999/dsh-memory'
@@ -11,8 +12,11 @@
     # 工具命名空间：Agent 看到的工具名是 lingshu_remember / lingshu_recall ...
     serverName: 'lingshu'
 
-    # 灵枢记忆库持久化路径（SQLite）
-    dbPath: 'D:/data/lingshu.db'
+    # ⚠️ 旧通道：AEIS SQLite 库文件（经环境变量 AEIS_DB 传给 aeis.mcp.server）。
+    # 记忆真源已统一到 md_cg 认知图（见下面的 mdcg 块）；此项现仅供 AEIS
+    # 能力库（白箱 / 角色生成）与角色数据目录 roleDataDir（由它的父目录推导）使用，
+    # 不再存记忆。
+    dbPath: 'data/lingshu.db'
 
     # 灵枢身份标识
     identity: '灵枢'
@@ -36,6 +40,36 @@
       BOCHA_API_KEY: !!js process.env.BOCHA_API_KEY
       # AEIS_DESIGNER_KEY: !!js process.env.AEIS_DESIGNER_KEY   # 设计者裁决工具所需
 
+      # ── 认知图写入凭据：默认【关闭】，由你决定是否打开 ──────────────
+      # md_cg 是 fail-closed：不配凭据时插件以**只读 guest** 运行 ——
+      # 读取 / 召回 / 时间线照常，但自动记忆、对话转录、角色落图**全部不落盘**
+      # （插件启动时会打印一条告警提醒，不会静默）。
+      #
+      # 想打开：取消注释下面任一方案，然后重启 DSH。
+      #
+      # ① 功能完整（推荐，已收窄）：覆盖插件全部 9 个调用点，但无管理权、
+      #    不写 anchor 保护层。签发：
+      #    python -m md_cg.tokens issue --role designer --actor dsh-memory \
+      #      --clearance internal \
+      #      --ops-allow info,route,read,write,recent,goal,identity,whitebox,verify \
+      #      --layers-allow knowledge,contextual,structural,self,goals,unresolved,rejected
+      # MDCG_TOKEN: !!js process.env.MDCG_TOKEN
+      #
+      # ② 最小权限：--role recorder --actor dsh-memory
+      #    只能自动记忆 / 转录 / 角色定义；whitebox、identity、verify 与
+      #    写 self 层（角色 anchors 导入）会被 AccessDenied。
+      # MDCG_TOKEN: !!js process.env.MDCG_TOKEN
+      #
+      # ③ 兼容旧部署（不推荐：明文身份、无令牌可吊销）：
+      #    recorder 可写 contextual/knowledge/structural；
+      #    要写 self 层再加 MDCG_CAN_ADMIN: '1'（→ designer）
+      # MDCG_LEGACY_ENV_AUTH: '1'
+      #
+      # 令牌明文怎么给进去（二选一）：
+      #   · 推荐：设环境变量后引用（明文不进配置文件）
+      #       setx MDCG_TOKEN "mdcg1.xxxxx"   然后重启 DSH
+      #   · 或直接写明文：MDCG_TOKEN: 'mdcg1.xxxxx'
+
     # 容错
     toolCallTimeoutMs: 60000
     maxRetryDelayMs: 30000
@@ -48,11 +82,13 @@
       heartbeatMs: 600000        # 10min，任务不阻塞心跳
 
     # 认知图（md_cg）= 记忆唯一真源；AEIS 降为能力库。
-    # 插件侧唯一显式入口：src/lib/mdcg_client.ts（每个方法 = 一条 MCP cg/stg 调用）。
+    # 插件侧唯一显式入口：src/lib/mdcg_client.ts（每个方法 = 一条 MCP 调用：
+    # 记忆写入走 mdcg_remember，读取/召回/时间线走 cg/stg 基元）。
+    # ⚠️ 写入需上面的 MDCG_LEGACY_ENV_AUTH / MDCG_TOKEN 凭据，否则只读 guest。
     # 功能 → 代码 对照见 docs/功能调用映射表_v0.1.md
     mdcg:
       enabled: true
-      root: 'D:/data/mdcg'       # MDCG_ROOT
+      root: 'data/mdcg'          # MDCG_ROOT（相对 cwd；可用 MDCG_ROOT 环境变量覆盖）
       actor: 'dsh-memory'        # MDCG_ACTOR：私有内容按 (tenant, actor) 派生 DEK
       tenant: 'default'          # MDCG_TENANT：须与迁移脚本 --tenant 一致
       clearance: 'private'       # MDCG_CLEARANCE：可读写密级上限
@@ -62,6 +98,6 @@
 #   name: '@furongjun1999/dsh-memory'
 #   config:
 #     serverName: 'lingshu2'
-#     dbPath: 'D:/data/lingshu2.db'
+#     dbPath: 'data/lingshu2.db'
 #     identity: '灵枢二号'
 #     tools: ['remember', 'recall']

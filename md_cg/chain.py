@@ -94,12 +94,10 @@ def edge_condition(edge):
             return str(v).strip()
     cs = edge.get("condition_space")
     if isinstance(cs, dict):
-        parts = []
-        for k, v in cs.items():
-            if v in (None, "", [], {}):
-                continue
-            parts.append(f"{k}={v}")
-        return "；".join(parts)
+        # 与生效条件**共用同一个**合成入口（缺失槽不写）——杜绝第二套拼法：
+        # 旧版在此拼 "k=v；k=v"，与 nodefile 的声明口径各说各话。
+        from .nodefile import condition_space_text    # 懒导入，避免循环依赖
+        return condition_space_text(cs, require_full=False)
     return ""
 
 

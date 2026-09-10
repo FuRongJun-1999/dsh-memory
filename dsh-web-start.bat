@@ -8,9 +8,10 @@ rem
 rem 用法：双击或命令行运行；首次运行后浏览器访问 http://127.0.0.1:3080
 rem ============================================================
 setlocal
-set DSH_HOME=C:\Users\FuRongJun\.dsh
+rem 用当前用户环境变量解析，不写死机器/用户名（换台机器 clone 也能直接跑）
+set DSH_HOME=%USERPROFILE%\.dsh
 set NODE_OPTIONS=--max-old-space-size=8192
 
 echo [dsh-web] 启动 DSH web（heap 8GB）...
-node "C:\Users\FuRongJun\AppData\Roaming\npm\node_modules\@deepseek-ai\dsh\lib\bin.js" web
+node "%APPDATA%\npm\node_modules\@deepseek-ai\dsh\lib\bin.js" web
 endlocal

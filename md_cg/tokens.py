@@ -57,7 +57,21 @@ ALL_OPS = ("info", "route", "read", "write", "goal", "recent", "verify",
            "review", "forget", "protect", "identity", "consistency",
            "metacognition", "self_state", "evolution", "sustain", "scrub",
            "predict", "causal", "whitebox", "index_code", "index_doc", "ref",
-           "theory", "link")
+           "theory", "link",
+           # P0 新增（见 docs/灵枢82工具 §五工程缺口）：
+           #   session  会话三件套（note/recall/compact）—— 会话中断可续接
+           #   ingest   文件摄取分派（file/dir/jsonl/stat）—— 单一入口吃多种文件
+           #   export   全库导出（graph/nodes/slice/stat）—— 可搬运、可灾备
+           # P1 新增（见 docs/灵枢82工具 §五工程缺口）：
+           #   maintain     记忆维护（importance/longterm/prefeed/separate）
+           #                —— stat/prefeed 开放给写层，apply 类批量改写走 require_admin
+           #   consolidate  离线固化面（promote/run）—— 批量提升走 require_admin
+           # P2 新增（见 docs/灵枢82工具 §五工程缺口）：
+           #   insight      洞察条件层（window/record/verify/list/report）+
+           #                情景重构（reconstruct）+ 盲区学习（learn）+
+           #                结构洞察（outlook）；写入 action 按 can_write 收窄，
+           #                learn/apply 与批量落库走 require_admin
+           "session", "ingest", "export", "maintain", "consolidate", "insight")
 
 
 class TokenError(Exception):
@@ -85,7 +99,11 @@ ROLE_SPECS = OrderedDict([
         "can_write": True, "can_admin": False, "clearance_cap": "internal",
         "layers_allow": ["knowledge", "contextual", "structural", "unresolved",
                          "rejected", "goals"],
-        "ops_allow": ["info", "route", "read", "write", "goal", "recent"],
+        # session=记会话要点；ingest=摄取外部文件流（记录单元本职）
+        # maintain=写入前馈 prefeed（apply 类批量改写仍被 require_admin 拦截）
+        # insight=记录洞见事件（record）；verify/learn 在分发层按单位职责收窄
+        "ops_allow": ["info", "route", "read", "write", "goal", "recent",
+                      "session", "ingest", "maintain", "insight"],
         "delegable": False,
         "forbidden": ["self/anchor 层", "private/secret 密级", "裁决与删除"],
     }),
@@ -94,7 +112,11 @@ ROLE_SPECS = OrderedDict([
         "duty": "发现差异、遗漏条件和新的路径；只写反思/情境层",
         "can_write": True, "can_admin": False, "clearance_cap": "internal",
         "layers_allow": ["contextual"],
-        "ops_allow": ["info", "route", "read", "write", "recent", "metacognition"],
+        # session=反思需读会话（recall 只读）；写 action 另受 can_write 约束
+        # maintain=反思后的前馈/模式分离候选（apply 类改写走 require_admin）
+        # insight=发现差异/新路径：开窗 window + 情景重构 reconstruct + 盲区学习 learn
+        "ops_allow": ["info", "route", "read", "write", "recent", "metacognition",
+                      "session", "maintain", "insight"],
         "delegable": False,
         "forbidden": ["knowledge/self/anchor 层", "private/secret 密级", "裁决与删除"],
     }),
@@ -103,7 +125,7 @@ ROLE_SPECS = OrderedDict([
         "duty": "判断规则、执行结果和结构是否有效；只写验证证据与负记忆",
         "can_write": True, "can_admin": False, "clearance_cap": "internal",
         "layers_allow": ["rejected", "contextual"],
-        "ops_allow": ["info", "route", "read", "write", "verify"],
+        "ops_allow": ["info", "route", "read", "write", "verify", "insight"],
         "delegable": False,
         "forbidden": ["knowledge/self/anchor 层（不得改被验证内容）",
                       "private/secret 密级", "裁决与删除"],
@@ -113,7 +135,10 @@ ROLE_SPECS = OrderedDict([
         "duty": "与外部系统协作并表达边界；只读呈现，任何写入一律拒绝",
         "can_write": False, "can_admin": False, "clearance_cap": "internal",
         "layers_allow": [],
-        "ops_allow": ["info", "route", "read", "recent", "whitebox"],
+        # session 仅开放只读 recall；note/compact 在分发层按 can_write 拦截
+        # insight 仅开放只读呈现（list/report/outlook/reconstruct）；写入被 can_write 拦截
+        "ops_allow": ["info", "route", "read", "recent", "whitebox", "session",
+                      "insight"],
         "delegable": False,
         "forbidden": ["全部写入", "private/secret 密级", "管理操作"],
     }),
@@ -122,8 +147,12 @@ ROLE_SPECS = OrderedDict([
         "duty": "维护存在、预算、回滚和整体结构；只写 self 层运维域",
         "can_write": True, "can_admin": False, "clearance_cap": "internal",
         "layers_allow": ["self"],
+        # session=会话续接（sustain 的 resume 语义延伸）
+        # maintain=整体结构维护（长期快照 longterm / 结构重要性盘点 stat）
+        # insight=整体结构洞察 outlook（趋势/盲区/建议）+ 条件层报告 report
         "ops_allow": ["info", "read", "write", "sustain", "scrub", "evolution",
-                      "self_state", "metacognition", "link"],
+                      "self_state", "metacognition", "link", "session",
+                      "maintain", "insight"],
         "delegable": False,
         "forbidden": ["knowledge/anchor 层", "private/secret 密级", "裁决与删除"],
     }),
@@ -389,6 +418,16 @@ def _print(obj):
     sys.stdout.write(json.dumps(obj, ensure_ascii=False, indent=1) + "\n")
 
 
+def _csv_list(v):
+    """CLI 的逗号分隔白名单 → list；空值返回 None（= 不额外收窄）。
+
+    仅做语法解析：越界项由 `issue()` 的 `_narrow()` 兜底（只能小于角色默认）。
+    """
+    if not v:
+        return None
+    return [x.strip() for x in str(v).split(",") if x.strip()] or None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="python -m md_cg.tokens",
@@ -403,6 +442,11 @@ def main(argv=None):
     p_i.add_argument("--clearance", default=None)
     p_i.add_argument("--ttl", type=float, default=None, help="有效期（秒）")
     p_i.add_argument("--label", default="")
+    p_i.add_argument("--ops-allow", dest="ops_allow", default=None,
+                     help="收窄 op 白名单（逗号分隔；越界项被忽略，只能小于角色默认，"
+                          "见 `roles` 子命令）")
+    p_i.add_argument("--layers-allow", dest="layers_allow", default=None,
+                     help="收窄可写层白名单（逗号分隔；越界项被忽略）")
 
     p_d = sub.add_parser("derive", help="设计者令牌派生子令牌（权限只能收窄）")
     p_d.add_argument("--token", default=None, help="父令牌明文")
@@ -427,6 +471,8 @@ def main(argv=None):
         if a.cmd == "issue":
             _print(issue(a.role, actor=a.actor, clearance=a.clearance,
                          tenant=a.tenant, ttl=a.ttl, label=a.label,
+                         layers_allow=_csv_list(a.layers_allow),
+                         ops_allow=_csv_list(a.ops_allow),
                          path=a.token_file))
         elif a.cmd == "derive":
             tok = a.token

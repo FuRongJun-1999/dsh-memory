@@ -62,7 +62,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -70,9 +72,9 @@ import time
 import urllib.error
 import urllib.request
 
-from . import crypto, evolution, nodefile
+from . import crypto, evolution, nodefile, routing
 from .fsutil import append_jsonl
-from .mdcg import bigrams, expand_query_terms_weighted
+from .mdcg import BUCKETED_LAYERS, bigrams, expand_query_terms_weighted
 from .mdcos import (MdCGOS, _ccg_field, _declared_conditions, _neg_hit, _sig,
                     _weighted_coverage)
 
@@ -736,6 +738,393 @@ def fill_verification_basis(root: str, basis: str, layer: str = None,
         rep["written"] += 1
     if apply and rep["written"]:
         cg.rebuild_index()
+    return rep
+
+
+# ==========================================================================
+# 情境层批量提升（consolidate.promote）
+# ==========================================================================
+#
+# 场景：情境层（contextual）里有些记忆被反复命中/并入——它们已经不是「一次情境」，
+# 而是稳定的规律。本动作把它们提升为长期知识（knowledge），并保留：
+#   · 双向可追溯：promoted_from + 演化账本（KIND_LAYER_SHIFT）；
+#   · 条件门槛：四要素（CCG）不全者**不提升**（未可判定就不该升格为长期知识）；
+#   · 可预演：apply=False 只出报表；可留痕：`_maintain.jsonl`。
+
+MAINTAIN_LOG = "_maintain.jsonl"
+CCG_REQUIRED = ("生效条件", "子功能", "执行", "不适用条件")
+
+
+def _relocate_layer(cg, nid, e, fm, content, target_layer):
+    """把节点正文迁到目标层的正确目录（含分桶），删除旧文件。返回新相对路径。"""
+    d = os.path.join(cg.root, target_layer)
+    bucket = None
+    if target_layer in BUCKETED_LAYERS:
+        bucket = routing.bucket_dir(routing.route_key(fm.get("condition_space"),
+                                                      fm.get("tags")))
+        d = os.path.join(d, bucket)
+    os.makedirs(d, exist_ok=True)
+    new_path = os.path.join(d, f"{nid}.md")
+    old_path = os.path.join(cg.root, e.get("path") or f"{nid}.md")
+    cg._write_node(nid, new_path, fm, content, durable=True)
+    if os.path.abspath(old_path) != os.path.abspath(new_path) and os.path.exists(old_path):
+        os.remove(old_path)
+    return {"path": os.path.relpath(new_path, cg.root).replace("\\", "/"),
+            "bucket": bucket}
+
+
+def promote_memories(root, source_layer="contextual", target_layer="knowledge",
+                     min_merge=2, min_importance=0.6, require_conditions=True,
+                     limit=None, apply=False, actor="maintain") -> dict:
+    """把反复命中的情境记忆批量提升为长期知识（可预演 / 可留痕 / 可追溯）。"""
+    cg = MdCGOS(root)
+    entries = cg._candidates(layer=source_layer)
+    rep = {"root": root, "source_layer": source_layer, "target_layer": target_layer,
+           "dry_run": not apply, "nodes_scanned": len(entries), "targeted": 0,
+           "skipped_locked": 0, "skipped_incomplete": 0, "skipped_not_hot": 0,
+           "written": 0, "promoted": [], "samples": [],
+           "min_merge": min_merge, "min_importance": min_importance,
+           "require_conditions": bool(require_conditions)}
+    batch = time.strftime("%Y%m%d-%H%M%S")
+    for e in entries:
+        if limit is not None and rep["written"] >= int(limit):
+            break
+        fm, content = cg._read(e)
+        if fm is None:
+            continue
+        if crypto.is_encrypted(content):
+            rep["skipped_locked"] += 1      # 无密钥 → fail-closed，绝不解密回写
+            continue
+        nid = e.get("id") or os.path.basename(e["path"])[:-3]
+        hits = max(int(fm.get("merge_count") or 0),
+                   int(fm.get("access_count") or 0),
+                   int(fm.get("recall_count") or 0))
+        imp = float(fm.get("importance") or e.get("importance") or 0.0)
+        complete = all(_has_ccg_line(content, f) for f in CCG_REQUIRED)
+        if require_conditions and not complete:
+            rep["skipped_incomplete"] += 1  # 四要素不全 → 不可判定，不升格
+            continue
+        hot = hits >= int(min_merge)
+        if not hot and imp < float(min_importance):
+            rep["skipped_not_hot"] += 1
+            continue
+        rep["targeted"] += 1
+        item = {"id": nid, "hits": hits, "importance": round(imp, 4),
+                "conditions_complete": complete,
+                "basis": fm.get("verification_basis")}
+        if len(rep["samples"]) < 8:
+            rep["samples"].append(item)
+        if not apply:
+            continue
+        before = evolution.state_of(cg, nid) or {}
+        fm["layer"] = target_layer
+        fm["promoted_from"] = source_layer
+        fm["promoted_at"] = time.time()
+        fm["promotion_basis"] = {"hits": hits, "importance": round(imp, 4),
+                                 "conditions_complete": complete, "batch": batch,
+                                 "actor": actor}
+        moved = _relocate_layer(cg, nid, e, fm, content, target_layer)
+        evolution.record(
+            cg, node_id=nid,
+            pattern="情境记忆反复命中/并入 → 提升为长期知识",
+            missing="", action=f"层迁移 {source_layer}→{target_layer}",
+            evidence=f"hits={hits} importance={imp:.2f} conditions_complete={complete}",
+            source="consolidate", kind=evolution.KIND_LAYER_SHIFT,
+            before=before, after=evolution.state_of(cg, nid) or {})
+        append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
+            "t": time.time(), "action": "promote", "batch": batch, "id": nid,
+            "from": source_layer, "to": target_layer, "hits": hits,
+            "importance": round(imp, 4), "path": moved["path"], "actor": actor})
+        rep["promoted"].append(nid)
+        rep["written"] += 1
+    if apply and rep["written"]:
+        cg.rebuild_index()
+    rep["note"] = ("dry-run：未写盘；apply=True 才迁移层"
+                   if not apply else f"已提升 {rep['written']} 个节点到 {target_layer}")
+    return rep
+
+
+def rollback_promotion(root, node_ids=None, batch=None, actor="maintain") -> dict:
+    """回滚情境提升：把 promoted_from 层迁回，并记一条演化条目。"""
+    cg = MdCGOS(root)
+    recs = [r for r in _read_maintain(root)
+            if r.get("action") == "promote"
+            and (not batch or r.get("batch") == batch)
+            and (not node_ids or str(r.get("id")) in {str(x) for x in node_ids})]
+    if not recs:
+        return {"ok": False, "error": "no_records", "reverted": 0}
+    reverted, ids = 0, []
+    for rec in recs:
+        nid = rec["id"]
+        e = (cg.index.get("nodes") or {}).get(nid)
+        if not e:
+            continue
+        fm, content = cg._read(e)
+        if fm is None or crypto.is_encrypted(content):
+            continue
+        back = rec.get("from") or "contextual"
+        before = evolution.state_of(cg, nid) or {}
+        fm["layer"] = back
+        fm["promoted_from"] = None
+        fm["promotion_basis"] = {"rollback_of": rec.get("batch"), "actor": actor}
+        _relocate_layer(cg, nid, e, fm, content, back)
+        evolution.record(cg, node_id=nid, pattern="提升回滚：长期知识退回情境层",
+                         action=f"层迁移 {rec.get('to')}→{back}",
+                         evidence=f"rollback batch={rec.get('batch')}",
+                         source="consolidate", kind=evolution.KIND_ROLLBACK,
+                         before=before, after=evolution.state_of(cg, nid) or {})
+        append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
+            "t": time.time(), "action": "promote_rollback", "batch": rec.get("batch"),
+            "id": nid, "to": back, "actor": actor})
+        reverted += 1
+        ids.append(nid)
+    if reverted:
+        cg.rebuild_index()
+    return {"ok": True, "reverted": reverted, "ids": ids}
+
+
+def _read_maintain(root):
+    from .fsutil import read_jsonl
+    return list(read_jsonl(os.path.join(root, MAINTAIN_LOG)))
+
+
+# ==========================================================================
+# 归纳聚类（consolidate.induce）
+# ==========================================================================
+#
+# 与 promote 的分工：
+#   promote —— 把**已经存在**的单条情境记忆升格为长期知识（节点不变，只迁层）；
+#   induce  —— 把**多条**具体记忆归纳为一个**新的概念节点**（新增节点）。
+#
+# 归纳是「由具体到一般」的推理，其输出**不是事实断言**，而是待验证的假设：
+#   · 证据基底一律记 inferred（未经验证），不得冒充 verified；
+#   · 概念节点必须携带成员清单 + `generalizes`/`instance_of` 对称边，保证可回溯；
+#   · 归纳不出「共同条件」时默认**拒绝生成**（没有条件依据的抽象＝编造，对齐
+#     纪律 3「不猜测」）；确需放宽须显式 require_conditions=False，且概念正文
+#     会写明「未归纳出共同条件」，不掩盖证据缺口。
+
+INDUCE_MIN_CLUSTER = 3
+INDUCE_MIN_JACCARD = 0.30
+INDUCE_MAX_NODES = 400
+INDUCE_MAX_TERMS = 6
+CONCEPT_REL = "generalizes"          # concept → member（inferred）
+CONCEPT_MEMBER_REL = "instance_of"   # member → concept（inferred）
+CONCEPT_PREFIX = "concept_"
+CONCEPT_IMPORTANCE = 0.5
+CONCEPT_TAGS = ("concept", "induced")
+# 归纳候选排除：受保护节点，以及洞察/场景/前馈/概念等派生物（避免自我进食）
+INDUCE_SKIP_TAGS = ("insight", "scene", "reconstructed", "gap_hint", "concept")
+
+
+def _concept_id(members):
+    """概念节点 id：由成员清单派生，保证「同成员 ⇒ 同 id」的幂等性。"""
+    h = hashlib.sha1("|".join(sorted(str(m) for m in members))
+                     .encode("utf-8")).hexdigest()
+    return CONCEPT_PREFIX + h[:10]
+
+
+def _jaccard(a, b):
+    if not a or not b:
+        return 0.0
+    return len(a & b) / float(len(a | b))
+
+
+def _common_terms(term_sets, min_share=0.6):
+    """出现在 ≥ min_share 比例成员中的词面（共同条件）；少于 2 个成员共享不算。"""
+    if not term_sets:
+        return []
+    cnt = {}
+    for s in term_sets:
+        for t in set(s or ()):
+            cnt[t] = cnt.get(t, 0) + 1
+    need = max(2, int(math.ceil(min_share * len(term_sets))))
+    return sorted(t for t, c in cnt.items() if c >= need)
+
+
+def _union_terms(term_sets, limit=INDUCE_MAX_TERMS):
+    seen = []
+    for s in term_sets:
+        for t in sorted(s or ()):
+            if t not in seen:
+                seen.append(t)
+    return seen[:limit]
+
+
+def _link_concept(cg, cid, members, reason, actor, batch):
+    """写概念↔成员对称 inferred 边（幂等：已存在则不重复写）。"""
+    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    out = {"concept": cid, "members": []}
+    cnode = cg.get(cid)
+    if cnode:
+        fm = cnode.get("frontmatter") or {}
+        edges = list(fm.get("edges") or [])
+        have = {str(e.get("target")) for e in edges if isinstance(e, dict)}
+        added = False
+        for m in members:
+            if m in have:
+                continue
+            edges.append({"target": m, "relation_type": CONCEPT_REL,
+                          "reason": reason, "created_at": time.time(),
+                          "confidence": 0.5, "verified": 0, "evidence": "inferred"})
+            added = True
+        if added:
+            fm["edges"] = edges
+            ent = nodes.get(cid) or {}
+            cg._write_node(cid, os.path.join(cg.root, ent.get("path") or f"{cid}.md"),
+                           fm, cnode.get("content") or "")
+            if ent:
+                ent["edges"] = edges
+    for m in members:
+        node = cg.get(m)
+        if not node:
+            continue
+        fm = node.get("frontmatter") or {}
+        edges = list(fm.get("edges") or [])
+        if any(isinstance(e, dict) and str(e.get("target")) == cid for e in edges):
+            continue
+        edges.append({"target": cid, "relation_type": CONCEPT_MEMBER_REL,
+                      "reason": reason, "created_at": time.time(),
+                      "confidence": 0.5, "verified": 0, "evidence": "inferred"})
+        fm["edges"] = edges
+        fm["induced_concept"] = cid
+        ent = nodes.get(m) or {}
+        cg._write_node(m, os.path.join(cg.root, ent.get("path") or f"{m}.md"),
+                       fm, node.get("content") or "")
+        if ent:
+            ent["edges"] = edges
+        out["members"].append(m)
+    return out
+
+
+def _concept_payload(members, common_pos, neg_union):
+    """概念节点正文：把成员的共性条件抽象为可追溯的知识条目（显式标注 inferred）。"""
+    label = "、".join(common_pos[:INDUCE_MAX_TERMS])
+    pos_txt = "；".join(common_pos[:INDUCE_MAX_TERMS]) or "（未归纳出共同条件）"
+    neg_txt = "；".join(neg_union[:INDUCE_MAX_TERMS]) or "（未判定）"
+    return (
+        "# 功能名：归纳概念：%s\n"
+        "# 生效条件：%s\n"
+        "# 子功能：%d 条具体记忆的共性（成员：%s）\n"
+        "# 执行：由 consolidate.induce 归纳聚合（inferred；未经验证，不得直接当事实使用）\n"
+        "# 验证方式：待验证（inferred 假设，需外部证据或实践重复后方可升格）\n"
+        "# 不适用条件：%s\n"
+        % (label or "共性", pos_txt, len(members), "、".join(members), neg_txt)
+    )
+
+
+def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowledge",
+                    min_cluster=INDUCE_MIN_CLUSTER, min_jaccard=INDUCE_MIN_JACCARD,
+                    max_nodes=INDUCE_MAX_NODES, require_conditions=True,
+                    limit=None, apply=False, actor="maintain", **extra):
+    """归纳聚类：把多条具体记忆归纳为概念层条目（inferred，非事实断言）。
+
+    流程：读取源层 → bigram 相似度贪心聚类 → 提炼共同条件 → 生成概念节点
+    （apply=True）→ 写 `generalizes` / `instance_of` 对称 inferred 边 → 写留痕。
+
+    apply=False（默认）只出候选报表（可预演）；apply=True 才写盘（可留痕、可回溯）。
+    幂等：概念 id 由成员清单派生，同成员重复归纳不新增节点。
+    """
+    cg = cg_or_root if isinstance(cg_or_root, MdCGOS) else MdCGOS(str(cg_or_root))
+    from . import subgraph                     # 惰性导入：复用统一的条件/词面抽取
+
+    # MCP 分发层会把未提供的参数以 None 传入；此处归一化，避免 int(None) 崩溃，
+    # 也避免 require_conditions=None 被当成 False 而悄悄关掉「无共同条件即拒绝生成」
+    # 这条纪律（默认必须为真，放宽只能显式传 False）。
+    min_cluster = INDUCE_MIN_CLUSTER if min_cluster is None else int(min_cluster)
+    min_jaccard = INDUCE_MIN_JACCARD if min_jaccard is None else float(min_jaccard)
+    max_nodes = INDUCE_MAX_NODES if max_nodes is None else int(max_nodes)
+    if require_conditions is None:
+        require_conditions = True
+
+    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    pool = [nid for nid, e in nodes.items()
+            if (not source_layer or (e or {}).get("layer") == source_layer)
+            and not (e or {}).get("protected")
+            and not (set(INDUCE_SKIP_TAGS) & set((e or {}).get("tags") or []))]
+    pool.sort()
+    truncated = len(pool) > int(max_nodes)
+    pool = pool[:int(max_nodes)]
+
+    cache = {}
+    for nid in pool:
+        got = subgraph._node_terms_and_grams(cg, nid)
+        if got and got["grams"]:
+            cache[nid] = got
+    keys = sorted(cache.keys())
+
+    rep = {"ok": True, "action": "induce", "op": "consolidate",
+           "source_layer": source_layer, "target_layer": target_layer,
+           "dry_run": not apply, "nodes_scanned": len(pool), "indexed": len(keys),
+           "truncated": truncated, "min_cluster": int(min_cluster),
+           "min_jaccard": float(min_jaccard),
+           "require_conditions": bool(require_conditions),
+           "skipped_small": 0, "skipped_no_condition": 0, "skipped_existing": 0,
+           "clusters": 0, "written": 0, "concepts": [], "samples": [],
+           "log": MAINTAIN_LOG}
+
+    # ---- 贪心聚类（只读） ----
+    assigned, proposals = set(), []
+    for i, a in enumerate(keys):
+        if a in assigned:
+            continue
+        ga = cache[a]["grams"]
+        grp = [b for b in keys[i + 1:]
+               if b not in assigned
+               and _jaccard(ga, cache[b]["grams"]) >= float(min_jaccard)]
+        if len(grp) + 1 < int(min_cluster):
+            continue
+        members = [a] + grp
+        assigned.update(members)
+        common_pos = _common_terms([cache[m]["pos"] for m in members])
+        if require_conditions and not common_pos:
+            rep["skipped_no_condition"] += 1
+            continue
+        neg_union = _union_terms([cache[m]["neg"] for m in members])
+        proposals.append({
+            "members": members, "concept_id": _concept_id(members),
+            "common_conditions": common_pos, "non_applicable": neg_union,
+            "reason": ("%d 条记忆内容相近且共享条件「%s」→ 归纳为概念"
+                       % (len(members), "、".join(common_pos) or "无")),
+        })
+    rep["clusters"] = len(proposals)
+    for p in proposals[:8]:
+        rep["samples"].append(p)
+
+    if not apply:
+        rep["note"] = ("dry-run：未写盘；apply=True 才生成概念节点与 inferred 边"
+                       if proposals else "无满足条件的聚类（内容不够相近或缺乏共同条件）")
+        rep["concepts"] = [p["concept_id"] for p in proposals]
+        return rep
+
+    # ---- 落库（可留痕） ----
+    batch = time.strftime("%Y%m%d-%H%M%S")
+    for p in proposals:
+        if limit is not None and rep["written"] >= int(limit):
+            break
+        cid = p["concept_id"]
+        if cid in nodes:
+            rep["skipped_existing"] += 1
+            continue
+        content = _concept_payload(p["members"], p["common_conditions"],
+                                   p["non_applicable"])
+        cg.add(cid, content, layer=target_layer, tags=list(CONCEPT_TAGS),
+               importance=CONCEPT_IMPORTANCE, verification_basis="other",
+               induced_from=list(p["members"]), induced_at=time.time(),
+               induction={"method": "bigram_jaccard", "min_jaccard": float(min_jaccard),
+                          "common_conditions": p["common_conditions"], "batch": batch,
+                          "actor": actor, "evidence": "inferred"},
+               actor=actor)
+        _link_concept(cg, cid, p["members"], p["reason"], actor, batch)
+        append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
+            "t": time.time(), "action": "induce", "batch": batch, "concept": cid,
+            "members": list(p["members"]), "common_conditions": p["common_conditions"],
+            "source_layer": source_layer, "target_layer": target_layer, "actor": actor})
+        rep["concepts"].append(cid)
+        rep["written"] += 1
+    if rep["written"]:
+        cg.rebuild_index()
+    rep["note"] = (f"已归纳 {rep['written']} 个概念节点（inferred，待验证）"
+                   if rep["written"] else "无可落库的归纳（均跳过或已达 limit）")
     return rep
 
 

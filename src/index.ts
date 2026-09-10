@@ -1,16 +1,34 @@
 /**
- * @furongjun1999/dsh-memory —— 灵枢（AEIS）DeepSeek Harness 插件
+ * @furongjun1999/dsh-memory —— 灵枢 DeepSeek Harness 插件
+ * （记忆唯一真源 = md_cg 认知图；AEIS 降为能力库）
  *
  * 把灵枢的时空记忆/知识飞轮/自我认知接入 DSH：
+ * - 记忆唯一真源：**md_cg 认知图（md 文档）**，插件侧唯一显式入口
+ *   `src/lib/mdcg_client.ts`（每个方法 = 一条 MCP cg / stg 调用）
  * - 工具桥接：Agent 可调用 lingshu_remember / recall / search / think 等
- * - 自动记忆：DSH 对话自动沉淀进灵枢记忆库（去重+重要性）
+ *   （AEIS 能力库工具面，经 bridge 注册为 `lingshu_<name>`）
+ * - 自动记忆：DSH 对话经**认知图**自动沉淀（主动遗忘闸门去重 + 重要性 + 脱敏）
+ * - 旧通道：AEIS 能力库（白箱 / 角色生成），仅其库文件仍由 dbPath 指定
  *
  * 用法（cordis.yml）：
  * ```yaml
  * - id: lingshu-memory
  *   name: '@furongjun1999/dsh-memory'
  *   config:
- *     dbPath: 'D:/path/to/lingshu.db'
+ *     mdcg:                              # 记忆真源：认知图（md 文档）
+ *       root: 'data/mdcg'
+ *       actor: 'dsh-memory'
+ *     env:                               # 写入凭据：默认【关闭】，由你决定是否打开
+ *       # 不配 → 只读 guest：读/召回/时间线可用，自动记忆/转录/落图不落盘（启动会告警）
+ *       # 打开①推荐：先签发再引用（明文不进配置文件）
+ *       #   python -m md_cg.tokens issue --role designer --actor dsh-memory \
+ *       #     --clearance internal \
+ *       #     --ops-allow info,route,read,write,recent,goal,identity,whitebox,verify \
+ *       #     --layers-allow knowledge,contextual,structural,self,goals,unresolved,rejected
+ *       # MDCG_TOKEN: !!js process.env.MDCG_TOKEN
+ *       # 打开②最小权限：--role recorder（无 whitebox/identity/verify，不能写 self 层）
+ *       # 打开③兼容旧部署（不推荐）：MDCG_LEGACY_ENV_AUTH: '1'
+ *     dbPath: '/path/to/aeis_memory.db'  # 旧通道：AEIS 能力库（可省）
  *     identity: '灵枢'
  *     memory:
  *       userMessage: true
@@ -67,7 +85,9 @@ export interface Config {
   python: string
   /** 传给 python 的参数（默认启动灵枢 MCP server）。 */
   moduleArgs: string[]
-  /** 灵枢记忆库 SQLite 路径（目录自动创建）。 */
+  /** ⚠️ 旧通道：AEIS SQLite 库文件（经 `AEIS_DB` 传给 aeis.mcp.server），目录自动创建。
+   * 记忆真源已统一到 `mdcg`（认知图）；此项现仅供 AEIS 能力库（白箱 / 角色生成）
+   * 与角色数据目录 roleDataDir（由它的父目录推导）使用，不再存记忆。 */
   dbPath: string
   /** 灵枢身份标识（写入记忆的自我模型）。 */
   identity: string
@@ -208,6 +228,19 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         + '互维将回退 AEIS 能力库通道（迁移期兼容）',
       )
     }
+    // 写入凭据检查（fail-closed，且**默认关闭**）：md_cg 身份优先级
+    // ① MDCG_TOKEN ② MDCG_LEGACY_ENV_AUTH=1 ③ 都没有 → 只读 guest。
+    // 默认即第 ③ 种：读 / 召回 / 时间线照常，但自动记忆、转录、角色落图**不落盘**。
+    // 是否打开写权限由用户自行决定（见 cordis.yml.example 的「写入凭据」段），
+    // 插件不代为注入任何凭据，只在启动时告警——避免「看起来在记忆、其实没落盘」。
+    const authEnv: Record<string, string | undefined> = { ...process.env, ...config.env }
+    if (!authEnv.MDCG_TOKEN && !authEnv.MDCG_LEGACY_ENV_AUTH) {
+      ctx.logger.warn(
+        'dsh-memory: 未配置认知图写入凭据（默认关闭），以只读 guest 运行——'
+        + '读 / 召回 / 时间线可用，但自动记忆、转录、角色落图不会落盘。'
+        + '要打开：签发令牌 MDCG_TOKEN（推荐）或设 MDCG_LEGACY_ENV_AUTH=1，'
+        + '经 config.env 注入，见 cordis.yml.example。')
+    }
   }
 
   const disposers: Array<() => void> = []
@@ -241,7 +274,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       toolsPoll = setInterval(() => { void tryRegister() }, 2000)
       disposers.push(() => { if (toolsPoll) clearInterval(toolsPoll) })
     }
-    installMemoryHooks(ctx, bridge, config.memory)
+    // 自动记忆：沉淀进 md_cg 认知图（记忆唯一真源）。mdcg=null 时整体停用。
+    installMemoryHooks(ctx, mdcg, config.memory)
     // 角色扮演网页（同源挂载 /roleplay，复用本插件 bridge）
     // mdcg：角色定义/对话转录显式落认知图（md_cg = 唯一真源）。
     await installRoleplayWeb(ctx, bridge, config, disposers, mdcg)

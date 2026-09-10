@@ -32,6 +32,11 @@ class McpClient:
 
     def __init__(self, root, actor="mcp-test", extra_env=None):
         env = dict(os.environ)
+        # 环境隔离：本模块声明的身份是 legacy env 直连（见下），若宿主进程导出了
+        # MDCG_TOKEN/MDCG_TOKEN_FILE，令牌优先路径会静默覆盖声明的身份与作用域，
+        # 使 §9/§10/§13 的权限断言测的其实是另一枚令牌（与 test_p21_tokens 同纪律）。
+        for k in ("MDCG_TOKEN", "MDCG_TOKEN_FILE"):
+            env.pop(k, None)
         env["MDCG_ROOT"] = root
         env["MDCG_ACTOR"] = actor
         env["MDCG_CAN_ADMIN"] = "1"          # 测试默认带管理权限

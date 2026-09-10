@@ -47,9 +47,10 @@ P8 34 · P9 37 · P10 24 · P11 27 · P12 32 · P13 42 · P14 44 · P15 53 · P1
 ### 3.1 启动
 
 ```bash
-MDCG_ROOT="D:/Program Files/2_ai/AEIS/data/mdcg" \
+# 在仓库根目录启动：路径全部相对当前目录，无需改任何绝对路径
+MDCG_ROOT="data/mdcg" \
 MDCG_ACTOR="dsh" \
-PYTHONPATH="D:/Program Files/2_ai/dsh-memory" \
+PYTHONPATH="." \
 python -m md_cg.mcp_server
 ```
 
@@ -62,9 +63,9 @@ python -m md_cg.mcp_server
     command: python
     args: ["-m", "md_cg.mcp_server"]
     env:
-      MDCG_ROOT: "D:/Program Files/2_ai/AEIS/data/mdcg"
+      MDCG_ROOT: "data/mdcg"      # 相对 DSH 进程 cwd；cwd 不稳定时改成绝对路径
       MDCG_ACTOR: "dsh"
-      PYTHONPATH: "D:/Program Files/2_ai/dsh-memory"
+      PYTHONPATH: "."             # 需在仓库根目录启动 DSH，python 才能 import md_cg
 ```
 
 ### 3.3 工具面（默认 kernel：只暴露 `cg` / `stg` 两个认知基元）
@@ -150,7 +151,7 @@ BLINDSPOT，不假装确定。
 ## 四、验证命令
 
 ```bash
-cd "D:/Program Files/2_ai/dsh-memory"
+cd <dsh-memory 仓库根目录>
 set PYTHONPATH=.
 python -m md_cg.test_p0        # 25/25  引擎基线回归
 python -m md_cg.test_p1        # 37/37  白箱架构回归

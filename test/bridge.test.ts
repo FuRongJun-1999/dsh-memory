@@ -7,11 +7,15 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { LingshuBridge } from '../src/bridge.js'
 
-/** AEIS 库源码目录（未安装时靠 PYTHONPATH 解析；不存在则跳过集成测试）。 */
-const AEIS_DIR = 'D:\\Program Files\\2_ai\\AEIS'
+/** AEIS 库源码目录（未安装时靠 PYTHONPATH 解析；不存在则跳过集成测试）。
+ * 默认取与本仓库同级的 `../AEIS`（两个仓库克隆到同一父目录即可直接用），
+ * 也可用 AEIS_DIR 环境变量覆盖——不要写死某台机器的绝对路径。 */
+const AEIS_DIR = process.env.AEIS_DIR
+  ?? resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'AEIS')
 const HAS_AEIS = existsSync(AEIS_DIR)
 
 /** Windows 下 python 进程可能短暂持有 DB 句柄，清理失败不阻塞测试。

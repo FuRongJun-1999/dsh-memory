@@ -156,17 +156,21 @@ def main():
         check("fuzzy 读不到 condition_space 字段（正交证据）",
               "tool_node" not in fuz_ids, str(fuz_ids))
 
-        # fuzzy 会召回「声明为不适用」的节点，semantic 不会
+        # 负条件（不适用条件）是反例声明，两条路径都不作召回键
+        # （语义修正：反例的正确去向是 judge_qualification 的 REJECT，不是召回）
         cg.add("neg_declared", mk("通用流程", "问通用流程", "通用流程说明",
                                   neg="问ZXQ7"),
                tags=[], condition_space={})
         cands = cg._candidates()
         fuz_neg, _ = cg._path_fuzzy("ZXQ7", cands)
         sem_neg = {n["id"] for n, _ in cg._path_semantic("ZXQ7", cands)}
-        check("fuzzy 会召回「不适用条件」命中的节点（词面命中）",
-              "neg_declared" in {n["id"] for n, _ in fuz_neg})
-        check("semantic 剔除「不适用条件」命中的节点（条件级负路由）",
+        check("fuzzy 不再召回「不适用条件」命中的节点（反例不作召回键）",
+              "neg_declared" not in {n["id"] for n, _ in fuz_neg})
+        check("semantic 同样剔除「不适用条件」命中的节点（条件级负路由）",
               "neg_declared" not in sem_neg)
+        check("但正条件仍作召回键（生效条件命中照常召回）",
+              "neg_declared" in
+              {n["id"] for n, _ in cg._path_fuzzy("通用流程", cands)[0]})
 
         # 迁移语料形态：state_attributes.comment.生效条件
         cg.add("mig", mk("骨架卡", "（隐含）", "骨架填充的知识点",

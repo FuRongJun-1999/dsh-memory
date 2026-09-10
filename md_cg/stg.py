@@ -18,6 +18,10 @@ TIME_RELATIONS = ("before", "after", "equals", "contains", "during", "overlaps")
 SPACE_RELATIONS = ("left_of", "right_of", "above", "below",
                    "contains", "inside", "overlaps")
 
+# 预览脱敏占位符：时间线/锚点预览**绝不回显密文碎片**
+PLACEHOLDER_LOCKED = "[密文·预览已脱敏]"
+PLACEHOLDER_DENIED = "[无权限·预览已脱敏]"
+
 
 def _interval(fm):
     """节点时间区间：优先 temporal（事件时刻），回退 condition_space.time_window（观测窗）。
@@ -124,12 +128,41 @@ def _scan(cg, layer=None, max_scan=5000):
 
 
 def _preview(cg, node_id, n=200):
-    """按需读单个节点正文做预览（只发生在最终返回的条目上）。"""
+    """按需读单个节点正文做预览（只发生在最终返回的条目上）。
+
+    脱敏规则（对齐「按调用方权限返回明文或占位符」）：
+      · 读隔离拦截的节点 → 占位符，不泄露任何正文；
+      · 密文节点：有密钥且能解开 → 明文；否则 → 占位符，**绝不回显密文碎片**。
+    """
+    from . import crypto
     e = cg.index["nodes"].get(node_id)
     if not e:
         return ""
+    guard = getattr(cg, "_readable", None)
+    if callable(guard):
+        try:
+            if not guard(e):
+                return PLACEHOLDER_DENIED
+        except Exception:                          # noqa: BLE001
+            return PLACEHOLDER_DENIED
     fm, content = cg._read(e)
-    return (content or "")[:n] if fm is not None else ""
+    if fm is None:
+        return ""
+    content = content or ""
+    if not crypto.is_encrypted(content):
+        return content[:n]
+    opener = getattr(cg, "_open_content", None)
+    opened = None
+    if callable(opener):
+        try:
+            opened = opener(node_id, fm, content)
+        except Exception:                          # noqa: BLE001
+            opened = None
+    # 父类 _open_content 对密文是恒等返回（无密钥上下文）——再判一次，
+    # 保证任何路径都不会把密文写进预览。
+    if opened is None or crypto.is_encrypted(opened):
+        return PLACEHOLDER_LOCKED
+    return opened[:n]
 
 
 def relation(cg, a_id, b_id):

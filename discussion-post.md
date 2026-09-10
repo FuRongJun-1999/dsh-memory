@@ -19,7 +19,9 @@ cordis.yml:
   name: '@furongjun1999/dsh-memory'
   config:
     serverName: 'lingshu'
-    dbPath: 'D:/data/lingshu.db'   # SQLite, auto-created
+    mdcg:
+      root: 'data/mdcg'            # memory source of truth (md cognitive graph)
+    dbPath: 'data/lingshu.db'      # legacy: AEIS capability-lib SQLite
     tools: 'brain'                # 'brain' | 'core' | 'all' | [tool names]
 ```
 

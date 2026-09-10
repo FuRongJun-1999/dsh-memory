@@ -33,12 +33,14 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 - id: lingshu-memory
   name: '@furongjun1999/dsh-memory'
   config:
-    dbPath: 'data/lingshu.db'
+    mdcg:               # 记忆唯一真源：认知图（md 文档）
+      root: 'data/mdcg'
+    dbPath: 'data/lingshu.db'   # 旧通道：AEIS 能力库 SQLite
     identity: '灵枢'
     tools: 'brain'      # 'brain' 全心智 | 'core' 精选
 ```
 
-> ⚠️ **profile config override 依赖（2026-09-04 dsh 0.1.2 排查确认）**：插件包内自带的 `cordis.patch.yml` 只有裸 insert（id+name，无 config），完整 config 全靠 profile 层的 `cordis.patch.yml` override 补全（dbPath/tools/env/lifecycle）。**换 profile、重装 profile 或升级插件时，必须确认该 override 仍在** `<profile>/cordis.patch.yml`——完整备份模板见 `docs/cordis-patch-profile-web.example.yml`，丢失会导致插件以默认配置运行（dbPath 相对路径错位→角色数据读不到、tools=brain 缺白箱工具族、lifecycle 不启动）。
+> ⚠️ **profile config override 依赖（2026-09-04 dsh 0.1.2 排查确认）**：插件包内自带的 `cordis.patch.yml` 只有裸 insert（id+name，无 config），完整 config 全靠 profile 层的 `cordis.patch.yml` override 补全（**mdcg**/dbPath/tools/env/lifecycle）。**换 profile、重装 profile 或升级插件时，必须确认该 override 仍在** `<profile>/cordis.patch.yml`——完整备份模板见 `docs/cordis-patch-profile-web.example.yml`，丢失会导致插件以默认配置运行（**mdcg.root 落到 data/mdcg 致记忆真源错位**、dbPath 相对路径错位→角色数据读不到、tools=brain 缺白箱工具族、lifecycle 不启动）。
 >
 > ⚠️ **安装方式**：插件必须通过 **`dsh plugin --profile <name> add`** 装进 profile（它会用 pnpm + `autoInstallPeers: false` 正确解析 peer 依赖）。
 > **不要**用 `npm install` 把插件装进 profile 的 `node_modules`——那会引入错误版本的 `@deepseek-ai` peer 包，导致插件加载失败 / 浏览器报错。
@@ -489,7 +491,23 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 - id: lingshu-memory
   name: '@furongjun1999/dsh-memory'
   config:
-    dbPath: 'D:/data/lingshu.db'        # 灵枢记忆库路径（目录自动创建）
+    mdcg:                              # 记忆唯一真源：认知图（md 文档）
+      root: 'data/mdcg'                # MDCG_ROOT（相对 cwd；cwd 不稳定时用绝对路径）
+    env:                               # 写入凭据：默认【关闭】，由你决定是否打开
+      # 不配 → 只读 guest：读 / 召回 / 时间线可用，自动记忆 / 转录 / 落图不落盘（启动会告警）
+      #
+      # 打开①（推荐，功能完整且已收窄）：先签发，再引用（明文不进配置文件）
+      #   python -m md_cg.tokens issue --role designer --actor dsh-memory ^
+      #     --clearance internal ^
+      #     --ops-allow info,route,read,write,recent,goal,identity,whitebox,verify ^
+      #     --layers-allow knowledge,contextual,structural,self,goals,unresolved,rejected
+      #   setx MDCG_TOKEN "mdcg1.xxxxx"     # 然后重启 DSH
+      # MDCG_TOKEN: !!js process.env.MDCG_TOKEN
+      #
+      # 打开②（最小权限）：--role recorder → 只能自动记忆 / 转录 / 角色定义；
+      #   whitebox、identity、verify 与写 self 层会被拒
+      # 打开③（兼容旧部署，不推荐）：MDCG_LEGACY_ENV_AUTH: '1'（写 self 层再加 MDCG_CAN_ADMIN: '1'）
+    dbPath: 'data/lingshu.db'           # 旧通道：AEIS 能力库 SQLite（不再存记忆）
     identity: '灵枢'
     tools: 'brain'                     # 'brain'(默认) | 'core' | 'all'
     memory:
@@ -509,9 +527,17 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 | `serverName` | string | `lingshu` | 工具命名空间前缀（工具名 `lingshu_<name>`） |
 | `python` | string | `python` | Python 可执行文件 |
 | `moduleArgs` | string[] | `['-m', 'aeis.mcp.server']` | 灵枢 server 启动参数 |
-| `dbPath` | string | `data/lingshu.db` | 记忆库 SQLite 路径（自动建目录） |
+| `dbPath` | string | `data/lingshu.db` | ⚠️ 旧通道：AEIS SQLite 库文件（自动建目录）。**不再存记忆**，仅供 AEIS 能力库（白箱/角色生成）与角色数据目录 roleDataDir（由其父目录推导）使用 |
+| `mdcg.enabled` | boolean | `true` | 启用认知图（md_cg）——**记忆唯一真源（md 文档）** |
+| `mdcg.root` | string | `data/mdcg` | 认知图根目录（`MDCG_ROOT`；相对路径按插件进程 cwd 解析）。记忆写在这里 |
+| `mdcg.actor` | string | `dsh-memory` | 调用主体（`MDCG_ACTOR`）；私有内容按 (tenant, actor) 派生 DEK，须与迁移脚本 `--actor` 一致 |
+| `mdcg.tenant` | string | `default` | 租户（`MDCG_TENANT`），须与迁移脚本 `--tenant` 一致 |
+| `mdcg.clearance` | string | `private` | 调用方密级（`MDCG_CLEARANCE`）：只能读写 ≤ 该密级的节点 |
 | `identity` | string | `灵枢` | 灵枢身份标识 |
 | `env` | object | `{}` | 追加环境变量（`BOCHA_API_KEY` / `AEIS_DESIGNER_KEY` / `DEEPSEEK_API_KEY`（角色扮演 LLM 续答）…，可用 `!!js process.env.X` 从宿主环境注入） |
+| `env.MDCG_TOKEN` | string | **—（写权限默认关闭）** | 认知图**写入凭据**（推荐）。签发：`python -m md_cg.tokens issue --role designer --actor dsh-memory --clearance internal --ops-allow … --layers-allow …`（两个 `--*-allow` 只能收窄；`--role recorder` 为最小权限版） |
+| `env.MDCG_LEGACY_ENV_AUTH` | string | — | 兼容旧部署的 env 直连身份（`recorder`）；与 `MDCG_TOKEN` 都不设 → 只读 `guest`（**默认状态**：读 / 召回 / 时间线可用，写入不落盘，启动会告警） |
+| `env.MDCG_CAN_ADMIN` | string | — | 配合 legacy auth：`'1'` → `designer`（可写 `self` 层，角色 anchors 导入需要） |
 | `tools` | `'brain' \| 'core' \| 'all' \| string[]` | `'brain'` | 暴露的工具集合 |
 | `memory.userMessage` | boolean | `true` | 用户消息 → 自动 remember |
 | `memory.assistantMessage` | boolean | `false` | agent 回复 → 自动 remember |
@@ -528,9 +554,10 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 
 订阅 DSH 的 `session/event` 事件流（与官方 session-persistence 相同的接入点）：
 
-- `user/message`（仅 `source.kind === 'user'` 的真实用户消息）→ `remember`（importance 0.6，tags `dsh`）
+- `user/message`（仅 `source.kind === 'user'` 的真实用户消息）→ `MdcgClient.remember()`（`mdcg_remember(gated=true)`，importance 0.6，落层 contextual，tags `dsh`）
 - 插件注入的系统上下文（AGENTS.md、文件变更通知等 `kind: 'plugin'`）**不写入**，防止记忆噪音
-- 灵枢自带去重（相似度基准 + 时间窗口），重复消息不会堆积
+- **去重 / 遗忘由 md_cg 主动遗忘闸门负责**（`mdcg_remember(gated=true)` → `MdCG.remember_gated`）：三问 → 四态 ACCEPT 落盘 / MERGE 并入既有（= 去重强化，不新增节点）/ DROP 低熵 / DEFER 待定，四种结果都写 `_forgetting.jsonl` 可审计
+- **记忆以 md 文档落盘**（`mdcg.root`，默认 `data/mdcg`）；⚠️ **写权限默认关闭**——不配凭据时以只读 guest 运行：读 / 召回 / 时间线照常，写入不落盘（插件启动会告警）。打开方式见配置表 `env.MDCG_TOKEN`
 - **敏感信息脱敏**（`memory.desensitize`）：写入前过滤 `sk-`密钥 / API key / 密码 / `Bearer`令牌 / 18位身份证 / 11位手机号（替换为 `[已过滤:类别]`）；纯凭据消息整条跳过，不落库
 - **自动召回注入**（`memory.autoRecall`）：每次模型请求组装 system prompt 时自动注入灵枢最近记忆（`system-prompt/assemble` 事件），记忆"自动可用"；召回失败静默不阻塞请求
 
@@ -543,7 +570,7 @@ DSH 宿主（node 进程）的延时自动重启守护——灵枢桥只重连�
   - 驻留模式：`wscript.exe scripts\dsh-watchdog-launcher.vbs -loop`（5 秒快速拉起层）
 - `scripts/dsh-watchdog-launcher.vbs`：vbs 隐藏启动器（`WScript.Shell.Run ..., 0` = 零弹窗）
 - **用法**：改完插件/配置 → 直接 kill DSH 进程 → 看门狗自动拉起新版（无需手敲启动命令）
-- **注意**：脚本输出全英文（powershell 5.1 GBK 读取 UTF-8 无 BOM 中文会解析崩溃）；计划任务 /TR 路径必须带引号（`D:\Program Files\...` 空格截断会弹「没有文件扩展名」）
+- **注意**：脚本输出全英文（powershell 5.1 GBK 读取 UTF-8 无 BOM 中文会解析崩溃）；计划任务 /TR 路径必须带引号（路径含空格时会被截断，弹「没有文件扩展名」）；脚本内一律用 `%USERPROFILE%` / `%APPDATA%` / 自身所在目录解析，不写死任何机器的绝对路径
 
 ## 开发
 

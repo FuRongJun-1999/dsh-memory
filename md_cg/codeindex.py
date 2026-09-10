@@ -23,6 +23,8 @@ import hashlib
 import os
 import re
 
+from . import nodefile
+
 SKIP_DIRS = ("__pycache__", ".git", ".venv", "venv", "node_modules", ".mypy_cache")
 MAX_DOC = 400
 
@@ -211,6 +213,37 @@ def extract(source, path="", suffix=None):
     return items
 
 
+def condition_space(item):
+    """条目 → 条件空间四槽（纯函数，**唯一来源**）。
+
+    为什么必须与 `render` 同源：正文的 `# 生效条件：` 行与 frontmatter 的
+    `condition_space` 一旦各写一套，就会出现「正文有声明、条件空间是空的」
+    ——`nodefile.condition_space_text(require_full=True)` 只看 frontmatter，
+    于是节点**存得进、判得了，条件空间却没声明**。改造前正是这样：正文写
+    「大域=X；检索…时」（第三种方言），frontmatter 只写 `observation_position`
+    **单槽**。单槽不是生效条件（见 nodefile.CONDITION_SLOTS_REQUIRED），
+    故本函数按四槽齐备产出，供 `render` 与 `refindex.add_items` 共用。
+
+    时间槽用**全时窗哨兵**而非 `mdcg.add` 缺省补的「写入时刻锚定 1 小时窗」：
+    代码条目声明的是「源文件里存在这个符号」，其真值不随写入时刻衰减，
+    写成 1 小时观测窗是把写入副作用伪装成条件。
+    """
+    path = item.get("path") or ""
+    top = path.split("/")[0] or "."
+    if item.get("precise", True):
+        method = f"{LANG_COMPILER}（AST 精确提取，区间精确到 end_lineno）"
+    else:
+        method = (f"{LANG_WEAK}（正则弱提取，未过编译器；"
+                  f"区间为**上界**，以 op=ref 回读为准）")
+    return {
+        "observation_position": f"本地源码仓（大域={top}）",
+        "time_window": [nodefile.FULL_TIME_WINDOW_MIN,
+                        nodefile.FULL_TIME_WINDOW_MAX],
+        "observation_tool": method,
+        "existence_constraint": f"源文件 {path} 存在于本地仓且可读",
+    }
+
+
 def render(item):
     """条目 → CCG 6 行正文（可被 search 命中，不含实现）。
 
@@ -227,7 +260,6 @@ def render(item):
     kind = item["kind"]
     path = item["path"]
     parent = item.get("parent") or ""
-    top = path.split("/")[0] or "."
     doc = (item.get("doc") or "").replace("\n", " ").strip()
     comments = [c.lstrip("#").strip() for c in (item.get("comments") or [])]
     sub = doc or (comments[0] if comments else "") or f"{kind} 定义在 {path}，无注释"
@@ -240,7 +272,7 @@ def render(item):
                  f"以 op=ref 回读为准：{path} L{item['lineno']}-L{item['end']}）")
     lines = [
         f"# 功能名：{name}（{kind}）",
-        f"# 生效条件：大域={top}；检索「{name}」或路径「{path}」时",
+        f"# 生效条件：{nodefile.condition_space_text(condition_space(item))}",
         f"# 子功能：{parent + '.' if parent else ''}{sub[:MAX_DOC]}",
         f"# 执行：{sig}",
         f"# 验证方式：{basis}",

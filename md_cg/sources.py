@@ -337,3 +337,211 @@ class Ingestor:
 def _sig(text: str, n: int = 12) -> str:
     import hashlib
     return hashlib.sha1((text or "").encode("utf-8")).hexdigest()[:n]
+
+
+# --------------------------------------------------------------------------
+# 摄取分派（P0 · ingest op）：按扩展名选摄取方式，单一入口吃多种文件
+# --------------------------------------------------------------------------
+#
+# 三条摄取链：
+#   session —— 会话流（.jsonl）：走 Ingestor（watermark + 去重 + fix-pair）
+#   doc     —— 文档（.md/.txt/...）：走 docindex.extract + refindex.add_items
+#   code    —— 代码（.py/.ts/...）：走 codeindex.extract + refindex.add_items
+#
+# 设计要点：
+#   - 注册表 INGEST_REGISTRY 是唯一真源：新增后缀只改这里。
+#   - dir 动作分链处理：目录里 doc / code / jsonl 混放时各链互不干扰。
+#   - 幂等：沿用 refindex.Ledger（size+mtime 水位）与 Ingestor watermark。
+#   - 预演：dry_run=True 只统计、不写入（对应计划「可预演」要求）。
+
+INGEST_ACTIONS = ("file", "dir", "jsonl", "stat")
+
+INGEST_REGISTRY = {
+    # 会话流
+    ".jsonl": "session", ".ndjson": "session",
+    # 文档
+    ".md": "doc", ".markdown": "doc", ".txt": "doc", ".rst": "doc",
+    ".html": "doc", ".htm": "doc",
+    # 代码
+    ".py": "code", ".js": "code", ".mjs": "code", ".ts": "code",
+    ".tsx": "code", ".jsx": "code", ".go": "code", ".rs": "code",
+    ".java": "code", ".kt": "code", ".swift": "code", ".rb": "code",
+    ".php": "code", ".cs": "code", ".cpp": "code", ".cc": "code",
+    ".c": "code", ".h": "code", ".hpp": "code",
+}
+
+
+def dispatch_of(path: str):
+    """按扩展名返回摄取方式（session / doc / code）；未登记返回 None。"""
+    return INGEST_REGISTRY.get(os.path.splitext(path or "")[1].lower())
+
+
+class FileDispatcher:
+    """单一入口吃多种文件：按扩展名分派到会话流 / 文档 / 代码三条摄取链。"""
+
+    def __init__(self, cg, sensitivity=None):
+        self.cg = cg
+        # 会话链默认 sensitivity=private；调用方可显式覆盖（测试/受限环境）
+        self.ingestor = Ingestor(cg, sensitivity=sensitivity or SESSION_SENSITIVITY)
+
+    # ---- stat：看水位与支持面 ----
+
+    def _ledger_stat(self):
+        try:
+            from . import refindex
+            return refindex.Ledger(self.cg.root).stat()
+        except Exception:                                  # noqa: BLE001
+            return {}
+
+    def stat(self):
+        kinds = {}
+        for ext, kind in INGEST_REGISTRY.items():
+            kinds.setdefault(kind, []).append(ext)
+        return {"ok": True, "kind": "stat", "actions": list(INGEST_ACTIONS),
+                "extensions": {k: sorted(v) for k, v in sorted(kinds.items())},
+                "watermarks": self.ingestor.watermarks(),
+                "ledger": self._ledger_stat(),
+                "note": ("注册表是唯一真源：新增后缀只改 INGEST_REGISTRY。"
+                         "watermarks=会话流水位；ledger=文档/代码文件水位。")}
+
+    # ---- 单文件 ----
+
+    def ingest_file(self, path, layer=None, sensitivity=None, dry_run=False):
+        kind = dispatch_of(path)
+        if kind is None:
+            ext = os.path.splitext(path or "")[1] or "(无后缀)"
+            return {"ok": False, "path": path, "error": f"不支持的后缀：{ext}",
+                    "supported": sorted(INGEST_REGISTRY)}
+        if not os.path.isfile(path):
+            return {"ok": False, "path": path, "error": "文件不存在"}
+        if kind == "session":
+            return self.ingest_jsonl(path, dry_run=dry_run)
+        return self._ingest_doc_or_code(path, kind, layer=layer,
+                                         sensitivity=sensitivity, dry_run=dry_run)
+
+    def _ingest_doc_or_code(self, path, kind, layer=None, sensitivity=None,
+                            dry_run=False):
+        from . import codeindex, docindex, refindex
+        mod = codeindex if kind == "code" else docindex
+        rel = os.path.basename(path)
+        with open(path, encoding="utf-8", errors="replace") as f:
+            src = f.read()
+        try:
+            items = mod.extract(src, path=rel,
+                                suffix=os.path.splitext(path)[1].lower())
+        except ValueError as exc:
+            return {"ok": False, "path": path, "error": f"抽取失败：{exc}"}
+        items = items or []
+        if dry_run:
+            return {"ok": True, "dry_run": True, "kind": kind, "path": path,
+                    "items": len(items),
+                    "ids": [mod.node_id(i) for i in items[:20]],
+                    "note": "预演：只抽取计数，未写盘"}
+        ref_kind = "code_ref" if kind == "code" else "doc_ref"
+        ids, sens = refindex.add_items(
+            self.cg, items, kind=ref_kind,
+            root=os.path.dirname(path) or ".", layer=layer,
+            sensitivity=sensitivity)
+        return {"ok": True, "kind": kind, "path": path, "items": len(items),
+                "indexed": len(ids), "ids": ids[:20], "sensitivity": sens}
+
+    # ---- 目录 ----
+
+    def _dry_dir(self, root):
+        counts = {}
+        for _dp, _dn, fns in os.walk(root):
+            for name in fns:
+                k = dispatch_of(name) or "unsupported"
+                counts[k] = counts.get(k, 0) + 1
+        return {"ok": True, "dry_run": True, "kind": "dir", "root": root,
+                "counts": counts,
+                "note": "预演：仅统计各链文件数，未做任何写入"}
+
+    def ingest_dir(self, root, layer=None, sensitivity=None, patterns=None,
+                   max_files=500, max_items=2000, incremental=False,
+                   dry_run=False):
+        from . import refindex
+        if not os.path.isdir(root):
+            return {"ok": False, "error": f"目录不存在：{root}"}
+        if dry_run:
+            return self._dry_dir(root)
+        ledger = refindex.Ledger(self.cg.root)
+        out = {"ok": True, "kind": "dir", "root": root, "chains": {}}
+        for ref_kind, key in (("doc_ref", "doc"), ("code_ref", "code")):
+            items, errors, stats = refindex.index_dir(
+                root, kind=ref_kind, patterns=patterns, max_files=max_files,
+                max_items=max_items, incremental=incremental, ledger=ledger)
+            ids, sens = refindex.add_items(self.cg, items, kind=ref_kind,
+                                           root=root, layer=layer,
+                                           sensitivity=sensitivity)
+            out["chains"][key] = {
+                "indexed": len(ids), "errors": len(errors),
+                "files": stats.get("files"), "truncated": stats.get("truncated"),
+                "skipped_unchanged": stats.get("skipped_unchanged", 0),
+                "skipped_suffixes": stats.get("skipped_suffixes", []),
+                "sensitivity": sens}
+        # 会话流（.jsonl）逐个增量摄取
+        jsons = sorted(glob.glob(os.path.join(root, "**", "*.jsonl"),
+                                 recursive=True))[:max_files]
+        ses = []
+        for p in jsons:
+            r = self.ingest_jsonl(p)
+            ses.append({"path": p, "written": r.get("written", 0),
+                        "new_events": r.get("new_events", 0)})
+        out["chains"]["session"] = {"files": len(jsons), "results": ses}
+        return out
+
+    # ---- 会话流 ----
+
+    @staticmethod
+    def _auto_source(path):
+        """通用 JSONL vs DSH 会话：按内容探测，避免调用方选错源类型。"""
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                head = f.read(50000)
+        except OSError:
+            return JsonlSource(path)
+        for marker in ('"user/message"', '"assistant/message"', '"tool/call"'):
+            if marker in head:
+                return DSHSessionSource(path)
+        return JsonlSource(path)
+
+    def ingest_jsonl(self, path, dry_run=False, max_events=None):
+        if not os.path.isfile(path):
+            return {"ok": False, "error": f"文件不存在：{path}"}
+        src = self._auto_source(path)
+        res = self.ingestor.ingest(src, dry_run=dry_run, max_events=max_events)
+        res.update({"ok": True, "kind": "session", "path": path,
+                    "source_class": type(src).__name__})
+        return res
+
+
+def run(cg, action: str = "stat", **kw):
+    """ingest op 唯一入口。"""
+    act = (action or "stat").strip().lower()
+    d = FileDispatcher(cg, sensitivity=kw.get("sensitivity"))
+    if act == "stat":
+        return d.stat()
+    if act == "file":
+        p = kw.get("path")
+        if not p:
+            return {"ok": False, "error": "file 动作需要 path"}
+        return d.ingest_file(p, layer=kw.get("layer"),
+                             sensitivity=kw.get("sensitivity"),
+                             dry_run=bool(kw.get("dry_run")))
+    if act == "dir":
+        p = kw.get("path") or cg.root
+        return d.ingest_dir(p, layer=kw.get("layer"),
+                            sensitivity=kw.get("sensitivity"),
+                            patterns=kw.get("patterns"),
+                            max_files=int(kw.get("max_files") or 500),
+                            max_items=int(kw.get("max_items") or 2000),
+                            incremental=bool(kw.get("incremental")),
+                            dry_run=bool(kw.get("dry_run")))
+    if act == "jsonl":
+        p = kw.get("path")
+        if not p:
+            return {"ok": False, "error": "jsonl 动作需要 path"}
+        return d.ingest_jsonl(p, dry_run=bool(kw.get("dry_run")),
+                              max_events=kw.get("max_events"))
+    raise ValueError(f"未知 ingest action：{action!r}（允许 {INGEST_ACTIONS}）")

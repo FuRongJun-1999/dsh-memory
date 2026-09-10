@@ -4,17 +4,43 @@
 # 只有裸 insert（id+name 无 config），完整 config 全靠 profile 层的
 # cordis.patch.yml override 补全。换 profile / 重装 profile / 升级插件时，
 # 必须确认本文件内容仍在 <profile>/cordis.patch.yml 中——否则插件以默认
-# 配置运行：dbPath 落到相对路径 data/lingshu.db（cwd 错位→角色数据读不到）、
+# 配置运行：mdcg.root 落到相对路径 data/mdcg（**记忆真源错位**）、
+# dbPath 落到 data/lingshu.db（cwd 错位→角色数据读不到）、
 # tools=brain（缺 wisdom_* 白箱工具族）、lifecycle 不启动。
 #
-# 本机生效值（2026-09-04 备份）：dbPath=AEIS 主库 / tools=all / lifecycle=600s
+# ⚠️ 记忆真源（2026-09-10 统一）：**灵枢记忆 = md_cg 认知图（md 文档）**，
+# 由下面的 `mdcg` 块配置。`dbPath`（AEIS SQLite）是**旧通道**：现在只作
+# AEIS 能力库（角色生成 / 白箱）的库文件 + 角色数据目录的来源，**不再存记忆**。
+# 旧 profile 若只有 dbPath、没有 mdcg 块，记忆会按默认 mdcg.root=data/mdcg
+# 写进插件进程 cwd 下的 data/mdcg —— 请把 mdcg 块补上。
+#
+# 本机生效值（2026-09-04 备份，2026-09-10 补 mdcg）：mdcg.root=data/mdcg /
+# dbPath=AEIS 主库 / tools=all / lifecycle=600s
 
 # 灵枢 dsh-memory 插件：注入密钥（密钥来自宿主进程环境变量，不入配置库）
 - id: furongjun1999-dsh-memory
   config:
-    # 灵枢记忆库绝对路径（roleDataDir 由它推导：<dir>/roleplay_data——相对路径会
-    # 因 node/python 进程 cwd 不同而解析错位，导致角色列表读不到）
-    dbPath: D:/Program Files/2_ai/AEIS/data/aeis_memory.db
+    # ── 记忆唯一真源：md_cg 认知图（md 文档）──────────────────────────
+    # 记忆的写 / 读 / 裁决 / 留痕只有这一处；AEIS 不再存记忆。
+    mdcg:
+      enabled: true
+      # MDCG_ROOT：认知图根目录（root 下是 md 文档 + 索引）。
+      # 相对路径按**插件进程 cwd** 解析；cwd 不稳定时改成绝对路径。
+      root: 'data/mdcg'
+      actor: 'dsh-memory'      # MDCG_ACTOR：私有内容按 (tenant, actor) 派生 DEK
+      tenant: 'default'        # MDCG_TENANT：须与迁移脚本 --tenant 一致
+      clearance: 'private'     # MDCG_CLEARANCE：可读写密级上限
+      # ⚠️ actor / tenant 必须与 `python -m md_cg.migrate_aeis` /
+      #    `python -m md_cg.migrate_roleplay` 的 --actor / --tenant 一致，
+      #    否则读不到已迁移的节点。
+
+    # ── 旧通道：AEIS 能力库 + 角色数据目录（不再存记忆）────────────────
+    # dbPath = AEIS SQLite 库文件（经环境变量 AEIS_DB 传给 aeis.mcp.server）；
+    # 同时它所在目录被当作 roleDataDir（角色数据 <dir>/roleplay_data：
+    # _roles.json / transcripts）。roleDataDir 由 dbPath 推导，且 node/python
+    # 进程 cwd 不同会解析错位，故此项必须是**绝对路径**。
+    # ⚠️ 替换成你自己机器上的路径，不要照抄别人的。
+    dbPath: /path/to/AEIS/data/aeis_memory.db
     # 全部工具（含记忆/认知/白箱 wisdom_* 工具族），供 Agent 直接调用
     tools: all
     env:
@@ -23,6 +49,24 @@
       # 角色扮演 LLM 续答密钥（插件桥 env 透传；优先从 .credentials.yaml 读取——
       # 文件热加载，避免宿主进程环境变量快照导致的旧 key 问题；文件缺失才回退环境变量）
       DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY
+
+      # ── 认知图写入凭据：默认【关闭】，由你决定是否打开 ──────────────
+      # md_cg fail-closed：不配凭据 → 只读 guest（读/召回/时间线可用，
+      # 自动记忆 / 转录 / 角色落图全不落盘；插件启动会告警提醒）。
+      #
+      # 打开方式（取消注释其一）：
+      # ① 功能完整（推荐）：python -m md_cg.tokens issue --role designer \
+      #      --actor dsh-memory --clearance internal \
+      #      --ops-allow info,route,read,write,recent,goal,identity,whitebox,verify \
+      #      --layers-allow knowledge,contextual,structural,self,goals,unresolved,rejected
+      # MDCG_TOKEN: !!js process.env.MDCG_TOKEN
+      # ② 最小权限：--role recorder（自动记忆/转录/角色定义；无 whitebox/identity/
+      #    verify，且不能写 self 层）
+      # ③ 兼容旧部署（不推荐）：MDCG_LEGACY_ENV_AUTH: '1'
+      #    （要写 self 层再加 MDCG_CAN_ADMIN: '1'）
+      #
+      # 明文注入：setx MDCG_TOKEN "mdcg1.xxxxx" 后重启 DSH；或直接写明文。
+
       # 自主生命周期（v1.15 主动性）：MCP 启动即开始自发循环（感知→好奇→缩小信息差→巩固）
       AEIS_LIFECYCLE: '1'
       AEIS_LIFECYCLE_INTERVAL: '600'

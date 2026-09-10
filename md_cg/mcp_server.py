@@ -554,7 +554,8 @@ KERNEL_TOOLS = [
                             "consistency|metacognition|self_state|evolution|sustain|"
                             "scrub|predict|causal|"
                             "forget|goal|recent|info|index_code|index_doc|ref|whitebox|"
-                            "theory|link", True),
+                            "theory|link|session|ingest|export|maintain|consolidate|"
+                            "insight", True),
             intent=_p("string", "route 的查询意图"), query=_p("string", "read 的查询"),
             goal=_p("string", "goal op 的目标文本；read 的定向目标（缺省用活跃目标）"),
             goal_status=_p("string", "goal op：active|done|dropped"),
@@ -596,7 +597,8 @@ KERNEL_TOOLS = [
             context=_p("object", "当前情境"),
             k=_p("integer", "返回条数"), budget_tokens=_p("integer", "read 的 token 预算"),
             evidence=_p("string", "verify 的证据"),
-            verdict=_p("string", "verify 裁决：confirmed|weakened|falsified"),
+            verdict=_p("string", "verify 裁决：confirmed|weakened|falsified；"
+                                 "insight verify：verified|falsified"),
             question=_p("string", "whitebox：ask/verify 的问题"),
             message=_p("string", "whitebox ask：问题（question 的别名）"),
             session_id=_p("string", "whitebox：会话 id（默认 md_cg-whitebox-verify）"),
@@ -617,7 +619,18 @@ KERNEL_TOOLS = [
                                 "link: ls|show|handshake|observe|promote|degrade|"
                                 "isolate|withdraw|decay|policy|card|publish|peers|"
                                 "evidence|export|import|catalog；"
-                                "ref: read|check|stat"),
+                                "ref: read|check|stat；"
+                                "session: note|recall|compact；"
+                                "ingest: file|dir|jsonl|stat；"
+                                "export: graph|nodes|slice|stat；"
+                                "maintain: stat|history|importance|longterm|prefeed|"
+                                "separate|rollback|backfill|backfill_rollback|"
+                                "backfill_history|cap|cap_rollback|cap_history|"
+                                "exempt|exempt_rollback|exempt_history；"
+                                "consolidate: promote|promote_rollback|"
+                                "promote_history|induce；"
+                                "insight: window|record|verify|list|report|"
+                                "reconstruct|learn|outlook|catalog"),
             pid=_p("string", "review decide 的提案 id"),
             decision=_p("string", "review 裁决：accept|reject|edit|merge"),
             edits=_p("object", "review edit 的覆盖字段（不可含 verify）"),
@@ -680,7 +693,7 @@ KERNEL_TOOLS = [
             kind=_p("string", "evolution：condition_gap|layer_shift|general"),
             entry_id=_p("string", "evolution show/rollback：条目 id"),
             source=_p("string", "evolution record：来源 consolidate|verify|manual；"
-                                "link evidence：按来源节点过滤"),
+                                "link evidence：按来源节点过滤；insight record：来源"),
             peer=_p("string", "link：对端节点 id（如 agent:node-x）"),
             subsystem=_p("string", "link：子系统名（缺省 swarm）"),
             position_map=_p("object", "link handshake：对端位置映射 {位置:权重}"),
@@ -694,8 +707,46 @@ KERNEL_TOOLS = [
             swarm=_p("string", "link：跨节点共享目录（缺省 ~/.mdcg/swarm）"),
             subject=_p("string", "link evidence：按主体过滤（如 agent:node-x）"),
             subjects=_p("array", "link export：限定导出的主体列表"),
-            out=_p("string", "link export：证据包输出路径"),
-            pack=_p("object", "link import：内联证据包（与 path 二选一）")),
+            out=_p("string", "link export：证据包输出路径；export/maintain 输出路径"),
+            pack=_p("object", "link import：内联证据包（与 path 二选一）"),
+            include_content=_p("boolean", "export：是否带正文（默认 true，"
+                                          "nodes/graph 用；slice 按 ids 裁剪）"),
+            since=_p("number", "export slice：起始时间戳（含）"),
+            until=_p("number", "export slice：结束时间戳（含）"),
+            tag=_p("string", "export slice：按标签过滤"),
+            max_rows=_p("integer", "maintain longterm：单次评估行数上限"),
+            keep=_p("integer", "maintain longterm：保留最近 N 个断面（默认 10）"),
+            mode=_p("string", "maintain longterm：list|show（读断面清单/统计）"),
+            snapshot_id=_p("string", "maintain longterm show：断面 id 前缀"),
+            batch=_p("string", "maintain/consolidate：批次号（回滚用）"),
+            entry_ids=_p("array", "maintain rollback：按节点 id 定向回滚"),
+            min_jaccard=_p("number", "maintain separate / consolidate induce："
+                                     "内容相似度下限（默认 0.55 / 0.30）"),
+            min_cluster=_p("integer", "consolidate induce：成团最少成员数（默认 3）"),
+            min_delta=_p("number", "maintain importance：变动阈值（默认 0.05）"),
+            min_merge=_p("integer", "consolidate promote：反复命中次数下限（默认 2）"),
+            min_importance=_p("number", "consolidate promote：重要性下限（默认 0.6）"),
+            require_conditions=_p("boolean", "consolidate promote：四要素不全者不提升"
+                                             "（默认 true）"),
+            source_layer=_p("string", "consolidate promote：来源层（默认 contextual）"),
+            target_layer=_p("string", "consolidate promote：目标层（默认 knowledge）"),
+            write=_p("boolean", "maintain prefeed：按裁决落库（默认 false=只预演）"),
+            include_partial=_p("boolean", "maintain backfill：连「补完仍不全」的节点"
+                                           "一起写（默认 false=只补可判定者）"),
+            min_conf=_p("number", "maintain cap：能力标签置信度下限（默认 0.5）"),
+            basis_text=_p("string", "maintain backfill：本批次声明的「验证方式」文本"
+                                     "（人/流程声明，非模型生成）"),
+            clues=_p("array", "insight reconstruct：线索（词面 / 节点 id）"),
+            statement=_p("string", "insight record：洞见正文（必填；本层不臆造）"),
+            category=_p("string", "insight record：洞见分类"),
+            v_types=_p("array", "insight verify：证据类型 v1|v2|v3"
+                                "（v3 外部确证 / v2 实践重复 / v1 可检索）"),
+            state=_p("string", "insight list：按状态过滤 pending|verified|falsified"),
+            window_days=_p("number", "insight report/outlook：统计时间窗（天）"),
+            neighbors=_p("boolean", "insight reconstruct：是否并入一跳邻域（默认 true）"),
+            recent_days=_p("integer", "insight outlook：近期窗口天数（默认 7）"),
+            sample_limit=_p("integer", "insight outlook：抽样清单条数（默认 8）"),
+            max_events=_p("integer", "ingest：单次最多摄取事件数")),
     },
     {
         "name": "stg",
@@ -1578,7 +1629,209 @@ def _cg_call(cg, a):
     if op == "ref":
         return _ref_call(cg, a)
 
+    if op == "session":
+        return _session_call(cg, a)
+
+    if op == "ingest":
+        return _ingest_call(cg, a)
+
+    if op == "export":
+        return _export_call(cg, a)
+
+    if op == "maintain":
+        return _maintain_call(cg, a)
+
+    if op == "consolidate":
+        return _consolidate_call(cg, a)
+
+    if op == "insight":
+        return _insight_call(cg, a)
+
     raise ValueError(f"cg 未知 op：{op}")
+
+
+def _session_call(cg, a):
+    """会话三件套（P0）：note 写要点 / recall 续接 / compact 压摘要。
+
+    定位：hook 缺失时的**库侧替代**——载体负责「何时自动做」，库保证
+    「一次调用就够用」。权限：note 与 compact(note=True) 属写入 → can_write；
+    recall 只读（output 角色可用）。
+    """
+    act = (a.get("action") or "recall").strip().lower()
+    principal = getattr(cg, "principal", None)
+    if act == "note":
+        if principal is not None and not getattr(principal, "can_write", False):
+            principal.require_admin("session_note")   # 无写权 → 抛 AccessDenied
+        imp = a.get("importance")
+        return cg.session_note(
+            a.get("summary") or a.get("text") or a.get("content") or "",
+            session=a.get("session"), tags=a.get("tags"),
+            layer=a.get("layer") or "contextual",
+            importance=float(0.6 if imp is None else imp),
+            sensitivity=a.get("sensitivity"), conditions=a.get("conditions"),
+            basis=a.get("basis") or "data")
+    if act == "recall":
+        return cg.session_recall(
+            session=a.get("session"), limit=int(a.get("limit") or 5),
+            recent_limit=int(a.get("recent_limit") or 10),
+            budget_tokens=int(a.get("budget_tokens") or 1200),
+            include_state=bool(a.get("include_state", True)))
+    if act == "compact":
+        if a.get("note") and principal is not None \
+                and not getattr(principal, "can_write", False):
+            principal.require_admin("session_compact")
+        imp = a.get("importance")
+        return cg.session_compact(
+            session=a.get("session"), limit=int(a.get("limit") or 40),
+            max_points=int(a.get("max_points") or 8), note=bool(a.get("note")),
+            importance=float(0.5 if imp is None else imp))
+    raise ValueError(f"session 未知 action：{act}（允许 note/recall/compact）")
+
+
+def _ingest_call(cg, a):
+    """文件摄取分派（P0）：file / dir / jsonl / stat。
+
+    权限：写链（file/dir/jsonl）需 can_write；stat 只读。
+    支持 dry_run 预演（对应计划「可预演」要求）。
+    """
+    from . import sources
+    act = (a.get("action") or "stat").strip().lower()
+    principal = getattr(cg, "principal", None)
+    if act in ("file", "dir", "jsonl") and principal is not None \
+            and not getattr(principal, "can_write", False):
+        principal.require_admin(f"ingest_{act}")      # 无写权 → 抛 AccessDenied
+    return sources.run(
+        cg, action=act, path=a.get("path"), layer=a.get("layer"),
+        sensitivity=a.get("sensitivity"), patterns=a.get("patterns"),
+        max_files=a.get("max_files"), max_items=a.get("max_items"),
+        incremental=a.get("incremental"), dry_run=a.get("dry_run"),
+        max_events=a.get("max_events"))
+
+
+def _export_call(cg, a):
+    """全库导出（P0）：graph / nodes / slice / stat。
+
+    导出整库属**管理操作** → 一律 require_admin（designer 专属）。
+    """
+    from . import export as _ex
+    act = (a.get("action") or "stat").strip().lower()
+    principal = getattr(cg, "principal", None)
+    if principal is not None:
+        principal.require_admin(f"export_{act}")
+    inc = a.get("include_content")
+    return _ex.run(
+        cg, action=act, out=a.get("out"), ids=a.get("ids"),
+        layer=a.get("layer"), since=a.get("since"), until=a.get("until"),
+        tag=a.get("tag"), limit=a.get("limit"),
+        include_content=True if inc is None else bool(inc))
+
+
+def _maintain_call(cg, a):
+    """记忆维护（P1）：importance / longterm / prefeed / separate / rollback / stat。
+
+    权限**按 action 分档**（比整 op 收窄更贴合语义）：
+      · 只读（stat / history / longterm mode=list|show）→ 不额外拦截；
+      · 写入侧闸门（prefeed write=True）→ 需 can_write；
+      · 批量改写（importance / separate / longterm 的 apply，以及 rollback 本身
+        即反向写入、无 dry-run 语义）→ require_admin。
+    注意：**dry-run 不等于写入**——importance / separate 的预演只出报表、不改盘，
+    因此对持有 maintain 授权的写层角色放行，使其能先看清影响面再请示管理层。
+    """
+    act = (a.get("action") or "stat").strip().lower()
+    principal = getattr(cg, "principal", None)
+    apply = bool(a.get("apply"))
+    mode = str(a.get("mode") or "").strip().lower()
+    actor = getattr(principal, "actor", None) if principal is not None else None
+    if principal is not None and act == "rollback":
+        principal.require_admin("maintain_rollback")
+    if principal is not None and act in ("importance", "separate") and apply:
+        principal.require_admin(f"maintain_{act}")
+    if principal is not None and act == "longterm" and apply:
+        principal.require_admin("maintain_longterm")
+    if principal is not None and act == "prefeed" and a.get("write") \
+            and not getattr(principal, "can_write", False):
+        principal.require_admin("maintain_prefeed_write")
+    # 真实库对齐（P32）：backfill/cap 的 apply 与 rollback 都直接改写 md → 管理操作；
+    # 预演（plan）与留痕查询只出报表/读日志，放行写层角色以便先看影响面。
+    if principal is not None and act in ("backfill", "cap", "exempt") and apply:
+        principal.require_admin(f"maintain_{act}")
+    if principal is not None and act in ("backfill_rollback", "cap_rollback",
+                                         "exempt_rollback"):
+        principal.require_admin(f"maintain_{act}")
+    if act == "longterm" and mode in ("list", "ls", "show", "read"):
+        return cg.maintain(action="longterm", mode=mode,
+                           limit=a.get("limit"), snapshot_id=a.get("snapshot_id"))
+    return cg.maintain(
+        action=act, layer=a.get("layer"), limit=a.get("limit"), apply=apply,
+        min_delta=a.get("min_delta"), max_rows=a.get("max_rows"),
+        force=bool(a.get("force")), keep=a.get("keep"), mode=a.get("mode"),
+        snapshot_id=a.get("snapshot_id"), batch=a.get("batch"),
+        entry_ids=a.get("entry_ids"),
+        content=a.get("content") or a.get("text") or a.get("summary"),
+        role=a.get("role"),
+        verification_basis=a.get("basis") or a.get("verification_basis"),
+        importance_hint=a.get("importance"), node_id=a.get("node_id"),
+        write=bool(a.get("write")), min_jaccard=a.get("min_jaccard"),
+        ids=a.get("ids"), actor=actor, include_partial=a.get("include_partial"),
+        min_conf=a.get("min_conf"), basis_text=a.get("basis_text"))
+
+
+def _consolidate_call(cg, a):
+    """离线固化（P1）：promote / promote_rollback / promote_history。
+
+    批量提升属**管理操作** → 一律 require_admin（designer 专属）。
+    """
+    act = (a.get("action") or "promote").strip().lower()
+    principal = getattr(cg, "principal", None)
+    if principal is not None:
+        principal.require_admin(f"consolidate_{act}")
+    imp = a.get("min_importance")
+    if imp is None:
+        imp = a.get("importance")
+    return cg.consolidate_run(
+        action=act, source_layer=a.get("source_layer"),
+        target_layer=a.get("target_layer"), min_merge=a.get("min_merge"),
+        min_importance=imp, require_conditions=a.get("require_conditions"),
+        min_cluster=a.get("min_cluster"), min_jaccard=a.get("min_jaccard"),
+        max_nodes=a.get("max_nodes"),
+        limit=a.get("limit"), apply=bool(a.get("apply")),
+        node_ids=a.get("node_ids") or a.get("ids"), batch=a.get("batch"),
+        actor=getattr(principal, "actor", None) if principal is not None else None)
+
+
+def _insight_call(cg, a):
+    """洞察（P2）：window / record / verify / list / report / reconstruct / learn /
+    outlook / catalog。
+
+    权限**按 action 分档**（与 maintain 同构，比整 op 收窄更贴合语义）：
+      · 只读（window / list / report / reconstruct 预演 / outlook / catalog）
+        → 不额外拦截；
+      · 条件层记账（record / verify）→ 需 can_write；
+      · 落库（reconstruct apply / learn apply）→ 批量改写，require_admin。
+    这样 output 角色能读洞察但不能记；reflect 能重构与学习预演；批量落库须请示。
+    """
+    act = (a.get("action") or "outlook").strip().lower()
+    principal = getattr(cg, "principal", None)
+    can_write = bool(getattr(principal, "can_write", False))
+    apply = bool(a.get("apply"))
+    actor = getattr(principal, "actor", None) if principal is not None else None
+    if principal is not None and act in ("record", "verify") and not can_write:
+        principal.require_admin(f"insight_{act}")     # 无写权 → 抛 AccessDenied
+    if principal is not None and act in ("reconstruct", "learn") and apply:
+        principal.require_admin(f"insight_{act}")
+    return cg.insight(
+        action=act, layer=a.get("layer"), limit=a.get("limit"),
+        conditions=a.get("conditions"), apply=apply, actor=actor,
+        statement=a.get("statement"), category=a.get("category"),
+        source=a.get("source"), tags=a.get("tags"),
+        importance=a.get("importance"), node_id=a.get("node_id"),
+        evidence=a.get("evidence"), v_types=a.get("v_types"),
+        verdict=a.get("verdict"), state=a.get("state"),
+        window_days=a.get("window_days"), clues=a.get("clues"),
+        ids=a.get("ids"), neighbors=a.get("neighbors"),
+        blindspot_id=a.get("blindspot_id"), horizon=a.get("horizon"),
+        max_branches=a.get("max_branches"), recent_days=a.get("recent_days"),
+        sample_limit=a.get("sample_limit"), max_nodes=a.get("max_nodes"))
 
 
 def _ref_call(cg, a):

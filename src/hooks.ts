@@ -1,14 +1,26 @@
 /**
  * 自动记忆钩子：把 DSH 的会话事件（经统一的 session/event 分发）沉淀进灵枢。
  *
+ * 记忆真源 = **md_cg 认知图（md 文档）**（2026-09-10 统一）：本钩子经
+ * MdcgClient.remember() 调 MCP `mdcg_remember(gated=true)`（主动遗忘闸门：
+ * ACCEPT 落盘 / MERGE 并入既有 = 去重强化 / DROP 低熵 / DEFER 待定），
+ * 落层 contextual，role 取 user | assistant | tool-output —— 与 md_cg 对 DSH
+ * 会话事件的约定一致（md_cg/sources.py 的 SESSION_LAYER / DSHSessionSource）。
+ * ⚠️ 不用 `cg(op=write)`：那条路径先过 audit，未声明 content_kind 时永不落盘
+ * （见 src/lib/mdcg_client.ts 文件头）。
+ * 不再走 AEIS：AEIS 已降为能力库，不存记忆。
+ *
+ * ⚠️ 写入需凭据：md_cg fail-closed，无 MDCG_TOKEN / MDCG_LEGACY_ENV_AUTH=1
+ * 时降级为只读 guest —— 本钩子的写入会失败（仅告警，不影响对话）。
+ *
  * 与 DSH 的 session-persistence 插件（保存会话日志）不同，这里是"语义沉淀"：
- * 用户消息写入灵枢知识层（带去重与重要性），agent 回复与工具结果可选开启。
+ * 带去重（闸门 MERGE）与重要性，写入前脱敏；agent 回复与工具结果可选开启。
  * 只记忆真实用户消息（source.kind === 'user'），过滤插件注入的噪音。
  *
- * P1 完善（GPT 审查·自动记忆只写不读）：新增 autoRecall——通过
- * system-prompt/assemble 事件（waterfall，异步允许）在每次模型请求组装
- * system prompt 时自动注入灵枢最近记忆（timeline），让记忆"自动可用"
- * 而不只依赖 Agent 主动调用 recall/think 工具。失败静默（不影响请求）。
+ * autoRecall：通过 system-prompt/assemble 事件（waterfall，异步允许）在每次
+ * 模型请求组装 system prompt 时自动注入灵枢最近记忆
+ * （`stg(op=timeline)`，最近记忆节点时间线），让记忆"自动可用"而不只依赖
+ * Agent 主动调用 recall/think 工具。失败静默（不影响请求）。
  */
 
 import '@deepseek-ai/dsh-session'
@@ -16,7 +28,7 @@ import '@deepseek-ai/dsh-system-prompt'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { LingshuBridge } from './bridge.js'
+import type { MdcgClient } from './lib/mdcg_client.js'
 
 /** 自动记忆开关。 */
 export interface MemoryHooksOptions {
@@ -48,7 +60,7 @@ function extractText(blocks: ContentBlock[]): string {
 }
 
 /**
- * 敏感信息模式（GPT 审查·自动记忆脱敏）：写入记忆库前过滤凭据/个人标识。
+ * 敏感信息模式（GPT 审查·自动记忆脱敏）：写入认知图前过滤凭据/个人标识。
  * 命中 → 替换为 [已过滤:类别]（保留对话主体）；过滤后只剩占位符/空白 → 整条跳过。
  * 纯内容过滤，不涉及身份认证——开源场景下的隐私保护。
  */
@@ -75,12 +87,43 @@ export function desensitize(text: string): string | null {
   return out
 }
 
-/** 安装自动记忆钩子（effect 作用域内，随插件卸载自动移除）。 */
-export function installMemoryHooks(ctx: Context, bridge: LingshuBridge, opts: MemoryHooksOptions): void {
-  const memorize = (tool: string, args: Record<string, unknown>): void => {
-    void bridge
-      .callTool(tool, args)
-      .catch((err: Error) => ctx.logger.warn(`dsh-memory: ${tool} 自动记忆失败: ${err.message}`))
+/** 时间线载荷 → 注入文本。
+ *  `stg(op=timeline)` 返回 {count, limit, items:[{id, layer, start, end, preview}]}。 */
+function formatTimeline(payload: unknown): string {
+  const items = (payload && typeof payload === 'object'
+    && Array.isArray((payload as { items?: unknown }).items))
+    ? (payload as { items: Array<Record<string, unknown>> }).items
+    : []
+  return items
+    .map((it) => {
+      const preview = String(it['preview'] ?? '').replace(/\s+/g, ' ').trim()
+      if (!preview) return ''
+      const layer = it['layer'] ? `[${String(it['layer'])}] ` : ''
+      return `- ${layer}${preview}`
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+/** 安装自动记忆钩子（effect 作用域内，随插件卸载自动移除）。
+ *
+ *  mdcg 为 null（config.mdcg.enabled=false）时自动记忆整体停用：记忆真源是
+ *  认知图，没有它就没有可写的去处——**不会退回 AEIS**（AEIS 已不存记忆）。 */
+export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: MemoryHooksOptions): void {
+  if (!mdcg) {
+    ctx.logger.warn('dsh-memory: 认知图未启用（config.mdcg.enabled=false），自动记忆已停用')
+    return
+  }
+  const graph = mdcg
+
+  /** 记忆沉淀（fire-and-forget）。认知图未就绪则跳过并告警（不退回 AEIS）。 */
+  const memorize = (label: string, run: (g: MdcgClient) => Promise<unknown>): void => {
+    if (!graph.isReady()) {
+      ctx.logger.warn(`dsh-memory: 认知图未就绪，跳过自动记忆（${label}）`)
+      return
+    }
+    void run(graph).catch((err: Error) =>
+      ctx.logger.warn(`dsh-memory: 自动记忆 ${label} 失败: ${err.message}`))
   }
 
   // P1 完善（GPT 审查·自动记忆脱敏）：写入前过滤敏感信息（默认开启）。
@@ -96,14 +139,15 @@ export function installMemoryHooks(ctx: Context, bridge: LingshuBridge, opts: Me
     const recallLimit = Math.max(1, Math.min(10, opts.autoRecallLimit || 4))
     ctx.on('system-prompt/assemble', async (assembly, _ctx, next) => {
       try {
-        // 异步取最近记忆（失败静默——不阻塞模型请求）
-        const r = await bridge.callTool('timeline', { limit: recallLimit })
-        const text = extractText(r.content as unknown as ContentBlock[])
-        if (text) {
-          assembly.contexts.push({
-            name: 'lingshu:auto-recall',
-            text: `【灵枢最近记忆】\n${text.slice(0, 600)}`,
-          })
+        // 异步取最近记忆节点（失败静默——不阻塞模型请求）
+        if (graph.isReady()) {
+          const text = formatTimeline(await graph.timeline(recallLimit))
+          if (text) {
+            assembly.contexts.push({
+              name: 'lingshu:auto-recall',
+              text: `【灵枢最近记忆】\n${text.slice(0, 600)}`,
+            })
+          }
         }
       }
       catch { /* 静默：召回失败不影响请求 */ }
@@ -124,23 +168,30 @@ export function installMemoryHooks(ctx: Context, bridge: LingshuBridge, opts: Me
       if (!text) return
       const safe = sanitize(text)  // 脱敏：纯凭据消息 → null → 跳过写入
       if (safe === null) return
-      memorize('remember', { content: safe, importance: opts.importance, tags: ['dsh', 'user'] })
-      // T4：用用户消息做一次语义召回——触发灵枢 _note_reuse 落库（复用观测），
-      // 召回结果同时预热灵枢检索缓存（timeline 只读不触发复用统计）
-      memorize('recall', { query: safe.slice(0, 200), limit: 3 })
+      memorize('user', (g) => g.remember(safe, {
+        role: 'user', tags: ['dsh', 'user'], importance: opts.importance,
+      }))
+      // T4：用用户消息做一次语义召回——md_cg 的读取会记 access log（复用观测，
+      // 供 importance / scrub 陈旧度使用），同时预热检索路径。
+      // （AEIS 侧的 `_note_reuse` 在 md_cg 中不存在，其等价物就是这次记访问。）
+      memorize('user-recall', (g) => g.recall(safe.slice(0, 200), 3))
     } else if (event.type === 'assistant/message' && opts.assistantMessage) {
       const text = extractText(event.data.message.content)
       if (!text) return
       const safe = sanitize(text)
       if (safe === null) return
-      memorize('remember', { content: safe, importance: opts.importance * 0.8, tags: ['dsh', 'assistant'] })
+      memorize('assistant', (g) => g.remember(safe, {
+        role: 'assistant', tags: ['dsh', 'assistant'], importance: opts.importance * 0.8,
+      }))
     } else if (event.type === 'tool/result' && opts.toolResult) {
       if (event.data.error) return
       const text = extractText(event.data.message.content)
       if (!text) return
       const safe = sanitize(text)
       if (safe === null) return
-      memorize('remember', { content: safe, importance: opts.importance * 0.6, tags: ['dsh', 'tool'] })
+      memorize('tool', (g) => g.remember(safe, {
+        role: 'tool-output', tags: ['dsh', 'tool'], importance: opts.importance * 0.6,
+      }))
     }
   })
 }

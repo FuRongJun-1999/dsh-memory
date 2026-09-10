@@ -10,13 +10,16 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 import * as plugin from '../src/index.js'
 
-const AEIS_DIR = 'D:\\Program Files\\2_ai\\AEIS'
+/** AEIS 库源码目录：默认取与本仓库同级的 `../AEIS`，可用 AEIS_DIR 环境变量覆盖。 */
+const AEIS_DIR = process.env.AEIS_DIR
+  ?? resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'AEIS')
 
 /** 构建一个装有插件的最小 host；返回清理函数。 */
 async function mountHost(dbPath: string) {

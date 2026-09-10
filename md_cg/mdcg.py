@@ -315,6 +315,11 @@ class MdCG:
         for nid, e in self._dirty.items():
             self._log.append({"id": nid, "e": e})
         self._dirty = {}
+        # 写完立即关分片句柄：Windows 上「被本进程打开的文件」无法删除，
+        # 若持有句柄，rebuild_index 的 ShardedLog.clear 会静默失败，已并进
+        # 快照的旧记录被永久重放（旧条目反而覆盖新快照）。append 内部已
+        # 每次 flush，句柄无需常驻；下一次 append 会按需重开。
+        self._log.close()
 
     def close(self):
         # 先落脏索引再关句柄：否则未达 autoflush 阈值的尾部写入会永久丢失，
@@ -699,7 +704,8 @@ class MdCG:
         输出：{state: ACCEPT|REJECT|DEFER|BLINDSPOT, reason: str}
 
         判定逻辑（与文档一致）：
-        - BLINDSPOT：节点 MARKS 不完整（无法建立可靠归属）→ 停止
+        - BLINDSPOT：节点 MARKS 不完整（6 行缺一不可；生效条件不可隐含，
+          必须由条件空间四槽合成显式声明）→ 无法建立可靠归属，停止
         - REJECT：不适用条件命中 → 明确不适用
         - DEFER：条件不足但缺的不是不适用条件，是适用条件未声明 → 可继续寻找
         - ACCEPT：条件满足（默认）
@@ -708,10 +714,10 @@ class MdCG:
         content = node_dict.get("content") or ""
         cpl = nodefile.ccg_completeness(content)
 
-        # 1) BLINDSPOT：5 要素不全 → 无法建立可靠归属
+        # 1) BLINDSPOT：CCG 要素不全 → 无法建立可靠归属
         if not cpl["complete"]:
             return {"state": STATE_BLINDSPOT,
-                    "reason": f"CCG 5 要素不全：缺 {set(nodefile.CCG_REQUIRED) - set(cpl['required_present'])}"}
+                    "reason": f"CCG 要素不全：缺 {set(nodefile.CCG_REQUIRED) - set(cpl['required_present'])}"}
 
         # 2) REJECT：不适用条件命中（需条件对比，简化版用关键词命中）
         neg = fm.get("non_applicable_conditions") or []
@@ -842,8 +848,11 @@ class MdCG:
 
     @staticmethod
     def _like(content, fm, terms):
+        # 负条件行（`# 不适用条件：`）是反例声明，不作召回键：命中它只应由
+        # judge_qualification 走 REJECT，不能把节点召回。tags 仍参与匹配。
         tags = " ".join(str(t) for t in (fm.get("tags") or []))
-        return any(t in content or t in tags for t in terms)
+        body = nodefile.positive_body(content)
+        return any(t in body or t in tags for t in terms)
 
     def _score(self, docs, q, qb):
         scored = []

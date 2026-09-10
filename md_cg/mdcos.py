@@ -31,7 +31,7 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, STATE_ACCEPT, STATE_REJECT
                    expand_query_terms_llm)
 from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
-               self_state, predict, evolution)
+               self_state, predict, evolution, weights)
 from .fsutil import FileLock, atomic_write, append_jsonl, read_jsonl
 from .security import (Principal, TenantRegistry, AccessDenied,
                        SENSITIVITY_ORDER, DEFAULT_SENSITIVITY, _rank)
@@ -538,7 +538,8 @@ class MdCGOS(MdCG):
         out = []
         for e, fm, c in self._read_many(entries, stat):
             tags = " ".join(str(t) for t in (fm.get("tags") or []))
-            cov = _weighted_coverage(tw, f"{c} {tags}")
+            # 负条件行不作召回键（反例命中应由 judge 走 REJECT，不该召回节点）
+            cov = _weighted_coverage(tw, f"{nodefile.positive_body(c)} {tags}")
             if cov <= 0.0:
                 continue
             e_dom = routing.route_key(None, e.get("tags"))
@@ -1242,6 +1243,486 @@ class MdCGOS(MdCG):
         self._audit("restore", node_id, forced=bool(force))
         return {"ok": True, "id": node_id, "forced": bool(force)}
 
+    # ================= 会话层（P0 会话三件套：note / recall / compact） =================
+    #
+    # 定位：hook 缺失时的**库侧替代**。载体侧 hook 负责「何时自动做」，
+    # 库侧只保证「一次调用就够用」——把原本由 hook 自动注入的内容打包返回，
+    # 从而降低对载体引导机制的依赖（见 docs/灵枢82工具 §五 ③-4「自动注入不对等」）。
+    # 诚实边界：本层是「库侧可缓解」，不等于载体侧 hook 已闭合。
+
+    SESSION_TAG = "session"
+
+    @staticmethod
+    def _session_node_id(session, summary):
+        """会话要点节点 id：同 (session, summary) → 同 id（幂等覆盖，不新增）。"""
+        sig = hashlib.sha1(
+            f"{session or ''}|{(summary or '').strip()}".encode("utf-8")
+        ).hexdigest()[:12]
+        return f"sess_{sig}"
+
+    @staticmethod
+    def _session_digest(content):
+        """从会话节点正文取一行摘要（`# 执行：` 优先，否则首个非空行）。"""
+        v = _ccg_field(content, "执行")
+        if v:
+            return v[:500]
+        for ln in (content or "").splitlines():
+            if ln.strip():
+                return ln.strip()[:500]
+        return ""
+
+    def session_note(self, summary, session=None, tags=None, layer="contextual",
+                     importance=0.6, sensitivity=None, conditions=None,
+                     basis="data"):
+        """会话要点写入：把一段会话的要点落成可续接的 contextual 节点。
+
+        幂等：同 (session, summary) 重复写入 → 覆盖同一节点，不新增。
+        CCG 齐备：生效条件 / 验证方式自动补齐，避免「只可检索、不可判定」。
+        """
+        summary = (summary or "").strip()
+        if not summary:
+            raise ValueError("summary 不能为空")
+        session = (session or "").strip() or time.strftime("%Y%m%d")
+        nid = self._session_node_id(session, summary)
+        cond = conditions or f"续接会话 {session}、或查询命中该会话要点关键词时"
+        content = (
+            f"# 功能名：会话要点（{session}）\n"
+            f"# 生效条件：{cond}\n"
+            f"# 子功能：会话要点记录（可续接 / 可检索）\n"
+            f"# 执行：{summary}\n"
+            f"# 验证方式：{basis}\n"
+            f"# 不适用条件：其它会话的要点；与本次会话无关的查询\n\n"
+            f"{summary}\n"
+        )
+        tg = [self.SESSION_TAG, f"session:{session}"] + list(tags or [])
+        self.add(nid, content, layer=layer, tags=tg,
+                 importance=float(importance),
+                 condition_space={"observation_position": "session"},
+                 verification_basis=basis,
+                 non_applicable_conditions=["其它会话"],
+                 sensitivity=sensitivity)
+        self._audit("session_note", nid, session=session)
+        return {"ok": True, "id": nid, "session": session, "layer": layer,
+                "basis": basis, "tokens": est_tokens(content)}
+
+    def _session_notes(self, session=None, limit=5):
+        """按时间倒序取会话要点（索引过滤 + 惰性回读摘要）。只读，不写盘。"""
+        out = []
+        for nid, e in (self.index.get("nodes") or {}).items():
+            tags = list(e.get("tags") or [])
+            if self.SESSION_TAG not in tags and not any(
+                    str(t).startswith("session:") for t in tags):
+                continue
+            if session and f"session:{session}" not in tags:
+                continue
+            fm, content = self._read(e)
+            if content is None:
+                continue               # 不可读（无密钥 / 身份不符）→ 视为不存在
+            out.append({
+                "id": nid, "session": (fm or {}).get("session") or "",
+                "created_at": float(e.get("created_at") or 0),
+                "layer": e.get("layer"), "tags": tags,
+                "summary": self._session_digest(content),
+            })
+        out.sort(key=lambda n: -n["created_at"])
+        return out[:max(1, int(limit or 5))]
+
+    def session_recall(self, session=None, limit=5, recent_limit=10,
+                       budget_tokens=1200, include_state=True):
+        """按需恢复：一次调用返回「可续接的上下文包」（替代 hook 自动注入）。
+
+        内容 = 最近会话要点 + 活跃目标 + 近期事件 + 未解问题 (+ 自我状态卡)。
+        纯只读、无副作用；返回体受 budget_tokens 约束（超出即裁剪并显式上报）。
+        无 hook 的载体应在会话开始时显式调用本 op 一次。
+        """
+        limit = max(1, min(int(limit or 5), 50))
+        budget = max(200, int(budget_tokens or 1200))
+        pack = {"ok": True, "session": session, "source": "session_recall",
+                "notes": [], "goals": [], "recent": [], "unresolved": [],
+                "degraded": []}
+        # ① 会话要点
+        try:
+            pack["notes"] = self._session_notes(session=session, limit=limit)
+        except Exception:                                  # noqa: BLE001
+            pack["degraded"].append("notes")
+        # ② 活跃目标（检索定向的默认来源）
+        try:
+            pack["goals"] = [{"id": g["id"], "goal": g["goal"],
+                              "priority": g["priority"]}
+                             for g in self.active_goals(limit=5)]
+        except Exception:                                  # noqa: BLE001
+            pack["degraded"].append("goals")
+        # ③ 近期事件（原始滚动窗口）
+        try:
+            evs = self.recent_events(limit=max(1, int(recent_limit or 10)))
+            pack["recent"] = [{"role": r.get("role"),
+                               "text": (r.get("text") or "")[:300],
+                               "t": r.get("t")} for r in evs]
+        except Exception:                                  # noqa: BLE001
+            pack["degraded"].append("recent")
+        # ④ 未解问题（驱动主动补全）
+        try:
+            for nid, e in (self.index.get("nodes") or {}).items():
+                if e.get("layer") != "unresolved":
+                    continue
+                _fm, content = self._read(e)
+                if content is None:
+                    continue
+                pack["unresolved"].append(
+                    {"id": nid, "question": (_ccg_field(content, "问题") or "")[:300]})
+        except Exception:                                  # noqa: BLE001
+            pack["degraded"].append("unresolved")
+        # ⑤ 自我状态卡（只读快照，不触发 refresh 写盘）
+        if include_state:
+            try:
+                from . import self_state as _ss
+                pack["self_state"] = _ss.summary(self)
+            except Exception:                              # noqa: BLE001
+                pack["degraded"].append("self_state")
+        # ⑥ 预算裁剪：交替丢 recent / notes 尾部，超出预算则显式上报
+        pack["tokens"] = est_tokens(json.dumps(pack, ensure_ascii=False))
+        while pack["tokens"] > budget and (pack["recent"] or pack["notes"]):
+            if len(pack["recent"]) >= len(pack["notes"]):
+                pack["recent"].pop()
+            else:
+                pack["notes"].pop()
+            pack["tokens"] = est_tokens(json.dumps(pack, ensure_ascii=False))
+        pack["budget_tokens"] = budget
+        pack["truncated"] = pack["tokens"] > budget
+        pack["note"] = ("只读上下文包：会话要点 + 目标 + 近期事件 + 未解问题"
+                        "（+自我状态卡）。库侧替代 hook 自动注入；"
+                        "会话开始时显式调用本 op 一次即可续接。")
+        return pack
+
+    def session_compact(self, session=None, limit=40, max_points=8,
+                        note=False, importance=0.5):
+        """上下文压缩摘要：把会话近期事件压成要点（可选写入会话节点）。
+
+        零依赖启发式（无嵌入 / 无 LLM）：按行去重 + 角色配比 + 截断。
+        返回体显式声明 heuristic=True，不冒充语义摘要（语义归纳见 consolidate）。
+        """
+        try:
+            evs = self.recent_events(limit=max(1, int(limit or 40)))
+        except Exception:                                  # noqa: BLE001
+            evs = []
+        if session:
+            evs = [r for r in evs
+                   if (r.get("meta") or {}).get("session") == session]
+        roles, seen, points = {}, set(), []
+        for r in evs:
+            role = r.get("role") or "user"
+            roles[role] = roles.get(role, 0) + 1
+            for ln in (r.get("text") or "").splitlines():
+                s = ln.lstrip("#-*> \t").strip()
+                if len(s) < 8 or s in seen:
+                    continue
+                seen.add(s)
+                points.append({"role": role, "text": s[:200]})
+        # 优先保留 user 行（指令 / 意图），再 assistant
+        points.sort(key=lambda p: 0 if p["role"] == "user" else 1)
+        pts = points[:max(1, int(max_points or 8))]
+        body = "\n".join(f"- [{p['role']}] {p['text']}" for p in pts)
+        summary = (f"会话摘要（{session or 'current'}）：共 {len(evs)} 条事件，"
+                   f"角色分布 {roles}。要点：\n{body}")
+        out = {"ok": True, "session": session, "events": len(evs),
+               "roles": roles, "points": len(pts), "summary": summary,
+               "heuristic": True,
+               "note": "启发式压缩（去重 + 角色配比 + 截断），非语义摘要；"
+                       "需要语义归纳请用 consolidate/induce（P2）。"}
+        if note:
+            r = self.session_note(summary, session=session,
+                                  tags=["session:compact"], importance=importance)
+            out["written_id"] = r["id"]
+        return out
+
+    # ================= 维护面（P1：maintain / consolidate） =================
+    #
+    # 分工：`maintain` 管「已记住的东西怎么保持健康」（重算/快照/前馈/分离），
+    #       `consolidate` 管「记住的东西怎么升格」（情境→长期）。二者都不进默认
+    #       召回热路径，只在显式调用时工作。
+
+    MAINTAIN_ACTIONS = ("stat", "history", "importance", "longterm",
+                        "prefeed", "separate", "rollback",
+                        "backfill", "backfill_rollback", "backfill_history",
+                        "cap", "cap_rollback", "cap_history",
+                        "exempt", "exempt_rollback", "exempt_history")
+
+    def prefeed(self, content, layer="contextual", role=None,
+                verification_basis=None, importance_hint=None, node_id=None,
+                write=False, tags=None, conditions=None):
+        """海马体前馈：写入**之前**做新奇检测——重复项并入而非新增。
+
+        write=False（默认）只做裁决预演（不写盘）；write=True 时按裁决落库：
+        ACCEPT→add / MERGE→forgetting.reinforce / DROP|DEFER→不写。
+        """
+        vd = forgetting.prefeed(self, content, layer=layer, role=role,
+                                verification_basis=verification_basis,
+                                importance_hint=importance_hint, node_id=node_id)
+        out = dict(vd)
+        out["written"] = None
+        out["reinforced"] = None
+        if not write:
+            out["note"] = "前馈预演（未写盘）；write=True 才按裁决落库"
+            return out
+        dec = vd["decision"]
+        if dec == "write":
+            nid = node_id or forgetting._prefeed_id(content)
+            tg = list(tags or [])
+            if "prefeed" not in tg:
+                tg.append("prefeed")
+            out["written"] = self.add(
+                nid, content, layer=layer, tags=tg,
+                importance=(0.5 if importance_hint is None else importance_hint),
+                verification_basis=verification_basis,
+                condition_space=conditions,
+                actor=getattr(self, "actor", None))
+        elif dec == "reinforce" and vd.get("duplicate_with"):
+            out["reinforced"] = forgetting.reinforce(self, vd["duplicate_with"])
+        out["note"] = {"write": "已新增节点", "reinforce": "已并入既有节点（未新增）",
+                       "discard": "已丢弃（不写）", "defer": "留待复核（不写不并）"}.get(dec, "")
+        return out
+
+    def maintain(self, action="stat", layer=None, limit=None, apply=False,
+                 min_delta=None, max_rows=None, force=False, keep=None,
+                 mode=None, snapshot_id=None, batch=None, entry_ids=None,
+                 content=None, role=None, verification_basis=None,
+                 importance_hint=None, node_id=None, write=False,
+                 min_jaccard=None, ids=None, pairs=None, actor=None, **extra):
+        """记忆维护（P1）：importance / longterm / prefeed / separate / stat。
+
+        只读 action（stat/history/longterm 预演）与写层 action（prefeed）不受
+        管理权限约束；apply 类批量改写由 MCP 分发层 `require_admin` 把守。
+        """
+        act = str(action or "stat").strip().lower()
+        if act == "importance":
+            return weights.recalc(self, layer=layer, limit=limit, apply=apply,
+                                  min_delta=(weights.APPLY_DELTA if min_delta is None
+                                             else min_delta),
+                                  actor=actor or getattr(self, "actor", "maintain"))
+        if act == "longterm":
+            md = str(mode or "").strip().lower()
+            if md in ("list", "ls"):
+                return forgetting.longterm_list(self, limit=limit or 20)
+            if md in ("show", "read"):
+                return forgetting.longterm_show(self, snapshot_id=snapshot_id)
+            return forgetting.longterm_assess(
+                self, apply=apply, layer=layer, max_rows=max_rows,
+                keep=(forgetting.LONGTERM_KEEP if keep is None else keep),
+                force=force, actor=actor or getattr(self, "actor", "maintain"))
+        if act == "prefeed":
+            if content is None:
+                raise ValueError("maintain.prefeed 需要 content")
+            return self.prefeed(content, layer=layer or "contextual", role=role,
+                                verification_basis=verification_basis,
+                                importance_hint=importance_hint, node_id=node_id,
+                                write=write)
+        if act == "separate":
+            return subgraph.separate_run(
+                self, layer=layer, pairs=pairs, apply=apply, ids=ids,
+                min_jaccard=(subgraph.SEP_MIN_JACCARD if min_jaccard is None
+                             else min_jaccard),
+                limit=limit or subgraph.SEP_MAX_PAIRS,
+                actor=actor or getattr(self, "actor", "maintain"))
+        if act == "rollback":
+            return weights.rollback(self, batch=batch, entry_ids=entry_ids,
+                                    actor=actor or getattr(self, "actor", "maintain"))
+        if act in ("history", "log"):
+            return {"ok": True, "action": "history",
+                    "records": forgetting.maintain_history(
+                        self, limit=limit or 100, action=extra.get("filter_action"))}
+        if act in ("backfill", "backfill_rollback", "backfill_history",
+                   "cap", "cap_rollback", "cap_history",
+                   "exempt", "exempt_rollback", "exempt_history"):
+            from . import backfill
+            who = actor or getattr(self, "actor", "maintain")
+            if act == "backfill":
+                common = dict(layer=layer, limit=limit, ids=ids,
+                              include_partial=bool(extra.get("include_partial")),
+                              basis_text=extra.get("basis_text"))
+                if apply:
+                    return backfill.apply(self, batch=batch,
+                                          entry_ids=entry_ids, actor=who, **common)
+                return backfill.plan(self, **common)
+            if act == "backfill_rollback":
+                return backfill.rollback(self, batch=batch,
+                                         entry_ids=entry_ids, actor=who)
+            if act == "backfill_history":
+                return backfill.history(self, limit=limit or 100)
+            if act == "cap":
+                common = dict(layer=layer, limit=limit, ids=ids,
+                              min_conf=(0.5 if extra.get("min_conf") is None
+                                        else float(extra.get("min_conf"))))
+                if apply:
+                    return backfill.cap_apply(self, batch=batch,
+                                              entry_ids=entry_ids, actor=who,
+                                              **common)
+                return backfill.cap_plan(self, **common)
+            if act == "cap_rollback":
+                return backfill.cap_rollback(self, batch=batch,
+                                             entry_ids=entry_ids, actor=who)
+            if act == "cap_history":
+                return backfill.history(self, limit=limit or 100, action="cap")
+            common = dict(layer=layer, limit=limit, ids=ids,
+                          require_ready=bool(extra.get("require_ready", True)))
+            if act == "exempt":
+                if apply:
+                    return backfill.exempt_apply(self, batch=batch,
+                                                 entry_ids=entry_ids, actor=who,
+                                                 **common)
+                common["sample"] = int(extra.get("sample") or 0)
+                return backfill.exempt_plan(self, **common)
+            if act == "exempt_rollback":
+                return backfill.exempt_rollback(self, batch=batch,
+                                                entry_ids=entry_ids, actor=who)
+            return backfill.history(self, limit=limit or 100, action="exempt")
+        if act == "stat":
+            nodes = self.index.get("nodes") or {}
+            by_layer, imp_sum, protected, missing_basis = {}, 0.0, 0, 0
+            for e in nodes.values():
+                lay = e.get("layer") or "?"
+                by_layer[lay] = by_layer.get(lay, 0) + 1
+                imp_sum += float(e.get("importance", 0.0) or 0.0)
+                if e.get("protected"):
+                    protected += 1
+                if not e.get("verification_basis"):
+                    missing_basis += 1
+            n = max(1, len(nodes))
+            cur = None
+            try:
+                with open(forgetting.current_path(self), encoding="utf-8") as f:
+                    cur = json.load(f)
+            except (OSError, ValueError):
+                cur = None
+            return {"ok": True, "action": "stat", "op": "maintain",
+                    "actions": list(self.MAINTAIN_ACTIONS),
+                    "nodes": len(nodes), "by_layer": by_layer,
+                    "importance": {"avg": round(imp_sum / n, 4),
+                                   "protected": protected,
+                                   "missing_basis": missing_basis},
+                    "maintain_log": len(forgetting.maintain_history(self, limit=10 ** 9)),
+                    "longterm": {"current": cur},
+                    "note": "只读盘点；apply 类动作需管理权限（require_admin）。"}
+        raise ValueError(f"maintain 未知 action：{act}（可选 {list(self.MAINTAIN_ACTIONS)}）")
+
+    def consolidate_run(self, action="promote", **kw):
+        """离线固化面（P1：promote；P2：induce/run）。"""
+        from . import consolidate
+        act = str(action or "promote").strip().lower()
+        if act == "promote":
+            return consolidate.promote_memories(
+                self.root, source_layer=kw.get("source_layer") or "contextual",
+                target_layer=kw.get("target_layer") or "knowledge",
+                min_merge=(2 if kw.get("min_merge") is None else kw.get("min_merge")),
+                min_importance=(0.6 if kw.get("min_importance") is None
+                                else kw.get("min_importance")),
+                require_conditions=(True if kw.get("require_conditions") is None
+                                    else bool(kw.get("require_conditions"))),
+                limit=kw.get("limit"), apply=bool(kw.get("apply")),
+                actor=kw.get("actor") or getattr(self, "actor", "maintain"))
+        if act in ("promote_rollback", "rollback"):
+            return consolidate.rollback_promotion(
+                self.root, node_ids=kw.get("node_ids") or kw.get("ids"),
+                batch=kw.get("batch"), actor=kw.get("actor") or "maintain")
+        if act == "promote_history":
+            return {"ok": True, "records": [r for r in consolidate._read_maintain(self.root)
+                                            if r.get("action") == "promote"][-(kw.get("limit") or 50):]}
+        if act == "induce":
+            i_kw = dict(kw)
+            # 与 promote 同构：MCP 未传时回落到既定默认层，避免 None 变成「扫描全层」
+            i_kw["source_layer"] = kw.get("source_layer") or "contextual"
+            i_kw["target_layer"] = kw.get("target_layer") or "knowledge"
+            return consolidate.induce_memories(self, **i_kw)
+        raise ValueError(f"consolidate 未知 action：{act}"
+                         "（可选 promote|promote_rollback|promote_history|induce）")
+
+    # ================= 洞察（P2：insight） =================
+    #
+    # 与 maintain/consolidate 的分工：
+    #   maintain    —— 已有记忆的维护（重算/快照/前馈/分离）；
+    #   consolidate —— 已有情境记忆的升格与归纳；
+    #   insight     —— **条件层记账 + 情景重构 + 盲区学习 + 结构洞察**。
+    # 三者都不进默认召回热路径，只在显式调用时工作。
+
+    INSIGHT_ACTIONS = ("window", "record", "verify", "list", "report",
+                       "reconstruct", "learn", "outlook", "catalog")
+
+    def insight(self, action="outlook", **kw):
+        """洞察条件层 + 情景重构 + 盲区学习 + 结构洞察（P2）。
+
+        只读：window / list / report / reconstruct / outlook / catalog
+        记账：record / verify（条件层事件，写 contextual）
+        落库：learn(apply) 写 gap_hint；reconstruct(apply) 写 scene 节点
+        apply 类批量落库由 MCP 分发层 `require_admin` 把守（见 `_insight_call`）。
+        """
+        from . import insight as ins
+        from . import predict, subgraph
+        act = str(action or "outlook").strip().lower()
+        actor = kw.get("actor") or getattr(self, "actor", "insight")
+        conditions = kw.get("conditions")
+
+        if act == "window":
+            return {"ok": True, "action": "window", "op": "insight",
+                    **ins.window(conditions)}
+        if act == "record":
+            rkw = {k: kw.get(k) for k in ("statement", "category", "source",
+                                          "tags", "node_id")}
+            rkw["conditions"] = conditions if isinstance(conditions, dict) else None
+            rkw["importance"] = 0.5 if kw.get("importance") is None else kw.get("importance")
+            rkw["actor"] = actor
+            return ins.record(self, **rkw)
+        if act == "verify":
+            return ins.verify(self, node_id=kw.get("node_id"),
+                              evidence=kw.get("evidence"),
+                              v_types=kw.get("v_types"),
+                              verdict=kw.get("verdict"), actor=actor,
+                              note=kw.get("note") or "")
+        if act in ("list", "events"):
+            events = ins.list_events(self, state=kw.get("state"),
+                                     limit=kw.get("limit") or 0)
+            return {"ok": True, "action": "list", "op": "insight",
+                    "state": kw.get("state"), "count": len(events),
+                    "events": events}
+        if act == "report":
+            return ins.report(self, window_days=kw.get("window_days"))
+        if act == "reconstruct":
+            return subgraph.reconstruct_scene(
+                self, clues=kw.get("clues"), ids=kw.get("ids"),
+                conditions=(list(conditions)
+                            if isinstance(conditions, (list, tuple)) else None),
+                layer=kw.get("layer"), apply=bool(kw.get("apply")), actor=actor,
+                limit=(kw.get("limit") or subgraph.RECON_MAX_ANCHORS),
+                max_nodes=(kw.get("max_nodes") or subgraph.RECON_MAX_NODES),
+                neighbors=(True if kw.get("neighbors") is None
+                           else bool(kw.get("neighbors"))))
+        if act == "learn":
+            lkw = {k: kw[k] for k in ("blindspot_id", "limit", "horizon",
+                                      "max_branches") if kw.get(k) is not None}
+            lkw["apply"] = bool(kw.get("apply"))
+            lkw["actor"] = actor
+            return predict.learn_blindspots(self, **lkw)
+        if act == "outlook":
+            return ins.outlook(self, window_days=kw.get("window_days"),
+                               sample_limit=(kw.get("sample_limit") or 8),
+                               recent_days=(kw.get("recent_days") or 7))
+        if act in ("catalog", "stat"):
+            nodes = self.index.get("nodes") or {}
+            events = ins.list_events(self)
+            by_state = {}
+            for e in events:
+                by_state[e["state"]] = by_state.get(e["state"], 0) + 1
+            return {"ok": True, "action": "catalog", "op": "insight",
+                    "actions": list(self.INSIGHT_ACTIONS),
+                    "conditions": list(ins.CONDITION_KEYS),
+                    "v_types": list(ins.V_TYPES), "v_labels": dict(ins.V_LABELS),
+                    "window_min": ins.C1_WINDOW_MIN,
+                    "sample_min": ins.CER_MIN_SAMPLES,
+                    "importance_floor": ins.IMPORTANCE_FLOOR,
+                    "events": {"total": len(events), "by_state": by_state},
+                    "nodes": len(nodes),
+                    "note": "洞察层自描述：条件快照字段 + 证据类型 + 判定门槛"}
+        raise ValueError(f"insight 未知 action：{act}"
+                         f"（可选 {list(self.INSIGHT_ACTIONS)}）")
+
     # ================= 健康度（并入 OS 指标） =================
 
     def health_os(self):
@@ -1819,7 +2300,14 @@ class MdCGSecure(MdCGOS):
     # ---------- 读：密级过滤 ----------
 
     def _readable(self, e) -> bool:
-        return self.principal.allows(e.get("sensitivity") or DEFAULT_SENSITIVITY)
+        sens = e.get("sensitivity")
+        if not sens:
+            # 索引可能被「无密级上下文」的实例重建而丢掉该字段：按盘上真相回填，
+            # fail-closed（宁可少读，不可越权）。
+            fm, _c = self._read(e)
+            sens = (fm or {}).get("sensitivity") or DEFAULT_SENSITIVITY
+            e["sensitivity"] = sens
+        return self.principal.allows(sens)
 
     def list_goals(self, status=None, limit=None):
         """读隔离：只返回当前 clearance 可见的目标（active_goals/goal_text 同源过滤）。"""

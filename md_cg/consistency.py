@@ -123,6 +123,52 @@ def _is_discipline(fm, node_id):
     return str(node_id).startswith(("discipline_", "work_discipline"))
 
 
+# --------------------------------------------------------------------------
+# 模式分离的支持件（maintain.separate 复用；也供 insight.reconstruct 取线索）
+# --------------------------------------------------------------------------
+
+#: 分离边的关系名：两个节点「看起来像，但条件不同，互为不同情境」
+SEPARATION_REL = "distinct_from"
+
+
+def separation_targets(fm):
+    """节点已声明的分离对象（`distinct_from` 出边），用于幂等与去重。"""
+    out = []
+    for e in (fm.get("edges") or []):
+        if not isinstance(e, dict):
+            continue
+        rel = str(e.get("relation_type") or e.get("relation") or "").strip().lower()
+        if rel != SEPARATION_REL:
+            continue
+        t = e.get("target") or e.get("to") or e.get("id")
+        if t and str(t) not in out:
+            out.append(str(t))
+    return out
+
+
+def condition_terms(fm, content):
+    """节点声明的（正条件, 负条件）词面集合——分离判定与重构取线索共用。"""
+    pos, neg = _new_terms(content or "", fm.get("condition_space"),
+                          fm.get("non_applicable_conditions"))
+    return set(pos), set(neg)
+
+
+def condition_distinct(pos_a, neg_a, pos_b, neg_b):
+    """两组条件是否「实质不同」：任一侧条件词面几乎不重合即为不同情境。
+
+    返回 {'overlap': 覆盖率, 'distinct': bool}。overlap 高 = 条件相同（是重复，
+    该合并）；overlap 低 = 条件不同（该分离，避免混为一体）。
+    """
+    a = {str(x).lower() for x in (set(pos_a) | set(neg_a))}
+    b = {str(x).lower() for x in (set(pos_b) | set(neg_b))}
+    if not a and not b:
+        return {"overlap": 0.0, "distinct": False,
+                "note": "双方均未声明条件：无从判定分离（不假装确定）"}
+    union = a | b
+    overlap = (len(a & b) / float(len(union))) if union else 0.0
+    return {"overlap": round(overlap, 4), "distinct": overlap <= CLASH_LOW}
+
+
 def _new_terms(content, condition_space, non_applicable_conditions):
     """新节点声明的（正条件, 负条件）——与既有节点同口径解析。"""
     _ccg_field, _declared, _neg_hit, _cov = _prims()

@@ -31,7 +31,7 @@ import hashlib
 import os
 import re
 
-from . import codeindex
+from . import codeindex, nodefile
 
 SKIP_DIRS = ("__pycache__", ".git", ".venv", "venv", "node_modules", ".mypy_cache")
 
@@ -213,6 +213,30 @@ def extract(source, path="", suffix=None):
 # --------------------------------------------------------------------------
 # 渲染 / id
 # --------------------------------------------------------------------------
+def condition_space(item):
+    """章节条目 → 条件空间四槽（纯函数，**唯一来源**）。
+
+    与 `codeindex.condition_space` 同一职责、同一理由：`render` 的正文行与
+    `refindex.add_items` 的 frontmatter 必须同源，否则 frontmatter 只剩单槽
+    `observation_position`，`nodefile.condition_space_text(require_full=True)`
+    恒返回 "" —— 条件空间等于没声明。改造前正文写的是「文档=X；检索…时」，
+    是第三种方言，既进不了条件空间，也不可被 `_slot_overlap` 使用。
+
+    时间槽给全时窗哨兵：文档章节条目声明的是「该文档里有这一节」，
+    真值不随索引时刻衰减，不写成 1 小时观测窗。
+    """
+    path = item.get("path") or ""
+    top = path.split("/")[0] or "."
+    return {
+        "observation_position": f"本地文档仓（大域={top}）",
+        "time_window": [nodefile.FULL_TIME_WINDOW_MIN,
+                        nodefile.FULL_TIME_WINDOW_MAX],
+        "observation_tool": (f"{LANG}（md 章节切分，level≤{MAX_LEVEL}；"
+                             f"只存标题+摘要，正文留在源文件）"),
+        "existence_constraint": f"源文档 {path} 存在于本地仓且可读",
+    }
+
+
 def render(item):
     """章节条目 → CCG 6 行正文（可被 search 命中，不含全文）。
 
@@ -227,7 +251,7 @@ def render(item):
     children = item.get("children") or []
     lines = [
         f"# 功能名：{heading}",
-        f"# 生效条件：文档={path}；检索「{heading}」或正文关键词时",
+        f"# 生效条件：{nodefile.condition_space_text(condition_space(item))}",
         f"# 子功能：{sub}",
         f"# 执行：{summary[:MAX_DOC]}",
         (f"# 验证方式：{BASIS}（以原始文档为准；"

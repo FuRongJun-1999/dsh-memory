@@ -304,6 +304,21 @@ def index_dir(root: str, *, kind: str, patterns=None, max_files: int = 500,
     return items, errors, stats
 
 
+def _domain_of(it: dict) -> str:
+    """条目 → 路由域键（供 `tags` 的 `domain:` 显式声明）。
+
+    与 `observation_position` **分开**：position 是给人读的条件文本（「本地
+    源码仓（大域=md_cg）」），domain 是给 `routing.route_key` 直取的短键。
+    两者混成一个字段就会重演普查里的退化：实例名嵌进条件字段 → 3037 桶 /
+    3048 节点（99.9% 单例桶），路由等于失效。
+
+    取 path 首段，与改造前 `normalize_domain(observation_position)` 的产物
+    **逐字相同**，故本次加标签不改变任何既有节点的分桶结果。
+    """
+    path = it.get("path") or ""
+    return path.split("/")[0] or "orphan"
+
+
 def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
               layer_of=None):
     """把索引条目写进认知图（code / doc 的落盘细节收在这里，唯一实现）。
@@ -311,6 +326,9 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
     - `layer=None` → 默认 `knowledge`（与代码节点同层，保证进默认召回）。
     - `layer_of(nid)` 可逐节点覆盖 layer（heal 重建时保留原层）。
     - doc 节点：密级走 `docindex.sensitivity_for`（只可能更严）；返回密级分布。
+    - `condition_space` 走 `codeindex/docindex.condition_space`，与正文的
+      `# 生效条件：` 行**同源**——改造前此处只写 `observation_position` 单槽，
+      而单槽不是生效条件，于是 frontmatter 的条件空间形同未声明。
     返回 (ids, sens_counts)。
     """
     from . import codeindex, docindex
@@ -321,9 +339,9 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
             cg.add(
                 nid, codeindex.render(it),
                 layer=(layer_of(nid) if layer_of else None) or layer or "knowledge",
-                tags=["code", "code:" + it.get("kind", "")],
-                condition_space={"observation_position":
-                                 (it.get("path") or "").split("/")[0]},
+                tags=["code", "code:" + it.get("kind", ""),
+                      "domain:" + _domain_of(it)],
+                condition_space=codeindex.condition_space(it),
                 verification_basis=it.get("basis") or "compiler",
                 code_ref=_code_ref(it, root),
             )
@@ -335,9 +353,9 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
             cg.add(
                 nid, docindex.render(it),
                 layer=(layer_of(nid) if layer_of else None) or layer or "knowledge",
-                tags=["doc", "doc:md", f"level:{level}"],
-                condition_space={"observation_position":
-                                 ((it.get("path") or "").split("/")[0] or "")},
+                tags=["doc", "doc:md", f"level:{level}",
+                      "domain:" + _domain_of(it)],
+                condition_space=docindex.condition_space(it),
                 verification_basis="data",
                 sensitivity=s,
                 doc_ref=_doc_ref(it, root),

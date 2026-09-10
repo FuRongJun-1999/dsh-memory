@@ -238,7 +238,7 @@ function addMsg(text, who, route, memories) {
   $('chat').appendChild(d);
   $('chat').scrollTop = $('chat').scrollHeight;
 }
-// 加载角色历史对话（无限上下文：灵枢记忆库 + 完整转录）
+// 加载角色历史对话（无限上下文：本地完整转录 JSONL，按客户端实例隔离）
 async function loadHistory(roleId) {
   const chatEl = $('chat');
   chatEl.innerHTML = '';
@@ -446,7 +446,7 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers, mdcg: a
             return;
         }
         // 认知图落图（显式调用 md_cg；md_cg = 唯一真源，AEIS 仅负责生成）。
-        // 显式映射：MdcgClient.writeTranscript / writeRole → MCP cg(op=write)
+        // 显式映射：MdcgClient.writeTranscript / writeRole → MCP mdcg_remember
         // 见 docs/功能调用映射表_v0.1.md。落图失败不影响对话主流程。
         const toGraph = async (label, fn) => {
             if (!mdcg || !mdcg.isReady())
@@ -489,7 +489,8 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers, mdcg: a
             mkdirSync(join(roleDataDir, 'roleplay'), { recursive: true });
         }
         catch { /* 忽略 */ }
-        // 完整对话转录（JSONL，按角色持久化；灵枢记忆库存的是 80 字摘要，完整原文在此）
+        // 完整对话转录（JSONL，按角色 + 客户端实例持久化；认知图只落图摘要节点，
+        // 完整原文在此。注意 history 接口只读这里，不读认知图）
         const transcriptsDir = join(roleDataDir, 'transcripts');
         try {
             mkdirSync(transcriptsDir, { recursive: true });
@@ -687,7 +688,8 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers, mdcg: a
                         }
                     }
                     // 导入项显式落认知图：memory→knowledge / anchors→self / values→structural。
-                    // 显式映射：MdcgClient.write → MCP cg(op=write)。
+                    // 显式映射：MdcgClient.write → MCP mdcg_remember（gated=false 直写）。
+                    // ⚠️ anchors→self 层需 designer 权限（recorder 的 layers_allow 不含 self）。
                     const layerForKind = { memory: 'knowledge', anchors: 'self', values: 'structural' }[kind] || 'knowledge';
                     void toGraph(`import-${kind}`, (g) => Promise.all(items.map((it, i) => g.write(
                         typeof it === 'string' ? it : (it.text || it.content || JSON.stringify(it)),

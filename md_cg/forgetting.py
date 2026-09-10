@@ -41,13 +41,14 @@
 一切裁决都写进 `_forgetting.jsonl`（append-only），可审计：
 「这条为什么没被记住」和「为什么被记住」同样有据可查。
 """
+import hashlib
 import json
 import math
 import os
 import time
 
 from . import nodefile
-from .fsutil import append_jsonl, atomic_write
+from .fsutil import append_jsonl, atomic_write, read_jsonl
 from .mdcg import bigrams
 
 # ---------------------------------------------------------------- 判据常量
@@ -70,6 +71,8 @@ SOURCE_WEIGHT = {
 }
 EXTERNAL_ROLES = ("user",)
 INTERNAL_ROLES = ("command", "tool-output", "edit", "system")
+# 注意：文科的 textbook/public_kb **不在此列**——它们是「权威来源表述一致」，
+# 不是「内部确定性产生」，故仍按外部来源计权（见 source_kind）。
 DETERMINISTIC_BASIS = ("data", "measurement", "compiler", "test", "formal_proof")
 
 LOG_FILE = "_forgetting.jsonl"
@@ -306,3 +309,244 @@ def summary(cg):
     except Exception:
         return {"total": total, "by_verdict": counts}
     return {"total": total, "by_verdict": counts}
+
+
+# ==========================================================================
+# 长期记忆快照（maintain.longterm）
+# ==========================================================================
+#
+# 目标：评估后**分层落盘**，形成可回溯的历史断面（哪一刻哪些记忆处于长期态）。
+# 与上面写入侧闸门的分工：闸门管「这条要不要记」，快照管「记住的现在稳稳站在哪一层」。
+#
+# 性能纪律：全部判据来自**索引快照**（免读节点文件），流式写 JSONL，不全量载入内存。
+# 4500+ 节点下 dry-run 为 O(N) 纯内存计算；apply 为顺序写文件。
+
+MAINTAIN_LOG = "_maintain.jsonl"
+LONGTERM_DIR = "_longterm"
+LONGTERM_KEEP = 10                 # 保留最近 N 个断面（多了自动清理）
+TIERS = ("longterm", "working", "candidate")
+# 白箱可 ACCEPT 的基底档位；文科来源一致性档同样认账（否则「白箱判定已通过、
+# 长期分层却视作未验证」自相矛盾）。
+VERIFIED_BASES = ("formal_proof", "compiler", "test", "textbook", "public_kb")
+TIER_WORKING = 0.40
+
+
+def _tier_of(e: dict) -> str:
+    """索引快照 → 分层：longterm（长期）/ working（工作）/ candidate（候选待评估）。"""
+    imp = float(e.get("importance", 0.5) or 0.5)
+    vb = e.get("verification_basis")
+    ev = int(e.get("evidence_count", 0) or 0)
+    if e.get("protected") or imp >= PROTECT_IMPORTANCE or (ev >= 3 and vb in VERIFIED_BASES):
+        return "longterm"
+    if imp >= TIER_WORKING or vb in VERIFIED_BASES:
+        return "working"
+    return "candidate"
+
+
+def _is_island(e: dict) -> bool:
+    """无边孤岛：既无出边也无子图声明（夜间整理的首要候选）。"""
+    return (not (e.get("edges") or [])) and (not e.get("subgraph"))
+
+
+def longterm_dir(cg) -> str:
+    return os.path.join(cg.root, LONGTERM_DIR)
+
+
+def current_path(cg) -> str:
+    return os.path.join(longterm_dir(cg), "current.json")
+
+
+def longterm_assess(cg, apply=False, out=None, layer=None, keep=LONGTERM_KEEP,
+                    max_rows=None, force=False, actor="maintain"):
+    """评估后分层落盘：生成一个可回溯的长期记忆断面。
+
+    apply=False（默认）只出报表；apply=True 写 `_longterm/<ts>.jsonl` 并更新
+    `current.json` 指针。幂等：断面内容相同则跳过重写（除非 force=True）。
+    """
+    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    ids = sorted(nid for nid, e in nodes.items()
+                 if not layer or e.get("layer") == layer)
+    if max_rows:
+        ids = ids[:int(max_rows)]
+    tiers, by_layer, islands, digest = {}, {}, 0, hashlib.sha1()
+    t0 = time.time()
+    total = len(ids)
+    for nid in ids:
+        e = nodes.get(nid) or {}
+        t = _tier_of(e)
+        tiers[t] = tiers.get(t, 0) + 1
+        lay = e.get("layer") or "?"
+        bl = by_layer.setdefault(lay, {k: 0 for k in TIERS})
+        bl[t] += 1
+        if _is_island(e):
+            islands += 1
+        digest.update(f"{nid}:{e.get('importance')}:{t};".encode("utf-8"))
+    snapshot_id = digest.hexdigest()[:12]
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    rel = f"{LONGTERM_DIR}/{ts}-{snapshot_id}.jsonl"
+    path = os.path.join(cg.root, rel)
+    cur = None
+    try:
+        with open(current_path(cg), encoding="utf-8") as f:
+            cur = json.load(f)
+    except (OSError, ValueError):
+        cur = None
+    same = bool(cur and cur.get("snapshot_id") == snapshot_id
+                and os.path.exists(os.path.join(cg.root, cur.get("path") or "")))
+    written, pruned = 0, []
+    if apply and not same:
+        d = longterm_dir(cg)
+        os.makedirs(d, exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            for nid in ids:
+                e = nodes.get(nid) or {}
+                row = {"t": time.time(), "id": nid, "layer": e.get("layer"),
+                       "importance": e.get("importance"),
+                       "tier": _tier_of(e),
+                       "verification_basis": e.get("verification_basis"),
+                       "evidence_count": e.get("evidence_count", 0),
+                       "edges": len(e.get("edges") or []),
+                       "island": _is_island(e),
+                       "content_hash": e.get("content_hash")}
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                written += 1
+        os.replace(tmp, path)
+        atomic_write(current_path(cg), json.dumps(
+            {"snapshot_id": snapshot_id, "ts": time.time(), "path": rel,
+             "total": total, "tiers": tiers, "by_layer": by_layer,
+             "islands": islands}, ensure_ascii=False))
+        pruned = _prune(cg, keep)
+        append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
+            "t": time.time(), "action": "longterm", "snapshot_id": snapshot_id,
+            "path": rel, "total": total, "tiers": tiers, "actor": actor})
+    return {
+        "ok": True, "action": "longterm", "dry_run": not apply,
+        "snapshot_id": snapshot_id, "path": rel, "same_as_current": same,
+        "total": total, "tiers": tiers, "by_layer": by_layer,
+        "islands": islands, "written": written, "pruned": pruned,
+        "elapsed_ms": int((time.time() - t0) * 1000), "log": MAINTAIN_LOG,
+        "note": ("dry-run：未写盘" if not apply else
+                 (f"断面与 current 相同，跳过重写（id={snapshot_id}）" if same
+                  else f"已写断面 {rel}（{written} 行）")),
+    }
+
+
+def _prune(cg, keep):
+    """只保留最近 keep 个断面文件（按文件名时间前缀排序）。"""
+    d = longterm_dir(cg)
+    try:
+        files = sorted(x for x in os.listdir(d) if x.endswith(".jsonl"))
+    except OSError:
+        return []
+    removed = []
+    for x in files[:-int(keep)] if int(keep) > 0 else []:
+        try:
+            os.remove(os.path.join(d, x))
+            removed.append(x)
+        except OSError:
+            pass
+    return removed
+
+
+def longterm_list(cg, limit=20):
+    """列出历史断面（新的在前）：{snapshot_id, path, ts, total, tiers}。"""
+    d = longterm_dir(cg)
+    out = []
+    try:
+        for x in sorted(os.listdir(d), reverse=True):
+            if not x.endswith(".jsonl"):
+                continue
+            p = os.path.join(d, x)
+            out.append({"file": x, "path": f"{LONGTERM_DIR}/{x}",
+                        "bytes": os.path.getsize(p)})
+            if len(out) >= int(limit):
+                break
+    except OSError:
+        return []
+    cur = None
+    try:
+        with open(current_path(cg), encoding="utf-8") as f:
+            cur = json.load(f)
+    except (OSError, ValueError):
+        cur = None
+    return {"current": cur, "snapshots": out}
+
+
+def longterm_show(cg, snapshot_id=None):
+    """读取某个断面的分层统计（不载全量行，只聚合）。"""
+    d = longterm_dir(cg)
+    target = None
+    try:
+        files = sorted(x for x in os.listdir(d) if x.endswith(".jsonl"))
+    except OSError:
+        return {"ok": False, "error": "no_snapshot"}
+    for x in reversed(files):
+        if snapshot_id is None or snapshot_id in x:
+            target = x
+            break
+    if not target:
+        return {"ok": False, "error": "snapshot_not_found", "snapshot_id": snapshot_id}
+    tiers, by_layer, islands, n = {}, {}, 0, 0
+    with open(os.path.join(d, target), encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            n += 1
+            t = r.get("tier") or "?"
+            tiers[t] = tiers.get(t, 0) + 1
+            lay = r.get("layer") or "?"
+            by_layer.setdefault(lay, {k: 0 for k in TIERS})
+            by_layer[lay][t] = by_layer[lay].get(t, 0) + 1
+            if r.get("island"):
+                islands += 1
+    return {"ok": True, "file": target, "total": n, "tiers": tiers,
+            "by_layer": by_layer, "islands": islands}
+
+
+# ==========================================================================
+# 海马体前馈（maintain.prefeed）
+# ==========================================================================
+#
+# 写入**之前**的新奇检测：重复项并入既有（MERGE），而非新增；无关噪音丢弃；
+# 有歧义的半重复留痕待复核。这是「写入侧前置」的落库动作，比夜间整理更早一步。
+
+def prefeed(cg, content, layer="contextual", role=None, verification_basis=None,
+            importance_hint=None, node_id=None):
+    """前馈裁决（不写盘）：返回四态 + 判据，并留痕 `_forgetting.jsonl`。
+
+    落库由调用方按 verdict 执行（ACCEPT 新增 / MERGE 强化 / DROP|DEFER 不写），
+    使「裁决」与「落库」解耦——便于 dry-run 预演与单测。
+    """
+    vd = assess(cg, content, layer=layer, role=role,
+                verification_basis=verification_basis,
+                importance_hint=importance_hint, node_id=node_id)
+    decision = {"ACCEPT": "write", "MERGE": "reinforce",
+                "DROP": "discard", "DEFER": "defer"}.get(vd["verdict"], "defer")
+    rec = {"kind": "prefeed", "layer": layer,
+           "node_id": node_id or _prefeed_id(content),
+           "verdict": vd["verdict"], "decision": decision,
+           "reason": vd["reason"], "duplicate_with": vd["redundancy"]["with"],
+           "duplicate_ratio": vd["redundancy"]["max"],
+           "novelty": vd["entropy"]["novelty"],
+           "self_information_bits": vd["entropy"]["self_information_bits"],
+           "actor": getattr(cg, "actor", "unknown"), "t": time.time()}
+    log(cg, rec)
+    return {"ok": True, "action": "prefeed", **rec}
+
+
+def _prefeed_id(content):
+    return "pre_" + hashlib.sha1((content or "").encode("utf-8")).hexdigest()[:12]
+
+
+def maintain_history(cg, limit=100, action=None):
+    """维护留痕（`_maintain.jsonl` 最近 limit 条），可按 action 过滤。"""
+    recs = list(read_jsonl(os.path.join(cg.root, MAINTAIN_LOG)))
+    if action:
+        recs = [r for r in recs if r.get("action") == action]
+    return recs[-int(limit):]

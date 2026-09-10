@@ -28,7 +28,7 @@ import shutil
 import sys
 import tempfile
 
-from . import codeindex, corpus, nodefile, tokens
+from . import codeindex, corpus, nodefile, routing, tokens
 from .mdcg import MdCG
 from .mcp_server import call_tool
 from .security import AccessDenied, Principal
@@ -217,6 +217,27 @@ def main():
         check("render 不复制实现正文",
               "return mass * speed" not in rendered)
 
+        # 生效条件**必须**与 frontmatter 同源：四槽合成，单槽不是生效条件。
+        # 改造前正文写「大域=X；检索…时」（第三种方言），frontmatter 只写单槽
+        # observation_position → condition_space_text(require_full=True) 恒为 ""。
+        cs = codeindex.condition_space(py_item)
+        check("condition_space 四槽齐备",
+              set(cs) == set(nodefile.CONDITION_SLOTS_REQUIRED), str(sorted(cs)))
+        synth = nodefile.condition_space_text(cs)
+        check("四槽合成出非空生效条件（单槽冒充已废止）", bool(synth), synth)
+        cond_line = next((ln for ln in rendered.split("\n")
+                          if ln.startswith("# 生效条件：")), "")
+        check("正文生效条件 = 四槽合成结果（正文与 frontmatter 同源）",
+              cond_line == f"# 生效条件：{synth}", cond_line)
+        check("时间槽用全时窗哨兵（不把写入时刻伪造成条件）",
+              nodefile.is_full_time_window(cs.get("time_window")),
+              str(cs.get("time_window")))
+        weak = codeindex.condition_space(js_item)
+        check("弱提取在方法槽诚实降级（不冒充编译器）",
+              codeindex.LANG_WEAK in weak["observation_tool"]
+              and codeindex.LANG_COMPILER not in weak["observation_tool"],
+              weak["observation_tool"])
+
         # ===================================================== ⑤ 检索 + 资格
         print("\n【5】检索资格判定（旧行为：代码节点恒定 BLINDSPOT）")
         cg.flush()
@@ -254,6 +275,19 @@ def main():
               str(fm.get("verification_basis")))
         check("tags 标记为代码节点",
               "code" in (fm.get("tags") or []), str(fm.get("tags")))
+
+        # 条件空间：四槽齐备，且与正文生效条件同源（改造前只有单槽
+        # observation_position，`condition_space_text(require_full=True)` 恒 ""）。
+        check("frontmatter.condition_space 四槽齐备（单槽冒充已废止）",
+              set(fm.get("condition_space") or {}) ==
+              set(nodefile.CONDITION_SLOTS_REQUIRED),
+              str(sorted(fm.get("condition_space") or {})))
+        check("frontmatter 条件空间与正文生效条件同源（同一纯函数）",
+              fm.get("condition_space") == cs, str(fm.get("condition_space")))
+        check("路由域由 domain: 标签显式承担（分桶结果与改造前逐字相同）",
+              routing.route_key(fm.get("condition_space"), fm.get("tags"))
+              == routing.normalize_domain("alpha.py"),
+              str(routing.route_key(fm.get("condition_space"), fm.get("tags"))))
 
         # ===================================================== ⑦ op=ref + 漂移
         print("\n【7】op=ref 回读 + 漂移检测")

@@ -16,7 +16,10 @@ param(
     [int]$Port = 3080,
     [int]$DelaySec = 5,
     [string]$NodeBin = "node",
-    [string]$DshBin = "C:\Users\FuRongJun\AppData\Roaming\npm\node_modules\@deepseek-ai\dsh\lib\bin.js",
+    # DSH entry (bin.js inside the globally installed dsh package). Default is
+    # resolved from the current user's npm global prefix (%APPDATA%\npm\node_modules)
+    # instead of a hard-coded user name; override with -DshBin if installed elsewhere.
+    [string]$DshBin = "$env:APPDATA\npm\node_modules\@deepseek-ai\dsh\lib\bin.js",
     [string]$LogDir = "$env:USERPROFILE\.dsh\logs",
     [switch]$StartNow,
     [switch]$Once

@@ -22,8 +22,22 @@
 """
 from __future__ import annotations
 
+import hashlib
+import os
+import re
+import time
+
+from .fsutil import append_jsonl
+
 MAX_DEPTH_HARD = 64          # 工程硬截断上限（防止畸形数据把遍历拖爆）
 MAX_NODES_DEFAULT = 2000     # 单次展开的节点上限
+
+# ---- 模式分离（maintain.separate）参数 -----------------------------------
+MAINTAIN_LOG = "_maintain.jsonl"
+SEP_MIN_JACCARD = 0.55       # 内容相似度下限（越高＝越像，才值得谈分离）
+SEP_MAX_COND_OVERLAP = 0.35  # 条件重合上限（越高＝条件越同，就该合并而非分离）
+SEP_MAX_NODES = 400          # 单次扫描节点上限（防 O(N²) 读盘爆炸）
+SEP_MAX_PAIRS = 50           # 单次返回/落库的候选对上限
 
 
 def declared(fm):
@@ -253,3 +267,402 @@ def validate(cg, limit=50, max_scan=None):
 
     return {"scanned": len(known), "issues": len(issues),
             "items": issues[:limit], "truncated": len(issues) > limit}
+
+
+# ==========================================================================
+# 模式分离（maintain.separate）
+# ==========================================================================
+#
+# 问题：两条记忆**内容高度相似但生效条件不同**。若放任不管，检索会把它们混为
+# 一体——按 A 的条件召回、却拿到 B 的结论。海马体的做法是 pattern separation：
+# 把相似但情境不同的表征拆开，各挂各的条件线索。
+#
+# 本层的工程兑现（保守、可逆、幂等）：
+#   · 不动正文（不制造第二份真相），只加**对称分离边** `distinct_from`；
+#   · 边携带 reason + 判定分量，供后续重构/审计追溯；
+#   · 条件**相同**的相似对**不是**分离候选（那是重复，该走 MERGE）。
+
+def _node_terms_and_grams(cg, nid):
+    """读取节点并返回 (payload 二元组, 正条件词面, 负条件词面)；不可读返回 None。"""
+    from . import consistency, forgetting
+    from .mdcg import bigrams          # 惰性导入：避开 mdcg↔subgraph 循环
+    node = cg.get(nid)
+    if not node:
+        return None
+    fm = node.get("frontmatter") or {}
+    content = node.get("content") or ""
+    grams = bigrams(forgetting.payload(content))
+    pos, neg = consistency.condition_terms(fm, content)
+    return {"grams": grams, "pos": pos, "neg": neg, "layer": fm.get("layer")}
+
+
+def separation_pairs(cg, layer=None, ids=None, max_nodes=SEP_MAX_NODES,
+                     min_jaccard=SEP_MIN_JACCARD,
+                     max_cond_overlap=SEP_MAX_COND_OVERLAP,
+                     limit=SEP_MAX_PAIRS):
+    """找出「内容高度相似、条件却不同」的节点对（模式分离候选）。
+
+    返回 {scanned, compared, candidates:[{a,b,jaccard,cond_overlap,distinct,reason}],
+          truncated, note}。只读，不写盘。
+    """
+    from . import consistency
+    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    pool = [nid for nid, e in nodes.items()
+            if (not layer or e.get("layer") == layer)]
+    if ids:
+        want = {str(x) for x in ids}
+        pool = [nid for nid in pool if nid in want]
+    pool.sort()
+    truncated = len(pool) > int(max_nodes)
+    pool = pool[:int(max_nodes)]
+    cache = {}
+    for nid in pool:
+        got = _node_terms_and_grams(cg, nid)
+        if got and got["grams"]:
+            cache[nid] = got
+    keys = sorted(cache.keys())
+    out, compared = [], 0
+    for i in range(len(keys)):
+        gi = cache[keys[i]]["grams"]
+        for j in range(i + 1, len(keys)):
+            gj = cache[keys[j]]["grams"]
+            inter = len(gi & gj)
+            if not inter:
+                continue
+            compared += 1
+            jac = inter / float(len(gi | gj) or 1)
+            if jac < float(min_jaccard):
+                continue
+            a, b = keys[i], keys[j]
+            cd = consistency.condition_distinct(
+                cache[a]["pos"], cache[a]["neg"],
+                cache[b]["pos"], cache[b]["neg"])
+            if not cd["distinct"] or cd["overlap"] > float(max_cond_overlap):
+                continue                       # 条件相同 → 是重复，不是分离
+            out.append({
+                "a": a, "b": b,
+                "a_layer": cache[a]["layer"], "b_layer": cache[b]["layer"],
+                "jaccard": round(jac, 4), "cond_overlap": cd["overlap"],
+                "reason": (f"内容相似 {jac:.2f} 但条件重合仅 {cd['overlap']:.2f}"
+                           f"（相似而不同情境，需分离）"),
+                "a_conditions": sorted(cache[a]["pos"] | cache[a]["neg"])[:6],
+                "b_conditions": sorted(cache[b]["pos"] | cache[b]["neg"])[:6],
+            })
+    out.sort(key=lambda x: (-x["jaccard"], x["a"], x["b"]))
+    return {"scanned": len(keys), "compared": compared,
+            "candidates": out[:int(limit)],
+            "total_candidates": len(out), "truncated": truncated,
+            "note": "只读候选；apply=True 才写分离边"}
+
+
+def mark_separated(cg, a, b, reason="", actor="maintain", batch=None):
+    """写入 (a↔b) 对称 `distinct_from` 边（幂等：已存在则不重复写）。"""
+    from . import consistency
+    batch = batch or time.strftime("%Y%m%d-%H%M%S")
+    written = []
+    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    for src, dst in ((a, b), (b, a)):
+        node = cg.get(src)
+        if not node:
+            continue
+        fm = node.get("frontmatter") or {}
+        edges = list(fm.get("edges") or [])
+        if dst in consistency.separation_targets(fm):
+            continue
+        edges.append({"target": dst, "relation_type": consistency.SEPARATION_REL,
+                      "reason": reason, "created_at": time.time(),
+                      "confidence": 1.0, "verified": 0})
+        fm["edges"] = edges
+        sep = list(fm.get("pattern_separated_from") or [])
+        if dst not in sep:
+            sep.append(dst)
+        fm["pattern_separated_from"] = sep
+        e = nodes.get(src) or {}
+        path = os.path.join(cg.root, e.get("path") or f"{src}.md")
+        cg._write_node(src, path, fm, node.get("content") or "")
+        if e:
+            e["edges"] = edges
+        written.append(src)
+        append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
+            "t": time.time(), "action": "separate", "batch": batch,
+            "from": src, "to": dst, "reason": reason, "actor": actor})
+    return {"a": a, "b": b, "written": written, "batch": batch}
+
+
+def separate_run(cg, layer=None, pairs=None, apply=False, ids=None,
+                 min_jaccard=SEP_MIN_JACCARD, limit=SEP_MAX_PAIRS,
+                 actor="maintain"):
+    """模式分离：扫描相似但条件不同的节点对，按需写入对称分离边。
+
+    apply=False（默认）只出候选报表（对应计划「可预演」）。
+    """
+    t0 = time.time()
+    if pairs is None:
+        rep = separation_pairs(cg, layer=layer, ids=ids,
+                               min_jaccard=min_jaccard, limit=limit)
+        cands = rep["candidates"]
+        meta = {k: rep[k] for k in ("scanned", "compared", "truncated",
+                                    "total_candidates")}
+    else:
+        cands = list(pairs)
+        meta = {"scanned": 0, "compared": 0, "truncated": False,
+                "total_candidates": len(cands)}
+    written = []
+    if apply:
+        batch = time.strftime("%Y%m%d-%H%M%S")
+        for c in cands:
+            written.append(mark_separated(cg, c["a"], c["b"],
+                                          reason=c.get("reason", ""),
+                                          actor=actor, batch=batch))
+        if written and hasattr(cg, "rebuild_index"):
+            cg.rebuild_index()          # 边写盘后重建索引 + 清子图缓存
+        else:
+            invalidate_cache(cg)
+    return {"ok": True, "action": "separate", "dry_run": not apply,
+            "layer": layer, "candidates": cands, "written": written,
+            "written_count": len(written), "elapsed_ms": int((time.time() - t0) * 1000),
+            "log": MAINTAIN_LOG, **meta,
+            "note": ("dry-run：未写盘；apply=True 才写分离边" if not apply
+                     else f"已写 {len(written)} 对对称分离边")}
+
+
+# ==========================================================================
+# 情景重构（insight.reconstruct）
+# ==========================================================================
+#
+# 问题：记忆被检索回来时，往往只剩一条「结论」，它当时**为什么成立**（生效条件 /
+# 不适用条件 / 同行情境）已经散落在相邻节点里。情景重构做的就是：由给定线索
+# （词面 / 节点 id）反推当时的**条件空间**，把散落的场景要素重新聚在一起。
+#
+# 与检索（read/route）的区别：检索按「当前查询」做资格判定；重构按「线索」做
+# **条件空间复原**，输出条件结构而非排序结果，用于回答「这件事成立于什么条件」。
+#
+# 诚实边界：
+#   · 重构是条件空间的**近似重建**，不是事件回放（输出显式标注）；
+#   · 定位不到任何锚点时判 blindspot，**不得凭空编造条件空间**。
+
+RECON_MIN_SCORE = 0.15        # 词面命中下限（低于此不算锚点）
+RECON_MAX_NODES = 80          # 单次扫描节点上限（防 O(N) 读盘爆炸）
+RECON_MAX_ANCHORS = 12        # 锚点上限
+RECON_NEIGHBOR_LIMIT = 24     # 每锚点取的邻居上限
+RECON_COMMON_SHARE = 0.5      # 共同条件判定：≥ 半数锚点共享
+RECON_SCENE_PREFIX = "scene_"
+
+
+def _clue_terms(clues):
+    """线索归一化：字符串 / 列表 → 去重词面（保留整串 + 切分后的词）。"""
+    if clues is None:
+        return []
+    if isinstance(clues, str):
+        clues = [clues]
+    out = []
+    for c in clues:
+        s = str(c or "").strip().lower()
+        if not s:
+            continue
+        if s not in out:
+            out.append(s)
+        for w in re.split(r"[\s,，、;；/|]+", s):
+            w = w.strip()
+            if w and w not in out:
+                out.append(w)
+    return out
+
+
+def _shared_terms(term_sets):
+    """出现在 ≥ RECON_COMMON_SHARE 比例集合中的词面（且至少 2 个集合共享）。"""
+    if not term_sets:
+        return []
+    cnt = {}
+    for s in term_sets:
+        for t in set(s or ()):
+            cnt[t] = cnt.get(t, 0) + 1
+    need = max(2, int(len(term_sets) * RECON_COMMON_SHARE) + (1 if len(term_sets) * RECON_COMMON_SHARE % 1 else 0))
+    return sorted(t for t, c in cnt.items() if c >= need)
+
+
+def _uniq_terms(term_sets, limit=99):
+    seen = []
+    for s in term_sets:
+        for t in sorted(s or ()):
+            if t not in seen:
+                seen.append(t)
+    return seen[:limit]
+
+
+def _anchor_scores(cg, pool, clue_terms):
+    """按词面重合给候选锚点打分（返回 [(nid, score, shared, exact)]，降序）。"""
+    from . import forgetting
+    from .mdcg import bigrams
+    clue_grams = bigrams(" ".join(clue_terms))
+    if not clue_grams:
+        return []
+    scored = []
+    for nid in pool:
+        node = cg.get(nid)
+        if not node:
+            continue
+        body = forgetting.payload(node.get("content") or "")
+        grams = bigrams(body)
+        if not grams:
+            continue
+        inter = len(grams & clue_grams)
+        if not inter:
+            continue
+        jac = inter / float(len(grams | clue_grams) or 1)
+        exact = sum(1 for t in clue_terms if t and t in body)
+        score = jac + 0.05 * exact
+        if score >= RECON_MIN_SCORE:
+            scored.append((nid, round(score, 4), inter, exact))
+    scored.sort(key=lambda x: (-x[1], x[0]))
+    return scored
+
+
+def _condition_space(cg, anchor_ids, declared_terms=None):
+    """合成锚点群的条件空间：共同条件 / 个别条件 / 不适用条件 / 逐锚点明细。"""
+    from . import consistency
+    pos_sets, neg_sets, per = [], [], {}
+    for nid in anchor_ids:
+        node = cg.get(nid)
+        if not node:
+            continue
+        fm = node.get("frontmatter") or {}
+        pos, neg = consistency.condition_terms(fm, node.get("content") or "")
+        pos_sets.append(pos)
+        neg_sets.append(neg)
+        per[nid] = {"effective": sorted(pos)[:8], "non_applicable": sorted(neg)[:8]}
+    common = _shared_terms(pos_sets)
+    individual = [t for t in _uniq_terms(pos_sets) if t not in common]
+    return {"common": common, "individual": individual,
+            "non_applicable": _uniq_terms(neg_sets),
+            "declared": list(declared_terms or []), "per_anchor": per}
+
+
+def reconstruct_scene(cg, clues=None, ids=None, conditions=None, layer=None,
+                      max_nodes=RECON_MAX_NODES, limit=RECON_MAX_ANCHORS,
+                      neighbors=True, apply=False, actor="insight"):
+    """情景重构：由线索反推条件空间，还原记忆成立的场景。
+
+    只读（apply=False 默认）；apply=True 额外落一个 `scene_<hash>` 情境节点，
+    携带 `reconstructed_from` 锚点与 inferred 边，便于追溯与撤销。
+
+    返回 status ∈ {"reconstructed", "blindspot"}；blindspot 时条件空间为 None，
+    不编造（对应计划「诚实边界」）。
+    """
+    from . import chain
+    t0 = time.time()
+    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    clue_terms = _clue_terms(clues)
+    declared = [str(c).strip().lower() for c in (conditions or []) if str(c).strip()]
+    want_ids = [str(x) for x in (ids or []) if str(x).strip()]
+
+    # 线索里若直接写了节点 id，也算显式锚点
+    for t in clue_terms:
+        if t in nodes and t not in want_ids:
+            want_ids.append(t)
+
+    pool = [nid for nid, e in nodes.items()
+            if (not layer or (e or {}).get("layer") == layer)]
+    truncated = len(pool) > int(max_nodes)
+    pool.sort()
+    pool = pool[:int(max_nodes)]
+
+    anchors, missing = [], []
+    for nid in want_ids:
+        if nid in nodes:
+            anchors.append({"node_id": nid, "score": 1.0, "source": "explicit"})
+        else:
+            missing.append(nid)
+    if clue_terms:
+        have = {a["node_id"] for a in anchors}
+        for nid, score, inter, exact in _anchor_scores(cg, pool, clue_terms):
+            if nid in have:
+                continue
+            anchors.append({"node_id": nid, "score": score, "source": "lexical",
+                            "shared_bigrams": inter, "exact_hits": exact})
+            have.add(nid)
+    anchors = anchors[:int(limit)]
+
+    base = {"ok": True, "action": "reconstruct", "op": "insight",
+            "clues": clue_terms, "requested_ids": want_ids, "layer": layer,
+            "truncated": truncated, "scanned": len(pool)}
+
+    if not anchors:
+        base.update({
+            "status": "blindspot", "anchors": [], "nodes": [], "edges": [],
+            "condition_space": None,
+            "missing": missing or (["锚点"] if clue_terms else ["线索"]),
+            "elapsed_ms": int((time.time() - t0) * 1000),
+            "note": "线索未能定位任何锚点：判 blindspot，不编造条件空间（诚实边界）"})
+        return base
+
+    anchor_ids = [a["node_id"] for a in anchors]
+    node_ids, edges = list(anchor_ids), []
+    if neighbors:
+        adj = {}
+        try:
+            adj = chain.adjacency(cg)
+        except Exception:
+            adj = {}
+        seen = set(node_ids)
+        for nid in anchor_ids:
+            outs = (adj.get(nid) or [])[:RECON_NEIGHBOR_LIMIT]
+            for tgt, e in outs:
+                rel = chain.edge_rel(e)
+                edges.append({"from": nid, "to": tgt, "relation": rel,
+                              "evidence": (e or {}).get("evidence")})
+                if tgt not in seen and len(node_ids) < int(max_nodes):
+                    seen.add(tgt)
+                    node_ids.append(tgt)
+
+    cs = _condition_space(cg, anchor_ids, declared_terms=declared)
+    separated = [nid for nid in anchor_ids
+                 if any(e.get("relation") == "distinct_from" for e in edges
+                        if e.get("from") == nid)]
+    with_conditions = sum(1 for nid in anchor_ids
+                          if (cs["per_anchor"].get(nid) or {}).get("effective"))
+    confidence = round(
+        min(1.0, (sum(a["score"] for a in anchors) / float(len(anchors)))
+            * (0.5 + 0.5 * with_conditions / float(len(anchor_ids)))), 4)
+
+    out = dict(base)
+    out.update({
+        "status": "reconstructed", "anchors": anchors, "nodes": node_ids,
+        "edges": edges, "condition_space": cs,
+        "signals": {"anchors": len(anchors), "with_conditions": with_conditions,
+                    "separated": separated},
+        "confidence": confidence,
+        "elapsed_ms": int((time.time() - t0) * 1000),
+        "note": "条件空间的近似重建（非事件回放）；common=共同生效条件，"
+                "individual=个别条件，non_applicable=不适用条件"})
+
+    if apply:
+        sid = RECON_SCENE_PREFIX + hashlib.sha1(
+            "|".join(sorted(node_ids)).encode("utf-8")).hexdigest()[:10]
+        written = False
+        if sid not in nodes:
+            common_txt = "；".join(cs["common"][:6]) or "（未提炼出共同条件）"
+            neg_txt = "；".join(cs["non_applicable"][:6]) or "（未判定）"
+            body = (
+                "# 功能名：情景重构：%s\n"
+                "# 生效条件：%s\n"
+                "# 子功能：由 %d 个锚点复原的条件空间（锚点：%s）\n"
+                "# 执行：由 insight.reconstruct 反推（inferred 近似重建，非事件回放）\n"
+                "# 验证方式：待验证（推断结果，需人工/实践核对后方可升格）\n"
+                "# 不适用条件：%s\n"
+                % ("、".join(clue_terms[:6]) or "线索", common_txt, len(anchor_ids),
+                   "、".join(anchor_ids), neg_txt))
+            cg.add(sid, body, layer="contextual",
+                   tags=["scene", "reconstructed"], importance=0.4,
+                   verification_basis="other", reconstructed_from=list(anchor_ids),
+                   clues=list(clue_terms), confidence=confidence,
+                   actor=actor)
+            append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
+                "t": time.time(), "action": "reconstruct", "scene": sid,
+                "anchors": list(anchor_ids), "clues": clue_terms,
+                "common": cs["common"], "confidence": confidence, "actor": actor})
+            invalidate_cache(cg)
+            written = True
+        out["scene_id"] = sid
+        out["scene_written"] = written
+    return out
