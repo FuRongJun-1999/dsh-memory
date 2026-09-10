@@ -39,6 +39,7 @@ DSH 侧配置（cordis.yml / MCP client）：
 from __future__ import annotations
 
 import json
+import json
 import os
 import sys
 
@@ -531,12 +532,18 @@ KERNEL_TOOLS = [
                        "code_ref 指回源文件，不复制完整代码；"
                        "op=whitebox：显式调用白箱能力库（AEIS 已下线为本地库）并验证其"
                        "编码/已有知识回答能力（action=ask|remember|verify_encoding|"
-                       "verify_existing|ping|report；结论写回 self 层留痕）。",
+                       "verify_existing|ping|report；结论写回 self 层留痕）；"
+                       "op=theory：协议版本层（action=check|show|declare|catalog）；"
+                       "op=link：蜂群互联层（对端信任 P_trust + 跨节点证据存储；"
+                       "action=ls|show|handshake|observe|promote|degrade|isolate|"
+                       "withdraw|decay|policy|card|publish|peers|evidence|export|"
+                       "import|catalog）。",
         "inputSchema": _s("",
             op=_p("string", "route|read|write|verify|review|protect|identity|"
                             "consistency|metacognition|self_state|evolution|sustain|"
                             "scrub|predict|causal|"
-                            "forget|goal|recent|info|index_code|whitebox", True),
+                            "forget|goal|recent|info|index_code|whitebox|"
+                            "theory|link", True),
             intent=_p("string", "route 的查询意图"), query=_p("string", "read 的查询"),
             goal=_p("string", "goal op 的目标文本；read 的定向目标（缺省用活跃目标）"),
             goal_status=_p("string", "goal op：active|done|dropped"),
@@ -595,7 +602,10 @@ KERNEL_TOOLS = [
                                 "scrub: sample|associate|audit|decontaminate|"
                                 "calibrate|sweep|history|summary|catalog；"
                                 "evolution: record|entries|show|history|patterns|"
-                                "summary|rollback|catalog"),
+                                "summary|rollback|catalog；"
+                                "link: ls|show|handshake|observe|promote|degrade|"
+                                "isolate|withdraw|decay|policy|card|publish|peers|"
+                                "evidence|export|import|catalog"),
             pid=_p("string", "review decide 的提案 id"),
             decision=_p("string", "review 裁决：accept|reject|edit|merge"),
             edits=_p("object", "review edit 的覆盖字段（不可含 verify）"),
@@ -603,7 +613,7 @@ KERNEL_TOOLS = [
             redteam=_p("object", "红队裁决 {verdict:pass|reject, issues:[], round:n}"),
             issues=_p("array", "问题清单（红队打回理由）"),
             reason=_p("string", "原因"), force=_p("boolean", "restore 强制"),
-            path=_p("string", "index_code 的目录（大域）"),
+            path=_p("string", "index_code 的目录（大域）；link import 的证据包文件"),
             patterns=_p("array", "index_code 的文件后缀，默认 ['.py']"),
             max_files=_p("integer", "index_code 最多扫描文件数"),
             name=_p("string", "sustain：心跳名（默认 md_cg）"),
@@ -645,7 +655,23 @@ KERNEL_TOOLS = [
             change=_p("string", "evolution record：这次具体改了什么"),
             kind=_p("string", "evolution：condition_gap|layer_shift|general"),
             entry_id=_p("string", "evolution show/rollback：条目 id"),
-            source=_p("string", "evolution record：来源 consolidate|verify|manual")),
+            source=_p("string", "evolution record：来源 consolidate|verify|manual；"
+                                "link evidence：按来源节点过滤"),
+            peer=_p("string", "link：对端节点 id（如 agent:node-x）"),
+            subsystem=_p("string", "link：子系统名（缺省 swarm）"),
+            position_map=_p("object", "link handshake：对端位置映射 {位置:权重}"),
+            peer_theory=_p("object", "link handshake：对端版本声明"),
+            peer_version=_p("string", "link handshake：对端版本（peer_theory 简写）"),
+            declared_charter=_p("boolean", "link handshake：对端是否声明宪章（默认是）"),
+            peer_signature=_p("string", "link handshake/observe：对端签名"),
+            negative=_p("boolean", "link observe：是否反例（默认否）"),
+            set=_p("object", "link policy：设置子系统签名策略"),
+            signers_file=_p("string", "link：签名策略文件（缺省 ~/.mdcg/_signers.json）"),
+            swarm=_p("string", "link：跨节点共享目录（缺省 ~/.mdcg/swarm）"),
+            subject=_p("string", "link evidence：按主体过滤（如 agent:node-x）"),
+            subjects=_p("array", "link export：限定导出的主体列表"),
+            out=_p("string", "link export：证据包输出路径"),
+            pack=_p("object", "link import：内联证据包（与 path 二选一）")),
     },
     {
         "name": "stg",
@@ -1198,6 +1224,47 @@ def _cg_call(cg, a):
                                       "require_peer_signature",
                                       "on_verify_fail") if k in a})
             return _sg.show()
+        # ---- 跨节点证据存储（v0.3）------------------------------------
+        if act in ("card", "node_card"):
+            from . import evidence as _ev
+            return _ev.card(cg.root, subsystem=a.get("subsystem"),
+                            signers_file=a.get("signers_file"))
+        if act in ("publish", "publish_card"):
+            from . import evidence as _ev
+            return _ev.publish_card(cg.root, swarm=a.get("swarm"),
+                                    subsystem=a.get("subsystem"),
+                                    signers_file=a.get("signers_file"))
+        if act in ("peers", "peer_list"):
+            from . import evidence as _ev
+            return _ev.peers(a.get("swarm"), root=cg.root)
+        if act in ("evidence", "evidence_ls"):
+            from . import evidence as _ev
+            return _ev.evidence(
+                cg, subject=a.get("subject"), source=a.get("source"),
+                limit=int(a.get("limit") or a.get("k") or 100))
+        if act in ("export", "evidence_export"):
+            from . import evidence as _ev
+            subs = a.get("subjects") or a.get("subject")
+            if isinstance(subs, str):
+                subs = [subs]
+            res = _ev.export_pack(
+                cg, subjects=subs, since=a.get("since"), swarm=a.get("swarm"),
+                subsystem=a.get("subsystem") or _ev.SUBSYSTEM,
+                signers_file=a.get("signers_file"))
+            if a.get("out"):
+                res["written"] = _ev.write_pack(
+                    res["pack"], path=a.get("out"), swarm=a.get("swarm"))
+            return res
+        if act in ("import", "evidence_import"):
+            from . import evidence as _ev
+            src = a.get("path") or a.get("pack")
+            if isinstance(src, str) and src.lstrip().startswith("{"):
+                src = json.loads(src)
+            if src is None:
+                raise ValueError("link/import 需要 path（包文件）或 pack（内联对象）")
+            return _ev.import_pack(
+                cg, src, subsystem=a.get("subsystem") or _ev.SUBSYSTEM,
+                swarm=a.get("swarm"), signers_file=a.get("signers_file"))
         raise ValueError(f"link 未知 action：{act}")
 
     if op == "info":

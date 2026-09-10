@@ -317,6 +317,9 @@ class MdCG:
         self._dirty = {}
 
     def close(self):
+        # 先落脏索引再关句柄：否则未达 autoflush 阈值的尾部写入会永久丢失，
+        # 已有 _index.json 的根重开时不会重扫目录，节点将「在盘上但不可见」。
+        self.flush()
         if self._log:
             self._log.close()
             self._log = None
