@@ -1,0 +1,4446 @@
+{
+ "conflicts": {
+  "self-lazy": {
+   "name": "自我控制",
+   "conflict": "想努力 vs 控制不住玩手机",
+   "q": "为什么我总是一边想努力一边控制不住玩手机？"
+  },
+  "self-ideal": {
+   "name": "理想现实",
+   "conflict": "理想 vs 现实差距",
+   "q": "为什么理想和现实的差距这么大？"
+  },
+  "self-procrast": {
+   "name": "拖延",
+   "conflict": "重要事 vs 拖着不做",
+   "q": "为什么越重要的事越拖？"
+  },
+  "self-compare": {
+   "name": "攀比",
+   "conflict": "别人过得好 vs 自己的节奏",
+   "q": "为什么看到别人过得比我好就焦虑？"
+  },
+  "fam-couple": {
+   "name": "夫妻协作",
+   "conflict": "付出 vs 不被看见",
+   "q": "为什么结婚后天天为家务吵架？"
+  },
+  "fam-gener": {
+   "name": "代际观念",
+   "conflict": "年轻人自主 vs 老人观念",
+   "q": "为什么父母总催婚催生？"
+  },
+  "fam-motherinlaw": {
+   "name": "婆媳相处",
+   "conflict": "小家庭主权 vs 婆婆介入",
+   "q": "为什么婆婆总爱插手我们小家庭的事？"
+  },
+  "fam-eldercare": {
+   "name": "养老规划",
+   "conflict": "赡养责任 vs 资源有限",
+   "q": "为什么养老压力全压在我一个人身上？"
+  },
+  "fam-remarry": {
+   "name": "重组家庭",
+   "conflict": "血缘认同 vs 新关系建立",
+   "q": "重组家庭的孩子为什么难相处？"
+  },
+  "fam-leftbehind": {
+   "name": "留守儿童",
+   "conflict": "外出挣钱 vs 孩子缺陪伴",
+   "q": "为什么那么多孩子成了留守儿童？"
+  },
+  "edu-score": {
+   "name": "应试压力",
+   "conflict": "全面发展 vs 分数筛选",
+   "q": "为什么现在的教育都只看分数？"
+  },
+  "edu-resource": {
+   "name": "教育公平",
+   "conflict": "资源集中 vs 公平分配",
+   "q": "为什么学区房这么贵？"
+  },
+  "edu-doublecut": {
+   "name": "双减焦虑",
+   "conflict": "减负 vs 竞争不减",
+   "q": "双减之后为什么家长更焦虑了？"
+  },
+  "edu-tutor": {
+   "name": "补习班",
+   "conflict": "补课投入 vs 效果/抵触",
+   "q": "为什么报了那么多补习班成绩还是上不去？"
+  },
+  "teach-authority": {
+   "name": "师生权威",
+   "conflict": "老师权威 vs 学生质疑",
+   "q": "为什么老师不容许学生质疑？"
+  },
+  "teach-fair": {
+   "name": "师生公平",
+   "conflict": "偏爱优生 vs 放弃差生",
+   "q": "为什么老师总是偏心成绩好的？"
+  },
+  "teach-bully": {
+   "name": "校园霸凌",
+   "conflict": "孩子安全 vs 学校息事宁人",
+   "q": "为什么被欺负了老师也不管？"
+  },
+  "work-pay": {
+   "name": "薪酬公平",
+   "conflict": "干活多 vs 工资低",
+   "q": "为什么干活最多的人工资不是最高？"
+  },
+  "work-loyalty": {
+   "name": "跳槽",
+   "conflict": "忠诚 vs 跳槽发展",
+   "q": "为什么在公司干十年不如跳槽涨得快？"
+  },
+  "work-age35": {
+   "name": "中年危机",
+   "conflict": "经验价值 vs 年龄折价",
+   "q": "为什么35岁就被职场嫌弃？"
+  },
+  "work-layoff": {
+   "name": "裁员",
+   "conflict": "企业降本 vs 员工生存",
+   "q": "为什么公司一不行就裁员？"
+  },
+  "work-burnout": {
+   "name": "工作压力",
+   "conflict": "任务无限 vs 时间有限",
+   "q": "为什么工作永远做不完？"
+  },
+  "gov-reg": {
+   "name": "政企监管",
+   "conflict": "创新速度 vs 监管滞后",
+   "q": "为什么监管总是跟不上创新？"
+  },
+  "gov-subsidy": {
+   "name": "产业补贴",
+   "conflict": "扶持 vs 公平竞争",
+   "q": "为什么政府总补贴某些行业？"
+  },
+  "gov-platform": {
+   "name": "平台用工",
+   "conflict": "灵活就业 vs 权益保障",
+   "q": "为什么外卖骑手没有社保？"
+  },
+  "gov-carbon": {
+   "name": "碳中和",
+   "conflict": "环保成本 vs 企业利润",
+   "q": "为什么环保要求越来越严，工厂怎么办？"
+  },
+  "intl-tech": {
+   "name": "技术封锁",
+   "conflict": "领先者封锁 vs 追赶者自主",
+   "q": "为什么美国要封锁中国芯片？"
+  },
+  "intl-trade": {
+   "name": "贸易摩擦",
+   "conflict": "贸易利益 vs 关税战",
+   "q": "为什么会有贸易战？"
+  },
+  "intl-energy": {
+   "name": "能源资源",
+   "conflict": "能源控制 vs 资源依赖",
+   "q": "为什么石油这么重要，连年打仗都跟它有关？"
+  },
+  "intl-climate": {
+   "name": "气候责任",
+   "conflict": "历史排放 vs 发展权",
+   "q": "为什么减排责任总是谈不拢？"
+  },
+  "self-choice": {
+   "name": "选择决策",
+   "conflict": "理想 vs 稳定",
+   "q": "该选喜欢但不确定的路，还是稳定但无趣的路？"
+  },
+  "social-boundary": {
+   "name": "拒绝边界",
+   "conflict": "合群 vs 做自己",
+   "q": "为什么我总是不会拒绝别人？"
+  },
+  "relation-attach": {
+   "name": "依恋焦虑",
+   "conflict": "亲密 vs 独立",
+   "q": "为什么恋爱中总是患得患失？"
+  },
+  "youth-game": {
+   "name": "游戏成瘾",
+   "conflict": "娱乐需求 vs 学业健康",
+   "q": "为什么孩子一玩游戏就停不下来？"
+  },
+  "youth-idol": {
+   "name": "追星",
+   "conflict": "自我投射 vs 家长观念",
+   "q": "孩子为什么疯狂追星？"
+  },
+  "digit-live": {
+   "name": "直播消费",
+   "conflict": "冲动消费 vs 真实需求",
+   "q": "为什么看直播总忍不住买东西？"
+  },
+  "digit-privacy": {
+   "name": "数据隐私",
+   "conflict": "便利 vs 隐私",
+   "q": "为什么APP什么权限都要？"
+  },
+  "soc-aging": {
+   "name": "养老社会",
+   "conflict": "老龄化 vs 供给不足",
+   "q": "为什么养老金越来越不够用？"
+  },
+  "soc-urban": {
+   "name": "城乡流动",
+   "conflict": "城市贡献 vs 制度壁垒",
+   "q": "为什么在城市打工多年还是没归属感？"
+  },
+  "soc-doctor": {
+   "name": "医患关系",
+   "conflict": "治愈期望 vs 医疗现实",
+   "q": "为什么医患关系越来越紧张？"
+  },
+  "soc-consumer": {
+   "name": "消费主义",
+   "conflict": "物质满足 vs 意义感",
+   "q": "为什么东西越买越多却不快乐？"
+  },
+  "soc-lieflat": {
+   "name": "内卷躺平",
+   "conflict": "努力回报 vs 上升通道",
+   "q": "为什么越来越多人选择躺平？"
+  },
+  "family-expect": {
+   "name": "家庭期望",
+   "conflict": "父母期望 vs 孩子自主",
+   "q": "爸妈总让我考公务员，我不想怎么办？"
+  },
+  "ai-job": {
+   "name": "AI替代工作",
+   "conflict": "效率革命 vs 就业冲击",
+   "q": "AI会取代哪些人的工作？"
+  },
+  "ai-copyright": {
+   "name": "AI创作版权",
+   "conflict": "AI训练 vs 创作者版权",
+   "q": "AI用我的画训练，算不算偷？"
+  },
+  "ai-bias": {
+   "name": "算法偏见",
+   "conflict": "算法优化 vs 用户利益",
+   "q": "为什么算法推荐越刷越同质？"
+  },
+  "work-free": {
+   "name": "自由职业",
+   "conflict": "自由 vs 稳定",
+   "q": "自由职业真的自由吗？"
+  },
+  "work-remote": {
+   "name": "远程办公",
+   "conflict": "灵活 vs 协作",
+   "q": "远程办公为什么又爱又恨？"
+  },
+  "fam-birth": {
+   "name": "生育成本",
+   "conflict": "养育成本 vs 生育意愿",
+   "q": "为什么年轻人越来越不想生孩子？"
+  },
+  "health-night": {
+   "name": "熬夜",
+   "conflict": "夜晚自由 vs 健康代价",
+   "q": "为什么明知道熬夜伤身还是戒不掉？"
+  },
+  "health-takeout": {
+   "name": "外卖健康",
+   "conflict": "时间稀缺 vs 健康需要",
+   "q": "为什么天天吃外卖还是戒不掉？"
+  },
+  "edu-online": {
+   "name": "网课效果",
+   "conflict": "便利 vs 学习深度",
+   "q": "为什么网课效果总是不如线下？"
+  },
+  "edu-chicken": {
+   "name": "鸡娃",
+   "conflict": "竞争焦虑 vs 孩子童年",
+   "q": "为什么家长都拼命鸡娃？"
+  },
+  "law-rights": {
+   "name": "法律维权",
+   "conflict": "维权成本 vs 权益受损",
+   "q": "为什么维权这么难这么贵？"
+  },
+  "health-vaccine": {
+   "name": "疫苗犹豫",
+   "conflict": "公共健康 vs 个体自主",
+   "q": "为什么有人不愿打疫苗？"
+  },
+  "psy-appearance": {
+   "name": "容貌焦虑",
+   "conflict": "审美标准 vs 自我接纳",
+   "q": "为什么越来越多人容貌焦虑？"
+  },
+  "psy-lonely": {
+   "name": "城市孤独",
+   "conflict": "原子化 vs 归属需要",
+   "q": "为什么越长大越孤独？"
+  },
+  "edu-abroad": {
+   "name": "留学选择",
+   "conflict": "高成本 vs 不确定回报",
+   "q": "留学到底值不值？"
+  },
+  "tech-face": {
+   "name": "人脸识别",
+   "conflict": "便利安全 vs 隐私滥用",
+   "q": "为什么到处都装人脸识别？"
+  },
+  "tech-deepfake": {
+   "name": "深度伪造",
+   "conflict": "技术便利 vs 真实可信",
+   "q": "AI换脸视频为什么这么危险？"
+  },
+  "disaster-dev": {
+   "name": "防灾准备",
+   "conflict": "防灾投入 vs 经济发展",
+   "q": "为什么明知道有风险还在风险区建房？"
+  },
+  "mil-race": {
+   "name": "军备竞赛",
+   "conflict": "国家安全 vs 资源浪费",
+   "q": "为什么国家之间要搞军备竞赛？"
+  },
+  "mil-proxy": {
+   "name": "代理人战争",
+   "conflict": "大国克制 vs 小国战场",
+   "q": "为什么大国打仗要借别人的手？"
+  },
+  "relig-trad": {
+   "name": "宗教传统",
+   "conflict": "传承 vs 时代变化",
+   "q": "为什么有些传统和现代生活冲突？"
+  },
+  "space-race": {
+   "name": "太空探索",
+   "conflict": "实力象征 vs 资源争夺",
+   "q": "为什么各国都在抢着登月探火？"
+  },
+  "carbon-tax": {
+   "name": "碳税",
+   "conflict": "减排成本 vs 企业利润",
+   "q": "为什么要收碳税？"
+  },
+  "meta-identity": {
+   "name": "元宇宙",
+   "conflict": "虚拟体验 vs 现实根基",
+   "q": "元宇宙会不会让人更孤独？"
+  },
+  "gene-edit": {
+   "name": "基因编辑",
+   "conflict": "治病希望 vs 伦理风险",
+   "q": "基因编辑治病变态还是危险？"
+  },
+  "brain-computer": {
+   "name": "脑机接口",
+   "conflict": "康复福音 vs 大脑隐私",
+   "q": "脑机接口是福音还是风险？"
+  },
+  "gen-work": {
+   "name": "职场性别",
+   "conflict": "历史分工 vs 现代平等",
+   "q": "为什么职场对女性有天花板？"
+  },
+  "gen-house": {
+   "name": "家务分工",
+   "conflict": "隐形劳动 vs 价值衡量",
+   "q": "为什么家务总是女性在做？"
+  },
+  "age-digital": {
+   "name": "老年数字",
+   "conflict": "数字化提速 vs 老人学习减速",
+   "q": "为什么老人用手机这么难？"
+  },
+  "edu-job": {
+   "name": "教育就业",
+   "conflict": "专业滞后 vs 市场变化",
+   "q": "为什么学的东西工作用不上？"
+  },
+  "pub-violence": {
+   "name": "网络暴力",
+   "conflict": "匿名表达 vs 网络伤害",
+   "q": "为什么网上骂人不用负责？"
+  },
+  "psy-anxiety": {
+   "name": "心理健康",
+   "conflict": "心理痛苦 vs 社会污名",
+   "q": "为什么现在抑郁焦虑的人这么多？"
+  },
+  "city-share": {
+   "name": "共享单车",
+   "conflict": "便利 vs 秩序",
+   "q": "为什么共享单车到处都是乱的？"
+  },
+  "city-pet": {
+   "name": "城市养宠",
+   "conflict": "养宠自由 vs 他人安宁",
+   "q": "为什么城市养宠矛盾这么多？"
+  },
+  "fin-loan": {
+   "name": "消费金融",
+   "conflict": "超前消费的便利 vs 高息/过度借贷",
+   "q": "为什么网贷这么容易借到？"
+  },
+  "food-safe": {
+   "name": "食品安全",
+   "conflict": "食品工业的添加剂/预制菜 vs 健康担忧",
+   "q": "食品添加剂到底安不安全？"
+  },
+  "traffic-e": {
+   "name": "电动车安全",
+   "conflict": "电动车便利 vs 安全/充电/管理",
+   "q": "为什么电动车起火事故这么多？"
+  },
+  "traffic-jam": {
+   "name": "城市拥堵",
+   "conflict": "私家车便利 vs 拥堵/停车难",
+   "q": "为什么城市越来越堵？"
+  },
+  "culture-heritage": {
+   "name": "老字号非遗",
+   "conflict": "老字号/非遗的传承 vs 市场生存",
+   "q": "为什么老字号越来越少？"
+  },
+  "sport-fan": {
+   "name": "体育饭圈",
+   "conflict": "竞技体育的饭圈化 vs 运动本身",
+   "q": "为什么体育圈也饭圈化了？"
+  },
+  "water-res": {
+   "name": "水资源",
+   "conflict": "水资源短缺 vs 浪费/污染",
+   "q": "为什么水资源越来越紧张？"
+  },
+  "plastic-waste": {
+   "name": "塑料污染",
+   "conflict": "塑料制品便利 vs 白色污染",
+   "q": "为什么限塑令效果不好？"
+  },
+  "fam-betrothal": {
+   "name": "彩礼",
+   "conflict": "彩礼习俗 vs 爱情/小家庭负担",
+   "q": "为什么彩礼越来越高？"
+  },
+  "fam-parenting": {
+   "name": "丧偶式育儿",
+   "conflict": "育儿分工 vs 父亲缺席",
+   "q": "为什么育儿都是妈妈的事？"
+  },
+  "housing": {
+   "name": "房价",
+   "conflict": "房价/房贷 vs 居住需求",
+   "q": "为什么房价这么高？"
+  },
+  "medical-cost": {
+   "name": "医疗费用",
+   "conflict": "看病贵 vs 医保/生存",
+   "q": "一场大病为什么能拖垮一个家？"
+  },
+  "edu-track": {
+   "name": "教育分流",
+   "conflict": "中考分流/职高 vs 大学路",
+   "q": "为什么中考就要分流？"
+  },
+  "digit-scroll": {
+   "name": "短视频沉迷",
+   "conflict": "短视频即时快乐 vs 时间/专注",
+   "q": "为什么刷短视频停不下来？"
+  },
+  "rural-hollow": {
+   "name": "农村空心化",
+   "conflict": "进城发展 vs 乡村凋零",
+   "q": "为什么农村年轻人越来越少？"
+  },
+  "tourism-trap": {
+   "name": "旅游宰客",
+   "conflict": "景区商业化/宰客 vs 旅游体验",
+   "q": "为什么景区总宰客？"
+  },
+  "emp-pua": {
+   "name": "职场PUA",
+   "conflict": "老板画饼/贬低 vs 自我价值",
+   "q": "为什么老板总爱画饼？"
+  },
+  "health-weight": {
+   "name": "身材焦虑",
+   "conflict": "身材标准 vs 健康/自我接纳",
+   "q": "为什么越来越多人身材焦虑？"
+  },
+  "public-civility": {
+   "name": "公共文明",
+   "conflict": "公共场所熊孩子/噪音 vs 个人自由",
+   "q": "为什么高铁上总有熊孩子？"
+  },
+  "edu-punish": {
+   "name": "教育惩戒",
+   "conflict": "打骂/惩罚 vs 讲道理/边界",
+   "q": "孩子不打不成器吗？"
+  },
+  "study-kaoyan": {
+   "name": "考研考公",
+   "conflict": "稳定追求 vs 竞争/内卷",
+   "q": "为什么越来越多人考研考公？"
+  },
+  "fam-solitude": {
+   "name": "独居老人",
+   "conflict": "老人独居 vs 子女陪伴/照护",
+   "q": "为什么老人越来越孤独？"
+  },
+  "food-residue": {
+   "name": "农药残留",
+   "conflict": "吃得安全 vs 有机太贵",
+   "q": "蔬菜水果都有农药残留吗？"
+  },
+  "city-elevator": {
+   "name": "老旧小区",
+   "conflict": "加装电梯/改造 vs 费用/利益分歧",
+   "q": "为什么老小区加装电梯这么难？"
+  },
+  "edu-graduate": {
+   "name": "应届生就业",
+   "conflict": "毕业就失业 vs 岗位需求错配",
+   "q": "为什么毕业就失业？"
+  },
+  "digit-scam": {
+   "name": "电信诈骗",
+   "conflict": "诈骗手段升级 vs 老人防范薄弱",
+   "q": "为什么老人容易被骗？"
+  },
+  "digit-tipping": {
+   "name": "直播打赏",
+   "conflict": "打赏主播 vs 钱/理性",
+   "q": "为什么有人花那么多钱打赏？"
+  },
+  "med-cosmetic": {
+   "name": "医美整容",
+   "conflict": "变美需求 vs 手术风险",
+   "q": "为什么越来越多人整容？"
+  },
+  "fam-yuesao": {
+   "name": "月嫂月子",
+   "conflict": "请月嫂花钱 vs 家人带/值不值",
+   "q": "为什么月嫂这么贵？"
+  },
+  "health-myopia": {
+   "name": "儿童近视",
+   "conflict": "电子产品/作业 vs 视力保护",
+   "q": "为什么孩子近视越来越多？"
+  },
+  "city-square": {
+   "name": "广场舞",
+   "conflict": "老人健身需求 vs 周边安宁",
+   "q": "为什么广场舞总有矛盾？"
+  },
+  "food-waste": {
+   "name": "光盘行动",
+   "conflict": "面子/点多了 vs 粮食浪费",
+   "q": "为什么浪费食物这么普遍？"
+  },
+  "soc-declutter": {
+   "name": "断舍离",
+   "conflict": "囤积/留着 vs 断舍离/极简",
+   "q": "为什么东西越攒越多？"
+  },
+  "pet-medical": {
+   "name": "宠物医疗",
+   "conflict": "宠物看病贵 vs 弃养/值不值",
+   "q": "为什么宠物看病这么贵？"
+  },
+  "fam-date": {
+   "name": "相亲条件",
+   "conflict": "相亲看条件 vs 感情",
+   "q": "为什么相亲都看条件？"
+  },
+  "social-toast": {
+   "name": "酒桌文化",
+   "conflict": "劝酒 vs 健康/自愿",
+   "q": "为什么酒桌总要劝酒？"
+  },
+  "edu-driving": {
+   "name": "学车驾考",
+   "conflict": "驾校乱象 vs 拿证刚需",
+   "q": "为什么驾校教练这么凶？"
+  },
+  "city-accessibility": {
+   "name": "无障碍出行",
+   "conflict": "残障出行 vs 设施不足/占用",
+   "q": "为什么盲道总被占用？"
+  },
+  "work-rehire": {
+   "name": "退休再就业",
+   "conflict": "退休后再就业 vs 年龄/体面",
+   "q": "为什么退休了还想找工作？"
+  },
+  "env-sort": {
+   "name": "垃圾分类",
+   "conflict": "分类麻烦 vs 环境收益",
+   "q": "为什么垃圾分类这么麻烦？"
+  },
+  "fam-wedding": {
+   "name": "婚庆消费",
+   "conflict": "结婚花钱 vs 简办/面子",
+   "q": "为什么结婚这么贵？"
+  },
+  "soc-secondhand": {
+   "name": "二手交易",
+   "conflict": "二手买卖 vs 假货/纠纷",
+   "q": "为什么二手平台这么火？"
+  },
+  "disaster-drill": {
+   "name": "应急演练",
+   "conflict": "演练形式化 vs 真有用",
+   "q": "为什么演练总是走过场？"
+  },
+  "fam-housekeeper": {
+   "name": "家政服务",
+   "conflict": "请保姆 vs 信任/隐私",
+   "q": "为什么好保姆这么难找？"
+  },
+  "fin-wealth": {
+   "name": "理财推销",
+   "conflict": "理财收益 vs 亏损风险",
+   "q": "为什么银行也卖理财产品？"
+  },
+  "city-property": {
+   "name": "小区物业",
+   "conflict": "物业费 vs 服务质量",
+   "q": "为什么物业费年年涨？"
+  },
+  "health-smoke": {
+   "name": "公共场所吸烟",
+   "conflict": "吸烟自由 vs 他人健康",
+   "q": "为什么公共场合总有人抽烟？"
+  },
+  "digit-dating": {
+   "name": "网络交友",
+   "conflict": "网恋缘分 vs 杀猪盘",
+   "q": "为什么网恋容易翻车？"
+  },
+  "psy-single": {
+   "name": "独居青年",
+   "conflict": "独居自由 vs 孤独/生活管理",
+   "q": "为什么越来越多人独居？"
+  },
+  "edu-trainingloan": {
+   "name": "培训贷",
+   "conflict": "培训先贷款 vs 就业承诺",
+   "q": "为什么培训总是先贷款？"
+  },
+  "edu-gaokao": {
+   "name": "高考复读",
+   "conflict": "复读一年 vs 青春/风险",
+   "q": "为什么越来越多人复读？"
+  },
+  "fam-grandparenting": {
+   "name": "隔代育儿",
+   "conflict": "老人带娃 vs 父母教育理念",
+   "q": "为什么老人总要插手带娃？"
+  },
+  "digit-phone": {
+   "name": "旧手机回收",
+   "conflict": "旧手机处理 vs 数据隐私/浪费",
+   "q": "旧手机怎么处理？"
+  },
+  "soc-tuango": {
+   "name": "社区团购",
+   "conflict": "团购便宜 vs 菜市场/品质",
+   "q": "为什么社区团购这么便宜？"
+  },
+  "traffic-trainfood": {
+   "name": "高铁餐饮",
+   "conflict": "高铁盒饭贵 vs 自带/垄断",
+   "q": "为什么高铁盒饭这么贵？"
+  },
+  "edu-allowance": {
+   "name": "儿童零花钱",
+   "conflict": "零花钱 vs 惯坏/理财教育",
+   "q": "该不该给孩子零花钱？"
+  },
+  "edu-parttime": {
+   "name": "大学生兼职",
+   "conflict": "兼职赚钱 vs 学业时间",
+   "q": "为什么大学生都在兼职？"
+  },
+  "fam-elderlove": {
+   "name": "中老年婚恋",
+   "conflict": "父母再婚 vs 子女态度/财产",
+   "q": "为什么老人也想找老伴？"
+  },
+  "pet-funeral": {
+   "name": "宠物殡葬",
+   "conflict": "宠物离世 vs 处理方式",
+   "q": "宠物离世怎么处理？"
+  },
+  "soc-reading": {
+   "name": "图书阅读",
+   "conflict": "读书 vs 手机碎片化",
+   "q": "为什么越来越多人不读书了？"
+  },
+  "logistics-station": {
+   "name": "快递驿站",
+   "conflict": "驿站取件 vs 送货上门",
+   "q": "为什么快递都不送上门了？"
+  },
+  "traffic-eldercar": {
+   "name": "老年代步车",
+   "conflict": "代步车 vs 安全/管理",
+   "q": "为什么老年代步车这么多？"
+  },
+  "edu-hobby": {
+   "name": "儿童兴趣班",
+   "conflict": "兴趣班 vs 孩子意愿/玩",
+   "q": "为什么孩子都在上兴趣班？"
+  },
+  "tourism-hotel": {
+   "name": "酒店卫生",
+   "conflict": "酒店卫生 vs 成本",
+   "q": "酒店卫生真的干净吗？"
+  },
+  "traffic-ridehailing": {
+   "name": "网约车安全",
+   "conflict": "网约车便利 vs 安全/司机权益",
+   "q": "网约车安全吗？"
+  },
+  "fitness-card": {
+   "name": "健身房跑路",
+   "conflict": "办卡优惠 vs 跑路风险",
+   "q": "为什么健身房总跑路？"
+  },
+  "traffic-charge": {
+   "name": "充电桩安装",
+   "conflict": "装桩需求 vs 物业/安全阻力",
+   "q": "为什么装充电桩这么难？"
+  },
+  "city-library": {
+   "name": "图书馆占座",
+   "conflict": "占座 vs 座位资源",
+   "q": "为什么图书馆总有人占座？"
+  },
+  "health-height": {
+   "name": "儿童身高焦虑",
+   "conflict": "比身高 vs 科学/个体差异",
+   "q": "为什么家长都焦虑孩子身高？"
+  },
+  "pet-boarding": {
+   "name": "宠物寄养",
+   "conflict": "寄养费用 vs 宠物应激/靠谱",
+   "q": "为什么宠物寄养这么贵？"
+  },
+  "fam-giftmoney": {
+   "name": "随份子",
+   "conflict": "人情往来 vs 经济负担",
+   "q": "为什么份子钱越随越多？"
+  },
+  "culture-ticket": {
+   "name": "演唱会抢票",
+   "conflict": "抢票难 vs 黄牛溢价",
+   "q": "为什么演唱会票这么难抢？"
+  },
+  "health-medicine": {
+   "name": "儿童用药",
+   "conflict": "喂药难/抗生素滥用 vs 科学用药",
+   "q": "抗生素为什么不能乱吃？"
+  },
+  "med-eldercare": {
+   "name": "医养结合",
+   "conflict": "养老院医疗 vs 养老",
+   "q": "为什么养老院一床难求？"
+  },
+  "edu-studyroom": {
+   "name": "付费自习室",
+   "conflict": "付费自习 vs 免费图书馆/在家",
+   "q": "为什么付费自习室这么火？"
+  },
+  "teach-gift": {
+   "name": "教师收礼",
+   "conflict": "教师收礼 vs 教育公平",
+   "q": "为什么家长要给老师送礼？"
+  },
+  "fin-branch": {
+   "name": "银行网点消失",
+   "conflict": "网点减少 vs 老人办事",
+   "q": "为什么银行网点越来越少？"
+  },
+  "edu-allowance2": {
+   "name": "大学生生活费",
+   "conflict": "生活费 vs 家庭负担/攀比",
+   "q": "大学生一个月生活费多少合适？"
+  },
+  "pet-training": {
+   "name": "宠物训练",
+   "conflict": "宠物行为 vs 训练管教",
+   "q": "为什么宠物不听话？"
+  },
+  "edu-sleep": {
+   "name": "学生睡眠",
+   "conflict": "作业多 vs 睡眠",
+   "q": "为什么学生都缺觉？"
+  },
+  "digit-watch": {
+   "name": "儿童电话手表",
+   "conflict": "手表社交 vs 学校管理",
+   "q": "为什么孩子都想要电话手表？"
+  },
+  "health-hypertension": {
+   "name": "高血压用药",
+   "conflict": "降压药天天吃 vs 停药风险",
+   "q": "为什么高血压要天天吃药？"
+  },
+  "edu-dorm": {
+   "name": "大学生宿舍",
+   "conflict": "宿舍矛盾 vs 相处",
+   "q": "为什么宿舍矛盾这么多？"
+  },
+  "health-fall": {
+   "name": "老人防跌倒",
+   "conflict": "跌倒风险 vs 预防投入",
+   "q": "为什么老人容易摔倒？"
+  },
+  "fin-childinsurance": {
+   "name": "儿童保险",
+   "conflict": "儿童保险 vs 智商税",
+   "q": "为什么儿童保险这么火？"
+  },
+  "culture-museum": {
+   "name": "博物馆预约",
+   "conflict": "免费预约 vs 黄牛/难约",
+   "q": "为什么博物馆也要预约？"
+  },
+  "pet-spay": {
+   "name": "宠物绝育",
+   "conflict": "绝育 vs 残忍/必要",
+   "q": "为什么宠物要绝育？"
+  },
+  "public-seat": {
+   "name": "公交让座",
+   "conflict": "让座 vs 道德绑架",
+   "q": "为什么让座总有争议？"
+  },
+  "edu-sexed": {
+   "name": "儿童性教育",
+   "conflict": "性教育 vs 羞耻/保护",
+   "q": "为什么孩子要接受性教育？"
+  },
+  "pet-insurance": {
+   "name": "宠物保险",
+   "conflict": "宠物保险 vs 值不值",
+   "q": "宠物保险有必要买吗？"
+  },
+  "edu-cert": {
+   "name": "大学生考证",
+   "conflict": "考证 vs 含金量",
+   "q": "为什么大学生都在考证？"
+  },
+  "med-accompany": {
+   "name": "医院陪护",
+   "conflict": "住院陪护 vs 家庭负担",
+   "q": "为什么住院要家属陪护？"
+  },
+  "health-teeth": {
+   "name": "儿童护牙",
+   "conflict": "蛀牙 vs 护牙习惯",
+   "q": "为什么孩子蛀牙这么多？"
+  },
+  "soc-return": {
+   "name": "网购退货",
+   "conflict": "退货 vs 运费/浪费",
+   "q": "为什么网购退货这么多？"
+  },
+  "health-exercise": {
+   "name": "老年人运动",
+   "conflict": "运动 vs 受伤风险",
+   "q": "老人该运动吗？"
+  },
+  "edu-homework": {
+   "name": "辅导作业",
+   "conflict": "辅导 vs 亲子关系",
+   "q": "为什么辅导作业这么崩溃？"
+  },
+  "health-drowning": {
+   "name": "儿童防溺水",
+   "conflict": "溺水风险 vs 家长看护",
+   "q": "为什么儿童溺水这么多？"
+  },
+  "fam-property": {
+   "name": "代际财产",
+   "conflict": "老人财产分配 vs 子女期待",
+   "q": "为什么老人财产分配总闹矛盾？"
+  },
+  "pet-grooming": {
+   "name": "宠物美容",
+   "conflict": "宠物美容贵 vs 必要",
+   "q": "为什么宠物美容这么贵？"
+  },
+  "digit-camera": {
+   "name": "家庭监控",
+   "conflict": "装监控 vs 隐私",
+   "q": "为什么家里要装监控？"
+  },
+  "digit-baby": {
+   "name": "晒娃",
+   "conflict": "分享快乐 vs 隐私风险",
+   "q": "为什么家长爱晒娃？"
+  },
+  "edu-trip": {
+   "name": "毕业旅行",
+   "conflict": "毕业旅行 vs 钱/仪式",
+   "q": "为什么毕业都要旅行？"
+  },
+  "housing-renovation": {
+   "name": "家装装修",
+   "conflict": "装修 vs 踩坑/费用",
+   "q": "为什么装修这么贵？"
+  },
+  "tourism-group": {
+   "name": "跟团旅游",
+   "conflict": "跟团 vs 自由行",
+   "q": "为什么跟团游总被吐槽？"
+  },
+  "gen-war": {
+   "name": "男女对立",
+   "conflict": "男女对立 vs 理性对话",
+   "q": "为什么现在男女对立这么严重？"
+  },
+  "fam-mil2": {
+   "name": "丈夫夹心",
+   "conflict": "婆媳矛盾中丈夫的角色",
+   "q": "为什么丈夫总在婆媳中间为难？"
+  },
+  "gen-consume": {
+   "name": "女性消费工作耐心",
+   "conflict": "消费欲望高 vs 工作耐心低",
+   "q": "为什么女性消费欲望这么高？"
+  },
+  "gen-income": {
+   "name": "收入角色",
+   "conflict": "男性养家 vs 女性独立",
+   "q": "为什么现在女性也要养家？"
+  },
+  "fam-aa": {
+   "name": "婚后AA制",
+   "conflict": "婚后AA vs 生分",
+   "q": "为什么越来越多人婚后AA？"
+  },
+  "gen-stayhome": {
+   "name": "全职妈妈回归",
+   "conflict": "全职带娃 vs 重返职场",
+   "q": "为什么全职妈妈重返职场这么难？"
+  },
+  "gen-labels": {
+   "name": "大龄未婚标签",
+   "conflict": "大龄未婚标签 vs 个人选择",
+   "q": "为什么大龄未婚要被贴标签？"
+  },
+  "fam-mil3": {
+   "name": "婆媳同住",
+   "conflict": "婆媳同住 vs 边界",
+   "q": "为什么婆媳同住矛盾多？"
+  },
+  "fam-cohabit": {
+   "name": "婚前同居",
+   "conflict": "婚前同居 vs 传统观念",
+   "q": "为什么越来越多人婚前同居？"
+  },
+  "gen-malepressure": {
+   "name": "男性婚育压力",
+   "conflict": "男方买房彩礼 vs 压力分担",
+   "q": "为什么男性婚育压力这么大？"
+  },
+  "fam-boundary": {
+   "name": "婚后原生家庭边界",
+   "conflict": "婚后与父母边界 vs 亲情",
+   "q": "为什么婚后和父母边界这么难？"
+  },
+  "gen-staydad": {
+   "name": "全职爸爸",
+   "conflict": "男性全职带娃 vs 观念",
+   "q": "为什么全职爸爸这么少？"
+  },
+  "fam-agediff": {
+   "name": "姐弟恋",
+   "conflict": "姐弟恋 vs 年龄差观念",
+   "q": "为什么姐弟恋争议这么大？"
+  },
+  "fam-dink": {
+   "name": "丁克",
+   "conflict": "丁克 vs 家庭压力",
+   "q": "为什么越来越多人选择丁克？"
+  },
+  "fam-prenup": {
+   "name": "婚前财产协议",
+   "conflict": "婚前财产协议 vs 感情",
+   "q": "为什么婚前财产公证越来越多？"
+  },
+  "fam-onlychild": {
+   "name": "独生女养老",
+   "conflict": "独生女 vs 养老压力",
+   "q": "为什么独生女养老压力这么大？"
+  },
+  "gen-hiring": {
+   "name": "求职婚育歧视",
+   "conflict": "面试问婚育 vs 就业公平",
+   "q": "为什么面试总问婚育计划？"
+  },
+  "gen-maleemotion": {
+   "name": "男性情感表达",
+   "conflict": "男儿有泪不轻弹 vs 情绪健康",
+   "q": "为什么男人不能哭？"
+  },
+  "soc-singleeconomy": {
+   "name": "单身经济",
+   "conflict": "单身经济 vs 社会配套",
+   "q": "为什么单身经济这么火？"
+  },
+  "gen-birthanxiety": {
+   "name": "女性生育焦虑",
+   "conflict": "生育年龄焦虑 vs 选择",
+   "q": "为什么女性有生育年龄焦虑？"
+  },
+  "gen-malegrooming": {
+   "name": "男性形象消费",
+   "conflict": "男性护肤医美 vs 观念",
+   "q": "为什么男性也开始护肤医美？"
+  },
+  "fam-singlemom": {
+   "name": "单亲妈妈",
+   "conflict": "单亲养育 vs 支持",
+   "q": "为什么单亲妈妈这么难？"
+  },
+  "public-night": {
+   "name": "女性夜间安全",
+   "conflict": "女性夜间安全 vs 自由",
+   "q": "为什么女性夜间出行不安全？"
+  },
+  "gen-genderratio": {
+   "name": "婚恋性别比",
+   "conflict": "男多女少 vs 婚恋压力",
+   "q": "为什么男多女少？"
+  },
+  "gen-postpartum": {
+   "name": "产后抑郁",
+   "conflict": "产后情绪 vs 家庭支持",
+   "q": "为什么产后会抑郁？"
+  },
+  "gen-paternity": {
+   "name": "男性育婴假",
+   "conflict": "男性休育儿假 vs 观念/职场",
+   "q": "为什么男性休育儿假的少？"
+  },
+  "gen-dress": {
+   "name": "女性职场穿搭",
+   "conflict": "穿衣自由 vs 职场规范",
+   "q": "为什么职场对女性穿着这么多要求？"
+  },
+  "gen-maleunmarried": {
+   "name": "大龄男性婚恋",
+   "conflict": "大龄男性婚恋 vs 婚恋市场",
+   "q": "为什么大龄男性更难结婚？"
+  },
+  "fam-sunkcost": {
+   "name": "婚姻沉默成本",
+   "conflict": "婚姻将就 vs 放手",
+   "q": "为什么婚姻里将就的人这么多？"
+  },
+  "fam-birthsubsidy": {
+   "name": "生育补贴",
+   "conflict": "生育补贴 vs 生育意愿",
+   "q": "生育补贴能提高生育率吗？"
+  },
+  "public-toast": {
+   "name": "女性酒局",
+   "conflict": "女性酒局 vs 安全/边界",
+   "q": "为什么女性在酒局更危险？"
+  },
+  "gen-ageanxiety": {
+   "name": "女性年龄焦虑",
+   "conflict": "怕老 vs 自我接纳",
+   "q": "为什么女性比男性更怕老？"
+  },
+  "fam-coldviolence": {
+   "name": "婚姻冷暴力",
+   "conflict": "婚姻冷暴力 vs 伤害",
+   "q": "什么是婚姻冷暴力？"
+  },
+  "gen-unmarriedpension": {
+   "name": "未婚女性养老",
+   "conflict": "未婚女性 vs 养老规划",
+   "q": "为什么未婚女性也要规划养老？"
+  },
+  "edu-gender": {
+   "name": "儿童性别教育",
+   "conflict": "性别刻板印象 vs 多元教育",
+   "q": "孩子该接受性别平等教育吗？"
+  },
+  "fam-fincontrol": {
+   "name": "婚姻经济控制",
+   "conflict": "婚姻经济控制 vs 家庭暴力",
+   "q": "什么是婚姻经济控制？"
+  },
+  "gen-entrepreneur": {
+   "name": "女性创业",
+   "conflict": "女性创业 vs 偏见",
+   "q": "为什么女性创业更难？"
+  },
+  "fam-division": {
+   "name": "离婚财产分割",
+   "conflict": "离婚财产分割 vs 公平",
+   "q": "离婚财产怎么分？"
+  },
+  "fam-friendboundary": {
+   "name": "婚后异性友谊",
+   "conflict": "婚后异性友谊 vs 边界",
+   "q": "婚后可以有异性朋友吗？"
+  },
+  "gen-divorce": {
+   "name": "离婚孩子抚养",
+   "conflict": "离婚孩子抚养 vs 争夺",
+   "q": "离婚后孩子跟谁？"
+  },
+  "fam-betrothalreturn": {
+   "name": "彩礼返还",
+   "conflict": "分手/离婚礼金 vs 返还",
+   "q": "分手了订婚礼金要退吗？"
+  },
+  "fam-maritalpua": {
+   "name": "婚姻精神操控",
+   "conflict": "婚姻精神操控 vs 伤害",
+   "q": "什么是婚姻中的精神操控？"
+  },
+  "gen-ivf": {
+   "name": "试管婴儿压力",
+   "conflict": "辅助生殖 vs 身心代价",
+   "q": "为什么选择试管婴儿？"
+  },
+  "fam-datingscam": {
+   "name": "相亲骗局",
+   "conflict": "相亲骗局 vs 防骗",
+   "q": "为什么相亲总遇骗局？"
+  },
+  "fam-unplanned": {
+   "name": "未婚先孕",
+   "conflict": "意外怀孕 vs 选择",
+   "q": "未婚先孕怎么办？"
+  },
+  "fam-violence": {
+   "name": "家暴求助",
+   "conflict": "家暴 vs 识别求助",
+   "q": "家暴为什么难以摆脱？"
+  },
+  "gen-singleparent": {
+   "name": "单亲爸爸",
+   "conflict": "单亲爸爸 vs 养育",
+   "q": "单亲爸爸带孩子行吗？"
+  },
+  "fam-elderdivorce": {
+   "name": "老年离婚",
+   "conflict": "老年离婚 vs 观念",
+   "q": "为什么老年人也离婚？"
+  },
+  "fam-dateexpense": {
+   "name": "恋爱消费",
+   "conflict": "恋爱谁花钱 vs AA",
+   "q": "恋爱中谁该花钱？"
+  },
+  "fam-phone": {
+   "name": "夫妻查手机",
+   "conflict": "查手机 vs 隐私",
+   "q": "夫妻该互相查手机吗？"
+  },
+  "fam-postbirth": {
+   "name": "生育后夫妻",
+   "conflict": "生娃后夫妻关系变淡",
+   "q": "为什么生娃后夫妻关系变淡？"
+  },
+  "fam-houseworkcomp": {
+   "name": "家务补偿",
+   "conflict": "家务补偿 vs 权益",
+   "q": "全职主妇离婚有家务补偿吗？"
+  },
+  "fam-pregnancywork": {
+   "name": "孕期职场",
+   "conflict": "孕期职场权益 vs 企业负担",
+   "q": "怀孕会被辞退吗？"
+  },
+  "fam-intimacy": {
+   "name": "婚姻激情消退",
+   "conflict": "婚后激情消退 vs 经营",
+   "q": "为什么婚后激情会消退？"
+  },
+  "fam-mil4": {
+   "name": "岳母女婿",
+   "conflict": "岳母女婿矛盾 vs 婆媳对照",
+   "q": "为什么岳母女婿也有矛盾？"
+  },
+  "fam-groupchat": {
+   "name": "家族群",
+   "conflict": "家族群 vs 压力",
+   "q": "为什么家族群让人压力大？"
+  },
+  "fam-inheritance": {
+   "name": "遗产继承",
+   "conflict": "遗产分配 vs 继承",
+   "q": "遗产该怎么分？"
+  },
+  "fam-datecontrol": {
+   "name": "恋爱控制",
+   "conflict": "恋爱控制 vs 自由",
+   "q": "恋爱中控制是爱吗？"
+  },
+  "fam-secondchild": {
+   "name": "二胎压力",
+   "conflict": "二胎 vs 精力",
+   "q": "为什么生二胎犹豫？"
+  },
+  "fam-lies": {
+   "name": "婚姻谎言",
+   "conflict": "善意谎言 vs 坦诚",
+   "q": "婚姻中能说善意的谎言吗？"
+  },
+  "gen-widow": {
+   "name": "丧偶女性",
+   "conflict": "丧偶 vs 再婚/独立",
+   "q": "丧偶女性为什么难？"
+  },
+  "fam-yuegong": {
+   "name": "月子中心",
+   "conflict": "月子中心 vs 值不值",
+   "q": "月子中心值吗？"
+  },
+  "gen-divorce2": {
+   "name": "离婚冷静期",
+   "conflict": "离婚冷静期 vs 自由",
+   "q": "离婚冷静期合理吗？"
+  },
+  "digit-wedding": {
+   "name": "婚礼直播",
+   "conflict": "婚礼直播 vs 隐私",
+   "q": "为什么婚礼也直播？"
+  },
+  "fam-affair": {
+   "name": "婚内出轨",
+   "conflict": "婚内出轨 vs 原谅",
+   "q": "婚内出轨能原谅吗？"
+  },
+  "fam-eldercohabit": {
+   "name": "老年同居",
+   "conflict": "老年同居 vs 领证",
+   "q": "为什么老年人选择同居不领证？"
+  },
+  "fam-cohabitreturn": {
+   "name": "同居分手财产",
+   "conflict": "同居分手 vs 财产",
+   "q": "同居分手财产怎么分？"
+  },
+  "gen-postbody": {
+   "name": "产后身材",
+   "conflict": "产后身材 vs 恢复",
+   "q": "为什么产后身材难恢复？"
+  },
+  "fam-flashmarriage": {
+   "name": "闪婚",
+   "conflict": "闪婚 vs 了解",
+   "q": "闪婚靠谱吗？"
+  },
+  "fam-violencechild": {
+   "name": "目睹家暴的孩子",
+   "conflict": "孩子目睹家暴 vs 影响",
+   "q": "孩子目睹家暴有什么影响？"
+  },
+  "fam-premarriagecheck": {
+   "name": "婚前体检",
+   "conflict": "婚前体检 vs 信任",
+   "q": "婚前体检有必要吗？"
+  },
+  "gen-malefertility": {
+   "name": "男性生育年龄",
+   "conflict": "男性生育 vs 年龄",
+   "q": "男性生育有年龄限制吗？"
+  },
+  "fam-longdistance": {
+   "name": "异地婚姻",
+   "conflict": "异地婚姻 vs 维系",
+   "q": "异地婚姻能长久吗？"
+  },
+  "fam-adoption": {
+   "name": "收养",
+   "conflict": "收养 vs 亲生",
+   "q": "收养孩子要注意什么？"
+  },
+  "fam-separatebeds": {
+   "name": "夫妻分房",
+   "conflict": "夫妻分房 vs 感情",
+   "q": "夫妻分房睡正常吗？"
+  },
+  "fam-couplebusiness": {
+   "name": "夫妻创业",
+   "conflict": "夫妻创业 vs 关系",
+   "q": "夫妻一起创业好吗？"
+  },
+  "fam-premarriagehouse": {
+   "name": "婚前买房",
+   "conflict": "婚前买房 vs 婚后",
+   "q": "婚前买房算谁的？"
+  },
+  "fam-emotionalvalue": {
+   "name": "婚姻情绪价值",
+   "conflict": "婚姻情绪价值 vs 物质",
+   "q": "婚姻中的情绪价值重要吗？"
+  },
+  "gen-motherrole": {
+   "name": "母职绑架",
+   "conflict": "为母则刚 vs 自我",
+   "q": "为什么妈妈被要求完美？"
+  },
+  "digit-familytime": {
+   "name": "家庭屏幕时间",
+   "conflict": "家庭屏幕时间 vs 陪伴",
+   "q": "为什么家庭聚餐都在刷手机？"
+  },
+  "fam-decision": {
+   "name": "家庭决策权",
+   "conflict": "家庭决策权 vs 尊重",
+   "q": "家里大事谁说了算？"
+  },
+  "fam-fight": {
+   "name": "夫妻吵架",
+   "conflict": "夫妻吵架 vs 沟通",
+   "q": "夫妻吵架正常吗？"
+  },
+  "fam-growth": {
+   "name": "成长不同步",
+   "conflict": "夫妻成长不同步 vs 婚姻",
+   "q": "夫妻成长不同步怎么办？"
+  },
+  "fam-weddingprep": {
+   "name": "婚礼筹备",
+   "conflict": "婚礼筹备 vs 吵架",
+   "q": "为什么婚礼筹备总吵架？"
+  },
+  "fam-inlaws": {
+   "name": "亲家关系",
+   "conflict": "亲家关系 vs 相处",
+   "q": "亲家之间怎么相处？"
+  },
+  "fam-eldercare3": {
+   "name": "异地养老",
+   "conflict": "异地养老 vs 尽孝",
+   "q": "父母在老家，怎么尽孝？"
+  },
+  "fam-newyear": {
+   "name": "过年回谁家",
+   "conflict": "过年回谁家 vs 两难",
+   "q": "过年回谁家总吵架？"
+  },
+  "fam-talk": {
+   "name": "夫妻说话方式",
+   "conflict": "夫妻说话方式 vs 伤害",
+   "q": "为什么夫妻说话容易伤人？"
+  },
+  "fam-health": {
+   "name": "夫妻健康观念",
+   "conflict": "夫妻健康观念 vs 统一",
+   "q": "夫妻健康观念不同怎么办？"
+  },
+  "fam-pet": {
+   "name": "家庭养宠之争",
+   "conflict": "家庭养宠 vs 责任",
+   "q": "家里要不要养宠物？"
+  },
+  "fam-car": {
+   "name": "家庭买车",
+   "conflict": "家庭买车 vs 刚需/面子",
+   "q": "家里要不要买车？"
+  },
+  "fam-sibling": {
+   "name": "成年兄弟姐妹",
+   "conflict": "成年兄弟姐妹 vs 利益",
+   "q": "成年兄弟姐妹怎么相处？"
+  },
+  "fam-couplegoals": {
+   "name": "夫妻共同目标",
+   "conflict": "夫妻共同目标 vs 各自追求",
+   "q": "夫妻要有共同目标吗？"
+  },
+  "fam-remotework": {
+   "name": "远程办公家庭",
+   "conflict": "远程工作 vs 家庭",
+   "q": "远程工作会影响家庭吗？"
+  },
+  "fam-elderlyhealth": {
+   "name": "父母健康管理",
+   "conflict": "劝父母体检 vs 尊重",
+   "q": "怎么劝父母体检？"
+  },
+  "fam-childprivacy": {
+   "name": "孩子隐私",
+   "conflict": "孩子隐私 vs 关心",
+   "q": "父母该看孩子日记吗？"
+  },
+  "fam-diet": {
+   "name": "家庭饮食之争",
+   "conflict": "健康饮食 vs 口味",
+   "q": "家庭饮食听谁的？"
+  },
+  "fam-schedule": {
+   "name": "家庭作息之争",
+   "conflict": "早睡 vs 晚睡",
+   "q": "家庭作息不统一怎么办？"
+  },
+  "fam-trip": {
+   "name": "家庭旅行安排",
+   "conflict": "带娃旅行 vs 享受/折腾",
+   "q": "家庭旅行听谁的？"
+  },
+  "fam-gathering": {
+   "name": "家庭聚会",
+   "conflict": "家庭聚会 vs 温馨/负担",
+   "q": "家庭聚会是温馨还是负担？"
+  },
+  "fam-childfriends": {
+   "name": "孩子交友",
+   "conflict": "孩子交友 vs 把关",
+   "q": "孩子交朋友要管吗？"
+  },
+  "fam-chorechild": {
+   "name": "孩子家务",
+   "conflict": "孩子家务 vs 学习",
+   "q": "孩子该做家务吗？"
+  },
+  "fam-cleanliness": {
+   "name": "家务标准",
+   "conflict": "洁癖 vs 随意",
+   "q": "家务标准不同怎么办？"
+  },
+  "fam-petchild": {
+   "name": "宠物与孩子",
+   "conflict": "宠物与孩子 vs 共存",
+   "q": "有孩子能养宠物吗？"
+  },
+  "fam-childhome": {
+   "name": "孩子独自在家",
+   "conflict": "孩子独自在家 vs 安全",
+   "q": "孩子几岁能独自在家？"
+  },
+  "work-commute": {
+   "name": "极端通勤",
+   "conflict": "极端通勤 vs 生活",
+   "q": "通勤两小时值得吗？"
+  },
+  "digit-drama": {
+   "name": "短剧沉迷",
+   "conflict": "短剧 vs 沉迷",
+   "q": "为什么短剧这么上头？"
+  },
+  "fam-weekend": {
+   "name": "周末安排",
+   "conflict": "周末休息 vs 家庭",
+   "q": "周末该干嘛？"
+  },
+  "fam-empty": {
+   "name": "空巢期夫妻",
+   "conflict": "空巢期 vs 解放/失落",
+   "q": "孩子离家后夫妻怎么办？"
+  },
+  "fam-summer": {
+   "name": "暑假安排",
+   "conflict": "暑假放松 vs 弯道超车",
+   "q": "暑假怎么安排孩子？"
+  },
+  "fam-caregiving": {
+   "name": "家人照护",
+   "conflict": "家人照护 vs 责任/负担",
+   "q": "家人病了谁来照顾？"
+  },
+  "fam-disabled": {
+   "name": "失能老人照护",
+   "conflict": "失能老人 vs 家庭/专业",
+   "q": "失能老人谁来照顾？"
+  },
+  "fam-worktime": {
+   "name": "工作日家庭时间",
+   "conflict": "工作投入 vs 家庭需要",
+   "q": "工作日怎么陪家人？"
+  },
+  "edu-reward": {
+   "name": "孩子奖励教育",
+   "conflict": "激励 vs 内在动力",
+   "q": "孩子做得好该奖励吗？"
+  },
+  "fam-move": {
+   "name": "搬家决策",
+   "conflict": "现状不满 vs 折腾代价",
+   "q": "要不要搬家？"
+  },
+  "fam-elderfit": {
+   "name": "适老化改造",
+   "conflict": "老人安全 vs 改造成本",
+   "q": "家里要适老化改造吗？"
+  },
+  "fam-values": {
+   "name": "夫妻价值观冲突",
+   "conflict": "观念差异 vs 尊重磨合",
+   "q": "夫妻价值观不同怎么办？"
+  },
+  "fam-puberty": {
+   "name": "青春期沟通",
+   "conflict": "孩子成长 vs 父母不适应",
+   "q": "青春期孩子为什么难沟通？"
+  },
+  "fam-aging": {
+   "name": "老人衰老",
+   "conflict": "生命规律 vs 情感接受",
+   "q": "怎么面对父母变老？"
+  },
+  "fam-independence": {
+   "name": "孩子独立放手",
+   "conflict": "成长必然 vs 父母不舍",
+   "q": "孩子多大该独立？"
+  },
+  "edu-gamefun": {
+   "name": "学习游戏趣味",
+   "conflict": "学习不如游戏 vs 有趣",
+   "q": "为什么学习不如游戏有趣？"
+  },
+  "edu-boring": {
+   "name": "学习枯燥",
+   "conflict": "学习枯燥 vs 有趣",
+   "q": "学习为什么枯燥？"
+  },
+  "digit-game": {
+   "name": "游戏机制",
+   "conflict": "游戏设计 vs 沉迷",
+   "q": "游戏为什么让人上瘾？"
+  },
+  "edu-playbalance": {
+   "name": "学习娱乐平衡",
+   "conflict": "学习 vs 娱乐",
+   "q": "学习烦了，玩会游戏行吗？"
+  },
+  "edu-procrast": {
+   "name": "拖延启动",
+   "conflict": "想学 vs 先玩",
+   "q": "想学但总想先玩游戏怎么办？"
+  },
+  "edu-why": {
+   "name": "学习意义",
+   "conflict": "学习无用 vs 必备",
+   "q": "学习有什么用？"
+  },
+  "edu-knowledgefun": {
+   "name": "知识乐趣",
+   "conflict": "知识有趣 vs 枯燥",
+   "q": "知识有趣吗？"
+  },
+  "digit-gameblame": {
+   "name": "游戏责任",
+   "conflict": "游戏害人 vs 自制力",
+   "q": "游戏害人还是帮人？"
+  }
+ },
+ "links": [
+  {
+   "a": "fam-motherinlaw",
+   "b": "fam-couple",
+   "note": "婆媳矛盾会渗入夫妻关系——丈夫夹中间，夫妻协作被婆婆介入打断"
+  },
+  {
+   "a": "fam-motherinlaw",
+   "b": "fam-gener",
+   "note": "婆媳冲突是代际观念冲突在家庭里的具体化"
+  },
+  {
+   "a": "fam-eldercare",
+   "b": "fam-gener",
+   "note": "养老分歧本质是代际责任观的冲突"
+  },
+  {
+   "a": "fam-eldercare",
+   "b": "work-burnout",
+   "note": "工作压力大时养老责任更难扛——双重负荷"
+  },
+  {
+   "a": "edu-doublecut",
+   "b": "edu-score",
+   "note": "双减焦虑源于应试压力没变、补课渠道变了"
+  },
+  {
+   "a": "edu-tutor",
+   "b": "edu-score",
+   "note": "补课是应试压力的产物——竞争不变，补课不止"
+  },
+  {
+   "a": "edu-tutor",
+   "b": "edu-doublecut",
+   "note": "双减后补习转入地下/私教，焦虑变形"
+  },
+  {
+   "a": "teach-bully",
+   "b": "teach-fair",
+   "note": "被霸凌的孩子往往是被忽视的边缘生——公平问题放大"
+  },
+  {
+   "a": "teach-bully",
+   "b": "fam-couple",
+   "note": "孩子被欺负的家庭，夫妻常因处理分歧争吵"
+  },
+  {
+   "a": "work-age35",
+   "b": "work-loyalty",
+   "note": "跳槽频繁可能加速中年危机（履历碎片化）"
+  },
+  {
+   "a": "work-age35",
+   "b": "work-burnout",
+   "note": "中年人的加班压力更高——上有老下有小"
+  },
+  {
+   "a": "work-layoff",
+   "b": "work-age35",
+   "note": "裁员优先裁35+——年龄与裁员直接相关"
+  },
+  {
+   "a": "work-layoff",
+   "b": "work-pay",
+   "note": "薪酬高的老员工是裁员目标——性价比逻辑"
+  },
+  {
+   "a": "gov-platform",
+   "b": "gov-reg",
+   "note": "平台用工乱象正是监管跟不上创新的例子"
+  },
+  {
+   "a": "gov-platform",
+   "b": "work-pay",
+   "note": "骑手没社保=劳动报酬权益缺失"
+  },
+  {
+   "a": "gov-carbon",
+   "b": "gov-subsidy",
+   "note": "碳中和产业靠补贴起步（新能源补贴）"
+  },
+  {
+   "a": "gov-carbon",
+   "b": "intl-energy",
+   "note": "碳中和改变能源格局——影响国际能源争夺"
+  },
+  {
+   "a": "intl-energy",
+   "b": "intl-tech",
+   "note": "稀土卡脖子=技术封锁的资源版"
+  },
+  {
+   "a": "intl-energy",
+   "b": "gov-carbon",
+   "note": "能源转型（碳中和）重塑国际能源权力"
+  },
+  {
+   "a": "intl-climate",
+   "b": "gov-carbon",
+   "note": "国内碳中和与国际减排责任同源"
+  },
+  {
+   "a": "intl-climate",
+   "b": "intl-energy",
+   "note": "气候谈判绕不开能源结构（谁排得多）"
+  },
+  {
+   "a": "self-procrast",
+   "b": "self-lazy",
+   "note": "拖延是自我控制失败的日常形态"
+  },
+  {
+   "a": "self-procrast",
+   "b": "work-burnout",
+   "note": "工作拖延→加班→更累→更拖延，恶性循环"
+  },
+  {
+   "a": "self-compare",
+   "b": "self-ideal",
+   "note": "攀比放大理想与现实的落差感"
+  },
+  {
+   "a": "self-compare",
+   "b": "self-choice",
+   "note": "看到别人选了稳定/理想，加重自己的纠结"
+  },
+  {
+   "a": "fam-remarry",
+   "b": "fam-couple",
+   "note": "重组家庭的矛盾会冲击夫妻关系（继子女vs新伴侣）"
+  },
+  {
+   "a": "fam-remarry",
+   "b": "teach-bully",
+   "note": "重组家庭的孩子更容易成为霸凌对象（身份敏感）"
+  },
+  {
+   "a": "fam-leftbehind",
+   "b": "fam-eldercare",
+   "note": "留守背后是父母外出务工——与养老责任同源（都在外挣钱）"
+  },
+  {
+   "a": "fam-leftbehind",
+   "b": "edu-resource",
+   "note": "留守儿童的教育资源更薄弱——城乡教育差距的直接受害者"
+  },
+  {
+   "a": "youth-game",
+   "b": "self-lazy",
+   "note": "孩子游戏成瘾是自我控制失败的少年版"
+  },
+  {
+   "a": "youth-game",
+   "b": "edu-score",
+   "note": "学业压力大，游戏是孩子的逃避出口"
+  },
+  {
+   "a": "youth-idol",
+   "b": "fam-gener",
+   "note": "追星是代际观念冲突的新战场（家长不理解饭圈）"
+  },
+  {
+   "a": "youth-idol",
+   "b": "youth-game",
+   "note": "追星和游戏同属青少年的精神寄托/逃避渠道"
+  },
+  {
+   "a": "digit-live",
+   "b": "gov-reg",
+   "note": "直播乱象是监管跟不上创新的典型案例"
+  },
+  {
+   "a": "digit-live",
+   "b": "self-lazy",
+   "note": "冲动消费是即时满足的成年版"
+  },
+  {
+   "a": "digit-privacy",
+   "b": "gov-platform",
+   "note": "数据滥用正是平台用工之外的数字平台监管难题"
+  },
+  {
+   "a": "digit-privacy",
+   "b": "intl-tech",
+   "note": "数据主权是技术主权的延伸（跨境数据）"
+  },
+  {
+   "a": "soc-aging",
+   "b": "fam-eldercare",
+   "note": "社会老龄化放大个人养老压力"
+  },
+  {
+   "a": "soc-aging",
+   "b": "gov-subsidy",
+   "note": "养老金缺口需要财政补贴——产业补贴之外的新财政压力"
+  },
+  {
+   "a": "soc-urban",
+   "b": "fam-leftbehind",
+   "note": "城乡流动正是留守家庭的成因（父母进城孩子留守）"
+  },
+  {
+   "a": "soc-urban",
+   "b": "work-layoff",
+   "note": "流动人口最先受到裁员冲击（没有本地关系网）"
+  },
+  {
+   "a": "soc-doctor",
+   "b": "work-burnout",
+   "note": "医生超负荷是工作压力的极端案例"
+  },
+  {
+   "a": "soc-doctor",
+   "b": "social-boundary",
+   "note": "医患冲突的根源之一是边界不清（情感卷入）"
+  },
+  {
+   "a": "soc-consumer",
+   "b": "self-compare",
+   "note": "消费主义放大攀比（用物品证明自己）"
+  },
+  {
+   "a": "soc-consumer",
+   "b": "self-ideal",
+   "note": "买买买填补不了意义感——消费是理想空洞的补偿"
+  },
+  {
+   "a": "soc-lieflat",
+   "b": "work-age35",
+   "note": "躺平是35岁危机的提前版（看不到努力回报）"
+  },
+  {
+   "a": "soc-lieflat",
+   "b": "self-ideal",
+   "note": "躺平是理想破灭后的反应"
+  },
+  {
+   "a": "ai-job",
+   "b": "work-layoff",
+   "note": "AI替代是裁员的技术版——岗位消失的新形式"
+  },
+  {
+   "a": "ai-job",
+   "b": "work-age35",
+   "note": "中年人的经验更易被AI替代（重复经验=可自动化）"
+  },
+  {
+   "a": "ai-copyright",
+   "b": "digit-privacy",
+   "note": "AI训练数据与个人数据同属数据主权问题"
+  },
+  {
+   "a": "ai-copyright",
+   "b": "gov-reg",
+   "note": "AI版权立法是监管跟不上创新的最新案例"
+  },
+  {
+   "a": "ai-bias",
+   "b": "digit-privacy",
+   "note": "算法偏见建立在数据之上——数据有偏则算法有偏"
+  },
+  {
+   "a": "ai-bias",
+   "b": "teach-fair",
+   "note": "算法偏见是『评分不公』的机器版（AI评分vs老师偏心）"
+  },
+  {
+   "a": "work-free",
+   "b": "self-choice",
+   "note": "选自由职业是理想vs稳定的选择难题"
+  },
+  {
+   "a": "work-free",
+   "b": "work-layoff",
+   "note": "被裁后转自由职业是常见路径"
+  },
+  {
+   "a": "work-remote",
+   "b": "work-burnout",
+   "note": "远程办公处理不好边界反而更累（永远在线）"
+  },
+  {
+   "a": "work-remote",
+   "b": "work-loyalty",
+   "note": "远程稀释组织归属感——影响忠诚度"
+  },
+  {
+   "a": "fam-birth",
+   "b": "fam-eldercare",
+   "note": "不生孩子→养老更靠社会资源（个人负担更重）"
+  },
+  {
+   "a": "fam-birth",
+   "b": "fam-gener",
+   "note": "催生是代际矛盾的核心（老人催年轻人不生）"
+  },
+  {
+   "a": "health-night",
+   "b": "self-lazy",
+   "note": "熬夜是自我控制的夜间失败"
+  },
+  {
+   "a": "health-night",
+   "b": "work-burnout",
+   "note": "加班多→报复性熬夜→更累→恶性循环"
+  },
+  {
+   "a": "health-takeout",
+   "b": "digit-live",
+   "note": "外卖平台是数字生活的延伸（点单即消费）"
+  },
+  {
+   "a": "health-takeout",
+   "b": "work-burnout",
+   "note": "工作强度大→没时间做饭→依赖外卖"
+  },
+  {
+   "a": "edu-online",
+   "b": "edu-tutor",
+   "note": "网课是补习班的线上化"
+  },
+  {
+   "a": "edu-online",
+   "b": "youth-game",
+   "note": "网课分心与游戏沉迷同源（电子设备诱惑）"
+  },
+  {
+   "a": "edu-chicken",
+   "b": "edu-doublecut",
+   "note": "双减后鸡娃转入地下（私教/素质班）"
+  },
+  {
+   "a": "edu-chicken",
+   "b": "youth-game",
+   "note": "鸡娃过度→孩子用游戏逃避→新矛盾"
+  },
+  {
+   "a": "law-rights",
+   "b": "soc-doctor",
+   "note": "维权难和看病难同源——公共服务成本高/信息不对称"
+  },
+  {
+   "a": "law-rights",
+   "b": "gov-reg",
+   "note": "消费者维权监管不力是监管问题的用户侧"
+  },
+  {
+   "a": "health-vaccine",
+   "b": "health-takeout",
+   "note": "疫苗与外卖同属健康决策（公共 vs 个人）"
+  },
+  {
+   "a": "health-vaccine",
+   "b": "gov-reg",
+   "note": "防疫政策是监管的公共卫生版"
+  },
+  {
+   "a": "psy-appearance",
+   "b": "self-compare",
+   "note": "容貌焦虑是攀比的容貌版"
+  },
+  {
+   "a": "psy-appearance",
+   "b": "soc-consumer",
+   "note": "容貌焦虑被消费主义利用（医美/护肤）"
+  },
+  {
+   "a": "psy-lonely",
+   "b": "soc-urban",
+   "note": "城市孤独是城乡流动的后果（熟人社会解体）"
+  },
+  {
+   "a": "psy-lonely",
+   "b": "relation-attach",
+   "note": "孤独的人更难建立依恋——孤独与亲密互为因果"
+  },
+  {
+   "a": "edu-abroad",
+   "b": "edu-score",
+   "note": "留学是应试压力的出口（国内卷不动→出去）"
+  },
+  {
+   "a": "edu-abroad",
+   "b": "intl-tech",
+   "note": "留学与技术竞争相关（人才流动/教育竞争）"
+  },
+  {
+   "a": "tech-face",
+   "b": "digit-privacy",
+   "note": "人脸识别是数据隐私的生物特征版（脸不可换）"
+  },
+  {
+   "a": "tech-face",
+   "b": "ai-bias",
+   "note": "人脸识别对深肤色准确率低——算法偏见案例"
+  },
+  {
+   "a": "tech-deepfake",
+   "b": "ai-copyright",
+   "note": "深度伪造与AI创作版权同属AI内容治理"
+  },
+  {
+   "a": "tech-deepfake",
+   "b": "digit-privacy",
+   "note": "换脸盗用他人形象=数据隐私的极端滥用"
+  },
+  {
+   "a": "disaster-dev",
+   "b": "gov-carbon",
+   "note": "防灾与环保同属『长期安全投入 vs 短期发展』"
+  },
+  {
+   "a": "disaster-dev",
+   "b": "fam-eldercare",
+   "note": "灾害对老人冲击最大——防灾与养老交叉"
+  },
+  {
+   "a": "mil-race",
+   "b": "intl-tech",
+   "note": "军备竞赛与技术竞赛同源（军事技术/芯片）"
+  },
+  {
+   "a": "mil-race",
+   "b": "intl-energy",
+   "note": "军备竞赛与能源争夺互为因果（资源即战略）"
+  },
+  {
+   "a": "mil-proxy",
+   "b": "mil-race",
+   "note": "代理人战争是军备竞赛的战术出口（大国不下场）"
+  },
+  {
+   "a": "mil-proxy",
+   "b": "intl-trade",
+   "note": "代理人战争与贸易战都是大国博弈的手段"
+  },
+  {
+   "a": "relig-trad",
+   "b": "fam-gener",
+   "note": "代际观念冲突是传统vs现代的微观版"
+  },
+  {
+   "a": "relig-trad",
+   "b": "intl-climate",
+   "note": "气候责任谈判也涉及文化价值冲突（发展观）"
+  },
+  {
+   "a": "space-race",
+   "b": "intl-tech",
+   "note": "太空竞赛是技术竞赛的延伸（航天=尖端科技）"
+  },
+  {
+   "a": "space-race",
+   "b": "mil-race",
+   "note": "太空军事化风险是军备竞赛的太空版"
+  },
+  {
+   "a": "carbon-tax",
+   "b": "gov-carbon",
+   "note": "碳税是碳中和的经济手段（政策落地）"
+  },
+  {
+   "a": "carbon-tax",
+   "b": "intl-climate",
+   "note": "碳税/碳市场是气候责任谈判的执行层"
+  },
+  {
+   "a": "meta-identity",
+   "b": "digit-live",
+   "note": "元宇宙是数字消费的极致形态"
+  },
+  {
+   "a": "meta-identity",
+   "b": "psy-lonely",
+   "note": "元宇宙可能加剧城市孤独（虚拟替代现实）"
+  },
+  {
+   "a": "gene-edit",
+   "b": "tech-deepfake",
+   "note": "基因编辑与深度伪造同属『技术伦理』前沿"
+  },
+  {
+   "a": "gene-edit",
+   "b": "gov-reg",
+   "note": "基因编辑立法是监管滞后于技术的案例"
+  },
+  {
+   "a": "brain-computer",
+   "b": "digit-privacy",
+   "note": "脑机接口是数据隐私的终极版（思想数据）"
+  },
+  {
+   "a": "brain-computer",
+   "b": "tech-face",
+   "note": "脑机接口与人脸识别同属生物特征技术滥用风险"
+  },
+  {
+   "a": "gen-work",
+   "b": "work-pay",
+   "note": "职场性别不平等的核心是薪酬/晋升歧视"
+  },
+  {
+   "a": "gen-work",
+   "b": "fam-birth",
+   "note": "生育成本是职场性别歧视的根源（产假顾虑）"
+  },
+  {
+   "a": "gen-house",
+   "b": "fam-couple",
+   "note": "家务分工失衡是夫妻矛盾的日常形态"
+  },
+  {
+   "a": "gen-house",
+   "b": "work-pay",
+   "note": "隐形家务不产生工资=价值被低估（与薪酬同理）"
+  },
+  {
+   "a": "age-digital",
+   "b": "digit-privacy",
+   "note": "老人是数字风险最脆弱人群（易被骗/不会维权）"
+  },
+  {
+   "a": "age-digital",
+   "b": "fam-eldercare",
+   "note": "老人数字鸿沟放大养老困难（挂号/支付/联系）"
+  },
+  {
+   "a": "edu-job",
+   "b": "edu-score",
+   "note": "教育错配源于应试导向（为分数不为能力）"
+  },
+  {
+   "a": "edu-job",
+   "b": "work-layoff",
+   "note": "学非所用者在裁员中最脆弱（技能不匹配）"
+  },
+  {
+   "a": "pub-violence",
+   "b": "digit-privacy",
+   "note": "网暴常伴随人肉搜索（隐私泄露）"
+  },
+  {
+   "a": "pub-violence",
+   "b": "psy-appearance",
+   "note": "网暴击中的是人的外貌/身份（容貌攻击）"
+  },
+  {
+   "a": "psy-anxiety",
+   "b": "psy-lonely",
+   "note": "孤独是焦虑抑郁的温床"
+  },
+  {
+   "a": "psy-anxiety",
+   "b": "work-burnout",
+   "note": "工作压力积累成心理问题"
+  },
+  {
+   "a": "city-share",
+   "b": "gov-reg",
+   "note": "共享单车乱象是监管滞后于新业态的案例"
+  },
+  {
+   "a": "city-share",
+   "b": "soc-urban",
+   "note": "共享单车是城市化便利的产物"
+  },
+  {
+   "a": "city-pet",
+   "b": "social-boundary",
+   "note": "养宠矛盾本质是边界问题（自由vs他人）"
+  },
+  {
+   "a": "city-pet",
+   "b": "psy-lonely",
+   "note": "养宠是孤独的解药——孤独者更需要宠物"
+  },
+  {
+   "a": "fin-loan",
+   "b": "digit-live",
+   "note": "直播冲动消费是借贷的入口——先买后还，消费失控进阶为负债"
+  },
+  {
+   "a": "fin-loan",
+   "b": "soc-consumer",
+   "note": "消费主义驱动超前消费——『想要』被包装成『需要』"
+  },
+  {
+   "a": "food-safe",
+   "b": "health-takeout",
+   "note": "外卖是预制菜/添加剂的主要场景——方便与健康的同一战场"
+  },
+  {
+   "a": "food-safe",
+   "b": "gov-reg",
+   "note": "食品安全监管是『管得住黑心 vs 管不死行业』的监管难题"
+  },
+  {
+   "a": "traffic-e",
+   "b": "city-share",
+   "note": "电动车与共享出行同属城市出行新形态——便利与管理的拉扯"
+  },
+  {
+   "a": "traffic-e",
+   "b": "gov-reg",
+   "note": "电动车充电/电池标准是监管滞后于新业态的案例"
+  },
+  {
+   "a": "traffic-jam",
+   "b": "soc-urban",
+   "note": "城市化（人口聚集）是拥堵的结构性根源"
+  },
+  {
+   "a": "traffic-jam",
+   "b": "gov-reg",
+   "note": "限号/停车管理是治理型监管的日常形态"
+  },
+  {
+   "a": "culture-heritage",
+   "b": "relig-trad",
+   "note": "老字号与宗教传统同属『传统 vs 现代』的文化冲突"
+  },
+  {
+   "a": "culture-heritage",
+   "b": "soc-consumer",
+   "note": "消费主义冲击老字号（快餐/网红店 vs 老味道）"
+  },
+  {
+   "a": "sport-fan",
+   "b": "youth-idol",
+   "note": "体育饭圈化是追星文化的体育版——偶像逻辑入侵竞技"
+  },
+  {
+   "a": "sport-fan",
+   "b": "pub-violence",
+   "note": "饭圈互撕/网暴运动员是网络暴力的竞技场形态"
+  },
+  {
+   "a": "water-res",
+   "b": "gov-carbon",
+   "note": "水与碳同属资源环境治理——环保投入 vs 发展成本"
+  },
+  {
+   "a": "water-res",
+   "b": "disaster-dev",
+   "note": "干旱/水灾是水资源矛盾的灾害化——防灾与用水同源"
+  },
+  {
+   "a": "plastic-waste",
+   "b": "gov-carbon",
+   "note": "限塑与碳中和同属环保政策——个体便利 vs 长期环境"
+  },
+  {
+   "a": "plastic-waste",
+   "b": "health-takeout",
+   "note": "外卖是塑料垃圾最大来源——外卖便利的两头代价"
+  },
+  {
+   "a": "fam-betrothal",
+   "b": "fam-gener",
+   "note": "彩礼是代际观念冲突的婚嫁形态（老人要面子/年轻人要小家庭）"
+  },
+  {
+   "a": "fam-betrothal",
+   "b": "fam-couple",
+   "note": "彩礼谈不拢直接冲击小家庭——婚前的账婚后来算"
+  },
+  {
+   "a": "fam-parenting",
+   "b": "gen-house",
+   "note": "丧偶式育儿是家务分工失衡的育儿版（隐形劳动+缺席）"
+  },
+  {
+   "a": "fam-parenting",
+   "b": "fam-couple",
+   "note": "育儿分工不公是夫妻矛盾的高发点"
+  },
+  {
+   "a": "housing",
+   "b": "fam-birth",
+   "note": "房价/房贷是生育成本的大头——买不起房就不敢生"
+  },
+  {
+   "a": "housing",
+   "b": "soc-urban",
+   "note": "城市化推高房价，房价又反过来挤压进城者（城乡流动困境）"
+  },
+  {
+   "a": "medical-cost",
+   "b": "soc-doctor",
+   "note": "看病贵是医患关系的经济根源（费用纠纷）"
+  },
+  {
+   "a": "medical-cost",
+   "b": "soc-aging",
+   "note": "老龄化放大医疗费用压力（老人大病多/医保承压）"
+  },
+  {
+   "a": "edu-track",
+   "b": "edu-score",
+   "note": "分流是应试筛选的节点化（分数决定去普高还是职高）"
+  },
+  {
+   "a": "edu-track",
+   "b": "edu-job",
+   "note": "职高出路窄正是教育就业错配的表现（学技能没回报）"
+  },
+  {
+   "a": "digit-scroll",
+   "b": "self-lazy",
+   "note": "刷短视频是自我控制的数字版失败（即时满足）"
+  },
+  {
+   "a": "digit-scroll",
+   "b": "youth-game",
+   "note": "短视频与游戏同属数字沉迷——争夺注意力同一战场"
+  },
+  {
+   "a": "rural-hollow",
+   "b": "soc-urban",
+   "note": "农村空心化是城乡流动的另一面（人往城里走，农村变空）"
+  },
+  {
+   "a": "rural-hollow",
+   "b": "fam-leftbehind",
+   "note": "年轻人进城=孩子留守+老人空巢——空心化的家庭代价"
+  },
+  {
+   "a": "tourism-trap",
+   "b": "gov-reg",
+   "note": "宰客乱象是监管滞后于市场逐利的案例（处罚太轻/执法难）"
+  },
+  {
+   "a": "tourism-trap",
+   "b": "soc-consumer",
+   "note": "旅游消费是消费主义的移动版（为体验付费/被套路收割）"
+  },
+  {
+   "a": "emp-pua",
+   "b": "work-burnout",
+   "note": "职场PUA叠加工作压力——身心双重消耗"
+  },
+  {
+   "a": "emp-pua",
+   "b": "social-boundary",
+   "note": "不会拒绝的人更容易被PUA（不敢反驳/不敢走）"
+  },
+  {
+   "a": "health-weight",
+   "b": "psy-appearance",
+   "note": "身材焦虑是容貌焦虑的身体版（同一审美暴力）"
+  },
+  {
+   "a": "health-weight",
+   "b": "health-takeout",
+   "note": "外卖高油高糖是身材焦虑的现实诱因（吃了胖→焦虑→更焦虑）"
+  },
+  {
+   "a": "public-civility",
+   "b": "city-pet",
+   "note": "公共场所矛盾与养宠矛盾同源——个人自由 vs 他人安宁"
+  },
+  {
+   "a": "public-civility",
+   "b": "social-boundary",
+   "note": "公共边界是『拒绝边界』的公共版（学会说不/学会守界）"
+  },
+  {
+   "a": "edu-punish",
+   "b": "teach-authority",
+   "note": "打骂式管教是老师权威的家庭版（我打你=我是为你好）"
+  },
+  {
+   "a": "edu-punish",
+   "b": "youth-game",
+   "note": "管太严/打骂把孩子推向游戏世界（逃避现实）"
+  },
+  {
+   "a": "study-kaoyan",
+   "b": "edu-job",
+   "note": "考研考公热是教育就业错配的结果（学历贬值→追求稳定）"
+  },
+  {
+   "a": "study-kaoyan",
+   "b": "soc-lieflat",
+   "note": "考公热与躺平同源——对上升通道失望后的防御选择"
+  },
+  {
+   "a": "fam-solitude",
+   "b": "fam-eldercare",
+   "note": "独居是养老问题的日常形态（钱之外还要陪伴）"
+  },
+  {
+   "a": "fam-solitude",
+   "b": "soc-aging",
+   "note": "老龄化放大独居问题（独居老人比例持续上升）"
+  },
+  {
+   "a": "food-residue",
+   "b": "food-safe",
+   "note": "农药残留与添加剂同属食品安全焦虑（看得见的怕+看不见的怕）"
+  },
+  {
+   "a": "food-residue",
+   "b": "medical-cost",
+   "note": "吃得不安心→身体担忧→医疗负担（预防焦虑的链条）"
+  },
+  {
+   "a": "city-elevator",
+   "b": "housing",
+   "note": "老小区改造是居住问题的存量版（买不起新房→改造旧房）"
+  },
+  {
+   "a": "city-elevator",
+   "b": "gov-subsidy",
+   "note": "加装电梯补贴是政府扶持公共品的案例（民生投入）"
+  },
+  {
+   "a": "edu-graduate",
+   "b": "edu-job",
+   "note": "应届生就业难是教育就业错配的第一现场（毕业即暴露）"
+  },
+  {
+   "a": "edu-graduate",
+   "b": "study-kaoyan",
+   "note": "就业难驱动考研考公（延缓就业/追求稳定）"
+  },
+  {
+   "a": "digit-scam",
+   "b": "age-digital",
+   "note": "老人被骗是数字鸿沟的代价（不会识别/不敢质疑）"
+  },
+  {
+   "a": "digit-scam",
+   "b": "digit-privacy",
+   "note": "诈骗依赖个人信息泄露（精准诈骗=隐私滥用）"
+  },
+  {
+   "a": "digit-tipping",
+   "b": "digit-live",
+   "note": "打赏与直播购物同属直播经济——冲动消费的数字版"
+  },
+  {
+   "a": "digit-tipping",
+   "b": "youth-idol",
+   "note": "打赏是追星经济的直播版（为偶像花钱）"
+  },
+  {
+   "a": "med-cosmetic",
+   "b": "psy-appearance",
+   "note": "整容是容貌焦虑的极端解决（外貌焦虑→动刀）"
+  },
+  {
+   "a": "med-cosmetic",
+   "b": "medical-cost",
+   "note": "医美是健康消费的高风险区（手术有风险/失败维权难）"
+  },
+  {
+   "a": "fam-yuesao",
+   "b": "fam-birth",
+   "note": "月嫂贵是生育成本的一部分（生得起养不起的细节）"
+  },
+  {
+   "a": "fam-yuesao",
+   "b": "fam-parenting",
+   "note": "月嫂是育儿分工的市场化（专业外包 vs 家庭承担）"
+  },
+  {
+   "a": "health-myopia",
+   "b": "digit-scroll",
+   "note": "孩子近视与刷屏沉迷同源（屏幕时间失控）"
+  },
+  {
+   "a": "health-myopia",
+   "b": "edu-score",
+   "note": "学业负担挤压户外时间——应试压力的身体代价"
+  },
+  {
+   "a": "city-square",
+   "b": "public-civility",
+   "note": "广场舞之争是公共边界矛盾的社区版"
+  },
+  {
+   "a": "city-square",
+   "b": "fam-solitude",
+   "note": "广场舞是老人的社交出口——孤独的广场解法"
+  },
+  {
+   "a": "food-waste",
+   "b": "plastic-waste",
+   "note": "光盘与限塑同属资源节约（粮食/塑料都不该浪费）"
+  },
+  {
+   "a": "food-waste",
+   "b": "soc-consumer",
+   "note": "浪费是消费主义的面子版（丰盛崇拜）"
+  },
+  {
+   "a": "soc-declutter",
+   "b": "soc-consumer",
+   "note": "断舍离是消费主义的反向运动（买买买的反面是扔扔扔）"
+  },
+  {
+   "a": "soc-declutter",
+   "b": "digit-live",
+   "note": "直播冲动消费囤积的源头——买的时候爽，囤的时候愁"
+  },
+  {
+   "a": "pet-medical",
+   "b": "city-pet",
+   "note": "宠物医疗是养宠责任的经济面（养得起更要治得起）"
+  },
+  {
+   "a": "pet-medical",
+   "b": "medical-cost",
+   "note": "宠物看病贵与人生病贵同构（医疗成本结构）"
+  },
+  {
+   "a": "fam-date",
+   "b": "fam-betrothal",
+   "note": "相亲看条件与彩礼谈钱同源——婚姻的物质基础之争"
+  },
+  {
+   "a": "fam-date",
+   "b": "relation-attach",
+   "note": "相亲是依恋关系的条件入口（先匹配再动心）"
+  },
+  {
+   "a": "social-toast",
+   "b": "work-age35",
+   "note": "职场应酬是中年人的酒桌主场（躲不掉的局）"
+  },
+  {
+   "a": "social-toast",
+   "b": "social-boundary",
+   "note": "不会拒绝的人最容易被劝酒——拒酒是边界训练"
+  },
+  {
+   "a": "edu-driving",
+   "b": "edu-job",
+   "note": "驾照是就业的隐形门槛（很多岗位要求会开车）"
+  },
+  {
+   "a": "edu-driving",
+   "b": "gov-reg",
+   "note": "驾校乱象是监管滞后于市场逐利的案例"
+  },
+  {
+   "a": "city-accessibility",
+   "b": "age-digital",
+   "note": "无障碍与适老化同源——弱势群体的出行/数字权利"
+  },
+  {
+   "a": "city-accessibility",
+   "b": "city-elevator",
+   "note": "无障碍设施与加装电梯同属城市适老化改造"
+  },
+  {
+   "a": "work-rehire",
+   "b": "work-age35",
+   "note": "退休再就业难是35岁门槛的延长版（年龄歧视贯穿一生）"
+  },
+  {
+   "a": "work-rehire",
+   "b": "soc-aging",
+   "note": "老龄化让银发劳动力成为社会议题（老有所为）"
+  },
+  {
+   "a": "env-sort",
+   "b": "plastic-waste",
+   "note": "垃圾分类是塑料治理的执行环节（分出来才能回收）"
+  },
+  {
+   "a": "env-sort",
+   "b": "gov-reg",
+   "note": "分类政策是监管型治理（前端立法+后端执法）"
+  },
+  {
+   "a": "fam-wedding",
+   "b": "fam-betrothal",
+   "note": "婚礼消费与彩礼同属婚姻成本（结婚要花的钱越来越多）"
+  },
+  {
+   "a": "fam-wedding",
+   "b": "soc-consumer",
+   "note": "婚礼是消费主义的人生巅峰场景（一生一次的营销）"
+  },
+  {
+   "a": "soc-secondhand",
+   "b": "digit-live",
+   "note": "二手交易是直播冲动消费的补救（买多了→闲鱼见）"
+  },
+  {
+   "a": "soc-secondhand",
+   "b": "gov-reg",
+   "note": "二手平台假货纠纷是监管新课题（C2C交易难追责）"
+  },
+  {
+   "a": "disaster-drill",
+   "b": "disaster-dev",
+   "note": "演练是防灾投入的落地环节（钱要花在练上）"
+  },
+  {
+   "a": "disaster-drill",
+   "b": "edu-score",
+   "note": "走过场式演练与应试教育同构（重形式轻实效）"
+  },
+  {
+   "a": "fam-housekeeper",
+   "b": "gen-house",
+   "note": "家政是家务分工的市场化（外包还是内部消化）"
+  },
+  {
+   "a": "fam-housekeeper",
+   "b": "fam-couple",
+   "note": "请保姆/老人带娃影响夫妻协作（家务谁负责之争）"
+  },
+  {
+   "a": "fin-wealth",
+   "b": "fin-loan",
+   "note": "理财与借贷是家庭金融的两面（增值与负债的风险）"
+  },
+  {
+   "a": "fin-wealth",
+   "b": "digit-scam",
+   "note": "高息理财与诈骗同源（收益诱惑是骗局入口）"
+  },
+  {
+   "a": "city-property",
+   "b": "city-elevator",
+   "note": "物业是小区日常治理，电梯改造是小区大事（同一社区权力场）"
+  },
+  {
+   "a": "city-property",
+   "b": "gov-reg",
+   "note": "物业纠纷需要监管（物业条例/业委会制度）"
+  },
+  {
+   "a": "health-smoke",
+   "b": "public-civility",
+   "note": "公共场所吸烟是公共边界问题的健康版"
+  },
+  {
+   "a": "health-smoke",
+   "b": "medical-cost",
+   "note": "吸烟/二手烟增加医疗负担（慢病源头）"
+  },
+  {
+   "a": "digit-dating",
+   "b": "digit-scam",
+   "note": "杀猪盘是电信诈骗的情感版（骗钱先骗心）"
+  },
+  {
+   "a": "digit-dating",
+   "b": "relation-attach",
+   "note": "网恋是依恋需求在数字时代的形态（更容易上头也更容易受伤）"
+  },
+  {
+   "a": "psy-single",
+   "b": "psy-lonely",
+   "note": "独居是城市孤独的居住形态（一个人住+一个人扛）"
+  },
+  {
+   "a": "psy-single",
+   "b": "fam-birth",
+   "note": "独居推迟结婚生育（先独居后成家，婚育年龄后移）"
+  },
+  {
+   "a": "edu-trainingloan",
+   "b": "fin-loan",
+   "note": "培训贷是消费贷在教育场景的变体（贷款冲动消费）"
+  },
+  {
+   "a": "edu-trainingloan",
+   "b": "edu-job",
+   "note": "培训贷收割的是就业焦虑（想找工作→买培训→背贷款）"
+  },
+  {
+   "a": "edu-gaokao",
+   "b": "edu-score",
+   "note": "复读热是应试压力的极端化（一考定终身观念）"
+  },
+  {
+   "a": "edu-gaokao",
+   "b": "study-kaoyan",
+   "note": "复读与考研考公同源（对学历/稳定的执念）"
+  },
+  {
+   "a": "fam-grandparenting",
+   "b": "fam-gener",
+   "note": "隔代育儿是代际观念冲突的主战场（两代人带娃）"
+  },
+  {
+   "a": "fam-grandparenting",
+   "b": "fam-parenting",
+   "note": "老人参与育儿让育儿分工更复杂（三方协作者）"
+  },
+  {
+   "a": "digit-phone",
+   "b": "digit-privacy",
+   "note": "旧手机是隐私泄露的重灾区（数据不清理就卖）"
+  },
+  {
+   "a": "digit-phone",
+   "b": "env-sort",
+   "note": "旧手机回收是电子垃圾治理的一环（资源循环）"
+  },
+  {
+   "a": "soc-tuango",
+   "b": "digit-live",
+   "note": "社区团购是线上消费向菜篮子的延伸（平台买菜）"
+  },
+  {
+   "a": "soc-tuango",
+   "b": "food-safe",
+   "note": "团购生鲜的品质风险是食品安全的渠道版"
+  },
+  {
+   "a": "traffic-trainfood",
+   "b": "tourism-trap",
+   "note": "高铁餐饮与景区消费同属封闭场景价格（没得选）"
+  },
+  {
+   "a": "traffic-trainfood",
+   "b": "gov-reg",
+   "note": "高铁餐饮定价需要监管（垄断场景的价格治理）"
+  },
+  {
+   "a": "edu-allowance",
+   "b": "edu-punish",
+   "note": "零花钱教育是立规矩的财商版（规则+后果）"
+  },
+  {
+   "a": "edu-allowance",
+   "b": "soc-consumer",
+   "note": "从小教管钱是反消费主义的根基（会管钱才不被收割）"
+  },
+  {
+   "a": "edu-parttime",
+   "b": "edu-job",
+   "note": "兼职是就业的提前演练（简历经验 vs 学业投入）"
+  },
+  {
+   "a": "edu-parttime",
+   "b": "fin-loan",
+   "note": "兼职赚钱是学生避免借贷的方式（自食其力 vs 消费贷）"
+  },
+  {
+   "a": "fam-elderlove",
+   "b": "fam-remarry",
+   "note": "父母再婚是重组家庭的老年版（子女接纳新成员）"
+  },
+  {
+   "a": "fam-elderlove",
+   "b": "fam-gener",
+   "note": "老人再婚是代际观念冲突的婚恋版（子女干涉 vs 老人自主）"
+  },
+  {
+   "a": "pet-funeral",
+   "b": "pet-medical",
+   "note": "宠物殡葬是养宠责任的终点（养得起也要送得好）"
+  },
+  {
+   "a": "pet-funeral",
+   "b": "fam-solitude",
+   "note": "宠物是孤独的解药，离世是孤独的回归（失去陪伴）"
+  },
+  {
+   "a": "soc-reading",
+   "b": "digit-scroll",
+   "note": "读书被短视频挤占是注意力争夺的一体两面"
+  },
+  {
+   "a": "soc-reading",
+   "b": "edu-score",
+   "note": "应试教育下的『课外阅读』被挤压（分数优先）"
+  },
+  {
+   "a": "logistics-station",
+   "b": "gov-platform",
+   "note": "驿站模式是平台用工的物流版（效率 vs 服务标准）"
+  },
+  {
+   "a": "logistics-station",
+   "b": "soc-urban",
+   "note": "城市化让上门难（高楼/门禁/人不在家）催生驿站"
+  },
+  {
+   "a": "traffic-eldercar",
+   "b": "traffic-e",
+   "note": "老年代步车是电动车治理的老年版（低速四轮）"
+  },
+  {
+   "a": "traffic-eldercar",
+   "b": "age-digital",
+   "note": "代步车与数字鸿沟同源——老人被现代系统排除"
+  },
+  {
+   "a": "edu-hobby",
+   "b": "edu-chicken",
+   "note": "兴趣班是鸡娃的才艺面（从补课到才艺的军备竞赛）"
+  },
+  {
+   "a": "edu-hobby",
+   "b": "edu-allowance",
+   "note": "兴趣班花钱与零花钱教育同属家庭财商课题"
+  },
+  {
+   "a": "tourism-hotel",
+   "b": "tourism-trap",
+   "note": "酒店卫生与景区宰客同属旅游消费的信任风险"
+  },
+  {
+   "a": "tourism-hotel",
+   "b": "medical-cost",
+   "note": "酒店卫生问题可致病——健康风险的住宿入口"
+  },
+  {
+   "a": "traffic-ridehailing",
+   "b": "gov-platform",
+   "note": "网约车是平台用工的出行版（司机权益 vs 平台抽成）"
+  },
+  {
+   "a": "traffic-ridehailing",
+   "b": "traffic-e",
+   "note": "网约车与电动车同属出行新形态（安全监管课题）"
+  },
+  {
+   "a": "fitness-card",
+   "b": "fin-loan",
+   "note": "办卡预付费与消费贷同属『先付后用』的金融风险"
+  },
+  {
+   "a": "fitness-card",
+   "b": "gov-reg",
+   "note": "健身房跑路是预付卡监管缺位的典型案例"
+  },
+  {
+   "a": "traffic-charge",
+   "b": "traffic-e",
+   "note": "充电桩是电动车普及的基础设施瓶颈（买得起装不上）"
+  },
+  {
+   "a": "traffic-charge",
+   "b": "city-property",
+   "note": "装桩难本质是物业权责问题（公共区域管理）"
+  },
+  {
+   "a": "city-library",
+   "b": "edu-score",
+   "note": "占座高峰是考试季的物理表现（备考资源争夺）"
+  },
+  {
+   "a": "city-library",
+   "b": "public-civility",
+   "note": "占座是公共空间边界问题的学习版"
+  },
+  {
+   "a": "health-height",
+   "b": "psy-appearance",
+   "note": "身高焦虑是容貌/身材焦虑的儿童版（身体比较）"
+  },
+  {
+   "a": "health-height",
+   "b": "health-weight",
+   "note": "身高体重同属身体管理焦虑（数据焦虑）"
+  },
+  {
+   "a": "pet-boarding",
+   "b": "city-pet",
+   "note": "寄养是养宠责任的出行版（托付问题）"
+  },
+  {
+   "a": "pet-boarding",
+   "b": "pet-medical",
+   "note": "寄养风险（应激/交叉感染）是宠物健康问题"
+  },
+  {
+   "a": "fam-giftmoney",
+   "b": "fam-wedding",
+   "note": "随份子与婚庆消费同属人情经济（婚丧嫁娶的支出）"
+  },
+  {
+   "a": "fam-giftmoney",
+   "b": "soc-consumer",
+   "note": "份子钱通胀是消费主义的人情版（攀比升级）"
+  },
+  {
+   "a": "culture-ticket",
+   "b": "digit-live",
+   "note": "抢票是演出消费的线上版（平台/黄牛生态）"
+  },
+  {
+   "a": "culture-ticket",
+   "b": "youth-idol",
+   "note": "演唱会抢票是追星消费的高峰场景（为偶像付费）"
+  },
+  {
+   "a": "health-medicine",
+   "b": "medical-cost",
+   "note": "儿童用药是医疗费用的家庭入口（生病=支出）"
+  },
+  {
+   "a": "health-medicine",
+   "b": "fam-parenting",
+   "note": "喂药是育儿日常的医药面（照顾责任）"
+  },
+  {
+   "a": "med-eldercare",
+   "b": "fam-eldercare",
+   "note": "医养结合是养老问题的医疗面（养+医一体）"
+  },
+  {
+   "a": "med-eldercare",
+   "b": "medical-cost",
+   "note": "老人医疗是医疗费用的高峰人群（慢病/大病）"
+  },
+  {
+   "a": "edu-studyroom",
+   "b": "city-library",
+   "note": "付费自习室是图书馆的付费替代（座位之争的解法）"
+  },
+  {
+   "a": "edu-studyroom",
+   "b": "study-kaoyan",
+   "note": "自习室需求由考研考公热驱动（备考人口）"
+  },
+  {
+   "a": "teach-gift",
+   "b": "teach-fair",
+   "note": "收礼是教育不公的腐败面（偏心有价）"
+  },
+  {
+   "a": "teach-gift",
+   "b": "gov-reg",
+   "note": "教师收礼是师德监管的治理课题（有规可依）"
+  },
+  {
+   "a": "fin-branch",
+   "b": "age-digital",
+   "note": "网点消失是数字鸿沟的金融版（老人被线上化排除）"
+  },
+  {
+   "a": "fin-branch",
+   "b": "digit-scam",
+   "note": "网点少让老人求助无门（更容易被骗）"
+  },
+  {
+   "a": "edu-allowance2",
+   "b": "edu-parttime",
+   "note": "生活费不够驱动兼职（大学生经济独立链条）"
+  },
+  {
+   "a": "edu-allowance2",
+   "b": "soc-consumer",
+   "note": "生活费攀比是消费主义的校园版"
+  },
+  {
+   "a": "pet-training",
+   "b": "city-pet",
+   "note": "训练是养宠规范的执行层（行为管理）"
+  },
+  {
+   "a": "pet-training",
+   "b": "edu-punish",
+   "note": "宠物训练与儿童管教同理（正向 vs 打骂）"
+  },
+  {
+   "a": "edu-sleep",
+   "b": "edu-score",
+   "note": "作业超量是应试压力的睡眠代价"
+  },
+  {
+   "a": "edu-sleep",
+   "b": "digit-scroll",
+   "note": "睡前刷手机是学生缺觉的习惯因素"
+  },
+  {
+   "a": "digit-watch",
+   "b": "digit-scroll",
+   "note": "电话手表是屏幕沉迷的儿童入口（小手机的管控）"
+  },
+  {
+   "a": "digit-watch",
+   "b": "edu-punish",
+   "note": "手表进校之争是立规矩的科技版（课堂边界）"
+  },
+  {
+   "a": "health-hypertension",
+   "b": "medical-cost",
+   "note": "高血压是慢病支出的常见大头（终身用药）"
+  },
+  {
+   "a": "health-hypertension",
+   "b": "health-medicine",
+   "note": "降压药依从与儿童用药同属科学用药（遵医嘱）"
+  },
+  {
+   "a": "edu-dorm",
+   "b": "psy-lonely",
+   "note": "宿舍矛盾是孤独的催生剂（住不好→更孤独）"
+  },
+  {
+   "a": "edu-dorm",
+   "b": "social-boundary",
+   "note": "宿舍相处是边界练习场（合群与做自己）"
+  },
+  {
+   "a": "health-fall",
+   "b": "med-eldercare",
+   "note": "跌倒护理是医养结合的常见需求（卧床照护）"
+  },
+  {
+   "a": "health-fall",
+   "b": "fam-solitude",
+   "note": "独居老人跌倒风险更高（没人及时发现）"
+  },
+  {
+   "a": "fin-childinsurance",
+   "b": "medical-cost",
+   "note": "儿童保险是孩子医疗费用的财务对冲"
+  },
+  {
+   "a": "fin-childinsurance",
+   "b": "fin-wealth",
+   "note": "儿童保险与理财同属家庭金融配置（保障 vs 收益）"
+  },
+  {
+   "a": "culture-museum",
+   "b": "culture-ticket",
+   "note": "博物馆预约与演唱会抢票同属预约制稀缺（黄牛治理）"
+  },
+  {
+   "a": "culture-museum",
+   "b": "gov-reg",
+   "note": "免费资源分配需要治理（实名/反黄牛）"
+  },
+  {
+   "a": "pet-spay",
+   "b": "pet-medical",
+   "note": "绝育是宠物医疗的预防手段（防病优先）"
+  },
+  {
+   "a": "pet-spay",
+   "b": "city-pet",
+   "note": "绝育是城市养宠的源头治理（控制流浪）"
+  },
+  {
+   "a": "public-seat",
+   "b": "public-civility",
+   "note": "让座是公共边界的礼仪版（善意 vs 义务）"
+  },
+  {
+   "a": "public-seat",
+   "b": "age-digital",
+   "note": "让座争议折射老人需求（被让座 vs 被尊重）"
+  },
+  {
+   "a": "edu-sexed",
+   "b": "edu-punish",
+   "note": "性教育与立规矩同属儿童安全底线（身体界限）"
+  },
+  {
+   "a": "edu-sexed",
+   "b": "digit-scam",
+   "note": "性教育防的是人祸（人身侵害与网络诈骗同属安全教育）"
+  },
+  {
+   "a": "pet-insurance",
+   "b": "pet-medical",
+   "note": "宠物保险是宠物医疗费用的对冲工具"
+  },
+  {
+   "a": "pet-insurance",
+   "b": "fin-childinsurance",
+   "note": "宠物保险与儿童保险同属家庭保障配置（为爱投保）"
+  },
+  {
+   "a": "edu-cert",
+   "b": "edu-job",
+   "note": "考证是就业准备的证书面（敲门砖 vs 能力）"
+  },
+  {
+   "a": "edu-cert",
+   "b": "study-kaoyan",
+   "note": "考证与考研同属学历/证书焦虑（用投入对冲不确定）"
+  },
+  {
+   "a": "med-accompany",
+   "b": "medical-cost",
+   "note": "陪护是医疗费用的隐形项（请假/护工成本）"
+  },
+  {
+   "a": "med-accompany",
+   "b": "fam-eldercare",
+   "note": "老人住院陪护是养老责任的医疗面（一人住院全家上）"
+  },
+  {
+   "a": "health-teeth",
+   "b": "health-medicine",
+   "note": "护牙与用药同属儿童健康管理（预防优先）"
+  },
+  {
+   "a": "health-teeth",
+   "b": "health-weight",
+   "note": "糖摄入连接蛀牙与肥胖（同一健康防线）"
+  },
+  {
+   "a": "soc-return",
+   "b": "digit-live",
+   "note": "退货是直播冲动消费的补救（买多了→退）"
+  },
+  {
+   "a": "soc-return",
+   "b": "soc-secondhand",
+   "note": "退货与二手同属消费循环（不合适的去向）"
+  },
+  {
+   "a": "health-exercise",
+   "b": "health-fall",
+   "note": "运动是防跌倒的核心手段（肌力/平衡）"
+  },
+  {
+   "a": "health-exercise",
+   "b": "fam-solitude",
+   "note": "运动是老人社交的出口（广场舞/晨练圈子）"
+  },
+  {
+   "a": "edu-homework",
+   "b": "edu-score",
+   "note": "辅导崩溃是应试压力的家庭传导（作业量）"
+  },
+  {
+   "a": "edu-homework",
+   "b": "fam-parenting",
+   "note": "辅导作业是育儿日常的学业面（陪写 vs 陪玩）"
+  },
+  {
+   "a": "health-drowning",
+   "b": "health-medicine",
+   "note": "防溺水与科学用药同属儿童安全防护（预防优先）"
+  },
+  {
+   "a": "health-drowning",
+   "b": "edu-punish",
+   "note": "防溺水教育是立规矩的生命版（水边规则）"
+  },
+  {
+   "a": "fam-property",
+   "b": "fam-elderlove",
+   "note": "财产分配是中老年婚恋的核心顾虑（图钱？）"
+  },
+  {
+   "a": "fam-property",
+   "b": "fam-gener",
+   "note": "代际财产冲突是观念差异的物质化（谁该得）"
+  },
+  {
+   "a": "pet-grooming",
+   "b": "pet-boarding",
+   "note": "美容与寄养同属宠物服务消费（托付专业）"
+  },
+  {
+   "a": "pet-grooming",
+   "b": "city-pet",
+   "note": "美容是养宠日常护理的升级（健康+审美）"
+  },
+  {
+   "a": "digit-camera",
+   "b": "digit-privacy",
+   "note": "家庭监控是隐私问题的家庭场景（家人 vs 监控）"
+  },
+  {
+   "a": "digit-camera",
+   "b": "fam-housekeeper",
+   "note": "监控保姆是信任管理的科技手段（防患于未然）"
+  },
+  {
+   "a": "digit-baby",
+   "b": "digit-privacy",
+   "note": "晒娃是儿童隐私的暴露面（家长把关）"
+  },
+  {
+   "a": "digit-baby",
+   "b": "soc-consumer",
+   "note": "晒娃攀比是消费主义的亲子版（晒娃=晒生活）"
+  },
+  {
+   "a": "edu-trip",
+   "b": "edu-parttime",
+   "note": "毕业旅行靠兼职攒钱（独立旅行的起点）"
+  },
+  {
+   "a": "edu-trip",
+   "b": "tourism-trap",
+   "note": "毕业旅行消费是旅游行业的旺季（价格高企）"
+  },
+  {
+   "a": "housing-renovation",
+   "b": "housing",
+   "note": "装修是居住成本的增量（买房之后的花销）"
+  },
+  {
+   "a": "housing-renovation",
+   "b": "gov-reg",
+   "note": "装修纠纷是消费监管的领域（合同/增项）"
+  },
+  {
+   "a": "tourism-group",
+   "b": "tourism-trap",
+   "note": "跟团坑与景区宰客同属旅游消费的信任问题"
+  },
+  {
+   "a": "tourism-group",
+   "b": "digit-live",
+   "note": "低价团与直播套路同属营销陷阱（低价诱饵）"
+  },
+  {
+   "a": "gen-war",
+   "b": "gen-work",
+   "note": "男女对立是职场性别歧视的舆论升级（结构问题被情绪化）"
+  },
+  {
+   "a": "gen-war",
+   "b": "digit-bully",
+   "note": "性别骂战是网络暴力的议题化（对立即流量）"
+  },
+  {
+   "a": "fam-mil2",
+   "b": "fam-motherinlaw",
+   "note": "丈夫夹心是婆媳矛盾的第三方（桥梁或裁判）"
+  },
+  {
+   "a": "fam-mil2",
+   "b": "fam-couple",
+   "note": "婆媳矛盾处理不好直接冲击夫妻关系"
+  },
+  {
+   "a": "gen-consume",
+   "b": "soc-consumer",
+   "note": "消费欲望是消费主义的性别化（取悦自己话术）"
+  },
+  {
+   "a": "gen-consume",
+   "b": "work-loyalty",
+   "note": "工作耐心低是跳槽文化的性别面（不将就）"
+  },
+  {
+   "a": "gen-income",
+   "b": "gen-house",
+   "note": "收入角色与家务分工同属家庭角色重构（谁主外谁主内）"
+  },
+  {
+   "a": "gen-income",
+   "b": "fam-couple",
+   "note": "养家之争影响夫妻关系（经济话语权）"
+  },
+  {
+   "a": "fam-aa",
+   "b": "fam-couple",
+   "note": "婚后AA是夫妻财务模式的现代选项（独立 vs 一体）"
+  },
+  {
+   "a": "fam-aa",
+   "b": "fin-wealth",
+   "note": "AA与家庭理财同属钱的分配（共同 vs 独立）"
+  },
+  {
+   "a": "gen-stayhome",
+   "b": "gen-house",
+   "note": "全职妈妈是家务分工的极端形态（主内全职化）"
+  },
+  {
+   "a": "gen-stayhome",
+   "b": "work-age35",
+   "note": "回归难撞上35岁门槛（断层+年龄双重劣势）"
+  },
+  {
+   "a": "gen-labels",
+   "b": "fam-gener",
+   "note": "剩女标签是催婚的社会化（家庭压力+社会舆论）"
+  },
+  {
+   "a": "gen-labels",
+   "b": "psy-lonely",
+   "note": "大龄未婚与孤独议题交织（单身≠孤独）"
+  },
+  {
+   "a": "fam-mil3",
+   "b": "fam-motherinlaw",
+   "note": "同住是婆媳矛盾的放大器（零距离摩擦）"
+  },
+  {
+   "a": "fam-mil3",
+   "b": "fam-eldercare",
+   "note": "同住与养老需要相关（老人依恋 vs 小家边界）"
+  },
+  {
+   "a": "fam-cohabit",
+   "b": "fam-date",
+   "note": "同居是相亲恋爱的试婚延伸（婚前验证）"
+  },
+  {
+   "a": "fam-cohabit",
+   "b": "fam-gener",
+   "note": "同居是代际观念冲突的婚恋版（试婚 vs 传统）"
+  },
+  {
+   "a": "gen-malepressure",
+   "b": "fam-betrothal",
+   "note": "男性婚育压力是彩礼成本的承载面（买房彩礼）"
+  },
+  {
+   "a": "gen-malepressure",
+   "b": "gen-income",
+   "note": "婚育压力与收入角色同源（谁扛经济责任）"
+  },
+  {
+   "a": "fam-boundary",
+   "b": "fam-mil3",
+   "note": "原生家庭边界是婆媳同住问题的泛化（不止婆媳）"
+  },
+  {
+   "a": "fam-boundary",
+   "b": "fam-couple",
+   "note": "父母越界冲击夫妻一体（小家主权）"
+  },
+  {
+   "a": "gen-staydad",
+   "b": "gen-stayhome",
+   "note": "全职爸爸是全职妈妈的性别镜像（谁全职的争议）"
+  },
+  {
+   "a": "gen-staydad",
+   "b": "gen-house",
+   "note": "全职爸爸是家务分工的极端选项（主内男性化）"
+  },
+  {
+   "a": "fam-agediff",
+   "b": "fam-date",
+   "note": "姐弟恋是婚恋匹配观的延伸（年龄 vs 合适）"
+  },
+  {
+   "a": "fam-agediff",
+   "b": "fam-gener",
+   "note": "姐弟恋争议是代际观念在年龄差上的体现"
+  },
+  {
+   "a": "fam-dink",
+   "b": "fam-birth",
+   "note": "丁克是生育意愿的主动归零（不想生 vs 养不起）"
+  },
+  {
+   "a": "fam-dink",
+   "b": "fam-gener",
+   "note": "丁克压力主要来自代际催生（父母期待）"
+  },
+  {
+   "a": "fam-prenup",
+   "b": "fam-aa",
+   "note": "婚前财产协议是婚后AA的前置（财产约定前置化）"
+  },
+  {
+   "a": "fam-prenup",
+   "b": "fam-betrothal",
+   "note": "婚前公证与彩礼同属婚姻的物质安排"
+  },
+  {
+   "a": "fam-onlychild",
+   "b": "fam-eldercare",
+   "note": "独生女养老是养老责任的独生版（无人分担）"
+  },
+  {
+   "a": "fam-onlychild",
+   "b": "fam-birth",
+   "note": "4-2-1家庭结构放大独生女负担（少子化代价）"
+  },
+  {
+   "a": "gen-hiring",
+   "b": "gen-work",
+   "note": "求职婚育歧视是职场性别歧视的入职端（门槛歧视）"
+  },
+  {
+   "a": "gen-hiring",
+   "b": "gen-stayhome",
+   "note": "生育问询与全职回归同属生育的职场代价"
+  },
+  {
+   "a": "gen-maleemotion",
+   "b": "gen-malepressure",
+   "note": "男性情绪压抑与婚育压力同源（男子汉标签）"
+  },
+  {
+   "a": "gen-maleemotion",
+   "b": "psy-anxiety",
+   "note": "男性抑郁高发与情绪压抑相关（不让哭的代价）"
+  },
+  {
+   "a": "soc-singleeconomy",
+   "b": "psy-single",
+   "note": "单身经济是独居青年生活的消费形态"
+  },
+  {
+   "a": "soc-singleeconomy",
+   "b": "fam-birth",
+   "note": "单身经济兴起与生育率下降互为因果（少子化消费）"
+  },
+  {
+   "a": "gen-birthanxiety",
+   "b": "fam-birth",
+   "note": "生育焦虑是生育成本问题的女性心理面"
+  },
+  {
+   "a": "gen-birthanxiety",
+   "b": "gen-labels",
+   "note": "生育焦虑与剩女标签同属对女性的社会规训"
+  },
+  {
+   "a": "gen-malegrooming",
+   "b": "gen-consume",
+   "note": "男性形象消费是悦己消费的性别扩展（男性也消费）"
+  },
+  {
+   "a": "gen-malegrooming",
+   "b": "psy-appearance",
+   "note": "男性医美是容貌焦虑的男性版（形象经济无性别）"
+  },
+  {
+   "a": "fam-singlemom",
+   "b": "fam-remarry",
+   "note": "单亲妈妈是重组家庭的另一面（离异后的单亲）"
+  },
+  {
+   "a": "fam-singlemom",
+   "b": "gen-stayhome",
+   "note": "单亲妈妈是育儿责任的极端单人承担（无帮手）"
+  },
+  {
+   "a": "public-night",
+   "b": "traffic-ridehailing",
+   "note": "夜间安全影响女性打车选择（安全出行）"
+  },
+  {
+   "a": "public-night",
+   "b": "gen-war",
+   "note": "夜间安全的讨论常被性别对立裹挟（受害者有罪论）"
+  },
+  {
+   "a": "gen-genderratio",
+   "b": "gen-malepressure",
+   "note": "性别比失衡加剧男性婚育压力（竞争抬价）"
+  },
+  {
+   "a": "gen-genderratio",
+   "b": "fam-betrothal",
+   "note": "男多女少推高彩礼（婚恋市场供需）"
+  },
+  {
+   "a": "gen-postpartum",
+   "b": "gen-stayhome",
+   "note": "产后抑郁是全职妈妈的产后面（身心压力）"
+  },
+  {
+   "a": "gen-postpartum",
+   "b": "psy-anxiety",
+   "note": "产后抑郁是心理问题的生育场景（被污名化）"
+  },
+  {
+   "a": "gen-paternity",
+   "b": "gen-hiring",
+   "note": "男性育婴假与求职歧视同属生育的职场代价（男女都受影响）"
+  },
+  {
+   "a": "gen-paternity",
+   "b": "fam-parenting",
+   "note": "育儿假是父职参与的制度保障（爸爸的时间）"
+  },
+  {
+   "a": "gen-dress",
+   "b": "gen-work",
+   "note": "职场穿搭规训是职场性别歧视的形象面"
+  },
+  {
+   "a": "gen-dress",
+   "b": "public-night",
+   "note": "对女性穿着的审视与夜间安全同属性别审视"
+  },
+  {
+   "a": "gen-maleunmarried",
+   "b": "gen-genderratio",
+   "note": "大龄男性婚恋难是性别比失衡的直接后果"
+  },
+  {
+   "a": "gen-maleunmarried",
+   "b": "fam-gener",
+   "note": "剩男压力与催婚同属婚恋社会压力（男性版）"
+  },
+  {
+   "a": "fam-sunkcost",
+   "b": "fam-couple",
+   "note": "婚姻将就是夫妻矛盾的积累（沉默成本绑架）"
+  },
+  {
+   "a": "fam-sunkcost",
+   "b": "psy-anxiety",
+   "note": "将就的婚姻是心理消耗（长期压抑）"
+  },
+  {
+   "a": "fam-birthsubsidy",
+   "b": "fam-birth",
+   "note": "生育补贴是生育成本的政策分担（降成本）"
+  },
+  {
+   "a": "fam-birthsubsidy",
+   "b": "gov-subsidy",
+   "note": "生育补贴是政府补贴的民生版（人口投资）"
+  },
+  {
+   "a": "public-toast",
+   "b": "social-toast",
+   "note": "女性酒局是酒桌文化的性别面（权力结构）"
+  },
+  {
+   "a": "public-toast",
+   "b": "public-night",
+   "note": "酒局醉酒风险是夜间安全的场景化"
+  },
+  {
+   "a": "gen-ageanxiety",
+   "b": "psy-appearance",
+   "note": "年龄焦虑与容貌焦虑同源（女性被外貌年龄审判）"
+  },
+  {
+   "a": "gen-ageanxiety",
+   "b": "gen-labels",
+   "note": "30岁坎与剩女标签同属年龄规训（社会时钟）"
+  },
+  {
+   "a": "fam-coldviolence",
+   "b": "fam-sunkcost",
+   "note": "冷暴力是将就婚姻的日常形态（无爱无沟通）"
+  },
+  {
+   "a": "fam-coldviolence",
+   "b": "fam-couple",
+   "note": "冷暴力是夫妻矛盾的极端化（拒绝沟通）"
+  },
+  {
+   "a": "gen-unmarriedpension",
+   "b": "gen-labels",
+   "note": "未婚养老是剩女议题的养老延伸（单身要规划）"
+  },
+  {
+   "a": "gen-unmarriedpension",
+   "b": "fam-eldercare",
+   "note": "未婚养老是养老责任的独身版（无子女兜底）"
+  },
+  {
+   "a": "edu-gender",
+   "b": "gen-war",
+   "note": "性别教育是男女对立的源头治理（从小教平等）"
+  },
+  {
+   "a": "edu-gender",
+   "b": "edu-punish",
+   "note": "性别教育是儿童教育的一部分（价值观培养）"
+  },
+  {
+   "a": "fam-fincontrol",
+   "b": "fam-aa",
+   "note": "经济控制是AA制的反面（剥夺自主 vs 各自独立）"
+  },
+  {
+   "a": "fam-fincontrol",
+   "b": "fam-sunkcost",
+   "note": "经济控制让离婚更难（被锁在婚姻里）"
+  },
+  {
+   "a": "gen-entrepreneur",
+   "b": "gen-work",
+   "note": "女性创业是职场性别议题的创业版（天花板+偏见）"
+  },
+  {
+   "a": "gen-entrepreneur",
+   "b": "work-free",
+   "note": "女性创业与自由职业同属自主就业（风险与自由）"
+  },
+  {
+   "a": "fam-division",
+   "b": "fam-prenup",
+   "note": "离婚分割是婚前协议的兑现（财产约定的执行）"
+  },
+  {
+   "a": "fam-division",
+   "b": "fam-sunkcost",
+   "note": "财产分割是离婚决策的现实考量（沉没成本）"
+  },
+  {
+   "a": "fam-friendboundary",
+   "b": "fam-couple",
+   "note": "异性友谊边界是夫妻信任的考验（边界感）"
+  },
+  {
+   "a": "fam-friendboundary",
+   "b": "social-boundary",
+   "note": "婚后异性友谊是边界问题的人际版（度）"
+  },
+  {
+   "a": "gen-divorce",
+   "b": "fam-sunkcost",
+   "note": "抚养权争夺是将就婚姻的离婚延伸（孩子被牵扯）"
+  },
+  {
+   "a": "gen-divorce",
+   "b": "fam-remarry",
+   "note": "抚养安排影响重组家庭（孩子与新家庭）"
+  },
+  {
+   "a": "fam-betrothalreturn",
+   "b": "fam-betrothal",
+   "note": "彩礼返还是彩礼议题的法律执行面（附条件赠与）"
+  },
+  {
+   "a": "fam-betrothalreturn",
+   "b": "fam-division",
+   "note": "礼金纠纷与离婚财产分割同属婚姻财产清算"
+  },
+  {
+   "a": "fam-maritalpua",
+   "b": "fam-coldviolence",
+   "note": "精神操控是冷暴力的主动版（打压操控）"
+  },
+  {
+   "a": "fam-maritalpua",
+   "b": "emp-pua",
+   "note": "婚姻PUA是职场PUA的亲密关系版（同种操控）"
+  },
+  {
+   "a": "gen-ivf",
+   "b": "gen-birthanxiety",
+   "note": "试管是生育焦虑的医学应对（想生的技术路径）"
+  },
+  {
+   "a": "gen-ivf",
+   "b": "medical-cost",
+   "note": "试管费用是生育成本的特殊支出（几万/次）"
+  },
+  {
+   "a": "fam-datingscam",
+   "b": "digit-dating",
+   "note": "相亲骗局是网络交友诈骗的线下版（婚托/杀猪盘）"
+  },
+  {
+   "a": "fam-datingscam",
+   "b": "fam-date",
+   "note": "相亲骗局寄生在相亲市场（利用焦虑）"
+  },
+  {
+   "a": "fam-unplanned",
+   "b": "gen-birthanxiety",
+   "note": "意外怀孕是生育议题的突发版（计划外）"
+  },
+  {
+   "a": "fam-unplanned",
+   "b": "fam-cohabit",
+   "note": "未婚先孕与婚前同居相关（同居生育）"
+  },
+  {
+   "a": "fam-violence",
+   "b": "fam-coldviolence",
+   "note": "家暴求助覆盖冷暴力与身体暴力（反家暴法）"
+  },
+  {
+   "a": "fam-violence",
+   "b": "fam-fincontrol",
+   "note": "经济控制是家暴形式之一（家暴多维）"
+  },
+  {
+   "a": "gen-singleparent",
+   "b": "fam-singlemom",
+   "note": "单亲爸爸是单亲妈妈的性别镜像（单亲养育）"
+  },
+  {
+   "a": "gen-singleparent",
+   "b": "gen-staydad",
+   "note": "单亲爸爸与全职爸爸相关（父职承担）"
+  },
+  {
+   "a": "fam-elderdivorce",
+   "b": "fam-sunkcost",
+   "note": "老年离婚是将就一生的终点（忍够了）"
+  },
+  {
+   "a": "fam-elderdivorce",
+   "b": "fam-elderlove",
+   "note": "老年离婚后可能再婚（老年婚恋新篇章）"
+  },
+  {
+   "a": "fam-dateexpense",
+   "b": "fam-aa",
+   "note": "恋爱消费是AA制的恋爱版（谁花钱）"
+  },
+  {
+   "a": "fam-dateexpense",
+   "b": "fam-date",
+   "note": "恋爱消费是相亲恋爱的经济面（相处成本）"
+  },
+  {
+   "a": "fam-phone",
+   "b": "fam-friendboundary",
+   "note": "查手机与异性友谊边界同属婚姻信任问题"
+  },
+  {
+   "a": "fam-phone",
+   "b": "digit-privacy",
+   "note": "查手机是隐私问题的婚姻场景（亲密与隐私）"
+  },
+  {
+   "a": "fam-postbirth",
+   "b": "fam-parenting",
+   "note": "生娃后夫妻变淡与育儿分工相关（育儿冲击）"
+  },
+  {
+   "a": "fam-postbirth",
+   "b": "fam-couple",
+   "note": "夫妻关系是家庭地基（孩子不是中心）"
+  },
+  {
+   "a": "fam-houseworkcomp",
+   "b": "fam-division",
+   "note": "家务补偿是离婚财产分割的补充（民法典1088条）"
+  },
+  {
+   "a": "fam-houseworkcomp",
+   "b": "gen-house",
+   "note": "家务补偿是家务价值的法律承认"
+  },
+  {
+   "a": "fam-pregnancywork",
+   "b": "gen-hiring",
+   "note": "孕期职场歧视是求职婚育歧视的孕产期版"
+  },
+  {
+   "a": "fam-pregnancywork",
+   "b": "gen-stayhome",
+   "note": "孕期处境影响产后的职场回归"
+  },
+  {
+   "a": "fam-intimacy",
+   "b": "fam-couple",
+   "note": "激情消退是夫妻矛盾的温床（平淡与经营）"
+  },
+  {
+   "a": "fam-intimacy",
+   "b": "fam-sunkcost",
+   "note": "不经营的平淡滑向将就（激情冻结）"
+  },
+  {
+   "a": "fam-mil4",
+   "b": "fam-mil3",
+   "note": "岳母女婿与婆媳同属姻亲矛盾（父母vs伴侣）"
+  },
+  {
+   "a": "fam-mil4",
+   "b": "fam-couple",
+   "note": "姻亲关系影响夫妻关系（两边平衡）"
+  },
+  {
+   "a": "fam-groupchat",
+   "b": "fam-gener",
+   "note": "家族群是代际观念的线上战场（催婚催生）"
+  },
+  {
+   "a": "fam-groupchat",
+   "b": "digit-scroll",
+   "note": "养生谣言是家族群的数字陷阱（信息轰炸）"
+  },
+  {
+   "a": "fam-inheritance",
+   "b": "fam-property",
+   "note": "遗产继承是代际财产的终局分配（身后事）"
+  },
+  {
+   "a": "fam-inheritance",
+   "b": "fam-division",
+   "note": "遗产分配与离婚分割同属家庭财产清算"
+  },
+  {
+   "a": "fam-datecontrol",
+   "b": "fam-maritalpua",
+   "note": "恋爱控制是婚姻精神操控的恋爱版（控制前置）"
+  },
+  {
+   "a": "fam-datecontrol",
+   "b": "fam-dateexpense",
+   "note": "恋爱控制与恋爱消费同属恋爱关系的权力面"
+  },
+  {
+   "a": "fam-secondchild",
+   "b": "fam-birth",
+   "note": "二胎决策是生育成本的二次评估（多孩代价）"
+  },
+  {
+   "a": "fam-secondchild",
+   "b": "fam-parenting",
+   "note": "二胎精力分配是育儿分工的升级（公平难题）"
+  },
+  {
+   "a": "fam-lies",
+   "b": "fam-phone",
+   "note": "婚姻谎言与查手机同属信任议题（诚实与监控）"
+  },
+  {
+   "a": "fam-lies",
+   "b": "fam-couple",
+   "note": "坦诚是夫妻关系的基石（谎言腐蚀信任）"
+  },
+  {
+   "a": "gen-widow",
+   "b": "fam-elderlove",
+   "note": "丧偶后可能再婚（老年婚恋的丧偶路径）"
+  },
+  {
+   "a": "gen-widow",
+   "b": "fam-singlemom",
+   "note": "丧偶女性与单亲妈妈同属独自养育（女性独扛）"
+  },
+  {
+   "a": "fam-yuegong",
+   "b": "fam-yuesao",
+   "note": "月子中心是月嫂服务的机构化（专业升级）"
+  },
+  {
+   "a": "fam-yuegong",
+   "b": "fam-birth",
+   "note": "月子中心是生育成本的产后大头"
+  },
+  {
+   "a": "gen-divorce2",
+   "b": "fam-sunkcost",
+   "note": "冷静期是将就婚姻的缓冲（冲动 vs 决绝）"
+  },
+  {
+   "a": "gen-divorce2",
+   "b": "fam-division",
+   "note": "冷静期是协议离婚的程序（离婚制度）"
+  },
+  {
+   "a": "digit-wedding",
+   "b": "digit-baby",
+   "note": "婚礼直播是晒娃的成人版（人生大事直播）"
+  },
+  {
+   "a": "digit-wedding",
+   "b": "fam-wedding",
+   "note": "婚礼直播是婚庆消费的传播面（记录 vs 作秀）"
+  },
+  {
+   "a": "fam-affair",
+   "b": "fam-lies",
+   "note": "出轨是婚姻谎言的极端（背叛是最大的欺骗）"
+  },
+  {
+   "a": "fam-affair",
+   "b": "fam-sunkcost",
+   "note": "出轨后原谅与否是沉默成本的考验（将就 or 止损）"
+  },
+  {
+   "a": "fam-eldercohabit",
+   "b": "fam-elderlove",
+   "note": "老年同居是中老年婚恋的居住形态（不领证）"
+  },
+  {
+   "a": "fam-eldercohabit",
+   "b": "fam-cohabit",
+   "note": "老年同居是同居现象的银发版（保障问题）"
+  },
+  {
+   "a": "fam-cohabitreturn",
+   "b": "fam-betrothalreturn",
+   "note": "同居分手财产与礼金返还是同居纠纷的两面"
+  },
+  {
+   "a": "fam-cohabitreturn",
+   "b": "fam-cohabit",
+   "note": "同居财产约定是同居关系的财务面"
+  },
+  {
+   "a": "gen-postbody",
+   "b": "gen-postpartum",
+   "note": "产后身材焦虑与产后抑郁同属产后身心压力"
+  },
+  {
+   "a": "gen-postbody",
+   "b": "health-weight",
+   "note": "产后身材是身体焦虑的产后版（恢复 vs 接纳）"
+  },
+  {
+   "a": "fam-flashmarriage",
+   "b": "fam-cohabit",
+   "note": "闪婚与同居同属婚前快速决策（了解深度）"
+  },
+  {
+   "a": "fam-flashmarriage",
+   "b": "fam-date",
+   "note": "闪婚是相亲恋爱的快速通道（缘分 vs 冲动）"
+  },
+  {
+   "a": "fam-violencechild",
+   "b": "fam-violence",
+   "note": "目睹家暴的孩子是家暴的隐形受害者（波及）"
+  },
+  {
+   "a": "fam-violencechild",
+   "b": "fam-postbirth",
+   "note": "家庭暴力破坏孩子需要的健康家庭环境"
+  },
+  {
+   "a": "fam-premarriagecheck",
+   "b": "fam-cohabit",
+   "note": "婚检是婚前准备的一部分（健康知情）"
+  },
+  {
+   "a": "fam-premarriagecheck",
+   "b": "medical-cost",
+   "note": "婚检是生育健康的前置检查（优生优育）"
+  },
+  {
+   "a": "gen-malefertility",
+   "b": "gen-birthanxiety",
+   "note": "男性生育年龄是生育焦虑的男性版（高龄风险）"
+  },
+  {
+   "a": "gen-malefertility",
+   "b": "gen-malepressure",
+   "note": "男性生育压力是婚育压力的生育面"
+  },
+  {
+   "a": "fam-longdistance",
+   "b": "fam-couple",
+   "note": "异地是夫妻关系的距离考验（信任与经营）"
+  },
+  {
+   "a": "fam-longdistance",
+   "b": "digit-dating",
+   "note": "异地夫妻依赖数字沟通（视频/电话维系）"
+  },
+  {
+   "a": "fam-adoption",
+   "b": "fam-birth",
+   "note": "收养是生育意愿的替代路径（非血缘的亲子）"
+  },
+  {
+   "a": "fam-adoption",
+   "b": "fam-remarry",
+   "note": "收养与重组家庭同属非血缘家庭关系"
+  },
+  {
+   "a": "fam-separatebeds",
+   "b": "fam-intimacy",
+   "note": "分房与激情保鲜相关（睡眠 vs 亲密）"
+  },
+  {
+   "a": "fam-separatebeds",
+   "b": "fam-couple",
+   "note": "分房是夫妻生活方式的现代选项（形式与感情）"
+  },
+  {
+   "a": "fam-couplebusiness",
+   "b": "gen-entrepreneur",
+   "note": "夫妻创业是创业的家庭版（共同创业）"
+  },
+  {
+   "a": "fam-couplebusiness",
+   "b": "fam-couple",
+   "note": "创业压力考验夫妻关系（公私边界）"
+  },
+  {
+   "a": "fam-premarriagehouse",
+   "b": "fam-prenup",
+   "note": "婚前买房是婚前财产协议的核心场景（房产）"
+  },
+  {
+   "a": "fam-premarriagehouse",
+   "b": "fam-division",
+   "note": "婚前房产在离婚分割中是争议焦点（还贷）"
+  },
+  {
+   "a": "fam-emotionalvalue",
+   "b": "fam-couple",
+   "note": "情绪价值是夫妻关系的养分（被理解）"
+  },
+  {
+   "a": "fam-emotionalvalue",
+   "b": "fam-intimacy",
+   "note": "情绪价值与激情保鲜同属婚姻温度（滋养）"
+  },
+  {
+   "a": "gen-motherrole",
+   "b": "gen-stayhome",
+   "note": "母职绑架是全职妈妈的舆论压力（完美期待）"
+  },
+  {
+   "a": "gen-motherrole",
+   "b": "fam-parenting",
+   "note": "母职绑架与育儿分工相关（妈妈独扛）"
+  },
+  {
+   "a": "digit-familytime",
+   "b": "fam-groupchat",
+   "note": "家庭屏幕与家族群同属数字时代的家庭连接方式"
+  },
+  {
+   "a": "digit-familytime",
+   "b": "digit-scroll",
+   "note": "家庭刷屏是短视频沉迷的家庭场景（陪伴被替代）"
+  },
+  {
+   "a": "fam-decision",
+   "b": "fam-couple",
+   "note": "家庭决策权是夫妻关系的权力面（谁做主）"
+  },
+  {
+   "a": "fam-decision",
+   "b": "gen-income",
+   "note": "决策权与收入角色相关（谁赚钱谁做主之争）"
+  },
+  {
+   "a": "fam-fight",
+   "b": "fam-couple",
+   "note": "吵架是夫妻互动的激烈形态（冲突表达）"
+  },
+  {
+   "a": "fam-fight",
+   "b": "fam-intimacy",
+   "note": "吵架方式影响婚姻温度（伤人或增进）"
+  },
+  {
+   "a": "fam-growth",
+   "b": "fam-couple",
+   "note": "成长不同步是夫妻关系的动态考验（一起走）"
+  },
+  {
+   "a": "fam-growth",
+   "b": "fam-emotionalvalue",
+   "note": "成长差异需要情绪价值的支撑（理解与支持）"
+  },
+  {
+   "a": "fam-weddingprep",
+   "b": "fam-wedding",
+   "note": "婚礼筹备是婚庆消费的执行阶段（矛盾高发）"
+  },
+  {
+   "a": "fam-weddingprep",
+   "b": "fam-couple",
+   "note": "筹备争吵考验新人关系（两家 vs 两人）"
+  },
+  {
+   "a": "fam-inlaws",
+   "b": "fam-mil3",
+   "note": "亲家关系与婆媳同住同属姻亲网络（两家相处）"
+  },
+  {
+   "a": "fam-inlaws",
+   "b": "fam-mil4",
+   "note": "亲家与岳母女婿同属姻亲关系（父母之间）"
+  },
+  {
+   "a": "fam-eldercare3",
+   "b": "fam-onlychild",
+   "note": "异地养老是独生子女的养老常态（两难）"
+  },
+  {
+   "a": "fam-eldercare3",
+   "b": "fam-longdistance",
+   "note": "异地养老与异地婚姻同属分离型家庭（距离）"
+  },
+  {
+   "a": "fam-newyear",
+   "b": "fam-couple",
+   "note": "过年回谁家是夫妻冲突的节庆版（传统 vs 平等）"
+  },
+  {
+   "a": "fam-newyear",
+   "b": "fam-mil4",
+   "note": "过年安排牵动两家关系（婆家娘家平衡）"
+  },
+  {
+   "a": "fam-talk",
+   "b": "fam-fight",
+   "note": "说话方式决定吵架的性质（语言暴力 vs 沟通）"
+  },
+  {
+   "a": "fam-talk",
+   "b": "fam-couple",
+   "note": "好好说话是夫妻关系的日常修养（语言温度）"
+  },
+  {
+   "a": "fam-health",
+   "b": "fam-couple",
+   "note": "健康观念差异是夫妻互动的日常摩擦（劝 vs 倔）"
+  },
+  {
+   "a": "fam-health",
+   "b": "medical-cost",
+   "note": "健康观念影响医疗支出（预防 vs 治疗）"
+  },
+  {
+   "a": "fam-pet",
+   "b": "city-pet",
+   "note": "家庭养宠之争是养宠议题的家庭决策面（要不要养）"
+  },
+  {
+   "a": "fam-pet",
+   "b": "fam-couple",
+   "note": "养宠分歧考验夫妻协商（意愿 vs 责任）"
+  },
+  {
+   "a": "fam-car",
+   "b": "traffic-jam",
+   "note": "买车决策与城市交通相关（拥堵/停车难）"
+  },
+  {
+   "a": "fam-car",
+   "b": "fam-decision",
+   "note": "买车是家庭大额消费决策（算账）"
+  },
+  {
+   "a": "fam-sibling",
+   "b": "fam-inheritance",
+   "note": "手足关系在遗产分配中受考验（明算账）"
+  },
+  {
+   "a": "fam-sibling",
+   "b": "fam-eldercare",
+   "note": "兄弟姐妹共担父母养老（分摊）"
+  },
+  {
+   "a": "fam-couplegoals",
+   "b": "fam-growth",
+   "note": "共同目标是成长同步的方向（同行）"
+  },
+  {
+   "a": "fam-couplegoals",
+   "b": "fam-couple",
+   "note": "共同目标连接夫妻（同向不捆绑）"
+  },
+  {
+   "a": "fam-remotework",
+   "b": "work-remote",
+   "note": "远程办公家庭的居家形态（工作家庭交织）"
+  },
+  {
+   "a": "fam-remotework",
+   "b": "digit-familytime",
+   "note": "远程工作与家庭屏幕同属数字家庭场景"
+  },
+  {
+   "a": "fam-elderlyhealth",
+   "b": "fam-eldercare3",
+   "note": "异地子女管父母健康更难（远程关心）"
+  },
+  {
+   "a": "fam-elderlyhealth",
+   "b": "medical-cost",
+   "note": "父母健康管理降低医疗成本（预防）"
+  },
+  {
+   "a": "fam-childprivacy",
+   "b": "edu-punish",
+   "note": "孩子隐私与管教边界相关（尊重 vs 立规矩）"
+  },
+  {
+   "a": "fam-childprivacy",
+   "b": "fam-phone",
+   "note": "看日记与查手机同属隐私边界（关心 vs 侵犯）"
+  },
+  {
+   "a": "fam-diet",
+   "b": "fam-health",
+   "note": "家庭饮食是健康观念的家庭场景（吃什么）"
+  },
+  {
+   "a": "fam-diet",
+   "b": "food-safe",
+   "note": "家庭饮食与食品安全相关（吃得放心）"
+  },
+  {
+   "a": "fam-schedule",
+   "b": "fam-separatebeds",
+   "note": "作息差异与分房睡相关（各自节律）"
+  },
+  {
+   "a": "fam-schedule",
+   "b": "edu-sleep",
+   "note": "家庭作息影响孩子睡眠（孩子优先）"
+  },
+  {
+   "a": "fam-trip",
+   "b": "edu-trip",
+   "note": "家庭旅行是毕业旅行的家庭版（带娃出行）"
+  },
+  {
+   "a": "fam-trip",
+   "b": "fam-couple",
+   "note": "家庭旅行决策考验夫妻协商（听谁的）"
+  },
+  {
+   "a": "fam-gathering",
+   "b": "fam-groupchat",
+   "note": "家庭聚会是家族群的线下版（见面）"
+  },
+  {
+   "a": "fam-gathering",
+   "b": "fam-inlaws",
+   "note": "家庭聚会常含亲家往来（两家聚餐）"
+  },
+  {
+   "a": "fam-childfriends",
+   "b": "edu-punish",
+   "note": "孩子交友引导是管教的一部分（边界）"
+  },
+  {
+   "a": "fam-childfriends",
+   "b": "fam-childprivacy",
+   "note": "交友引导与隐私尊重同属孩子自主（引导）"
+  },
+  {
+   "a": "fam-chorechild",
+   "b": "edu-allowance",
+   "note": "孩子家务与零花钱教育相关（劳动报酬）"
+  },
+  {
+   "a": "fam-chorechild",
+   "b": "gen-house",
+   "note": "孩子家务是家务分工的家庭教育版"
+  },
+  {
+   "a": "fam-cleanliness",
+   "b": "gen-house",
+   "note": "家务标准是家务分工的尺度之争（干净）"
+  },
+  {
+   "a": "fam-cleanliness",
+   "b": "fam-fight",
+   "note": "家务标准冲突是夫妻吵架的日常导火索"
+  },
+  {
+   "a": "fam-petchild",
+   "b": "fam-pet",
+   "note": "宠物与孩子是家庭养宠的育儿版（共存）"
+  },
+  {
+   "a": "fam-petchild",
+   "b": "fam-childfriends",
+   "note": "宠物是孩子的伙伴（友谊的动物版）"
+  },
+  {
+   "a": "fam-childhome",
+   "b": "fam-childprivacy",
+   "note": "独自在家是孩子独立的场景（隐私与独立）"
+  },
+  {
+   "a": "fam-childhome",
+   "b": "public-night",
+   "note": "孩子独自在家与夜间安全同属儿童安全"
+  },
+  {
+   "a": "work-commute",
+   "b": "traffic-jam",
+   "note": "极端通勤是城市拥堵的个体代价（职住分离）"
+  },
+  {
+   "a": "work-commute",
+   "b": "work-burnout",
+   "note": "通勤消耗加剧工作疲惫（时间精力）"
+  },
+  {
+   "a": "digit-drama",
+   "b": "digit-scroll",
+   "note": "短剧沉迷是短视频沉迷的剧情版（爽点密集）"
+  },
+  {
+   "a": "digit-drama",
+   "b": "digit-tipping",
+   "note": "短剧付费与直播打赏同属数字消费陷阱"
+  },
+  {
+   "a": "fam-weekend",
+   "b": "fam-trip",
+   "note": "周末安排是家庭旅行的日常版（短途）"
+  },
+  {
+   "a": "fam-weekend",
+   "b": "fam-schedule",
+   "note": "周末作息与家庭作息相关（补觉与节奏）"
+  },
+  {
+   "a": "fam-empty",
+   "b": "fam-solitude",
+   "note": "空巢期是独居的过渡（孩子离家后）"
+  },
+  {
+   "a": "fam-empty",
+   "b": "fam-postbirth",
+   "note": "空巢期是生育后夫妻关系的下一阶段（重新面对）"
+  },
+  {
+   "a": "fam-summer",
+   "b": "edu-hobby",
+   "note": "暑假安排与兴趣班相关（弯道超车 vs 童年）"
+  },
+  {
+   "a": "fam-summer",
+   "b": "fam-weekend",
+   "note": "暑假是周末的延长版（安排矛盾）"
+  },
+  {
+   "a": "fam-caregiving",
+   "b": "med-accompany",
+   "note": "家人照护是医院陪护的居家版（长期照护）"
+  },
+  {
+   "a": "fam-caregiving",
+   "b": "fam-couple",
+   "note": "照护安排考验家庭分工（谁照顾）"
+  },
+  {
+   "a": "fam-disabled",
+   "b": "med-eldercare",
+   "note": "失能照护是医养结合的核心需求（专业护理）"
+  },
+  {
+   "a": "fam-disabled",
+   "b": "fam-eldercare3",
+   "note": "失能照护是异地养老的难点（照顾不了）"
+  },
+  {
+   "a": "fam-worktime",
+   "b": "work-burnout",
+   "note": "工作越累家庭时间越被挤占（加班挤压陪伴）"
+  },
+  {
+   "a": "fam-worktime",
+   "b": "fam-couple",
+   "note": "家庭时间分配考验夫妻协作（谁陪谁做）"
+  },
+  {
+   "a": "edu-reward",
+   "b": "fam-chorechild",
+   "note": "孩子家务与奖励教育相关（劳动报酬）"
+  },
+  {
+   "a": "edu-reward",
+   "b": "edu-hobby",
+   "note": "兴趣激励与奖励教育同属动力课题（内在 vs 外在）"
+  },
+  {
+   "a": "fam-move",
+   "b": "work-commute",
+   "note": "搬家常为缩短通勤（职住平衡）"
+  },
+  {
+   "a": "fam-move",
+   "b": "gen-house",
+   "note": "搬家与购房相关（房价与居所选择）"
+  },
+  {
+   "a": "fam-elderfit",
+   "b": "health-fall",
+   "note": "适老化改造直接防跌倒（扶手防滑）"
+  },
+  {
+   "a": "fam-elderfit",
+   "b": "med-eldercare",
+   "note": "居家适老化是医养结合的居家面（安全居住）"
+  },
+  {
+   "a": "fam-values",
+   "b": "fam-couple",
+   "note": "价值观差异是夫妻关系的深层考验（磨合）"
+  },
+  {
+   "a": "fam-values",
+   "b": "fam-fight",
+   "note": "价值观冲突是夫妻吵架的深层根源（表面琐事）"
+  },
+  {
+   "a": "fam-puberty",
+   "b": "fam-childprivacy",
+   "note": "青春期沟通与孩子隐私同属亲子边界（尊重）"
+  },
+  {
+   "a": "fam-puberty",
+   "b": "edu-score",
+   "note": "青春期撞上应试压力（学业与成长双重挑战）"
+  },
+  {
+   "a": "fam-aging",
+   "b": "fam-eldercare",
+   "note": "面对衰老是养老的情感面（接受与安排）"
+  },
+  {
+   "a": "fam-aging",
+   "b": "fam-disabled",
+   "note": "衰老与失能相连（照护的终局）"
+  },
+  {
+   "a": "fam-independence",
+   "b": "fam-childhome",
+   "note": "孩子独立放手的场景是独自在家（信任）"
+  },
+  {
+   "a": "fam-independence",
+   "b": "fam-childprivacy",
+   "note": "独立与隐私同属孩子的自主权（放手尊重）"
+  },
+  {
+   "a": "edu-gamefun",
+   "b": "youth-game",
+   "note": "学习不如游戏有趣是游戏沉迷的心理根源（爽感对比）"
+  },
+  {
+   "a": "edu-gamefun",
+   "b": "edu-score",
+   "note": "应试压力让学习变苦差（为分数不为自己）"
+  },
+  {
+   "a": "edu-boring",
+   "b": "edu-homework",
+   "note": "机械作业是学习枯燥的最大来源（重复刷题）"
+  },
+  {
+   "a": "edu-boring",
+   "b": "edu-hobby",
+   "note": "兴趣班是学习乐趣的出口（兴趣驱动）"
+  },
+  {
+   "a": "digit-game",
+   "b": "digit-drama",
+   "note": "游戏与短剧同属多巴胺设计（高频奖励）"
+  },
+  {
+   "a": "digit-game",
+   "b": "digit-scroll",
+   "note": "游戏与短视频同属即时反馈的诱惑（信息碎片）"
+  },
+  {
+   "a": "edu-playbalance",
+   "b": "edu-sleep",
+   "note": "玩到深夜挤压睡眠（学玩平衡的睡眠代价）"
+  },
+  {
+   "a": "edu-playbalance",
+   "b": "fam-phone",
+   "note": "手机管理是学玩平衡的家庭面（孩子用手机）"
+  },
+  {
+   "a": "edu-procrast",
+   "b": "fam-chorechild",
+   "note": "拖延与孩子家务同属启动困难（不愿开始）"
+  },
+  {
+   "a": "edu-procrast",
+   "b": "work-burnout",
+   "note": "拖延导致赶工加班（拖延的职场代价）"
+  },
+  {
+   "a": "edu-why",
+   "b": "edu-job",
+   "note": "学习意义的焦虑源于就业错配（学了没用）"
+  },
+  {
+   "a": "edu-why",
+   "b": "edu-score",
+   "note": "唯分数论让学习意义被窄化（为分数不为成长）"
+  },
+  {
+   "a": "edu-knowledgefun",
+   "b": "soc-reading",
+   "note": "阅读乐趣是知识乐趣的入口（课外书）"
+  },
+  {
+   "a": "edu-knowledgefun",
+   "b": "edu-hobby",
+   "note": "兴趣培养与知识乐趣同源（好奇驱动）"
+  },
+  {
+   "a": "digit-gameblame",
+   "b": "youth-game",
+   "note": "游戏责任争论集中在孩子（家庭教育战场）"
+  },
+  {
+   "a": "digit-gameblame",
+   "b": "fam-phone",
+   "note": "游戏时间与手机管理同属家庭规则（限制与信任）"
+  }
+ ]
+}

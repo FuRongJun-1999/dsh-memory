@@ -1,0 +1,1297 @@
+{
+ "eval_id": "WB-EVAL-20260826-074525",
+ "timestamp": "2026-08-26 07:45:25",
+ "spec_version": "WB-SPEC-v1",
+ "domains": {
+  "compiler": {
+   "total": 116,
+   "passed": 116,
+   "failed": 0
+  },
+  "pylang": {
+   "total": 116,
+   "passed": 116,
+   "failed": 0
+  },
+  "graph": {
+   "total": 117,
+   "passed": 117,
+   "failed": 0
+  },
+  "os": {
+   "total": 112,
+   "passed": 112,
+   "failed": 0
+  },
+  "browser": {
+   "total": 104,
+   "passed": 104,
+   "failed": 0
+  },
+  "net": {
+   "total": 116,
+   "passed": 116,
+   "failed": 0
+  }
+ },
+ "summary": {
+  "overall_score": 0.9851,
+  "total_cases": 681,
+  "resolved_cases": 681,
+  "token_saved": {
+   "chars": 4328118989,
+   "tokens_est": 3246081531,
+   "table_chars": 420845
+  }
+ },
+ "dimension_scores": {
+  "W1": {
+   "score": 1.0,
+   "weight": 0.15
+  },
+  "W2": {
+   "score": 1.0,
+   "weight": 0.35
+  },
+  "W3": {
+   "score": 1.0,
+   "weight": 0.1
+  },
+  "W4": {
+   "score": 1.0,
+   "weight": 0.1
+  },
+  "W5": {
+   "score": 1.0,
+   "weight": 0.1
+  },
+  "W6": {
+   "score": 0.9457,
+   "weight": 0.1
+  },
+  "W7": {
+   "score": 0.8106,
+   "weight": 0.05
+  },
+  "W8": {
+   "score": 1.0,
+   "weight": 0.05
+  }
+ },
+ "failed_cases": [
+  {
+   "domain": "compiler",
+   "unit": "VM-循环执行",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "词法-道德经",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "词法-九章算术",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "VM-执行循环",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "词法-中文程序",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "编译-程序",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "编译-管线静态检查",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "分析-类型推断",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "编译-类型检查",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "编译-完整管线",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "字节码-序列化",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "字节码-反序列化",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "调试-单步",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "编译-常量折叠",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "词法-字符串字面量",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "词法-数字字面量",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "语法-位运算",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "词法-标识符解析",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "词法-操作符解析",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "VM-算术执行",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "VM-比较执行",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "语法-字典字面量",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "词法-转义序列",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "语法-语句分隔",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "编译-支配树",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "编译-中间表示",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "VM-数组操作",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "词法-字符类别",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "编译-字符串拼接",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "compiler",
+   "unit": "词法-数字后缀",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "词法-记号化",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "语法-优先级",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "栈机-字节码执行",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "求值-控制流",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "栈机-完整执行",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "生成器-yield",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "装饰器-定义使用",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "数据结构-队列栈",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "数据结构-集合运算",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "异步-信号量",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-映射",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-数学函数",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "语法-多行字符串",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-环境查询",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-迭代工具",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "语法-字典合并",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "数据结构-最小堆",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-矩阵运算",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "异步-异步队列",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "数据结构-有序字典",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-随机采样",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-字符串哈希",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-时间格式化",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-顺序去重",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-行程压缩",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-众数统计",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-分位数",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-文本分词",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-字典反转",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-峰值检测",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-累加器",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-成对迭代",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-打乱",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "数据结构-并查集",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "pylang",
+   "unit": "工具-编辑距离",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图持久化-序列化",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "条件路由图-映射",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图遍历-加权最短",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图查询-模式匹配",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-连通分量",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-拓扑排序",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图索引-布隆过滤",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-节点相似度",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图可视化-力导向布局",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图可视化-分层布局",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图监控-指标统计",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图嵌入-图特征",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图安全-加密存储",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-二分图判定",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-度中心性",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图可视化-视口变换",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图存储-邻接表CSR",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图存储-图合并",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图存储-属性边",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-最大流",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-欧拉路径",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-图直径",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图分布式-一致性哈希",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-三角形计数",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图安全-审计日志",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图查询-可达性判定",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-传递闭包",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-图着色",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-最小割",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-聚类系数",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-介数中心性",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图存储-边索引",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-割点",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-桥检测",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图查询-标签约束",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-度序列",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-生成树计数",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-弦图判定",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-汉密尔顿路径",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图存储-图差分",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-树重心",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-最大割",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图存储-图规范化",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-顶点覆盖",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "graph",
+   "unit": "图算法-最近公共祖先",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "文件-inode",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "进程-状态机",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "并发-信号量",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "并发-生产者消费者",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "虚拟化-命名空间",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "IPC-消息队列",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "IPC-邮箱",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "文件-元数据查询",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "安全-加密文件系统",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "文件-文件压缩",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "存储-存储池",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "存储-碎片整理",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "内存-段式管理",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "os",
+   "unit": "进程-僵尸进程",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "URL-解析",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "渲染-样式计算",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "渲染-绘制",
+   "failed_dimensions": [
+    "W6",
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "存储-IndexedDB",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "浏览器-下载管理",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "浏览器-扩展管理",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "浏览器-表单验证",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "渲染-命中测试",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "浏览器-页面可见性",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "渲染-像素光栅化",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "浏览器-触控手势",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "渲染-渐变填充",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "渲染-颜色转换",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "browser",
+   "unit": "渲染-边框圆角",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "net",
+   "unit": "网络-CRC校验",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "net",
+   "unit": "网络-消息队列",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "net",
+   "unit": "网络-流量统计",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "net",
+   "unit": "网络-QoS队列",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "net",
+   "unit": "网络-压缩传输",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "net",
+   "unit": "网络-DHCP租约",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "net",
+   "unit": "网络-链路预算",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "net",
+   "unit": "网络-NTP同步",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "net",
+   "unit": "网络-数据去重",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "net",
+   "unit": "网络-网关",
+   "failed_dimensions": [
+    "W6"
+   ],
+   "reason": "静态维度未过"
+  },
+  {
+   "domain": "net",
+   "unit": "网络-包过滤",
+   "failed_dimensions": [
+    "W7"
+   ],
+   "reason": "静态维度未过"
+  }
+ ],
+ "comparison_with_industry": {
+  "HumanEval_pass@1_equivalent": 0.6,
+  "robustness_equivalent": 1.0,
+  "note": "W2≈pass@1 的粗略对照估算（业界 pass@1 为概率采样，白箱为确定性生成即校验）"
+ }
+}

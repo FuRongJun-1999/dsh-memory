@@ -14,7 +14,7 @@ import sqlite3
 import collections
 
 from .mdcg import MdCG
-from . import routing
+from . import routing, subgraph
 
 
 def _j(v, default):
@@ -36,12 +36,16 @@ def load_nodes(db, limit=None):
 
 
 def load_edges(db):
+    """读源库边，规范化为 md_cg 本地边（键名 `relation_type`、方向按 SRC_REL_MAP）。
+
+    早期此处写 `"type"` 键，而 `subgraph` 索引只认 `relation_type`/`relation`，
+    导致迁入的边静默不可遍历 —— 见 `subgraph.normalize_edge`。
+    """
     c = sqlite3.connect(db)
     out = collections.defaultdict(list)
     for src, tgt, rel, conf, ver in c.execute(
             "select source_id, target_id, relation_type, confidence, verified from edges"):
-        out[src].append({"target": tgt, "type": rel,
-                         "confidence": conf, "verified": ver})
+        out[src].append(subgraph.normalize_edge(tgt, rel, conf, ver))
     return out
 
 

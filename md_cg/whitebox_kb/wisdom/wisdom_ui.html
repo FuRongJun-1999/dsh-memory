@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智慧之书 · 条件论知识图谱</title>
+<style>
+  :root {
+    --ink: #1f2937; --ink-soft: #4b5563; --line: #e5e7eb;
+    --accent: #2563eb; --accent-soft: #eff6ff;
+    --ok: #059669; --warn: #b45309; --bg: #f8fafc; --card: #ffffff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+         background: var(--bg); color: var(--ink); line-height: 1.6; }
+  header { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff;
+           padding: 28px 24px 20px; }
+  header h1 { font-size: 26px; letter-spacing: 2px; }
+  header p { opacity: .85; font-size: 13px; margin-top: 6px; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 20px 16px 60px; }
+
+  .status-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                  gap: 12px; margin-bottom: 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 14px 16px; }
+  .card .num { font-size: 26px; font-weight: 700; color: var(--accent); }
+  .card .lab { font-size: 12px; color: var(--ink-soft); }
+  .domains { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--accent-soft); color: var(--accent); border-radius: 999px;
+          padding: 2px 10px; font-size: 12px; }
+
+  .tabs { display: flex; gap: 6px; border-bottom: 2px solid var(--line); margin-bottom: 16px; }
+  .tab { padding: 8px 16px; cursor: pointer; font-size: 14px; color: var(--ink-soft);
+         border-bottom: 2px solid transparent; margin-bottom: -2px; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  select, input[type=text] { padding: 8px 10px; border: 1px solid var(--line);
+          border-radius: 8px; font-size: 14px; background: #fff; }
+  textarea { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px;
+             font-size: 14px; min-height: 64px; resize: vertical; font-family: inherit; }
+  button { background: var(--accent); color: #fff; border: 0; padding: 8px 18px;
+           border-radius: 8px; font-size: 14px; cursor: pointer; }
+  button:hover { opacity: .9; }
+  button.ghost { background: #fff; color: var(--accent); border: 1px solid var(--accent); }
+
+  .list { display: flex; flex-direction: column; gap: 8px; }
+  .item { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 12px 14px; cursor: pointer; transition: border-color .15s; }
+  .item:hover { border-color: var(--accent); }
+  .item .name { font-weight: 600; }
+  .item .meta { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+  .tag { display: inline-block; border-radius: 6px; padding: 1px 8px; font-size: 12px; margin-right: 6px; }
+  .tag.lv { background: #ede9fe; color: #6d28d9; }
+  .tag.ok { background: #ecfdf5; color: var(--ok); }
+  .tag.pd { background: #fef3c7; color: var(--warn); }
+  .tag.st { background: #fee2e2; color: #b91c1c; }
+  .tag.dm { background: var(--accent-soft); color: var(--accent); }
+
+  .detail { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+            padding: 16px; margin-top: 12px; display: none; }
+  .detail h3 { margin-bottom: 8px; }
+  .detail .sec { margin: 10px 0; }
+  .detail .lab { font-size: 12px; color: var(--ink-soft); }
+  .kv { background: #f9fafb; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-top: 4px;
+        white-space: pre-wrap; word-break: break-all; }
+
+  .route { background: #f9fafb; border: 1px solid var(--line); border-radius: 10px;
+           padding: 10px 12px; margin-top: 6px; }
+  .route .steps { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 13px; }
+  .route .step { background: #fff; border: 1px solid var(--line); border-radius: 6px;
+                 padding: 2px 8px; font-weight: 600; }
+  .route .arrow { color: var(--ink-soft); }
+  .route .conf { font-size: 12px; color: var(--ink-soft); margin-top: 4px; }
+  .route .edgenote { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+  .warnbox { background: #fff7ed; border: 1px solid #fdba74; border-radius: 8px;
+             padding: 8px 10px; font-size: 13px; margin-top: 6px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--ink-soft); font-weight: 600; }
+
+  .note { font-size: 12px; color: var(--ink-soft); margin-top: 8px; }
+  .err { color: #b91c1c; font-size: 13px; margin-top: 6px; }
+  footer { text-align: center; color: #9ca3af; font-size: 12px; padding: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📖 智慧之书</h1>
+  <p>条件论知识图谱 · 以条件论七操作为查询语言 · 以灵枢语义时空图为数据底座
+     · 基底：存在论 / 条件论 / 智能论 / 物理学 / 信息论 / 概率论 / 博弈论（已验证）</p>
+</header>
+
+<div class="wrap">
+  <div class="status-cards" id="statusCards"></div>
+
+  <!-- 条件优先入口（P18）：训练家只需要提供条件 -->
+  <div class="cond-entry" style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px;">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px;">你想在什么条件下观测世界？</div>
+    <div class="form-row" style="margin-bottom:0;">
+      <input type="text" id="condEntry" placeholder="例如：如何判断一个知识体系是否成立 / 涉及资源分配的制度问题 / 智能体如何维持存在"
+             style="flex:1;min-width:260px;" onkeydown="if(event.key==='Enter')doConditionEntry()">
+      <button onclick="doConditionEntry()">观测</button>
+    </div>
+    <div id="condOut"></div>
+  </div>
+
+  <!-- 推荐入口（P19）：不知道从哪开始 → 已验证的组合 -->
+  <div style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin-bottom:16px;">
+    <div style="font-size:14px;font-weight:600;margin-bottom:4px;">还不知道要什么条件？从推荐开始</div>
+    <div class="note" style="margin-bottom:10px;">「大多数训练家第一次会先查看这个学科的条件空间」「这些组合曾帮助很多人解决过类似的认知盲区」——从体验过的路径中，生成自己的条件感知。</div>
+    <div id="recList" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
+    <div id="recOut"></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-panel="filter">条件筛选</div>
+    <div class="tab" data-panel="respond">出招查询</div>
+    <div class="tab" data-panel="test">七操作测试</div>
+    <div class="tab" data-panel="battle">学科对战</div>
+    <div class="tab" data-panel="stdbattle">标准对战</div>
+    <div class="tab" data-panel="sandbox">学科沙盒</div>
+    <div class="tab" data-panel="analyze">知识分析</div>
+    <div class="tab" data-panel="graphana">图谱分析</div>
+    <div class="tab" data-panel="audit">弹幕审核</div>
+    <div class="tab" data-panel="ledger">贡献账本</div>
+  </div>
+
+  <!-- 条件筛选 -->
+  <div class="panel active" id="panel-filter">
+    <div class="form-row">
+      <select id="fDomain"><option value="">领域（全部）</option></select>
+      <select id="fLevel">
+        <option value="">等级（不限）</option>
+        <option value="1">≥ L1</option><option value="2">≥ L2</option>
+        <option value="3">≥ L3</option><option value="4">≥ L4</option>
+      </select>
+      <select id="fStatus">
+        <option value="">状态（不限）</option>
+        <option value="verified">已验证</option>
+        <option value="pending">待验</option>
+        <option value="reviewing">复核中</option>
+        <option value="contested">存疑</option>
+        <option value="rejected">被否</option>
+      </select>
+      <button onclick="doFilter()">查询</button>
+    </div>
+    <div class="list" id="filterList"></div>
+    <div class="detail" id="entryDetail"></div>
+  </div>
+
+  <!-- 出招查询 -->
+  <div class="panel" id="panel-respond">
+    <div class="form-row"><textarea id="rCondition" placeholder="输入一个条件（如：如何判断一个知识体系是否成立）"></textarea></div>
+    <div class="form-row"><button onclick="doRespond()">出招</button></div>
+    <div class="list" id="respondList"></div>
+  </div>
+
+  <!-- 七操作测试 -->
+  <div class="panel" id="panel-test">
+    <div class="form-row"><textarea id="tKnowledge" placeholder="输入一个知识主张（如：女性智力不如男性）——系统提取前提，用条件论七操作测试其条件依赖，不判真假"></textarea></div>
+    <div class="form-row"><button onclick="doTest()">七操作测试</button></div>
+    <div id="testOut"></div>
+  </div>
+
+  <!-- 学科对战 -->
+  <div class="panel" id="panel-battle">
+    <div class="form-row">
+      <select id="aSel"></select><span> vs </span><select id="bSel"></select>
+      <button onclick="doBattle()">对战</button>
+    </div>
+    <div id="battleOut"></div>
+  </div>
+
+  <!-- 标准对战（P31 完整报告格式） -->
+  <div class="panel" id="panel-stdbattle">
+    <div class="form-row">
+      <select id="sbSelA"></select><span> vs </span><select id="sbSelB"></select>
+      <button onclick="doStandardBattle()">生成标准报告</button>
+    </div>
+    <div id="stdbattleOut"></div>
+  </div>
+
+  <!-- 学科沙盒（P26 动态图鉴） -->
+  <div class="panel" id="panel-sandbox">
+    <div class="form-row">
+      <select id="sSelA"></select><span> vs </span><select id="sSelB"></select>
+    </div>
+    <div class="form-row"><textarea id="sDist" placeholder="施加同一扰动，观察两个学科的条件空间如何响应。例：信息不依赖语义 / 资源无限 / 存在不再需要维持"></textarea></div>
+    <div class="form-row"><button onclick="doSandbox()">沙盘推演</button></div>
+    <div id="sandboxOut"></div>
+  </div>
+
+  <!-- 知识分析 -->
+  <div class="panel" id="panel-analyze">
+    <div class="form-row"><textarea id="aKnowledge" placeholder="输入外部知识/主张（如：大语言模型的推理能力来自内部思维链）——自动验证取信息差最少的判断，或预测它在图鉴中的未来路线"></textarea></div>
+    <div class="form-row"><textarea id="aTheory" placeholder="（可选）输入你知道的真实理论结论 T（如：囚徒困境在重复博弈中合作涌现）——用于预测 vs 理论对照"></textarea></div>
+    <div class="form-row">
+      <button onclick="doAutoVerify()">自动验证（基地裁判）</button>
+      <button onclick="doCompose()">跨学科组合分析</button>
+      <button onclick="doAnalyze()">生成式预测分析</button>
+      <button class="ghost" onclick="doCompare()">预测 vs 理论对照</button>
+    </div>
+    <div id="analyzeOut"></div>
+  </div>
+
+  <!-- 图谱分析（四件套：影响面/热路径/因果链/关联测试） -->
+  <div class="panel" id="panel-graphana">
+    <div class="form-row">
+      <select id="gSel"></select>
+      <button onclick="doImpact()">影响面</button>
+      <button onclick="doChain()">因果链</button>
+      <button onclick="doVerify()">关联测试</button>
+      <button class="ghost" onclick="doHotPaths()">热路径（P29 链热度）</button>
+    </div>
+    <div id="graphOut"></div>
+  </div>
+
+  <!-- 弹幕审核（直播内容安全 · 三层判定） -->
+  <div class="panel" id="panel-audit">
+    <div class="form-row">
+      <input id="auditInput" placeholder="输入一条弹幕，回车或点审核" style="flex:1"
+             onkeydown="if(event.key==='Enter')doAudit()">
+      <button onclick="doAudit()">审核</button>
+      <button class="ghost" onclick="loadAuditLog()">最近拦截记录</button>
+    </div>
+    <div id="auditOut"></div>
+  </div>
+
+  <!-- 贡献账本 -->
+  <div class="panel" id="panel-ledger">
+    <button class="ghost" onclick="loadLedger()">刷新</button>
+    <table style="margin-top:12px"><thead>
+      <tr><th>条目</th><th>贡献者</th><th>验证者</th><th>权重</th><th>时间</th></tr>
+    </thead><tbody id="ledgerBody"></tbody></table>
+  </div>
+</div>
+
+<footer>智慧之书 · WISDOM-BOOK-REV3 · 图谱只声称条件化有效性，不声称真理性</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body) });
+  return r.json();
+}
+async function get(path) {
+  const r = await fetch(path);
+  return r.json();
+}
+
+function tag(status) {
+  const map = { verified: 'ok', pending: 'pd', reviewing: 'st', contested: 'st', rejected: 'st' };
+  return `<span class="tag ${map[status] || ''}">${esc(status)}</span>`;
+}
+
+async function loadStatus() {
+  try {
+    const s = await get('/dex/status');
+    const doms = Object.entries(s.domains || {});
+    $('statusCards').innerHTML = `
+      <div class="card"><div class="num">${s.total_entries}</div><div class="lab">知识条目</div></div>
+      <div class="card"><div class="num">${s.verified}</div><div class="lab">已验证</div></div>
+      <div class="card"><div class="num">${s.contributions}</div><div class="lab">贡献记录</div></div>
+      <div class="card"><div class="num">${doms.length}</div><div class="lab">领域数</div>
+        <div class="domains">${doms.map(([d, n]) => `<span class="chip">${esc(d)} ${n}</span>`).join('')}</div></div>`;
+    $('fDomain').innerHTML = '<option value="">领域（全部）</option>' +
+      doms.map(([d]) => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+  } catch (e) { $('statusCards').innerHTML = `<div class="err">无法连接云服务：${esc(e.message)}</div>`; }
+}
+
+async function doFilter() {
+  const params = { domain: $('fDomain').value || undefined,
+                   level_min: $('fLevel').value ? Number($('fLevel').value) : undefined,
+                   status: $('fStatus').value || undefined };
+  $('entryDetail').style.display = 'none';
+  try {
+    const r = await post('/dex/query', { op: 'filter', params });
+    const list = (r.results || []).map(x => `
+      <div class="item" onclick="showDetail('${esc(x.id)}')">
+        <div class="name">${esc(x.name)}</div>
+        <div class="meta">
+          <span class="tag dm">${esc(x.domain)}</span>
+          ${x.tier ? `<span class="tag pd">${esc(x.tier)}</span>` : ''}
+          <span class="tag lv">L${x.level}</span>${tag(x.status)}
+        </div>
+      </div>`).join('') || '<div class="note">无结果</div>';
+    $('filterList').innerHTML = list;
+  } catch (e) { $('filterList').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+async function showDetail(id) {
+  try {
+    const r = await post('/dex/query', { op: 'status_node', params: { node_id: id } });
+    const d = r.results || {};
+    const cs = d.condition_space || {};
+    const resp = d.response || {};
+    const card2 = d.card2 || {};
+    const card2Html = Object.entries(card2).map(([k, v]) =>
+      `<div class="item"><div class="name">${esc(k)}</div><div class="kv" style="margin-top:4px">${esc(v)}</div></div>`).join('');
+    $('entryDetail').style.display = 'block';
+    $('entryDetail').innerHTML = `
+      <h3>${esc(d.name)} <span class="tag lv">L${d.level}</span>${tag(d.status)}</h3>
+      <div class="sec"><div class="lab">主张（claim）</div><div class="kv">${esc(d.claim)}</div></div>
+      <div class="sec"><div class="lab">出招（response）</div>
+        <div class="kv">触发：${esc(resp.trigger || '—')}\n响应：${esc(resp.action || '—')}</div></div>
+      <div class="sec"><div class="lab">条件空间（condition_space）</div>
+        <div class="kv">观测位置：${esc(cs.observation_position || '—')}
+          \n观测工具：${esc(cs.observation_tool || '—')}
+          \n时间窗口：${esc(Array.isArray(cs.time_window) ? cs.time_window.join(' ~ ') : '—')}
+          \n存在约束：${esc(cs.existence_constraint || '—')}</div></div>
+      ${card2Html ? `<div class="sec"><div class="lab">识别卡 2.0</div><div class="list">${card2Html}</div></div>` : ''}
+      <div class="sec"><div class="lab">关系</div>
+        <div class="kv">出边：${esc((d.relations_out || []).join(', ') || '—')}
+          \n入边：${esc((d.relations_in || []).join(', ') || '—')}</div></div>`;
+  } catch (e) { $('entryDetail').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+async function doRespond() {
+  const cond = $('rCondition').value.trim();
+  if (!cond) return;
+  try {
+    const r = await post('/dex/query', { op: 'respond', params: { condition: cond } });
+    const list = (r.results || []).map(x => `
+      <div class="item" onclick="showDetail('${esc(x.id || x.name)}')">
+        <div class="name">${esc(x.name)} <span class="tag lv">L${x.level}</span>${tag(x.status)}</div>
+        <div class="meta">命中度 ${x.score}${x.daily ? ` · 说人话：${esc(x.daily)}` : ''}</div>
+        <div class="kv" style="margin-top:6px">${esc(x.action)}</div>
+      </div>`).join('')
+        || '<div class="note">无命中条目（可尝试更宽泛的条件）</div>';
+    $('respondList').innerHTML = list;
+  } catch (e) { $('respondList').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+async function doTest() {
+  const k = $('tKnowledge').value.trim();
+  if (!k) return;
+  try {
+    const r = await post('/dex/query', { op: 'test', params: { knowledge: k } });
+    const d = r.results || {};
+    const premises = (d.premises || []).map(p => `
+      <div class="item"><div class="name">${esc(p.type)}</div>
+        <div class="kv" style="margin-top:4px">声称：${esc(p.claim)}\n缺省：${esc(p['缺省'])}</div></div>`).join('');
+    const card = d.condition_card || {};
+    const tests = Object.entries(d.tests || {}).map(([opn, t]) => {
+      const st = t.status || 'ok';
+      const cls = st === 'ok' ? 'ok' : (st === '需证据' ? 'pd' : 'st');
+      const detail = t.detail ? t.detail.map(x => `<div>· ${esc(x)}</div>`).join('') : '';
+      const cardTxt = t.card ? Object.entries(t.card).map(([k2, v2]) => `${k2}：${esc(v2)}`).join('\n') : '';
+      return `<div class="item"><div class="name">${esc(opn)} <span class="tag ${cls}">${esc(st)}</span></div>
+        <div class="kv" style="margin-top:6px">${esc(t.note || '')}${cardTxt ? '\n' + cardTxt : ''}${detail}</div></div>`;
+    }).join('');
+    const v = d.verdict || {};
+    const anchorsHtml = (v['图谱锚定'] || []).map(a => `
+      <div class="item"><div class="name">${esc(a.name)} <span class="tag lv">L${a.level}</span>${tag(a.status)}
+        <span class="tag dm">${esc(a.relevance)}</span></div>
+        <div class="kv" style="margin-top:4px">${esc(a.claim)}</div></div>`).join('');
+    const tensionHtml = (v['张力检测'] || []).map(t => `
+      <div class="item"><div class="name">张力检测 <span class="tag st">冲突</span></div>
+        <div class="kv" style="margin-top:4px">${esc(t)}</div></div>`).join('');
+    $('testOut').innerHTML = `
+      <div class="detail" style="display:block">
+        <h3>前提提取</h3><div class="list">${premises || '<div class="note">（无结构前提）</div>'}</div>
+        <div class="sec"><div class="lab">条件卡</div>
+          <div class="kv">观测位置：${esc(card.observation_position)}
+            \n观测工具：${esc(card.observation_tool)}
+            \n时间窗口：${esc(card.time_window)}
+            \n存在约束：${esc(card.existence_constraint)}</div></div>
+        <div class="sec"><div class="lab">七操作测试</div><div class="list">${tests || '<div class="note">（无输出）</div>'}</div></div>
+        <div class="sec"><div class="lab">判定</div>
+          <div class="kv">状态：${esc(v.status)}
+            \n成立条件：${esc(v['成立条件'])}
+            \n失效条件：${esc(v['失效条件'])}
+            \n测试摘要：${esc(v['测试摘要'])}
+            \n锚定建议：${esc(v['锚定建议'])}</div></div>
+        ${anchorsHtml ? `<div class="sec"><div class="lab">图谱锚定条目（相关知识）</div><div class="list">${anchorsHtml}</div></div>` : ''}
+        ${tensionHtml ? `<div class="sec"><div class="lab">张力检测</div><div class="list">${tensionHtml}</div></div>` : ''}
+      </div>`;
+  } catch (e) { $('testOut').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+let ALL_ENTRIES = [];
+
+// 条件优先入口（P18）：条件输入 → 匹配学科图鉴页
+async function doConditionEntry() {
+  const cond = $('condEntry').value.trim();
+  if (!cond) return;
+  try {
+    const r = await post('/dex/query', { op: 'respond', params: { condition: cond } });
+    const hits = r.results || [];
+    const items = hits.map(x => `
+      <div class="item" style="margin-top:8px">
+        <div class="name">${esc(x.name)} <span class="tag lv">L${x.level}</span>${tag(x.status)}</div>
+        <div class="meta">命中度 ${x.score} · 该学科在此条件下的出招：</div>
+        <div class="kv" style="margin-top:4px">${esc(x.action)}</div>
+      </div>`).join('');
+    $('condOut').innerHTML = hits.length
+      ? `<div class="note" style="margin-top:8px">匹配 ${hits.length} 个支持此条件的知识体系：</div>${items}`
+      : `<div class="note" style="margin-top:8px">无匹配——可尝试换一个条件，或去「七操作测试」分析该条件本身</div>`;
+  } catch (e) { $('condOut').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+// 推荐入口（P19）：已验证的入门组合
+const RECS = [
+  { name: "第零页·存在论", desc: "最简入口——不预设任何条件，直接追问『你是怎么知道存在的？』", entries: ["存在论"] },
+  { name: "基础三件套", desc: "物理学·信息论·智能论——条件空间如何相互映射（低门槛高回报）", entries: ["物理学", "信息论", "智能论"] },
+  { name: "有趣但不危险", desc: "博弈论×政治经济学——策略与资源分配如何在社会尺度形成结构", entries: ["博弈论", "政治经济学"] },
+  { name: "第一页校准", desc: "智能论——从自己的条件空间开始（图鉴第一页）", entries: ["智能论"] },
+];
+
+function renderRecs() {
+  $('recList').innerHTML = RECS.map((r, i) => `
+    <div class="item" style="flex:1;min-width:180px;cursor:pointer" onclick="loadRec(${i})">
+      <div class="name">${esc(r.name)}</div>
+      <div class="meta">${esc(r.desc)}</div>
+    </div>`).join('');
+}
+
+async function loadRec(i) {
+  const rec = RECS[i];
+  const cards = [];
+  for (const name of rec.entries) {
+    try {
+      const f = await post('/dex/query', { op: 'filter', params: { domain: name } });
+      if (!f.results || !f.results.length) continue;
+      const det = await post('/dex/query', { op: 'status_node', params: { node_id: f.results[0].id } });
+      const d = det.results || {};
+      const cs = d.condition_space || {};
+      cards.push(`<div class="item" style="flex:1;min-width:220px">
+        <div class="name">${esc(d.name)} ${d.tier ? `<span class="tag pd">${esc(d.tier)}</span>` : ''}</div>
+        <div class="kv" style="margin-top:4px">${esc(d.claim)}</div>
+        <div class="meta" style="margin-top:4px">观测位：${esc(cs.observation_position || '—')}</div>
+      </div>`);
+    } catch (e) { /* 单科失败跳过 */ }
+  }
+  $('recOut').innerHTML = `<div class="detail" style="display:block;margin-top:10px">
+    <h3>${esc(rec.name)}</h3>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">${cards.join('')}</div>
+    <div class="note" style="margin-top:8px">并置这些条件空间，区别与映射一目了然——「知识之间的区别、联系、错误，一眼可见」</div></div>`;
+}
+
+async function loadEntries() {
+  try {
+    const r = await post('/dex/query', { op: 'filter', params: {} });
+    ALL_ENTRIES = (r.results || []).map(x => ({ id: x.id, name: x.name }));
+    const opts = ALL_ENTRIES.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
+    $('aSel').innerHTML = opts;
+    $('bSel').innerHTML = opts;
+    $('sSelA').innerHTML = opts;
+    $('sSelB').innerHTML = opts;
+    $('sbSelA').innerHTML = opts;
+    $('sbSelB').innerHTML = opts;
+    $('gSel').innerHTML = opts;
+    if (ALL_ENTRIES.length > 1) { $('bSel').selectedIndex = 1; $('sSelB').selectedIndex = 1; $('sbSelB').selectedIndex = 1; }
+  } catch (e) {
+    // 不静默：给出可诊断提示（服务器未就绪或加载超时）
+    const msg = `条目加载失败（${esc(e.message)}）——请刷新页面重试`;
+    ['aSel', 'bSel', 'sSelA', 'sSelB', 'sbSelA', 'sbSelB'].forEach(id => {
+      const el = $(id);
+      if (el) el.innerHTML = `<option value="">${msg}</option>`;
+    });
+  }
+}
+// ---------- 图谱分析（四件套：影响面 / 因果链 / 关联测试 / 热路径） ----------
+function gNodeName(name, d) {
+  return `${esc(name)}${d && d.domains ? ' <span class="dim">[' + esc(d.domains) + ']</span>' : ''}`;
+}
+async function doImpact() {
+  const id = $('gSel').value;
+  if (!id) { $('graphOut').innerHTML = '<div class="err">请先选择条目</div>'; return; }
+  try {
+    const r = await post('/dex/query', { op: 'impact', params: { node_id: id } });
+    const d = r.results || {};
+    if (d.error) { $('graphOut').innerHTML = `<div class="err">${esc(d.error)}</div>`; return; }
+    const sec = (title, arr) => arr && arr.length ? `
+      <div class="block"><h4>${title}（${arr.length}）</h4>${arr.map(x => `
+        <div class="item"><div class="name">${gNodeName(x.name, x)}</div>
+          <div class="kv" style="margin-top:2px">${esc(x.relation || '')}${x.depth ? ` · ${x.depth} 跳` : ''}${x.note ? ' · ' + esc(x.note) : ''} · 置信 ${x.confidence ?? '—'}</div>
+        </div>`).join('')}</div>` : '';
+    $('graphOut').innerHTML = `
+      <div class="detail" style="display:block">
+        <h3>影响面：${esc(d.name || id)}</h3>
+        <div class="kv">爆炸半径：<b>${d.blast_radius ?? '—'}</b>（节点数 × 平均置信度）</div>
+        ${sec('下游影响（被它支撑的知识）', d.downstream)}
+        ${sec('上游依赖（支撑它的知识）', d.upstream)}
+        ${d.note ? `<div class="dim" style="margin-top:6px">${esc(d.note)}</div>` : ''}
+      </div>`;
+  } catch (e) { $('graphOut').innerHTML = `<div class="err">影响面查询失败：${esc(e.message)}</div>`; }
+}
+async function doChain() {
+  const id = $('gSel').value;
+  if (!id) { $('graphOut').innerHTML = '<div class="err">请先选择条目</div>'; return; }
+  try {
+    const r = await post('/dex/query', { op: 'chain', params: { node_id: id } });
+    const d = r.results || {};
+    if (d.error) { $('graphOut').innerHTML = `<div class="err">${esc(d.error)}</div>`; return; }
+    const renderChain = (chain, i) => {
+      const segs = [esc(d.start || id)];
+      chain.forEach((s, j) => {
+        segs.push(`<span class="dim" style="margin:0 4px">—[${esc(s.condition)}·${s.confidence ?? '—'}]→</span>${esc(s.from)}`);
+      });
+      return `<div class="item" style="border-left:3px solid #d1a45c;padding-left:8px;margin:6px 0">
+        <div class="name">链 #${i + 1}</div>
+        <div class="kv" style="margin-top:4px;line-height:1.9">${segs.join('')}</div>
+      </div>`;
+    };
+    const chains = (d.chains || []).map(renderChain).join('');
+    $('graphOut').innerHTML = `
+      <div class="detail" style="display:block">
+        <h3>因果链：${esc(d.start || id)}</h3>
+        <div class="kv">共 ${(d.chains || []).length} 条因果路径（沿 causal 边展开，含条件标注）</div>
+        ${chains || '<div class="dim">未找到因果链（无 causal 出边）</div>'}
+        ${d.note ? `<div class="dim" style="margin-top:6px">${esc(d.note)}</div>` : ''}
+      </div>`;
+  } catch (e) { $('graphOut').innerHTML = `<div class="err">因果链查询失败：${esc(e.message)}</div>`; }
+}
+async function doVerify() {
+  const id = $('gSel').value;
+  if (!id) { $('graphOut').innerHTML = '<div class="err">请先选择条目</div>'; return; }
+  try {
+    const r = await post('/dex/query', { op: 'verify', params: { node_id: id } });
+    const d = r.results || {};
+    if (d.error) { $('graphOut').innerHTML = `<div class="err">${esc(d.error)}</div>`; return; }
+    $('graphOut').innerHTML = `
+      <div class="detail" style="display:block">
+        <h3>关联测试：${esc(d.name || id)}</h3>
+        <div class="kv" style="margin-bottom:6px"><span class="tag ${d.verdict === 'pass' ? 'ok' : 'st'}">${d.verdict === 'pass' ? 'PASS' : '需注意'}</span> 重跑全部判据</div>
+        ${(d.tests || []).map(t => `<div class="item"><div class="kv"><span class="tag ${t.passed ? 'ok' : 'st'}">${t.passed ? '通过' : '未过'}</span> ${esc(t.test)}${t.detail ? ' — ' + esc(t.detail) : ''}</div></div>`).join('')}
+        ${d.note ? `<div class="dim" style="margin-top:6px">${esc(d.note)}</div>` : ''}
+      </div>`;
+  } catch (e) { $('graphOut').innerHTML = `<div class="err">关联测试失败：${esc(e.message)}</div>`; }
+}
+async function doHotPaths() {
+  try {
+    const r = await post('/dex/query', { op: 'hot_paths', params: {} });
+    const d = r.results || {};
+    if (d.error) { $('graphOut').innerHTML = `<div class="err">${esc(d.error)}</div>`; return; }
+    const paths = (d.chains || []).map(([chain, heat], i) => `
+      <div class="item"><div class="name">#${i + 1} ${esc(chain)}</div>
+        <div class="kv" style="margin-top:2px">热度 ${heat ?? '—'} 次命中</div>
+      </div>`).join('');
+    const cards = (d.singles || []).map(([name, heat]) => `
+      <div class="item"><div class="name">${esc(name)}</div>
+        <div class="kv" style="margin-top:2px">热度 ${heat ?? '—'} 次命中</div>
+      </div>`).join('');
+    $('graphOut').innerHTML = `
+      <div class="detail" style="display:block">
+        <h3>热路径${d.total ? ` <span class="dim">（累计 ${d.total} 次命中）</span>` : ''}</h3>
+        ${paths ? `<div class="block"><h4>高频因果链</h4>${paths}</div>` : '<div class="dim">暂无高频链数据（audit_log 为空）</div>'}
+        ${cards ? `<div class="block"><h4>单卡热度</h4>${cards}</div>` : ''}
+      </div>`;
+  } catch (e) { $('graphOut').innerHTML = `<div class="err">热路径查询失败：${esc(e.message)}</div>`; }
+}
+// ---------- 弹幕审核（直播内容安全 · 三层判定） ----------
+async function doAudit() {
+  const text = $('auditInput').value.trim();
+  if (!text) return;
+  try {
+    const r = await post('/dex/query', { op: 'audit_danmaku', params: { text } });
+    const d = r.results || {};
+    if (d.error) { $('auditOut').innerHTML = `<div class="err">${esc(d.error)}</div>`; return; }
+    const vTag = d.verdict === 'block' ? '<span class="tag st">拦截</span>'
+      : d.verdict === 'review' ? '<span class="tag pd">需复核</span>'
+      : '<span class="tag ok">放行</span>';
+    $('auditOut').innerHTML = `
+      <div class="detail" style="display:block">
+        <h3>${vTag} <span class="dim">${esc(d.category || 'none')}</span> · 置信 ${d.confidence ?? '—'}</h3>
+        <div class="kv">${esc(d.reason || '')}</div>
+        ${d.matched && d.matched.length ? `<div class="kv" style="margin-top:6px">命中词：${d.matched.map(m => esc(m.join('、'))).join(' ｜ ')}</div>` : ''}
+        <div class="dim" style="margin-top:6px">弹幕：${esc(text)}</div>
+      </div>`;
+  } catch (e) { $('auditOut').innerHTML = `<div class="err">审核失败：${esc(e.message)}</div>`; }
+}
+async function loadAuditLog() {
+  try {
+    const r = await post('/dex/query', { op: 'audit_log_recent', params: {} });
+    const list = r.results || [];
+    if (!list.length) { $('auditOut').innerHTML = '<div class="dim">暂无拦截/复核记录</div>'; return; }
+    $('auditOut').innerHTML = list.slice().reverse().map(x => `
+      <div class="item"><div class="name"><span class="tag ${x.verdict === 'block' ? 'st' : 'pd'}">${x.verdict === 'block' ? '拦截' : '复核'}</span> ${esc(x.category)}</div>
+        <div class="kv" style="margin-top:2px">${esc(x.text || '')}</div>
+        <div class="kv">${esc(x.reason || '')} <span class="dim">· ${esc(new Date(x.ts * 1000).toLocaleTimeString())}</span></div>
+      </div>`).join('');
+  } catch (e) { $('auditOut').innerHTML = `<div class="err">记录加载失败：${esc(e.message)}</div>`; }
+}
+async function doBattle() {
+  const a = $('aSel').value, b = $('bSel').value;
+  if (!a || !b) return;
+  try {
+    const r = await post('/dex/query', { op: 'battle', params: { a, b } });
+    const d = r.results || {};
+    if (d.error) { $('battleOut').innerHTML = `<div class="err">${esc(d.error)}</div>`; return; }
+    const rows = Object.entries(d.comparison || {}).map(([k, v]) => `
+      <tr><td>${esc(k)}</td><td>${esc(String(v.A ?? ''))}</td><td>${esc(String(v.B ?? ''))}</td>
+        <td><span class="tag ${String(v.relation).includes('互斥') ? 'st' : String(v.relation).includes('相同') ? 'ok' : 'pd'}">${esc(v.relation)}</span></td></tr>`).join('');
+    const rels = Object.entries(d.relations || {}).map(([k, v]) =>
+      `<div class="item"><div class="name">${esc(k)}</div><div class="kv" style="margin-top:4px">${esc(v)}</div></div>`).join('');
+    const clash = Object.entries(d.clash || {}).map(([k, v]) =>
+      `<div class="item"><div class="name">${esc(k)}</div><div class="kv" style="margin-top:4px">${esc(typeof v === 'string' ? v : (v.note || ''))}</div></div>`).join('');
+    $('battleOut').innerHTML = `
+      <div class="detail" style="display:block">
+        <h3>${esc(d.A.name)} vs ${esc(d.B.name)}</h3>
+        <div class="sec"><div class="lab">条件卡四要素对比</div>
+          <table><thead><tr><th>要素</th><th>${esc(d.A.name)}</th><th>${esc(d.B.name)}</th><th>关系</th></tr></thead>
+          <tbody>${rows}</tbody></table></div>
+        <div class="sec"><div class="lab">关系判定（依赖/互斥/包含/独立）</div><div class="list">${rels}</div></div>
+        <div class="sec"><div class="lab">相克判定（出招 vs 对方主张）</div><div class="list">${clash}</div></div>
+      </div>`;
+  } catch (e) { $('battleOut').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+async function doStandardBattle() {
+  const a = $('sbSelA').value, b = $('sbSelB').value;
+  if (!a || !b) return;
+  try {
+    const r = await post('/dex/query', { op: 'standard_battle', params: { a, b } });
+    const d = r.results || {};
+    if (d.error) { $('stdbattleOut').innerHTML = `<div class="err">${esc(d.error)}</div>`; return; }
+    const st = (s) => s === '稳定' || s === '对抗无效' ? 'ok' : (s === '边界暴露' ? 'pd' : 'st');
+    const rows = (d['一·双方条件空间对照'] || []).map(x => `
+      <tr><td>${esc(x['维度'])}</td><td>${esc(String(x.A).slice(0, 60))}</td><td>${esc(String(x.B).slice(0, 60))}</td></tr>`).join('');
+    const moves = (d['二·招式记录'] || []).map(m => `
+      <div class="item"><div class="name">${esc(m['招'])} <span class="tag ${st(m['结果'])}">${esc(m['结果'])}</span></div>
+        <div class="kv" style="margin-top:4px">${esc(m['详细说明'] || m['note'] || '')}</div></div>`).join('');
+    const conflicts = Object.entries(d['三·核心冲突点'] || {}).map(([k, items]) => `
+      <div class="item"><div class="name">${esc(k)}</div>
+        ${(items || []).map(i => `<div class="kv" style="margin-top:4px">${esc(i['招式'])}：${esc(i['说明'])}</div>`).join('')}</div>`).join('') || '<div class="note">无偏移（全兼容）</div>';
+    const advice = (typeof d['四·图鉴更新建议'] === 'string')
+      ? `<div class="note">${esc(d['四·图鉴更新建议'])}</div>`
+      : Object.entries(d['四·图鉴更新建议'] || {}).map(([k, v]) =>
+          `<div class="item"><div class="name">${esc(k)}</div><div class="kv" style="margin-top:4px">${esc(v)}</div></div>`).join('');
+    const v = d['五·最终判定'] || {};
+    $('stdbattleOut').innerHTML = `
+      <div class="detail" style="display:block">
+        <h3>${esc(d['报告编号'])} · ${esc(d['对战双方'])}</h3>
+        <div class="sec"><div class="lab">一、双方条件空间对照</div>
+          <table><thead><tr><th>维度</th><th>A</th><th>B</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="sec"><div class="lab">二、招式记录（逐招结果）</div><div class="list">${moves}</div></div>
+        <div class="sec"><div class="lab">三、核心冲突点</div><div class="list">${conflicts}</div></div>
+        <div class="sec"><div class="lab">四、图鉴更新建议</div><div class="list">${advice}</div></div>
+        <div class="sec"><div class="lab">五、最终判定</div>
+          <div class="kv">稳定性（兼容度）：${esc(JSON.stringify(v['稳定性排序'] || {}))}
+            \n依赖度：${esc(JSON.stringify(v['依赖度'] || {}))}
+            \n边界暴露：${esc(JSON.stringify(v['边界暴露'] || {}))}
+            \n边界稳固：${esc(JSON.stringify(v['边界稳固'] || {}))}</div></div>
+      </div>`;
+  } catch (e) { $('stdbattleOut').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+async function doSandbox() {
+  const a = $('sSelA').value, b = $('sSelB').value, d = $('sDist').value.trim();
+  if (!a || !b || !d) return;
+  try {
+    const r = await post('/dex/query', { op: 'sandbox', params: { a, b, disturbance: d } });
+    const res = r.results || {};
+    if (res.error) { $('sandboxOut').innerHTML = `<div class="err">${esc(res.error)}</div>`; return; }
+    const cards = Object.entries(res.report || {}).map(([name, v]) => {
+      const cls = v.status === '稳定' ? 'ok' : (v.status === '需修正' ? 'pd' : 'st');
+      const hits = (v.hits || []).map(h => `<div>· ${esc(h.element)}（${h.score}）</div>`).join('');
+      return `<div class="item" style="flex:1;min-width:220px">
+        <div class="name">${esc(name)} <span class="tag ${cls}">${esc(v.status)}</span></div>
+        <div class="kv" style="margin-top:4px">${esc(v.note)}${hits}</div></div>`;
+    }).join('');
+    $('sandboxOut').innerHTML = `<div class="detail" style="display:block">
+      <h3>扰动：${esc(res.disturbance)}</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">${cards}</div>
+      <div class="note" style="margin-top:8px">稳定性排序：${esc((res['稳定性排序'] || []).join(' → '))}
+        \n${esc(res.note || '')}</div></div>`;
+  } catch (e) { $('sandboxOut').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+async function doCompose() {
+  const k = $('aKnowledge').value.trim();
+  if (!k) { $('analyzeOut').innerHTML = `<div class="err">需要输入知识 K</div>`; return; }
+  try {
+    const r = await post('/dex/query', { op: 'compose', params: { knowledge: k } });
+    const d = r.results || {};
+    const badge = d.mode === '跨学科汇聚' ? '<span class="tag dm">汇聚</span>'
+      : d.mode === '多学科但无共识' ? '<span class="tag pd">无共识</span>'
+      : d.mode === '单学科' ? '<span class="tag lv">单学科</span>'
+      : '<span class="tag st">无法组合</span>';
+    const chain = (d.chain || []).map((c, i) =>
+      `<div class="route" style="margin-top:6px"><div style="font-weight:600">${i+1}. ${esc(c['学科'])} (${c.score})</div>
+         <div class="edgenote">机制：${esc(c['机制'] || '')}</div></div>`).join('');
+    const conv = (d.convergence || []).map(c =>
+      `<div class="route" style="margin-top:6px">
+        <div style="font-weight:600">→ ${esc(c.target)} <span class="tag lv">支持 ${c.support} 学科</span>
+          <span style="float:right">组合置信度 ${c.confidence}</span></div>
+        <div class="edgenote">由 ${esc((c.sources || []).join('、') || '未标注')} 通过 ${esc((c.kinds || []).join('/'))} 汇聚指向</div></div>`).join('');
+    $('analyzeOut').innerHTML = `
+      <div class="detail" style="display:block">
+        <h3>跨学科组合分析（Convergence Over Coverage） ${badge}</h3>
+        <div class="kv">K：${esc(k)}</div>
+        <div class="sec"><div class="lab">机制链（K 由哪些学科机制共同承载）</div>${chain}</div>
+        <div class="sec"><div class="lab">汇聚预测（多学科共同后继 = 组合置信度）</div>${conv || '（无汇聚点）'}</div>
+        <div class="sec"><div class="lab">判定</div><div class="kv">${esc(d.judgment || '')}</div></div>
+        <div class="sec"><div class="lab">分析日志</div><div class="kv">记录 ${esc(d.record_id || '')}（观测层 · 跨学科组合）</div></div>
+        <div class="note">${esc(d.note || '')}</div>
+      </div>`;
+  } catch (e) { $('analyzeOut').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+async function doAutoVerify() {
+  const k = $('aKnowledge').value.trim();
+  if (!k) { $('analyzeOut').innerHTML = `<div class="err">需要输入知识 K</div>`; return; }
+  try {
+    const r = await post('/dex/query', { op: 'auto_verify', params: { knowledge: k } });
+    const d = r.results || {};
+    const best = d.best || {};
+    const badge = d.judgment && d.judgment.startsWith('采纳')
+      ? '<span class="tag ok">采纳</span>'
+      : d.judgment && d.judgment.startsWith('证据不足')
+      ? '<span class="tag pd">证据不足</span>'
+      : '<span class="tag st">无法判断</span>';
+    const dims = best.dims || {};
+    const cands = (d.candidates || []).map(c => {
+      const cd = c.dims || {};
+      return `<div class="route" style="margin-top:6px">
+        <div style="font-weight:600">${esc(c.name)} <span class="tag lv">${esc(c.status)}</span>
+          <span style="float:right">D_norm ${c.d_norm}（信息差，越小越可能）</span></div>
+        ${c.claim ? `<div class="kv" style="margin-top:4px">${esc(c.claim)}</div>` : ''}
+        <div class="edgenote">U_trust ${cd.U_trust} · U_behavior ${cd.U_behavior} ·
+          U_connection ${cd.U_connection} · U_prediction_error ${cd.U_prediction_error}</div></div>`;
+    }).join('') || '（无候选）';
+    const baseInfo = (d.base_evidence || []).map(e =>
+      `<span class="step">${esc(e.name)}</span>`).join(' ') || '（空）';
+    $('analyzeOut').innerHTML = `
+      <div class="detail" style="display:block">
+        <h3>自动验证（P5 信息修复 · 基地裁判） ${badge}</h3>
+        <div class="kv">K（知识）：${esc(k)}</div>
+        <div class="sec"><div class="lab">判定</div>
+          <div class="kv">${esc(d.judgment || '')}
+            \n${esc(d.judgment_note || '')}
+            \nD_norm = ${d.D_norm} · E_reduction = ${d.E_reduction}</div></div>
+        <div class="sec"><div class="lab">候选假设（信息差排序）</div>${cands}</div>
+        <div class="sec"><div class="lab">不可伪造基地（verified 学科 + 观测层记录）</div>
+          <div class="kv" style="white-space:normal">${baseInfo}</div></div>
+        <div class="sec"><div class="lab">验证日志</div><div class="kv">记录 ${esc(d.record_id || '')}（观测层 · 自动验证）</div></div>
+        <div class="note">${esc(d.note || '')}</div>
+      </div>`;
+  } catch (e) { $('analyzeOut').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+async function doAnalyze() {
+  const k = $('aKnowledge').value.trim();
+  if (!k) return;
+  try {
+    const r = await post('/dex/query', { op: 'predict', params: { knowledge: k } });
+    const d = r.results || {};
+    const card = d.condition_card || {};
+    const prem = (d.premises || []).map(p =>
+      `<div class="route" style="margin-top:6px"><div style="font-weight:600">${esc(p.type)}</div>
+         <div class="edgenote">${esc(p.claim)}</div>
+         <div class="edgenote" style="color:#b45309">缺省：${esc(p['缺省'] || '')}</div></div>`).join('');
+    const anchors = (d.anchors || []).map(c => `
+      <div class="item" onclick="showDetail('${esc(c.id)}')">
+        <div class="name">${esc(c.name)} <span class="tag lv">L${c.level}</span>${tag(c.status)}</div>
+        <div class="meta">命中 ${c.score} · ${esc(c.domain)}</div></div>`).join('') || '（无候选）';
+    const routes = (d.routes || []).map(rt => {
+      const steps = rt.steps.map((s, i) => `${i ? '<span class="arrow">→</span>' : ''}<span class="step">${esc(s)}</span>`).join('');
+      const edges = (rt.edges || []).map(e =>
+        `<div class="edgenote">${esc(e.from)} —${esc(e.kind)}(${e.weight})→ ${esc(e.to)}${e.note ? '：' + esc(e.note) : ''}</div>`).join('');
+      return `<div class="route"><div class="steps">${steps}</div>
+        <div class="conf">置信度 ${rt.confidence} · 锚点 ${esc(rt.anchor)}</div>${edges}</div>`;
+    }).join('') || '（无可达路线）';
+    const fails = (d.failures || []).map(f =>
+      `<div class="warnbox"><b>${esc(f.anchor)}</b>：${esc(f['克制预警'])}
+         <div class="edgenote">失效条件：${esc(f['失效条件'])}</div></div>`).join('');
+    const combos = (d.combos || []).map(cb =>
+      `<div class="route" style="margin-top:6px"><b>${esc(cb.a)} × ${esc(cb.b)}</b>
+         <div class="edgenote">共享锚点：${esc((cb['共享锚点'] || []).join('、') || '（无）')}</div>
+         <div class="edgenote">${esc(cb.note)}</div></div>`).join('');
+    $('analyzeOut').innerHTML = `
+      <div class="detail" style="display:block">
+        <h3>外来知识条件卡（真生成）</h3>
+        <div class="kv">观测位置：${esc(card.observation_position)}
+          \n观测工具：${esc(card.observation_tool)}
+          \n存在约束：${esc(card.existence_constraint)}
+          \n前提提取：${esc((d.premises || []).map(p => p.type).join('、') || '无条件声称')}</div>
+        <div class="sec"><div class="lab">前提明细</div>${prem}</div>
+        <div class="sec"><div class="lab">锚定候选学科</div><div class="list">${anchors}</div></div>
+        <div class="sec"><div class="lab">候选未来路线（生成式预测 · horizon 2）</div>${routes}</div>
+        ${fails ? `<div class="sec"><div class="lab">失效预测（K 何时不成立）</div>${fails}</div>` : ''}
+        ${combos ? `<div class="sec"><div class="lab">组合预测（K 在图谱中的交汇）</div>${combos}</div>` : ''}
+        <div class="sec"><div class="lab">判定</div><div class="kv">${esc(d.judgment || '')}</div></div>
+        <div class="note">${esc(d.note || '')}</div>
+      </div>`;
+  } catch (e) { $('analyzeOut').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+async function doCompare() {
+  const k = $('aKnowledge').value.trim();
+  const t = $('aTheory').value.trim();
+  if (!k || !t) { $('analyzeOut').innerHTML = `<div class="err">需要同时输入 K（知识）与 T（真实理论）</div>`; return; }
+  try {
+    const r = await post('/dex/query', { op: 'predict_compare', params: { knowledge: k, theory: t } });
+    const d = r.results || {};
+    const badge = d.verdict === '命中' ? '<span class="tag ok">命中</span>'
+      : d.verdict === '部分命中' ? '<span class="tag dm">部分命中</span>'
+      : d.verdict === '偏移' ? '<span class="tag st">偏移</span>'
+      : '<span class="tag pd">' + esc(d.verdict || '无法对照') + '</span>';
+    const pAnchors = (d.prediction && d.prediction.anchors || []).map(a =>
+      `<span class="step">${esc(a.name)} (${a.score})</span>`).join('<span class="arrow">·</span>') || '（无）';
+    const pRoutes = (d.prediction && d.prediction.routes || []).slice(0, 6).map(rt => {
+      const steps = rt.steps.map((s, i) => `${i ? '<span class="arrow">→</span>' : ''}<span class="step">${esc(s)}</span>`).join('');
+      return `<div class="route"><div class="steps">${steps}</div><div class="conf">置信度 ${rt.confidence}</div></div>`;
+    }).join('') || '（无可达路线）';
+    const tAnchors = (d.theory_anchors || []).map(a =>
+      `<span class="step">${esc(a.name)} (${a.score})</span>`).join('<span class="arrow">·</span>') || '（未锚定）';
+    $('analyzeOut').innerHTML = `
+      <div class="detail" style="display:block">
+        <h3>预测 vs 理论对照 ${badge}</h3>
+        <div class="kv">K（知识）：${esc(d.knowledge)}
+          \nT（真实理论）：${esc(d.theory)}</div>
+        <div class="sec"><div class="lab">预测路线（K 的候选未来）</div>
+          <div class="kv" style="white-space:normal">${pAnchors}</div>${pRoutes}</div>
+        <div class="sec"><div class="lab">理论真实锚定（T 在图谱中的归属）</div>
+          <div class="kv" style="white-space:normal">${tAnchors}</div></div>
+        <div class="sec"><div class="lab">对照判定</div><div class="kv">${esc(d.verdict_note || '')}</div></div>
+        ${d.gap_suggestion ? `<div class="warnbox"><b>图谱缺口</b>：${esc(d.gap_suggestion)}</div>` : ''}
+        <div class="sec"><div class="lab">对照日志</div><div class="kv">记录 ${esc(d.record_id || '')}（观测层 · 预测对照）</div></div>
+        <div class="note">${esc(d.note || '')}</div>
+      </div>`;
+  } catch (e) { $('analyzeOut').innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+async function loadLedger() {
+  try {
+    const r = await get('/dex/ledger');
+    const rows = (r.contributions || []).map(c => `
+      <tr><td>${esc(c.entry_id)}</td><td>${esc(c.contributor)}</td>
+          <td>${esc(c.verified_by)}</td><td>${c.weight}</td>
+          <td>${new Date(c.verified_at * 1000).toLocaleString()}</td></tr>`).join('')
+        || '<tr><td colspan="5">暂无贡献记录</td></tr>';
+    $('ledgerBody').innerHTML = rows;
+  } catch (e) { $('ledgerBody').innerHTML = `<tr><td colspan="5" class="err">${esc(e.message)}</td></tr>`; }
+}
+
+// tabs
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  $('panel-' + t.dataset.panel).classList.add('active');
+  if (t.dataset.panel === 'ledger') loadLedger();
+  if (t.dataset.panel === 'battle' || t.dataset.panel === 'sandbox' || t.dataset.panel === 'stdbattle') loadEntries();
+}));
+
+loadStatus();
+doFilter();
+loadEntries();
+renderRecs();
+</script>
+</body>
+</html>

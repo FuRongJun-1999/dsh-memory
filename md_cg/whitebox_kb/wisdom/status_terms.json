@@ -1,0 +1,21 @@
+{
+  "meta": {
+    "name": "工程状态词规范表 v1.0",
+    "date": "2026-08-18",
+    "source": "蒸馏机制（数据搬运测试失败根因 → 规范知识）",
+    "note": "API/系统状态枚举的规范值——任务模式执行时注入 prompt 约束。
+             扩展方式：新失败根因（如 状态 X 被写成 Y）→ 加一条 [规范值, 禁止值列表]"
+  },
+  "terms": {
+    "任务状态": {"completed": ["done", "finished", "finish"], "pending": ["waiting", "wait"]},
+    "订单状态": {"shipped": ["sent", "delivered_mark"], "refunded": ["returned", "refund"]},
+    "问题状态": {"resolved": ["fixed", "solved"]},
+    "客户状态": {"active": ["enabled", "on"]},
+    "会员等级": {"premium": ["gold", "vip_level_gold"]},
+    "文件状态": {"archived": ["stored", "saved"]},
+    "库存状态": {"out_of_stock": ["sold_out", "soldout"]},
+    "任务优先级": {"high": ["urgent", "hurry"]},
+    "支付状态": {"paid": ["completed_payment"], "failed": ["error"]},
+    "账号状态": {"suspended": ["banned", "blocked"]}
+  }
+}

@@ -1,17 +1,20 @@
 # -*- coding: utf-8 -*-
 """md_cg · 白箱能力调用与验证（显式调用层）。
 
-架构定位（2026-09-10 决定）
+架构定位（2026-09-10 修订）
 --------------------------
   · md_cg = 记忆操作系统 / **唯一真源**：负责记忆的写、读、裁决、留痕。
-  · AEIS  = **能力库**（白箱引擎）：不再作为 DSH 的 LLM provider（已下线），
-            改由 md_cg **显式调用**，用于验证白箱的「编码能力」与
-            「已有知识回答能力」。
+  · 白箱知识库 = **随主仓自带**（`md_cg/whitebox_kb/`，原理论仓 `aeis/wisdom`
+                等内迁）：不再需要外部 `aeis` 包，也不再需要跨库调用。
+  · AEIS  = **身体 / 世界模型库**：本层不再依赖它（自带内核中 vision / body /
+            world_model 等均为方法内惰性导入，缺失即自动降级）。
 
 为什么单独成层
 --------------
-白箱下线后仍需要一个可审计的调用入口。本模块是「md_cg 调用白箱」的**唯一显式入口**：
-  · 调用方式：MCP stdio（零第三方依赖），子进程 `python -m aeis.mcp.server`。
+白箱需要一个可审计的调用入口。本模块是「md_cg 调用白箱」的**唯一显式入口**：
+  · 调用方式：**进程内**直调自带引擎（默认，见 `LocalWhiteboxClient`）；
+    仅当显式设置 `MDCG_WHITEBOX_CMD` / `MDCG_WHITEBOX_ARGS` 时，
+    才回退外部 MCP stdio 子进程（legacy 路径）。
   · 调用结果：验证结论写回认知图（self 层，tags 含 `whitebox:verify`），可追溯。
 
 显式调用映射（详见 docs/功能调用映射表_v0.1.md）
@@ -26,9 +29,13 @@
 
 环境变量
 --------
-  MDCG_WHITEBOX_CMD    自定义白箱启动命令（默认取 sys.executable）
-  MDCG_WHITEBOX_ARGS   启动参数（默认 "-m aeis.mcp.server"）
-  MDCG_WHITEBOX_TIMEOUT 单次调用超时秒数（默认 60）
+  WHITEBOX_DB / MDCG_WHITEBOX_DB  白箱图库路径
+                                  （默认 MDCG_ROOT/data/whitebox/graph.db；
+                                   独立运行时落 ~/.md_cg/whitebox/graph.db，
+                                   首次以随包云库为底 + 卡源播种）
+  MDCG_WHITEBOX_CMD    外部白箱启动命令（设置后走 legacy 子进程路径）
+  MDCG_WHITEBOX_ARGS   外部白箱启动参数（同上，默认 "-m aeis.mcp.server"）
+  MDCG_WHITEBOX_TIMEOUT 子进程单次调用超时秒数（默认 60）
 """
 
 from __future__ import annotations
@@ -57,7 +64,11 @@ DEFAULT_KNOWLEDGE_PROBES = [
 # --------------------------------------------------------------------------
 
 def _launch_cmd():
-    """白箱（AEIS）MCP server 启动命令，可由环境变量覆盖。"""
+    """外部白箱 MCP server 启动命令（legacy 路径，需显式配置）。
+
+    主仓自带白箱知识库后，本路径**不再默认启用**（见 `WhiteboxClient` 工厂）。
+    默认参数 `-m aeis.mcp.server` 仅为兼容既有部署保留。
+    """
     exe = os.environ.get("MDCG_WHITEBOX_CMD") or sys.executable or "python"
     raw = os.environ.get("MDCG_WHITEBOX_ARGS")
     args = raw.split() if raw else ["-m", "aeis.mcp.server"]
@@ -68,8 +79,37 @@ def _launch_cmd():
 # 白箱 MCP stdio 客户端（零第三方依赖）
 # --------------------------------------------------------------------------
 
-class WhiteboxClient:
-    """AEIS 白箱 MCP stdio 客户端。
+class _WhiteboxApi:
+    """白箱业务接口（`ask` / `remember`）。
+
+    两种载体共享同一实现，保证行为**按构造方式一致**（验证结论不受载体影响）：
+      · `LocalWhiteboxClient`       —— 进程内直调自带引擎（默认）
+      · `_SubprocessWhiteboxClient` —— MCP stdio 子进程（legacy，显式配置时）
+    """
+
+    def call(self, name, args):
+        """调用白箱工具，返回 {isError, text, data}。"""
+        raise NotImplementedError
+
+    def ask(self, message, session_id="md_cg-whitebox-verify"):
+        """白箱问答（wisdom_chat）。返回归一化的 {ok, route, reply, raw}。"""
+        r = self.call("wisdom_chat", {"message": message, "session_id": session_id})
+        data = r.get("data") or {}
+        return {"ok": not r["isError"],
+                "route": _extract_route(data),
+                "reply": _extract_reply(data, r.get("text")),
+                "raw": data if data is not None else r.get("text")}
+
+    def remember(self, content, importance=0.9, tags=None):
+        """白箱编码（remember）：把一条知识交给白箱写入其记忆库。"""
+        r = self.call("remember", {"content": content,
+                                   "importance": float(importance),
+                                   "tags": list(tags or ["md_cg", "whitebox-probe"])})
+        return {"ok": not r["isError"], "raw": r.get("data") or r.get("text")}
+
+
+class _SubprocessWhiteboxClient(_WhiteboxApi):
+    """外部白箱 MCP stdio 客户端（legacy 路径，需显式配置才启用）。
 
     只做一件事：把 md_cg 的显式调用翻译成 MCP `tools/call`。
     进程懒启动、调用串行化、超时即杀（下次调用自动重启）。
@@ -182,21 +222,64 @@ class WhiteboxClient:
         return {"isError": bool((result or {}).get("isError")),
                 "text": text, "data": data}
 
-    def ask(self, message, session_id="md_cg-whitebox-verify"):
-        """白箱问答（wisdom_chat）。返回归一化的 {ok, route, reply, raw}。"""
-        r = self.call("wisdom_chat", {"message": message, "session_id": session_id})
-        data = r.get("data") or {}
-        return {"ok": not r["isError"],
-                "route": _extract_route(data),
-                "reply": _extract_reply(data, r.get("text")),
-                "raw": data if data is not None else r.get("text")}
+# --------------------------------------------------------------------------
+# 进程内白箱客户端（默认路径）+ 客户端工厂
+# --------------------------------------------------------------------------
 
-    def remember(self, content, importance=0.9, tags=None):
-        """白箱编码（remember）：把一条知识交给白箱写入其记忆库。"""
-        r = self.call("remember", {"content": content,
-                                   "importance": float(importance),
-                                   "tags": list(tags or ["md_cg", "whitebox-probe"])})
-        return {"ok": not r["isError"], "raw": r.get("data") or r.get("text")}
+class LocalWhiteboxClient(_WhiteboxApi):
+    """白箱**进程内**客户端（默认载体）。
+
+    白箱知识库已随主仓自带（`md_cg/whitebox_kb/`），直接调用其引擎：
+    无子进程、无 MCP、无理论仓依赖。接口与子进程版完全一致，
+    故 `ask / remember / ping / verify_*` 及其留痕逻辑无需任何改动。
+    """
+
+    def __init__(self, db_path=None, **_ignored):
+        self.db_path = db_path
+        self._engine = None
+
+    @property
+    def engine(self):
+        if self._engine is None:
+            self._engine = _load_get_engine()(db_path=self.db_path)
+        return self._engine
+
+    # -- 生命周期（与子进程版语义对齐：start 即确保可用，失败即抛） --------
+    def start(self):
+        _ = self.engine.service_info()
+        return self
+
+    def close(self):
+        if self._engine is not None:
+            self._engine.close()
+            self._engine = None
+
+    # -- 业务接口 ---------------------------------------------------------
+    def call(self, name, args):
+        """调用白箱工具，返回 {isError, text, data}（形状对齐 MCP）。"""
+        return self.engine.call_tool(name, args)
+
+
+def _load_get_engine():
+    """兼容两种导入方式（包内 / 平铺）。"""
+    try:
+        from .whitebox_kb.engine import get_engine
+    except ImportError:  # pragma: no cover - 平铺运行场景
+        from whitebox_kb.engine import get_engine
+    return get_engine
+
+
+def WhiteboxClient(cmd=None, env=None, timeout=None, db_path=None):
+    """白箱客户端工厂。
+
+    默认返回 `LocalWhiteboxClient`（进程内 · 随仓自带知识库）。
+    仅当显式给出 `cmd` / `env`，或设置了 `MDCG_WHITEBOX_CMD` /
+    `MDCG_WHITEBOX_ARGS` 时，才返回 legacy 的外部 MCP 子进程客户端。
+    """
+    if cmd or env or os.environ.get("MDCG_WHITEBOX_CMD") \
+            or os.environ.get("MDCG_WHITEBOX_ARGS"):
+        return _SubprocessWhiteboxClient(cmd=cmd, env=env, timeout=timeout)
+    return LocalWhiteboxClient(db_path=db_path)
 
 
 # --------------------------------------------------------------------------

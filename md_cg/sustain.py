@@ -23,6 +23,22 @@
    与 `sources.Ingestor` 的 `_sources.json`（源视角水位）互补；重启后
    `resume_point(session)` 直接给出续接点，不重复摄取、不丢事件。
 
+④ 能力不会被饿死？—— **演化巡检（evolve）**
+   自我演化的三类动作（固化 `consolidate` / 重算重要性 `weights` / 去污染 `scrub`）
+   早已具备，缺的是**驱动源**：没人周期性问「现在有多少该固化 / 该重算的候选」。
+   `evolution_candidates()` 以**索引快照**为口径做只读盘点（零读节点文件、零写盘、
+   确定性），并挂到常驻循环的 `_tick_evolve()` 上。纪律与 self-heal 一致且更严：
+     · 巡检恒只读，`auto_evolve=False`（默认）时**只记账不动库**；
+     · 自愈只放行**确定性且可回滚**的动作（重要性重算，有 rollback）；
+     · 依赖 LLM 的固化**永不自动跑**——巡检报出候选数，交人工另批。
+
+⑤ 演进血缘有没有断？—— **派生溯源巡检（G8）**
+   新增节点在建链时把 `derived_from` 写进 frontmatter 并追加到 `<root>/_link.jsonl`。
+   可台账会丢、节点会被删，于是血缘会出现**悬空边**（子/父节点已不在库里）。
+   `diagnose()` 每次都做只读盘点（零读节点文件：索引已带 `derived_from`），把悬空边
+   报为 `provenance_dangling`（severity=info、**无自动修复**）——关系事实的去留由人
+   处置，不给「自动删边」这种会篡改历史的动作。
+
 零第三方依赖。
 """
 from __future__ import annotations
@@ -43,6 +59,7 @@ LEDGER_FILE = "_sessions.json"
 DEFAULT_BEAT_INTERVAL = 600.0     # 心跳间隔 10min（对齐 mutual-sustain-loop）
 DEFAULT_HEAL_INTERVAL = 300.0     # 自愈巡检 5min
 DEFAULT_SCRUB_INTERVAL = 3600.0   # 记忆自净（抽查/去污染/校准）1h
+DEFAULT_EVOLVE_INTERVAL = 7200.0  # 演化巡检（固化/重要性候选盘点）2h；只读
 DEFAULT_WARN_FACTOR = 2.5         # 2.5× 心跳间隔 → 警告
 DEFAULT_DEAD_FACTOR = 3.5         # 3.5× → 失联
 DEFAULT_WORKING_FACTOR = 2.0      # 任务执行中阈值 ×2
@@ -204,8 +221,77 @@ def _locked_nodes(cg) -> int:
                if (e.get("sensitivity") or "") in crypto.ENCRYPTED_LEVELS)
 
 
+# --------------------------------------------------------------------------
+# 演化巡检（G7：给「固化 / 重要性」能力装上驱动源）
+# --------------------------------------------------------------------------
+
+#: 演化巡检项 → 对应的写入动作（`scrub` 已有独立 tick，不并入此项）
+EVOLVE_FIXES = {"ccg_backlog": "consolidate_run",
+                "importance_drift": "importance"}
+
+
+def _ccg_backlog(nodes: dict, top: int) -> dict:
+    """固化候补量（**索引代理指标**：零读节点文件、确定性、O(N)）。
+
+    真正的固化闸门在 `consolidate`（四要素 + 验证基底 + 白箱 replay，需读正文与 LLM）。
+    巡检只要**驱动信号**：索引里的 `verification_basis` / `has_neg_conditions` 已能
+    区分「有/无验证基底」「有/无负条件」，足够回答「有没有货等着固化」。
+
+    代理指标 ≠ 判定结论：报出的是**候补量**，不是「这些节点确实该固化」。
+    """
+    n = no_basis = no_neg = 0
+    sample = []
+    for nid, e in nodes.items():
+        mb = not e.get("verification_basis")
+        mn = not e.get("has_neg_conditions")
+        no_basis += 1 if mb else 0
+        no_neg += 1 if mn else 0
+        if mb or mn:
+            n += 1
+            if len(sample) < top:
+                sample.append(nid)
+    return {"n": n, "no_basis": no_basis, "no_neg": no_neg, "sample": sample,
+            "proxy": True, "fix": EVOLVE_FIXES["ccg_backlog"]}
+
+
+def evolution_candidates(cg, *, layer: str = None, top: int = 8,
+                         min_delta: float = None) -> dict:
+    """演化候选盘点（G7）：**只读、零读节点文件、确定性、不写盘**。
+
+    回答「现在有多少该固化 / 该重算重要性的候选」，供常驻巡检与人工决策。
+    与 `diagnose()`（故障体检）刻意分开：这里盘的是**演化工作量**，不是故障——
+    候补多不代表库有毛病，故 `ok` 恒 True、severity 恒 info。
+
+    `importance_drift` 复用 `weights.recalc(apply=False)`（纯数学，不读文件）；
+    `ccg_backlog` 用索引代理指标。二者都不碰节点内容。
+    """
+    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    if layer:
+        nodes = {k: v for k, v in nodes.items() if v.get("layer") == layer}
+    from . import weights
+    md = weights.APPLY_DELTA if min_delta is None else float(min_delta)
+    imp = weights.recalc(cg, layer=layer, apply=False, min_delta=md,
+                         dry_run_samples=top)
+    cb = _ccg_backlog(nodes, top)
+    idr = {"n": imp["changed"], "scanned": imp["nodes_scanned"],
+           "min_delta": imp["min_delta"],
+           "sample": [s["node_id"] for s in imp["samples"]],
+           "fix": EVOLVE_FIXES["importance_drift"]}
+    return {"ok": True, "action": "evolve_check", "op": "sustain",
+            "root": cg.root, "t": time.time(), "readonly": True, "dry_run": True,
+            "nodes": len(nodes), "top": top, "layer": layer,
+            "ccg_backlog": cb, "importance_drift": idr,
+            "candidates": cb["n"] + idr["n"],
+            "by_fix": {EVOLVE_FIXES["ccg_backlog"]: cb["n"],
+                       EVOLVE_FIXES["importance_drift"]: idr["n"]},
+            "note": ("只读盘点：未写盘、未改任何节点；固化需 LLM（交人工/另批），"
+                     "重要性重算为确定性动作（有 rollback）")}
+
+
 def diagnose(cg, *, name: str = "md_cg", stale_temp_age: float = STALE_TEMP_AGE,
-             check_heartbeat: bool = True) -> dict:
+             check_heartbeat: bool = True, check_evolution: bool = True,
+             evolve_top: int = 5, check_provenance: bool = True,
+             provenance_top: int = 5) -> dict:
     """只读体检：返回 issues（带 fix 名）与 stats，不改动任何文件。"""
     root = cg.root
     issues = []
@@ -277,14 +363,54 @@ def diagnose(cg, *, name: str = "md_cg", stale_temp_age: float = STALE_TEMP_AGE,
             issues.append({"code": "heartbeat_" + state, "severity": "info",
                            "detail": f"本机心跳状态：{state}", "fix": "beat"})
 
+    # ---- 演化巡检（G7）：盘的是「该做多少事」，不是「库有毛病」，
+    #      故 severity 恒 info（不影响 ok），且全程只读、零读节点文件。
+    evolve = None
+    if check_evolution:
+        evolve = evolution_candidates(cg, top=evolve_top)
+        cb, idr = evolve["ccg_backlog"], evolve["importance_drift"]
+        if cb["n"]:
+            issues.append({"code": "ccg_backlog", "severity": "info",
+                           "detail": (f"{cb['n']} 个固化候补"
+                                      f"（索引代理：无验证基底 {cb['no_basis']}"
+                                      f" / 无负条件 {cb['no_neg']}）"),
+                           "sample": cb["sample"], "fix": cb["fix"],
+                           "proxy": True})
+        if idr["n"]:
+            issues.append({"code": "importance_drift", "severity": "info",
+                           "detail": (f"{idr['n']} 个节点结构重要性偏离 "
+                                      f"≥{idr['min_delta']}（可重算）"),
+                           "sample": idr["sample"], "fix": idr["fix"]})
+
+    # ---- 派生溯源巡检（G8）：只读检出悬空派生边（端点已不在索引内）。
+    #      **无自动修复**：删边等于篡改演进血缘，只报告、由人处置；
+    #      故 severity 恒 info（不影响 ok、不触发自愈），零读节点文件。
+    prov = None
+    if check_provenance:
+        from . import provenance as _pv
+        prov = _pv.check(cg, limit=provenance_top)
+        if prov["dangling_count"]:
+            issues.append({"code": "provenance_dangling", "severity": "info",
+                           "detail": (f"{prov['dangling_count']} 条派生边悬空"
+                                      f"（{prov['edges']} 条边中，端点不在索引内）"),
+                           "sample": [f"{r['child']}->{r['parent']}"
+                                      for r in prov["dangling"]],
+                           "fix": None})   # 关系事实：只检出，不自动删边
+
     return {"ok": not any(i["severity"] == "warning" for i in issues),
             "root": root, "issues": issues, "t": time.time(),
+            "evolve": evolve, "provenance": prov,
             "stats": {"nodes_indexed": len(nodes), "nodes_on_disk": disk,
                       "index_log_shards": len(shards), "stale_temps": len(temps),
                       "half_line_logs": len(half), "locked_nodes": locked,
                       "ref_checked": refs["checked"],
                       "ref_stale": len(refs["stale"]),
-                      "ref_dangling": len(refs["dangling"])}}
+                      "ref_dangling": len(refs["dangling"]),
+                      "provenance_edges": (prov["edges"] if prov else 0),
+                      "provenance_dangling":
+                          (prov["dangling_count"] if prov else 0),
+                      "evolve_candidates":
+                          (evolve["candidates"] if evolve else 0)}}
 
 
 # --------------------------------------------------------------------------
@@ -303,8 +429,13 @@ def _audit(root: str, op: str, action: str, detail: str = ""):
 
 
 def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
-         stale_temp_age: float = STALE_TEMP_AGE) -> dict:
-    """按诊断结果修复派生物。dry_run=True 时只列动作、不落盘。"""
+         stale_temp_age: float = STALE_TEMP_AGE,
+         allow_evolve: bool = False, reflect_fn=None, verify_fn=None) -> dict:
+    """按诊断结果修复派生物。dry_run=True 时只列动作、不落盘。
+
+    演化类动作（G7）默认**不动**，须显式 `allow_evolve=True` 才放行，且只放行
+    **确定性**动作（重要性重算，有 rollback）；依赖 LLM 的固化永不自动跑。
+    """
     before = diagnose(cg, name=name, stale_temp_age=stale_temp_age)
     codes = {i["code"] for i in before["issues"]}
     root = cg.root
@@ -346,6 +477,33 @@ def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
         paths = _half_line_logs(root)
         act("seal_half_lines", f"修补 {len(paths)} 个半截日志行",
             lambda: [_seal_half_line(p) for p in paths])
+
+    # ---- 演化类修复（G7）：默认关闭，且只放行确定性动作 ----
+    if "ccg_backlog" in codes:
+        det = next((i for i in before["issues"] if i["code"] == "ccg_backlog"), {})
+        detail = f"{det.get('detail', '固化候补')}；固化需 LLM 反思/验证"
+        if allow_evolve and reflect_fn is not None:
+            from . import consolidate as _cd
+
+            def _consolidate():
+                return _cd.consolidate(cg.root, apply=True,
+                                       reflect_fn=reflect_fn,
+                                       verify_fn=verify_fn)
+            act("consolidate_run", detail, _consolidate)
+        else:
+            actions.append({"code": "consolidate_run", "detail": detail,
+                            "applied": False, "reason": "needs_llm"})
+    if "importance_drift" in codes:
+        if allow_evolve:
+            from . import weights
+
+            def _importance():
+                return weights.recalc(cg, apply=True, actor="sustain_evolve")
+            act("importance", "重算结构重要性（确定性；可 rollback）", _importance)
+        else:
+            actions.append({"code": "importance",
+                            "detail": "重算结构重要性（确定性动作）",
+                            "applied": False, "reason": "evolve_disabled"})
 
     after = (before if dry_run
              else diagnose(cg, name=name, stale_temp_age=stale_temp_age))
@@ -452,7 +610,9 @@ class SustainLoop:
                  auto_heal: bool = True, d: str = None,
                  ledger: SessionLedger = None,
                  scrub_interval: float = DEFAULT_SCRUB_INTERVAL,
-                 auto_scrub: bool = False):
+                 auto_scrub: bool = False,
+                 evolve_interval: float = DEFAULT_EVOLVE_INTERVAL,
+                 auto_evolve: bool = False):
         self.cg = cg
         self.name = name
         self.beat_interval = float(beat_interval)
@@ -462,6 +622,8 @@ class SustainLoop:
         self.ledger = ledger or SessionLedger(cg.root)
         self.scrub_interval = float(scrub_interval)
         self.auto_scrub = bool(auto_scrub)
+        self.evolve_interval = float(evolve_interval)
+        self.auto_evolve = bool(auto_evolve)
         self.task_running = False
         self.beats = 0
         self.last_beat = None
@@ -469,6 +631,8 @@ class SustainLoop:
         self.heals = []
         self.last_scrub = None
         self.scrubs = []
+        self.last_evolve = None
+        self.evolves = []
         self._started_at = None
         self._th = None
         self._stop = threading.Event()
@@ -512,6 +676,7 @@ class SustainLoop:
         next_beat = time.time() + self.beat_interval
         next_heal = time.time() + self.heal_interval
         next_scrub = time.time() + self.scrub_interval
+        next_evolve = time.time() + self.evolve_interval
         while not self._stop.is_set():
             now = time.time()
             if now >= next_beat:
@@ -532,7 +697,39 @@ class SustainLoop:
                 except Exception:
                     pass                       # 自净失败不中断常驻
                 next_scrub = now + self.scrub_interval
+            if now >= next_evolve:
+                try:
+                    self._tick_evolve()
+                except Exception:
+                    pass                       # 演化巡检失败不中断常驻
+                next_evolve = now + self.evolve_interval
             self._stop.wait(_POLL)
+
+    def _tick_evolve(self):
+        """演化巡检（G7）：盘点固化/重要性候选 —— 让「有能力」变成「有驱动」。
+
+        恒只读盘点并记账；`auto_evolve=True` 时才额外落盘**确定性**动作
+        （仅重要性重算，可 rollback）。固化依赖 LLM，巡检只报候补量、交人工。
+        """
+        ev = evolution_candidates(self.cg)
+        rec = {"t": ev["t"], "candidates": ev["candidates"],
+               "ccg_backlog": ev["ccg_backlog"]["n"],
+               "importance_drift": ev["importance_drift"]["n"],
+               "auto_evolve": self.auto_evolve, "applied": []}
+        if self.auto_evolve and ev["importance_drift"]["n"]:
+            from . import weights
+            try:
+                r = weights.recalc(self.cg, apply=True, actor="sustain_evolve")
+                rec["applied"].append({"fix": "importance",
+                                       "written": r["written"],
+                                       "batch": r["batch"]})
+            except Exception as e:                 # 演化失败不能拖垮常驻
+                rec["applied"].append({"fix": "importance",
+                                       "error": f"{type(e).__name__}: {e}"})
+        self.last_evolve = rec
+        with self._lock:
+            self.evolves.append(rec)
+            self.evolves = self.evolves[-20:]
 
     def _tick_scrub(self):
         """记忆自净：抽查 → 联想 → 去污染 → 校准偏差。
@@ -587,6 +784,10 @@ class SustainLoop:
                 "scrub_interval": self.scrub_interval,
                 "auto_scrub": self.auto_scrub,
                 "last_scrub": self.last_scrub,
+                "evolve_interval": self.evolve_interval,
+                "auto_evolve": self.auto_evolve,
+                "last_evolve": self.last_evolve,
+                "evolves": self.evolves[-5:],
                 "peers": peers(self.d),
                 "sessions": self.ledger.summary()}
 
@@ -638,7 +839,30 @@ def summary(cg, name: str = "md_cg") -> dict:
                  if lp else {"running": False}),
         "sessions": SessionLedger(cg.root).summary(),
         "scrub": scrub_summary(cg),
+        "evolve": evolve_summary(cg),
+        "provenance": provenance_summary(cg),
     }
+
+
+def provenance_summary(cg) -> dict:
+    """派生溯源摘要（G8，只读；失败不抛，避免拖垮 health_os）。"""
+    try:
+        from . import provenance as _pv
+        return _pv.summary(cg)
+    except Exception:                     # noqa: BLE001
+        return {}
+
+
+def evolve_summary(cg) -> dict:
+    """演化巡检摘要（只读；失败不抛，避免拖垮 health_os）。"""
+    try:
+        ev = evolution_candidates(cg, top=3)
+        return {"candidates": ev["candidates"],
+                "ccg_backlog": ev["ccg_backlog"]["n"],
+                "importance_drift": ev["importance_drift"]["n"],
+                "proxy": True}
+    except Exception:                     # noqa: BLE001
+        return {}
 
 
 def scrub_summary(cg) -> dict:

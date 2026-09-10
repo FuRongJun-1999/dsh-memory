@@ -883,6 +883,170 @@ def rollback_promotion(root, node_ids=None, batch=None, actor="maintain") -> dic
     return {"ok": True, "reverted": reverted, "ids": ids}
 
 
+# ==========================================================================
+# 层归位（consolidate.contextualize）
+# ==========================================================================
+#
+# 场景：批次流水账（note_/milestone_/retest6_）与感知产物（imgpart_/vpipe_）混在
+# knowledge 层——它们的语义是**情境**（某次批次的记录 / 某张图的一次观测），不是
+# 长期知识；但也不该进 rejected/unresolved（那是「失效 / 未解」，不是「情境」）。
+# 故归位到 contextual：
+#   · 只改 layer 与落点目录；正文 / 密级 / id / tags 一律不动；
+#   · **保留可召回**（contextual 已在层白名单内，且 predict._SAFE_LAYERS 含之）；
+#   · 可预演（apply=False）/ 可留痕（`_maintain.jsonl`）/ 可追溯（KIND_LAYER_SHIFT）
+#     / 可回滚（按 batch 或 id 反向迁层）。
+#
+# 与 promote 的关系：promote 是 contextual→knowledge（升格），本动作是
+# knowledge→contextual（归位）。两者共用 `_relocate_layer` 与批次台账，方向相反。
+
+CONTEXTUALIZE_REASON_DEFAULT = "情境性内容归位（批次流水账 / 感知产物）"
+
+
+def _entry_id(e) -> str:
+    """索引条目取 id：优先 `id` 字段，回落到文件名（索引不保证带 id）。"""
+    return str(e.get("id") or os.path.basename(e.get("path") or "")[:-3])
+
+
+def _unique_batch(root, base) -> str:
+    """批次号去重：**同一秒内的两次调用不得共用批次号**。
+
+    否则「按批次回滚」会连带命中上一次的台账记录（回滚必须是精确的、可对账的）。
+    """
+    seen = {r.get("batch") for r in _read_maintain(root)}
+    if base not in seen:
+        return base
+    n = 2
+    while f"{base}.{n}" in seen:
+        n += 1
+    return f"{base}.{n}"
+
+
+def contextualize_prefixes(root, prefixes=None, node_ids=None,
+                           source_layer="knowledge", target_layer="contextual",
+                           reason="", limit=None, apply=False,
+                           actor="maintain") -> dict:
+    """按 id 前缀（或定向 id 列表）把节点从 source_layer 归位到 target_layer。
+
+    默认方向 knowledge→contextual。`prefixes` / `node_ids` **至少给一个**：
+    宁可少搬，不可全库乱搬——不传白名单直接报错，拒绝「一次误调用把整个知识层改层」
+    这种不可归因的批量改写。`node_ids` 用于定向（含「回滚后单独补迁」的对称操作）。
+    """
+    pref = tuple(str(p) for p in (prefixes or ()) if str(p))
+    ids = {str(i) for i in (node_ids or ()) if str(i)} or None
+    if not pref and not ids:
+        raise ValueError("contextualize 需要显式 prefixes 或 node_ids"
+                         "（如 ['note_','imgpart_']），拒绝对整层无差别改写")
+    cg = MdCGOS(root)
+
+    def _hit(e) -> bool:
+        nid = _entry_id(e)
+        return nid in ids if ids is not None else nid.startswith(pref)
+
+    entries = [e for e in cg._candidates(layer=source_layer) if _hit(e)]
+    batch = _unique_batch(root, time.strftime("%Y%m%d-%H%M%S"))
+    rep = {"root": root, "action": "contextualize", "dry_run": not apply,
+           "source_layer": source_layer, "target_layer": target_layer,
+           "prefixes": list(pref), "node_ids": sorted(ids) if ids else [],
+           "reason": reason or CONTEXTUALIZE_REASON_DEFAULT,
+           "nodes_scanned": len(entries), "targeted": 0, "skipped_locked": 0,
+           "skipped_already": 0, "written": 0, "moved": [], "samples": [],
+           "batch": batch}
+    for e in entries:
+        if limit is not None and rep["written"] >= int(limit):
+            break
+        nid = _entry_id(e)
+        if not _hit(e):
+            continue
+        fm, content = cg._read(e)
+        if fm is None:
+            continue
+        if crypto.is_encrypted(content):
+            rep["skipped_locked"] += 1      # 无密钥 → fail-closed，绝不解密回写
+            continue
+        if fm.get("layer") != source_layer:
+            rep["skipped_already"] += 1
+            continue
+        rep["targeted"] += 1
+        if len(rep["samples"]) < 8:
+            rep["samples"].append({"id": nid, "from": fm.get("layer"),
+                                   "path": e.get("path")})
+        if not apply:
+            continue
+        before = evolution.state_of(cg, nid) or {}
+        fm["layer"] = target_layer
+        fm["contextualized_from"] = source_layer
+        fm["contextualized_at"] = time.time()
+        fm["contextualization_basis"] = {"reason": rep["reason"], "batch": batch,
+                                         "actor": actor}
+        moved = _relocate_layer(cg, nid, e, fm, content, target_layer)
+        evolution.record(
+            cg, node_id=nid,
+            pattern="情境性内容（批次流水账 / 感知产物）混在知识层 → 归位情境层",
+            missing="层归属规则", action=f"层迁移 {source_layer}→{target_layer}",
+            evidence=f"prefix={str(nid).split('_')[0]}_ reason={rep['reason']}",
+            source="consolidate", kind=evolution.KIND_LAYER_SHIFT,
+            before=before, after=evolution.state_of(cg, nid) or {})
+        append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
+            "t": time.time(), "action": "contextualize", "batch": batch, "id": nid,
+            "from": source_layer, "to": target_layer, "path": moved["path"],
+            "bucket": moved.get("bucket"), "reason": rep["reason"], "actor": actor})
+        rep["moved"].append(nid)
+        rep["written"] += 1
+    if apply and rep["written"]:
+        cg.rebuild_index()
+    rep["note"] = ("dry-run：未写盘；apply=True 才归位"
+                   if not apply else f"已归位 {rep['written']} 个节点到 {target_layer}")
+    return rep
+
+
+def rollback_contextualize(root, node_ids=None, batch=None, actor="maintain") -> dict:
+    """回滚层归位：按 `_maintain.jsonl` 的 contextualize 记录把节点迁回原层。"""
+    cg = MdCGOS(root)
+    recs = [r for r in _read_maintain(root)
+            if r.get("action") == "contextualize"
+            and (not batch or r.get("batch") == batch)
+            and (not node_ids or str(r.get("id")) in {str(x) for x in node_ids})]
+    if not recs:
+        return {"ok": False, "error": "no_records", "reverted": 0}
+    reverted, ids = 0, []
+    for rec in recs:
+        nid = rec["id"]
+        e = (cg.index.get("nodes") or {}).get(nid)
+        if not e:
+            continue
+        fm, content = cg._read(e)
+        if fm is None or crypto.is_encrypted(content):
+            continue
+        back = rec.get("from") or "knowledge"
+        before = evolution.state_of(cg, nid) or {}
+        fm["layer"] = back
+        fm["contextualized_from"] = None
+        fm["contextualization_basis"] = {"rollback_of": rec.get("batch"),
+                                         "actor": actor}
+        _relocate_layer(cg, nid, e, fm, content, back)
+        evolution.record(cg, node_id=nid,
+                         pattern="层归位回滚：情境层迁回原层",
+                         action=f"层迁移 {rec.get('to')}→{back}",
+                         evidence=f"rollback batch={rec.get('batch')}",
+                         source="consolidate", kind=evolution.KIND_ROLLBACK,
+                         before=before, after=evolution.state_of(cg, nid) or {})
+        append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
+            "t": time.time(), "action": "contextualize_rollback",
+            "batch": rec.get("batch"), "id": nid, "to": back, "actor": actor})
+        reverted += 1
+        ids.append(nid)
+    if reverted:
+        cg.rebuild_index()
+    return {"ok": True, "reverted": reverted, "ids": ids}
+
+
+def contextualize_history(root, limit=50):
+    """层归位的批次记录（只读）。"""
+    recs = [r for r in _read_maintain(root)
+            if r.get("action") in ("contextualize", "contextualize_rollback")]
+    return {"ok": True, "records": recs[-(int(limit) or 50):]}
+
+
 def _read_maintain(root):
     from .fsutil import read_jsonl
     return list(read_jsonl(os.path.join(root, MAINTAIN_LOG)))

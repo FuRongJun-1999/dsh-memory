@@ -1,0 +1,60 @@
+{
+ "prompt": {
+  "n1": {
+   "class_type": "router",
+   "capability_id": null,
+   "inputs": {
+    "question": "写一个信任累积处理信任值的代码单元"
+   }
+  },
+  "n2": {
+   "class_type": "code_unit",
+   "capability_id": "VM-信任累积",
+   "inputs": {
+    "args": [
+     0.5,
+     0.4
+    ]
+   }
+  },
+  "n3": {
+   "class_type": "mos_declare",
+   "capability_id": "VM-信任累积",
+   "inputs": {}
+  },
+  "n4": {
+   "class_type": "code_unit",
+   "capability_id": "校验-信任检查",
+   "inputs": {
+    "args": [
+     0.9,
+     0.7
+    ]
+   }
+  }
+ },
+ "result_summary": {
+  "n1": {
+   "hits": "['VM-信任累积', '校验-信任检查', '条件路由图-信任传播']"
+  },
+  "n2": {
+   "unit": "VM-信任累积",
+   "result": "0.9"
+  },
+  "n3": {
+   "capability": "VM-信任累积",
+   "condition_space": "{'requires': ['trust/amount 为数值（信任值 0-1 ",
+   "_raw": "{'生效条件': ['trust/amount 为数值（信任值 0-1 区间）'"
+  },
+  "n4": {
+   "unit": "校验-信任检查",
+   "result": "pass"
+  }
+ },
+ "order": [
+  "n1",
+  "n2",
+  "n3",
+  "n4"
+ ]
+}

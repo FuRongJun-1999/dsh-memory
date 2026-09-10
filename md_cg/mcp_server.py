@@ -15,7 +15,7 @@ DSH 侧配置（cordis.yml / MCP client）：
     env: { MDCG_ROOT: "...", PYTHONPATH: ".../dsh-memory" }
 
 工具面（默认 kernel 只暴露 2 个基元 cg/stg；MDCG_MCP_SURFACE=full 时
-另有 29 个细粒度工具，供兼容/调试）：
+另有 31 个细粒度工具，供兼容/调试）：
   写：mdcg_remember（gated=true 走主动遗忘闸门）/ mdcg_rejected /
       mdcg_unresolved / mdcg_propose
   目标/近期：cg(op=goal) 目标槽 / cg(op=recent) 近期事件窗口
@@ -513,8 +513,9 @@ KERNEL_TOOLS = [
                        "index|dimensions|audit|history|summary|catalog）；"
                        "op=info：身份+健康+审核体系自描述；"
                        "op=sustain：持续性自维持（常驻/心跳/自愈/会话续接；"
-                       "action=status|beat|peers|diagnose|heal|start|stop|resume|"
-                       "note|catalog）；"
+                       "action=status|beat|peers|diagnose|heal|evolve|start|stop|"
+                       "resume|note|catalog；evolve=演化巡检只读盘点固化/重要性候选；"
+                       "heal 默认不动演化，须 allow_evolve=true）；"
                        "op=scrub：记忆自净（抽查/联想/去污染/校准偏差；"
                        "action=sample|associate|audit|decontaminate|calibrate|"
                        "sweep|history|summary|catalog）；"
@@ -548,7 +549,11 @@ KERNEL_TOOLS = [
                        "op=link：蜂群互联层（对端信任 P_trust + 跨节点证据存储；"
                        "action=ls|show|handshake|observe|promote|degrade|isolate|"
                        "withdraw|decay|policy|card|publish|peers|evidence|export|"
-                       "import|catalog）。",
+                       "import|catalog；"
+                       "另有节点**派生溯源**（区别于对端信任）：derive 列边、"
+                       "derive_dangling 悬空巡检（只读、不删边）、derive_catalog 自描述、"
+                       "derive_rebuild 按 frontmatter 重建台账（默认预演）；权威声明只在"
+                       "节点写入时产生（write/remember 的 derived_from），本层不新增写入口）。",
         "inputSchema": _s("",
             op=_p("string", "route|read|write|verify|review|protect|identity|"
                             "consistency|metacognition|self_state|evolution|sustain|"
@@ -595,7 +600,8 @@ KERNEL_TOOLS = [
             verification_basis=_p("string", "验证基底"),
             non_applicable_conditions=_p("array", "不适用条件"),
             context=_p("object", "当前情境"),
-            k=_p("integer", "返回条数"), budget_tokens=_p("integer", "read 的 token 预算"),
+            k=_p("integer", "返回条数（sustain pool_bench 亦用）"),
+            budget_tokens=_p("integer", "read 的 token 预算"),
             evidence=_p("string", "verify 的证据"),
             verdict=_p("string", "verify 裁决：confirmed|weakened|falsified；"
                                  "insight verify：verified|falsified"),
@@ -611,14 +617,16 @@ KERNEL_TOOLS = [
                                 "consistency: check|history|stats|catalog；"
                                 "goal: add|list|status；recent: add|list|clear；"
                                 "sustain: status|beat|peers|diagnose|heal|"
-                                "start|stop|resume|note|catalog；"
+                                "evolve|provenance|pooling|pool_bench|"
+                                "pool_compare|start|stop|resume|note|catalog；"
                                 "scrub: sample|associate|audit|decontaminate|"
                                 "calibrate|sweep|history|summary|catalog；"
                                 "evolution: record|entries|show|history|patterns|"
                                 "summary|rollback|catalog；"
                                 "link: ls|show|handshake|observe|promote|degrade|"
                                 "isolate|withdraw|decay|policy|card|publish|peers|"
-                                "evidence|export|import|catalog；"
+                                "evidence|export|import|derive|derive_dangling|"
+                                "derive_catalog|derive_rebuild|catalog；"
                                 "ref: read|check|stat；"
                                 "session: note|recall|compact；"
                                 "ingest: file|dir|jsonl|stat；"
@@ -626,9 +634,14 @@ KERNEL_TOOLS = [
                                 "maintain: stat|history|importance|longterm|prefeed|"
                                 "separate|rollback|backfill|backfill_rollback|"
                                 "backfill_history|cap|cap_rollback|cap_history|"
-                                "exempt|exempt_rollback|exempt_history；"
+                                "exempt|exempt_rollback|exempt_history|"
+                                "vision_evidence|vision_evidence_rollback|"
+                                "vision_evidence_history|"
+                                "refine|refine_gate|refine_history|"
+                                "refine_calibrate；"
                                 "consolidate: promote|promote_rollback|"
-                                "promote_history|induce；"
+                                "promote_history|induce|contextualize|"
+                                "contextualize_rollback|contextualize_history；"
                                 "insight: window|record|verify|list|report|"
                                 "reconstruct|learn|outlook|catalog"),
             pid=_p("string", "review decide 的提案 id"),
@@ -637,7 +650,8 @@ KERNEL_TOOLS = [
             merge_into=_p("string", "review merge 的目标节点 id"),
             redteam=_p("object", "红队裁决 {verdict:pass|reject, issues:[], round:n}"),
             issues=_p("array", "问题清单（红队打回理由）"),
-            reason=_p("string", "原因"), force=_p("boolean", "restore 强制"),
+            reason=_p("string", "原因；consolidate contextualize 的归位理由（写台账）"),
+            force=_p("boolean", "restore 强制"),
             path=_p("string", "index_code/index_doc 的目录（大域）；link import 的证据包文件"),
             patterns=_p("array", "index_code/index_doc 的文件后缀，默认取各自注册表"
                                  "（代码 .py/.ts/.tsx/.js/.mjs/.cjs；文档 .md/.markdown）"),
@@ -663,6 +677,11 @@ KERNEL_TOOLS = [
             auto_heal=_p("boolean", "sustain start：巡检异常时自动修复（默认是）"),
             scrub_interval=_p("number", "sustain start：自净间隔秒（默认 3600）"),
             auto_scrub=_p("boolean", "sustain start：自净执行去污染（默认否，只巡检）"),
+            evolve_interval=_p("number", "sustain start：演化巡检间隔秒（默认 7200）"),
+            auto_evolve=_p("boolean", "sustain start：演化巡检自动落盘确定性动作"
+                                      "（仅重要性重算；固化需 LLM 仍交人工。默认否）"),
+            allow_evolve=_p("boolean", "sustain heal：放行演化类修复"
+                                      "（确定性动作才执行；默认否）"),
             dry_run=_p("boolean", "sustain heal / scrub：只列动作不落盘"),
             ids=_p("array", "scrub：节点 id 列表（缺省全库）"),
             kinds=_p("string", "scrub：限定污染类型，逗号分隔"),
@@ -718,7 +737,31 @@ KERNEL_TOOLS = [
             keep=_p("integer", "maintain longterm：保留最近 N 个断面（默认 10）"),
             mode=_p("string", "maintain longterm：list|show（读断面清单/统计）"),
             snapshot_id=_p("string", "maintain longterm show：断面 id 前缀"),
+            prefixes=_p("array", "consolidate contextualize / maintain vision_evidence："
+                                 "id 前缀白名单（如 ['note_','imgpart_']；不传即拒绝对"
+                                 "整层改写 / 用视觉节点默认前缀）"),
+            aeis_root=_p("string", "maintain vision_evidence：视觉证据归档根（只读逐部件"
+                                  "证据源；缺省本仓 data/vision；参数名为遗留名）"),
+            sample_n=_p("integer", "maintain refine：抽检条数（默认 20，裁定单条件 A）"),
+            prefix=_p("string", "maintain refine：抽检 id 前缀（默认 node_）"),
+            verdicts=_p("array", "maintain refine apply：人工核对裁决 "
+                                 "[{concept_id, faithful, added_info, note}]；"
+                                 "缺省只落抽检留痕（不改节点）"),
             batch=_p("string", "maintain/consolidate：批次号（回滚用）"),
+            derived_from=_p("string", "write/remember：派生来源节点 id（G8，可用逗号/空格"
+                                      "分隔多个）；声明后写入 frontmatter 并建派生边"),
+            relation=_p("string", "write/remember/link derive：派生关系名，"
+                                  "默认 derived_from（split_from|extracted_from|"
+                                  "merged_from|refined_from|source）"),
+            child=_p("string", "link derive：按子节点 id 过滤派生边"),
+            parent=_p("string", "link derive：按父节点 id 过滤派生边"),
+            ledger_only=_p("boolean", "link derive_dangling：只看台账、忽略索引声明"),
+            pools=_p("object", "search/sustain pool_bench：召回分池表"
+                               "{knowledge:{cap_ratio,weight},index:{…},"
+                               "negative:{…}}；各 cap_ratio 之和必须为 1.0；"
+                               "缺省（null）=关闭分池、沿用原 GLOBAL_CAP 平截"),
+            queries=_p("array", "sustain pool_bench/pool_compare：复测查询集；"
+                                "缺省则从索引确定性取样（proxy）"),
             entry_ids=_p("array", "maintain rollback：按节点 id 定向回滚"),
             min_jaccard=_p("number", "maintain separate / consolidate induce："
                                      "内容相似度下限（默认 0.55 / 0.30）"),
@@ -769,7 +812,7 @@ SURFACE = os.environ.get("MDCG_MCP_SURFACE", "kernel").strip().lower()
 
 
 def tools_for_surface():
-    """kernel：只暴露 2 个基元；full：2 个基元 + 29 个细粒度工具（兼容/调试）。"""
+    """kernel：只暴露 2 个基元；full：2 个基元 + 31 个细粒度工具（兼容/调试）。"""
     return ALL_TOOLS if SURFACE == "full" else KERNEL_TOOLS
 
 
@@ -1115,6 +1158,26 @@ def _evolution_call(cg, a):
     raise ValueError(f"evolution 未知 action：{act}")
 
 
+def _split_ids(value):
+    """把 'a,b c' / ['a','b'] / 'a' 统一成去空白的 id 列表（None → []）。
+
+    G8 派生溯源用：MCP 参数可能来自命令行逗号串，也可能来自 JSON 数组，
+    入口先归一，避免 `"kp_a,kp_b"` 被当成单个 id 落进 frontmatter。
+    """
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        items = list(value)
+    else:
+        items = str(value).replace(",", " ").split()
+    out = []
+    for x in items:
+        s = str(x).strip()
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
 def _sustain_call(cg, a):
     """持续性自维持统一入口（常驻 / 心跳 / 自愈 / 会话续接）。
 
@@ -1140,7 +1203,40 @@ def _sustain_call(cg, a):
     if act in ("diagnose", "check"):
         return sustain.diagnose(cg, name=name)
     if act in ("heal", "repair"):
-        return sustain.heal(cg, name=name, dry_run=bool(a.get("dry_run")))
+        return sustain.heal(cg, name=name, dry_run=bool(a.get("dry_run")),
+                            allow_evolve=bool(a.get("allow_evolve")))
+    if act in ("evolve", "evolve_check"):
+        # G7：演化候选盘点（只读、零读节点文件、不写盘）
+        return sustain.evolution_candidates(
+            cg, layer=a.get("layer"),
+            top=int(a.get("limit") or 8))
+    if act in ("provenance", "derive_check"):
+        # G8：派生溯源悬空巡检（只读、零读节点文件、不删边）
+        from . import provenance as _pv
+        return _pv.check(cg, limit=int(a.get("limit") or 20))
+    if act in ("pooling", "pool_catalog"):
+        # §七：召回分池显式权重表自描述（只读）
+        from . import pooling as _pl
+        return _pl.catalog()
+    if act in ("pool_bench", "pool_measure"):
+        # §七：同口径复测（只读；queries 缺省则从索引确定性取样 → proxy）
+        from . import pooling as _pl
+        qs = a.get("queries")
+        if isinstance(qs, str):
+            qs = [x for x in qs.replace("\n", ",").split(",") if x.strip()]
+        return _pl.measure(cg, qs, k=int(a.get("k") or 20),
+                           pools=(a.get("pools") if a.get("pools") is not None
+                                  else True),
+                           n_queries=int(a.get("limit") or 50))
+    if act in ("pool_compare", "pool_ab"):
+        # §七：分池前后同口径对比 + 副作用归因（只读）
+        from . import pooling as _pl
+        qs = a.get("queries")
+        if isinstance(qs, str):
+            qs = [x for x in qs.replace("\n", ",").split(",") if x.strip()]
+        return _pl.compare(cg, qs, k=int(a.get("k") or 20),
+                           pools=a.get("pools"),
+                           n_queries=int(a.get("limit") or 50))
     if act in ("start", "up"):
         lp = sustain.ensure_loop(
             cg, name,
@@ -1151,7 +1247,10 @@ def _sustain_call(cg, a):
             auto_heal=bool(a.get("auto_heal", True)),
             scrub_interval=float(a.get("scrub_interval")
                                  or sustain.DEFAULT_SCRUB_INTERVAL),
-            auto_scrub=bool(a.get("auto_scrub", False)))
+            auto_scrub=bool(a.get("auto_scrub", False)),
+            evolve_interval=float(a.get("evolve_interval")
+                                  or sustain.DEFAULT_EVOLVE_INTERVAL),
+            auto_evolve=bool(a.get("auto_evolve", False)))
         return {"loop": lp.start().status()}
     if act in ("stop", "down"):
         lp = sustain.get_loop(cg, name)
@@ -1166,10 +1265,16 @@ def _sustain_call(cg, a):
             actor=a.get("actor"))}
     if act == "catalog":
         return {"actions": ["status", "beat", "peers", "diagnose", "heal",
-                            "start", "stop", "resume", "note", "catalog"],
+                            "evolve", "provenance", "pooling", "pool_bench",
+                            "pool_compare", "start", "stop", "resume",
+                            "note", "catalog"],
                 "beat_interval": sustain.DEFAULT_BEAT_INTERVAL,
                 "heal_interval": sustain.DEFAULT_HEAL_INTERVAL,
                 "scrub_interval": sustain.DEFAULT_SCRUB_INTERVAL,
+                "evolve_interval": sustain.DEFAULT_EVOLVE_INTERVAL,
+                "evolve_fixes": dict(sustain.EVOLVE_FIXES),
+                "provenance_fixes": {},     # 悬空派生边只检出、无自动修复
+
                 "thresholds": {"warn": sustain.DEFAULT_WARN_FACTOR,
                                "dead": sustain.DEFAULT_DEAD_FACTOR,
                                "working": sustain.DEFAULT_WORKING_FACTOR},
@@ -1340,6 +1445,31 @@ def _cg_call(cg, a):
             return _ev.import_pack(
                 cg, src, subsystem=a.get("subsystem") or _ev.SUBSYSTEM,
                 swarm=a.get("swarm"), signers_file=a.get("signers_file"))
+        # ---- 派生溯源（G8）：节点演进血缘（≠ 上面的对端信任 P_trust）----
+        # 权威声明只在节点写入时产生（`derived_from` → frontmatter + _link.jsonl），
+        # 本层**不新增写入口**；这里只读查询、悬空巡检与「按 frontmatter 重建台账」。
+        if act in ("derive", "derive_ls", "provenance_ls"):
+            from . import provenance as _pv
+            return {"ok": True, "readonly": True,
+                    "ledger": _pv.ledger_file(cg.root),
+                    "edges": _pv.edges(
+                        cg.root, child=a.get("child") or a.get("node"),
+                        parent=a.get("parent"), relation=a.get("relation"),
+                        batch=a.get("batch"), limit=a.get("limit"))}
+        if act in ("derive_dangling", "provenance_check"):
+            from . import provenance as _pv
+            return _pv.check(cg, limit=int(a.get("limit") or 20),
+                             include_index=not bool(a.get("ledger_only")))
+        if act in ("derive_catalog", "provenance_catalog"):
+            from . import provenance as _pv
+            return _pv.catalog(cg.root)
+        if act in ("derive_rebuild", "provenance_rebuild"):
+            # 台账是派生物，可重建：只重放 frontmatter 已声明的边，不发明任何边。
+            # 历史节点未声明派生关系 → 重建结果为空，正合「历史不回填」。
+            if _p is not None:
+                _p.require_admin("link_derive_rebuild")
+            from . import provenance as _pv
+            return _pv.rebuild_ledger(cg, apply=bool(a.get("apply")))
         raise ValueError(f"link 未知 action：{act}")
 
     if op == "info":
@@ -1443,7 +1573,9 @@ def _cg_call(cg, a):
                                         or verdict.get("basis")),
                     non_applicable_conditions=a.get("non_applicable_conditions"),
                     importance_hint=hint, override=bool(a.get("override")),
-                    consistency=False)
+                    consistency=False,
+                    derived_from=_split_ids(a.get("derived_from")),
+                    relation=a.get("relation"))
                 v = res.get("verdict")
                 committed = v == "ACCEPT"
                 out = {"ok": committed, "id": nid, "committed": committed,
@@ -1460,7 +1592,9 @@ def _cg_call(cg, a):
                    importance=float(a.get("importance", 0.5)),
                    verification_basis=a.get("verification_basis") or verdict.get("basis"),
                    non_applicable_conditions=a.get("non_applicable_conditions"),
-                   override=bool(a.get("override")), consistency=False)
+                   override=bool(a.get("override")), consistency=False,
+                   derived_from=_split_ids(a.get("derived_from")),
+                   relation=a.get("relation"))
             out = {"ok": True, "id": nid, "committed": True, "verdict": verdict}
             if cvd is not None:
                 out["consistency"] = cvd
@@ -1758,6 +1892,17 @@ def _maintain_call(cg, a):
     if principal is not None and act in ("backfill_rollback", "cap_rollback",
                                          "exempt_rollback"):
         principal.require_admin(f"maintain_{act}")
+    # G5 视觉证据回填：apply 直接改写 md 证据面 → 管理操作；rollback 反向写入同样
+    # 需管理层；预演（plan）与留痕查询只出报表/读日志，放行写层角色。
+    if principal is not None and act == "vision_evidence" and apply:
+        principal.require_admin("maintain_vision_evidence")
+    if principal is not None and act == "vision_evidence_rollback":
+        principal.require_admin("maintain_vision_evidence_rollback")
+    # G6 提炼抽检：plan/gate/history 只读；apply 只追加抽检留痕（不改节点），
+    # 但它决定后续是否放行**扩批**（真写节点由 consolidate.induce 另批承担），
+    # 故按管理面处理——写层角色可先看工单/预演，改判需管理层。
+    if principal is not None and act == "refine" and apply:
+        principal.require_admin("maintain_refine")
     if act == "longterm" and mode in ("list", "ls", "show", "read"):
         return cg.maintain(action="longterm", mode=mode,
                            limit=a.get("limit"), snapshot_id=a.get("snapshot_id"))
@@ -1773,7 +1918,10 @@ def _maintain_call(cg, a):
         importance_hint=a.get("importance"), node_id=a.get("node_id"),
         write=bool(a.get("write")), min_jaccard=a.get("min_jaccard"),
         ids=a.get("ids"), actor=actor, include_partial=a.get("include_partial"),
-        min_conf=a.get("min_conf"), basis_text=a.get("basis_text"))
+        min_conf=a.get("min_conf"), basis_text=a.get("basis_text"),
+        prefixes=a.get("prefixes"), aeis_root=a.get("aeis_root"),
+        sample_n=a.get("sample_n"), prefix=a.get("prefix"),
+        verdicts=a.get("verdicts"), reason=a.get("reason"))
 
 
 def _consolidate_call(cg, a):
@@ -1793,7 +1941,8 @@ def _consolidate_call(cg, a):
         target_layer=a.get("target_layer"), min_merge=a.get("min_merge"),
         min_importance=imp, require_conditions=a.get("require_conditions"),
         min_cluster=a.get("min_cluster"), min_jaccard=a.get("min_jaccard"),
-        max_nodes=a.get("max_nodes"),
+        max_nodes=a.get("max_nodes"), prefixes=a.get("prefixes"),
+        reason=a.get("reason"),
         limit=a.get("limit"), apply=bool(a.get("apply")),
         node_ids=a.get("node_ids") or a.get("ids"), batch=a.get("batch"),
         actor=getattr(principal, "actor", None) if principal is not None else None)
@@ -1955,7 +2104,9 @@ def call_tool(cg, name, args):
                 non_applicable_conditions=a.get("non_applicable_conditions"),
                 importance_hint=hint, override=bool(a.get("override")),
                 consistency=bool(a.get("consistency", True)),
-                on_conflict=a.get("on_conflict") or "defer")
+                on_conflict=a.get("on_conflict") or "defer",
+                derived_from=_split_ids(a.get("derived_from")),
+                relation=a.get("relation"))
             res.setdefault("ok", res.get("verdict") == "ACCEPT")
             return res
         written = cg.add(nid, a.get("content", ""), layer=a.get("layer") or "knowledge",
@@ -1966,7 +2117,9 @@ def call_tool(cg, name, args):
                          non_applicable_conditions=a.get("non_applicable_conditions"),
                          override=bool(a.get("override")),
                          consistency=bool(a.get("consistency", True)),
-                         on_conflict=a.get("on_conflict") or "reject")
+                         on_conflict=a.get("on_conflict") or "reject",
+                         derived_from=_split_ids(a.get("derived_from")),
+                         relation=a.get("relation"))
         if written is None:
             return {"ok": False, "id": nid, "verdict": "DEFER",
                     "reason": "节点间冲突检测未通过（on_conflict=defer）"}
@@ -2006,7 +2159,8 @@ def call_tool(cg, name, args):
         res, meta = cg.search(a.get("query", ""), layer=a.get("layer"),
                               k=int(a.get("k") or 20), context=a.get("context"),
                               roles=tuple(a["roles"]) if a.get("roles") else None,
-                              include_work=bool(a.get("include_work")))
+                              include_work=bool(a.get("include_work")),
+                              pools=a.get("pools"))
         return {"meta": meta,
                 "results": [{"node": _node_view(n), "score": s, "state": q.get("state"),
                              "reason": q.get("reason"), **refindex.ref_fields(n)}
@@ -2152,6 +2306,10 @@ def _start_sustain(cg):
         scrub_interval=float(os.environ.get("MDCG_SCRUB_INTERVAL")
                              or sustain.DEFAULT_SCRUB_INTERVAL),
         auto_scrub=os.environ.get("MDCG_AUTO_SCRUB", "0")
+        not in ("0", "false", "False"),
+        evolve_interval=float(os.environ.get("MDCG_EVOLVE_INTERVAL")
+                              or sustain.DEFAULT_EVOLVE_INTERVAL),
+        auto_evolve=os.environ.get("MDCG_AUTO_EVOLVE", "0")
         not in ("0", "false", "False"))
     lp.start()
     return lp

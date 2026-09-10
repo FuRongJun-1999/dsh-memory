@@ -78,6 +78,30 @@ def _fm(cg, nid):
     return (node or {}).get("frontmatter") or {}
 
 
+# --------------------------------------------------------------------------
+# 迁移边适配：源 sqlite 认知图 → md_cg 本地边
+# --------------------------------------------------------------------------
+# 源库的 `hierarchical` 方向是 **source=父、target=子**（白箱
+# `wisdom-book-cloud.db` 全量实测：`source_is_parent=2832`、`target_is_parent=0`）。
+# md_cg 的父边约定与其**相反**：`part_of` 表示「本节点是子、target 是父」
+# （见下方 children_index）。若把源库 hierarchical 原样搬进来，树会整体倒置；
+# 故迁移时翻译成语义等价的 `contains`（本节点是父、target 是子）。
+SRC_REL_MAP = {"hierarchical": "contains"}
+
+
+def normalize_edge(tgt, rel, confidence=1.0, verified=0):
+    """源库边 → md_cg 本地边（迁移器专用）。做两件事：
+
+    1) 键名统一为 `relation_type`。`children_index` / `parents_index` 只认
+       `relation_type` / `relation`；早期迁移器写的 `"type"` 会被静默忽略
+       （`chain.edge_rel` 兼容 `type`，但 `subgraph` 不兼容），使迁入的图不可遍历。
+    2) 方向按 `SRC_REL_MAP` 翻译（源库 hierarchical = source 是父）。
+    """
+    rel = str(rel or "").strip().lower()
+    return {"target": str(tgt), "relation_type": SRC_REL_MAP.get(rel, rel),
+            "confidence": confidence, "verified": verified}
+
+
 def children_index(cg):
     """全局正查：parent_id → [child_id...]（声明式 ∪ 边式，一次 O(N) 后缓存）。"""
     idx = getattr(cg, "_subgraph_children", None)
@@ -93,7 +117,10 @@ def children_index(cg):
         for e in (fm.get("edges") or []):
             if not isinstance(e, dict):
                 continue
-            rel = str(e.get("relation_type") or e.get("relation") or "").strip().lower()
+            # 兼容历史语料：早期迁移器把关系类型写在 `type` 键（`migrate.py:43`、
+            # `migrate_aeis.py:99`），写侧已按 `normalize_edge` 修正，读侧一并容错。
+            rel = str(e.get("relation_type") or e.get("relation") or e.get("type")
+                      or "").strip().lower()
             tgt = e.get("target") or e.get("target_id")
             if tgt is None:
                 continue
@@ -132,9 +159,20 @@ def parents_index(cg):
         for e in (_fm(cg, pid).get("edges") or []):
             if not isinstance(e, dict):
                 continue
-            rel = str(e.get("relation_type") or "").lower()
-            if rel in ("part_of", "contains", "hierarchical") and e.get("target"):
-                tgt = str(e["target"])
+            rel = str(e.get("relation_type") or e.get("relation") or e.get("type")
+                      or "").strip().lower()
+            tgt = e.get("target") or e.get("target_id")
+            if tgt is None:
+                continue
+            tgt = str(tgt).strip()
+            # 与 children_index 逐字对称，只是方向取反：
+            #   part_of / hierarchical → 本节点是子，故 target 是本节点的父
+            #   parent_of / contains   → 本节点是父，故本节点是 target 的父
+            if rel in ("part_of", "hierarchical"):
+                idx.setdefault(pid, [])
+                if tgt not in idx[pid]:
+                    idx[pid].append(tgt)
+            elif rel in ("parent_of", "contains"):
                 idx.setdefault(tgt, [])
                 if pid not in idx[tgt]:
                     idx[tgt].append(pid)

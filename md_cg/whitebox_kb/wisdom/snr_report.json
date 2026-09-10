@@ -1,0 +1,41 @@
+{
+  "generated_at": "2026-09-05 23:17:21",
+  "source": "snr_dashboard v1.16（C 维进化·递归反思 3.12 终裁）",
+  "compression_ratio": 3988.8,
+  "inject_quality": null,
+  "graph_snr": 0.0,
+  "memory_purge": null,
+  "signals": {
+    "compression": {
+      "raw_bytes": 7100000000.0,
+      "pure_bytes": 1780000.0,
+      "ratio": 3988.8
+    },
+    "inject": {
+      "available": false,
+      "note": "无对话测试结果（dialogue_1000_results.json）"
+    },
+    "graph": {
+      "available": true,
+      "verified_edges": 0,
+      "rejected_open": 10,
+      "graph_snr": 0.0
+    },
+    "memory": {
+      "available": true,
+      "context_total": 0,
+      "archived": 0,
+      "memory_purge": null
+    }
+  },
+  "trend": {
+    "compression_ratio": {
+      "prev": 3988.8,
+      "current": 3988.8,
+      "delta": 0.0
+    }
+  },
+  "bottleneck": [
+    "图谱信噪比 0.0% < 90%：存在 open 被拒路径，建议走 causal_discover 验证闭环修复"
+  ]
+}

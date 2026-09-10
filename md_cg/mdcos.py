@@ -31,7 +31,7 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, STATE_ACCEPT, STATE_REJECT
                    expand_query_terms_llm)
 from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
-               self_state, predict, evolution, weights)
+               self_state, predict, evolution, weights, pooling)
 from .fsutil import FileLock, atomic_write, append_jsonl, read_jsonl
 from .security import (Principal, TenantRegistry, AccessDenied,
                        SENSITIVITY_ORDER, DEFAULT_SENSITIVITY, _rank)
@@ -334,14 +334,16 @@ class MdCGOS(MdCG):
     def search(self, query: str, layer: str = None, k: int = 20,
                context=None, min_results: int = 1, record: bool = True,
                include_neg: bool = True, judge: bool = True,
-               roles=None, include_work: bool = False):
+               roles=None, include_work: bool = False, pools=None):
         """在父类语义之上加 role 过滤（默认剔除工具输出/命令/编辑）。
 
         返回 (results, meta)，与 MdCG.search 完全同构（T0–T3 阶梯 + 资格判定）。
+        pools：§七 召回分池（None=关闭原行为 / True=内置表 / dict=自定义表）。
         """
         q = (query or "").strip()
         if not q:
             return [], {"tier": None, "reason": "empty_query", "scanned": 0}
+        pool_cfg = pooling.resolve(pooling.from_env(pools))
         entries = self._candidates(layer=layer, roles=roles, include_work=include_work)
         if not entries:
             return [], {"tier": None, "reason": "no_candidates", "scanned": 0}
@@ -358,12 +360,12 @@ class MdCGOS(MdCG):
         neg_coverage = self._neg_coverage(terms) if include_neg else []
 
         def try_stage(docs, tier):
-            scored = self._score(docs, q, qb)
+            scored = self._score(docs, q, qb, pool_cfg)
             valid = sum(1 for _, s in scored if s > 0)
             if valid >= min_results:
                 return self._emit(scored, k, tier, stat, route_bucket, record,
                                   len(docs), judge, context, neg_coverage,
-                                  big_domain, big_scores)
+                                  big_domain, big_scores, pool_cfg)
             return None
 
         if route_bucket:
@@ -380,18 +382,26 @@ class MdCGOS(MdCG):
 
         docs_all = self._read_many(entries, stat)
         hits = [d for d in docs_all if self._like(d[2], d[1], terms)]
-        if len(hits) > GLOBAL_CAP:
-            hits = hits[:GLOBAL_CAP]
+        stat["pre_cap"] = len(hits)
+        stat["cap"] = GLOBAL_CAP
+        hits, _rep = pooling.cut_report(hits, GLOBAL_CAP, pools=pool_cfg,
+                                        key_of=pooling.doc_key)
+        pooling.record_audit(stat, _rep)
         out = try_stage(hits, TIER_GLOBAL_LIKE)
         if out:
             return out
 
         docs_all.sort(key=lambda d: (-float(d[1].get("importance") or 0),
                                      -float(d[1].get("created_at") or 0)))
-        scored = self._score(docs_all[:GLOBAL_CAP], q, qb)
+        stat["pre_cap"] = len(docs_all)
+        stat["cap"] = GLOBAL_CAP
+        picked, _rep = pooling.cut_report(docs_all, GLOBAL_CAP, pools=pool_cfg,
+                                          key_of=pooling.doc_key)
+        pooling.record_audit(stat, _rep)
+        scored = self._score(picked, q, qb, pool_cfg)
         return self._emit(scored, k, TIER_GLOBAL_SCAN, stat, route_bucket,
-                          record, min(len(docs_all), GLOBAL_CAP), judge,
-                          context, neg_coverage, big_domain, big_scores)
+                          record, len(picked), judge,
+                          context, neg_coverage, big_domain, big_scores, pool_cfg)
 
     def _lexical(self, query, entries, stat):
         """词法路径：LIKE 预筛 + 二元组 Jaccard。"""
@@ -1445,7 +1455,11 @@ class MdCGOS(MdCG):
                         "prefeed", "separate", "rollback",
                         "backfill", "backfill_rollback", "backfill_history",
                         "cap", "cap_rollback", "cap_history",
-                        "exempt", "exempt_rollback", "exempt_history")
+                        "exempt", "exempt_rollback", "exempt_history",
+                        "vision_evidence", "vision_evidence_rollback",
+                        "vision_evidence_history",
+                        "refine", "refine_gate", "refine_history",
+                        "refine_calibrate")
 
     def prefeed(self, content, layer="contextual", role=None,
                 verification_basis=None, importance_hint=None, node_id=None,
@@ -1575,6 +1589,51 @@ class MdCGOS(MdCG):
                 return backfill.exempt_rollback(self, batch=batch,
                                                 entry_ids=entry_ids, actor=who)
             return backfill.history(self, limit=limit or 100, action="exempt")
+        if act in ("vision_evidence", "vision_evidence_rollback",
+                   "vision_evidence_history"):
+            from . import vision_evidence
+            who = actor or getattr(self, "actor", "maintain")
+            if act == "vision_evidence":
+                # layer 缺省 None → 全层扫描（按 id 前缀识别视觉节点），
+                # 不静默漏掉仍留在原层的密文视觉节点（fail-closed 计数）。
+                common = dict(layer=layer, limit=limit, ids=ids,
+                              prefixes=extra.get("prefixes"),
+                              aeis_root_=extra.get("aeis_root"))
+                if apply:
+                    return vision_evidence.apply(self, batch=batch,
+                                                 entry_ids=entry_ids,
+                                                 actor=who, **common)
+                return vision_evidence.plan(self, **common)
+            if act == "vision_evidence_rollback":
+                return vision_evidence.rollback(self, batch=batch,
+                                                entry_ids=entry_ids, actor=who)
+            return vision_evidence.history(self, limit=limit or 100, batch=batch)
+        if act in ("refine", "refine_gate", "refine_history",
+                   "refine_calibrate"):
+            # G6 提炼抽检：plan 出工单（只读）；apply 只落抽检留痕（**不改节点**）；
+            # gate 复算通过率决定是否允许扩批。绝不盲跑全量。
+            from . import refine
+            who = actor or getattr(self, "actor", "maintain")
+            common = dict(ids=ids, n=extra.get("sample_n"),
+                          seed=extra.get("seed"),
+                          prefix=extra.get("prefix") or
+                          (extra.get("prefixes") or [None])[0],
+                          min_jaccard=min_jaccard,
+                          min_cluster=extra.get("min_cluster"))
+            if act == "refine":
+                if apply:
+                    return refine.apply(self, batch=batch, actor=who,
+                                        verdicts=extra.get("verdicts"),
+                                        note=extra.get("reason"), **common)
+                return refine.plan(self, **common)
+            if act == "refine_gate":
+                return refine.gate(self, batch=batch)
+            if act == "refine_calibrate":
+                return refine.calibrate(self, seed=extra.get("seed"),
+                                        prefix=common["prefix"],
+                                        min_jaccard=min_jaccard,
+                                        min_cluster=common["min_cluster"])
+            return refine.history(self, limit=limit or 100, batch=batch)
         if act == "stat":
             nodes = self.index.get("nodes") or {}
             by_layer, imp_sum, protected, missing_basis = {}, 0.0, 0, 0
@@ -1632,8 +1691,25 @@ class MdCGOS(MdCG):
             i_kw["source_layer"] = kw.get("source_layer") or "contextual"
             i_kw["target_layer"] = kw.get("target_layer") or "knowledge"
             return consolidate.induce_memories(self, **i_kw)
+        if act == "contextualize":
+            return consolidate.contextualize_prefixes(
+                self.root, prefixes=kw.get("prefixes"),
+                node_ids=kw.get("node_ids") or kw.get("ids"),
+                source_layer=kw.get("source_layer") or "knowledge",
+                target_layer=kw.get("target_layer") or "contextual",
+                reason=kw.get("reason") or "", limit=kw.get("limit"),
+                apply=bool(kw.get("apply")),
+                actor=kw.get("actor") or getattr(self, "actor", "maintain"))
+        if act in ("contextualize_rollback", "relayer_rollback"):
+            return consolidate.rollback_contextualize(
+                self.root, node_ids=kw.get("node_ids") or kw.get("ids"),
+                batch=kw.get("batch"), actor=kw.get("actor") or "maintain")
+        if act == "contextualize_history":
+            return consolidate.contextualize_history(
+                self.root, limit=kw.get("limit") or 50)
         raise ValueError(f"consolidate 未知 action：{act}"
-                         "（可选 promote|promote_rollback|promote_history|induce）")
+                         "（可选 promote|promote_rollback|promote_history|induce|"
+                         "contextualize|contextualize_rollback|contextualize_history）")
 
     # ================= 洞察（P2：insight） =================
     #

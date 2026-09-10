@@ -23,7 +23,7 @@ import time
 import hashlib
 import threading
 
-from . import nodefile, protect, routing, subgraph, chain
+from . import nodefile, protect, routing, subgraph, chain, provenance, pooling
 from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
                      read_jsonl, sweep_stale_temps)
 
@@ -369,6 +369,9 @@ class MdCG:
                         "immutable": fm.get("immutable"),
                         # 自我状态卡标记：protect 据此豁免「不可覆盖」（仍不可遗忘）
                         "self_state": fm.get("self_state"),
+                        # G8 派生溯源：frontmatter 声明入索引 → 悬空巡检零读文件
+                        "derived_from": fm.get("derived_from") or [],
+                        "derived_relation": fm.get("derived_relation"),
                     }
         return nodes
 
@@ -390,6 +393,7 @@ class MdCG:
             confidence: float = 0.6, edges=None, verification_basis: str = None,
             non_applicable_conditions=None, override: bool = False,
             consistency: bool = False, on_conflict: str = "reject",
+            derived_from=None, relation: str = provenance.DEFAULT_RELATION,
             **extra) -> str:
         """写入一个节点。
 
@@ -401,6 +405,10 @@ class MdCG:
         consistency: 是否做节点间自动冲突检测（三级决策：情绪→反思→递归反思）。
         on_conflict: 冲突处置——"reject" 抛 ConsistencyError（默认）/
                      "defer" 不写盘返回 None / "record" 记录后放行。
+        derived_from:（G8 派生溯源）本节点来源节点 id，单个或列表。声明后写进
+                     frontmatter（单一真相源）并追加派生边到 <root>/_link.jsonl；
+                     **建链失败不阻断本次写入**（降级为告警 + .fail 台账留痕）。
+        relation: 派生关系名，默认 "derived_from"；允许值见 provenance.RELATIONS。
         """
         if layer not in LAYERS:
             raise ValueError(f"未知层：{layer}（允许：{LAYERS}）")
@@ -455,6 +463,13 @@ class MdCG:
             "evidence_count": 0, "positive_evidence": 0, "negative_evidence": 0,
         }
         fm.update(extra)
+        # G8 派生溯源：把「来源声明」写进 frontmatter（单一真相源），台账为派生物。
+        # 只声明事实、不做校验式拒绝——关系名非法仅回退默认值，不阻断写入。
+        parents = provenance.as_list(derived_from)
+        derived_rel = provenance.coerce_relation(relation) if parents else None
+        if parents:
+            fm["derived_from"] = parents
+            fm["derived_relation"] = derived_rel
         # 重要性 ≥0.7 自动打保护标记（对齐 tool_table：≥0.7 触发不可遗忘保护）
         if (float(importance or 0.0) >= protect.AUTO_PROTECT_IMPORTANCE
                 and not fm.get("protected")):
@@ -480,9 +495,18 @@ class MdCG:
             "protection_reason": fm.get("protection_reason"),
             "immutable": fm.get("immutable"),
             "self_state": fm.get("self_state"),
+            "derived_from": parents,
+            "derived_relation": derived_rel,
         })
         subgraph.invalidate_cache(self)
         chain.invalidate_cache(self)
+        # G8 常态化建链：仅对**新增**节点、仅在显式声明来源时建边。
+        # 硬约束：建链失败绝不阻断写入（record 永不抛，失败降级留痕）。
+        if parents:
+            provenance.record(self.root, node_id, parents,
+                              relation=derived_rel,
+                              batch=extra.get("batch"),
+                              actor=extra.get("actor"))
         return node_id
 
     def add_rejected(self, hypothesis: str, reason: str, verification_basis: str = "test",
@@ -739,7 +763,7 @@ class MdCG:
 
     def search(self, query: str, layer: str = None, k: int = 20,
                context=None, min_results: int = 1, record: bool = True,
-               include_neg: bool = True, judge: bool = True):
+               include_neg: bool = True, judge: bool = True, pools=None):
         """返回 (results, meta)。results = [(node_dict, score, qualification)]。
 
         meta 含 tier（性能层级）、scanned（读取节点数）、bucket（路由桶）、candidates。
@@ -749,10 +773,14 @@ class MdCG:
 
         include_neg：是否包含 rejected/unresolved 层（默认 True：负记忆可参与判定）
         judge：是否对每条结果做四态资格判定（默认 True）
+        pools：（§七 召回分池）None=关闭（默认，沿用 GLOBAL_CAP 平截，原行为）；
+               True=内置显式权重表；dict=自定义表（各池 cap_ratio 之和必须 == 1.0）。
+               也受 MDCG_POOLING=1 影响（载体侧开关）。分池只重分配截断额度、不抬高上限。
         """
         q = (query or "").strip()
         if not q:
             return [], {"tier": None, "reason": "empty_query", "scanned": 0}
+        pool_cfg = pooling.resolve(pooling.from_env(pools))
 
         terms = expand_query_terms(q)
         qb = bigrams(q)
@@ -795,12 +823,12 @@ class MdCG:
         big_scores = routing.big_domain_score_breakdown(terms)
 
         def try_stage(docs, tier):
-            scored = self._score(docs, q, qb)
+            scored = self._score(docs, q, qb, pool_cfg)
             valid = sum(1 for _, s in scored if s > 0)
             if valid >= min_results:
                 return self._emit(scored, k, tier, stat, route_bucket, record,
                                   len(docs), judge, context, neg_coverage,
-                                  big_domain, big_scores)
+                                  big_domain, big_scores, pool_cfg)
             return None
 
         # T0/T1：路由桶内
@@ -816,22 +844,30 @@ class MdCG:
                 if out:
                     return out
 
-        # T2：跨桶 LIKE
+        # T2：跨桶 LIKE（§七 截断点：分池截断，索引类不再挤掉知识类）
         docs_all = self._read_many(entries, stat)
         hits = [d for d in docs_all if self._like(d[2], d[1], terms)]
-        if len(hits) > GLOBAL_CAP:
-            hits = hits[:GLOBAL_CAP]
+        stat["pre_cap"] = len(hits)
+        stat["cap"] = GLOBAL_CAP
+        hits, _rep = pooling.cut_report(hits, GLOBAL_CAP, pools=pool_cfg,
+                                        key_of=pooling.doc_key)
+        pooling.record_audit(stat, _rep)
         out = try_stage(hits, TIER_GLOBAL_LIKE)
         if out:
             return out
 
-        # T3：全量兜底
+        # T3：全量兜底（同为分池截断点）
         docs_all.sort(key=lambda d: (-float(d[1].get("importance") or 0),
                                      -float(d[1].get("created_at") or 0)))
-        scored = self._score(docs_all[:GLOBAL_CAP], q, qb)
+        stat["pre_cap"] = len(docs_all)
+        stat["cap"] = GLOBAL_CAP
+        picked, _rep = pooling.cut_report(docs_all, GLOBAL_CAP, pools=pool_cfg,
+                                          key_of=pooling.doc_key)
+        pooling.record_audit(stat, _rep)
+        scored = self._score(picked, q, qb, pool_cfg)
         return self._emit(scored, k, TIER_GLOBAL_SCAN, stat, route_bucket,
-                          record, min(len(docs_all), GLOBAL_CAP), judge,
-                          context, neg_coverage, big_domain, big_scores)
+                          record, len(picked), judge,
+                          context, neg_coverage, big_domain, big_scores, pool_cfg)
 
     def _read_many(self, entries, stat):
         docs = []
@@ -854,20 +890,24 @@ class MdCG:
         body = nodefile.positive_body(content)
         return any(t in body or t in tags for t in terms)
 
-    def _score(self, docs, q, qb):
+    def _score(self, docs, q, qb, pools=None):
         scored = []
         for e, fm, c in docs:
             nb = bigrams(c)
             sim = len(qb & nb) / len(qb) if qb else 0.0
             tag_bonus = 0.05 if any(str(t) in q or q in str(t)
                                     for t in (fm.get("tags") or [])) else 0.0
+            raw = min(1.0, sim + tag_bonus)
+            if pools:                       # §七 降权：乘数只来自显式权重表（可复算）
+                raw = max(0.0, min(1.0, raw * pooling.weight_of(
+                    fm.get("id") or e["path"], e, pools)))
             scored.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
-                            "content": c, "path": e["path"]},
-                           min(1.0, sim + tag_bonus)))
+                            "content": c, "path": e["path"]}, raw))
         return scored
 
     def _emit(self, scored, k, tier, stat, bucket, record, candidates,
-              judge, context, neg_coverage, big_domain=None, big_scores=None):
+              judge, context, neg_coverage, big_domain=None, big_scores=None,
+              pools=None):
         scored.sort(key=lambda x: (-x[1],
                                    -float(x[0]["frontmatter"].get("importance") or 0)))
         results = scored[:k]
@@ -894,8 +934,18 @@ class MdCG:
             out.append((entry, 1.0, qual))
         if record and results:
             self.record_access([r[0]["id"] for r in results], tier)
+        pool_plan = pooling.plan(stat.get("cap") or GLOBAL_CAP, pools)
+        if stat.get("pool_taken"):
+            # 各池「候选/计划额度/实取/被挤掉」——计划额度之外的审计面
+            # taken：含空池回流后的实取；lost：`max(0, cands - taken)`（被池内额度挤掉）
+            pool_plan["taken"] = dict(stat["pool_taken"])
+            pool_plan["cands"] = dict(stat.get("pool_cands") or {})
+            pool_plan["lost"] = dict(stat.get("pool_lost") or {})
         return out, {"tier": tier, "scanned": stat["scanned"], "bucket": bucket,
                      "candidates": candidates,
+                     # §七 分池审计：截断前候选数 / 全局额度 / 生效分池计划
+                     "pre_cap": stat.get("pre_cap"), "cap": stat.get("cap"),
+                     "pools": pool_plan,
                      "covered_neg": [nc["path"] for nc in neg_coverage],
                      # 阶段 1 大域收敛结果 + 完整打分明细（白箱可审计）
                      "big_domain": big_domain,

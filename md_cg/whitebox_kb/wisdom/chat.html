@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>灵枢 · 你的随身智能</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --ink: #1a1a1a;
+    --ink-soft: #6b7280;
+    --accent: #7c5cff;
+    --accent-soft: #f0edff;
+    --user-bubble: #7c5cff;
+    --bot-bubble: #ffffff;
+    --line: #e5e7eb;
+    --radius: 18px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--ink); height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    padding: 14px 18px; background: var(--card); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  }
+  .avatar {
+    width: 38px; height: 38px; border-radius: 50%; background: var(--accent);
+    display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; font-weight: 700;
+  }
+  .title { font-size: 16px; font-weight: 600; }
+  .subtitle { font-size: 12px; color: var(--ink-soft); }
+  #chatBox {
+    flex: 1; overflow-y: auto; padding: 16px 14px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .msg { display: flex; gap: 8px; max-width: 88%; animation: fadeIn .25s ease; }
+  .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+  .msg .bubble {
+    padding: 10px 14px; border-radius: var(--radius); font-size: 15px; line-height: 1.55;
+    word-break: break-word; box-shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
+  .msg.bot .bubble { background: var(--bot-bubble); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .msg.user .bubble { background: var(--user-bubble); color: #fff; border-bottom-right-radius: 4px; }
+  .msg .mini-avatar { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; font-size: 14px;
+    display: flex; align-items: center; justify-content: center; }
+  .msg.bot .mini-avatar { background: var(--accent-soft); color: var(--accent); }
+  .msg.user .mini-avatar { background: #e0e0e0; color: #999; }
+  .hits {
+    margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .hit-tag {
+    font-size: 11px; padding: 3px 8px; border-radius: 20px; background: var(--accent-soft);
+    color: var(--accent); cursor: pointer;
+  }
+  .honest-note {
+    margin-top: 8px; font-size: 12px; color: #b45309; background: #fef3c7;
+    padding: 6px 10px; border-radius: 8px;
+  }
+  .typing { color: var(--ink-soft); font-size: 13px; padding: 4px 2px; }
+  .typing::after { content: "…"; animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  footer {
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: var(--card);
+    border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;
+  }
+  #input {
+    flex: 1; border: 1px solid var(--line); border-radius: 22px; padding: 10px 16px; font-size: 15px;
+    outline: none; resize: none; max-height: 100px; min-height: 42px; font-family: inherit;
+  }
+  #input:focus { border-color: var(--accent); }
+  #sendBtn {
+    width: 42px; height: 42px; border-radius: 50%; border: none; background: var(--accent); color: #fff;
+    font-size: 18px; cursor: pointer; flex-shrink: 0;
+  }
+  #sendBtn:active { transform: scale(.94); }
+  .welcome {
+    text-align: center; color: var(--ink-soft); padding: 24px 20px; font-size: 14px; line-height: 1.8;
+  }
+  .welcome .big { font-size: 34px; display: block; margin-bottom: 8px; }
+  .suggest { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
+  .suggest button {
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    padding: 8px 14px; border-radius: 20px; font-size: 13px; cursor: pointer;
+  }
+  .suggest button:hover { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div class="avatar">灵</div>
+  <div>
+    <div class="title">灵枢</div>
+    <div class="subtitle">你的随身智能 · 白箱 · 本地 · 记得你</div>
+  </div>
+</header>
+
+<div id="chatBox">
+  <div class="welcome">
+    <span class="big">🌿</span>
+    你好呀，我是灵枢。<br>
+    知识、生活、心情，都可以和我聊。<br>
+    我不会瞎编——不知道的会直说。
+    <div class="suggest">
+      <button onclick="ask('水为什么会烧开？')">水为什么会烧开？</button>
+      <button onclick="ask('什么是熵？')">什么是熵？</button>
+      <button onclick="ask('我今天好累')">我今天好累</button>
+      <button onclick="ask('我emo了')">我emo了</button>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <textarea id="input" rows="1" placeholder="说点什么…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
+  <button id="sendBtn" onclick="send()">➤</button>
+</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let sessionId = localStorage.getItem('lingshu_session') || ('s' + Date.now() + Math.random().toString(36).slice(2, 6));
+localStorage.setItem('lingshu_session', sessionId);
+
+function addMsg(text, who, extra) {
+  const box = $('chatBox');
+  const div = document.createElement('div');
+  div.className = 'msg ' + who;
+  const icon = who === 'bot' ? '灵' : '我';
+  let html = `<div class="mini-avatar">${icon}</div><div class="bubble">${esc(text)}`;
+  if (extra && extra.hits && extra.hits.length) {
+    html += '<div class="hits">' + extra.hits.map(h => `<span class="hit-tag" onclick="ask('${esc(h.name)}是什么？')">${esc(h.name)}</span>`).join('') + '</div>';
+  }
+  if (extra && extra.honest) html += '<div class="honest-note">注：这条我没有十足把握，是我最接近的猜测，不装懂。</div>';
+  html += '</div>';
+  div.innerHTML = html;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function addTyping() {
+  const box = $('chatBox');
+  const div = document.createElement('div');
+  div.className = 'msg bot';
+  div.innerHTML = '<div class="mini-avatar">灵</div><div class="typing" id="typing">正在想</div>';
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  return div;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function send() {
+  const input = $('input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  addMsg(text, 'user');
+  const typing = addTyping();
+  try {
+    const r = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, session_id: sessionId }),
+    });
+    const d = await r.json();
+    typing.remove();
+    addMsg(d.reply, 'bot', d);
+  } catch (e) {
+    typing.remove();
+    addMsg('哎呀，我好像没连上，稍等再试？', 'bot');
+  }
+}
+
+function ask(text) {
+  $('input').value = text;
+  send();
+}
+
+$('input').focus();
+</script>
+</body>
+</html>

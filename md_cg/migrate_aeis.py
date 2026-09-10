@@ -29,6 +29,7 @@ import sqlite3
 import sys
 import time
 
+from . import subgraph
 from .mdcos import MdCGSecure
 from .security import Principal, DEFAULT_SENSITIVITY
 
@@ -96,8 +97,7 @@ def load_edges(db: str):
     out = collections.defaultdict(list)
     for src, tgt, rel, conf, ver in con.execute(
             "SELECT source_id, target_id, relation_type, confidence, verified FROM edges"):
-        out[src].append({"target": tgt, "type": rel,
-                         "confidence": _f(conf, 0.7), "verified": int(ver or 0)})
+        out[src].append(subgraph.normalize_edge(tgt, rel, _f(conf, 0.7), int(ver or 0)))
     con.close()
     return out
 
