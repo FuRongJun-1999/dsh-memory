@@ -1,17 +1,23 @@
 /**
- * llm_adapter.ts —— 白箱 LLM 服务商（WhiteboxLlmAdapter）
+ * whitebox_llm.ts —— 白箱 LLM 服务商适配器（**本地库 / 已下线**）
  *
- * 设计哲学：白箱本身就是 LLM 模型（对外完全对齐 dsh-llm 协议），内部白箱化。
- *  - provider: 'lingshu-whitebox'（设置页「模型」可见，可被 agent 默认选用）
- *  - stream(): 调灵枢 wisdom_chat（白箱 CCG 条件路由/组合生成/自校验）
- *  - token 计数：输入/输出/缓存命中（白箱直答 = 全部 cacheRead，零推理成本）
- *  - 降级：白箱无把握（route=llm / 桥未就绪）→ 可选 fallback（后续接 deepseek）
+ * 状态（2026-09-10 决定）：白箱 LLM 功能尚不完善，**已从插件运行时下线**——
+ * `src/index.ts` 不再调用 `installWhiteboxLlm`，DSH 设置页不再出现
+ * `lingshu-whitebox` provider。本文件保留为 **LIB 本地库**，供：
+ *   · 未来白箱成熟后重新启用（恢复 installWhiteboxLlm 调用即可）；
+ *   · 直接以库方式复用其 `isCardFormat()` 等纯函数。
  *
+ * 白箱的「编码 / 已有知识回答」能力验证改由 md_cg 显式调用：
+ *   md_cg/whitebox.py → MCP `cg(op=whitebox, action=verify_encoding|verify_existing)`
+ *   见 docs/功能调用映射表_v0.1.md。
+ *
+ * 原设计：provider 'lingshu-whitebox'，stream() 调灵枢 wisdom_chat，
+ * 白箱直答 = 全部 cacheRead（零推理成本），未命中降级 deepseek-official。
  * 结构仿官方 @deepseek-ai/dsh-llm-deepseek adapter。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { LingshuBridge } from './bridge.js'
+import type { LingshuBridge } from '../bridge.js'
 
 // ---- dsh-llm 类型（运行时仅用结构；类型从包引入保持协议对齐）----
 // 不 import 运行时符号，仅引用类型，避免强依赖 dsh-llm 未装时报错。

@@ -3,7 +3,7 @@
  * ① 不同 x-client-id → 不同 session_id + 不同转录文件（互不串线）
  * ② 无 header → 落 shared（兼容旧客户端）
  */
-import { installRoleplayWeb } from '../src/roleplay_web.ts'
+import { installRoleplayWeb } from '../src/lib/roleplay_web.ts'
 import { mkdtempSync, rmSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

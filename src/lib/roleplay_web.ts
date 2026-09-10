@@ -436,7 +436,7 @@ window.addEventListener('resize', function () { if (chat) chat.scrollTop = chat.
 </body>
 </html>`;
 /** 在 webServer 上挂载 /roleplay 前缀路由（页面 + API）。失败不影响插件主体。 */
-export async function installRoleplayWeb(ctx, bridge, config, disposers) {
+export async function installRoleplayWeb(ctx, bridge, config, disposers, mdcg: any = null) {
     try {
         // 注意：不能直接读 ctx.webServer——Cordis 未声明 inject 的属性访问会抛
         // "cannot get property without inject"；ctx.get() 安全返回 undefined。
@@ -445,6 +445,19 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
             ctx.logger.warn('dsh-memory: webServer 服务不可用，跳过角色扮演网页挂载');
             return;
         }
+        // 认知图落图（显式调用 md_cg；md_cg = 唯一真源，AEIS 仅负责生成）。
+        // 显式映射：MdcgClient.writeTranscript / writeRole → MCP cg(op=write)
+        // 见 docs/功能调用映射表_v0.1.md。落图失败不影响对话主流程。
+        const toGraph = async (label, fn) => {
+            if (!mdcg || !mdcg.isReady())
+                return;
+            try {
+                await fn(mdcg);
+            }
+            catch (err) {
+                ctx.logger.warn(`dsh-memory: 角色扮演落图失败（${label}）：${String(err)}`);
+            }
+        };
         // P1 修复（GPT 审查）：
         // ① 请求体大小限制（此前 for-await 无限累加，恶意请求可制造内存压力）
         const readBody = async (req, maxBytes = 1_000_000) => {
@@ -673,6 +686,14 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                             impResult = { error: String((e && e.message) || e) };
                         }
                     }
+                    // 导入项显式落认知图：memory→knowledge / anchors→self / values→structural。
+                    // 显式映射：MdcgClient.write → MCP cg(op=write)。
+                    const layerForKind = { memory: 'knowledge', anchors: 'self', values: 'structural' }[kind] || 'knowledge';
+                    void toGraph(`import-${kind}`, (g) => Promise.all(items.map((it, i) => g.write(
+                        typeof it === 'string' ? it : (it.text || it.content || JSON.stringify(it)),
+                        { node_id: `roleplay_${role}_${kind}_${i}`, layer: layerForKind,
+                          tags: ['roleplay', `role:${role}`, `roleplay:${kind}`], importance: 0.6 },
+                    ))));
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
                                         // P1 修复（GPT 审查）：引擎导入失败不得返回 ok:true（前端会显示「已保存」）
                     const importOk = !(impResult && (impResult.error || impResult.isError));
@@ -740,6 +761,7 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                         return;
                     }
                     appendTranscript(role, { time: Date.now(), role: 'user', text: p.message }, cid);
+                    void toGraph('user-turn', (g) => g.writeTranscript(role, cid, 'user', p.message));
                     const r = await bridge.callTool('roleplay_chat', {
                         message: p.message, role_id: role, session_id: sessionFor(role, cid), data_dir: roleDataDir,
                     });
@@ -758,6 +780,7 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                         replyText = applyTranslate(replyText, getTranslations(role), 'out');
                     }
                     appendTranscript(role, { time: Date.now(), role: 'bot', text: replyText, route: parsed.route ?? '', memories: parsed.memories ?? undefined }, cid);
+                    void toGraph('assistant-turn', (g) => g.writeTranscript(role, cid, 'assistant', replyText, { route: parsed.route ?? '' }));
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
                     res.end(JSON.stringify({ reply: replyText, route: parsed.route ?? '', memories: parsed.memories ?? undefined, error: parsed.error ?? undefined }));
                     return;
@@ -825,6 +848,7 @@ export async function installRoleplayWeb(ctx, bridge, config, disposers) {
                     const r = await bridge.callTool('role_create', {
                         role_id: p.role_id, name: p.name || '', scenario: p.scenario || '', first_mes: p.first_mes || '', data_dir: roleDataDir,
                     });
+                    void toGraph('role-create', (g) => g.writeRole(p.role_id, JSON.stringify({ name: p.name || '', scenario: p.scenario || '', first_mes: p.first_mes || '' })));
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
                     res.end(JSON.stringify({ ok: true, result: r }));
                     return;

@@ -4,7 +4,7 @@
  * 此前写根对象 {r:{name:'Changed'}} 但 GET 列表读嵌套旧值 Nested。
  * 修复后：写保持嵌套结构 → GET 读到 Changed。
  */
-import { installRoleplayWeb } from '../src/roleplay_web.ts'
+import { installRoleplayWeb } from '../src/lib/roleplay_web.ts'
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'

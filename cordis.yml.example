@@ -47,6 +47,16 @@
       enabled: true
       heartbeatMs: 600000        # 10min，任务不阻塞心跳
 
+    # 认知图（md_cg）= 记忆唯一真源；AEIS 降为能力库。
+    # 插件侧唯一显式入口：src/lib/mdcg_client.ts（每个方法 = 一条 MCP cg/stg 调用）。
+    # 功能 → 代码 对照见 docs/功能调用映射表_v0.1.md
+    mdcg:
+      enabled: true
+      root: 'D:/data/mdcg'       # MDCG_ROOT
+      actor: 'dsh-memory'        # MDCG_ACTOR：私有内容按 (tenant, actor) 派生 DEK
+      tenant: 'default'          # MDCG_TENANT：须与迁移脚本 --tenant 一致
+      clearance: 'private'       # MDCG_CLEARANCE：可读写密级上限
+
 # 多实例示例：第二个灵枢（不同记忆库/身份/命名空间）
 # - id: lingshu-memory-2
 #   name: '@furongjun1999/dsh-memory'

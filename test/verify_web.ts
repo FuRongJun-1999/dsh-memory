@@ -5,7 +5,7 @@
  * ③ body > 1MB → 413
  * ④ 引擎导入失败（isError）→ ok:false（此前恒 ok:true）
  */
-import { installRoleplayWeb } from '../src/roleplay_web.ts'
+import { installRoleplayWeb } from '../src/lib/roleplay_web.ts'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

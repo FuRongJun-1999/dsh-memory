@@ -25,7 +25,9 @@ import { homedir } from 'node:os'
 import { LingshuBridge, type McpCallResult } from './bridge.js'
 import { registerLingshuTools, type ToolSelection } from './tools.js'
 import { installMemoryHooks, type MemoryHooksOptions } from './hooks.js'
-import { installRoleplayWeb } from './roleplay_web.js'
+// LIB 本地库：角色扮演网页 / 互维维护 / 白箱 LLM 适配器统一收在 src/lib/。
+import { installRoleplayWeb } from './lib/roleplay_web.js'
+import { MdcgClient } from './lib/mdcg_client.js'
 
 /**
  * 调试探针：记录 apply 失败到独立文件（绕过 DSH 日志系统）。
@@ -88,6 +90,14 @@ export interface Config {
     enabled: boolean
     heartbeatMs: number
   }
+  /** 认知图（md_cg）= 记忆唯一真源；AEIS 降为能力库。 */
+  mdcg: {
+    enabled: boolean
+    root: string
+    actor: string
+    tenant: string
+    clearance: string
+  }
 }
 
 export const Config: z<Config> = z.object({
@@ -125,6 +135,18 @@ export const Config: z<Config> = z.object({
       heartbeatMs: z.number().default(10 * 60 * 1000),
     })
     .default({ enabled: false, heartbeatMs: 10 * 60 * 1000 }),
+  /** 认知图（md_cg）：记忆唯一真源。root 为 MDCG_ROOT（相对路径按工作目录解析）。
+   *  tenant/actor 决定私有内容加解密的身份：与 migrate_roleplay 的
+   *  --tenant/--actor 必须一致，否则读不到已迁移节点。 */
+  mdcg: z
+    .object({
+      enabled: z.boolean().default(true),
+      root: z.string().default('data/mdcg'),
+      actor: z.string().default('dsh-memory'),
+      tenant: z.string().default('default'),
+      clearance: z.string().default('private'),
+    })
+    .default({ enabled: true, root: 'data/mdcg', actor: 'dsh-memory', tenant: 'default', clearance: 'private' }),
 })
 
 /**
@@ -161,6 +183,33 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.logger.warn(`dsh-memory: ${message}，继续后台重试`)
   }
 
+  // 认知图（md_cg）= 记忆唯一真源。AEIS 降为能力库（白箱 / 角色生成等）。
+  // 插件侧唯一显式入口：src/lib/mdcg_client.ts（每个方法 = 一条 MCP 调用）。
+  let mdcg: MdcgClient | null = null
+  if (config.mdcg.enabled) {
+    mdcg = new MdcgClient({
+      python: config.python,
+      root: config.mdcg.root,
+      actor: config.mdcg.actor,
+      tenant: config.mdcg.tenant,
+      clearance: config.mdcg.clearance,
+      identity: config.identity,
+      env: config.env,
+      timeoutMs: config.toolCallTimeoutMs,
+      maxRetryDelayMs: config.maxRetryDelayMs,
+    })
+    mdcg.start()
+    const mdcgReady = await mdcg.waitReady()
+    if (mdcgReady) {
+      ctx.logger.info(`dsh-memory: 认知图已就绪（MDCG_ROOT=${config.mdcg.root}）`)
+    } else {
+      ctx.logger.warn(
+        `dsh-memory: 认知图未就绪（MDCG_ROOT=${config.mdcg.root}），`
+        + '互维将回退 AEIS 能力库通道（迁移期兼容）',
+      )
+    }
+  }
+
   const disposers: Array<() => void> = []
   let toolsPoll: NodeJS.Timeout | null = null
   try {
@@ -194,15 +243,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     }
     installMemoryHooks(ctx, bridge, config.memory)
     // 角色扮演网页（同源挂载 /roleplay，复用本插件 bridge）
-    await installRoleplayWeb(ctx, bridge, config, disposers)
+    // mdcg：角色定义/对话转录显式落认知图（md_cg = 唯一真源）。
+    await installRoleplayWeb(ctx, bridge, config, disposers, mdcg)
 
-    // 白箱 LLM 服务商（v0.4 新能力）：把灵枢注册为 DSH 的 provider，
-    // Web/QQ/飞书等所有会话可选「白箱灵枢」模型——白箱直答（零 LLM），
-    // 输入/输出/缓存命中 token 计数对齐 dsh-llm 协议。动态检测 llm 服务。
-    {
-      const { installWhiteboxLlm } = await import('./llm_adapter.js')
-      disposers.push(installWhiteboxLlm(ctx, bridge))
-    }
+    // 白箱 LLM provider 已下线（2026-09-10）：功能尚不完善，不再注册
+    // 'lingshu-whitebox' provider。适配器保留为 LIB 本地库
+    // （src/lib/whitebox_llm.ts），白箱能力改由 md_cg 显式调用验证：
+    //   MCP cg(op=whitebox, action=verify_encoding|verify_existing)
+    // 见 docs/功能调用映射表_v0.1.md。
 
     // 互维维护（v1.1）：心跳写戳 + 守护 A + 任务验证双通道
     if (config.mutual.enabled) {
@@ -214,13 +262,23 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       if (!hasTimer) {
         ctx.logger.warn('dsh-memory: timer 服务不可用，跳过互维维护（mutual.enabled=true 但无 timer）')
       } else {
-        const { installMutualMaintenance } = await import('./mutual.js')
+        const { installMutualMaintenance } = await import('./lib/mutual.js')
         // 双通道 hooks：白箱 base_verify（走 bridge 调灵枢）+ DeepSeek 复核
         installMutualMaintenance(
           ctx as never,
           { heartbeatMs: config.mutual.heartbeatMs },
           {
+            // memory 通道 → 认知图（md_cg = 唯一真源）。
+            // 显式调用：MdcgClient.verifyClaim → cg(op=read) + 依据强度判定。
+            // 认知图未就绪时回退 AEIS 能力库 wisdom_verify（迁移期兼容）。
             verify: async (claim: string) => {
+              if (mdcg?.isReady()) {
+                try {
+                  return await mdcg.verifyClaim(claim)
+                } catch (err) {
+                  ctx.logger.warn(`dsh-memory: 认知图核验失败，回退能力库：${String(err)}`)
+                }
+              }
               const r = await bridge.callTool('wisdom_verify', { knowledge: claim, limit: 4 })
               // P1 修复（GPT 审查）：结果在 content[].text（JSON），非 .result
               const text = mcpText(r)
@@ -258,6 +316,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   } catch (err) {
     // 探针：记录 apply 失败的具体错误（定位插件加载失败根因）
     probeApplyError(err)
+    mdcg?.dispose()
     bridge.dispose()
     throw err
   }
@@ -265,8 +324,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.effect(() => {
     return () => {
       for (const dispose of disposers) dispose()
+      mdcg?.dispose()
       bridge.dispose()
-      ctx.logger.info('dsh-memory: 已卸载（工具已注销，灵枢进程已退出）')
+      ctx.logger.info('dsh-memory: 已卸载（工具已注销，灵枢/认知图进程已退出）')
     }
   }, 'dsh-memory')
 }

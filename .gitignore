@@ -1,6 +1,12 @@
 node_modules/
-lib/
+/lib/
 *.tsbuildinfo
+
+# CodeBuddy 本地配置与计划（不入库）
+/.codebuddy/
+
+# md_cg 运行时数据（含 _keys.json 密钥，绝不入库）
+/data/mdcg/
 
 # 历史遗留参考文件（防 git add -A 误提交，issue#8 修复时曾污染 360 文件）
 /awesome*
