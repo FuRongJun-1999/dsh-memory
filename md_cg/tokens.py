@@ -56,7 +56,8 @@ ALL_LAYERS = ("anchor", "structural", "knowledge", "contextual", "self",
 ALL_OPS = ("info", "route", "read", "write", "goal", "recent", "verify",
            "review", "forget", "protect", "identity", "consistency",
            "metacognition", "self_state", "evolution", "sustain", "scrub",
-           "predict", "causal", "whitebox", "index_code", "ref", "theory", "link")
+           "predict", "causal", "whitebox", "index_code", "index_doc", "ref",
+           "theory", "link")
 
 
 class TokenError(Exception):

@@ -532,7 +532,11 @@ KERNEL_TOOLS = [
                        "code_ref 指回源文件，不复制完整代码（后缀按提取器注册表："
                        ".py 走精确 AST、.ts/.js 为弱提取器；返回 truncated 截断状态"
                        "与 skipped_suffixes 覆盖缺口，不再静默不完整）；"
-                       "op=ref：按 code_ref 回读源区间（需 node_id 或 ref 对象，"
+                       "op=index_doc：按目录索引 md 文档的**章节**（只切 level<=3，"
+                       "只存标题+摘要、不存全文），doc_ref 指回原文行区间；layer 与"
+                       "密级显式声明（默认 knowledge/internal，路径命中私有提示降为 "
+                       "private）；正文里的 --- 与围栏代码块内的 # 不会被误切；"
+                       "op=ref：按 code_ref/doc_ref 回读源区间（需 node_id 或 ref 对象，"
                        "root 可覆盖；返回 text 与 hash_match，hash_match=False "
                        "即源已漂移、索引位置不再可信）；"
                        "op=whitebox：显式调用白箱能力库（AEIS 已下线为本地库）并验证其"
@@ -547,7 +551,7 @@ KERNEL_TOOLS = [
             op=_p("string", "route|read|write|verify|review|protect|identity|"
                             "consistency|metacognition|self_state|evolution|sustain|"
                             "scrub|predict|causal|"
-                            "forget|goal|recent|info|index_code|ref|whitebox|"
+                            "forget|goal|recent|info|index_code|index_doc|ref|whitebox|"
                             "theory|link", True),
             intent=_p("string", "route 的查询意图"), query=_p("string", "read 的查询"),
             goal=_p("string", "goal op 的目标文本；read 的定向目标（缺省用活跃目标）"),
@@ -618,12 +622,14 @@ KERNEL_TOOLS = [
             redteam=_p("object", "红队裁决 {verdict:pass|reject, issues:[], round:n}"),
             issues=_p("array", "问题清单（红队打回理由）"),
             reason=_p("string", "原因"), force=_p("boolean", "restore 强制"),
-            path=_p("string", "index_code 的目录（大域）；link import 的证据包文件"),
-            patterns=_p("array", "index_code 的文件后缀，默认取提取器注册表"
-                                 "（.py/.ts/.tsx/.js/.mjs/.cjs）"),
-            max_files=_p("integer", "index_code 最多扫描文件数（被截断时返回里会"
-                                    "显式给 truncated，不再静默不完整）"),
-            ref=_p("object", "ref op：直接给 code_ref 对象（与 node_id 二选一）"),
+            path=_p("string", "index_code/index_doc 的目录（大域）；link import 的证据包文件"),
+            patterns=_p("array", "index_code/index_doc 的文件后缀，默认取各自注册表"
+                                 "（代码 .py/.ts/.tsx/.js/.mjs/.cjs；文档 .md/.markdown）"),
+            max_files=_p("integer", "index_code/index_doc 最多扫描文件数（被截断时"
+                                    "返回里会显式给 truncated，不再静默不完整）"),
+            sensitivity=_p("string", "index_doc 的密级（默认 internal 并显式写入；"
+                                     "路径命中私有提示时保守降为 private）"),
+            ref=_p("object", "ref op：直接给 code_ref/doc_ref 对象（与 node_id 二选一）"),
             root=_p("string", "ref op：覆盖 ref 里记录的 root（索引结果的跨机器搬迁）"),
             name=_p("string", "sustain：心跳名（默认 md_cg）"),
             session=_p("string", "sustain：会话 id（resume/note 用）"),
@@ -1535,6 +1541,49 @@ def _cg_call(cg, a):
                            f"调大 max_files/max_items 后重跑。" + note)
         return out
 
+    if op == "index_doc":
+        from . import docindex
+        root = a.get("path") or cg.root
+        if not os.path.isdir(root):
+            return {"ok": False, "error": f"目录不存在：{root}"}
+        items, errors, stats = docindex.index_dir(
+            root, patterns=a.get("patterns"),
+            max_files=int(a.get("max_files") or 500))
+        layer = a.get("layer") or "knowledge"
+        ids, sens_counts = [], {}
+        for it in items:
+            nid = docindex.node_id(it)
+            # 密级显式写入 frontmatter，不依赖节点默认值（计划 §1.3-3 裁定）：
+            # 默认 internal；路径段命中私有提示再保守降为 private（只可能更严）。
+            sens, _why = docindex.sensitivity_for(it["path"], a.get("sensitivity"))
+            sens_counts[sens] = sens_counts.get(sens, 0) + 1
+            cg.add(nid, docindex.render(it), layer=layer,
+                   tags=["doc", "doc:md", f"level:{it['level']}"],
+                   condition_space={"observation_position":
+                                    it["path"].split("/")[0]},
+                   verification_basis="data", sensitivity=sens,
+                   doc_ref={"path": it["path"], "heading": it["heading"],
+                            "heading_path": it["heading_path"],
+                            "level": it["level"], "lineno": it["lineno"],
+                            "end": it["end"], "anchor": it["anchor"],
+                            "lang": it.get("lang"), "precise": True,
+                            "hash": it.get("hash"), "root": root})
+            ids.append(nid)
+        note = ("只索引章节（level<=3）的标题与摘要，未存全文；正文用 "
+                "frontmatter.doc_ref + op=ref 回读。layer 与密级按计划 §1.3-3 "
+                "显式声明（默认 knowledge / internal，路径命中私有提示降为 "
+                "private），不依赖节点默认值")
+        out = {"ok": True, "indexed": len(ids), "error_count": len(errors),
+               "errors": errors[:10], "ids": ids[:20], "files": stats["files"],
+               "truncated": stats["truncated"],
+               "skipped_suffixes": stats["skipped_suffixes"],
+               "layer": layer, "sensitivity": sens_counts, "note": note}
+        if stats["truncated"]:
+            out["truncated_reason"] = stats["truncated_reason"]
+            out["note"] = (f"⚠ 索引被截断，结果不完整（{stats['truncated_reason']}），"
+                           f"调大 max_files/max_items 后重跑。" + note)
+        return out
+
     if op == "ref":
         return _ref_call(cg, a)
 
@@ -1550,9 +1599,11 @@ def _ref_call(cg, a):
     复算被引用行的哈希，因此它同时也是**漂移检测**：源文件改过之后，回读会
     明确回 stale=True，而不是继续返回一个已经错位的区间。
 
-    ref 来源二选一：传 `node_id`（取该节点的 frontmatter.code_ref），
-    或直接传 `ref` 对象。`root` 可用参数覆盖（ref 里的 root 是索引时的机器本地
-    绝对路径，跨机器搬迁后需显式给 root）。
+    ref 来源二选一：传 `node_id`（取该节点的 frontmatter.code_ref 或 doc_ref），
+    或直接传 `ref` 对象。代码索引节点与文档索引节点共用本入口——两者的区间
+    语义一致（相对 path + lineno..end + hash + root），只是 ref 字段名不同。
+    `root` 可用参数覆盖（ref 里的 root 是索引时的机器本地绝对路径，跨机器搬迁
+    后需显式给 root）。
     """
     from . import codeindex
     nid = (a.get("node_id") or "").strip()
@@ -1562,11 +1613,19 @@ def _ref_call(cg, a):
         if not node:
             return {"ok": False, "error": f"节点不存在：{nid}"}
     ref = a.get("ref") if isinstance(a.get("ref"), dict) else None
+    ref_kind = "ref"
     if ref is None and node is not None:
-        ref = (node.get("frontmatter") or {}).get("code_ref")
+        fm = node.get("frontmatter") or {}
+        ref = fm.get("code_ref")
+        if ref:
+            ref_kind = "code_ref"
+        else:
+            ref = fm.get("doc_ref")
+            if ref:
+                ref_kind = "doc_ref"
     if not ref:
         return {"ok": False,
-                "error": "该节点没有 code_ref（不是代码索引节点）"}
+                "error": "该节点没有 code_ref/doc_ref（不是索引节点）"}
     rel = ref.get("path") or ""
     root = a.get("root") or ref.get("root") or ""
     if not root:
@@ -1588,13 +1647,13 @@ def _ref_call(cg, a):
     got = codeindex.region_hash(lines, lineno, end)
     expect = ref.get("hash")
     match = (got == expect) if expect else None
-    return {"ok": True, "ref": ref, "text": text,
+    return {"ok": True, "ref": ref, "ref_kind": ref_kind, "text": text,
             "total_lines": len(lines),
             "hash": got, "hash_expected": expect, "hash_match": match,
             "stale": bool(expect) and not match,
             "precise": bool(ref.get("precise", True)),
             "note": "hash_match=False 表示源已漂移，索引位置不再可信，需重跑 "
-                    "index_code 重建；precise=False 表示该后缀是弱提取器，"
+                    "index_code / index_doc 重建；precise=False 表示该后缀是弱提取器，"
                     "区间本身就是上界（不是精确范围）。"}
 
 
