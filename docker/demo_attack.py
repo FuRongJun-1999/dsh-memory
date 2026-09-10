@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, "/app")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 _REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                     "..", "..", ".."))
+                                     "..", "..", "AEIS"))
 for p in ["/app/aeis", _REPO]:
     if os.path.isdir(p):
         sys.path.insert(0, p)

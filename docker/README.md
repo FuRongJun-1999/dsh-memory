@@ -19,10 +19,11 @@ bash build.sh
 curl http://127.0.0.1:8080/status
 ```
 
-> **不需要 Docker？** 在任意 Python 环境安装 aeis（零外部依赖）：
-> - 离线最稳：`pip install aeis-0.3.0-py3-none-any.whl`（位于 `aeis/dist/`）
-> - 在线：`pip install "aeis @ git+https://github.com/FuRongJun-1999/CommonTrustProtocol@main#subdirectory=aeis"`
-> - 然后 `python server.py` 即可跑 HTTP 记忆服务
+> **不需要 Docker？** 本体（大脑 md_cg）随插件包自带，无需单独安装：
+> - 直接 `node dist/index.js`（或 `npx @lingxu/dsh-memory`）即得完整记忆能力
+> - 若要单跑本目录的 HTTP 服务，需 aeis 源码：三层拆分 S6 后它位于身体仓 lingshu-body
+>   （`AEIS/aeis`），用 `PYTHONPATH=<AEIS 路径> python server.py` 启动
+> - 旧路径（`CommonTrustProtocol/aeis/` 下的 wheel 与 `#subdirectory=aeis`）已于 S6 下线
 
 ## 🔧 HTTP API
 

@@ -16,7 +16,7 @@ import time
 
 sys.path.insert(0, "/app")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-for p in ["/app/aeis", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")]:
+for p in ["/app/aeis", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "AEIS")]:
     if os.path.isdir(p):
         sys.path.insert(0, p)
 

@@ -6,7 +6,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-REPO_AEIS="../../../aeis/aeis"   # 主仓库 aeis 包（CommonTrustProtocol/aeis/aeis）
+# 三层拆分 S6 后：CTP 不再含工程副本，aeis 源码位于身体仓（lingshu-body）
+# 默认取同级目录 ../../AEIS/aeis，可用环境变量 AEIS_REPO 覆盖
+REPO_AEIS="${AEIS_REPO:-../../AEIS/aeis}"
 CTX_AEIS="./aeis_context"
 
 echo "=== 复制 aeis 源码到 build context ==="

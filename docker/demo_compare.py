@@ -18,9 +18,9 @@ import json
 
 sys.path.insert(0, "/app")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-# 优先主仓库 aeis（含 timeline bug 修复）；Docker 用 /app/aeis
+# 优先身体仓 aeis（S6 后源码所在）；Docker 用 /app/aeis
 _REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                     "..", "..", ".."))
+                                     "..", "..", "AEIS"))
 for p in ["/app/aeis", _REPO]:
     if os.path.isdir(p):
         sys.path.insert(0, p)
