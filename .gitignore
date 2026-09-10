@@ -60,3 +60,5 @@ llm-adapter-poc/
 /data/lingshu.db
 /data/lingshu.db-shm
 /data/lingshu.db-wal
+# 灵枢路径配置（本地绝对路径，不入公开仓）
+/data/paths.json
