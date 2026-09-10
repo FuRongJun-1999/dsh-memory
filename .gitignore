@@ -55,3 +55,8 @@ llm-adapter-poc/
 /md_cg/whitebox_kb/knowledge/_ccg_dump.json
 /md_cg/whitebox_kb/knowledge/_index.json
 /md_cg/whitebox_kb/data/
+
+# 灵枢运行时 sqlite（db/shm/wal；运行时产物，不入库）
+/data/lingshu.db
+/data/lingshu.db-shm
+/data/lingshu.db-wal
