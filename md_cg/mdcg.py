@@ -132,6 +132,39 @@ def bigrams(s: str) -> set:
     return {s[i:i + 2] for i in range(len(s) - 1)}
 
 
+# 词法相似度口径（二元组集合）：
+#   legacy  = |q ∩ d| / |q|      只归一化**查询侧** → 长文档天然占优（既有基线）。
+#                                 LongMemEval-S 长 turn 上把证据挤出 Top-5：
+#                                 precise/temporal/reference hit@1 均为 0%。
+#   jaccard = |q ∩ d| / |q ∪ d|  对称归一化（长度自惩罚，无参数）。
+#                                 同口径实测：长文档组 0%→8.97% / 0%→6.77% /
+#                                 1.28%→20.51%；短文档组（LoCoMo）基本持平或微降
+#                                 → 收益随文档长度单调增长，是长度偏置的定向修复。
+# 切换：mdcg.SCORE_MODE = "jaccard"，或环境变量 MDCG_SCORE_MODE=jaccard。
+# 缺省 "legacy"：既有检索行为与基线完全不变。
+# **评测侧**改用 eval_common.use_jaccard() 显式注入——长 turn 语料上
+# precise 0%→8.97% / temporal 0%→6.77% / interference 1.28%→20.51% /
+# reference 0%→3.76%（与 Rust mdcg-eval --score jaccard 逐位一致）。
+# 主库不切：短条目语料上 jaccard 会退化（test_p17_predict G4——可预测锚点
+# 由因果起点 a 错配到语义邻居 x），收益随文档长度单调增长。
+SCORE_MODES = ("legacy", "jaccard")
+SCORE_MODE = os.environ.get("MDCG_SCORE_MODE") or "legacy"
+
+
+def lexical_sim(qb: set, nb: set, mode: str = None) -> float:
+    """查询/文档二元组集合的相似度。mode 缺省取模块级 `SCORE_MODE`。
+
+    显式传 mode 用于单点 A/B（不改全局口径即可对比两套打分）。
+    """
+    if not qb or not nb:
+        return 0.0
+    inter = len(qb & nb)
+    if (mode or SCORE_MODE) == "jaccard":
+        union = len(qb | nb)
+        return inter / union if union else 0.0
+    return inter / len(qb)
+
+
 def expand_query_terms_weighted(query: str) -> dict:
     """分级版查询扩展：返回 {词: 隶属度}，隶属度 ∈ (0, 1]。
 
@@ -890,11 +923,11 @@ class MdCG:
         body = nodefile.positive_body(content)
         return any(t in body or t in tags for t in terms)
 
-    def _score(self, docs, q, qb, pools=None):
+    def _score(self, docs, q, qb, pools=None, mode=None):
         scored = []
         for e, fm, c in docs:
             nb = bigrams(c)
-            sim = len(qb & nb) / len(qb) if qb else 0.0
+            sim = lexical_sim(qb, nb, mode)
             tag_bonus = 0.05 if any(str(t) in q or q in str(t)
                                     for t in (fm.get("tags") or [])) else 0.0
             raw = min(1.0, sim + tag_bonus)
@@ -904,6 +937,7 @@ class MdCG:
             scored.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
                             "content": c, "path": e["path"]}, raw))
         return scored
+
 
     def _emit(self, scored, k, tier, stat, bucket, record, candidates,
               judge, context, neg_coverage, big_domain=None, big_scores=None,

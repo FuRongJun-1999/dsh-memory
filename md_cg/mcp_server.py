@@ -2113,6 +2113,38 @@ def _stg_call(cg, a):
 # --------------------------------------------------------------------------
 
 def call_tool(cg, name, args):
+    """MCP tools/call 入口：按 `as_unit` 做**请求级身份收窄**（单进程多身份）。
+
+    两个身份维度的职责分离（勿混）：
+      · env 身份（MDCG_TOKEN）—— **谁装了这个大脑**，是权限上限，进程级恒定；
+      · `as_unit` —— 本次调用以哪个**单元**执行，请求级、可缺省。
+
+    收窄由 `tokens.narrowed_principal` 保证「只能变小不能变大」（求交 +
+    can_admin 恒 False），故调用方即使伪造 `as_unit` 也无法提权——最坏等于
+    不传（owner 全权）。这是本机制**不需要对 `as_unit` 额外鉴权**的根据。
+
+    `as_unit` 与 `unit` 字段**职责分离**：
+      · `as_unit` —— 受限枚举（五单元），参与授权；未知值 fail-closed 报错；
+      · `unit`    —— 自由文本，仅归因（进 _audit / _recent），不参与授权。
+    """
+    a = args or {}
+    unit = (a.get("as_unit") or "").strip()
+    if not unit or getattr(cg, "principal", None) is None:
+        return _dispatch(cg, name, a)
+    from .tokens import TokenError, narrowed_principal
+    try:
+        narrowed = narrowed_principal(cg.principal, unit)
+    except TokenError as e:
+        return {"ok": False, "error": f"as_unit 非法：{e}"}
+    saved = cg.principal
+    cg.principal = narrowed          # 单线程 stdin 循环：无并发竞争
+    try:
+        return _dispatch(cg, name, a)
+    finally:
+        cg.principal = saved
+
+
+def _dispatch(cg, name, args):
     a = args or {}
     if name == "cg":
         return _cg_call(cg, a)

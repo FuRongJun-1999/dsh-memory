@@ -53,6 +53,8 @@ import { installMemoryHooks, type MemoryHooksOptions } from './hooks.js'
 import { installRoleplayWeb } from './lib/roleplay_web.js'
 import { MdcgClient } from './lib/mdcg_client.js'
 import { describeDataPaths, mdcgRoot } from './lib/datapath.js'
+// 写入凭据密钥环（首启引导）：显式配置 → ~/.mdcg/token → 首启自动签发。
+import { resolveToken, type TokenResolution } from './lib/token_store.js'
 
 /**
  * 调试探针：记录 apply 失败到独立文件（绕过 DSH 日志系统）。
@@ -219,9 +221,28 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // 提供完整认知面。插件侧唯一显式入口：src/lib/mdcg_client.ts（一方法 = 一条 MCP 调用）。
   let mdcg: MdcgClient | null = null
   let brainReady = false
+  /** 写入凭据解析结果（首启引导；诊断与启动日志用）。 */
+  let cred: TokenResolution | null = null
   /** 记忆真源解析结果（「新写入去哪」）——用户可改：env > paths.json > 配置 > 默认自身仓 data/。 */
   const resolvedRoot = mdcgRoot(config.mdcg.root)
   if (config.mdcg.enabled) {
+    // ── 写入凭据解析（首启引导）：显式配置 → 密钥环 → 首启自动签发 ──
+    // 为什么需要：md_cg 无令牌即降级只读 guest，自动记忆 / 转录 / 角色落图
+    // **静默不落盘**——「装好了插件，但记忆永远是空的」是最难定位的失效形态。
+    // 解析顺序与「自动签发不降低实际安全强度」的论证见 lib/token_store.ts 文件头。
+    // legacy env 认证本就等价于「已显式授权」→ 不再签发，避免多签一枚无用令牌。
+    const legacyAuth = config.env.MDCG_LEGACY_ENV_AUTH ?? process.env.MDCG_LEGACY_ENV_AUTH
+    const resolution = resolveToken({
+      python: config.python,
+      configured: config.env.MDCG_TOKEN,
+      actor: config.mdcg.actor,
+      clearance: config.mdcg.clearance,
+      autoIssue: !legacyAuth,
+    })
+    cred = resolution
+    // 注入子进程 env：显式配置与密钥环都在此汇合成**唯一**的 MDCG_TOKEN。
+    const mdcgEnv: Record<string, string> = { ...config.env }
+    if (resolution.token) mdcgEnv.MDCG_TOKEN = resolution.token
     mdcg = new MdcgClient({
       python: config.python,
       args: config.moduleArgs,
@@ -230,7 +251,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       tenant: config.mdcg.tenant,
       clearance: config.mdcg.clearance,
       identity: config.identity,
-      env: config.env,
+      env: mdcgEnv,
       timeoutMs: config.toolCallTimeoutMs,
       maxRetryDelayMs: config.maxRetryDelayMs,
     })
@@ -252,18 +273,25 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         + '核验按白箱纪律 fail-closed；桥将后台重连并在就绪后补注册工具。',
       )
     }
-    // 写入凭据检查（fail-closed，且**默认关闭**）：md_cg 身份优先级
-    // ① MDCG_TOKEN ② MDCG_LEGACY_ENV_AUTH=1 ③ 都没有 → 只读 guest。
-    // 默认即第 ③ 种：读 / 召回 / 时间线照常，但自动记忆、转录、角色落图**不落盘**。
-    // 是否打开写权限由用户自行决定（见 cordis.yml.example 的「写入凭据」段），
-    // 插件不代为注入任何凭据，只在启动时告警——避免「看起来在记忆、其实没落盘」。
+    // 写入凭据检查（fail-closed）：凭据来源已由 token_store 解析（见上）。
+    // ① 显式配置 / 密钥环 / 首启自动签发 → 可写；② 都不行 → 只读 guest，必须告警。
+    // 告警仍是硬要求：guest 下读 / 召回 / 时间线照常，但自动记忆、转录、
+    // 角色落图**不落盘**——不吭声就是「看起来在记忆、其实没落盘」。
     const authEnv: Record<string, string | undefined> = { ...process.env, ...config.env }
-    if (!authEnv.MDCG_TOKEN && !authEnv.MDCG_LEGACY_ENV_AUTH) {
+    if (!cred.token && !authEnv.MDCG_LEGACY_ENV_AUTH) {
       ctx.logger.warn(
-        'dsh-memory: 未配置认知图写入凭据（默认关闭），以只读 guest 运行——'
+        'dsh-memory: 认知图写入凭据不可用，以只读 guest 运行——'
         + '读 / 召回 / 时间线可用，但自动记忆、转录、角色落图不会落盘。'
-        + '要打开：签发令牌 MDCG_TOKEN（推荐）或设 MDCG_LEGACY_ENV_AUTH=1，'
-        + '经 config.env 注入，见 cordis.yml.example。')
+        + (cred.note ? `原因：${cred.note}。` : '')
+        + '要打开：签发令牌 MDCG_TOKEN 经 config.env 注入（见 cordis.yml.example），'
+        + '或删除密钥环后重启以重新自动签发。')
+    } else if (cred.source === 'issued') {
+      // 首启引导：自动签发是**改变用户可写权限**的动作，必须留痕（含关闭/吊销方式）。
+      ctx.logger.info(`dsh-memory: ${cred.note}`)
+    } else {
+      ctx.logger.info(
+        `dsh-memory: 认知图写入凭据来源=${cred.source}（密钥环 ${cred.keyringPath}）`
+        + '——自动记忆 / 转录 / 角色落图已开启')
     }
   } else {
     ctx.logger.warn('dsh-memory: mdcg.enabled=false —— 大脑（认知图）未启动，工具与自动记忆不可用')

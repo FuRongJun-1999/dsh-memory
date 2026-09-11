@@ -376,6 +376,42 @@ def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
             "expires_at": rec["expires_at"]}
 
 
+def narrowed_principal(p: Principal, unit: str) -> Principal:
+    """按「单元」收窄 principal 权限（**请求级**身份，只能变小不能变大）。
+
+    与 `derive()` 同源——复用 `_narrow()` 求交语义——但**不签发令牌**，只在
+    单次 MCP 调用内生效（见 `mcp_server.call_tool` 的 `as_unit` 参数）。
+    动机：单进程多身份。MCP 子进程的 env 身份（令牌）只回答「谁装了这个
+    大脑」；而**这一次调用**该以哪个单元执行，由请求参数决定。
+
+    硬约束（调用方无法绕过）：
+      · `can_admin` 恒为 False —— 任何单元都拿不到管理权（改不了大脑结构）；
+      · clearance / layers / ops 一律与 owner **求交** → 结果 ≤ owner 权限；
+      · `can_write` 与 owner 取「与」 —— owner 只读时单元不可能变可写。
+
+    因为收窄是单调的，调用方伪造 `as_unit` 的最坏结果等于不传（owner 全权），
+    **不可能提权** —— 这是本机制不需要对 `as_unit` 额外鉴权的根据。
+
+    unit 不在 `POSITION_ROLES`（五单元）内 → `TokenError`（fail-closed：
+    拼错单元名必须报错，绝不静默退回 owner 全权）。
+    """
+    u = normalize_role(unit)
+    if u not in POSITION_ROLES:
+        raise TokenError(f"未知单元：{unit!r}（可选 {list(POSITION_ROLES)}）")
+    spec = role_spec(u)
+    return Principal(
+        tenant=p.tenant, actor=p.actor, session=p.session, harness=p.harness,
+        unit=u, role=u,
+        clearance=_clamp_level(spec["clearance_cap"], p.clearance),
+        can_write=bool(spec["can_write"]) and bool(p.can_write),
+        can_admin=False,
+        layers_allow=_narrow(spec["layers_allow"], p.layers_allow),
+        ops_allow=_narrow(spec["ops_allow"], p.ops_allow),
+        token_id=p.token_id, parent=p.parent, expires_at=p.expires_at,
+        auth_mode=p.auth_mode,
+        theory_ok=p.theory_ok, theory_version=p.theory_version)
+
+
 def revoke(token_id: str, path: str = None):
     data = _load(path)
     rec = (data.get("tokens") or {}).get(token_id)

@@ -404,13 +404,30 @@ class MdCGOS(MdCG):
                           context, neg_coverage, big_domain, big_scores, pool_cfg)
 
     def _lexical(self, query, entries, stat):
-        """词法路径：LIKE 预筛 + 二元组 Jaccard。"""
+        """词法路径：LIKE 预筛 + 二元组相似度（口径见 mdcg.SCORE_MODE）。
+
+        预筛命中集超 GLOBAL_CAP 时按**打分降序**截断（原为按插入序取前 CAP）：
+        LIKE 命中集沿 entries（目录枚举序）排列，插入序截断会让本路候选池
+        随写入顺序漂移、不可复算，并可能把与查询最相关的节点随机丢弃。
+        LIKE 全空时兜底池改用 importance/created_at 序（与 search 主路径同口径），
+        不再取插入序前 CAP。
+        """
         terms = expand_query_terms(query)
+        qb = bigrams(query)
         docs = self._read_many(entries, stat)
         hits = [d for d in docs if self._like(d[2], d[1], terms)]
-        if len(hits) > GLOBAL_CAP:
-            hits = hits[:GLOBAL_CAP]
-        scored = self._score(hits or docs[:GLOBAL_CAP], query, bigrams(query))
+        if not hits:
+            hits = sorted(
+                docs, key=lambda d: (-float(d[1].get("importance") or 0),
+                                     -float(d[1].get("created_at") or 0))
+            )[:GLOBAL_CAP]
+        scored = self._score(hits, query, qb)
+        if len(scored) > GLOBAL_CAP:
+            stat["pre_cap"] = len(scored)
+            stat["cap"] = GLOBAL_CAP
+            scored.sort(key=lambda x: (-x[1],
+                        -float(x[0]["frontmatter"].get("importance") or 0)))
+            return scored[:GLOBAL_CAP]
         return scored
 
     def _path_bucket(self, query, entries, context):

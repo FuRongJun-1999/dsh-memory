@@ -1,0 +1,101 @@
+{
+  "name": "locomo-zh-500",
+  "display_name": "LoCoMo 中文派生记忆检索评测集（500 题 / 567 条证据）",
+  "version": "1.0.0",
+  "written_at": "2026-09-11",
+  "language": "zh (查询) / en (原始陈述)",
+  "task": "retrieval（关键词级检索，非 QA）",
+  "license": {
+    "spdx": "CC-BY-NC-4.0",
+    "url": "https://creativecommons.org/licenses/by-nc/4.0/",
+    "scope": "本目录下全部数据文件",
+    "mit_separation": "本数据集不适用仓库根目录的 MIT 许可。它沿用上游 LoCoMo 的 CC BY-NC 4.0（署名 + 非商业性使用），因为本集是 LoCoMo 的派生作品。",
+    "attribution": "LoCoMo — Maharana et al., 'Evaluating Very Long-Term Conversational Memory of LLM Agents', ACL 2024 (arXiv:2402.17753)；经 mteb/LoCoMo (BEIR) 转制。中文派生层由本仓库生成。"
+  },
+  "upstream": {
+    "repo_id": "mteb/LoCoMo",
+    "revision": "02e2c3dea15d9fdfd1cd7a0f65f5f8ae2ed4c1ac",
+    "url": "https://huggingface.co/datasets/mteb/LoCoMo",
+    "original": "LoCoMo（官方 10 个超长对话）",
+    "transformation": "BEIR 转制；HF 元数据 source_datasets=KaLM-Embedding/LMEB",
+    "note": "BEIR 版的 qrels 即证据标注（evidence_turns），上游不含 answer 文本",
+    "upstream_license": "cc-by-nc-4.0（取自 HF 数据集卡 cardData.license）"
+  },
+  "sampling": {
+    "upstream_questions": 1976,
+    "upstream_corpus_turns": 5882,
+    "method": "stratified proportional by qtype",
+    "seed": 7,
+    "selected_questions": 500,
+    "pool_rule": "池 = 500 题 gold 引用到的 turn 去重（567 条）。因此池内全部为相关项，零干扰。",
+    "by_question_type": {
+      "single_hop": 213,
+      "multi_hop": 71,
+      "temporal_reasoning": 81,
+      "open_domain": 22,
+      "adversarial": 113
+    },
+    "proportionality_check": "213/500=42.6% vs 840/1976=42.5%；71/500=14.2% vs 280/1976=14.2%；81/500=16.2% vs 321/1976=16.2%；22/500=4.4% vs 89/1976=4.5%；113/500=22.6% vs 446/1976=22.6%"
+  },
+  "files": [
+    {
+      "name": "corpus567.jsonl",
+      "role": "记忆库（被检索池）",
+      "records": 567,
+      "bytes": 537550,
+      "sha256": "76a1a2e61862e099b90593c118b81e57dea2692cc754045000b810df52b87021"
+    },
+    {
+      "name": "questions500.jsonl",
+      "role": "查询 + qrels",
+      "records": 500,
+      "bytes": 93310,
+      "sha256": "8654ae926a7b9887f2a638bb47521db7de205c46178d04dafc41c2e2bfe30b7d"
+    }
+  ],
+  "fields": {
+    "corpus567.jsonl": {
+      "id": "稳定检索键，形如 scene_0_session_2_turn_2",
+      "text": "英文原始陈述（上游 LoCoMo 内容）",
+      "speaker": "说话人（LoCoMo 中的虚构角色名）",
+      "date": "会话日期",
+      "zh": "本仓库生成的中文层扁平串，含：身份 / 时间 / 摘要 / 条件（四槽）/ 词",
+      "zh_fields": {
+        "identity": "身份槽",
+        "time": "时间槽",
+        "summary": "摘要槽",
+        "condition": "条件空间（观测位置 / 观测工具 / 存在约束；时间窗口见 time 槽）",
+        "terms": "中文词项"
+      }
+    },
+    "questions500.jsonl": {
+      "qid": "题号，形如 scene_0_q_82",
+      "qtype": "single_hop | multi_hop | temporal_reasoning | open_domain | adversarial",
+      "question": "中文关键词串（空格分隔，非自然语言问句）",
+      "answer": "恒为 null（上游 BEIR 版无答案文本）",
+      "evidence_turns": "gold 证据 turn 的 id 列表（即 qrels）"
+    }
+  },
+  "generator": {
+    "script": "md_cg/bench_locomo_zh.py",
+    "stages": ["dump：读上游 mteb/LoCoMo", "prepare：切分 scene 并按 qtype 分层抽样（seed=7）", "zh：为 turn 与 query 注写中文层（关键词 / 条件四槽 / 摘要）"],
+    "reproduce": "需先按 VERSION.json 下载上游 mteb/LoCoMo@02e2c3de，再运行上述脚本；本目录两文件即为该流程的可直接使用产物"
+  },
+  "reference_scale": {
+    "note": "仅用于建立量级感。零干扰池下任何合理检索都容易得高分，不可与有干扰基准横向比较，也不代表端到端记忆能力。",
+    "random_lower_bound": "随机命中 hit@1 ≈ 1.42/567 ≈ 0.25%（每题平均 1.42 条 gold）",
+    "self_reported": [
+      {"paths": ["lexical"], "hit@1": 0.936, "hit@5": 0.992, "mrr": 0.960},
+      {"paths": ["lexical", "fuzzy"], "hit@1": 0.976, "hit@5": 0.998, "mrr": 0.986}
+    ],
+    "self_reported_caveat": "灵枢系统自身口径（词法 + RRF 融合，池 567 / 题 500），复现命令见 README；非第三方复现结果。"
+  },
+  "honest_boundaries": [
+    "零干扰池：567 条全部是 500 题的 gold 证据，池内无干扰项 → 命中率显著高于真实场景，不能当作端到端记忆能力评分。",
+    "查询是中文关键词串而非自然语言问句 → 本集是检索评测，不是 QA / 对话评测。",
+    "无答案文本：只有 evidence_turns，无法评测答案正确性。",
+    "引用悬空：scene_3_q_58 引用的 scene_3_session_10_turn_19 不在池中，故池为 567 而非 568 条。",
+    "人物为 LoCoMo 原始数据集中的虚构角色，非真实个人；但仍建议按上游许可约束使用。",
+    "统计功效：n=500 时单配置差异需约 ≥3.7% 才超出抽样波动（题级命中率 CV 3.7%），小差异不显著。"
+  ]
+}

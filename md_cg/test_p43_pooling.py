@@ -233,17 +233,27 @@ def main():
 
         # ============================================== (8) 降权可复算
         print("\n(8) 硬约束二 · 降权显式可复算")
-        sc = {r[0]["id"]: round(r[1], 6) for r in on}
-        ok(sc["code_0"] == round(0.6 * 1.0, 6), f"(8) 索引类命中分 == 0.6（实得 {sc.get('code_0')}）")
-        ok(max(sc[f"kp_{i}"] for i in range(6)) == 1.0, "(8) 知识类命中分不被削")
+        # 降权断言与打分口径解耦：以关闭分池（权重恒 1.0）时同一条目的分数为 base，
+        # 断言 final == base × weight。口径由 legacy 切 jaccard 后 base ≠ 1.0，
+        # 但「乘数可复算」这一被测语义不变。
+        base = {r[0]["id"]: r[1] for r in off}
+        sc = {r[0]["id"]: r[1] for r in on}
+        ok(abs(sc["code_0"] - base.get("code_0", 0.0) * 0.6) < 1e-9,
+           f"(8) 索引类命中分 == 基础分 × 0.6（base={base.get('code_0', 0.0):.6f} → "
+           f"{sc.get('code_0', float('nan')):.6f}）")
+        common = [i for i in range(6) if f"kp_{i}" in base and f"kp_{i}" in sc]
+        ok(common and all(abs(sc[f"kp_{i}"] - base[f"kp_{i}"]) < 1e-9 for i in common),
+           f"(8) 知识类命中分不被削（权重 1.0；逐条比对 {len(common)} 条）")
         ok(PL.weight_of("code_x", {}, True) == PL.WEIGHTS["index"]["weight"],
            "(8) weight_of 与表内系数一致")
         alt = {"knowledge": {"cap_ratio": 0.5, "weight": 1.0},
                "index": {"cap_ratio": 0.4, "weight": 0.3},
                "negative": {"cap_ratio": 0.1, "weight": 0.5}}
         on2, _m2 = cg.search(QUERY, k=20, record=False, pools=alt)
-        sc2 = {r[0]["id"]: round(r[1], 6) for r in on2}
-        ok(sc2["code_0"] == 0.3, f"(8) 换表即换行为（实得 {sc2.get('code_0')}）")
+        sc2 = {r[0]["id"]: r[1] for r in on2}
+        ok(abs(sc2["code_0"] - base.get("code_0", 0.0) * 0.3) < 1e-9,
+           f"(8) 换表即换行为（base×0.3={base.get('code_0', 0.0) * 0.3:.6f} → "
+           f"{sc2.get('code_0', float('nan')):.6f}）")
         ok(PL.caps(10, PL.resolve(alt)) == {"knowledge": 4, "index": 4, "negative": 2},
            f"(8) 换表额度同步可复算（实得 {PL.caps(10, PL.resolve(alt))}）")
 

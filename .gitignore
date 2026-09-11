@@ -5,6 +5,9 @@ node_modules/
 # CodeBuddy 本地配置与计划（不入库）
 /.codebuddy/
 
+# AGENTS.md 本地使用（CodeBuddy 会话起始注入，不共享）
+/AGENTS.md
+
 # md_cg 运行时数据（含 _keys.json 密钥，绝不入库）
 /data/mdcg/
 
@@ -64,9 +67,13 @@ llm-adapter-poc/
 # 灵枢路径配置（本地绝对路径，不入公开仓）
 /data/paths.json
 
-# 公开基准数据集本地副本（大 JSON，可由 scripts/download_public_bench.py 重下，不入库）
+# 公开基准数据集本地派生副本（大 JSON，不入库；对外发布的成品见 data/benchmarks/）
 /data/external/
 # IDE 本地配置（不共享）
 /.vscode/
 # 白箱链条热度为运行时计数日志（可重跑再生），不入库
 /md_cg/whitebox_kb/wisdom/audit_log/chain_heat.json
+
+# Rust 评测器（mdcg-eval）构建产物（cargo build --release 可再生；
+# 且 .d/.fingerprint 含本地绝对路径，绝不入公开仓）
+/rust/target/

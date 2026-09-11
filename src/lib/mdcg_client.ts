@@ -74,6 +74,26 @@ const DEFAULT_ARGS = ['-m', 'md_cg.mcp_server']
  *  compiler | test | measurement | formal_proof | data | other（other 不算强依据）。 */
 const STRONG_BASIS = new Set(['compiler', 'test', 'measurement', 'formal_proof', 'data'])
 
+/**
+ * 请求级**单元身份**（MCP 参数 `as_unit`）。
+ *
+ * 与 `md_cg/tokens.py` 的 `POSITION_ROLES` 同源（record/reflect/verify/
+ * output/sustain）；大脑侧 `narrowed_principal` 对未知值 fail-closed 报错。
+ *
+ * 语义（关键）：`as_unit` 只能**收窄**权限、不能放大——大脑侧以「与 owner 求交 +
+ * 管理权恒 False」保证，故填错的最坏结果等于不填（owner 全权），**不可能提权**。
+ *
+ * 本客户端**只在写入 / 裁决路径注入**，且只注入与落层确定匹配的单元：
+ *   · 记忆沉淀 / 转录 / 角色定义 → `record`（落 contextual / knowledge，在 record
+ *     的 layers_allow 内）；
+ *   · 外部裁决回填               → `verify`（cg op=verify）。
+ * **只读调用一律不注入**：record / output 的 `clearance_cap=internal`，注入会把
+ * owner 的 private 读能力一并压低（读不到私有记忆＝功能退化），而读无副作用，
+ * 收窄无收益。`write()` 同样不注入——它被用于写 self / structural 层（角色锚点
+ * 需 designer 权限），注入 `record` 会直接打断角色落图。
+ */
+export type LingshuUnit = 'record' | 'reflect' | 'verify' | 'output' | 'sustain'
+
 function collectItems(payload: unknown): Array<Record<string, unknown>> {
   if (Array.isArray(payload)) return payload as Array<Record<string, unknown>>
   if (payload && typeof payload === 'object') {
@@ -143,18 +163,23 @@ export class MdcgClient {
     this.bridge.dispose()
   }
 
-  /** 原始 cg 调用（逃生口；显式传参，不做推断）。 */
-  async cg(args: Record<string, unknown>): Promise<unknown> {
-    return this.call('cg', args)
+  /** 原始 cg 调用（逃生口；显式传参，不做推断）。
+   *  `asUnit` = 本次调用的请求级单元身份（见 LingshuUnit）；只收窄、不提权。 */
+  async cg(args: Record<string, unknown>, asUnit?: LingshuUnit): Promise<unknown> {
+    return this.call('cg', args, asUnit)
   }
 
   /** 原始 stg 调用（时间线/关系/锚点/一致性）。 */
-  async stg(args: Record<string, unknown>): Promise<unknown> {
-    return this.call('stg', args)
+  async stg(args: Record<string, unknown>, asUnit?: LingshuUnit): Promise<unknown> {
+    return this.call('stg', args, asUnit)
   }
 
-  private async call(tool: string, args: Record<string, unknown>): Promise<unknown> {
-    const result: McpCallResult = await this.bridge.callTool(tool, args)
+  private async call(tool: string, args: Record<string, unknown>,
+                     asUnit?: LingshuUnit): Promise<unknown> {
+    // as_unit 由大脑侧 mcp_server.call_tool 在同一进程内消费并收窄 principal，
+    // 不从 args 向下透传，故不会污染各 tool handler 的参数解析。
+    const payload = asUnit ? { ...args, as_unit: asUnit } : args
+    const result: McpCallResult = await this.bridge.callTool(tool, payload)
     const text = (result.content ?? [])
       .filter((c) => c.type === 'text')
       .map((c) => c.text ?? '')
@@ -189,8 +214,9 @@ export class MdcgClient {
    * ⚠️ 唯一写入通道：**不可**改用 `cg(op=write)`（那条路径会被 audit 拦住，
    * 见文件头「写入为什么不能走 cg(op=write)」）。gated=false 直写 `MdCG.add`
    * （默认 layer=knowledge），gated=true 走主动遗忘闸门。 */
-  private writeNode(args: Record<string, unknown>): Promise<unknown> {
-    return this.call('mdcg_remember', args)
+  private writeNode(args: Record<string, unknown>,
+                    asUnit?: LingshuUnit): Promise<unknown> {
+    return this.call('mdcg_remember', args, asUnit)
   }
 
   /** 写入：新增/覆盖一个记忆节点（直写 `MdCG.add`，不经审核队列）。 */
@@ -209,7 +235,8 @@ export class MdcgClient {
    * role 取 user | assistant | tool-output（见 md_cg/sources.py 的
    * SESSION_LAYER / DSHSessionSource 事件映射）。 */
   remember(content: string, extra: Record<string, unknown> = {}): Promise<unknown> {
-    return this.writeNode({ content, gated: true, layer: 'contextual', ...extra })
+    // 落层 contextual 固定在 record 白名单内 → 声明 record 单元（不得写 self/anchor）。
+    return this.writeNode({ content, gated: true, layer: 'contextual', ...extra }, 'record')
   }
 
   /** 语义召回（AEIS `recall` 的对应物）：`cg(op=read, query)` → md_cg 检索。
@@ -220,7 +247,8 @@ export class MdcgClient {
 
   /** 外部裁决回填：为已有节点写 confirmed/weakened/falsified。 */
   verify(nodeId: string, evidence: string, verdict: string): Promise<unknown> {
-    return this.cg({ op: 'verify', node_id: nodeId, evidence, verdict })
+    // 裁决回填声明 verify 单元：只写 rejected/contextual，不得改被验证内容。
+    return this.cg({ op: 'verify', node_id: nodeId, evidence, verdict }, 'verify')
   }
 
   /** 最近记忆。 */
@@ -305,25 +333,30 @@ export class MdcgClient {
 
   /** 角色定义落图：layer=knowledge，tags=['roleplay','role:<id>']。 */
   writeRole(roleId: string, content: string, extra: Record<string, unknown> = {}): Promise<unknown> {
-    return this.write(content, {
+    // 落层固定 knowledge（在 record 白名单内）→ 声明 record 单元。
+    // ⚠️ 不经 this.write()：那是不注入单元的通用直写口（还要写 self 层锚点）。
+    return this.writeNode({
+      content,
       node_id: `roleplay_role_${roleId}`,
       layer: 'knowledge',
       tags: ['roleplay', `role:${roleId}`, 'roleplay:role'],
       importance: 0.7,
       ...extra,
-    })
+    }, 'record')
   }
 
   /** 角色对话转录落图：layer=contextual，tags=['roleplay','role:<id>','session:<cid>']。 */
   writeTranscript(roleId: string, sessionId: string, who: 'user' | 'assistant',
                   content: string, extra: Record<string, unknown> = {}): Promise<unknown> {
     const stamp = Date.now()
-    return this.write(content, {
+    // 落层固定 contextual（在 record 白名单内）→ 声明 record 单元。
+    return this.writeNode({
+      content,
       node_id: `roleplay_turn_${roleId}_${sessionId}_${stamp}`,
       layer: 'contextual',
       tags: ['roleplay', `role:${roleId}`, `session:${sessionId}`, `turn:${who}`],
       importance: 0.4,
       ...extra,
-    })
+    }, 'record')
   }
 }

@@ -1,0 +1,18 @@
+[package]
+name = "mdcg-eval"
+version = "0.1.0"
+edition = "2021"
+description = "灵枢记忆系统 · 公开数据集评测器（Rust 复刻口径 A legacy 四路 RRF）"
+
+# 零第三方依赖：与 md_cg 的 D-005 约束一致，且无需联网取 crate。
+[dependencies]
+
+[[bin]]
+name = "mdcg-eval"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

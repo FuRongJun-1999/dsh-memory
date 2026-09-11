@@ -1,0 +1,500 @@
+{"qid": "scene_0_q_82", "qtype": "single_hop", "question": "慈善跑 心理健康 发声 意识 意义", "answer": "", "evidence_turns": ["scene_0_session_2_turn_2"]}
+{"qid": "scene_0_q_86", "qtype": "single_hop", "question": "领养 机构 LGBTQ 群体 支持 包容", "answer": "", "evidence_turns": ["scene_0_session_2_turn_12"]}
+{"qid": "scene_0_q_94", "qtype": "single_hop", "question": "手绘碗 提醒 生日 礼物 纪念 艺术", "answer": "", "evidence_turns": ["scene_0_session_4_turn_5"]}
+{"qid": "scene_0_q_105", "qtype": "single_hop", "question": "Becoming Nicole 书 收获 自我接纳 支持 希望", "answer": "", "evidence_turns": ["scene_0_session_7_turn_13"]}
+{"qid": "scene_0_q_108", "qtype": "single_hop", "question": "跑步 心理健康 坚持 运动 好处", "answer": "", "evidence_turns": ["scene_0_session_7_turn_24"]}
+{"qid": "scene_0_q_120", "qtype": "single_hop", "question": "生日 女儿 庆祝 音乐会 谁", "answer": "", "evidence_turns": ["scene_0_session_11_turn_1"]}
+{"qid": "scene_0_q_122", "qtype": "single_hop", "question": "陶艺 色彩 图案 吸引 微笑 表达情感", "answer": "", "evidence_turns": ["scene_0_session_12_turn_6"]}
+{"qid": "scene_0_q_129", "qtype": "single_hop", "question": "歌曲 勇敢 Sara Bareilles Brave 激励", "answer": "", "evidence_turns": ["scene_0_session_15_turn_23"]}
+{"qid": "scene_0_q_131", "qtype": "single_hop", "question": "Melanie 现代音乐 Ed Sheeran Perfect 喜欢", "answer": "", "evidence_turns": ["scene_0_session_15_turn_28"]}
+{"qid": "scene_0_q_132", "qtype": "single_hop", "question": "画画 多久 开始 17岁 创作", "answer": "", "evidence_turns": ["scene_0_session_16_turn_7"]}
+{"qid": "scene_0_q_135", "qtype": "single_hop", "question": "Melanie 2023 十月 受伤 暂停 陶艺 挫折", "answer": "", "evidence_turns": ["scene_0_session_17_turn_8"]}
+{"qid": "scene_0_q_137", "qtype": "single_hop", "question": "画作 日落 展示 色彩 平静 绘画", "answer": "", "evidence_turns": ["scene_0_session_17_turn_12"]}
+{"qid": "scene_0_q_141", "qtype": "single_hop", "question": "绘画 象征 自由 真实 女性身份 忠于自我", "answer": "", "evidence_turns": ["scene_0_session_17_turn_23"]}
+{"qid": "scene_0_q_142", "qtype": "single_hop", "question": "旅程 成长 学习 做自己 感悟 人生", "answer": "", "evidence_turns": ["scene_0_session_17_turn_25"]}
+{"qid": "scene_0_q_143", "qtype": "single_hop", "question": "公路旅行 儿子 车祸 幸运 出事", "answer": "", "evidence_turns": ["scene_0_session_18_turn_1"]}
+{"qid": "scene_0_q_144", "qtype": "single_hop", "question": "儿子 车祸 应对 感觉 坚强", "answer": "", "evidence_turns": ["scene_0_session_18_turn_6", "scene_0_session_18_turn_7"]}
+{"qid": "scene_0_q_145", "qtype": "single_hop", "question": "家人 车祸 大峡谷 珍惜 感恩 重要", "answer": "", "evidence_turns": ["scene_0_session_18_turn_5"]}
+{"qid": "scene_0_q_146", "qtype": "single_hop", "question": "孩子 车祸 害怕 安慰 坚强", "answer": "", "evidence_turns": ["scene_0_session_18_turn_7"]}
+{"qid": "scene_0_q_148", "qtype": "single_hop", "question": "孩子 大峡谷 开心 反应 家人", "answer": "", "evidence_turns": ["scene_0_session_18_turn_5"]}
+{"qid": "scene_0_q_150", "qtype": "single_hop", "question": "家人 支持 感激 感受", "answer": "", "evidence_turns": ["scene_0_session_18_turn_13"]}
+{"qid": "scene_1_q_2", "qtype": "single_hop", "question": "Jon Gina 减压 舞蹈 方式 放松", "answer": "", "evidence_turns": ["scene_1_session_1_turn_6", "scene_1_session_1_turn_7"]}
+{"qid": "scene_1_q_4", "qtype": "single_hop", "question": "Jon 开 舞蹈工作室 原因 失业 创业", "answer": "", "evidence_turns": ["scene_1_session_1_turn_2", "scene_1_session_1_turn_4"]}
+{"qid": "scene_1_q_39", "qtype": "single_hop", "question": "Gina 最 喜欢 舞蹈 风格 当代舞", "answer": "", "evidence_turns": ["scene_1_session_1_turn_9"]}
+{"qid": "scene_1_q_41", "qtype": "single_hop", "question": "Gina 舞蹈 回忆 比赛 冠军 十五岁", "answer": "", "evidence_turns": ["scene_1_session_1_turn_17"]}
+{"qid": "scene_1_q_46", "qtype": "single_hop", "question": "Jon 地板 舞蹈工作室 Marley 防滑 装修", "answer": "", "evidence_turns": ["scene_1_session_2_turn_8"]}
+{"qid": "scene_1_q_49", "qtype": "single_hop", "question": "Gina 顾客 感觉 舒适 店 装修", "answer": "", "evidence_turns": ["scene_1_session_3_turn_6", "scene_1_session_3_turn_8"]}
+{"qid": "scene_1_q_50", "qtype": "single_hop", "question": "Jon Gina 店 进展 位置 努力 称赞", "answer": "", "evidence_turns": ["scene_1_session_3_turn_3"]}
+{"qid": "scene_1_q_51", "qtype": "single_hop", "question": "Gina 家具 装饰 选择 风格 舒适 吊灯", "answer": "", "evidence_turns": ["scene_1_session_3_turn_6"]}
+{"qid": "scene_1_q_55", "qtype": "single_hop", "question": "纹身 象征 自由 舞蹈 自我表达", "answer": "", "evidence_turns": ["scene_1_session_5_turn_15"]}
+{"qid": "scene_1_q_59", "qtype": "single_hop", "question": "Gina 服装 生意 舞蹈 结合 创意 商品", "answer": "", "evidence_turns": ["scene_1_session_8_turn_8"]}
+{"qid": "scene_1_q_62", "qtype": "single_hop", "question": "Gina 自信 生意 动力 支持系统 进步", "answer": "", "evidence_turns": ["scene_1_session_10_turn_8"]}
+{"qid": "scene_1_q_63", "qtype": "single_hop", "question": "Gina 2023 时尚实习 录取 五月", "answer": "", "evidence_turns": ["scene_1_session_12_turn_1"]}
+{"qid": "scene_1_q_66", "qtype": "single_hop", "question": "Jon 舞者 提供 一对一指导 训练 工作坊", "answer": "", "evidence_turns": ["scene_1_session_13_turn_7"]}
+{"qid": "scene_1_q_70", "qtype": "single_hop", "question": "Jon 筹备 开 舞蹈工作室 开设", "answer": "", "evidence_turns": ["scene_1_session_15_turn_3"]}
+{"qid": "scene_1_q_71", "qtype": "single_hop", "question": "Gina 工作室 描述 出色 开业 祝贺", "answer": "", "evidence_turns": ["scene_1_session_15_turn_6"]}
+{"qid": "scene_1_q_72", "qtype": "single_hop", "question": "Jon 开业 感觉 激动 全力以赴", "answer": "", "evidence_turns": ["scene_1_session_15_turn_7"]}
+{"qid": "scene_1_q_73", "qtype": "single_hop", "question": "Gina 舞蹈 感受 快乐 激情 享受", "answer": "", "evidence_turns": ["scene_1_session_15_turn_8"]}
+{"qid": "scene_1_q_80", "qtype": "single_hop", "question": "Jon 商业计划 投资人 路演 线上平台 建议", "answer": "", "evidence_turns": ["scene_1_session_18_turn_10"]}
+{"qid": "scene_2_q_70", "qtype": "single_hop", "question": "John 照片 一起 做 披萨 家庭 美食", "answer": "", "evidence_turns": ["scene_2_session_2_turn_24"]}
+{"qid": "scene_2_q_71", "qtype": "single_hop", "question": "John 加入 线上小组 服务 励志 主题", "answer": "", "evidence_turns": ["scene_2_session_3_turn_1"]}
+{"qid": "scene_2_q_77", "qtype": "single_hop", "question": "Rob 邀请 初级瑜伽课 活动 同事", "answer": "", "evidence_turns": ["scene_2_session_7_turn_16"]}
+{"qid": "scene_2_q_79", "qtype": "single_hop", "question": "John 孩子 公园 每周 几次 频率", "answer": "", "evidence_turns": ["scene_2_session_8_turn_8"]}
+{"qid": "scene_2_q_83", "qtype": "single_hop", "question": "政策 教育 基础设施 社区 兴趣 制定", "answer": "", "evidence_turns": ["scene_2_session_9_turn_8"]}
+{"qid": "scene_2_q_87", "qtype": "single_hop", "question": "公路旅行 去年 太平洋西北 海岸 国家公园", "answer": "", "evidence_turns": ["scene_2_session_11_turn_5"]}
+{"qid": "scene_2_q_92", "qtype": "single_hop", "question": "John 家人 锻炼 每周三次 频率 一起", "answer": "", "evidence_turns": ["scene_2_session_13_turn_7"]}
+{"qid": "scene_2_q_99", "qtype": "single_hop", "question": "退伍军人 聚会 分享 经历 友谊 同袍情谊", "answer": "", "evidence_turns": ["scene_2_session_15_turn_13"]}
+{"qid": "scene_2_q_101", "qtype": "single_hop", "question": "Maria 收容所 募捐活动 准备 下周 善款", "answer": "", "evidence_turns": ["scene_2_session_16_turn_2"]}
+{"qid": "scene_2_q_106", "qtype": "single_hop", "question": "领养 救援犬 孩子 责任感 同理心 价值观", "answer": "", "evidence_turns": ["scene_2_session_17_turn_11"]}
+{"qid": "scene_2_q_107", "qtype": "single_hop", "question": "Maria 志愿 狗狗收容所 新 活动 每月一次", "answer": "", "evidence_turns": ["scene_2_session_17_turn_12"]}
+{"qid": "scene_2_q_118", "qtype": "single_hop", "question": "John 游行 退伍军人 权利 军队 支持 信念", "answer": "", "evidence_turns": ["scene_2_session_21_turn_24"]}
+{"qid": "scene_2_q_120", "qtype": "single_hop", "question": "洪水 老家 自然灾害 基础设施 房屋 七月", "answer": "", "evidence_turns": ["scene_2_session_23_turn_1"]}
+{"qid": "scene_2_q_122", "qtype": "single_hop", "question": "洪水 社区 解决方案 讨论 基础设施 修缮", "answer": "", "evidence_turns": ["scene_2_session_23_turn_1"]}
+{"qid": "scene_2_q_124", "qtype": "single_hop", "question": "野餐 教会 朋友 游戏 猜字谜 寻宝 活动", "answer": "", "evidence_turns": ["scene_2_session_24_turn_8"]}
+{"qid": "scene_2_q_132", "qtype": "single_hop", "question": "Maria 志愿 收容所 一年前 开始 成就感", "answer": "", "evidence_turns": ["scene_2_session_27_turn_4"]}
+{"qid": "scene_2_q_136", "qtype": "single_hop", "question": "John 孩子 退伍军人 尊重 感激 服役", "answer": "", "evidence_turns": ["scene_2_session_27_turn_13"]}
+{"qid": "scene_2_q_137", "qtype": "single_hop", "question": "John 失业 机械工程公司 工作 公司垮了 八月", "answer": "", "evidence_turns": ["scene_2_session_28_turn_1"]}
+{"qid": "scene_2_q_138", "qtype": "single_hop", "question": "Maria 教会 朋友 社区服务 活动 收获", "answer": "", "evidence_turns": ["scene_2_session_28_turn_8"]}
+{"qid": "scene_2_q_144", "qtype": "single_hop", "question": "John Max 去年夏天 露营 徒步 游泳 回忆", "answer": "", "evidence_turns": ["scene_2_session_30_turn_6"]}
+{"qid": "scene_2_q_147", "qtype": "single_hop", "question": "Maria 小狗 名字 Shadow 宠物 第二只", "answer": "", "evidence_turns": ["scene_2_session_31_turn_4"]}
+{"qid": "scene_3_q_99", "qtype": "single_hop", "question": "Joanna 剧本 电影节 计划 投稿 制片人 导演", "answer": "", "evidence_turns": ["scene_3_session_2_turn_7"]}
+{"qid": "scene_3_q_101", "qtype": "single_hop", "question": "Nate 椰奶冰淇淋 好吃 浓郁 零食", "answer": "", "evidence_turns": ["scene_3_session_3_turn_6"]}
+{"qid": "scene_3_q_102", "qtype": "single_hop", "question": "Nate 无乳 甜点 口味 椰奶 巧克力 混合浆果", "answer": "", "evidence_turns": ["scene_3_session_3_turn_10"]}
+{"qid": "scene_3_q_108", "qtype": "single_hop", "question": "养龟 过程 清洁 喂食 光照 不难 养护", "answer": "", "evidence_turns": ["scene_3_session_5_turn_8"]}
+{"qid": "scene_3_q_112", "qtype": "single_hop", "question": "Finding Home 剧本 作家小组 项目 名字 家园", "answer": "", "evidence_turns": ["scene_3_session_9_turn_3"]}
+{"qid": "scene_3_q_115", "qtype": "single_hop", "question": "Joanna 剧情片 情感 电影 喜欢 类型", "answer": "", "evidence_turns": ["scene_3_session_9_turn_9"]}
+{"qid": "scene_3_q_117", "qtype": "single_hop", "question": "蛋糕 夹馅 草莓 椰子奶油 无乳 糖霜", "answer": "", "evidence_turns": ["scene_3_session_10_turn_11"]}
+{"qid": "scene_3_q_125", "qtype": "single_hop", "question": "Nate 游戏聚会 邀请 老朋友 队友 六月", "answer": "", "evidence_turns": ["scene_3_session_14_turn_22"]}
+{"qid": "scene_3_q_126", "qtype": "single_hop", "question": "手柄装饰 定制 聚会 每位 准备 心意", "answer": "", "evidence_turns": ["scene_3_session_14_turn_24"]}
+{"qid": "scene_3_q_127", "qtype": "single_hop", "question": "剧本 桥段 大银幕 昨天 创作 文字", "answer": "", "evidence_turns": ["scene_3_session_15_turn_1"]}
+{"qid": "scene_3_q_135", "qtype": "single_hop", "question": "食谱 家人 周末 做 期待 计划", "answer": "", "evidence_turns": ["scene_3_session_16_turn_11"]}
+{"qid": "scene_3_q_138", "qtype": "single_hop", "question": "Woodhaven 图书馆 古旧藏书 小镇 发现 历史建筑", "answer": "", "evidence_turns": ["scene_3_session_17_turn_4"]}
+{"qid": "scene_3_q_142", "qtype": "single_hop", "question": "电子游戏锦标赛 靠 热爱 赚钱 夺冠 线上赛", "answer": "", "evidence_turns": ["scene_3_session_17_turn_1"]}
+{"qid": "scene_3_q_143", "qtype": "single_hop", "question": "博客 读者来信 感受 文字力量 安慰 写作", "answer": "", "evidence_turns": ["scene_3_session_18_turn_5"]}
+{"qid": "scene_3_q_158", "qtype": "single_hop", "question": "无乳巧克力蛋糕 覆盆子 生日 照片 制作", "answer": "", "evidence_turns": ["scene_3_session_21_turn_13"]}
+{"qid": "scene_3_q_165", "qtype": "single_hop", "question": "在家 放松 照片 电子游戏 看电影 解压", "answer": "", "evidence_turns": ["scene_3_session_23_turn_15"]}
+{"qid": "scene_3_q_173", "qtype": "single_hop", "question": "鼓励 电影比赛 被拒 坚持 机会 安慰", "answer": "", "evidence_turns": ["scene_3_session_24_turn_13"]}
+{"qid": "scene_3_q_174", "qtype": "single_hop", "question": "乌龟 开心 快乐 解压 比赛压力 竞争", "answer": "", "evidence_turns": ["scene_3_session_24_turn_3"]}
+{"qid": "scene_3_q_177", "qtype": "single_hop", "question": "角色形象 画 灵感 写作 鲜活 创作", "answer": "", "evidence_turns": ["scene_3_session_25_turn_8"]}
+{"qid": "scene_3_q_180", "qtype": "single_hop", "question": "乌龟 饮食 蔬菜 水果 昆虫 类型", "answer": "", "evidence_turns": ["scene_3_session_25_turn_19"]}
+{"qid": "scene_3_q_183", "qtype": "single_hop", "question": "Xeonoblade Chronicles 游戏 推荐 正在玩 幻想RPG", "answer": "", "evidence_turns": ["scene_3_session_27_turn_23"]}
+{"qid": "scene_3_q_185", "qtype": "single_hop", "question": "Xeonoblade Chronicles 同人 幻想 RPG 类型 游戏", "answer": "", "evidence_turns": ["scene_3_session_27_turn_23"]}
+{"qid": "scene_3_q_195", "qtype": "single_hop", "question": "Nate 去 Joanna 家 看电影 公园 一起 邀请", "answer": "", "evidence_turns": ["scene_3_session_28_turn_29"]}
+{"qid": "scene_3_q_196", "qtype": "single_hop", "question": "乌龟 坦帕 海滩 带去 平静 分享", "answer": "", "evidence_turns": ["scene_3_session_29_turn_6"]}
+{"qid": "scene_4_q_76", "qtype": "single_hop", "question": "Tim 哈利波特 MinaLima 道具 收藏 图片 魔法世界", "answer": "", "evidence_turns": ["scene_4_session_2_turn_9"]}
+{"qid": "scene_4_q_78", "qtype": "single_hop", "question": "餐厅 庆祝 队友 团队 重温 开心", "answer": "", "evidence_turns": ["scene_4_session_3_turn_5"]}
+{"qid": "scene_4_q_82", "qtype": "single_hop", "question": "冲浪 水中 海浪 自由 兴奋 自然", "answer": "", "evidence_turns": ["scene_4_session_3_turn_29"]}
+{"qid": "scene_4_q_87", "qtype": "single_hop", "question": "球队 凝聚力 描述 团队 值得 辛苦", "answer": "", "evidence_turns": ["scene_4_session_5_turn_6"]}
+{"qid": "scene_4_q_92", "qtype": "single_hop", "question": "队友 礼物 见面 友谊 象征 关爱", "answer": "", "evidence_turns": ["scene_4_session_7_turn_7"]}
+{"qid": "scene_4_q_109", "qtype": "single_hop", "question": "代言 建议 价值观 品牌 真实 挑选", "answer": "", "evidence_turns": ["scene_4_session_11_turn_22"]}
+{"qid": "scene_4_q_111", "qtype": "single_hop", "question": "温室 场地 婚礼 小型聚会 安全措施 仪式", "answer": "", "evidence_turns": ["scene_4_session_12_turn_4"]}
+{"qid": "scene_4_q_112", "qtype": "single_hop", "question": "第一支舞 餐厅 烛光 婚礼 温馨 幸福", "answer": "", "evidence_turns": ["scene_4_session_12_turn_10"]}
+{"qid": "scene_4_q_116", "qtype": "single_hop", "question": "团队 对手 处理 进步 坚持 支持", "answer": "", "evidence_turns": ["scene_4_session_13_turn_6"]}
+{"qid": "scene_4_q_119", "qtype": "single_hop", "question": "大烟山 日落 照片 拍摄 去年 山脉", "answer": "", "evidence_turns": ["scene_4_session_14_turn_16"]}
+{"qid": "scene_4_q_124", "qtype": "single_hop", "question": "J.K.罗琳 写作 灵感 叙事 风格 作家", "answer": "", "evidence_turns": ["scene_4_session_15_turn_7"]}
+{"qid": "scene_4_q_128", "qtype": "single_hop", "question": "慢炖锅 蜂蜜蒜香鸡 烤蔬菜 食谱 烹饪 常做", "answer": "", "evidence_turns": ["scene_4_session_15_turn_32", "scene_4_session_15_turn_33"]}
+{"qid": "scene_4_q_131", "qtype": "single_hop", "question": "签名篮球 珍藏 努力 纪念品 毅力 球员", "answer": "", "evidence_turns": ["scene_4_session_16_turn_7"]}
+{"qid": "scene_4_q_133", "qtype": "single_hop", "question": "欧洲海岸 公路旅行 景色 壮观 妻子 回忆", "answer": "", "evidence_turns": ["scene_4_session_17_turn_3"]}
+{"qid": "scene_4_q_135", "qtype": "single_hop", "question": "学习 动力 想象目标 专注 技巧 艰难", "answer": "", "evidence_turns": ["scene_4_session_18_turn_6"]}
+{"qid": "scene_4_q_139", "qtype": "single_hop", "question": "写作 阅读 动力 进步 热爱 坚持", "answer": "", "evidence_turns": ["scene_4_session_19_turn_9"]}
+{"qid": "scene_4_q_142", "qtype": "single_hop", "question": "The Alchemist 牧羊少年奇幻之旅 梦想 天命 启发 重读", "answer": "", "evidence_turns": ["scene_4_session_19_turn_20"]}
+{"qid": "scene_4_q_146", "qtype": "single_hop", "question": "旅行俱乐部 乐器 学习 新技能 学业 尝试", "answer": "", "evidence_turns": ["scene_4_session_21_turn_9"]}
+{"qid": "scene_4_q_150", "qtype": "single_hop", "question": "A Dance with Dragons 与龙共舞 推荐 书 阅读", "answer": "", "evidence_turns": ["scene_4_session_22_turn_13"]}
+{"qid": "scene_4_q_156", "qtype": "single_hop", "question": "代言 合作 户外装备 十二月 达成 兴奋", "answer": "", "evidence_turns": ["scene_4_session_25_turn_2"]}
+{"qid": "scene_4_q_161", "qtype": "single_hop", "question": "青少年体育 公益 公平机会 社区 支持 年轻运动员", "answer": "", "evidence_turns": ["scene_4_session_26_turn_21"]}
+{"qid": "scene_4_q_162", "qtype": "single_hop", "question": "时光之轮 The Wheel of Time 剧集 期待 原著 奇幻", "answer": "", "evidence_turns": ["scene_4_session_26_turn_36"]}
+{"qid": "scene_4_q_164", "qtype": "single_hop", "question": "德语 西班牙语 语言 学习 Tim 懂", "answer": "", "evidence_turns": ["scene_4_session_27_turn_6"]}
+{"qid": "scene_4_q_165", "qtype": "single_hop", "question": "意大利 书 烹饪灵感 美食 买到 历史", "answer": "", "evidence_turns": ["scene_4_session_27_turn_4"]}
+{"qid": "scene_4_q_167", "qtype": "single_hop", "question": "指环王 阿拉贡 Aragorn 最喜欢 角色 成长", "answer": "", "evidence_turns": ["scene_4_session_27_turn_24"]}
+{"qid": "scene_4_q_168", "qtype": "single_hop", "question": "阿拉贡 勇敢 无私 正义 激励 喜欢", "answer": "", "evidence_turns": ["scene_4_session_27_turn_30"]}
+{"qid": "scene_4_q_169", "qtype": "single_hop", "question": "阿拉贡 画 房间 提醒 领导力 真诚", "answer": "", "evidence_turns": ["scene_4_session_27_turn_28"]}
+{"qid": "scene_4_q_171", "qtype": "single_hop", "question": "中土世界 地图 指环王 展示 收藏", "answer": "", "evidence_turns": ["scene_4_session_27_turn_33"]}
+{"qid": "scene_4_q_172", "qtype": "single_hop", "question": "留学项目 爱尔兰 交换 一学期 好消息", "answer": "", "evidence_turns": ["scene_4_session_28_turn_1"]}
+{"qid": "scene_5_q_69", "qtype": "single_hop", "question": "宠物店 传单 工作坊 训练课 得知 正向强化", "answer": "", "evidence_turns": ["scene_5_session_6_turn_4"]}
+{"qid": "scene_5_q_72", "qtype": "single_hop", "question": "正向强化 训练 惩罚 重要 宠物 方式", "answer": "", "evidence_turns": ["scene_5_session_6_turn_12"]}
+{"qid": "scene_5_q_73", "qtype": "single_hop", "question": "找 宠物友好 住处 城市 困难 气馁", "answer": "", "evidence_turns": ["scene_5_session_7_turn_8"]}
+{"qid": "scene_5_q_75", "qtype": "single_hop", "question": "攀岩 户外活动 皮划艇 蹦极 舒适圈 尝试", "answer": "", "evidence_turns": ["scene_5_session_8_turn_7"]}
+{"qid": "scene_5_q_78", "qtype": "single_hop", "question": "徒步 山间湖泊 偶然 发现 宁静 朋友", "answer": "", "evidence_turns": ["scene_5_session_9_turn_23"]}
+{"qid": "scene_5_q_81", "qtype": "single_hop", "question": "女朋友 宠物收容所 志愿 周一 动物 快乐", "answer": "", "evidence_turns": ["scene_5_session_13_turn_1"]}
+{"qid": "scene_5_q_84", "qtype": "single_hop", "question": "四只 狗 性格 依偎 冒险 调皮 活力", "answer": "", "evidence_turns": ["scene_5_session_13_turn_6"]}
+{"qid": "scene_5_q_88", "qtype": "single_hop", "question": "美容 技巧 耐心 耳朵 爪子 Toby 敏感", "answer": "", "evidence_turns": ["scene_5_session_16_turn_8"]}
+{"qid": "scene_5_q_95", "qtype": "single_hop", "question": "秘鲁百合 Peruvian Lilies 花 颜色 花瓣", "answer": "", "evidence_turns": ["scene_5_session_19_turn_20"]}
+{"qid": "scene_5_q_100", "qtype": "single_hop", "question": "膝伤 遛狗 无法 恢复 怀念 自然", "answer": "", "evidence_turns": ["scene_5_session_22_turn_1"]}
+{"qid": "scene_5_q_103", "qtype": "single_hop", "question": "首饰 捐赠 收益 公益 事业 售卖", "answer": "", "evidence_turns": ["scene_5_session_22_turn_7"]}
+{"qid": "scene_5_q_108", "qtype": "single_hop", "question": "狗 雪 反应 讨厌 公园 困惑 冬天", "answer": "", "evidence_turns": ["scene_5_session_23_turn_12"]}
+{"qid": "scene_5_q_111", "qtype": "single_hop", "question": "徒步 狗 探索 自然 好奇 Buddy 散步", "answer": "", "evidence_turns": ["scene_5_session_24_turn_10"]}
+{"qid": "scene_5_q_116", "qtype": "single_hop", "question": "秋天 色彩 美 旅行 提议", "answer": "", "evidence_turns": ["scene_5_session_26_turn_36"]}
+{"qid": "scene_5_q_120", "qtype": "single_hop", "question": "益智玩具 训练 捉迷藏 狗 活动 刺激", "answer": "", "evidence_turns": ["scene_5_session_27_turn_14"]}
+{"qid": "scene_6_q_73", "qtype": "single_hop", "question": "打鼓 一个月 多久 艰难 有趣 学习", "answer": "", "evidence_turns": ["scene_6_session_3_turn_5"]}
+{"qid": "scene_6_q_81", "qtype": "single_hop", "question": "遛狗 一见钟情 陌生女性 灵感 游戏角色 创意", "answer": "", "evidence_turns": ["scene_6_session_6_turn_6"]}
+{"qid": "scene_6_q_84", "qtype": "single_hop", "question": "项目 编程 难 卡住 作业 头疼", "answer": "", "evidence_turns": ["scene_6_session_7_turn_13"]}
+{"qid": "scene_6_q_88", "qtype": "single_hop", "question": "CS:GO 锦标赛 慈善 筹款 组织 游戏", "answer": "", "evidence_turns": ["scene_6_session_10_turn_4"]}
+{"qid": "scene_6_q_93", "qtype": "single_hop", "question": "锦标赛 第二 奖励 奖品 获得 名次", "answer": "", "evidence_turns": ["scene_6_session_12_turn_5", "scene_6_session_12_turn_6"]}
+{"qid": "scene_6_q_94", "qtype": "single_hop", "question": "足球模拟器 球员数据库 项目 开发 课程", "answer": "", "evidence_turns": ["scene_6_session_13_turn_8"]}
+{"qid": "scene_6_q_96", "qtype": "single_hop", "question": "曼城 足球 俱乐部 支持 球迷 冠军", "answer": "", "evidence_turns": ["scene_6_session_13_turn_15"]}
+{"qid": "scene_6_q_107", "qtype": "single_hop", "question": "IT 工作 离开 改变 价值观 热情 专注", "answer": "", "evidence_turns": ["scene_6_session_18_turn_3"]}
+{"qid": "scene_6_q_112", "qtype": "single_hop", "question": "巫师3 The Witcher 3 沉浸 选择 游戏 怪物猎人", "answer": "", "evidence_turns": ["scene_6_session_19_turn_7"]}
+{"qid": "scene_6_q_115", "qtype": "single_hop", "question": "兄弟姐妹 组织 活动 下个月 安排", "answer": "", "evidence_turns": ["scene_6_session_20_turn_17"]}
+{"qid": "scene_6_q_125", "qtype": "single_hop", "question": "烹饪课 煎蛋卷 第一次 做 简单菜", "answer": "", "evidence_turns": ["scene_6_session_23_turn_13"]}
+{"qid": "scene_6_q_132", "qtype": "single_hop", "question": "手机游戏 里程碑 第一款 上线 职业 九", "answer": "", "evidence_turns": ["scene_6_session_25_turn_7"]}
+{"qid": "scene_6_q_135", "qtype": "single_hop", "question": "编程导师 游戏开发 非营利 教学 邀请 导师", "answer": "", "evidence_turns": ["scene_6_session_26_turn_3"]}
+{"qid": "scene_6_q_136", "qtype": "single_hop", "question": "编程导师 兴奋 受启发 成就感 分享 潜力", "answer": "", "evidence_turns": ["scene_6_session_26_turn_5"]}
+{"qid": "scene_6_q_137", "qtype": "single_hop", "question": "显卡 赛博朋克2077 RPG 新游戏 期待", "answer": "", "evidence_turns": ["scene_6_session_26_turn_10"]}
+{"qid": "scene_6_q_141", "qtype": "single_hop", "question": "游戏锦标赛 堡垒之夜 儿童医院 慈善 游戏 公益", "answer": "", "evidence_turns": ["scene_6_session_29_turn_1", "scene_6_session_29_turn_3"]}
+{"qid": "scene_6_q_148", "qtype": "single_hop", "question": "在线桌游 合作 游戏开发者 项目 独特", "answer": "", "evidence_turns": ["scene_6_session_31_turn_4"]}
+{"qid": "scene_7_q_15", "qtype": "single_hop", "question": "Jolene 宠物 蛇 Susie 平静", "answer": "", "evidence_turns": ["scene_7_session_2_turn_20", "scene_7_session_2_turn_22", "scene_7_session_2_turn_24"]}
+{"qid": "scene_7_q_16", "qtype": "single_hop", "question": "Jolene 蛇 名字 Susie 几条", "answer": "", "evidence_turns": ["scene_7_session_2_turn_20", "scene_7_session_2_turn_22"]}
+{"qid": "scene_7_q_25", "qtype": "single_hop", "question": "Jolene 人类简史 Sapiens 书 喜欢 阅读", "answer": "", "evidence_turns": ["scene_7_session_4_turn_21", "scene_7_session_4_turn_23"]}
+{"qid": "scene_7_q_61", "qtype": "single_hop", "question": "可再生能源 太阳能 社区 项目 计划 明年", "answer": "", "evidence_turns": ["scene_7_session_22_turn_10", "scene_7_session_22_turn_12"]}
+{"qid": "scene_7_q_62", "qtype": "single_hop", "question": "Deborah Max 猫 妈妈 收养 来源", "answer": "", "evidence_turns": ["scene_7_session_22_turn_23", "scene_7_session_22_turn_25"]}
+{"qid": "scene_7_q_63", "qtype": "single_hop", "question": "Deborah 猫 Max 8岁 年龄 照顾", "answer": "", "evidence_turns": ["scene_7_session_22_turn_27", "scene_7_session_22_turn_29"]}
+{"qid": "scene_7_q_64", "qtype": "single_hop", "question": "Deborah 猫 喜欢 宠物 狗 养", "answer": "", "evidence_turns": ["scene_7_session_15_turn_25", "scene_7_session_22_turn_27"]}
+{"qid": "scene_7_q_74", "qtype": "single_hop", "question": "咖啡馆 见面 糕点 尝 约定 新鲜", "answer": "", "evidence_turns": ["scene_7_session_26_turn_10", "scene_7_session_26_turn_12"]}
+{"qid": "scene_7_q_90", "qtype": "single_hop", "question": "Jolene 人类简史 Sapiens 书 喜欢 阅读", "answer": "", "evidence_turns": ["scene_7_session_4_turn_21", "scene_7_session_4_turn_23"]}
+{"qid": "scene_7_q_91", "qtype": "single_hop", "question": "Sleep 专辑 冥想 放松 瑜伽 音乐", "answer": "", "evidence_turns": ["scene_7_session_11_turn_10", "scene_7_session_11_turn_8"]}
+{"qid": "scene_7_q_95", "qtype": "single_hop", "question": "Deborah 猫 Max 8岁 年龄 照顾", "answer": "", "evidence_turns": ["scene_7_session_22_turn_27", "scene_7_session_22_turn_29"]}
+{"qid": "scene_7_q_97", "qtype": "single_hop", "question": "里约热内卢 Rio de Janeiro 旅行 去过 瑜伽课", "answer": "", "evidence_turns": ["scene_7_session_23_turn_1", "scene_7_session_23_turn_18", "scene_7_session_23_turn_3"]}
+{"qid": "scene_7_q_99", "qtype": "single_hop", "question": "咖啡馆 见面 糕点 尝 约定 新鲜", "answer": "", "evidence_turns": ["scene_7_session_26_turn_10", "scene_7_session_26_turn_12"]}
+{"qid": "scene_7_q_101", "qtype": "single_hop", "question": "蛇 购买 一年前 巴黎 时间 买", "answer": "", "evidence_turns": ["scene_7_session_2_turn_24"]}
+{"qid": "scene_7_q_102", "qtype": "single_hop", "question": "机器人项目 工程学 创意 解决 问题 大型", "answer": "", "evidence_turns": ["scene_7_session_3_turn_1"]}
+{"qid": "scene_7_q_104", "qtype": "single_hop", "question": "主机游戏 伴侣 计划 一起 代替", "answer": "", "evidence_turns": ["scene_7_session_3_turn_11"]}
+{"qid": "scene_7_q_106", "qtype": "single_hop", "question": "人类简史 Sapiens 最喜欢 书 喜欢", "answer": "", "evidence_turns": ["scene_7_session_4_turn_21"]}
+{"qid": "scene_7_q_107", "qtype": "single_hop", "question": "护身符 妈妈 纪念 带 安慰 感受", "answer": "", "evidence_turns": ["scene_7_session_4_turn_36"]}
+{"qid": "scene_7_q_110", "qtype": "single_hop", "question": "STEM 志愿项目 贫困儿童 工程师 绿色科技 想法", "answer": "", "evidence_turns": ["scene_7_session_5_turn_7"]}
+{"qid": "scene_7_q_114", "qtype": "single_hop", "question": "工程课 相识 大学 伴侣 认识 初次", "answer": "", "evidence_turns": ["scene_7_session_7_turn_9"]}
+{"qid": "scene_7_q_119", "qtype": "single_hop", "question": "考试 截止日期 待办清单 压力 图片 不堪重负", "answer": "", "evidence_turns": ["scene_7_session_8_turn_16"]}
+{"qid": "scene_7_q_126", "qtype": "single_hop", "question": "纯音乐 Savana 平静 瑜伽 音乐 柔和", "answer": "", "evidence_turns": ["scene_7_session_11_turn_8"]}
+{"qid": "scene_7_q_134", "qtype": "single_hop", "question": "Seraphim 宠物 多久 去年 养 时间", "answer": "", "evidence_turns": ["scene_7_session_14_turn_6"]}
+{"qid": "scene_7_q_135", "qtype": "single_hop", "question": "Seraphim 感觉 开心 平静 治愈 陪伴", "answer": "", "evidence_turns": ["scene_7_session_14_turn_6"]}
+{"qid": "scene_7_q_136", "qtype": "single_hop", "question": "瑜伽 树式 tree pose 照片 体式 新", "answer": "", "evidence_turns": ["scene_7_session_14_turn_15"]}
+{"qid": "scene_7_q_139", "qtype": "single_hop", "question": "爬行动物 蛇 宠物 着迷 平静 自然", "answer": "", "evidence_turns": ["scene_7_session_15_turn_18"]}
+{"qid": "scene_7_q_143", "qtype": "single_hop", "question": "运动 自然 公园 跑步 每天 猫 带", "answer": "", "evidence_turns": ["scene_7_session_15_turn_27"]}
+{"qid": "scene_7_q_144", "qtype": "single_hop", "question": "Susie 收养 孤独 陪伴 两年前 陪伴", "answer": "", "evidence_turns": ["scene_7_session_16_turn_6"]}
+{"qid": "scene_7_q_153", "qtype": "single_hop", "question": "妈妈 长椅 公园 聊天 梦想 回忆 地方", "answer": "", "evidence_turns": ["scene_7_session_19_turn_19"]}
+{"qid": "scene_7_q_156", "qtype": "single_hop", "question": "萨瓦萨纳 savasana 摊尸式 瑜伽 平静 放松", "answer": "", "evidence_turns": ["scene_7_session_20_turn_19"]}
+{"qid": "scene_7_q_160", "qtype": "single_hop", "question": "线上会议 演讲 最近 反馈 机会 职业", "answer": "", "evidence_turns": ["scene_7_session_21_turn_6"]}
+{"qid": "scene_7_q_165", "qtype": "single_hop", "question": "里约热内卢 瑜伽课 伴侣 旅行 体验 酷", "answer": "", "evidence_turns": ["scene_7_session_23_turn_1"]}
+{"qid": "scene_7_q_172", "qtype": "single_hop", "question": "怪物猎人世界 Monster Hunter World 游戏 最喜欢 开放世界", "answer": "", "evidence_turns": ["scene_7_session_24_turn_10"]}
+{"qid": "scene_7_q_173", "qtype": "single_hop", "question": "冥想课程 报名 静修 伴侣 湖边 新技巧", "answer": "", "evidence_turns": ["scene_7_session_25_turn_1"]}
+{"qid": "scene_7_q_177", "qtype": "single_hop", "question": "喜悦 幸福 正念 感恩 进步 心情", "answer": "", "evidence_turns": ["scene_7_session_27_turn_9"]}
+{"qid": "scene_7_q_185", "qtype": "single_hop", "question": "妈妈 烹饪 饭菜 热爱 温暖 招牌菜", "answer": "", "evidence_turns": ["scene_7_session_29_turn_7"]}
+{"qid": "scene_8_q_83", "qtype": "single_hop", "question": "普锐斯 Prius 新车 买 旧车 坏", "answer": "", "evidence_turns": ["scene_8_session_1_turn_2"]}
+{"qid": "scene_8_q_84", "qtype": "single_hop", "question": "水彩 朋友 入门 着迷 开始 画", "answer": "", "evidence_turns": ["scene_8_session_1_turn_16"]}
+{"qid": "scene_8_q_87", "qtype": "single_hop", "question": "贾斯珀 Jasper 冰原大道 冰川 自驾 家人", "answer": "", "evidence_turns": ["scene_8_session_2_turn_1"]}
+{"qid": "scene_8_q_99", "qtype": "single_hop", "question": "解梦 书 梦境 见解 建议 梦", "answer": "", "evidence_turns": ["scene_8_session_6_turn_15"]}
+{"qid": "scene_8_q_100", "qtype": "single_hop", "question": "找 半小时 钥匙 丢 东西 找不到", "answer": "", "evidence_turns": ["scene_8_session_6_turn_13"]}
+{"qid": "scene_8_q_101", "qtype": "single_hop", "question": "烹饪课 健康饭菜 学习 做 更健康", "answer": "", "evidence_turns": ["scene_8_session_7_turn_2"]}
+{"qid": "scene_8_q_104", "qtype": "single_hop", "question": "节食 健康 照片 食物 大消息 更健康", "answer": "", "evidence_turns": ["scene_8_session_8_turn_1"]}
+{"qid": "scene_8_q_114", "qtype": "single_hop", "question": "丙烯颜料 画笔 画布 调色板 工具 绘画", "answer": "", "evidence_turns": ["scene_8_session_10_turn_11"]}
+{"qid": "scene_8_q_116", "qtype": "single_hop", "question": "绘画 减压 上周 分享 十月 画", "answer": "", "evidence_turns": ["scene_8_session_11_turn_8"]}
+{"qid": "scene_8_q_118", "qtype": "single_hop", "question": "手机 导航 故障 烦躁 电子 问题", "answer": "", "evidence_turns": ["scene_8_session_11_turn_15"]}
+{"qid": "scene_8_q_121", "qtype": "single_hop", "question": "太浩湖 Lake Tahoe 皮划艇 划 旅行", "answer": "", "evidence_turns": ["scene_8_session_13_turn_14"]}
+{"qid": "scene_8_q_132", "qtype": "single_hop", "question": "瑜伽 建议 帮助 提供 支持 需要", "answer": "", "evidence_turns": ["scene_8_session_18_turn_10"]}
+{"qid": "scene_8_q_135", "qtype": "single_hop", "question": "座右铭 Bring it on Home 家族 团聚 牌子", "answer": "", "evidence_turns": ["scene_8_session_19_turn_7"]}
+{"qid": "scene_8_q_137", "qtype": "single_hop", "question": "好朋友 展览 展出 帮助 画 出版", "answer": "", "evidence_turns": ["scene_8_session_20_turn_17"]}
+{"qid": "scene_8_q_141", "qtype": "single_hop", "question": "继续 尝试新事物 晨跑 旅程 爱 惊喜", "answer": "", "evidence_turns": ["scene_8_session_21_turn_10"]}
+{"qid": "scene_8_q_146", "qtype": "single_hop", "question": "结婚 家人 亲人 告诉 昨天 支持", "answer": "", "evidence_turns": ["scene_8_session_23_turn_1"]}
+{"qid": "scene_8_q_149", "qtype": "single_hop", "question": "医生 建议 饮食 运动 咨询 健康", "answer": "", "evidence_turns": ["scene_8_session_24_turn_11", "scene_8_session_24_turn_14"]}
+{"qid": "scene_9_q_73", "qtype": "single_hop", "question": "东京 音乐活动 四月 参加 音乐节", "answer": "", "evidence_turns": ["scene_9_session_3_turn_1"]}
+{"qid": "scene_9_q_74", "qtype": "single_hop", "question": "制作人 建议 忠于自我 独特 音乐方向", "answer": "", "evidence_turns": ["scene_9_session_3_turn_7"]}
+{"qid": "scene_9_q_83", "qtype": "single_hop", "question": "修复 成就感 目标感 第二次机会 热情", "answer": "", "evidence_turns": ["scene_9_session_7_turn_6"]}
+{"qid": "scene_9_q_91", "qtype": "single_hop", "question": "法拉利 Ferrari 车 自豪 品牌", "answer": "", "evidence_turns": ["scene_9_session_12_turn_7"]}
+{"qid": "scene_9_q_95", "qtype": "single_hop", "question": "引擎更换 悬挂改装 车身改装 肌肉车 改装", "answer": "", "evidence_turns": ["scene_9_session_13_turn_7"]}
+{"qid": "scene_9_q_114", "qtype": "single_hop", "question": "歌曲 公路旅行 爸爸 童年 合唱 California Love", "answer": "", "evidence_turns": ["scene_9_session_20_turn_6", "scene_9_session_20_turn_8"]}
+{"qid": "scene_9_q_115", "qtype": "single_hop", "question": "项目 放松 艺术家 合作 爱好 成果", "answer": "", "evidence_turns": ["scene_9_session_21_turn_3"]}
+{"qid": "scene_9_q_118", "qtype": "single_hop", "question": "努力 决心 目标 动力 进步 永不放弃", "answer": "", "evidence_turns": ["scene_9_session_21_turn_15"]}
+{"qid": "scene_9_q_126", "qtype": "single_hop", "question": "涩谷 十字路口 Shibuya Crossing 时代广场 新宿", "answer": "", "evidence_turns": ["scene_9_session_24_turn_19"]}
+{"qid": "scene_9_q_128", "qtype": "single_hop", "question": "拉面 东京 推荐 美食 波士顿", "answer": "", "evidence_turns": ["scene_9_session_24_turn_20"]}
+{"qid": "scene_9_q_134", "qtype": "single_hop", "question": "耐心 细节 修复 回报 难 车身", "answer": "", "evidence_turns": ["scene_9_session_25_turn_19"]}
+{"qid": "scene_9_q_135", "qtype": "single_hop", "question": "细节 与众不同 艺术家 非凡 平庸 创造", "answer": "", "evidence_turns": ["scene_9_session_25_turn_22"]}
+{"qid": "scene_9_q_141", "qtype": "single_hop", "question": "波士顿 Boston 照片 城市 上个月", "answer": "", "evidence_turns": ["scene_9_session_27_turn_6"]}
+{"qid": "scene_9_q_148", "qtype": "single_hop", "question": "博客 汽车改装 帖子 DIY项目 激励 建议", "answer": "", "evidence_turns": ["scene_9_session_28_turn_10"]}
+{"qid": "scene_9_q_152", "qtype": "single_hop", "question": "复古相机 买 本月 新 照片", "answer": "", "evidence_turns": ["scene_9_session_30_turn_5"]}
+{"qid": "scene_9_q_156", "qtype": "single_hop", "question": "公园 宁静 照片 瀑布 附近 地方", "answer": "", "evidence_turns": ["scene_9_session_30_turn_15"]}
+{"qid": "scene_0_q_52", "qtype": "multi_hop", "question": "猫 Bailey Oliver Oscar Melanie 宠物 名字", "answer": "", "evidence_turns": ["scene_0_session_13_turn_4", "scene_0_session_7_turn_18"]}
+{"qid": "scene_0_q_55", "qtype": "multi_hop", "question": "绘画 作品 Caroline Melanie 画 主题 完成", "answer": "", "evidence_turns": ["scene_0_session_14_turn_5", "scene_0_session_8_turn_6"]}
+{"qid": "scene_0_q_61", "qtype": "multi_hop", "question": "演出 Matt Patterson 音乐会 音乐人 看 歌声", "answer": "", "evidence_turns": ["scene_0_session_11_turn_3", "scene_0_session_15_turn_16"]}
+{"qid": "scene_0_q_65", "qtype": "multi_hop", "question": "性别过渡 身体变化 艺术 接纳 不完美 探索", "answer": "", "evidence_turns": ["scene_0_session_11_turn_14", "scene_0_session_16_turn_15"]}
+{"qid": "scene_0_q_66", "qtype": "multi_hop", "question": "露营 篝火 棉花糖 故事 家庭  hikes 徒步", "answer": "", "evidence_turns": ["scene_0_session_10_turn_12", "scene_0_session_16_turn_4"]}
+{"qid": "scene_0_q_76", "qtype": "multi_hop", "question": "公路旅行 之后 徒步 孩子 放松 时间", "answer": "", "evidence_turns": ["scene_0_session_18_turn_17"]}
+{"qid": "scene_0_q_78", "qtype": "multi_hop", "question": "摆件 买 家庭之爱 领养 祝贺 物品", "answer": "", "evidence_turns": ["scene_0_session_19_turn_2", "scene_0_session_7_turn_18"]}
+{"qid": "scene_1_q_3", "qtype": "multi_hop", "question": "失业 创业 银行 工作 共同 舞蹈", "answer": "", "evidence_turns": ["scene_1_session_1_turn_2", "scene_1_session_1_turn_3", "scene_1_session_1_turn_4", "scene_1_session_2_turn_1"]}
+{"qid": "scene_1_q_5", "qtype": "multi_hop", "question": "舞蹈工作室 理想 临水 样子 设计 心目中的", "answer": "", "evidence_turns": ["scene_1_session_1_turn_20", "scene_1_session_2_turn_4", "scene_1_session_2_turn_8"]}
+{"qid": "scene_1_q_9", "qtype": "multi_hop", "question": "罗马 旅行 城市 去过 生意 短暂", "answer": "", "evidence_turns": ["scene_1_session_15_turn_1", "scene_1_session_2_turn_5"]}
+{"qid": "scene_1_q_18", "qtype": "multi_hop", "question": "热爱 舞蹈工作室 创业 分享 舞蹈 因为", "answer": "", "evidence_turns": ["scene_1_session_1_turn_4", "scene_1_session_6_turn_8"]}
+{"qid": "scene_1_q_24", "qtype": "multi_hop", "question": "展会 舞蹈工作室 宣传 客户 自信 生意", "answer": "", "evidence_turns": ["scene_1_session_10_turn_1", "scene_1_session_16_turn_6", "scene_1_session_8_turn_4"]}
+{"qid": "scene_1_q_27", "qtype": "multi_hop", "question": "跳舞 比赛 照片 失败 坚持 Gina", "answer": "", "evidence_turns": ["scene_1_session_14_turn_14", "scene_1_session_1_turn_14", "scene_1_session_1_turn_16", "scene_1_session_1_turn_17", "scene_1_session_9_turn_10"]}
+{"qid": "scene_1_q_31", "qtype": "multi_hop", "question": "开业 期待 工作室 时间 明天 多久", "answer": "", "evidence_turns": ["scene_1_session_15_turn_13", "scene_1_session_1_turn_2"]}
+{"qid": "scene_2_q_6", "qtype": "multi_hop", "question": "教堂 社群 信仰 加入 朋友 附近", "answer": "", "evidence_turns": ["scene_2_session_14_turn_10", "scene_2_session_19_turn_1", "scene_2_session_2_turn_1", "scene_2_session_4_turn_1"]}
+{"qid": "scene_2_q_9", "qtype": "multi_hop", "question": "姨妈 帮助 志愿 激励 难关 钱", "answer": "", "evidence_turns": ["scene_2_session_5_turn_8", "scene_2_session_6_turn_9"]}
+{"qid": "scene_2_q_11", "qtype": "multi_hop", "question": "收容所 Laura 感谢信 影响 志愿 住户", "answer": "", "evidence_turns": ["scene_2_session_21_turn_19", "scene_2_session_27_turn_8", "scene_2_session_6_turn_5", "scene_2_session_7_turn_5"]}
+{"qid": "scene_2_q_12", "qtype": "multi_hop", "question": "军队能力测试 未通过 焦虑 多次 考试 军队", "answer": "", "evidence_turns": ["scene_2_session_3_turn_11", "scene_2_session_8_turn_18"]}
+{"qid": "scene_2_q_15", "qtype": "multi_hop", "question": "创意写作课 写作 启发 上 课", "answer": "", "evidence_turns": ["scene_2_session_7_turn_1", "scene_2_session_9_turn_1"]}
+{"qid": "scene_2_q_21", "qtype": "multi_hop", "question": "太平洋西北 海岸 国家公园 旅行 美国 探索", "answer": "", "evidence_turns": ["scene_2_session_11_turn_5", "scene_2_session_12_turn_17"]}
+{"qid": "scene_2_q_33", "qtype": "multi_hop", "question": "空中瑜伽 内心平静 音乐 放松 瑜伽 练习", "answer": "", "evidence_turns": ["scene_2_session_18_turn_15", "scene_2_session_19_turn_3", "scene_2_session_1_turn_3"]}
+{"qid": "scene_2_q_37", "qtype": "multi_hop", "question": "退伍军人 请愿 签名 项目 支持 推动", "answer": "", "evidence_turns": ["scene_2_session_15_turn_1", "scene_2_session_15_turn_11", "scene_2_session_21_turn_22", "scene_2_session_24_turn_1", "scene_2_session_29_turn_4"]}
+{"qid": "scene_2_q_49", "qtype": "multi_hop", "question": "收容所 食物 送 志愿 建议 无家可归", "answer": "", "evidence_turns": ["scene_2_session_25_turn_19", "scene_2_session_26_turn_1"]}
+{"qid": "scene_3_q_1", "qtype": "multi_hop", "question": "剧本 无乳甜点 蛋糕 共同 爱好 摄影", "answer": "", "evidence_turns": ["scene_3_session_10_turn_9", "scene_3_session_1_turn_10", "scene_3_session_1_turn_11", "scene_3_session_1_turn_12", "scene_3_session_20_turn_2", "scene_3_session_3_turn_4", "scene_3_session_4_turn_9"]}
+{"qid": "scene_3_q_19", "qtype": "multi_hop", "question": "徒步 路线 新 发现 达人 几条", "answer": "", "evidence_turns": ["scene_3_session_11_turn_3", "scene_3_session_8_turn_4"]}
+{"qid": "scene_3_q_47", "qtype": "multi_hop", "question": "电子游戏锦标赛 地区赛 玩家 新朋友 认识 交流", "answer": "", "evidence_turns": ["scene_3_session_14_turn_8", "scene_3_session_23_turn_1"]}
+{"qid": "scene_3_q_58", "qtype": "multi_hop", "question": "推荐 椰子 无乳蛋糕 食谱 甜点 之前", "answer": "", "evidence_turns": ["scene_3_session_10_turn_11", "scene_3_session_10_turn_19", "scene_3_session_19_turn_17", "scene_3_session_27_turn_23", "scene_3_session_2_turn_14", "scene_3_session_9_turn_12", "scene_3_session_9_turn_14"]}
+{"qid": "scene_3_q_63", "qtype": "multi_hop", "question": "CS:GO 街头霸王 游戏 电竞 玩 比赛", "answer": "", "evidence_turns": ["scene_3_session_10_turn_6", "scene_3_session_1_turn_7", "scene_3_session_23_turn_17", "scene_3_session_27_turn_1", "scene_3_session_27_turn_23"]}
+{"qid": "scene_3_q_79", "qtype": "multi_hop", "question": "作品 第三部 剧本 几部 称赞 写", "answer": "", "evidence_turns": ["scene_3_session_12_turn_13", "scene_3_session_12_turn_14", "scene_3_session_2_turn_3", "scene_3_session_4_turn_10", "scene_3_session_5_turn_1"]}
+{"qid": "scene_3_q_83", "qtype": "multi_hop", "question": "游戏指导 比赛 技巧 帮忙 提升 水平", "answer": "", "evidence_turns": ["scene_3_session_14_turn_16", "scene_3_session_18_turn_8", "scene_3_session_26_turn_12"]}
+{"qid": "scene_4_q_4", "qtype": "multi_hop", "question": "The Alchemist 牧羊少年奇幻之旅 书架 书 最喜欢 阅读", "answer": "", "evidence_turns": ["scene_4_session_11_turn_26", "scene_4_session_1_turn_14", "scene_4_session_20_turn_21", "scene_4_session_22_turn_13", "scene_4_session_26_turn_36", "scene_4_session_2_turn_7", "scene_4_session_6_turn_8"]}
+{"qid": "scene_4_q_7", "qtype": "multi_hop", "question": "大烟山 旅行 照片 自然 地方 去过", "answer": "", "evidence_turns": ["scene_4_session_14_turn_16", "scene_4_session_1_turn_18", "scene_4_session_3_turn_2"]}
+{"qid": "scene_4_q_29", "qtype": "multi_hop", "question": "篮球 初中 高中 大学奖学金 选秀 父亲", "answer": "", "evidence_turns": ["scene_4_session_6_turn_13", "scene_4_session_9_turn_4"]}
+{"qid": "scene_4_q_30", "qtype": "multi_hop", "question": "旅行 文化 城市 地方 了解 热爱", "answer": "", "evidence_turns": ["scene_4_session_27_turn_36", "scene_4_session_3_turn_19", "scene_4_session_6_turn_3", "scene_4_session_9_turn_6"]}
+{"qid": "scene_4_q_38", "qtype": "multi_hop", "question": "哈利波特 大会 英国 同好 奇幻 最常", "answer": "", "evidence_turns": ["scene_4_session_13_turn_1", "scene_4_session_18_turn_1", "scene_4_session_1_turn_18"]}
+{"qid": "scene_4_q_62", "qtype": "multi_hop", "question": "指导 年轻球员 分享 休赛期 篮球 知识", "answer": "", "evidence_turns": ["scene_4_session_14_turn_3", "scene_4_session_26_turn_1"]}
+{"qid": "scene_5_q_18", "qtype": "multi_hop", "question": "繁育者 狗 Pixie 附近 找到 来源", "answer": "", "evidence_turns": ["scene_5_session_11_turn_4", "scene_5_session_2_turn_1"]}
+{"qid": "scene_5_q_21", "qtype": "multi_hop", "question": "训犬课程 狗 进步 挑战 课 回报", "answer": "", "evidence_turns": ["scene_5_session_10_turn_1", "scene_5_session_14_turn_2", "scene_5_session_6_turn_4"]}
+{"qid": "scene_5_q_28", "qtype": "multi_hop", "question": "狗 衣服 装扮 打扮 信任 训练", "answer": "", "evidence_turns": ["scene_5_session_19_turn_6", "scene_5_session_4_turn_23", "scene_5_session_4_turn_25"]}
+{"qid": "scene_5_q_35", "qtype": "multi_hop", "question": "Toby 小狗 名字 狗 Andrew 养", "answer": "", "evidence_turns": ["scene_5_session_12_turn_1", "scene_5_session_24_turn_6", "scene_5_session_28_turn_8"]}
+{"qid": "scene_5_q_36", "qtype": "multi_hop", "question": "鸡肉馅饼 Chicken Pot Pie 食谱 烹饪 喜欢 食物", "answer": "", "evidence_turns": ["scene_5_session_10_turn_13", "scene_5_session_10_turn_23", "scene_5_session_25_turn_6", "scene_5_session_3_turn_18"]}
+{"qid": "scene_5_q_40", "qtype": "multi_hop", "question": "狗公园 敏捷训练 狗 挑战 自由 朋友", "answer": "", "evidence_turns": ["scene_5_session_14_turn_2", "scene_5_session_23_turn_10", "scene_5_session_4_turn_25"]}
+{"qid": "scene_5_q_50", "qtype": "multi_hop", "question": "美容 狗 新技能 亲近 照料 学习", "answer": "", "evidence_turns": ["scene_5_session_16_turn_2", "scene_5_session_17_turn_4"]}
+{"qid": "scene_6_q_9", "qtype": "multi_hop", "question": "Max Daisy 狗 名字 James 遛狗App", "answer": "", "evidence_turns": ["scene_6_session_1_turn_14", "scene_6_session_5_turn_1"]}
+{"qid": "scene_6_q_18", "qtype": "multi_hop", "question": "飓光志 弑君者传奇 苍穹浩瀚 推荐 科幻 书", "answer": "", "evidence_turns": ["scene_6_session_14_turn_10", "scene_6_session_8_turn_14"]}
+{"qid": "scene_6_q_26", "qtype": "multi_hop", "question": "多伦多 机票 旅行 出发 阅读 国家", "answer": "", "evidence_turns": ["scene_6_session_16_turn_9", "scene_6_session_17_turn_22", "scene_6_session_6_turn_12", "scene_6_session_6_turn_14"]}
+{"qid": "scene_6_q_49", "qtype": "multi_hop", "question": "游戏 新设备 游戏桌 翻新 买 设备", "answer": "", "evidence_turns": ["scene_6_session_20_turn_9", "scene_6_session_23_turn_10", "scene_6_session_23_turn_8"]}
+{"qid": "scene_6_q_54", "qtype": "multi_hop", "question": "线上比赛 程序员朋友 竞技 组织 展示技巧 编程", "answer": "", "evidence_turns": ["scene_6_session_27_turn_1", "scene_6_session_28_turn_6"]}
+{"qid": "scene_7_q_1", "qtype": "multi_hop", "question": "妈妈 去世 回忆 合影 家人 过世", "answer": "", "evidence_turns": ["scene_7_session_1_turn_5", "scene_7_session_2_turn_1", "scene_7_session_6_turn_4"]}
+{"qid": "scene_7_q_79", "qtype": "multi_hop", "question": "海滩 结婚 冲浪 热爱 喜悦 特别", "answer": "", "evidence_turns": ["scene_7_session_28_turn_11", "scene_7_session_29_turn_25"]}
+{"qid": "scene_7_q_80", "qtype": "multi_hop", "question": "冲浪 入门指南 学习 准备 资料 试过", "answer": "", "evidence_turns": ["scene_7_session_10_turn_20", "scene_7_session_29_turn_26", "scene_7_session_29_turn_30"]}
+{"qid": "scene_8_q_3", "qtype": "multi_hop", "question": "普锐斯 Prius 几辆 新车 旧车 拥有", "answer": "", "evidence_turns": ["scene_8_session_1_turn_2", "scene_8_session_1_turn_4"]}
+{"qid": "scene_8_q_6", "qtype": "multi_hop", "question": "公路旅行 五月 落基山脉 几次 普锐斯 Rockies", "answer": "", "evidence_turns": ["scene_8_session_1_turn_4", "scene_8_session_2_turn_1"]}
+{"qid": "scene_8_q_8", "qtype": "multi_hop", "question": "水彩 减压 几年前 爱好 画画 开始", "answer": "", "evidence_turns": ["scene_8_session_1_turn_14", "scene_8_session_1_turn_16", "scene_8_session_8_turn_13", "scene_8_session_8_turn_14"]}
+{"qid": "scene_8_q_11", "qtype": "multi_hop", "question": "体重 健康风险 胃炎 甜食 警醒 生活方式", "answer": "", "evidence_turns": ["scene_8_session_10_turn_6", "scene_8_session_12_turn_1", "scene_8_session_13_turn_2", "scene_8_session_14_turn_1", "scene_8_session_15_turn_1", "scene_8_session_16_turn_3", "scene_8_session_17_turn_3", "scene_8_session_24_turn_12", "scene_8_session_24_turn_14", "scene_8_session_24_turn_20", "scene_8_session_25_turn_1", "scene_8_session_25_turn_3", "scene_8_session_2_turn_6", "scene_8_session_3_turn_4", "scene_8_session_5_turn_5", "scene_8_session_6_turn_2", "scene_8_session_7_turn_12", "scene_8_session_7_turn_2", "scene_8_session_8_turn_1"]}
+{"qid": "scene_8_q_18", "qtype": "multi_hop", "question": "健康零食 能量球 气泡水 黑巧克力 食谱 大自然", "answer": "", "evidence_turns": ["scene_8_session_22_turn_10", "scene_8_session_22_turn_14", "scene_8_session_24_turn_15", "scene_8_session_3_turn_5", "scene_8_session_4_turn_10"]}
+{"qid": "scene_8_q_33", "qtype": "multi_hop", "question": "反复梦 摩天大楼 飞翔 梦 反复出现 空中", "answer": "", "evidence_turns": ["scene_8_session_24_turn_22", "scene_8_session_6_turn_14"]}
+{"qid": "scene_8_q_34", "qtype": "multi_hop", "question": "儿子 自行车事故 足球 脚踝 上周 受伤", "answer": "", "evidence_turns": ["scene_8_session_20_turn_3", "scene_8_session_7_turn_1"]}
+{"qid": "scene_8_q_42", "qtype": "multi_hop", "question": "水彩 朋友 入门 几年前 减压 画画", "answer": "", "evidence_turns": ["scene_8_session_1_turn_14", "scene_8_session_1_turn_15", "scene_8_session_1_turn_16", "scene_8_session_8_turn_14"]}
+{"qid": "scene_8_q_44", "qtype": "multi_hop", "question": "风景 大自然 当代具象画 绘画 主题 画", "answer": "", "evidence_turns": ["scene_8_session_20_turn_13", "scene_8_session_20_turn_15", "scene_8_session_21_turn_10", "scene_8_session_21_turn_14", "scene_8_session_8_turn_20"]}
+{"qid": "scene_8_q_55", "qtype": "multi_hop", "question": "迷路游客 城市游 常见主题 帮 游客 意外", "answer": "", "evidence_turns": ["scene_8_session_11_turn_6", "scene_8_session_14_turn_2"]}
+{"qid": "scene_8_q_69", "qtype": "multi_hop", "question": "怀孕 结婚 伴侣 十二月 好消息 重要", "answer": "", "evidence_turns": ["scene_8_session_19_turn_1", "scene_8_session_21_turn_2"]}
+{"qid": "scene_9_q_5", "qtype": "multi_hop", "question": "开店 经典车 定制车 梦想 汽车工程 从零开始", "answer": "", "evidence_turns": ["scene_9_session_4_turn_5", "scene_9_session_5_turn_5"]}
+{"qid": "scene_9_q_15", "qtype": "multi_hop", "question": "公园 平静 放松 自然 常待 美丽", "answer": "", "evidence_turns": ["scene_9_session_1_turn_16", "scene_9_session_8_turn_4"]}
+{"qid": "scene_9_q_18", "qtype": "multi_hop", "question": "保险 维修 水淹 车祸 反复 几次 处理", "answer": "", "evidence_turns": ["scene_9_session_6_turn_5", "scene_9_session_9_turn_1"]}
+{"qid": "scene_9_q_24", "qtype": "multi_hop", "question": "引擎 更换 改装 汽车 修理 悬挂", "answer": "", "evidence_turns": ["scene_9_session_13_turn_7", "scene_9_session_20_turn_1", "scene_9_session_22_turn_5"]}
+{"qid": "scene_9_q_30", "qtype": "multi_hop", "question": "日本 音乐 经典摇滚 Aerosmith 听 摇滚", "answer": "", "evidence_turns": ["scene_9_session_10_turn_11", "scene_9_session_28_turn_40", "scene_9_session_2_turn_10"]}
+{"qid": "scene_9_q_46", "qtype": "multi_hop", "question": "修复 复古车 汽车 爱好 最喜欢 老爷车", "answer": "", "evidence_turns": ["scene_9_session_19_turn_7", "scene_9_session_21_turn_4", "scene_9_session_22_turn_7"]}
+{"qid": "scene_9_q_54", "qtype": "multi_hop", "question": "世界大事 独特视角 粉丝 灵感 音乐 创作", "answer": "", "evidence_turns": ["scene_9_session_25_turn_8", "scene_9_session_28_turn_31"]}
+{"qid": "scene_9_q_58", "qtype": "multi_hop", "question": "爸爸 修车 翻新 童年 车库 充实感", "answer": "", "evidence_turns": ["scene_9_session_12_turn_2", "scene_9_session_12_turn_4", "scene_9_session_25_turn_12", "scene_9_session_26_turn_6"]}
+{"qid": "scene_9_q_60", "qtype": "multi_hop", "question": "定制 章鱼 日本艺术家 钻石项链 礼物 朋友", "answer": "", "evidence_turns": ["scene_9_session_16_turn_14", "scene_9_session_4_turn_24", "scene_9_session_4_turn_26"]}
+{"qid": "scene_0_q_36", "qtype": "temporal_reasoning", "question": "导师计划 LGBTQ 青少年 上周末 加入 社区", "answer": "", "evidence_turns": ["scene_0_session_9_turn_2"]}
+{"qid": "scene_0_q_41", "qtype": "temporal_reasoning", "question": "LGBTQ 活动团体 上周二 加入 平权 权益", "answer": "", "evidence_turns": ["scene_0_session_10_turn_3"]}
+{"qid": "scene_0_q_49", "qtype": "temporal_reasoning", "question": "骄傲节 去年 一起 回忆 支持 节日", "answer": "", "evidence_turns": ["scene_0_session_12_turn_15"]}
+{"qid": "scene_0_q_53", "qtype": "temporal_reasoning", "question": "领养 机构 申请 本周 母亲 互助小组", "answer": "", "evidence_turns": ["scene_0_session_13_turn_1"]}
+{"qid": "scene_0_q_54", "qtype": "temporal_reasoning", "question": "自画像 上周 完成 绘画 展示 自我表达", "answer": "", "evidence_turns": ["scene_0_session_13_turn_11"]}
+{"qid": "scene_0_q_63", "qtype": "temporal_reasoning", "question": "才艺表演 下个月 孩子 筹办 期待 青年中心", "answer": "", "evidence_turns": ["scene_0_session_15_turn_11"]}
+{"qid": "scene_0_q_67", "qtype": "temporal_reasoning", "question": "骑行 上周末 朋友 照片 风景 外出", "answer": "", "evidence_turns": ["scene_0_session_16_turn_1"]}
+{"qid": "scene_0_q_68", "qtype": "temporal_reasoning", "question": "七年 陶艺 绘画 坚持 平静 多久", "answer": "", "evidence_turns": ["scene_0_session_16_turn_8"]}
+{"qid": "scene_0_q_72", "qtype": "temporal_reasoning", "question": "领养 孩子 新篇章 经验 期待 朋友", "answer": "", "evidence_turns": ["scene_0_session_17_turn_3"]}
+{"qid": "scene_0_q_79", "qtype": "temporal_reasoning", "question": "领养 面试 上周五 通过 机构 感恩", "answer": "", "evidence_turns": ["scene_0_session_19_turn_1"]}
+{"qid": "scene_1_q_0", "qtype": "temporal_reasoning", "question": "失业 银行 昨天 工作 创业 银行职员", "answer": "", "evidence_turns": ["scene_1_session_1_turn_2"]}
+{"qid": "scene_1_q_6", "qtype": "temporal_reasoning", "question": "音乐节 下个月 演出 排练 编舞 表演", "answer": "", "evidence_turns": ["scene_1_session_1_turn_24"]}
+{"qid": "scene_1_q_8", "qtype": "temporal_reasoning", "question": "巴黎 昨天 旅行 场地 舞蹈工作室", "answer": "", "evidence_turns": ["scene_1_session_2_turn_4"]}
+{"qid": "scene_1_q_12", "qtype": "temporal_reasoning", "question": "健身房 上周 开始 创业 平衡 保持", "answer": "", "evidence_turns": ["scene_1_session_6_turn_1"]}
+{"qid": "scene_1_q_14", "qtype": "temporal_reasoning", "question": "社交媒体 舞蹈工作室 扩大 工作坊 比赛 影响力", "answer": "", "evidence_turns": ["scene_1_session_8_turn_13"]}
+{"qid": "scene_1_q_16", "qtype": "temporal_reasoning", "question": "展会 昨天 舞蹈工作室 宣传 客户 曝光", "answer": "", "evidence_turns": ["scene_1_session_10_turn_1"]}
+{"qid": "scene_1_q_19", "qtype": "temporal_reasoning", "question": "设计实习 面试 昨天 参加 项目 时装", "answer": "", "evidence_turns": ["scene_1_session_11_turn_14"]}
+{"qid": "scene_1_q_22", "qtype": "temporal_reasoning", "question": "教学视频 服装搭配 制作 舞蹈工作室 准备 搭配", "answer": "", "evidence_turns": ["scene_1_session_13_turn_4"]}
+{"qid": "scene_1_q_36", "qtype": "temporal_reasoning", "question": "合作 舞蹈 期待 一起 内容 决定", "answer": "", "evidence_turns": ["scene_1_session_18_turn_18"]}
+{"qid": "scene_2_q_0", "qtype": "temporal_reasoning", "question": "妈妈 晚饭 昨晚 一起 支持 晚餐", "answer": "", "evidence_turns": ["scene_2_session_13_turn_16"]}
+{"qid": "scene_2_q_13", "qtype": "temporal_reasoning", "question": "奶奶 去世 上周 难过 保持积极 祖母", "answer": "", "evidence_turns": ["scene_2_session_8_turn_1"]}
+{"qid": "scene_2_q_27", "qtype": "temporal_reasoning", "question": "退伍军人 上周五 合影 聚会 项目 支持", "answer": "", "evidence_turns": ["scene_2_session_15_turn_11"]}
+{"qid": "scene_2_q_43", "qtype": "temporal_reasoning", "question": "洪水 老家 上周 基础设施 房屋 严重", "answer": "", "evidence_turns": ["scene_2_session_23_turn_1"]}
+{"qid": "scene_2_q_56", "qtype": "temporal_reasoning", "question": "慈善跑 上周末 社区活动 筹款 公益 5K", "answer": "", "evidence_turns": ["scene_2_session_29_turn_2", "scene_2_session_29_turn_4"]}
+{"qid": "scene_3_q_6", "qtype": "temporal_reasoning", "question": "乌龟 三年 养 多久 宠物 第一只", "answer": "", "evidence_turns": ["scene_3_session_2_turn_12"]}
+{"qid": "scene_3_q_13", "qtype": "temporal_reasoning", "question": "试镜 写作工作 昨天 参加 机会 起伏", "answer": "", "evidence_turns": ["scene_3_session_6_turn_2"]}
+{"qid": "scene_3_q_25", "qtype": "temporal_reasoning", "question": "徒步 这周末 朋友 瀑布 新路线 探索", "answer": "", "evidence_turns": ["scene_3_session_14_turn_19"]}
+{"qid": "scene_3_q_31", "qtype": "temporal_reasoning", "question": "电子游戏锦标赛 第四场 周五 夺冠 线上赛", "answer": "", "evidence_turns": ["scene_3_session_17_turn_1"]}
+{"qid": "scene_3_q_36", "qtype": "temporal_reasoning", "question": "写作小组 上周 分享 作品 反馈 紧张", "answer": "", "evidence_turns": ["scene_3_session_19_turn_6"]}
+{"qid": "scene_3_q_37", "qtype": "temporal_reasoning", "question": "国际赛事 昨天 夺冠 游戏 谋生 国际", "answer": "", "evidence_turns": ["scene_3_session_19_turn_1"]}
+{"qid": "scene_3_q_54", "qtype": "temporal_reasoning", "question": "近况 问候 剧本 电影 大银幕", "answer": "", "evidence_turns": ["scene_3_session_25_turn_1"]}
+{"qid": "scene_3_q_57", "qtype": "temporal_reasoning", "question": "明天 过去 拜访 食谱 约定 分享", "answer": "", "evidence_turns": ["scene_3_session_26_turn_19"]}
+{"qid": "scene_3_q_72", "qtype": "temporal_reasoning", "question": "明天见 约定 乌龟 拜访 看", "answer": "", "evidence_turns": ["scene_3_session_28_turn_32"]}
+{"qid": "scene_4_q_54", "qtype": "temporal_reasoning", "question": "落基山 去年 旅行 照片 大自然 清空思绪", "answer": "", "evidence_turns": ["scene_4_session_20_turn_40"]}
+{"qid": "scene_4_q_55", "qtype": "temporal_reasoning", "question": "新球队 签约 赛季 期待 职业 打球", "answer": "", "evidence_turns": ["scene_4_session_1_turn_3", "scene_4_session_21_turn_4"]}
+{"qid": "scene_4_q_64", "qtype": "temporal_reasoning", "question": "意大利 上个月 旅行 旅行团 月份", "answer": "", "evidence_turns": ["scene_4_session_27_turn_2"]}
+{"qid": "scene_5_q_1", "qtype": "temporal_reasoning", "question": "新工作 金融分析师 上周 开始 Financial Analyst", "answer": "", "evidence_turns": ["scene_5_session_1_turn_2"]}
+{"qid": "scene_5_q_6", "qtype": "temporal_reasoning", "question": "Pixie 领养 小狗 惊喜 可爱", "answer": "", "evidence_turns": ["scene_5_session_2_turn_1"]}
+{"qid": "scene_5_q_13", "qtype": "temporal_reasoning", "question": "新家 搬家 后院 狗 更大的", "answer": "", "evidence_turns": ["scene_5_session_9_turn_1"]}
+{"qid": "scene_5_q_46", "qtype": "temporal_reasoning", "question": "Toby 小狗 宠物 几只 领养 城市", "answer": "", "evidence_turns": ["scene_5_session_12_turn_1", "scene_5_session_24_turn_2"]}
+{"qid": "scene_5_q_47", "qtype": "temporal_reasoning", "question": "领养 收容所 小狗 时间 间隔 几个月", "answer": "", "evidence_turns": ["scene_5_session_24_turn_2", "scene_5_session_28_turn_6"]}
+{"qid": "scene_5_q_59", "qtype": "temporal_reasoning", "question": "Toby 小狗 领养 多久 时间 第一只", "answer": "", "evidence_turns": ["scene_5_session_12_turn_1"]}
+{"qid": "scene_6_q_14", "qtype": "temporal_reasoning", "question": "冒险书 三天前 买 奇幻小说 新", "answer": "", "evidence_turns": ["scene_6_session_8_turn_11"]}
+{"qid": "scene_6_q_21", "qtype": "temporal_reasoning", "question": "组织活动 昨天 朋友 慈善 猜测 锦标赛", "answer": "", "evidence_turns": ["scene_6_session_10_turn_2"]}
+{"qid": "scene_6_q_29", "qtype": "temporal_reasoning", "question": "多伦多 机票 后天 出发 加拿大", "answer": "", "evidence_turns": ["scene_6_session_16_turn_9"]}
+{"qid": "scene_6_q_52", "qtype": "temporal_reasoning", "question": "2D冒险游戏 几个月 解谜 探索 保密 开发", "answer": "", "evidence_turns": ["scene_6_session_25_turn_9"]}
+{"qid": "scene_6_q_53", "qtype": "temporal_reasoning", "question": "第一款游戏 发布 游戏社区 完成 巫师 多久", "answer": "", "evidence_turns": ["scene_6_session_27_turn_2", "scene_6_session_6_turn_1"]}
+{"qid": "scene_7_q_0", "qtype": "temporal_reasoning", "question": "电气工程项目 完成 上周 忙碌 项目", "answer": "", "evidence_turns": ["scene_7_session_1_turn_2"]}
+{"qid": "scene_7_q_2", "qtype": "temporal_reasoning", "question": "妈妈 去世 几年前 合影 回忆 离世", "answer": "", "evidence_turns": ["scene_7_session_1_turn_5"]}
+{"qid": "scene_7_q_4", "qtype": "temporal_reasoning", "question": "吊坠 母亲 巴黎 2010 礼物 赠送", "answer": "", "evidence_turns": ["scene_7_session_1_turn_8"]}
+{"qid": "scene_7_q_7", "qtype": "temporal_reasoning", "question": "巴黎 2010 母亲 法国 旅行 国家", "answer": "", "evidence_turns": ["scene_7_session_1_turn_8"]}
+{"qid": "scene_7_q_17", "qtype": "temporal_reasoning", "question": "巴黎 一年前 买 购买 Seraphim", "answer": "", "evidence_turns": ["scene_7_session_2_turn_24"]}
+{"qid": "scene_7_q_31", "qtype": "temporal_reasoning", "question": "Karlie 合影 去年夏天 徒步 最后 照片", "answer": "", "evidence_turns": ["scene_7_session_6_turn_8"]}
+{"qid": "scene_7_q_35", "qtype": "temporal_reasoning", "question": "晨跑 昨天 第一次 公园 日常 附近", "answer": "", "evidence_turns": ["scene_7_session_7_turn_18"]}
+{"qid": "scene_7_q_46", "qtype": "temporal_reasoning", "question": "大项目 机器人 成形 期待 工作 多久", "answer": "", "evidence_turns": ["scene_7_session_12_turn_10", "scene_7_session_13_turn_1", "scene_7_session_3_turn_1"]}
+{"qid": "scene_7_q_66", "qtype": "temporal_reasoning", "question": "里约热内卢 昨天 回来 伴侣 瑜伽课 回家", "answer": "", "evidence_turns": ["scene_7_session_23_turn_1"]}
+{"qid": "scene_7_q_76", "qtype": "temporal_reasoning", "question": "水肺潜水 上周五 潜点 冒险 持证潜水员", "answer": "", "evidence_turns": ["scene_7_session_29_turn_4"]}
+{"qid": "scene_7_q_78", "qtype": "temporal_reasoning", "question": "九月 父亲去世 悲痛 家人 回忆 珍惜", "answer": "", "evidence_turns": ["scene_7_session_2_turn_1"]}
+{"qid": "scene_8_q_13", "qtype": "temporal_reasoning", "question": "心悸 上周 健康惊吓 生活方式 警醒 突发", "answer": "", "evidence_turns": ["scene_8_session_3_turn_1"]}
+{"qid": "scene_8_q_23", "qtype": "temporal_reasoning", "question": "健身房 明天 开始 锻炼 规律 计划", "answer": "", "evidence_turns": ["scene_8_session_4_turn_15"]}
+{"qid": "scene_8_q_40", "qtype": "temporal_reasoning", "question": "绘画课 几天前 开始 尝试新事物 享受", "answer": "", "evidence_turns": ["scene_8_session_8_turn_12"]}
+{"qid": "scene_8_q_52", "qtype": "temporal_reasoning", "question": "绘画 约定 一起 活动 期待 安排", "answer": "", "evidence_turns": ["scene_8_session_10_turn_12", "scene_8_session_10_turn_13", "scene_8_session_10_turn_14"]}
+{"qid": "scene_8_q_58", "qtype": "temporal_reasoning", "question": "举重 一年前 开始 进步 旅程", "answer": "", "evidence_turns": ["scene_8_session_12_turn_2"]}
+{"qid": "scene_8_q_60", "qtype": "temporal_reasoning", "question": "皮划艇 尝试 十月 新活动 锻炼 自然", "answer": "", "evidence_turns": ["scene_8_session_13_turn_8"]}
+{"qid": "scene_8_q_67", "qtype": "temporal_reasoning", "question": "下个月 约定 探索 兴奋 海滩 一起", "answer": "", "evidence_turns": ["scene_8_session_16_turn_24"]}
+{"qid": "scene_8_q_70", "qtype": "temporal_reasoning", "question": "问候 近况 好久不见 结婚 交往", "answer": "", "evidence_turns": ["scene_8_session_21_turn_1", "scene_8_session_5_turn_1"]}
+{"qid": "scene_8_q_75", "qtype": "temporal_reasoning", "question": "结婚 家人 支持 昨天 宣布 大家庭", "answer": "", "evidence_turns": ["scene_8_session_23_turn_1"]}
+{"qid": "scene_8_q_76", "qtype": "temporal_reasoning", "question": "新事物 成就感 尝试 鼓励 画 完成", "answer": "", "evidence_turns": ["scene_8_session_20_turn_13", "scene_8_session_20_turn_15"]}
+{"qid": "scene_8_q_80", "qtype": "temporal_reasoning", "question": "喝酒 后悔 玫瑰 朋友 昨天 喝醉", "answer": "", "evidence_turns": ["scene_8_session_24_turn_3"]}
+{"qid": "scene_9_q_0", "qtype": "temporal_reasoning", "question": "东京 音乐活动 好久不见 酷 第一次", "answer": "", "evidence_turns": ["scene_9_session_3_turn_1"]}
+{"qid": "scene_9_q_9", "qtype": "temporal_reasoning", "question": "水淹 上周 音乐设备 麦克风 积极 意外", "answer": "", "evidence_turns": ["scene_9_session_6_turn_3"]}
+{"qid": "scene_9_q_10", "qtype": "temporal_reasoning", "question": "水淹 上周 音乐设备 麦克风 积极 东京", "answer": "", "evidence_turns": ["scene_9_session_6_turn_3"]}
+{"qid": "scene_9_q_12", "qtype": "temporal_reasoning", "question": "东京 演出 本月 粉丝群 新观众 演唱会", "answer": "", "evidence_turns": ["scene_9_session_6_turn_11", "scene_9_session_7_turn_1"]}
+{"qid": "scene_9_q_14", "qtype": "temporal_reasoning", "question": "专辑 创意团队 昨天 成形 会议", "answer": "", "evidence_turns": ["scene_9_session_8_turn_1"]}
+{"qid": "scene_9_q_16", "qtype": "temporal_reasoning", "question": "多山地区 旅行 下个月 山峰 体验", "answer": "", "evidence_turns": ["scene_9_session_8_turn_10"]}
+{"qid": "scene_9_q_17", "qtype": "temporal_reasoning", "question": "车祸 上周五 保险 维修 照片 小车祸", "answer": "", "evidence_turns": ["scene_9_session_9_turn_1"]}
+{"qid": "scene_9_q_25", "qtype": "temporal_reasoning", "question": "牌局之夜 上周五 朋友 开心 照片 打牌", "answer": "", "evidence_turns": ["scene_9_session_15_turn_1"]}
+{"qid": "scene_9_q_26", "qtype": "temporal_reasoning", "question": "播客 嘻哈 rap 昨天 朋友 录制", "answer": "", "evidence_turns": ["scene_9_session_15_turn_12"]}
+{"qid": "scene_9_q_36", "qtype": "temporal_reasoning", "question": "专辑 11号 发布 激励 不真实 发行", "answer": "", "evidence_turns": ["scene_9_session_18_turn_1"]}
+{"qid": "scene_9_q_52", "qtype": "temporal_reasoning", "question": "东京 下个月 巡演 景色 旅行 第二次", "answer": "", "evidence_turns": ["scene_9_session_24_turn_17"]}
+{"qid": "scene_9_q_65", "qtype": "temporal_reasoning", "question": "波士顿 Boston 照片 上个月 惊艳 钟楼", "answer": "", "evidence_turns": ["scene_9_session_27_turn_6"]}
+{"qid": "scene_0_q_42", "qtype": "open_domain", "question": "露营 家庭 篝火 棉花糖 夏天 故事", "answer": "", "evidence_turns": ["scene_0_session_10_turn_12", "scene_0_session_10_turn_14"]}
+{"qid": "scene_0_q_59", "qtype": "open_domain", "question": "徒步 宗教保守人士 LGBTQ 平权 支持 信仰", "answer": "", "evidence_turns": ["scene_0_session_12_turn_1", "scene_0_session_14_turn_19"]}
+{"qid": "scene_0_q_64", "qtype": "open_domain", "question": "古典音乐 巴赫 莫扎特 Ed Sheeran Perfect", "answer": "", "evidence_turns": ["scene_0_session_15_turn_28"]}
+{"qid": "scene_0_q_69", "qtype": "open_domain", "question": "称赞 领养 祝福 真诚 乐于助人", "answer": "", "evidence_turns": ["scene_0_session_13_turn_16", "scene_0_session_16_turn_18", "scene_0_session_7_turn_4"]}
+{"qid": "scene_0_q_77", "qtype": "open_domain", "question": "公路旅行 车祸 儿子 幸运 上周末", "answer": "", "evidence_turns": ["scene_0_session_18_turn_1", "scene_0_session_18_turn_3"]}
+{"qid": "scene_2_q_8", "qtype": "open_domain", "question": "孩子 贫富差距 行动 改变 富有 经济", "answer": "", "evidence_turns": ["scene_2_session_5_turn_5"]}
+{"qid": "scene_2_q_14", "qtype": "open_domain", "question": "旅行纪念品 能力测试 报效国家 成绩 爱国", "answer": "", "evidence_turns": ["scene_2_session_8_turn_18", "scene_2_session_8_turn_20"]}
+{"qid": "scene_3_q_0", "qtype": "open_domain", "question": "Counter-Strike CSGO 游戏 团队 比赛 朋友", "answer": "", "evidence_turns": ["scene_3_session_1_turn_7"]}
+{"qid": "scene_3_q_84", "qtype": "open_domain", "question": "乌龟 宠物陪伴 游戏锦标赛 失利 积极 职业", "answer": "", "evidence_turns": ["scene_3_session_20_turn_1", "scene_3_session_21_turn_1"]}
+{"qid": "scene_4_q_3", "qtype": "open_domain", "question": "哈利波特 朋友 构思 魔法世界 奇幻 读书", "answer": "", "evidence_turns": ["scene_4_session_1_turn_14", "scene_4_session_1_turn_16", "scene_4_session_1_turn_18"]}
+{"qid": "scene_4_q_66", "qtype": "open_domain", "question": "哈利波特 最爱 沉浸感 阅读 书 星球大战", "answer": "", "evidence_turns": ["scene_4_session_27_turn_19", "scene_4_session_27_turn_21"]}
+{"qid": "scene_5_q_33", "qtype": "open_domain", "question": "Toby 工作 徒步 自由 怀念 压力", "answer": "", "evidence_turns": ["scene_5_session_12_turn_3", "scene_5_session_18_turn_1", "scene_5_session_21_turn_5"]}
+{"qid": "scene_5_q_53", "qtype": "open_domain", "question": "狗 依偎 徒步 自然 怀念 职业", "answer": "", "evidence_turns": ["scene_5_session_2_turn_18", "scene_5_session_3_turn_1", "scene_5_session_5_turn_7", "scene_5_session_8_turn_27"]}
+{"qid": "scene_6_q_7", "qtype": "open_domain", "question": "领养 Stamford收容所 Ned 小狗 州 领养地", "answer": "", "evidence_turns": ["scene_6_session_5_turn_1"]}
+{"qid": "scene_6_q_12", "qtype": "open_domain", "question": "遛狗 一见钟情 陌生女性 游戏灵感 女友", "answer": "", "evidence_turns": ["scene_6_session_6_turn_6"]}
+{"qid": "scene_6_q_16", "qtype": "open_domain", "question": "桌游 卡牌 规则 Uno 彩色 数字", "answer": "", "evidence_turns": ["scene_6_session_8_turn_34"]}
+{"qid": "scene_7_q_5", "qtype": "open_domain", "question": "吊坠 母亲 纪念 巴黎 2010 国家", "answer": "", "evidence_turns": ["scene_7_session_1_turn_8"]}
+{"qid": "scene_7_q_28", "qtype": "open_domain", "question": "波哥大 日落 假期 自然 照片 夏天", "answer": "", "evidence_turns": ["scene_7_session_4_turn_33"]}
+{"qid": "scene_8_q_5", "qtype": "open_domain", "question": "贾斯珀 Jasper 冰原大道 冰川 自驾 家人", "answer": "", "evidence_turns": ["scene_8_session_2_turn_1"]}
+{"qid": "scene_8_q_27", "qtype": "open_domain", "question": "健康之路 两年 起落 坚持 设备 健身", "answer": "", "evidence_turns": ["scene_8_session_5_turn_7"]}
+{"qid": "scene_8_q_43", "qtype": "open_domain", "question": "体检 体重 健康风险 医生 打击 频率", "answer": "", "evidence_turns": ["scene_8_session_12_turn_1", "scene_8_session_2_turn_6", "scene_8_session_7_turn_2"]}
+{"qid": "scene_8_q_71", "qtype": "open_domain", "question": "结婚 上周 近况 起伏 假期 节日", "answer": "", "evidence_turns": ["scene_8_session_21_turn_2"]}
+{"qid": "scene_0_q_171", "qtype": "adversarial", "question": "领养 议会会议 孩子 爱心 决心", "answer": "", "evidence_turns": ["scene_0_session_8_turn_9"]}
+{"qid": "scene_0_q_172", "qtype": "adversarial", "question": "绘画 LGBTQ中心 团结 力量 艺术展", "answer": "", "evidence_turns": ["scene_0_session_9_turn_16"]}
+{"qid": "scene_0_q_175", "qtype": "adversarial", "question": "露营 流星雨 英仙座 许愿 宇宙 回忆", "answer": "", "evidence_turns": ["scene_0_session_10_turn_14"]}
+{"qid": "scene_0_q_176", "qtype": "adversarial", "question": "宇宙 敬畏 生命 瞬间 感悟 流星雨", "answer": "", "evidence_turns": ["scene_0_session_10_turn_18"]}
+{"qid": "scene_0_q_177", "qtype": "adversarial", "question": "画画 表达情感 创作 微笑 陶艺 色彩", "answer": "", "evidence_turns": ["scene_0_session_12_turn_6"]}
+{"qid": "scene_0_q_181", "qtype": "adversarial", "question": "彩绘玻璃 潜能 艺术 信念 教堂", "answer": "", "evidence_turns": ["scene_0_session_14_turn_17"]}
+{"qid": "scene_0_q_182", "qtype": "adversarial", "question": "彩虹 人行道 骄傲月 接纳 照片 散步", "answer": "", "evidence_turns": ["scene_0_session_14_turn_23"]}
+{"qid": "scene_0_q_183", "qtype": "adversarial", "question": "Brave Sara Bareilles 歌曲 勇敢 成长", "answer": "", "evidence_turns": ["scene_0_session_15_turn_23"]}
+{"qid": "scene_0_q_184", "qtype": "adversarial", "question": "单簧管 乐器 放松 自我表达 演奏", "answer": "", "evidence_turns": ["scene_0_session_15_turn_26"]}
+{"qid": "scene_0_q_185", "qtype": "adversarial", "question": "古典音乐 巴赫 莫扎特 Ed Sheeran Perfect", "answer": "", "evidence_turns": ["scene_0_session_15_turn_28"]}
+{"qid": "scene_0_q_187", "qtype": "adversarial", "question": "咖啡馆 标语 支持 快乐 贴心", "answer": "", "evidence_turns": ["scene_0_session_16_turn_16"]}
+{"qid": "scene_0_q_189", "qtype": "adversarial", "question": "书 推荐 画画 情绪 打发时间 陶艺", "answer": "", "evidence_turns": ["scene_0_session_17_turn_10"]}
+{"qid": "scene_0_q_191", "qtype": "adversarial", "question": "公路旅行 车祸 儿子 幸运 上周末", "answer": "", "evidence_turns": ["scene_0_session_18_turn_1"]}
+{"qid": "scene_0_q_193", "qtype": "adversarial", "question": "家人 车祸 大峡谷 感恩 珍惜", "answer": "", "evidence_turns": ["scene_0_session_18_turn_5"]}
+{"qid": "scene_0_q_196", "qtype": "adversarial", "question": "家人 车祸 大峡谷 感恩 珍惜 孩子", "answer": "", "evidence_turns": ["scene_0_session_18_turn_5"]}
+{"qid": "scene_0_q_198", "qtype": "adversarial", "question": "露营 篝火 大自然 家庭 陪伴 鸟鸣", "answer": "", "evidence_turns": ["scene_0_session_18_turn_21"]}
+{"qid": "scene_1_q_79", "qtype": "adversarial", "question": "服装店 舞蹈工作室 临时工作 投资人 开销", "answer": "", "evidence_turns": ["scene_1_session_18_turn_2"]}
+{"qid": "scene_1_q_82", "qtype": "adversarial", "question": "当代舞 表现力 力量 喜爱 舞种 绘画", "answer": "", "evidence_turns": ["scene_1_session_1_turn_8"]}
+{"qid": "scene_1_q_83", "qtype": "adversarial", "question": "舞蹈比赛 地区赛 冠军 十五岁 成就 难忘", "answer": "", "evidence_turns": ["scene_1_session_1_turn_17"]}
+{"qid": "scene_1_q_86", "qtype": "adversarial", "question": "Marley地板 防滑 耐磨 舞蹈工作室 装修 地板", "answer": "", "evidence_turns": ["scene_1_session_2_turn_8"]}
+{"qid": "scene_1_q_94", "qtype": "adversarial", "question": "舞蹈 时尚 创意 商品 热爱 结合", "answer": "", "evidence_turns": ["scene_1_session_8_turn_8"]}
+{"qid": "scene_1_q_97", "qtype": "adversarial", "question": "时尚 实习 兼职 国际公司 紧张 人力资源", "answer": "", "evidence_turns": ["scene_1_session_12_turn_3"]}
+{"qid": "scene_1_q_102", "qtype": "adversarial", "question": "连帽衫 限量款 服装设计 创意 系列", "answer": "", "evidence_turns": ["scene_1_session_16_turn_3"]}
+{"qid": "scene_2_q_154", "qtype": "adversarial", "question": "志愿 姨妈 激励 帮助 快乐 启发", "answer": "", "evidence_turns": ["scene_2_session_5_turn_8"]}
+{"qid": "scene_2_q_158", "qtype": "adversarial", "question": "家庭 孩子 周末 快乐 图书馆 频率", "answer": "", "evidence_turns": ["scene_2_session_8_turn_8"]}
+{"qid": "scene_2_q_165", "qtype": "adversarial", "question": "每周三次 锻炼 进度 家庭 健身", "answer": "", "evidence_turns": ["scene_2_session_13_turn_7"]}
+{"qid": "scene_2_q_173", "qtype": "adversarial", "question": "童话 水声 景色 魔力 平静 沙漠", "answer": "", "evidence_turns": ["scene_2_session_18_turn_7"]}
+{"qid": "scene_2_q_177", "qtype": "adversarial", "question": "车祸 表姐 新住处 帮忙 闯红灯", "answer": "", "evidence_turns": ["scene_2_session_21_turn_5"]}
+{"qid": "scene_2_q_186", "qtype": "adversarial", "question": "慈善跑 5公里 退伍军人 筹款 照片 5K", "answer": "", "evidence_turns": ["scene_2_session_29_turn_4"]}
+{"qid": "scene_2_q_190", "qtype": "adversarial", "question": "露营 Max 徒步 游泳 回忆 宁静", "answer": "", "evidence_turns": ["scene_2_session_30_turn_6"]}
+{"qid": "scene_3_q_200", "qtype": "adversarial", "question": "三部曲 世界观 战斗 叙事 喜爱 电影", "answer": "", "evidence_turns": ["scene_3_session_9_turn_12"]}
+{"qid": "scene_3_q_201", "qtype": "adversarial", "question": "系列 冒险 魔法 角色 推荐 书", "answer": "", "evidence_turns": ["scene_3_session_9_turn_14"]}
+{"qid": "scene_3_q_210", "qtype": "adversarial", "question": "巧克力香草 旋涡 自制 甜品 蛋糕", "answer": "", "evidence_turns": ["scene_3_session_4_turn_3"]}
+{"qid": "scene_3_q_211", "qtype": "adversarial", "question": "试镜 写作工作 经历 机会 起伏", "answer": "", "evidence_turns": ["scene_3_session_6_turn_2"]}
+{"qid": "scene_3_q_214", "qtype": "adversarial", "question": "Finding Home 剧本 小组 家园 电竞比赛", "answer": "", "evidence_turns": ["scene_3_session_9_turn_3"]}
+{"qid": "scene_3_q_225", "qtype": "adversarial", "question": "对白 失去 救赎 宽恕 故事 主题", "answer": "", "evidence_turns": ["scene_3_session_17_turn_16"]}
+{"qid": "scene_3_q_234", "qtype": "adversarial", "question": "巧克力覆盆子挞 无乳甜点 杏仁粉 甘纳许 覆盆子", "answer": "", "evidence_turns": ["scene_3_session_21_turn_11"]}
+{"qid": "scene_3_q_235", "qtype": "adversarial", "question": "蓝莓 椰奶 无麸质 甜点 食谱", "answer": "", "evidence_turns": ["scene_3_session_21_turn_17"]}
+{"qid": "scene_3_q_240", "qtype": "adversarial", "question": "沙发 毯子 调光灯 建议 舒适 客厅", "answer": "", "evidence_turns": ["scene_3_session_23_turn_26"]}
+{"qid": "scene_3_q_244", "qtype": "adversarial", "question": "比赛压力 乌龟 竞争对手 解压 开心", "answer": "", "evidence_turns": ["scene_3_session_24_turn_3"]}
+{"qid": "scene_3_q_247", "qtype": "adversarial", "question": "乌龟 饮食 蔬菜 水果 昆虫", "answer": "", "evidence_turns": ["scene_3_session_25_turn_19"]}
+{"qid": "scene_3_q_252", "qtype": "adversarial", "question": "悬疑惊悚 中西部小镇 新项目 创作 写作", "answer": "", "evidence_turns": ["scene_3_session_28_turn_12"]}
+{"qid": "scene_4_q_179", "qtype": "adversarial", "question": "得分后卫 赛季揭幕战 篮球 期待 位置", "answer": "", "evidence_turns": ["scene_4_session_1_turn_7"]}
+{"qid": "scene_4_q_180", "qtype": "adversarial", "question": "新球队 打法 季前赛 适应 挑战", "answer": "", "evidence_turns": ["scene_4_session_1_turn_11"]}
+{"qid": "scene_4_q_184", "qtype": "adversarial", "question": "耐克 Nike 佳得乐 Gatorade 赞助 代言", "answer": "", "evidence_turns": ["scene_4_session_3_turn_13"]}
+{"qid": "scene_4_q_190", "qtype": "adversarial", "question": "总冠军 目标 慈善 回馈 激励", "answer": "", "evidence_turns": ["scene_4_session_6_turn_15"]}
+{"qid": "scene_4_q_192", "qtype": "adversarial", "question": "书虫 图书大会 队友 礼物 友谊", "answer": "", "evidence_turns": ["scene_4_session_7_turn_7"]}
+{"qid": "scene_4_q_195", "qtype": "adversarial", "question": "学业 奇幻小说 钢琴 进步 生活", "answer": "", "evidence_turns": ["scene_4_session_8_turn_12"]}
+{"qid": "scene_4_q_207", "qtype": "adversarial", "question": "对手 团队 进步 坚持 强劲", "answer": "", "evidence_turns": ["scene_4_session_13_turn_6"]}
+{"qid": "scene_4_q_208", "qtype": "adversarial", "question": "大烟山 旅行 照片 自然 日落 山脉", "answer": "", "evidence_turns": ["scene_4_session_14_turn_16"]}
+{"qid": "scene_4_q_219", "qtype": "adversarial", "question": "脚踝受伤 理疗 康复 耐心 坚持", "answer": "", "evidence_turns": ["scene_4_session_19_turn_6"]}
+{"qid": "scene_4_q_220", "qtype": "adversarial", "question": "写作 阅读 动力 坚持 共鸣 热爱", "answer": "", "evidence_turns": ["scene_4_session_19_turn_9"]}
+{"qid": "scene_4_q_222", "qtype": "adversarial", "question": "瑜伽 力量 柔韧性 祝贺 坚持 康复", "answer": "", "evidence_turns": ["scene_4_session_20_turn_2"]}
+{"qid": "scene_4_q_223", "qtype": "adversarial", "question": "旅行俱乐部 学业 乐器 新技能 尝试", "answer": "", "evidence_turns": ["scene_4_session_21_turn_9"]}
+{"qid": "scene_4_q_227", "qtype": "adversarial", "question": "助攻 职业生涯新高 宿敌 比赛 英语文学课", "answer": "", "evidence_turns": ["scene_4_session_23_turn_3"]}
+{"qid": "scene_4_q_234", "qtype": "adversarial", "question": "德语 语言 学习 旅行 语言学习", "answer": "", "evidence_turns": ["scene_4_session_27_turn_5"]}
+{"qid": "scene_4_q_237", "qtype": "adversarial", "question": "阿拉贡 画 真诚 领导力 激励", "answer": "", "evidence_turns": ["scene_4_session_27_turn_28"]}
+{"qid": "scene_4_q_238", "qtype": "adversarial", "question": "阿拉贡 画 真诚 领导力 激励 雕像", "answer": "", "evidence_turns": ["scene_4_session_27_turn_28"]}
+{"qid": "scene_5_q_124", "qtype": "adversarial", "question": "狗 纹身 意义重大 图案 花", "answer": "", "evidence_turns": ["scene_5_session_3_turn_26"]}
+{"qid": "scene_5_q_128", "qtype": "adversarial", "question": "宠物店 训练课 正向强化 志愿者 狗 工作坊", "answer": "", "evidence_turns": ["scene_5_session_6_turn_4"]}
+{"qid": "scene_5_q_136", "qtype": "adversarial", "question": "狗 性格 四只 依偎 冒险 毛孩子", "answer": "", "evidence_turns": ["scene_5_session_13_turn_6"]}
+{"qid": "scene_5_q_139", "qtype": "adversarial", "question": "狗狗聚会 邻居 摇尾巴 温馨 猫", "answer": "", "evidence_turns": ["scene_5_session_18_turn_6"]}
+{"qid": "scene_5_q_140", "qtype": "adversarial", "question": "狗床 天气转凉 舒适 快乐 保暖", "answer": "", "evidence_turns": ["scene_5_session_18_turn_10"]}
+{"qid": "scene_5_q_145", "qtype": "adversarial", "question": "动物 植物 生态系统 学习 经济体系 书", "answer": "", "evidence_turns": ["scene_5_session_20_turn_25"]}
+{"qid": "scene_5_q_148", "qtype": "adversarial", "question": "自制首饰 回收 环保 创意 项链", "answer": "", "evidence_turns": ["scene_5_session_22_turn_5"]}
+{"qid": "scene_5_q_154", "qtype": "adversarial", "question": "Buddy 散步 陪伴 新鲜空气 一起", "answer": "", "evidence_turns": ["scene_5_session_24_turn_8"]}
+{"qid": "scene_6_q_150", "qtype": "adversarial", "question": "领养 Stamford收容所 Ned 小狗 游戏目标", "answer": "", "evidence_turns": ["scene_6_session_5_turn_1"]}
+{"qid": "scene_6_q_152", "qtype": "adversarial", "question": "遛狗 一见钟情 陌生女性 游戏灵感 角色", "answer": "", "evidence_turns": ["scene_6_session_6_turn_6"]}
+{"qid": "scene_6_q_154", "qtype": "adversarial", "question": "项目 编程 卡住 沮丧 作业 难题", "answer": "", "evidence_turns": ["scene_6_session_7_turn_13"]}
+{"qid": "scene_6_q_158", "qtype": "adversarial", "question": "基金会 应用开发 库存管理 数字化 报告", "answer": "", "evidence_turns": ["scene_6_session_11_turn_3"]}
+{"qid": "scene_6_q_160", "qtype": "adversarial", "question": "Max 飞盘 狗 擅长 空中接", "answer": "", "evidence_turns": ["scene_6_session_14_turn_23"]}
+{"qid": "scene_6_q_163", "qtype": "adversarial", "question": "极限运动 绳索跳 150米 平衡 新爱好", "answer": "", "evidence_turns": ["scene_6_session_16_turn_5"]}
+{"qid": "scene_6_q_164", "qtype": "adversarial", "question": "回归 7月20日 纪念品 旅行 返回", "answer": "", "evidence_turns": ["scene_6_session_16_turn_13"]}
+{"qid": "scene_6_q_166", "qtype": "adversarial", "question": "堡垒之夜 比赛组织 人脉 技能 锦标赛", "answer": "", "evidence_turns": ["scene_6_session_18_turn_9"]}
+{"qid": "scene_6_q_167", "qtype": "adversarial", "question": "例行检查 小狗 疫苗 预防 诊所", "answer": "", "evidence_turns": ["scene_6_session_18_turn_16"]}
+{"qid": "scene_6_q_170", "qtype": "adversarial", "question": "编程 教学 协作 反馈 兄弟姐妹", "answer": "", "evidence_turns": ["scene_6_session_22_turn_10"]}
+{"qid": "scene_6_q_171", "qtype": "adversarial", "question": "烹饪课 蛋白霜 面团 便宜 10美元", "answer": "", "evidence_turns": ["scene_6_session_23_turn_15"]}
+{"qid": "scene_6_q_172", "qtype": "adversarial", "question": "烹饪课 蛋白霜 面团 便宜 煎蛋卷", "answer": "", "evidence_turns": ["scene_6_session_23_turn_15"]}
+{"qid": "scene_6_q_173", "qtype": "adversarial", "question": "烹饪课 煎蛋卷 学习 新技能 报名", "answer": "", "evidence_turns": ["scene_6_session_23_turn_13"]}
+{"qid": "scene_6_q_174", "qtype": "adversarial", "question": "烹饪课 煎蛋卷 学习 新技能 第一次", "answer": "", "evidence_turns": ["scene_6_session_23_turn_13"]}
+{"qid": "scene_6_q_175", "qtype": "adversarial", "question": "Dungeons of the Dragon 游戏 笔记本 灵感 桌游", "answer": "", "evidence_turns": ["scene_6_session_24_turn_3"]}
+{"qid": "scene_6_q_176", "qtype": "adversarial", "question": "灵感 书籍 电影 梦境 点子", "answer": "", "evidence_turns": ["scene_6_session_24_turn_4"]}
+{"qid": "scene_6_q_177", "qtype": "adversarial", "question": "架子鼓 鼓手 释放压力 照片 年轻", "answer": "", "evidence_turns": ["scene_6_session_24_turn_15"]}
+{"qid": "scene_6_q_182", "qtype": "adversarial", "question": "游戏锦标赛 堡垒之夜 儿童医院 慈善 公益", "answer": "", "evidence_turns": ["scene_6_session_29_turn_1", "scene_6_session_29_turn_3"]}
+{"qid": "scene_6_q_189", "qtype": "adversarial", "question": "Luna 宠物 名字 狗 表亲", "answer": "", "evidence_turns": ["scene_6_session_31_turn_22"]}
+{"qid": "scene_7_q_195", "qtype": "adversarial", "question": "父母 10岁 电子游戏 起点 游戏机", "answer": "", "evidence_turns": ["scene_7_session_24_turn_6"]}
+{"qid": "scene_7_q_200", "qtype": "adversarial", "question": "工作坊 当地学校 工程师 职业选择 STEM", "answer": "", "evidence_turns": ["scene_7_session_5_turn_9"]}
+{"qid": "scene_7_q_201", "qtype": "adversarial", "question": "玫瑰 大丽花 花园 朋友去世 安慰", "answer": "", "evidence_turns": ["scene_7_session_6_turn_4"]}
+{"qid": "scene_7_q_206", "qtype": "adversarial", "question": "冲浪 入门指南 学习 准备 攀登 梦想", "answer": "", "evidence_turns": ["scene_7_session_10_turn_20"]}
+{"qid": "scene_7_q_212", "qtype": "adversarial", "question": "宠物 陪伴 平静 治愈 开心 Seraphim", "answer": "", "evidence_turns": ["scene_7_session_14_turn_6"]}
+{"qid": "scene_7_q_221", "qtype": "adversarial", "question": "妈妈 回忆 梦想 地方 长椅", "answer": "", "evidence_turns": ["scene_7_session_19_turn_19"]}
+{"qid": "scene_7_q_227", "qtype": "adversarial", "question": "里约热内卢 旅行 伴侣 瑜伽课 课程", "answer": "", "evidence_turns": ["scene_7_session_23_turn_1"]}
+{"qid": "scene_7_q_228", "qtype": "adversarial", "question": "自我滋养 新开始 提醒 物件 植物", "answer": "", "evidence_turns": ["scene_7_session_23_turn_29"]}
+{"qid": "scene_7_q_236", "qtype": "adversarial", "question": "菠萝生日蛋糕 妈妈 童年 特别 节日", "answer": "", "evidence_turns": ["scene_7_session_29_turn_9"]}
+{"qid": "scene_8_q_159", "qtype": "adversarial", "question": "贾斯珀 Jasper 冰原大道 冰川 自驾 家人", "answer": "", "evidence_turns": ["scene_8_session_2_turn_1"]}
+{"qid": "scene_8_q_160", "qtype": "adversarial", "question": "新鲜空气 小木屋 群山 静修 宁静", "answer": "", "evidence_turns": ["scene_8_session_2_turn_3"]}
+{"qid": "scene_8_q_169", "qtype": "adversarial", "question": "节食 健康生活 决心 大消息 健康", "answer": "", "evidence_turns": ["scene_8_session_8_turn_1"]}
+{"qid": "scene_8_q_174", "qtype": "adversarial", "question": "水彩 放松 迷路游客 城市游 两周前 膝盖", "answer": "", "evidence_turns": ["scene_8_session_11_turn_6"]}
+{"qid": "scene_8_q_178", "qtype": "adversarial", "question": "太浩湖 Lake Tahoe 旅行 皮划艇 跳伞", "answer": "", "evidence_turns": ["scene_8_session_13_turn_14"]}
+{"qid": "scene_8_q_193", "qtype": "adversarial", "question": "教父 The Godfather 沙拉 运动建议 动力", "answer": "", "evidence_turns": ["scene_8_session_24_turn_18"]}
+{"qid": "scene_9_q_159", "qtype": "adversarial", "question": "制作人 建议 忠于自我 独特 激励", "answer": "", "evidence_turns": ["scene_9_session_3_turn_7"]}
+{"qid": "scene_9_q_160", "qtype": "adversarial", "question": "汽车维修店 开业 梦想成真 照片", "answer": "", "evidence_turns": ["scene_9_session_4_turn_1"]}
+{"qid": "scene_9_q_163", "qtype": "adversarial", "question": "礼物 艺术家 音乐人 打拼 提醒 项链", "answer": "", "evidence_turns": ["scene_9_session_4_turn_26"]}
+{"qid": "scene_9_q_166", "qtype": "adversarial", "question": "旅行清单 Frank Ocean 巡演 雪峰 期待", "answer": "", "evidence_turns": ["scene_9_session_9_turn_15"]}
+{"qid": "scene_9_q_171", "qtype": "adversarial", "question": "引擎更换 悬挂改装 车身改装 肌肉车 改装", "answer": "", "evidence_turns": ["scene_9_session_13_turn_7"]}
+{"qid": "scene_9_q_173", "qtype": "adversarial", "question": "迈阿密 Miami 拍摄 海滩 视觉效果", "answer": "", "evidence_turns": ["scene_9_session_16_turn_8"]}
+{"qid": "scene_9_q_178", "qtype": "adversarial", "question": "修车 带来改变 宽慰 自豪", "answer": "", "evidence_turns": ["scene_9_session_17_turn_5"]}
+{"qid": "scene_9_q_180", "qtype": "adversarial", "question": "料理鼠王 Ratatouille 追求所爱 汽车爱好 电影", "answer": "", "evidence_turns": ["scene_9_session_19_turn_6"]}
+{"qid": "scene_9_q_185", "qtype": "adversarial", "question": "热情 治疗 车库 爸爸 庇护所 工作", "answer": "", "evidence_turns": ["scene_9_session_22_turn_5"]}
+{"qid": "scene_9_q_186", "qtype": "adversarial", "question": "法拉利 Ferrari 新车 上周 追梦", "answer": "", "evidence_turns": ["scene_9_session_23_turn_16"]}
+{"qid": "scene_9_q_193", "qtype": "adversarial", "question": "日本宅邸 新专辑 派对 上周 家人朋友", "answer": "", "evidence_turns": ["scene_9_session_28_turn_1"]}
+{"qid": "scene_9_q_198", "qtype": "adversarial", "question": "博客 汽车改装 DIY项目 激励 建议", "answer": "", "evidence_turns": ["scene_9_session_28_turn_10"]}
+{"qid": "scene_9_q_202", "qtype": "adversarial", "question": "艺术家 音乐 艺术 对话 创作高峰 合影", "answer": "", "evidence_turns": ["scene_9_session_30_turn_4"]}

@@ -46,6 +46,10 @@ class Principal:
     session       —— 会话 id（进程/会话模型：每次连接一个）
     harness       —— 承载端标识（dsh/zcode/codebuddy…；仅归因，不参与授权）
     unit          —— 单元分工（record/reflect/verify/output/sustain；仅归因）
+                     注：MCP 请求级参数 `as_unit` 会经 `tokens.narrowed_principal`
+                     产出一次性 Principal——其 role/layers/ops 取自该单元 spec、unit
+                     记为执行单元。那是**单次调用的临时身份**，不改变本字段的归因
+                     定位（见 `mcp_server.call_tool`）。
 
     令牌扩展（由 `tokens.verify_token` 填充；直接构造时为 None = 不限制）：
     role          —— 角色（designer/reflection/verifier/recorder/output/sustain/guest）
@@ -78,6 +82,9 @@ class Principal:
         self.session = session or ("sess_" + uuid.uuid4().hex[:12])
         # 归因维度（嵌套身份）：只入审计（_audit/_recent），不参与权限判定。
         # 权限域仍由令牌记录决定（tokens.ROLE_SPECS），与 harness/unit 无关。
+        # 受控例外：MCP 请求级 `as_unit` 收窄（tokens.narrowed_principal）产出的是
+        # 一次性 Principal，其 role/allow 取自单元 spec——**只做减法**（与 owner
+        # 求交 + 管理权恒 False），故不构成本字段「参与授权」的先例。
         self.harness = harness
         self.unit = unit
         self.role = (role or "system")
