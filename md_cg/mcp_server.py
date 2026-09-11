@@ -1480,6 +1480,8 @@ def _cg_call(cg, a):
         h.update({"surface": SURFACE,
                   "tools": [t["name"] for t in tools_for_surface()],
                   "audit_kinds": audit.kinds(), "whoami": cg.whoami()})
+        # 能力外置可观测：本进程实际注入了哪些外部验证器（含失败原因）
+        h["external_verifiers"] = audit.load_external_verifiers()
         h["theory"] = _th.check()
         h["links"] = _lk.ls()
         return h
@@ -2389,6 +2391,15 @@ def main():
             "然后设置 MDCG_TOKEN=<返回的明文令牌>。\n")
         return 3
     cg = MdCGSecure(root, principal=principal)
+    # 外部验证器注入（**能力外置**）：识图/实测/验收等能力不在认知图内，
+    # 由 MDCG_VERIFIER_MODULES（逗号分隔 import 路径）声明的外部模块注入，
+    # 通常位于私有运行时仓。加载失败不阻塞启动——失败原因写进 stderr 与
+    # service_info，未注入的 content_kind 恒判 DEFER（诚实，不假装通过）。
+    from . import audit as _audit
+    _verifiers = _audit.load_external_verifiers()
+    if _verifiers.get("loaded") or _verifiers.get("failed"):
+        sys.stderr.write("[mdcg-mcp] 外部验证器: loaded=%s failed=%s\n"
+                         % (_verifiers.get("loaded"), _verifiers.get("failed")))
     _start_sustain(cg)
 
     for line in sys.stdin:

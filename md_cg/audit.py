@@ -213,11 +213,68 @@ def kinds():
             for k in CONTENT_KINDS}
 
 
+# ---------- 外部能力接入（**能力外置，认知图只留接口**） ----------
+#
+# 架构约束（见模块 docstring）：识图/实测/验收等**能力不在认知图内**。
+# 认知图只做三件事：按内容类型选验证器 → 调用 → 记账。
+# 因此本模块**不内置任何具体能力实现**（不读图像、不跑测试、不连网络），
+# 只提供注入点：外部模块在被 import 时调用 register_verifier(...)，
+# 或提供 register(audit_module) 函数由本函数回调。
+#
+# 能力模块通常位于**私有运行时仓**（如灵枢身体 AEIS），经 MDCG_VERIFIER_MODULES
+# 以 import 路径声明；公开的大脑仓不含这些能力。
+VERIFIER_MODULES_ENV = "MDCG_VERIFIER_MODULES"
+
+
+def load_external_verifiers(modules=None, strict=False):
+    """按 `MDCG_VERIFIER_MODULES`（逗号分隔 import 路径）加载外部验证器模块。
+
+    单个模块失败不影响其余（除非 strict=True）；失败原因如实返回，不静默。
+    返回 {"loaded": [...], "failed": [{"module","error"}], "verifiers": {...}}。
+    """
+    import importlib
+    import sys as _sys
+    spec = modules
+    if spec is None:
+        spec = os.environ.get(VERIFIER_MODULES_ENV) or ""
+    names = [x.strip() for x in str(spec).split(",") if x.strip()]
+    rep = {"loaded": [], "failed": [], "verifiers": {}}
+    if not names:
+        return rep
+    this = _sys.modules[__name__]
+    for name in names:
+        try:
+            mod = importlib.import_module(name)
+        except Exception as exc:                              # noqa: BLE001
+            rep["failed"].append({"module": name,
+                                  "error": "%s: %s" % (type(exc).__name__, exc)})
+            if strict:
+                raise
+            continue
+        fn = getattr(mod, "register", None)
+        if callable(fn):
+            try:
+                fn(this)
+            except Exception as exc:                          # noqa: BLE001
+                rep["failed"].append({"module": name,
+                                      "error": "register(): %s: %s"
+                                               % (type(exc).__name__, exc)})
+                if strict:
+                    raise
+                continue
+        rep["loaded"].append(name)
+    rep["verifiers"] = {k: ("builtin" if k in VERIFIERS else "missing")
+                        for k in CONTENT_KINDS}
+    return rep
+
+
 # ---------- 内建注册（缺外部能力的用 DEFER 占位） ----------
 
 register_verifier("text", _verify_text)
 register_verifier("permission", _verify_permission)
 register_verifier("work_wip", _verify_work_wip)
 register_verifier("code", _verify_code)
-register_verifier("image_desc", _pending("image_desc", "未注入识图验证器（需视觉模型）"))
+# image_desc / work_done 的**能力**由外部模块注入（见上）。未注入时 DEFER——
+# 诚实说明缺什么，绝不假装通过。
+register_verifier("image_desc", _pending("image_desc", "未注入识图验证器（需视觉能力）"))
 register_verifier("work_done", _pending("work_done", "未注入验收器（需验收标准）"))
