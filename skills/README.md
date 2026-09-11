@@ -70,25 +70,38 @@ python tests/selftest.py            # 认知能力验收（17 条用例，输出
 
 ## 结构
 
+**v2.0 层级化布局**（2026-09-11 重组）：687 个平铺条目收敛为 **7 个顶层技能**（6 域入口 + 1 元技能）。
+入口层进 agent 上下文做域级命中；686 个单元收进 `<域>/units/` 按需回读，单元内容零改动。
+
 ```
 aeis/skills/
-├── plugin.json          # Agent Plugins manifest（含 extensions.lingshu：self-cognition/condition-route/meta-skill/mcp）
-├── skills/<slug>/       # 686 个条件单元技能
-│   └── SKILL.md         # frontmatter（name/description/compatibility/allowed-tools/metadata.kccs）+ 正文
-├── skills/designer-perspective/   # 元技能（手写真源）
-│   ├── SKILL.md         # 设计者视角主说明书（三通道负路由 + KCCS 四要素）
-│   ├── references/      # 5 份方法论（每条附《智能论3.4》行号锚点）
-│   ├── scripts/         # designer.py（声明/四态判定/五失配归因/蒸馏/--emit-mcp）
-│   └── tests/           # cases.jsonl + selftest.py（认知能力验收，输出通过率）
-└── README.md            # 本文件
+├── plugin.json                  # Agent Plugins manifest（condition-route 已层级化声明）
+├── skills/lingshu-<domain>/     # 6 个域入口（compiler/pylang/graph/os/browser/net）
+│   ├── SKILL.md                 # 域级 KCCS 四要素 + 子域路由表（子域→单元 slug）+ 路由流程
+│   └── units/<slug>/SKILL.md    # 686 个条件单元（原样收纳；KCCS 单元级四要素；按需回读）
+├── skills/designer-perspective/ # 元技能（手写真源，不属六域）
+│   ├── SKILL.md                 # 设计者视角主说明书（三通道负路由 + KCCS 四要素）
+│   ├── references/              # 5 份方法论（每条附《智能论3.4》行号锚点）
+│   ├── scripts/                 # designer.py（声明/四态判定/五失配归因/蒸馏/--emit-mcp）
+│   └── tests/                   # cases.jsonl + selftest.py（认知能力验收，输出通过率）
+└── README.md                    # 本文件
 ```
+
+### 路由三通道（替代 686 description 全量加载）
+
+| 通道 | 载体 | 适用 |
+|---|---|---|
+| 词面路由 | 域入口路由表（子域→单元 slug）| 任务含明确触发词 |
+| 语义路由 | `mdcg cg op=route intent=<任务>` | 语义模糊/跨子域 |
+| 全量索引 | `md_cg/whitebox_kb/wisdom/trigger_words_index.json` + 认知图 index_doc 索引 | 离线盘点/批量检索 |
 
 ## 使用
 
 1. **作为 Agent Plugins 包**：任意符合 agentskills.io/agent-plugins.org 规范的 agent 可加载本包
 2. **配合灵枢 MCP**：技能的 Verification（物理基底）由灵枢 MCP 工具执行（md_cg-mcp，随插件自带）
 3. **再生成**：改知识源（`md_cg/whitebox_kb/wisdom/` 单元库）后，用身体仓的 `tools/skill_export.py --out skills` 重新导出，
-   `tools/skill_export_verify.py` 作为发布门禁（验证全绿才允许提交；默认 clean-room——导出前清空输出目录，历史残留不计入校验）
+   `tools/skill_export_verify.py` 作为发布门禁（验证全绿才允许提交；默认 clean-room——导出前清空输出目录，历史残留不计入校验）。
+   ⚠️ v2.0 起导出器须适配层级布局：单元写入 `lingshu-<domain>/units/<slug>/` 并保留 6 份域入口（入口由导出器按 trigger_words_index 生成路由表），身体仓工具更新前勿触发重新导出
 
 ## 验证状态（发布门禁）
 

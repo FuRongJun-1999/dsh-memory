@@ -22,16 +22,19 @@
         "source-of-truth": "本仓 md_cg/whitebox_kb/wisdom/*_code_units.py（真源，S3 已内迁）；本 skills/ 为生成投影"
       },
       "condition-route": {
+        "layout": "v2.0-hierarchical（687 平铺收敛为 6 域入口 + units/ 收纳；入口层进 agent 上下文，单元层按需回读）",
         "domains": {
-          "compiler": 116,
-          "pylang": 120,
-          "graph": 117,
-          "os": 112,
-          "browser": 104,
-          "net": 117
+          "compiler": { "entry": "lingshu-compiler", "unit-count": 116, "subdomains": 10 },
+          "pylang": { "entry": "lingshu-pylang", "unit-count": 120, "subdomains": 25 },
+          "graph": { "entry": "lingshu-graph", "unit-count": 117, "subdomains": 17 },
+          "os": { "entry": "lingshu-os", "unit-count": 112, "subdomains": 18 },
+          "browser": { "entry": "lingshu-browser", "unit-count": 104, "subdomains": 14 },
+          "net": { "entry": "lingshu-net", "unit-count": 117, "subdomains": 2 }
         },
         "unit-count": 686,
-        "kccs-version": "四要素（生效条件/子功能/执行/不适用条件）",
+        "entry-count": 6,
+        "routing": "词面：域入口路由表（units/<slug>/SKILL.md 按需回读）；语义：mdcg cg op=route；全量触发词：md_cg/whitebox_kb/wisdom/trigger_words_index.json",
+        "kccs-version": "四要素（生效条件/子功能/执行/不适用条件）——单元级在 units/<slug>/SKILL.md，域级在域入口",
         "negative-route": true,
         "condition-space": "观测位置/观测工具/时间窗口/存在约束（D(C)）"
       },

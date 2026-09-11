@@ -144,7 +144,8 @@ python scripts/designer.py distill --failures failures.jsonl --out discipline.md
 - **自检集**：运行 `python tests/selftest.py --cases tests/cases.jsonl`，输出逐项结果与通过率；通过率是「技能是否真的生效」的自证，不是自我声称。
 - **判定可核查**：每条裁决必须给出条件证据（依据字段），无法给出即降级为 DEFER/BLINDSPOT。
 - **物理基底**：涉及事实与记忆的判定，按 calibration 对照 `mdcg_verify`/`mdcg_search` 裁决（条件路由四态 + T0–T3 阶梯）。
-- **回归边界**：本技能不修改既有 686 个条件单元与 `aeis/wisdom/` 真源；发布门禁 `tools/skill_export_verify.py` 须保持 686/686 全绿。
+- **回归边界**：本技能不修改既有 686 个条件单元与真源库（本仓真源：`md_cg/whitebox_kb/wisdom/*_units.py`）。
+- ⚠️ **外部依赖（本仓不具备）**：发布门禁 `tools/skill_export_verify.py`（686/686 全绿校验）与重新导出器 `tools/skill_export.py` 位于**身体仓** tools/，不在本仓——重新导出与门禁校验须在身体层执行，本仓内勿模拟。
 
 ## References
 
