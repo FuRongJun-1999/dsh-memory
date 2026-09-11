@@ -289,7 +289,9 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     from aeis_core.api import Agent
     agent = Agent(identity="灵枢",
-                  db_path=r'C:\Users\FuRongJun\.dsh\profiles\web\data\lingshu.db')
+                  db_path=os.environ.get("LINGSHU_DB") or os.path.join(
+                      os.path.expanduser("~"), ".dsh", "profiles", "web",
+                      "data", "lingshu.db"))
     # 注入一条被拒路径作为信号
     try:
         agent.engine.register_rejected_path(

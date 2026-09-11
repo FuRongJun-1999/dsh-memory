@@ -34,9 +34,10 @@ from typing import Dict, List, Optional
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-# 默认路径（可参数覆盖）
+# 默认路径（可参数覆盖）；目标库走 LINGSHU_DB 环境变量，否则家目录 .dsh 布局
 DEFAULT_META_SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wisdom-book-cloud.db")
-DEFAULT_DST = r"C:\Users\FuRongJun\.dsh\profiles\web\data\lingshu.db"
+DEFAULT_DST = os.environ.get("LINGSHU_DB") or os.path.join(
+    os.path.expanduser("~"), ".dsh", "profiles", "web", "data", "lingshu.db")
 DEFAULT_CAUSAL = os.path.join(HERE, "causal_edge_candidates.json")
 
 

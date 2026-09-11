@@ -28,7 +28,10 @@ import sys
 import time
 from typing import Dict, List, Optional
 
-DEFAULT_DB = r"C:\Users\FuRongJun\.dsh\profiles\web\data\lingshu.db"
+# 默认库路径：LINGSHU_DB 环境变量优先，否则取当前用户家目录下的 .dsh 布局
+# （不硬编码本机绝对路径——避免把用户名/目录结构带进发布产物）
+DEFAULT_DB = os.environ.get("LINGSHU_DB") or os.path.join(
+    os.path.expanduser("~"), ".dsh", "profiles", "web", "data", "lingshu.db")
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 _KP_RE = re.compile(r"^\s*(\d+)\.\s+(.+?)[:：]\s*(.*)$")

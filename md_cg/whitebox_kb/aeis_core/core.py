@@ -4979,7 +4979,11 @@ class SpacetimeMemoryEngine:
         检索时命中相似节点会附「这两个的区别」提示——细化条件得到精确知识。"""
         try:
             import sys as _s
-            _kb = r'D:\Program Files\2_ai\knowledge-base'
+            # knowledge-base 为可选增强库（与本仓库同级）；可用 LINGSHU_KB 显式指定
+            _repo = os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__)))))
+            _kb = os.environ.get("LINGSHU_KB") or os.path.join(
+                os.path.dirname(_repo), "knowledge-base")
             if _kb not in _s.path:
                 _s.path.insert(0, _kb)
             from pattern_separation import PatternSeparation
@@ -4996,7 +5000,11 @@ class SpacetimeMemoryEngine:
         不代表真实发生的过去就是如此（0.0.3 局部不可知）。"""
         try:
             import sys as _s
-            _kb = r'D:\Program Files\2_ai\knowledge-base'
+            # knowledge-base 为可选增强库（与本仓库同级）；可用 LINGSHU_KB 显式指定
+            _repo = os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__)))))
+            _kb = os.environ.get("LINGSHU_KB") or os.path.join(
+                os.path.dirname(_repo), "knowledge-base")
             if _kb not in _s.path:
                 _s.path.insert(0, _kb)
             from scene_reconstruction import SceneReconstruction

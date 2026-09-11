@@ -31,7 +31,10 @@ THEORY = "《智能论3.4》"
 FOUR_DIMS = ("观测位置", "观测工具", "时间窗口", "存在约束")
 FIVE_MISMATCH = ("观测位置", "观测工具", "时间窗口", "存在约束", "条件边界")
 STATES = ("ACCEPT", "REJECT", "DEFER", "BLINDSPOT")
-DEFAULT_DMCG_HOME = r"d:\Program Files\2_ai\dsh-memory"
+# 默认仓库根：由脚本位置上溯（<repo>/skills/skills/<skill>/scripts/designer.py）
+# 未命中时 probe_mdcg 提示设 DMCG_HOME（不硬编码本机绝对路径）
+DEFAULT_DMCG_HOME = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 POSITION_MAP = OrderedDict([
     ("op", ("操作层", "我如何执行熵管理操作")),

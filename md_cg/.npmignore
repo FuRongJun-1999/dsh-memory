@@ -1,0 +1,21 @@
+# npm 打包排除清单（子目录 .npmignore 优先于 package.json 的 files 白名单）
+#
+# 背景：package.json 的 files 白名单包含整个 md_cg/ 目录，而 npm 打包不看 .gitignore，
+# 导致本地 Python 字节码缓存（124 个 .pyc）被一并打进发布产物。
+# 教训：白名单粒度到目录时，须在目录内用 .npmignore 显式回收本地构建副产物。
+
+# Python 字节码缓存（递归任意层级：__pycache__/、aeis_core/、wisdom/ 等）
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 本地运行副产物
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+*.log
+*.tmp
+*.bak
+.DS_Store
