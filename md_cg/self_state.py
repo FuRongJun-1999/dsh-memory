@@ -378,13 +378,14 @@ def _render(state):
 
 def refresh(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW, importance=None,
             important_refs=None, dimensions=None, links=None,
-            actor="self_state", force=False, strict=False):
+            actor="self_state", force=False, strict=False, session=None):
     """刷新自我状态卡（幂等）：聚合八项 → 写卡 + 版本链留痕。
 
     dimensions: {"task": "...", "person": "...", "session": "...",
                  "time": "...", "trust": "..."}（值可为列表）
     links:      指向具体详情节点的边（认知图连接，而非内容复制）
     strict:     版本链断裂时是否拒绝写入（默认修复并记录 chain_repaired）
+    session:    会话归因（嵌套身份）：并入 session 维度，不覆盖显式声明值
     """
     raw = snapshot(cg, subject)
     tail = _last_log(cg, subject=subject)
@@ -401,8 +402,17 @@ def refresh(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW, importance=None,
                "important_refs": tail.get("important_refs"),
                "state_links": tail.get("state_links"),
                "identity_ref": tail.get("identity_ref")}
+    # 会话归因：把本会话并入 session 维度（不覆盖调用方显式声明的维度值）。
+    dims_in = dict(dimensions or {})
+    if session:
+        vals = dims_in.get("session") or []
+        vals = list(vals) if isinstance(vals, (list, tuple, set)) else [vals]
+        vals = [str(v) for v in vals if str(v).strip()]
+        if str(session) not in vals:
+            vals.append(str(session))
+        dims_in["session"] = vals
     state = _derive(cg, subject, window=window, importance=importance,
-                    important_refs=important_refs, dimensions=dimensions,
+                    important_refs=important_refs, dimensions=dims_in,
                     links=links, old=old)
     card_v = int((old or {}).get("state_version") or 0)
     log_v = int(tail.get("version") or 0) if tail else 0
@@ -782,13 +792,39 @@ def bootstrap(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW,
             "loaded_at": time.time()}
 
 
-def summary(cg, subject=DEFAULT_SUBJECT):
-    """一句话自我状态（供 health / 面板）。"""
+def _with_session_slice(cg, out, st, session):
+    """给 summary 结果补「本会话切片」（薄卡 + 富索引，不改单例语义）。
+
+    · session_registered —— 本会话是否已登记在该状态卡的 session 维度上；
+    · session_refs       —— 该维度反查到的详情节点指针（不搬运内容）。
+    """
+    if not session:
+        return out
+    s = str(session)
+    out["session"] = s
+    dims = (st or {}).get("dimensions") or {}
+    out["session_registered"] = bool(s in (dims.get("session") or []))
+    try:
+        res = index(cg, "session", s, limit=20)
+        out["session_refs"] = {"count": res.get("count", 0),
+                               "items": res.get("items", [])}
+    except Exception:                          # noqa: BLE001
+        out["session_refs"] = {"count": 0, "items": [], "degraded": True}
+    return out
+
+
+def summary(cg, subject=DEFAULT_SUBJECT, session=None):
+    """一句话自我状态（供 health / 面板）。
+
+    session：会话归因切片。**不改变单例卡语义**——只回报「本会话是否已登记在
+    该卡的 session 维度上」以及该维度反查到的详情节点指针（薄卡 + 富索引）。
+    """
     st = snapshot(cg, subject)
     if not st:
-        return {"ok": False, "subject": subject, "note": "无状态卡"}
+        return _with_session_slice(cg, {"ok": False, "subject": subject,
+                                        "note": "无状态卡"}, st, session)
     ig, tt = st.get("information_gap") or {}, st.get("trust") or {}
-    return {"ok": True, "subject": subject,
+    out = {"ok": True, "subject": subject,
             "version": st.get("state_version"),
             "updated_at": st.get("updated_at"),
             "d_current": ig.get("d_current"), "d2": ig.get("d2"),
@@ -804,6 +840,7 @@ def summary(cg, subject=DEFAULT_SUBJECT):
                      f"情感={st.get('affect')} "
                      f"短期={((st.get('short_term') or {}).get('n'))}条 "
                      f"v{st.get('state_version')}")}
+    return _with_session_slice(cg, out, st, session)
 
 
 def catalog():

@@ -1292,7 +1292,11 @@ class MdCGOS(MdCG):
         summary = (summary or "").strip()
         if not summary:
             raise ValueError("summary 不能为空")
-        session = (session or "").strip() or time.strftime("%Y%m%d")
+        # 会话身份缺省：显式入参 > 进程归因会话（嵌套身份 (harness, session)）
+        # > 日期兜底。会话只作切片与归因，不参与权限判定。
+        session = ((session or "").strip()
+                   or (getattr(self, "session", None) or "").strip()
+                   or time.strftime("%Y%m%d"))
         nid = self._session_node_id(session, summary)
         cond = conditions or f"续接会话 {session}、或查询命中该会话要点关键词时"
         content = (
@@ -1386,7 +1390,7 @@ class MdCGOS(MdCG):
         if include_state:
             try:
                 from . import self_state as _ss
-                pack["self_state"] = _ss.summary(self)
+                pack["self_state"] = _ss.summary(self, session=session)
             except Exception:                              # noqa: BLE001
                 pack["degraded"].append("self_state")
         # ⑥ 预算裁剪：交替丢 recent / notes 尾部，超出预算则显式上报
@@ -2037,7 +2041,12 @@ class MdCGOS(MdCG):
         return self_state.snapshot(self, subject)
 
     def self_state_refresh(self, subject=self_state.DEFAULT_SUBJECT, **kw):
-        """刷新状态卡：聚合八项自我信息 → 写卡 + 版本链留痕（幂等）。"""
+        """刷新状态卡：聚合八项自我信息 → 写卡 + 版本链留痕（幂等）。
+
+        会话归因缺省取本进程会话（嵌套身份 (harness, session)），可显式覆盖。
+        """
+        if not kw.get("session"):
+            kw["session"] = getattr(self, "session", None)
         return self_state.refresh(self, subject, **kw)
 
     def self_state_bootstrap(self, subject=self_state.DEFAULT_SUBJECT, **kw):
@@ -2068,9 +2077,11 @@ class MdCGOS(MdCG):
         """自我状态留痕（倒序，含版本链 hash）。"""
         return self_state.history(self, limit=limit, subject=subject)
 
-    def self_state_summary(self, subject=self_state.DEFAULT_SUBJECT):
-        """一句话自我状态（供 health / 面板）。"""
-        return self_state.summary(self, subject)
+    def self_state_summary(self, subject=self_state.DEFAULT_SUBJECT,
+                           session=None):
+        """一句话自我状态（供 health / 面板；session= 会话归因切片）。"""
+        return self_state.summary(self, subject,
+                                  session=session or getattr(self, "session", None))
 
     def self_state_catalog(self):
         """自描述：八项自我信息 + 五维索引 + 审计规则。"""
@@ -2367,6 +2378,10 @@ class MdCGSecure(MdCGOS):
         m = dict(meta or {})
         m.setdefault("tenant", self.principal.tenant)
         m.setdefault("session", self.principal.session)
+        if getattr(self.principal, "harness", None):
+            m.setdefault("harness", self.principal.harness)
+        if getattr(self.principal, "unit", None):
+            m.setdefault("unit", self.principal.unit)
         m["sensitivity"] = sens
         text = self._seal_content("_recent", text, sens)
         if window is None:
@@ -2483,6 +2498,11 @@ class MdCGSecure(MdCGOS):
         meta.setdefault("tenant", self.principal.tenant)
         meta.setdefault("session", self.principal.session)
         meta.setdefault("clearance", self.principal.clearance)
+        # 嵌套身份归因：harness（承载端）/ unit（单元分工）只入审计，不参与授权。
+        if getattr(self.principal, "harness", None):
+            meta.setdefault("harness", self.principal.harness)
+        if getattr(self.principal, "unit", None):
+            meta.setdefault("unit", self.principal.unit)
         super()._audit(op, node_id, **meta)
 
     def health_os(self):

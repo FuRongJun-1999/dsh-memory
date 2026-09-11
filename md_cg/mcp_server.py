@@ -1003,6 +1003,10 @@ def _self_state_call(cg, a):
     from . import self_state
     act = (a.get("action") or "snapshot").strip().lower()
     subject = a.get("subject") or self_state.DEFAULT_SUBJECT
+    # 会话归因缺省：显式入参 > Principal 归因维度（嵌套身份 (harness, session)）。
+    # 会话只作薄卡的维度切片与审计标记，不参与权限判定。
+    session = (a.get("session")
+               or getattr(getattr(cg, "principal", None), "session", None))
     if act in ("snapshot", "read", "get"):
         return {"state": self_state.snapshot(cg, subject)}
     if act == "refresh":
@@ -1012,7 +1016,8 @@ def _self_state_call(cg, a):
             important_refs=a.get("important_refs"),
             dimensions=a.get("dimensions"), links=a.get("links"),
             actor=a.get("actor") or getattr(cg, "actor", "self_state"),
-            force=bool(a.get("force")), strict=bool(a.get("strict")))
+            force=bool(a.get("force")), strict=bool(a.get("strict")),
+            session=session)
     if act == "bootstrap":
         return self_state.bootstrap(
             cg, subject, window=int(a.get("window") or self_state.RECENT_WINDOW),
@@ -1028,7 +1033,10 @@ def _self_state_call(cg, a):
         return {"relations": self_state.relations(
             cg, subject=a.get("subject"), direction=(a.get("direction") or "both"))}
     if act == "index":
-        return self_state.index(cg, a.get("dim"), a.get("value"),
+        dim, value = a.get("dim"), a.get("value")
+        if not dim and session:        # 便捷：不传 dim 时按当前会话反查
+            dim, value = "session", value or session
+        return self_state.index(cg, dim, value,
                                 limit=int(a.get("limit") or 50),
                                 with_content=bool(a.get("with_content")))
     if act == "dimensions":
@@ -1040,7 +1048,7 @@ def _self_state_call(cg, a):
         return {"records": self_state.history(
             cg, limit=int(a.get("limit") or 100), subject=a.get("subject"))}
     if act == "summary":
-        return self_state.summary(cg, subject)
+        return self_state.summary(cg, subject, session=session)
     if act == "catalog":
         return self_state.catalog()
     raise ValueError(f"self_state 未知 action：{act}")
@@ -2346,6 +2354,64 @@ def _start_sustain(cg):
     return lp
 
 
+def _is_dsh_session(s: str) -> bool:
+    """DSH 会话 id 形态判定：session-<8>-<4>-<4>-<4>-<12>（uuid4）。"""
+    s = str(s or "").strip()
+    if not s.startswith("session-"):
+        return False
+    groups = s[len("session-"):].split("-")
+    if [len(g) for g in groups] != [8, 4, 4, 4, 12]:
+        return False
+    return all(all(c in "0123456789abcdef" for c in g) for g in groups)
+
+
+def _normalize_session(raw):
+    """会话 id 归一 + 轻校验（只影响归因，不影响写入）。
+
+    规则：
+      · DSH 形态且根目录下存在该会话 → 原样采用（可重算校验，防编造会话 id）；
+      · DSH 形态、根目录可读但无该会话 → "anonymous"（降级不拒绝，防特殊环境丢记忆）；
+      · 根目录不存在/不可读（未装 DSH 等）→ 原样采用（fail-soft：不因环境差异
+        丢失会话标记，此时校验降级为「仅形态判定」，是刻意的取舍）；
+      · 非 DSH 形态（载体自定的会话名）→ 原样采用；
+      · 目录根可用 MDCG_DSH_SESSIONS_ROOT 覆盖（默认 ~/.dsh/sessions）。
+    """
+    s = str(raw or "").strip()
+    if not s:
+        return "anonymous"
+    if not _is_dsh_session(s):
+        return s
+    root = (os.environ.get("MDCG_DSH_SESSIONS_ROOT")
+            or os.path.join(os.path.expanduser("~"), ".dsh", "sessions"))
+    try:
+        for name in os.listdir(root):
+            if os.path.isdir(os.path.join(root, name, s)):
+                return s
+    except OSError:
+        return s                      # 目录不可读：不因环境差异丢失会话标记
+    return "anonymous"
+
+
+def _apply_attribution(p):
+    """归因维度注入（嵌套身份：(harness, session)），**不参与授权**。
+
+    · session —— MDCG_SESSION 优先（载体注入的稳定会话 id），退回 DSH_SESSION_ID
+      （DSH 每次 shell 调用注入的会话 header id），都没有则保留 Principal 自带的
+      进程随机 uuid（fail-soft，不拒绝启动）；
+    · harness / unit —— 承载端与单元分工，仅入 _audit / _recent 元数据。
+    """
+    raw = (os.environ.get("MDCG_SESSION")
+           or os.environ.get("DSH_SESSION_ID") or "").strip()
+    if raw:
+        p.session = _normalize_session(raw)
+    harness = (os.environ.get("MDCG_HARNESS") or "").strip()
+    if harness:
+        p.harness = harness
+    unit = (os.environ.get("MDCG_UNIT") or "").strip()
+    if unit:
+        p.unit = unit
+
+
 def _build_principal():
     """构造 Principal（令牌优先，fail-closed）。返回 (principal, error)。
 
@@ -2367,6 +2433,7 @@ def _build_principal():
             p = verify_token(token, tenant=os.environ.get("MDCG_TENANT"))
         except TokenError as e:
             return None, f"令牌校验失败：{e}"
+        _apply_attribution(p)
         return _attach_theory(p), None
 
     if os.environ.get("MDCG_LEGACY_ENV_AUTH", "0") in ("1", "true", "True"):
@@ -2381,6 +2448,7 @@ def _build_principal():
             can_write=can_write, can_admin=can_admin, role=role,
             layers_allow=spec["layers_allow"], ops_allow=spec["ops_allow"],
             auth_mode="legacy_env")
+        _apply_attribution(p)
         return _attach_theory(p), None
 
     spec = role_spec("guest")               # 无令牌：只读访客
@@ -2390,6 +2458,7 @@ def _build_principal():
         clearance="internal", can_write=False, can_admin=False, role="guest",
         layers_allow=spec["layers_allow"], ops_allow=spec["ops_allow"],
         auth_mode="anonymous")
+    _apply_attribution(p)
     return _attach_theory(p), None
 
 

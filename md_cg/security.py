@@ -44,6 +44,8 @@ class Principal:
     can_write     —— 是否允许写
     can_admin     —— 是否允许管理操作（forget/restore/review_decide）
     session       —— 会话 id（进程/会话模型：每次连接一个）
+    harness       —— 承载端标识（dsh/zcode/codebuddy…；仅归因，不参与授权）
+    unit          —— 单元分工（record/reflect/verify/output/sustain；仅归因）
 
     令牌扩展（由 `tokens.verify_token` 填充；直接构造时为 None = 不限制）：
     role          —— 角色（designer/reflection/verifier/recorder/output/sustain/guest）
@@ -62,6 +64,7 @@ class Principal:
     def __init__(self, tenant: str = "default", actor: str = "system",
                  clearance: str = DEFAULT_SENSITIVITY, can_write: bool = True,
                  can_admin: bool = False, session: str = None,
+                 harness: str = None, unit: str = None,
                  role: str = None, token_id: str = None, parent: str = None,
                  expires_at: float = None, layers_allow=None, ops_allow=None,
                  auth_mode: str = "direct", theory_ok: bool = True,
@@ -73,6 +76,10 @@ class Principal:
         self.can_write = can_write
         self.can_admin = can_admin
         self.session = session or ("sess_" + uuid.uuid4().hex[:12])
+        # 归因维度（嵌套身份）：只入审计（_audit/_recent），不参与权限判定。
+        # 权限域仍由令牌记录决定（tokens.ROLE_SPECS），与 harness/unit 无关。
+        self.harness = harness
+        self.unit = unit
         self.role = (role or "system")
         self.token_id = token_id
         self.parent = parent
@@ -150,6 +157,7 @@ class Principal:
         return {"tenant": self.tenant, "actor": self.actor,
                 "clearance": self.clearance, "can_write": self.can_write,
                 "can_admin": self.can_admin, "session": self.session,
+                "harness": self.harness, "unit": self.unit,
                 "role": self.role, "token_id": self.token_id,
                 "parent": self.parent, "auth_mode": self.auth_mode,
                 "expires_at": self.expires_at,
