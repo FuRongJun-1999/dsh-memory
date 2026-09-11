@@ -1178,6 +1178,33 @@ def _split_ids(value):
     return out
 
 
+def _proposal_extras(a, verdict=None):
+    """入队时保全 write 的落盘要素，避免裁决 accept 后退化成默认值。
+
+    队列项以 `extra` 承载任意 kw（propose 的 `**kw`），裁决 accept 时原样
+    `**extra` 回传给 `add()` —— 通道本就在，缺的是调用点透传：`op=write`
+    的 ACCEPT 直落盘分支（L1600）原本就传 importance / verification_basis /
+    non_applicable_conditions，而两个入队分支（冲突 defer / 判据 DEFER）只传
+    content/layer/tags/condition_space，导致 importance 退化为 0.5（≥0.7 的
+    自动保护线随之失效）、verification_basis 退化为 null。
+
+    空值一律不传：父类 `add(importance: float = 0.5)` 对 None 无容错，显式传
+    None 会落成 null 并绕过保护线，所以必须在入口过滤而非依赖下游兜底。
+    """
+    ex = {
+        "verify": a.get("verify"),
+        "importance": (float(a["importance"]) if a.get("importance") is not None
+                       else None),
+        "verification_basis": (a.get("verification_basis")
+                               or (verdict or {}).get("basis")),
+        "non_applicable_conditions": a.get("non_applicable_conditions"),
+        "role": a.get("role"),
+        "derived_from": _split_ids(a.get("derived_from")) or None,
+        "relation": a.get("relation"),
+    }
+    return {k: v for k, v in ex.items() if v not in (None, [], "", {})}
+
+
 def _sustain_call(cg, a):
     """持续性自维持统一入口（常驻 / 心跳 / 自愈 / 会话续接）。
 
@@ -1559,7 +1586,8 @@ def _cg_call(cg, a):
                     pid = cg.propose(nid, a.get("content", ""),
                                      layer=a.get("layer") or "knowledge",
                                      tags=a.get("tags"),
-                                     condition_space=a.get("condition_space"))
+                                     condition_space=a.get("condition_space"),
+                                     **_proposal_extras(a, verdict))
                     return {"ok": False, "id": nid, "pid": pid, "committed": False,
                             "moved_to": "review_queue", "consistency": cvd,
                             "verdict": verdict}
@@ -1608,7 +1636,8 @@ def _cg_call(cg, a):
             return {"ok": False, "id": rid, "committed": False,
                     "moved_to": "rejected", "verdict": verdict}
         pid = cg.propose(nid, a.get("content", ""), layer=a.get("layer") or "knowledge",
-                         tags=a.get("tags"), condition_space=a.get("condition_space"))
+                         tags=a.get("tags"), condition_space=a.get("condition_space"),
+                         **_proposal_extras(a, verdict))
         return {"ok": True, "id": nid, "pid": pid, "committed": False,
                 "moved_to": "review_queue", "verdict": verdict}
 
@@ -2197,7 +2226,7 @@ def call_tool(cg, name, args):
         return {"pid": cg.propose(a.get("node_id", ""), a.get("content", ""),
                                   layer=a.get("layer") or "knowledge",
                                   tags=a.get("tags"), condition_space=a.get("condition_space"),
-                                  verify=a.get("verify"))}
+                                  **_proposal_extras(a))}
 
     if name == "mdcg_review_list":
         return {"pending": cg.review_list()}
