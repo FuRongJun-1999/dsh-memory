@@ -27,6 +27,7 @@ llm-adapter-poc/
 # md_cg 运行时数据与产物（可重跑 migrate 再生，不入库）
 /_md_cg_p*/
 /_md_cg_membench/
+/_md_cg_eval_*/
 /wisdom-book-cloud-new.db
 /md_cg/__pycache__/
 /scripts/__pycache__/
@@ -62,3 +63,10 @@ llm-adapter-poc/
 /data/lingshu.db-wal
 # 灵枢路径配置（本地绝对路径，不入公开仓）
 /data/paths.json
+
+# 公开基准数据集本地副本（大 JSON，可由 scripts/download_public_bench.py 重下，不入库）
+/data/external/
+# IDE 本地配置（不共享）
+/.vscode/
+# 白箱链条热度为运行时计数日志（可重跑再生），不入库
+/md_cg/whitebox_kb/wisdom/audit_log/chain_heat.json
