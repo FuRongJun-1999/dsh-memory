@@ -110,7 +110,7 @@ Mem0          Letta(Zep)     GraphRAG
 > 它解决的是另一件事：**前提确认**——四家能否在同一 embedding / LLM 条件下真实跑起来，
 > 以及各自的「默认配置」里有哪些会直接毁掉中文记忆的坑。
 >
-> 脚本：`_eval/smoke_{mem0,graphiti,graphrag,letta}.py`（`_eval` 位于 `d:/Program Files/2_ai/_competitor/`）。
+> 脚本：`_eval/smoke_{mem0,graphiti,graphrag,letta}.py`（`_eval` 位于 `_competitor/`）。
 
 ### E.1 环境与口径
 

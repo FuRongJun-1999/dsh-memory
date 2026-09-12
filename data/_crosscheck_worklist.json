@@ -1,5 +1,5 @@
 {
- "root": "D:\\Program Files\\2_ai\\AEIS\\data\\mdcg",
+ "root": "data/mdcg",
  "nodes": 4526,
  "baseline_states": {
   "ACCEPT": 0,

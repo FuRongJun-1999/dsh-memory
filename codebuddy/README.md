@@ -16,7 +16,9 @@
 ### 1. 接入记忆大脑（MCP）
 
 把 `mcp.json` 里的 `mcpServers.mdcg` 一段合并进 CodeBuddy 的 MCP 配置，然后把
-`PYTHONPATH` 的占位值改成**你本机 dsh-memory 仓库的绝对路径**（如 `D:/Program Files/2_ai/dsh-memory`）。
+`PYTHONPATH` 的占位值（`REPLACE_WITH_ABSOLUTE_PATH_TO_dsh-memory`）替换为**你本机
+dsh-memory 仓库所在目录**。此处须用可解析的绝对路径——Python 要据此定位仓库内的 `md_cg`
+包，相对路径会随进程工作目录漂移而失效。
 
 `md_cg` 大脑随仓库自带，**无需 pip 安装任何引擎**；只需本机有 Python 与 Node ≥ 22.19。
 
