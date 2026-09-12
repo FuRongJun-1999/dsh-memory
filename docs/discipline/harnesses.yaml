@@ -1,0 +1,51 @@
+# 工作纪律 · harness 适配矩阵
+#
+# 真源（唯一手写）：docs/工作纪律_认知图条目_v1.1.json
+# 本文件只声明「怎么把真源渲染成各端产物」，不承载纪律本体（与真源边界一致）。
+#
+# transport:
+#   file        —— 产物是一个独立文件；path 相对仓库根，或以 ~ 开头（用户目录）
+#   config-key  —— 产物写进某个 YAML 配置文件的指定键；用受管标记块原地修订，保留注释
+# variant:  full    —— 全文形态（含声明出口表 / 收尾流程 / 维护规则），供会话起始注入
+#           compact —— 精简形态（执行公约 + 路由表 + 声明），供「每轮都在」的系统提示槽位
+# enabled:  是否纳入 render --write 与 verify 的默认范围
+
+version: 1
+source: docs/工作纪律_认知图条目_v1.1.json
+
+targets:
+
+  dsh:
+    enabled: true
+    transport: config-key
+    path: '~/.dsh/profiles/web/cordis.patch.yml'
+    entry_id: system-prompt
+    key: personaPrefix
+    variant: compact
+    format: text
+    marker: lingshu:discipline
+    note: >-
+      DSH 系统提示 order=0（DEPLOYMENT_PERSONA_PREFIX），每轮注入；
+      严格 {{variable}} 插值 ⇒ 正文禁含裸 {{ 。
+
+  codebuddy:
+    enabled: true
+    transport: file
+    path: codebuddy/CODEBUDDY.md
+    variant: full
+    format: markdown
+    note: >-
+      CodeBuddy 会话起始全文注入。**根目录 CODEBUDDY.md 优先于 AGENTS.md**——
+      本仓产物落 codebuddy/CODEBUDDY.md（不落根，避免屏蔽本地私有 AGENTS.md）；
+      外部用户复制该文件到自身项目根即生效（见 codebuddy/README.md）。
+
+  zcode:
+    enabled: true
+    transport: file
+    path: zcode/AGENTS.md
+    variant: full
+    format: markdown
+    preserve: true
+    note: >-
+      ZCode 读项目根 AGENTS.md。本仓产物落 zcode/AGENTS.md（不落根，避免与
+      CodeBuddy 的 CODEBUDDY.md 及本地 AGENTS.md 冲突）；复制到项目根生效。
