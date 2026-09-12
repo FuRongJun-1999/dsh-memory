@@ -87,3 +87,23 @@ targets:
       Codex CLI 读项目根 AGENTS.md（另支持 ~/.codex/AGENTS.md 全局）。
       本仓产物落 codex/AGENTS.md（不落根，根 AGENTS.md 是本地私有件）；
       复制到项目根即生效。MCP 通路模板见 codex/config.toml.example。
+
+  claude-code:
+    enabled: true
+    transport: file
+    path: claude/CLAUDE.md
+    variant: full
+    format: markdown
+    preserve: true
+    memory: mcp/mdcg (cg,stg)
+    note: >-
+      Claude Code（Anthropic）会话起始读取项目根 CLAUDE.md（另支持 ~/.claude/CLAUDE.md
+      全局、CLAUDE.local.md 私有附加）。本仓产物落 claude/CLAUDE.md（不落根——根 AGENTS.md
+      是本地私有件，且落根会与 CodeBuddy / Codex 端的根级注入并存造成重复）；
+      复制到项目根即生效。MCP 通路模板见 claude/mcp.json.example（项目级 .mcp.json）。
+    preamble: |-
+      【本端（Claude Code）与其它端的差异】
+      - 记忆通路：MCP server「mdcg」（项目级 .mcp.json 或 claude mcp add 配置，tools = kernel 面 cg/stg）；
+        其余能力经 cg(op=…) / stg(op=…) 分发。
+      - 注入时机：本段在会话起始一次性注入全文（CLAUDE.md）；DSH 端是每轮都在的 compact 系统提示。
+      - 自动记忆：本端无会话 hook 自动转录，记忆沉淀由第 16 条显式归档驱动（与 CodeBuddy / Codex 端同构）。

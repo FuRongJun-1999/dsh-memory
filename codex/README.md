@@ -65,7 +65,8 @@ MDCG_TOKEN = "<签发返回的明文令牌>"
 ## 与其它端并存
 
 Codex / ZCode 都读项目根 `AGENTS.md`，二者内容同源（同一真源渲染），复制其一即可；
-CodeBuddy 读根目录 `CODEBUDDY.md`，可与前者并存互不干扰。
+CodeBuddy 读根目录 `CODEBUDDY.md`，Claude Code 读根目录 `CLAUDE.md`——各端文件名
+互不冲突，可与前者并存互不干扰。
 
 ## 维护（面向灵枢维护者）
 
