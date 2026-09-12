@@ -44,7 +44,7 @@ targets:
         CodeBuddy 端无会话 hook，其自动记忆改由第 16 条显式归档驱动；两端落地方式不同，勿照搬。
 
       【仓库结构与公开边界（第 9 / 14 条落地用）】
-      - 仓库按 harness 分目录：dsh/ · codebuddy/ · zcode/；共享层（md_cg/ · docs/ · scripts/）在仓库根。
+      - 仓库按 harness 分目录：dsh/ · codebuddy/ · zcode/ · codex/；共享层（md_cg/ · docs/ · scripts/）在仓库根。
       - 根目录 AGENTS.md 是本地私有件（.gitignore，含运维注记）；公开产物是 codebuddy/CODEBUDDY.md 与 zcode/AGENTS.md。
       - 公开仓 = GitHub FuRongJun-1999/dsh-memory；私有运行时 = AEIS。含敏感／隐私内容只写 AEIS，不进公开仓。
 
@@ -74,3 +74,16 @@ targets:
     note: >-
       ZCode 读项目根 AGENTS.md。本仓产物落 zcode/AGENTS.md（不落根，避免与
       CodeBuddy 的 CODEBUDDY.md 及本地 AGENTS.md 冲突）；复制到项目根生效。
+
+  codex:
+    enabled: true
+    transport: file
+    path: codex/AGENTS.md
+    variant: full
+    format: markdown
+    preserve: true
+    memory: mcp/mdcg (cg,stg)
+    note: >-
+      Codex CLI 读项目根 AGENTS.md（另支持 ~/.codex/AGENTS.md 全局）。
+      本仓产物落 codex/AGENTS.md（不落根，根 AGENTS.md 是本地私有件）；
+      复制到项目根即生效。MCP 通路模板见 codex/config.toml.example。
