@@ -1,0 +1,19 @@
+{
+  "name": "lingshu",
+  "interface": {
+    "displayName": "Lingshu Plugins"
+  },
+  "plugins": [
+    {
+      "name": "lingshu-memory",
+      "source": {
+        "source": "local",
+        "path": "../../codex/lingshu-memory"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

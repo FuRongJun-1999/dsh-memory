@@ -8,6 +8,7 @@
 #   config-key  —— 产物写进某个 YAML 配置文件的指定键；用受管标记块原地修订，保留注释
 # variant:  full    —— 全文形态（含声明出口表 / 收尾流程 / 维护规则），供会话起始注入
 #           compact —— 精简形态（执行公约 + 路由表 + 声明），供「每轮都在」的系统提示槽位
+#           skill   —— SKILL.md 形态（YAML frontmatter + 纪律正文），供 Claude Code / Codex 插件的 skills/ 目录
 # enabled:  是否纳入 render --write 与 verify 的默认范围
 # memory:   该端 Agent 访问灵枢记忆的通路；仅声明事实，不参与渲染与校验。两种形态：
 #           ① MCP 客户端配置 —— 写客户端配置里的 server 名（如 mcp/mdcg）；
@@ -107,3 +108,45 @@ targets:
         其余能力经 cg(op=…) / stg(op=…) 分发。
       - 注入时机：本段在会话起始一次性注入全文（CLAUDE.md）；DSH 端是每轮都在的 compact 系统提示。
       - 自动记忆：本端无会话 hook 自动转录，记忆沉淀由第 16 条显式归档驱动（与 CodeBuddy / Codex 端同构）。
+
+  # —— 插件生态形态（新增）：纪律不再靠复制注入文件，而是随插件 skills/ 分发 ——
+  claude-code-plugin-skill:
+    enabled: true
+    transport: file
+    path: claude/lingshu-memory/skills/linglu-discipline/SKILL.md
+    variant: skill
+    format: markdown
+    memory: mcp/mdcg (cg,stg)
+    note: >-
+      Claude Code 插件形态（插件根 = claude/lingshu-memory/，经仓根 .claude-plugin/marketplace.json
+      分发：/plugin marketplace add FuRongJun-1999/dsh-memory → /plugin install）。
+      CLAUDE.md 不能随插件分发，纪律注入改由 skill 承载（Claude 按 frontmatter description 自动调用，
+      或 /lingshu-memory:linglu-discipline 显式调用）。
+    preamble: |-
+      【本 skill（Claude Code 插件形态）与其它端的差异】
+      - 记忆通路：MCP server「mdcg」（tools = kernel 面 cg/stg，其余能力经 op 分发）。插件不含大脑本体——
+        安装后须按插件 README 把 mcp.json.example 配置为项目 .mcp.json（PYTHONPATH 指向你本机的 dsh-memory 仓库）。
+      - 注入时机：Claude 按本 skill 的 description 在任务开始 / 命中触发词时自动调用；
+        也可用 /lingshu-memory:linglu-discipline 显式调用。其它端是会话起始一次性全文注入——
+        本 skill 形态下若本会话尚未加载过本 skill，应先加载再动手。
+      - 写入凭据：mdcg fail-closed，未配 MDCG_TOKEN 时只读 guest（读得到、写不进）；签发见插件 README。
+
+  codex-plugin-skill:
+    enabled: true
+    transport: file
+    path: codex/lingshu-memory/skills/linglu-discipline/SKILL.md
+    variant: skill
+    format: markdown
+    memory: mcp/mdcg (cg,stg)
+    note: >-
+      Codex 插件形态（插件根 = codex/lingshu-memory/，.codex-plugin/plugin.json，name 与文件夹一致；
+      经仓根 .agents/plugins/marketplace.json 分发：codex plugin marketplace add <本仓路径> → codex plugin add）。
+      与 codex/AGENTS.md 手工路线并存：AGENTS.md 是会话起始全文注入主通道，本 skill 是插件分发的等价形态。
+    preamble: |-
+      【本 skill（Codex 插件形态）与其它端的差异】
+      - 记忆通路：MCP server「mdcg」（tools = kernel 面 cg/stg，其余能力经 op 分发）。插件不含大脑本体——
+        安装后须按插件 README 把 config.toml.example 的 [mcp_servers.mdcg] 两段合并进 ~/.codex/config.toml
+        （PYTHONPATH 指向你本机的 dsh-memory 仓库）。
+      - 注入时机：Codex 按 skill 三级渐进加载（元数据常驻、正文触发时加载）；项目根 AGENTS.md 仍是
+        会话起始全文注入主通道，本 skill 与之同源、并存不冲突。
+      - 写入凭据：mdcg fail-closed，未配 MDCG_TOKEN 时只读 guest（读得到、写不进）；签发见插件 README。

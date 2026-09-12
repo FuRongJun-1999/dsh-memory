@@ -1,0 +1,11 @@
+{
+  "name": "lingshu-memory",
+  "description": "灵枢记忆：16 条工作纪律 skill + 长期记忆系统接入（mdcg MCP）。跨会话记忆、规则化检索、写没写成功看 committed，全程可审计。",
+  "version": "0.1.0",
+  "author": {
+    "name": "FuRongJun-1999"
+  },
+  "homepage": "https://github.com/FuRongJun-1999/dsh-memory",
+  "repository": "https://github.com/FuRongJun-1999/dsh-memory",
+  "license": "MIT"
+}

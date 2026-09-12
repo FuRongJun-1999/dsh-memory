@@ -129,9 +129,18 @@ def render_declaration_table(nodes):
     return "\n".join(rows)
 
 
+_TEMPLATES = {
+    "compact": "compact.txt.tmpl",
+    "full": "full.md.tmpl",
+    "skill": "skill.md.tmpl",  # SKILL.md 形态（YAML frontmatter + 纪律正文），供插件 skills/ 目录
+}
+
+
 def render(target, src, repo, now=None):
     variant = target.get("variant", "compact")
-    tname = "compact.txt.tmpl" if variant == "compact" else "full.md.tmpl"
+    tname = _TEMPLATES.get(variant)
+    if tname is None:
+        raise SystemExit("未知 variant：%r（支持 compact / full / skill）" % (variant,))
     tpl_path = os.path.join(repo, "docs", "discipline", "templates", tname)
     with io.open(tpl_path, encoding="utf-8") as f:
         text = f.read()

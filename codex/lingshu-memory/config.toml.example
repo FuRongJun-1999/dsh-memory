@@ -1,0 +1,20 @@
+# 灵枢（Lingshu）记忆 MCP · Codex CLI 接入模板（lingshu-memory 插件版）
+#
+# 与仓内 codex/config.toml.example 同源（插件分发副本，改动以仓库为准）。
+# 用法：把下面两段合并进 ~/.codex/config.toml（模板于 codex-cli 0.147.0 验证），
+# 然后把 PYTHONPATH 替换为本机 dsh-memory 仓库的**绝对路径**（Python 据此定位
+# md_cg 包，相对路径会随进程工作目录漂移而失效）。
+# 不填 MDCG_TOKEN 时以只读 guest 运行；要写入记忆请按本目录 README.md 签发令牌。
+
+[mcp_servers.mdcg]
+command = "python"
+args = ["-m", "md_cg.mcp_server"]
+startup_timeout_sec = 120
+
+[mcp_servers.mdcg.env]
+PYTHONPATH = "REPLACE_WITH_ABSOLUTE_PATH_TO_dsh-memory"
+MDCG_MCP_SURFACE = "kernel"
+MDCG_ACTOR = "codex"
+MDCG_TENANT = "default"
+MDCG_CLEARANCE = "private"
+MDCG_TOKEN = ""

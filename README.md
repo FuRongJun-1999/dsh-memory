@@ -262,6 +262,18 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 > 五端纪律**同源**（`docs/工作纪律_认知图条目_v1.1.json`），由 `scripts/render_discipline.py` 渲染、
 > `scripts/verify_discipline.py` 守卫漂移；矩阵见 `docs/discipline/harnesses.yaml`。
 
+### 插件生态形态（免手工复制，本仓自带双端 marketplace）
+
+| 宿主 | 安装 | 插件位置 | 装后一步 |
+|---|---|---|---|
+| Claude Code | `/plugin marketplace add FuRongJun-1999/dsh-memory` → `/plugin install lingshu-memory@lingshu` | `claude/lingshu-memory/`（纪律以 skill 分发，`/lingshu-memory:linglu-discipline` 可显式调用） | 复制插件内 `mcp.json.example` 为项目根 `.mcp.json`，填 `PYTHONPATH` |
+| Codex CLI | `codex plugin marketplace add <本仓路径>` → `codex plugin add lingshu-memory@lingshu` | `codex/lingshu-memory/`（skill 三级渐进加载；`.codex-plugin/plugin.json` 清单） | 把插件内 `config.toml.example` 两段合并进 `~/.codex/config.toml`，填 `PYTHONPATH` |
+
+> marketplace 清单：Claude 端在仓根 `.claude-plugin/marketplace.json`，Codex 端在仓根
+> `.agents/plugins/marketplace.json`。插件不含大脑本体（`md_cg/` 不随插件分发）——MCP 装好后
+> 大脑仍是你本机的 dsh-memory 仓库；插件形态的纪律 skill 同样由真源渲染（`skill` 变体，
+> 矩阵槽位 `claude-code-plugin-skill` / `codex-plugin-skill`），漂移由同一 `verify_discipline.py` 守卫。
+
 ---
 
 ## 🛠️ 开发
