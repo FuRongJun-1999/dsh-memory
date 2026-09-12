@@ -9,19 +9,23 @@
 
 **定位**：面向 AGI 研究者的大型研究项目，性能极高，记忆效果极强。
 
+**形态**：跨 harness 的记忆基础设施——大脑（`md_cg/`）即标准 stdio MCP server，任何支持 MCP 的 AI Agent 可直接接入；记忆机制本身（五层时空记忆图 · 知识飞轮 · 白箱管线 · 可审计信任）与宿主框架解耦，不与任何单一 Agent 绑定。
+
 ---
 
 ## ✨ 核心亮点
 
 - **🧠 五层时空记忆图**——对话自动沉淀为纯文本认知图（anchor / self / knowledge / structural / contextual），跨会话保持自我连续性；记忆本体是 md 文档，任何编辑器可直接审阅
 - **🔍 白箱确定性引擎**——条件路由、检索、写入裁决全程规则化，不依赖 LLM 黑箱，全链路可审计、可复现
-- **🔌 多 harness 接入**——不绑定单一 Agent 运行时：同一份大脑（`md_cg/`）+ 同一份工作纪律，接入 DSH · CodeBuddy · ZCode · Codex CLI（见[多 harness 接入](#多-harness-接入按端分目录)）
+- **🔌 跨 harness 接入**——大脑是标准 stdio MCP server，不绑定单一 Agent 运行时：同一份大脑（`md_cg/`）+ 同一份工作纪律，接入 DSH · CodeBuddy · ZCode · Codex CLI，任何 MCP 宿主可直接挂载（见[多 harness 接入](#多-harness-接入按端分目录)）
 - **📊 可复现评测**——`locomo-zh-500`（500 题）与 `bench6-100-zh-en`（六家横评 · 中英双查）数据集随仓公开，一条命令复现我方成绩（见[公开评测数据集](#-公开评测数据集)）
 - **⚡ Rust 高性能内核**——检索核心 `mdcg_eval`（零第三方依赖 Rust 库）：库内嵌多线程大批量检索，`--serve` 进程实例支撑多智能体并发（语言无关）；与 Python 检索口径逐位对齐（见 [rust/README.md](rust/README.md)）
 
 ---
 
 ## ⚡ 快速开始
+
+> **按宿主选择入口**：**DSH** → 下方三步 ｜ **CodeBuddy · ZCode · Codex CLI** → [多 harness 接入](#多-harness-接入按端分目录)（各端独立三步说明） ｜ **其它 MCP 宿主** → 直接挂载大脑 `python -m md_cg.mcp_server`（stdio MCP），再按需注入工作纪律
 
 ```bash
 # ① 克隆并构建插件本体
@@ -187,7 +191,7 @@ min  = 8.5        mean = 8.643        综合 = 8.5 × 0.4 + 8.643 × 0.6 ≈ 8.6
 
 ---
 
-## 🏗️ 架构
+## 🏗️ 架构（以 DSH 为例 · 其它 MCP 宿主同构）
 
 ```
 DeepSeek Harness (cordis)
@@ -204,6 +208,8 @@ DeepSeek Harness (cordis)
 
 **记忆只有一个真源**：`md_cg/` 认知图（纯 md 文档，随包自带）。白箱引擎与知识库已内迁；
 AEIS 仅作可选「身体」能力后端（角色扮演生成），不再存记忆、默认不启动。
+
+> 其它 MCP 宿主同构：宿主工具面（`cg` / `stg` / `mdcg_*`）↔ stdio MCP ↔ `md_cg` 大脑；四端差异只在**纪律注入方式**（矩阵见[多 harness 接入](#多-harness-接入按端分目录)），大脑与记忆真源零改动。
 
 ---
 
