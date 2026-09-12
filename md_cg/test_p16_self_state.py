@@ -8,7 +8,7 @@
     情感 = 信任二阶 d^2T/dt^2。
 
 覆盖：
-  A 薄卡建立：八项自我信息 → 当前值 + 指针；无数据不编造
+  A 薄卡建立：九项自我信息 → 当前值 + 指针；无数据不编造
   B 幂等刷新：状态未变不写盘
   C 版本链：version +1 / prev_state_hash / 留痕对齐
   D 派生自洽：情绪由 d2 推出，与 metacognition 一致
@@ -60,7 +60,7 @@ def main():
     cg = MdCGOS(root)
 
     # ---------- A. 薄卡建立 ----------
-    print("\n[A] 薄自我：八项自我信息 → 当前值 + 指针（无数据不编造）")
+    print("\n[A] 薄自我：九项自我信息 → 当前值 + 指针（无数据不编造）")
     r0 = cg.self_state_refresh(S)
     st = cg.self_state_snapshot(S)
     check("A1 状态卡单例建立", st is not None and st["node_id"] == ss.state_node_id(S),
@@ -72,13 +72,13 @@ def main():
     check("A4 短期记忆只存摘要 + 指针",
           isinstance(st["short_term"], dict) and "ptr" in st["short_term"],
           str(st["short_term"]))
-    check("A5 八项自我信息字段齐备",
+    check("A5 九项自我信息字段齐备",
           all(k in st for k in ("information_gap", "trust", "emotion",
                                 "affect", "short_term", "importance_self",
-                                "identity_ref", "relations")),
+                                "identity_ref", "relations", "prediction")),
           str(sorted(k for k in st if k in (
               "information_gap", "trust", "emotion", "affect", "short_term",
-              "importance_self", "identity_ref", "relations"))))
+              "importance_self", "identity_ref", "relations", "prediction"))))
     check("A6 首次刷新 version=1", r0["state_version"] == 1,
           str(r0["state_version"]))
 
@@ -257,12 +257,38 @@ def main():
     # ---------- L. 自描述 ----------
     print("\n[L] 自描述")
     cat = cg.self_state_catalog()
-    check("L1 八项自我信息齐全", len(cat["self_info"]) == 8,
+    check("L1 九项自我信息齐全", len(cat["self_info"]) == 9,
           str(sorted(cat["self_info"])))
     check("L2 五维索引齐全",
           set(cat["dimensions"]) == {"task", "person", "session", "time",
                                      "trust"},
           str(cat["dimensions"]))
+
+    # ---------- M. 第九项：预测校准面（predict → self_state 闭环）----------
+    print("\n[M] 预测校准面（预测 → 事实 → 误差 → 自我更新）")
+    check("M1 自描述含 prediction 项", "prediction" in cat["self_info"],
+          str(sorted(cat["self_info"])))
+    check("M2 无预测留痕时诚实 unknown（不编造）",
+          cg.self_state_summary(S).get("hit_rate") is None,
+          str(cg.self_state_summary(S).get("hit_rate")))
+    cg.add("p1", "# 功能名：预测源节点\n", layer="knowledge",
+           verification_basis="test",
+           edges=[{"target": "p2", "relation_type": "causal",
+                   "confidence": 0.5}])
+    cg.add("p2", "# 功能名：预测目标节点\n", layer="knowledge",
+           verification_basis="test")
+    fb = cg.predict_feedback("p2", actual_node_id="p2", hit=True)
+    ss_fb = fb.get("self_state") or {}
+    check("M3 feedback 回执含自我模型刷新", ss_fb.get("ok") is True,
+          str(ss_fb))
+    check("M4 命中率已回写自我模型（1.0）",
+          cg.self_state_summary(S).get("hit_rate") == 1.0,
+          str(cg.self_state_summary(S).get("hit_rate")))
+    au_m = cg.self_state_audit(S)
+    check("M5 闭环后无 prediction_drift（自我模型跟上预测表现）",
+          not any(i.get("code") == "prediction_drift"
+                  for i in au_m.get("issues") or []),
+          str(au_m.get("issues")))
 
     print(f"\n{'=' * 60}\n通过 {PASS} / {PASS + FAIL}")
     if FAILS:

@@ -330,6 +330,19 @@ def main():
           abs((_edge_conf(cg, "m1", "m2") or 0.0) - 0.55) < 1e-6,
           str(_edge_conf(cg, "m1", "m2")))
 
+    # ---------- L. 闭环：预测反馈 → 自我模型（预测校准面）----------
+    print("\n[L] 闭环：predict_feedback → self_state 预测校准面")
+    fb2 = cg.predict_feedback("m2", actual_node_id="m2", hit=True)
+    ss2 = fb2.get("self_state") or {}
+    check("L1 feedback 回执含自我模型刷新回执", ss2.get("ok") is True,
+          str(ss2))
+    subj = ss2.get("subject") or "self:lingshu"
+    s = cg.self_state_summary(subj)
+    check("L2 预测命中率已写入自我模型", s.get("hit_rate") is not None,
+          f"hit_rate={s.get('hit_rate')}")
+    check("L3 自我模型状态卡已更新（版本 ≥ 1）",
+          (s.get("version") or 0) >= 1, str(s.get("version")))
+
     print(f"\n{'=' * 60}\n通过 {PASS} / {PASS + FAIL}")
     if FAILS:
         print("失败：" + "、".join(FAILS))

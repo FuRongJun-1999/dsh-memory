@@ -610,10 +610,14 @@ def dynamic_hit_threshold(cg, limit=HIT_HISTORY_MAX):
 
 
 def feedback(cg, predicted_node_id, actual_node_id=None, hit=None, note="",
-             actor="predict"):
+             actor="predict", sync_self=True):
     """预测反馈（D-006）：hit → 边置信度 +0.05；miss → 登记 rejected。
 
     `hit` 未显式给出时按 `predicted == actual` 判定。
+
+    `sync_self`（默认 True）：反馈后**回写自我模型**——刷新自我状态卡的
+    「预测校准」面，形成「预测 → 事实 → 误差 → 自我更新」闭环。
+    自我模型是二阶观测，其刷新失败不阻塞一阶反馈结果。
     """
     pred = str(predicted_node_id or "").strip()
     act = str(actual_node_id or "").strip() or pred
@@ -634,6 +638,14 @@ def feedback(cg, predicted_node_id, actual_node_id=None, hit=None, note="",
         except Exception as exc:                              # pragma: no cover
             out["rejected_error"] = str(exc)
     out.update(dynamic_hit_threshold(cg))
+    # 闭环：预测误差 → 自我模型更新。延迟导入避免与 self_state 的循环依赖，
+    # 且自我模型刷新属于二阶观测，失败不阻塞一阶反馈结果。
+    if sync_self:
+        try:
+            from . import self_state
+            out["self_state"] = self_state.refresh(cg, actor=actor)
+        except Exception as exc:                          # pragma: no cover
+            out["self_state_error"] = str(exc)
     return out
 
 

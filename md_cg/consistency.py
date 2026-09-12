@@ -64,6 +64,14 @@ CLASH_HIGH = 0.6     # 条件互相覆盖阈值 → 明确互斥
 CLASH_LOW = 0.35     # 条件部分覆盖阈值 → 待定
 SELF_NEGATION = 0.5  # 自否定阈值：负条件被自身正文强命中
 
+# —— 第二类关系（同条件空间 · 结论槽取值分歧）阈值；均由探针实测标定 ——
+# run_probe_samecond.py 实测：同条件 same_cond=1.0 / 异条件空间 0.328 → 0.75 可分
+SAME_COND_HIGH = 0.75   # 同侧条件重合 → 判定「同一条件空间」
+# 实测结论槽（子功能）：同槽 1.0 / 同主语异属性 0.14 / 异主题 0.0 → 0.6 可分
+SLOT_HIGH = 0.6         # 结论槽（功能名/子功能）重合 → 判定「同一件事」
+# 实测：逐字重复 1.0 / 同槽不同值 0.61 / 同值异措辞 0.74 → 0.95 只排除逐字重复
+CONCLUSION_SAME = 0.95  # 正文几乎逐字相同 → 属「重复」（该合并），不算冲突
+
 EMO_AVOID = 0.70     # 冲突强度 ≥ 此值 → avoiding
 EMO_APPROACH = 0.30  # 冲突强度 ≤ 此值 → approaching
 
@@ -223,6 +231,21 @@ def _body_text(content):
     return "\n".join(out)
 
 
+def _slot_text(content):
+    """结论槽：CCG 声明的 `# 功能名` / `# 子功能`（结构字段，非正文词面）。
+
+    为什么需要它：L1-c 要判「两条记忆是不是在讲同一件事」，但**词面覆盖率测不了**
+    ——探针实测「同属性不同值」0.612 vs「异属性」0.623（负样本反超），
+    因为两者与旧正文的通用词重合度相当。CCG 的槽位字段才是「在讲哪件事」的
+    结构化代理，与 L1-b 用 condition_space 判「在什么条件下」同构。
+
+    字段缺失 → 返回空串 → L1-c 不触发（保守：无从比对时不假装确定）。
+    """
+    _ccg_field, _declared, _neg_hit, _cov = _prims()
+    return (_ccg_field(content or "", "功能名"),
+            _ccg_field(content or "", "子功能"))
+
+
 # --------------------------------------------------------------------------
 # L0 情绪通道（信息差二阶变化）
 # --------------------------------------------------------------------------
@@ -364,9 +387,15 @@ def check(cg, content, layer=None, condition_space=None,
     pos, neg = _new_terms(content, condition_space, non_applicable_conditions)
     tw_pos = expand_query_terms_weighted(" ".join(pos)) if pos else {}
     tw_neg = expand_query_terms_weighted(" ".join(neg)) if neg else {}
-    tw_content = expand_query_terms_weighted(content) if content else {}
+    # 结论文本词权（结论比对专用）：**去 CCG 声明行**。模板行（`# 功能名` /
+    # `# 子功能` 等）在两条节点间逐字相同，若混入会稀释结论覆盖率——实测
+    # 逐字重复仅 0.32、同槽不同值 0.61，与异属性（0.62）不可分。去模板才可判。
+    tw_content = (expand_query_terms_weighted(_body_text(content))
+                  if content else {})
+    # 结论槽（CCG 结构字段）——「是否同一件事」的代理，见 _slot_text 说明
+    n_fn, n_sb = _slot_text(content)
 
-    conflicts, hard = [], []
+    conflicts, hard, divergences = [], [], []
     strength, scanned, comparable = 0.0, 0, 0
 
     # ---- L1-a 自否定：自己的负条件排除自己的生效条件/正文 ----
@@ -414,6 +443,36 @@ def check(cg, content, layer=None, condition_space=None,
         c1 = _cov(tw_pos, " ".join(e_neg)) if (tw_pos and e_neg) else 0.0
         c2 = _cov(tw_neg, " ".join(e_pos)) if (tw_neg and e_pos) else 0.0
         c = max(c1, c2)
+        # ---- L1-c 同侧比对：第二类关系（同条件空间 · 结论槽取值分歧） ----
+        # 与 L1-b 是**两类不同关系**：L1-b 判「条件互斥」（反题），L1-c 判
+        # 「同条件 + 同结论槽 + 取值不同」（矛盾）。后者在词面不可判——探针实测
+        # 「同属性不同值」正文覆盖率 0.612 反而低于「异属性」0.623，故改用
+        # CCG 槽位字段代理「是否同一件事」。
+        # 注：必须是独立 if 而非 else——同条件时 c=0，若并入 L1-b 分支会被
+        #     `c < CLASH_LOW: continue` 提前跳过，L1-c 永不执行。
+        c3 = _cov(tw_pos, " ".join(e_pos)) if (tw_pos and e_pos) else 0.0
+        c4 = _cov(tw_neg, " ".join(e_neg)) if (tw_neg and e_neg) else 0.0
+        same_cond = max(c3, c4)
+        if same_cond >= SAME_COND_HIGH:
+            e_fn, e_sb = _slot_text(body)
+            slot = max(
+                _cov(expand_query_terms_weighted(n_fn), e_fn)
+                if (n_fn and e_fn) else 0.0,
+                _cov(expand_query_terms_weighted(n_sb), e_sb)
+                if (n_sb and e_sb) else 0.0)
+            if slot >= SLOT_HIGH:
+                # 同口径比对（正文↔正文）；tw_content 已去模板行，见上文
+                concl = _cov(tw_content, _body_text(body)) if tw_content else 0.0
+                if concl < CONCLUSION_SAME:
+                    divergences.append({
+                        "type": "same_condition_divergence", "with": nid,
+                        "with_layer": e.get("layer"),
+                        "detail": ("适用条件与结论槽均重合但取值不同："
+                                   "可能是更正（应覆盖旧值）或分歧（应补区分条件）"),
+                        "same_condition": round(same_cond, 4),
+                        "slot_overlap": round(slot, 4),
+                        "conclusion_overlap": round(concl, 4),
+                        "slot": (n_fn or n_sb)[:40]})
         if c < CLASH_LOW:
             continue
         conflicts.append({
@@ -432,10 +491,17 @@ def check(cg, content, layer=None, condition_space=None,
     # ---- L1 四态判定 ----
     recursion = None
     missing = []
-    allc = hard + conflicts
+    allc = hard + conflicts + divergences
     if hard:
         verdict = "REJECT"
         reason = "；".join(h["detail"] for h in hard)
+    elif divergences:
+        verdict = "DEFER"
+        reason = "同条件空间下结论槽取值不一致：需裁决是更正还是分支"
+        # 两类关系可能同时成立（同条件分歧 vs 某节点 / 条件互斥 vs 另节点）——
+        # 若只报 L1-c，跨侧互斥的线索会被掩盖，飞轮收到的缺口就不完整。
+        if conflicts:
+            reason += f'；另有 {len(conflicts)} 处条件互斥（见 conflicts[]）'
     elif strength >= CLASH_HIGH:
         verdict = "DEFER"
         reason = "条件互斥：需补区分条件后才能判定"
@@ -463,6 +529,16 @@ def check(cg, content, layer=None, condition_space=None,
                        f'（深度 {recursion["depth"]}，增益 {recursion["gain"]}）',
                 "conflicts": [c["with"] for c in allc if c.get("with")][:5]})
 
+    # 同条件取值分歧：L2 递归提供不了「区分条件」（条件本就相同），故缺口是
+    # 「取值裁决」而非「补条件」。必须显式落 missing——否则 strength=0 →
+    # 情绪 approaching → L2 被跳过 → missing 为空 → 飞轮收不到任何信号。
+    if divergences and not missing:
+        missing.append({
+            "need": "取值裁决（同条件·同结论槽存在多条不同取值）",
+            "why": "适用条件与结论槽均重合而正文取值不同："
+                   "需确认是「更正」（应覆盖旧值）还是「分支」（应补区分条件）",
+            "conflicts": [c["with"] for c in allc if c.get("with")][:5]})
+
     rec = {"t": time.time(), "layer": layer, "verdict": verdict,
            "reason": reason, "conflict_strength": round(strength, 4),
            "emotional": emo, "conflicts": allc, "recursion": recursion,
@@ -473,20 +549,38 @@ def check(cg, content, layer=None, condition_space=None,
     # ---- 冲突自动触发飞轮（误差 → 补条件 → 结构更新） ----
     if auto_flywheel and verdict in ("REJECT", "DEFER", "BLINDSPOT"):
         rec["unresolved_id"] = _fire_flywheel(cg, query or content, verdict,
-                                              reason, missing)
+                                              reason, missing, allc)
     log(cg, rec)
     return rec
 
 
-def _fire_flywheel(cg, query, verdict, reason, missing):
-    """把冲突作为「误差」投给知识飞轮，返回 unresolved 条目 id（失败不阻塞写入）。"""
+def _missing_text(missing):
+    """结构化缺口 → 一行文本（作为飞轮的 known_clues）。
+
+    修断链：原先 `missing=reason` 把「人话」塞进 missing 字段，而判定器产出的
+    [{need, why, conflicts}] 落在 detail 里被 flywheel_step 忽略——上游产出了
+    结构，却送不到下游。
+    """
+    if not missing:
+        return ""
+    return "；".join(f'{m.get("need", "")}（{m.get("why", "")}）'
+                    for m in missing if m.get("need"))
+
+
+def _fire_flywheel(cg, query, verdict, reason, missing, conflicts=None):
+    """把冲突作为「误差」投给知识飞轮，返回 unresolved 条目 id（失败不阻塞写入）。
+
+    conflicts：冲突现场（含 type / with / same_condition 等数值），供下游生成
+    `# 现场：`；missing 只描述「缺什么」，不带现场，故两者都要送。
+    """
     step = getattr(cg, "flywheel_step", None)
     if step is None:
         return None
     try:
         r = step({"query": (query or "")[:200], "expected_state": "ACCEPT",
-                  "actual_state": verdict, "missing": reason,
-                  "detail": missing})
+                  "actual_state": verdict,
+                  "missing": _missing_text(missing) or reason,
+                  "detail": conflicts if conflicts is not None else missing})
         if isinstance(r, dict):
             return r.get("unresolved_id") or r.get("id")
     except Exception:
@@ -570,9 +664,17 @@ def catalog():
             },
             "L1_reflect": {
                 "theory": "反题 = 预测与事实冲突（条件论七操作）",
-                "checks": ["self_negation", "discipline", "condition_clash"],
+                "checks": ["self_negation", "discipline", "condition_clash",
+                           "same_condition_divergence"],
+                "relations": {
+                    "condition_clash": "跨侧比对（新正↔旧负 / 新负↔旧正）= 条件互斥（反题）",
+                    "same_condition_divergence": "同侧比对（新正↔旧正 / 新负↔旧负）"
+                                                 "＋ CCG 结论槽 = 同条件空间内的取值分歧（矛盾）",
+                },
                 "verdicts": list(VERDICTS),
-                "thresholds": {"high": CLASH_HIGH, "low": CLASH_LOW},
+                "thresholds": {"high": CLASH_HIGH, "low": CLASH_LOW,
+                               "same_condition": SAME_COND_HIGH, "slot": SLOT_HIGH,
+                               "conclusion_same": CONCLUSION_SAME},
             },
             "L2_recursive_reflect": {
                 "theory": "递归受深度/节点数/循环/信息增益门槛约束（智能论 :273）",

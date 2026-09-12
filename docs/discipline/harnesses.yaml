@@ -9,6 +9,12 @@
 # variant:  full    —— 全文形态（含声明出口表 / 收尾流程 / 维护规则），供会话起始注入
 #           compact —— 精简形态（执行公约 + 路由表 + 声明），供「每轮都在」的系统提示槽位
 # enabled:  是否纳入 render --write 与 verify 的默认范围
+# memory:   该端 Agent 访问灵枢记忆的通路；仅声明事实，不参与渲染与校验。两种形态：
+#           ① MCP 客户端配置 —— 写客户端配置里的 server 名（如 mcp/mdcg）；
+#           ② 宿主内建桥   —— 插件直接 spawn 同一个 md_cg.mcp_server 为子进程，
+#                            再注册为宿主工具（DSH 侧 = lingshu_cg / lingshu_stg）。
+#           底层服务是同一个 python -m md_cg.mcp_server；差别只在"谁去连它"。
+#           未列该项的端表示通路未在本矩阵登记，不代表该端无通路。
 
 version: 1
 source: docs/工作纪律_认知图条目_v1.1.json
@@ -24,9 +30,27 @@ targets:
     variant: compact
     format: text
     marker: lingshu:discipline
+    memory: plugin/lingshu_cg+lingshu_stg (插件内建桥，spawn md_cg.mcp_server；tools=core)
     note: >-
       DSH 系统提示 order=0（DEPLOYMENT_PERSONA_PREFIX），每轮注入；
       严格 {{variable}} 插值 ⇒ 正文禁含裸 {{ 。
+    # 端差异与落地边界 → 注入 compact 模板的 %%PREAMBLE%%（模板保持通用，差异留在矩阵）
+    preamble: |-
+      【本端（DSH）与其它端的差异】
+      - 记忆通路：插件内建 lingshu_cg / lingshu_stg 两个基元（tools = core），其余能力经 cg(op=…) / stg(op=…) 分发。
+      - 注入时机：本段在系统提示 order=0（DEPLOYMENT_PERSONA_PREFIX），每轮都在；codebuddy / zcode 端是会话起始一次性注入全文。
+      - 自动记忆：本端有 session hook，默认自动转录用户消息（assistant / tool 默认关）。
+        故第 16 条在本端只补核心结论（内容／原因／位置／验证结论），不复述对话流水——否则与自动转录重复、稀释检索。
+        CodeBuddy 端无会话 hook，其自动记忆改由第 16 条显式归档驱动；两端落地方式不同，勿照搬。
+
+      【仓库结构与公开边界（第 9 / 14 条落地用）】
+      - 仓库按 harness 分目录：dsh/ · codebuddy/ · zcode/；共享层（md_cg/ · docs/ · scripts/）在仓库根。
+      - 根目录 AGENTS.md 是本地私有件（.gitignore，含运维注记）；公开产物是 codebuddy/CODEBUDDY.md 与 zcode/AGENTS.md。
+      - 公开仓 = GitHub FuRongJun-1999/dsh-memory；私有运行时 = AEIS。含敏感／隐私内容只写 AEIS，不进公开仓。
+
+      【纪律本体的维护链路】
+      - 真源 docs/工作纪律_认知图条目_v1.1.json → scripts/render_discipline.py → 各端产物 → scripts/verify_discipline.py 守漂移。
+      - 改纪律 = 改真源 → 重渲染（--write）→ 过校验（漂移即非零退出）；禁止手改本段（下次渲染会覆盖）。
 
   codebuddy:
     enabled: true
@@ -34,6 +58,7 @@ targets:
     path: codebuddy/CODEBUDDY.md
     variant: full
     format: markdown
+    memory: mcp/mdcg (cg,stg)
     note: >-
       CodeBuddy 会话起始全文注入。**根目录 CODEBUDDY.md 优先于 AGENTS.md**——
       本仓产物落 codebuddy/CODEBUDDY.md（不落根，避免屏蔽本地私有 AGENTS.md）；

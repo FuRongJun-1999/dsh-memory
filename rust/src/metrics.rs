@@ -12,6 +12,8 @@ pub struct Row {
     /// 首个证据 turn 的 1-based 名次；未命中为 0
     pub rank: usize,
     pub top1_score: f64,
+    /// 对齐 `evaluate_group` row 的 `n_res`（诊断用，不参与统计）
+    #[allow(dead_code)]
     pub n_res: usize,
     /// Top-K 结果节点 id（诊断用，不参与统计）
     pub top: Vec<String>,

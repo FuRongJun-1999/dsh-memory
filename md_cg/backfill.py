@@ -546,14 +546,35 @@ def history(x, limit=100, action=None, batch=None) -> dict:
 
 # ---- 能力标签注入（关键词启发式） ----------------------------------------
 
+# 候选匹配不得吃进两类「自产词」，否则候选再生、plan 永不收敛：
+#   ① `fm.tags`：`cap:<op>` 是**注入结果**，回流后 `cap:route` 自匹配关键词
+#      "route"、`cap:self_state` 自匹配 "self_state"…… 已注入节点会重新成为候选；
+#   ② `# 验证方式：` 模板行：它是 CCG 五要素的必备行，展开后**几乎全库**命中
+#      「验证」，`cap:verify` 遂从能力判断退化为正文模板的副产品
+#      （evolution 账本实测：预演命中 1630/1813）。
+_CAP_TEMPLATE_LINES = ("验证方式",)
+
+
+def _cap_body(content: str) -> str:
+    """正文（供关键词匹配）——剔除 CCG 模板行，防模板词污染候选。"""
+    keep = []
+    for line in (content or "").splitlines():
+        head = line.strip().lstrip("#").strip()
+        head = head.split("：", 1)[0].split(":", 1)[0].strip()
+        if head in _CAP_TEMPLATE_LINES:
+            continue
+        keep.append(line)
+    return "\n".join(keep)
+
+
 def _cap_text(e, fm, content) -> str:
-    parts = [_as_text(fm.get("title")), e.get("id") or "",
-             " ".join(str(t) for t in (fm.get("tags") or []))]
+    """候选匹配文本：节点标识 + CCG 字段 + 正文（**不含 `fm.tags`**）。"""
+    parts = [_as_text(fm.get("title")), e.get("id") or ""]
     for f in ("功能名", "生效条件", "子功能"):
         v = _ccg_field(content, f)
         if v:
             parts.append(v)
-    parts.append((content or "")[:300])
+    parts.append(_cap_body(content)[:300])
     return " ".join(parts).lower()
 
 

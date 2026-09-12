@@ -143,6 +143,7 @@ def render(target, src, repo, now=None):
         "%%SOURCE_SHA%%": source_sha(repo),
         "%%GENERATED_AT%%": now or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "%%OVERVIEW%%": str(src.get("content", "")).strip(),
+        "%%PREAMBLE%%": (target.get("preamble", "").rstrip() + "\n\n") if target.get("preamble") else "",
         "%%ROUTING_TABLE%%": render_routing_compact(nodes),
         "%%ROUTING_TABLE_FULL%%": render_routing_full(nodes),
         "%%DECLARATION_TABLE%%": render_declaration_table(nodes),

@@ -9,7 +9,7 @@
  *    转录、历史、翻译、落图全部不依赖「身体」，始终可用。
  *  · 身体（可选 capability 后端）：生成能力 roleplay_chat / role_create /
  *    role_import 属「身」，主仓默认不挂载；未挂载时这些接口 **fail-closed**
- *    返回明确原因（不编造回复）。启用见 config.capability（cordis.yml.example）。
+ *    返回明确原因（不编造回复）。启用见 config.capability（dsh/cordis.yml.example）。
  */
 import { join, dirname } from 'node:path';
 import { readFileSync, mkdirSync, appendFileSync, existsSync, writeFileSync, renameSync } from 'node:fs';

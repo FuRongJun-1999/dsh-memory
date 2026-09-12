@@ -291,8 +291,45 @@ def node_id(item):
     return "code_" + hashlib.sha1(key).hexdigest()[:12]
 
 
+def skip_matcher(skip_dirs):
+    """把调用方的 `skip_dirs` 编译成「该子目录是否排除」的判定 `hit(rel_dir, base)`。
+
+    与 `SKIP_DIRS` 在**同一处**生效，且**只增不减**：调用方只能追加排除，不能拿掉
+    `.git`/`.venv` 这类内置保护——否则一次参数写错就能把版本库元数据索引进认知图。
+    规则口径（两类可混用）：
+      · 含 `/` → 按**相对 root 的路径**匹配（`docs/experiments` 只排这一处）；
+      · 不含 `/` → 按**目录名**匹配（`experiments` 排任意层级的同名目录）。
+    反斜杠与首尾斜杠一律归一，避免「规则传了却不生效」这类静默失配。
+
+    返回 `(hit, rules)`；`rules` 为空时 `hit is None` → 调用方走原路径，
+    保证**默认行为与改造前逐字一致**（与 `fresh`/`on_file` 同一纪律）。
+    排除的**理由**：`.gitignore` 整目录忽略的实验产物物理仍在盘上，会把
+    `max_files` 撑爆并让「索引不全」变成常态；用「显式排除 + 回报」比「调大上限」
+    诚实。`docindex` 复用本函数（唯一实现，避免两处口径漂移）。
+    """
+    rules, names, paths = [], set(), []
+    for raw in (skip_dirs or ()):
+        s = str(raw).strip().replace("\\", "/").strip("/")
+        if not s:
+            continue
+        rules.append(s)
+        if "/" in s:
+            paths.append(s)
+        else:
+            names.add(s)
+    if not rules:
+        return None, []
+
+    def hit(rel_dir, base):
+        if base in names:
+            return True
+        return any(rel_dir == p or rel_dir.startswith(p + "/") for p in paths)
+
+    return hit, rules
+
+
 def index_dir(root, patterns=None, max_files=500, max_items=2000,
-              fresh=None, on_file=None):
+              fresh=None, on_file=None, skip_dirs=None):
     """按大域（目录）遍历代码，产出 `(items, errors, stats)`。零 LLM。
 
     `stats["truncated"]` 必须显式上报——截断**不再是静默的**：改造前达到上限
@@ -305,15 +342,34 @@ def index_dir(root, patterns=None, max_files=500, max_items=2000,
       · `fresh` 返回 True → 该文件自上次索引后未变，**不读盘**直接跳过，
         计入 `skipped_unchanged`（仍计入 `files`，故截断语义不变）；
       · `on_file` 在成功提取后回调，用于记录水位。
+
+    `skip_dirs` 是**追加**排除（见 `skip_matcher`）：命中的目录整棵剪掉、不计入
+    `files`；实际排掉了哪些目录写进 `stats["skipped_dirs"]`——**排除与截断一样不许
+    静默**，否则「节点数变少」会被误读成「源文件真的少了」。
     """
     pats = tuple(patterns or SUFFIX)
+    hit_skip, skip_rules = skip_matcher(skip_dirs)
     items, errors, files = [], [], 0
     seen_suffix = set()
     stats = {"root": root, "patterns": list(pats), "files": 0, "truncated": False,
              "truncated_reason": "", "max_files": max_files, "max_items": max_items,
-             "skipped_suffixes": [], "skipped_unchanged": 0}
+             "skipped_suffixes": [], "skipped_unchanged": 0,
+             "skip_dirs": list(skip_rules), "skipped_dirs": []}
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
+        if rel_dir == ".":
+            rel_dir = ""
+        keep = []
+        for d in dirnames:
+            if d in SKIP_DIRS:
+                continue
+            child = f"{rel_dir}/{d}" if rel_dir else d
+            if hit_skip is not None and hit_skip(child, d):
+                # 就地追加、不依赖末尾汇总：截断提前 return 时也带得走（同 skipped_suffixes）。
+                stats["skipped_dirs"].append(child)
+                continue
+            keep.append(d)
+        dirnames[:] = keep
         for fn in sorted(filenames):
             ext = os.path.splitext(fn)[1].lower()
             seen_suffix.add(ext)

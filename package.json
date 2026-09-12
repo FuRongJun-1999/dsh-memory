@@ -17,8 +17,9 @@
     "md_cg",
     "skills",
     "README.md",
-    "cordis.yml.example",
-    "cordis.patch.yml",
+    "dsh",
+    "codebuddy",
+    "zcode",
     "docs"
   ],
   "keywords": [
@@ -89,7 +90,7 @@
   },
   "dsh": {
     "bundle": {
-      "patch": "./cordis.patch.yml"
+      "patch": "./dsh/cordis.patch.yml"
     }
   }
 }

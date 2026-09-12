@@ -38,7 +38,7 @@ function createBridge(root: string, surface: 'kernel' | 'full' = 'full'): Lingsh
       MDCG_ROOT: root,
       MDCG_MCP_SURFACE: surface,
       // 集成测试用 legacy 身份（recorder：可写 contextual/knowledge/structural），
-      // 省去签发令牌；真实部署推荐 MDCG_TOKEN（见 cordis.yml.example）。
+      // 省去签发令牌；真实部署推荐 MDCG_TOKEN（见 dsh/cordis.yml.example）。
       MDCG_LEGACY_ENV_AUTH: '1',
       MDCG_ACTOR: 'dsh-test',
       MDCG_TENANT: 'default',

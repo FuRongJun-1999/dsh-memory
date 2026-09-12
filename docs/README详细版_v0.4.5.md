@@ -46,7 +46,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
     tools: 'core'       # 'core' 两基元(默认) | 'brain' 完整认知面 | 'all'
 ```
 
-> ⚠️ **profile config override 依赖（2026-09-04 dsh 0.1.2 排查确认）**：插件包内自带的 `cordis.patch.yml` 只有裸 insert（id+name，无 config），完整 config 全靠 profile 层的 `cordis.patch.yml` override 补全（**mdcg**/dbPath/tools/env/lifecycle）。**换 profile、重装 profile 或升级插件时，必须确认该 override 仍在** `<profile>/cordis.patch.yml`——完整备份模板见 `cordis-patch-profile-web.example.yml`，丢失会导致插件以默认配置运行（**mdcg.root 落到 data/mdcg 致记忆真源错位**、dbPath 相对路径错位→角色数据读不到、`tools` 回落 `'core'` 只剩 `cg`/`stg` 两基元、lifecycle 不启动）。
+> ⚠️ **profile config override 依赖（2026-09-04 dsh 0.1.2 排查确认）**：插件包内自带的 `cordis.patch.yml` 只有裸 insert（id+name，无 config），完整 config 全靠 profile 层的 `cordis.patch.yml` override 补全（**mdcg**/dbPath/tools/env/lifecycle）。**换 profile、重装 profile 或升级插件时，必须确认该 override 仍在** `<profile>/cordis.patch.yml`——完整备份模板见 `dsh/cordis-patch-profile-web.example.yml`，丢失会导致插件以默认配置运行（**mdcg.root 落到 data/mdcg 致记忆真源错位**、dbPath 相对路径错位→角色数据读不到、`tools` 回落 `'core'` 只剩 `cg`/`stg` 两基元、lifecycle 不启动）。
 >
 > ⚠️ **安装方式**：插件必须通过 **`dsh plugin --profile <name> add`** 装进 profile（它会用 pnpm + `autoInstallPeers: false` 正确解析 peer 依赖）。
 > **不要**用 `npm install` 把插件装进 profile 的 `node_modules`——那会引入错误版本的 `@deepseek-ai` peer 包，导致插件加载失败 / 浏览器报错。
@@ -475,7 +475,7 @@ python -c "import md_cg.mcp_server as m; print(len(m.tools_for_surface()), 'tool
 ```
 
 > **仅当需要「身体」生成能力**（角色扮演对话 / 角色卡创建等）时，才需可选挂载能力后端：
-> 在配置中打开 `capability.enabled` 并给出 `capability.args`（见 `cordis.yml.example`）。
+> 在配置中打开 `capability.enabled` 并给出 `capability.args`（见 `dsh/cordis.yml.example`）。
 > 默认关闭 → 主仓保持**纯大脑单进程**；未挂载时角色生成接口 fail-closed，而
 > 转录 / 历史 / 翻译 / 落图（走大脑）始终可用。
 
@@ -539,7 +539,7 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
       desensitize: true                # 写入前过滤敏感信息（密钥/密码/身份证/手机号）
 ```
 
-完整示例见 [`cordis.yml.example`](../cordis.yml.example)。
+完整示例见 [`cordis.yml.example`](../dsh/cordis.yml.example)。
 
 ## 配置项
 

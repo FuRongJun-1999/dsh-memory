@@ -557,14 +557,19 @@ class MdCG:
 
     def add_unresolved(self, question: str, known_clues: str = "",
                        goal: str = "", verification_basis: str = "data",
-                       tags=None, **extra) -> str:
-        """第 5 篇 L5：未解问题清单——驱动主动探索。"""
+                       tags=None, context: str = "", **extra) -> str:
+        """第 5 篇 L5：未解问题清单——驱动主动探索。
+
+        context：结构化「现场」（如「同条件两条不同取值 vs mem_A」）。
+        缺此字段时「32 / 64 哪个对」这类缺口在裁决时看不到原始对照。
+        """
         nid = f"unr_{hashlib.sha1(question.encode()).hexdigest()[:10]}"
         if nid in self.index["nodes"]:
             return nid
         content = (f"# 问题：{question}\n"
                    f"# 已知线索：{known_clues or '（暂无）'}\n"
-                   f"# 目标：{goal or '（未设定）'}\n"
+                   + (f"# 现场：{context}\n" if context else "")
+                   + f"# 目标：{goal or '（未设定）'}\n"
                    f"# 验证：{verification_basis}\n")
         return self.add(nid, content, layer="unresolved",
                         tags=tags, verification_basis=verification_basis,
@@ -1163,8 +1168,27 @@ class MdCG:
         question = (f"为何 {try_data.get('query','?')} 出现 {try_data.get('actual_state','?')}"
                     f" 而期望 {try_data.get('expected_state','?')}？")
         clues = try_data.get("missing", "")
+        # detail：判定器的结构化缺口（[{type, with, same_condition, ...}]）。
+        # 原先整字段被忽略——上游产出了结构却送不到下游。这里提炼为「现场」，
+        # 使条目在人工/外部裁决时能看到原始对照（如「同条件两条不同取值」）。
+        detail = try_data.get("detail") or []
+        parts = []
+        if isinstance(detail, list):
+            for d in detail:
+                if not isinstance(d, dict):
+                    continue
+                if d.get("type") == "same_condition_divergence":
+                    parts.append("同条件取值分歧 vs %s（条件重合 %s / 槽位 %s / 结论差异 %s）"
+                                 % (d.get("with"), d.get("same_condition"),
+                                    d.get("slot_overlap"), d.get("conclusion_overlap")))
+                elif d.get("type") == "condition_clash":
+                    parts.append("条件互斥 vs %s（覆盖 %s）"
+                                 % (d.get("with"), d.get("score")))
+                elif d.get("type"):
+                    parts.append("%s vs %s" % (d.get("type"), d.get("with")))
         nid = self.add_unresolved(question=question, known_clues=clues,
-                                  goal="结构精化：补缺失条件分支")
+                                  goal="结构精化：补缺失条件分支（或裁决取值）",
+                                  context=" | ".join(parts))
         return {"unresolved_id": nid, "question": question}
 
     # ---------- 访问计数：append-only，检索路径不写节点文件 ----------

@@ -283,7 +283,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         'dsh-memory: 认知图写入凭据不可用，以只读 guest 运行——'
         + '读 / 召回 / 时间线可用，但自动记忆、转录、角色落图不会落盘。'
         + (cred.note ? `原因：${cred.note}。` : '')
-        + '要打开：签发令牌 MDCG_TOKEN 经 config.env 注入（见 cordis.yml.example），'
+        + '要打开：签发令牌 MDCG_TOKEN 经 config.env 注入（见 dsh/cordis.yml.example），'
         + '或删除密钥环后重启以重新自动签发。')
     } else if (cred.source === 'issued') {
       // 首启引导：自动签发是**改变用户可写权限**的动作，必须留痕（含关闭/吊销方式）。

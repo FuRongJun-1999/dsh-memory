@@ -274,7 +274,7 @@ def node_id(item):
 
 
 def index_dir(root, patterns=None, max_files=500, max_items=2000,
-              fresh=None, on_file=None):
+              fresh=None, on_file=None, skip_dirs=None):
     """按大域（目录）遍历 md，产出 `(items, errors, stats)`。零 LLM。
 
     stats 语义与 `codeindex.index_dir` 一致：`truncated`/`truncated_reason` 显式上报
@@ -282,15 +282,35 @@ def index_dir(root, patterns=None, max_files=500, max_items=2000,
 
     `fresh(rel, fp)` / `on_file(rel, fp, items)` 是给 `refindex.Ledger` 留的增量钩子
     （默认 None → 行为与改造前逐字一致）：未变文件不读盘、计入 `skipped_unchanged`。
+
+    `skip_dirs` 是**追加**排除，复用 `codeindex.skip_matcher`（唯一实现，避免两条
+    索引链路口径漂移）：命中的目录整棵剪掉、不计入 `files`。本仓的实例就是
+    `docs/experiments/`——`.gitignore` 已整目录忽略、物理却仍有 2358 个 md 的实验
+    产物，会把 `max_files` 撑爆并把「索引不全」变成常态。排掉了哪些目录写进
+    `stats["skipped_dirs"]`，排除与截断一样**不许静默**。
     """
     pats = tuple(patterns or SUFFIX)
+    hit_skip, skip_rules = codeindex.skip_matcher(skip_dirs)
     items, errors, files = [], [], 0
     seen_suffix = set()
     stats = {"root": root, "patterns": list(pats), "files": 0, "truncated": False,
              "truncated_reason": "", "max_files": max_files, "max_items": max_items,
-             "skipped_suffixes": [], "skipped_unchanged": 0}
+             "skipped_suffixes": [], "skipped_unchanged": 0,
+             "skip_dirs": list(skip_rules), "skipped_dirs": []}
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
+        if rel_dir == ".":
+            rel_dir = ""
+        keep = []
+        for d in dirnames:
+            if d in SKIP_DIRS:
+                continue
+            child = f"{rel_dir}/{d}" if rel_dir else d
+            if hit_skip is not None and hit_skip(child, d):
+                stats["skipped_dirs"].append(child)
+                continue
+            keep.append(d)
+        dirnames[:] = keep
         for fn in sorted(filenames):
             ext = os.path.splitext(fn)[1].lower()
             seen_suffix.add(ext)

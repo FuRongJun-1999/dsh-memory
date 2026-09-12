@@ -1845,7 +1845,7 @@ class MdCGOS(MdCG):
             "consistency": consistency.summary(self),
             # 独立元认知（观察自身认知的二阶单元，不参与裁决）
             "metacognition": metacognition.summary(self),
-            # 自我状态层（薄自我 + 富索引：八项自我信息的一致性载体）
+            # 自我状态层（薄自我 + 富索引：九项自我信息的一致性载体）
             "self_state": self_state.summary(self),
             # 演化账本（md 载体：每一次修改 = 补一条缺失条件，记录规律与状态）
             "evolution": evolution.summary(self),
@@ -2050,7 +2050,7 @@ class MdCGOS(MdCG):
         return metacognition.catalog()
 
     # ============ 自我状态层（薄自我 + 富索引）============
-    # self 层只放状态卡（单例）+ 关系节点；八项自我信息只登记当前值与指针，
+    # self 层只放状态卡（单例）+ 关系节点；九项自我信息只登记当前值与指针，
     # 具体任务/人物/会话/时间/信任的细节由认知图按五维索引连接（不搬运内容）。
 
     def self_state_snapshot(self, subject=self_state.DEFAULT_SUBJECT):
@@ -2058,7 +2058,7 @@ class MdCGOS(MdCG):
         return self_state.snapshot(self, subject)
 
     def self_state_refresh(self, subject=self_state.DEFAULT_SUBJECT, **kw):
-        """刷新状态卡：聚合八项自我信息 → 写卡 + 版本链留痕（幂等）。
+        """刷新状态卡：聚合九项自我信息 → 写卡 + 版本链留痕（幂等）。
 
         会话归因缺省取本进程会话（嵌套身份 (harness, session)），可显式覆盖。
         """
@@ -2101,7 +2101,7 @@ class MdCGOS(MdCG):
                                   session=session or getattr(self, "session", None))
 
     def self_state_catalog(self):
-        """自描述：八项自我信息 + 五维索引 + 审计规则。"""
+        """自描述：九项自我信息 + 五维索引 + 审计规则。"""
         return self_state.catalog()
 
     def causal_chain(self, node_id, relation_types=None,
@@ -2133,10 +2133,15 @@ class MdCGOS(MdCG):
                               limit=limit, semantic=semantic)
 
     def predict_feedback(self, predicted_node_id, actual_node_id=None,
-                         hit=None, note="", actor="predict"):
-        """预测反馈（D-006）：命中 → 边置信度 +0.05；未命中 → 登记 rejected。"""
+                         hit=None, note="", actor="predict", sync_self=True):
+        """预测反馈（D-006）：命中 → 边置信度 +0.05；未命中 → 登记 rejected。
+
+        `sync_self=True` 时同步刷新自我状态卡的「预测校准」面，闭合
+        「预测 → 事实 → 误差 → 自我更新」。
+        """
         return predict.feedback(self, predicted_node_id, actual_node_id,
-                                hit=hit, note=note, actor=actor)
+                                hit=hit, note=note, actor=actor,
+                                sync_self=sync_self)
 
     def predict_stats(self, limit=20):
         """预测统计：调用数 / 路线数 / 命中率 / 动态阈值。"""

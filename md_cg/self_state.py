@@ -11,12 +11,12 @@
 由此定下本模块的形态：
 
     self 层只放两类一等公民（都很薄）：
-      1. 自我状态卡（单例）——八项自我信息的**当前值 + 指针**
+      1. 自我状态卡（单例）——九项自我信息的**当前值 + 指针**
       2. 关系节点（有向）——自我与其他智能的关系
     具体细节（哪次会话 / 哪个任务 / 哪个人 / 哪个时间窗 / 哪条证据）
     仍然留在原本的层里，由**认知图的标签与边**连接、索引过来。
 
-八项自我信息 → 薄卡字段 / 富索引指向：
+九项自我信息 → 薄卡字段 / 富索引指向：
 
   ┌ 信息差 D   d_current / d1 / d2 / emotion      ← _reflection.jsonl（reflect 留痕）
   ├ 信任 P     p_gap / p_trust / d2t / affect     ← 各节点 evidence_log（verify 留痕）
@@ -25,7 +25,12 @@
   ├ 短期记忆   recent{n, span, roles, ptr}        ← _recent.jsonl（只存摘要 + 指针）
   ├ 重要性     importance_self / important_refs   ← 各节点 frontmatter.importance
   ├ 身份       identity_ref                       ← self 层 identity 锚点
-  └ 关系       relations{out,in}                  ← self_relation_* 关系节点
+  ├ 关系       relations{out,in}                  ← self_relation_* 关系节点
+  └ 预测校准   hit_rate / threshold / reflect / ece  ← _prediction.jsonl + evidence_log
+
+第九项（预测校准）是「SELF = 自我描述」走向「SELF = 关于自身的预测模型」的最小一步：
+它回答**我预测得准吗、该不该反思**，数据只来自 predict 的 feedback 留痕与
+metacognition 的 ECE 校准，样本不足一律 unknown——不新增计算，也不编造。
 
 五个索引维度（「具体任务 / 人物关系 / 会话 / 时间 / 信任」）用 tag 命名空间落地，
 `index(cg, dim, value)` 从全图反查；状态卡只登记维度标签、不搬运内容：
@@ -191,8 +196,9 @@ def snapshot(cg, subject=DEFAULT_SUBJECT):
            "state_ts": fm.get("state_ts"),
            "updated_at": _iso(fm.get("state_ts"))}
     for key in ("information_gap", "trust", "short_term", "relations",
-                "dimensions", "emotion", "affect", "importance_self",
-                "important_refs", "identity_ref", "state_links"):
+                "prediction", "dimensions", "emotion", "affect",
+                "importance_self", "important_refs", "identity_ref",
+                "state_links"):
         out[key] = fm.get(key)
     out["d_current"] = (fm.get("information_gap") or {}).get("d_current")
     out["p_trust"] = (fm.get("trust") or {}).get("p_trust")
@@ -216,6 +222,7 @@ def _fingerprint(state):
         "identity_ref": state.get("identity_ref"),
         "short_term": state.get("short_term"),
         "relations": state.get("relations"),
+        "prediction": state.get("prediction"),
         "dimensions": state.get("dimensions"),
         "state_links": state.get("state_links"),
     }
@@ -223,7 +230,48 @@ def _fingerprint(state):
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
-# ---------------------------------------------------------------- 聚合（八项）
+# ---------------------------------------------------------------- 聚合（九项）
+
+def _prediction_face(cg):
+    """预测校准（第九项）：我预测得准吗、该不该反思？
+
+    数据源（只读留痕，不新增计算负担）：
+      · `predict._hit_history` / `predict.dynamic_hit_threshold`
+        ← `_prediction.jsonl`（predict_feedback 留痕）
+      · `metacognition.calibration` ← evidence_log（verify 留痕）的 ECE
+
+    诚实边界：无预测留痕 → ok=False、hit_rate=None（未知即未知）；
+    ECE 仅在 metacognition 有足够证据时给出，否则 None。绝不编造。
+    """
+    try:
+        from . import predict as _predict
+        hist = list(_predict._hit_history(cg))
+        th = _predict.dynamic_hit_threshold(cg)
+    except Exception:                                      # noqa: BLE001
+        hist, th = [], {}
+    samples = len(hist)
+    hit_rate = (sum(1 for x in hist if x) / samples) if samples else None
+    try:
+        cal = metacognition.calibration(cg)
+    except Exception:                                      # noqa: BLE001
+        cal = {}
+    if samples == 0:
+        note = "无预测留痕：先 predict_feedback() 积累命中记录"
+    elif th.get("reflect"):
+        note = "命中率低于动态阈值：建议反思（D-006）"
+    else:
+        note = "命中率正常"
+    return {
+        "ok": samples > 0,
+        "samples": samples,
+        "hit_rate": None if hit_rate is None else round(hit_rate, 4),
+        "threshold": th.get("threshold"),
+        "reflect": bool(th.get("reflect")),
+        "ece": cal.get("ece") if cal.get("ok") else None,
+        "calibration": cal.get("verdict") if cal.get("ok") else None,
+        "note": note,
+    }
+
 
 def _recent_summary(cg, window):
     """短期记忆：只做窗口摘要，原文仍留在 _recent.jsonl（薄自我的关键取舍）。"""
@@ -287,7 +335,7 @@ def _normalize_dimensions(dimensions):
 
 def _derive(cg, subject, window, importance, important_refs, dimensions,
             links, old):
-    """聚合八项自我信息 → 薄状态（纯读，不写盘）。"""
+    """聚合九项自我信息 → 薄状态（纯读，不写盘）。"""
     tr = metacognition.trace(cg, window=max(2, int(window)))
     tt = metacognition.trust(cg, window=max(3, int(window)))
     d2 = tr.get("d2") if tr.get("ok") else None
@@ -335,6 +383,7 @@ def _derive(cg, subject, window, importance, important_refs, dimensions,
             "short_term": short_term, "importance_self": importance,
             "important_refs": important_refs, "identity_ref": identity_ref,
             "identity_anchors": n_anchors, "relations": relations,
+            "prediction": _prediction_face(cg),
             "dimensions": dims,
             "state_links": [str(x) for x in links if str(x).strip()]}
 
@@ -345,6 +394,7 @@ def _render(state):
     """状态卡正文：人类可读，且与 frontmatter 字段一一对应。"""
     ig, tt = state["information_gap"], state["trust"]
     st = state["short_term"]
+    pd = state.get("prediction") or {}
     dims = state["dimensions"]
     span = st.get("span")
     span_txt = f"{_iso(span[0])} ~ {_iso(span[1])}" if span else "（无）"
@@ -368,6 +418,9 @@ def _render(state):
         f"（共 {state.get('identity_anchors')} 条）",
         f"# 关系：出 {state['relations'].get('out')} / "
         f"入 {state['relations'].get('in')}",
+        f"# 预测：命中率={pd.get('hit_rate')}（样本 {pd.get('samples')}）"
+        f"阈值={pd.get('threshold')} 反思={'是' if pd.get('reflect') else '否'}"
+        f"；ECE={pd.get('ece')}（{pd.get('calibration')}）",
         "# 索引：" + "；".join(
             f"{d}={','.join(dims.get(d) or []) or '-'}" for d in DIMENSIONS),
         "# 说明：本卡是薄自我——只登记当前值与指针；具体任务/人物/会话/"
@@ -379,7 +432,7 @@ def _render(state):
 def refresh(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW, importance=None,
             important_refs=None, dimensions=None, links=None,
             actor="self_state", force=False, strict=False, session=None):
-    """刷新自我状态卡（幂等）：聚合八项 → 写卡 + 版本链留痕。
+    """刷新自我状态卡（幂等）：聚合九项 → 写卡 + 版本链留痕。
 
     dimensions: {"task": "...", "person": "...", "session": "...",
                  "time": "...", "trust": "..."}（值可为列表）
@@ -467,6 +520,7 @@ def refresh(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW, importance=None,
            importance_self=state["importance_self"],
            important_refs=state["important_refs"],
            identity_ref=state["identity_ref"], relations=state["relations"],
+           prediction=state["prediction"],
            dimensions=state["dimensions"], state_links=state["state_links"])
 
     _append_log(cg, {
@@ -486,6 +540,9 @@ def refresh(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW, importance=None,
         "recent_n": state["short_term"].get("n"),
         "identity_ref": state["identity_ref"],
         "relations": state["relations"],
+        "prediction_hit_rate": (state.get("prediction") or {}).get("hit_rate"),
+        "prediction_samples": (state.get("prediction") or {}).get("samples"),
+        "prediction_reflect": (state.get("prediction") or {}).get("reflect"),
         "dimensions": state["dimensions"], "issue": chain_issue})
     return {"ok": True, "changed": True, "subject": subject, "node_id": nid,
             "state_version": version, "state_hash": state["state_hash"],
@@ -693,6 +750,24 @@ def audit(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW):
                                  f"{name} 不可比较：{old_v} vs {new_v}",
                                  field=name))
 
+    # 5b 预测面漂移：预测能力（命中率）随 predict_feedback 演化；卡值过时即为
+    #    漂移——这是「自我模型是否跟上自身预测表现」的可重算判定。
+    pd_old = st.get("prediction") or {}
+    pd_new = now.get("prediction") or {}
+    o_hr, n_hr = pd_old.get("hit_rate"), pd_new.get("hit_rate")
+    if not (o_hr is None and n_hr is None):
+        try:
+            if o_hr is None or n_hr is None or \
+                    abs(float(o_hr) - float(n_hr)) > DRIFT_TOL:
+                issues.append(_issue(
+                    "prediction_drift", "warn",
+                    f"预测命中率 卡值={o_hr} 现算={n_hr}（容差 {DRIFT_TOL}）",
+                    field="hit_rate"))
+        except (TypeError, ValueError):
+            issues.append(_issue("prediction_drift", "warn",
+                                 f"预测命中率不可比较：{o_hr} vs {n_hr}",
+                                 field="hit_rate"))
+
     # 6 身份唯一：identity_ref 必须指向存在的锚点
     ref = st.get("identity_ref")
     if not ref:
@@ -835,6 +910,8 @@ def summary(cg, subject=DEFAULT_SUBJECT, session=None):
             "recent_n": (st.get("short_term") or {}).get("n"),
             "relations": st.get("relations"),
             "identity_ref": st.get("identity_ref"),
+            "hit_rate": (st.get("prediction") or {}).get("hit_rate"),
+            "prediction_reflect": (st.get("prediction") or {}).get("reflect"),
             "text": (f"[{subject}] D={ig.get('d_current')} "
                      f"情绪={st.get('emotion')} P_trust={tt.get('p_trust')} "
                      f"情感={st.get('affect')} "
@@ -844,7 +921,7 @@ def summary(cg, subject=DEFAULT_SUBJECT, session=None):
 
 
 def catalog():
-    """自描述：八项自我信息 + 五维索引 + 审计规则（供协议对照验证）。"""
+    """自描述：九项自我信息 + 五维索引 + 审计规则（供协议对照验证）。"""
     return {
         "module": "self_state",
         "schema": SCHEMA_VERSION,
@@ -864,6 +941,7 @@ def catalog():
             "importance": "importance_self + important_refs",
             "identity": "identity_ref → self 层身份锚点",
             "relations": "self_relation_* 有向关系节点",
+            "prediction": "hit_rate/threshold/reflect + ECE ← _prediction.jsonl",
         },
         "dimensions": list(DIMENSIONS),
         "trust_bands": [b for _lo, b in TRUST_BANDS],
@@ -871,7 +949,8 @@ def catalog():
         "audit_rules": [
             "duplicate_state", "version_gap", "chain_broken",
             "time_regression", "log_tail_mismatch", "fabricated_emotion",
-            "fabricated_affect", "drift", "identity_missing",
+            "fabricated_affect", "drift", "prediction_drift",
+            "identity_missing",
             "identity_dangling", "relation_self_loop", "duplicate_relation",
             "protection_locked", "protection_missing", "unknown_dimension",
             "dimension_orphan", "stale", "missing_state",

@@ -17,7 +17,8 @@ R2 改造的验收（对照 docs/认知图_索引与工程规范化_计划_v0.1.
   ⑤ §1.3-3 裁定落地：layer 默认 knowledge；密级默认 internal **显式写入**
      frontmatter，路径段命中私有提示再保守降为 private；调用方可显式覆盖。
   ⑥ 真实 docs/：章节可定位（行号与源文件一致），能检索到并按 CCG 判 ACCEPT。
-  ⑦ 不静默：truncated / skipped_suffixes 显式上报；只读契约（源 mtime 不变）；
+  ⑦ 不静默：truncated / skipped_suffixes / skipped_dirs 显式上报；排除为**追加**
+     （只增不减，内置 .git/.venv/node_modules 不可被关闭）；只读契约（源 mtime 不变）；
      幂等（重跑节点数不变）；`index_doc` 进 ALL_OPS 且与工具 schema 一致。
 
 运行：python -m md_cg.test_p27_docindex
@@ -29,9 +30,9 @@ import shutil
 import sys
 import tempfile
 
-from . import corpus, docindex, nodefile, routing, tokens
+from . import codeindex, corpus, docindex, nodefile, routing, tokens
 from . import mcp_server
-from .mdcg import MdCG
+from .mdcos import MdCGOS          # 生产路径：forget 属 OS 层，基础层 MdCG 无删除原语
 from .mcp_server import call_tool
 
 PASS = FAIL = 0
@@ -132,7 +133,7 @@ def main():
         f.write("不是文档")
 
     corpus.reset_root(ROOT)
-    cg = MdCG(ROOT)
+    cg = MdCGOS(ROOT)
     guide_path = os.path.join(fx, "guide.md")
 
     try:
@@ -332,13 +333,27 @@ def main():
 
         # ===================================================== ⑨ 真实 docs/
         print("\n【9】真实 docs/：章节可定位、行号与源一致、可检索")
-        expect_files = sum(1 for d, _s, fs in os.walk(DOCS) for fn in fs
-                           if fn.lower().endswith(".md"))
-        real = index_doc(cg, DOCS)
+        # docs/experiments/ 是 .gitignore 整目录忽略的实验产物（实测 2358 个 md，
+        # 属索引噪声而非文档事实源），会把 max_files=500 撑爆：显式 skip_dirs 排除。
+        # 用「排除 + 回报」而不是「调大上限」——排除结果落在 skipped_dirs 里，不静默。
+        SKIP_NOISE = ("experiments",)
+
+        def _count_md(base, skip_names):
+            n = 0
+            for d, dirs, fs in os.walk(base):
+                dirs[:] = [x for x in dirs if x not in skip_names]
+                n += sum(1 for fn in fs if fn.lower().endswith(".md"))
+            return n
+
+        expect_files = _count_md(DOCS, SKIP_NOISE)
+        real = index_doc(cg, DOCS, skip_dirs=list(SKIP_NOISE))
         check("docs/ 全部 md 被索引（无静默跳过）",
               real.get("error_count") == 0 and real.get("files") == expect_files
               and real.get("truncated") is False,
               f"files={real.get('files')}/{expect_files} errs={real.get('error_count')}")
+        check("skip_dirs 实际排掉的目录被回报（排除不静默）",
+              any("experiments" in p for p in (real.get("skipped_dirs") or [])),
+              str(real.get("skipped_dirs"))[:80])
         r_items = docindex.extract(
             open(os.path.join(DOCS, PLAN_DOC), encoding="utf-8").read(), PLAN_DOC)
         s9r = next((i for i in r_items if i["heading"].startswith("9. ")), None)
@@ -359,6 +374,108 @@ def main():
         check("回读到 §9 表原文（给出行号区间）",
               rr4.get("ok") and "分阶段实施" in (rr4.get("text") or ""),
               f"L{s9r['lineno']}-L{s9r['end']}" if s9r else "")
+
+        # ===================================================== ⑨b skip_dirs
+        print("\n【9b】skip_dirs：追加排除（只增不减）+ 结果可审计")
+        hit0, rules0 = codeindex.skip_matcher(None)
+        check("skip_dirs 缺省时判定器为空（默认行为与改造前逐字一致）",
+              hit0 is None and rules0 == [], f"{hit0} {rules0}")
+        sb = os.path.join(tmp, "skipdirs")
+        for rel in ("docs/keep/keep.md", "docs/experiments/probe/p.md",
+                    "docs/experiments/x.md", "sub/experiments/y.md",
+                    "node_modules/pkg/n.md"):
+            fp = os.path.join(sb, rel.replace("/", os.sep))
+            os.makedirs(os.path.dirname(fp), exist_ok=True)
+            with open(fp, "w", encoding="utf-8") as f:
+                f.write("# 标题\n\n" + LONG + "\n")
+        _i, _e, st_plain = docindex.index_dir(sb)
+        check("不给 skip_dirs：内置排除照旧（node_modules 不计入）",
+              st_plain["files"] == 4 and st_plain["skipped_dirs"] == [],
+              f"files={st_plain['files']} skip={st_plain['skipped_dirs']}")
+        _i, _e, st_name = docindex.index_dir(sb, skip_dirs=["experiments"])
+        check("不含 / 的规则按目录名匹配（各层级同名目录都排）"
+              " · 且内置排除不可被关闭（node_modules 仍被排）",
+              st_name["files"] == 1
+              and sorted(st_name["skipped_dirs"]) == ["docs/experiments",
+                                                      "sub/experiments"],
+              f"files={st_name['files']} skip={sorted(st_name['skipped_dirs'])}")
+        _i, _e, st_path = docindex.index_dir(sb, skip_dirs=["docs/experiments"])
+        check("含 / 的规则按相对路径匹配（只排这一处）",
+              st_path["files"] == 2 and st_path["skipped_dirs"] == ["docs/experiments"],
+              f"files={st_path['files']} skip={st_path['skipped_dirs']}")
+        _i, _e, st_norm = docindex.index_dir(sb, skip_dirs=["docs\\experiments\\"])
+        check("规则先归一（反斜杠/首尾斜杠）再匹配，不静默失配",
+              st_norm["files"] == 2
+              and st_norm["skipped_dirs"] == ["docs/experiments"],
+              f"files={st_norm['files']} skip={st_norm['skipped_dirs']}")
+
+        # ===================================================== ⑩ 索引对账
+        # 缺口：node_id 含 heading_path，改标题 → 整篇 id 重算；add_items 只做
+        # 同 id 幂等 upsert，旧代节点无人清退 → 新旧并存、同一文档召回两份。
+        # 水位 reconcile 只剪水位条目、不剪节点，所以必须在索引后显式清。
+        print("\n【10】节点级对账：改标题 → 清退过期代（消除重复召回）")
+        rn = os.path.join(fx, "rename.md")
+        b1 = "# 标题甲\n\n" + LONG + "\n"
+        with open(rn, "w", encoding="utf-8") as f:
+            f.write(b1)
+        r1 = index_doc(cg, fx)
+        ids1 = {docindex.node_id(i) for i in docindex.extract(b1, "rename.md")}
+        check("首轮：节点在库", all(cg.get(n) for n in ids1), f"n={len(ids1)}")
+        check("首轮无孤儿（清退计数 0）",
+              (r1.get("pruned") or {}).get("count") == 0, str(r1.get("pruned")))
+
+        b2 = "# 标题乙（已改名）\n\n" + LONG + "\n"
+        with open(rn, "w", encoding="utf-8") as f:
+            f.write(b2)
+        r2 = index_doc(cg, fx)
+        ids2 = {docindex.node_id(i) for i in docindex.extract(b2, "rename.md")}
+        check("改标题后新代上台", all(cg.get(n) for n in ids2), f"n={len(ids2)}")
+        check("旧代被清退（新旧不并存）",
+              not any(cg.get(n) for n in ids1),
+              f"残留={sorted(n for n in ids1 if cg.get(n))}")
+        check("清退数量上报", (r2.get("pruned") or {}).get("count") == len(ids1 - ids2),
+              str(r2.get("pruned")))
+
+        b3 = "# 标题丙\n\n" + LONG + "\n"
+        with open(rn, "w", encoding="utf-8") as f:
+            f.write(b3)
+        r3 = index_doc(cg, fx, prune_dry_run=True)
+        check("prune_dry_run 只列不清（节点仍在库）",
+              (r3.get("pruned") or {}).get("dry_run") is True
+              and any(cg.get(n) for n in ids2), str(r3.get("pruned")))
+        index_doc(cg, fx)
+        check("随后实际清退 → 旧代消失", not any(cg.get(n) for n in ids2))
+
+        b4 = "# 标题丁\n\n" + LONG + "\n"
+        with open(rn, "w", encoding="utf-8") as f:
+            f.write(b4)
+        ids4 = {docindex.node_id(i) for i in docindex.extract(b4, "rename.md")}
+        r5 = index_doc(cg, fx, prune=False)
+        check("prune=false 可关闭（不清退）",
+              r5.get("pruned") is None and all(cg.get(n) for n in ids4),
+              str(r5.get("pruned")))
+        r6 = index_doc(cg, fx, max_files=1)
+        check("截断时不清退（没扫完 ≠ 剩下都过期）",
+              r6.get("pruned") is None, f"truncated={r6.get('truncated')}")
+
+        print("\n【10b】悬空清退：源文件删除 → op=ref action=prune 处置")
+        ck1 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 5000})
+        pre = len(ck1.get("dangling") or [])
+        os.remove(rn)
+        ck2 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 5000})
+        check("删源后 check 报悬空", len(ck2.get("dangling") or []) > pre,
+              f"{pre}→{len(ck2.get('dangling') or [])}")
+        dry = call_tool(cg, "cg", {"op": "ref", "action": "prune", "dry_run": True})
+        check("prune_dry_run 列出待清退但不删",
+              dry.get("dry_run") is True and dry.get("count", 0) >= 1
+              and any(cg.get(n) for n in ids4), str(dry)[:130])
+        gone = call_tool(cg, "cg", {"op": "ref", "action": "prune"})
+        check("prune 清退悬空节点",
+              gone.get("count", 0) >= 1 and not any(cg.get(n) for n in ids4),
+              str(gone)[:130])
+        ck3 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 5000})
+        check("清退后悬空归零", not (ck3.get("dangling") or []),
+              str(ck3.get("dangling"))[:130])
 
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

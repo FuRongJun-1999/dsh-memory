@@ -33,8 +33,12 @@ pub struct Entry {
     pub layer: String,
     pub tags: Vec<String>,
     pub importance: f64,
+    /// 对齐 `MdCG._stage` 落盘字段（评测链路暂未读取，保留以维持字段集一致）
+    #[allow(dead_code)]
     pub created_at: f64,
     pub role: Option<String>,
+    /// 同上：对齐 `_stage` 的 bucket（bucket 路需 context，评测不传 → 恒空）
+    #[allow(dead_code)]
     pub bucket: Option<String>,
     pub edges: Vec<String>,
 }
@@ -155,8 +159,8 @@ pub fn load_index(root: &Path, order: Order) -> Result<Vec<Entry>, String> {
     let mut map: Vec<(String, Entry)> = Vec::new();
     let mut pos: HashMap<String, usize> = HashMap::new();
 
-    let mut put = |id: String, e: Entry, map: &mut Vec<(String, Entry)>,
-                   pos: &mut HashMap<String, usize>| {
+    let put = |id: String, e: Entry, map: &mut Vec<(String, Entry)>,
+               pos: &mut HashMap<String, usize>| {
         match pos.get(&id) {
             // 对齐 dict 语义：已存在则原位覆盖，不改变顺序
             Some(&i) => map[i].1 = e,

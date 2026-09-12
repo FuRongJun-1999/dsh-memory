@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "mdcg": {
+      "command": "python",
+      "args": ["-m", "md_cg.mcp_server"],
+      "env": {
+        "PYTHONPATH": "REPLACE_WITH_ABSOLUTE_PATH_TO_dsh-memory",
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "MDCG_MCP_SURFACE": "kernel",
+        "MDCG_ACTOR": "codebuddy",
+        "MDCG_TENANT": "default",
+        "MDCG_CLEARANCE": "private",
+        "MDCG_TOKEN": ""
+      }
+    }
+  }
+}

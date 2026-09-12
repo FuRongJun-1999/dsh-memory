@@ -77,3 +77,8 @@ llm-adapter-poc/
 # Rust 评测器（mdcg-eval）构建产物（cargo build --release 可再生；
 # 且 .d/.fingerprint 含本地绝对路径，绝不入公开仓）
 /rust/target/
+
+# 实验工作区（docs/experiments）：实验脚本 / result_*.json / _store 数据目录
+# 均为本地实验产物，不入库（_store 含 _index.json 与 *.lock，可由同目录
+# run_*.py 重跑再生；实验结论沉淀在 docs/ 的评测报告 md 中）
+docs/experiments/

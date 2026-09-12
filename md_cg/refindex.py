@@ -262,12 +262,16 @@ class Ledger:
 
 def index_dir(root: str, *, kind: str, patterns=None, max_files: int = 500,
               max_items: int = 2000, incremental: bool = False,
-              ledger: "Ledger" = None):
+              ledger: "Ledger" = None, skip_dirs=None):
     """按 kind 调度 codeindex / docindex 的全量（或增量）索引。
 
     incremental=True 且给了 ledger 时：未变文件跳过（`skipped_unchanged`）。
     返回 (items, errors, stats)，与底层 index_dir 的返回一致（多一个
     `skipped_unchanged`）。
+
+    `skip_dirs` 透传给底层：**追加**排除、只增不减（内置 `.git`/`.venv`/
+    `node_modules` 等不可被关闭），见 `codeindex.skip_matcher`。实际排掉了哪些目录
+    由 `stats["skipped_dirs"]` 回报，仍不静默。
     """
     mod = _mod(kind)
     fresh = None
@@ -290,7 +294,7 @@ def index_dir(root: str, *, kind: str, patterns=None, max_files: int = 500,
 
     items, errors, stats = mod.index_dir(
         root, patterns=patterns, max_files=max_files, max_items=max_items,
-        fresh=fresh, on_file=on_file,
+        fresh=fresh, on_file=on_file, skip_dirs=skip_dirs,
     )
     if ledger is not None:
         ledger.prune()
@@ -539,6 +543,167 @@ def check_refs(cg, *, ledger: "Ledger" = None, max_nodes: int = MAX_CHECK,
         "unresolved": unresolved, "errors": errors,
         "truncated": truncated, "max_nodes": max_nodes,
     }
+
+
+# --------------------------------------------------------------------------
+# 节点级对账：孤儿清退 + 悬空清退
+#
+# 水位层的 `Ledger.reconcile` 只剪**水位条目**、`prune` 只剪「源大域已消失」
+# 的条目，两者都不碰**节点**。于是节点层的两类残留无人处置：
+#   · 孤儿（同一文档的过期代）——标题路径一变 id 全量重算，旧代与新代并存；
+#   · 悬空（源文件已删）——回读必然失败，巡检永远报 dangling。
+# 本节的唯一实现同时供 `op=index_code / index_doc`（孤儿）与
+# `op=ref action=prune`（悬空）使用，避免两处各写一套口径。
+# --------------------------------------------------------------------------
+
+def _norm_root(p) -> str:
+    """root 归一：同一目录的大小写/分隔符差异不得影响「同一大域」判定。"""
+    return os.path.normcase(os.path.abspath(str(p or "")))
+
+
+def _same_root(a, b) -> bool:
+    try:
+        return bool(a) and bool(b) and _norm_root(a) == _norm_root(b)
+    except (TypeError, ValueError):
+        return False
+
+
+def _norm_rel(p) -> str:
+    return str(p or "").replace("\\", "/").lstrip("./")
+
+
+def _forget_many(cg, plan, why: str) -> tuple:
+    """逐条软删（进 trash/、写删除清单、可 restore）；受保护节点拦下不删。
+
+    `forget` 属 **MdCGOS 层**能力（保护裁决 + 回收站 + 删除清单），基础层
+    `MdCG` 没有任何删除原语。缺能力时**明确报错、不静默跳过**——否则
+    「清退了 N 条」看着成功、实际一条没删（P27 §10 实测过这个坑）。
+    """
+    fn = getattr(cg, "forget", None)
+    if not callable(fn):
+        err = (f"{type(cg).__name__} 无 forget 能力（对账须能删除节点）；"
+               f"生产路径是 MdCGOS，测试请用 MdCGOS")
+        return [], [{"node_id": nid, "error": err} for nid in sorted(plan)]
+    done, blocked = [], []
+    for nid in sorted(plan):
+        try:
+            res = fn(nid, why) or {}
+        except Exception as exc:            # ProtectionError 等 → 拦下，不越权
+            blocked.append({"node_id": nid, "error": str(exc)[:120]})
+            continue
+        if res.get("ok"):
+            done.append(nid)
+        else:
+            blocked.append({"node_id": nid, "error": str(res.get("error"))[:120]})
+    return done, blocked
+
+
+def prune_orphans(cg, *, kind: str, root: str, items, dry_run: bool = False,
+                  reason: str = "") -> dict:
+    """清退「同 root + 同 path，但已不在本次产出里」的**过期代**节点。
+
+    为什么必须有：`node_id = sha1(相对path + "#" + heading_path)`，而
+    `add_items` 只做**同 id 幂等 upsert**——文档标题结构一变，整篇 id 全量
+    重算，旧代节点无人清退，与新代并存（同一文档召回两份，且旧代引用的区间
+    已失效）。截断的索引由调用方负责不调用本函数（没扫完 ≠ 剩下的都过期）。
+
+    范围**只限本次真正重切过的文件**（`items` 的 path）：增量索引跳过的未变
+    文件不在 items 里，其节点不进判定——否则会把完好的节点整片误删。
+    """
+    nodes = (getattr(cg, "index", {}) or {}).get("nodes") or {}
+    touched: dict = {}
+    for it in items or []:
+        rel = _norm_rel(it.get("path"))
+        if rel:
+            touched.setdefault(rel, set()).add(node_id_of(it, kind))
+    base = {"scanned": len(nodes), "touched_files": len(touched),
+            "dry_run": bool(dry_run)}
+    if not touched:
+        return {**base, "ok": True, "count": 0, "pruned": [],
+                "skipped_protected": []}
+
+    # ⚠ ref 只存在于**节点 frontmatter**里；`cg.index['nodes']` 是元数据快照
+    # （path/layer/tags/…，见 mdcg._scan_nodes），**不含 ref**。因此必须
+    # `cg.get(nid)` 取回节点再 ref_of —— 否则 ref_of 恒返回 ('', None)、
+    # 整个对账静默失效（P27 §10 实测过这个坑）。标签预筛与 check_refs 同口径，
+    # 免得为全库每条记忆都读一次盘。
+    tag = "doc" if kind == "doc_ref" else "code"
+    plan = []
+    for nid, e in nodes.items():
+        if tag not in ((e or {}).get("tags") or []):
+            continue
+        try:
+            node = cg.get(nid)
+        except Exception:
+            continue
+        if not node:
+            continue
+        k, ref = ref_of(node)
+        if k != kind or not isinstance(ref, dict):
+            continue
+        keep = touched.get(_norm_rel(ref.get("path")))
+        if keep is None or nid in keep or not _same_root(ref.get("root"), root):
+            continue
+        plan.append(nid)
+
+    why = reason or ("索引重建：本节点已不在同文档新代产出中（标题路径变更致 "
+                     "node_id 重算），清退过期代以消除重复召回")
+    if dry_run:
+        return {**base, "ok": True, "count": len(plan), "pruned": sorted(plan)[:50],
+                "skipped_protected": [], "reason": why}
+    done, blocked = _forget_many(cg, plan, why)
+    return {**base, "ok": True, "count": len(done), "pruned": done[:50],
+            "skipped_protected": blocked[:20], "reason": why}
+
+
+def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
+                   max_nodes: int = MAX_CHECK, reason: str = "") -> dict:
+    """清退**悬空**节点：ref 指向的源文件已删除，回读必然失败。
+
+    `check_refs` 只报告不处置（其原话是「悬空需人工处置」），本函数就是那个
+    出口——已删脚本、被搬走的文档留下的残留节点一次清掉，而不是逐条手工
+    `forget`。判定与巡检共用 `probe_ref` 的唯一实现，口径不会打架。
+    """
+    nodes = (getattr(cg, "index", {}) or {}).get("nodes") or {}
+    # 同 prune_orphans：ref 只在节点 frontmatter 里，索引条目里没有，
+    # 必须 cg.get 取回节点再 ref_of（否则恒空、静默不删）。
+    todo = []
+    for nid, e in nodes.items():
+        tags = (e or {}).get("tags") or []
+        if not any(t in ("code", "doc") for t in tags):
+            continue
+        try:
+            node = cg.get(nid)
+        except Exception:
+            continue
+        if not node:
+            continue
+        _k, ref = ref_of(node)
+        if not ref or not ref.get("root"):
+            continue
+        if only_roots and not any(_same_root(ref.get("root"), r) for r in only_roots):
+            continue
+        todo.append((nid, ref))
+    truncated = len(todo) > max_nodes
+    plan = []
+    for nid, ref in todo[:max_nodes]:
+        try:
+            if probe_ref(ref).get("status") == "dangling":
+                plan.append(nid)
+        except Exception:                   # 探测失败不算悬空（宁可不删）
+            continue
+
+    why = reason or ("源文件已删除，索引节点悬空（回读必然失败），"
+                     "清退以消除永不消失的 dangling")
+    base = {"scanned": len(nodes), "candidates": len(plan),
+            "dry_run": bool(dry_run), "truncated": truncated,
+            "max_nodes": max_nodes}
+    if dry_run:
+        return {**base, "ok": True, "count": len(plan), "pruned": sorted(plan)[:50],
+                "skipped_protected": [], "reason": why}
+    done, blocked = _forget_many(cg, plan, why)
+    return {**base, "ok": True, "count": len(done), "pruned": done[:50],
+            "skipped_protected": blocked[:20], "reason": why}
 
 
 def rebuild(cg, *, ledger: "Ledger" = None, only_roots=None, max_files: int = 500,

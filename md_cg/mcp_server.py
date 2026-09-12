@@ -314,7 +314,7 @@ TOOLS = [
     {
         "name": "mdcg_self_state",
         "description": "自我状态层（薄自我 + 富索引）：self 层只放一张自我状态卡"
-                       "（单例）+ 有向关系节点，登记八项自我信息的当前值与指针"
+                       "（单例）+ 有向关系节点，登记九项自我信息的当前值与指针"
                        "（信息差 D/d1/d2、信任 P_gap/P_trust、情绪=d²D/dt²、"
                        "情感=d²T/dt²、短期记忆窗口摘要、重要性、身份锚点、关系度）；"
                        "具体任务/人物/会话/时间/信任的细节仍留在原层，按五维索引"
@@ -508,7 +508,7 @@ KERNEL_TOOLS = [
                        "action=report|trace|calibration|blindspots|trust|self_check|"
                        "history|catalog）；"
                        "op=self_state：自我状态层（薄自我+富索引：状态卡单例 + 关系节点，"
-                       "八项自我信息只存当前值与指针，具体任务/人物/会话/时间/信任由认知图"
+                       "九项自我信息只存当前值与指针，具体任务/人物/会话/时间/信任由认知图"
                        "按五维索引连接；action=snapshot|refresh|bootstrap|relate|relations|"
                        "index|dimensions|audit|history|summary|catalog）；"
                        "op=info：身份+健康+审核体系自描述；"
@@ -627,7 +627,7 @@ KERNEL_TOOLS = [
                                 "isolate|withdraw|decay|policy|card|publish|peers|"
                                 "evidence|export|import|derive|derive_dangling|"
                                 "derive_catalog|derive_rebuild|catalog；"
-                                "ref: read|check|stat；"
+                                "ref: read|check|stat|prune；"
                                 "session: note|recall|compact；"
                                 "ingest: file|dir|jsonl|stat；"
                                 "export: graph|nodes|slice|stat；"
@@ -655,6 +655,16 @@ KERNEL_TOOLS = [
             path=_p("string", "index_code/index_doc 的目录（大域）；link import 的证据包文件"),
             patterns=_p("array", "index_code/index_doc 的文件后缀，默认取各自注册表"
                                  "（代码 .py/.ts/.tsx/.js/.mjs/.cjs；文档 .md/.markdown）"),
+            skip_dirs=_p("array", "index_code/index_doc 的**追加**排除目录（只增不减："
+                                  "内置 .git/.venv/node_modules 等不可被关闭）。含 / 按"
+                                  "相对 root 的路径匹配（docs/experiments 只排这一处）；"
+                                  "不含 / 按目录名匹配（experiments 排任意层级同名目录）。"
+                                  "被排掉的目录见返回 skipped_dirs（排除与截断一样不静默）"),
+            prune=_p("boolean", "index_code/index_doc：索引后清退「同 root + 同 path "
+                                "但已不在本次产出中」的过期代节点（文档改标题致 node_id "
+                                "重算时产生），默认开；截断时不执行"),
+            prune_dry_run=_p("boolean", "prune 预演：只列待清退节点，不落删除"),
+            roots=_p("array", "ref action=prune：只清这些 root 下的悬空节点（默认全部）"),
             max_files=_p("integer", "index_code/index_doc 最多扫描文件数（被截断时"
                                     "返回里会显式给 truncated，不再静默不完整）"),
             max_items=_p("integer", "index_code/index_doc 最多产出条目数（越限即截断并上报）"),
@@ -996,7 +1006,7 @@ def _metacognition_call(cg, a):
 def _self_state_call(cg, a):
     """自我状态层统一入口（cg op=self_state 与 mdcg_self_state 共用）。
 
-    薄自我：self 层只放状态卡（单例）+ 关系节点，登记八项自我信息的当前值
+    薄自我：self 层只放状态卡（单例）+ 关系节点，登记九项自我信息的当前值
     与指针；具体任务/人物/会话/时间/信任的细节留在原层，由认知图按五维
     索引连接。一致性由 audit 重算校验（不依赖人的判断）。
     """
@@ -1078,7 +1088,8 @@ def _predict_call(cg, a):
             a.get("predicted_node_id") or a.get("node_id") or "",
             actual_node_id=a.get("actual_node_id"),
             hit=a.get("hit"), note=a.get("note") or "",
-            actor=a.get("actor") or getattr(cg, "actor", "predict"))
+            actor=a.get("actor") or getattr(cg, "actor", "predict"),
+            sync_self=bool(a.get("sync_self", True)))
     if act == "stats":
         return cg.predict_stats(limit=int(a.get("limit") or 20))
     if act == "catalog":
@@ -1749,6 +1760,7 @@ def _cg_call(cg, a):
             max_files=int(a.get("max_files") or 500),
             max_items=int(a.get("max_items") or 2000),
             incremental=bool(a.get("incremental")),
+            skip_dirs=a.get("skip_dirs"),
             ledger=refindex.Ledger(cg.root))
         ids, _sens = refindex.add_items(cg, items, kind="code_ref", root=root,
                                         layer=a.get("layer"))
@@ -1760,11 +1772,14 @@ def _cg_call(cg, a):
                "files": stats["files"], "truncated": stats["truncated"],
                "skipped_unchanged": stats.get("skipped_unchanged", 0),
                "skipped_suffixes": stats["skipped_suffixes"], "note": note}
+        out.update(_skip_dirs_report(stats))
         if stats["truncated"]:
             # 截断必须显式说出来：以前静默 return，调用方以为索引是完整的。
             out["truncated_reason"] = stats["truncated_reason"]
             out["note"] = (f"⚠ 索引被截断，结果不完整（{stats['truncated_reason']}），"
                            f"调大 max_files/max_items 后重跑。" + note)
+        out["pruned"] = _prune_after_index(cg, a, kind="code_ref", root=root,
+                                           items=items, stats=stats)
         return out
 
     if op == "index_doc":
@@ -1779,7 +1794,8 @@ def _cg_call(cg, a):
             root, kind="doc_ref", patterns=a.get("patterns"),
             max_files=int(a.get("max_files") or 500),
             max_items=int(a.get("max_items") or 2000),
-            incremental=incremental, ledger=refindex.Ledger(cg.root))
+            incremental=incremental, skip_dirs=a.get("skip_dirs"),
+            ledger=refindex.Ledger(cg.root))
         ids, sens_counts = refindex.add_items(
             cg, items, kind="doc_ref", root=root, layer=layer,
             sensitivity=a.get("sensitivity"))
@@ -1793,10 +1809,13 @@ def _cg_call(cg, a):
                "skipped_unchanged": stats.get("skipped_unchanged", 0),
                "skipped_suffixes": stats["skipped_suffixes"],
                "layer": layer, "sensitivity": sens_counts, "note": note}
+        out.update(_skip_dirs_report(stats))
         if stats["truncated"]:
             out["truncated_reason"] = stats["truncated_reason"]
             out["note"] = (f"⚠ 索引被截断，结果不完整（{stats['truncated_reason']}），"
                            f"调大 max_files/max_items 后重跑。" + note)
+        out["pruned"] = _prune_after_index(cg, a, kind="doc_ref", root=root,
+                                           items=items, stats=stats)
         return out
 
     if op == "ref":
@@ -1859,6 +1878,42 @@ def _session_call(cg, a):
             max_points=int(a.get("max_points") or 8), note=bool(a.get("note")),
             importance=float(0.5 if imp is None else imp))
     raise ValueError(f"session 未知 action：{act}（允许 note/recall/compact）")
+
+
+def _prune_after_index(cg, a, *, kind, root, items, stats):
+    """索引后的**节点级对账**：清退「同 root + 同 path 的过期代」。
+
+    存在理由：`node_id` 含 heading_path，文档一改标题整篇 id 重算，而
+    `add_items` 只做**同 id 幂等 upsert**——不补这步，旧代节点与新代并存，
+    同一文档被召回两份（旧代引用的区间往往已失效）。水位层 `reconcile`
+    只剪水位条目、不剪节点，所以必须在索引后显式清。
+
+    开关：`prune=false` 关闭；`prune_dry_run=true` 只列清单不落删除；
+    截断时一律跳过（没扫完 ≠ 剩下的都过期）。
+    """
+    from . import refindex
+    flag = a.get("prune", True)
+    if isinstance(flag, str):
+        flag = flag.strip().lower() not in ("false", "0", "no", "off", "")
+    if not flag or stats.get("truncated"):
+        return None
+    return refindex.prune_orphans(
+        cg, kind=kind, root=root, items=items,
+        dry_run=bool(a.get("prune_dry_run")))
+
+
+def _skip_dirs_report(stats, limit=20):
+    """把「本次被 skip_dirs 排掉的目录」压成可审计字段。
+
+    与截断同一纪律——**不许静默**：调用方据此能把「源文件真的少了」与「被规则
+    排掉了」区分开。目录多时只回前 `limit` 个并给出总数，避免回报体被噪声撑爆。
+    """
+    sd = list(stats.get("skipped_dirs") or [])
+    out = {"skipped_dirs": sd[:limit], "skipped_dirs_count": len(sd),
+           "skip_dirs": list(stats.get("skip_dirs") or [])}
+    if len(sd) > limit:
+        out["skipped_dirs_note"] = f"另有 {len(sd) - limit} 个被排除目录未列出"
+    return out
 
 
 def _ingest_call(cg, a):
@@ -2059,8 +2114,19 @@ def _ref_call(cg, a):
                        "巡检只读、不改源文件；修复：op=index_code / op=index_doc 重建，"
                        "或 op=sustain action=heal。")
         return res
+    if action in ("prune", "prune_dangling"):
+        res = refindex.prune_dangling(
+            cg, only_roots=a.get("roots"), dry_run=bool(a.get("dry_run")),
+            max_nodes=int(a.get("max_nodes") or refindex.MAX_CHECK))
+        res["action"] = "prune"
+        res["note"] = ("清退悬空节点（ref 指向的源文件已删除，回读必然失败）。"
+                       "check 只报告、prune 才处置；dry_run=true 先列清单。"
+                       "受保护节点（self/anchor 层、protected 标记、"
+                       "importance≥0.7）会被拦下并列入 skipped_protected，"
+                       "不越权强删；删除可经 op=restore 回滚。")
+        return res
     if action not in ("read", "get"):
-        raise ValueError(f"ref 未知 action：{action}（支持 read|check|stat）")
+        raise ValueError(f"ref 未知 action：{action}（支持 read|check|stat|prune）")
     nid = (a.get("node_id") or "").strip()
     node = None
     if nid:
