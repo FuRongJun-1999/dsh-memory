@@ -1,14 +1,13 @@
 # 让 AI Agent 拥有不可遗忘的自我
 
-**灵枢（Lingshu / AEIS）× DeepSeek Harness** —— 白箱智能 + AGI 级长期记忆插件（v0.4.5）
+**灵枢（Lingshu / AEIS）** —— 白箱智能 + AGI 级长期记忆系统（v0.4.5）
 
-[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![dsh.so security](https://www.dsh.so/badge/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7) [![dsh.so install](https://www.dsh.so/badge/install/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7) [![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)](https://github.com/deepseek-ai/deepseek-harness/releases) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![dsh.so security](https://www.dsh.so/badge/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7)  [![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)](https://github.com/deepseek-ai/deepseek-harness/releases) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > **一句话**：不是「又一个记忆插件」，而是一个**记忆操作系统**——对话自动沉淀为纯文本认知图（md 文档），
 > 用确定性白箱完成条件路由、检索、判断与演化，让每次对话都是同一段生命的延续。
 
-**定位**：面向 AGI 研究者的大型研究项目。
-[dsh.so](https://www.dsh.so/artifact/dsh-memory-7) 静态安全扫描 **100/100**（Trust: Gold, L1–L3 verified）。
+**定位**：面向 AGI 研究者的大型研究项目，性能极高，记忆效果极强。
 
 ---
 
@@ -18,6 +17,7 @@
 - **🔍 白箱确定性引擎**——条件路由、检索、写入裁决全程规则化，不依赖 LLM 黑箱，全链路可审计、可复现
 - **🔌 多 harness 接入**——不绑定单一 Agent 运行时：同一份大脑（`md_cg/`）+ 同一份工作纪律，接入 DSH · CodeBuddy · ZCode · Codex CLI（见[多 harness 接入](#多-harness-接入按端分目录)）
 - **📊 可复现评测**——`locomo-zh-500`（500 题）与 `bench6-100-zh-en`（六家横评 · 中英双查）数据集随仓公开，一条命令复现我方成绩（见[公开评测数据集](#-公开评测数据集)）
+- **⚡ Rust 高性能内核**——检索核心 `mdcg_eval`（零第三方依赖 Rust 库）：库内嵌多线程大批量检索，`--serve` 进程实例支撑多智能体并发（语言无关）；与 Python 检索口径逐位对齐（见 [rust/README.md](rust/README.md)）
 
 ---
 
@@ -240,6 +240,7 @@ setx MDCG_TOKEN "mdcg1.xxxxx"     # 然后重启 DSH
 | 教学四篇 | [白箱智能是什么？](docs/白箱智能是什么？.md) · [智能的认知过程](docs/智能的认知过程.md) · [智能的公理化基石](docs/智能的公理化基石.md) · [信息差为什么必然存在](docs/信息差为什么必然存在且自然扩大.md) |
 | [工作纪律·认知图条目 v1.1](docs/工作纪律_认知图条目_v1.1.json) | 自我约束的 16 条工作纪律（嵌套认知图条目 `work_discipline`） |
 | [六家记忆系统横评 v1.0](docs/横评_六家100题中英双查_v1.0.md) | 100 题 · **中英双查** · 六家同口径对照；含判定单 / 条件层归因 / 诚实边界（题集 → [data/benchmarks/bench6-100-zh-en/](data/benchmarks/bench6-100-zh-en/README.md)） |
+| [Rust 检索库](rust/README.md) | `mdcg_eval` 三形态：库内嵌大批量检索 / `--serve` 多智能体进程实例 / 公开数据集评测器（零依赖 · 与 Python 口径逐位对齐） |
 
 ### 多 harness 接入（按端分目录）
 

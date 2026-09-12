@@ -18,11 +18,9 @@
 //! 唯一无法逐位保证的是**并列分数的名次**（Python `_scan_nodes` 依赖目录枚举序），
 //! 故提供 `--order scan|log`，默认 `scan`（模拟文件名序）。
 
-mod json;
-mod metrics;
-mod retrieval;
-mod store;
-mod text;
+// 模块统一由 lib target（mdcg_eval）供给：单一编译源，避免 bin/lib 双编译
+// 产生两个不同身份的同名类型（E0308）。评测逻辑与库共享同一份实现。
+use mdcg_eval::{json, metrics, retrieval, serve, store};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -30,6 +28,7 @@ use std::time::Instant;
 
 use json::Json;
 use metrics::{Row, Summary};
+use mdcg_eval::engine::{EngineConfig, SearchEngine};
 use retrieval::Hit;
 use store::{Entry, Order};
 
@@ -54,6 +53,8 @@ struct Cfg {
     /// `--graph-seeds sorted`：按 `_path_graph` 文档语义先排序再取 top-5 种子。
     /// 缺省 false = 现状（传未排序词法输出），保持与 Python `search_rrf` 逐位对齐。
     graph_seeds_sorted: bool,
+    /// `--serve`：进入进程实例模式（stdin/stdout 逐行 JSON），不跑评测。
+    serve: bool,
 }
 
 fn default_threads() -> usize {
@@ -91,6 +92,7 @@ fn parse_args() -> Cfg {
         lib: None,
         qfile: None,
         graph_seeds_sorted: false,
+        serve: false,
     };
 
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -144,6 +146,7 @@ fn parse_args() -> Cfg {
             "--graph-seeds" => {
                 cfg.graph_seeds_sorted = take(&mut i).eq_ignore_ascii_case("sorted")
             }
+            "--serve" => cfg.serve = true,
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -756,6 +759,36 @@ fn ds_slug(ds: &str) -> &'static str {
 
 fn main() {
     let cfg = parse_args();
+
+    // serve 模式：进程存活 = 检索实例（参照 protocol-compiler 蜂群实例基座）。
+    // 索引只读共享 → 多智能体并发 = 协调器 spawn 多个本进程。
+    if cfg.serve {
+        let ecfg = EngineConfig {
+            paths: Some(cfg.paths.clone()),
+            weights: cfg.weights.clone(),
+            fusion_max: cfg.fusion_max,
+            jaccard: cfg.jaccard,
+            graph_seeds_sorted: cfg.graph_seeds_sorted,
+            order: cfg.order,
+            threads: cfg.threads,
+        };
+        let engine = match SearchEngine::open(&cfg.root, &ecfg) {
+            Ok(e) => e,
+            Err(msg) => {
+                eprintln!("[serve] 载入失败: {msg}");
+                std::process::exit(1);
+            }
+        };
+        eprintln!(
+            "[serve] 就绪 docs={} 候选={} 路 [{}] root={}",
+            engine.doc_count(),
+            engine.candidate_count(),
+            engine.paths().join(","),
+            cfg.root.display()
+        );
+        std::process::exit(serve::run(engine));
+    }
+
     println!(
         "灵枢公开数据集评测（Rust）· k={} · 线程 {} · 候选序 {} · 路 [{}] · 融合 {}",
         cfg.k,
