@@ -1,0 +1,56 @@
+{
+  "name": "bench6",
+  "created_at": "2026-09-12T11:56:18",
+  "arms": [
+    "lingshu",
+    "mem0",
+    "graphiti",
+    "graphrag",
+    "letta",
+    "vector_rag"
+  ],
+  "source": {
+    "questions": "data/benchmarks/locomo-zh-500/questions500.jsonl",
+    "corpus": "data/benchmarks/locomo-zh-500/corpus567.jsonl",
+    "en_upstream": "mteb/LoCoMo revision 02e2c3dea15d9fdfd1cd7a0f65f5f8ae2ed4c1ac"
+  },
+  "sampling": {
+    "method": "stratified_proportional_by_qtype_max_remainder",
+    "seed": 7007,
+    "n_target": 100,
+    "k": 5,
+    "quota": {
+      "single_hop": 43,
+      "multi_hop": 14,
+      "temporal_reasoning": 16,
+      "open_domain": 4,
+      "adversarial": 23
+    },
+    "actual": {
+      "adversarial": 23,
+      "multi_hop": 14,
+      "open_domain": 4,
+      "single_hop": 43,
+      "temporal_reasoning": 16
+    }
+  },
+  "pool": {
+    "n": 137,
+    "dangling": []
+  },
+  "queries": {
+    "n": 100,
+    "langs": [
+      "zh",
+      "en"
+    ]
+  },
+  "boundaries": [
+    "池全为 gold 证据 → 池内零干扰，指标是上界而非端到端记忆能力",
+    "question_zh 是中文关键词串而非自然语言问句 → 评检索命中，非 QA",
+    "无答案文本，无法评答案质量",
+    "n=100 时题级命中率 CV≈8.3%（n=500 时 3.7%，容量减半 √5 放大）→ 家间差距 <16% 不可下结论"
+  ],
+  "license": "CC BY-NC 4.0 (derived from LoCoMo; see README)",
+  "public_dir": "data/benchmarks/bench6-100-zh-en/"
+}
