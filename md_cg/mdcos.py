@@ -350,7 +350,7 @@ class MdCGOS(MdCG):
 
         terms = expand_query_terms(q)
         qb = bigrams(q)
-        stat = {"scanned": 0}
+        stat = {"scanned": 0, "query": q}
         route_bucket = None
         if context is not None:
             ctx = context if isinstance(context, dict) else {}
@@ -672,7 +672,7 @@ class MdCGOS(MdCG):
                    judge: bool = True, paths=("lexical", "bucket", "entity", "graph"),
                    record: bool = True, query_expand=None,
                    path_weights=None, recall_only=None, fusion: str = "sum",
-                   goal_text=None):
+                   goal_text=None, judge_ranking: bool = False):
         """并行多路召回 + RRF 融合。返回 (results, meta)。
 
         每路各自排序 → Reciprocal Rank Fusion：
@@ -697,6 +697,11 @@ class MdCGOS(MdCG):
             sum 奖励「多路共识」，但会系统性低估**单路独有**候选：当强路漏掉目标、
             弱路捞到时，目标的单路贡献必然低于任何「两路都有排名」的干扰项。
             max 只认「最好的一次排名」，不奖励共识，适合「任一路捞到即可」的召回。
+        judge_ranking: 白箱终排（证据防火墙，显式启用）。融合排序只产生候选
+            （语义负责「不要漏」），资格裁决决定最终优先级（白箱负责「不要错」）：
+            REJECT / BLINDSPOT 剔除，DEFER 降权 ×0.5，ACCEPT 保位。候选池取
+            fused 前 max(k*2,10) 再裁决补位。语义联系可以是认知噪声（等权 RRF
+            双重奖励「多路都靠前」的干扰项），唯有条件证据可授予优先级。
         """
         q = (query or "").strip()
         if not q:
@@ -766,18 +771,40 @@ class MdCGOS(MdCG):
         for scored in ranked.values():
             for node, s in scored:
                 node_by_id.setdefault(node["id"], (node, s))
-        fused = sorted(rrf.items(), key=lambda kv: -kv[1])[:k]
+        fused_all = sorted(rrf.items(), key=lambda kv: -kv[1])
+
+        quals = {}
+        filtered = 0
+        if judge and judge_ranking:
+            # 证据防火墙：语义/词法融合产生候选（不要漏），资格授予优先级（不要错）
+            kept = []
+            for nid, fs in fused_all[:max(k * 2, 10)]:
+                node, s = node_by_id[nid]
+                qual = self.judge_qualification(node, q, context)
+                quals[nid] = qual
+                st = qual.get("state")
+                if st in (STATE_REJECT, STATE_BLINDSPOT):
+                    filtered += 1
+                    continue
+                kept.append((nid, fs if st == STATE_ACCEPT else fs * 0.5))
+            kept.sort(key=lambda x: -x[1])
+            fused = kept[:k]
+        else:
+            fused = fused_all[:k]
 
         results = []
         for nid, fs in fused:
             node, s = node_by_id[nid]
-            qual = (self.judge_qualification(node, q, context) if judge
-                    else {"state": None, "reason": "judge_disabled"})
+            qual = (quals.get(nid)
+                    or (self.judge_qualification(node, q, context) if judge
+                        else {"state": None, "reason": "judge_disabled"}))
             results.append((node, round(fs, 6), qual, prov.get(nid, [])))
         if record and results:
             self.record_access([r[0]["id"] for r in results], "RRF")
         return results, {"tier": "RRF", "scanned": stat["scanned"],
                          "paths": per_path, "fused": len(results),
+                         "judge_ranking": bool(judge and judge_ranking),
+                         "judge_filtered": filtered,
                          "expand_source": fuzzy_source,
                          "goal_used": goal_used,
                          "provenance": prov}
@@ -788,7 +815,8 @@ class MdCGOS(MdCG):
                layer: str = None, context=None, roles=None,
                include_work: bool = False, judge: bool = True, use_rrf: bool = True,
                paths=None, query_expand=None, fusion=None,
-               goal_text=None, include_recent=False, recent_limit: int = 10):
+               goal_text=None, include_recent=False, recent_limit: int = 10,
+               judge_ranking: bool = False):
         """按 token 预算装包：装到预算花完为止；**超大条目跳过而非停下**。
 
         paths/query_expand 缺省时行为与既有完全一致（默认四路、纯白箱扩展）；
@@ -811,6 +839,7 @@ class MdCGOS(MdCG):
                 kw["fusion"] = fusion
             if goal_text is not None:
                 kw["goal_text"] = goal_text
+            kw["judge_ranking"] = judge_ranking
             results, meta = self.search_rrf(query, **kw)
             items = [(r[0], r[1], r[2], r[3]) for r in results]
         else:
@@ -1791,6 +1820,13 @@ class MdCGOS(MdCG):
                 max_nodes=(kw.get("max_nodes") or subgraph.RECON_MAX_NODES),
                 neighbors=(True if kw.get("neighbors") is None
                            else bool(kw.get("neighbors"))))
+        if act == "explore":
+            # 信息差驱动自主探索（opt-in）：提案 → 五态验证 → 回写 gap_hint
+            from . import autonomy
+            return autonomy.explore(self, apply=bool(kw.get("apply")),
+                                    limit=(kw.get("limit") or 3),
+                                    window=(kw.get("window") or 200),
+                                    actor=actor)
         if act == "learn":
             lkw = {k: kw[k] for k in ("blindspot_id", "limit", "horizon",
                                       "max_branches") if kw.get(k) is not None}

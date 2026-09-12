@@ -78,16 +78,18 @@ def _state(cg, nid, q="问主题"):
                                       {"query": q})["state"]
 
 
-def _dist(cg, ids_):
+def _dist(cg, ids_, q_map=None):
     out = {}
     for nid in ids_:
-        st = _state(cg, nid)
+        st = _state(cg, nid, (q_map or {}).get(nid, "问主题"))
         out[st] = out.get(st, 0) + 1
     return out
 
 
 ALL = ["kp_a", "kp_b", "kp_c", "kp_present", "kp_ph"]
 TARGETS = ["kp_a", "kp_b", "kp_c"]
+#: v2 正条件确认：情境须命中节点声明的生效条件词面才可 ACCEPT
+QMAP = {"kp_a": "问a", "kp_b": "问b", "kp_c": "问c", "kp_present": "问浮力"}
 
 
 def main():
@@ -165,18 +167,21 @@ def main():
         ok(fm.get("ccg_exempt") is True, "⑥空壳豁免标记未被误摘")
 
         # ---------- ⑤ 打破 DEFER 恒定 ----------
+        # v2 语义：摘豁免只是解除 DEFER 短路，ACCEPT 还需情境命中正条件词面
         for nid in TARGETS:
-            ok(_state(cg, nid) == STATE_ACCEPT,
-               f"⑤{nid} 摘豁免后转 ACCEPT（DEFER 恒定被打破）")
-        ok(_state(cg, "kp_present") == STATE_ACCEPT, "⑤已齐备节点转 ACCEPT")
-        after = _dist(cg, ALL)
+            ok(_state(cg, nid, QMAP[nid]) == STATE_ACCEPT,
+               f"⑤{nid} 摘豁免后 + 情境命中条件 → ACCEPT")
+        ok(_state(cg, "kp_present", QMAP["kp_present"]) == STATE_ACCEPT,
+           "⑤已齐备节点 + 情境命中条件 → ACCEPT")
+        after = _dist(cg, ALL, QMAP)
         ok(after.get(STATE_ACCEPT) == 4 and after.get(STATE_DEFER) == 1,
            f"⑤术后分布 ACCEPT=4 / DEFER=1（实测 {after}）")
 
         # ---------- ⑦ 前后对比 ----------
         report = {"before": before, "after": after,
                   "accept_gain": after.get(STATE_ACCEPT, 0) - before.get(STATE_ACCEPT, 0),
-                  "still_defer": [n for n in ALL if _state(cg, n) == STATE_DEFER]}
+                  "still_defer": [n for n in ALL
+                                  if _state(cg, n, QMAP.get(n, "问主题")) == STATE_DEFER]}
         ok(report["accept_gain"] == 4 and report["still_defer"] == ["kp_ph"],
            f"⑦前后对比：ACCEPT +4，剩余 DEFER 仅为不可闭合项（实测 {report}）")
 

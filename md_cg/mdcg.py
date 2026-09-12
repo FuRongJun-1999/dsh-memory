@@ -759,6 +759,51 @@ class MdCG:
     # ---------- 资格判定（与性能 tier 正交）----------
 
     @staticmethod
+    def _ccg_line(content: str, name: str) -> str:
+        """取 CCG 正文 `# <name>：` 行的值。
+
+        与 mdcos._ccg_field 同源实现——父类不得反向 import mdcos，
+        故在此落同款确定性扫描（无正则回溯风险）。
+        """
+        for line in (content or "").splitlines():
+            s = line.strip()
+            if not s.startswith("#") or name not in s:
+                continue
+            body = s.lstrip("#").strip()
+            for sep in ("：", ":"):
+                if sep in body:
+                    head, _, val = body.partition(sep)
+                    if head.strip() == name:
+                        return val.strip()
+        return ""
+
+    @staticmethod
+    def _cond_terms(cond_text: str):
+        """生效条件声明 → 匹配短语列表（确定性切分，无语义猜测）。
+
+        切分规则：按槽分隔「；/;」拆槽（condition_space_text 以「；」连四槽）
+        → 每槽剥「槽标签：」前缀（载体/位置、时间、方法、约束等标签是通用词，
+        参与命中必误判）→ 槽内按「，,、/（）」切短语 → 丢弃长度 <2、纯数字、
+        全时窗哨兵短语（全时窗 = 时间维无信息量，不因其未命中而降级）。
+        """
+        out, seen = [], set()
+        for slot in re.split(r"[；;]", str(cond_text or "")):
+            if "：" in slot:
+                slot = slot.split("：", 1)[1]
+            elif ":" in slot:
+                slot = slot.split(":", 1)[1]
+            for seg in re.split(r"[，,、/（）()]", slot):
+                seg = seg.strip()
+                if len(seg) < 2 or seg.isdigit():
+                    continue
+                if "全时窗" in seg or "任意时刻" in seg:
+                    continue
+                if seg not in seen:
+                    seen.add(seg)
+                    out.append(seg)
+        return out
+
+    @staticmethod
     def judge_qualification(node_dict, query: str, context=None):
         """四态判定（白箱第 1/2 篇）。
 
@@ -769,8 +814,10 @@ class MdCG:
         - BLINDSPOT：节点 MARKS 不完整（6 行缺一不可；生效条件不可隐含，
           必须由条件空间四槽合成显式声明）→ 无法建立可靠归属，停止
         - REJECT：不适用条件命中 → 明确不适用
-        - DEFER：条件不足但缺的不是不适用条件，是适用条件未声明 → 可继续寻找
-        - ACCEPT：条件满足（默认）
+        - DEFER：生效条件未在情境（query+context）词面确认，或未声明验证基底
+          → 可继续寻找/补证据
+        - ACCEPT：条件满足（生效条件已确认，或无情境可比——此时 reason 诚实
+          标注「未做正条件确认」，不冒充已确认）
         """
         fm = node_dict.get("frontmatter") or {}
         content = node_dict.get("content") or ""
@@ -781,21 +828,54 @@ class MdCG:
             return {"state": STATE_BLINDSPOT,
                     "reason": f"CCG 要素不全：缺 {set(nodefile.CCG_REQUIRED) - set(cpl['required_present'])}"}
 
+        # 情境合成（query + context）：正/负条件共用同一情境口径。
+        # 负条件扩面依据（2026-09-12）：不适用条件的语义是「本节点明确不适用
+        # 于这类问句」，问句（query）是情境的一半——只看 context 时「我没喝水」
+        # 声明的负条件「刚才在干什么」在同类问句下永不命中，否定事件得以冒充
+        # 事件。扩面已过全量回归（test_p33 负条件断言保绿：其词面本就命中）。
+        scene = {"query": query or ""}
+        if isinstance(context, dict):
+            scene.update(context)
+        scene_str = json.dumps(scene, ensure_ascii=False)
+
         # 2) REJECT：不适用条件命中（需条件对比，简化版用关键词命中）
         neg = fm.get("non_applicable_conditions") or []
-        ctx_str = json.dumps(context or {}, ensure_ascii=False)
-        neg_hit = [n for n in neg if any(w in ctx_str for w in n.split())]
+        neg_hit = [n for n in neg if any(w in scene_str for w in n.split())]
         if neg_hit:
             return {"state": STATE_REJECT,
                     "reason": f"不适用条件命中：{neg_hit[:3]}"}
 
-        # 3) DEFER：节点无 verification_basis → 信任根基不足
+        # 3) 正条件确认：生效条件须在情境（query+context）中词面可确认——
+        #    「没发现拒绝理由」≠「确认适用」（相似度产生候选，条件授予资格）。
+        #    情境为空（无 query 且无 context）→ 无可判定依据，跳过本段不降级：
+        #    「无情境」不能被误判成「不适用」。
+        cond_hit = None
+        has_scene = bool((query or "").strip()) or bool(context)
+        if has_scene:
+            cond_text = MdCG._ccg_line(content, "生效条件")
+            if not cond_text and fm.get("condition_space"):
+                cond_text = nodefile.condition_space_text(fm["condition_space"])
+            if cond_text and cond_text.strip() != "无条件":
+                terms_ = MdCG._cond_terms(cond_text)
+                cond_hit = next((t for t in terms_ if t in scene_str), None)
+                if cond_hit is None and terms_:
+                    return {"state": STATE_DEFER,
+                            "reason": ("生效条件未在情境确认（未命中任何声明条件："
+                                       + "、".join(terms_[:3])
+                                       + "）；可补充情境或条件词面后重判")}
+
+        # 4) DEFER：节点无 verification_basis → 信任根基不足
         if not fm.get("verification_basis"):
             return {"state": STATE_DEFER,
                     "reason": "未声明验证基底，需补充才能继续判定"}
 
-        # 4) ACCEPT：默认
-        return {"state": STATE_ACCEPT, "reason": "5 要素齐全 + 不适用条件未命中 + 验证基底已声明"}
+        # 5) ACCEPT：默认——reason 诚实标注正条件是否经情境确认
+        acc = "5 要素齐全 + 不适用条件未命中 + 验证基底已声明"
+        if cond_hit:
+            acc = f"生效条件已确认（命中「{cond_hit}」）+ " + acc
+        elif not has_scene:
+            acc = "无情境可比（未做正条件确认）+ " + acc
+        return {"state": STATE_ACCEPT, "reason": acc}
 
     # ---------- 检索（性能阶梯 + 资格判定）----------
 
@@ -849,7 +929,7 @@ class MdCG:
                     if any(t in content for t in terms):
                         neg_coverage.append(e)
 
-        stat = {"scanned": 0}
+        stat = {"scanned": 0, "query": q}
         route_bucket = None
         if context is not None:
             ctx = context if isinstance(context, dict) else {}
@@ -954,7 +1034,8 @@ class MdCG:
         out = []
         for r in results:
             if judge:
-                qual = self.judge_qualification(r[0], "", context)
+                qual = self.judge_qualification(r[0], stat.get("query") or "",
+                                                context)
             else:
                 qual = {"state": None, "reason": "judge_disabled"}
             out.append((r[0], r[1], qual))
