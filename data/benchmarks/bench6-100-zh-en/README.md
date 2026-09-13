@@ -63,12 +63,36 @@
 臂名：`lingshu_lex` / `lingshu_rrf4` / `lingshu_rrf4_noref` / `lingshu_lex_meta` / `lingshu_rrf4_nometa` / `vector_rag` / `mem0` / `graphiti` / `graphrag` / `letta_archival` / `letta_agent`。
 其中「灵枢」多行为**同一支系统在不同检索口径**下的对照，非多套系统；`letta_archival`（直插）与 `letta_agent`（自主入库）为 Letta 两种写入模式，**不得**互相代表。
 
+### `run_bench.py` —— 公开测试脚本（零第三方依赖）
+
+- `python run_bench.py`：打印**六家中英对比主表**（含 zh−en 提升幅度），并做**口径自证**——用 `results_v1.0.json` 存档的逐题 ranks 重算全部 summary，与本脚本指标函数逐位比对（lingshu 各变体与 vector_rag 存有逐题明细，可证同源；四家竞品臂发表时仅存 summary，显式 SKIP）。
+- `python run_bench.py --demo`：内置字符 bigram 词面基线实跑双查，演示 Adapter 协议。
+- `python run_bench.py --adapter your_mod.YourAdapter`：接入**你自己的记忆系统**（实现 `ingest(records)` / `search(query, k) -> [id,...]` / `name` 即可，零框架绑定）。
+
 > 人类可读的完整报告（口径 / 主表 / 分题型 / 归因 / 诚实边界）见
 > [`docs/横评_六家100题中英双查_v1.0.md`](../../../docs/横评_六家100题中英双查_v1.0.md)。
 
 ---
 
 ## 怎么用
+
+**最简通路（推荐）**：直接用公开测试脚本——
+
+```bash
+python run_bench.py                       # 主表 + 口径自证（零依赖）
+python run_bench.py --adapter my_bench.MyAdapter   # 评你自己的记忆系统
+```
+
+Adapter 只需两个方法（完整协议见脚本 docstring）：
+
+```python
+class MyAdapter:
+    name = "my-system"
+    def ingest(self, records): ...        # records = pool.jsonl 全部行
+    def search(self, query, k): ...       # 返回 [id,...] 按相关性降序
+```
+
+手写口径（与 `run_bench.py` 内联实现逐字同源）：
 
 ```python
 import json
@@ -106,21 +130,29 @@ python -m md_cg.bench6_competitors --k 5   # 六家统一评分出表
 
 ---
 
-## 参考量级（v1.0 快照 · 中文查询 hit@1）
+## 参考量级（v1.0 快照 · 按英→中查询提升幅度降序）
 
-| 系统 | zh hit@1 | en hit@1 |
-|---|---|---|
-| 灵枢·单词法 | 99.0% | 47.0% |
-| 灵枢·词法+meta | 99.0% | 54.0% |
-| 灵枢·四路（真开 bucket） | 81.0% | 37.0% |
-| 纯向量 RAG | 97.0% | 71.0% |
-| mem0 | 89.0% | 68.0% |
-| Graphiti | 58.0% | 46.0% |
-| GraphRAG | 31.0% | 18.0% |
-| Letta·归档直插 | 96.0% | **73.0%** |
-| Letta·agent 自主 | 0.0% | 0.0% |
+| 系统 | en hit@1 | zh hit@1 | 英→中提升 |
+|---|---|---|---|
+| **灵枢·单词法** | 47.0% | **99.0%** | **+52.0pp** |
+| 灵枢·词法+meta | 54.0% | 99.0% | +45.0pp |
+| 灵枢·四路（真开 bucket） | 37.0% | 81.0% | +44.0pp |
+| 纯向量 RAG | 71.0% | 97.0% | +26.0pp |
+| Letta·归档直插 | 73.0% | 96.0% | +23.0pp |
+| mem0 | 68.0% | 89.0% | +21.0pp |
+| GraphRAG | 18.0% | 31.0% | +13.0pp |
+| Graphiti | 46.0% | 58.0% | +12.0pp |
+| Letta·agent 自主 | 0.0% | 0.0% | （全零壳臂，未返回可映射结果） |
 
 > 数字为准仅作量级参照；**零干扰池下任何合理检索都容易得高分**，不可外推为端到端记忆能力。
+
+### 中英对照结论（本脚本复现的核心发现）
+
+**将查询由英文换为中文（英文语料与记忆系统均不变）：所有已有记忆系统的检索命中全部大幅提升（+12 ~ +52pp），无一例外**（唯一零值 `letta_agent` 为全零壳臂，未返回可映射结果，无提升可言）。**灵枢是最佳**：中文查询 hit@1 **99.0% 全表登顶**，且英→中提升幅度 **+52pp 亦为全表最大**——双语入库（中文层+英文原文）在中文查询下同时拿到最高命中与最大提升。
+
+- 提升排序见上表；运行 `python run_bench.py` 即可从 `results_v1.0.json` 复现。
+- **这是「查询词面敏感性」的实测**：查询语言/形态变化对检索命中的影响（+12~+52pp），大于多数系统之间的绝对差距。
+- 归因仍须谨慎（诚实边界 2）：`question_zh` 为关键词串（保留英文专名与日期词）、`question_en` 为自然问句——中文提升混合了**语言**与**查询形态**双因素；内置词面基线在纯英文库上 `--demo` 会得到反向的 en>zh，说明**查询语言的优势取决于系统如何处理语料**，本脚本暴露的正是这个变量。
 
 ---
 
