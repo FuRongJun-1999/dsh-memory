@@ -345,8 +345,25 @@ def main():
                 n += sum(1 for fn in fs if fn.lower().endswith(".md"))
             return n
 
-        expect_files = _count_md(DOCS, SKIP_NOISE)
-        real = index_doc(cg, DOCS, skip_dirs=list(SKIP_NOISE))
+        # 测试不得依赖仓库外状态：docs/experiments/ 被 .gitignore 整目录忽略，
+        # 外部 clone 后物理不存在，而本段断言的正是「真实扫描中 skip_dirs 命中
+        # 要被回报」。不存在时自备最小探针目录（跑完即清）；已存在时零动作
+        # （不碰本机历史产物）。探针为无标题正文——extract 返回空条目，不产生
+        # doc 节点；且探针在 experiments 内，_count_md 与被测扫描两侧口径一致，
+        # 对「全部 md 被索引」断言零影响。
+        probe_dir = os.path.join(DOCS, "experiments")
+        probe_created = not os.path.isdir(probe_dir)
+        if probe_created:
+            os.makedirs(probe_dir, exist_ok=True)
+            with open(os.path.join(probe_dir, "_probe_no_heading.md"),
+                      "w", encoding="utf-8") as f:
+                f.write("探针正文：无标题不产节点，仅让 experiments 物理存在。\n")
+        try:
+            expect_files = _count_md(DOCS, SKIP_NOISE)
+            real = index_doc(cg, DOCS, skip_dirs=list(SKIP_NOISE))
+        finally:
+            if probe_created:
+                shutil.rmtree(probe_dir)
         check("docs/ 全部 md 被索引（无静默跳过）",
               real.get("error_count") == 0 and real.get("files") == expect_files
               and real.get("truncated") is False,
