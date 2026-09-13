@@ -131,6 +131,8 @@ TOOLS = [
                                                "四槽，不适用条件命中即剔除；默认否）"),
                           expand=_p("array", "LLM 查询侧扩展词：[{term,weight}] 或 [\"词\"]；"
                                              "仅在查询时刻生效，索引侧仍白箱"),
+                          session=_p("string", "会话归属过滤（frontmatter.session；"
+                                     "多会话共用 root 时只取本会话记忆；缺省不过滤）"),
                           goal=_p("string", "当前目标（第 5 篇第 3 章）：启用 goal 路给召回定向；"
                                             "省略则自动取活跃目标"),
                           goal_path=_p("boolean", "启用目标定向路（默认否；给 goal 即自动启用）"),
@@ -146,7 +148,9 @@ TOOLS = [
         "description": "精确检索（T0–T3 阶梯 + 四态资格判定）。返回 score/state/tier。",
         "inputSchema": _s("", query=_p("string", "查询", True), k=_p("integer", "条数"),
                           layer=_p("string", "限定层"), context=_p("object", "情境"),
-                          roles=_p("array", "限定角色"), include_work=_p("boolean", "含工作角色")),
+                          roles=_p("array", "限定角色"), include_work=_p("boolean", "含工作角色"),
+                          session=_p("string", "会话归属过滤（frontmatter.session；"
+                                     "缺省不过滤）")),
     },
     {
         "name": "mdcg_get",
@@ -678,7 +682,9 @@ KERNEL_TOOLS = [
             ref=_p("object", "ref op：直接给 code_ref/doc_ref 对象（与 node_id 二选一）"),
             root=_p("string", "ref op：覆盖 ref 里记录的 root（索引结果的跨机器搬迁）"),
             name=_p("string", "sustain：心跳名（默认 md_cg）"),
-            session=_p("string", "sustain：会话 id（resume/note 用）"),
+            session=_p("string", "read（search/recall 分支）：会话归属过滤"
+                                 "（frontmatter.session；缺省不过滤）；"
+                                 "sustain：会话 id（resume/note 用）"),
             ts=_p("number", "sustain note：事件时间戳"),
             seq=_p("integer", "sustain note：事件序号"),
             task_running=_p("boolean", "sustain：任务执行中（心跳阈值放宽）"),
@@ -1587,10 +1593,12 @@ def _cg_dispatch(cg, a):
                              k=int(a.get("k") or 20), context=a.get("context"),
                              goal_text=a.get("goal"),
                              include_recent=bool(a.get("include_recent")),
-                             recent_limit=int(a.get("limit") or 10))
+                             recent_limit=int(a.get("limit") or 10),
+                             session=a.get("session"))
         from . import refindex
         res, meta = cg.search(q, layer=a.get("layer"), k=int(a.get("k") or 20),
-                              context=a.get("context"))
+                              context=a.get("context"),
+                              session=a.get("session"))
         return {"meta": meta, "results": [
             {"node": _node_view(n), "score": s, "state": q2.get("state"),
              "reason": q2.get("reason"), **refindex.ref_fields(n)}
@@ -2331,7 +2339,8 @@ def _dispatch(cg, name, args):
                          goal_text=a.get("goal"),
                          include_recent=bool(a.get("include_recent")),
                          recent_limit=int(a.get("recent_limit") or 10),
-                         query_expand=_make_query_expand(a.get("expand")))
+                         query_expand=_make_query_expand(a.get("expand")),
+                         session=a.get("session"))
 
     if name == "mdcg_search":
         from . import refindex
@@ -2339,7 +2348,8 @@ def _dispatch(cg, name, args):
                               k=int(a.get("k") or 20), context=a.get("context"),
                               roles=tuple(a["roles"]) if a.get("roles") else None,
                               include_work=bool(a.get("include_work")),
-                              pools=a.get("pools"))
+                              pools=a.get("pools"),
+                              session=a.get("session"))
         return {"meta": meta,
                 "results": [{"node": _node_view(n), "score": s, "state": q.get("state"),
                              "reason": q.get("reason"), **refindex.ref_fields(n)}
@@ -2628,6 +2638,12 @@ def main():
             "    python -m md_cg.tokens issue --role designer --actor <你>\n"
             "然后设置 MDCG_TOKEN=<返回的明文令牌>。\n")
         return 3
+    # 会话归属（归因维度，不参与授权）：部署侧可为每个 agent 连接注入固定
+    # 会话 id（MDCG_SESSION），多会话共用一个 root 时按 frontmatter.session
+    # 区分「本会话记忆 / 其他会话记忆」；缺省=进程自动生成（sess_<uuid>）。
+    _p_session = os.environ.get("MDCG_SESSION", "").strip()
+    if _p_session:
+        principal.session = _p_session
     cg = MdCGSecure(root, principal=principal)
     # 外部验证器注入（**能力外置**）：识图/实测/验收等能力不在认知图内，
     # 由 MDCG_VERIFIER_MODULES（逗号分隔 import 路径）声明的外部模块注入，

@@ -254,7 +254,8 @@ class MdCGOS(MdCG):
 
     def _audit(self, op: str, node_id: str, **meta):
         """只记事件与载荷哈希，绝不记录内容（payload-free）。"""
-        rec = {"t": time.time(), "op": op, "id": node_id, "actor": self.actor}
+        rec = {"t": time.time(), "op": op, "id": node_id, "actor": self.actor,
+               "session": getattr(self, "session", None)}
         rec.update(meta)
         try:
             append_jsonl(self.audit_log, rec)
@@ -280,12 +281,19 @@ class MdCGOS(MdCG):
                     payload_hash=_sig(content))
         return nid
 
-    def _candidates(self, layer=None, roles=None, include_work=False):
-        """候选池：按层 + role 过滤。默认剔除工作角色（工具输出/命令/编辑）。"""
+    def _candidates(self, layer=None, roles=None, include_work=False,
+                    session=None):
+        """候选池：按层 + role 过滤。默认剔除工作角色（工具输出/命令/编辑）。
+
+        session：会话归属过滤（frontmatter.session，写入时自动落盘）——
+        多会话共用一个 root 时，按它区分「本会话记忆 / 其他会话记忆」。
+        """
         out = []
         for e in self.index["nodes"].values():
             if e.get("layer") in ("rejected", "unresolved", "goals"):
                 continue  # 负记忆走覆盖标记；目标只做定向，都不进正排
+            if session and e.get("session") != session:
+                continue
             if layer and e.get("layer") != layer:
                 continue
             r = e.get("role")
@@ -334,7 +342,8 @@ class MdCGOS(MdCG):
     def search(self, query: str, layer: str = None, k: int = 20,
                context=None, min_results: int = 1, record: bool = True,
                include_neg: bool = True, judge: bool = True,
-               roles=None, include_work: bool = False, pools=None):
+               roles=None, include_work: bool = False, pools=None,
+               session=None):
         """在父类语义之上加 role 过滤（默认剔除工具输出/命令/编辑）。
 
         返回 (results, meta)，与 MdCG.search 完全同构（T0–T3 阶梯 + 资格判定）。
@@ -344,7 +353,8 @@ class MdCGOS(MdCG):
         if not q:
             return [], {"tier": None, "reason": "empty_query", "scanned": 0}
         pool_cfg = pooling.resolve(pooling.from_env(pools))
-        entries = self._candidates(layer=layer, roles=roles, include_work=include_work)
+        entries = self._candidates(layer=layer, roles=roles, include_work=include_work,
+                                   session=session)
         if not entries:
             return [], {"tier": None, "reason": "no_candidates", "scanned": 0}
 
@@ -677,7 +687,8 @@ class MdCGOS(MdCG):
                    judge: bool = True, paths=("lexical", "bucket", "entity", "graph"),
                    record: bool = True, query_expand=None,
                    path_weights=None, recall_only=None, fusion: str = "sum",
-                   goal_text=None, judge_ranking: bool = False):
+                   goal_text=None, judge_ranking: bool = False,
+                   session=None):
         """并行多路召回 + RRF 融合。返回 (results, meta)。
 
         每路各自排序 → Reciprocal Rank Fusion：
@@ -711,7 +722,8 @@ class MdCGOS(MdCG):
         q = (query or "").strip()
         if not q:
             return [], {"tier": None, "reason": "empty_query", "paths": {}}
-        entries = self._candidates(layer=layer, roles=roles, include_work=include_work)
+        entries = self._candidates(layer=layer, roles=roles, include_work=include_work,
+                                   session=session)
         if not entries:
             return [], {"tier": None, "reason": "no_candidates", "paths": {}}
 
@@ -821,7 +833,7 @@ class MdCGOS(MdCG):
                include_work: bool = False, judge: bool = True, use_rrf: bool = True,
                paths=None, query_expand=None, fusion=None,
                goal_text=None, include_recent=False, recent_limit: int = 10,
-               judge_ranking: bool = False):
+               judge_ranking: bool = False, session=None):
         """按 token 预算装包：装到预算花完为止；**超大条目跳过而非停下**。
 
         paths/query_expand 缺省时行为与既有完全一致（默认四路、纯白箱扩展）；
@@ -835,7 +847,7 @@ class MdCGOS(MdCG):
         """
         if use_rrf:
             kw = dict(k=k, layer=layer, context=context, roles=roles,
-                      include_work=include_work, judge=judge)
+                      include_work=include_work, judge=judge, session=session)
             if paths is not None:
                 kw["paths"] = tuple(paths)
             if query_expand is not None:
@@ -849,7 +861,7 @@ class MdCGOS(MdCG):
             items = [(r[0], r[1], r[2], r[3]) for r in results]
         else:
             res, meta = self.search(query, layer=layer, k=k, context=context,
-                                    judge=judge)
+                                    judge=judge, session=session)
             items = [(r[0], r[1], r[2], []) for r in res]
 
         pack, skipped, used = [], [], 0
@@ -963,7 +975,8 @@ class MdCGOS(MdCG):
                "layer": layer, "tags": list(tags or []),
                "condition_space": condition_space or {},
                "verify": verify or {}, "verify_hash": vhash,
-               "extra": kw, "actor": self.actor}
+               "extra": kw, "actor": self.actor,
+               "session": getattr(self, "session", None)}
         append_jsonl(self.inbox_log, rec)
         self._audit("propose", node_id, pid=pid, layer=layer,
                     payload_hash=_sig(content), verify_hash=vhash)
@@ -2373,7 +2386,20 @@ class MdCGSecure(MdCGOS):
                                      "reason": str(e)[:120]})
             return None
 
-    # ---------- 索引：把 role / sensitivity 一并索引 ----------
+    # ---------- 索引：把 role / sensitivity / 写入归属一并索引 ----------
+
+    def _attribution(self, kw):
+        """写入归属注入（归因维度，不参与授权）。
+
+        writer/session/harness 缺省取当前身份；库层调用方可显式传值覆盖
+        （如会话台账写入），MCP 面不透传该入参——客户端不得伪造归属。
+        writer 语义=最后写入者（更新路径自然刷新），created_at 记首写。
+        """
+        kw.setdefault("writer", self.principal.actor)
+        kw.setdefault("session", self.session)
+        if self.principal.harness:
+            kw.setdefault("harness", self.principal.harness)
+        return kw
 
     def _scan_nodes(self):
         nodes = super()._scan_nodes()
@@ -2382,6 +2408,8 @@ class MdCGSecure(MdCGOS):
             if fm:
                 e["role"] = fm.get("role")
                 e["sensitivity"] = fm.get("sensitivity") or DEFAULT_SENSITIVITY
+                e["writer"] = fm.get("writer")
+                e["session"] = fm.get("session")
         return nodes
 
     def _index_sensitivity(self, nid, sens):
@@ -2397,6 +2425,7 @@ class MdCGSecure(MdCGOS):
         sens = sensitivity or DEFAULT_SENSITIVITY
         _rank(sens)
         self.principal.require_layer_write(layer, sens)
+        self._attribution(kw)
         nid = super().add(node_id, content, layer=layer, sensitivity=sens, **kw)
         self._index_sensitivity(nid, sens)
         return nid
@@ -2404,6 +2433,7 @@ class MdCGSecure(MdCGOS):
     def add_rejected(self, hypothesis: str, reason: str, sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
         self.principal.require_layer_write("rejected", sens)
+        self._attribution(kw)
         nid = super().add_rejected(hypothesis, reason, sensitivity=sens, **kw)
         self._index_sensitivity(nid, sens)
         return nid
@@ -2412,6 +2442,7 @@ class MdCGSecure(MdCGOS):
                        sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
         self.principal.require_layer_write("unresolved", sens)
+        self._attribution(kw)
         nid = super().add_unresolved(question, known_clues, goal, sensitivity=sens, **kw)
         self._index_sensitivity(nid, sens)
         return nid
@@ -2497,8 +2528,10 @@ class MdCGSecure(MdCGOS):
         self.principal.require_admin("clear_recent")
         return super().clear_recent()
 
-    def _candidates(self, layer=None, roles=None, include_work=False):
-        out = super()._candidates(layer=layer, roles=roles, include_work=include_work)
+    def _candidates(self, layer=None, roles=None, include_work=False,
+                    session=None):
+        out = super()._candidates(layer=layer, roles=roles, include_work=include_work,
+                                  session=session)
         return [e for e in out if self._readable(e)]
 
     def _neg_coverage(self, terms):

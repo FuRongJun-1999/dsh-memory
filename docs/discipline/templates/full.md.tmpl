@@ -33,8 +33,8 @@
 | op | 用途 | 常用参数 |
 |---|---|---|
 | `route` | 任务开始路由记忆（返回知识 + 建议能力，不执行） | `intent`（任务意图） |
-| `read` | 召回/检索/按 id 取 | `query` / `node_id` / `k` / `layer` / `budget_tokens` / `context` |
-| `write` | 写入（先按 content_kind 审核 + 冲突检测，ACCEPT 落盘 / DEFER 入审核队列 / REJECT 入负记忆） | `content` / `content_kind`（text/code/…）/ `node_id`（同 id 即改写）/ `layer` / `tags` / `importance` / `verification_basis` / `condition_space` / `gated` / `consistency` / `on_conflict`（reject\|defer\|record） |
+| `read` | 召回/检索/按 id 取（`session`=只取该会话归属的记忆，缺省不过滤） | `query` / `node_id` / `k` / `layer` / `budget_tokens` / `context` / `session` |
+| `write` | 写入（先按 content_kind 审核 + 冲突检测，ACCEPT 落盘 / DEFER 入审核队列 / REJECT 入负记忆）。**自动归属**：frontmatter 带 `writer`/`session`/`harness`（服务端身份，不可伪造） | `content` / `content_kind`（text/code/…）/ `node_id`（同 id 即改写）/ `layer` / `tags` / `importance` / `verification_basis` / `condition_space` / `gated` / `consistency` / `on_conflict`（reject\|defer\|record） |
 | `verify` | 对节点做证据验证（confirmed/weakened/falsified）——**非队列裁决** | `node_id` / `verdict` / `evidence` |
 | `review` | 审核队列：`action=list/rounds/records` 查看；传 `pid`+`decision`+`reason` 即裁决落盘（accept/reject/edit/merge，**需 can_admin**；本机未配置外部验证器时写入恒 DEFER 入队，靠此裁决落盘） | `action` / `pid` / `decision` / `reason` / `edits` / `merge_into` |
 | `recent` | 近期事件窗口 | `action`（add/list/clear）/ `limit` |

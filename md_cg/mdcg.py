@@ -706,6 +706,9 @@ class MdCG:
             "self_state": fm.get("self_state"),
             "derived_from": parents,
             "derived_relation": derived_rel,
+            "writer": fm.get("writer"),
+            "session": fm.get("session"),
+            "harness": fm.get("harness"),
         })
         subgraph.invalidate_cache(self)
         chain.invalidate_cache(self)
@@ -1057,7 +1060,8 @@ class MdCG:
 
     def search(self, query: str, layer: str = None, k: int = 20,
                context=None, min_results: int = 1, record: bool = True,
-               include_neg: bool = True, judge: bool = True, pools=None):
+               include_neg: bool = True, judge: bool = True, pools=None,
+               session=None):
         """返回 (results, meta)。results = [(node_dict, score, qualification)]。
 
         meta 含 tier（性能层级）、scanned（读取节点数）、bucket（路由桶）、candidates。
@@ -1084,7 +1088,8 @@ class MdCG:
         # ——命中它们的结果会改变 meta 的 covered_neg（被负记忆覆盖的查询）
         # 默认排除掉负记忆层的节点进入正排打分，仅作为「覆盖标记」用
         entries = [e for e in self.index["nodes"].values()
-                   if not layer or e["layer"] == layer]
+                   if (not layer or e["layer"] == layer)
+                   and (not session or e.get("session") == session)]
         if not entries:
             return [], {"tier": None, "reason": "no_candidates", "scanned": 0}
 
