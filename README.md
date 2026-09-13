@@ -323,6 +323,18 @@ npm test         # 真实集成测试（spawn 本机灵枢，验证握手/往返
 
 测试不依赖 DSH 全组件——用最小 Cordis host（SystemPrompt + ToolRegistry + 插件）隔离不稳定面。
 
+### Python 测试约定（必须 `python -m`）
+
+`md_cg/` 等包内测试普遍使用**包内相对导入**，必须以模块方式从**仓库根**运行；直接 `python md_cg/test_xxx.py` 会 ImportError（59/61 踩坑实测）。一键入口已固化该约定：
+
+```bash
+python scripts/run_tests.py                  # 全量（md_cg + compiler + swarm）
+python scripts/run_tests.py md_cg -k p44     # 按组 / 关键字过滤
+python scripts/run_tests.py --jobs 1         # 串行（默认并发 4）
+```
+
+单测等价写法：`python -m md_cg.test_p44_md_whitebox`（cwd=仓库根）。退出码 0/1 可直接接提交前门禁。
+
 ---
 
 ## 📏 工程纪律与设计者视角（可选推荐）

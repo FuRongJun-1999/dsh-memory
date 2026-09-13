@@ -2629,6 +2629,19 @@ def main():
     if not root:
         sys.stderr.write("[mdcg-mcp] 缺少 MDCG_ROOT 环境变量\n")
         return 2
+    # root 守卫（fail-closed）：`_md_cg_` 前缀目录是 md_cg 工具链的导出/评测
+    # 产物（白箱语料 _md_cg_wisdom_graph、评测灌库 _md_cg_eval_* 等——只读
+    # 或可再生语义），不是认知图 root；配成 root 写入会污染双表示
+    # （2026-09-13 workdone_readme_en500 错写白箱语料事故根因）。
+    # 启动即拒绝，不带病运行。
+    _base = os.path.basename(os.path.normpath(os.path.abspath(root)))
+    if _base.lower().startswith("_md_cg_"):
+        sys.stderr.write(
+            "[mdcg-mcp] MDCG_ROOT 指向 md_cg 工具链产物目录（`_md_cg_` 前缀，"
+            "白箱语料/评测快照，只读或可再生语义），禁止作为认知图 root：\n"
+            f"    {root}\n"
+            "[mdcg-mcp] 请指向主认知图目录（如仓库内 md_cg/）。\n")
+        return 2
     from .mdcos import MdCGSecure
     principal, err = _build_principal()
     if err:

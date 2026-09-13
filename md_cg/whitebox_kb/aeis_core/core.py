@@ -964,16 +964,20 @@ class LayeredStore:
         like_cond = "(" + " OR ".join(like_parts) + ")"
         where = " AND ".join(conds + [like_cond]) if conds else like_cond
         c = self.conn.cursor()
-        c.execute(f"SELECT * FROM nodes WHERE {where} LIMIT 300", params + like_params)
+        # 截断确定性（v1.17）：无 ORDER BY 的 LIMIT 依赖 sqlite 物理插入序
+        # （VACUUM/重建即漂移，跨后端不可复现）——ORDER BY id 固化候选池。
+        c.execute(f"SELECT * FROM nodes WHERE {where} ORDER BY id LIMIT 300",
+                  params + like_params)
         rows = c.fetchall()
         if not rows:
             # 检索增强（v1.12.1 · AEIS-BENCH-01 发现）：LIKE 预筛落空
             # （查询为重组短语，原文无连续子串命中）→ 回退全表二元组 Jaccard。
             # 节点量级小（千级），全表计算代价可忽略；消除连续性漏检。
             if conds:
-                c.execute(f"SELECT * FROM nodes WHERE {' AND '.join(conds)} LIMIT 500", params)
+                c.execute(f"SELECT * FROM nodes WHERE {' AND '.join(conds)} "
+                          f"ORDER BY id LIMIT 500", params)
             else:
-                c.execute("SELECT * FROM nodes LIMIT 500")
+                c.execute("SELECT * FROM nodes ORDER BY id LIMIT 500")
             rows = c.fetchall()
         scored = []
         # 评分用原查询二元组重叠率（召回导向）；扩展词只负责预筛召回不稀释评分
@@ -987,8 +991,9 @@ class LayeredStore:
                 sim = 0.0
             tag_bonus = 0.05 if any(t in q or q in t for t in node.tags) else 0.0
             scored.append((node, min(1.0, sim + tag_bonus)))
-        # 同分按重要性降序（高质量记忆优先，避免并列截断排挤重要节点）
-        scored.sort(key=lambda x: (-x[1], -x[0].importance))
+        # 同分按重要性降序（高质量记忆优先，避免并列截断排挤重要节点）；
+        # 末键 id 确定性决胜——同分同重要度的相对序不依赖候选遍历序（物理序）
+        scored.sort(key=lambda x: (-x[1], -x[0].importance, x[0].id))
         results = scored[:limit]
         for node, _ in results:
             self.increment_access(node.id)

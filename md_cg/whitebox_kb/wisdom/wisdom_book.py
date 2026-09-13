@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import time
+from types import SimpleNamespace
 
 # 正源即自身所在目录（aeis/wisdom/）；不注入任何外部副本路径——
 # 副本一律经显式 db_path 传入，防跨副本污染（第二阶段审查 2026-08-27）
@@ -21,8 +22,30 @@ import time
 from aeis_core import (SpacetimeMemoryEngine, ConditionSpace, EdgeType,  # noqa: E402
                        MemoryLayer, Role, STNode, STEdge)
 
+# md 直读访问层：检索读路径统一入口（WB_MD_DIRECT=1 走 md 语料，
+# 否则回落派生库）——对拍守卫 md_cg/test_md_access_parity.py
+from md_access import read_conn  # noqa: E402
+
+# md 真源写入器（MdCGOS.add/append_edge）与读面装载器（MdStore）：
+# 知识读写以 md 语料为唯一真源（使用者裁定 2026-09-14，sqlite 黑箱退役）
+try:
+    from md_cg.mdcos import MdCGOS  # noqa: E402  仓根 cwd / -m md_cg.test_* 形态
+except ImportError:  # pragma: no cover
+    try:
+        from mdcos import MdCGOS    # noqa: E402  md_cg 目录在 path 形态
+    except ImportError:
+        MdCGOS = None               # md 写入器缺位 → 诚实回落 sqlite
+from md_store import MdStore  # noqa: E402
+
 DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "wisdom-book-cloud.db")
+
+# md 语料真源根：与 migrate_wisdom_graph.DEFAULT_ROOT 同一定位
+# （dsh-memory/_md_cg_wisdom_graph，4355 节点 + L1-L4 确定性校验）
+DEFAULT_MD_ROOT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__))))),
+    "_md_cg_wisdom_graph")
 
 
 def _nid(seed):
@@ -656,8 +679,21 @@ class ConditionDex:
     """条件论查询门面（Dex）：知识层为工作区——卡片种子导入、条件分离、
     卡片四要素分析与路由验证的主入口对象。"""
 
-    def __init__(self, db_path=None, fresh=False):
-        """Dex 构造：复用或新建灵枢引擎，知识层为工作区。"""
+    def __init__(self, db_path=None, fresh=False, md_root=None):
+        """Dex 构造（三态）：
+        - db_path / fresh 显式传入 → sqlite 派生库形态（存量调用点零破坏）
+        - 否则 → md 真源形态（md_root 缺省 DEFAULT_MD_ROOT）：知识读写以
+          md 语料为唯一真源，读面=MdStore 内存图、写面=MdCGOS
+        - 语料根缺失且 MdCGOS 缺位 → 诚实回落 sqlite（不猜路径）"""
+        self.md_root = None
+        self._md_mode = False
+        if db_path is None and not fresh:
+            root = md_root or (DEFAULT_MD_ROOT
+                               if os.path.isdir(DEFAULT_MD_ROOT) else None)
+            if root is not None and MdCGOS is not None:
+                self._init_md(root)
+                return
+        # sqlite 派生库形态（兼容存量调用方）
         self.db_path = db_path or DEFAULT_DB
         d = os.path.dirname(self.db_path)
         if d and self.db_path != ":memory:":
@@ -672,15 +708,92 @@ class ConditionDex:
         self.engine.store.set_meta("base", "存在论/条件论/智能论/物理学/信息论/概率论/博弈论")
         self._by_name = {}
 
+    def _init_md(self, root):
+        """md 真源形态初始化：读面=MdStore（内存图装载），写面=MdCGOS（md 语料）。
+        autoflush=1：知识写入低频，逐条立即落盘——保证「写入即可读」
+        （store.reload 扫文件系统，staging 未落盘会读到旧快照）。"""
+        self.md_root = os.path.abspath(root)
+        self.cg = MdCGOS(self.md_root, actor="wisdom-book", autoflush=1)
+        self.store = MdStore(self.md_root)
+        self.engine = None
+        self._md_mode = True
+        self._by_name = {}
+        self._rebuild_by_name()
+
+    def _rebuild_by_name(self):
+        """从语料重建 名字→id 索引（state_attributes.name 为权威名字字段）：
+        md 模式重启后 add_relation 等按名操作不空转（add_entry 增量 upsert
+        与此处全量重建同口径）。无 name 字段的节点（kp_* 派生语料）跳过。"""
+        for n in self.store.query_nodes(layer=MemoryLayer.KNOWLEDGE,
+                                        limit=1000000):
+            name = (n.state_attributes or {}).get("name")
+            if name:
+                self._by_name[name] = n.id
+
     def close(self):
-        """关闭底层灵枢引擎与存储连接。"""
-        self.engine.close()
+        """关闭底层引擎（md 模式=MdCGOS 收尾）。"""
+        if self._md_mode:
+            self.cg.close()
+        else:
+            self.engine.close()
 
     # ---- 写入 ----
+
+    def _perceive(self, content, modality="text", condition_space=None,
+                  importance=0.5, tags=None, skip_dedup=False):
+        """观测留痕写入（过程数据，非知识本体）——双模分流：
+        sqlite=engine.add_perception（自动进知识层，core.py L1918）；
+        md=cg.add(layer=knowledge) 同语义对齐——留痕层名必须是
+        MemoryLayer 合法枚举，否则 MdStore 装载时 from_row 炸被诚实
+        跳过（重开即丢，已实证）。"""
+        if not self._md_mode:
+            return self.engine.add_perception(
+                content, modality=modality, condition_space=condition_space,
+                importance=importance, tags=tags, skip_dedup=skip_dedup)
+        nid = _nid("rec:" + content[:48])
+        try:
+            cs_dict = json.loads(condition_space.to_json())
+        except AttributeError:
+            cs_dict = {}
+        self.cg.add(nid, content, layer="knowledge", tags=list(tags or []),
+                    condition_space=cs_dict, importance=importance,
+                    verification_basis="data", ccg_exempt=True, override=True)
+        self.store.reload()
+        return SimpleNamespace(id=nid, content=content,
+                               tags=list(tags or []))
+
+    def _link(self, src_id, dst_id, relation_type, confidence,
+              condition_space, source_evidence="inferred"):
+        """建边（双模）：sqlite=engine.add_edge；md=cg.append_edge（fm.edges，
+        不置 verified——观测推演边非基底关系）。"""
+        if not self._md_mode:
+            return self.engine.add_edge(src_id, dst_id,
+                                        relation_type=relation_type,
+                                        confidence=confidence,
+                                        condition_space=condition_space,
+                                        source_evidence=source_evidence)
+        try:
+            cs_dict = json.loads(condition_space.to_json())
+        except AttributeError:
+            cs_dict = {}
+        rel = relation_type.value if hasattr(relation_type, "value") else str(relation_type)
+        self.cg.append_edge(src_id, {"target": dst_id,
+                                     "relation_type": rel,
+                                     "confidence": float(confidence),
+                                     "condition_space": cs_dict,
+                                     "source_evidence": source_evidence})
+        self.store.reload()
+        return "mde_" + hashlib.sha1(
+            f"{src_id}->{dst_id}:{rel}".encode("utf-8")).hexdigest()[:12]
 
     def add_entry(self, name, domain, claim, cs, level=2, status="pending",
                   response=None, tags=None, card2=None, tier=None, tests=None):
         """录入知识条目：name/domain/claim + 条件空间 cs → 感知节点写入知识层（打 domain:/level:/status: 标签）。"""
+        if self._md_mode:
+            return self._add_entry_md(name, domain, claim, cs, level=level,
+                                      status=status, response=response,
+                                      tags=tags, card2=card2, tier=tier,
+                                      tests=tests)
         node = self.engine.add_perception(
             claim, modality="text", condition_space=cs,
             importance=min(0.95, 0.6 + 0.1 * level),
@@ -701,8 +814,46 @@ class ConditionDex:
         self._by_name[name] = node.id
         return node.id
 
+    def _add_entry_md(self, name, domain, claim, cs, level=2, status="pending",
+                      response=None, tags=None, card2=None, tier=None, tests=None):
+        """md 真源写入：知识卡 → md 语料节点（fm.state_attributes 承载卡片
+        元数据，schema 与 migrate_wisdom_graph.export 一致，行同构可被
+        派生库重建消费）。名字确定性 id + override → 幂等 upsert。"""
+        nid = "wis_" + hashlib.sha1(name.encode("utf-8")).hexdigest()[:12]
+        ntags = [f"domain:{domain}", f"level:L{level}", f"status:{status}"]
+        if tier:
+            ntags.append(f"tier:{tier}")
+        for t in (tags or []):
+            if t not in ntags:
+                ntags.append(t)
+        sa = {"name": name, "domain": domain, "level": level, "status": status,
+              "response": response or {}, "kind": "knowledge"}
+        if tier:
+            sa["tier"] = tier
+        if card2:
+            sa["card2"] = card2   # 识别卡 2.0（8+1 字段）
+        if tests:
+            sa["tests"] = tests   # 关联测试（可观测判据集）
+        try:
+            cs_dict = json.loads(cs.to_json())
+        except AttributeError:
+            cs_dict = {}
+        self.cg.add(nid, claim, layer="knowledge", tags=ntags,
+                    condition_space=cs_dict,
+                    importance=min(0.95, 0.6 + 0.1 * level),
+                    confidence=min(0.95, 0.4 + 0.12 * level),
+                    state_attributes=sa,
+                    verification_basis="data", ccg_exempt=True,
+                    override=True)
+        self.store.reload()   # 快照刷新：写入即可读（读写同源）
+        self._by_name[name] = nid
+        return nid
+
     def add_relation(self, a_name, b_name, kind, note="", confidence=0.8):
         """在两个命名条目间建边：kind 映射 EdgeType（默认 SIMILAR），note 写入存在约束，confidence 为边置信度。"""
+        if self._md_mode:
+            return self._add_relation_md(a_name, b_name, kind, note=note,
+                                         confidence=confidence)
         et = getattr(EdgeType, kind.upper(), EdgeType.SIMILAR)
         cond = _default_cs()
         cond.existence_constraint = note or cond.existence_constraint
@@ -711,6 +862,32 @@ class ConditionDex:
                                     condition_space=cond, source_evidence="inferred")
         self.engine.verify_edge(edge.id, confidence)  # 基底关系已验证
         return edge.id
+
+    def _add_relation_md(self, a_name, b_name, kind, note="", confidence=0.8):
+        """md 真源建边：fm.edges 承载（schema 与导出语料一致）；基底关系
+        直接 verified=1（等价 sqlite 版 add_edge+verify_edge 两步）。"""
+        src = self._by_name.get(a_name)
+        dst = self._by_name.get(b_name)
+        if not src or not dst:
+            raise KeyError(f"add_relation: 未知条目 {a_name!r} / {b_name!r}"
+                           "（md 模式须先 add_entry）")
+        et = getattr(EdgeType, str(kind).upper(), EdgeType.SIMILAR)  # 与旧路同构
+        cond = _default_cs()
+        cond.existence_constraint = note or cond.existence_constraint
+        try:
+            cs_dict = json.loads(cond.to_json())
+        except AttributeError:
+            cs_dict = {}
+        self.cg.append_edge(src, {"target": dst,
+                                  "relation_type": et.value,
+                                  "confidence": float(confidence),
+                                  "verified": 1,
+                                  "condition_space": cs_dict,
+                                  "source_evidence": "inferred"})
+        self.store.reload()
+        # 返回确定性边 id（与 MdStore._mk_edge 同公式，往返一致）
+        return "mde_" + hashlib.sha1(
+            f"{src}->{dst}:{et.value}".encode("utf-8")).hexdigest()[:12]
 
     # ---- 基底装载（幂等：已播种则跳过） ----
 
@@ -823,7 +1000,7 @@ class ConditionDex:
         # 工作记录/感知记忆大多无 name）→ 只遍历 ~110 张卡，快 ~100 倍。
         from aeis_core import STNode as _STNode
         try:
-            _rows = self.store.conn.execute(
+            _rows = read_conn(self).execute(
                 "SELECT * FROM nodes WHERE layer='knowledge' "
                 "AND state_attributes LIKE '%\"name\"%' "
                 "AND tags NOT LIKE '%knowledge_point%'").fetchall()
@@ -1427,7 +1604,7 @@ class ConditionDex:
         for name in ([t_top["name"]] if t_top else []) + [a["name"] for a in p_anchors[:2]]:
             if name:
                 rec_tags.append(f"domain:{name}")
-        rec_node = self.engine.add_perception(
+        rec_node = self._perceive(
             json.dumps(rec, ensure_ascii=False), modality="text",
             condition_space=cs, importance=0.7, tags=rec_tags)
 
@@ -1475,7 +1652,7 @@ class ConditionDex:
             # 无锚定：基地也检索不到 → 诚实盲区
             rec = {"type": "自动验证记录", "知识": knowledge[:24], "判定": "无法判断（词汇表外）",
                    "信息差": None, "E_reduction": None}
-            node = self.engine.add_perception(
+            node = self._perceive(
                 json.dumps(rec, ensure_ascii=False), modality="text",
                 condition_space=ConditionSpace(
                     observation_position="自动验证台（外部）",
@@ -1546,7 +1723,7 @@ class ConditionDex:
         rec = {"type": "自动验证记录", "知识": knowledge[:24],
                "判定": judgment, "最优候选": best["name"], "D_norm": best["d_norm"],
                "E_reduction": round(e_reduction, 3), "候选数": len(scored)}
-        node = self.engine.add_perception(
+        node = self._perceive(
             json.dumps(rec, ensure_ascii=False), modality="text",
             condition_space=ConditionSpace(
                 observation_position="自动验证台（外部）",
@@ -1644,7 +1821,7 @@ class ConditionDex:
                "判定": judgment, "风险分": round(risk_score, 2),
                "表达正当性": round(intimacy, 2)}
         try:
-            node = self.engine.add_perception(
+            node = self._perceive(
                 json.dumps(rec, ensure_ascii=False), modality="text",
                 condition_space=ConditionSpace(
                     observation_position="信任上下文判定台（关系外部观测）",
@@ -1736,7 +1913,7 @@ class ConditionDex:
         rec = {"type": "跨学科组合分析记录", "知识": knowledge[:24], "模式": mode,
                "锚定": [a["name"] for a in anchors],
                "汇聚": [c["target"] for c in multi[:3]]}
-        node = self.engine.add_perception(
+        node = self._perceive(
             json.dumps(rec, ensure_ascii=False), modality="text",
             condition_space=ConditionSpace(
                 observation_position="跨学科组合分析台（外部）",
@@ -2091,16 +2268,16 @@ class ConditionDex:
                             observation_tool="条件扰动推演",
                             time_window=(0.0, 9999999999.0),
                             existence_constraint=f"扰动：{disturbance}")
-        node = self.engine.add_perception(
+        node = self._perceive(
             content, modality="text", condition_space=cs,
             importance=0.6,
             tags=["观测层", "边界测试",
                   f"domain:{A.state_attributes.get('name')}",
                   f"domain:{B.state_attributes.get('name')}"])
         for ent in (A, B):
-            self.engine.add_edge(ent.id, node.id, relation_type=EdgeType.SIMILAR,
-                                 confidence=0.7, condition_space=cs,
-                                 source_evidence="inferred")
+            self._link(ent.id, node.id, relation_type=EdgeType.SIMILAR,
+                       confidence=0.7, condition_space=cs,
+                       source_evidence="inferred")
         return node.id
 
     # ---- AI vs AI 自动边界测试（P28：无界面 · 条件空间交叉检验自动化） ----
@@ -2204,14 +2381,14 @@ class ConditionDex:
                                 observation_tool="招式列表+条件操作五式交替施压",
                                 time_window=(0.0, 9999999999.0),
                                 existence_constraint=f"互测：{na} vs {nb}")
-            node = self.engine.add_perception(content, modality="text", condition_space=cs,
-                                              importance=0.65,
-                                              tags=["观测层", "边界测试", "自动互测",
-                                                    f"domain:{na}", f"domain:{nb}"])
+            node = self._perceive(content, modality="text", condition_space=cs,
+                                  importance=0.65,
+                                  tags=["观测层", "边界测试", "自动互测",
+                                        f"domain:{na}", f"domain:{nb}"])
             for ent in (A, B):
-                self.engine.add_edge(ent.id, node.id, relation_type=EdgeType.SIMILAR,
-                                     confidence=0.7, condition_space=cs,
-                                     source_evidence="inferred")
+                self._link(ent.id, node.id, relation_type=EdgeType.SIMILAR,
+                           confidence=0.7, condition_space=cs,
+                           source_evidence="inferred")
             report["record_id"] = node.id
         return report
 
@@ -2355,14 +2532,14 @@ class ConditionDex:
             tags = ["观测层", rec_type] + [f"domain:{n}" for n in rec["相关学科"]]
             if rec_type == "历史对战":
                 tags.append("边界测试")
-            node = self.engine.add_perception(content, modality="text", condition_space=cs,
-                                              importance=0.7, tags=tags)
+            node = self._perceive(content, modality="text", condition_space=cs,
+                                  importance=0.7, tags=tags)
             for name in rec["相关学科"]:
                 ent = self._resolve_entry(name)
                 if ent:
-                    self.engine.add_edge(ent.id, node.id, relation_type=EdgeType.SIMILAR,
-                                         confidence=0.8, condition_space=cs,
-                                         source_evidence="extracted")
+                    self._link(ent.id, node.id, relation_type=EdgeType.SIMILAR,
+                               confidence=0.8, condition_space=cs,
+                               source_evidence="extracted")
             archived.append({"报告编号": rec["报告编号"], "record_id": node.id})
         return {"status": "archived", "records": archived}
 

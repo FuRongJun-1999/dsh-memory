@@ -38,13 +38,85 @@ _KP_RE = re.compile(r"^\s*(\d+)\.\s+(.+?)[:：]\s*(.*)$")
 
 
 class KnowledgePointSplitter:
-    """知识卡 content → 知识点节点 + 卡⊃知识点 hierarchical 边"""
+    """知识卡 content → 知识点节点 + 卡⊃知识点 hierarchical 边
 
-    def __init__(self, db_path: str = DEFAULT_DB):
-        """知识点库连接初始化（缺表自愈创建）。"""
+    双模（写路径收口 · md 真源裁定）：
+    - `cg` 给定 → **md 真源模式**：写经 `cg.add`（mdcg 唯一写入闸门）+
+      `cg.append_subgraph_node`（层级边落点=父节点 subgraph.nodes，与迁移
+      导出形态一致）；读经 `md_access.MdConn`（WB 同款只读访问层）。
+    - `cg=None` → sqlite 派生库旧路（兜底：无 md_cg 环境仍可运行）。
+    """
+
+    # nodes 表 16 列序（md 行 tuple → dict 的键序，与 md_access 行同构一致）
+    _COLS = ("id", "content", "modality", "spatial_coordinates",
+             "temporal_coordinate", "condition_space", "importance",
+             "confidence", "layer", "access_count", "last_access",
+             "created_at", "tags", "semantic_coordinates",
+             "state_attributes", "entity_id")
+
+    def __init__(self, db_path: str = DEFAULT_DB, cg=None):
+        """`cg`（MdCG/MdCGSecure）给定走 md 真源，否则 sqlite 连接初始化。"""
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path, timeout=15)
-        self.conn.row_factory = sqlite3.Row
+        self.cg = cg
+        self._mdc = None
+        if cg is None:
+            self.conn = sqlite3.connect(db_path, timeout=15)
+            self.conn.row_factory = sqlite3.Row
+        else:
+            self.conn = None
+
+    def _md_conn(self):
+        """md 模式的只读连接（懒加载，root 取 cg.root）。"""
+        if self._mdc is None:
+            from md_access import MdConn
+            self._mdc = MdConn(self.cg.root)
+        return self._mdc
+
+    def _query(self, sql: str):
+        """按模式执行只读查询，返回支持 row[列名] 访问的行列表。
+
+        md 模式把 SELECT 列表规范化为 *（16 列 dict），谓词不变——
+        三条查询（tags LIKE 单/双谓词）均在 md_access 只读文法内。
+        """
+        if self.cg is None:
+            return self.conn.execute(sql).fetchall()
+        sql_star = re.sub(r"SELECT\s+.+?\s+FROM", "SELECT * FROM",
+                          sql, count=1, flags=re.I | re.S)
+        return [dict(zip(self._COLS, r))
+                for r in self._md_conn().execute(sql_star).fetchall()]
+
+    def _write_point(self, pid, pcontent, tags, cs, sa, card_id,
+                     card_imp, now, pname):
+        """写一个知识点节点 + 卡⊃知识点层级边（按模式分派）。"""
+        if self.cg is not None:
+            self.cg.add(pid, pcontent, layer="knowledge", tags=tags,
+                        condition_space=json.loads(cs),
+                        importance=round(card_imp * 0.9, 2), confidence=0.6,
+                        modality="text", spatial={}, temporal=now,
+                        semantic_coordinates={},
+                        state_attributes=json.loads(sa),
+                        verification_basis="textbook", edges=[])
+            # 卡 -hierarchical-> 知识点：md 落点=父节点 subgraph.nodes
+            self.cg.append_subgraph_node(card_id, pid)
+        else:
+            c = self.conn.cursor()
+            c.execute(
+                "INSERT INTO nodes (id, content, modality, spatial_coordinates, "
+                "temporal_coordinate, condition_space, importance, confidence, layer, "
+                "access_count, last_access, created_at, tags, semantic_coordinates, "
+                "state_attributes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (pid, pcontent, "text", "{}", now, cs,
+                 round(card_imp * 0.9, 2), 0.6, "knowledge", 0, None, now,
+                 json.dumps(tags, ensure_ascii=False), "{}", sa))
+            # 卡 -hierarchical-> 知识点（verified：知识点继承已验证卡）
+            eid = f"edge_kp_{abs(hash(card_id + pname)) % 10**10}_{int(now * 1000)}"
+            c.execute(
+                "INSERT INTO edges (id, source_id, target_id, relation_type, "
+                "condition_space, confidence, weight, verified, created_at, "
+                "last_verified, source_evidence) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (eid, card_id, pid, "hierarchical", cs, 0.9, 0.9, 1, now,
+                 now, "extracted"))
+            self.conn.commit()
 
     # ---------------- 拆分 ----------------
     def parse_points(self, content: str) -> List[tuple]:
@@ -82,19 +154,34 @@ class KnowledgePointSplitter:
     def split_card(self, card_id: str, name: str, domain: str, edu: str,
                    content: str, card_imp: float, dry_run: bool = False) -> Dict:
         """拆一张卡 → 知识点节点 + hierarchical 边（幂等）"""
-        c = self.conn.cursor()
         points = self.parse_points(content)
-        # 已存在的知识点名（幂等）
+        # 已存在的知识点名（幂等）。md 模式走 cg index 直查（不走 MdConn
+        # 快照——本进程刚写入的 kp 必须立即可见），sqlite 模式实时 SQL。
         existing = set()
-        for row in c.execute(
-                "SELECT state_attributes FROM nodes WHERE tags LIKE ?",
-                ("%card:" + card_id[:16] + "%",)).fetchall():
-            try:
-                nm = json.loads(row["state_attributes"] or "{}").get("name", "")
-                if nm:
-                    existing.add(nm)
-            except Exception:
-                pass
+        if self.cg is not None:
+            pref = f"card:{card_id[:16]}"
+            for nid, e in self.cg.index["nodes"].items():
+                if pref not in (e.get("tags") or []):
+                    continue
+                try:
+                    node = self.cg.get(nid) or {}
+                    fm = node.get("frontmatter") or {}
+                    nm = (fm.get("state_attributes") or {}).get("name", "")
+                    if nm:
+                        existing.add(nm)
+                except Exception:
+                    pass
+        else:
+            for row in self.conn.execute(
+                    "SELECT state_attributes FROM nodes WHERE tags LIKE ?",
+                    ("%card:" + card_id[:16] + "%",)).fetchall():
+                try:
+                    nm = json.loads(row["state_attributes"] or "{}").get(
+                        "name", "")
+                    if nm:
+                        existing.add(nm)
+                except Exception:
+                    pass
         added = 0
         skipped = 0
         now = time.time()
@@ -118,36 +205,19 @@ class KnowledgePointSplitter:
                              "time_window": [0.0, 9999999999.0],
                              "existence_constraint": "通用规律/知识（开源非盈利知识库）"},
                             ensure_ascii=False)
-            c.execute(
-                "INSERT INTO nodes (id, content, modality, spatial_coordinates, "
-                "temporal_coordinate, condition_space, importance, confidence, layer, "
-                "access_count, last_access, created_at, tags, semantic_coordinates, "
-                "state_attributes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (pid, pcontent, "text", "{}", now, cs,
-                 round(card_imp * 0.9, 2), 0.6, "knowledge", 0, None, now,
-                 json.dumps(tags, ensure_ascii=False), "{}", sa))
-            # 卡 -hierarchical-> 知识点（verified：知识点继承已验证卡）
-            eid = f"edge_kp_{abs(hash(card_id + pname)) % 10**10}_{int(now * 1000)}"
-            c.execute(
-                "INSERT INTO edges (id, source_id, target_id, relation_type, "
-                "condition_space, confidence, weight, verified, created_at, "
-                "last_verified, source_evidence) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (eid, card_id, pid, "hierarchical", cs, 0.9, 0.9, 1, now,
-                 now, "extracted"))
+            self._write_point(pid, pcontent, tags, cs, sa, card_id,
+                              card_imp, now, pname)
             added += 1
-        if not dry_run:
-            self.conn.commit()
         return {"card": name, "points": len(points), "added": added,
                 "skipped": skipped}
 
     def split_all(self, dry_run: bool = False) -> Dict:
         """全库拆分（扫描 subject_card 卡）"""
-        c = self.conn.cursor()
         report = {"cards": 0, "points_total": 0, "added": 0, "skipped": 0,
                   "no_format": []}
-        cards = c.execute(
+        cards = self._query(
             "SELECT id, state_attributes, content, importance FROM nodes "
-            "WHERE tags LIKE '%subject_card%' AND tags NOT LIKE '%knowledge_point%'").fetchall()
+            "WHERE tags LIKE '%subject_card%' AND tags NOT LIKE '%knowledge_point%'")
         for row in cards:
             sa = json.loads(row["state_attributes"] or "{}")
             name = sa.get("name", "")
@@ -168,7 +238,6 @@ class KnowledgePointSplitter:
     # ---------------- 知识点级精确检索 ----------------
     def find_points(self, query: str, limit: int = 8) -> List[Dict]:
         """问题 → 知识点精确命中（encode 规范词 LIKE 匹配 name/content）"""
-        c = self.conn.cursor()
         fp = {}
         try:
             sys.path.insert(0, HERE)
@@ -177,9 +246,9 @@ class KnowledgePointSplitter:
         except Exception:
             pass
         scored = []
-        for row in c.execute(
+        for row in self._query(
                 "SELECT id, content, state_attributes, importance, tags "
-                "FROM nodes WHERE tags LIKE '%knowledge_point%'").fetchall():
+                "FROM nodes WHERE tags LIKE '%knowledge_point%'"):
             sa = json.loads(row["state_attributes"] or "{}")
             name = sa.get("name", "")
             text = name + " " + (row["content"] or "")
@@ -219,13 +288,25 @@ class KnowledgePointSplitter:
         return scored[:limit]
 
     def close(self):
-        """关闭数据库连接。"""
-        self.conn.close()
+        """收尾：md 模式 flush 持久化索引；sqlite 模式关连接。"""
+        if self.cg is not None:
+            self.cg.flush()
+        else:
+            self.conn.close()
 
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
-    sp = KnowledgePointSplitter()
+    _cg = None
+    if (os.environ.get("WB_MD_DIRECT") == "1"
+            and os.environ.get("WB_MD_ROOT")):
+        # md 真源模式：WB_MD_ROOT 即语料根（拆分结果写入 md 语料）
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))))
+        from md_cg.mdcg import MdCG
+        _cg = MdCG(root=os.environ["WB_MD_ROOT"])
+        print(f"[md] 真源根: {_cg.root}")
+    sp = KnowledgePointSplitter(cg=_cg)
     dry = "--dry-run" in sys.argv
     rep = sp.split_all(dry_run=dry)
     print(json.dumps(rep, ensure_ascii=False, indent=1))

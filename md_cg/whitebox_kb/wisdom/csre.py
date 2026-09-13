@@ -58,12 +58,20 @@ class Csre:
                   when最强信号，正文 what 减半）
         """
         from semantic_translate import ALL_TABLE, _card_bigrams  # noqa: E402
+        from md_access import md_conn_or_none  # noqa: E402
 
-        conn = sqlite3.connect(self.db_path)
-        rows = conn.execute(
-            "SELECT id, content, state_attributes FROM nodes "
-            "WHERE tags LIKE '%knowledge_point%'").fetchall()
-        conn.close()
+        # md 直读优先（WB_MD_DIRECT=1），回落派生库直连——与检索层同开关
+        _md = md_conn_or_none()
+        if _md is not None:
+            rows = _md.execute(
+                "SELECT id, content, state_attributes FROM nodes "
+                "WHERE tags LIKE '%knowledge_point%'").fetchall()
+        else:
+            conn = sqlite3.connect(self.db_path)
+            rows = conn.execute(
+                "SELECT id, content, state_attributes FROM nodes "
+                "WHERE tags LIKE '%knowledge_point%'").fetchall()
+            conn.close()
 
         vocab_rows = []
         for nid, _content, sa in rows:

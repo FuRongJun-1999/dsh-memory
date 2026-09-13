@@ -22,6 +22,10 @@ import os
 import re
 import sys
 
+# md 直读访问层：检索读路径统一入口（WB_MD_DIRECT=1 走 md 语料，
+# 否则回落派生库）——对拍守卫 md_cg/test_md_access_parity.py
+from md_access import read_conn
+
 # ============================================================
 # 翻译表：日常表达 → 规范知识词（编码字典）
 # 结构：规范词 -> [该词的日常说法/俗语/近义表达]
@@ -2516,7 +2520,7 @@ def recursive_item_answer(dex, card_name, fp, question):
     # v1.16 知识点级精确命中（卡⊃知识点嵌套子图）：
     # 问题规范词直接命中该卡的知识点子节点 → 精确答案（比卡 content 整卡解析更准）
     try:
-        card_row = dex.store.conn.execute(
+        card_row = read_conn(dex).execute(
             "SELECT id FROM nodes WHERE layer='knowledge' "
             "AND state_attributes LIKE ? AND tags NOT LIKE '%knowledge_point%' "
             "LIMIT 1", ('%"name": "' + card_name + '%',)).fetchone()
@@ -2524,7 +2528,7 @@ def recursive_item_answer(dex, card_name, fp, question):
             card_prefix = card_row[0][:16]
             best_kp, best_s = None, 0.0
             best_name_hit = False  # 名命中（强）：fp 词 in 知识点名 或 名 in 问题
-            for r in dex.store.conn.execute(
+            for r in read_conn(dex).execute(
                     "SELECT state_attributes, content FROM nodes WHERE layer='knowledge' "
                     "AND tags LIKE ? AND tags LIKE ?",
                     ('%knowledge_point%', '%card:' + card_prefix + '%')).fetchall():
@@ -2596,7 +2600,7 @@ def recursive_item_answer(dex, card_name, fp, question):
         pass
     # v1.16 修复：主库 11045 节点，limit=500 可能不含目标卡 → SQL 精确预过滤
     try:
-        _rows = dex.store.conn.execute(
+        _rows = read_conn(dex).execute(
             "SELECT * FROM nodes WHERE layer='knowledge' AND state_attributes LIKE ?",
             ('%"name": "' + card_name + '%',)).fetchall()
         _targets = [_STNode.from_row(tuple(r)) for r in _rows]
@@ -2942,7 +2946,7 @@ def _card_route_impl(dex, question, limit=5):
         # 从库中取带 comment 的 kp 节点（index 层——KCCS 注释即索引）
         # v1.39：去掉 LIMIT（全库 2839 注释 kp 必须全扫——之前 LIMIT 500
         # 漏掉 2000+ 个 kp，两阶段索引覆盖不全）
-        rows = dex.store.conn.execute(
+        rows = read_conn(dex).execute(
             "SELECT id, state_attributes, content FROM nodes "
             "WHERE state_attributes LIKE '%\"comment\"%'").fetchall()
         scored = []
@@ -3158,7 +3162,7 @@ def two_stage_retrieve(dex, question, top_domains=3, limit=5):
     domain_scores = {}
     domain_hits = {}
     try:
-        rows = dex.store.conn.execute(
+        rows = read_conn(dex).execute(
             "SELECT state_attributes FROM nodes "
             "WHERE state_attributes LIKE '%\"comment\"%'").fetchall()
         for (sa_json,) in rows:
@@ -3241,7 +3245,7 @@ def two_stage_retrieve(dex, question, top_domains=3, limit=5):
     # fp 规范词命中学科卡 content → 该卡 domain → 大域加分，并预取条目答案
     # （两阶段第二阶段的域内数据源——「1+1等于几」→ 加法命中小学数学卡）。
     try:
-        _cards = dex.store.conn.execute(
+        _cards = read_conn(dex).execute(
             "SELECT id, content, state_attributes FROM nodes "
             "WHERE state_attributes LIKE '%\"kind\": \"subject_card\"%' "
             "LIMIT 200").fetchall()
@@ -3581,7 +3585,7 @@ def graph_retrieve(dex, question, limit=10):
                 _kp_name = _parts[-1] if len(_parts) > 1 else _nm
                 _row = None
                 try:
-                    _row = dex.store.conn.execute(
+                    _row = read_conn(dex).execute(
                         "SELECT content FROM nodes WHERE tags LIKE ? AND tags LIKE ? "
                         "AND state_attributes LIKE ? LIMIT 1",
                         ('%knowledge_point%', '%card:' + _card_prefix + '%',

@@ -12,18 +12,26 @@ nodes 4355 / edges 2948）无损导出为 md 认知图（`_md_cg_wisdom_graph/`�
 ------------------------
 白箱检索层（`whitebox_kb/wisdom/semantic_translate.py`、`chat_engine.py`、
 `card_validator.py`、`neural_retrieve.py` 等）并非只调用 `dex` 的高层接口，
-而是**深度直查 SQL**——KCCS 注释索引、学科路由、四要素卡递归、知识点对齐
-等 7+ 处 `dex.store.conn.execute("SELECT ... FROM nodes ...")`。
-逐处改写成「读 md」既侵入又易错，还会让两条路径的行为悄悄分叉。
+历史上**深度直查 SQL**——KCCS 注释索引、学科路由、四要素卡递归、知识点
+对齐等 8 处 `dex.store.conn.execute("SELECT ... FROM nodes ...")`。
+逐处语法翻译成「读 md」既侵入又易错，还会让两条路径的行为悄悄分叉。
 
-故本模块把 md 语料还原成**同 schema 的检索库**，让白箱全部确定性检索
-逻辑零改动运行：
+**读路径现已收口到 md 直读访问层**（`whitebox_kb/wisdom/md_access.py`）：
+8 处直查统一经 `read_conn(dex)`，`WB_MD_DIRECT=1` 时走 md 语料
+（SELECT 子集解释器 + 行同构/行序复刻，对拍守卫
+`test_md_access_parity` 逐位一致），否则回落派生库。逐处语法翻译的
+教训由「同接口 + 机械对拍」替代：SQL 语义不翻写，数据源切换，
+行为分叉由测试红挡住。
+
+故本模块仍把 md 语料还原成**同 schema 的检索库**，作为派生库回落
+路径与引擎初始化底座，白箱全部确定性检索逻辑零改动运行：
 
     md 语料（唯一知识来源）
         │  build_db_from_md()      ← 本模块
         ▼
     检索库（同 schema · 可随时重建的派生物）
         │  WhiteboxEngine          ← 白箱引擎（seed=False，不污染语料）
+        │        ↑ read_conn(dex)  ← WB_MD_DIRECT=1 时检索读走 md 直读
         ▼
     回答（route / reply / hits）
 
@@ -125,8 +133,23 @@ def _edge_row(src, tgt, rel, conf, ver):
 
 
 def _restore(cg, con, verbose=False):
-    """md 语料 → 检索库（nodes / edges 两表）。返回 (n_nodes, n_edges)。"""
-    ids = list(cg.index["nodes"])
+    """md 语料 → 检索库（nodes / edges 两表）。返回 (n_nodes, n_edges)。
+
+    插入序规范 = **(LAYERS 序, 相对路径字典序)**（与白箱访问层
+    `whitebox_kb/wisdom/md_access.py::_load_rows` 同规范）：索引运行时序
+    （json 基础序 + 增量日志回放）含历史迁移序噪声且不可复现，
+    派生库行序必须由 md 实时状态确定性决定。
+    """
+    from .mdcg import LAYERS as _md_layers
+    _ord = {name: i for i, name in enumerate(_md_layers)}
+
+    def _order_key(nid):
+        e = cg.index["nodes"].get(nid) or {}
+        p = str(e.get("path")
+                or f"{e.get('layer') or 'zz'}/{nid}.md").replace("\\", "/")
+        return (_ord.get(p.split("/", 1)[0], 99), p)
+
+    ids = sorted(cg.index["nodes"], key=_order_key)
     n_rows, e_rows = [], []
     for i, nid in enumerate(ids, 1):
         d = cg.get(nid)

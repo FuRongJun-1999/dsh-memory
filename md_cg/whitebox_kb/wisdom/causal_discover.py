@@ -28,10 +28,28 @@ sys.path.insert(0, HERE)
 class CausalDiscoverer:
     """条件论七操作对自身：行为数据 → 因果候选 → 可验证预测。"""
 
-    def __init__(self, engine, dex=None):
-        """因果发现器初始化（候选机制集与置信先验挂入）。"""
+    def __init__(self, engine, dex=None, cg=None):
+        """因果发现器初始化（候选机制集与置信先验挂入）。
+
+        双模（写路径收口 · md 真源裁定）：
+        - `cg` 给定 → 候选节点/状态迁移/causal 边全写 md 语料
+          （cg.add episodic / cg.update_tags / cg.append_edge）。
+          **engine 仍必挂**：异常信号（被拒路径/hit_history）是引擎
+          运行时过程数据，非知识真源物，维持 engine 消费——形态与
+          pattern_separation（engine 可 None）不同，如实标注。
+        - `cg` 为 None → sqlite 派生库旧路（兜底）。
+        """
         self.engine = engine
         self.dex = dex  # 智慧之书 ConditionDex（供分离/逆转检查）
+        self.cg = cg
+        self._mdc = None
+
+    def _md_conn(self):
+        """md 模式只读连接（懒加载，root 取 cg.root）。"""
+        if self._mdc is None:
+            from md_access import MdConn
+            self._mdc = MdConn(self.cg.root)
+        return self._mdc
 
     # ---------------- 识别（反向·识别操作） ----------------
     def _scan_anomalies(self, limit=8):
@@ -122,8 +140,12 @@ class CausalDiscoverer:
         如果因果成立（A→B），则在 X 条件下应观察到 Y；预测可执行/可观测。
         交 prediction_feedback 验证：命中强化 / 未命中否决。"""
         desc = (candidate.get("source_anomaly") or {}).get("description", "")
+        # 稳定 id：str hash 随进程随机化，md 模式下 candidate_id 兼作
+        # 节点 id（跨轮 verify 追踪），须用内容稳定摘要
+        import zlib
+        cid = f"cc_{zlib.crc32(candidate['claim'].encode('utf-8')) % 10**8:08d}"
         return {
-            "candidate_id": f"cc_{abs(hash(candidate['claim'])) % 10**8}",
+            "candidate_id": cid,
             "claim": candidate["claim"],
             "source_anomaly": candidate.get("source_anomaly"),
             "predictions": [
@@ -145,6 +167,8 @@ class CausalDiscoverer:
           - 已 consumed（被修复/补足）→ 因果确认（resolve）
           - 超过 window 轮仍无变化 → 保持待验证（不误杀）
         返回状态统计。候选存观测层（tags: causal_candidate）。"""
+        if self.cg is not None:
+            return self._verify_md()
         from aeis_core import MemoryLayer
         now = time.time()
         open_paths = set()
@@ -192,17 +216,84 @@ class CausalDiscoverer:
         return {"tracked": tracked, "resolved": resolved, "still_open": still_open,
                 "note": "验证闭环：被拒路径 consumed=因果确认（入 causal 边）；仍 open=候选成立待修复"}
 
+    # ---------------- md 真源支（写路径收口） ----------------
+    def _verify_md(self):
+        """md 真源验证闭环：候选追踪（MdConn 行标签过滤，判据留调用侧）
+        → 状态迁移（cg.update_tags）→ 因果确认边（cg.append_edge，
+        verified=0.6 对齐引擎 verify_edge 语义）。被拒路径状态仍读 engine。
+        """
+        import json as _json
+        from md_access import COLS
+        md = self._md_conn()
+        open_paths, consumed = set(), set()
+        try:
+            for p in self.engine.list_rejected_paths() or []:
+                key = ((p.get("description") or "")[:20]).strip("「」 \t")
+                if p.get("status") == "consumed":
+                    consumed.add(key)
+                else:
+                    open_paths.add(key)
+        except Exception:
+            pass
+        resolved = still_open = tracked = 0
+        for r in md._all_rows():
+            d = dict(zip(COLS, r))
+            try:
+                tags = (_json.loads(d["tags"])
+                        if isinstance(d["tags"], str) else (d["tags"] or []))
+            except Exception:
+                tags = []
+            if "causal_candidate" not in tags:
+                continue
+            tracked += 1
+            key = None
+            for t in tags:
+                if t.startswith("cc_key:"):
+                    key = t[7:].strip("「」 \t")
+            if key and key in consumed:
+                # 幂等：已迁移（无实质变更）不重复计数
+                if self.cg.update_tags(d["id"],
+                                       add=["status:causal_confirmed"],
+                                       remove=["status:candidate_open"]):
+                    resolved += 1
+                target_id = self._resolve_causal_target_md(
+                    d["content"] or "", d["id"])
+                if target_id and not md.has_edge(d["id"], target_id, "causal"):
+                    self.cg.append_edge(d["id"], {
+                        "target": target_id, "relation_type": "causal",
+                        "confidence": 0.6, "verified": 0.6,
+                        "source_evidence": "extracted"})
+            elif key and key in open_paths:
+                still_open += 1
+        try:
+            self.cg.flush()  # 批次持久化边界（autoflush 裂缝纪律）
+        except Exception:
+            pass
+        return {"tracked": tracked, "resolved": resolved,
+                "still_open": still_open,
+                "note": "验证闭环（md 真源）：被拒路径 consumed=因果确认"
+                        "（causal 边 verified 入 md）；仍 open=候选成立待修复"}
+
+    def _resolve_causal_target_md(self, content, self_id):
+        """md 真源 target 解析：实体词 → top_content_match
+        （LIKE 同序等价：importance DESC, length ASC, LIMIT 1）。"""
+        md = self._md_conn()
+        for w in self._extract_entity_words(content):
+            try:
+                hit = md.top_content_match(w, exclude_id=self_id)
+            except Exception:
+                hit = None
+            if hit:
+                return hit[0] if isinstance(hit, (tuple, list)) else hit
+        return None
+
     # ---------------- causal 边目标解析 ----------------
-    def _resolve_causal_target(self, candidate_node) -> Optional[str]:
-        """确认的候选 → causal 边 target：从候选 claim 提取真实知识节点。
-        prediction 类候选 claim 含 node_xxx（直接提取）；query 类候选无节点 id，
-        从「」引号段提取实体词 → SQL LIKE 图谱检索（去噪音词）。"""
-        import re
-        content = candidate_node.content or ""
-        nids = re.findall(r"node_[a-f0-9_]+", content)
-        if nids:
-            return nids[-1]  # 实际节点（claim 尾部）
-        # query 类：提取「」引号段 → 实体词 → LIKE 检索
+    @staticmethod
+    def _extract_entity_words(content):
+        """候选 claim → 实体词序列（「」段→noise 剥离→短词优先）。
+
+        sqlite/md 双路共用的纯函数段（检索端各自实现）。
+        """
         quoted = re.findall(r"「([^」]+)」", content)
         noise = {"用户问", "检索不到", "翻译表缺", "图谱无此", "常识卡缺失",
                  "可能存在", "因果相关", "重复失败", "机制性原因", "预测未命中",
@@ -221,6 +312,19 @@ class CausalDiscoverer:
                         words.append(w)
         # 短实体词优先（2-4 字 = 主题词；长串易 miss 或命中泛节点）
         words.sort(key=len)
+        return words
+
+    def _resolve_causal_target(self, candidate_node) -> Optional[str]:
+        """确认的候选 → causal 边 target：从候选 claim 提取真实知识节点。
+        prediction 类候选 claim 含 node_xxx（直接提取）；query 类候选无节点 id，
+        从「」引号段提取实体词 → SQL LIKE 图谱检索（去噪音词）。"""
+        import re
+        content = candidate_node.content or ""
+        nids = re.findall(r"node_[a-f0-9_]+", content)
+        if nids:
+            return nids[-1]  # 实际节点（claim 尾部）
+        # query 类：提取「」引号段 → 实体词 → LIKE 检索
+        words = self._extract_entity_words(content)
         conn = self.engine.store.conn
         self_id = getattr(candidate_node, "id", "") or ""
         for w in words:
@@ -268,15 +372,28 @@ class CausalDiscoverer:
                 key = (c.get("source_anomaly") or {}).get("description", "")[:20]
                 # 规范化匹配键：全角引号「」是 claim 排版，非描述内容（v1.16 修 cc_key bug）
                 key = key.strip("「」 \t") or (c.get("claim") or "")[:20]
-                try:
-                    self.engine.add_perception(
-                        f"[因果候选] {c['claim'][:60]}",
-                        importance=0.7,
-                        tags=["观测层", "causal_candidate",
-                              f"cc_key:{key}", "status:candidate_open"],
-                        condition_space=None)
-                except Exception:
-                    pass
+                tags = ["观测层", "causal_candidate",
+                        f"cc_key:{key}", "status:candidate_open"]
+                if self.cg is not None:
+                    # md 真源：候选节点入 contextual 层（mdcg 层体系无
+                    # episodic，情境观测落 contextual），id=candidate_id
+                    # （内容稳定摘要）→ 显式查重幂等（同异常重复 discover 不重建）
+                    cc_id = c.get("candidate_id") or ""
+                    if cc_id and self.cg.index["nodes"].get(cc_id):
+                        continue
+                    try:
+                        self.cg.add(cc_id, f"[因果候选] {c['claim'][:60]}",
+                                    layer="contextual", tags=tags,
+                                    importance=0.7)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        self.engine.add_perception(
+                            f"[因果候选] {c['claim'][:60]}",
+                            importance=0.7, tags=tags, condition_space=None)
+                    except Exception:
+                        pass
         return {
             "candidates": outputs,
             "note": ("条件论对自身的使用：七操作处理自身行为数据（被拒路径/预测未命中）"

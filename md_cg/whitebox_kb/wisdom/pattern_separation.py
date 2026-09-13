@@ -29,9 +29,16 @@ SA_FIELDS = ("edu_level", "domain", "kind", "source")
 
 
 def _cs_dict(node):
-    """条件空间对象→可序列化字典（观测位·工具·时间窗·存在约束）。"""
+    """条件空间对象→可序列化字典（观测位·工具·时间窗·存在约束）。
+
+    双形态兼容：sqlite ConditionSpace（.to_json()）与 md 行 dict
+    （md 真源模式下 shim 节点的 condition_space 已是 dict）。
+    """
+    cs = getattr(node, "condition_space", None)
+    if isinstance(cs, dict):
+        return cs
     try:
-        return json.loads(node.condition_space.to_json()) if node.condition_space else {}
+        return json.loads(cs.to_json()) if cs else {}
     except Exception:
         return {}
 
@@ -82,14 +89,62 @@ def separation_note(a_name, b_name, a_node, b_node):
 class PatternSeparation:
     """模式分离器：相似节点对 → 分离边（条件差异显式化）"""
 
-    def __init__(self, engine):
-        """模式分离器初始化：挂载灵枢引擎引用。"""
+    def __init__(self, engine=None, cg=None):
+        """双模初始化（写路径收口 · md 真源裁定）。
+
+        - `cg` 给定 → **md 真源模式**：节点输入读 `md_access.MdConn`
+          （知识层行），分离边写经 `cg.append_edge` / `cg.set_edge_condition`
+          （mdcg 边域窄原语，唯一写入闸门）。engine 可为 None。
+        - `engine` 给定且无 cg → sqlite 派生库旧路（兜底）。
+        """
         self.engine = engine
-        self.store = engine.store
+        self.cg = cg
+        self.store = engine.store if engine is not None else None
+        self._mdc = None
+
+    def _md_conn(self):
+        """md 模式只读连接（懒加载，root 取 cg.root）。"""
+        if self._mdc is None:
+            from md_access import MdConn
+            self._mdc = MdConn(self.cg.root)
+        return self._mdc
+
+    class _NV:
+        """md 行 → 节点视图 shim（separation_note/_tag_diff 所需最小面）。
+
+        MdConn 行的 json 列（tags/condition_space/state_attributes）为
+        字符串原值（同构指列位），在此反序列化为 dict/list。
+        """
+
+        @staticmethod
+        def _js(v):
+            if isinstance(v, (dict, list)) or v is None:
+                return v or ({} if not isinstance(v, list) else [])
+            try:
+                return json.loads(v)
+            except Exception:
+                return {}
+
+        def __init__(self, row):
+            from md_access import COLS
+            d = dict(zip(COLS, row))
+            self.id = d["id"]
+            self.content = d["content"] or ""
+            self.tags = self._js(d["tags"]) or []
+            self.state_attributes = self._js(d["state_attributes"]) or {}
+            self.condition_space = self._js(d["condition_space"]) or {}
+
+    def _is_sep_dict(self, edge):
+        """md 边 dict 的分离判据（observation_position=模式分离）。"""
+        cs = edge.get("condition_space") or {}
+        return isinstance(cs, dict) and cs.get(
+            "observation_position") == "模式分离"
 
     def scan(self, limit=200, tag_only=False):
         """扫描相似节点对，建立分离边（similar + 差异注记）。
         参与节点：全部知识层节点（含无 name 的感知节点——它们最需要分离）。"""
+        if self.cg is not None:
+            return self._scan_md(limit)
         created, updated = 0, 0
         try:
             from aeis_core import LayeredStore
@@ -151,6 +206,83 @@ class PatternSeparation:
                 break
         return {"created": created, "updated": updated, "scanned": done}
 
+    def _scan_md(self, limit=200):
+        """md 真源扫描：节点输入=MdConn 知识层行，
+        分离边写=cg.append_edge / cg.set_edge_condition（唯一写入闸门）。
+
+        与 sqlite 版同判据（SIM_THRESHOLD / 0.99 去重上界 / separation_note
+        有差异才建边），边 dict 形态对齐迁移语料（confidence=引擎默认 0.5、
+        verified=0、source_evidence=inferred）。
+        """
+        md = self._md_conn()
+        try:
+            from aeis_core import LayeredStore
+        except Exception:
+            return {"created": 0, "updated": 0, "error": "no LayeredStore"}
+        rows = md.execute(
+            "SELECT * FROM nodes WHERE layer='knowledge' LIMIT 400").fetchall()
+        nodes = [self._NV(r) for r in rows
+                 if (r[1] or "") and len(r[1] or "") > 10]
+        created = updated = done = 0
+        now = time.time()
+        for i in range(len(nodes)):
+            for j in range(i + 1, len(nodes)):
+                if done >= limit:
+                    break
+                a, b = nodes[i], nodes[j]
+                sim = LayeredStore.char_bigram_jaccard(a.content, b.content)
+                if sim < SIM_THRESHOLD or sim >= 0.99:
+                    continue
+                a_name = a.state_attributes.get("name") or a.content[:12]
+                b_name = b.state_attributes.get("name") or b.content[:12]
+                note, diffs = separation_note(a_name, b_name, a, b)
+                if not note:
+                    # 无真实差异 → 纯内容重叠（去重问题），不建分离边
+                    continue
+                try:
+                    sep_cs = {"observation_position": "模式分离",
+                              "observation_tool": "条件空间对比",
+                              "time_window": [now, now + 3600.0],
+                              "existence_constraint": note}
+                    hit = self._find_sep_edge_md(a.id, b.id)
+                    if hit is not None:
+                        src, tgt = hit
+                        if self.cg.set_edge_condition(src, tgt, "similar",
+                                                      sep_cs):
+                            updated += 1
+                    else:
+                        if self.cg.append_edge(a.id, {
+                                "target": b.id, "relation_type": "similar",
+                                "confidence": 0.5, "verified": 0,
+                                "condition_space": sep_cs,
+                                "source_evidence": "inferred"}):
+                            created += 1
+                except Exception:
+                    pass
+                done += 1
+            if done >= limit:
+                break
+        # 批次持久化边界：写走 cg 脏缓冲（唯一闸门），scan 完成即显式落盘——
+        # 否则 autoflush 阈值前磁盘无文件，同工具内的 MdConn 读面看不到边。
+        try:
+            self.cg.flush()
+        except Exception:
+            pass
+        return {"created": created, "updated": updated, "scanned": done}
+
+    def _find_sep_edge_md(self, a_id, b_id):
+        """md 真源：定位 a-b 之间的 separation 边，返回 (source, target)。
+
+        双向语义对齐 sqlite 版（a→b 出边或 b→a 出边均可承载分离注记）。
+        无命中返回 None。
+        """
+        md = self._md_conn()
+        for src, tgt in ((a_id, b_id), (b_id, a_id)):
+            for e in md.edges_between(src, tgt, "similar"):
+                if self._is_sep_dict(e):
+                    return (src, tgt)
+        return None
+
     def _find_sep_edge(self, a_id, b_id):
         """为相似节点对定位分离边候选：条件差异显式化的落点。"""
         try:
@@ -175,7 +307,11 @@ class PatternSeparation:
             return False
 
     def retrieve_with_separation(self, query, limit=5):
-        """检索 + 分离提示：命中节点若带 separation 边，附差异注记。"""
+        """检索 + 分离提示：命中节点若带 separation 边，附差异注记。
+
+        边界：该读面走 engine 派生库快照（md 真源模式下快照可能滞后），
+        运行时检索面的读路径收口属 md_access 专项，本方法不重复建设。
+        """
         results = []
         try:
             from aeis_core import LayeredStore
@@ -204,19 +340,36 @@ class PatternSeparation:
 
 def main():
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from aeis_core import SpacetimeMemoryEngine
-
-    db = os.environ.get("AEIS_DB", os.path.join("data", "lingshu.db"))
-    engine = SpacetimeMemoryEngine(db_path=db, identity="灵枢", role="PRIMARY")
-    ps = PatternSeparation(engine)
+    cg = None
+    engine = None
+    if (os.environ.get("WB_MD_DIRECT") == "1"
+            and os.environ.get("WB_MD_ROOT")):
+        # md 真源模式：分离边写入 md 语料（WB_MD_ROOT 即语料根）
+        _root_parent = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+        if _root_parent not in sys.path:
+            sys.path.insert(0, _root_parent)
+        from md_cg.mdcg import MdCG
+        cg = MdCG(root=os.environ["WB_MD_ROOT"])
+        print(f"[md] 真源根: {cg.root}")
+        ps = PatternSeparation(cg=cg)
+    else:
+        from aeis_core import SpacetimeMemoryEngine
+        db = os.environ.get("AEIS_DB", os.path.join("data", "lingshu.db"))
+        engine = SpacetimeMemoryEngine(db_path=db, identity="灵枢",
+                                       role="PRIMARY")
+        ps = PatternSeparation(engine=engine)
     if "--scan" in sys.argv:
         r = ps.scan(limit=200)
         print(json.dumps(r, ensure_ascii=False, indent=1))
     else:
-        q = " ".join(sys.argv[1:]) or "物理"
+        q = " ".join(a for a in sys.argv[1:] if not a.startswith("--")) or "物理"
         r = ps.retrieve_with_separation(q, limit=5)
         print(json.dumps(r, ensure_ascii=False, indent=1))
-    engine.close()
+    if cg is not None:
+        cg.flush()
+    elif engine is not None:
+        engine.close()
 
 
 if __name__ == "__main__":

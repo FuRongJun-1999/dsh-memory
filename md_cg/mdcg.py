@@ -721,6 +721,142 @@ class MdCG:
                               actor=extra.get("actor"))
         return node_id
 
+    # ------------------------------------------------------------------
+    # 边域窄原语（写路径收口：白箱工具写 md 真源的唯一正路）。
+    #
+    # 三条纪律：
+    # 1. 一律经 `self.get()` 读 + `_write_node()` 写（加密形态下 get 解封、
+    #    _write_node 再封装——绕过即破坏加密）；
+    # 2. 只动边域（fm.edges / fm.subgraph.nodes），不改 content / importance /
+    #    tags 等本体字段，故不走 guard_write 写保护（保护语义=本体覆写），
+    #    但索引 entry 的 edges/subgraph 键同步更新并标 _dirty；
+    # 3. 幂等去重：append_edge 按 (target, relation_type)、append_subgraph_node
+    #    按 child_id 去重，重复追加返回 False 不落盘。
+    # ------------------------------------------------------------------
+
+    def _edge_node(self, node_id):
+        """取节点 (fm, content, full_path)；不存在返回 None。"""
+        node = self.get(node_id)
+        if not node:
+            return None
+        return (node.get("frontmatter") or {}, node.get("content") or "",
+                os.path.join(self.root, node.get("path") or f"{node_id}.md"))
+
+    def _sync_edge_entry(self, node_id, fm):
+        """边域变更后同步索引 entry（edges/subgraph 键）并标脏。"""
+        entry = self.index["nodes"].get(node_id)
+        if entry is not None:
+            entry["edges"] = fm.get("edges") or []
+            entry["subgraph"] = fm.get("subgraph")
+            self._dirty[node_id] = entry
+        try:
+            from . import subgraph as _sg
+            _sg.invalidate_cache(self)
+        except Exception:
+            pass
+
+    def append_edge(self, node_id: str, edge: dict) -> bool:
+        """向既有节点追加一条出边（fm.edges），幂等去重。
+
+        edge 形态对齐迁移语料：{"target", "relation_type", "confidence",
+        "verified", "condition_space", ...}。节点不存在返回 False。
+        """
+        got = self._edge_node(node_id)
+        if got is None:
+            return False
+        fm, content, path = got
+        edges = fm.setdefault("edges", [])
+        if not isinstance(edges, list):
+            edges = fm["edges"] = []
+        tgt = str(edge.get("target") or "")
+        rel = str(edge.get("relation_type") or "")
+        if any(str(e.get("target") or "") == tgt
+               and str(e.get("relation_type") or "") == rel
+               for e in edges if isinstance(e, dict)):
+            return False  # 幂等：同 target 同关系已存在
+        edges.append(dict(edge))
+        self._write_node(node_id, path, fm, content)
+        self._sync_edge_entry(node_id, fm)
+        return True
+
+    def append_subgraph_node(self, node_id: str, child_id: str) -> bool:
+        """向既有父节点追加层级子节点（fm.subgraph.nodes），幂等去重。
+
+        层级边（hierarchical）在 md 语料的落点即父节点 subgraph.nodes
+        （source=父，与 migrate_wisdom_graph 导出形态一致）。
+        """
+        got = self._edge_node(node_id)
+        if got is None:
+            return False
+        fm, content, path = got
+        sg = fm.get("subgraph")
+        if not isinstance(sg, dict):
+            sg = fm["subgraph"] = {"nodes": []}
+        subs = sg.setdefault("nodes", [])
+        if not isinstance(subs, list):
+            subs = sg["nodes"] = []
+        if child_id in subs:
+            return False  # 幂等
+        subs.append(str(child_id))
+        self._write_node(node_id, path, fm, content)
+        self._sync_edge_entry(node_id, fm)
+        return True
+
+    def update_tags(self, node_id: str, add=None, remove=None) -> bool:
+        """节点 tags 增删（节点状态更新窄原语——causal 候选状态迁移面）。
+
+        remove 先于 add（状态迁移语义：去旧标→加新标），去重保序；
+        无实质变更不落盘返回 False。节点不存在返回 False。
+        """
+        got = self._edge_node(node_id)
+        if got is None:
+            return False
+        fm, content, path = got
+        tags = fm.get("tags")
+        if not isinstance(tags, list):
+            tags = fm["tags"] = []
+        tags = [str(t) for t in tags]
+        rm = {str(t) for t in (remove or [])}
+        new_tags = [t for t in tags if t not in rm]
+        for t in (add or []):
+            t = str(t)
+            if t not in new_tags:
+                new_tags.append(t)
+        if new_tags == tags:
+            return False  # 幂等：无实质变更
+        fm["tags"] = new_tags
+        self._write_node(node_id, path, fm, content)
+        entry = self.index["nodes"].get(node_id)
+        if entry is not None:
+            entry["tags"] = list(new_tags)
+            self._dirty[node_id] = entry
+        return True
+
+    def set_edge_condition(self, node_id: str, target_id: str,
+                           relation_type: str, condition_space: dict) -> bool:
+        """改既有节点上指定出边的 condition_space（模式分离更新面）。
+
+        匹配 (target, relation_type) 唯一边；无匹配返回 False 不落盘。
+        """
+        got = self._edge_node(node_id)
+        if got is None:
+            return False
+        fm, content, path = got
+        edges = fm.get("edges") or []
+        hit = None
+        for e in edges:
+            if (isinstance(e, dict)
+                    and str(e.get("target") or "") == str(target_id)
+                    and str(e.get("relation_type") or "") == str(relation_type)):
+                hit = e
+                break
+        if hit is None:
+            return False
+        hit["condition_space"] = dict(condition_space or {})
+        self._write_node(node_id, path, fm, content)
+        self._sync_edge_entry(node_id, fm)
+        return True
+
     def add_rejected(self, hypothesis: str, reason: str, verification_basis: str = "test",
                      tags=None, **extra) -> str:
         """第 5 篇 L2：负记忆——失败/否决的假设库。重复证伪幂等。"""
