@@ -110,8 +110,67 @@ STATE_BLINDSPOT = "BLINDSPOT"     # 无法建立可靠归属，停止猜测
 VERIFICATION_BASIS = nodefile.VERIFICATION_BASIS
 
 
+# 英→中语素召回中的代词黑名单（超泛词，进召回词只添噪声）
+_EN_ZH_PRONOUNS = {"我", "你", "他", "她", "它", "我们", "你们", "他们"}
+
+
+def en_zh_terms(text: str) -> list:
+    """原子级中英归一 v1（2026-09-13 管线接入）：英文词 → 中文语素召回词。
+
+    依据：英文 query 词面与中文语料零重叠（bench6 实测英文 hit@1 41% vs 中文 95%
+    的主因），形态归一（normalize_en）救不了跨语——beef 与「牛肉」无任何共享字符。
+    语义.en_normalizer 词表映射（时态归零→停用词剔除→英→中语素/复合词映射→
+    专有词保留）产出中文检索键，直接命中中文正文。
+
+    约束（与 cn_recall_grams 同模式）：
+      - 本函数只扩召回（terms/LIKE 资格）；打分侧由 en_zh_bigrams 显式负责
+        （search/_lexical 三处 qb 均已补充），两者同受 MDCG_EN_ATOMS 开关控制；
+      - 默认关闭（MDCG_EN_ATOMS=1 显式开启）：md_cg 主链路英文检索走
+        独立归一化原子+Jaccard 路（REPRODUCE.md 双语双路裁定，md_cg
+        char-bigram 管线跑英文实测比独立方案差 25% vs 52%），本集成为
+        opt-in 实验能力与 soul hub 序列化出口，不在默认链路生效；
+      - 仅当 query 含英文字母时触发，纯中文 query 零开销零变化；
+      - 代词语素剔除（我/你/他…超泛词防污染），动词/名词单字语素保留
+        （「吃/雨」在中文正文检索价值高，_score 终排兜底精度）；
+      - semantic 模块缺失时静默降级（不阻断主链路）。
+    词表未覆盖词保留原名（unknown_keep），是词表边界而非错误。
+    """
+    if os.environ.get("MDCG_EN_ATOMS", "0") != "1":
+        return []
+    if not re.search(r"[A-Za-z]", text or ""):
+        return []
+    try:
+        from .semantic.en_normalizer import normalize_en_query
+        terms, _detail = normalize_en_query(text)
+    except Exception:
+        return []
+    # 专有词/未知词保留原名是序列化语义；作为检索键必须统一小写
+    # （与 normalize_en 口径一致，避免大小写敏感 LIKE 意外命中）
+    return [t.lower() for t in terms
+            if t and (len(t) >= 2 or t not in _EN_ZH_PRONOUNS)]
+
+
+def en_zh_bigrams(text: str) -> set:
+    """英→中语素的打分侧补充：len>=2 中文语素进 query bigram 集合。
+
+    背景：en_zh_terms 只扩 LIKE 召回资格，而 _score/_lexical 的词法分
+    = lexical_sim(qb, doc_bigrams)——英文 bigram 与中文文档恒零交集
+    （跨语场景词法分全 0、排序退化到扫描序，2026-09-13 端到端实测）。
+    「牛肉/昨天」等中文语素本身是合法 bigram，补进 qb 后与中文正文
+    bigram（牛肉面→{牛肉,肉面}）正常相交，词法分恢复区分度。
+    纯中文 query 零变化（en_zh_terms 不触发）；与 en_zh_terms 同受
+    MDCG_EN_ATOMS 开关控制（默认关闭）。
+    """
+    return {t for t in en_zh_terms(text) if len(t) >= 2}
+
+
 def expand_query_terms(query: str) -> list:
-    """与 aeis.core 同实现：整句 + 分词（≥2字符）+ 同义词组展开。"""
+    """与 aeis.core 同实现：整句 + 分词（≥2字符）+ 同义词组展开 + 英文归一化
+    + 英→中语素召回扩展（en_zh_terms，MDCG_EN_ATOMS=1 开启，默认关）。"""
+    # 原子级中英归一：在 normalize_en 之前取（专有词首字母大写判断依赖原始形态）
+    _en_zh = en_zh_terms(query)
+    # 英文归一化（中文不动；小写化+去停用词+去时态复数）
+    query = normalize_en(query)
     terms = [query]
     for w in re.split(r"[\s、，。；：,;.:/\\|]+", query):
         w = w.strip()
@@ -122,6 +181,14 @@ def expand_query_terms(query: str) -> list:
             if w in query:
                 terms.extend(g for g in group if g not in terms)
                 break
+    # 构词法 v1：中文连续串 2-gram 召回扩展（只增召回，不改打分口径）
+    for g in cn_recall_grams(query):
+        if g not in terms:
+            terms.append(g)
+    # 原子级中英归一 v1：英→中语素召回扩展（与 cn_recall_grams 同模式：只增召回）
+    for t in _en_zh:
+        if t not in terms:
+            terms.append(t)
     return list(dict.fromkeys(terms))
 
 
@@ -130,6 +197,115 @@ def bigrams(s: str) -> set:
     if len(s) <= 1:
         return {s}
     return {s[i:i + 2] for i in range(len(s) - 1)}
+
+
+# 中文高频功能 bigram（召回扩展时剔除：纯语法组合，召回价值低、噪音高）
+CN_STOP_GRAMS = {
+    "的了", "是一", "的在", "有个", "就是", "不是", "没有", "这个", "那个",
+    "我们", "你们", "可以", "一个", "的话", "来说", "关于", "对于", "还是",
+}
+
+
+def cn_recall_grams(query: str, min_run: int = 4, cap: int = 16) -> list:
+    """构词法 v1 · 中文召回扩展：把连续中文串切成 2-gram 作为额外召回键。
+
+    背景（2026-09-13 诊断）：expand_query_terms 对无标点中文查询只产出「整句」
+    一个召回词，而 _like 要求正文原样包含整句才给召回资格 —— 导致「抑制剂怎么选」
+    无法召回含「酪氨酸激酶抑制剂」的节点（部分中文无法词匹配的机制断点）。
+
+    约束：只扩召回，不改打分口径（bigrams(q) 的 _score 不变）；纯标准库，零依赖；
+    仅当中文连续串 ≥ min_run 字时触发（短词本身已是召回词，无需扩展）。
+    """
+    if os.environ.get("MDCG_CN_GRAMS") == "0":   # A/B 开关：关闭即回退旧行为
+        return []
+    out = []
+    for run in re.findall(r"[\u4e00-\u9fff]{%d,}" % max(min_run, 2), query or ""):
+        for i in range(len(run) - 1):
+            g = run[i:i + 2]
+            if g in CN_STOP_GRAMS or g in out:
+                continue
+            out.append(g)
+            if len(out) >= cap:
+                return out
+    return out
+
+
+# ---- 英文归一化（与中文 cn_recall_grams 对称的英文预处理）----
+# 设计者裁定：大小写统一转小写；停用词（the 等）不能拆成 bigram 参与匹配；
+# 时态/复数归零（walked→walk, pets→pet），与语义层原子化原则一致。
+EN_STOPWORDS = frozenset({
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "do", "does", "did", "have", "has", "had", "will", "would", "could",
+    "should", "may", "might", "of", "to", "in", "on", "at", "for", "with",
+    "by", "from", "up", "about", "into", "over", "after", "and", "or",
+    "but", "not", "no", "so", "if", "then", "than", "also", "very",
+    "what", "which", "who", "how", "why", "when", "where",
+    "this", "that", "these", "those", "it", "its", "as", "there",
+    "i", "me", "my", "we", "our", "you", "your", "he", "him", "his",
+    "she", "her", "they", "them", "their",
+})
+
+EN_IRREGULAR = {
+    "ate": "eat", "eaten": "eat", "went": "go", "gone": "go",
+    "saw": "see", "seen": "see", "wrote": "write", "written": "write",
+    "took": "take", "taken": "take", "made": "make", "ran": "run",
+    "bought": "buy", "brought": "bring", "thought": "think",
+    "taught": "teach", "caught": "catch", "sought": "seek",
+    "fought": "fight", "sold": "sell", "told": "tell", "felt": "feel",
+    "fell": "fall", "sent": "send", "spent": "spend", "built": "build",
+    "lost": "lose", "met": "meet", "paid": "pay", "led": "lead",
+    "won": "win", "sat": "sit", "stood": "stand",
+    "understood": "understand", "heard": "hear",
+    "spoke": "speak", "spoken": "speak", "broke": "break", "broken": "break",
+    "chose": "choose", "chosen": "choose", "drew": "draw", "drawn": "draw",
+    "drove": "drive", "driven": "drive", "grew": "grow", "grown": "grow",
+    "knew": "know", "known": "know", "gave": "give", "given": "give",
+    "was": "be", "were": "be", "been": "be", "had": "have", "has": "have",
+    "did": "do", "done": "do", "said": "say", "got": "get",
+    "left": "leave", "kept": "keep", "held": "hold",
+    "slept": "sleep", "swept": "sweep", "meant": "mean",
+    "dealt": "deal", "lent": "lend", "bent": "bend",
+}
+
+def strip_tense_en(w: str) -> str:
+    """英文时态/复数归零（保守策略：宁可少剥不可误剥）"""
+    if w in EN_IRREGULAR:
+        return EN_IRREGULAR[w]
+    # -ous 结尾 = 形容词不是复数（courageous/famous/various）
+    if w.endswith("ous") or w.endswith("us") or w.endswith("is"):
+        return w
+    if w.endswith("ing") and len(w) > 5:
+        return w[:-3]
+    if w.endswith("ed") and len(w) > 4:
+        return w[:-2]
+    if w.endswith("ies") and len(w) > 4:
+        return w[:-3] + "y"
+    # -es 只剥真复数（boxes→box, watches→watch），不剥 motivates→motivate
+    if re.search(r'(ch|sh|ss|x|z)o?es$', w) and len(w) > 4:
+        return w[:-2]
+    # -s 剥离（motivates→motivate, pets→pet）
+    if w.endswith("s") and not w.endswith("ss"):
+        return w[:-1]
+    return w
+
+def normalize_en(text: str) -> str:
+    """英文归一化：小写 + 去停用词 + 去时态复数。中文部分不动。
+
+    设计者裁定：
+      - 大小写统一转小写匹配
+      - 停用词（the 等）不能拆成 bigram 参与匹配（整词剔除）
+      - 时态/复数归零（walked→walk, pets→pet）
+    """
+    # 清标点（保留中文字符和空格和数字）
+    cleaned = re.sub(r'[^\u4e00-\u9fff a-zA-Z0-9]', ' ', text or "")
+    def _norm_word(m):
+        w = m.group(0).lower()
+        if w in EN_STOPWORDS:
+            return ""
+        return strip_tense_en(w)
+    result = re.sub(r'[a-zA-Z]{2,}', _norm_word, cleaned)
+    result = re.sub(r'\s+', ' ', result).strip()
+    return result
 
 
 # 词法相似度口径（二元组集合）：
@@ -901,7 +1077,9 @@ class MdCG:
         pool_cfg = pooling.resolve(pooling.from_env(pools))
 
         terms = expand_query_terms(q)
-        qb = bigrams(q)
+        # 英文归一化后再取 bigram（小写+去停用词+去时态；中文不动）
+        # + 英→中语素 bigram 补充（跨语词法分：纯中文零变化，MDCG_EN_ATOMS 可关）
+        qb = bigrams(normalize_en(q)) | en_zh_bigrams(q)
         # 把 rejected/unresolved 视作可参与召回的特殊「候选池」
         # ——命中它们的结果会改变 meta 的 covered_neg（被负记忆覆盖的查询）
         # 默认排除掉负记忆层的节点进入正排打分，仅作为「覆盖标记」用
@@ -1006,12 +1184,17 @@ class MdCG:
         # judge_qualification 走 REJECT，不能把节点召回。tags 仍参与匹配。
         tags = " ".join(str(t) for t in (fm.get("tags") or []))
         body = nodefile.positive_body(content)
-        return any(t in body or t in tags for t in terms)
+        # 双边小写化：英文大小写统一（中文无大小写不受影响）
+        body_l = body.lower()
+        tags_l = tags.lower()
+        return any(t in body_l or t.lower() in tags_l for t in terms)
 
     def _score(self, docs, q, qb, pools=None, mode=None):
         scored = []
         for e, fm, c in docs:
-            nb = bigrams(c)
+            # 归一化 content 后取 bigram（与 query 侧 normalize_en 对称）
+            c_norm = normalize_en(c)
+            nb = bigrams(c_norm)
             sim = lexical_sim(qb, nb, mode)
             tag_bonus = 0.05 if any(str(t) in q or q in str(t)
                                     for t in (fm.get("tags") or [])) else 0.0
@@ -1127,6 +1310,10 @@ class MdCG:
         D = 1 - 有效命中比例，0=信息差为零（完美），1=完全空白。
 
         简化模型：本次查询的「有效命中」= score>0 且 state=ACCEPT 的比例。
+
+        口径声明（智能论3.4 §2.7.0 DEV-002a）：本值是 D_task 的
+        「检索-资格链路工程化身」——对象同一、数值不与 wisdom 四分量
+        D_norm（验证链路化身）直接互换。
         """
         if not results:
             return 1.0

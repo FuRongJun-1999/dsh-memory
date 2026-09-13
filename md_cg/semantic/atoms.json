@@ -1,0 +1,7349 @@
+{
+ "meta": {
+  "version": "0.1.0",
+  "atoms": 815,
+  "sources": [
+   "morpheme_table",
+   "standard_en",
+   "cognitive_graph",
+   "synonym_merge"
+  ]
+ },
+ "atoms": [
+  {
+   "id": "SA-0001",
+   "zh": "牛",
+   "en": "cow",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0002",
+   "zh": "猪",
+   "en": "pig",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0003",
+   "zh": "羊",
+   "en": "sheep",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0004",
+   "zh": "鸡",
+   "en": "chicken",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0005",
+   "zh": "鸭",
+   "en": "duck",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0006",
+   "zh": "马",
+   "en": "horse",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0007",
+   "zh": "狗",
+   "en": "dog",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0008",
+   "zh": "猫",
+   "en": "cat",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0009",
+   "zh": "鱼",
+   "en": "fish",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0010",
+   "zh": "鸟",
+   "en": "bird",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0011",
+   "zh": "肉",
+   "en": "meat",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0012",
+   "zh": "奶",
+   "en": "milk",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0013",
+   "zh": "蛋",
+   "en": "egg",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0014",
+   "zh": "米",
+   "en": "rice",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0015",
+   "zh": "菜",
+   "en": "vegetable",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0016",
+   "zh": "果",
+   "en": "fruit",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0017",
+   "zh": "油",
+   "en": "oil",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0018",
+   "zh": "盐",
+   "en": "salt",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0019",
+   "zh": "糖",
+   "en": "sugar",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0020",
+   "zh": "茶",
+   "en": "tea",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0021",
+   "zh": "酒",
+   "en": "wine",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0022",
+   "zh": "水",
+   "en": "water",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0023",
+   "zh": "年",
+   "en": "year",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0024",
+   "zh": "月",
+   "en": "moon",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0025",
+   "zh": "日",
+   "en": "day",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0026",
+   "zh": "天",
+   "en": "day",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0027",
+   "zh": "周",
+   "en": "week",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0028",
+   "zh": "期",
+   "en": "period",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0029",
+   "zh": "时",
+   "en": "hour",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0030",
+   "zh": "分",
+   "en": "minute",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0031",
+   "zh": "秒",
+   "en": "second",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0032",
+   "zh": "春",
+   "en": "spring",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0033",
+   "zh": "秋",
+   "en": "autumn",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0034",
+   "zh": "冬",
+   "en": "winter",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0035",
+   "zh": "夏",
+   "en": "summer",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0036",
+   "zh": "今",
+   "en": "this",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0037",
+   "zh": "明",
+   "en": "next",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0038",
+   "zh": "去",
+   "en": "past",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0039",
+   "zh": "一",
+   "en": "one",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0040",
+   "zh": "二",
+   "en": "two",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0041",
+   "zh": "三",
+   "en": "three",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0042",
+   "zh": "四",
+   "en": "four",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0043",
+   "zh": "五",
+   "en": "five",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0044",
+   "zh": "六",
+   "en": "six",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0045",
+   "zh": "七",
+   "en": "seven",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0046",
+   "zh": "八",
+   "en": "eight",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0047",
+   "zh": "九",
+   "en": "nine",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0048",
+   "zh": "十",
+   "en": "ten",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0049",
+   "zh": "百",
+   "en": "hundred",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0050",
+   "zh": "千",
+   "en": "thousand",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0051",
+   "zh": "父",
+   "en": "father",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0052",
+   "zh": "母",
+   "en": "mother",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0053",
+   "zh": "兄",
+   "en": "elder_brother",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0054",
+   "zh": "弟",
+   "en": "younger_brother",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0055",
+   "zh": "姐",
+   "en": "elder_sister",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0056",
+   "zh": "妹",
+   "en": "younger_sister",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0057",
+   "zh": "儿",
+   "en": "son",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0058",
+   "zh": "女",
+   "en": "daughter",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0059",
+   "zh": "头",
+   "en": "head",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0060",
+   "zh": "手",
+   "en": "hand",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0061",
+   "zh": "脚",
+   "en": "foot",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0062",
+   "zh": "眼",
+   "en": "eye",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0063",
+   "zh": "口",
+   "en": "mouth",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0064",
+   "zh": "耳",
+   "en": "ear",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0065",
+   "zh": "鼻",
+   "en": "nose",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0066",
+   "zh": "心",
+   "en": "heart",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0067",
+   "zh": "血",
+   "en": "blood",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0068",
+   "zh": "骨",
+   "en": "bone",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0069",
+   "zh": "皮",
+   "en": "skin",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0070",
+   "zh": "脏",
+   "en": "organ",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0071",
+   "zh": "山",
+   "en": "mountain",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0072",
+   "zh": "火",
+   "en": "fire",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0073",
+   "zh": "土",
+   "en": "soil",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0074",
+   "zh": "木",
+   "en": "wood",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0075",
+   "zh": "金",
+   "en": "metal",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0076",
+   "zh": "光",
+   "en": "light",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0077",
+   "zh": "电",
+   "en": "electric",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0078",
+   "zh": "风",
+   "en": "wind",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0079",
+   "zh": "雨",
+   "en": "rain",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0080",
+   "zh": "雪",
+   "en": "snow",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0081",
+   "zh": "星",
+   "en": "star",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0082",
+   "zh": "海",
+   "en": "sea",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0083",
+   "zh": "河",
+   "en": "river",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0084",
+   "zh": "石",
+   "en": "stone",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0085",
+   "zh": "云",
+   "en": "cloud",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0086",
+   "zh": "车",
+   "en": "vehicle",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0087",
+   "zh": "船",
+   "en": "boat",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0088",
+   "zh": "机",
+   "en": "machine",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0089",
+   "zh": "器",
+   "en": "device",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0090",
+   "zh": "刀",
+   "en": "knife",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0091",
+   "zh": "笔",
+   "en": "pen",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0092",
+   "zh": "书",
+   "en": "book",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0093",
+   "zh": "门",
+   "en": "door",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0094",
+   "zh": "窗",
+   "en": "window",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0095",
+   "zh": "桥",
+   "en": "bridge",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0096",
+   "zh": "路",
+   "en": "road",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0097",
+   "zh": "池",
+   "en": "cell",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0098",
+   "zh": "走",
+   "en": "walk",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0099",
+   "zh": "来",
+   "en": "come",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0100",
+   "zh": "看",
+   "en": "see",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0101",
+   "zh": "听",
+   "en": "listen",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0102",
+   "zh": "吃",
+   "en": "eat",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0103",
+   "zh": "喝",
+   "en": "drink",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0104",
+   "zh": "说",
+   "en": "speak",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0105",
+   "zh": "读",
+   "en": "read",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0106",
+   "zh": "写",
+   "en": "write",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0107",
+   "zh": "买",
+   "en": "buy",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0108",
+   "zh": "卖",
+   "en": "sell",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0109",
+   "zh": "学",
+   "en": "study",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0110",
+   "zh": "教",
+   "en": "teach",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0111",
+   "zh": "做",
+   "en": "make",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0112",
+   "zh": "跑",
+   "en": "run",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0113",
+   "zh": "飞",
+   "en": "fly",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0114",
+   "zh": "睡",
+   "en": "sleep",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0115",
+   "zh": "想",
+   "en": "think",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0116",
+   "zh": "爱",
+   "en": "love",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0117",
+   "zh": "用",
+   "en": "use",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0118",
+   "zh": "开",
+   "en": "open",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0119",
+   "zh": "关",
+   "en": "close",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0120",
+   "zh": "大",
+   "en": "big",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0121",
+   "zh": "小",
+   "en": "small",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0122",
+   "zh": "高",
+   "en": "high",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0123",
+   "zh": "低",
+   "en": "low",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0124",
+   "zh": "新",
+   "en": "new",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0125",
+   "zh": "旧",
+   "en": "old",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0126",
+   "zh": "好",
+   "en": "good",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0127",
+   "zh": "坏",
+   "en": "bad",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0128",
+   "zh": "长",
+   "en": "long",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0129",
+   "zh": "短",
+   "en": "short",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0130",
+   "zh": "快",
+   "en": "fast",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0131",
+   "zh": "慢",
+   "en": "slow",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0132",
+   "zh": "热",
+   "en": "hot",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0133",
+   "zh": "冷",
+   "en": "cold",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0134",
+   "zh": "多",
+   "en": "many",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0135",
+   "zh": "少",
+   "en": "few",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0136",
+   "zh": "重",
+   "en": "heavy",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0137",
+   "zh": "轻",
+   "en": "light",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0138",
+   "zh": "深",
+   "en": "deep",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0139",
+   "zh": "力",
+   "en": "force",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0140",
+   "zh": "气",
+   "en": "gas",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0141",
+   "zh": "道",
+   "en": "way",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0142",
+   "zh": "理",
+   "en": "principle",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0143",
+   "zh": "文",
+   "en": "text",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0144",
+   "zh": "化",
+   "en": "transform",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0145",
+   "zh": "话",
+   "en": "speech",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0146",
+   "zh": "影",
+   "en": "shadow",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0147",
+   "zh": "音",
+   "en": "sound",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0148",
+   "zh": "名",
+   "en": "name",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0149",
+   "zh": "国",
+   "en": "country",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0150",
+   "zh": "家",
+   "en": "home",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0151",
+   "zh": "城",
+   "en": "city",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0152",
+   "zh": "王",
+   "en": "king",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0153",
+   "zh": "民",
+   "en": "people",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0154",
+   "zh": "军",
+   "en": "army",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0155",
+   "zh": "医",
+   "en": "medicine",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0156",
+   "zh": "药",
+   "en": "drug",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0157",
+   "zh": "病",
+   "en": "disease",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0158",
+   "zh": "课",
+   "en": "lesson",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0159",
+   "zh": "题",
+   "en": "question",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0160",
+   "zh": "工",
+   "en": "work",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0161",
+   "zh": "师",
+   "en": "master",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0162",
+   "zh": "律",
+   "en": "law",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0163",
+   "zh": "图",
+   "en": "graph",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0164",
+   "zh": "谱",
+   "en": "map",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0165",
+   "zh": "数",
+   "en": "number",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0166",
+   "zh": "物",
+   "en": "thing",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0167",
+   "zh": "地",
+   "en": "earth",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0168",
+   "zh": "人",
+   "en": "person",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0169",
+   "zh": "脑",
+   "en": "brain",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0170",
+   "zh": "视",
+   "en": "view",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0171",
+   "zh": "星期",
+   "en": "week",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0172",
+   "zh": "经济",
+   "en": "economy",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0173",
+   "zh": "逻辑",
+   "en": "logic",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0174",
+   "zh": "沙发",
+   "en": "sofa",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0175",
+   "zh": "咖啡",
+   "en": "coffee",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0176",
+   "zh": "巧克力",
+   "en": "chocolate",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0177",
+   "zh": "知识",
+   "en": "knowledge",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0178",
+   "zh": "工作",
+   "en": "work",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0179",
+   "zh": "纪律",
+   "en": "discipline",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0180",
+   "zh": "记忆",
+   "en": "memory",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0181",
+   "zh": "认知",
+   "en": "cognition",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0182",
+   "zh": "月光",
+   "en": "moon_light",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0183",
+   "zh": "十二",
+   "en": "twelve",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0184",
+   "zh": "兄弟",
+   "en": "brothers",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0185",
+   "zh": "姐妹",
+   "en": "sisters",
+   "type": "entity",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0186",
+   "zh": "汽",
+   "en": "gas",
+   "type": "property",
+   "sources": [
+    "morpheme_table"
+   ]
+  },
+  {
+   "id": "SA-0187",
+   "zh": "牛肉",
+   "en": "cow_meat",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0188",
+   "zh": "猪肉",
+   "en": "pig_meat",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0189",
+   "zh": "羊肉",
+   "en": "sheep_meat",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0190",
+   "zh": "鸡肉",
+   "en": "chicken_meat",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0191",
+   "zh": "鸭肉",
+   "en": "duck_meat",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0192",
+   "zh": "牛奶",
+   "en": "cow_milk",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0193",
+   "zh": "鸡蛋",
+   "en": "chicken_egg",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0194",
+   "zh": "牛肉面",
+   "en": "cow_meat_noodle",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0195",
+   "zh": "月份",
+   "en": "month",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0196",
+   "zh": "一月",
+   "en": "one_month",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0197",
+   "zh": "二月",
+   "en": "two_month",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0198",
+   "zh": "三月",
+   "en": "three_month",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0199",
+   "zh": "十二月",
+   "en": "twelve_month",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0200",
+   "zh": "星期一",
+   "en": "week_one",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0201",
+   "zh": "星期日",
+   "en": "week_sun",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0202",
+   "zh": "今天",
+   "en": "this_day",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0203",
+   "zh": "明天",
+   "en": "next_day",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0204",
+   "zh": "今年",
+   "en": "this_year",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0205",
+   "zh": "明年",
+   "en": "next_year",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0206",
+   "zh": "去年",
+   "en": "past_year",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0207",
+   "zh": "春天",
+   "en": "spring",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0208",
+   "zh": "冬天",
+   "en": "winter",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0209",
+   "zh": "父亲",
+   "en": "father",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0210",
+   "zh": "母亲",
+   "en": "mother",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0211",
+   "zh": "儿子",
+   "en": "son",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0212",
+   "zh": "女儿",
+   "en": "daughter",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0213",
+   "zh": "眼睛",
+   "en": "eye",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0214",
+   "zh": "心脏",
+   "en": "heart_organ",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0215",
+   "zh": "火山",
+   "en": "fire_mountain",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0216",
+   "zh": "海水",
+   "en": "sea_water",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0217",
+   "zh": "雪山",
+   "en": "snow_mountain",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0218",
+   "zh": "电脑",
+   "en": "electric_brain",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0219",
+   "zh": "电话",
+   "en": "electric_speech",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0220",
+   "zh": "电视",
+   "en": "electric_view",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0221",
+   "zh": "电影",
+   "en": "electric_shadow",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0222",
+   "zh": "电池",
+   "en": "electric_cell",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0223",
+   "zh": "火车",
+   "en": "fire_vehicle",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0224",
+   "zh": "汽车",
+   "en": "gas_vehicle",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0225",
+   "zh": "飞机",
+   "en": "fly_machine",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0226",
+   "zh": "手机",
+   "en": "hand_machine",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0227",
+   "zh": "数学",
+   "en": "number_study",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0228",
+   "zh": "化学",
+   "en": "transform_study",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0229",
+   "zh": "物理学",
+   "en": "thing_principle_study",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0230",
+   "zh": "地理学",
+   "en": "earth_principle_study",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0231",
+   "zh": "生物学",
+   "en": "living_thing_study",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0232",
+   "zh": "热力学",
+   "en": "heat_force_study",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0233",
+   "zh": "医生",
+   "en": "medicine_person",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0234",
+   "zh": "学生",
+   "en": "study_person",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0235",
+   "zh": "律师",
+   "en": "law_master",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0236",
+   "zh": "工人",
+   "en": "work_person",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0237",
+   "zh": "知识图谱",
+   "en": "knowledge_graph_map",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0238",
+   "zh": "认知图",
+   "en": "cognition_graph",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0239",
+   "zh": "工作纪律",
+   "en": "work_discipline",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0240",
+   "zh": "记忆库",
+   "en": "memory_store",
+   "type": "entity",
+   "sources": [
+    "standard_en"
+   ]
+  },
+  {
+   "id": "SA-0241",
+   "zh": "四、评分汇总与层次判定",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0242",
+   "zh": "一、评估条件空间",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0243",
+   "zh": "三、七维逐维判据实证",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0244",
+   "zh": "十、七维评分与层次判定",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0245",
+   "zh": "自带插件包的智能体",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0246",
+   "zh": "信息差为什么必然存在且自然扩大",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0247",
+   "zh": "——三个论证与快照三问（《白箱智能是什么？》系列 · 论证篇）",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0248",
+   "zh": "化学实验基本操作",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0249",
+   "zh": "声音的产生与传播",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0250",
+   "zh": "李雅普诺夫稳定性",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0251",
+   "zh": "三国两晋南北朝",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0252",
+   "zh": "统一多民族国家",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0253",
+   "zh": "国家制度与社会治理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0254",
+   "zh": "新民主主义革命",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0255",
+   "zh": "文化交流与传播",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0256",
+   "zh": "中华文明起源",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0257",
+   "zh": "社会主义制度",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0258",
+   "zh": "史前与夏商周",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0259",
+   "zh": "经济与社会生活",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0260",
+   "zh": "两次世界大战",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0261",
+   "zh": "地球形状大小",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0262",
+   "zh": "四大地理区域",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0263",
+   "zh": "等高线地形图",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0264",
+   "zh": "自然地理环境整体性",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0265",
+   "zh": "宇宙中的地球",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0266",
+   "zh": "化学反应方向判断",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0267",
+   "zh": "熵与吉布斯自由能",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0268",
+   "zh": "热力学第一定律",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0269",
+   "zh": "法拉第电磁感应定律",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0270",
+   "zh": "热力学第二定律",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0271",
+   "zh": "历史唯物主义",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0272",
+   "zh": "直流稳压电源",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0273",
+   "zh": "基本放大电路",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0274",
+   "zh": "恰当方程积分因子",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0275",
+   "zh": "陪集与拉格朗日定理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0276",
+   "zh": "未成年人保护",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0277",
+   "zh": "闭区间连续函数性质",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0278",
+   "zh": "留数在物理中应用",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0279",
+   "zh": "施图姆刘维尔问题",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0280",
+   "zh": "周期律与对角线规则",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0281",
+   "zh": "十一、情绪与情感：二阶变化的体验层",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0282",
+   "zh": "智能的公理化基石",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0283",
+   "zh": "五、认知不是一条路，而是多候选展开与并行评估（重要补充）",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0284",
+   "zh": "全概率贝叶斯公式",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0285",
+   "zh": "离散型随机变量",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0286",
+   "zh": "玻色爱因斯坦分布",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0287",
+   "zh": "热力学第二定律深化",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0288",
+   "zh": "热力学第一定律深化",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0289",
+   "zh": "物理学·综合",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0290",
+   "zh": "虚位移与虚功原理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0291",
+   "zh": "哈密顿雅可比方程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0292",
+   "zh": "蛋白质结构与功能",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0293",
+   "zh": "九、灵枢正在验证什么？",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0294",
+   "zh": "白箱智能是什么？",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0295",
+   "zh": "解释执行+缩进块作用域",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0296",
+   "zh": "接口/泛型/联合类型",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0297",
+   "zh": "静态类型+结构类型",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0298",
+   "zh": "六、副作用与归因（显式登记，不静默）",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0299",
+   "zh": "计算机组成原理/人工智能知识点内容（按骨架填充）",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0300",
+   "zh": "四、存量清洗与全库接线",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0301",
+   "zh": "二、规范：唯一来源与渲染格式",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0302",
+   "zh": "一、现状核对（事实层）",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0303",
+   "zh": "认知图作为「记忆操作系统」· 现状评估与路线",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0304",
+   "zh": "波函数与概率诠释",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0305",
+   "zh": "直线与圆位置关系",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0306",
+   "zh": "充分条件必要条件",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0307",
+   "zh": "全称量词存在量词",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0308",
+   "zh": "运动的合成与分解",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0309",
+   "zh": "理想气体状态方程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0310",
+   "zh": "二阶常系数线性方程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "cognitive_graph"
+   ]
+  },
+  {
+   "id": "SA-0311",
+   "zh": "经济发展",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0312",
+   "zh": "逻辑思维",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0313",
+   "zh": "九、诚实边界",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0314",
+   "zh": "环境保护",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0315",
+   "zh": "现代中国",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0316",
+   "zh": "改革开放",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0317",
+   "zh": "修辞手法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0318",
+   "zh": "原子结构",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0319",
+   "zh": "认识论",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0320",
+   "zh": "口语表达",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0321",
+   "zh": "唯物论",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0322",
+   "zh": "健康生活",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0323",
+   "zh": "判定单",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0324",
+   "zh": "强化学习",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0325",
+   "zh": "世界古代史",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0326",
+   "zh": "封建社会",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0327",
+   "zh": "解放战争",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0328",
+   "zh": "隋唐盛世",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0329",
+   "zh": "明清时期",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0330",
+   "zh": "世界现代史",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0331",
+   "zh": "中古世界",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0332",
+   "zh": "近代世界",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0333",
+   "zh": "工业革命",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0334",
+   "zh": "秦汉统一",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0335",
+   "zh": "近代化探索",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0336",
+   "zh": "列强侵略",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0337",
+   "zh": "近代沉沦",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0338",
+   "zh": "世界大战",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0339",
+   "zh": "新中国成立",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0340",
+   "zh": "古代文明",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0341",
+   "zh": "当代世界",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0342",
+   "zh": "世界近代史",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0343",
+   "zh": "宋元时期",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0344",
+   "zh": "抗日战争",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0345",
+   "zh": "认识地区",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0346",
+   "zh": "岩石圈",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0347",
+   "zh": "陆地和海洋",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0348",
+   "zh": "区域发展",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0349",
+   "zh": "自然资源",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0350",
+   "zh": "认识大洲",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0351",
+   "zh": "大气圈",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0352",
+   "zh": "自然环境",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0353",
+   "zh": "疆域与人口",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0354",
+   "zh": "地球运动",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0355",
+   "zh": "地图三要素",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0356",
+   "zh": "差异性",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0357",
+   "zh": "资源安全",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0358",
+   "zh": "世界居民",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0359",
+   "zh": "城镇与乡村",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0360",
+   "zh": "环境安全",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0361",
+   "zh": "产业区位",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0362",
+   "zh": "国家安全",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0363",
+   "zh": "交通运输",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0364",
+   "zh": "地方文化",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0365",
+   "zh": "认识国家",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0366",
+   "zh": "世界气候",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0367",
+   "zh": "经纬网",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0368",
+   "zh": "听力策略",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0369",
+   "zh": "功率放大",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0370",
+   "zh": "三极管",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0371",
+   "zh": "多级放大",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0372",
+   "zh": "运放应用",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0373",
+   "zh": "有源滤波器",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0374",
+   "zh": "频率响应",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0375",
+   "zh": "二极管",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0376",
+   "zh": "小信号模型",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0377",
+   "zh": "振荡器",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0378",
+   "zh": "静态工作点",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0379",
+   "zh": "集成运放",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0380",
+   "zh": "公共规则",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0381",
+   "zh": "婚姻家庭",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0382",
+   "zh": "四个自信",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0383",
+   "zh": "尊敬老师",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0384",
+   "zh": "民事权利",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0385",
+   "zh": "公民权利",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0386",
+   "zh": "企业劳动",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0387",
+   "zh": "国旗国歌",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0388",
+   "zh": "收入分配",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0389",
+   "zh": "诚实守信",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0390",
+   "zh": "网络生活",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0391",
+   "zh": "生活习惯",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0392",
+   "zh": "基本国情",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0393",
+   "zh": "家庭责任",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0394",
+   "zh": "人民民主",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0395",
+   "zh": "班级集体",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0396",
+   "zh": "情绪管理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0397",
+   "zh": "新时代",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0398",
+   "zh": "依法维权",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0399",
+   "zh": "犯罪预防",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0400",
+   "zh": "自我保护",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0401",
+   "zh": "社会交往",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0402",
+   "zh": "师生关系",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0403",
+   "zh": "依法治国",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0404",
+   "zh": "同学交往",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0405",
+   "zh": "孝亲敬长",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0406",
+   "zh": "安全教育",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0407",
+   "zh": "情绪情感",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0408",
+   "zh": "法律知识",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0409",
+   "zh": "中国道路",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0410",
+   "zh": "辩证法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0411",
+   "zh": "文明礼貌",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0412",
+   "zh": "文化自信",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0413",
+   "zh": "党的领导",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0414",
+   "zh": "传统文化",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0415",
+   "zh": "市场机制",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0416",
+   "zh": "公民义务",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0417",
+   "zh": "祖国山河",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0418",
+   "zh": "青春成长",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0419",
+   "zh": "国家制度",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0420",
+   "zh": "支持向量机",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0421",
+   "zh": "适用条件",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0422",
+   "zh": "口语交际",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0423",
+   "zh": "古诗词鉴赏",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0424",
+   "zh": "议论文写作",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0425",
+   "zh": "九、附：证据索引",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0426",
+   "zh": "傅里叶变换",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0427",
+   "zh": "金属材料",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0428",
+   "zh": "平均数",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0429",
+   "zh": "轴对称",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0430",
+   "zh": "牛顿第一定律",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0431",
+   "zh": "光的折射",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0432",
+   "zh": "电生磁",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0433",
+   "zh": "电功率",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0434",
+   "zh": "摩擦力",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0435",
+   "zh": "电磁波",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0436",
+   "zh": "分子动理论",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0437",
+   "zh": "裸子植物",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0438",
+   "zh": "光合作用",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0439",
+   "zh": "细胞分化",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0440",
+   "zh": "感觉器官",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0441",
+   "zh": "机制设计",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0442",
+   "zh": "判断句",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0443",
+   "zh": "文学的本质",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0444",
+   "zh": "文学与生活",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0445",
+   "zh": "被动句",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0446",
+   "zh": "通假字",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0447",
+   "zh": "句类句式",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0448",
+   "zh": "文学接受",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0449",
+   "zh": "宾语前置",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0450",
+   "zh": "文学与文化",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0451",
+   "zh": "文学创作",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0452",
+   "zh": "文学形象典型",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0453",
+   "zh": "语素与词",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0454",
+   "zh": "语言规范运用",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0455",
+   "zh": "省略句",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0456",
+   "zh": "词义关系",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0457",
+   "zh": "古代音韵",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0458",
+   "zh": "内容与形式",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0459",
+   "zh": "使动意动",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0460",
+   "zh": "文学体裁",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0461",
+   "zh": "音节与音变",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0462",
+   "zh": "汉字特点规范",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0463",
+   "zh": "风格流派",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0464",
+   "zh": "现代汉语概说",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0465",
+   "zh": "文学批评",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0466",
+   "zh": "短语与句子成分",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0467",
+   "zh": "古书注解",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0468",
+   "zh": "网络文学",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0469",
+   "zh": "声母韵母声调",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0470",
+   "zh": "古今词义演变",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0471",
+   "zh": "词类活用",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0472",
+   "zh": "古今字异体字",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0473",
+   "zh": "本义引申义",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0474",
+   "zh": "汉字构造六书",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0475",
+   "zh": "中外文论",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0476",
+   "zh": "沉淀溶解平衡",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0477",
+   "zh": "平衡移动",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0478",
+   "zh": "原电池",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0479",
+   "zh": "动量定理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0480",
+   "zh": "光电效应",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0481",
+   "zh": "光的干涉",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0482",
+   "zh": "玻尔兹曼分布",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0483",
+   "zh": "麦克斯韦方程组",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0484",
+   "zh": "光的偏振",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0485",
+   "zh": "光的衍射",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0486",
+   "zh": "磁感应强度",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0487",
+   "zh": "波粒二象性",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0488",
+   "zh": "电场强度",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0489",
+   "zh": "政治经济学",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0490",
+   "zh": "希尔伯特空间",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0491",
+   "zh": "集合运算",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0492",
+   "zh": "内力与截面法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0493",
+   "zh": "剖视图",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0494",
+   "zh": "拉伸压缩",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0495",
+   "zh": "一阶动态电路",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0496",
+   "zh": "阻抗导纳",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0497",
+   "zh": "断面图",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0498",
+   "zh": "电路分析方法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0499",
+   "zh": "基尔霍夫定律",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0500",
+   "zh": "工程测量",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0501",
+   "zh": "压杆稳定",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0502",
+   "zh": "交变应力疲劳",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0503",
+   "zh": "数制编码",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0504",
+   "zh": "强度理论",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0505",
+   "zh": "编码器译码器",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0506",
+   "zh": "建筑结构类型",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0507",
+   "zh": "互感变压器",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0508",
+   "zh": "逻辑代数",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0509",
+   "zh": "土木工程分类",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0510",
+   "zh": "弯曲应力",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0511",
+   "zh": "基本体截切",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0512",
+   "zh": "零件图",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0513",
+   "zh": "材料力学概述",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0514",
+   "zh": "戴维南诺顿定理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0515",
+   "zh": "应力状态分析",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0516",
+   "zh": "电路模型与变量",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0517",
+   "zh": "寄存器",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0518",
+   "zh": "装配图",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0519",
+   "zh": "电源等效",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0520",
+   "zh": "工程抗震",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0521",
+   "zh": "工程项目管理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0522",
+   "zh": "脉冲波形",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0523",
+   "zh": "尺寸标注",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0524",
+   "zh": "应力与应变",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0525",
+   "zh": "地基基础",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0526",
+   "zh": "制图标准",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0527",
+   "zh": "弯曲变形",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0528",
+   "zh": "组合逻辑设计",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0529",
+   "zh": "工程材料",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0530",
+   "zh": "电阻等效",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0531",
+   "zh": "组合体视图",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0532",
+   "zh": "组合变形",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0533",
+   "zh": "钢筋混凝土结构",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0534",
+   "zh": "可编程逻辑",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0535",
+   "zh": "计数器",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0536",
+   "zh": "叠加定理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0537",
+   "zh": "正投影法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0538",
+   "zh": "数据选择器",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0539",
+   "zh": "道路工程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0540",
+   "zh": "逻辑门",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0541",
+   "zh": "正弦稳态相量法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0542",
+   "zh": "弯曲内力",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0543",
+   "zh": "半导体存储器",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0544",
+   "zh": "施工技术",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0545",
+   "zh": "材料力学性质",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0546",
+   "zh": "桥梁结构",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0547",
+   "zh": "二阶电路",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0548",
+   "zh": "点线面投影",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0549",
+   "zh": "三相电路",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0550",
+   "zh": "加法器比较器",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0551",
+   "zh": "结构荷载",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0552",
+   "zh": "时序逻辑分析",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0553",
+   "zh": "触发器",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0554",
+   "zh": "三视图",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0555",
+   "zh": "工程学",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0556",
+   "zh": "解的结构",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0557",
+   "zh": "欧拉方程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0558",
+   "zh": "波动方程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0559",
+   "zh": "边值问题",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0560",
+   "zh": "可分离变量",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0561",
+   "zh": "热传导方程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0562",
+   "zh": "对数函数",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0563",
+   "zh": "一阶线性方程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0564",
+   "zh": "二分法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0565",
+   "zh": "共轭梯度法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0566",
+   "zh": "发酵工程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0567",
+   "zh": "消费者行为",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0568",
+   "zh": "高中思想政治",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0569",
+   "zh": "凸优化",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0570",
+   "zh": "中心极限定理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0571",
+   "zh": "拉普拉斯变换",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0572",
+   "zh": "多元极值",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0573",
+   "zh": "角动量耦合",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0574",
+   "zh": "多电子原子",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0575",
+   "zh": "分离变量法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0576",
+   "zh": "配合物结构",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0577",
+   "zh": "醇酚醚",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0578",
+   "zh": "语言学",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0579",
+   "zh": "计算机科学",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0580",
+   "zh": "高中英语",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0581",
+   "zh": "回归分析",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0582",
+   "zh": "二项分布",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0583",
+   "zh": "条件概率",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0584",
+   "zh": "热力学/耗散结构",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0585",
+   "zh": "配分函数",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0586",
+   "zh": "体温调节",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0587",
+   "zh": "生态平衡",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0588",
+   "zh": "物质循环",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0589",
+   "zh": "二分查找",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0590",
+   "zh": "文件操作",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0591",
+   "zh": "面向对象",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0592",
+   "zh": "代码风格规范",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0593",
+   "zh": "数组与链表",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0594",
+   "zh": "平衡树",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0595",
+   "zh": "字符串匹配",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0596",
+   "zh": "异常处理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0597",
+   "zh": "调试与测试",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0598",
+   "zh": "线性时间排序",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0599",
+   "zh": "指针与引用",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0600",
+   "zh": "封装继承多态",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0601",
+   "zh": "函数与递归",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0602",
+   "zh": "控制结构",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0603",
+   "zh": "二叉树",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0604",
+   "zh": "数组与字符串",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0605",
+   "zh": "变量与数据类型",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0606",
+   "zh": "最短路径",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0607",
+   "zh": "复杂度分析",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0608",
+   "zh": "并查集",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0609",
+   "zh": "最小生成树",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0610",
+   "zh": "二叉搜索树",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0611",
+   "zh": "哈希表",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0612",
+   "zh": "栈与队列",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0613",
+   "zh": "常用标准库",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0614",
+   "zh": "比较排序",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0615",
+   "zh": "拓扑排序",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0616",
+   "zh": "编程范式",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0617",
+   "zh": "图表示与遍历",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0618",
+   "zh": "模块化编程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0619",
+   "zh": "近似算法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0620",
+   "zh": "动态规划",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0621",
+   "zh": "文件系统",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0622",
+   "zh": "性能优化",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0623",
+   "zh": "渐近复杂度分析",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0624",
+   "zh": "最短路径算法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0625",
+   "zh": "并行算法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0626",
+   "zh": "最大流最小割",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0627",
+   "zh": "在线算法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0628",
+   "zh": "系统调用中断",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0629",
+   "zh": "虚拟内存",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0630",
+   "zh": "图搜索",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0631",
+   "zh": "随机化算法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0632",
+   "zh": "贪心算法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0633",
+   "zh": "安全保护",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0634",
+   "zh": "数论算法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0635",
+   "zh": "实时操作系统",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0636",
+   "zh": "进程调度",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0637",
+   "zh": "内存管理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0638",
+   "zh": "字符串算法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0639",
+   "zh": "操作系统概述",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0640",
+   "zh": "进程间通信",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0641",
+   "zh": "分布式操作系统",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0642",
+   "zh": "分治策略",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0643",
+   "zh": "进程线程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0644",
+   "zh": "磁盘调度",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0645",
+   "zh": "回溯与分支限界",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0646",
+   "zh": "摊还分析",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0647",
+   "zh": "计算复杂性（算法/操作系统）",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0648",
+   "zh": "进程同步",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0649",
+   "zh": "虚拟化容器",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0650",
+   "zh": "相似对角化",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0651",
+   "zh": "特征值特征向量",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0652",
+   "zh": "减数分裂",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0653",
+   "zh": "人类遗传病",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0654",
+   "zh": "染色体变异",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0655",
+   "zh": "孟德尔遗传定律",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0656",
+   "zh": "细胞核",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0657",
+   "zh": "伴性遗传",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0658",
+   "zh": "运行时环境",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0659",
+   "zh": "设计模式",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0660",
+   "zh": "符号表",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0661",
+   "zh": "错误处理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0662",
+   "zh": "词法分析",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0663",
+   "zh": "软件测试",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0664",
+   "zh": "寄存器分配",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0665",
+   "zh": "语法分析",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0666",
+   "zh": "软件复用",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0667",
+   "zh": "语法制导翻译",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0668",
+   "zh": "软件工程概述",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0669",
+   "zh": "目标代码生成",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0670",
+   "zh": "需求工程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0671",
+   "zh": "代码优化",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0672",
+   "zh": "配置管理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0673",
+   "zh": "软件设计",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0674",
+   "zh": "中间代码",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0675",
+   "zh": "编译过程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0676",
+   "zh": "工程伦理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0677",
+   "zh": "敏捷开发",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0678",
+   "zh": "软件维护",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0679",
+   "zh": "项目管理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0680",
+   "zh": "类型检查",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0681",
+   "zh": "软件过程模型",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0682",
+   "zh": "软件质量",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0683",
+   "zh": "编译工具",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0684",
+   "zh": "身体动作",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0685",
+   "zh": "说明文语篇",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0686",
+   "zh": "阅读策略",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0687",
+   "zh": "特殊句式",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0688",
+   "zh": "家庭学校",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0689",
+   "zh": "应用文语篇",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0690",
+   "zh": "交通环境",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0691",
+   "zh": "元音辅音",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0692",
+   "zh": "重音连读",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0693",
+   "zh": "议论文语篇",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0694",
+   "zh": "课堂用语",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0695",
+   "zh": "读后续写",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0696",
+   "zh": "自然拼读",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0697",
+   "zh": "学校生活",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0698",
+   "zh": "个人信息家庭",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0699",
+   "zh": "跨文化意识",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0700",
+   "zh": "问候介绍",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0701",
+   "zh": "字母发音",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0702",
+   "zh": "询问表达",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0703",
+   "zh": "核心词汇",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0704",
+   "zh": "数字颜色",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0705",
+   "zh": "饮食健康",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0706",
+   "zh": "简单对话",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0707",
+   "zh": "时态语态",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0708",
+   "zh": "非谓语动词",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0709",
+   "zh": "复合句",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0710",
+   "zh": "概要写作",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0711",
+   "zh": "句子成分",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0712",
+   "zh": "动物食物",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0713",
+   "zh": "听力理解",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0714",
+   "zh": "情景对话",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0715",
+   "zh": "语篇理解",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0716",
+   "zh": "得体交际",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0717",
+   "zh": "英语学习习惯",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0718",
+   "zh": "记叙文语篇",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0719",
+   "zh": "话题语境",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0720",
+   "zh": "虚拟语气",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0721",
+   "zh": "简单阅读",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0722",
+   "zh": "数据链路层",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0723",
+   "zh": "指令流水线",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0724",
+   "zh": "博弈搜索",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0725",
+   "zh": "虚拟存储器",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0726",
+   "zh": "路由算法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0727",
+   "zh": "无线网络",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0728",
+   "zh": "决策树集成",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0729",
+   "zh": "数据模型",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0730",
+   "zh": "控制器",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0731",
+   "zh": "并行处理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0732",
+   "zh": "机器学习基础（计算机组成原理/人工智能）",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0733",
+   "zh": "生成模型",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0734",
+   "zh": "深度学习",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0735",
+   "zh": "数据库安全",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0736",
+   "zh": "寻址方式",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0737",
+   "zh": "嵌入式系统",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0738",
+   "zh": "物理层",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0739",
+   "zh": "应用层协议",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0740",
+   "zh": "聚类降维",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0741",
+   "zh": "查询优化",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0742",
+   "zh": "自动推理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0743",
+   "zh": "搜索算法",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0744",
+   "zh": "指令系统",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0745",
+   "zh": "云数据库",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0746",
+   "zh": "故障恢复",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0747",
+   "zh": "网络体系结构",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0748",
+   "zh": "大数据技术",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0749",
+   "zh": "网络安全基础",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0750",
+   "zh": "网络编程",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0751",
+   "zh": "知识表示",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0752",
+   "zh": "大语言模型",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0753",
+   "zh": "计算机视觉",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0754",
+   "zh": "分布式数据库",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0755",
+   "zh": "数据库设计范式",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0756",
+   "zh": "总线结构",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0757",
+   "zh": "并发控制",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0758",
+   "zh": "数据仓库",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0759",
+   "zh": "自然语言处理",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0760",
+   "zh": "存储引擎",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0761",
+   "zh": "语音识别",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0762",
+   "zh": "存储层次",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0763",
+   "zh": "线性模型",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0764",
+   "zh": "网络性能",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0765",
+   "zh": "物联网网络",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0766",
+   "zh": "性能评测",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0767",
+   "zh": "冯诺依曼体系",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0768",
+   "zh": "神经网络",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0769",
+   "zh": "数据表示",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0770",
+   "zh": "智能体系统",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0771",
+   "zh": "文化传承",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0772",
+   "zh": "汉语拼音",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0773",
+   "zh": "复述转述",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0774",
+   "zh": "字词积累",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0775",
+   "zh": "说明文写作",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0776",
+   "zh": "文言文阅读",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0777",
+   "zh": "理解词语句子",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0778",
+   "zh": "查字典",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0779",
+   "zh": "综合性活动",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0780",
+   "zh": "古诗文背诵",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0781",
+   "zh": "文言实词虚词",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0782",
+   "zh": "应用文写作",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0783",
+   "zh": "时评写作",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0784",
+   "zh": "标点符号",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0785",
+   "zh": "文言文深度阅读",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0786",
+   "zh": "标点病句",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0787",
+   "zh": "病句修改",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0788",
+   "zh": "笔画笔顺",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0789",
+   "zh": "记叙文写作",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0790",
+   "zh": "课外阅读",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0791",
+   "zh": "材料作文",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0792",
+   "zh": "文学类文本",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0793",
+   "zh": "写日记",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0794",
+   "zh": "朗读默读",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0795",
+   "zh": "文学常识名著",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0796",
+   "zh": "名句默写",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0797",
+   "zh": "议论文阅读",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0798",
+   "zh": "书写规范",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0799",
+   "zh": "论述类文本",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0800",
+   "zh": "童话寓言",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0801",
+   "zh": "记叙文阅读",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0802",
+   "zh": "整本书阅读",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0803",
+   "zh": "应用写作",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0804",
+   "zh": "语用题",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0805",
+   "zh": "实用类文本",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0806",
+   "zh": "名篇背诵",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0807",
+   "zh": "古代文化常识",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0808",
+   "zh": "语言建构",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0809",
+   "zh": "语法基础",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0810",
+   "zh": "看图写话",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0811",
+   "zh": "散文小说阅读",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0812",
+   "zh": "说明文阅读",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0813",
+   "zh": "常用修辞",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0814",
+   "zh": "求导法则",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  },
+  {
+   "id": "SA-0815",
+   "zh": "导数概念",
+   "en": "",
+   "type": "entity",
+   "sources": [
+    "synonym_merge"
+   ]
+  }
+ ]
+}

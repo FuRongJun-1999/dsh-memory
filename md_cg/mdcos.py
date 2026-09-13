@@ -24,11 +24,11 @@ import os
 import re
 import time
 
-from .mdcg import (MdCG, expand_query_terms, bigrams, STATE_ACCEPT, STATE_REJECT,
-                   STATE_DEFER, STATE_BLINDSPOT, TIER_BUCKET_LIKE,
+from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT,
+                   STATE_REJECT, STATE_DEFER, STATE_BLINDSPOT, TIER_BUCKET_LIKE,
                    TIER_BUCKET_SCAN, TIER_GLOBAL_LIKE, TIER_GLOBAL_SCAN,
                    GLOBAL_CAP, expand_query_terms_weighted,
-                   expand_query_terms_llm)
+                   expand_query_terms_llm, en_zh_bigrams)
 from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
                self_state, predict, evolution, weights, pooling)
@@ -349,7 +349,10 @@ class MdCGOS(MdCG):
             return [], {"tier": None, "reason": "no_candidates", "scanned": 0}
 
         terms = expand_query_terms(q)
-        qb = bigrams(q)
+        # qb 与 _score 文档侧口径对齐（文档侧已是 normalize_en 小写化），
+        # 否则大小写断裂 → 词法分恒 0 → LIKE 层失效（p33 ⑤ 回归根因）；
+        # + 英→中语素 bigram 补充（与 mdcg.search/_lexical 打分口径同步）
+        qb = bigrams(normalize_en(q)) | en_zh_bigrams(q)
         stat = {"scanned": 0, "query": q}
         route_bucket = None
         if context is not None:
@@ -413,7 +416,9 @@ class MdCGOS(MdCG):
         不再取插入序前 CAP。
         """
         terms = expand_query_terms(query)
-        qb = bigrams(query)
+        # qb 与文档侧 normalize_en 口径对齐（同 MdCGOS.search，防大小写断裂）
+        # + 英→中语素 bigram 补充（跨语词法分恢复）
+        qb = bigrams(normalize_en(query)) | en_zh_bigrams(query)
         docs = self._read_many(entries, stat)
         hits = [d for d in docs if self._like(d[2], d[1], terms)]
         if not hits:

@@ -1,0 +1,1263 @@
+{
+ "meta": {
+  "name": "lingshu-standard-en",
+  "version": "0.1.0",
+  "rules": "RULES.md",
+  "note": "英文标准 = 中文语素序直拼（snake_case）；屈折归零；虚词不入名；音译化石词保留为 opaque；四问皆否不入库"
+ },
+ "morphemes": {
+  "牛": "cow",
+  "猪": "pig",
+  "羊": "sheep",
+  "鸡": "chicken",
+  "鸭": "duck",
+  "马": "horse",
+  "狗": "dog",
+  "猫": "cat",
+  "鱼": "fish",
+  "鸟": "bird",
+  "肉": "meat",
+  "奶": "milk",
+  "蛋": "egg",
+  "米": "rice",
+  "菜": "vegetable",
+  "果": "fruit",
+  "油": "oil",
+  "盐": "salt",
+  "糖": "sugar",
+  "茶": "tea",
+  "酒": "wine",
+  "水": "water",
+  "年": "year",
+  "月": "moon",
+  "日": "day",
+  "天": "day",
+  "周": "week",
+  "期": "period",
+  "时": "hour",
+  "分": "minute",
+  "秒": "second",
+  "春": "spring",
+  "秋": "autumn",
+  "冬": "winter",
+  "夏": "summer",
+  "今": "this",
+  "明": "next",
+  "去": "past",
+  "一": "one",
+  "二": "two",
+  "三": "three",
+  "四": "four",
+  "五": "five",
+  "六": "six",
+  "七": "seven",
+  "八": "eight",
+  "九": "nine",
+  "十": "ten",
+  "百": "hundred",
+  "千": "thousand",
+  "父": "father",
+  "母": "mother",
+  "兄": "elder_brother",
+  "弟": "younger_brother",
+  "姐": "elder_sister",
+  "妹": "younger_sister",
+  "儿": "son",
+  "女": "daughter",
+  "头": "head",
+  "手": "hand",
+  "脚": "foot",
+  "眼": "eye",
+  "口": "mouth",
+  "耳": "ear",
+  "鼻": "nose",
+  "心": "heart",
+  "血": "blood",
+  "骨": "bone",
+  "皮": "skin",
+  "脏": "organ",
+  "山": "mountain",
+  "火": "fire",
+  "土": "soil",
+  "木": "wood",
+  "金": "metal",
+  "光": "light",
+  "电": "electric",
+  "风": "wind",
+  "雨": "rain",
+  "雪": "snow",
+  "星": "star",
+  "海": "sea",
+  "河": "river",
+  "石": "stone",
+  "云": "cloud",
+  "车": "vehicle",
+  "船": "boat",
+  "机": "machine",
+  "器": "device",
+  "刀": "knife",
+  "笔": "pen",
+  "书": "book",
+  "门": "door",
+  "窗": "window",
+  "桥": "bridge",
+  "路": "road",
+  "池": "cell",
+  "走": "walk",
+  "来": "come",
+  "看": "see",
+  "听": "listen",
+  "吃": "eat",
+  "喝": "drink",
+  "说": "speak",
+  "读": "read",
+  "写": "write",
+  "买": "buy",
+  "卖": "sell",
+  "学": "study",
+  "教": "teach",
+  "做": "make",
+  "跑": "run",
+  "飞": "fly",
+  "睡": "sleep",
+  "想": "think",
+  "爱": "love",
+  "用": "use",
+  "开": "open",
+  "关": "close",
+  "大": "big",
+  "小": "small",
+  "高": "high",
+  "低": "low",
+  "新": "new",
+  "旧": "old",
+  "好": "good",
+  "坏": "bad",
+  "长": "long",
+  "短": "short",
+  "快": "fast",
+  "慢": "slow",
+  "热": "hot",
+  "冷": "cold",
+  "多": "many",
+  "少": "few",
+  "重": "heavy",
+  "轻": "light",
+  "深": "deep",
+  "力": "force",
+  "气": "gas",
+  "道": "way",
+  "理": "principle",
+  "文": "text",
+  "化": "transform",
+  "话": "speech",
+  "影": "shadow",
+  "音": "sound",
+  "名": "name",
+  "国": "country",
+  "家": "home",
+  "城": "city",
+  "王": "king",
+  "民": "people",
+  "军": "army",
+  "医": "medicine",
+  "药": "drug",
+  "病": "disease",
+  "课": "lesson",
+  "题": "question",
+  "工": "work",
+  "师": "master",
+  "律": "law",
+  "图": "graph",
+  "谱": "map",
+  "数": "number",
+  "物": "thing",
+  "地": "earth",
+  "人": "person",
+  "脑": "brain",
+  "视": "view",
+  "星期": "week",
+  "经济": "economy",
+  "逻辑": "logic",
+  "沙发": "sofa",
+  "咖啡": "coffee",
+  "巧克力": "chocolate",
+  "知识": "knowledge",
+  "工作": "work",
+  "纪律": "discipline",
+  "记忆": "memory",
+  "认知": "cognition",
+  "月光": "moon_light",
+  "十二": "twelve",
+  "兄弟": "brothers",
+  "姐妹": "sisters",
+  "汽": "gas"
+ },
+ "entries": [
+  {
+   "zh": "牛肉",
+   "glosses": [
+    {
+     "zh": "牛",
+     "en": "cow"
+    },
+    {
+     "zh": "肉",
+     "en": "meat"
+    }
+   ],
+   "standard_en": "cow_meat",
+   "legacy_en": [
+    "beef"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "猪肉",
+   "glosses": [
+    {
+     "zh": "猪",
+     "en": "pig"
+    },
+    {
+     "zh": "肉",
+     "en": "meat"
+    }
+   ],
+   "standard_en": "pig_meat",
+   "legacy_en": [
+    "pork"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "羊肉",
+   "glosses": [
+    {
+     "zh": "羊",
+     "en": "sheep"
+    },
+    {
+     "zh": "肉",
+     "en": "meat"
+    }
+   ],
+   "standard_en": "sheep_meat",
+   "legacy_en": [
+    "mutton"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "鸡肉",
+   "glosses": [
+    {
+     "zh": "鸡",
+     "en": "chicken"
+    },
+    {
+     "zh": "肉",
+     "en": "meat"
+    }
+   ],
+   "standard_en": "chicken_meat",
+   "legacy_en": [
+    "chicken"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "鸭肉",
+   "glosses": [
+    {
+     "zh": "鸭",
+     "en": "duck"
+    },
+    {
+     "zh": "肉",
+     "en": "meat"
+    }
+   ],
+   "standard_en": "duck_meat",
+   "legacy_en": [],
+   "class": "compositional"
+  },
+  {
+   "zh": "牛奶",
+   "glosses": [
+    {
+     "zh": "牛",
+     "en": "cow"
+    },
+    {
+     "zh": "奶",
+     "en": "milk"
+    }
+   ],
+   "standard_en": "cow_milk",
+   "legacy_en": [
+    "milk"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "鸡蛋",
+   "glosses": [
+    {
+     "zh": "鸡",
+     "en": "chicken"
+    },
+    {
+     "zh": "蛋",
+     "en": "egg"
+    }
+   ],
+   "standard_en": "chicken_egg",
+   "legacy_en": [
+    "egg"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "牛肉面",
+   "glosses": [
+    {
+     "zh": "牛",
+     "en": "cow"
+    },
+    {
+     "zh": "肉",
+     "en": "meat"
+    },
+    {
+     "zh": "面",
+     "en": "noodle"
+    }
+   ],
+   "standard_en": "cow_meat_noodle",
+   "legacy_en": [],
+   "class": "compositional"
+  },
+  {
+   "zh": "月份",
+   "glosses": [
+    {
+     "zh": "月",
+     "en": "month"
+    }
+   ],
+   "standard_en": "month",
+   "legacy_en": [],
+   "class": "compositional"
+  },
+  {
+   "zh": "一月",
+   "glosses": [
+    {
+     "zh": "一",
+     "en": "one"
+    },
+    {
+     "zh": "月",
+     "en": "month"
+    }
+   ],
+   "standard_en": "one_month",
+   "legacy_en": [
+    "January"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "二月",
+   "glosses": [
+    {
+     "zh": "二",
+     "en": "two"
+    },
+    {
+     "zh": "月",
+     "en": "month"
+    }
+   ],
+   "standard_en": "two_month",
+   "legacy_en": [
+    "February"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "三月",
+   "glosses": [
+    {
+     "zh": "三",
+     "en": "three"
+    },
+    {
+     "zh": "月",
+     "en": "month"
+    }
+   ],
+   "standard_en": "three_month",
+   "legacy_en": [
+    "March"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "十二月",
+   "glosses": [
+    {
+     "zh": "十二",
+     "en": "twelve"
+    },
+    {
+     "zh": "月",
+     "en": "month"
+    }
+   ],
+   "standard_en": "twelve_month",
+   "legacy_en": [
+    "December"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "星期一",
+   "glosses": [
+    {
+     "zh": "星期",
+     "en": "week"
+    },
+    {
+     "zh": "一",
+     "en": "one"
+    }
+   ],
+   "standard_en": "week_one",
+   "legacy_en": [
+    "Monday"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "星期日",
+   "glosses": [
+    {
+     "zh": "星期",
+     "en": "week"
+    },
+    {
+     "zh": "日",
+     "en": "sun"
+    }
+   ],
+   "standard_en": "week_sun",
+   "legacy_en": [
+    "Sunday"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "今天",
+   "glosses": [
+    {
+     "zh": "今",
+     "en": "this"
+    },
+    {
+     "zh": "天",
+     "en": "day"
+    }
+   ],
+   "standard_en": "this_day",
+   "legacy_en": [
+    "today"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "明天",
+   "glosses": [
+    {
+     "zh": "明",
+     "en": "next"
+    },
+    {
+     "zh": "天",
+     "en": "day"
+    }
+   ],
+   "standard_en": "next_day",
+   "legacy_en": [
+    "tomorrow"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "今年",
+   "glosses": [
+    {
+     "zh": "今",
+     "en": "this"
+    },
+    {
+     "zh": "年",
+     "en": "year"
+    }
+   ],
+   "standard_en": "this_year",
+   "legacy_en": [],
+   "class": "compositional"
+  },
+  {
+   "zh": "明年",
+   "glosses": [
+    {
+     "zh": "明",
+     "en": "next"
+    },
+    {
+     "zh": "年",
+     "en": "year"
+    }
+   ],
+   "standard_en": "next_year",
+   "legacy_en": [],
+   "class": "compositional"
+  },
+  {
+   "zh": "去年",
+   "glosses": [
+    {
+     "zh": "去",
+     "en": "past"
+    },
+    {
+     "zh": "年",
+     "en": "year"
+    }
+   ],
+   "standard_en": "past_year",
+   "legacy_en": [
+    "last year"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "春天",
+   "glosses": [
+    {
+     "zh": "春",
+     "en": "spring"
+    }
+   ],
+   "standard_en": "spring",
+   "legacy_en": [
+    "spring"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "冬天",
+   "glosses": [
+    {
+     "zh": "冬",
+     "en": "winter"
+    }
+   ],
+   "standard_en": "winter",
+   "legacy_en": [
+    "winter"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "父亲",
+   "glosses": [
+    {
+     "zh": "父",
+     "en": "father"
+    }
+   ],
+   "standard_en": "father",
+   "legacy_en": [
+    "father"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "母亲",
+   "glosses": [
+    {
+     "zh": "母",
+     "en": "mother"
+    }
+   ],
+   "standard_en": "mother",
+   "legacy_en": [
+    "mother"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "兄弟",
+   "glosses": [
+    {
+     "zh": "兄弟",
+     "en": "brothers"
+    }
+   ],
+   "standard_en": "brothers",
+   "legacy_en": [
+    "brothers"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "姐妹",
+   "glosses": [
+    {
+     "zh": "姐妹",
+     "en": "sisters"
+    }
+   ],
+   "standard_en": "sisters",
+   "legacy_en": [
+    "sisters"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "儿子",
+   "glosses": [
+    {
+     "zh": "儿",
+     "en": "son"
+    }
+   ],
+   "standard_en": "son",
+   "legacy_en": [
+    "son"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "女儿",
+   "glosses": [
+    {
+     "zh": "女",
+     "en": "daughter"
+    }
+   ],
+   "standard_en": "daughter",
+   "legacy_en": [
+    "daughter"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "眼睛",
+   "glosses": [
+    {
+     "zh": "眼",
+     "en": "eye"
+    }
+   ],
+   "standard_en": "eye",
+   "legacy_en": [
+    "eye"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "心脏",
+   "glosses": [
+    {
+     "zh": "心",
+     "en": "heart"
+    },
+    {
+     "zh": "脏",
+     "en": "organ"
+    }
+   ],
+   "standard_en": "heart_organ",
+   "legacy_en": [
+    "heart"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "火山",
+   "glosses": [
+    {
+     "zh": "火",
+     "en": "fire"
+    },
+    {
+     "zh": "山",
+     "en": "mountain"
+    }
+   ],
+   "standard_en": "fire_mountain",
+   "legacy_en": [
+    "volcano"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "海水",
+   "glosses": [
+    {
+     "zh": "海",
+     "en": "sea"
+    },
+    {
+     "zh": "水",
+     "en": "water"
+    }
+   ],
+   "standard_en": "sea_water",
+   "legacy_en": [
+    "seawater"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "月光",
+   "glosses": [
+    {
+     "zh": "月",
+     "en": "moon"
+    },
+    {
+     "zh": "光",
+     "en": "light"
+    }
+   ],
+   "standard_en": "moon_light",
+   "legacy_en": [
+    "moonlight"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "雪山",
+   "glosses": [
+    {
+     "zh": "雪",
+     "en": "snow"
+    },
+    {
+     "zh": "山",
+     "en": "mountain"
+    }
+   ],
+   "standard_en": "snow_mountain",
+   "legacy_en": [
+    "snow mountain"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "电脑",
+   "glosses": [
+    {
+     "zh": "电",
+     "en": "electric"
+    },
+    {
+     "zh": "脑",
+     "en": "brain"
+    }
+   ],
+   "standard_en": "electric_brain",
+   "legacy_en": [
+    "computer"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "电话",
+   "glosses": [
+    {
+     "zh": "电",
+     "en": "electric"
+    },
+    {
+     "zh": "话",
+     "en": "speech"
+    }
+   ],
+   "standard_en": "electric_speech",
+   "legacy_en": [
+    "telephone"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "电视",
+   "glosses": [
+    {
+     "zh": "电",
+     "en": "electric"
+    },
+    {
+     "zh": "视",
+     "en": "view"
+    }
+   ],
+   "standard_en": "electric_view",
+   "legacy_en": [
+    "television"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "电影",
+   "glosses": [
+    {
+     "zh": "电",
+     "en": "electric"
+    },
+    {
+     "zh": "影",
+     "en": "shadow"
+    }
+   ],
+   "standard_en": "electric_shadow",
+   "legacy_en": [
+    "movie",
+    "film"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "电池",
+   "glosses": [
+    {
+     "zh": "电",
+     "en": "electric"
+    },
+    {
+     "zh": "池",
+     "en": "cell"
+    }
+   ],
+   "standard_en": "electric_cell",
+   "legacy_en": [
+    "battery"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "火车",
+   "glosses": [
+    {
+     "zh": "火",
+     "en": "fire"
+    },
+    {
+     "zh": "车",
+     "en": "vehicle"
+    }
+   ],
+   "standard_en": "fire_vehicle",
+   "legacy_en": [
+    "train"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "汽车",
+   "glosses": [
+    {
+     "zh": "汽",
+     "en": "gas"
+    },
+    {
+     "zh": "车",
+     "en": "vehicle"
+    }
+   ],
+   "standard_en": "gas_vehicle",
+   "legacy_en": [
+    "car"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "飞机",
+   "glosses": [
+    {
+     "zh": "飞",
+     "en": "fly"
+    },
+    {
+     "zh": "机",
+     "en": "machine"
+    }
+   ],
+   "standard_en": "fly_machine",
+   "legacy_en": [
+    "airplane"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "手机",
+   "glosses": [
+    {
+     "zh": "手",
+     "en": "hand"
+    },
+    {
+     "zh": "机",
+     "en": "machine"
+    }
+   ],
+   "standard_en": "hand_machine",
+   "legacy_en": [
+    "mobile phone"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "数学",
+   "glosses": [
+    {
+     "zh": "数",
+     "en": "number"
+    },
+    {
+     "zh": "学",
+     "en": "study"
+    }
+   ],
+   "standard_en": "number_study",
+   "legacy_en": [
+    "mathematics"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "化学",
+   "glosses": [
+    {
+     "zh": "化",
+     "en": "transform"
+    },
+    {
+     "zh": "学",
+     "en": "study"
+    }
+   ],
+   "standard_en": "transform_study",
+   "legacy_en": [
+    "chemistry"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "物理学",
+   "glosses": [
+    {
+     "zh": "物",
+     "en": "thing"
+    },
+    {
+     "zh": "理",
+     "en": "principle"
+    },
+    {
+     "zh": "学",
+     "en": "study"
+    }
+   ],
+   "standard_en": "thing_principle_study",
+   "legacy_en": [
+    "physics"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "地理学",
+   "glosses": [
+    {
+     "zh": "地",
+     "en": "earth"
+    },
+    {
+     "zh": "理",
+     "en": "principle"
+    },
+    {
+     "zh": "学",
+     "en": "study"
+    }
+   ],
+   "standard_en": "earth_principle_study",
+   "legacy_en": [
+    "geography"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "生物学",
+   "glosses": [
+    {
+     "zh": "生",
+     "en": "living"
+    },
+    {
+     "zh": "物",
+     "en": "thing"
+    },
+    {
+     "zh": "学",
+     "en": "study"
+    }
+   ],
+   "standard_en": "living_thing_study",
+   "legacy_en": [
+    "biology"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "热力学",
+   "glosses": [
+    {
+     "zh": "热",
+     "en": "heat"
+    },
+    {
+     "zh": "力",
+     "en": "force"
+    },
+    {
+     "zh": "学",
+     "en": "study"
+    }
+   ],
+   "standard_en": "heat_force_study",
+   "legacy_en": [
+    "thermodynamics"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "医生",
+   "glosses": [
+    {
+     "zh": "医",
+     "en": "medicine"
+    },
+    {
+     "zh": "生",
+     "en": "person"
+    }
+   ],
+   "standard_en": "medicine_person",
+   "legacy_en": [
+    "doctor"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "学生",
+   "glosses": [
+    {
+     "zh": "学",
+     "en": "study"
+    },
+    {
+     "zh": "生",
+     "en": "person"
+    }
+   ],
+   "standard_en": "study_person",
+   "legacy_en": [
+    "student"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "律师",
+   "glosses": [
+    {
+     "zh": "律",
+     "en": "law"
+    },
+    {
+     "zh": "师",
+     "en": "master"
+    }
+   ],
+   "standard_en": "law_master",
+   "legacy_en": [
+    "lawyer"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "工人",
+   "glosses": [
+    {
+     "zh": "工",
+     "en": "work"
+    },
+    {
+     "zh": "人",
+     "en": "person"
+    }
+   ],
+   "standard_en": "work_person",
+   "legacy_en": [
+    "worker"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "知识图谱",
+   "glosses": [
+    {
+     "zh": "知识",
+     "en": "knowledge"
+    },
+    {
+     "zh": "图",
+     "en": "graph"
+    },
+    {
+     "zh": "谱",
+     "en": "map"
+    }
+   ],
+   "standard_en": "knowledge_graph_map",
+   "legacy_en": [
+    "knowledge graph"
+   ],
+   "class": "compositional"
+  },
+  {
+   "zh": "认知图",
+   "glosses": [
+    {
+     "zh": "认知",
+     "en": "cognition"
+    },
+    {
+     "zh": "图",
+     "en": "graph"
+    }
+   ],
+   "standard_en": "cognition_graph",
+   "legacy_en": [],
+   "class": "compositional"
+  },
+  {
+   "zh": "工作纪律",
+   "glosses": [
+    {
+     "zh": "工作",
+     "en": "work"
+    },
+    {
+     "zh": "纪律",
+     "en": "discipline"
+    }
+   ],
+   "standard_en": "work_discipline",
+   "legacy_en": [],
+   "class": "compositional"
+  },
+  {
+   "zh": "记忆库",
+   "glosses": [
+    {
+     "zh": "记忆",
+     "en": "memory"
+    },
+    {
+     "zh": "库",
+     "en": "store"
+    }
+   ],
+   "standard_en": "memory_store",
+   "legacy_en": [],
+   "class": "compositional"
+  },
+  {
+   "zh": "经济",
+   "glosses": [
+    {
+     "zh": "经济",
+     "en": "economy"
+    }
+   ],
+   "standard_en": "economy",
+   "legacy_en": [
+    "economy"
+   ],
+   "class": "opaque"
+  },
+  {
+   "zh": "逻辑",
+   "glosses": [
+    {
+     "zh": "逻辑",
+     "en": "logic"
+    }
+   ],
+   "standard_en": "logic",
+   "legacy_en": [
+    "logic"
+   ],
+   "class": "opaque"
+  },
+  {
+   "zh": "沙发",
+   "glosses": [
+    {
+     "zh": "沙发",
+     "en": "sofa"
+    }
+   ],
+   "standard_en": "sofa",
+   "legacy_en": [
+    "sofa"
+   ],
+   "class": "opaque"
+  },
+  {
+   "zh": "咖啡",
+   "glosses": [
+    {
+     "zh": "咖啡",
+     "en": "coffee"
+    }
+   ],
+   "standard_en": "coffee",
+   "legacy_en": [
+    "coffee"
+   ],
+   "class": "opaque"
+  },
+  {
+   "zh": "巧克力",
+   "glosses": [
+    {
+     "zh": "巧克力",
+     "en": "chocolate"
+    }
+   ],
+   "standard_en": "chocolate",
+   "legacy_en": [
+    "chocolate"
+   ],
+   "class": "opaque"
+  }
+ ]
+}
