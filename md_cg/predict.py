@@ -42,6 +42,11 @@ BASE_HIT_RATE = 0.40        # 基线阈值（工程初值，非协议承诺）
 HIT_HISTORY_MAX = 200       # 命中历史滚动窗口
 EDGE_BOOST = 0.05           # 命中 → 因果/时序边置信度增量
 
+# Beta-Bernoulli 先验强度（等效先验样本数 κ，P-T-73/74 通道贝叶斯）：
+# α0 = BASE_HIT_RATE·κ，β0 = (1−BASE_HIT_RATE)·κ。κ 越大小样本越向基线收缩。
+# 性质：先验均值 = BASE_HIT_RATE（与 hit_rate() 空历史兜底同值，口径无缝）。
+PRIOR_STRENGTH = 20
+
 CAUSAL_BRANCH_TYPES = ("causal", "sequential")
 SEMANTIC_TOP_K = 5
 SEMANTIC_MIN_SIM = 0.05
@@ -307,6 +312,67 @@ def hit_rate(cg):
     if not h:
         return BASE_HIT_RATE
     return round(sum(1 for x in h if x) / len(h), 4)
+
+
+# ---------------------------------------------------------------- P-T-73/74 通道贝叶斯
+
+def beta_posterior(hits, prior_k=PRIOR_STRENGTH, base=BASE_HIT_RATE):
+    """Beta-Bernoulli 后验（纯函数）：命中序列 → 后验参数与区间。
+
+    置信度≠可信度（P-T-73/74）：`hit_rate` 是滑动计数（小样本过度自信：
+    n=5 全命中 → 1.0）；后验均值 = (α0+k)/(α0+β0+n) 随样本量向基线收缩
+    （n=5 全命中 → 0.52），诚实反映「证据还很少」。置信度的动态死区
+    （dynamic_hit_threshold）不动——本函数只提供**更诚实的可信度估计面**，
+    默认链路零行为变更。
+
+    返回：{alpha, beta, mean, std, ci95, samples, hits}；
+    空序列 → 先验（mean=base，与 hit_rate 空历史兜底同值）。
+    ci95 用正态近似 mean±1.96σ（零依赖；样本大时近似良好，小样本区间
+    偏窄，故另带 samples 供阅读方自判权重）。
+    """
+    a0 = float(base) * float(prior_k)
+    b0 = (1.0 - float(base)) * float(prior_k)
+    xs = [bool(x) for x in (hits or [])]
+    k = sum(1 for x in xs if x)
+    n = len(xs)
+    a, b = a0 + k, b0 + (n - k)
+    mean = a / (a + b)
+    var = (a * b) / ((a + b) ** 2 * (a + b + 1.0))
+    std = var ** 0.5
+    return {"alpha": round(a, 4), "beta": round(b, 4),
+            "mean": round(mean, 4), "std": round(std, 4),
+            "ci95": [round(max(0.0, mean - 1.96 * std), 4),
+                     round(min(1.0, mean + 1.96 * std), 4)],
+            "samples": n, "hits": k}
+
+
+def channel_history(cg, limit=HIT_HISTORY_MAX):
+    """feedback 留痕按通道分组（P-T-74 通道级可信度）→ {channel: [hit...]}。
+
+    通道 = 预测发出的面（feedback 的 `channel` 参数，如 "causal"/"semantic"）。
+    早期留痕无 channel 字段 → 归 "unlabeled"（诚实标注，不冒充分通道）。
+    """
+    out = {}
+    for r in _read_log(cg, limit=limit):
+        if r.get("type") != "feedback":
+            continue
+        ch = str(r.get("channel") or "unlabeled")
+        out.setdefault(ch, []).append(bool(r.get("hit")))
+    return out
+
+
+def channel_posterior(cg, channel=None, limit=HIT_HISTORY_MAX):
+    """通道级后验查询：channel=None → 全量+分通道；channel=str → 单通道。"""
+    hist = channel_history(cg, limit=limit)
+    if channel is not None:
+        ch = str(channel)
+        post = beta_posterior(hist.get(ch) or [])
+        post["channel"] = ch
+        return post
+    all_hits = [x for hits in hist.values() for x in hits]
+    return {"all": beta_posterior(all_hits),
+            "channels": {ch: beta_posterior(hits)
+                         for ch, hits in sorted(hist.items())}}
 
 
 def score_route(cg, route, verification=None):
@@ -610,10 +676,13 @@ def dynamic_hit_threshold(cg, limit=HIT_HISTORY_MAX):
 
 
 def feedback(cg, predicted_node_id, actual_node_id=None, hit=None, note="",
-             actor="predict", sync_self=True):
+             actor="predict", sync_self=True, channel=None):
     """预测反馈（D-006）：hit → 边置信度 +0.05；miss → 登记 rejected。
 
     `hit` 未显式给出时按 `predicted == actual` 判定。
+    `channel`（可选，P-T-74）：预测发出的面（如 "causal"/"semantic"），
+    供通道级 Beta-Bernoulli 后验（channel_posterior）按面分层估计可信度；
+    不传 → 留痕归 "unlabeled"，不改变任何既有行为。
 
     `sync_self`（默认 True）：反馈后**回写自我模型**——刷新自我状态卡的
     「预测校准」面，形成「预测 → 事实 → 误差 → 自我更新」闭环。
@@ -625,7 +694,8 @@ def feedback(cg, predicted_node_id, actual_node_id=None, hit=None, note="",
         hit = (pred == act)
     hit = bool(hit)
     _append(cg, {"type": "feedback", "t": time.time(), "predicted": pred,
-                 "actual": act, "hit": hit, "note": str(note or "")[:200]})
+                 "actual": act, "hit": hit, "note": str(note or "")[:200],
+                 "channel": (str(channel) if channel else None)})
     out = {"ok": True, "hit": hit, "predicted": pred, "actual": act}
     if hit:
         out["boosted"] = _boost_incoming(cg, act, EDGE_BOOST, actor=actor)
@@ -826,6 +896,7 @@ def stats(cg, limit=20):
             "feedback_samples": len(h), "hits": sum(1 for x in h if x),
             "hit_rate": (round(sum(1 for x in h if x) / len(h), 4) if h
                          else BASE_HIT_RATE),
+            "beta": channel_posterior(cg),
             "dynamic": dynamic_hit_threshold(cg),
             "recent": recs[-int(limit):] if limit else []}
 
@@ -906,6 +977,8 @@ def catalog():
             "D-004": "T_pred 四维评分 trend/boundary/verification/balance",
             "D-005": "AttentionPolicy 适配器 + 降级（边置信度排序）",
             "D-006": "命中率动态校准（样本 < 50 不触发反思）",
+            "P-T-73/74": "通道贝叶斯后验（Beta-Bernoulli，置信度≠可信度；"
+                         "feedback channel 参数 + channel_posterior 查询）",
         },
         "weights": {"trend": W_TREND, "boundary": W_BOUNDARY,
                     "verification": W_VERIFICATION, "balance": W_BALANCE},

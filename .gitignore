@@ -77,6 +77,14 @@ llm-adapter-poc/
 # Rust 评测器（mdcg-eval）构建产物（cargo build --release 可再生；
 # 且 .d/.fingerprint 含本地绝对路径，绝不入公开仓）
 /rust/target/
+# Rust 评测一次性 dump 与结果输出（可重跑再生）
+/rust/loco_*
+
+# md_cg 下的评测灌库（可由 data/benchmarks/ 重灌再生；根目录规则 /_md_cg_eval_*/
+# 因路径锚定不覆盖 md_cg/ 子目录实例）与 mdcg 审计日志（运行时追加，不入库）
+/md_cg/_md_cg_eval_*/
+/md_cg/_audit.jsonl
+/md_cg/knowledge/
 
 # 实验工作区（docs/experiments）：实验脚本 / result_*.json / _store 数据目录
 # 均为本地实验产物，不入库（_store 含 _index.json 与 *.lock，可由同目录

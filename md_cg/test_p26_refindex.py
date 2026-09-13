@@ -246,15 +246,15 @@ def main():
         hits = [r for r in read.get("results", []) if r["node"]["id"] == py_nid]
         check("代码节点可被检索到（存得进→查得到）", bool(hits),
               f"hits={len(hits)}")
-        check("CCG 完整 + 基底已声明 → ACCEPT（不再恒定 BLINDSPOT）",
-              bool(hits) and hits[0]["state"] == "ACCEPT",
+        check("CCG 完整 + 基底已声明 → DEFER（不再恒定 BLINDSPOT，情境未确认条件不冒充接受）",
+              bool(hits) and hits[0]["state"] == "DEFER",
               str(hits[0]["state"] if hits else None))
 
         js_nid = codeindex.node_id(js_item)
         read_js = call_tool(cg, "cg", {"op": "read", "query": "areaOfCircle", "k": 10})
         js_hits = [r for r in read_js.get("results", []) if r["node"]["id"] == js_nid]
-        check("弱提取节点同样可判（state=ACCEPT）",
-              bool(js_hits) and js_hits[0]["state"] == "ACCEPT",
+        check("弱提取节点同样可判（state=DEFER，非 BLINDSPOT）",
+              bool(js_hits) and js_hits[0]["state"] == "DEFER",
               str(js_hits[0]["state"] if js_hits else None))
 
         # ===================================================== ⑥ code_ref

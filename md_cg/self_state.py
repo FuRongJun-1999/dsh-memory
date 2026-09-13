@@ -247,8 +247,10 @@ def _prediction_face(cg):
         from . import predict as _predict
         hist = list(_predict._hit_history(cg))
         th = _predict.dynamic_hit_threshold(cg)
+        # P-T-73/74 通道贝叶斯：可信度后验（随样本量向基线收缩，诚实小样本）
+        beta = (_predict.channel_posterior(cg) or {}).get("all") or {}
     except Exception:                                      # noqa: BLE001
-        hist, th = [], {}
+        hist, th, beta = [], {}, {}
     samples = len(hist)
     hit_rate = (sum(1 for x in hist if x) / samples) if samples else None
     try:
@@ -265,6 +267,8 @@ def _prediction_face(cg):
         "ok": samples > 0,
         "samples": samples,
         "hit_rate": None if hit_rate is None else round(hit_rate, 4),
+        "beta_mean": beta.get("mean"),
+        "beta_ci95": beta.get("ci95"),
         "threshold": th.get("threshold"),
         "reflect": bool(th.get("reflect")),
         "ece": cal.get("ece") if cal.get("ok") else None,
@@ -420,6 +424,8 @@ def _render(state):
         f"入 {state['relations'].get('in')}",
         f"# 预测：命中率={pd.get('hit_rate')}（样本 {pd.get('samples')}）"
         f"阈值={pd.get('threshold')} 反思={'是' if pd.get('reflect') else '否'}"
+        f"；后验可信度={pd.get('beta_mean')}"
+        f"（95%CI {pd.get('beta_ci95')}）"
         f"；ECE={pd.get('ece')}（{pd.get('calibration')}）",
         "# 索引：" + "；".join(
             f"{d}={','.join(dims.get(d) or []) or '-'}" for d in DIMENSIONS),
@@ -543,6 +549,7 @@ def refresh(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW, importance=None,
         "prediction_hit_rate": (state.get("prediction") or {}).get("hit_rate"),
         "prediction_samples": (state.get("prediction") or {}).get("samples"),
         "prediction_reflect": (state.get("prediction") or {}).get("reflect"),
+        "prediction_beta_mean": (state.get("prediction") or {}).get("beta_mean"),
         "dimensions": state["dimensions"], "issue": chain_issue})
     return {"ok": True, "changed": True, "subject": subject, "node_id": nid,
             "state_version": version, "state_hash": state["state_hash"],

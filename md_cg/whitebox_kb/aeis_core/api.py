@@ -690,10 +690,15 @@ class Agent:
 
     def preflight(self, text: str) -> Dict:
         """输出前反思钩子：内容与价值观一致性检查（冲突词拦截）。
-        推理强化：重要输出对外发布前调用，失调内容前置拦截。"""
+        推理强化：重要输出对外发布前调用，失调内容前置拦截。
+        fail-closed（矩阵 v0.2 #29）：组件未装配 = 检查未执行 ≠ 通过——
+        返回 ok:False 拦截并携带装配错误，杜绝「未验证被冒充为已验证」。"""
         sc = getattr(self.engine, "_self_cognition", None)
         if sc is None:
-            return {"ok": True, "note": "自我认知组件未装配"}
+            return {"ok": False, "status": "fail_closed",
+                    "reason": "self_cognition_not_ready",
+                    "note": "自我认知组件未装配，输出前检查未执行（fail-closed：未验证不放行）",
+                    "error": str(getattr(self.engine, "_self_cognition_error", "") or "")}
         return sc.preflight(text)
 
     def see(self, image_path: str, conf_threshold: float = 0.35,

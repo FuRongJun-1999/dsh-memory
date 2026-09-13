@@ -280,8 +280,8 @@ def main():
         rd = call_tool(cg, "cg", {"op": "read", "query": "分阶段实施", "k": 10})
         hits = [r for r in rd.get("results", []) if r["node"]["id"] == g_id]
         check("文档节点可被检索到", bool(hits), f"hits={len(hits)}")
-        check("CCG 完整 → state=ACCEPT",
-              bool(hits) and hits[0]["state"] == "ACCEPT",
+        check("CCG 完整 → state=DEFER（v2：情境未确认条件不冒充接受，非 BLINDSPOT）",
+              bool(hits) and hits[0]["state"] == "DEFER",
               str(hits[0]["state"] if hits else None))
 
         # ===================================================== ⑥ op=ref
@@ -367,8 +367,8 @@ def main():
         r_id = docindex.node_id(s9r)
         rd2 = call_tool(cg, "cg", {"op": "read", "query": "分阶段实施（稳健）", "k": 10})
         h2 = [r for r in rd2.get("results", []) if r["node"]["id"] == r_id]
-        check("§9 表可被检索到且判 ACCEPT",
-              bool(h2) and h2[0]["state"] == "ACCEPT",
+        check("§9 表可被检索到且可判（state=DEFER，非 BLINDSPOT）",
+              bool(h2) and h2[0]["state"] == "DEFER",
               str(h2[0]["state"] if h2 else None))
         rr4 = call_tool(cg, "cg", {"op": "ref", "node_id": r_id})
         check("回读到 §9 表原文（给出行号区间）",

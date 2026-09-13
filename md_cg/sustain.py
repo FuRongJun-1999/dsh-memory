@@ -39,6 +39,14 @@
    报为 `provenance_dangling`（severity=info、**无自动修复**）——关系事实的去留由人
    处置，不给「自动删边」这种会篡改历史的动作。
 
+⑥ 对端挂了谁来救？—— **互维闭环（P-T-110 最小投影 · #30）**
+   两个灵枢互为维生系统：`mutual_watch` 读对端心跳 → 失联则**幂等拉起**
+   （pid 探活防误判 + 冷却防风暴）→ **验戳新鲜闭合**：拉起后必须轮询到
+   对端戳变新才算救活，否则如实报 `mutual_peer_unresponsive`——这正是
+   mutual-sustain-loop v1.1 §7 的 W4 部署教训（「拉起后应验证对端戳新鲜度，
+   当时缺该校验」）的机制化：不假装成功。`mutual_status` 做双亡检测：
+   自己也失联时互维本身不可信 → 显式上报外部告警语义，绝不静默。
+
 零第三方依赖。
 """
 from __future__ import annotations
@@ -152,6 +160,155 @@ def peers(d: str = None):
                                  task_running=bool(rec.get("task_running")))
             out.append(rec)
     return out
+
+
+# --------------------------------------------------------------------------
+# 互维闭环（P-T-110 最小投影 · #30）
+# --------------------------------------------------------------------------
+
+DEFAULT_RESTART_COOLDOWN = 300.0   # 同一对端两次拉起的最小间隔（防风暴）
+DEFAULT_FRESH_TIMEOUT = 60.0       # 拉起后等待对端戳变新鲜的窗口
+
+
+def pid_alive(pid) -> bool:
+    """进程探活（零第三方依赖）：Windows=OpenProcess+WaitForSingleObject；
+    posix=os.kill(pid,0)。pid 无效 / 已退出 / 权限外 → False（诚实）。"""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        SYNCHRONIZE = 0x00100000
+        WAIT_TIMEOUT = 0x00000102
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(SYNCHRONIZE, False, pid)
+        if not h:
+            return False
+        try:
+            return k32.WaitForSingleObject(h, 0) == WAIT_TIMEOUT
+        finally:
+            k32.CloseHandle(h)
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _default_spawner(cmd):
+    """分离式拉起：argv 列表、不经 shell、输出弃置（Windows 完全脱离父控制台）。"""
+    import subprocess
+    kw = {}
+    if os.name == "nt":
+        kw["creationflags"] = (0x00000008 | 0x00000200)  # DETACHED|NEW_GROUP
+    return subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, **kw)
+
+
+def _last_mutual_restart(root: str, peer: str) -> float:
+    """_sustain.jsonl 里该对端最近一次互维拉起时间（无 → 0.0，审计即状态）。"""
+    last = 0.0
+    try:
+        with open(os.path.join(root, SUSTAIN_LOG), encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if (r.get("op") == "mutual" and r.get("action") == "restart"
+                        and str(r.get("detail") or "").startswith(str(peer))):
+                    last = max(last, float(r.get("t") or 0.0))
+    except OSError:
+        pass
+    return last
+
+
+def mutual_watch(cg, peer: str, *, restart_cmd=None, d: str = None,
+                 interval: float = DEFAULT_BEAT_INTERVAL,
+                 restart_cooldown: float = DEFAULT_RESTART_COOLDOWN,
+                 fresh_timeout: float = DEFAULT_FRESH_TIMEOUT, poll: float = 0.5,
+                 spawner=None) -> dict:
+    """互维守护（单侧一次检查）：读对端心跳 → 失联则幂等拉起 → 验戳闭合。
+
+    判定序（P-T-110 语义，全链路审计进 _sustain.jsonl）：
+      ok/warning        → 不动作；
+      dead/absent：
+        ① 误判防护：戳里 pid 仍存活 → `alive_but_stale`（长任务未标
+           task_running？）——**不拉起**，不杀活进程；
+        ② 冷却：距上次拉起 < restart_cooldown → `restart_cooldown`；
+        ③ 无 restart_cmd → `dead_unhandled`（ok=False，诚实上报没手段，
+           不假装能救）；
+        ④ 拉起（spawner 或分离式 Popen）→ **验戳新鲜闭合**（W4 补丁）：
+           轮询对端戳 ts 超过拉起前值才算 `recovered=True`；超时 →
+           `recovered=False` + `mutual_peer_unresponsive`——对端拉起后
+           互维未激活（v1.1 §7 的 W4 场景）会被显式暴露，不假装成功。
+    """
+    rec = read_stamp(peer, d)
+    state = (judge(rec["age"], interval=interval,
+                   task_running=bool(rec.get("task_running")))
+             if rec else "absent")
+    out = {"ok": True, "peer": peer, "state": state, "t": time.time(),
+           "action": "none", "recovered": None}
+    if state in ("ok", "warning"):
+        return out
+    if rec and pid_alive(rec.get("pid")):
+        out.update(action="alive_but_stale",
+                   note="对端进程存活但戳陈旧（长任务未标 task_running？）——不拉起")
+        _audit(cg.root, "mutual", "alive_but_stale", peer)
+        return out
+    last = _last_mutual_restart(cg.root, peer)
+    if last and (time.time() - last) < restart_cooldown:
+        out.update(action="restart_cooldown",
+                   note="距上次拉起 %.1fs，冷却中" % (time.time() - last))
+        return out
+    if not restart_cmd:
+        out.update(ok=False, action="dead_unhandled",
+                   note="对端失联且未提供 restart_cmd——诚实上报，不假装能救")
+        _audit(cg.root, "mutual", "dead_unhandled", peer)
+        return out
+    before_ts = float((rec or {}).get("ts") or 0.0)
+    spawn = spawner or _default_spawner
+    try:
+        spawn(restart_cmd)
+    except Exception as e:                                 # noqa: BLE001
+        out.update(ok=False, action="restart_error",
+                   error="%s: %s" % (type(e).__name__, e))
+        _audit(cg.root, "mutual", "restart_error", peer)
+        return out
+    deadline = time.time() + fresh_timeout
+    while time.time() < deadline:
+        r2 = read_stamp(peer, d)
+        if r2 and float(r2.get("ts") or 0.0) > before_ts:
+            out.update(action="restarted", recovered=True, fresh_ts=r2.get("ts"))
+            _audit(cg.root, "mutual", "restart", peer)
+            return out
+        time.sleep(poll)
+    out.update(ok=False, action="restarted", recovered=False,
+               note=("拉起命令已执行但对端戳未更新（互维未激活？）——"
+                     "mutual_peer_unresponsive，不假装成功"))
+    _audit(cg.root, "mutual", "restart_unverified", peer)
+    return out
+
+
+def mutual_status(cg, peer: str, *, d: str = None, name: str = "md_cg",
+                  interval: float = DEFAULT_BEAT_INTERVAL) -> dict:
+    """互维状态 + 双亡检测：自己也失联时互维不可信 → 显式外部告警语义。"""
+    mine, theirs = read_stamp(name, d), read_stamp(peer, d)
+    my_state = (judge(mine["age"], interval=interval,
+                      task_running=bool(mine.get("task_running")))
+                if mine else "absent")
+    peer_state = (judge(theirs["age"], interval=interval,
+                        task_running=bool(theirs.get("task_running")))
+                  if theirs else "absent")
+    dead = ("dead", "absent")
+    both_dead = my_state in dead and peer_state in dead
+    return {"ok": not both_dead, "self": my_state, "peer": peer_state,
+            "both_dead": both_dead,
+            "note": ("双向同时失联：互维本身已不可信，须外部告警（P-T-110 风险表）"
+                     if both_dead else "互维链路可用")}
 
 
 # --------------------------------------------------------------------------

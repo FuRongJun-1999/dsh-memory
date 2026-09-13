@@ -138,8 +138,8 @@ def main():
     ctx = {"tags": DOM_TAG, "环境": "当前测量在海拔 > 5000 米进行"}
     r, m = cg.search("白箱资格判定", k=30, context=ctx)
     states = {x[0]["id"]: x[2]["state"] for x in r}
-    check("CCG 完整+基底+条件未命中 → ACCEPT",
-          states.get("p1_accept") == STATE_ACCEPT, str(states.get("p1_accept")))
+    check("CCG 完整+基底+情境未确认条件 → DEFER（v2：不冒充接受）",
+          states.get("p1_accept") == STATE_DEFER, str(states.get("p1_accept")))
     check("CCG 完整但无验证基底 → DEFER",
           states.get("p1_defer") == STATE_DEFER, str(states.get("p1_defer")))
     check("CCG 要素不全 → BLINDSPOT",
