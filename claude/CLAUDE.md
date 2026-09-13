@@ -12,7 +12,7 @@
 
 | 约定 | 内容 |
 |---|---|
-| **0.1 会话起始先查记忆** | 动手前先 `cg(op=route, intent=<任务意图>)`；命中纪律/知识则按其 `execution.how` 执行。**禁止跳过此步直接改代码或跑命令。** |
+| **0.1 会话起始先查记忆** | 动手前先调认知图入口——工具名随端：MCP 端 = server「mdcg」的 `cg`；DSH 端 = 内建基元 `lingshu_cg`（即下文所有 `cg(...)`，同一服务勿因名字不同而猜测）。**`op` 是必填参数（route/read/write/verify/review…），任何调用都显式传、勿省略**。先 `cg(op=route, intent=<任务意图>)`；命中纪律/知识则按其 `execution.how` 执行。**禁止跳过此步直接改代码或跑命令。** |
 | **0.2 命中即声明** | 命中纪律须在回复中输出该条 `response.direct` 原文（「按工作纪律第 N 条：…」）。**这是「已执行」的唯一可观测证据；未声明即视为未执行。** |
 | **0.3 产出即证据** | 「动作」栏要求的产出（判定单／检索结果／验证结论／归档节点 id）必须实际给出，缺失即未执行。 |
 | **0.4 违规即归档** | 发现自己违反任一条 → 第 4 条归因 + 第 16 条写入灵枢记忆。**隐瞒违规本身是更严重的违规。** |
@@ -152,6 +152,25 @@
 | 14 | 按工作纪律第14条: 内容政策合规——对外公开产物必须过「内容政策+隐私」双清单，过滤在生成阶段做；已发布发现违规要删条+重写git历史+通知平台清缓存。 |
 | 15 | 按工作纪律第15条: 命令执行统一走python——argv列表+显式UTF-8+PYTHONUTF8=1, 不经Windows shell, 规避GBK解码异常。 |
 | 16 | 按工作纪律第16条: 任务收尾归档——每次任务执行完只提炼核心修改(内容/原因/位置/验证结论)存入灵枢记忆, 禁写中间过程/试错/调试等无效信息, 与第2条形成「查记忆→执行→写记忆」闭环。 |
+
+## 记忆接口速查（`cg` / `stg`）
+
+工具名随端：MCP 端 = server「mdcg」的 `cg` / `stg`；DSH 端 = 内建基元 `lingshu_cg` / `lingshu_stg`（与 `cg` / `stg` 同一服务，仅注册名不同）。**`op` 一律必填。**
+
+| op | 用途 | 常用参数 |
+|---|---|---|
+| `route` | 任务开始路由记忆（返回知识 + 建议能力，不执行） | `intent`（任务意图） |
+| `read` | 召回/检索/按 id 取 | `query` / `node_id` / `k` / `layer` / `budget_tokens` / `context` |
+| `write` | 写入（先按 content_kind 审核 + 冲突检测，ACCEPT 落盘 / DEFER 入审核队列 / REJECT 入负记忆） | `content` / `content_kind`（text/code/…）/ `node_id`（同 id 即改写）/ `layer` / `tags` / `importance` / `verification_basis` / `condition_space` / `gated` / `consistency` / `on_conflict`（reject\|defer\|record） |
+| `verify` | 外部裁决回填（入队条目生效靠它） | `node_id` / `verdict` / `evidence` |
+| `review` | 查看审核队列 | `action`（list/rounds）/ `pid` |
+| `recent` | 近期事件窗口 | `action`（add/list/clear）/ `limit` |
+| `forget` / `protect` | 软删除/恢复 / 写保护 | `node_id` |
+
+三条调用铁律：
+1. **`op` 必填**——漏传会触发参数签名推导兜底（返回标记 `op_derived: true`），复杂任务中也必须显式传，防静默执行错误意图。
+2. **返回 `moved_to: "review_queue"` / `verdict: DEFER/REJECT` 时不要重试**——这是校验闸门的正常行为（返回自带 `hint` 说明），重试同样结果；须 `verify` 回填裁决或修正内容后再写。
+3. `stg` 同理经 `op` 分发（`timeline` / `relation` / `anchors` 等）。
 
 ## 收尾强制流程（任务完成时不可跳过）
 

@@ -1386,7 +1386,33 @@ def _scrub_call(cg, a):
 
 
 def _cg_call(cg, a):
-    """认知图唯一入口。"""
+    """认知图唯一入口（外层：op 缺省推导兜底 + 推导透出；分发主体见 _cg_dispatch）。"""
+    op0 = (a.get("op") or "").strip().lower()
+    op = op0
+    if not op:
+        # op 缺省推导兜底：复杂任务后 agent 精力分散漏传 op 时，
+        # 旧行为静默降级 read（写入意图被吞，排查成本高）——按参数签名猜意图。
+        if a.get("content"):
+            op = "write"
+        elif a.get("query") or a.get("node_id"):
+            op = "read"
+        elif a.get("intent"):
+            op = "route"
+        else:
+            op = "read"        # 无任何签名可依：维持旧缺省 read
+    args = dict(a)
+    args["op"] = op
+    out = _cg_dispatch(cg, args)
+    if isinstance(out, dict) and not op0:
+        out["op"] = op
+        out["op_derived"] = True
+        out["hint"] = ("op 未显式传入，已按参数签名推导（本次按 %s 执行）；op 为必填参数，"
+                       "复杂任务中也请始终显式传 op，避免静默执行错误意图" % op)
+    return out
+
+
+def _cg_dispatch(cg, a):
+    """认知图唯一入口的 op 分发主体。"""
     op = (a.get("op") or "read").strip().lower()
     _p = getattr(cg, "principal", None)
     if _p is not None and hasattr(_p, "require_op"):
@@ -1609,7 +1635,11 @@ def _cg_call(cg, a):
                                      **_proposal_extras(a, verdict))
                     return {"ok": False, "id": nid, "pid": pid, "committed": False,
                             "moved_to": "review_queue", "consistency": cvd,
-                            "verdict": verdict}
+                            "verdict": verdict,
+                            "hint": "这是冲突闸门的正常行为：本次写入与既有条件/纪律冲突"
+                                    "（on_conflict=defer），已转入审核队列待裁决——"
+                                    "不是工具故障，重试同样结果；"
+                                    "可 cg(op=review) 查看队列、op=verify 回填裁决"}
             if a.get("gated"):
                 hint = a.get("importance_hint")
                 if hint is None and a.get("importance") is not None:
@@ -1653,12 +1683,18 @@ def _cg_call(cg, a):
                                   verification_basis=verdict.get("basis") or "test",
                                   tags=a.get("tags"))
             return {"ok": False, "id": rid, "committed": False,
-                    "moved_to": "rejected", "verdict": verdict}
+                    "moved_to": "rejected", "verdict": verdict,
+                    "hint": "这是审核闸门的正常行为：内容未过内容政策审核（REJECT），"
+                            "已记入负记忆——不是工具故障，重试同样结果；"
+                            "拒绝依据见 verdict.evidence"}
         pid = cg.propose(nid, a.get("content", ""), layer=a.get("layer") or "knowledge",
                          tags=a.get("tags"), condition_space=a.get("condition_space"),
                          **_proposal_extras(a, verdict))
         return {"ok": True, "id": nid, "pid": pid, "committed": False,
-                "moved_to": "review_queue", "verdict": verdict}
+                "moved_to": "review_queue", "verdict": verdict,
+                "hint": "这是校验闸门的正常行为（verdict=%s）：内容未达 ACCEPT，"
+                        "已入审核队列——不需要重试；待外部裁决 op=verify 回填"
+                        "或 op=review 审核后才落盘生效" % verdict.get("state")}
 
     if op == "goal":
         act = (a.get("action") or "list").strip().lower()

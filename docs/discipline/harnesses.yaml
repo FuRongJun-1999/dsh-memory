@@ -38,7 +38,7 @@ targets:
     # 端差异与落地边界 → 注入 compact 模板的 %%PREAMBLE%%（模板保持通用，差异留在矩阵）
     preamble: |-
       【本端（DSH）与其它端的差异】
-      - 记忆通路：插件内建 lingshu_cg / lingshu_stg 两个基元（tools = core），其余能力经 cg(op=…) / stg(op=…) 分发。
+      - 记忆通路：插件内建 lingshu_cg / lingshu_stg 两个基元（tools = core），即正文纪律中的 cg / stg——同一服务，勿因名字不同而猜测；其余能力经 cg(op=…) / stg(op=…) 分发，op 为必填参数（漏传会被参数签名推导兜底并标记 op_derived）。
       - 注入时机：本段在系统提示 order=0（DEPLOYMENT_PERSONA_PREFIX），每轮都在；codebuddy / zcode 端是会话起始一次性注入全文。
       - 自动记忆：本端有 session hook，默认自动转录用户消息（assistant / tool 默认关）。
         故第 16 条在本端只补核心结论（内容／原因／位置／验证结论），不复述对话流水——否则与自动转录重复、稀释检索。
