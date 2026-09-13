@@ -35,10 +35,14 @@ pub struct InstanceSpec {
     pub trust: f64,
     /// 初始符号表（JSON 对象文本，由 Python 侧生成）
     pub symbols_json: String,
+    /// G-R2 条件空间卡（随 spec 下发到实例输入——执行链消费，非仅 metadata）
+    pub condition_space: Option<ConditionSpace>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Event {
+    /// v0.7.1：全局事件序（immutable event identity，进 HMAC 签名串首位）
+    pub seq: u64,
     pub ts: u64,
     pub from_id: String,
     pub to_id: String,
@@ -367,10 +371,12 @@ fn now_ms() -> u64 {
 }
 
 fn sign_event(key: &str, ev: &Event) -> String {
-    // 签名串与 Python 侧 event_bus 约定一致：type|from|to|round|ts|payload
+    // 签名串 v0.7.1（与 Python rust_swarm.verify_wal_signatures 约定一致）：
+    // seq|type|from|to|round|ts|payload——seq 入签后才是不可变事件身份/顺序证明
+    //（否则 global_seq 只是协调器内部 bookkeeping）。旧 WAL 签名串无 seq，不兼容。
     let msg = format!(
-        "{}|{}|{}|{}|{}|{}",
-        ev.event_type, ev.from_id, ev.to_id, ev.round_no, ev.ts, ev.payload_json
+        "{}|{}|{}|{}|{}|{}|{}",
+        ev.seq, ev.event_type, ev.from_id, ev.to_id, ev.round_no, ev.ts, ev.payload_json
     );
     hex32(&hmac_sha256(key.as_bytes(), msg.as_bytes()))
 }
@@ -402,6 +408,8 @@ struct WalReplay {
     kept_lines: Vec<String>,
     /// G4b：重放的路由事件计数（恢复后 global_seq 起点，保持单调）
     replayed_seq: u64,
+    /// v0.7.1：重放中最大事件 seq（恢复后 event_seq 单调起点）
+    max_event_seq: u64,
 }
 
 /// 重放 WAL 重建状态（对照 langgraph 恢复语义：重建后走正常循环，无特殊路径）。
@@ -412,6 +420,7 @@ fn parse_event_line(line: &str) -> Option<(Event, String)> {
     let v = serde_json_like::parse(line).ok()?;
     let get_s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
     let ev = Event {
+        seq: v.get("seq").and_then(|x| x.as_f64()).unwrap_or(0.0) as u64,
         ts: v.get("ts").and_then(|x| x.as_f64()).unwrap_or(0.0) as u64,
         from_id: get_s("from"),
         to_id: get_s("to"),
@@ -434,6 +443,7 @@ fn replay_wal(wal_path: &str, secret: &str) -> Result<WalReplay, String> {
         last_states: HashMap::new(),
         kept_lines: Vec::new(),
         replayed_seq: 0,
+        max_event_seq: 0,
     };
     let raw = match std::fs::read_to_string(wal_path) {
         Ok(r) => r,
@@ -510,6 +520,7 @@ fn replay_wal(wal_path: &str, secret: &str) -> Result<WalReplay, String> {
                     .insert(ev.from_id.clone(), (raw_payload, rp.replayed_seq));
             }
         }
+        rp.max_event_seq = rp.max_event_seq.max(ev.seq);
         rp.events.push(ev);
         rp.kept_lines.push(line.to_string());
     }
@@ -520,6 +531,11 @@ struct InstanceProc {
     spec: InstanceSpec,
     child: Child,
     stdin: BufWriter<std::process::ChildStdin>,
+    /// v0.7.1：实例级持久 stdout 缓冲（BufReader 生命周期=进程生命周期）。
+    /// 旧实现每轮临时 `BufReader::new(stdout)`：预读进内部缓冲、但未到行尾的
+    /// 字节随 drop 丢失，pipe 中再也读不到——高负载/响应分片时表现为偶发
+    /// 读取失败、卡死、实例死亡重启（低负载测试极易掩盖）。
+    stdout: BufReader<std::process::ChildStdout>,
 }
 
 impl InstanceProc {
@@ -540,24 +556,36 @@ impl InstanceProc {
             .stdin
             .take()
             .ok_or_else(|| "无法获取实例 stdin".to_string())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "无法获取实例 stdout".to_string())?;
         Ok(InstanceProc {
             spec: spec.clone(),
             child,
             stdin: BufWriter::new(stdin),
+            stdout: BufReader::new(stdout),
         })
     }
 
-    /// 执行一轮：请求 = 初始环境（symbols/trust/condition_space）+ 收件箱
+    /// 执行一轮：请求 = 初始环境（symbols/trust/condition_space）+ 收件箱。
+    /// env：verifier 复算的输入覆盖（primary 的 symbols/trust）——replay
+    /// envelope 必须是完整执行输入，只复制收件箱而保留自身环境不是重放。
     fn run_round(
         &mut self,
         round_no: u64,
         inbox: &HashMap<String, String>,
+        env: Option<(&str, f64)>,
     ) -> Result<serde_json_like::Value, String> {
+        let symbols_json = env
+            .map(|(s, _)| s.to_string())
+            .unwrap_or_else(|| self.spec.symbols_json.clone());
+        let trust = env.map(|(_, t)| t).unwrap_or(self.spec.trust);
         let mut symbols_parts: Vec<String> = Vec::new();
         // 每轮都带初始符号（VM 符号表不跨轮持久——每轮是完整环境；
         // 跨轮传递的数据只能走消息，这正是消息传递模型的语义）
-        if !self.spec.symbols_json.is_empty() {
-            symbols_parts.push(format!("\"初始符号\":{}", self.spec.symbols_json));
+        if !symbols_json.is_empty() {
+            symbols_parts.push(format!("\"初始符号\":{}", symbols_json));
         }
         if !inbox.is_empty() {
             let msgs: Vec<String> = {
@@ -573,10 +601,25 @@ impl InstanceProc {
                 .push(format!("\"收件箱\":[{}]", msgs.join(",")));
             symbols_parts.push(format!("\"已收消息数\":{}", inbox.len()));
         }
+        // G-R2 条件空间卡 → 实例输入（v0.7.1 执行链接通）：serve 侧注入 VM
+        // 预定义符号（条件空间/观测位置/观测工具/时间窗口/存在约束），程序内
+        // 「若 条件空间 为 X」真实路由——此前卡只进 cfg/WAL/报告（metadata）。
+        let cs_part = match &self.spec.condition_space {
+            Some(cs) => format!(
+                ",\"condition_space\":{{\"space_id\":\"{}\",\"observation_position\":\"{}\",\"observation_tool\":\"{}\",\"time_window\":\"{}\",\"existence_constraint\":\"{}\"}}",
+                serde_json_like::escape(&cs.space_id),
+                serde_json_like::escape(&cs.observation_position),
+                serde_json_like::escape(&cs.observation_tool),
+                serde_json_like::escape(&cs.time_window),
+                serde_json_like::escape(&cs.existence_constraint)
+            ),
+            None => String::new(),
+        };
         let req = format!(
-            "{{\"symbols\":{{{}}},\"trust\":{},\"round_no\":{}}}\n",
+            "{{\"symbols\":{{{}}},\"trust\":{}{},\"round_no\":{}}}\n",
             symbols_parts.join(","),
-            self.spec.trust,
+            trust,
+            cs_part,
             round_no
         );
         self.stdin
@@ -585,14 +628,8 @@ impl InstanceProc {
         self.stdin
             .flush()
             .map_err(|e| format!("实例 {} flush 失败: {e}", self.spec.id))?;
-        let stdout = self
-            .child
-            .stdout
-            .as_mut()
-            .ok_or_else(|| "无法读取实例 stdout".to_string())?;
-        let mut reader = BufReader::new(stdout);
         let mut line = String::new();
-        reader
+        self.stdout
             .read_line(&mut line)
             .map_err(|e| format!("实例 {} 读取失败: {e}", self.spec.id))?;
         serde_json_like::parse(line.trim())
@@ -624,6 +661,8 @@ pub fn run_swarm(
     let mut specs_derived: Vec<InstanceSpec> = cfg.instances.clone();
     for (i, spec) in specs_derived.iter_mut().enumerate() {
         spec.role = derive_role(&cfg.topology, i, &spec.role)?;
+        // G-R2：条件空间卡随 spec 下发（run_round 请求携带 → VM 符号注入）
+        spec.condition_space = cfg.condition_space.clone();
     }
 
     // B1 断点恢复：先重放 WAL。有快照 → 从快照轮+1 续跑（append）；
@@ -641,6 +680,8 @@ pub fn run_swarm(
     let mut gossip_sent: HashMap<String, usize> = HashMap::new();
     // G4b：全局消息 seq（单调）与实例消费水位
     let mut global_seq: u64 = replay.replayed_seq;
+    // v0.7.1：全局事件 seq（进签名串的事件身份；恢复从重放行取单调起点）
+    let mut event_seq: u64 = replay.max_event_seq;
     let mut watermarks: HashMap<String, u64> = HashMap::new();
     // G5：死亡实例集合（重试仍失败 → 退场，蜂群继续）
     let mut dead: HashSet<String> = HashSet::new();
@@ -656,6 +697,13 @@ pub fn run_swarm(
     let protocol_mode = cfg.topology == "protocol";
     let primary_id = specs_derived.first().map(|s| s.id.clone()).unwrap_or_default();
     let verifier_id = specs_derived.get(1).map(|s| s.id.clone()).unwrap_or_default();
+    // v0.7.1：verifier 复算的输入覆盖 = primary 完整执行输入（同 spec 才是 replay；
+    // 旧实现 verifier 用自身 spec+primary 收件箱，spec 不同则复算无对照意义）
+    let primary_symbols_json = specs_derived
+        .first()
+        .map(|s| s.symbols_json.clone())
+        .unwrap_or_default();
+    let primary_trust = specs_derived.first().map(|s| s.trust).unwrap_or(0.0);
     let mut recalc_checked: u64 = 0;
     let mut recalc_mismatches: u64 = 0;
 
@@ -758,9 +806,17 @@ pub fn run_swarm(
                             .map(|(_, s)| *s)
                             .max()
                             .unwrap_or(0);
+                        // v0.7.1：verifier 以 primary 完整执行输入复算（replay envelope）。
+                        // env 为 Copy（借用 primary 输入），闭外构造避免 move verifier_id。
+                        let env = if is_verifier {
+                            Some((primary_symbols_json.as_str(), primary_trust))
+                        } else {
+                            None
+                        };
                         Some(s.spawn(move || {
-                            let attempt =
-                                p.run_round(round, &inbox).map(|st| (st, has_inbox, max_seq));
+                            let attempt = p
+                                .run_round(round, &inbox, env)
+                                .map(|st| (st, has_inbox, max_seq));
                             match attempt {
                                 ok @ Ok(_) => ok,
                                 Err(pipe_err) => {
@@ -772,7 +828,7 @@ pub fn run_swarm(
                                         p.spec.id, round
                                     );
                                     *p = InstanceProc::spawn(exe, &p.spec, pbc_path)?;
-                                    p.run_round(round, &inbox)
+                                    p.run_round(round, &inbox, env)
                                         .map(|st| (st, has_inbox, max_seq))
                                 }
                             }
@@ -849,7 +905,9 @@ pub fn run_swarm(
                             "G-R3 复算不一致：verifier 轮 {} 终态与 primary 不符（P1）",
                             round
                         );
+                        event_seq += 1;
                         let mut sig = Event {
+                            seq: event_seq,
                             ts: now_ms(),
                             from_id: "协调器".into(),
                             to_id: "协调器".into(),
@@ -882,7 +940,9 @@ pub fn run_swarm(
             last_trust.insert(p.spec.id.clone(), t);
             // ACK 事件：实例收到收件箱 → 回执
             if had_inbox {
+                event_seq += 1;
                 let ev = Event {
+                    seq: event_seq,
                     ts: now_ms(),
                     from_id: p.spec.id.clone(),
                     to_id: "协调器".into(),
@@ -914,7 +974,9 @@ pub fn run_swarm(
                     };
                     for to_id in targets {
                         global_seq += 1;
+                        event_seq += 1;
                         let ev = Event {
+                            seq: event_seq,
                             ts: now_ms(),
                             from_id: p.spec.id.clone(),
                             to_id: to_id.clone(),
@@ -944,7 +1006,8 @@ pub fn run_swarm(
         // 轮末快照后 durable（sync_all）——快照永不先于产生它的写入落盘。
         for ev in &new_events {
             let line = format!(
-                "{{\"ts\":{},\"from\":\"{}\",\"to\":\"{}\",\"type\":\"{}\",\"round\":{},\"level\":{},\"hmac\":\"{}\",\"payload\":{}}}\n",
+                "{{\"seq\":{},\"ts\":{},\"from\":\"{}\",\"to\":\"{}\",\"type\":\"{}\",\"round\":{},\"level\":{},\"hmac\":\"{}\",\"payload\":{}}}\n",
+                ev.seq,
                 ev.ts,
                 serde_json_like::escape(&ev.from_id),
                 serde_json_like::escape(&ev.to_id),
@@ -1005,7 +1068,9 @@ pub fn run_swarm(
                     .map(|r| serde_json_like::Value::Str(r.clone()))
                     .collect(),
             ));
+            event_seq += 1;
             let mut sig = Event {
+                seq: event_seq,
                 ts: now_ms(),
                 from_id: "协调器".into(),
                 to_id: "协调器".into(),
@@ -1017,7 +1082,8 @@ pub fn run_swarm(
             };
             sig.hmac_hex = sign_event(&cfg.shared_secret, &sig);
             let sig_line = format!(
-                "{{\"ts\":{},\"from\":\"{}\",\"to\":\"{}\",\"type\":\"{}\",\"round\":{},\"level\":{},\"hmac\":\"{}\",\"payload\":{}}}\n",
+                "{{\"seq\":{},\"ts\":{},\"from\":\"{}\",\"to\":\"{}\",\"type\":\"{}\",\"round\":{},\"level\":{},\"hmac\":\"{}\",\"payload\":{}}}\n",
+                sig.seq,
                 sig.ts,
                 serde_json_like::escape(&sig.from_id),
                 serde_json_like::escape(&sig.to_id),
@@ -1062,7 +1128,9 @@ pub fn run_swarm(
             Some(cs) => format!(",\"cs\":\"{}\"", serde_json_like::escape(&cs.space_id)),
             None => String::new(),
         };
+        event_seq += 1;
         let mut snap = Event {
+            seq: event_seq,
             ts: now_ms(),
             from_id: "协调器".into(),
             to_id: "协调器".into(),
@@ -1079,7 +1147,8 @@ pub fn run_swarm(
         };
         snap.hmac_hex = sign_event(&cfg.shared_secret, &snap);
         let snap_line = format!(
-            "{{\"ts\":{},\"from\":\"{}\",\"to\":\"{}\",\"type\":\"{}\",\"round\":{},\"level\":{},\"hmac\":\"{}\",\"payload\":{}}}\n",
+            "{{\"seq\":{},\"ts\":{},\"from\":\"{}\",\"to\":\"{}\",\"type\":\"{}\",\"round\":{},\"level\":{},\"hmac\":\"{}\",\"payload\":{}}}\n",
+            snap.seq,
             snap.ts,
             serde_json_like::escape(&snap.from_id),
             serde_json_like::escape(&snap.to_id),

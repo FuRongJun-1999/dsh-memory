@@ -87,7 +87,9 @@ def run_swarm(project_dir: str, config: Dict, wal_path: str = "events.jsonl",
 
 def verify_wal_signatures(wal_path: str, shared_secret: str) -> Dict:
     """WAL 逐条验签（Python hmac 独立实现——交叉验证 Rust 手写 SHA256）。
-    签名串：type|from|to|round|ts|payload（与 Rust swarm.rs 约定一致）。
+    签名串 v0.7.1：seq|type|from|to|round|ts|payload（与 Rust swarm.rs 约定
+    一致）——seq 入签后才是不可变事件身份/顺序证明。旧 WAL（签名串无 seq）
+    不兼容，须重跑再生产物。
     B1：轮末快照行（type=__snapshot__）同样验签（防篡改），但不计入事件 total。
     口径契约：total/verified/bad 均为「事件行」口径；快照行验签统计单列于
     返回值 snapshots={verified,bad}；all_valid = 事件行与快照行全部通过。"""
@@ -103,8 +105,9 @@ def verify_wal_signatures(wal_path: str, shared_secret: str) -> Dict:
             # 行尾恰有一个 WAL 记录级闭括号需剥掉（payload 文本后面是行闭合 '}'）
             raw = line[line.index('"payload":') + len('"payload":'):]
             raw_payload = raw[:-1] if raw.endswith("}") else raw
-            msg = "%s|%s|%s|%s|%s|%s" % (rec["type"], rec["from"], rec["to"],
-                                         rec["round"], rec["ts"], raw_payload)
+            msg = "%s|%s|%s|%s|%s|%s|%s" % (rec.get("seq", 0), rec["type"],
+                                            rec["from"], rec["to"],
+                                            rec["round"], rec["ts"], raw_payload)
             expect = _hmac.new(shared_secret.encode(), msg.encode(),
                                hashlib.sha256).hexdigest()
             valid = _hmac.compare_digest(expect, rec["hmac"])

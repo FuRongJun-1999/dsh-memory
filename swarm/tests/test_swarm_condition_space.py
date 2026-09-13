@@ -82,5 +82,47 @@ check("不带卡运行", rr3["ok"])
 if rr3["ok"]:
     check("报告无 condition_space 字段", "condition_space" not in rr3["report"])
 
+# ============ ④ 执行链接通：卡进 VM 符号表，程序内条件路由真实生效（v0.7.1） ============
+# 此前卡只进 cfg/WAL/报告（metadata），请求不带 → 实例 VM 看不到。
+# 现在：run_round 请求携带 condition_space → serve 注入预定义符号（条件空间/
+# 观测位置/观测工具/时间窗口/存在约束）→ 程序「若 条件空间 等于 X」真实路由。
+print("=== ④ 执行链（条件空间→VM 符号→条件路由） ===")
+SRC4 = """问曰：条件空间如何进入执行链？
+答曰：信任值等于0.6。
+术曰：
+1。若 条件空间 等于 执行链验收空间，则德 0.5；
+2。止。
+"""
+CS4 = {"space_id": "执行链验收空间",
+       "observation_position": "实例视角（VM 符号表）",
+       "observation_tool": "serve 注入预定义符号",
+       "time_window": "v0.7.1 执行链验收周期",
+       "existence_constraint": "单机多进程，纯 std 零依赖"}
+proj4 = os.path.join(tmp, "proj4")
+generate_rust_project(SRC4, proj4)
+
+cfg4 = make_swarm_config(INST, rounds=1, shared_secret=SECRET, condition_space=CS4)
+rr4 = run_swarm(proj4, cfg4, wal_path=os.path.join(tmp, "d.jsonl"))
+check("带卡运行条件消费程序", rr4["ok"], str(rr4.get("stderr", ""))[:150])
+if rr4["ok"]:
+    fs4 = rr4["report"]["final_states"]
+    check("卡进 VM 符号表：条件路由命中，德 0.5 执行（0.1+0.5=0.6）",
+          abs(fs4["实例甲"]["trust"] - 0.6) < 1e-9 and abs(fs4["实例乙"]["trust"] - 0.7) < 1e-9,
+          json.dumps({k: v.get("trust") for k, v in fs4.items()},
+                     ensure_ascii=False))
+
+# ④b 对照：同程序不带卡——条件空间符号未注入，程序不应骗过（差异化验收）
+cfg4b = make_swarm_config(INST, rounds=1, shared_secret=SECRET)
+rr4b = run_swarm(proj4, cfg4b, wal_path=os.path.join(tmp, "e.jsonl"))
+if rr4b["ok"]:
+    fs4b = rr4b["report"]["final_states"]
+    check("不带卡：符号缺失，条件路由不命中（trust 停在初值或名实不符拒绝）",
+          "error" in fs4b["实例甲"] or abs(fs4b["实例甲"]["trust"] - 0.1) > 1e-9,
+          json.dumps({k: v.get("trust", v.get("error")) for k, v in fs4b.items()},
+                     ensure_ascii=False))
+else:
+    check("不带卡：VM 符号缺失 → 运行失败（证明程序真依赖注入符号）",
+          not rr4b["ok"], str(rr4b.get("stderr", ""))[-120:])
+
 print(f"\n{pass_n} passed, {fail_n} failed")
 sys.exit(1 if fail_n else 0)

@@ -238,7 +238,29 @@ pub fn serve(code: &[pbc::Instr], instance_id: &str) -> i32 {
                         .and_then(|x| x.as_f64())
                         .unwrap_or(0.0);
                     if let Some(cv) = m.get("condition_space") {
-                        cond = parse_cond_frames(cv);
+                        match cv {
+                            // G-R2 条件空间卡（对象形态）：四要素注入 VM 预定义符号，
+                            // 程序内「若 条件空间 为 X / 若 观测位置 为 Y」真实路由。
+                            serde_like::Value::Obj(cs) => {
+                                let mut inject = |sym: &str, key: &str| {
+                                    if let Some(serde_like::Value::Str(s)) = cs.get(key) {
+                                        if !s.is_empty() {
+                                            symbols
+                                                .insert(sym.to_string(), Value::Str(s.clone()));
+                                        }
+                                    }
+                                };
+                                inject("条件空间", "space_id");
+                                inject("观测位置", "observation_position");
+                                inject("观测工具", "observation_tool");
+                                inject("时间窗口", "time_window");
+                                inject("存在约束", "existence_constraint");
+                            }
+                            // 列表形态（旧语义）：初始条件栈帧
+                            other => {
+                                cond = parse_cond_frames(other);
+                            }
+                        }
                     }
                     if let Some(serde_like::Value::Num(n)) = m.get("round_no") {
                         if *n >= 1.0 {

@@ -306,6 +306,7 @@ fn cmd_swarm(args: &[String]) -> ExitCode {
                 role,
                 trust,
                 symbols_json,
+                condition_space: None, // G-R2 卡由 run_swarm 随 spec 统一下发
             });
         }
     }
