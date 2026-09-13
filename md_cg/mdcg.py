@@ -114,6 +114,19 @@ VERIFICATION_BASIS = nodefile.VERIFICATION_BASIS
 _EN_ZH_PRONOUNS = {"我", "你", "他", "她", "它", "我们", "你们", "他们"}
 
 
+def semantic_on() -> bool:
+    """语义摘要路开关（MDCG_SEMANTIC=1，默认关闭零回归）。
+
+    开启时两件事生效（设想「摘要作为检索面」的两层）：
+    1. 候选资格：fm.semantic 节点无条件进入 LIKE 候选池（否则摘要层只在
+       LIKE 全空时才生效，形同虚设——e2e 实证：干扰文档的弱词法 2-gram
+       碰撞会把 gold 挡在打分池外）；
+    2. 打分面：_score 组合窗口共现分与词法分 max 聚合。
+    老库（节点无 semantic 字段）行为逐位不变。
+    """
+    return os.environ.get("MDCG_SEMANTIC") == "1"
+
+
 def en_zh_terms(text: str) -> list:
     """原子级中英归一 v1（2026-09-13 管线接入）：英文词 → 中文语素召回词。
 
@@ -151,17 +164,33 @@ def en_zh_terms(text: str) -> list:
 
 
 def en_zh_bigrams(text: str) -> set:
-    """英→中语素的打分侧补充：len>=2 中文语素进 query bigram 集合。
+    """英→中语素的打分侧补充：中文语素进 query bigram 集合。
 
     背景：en_zh_terms 只扩 LIKE 召回资格，而 _score/_lexical 的词法分
     = lexical_sim(qb, doc_bigrams)——英文 bigram 与中文文档恒零交集
     （跨语场景词法分全 0、排序退化到扫描序，2026-09-13 端到端实测）。
     「牛肉/昨天」等中文语素本身是合法 bigram，补进 qb 后与中文正文
     bigram（牛肉面→{牛肉,肉面}）正常相交，词法分恢复区分度。
+
+    拼接升级（2026-09-14 盲测实证）：单字语素（马/肉/油…）被 len>=2
+    过滤后打分侧仍空集→跨语词法分恒 0→top5 全为 0 分扫描序干扰
+    （bench_blind_comp：词表补齐后 hit@1 反而 36.4%→27.3%，证明基线
+    命中全靠小候选集扫描序运气而非排序能力）。现把相邻中文语素按
+    query 词序拼接成 char-bigram（[马,肉]→「马肉」），与本仓主链路
+    char-bigram 口径同构（英文 query 译中文串再取 bigram）。
+    噪声边界：跨语素拼接 bigram（吃牛肉→「吃牛」「肉昨」）可与语义
+    相邻文档假相交，由 Jaccard 分母稀释，_score 终排兜底精度。
+
     纯中文 query 零变化（en_zh_terms 不触发）；与 en_zh_terms 同受
     MDCG_EN_ATOMS 开关控制（默认关闭）。
     """
-    return {t for t in en_zh_terms(text) if len(t) >= 2}
+    terms = en_zh_terms(text)
+    grams = {t for t in terms if len(t) >= 2}
+    # 相邻中文语素拼接：query 词序即语素序（horse meat→马 肉→「马肉」）
+    zh_seq = [t for t in terms if t and all("\u4e00" <= ch <= "\u9fff" for ch in t)]
+    joined = "".join(zh_seq)
+    grams |= {joined[i:i + 2] for i in range(len(joined) - 1)}
+    return grams
 
 
 def expand_query_terms(query: str) -> list:
@@ -603,7 +632,7 @@ class MdCG:
             non_applicable_conditions=None, override: bool = False,
             consistency: bool = False, on_conflict: str = "reject",
             derived_from=None, relation: str = provenance.DEFAULT_RELATION,
-            **extra) -> str:
+            semantic: str = None, **extra) -> str:
         """写入一个节点。
 
         verification_basis: 外部验证基底（白箱信任的硬门槛），
@@ -618,6 +647,12 @@ class MdCG:
                      frontmatter（单一真相源）并追加派生边到 <root>/_link.jsonl；
                      **建链失败不阻断本次写入**（降级为告警 + .fail 台账留痕）。
         relation: 派生关系名，默认 "derived_from"；允许值见 provenance.RELATIONS。
+        semantic: 标准语义摘要（空格分隔的标准原子序列，如「鱼 油」）——
+                  **AI 写入侧归一**的产物（使用者设想 2026-09-14：归一主体是
+                  AI，系统只供词表真源 atoms.json + OOV 审计）。落 fm.semantic
+                  衍生层，正文原文无损；OOV token 记 fm.semantic_oov 警告不拒绝
+                  （词表覆盖有限，拒绝会堵死合法写入）。检索面经
+                  MDCG_SEMANTIC=1 开启组合共现打分（mdcg._score）。
         """
         if layer not in LAYERS:
             raise ValueError(f"未知层：{layer}（允许：{LAYERS}）")
@@ -645,6 +680,17 @@ class MdCG:
                 "emotional": (vd.get("emotional") or {}).get("bias"),
                 "unresolved_id": vd.get("unresolved_id")}
         tags = list(tags or [])
+        # 标准语义摘要（semantic/canonical.py：词表真源 + OOV 审计，警告不拒绝）。
+        # 语义校验失败不阻断写入（与 derived_from 建链降级同风格）。
+        if semantic is not None:
+            extra["semantic"] = str(semantic)
+            try:
+                from .semantic import canonical as _canon
+                _oov = _canon.oov_of(str(semantic))
+                if _oov:
+                    extra["semantic_oov"] = _oov
+            except Exception:
+                pass
         bucket = None
         d = os.path.join(self.root, layer)
         if layer in BUCKETED_LAYERS:
@@ -1273,7 +1319,9 @@ class MdCG:
             in_bucket = [e for e in entries if e.get("bucket") == route_bucket]
             if in_bucket:
                 docs = self._read_many(in_bucket, stat)
-                hits = [d for d in docs if self._like(d[2], d[1], terms)]
+                # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
+                hits = [d for d in docs if self._like(d[2], d[1], terms)
+                        or (semantic_on() and d[1].get("semantic"))]
                 out = try_stage(hits, TIER_BUCKET_LIKE)
                 if out:
                     return out
@@ -1283,7 +1331,9 @@ class MdCG:
 
         # T2：跨桶 LIKE（§七 截断点：分池截断，索引类不再挤掉知识类）
         docs_all = self._read_many(entries, stat)
-        hits = [d for d in docs_all if self._like(d[2], d[1], terms)]
+        # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
+        hits = [d for d in docs_all if self._like(d[2], d[1], terms)
+                or (semantic_on() and d[1].get("semantic"))]
         stat["pre_cap"] = len(hits)
         stat["cap"] = GLOBAL_CAP
         hits, _rep = pooling.cut_report(hits, GLOBAL_CAP, pools=pool_cfg,
@@ -1331,6 +1381,20 @@ class MdCG:
         return any(t in body_l or t.lower() in tags_l for t in terms)
 
     def _score(self, docs, q, qb, pools=None, mode=None):
+        # 语义摘要路（MDCG_SEMANTIC=1 opt-in，默认关闭零回归）：
+        # doc 侧 fm.semantic 标准原子序列 × query 归一序列的组合窗口共现分
+        # （semantic/canonical.pair_hits），与词法分 **max 聚合**——语义路=
+        # 候选生成器/终排器（judge_ranking 同定位），词法强时不拖累、词法
+        # 零交集（L3 盲测靶区）时独立成臂。延迟导入+异常静默降级（与
+        # en_zh_terms 同风格：semantic 模块缺失不阻断主链路）。
+        sem_on = semantic_on()
+        _pair_hits = None
+        if sem_on:
+            try:
+                from .semantic import canonical as _canon
+                _pair_hits = _canon.pair_hits
+            except Exception:
+                sem_on = False
         scored = []
         for e, fm, c in docs:
             # 归一化 content 后取 bigram（与 query 侧 normalize_en 对称）
@@ -1339,7 +1403,11 @@ class MdCG:
             sim = lexical_sim(qb, nb, mode)
             tag_bonus = 0.05 if any(str(t) in q or q in str(t)
                                     for t in (fm.get("tags") or [])) else 0.0
-            raw = min(1.0, sim + tag_bonus)
+            if sem_on and _pair_hits is not None and fm.get("semantic"):
+                raw = min(1.0, max(sim, _pair_hits(fm["semantic"], q))
+                          + tag_bonus)
+            else:
+                raw = min(1.0, sim + tag_bonus)
             if pools:                       # §七 降权：乘数只来自显式权重表（可复算）
                 raw = max(0.0, min(1.0, raw * pooling.weight_of(
                     fm.get("id") or e["path"], e, pools)))

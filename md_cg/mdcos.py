@@ -28,7 +28,7 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT
                    STATE_REJECT, STATE_DEFER, STATE_BLINDSPOT, TIER_BUCKET_LIKE,
                    TIER_BUCKET_SCAN, TIER_GLOBAL_LIKE, TIER_GLOBAL_SCAN,
                    GLOBAL_CAP, expand_query_terms_weighted,
-                   expand_query_terms_llm, en_zh_bigrams)
+                   expand_query_terms_llm, en_zh_bigrams, semantic_on)
 from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
                self_state, predict, evolution, weights, pooling)
@@ -385,7 +385,9 @@ class MdCGOS(MdCG):
             in_bucket = [e for e in entries if e.get("bucket") == route_bucket]
             if in_bucket:
                 docs = self._read_many(in_bucket, stat)
-                hits = [d for d in docs if self._like(d[2], d[1], terms)]
+                # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
+                hits = [d for d in docs if self._like(d[2], d[1], terms)
+                        or (semantic_on() and d[1].get("semantic"))]
                 out = try_stage(hits, TIER_BUCKET_LIKE)
                 if out:
                     return out
@@ -394,7 +396,9 @@ class MdCGOS(MdCG):
                     return out
 
         docs_all = self._read_many(entries, stat)
-        hits = [d for d in docs_all if self._like(d[2], d[1], terms)]
+        # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
+        hits = [d for d in docs_all if self._like(d[2], d[1], terms)
+                or (semantic_on() and d[1].get("semantic"))]
         stat["pre_cap"] = len(hits)
         stat["cap"] = GLOBAL_CAP
         hits, _rep = pooling.cut_report(hits, GLOBAL_CAP, pools=pool_cfg,
@@ -430,7 +434,10 @@ class MdCGOS(MdCG):
         # + 英→中语素 bigram 补充（跨语词法分恢复）
         qb = bigrams(normalize_en(query)) | en_zh_bigrams(query)
         docs = self._read_many(entries, stat)
-        hits = [d for d in docs if self._like(d[2], d[1], terms)]
+        # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池——
+        # 语义摘要=检索面（设想核心），否则摘要层只在 LIKE 全空时生效
+        hits = [d for d in docs if self._like(d[2], d[1], terms)
+                or (semantic_on() and d[1].get("semantic"))]
         if not hits:
             hits = sorted(
                 docs, key=lambda d: (-float(d[1].get("importance") or 0),

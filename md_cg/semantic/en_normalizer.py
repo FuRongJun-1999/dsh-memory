@@ -75,6 +75,11 @@ EN_ZH = {
     "memory": "记忆", "cognition": "认知", "graph": "图",
     "dog": "狗", "cat": "猫", "bird": "鸟", "fish": "鱼",
     "cow": "牛", "pig": "猪", "sheep": "羊", "chicken": "鸡",
+    # 盲测缺口修补（bench_blind_comp L2 白箱探针锁定，2026-09-14）：
+    # horse/mare/goat/duck/oil/fat 六词未映射 → 英文组合词展开缺语素。
+    # 只补探针暴露的缺口，不顺手扩表——修复面与暴露面精确对齐，净效应可归因。
+    "horse": "马", "mare": "马", "goat": "羊", "duck": "鸭",
+    "oil": "油", "fat": "油",
     # 形容词
     "big": "大", "small": "小", "high": "高", "low": "低",
     "new": "新", "old": "旧", "good": "好", "bad": "坏",

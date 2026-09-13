@@ -20,6 +20,7 @@ dsh-memory/md_cg/
 |   |-- SCHEMA.md                # 语义层 IR 定义
 |   |-- en_normalizer.py         # 独立英文归一化模块
 |   |-- zh_en_atoms.py           # 原子级中英序列化器（灵枢→soul hub）
+|   |-- canonical.py             # 标准语义归一面（词表真源+OOV 审计+组合共现）
 |   |-- search_index.json        # 双语搜索索引
 |   └── REPRODUCE.md             # 本文档
 └── lexicon/
@@ -74,6 +75,28 @@ dsh-memory/md_cg/
 中文检索走 md_cg 管线（char-bigram + 四路 RRF + 同义扩展 + terms 字段）。
 英文检索走独立的归一化原子匹配，不经过 md_cg 管线。
 两者查同一个图，但用不同的匹配策略。这是双语双路架构。
+
+### 语义摘要路（MDCG_SEMANTIC=1，2026-09-14）
+
+使用者设想的落地形态：**归一主体是 AI（写入侧与查询侧），系统只供词表真源**。
+
+- 词表真源：`atoms.json` 815 标准概念（`canonical.atoms_zh()` 只读加载）；
+- 写入：AI 归一后传 `add(semantic="鱼 油")`（空格分隔标准原子序列），落
+  `fm.semantic` 衍生层；OOV token 记 `fm.semantic_oov`（警告不拒绝）；
+  正文原文无损——归一错误仅限摘要层，词表更新后重归一可修复；
+- 查询：AI 检索前把原句归一为标准原子串（如「荤油」→「猪 油」）；
+- 检索（opt-in，默认关闭零回归）：`fm.semantic` 节点无条件入候选池
+  （摘要=检索面），打分用组合窗口共现（`canonical.pair_hits`，win=6）
+  与词法分 **max 聚合**。
+
+同义归一表**不进代码**（「荤油→猪油」由 AI 在两端理解里完成）；
+纯邻接判据已证过严（只救 1/3），win=6 为探针实证口径；
+开放域「鱼和油分述」的误配风险由组合结构约束兜底（P1 compositions，另案）。
+
+验收（`bench_blind_comp.py` seed=7，受控 33 篇）：L3 语义层 b0/b1=0% →
+b2（gold 带 semantic + 归一 query）=100%（hit@1/MRR=1.0，n=3）；
+L1 双臂 100% 不变（max 聚合零拖累）。原句直查（查询侧未归一）只救
+词面原子齐备题（1/3）——两端归一缺一不可。
 
 ### 同义词数量级差异（根本原因）
 
