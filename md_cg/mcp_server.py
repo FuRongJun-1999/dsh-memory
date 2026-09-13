@@ -1639,7 +1639,10 @@ def _cg_dispatch(cg, a):
                             "hint": "这是冲突闸门的正常行为：本次写入与既有条件/纪律冲突"
                                     "（on_conflict=defer），已转入审核队列待裁决——"
                                     "不是工具故障，重试同样结果；"
-                                    "可 cg(op=review) 查看队列、op=verify 回填裁决"}
+                                    "落盘须由设计者权限（can_admin）裁决，转告使用者："
+                                    "python scripts/review_cli.py list 后 accept/reject，"
+                                    "或 cg(op=review, pid=<pid>, decision=accept|reject|"
+                                    "edit|merge, reason=<理由>)"}
             if a.get("gated"):
                 hint = a.get("importance_hint")
                 if hint is None and a.get("importance") is not None:
@@ -1693,8 +1696,11 @@ def _cg_dispatch(cg, a):
         return {"ok": True, "id": nid, "pid": pid, "committed": False,
                 "moved_to": "review_queue", "verdict": verdict,
                 "hint": "这是校验闸门的正常行为（verdict=%s）：内容未达 ACCEPT，"
-                        "已入审核队列——不需要重试；待外部裁决 op=verify 回填"
-                        "或 op=review 审核后才落盘生效" % verdict.get("state")}
+                        "已入审核队列——不需要重试；落盘须由设计者权限（can_admin）"
+                        "对提案 pid 裁决（agent 端无裁决权是设计），转告使用者："
+                        "python scripts/review_cli.py list 后 accept/reject，"
+                        "或 cg(op=review, pid=<pid>, decision=accept|reject|"
+                        "edit|merge, reason=<理由>)" % verdict.get("state")}
 
     if op == "goal":
         act = (a.get("action") or "list").strip().lower()

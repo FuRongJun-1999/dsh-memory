@@ -162,14 +162,14 @@
 | `route` | 任务开始路由记忆（返回知识 + 建议能力，不执行） | `intent`（任务意图） |
 | `read` | 召回/检索/按 id 取 | `query` / `node_id` / `k` / `layer` / `budget_tokens` / `context` |
 | `write` | 写入（先按 content_kind 审核 + 冲突检测，ACCEPT 落盘 / DEFER 入审核队列 / REJECT 入负记忆） | `content` / `content_kind`（text/code/…）/ `node_id`（同 id 即改写）/ `layer` / `tags` / `importance` / `verification_basis` / `condition_space` / `gated` / `consistency` / `on_conflict`（reject\|defer\|record） |
-| `verify` | 外部裁决回填（入队条目生效靠它） | `node_id` / `verdict` / `evidence` |
-| `review` | 查看审核队列 | `action`（list/rounds）/ `pid` |
+| `verify` | 对节点做证据验证（confirmed/weakened/falsified）——**非队列裁决** | `node_id` / `verdict` / `evidence` |
+| `review` | 审核队列：`action=list/rounds/records` 查看；传 `pid`+`decision`+`reason` 即裁决落盘（accept/reject/edit/merge，**需 can_admin**；本机未配置外部验证器时写入恒 DEFER 入队，靠此裁决落盘） | `action` / `pid` / `decision` / `reason` / `edits` / `merge_into` |
 | `recent` | 近期事件窗口 | `action`（add/list/clear）/ `limit` |
 | `forget` / `protect` | 软删除/恢复 / 写保护 | `node_id` |
 
 三条调用铁律：
 1. **`op` 必填**——漏传会触发参数签名推导兜底（返回标记 `op_derived: true`），复杂任务中也必须显式传，防静默执行错误意图。
-2. **返回 `moved_to: "review_queue"` / `verdict: DEFER/REJECT` 时不要重试**——这是校验闸门的正常行为（返回自带 `hint` 说明），重试同样结果；须 `verify` 回填裁决或修正内容后再写。
+2. **返回 `moved_to: "review_queue"` / `verdict: DEFER/REJECT` 时不要重试**——这是校验闸门的正常行为（返回自带 `hint` 说明），重试同样结果；落盘须由设计者权限（can_admin）经 `op=review` 裁决（decision=accept/reject/edit/merge，本机工具：`python scripts/review_cli.py list`），agent 端无裁决权是设计（写入者不得自裁自决），转告使用者即可。
 3. `stg` 同理经 `op` 分发（`timeline` / `relation` / `anchors` 等）。
 
 ## 收尾强制流程（任务完成时不可跳过）
