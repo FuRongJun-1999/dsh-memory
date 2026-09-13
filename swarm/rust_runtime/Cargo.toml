@@ -1,0 +1,32 @@
+[package]
+name = "protocol_vm"
+version = "0.2.0"
+edition = "2021"
+description = "智能论字节码（.pbc）Rust 原生运行时 · 零外部依赖（仅 std）"
+
+# 智能论字节码 VM · Rust 原生运行时（零外部依赖——仅 std，对齐项目零依赖哲学）
+#
+# 同一份源码的两种构建形态：
+#  ① 生成项目形态（swarm/rust_codegen.py 把本目录当模板拷贝）：
+#     默认启用 embed，program.pbc 编译期嵌入 → 可执行文件自包含、可脱离 .pbc 分发。
+#         cargo build --release
+#  ② 独立 / 库形态（本目录被主仓库依赖，或直接构建）：
+#     关闭 embed，字节码在运行期由 --pbc <文件> 给出。
+#         cargo build --release --no-default-features
+
+[lib]
+name = "protocol_vm"
+path = "src/lib.rs"
+
+[[bin]]
+name = "protocol_vm"
+path = "src/main.rs"
+
+[features]
+# embed：编译期嵌入 ./program.pbc（生成项目形态默认开）。
+# 独立形态用 --no-default-features 关闭，改由运行期 --pbc 指定。
+default = ["embed"]
+embed = []
+
+[profile.release]
+opt-level = 3
