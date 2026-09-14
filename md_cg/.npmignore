@@ -19,3 +19,18 @@ __pycache__/
 *.tmp
 *.bak
 .DS_Store
+
+# ⚠️ 本地运行时状态 —— 绝不入包（2026-09-14 修复）
+# 背景：_keys.json 是写入凭据信封（含全部密钥包裹），_audit.jsonl 是操作留痕。
+# 二者随认知图运行生成，npm 打包不看 .gitignore，故必须在目录内显式排除。
+# 实证：修复前 npm pack 清单含 md_cg/_keys.json (294B) + md_cg/_audit.jsonl (788B)。
+# 影响面：0.4.6 未受影响（_keys.json 创建于 2026-09-13，晚于 0.4.6 发布）；
+#         但 0.4.7 若按修复前状态发布将泄露凭据到公开 registry。
+_keys.json
+_keys.*.json
+_audit.jsonl
+_index.json
+_index.json.lock
+_index_log/
+_refindex.json
+_index_log*
