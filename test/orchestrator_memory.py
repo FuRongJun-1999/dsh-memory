@@ -28,6 +28,8 @@
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import sys
 import time
@@ -282,6 +284,53 @@ class OrcMemory:
         不 refresh 则 collect_cards/stats/recall 全部只见自己 init 时的旧世界
         （并行实验实测：8 进程写 24 卡，父进程不 refresh 时 collect 0/24）。"""
         self.cg.index = self.cg._load_index()
+
+    # ================= 收口检查点（J-Space 证据链映射） =================
+
+    def final_check(self, cards: list[dict] | None = None) -> dict:
+        """收口全库一致性复查——并行盲区补全（证据链的「检查点」环节）。
+
+        实证边界：check_consistency 只见调用方实例 init 时的索引快照，
+        并行提交可绕过跨进程冲突检测（parallel_test B 组 0/4 DEFER）。
+        跨进程冲突只能在主代理侧、refresh 之后统一检出——本方法即该检查点。
+
+        只报告不落库、不投递飞轮：处置走 adjudicate/review 裁决通路
+        （相同重试不产生新证据，静默放行才是事故）。
+        """
+        self.refresh()
+        if cards is None:
+            cards = self.collect_cards()
+        detections = []
+        for c in cards:
+            rec = self.cg.check_consistency(
+                c["content"], layer="knowledge",
+                exclude=c["id"], auto_flywheel=False)
+            if rec.get("verdict") in ("REJECT", "DEFER", "BLINDSPOT"):
+                detections.append({
+                    "card": c["id"], "session": c.get("session"),
+                    "verdict": rec.get("verdict"),
+                    "reason": rec.get("reason"),
+                    "with": [x.get("with") for x in rec.get("conflicts", [])
+                             if x.get("with")][:5]})
+        return {"checked": len(cards), "detections": detections,
+                "clean": not detections}
+
+    def closeout(self, subs: list[str] | None = None) -> dict:
+        """收口报告——证据链五环节的集成出口（源—地图—断言—检查点—报告）：
+        源=L2 细节在盘、地图=index（refresh 后）、断言=卡片结论、
+        检查点=final_check、报告=本返回值。
+        fingerprint=卡 ID 清单的 SHA-256 前缀（地图挂指纹）：
+        同一批收口复验时指纹必须一致，卡集变化则指纹变化——防报告陈旧。
+        未决项随报告透出，可落 L5（cg.add_unresolved）驱动下一轮。"""
+        cards = self.collect_cards(subs=subs)
+        chk = self.final_check(cards=cards)
+        pend = self.pending_items(subs=subs)
+        fp = hashlib.sha256(
+            json.dumps(sorted(c["id"] for c in cards),
+                       ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+        return {"cards": len(cards), "pending": pend,
+                "final_check": chk, "fingerprint": fp,
+                "stats": self.stats()}
 
     # ================= 工具 =================
 
