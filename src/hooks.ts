@@ -88,7 +88,8 @@ export function desensitize(text: string): string | null {
 }
 
 /** 时间线载荷 → 注入文本。
- *  `stg(op=timeline)` 返回 {count, limit, items:[{id, layer, start, end, preview}]}。 */
+ *  `stg(op=timeline)` 返回 {count, limit, items:[{id, layer, start, end, preview}]}。
+ *  （保留原始实现；自动召回改用下面的分级递减渲染） */
 function formatTimeline(payload: unknown): string {
   const items = (payload && typeof payload === 'object'
     && Array.isArray((payload as { items?: unknown }).items))
@@ -103,6 +104,64 @@ function formatTimeline(payload: unknown): string {
     })
     .filter(Boolean)
     .join('\n')
+}
+
+// ---------------------------------------------------------------- 自动召回渲染
+// 常量写死在此处（而非 config schema）——未知键会被 schema 剥离。
+/** 第 1 档（最新 1 条）每条字符上限。 */
+const RECALL_BASE_CHARS = 160
+/** 每 N 条降一档。 */
+const RECALL_DECAY_EVERY = 1
+/** 每档缩放比例（−10%）。 */
+const RECALL_DECAY_RATIO = 0.9
+/** 最小保留字符。 */
+const RECALL_MIN_CHARS = 24
+/** 整块上限（与调用点 slice 对齐）。 */
+const RECALL_MAX_CHARS = 1400
+/** 永久层不自动注入（按需用 mdcg_recall / lingshu_stg 取）。 */
+const RECALL_SKIP_LAYERS = new Set(['anchor', 'self'])
+/** 连续跳过多少步后强制补一次（内容未变也刷新，防止压缩归档后块消失）。 */
+const RECALL_REPUSH_EVERY = 8
+
+/** 分级递减渲染：按距当前的次序逐档收窄，早期条目信息量更大。
+ *
+ *  动机：注入块总长受限，而"最近 N 条"里越靠前的越可能被用到；线性等宽分配
+ *  会让整块被最旧的一条挤掉。逐档递减后整块实测约 1133 字符（≈472 tok），
+ *  9 条全部保留。（注意：整块仍远小于一条知识节点 500~800 tok，故本块定位是
+ *  「存在性索引/提醒」，不承载知识本身——要知识请显式 mdcg_recall 并给足预算。） */
+function formatTimelineDecayed(payload: unknown): string {
+  const items = (payload && typeof payload === 'object'
+    && Array.isArray((payload as { items?: unknown }).items))
+    ? (payload as { items: Array<Record<string, unknown>> }).items
+    : []
+  const out: string[] = []
+  let rank = 0
+  for (const it of items) {
+    const layer = String(it['layer'] ?? '')
+    if (RECALL_SKIP_LAYERS.has(layer)) continue
+    const preview = String(it['preview'] ?? '').replace(/\s+/g, ' ').trim()
+    if (!preview) continue
+    const tier = Math.floor(rank / RECALL_DECAY_EVERY)
+    const budget = Math.max(
+      RECALL_MIN_CHARS,
+      Math.round(RECALL_BASE_CHARS * Math.pow(RECALL_DECAY_RATIO, tier)),
+    )
+    out.push(`- [${layer}] ` + (preview.length > budget ? preview.slice(0, budget) + '…' : preview))
+    rank += 1
+    if (out.join('\n').length >= RECALL_MAX_CHARS) break
+  }
+  return out.join('\n').slice(0, RECALL_MAX_CHARS)
+}
+
+/** 去重：内容与上次相同就不再 push 新副本。
+ *
+ *  背景：本钩子挂在 `system-prompt/assemble` 上，每个 step 都会 push 一份，而每份
+ *  都会留成独立的 surface 节点 → 同一块累积 N 份（实测 11 份 ≈2700 tok/请求），
+ *  随步数线性增长。去重后同一块只占 1 份，外加每 RECALL_REPUSH_EVERY 步一次自愈刷新。 */
+function shouldPushRecall(text: string, lastText: string, skippedSincePush: number): boolean {
+  if (!text) return false
+  if (text !== lastText) return true
+  return skippedSincePush >= RECALL_REPUSH_EVERY
 }
 
 /** 安装自动记忆钩子（effect 作用域内，随插件卸载自动移除）。
@@ -137,16 +196,23 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
   // 用 system-prompt/assemble 事件（waterfall）而非 llm/stream——后者请求 deep-frozen 不可改写。
   if (opts.autoRecall) {
     const recallLimit = Math.max(1, Math.min(10, opts.autoRecallLimit || 4))
+    // 去重状态：同一块内容只保留一份 surface 节点，避免随步数线性增长。
+    let lastRecallText = ''
+    let skippedSincePush = 0
     ctx.on('system-prompt/assemble', async (assembly, _ctx, next) => {
       try {
         // 异步取最近记忆节点（失败静默——不阻塞模型请求）
         if (graph.isReady()) {
-          const text = formatTimeline(await graph.timeline(recallLimit))
-          if (text) {
+          const text = formatTimelineDecayed(await graph.timeline(recallLimit))
+          if (shouldPushRecall(text, lastRecallText, skippedSincePush)) {
+            lastRecallText = text
+            skippedSincePush = 0
             assembly.contexts.push({
               name: 'lingshu:auto-recall',
-              text: `【灵枢最近记忆】\n${text.slice(0, 600)}`,
+              text: `【灵枢最近记忆】\n${text.slice(0, RECALL_MAX_CHARS)}`,
             })
+          } else {
+            skippedSincePush += 1
           }
         }
       }
