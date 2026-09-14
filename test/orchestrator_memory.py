@@ -267,6 +267,22 @@ class OrcMemory:
         """需要追问细节时，按 id 精确取单条（这是唯一的细节读入口）。"""
         return self.cg._read(self.cg.index["nodes"][node_id])
 
+    # ================= 多进程生命周期（并行实验实证补齐） =================
+
+    def close(self) -> None:
+        """写完必须调用：把未达 autoflush 阈值的脏索引 flush 进本进程独占分片。
+        不调用 → 节点 .md 在盘上但索引无记录——「在盘上但不可见」
+        （mdcg.close 注释自述的坑；多进程实验：worker 退出前不 close 则
+        主代理 refresh 后也读不到，因为索引只认快照+分片回放，不重扫 .md）。"""
+        self.cg.close()
+
+    def refresh(self) -> None:
+        """主代理收口前必须调用：重载索引（快照+全分片回放），
+        感知其他进程的写入。index 是进程内快照（__init__ 加载一次），
+        不 refresh 则 collect_cards/stats/recall 全部只见自己 init 时的旧世界
+        （并行实验实测：8 进程写 24 卡，父进程不 refresh 时 collect 0/24）。"""
+        self.cg.index = self.cg._load_index()
+
     # ================= 工具 =================
 
     @staticmethod
