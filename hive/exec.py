@@ -3,7 +3,9 @@
 
 契约（与 hive/src/exec.rs 头注释一致）：
     入参   argv[1] = job 目录
-    读     spec.json（model / system_prompt / user_prompt / context_files / ...）
+    读     spec.json（model / system_prompt / user_prompt / context_files /
+             timeout_s / max_tokens / temperature / thinking / reasoning_effort /
+             context_budget_tokens / ...）
     写     result.json —— 成功与 API 错误都写，error 字段区分：
              {"ok": true, "content": "...", "usage": {...}, "model": "...",
               "finished_ts": ..., "duration_s": ...}
@@ -77,6 +79,51 @@ def build_messages(spec: dict, job_dir: str) -> list:
     return messages
 
 
+_CJK_RANGES = (
+    (0x4E00, 0x9FFF),  # CJK 统一表意
+    (0x3400, 0x4DBF),  # 扩展 A
+    (0xF900, 0xFAFF),  # 兼容表意
+    (0x3000, 0x303F),  # CJK 标点
+    (0xFF00, 0xFFEF),  # 全角形式
+)
+
+
+def est_tokens(text: str) -> int:
+    """保守 token 估算——**偏高估**：宁可提前拦截，不放行超限输入白跑 API。
+
+    CJK 1 字 ≈ 1 token（DeepSeek 中文实际约 1.6 字/token，此处高估约 60%），
+    其余字符 4 个 ≈ 1 token。仅用于预算判断，不是精确计数。
+    """
+    if not text:
+        return 0
+    cjk = other = 0
+    for ch in text:
+        cp = ord(ch)
+        if any(lo <= cp <= hi for lo, hi in _CJK_RANGES):
+            cjk += 1
+        else:
+            other += 1
+    return cjk + (other + 3) // 4
+
+
+def build_body(spec: dict, messages: list) -> dict:
+    """请求体构造：必填 model/messages + 可选参数存在才注入（不送 null/缺省键）。
+
+    thinking 原样透传（DeepSeek V4.1 同形对象，如 {"type": "enabled"}）；
+    reasoning_effort 档位已由 rust 侧白名单校验（low|medium|high）。
+    """
+    body: dict = {"model": spec["model"], "messages": messages}
+    if spec.get("thinking"):
+        body["thinking"] = spec["thinking"]
+    if spec.get("reasoning_effort"):
+        body["reasoning_effort"] = spec["reasoning_effort"]
+    if spec.get("max_tokens"):
+        body["max_tokens"] = spec["max_tokens"]
+    if spec.get("temperature") is not None:
+        body["temperature"] = spec["temperature"]
+    return body
+
+
 def call_llm(spec: dict, messages: list) -> dict:
     """调 chat/completions；返回归一化 result（ok 字段由调用方补）。"""
     api_base = os.environ.get("HIVE_API_BASE", DEFAULT_API_BASE).rstrip("/")
@@ -84,11 +131,7 @@ def call_llm(spec: dict, messages: list) -> dict:
     if not api_key:
         raise RuntimeError("HIVE_API_KEY 未设置（执行器环境缺密钥）")
     url = f"{api_base}/chat/completions"
-    body = {"model": spec["model"], "messages": messages}
-    if spec.get("max_tokens"):
-        body["max_tokens"] = spec["max_tokens"]
-    if spec.get("temperature") is not None:
-        body["temperature"] = spec["temperature"]
+    body = build_body(spec, messages)
     req = urllib.request.Request(
         url,
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
@@ -98,7 +141,8 @@ def call_llm(spec: dict, messages: list) -> dict:
         },
         method="POST",
     )
-    timeout = min(float(spec.get("timeout_s") or 300), 600.0)
+    # 单一权威：timeout_s 已由 rust 侧校验（5..=3600），执行器不再二次 cap
+    timeout = float(spec.get("timeout_s") or 300)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
@@ -123,8 +167,24 @@ def main() -> int:
 
     try:
         messages = build_messages(spec, job_dir)
+        budget = spec.get("context_budget_tokens")
+        if budget:
+            total = sum(est_tokens(m["content"]) for m in messages)
+            if total > int(budget):
+                msg = (
+                    f"上下文超预算: 保守估算 {total} tokens > 预算 {int(budget)}"
+                    "（估算偏高估；请分片任务或调大 context_budget_tokens）"
+                )
+                write_result(job_dir, {"ok": False, "error": msg})
+                log(job_dir, f"超预算拦截 est={total} budget={budget}")
+                return EXIT_SPEC
         n_ctx = len(spec.get("context_files") or [])
-        log(job_dir, f"开始调用 model={spec.get('model')} ctx={n_ctx}")
+        log(
+            job_dir,
+            f"开始调用 model={spec.get('model')} ctx={n_ctx}"
+            + (f" effort={spec['reasoning_effort']}" if spec.get("reasoning_effort") else "")
+            + (f" budget={budget}" if budget else ""),
+        )
         out = call_llm(spec, messages)
         out.update(
             {

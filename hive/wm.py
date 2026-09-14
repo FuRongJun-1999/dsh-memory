@@ -1,0 +1,261 @@
+# -*- coding: utf-8 -*-
+"""蜂巢工作记忆 · 任务产物版本化 v0.1（git 载体）
+
+设计定稿与共同记忆面：docs/蜂巢工作记忆_项目计划.md（三决策点、对接边界、运行手册）。
+
+三级闸（写入 → 提交 → 合并，回退免费）：
+  snapshot  commit 凭证 = result.json 终态 ok:true（第 5 条「未验证不写入」的任务级落码）
+  merge     主代理显式执行（两阶段审查机械化）；冲突诚实报错不自动解决
+  revert    任意提交点免费回退（生成反向提交，历史不丢）
+
+位置约束（设计裁决）：git 操作面只在主代理侧（本文件）；worker/执行器/rust
+零 git 依赖——执行器保持「读 spec.json 写 result.json」无状态契约，rust 保持纯 std（D-005）。
+snapshot/merge 是主代理串行操作面（非 worker 并发面）：合并权归主代理，
+worker 的写权限被结构性限制在自己的 job 目录内（位置效应落码）。
+
+用法（输出统一单行 JSON，对齐 hive CLI 风格）：
+    python hive/wm.py init     [--wm DIR]
+    python hive/wm.py snapshot --job JOB_DIR --wm DIR [--artifacts A1,A2] [--branch B]
+    python hive/wm.py merge    --branch B --wm DIR
+    python hive/wm.py log      --wm DIR [--branch B] [--limit N]
+    python hive/wm.py revert   --commit SHA --wm DIR
+    python hive/wm.py status   --wm DIR
+
+分支命名：task/<job_id>（默认取 result.json 的 job_id 字段，缺失用目录名）。
+提交物白名单：spec.json + result.json（必须）+ log.txt（可选）+ --artifacts（可选）。
+内容推送 GitHub 前须过第 14 条双清单；默认只存本地 / 推私有仓。
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+EXIT_OK = 0
+EXIT_FAIL = 1
+EXIT_USAGE = 2
+
+WM_DEFAULT = os.environ.get("HIVE_WM_DIR")
+if not WM_DEFAULT:
+    WM_DEFAULT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wm-repo")
+
+
+class WmError(Exception):
+    """git 操作失败（带 stderr 摘要）。"""
+
+
+def _git(wm: str, *args: str) -> subprocess.CompletedProcess:
+    env = dict(os.environ, PYTHONUTF8="1")
+    return subprocess.run(
+        ["git", "-C", wm, *args],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env=env, shell=False,
+    )
+
+
+def _git_ok(wm: str, *args: str) -> str:
+    r = _git(wm, *args)
+    if r.returncode != 0:
+        raise WmError(f"git {' '.join(args[:2])} 失败: {(r.stderr or r.stdout).strip()[:300]}")
+    return r.stdout
+
+
+def _read_json(path: str) -> dict:
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+# ---------------------------------------------------------------- 三级闸命令
+
+def cmd_init(wm: str) -> dict:
+    """建工作记忆仓（幂等）；本地配置不依赖全局 git 身份。"""
+    os.makedirs(wm, exist_ok=True)
+    if os.path.isdir(os.path.join(wm, ".git")):
+        return {"ok": True, "wm": wm, "note": "已是 git 仓（幂等）"}
+    _git_ok(wm, "init", "-b", "main")
+    _git_ok(wm, "config", "user.name", "hive-wm")
+    _git_ok(wm, "config", "user.email", "wm@hive.local")
+    _git_ok(wm, "config", "core.quotepath", "false")  # 中文文件名可读
+    with open(os.path.join(wm, "README.md"), "w", encoding="utf-8") as f:
+        f.write(
+            "# 蜂巢工作记忆\n\n"
+            "任务产物版本化仓（三级闸：snapshot→merge→revert）。\n"
+            "内容推送 GitHub 前须过第 14 条双清单；默认只存本地/推私有仓。\n"
+            "设计定稿：docs/蜂巢工作记忆_项目计划.md\n"
+        )
+    _git_ok(wm, "add", "README.md")
+    _git_ok(wm, "commit", "-m", "init 工作记忆仓")
+    return {"ok": True, "wm": wm, "branch": "main"}
+
+
+def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
+                 branch: str | None = None) -> dict:
+    """凭证闸：result.ok=true 才许提交；白名单拷贝产物后 commit 到任务分支。
+
+    串行契约：快照结束还原 HEAD 到 main；并发多任务由主代理串行调度。
+    """
+    job = os.path.abspath(job)
+    result_path = os.path.join(job, "result.json")
+    spec_path = os.path.join(job, "spec.json")
+    if not os.path.isfile(result_path):
+        return {"ok": False, "error": f"凭证不足: {result_path} 不存在（任务未完成不许提交）"}
+    result = _read_json(result_path)
+    if result.get("ok") is not True:
+        return {
+            "ok": False,
+            "error": f"凭证不足: result.ok={result.get('ok')!r}（第 5 条：未验证不写入）",
+            "verdict": str(result.get("error", ""))[:200],
+        }
+    if not os.path.isfile(spec_path):
+        return {"ok": False, "error": f"{spec_path} 不存在（任务规格缺失，不可复现）"}
+
+    job_id = str(result.get("job_id") or os.path.basename(job))
+    branch = branch or f"task/{job_id}"
+
+    # staging：白名单拷贝进 wm 仓（product = spec + result + log + artifacts）
+    dest = os.path.join(wm, "jobs", job_id)
+    if os.path.isdir(dest):
+        shutil.rmtree(dest)
+    os.makedirs(dest)
+    shutil.copy2(spec_path, os.path.join(dest, "spec.json"))
+    shutil.copy2(result_path, os.path.join(dest, "result.json"))
+    log_path = os.path.join(job, "log.txt")
+    if os.path.isfile(log_path):
+        shutil.copy2(log_path, os.path.join(dest, "log.txt"))
+    art_names: list[str] = []
+    if artifacts:
+        os.makedirs(os.path.join(dest, "artifacts"), exist_ok=True)
+        for a in [x.strip() for x in artifacts.split(",") if x.strip()]:
+            src = a if os.path.isabs(a) else os.path.join(job, a)
+            if not os.path.isfile(src):
+                return {"ok": False, "error": f"artifacts 缺失: {src}"}
+            name = os.path.basename(src)
+            shutil.copy2(src, os.path.join(dest, "artifacts", name))
+            art_names.append(name)
+
+    _git_ok(wm, "checkout", "-B", branch)
+    _git_ok(wm, "add", "jobs")
+    model = result.get("model") or "?"
+    dur = result.get("duration_s")
+    msg = f"task {job_id} verdict=ok model={model}" + (f" duration_s={dur}" if dur else "")
+    _git_ok(wm, "commit", "-m", msg)
+    head = _git_ok(wm, "rev-parse", "--short", "HEAD").strip()
+    _git_ok(wm, "checkout", "main")
+    return {"ok": True, "job_id": job_id, "branch": branch, "commit": head,
+            "artifacts": art_names, "message": msg}
+
+
+def cmd_merge(branch: str, wm: str) -> dict:
+    """主代理显式合并任务分支到 main；冲突诚实报错不自动解决。"""
+    cur = _git_ok(wm, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    if cur != "main":
+        return {"ok": False, "error": f"当前在 {cur}，merge 须在 main 上执行（主代理操作契约）"}
+    r = _git(wm, "merge", "--no-ff", branch, "-m", f"merge {branch} into main")
+    if r.returncode != 0:
+        out = (r.stdout + r.stderr).strip()
+        return {
+            "ok": False,
+            "conflict": "CONFLICT" in out,
+            "error": out[:500],
+            "hint": "处理权归主代理：人工/LLM 裁决后 git add + git commit 收口，"
+                    "或 git -C <wm> merge --abort 放弃本次合并",
+        }
+    head = _git_ok(wm, "rev-parse", "--short", "HEAD").strip()
+    return {"ok": True, "merged": branch, "commit": head}
+
+
+def cmd_revert(sha: str, wm: str) -> dict:
+    """回退到任意提交点（生成反向提交，历史不丢=全记）；冲突同样诚实。
+
+    merge commit（--no-ff 的任务合并）自动加 -m 1：保留主线侧、撤销分支引入的
+    变更——即「撤销某次任务合并」的工作记忆语义。
+    """
+    cur = _git_ok(wm, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    if cur != "main":
+        return {"ok": False, "error": f"当前在 {cur}，revert 须在 main 上执行"}
+    # rev-list --parents -n1 <sha> → "<sha> <p1> [p2 ...]"；>2 个字段 = merge
+    parents = _git_ok(wm, "rev-list", "--parents", "-n1", sha).split()
+    args = ("revert", "--no-edit") + (("-m", "1") if len(parents) > 2 else ()) + (sha,)
+    r = _git(wm, *args)
+    if r.returncode != 0:
+        out = (r.stdout + r.stderr).strip()
+        return {"ok": False, "conflict": "CONFLICT" in out,
+                "error": out[:500], "hint": "git -C <wm> revert --abort 可放弃"}
+    head = _git_ok(wm, "rev-parse", "--short", "HEAD").strip()
+    return {"ok": True, "reverted": sha, "commit": head}
+
+
+def cmd_log(wm: str, branch: str | None = None, limit: int = 20) -> dict:
+    ref = branch or "main"
+    out = _git_ok(wm, "log", "--oneline", f"-n{limit}", ref)
+    return {"ok": True, "ref": ref, "log": [ln for ln in out.splitlines() if ln.strip()]}
+
+
+def cmd_status(wm: str) -> dict:
+    cur = _git_ok(wm, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    dirty = _git_ok(wm, "status", "--porcelain")
+    recent = _git_ok(wm, "log", "--oneline", "-n3")
+    return {
+        "ok": True, "wm": wm, "branch": cur,
+        "dirty_entries": len([x for x in dirty.splitlines() if x.strip()]),
+        "recent": [ln for ln in recent.splitlines() if ln.strip()],
+    }
+
+
+# ---------------------------------------------------------------- CLI
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="wm", description="蜂巢工作记忆（任务产物版本化）")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("init")
+    p.add_argument("--wm", default=WM_DEFAULT)
+
+    p = sub.add_parser("snapshot")
+    p.add_argument("--job", required=True)
+    p.add_argument("--wm", default=WM_DEFAULT)
+    p.add_argument("--artifacts", default=None, help="逗号分隔的产物文件（相对 job 或绝对）")
+    p.add_argument("--branch", default=None, help="默认 task/<job_id>")
+
+    p = sub.add_parser("merge")
+    p.add_argument("--branch", required=True)
+    p.add_argument("--wm", default=WM_DEFAULT)
+
+    p = sub.add_parser("log")
+    p.add_argument("--wm", default=WM_DEFAULT)
+    p.add_argument("--branch", default=None)
+    p.add_argument("--limit", type=int, default=20)
+
+    p = sub.add_parser("revert")
+    p.add_argument("--commit", required=True)
+    p.add_argument("--wm", default=WM_DEFAULT)
+
+    p = sub.add_parser("status")
+    p.add_argument("--wm", default=WM_DEFAULT)
+
+    args = ap.parse_args(argv)
+    try:
+        if args.cmd == "init":
+            out = cmd_init(args.wm)
+        elif args.cmd == "snapshot":
+            out = cmd_snapshot(args.job, args.wm, args.artifacts, args.branch)
+        elif args.cmd == "merge":
+            out = cmd_merge(args.branch, args.wm)
+        elif args.cmd == "log":
+            out = cmd_log(args.wm, args.branch, args.limit)
+        elif args.cmd == "revert":
+            out = cmd_revert(args.commit, args.wm)
+        else:
+            out = cmd_status(args.wm)
+    except WmError as e:
+        print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
+        return EXIT_FAIL
+    print(json.dumps(out, ensure_ascii=False))
+    return EXIT_OK if out.get("ok") else EXIT_FAIL
+
+
+if __name__ == "__main__":
+    sys.exit(main())

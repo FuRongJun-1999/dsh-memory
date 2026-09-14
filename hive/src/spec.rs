@@ -1,6 +1,6 @@
 //! 任务 spec：解析与校验（fail fast——submit 时把错拦住，不让坏任务进队列）。
 //!
-//! spec.json（v0.1）：
+//! spec.json（v0.2）：
 //! ```json
 //! {
 //!   "model": "glm-4.7",             // 必填：LLM 模型名
@@ -10,7 +10,10 @@
 //!   "workdir": "...",               // 可选：context 相对路径基准（默认 submit 时 cwd）
 //!   "timeout_s": 300,               // 可选：硬超时（默认 300，5..=3600）
 //!   "max_tokens": 4096,             // 可选
-//!   "temperature": 0.7              // 可选，[0, 2]
+//!   "temperature": 0.7,             // 可选，[0, 2]
+//!   "thinking": {"type": "enabled"},  // 可选：思考开关（DeepSeek V4.1 同形，type ∈ enabled|disabled）
+//!   "reasoning_effort": "high",     // 可选：思考强度 ∈ low|medium|high
+//!   "context_budget_tokens": 300000 // 可选：输入 token 预算（执行器保守估算，超限 fail fast）
 //! }
 //! ```
 
@@ -27,6 +30,12 @@ pub struct Spec {
     pub timeout_s: u64,
     pub max_tokens: Option<f64>,
     pub temperature: Option<f64>,
+    /// 思考开关："enabled" | "disabled"（与 DeepSeek V4.1 API 的 thinking.type 同形）
+    pub thinking: Option<String>,
+    /// 思考强度："low" | "medium" | "high"
+    pub reasoning_effort: Option<String>,
+    /// 输入 token 预算上限（执行器侧保守估算校验，超限 fail fast 不白跑 API）
+    pub context_budget_tokens: Option<u64>,
 }
 
 pub const DEFAULT_TIMEOUT_S: u64 = 300;
@@ -123,6 +132,35 @@ pub fn validate_lenient(v: &Json) -> Result<Spec, String> {
         Some(_) => return Err("temperature 必须在 [0, 2]".to_string()),
     };
 
+    let thinking = match v.get("thinking") {
+        None | Some(Json::Null) => None,
+        Some(t) => {
+            let ty = t
+                .get("type")
+                .and_then(|x| x.as_str())
+                .ok_or_else(|| "thinking 必须是对象且含 type 字段".to_string())?;
+            match ty {
+                "enabled" | "disabled" => Some(ty.to_string()),
+                _ => return Err(format!("thinking.type 非法: {ty}（允许 enabled|disabled）")),
+            }
+        }
+    };
+
+    let reasoning_effort = match v.get("reasoning_effort") {
+        None | Some(Json::Null) => None,
+        Some(Json::Str(s)) => match s.as_str() {
+            "low" | "medium" | "high" => Some(s.clone()),
+            _ => return Err(format!("reasoning_effort 非法: {s}（允许 low|medium|high）")),
+        },
+        Some(_) => return Err("reasoning_effort 必须为字符串".to_string()),
+    };
+
+    let context_budget_tokens = match v.get("context_budget_tokens") {
+        None | Some(Json::Null) => None,
+        Some(Json::Num(n)) if *n >= 1.0 => Some(*n as u64),
+        Some(_) => return Err("context_budget_tokens 必须为正数".to_string()),
+    };
+
     Ok(Spec {
         model,
         system_prompt,
@@ -132,6 +170,9 @@ pub fn validate_lenient(v: &Json) -> Result<Spec, String> {
         timeout_s,
         max_tokens,
         temperature,
+        thinking,
+        reasoning_effort,
+        context_budget_tokens,
     })
 }
 
@@ -186,6 +227,54 @@ mod tests {
     #[test]
     fn temperature_bounds() {
         let v = crate::json::parse(r#"{"model":"m","user_prompt":"x","temperature":2.5}"#).unwrap();
+        assert!(validate(&v, Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn thinking_reasoning_budget_parse() {
+        let v = crate::json::parse(
+            r#"{"model":"deepseek-flash","user_prompt":"x",
+                "thinking":{"type":"enabled"},"reasoning_effort":"high",
+                "context_budget_tokens":300000}"#,
+        )
+        .unwrap();
+        let s = validate(&v, Path::new(".")).unwrap();
+        assert_eq!(s.thinking.as_deref(), Some("enabled"));
+        assert_eq!(s.reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(s.context_budget_tokens, Some(300000));
+    }
+
+    #[test]
+    fn thinking_bad_type_rejected() {
+        let v = crate::json::parse(
+            r#"{"model":"m","user_prompt":"x","thinking":{"type":"always"}}"#,
+        )
+        .unwrap();
+        assert!(validate(&v, Path::new(".")).is_err());
+        let v =
+            crate::json::parse(r#"{"model":"m","user_prompt":"x","thinking":"enabled"}"#).unwrap();
+        assert!(validate(&v, Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn reasoning_effort_whitelist() {
+        for ok in ["low", "medium", "high"] {
+            let s = format!(r#"{{"model":"m","user_prompt":"x","reasoning_effort":"{ok}"}}"#);
+            assert!(validate(&crate::json::parse(&s).unwrap(), Path::new(".")).is_ok());
+        }
+        let v = crate::json::parse(
+            r#"{"model":"m","user_prompt":"x","reasoning_effort":"ultra"}"#,
+        )
+        .unwrap();
+        assert!(validate(&v, Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn context_budget_bounds() {
+        let v = crate::json::parse(
+            r#"{"model":"m","user_prompt":"x","context_budget_tokens":0}"#,
+        )
+        .unwrap();
         assert!(validate(&v, Path::new(".")).is_err());
     }
 
