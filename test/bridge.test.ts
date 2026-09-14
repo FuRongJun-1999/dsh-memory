@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { LingshuBridge } from '../src/bridge.js'
+import { MdcgClient } from '../src/lib/mdcg_client.js'
 
 /** 本仓根目录：md_cg 随仓库自带，靠 PYTHONPATH 解析（无需 pip 安装）。 */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -60,6 +61,37 @@ test('握手：进程启动并完成 initialize 握手', async () => {
     assert.equal(bridge.alive, true, '子进程应存活')
   } finally {
     bridge.dispose()
+    safeCleanup(dir)
+  }
+})
+
+test('issue #12 回归：宿主 cwd 在插件仓外且零路径参数，MdcgClient 默认锚定仓根仍可启动', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lingshu-issue12-'))
+  const prevCwd = process.cwd()
+  // 1:1 复现外部用户形态：宿主进程 cwd 在插件仓外，MdcgClient 不传
+  // cwd / env.PYTHONPATH（真实 DSH 宿主即此形态）。修复前 Python 只把
+  // cwd 注入 sys.path → `python -m md_cg.mcp_server` 必然 ModuleNotFoundError。
+  process.chdir(tmpdir())
+  const client = new MdcgClient({
+    python: 'python',
+    root: join(dir, 'mdcg'),
+    env: { MDCG_LEGACY_ENV_AUTH: '1', MDCG_ACTOR: 'dsh-test' },
+    timeoutMs: 15_000,
+    maxRetryDelayMs: 5_000,
+  })
+  client.start()
+  try {
+    const ok = await client.waitReady()
+    assert.equal(ok, true, '仓外 cwd 下握手应成功（cwd/PYTHONPATH 自动锚定插件仓根）')
+    // 抽查写入通道存在：证明随包 md_cg 真被解析（full 工具面），而非空进程假活
+    const tools = await client.bridge.listTools()
+    assert.ok(
+      tools.some((t) => t.name === 'mdcg_remember'),
+      `full 面应含写入通道 mdcg_remember（实际 ${tools.map((t) => t.name).join(',')}）`,
+    )
+  } finally {
+    process.chdir(prevCwd)
+    client.dispose()
     safeCleanup(dir)
   }
 })

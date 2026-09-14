@@ -35,7 +35,9 @@
  *   的**所有写入**（记忆沉淀 / 角色定义 / 对话转录）统一经 `mdcg_remember`。
  */
 
+import { delimiter } from 'node:path'
 import { LingshuBridge, type McpCallResult } from '../bridge.js'
+import { pythonPathValue, repoRoot } from './datapath.js'
 
 /** md_cg 子进程与根目录配置。 */
 export interface MdcgOptions {
@@ -45,6 +47,10 @@ export interface MdcgOptions {
   args?: string[]
   /** 认知图根目录（MDCG_ROOT）。 */
   root: string
+  /** Python 子进程工作目录，默认**插件仓根**（issue #12：Python 只把 cwd
+   *  注入 sys.path，宿主在插件仓外启动时 `python -m md_cg.mcp_server`
+   *  找不到随包 md_cg → 必然 ModuleNotFoundError → 静默降级只读 guest）。 */
+  cwd?: string
   /** 调用主体标识（MDCG_ACTOR）。私有内容按 (tenant, actor) 派生 DEK，
    *  故与迁移脚本 --actor 必须一致，否则读不到已迁移节点。 */
   actor?: string
@@ -116,6 +122,10 @@ export class MdcgClient {
   readonly bridge: LingshuBridge
 
   constructor(opts: MdcgOptions) {
+    // issue #12：cwd 与 PYTHONPATH 双保险锚定插件仓根——cwd 是 `python -m`
+    // 解析随包包的主通道，PYTHONPATH 覆盖显式自定义 args 的场景。opts.env
+    // 显式提供 PYTHONPATH 时完全接管（其展开在最后：显式配置原样尊重）。
+    const cwd = opts.cwd ?? repoRoot()
     const env: Record<string, string> = {
       // ⚠️ 必须显式 utf-8：Windows 下 piped 子进程默认 gbk + surrogateescape，
       // Node 写出的 UTF-8 中文会被解成孤立代理字符（\udcXX），md_cg 在落盘 /
@@ -128,6 +138,7 @@ export class MdcgClient {
       MDCG_MCP_SURFACE: opts.surface ?? 'full',
       MDCG_TENANT: opts.tenant ?? 'default',
       MDCG_CLEARANCE: opts.clearance ?? 'private',
+      PYTHONPATH: pythonPathValue(),
       ...(opts.actor ? { MDCG_ACTOR: opts.actor } : {}),
       ...(opts.identity ? { MDCG_IDENTITY: opts.identity } : {}),
       ...(opts.env ?? {}),
@@ -136,6 +147,7 @@ export class MdcgClient {
       python: opts.python,
       args: opts.args ?? DEFAULT_ARGS,
       env,
+      cwd,
       timeoutMs: opts.timeoutMs ?? 60_000,
       maxRetryDelayMs: opts.maxRetryDelayMs ?? 30_000,
     })

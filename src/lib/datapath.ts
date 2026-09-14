@@ -17,7 +17,7 @@
  *   锚定 `package.json` 所在目录后，默认值稳定且可预期。
  */
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const ENV_DATA_ROOT = 'MDCG_DATA_ROOT'
@@ -87,6 +87,22 @@ export function mdcgRoot(configured?: string): string {
   if (typeof cfg === 'string' && cfg) return anchor(cfg)
   if (configured && configured.trim()) return anchor(configured.trim())
   return join(dataRoot(), 'mdcg')
+}
+
+/**
+ * Python 子进程的 PYTHONPATH 值（issue #12）。
+ *
+ * Python 启动 `-m` 时只把 **cwd** 注入 sys.path——DSH 宿主在插件仓外启动时
+ * `python -m md_cg.mcp_server` / `python -m md_cg.tokens` 必然
+ * ModuleNotFoundError。cwd 与 PYTHONPATH 双保险：后者不依赖 cwd，即使调用方
+ * 显式覆盖了启动参数/工作目录也兜得住。顺序：仓根在前（优先随包 md_cg，
+ * 防宿主环境同名旧包抢先），进程既有 PYTHONPATH 在后。
+ */
+export function pythonPathValue(): string {
+  const prev = process.env.PYTHONPATH ?? ''
+  const parts = [repoRoot()]
+  if (prev && !prev.split(delimiter).includes(repoRoot())) parts.push(prev)
+  return parts.join(delimiter)
 }
 
 /** 当前解析快照（供启动日志留痕——把「记忆真源在哪」写进可审计痕迹）。 */

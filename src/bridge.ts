@@ -230,7 +230,9 @@ export class LingshuBridge {
         this.unexpectedExits.push(Date.now())
         if (uptimeS >= 0 && uptimeS < 5) {
           console.error(
-            '[lingshu-bridge] 进程启动后 5 秒内即退出——请检查 python 可执行文件与 md_cg 依赖（python -m md_cg.mcp_server 可自检）。')
+            '[lingshu-bridge] 进程启动后 5 秒内即退出——请检查 python 可执行文件与 md_cg 依赖。' +
+            '自检 `python -m md_cg.mcp_server` 须在插件包根目录运行' +
+            '（插件已自动锚定 cwd 与 PYTHONPATH，issue #12）。')
         } else if (this.unexpectedExits.length >= 3) {
           console.error(
             `[lingshu-bridge] 10 分钟内已意外退出 ${this.unexpectedExits.length} 次，` +
@@ -290,7 +292,8 @@ export class LingshuBridge {
       this.flushBootQueue(false)
       console.error(
         `[lingshu-bridge] 连续启动失败 ${this.retries} 次，已停止自动重启（不再后台空转）。` +
-        '请检查 python 可执行文件与 md_cg 依赖（python -m md_cg.mcp_server 可自检），修复后在 DSH 中重新启用 dsh-memory 插件。')
+        '请检查 python 可执行文件与 md_cg 依赖；自检 `python -m md_cg.mcp_server` 须在插件包根目录运行' +
+        '（插件已自动锚定 cwd 与 PYTHONPATH，issue #12），修复后在 DSH 中重新启用 dsh-memory 插件。')
       probe(`give up: ${this.retries} consecutive failures, entering failed terminal state`)
       return
     }
@@ -319,7 +322,7 @@ export class LingshuBridge {
     if (this.gaveUp) {
       return Promise.reject(new Error(
         '灵枢进程不可用：连续启动失败已达上限，已停止重试。' +
-        '请检查 python 可执行文件与 md_cg 依赖（python -m md_cg.mcp_server 可自检），修复后重新启用 dsh-memory 插件。'))
+        '请检查 python 可执行文件与 md_cg 依赖（自检 `python -m md_cg.mcp_server` 须在插件包根目录运行），修复后重新启用 dsh-memory 插件。'))
     }
     const id = this.nextId++
     const timeout = this.options.timeoutMs

@@ -30,6 +30,7 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { pythonPathValue, repoRoot } from './datapath.js'
 
 /** 凭据来源（用于启动日志与故障定位）。 */
 export type TokenSource =
@@ -111,8 +112,17 @@ function issueToken(python: string, role: string, actor: string, clearance: stri
         encoding: 'utf-8',
         windowsHide: true,
         timeout: 15_000,
-        // 与工作纪律第 15 条同源：显式 UTF-8 + PYTHONUTF8，规避 Windows GBK 解码异常
-        env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
+        // 与工作纪律第 15 条同源：显式 UTF-8 + PYTHONUTF8，规避 Windows GBK 解码异常。
+        // issue #12：cwd+PYTHONPATH 锚定插件仓根——否则 npm 包形态下宿主在仓外
+        // 启动时 `python -m md_cg.tokens` 找不到随包 md_cg，首启签发静默失败，
+        // md_cg 侧降级只读 guest（写入全不落盘且无报错）。
+        cwd: repoRoot(),
+        env: {
+          ...process.env,
+          PYTHONPATH: pythonPathValue(),
+          PYTHONUTF8: '1',
+          PYTHONIOENCODING: 'utf-8',
+        },
       },
     )
   } catch (e) {
