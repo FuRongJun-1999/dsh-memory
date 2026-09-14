@@ -50,6 +50,21 @@ def t_units():
     ok(cn.pair_hits("鱼 油", "今天吃了马肉") == 0.0, "无关 query 误命中")
     # 与 zh_en_atoms 同源：serialize 出口不受影响
     ok("cow meat" == zh_en_atoms.serialize("牛肉"), "zh_en_atoms 出口漂移")
+    # 英文 query 汇入统一真源（2026-09-14）：同一切分器保证两端形态同构。
+    # 复合概念词（牛肉）在 ZH_EN 贪心表/atoms 真源内 → 保持整词（serialize
+    # 出口既有设计）；单字语素组合（马肉）→ 展开为原子。
+    ok(cn.query_atoms("I ate beef yesterday") == ("我", "吃", "牛肉", "昨天"),
+       "英文归一形态漂移: %r" % (cn.query_atoms("I ate beef yesterday"),))
+    ok(cn.query_atoms("horse meat") == ("马", "肉"), "英文组合词语素映射失败")
+    ok(cn.query_atoms("Caroline reads books") == ("Caroline", "读", "书"),
+       "英文保留词应原样占位: %r" % (cn.query_atoms("Caroline reads books"),))
+    ok(cn.pair_hits("吃 牛肉", "I ate beef yesterday") == 1.0,
+       "英文原题经统一真源未命中 doc 原子（复合词整词）")
+    ok(cn.pair_hits("马 肉", "Did you eat horse meat today?") == 1.0,
+       "英文原题经统一真源未命中 doc 原子（单字语素）")
+    # 纯中文零变化守卫（英文分支不触发）
+    ok(cn.query_atoms("鱼油") == ("鱼", "油"), "纯中文切分漂移")
+    ok(cn.query_atoms("鱼 油") == ("鱼", "油"), "纯中文空格形态漂移")
 
 
 def t_write(tmp):
@@ -172,6 +187,41 @@ def t_e2e(tmp):
         cg.close()
 
 
+def t_en_unified(tmp):
+    """英文 query 汇入统一真源（端到端）：英文原题直查 fm.semantic 节点。
+
+    归一发生在 query_atoms 内部——检索调用面零改动；同时验证语义资格层
+    （fm.semantic 无条件入池）对英文 query 同样生效（英文 terms 对中文
+    正文 LIKE 必不中，唯一通路就是语义资格 + 组合共现打分）。
+    """
+    ec.unlock_global_cap()
+    ec.use_jaccard()
+    root = os.path.join(tmp, "en_unified")
+    shutil.rmtree(root, ignore_errors=True)
+    cg = mdcos.MdCGOS(root, autoflush=500)
+    try:
+        cg.add("gold", "今天午饭吃了马肉，味道不错，下次还做。", layer="knowledge",
+               semantic="马 肉", verification_basis="data")
+        cg.add("d1", "下午去市场买了马，价格比昨天便宜一些。", layer="knowledge",
+               verification_basis="data")
+        cg.flush()
+        ec.install_read_cache(cg)
+        os.environ["MDCG_SEMANTIC"] = "1"
+        res, _m = cg.search_rrf("Did you eat horse meat today?", k=5,
+                                paths=("lexical",), judge=False, record=False)
+        ok(res and res[0][0]["id"] == "gold",
+           "英文原题未命中统一真源 gold: %r" % [r[0]["id"] for r in res[:2]])
+        # 关闭语义路：英文原题对中文正文词法零交集，gold 不应凭空出现
+        os.environ.pop("MDCG_SEMANTIC", None)
+        res, _m = cg.search_rrf("Did you eat horse meat today?", k=5,
+                                paths=("lexical",), judge=False, record=False)
+        top1 = res[0][0]["id"] if res else None
+        ok(top1 != "gold", "关闭语义路英文原题仍命中 gold（词法零交集被违反？）")
+    finally:
+        os.environ.pop("MDCG_SEMANTIC", None)
+        cg.close()
+
+
 def main():
     os.environ.pop("MDCG_SEMANTIC", None)
     t_units()
@@ -180,6 +230,7 @@ def main():
         t_write(tmp)
         t_score_off_guard(tmp)
         t_e2e(tmp)
+        t_en_unified(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
         os.environ.pop("MDCG_SEMANTIC", None)

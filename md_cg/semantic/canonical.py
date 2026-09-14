@@ -24,6 +24,7 @@
 import functools
 import json
 import os
+import re
 
 from . import zh_en_atoms
 
@@ -64,8 +65,30 @@ def oov_of(text):
 
 @functools.lru_cache(maxsize=256)
 def query_atoms(text):
-    """query 侧归一（同 semantic_atoms，缓存——每轮检索全 doc 复用）。"""
-    return tuple(semantic_atoms(text))
+    """query 侧归一（同 semantic_atoms，缓存——每轮检索全 doc 复用）。
+
+    英文 query 汇入同一标准真源（2026-09-14）：含 [A-Za-z] 时先经
+    en_normalizer 归一为中文语素（复合概念整词映射，beef→牛肉），中文
+    语素再经 segment 展开为标准原子（「牛肉」→「牛 肉」，与 doc 侧
+    fm.semantic 的原子形态同构），英文保留词（专名/未登录词）原样
+    占位——是词表覆盖边界，非错误。纯中文 query 零变化（不触发英文
+    分支）。归一失败静默保持原文本（与 en_zh_terms 同降级风格）。
+    """
+    t = text or ""
+    if re.search(r"[A-Za-z]", t):
+        try:
+            from .en_normalizer import normalize_en_query
+            terms, _detail = normalize_en_query(t)
+            out = []
+            for term in terms:
+                if re.search(r"[A-Za-z]", term):
+                    out.append(term)                        # 英文保留词原样
+                else:
+                    out.extend(zh_en_atoms.segment(term))   # 中文语素→标准原子
+            return tuple(out)
+        except Exception:
+            pass
+    return tuple(semantic_atoms(t))
 
 
 def pair_hits(doc_semantic, qtext, win=WIN):

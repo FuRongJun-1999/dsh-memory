@@ -36,6 +36,8 @@ IRREGULAR = {
     "left": "leave", "kept": "keep", "held": "hold",
     "slept": "sleep", "swept": "sweep", "meant": "mean",
     "dealt": "deal", "lent": "lend", "bent": "bend",
+    # e-脱落动词机械去 -ed 会得错形（inspired→inspir）；词次取证达标者逐词收编
+    "inspired": "inspire",
 }
 
 # ---- 虚词（不入语义序列）----
@@ -46,6 +48,13 @@ STOPWORDS = {
     "has", "had", "will", "would", "could", "should", "may", "might",
     "and", "or", "but", "not", "no", "so", "if", "then", "than",
     "this", "that", "these", "those", "it", "its", "as", "also",
+    # locomo-500 词频取证补充（expand_en_zh analyze，2026-09-14）：物主/宾格
+    # 代词与疑问框架词对中文库检索零语义贡献，保留只制造噪声原子
+    # （unknown_keep 头部：his 90 / her 72 / get 20 / during 19 词次）。
+    # 主格代词不动（i/we/you/he/she/they 已映射 我/我们/你/他/她/他们）。
+    "his", "her", "hers", "him", "their", "theirs", "them", "us",
+    "when", "where", "why", "how", "what", "which", "who", "whose",
+    "during", "out", "get", "kind",
 }
 
 # ---- en→zh 语义原子映射 ----
@@ -98,6 +107,20 @@ EN_ZH = {
     "water": "水", "light": "光", "sound": "音", "metal": "金",
     "stone": "石", "wood": "木", "cloud": "云", "wind": "风",
     "rain": "雨", "snow": "雪",
+    # locomo-500 词频取证定向补词（expand_en_zh analyze top30 实词，2026-09-14；
+    # 映射逐一核对唯一；partner 搭档/伴侣一对多跳过——宁缺勿滥）
+    "friend": "朋友", "family": "家庭", "trip": "旅行", "plan": "计划",
+    "game": "游戏", "type": "类型", "dance": "舞", "share": "分享",
+    "painting": "画", "favorite": "喜欢", "feel": "感觉",
+    "activity": "活动", "project": "项目", "photo": "照片",
+    "studio": "工作室", "long": "长", "first": "第一", "recently": "最近",
+    "start": "开始", "inspire": "激励",
+    # CEDICT 词汇分布缺口定向补（2026-09-14）：CEDICT 用英式 mum（mom 缺）、
+    # pet 冲突集全书面词在口语语料零命中、日常义项缺词条——映射唯一明确的
+    # top30 级残留词逐词补，修复面=证据面
+    "pet": "宠物", "mom": "妈妈", "tournament": "锦标赛",
+    "festival": "节日", "advice": "建议", "often": "经常",
+    "pottery": "陶艺",
 }
 
 # ---- 复合词映射（英文复合 → 中文标准概念）----
@@ -157,6 +180,40 @@ def is_proper(w):
     return w[0].isupper() if w else False
 
 
+_CEDICT_CACHE = None
+_COMBINED_CACHE = None
+
+
+def cedict_map():
+    """词级 CEDICT 反查表（build_cedict_en_zh.py 产物，17700 键级）。
+
+    CC BY-SA 4.0 派生数据独立文件署名，不内联 MIT 的 EN_ZH；
+    缺文件返回空表——纯手工表兜底，零外部依赖路径保持（第7条兜底纪律）。
+    """
+    global _CEDICT_CACHE
+    if _CEDICT_CACHE is None:
+        import json
+        import os
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "lexicon", "cedict_en_zh.json")
+        try:
+            with io.open(path, encoding="utf-8") as f:
+                _CEDICT_CACHE = json.load(f).get("map", {})
+        except (OSError, ValueError):
+            _CEDICT_CACHE = {}
+    return _CEDICT_CACHE
+
+
+def _combined_map():
+    """组合映射表：词级机械层 ← 手工校对层覆盖（手工优先）。缓存一次组合。"""
+    global _COMBINED_CACHE
+    if _COMBINED_CACHE is None:
+        m = dict(cedict_map())
+        m.update(EN_ZH)
+        _COMBINED_CACHE = m
+    return _COMBINED_CACHE
+
+
 def normalize_en_query(query, extra_map=None):
     """英文 query → 语义原子序列（中文语素）
 
@@ -164,7 +221,7 @@ def normalize_en_query(query, extra_map=None):
       normalized_terms: 用于检索的中文/保留词序列
       detail: 逐词归一化记录
     """
-    en_zh = dict(EN_ZH)
+    en_zh = dict(_combined_map())
     if extra_map:
         en_zh.update(extra_map)
     # 短语优先匹配：先尝试多词短语整体映射（复合概念名）
@@ -172,18 +229,40 @@ def normalize_en_query(query, extra_map=None):
     if phrase_key in COMPOUND_ZH:
         comp_zh = COMPOUND_ZH[phrase_key]
         return [comp_zh], [{"orig": query, "phrase_zh": comp_zh, "action": "phrase_mapped"}]
-    # 屈折还原 + 查表
-    words = re.findall(r"[A-Za-z\u4e00-\u9fff]+", query)
+    # 屈折还原 + 查表。所有格剥离：'s 是正字法黏着成分非独立词
+    # （Melanie's → Melanie）——不剥离则分词残留 "s" 成为伪 OOV
+    # （locomo-500 实测 85 词次）。
+    words = re.findall(r"[A-Za-z\u4e00-\u9fff]+",
+                       re.sub(r"'s\b", "", query))
     terms = []
     detail = []
     for w in words:
         wl = w.lower()
-        if wl in STOPWORDS:
+        base0 = strip_tense(wl)
+        # 原形与还原形都查虚词表：getting/doing 屈折形原表漏网（还原后
+        # get/do 是虚词，保留只产生 OOV 噪声原子）
+        if wl in STOPWORDS or base0 in STOPWORDS:
             detail.append({"orig": w, "action": "stopword_drop"})
             continue
-        base = strip_tense(wl)
+        base = base0
         zh = en_zh.get(base) or en_zh.get(wl)
-        if zh:
+        if not zh and not base.endswith("e"):
+            # e-脱落动词词表感知还原：loved→lov(错形)→love。词表小时收益≈0
+            # （2026-09-14 早前取证 102 词次判不修）；词级表 17700 键后
+            # motivated→motivate / visited 类命中真实存在，条件已变
+            zh = en_zh.get(base + "e")
+            if zh:
+                base = base + "e"
+        if zh and is_proper(w) and wl not in EN_ZH:
+            # 专名词表命中双原子：doc 侧音译/原文两形态并存（corpus567 实测
+            # 地名 巴黎13/Paris4 音译主导，人名 Caroline127/卡罗琳0 原文主导）
+            # ——原文+译文都进匹配面；未命中侧在 doc 侧零出现，组合共现需
+            # 双方在场，不构成假匹配。手工表已有词（i/we/you 等句首大写代词、
+            # 基础词）形态唯一，不具双形态不确定性，排除
+            terms.append(w)
+            terms.append(zh)
+            detail.append({"orig": w, "zh": zh, "action": "proper_mapped_both"})
+        elif zh:
             terms.append(zh)
             detail.append({"orig": w, "base": base, "zh": zh, "action": "mapped"})
         elif is_proper(w):

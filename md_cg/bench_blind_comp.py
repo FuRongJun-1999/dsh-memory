@@ -34,7 +34,14 @@
   同内容」守恒），差异仅在 gold 节点的 fm 衍生层——semantic 标准原子
   摘要本身即被测变量（AI 写入侧归一 + 检索组合共现，semantic/canonical.py）。
   L3 提升即语义摘要路净效应；L1 词面直配（sim=1）不受 max 聚合拖累、
-  L2 与 b0 同（enatoms 关——跨语路正交性对照）。
+  L2 与 b0 同（enatoms 关——跨语路正交性对照）；
+* b3_unified：**MDCG_SEMANTIC=1 + 原句直查**（2026-09-14 加入）。与 b2 同库
+  （gold 带 fm.semantic），差异在查询侧：不做 q_atoms 手工替换，英文原题
+  /中文原句直接进检索，归一在 canonical.query_atoms 内部完成——英文经
+  en_normalizer 归一为中文语素、复合概念保持整词、与 doc 侧共享同一真源
+  切分器。「英文检索路径归一化到统一标准真源」的最小闭环实证：预期 L2
+  英文原题经归一命中 semantic 摘要（受控上界），L3 中文原句=中间态（词面
+  原子齐备题才可救，其余需查询侧归一即 b2 形态）。
 
 ## 判决标准
 
@@ -178,16 +185,23 @@ CORPUS = None   # gen_questions 需引用语料正文（L3 校验），main 内�
 
 
 def run_arm(cg, questions, tag, en_atoms, semantic=False):
-    """单臂评测：臂差异只在查询侧环境开关展开。返回 (summary_by_type, l2_probe)。"""
+    """单臂评测：臂差异只在查询侧环境开关展开。返回 (summary_by_type, l2_probe)。
+
+    semantic 三态：False=关；"norm"=查询侧 AI 归一（q_atoms 替换，b2 臂）；
+    "raw"=原句直查（归一在 canonical.query_atoms 内部完成，b3 臂——统一
+    真源路，英文 query 同路：en_normalizer→中文语素→标准原子）。
+    """
     if en_atoms:
         os.environ["MDCG_EN_ATOMS"] = "1"
     else:
         os.environ.pop("MDCG_EN_ATOMS", None)
     if semantic:
         os.environ["MDCG_SEMANTIC"] = "1"
-        # 设想终态：查询侧 AI 归一——检索前把原句按基准词表归一为标准原子串
-        questions = [dict(q, question=q["q_atoms"]) if q.get("q_atoms") else q
-                     for q in questions]
+        if semantic == "norm":
+            # 设想终态：查询侧 AI 归一——检索前把原句按基准词表归一为标准原子串
+            questions = [dict(q, question=q["q_atoms"]) if q.get("q_atoms") else q
+                         for q in questions]
+        # semantic == "raw"：原句直查，两端归一共享同一真源切分器
     else:
         os.environ.pop("MDCG_SEMANTIC", None)
     rows = ec.evaluate_group(cg, questions, k=5, paths=("lexical",),
@@ -249,14 +263,17 @@ def main():
 
     arms = ((cg, "b0_legacy", False, False),
             (cg, "b1_enatoms", True, False),
-            (cg2, "b2_comp", False, True))
+            (cg2, "b2_comp", False, "norm"),
+            (cg2, "b3_unified", False, "raw"))
     for arm_cg, tag, en, sem in arms:
         by_type, probe = run_arm(arm_cg, questions, tag, en, semantic=sem)
         out["arms"][tag] = by_type
         out["l2_probe"][tag] = probe
-        print("\n== 臂 %s（MDCG_EN_ATOMS=%s, MDCG_SEMANTIC=%s%s）=="
+        sem_desc = {False: "", "norm": ", 查询侧归一(q_atoms)",
+                    "raw": ", 原句直查(query_atoms 内部归一)"}.get(sem, "")
+        print("\n== 臂 %s（MDCG_EN_ATOMS=%s, MDCG_SEMANTIC=%s%s%s）=="
               % (tag, "1" if en else "off", "1" if sem else "off",
-                 ", gold 带 fm.semantic" if sem else ""))
+                 ", gold 带 fm.semantic" if sem else "", sem_desc))
         for lv in ("ALL", "L1_surface", "L2_crosslingual", "L3_semantic"):
             s = by_type[lv]
             print("  %-16s hit@1=%6.1f%%  hit@5=%6.1f%%  MRR=%.4f  (n=%d)"
@@ -274,6 +291,9 @@ def main():
         "非端到端自动归一质量；受控池 0 误配不可外推开放域"
         "（「鱼和油分述」需 P1 组合结构约束）",
         "L3 b0/b1 基线即该两路增益空间上限；P1 compositions 结构层另案",
+        "b3 L2 受控上界：受控组合全在 en_normalizer 词表内"
+        "（EN_ZH 已含 horse/goat/duck/mare/oil/fat），开放域英文受归一"
+        "词表覆盖限制——开放域数字以 locomo-500 英文侧统一真源路实测为准",
     ]
     ec.save_result("blind_comp_baseline.json", out)
     print("\n[blind_comp] 完成，结果已存 blind_comp_baseline.json")
