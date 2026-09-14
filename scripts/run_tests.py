@@ -70,6 +70,34 @@ def _run_one(name, argvs, timeout):
     return name, False, last
 
 
+def _dep_db():
+    p = os.path.join(_REPO, "md_cg", "whitebox_kb", "wisdom",
+                     "wisdom-book-cloud.db")
+    return (None if os.path.exists(p)
+            else "依赖白箱库 whitebox_kb/wisdom/wisdom-book-cloud.db"
+                 "（.gitignore 忽略，需本地生成）")
+
+
+def _dep_mdroot():
+    p = os.path.join(_REPO, "_md_cg_wisdom_graph")
+    return (None if os.path.isdir(p)
+            else "依赖 md 语料真源 _md_cg_wisdom_graph/（.gitignore 忽略，"
+                 "组 D 需本地真源）")
+
+
+# 裸 clone 环境 SKIP 探测（2026-09-14 外部复核建议 #3）：
+# 依赖 gitignored 本地数据或特定平台的测试，依赖缺失时标 SKIP（附原因）
+# 不计入失败——避免裸 clone 用户第一眼看到虚假 FAIL（复核实测 83/87 根因）。
+_SKIPS = {
+    "md_cg.test_p44_md_whitebox": _dep_db,
+    "md_cg.test_md_access_parity": _dep_db,
+    "md_cg.test_wisdom_md_store": _dep_mdroot,
+    "swarm.tests.test_swarm_fault": (
+        lambda: None if os.name == "nt"
+        else "Windows 专用（powershell/taskkill）"),
+}
+
+
 def main():
     ap = argparse.ArgumentParser(description="灵枢全仓测试入口（python -m 约定）")
     # 注：不用 argparse choices——部分 Python 版本对 nargs="*" 无值时
@@ -95,11 +123,22 @@ def main():
         print(f"共 {len(targets)} 个")
         return 0
 
+    # SKIP 探测：依赖缺失/平台不符的测试不执行（外部复核建议 #3，裸 clone 友好）
+    skipped, runnable = [], []
+    for g, n, a in targets:
+        probe = _SKIPS.get(n)
+        reason = probe() if probe else None
+        if reason:
+            skipped.append((n, reason))
+            print(f"SKIP  {n}  （{reason}）", flush=True)
+        else:
+            runnable.append((g, n, a))
+
     bad = []
     with concurrent.futures.ThreadPoolExecutor(
             max_workers=max(1, args.jobs)) as ex:
         futs = {ex.submit(_run_one, n, a, args.timeout): (g, n)
-                for g, n, a in targets}
+                for g, n, a in runnable}
         for fu in concurrent.futures.as_completed(futs):
             name, ok, tail = fu.result()
             print(("PASS  " if ok else "FAIL  ") + name, flush=True)
@@ -108,7 +147,8 @@ def main():
                 for ln in tail.splitlines()[-6:]:
                     print("      " + ln, flush=True)
 
-    print(f"\n===== SUMMARY {len(targets) - len(bad)}/{len(targets)} 通过 =====")
+    print(f"\n===== SUMMARY {len(runnable) - len(bad)}/{len(runnable)} 通过，"
+          f"{len(skipped)} 跳过（依赖缺失/平台不符） =====")
     if bad:
         print("失败：" + ", ".join(bad))
         return 1

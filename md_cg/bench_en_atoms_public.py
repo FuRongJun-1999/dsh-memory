@@ -25,15 +25,20 @@
     python -m md_cg.bench_en_atoms_public
 
 锚点（README ②③ 行）：
-    ② 52-53 / 79-81 / 87-88（hit@1/5/10）
-    ③ 48.8 / 73.8 / 79.0
+    ② 96.8 / 99.8 / 99.8（给定中文关键词的检索侧上界）
+    ③ 50.0 / 74.6 / 81.2 · ③a 39.0 / 67.0 / 78.2
+    ④（机械归一端到端下界）英文问句→EN_ZH 词表直译→②同链路
+    ⑤⑥⑦（②路鲁棒性）query 扰动：漏 20% 关键词 / 插 3 噪词 / 错译 20%
 
 诚实边界：
     1) 池 567 条全为 gold → 零干扰上界，非端到端能力；
     2) 英文原题来自上游 LoCoMo 派生副本（data/external，不入库）——脚本
        公开但英文原题自备（BENCH6_EN_QUESTIONS 可覆盖路径）；中文关键词
        题面在公开集 questions500.jsonl；
-    3) ②③ 差值（87 vs 79）是同义词鸿沟的直接隔离证据，不是工程缺陷。
+    3) ②的 query 是中文关键词语义链（AI 归一化的输出形态）——AI 归一环节
+       的质量未纳入本评测；④给出机械词表归一的端到端下界作对照；
+    4) ⑤⑥⑦扰动为确定性规则（非随机采样），验证「②路对归一噪声不敏感」，
+       扰动口径见各臂注释。
 """
 import io
 import json
@@ -48,6 +53,7 @@ if HERE not in sys.path:
 from md_cg import bench6_common as b6            # noqa: E402
 from md_cg import eval_common as ec              # noqa: E402
 from md_cg.mdcg import normalize_en              # noqa: E402
+from md_cg.semantic.en_normalizer import normalize_en_query  # noqa: E402
 
 DATA = b6.DATA
 CORPUS = b6.CORPUS567
@@ -55,6 +61,32 @@ QUESTIONS = b6.QUESTIONS500
 CHAR_ATOMS = os.path.join(HERE, "md_cg", "lexicon", "char_atoms_clean.json")
 
 ZH_RANGE = ("\u4e00", "\u9fff")
+
+# ⑥ 噪词（日常生活中性词，与对话语料存在真实弱共现 → 严苛口径）
+NOISE_ZH = "天气 音乐 旅行"
+# ⑦ 错译池（逐题循环取一组，模拟词表错译 20%）
+WRONG_POOLS = ["经济 历史 音乐", "天体 地理 化学", "科技 法律 医学"]
+
+
+def perturb_kw(text, mode, idx):
+    """②路 query 关键词扰动（确定性规则，验证归一噪声灵敏度）。
+
+    mode=drop20   每 5 词丢 1（位置随题号错位，模拟归一漏词 20%）
+    mode=noise3   尾部插 3 个固定噪词（模拟归一混入无关概念）
+    mode=wrong20  每 5 词错译 1（固定错译池循环，模拟词表错译 20%）
+    """
+    words = [w for w in (text or "").split() if w]
+    if not words:
+        return text or ""
+    if mode == "drop20":
+        return " ".join(w for i, w in enumerate(words) if (i + idx) % 5 != 0)
+    if mode == "noise3":
+        return " ".join(words + NOISE_ZH.split())
+    if mode == "wrong20":
+        pool = WRONG_POOLS[idx % len(WRONG_POOLS)].split()
+        return " ".join(pool[i % len(pool)] if (i + idx) % 5 == 0 else w
+                        for i, w in enumerate(words))
+    return text
 
 
 def load_char_atoms():
@@ -94,6 +126,10 @@ def jaccard(a, b):
         return 0.0
     inter = len(a & b)
     return inter / len(a | b) if inter else 0.0
+
+
+def round_dict(st):
+    return {k: round(v, 1) for k, v in st.items()}
 
 
 def run_arm(questions, docs, qatoms_of, label):
@@ -151,13 +187,33 @@ def main():
     r3 = run_arm(questions, docs, en_q, "③ en query")
     # 臂③a 纯英文正文直接匹配（产品最纯形态：doc=英文正文原子，无加工面辅助）
     r3a = run_arm(questions, docs_body, en_q, "③a en·body")
+    # 臂④ 机械归一端到端下界：英文问句 → 词表直译为中文词（CEDICT 28294 键
+    #     ∪ EN_ZH 手工层，无 AI）→ ②同链路。与②唯一差异 = query 归一来源：
+    #     ②=AI 理解式归一的输出形态（标注关键词），④=机械查表归一。
+    def e4(q):
+        terms, _ = normalize_en_query(en_rows.get(q.get("qid"), ""))
+        return frozenset(zh_map_en(" ".join(terms), char_atoms).split())
+    r4 = run_arm(questions, docs, e4, "④ en→zh·mech")
+    # 臂⑤⑥⑦ ②路鲁棒性：query 关键词确定性扰动后走同一 ② 链路
+    zh_q = lambda q: str(q.get("question") or "")  # noqa: E731
+    r5 = run_arm(questions, docs,
+                 lambda q: frozenset(zh_map_en(
+                     perturb_kw(zh_q(q), "drop20", questions.index(q)),
+                     char_atoms).split()), "⑤ ②-20%kw")
+    r6 = run_arm(questions, docs,
+                 lambda q: frozenset(zh_map_en(
+                     perturb_kw(zh_q(q), "noise3", questions.index(q)),
+                     char_atoms).split()), "⑥ ②+3noise")
+    r7 = run_arm(questions, docs,
+                 lambda q: frozenset(zh_map_en(
+                     perturb_kw(zh_q(q), "wrong20", questions.index(q)),
+                     char_atoms).split()), "⑦ ②20%wrong")
 
-    print("[en_atoms] 完成（%.0fs）②=%s ③=%s ③a=%s"
+    print("[en_atoms] 完成（%.0fs）②=%s ③=%s ③a=%s ④=%s ⑤=%s ⑥=%s ⑦=%s"
           % (time.time() - t0,
-             {k: round(v, 1) for k, v in r2.items()},
-             {k: round(v, 1) for k, v in r3.items()},
-             {k: round(v, 1) for k, v in r3a.items()}))
-    print("  锚点：② 52-53/79-81/87-88 · ③ 48.8/73.8/79.0（hit@1/5/10）")
+             *(round_dict(r) for r in (r2, r3, r3a, r4, r5, r6, r7))))
+    print("  锚点：② 96.8/99.8/99.8（给定关键词上界） · ③ 81.2 · ④ 机械下界"
+          " · ⑤⑥⑦ 鲁棒性（hit@10 应稳 99+）")
     return 0
 
 
