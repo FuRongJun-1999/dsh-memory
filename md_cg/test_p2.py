@@ -103,10 +103,21 @@ def main():
         rec = cg.recall("超长 小内容", budget_tokens=200, k=10)
         check("recall 遵守 token 预算", rec["tokens_used"] <= rec["budget"],
               f"used={rec['tokens_used']}/{rec['budget']}")
-        check("超大条目被跳过而非停下", any(s["id"] == "big1" for s in rec["skipped"]),
+        # a61c08e：装包策略「跳过超大」→「截断纳入」（truncated=True），
+        # 逆向淘汰修复。截断吃满预算时小条目显式进 skipped（不静默丢失）
+        bigs = [p for p in rec["pack"] if p["id"] == "big1"]
+        check("超大条目截断纳入而非丢弃", bool(bigs) and bigs[0].get("truncated"),
+              f"pack={[(p['id'], p.get('truncated')) for p in rec['pack']]}")
+        check("预算放不下时小条目显式跳过（不静默丢失）",
+              any(s["id"] == "small1" for s in rec["skipped"]),
               f"skipped={[s['id'] for s in rec['skipped']]}")
-        check("跳过超大后仍装入小条目", any(p["id"] == "small1" for p in rec["pack"]),
-              f"pack={[p['id'] for p in rec['pack']]}")
+        rec0 = cg.recall("超长 小内容", budget_tokens=200, k=10,
+                         max_item_tokens=0)
+        check("max_item_tokens=0 回旧行为（超大跳过+小条目装入）",
+              any(s["id"] == "big1" for s in rec0["skipped"])
+              and any(p["id"] == "small1" for p in rec0["pack"]),
+              f"skipped={[s['id'] for s in rec0['skipped']]} "
+              f"pack={[p['id'] for p in rec0['pack']]}")
 
         # ---------------- 1. Fix pairs 自动挖掘 ----------------
         print("\n【1】Fix pairs 自动挖掘")

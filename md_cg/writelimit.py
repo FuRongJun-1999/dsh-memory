@@ -153,15 +153,28 @@ def check(cg, content, layer="contextual", role=None, node_id=None,
     if sig:
         rec = st["sigs"].get(sig)
         if rec and now - float(rec.get("t") or 0) < CONVERGE_WINDOW \
-                and rec.get("nid") and cg.get(rec["nid"]):
-            rec["n"] = int(rec.get("n") or 1) + 1
-            rec["last"] = now
-            st["sigs"][sig] = rec
-            _push_rate(st, key, now)
-            _save(cg, st)
-            return {"verdict": "CONVERGE", "limiter": "converge",
-                    "target": rec["nid"], "sig": sig[:40], "n": rec["n"],
-                    "reason": f"converge:{sig[:40]}#{rec['n']}"}
+                and rec.get("nid"):
+            tgt = cg.get(rec["nid"])
+            if tgt:
+                if (tgt.get("content") or "").strip() \
+                        == (content or "").strip():
+                    # 与既有节点正文完全一致：零新信息 → 交回旧闸门语义
+                    # DROP（不落库、不追加聚合行、不强化既有）——对齐
+                    # forgetting 闸门「确定性内部冗余 → DROP 先于 MERGE」
+                    # 纪律；同模板但内容不同才走聚合（那才是流水治理）
+                    _push_rate(st, key, now)
+                    _save(cg, st)
+                    return {"verdict": "DROP", "limiter": "exact_dup",
+                            "target": rec["nid"],
+                            "reason": f"exact_dup_of:{rec['nid']}"}
+                rec["n"] = int(rec.get("n") or 1) + 1
+                rec["last"] = now
+                st["sigs"][sig] = rec
+                _push_rate(st, key, now)
+                _save(cg, st)
+                return {"verdict": "CONVERGE", "limiter": "converge",
+                        "target": rec["nid"], "sig": sig[:40], "n": rec["n"],
+                        "reason": f"converge:{sig[:40]}#{rec['n']}"}
         st["sigs"][sig] = {"nid": node_id, "t": now, "n":
                            int((rec or {}).get("n") or 1),
                            "sk": sig[:60]}

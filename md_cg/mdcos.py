@@ -2045,6 +2045,11 @@ class MdCGOS(MdCG):
                        "converged": writelimit.converge_into(self, tgt,
                                                              content)}
                 fv = "MERGE"
+            elif lim["verdict"] == "DROP":
+                # 精确重复（与既有节点正文一致）：零新信息，交回旧闸门
+                # DROP 语义——不落库、不追加、不强化既有
+                out = {"verdict": "DROP", "node_id": node_id, "gate": lim}
+                fv = "DROP"
             else:                                    # DEFER
                 out = {"verdict": "DEFER", "node_id": node_id,
                        "gate": lim}

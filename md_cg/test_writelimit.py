@@ -81,6 +81,17 @@ tgt = cg.get("wl_001")
 check("B4 正文追加聚合行", "【聚合" in (tgt.get("content") or ""))
 check("B5 merge_count+1",
       int(tgt["frontmatter"].get("merge_count", 0)) == 1)
+# B6 精确重复 → DROP（模拟会话重启后 hooks 重复 memorize 同一事件）：
+# 与既有节点正文完全一致 = 零新信息，交回旧闸门 DROP 语义（对齐 test_p9
+# 「确定性内部冗余 → DROP 先于 MERGE」），不追加重复聚合行
+r_f1 = _write("wl_f1", "会议纪要模板甲乙丙丁版")
+check("B6a 首写 ACCEPT", r_f1["verdict"] == "ACCEPT", str(r_f1.get("gate")))
+writelimit._save(cg, {"sigs": writelimit._load(cg)["sigs"], "rate": {}})
+r_f2 = _write("wl_f2", "会议纪要模板甲乙丙丁版")   # 与 wl_f1 同文
+check("B6b 精确重复 → DROP（不落库不强化）",
+      r_f2["verdict"] == "DROP" and cg.get("wl_f2") is None
+      and "merge_count" not in cg.get("wl_f1")["frontmatter"],
+      str(r_f2.get("gate")))
 
 # ---------------------------------------------------------------- C 频率限制
 
