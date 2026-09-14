@@ -1,0 +1,1028 @@
+[
+ {
+  "old_id": "code_913452985772",
+  "old_name": "残留0008.spec.",
+  "new_name": "kn_任务对比工作函数",
+  "kind": "A_fix",
+  "confidence": 0.75,
+  "reason": "该节点为 bench_task_ab_llm.py 中的 work 函数，按任务对比脚本域意译命名，与同组名区分。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_2eb100cd3f87",
+  "old_name": "残留0030.spec.",
+  "new_name": "kn_派会话文件布局",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "pi 音译为「派」，正文描述会话 jsonl 文件布局，纯汉字且不超八字。",
+  "fixed": true
+ },
+ {
+  "old_id": "doc_2f7309254f99",
+  "old_name": "残留0031.spec.",
+  "new_name": "kn_派消息记录",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "pi 音译为派，正文实质描述消息封装记录结构，可命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_fb9f2701b24e",
+  "old_name": "残留0031.spec.",
+  "new_name": "kn_欧买派消息记录",
+  "kind": "A_fix",
+  "confidence": 0.8,
+  "reason": "omp 即 Oh My Pi 音译为欧买派，与 pi 节点区分且不撞名。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_3cf33ca9f518",
+  "old_name": "残留0033.spec.",
+  "new_name": "kn_自装德亚启协议",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "该节点讲自装deja后由.mcp.json启动MCP服务，意译德亚与模型上下文协议，纯汉字合规",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_98defcdf62ba",
+  "old_name": "残留0033.spec.",
+  "new_name": "kn_钩子脚本寻德亚",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "该节点讲钩子与MCP入口为shell脚本定位自装deja二进制，德亚音译，纯汉字合规",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_518c0b3f9b34",
+  "old_name": "残留0035.spec.",
+  "new_name": "kn_德亚跨智能体检索",
+  "kind": "A_fix",
+  "confidence": 0.9,
+  "reason": "中文版说明德亚插件检索本机其他智能体的历史记录，去英文后缀后为纯汉字且不超八字。",
+  "fixed": true
+ },
+ {
+  "old_id": "doc_1931addcbf65",
+  "old_name": "残留0040.spec.",
+  "new_name": "kn_热重载",
+  "kind": "A_fix",
+  "confidence": 0.9,
+  "reason": "英文术语 Hot Reload 意译为纯汉字，正文有实质内容支撑",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_f5c3a9700f0c",
+  "old_name": "残留0041.spec.",
+  "new_name": "kn_英文热重载",
+  "kind": "A_fix",
+  "confidence": 0.82,
+  "reason": "源文档为 README.md 英文版，与葡文版条目区分且组内不重名。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_3270a3d1dcd3",
+  "old_name": "残留0047.spec.",
+  "new_name": "kn_索引架构核心概念",
+  "kind": "A_fix",
+  "confidence": 0.8,
+  "reason": "父章节为Indexing Architecture，子节含Knowledge Model等，核心概念避开禁用词且互异。",
+  "fixed": true
+ },
+ {
+  "old_id": "doc_a125ee91c5e8",
+  "old_name": "残留0050.spec.",
+  "new_name": "kn_法尔科服务目录",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "FalkorDB音译为法尔科，正文为MCP服务端目录结构，纯汉字且无禁词",
+  "fixed": true
+ },
+ {
+  "old_id": "doc_a38c7d6bf79c",
+  "old_name": "残留0051.spec.",
+  "new_name": "kn_服务遥测采集",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "正文描述MCP服务器初始化时的匿名遥测采集，意译Telemetry为遥测，避免英文残留。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_263c958f424d",
+  "old_name": "残留0052.spec.",
+  "new_name": "kn_模型句柄工具排障",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "正文为模型句柄错误与工具集配置排查，压缩为八汉字且与前者互异。",
+  "fixed": true
+ },
+ {
+  "old_id": "doc_0960b83c30c0",
+  "old_name": "残留0053.spec.",
+  "new_name": "kn_杜尔塞行动示例集",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "该节点位于examples_notebooks示例输入目录，取杜尔塞行动加示例集限定，与另一节点互异。",
+  "fixed": true
+ },
+ {
+  "old_id": "doc_e9220ad01c5f",
+  "old_name": "残留0064.spec.",
+  "new_name": "kn_杜尔塞风暴暗夜",
+  "kind": "A_fix",
+  "confidence": 0.7,
+  "reason": "同一章节另一路径副本，取摘要中风暴与暗夜意象命名，避免与前者撞名。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_ad1792b8555b",
+  "old_name": "残留0075.spec.",
+  "new_name": "kn_杜尔塞基地静默",
+  "kind": "A_fix",
+  "confidence": 0.6,
+  "reason": "同一章节另一路径副本，取相近但不同的内容名以避撞名",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_b255abbf4a4a",
+  "old_name": "残留0076.spec.",
+  "new_name": "kn_杜尔西第八章正文",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "该节点位于data路径，取杜尔西第八章加正文区分，且无禁词",
+  "fixed": true
+ },
+ {
+  "old_id": "doc_f0cdb6062302",
+  "old_name": "残留0081.spec.",
+  "new_name": "kn_杜尔塞第七章",
+  "kind": "A_fix",
+  "confidence": 0.6,
+  "reason": "与另一节点同章但源路径不同，用第七章区分且不含禁用词。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_f94e8b09be22",
+  "old_name": "残留0085.spec.",
+  "new_name": "kn_杜尔西示例第三章",
+  "kind": "A_fix",
+  "confidence": 0.8,
+  "reason": "同为第三章但源路径属示例笔记目录，加示例区分且不与前者撞名。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_556ff3a22335",
+  "old_name": "残留0093.spec.",
+  "new_name": "kn_归档仓欢迎智能",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "归档仓内AI政策章节，意译AI为智能且限定仓域以区分同名节点",
+  "fixed": true
+ },
+ {
+  "old_id": "doc_795a56431038",
+  "old_name": "残留0093.spec.",
+  "new_name": "kn_主仓欢迎智能",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "主仓letta内AI政策章节，意译AI为智能且限定仓域以区分同名节点",
+  "fixed": true
+ },
+ {
+  "old_id": "doc_ecf6f7d6aea0",
+  "old_name": "残留0099.spec.",
+  "new_name": "kn_归档代码代理须知",
+  "kind": "A_fix",
+  "confidence": 0.8,
+  "reason": "letta 域同章节内容，强调归档代码不再维护的代理须知，与另一节点区分。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_114ac4d3212d",
+  "old_name": "残留0107.spec.",
+  "new_name": "kn_代码追踪器更新",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "codex 意译为代码，指代该代理的追踪器更新流程，纯汉字且不撞名。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_a8330a9214e8",
+  "old_name": "残留0107.spec.",
+  "new_name": "kn_派追踪器更新",
+  "kind": "A_fix",
+  "confidence": 0.8,
+  "reason": "pi 音译为派，与另一节点区分且符合纯汉字规范。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_1c5eb9c890b6",
+  "old_name": "残留0113.spec.",
+  "new_name": "kn_排查上下文问题",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "正文为技能文档中识别并解决上下文问题的步骤，意译核心动作且不含禁用词。",
+  "fixed": false
+ },
+ {
+  "old_id": "code_7e86bf94762f",
+  "old_name": "残留0237.spec.",
+  "new_name": "kn_长期记忆写入",
+  "kind": "A_fix",
+  "confidence": 0.85,
+  "reason": "api 侧 Agent 长期记忆写入流程，与引擎侧节点区分。",
+  "fixed": false
+ },
+ {
+  "old_id": "kp_717417822_1787025941640",
+  "old_name": "残留0264.spec.",
+  "new_name": "kn_短语与句子成分",
+  "kind": "A_fix",
+  "confidence": 0.9,
+  "reason": "正文详列短语类型与句子成分，实质内容充分，功能名即规范名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_6885f11f_1786969931162",
+  "old_name": "残留0328.spec.",
+  "new_name": "kn_动态类型与全局锁",
+  "kind": "A_fix",
+  "confidence": 0.86,
+  "reason": "正文核心为动态类型、解释执行与GIL机制，取纯汉字概括",
+  "fixed": false
+ },
+ {
+  "old_id": "kp_5600192765_1787025941542",
+  "old_name": "残留0331.spec.",
+  "new_name": "kn_目标代码生成",
+  "kind": "A_fix",
+  "confidence": 0.9,
+  "reason": "正文实质描述中间代码到机器指令的转换及指令选择、寄存器分配等，核心即目标代码生成。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_293ecf8b_1788874040582",
+  "old_name": "残留0372.spec.",
+  "new_name": "kn_主动性盲区探索",
+  "kind": "A_fix",
+  "confidence": 0.65,
+  "reason": "证据含主动性盲区探索，与同批验证循环节点区分。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_5836cf4d_1788852267533",
+  "old_name": "残留0372.spec.",
+  "new_name": "kn_预测盲区实时审计",
+  "kind": "A_fix",
+  "confidence": 0.6,
+  "reason": "代表模式为预测实时审计盲区，取该特征命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_5f1e3401_1788855565517",
+  "old_name": "残留0372.spec.",
+  "new_name": "kn_感知盲区经验压缩",
+  "kind": "A_fix",
+  "confidence": 0.55,
+  "reason": "节点为感知系统盲区经验压缩记录，取整体特征命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_90da8769_1788866425918",
+  "old_name": "残留0381.spec.",
+  "new_name": "kn_验证循环盲区午巡",
+  "kind": "A_fix",
+  "confidence": 0.55,
+  "reason": "验证循环盲区证据，午间时段区分。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_ad45d04e_1788714338680",
+  "old_name": "残留0381.spec.",
+  "new_name": "kn_验证循环盲区夕巡",
+  "kind": "A_fix",
+  "confidence": 0.55,
+  "reason": "验证循环盲区证据，傍晚时段区分。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_ccb14088_1788858065477",
+  "old_name": "残留0381.spec.",
+  "new_name": "kn_验证循环盲区晨巡",
+  "kind": "A_fix",
+  "confidence": 0.55,
+  "reason": "验证循环盲区证据，清晨时段区分。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_cd1750ea_1788839118962",
+  "old_name": "残留0381.spec.",
+  "new_name": "kn_弱查询盲区拂晓",
+  "kind": "A_fix",
+  "confidence": 0.55,
+  "reason": "弱查询盲区证据，拂晓时段区分。",
+  "fixed": false
+ },
+ {
+  "old_id": "kp_9657220157_1787025941967",
+  "old_name": "Python语言特性",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.95,
+  "reason": "正文仅为骨架锚点、内容待填充，实质空洞，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "kp_4741367368_1787025941967",
+  "old_name": "RISC与CISC",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.95,
+  "reason": "正文为骨架锚点、内容待填充，实质空洞，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_a067ce90_1788842280572",
+  "old_name": "kn_感官输入未命中",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文为生效条件与压缩占位描述，缺乏可命名的实质主题，宁缺毋滥。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_3ad8a702_1788815284948",
+  "old_name": "kn_直播预测未命中",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文仅为时间窗与占位引用，实质空洞，不足以支撑命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_4344d379_1788837906224",
+  "old_name": "kn_直播预测未命中",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文仅为时间窗与占位引用，实质空洞，不足以支撑命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_4f92ba90_1788875238059",
+  "old_name": "kn_直播预测未命中",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文仅为时间窗与占位引用，实质空洞，不足以支撑命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_8bcfee2a_1788865968118",
+  "old_name": "kn_直播预测未命中",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文仅为时间窗与占位引用，实质空洞，不足以支撑命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_9e7eee62_1788844472130",
+  "old_name": "kn_直播预测未命中",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文仅为时间窗与占位引用，实质空洞，不足以支撑命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_b719b617_1788800655832",
+  "old_name": "kn_直播预测未命中",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文仅为时间窗与占位引用，实质空洞，不足以支撑命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_bdf686ad_1788865533529",
+  "old_name": "kn_直播预测未命中",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文仅为时间窗与占位引用，实质空洞，不足以支撑命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_c1384250_1788864414423",
+  "old_name": "kn_直播预测未命中",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文仅为时间窗与占位引用，实质空洞，不足以支撑命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_ee740940_1788829774817",
+  "old_name": "kn_直播预测未命中",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文仅为时间窗与占位引用，实质空洞，不足以支撑命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_f5a497dc_1788839118866",
+  "old_name": "kn_直播预测未命中",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文仅为时间窗与占位引用，实质空洞，不足以支撑命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_f7f5c81c_1788825531301",
+  "old_name": "kn_直播预测未命中",
+  "new_name": null,
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文仅为时间窗与占位引用，实质空洞，不足以支撑命名",
+  "fixed": false
+ },
+ {
+  "old_id": "kp_569912576_1787025941870",
+  "old_name": "常用汉字2500",
+  "new_name": "kn_常用汉字识字量",
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文核心为小学阶段常用汉字识字与会写数量要求，意译概括且无空词。",
+  "fixed": false
+ },
+ {
+  "old_id": "kp_593063167_1787025941527",
+  "old_name": "常用汉字2500",
+  "new_name": "kn_小学识字写字要求",
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "同组内容一致，取另一角度命名以区分，聚焦小学识字写字目标。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_510144e1_1786769721104",
+  "old_name": "热力学/耗散结构",
+  "new_name": "kn_热力学耗散结构",
+  "kind": "C_solo",
+  "confidence": 0.95,
+  "reason": "正文实质阐述热力学第二定律与耗散结构，功能名即热力学/耗散结构，意译为纯汉字规范名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_741d4473_1786903319829",
+  "old_name": "热力学/耗散结构",
+  "new_name": "kn_熵动力学负熵维持",
+  "kind": "C_solo",
+  "confidence": 0.85,
+  "reason": "与同组节点正文相同，取另一核心面向「熵动力学/负熵维持」命名以避重名。",
+  "fixed": false
+ },
+ {
+  "old_id": "kp_1764926243_1787025941527",
+  "old_name": "理解词语句子",
+  "new_name": "kn_理解词语句子",
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文明确功能名为理解词语句子，内容充实可命名",
+  "fixed": false
+ },
+ {
+  "old_id": "kp_8384901968_1787025941870",
+  "old_name": "理解词语句子",
+  "new_name": "kn_词句理解方法",
+  "kind": "C_solo",
+  "confidence": 0.85,
+  "reason": "与同组节点内容相同，需避免撞名，取正文核心方法义命名",
+  "fixed": false
+ },
+ {
+  "old_id": "kp_6869888826_1787025941892",
+  "old_name": "英语学习习惯",
+  "new_name": "kn_英语学习习惯",
+  "kind": "C_solo",
+  "confidence": 0.9,
+  "reason": "正文明确以英语学习习惯为功能名，内容具体可命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "kp_972333202_1787025941562",
+  "old_name": "英语学习习惯",
+  "new_name": "kn_英语学习好习惯",
+  "kind": "C_solo",
+  "confidence": 0.85,
+  "reason": "与同组节点内容相同，需避免撞名，改用近义表述区分。",
+  "fixed": false
+ },
+ {
+  "old_id": "mem_1789285160348",
+  "old_name": "语义原子化双语检索核对（codebuddy 端取证）",
+  "new_name": "kn_双语检索证据裁决",
+  "kind": "C_solo",
+  "confidence": 0.85,
+  "reason": "与同组节点内容一致，聚焦双语检索声明的证据边界裁决，组内名字互不重复。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_0387f873_1788600239025",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位符，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_08612153_1788725617357",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位符，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_092af983_1788424849249",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位符，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_09583ee3_1786688522022",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位符，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_10daf82b_1786931404672",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位符，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_13cdcfc8_1788662760077",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位符，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_189212e1_1786932117137",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位符，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_1b7cd5f8_1788626888070",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位符，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_1d227f2b_1788905399443",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无法解读实质内容，不予命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_28760585_1788428594820",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无法解读实质内容，不予命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_2ef7c40c_1788725617248",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无法解读实质内容，不予命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_3140f2bd_1788135151672",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无法解读实质内容，不予命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_317ec0fb_1788632397369",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无法解读实质内容，不予命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_351fc326_1788662759816",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无法解读实质内容，不予命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_3f7d505f_1788742811275",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无法解读实质内容，不予命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_50230b7d_1788692589249",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无法解读实质内容，不予命名",
+  "fixed": false
+ },
+ {
+  "old_id": "node_5c37b802_1788481163418",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_5e5420de_1788513965136",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_62af3b11_1788519986536",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_69e01730_1788785759411",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_71cd1eeb_1788629181051",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_78c4bbb3_1787725887774",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_7bcb20aa_1786932592831",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_8ad387c8_1788394956392",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_8d4e82db_1788793435541",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无实质语义可支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_901a9013_1788409822898",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无实质语义可支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_90e668dc_1788212091992",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无实质语义可支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_966df8a4_1788785759352",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无实质语义可支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_996e76f1_1788112873559",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无实质语义可支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_9a1f17aa_1786938781347",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无实质语义可支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_9ea08a96_1788614205299",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位串，无实质语义可支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_a1b3800f_1788602207738",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位内容，无法解读实质语义，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_a1c0e51f_1787135896077",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位内容，无法解读实质语义，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_a2f8e606_1788692589368",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位内容，无法解读实质语义，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_a5fd994c_1788735061662",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位内容，无法解读实质语义，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_a8110c2c_1788603054779",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位内容，无法解读实质语义，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_a8ea3239_1788725617476",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位内容，无法解读实质语义，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_aa9dc182_1788714612515",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.0,
+  "reason": "正文为加密占位内容，无法解读实质语义，不足以支撑命名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_b2341226_1788736732093",
+  "old_name": "批次1不可命名",
+  "new_name": "kn_感知生效条件",
+  "kind": "C_split",
+  "confidence": 0.6,
+  "reason": "正文描述感知系统的生效条件与约束，可命名但偏骨架。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_c1aae36a_1788663448026",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无实质可读内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_ca0ccf57_1788519165136",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无实质可读内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_cca9a91f_1786688550613",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无实质可读内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_cf86325d_1788692589499",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无实质可读内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_d43d49c2_1788621518773",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无实质可读内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_d72ccde9_1788649861957",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无实质可读内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_d9fbed6e_1788624367275",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无实质可读内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_da780b34_1788634713354",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无法解读实质内容，宁缺毋滥。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_dae1db05_1788557678149",
+  "old_name": "批次1不可命名",
+  "new_name": "kn_未成年图像识别",
+  "kind": "C_split",
+  "confidence": 0.85,
+  "reason": "正文描述对图5/7/9的未成年特征观察，属图像识别判定。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_e252094e_1788134838574",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无实质可命名内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_e2c3dc54_1786688546036",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无实质可命名内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_e90f34b2_1788135151470",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无实质可命名内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_eac93150_1788652448102",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无实质可命名内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_f2428021_1786857341985",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无实质可命名内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_f29ec57d_1787725888668",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密占位，无实质可命名内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "vpipe_427a28d0_1788657245634",
+  "old_name": "批次1不可命名",
+  "new_name": null,
+  "kind": "C_split",
+  "confidence": 0.95,
+  "reason": "正文为加密密文，无法读取实质内容，不足以支撑命名。",
+  "fixed": false
+ }
+]

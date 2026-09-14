@@ -1,0 +1,6946 @@
+[
+ {
+  "old_id": "node_02c6079d_1788840328089",
+  "new_name": "kn_直播观预测未命中",
+  "confidence": 0.55,
+  "reason": "本节点为直播场景观感预测未命中经验压缩，加观字区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_02e594aa_1788851712777",
+  "new_name": "kn_感知直播未命中",
+  "confidence": 0.6,
+  "reason": "条件空间为感知系统，内容为直播预测未命中经验压缩",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_02fe882d_1788905562143",
+  "new_name": "kn_记忆系统七项能力",
+  "confidence": 0.82,
+  "reason": "正文为记忆操作系统七项能力与MCP接入落地实现",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_030c84b7_1786688525595",
+  "new_name": "kn_感知能力接入经验",
+  "confidence": 0.72,
+  "reason": "记录纳西妲语音输出、视觉惰性装配等感知能力接入实践",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0367deb5_1788785487687",
+  "new_name": "kn_世界历史文明三卡",
+  "confidence": 0.85,
+  "reason": "正文为古巴比伦罗马启蒙三张世界史卡拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_03b75b30_1788744636128",
+  "new_name": "kn_通识三科存题补录",
+  "confidence": 0.62,
+  "reason": "批次382补神经数列发酵三题入库",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_03e0ba62_1788557497597",
+  "new_name": "kn_未成年体型识别",
+  "confidence": 0.75,
+  "reason": "正文为通过手部阴部胸部特征判定未成年画风的识别依据",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0535b86b_1788794343215",
+  "new_name": "kn_通识三卡补题入库",
+  "confidence": 0.76,
+  "reason": "正文为批次462补透镜候鸟保护色三卡并突破1600题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_056156fd_1788802124521",
+  "new_name": "kn_文学保护生物补题",
+  "confidence": 0.78,
+  "reason": "含文学本质、艾青诗派、保护生物学三卡补题",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_05a6eb59_1788864414495",
+  "new_name": "kn_盲区探索模式压缩",
+  "confidence": 0.62,
+  "reason": "正文是含BS盲区条目的可复用模式压缩，加盲区限定区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_05b64c41_1788869263160",
+  "new_name": "kn_清代官服等级",
+  "confidence": 0.92,
+  "reason": "正文核心为清代补子顶戴花翎蟒袍官阶体系",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_05b86157_1788777918538",
+  "new_name": "kn_感官工具调用测试",
+  "confidence": 0.6,
+  "reason": "正文为感知系统下感官输入场景的工具调用可用性验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_06337f1c_1788620107276",
+  "new_name": "kn_工具面认知图同构",
+  "confidence": 0.78,
+  "reason": "裁定grill工具族为认知图补全、与四要素同构，工具面定位",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_06f4359a_1786882995635",
+  "new_name": "kn_清洗重建重验闭环",
+  "confidence": 0.72,
+  "reason": "正文为P37卡牌清洗、骨架重建与重验终裁闭环记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_06fff304_1788559699206",
+  "new_name": "kn_通识四科题卡入库",
+  "confidence": 0.72,
+  "reason": "正文为通识拓展四学科题卡入库与测评",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_073a213f_1786684835277",
+  "new_name": "kn_睡眠巩固自检记录",
+  "confidence": 0.62,
+  "reason": "正文为睡眠巩固自检与认知评分日志，语义可辨",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_082b205b_1788539251312",
+  "new_name": "kn_第七十批四卡入库",
+  "confidence": 0.85,
+  "reason": "以批号70与四卡入库特征区分同名批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_08d88bce_1786946074183",
+  "new_name": "kn_条件识别引擎",
+  "confidence": 0.88,
+  "reason": "正文述条件识别引擎实现与反向七操作",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_09727661_1786633363963",
+  "new_name": "kn_游戏设计学习验证",
+  "confidence": 0.78,
+  "reason": "正文为游戏设计知识摄取并应用验证修复",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_09776e4b_1788875767052",
+  "new_name": "kn_预测盲区经验浓缩",
+  "confidence": 0.55,
+  "reason": "22条盲区经验压缩成可复用模式，与同名节点区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_09d62a04_1788857028491",
+  "new_name": "kn_内核版本更新要求",
+  "confidence": 0.72,
+  "reason": "正文为DSH内核>=0.1.2-rc.1的更新约束条件",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_09e9d822_1786688540623",
+  "new_name": "kn_原生框架阶段目标",
+  "confidence": 0.72,
+  "reason": "正文为原生harness后续阶段目标（守护、容器化、热更新）",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_09f473b1_1788816892687",
+  "new_name": "kn_感官直播未命中观",
+  "confidence": 0.62,
+  "reason": "感官输入下直播预测未命中(观)的经验压缩模式",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_0aeab3d5_1788493560395",
+  "new_name": "kn_运算器数量与结构",
+  "confidence": 0.82,
+  "reason": "正文论足够多运算器为必要非充分，结构决定智能",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0af6c772_1788515911732",
+  "new_name": "kn_引擎写锁超时修复",
+  "confidence": 0.85,
+  "reason": "正文为database is locked写锁超时参数修复与题库补写",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0b1050b6_1788645356010",
+  "new_name": "kn_急救常识批次收官",
+  "confidence": 0.72,
+  "reason": "正文为通识批次234食物中毒与溺水施救知识卡收官记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0b95f8d1_1788790051853",
+  "new_name": "kn_光学与硅芯片通识",
+  "confidence": 0.82,
+  "reason": "正文为批次455望远镜/硅芯片/折射三张通识补题卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0be1ff2a_1788556784323",
+  "new_name": "kn_体型识别胸部误判",
+  "confidence": 0.72,
+  "reason": "正文论仅凭胸部识别体型误杀率高及国人胸部特征差异",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0cf0d476_1788816348667",
+  "new_name": "kn_通识补题预检复盘",
+  "confidence": 0.72,
+  "reason": "正文为批次500三存量补题及预检漏看教训复盘",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0d6a6177_1788817710650",
+  "new_name": "kn_第八次复测锚定",
+  "confidence": 0.85,
+  "reason": "正文为第8次随机复测，20/20零回归锚定记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0dbbab34_1786932137514",
+  "new_name": "kn_认知边界实证记录",
+  "confidence": 0.82,
+  "reason": "正文为认知边界与猜想验证缺失的实证记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0e4c890a_1788741539769",
+  "new_name": "kn_通识拓展批次补题",
+  "confidence": 0.72,
+  "reason": "正文为通识批次补题与新卡入库记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_0ea4adaf_1788777003985",
+  "new_name": "kn_插件版本核查反思",
+  "confidence": 0.62,
+  "reason": "正文为灵枢插件版本非最新提示与源码调用路径的反思",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0ecbacfb_1788612916469",
+  "new_name": "kn_表宇宙四件套纲领",
+  "confidence": 0.8,
+  "reason": "正文为数论四件套表宇宙纲领总档案与结算",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0edc8dc4_1786688537925",
+  "new_name": "kn_测试部署遗留路线",
+  "confidence": 0.72,
+  "reason": "正文为harness测试部署结果与遗留路线清单",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_0f14da1c_1788491084920",
+  "new_name": "kn_感官输入复现条件",
+  "confidence": 0.6,
+  "reason": "条件空间为感知系统感官输入，正文是复现Artemis核心的观察请求",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0f1776e0_1788772666316",
+  "new_name": "kn_未来科技三卡拓展",
+  "confidence": 0.82,
+  "reason": "正文为批次429脑机接口/VR/自动驾驶三卡拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0f843a53_1788538853644",
+  "new_name": "kn_换题新标识复检",
+  "confidence": 0.78,
+  "reason": "正文为换题后新id未复检致覆盖、合并恢复的教训",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_0f8f4ff4_1788869659920",
+  "new_name": "kn_感官输入经验压缩",
+  "confidence": 0.62,
+  "reason": "条件锚定感官输入通道，区别于其他感知系统压缩节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_0fcfa70b_1786931101905",
+  "new_name": "kn_存在衰减盲区缓解",
+  "confidence": 0.76,
+  "reason": "正文记录存在衰减盲区探索完成并缓解",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_10735d6e_1788847665310",
+  "new_name": "kn_第三方插件请求",
+  "confidence": 0.55,
+  "reason": "正文为第三方插件发来的待查看请求，取其指涉命名",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_10dd5796_1788619826261",
+  "new_name": "kn_短触发复测修复",
+  "confidence": 0.78,
+  "reason": "正文核心为短触发口语复测暴露缺口并全修复",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_113bd9e8_1788818749362",
+  "new_name": "kn_呼啸山庄数九三伏",
+  "confidence": 0.72,
+  "reason": "正文为呼啸山庄与数九三伏民俗卡拓展内容",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_116a5352_1788596281914",
+  "new_name": "kn_李时珍与泡茶冲泡",
+  "confidence": 0.62,
+  "reason": "批次159两卡：李时珍本草纲目与泡茶水温实操",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_11b8a572_1788867065337",
+  "new_name": "kn_感官输入预测压缩",
+  "confidence": 0.6,
+  "reason": "感官输入条件下一对直播预测未命中经验的压缩模式",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_1225cf0c_1788822598283",
+  "new_name": "kn_名楼郑和通识拓展",
+  "confidence": 0.78,
+  "reason": "正文为江南名楼制卡与郑和补题的航海通识批次",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_12632e06_1788770824559",
+  "new_name": "kn_传统文化题库补题",
+  "confidence": 0.82,
+  "reason": "正文为科举京剧李时珍三张存量卡补题入题库批次的记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1273cab9_1786688529286",
+  "new_name": "kn_插件发布待办",
+  "confidence": 0.62,
+  "reason": "正文为dsh插件topic、cordis配置与v2候选的待办清单",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_12878e0b_1788557083579",
+  "new_name": "kn_题库脚本语法校验",
+  "confidence": 0.58,
+  "reason": "以本批特有的出卡脚本ast前置校验为区分点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_1299343c_1788758938179",
+  "new_name": "kn_存量卡三题补录",
+  "confidence": 0.62,
+  "reason": "正文为存量卡补题3张：嵌入式、感觉器官、证券",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_12b9b6b3_1786688544212",
+  "new_name": "kn_条件空间理解设计",
+  "confidence": 0.78,
+  "reason": "正文为v3.3理解=条件空间构建与导航设计草案",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_13039516_1788848558135",
+  "new_name": "kn_主仓插件版本比对",
+  "confidence": 0.72,
+  "reason": "正文为主仓库与插件版本差异比对后决策",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_13335c2b_1788594487297",
+  "new_name": "kn_盲盒果汁烫发三题",
+  "confidence": 0.72,
+  "reason": "批次156含盲盒消费、果汁送药、烫发化学三题",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_134797fa_1788620408719",
+  "new_name": "kn_语义三维重建差距",
+  "confidence": 0.78,
+  "reason": "正文对照照片到3D语义场景重建，指出差距在语义建模层",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_137cd2be_1788493589938",
+  "new_name": "kn_白箱黑箱审计对比",
+  "confidence": 0.5,
+  "reason": "正文加密，据标签白箱结构/黑箱不可审计对比定名",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_13daca48_1788658644214",
+  "new_name": "kn_姿态模型下载测试",
+  "confidence": 0.8,
+  "reason": "正文为下载姿态权重并测试，概括准确",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_140965a8_1788542402744",
+  "new_name": "kn_锁竞争超时诊断",
+  "confidence": 0.75,
+  "reason": "正文为MCP实例并发写竞争致超时的诊断与处置记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_14522929_1788805861278",
+  "new_name": "kn_寓言童话三连入库",
+  "confidence": 0.78,
+  "reason": "正文为伊索寓言、格林童话、一千零一夜三卡入库",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_14b1e90c_1788541029137",
+  "new_name": "kn_通识七十三批四卡",
+  "confidence": 0.72,
+  "reason": "以第73批四卡入库特征命名，区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_14c04776_1788551812240",
+  "new_name": "kn_通识九十批入库",
+  "confidence": 0.78,
+  "reason": "含批次号九十与通识入库，可区分其他批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_14ef70e6_1788800655941",
+  "new_name": "kn_实况预测盲区压缩",
+  "confidence": 0.55,
+  "reason": "条件为感官输入下22条盲区经验压缩，代表BS-PREDICT-LIVE-AUDIEN",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_1521ff83_1788112964623",
+  "new_name": "kn_感官输入夜间巩固",
+  "confidence": 0.45,
+  "reason": "正文加密，据感官输入条件与夜间巩固标签定名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_154a8d35_1788835518791",
+  "new_name": "kn_第十次复测满分",
+  "confidence": 0.86,
+  "reason": "正文为第10次随机复测20题全满分，含次数与结果",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_156aefdb_1788571817874",
+  "new_name": "kn_超声禁毒地理三卡",
+  "confidence": 0.75,
+  "reason": "以三卡主题词区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_15b7f1b7_1788903721702",
+  "new_name": "kn_目录后端切换验证",
+  "confidence": 0.78,
+  "reason": "白箱知识库由sqlite切至MD目录后端并1978题验证通过",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_16407c77_1787875738816",
+  "new_name": "kn_协议版本询问应答",
+  "confidence": 0.62,
+  "reason": "正文为协议版本与接入方式的重复询问应答经验",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_17213b93_1788860879622",
+  "new_name": "kn_十二时辰与市舶司",
+  "confidence": 0.84,
+  "reason": "正文主体为十二时辰计时与市舶司外贸两卡知识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1762c65b_1788905985255",
+  "new_name": "kn_记忆权限隔离落地",
+  "confidence": 0.85,
+  "reason": "正文为记忆OS权限隔离与设备驱动落地实现",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1794a230_1788851712837",
+  "new_name": "kn_感官盲区预测探索",
+  "confidence": 0.55,
+  "reason": "限感官输入条件下预测类盲区探索经验",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_17cf0b6b_1788559078088",
+  "new_name": "kn_通识四科四卡入库",
+  "confidence": 0.82,
+  "reason": "正文为通识四学科四卡入库评测，可与他节点区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_17d8cff0_1788617237196",
+  "new_name": "kn_题库八百题里程碑",
+  "confidence": 0.78,
+  "reason": "正文为通识拓展批次193收官，题库突破800题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_18637630_1788524367467",
+  "new_name": "kn_通识四十五批入库",
+  "confidence": 0.78,
+  "reason": "正文为通识拓展第45批次四卡入库心跳记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_18980c90_1788845840394",
+  "new_name": "kn_受众盲区预测压缩",
+  "confidence": 0.55,
+  "reason": "取代表经验BS-PREDICT-LIVE-AUDIEN受众盲区预测义",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_1902b99a_1788830354022",
+  "new_name": "kn_曲艺评书卡补强",
+  "confidence": 0.88,
+  "reason": "正文为曲艺评书知识卡新建与题库补强验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_196ab96d_1788850609264",
+  "new_name": "kn_预测未命中模式",
+  "confidence": 0.62,
+  "reason": "正文为感官输入下预测未命中的压缩经验",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_198b2aed_1788773322262",
+  "new_name": "kn_通识题卡补题评测",
+  "confidence": 0.72,
+  "reason": "正文为通识补题3张并对题库全量评测，语义明确",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1a2032af_1788814555000",
+  "new_name": "kn_感知系统直播预测",
+  "confidence": 0.55,
+  "reason": "载体感知系统、方法感官输入，内容为直播预测未命中经验压缩",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_1a58da11_1788302926409",
+  "new_name": "kn_生成识别验证闭环",
+  "confidence": 0.6,
+  "reason": "正文加密不可读，据标签判定为生成识别验证白盒自检闭环",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1a81506b_1788573582363",
+  "new_name": "kn_电磁波与食物相克",
+  "confidence": 0.6,
+  "reason": "取该批三卡最具辨识度的物理与食物相克主题",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_1a98afa1_1788504841708",
+  "new_name": "kn_十七批四新域入库",
+  "confidence": 0.85,
+  "reason": "正文为通识拓展17批次四新域入库，含批次号可唯一区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_1acdac56_1788224680679",
+  "new_name": "kn_协作复杂度判据",
+  "confidence": 0.78,
+  "reason": "正文为按复杂度判据分级的协作人称模式",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1ad88bd1_1788782580935",
+  "new_name": "kn_句式氧族归纳补题",
+  "confidence": 0.72,
+  "reason": "批次445补三卡：特殊句式、氧族元素、数学归纳法",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_1b4488ef_1788851058266",
+  "new_name": "kn_茶馆文化拓展",
+  "confidence": 0.88,
+  "reason": "正文为茶馆文化知识卡补强与题库验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1b5e225f_1788688855526",
+  "new_name": "kn_翻墙工具下载研究",
+  "confidence": 0.72,
+  "reason": "正文为下载开源翻墙VPN项目作工具研究",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1baa70fd_1788660031587",
+  "new_name": "kn_眼部轮廓碎片提取",
+  "confidence": 0.82,
+  "reason": "正文为眼部线稿连通域轮廓提取第一步",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1bbed2b4_1786942110374",
+  "new_name": "kn_感知盲区三路验证",
+  "confidence": 0.62,
+  "reason": "正文为BS-QUERY-WEAK-1145盲区经三路线预测验证缓解",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_1bf4c9bb_1788667577718",
+  "new_name": "kn_蜂窝卷积条件路由",
+  "confidence": 0.86,
+  "reason": "正文为蜂窝CNN+并行条件路由架构M1交付",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1c0c2e71_1788814023136",
+  "new_name": "kn_感知盲区探索经验",
+  "confidence": 0.62,
+  "reason": "正文为感官输入下盲区探索完成的可复用经验压缩",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1c33282c_1786688548319",
+  "new_name": "kn_智能体基准评测",
+  "confidence": 0.85,
+  "reason": "正文为AgentCLUE-General基准任务类型难度与评测规则",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1c375454_1787970314793",
+  "new_name": "kn_查询盲区探索缓解",
+  "confidence": 0.62,
+  "reason": "正文记录查询弱项盲区探索完成并已缓解",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1cae7f92_1787017534002",
+  "new_name": "kn_烧水沸点检索缺失",
+  "confidence": 0.6,
+  "reason": "标签与条件空间指向用户问烧水沸点却检索缺失的因果",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_1cdb1a52_1786899078478",
+  "new_name": "kn_持续抽查审计机制",
+  "confidence": 0.88,
+  "reason": "正文为每10轮对话的持续抽查审计机制与修复记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1d030f6b_1788869659811",
+  "new_name": "kn_感知预测未命中",
+  "confidence": 0.62,
+  "reason": "提炼感知系统下预测未命中的经验压缩",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_1d3223f6_1788474953935",
+  "new_name": "kn_灵枢插件星数观测",
+  "confidence": 0.62,
+  "reason": "正文为灵枢插件获星数的感官观测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1d674bdc_1788618512377",
+  "new_name": "kn_双胞胎与耳鸣常识",
+  "confidence": 0.68,
+  "reason": "正文为批次195两卡：双胞胎类型与耳鸣常识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1d6b04fa_1788815173216",
+  "new_name": "kn_伯努利与平均律",
+  "confidence": 0.66,
+  "reason": "正文为伯努利原理与十二平均律两新卡加共振补题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1d9b9528_1787054787938",
+  "new_name": "kn_查询盲区探索验证",
+  "confidence": 0.62,
+  "reason": "正文为盲区探索完成并预测验证，语义明确",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1db5c0ed_1788520802113",
+  "new_name": "kn_本地目录路径记录",
+  "confidence": 0.55,
+  "reason": "正文为ComfyUI与AEIS两条本地目录路径，属路径记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1e5bc2c8_1788641941752",
+  "new_name": "kn_麦粒肿眼睑感染卡",
+  "confidence": 0.85,
+  "reason": "正文为麦粒肿眼睑腺感染诊疗知识卡及批次231收官",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_1e96b531_1788541518016",
+  "new_name": "kn_游戏数值平衡补正",
+  "confidence": 0.72,
+  "reason": "正文为游戏数值平衡卡组修改完成后的队列状态补正",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_1fa11f45_1788850031786",
+  "new_name": "kn_灯彩糖画通识卡",
+  "confidence": 0.86,
+  "reason": "正文为灯彩糖画通识卡与配套题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_20ab3b96_1788517732555",
+  "new_name": "kn_灵枢加载初始化",
+  "confidence": 0.62,
+  "reason": "正文为加载灵枢并初始化，条件为感知系统感官输入",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_20e574ad_1788755951223",
+  "new_name": "kn_通识卡片批次评测",
+  "confidence": 0.72,
+  "reason": "通识卡批次402新增与补题、题库评测记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_21049db3_1788589021901",
+  "new_name": "kn_光武澶渊释兵权",
+  "confidence": 0.72,
+  "reason": "正文为光武中兴、澶渊之盟、杯酒释兵权三史题卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_21526f90_1788856876056",
+  "new_name": "kn_感官直播预测漏判",
+  "confidence": 0.62,
+  "reason": "条件为感官输入，正文为直播场景预测未命中压缩",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_2152b930_1788560263161",
+  "new_name": "kn_通识一零四批入库",
+  "confidence": 0.85,
+  "reason": "含104批次号，区分同题库其他批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_217c63b6_1788527753632",
+  "new_name": "kn_通识五一四卡入库",
+  "confidence": 0.82,
+  "reason": "含批号51与四卡入库动作，可区分同类批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_22580c44_1788834269940",
+  "new_name": "kn_感官直播预判偏差",
+  "confidence": 0.55,
+  "reason": "感知系统感官输入桶下直播预测未命中偏差经验压缩",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_22646a8c_1788520119850",
+  "new_name": "kn_感官更新功能查询",
+  "confidence": 0.55,
+  "reason": "节点正文为感官输入条件下查询dsh更新功能，取具体语义名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_22dc0436_1788595085909",
+  "new_name": "kn_甲醛三省六部旧机",
+  "confidence": 0.62,
+  "reason": "正文含甲醛治理、三省六部、旧机数据三卡主题，可区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_2318a7e5_1788742096264",
+  "new_name": "kn_通识补题满分评测",
+  "confidence": 0.72,
+  "reason": "突出通识拓展补题与题库满分评测，区分同类补题节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_231bc138_1788798315745",
+  "new_name": "kn_通识补题批号事故",
+  "confidence": 0.72,
+  "reason": "正文为批次468补题三张及误覆盖旧脚本的批号事故复盘",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_23594b30_1786688527775",
+  "new_name": "kn_插件开发技术要点",
+  "confidence": 0.86,
+  "reason": "正文为DSH插件写法、工具注册、会话事件等技术结论",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_237098a7_1788522702946",
+  "new_name": "kn_语义驱动图像生成",
+  "confidence": 0.72,
+  "reason": "正文为用语义调用ComfyUI出图的设想",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_242de218_1788599328146",
+  "new_name": "kn_通识三题批次卡",
+  "confidence": 0.62,
+  "reason": "正文为批次164三则通识卡题收官记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_24a6ca2c_1788541521471",
+  "new_name": "kn_副本漂移同步提醒",
+  "confidence": 0.72,
+  "reason": "正文为site-packages副本漂移与同步纪律提醒",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_24c3a2cc_1788305744854",
+  "new_name": "kn_感官查询盲区缓解",
+  "confidence": 0.6,
+  "reason": "取自感官输入条件与盲区缓解结果，区别于预测验证同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_24ebb069_1788524135730",
+  "new_name": "kn_会话信任重建协商",
+  "confidence": 0.72,
+  "reason": "正文为新会话中信任重建与内容边界协商",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_25a7ee34_1786688533239",
+  "new_name": "kn_图像语义识别验证",
+  "confidence": 0.82,
+  "reason": "正文为YOLO-World开放检测与VL语义描述分层对照验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_25c33780_1788520190891",
+  "new_name": "kn_子包版本差异盘点",
+  "confidence": 0.86,
+  "reason": "正文为版本子包集合对比盘点，语义具体",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_266d6110_1788763162284",
+  "new_name": "kn_数字生活通识拓展",
+  "confidence": 0.78,
+  "reason": "正文为批次413数字生活三卡（茧房/短视频/网课）拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_27cb4960_1788816457619",
+  "new_name": "kn_盲区经验廿二压缩",
+  "confidence": 0.6,
+  "reason": "节点为22条盲区探索经验压缩，以条数区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_27e942c4_1788545797567",
+  "new_name": "kn_通识八十批四卡",
+  "confidence": 0.68,
+  "reason": "正文为通识拓展80批四科卡片入库，以此区分同名批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_286375cc_1788551235152",
+  "new_name": "kn_通识四科入库",
+  "confidence": 0.82,
+  "reason": "正文为通识题库四学科卡片入库记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_2863ae2a_1786801869875",
+  "new_name": "kn_互维部署排障教训",
+  "confidence": 0.86,
+  "reason": "正文为W4部署排障三大教训：BOM、timer注入、npm peer污染",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_286cadc2_1788592615341",
+  "new_name": "kn_三卡收束纪律自捕",
+  "confidence": 0.72,
+  "reason": "正文为三张卡收束修改及REV纪律自捕违例记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_286fbe2a_1788616384001",
+  "new_name": "kn_立绘轮廓矢量化",
+  "confidence": 0.83,
+  "reason": "正文为立绘轮廓提取矢量化并转CSS重建流程",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_287dd538_1788592534168",
+  "new_name": "kn_素数密度分离审计",
+  "confidence": 0.72,
+  "reason": "正文为素数密度与σ分离实测的混层审计",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_28d388b0_1788815285115",
+  "new_name": "kn_盲区探索经验压缩",
+  "confidence": 0.62,
+  "reason": "正文为22条盲区探索经验压缩成的可复用模式",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_28df1d63_1788824054872",
+  "new_name": "kn_直播观感预测落空",
+  "confidence": 0.62,
+  "reason": "两条经验压缩均为直播观感预测未命中",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_28e603b4_1788754769989",
+  "new_name": "kn_题库批次里程碑",
+  "confidence": 0.86,
+  "reason": "正文为题库批次400里程碑评测达成记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_29234b92_1788759605363",
+  "new_name": "kn_神话寓言新卡拓展",
+  "confidence": 0.88,
+  "reason": "正文为批次407中国神话寓言三卡选题与评测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_295278f1_1788368868334",
+  "new_name": "kn_守护进程停转检测",
+  "confidence": 0.82,
+  "reason": "正文为bootstrap_loop停转检测与自动恢复守护落地",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_296d2df7_1788826024351",
+  "new_name": "kn_古代驿站与常平仓",
+  "confidence": 0.86,
+  "reason": "正文为驿站、常平仓荒政制度史知识卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_2a6062a1_1788558681161",
+  "new_name": "kn_未成年语义识别",
+  "confidence": 0.82,
+  "reason": "正文核心为限制动漫内容中未成年特征语义",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_2aa81e7b_1788803252948",
+  "new_name": "kn_传统工艺三卡拓展",
+  "confidence": 0.85,
+  "reason": "正文为泥人景泰蓝紫砂三张传统工艺卡入库及题库评测",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_2adab73b_1788849045791",
+  "new_name": "kn_绒花绢人风筝民俗",
+  "confidence": 0.82,
+  "reason": "正文为绒花绢人双题加风筝民俗补题",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_2ae67631_1788611918712",
+  "new_name": "kn_白箱题库批次收官",
+  "confidence": 0.72,
+  "reason": "正文为白箱题库批次184收官记录，含冰淇淋头痛与DOMS两卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_2af1f93d_1786801861886",
+  "new_name": "kn_依赖污染根因排障",
+  "confidence": 0.78,
+  "reason": "正文为npm peer依赖污染导致消息上传失败的排障与修复记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_2b152432_1788664095169",
+  "new_name": "kn_图像视频生成协议",
+  "confidence": 0.85,
+  "reason": "正文述VCP文本协议解析与图像视频生成插件机制",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_2b5460c6_1788778826571",
+  "new_name": "kn_否决权铁路人口卡",
+  "confidence": 0.72,
+  "reason": "批次439三张存量卡：安理会否决权、铁路干线、人口城市化",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_2ba8bffc_1788591785743",
+  "new_name": "kn_估值向量代码增强",
+  "confidence": 0.62,
+  "reason": "正文分析估值向量代码REV1到REV2增强与密度分离",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_2c305b88_1788621568397",
+  "new_name": "kn_自主实现算法原理",
+  "confidence": 0.55,
+  "reason": "正文主张自研算法原理，外部项目仅作参考",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_2c45e3ea_1788808144386",
+  "new_name": "kn_通识历史题库补题",
+  "confidence": 0.82,
+  "reason": "正文为历史三连存量卡补题与题库评测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_2c907aab_1788535010365",
+  "new_name": "kn_通识六三批四卡",
+  "confidence": 0.62,
+  "reason": "以第63批次号四卡入库区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_2d4768c5_1788832093844",
+  "new_name": "kn_漆器螺钿工艺通识",
+  "confidence": 0.85,
+  "reason": "正文为漆器螺钿工艺通识拓展卡与配题记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_2d54648b_1786898677010",
+  "new_name": "kn_语义索引全量落地",
+  "confidence": 0.86,
+  "reason": "正文为神经与语义坐标索引全量构建及提速验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_2d9e2991_1788810467920",
+  "new_name": "kn_种群微分复杂补题",
+  "confidence": 0.72,
+  "reason": "正文为种群增长/微分方程/计算复杂性三卡补题评测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_2dfb4e12_1788634093334",
+  "new_name": "kn_健康常识卡入库",
+  "confidence": 0.72,
+  "reason": "正文为荨麻疹与家庭血压两卡入库及题库进度",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_2edd053a_1788474966574",
+  "new_name": "kn_插件星标数里程碑",
+  "confidence": 0.85,
+  "reason": "正文记录dsh-memory插件GitHub星数达110的里程碑",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_2fad0eb5_1788763649945",
+  "new_name": "kn_补题国家敏捷干涉",
+  "confidence": 0.82,
+  "reason": "批次414补国家、敏捷、光干涉三题并评测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_2fc592e4_1788553619865",
+  "new_name": "kn_通识九三批入库",
+  "confidence": 0.75,
+  "reason": "以批次号93区分同批入库节点，含通识题库语义",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_2fdc2b19_1788563805263",
+  "new_name": "kn_通识拓展一一零批",
+  "confidence": 0.7,
+  "reason": "以批次一一零区分其他同名批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_3046494e_1788905756204",
+  "new_name": "kn_开源私有记忆隔离",
+  "confidence": 0.6,
+  "reason": "正文述开源仓库与私有记忆分离，先做功能测试",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_304899ac_1788833330371",
+  "new_name": "kn_古籍装帧碑帖拓片",
+  "confidence": 0.86,
+  "reason": "正文为古籍装帧与碑帖拓片通识卡及配套题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_30594d3e_1788536846051",
+  "new_name": "kn_题库四百题里程碑",
+  "confidence": 0.78,
+  "reason": "正文核心为通识题库400题入库与满分里程碑",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3059c5d4_1788738907553",
+  "new_name": "kn_三题补录满分评测",
+  "confidence": 0.62,
+  "reason": "批次补3题并题库全量满分评测，加三题与满分区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_3135dfb9_1788742811015",
+  "new_name": "kn_感官输入观测",
+  "confidence": 0.55,
+  "reason": "据条件空间位置感知系统与工具感官输入及观测层标签",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_31505b08_1786688549080",
+  "new_name": "kn_荣身份与终裁权",
+  "confidence": 0.85,
+  "reason": "正文述荣为智能论协议设计者、维生系统并持终裁权",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_31955ec5_1788905005666",
+  "new_name": "kn_正本条件索引重建",
+  "confidence": 0.78,
+  "reason": "正文讲把条件注入md正本并重建路由索引",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_31a88fa2_1788790779322",
+  "new_name": "kn_文学名家题库拓展",
+  "confidence": 0.78,
+  "reason": "批次457世界文学名家三卡补题与题库评测",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_321230a2_1788573292681",
+  "new_name": "kn_实数条件卡评审",
+  "confidence": 0.72,
+  "reason": "评审可计算实数的条件卡、四态路由与Specker反例",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_32f61f4c_1788582420041",
+  "new_name": "kn_通识批次收官满分",
+  "confidence": 0.62,
+  "reason": "正文为通识批次136收官与题库满分记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_33005fa9_1788581286983",
+  "new_name": "kn_通识拓展防撞预检",
+  "confidence": 0.72,
+  "reason": "正文为批次132通识三科拓展及防撞预检机制收官",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_339a73a9_1788777244707",
+  "new_name": "kn_零依赖分层重构",
+  "confidence": 0.86,
+  "reason": "正文反思核心零依赖、感知层可选扩展的依赖隔离分层",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_33c34307_1788646630938",
+  "new_name": "kn_晕车晕船与静电",
+  "confidence": 0.78,
+  "reason": "正文核心为晕车晕船成因缓解与静电防护两张知识卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_34811aef_1788631756090",
+  "new_name": "kn_视差与镜面翻转",
+  "confidence": 0.72,
+  "reason": "正文为批次215双卡：月亮视差跟人与镜子左右翻转",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_34a14f57_1788866867157",
+  "new_name": "kn_建盏宋代茶器",
+  "confidence": 0.9,
+  "reason": "正文为建盏及宋代点茶斗茶茶器卡片与题库补强",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_350d93fe_1788590035861",
+  "new_name": "kn_素数加法密度判据",
+  "confidence": 0.82,
+  "reason": "正文论哥德巴赫正向路线与Schnirelmann密度收敛判据",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_351baaa3_1786877616445",
+  "new_name": "kn_智慧之书首测验收",
+  "confidence": 0.72,
+  "reason": "记录智慧之书首测验收7/7及触发语义修复",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_363bb7d5_1788558089826",
+  "new_name": "kn_小阴唇发育判据",
+  "confidence": 0.86,
+  "reason": "核心判据为小阴唇发育，特异性强可区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_366cf3b9_1788557755799",
+  "new_name": "kn_多图特征再观察",
+  "confidence": 0.5,
+  "reason": "正文要求回到多张图再观察特征并核验结论",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_3734089b_1788839393262",
+  "new_name": "kn_青铜器与玉文化",
+  "confidence": 0.85,
+  "reason": "正文为青铜器金文与玉文化通识卡及题组",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_378550d3_1786688537075",
+  "new_name": "kn_自包含语音运行时",
+  "confidence": 0.72,
+  "reason": "正文为harness运行时架构与语音自包含循环落地",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_37ee5f2f_1788803866286",
+  "new_name": "kn_补题三卡题库评测",
+  "confidence": 0.82,
+  "reason": "正文为三张存量卡补题及题库全量评测，特征可区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_3809fb39_1788617676548",
+  "new_name": "kn_文件清理效果评估",
+  "confidence": 0.3,
+  "reason": "正文为文件清理与未达标效果对比评论",
+  "q2_aligned": false,
+  "fixed": false
+ },
+ {
+  "old_id": "node_380f5a3a_1788659930059",
+  "new_name": "kn_眼部精细轮廓提取",
+  "confidence": 0.86,
+  "reason": "正文为眼部ROI后精确轮廓提取任务，语义明确",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_38285264_1788738355759",
+  "new_name": "kn_插件发布权限受阻",
+  "confidence": 0.68,
+  "reason": "正文核心为dist-tag修正因npm凭据无发布权限受阻",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_38533584_1788714342411",
+  "new_name": "kn_副本漂移待办跟进",
+  "confidence": 0.82,
+  "reason": "正文为site-packages副本漂移任务复查与待办状态",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_38b2a0bf_1786636421952",
+  "new_name": "kn_游戏数值平衡原则",
+  "confidence": 0.88,
+  "reason": "正文为卡牌游戏数值平衡五条原则基线整理",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_38f035d2_1788786512743",
+  "new_name": "kn_地球等差体积补题",
+  "confidence": 0.85,
+  "reason": "批次450存量补题3张：地球形状、等差数列、体积",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_390cfac3_1788534454534",
+  "new_name": "kn_通识六二批四卡",
+  "confidence": 0.72,
+  "reason": "正文为通识拓展第六十二批次四卡入库记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_3914622e_1786688548857",
+  "new_name": "kn_测试认知价值耗尽",
+  "confidence": 0.85,
+  "reason": "正文核心为认知性测试边际价值趋零的协议洞察",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3979a33a_1788851954938",
+  "new_name": "kn_开平碉楼民居防御",
+  "confidence": 0.86,
+  "reason": "正文为开平碉楼防御民居知识卡与配套题目记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_39d7622e_1788658785482",
+  "new_name": "kn_姿态关键点实测",
+  "confidence": 0.78,
+  "reason": "yolo-pose关键点实测且优于肤色球",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_39e3e7a1_1788777224831",
+  "new_name": "kn_零依赖轻量化测试",
+  "confidence": 0.78,
+  "reason": "正文主张新环境模拟用户测试，反对重外部依赖",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_39fb0343_1788905176147",
+  "new_name": "kn_认知图工程实现",
+  "confidence": 0.72,
+  "reason": "正文述基于认知图MD目录方案的llm-adapter-poc工程",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3a015096_1788589641081",
+  "new_name": "kn_条件论纲要概念层",
+  "confidence": 0.78,
+  "reason": "正文为条件论纲要REV1概念层自洽存档",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3a1d2e8d_1788222076539",
+  "new_name": "kn_查询弱点盲区验证",
+  "confidence": 0.72,
+  "reason": "含BS-QUERY-WEAK特有语义，可与同盲区节点区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_3a4abe75_1788765549620",
+  "new_name": "kn_情绪时间社交三卡",
+  "confidence": 0.78,
+  "reason": "正文为批次417情绪管理、时间管理、社交破冰三卡拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3a73b0c3_1788645636456",
+  "new_name": "kn_二维码与冷冻解冻",
+  "confidence": 0.78,
+  "reason": "正文为二维码容错与肉类冷冻解冻两知识卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3a86ec95_1788839896748",
+  "new_name": "kn_明式家具工艺",
+  "confidence": 0.9,
+  "reason": "正文为明式家具工艺域通识拓展卡",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_3aa9db3e_1788549398625",
+  "new_name": "kn_通识拓展八六入库",
+  "confidence": 0.62,
+  "reason": "含第86批次与四科卡入库特征，可与同名节点区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_3ad415aa_1788593264891",
+  "new_name": "kn_极光与睡眠瘫痪",
+  "confidence": 0.82,
+  "reason": "正文为极光成因与鬼压床睡眠瘫痪两卡科普",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3aeb5312_1788795209552",
+  "new_name": "kn_生活技能通识拓展",
+  "confidence": 0.72,
+  "reason": "正文为缝扣子皮鞋保养防锈三卡通识拓展批次",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3af3c563_1788823457308",
+  "new_name": "kn_音频盲区预测压缩",
+  "confidence": 0.55,
+  "reason": "感官输入下实时音频预测盲区的经验压缩模式",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_3b147374_1788666551249",
+  "new_name": "kn_传感器白箱边界",
+  "confidence": 0.82,
+  "reason": "正文校正白箱自举边界，统一传感器为可插拔外设",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3b792131_1788593900134",
+  "new_name": "kn_急救应急处理常识",
+  "confidence": 0.86,
+  "reason": "正文为海姆立克、手机进水、流鼻血三类生活急救常识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3b798c10_1786688542759",
+  "new_name": "kn_卡牌数值平衡修复",
+  "confidence": 0.78,
+  "reason": "正文为协议游戏职业卡牌数值平衡与bug修复经验",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3bc44cfa_1788618195780",
+  "new_name": "kn_飞蚊症与木耳泡发",
+  "confidence": 0.72,
+  "reason": "正文核心为飞蚊症与木耳久泡两卡科普",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3bff7a36_1788767254107",
+  "new_name": "kn_统一国旗运算补题",
+  "confidence": 0.72,
+  "reason": "本节点补录QB-1498至1500三题：统一多民族、国旗国歌、混合运算",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_3c1ac476_1788600529720",
+  "new_name": "kn_啤酒瓶与冰箱储存",
+  "confidence": 0.72,
+  "reason": "正文两卡：啤酒瓶棕色避光与冰箱冷藏误区",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3c62ab14_1788489992976",
+  "new_name": "kn_项目复现推荐征询",
+  "confidence": 0.4,
+  "reason": "正文为征询复现项目的对话问句，语义指向明确",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3c829437_1788622964100",
+  "new_name": "kn_视觉加速技术选型",
+  "confidence": 0.78,
+  "reason": "正文讨论图像视觉处理是否采用Rust加速及自研CNN适配",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3c910cef_1788455068502",
+  "new_name": "kn_睡眠巩固夜间清理",
+  "confidence": 0.72,
+  "reason": "正文为睡眠巩固夜间清理轮报告，含扫描迁移自检",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_3cbb6b20_1788782091423",
+  "new_name": "kn_养生卡批次补题",
+  "confidence": 0.72,
+  "reason": "正文为冥想八段锦春困等养生卡与题库补题批次记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3e8d0a9b_1788784193426",
+  "new_name": "kn_牛奶豆浆午睡通识",
+  "confidence": 0.86,
+  "reason": "正文为牛奶、豆浆、午睡三张健康饮食作息卡拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3ebfccf9_1788521775979",
+  "new_name": "kn_语义生图人体测试",
+  "confidence": 0.72,
+  "reason": "正文为换模型后测试语义生图绘画人体，语义明确",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3f33a29e_1788862796244",
+  "new_name": "kn_床榻谱系农谚",
+  "confidence": 0.82,
+  "reason": "正文为床榻谱系与农谚智慧通识批次内容",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3f498c00_1788622167797",
+  "new_name": "kn_挑蟹与急救箱",
+  "confidence": 0.85,
+  "reason": "正文为挑蟹食安与家庭急救箱两卡要点",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3f5b5298_1788646289836",
+  "new_name": "kn_存量卡补题路径",
+  "confidence": 0.82,
+  "reason": "正文核心为存量卡补题新路径验证与批次收官",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_3f7e64cd_1786937853675",
+  "new_name": "kn_盲区三路预测验证",
+  "confidence": 0.62,
+  "reason": "以三路预测验证区分同名弱查询盲区缓解节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_401b83d9_1788635333713",
+  "new_name": "kn_食用油储存与绳结",
+  "confidence": 0.62,
+  "reason": "两卡为食用油储存与耳机线打结，可区分批次收官类同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_40a01400_1788878329220",
+  "new_name": "kn_扇面扇骨收藏",
+  "confidence": 0.88,
+  "reason": "正文为扇面扇骨收藏通识卡片与配套题目",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_40f6cb82_1788776906929",
+  "new_name": "kn_生命科学三连补题",
+  "confidence": 0.85,
+  "reason": "正文为DNA免疫达尔文三卡补题批次记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_40f92294_1786688544715",
+  "new_name": "kn_递归验证反思机制",
+  "confidence": 0.72,
+  "reason": "正文为协议元反思与三级递归验证反思条款依据",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_41231986_1788581004822",
+  "new_name": "kn_浮力水利土地综合",
+  "confidence": 0.78,
+  "reason": "正文为浮力、都江堰水利、土地资源三卡三题",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_41cdd67f_1788766010427",
+  "new_name": "kn_题库存量补题批次",
+  "confidence": 0.78,
+  "reason": "正文为批次418存量卡补题与题库评测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_42066d39_1786831951126",
+  "new_name": "kn_学科综述命题提取",
+  "confidence": 0.78,
+  "reason": "正文为学科综述卡可验证命题与用例提取任务",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_426cec47_1788637872163",
+  "new_name": "kn_卡片标识冲突恢复",
+  "confidence": 0.85,
+  "reason": "正文述批次224卡id冲突覆盖致损及git恢复修复",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_43f78663_1788559153766",
+  "new_name": "kn_感官输入时窗条件",
+  "confidence": 0.55,
+  "reason": "据条件空间：感知系统感官输入、时间窗与运行约束",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_44565b50_1788540437122",
+  "new_name": "kn_理化生史四卡入库",
+  "confidence": 0.62,
+  "reason": "按正文四科卡片内容命名，区别于其他批次",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_44a66586_1788857490239",
+  "new_name": "kn_民间传说题库补题",
+  "confidence": 0.85,
+  "reason": "正文为白蛇传、牛郎织女、孟姜女三类民间传说补题记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_44bd00e5_1788647780224",
+  "new_name": "kn_九百题里程碑",
+  "confidence": 0.88,
+  "reason": "正文记通识拓展241批收官达成900题满分里程碑",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_44dc1e87_1788591852621",
+  "new_name": "kn_莫比乌斯反演",
+  "confidence": 0.92,
+  "reason": "正文核心为数论微积分的Möbius反演可逆实例",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_44e48add_1787135457457",
+  "new_name": "kn_洞察生效条件设计",
+  "confidence": 0.86,
+  "reason": "正文为洞察条件层生效条件与CER规格设计",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_44e7bf98_1788791807067",
+  "new_name": "kn_混合批次增卡补题",
+  "confidence": 0.72,
+  "reason": "批次458混合：补题两卡并新增三维打印卡",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_4533d2bf_1788533813006",
+  "new_name": "kn_通识六十一批入库",
+  "confidence": 0.85,
+  "reason": "以第61批次号区分同名题库入库节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_4588293a_1788834008749",
+  "new_name": "kn_科举功名古代货币",
+  "confidence": 0.82,
+  "reason": "正文为科举功名阶梯与古代货币的通识卡片补强",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_45ee67be_1788738858973",
+  "new_name": "kn_记忆插件修改咨询",
+  "confidence": 0.62,
+  "reason": "正文为询问如何修改dsh记忆插件包",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_46a6c037_1788525346926",
+  "new_name": "kn_开元盛世四卡入库",
+  "confidence": 0.82,
+  "reason": "本批四卡含历史开元盛世，以此区分同批批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_46e948ae_1788520586582",
+  "new_name": "kn_通识卅九四卡入库",
+  "confidence": 0.78,
+  "reason": "该批为通识拓展39批次四卡入库，加批次号区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_47a6da86_1786688522998",
+  "new_name": "kn_技术栈与加固方向",
+  "confidence": 0.78,
+  "reason": "正文即技术栈对比与自维持加固优先级讨论",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_47a8a0d3_1788559252024",
+  "new_name": "kn_未成年语义标记",
+  "confidence": 0.9,
+  "reason": "正文为认知层只标记未成年语义、交由行动层裁决的组件",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_47eef569_1787130962798",
+  "new_name": "kn_协议觉醒设计书",
+  "confidence": 0.86,
+  "reason": "正文为《协议觉醒》玩法设计书v0.1交付记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_47f228a9_1788657349814",
+  "new_name": "kn_视觉五模块验证",
+  "confidence": 0.87,
+  "reason": "正文为视觉五模块独立验证记录，名实相符",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_481b2958_1788623196612",
+  "new_name": "kn_回南天与口苦成因",
+  "confidence": 0.82,
+  "reason": "正文为批次203两卡：回南天与口苦成因",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_48c0a1f2_1788616095278",
+  "new_name": "kn_访谈澄清机制落地",
+  "confidence": 0.86,
+  "reason": "正文述grill访谈状态机进MCP并固化认知图",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_48d43c4c_1788489807987",
+  "new_name": "kn_后台结束结果查看",
+  "confidence": 0.52,
+  "reason": "正文为后台结束看结果的感知输入记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_48feb306_1788560849619",
+  "new_name": "kn_四科通识题库满分",
+  "confidence": 0.62,
+  "reason": "105批次理化生地四卡入556题库且评测满分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_4900e27f_1788556342463",
+  "new_name": "kn_未成年图判断依据",
+  "confidence": 0.72,
+  "reason": "正文核心为查看并分析未成年图的判断依据",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_4929d0cb_1788714342547",
+  "new_name": "kn_睡眠巩固轮次报告",
+  "confidence": 0.86,
+  "reason": "正文为灵枢睡眠巩固报告，含整理验证蒸馏推演流程记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_49c85dd1_1788556207838",
+  "new_name": "kn_行尾假阳记忆精简",
+  "confidence": 0.55,
+  "reason": "正文为行尾假阳复验与MEMORY索引精简两项处理记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_4a436491_1788586550417",
+  "new_name": "kn_厄尔尼诺个税双卡",
+  "confidence": 0.7,
+  "reason": "正文为通识批次双卡：厄尔尼诺拉尼娜与个税",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_4a9f2d14_1788784859042",
+  "new_name": "kn_制图数位元素补题",
+  "confidence": 0.72,
+  "reason": "三张补题卡：工程制图标准、数位与计数单位、p区元素",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_4aa9ad55_1788591999109",
+  "new_name": "kn_素数密度分离成本",
+  "confidence": 0.78,
+  "reason": "正文核心为素数密度σ分离与分解换汇成本测量",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_4ad7a8ef_1788826671094",
+  "new_name": "kn_第九次复测零回归",
+  "confidence": 0.88,
+  "reason": "第9次随机复测20题满分，路由零回归，加序次区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_4b72b812_1788520540114",
+  "new_name": "kn_项目运行感官观察",
+  "confidence": 0.7,
+  "reason": "感官输入条件下运行Artemis项目看效果",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_4bd1c5fd_1786688538753",
+  "new_name": "kn_子智能体插件接口",
+  "confidence": 0.72,
+  "reason": "正文为MCP插件接口与多子智能体v1.1设计",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_4c97142a_1788282340135",
+  "new_name": "kn_日志停转自动拉起",
+  "confidence": 0.72,
+  "reason": "节点为bootstrap日志新鲜度停转检测并自动拉起守护任务",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_4d3c3954_1786627541093",
+  "new_name": "kn_认知测试价值耗尽",
+  "confidence": 0.82,
+  "reason": "正文核心：认知性测试边际信息增益归零，工程性测试保留",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_4d8d16fc_1788520077455",
+  "new_name": "kn_通识题卡批次入库",
+  "confidence": 0.72,
+  "reason": "正文为通识题库38批四卡入库记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_4e749ac4_1788589939503",
+  "new_name": "kn_赋值向量可逆定理",
+  "confidence": 0.4,
+  "reason": "正文加密，依标签推断为赋值向量可逆定理",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_4e827685_1788714611156",
+  "new_name": "kn_感官盲区自主发现",
+  "confidence": 0.78,
+  "reason": "正文为自主盲区发现并注册新盲区，条件为感官输入",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_4e886684_1788756525008",
+  "new_name": "kn_通识题卡补题批次",
+  "confidence": 0.82,
+  "reason": "正文为批次403存量卡补题三张并入题库并评测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_4ea33c64_1788638892105",
+  "new_name": "kn_通识拓展满分收官",
+  "confidence": 0.62,
+  "reason": "批次收官、满分评测与生物卡修复的综合节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_4ff73243_1788817553567",
+  "new_name": "kn_棋牌文学题库拓展",
+  "confidence": 0.85,
+  "reason": "正文为通识批次503棋牌与红楼梦题库新卡补题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5013e787_1786939400283",
+  "new_name": "kn_神经系统集成补全",
+  "confidence": 0.82,
+  "reason": "正文述小脑空壳修复与检索链集成的v1.15方案",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5024bcf0_1788455214982",
+  "new_name": "kn_守护完成状态修正",
+  "confidence": 0.78,
+  "reason": "本节点为bootstrap守护完成证据与队列状态修正记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_50416274_1787135895921",
+  "new_name": "kn_人格维度连续模型",
+  "confidence": 0.86,
+  "reason": "正文为T/F与N/S由互斥转为连续权重维度的根前提修正",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_506c07e3_1788631003292",
+  "new_name": "kn_饭后困与面卷曲",
+  "confidence": 0.72,
+  "reason": "正文两卡核心为饭后困倦与方便面卷曲原理",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5094cd8a_1788615509783",
+  "new_name": "kn_条件反射题库补记",
+  "confidence": 0.72,
+  "reason": "正文为批次189/190补记，核心为条件反射与生理反射题卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_50a510e7_1786634953024",
+  "new_name": "kn_夜间睡眠记忆巩固",
+  "confidence": 0.55,
+  "reason": "正文加密不可读，据条件空间与sleep_consolidation标签取名",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_50a69b8c_1788780096037",
+  "new_name": "kn_身体奥秘补题三连",
+  "confidence": 0.62,
+  "reason": "正文记血型耳听微量元素三卡补题批次",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_50bb15fe_1786773056170",
+  "new_name": "kn_协议核心认知机制",
+  "confidence": 0.82,
+  "reason": "正文为协议核心档案：信息差驱动、价值观一致、五层记忆与反思验证",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_50eac030_1786931218281",
+  "new_name": "kn_协议自证盲区探索",
+  "confidence": 0.72,
+  "reason": "正文为协议自证盲区探索完成与预测验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_51b2d1fe_1788737695361",
+  "new_name": "kn_跨智能体记忆互通",
+  "confidence": 0.78,
+  "reason": "正文述灵枢以MCP服务在多智能体间共享同目录记忆格式",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_528a77de_1788133915403",
+  "new_name": "kn_理论与实现路线",
+  "confidence": 0.55,
+  "reason": "指令要求理论整理并理清实现路线",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_52aa887c_1786688545525",
+  "new_name": "kn_反思技能组装缺口",
+  "confidence": 0.7,
+  "reason": "正文为条件空间映射及recursive_reflect技能未组装缺口",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_52ee22a5_1787888832578",
+  "new_name": "kn_协议版本问询应答",
+  "confidence": 0.62,
+  "reason": "正文为协议版本反复询问及MCP接入的应答经验压缩",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_530532b2_1788609462823",
+  "new_name": "kn_酱油辣度通识双卡",
+  "confidence": 0.72,
+  "reason": "正文为批次180两卡：酱油选购与辣椒辣度通识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5336512e_1788613631668",
+  "new_name": "kn_松果竹子科普两卡",
+  "confidence": 0.62,
+  "reason": "正文为松果遇湿闭合与竹子速生两卡收录加题库满分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_5342054b_1788597438141",
+  "new_name": "kn_通识拓展三题卡",
+  "confidence": 0.72,
+  "reason": "正文为天干地支、数字起源、筷子三卡收官记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_53f54bce_1788646842397",
+  "new_name": "kn_核反应复合求导卡",
+  "confidence": 0.82,
+  "reason": "正文为239批存量卡补题，涉核反应卡与复合函数求导卡",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_540abe50_1788282292074",
+  "new_name": "kn_感知系统预测偏差",
+  "confidence": 0.62,
+  "reason": "条件空间为感知系统，正文是预测未命中经验压缩",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_548d4fe1_1788818153728",
+  "new_name": "kn_感官输入预测漏判",
+  "confidence": 0.6,
+  "reason": "感官输入桶内直播预测未命中经验压缩",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_550918ae_1788628702565",
+  "new_name": "kn_题库评分分布统计",
+  "confidence": 0.78,
+  "reason": "正文为白箱题库全量评分分布与压线题留档统计",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_55658945_1788550592775",
+  "new_name": "kn_电压四海安全用药",
+  "confidence": 0.82,
+  "reason": "取四卡实际主题：电压、四海、用药、物性变化，可区分同名批次",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_56aed015_1788835101023",
+  "new_name": "kn_年龄雅称与避讳",
+  "confidence": 0.86,
+  "reason": "正文主体为年龄雅称与避讳文化卡及配套题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_56b8ccc0_1788824253258",
+  "new_name": "kn_晚清谴责小说收尾",
+  "confidence": 0.82,
+  "reason": "正文为晚清四大谴责小说卡片补齐与出题记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5734fb54_1788807073790",
+  "new_name": "kn_中外文学卡拓展",
+  "confidence": 0.86,
+  "reason": "正文为简爱围城活着三张文学新卡的通识拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_573511b1_1788785757599",
+  "new_name": "kn_感知盲区注册发现",
+  "confidence": 0.62,
+  "reason": "条件空间为感知系统感官输入下自主盲区发现注册",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_585fef33_1788490026316",
+  "new_name": "kn_视频联合嵌入复现",
+  "confidence": 0.72,
+  "reason": "正文为复现V-JEPA视频联合嵌入预测架构",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_58da253a_1788626261602",
+  "new_name": "kn_晕针晕血指甲白点",
+  "confidence": 0.78,
+  "reason": "正文讲晕针晕血反射与点状白甲两卡通识，取双主题名",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_595531eb_1788558450762",
+  "new_name": "kn_用户识别策略",
+  "confidence": 0.62,
+  "reason": "正文由图像内容识别转向对用户的识别并审慎处理敏感内容",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_597c8e4f_1788596843827",
+  "new_name": "kn_徐霞客空调黑洞",
+  "confidence": 0.72,
+  "reason": "正文三主题：徐霞客游记、空调26度与空调病、数字黑洞6174，取三关键词",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_59eb8631_1788637095043",
+  "new_name": "kn_左撇子海盐口音",
+  "confidence": 0.72,
+  "reason": "正文为左撇子/海盐成因/口音三卡，取三主题区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_5a3918f0_1788639640454",
+  "new_name": "kn_冬至年糕食俗常识",
+  "confidence": 0.88,
+  "reason": "正文为冬至饺子与年糕寓意的生活食俗通识卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5a627043_1788877143078",
+  "new_name": "kn_节气民俗礼俗",
+  "confidence": 0.9,
+  "reason": "正文为节气礼俗仪式知识卡及配套题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5ab2ebb0_1788818477455",
+  "new_name": "kn_盲区探索经验蒸馏",
+  "confidence": 0.62,
+  "reason": "正文为盲区查询探索的经验压缩可复用模式",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_5ba299b4_1788628029241",
+  "new_name": "kn_短触发复测补强",
+  "confidence": 0.82,
+  "reason": "正文记录短触发复测三及痛经卡触发词补强与缺口修复",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5bd3e7cb_1786688530750",
+  "new_name": "kn_观测层持久化修复",
+  "confidence": 0.9,
+  "reason": "正文为OBS-REV1观测层日志与指标跨进程持久化修复",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5bebc86f_1788797708462",
+  "new_name": "kn_传统节日题库补题",
+  "confidence": 0.85,
+  "reason": "正文为春节腊八重阳三卡补题及题库评测",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5bede695_1786876848960",
+  "new_name": "kn_专业大类入库收官",
+  "confidence": 0.78,
+  "reason": "八大专业大类课程入库完成并统计学科骨架",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5c850137_1788614788742",
+  "new_name": "kn_技能库工程方法论",
+  "confidence": 0.86,
+  "reason": "正文为skills-ref入库及技能工程方法论要点",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5cabf4b8_1788743257907",
+  "new_name": "kn_插件版本依赖修复",
+  "confidence": 0.82,
+  "reason": "正文记录DSH插件版本修正与peer依赖补装验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5d925f73_1788877576934",
+  "new_name": "kn_盲区预测探索压缩",
+  "confidence": 0.62,
+  "reason": "正文为盲区预测与探索完成的22条经验压缩，加探索以别重名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_5de5ef83_1788556569266",
+  "new_name": "kn_幼态脸特征识别",
+  "confidence": 0.82,
+  "reason": "正文讲以幼态脸型判未成年并需区分画风",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5e0ea54a_1788526906946",
+  "new_name": "kn_未成年识别器评估",
+  "confidence": 0.86,
+  "reason": "正文为未成年性内容识别器进展与判据可靠性评估",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5e908bf4_1788533169442",
+  "new_name": "kn_通识第六十批入库",
+  "confidence": 0.86,
+  "reason": "正文为通识拓展60批次四卡入库与376题满分评测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_5e946c3f_1788749967513",
+  "new_name": "kn_软件史前宏观补题",
+  "confidence": 0.62,
+  "reason": "以三张补题卡主题（软件质量/史前夏商周/宏观）区别同批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_5ea2d40b_1788736543119",
+  "new_name": "kn_文档型认知图存储",
+  "confidence": 0.78,
+  "reason": "正文论Markdown文件+索引替代sqlite存认知图",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5f08a4a9_1788537410080",
+  "new_name": "kn_通识六七批次入库",
+  "confidence": 0.82,
+  "reason": "正文为通识拓展67批次四卡入库，嵌入批号可区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_5f08a8d9_1788736040076",
+  "new_name": "kn_记忆插件竞品对标",
+  "confidence": 0.82,
+  "reason": "正文对标deja-vu与dsh-noema两个记忆插件",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5f3d64e9_1788737937142",
+  "new_name": "kn_安装验证根因定位",
+  "confidence": 0.82,
+  "reason": "内容为CI装机验证复现issue#10并定位安装位置根因",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5f64feb8_1788526355691",
+  "new_name": "kn_图像轮廓提取流程",
+  "confidence": 0.78,
+  "reason": "正文述图像先提取轮廓及高精度算法流程",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_5fab5d68_1788603575373",
+  "new_name": "kn_降水抽屉化雪三卡",
+  "confidence": 0.72,
+  "reason": "正文为降水三类型、抽屉原理、化雪冷三张卡，可区分同名批次",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_5fcfd574_1787888831544",
+  "new_name": "kn_查询盲区探索归纳",
+  "confidence": 0.62,
+  "reason": "正文为查询类盲区探索经验压缩归纳，取具体语义名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_606816a9_1788822854802",
+  "new_name": "kn_感知盲区探索整合",
+  "confidence": 0.62,
+  "reason": "感知系统经感官输入压缩盲区探索经验",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_60e375db_1786930734405",
+  "new_name": "kn_盲区探索闭环验证",
+  "confidence": 0.66,
+  "reason": "正文为好奇心闭环盲区探索完成及预测验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_6268c41b_1788745197200",
+  "new_name": "kn_通识卡批次补题",
+  "confidence": 0.62,
+  "reason": "正文为通识卡补题与新卡批次及题库评测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_62c58e44_1788863488799",
+  "new_name": "kn_感官直播预测失准",
+  "confidence": 0.62,
+  "reason": "补入直播场景与感官输入限定以区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_632065d8_1788556207422",
+  "new_name": "kn_题库幂等入库拦截",
+  "confidence": 0.72,
+  "reason": "正文为通识题库批次入库及幂等拦截记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_63c5592e_1788590242303",
+  "new_name": "kn_数学推进对话追问",
+  "confidence": 0.45,
+  "reason": "正文为补全glm对话后对数学推进的追问，语义偏弱",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_63d4d514_1788558841189",
+  "new_name": "kn_识图放行生图拒绝",
+  "confidence": 0.82,
+  "reason": "识图可放行、含未成年性元素生图须拒绝的审核判据",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_652c1554_1786860350458",
+  "new_name": "kn_协议卡生成管线",
+  "confidence": 0.85,
+  "reason": "正文为协议文本转识别卡生成器及放行过滤逻辑",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_66145af2_1788838130067",
+  "new_name": "kn_古代见面礼仪",
+  "confidence": 0.86,
+  "reason": "正文为作揖跪拜拱手稽首万福等见面礼卡片与题目",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_6651fd49_1788559061363",
+  "new_name": "kn_认知行动分离守则",
+  "confidence": 0.87,
+  "reason": "正文核心为认知层识别、行动层拒绝的通用安全守则",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_666b5584_1788610116922",
+  "new_name": "kn_生活化学通识三卡",
+  "confidence": 0.72,
+  "reason": "正文为雨天行车、冲奶粉、绿豆汤三张生活化学通识卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_669e592e_1788838686703",
+  "new_name": "kn_科举贡院号舍",
+  "confidence": 0.88,
+  "reason": "正文为贡院号舍知识卡及配套题目",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_671420bb_1788558080423",
+  "new_name": "kn_图像成人特征判读",
+  "confidence": 0.62,
+  "reason": "正文为图4成人躯体特征判读结论，取具体语义名",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_673a6940_1788580526945",
+  "new_name": "kn_场景网页接口修复",
+  "confidence": 0.85,
+  "reason": "正文为scene_web世界模型网页接口漂移修复与验收",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_67798142_1788584751409",
+  "new_name": "kn_快递两弹一星凌汛",
+  "confidence": 0.72,
+  "reason": "正文为批次140生活快递、两弹一星、凌汛三主题通识拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_679f55e8_1786642554507",
+  "new_name": "kn_条件空间理解论",
+  "confidence": 0.82,
+  "reason": "正文为v3.3条件空间理解论设计草案，含层级与拆解",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_67cd7a63_1788872820736",
+  "new_name": "kn_实时听众盲区压缩",
+  "confidence": 0.62,
+  "reason": "正文为22条经验压缩，代表盲区为实时听众预测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_681c91db_1788742707719",
+  "new_name": "kn_插件版本修改核查",
+  "confidence": 0.85,
+  "reason": "正文为四层面核查插件安装版本修改是否生效",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_682d7ba1_1786688539725",
+  "new_name": "kn_插件与子体集成",
+  "confidence": 0.78,
+  "reason": "正文为MCP插件协议层与子智能体M1-M4集成实施",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_683519db_1788423169056",
+  "new_name": "kn_白盒世界模型重建",
+  "confidence": 0.5,
+  "reason": "正文加密，据标签白盒世界模型与扩散图像重建定名",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_68571f96_1788814754474",
+  "new_name": "kn_石窟园林通识卡",
+  "confidence": 0.88,
+  "reason": "正文为麦积山、豫园、四大石窟通识卡收尾",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_68a04a7b_1788820795308",
+  "new_name": "kn_认知图方案阅读",
+  "confidence": 0.62,
+  "reason": "正文指涉阅读认知图md方案，取具体语义名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_68c3cb25_1788839258205",
+  "new_name": "kn_用户质疑日期纠正",
+  "confidence": 0.6,
+  "reason": "正文为用户质疑日期错误并给出正确日期",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_690f009b_1788577174170",
+  "new_name": "kn_自由条件化拆解",
+  "confidence": 0.9,
+  "reason": "正文讲宏大概念条件化方法，核心为自由的条件化拆解",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_6975ea96_1788589260456",
+  "new_name": "kn_无限定价兑换条款",
+  "confidence": 0.86,
+  "reason": "正文核心：给无限定价，无限卡须附有限兑换条款",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_6a874662_1788761312673",
+  "new_name": "kn_数仓维护线性模型",
+  "confidence": 0.78,
+  "reason": "正文为批次410补题三卡主题：数仓、软件维护、线性模型",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_6a9cf74c_1788819079466",
+  "new_name": "kn_童话寓言题库补题",
+  "confidence": 0.88,
+  "reason": "正文为童话寓言批次507补题评测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_6aa29566_1788714371836",
+  "new_name": "kn_联想层过滤补正",
+  "confidence": 0.78,
+  "reason": "正文核心为联想边层过滤枚举失败修正与补做记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_6abff327_1788792690423",
+  "new_name": "kn_复平面围棋补题",
+  "confidence": 0.76,
+  "reason": "批次459补题复平面围棋疆域三张存量卡",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_6b78465c_1788642491559",
+  "new_name": "kn_生活常识双卡批次",
+  "confidence": 0.62,
+  "reason": "正文为生活常识两卡通识拓展批次收官",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_6bf10f10_1788802669504",
+  "new_name": "kn_科学巨匠卡片补题",
+  "confidence": 0.82,
+  "reason": "正文为引力波/牛顿定律/元素周期表三卡补题记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_6c411b0c_1788813049895",
+  "new_name": "kn_通识存量卡补题",
+  "confidence": 0.72,
+  "reason": "正文为批次493三张存量卡补题入题库",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_6c76fe67_1788905250213",
+  "new_name": "kn_记忆操作系统评估",
+  "confidence": 0.85,
+  "reason": "正文为认知图作记忆OS的评估与路线，含差距与P1-P4规划",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_6ce66f30_1788861055221",
+  "new_name": "kn_盲区预测验证压缩",
+  "confidence": 0.6,
+  "reason": "正文为盲区预测与验证探索的22条经验压缩，细化区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_6cf8397e_1788739247805",
+  "new_name": "kn_通识题库批次扩展",
+  "confidence": 0.72,
+  "reason": "正文为通识卡补题与新卡入库的批次记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_6d77f1e9_1788134708949",
+  "new_name": "kn_记忆库写锁冲突",
+  "confidence": 0.62,
+  "reason": "正文述记忆库写绑定致他端读取失败需解锁",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_6e388818_1786941075156",
+  "new_name": "kn_感知预演规划",
+  "confidence": 0.6,
+  "reason": "标签含海马体预演规划与生成式预测，条件空间为感知系统输入",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_6e944799_1788588427877",
+  "new_name": "kn_发票海绵玄武三题",
+  "confidence": 0.82,
+  "reason": "正文为发票、海绵城市、玄武门三题写卡收官",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_6e9b09cd_1788903775808",
+  "new_name": "kn_路由索引生成改造",
+  "confidence": 0.72,
+  "reason": "正文要求改导出脚本解析md生成路由索引并验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_6edda314_1786634503169",
+  "new_name": "kn_睡眠巩固蒸馏推演",
+  "confidence": 0.7,
+  "reason": "该报告含新增3条similar联想边、蒸馏1模式、推演25路线",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_6f03b564_1788753535520",
+  "new_name": "kn_题库存量补题评测",
+  "confidence": 0.82,
+  "reason": "正文为批次398存量卡补题3张及题库全量评测",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_6f445771_1788659180988",
+  "new_name": "kn_目标检测跨图偏移",
+  "confidence": 0.72,
+  "reason": "正文评估YOLO在不同图像上检测能力偏移",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_703d92bf_1788754166579",
+  "new_name": "kn_养花搬家电路拓展",
+  "confidence": 0.72,
+  "reason": "正文为批次399养花、搬家、电路三类通识卡拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7047b47b_1786937748185",
+  "new_name": "kn_自主盲区发现扫描",
+  "confidence": 0.9,
+  "reason": "正文讲述scan_blindspots四路信号扫描盲区机制",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_70d0c12a_1788612425897",
+  "new_name": "kn_护肤与挑鱼常识",
+  "confidence": 0.72,
+  "reason": "正文为秋冬护肤与挑鱼技巧两卡常识批次记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_70f1545d_1788528396337",
+  "new_name": "kn_满分四卡入库",
+  "confidence": 0.72,
+  "reason": "四卡通识批次满分零返工入库，区别于泛化题库批次",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_7105c518_1786931230947",
+  "new_name": "kn_协议自证盲区实验",
+  "confidence": 0.85,
+  "reason": "正文为协议自证第三盲区实验及结构性未知结论",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_71155082_1788774439442",
+  "new_name": "kn_物理化学三卡补题",
+  "confidence": 0.76,
+  "reason": "批次432补全同粒子/定量分析/钛钒铬锰三卡",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_715d2bd9_1788746260368",
+  "new_name": "kn_通识拓展卡牌补题",
+  "confidence": 0.62,
+  "reason": "正文为通识批次385新卡补题与题库评测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_720073fe_1786902382216",
+  "new_name": "kn_协议版本对齐修正",
+  "confidence": 0.86,
+  "reason": "正文为protocol.md对齐智能论3.2权威源的版本修正记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_72207fb6_1786689227600",
+  "new_name": "kn_游戏实战测试验证",
+  "confidence": 0.78,
+  "reason": "正文记录杀戮尖塔实战与协议觉醒自研游戏两类测试",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7233b1d3_1788817660120",
+  "new_name": "kn_直播观感预测偏差",
+  "confidence": 0.62,
+  "reason": "正文压缩经验为直播观感预测未命中，加场景限定以区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_72b6fece_1788505646034",
+  "new_name": "kn_十八批四域入库",
+  "confidence": 0.72,
+  "reason": "含批次号与四新域入库特征，可区分同名批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_72dac8ec_1788852685041",
+  "new_name": "kn_家训园林题库补强",
+  "confidence": 0.78,
+  "reason": "正文为家训文化新卡与园林手法补题及题库验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_72def701_1788848177154",
+  "new_name": "kn_感官输入直播偏差",
+  "confidence": 0.6,
+  "reason": "加感官输入限定，区分同桶直播预测偏差节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_7323be24_1788688590272",
+  "new_name": "kn_语音项目部署路径",
+  "confidence": 0.78,
+  "reason": "正文为VoiceStudio语音项目落地路径与状态",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_739304d3_1788767846527",
+  "new_name": "kn_世界地标通识拓展",
+  "confidence": 0.82,
+  "reason": "正文为世界地标三连卡牌与题库拓展批次内容",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_73e6f258_1788481628802",
+  "new_name": "kn_条件智能外部验证",
+  "confidence": 0.72,
+  "reason": "正文论Astra在ARC-AGI-3对条件智能框架的外部验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_73f59958_1788821165048",
+  "new_name": "kn_预测受众盲区压缩",
+  "confidence": 0.58,
+  "reason": "取正文代表盲区BS-PREDICT-LIVE-AUDIEN的预测型受众语义区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_75375e22_1788601605339",
+  "new_name": "kn_自然常识题库补记",
+  "confidence": 0.72,
+  "reason": "正文为种子传播/水银处理/冬眠/地热题库补记",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_753d2013_1788843455471",
+  "new_name": "kn_盲区弱查询探索",
+  "confidence": 0.55,
+  "reason": "正文为盲区探索经验压缩，指向弱查询mi探索模式",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_757e6b51_1788605846947",
+  "new_name": "kn_生活常识打鼾起球",
+  "confidence": 0.85,
+  "reason": "正文为打鼾睡眠呼吸暂停与衣物起球两卡生活常识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_75a427f1_1788737268861",
+  "new_name": "kn_通识卡题批次拓展",
+  "confidence": 0.72,
+  "reason": "正文为通识拓展批次373新卡补题与题库查重流程",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_76240d87_1788572701429",
+  "new_name": "kn_节气防沉迷遗传",
+  "confidence": 0.72,
+  "reason": "取三卡主题词区分同名批次节点，可连可对齐",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_76528eb8_1788658544235",
+  "new_name": "kn_骨架识别效果评估",
+  "confidence": 0.72,
+  "reason": "正文讨论骨架识别结果图及YOLO替代方案",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_76538fcd_1788641341233",
+  "new_name": "kn_水土不服与长颈鹿",
+  "confidence": 0.78,
+  "reason": "正文为批次230两卡：水土不服与长颈鹿长脖主题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_76892110_1788506028648",
+  "new_name": "kn_通识题库四域入库",
+  "confidence": 0.72,
+  "reason": "正文为通识题库四新域入库与满分评测记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_77adb5f8_1788620452636",
+  "new_name": "kn_开源可下载性核查",
+  "confidence": 0.72,
+  "reason": "正文为核查项目是否开源且可完整下载",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_782c0e7c_1788847094686",
+  "new_name": "kn_盲区弱查询经验",
+  "confidence": 0.6,
+  "reason": "正文为弱查询盲区22条经验压缩，加限定词区分重名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_786a13ba_1788576457682",
+  "new_name": "kn_题库满分里程碑",
+  "confidence": 0.78,
+  "reason": "正文为题库通识128批次650题满分里程碑记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7879c2ef_1786932472422",
+  "new_name": "kn_验证回路盲区缓解",
+  "confidence": 0.72,
+  "reason": "正文为验证回路盲区探索完成并缓解的结论",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_78a39702_1788590237230",
+  "new_name": "kn_通识批次两卡收官",
+  "confidence": 0.72,
+  "reason": "正文为通识拓展批次两卡（义和团史、户口居住证）收官记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_78a4bde3_1788814448222",
+  "new_name": "kn_龙门云冈园林题库",
+  "confidence": 0.78,
+  "reason": "正文为龙门云冈石窟与苏州园林知识卡及题库补题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_78d4b141_1787938347306",
+  "new_name": "kn_感官盲区查询压缩",
+  "confidence": 0.62,
+  "reason": "感官输入条件下盲区查询经验压缩，含感官限定以区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_78e0507f_1788465563085",
+  "new_name": "kn_文本编码器下载",
+  "confidence": 0.78,
+  "reason": "正文为text_encoder批次2的下载地点请求，语义明确",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_797da47c_1788606506562",
+  "new_name": "kn_久坐姆潘巴眼皮跳",
+  "confidence": 0.72,
+  "reason": "正文为三则通识问答：久坐危害、姆潘巴效应、眼皮跳",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_79c38968_1786688546382",
+  "new_name": "kn_中文大模型评测",
+  "confidence": 0.85,
+  "reason": "正文为SuperCLUE中文大模型评测平台探索记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_79f5f3cd_1788640695866",
+  "new_name": "kn_张居正改革与和珅",
+  "confidence": 0.82,
+  "reason": "正文为张居正改革与和珅两卡通识批次内容",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7a0308bd_1786688519510",
+  "new_name": "kn_项目记忆索引清单",
+  "confidence": 0.62,
+  "reason": "正文为项目记忆索引条目清单，按内容命名",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7a4535e0_1788818857282",
+  "new_name": "kn_直播未命中二例",
+  "confidence": 0.45,
+  "reason": "直播场景预测未命中2条，以例数区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_7adb6665_1788853797692",
+  "new_name": "kn_书法五体永字八法",
+  "confidence": 0.85,
+  "reason": "正文为书法五体演变、永字八法、兰亭序补题",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_7af48f9c_1788815464479",
+  "new_name": "kn_音乐石刻通识出题",
+  "confidence": 0.78,
+  "reason": "正文为音乐石刻域五声音阶、大足石刻通识卡出题与题库更新记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7af66fd9_1786858868288",
+  "new_name": "kn_教育层级分层体系",
+  "confidence": 0.9,
+  "reason": "正文为E0-E5教育层级分层与筛选实现",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7afe8ba4_1788211981359",
+  "new_name": "kn_睡眠巩固运行报告",
+  "confidence": 0.86,
+  "reason": "正文为夜间睡眠巩固运行报告，含验证蒸馏学习队列",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7b4c2b2d_1788623279158",
+  "new_name": "kn_卷积感知引擎",
+  "confidence": 0.88,
+  "reason": "正文为Rust CNN卷积感知引擎架构决策",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_7b5a1250_1788662758826",
+  "new_name": "kn_盲区发现注册",
+  "confidence": 0.86,
+  "reason": "正文为自主盲区发现并注册新盲区记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7b6daa6b_1788623269918",
+  "new_name": "kn_并行查表性能实测",
+  "confidence": 0.62,
+  "reason": "正文为Rust并行查表与Python对比的实测方向记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7c2d4d7f_1788590342631",
+  "new_name": "kn_施尼雷尔曼条件卡",
+  "confidence": 0.55,
+  "reason": "正文指Schnirelmann条件卡代码任务",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7c3e3c32_1788868703356",
+  "new_name": "kn_琉璃料器通识拓展",
+  "confidence": 0.85,
+  "reason": "正文为琉璃料器域知识卡与题目拓展记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7c4b16c7_1788643110554",
+  "new_name": "kn_生活常识出卡教训",
+  "confidence": 0.72,
+  "reason": "批次233生活常识出卡及QB编号冲突流程教训",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7ca056d1_1788828980982",
+  "new_name": "kn_盲区查询弱项压缩",
+  "confidence": 0.62,
+  "reason": "正文为BS-QUERY-WEAK系列盲区探索经验的可复用压缩模式",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_7cdf26c5_1788740361573",
+  "new_name": "kn_通识卡拓展自查",
+  "confidence": 0.78,
+  "reason": "批次377三张通识卡拓展加题库评测与自查",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_7d558a18_1788851191355",
+  "new_name": "kn_感官盲区探索实证",
+  "confidence": 0.62,
+  "reason": "含盲区探索实证与22条压缩经验，以区别于同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_7d9e9267_1788689290044",
+  "new_name": "kn_专利撰写工具获取",
+  "confidence": 0.72,
+  "reason": "正文为下载专利披露工具供后续写专利",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7d9f99a9_1788816658555",
+  "new_name": "kn_棋类规则题库拓展",
+  "confidence": 0.86,
+  "reason": "正文为国际象棋与中国象棋规则卡题批次拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7db14fef_1788632690443",
+  "new_name": "kn_四次随机复测锚定",
+  "confidence": 0.85,
+  "reason": "正文为第四次随机复测12/12达标的锚定记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7e1f3911_1788799204896",
+  "new_name": "kn_通识拓展补题三卡",
+  "confidence": 0.78,
+  "reason": "正文为批次469通识补题三张卡片记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7e9d3c67_1788549991890",
+  "new_name": "kn_通识八七四科入库",
+  "confidence": 0.82,
+  "reason": "含批次87与四学科入库特征，可与其他同名节点区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_7ea6606a_1788689698206",
+  "new_name": "kn_宣传视频制作工具",
+  "confidence": 0.72,
+  "reason": "正文指向OpenMontage宣传视频制作工具的下载与使用需求",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7ecbd5a1_1788521143222",
+  "new_name": "kn_通识四十批四卡",
+  "confidence": 0.6,
+  "reason": "以第40批四卡入库为特征，区分同名批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_7ee7ff6c_1788867864051",
+  "new_name": "kn_感官输入观测窗口",
+  "confidence": 0.62,
+  "reason": "条件空间为感知系统感官输入一时窗内的观测节点",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7f1e5362_1788815881258",
+  "new_name": "kn_地理天文题库拓展",
+  "confidence": 0.82,
+  "reason": "正文为批次499地理天文域题库新卡与补题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_7f5496b0_1788769172336",
+  "new_name": "kn_学习卡批次纠错",
+  "confidence": 0.62,
+  "reason": "批次423三张学习法卡入库并纠正批号冲突",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_7f8f1482_1788795787668",
+  "new_name": "kn_通识补题批次记录",
+  "confidence": 0.72,
+  "reason": "正文为批次464补题3张及题库评测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_80fa3e2e_1786634949060",
+  "new_name": "kn_游戏卡牌数值平衡",
+  "confidence": 0.88,
+  "reason": "正文为四职业卡组数值平衡评审与15处修改",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_810be6ea_1788577134497",
+  "new_name": "kn_自由概念条件分解",
+  "confidence": 0.85,
+  "reason": "正文为自由四层判定条件分解与整合定义",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_816b5d2d_1788649846478",
+  "new_name": "kn_灵枢插件星数记录",
+  "confidence": 0.75,
+  "reason": "正文为灵枢插件星星数量125的观测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_818a5e38_1788535640813",
+  "new_name": "kn_通识题库批次入库",
+  "confidence": 0.78,
+  "reason": "正文为通识题库批次四卡入库与评测记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_81a47808_1788778196479",
+  "new_name": "kn_生物数学评测补题",
+  "confidence": 0.6,
+  "reason": "批次438补DNA双螺旋、微分方程、性能评测三张存量题",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_81d81c88_1788519962311",
+  "new_name": "kn_感知系统白箱灵枢",
+  "confidence": 0.62,
+  "reason": "条件空间为感知系统，正文核心断言是有白箱灵枢",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_81d8f164_1788616696431",
+  "new_name": "kn_催熟与加湿器卫生",
+  "confidence": 0.72,
+  "reason": "正文含乙烯催熟水果与加湿器卫生两卡知识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_820b4e75_1788839686371",
+  "new_name": "kn_直播观感未命中",
+  "confidence": 0.62,
+  "reason": "条件空间为感知系统感官输入，正文直播预测观未命中，据此区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_82cdcce4_1788874040518",
+  "new_name": "kn_感知系统直播误判",
+  "confidence": 0.72,
+  "reason": "取观测位置感知系统+直播预测未命中以区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_834ee4c8_1786688531590",
+  "new_name": "kn_身体层设备提取",
+  "confidence": 0.78,
+  "reason": "正文为BODY-REV1身体层设备提取、注册与安全注入防御",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_839c4c11_1788647222729",
+  "new_name": "kn_通识拓展题卡批次",
+  "confidence": 0.62,
+  "reason": "正文为通识拓展批次240混合题卡收官复盘",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_83d3cd0a_1788871811657",
+  "new_name": "kn_感官输入预测盲区",
+  "confidence": 0.62,
+  "reason": "条件为感知系统感官输入，正文为预测类盲区经验压缩",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_8436d158_1788848443862",
+  "new_name": "kn_仓库推送缺失排查",
+  "confidence": 0.6,
+  "reason": "正文为git推送后本地plugins目录缺失的疑问",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_843c3037_1788592646290",
+  "new_name": "kn_通识拓展三卡三题",
+  "confidence": 0.62,
+  "reason": "正文为通识拓展三卡三题收官记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_845f61df_1786903454860",
+  "new_name": "kn_插件四件套同步",
+  "confidence": 0.82,
+  "reason": "正文为灵枢插件v0.2.0四件套同步与推送准备",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_848c8c2a_1786688527040",
+  "new_name": "kn_记忆插件代码结构",
+  "confidence": 0.86,
+  "reason": "正文为DSH记忆插件仓库路径、npm名与源码结构",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_84bb1528_1788842280717",
+  "new_name": "kn_实时预测盲区压缩",
+  "confidence": 0.55,
+  "reason": "正文22条经验压缩，代表盲区为实时预测类，加限定词区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_84d5492b_1788620312371",
+  "new_name": "kn_腹泻补液干眼护理",
+  "confidence": 0.86,
+  "reason": "正文为腹泻补液与干眼人工泪液两卡批次知识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_84e2d8ff_1788847704893",
+  "new_name": "kn_月份牌与烟画",
+  "confidence": 0.9,
+  "reason": "正文为月份牌烟画广告纸品域卡片与配题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_84eee573_1788564503063",
+  "new_name": "kn_通识三科三卡入库",
+  "confidence": 0.72,
+  "reason": "内容为理化生三卡题库入库及满分评测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_85316def_1788506819095",
+  "new_name": "kn_廿一批四域入库",
+  "confidence": 0.72,
+  "reason": "限定第21批次四新域入库，与同批其他节点区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_8588f4e3_1788848839504",
+  "new_name": "kn_感官直播预测复盘",
+  "confidence": 0.45,
+  "reason": "原重名；以'复盘'标明本条为直播预测未命中的经验压缩模式",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_858eb7d6_1788519352004",
+  "new_name": "kn_会话恢复失败根因",
+  "confidence": 0.5,
+  "reason": "正文加密，依标签session/cannot-resume/root-cause判定",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_859866c7_1786934023900",
+  "new_name": "kn_主动性盲区验证",
+  "confidence": 0.72,
+  "reason": "正文为主动性盲区探索完成与三路线预测验证",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_8608b43a_1788554926490",
+  "new_name": "kn_灵枢插件星标计数",
+  "confidence": 0.6,
+  "reason": "正文记录灵枢插件118星的计数观察",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_869a1270_1788860384641",
+  "new_name": "kn_姻缘社神域通识",
+  "confidence": 0.78,
+  "reason": "正文为月老红线与城隍土地通识拓展批次",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_86d3fdd9_1786688526493",
+  "new_name": "kn_灵枢插件扩散决策",
+  "confidence": 0.62,
+  "reason": "正文为灵枢经DSH插件扩散的决策记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_87525a0a_1788523267232",
+  "new_name": "kn_自我层自省检查",
+  "confidence": 0.62,
+  "reason": "正文为检查自我层内容的指令，条件为感知系统感官输入",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_87752de1_1788862242296",
+  "new_name": "kn_节气养生卡补强",
+  "confidence": 0.78,
+  "reason": "正文为节气养生知识卡新增与触发词补强满分验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_878a643c_1788831258632",
+  "new_name": "kn_工艺茶艺题库补题",
+  "confidence": 0.82,
+  "reason": "正文为工艺茶艺域苏绣茶类题库补题记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_88078c40_1788581860777",
+  "new_name": "kn_人民币防伪与潮汐",
+  "confidence": 0.85,
+  "reason": "批次134含人民币防伪、电梯自救、潮汐三主题",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_8812a1e7_1786688543564",
+  "new_name": "kn_协议工程闭环流程",
+  "confidence": 0.86,
+  "reason": "正文为协议工程标准工作流、角色分工与闭环实施流程",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8825bc05_1788887074592",
+  "new_name": "kn_睡眠记忆固化自证",
+  "confidence": 0.4,
+  "reason": "据睡眠固化与协议自证标签推断，正文加密不可读",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8844f3e7_1788522814612",
+  "new_name": "kn_感官输入读认知图",
+  "confidence": 0.62,
+  "reason": "正文述感知系统经感官输入读取认知图",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_885bef62_1788829774891",
+  "new_name": "kn_盲区查询经验压缩",
+  "confidence": 0.55,
+  "reason": "正文为22条盲区查询探索经验的压缩归档",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_88608120_1788624497724",
+  "new_name": "kn_护肤熬夜常识补强",
+  "confidence": 0.85,
+  "reason": "正文核心为护肤品顺序与熬夜补救常识卡及短触发复测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_89243a7f_1788863302236",
+  "new_name": "kn_减字谱与瓷枕",
+  "confidence": 0.85,
+  "reason": "正文为古琴减字谱与瓷枕两卡及配套题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8968c0a1_1786688550197",
+  "new_name": "kn_自持架构校准原则",
+  "confidence": 0.72,
+  "reason": "正文述自持运行时架构决策与主动自测诚实校准原则",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_89ad2397_1788778019100",
+  "new_name": "kn_清理测试产物",
+  "confidence": 0.62,
+  "reason": "正文为清理测试产物，取具体动作名以区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_89b1dc95_1788714612348",
+  "new_name": "kn_感官输入预测盲点",
+  "confidence": 0.45,
+  "reason": "正文加密，据条件空间与标签推断",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_89db9efc_1788589640766",
+  "new_name": "kn_通识历史三题批次",
+  "confidence": 0.72,
+  "reason": "正文为通识批次148历史三题（王安石变法/土木堡/大运河）收录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8a08e910_1788617107943",
+  "new_name": "kn_文件位置询问",
+  "confidence": 0.55,
+  "reason": "正文是感知系统条件下追问重建页文件位置",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_8a415fd7_1788573070579",
+  "new_name": "kn_构造实数条件卡",
+  "confidence": 0.86,
+  "reason": "正文为构造性实数条件卡实现与验证首砖",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8a604add_1788525379785",
+  "new_name": "kn_识别先于隔离防护",
+  "confidence": 0.72,
+  "reason": "正文主张先有认知识别方能识别危险并防护隔离",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8a6f6177_1788840599860",
+  "new_name": "kn_文房清供玉雕",
+  "confidence": 0.86,
+  "reason": "正文为清供玉雕域文房清供与玉器雕工卡片及配题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8a71b190_1788525459371",
+  "new_name": "kn_感官图像语义门控",
+  "confidence": 0.35,
+  "reason": "正文加密，据标签图像语义/门控及感官条件推名",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8a7af17d_1786640465356",
+  "new_name": "kn_标记层效果引擎化",
+  "confidence": 0.85,
+  "reason": "正文核心为游戏数值平衡第2轮标记层效果引擎化任务",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8a9c6ee6_1788887444833",
+  "new_name": "kn_感官输入巩固演练",
+  "confidence": 0.55,
+  "reason": "正文为感官输入条件下巩固演练计数，取巩固演练区分同名条件节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_8b3383b5_1788565033088",
+  "new_name": "kn_大气压与制气急救",
+  "confidence": 0.72,
+  "reason": "取三卡主题大气压、制气、急救以区分同批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_8b5143f1_1788807661284",
+  "new_name": "kn_存量卡补题完成",
+  "confidence": 0.82,
+  "reason": "正文为批次482存量卡补题3张并完成评测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_8b552847_1788737907664",
+  "new_name": "kn_记忆写入位置查询",
+  "confidence": 0.72,
+  "reason": "正文询问记忆写入路径，属感知系统下记忆位置确认",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8b838818_1787588324834",
+  "new_name": "kn_中文循环语法编译",
+  "confidence": 0.9,
+  "reason": "正文为中文编译器「当…执行」循环语法全链路落地",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8b85d806_1788867548316",
+  "new_name": "kn_中国名茶谱系",
+  "confidence": 0.92,
+  "reason": "正文为中国名茶谱系及名品题库批次记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8bc1ed81_1786939654281",
+  "new_name": "kn_身体行动链路验证",
+  "confidence": 0.82,
+  "reason": "正文验证提案→验证→终裁→执行的身体行动链路",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8cc7d44f_1788758392052",
+  "new_name": "kn_求职三卡拓展",
+  "confidence": 0.78,
+  "reason": "正文为批次405求职主题三卡：简历/面试/渠道",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8e2d351d_1786688528665",
+  "new_name": "kn_工具桥接设计决策",
+  "confidence": 0.78,
+  "reason": "正文为MVP工具桥接12核心工具与发布策略决策",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8ea92db3_1788821986178",
+  "new_name": "kn_中国古都民俗拓展",
+  "confidence": 0.85,
+  "reason": "正文为古都民俗域新卡与猜灯谜补题批次记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_8f65ef7c_1788525963429",
+  "new_name": "kn_通识四十八批四卡",
+  "confidence": 0.78,
+  "reason": "标明48批次四科卡入库，区分他节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_906467be_1788872423162",
+  "new_name": "kn_四立食俗卡片补强",
+  "confidence": 0.85,
+  "reason": "正文为四立食俗卡片及触发词补强与题库验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_90665ad4_1788887065899",
+  "new_name": "kn_副本漂移复查",
+  "confidence": 0.82,
+  "reason": "正文为site-packages与主仓库副本漂移实测复查及反同步建议",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9075dd8a_1788519374219",
+  "new_name": "kn_通识拓展卅七入库",
+  "confidence": 0.85,
+  "reason": "通识拓展第37批四卡入库，含批次号可区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9167d7f4_1788744312130",
+  "new_name": "kn_插件依赖根因修复",
+  "confidence": 0.82,
+  "reason": "正文为issue#10依赖迁移与0.4.3发布闭环",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_916e9943_1788561671595",
+  "new_name": "kn_题库入库提交核验",
+  "confidence": 0.82,
+  "reason": "正文为通识题库四卡入库满分评测及提交信息核验教训",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_92425f78_1788607540138",
+  "new_name": "kn_感官输入复测锚定",
+  "confidence": 0.55,
+  "reason": "条件空间为感知系统感官输入，标签指向白箱题库复测锚定",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9318d0cd_1788819517696",
+  "new_name": "kn_典故成语神话对照",
+  "confidence": 0.86,
+  "reason": "正文为成语典故与希腊罗马神话对照知识卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_933e461d_1788748302995",
+  "new_name": "kn_云雾冰雹瀑布卡题",
+  "confidence": 0.62,
+  "reason": "正文为露水云雾、冰雹、瀑布卡题扩充批次记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9365f827_1786688540935",
+  "new_name": "kn_虾跑分评测复盘",
+  "confidence": 0.86,
+  "reason": "正文为虾跑分平台评测流程、评分规则与两轮结果复盘",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_936c85c2_1786877357004",
+  "new_name": "kn_抽查审计机制",
+  "confidence": 0.86,
+  "reason": "正文为全库随机抽查与审计闭环机制",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9399cc47_1788849339316",
+  "new_name": "kn_感官直播落空压缩",
+  "confidence": 0.62,
+  "reason": "本节点为感官输入下2条直播预测未命中的压缩模式",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_94167b69_1788636073213",
+  "new_name": "kn_料酒去腥油温判断",
+  "confidence": 0.72,
+  "reason": "正文为料酒去腥与油温判断两卡批次收官记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_94635b3c_1788657071085",
+  "new_name": "kn_图像识别成果验证",
+  "confidence": 0.86,
+  "reason": "正文为视觉模块图像识别交付与验证结果",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_94b6653f_1788828676813",
+  "new_name": "kn_招幌老字号玩具",
+  "confidence": 0.82,
+  "reason": "正文为市井招幌、老字号、传统玩具三卡批次",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_94dc376a_1788821786823",
+  "new_name": "kn_感官直播预测误判",
+  "confidence": 0.62,
+  "reason": "感官输入通道下直播预测未命中经验压缩",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_94e0fe49_1788485796576",
+  "new_name": "kn_感官输入时长等待",
+  "confidence": 0.58,
+  "reason": "条件空间为感官输入限时，正文为等待一小时质疑",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_958ef675_1788845279539",
+  "new_name": "kn_舆图老物件收藏卡",
+  "confidence": 0.72,
+  "reason": "正文为旧物舆图域收藏卡与题库批次拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_96dbec98_1788538636988",
+  "new_name": "kn_通识卡预检防覆盖",
+  "confidence": 0.75,
+  "reason": "通识批次四卡入库id预检避覆写，区分重名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_96f0d50f_1788577007690",
+  "new_name": "kn_题库通识三卡入库",
+  "confidence": 0.78,
+  "reason": "正文记题库通识拓展129批次三卡入库与满分评测",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_97021220_1788864862457",
+  "new_name": "kn_扇子文化触发词",
+  "confidence": 0.83,
+  "reason": "正文为扇子文化卡补强触发词并满分验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_972d78a6_1788513363491",
+  "new_name": "kn_银河暖气治水点球",
+  "confidence": 0.62,
+  "reason": "该批次四卡主题串联，可与他批次节点区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_97414a3c_1788746711878",
+  "new_name": "kn_通识题库批次补题",
+  "confidence": 0.78,
+  "reason": "正文为批次386补题三张及题库评测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9748c1b8_1788846490937",
+  "new_name": "kn_火花与老课本收藏",
+  "confidence": 0.82,
+  "reason": "正文为火花、老课本收藏卡与题库验证内容",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_975c4b90_1788868136177",
+  "new_name": "kn_川剧变脸核雕通识",
+  "confidence": 0.86,
+  "reason": "正文为川剧变脸与核雕通识卡及配套题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_98f91912_1788780911362",
+  "new_name": "kn_中国世界遗产补题",
+  "confidence": 0.78,
+  "reason": "正文为中国世界遗产三卡补题与题库评测",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_992ad280_1788531396546",
+  "new_name": "kn_通识五七批次入库",
+  "confidence": 0.88,
+  "reason": "第57批通识四卡入库，以批次号区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_99303e47_1786940715395",
+  "new_name": "kn_查询盲区三路验证",
+  "confidence": 0.62,
+  "reason": "正文为查询弱盲区探索经三路线验证缓解",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_996e8c36_1788552427566",
+  "new_name": "kn_通识五百题里程碑",
+  "confidence": 0.72,
+  "reason": "通识91批四科卡入库达成题库500题满分里程碑",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_999b46d5_1788829172616",
+  "new_name": "kn_木偶戏皮影拓展",
+  "confidence": 0.82,
+  "reason": "正文为影偶演艺域木偶戏与皮影的题库拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9a2fe70b_1788779394877",
+  "new_name": "kn_古代科技工程补题",
+  "confidence": 0.82,
+  "reason": "正文为祖冲之圆周率、四大发明、都江堰三张古代科技工程卡补题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9a4f45b0_1788742811860",
+  "new_name": "kn_盲区探索验证",
+  "confidence": 0.72,
+  "reason": "正文为盲区探索完成并预测验证，属感知输入学习结果",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9a658fea_1788590071508",
+  "new_name": "kn_收敛判据逐点化",
+  "confidence": 0.82,
+  "reason": "正文核心为Schnirelmann密度判据由渐近转逐点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9a700f06_1788527192869",
+  "new_name": "kn_通识五十批入库",
+  "confidence": 0.78,
+  "reason": "通识拓展第50批四卡入库评测全过，批号可区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9a7d65bf_1788589794624",
+  "new_name": "kn_素数加法可逆化",
+  "confidence": 0.78,
+  "reason": "正文讲可逆化变换谱系与素数加法结构对角化",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9ab3a028_1788850464035",
+  "new_name": "kn_婚俗古建通识拓展",
+  "confidence": 0.78,
+  "reason": "正文为婚俗三书六礼与影壁萧墙通识批次内容",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9afc2341_1788558290811",
+  "new_name": "kn_幼态角色识别难点",
+  "confidence": 0.62,
+  "reason": "正文讨论动漫幼态画风与敏感部位识别难点",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9b5fe820_1788510384016",
+  "new_name": "kn_摩擦云雾四卡入库",
+  "confidence": 0.6,
+  "reason": "该批含摩擦、云雾等四卡，加具体主题区分他批",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9b70f1d9_1786688552329",
+  "new_name": "kn_定时自动化调度",
+  "confidence": 0.82,
+  "reason": "正文讲ZCode定时自动化调度、schedule_rule与改库生效机制",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9b7248b2_1788856048440",
+  "new_name": "kn_直播预测观未命中",
+  "confidence": 0.55,
+  "reason": "取正文直播预测目标\"观\"与未命中结果，避免同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9ba3809b_1787054874799",
+  "new_name": "kn_查询盲区缓解验证",
+  "confidence": 0.72,
+  "reason": "正文为查询弱盲区探索完成、三路线预测验证",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9be54cb8_1788886981883",
+  "new_name": "kn_感官查询盲区压缩",
+  "confidence": 0.6,
+  "reason": "区分同类节点：感官输入条件下查询弱盲区经验压缩",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9c3b7816_1788506323118",
+  "new_name": "kn_通识四域满分入库",
+  "confidence": 0.72,
+  "reason": "四新域入库且216题满分，以四域满分区分他节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9c648980_1788824996805",
+  "new_name": "kn_漕运盐政文学补题",
+  "confidence": 0.72,
+  "reason": "批次517漕运盐政知识点与阿Q正传补题记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9c7d2f31_1788864007687",
+  "new_name": "kn_盲区探索完成压缩",
+  "confidence": 0.72,
+  "reason": "22条盲区探索完成经验的压缩，含完成语义可区分重名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9c8352e9_1786932536979",
+  "new_name": "kn_感官未命中压缩",
+  "confidence": 0.62,
+  "reason": "感官输入下预测未命中经验的两条压缩模式",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9c9bcb09_1788548234706",
+  "new_name": "kn_通识八四批四卡",
+  "confidence": 0.78,
+  "reason": "以84批次号+四卡区分同名批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9d2e8026_1788872820535",
+  "new_name": "kn_感官输入预测落空",
+  "confidence": 0.85,
+  "reason": "以观察工具'感官输入'区分同名节点，保留预测落空核心语义",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9da4bdab_1788591956938",
+  "new_name": "kn_估值向量加法换汇",
+  "confidence": 0.72,
+  "reason": "正文核心：估值向量下加法无坐标公式，须退回原世界重编码换汇",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9ddb05ab_1788629767502",
+  "new_name": "kn_触发词补强与回滚",
+  "confidence": 0.82,
+  "reason": "正文为压线题触发词补强及误挂回滚与路由校验流程",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9dea11bd_1786688530181",
+  "new_name": "kn_原生框架路线图",
+  "confidence": 0.78,
+  "reason": "正文述脱离ZCode自建原生harness的路线图",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9e819182_1786688523795",
+  "new_name": "kn_免密远程推送配置",
+  "confidence": 0.72,
+  "reason": "正文为SSH_ASKPASS免交互推送GitHub的配置方案",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9e84efbc_1788864273273",
+  "new_name": "kn_烟具烟俗通识",
+  "confidence": 0.9,
+  "reason": "正文为烟具烟俗域通识卡（旱烟袋水烟袋烟斗鼻烟壶）",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9ed5a48f_1788738734884",
+  "new_name": "kn_发布标签权限受阻",
+  "confidence": 0.72,
+  "reason": "正文为npm dist-tag修正遇403权限及凭据处理",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9ed72f0e_1786688534823",
+  "new_name": "kn_三维世界时空重建",
+  "confidence": 0.87,
+  "reason": "正文述WORLD3D-REV1由语义时空图重建3D世界模型",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9ede19fb_1788793868505",
+  "new_name": "kn_磁晶渠道三卡补题",
+  "confidence": 0.72,
+  "reason": "正文含磁介质晶体结构渠道策略三卡补题",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9f008c3c_1788481235334",
+  "new_name": "kn_架构通俗化改写",
+  "confidence": 0.6,
+  "reason": "正文指修改GPT架构以适配普通人教学",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9f05d6a9_1788566913504",
+  "new_name": "kn_电磁燃烧天气三卡",
+  "confidence": 0.72,
+  "reason": "三卡为物理电磁、化学燃烧、地理天气，可区别于其他入库节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_9f463115_1788877576827",
+  "new_name": "kn_感官输入条件窗口",
+  "confidence": 0.6,
+  "reason": "条件空间为感知系统感官输入时长窗口及协议约束",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9f644387_1788775822810",
+  "new_name": "kn_补题与触发词补强",
+  "confidence": 0.78,
+  "reason": "正文为批次434存量卡补题3张及触发词补强",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9fa77644_1786935212113",
+  "new_name": "kn_生命周期自主启动",
+  "confidence": 0.86,
+  "reason": "正文为生命周期自动机自动启动与自主循环落地",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_9fe58f35_1788855401596",
+  "new_name": "kn_水浒西游名场面",
+  "confidence": 0.85,
+  "reason": "正文为水浒西游经典桥段卡片及配套题目",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a02898b6_1788508771471",
+  "new_name": "kn_题库批次入库监控",
+  "confidence": 0.78,
+  "reason": "正文为通识题库24批入库、评测与WAL监控",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a08f3aca_1788302569378",
+  "new_name": "kn_感官盲区探索验证",
+  "confidence": 0.62,
+  "reason": "正文为感官输入条件下盲区探索完成并验证的结论",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a0969f1c_1788541537522",
+  "new_name": "kn_睡眠巩固夜报",
+  "confidence": 0.85,
+  "reason": "正文为灵枢睡眠巩固部署报告，含整理验证队列",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a0d3691b_1788749410851",
+  "new_name": "kn_牙齿折纸剪甲补题",
+  "confidence": 0.72,
+  "reason": "批次391含牙齿补题与折纸剪甲新卡，可区分他批",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_a1318796_1788858588432",
+  "new_name": "kn_八仙过海传说",
+  "confidence": 0.88,
+  "reason": "正文为八仙过海传说新卡、配题与题库记录，语义明确",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a1859fc8_1788585961137",
+  "new_name": "kn_对联丹霞彩票通识",
+  "confidence": 0.62,
+  "reason": "正文为对联规矩、丹霞雅丹辨析、彩票概率三主题批次收官",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a2215682_1788849339426",
+  "new_name": "kn_感知盲区查询压缩",
+  "confidence": 0.66,
+  "reason": "感知系统+感官输入下盲区查询探索的经验压缩包",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_a2a86964_1788507530758",
+  "new_name": "kn_题库卡片重号合并",
+  "confidence": 0.66,
+  "reason": "正文讲题库通识拓展入库及卡片撞号合并教训",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_a2b816d6_1788842881885",
+  "new_name": "kn_手串佛珠古玩行话",
+  "confidence": 0.88,
+  "reason": "正文为手串佛珠与古玩行话通识卡内容，语义明确",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a2bdc5ca_1788748832816",
+  "new_name": "kn_货币政策文学补题",
+  "confidence": 0.78,
+  "reason": "补题为货币政策与文学创作两张卡，含文学创作过程",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_a30ea751_1788573427871",
+  "new_name": "kn_构造实数自审修订",
+  "confidence": 0.78,
+  "reason": "正文为constructive_real REV2自审修订与界碑费用定理",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a322176a_1788736520098",
+  "new_name": "kn_通识拓展补题批次",
+  "confidence": 0.82,
+  "reason": "正文为372b通识拓展存量卡补题入库记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a3ed6af0_1788616028831",
+  "new_name": "kn_通识拓展三题解析",
+  "confidence": 0.72,
+  "reason": "正文为猫头鹰转头、潜艇浮沉、手术服补色三题解析",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a4128cd0_1787904202286",
+  "new_name": "kn_感官盲区六条压缩",
+  "confidence": 0.62,
+  "reason": "感官输入下6条盲区探索经验压缩归纳，加条数区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_a4200336_1788856624322",
+  "new_name": "kn_封神演义姜子牙卡",
+  "confidence": 0.85,
+  "reason": "正文为封神演义与姜子牙知识卡及配套三题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a4a943f5_1786932944009",
+  "new_name": "kn_直播弹幕审核",
+  "confidence": 0.92,
+  "reason": "正文为B站直播弹幕三层内容安全审核模块",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a5198529_1788518709258",
+  "new_name": "kn_插件清单装配自查",
+  "confidence": 0.78,
+  "reason": "正文为DSH插件自查：清单缺失与装配根因诊断",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a5320ff2_1788622188611",
+  "new_name": "kn_外部参考只记不改",
+  "confidence": 0.62,
+  "reason": "正文为外部记忆仅记录、不做修改的说明",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_a58b50e3_1788780130908",
+  "new_name": "kn_认知图库文档位置",
+  "confidence": 0.6,
+  "reason": "正文询问认知图数据库替代SQL的md代码文档存放位置",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a5c0a572_1788870690890",
+  "new_name": "kn_感官盲区预测验证",
+  "confidence": 0.62,
+  "reason": "正文为盲区预测/验证循环类经验压缩，取具体环节区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_a66edd5c_1788536240293",
+  "new_name": "kn_通识拓展六十五批",
+  "confidence": 0.72,
+  "reason": "正文为通识拓展第65批四卡入库，批次号可区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_a67c7f25_1788822348338",
+  "new_name": "kn_午夜感官直播失准",
+  "confidence": 0.68,
+  "reason": "加午夜时段限定以区分同名节点，保留感官直播语义",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_a69046f5_1788762551167",
+  "new_name": "kn_存量卡补题评测",
+  "confidence": 0.78,
+  "reason": "正文为补题3张并全量评测题库",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_a6ed2394_1788851423307",
+  "new_name": "kn_四合院与胡同民居",
+  "confidence": 0.86,
+  "reason": "正文为古建民居多域中四合院、胡同新卡与配套题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a749d5ff_1786634503312",
+  "new_name": "kn_卡牌数值平衡评审",
+  "confidence": 0.86,
+  "reason": "正文为用数值平衡原则评审优化四职业卡组的学习任务",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a7799a7f_1788848229421",
+  "new_name": "kn_感官输入记忆调用",
+  "confidence": 0.45,
+  "reason": "正文为dsh-memory调用指令，加记忆调用以区别于同桶节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_a7f554f2_1788519913180",
+  "new_name": "kn_插件功能链路实测",
+  "confidence": 0.86,
+  "reason": "正文为dsh-memory插件在DSH0.1.2的功能测试与链路验证结论",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a8a38076_1788797057539",
+  "new_name": "kn_成长生活三连补题",
+  "confidence": 0.72,
+  "reason": "正文为批次466三张成长生活存量卡补题及题库评测",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a8b1d91c_1788610664643",
+  "new_name": "kn_道砟挑柚批次收官",
+  "confidence": 0.72,
+  "reason": "以本批两卡主题道砟挑柚区分同批收官节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_a907f716_1788577278793",
+  "new_name": "kn_认知图自我层补充",
+  "confidence": 0.6,
+  "reason": "正文指示查看认知图并补充自我层，语义具体",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a90f1020_1788394428255",
+  "new_name": "kn_递归反思白盒重构",
+  "confidence": 0.55,
+  "reason": "正文加密，依标签递归反思/白盒认知/分阶段可逆与重构主题取名",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a931045e_1788820524735",
+  "new_name": "kn_记忆插件里程碑",
+  "confidence": 0.72,
+  "reason": "记录dsh-memory插件138星里程碑及当日工程进展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a978ea09_1788876536152",
+  "new_name": "kn_本命年生肖民俗",
+  "confidence": 0.88,
+  "reason": "正文为本命年与生肖民俗知识卡及配套题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a9e0ba00_1788624316686",
+  "new_name": "kn_编译器语言选型",
+  "confidence": 0.72,
+  "reason": "正文论Python降级与自研编译器转Rust的选型",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_a9f25258_1788223266958",
+  "new_name": "kn_协议引擎版本同步",
+  "confidence": 0.82,
+  "reason": "正文要求aeis_context引擎随智能论版本升维同步更新",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_aa24c53a_1788833066011",
+  "new_name": "kn_感官预测盲区审计",
+  "confidence": 0.55,
+  "reason": "取代表盲区BS-PREDICT-LIVE-AUDIEN，加感官限定以区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_aa3f3f21_1788625077069",
+  "new_name": "kn_痛经缓解唇干护理",
+  "confidence": 0.82,
+  "reason": "正文核心为痛经缓解与嘴唇干裂护理两则生活常识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_aada2ddf_1788512219031",
+  "new_name": "kn_题库入库预检拦截",
+  "confidence": 0.82,
+  "reason": "记录通识题库四卡入库存卡与id预检拦截防覆盖",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ab70110d_1788572972783",
+  "new_name": "kn_连续论条件剥离",
+  "confidence": 0.86,
+  "reason": "正文为剥离连续论错误条件、条件化重构数学成果的研究纲领",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ac24773a_1788868461768",
+  "new_name": "kn_感知盲区模式压缩",
+  "confidence": 0.62,
+  "reason": "感知系统下盲区探索可复用经验压缩",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_ac2acb4a_1787725891350",
+  "new_name": "kn_自主盲区发现模式",
+  "confidence": 0.6,
+  "reason": "正文为感知系统下自主盲区发现的可复用经验压缩模式",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_acb80f1e_1788848177321",
+  "new_name": "kn_预测实况盲区压缩",
+  "confidence": 0.72,
+  "reason": "正文为预测实况类盲区经验压缩，加限定词区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_acbf1157_1788789517837",
+  "new_name": "kn_实验科学三连补题",
+  "confidence": 0.82,
+  "reason": "正文为制氧、金属活动性、光合作用三张实验卡补题记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ad906ec7_1788575856659",
+  "new_name": "kn_海洋污染四卡入库",
+  "confidence": 0.72,
+  "reason": "取四卡中海洋污染主题，区分同名批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_ad985f38_1788587764581",
+  "new_name": "kn_酒店外卖食安常识",
+  "confidence": 0.72,
+  "reason": "正文为酒店入住与外卖食品安全两卡通识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_adab2a67_1788568654752",
+  "new_name": "kn_三卡通识题库满分",
+  "confidence": 0.72,
+  "reason": "本节点为三卡入库并599题满分，用三卡通识题库满分区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_add1bf6e_1788613035755",
+  "new_name": "kn_表宇宙四件套档案",
+  "confidence": 0.86,
+  "reason": "正文为表宇宙纲领四件套总档案，含乘法表/分解/筛/环表",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_add70bb5_1788133904486",
+  "new_name": "kn_理论整理实现路线",
+  "confidence": 0.55,
+  "reason": "正文要求完成理论整理并理清实现路线",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_aec38195_1788529579576",
+  "new_name": "kn_四学科四卡入库",
+  "confidence": 0.68,
+  "reason": "本节点为四学科四卡满分批次入库，语义更具体可区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_aedc4728_1788766724366",
+  "new_name": "kn_生物通识题库补题",
+  "confidence": 0.72,
+  "reason": "批次419补蜗牛章鱼水母仿生学卡及题库评测",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_afab36b3_1788714612443",
+  "new_name": "kn_感知输入预测盲点",
+  "confidence": 0.45,
+  "reason": "正文加密不可读，据条件空间与盲点预测标签推定",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_afbd92b1_1788493685329",
+  "new_name": "kn_感官输入归档指令",
+  "confidence": 0.32,
+  "reason": "正文仅为总结归档指令，无区分性语义",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_aff736f7_1788738980594",
+  "new_name": "kn_标签发布权限拒绝",
+  "confidence": 0.72,
+  "reason": "正文为npm dist-tag发布403禁止报错记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b042c41e_1786633291147",
+  "new_name": "kn_游戏设计核心理论",
+  "confidence": 0.86,
+  "reason": "正文为MDA、乐趣八类、数值平衡等游戏设计理论集成",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b09b8aba_1787969715619",
+  "new_name": "kn_查询弱盲区缓解",
+  "confidence": 0.62,
+  "reason": "以盲区编号BS-QUERY-WEAK限定，区分同族感官输入节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_b09f8957_1788808802479",
+  "new_name": "kn_昆虫鸟类通识拓展",
+  "confidence": 0.85,
+  "reason": "正文为蜜蜂蜻蜓鹦鹉三卡通识拓展批次",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b0d4a4ef_1787992779399",
+  "new_name": "kn_智能论双仓库提交",
+  "confidence": 0.72,
+  "reason": "正文为智能论v3.4两仓库git提交记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b0e9b448_1788743733442",
+  "new_name": "kn_通识建卡题库评测",
+  "confidence": 0.72,
+  "reason": "正文为批次381三张通识卡建卡及题库v6.51评测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_b13dcb45_1788622196196",
+  "new_name": "kn_外部参考语义分解",
+  "confidence": 0.82,
+  "reason": "正文为VCP语义分解研究的外部参考记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b16bbc7a_1788518519620",
+  "new_name": "kn_插件加载链路自查",
+  "confidence": 0.72,
+  "reason": "正文为dsh插件未加载与会话消息链路自查报告",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b1f1a20b_1788397238233",
+  "new_name": "kn_白盒世界模型验证",
+  "confidence": 0.6,
+  "reason": "正文加密，据标签白盒全环与世界模型验证定名",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b2606baa_1788517774355",
+  "new_name": "kn_感知输入条件空间",
+  "confidence": 0.55,
+  "reason": "正文仅提问，语义来自感知系统感官输入条件域",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b29b0c2e_1788633598456",
+  "new_name": "kn_喝酒脸红与自挠痒",
+  "confidence": 0.72,
+  "reason": "正文两卡：饮酒脸红遗传机制与自挠痒神经机制",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b3cde9e0_1788787132000",
+  "new_name": "kn_通识拓展评测记录",
+  "confidence": 0.85,
+  "reason": "正文为通识拓展批次451与题库评测结果",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b3e59935_1788829283829",
+  "new_name": "kn_感官直播未命中",
+  "confidence": 0.55,
+  "reason": "按感官输入与直播预测未命中细化，避开重名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_b403d327_1788742808870",
+  "new_name": "kn_感知系统盲区注册",
+  "confidence": 0.78,
+  "reason": "正文为感知系统自主盲区发现并注册新盲区",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b40b638d_1788509779649",
+  "new_name": "kn_通识廿六四卡入库",
+  "confidence": 0.72,
+  "reason": "通识拓展第26批四卡入库心跳记录，批次号可区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_b4115188_1788843455353",
+  "new_name": "kn_感官直播预测漏检",
+  "confidence": 0.45,
+  "reason": "感知系统感官输入下直播预测未命中，加漏检区分重名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_b4435d56_1788777578926",
+  "new_name": "kn_文学巨匠题库拓展",
+  "confidence": 0.82,
+  "reason": "正文为古典诗词与鲁迅题库补题批次437记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b4fe808c_1787018273125",
+  "new_name": "kn_智慧之书主库迁移",
+  "confidence": 0.88,
+  "reason": "正文为智慧之书迁入灵枢主库的迁移记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b5149f73_1788112956896",
+  "new_name": "kn_游戏引擎化待执行",
+  "confidence": 0.75,
+  "reason": "正文为游戏数值平衡引擎化任务待执行状态登记",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b5c3f800_1788590813028",
+  "new_name": "kn_素数空洞判据验证",
+  "confidence": 0.82,
+  "reason": "验证σ最坏尺度与素数空洞侵蚀的判据审计",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b5d138c3_1786688532415",
+  "new_name": "kn_感官输入通道实现",
+  "confidence": 0.72,
+  "reason": "正文为control/browser/realtime/视觉等感官输入通道实现",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b5f78f8d_1788571535149",
+  "new_name": "kn_通识百十七批入库",
+  "confidence": 0.82,
+  "reason": "以汉字批次号117区分同名批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_b644d9fd_1788817107825",
+  "new_name": "kn_希腊北欧神话拓展",
+  "confidence": 0.85,
+  "reason": "正文为批次502神话双域拓展：希腊与北欧神话卡片",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b6e227c0_1788817806693",
+  "new_name": "kn_盲区听众预测压缩",
+  "confidence": 0.62,
+  "reason": "正文为听众实时预测盲区经验的压缩模式",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_b7107828_1788821164991",
+  "new_name": "kn_感官输入直播漏判",
+  "confidence": 0.62,
+  "reason": "感知系统感官输入条件空间下的直播预测未命中",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_b76735f0_1787589059210",
+  "new_name": "kn_语句块嵌套控制流",
+  "confidence": 0.88,
+  "reason": "正文为中文编译器语句块与循环内嵌套条件实现",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b7876043_1788582652262",
+  "new_name": "kn_通识一三七批划界",
+  "confidence": 0.72,
+  "reason": "批次137三卡跨域划界收官，加批次号避重名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_b7a6468e_1788827938695",
+  "new_name": "kn_科场案与商帮会馆",
+  "confidence": 0.86,
+  "reason": "正文为清代科场案与商帮会馆通识卡及配套题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b871a31f_1788573004554",
+  "new_name": "kn_通识三卡批次入库",
+  "confidence": 0.72,
+  "reason": "正文为通识拓展批次三卡入库及满分评测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b8ccab6e_1788587153136",
+  "new_name": "kn_儿童乘车森林生态",
+  "confidence": 0.62,
+  "reason": "正文为儿童乘车安全与森林生态两卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b8ddb452_1788859091699",
+  "new_name": "kn_直播观未命中经验",
+  "confidence": 0.6,
+  "reason": "感官输入条件下直播观预测未命中的经验压缩",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_b943baed_1788876002938",
+  "new_name": "kn_谐音禁忌民俗",
+  "confidence": 0.9,
+  "reason": "正文为谐音禁忌与讨口彩民俗通识卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b94cc73f_1788820013331",
+  "new_name": "kn_元曲文学题库补题",
+  "confidence": 0.85,
+  "reason": "正文为元曲四大家及名作题库补题记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b9557a67_1788611294625",
+  "new_name": "kn_窗结露微波炉安全",
+  "confidence": 0.72,
+  "reason": "正文为窗户结露与微波炉密闭加热两卡知识批次",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b9596024_1788805356706",
+  "new_name": "kn_通识卡补题评测",
+  "confidence": 0.72,
+  "reason": "正文为批次478存量卡补题与题库评测",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_b97357b7_1788542836052",
+  "new_name": "kn_通识七十五批入库",
+  "confidence": 0.86,
+  "reason": "以批次号七十五区分同名题库入库节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_b9c99b3a_1788801561747",
+  "new_name": "kn_存量卡补题回补",
+  "confidence": 0.82,
+  "reason": "正文为批次472存量卡补题3张并回补入库记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ba37ee65_1788557225565",
+  "new_name": "kn_二次元未成年识别",
+  "confidence": 0.82,
+  "reason": "正文讨论二次元特殊姿态下未成年人物识别判定",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ba817cec_1788523541416",
+  "new_name": "kn_通识拓展四十四批",
+  "confidence": 0.82,
+  "reason": "含批次号44四卡入库，可区分同系列批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_bac0f49a_1788768453275",
+  "new_name": "kn_电场乙醇高分子卡",
+  "confidence": 0.72,
+  "reason": "本节点补电场乙醇高分子三卡，可区分他节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_bb772f3f_1788582191890",
+  "new_name": "kn_生活权益法律常识",
+  "confidence": 0.72,
+  "reason": "正文为消费者退货、社保、劳动合同三则生活法律常识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_bc317e61_1788622763833",
+  "new_name": "kn_蟑螂脚臭防治卡",
+  "confidence": 0.72,
+  "reason": "正文为蟑螂与脚臭防治通识卡，取具体主题名",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_bc6356d8_1788841677699",
+  "new_name": "kn_文玩核桃鼻烟壶",
+  "confidence": 0.88,
+  "reason": "正文为文玩核桃与鼻烟壶通识卡片及配套题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_bd566a22_1788605324795",
+  "new_name": "kn_通识拓展批次收录",
+  "confidence": 0.72,
+  "reason": "正文为通识拓展批次174三卡三题收录与题库评测",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_bd8459be_1788770236380",
+  "new_name": "kn_天文地理现象补题",
+  "confidence": 0.72,
+  "reason": "正文为气候带月相彩虹三现象补题入题库",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_be772646_1788623855636",
+  "new_name": "kn_通识出卡批次评测",
+  "confidence": 0.72,
+  "reason": "正文为通识批次204两卡出卡及题库满分评测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_be973460_1788557958631",
+  "new_name": "kn_图像特征辨识纠错",
+  "confidence": 0.62,
+  "reason": "用户以解剖特征纠正图像识别精度判定",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_be9bc2e7_1786688535530",
+  "new_name": "kn_语音对话输入实现",
+  "confidence": 0.82,
+  "reason": "正文为VAD断句/PTT/流式识别的语音对话实现",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_bea77d8d_1788796468391",
+  "new_name": "kn_传统美德三卡拓展",
+  "confidence": 0.85,
+  "reason": "正文为诚信感恩勤俭三张美德卡的通识拓展批次",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_beefa55e_1788800807284",
+  "new_name": "kn_饮食文化通识拓展",
+  "confidence": 0.82,
+  "reason": "正文为饮食文化三连卡（早餐/相克/筷子）通识批次",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_bf112ea0_1787904202788",
+  "new_name": "kn_重复提问应答模式",
+  "confidence": 0.62,
+  "reason": "正文为协议版本等重复提问的应答经验压缩",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_bf31fcb9_1786688529816",
+  "new_name": "kn_自主学习循环纪律",
+  "confidence": 0.88,
+  "reason": "正文为灵枢自主学习循环6步纪律与失败即停约束",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_bf751e1f_1788604654860",
+  "new_name": "kn_银器月牙蜂蜇辟谣",
+  "confidence": 0.86,
+  "reason": "正文为银器试毒、指甲月牙、蜂蜇三则辟谣",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_bf885623_1788818371736",
+  "new_name": "kn_名著历法题库拓展",
+  "confidence": 0.82,
+  "reason": "正文为名著历法域卡片与题库出题记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c04c3084_1788622767190",
+  "new_name": "kn_编程语言优势咨询",
+  "confidence": 0.62,
+  "reason": "正文询问Rust优势，属编程语言优势咨询",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_c09e6f11_1788520802019",
+  "new_name": "kn_感官输入载体路径",
+  "confidence": 0.62,
+  "reason": "正文为llama-cpp本地路径，属感官输入条件下的载体位置",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_c0d552ef_1788764836094",
+  "new_name": "kn_能源三连补题",
+  "confidence": 0.78,
+  "reason": "正文为能量守恒、化石燃料、可持续能源三卡补题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c0db8f69_1788771593445",
+  "new_name": "kn_定律效应三连拓展",
+  "confidence": 0.82,
+  "reason": "正文为墨菲蝴蝶二八定律三卡拓展批次记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c1200701_1788282346500",
+  "new_name": "kn_睡眠巩固巡检报告",
+  "confidence": 0.85,
+  "reason": "正文为夜间睡眠巩固巡检报告，含环境校验与联想蒸馏",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c1279a28_1788646042746",
+  "new_name": "kn_批次题库补题校验",
+  "confidence": 0.72,
+  "reason": "批次236既有卡补题挂接新卡配题及QB编号预检",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c1585980_1788739042883",
+  "new_name": "kn_感官输入即用约束",
+  "confidence": 0.6,
+  "reason": "正文仅为要用，结合协议实例运行约束特化",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_c195a54d_1786688546733",
+  "new_name": "kn_模型盲测对战评审",
+  "confidence": 0.86,
+  "reason": "正文为匿名模型盲测Elo对战评审与战绩排行",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c2c9330a_1786688520555",
+  "new_name": "kn_五步补全工程结构",
+  "confidence": 0.6,
+  "reason": "正文为AEIS五步补全完成记录及库结构版本线",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c2f0f170_1788757167343",
+  "new_name": "kn_通识批次补题评测",
+  "confidence": 0.72,
+  "reason": "批次404新增数独摄影珠峰题并完成题库评测",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c35d2504_1788523151985",
+  "new_name": "kn_认知图遗忘质询",
+  "confidence": 0.45,
+  "reason": "正文为用户质询是否遗忘认知图内容",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c36f70d8_1788832574929",
+  "new_name": "kn_感官直播误判压缩",
+  "confidence": 0.55,
+  "reason": "补入感官条件与经验压缩特征以区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_c37fcb46_1788903312847",
+  "new_name": "kn_感知输入巩固演练",
+  "confidence": 0.55,
+  "reason": "正文为感官输入条件下的巩固演练记录，取巩固演练以区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_c396d39f_1788800709216",
+  "new_name": "kn_感知系统睡眠巩固",
+  "confidence": 0.78,
+  "reason": "正文为感知系统条件下睡眠巩固全流程报告，以条件位区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_c3f69679_1788548868684",
+  "new_name": "kn_通识八五批入库",
+  "confidence": 0.72,
+  "reason": "正文为通识拓展第85批四卡入库，加批次号区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_c45e45b0_1788823049836",
+  "new_name": "kn_明清小说通识补位",
+  "confidence": 0.86,
+  "reason": "正文为聊斋志异儒林外史新卡补位与配题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c45f1c63_1788757757027",
+  "new_name": "kn_老题池复测锚定",
+  "confidence": 0.85,
+  "reason": "正文为第7次老题池随机复测锚定与漂移验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c470eb65_1788630402759",
+  "new_name": "kn_饥饿与奶类灭菌",
+  "confidence": 0.75,
+  "reason": "正文含饥饿机制与巴氏奶常温奶灭菌对比两卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c47cebdb_1786640472458",
+  "new_name": "kn_感官输入睡眠巩固",
+  "confidence": 0.42,
+  "reason": "正文加密不可读，依tags睡眠巩固与条件(感官输入)区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_c4cce0fa_1788787850667",
+  "new_name": "kn_题库补题全量评测",
+  "confidence": 0.72,
+  "reason": "正文为批次452存量卡补题3张及题库v7.23全量评测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c4dce112_1788800142846",
+  "new_name": "kn_历史地理存量补题",
+  "confidence": 0.78,
+  "reason": "正文为批次470补题三张历史地理卡并评测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c4f4454f_1786688524820",
+  "new_name": "kn_音色克隆样本处理",
+  "confidence": 0.85,
+  "reason": "正文为唱歌样本经whisper识别截取prompt并用CosyVoice2克隆试听",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c4f4ac24_1788659473124",
+  "new_name": "kn_骨架线稿视觉匹配",
+  "confidence": 0.62,
+  "reason": "正文论用自研CNN与骨架线稿图做视觉匹配训练",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c548b124_1788781491988",
+  "new_name": "kn_投影二分散文补题",
+  "confidence": 0.72,
+  "reason": "批次443含投影、二分法、散文三张补题卡，加主题区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_c552f959_1788636536600",
+  "new_name": "kn_生活常识技能卡片",
+  "confidence": 0.72,
+  "reason": "正文为杨柳飞絮过敏与挑橙子两卡的生活常识技能内容",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c5756dab_1788517452604",
+  "new_name": "kn_感知系统连通测试",
+  "confidence": 0.68,
+  "reason": "正文为感知系统条件下感官输入的连通测试消息",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c5c008ba_1788776444997",
+  "new_name": "kn_通识地理卡入库",
+  "confidence": 0.72,
+  "reason": "正文为批次435地理通识卡入库与触发词补强",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c5d47f85_1788902912513",
+  "new_name": "kn_竞品记忆插件分析",
+  "confidence": 0.72,
+  "reason": "正文为分析竞品dsh记忆插件工程实现的任务",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c624599c_1788785759471",
+  "new_name": "kn_感官输入待验预测",
+  "confidence": 0.5,
+  "reason": "条件空间为感知系统感官输入，标签指向待验预测路径",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c64c6263_1788865256622",
+  "new_name": "kn_冰嬉消寒会民俗",
+  "confidence": 0.9,
+  "reason": "正文为清代冰嬉运动与消寒会文人雅集民俗知识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c687899f_1788657838233",
+  "new_name": "kn_腕点手臂分离验证",
+  "confidence": 0.78,
+  "reason": "正文为用COCO17腕关键点分离手/臂bbox的精准确认验证",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_c695262b_1788639247111",
+  "new_name": "kn_节令食俗与蒜变绿",
+  "confidence": 0.76,
+  "reason": "正文为汤圆元宵、腊八粥、腊八蒜变绿的通识三卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c70f9dc2_1788812193352",
+  "new_name": "kn_自然生态环保补题",
+  "confidence": 0.72,
+  "reason": "正文为批次491生态环保三题补题记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c72133d9_1788777727132",
+  "new_name": "kn_灵枢插件安装验证",
+  "confidence": 0.76,
+  "reason": "正文为安装灵枢插件包并验证dsh可调用",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c79cac97_1788568074841",
+  "new_name": "kn_通识题库拓展批次",
+  "confidence": 0.78,
+  "reason": "正文为通识拓展115批次四卡入库与600题里程碑",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_c8cad9a3_1788775121766",
+  "new_name": "kn_通识题库扩充评测",
+  "confidence": 0.72,
+  "reason": "批次433补奥赛篮球题、新增射箭卡并全量评测",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c8f24e4e_1788840328237",
+  "new_name": "kn_感知盲区经验蒸馏",
+  "confidence": 0.62,
+  "reason": "条件空间为感知系统感官输入，正文为22条盲区探索经验压缩模式",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c936ff56_1788625680284",
+  "new_name": "kn_低血压与黑眼圈",
+  "confidence": 0.72,
+  "reason": "正文为体位性低血压与黑眼圈分型两条生活常识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c9e1729b_1788621434215",
+  "new_name": "kn_请求仓库下载地址",
+  "confidence": 0.62,
+  "reason": "正文为用户索要仓库位置自行下载的请求",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_c9f720fd_1787135282714",
+  "new_name": "kn_人格锚点连续模型",
+  "confidence": 0.78,
+  "reason": "正文为协议觉醒设计书人格连续向量与八锚点理论修订",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ca288fee_1788545214541",
+  "new_name": "kn_通识卡入库防覆盖",
+  "confidence": 0.82,
+  "reason": "通识79批次四卡入库并预检防覆盖",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ca2e251c_1788740906106",
+  "new_name": "kn_题库补题与查重",
+  "confidence": 0.82,
+  "reason": "正文为存量卡补题三张、程序化查重与题库评测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ca53a3d5_1787938347825",
+  "new_name": "kn_协议版本重复应答",
+  "confidence": 0.72,
+  "reason": "正文为协议版本与接入方式的重复询问应答模式",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ca557c0d_1788856898809",
+  "new_name": "kn_用户更新反馈存疑",
+  "confidence": 0.62,
+  "reason": "正文为他人更新后的反馈待核查，语义具体可区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_ca7495b2_1788811659306",
+  "new_name": "kn_存量卡三张补题",
+  "confidence": 0.75,
+  "reason": "正文为批次490补题3张并评测，点明三张以区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_cadc2c4d_1788490114665",
+  "new_name": "kn_感知系统视频预测",
+  "confidence": 0.55,
+  "reason": "标签含vjepa与预测，属感知系统的视频预测复现",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_cb077be3_1788817209304",
+  "new_name": "kn_盲区预测查询蒸馏",
+  "confidence": 0.72,
+  "reason": "正文为预测盲区与查询弱项两类探索经验的22条蒸馏压缩",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_cb3b30e7_1788627540597",
+  "new_name": "kn_牙刷砧板卫生常识",
+  "confidence": 0.82,
+  "reason": "正文为牙刷更换与砧板保养生活常识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_cb6e16e3_1788858065293",
+  "new_name": "kn_九时感官直播误判",
+  "confidence": 0.62,
+  "reason": "含时间窗九时、感官通道与直播误判内容，可与同名节点区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_cb717cba_1788621732825",
+  "new_name": "kn_下载完成待研究",
+  "confidence": 0.5,
+  "reason": "正文为下载完成可研究，取具体状态名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_cb78b3a9_1788865759593",
+  "new_name": "kn_老照片与竹刻专题",
+  "confidence": 0.75,
+  "reason": "正文为老照片收藏与留青竹刻扇骨专题批次记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_cc0bd4ea_1788871254929",
+  "new_name": "kn_辫发剪辫政治史",
+  "confidence": 0.86,
+  "reason": "正文讲剃发令至剪辫的发服政治演变",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_cca7c184_1788821207284",
+  "new_name": "kn_感官输入时段条件",
+  "confidence": 0.6,
+  "reason": "节点为感知系统经感官输入的一小时条件空间",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ccbbb18a_1788886984407",
+  "new_name": "kn_感知系统时段约束",
+  "confidence": 0.6,
+  "reason": "定位感知系统+时段+协议运行约束，区别于同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_ccc77d38_1788541617795",
+  "new_name": "kn_通识七十四批次",
+  "confidence": 0.6,
+  "reason": "与同批兄弟节点重名，以批次号七十四区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_cccfb5e6_1788598370859",
+  "new_name": "kn_感官输入归档整理",
+  "confidence": 0.55,
+  "reason": "正文为归档整理指令，条件空间为感官输入",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_cd3dd248_1788598291217",
+  "new_name": "kn_通识拓展质量修复",
+  "confidence": 0.72,
+  "reason": "正文为通识批次162收官及质量事故修复记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_cdb39fa0_1788834577707",
+  "new_name": "kn_度量衡礼俗拓展",
+  "confidence": 0.78,
+  "reason": "正文为度量衡与座次礼俗知识卡及题库拓展记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_cddca5d4_1788747690350",
+  "new_name": "kn_碱陆海四自信补题",
+  "confidence": 0.72,
+  "reason": "批次388补题涉碱、陆海、四自信三卡",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_ce57f9d4_1788659634639",
+  "new_name": "kn_视觉白盒轮廓提取",
+  "confidence": 0.6,
+  "reason": "标签指视觉白盒精确轮廓，无YOLO，条件为感官输入",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_ce6f2089_1788518438549",
+  "new_name": "kn_插件加载兼容诊断",
+  "confidence": 0.82,
+  "reason": "正文为插件与续会话兼容故障闭环诊断",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_ce815489_1788821437532",
+  "new_name": "kn_仓颉造字民族乐器",
+  "confidence": 0.76,
+  "reason": "正文为仓颉造字与民族乐器两卡通识拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_cec9824e_1788598739995",
+  "new_name": "kn_通识批次卡与质检",
+  "confidence": 0.72,
+  "reason": "内容为通识卡批次产出及外文检测质检",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ced3c98f_1788736098578",
+  "new_name": "kn_记忆插件竞争分析",
+  "confidence": 0.82,
+  "reason": "正文为deja-vu/noema等记忆插件竞品对比与学习点",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_cf0d8032_1788543453915",
+  "new_name": "kn_通识四科满分入库",
+  "confidence": 0.62,
+  "reason": "四学科卡片入库且评测满分，可与他节点区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_cf30a311_1788577786380",
+  "new_name": "kn_通识三卡满分评测",
+  "confidence": 0.55,
+  "reason": "三卡入库、658题满分一次过，以满分评测区分同名批次",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_cf467ffa_1788519759854",
+  "new_name": "kn_灵枢插件兼容测试",
+  "confidence": 0.82,
+  "reason": "正文指灵枢插件在新版dsh是否可用的兼容测试",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_cfa40f18_1788848112447",
+  "new_name": "kn_去标签与记忆上架",
+  "confidence": 0.62,
+  "reason": "正文讲去掉标签并让独立dsh-memory上架",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d00ddba5_1786882092790",
+  "new_name": "kn_验证终裁翻译接入",
+  "confidence": 0.72,
+  "reason": "正文为P37验证终裁与dex_respond翻译接入记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d0925d31_1788739673962",
+  "new_name": "kn_几何分数训诂补题",
+  "confidence": 0.72,
+  "reason": "批次376补三视图几何、分数、古书训诂三张卡，以此区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_d0bd6985_1787972540699",
+  "new_name": "kn_查询弱项盲区消解",
+  "confidence": 0.72,
+  "reason": "正文为BS-QUERY-WEAK盲区探索完成并缓解",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_d0fbead0_1788557806419",
+  "new_name": "kn_通识百批四科满分",
+  "confidence": 0.72,
+  "reason": "通识100批次物理化学生物地理四卡入库评测满分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_d132ec1d_1788620386486",
+  "new_name": "kn_世界模型差距补齐",
+  "confidence": 0.62,
+  "reason": "正文述对比差距，待多模态世界模型补上",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_d2a0d443_1788522370268",
+  "new_name": "kn_通识拓展四十二批",
+  "confidence": 0.6,
+  "reason": "以四十二批次号区分同名，指通识拓展批次入库",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_d30d4eee_1788592055343",
+  "new_name": "kn_白箱题库批次拓展",
+  "confidence": 0.82,
+  "reason": "正文为白箱题库通识批次152拓展与700题里程碑",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d39557e4_1786930752164",
+  "new_name": "kn_好奇机制实证",
+  "confidence": 0.86,
+  "reason": "正文为智慧之书好奇机制的盲区播种与闭环实证记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d3c2f56b_1786688521213",
+  "new_name": "kn_反证清单五步补全",
+  "confidence": 0.78,
+  "reason": "正文为对照AGI反证清单的五步能力补全路线图",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d4035385_1788584158916",
+  "new_name": "kn_通识三科要点",
+  "confidence": 0.75,
+  "reason": "正文为高铁、玻璃陶瓷、保温杯三科通识要点汇总",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_d426ca5d_1786688549396",
+  "new_name": "kn_荣角色与决策记录",
+  "confidence": 0.85,
+  "reason": "正文为荣的角色定位、偏好与关键决策指令记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d4bc3f0a_1788662760627",
+  "new_name": "kn_盲区探索缓解验证",
+  "confidence": 0.72,
+  "reason": "正文为盲区探索完成并缓解、预测验证路线",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d5265cec_1788750529599",
+  "new_name": "kn_密码卡补题与评测",
+  "confidence": 0.72,
+  "reason": "批次393新增密码安全卡补题并完成题库满分评测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_d62d83e0_1788857342711",
+  "new_name": "kn_文档指向独立仓库",
+  "confidence": 0.5,
+  "reason": "正文仅述文档指向独立仓库，条件为感知系统感官输入",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d66491da_1788521749147",
+  "new_name": "kn_题库通识拓展批次",
+  "confidence": 0.82,
+  "reason": "记录通识拓展41批次四卡入库及300题里程碑",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d67a3977_1788585352195",
+  "new_name": "kn_洗涤标识及喀斯特",
+  "confidence": 0.72,
+  "reason": "批次141三项通识，取洗涤标识与喀斯特以区分重名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_d68a12f2_1788222161890",
+  "new_name": "kn_智能论终审确认",
+  "confidence": 0.82,
+  "reason": "正文为智能论v3.4终裁通过、终审确认记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d6e27c40_1788524833010",
+  "new_name": "kn_题库批次入库评测",
+  "confidence": 0.75,
+  "reason": "正文为通识题库批次入库与满分评测心跳记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_d81424ce_1788819327113",
+  "new_name": "kn_预测盲区直播受众",
+  "confidence": 0.62,
+  "reason": "正文核心为BS-PREDICT-LIVE-AUDIEN预测盲区与直播受众经验压缩",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_d83ac919_1788751741007",
+  "new_name": "kn_企鹅新卡补题",
+  "confidence": 0.72,
+  "reason": "批次395企鹅新卡与萤火虫蚯蚓补题，较原名更具体",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_d84b28bf_1788827476102",
+  "new_name": "kn_烽火通信镖局票号",
+  "confidence": 0.85,
+  "reason": "正文为烽火长城通信与镖局票号金融域通识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d84d8cc4_1788828980827",
+  "new_name": "kn_感官输入预测未中",
+  "confidence": 0.6,
+  "reason": "以感官输入条件+预测未中区分同批直播预测节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_d85d5ac8_1788725616032",
+  "new_name": "kn_自主盲区发现注册",
+  "confidence": 0.72,
+  "reason": "正文为感官输入下自主盲区发现并注册新盲区",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d87df7f9_1788591369930",
+  "new_name": "kn_素数坐标估值向量",
+  "confidence": 0.9,
+  "reason": "正文核心为估值向量条件卡与素数坐标运算",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d933b428_1788866248862",
+  "new_name": "kn_古籍修复工艺题库",
+  "confidence": 0.82,
+  "reason": "正文为古籍修复工艺知识卡与配套题库批次",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d993e9e1_1787134630436",
+  "new_name": "kn_人格维度连续修正",
+  "confidence": 0.78,
+  "reason": "正文核心为T/F、N/S可并存连续权重、仅E/I为方向轴的理论修正",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_d9fbad75_1788829634253",
+  "new_name": "kn_杂技幻术百科",
+  "confidence": 0.86,
+  "reason": "正文为杂技域通识卡：角抵百戏、幻术口技、吴桥非遗",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_dba8c4f2_1788224301828",
+  "new_name": "kn_中文思考语言纪律",
+  "confidence": 0.86,
+  "reason": "正文规定思考推理一律用中文及适用/不适用条件",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_dbb72db8_1788848595523",
+  "new_name": "kn_糖纸与剪纸流派",
+  "confidence": 0.82,
+  "reason": "正文为糖纸收藏与剪纸流派两类纸艺新卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_dbbd528a_1788620678488",
+  "new_name": "kn_架构项目归并待析",
+  "confidence": 0.62,
+  "reason": "正文要求将两个AGI架构项目归入新目录待分析",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_dc201e7c_1788621060501",
+  "new_name": "kn_菠萝酶与胶痕去除",
+  "confidence": 0.62,
+  "reason": "正文两张通识卡：菠萝蛋白酶扎嘴与不干胶胶痕去除",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_dcc87348_1788622256715",
+  "new_name": "kn_工程完整分析观察",
+  "confidence": 0.62,
+  "reason": "正文要求完整分析工程并报告观察，取此语义主干",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_de1deecb_1788814014987",
+  "new_name": "kn_华夏古迹三连新卡",
+  "confidence": 0.85,
+  "reason": "正文为三星堆/殷墟/乐山大佛三张古迹新卡录入记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_de2ccbdb_1788861422306",
+  "new_name": "kn_吉祥图案寓意解析",
+  "confidence": 0.86,
+  "reason": "正文为吉祥图案谐音象征组合法及四君子寓意域拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_de3ddee7_1788455036477",
+  "new_name": "kn_感官盲区探针压缩",
+  "confidence": 0.55,
+  "reason": "感知系统感官输入下的盲区探索经验压缩模式",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_de54ff82_1788613348215",
+  "new_name": "kn_数论四件套表架构",
+  "confidence": 0.88,
+  "reason": "正文为数论四件套（乘/分解/筛/环表）总档案",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_deb505bf_1788559048718",
+  "new_name": "kn_安全风险识别守则",
+  "confidence": 0.85,
+  "reason": "正文述网络入侵漏洞违法识别及认知行动分离守则",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_df1b3f3c_1788554785388",
+  "new_name": "kn_通识九五批次入库",
+  "confidence": 0.62,
+  "reason": "以95批次号区分同名节点，保留通识卡入库语义",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_df408714_1788619057303",
+  "new_name": "kn_年轮味觉通识双卡",
+  "confidence": 0.62,
+  "reason": "正文为树年轮与味觉地图两卡通识批次记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_df4af4b4_1788510969010",
+  "new_name": "kn_通识批次入库评测",
+  "confidence": 0.82,
+  "reason": "正文为通识拓展批次四卡入库与满分评测记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_df7d06fe_1788692588560",
+  "new_name": "kn_感官输入盲区注册",
+  "confidence": 0.72,
+  "reason": "条件为感知系统感官输入，正文注册新盲区",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_dfa66762_1788818051688",
+  "new_name": "kn_棋牌文学通识拓展",
+  "confidence": 0.86,
+  "reason": "正文为跳棋军棋与海明威文学题卡拓展批次",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_dfecc419_1788818857415",
+  "new_name": "kn_预测盲区审计压缩",
+  "confidence": 0.62,
+  "reason": "正文为BS-PREDICT-LIVE-AUDIEN等盲区探索经验压缩，突出预测审计语义",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_e10e8168_1788874972095",
+  "new_name": "kn_对联格律与趣联",
+  "confidence": 0.86,
+  "reason": "正文为对联格律与趣联卡补强及题库验证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e16f0cf7_1788583007922",
+  "new_name": "kn_欧盟申根与新航路",
+  "confidence": 0.72,
+  "reason": "正文核心为欧盟申根辨析与新航路开辟两卡",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_e17497f2_1788522940717",
+  "new_name": "kn_通识四十三批入库",
+  "confidence": 0.62,
+  "reason": "同名者众，以第43批次四卡入库特征区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_e183c506_1788850609382",
+  "new_name": "kn_感知系统盲区模式",
+  "confidence": 0.55,
+  "reason": "条件空间为感知系统感官输入，正文为盲区探索复用模式压缩",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e1a63252_1787047490511",
+  "new_name": "kn_感知盲区查询缓解",
+  "confidence": 0.62,
+  "reason": "正文为感知系统查询弱盲区探索缓解的学习结果",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e1c702cd_1788613040332",
+  "new_name": "kn_生活常识两卡拓展",
+  "confidence": 0.62,
+  "reason": "正文为跑步岔气与挑草莓两卡的通识拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e232646d_1788861646525",
+  "new_name": "kn_感知输入盲区探索",
+  "confidence": 0.55,
+  "reason": "条件为感知系统感官输入下的盲区探索经验压缩",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e23b3a0f_1788589230917",
+  "new_name": "kn_有限主义兑换条款",
+  "confidence": 0.82,
+  "reason": "正文为有限主义立场：无限须可兑换回有限凭证",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e24e6009_1788859616505",
+  "new_name": "kn_钟馗门神财神信仰",
+  "confidence": 0.88,
+  "reason": "正文为钟馗、门神与财神民间信仰知识卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e2a109b4_1788608901757",
+  "new_name": "kn_指纹与淀粉回生",
+  "confidence": 0.78,
+  "reason": "正文两卡为指纹解锁技术与淀粉回生生活常识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e2a2b7d8_1788640071524",
+  "new_name": "kn_五卅运动与羽绒服",
+  "confidence": 0.72,
+  "reason": "正文为批次228两卡：五卅运动、羽绒服清洗",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_e2b00a8d_1788490965947",
+  "new_name": "kn_项目复现路径指引",
+  "confidence": 0.62,
+  "reason": "正文为DIAMOND/Artemis项目路径与功能复现任务指令",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e2e20f37_1788742811144",
+  "new_name": "kn_感官输入预测观测",
+  "confidence": 0.5,
+  "reason": "正文加密不可读，据条件空间与预测路由标签取名",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e2e9f039_1788772143445",
+  "new_name": "kn_题库补题里程碑",
+  "confidence": 0.82,
+  "reason": "正文为批次428补题3张及题库破1500题里程碑",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e2f2e7a6_1788474498056",
+  "new_name": "kn_下载完成试用提示",
+  "confidence": 0.55,
+  "reason": "正文为下载完成可试用的提示语，以此区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_e338a918_1788823641649",
+  "new_name": "kn_晚清小说题库补位",
+  "confidence": 0.86,
+  "reason": "正文为批次515晚清小说（镜花缘、老残游记）补卡配题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e34c0265_1788516029928",
+  "new_name": "kn_软件版本更新指令",
+  "confidence": 0.62,
+  "reason": "正文为dsh新版本更新指令，属软件版本更新语义",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e394a304_1787725938275",
+  "new_name": "kn_经验压缩盲区发现",
+  "confidence": 0.55,
+  "reason": "正文为经验压缩归纳并登记新盲区，依附感知条件",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e3dea0f0_1788512061069",
+  "new_name": "kn_廿九批通识四卡",
+  "confidence": 0.82,
+  "reason": "以第29批次号+四卡入库区分同类节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_e4269300_1788830988956",
+  "new_name": "kn_感官盲区模式压缩",
+  "confidence": 0.72,
+  "reason": "正文为感官输入条件下盲区探索经验的可复用模式压缩",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e4720fb3_1788752964415",
+  "new_name": "kn_影视三部曲卡拓展",
+  "confidence": 0.82,
+  "reason": "正文为电影动画纪录片三张新卡拓展记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e4c30150_1788773885125",
+  "new_name": "kn_八大菜系题库补题",
+  "confidence": 0.62,
+  "reason": "正文系批次431通识拓展：八大菜系新卡与两卡补题入库",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e4c9bc77_1788493399523",
+  "new_name": "kn_降阶与状态完整性",
+  "confidence": 0.75,
+  "reason": "正文论高阶动力学降为一阶状态更新及状态完整代价",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e502b023_1788523718746",
+  "new_name": "kn_感官输入语义生成",
+  "confidence": 0.7,
+  "reason": "正文为图2语义生成，加语义生成以区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_e55421cc_1788764200886",
+  "new_name": "kn_成语语系六书补题",
+  "confidence": 0.78,
+  "reason": "正文为批次415语言文字三连存量卡补题记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e5f9b107_1788863866801",
+  "new_name": "kn_匏器鸣虫文化",
+  "confidence": 0.9,
+  "reason": "正文为匏器范制与鸣虫雅趣知识卡及配套题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e5ffb756_1788809858717",
+  "new_name": "kn_艺术名家卡片拓展",
+  "confidence": 0.82,
+  "reason": "正文为肖邦柴可夫斯基徐悲鸿等艺术名家卡片拓展批次",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e7d0c4b0_1786688551040",
+  "new_name": "kn_服务连接故障排查",
+  "confidence": 0.72,
+  "reason": "正文为MCP服务离线、重启失败根因与恢复运维记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e7d14f7f_1788857259897",
+  "new_name": "kn_插件仓库独立托管",
+  "confidence": 0.78,
+  "reason": "正文明确dsh-memory插件不入党主仓库，改用插件仓库作npm包仓库",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e7d3eabc_1788590806364",
+  "new_name": "kn_医保减重两卡入库",
+  "confidence": 0.72,
+  "reason": "正文为批次150收录医保报销与科学减重两卡记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e8470efa_1786688547744",
+  "new_name": "kn_评测伦理拒套壳",
+  "confidence": 0.86,
+  "reason": "正文为评测伦理决策：否决套壳参赛，主张以agent系统身份申报",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e850ff07_1788282335993",
+  "new_name": "kn_数值平衡标记核销",
+  "confidence": 0.72,
+  "reason": "游戏数值平衡第2轮标记层效果状态修正为完成",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_e91064b2_1788812680665",
+  "new_name": "kn_世界自然奇观三卡",
+  "confidence": 0.86,
+  "reason": "批次492三张世界自然奇观拓展卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e9298640_1788820750941",
+  "new_name": "kn_四大书院与六书",
+  "confidence": 0.78,
+  "reason": "正文为四大书院与汉字六书题库卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e94e55cf_1788622004850",
+  "new_name": "kn_语义分解方法借鉴",
+  "confidence": 0.72,
+  "reason": "正文主张借鉴语义分解实现，用于子部件分解",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e95f7a96_1788868970036",
+  "new_name": "kn_感官输入双例漏判",
+  "confidence": 0.55,
+  "reason": "含感官输入与两例预测未命中特征可区分",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_e983fe33_1788685529003",
+  "new_name": "kn_上下文七件套定论",
+  "confidence": 0.82,
+  "reason": "正文为dsh-memory第五篇上下文处理定论与七件套映射",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e9897ba0_1788604131648",
+  "new_name": "kn_生活常识问答三则",
+  "confidence": 0.72,
+  "reason": "正文为保鲜膜微波、牙膏色条、冰箱除味三条生活常识问答",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e9a38fa7_1788556797004",
+  "new_name": "kn_画风先决判据校准",
+  "confidence": 0.82,
+  "reason": "正文核心为画风先决决定脸型判据适用性的分层校准",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_e9a98b62_1788745718102",
+  "new_name": "kn_通识补题与评测",
+  "confidence": 0.78,
+  "reason": "正文为批次384补题3张并题库评测提交",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e9aa7e58_1788847867755",
+  "new_name": "kn_插件仓库归属澄清",
+  "confidence": 0.72,
+  "reason": "正文澄清主仓库非dsh插件、灵枢dsh-memory才应上架",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_e9b4794c_1786937685119",
+  "new_name": "kn_查询盲区弱项缓解",
+  "confidence": 0.62,
+  "reason": "凸显QUERY-WEAK盲区缓解，区分同族节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_eace5c72_1787067062870",
+  "new_name": "kn_盲区探索缓解完成",
+  "confidence": 0.62,
+  "reason": "正文为盲区BS-QUERY-WEAK-6274探索完成并缓解的记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_eb0e0e3b_1788676074511",
+  "new_name": "kn_汉字部件嵌套管线",
+  "confidence": 0.86,
+  "reason": "正文为文字模态设计，汉字部件嵌套不走ViT token路线",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_eb251c97_1787135906737",
+  "new_name": "kn_记忆重要性评估",
+  "confidence": 0.85,
+  "reason": "正文为记忆重要性评估v2新增结构分量规则",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_eb3f30dd_1788516405013",
+  "new_name": "kn_鉴真东渡四卡入库",
+  "confidence": 0.72,
+  "reason": "以四卡具体内容锚定，避免批次入库类重名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_eb5d1402_1786939644450",
+  "new_name": "kn_行动提案验证链",
+  "confidence": 0.72,
+  "reason": "正文述行动意图经提案验证终裁执行链路",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ebcaf9cf_1788481137820",
+  "new_name": "kn_条件记忆压缩架构",
+  "confidence": 0.72,
+  "reason": "正文讲智能体记忆系统：压缩巩固、条件路由、世界模型",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ec315c9f_1788455199478",
+  "new_name": "kn_睡眠巩固接口补正",
+  "confidence": 0.62,
+  "reason": "正文为睡眠巩固轮次relate/predict/think接口踩坑补正记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_ec7734c2_1788820513624",
+  "new_name": "kn_今日星星记录",
+  "confidence": 0.35,
+  "reason": "正文仅短句'今日的星星138'，取其中实义词保守命名",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ec77d843_1788581609064",
+  "new_name": "kn_身份证与折扣计算",
+  "confidence": 0.72,
+  "reason": "正文核心为身份证号结构与满减折扣两道精题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ecba7828_1786688541948",
+  "new_name": "kn_协议觉醒游戏实现",
+  "confidence": 0.86,
+  "reason": "正文为协议觉醒v3游戏项目实现与情感系统设计",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ecd2f316_1788591293468",
+  "new_name": "kn_估值向量数学纲领",
+  "confidence": 0.76,
+  "reason": "正文为离散条件数学纲领，核心是估值向量与收敛判据",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ed07b12a_1788591428470",
+  "new_name": "kn_乘车骑行安全常识",
+  "confidence": 0.78,
+  "reason": "正文为地铁乘车与电动车头盔安全通识要点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_ed0d6445_1788804452310",
+  "new_name": "kn_世界名著三卡拓展",
+  "confidence": 0.85,
+  "reason": "正文为小王子等三部名著新卡入库与题库评测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_ed5b43ab_1788517892079",
+  "new_name": "kn_跨端记忆更新复现",
+  "confidence": 0.55,
+  "reason": "正文述zcode记忆与dsh更新及世界模型复现",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_ed5edeec_1788657571388",
+  "new_name": "kn_图像子部件识别",
+  "confidence": 0.72,
+  "reason": "正文聚焦图像子部件分割识别与语义还原精度提升",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ee6496bd_1787970554811",
+  "new_name": "kn_查询弱盲区消解",
+  "confidence": 0.72,
+  "reason": "正文记录查询弱盲区探索完成并已消解",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ee8cb599_1788832779092",
+  "new_name": "kn_篆刻印章文房四宝",
+  "confidence": 0.85,
+  "reason": "正文为篆刻印章卡与文房四宝补题拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_eef40744_1788829283923",
+  "new_name": "kn_感官盲区弱项压缩",
+  "confidence": 0.55,
+  "reason": "取盲区与查询弱项语义，区别于预测类同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_ef12c3ef_1788854865716",
+  "new_name": "kn_三国典故题库卡",
+  "confidence": 0.86,
+  "reason": "正文为三国演义典故卡与配套题目批次记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_ef78beaa_1788739119915",
+  "new_name": "kn_记忆安装确认",
+  "confidence": 0.62,
+  "reason": "节点确认dsh-memory能否正常安装",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_f010c7df_1788843695458",
+  "new_name": "kn_集邮钱币收藏拓展",
+  "confidence": 0.86,
+  "reason": "正文为集邮与钱币收藏通识拓展批次内容",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f05a9389_1788687040451",
+  "new_name": "kn_激活引擎条件衰减",
+  "confidence": 0.82,
+  "reason": "正文为M1激活引擎交付，核心是激活子图与条件衰减",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f0b778dc_1788493423338",
+  "new_name": "kn_认知相空间降阶",
+  "confidence": 0.76,
+  "reason": "正文讲一阶相空间降阶、状态完整性与扩维",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f0cfe5f9_1788491297771",
+  "new_name": "kn_语音合成复现",
+  "confidence": 0.85,
+  "reason": "里程碑正文为CosyVoice2合成女友台词的TTS复现",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f0fa1c8b_1788508476414",
+  "new_name": "kn_通识题库拓展入库",
+  "confidence": 0.85,
+  "reason": "正文记通识拓展批次四域入库与评测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_f1630fa1_1786722151837",
+  "new_name": "kn_协议核心机制",
+  "confidence": 0.85,
+  "reason": "正文为灵枢协议核心：信息差、条件空间、五层记忆等机制",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f1a82580_1788736817039",
+  "new_name": "kn_条件代码图回忆",
+  "confidence": 0.55,
+  "reason": "正文询问条件代码图构建方法，属回忆性内容",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f1b9818f_1788368875227",
+  "new_name": "kn_睡眠巩固守护落地",
+  "confidence": 0.78,
+  "reason": "核心为守护任务落地与恢复链路验证，可区分同名睡眠报告",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_f20f8a0d_1786688534005",
+  "new_name": "kn_递归验证反思技能",
+  "confidence": 0.72,
+  "reason": "正文核心为REFLECT-REV1递归验证反思流程与实现",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f27238c1_1788736974324",
+  "new_name": "kn_感知输入记忆召回",
+  "confidence": 0.55,
+  "reason": "感知系统感官输入条件下记忆按需召回非全量",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f2771e77_1788875464279",
+  "new_name": "kn_字谜歇后语卡片",
+  "confidence": 0.85,
+  "reason": "正文为字谜歇后语卡片与配套题目",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_f29affb2_1788595687637",
+  "new_name": "kn_谦辞敬辞座次挑瓜",
+  "confidence": 0.72,
+  "reason": "正文含谦敬辞、宴席座次、挑西瓜三通识主题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f29ead22_1788755280153",
+  "new_name": "kn_生活权益三连补题",
+  "confidence": 0.82,
+  "reason": "正文为批次401补题社保医疗防诈三卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f2c75149_1788623152594",
+  "new_name": "kn_卷积感知通用框架",
+  "confidence": 0.82,
+  "reason": "正文述卷积加速用于语音视觉等通用感知",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_f34ac7d6_1786898434790",
+  "new_name": "kn_神经嵌入语义检索",
+  "confidence": 0.5,
+  "reason": "正文加密不可读，据标签判为神经嵌入语义检索",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f35d0943_1788844675102",
+  "new_name": "kn_善本与连环画收藏",
+  "confidence": 0.82,
+  "reason": "正文为善本收藏与连环画收藏新卡及配套题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f3890bdc_1786688544507",
+  "new_name": "kn_元反思递归验证",
+  "confidence": 0.82,
+  "reason": "正文为元反思加递归验证三级闭环流程设计",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f3eb2a6a_1788906410145",
+  "new_name": "kn_本地记忆仓库读写",
+  "confidence": 0.78,
+  "reason": "正文述AEIS本地仓库记忆位置及dsh/zcode共读写",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f3f6e2ac_1788539839295",
+  "new_name": "kn_题库通识卡片入库",
+  "confidence": 0.72,
+  "reason": "正文记通识拓展批次四科卡片入库与评测",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_f4ae4b30_1786688812228",
+  "new_name": "kn_协议觉醒卡牌游戏",
+  "confidence": 0.85,
+  "reason": "正文为协议觉醒v3四职业卡牌策略游戏开发记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f4efc8af_1788873445965",
+  "new_name": "kn_豆腐与满汉全席",
+  "confidence": 0.78,
+  "reason": "正文为食文化域豆腐与满汉全席新卡及配套题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f4f094f6_1788788747617",
+  "new_name": "kn_通识补题题库评测",
+  "confidence": 0.72,
+  "reason": "批次453存量卡补题3张并完成题库全量评测",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f548291c_1788830878555",
+  "new_name": "kn_地方戏曲大观",
+  "confidence": 0.86,
+  "reason": "正文为地方戏四剧种知识卡与配套题目拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f570fbba_1788783342621",
+  "new_name": "kn_艺术思维通识补题",
+  "confidence": 0.72,
+  "reason": "正文为绘画、贝多芬、数字黑洞三卡补题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f60a1b92_1788607044347",
+  "new_name": "kn_冻疮口臭常识",
+  "confidence": 0.78,
+  "reason": "正文为冻疮与口臭两则生活常识卡及批次记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f6f8ae51_1788738750963",
+  "new_name": "kn_发布权限卡点",
+  "confidence": 0.82,
+  "reason": "正文核心为包发布权限不足致标签更新受阻的卡点记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_f78a646a_1788831623328",
+  "new_name": "kn_扇窑锦器物工艺",
+  "confidence": 0.82,
+  "reason": "正文为四大名扇、五大名窑、三大名锦工艺通识",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f830ed50_1788762000552",
+  "new_name": "kn_民俗主粮三卡拓展",
+  "confidence": 0.82,
+  "reason": "正文为舞龙舞狮/庙会灯谜/小麦三张新卡拓展记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f9508720_1788547593523",
+  "new_name": "kn_八十三批四卡入库",
+  "confidence": 0.82,
+  "reason": "正文为通识拓展83批四卡入库与评测结果",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_f963553f_1788509191147",
+  "new_name": "kn_二五批四新域入库",
+  "confidence": 0.78,
+  "reason": "正文为通识拓展第25批四新域入库，以批次号区分同族节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_f96a9d21_1788530198520",
+  "new_name": "kn_通识题卡入库评测",
+  "confidence": 0.85,
+  "reason": "正文为通识拓展批次四卡入库及题库评测满分记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f9ae6f1a_1788752335300",
+  "new_name": "kn_芳烃特征值补题",
+  "confidence": 0.6,
+  "reason": "含芳烃特征值与拉格朗日补题，取具体题名区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_f9b735d7_1786624457484",
+  "new_name": "kn_协议版本复询应答",
+  "confidence": 0.62,
+  "reason": "正文为可复用模式，指涉用户反复询问协议版本的应答经验",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_f9e4ae05_1788662759946",
+  "new_name": "kn_协议实例预测盲区",
+  "confidence": 0.45,
+  "reason": "正文加密，以协议实例运行约束区分同名节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_f9ff8eca_1788520245915",
+  "new_name": "kn_插件配置覆盖固化",
+  "confidence": 0.86,
+  "reason": "正文述dsh插件profile覆盖补全配置的依赖固化",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_fa964596_1788836004023",
+  "new_name": "kn_插件启动报错诊断",
+  "confidence": 0.72,
+  "reason": "正文为灵枢插件安装后启动报错(bundle缺失/模块找不到)的诊断",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_fabdb0ae_1788481653760",
+  "new_name": "kn_白箱条件智能纲领",
+  "confidence": 0.78,
+  "reason": "正文为GLM外部验证与白箱可审计条件智能行动纲领",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_fac5d8b5_1788532026800",
+  "new_name": "kn_五十八批四科入库",
+  "confidence": 0.72,
+  "reason": "含批次号58与四科入库，可区分同名批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_fad0cf2c_1788525010569",
+  "new_name": "kn_感官输入条件约束",
+  "confidence": 0.55,
+  "reason": "正文以感知系统感官输入的生效条件与约束为主，附加查阅指令",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_fb0e43c7_1788902761141",
+  "new_name": "kn_白箱题库迁移",
+  "confidence": 0.35,
+  "reason": "正文加密，据标签推断为白箱题库迁移事件",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_fb664e14_1788827738987",
+  "new_name": "kn_感官输入经验条件",
+  "confidence": 0.62,
+  "reason": "条件空间载体为感知系统、方法为感官输入，正文载其压缩经验",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_fb6c033a_1788565650867",
+  "new_name": "kn_近视药品流感三卡",
+  "confidence": 0.62,
+  "reason": "取三卡主题词区分同名批次节点",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_fb8c9d69_1786940613482",
+  "new_name": "kn_新奇前馈强化编码",
+  "confidence": 0.85,
+  "reason": "海马体新颖刺激即时prefeed强化编码机制",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_fbad193c_1788589482248",
+  "new_name": "kn_查表法计算压缩",
+  "confidence": 0.86,
+  "reason": "正文论查表法为条件结算凝固及其向快速乘法变换域的压缩演进",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_fbe74871_1788525649013",
+  "new_name": "kn_未成年人色情识别",
+  "confidence": 0.82,
+  "reason": "正文要求建立未成年性内容识别功能并白箱化",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_fc612868_1788800709105",
+  "new_name": "kn_站点包漂移复查",
+  "confidence": 0.75,
+  "reason": "正文为site-packages副本版本漂移任务夜间复查记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_fcc38548_1788592572711",
+  "new_name": "kn_感官输入时段协议",
+  "confidence": 0.5,
+  "reason": "正文仅条件声明：感官输入+一小时内时段+协议运行中",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_fcd1b847_1788512758125",
+  "new_name": "kn_通识三十一批四卡",
+  "confidence": 0.75,
+  "reason": "正文为第31批通识四卡入库记录，加批次号区分同名",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_fcfa848b_1788623372202",
+  "new_name": "kn_并行查表性能实证",
+  "confidence": 0.87,
+  "reason": "正文为Rust并行查表561x实测证据，支撑并行条件路由",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_fd3fc722_1788747317315",
+  "new_name": "kn_通识题卡拓展评测",
+  "confidence": 0.72,
+  "reason": "正文为通识新卡拓展与题库评测记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_fd67a7e6_1788855565386",
+  "new_name": "kn_直播未命中双例",
+  "confidence": 0.6,
+  "reason": "两条压缩经验均为直播预测未命中案例",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_fd70164c_1788751125536",
+  "new_name": "kn_通识题库存量补题",
+  "confidence": 0.72,
+  "reason": "正文为批次394存量卡补题与题库评测记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_fd8fdab6_1788608240581",
+  "new_name": "kn_防雾与挑鸡蛋常识",
+  "confidence": 0.85,
+  "reason": "正文为眼镜防雾与挑鸡蛋两卡生活常识批次",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_fe18773e_1788877869824",
+  "new_name": "kn_泥塑年画通识拓展",
+  "confidence": 0.86,
+  "reason": "正文为泥人张惠山泥人与年画四大产地通识卡",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_fedbef51_1788114036148",
+  "new_name": "kn_协议觉醒引擎化",
+  "confidence": 0.55,
+  "reason": "正文述协议觉醒v3标记层效果引擎化任务闭环",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_fef0f0e1_1788760729596",
+  "new_name": "kn_通识拓展补题",
+  "confidence": 0.62,
+  "reason": "正文为通识批次补题与新卡入库记录",
+  "q2_aligned": true,
+  "fixed": true
+ },
+ {
+  "old_id": "node_ff9fc9d9_1788811025276",
+  "new_name": "kn_传统美食通识拓展",
+  "confidence": 0.85,
+  "reason": "正文为粽子糖葫芦小笼包三卡通识拓展",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "vpipe_ef30d4d3_1788653988592",
+  "new_name": "kn_图像识别管线保护",
+  "confidence": 0.6,
+  "reason": "正文加密，据标签vpipe/protect与图像识别条件空间定名",
+  "q2_aligned": true,
+  "fixed": false
+ }
+]

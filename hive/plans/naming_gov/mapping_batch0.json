@@ -1,0 +1,85 @@
+[
+ {
+  "old_id": "node_004b4e64_1788515788324",
+  "new_name": "kn_题库通识批次入库",
+  "confidence": 0.86,
+  "reason": "正文为通识题库批次四卡入库与满分评测记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_00566869_1788857687082",
+  "new_name": "kn_议题回复待办",
+  "confidence": 0.55,
+  "reason": "正文为待回复议题提示，非纯元数据",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_006313c5_1788833065903",
+  "new_name": "kn_直播预测未命中",
+  "confidence": 0.55,
+  "reason": "正文为感知系统条件下压缩的直播预测未命中经验",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_007d5a7a_1788589603272",
+  "new_name": "kn_逆运算查表费用",
+  "confidence": 0.76,
+  "reason": "正文核心是逆运算查表费用定性与条件论纲要提议",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_01066d8c_1788870255068",
+  "new_name": "kn_近世服饰马褂长衫",
+  "confidence": 0.88,
+  "reason": "正文为马褂长衫等近世服饰知识卡与配题",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_01284dea_1788737365872",
+  "new_name": "kn_认知图目录方案",
+  "confidence": 0.82,
+  "reason": "正文为认知图MD目录方案设计与P0原型验证记录",
+  "q2_aligned": true,
+  "fixed": false
+ },
+ {
+  "old_id": "node_01970019_1788815976271",
+  "new_name": "kn_感官预测未命中",
+  "confidence": 0.72,
+  "reason": "压缩模式为感官输入下的预测未命中经验",
+  "q2_aligned": true,
+  "fixed": true,
+  "old_rejected": "kn_感官输入预测未命中"
+ },
+ {
+  "old_id": "node_01bb5cb6_1788737207355",
+  "new_name": "kn_记忆原型设计验证",
+  "confidence": 0.8,
+  "reason": "正文为设计文档与记忆原型制作测试",
+  "q2_aligned": true,
+  "fixed": true,
+  "old_rejected": "kn_记忆原型设计与验证"
+ },
+ {
+  "old_id": "node_022ef1bb_1788602804836",
+  "new_name": "kn_通识拓展收官",
+  "confidence": 0.7,
+  "reason": "覆盖晨练洗头质数三题批次收官记录",
+  "q2_aligned": true,
+  "fixed": true,
+  "old_rejected": "kn_通识拓展批次170收官"
+ },
+ {
+  "old_id": "node_02531d7f_1788855860090",
+  "new_name": "kn_红楼梦典故题卡",
+  "confidence": 0.88,
+  "reason": "正文为红楼梦经典桥段题卡与配题记录",
+  "q2_aligned": true,
+  "fixed": false
+ }
+]

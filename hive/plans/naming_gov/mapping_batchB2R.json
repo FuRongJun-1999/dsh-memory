@@ -1,0 +1,254 @@
+[
+ {
+  "old_id": "doc_9ba9837f8350",
+  "old_name": null,
+  "new_name": "kn_会话文件布局",
+  "kind": "B2R_extend",
+  "confidence": 0.9,
+  "reason": "章节标题即文件布局，内容描述会话文件结构，取会话文件布局。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_72e90e4b4f28",
+  "old_name": null,
+  "new_name": "kn_深度求索检索扩展",
+  "kind": "B2R_extend",
+  "confidence": 0.75,
+  "reason": "dsh 为 DeepSeek Harness 扩展，功能是让智能体检索自身会话，意译为深度求索检索扩展。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_12c2579110eb",
+  "old_name": null,
+  "new_name": "kn_情节单元与混合检索",
+  "kind": "B2R_extend",
+  "confidence": 0.85,
+  "reason": "子节含 Episodes 与 Hybrid Search，核心概念为情节单元与混合检索。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_258f4d6eb1c1",
+  "old_name": null,
+  "new_name": "kn_合并与清理收尾",
+  "kind": "B2R_extend",
+  "confidence": 0.85,
+  "reason": "第五阶段为合并并清理，属收尾步骤，取合并与清理收尾。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_7312543b6cf6",
+  "old_name": null,
+  "new_name": "kn_检索结果字段",
+  "kind": "B2R_extend",
+  "confidence": 0.85,
+  "reason": "章节列出检索返回的字段，取检索结果字段。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_78bc8e4873b1",
+  "old_name": null,
+  "new_name": "kn_提交前解析代理标识",
+  "kind": "B2R_extend",
+  "confidence": 0.85,
+  "reason": "提交前解析 AGENT_ID 等标识，取提交前解析代理标识。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_fbe83b190d33",
+  "old_name": null,
+  "new_name": "kn_提交前解析父代理标识",
+  "kind": "B2R_extend",
+  "confidence": 0.85,
+  "reason": "同流程但属 v2 文档，强调父代理标识解析，取提交前解析父代理标识。",
+  "fixed": false
+ },
+ {
+  "old_id": "code_08990360cfe8",
+  "old_name": null,
+  "new_name": "kn_条件空间转串方法",
+  "kind": "B2R_extend",
+  "confidence": 0.85,
+  "reason": "test_wisdom_md_store.py 中 ConditionSpaceCS 的 to_json 定义，意译为条件空间转串方法。",
+  "fixed": false
+ },
+ {
+  "old_id": "code_29ec25dc9b75",
+  "old_name": null,
+  "new_name": "kn_时空记忆多边最短路径",
+  "kind": "B2R_extend",
+  "confidence": 0.9,
+  "reason": "whitebox_kb 中 SpacetimeMemoryEngine 的多边类型最短路径函数。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_7c28724cfa70",
+  "old_name": null,
+  "new_name": "kn_三专题合并补测总收尾",
+  "kind": "B2R_extend",
+  "confidence": 0.8,
+  "reason": "文档 3B 章节，v0.4 父章节下的三专题合并补测优先级总收尾。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_8fa8fb212701",
+  "old_name": null,
+  "new_name": "kn_三专题合并补测收尾续",
+  "kind": "B2R_extend",
+  "confidence": 0.75,
+  "reason": "同标题章节但父章节为 v0.2，以续字区分同组节点。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_fa1e24960739",
+  "old_name": null,
+  "new_name": "kn_端口锚定记忆映射矩阵",
+  "kind": "B2R_extend",
+  "confidence": 0.85,
+  "reason": "文档 1A 章节，端口锚定与五层记忆映射矩阵。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_subject_6452222927_1787018087635",
+  "old_name": null,
+  "new_name": "kn_派森语言机制与适用边界",
+  "kind": "B2R_extend",
+  "confidence": 0.9,
+  "reason": "正文详述Python动态类型、解释执行、缩进作用域、全局解释器锁等机制及适用场景，意译原名。",
+  "fixed": false
+ },
+ {
+  "old_id": "kp_7081627180_1787025941687",
+  "old_name": null,
+  "new_name": "kn_关系代数与结构化查询语言",
+  "kind": "B2R_extend",
+  "confidence": 0.9,
+  "reason": "正文讲关系代数运算与SQL数据定义操作控制，SQL意译为结构化查询语言。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_0c87ff20e146",
+  "old_name": null,
+  "new_name": "kn_节点级对账孤儿清退",
+  "kind": "B2R_extend",
+  "confidence": 0.85,
+  "reason": "该章节取证纪录聚焦节点级对账与孤儿悬空清退，与同批其他条目区分。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_bf580750112f",
+  "old_name": null,
+  "new_name": "kn_节点对账与索引追加排除",
+  "kind": "B2R_extend",
+  "confidence": 0.85,
+  "reason": "该章节同时覆盖节点级对账与索引追加排除两项取证内容。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_13d9c90641d1",
+  "old_name": null,
+  "new_name": "kn_真实现场巡检兜底处置",
+  "kind": "B2R_extend",
+  "confidence": 0.8,
+  "reason": "该章节记录常驻进程旧代码下按纪律走等价兜底的现场巡检处置。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_e07787b34fd3",
+  "old_name": null,
+  "new_name": "kn_现场巡检与索引排除实测",
+  "kind": "B2R_extend",
+  "confidence": 0.8,
+  "reason": "该章节记录现场巡检命令实测及索引追加排除的取证结果。",
+  "fixed": false
+ },
+ {
+  "old_id": "doc_6b352d059052",
+  "old_name": null,
+  "new_name": "kn_对账开销与处置边界",
+  "kind": "B2R_extend",
+  "confidence": 0.85,
+  "reason": "该章节陈述对账读盘开销与只处置孤儿悬空的诚实边界。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_0a7a8bab_1788099230773",
+  "old_name": null,
+  "new_name": "kn_弱查询盲区探索模式",
+  "kind": "B2R_extend",
+  "confidence": 0.8,
+  "reason": "正文为弱查询盲区探索的可复用经验压缩模式。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_0f893a10_1788368625040",
+  "old_name": null,
+  "new_name": "kn_弱查询盲区探索记录",
+  "kind": "B2R_extend",
+  "confidence": 0.85,
+  "reason": "正文以弱查询盲区探索证据为主，取意译名且避开重名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_867bbc48_1788876698395",
+  "old_name": null,
+  "new_name": "kn_验证循环盲区探索记录",
+  "kind": "B2R_extend",
+  "confidence": 0.85,
+  "reason": "证据含验证循环与主动性盲区探索，取验证循环盲区意译名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_86fa2ed6_1788855047685",
+  "old_name": null,
+  "new_name": "kn_验证循环盲区探索纪要",
+  "kind": "B2R_extend",
+  "confidence": 0.8,
+  "reason": "同为验证循环盲区探索，换用纪要区分同组节点。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_bd8e3645_1788112887325",
+  "old_name": null,
+  "new_name": "kn_验证循环盲区探索摘要",
+  "kind": "B2R_extend",
+  "confidence": 0.8,
+  "reason": "证据结构相同，以摘要作区分名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_f3fd22fe_1788865038698",
+  "old_name": null,
+  "new_name": "kn_验证循环盲区探索摘录",
+  "kind": "B2R_extend",
+  "confidence": 0.8,
+  "reason": "同组同源证据，用摘录区分且不含禁用词。",
+  "fixed": false
+ },
+ {
+  "old_id": "None",
+  "old_name": null,
+  "new_name": "kn_语义原子化双语检索核对",
+  "kind": "B2R_extend",
+  "confidence": 0.9,
+  "reason": "正文为语义原子化双语检索的取证核对，直接意译功能名。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_8c34bd66_1786688552068",
+  "old_name": null,
+  "new_name": "kn_感知系统运行时段记录",
+  "kind": "B2R_extend",
+  "confidence": 0.75,
+  "reason": "正文仅载感知系统生效时段与关联项目，取运行时段记录。",
+  "fixed": false
+ },
+ {
+  "old_id": "node_b1a20593_1788589902677",
+  "old_name": null,
+  "new_name": "kn_感知系统运行时段纪要",
+  "kind": "B2R_extend",
+  "confidence": 0.7,
+  "reason": "同为感知系统时段记录，用纪要区分同组节点。",
+  "fixed": false
+ }
+]
