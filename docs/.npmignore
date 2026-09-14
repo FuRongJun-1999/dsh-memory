@@ -1,0 +1,27 @@
+# npm 打包排除清单（docs/ 子目录级）
+#
+# ⚠️ 为什么必须放这里而不是仓库根：npm 在 package.json 存在 files 白名单时，
+# 根级 .npmignore 被整体忽略，只有「白名单目录自身的 .npmignore」生效
+# （与 md_cg/.npmignore 同一套机制，2026-09-15 实证修复）。
+#
+# 实证（修复前 dry-run）：docs/experiments/md-cg-gate-probe/_store/ 下 40+ 个
+# 运行时文件被打进发布产物——15+ 个 _audit.jsonl（操作留痕，单最大 133.8kB）、
+# 4 个 _index_log（索引日志，单最大 511.2kB）、_access.log、_index.json.lock，
+# 另有 docs/experiments 下 2 个 __pycache__/*.pyc。
+# 这些是探针运行时生成的凭据信封/审计留痕，与 md_cg 的 _keys.json 同级别，绝不入包。
+
+# 认知图运行时状态（本目录下任意层级）
+_keys.json
+_keys.*.json
+*_audit.jsonl
+_access.log
+_index.json
+_index.json.lock
+_index_log/
+_refindex.json
+
+# Python 字节码缓存（本目录下任意层级）
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
