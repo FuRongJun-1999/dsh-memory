@@ -117,12 +117,17 @@ TOOLS = [
                           },
     {
         "name": "mdcg_recall",
-        "description": "按 token 预算召回记忆包（RRF 多路融合，超大条目跳过而非停下）。"
+        "description": "按 token 预算召回记忆包（RRF 多路融合）。装包策略：条目超预算时"
+                       "**按 max_item_tokens 截取前 N token 摘录纳入**（返回体标 truncated=true），"
+                       "仅当剩余预算放不下最小摘录时才跳过——避免旧行为"
+                       "「跳过超大、继续试更小的」在预算紧张时淘汰最有价值的详实条目。"
                        "会话开始或重要工作前调用。可选启用第 5 路模糊召回（分级隶属度）"
                        "与第 6 路条件语义路（条件结构驱动），并注入调用方 LLM 的查询"
                        "扩展词（索引侧始终白箱）。",
         "inputSchema": _s("", query=_p("string", "描述当前任务的查询", True),
                           budget_tokens=_p("integer", "token 预算（默认 1200）"),
+                          max_item_tokens=_p("integer", "单条上限（默认 250）；超限条目截断纳入。"
+                                                        "传 0 关闭截断、回到「超大一律跳过」的旧行为"),
                           k=_p("integer", "候选上限"), context=_p("object", "当前情境条件空间"),
                           include_work=_p("boolean", "是否含工具输出/命令/编辑（默认否）"),
                           fuzzy=_p("boolean", "启用第 5 路模糊召回（分级隶属度，默认否）"),
@@ -2331,8 +2336,14 @@ def _dispatch(cg, name, args):
         # self@1 拉低 10.1%，因为求和奖励「多路共识」、低估「模糊路独有」的目标。
         # semantic 路同理：条件结构命中常是「独有召回」，故一并缺省 max。
         fusion = a.get("fusion") or ("max" if (use_fuzzy or use_semantic or use_goal) else None)
+        # 默认单条上限从 mdcos 取（该模块只在 main() 里惰性导入，模块级没有名字，
+        # 直接引用 mdcos.DEFAULT_MAX_ITEM_TOKENS 会 NameError —— 故此处按需导入）。
+        from .mdcos import DEFAULT_MAX_ITEM_TOKENS as _DEFAULT_MAX_ITEM
         return cg.recall(a.get("query", ""),
                          budget_tokens=int(a.get("budget_tokens") or 1200),
+                         max_item_tokens=int(a["max_item_tokens"])
+                         if a.get("max_item_tokens") is not None
+                         else _DEFAULT_MAX_ITEM,
                          k=int(a.get("k") or 20), context=a.get("context"),
                          include_work=bool(a.get("include_work")),
                          paths=paths, fusion=fusion,

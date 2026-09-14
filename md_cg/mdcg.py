@@ -586,6 +586,10 @@ class MdCG:
                     parent = os.path.basename(dirpath)
                     nodes[nid] = {
                         "path": rel, "layer": fm.get("layer", layer),
+                        # role 必须回填：它写在节点 frontmatter 里（写入时 role or "user"），
+                        # 但索引重建时若不复制，os.roles 会全部退化为 (none)，
+                        # 来源归因打分随之失效（实测 48 条全丢）。
+                        "role": fm.get("role"),
                         "tags": fm.get("tags", []),
                         "bucket": parent if parent != layer else None,
                         "importance": fm.get("importance", 0.5),
