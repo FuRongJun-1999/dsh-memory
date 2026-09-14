@@ -68,6 +68,7 @@ DEFAULT_BEAT_INTERVAL = 600.0     # 心跳间隔 10min（对齐 mutual-sustain-l
 DEFAULT_HEAL_INTERVAL = 300.0     # 自愈巡检 5min
 DEFAULT_SCRUB_INTERVAL = 3600.0   # 记忆自净（抽查/去污染/校准）1h
 DEFAULT_EVOLVE_INTERVAL = 7200.0  # 演化巡检（固化/重要性候选盘点）2h；只读
+DEFAULT_TIDY_INTERVAL = 21600.0   # 整理巡检（contextual 同构组聚合）6h
 DEFAULT_WARN_FACTOR = 2.5         # 2.5× 心跳间隔 → 警告
 DEFAULT_DEAD_FACTOR = 3.5         # 3.5× → 失联
 DEFAULT_WORKING_FACTOR = 2.0      # 任务执行中阈值 ×2
@@ -769,7 +770,9 @@ class SustainLoop:
                  scrub_interval: float = DEFAULT_SCRUB_INTERVAL,
                  auto_scrub: bool = False,
                  evolve_interval: float = DEFAULT_EVOLVE_INTERVAL,
-                 auto_evolve: bool = False):
+                 auto_evolve: bool = False,
+                 tidy_interval: float = DEFAULT_TIDY_INTERVAL,
+                 auto_tidy: bool = False):
         self.cg = cg
         self.name = name
         self.beat_interval = float(beat_interval)
@@ -781,6 +784,8 @@ class SustainLoop:
         self.auto_scrub = bool(auto_scrub)
         self.evolve_interval = float(evolve_interval)
         self.auto_evolve = bool(auto_evolve)
+        self.tidy_interval = float(tidy_interval)
+        self.auto_tidy = bool(auto_tidy)
         self.task_running = False
         self.beats = 0
         self.last_beat = None
@@ -790,6 +795,8 @@ class SustainLoop:
         self.scrubs = []
         self.last_evolve = None
         self.evolves = []
+        self.last_tidy = None
+        self.tidys = []
         self._started_at = None
         self._th = None
         self._stop = threading.Event()
@@ -834,6 +841,7 @@ class SustainLoop:
         next_heal = time.time() + self.heal_interval
         next_scrub = time.time() + self.scrub_interval
         next_evolve = time.time() + self.evolve_interval
+        next_tidy = time.time() + self.tidy_interval
         while not self._stop.is_set():
             now = time.time()
             if now >= next_beat:
@@ -860,7 +868,32 @@ class SustainLoop:
                 except Exception:
                     pass                       # 演化巡检失败不中断常驻
                 next_evolve = now + self.evolve_interval
+            if now >= next_tidy:
+                try:
+                    self._tick_tidy()
+                except Exception:
+                    pass                       # 整理巡检失败不中断常驻
+                next_tidy = now + self.tidy_interval
             self._stop.wait(_POLL)
+
+    def _tick_tidy(self):
+        """整理巡检（contextual 流水治理·读侧）：同构组聚合 + 成员降权。
+
+        确定性动作、永不删节点；`auto_tidy=False`（默认）只盘点不落盘。
+        治理对象：单日批次流水（「批次247收官记忆」×163 那类同模板写入）
+        —— 写入侧限流（writelimit.check）拦增量，本巡检收敛存量。
+        """
+        from . import writelimit
+        r = writelimit.tidy_contextual(self.cg, apply=self.auto_tidy,
+                                       actor="sustain_tidy")
+        rec = {"t": r["t"], "scanned": r["scanned"], "groups": r["groups"],
+               "members": r["members"],
+               "applied_count": r.get("applied_count", 0),
+               "auto_tidy": self.auto_tidy}
+        self.last_tidy = rec
+        with self._lock:
+            self.tidys.append(rec)
+            self.tidys = self.tidys[-20:]
 
     def _tick_evolve(self):
         """演化巡检（G7）：盘点固化/重要性候选 —— 让「有能力」变成「有驱动」。
@@ -945,6 +978,8 @@ class SustainLoop:
                 "auto_evolve": self.auto_evolve,
                 "last_evolve": self.last_evolve,
                 "evolves": self.evolves[-5:],
+                "last_tidy": self.last_tidy,
+                "tidys": self.tidys[-5:],
                 "peers": peers(self.d),
                 "sessions": self.ledger.summary()}
 

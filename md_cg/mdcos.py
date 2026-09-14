@@ -31,7 +31,8 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT
                    expand_query_terms_llm, en_zh_bigrams, semantic_on)
 from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
-               self_state, predict, evolution, weights, pooling)
+               self_state, predict, evolution, weights, pooling,
+               writelimit)
 from .fsutil import FileLock, atomic_write, append_jsonl, read_jsonl
 from .security import (Principal, TenantRegistry, AccessDenied,
                        SENSITIVITY_ORDER, DEFAULT_SENSITIVITY, _rank)
@@ -2030,6 +2031,30 @@ class MdCGOS(MdCG):
                     "node_id": node_id,
                     "written": self.add(node_id, content, layer=layer,
                                         override=override, **kw)}
+        # 流水污染治理（写入侧前置限流，工程策略独立于三问裁决）：
+        # 同源频率限制 → DEFER；同构聚合 → 并入既有节点（不新增）。
+        # 只拦 contextual（自动写入落层），knowledge 手动纪律写入不受限；
+        # DEFER 的原始事件仍在 recent log 时间线，可追溯不丢失。
+        lim = writelimit.check(self, content, layer=layer, role=role,
+                               node_id=node_id, importance_hint=hint)
+        if lim is not None:
+            if lim["verdict"] == "CONVERGE":
+                tgt = lim["target"]
+                out = {"verdict": "MERGE", "node_id": node_id,
+                       "merged_into": tgt, "gate": lim,
+                       "converged": writelimit.converge_into(self, tgt,
+                                                             content)}
+                fv = "MERGE"
+            else:                                    # DEFER
+                out = {"verdict": "DEFER", "node_id": node_id,
+                       "gate": lim}
+                fv = "DEFER"
+            forgetting.log(self, {"t": time.time(), "node_id": node_id,
+                                  "layer": layer, "verdict": fv,
+                                  "reason": lim.get("reason", ""),
+                                  "limiter": lim.get("limiter"),
+                                  "actor": self.actor})
+            return out
         verdict = forgetting.assess(self, content, layer=layer, role=role,
                                     verification_basis=vb, importance_hint=hint,
                                     node_id=node_id)
@@ -2050,6 +2075,9 @@ class MdCGOS(MdCG):
             else:
                 if out.get("written") is None:  # on_conflict=defer：冲突未落盘
                     v = out["verdict"] = "DEFER"
+                else:
+                    # 落盘成功 → 签名→节点映射兜底回填（同构聚合的锚点）
+                    writelimit.record_accepted(self, node_id, content)
         elif v == "MERGE":
             tgt = verdict["redundancy"]["with"]
             out["merged_into"] = tgt

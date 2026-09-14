@@ -1307,7 +1307,10 @@ def _sustain_call(cg, a):
             auto_scrub=bool(a.get("auto_scrub", False)),
             evolve_interval=float(a.get("evolve_interval")
                                   or sustain.DEFAULT_EVOLVE_INTERVAL),
-            auto_evolve=bool(a.get("auto_evolve", False)))
+            auto_evolve=bool(a.get("auto_evolve", False)),
+            tidy_interval=float(a.get("tidy_interval")
+                                or sustain.DEFAULT_TIDY_INTERVAL),
+            auto_tidy=bool(a.get("auto_tidy", False)))
         return {"loop": lp.start().status()}
     if act in ("stop", "down"):
         lp = sustain.get_loop(cg, name)
@@ -1329,6 +1332,7 @@ def _sustain_call(cg, a):
                 "heal_interval": sustain.DEFAULT_HEAL_INTERVAL,
                 "scrub_interval": sustain.DEFAULT_SCRUB_INTERVAL,
                 "evolve_interval": sustain.DEFAULT_EVOLVE_INTERVAL,
+                "tidy_interval": sustain.DEFAULT_TIDY_INTERVAL,
                 "evolve_fixes": dict(sustain.EVOLVE_FIXES),
                 "provenance_fixes": {},     # 悬空派生边只检出、无自动修复
 
@@ -2510,6 +2514,12 @@ def _start_sustain(cg):
         evolve_interval=float(os.environ.get("MDCG_EVOLVE_INTERVAL")
                               or sustain.DEFAULT_EVOLVE_INTERVAL),
         auto_evolve=os.environ.get("MDCG_AUTO_EVOLVE", "0")
+        not in ("0", "false", "False"),
+        tidy_interval=float(os.environ.get("MDCG_TIDY_INTERVAL")
+                            or sustain.DEFAULT_TIDY_INTERVAL),
+        # 整理巡检（contextual 同构组聚合+成员降权）默认开：确定性动作、
+        # 永不删除节点（可逆可审计）；MDCG_AUTO_TIDY=0 关闭
+        auto_tidy=os.environ.get("MDCG_AUTO_TIDY", "1")
         not in ("0", "false", "False"))
     lp.start()
     return lp
