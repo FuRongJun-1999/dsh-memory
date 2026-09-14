@@ -42,10 +42,22 @@ pub fn job_dir(jobs: &Path, id: &str) -> PathBuf {
     jobs.join(id)
 }
 
-/// 覆盖写 JSON 文本（UTF-8）。
+/// 覆盖写 JSON 文本（UTF-8）——tmp + fsync + rename 原子替换。
+///
+/// 禁止直接 `File::create` 目标文件：它先把旧文件截断为 0 字节，并发读者
+/// （patch_status 读-改-写、poll/doctor 轮询）会在「截断后、写完前」的窗口
+/// 读到空文件导致 parse 失败。同目录 rename 在 POSIX 与 Windows
+///（MoveFileEx + REPLACE_EXISTING）上均为原子替换，读者只见旧内容或新内容。
+/// tmp 名带 pid：多 serve 竞争写 `_serve.json` 时互不踩踏，rename 最后写者赢。
 pub fn write_json(path: &Path, v: &Json) -> std::io::Result<()> {
-    let mut f = fs::File::create(path)?;
-    f.write_all(v.to_json_string().as_bytes())
+    let data = v.to_json_string();
+    let tmp = path.with_extension(format!("tmp{}", std::process::id()));
+    {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(data.as_bytes())?;
+        f.sync_all()?;
+    }
+    fs::rename(&tmp, path)
 }
 
 /// 读 JSON 文本并解析（坏文件按错误返回，不静默吞）。

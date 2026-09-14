@@ -5,6 +5,9 @@
 把《主代理子代理记忆架构设计.md》里验证过的机制封成一套可直接用的 API。
 不依赖 MCP server，直接跑在灵枢的 MdCGOS 上；换成 MCP 只需把方法调用映射成工具调用。
 
+性质：演示/参考脚本——selftest() 只 print 不 assert，退出码恒 0，跑绿不代表
+功能验证；功能正确性以断言测试（如 parallel_test）为准。
+
 用法：
     from orchestrator_memory import OrcMemory
     om = OrcMemory("/path/to/memory_root")
@@ -416,7 +419,8 @@ def selftest():
     print("\n三层统计:", om.stats())
     print("\n  细节是否泄漏进全局召回？")
     g = om.cg.recall("完整 过程 命令 输出", budget_tokens=3000, k=50, session="main")
-    print("   session=main 命中条数:", len(g["pack"]), "（应为 3，不含 L2 细节）")
+    print("   session=main 命中条数:", len(g["pack"]),
+          "（应为 2：锚定全局节点 + 合并后全局节点，不含 L2 细节）")
     print("=" * 60)
     return om
 

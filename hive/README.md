@@ -138,6 +138,8 @@ jobs/
 - `python hive/hive_mcp/smoke_test.py`：13 项全过（MCP 协议面 / spawn 结构校验 /
   serve 自动拉起端到端 / kill 通道，全程统一 env 注入假执行器）。
 - `cargo build --release`：0 warning。
+- 数据文件（status.json / result.json / _serve.json）经 tmp+fsync+rename
+  原子替换落盘：并发读者不会读到截断空窗口（避免「空输入」parse 失败）。
 
 ## 设计边界（诚实）
 
