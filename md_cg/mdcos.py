@@ -55,6 +55,9 @@ _FIX_RE = re.compile(
 
 RRF_K = 60          # RRF 常数
 DEFAULT_BUDGET = 1200  # recall 默认 token 预算
+# recall 单条上限：超预算的条目按此截断纳入（而非丢弃），避免"逆向淘汰"。
+# 0 = 关闭截断，回到"超大一律跳过"的旧行为。
+DEFAULT_MAX_ITEM_TOKENS = 250
 
 
 def est_tokens(text: str) -> int:
@@ -65,6 +68,35 @@ def est_tokens(text: str) -> int:
               or 0x3040 <= ord(ch) <= 0x30ff)
     other = len(text) - cjk
     return int(cjk * 0.6 + other / 4) + 1
+
+
+def excerpt_tokens(text: str, max_tokens: int) -> str:
+    """按 est_tokens 口径截取正文前 max_tokens 的摘录（用于 recall 的单条上限）。
+
+    定义在模块级而非类内：它被 MdCGOS.recall 的装包循环调用，放在任一类的内部
+    都可能让另一处拿不到（同类错误曾导致 AttributeError）。
+    预算含省略号本身（"…" 也是 CJK 字符，会被计费），因此先扣除其开销再取正文，
+    保证返回值的 est_tokens 严格 ≤ max_tokens。
+    """
+    if not text or max_tokens <= 0:
+        return ""
+    if est_tokens(text) <= max_tokens:
+        return text                      # 已足够小，原样返回（不放大）
+    ellipsis = "…"
+    ell_cost = est_tokens(ellipsis)
+    body_budget = max_tokens - ell_cost
+    if body_budget <= 0:
+        return ellipsis if ell_cost <= max_tokens else ""
+    approx = min(len(text), max(1, int(body_budget / 0.6)))
+    while approx > 1 and est_tokens(text[:approx]) > body_budget:
+        approx -= max(1, approx // 10)   # 精确口径回退，步长随窗口收缩
+    keep = max(0, approx)
+    out = text[:keep].rstrip() + ellipsis
+    if est_tokens(out) > max_tokens:      # 兜底：仍超则继续收缩
+        while keep > 1 and est_tokens(text[:keep].rstrip() + ellipsis) > max_tokens:
+            keep -= max(1, keep // 10)
+        out = text[:keep].rstrip() + ellipsis
+    return out
 
 
 def _sig(text: str, n: int = 12) -> str:
@@ -840,8 +872,17 @@ class MdCGOS(MdCG):
                include_work: bool = False, judge: bool = True, use_rrf: bool = True,
                paths=None, query_expand=None, fusion=None,
                goal_text=None, include_recent=False, recent_limit: int = 10,
-               judge_ranking: bool = False, session=None):
-        """按 token 预算装包：装到预算花完为止；**超大条目跳过而非停下**。
+               judge_ranking: bool = False, session=None,
+               max_item_tokens: int = DEFAULT_MAX_ITEM_TOKENS):
+        """按 token 预算装包：装到预算花完为止。
+
+        装包策略（2026-09-14 调整）：
+        · 条目超预算时，**若开启 max_item_tokens（默认 250）则纳入该条前 N token 的摘录**
+          （返回体标注 truncated=True），而不是直接丢弃；
+        · 仅当剩余预算不足以放下一份最小摘录时，才跳过并继续尝试更小的条目（原行为）；
+        · 传 max_item_tokens=0 可显式关闭截断，回到"超大一律跳过"的旧行为。
+        动机：旧策略是「跳过超大、继续试更小的」——预算紧张时形成**逆向淘汰**，
+        越有价值的详实条目越容易被排除（实测 budget=1500 时 16 条被刷、只装 2 条）。
 
         paths/query_expand 缺省时行为与既有完全一致（默认四路、纯白箱扩展）；
         显式传 paths 才启用新路，例如
@@ -872,16 +913,38 @@ class MdCGOS(MdCG):
             items = [(r[0], r[1], r[2], []) for r in res]
 
         pack, skipped, used = [], [], 0
+        # 单条最小摘录下限：剩余预算低于此值就不值得再放一条残缺内容
+        min_excerpt = max(1, min(50, max_item_tokens // 5)) if max_item_tokens else 0
         for node, score, qual, prov in items:
-            t = est_tokens(node.get("content") or "")
+            content = node.get("content") or ""
+            t = est_tokens(content)
+            truncated = False
             if used + t > budget_tokens:
-                skipped.append({"id": node["id"], "tokens": t, "reason": "oversize_or_over_budget"})
-                continue          # 跳过超大，继续尝试更小的
+                # 超预算：优先纳入"前 N token 摘录"，而不是直接丢弃。
+                # 旧行为（跳过超大、继续试更小的）在预算紧张时会把最有价值的
+                # 详实条目系统性排除，因此这里改为截断纳入。
+                room = budget_tokens - used
+                if max_item_tokens and room >= min_excerpt:
+                    keep = min(max_item_tokens, room)
+                    content = excerpt_tokens(content, keep)
+                    t = est_tokens(content)
+                    if t <= 0:
+                        skipped.append({"id": node["id"], "tokens": 0,
+                                        "reason": "excerpt_empty"})
+                        continue
+                    truncated = True
+                else:
+                    skipped.append({"id": node["id"], "tokens": t,
+                                    "reason": "oversize_or_over_budget"})
+                    continue          # 关闭截断或预算不足：跳过，继续尝试更小的
             used += t
-            pack.append({"id": node["id"], "score": score, "state": qual.get("state"),
-                         "tokens": t, "content": node.get("content"),
-                         "frontmatter": node.get("frontmatter"),
-                         "provenance": prov})
+            entry = {"id": node["id"], "score": score, "state": qual.get("state"),
+                     "tokens": t, "content": content,
+                     "frontmatter": node.get("frontmatter"),
+                     "provenance": prov}
+            if truncated:
+                entry["truncated"] = True
+            pack.append(entry)
         # 近期事件（第 5 篇第 3 章）：只作上下文尾巴，不参与 RRF 正排；
         # 计入 token 预算（诚实口径：附了就是占了）。
         recent, left = [], budget_tokens - used
