@@ -1,0 +1,24 @@
+[package]
+name = "lingshu-hive"
+version = "0.1.0"
+edition = "2021"
+description = "灵枢蜂巢 · 蜂群多智能体并发运行时（LLM 实例并发调度核心：线程池 / 心跳 / 超时强杀 / kill，文件协议即接口）"
+
+# 零第三方依赖：与 rust/（mdcg-eval）的 D-005 约束一致——
+# 并发调度核心全部 std（thread / sync / process / fs），无需联网取 crate。
+# HTTPS/LLM 调用不进 rust：由零依赖 Python 执行器子进程（exec.py）承担。
+[dependencies]
+
+[lib]
+name = "hive"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hive"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

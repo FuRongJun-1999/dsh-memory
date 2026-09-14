@@ -1,0 +1,208 @@
+//! 任务 spec：解析与校验（fail fast——submit 时把错拦住，不让坏任务进队列）。
+//!
+//! spec.json（v0.1）：
+//! ```json
+//! {
+//!   "model": "glm-4.7",             // 必填：LLM 模型名
+//!   "system_prompt": "...",         // 可选：系统提示词
+//!   "user_prompt": "...",           // 必填：用户提示词
+//!   "context_files": ["a.md"],      // 可选：上下文文件（相对 workdir 或绝对）
+//!   "workdir": "...",               // 可选：context 相对路径基准（默认 submit 时 cwd）
+//!   "timeout_s": 300,               // 可选：硬超时（默认 300，5..=3600）
+//!   "max_tokens": 4096,             // 可选
+//!   "temperature": 0.7              // 可选，[0, 2]
+//! }
+//! ```
+
+use crate::json::Json;
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone)]
+pub struct Spec {
+    pub model: String,
+    pub system_prompt: Option<String>,
+    pub user_prompt: String,
+    pub context_files: Vec<String>,
+    pub workdir: Option<String>,
+    pub timeout_s: u64,
+    pub max_tokens: Option<f64>,
+    pub temperature: Option<f64>,
+}
+
+pub const DEFAULT_TIMEOUT_S: u64 = 300;
+pub const MIN_TIMEOUT_S: u64 = 5;
+pub const MAX_TIMEOUT_S: u64 = 3600;
+
+impl Spec {
+    /// context 路径解析基准：spec.workdir 优先，否则 `fallback`（调用方 cwd）。
+    pub fn base_dir(&self, fallback: &Path) -> PathBuf {
+        self.workdir
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| fallback.to_path_buf())
+    }
+
+    /// 校验 context 文件存在性（submit 侧 fail fast；执行器侧再兜底一次）。
+    pub fn check_context(&self, base: &Path) -> Result<(), String> {
+        for f in &self.context_files {
+            let p = base.join(f);
+            if !p.is_file() {
+                return Err(format!("context 文件不存在: {}", p.display()));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// 从 JSON 解析并校验 spec。`base_dir`：context 相对路径的校验基准
+/// （spec.workdir 优先，否则调用方 cwd）。校验含 context 文件存在性。
+pub fn validate(v: &Json, base_dir: &Path) -> Result<Spec, String> {
+    let s = validate_lenient(v)?;
+    let base = s.base_dir(base_dir);
+    s.check_context(&base)?;
+    Ok(s)
+}
+
+/// 宽松校验（不含 context 存在性检查）——worker 侧用：
+/// job 目录不是合法 base，context 已在 submit 侧 fail fast。
+pub fn validate_lenient(v: &Json) -> Result<Spec, String> {
+    v.as_obj()
+        .ok_or_else(|| "spec 必须是 JSON 对象".to_string())?;
+
+    let model = v
+        .get("model")
+        .and_then(|x| x.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "spec 缺必填字段 model（字符串）".to_string())?;
+
+    let user_prompt = v
+        .get("user_prompt")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| "spec 缺必填字段 user_prompt（非空字符串）".to_string())?;
+
+    let system_prompt = v
+        .get("system_prompt")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty());
+
+    let context_files = v
+        .get("context_files")
+        .map(|x| x.as_str_vec())
+        .unwrap_or_default();
+
+    let workdir = v
+        .get("workdir")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty());
+
+    let timeout_s = match v.get("timeout_s") {
+        None => DEFAULT_TIMEOUT_S,
+        Some(Json::Num(n)) if *n >= 1.0 => *n as u64,
+        Some(_) => return Err("timeout_s 必须为正数".to_string()),
+    };
+    if !(MIN_TIMEOUT_S..=MAX_TIMEOUT_S).contains(&timeout_s) {
+        return Err(format!(
+            "timeout_s 超界: {timeout_s}（允许 {MIN_TIMEOUT_S}..={MAX_TIMEOUT_S}）"
+        ));
+    }
+
+    let max_tokens = match v.get("max_tokens") {
+        None | Some(Json::Null) => None,
+        Some(Json::Num(n)) if *n >= 1.0 => Some(*n),
+        Some(_) => return Err("max_tokens 必须为正数".to_string()),
+    };
+
+    let temperature = match v.get("temperature") {
+        None | Some(Json::Null) => None,
+        Some(Json::Num(n)) if (0.0..=2.0).contains(n) => Some(*n),
+        Some(_) => return Err("temperature 必须在 [0, 2]".to_string()),
+    };
+
+    Ok(Spec {
+        model,
+        system_prompt,
+        user_prompt,
+        context_files,
+        workdir,
+        timeout_s,
+        max_tokens,
+        temperature,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn tmpdir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "hive_spec_{tag}_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn valid_minimal() {
+        let v = crate::json::parse(r#"{"model":"m1","user_prompt":"hi"}"#).unwrap();
+        let s = validate(&v, Path::new(".")).unwrap();
+        assert_eq!(s.model, "m1");
+        assert_eq!(s.timeout_s, DEFAULT_TIMEOUT_S);
+        assert!(s.system_prompt.is_none());
+    }
+
+    #[test]
+    fn missing_model_rejected() {
+        let v = crate::json::parse(r#"{"user_prompt":"hi"}"#).unwrap();
+        assert!(validate(&v, Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn empty_user_prompt_rejected() {
+        let v = crate::json::parse(r#"{"model":"m","user_prompt":"  "}"#).unwrap();
+        assert!(validate(&v, Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn timeout_bounds() {
+        let v = crate::json::parse(r#"{"model":"m","user_prompt":"x","timeout_s":1}"#).unwrap();
+        assert!(validate(&v, Path::new(".")).is_err());
+        let v = crate::json::parse(r#"{"model":"m","user_prompt":"x","timeout_s":99999}"#).unwrap();
+        assert!(validate(&v, Path::new(".")).is_err());
+        let v = crate::json::parse(r#"{"model":"m","user_prompt":"x","timeout_s":60}"#).unwrap();
+        assert_eq!(validate(&v, Path::new(".")).unwrap().timeout_s, 60);
+    }
+
+    #[test]
+    fn temperature_bounds() {
+        let v = crate::json::parse(r#"{"model":"m","user_prompt":"x","temperature":2.5}"#).unwrap();
+        assert!(validate(&v, Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn context_existence_checked() {
+        let d = tmpdir("ctx");
+        fs::write(d.join("a.txt"), "hello").unwrap();
+        let v = crate::json::parse(
+            r#"{"model":"m","user_prompt":"x","context_files":["a.txt"]}"#,
+        )
+        .unwrap();
+        assert!(validate(&v, &d).is_ok());
+        let v = crate::json::parse(
+            r#"{"model":"m","user_prompt":"x","context_files":["nope.txt"]}"#,
+        )
+        .unwrap();
+        assert!(validate(&v, &d).is_err());
+        let _ = fs::remove_dir_all(&d);
+    }
+}
