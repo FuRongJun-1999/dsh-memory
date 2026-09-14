@@ -36,12 +36,14 @@ s2 = dbg.step()   # DAO
 s3 = dbg.step()   # DE 0.3
 check('②a 单步执行(道压入条件空间)', s2["cond"] and s2["cond"][0]["name"] == "新信任路径",
       str([c["name"] for c in s2["cond"]]))
-check('②b 单步信任递增', s3["trust"] == 0.3, f'trust={s3["trust"]}')
+# 缺陷②修复后：初值 0.5（符号注入归一为寄存器初值）+ DE 0.3 = 0.8
+check('②b 单步信任递增(0.5+0.3=0.8)', s3["trust"] == 0.8, f'trust={s3["trust"]}')
 
 # ③ 调试轨迹：逐步可见直到 halt
 trace = dbg.run()
 check('③a 轨迹含止', any(s.get("halt") == "halt" for s in trace), '')
-check('③b 最终状态(信任0.8+halt)', dbg.state()["trust"] == 0.8
+# 缺陷②修复后：0.5 +0.3 =0.8 >0.2 → +0.5 = 1.3
+check('③b 最终状态(信任1.3+halt)', dbg.state()["trust"] == 1.3
       and dbg.state()["halt"] == "halt", f'trust={dbg.state()["trust"]}')
 check('③c 轨迹逐步(信任非减)', [s["trust"] for s in trace] == sorted(
       [s["trust"] for s in trace]), '')

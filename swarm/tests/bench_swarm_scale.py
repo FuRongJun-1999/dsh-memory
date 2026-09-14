@@ -36,8 +36,7 @@ assert gen["ok"], gen
 
 def run(n_inst, routes, rounds, tag):
     cfg = make_swarm_config(
-        instances=[{"id": f"实例{i}", "role": "worker", "trust": 0.1,
-                    "symbols": {"信任值": 0.5}} for i in range(n_inst)],
+        instances=[{"id": f"实例{i}", "role": "worker", "trust": 0.1} for i in range(n_inst)],
         routes=routes, rounds=rounds, shared_secret=SECRET)
     t0 = time.perf_counter()
     rr = run_swarm(proj, cfg, wal_path=os.path.join(tmp, f"wal_{tag}.jsonl"))

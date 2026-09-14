@@ -85,7 +85,7 @@ def equiv_case(name, source, symbols=None, trust=0.0, expect=None):
 
 # ============ ① trust 样例（examples/trust.proto 同源） ============
 print("=== ① trust：道/德/若/止 ===")
-equiv_case(
+_st1 = equiv_case(
     "trust",
     open(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                       "examples", "trust.proto"), encoding="utf-8-sig").read()
@@ -99,7 +99,14 @@ equiv_case(
 3。若 信任值 大于 0.2，则 德 0.5；
 4。止。
 """,
-    symbols={"信任值": 0.5}, expect={"信任值": 0.5})
+    symbols={"信任值": 0.5})
+# 缺陷②修复后（双后端同一契约）：注入的 信任值 归一为**寄存器初值**，
+# 与 德(DE) 同源 → 0.5 + 0.3 = 0.8 > 0.2 → +0.5 = 1.3。
+# 修复前 符号与寄存器互不通信：条件读符号 0.5、德 只加寄存器 → 终态 0.8，
+# 且符号表残留 信任值=0.5（旧 expect 固化了该脱钩行为）。
+check("① 信任终态 1.3（0.5+0.3=0.8>0.2 → +0.5；名实同源）",
+      bool(_st1) and abs(_st1["trust"] - 1.3) < 1e-9,
+      f'trust={_st1["trust"] if _st1 else None}')
 
 # ============ ② 循环（当…执行） ============
 print("=== ② 循环：计数 0→3 ===")

@@ -46,9 +46,9 @@ check("项目生成", gen["ok"])
 print("=== ① gossip 广播（3 实例 × 3 轮） ===")
 cfg = make_swarm_config(
     instances=[
-        {"id": "实例甲", "role": "源", "trust": 0.1, "symbols": {"信任值": 0.5}},
-        {"id": "实例乙", "role": "peer", "trust": 0.2, "symbols": {"信任值": 0.5}},
-        {"id": "实例丙", "role": "peer", "trust": 0.2, "symbols": {"信任值": 0.5}},
+        {"id": "实例甲", "role": "源", "trust": 0.1},
+        {"id": "实例乙", "role": "peer", "trust": 0.2},
+        {"id": "实例丙", "role": "peer", "trust": 0.2},
     ],
     routes=[{"from": "实例甲", "event_type": "gossip", "to": "*",
              "payload": "@trust", "level": 0}],
@@ -77,9 +77,9 @@ if rr["ok"]:
 print("=== ② gossip 与单播共存 ===")
 cfg2 = make_swarm_config(
     instances=[
-        {"id": "实例甲", "role": "源", "trust": 0.1, "symbols": {"信任值": 0.5}},
-        {"id": "实例乙", "role": "peer", "trust": 0.2, "symbols": {"信任值": 0.5}},
-        {"id": "实例丙", "role": "peer", "trust": 0.2, "symbols": {"信任值": 0.5}},
+        {"id": "实例甲", "role": "源", "trust": 0.1},
+        {"id": "实例乙", "role": "peer", "trust": 0.2},
+        {"id": "实例丙", "role": "peer", "trust": 0.2},
     ],
     routes=[{"from": "实例甲", "event_type": "gossip", "to": "*",
              "payload": "@trust", "level": 0},
@@ -118,9 +118,9 @@ if rr3["ok"]:
 print("=== ④ G3c 全网互 gossip + coverage 因子 ===")
 cfg4 = make_swarm_config(
     instances=[
-        {"id": "实例甲", "role": "peer", "trust": 0.1, "symbols": {"信任值": 0.5}},
-        {"id": "实例乙", "role": "peer", "trust": 0.2, "symbols": {"信任值": 0.5}},
-        {"id": "实例丙", "role": "peer", "trust": 0.2, "symbols": {"信任值": 0.5}},
+        {"id": "实例甲", "role": "peer", "trust": 0.1},
+        {"id": "实例乙", "role": "peer", "trust": 0.2},
+        {"id": "实例丙", "role": "peer", "trust": 0.2},
     ],
     routes=[{"from": i, "event_type": "gossip", "to": "*",
              "payload": "@trust", "level": 0}

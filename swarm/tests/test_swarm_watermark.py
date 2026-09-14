@@ -46,9 +46,9 @@ check("项目生成", gen["ok"])
 def cfg_of(rounds):
     return make_swarm_config(
         instances=[
-            {"id": "实例甲", "role": "源", "trust": 0.1, "symbols": {"信任值": 0.5}},
-            {"id": "实例乙", "role": "peer", "trust": 0.2, "symbols": {"信任值": 0.5}},
-            {"id": "实例丙", "role": "peer", "trust": 0.2, "symbols": {"信任值": 0.5}},
+            {"id": "实例甲", "role": "源", "trust": 0.1},
+            {"id": "实例乙", "role": "peer", "trust": 0.2},
+            {"id": "实例丙", "role": "peer", "trust": 0.2},
         ],
         routes=[{"from": "实例甲", "event_type": "gossip", "to": "*",
                  "payload": "@trust", "level": 0},

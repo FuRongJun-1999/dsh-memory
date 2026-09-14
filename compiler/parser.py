@@ -462,7 +462,16 @@ class Parser:
         elif self.current_token and self.current_token.type in self.INSTRUCTION_TOKENS:
             return self._parse_instruction()
         elif self.current_token and self.current_token.type == TokenType.IDENTIFIER:
-            # 可能是单个标识符或合并后的多词短语
+            # 缺陷⑤修复（2026-09-14）：步骤内容里的**赋值/调用**此前被静默丢弃
+            # —— 原实现无条件走 _merge_identifiers()（多词短语合并），
+            # 从不检查其后是否紧跟 = 或 （，于是「1。甲 = 0.9；」只留下
+            # 裸标识符 甲，`= 0.9` 被丢掉且不报错（静默错值，比崩溃更危险）。
+            # 修法：先探视下一个 token —— = 或 （ 走 _parse_assign_or_call，
+            # 否则保持原多词合并行为（道 新信任路径 等短语不受影响）。
+            _nxt = self._peek_next()
+            if _nxt is not None and _nxt.type in (TokenType.EQUALS,
+                                                  TokenType.LPAREN):
+                return self._parse_assign_or_call()
             merged = self._merge_identifiers()
             return merged
         else:
@@ -567,18 +576,30 @@ class Parser:
             self._advance()
     
     def _parse_statement_or_block(self) -> Any:
-        """解析语句或块：返回语句列表（单语句=[stmt]；分号/句号分隔多条）
-        块内多条语句：`则 语句1；语句2；...`（支持循环体/条件体多语句）"""
+        """解析语句或块：返回语句列表（单语句=[stmt]；分号分隔多条）
+
+        分隔符语义（2026-09-14 修复缺陷①）：
+          ；/，  → 块内续接，继续收下一条（循环体多语句用分号连接）
+          。    → **全句终止**，块到此结束，后续语句归上一层（顶层）
+        修复前 。 也续接，导致「当…执行 A。B。」把 B 吞进循环体；
+        无步骤编号时更会把其后全部顶层语句吞入 → 顶层语句在循环里
+        反复执行（若该语句重新武装循环条件即为死循环 RecursionError）。
+        块内若要写多条语句，请用分号：`当 X 执行 A；B。`
+        """
         stmts = []
         while True:
             stmt = self._parse_single_statement()
             if stmt is not None:
                 stmts.append(stmt)
-            # 分隔符：分号/句号 → 继续收下一条；否则块结束
-            if self.current_token and self.current_token.type in (
-                    TokenType.SEMICOLON, TokenType.PERIOD, TokenType.COMMA):
+            tok = self.current_token
+            # 。= 全句终止 → 块结束（缺陷①修复点）
+            if tok and tok.type == TokenType.PERIOD:
                 self._advance()
-                # 分隔符后若是步骤号/块边界 → 块结束（九章算术步骤边界 1。…2。…）
+                break
+            # ；/，= 块内续接
+            if tok and tok.type in (TokenType.SEMICOLON, TokenType.COMMA):
+                self._advance()
+                # 分隔符后若是步骤号/术曰 → 块结束（九章算术步骤边界 1。…2。…）
                 if (self.current_token and
                         self.current_token.type in (TokenType.NUMBER, TokenType.SHUYUE)):
                     break

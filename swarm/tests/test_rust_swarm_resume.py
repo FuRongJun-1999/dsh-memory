@@ -45,8 +45,11 @@ check("项目生成", gen["ok"])
 
 CFG = make_swarm_config(
     instances=[
-        {"id": "实例甲", "role": "记录", "trust": 0.1, "symbols": {"信任值": 0.5}},
-        {"id": "实例乙", "role": "验证", "trust": 0.2, "symbols": {"信任值": 0.5}},
+        # 缺陷②修复后：信任值 是内建名（读 trust_value 寄存器）。旧写法同时给
+        # trust 与 symbols{信任值} 属「无内建」时期的绕过手段；统一后 symbols 里的
+        # 信任值 会归一为寄存器初值并覆盖 trust，故只保留 trust 驱动轨迹（0.9/1.0）。
+        {"id": "实例甲", "role": "记录", "trust": 0.1},
+        {"id": "实例乙", "role": "验证", "trust": 0.2},
     ],
     routes=[{"from": "实例甲", "event_type": "信任同步", "to": "实例乙",
              "payload": "@trust", "level": 0}],

@@ -49,8 +49,10 @@ check("项目生成", gen["ok"])
 print("=== ① 双实例 3 轮：并行执行 + 消息路由 ===")
 cfg = make_swarm_config(
     instances=[
-        {"id": "实例甲", "role": "记录", "trust": 0.1, "symbols": {"信任值": 0.5}},
-        {"id": "实例乙", "role": "验证", "trust": 0.2, "symbols": {"信任值": 0.5}},
+        # 缺陷②修复后：信任值 是内建名（读 trust_value 寄存器），无需再以
+        # symbols 绕过（旧写法会把 信任值 归一为寄存器初值、覆盖实例 trust）。
+        {"id": "实例甲", "role": "记录", "trust": 0.1},
+        {"id": "实例乙", "role": "验证", "trust": 0.2},
     ],
     routes=[{"from": "实例甲", "event_type": "信任同步", "to": "实例乙",
              "payload": "@trust", "level": 0}],
@@ -139,8 +141,9 @@ if shutil.which("cargo") and os.path.isdir(rt_dir):
     if r5["ok"] and os.path.exists(exe_ind):
         cfg5 = make_swarm_config(
             instances=[
-                {"id": "实例甲", "role": "记录", "trust": 0.1, "symbols": {"信任值": 0.5}},
-                {"id": "实例乙", "role": "验证", "trust": 0.2, "symbols": {"信任值": 0.5}},
+                # 缺陷②修复后：信任值 为内建名，不再以 symbols 绕过
+                {"id": "实例甲", "role": "记录", "trust": 0.1},
+                {"id": "实例乙", "role": "验证", "trust": 0.2},
             ],
             routes=[{"from": "实例甲", "event_type": "信任同步", "to": "实例乙",
                      "payload": "@trust", "level": 0}],

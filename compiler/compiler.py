@@ -283,9 +283,15 @@ if __name__ == "__main__":
             print(f"   {i:3d} {op.name:14s} {arg}")
         from .condition_vm import ConditionVM
         vm = ConditionVM()
-        state = vm.run(code)
+        # 播种初始信任 0.4 —— 使「信任值 大于 0.3」成立以驱动条件分支。
+        # （缺陷②修复后 信任值 读的就是 trust_value 寄存器，名实一处存储；
+        #   修复前示例在此处直接 NameError："名实不符：'信任值' 未声明"）
+        state = vm.run(code, trust=0.4)
         print(f"\n② VM 执行: 信任={state['trust']} 条件空间={state['condition_space']} "
               f"停止={state['halt']}")
-        ok = state["trust"] >= 0.7 and state["condition_space"]
+        # 0.4 > 0.3 → 德 0.5 → 信任 0.9；知足 0.7 达标 → 向前跳到程序末尾，
+        # 故其后的 止 被跳过（halt=None）——这是知足 的早退语义（缺陷④）。
+        ok = (state["trust"] >= 0.7 and state["condition_space"]
+              and state["halt"] is None)
         print(f"\n=== 判定 ===\n中文源码原生执行: "
-              f"{'✔ 若则/道德经指令/术曰 在 VM 上运行（零 Python 运行时）' if ok else '✘'}")
+              f"{'✔ 若则/道德经指令/术曰 在 VM 上运行（零 Python 运行时；知足达标早退）' if ok else '✘'}")

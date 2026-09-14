@@ -47,8 +47,7 @@ proj = os.path.join(tmp, "proj")
 gen = generate_rust_project(SOURCE, proj)
 check("项目生成", gen["ok"])
 
-INST = [{"id": f"实例{i}", "role": "peer", "trust": 0.1,
-         "symbols": {"信任值": 0.5}} for i in range(6)]
+INST = [{"id": f"实例{i}", "role": "peer", "trust": 0.1} for i in range(6)]
 CFG = make_swarm_config(INST,
                         routes=[{"from": "实例0", "event_type": "gossip", "to": "*",
                                  "payload": "@trust", "level": 0}],

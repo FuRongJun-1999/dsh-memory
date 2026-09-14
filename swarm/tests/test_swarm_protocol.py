@@ -39,7 +39,7 @@ SECRET = "验收密钥-蜂群R3复算"
 tmp = tempfile.mkdtemp(prefix="swarm_proto_")
 proj = os.path.join(tmp, "proj")
 generate_rust_project(SOURCE, proj)
-INST = [{"id": f"实例{i}", "role": "x", "trust": 0.1, "symbols": {"信任值": 0.5}}
+INST = [{"id": f"实例{i}", "role": "x", "trust": 0.1}
         for i in range(5)]
 
 # ============ ① protocol 拓扑：四角色推导 + 逐位复算 ============

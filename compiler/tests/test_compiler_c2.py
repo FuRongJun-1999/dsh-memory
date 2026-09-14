@@ -29,8 +29,11 @@ check('①b 含条件跳转', any(op == Opcode.JUMP_IF_FALSE for op, _ in code),
       f'{len(code)} 条指令')
 check('①c 含德指令', any(op == Opcode.DE for op, _ in code), '')
 vm = ConditionVM()
+# 缺陷②修复后：符号注入的「信任值」归一为**寄存器初值**（名实一处存储）。
+# 故 0.5 起步 → 信任值(0.5) > 0.3 成立 → 德 0.5 → 1.0。
+# （修复前符号与寄存器互不通信，德 只加到寄存器 0→0.5，断言 0.5 固化了该缺陷）
 state = vm.run(code, symbols={"信任值": 0.5})
-check('①d 信任累积语义（德=accumulate_trust）', state["trust"] == 0.5,
+check('①d 信任累积语义（德=accumulate_trust，0.5+0.5=1.0）', state["trust"] == 1.0,
       f'trust={state["trust"]}')
 
 # ② 道/知足/止：条件空间 + 信任达标跳转

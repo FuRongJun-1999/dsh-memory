@@ -42,6 +42,33 @@ class Opcode(IntEnum):
         return {m.name: m.value for m in cls}
 
 
+# =============================================================================
+# VM 内建名（name_checker.BUILTIN_SYMBOLS 的运行时投影）
+# =============================================================================
+# 背景（2026-09-14 修复缺陷②③）：name_checker 在**编译期**把
+# 信任值/条件空间/条件空间名 声明为合法符号（以名举实·静态检查），
+# 但 VM 从未绑定它们 —— 于是编译期放行、运行期 NameError
+# （"名实不符：'信任值' 未声明"）。本表补齐运行时投影，使「名」与「实」
+# 指向同一处存储：
+#   信任值   → trust_value 寄存器（读写）。德(DE) 改的正是该寄存器，
+#              故 德 与 信任值 自动同步（修复前二者互不通信）
+#   条件空间 → 当前条件空间名（读）；赋值=切换（见 STORE_NAME）
+#   空间名   → 其自身（字符串），使「若 条件空间 为 伴侣」成为真实运行期比较
+#   信任分量 → trust_parts 寄存器（默认 0.0）
+# 单一真源仍是 name_checker.BUILTIN_SYMBOLS；本表是其投影，
+# 由 test_vm_builtins 的一致性断言守住「两侧符号名必须相同」。
+BUILTIN_TRUST_VALUE = "信任值"
+BUILTIN_CONDITION_SPACE = "条件空间"
+BUILTIN_TRUST_THRESHOLD = "信任阈值"
+DEFAULT_TRUST_THRESHOLD = 0.7
+CONDITION_SPACE_NAMES = ("伴侣", "工作", "默认", "恢复默认", "default")
+TRUST_COMPONENT_NAMES = ("P_trust", "T_pred", "T_context", "E_weight", "情感权重")
+DEFAULT_CONDITION_SPACE = "默认"
+
+#: 内建名缺失哨兵（区分「内建值为 None」与「不是内建名」）
+_MISSING = object()
+
+
 class VMHalt(Exception):
     """止：正常停止（含 yield 让出——kind 区分）"""
     def __init__(self, kind="halt", state=None):
@@ -60,8 +87,21 @@ class ConditionVM:
         self.ip = 0
         self.stack = []
         self.symbols = dict(symbols or {})   # 名实对应（以名举实）
+        # 内建名归一（缺陷②③）：宿主/调用方若把内建名注入 symbols，
+        # 视为**初始化寄存器**而非普通符号——保证「信任值/条件空间」
+        # 只有一处存储，杜绝名实两套（这是缺陷②的根因）。
+        seed_trust = self.symbols.pop(BUILTIN_TRUST_VALUE, None)
+        seed_space = self.symbols.pop(BUILTIN_CONDITION_SPACE, None)
         self.condition_stack = list(condition_stack or [])  # 条件空间栈
-        self.trust_value = trust             # 信任值寄存器
+        self.trust_value = trust if seed_trust is None else seed_trust
+        # 信任分量寄存器（name_checker 声明的 P_trust/T_pred/T_context/
+        # E_weight/情感权重 的运行时投影；符号注入同样归一为初值）
+        self.trust_parts = {n: 0.0 for n in TRUST_COMPONENT_NAMES}
+        for _n in TRUST_COMPONENT_NAMES:
+            if _n in self.symbols:
+                self.trust_parts[_n] = self.symbols.pop(_n)
+        if seed_space is not None:
+            self._switch_condition_space(seed_space)
         self.scope_depth = 0                 # 术曰作用域深度
         self.trace = []                      # 执行轨迹（可解释性）
         self.call_stack = []                 # 调用栈帧 [(返回ip, 保存的符号表)]
@@ -94,6 +134,9 @@ class ConditionVM:
         return {"trust": round(self.trust_value, 3),
                 "symbols": dict(self.symbols),
                 "condition_space": list(self.condition_stack),
+                # 内建可观测项（缺陷②③）：条件空间名 + 信任分量寄存器
+                "condition_space_name": self._condition_space_name(),
+                "trust_parts": dict(self.trust_parts),
                 "stack": list(self.stack),
                 "halt": halt,
                 "trace": self.trace if trace else None}
@@ -101,15 +144,70 @@ class ConditionVM:
     def _truthy(self, v):
         return v is not None and v is not False and v != 0
 
+    # ---- 内建名（缺陷②③）：名与实指向同一处存储 ----
+    def _condition_space_name(self):
+        """当前条件空间名（栈空 → 默认）"""
+        if self.condition_stack:
+            top = self.condition_stack[-1]
+            if isinstance(top, dict):
+                return top.get("name") or DEFAULT_CONDITION_SPACE
+            return str(top)
+        return DEFAULT_CONDITION_SPACE
+
+    def _switch_condition_space(self, name):
+        """切换条件空间——使「条件空间切换」在 VM 上真正可执行
+
+        恢复默认/默认 → 弹栈到根并置名默认；否则替换栈顶（栈空则压入）。
+        """
+        if name in ("恢复默认", DEFAULT_CONDITION_SPACE):
+            self.condition_stack = self.condition_stack[:1]
+            if self.condition_stack:
+                self.condition_stack[-1] = {
+                    "name": DEFAULT_CONDITION_SPACE,
+                    "trust_at_create": self.trust_value}
+            return
+        frame = {"name": name, "trust_at_create": self.trust_value}
+        if self.condition_stack:
+            self.condition_stack[-1] = frame
+        else:
+            self.condition_stack.append(frame)
+
+    def _builtin_load(self, name):
+        """内建名取值；非内建名返回 _MISSING"""
+        if name == BUILTIN_TRUST_VALUE:
+            return self.trust_value
+        if name == BUILTIN_CONDITION_SPACE:
+            return self._condition_space_name()
+        if name in CONDITION_SPACE_NAMES:
+            return name          # 空间名 → 自身（供「条件空间 为 X」比较）
+        if name == BUILTIN_TRUST_THRESHOLD:
+            return DEFAULT_TRUST_THRESHOLD
+        if name in self.trust_parts:
+            return self.trust_parts[name]
+        return _MISSING
+
     def _exec(self, op, arg):
         if op == Opcode.PUSH_CONST:
             self.stack.append(arg)
         elif op == Opcode.LOAD_NAME:
-            if arg not in self.symbols:
-                raise NameError(f"名实不符：'{arg}' 未声明（以名举实）")
-            self.stack.append(self.symbols[arg])
+            if arg in self.symbols:              # 用户符号优先
+                self.stack.append(self.symbols[arg])
+            else:
+                # 内建名（信任值/条件空间/空间名/信任分量）——缺陷②③修复点
+                _v = self._builtin_load(arg)
+                if _v is _MISSING:
+                    raise NameError(f"名实不符：'{arg}' 未声明（以名举实）")
+                self.stack.append(_v)
         elif op == Opcode.STORE_NAME:
-            self.symbols[arg] = self.stack.pop()
+            _val = self.stack.pop()
+            if arg == BUILTIN_TRUST_VALUE:       # 写信任值 → 寄存器
+                self.trust_value = _val
+            elif arg == BUILTIN_CONDITION_SPACE: # 写条件空间 → 切换
+                self._switch_condition_space(_val)
+            elif arg in self.trust_parts:        # 写信任分量
+                self.trust_parts[arg] = _val
+            else:
+                self.symbols[arg] = _val
         elif op == Opcode.JUMP:
             self.ip = arg
         elif op == Opcode.JUMP_IF_FALSE:
@@ -203,6 +301,8 @@ class ConditionVM:
         return {"trust": round(self.trust_value, 3),
                 "symbols": dict(self.symbols),
                 "condition_space": list(self.condition_stack),
+                "condition_space_name": self._condition_space_name(),
+                "trust_parts": dict(self.trust_parts),
                 "stack": list(self.stack)}
 
 

@@ -60,10 +60,8 @@ cfg_path = os.path.join(td, "swarm.json")
 with open(cfg_path, "w", encoding="utf-8") as f:
     json.dump({"source": "@algo.txt",  # @file 引用形态（插件主路径）
                "instances": [
-                   {"id": "实例甲", "role": "记录", "trust": 0.1,
-                    "symbols": {"信任值": 0.5}},
-                   {"id": "实例乙", "role": "验证", "trust": 0.2,
-                    "symbols": {"信任值": 0.5}}],
+                   {"id": "实例甲", "role": "记录", "trust": 0.1},
+                   {"id": "实例乙", "role": "验证", "trust": 0.2}],
                "routes": [{"from": "实例甲", "event_type": "信任同步",
                            "to": "实例乙", "payload": "@trust", "level": 0}],
                "rounds": 2, "shared_secret": "测试密钥",

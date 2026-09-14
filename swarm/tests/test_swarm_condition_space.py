@@ -45,8 +45,12 @@ CS = {"space_id": "swarm-acceptance-v1",
 tmp = tempfile.mkdtemp(prefix="swarm_cs_")
 proj = os.path.join(tmp, "proj")
 generate_rust_project(SOURCE, proj)
-INST = [{"id": "实例甲", "role": "peer", "trust": 0.1, "symbols": {"信任值": 0.5}},
-        {"id": "实例乙", "role": "peer", "trust": 0.2, "symbols": {"信任值": 0.5}}]
+# 缺陷②修复后：信任值 是内建名（读 trust_value 寄存器）。
+# 旧写法同时给 trust 与 symbols{信任值} 是「无内建」时期的绕过手段：
+# 统一后 symbols 里的 信任值 会被归一为寄存器初值并**覆盖** trust，
+# 故此处只保留 trust（0.1/0.2）驱动轨迹。
+INST = [{"id": "实例甲", "role": "peer", "trust": 0.1},
+        {"id": "实例乙", "role": "peer", "trust": 0.2}]
 
 # ============ ① 四要素齐备：运行 + space_id 持久 ============
 print("=== ① 四要素齐备 ===")
@@ -116,8 +120,12 @@ cfg4b = make_swarm_config(INST, rounds=1, shared_secret=SECRET)
 rr4b = run_swarm(proj4, cfg4b, wal_path=os.path.join(tmp, "e.jsonl"))
 if rr4b["ok"]:
     fs4b = rr4b["report"]["final_states"]
-    check("不带卡：符号缺失，条件路由不命中（trust 停在初值或名实不符拒绝）",
-          "error" in fs4b["实例甲"] or abs(fs4b["实例甲"]["trust"] - 0.1) > 1e-9,
+    # 缺陷③修复后语义变化：条件空间 现为 VM **内建名**（无可注入符号时读「默认」），
+    # 故不带卡不再「名实不符崩溃」，而是路由不命中 —— trust 停在初值不被推高，
+    # 与带卡（0.6/0.7）形成干净的差异验收。
+    check("不带卡：条件路由不命中 → trust 停在初值 0.1/0.2（未被 德 0.5 推高）",
+          abs(fs4b["实例甲"]["trust"] - 0.1) < 1e-9
+          and abs(fs4b["实例乙"]["trust"] - 0.2) < 1e-9,
           json.dumps({k: v.get("trust", v.get("error")) for k, v in fs4b.items()},
                      ensure_ascii=False))
 else:

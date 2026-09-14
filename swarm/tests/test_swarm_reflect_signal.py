@@ -58,8 +58,8 @@ def sig_rounds(wal_path):
 print("=== ① 定期方向性自检（每100轮） ===")
 cfg = make_swarm_config(
     instances=[
-        {"id": "实例甲", "role": "peer", "trust": 0.1, "symbols": {"信任值": 0.5}},
-        {"id": "实例乙", "role": "peer", "trust": 0.2, "symbols": {"信任值": 0.5}},
+        {"id": "实例甲", "role": "peer", "trust": 0.1},
+        {"id": "实例乙", "role": "peer", "trust": 0.2},
     ],
     rounds=200, shared_secret=SECRET)
 wal_a = os.path.join(tmp, "a.jsonl")
@@ -79,8 +79,8 @@ check("除零项目生成", gen2["ok"])
 if gen2["ok"]:
     cfg2 = make_swarm_config(
         instances=[
-            {"id": "实例甲", "role": "正常", "trust": 0.1, "symbols": {"信任值": 0.5}},
-            {"id": "实例乙", "role": "故障", "trust": 0.2, "symbols": {"信任值": 0.5}},
+            {"id": "实例甲", "role": "正常", "trust": 0.1},
+            {"id": "实例乙", "role": "故障", "trust": 0.2},
         ],
         rounds=5, shared_secret=SECRET)
     # 除零项目用独立 project_dir（各自带 program.pbc）
@@ -106,7 +106,7 @@ if gen2["ok"]:
 print("=== ③ 基线（2 轮无触发） ===")
 wal_c = os.path.join(tmp, "c.jsonl")
 cfg3 = make_swarm_config(
-    instances=[{"id": "实例甲", "trust": 0.1, "symbols": {"信任值": 0.5}}],
+    instances=[{"id": "实例甲", "trust": 0.1}],
     rounds=2, shared_secret=SECRET)
 rr_c = run_swarm(proj, cfg3, wal_path=wal_c)
 check("短蜂群运行", rr_c["ok"])

@@ -49,10 +49,10 @@ check("项目生成", gen["ok"])
 
 CFG = make_swarm_config(
     instances=[
-        {"id": "实例甲", "role": "记录", "trust": 0.1, "symbols": {"信任值": 0.5}},
-        {"id": "实例乙", "role": "验证", "trust": 0.2, "symbols": {"信任值": 0.5}},
-        {"id": "实例丙", "role": "观察", "trust": 0.1, "symbols": {"信任值": 0.5}},
-        {"id": "实例丁", "role": "备份", "trust": 0.2, "symbols": {"信任值": 0.5}},
+        {"id": "实例甲", "role": "记录", "trust": 0.1},
+        {"id": "实例乙", "role": "验证", "trust": 0.2},
+        {"id": "实例丙", "role": "观察", "trust": 0.1},
+        {"id": "实例丁", "role": "备份", "trust": 0.2},
     ],
     routes=[{"from": "实例甲", "event_type": "信任同步", "to": "实例乙",
              "payload": "@trust", "level": 0}],

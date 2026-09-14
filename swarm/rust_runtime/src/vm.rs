@@ -8,6 +8,25 @@ use std::fmt::Write as _;
 
 use crate::pbc::{Arg, Instr};
 
+// =============================================================================
+// VM 内建名（与 compiler/condition_vm.py 同一契约；缺陷②③的 Rust 侧对齐）
+// =============================================================================
+// 背景：编译期名实校验（name_checker）把 信任值/条件空间/条件空间名 声明为合法
+// 符号，但两台 VM 此前都未在运行期绑定它们 —— 编译期放行、运行期 NameError。
+// 本表补齐运行时投影，使「名」与「实」指向同一处存储：
+//   信任值   → trust_value 寄存器（读写）；德(DE) 改的正是它，故自动同步
+//   条件空间 → 当前条件空间名（读）；赋值 = 切换
+//   空间名   → 其自身（字符串），使「若 条件空间 为 伴侣」成为真实运行期比较
+//   信任分量 → trust_parts 寄存器（默认 0.0）
+const BUILTIN_TRUST_VALUE: &str = "信任值";
+const BUILTIN_CONDITION_SPACE: &str = "条件空间";
+const BUILTIN_TRUST_THRESHOLD: &str = "信任阈值";
+const DEFAULT_TRUST_THRESHOLD: f64 = 0.7;
+const DEFAULT_CONDITION_SPACE: &str = "默认";
+const CONDITION_SPACE_NAMES: [&str; 5] = ["伴侣", "工作", "默认", "恢复默认", "default"];
+const TRUST_COMPONENT_NAMES: [&str; 5] =
+    ["P_trust", "T_pred", "T_context", "E_weight", "情感权重"];
+
 /// 栈值/符号值。Int 保留整数算术语义（对齐 Python int/float 区分）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -54,6 +73,8 @@ pub struct VM {
     symbols: HashMap<String, Value>,
     condition_stack: Vec<CondFrame>,
     trust_value: f64,
+    /// 信任分量寄存器（P_trust/T_pred/T_context/E_weight/情感权重 的运行时投影）
+    trust_parts: HashMap<String, f64>,
     call_stack: Vec<CallFrame>,
 }
 
@@ -173,8 +194,63 @@ impl VM {
             symbols: HashMap::new(),
             condition_stack: Vec::new(),
             trust_value: 0.0,
+            trust_parts: HashMap::new(),
             call_stack: Vec::new(),
         }
+    }
+
+    /// 当前条件空间名（栈空 → 默认）——对齐 Python `_condition_space_name`
+    fn condition_space_name(&self) -> String {
+        match self.condition_stack.last() {
+            Some(f) if !f.name.is_empty() => f.name.clone(),
+            _ => DEFAULT_CONDITION_SPACE.to_string(),
+        }
+    }
+
+    /// 切换条件空间（使「条件空间切换」在 VM 上真正可执行，缺陷③）
+    /// 恢复默认/默认 → 弹栈到根并置名默认；否则替换栈顶（栈空则压入）。
+    fn switch_condition_space(&mut self, name: &str) {
+        if name == "恢复默认" || name == DEFAULT_CONDITION_SPACE {
+            if self.condition_stack.len() > 1 {
+                self.condition_stack.truncate(1);
+            }
+            if let Some(f) = self.condition_stack.last_mut() {
+                f.name = DEFAULT_CONDITION_SPACE.to_string();
+                f.trust_at_create = self.trust_value;
+            }
+            return;
+        }
+        let frame = CondFrame {
+            name: name.to_string(),
+            trust_at_create: self.trust_value,
+        };
+        if self.condition_stack.is_empty() {
+            self.condition_stack.push(frame);
+        } else {
+            let n = self.condition_stack.len();
+            self.condition_stack[n - 1] = frame;
+        }
+    }
+
+    /// 内建名取值；非内建名 → None——对齐 Python `_builtin_load`
+    fn builtin_load(&self, name: &str) -> Option<Value> {
+        if name == BUILTIN_TRUST_VALUE {
+            return Some(Value::Float(self.trust_value));
+        }
+        if name == BUILTIN_CONDITION_SPACE {
+            return Some(Value::Str(self.condition_space_name()));
+        }
+        if CONDITION_SPACE_NAMES.contains(&name) {
+            // 空间名 → 自身（供「条件空间 为 X」比较）
+            return Some(Value::Str(name.to_string()));
+        }
+        if name == BUILTIN_TRUST_THRESHOLD {
+            return Some(Value::Float(DEFAULT_TRUST_THRESHOLD));
+        }
+        if let Some(v) = self.trust_parts.get(name) {
+            return Some(Value::Float(*v));
+        }
+        None
     }
 
     fn state(&self) -> State {
@@ -198,10 +274,36 @@ impl VM {
     ) -> Result<State, VmError> {
         self.ip = 0;
         self.stack = Vec::new();
+        // 内建名归一（对齐 Python ConditionVM.reset，缺陷②③）：
+        // 符号表里的 信任值/条件空间/信任分量 视为**寄存器初值**而非普通符号，
+        // 保证「名」与「实」只有一处存储（否则德 改寄存器、信任值 读符号，二者脱钩）。
+        let mut symbols = symbols;
+        let mut trust = trust;
+        if let Some(v) = symbols.remove(BUILTIN_TRUST_VALUE) {
+            if !is_num(&v) {
+                return Err(VmError::Error(format!(
+                    "名实不符：{} 初值需数值，得到 {:?}",
+                    BUILTIN_TRUST_VALUE, v
+                )));
+            }
+            trust = as_f64(&v);
+        }
+        let seed_space = symbols.remove(BUILTIN_CONDITION_SPACE);
         self.symbols = symbols;
+        self.trust_parts = HashMap::new();
+        for n in TRUST_COMPONENT_NAMES.iter() {
+            if let Some(v) = self.symbols.remove(*n) {
+                if is_num(&v) {
+                    self.trust_parts.insert((*n).to_string(), as_f64(&v));
+                }
+            }
+        }
         self.condition_stack = condition_stack;
         self.trust_value = trust;
         self.call_stack = Vec::new();
+        if let Some(Value::Str(sp)) = seed_space {
+            self.switch_condition_space(&sp);
+        }
         let mut steps: u64 = 0;
         while self.ip < code.len() {
             steps += 1;
@@ -246,15 +348,46 @@ impl VM {
             }
             "LOAD_NAME" => {
                 let key = expect_str(&instr.arg)?;
-                let v = self.symbols.get(key).cloned().ok_or_else(|| {
-                    VmError::Error(format!("名实不符：'{key}' 未声明（以名举实）"))
-                })?;
-                self.stack.push(v);
+                if let Some(v) = self.symbols.get(key).cloned() {
+                    self.stack.push(v);
+                } else if let Some(v) = self.builtin_load(key) {
+                    // 内建名（信任值/条件空间/空间名/信任分量）——缺陷②③修复点
+                    self.stack.push(v);
+                } else {
+                    return Err(VmError::Error(format!("名实不符：'{key}' 未声明（以名举实）")));
+                }
             }
             "STORE_NAME" => {
                 let key = expect_str(&instr.arg)?.to_string();
                 let v = self.pop()?;
-                self.symbols.insert(key, v);
+                if key == BUILTIN_TRUST_VALUE {
+                    if !is_num(&v) {
+                        return Err(VmError::Error(format!(
+                            "{} 只能写数值，得到 {:?}",
+                            BUILTIN_TRUST_VALUE, v
+                        )));
+                    }
+                    self.trust_value = as_f64(&v);
+                } else if key == BUILTIN_CONDITION_SPACE {
+                    match v {
+                        Value::Str(s) => self.switch_condition_space(&s),
+                        _ => {
+                            return Err(VmError::Error(format!(
+                                "{} 只能写空间名（字符串），得到 {:?}",
+                                BUILTIN_CONDITION_SPACE, v
+                            )))
+                        }
+                    }
+                } else if let Some(slot) = self.trust_parts.get_mut(&key) {
+                    // 信任分量写入（get_mut 而非 contains_key+insert：
+                    // 后者触发 clippy map_entry 警告，测试要求零警告）
+                    if !is_num(&v) {
+                        return Err(VmError::Error(format!("{} 只能写数值", key)));
+                    }
+                    *slot = as_f64(&v);
+                } else {
+                    self.symbols.insert(key, v);
+                }
             }
             "JUMP" => {
                 self.ip = expect_int(&instr.arg)? as usize;

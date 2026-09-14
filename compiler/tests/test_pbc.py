@@ -40,9 +40,10 @@ check('②a 编译为.pbc', r["ok"] and os.path.isfile(pbc) and os.path.getsize(
 
 # ③ .pbc → VM 独立执行
 if os.path.isfile(pbc):
+    # 缺陷②修复后：信任值符号注入=寄存器初值 0.5 → +0.3=0.8 → (0.8>0.2) → +0.5 → 1.3
     state = run_pbc(pbc, symbols={"信任值": 0.5})
-    check('③a 独立执行(信任0.8+条件空间+halt)',
-          state["trust"] == 0.8
+    check('③a 独立执行(信任1.3+条件空间+halt)',
+          state["trust"] == 1.3
           and state["condition_space"][0]["name"] == "新信任路径"
           and state["halt"] == "halt",
           f'trust={state["trust"]} halt={state["halt"]}')
