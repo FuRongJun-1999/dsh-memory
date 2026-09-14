@@ -23,15 +23,27 @@ from md_cg import nodefile, routing
 DEFAULT_ROOT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "mdcg")
 
+#: 归档区目录名：这些目录下的 .md 是**库存/历史**（软删除的墓碑、覆盖保护的快照），
+#: 不是活跃节点。此前不剪枝，导致同一库被报成「54 活跃 + 67 墓碑 = 123 节点」，
+#: 而本函数的结论是「分桶键有没有区分度」的 go/no-go 判据（见模块 docstring：
+#: 「任何新库接入前都应先跑一遍」）——被历史稀释后，判据本身失真。
+#: 与 mdcg_maintain.py 的 _is_archived() 同口径。
+ARCHIVE_DIRS = ("trash", "_protected_history", "_protected", "_index_log", "hippocampus")
+
 
 def load(root):
     """遍历 md 记忆库根，返回 [(node_id, layer, condition_space, tags), ...]。
 
     只认能被 nodefile.loads 解析出 frontmatter 的 .md —— 解析不出说明不是节点文件
     （例如随手放进来的说明文档），直接跳过而不是塞进空条件桶污染统计。
+    归档区（ARCHIVE_DIRS）整体剪枝，不参与普查。
     """
     out = []
-    for dirpath, _dirs, files in os.walk(root):
+    for dirpath, dirs, files in os.walk(root):
+        # 剪枝必须在遍历 files 之前：归档区不仅自己不普查，
+        # 也不允许继续下钻（_protected_history/<id>/<ts>.md 是两层）。
+        dirs[:] = [d for d in dirs
+                   if d not in ARCHIVE_DIRS and not d.startswith("_protected_history_")]
         for fn in files:
             if not fn.endswith(".md"):
                 continue
