@@ -652,7 +652,11 @@ KERNEL_TOOLS = [
                                 "promote_history|induce|contextualize|"
                                 "contextualize_rollback|contextualize_history；"
                                 "insight: window|record|verify|list|report|"
-                                "reconstruct|learn|outlook|catalog"),
+                                "reconstruct|learn|outlook|catalog|"
+                                "fork|branch_rewrite|branch_search|"
+                                "branch_merge|branch_discard|branches；"
+                                "分支六 act：node_ids/branch_id/note/content/"
+                                "reason 按 act 取用（rewrite 传 node_id+content）"),
             pid=_p("string", "review decide 的提案 id"),
             decision=_p("string", "review 裁决：accept|reject|edit|merge"),
             edits=_p("object", "review edit 的覆盖字段（不可含 verify）"),
@@ -1614,134 +1618,12 @@ def _cg_dispatch(cg, a):
             for n, s, q2 in res]}
 
     if op == "write":
-        from . import audit
-        verdict = audit.audit(
-            (a.get("content_kind") or "").strip(),
-            {"content": a.get("content", ""), "action": a.get("action"),
-             "sensitivity": a.get("sensitivity"),
-             "topic": a.get("query") or a.get("intent")},
-            {"cg": cg, "principal": getattr(cg, "principal", None)})
-        nid = a.get("node_id") or ("mem_" + str(int(__import__("time").time() * 1000)))
-        st = verdict["state"]
-        if st == audit.ACCEPT:
-            # 节点间自动冲突检测（三级决策：情绪→反思→递归反思）：
-            # 写入前与既有条件/纪律校验；不通过则不落盘（可进审核队列）。
-            # 与 mdcg_remember 同源、默认开启——「信息的修改必须先通过校验」。
-            cvd = None
-            if bool(a.get("consistency", True)):
-                oc = (a.get("on_conflict") or "defer").strip().lower()
-                cvd = cg.check_consistency(
-                    a.get("content", ""),
-                    layer=a.get("layer") or ("contextual" if a.get("gated")
-                                             else "knowledge"),
-                    condition_space=a.get("condition_space"),
-                    non_applicable_conditions=a.get("non_applicable_conditions"),
-                    tags=a.get("tags"), exclude=nid, auto_flywheel=True)
-                v = cvd.get("verdict")
-                blocked = ((v == "REJECT" and oc == "reject")
-                           or (v in ("REJECT", "BLINDSPOT") and oc == "defer"))
-                if blocked:
-                    if oc == "reject":
-                        return {"ok": False, "id": nid, "committed": False,
-                                "moved_to": "conflict_rejected",
-                                "consistency": cvd, "verdict": verdict}
-                    pr = cg.propose(nid, a.get("content", ""), info=True,
-                                    layer=a.get("layer") or "knowledge",
-                                    tags=a.get("tags"),
-                                    condition_space=a.get("condition_space"),
-                                    **_proposal_extras(a, verdict))
-                    out = {"ok": False, "id": nid, "pid": pr["pid"],
-                           "committed": False,
-                           "moved_to": "review_queue", "consistency": cvd,
-                           "verdict": verdict,
-                           "hint": "这是冲突闸门的正常行为：本次写入与既有条件/纪律冲突"
-                                   "（on_conflict=defer），已转入审核队列待裁决——"
-                                   "不是工具故障，重试同样结果；"
-                                   "落盘须由设计者权限（can_admin）裁决，转告使用者："
-                                   "python scripts/review_cli.py list 后 accept/reject，"
-                                   "或 cg(op=review, pid=<pid>, decision=accept|reject|"
-                                   "edit|merge, reason=<理由>)"}
-                    if pr.get("dedup"):
-                        out["dedup"] = True
-                        out["dup_of"] = pr["pid"]
-                        out["hint"] = (
-                            "同内容提案已存在于审核队列（pid=%s，幂等去重），"
-                            "本次未重复入队——无需重试；"
-                            "落盘须由设计者权限（can_admin）对该 pid 裁决："
-                            "python scripts/review_cli.py list 后 accept/reject，"
-                            "或 cg(op=review, pid=<pid>, decision=accept|reject|"
-                            "edit|merge, reason=<理由>)" % pr["pid"])
-                    return out
-            if a.get("gated"):
-                hint = a.get("importance_hint")
-                if hint is None and a.get("importance") is not None:
-                    hint = float(a["importance"])
-                res = cg.remember_gated(
-                    nid, a.get("content", ""), layer=a.get("layer") or "contextual",
-                    role=a.get("role"), tags=a.get("tags"),
-                    condition_space=a.get("condition_space"),
-                    verification_basis=(a.get("verification_basis")
-                                        or verdict.get("basis")),
-                    non_applicable_conditions=a.get("non_applicable_conditions"),
-                    importance_hint=hint, override=bool(a.get("override")),
-                    consistency=False,
-                    derived_from=_split_ids(a.get("derived_from")),
-                    relation=a.get("relation"))
-                v = res.get("verdict")
-                committed = v == "ACCEPT"
-                out = {"ok": committed, "id": nid, "committed": committed,
-                       "gate": res, "verdict": verdict}
-                if cvd is not None:
-                    out["consistency"] = cvd
-                if v == "MERGE":
-                    out["moved_to"] = "merged_into:" + str(res.get("merged_into"))
-                elif v in ("DROP", "DEFER"):
-                    out["moved_to"] = v.lower()
-                return out
-            cg.add(nid, a.get("content", ""), layer=a.get("layer") or "knowledge",
-                   tags=a.get("tags"), condition_space=a.get("condition_space"),
-                   importance=float(a.get("importance", 0.5)),
-                   verification_basis=a.get("verification_basis") or verdict.get("basis"),
-                   non_applicable_conditions=a.get("non_applicable_conditions"),
-                   override=bool(a.get("override")), consistency=False,
-                   derived_from=_split_ids(a.get("derived_from")),
-                   relation=a.get("relation"))
-            out = {"ok": True, "id": nid, "committed": True, "verdict": verdict}
-            if cvd is not None:
-                out["consistency"] = cvd
-            return out
-        if st == audit.REJECT:
-            rid = cg.add_rejected((a.get("content") or "")[:200], verdict["evidence"],
-                                  verification_basis=verdict.get("basis") or "test",
-                                  tags=a.get("tags"))
-            return {"ok": False, "id": rid, "committed": False,
-                    "moved_to": "rejected", "verdict": verdict,
-                    "hint": "这是审核闸门的正常行为：内容未过内容政策审核（REJECT），"
-                            "已记入负记忆——不是工具故障，重试同样结果；"
-                            "拒绝依据见 verdict.evidence"}
-        pr = cg.propose(nid, a.get("content", ""), info=True,
-                        layer=a.get("layer") or "knowledge",
-                        tags=a.get("tags"), condition_space=a.get("condition_space"),
-                        **_proposal_extras(a, verdict))
-        out = {"ok": True, "id": nid, "pid": pr["pid"], "committed": False,
-               "moved_to": "review_queue", "verdict": verdict,
-               "hint": "这是校验闸门的正常行为（verdict=%s）：内容未达 ACCEPT，"
-                       "已入审核队列——不需要重试；落盘须由设计者权限（can_admin）"
-                       "对提案 pid 裁决（agent 端无裁决权是设计），转告使用者："
-                       "python scripts/review_cli.py list 后 accept/reject，"
-                       "或 cg(op=review, pid=<pid>, decision=accept|reject|"
-                       "edit|merge, reason=<理由>)" % verdict.get("state")}
-        if pr.get("dedup"):
-            out["dedup"] = True
-            out["dup_of"] = pr["pid"]
-            out["dup_status"] = pr.get("dup_status")
-            out["hint"] = (
-                "同内容提案已存在（pid=%s，状态=%s，幂等去重），"
-                "本次未重复入队——无需重试；落盘须由设计者权限（can_admin）"
-                "对该 pid 裁决：python scripts/review_cli.py list 后 accept/reject，"
-                "或 cg(op=review, pid=<pid>, decision=accept|reject|edit|merge, "
-                "reason=<理由>)" % (pr["pid"], pr.get("dup_status") or "pending"))
-        return out
+        # 写入路径拦截器链（Pi 钩子化移植，writepipe.py）：六道闸以扩展
+        # 形态注册于 writepipe.default_pipeline()，次序/启停不再硬编码于
+        # 本文件；新增闸门 = register_before 一行，即插即拔。
+        # 角色/层权限校验在 MdCGSecure.add 库层，结构上不可被拦截器绕过。
+        from .writepipe import default_pipeline
+        return default_pipeline().execute(cg, a)
 
     if op == "goal":
         act = (a.get("action") or "list").strip().lower()
@@ -2127,13 +2009,16 @@ def _consolidate_call(cg, a):
 
 def _insight_call(cg, a):
     """洞察（P2）：window / record / verify / list / report / reconstruct / learn /
-    outlook / catalog。
+    outlook / catalog / fork / branch_rewrite / branch_search / branch_merge /
+    branch_discard / branches。
 
     权限**按 action 分档**（与 maintain 同构，比整 op 收窄更贴合语义）：
-      · 只读（window / list / report / reconstruct 预演 / outlook / catalog）
-        → 不额外拦截；
-      · 条件层记账（record / verify）→ 需 can_write；
-      · 落库（reconstruct apply / learn apply）→ 批量改写，require_admin。
+      · 只读（window / list / report / reconstruct 预演 / outlook / catalog /
+        branch_search / branches / fork 预演）→ 不额外拦截；
+      · 条件层记账（record / verify）与分支写操作（fork / branch_rewrite /
+        branch_merge）→ 需 can_write；
+      · 落库（reconstruct apply / learn apply）与分支弃置（branch_discard，
+        改变库可见性）→ require_admin（discard 库层还有第二道闸）。
     这样 output 角色能读洞察但不能记；reflect 能重构与学习预演；批量落库须请示。
     """
     act = (a.get("action") or "outlook").strip().lower()
@@ -2143,18 +2028,26 @@ def _insight_call(cg, a):
     actor = getattr(principal, "actor", None) if principal is not None else None
     if principal is not None and act in ("record", "verify") and not can_write:
         principal.require_admin(f"insight_{act}")     # 无写权 → 抛 AccessDenied
+    if principal is not None and act in ("fork", "branch_rewrite",
+                                         "branch_merge") and not can_write:
+        principal.require_admin(f"insight_{act}")     # 分支写 → 需写权
     if principal is not None and act in ("reconstruct", "learn") and apply:
         principal.require_admin(f"insight_{act}")
+    if principal is not None and act == "branch_discard":
+        principal.require_admin("branch_discard")     # 弃置：分发层+库层双闸
     return cg.insight(
         action=act, layer=a.get("layer"), limit=a.get("limit"),
         conditions=a.get("conditions"), apply=apply, actor=actor,
         statement=a.get("statement"), category=a.get("category"),
         source=a.get("source"), tags=a.get("tags"),
         importance=a.get("importance"), node_id=a.get("node_id"),
+        content=a.get("content"),
         evidence=a.get("evidence"), v_types=a.get("v_types"),
         verdict=a.get("verdict"), state=a.get("state"),
         window_days=a.get("window_days"), clues=a.get("clues"),
         ids=a.get("ids"), neighbors=a.get("neighbors"),
+        branch_id=a.get("branch_id"), note=a.get("note"),
+        reason=a.get("reason"),
         blindspot_id=a.get("blindspot_id"), horizon=a.get("horizon"),
         max_branches=a.get("max_branches"), recent_days=a.get("recent_days"),
         sample_limit=a.get("sample_limit"), max_nodes=a.get("max_nodes"))

@@ -315,17 +315,22 @@ class MdCGOS(MdCG):
         return nid
 
     def _candidates(self, layer=None, roles=None, include_work=False,
-                    session=None):
+                    session=None, branch=None):
         """候选池：按层 + role 过滤。默认剔除工作角色（工具输出/命令/编辑）。
 
         session：会话归属过滤（frontmatter.session，写入时自动落盘）——
         多会话共用一个 root 时，按它区分「本会话记忆 / 其他会话记忆」。
+        branch：分支可见性（记忆演化分支④）——None（默认）时分支实验
+        节点全部隐身（实验不污染主支检索）；branch=<id> 时主支 + 该分支
+        可见、其他分支仍隐身。
         """
         out = []
         for e in self.index["nodes"].values():
             if e.get("layer") in ("rejected", "unresolved", "goals"):
                 continue  # 负记忆走覆盖标记；目标只做定向，都不进正排
             if session and e.get("session") != session:
+                continue
+            if e.get("branch_id") not in (None, branch):
                 continue
             if layer and e.get("layer") != layer:
                 continue
@@ -376,7 +381,7 @@ class MdCGOS(MdCG):
                context=None, min_results: int = 1, record: bool = True,
                include_neg: bool = True, judge: bool = True,
                roles=None, include_work: bool = False, pools=None,
-               session=None):
+               session=None, branch=None):
         """在父类语义之上加 role 过滤（默认剔除工具输出/命令/编辑）。
 
         返回 (results, meta)，与 MdCG.search 完全同构（T0–T3 阶梯 + 资格判定）。
@@ -387,7 +392,7 @@ class MdCGOS(MdCG):
             return [], {"tier": None, "reason": "empty_query", "scanned": 0}
         pool_cfg = pooling.resolve(pooling.from_env(pools))
         entries = self._candidates(layer=layer, roles=roles, include_work=include_work,
-                                   session=session)
+                                   session=session, branch=branch)
         if not entries:
             return [], {"tier": None, "reason": "no_candidates", "scanned": 0}
 
@@ -728,7 +733,7 @@ class MdCGOS(MdCG):
                    record: bool = True, query_expand=None,
                    path_weights=None, recall_only=None, fusion: str = "sum",
                    goal_text=None, judge_ranking: bool = False,
-                   session=None):
+                   session=None, branch=None):
         """并行多路召回 + RRF 融合。返回 (results, meta)。
 
         每路各自排序 → Reciprocal Rank Fusion：
@@ -763,7 +768,7 @@ class MdCGOS(MdCG):
         if not q:
             return [], {"tier": None, "reason": "empty_query", "paths": {}}
         entries = self._candidates(layer=layer, roles=roles, include_work=include_work,
-                                   session=session)
+                                   session=session, branch=branch)
         if not entries:
             return [], {"tier": None, "reason": "no_candidates", "paths": {}}
 
@@ -873,7 +878,7 @@ class MdCGOS(MdCG):
                include_work: bool = False, judge: bool = True, use_rrf: bool = True,
                paths=None, query_expand=None, fusion=None,
                goal_text=None, include_recent=False, recent_limit: int = 10,
-               judge_ranking: bool = False, session=None,
+               judge_ranking: bool = False, session=None, branch=None,
                max_item_tokens: int = DEFAULT_MAX_ITEM_TOKENS):
         """按 token 预算装包：装到预算花完为止。
 
@@ -906,11 +911,13 @@ class MdCGOS(MdCG):
             if goal_text is not None:
                 kw["goal_text"] = goal_text
             kw["judge_ranking"] = judge_ranking
+            if branch is not None:
+                kw["branch"] = branch
             results, meta = self.search_rrf(query, **kw)
             items = [(r[0], r[1], r[2], r[3]) for r in results]
         else:
             res, meta = self.search(query, layer=layer, k=k, context=context,
-                                    judge=judge, session=session)
+                                    judge=judge, session=session, branch=branch)
             items = [(r[0], r[1], r[2], []) for r in res]
 
         pack, skipped, used = [], [], 0
@@ -1942,7 +1949,9 @@ class MdCGOS(MdCG):
     # 三者都不进默认召回热路径，只在显式调用时工作。
 
     INSIGHT_ACTIONS = ("window", "record", "verify", "list", "report",
-                       "reconstruct", "learn", "outlook", "catalog")
+                       "reconstruct", "learn", "outlook", "catalog",
+                       "fork", "branch_rewrite", "branch_search",
+                       "branch_merge", "branch_discard", "branches")
 
     def insight(self, action="outlook", **kw):
         """洞察条件层 + 情景重构 + 盲区学习 + 结构洞察（P2）。
@@ -1992,6 +2001,34 @@ class MdCGOS(MdCG):
                 max_nodes=(kw.get("max_nodes") or subgraph.RECON_MAX_NODES),
                 neighbors=(True if kw.get("neighbors") is None
                            else bool(kw.get("neighbors"))))
+        if act in ("fork", "branch_rewrite", "branch_search", "branch_merge",
+                   "branch_discard", "branches"):
+            # 记忆演化分支（Pi 移植④）：fork / 分支改写（唯一正路，归属强制
+            # 继承）/ 分支内检索 / 溯源合并 / 教训归档冷收 / 盘点。
+            # discard 属写操作（MCP 分发层 require_admin）。
+            from . import branches as _br
+            if act == "fork":
+                return _br.fork(self, kw.get("node_ids") or kw.get("ids"),
+                                branch_id=kw.get("branch_id"),
+                                note=kw.get("note"))
+            if act == "branch_rewrite":
+                return _br.rewrite(self,
+                                   kw.get("node_id") or kw.get("pid") or "",
+                                   kw.get("content") or "",
+                                   tags=kw.get("tags"),
+                                   importance=kw.get("importance"))
+            if act == "branch_search":
+                return _br.search(self,
+                                  kw.get("content") or kw.get("query") or "",
+                                  kw.get("branch_id") or "")
+            if act == "branch_merge":
+                return _br.merge(self, kw.get("branch_id"),
+                                 reason=kw.get("reason"))
+            if act == "branch_discard":
+                return _br.discard(self, kw.get("branch_id"),
+                                   summary=kw.get("content")
+                                   or kw.get("summary") or "")
+            return _br.list_branches(self)
         if act == "explore":
             # 信息差驱动自主探索（opt-in）：提案 → 五态验证 → 回写 gap_hint
             from . import autonomy
@@ -2715,9 +2752,9 @@ class MdCGSecure(MdCGOS):
         return super().clear_recent()
 
     def _candidates(self, layer=None, roles=None, include_work=False,
-                    session=None):
+                    session=None, branch=None):
         out = super()._candidates(layer=layer, roles=roles, include_work=include_work,
-                                  session=session)
+                                  session=session, branch=branch)
         return [e for e in out if self._readable(e)]
 
     def _neg_coverage(self, terms):

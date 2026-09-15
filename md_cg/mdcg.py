@@ -602,6 +602,9 @@ class MdCG:
                         "temporal": fm.get("temporal"),
                         "spatial": fm.get("spatial"),
                         "time_window": (fm.get("condition_space") or {}).get("time_window"),
+                        # 记忆演化分支（④）：重建口径与 _stage 一致
+                        "branch_id": fm.get("branch_id"),
+                        "branched_from": fm.get("branched_from"),
                         "evidence_count": fm.get("evidence_count", 0),
                         # 嵌套子图 / 关系边入索引快照：递归展开与链式遍历免读文件
                         "subgraph": fm.get("subgraph"),
@@ -759,6 +762,9 @@ class MdCG:
             "writer": fm.get("writer"),
             "session": fm.get("session"),
             "harness": fm.get("harness"),
+            # 记忆演化分支（④）：fork 副本带分支归属与溯源主支
+            "branch_id": fm.get("branch_id"),
+            "branched_from": fm.get("branched_from"),
         })
         subgraph.invalidate_cache(self)
         chain.invalidate_cache(self)
@@ -1247,7 +1253,7 @@ class MdCG:
     def search(self, query: str, layer: str = None, k: int = 20,
                context=None, min_results: int = 1, record: bool = True,
                include_neg: bool = True, judge: bool = True, pools=None,
-               session=None):
+               session=None, branch=None):
         """返回 (results, meta)。results = [(node_dict, score, qualification)]。
 
         meta 含 tier（性能层级）、scanned（读取节点数）、bucket（路由桶）、candidates。
@@ -1275,7 +1281,10 @@ class MdCG:
         # 默认排除掉负记忆层的节点进入正排打分，仅作为「覆盖标记」用
         entries = [e for e in self.index["nodes"].values()
                    if (not layer or e["layer"] == layer)
-                   and (not session or e.get("session") == session)]
+                   and (not session or e.get("session") == session)
+                   # 分支实验场：默认（branch=None）分支节点全部隐身；
+                   # branch=<id> 时主支 + 本分支可见、其他分支仍隐身
+                   and e.get("branch_id") in (None, branch)]
         if not entries:
             return [], {"tier": None, "reason": "no_candidates", "scanned": 0}
 
