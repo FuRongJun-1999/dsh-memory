@@ -598,6 +598,25 @@ def _forget_many(cg, plan, why: str) -> tuple:
     return done, blocked
 
 
+def _drop_ghosts(cg, ghosts) -> list:
+    """摘除幽灵条目的索引记录（节点文件已不存在，没有可软删的实体）。
+
+    走 `MdCG._unstage`：它顺带落删除记录，保证幽灵不会再次从分片日志里复活。
+    基础层没有该能力时如实返回空列表（不假装成功）。
+    """
+    drop = getattr(cg, "_unstage", None)
+    if not callable(drop):
+        return []
+    out = []
+    for nid in ghosts:
+        try:
+            drop(nid)
+            out.append(nid)
+        except Exception:                 # 单条失败不拖垮整批
+            continue
+    return out
+
+
 def prune_orphans(cg, *, kind: str, root: str, items, dry_run: bool = False,
                   reason: str = "") -> dict:
     """清退「同 root + 同 path，但已不在本次产出里」的**过期代**节点。
@@ -663,8 +682,23 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
     `check_refs` 只报告不处置（其原话是「悬空需人工处置」），本函数就是那个
     出口——已删脚本、被搬走的文档留下的残留节点一次清掉，而不是逐条手工
     `forget`。判定与巡检共用 `probe_ref` 的唯一实现，口径不会打架。
+
+    另清**幽灵条目**（ghosts）：索引有条目、节点文件却不存在。它们是历史
+    「删除只摘内存索引、不落盘」的遗留——`cg.get` 取不回 → 悬空清退够不着它，
+    而 `check_refs` 走 ledger 会一直报 → dangling 永不归零。判据只用唯一真源
+    （节点 .md 不存在即脏索引），与「索引是派生物」的宣言一致；`only_roots`
+    非空时跳过（幽灵条目无 ref，无法归因到某个源大域）。
     """
     nodes = (getattr(cg, "index", {}) or {}).get("nodes") or {}
+    ghosts = []
+    if not only_roots:
+        for nid, e in list(nodes.items()):
+            tags = (e or {}).get("tags") or []
+            if not any(t in ("code", "doc") for t in tags):
+                continue
+            path = (e or {}).get("path") or ""
+            if path and not os.path.exists(os.path.join(cg.root, path)):
+                ghosts.append(nid)
     # 同 prune_orphans：ref 只在节点 frontmatter 里，索引条目里没有，
     # 必须 cg.get 取回节点再 ref_of（否则恒空、静默不删）。
     todo = []
@@ -684,7 +718,7 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
         if only_roots and not any(_same_root(ref.get("root"), r) for r in only_roots):
             continue
         todo.append((nid, ref))
-    truncated = len(todo) > max_nodes
+    truncated = len(todo) > max_nodes or len(ghosts) > max_nodes
     plan = []
     for nid, ref in todo[:max_nodes]:
         try:
@@ -695,14 +729,19 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
 
     why = reason or ("源文件已删除，索引节点悬空（回读必然失败），"
                      "清退以消除永不消失的 dangling")
+    ghost_plan = sorted(ghosts)[:max_nodes]
     base = {"scanned": len(nodes), "candidates": len(plan),
+            "ghosts": len(ghost_plan),
             "dry_run": bool(dry_run), "truncated": truncated,
             "max_nodes": max_nodes}
     if dry_run:
         return {**base, "ok": True, "count": len(plan), "pruned": sorted(plan)[:50],
+                "ghost_pruned": ghost_plan[:50],
                 "skipped_protected": [], "reason": why}
     done, blocked = _forget_many(cg, plan, why)
+    dropped = _drop_ghosts(cg, ghost_plan)
     return {**base, "ok": True, "count": len(done), "pruned": done[:50],
+            "ghost_pruned": dropped[:50],
             "skipped_protected": blocked[:20], "reason": why}
 
 

@@ -510,7 +510,13 @@ class MdCG:
             idx = {"schema": SCHEMA, "nodes": self._scan_nodes(), "buckets": {}}
         for rec in ShardedLog.read_all(self.index_log_dir):
             nid, e = rec.get("id"), rec.get("e")
-            if nid and e:
+            if not nid:
+                continue
+            if e is None:
+                # 删除记录（tombstone）：删除必须能重放，否则已删节点会在下次
+                # 启动时从旧记录里复活成**幽灵条目**（索引有条目、文件不存在）。
+                idx["nodes"].pop(nid, None)
+            else:
                 idx["nodes"][nid] = e
         idx["buckets"] = self._count_buckets(idx["nodes"])
         return idx
@@ -537,7 +543,11 @@ class MdCG:
                     pass
             for rec in ShardedLog.read_all(self.index_log_dir):
                 nid, e = rec.get("id"), rec.get("e")
-                if nid and e:
+                if not nid:
+                    continue
+                if e is None:              # 删除记录（tombstone），见 _load_index
+                    idx["nodes"].pop(nid, None)
+                else:
                     idx["nodes"][nid] = e
             idx["buckets"] = self._count_buckets(idx["nodes"])
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))
@@ -1083,6 +1093,26 @@ class MdCG:
         if len(self._dirty) >= self.autoflush:
             self.flush()
 
+    def _unstage(self, node_id):
+        """摘除索引条目并**持久化**——与 `_stage` 对称的删除原语。
+
+        只 pop 内存索引是不够的：`close()` 注释里记过同构的坑（已有
+        `_index.json` 的根重开不重扫目录），于是「删掉的条目」会在
+        `_index_log` 重放时复活成**幽灵条目**（索引有条目、节点文件不存在）。
+        幽灵条目的代价：检索白跑候选、`ref action=prune` 因 `cg.get` 取不回
+        而够不着它，`check` 的 dangling 永不归零（本机实测累积数百条）。
+        """
+        e = self.index["nodes"].pop(node_id, None)
+        if e and e.get("bucket"):
+            b = e["bucket"]
+            left = self.index["buckets"].get(b, 0) - 1
+            if left > 0:
+                self.index["buckets"][b] = left
+            else:
+                self.index["buckets"].pop(b, None)
+        self._dirty[node_id] = None      # None = 删除记录，随 flush 落分片日志
+        self.flush()                     # 删除不可延迟到 autoflush 阈值
+
     # ---------- 内容封装钩子（默认恒等；MdCGSecure 覆盖为「私有内容加密」）----
 
     def _seal_content(self, node_id: str, content: str,
@@ -1608,8 +1638,7 @@ class MdCG:
                               verification_basis="test")
             # 从原位置删除（节点进入 rejected 层）
             os.remove(os.path.join(self.root, node["path"]))
-            self.index["nodes"].pop(node_id, None)
-            self._dirty.pop(node_id, None)
+            self._unstage(node_id)      # 同上：索引删除必须可重放（防幽灵条目）
             return {"action": "falsified", "new_id": None,
                     "evidence_count": None, "demoted": None}
         # confirmed/weakened：调整 confidence（白箱第 5 篇：

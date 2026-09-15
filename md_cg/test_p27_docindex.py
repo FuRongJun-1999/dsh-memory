@@ -494,6 +494,26 @@ def main():
         check("清退后悬空归零", not (ck3.get("dangling") or []),
               str(ck3.get("dangling"))[:130])
 
+        # 跨进程一致性：新实例重放 _index_log 后，已清退节点不得复活成幽灵条目
+        # （索引有条目、文件不存在）——只有把「删除」也写进增量日志才成立。
+        cg2 = MdCGOS(ROOT)
+        revived = sorted(n for n in ids4 if n in (cg2.index.get("nodes") or {}))
+        check("清退后重开不复活幽灵条目", not revived, f"复活={revived}")
+
+        # 存量幽灵（历史「删除只摘内存索引」遗留）：索引有条目、节点文件不存在
+        # 也必须清得掉，否则 dangling 永远够不着零。
+        gid = "doc_ghost_probe0001"
+        cg.index["nodes"][gid] = {"path": "knowledge/ghost_probe.md",
+                                  "layer": "knowledge", "tags": ["doc"],
+                                  "bucket": None, "importance": 0.5}
+        g1 = call_tool(cg, "cg", {"op": "ref", "action": "prune"})
+        check("幽灵条目被清退（索引有、文件无）",
+              len(g1.get("ghost_pruned") or []) >= 1
+              and gid not in (cg.index.get("nodes") or {}), str(g1)[:130])
+        ck4 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 5000})
+        check("清幽灵后悬空仍为零", not (ck4.get("dangling") or []),
+              str(ck4.get("dangling"))[:130])
+
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

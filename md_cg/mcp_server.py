@@ -562,14 +562,32 @@ KERNEL_TOOLS = [
                        "另有节点**派生溯源**（区别于对端信任）：derive 列边、"
                        "derive_dangling 悬空巡检（只读、不删边）、derive_catalog 自描述、"
                        "derive_rebuild 按 frontmatter 重建台账（默认预演）；权威声明只在"
-                       "节点写入时产生（write/remember 的 derived_from），本层不新增写入口）。",
+                       "节点写入时产生（write/remember 的 derived_from），本层不新增写入口）；"
+                       "op=session：会话三件套（action=note 写要点 / recall 续接 / "
+                       "compact 压摘要；hook 缺失时的库侧替代——载体负责「何时做」、库保证"
+                       "「一次调用就够用」；note 与 compact(note=True) 需 can_write，recall 只读）；"
+                       "op=ingest：文件摄取（action=file|dir|jsonl|stat；写链需 can_write，"
+                       "支持 dry_run 预演与 incremental 增量去重、watermark 留痕）；"
+                       "op=export：全库导出（action=graph|nodes|slice|stat；导出整库属管理"
+                       "操作，一律 require_admin）；"
+                       "op=maintain：记忆维护（action=stat|history|importance|longterm|"
+                       "prefeed|separate|rollback|backfill|cap|exempt|vision_evidence|refine "
+                       "及其 *_history；权限按 action 分档：只读放行、prefeed 写入需 "
+                       "can_write、批量改写与 rollback 需 admin；dry-run 只出报表不改盘）；"
+                       "op=consolidate：离线固化（action=promote 提升 | induce 归纳 | "
+                       "contextualize 语境化，及其 _rollback/_history；批量提升属管理操作，"
+                       "一律 require_admin）；"
+                       "op=insight：洞察（action=window|record|verify|list|report|"
+                       "reconstruct|learn|outlook|catalog|fork|branch_rewrite|branch_search|"
+                       "branch_merge|branch_discard|branches；权限按 action 分档：只读放行、"
+                       "条件记账与分支写需 can_write、落库 apply 与分支弃置需 admin）。",
         "inputSchema": _s("",
             op=_p("string", "route|read|write|verify|review|protect|identity|"
                             "consistency|metacognition|self_state|evolution|sustain|"
                             "scrub|predict|causal|"
                             "forget|goal|recent|info|index_code|index_doc|ref|whitebox|"
                             "theory|link|session|ingest|export|maintain|consolidate|"
-                            "insight", True),
+                            "insight|help", True),
             intent=_p("string", "route 的查询意图"), query=_p("string", "read 的查询"),
             goal=_p("string", "goal op 的目标文本；read 的定向目标（缺省用活跃目标）"),
             goal_status=_p("string", "goal op：active|done|dropped"),
@@ -837,8 +855,16 @@ SURFACE = os.environ.get("MDCG_MCP_SURFACE", "kernel").strip().lower()
 
 
 def tools_for_surface():
-    """kernel：只暴露 2 个基元；full：2 个基元 + 31 个细粒度工具（兼容/调试）。"""
-    return ALL_TOOLS if SURFACE == "full" else KERNEL_TOOLS
+    """kernel：只暴露 2 个基元；full：2 个基元 + 31 个细粒度工具（兼容/调试）。
+
+    返回**投影后**的工具面（工具一行职责 + 参数短提示）：完整语义由
+    ``cg(op=help, query=…)`` 按需取回。真源 KERNEL_TOOLS/TOOLS 保持完整定义，
+    投影只是运行时视图（信息零丢失，见 md_cg/tool_face.py）。
+    关闭投影：``MDCG_TOOL_FACE=full``。
+    """
+    tools = ALL_TOOLS if SURFACE == "full" else KERNEL_TOOLS
+    from .tool_face import slim_tools
+    return slim_tools(tools)
 
 
 # --------------------------------------------------------------------------
@@ -1430,9 +1456,23 @@ def _cg_call(cg, a):
     return out
 
 
+def _help_call(cg, a):
+    """按需披露入口（工具面渐进披露的读取面，见 md_cg/tool_face.py）。
+
+    常驻上下文只留「一行职责 + 参数短提示」；被投影掉的完整 op/参数语义
+    在此从真源无损取回——所以瘦身不损失能力，只把「随时付费」换成「按需取」。
+    只读元信息（工具 schema 本身对客户端可见），故不过角色权限闸。
+    """
+    from .tool_face import help_text
+    return help_text(ALL_TOOLS, query=a.get("query") or a.get("intent"),
+                     limit=int(a.get("limit") or a.get("k") or 40))
+
+
 def _cg_dispatch(cg, a):
     """认知图唯一入口的 op 分发主体。"""
     op = (a.get("op") or "read").strip().lower()
+    if op == "help":
+        return _help_call(cg, a)
     _p = getattr(cg, "principal", None)
     if _p is not None and hasattr(_p, "require_op"):
         _p.require_op(op)          # 角色作用域闸门：越权即 AccessDenied

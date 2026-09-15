@@ -39,6 +39,7 @@
 | `review` | 审核队列：`action=list/rounds/records` 查看；传 `pid`+`decision`+`reason` 即裁决落盘（accept/reject/edit/merge，**需 can_admin**；本机未配置外部验证器时写入恒 DEFER 入队，靠此裁决落盘） | `action` / `pid` / `decision` / `reason` / `edits` / `merge_into` |
 | `recent` | 近期事件窗口 | `action`（add/list/clear）/ `limit` |
 | `forget` / `protect` | 软删除/恢复 / 写保护 | `node_id` |
+| `help` | 取回工具面上**被投影外置**的完整 op / 参数文档（工具面渐进披露：常驻提示只留一行职责，参数语义按需取；不带 `query` 则列出全部工具） | `query`（工具名或 op 名，如 `cg` / `write`）/ `limit` |
 
 三条调用铁律：
 1. **`op` 必填**——漏传会触发参数签名推导兜底（返回标记 `op_derived: true`），复杂任务中也必须显式传，防静默执行错误意图。

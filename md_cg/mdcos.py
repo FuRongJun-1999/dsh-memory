@@ -1442,8 +1442,9 @@ class MdCGOS(MdCG):
                                           "actor": self.actor,
                                           "trash": os.path.relpath(dst, self.root)
                                                    .replace("\\", "/")})
-        self.index["nodes"].pop(node_id, None)
-        self._dirty.pop(node_id, None)
+        # 摘索引必须**落盘**（写删除记录）：只 pop 内存会让条目在下次启动
+        # 重放 _index_log 时复活成幽灵条目（索引有条目、文件已进 trash/）。
+        self._unstage(node_id)
         subgraph.invalidate_cache(self)
         chain.invalidate_cache(self)
         self._audit("forget", node_id, reason=reason, payload_hash=h)
