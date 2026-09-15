@@ -23,7 +23,8 @@ import time
 import hashlib
 import threading
 
-from . import nodefile, protect, routing, subgraph, chain, provenance, pooling
+from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
+               lifecycle)
 from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
                      read_jsonl, sweep_stale_temps)
 
@@ -612,6 +613,10 @@ class MdCG:
                         "temporal": fm.get("temporal"),
                         "spatial": fm.get("spatial"),
                         "time_window": (fm.get("condition_space") or {}).get("time_window"),
+                        # 生命周期状态（② 显式状态机）：索引入快照 → 免读文件可查，
+                        # 写入路径也因此无需读盘就能校验迁移合法性。重建口径与
+                        # _stage 一致（旧库无该字段 → None → state_of 视为 active）。
+                        lifecycle.STATE_FIELD: fm.get(lifecycle.STATE_FIELD),
                         # 记忆演化分支（④）：重建口径与 _stage 一致
                         "branch_id": fm.get("branch_id"),
                         "branched_from": fm.get("branched_from"),
@@ -735,6 +740,41 @@ class MdCG:
             "evidence_count": 0, "positive_evidence": 0, "negative_evidence": 0,
         }
         fm.update(extra)
+        # 生命周期状态（② 显式状态机，真源 `lifecycle.py`）：add 是**全量重建
+        # fm** 而非增量更新，故必须显式处理状态——否则已定型/已降权节点会被静默
+        # 打回 active（与 ④ rewrite 必须重传 branch_id 同构的坑）。口径：
+        #   · 新节点：显式落 active（不再依赖「缺省即 active」的隐式约定）；
+        #   · 覆写既有节点：**继承旧状态**；显式传入 state 时走迁移裁决，非法迁移
+        #     **拒绝**（负路由：抛 TransitionError，与非法层名同风格）。
+        # 取旧状态优先读**索引快照**（免读盘）；索引缺该键（升级前的旧库）才回读
+        # 节点文件兜底——不兜底会把存量 converged/demoted 节点误判成 active。
+        prev_entry = (self.index.get("nodes") or {}).get(node_id)
+        prev_state = lifecycle.state_of(prev_entry)
+        if prev_entry and lifecycle.STATE_FIELD not in prev_entry:
+            prev_state = lifecycle.state_of(
+                (self.get(node_id) or {}).get("frontmatter"))
+        # 显式入口兼容两种写法：`state=`（调用方直觉）与 `lifecycle_state=`。
+        # `state` 必须 **pop 掉**——该键名已属裁决四态（ACCEPT/REJECT/DEFER/
+        # BLINDSPOT），落进 frontmatter 只会在读面制造同名歧义；归一到真字段名后
+        # 再走同一裁决。两者同时给出时以 `lifecycle_state=` 为准（字段名更明确）。
+        _alias = fm.pop("state", None)
+        want_state = fm.get(lifecycle.STATE_FIELD)
+        if want_state is None:
+            want_state = _alias
+        if want_state is None:
+            fm[lifecycle.STATE_FIELD] = prev_state
+        else:
+            # 受保护判定取**索引快照**（兼具两层含义）：本次 fm 里的保护标记、以及
+            # 节点**既有**的保护（快照带 protected/immutable）。只看本次 fm 会漏掉
+            # 「既有受保护节点被覆写时降级」——保护 = 不可遗忘，不因一次 add 失守。
+            # 注：该参数只在降级迁移上生效（check 内按方向判定），回升不受限。
+            _pe = prev_entry or {}
+            lifecycle.require_transition(
+                prev_state, want_state,
+                protected=bool(fm.get("protected") or fm.get("immutable")
+                               or _pe.get("protected") or _pe.get("immutable")),
+                override=override)
+            fm[lifecycle.STATE_FIELD] = want_state
         # G8 派生溯源：把「来源声明」写进 frontmatter（单一真相源），台账为派生物。
         # 只声明事实、不做校验式拒绝——关系名非法仅回退默认值，不阻断写入。
         parents = provenance.as_list(derived_from)
@@ -775,6 +815,8 @@ class MdCG:
             # 记忆演化分支（④）：fork 副本带分支归属与溯源主支
             "branch_id": fm.get("branch_id"),
             "branched_from": fm.get("branched_from"),
+            # 生命周期状态（②）：索引快照透出 → 免读文件可查（与 _scan_nodes 同口径）
+            lifecycle.STATE_FIELD: fm.get(lifecycle.STATE_FIELD),
         })
         subgraph.invalidate_cache(self)
         chain.invalidate_cache(self)
@@ -786,6 +828,17 @@ class MdCG:
                               batch=extra.get("batch"),
                               actor=extra.get("actor"))
         return node_id
+
+    def set_state(self, node_id: str, dst: str, reason: str = None,
+                  actor: str = None, override: bool = False) -> dict:
+        """节点生命周期状态推进（② 显式状态机：**唯一推进入口**，见 lifecycle.py）。
+
+        非法迁移**拒绝**（返回 `ok=False` + `error` 机器码，不抛异常——负路由）；
+        受保护节点（`protected`/`immutable`）不接受降级，需 `override=True`。
+        状态与迁移历史落 frontmatter，索引快照同步，审计追加 `_lifecycle.jsonl`。
+        """
+        return lifecycle.set_state(self, node_id, dst, reason=reason,
+                                   actor=actor, override=override)
 
     # ------------------------------------------------------------------
     # 边域窄原语（写路径收口：白箱工具写 md 真源的唯一正路）。
@@ -1660,6 +1713,12 @@ class MdCG:
             demoted = self._move_layer(
                 node_id, "contextual",
                 reason=f"confidence {fm['confidence']} < {DEMOTE_CONFIDENCE}")
+            # 层降级 = 生命周期降级（②）：knowledge→contextual 即 state→demoted。
+            # 受保护节点已被 `guard_move` 拦在上一层（走不到这里）；此处仍按负路由
+            # 柔和处理——ok=False 只说明状态不可降，不回滚已完成的层迁移。
+            self.set_state(node_id, "demoted",
+                           reason=f"confidence {fm['confidence']} < {DEMOTE_CONFIDENCE}",
+                           actor="verify:weakened")
         else:
             self._write_node(node_id, os.path.join(self.root, node["path"]),
                              fm, node["content"])

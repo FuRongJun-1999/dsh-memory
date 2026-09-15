@@ -622,7 +622,11 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
                 fm = _fm_of(cg, nid, None)
                 if str(fm.get("layer") or "") != "contextual":
                     cg._move_layer(nid, "contextual", reason=f"scrub:{kind}")
-                    done.append("demote")
+                    # 层降级 = 生命周期降级（②）：状态同批推进（负路由，失败不抛）
+                    _st = cg.set_state(nid, "demoted", reason=f"scrub:{kind}",
+                                       actor=actor or "scrub")
+                    done.append("demote" if _st.get("ok") else
+                                f"demote_state:{_st.get('error')}")
             except Exception as exc:                      # noqa: BLE001
                 done.append(f"demote_failed:{type(exc).__name__}")
         n_applied += 1

@@ -32,6 +32,7 @@ import os
 import re
 import time
 
+from . import lifecycle
 from .fsutil import FileLock, atomic_write
 
 STATE_FILE = "_writelimit.json"
@@ -300,8 +301,17 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
     return out
 
 
-def _demote(cg, e: dict) -> None:
-    """成员降权：tags += tidy:converged，importance×0.5（下限 0.1）。"""
+def _demote(cg, e: dict, actor: str = "sustain_tidy") -> None:
+    """成员降权：tags += tidy:converged，importance×0.5（下限 0.1）。
+
+    ② 显式状态机收口（2026-09-16）：降权动作同时把生命周期状态推进到
+    `converged`——`tidy:converged` **tag 保留为兼容别名**（既有测试与历史数据都
+    在读它），但「这节点已定型」从此由 `lifecycle_state` 这一显式字段承载，
+    迁移合法性由 `lifecycle.stamp` 单点裁决。状态与 tags/importance 走**同一次
+    写盘**（不额外多写一遍文件）。裁决失败（受保护成员，正常路径已被
+    `tidy_contextual` 跳过）**不阻断**降权本身：tags/importance 已生效，只是不改
+    状态——不假装成功。
+    """
     fm = dict(e.get("frontmatter") or {})
     tags = list(fm.get("tags") or [])
     if "tidy:converged" not in tags:
@@ -309,11 +319,17 @@ def _demote(cg, e: dict) -> None:
     fm["tags"] = tags
     fm["importance"] = round(max(0.1, float(fm.get("importance", 0.5)
                                           or 0) * 0.5), 3)
+    _ok, _code, _why = lifecycle.stamp(
+        fm, "converged", reason="tidy 同构聚合已定型", actor=actor)
+    if _ok:
+        # 幂等迁移（已是 converged）不会写字段 → 补成显式，索引口径才一致
+        fm.setdefault(lifecycle.STATE_FIELD, "converged")
     cg._write_node(e["id"], os.path.join(cg.root, e["path"]), fm,
                    e.get("content") or "")
     entry = cg.index["nodes"].get(e["id"])
     if entry is not None:
-        entry.update({"tags": tags, "importance": fm["importance"]})
+        entry.update({"tags": tags, "importance": fm["importance"],
+                      lifecycle.STATE_FIELD: fm.get(lifecycle.STATE_FIELD)})
         cg._dirty[e["id"]] = entry
 
 

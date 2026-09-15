@@ -47,7 +47,7 @@ import math
 import os
 import time
 
-from . import nodefile
+from . import lifecycle, nodefile
 from .fsutil import append_jsonl, atomic_write, read_jsonl
 from .mdcg import bigrams
 
@@ -256,11 +256,19 @@ def reinforce(cg, node_id, delta=0.05):
         fm["protected"] = True
         fm["protection_reason"] = (f"importance={imp:.2f}≥{PROTECT_IMPORTANCE}"
                                    f"（重复强化）")
+    # ② 显式状态机收口（2026-09-16）：MERGE 的语义是「又一次见到」= **重新激活**
+    # 信号——已降权（demoted）/已定型（converged）的节点经状态机**逐级回升**到
+    # active（archived→active 亦合法，归档节点被再次见到即恢复参与）；active 为
+    # 幂等 no-op（不写字段、不留痕）。protected 只豁免**降级**，回升不受限。
+    lifecycle.stamp(fm, "active", reason="MERGE 重复强化（回升）",
+                    actor="forgetting:reinforce")
     cg._write_node(node_id, os.path.join(cg.root, node["path"]),
                    fm, node.get("content") or "")
     e = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)
     if e is not None:
         e["importance"] = imp
+        if fm.get(lifecycle.STATE_FIELD):
+            e[lifecycle.STATE_FIELD] = fm[lifecycle.STATE_FIELD]
         if fm.get("protected"):
             e["protected"] = True
             e["protection_reason"] = fm["protection_reason"]
