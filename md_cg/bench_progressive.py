@@ -91,15 +91,18 @@ def exp_locomo():
     print("[progressive] 实验一 locomo-zh-500 · 语料 %d / 题 %d"
           % (len(corpus), len(questions)))
 
+    pool_sizes = []                        # G1 各阶段候选池大小（统计面）
+
     def rank_fn(used):
-        return [(nid, 0.0) for nid in
-                full_rank(frozenset(used), docs)[:20]]
+        ranked = full_rank(frozenset(used), docs)[:20]
+        pool_sizes.append(len(ranked))
+        return [(nid, 0.0) for nid in ranked]
 
     st_g0 = {"h1": 0, "h5": 0, "h10": 0, "rr": 0.0}
     st_g2 = dict(st_g0)
     st_i = dict(st_g0)
     st_f = dict(st_g0)
-    steps_sum = conv = n = 0
+    steps_sum = conv = n = fa10_sum = 0
     for q in questions:
         ev = set(q.get("evidence_turns") or [])
         qa = [w for w in zh_map_en(str(q.get("question") or ""),
@@ -117,8 +120,11 @@ def exp_locomo():
                                 ratio=0.5, k=10, max_stages=4)
         _agg(rank_of(ev, full_rank(frozenset(tr["stages"][0]["used"]),
                                    docs)), st_i)
-        _agg(rank_of(ev, full_rank(frozenset(tr["stages"][-1]["used"]),
-                                   docs)), st_f)
+        fin_all = full_rank(frozenset(tr["stages"][-1]["used"]), docs)
+        _agg(rank_of(ev, fin_all), st_f)
+        # 保守 false_accept 口径：final top10 内非 gold 条数（本语料无资格
+        # 判定面，非 gold 全计为假接受——上界，见打印行口径注明）
+        fa10_sum += sum(1 for nid in fin_all[:10] if nid not in ev)
         steps_sum += len(tr["added"])
         conv += 1 if (tr["converged"] or len(tr["added"]) < 3) else 0
 
@@ -130,7 +136,16 @@ def exp_locomo():
     print("  refinement: 平均加条件数=%.2f  一步收敛率=%.1f%%  (n=%d, %.0fs)"
           % (steps_sum / max(n, 1), conv * 100.0 / max(n, 1), n,
              time.time() - t0))
-    return {"g0": st_g0, "g2": st_g2, "g1i": st_i, "g1f": st_f, "n": n}
+    print("  false_accept(保守口径)=%.2f%%  =G1 final top10 非 gold 平均占比"
+          "（上界：本语料无 CCG 注释面，非 gold 全计为假接受）"
+          % (fa10_sum * 10.0 / max(n, 1)))
+    print("  候选池: G1 各阶段平均 top 池大小=%.1f (k=20 上限)"
+          % (sum(pool_sizes) / max(len(pool_sizes), 1)))
+    print("  四态分布: 本实验为原子面（语料无 CCG 注释，judge_qualification "
+          "将全判 BLINDSPOT）——资格判定不适用，不硬造数字；四态实证见实验二")
+    return {"g0": st_g0, "g2": st_g2, "g1i": st_i, "g1f": st_f, "n": n,
+            "fa10_conservative": fa10_sum * 10.0 / max(n, 1),
+            "avg_pool": sum(pool_sizes) / max(len(pool_sizes), 1)}
 
 
 def exp_controlled():
@@ -179,13 +194,32 @@ def exp_controlled():
                     out.append(nid)
             return out
 
+        def state_dist(res):
+            """渐进循环四态分布（top10 内 judge state 计数，只列非零项）。
+
+            judge info 直接复用 search_rrf(judge=True) 注入的
+            judge_qualification 产物（结果第三元），不重复判定。
+            """
+            d = {"ACCEPT": 0, "DEFER": 0, "REJECT": 0, "BLINDSPOT": 0,
+                 "无judge": 0}
+            for r in res[:10]:
+                st = (r[2] or {}).get("state") if len(r) > 2 else None
+                d[st if st in d else "无judge"] += 1
+            return {k: v for k, v in d.items() if v}
+
+        def fa_rate(res, fa):
+            return 100.0 * len(fa) / max(1, min(10, len(res)))
+
         # 宽检索（不加任何条件；judgeinfo 直接取 results 第三元）
         wide_res, _m = cg.search_rrf(QUERY, k=10, judge=True, **KW)
         wide = [(r[0]["id"], r[1]) for r in wide_res]
         fa_pre = false_accepts(wide_res)
         top1_pre = wide[0][0] if wide else None
-        print("  宽检索 top1=%s  top10 内 False ACCEPT=%s"
-              % (top1_pre, fa_pre or "无"))
+        print("  宽检索 top1=%s  top10 内 False ACCEPT=%s（率=%.1f%%）"
+              % (top1_pre, fa_pre or "无", fa_rate(wide_res, fa_pre)))
+        print("  四态分布(宽检索 top10)=%s  候选池=%d  judge 剔除=%s"
+              % (state_dist(wide_res), len(wide_res),
+                 (_m or {}).get("judge_filtered", 0)))
 
         # 渐进：候选间区分性条件词 → 带条件重排
         POOL = ["我", "喝水", "吃饭", "电脑", "书", "音乐", "出门",
@@ -203,7 +237,12 @@ def exp_controlled():
             fa_post = false_accepts(refined_res)
             top1_post = refined_res[0][0]["id"] if refined_res else None
             print("  区分性条件=%r → 重排 top1=%s  top10 内 "
-                  "False ACCEPT=%s" % (cond, top1_post, fa_post or "无"))
+                  "False ACCEPT=%s（率=%.1f%%）"
+                  % (cond, top1_post, fa_post or "无",
+                     fa_rate(refined_res, fa_post)))
+            print("  四态分布(重排 top10)=%s  候选池=%d  judge 剔除=%s"
+                  % (state_dist(refined_res), len(refined_res),
+                     (_m2 or {}).get("judge_filtered", 0)))
             ok1 = top1_post in gold_ids
             no_new = set(fa_post) <= set(fa_pre)
             print("  断言①渐进后 top1∈gold：%s" % ("PASS" if ok1 else "FAIL"))
