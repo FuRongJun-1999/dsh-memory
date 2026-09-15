@@ -2643,7 +2643,14 @@ def main():
     _p_session = os.environ.get("MDCG_SESSION", "").strip()
     if _p_session:
         principal.session = _p_session
-    cg = MdCGSecure(root, principal=principal)
+    # 索引可见性（2026-09-16）：autoflush=1 —— 逐条写入立即落分片日志
+    # `_index_log/`。根因（第4条取证）：默认 autoflush=64 且常驻进程不 close，
+    # 单条写入在达阈值前**对其他进程不可见**（`_load_index` = 快照 + 分片日志
+    # 重放；`_index.json` 只在 compact/rebuild 时重写），表现为「写入返回
+    # committed=true 但第16条读回确认在跨进程读面上不可检索」。本参数是
+    # server 级兜底：覆盖不经 writepipe 写链的路径（propose / remember_gated /
+    # add_rejected 等）；写链另有显式提交边界（writepipe._commit_visibility）。
+    cg = MdCGSecure(root, principal=principal, autoflush=1)
     # 外部验证器注入（**能力外置**）：识图/实测/验收等能力不在认知图内，
     # 由 MDCG_VERIFIER_MODULES（逗号分隔 import 路径）声明的外部模块注入，
     # 通常位于私有运行时仓。加载失败不阻塞启动——失败原因写进 stderr 与

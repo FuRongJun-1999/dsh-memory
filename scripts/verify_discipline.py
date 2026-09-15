@@ -23,6 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import render_discipline as R  # noqa: E402
+import discipline_nodes as DN  # noqa: E402
 
 DECL_RE = re.compile(r"按工作纪律第\s*(\d+)\s*条")
 
@@ -150,6 +151,8 @@ def main(argv=None):
     ap.add_argument("--target", action="append", default=[])
     ap.add_argument("--all-targets", action="store_true", help="含 enabled=false 的目标（干跑比对）")
     ap.add_argument("--allow-missing", action="store_true", help="产物不存在时不计为失败")
+    ap.add_argument("--cg-root", default=None,
+                    help="认知图 root：校验 structural/ 投影节点一致性（缺省读环境变量 MDCG_ROOT；都无则跳过）")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
@@ -165,9 +168,17 @@ def main(argv=None):
         t["_name"] = name
         results.append(check(t, src, repo, args.allow_missing))
 
+    # 认知图投影节点守卫（2026-09-16）：纪律在灵枢认知图 structural/ 下还有一份投影
+    # （tags 含 discipline:N），此前是手工快照、无守卫 → 改真源必然陈化。此处纳入
+    # 同一守卫（root 未提供则跳过：外部 clone 无认知图，不应因此误红）。
+    cg_res = DN.check_cg_nodes(repo, DN.resolve_root(args.cg_root))
+
     bad = [r for r in results if not r["ok"]]
+    if (not cg_res.get("skipped")) and (not cg_res["ok"]):
+        bad = bad + [{"target": "cg-projection-nodes"}]
     if args.json:
-        print(json.dumps({"ok": not bad, "results": results}, ensure_ascii=False, indent=2))
+        print(json.dumps({"ok": not bad, "results": results,
+                          "cg_projection_nodes": cg_res}, ensure_ascii=False, indent=2))
     else:
         for r in results:
             mark = "SKIP" if r["skipped"] else ("OK  " if r["ok"] else "DRIFT")
@@ -188,8 +199,17 @@ def main(argv=None):
             if r.get("stale"):
                 print("        陈化：产物指纹 %s ≠ 当前真源 %s（改真源后未重渲染）"
                       % (r.get("artifact_sha"), r.get("source_sha")))
+        if cg_res.get("skipped"):
+            print("[SKIP] %-10s %s" % ("cg-nodes", cg_res["reason"]))
+        else:
+            cg_mark = "OK  " if cg_res["ok"] else "DRIFT"
+            print("[%s] %-10s variant=%-7s -> 认知图投影节点 %d/%d 一致（真源指纹 %s）"
+                  % (cg_mark, "cg-nodes", "-", cg_res["nodes"] - len({d["no"] for d in cg_res["drift"]}),
+                     cg_res["nodes"], cg_res.get("source_sha")))
+            for d in cg_res["drift"]:
+                print("        漂移 第%d条 %s: %s" % (d["no"], d["kind"], d["detail"]))
         print("")
-        print("结论：%d/%d 目标一致%s" % (len(results) - len(bad), len(results),
+        print("结论：%d/%d 目标一致%s" % (len(results) - len([r for r in results if not r["ok"]]), len(results),
                                         "" if not bad else "；漂移目标：" + ", ".join(r["target"] for r in bad)))
     return 1 if bad else 0
 

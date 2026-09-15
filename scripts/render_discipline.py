@@ -282,6 +282,8 @@ def main(argv=None):
     ap.add_argument("--all", action="store_true", help="所有 enabled 目标")
     ap.add_argument("--write", action="store_true", help="落盘（默认干跑）")
     ap.add_argument("--print", dest="do_print", action="store_true", help="打印渲染全文")
+    ap.add_argument("--cg-root", default=None,
+                    help="认知图 root：顺带同步 structural/ 投影节点（缺省读环境变量 MDCG_ROOT；都无则跳过）")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
@@ -345,6 +347,24 @@ def main(argv=None):
             print("[%s] variant=%s transport=%s chars=%d bytes=%d -> %s%s (%s) %s" % (
                 r["target"], r["variant"], r["transport"], r["chars"], r["bytes"],
                 r.get("path"), extra, ("已写入" if r.get("written") else "干跑"), r.get("action", "")))
+
+    # 认知图投影节点同步（2026-09-16）：纪律在本机灵枢认知图 structural/ 下还有一份
+    # 投影（tags 含 discipline:N），是 route 命中纪律的检索面。它此前是手工快照、不在
+    # 渲染矩阵内 → 改真源后必然陈化（实例：第16条新增「读回确认」后投影仍停留旧
+    # source_sha/旧正文；第17条无投影节点）。此处并入渲染链路一并刷新。
+    # root 未提供（--cg-root / MDCG_ROOT）则跳过——外部 clone 不产生任何依赖。
+    import discipline_nodes as DN
+    cg_rep = DN.sync_cg_nodes(repo, DN.resolve_root(args.cg_root), write=args.write)
+    if not args.json:
+        if cg_rep.get("skipped"):
+            print("[SKIP] " + cg_rep["reason"])
+        else:
+            for r in cg_rep["created"]:
+                print("[认知图投影] 新建 第%d条 -> %s" % (r["no"], r["path"]))
+            for r in cg_rep["changed"]:
+                print("[认知图投影] 同步 第%d条 %s -> %s" % (r["no"], r["id"], r["path"]))
+            if not cg_rep["created"] and not cg_rep["changed"]:
+                print("[认知图投影] 已一致（真源指纹 %s）" % cg_rep["source_sha"])
     return 0
 
 

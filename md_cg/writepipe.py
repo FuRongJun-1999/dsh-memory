@@ -30,6 +30,12 @@ write 的六道闸（audit 校验 / consistency 冲突 / review 审核 / gated �
 记 outcome；崩溃在两者之间时由 `twophase.reconcile` 据正文指纹补账/标记。
 边界（如实）：`_gate_audit` 的 REJECT（写负记忆）与各闸的 propose（**未落盘**，
 仅入审核队列）不在两段式覆盖面内——前者是短小负记录、后者本就没有落盘动作。
+
+**④ 写提交边界（2026-09-16 叠加）**：`execute` 的两条出口（before 链短路 /
+链尾执行器 + after 链之后）统一调 `_commit_visibility`——把内存脏索引
+`flush()` 到分片日志，使本次写入对**其他进程**立即可见。这是第16条「写入后
+读回确认」的跨进程前置条件（server 级 `autoflush=1` 是同一问题的兜底，
+覆盖不经本链的写入路径）。根因取证见 `_commit_visibility` 文档串。
 """
 
 import time
@@ -37,6 +43,28 @@ import time
 from . import twophase
 
 __all__ = ["WritePipeline", "default_pipeline"]
+
+
+def _commit_visibility(cg, out):
+    """写提交边界（2026-09-16）：把内存脏索引落分片日志，使本次写入对其他进程立即可见。
+
+    根因（第4条取证）：写入只经 `_stage` 入内存 + `_dirty`，须达 `autoflush`
+    （默认 64）或 `close()` 才 `flush()` 落 `_index_log/`；MCP server 常驻、
+    不 close，故单条写入在阈值前**对其他进程不可见**——`_load_index` 读的是
+    「快照 `_index.json` + 分片日志重放」，而快照只在 compact/rebuild 时重写。
+    症状即第16条「写入后读回确认」在跨进程读面上系统性误报（写入返回
+    committed=true，读回却检索不到）。
+
+    边界（如实）：无脏数据时 `flush()` 是 no-op，成本只在「确有落盘」时产生；
+    失败**不抛异常**——写入内容已落盘，抛出去会让调用方误判「写入失败」而
+    重试（两段式账本已记 committed，重试即重复写入）。改为在响应里如实标记
+    `flush_error`，不静默。
+    """
+    try:
+        cg.flush()
+    except Exception as exc:  # noqa: BLE001 —— 索引可见性故障不得改写写入语义
+        if isinstance(out, dict):
+            out["flush_error"] = "%s: %s" % (type(exc).__name__, exc)
 
 
 class WritePipeline:
@@ -100,6 +128,7 @@ class WritePipeline:
             out = fn(ctx)
             if out is not None:
                 ctx["halted_by"] = name
+                _commit_visibility(cg, out)
                 return out
         # ③ 两段式：闸门**全部放行**（确认要写）→ 先落意图，再执行落盘，
         # 最后记结果。崩溃若发生在两者之间，`reconcile` 能据正文指纹回答
@@ -120,6 +149,7 @@ class WritePipeline:
                         reason="executor_ok")
         for _name, fn in self._after:
             fn(ctx, out)
+        _commit_visibility(cg, out)
         return out
 
 
