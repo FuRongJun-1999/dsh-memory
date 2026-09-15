@@ -67,6 +67,12 @@ NAME_ALLOWLIST = {
     "mdcg_client": "DSH 插件仓 TS 客户端模块文件名 mdcg_client.ts，非 mcp_server 工具",
 }
 
+# 文档链接但外部 clone 后不存在的仓内路径（带理由）：链接语义=「本地会有此文件」。
+FILE_LINK_ALLOWLIST = {
+    "AGENTS.md": "仓库根纪律投影（.gitignore「本地使用不共享」，外部 clone 无此文件属预期）；"
+    "README 指向它是刻意的（CodeBuddy 注入通道说明）",
+}
+
 # 中文功能描述（文档层真源）：功能调用映射表「功能」列的内容。
 # check 门禁要求覆盖全部 op/action——新功能落地漏登记描述即红灯。
 FUNC_DESC: dict[tuple[str, str], str] = {
@@ -193,6 +199,14 @@ def extract() -> dict:
         ("whitebox", WHITEBOX, "dispatch", "whitebox", act_head),
     )
     funcs: dict[str, dict[str, int]] = {}
+    # 分支数自检数据：tool → (宽松形态计数, 严格提取数)。宽松正则兼容单/双引号与 ==/in
+    # 两种写法；严格提取只认规范写法。两数不等 = 有分支被静默漏报（外部审计指出的窗口）。
+    branch_counts: dict[str, tuple[int, int]] = {}
+    loose_res = {
+        "cg": r"if\s+op\s*==\s*['\"]",
+        "stg": r"if\s+op\s*==\s*['\"]",
+        "whitebox": r"if\s+action\s*(?:==\s*['\"]|in\s*\()",
+    }
     for fkey, path, fn, tool, head_re in dispatches:
         psrc = path.read_text(encoding="utf-8")
         ptree = ast.parse(psrc)
@@ -203,6 +217,7 @@ def extract() -> dict:
         start, body = span
         func_lines[fn] = start
         matches = list(head_re.finditer(body))
+        branch_counts[tool] = (len(re.findall(loose_res[tool], body)), len(matches))
         for i, m in enumerate(matches):
             op = m.group(1)
             op_lines[(tool, op)] = start + body[: m.start()].count("\n")
@@ -238,6 +253,7 @@ def extract() -> dict:
         "funcs": funcs,
         "op_modules": op_modules,
         "branch_funcs": branch_funcs,
+        "branch_counts": branch_counts,
         "repo_base": _repo_base(),
         "branch": BRANCH,
     }
@@ -429,6 +445,16 @@ def check(e: dict) -> list[str]:
         if (tool, op) not in FUNC_DESC:
             errors.append(f"FUNC_DESC 缺中文功能描述：{tool}({op})——功能调用映射表「功能」列将退化为英文名")
 
+    # 0.5) 分支数自检：宽松形态计数（含单/双引号、==/in）必须 == 严格提取数。
+    # 不等 = 代码里有分支写法超出规范形态被静默漏报（如单引号 op），先修提取再谈门禁。
+    loose_loc = {"cg": SERVER, "stg": SERVER, "whitebox": WHITEBOX}
+    for tool, (loose, strict) in sorted(e["branch_counts"].items()):
+        if loose != strict:
+            errors.append(
+                f"{tool} 分支数自检失败：{loose_loc[tool].name} 中宽松形态 {loose} 处 vs 规范提取 {strict} 处"
+                "——存在非规范写法的分支被静默漏报（如单引号/别名形态），请统一写法或扩展提取正则"
+            )
+
     readme_secs = [(BEGIN, END, render_section(e))]
     map_secs = [(_funcmap_begin(seg), FUNCMAP_END, body) for seg, body in render_mapdoc(e)]
     docs = (("README", README, readme_secs), ("功能调用映射表", MAPDOC, map_secs))
@@ -487,6 +513,8 @@ def _check_doc(e: dict, dname: str, text: str, sections: list[tuple[str, str, st
             continue
         path, _, frag = link.partition("#")
         if path:
+            if path in FILE_LINK_ALLOWLIST:
+                continue
             if not (ROOT / path).exists():
                 errors.append(f"{dname} 文件链接不存在：{link}")
                 continue
