@@ -63,6 +63,30 @@ t3, _ = en_normalizer.normalize_en_query("The dogs were running")
 ok("the" not in [x.lower() for x in t3] and "were" not in [x.lower() for x in t3],
    "停用词剔除: %s" % t3)
 
+# ---- 2b · 置信分层与第三方暴露面修正（2026-09-15，第三方 LoCoMo 报告发现 5）----
+# 置信信号：mapped 词带 source（manual=人工校对层 / cedict=机械反查层）与
+# low_confidence（cedict 层=True——第一义项直译语境失配风险，警告不拒绝）
+t4, d4 = en_normalizer.normalize_en_query("The scavenger hunt was fun")
+ok("寻宝游戏" in t4, "内嵌短语扫描 scavenger hunt→寻宝游戏（长文本内生效）: %s" % t4)
+ok(d4 and d4[0].get("action") == "phrase_inline", "phrase_inline 留痕: %s" % d4[:1])
+ok(en_normalizer.normalize_en_query("scared")[0] == ["害怕"],
+   "手工层修正 scared→害怕（错切链路 scar×CEDICT 创痕）")
+ok(en_normalizer.normalize_en_query("shelter")[0] == ["收容所"], "手工层修正 shelter→收容所")
+ok(en_normalizer.normalize_en_query("tough")[0] == ["坚强"], "手工层修正 tough→坚强")
+ok(en_normalizer.normalize_en_query("three times a week")[0] == ["每周三次"],
+   "短语 three times a week→每周三次")
+ok(en_normalizer.normalize_en_query("times")[0] == ["次"], "手工层修正 times→次")
+t6, d6 = en_normalizer.normalize_en_query("great and thanks")
+lowc = [dd for dd in d6 if dd.get("action") == "mapped"]
+ok(lowc and all(dd.get("source") == "cedict" and dd.get("low_confidence") is True
+                for dd in lowc), "CEDICT 机械层命中=低置信: %s" % d6)
+t7, d7 = en_normalizer.normalize_en_query("pottery was great")
+mfd = [dd for dd in d7 if dd.get("orig", "").lower() == "pottery"]
+ok(mfd and mfd[0].get("source") == "manual" and mfd[0].get("low_confidence") is False,
+   "人工校对层=高置信+来源透出: %s" % mfd)
+ok(en_normalizer.low_confidence_terms(d6) == ["great", "thanks"],
+   "low_confidence_terms 审计提取（去重保序）: %s" % en_normalizer.low_confidence_terms(d6))
+
 # ---- 3 · zh_en_atoms：中文→标准英文原子序列 ----
 ok(zh_en_atoms.serialize("我昨天吃牛肉") == "i yester day eat cow meat",
    "serialize 复合词拆原子")

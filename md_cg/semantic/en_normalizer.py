@@ -121,6 +121,12 @@ EN_ZH = {
     "pet": "宠物", "mom": "妈妈", "tournament": "锦标赛",
     "festival": "节日", "advice": "建议", "often": "经常",
     "pottery": "陶艺",
+    # 第三方 LoCoMo 报告错译暴露面语境化修正（2026-09-15，修复面=暴露面对齐）：
+    # scared 错切链路 = strip_tense(scared)→scar × CEDICT scar→创痕，复合错译
+    # （应为 害怕）；shelter/tough/times 为 CEDICT 第一义项与口语语料语境失配
+    # （CEDICT 庇护/厉害/时间 → 语境 收容所/坚强/次）。低置信标记
+    # （source=cedict）对此全部捕获后，人工校对层逐一核对的落地
+    "scared": "害怕", "shelter": "收容所", "tough": "坚强", "times": "次",
 }
 
 # ---- 复合词映射（英文复合 → 中文标准概念）----
@@ -143,8 +149,17 @@ COMPOUND_ZH = {
     "fire vehicle": "火车", "cow meat": "牛肉", "gas vehicle": "汽车",
     "work discipline": "工作纪律", "knowledge graph": "知识图谱",
     "cognition graph": "认知图", "memory store": "记忆库",
+    # 第三方 LoCoMo 报告错译暴露面（2026-09-15）：scavenger hunt 逐词直译
+    # → 食腐动物 猎取（应为 寻宝游戏）；three times a week → 三 时间 周
+    # （应为 每周三次）。配合内嵌短语扫描机制在长文本/问句内部生效
+    "scavenger hunt": "寻宝游戏", "three times a week": "每周三次",
     "word": "字", "soul": "灵", "hub": "枢",
 }
+
+# 含空格多词短语预计算（内嵌短语扫描用，长键优先防前缀吞并）
+COMPOUND_ZH_PHRASES = sorted(
+    ((k, v) for k, v in COMPOUND_ZH.items() if " " in k),
+    key=lambda kv: -len(kv[0]))
 
 
 def _de_double(w):
@@ -181,7 +196,6 @@ def is_proper(w):
 
 
 _CEDICT_CACHE = None
-_COMBINED_CACHE = None
 
 
 def cedict_map():
@@ -204,14 +218,22 @@ def cedict_map():
     return _CEDICT_CACHE
 
 
-def _combined_map():
-    """组合映射表：词级机械层 ← 手工校对层覆盖（手工优先）。缓存一次组合。"""
-    global _COMBINED_CACHE
-    if _COMBINED_CACHE is None:
-        m = dict(cedict_map())
-        m.update(EN_ZH)
-        _COMBINED_CACHE = m
-    return _COMBINED_CACHE
+def _lookup_chain(extra_map=None):
+    """置信分层查表链（第三方验证 2026-09-15）：extra（实验注入）→
+    EN_ZH（人工逐词校对）→ CEDICT（机械反查，第一义项直译）。
+
+    分层依据 = 词条来源的人工校对程度，即映射质量的确定性代理信号：
+    CEDICT 层命中即 low_confidence（语境失配风险，实证 scavenger→食腐动物，
+    见 docs/第三方验证报告_LoCoMo_灵枢_.md 发现 5）。
+    """
+    chain = []
+    if extra_map:
+        chain.append((extra_map, "extra"))
+    chain.append((EN_ZH, "manual"))
+    cedict = cedict_map()
+    if cedict:
+        chain.append((cedict, "cedict"))
+    return chain
 
 
 def normalize_en_query(query, extra_map=None):
@@ -219,16 +241,27 @@ def normalize_en_query(query, extra_map=None):
 
     返回 (normalized_terms, detail)：
       normalized_terms: 用于检索的中文/保留词序列
-      detail: 逐词归一化记录
+      detail: 逐词归一化记录（mapped 词带 source/low_confidence 置信信号；
+              low_confidence=True = 机械反查未人工校对，语境失配风险）
     """
-    en_zh = dict(_combined_map())
-    if extra_map:
-        en_zh.update(extra_map)
+    chain = _lookup_chain(extra_map)
     # 短语优先匹配：先尝试多词短语整体映射（复合概念名）
     phrase_key = query.lower().strip()
     if phrase_key in COMPOUND_ZH:
         comp_zh = COMPOUND_ZH[phrase_key]
-        return [comp_zh], [{"orig": query, "phrase_zh": comp_zh, "action": "phrase_mapped"}]
+        return [comp_zh], [{"orig": query, "phrase_zh": comp_zh,
+                            "action": "phrase_mapped"}]
+    # 内嵌短语扫描：多词短语在长文本/问句内部出现时整体替换为中文
+    # （整体 query 匹配只救短语独占 query 的形态；doc 侧英文原文与含修饰语
+    # 的问句靠此层，否则逐词直译拆散复合语义——第三方 LoCoMo 报告错译样本
+    # scavenger hunt → 食腐动物 猎取 即此缺口。短语表键 ≤11 个，逐键扫描
+    # 成本可忽略）。中文替换段经 findall 整体成原子，后续逐词链路不受影响
+    inline_hits = []
+    for phrase, pzh in COMPOUND_ZH_PHRASES:
+        if phrase in query.lower():
+            query = re.sub(re.escape(phrase), pzh, query, flags=re.IGNORECASE)
+            inline_hits.append({"orig": phrase, "phrase_zh": pzh,
+                                "action": "phrase_inline"})
     # 屈折还原 + 查表。所有格剥离：'s 是正字法黏着成分非独立词
     # （Melanie's → Melanie）——不剥离则分词残留 "s" 成为伪 OOV
     # （locomo-500 实测 85 词次）。
@@ -245,14 +278,21 @@ def normalize_en_query(query, extra_map=None):
             detail.append({"orig": w, "action": "stopword_drop"})
             continue
         base = base0
-        zh = en_zh.get(base) or en_zh.get(wl)
-        if not zh and not base.endswith("e"):
-            # e-脱落动词词表感知还原：loved→lov(错形)→love。词表小时收益≈0
-            # （2026-09-14 早前取证 102 词次判不修）；词级表 17700 键后
-            # motivated→motivate / visited 类命中真实存在，条件已变
-            zh = en_zh.get(base + "e")
-            if zh:
-                base = base + "e"
+        zh = src = None
+        for m, s in chain:
+            z = m.get(base) or m.get(wl)
+            if z:
+                zh, src = z, s
+                break
+            if not base.endswith("e"):
+                # e-脱落动词词表感知还原：loved→lov(错形)→love。词表小时收益≈0
+                # （2026-09-14 早前取证 102 词次判不修）；词级表 17700 键后
+                # motivated→motivate / visited 类命中真实存在，条件已变
+                z = m.get(base + "e")
+                if z:
+                    base = base + "e"
+                    zh, src = z, s
+                    break
         if zh and is_proper(w) and wl not in EN_ZH:
             # 专名词表命中双原子：doc 侧音译/原文两形态并存（corpus567 实测
             # 地名 巴黎13/Paris4 音译主导，人名 Caroline127/卡罗琳0 原文主导）
@@ -261,10 +301,14 @@ def normalize_en_query(query, extra_map=None):
             # 基础词）形态唯一，不具双形态不确定性，排除
             terms.append(w)
             terms.append(zh)
-            detail.append({"orig": w, "zh": zh, "action": "proper_mapped_both"})
+            detail.append({"orig": w, "base": base, "zh": zh, "source": src,
+                           "low_confidence": src == "cedict",
+                           "action": "proper_mapped_both"})
         elif zh:
             terms.append(zh)
-            detail.append({"orig": w, "base": base, "zh": zh, "action": "mapped"})
+            detail.append({"orig": w, "base": base, "zh": zh, "source": src,
+                           "low_confidence": src == "cedict",
+                           "action": "mapped"})
         elif is_proper(w):
             terms.append(w)  # 专有词保留原名
             detail.append({"orig": w, "action": "proper_noun_keep"})
@@ -277,7 +321,23 @@ def normalize_en_query(query, extra_map=None):
             else:
                 terms.append(w)
                 detail.append({"orig": w, "action": "unknown_keep"})
-    return terms, detail
+    return terms, inline_hits + detail
+
+
+def low_confidence_terms(detail):
+    """从归一化 detail 提取低置信映射词清单（去重保序）。
+
+    低置信 = mapped 词来自 CEDICT 机械反查（第一义项直译，未经人工
+    语境校对）。用途：错译审计靶子 / 词表人工校对优先级（警告不拒绝，
+    与 semantic_oov 同哲学——标记是观测依据，不改检索行为）。
+    """
+    out = []
+    for d in detail:
+        if d.get("low_confidence"):
+            w = (d.get("orig") or "").lower()
+            if w and w not in out:
+                out.append(w)
+    return out
 
 
 def main():
