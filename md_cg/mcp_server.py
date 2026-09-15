@@ -1645,21 +1645,33 @@ def _cg_dispatch(cg, a):
                         return {"ok": False, "id": nid, "committed": False,
                                 "moved_to": "conflict_rejected",
                                 "consistency": cvd, "verdict": verdict}
-                    pid = cg.propose(nid, a.get("content", ""),
-                                     layer=a.get("layer") or "knowledge",
-                                     tags=a.get("tags"),
-                                     condition_space=a.get("condition_space"),
-                                     **_proposal_extras(a, verdict))
-                    return {"ok": False, "id": nid, "pid": pid, "committed": False,
-                            "moved_to": "review_queue", "consistency": cvd,
-                            "verdict": verdict,
-                            "hint": "这是冲突闸门的正常行为：本次写入与既有条件/纪律冲突"
-                                    "（on_conflict=defer），已转入审核队列待裁决——"
-                                    "不是工具故障，重试同样结果；"
-                                    "落盘须由设计者权限（can_admin）裁决，转告使用者："
-                                    "python scripts/review_cli.py list 后 accept/reject，"
-                                    "或 cg(op=review, pid=<pid>, decision=accept|reject|"
-                                    "edit|merge, reason=<理由>)"}
+                    pr = cg.propose(nid, a.get("content", ""), info=True,
+                                    layer=a.get("layer") or "knowledge",
+                                    tags=a.get("tags"),
+                                    condition_space=a.get("condition_space"),
+                                    **_proposal_extras(a, verdict))
+                    out = {"ok": False, "id": nid, "pid": pr["pid"],
+                           "committed": False,
+                           "moved_to": "review_queue", "consistency": cvd,
+                           "verdict": verdict,
+                           "hint": "这是冲突闸门的正常行为：本次写入与既有条件/纪律冲突"
+                                   "（on_conflict=defer），已转入审核队列待裁决——"
+                                   "不是工具故障，重试同样结果；"
+                                   "落盘须由设计者权限（can_admin）裁决，转告使用者："
+                                   "python scripts/review_cli.py list 后 accept/reject，"
+                                   "或 cg(op=review, pid=<pid>, decision=accept|reject|"
+                                   "edit|merge, reason=<理由>)"}
+                    if pr.get("dedup"):
+                        out["dedup"] = True
+                        out["dup_of"] = pr["pid"]
+                        out["hint"] = (
+                            "同内容提案已存在于审核队列（pid=%s，幂等去重），"
+                            "本次未重复入队——无需重试；"
+                            "落盘须由设计者权限（can_admin）对该 pid 裁决："
+                            "python scripts/review_cli.py list 后 accept/reject，"
+                            "或 cg(op=review, pid=<pid>, decision=accept|reject|"
+                            "edit|merge, reason=<理由>)" % pr["pid"])
+                    return out
             if a.get("gated"):
                 hint = a.get("importance_hint")
                 if hint is None and a.get("importance") is not None:
@@ -1707,17 +1719,29 @@ def _cg_dispatch(cg, a):
                     "hint": "这是审核闸门的正常行为：内容未过内容政策审核（REJECT），"
                             "已记入负记忆——不是工具故障，重试同样结果；"
                             "拒绝依据见 verdict.evidence"}
-        pid = cg.propose(nid, a.get("content", ""), layer=a.get("layer") or "knowledge",
-                         tags=a.get("tags"), condition_space=a.get("condition_space"),
-                         **_proposal_extras(a, verdict))
-        return {"ok": True, "id": nid, "pid": pid, "committed": False,
-                "moved_to": "review_queue", "verdict": verdict,
-                "hint": "这是校验闸门的正常行为（verdict=%s）：内容未达 ACCEPT，"
-                        "已入审核队列——不需要重试；落盘须由设计者权限（can_admin）"
-                        "对提案 pid 裁决（agent 端无裁决权是设计），转告使用者："
-                        "python scripts/review_cli.py list 后 accept/reject，"
-                        "或 cg(op=review, pid=<pid>, decision=accept|reject|"
-                        "edit|merge, reason=<理由>)" % verdict.get("state")}
+        pr = cg.propose(nid, a.get("content", ""), info=True,
+                        layer=a.get("layer") or "knowledge",
+                        tags=a.get("tags"), condition_space=a.get("condition_space"),
+                        **_proposal_extras(a, verdict))
+        out = {"ok": True, "id": nid, "pid": pr["pid"], "committed": False,
+               "moved_to": "review_queue", "verdict": verdict,
+               "hint": "这是校验闸门的正常行为（verdict=%s）：内容未达 ACCEPT，"
+                       "已入审核队列——不需要重试；落盘须由设计者权限（can_admin）"
+                       "对提案 pid 裁决（agent 端无裁决权是设计），转告使用者："
+                       "python scripts/review_cli.py list 后 accept/reject，"
+                       "或 cg(op=review, pid=<pid>, decision=accept|reject|"
+                       "edit|merge, reason=<理由>)" % verdict.get("state")}
+        if pr.get("dedup"):
+            out["dedup"] = True
+            out["dup_of"] = pr["pid"]
+            out["dup_status"] = pr.get("dup_status")
+            out["hint"] = (
+                "同内容提案已存在（pid=%s，状态=%s，幂等去重），"
+                "本次未重复入队——无需重试；落盘须由设计者权限（can_admin）"
+                "对该 pid 裁决：python scripts/review_cli.py list 后 accept/reject，"
+                "或 cg(op=review, pid=<pid>, decision=accept|reject|edit|merge, "
+                "reason=<理由>)" % (pr["pid"], pr.get("dup_status") or "pending"))
+        return out
 
     if op == "goal":
         act = (a.get("action") or "list").strip().lower()
@@ -2396,10 +2420,18 @@ def _dispatch(cg, name, args):
                                         a.get("goal", ""))}
 
     if name == "mdcg_propose":
-        return {"pid": cg.propose(a.get("node_id", ""), a.get("content", ""),
-                                  layer=a.get("layer") or "knowledge",
-                                  tags=a.get("tags"), condition_space=a.get("condition_space"),
-                                  **_proposal_extras(a))}
+        pr = cg.propose(a.get("node_id", ""), a.get("content", ""), info=True,
+                        layer=a.get("layer") or "knowledge",
+                        tags=a.get("tags"), condition_space=a.get("condition_space"),
+                        **_proposal_extras(a))
+        out = {"pid": pr["pid"], "dedup": bool(pr.get("dedup"))}
+        if pr.get("dedup"):
+            out["dup_of"] = pr["pid"]
+            out["dup_status"] = pr.get("dup_status")
+            out["hint"] = ("同内容提案已存在（pid=%s，状态=%s），幂等返回既有提案、"
+                           "未重复入队，无需重试"
+                           % (pr["pid"], pr.get("dup_status") or "pending"))
+        return out
 
     if name == "mdcg_review_list":
         return {"pending": cg.review_list()}

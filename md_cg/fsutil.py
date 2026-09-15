@@ -96,12 +96,18 @@ class FileLock:
 
     超时后放弃并放行（best-effort）：写被拒绝的代价大于一次竞态——这与
     deja-vu 对 usage 日志锁的取舍一致（"a racing write beats a lost injection"）。
+
+    strict=True 反转该取舍：超时抛 TimeoutError 而非放行。适用于**不能丢的写**
+    （审核队列 inbox/decisions、裁决记录）——锁竞争失败时显式报错让调用方重试，
+    好过静默放行后退化为无锁并发（丢一条提案/裁决比让写入者等一下代价大）。
     """
 
-    def __init__(self, path: str, timeout: float = 10.0, poll: float = 0.01):
+    def __init__(self, path: str, timeout: float = 10.0, poll: float = 0.01,
+                 strict: bool = False):
         self.path = path + ".lock"
         self.timeout = timeout
         self.poll = poll
+        self.strict = strict
         self._f = None
         self.acquired = False
 
@@ -122,6 +128,9 @@ class FileLock:
                 if e.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
                     raise
                 if time.time() > deadline:
+                    if self.strict:
+                        raise TimeoutError(
+                            f"FileLock 超时未获锁（strict）：{self.path}")
                     return self          # 放行，不阻断写路径
                 time.sleep(self.poll)
 

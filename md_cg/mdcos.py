@@ -1033,24 +1033,60 @@ class MdCGOS(MdCG):
     # ================= 4. 审核队列（inbox → decisions） =================
 
     def propose(self, node_id: str, content: str, layer: str = "knowledge",
-                tags=None, condition_space=None, verify=None, **kw):
+                tags=None, condition_space=None, verify=None,
+                info: bool = False, **kw):
         """把一个候选记忆放入海马体 inbox，等待审核（不直接持久化）。
 
         verify —— 验收判据（内联声明，裁决阶段只读），形如：
             {"kind": "code", "assertions": ["pytest -k foo 通过"], "cmd": "..."}
         判据指纹随提案落盘，复核者只能按原判据裁决，不能放宽标准。
+
+        幂等对账（两段式）：入队动作在 strict 锁内「查重 → 入队」原子完成。
+        对账键 = payload_hash（内容签名 _sig(content)），同内容提案若已存在
+        （无论 pending 还是已裁决 accepted/rejected）→ 幂等返回既有 pid，
+        不再入队。语义：重试与崩溃恢复无害——入队落盘成功而响应丢失时
+        （MCP 客户端超时重试的真正机制），重试对账命中既有记录并返回原 pid。
+
+        返回值：info=False（默认）返回 pid 字符串（保形，存量调用零变化）；
+        info=True 返回 {"pid", "dedup", "dup_of", "dup_status"}。
         """
-        pid = "prop_" + _sig(node_id + str(time.time()))
-        _norm, vhash = _verify_norm(verify)
-        rec = {"t": time.time(), "pid": pid, "id": node_id, "content": content,
-               "layer": layer, "tags": list(tags or []),
-               "condition_space": condition_space or {},
-               "verify": verify or {}, "verify_hash": vhash,
-               "extra": kw, "actor": self.actor,
-               "session": getattr(self, "session", None)}
-        append_jsonl(self.inbox_log, rec)
+        phash = _sig(content)
+        with FileLock(self.inbox_log, strict=True):
+            st = self._pid_status()
+            dup = None
+            for r in read_jsonl(self.inbox_log):
+                # 存量记录无 payload_hash 字段 → 现算兼容（对账覆盖旧账）
+                rh = r.get("payload_hash") or _sig(r.get("content") or "")
+                if rh != phash:
+                    continue
+                s = st.get(r.get("pid")) or {}
+                dup = {"pid": r.get("pid"),
+                       "status": s.get("status") or "pending",
+                       "node_id": r.get("id")}
+                if dup["status"] in ("accepted", "rejected"):
+                    break          # 已裁决的最有信息量，优先返回
+            if dup:
+                self._audit("propose_dedup", node_id, dup_of=dup["pid"],
+                            dup_status=dup["status"], payload_hash=phash)
+                if info:
+                    return {"pid": dup["pid"], "dedup": True,
+                            "dup_of": dup["pid"], "dup_status": dup["status"]}
+                return dup["pid"]
+            pid = "prop_" + _sig(node_id + str(time.time()))
+            _norm, vhash = _verify_norm(verify)
+            rec = {"t": time.time(), "pid": pid, "id": node_id, "content": content,
+                   "layer": layer, "tags": list(tags or []),
+                   "condition_space": condition_space or {},
+                   "payload_hash": phash,
+                   "verify": verify or {}, "verify_hash": vhash,
+                   "extra": kw, "actor": self.actor,
+                   "session": getattr(self, "session", None)}
+            append_jsonl(self.inbox_log, rec)
         self._audit("propose", node_id, pid=pid, layer=layer,
-                    payload_hash=_sig(content), verify_hash=vhash)
+                    payload_hash=phash, verify_hash=vhash)
+        if info:
+            return {"pid": pid, "dedup": False,
+                    "dup_of": None, "dup_status": None}
         return pid
 
     def _pid_status(self):
@@ -1160,7 +1196,10 @@ class MdCGOS(MdCG):
         rec["record_hash"] = self._record_hash(rec)
         rec["result"] = {k: v for k, v in result.items()
                          if k in ("ok", "node_id", "error", "state")}
-        append_jsonl(self.decisions_log, rec)
+        # 裁决记录不能丢：strict 锁内追加（并发裁决不交错；
+        # 丢一条裁决会让提案回 pending → 重复落盘，比让裁决者等一下代价大）
+        with FileLock(self.decisions_log, strict=True):
+            append_jsonl(self.decisions_log, rec)
         # md 审计节点写失败不影响裁决（jsonl 仍是权威来源）
         try:
             self._write_review_record(rec)
@@ -1175,6 +1214,43 @@ class MdCGOS(MdCG):
                     redteam=rt_verdict or "absent", issue_count=len(issues),
                     record_node=rec["record_node_id"])
         return result
+
+    def _cascade_dedup(self, pid: str, phash: str, decision: str):
+        """主提案终态裁决后，同 payload_hash 的其余纯 pending 提案自动出清。
+
+        兄弟提案多为超时重试的重复入队产物（存量账本里已有实例）：主提案已
+        裁决后，兄弟再走一遍裁决只会重复落盘/重复入库。只在 decisions 锁内
+        「查兄弟最新状态 → 未有任何裁决记录才出清」，与并发裁决互斥，不会
+        覆盖兄弟自己的 accept。needs_reapproval 的兄弟有独立红队轮次历史，
+        不动（留人工处置）。级联裁决的权威源同为本文件（jsonl），
+        不写 md 审计节点（可能批量，self 层只留 jsonl + audit 簿记）。
+        """
+        if not phash:
+            return []
+        closed = []
+        with FileLock(self.decisions_log, strict=True):
+            st = self._pid_status()
+            for r in read_jsonl(self.inbox_log):
+                bpid = r.get("pid")
+                if not bpid or bpid == pid or bpid in st:
+                    continue     # 自己 / 已有裁决记录（含 needs_reapproval）跳过
+                rh = r.get("payload_hash") or _sig(r.get("content") or "")
+                if rh != phash:
+                    continue
+                rec = {"t": time.time(), "pid": bpid, "decision": "reject",
+                       "status": "rejected", "round": 1,
+                       "redteam_verdict": "absent", "issues": [],
+                       "verify_hash": r.get("verify_hash") or "",
+                       "reason": f"cascade_dedup: 同内容提案已由 {pid} "
+                                 f"{decision}（自动出清重复入队，无需再裁决）",
+                       "actor": self.actor, "target_id": r.get("id"),
+                       "record_node_id": self._audit_node_id(bpid, 1)}
+                rec["record_hash"] = self._record_hash(rec)
+                append_jsonl(self.decisions_log, rec)
+                closed.append(bpid)
+        for b in closed:
+            self._audit("review_cascade", b, cascade_of=pid, decision=decision)
+        return closed
 
     def review_records(self, pid: str = None):
         """列出裁决记录节点（self 层 / audit 标签），供外部来源审计。"""
@@ -1319,10 +1395,17 @@ class MdCGOS(MdCG):
             self.rebuild_index()
             result.update(ok=True, node_id=target)
 
-        return self._record_decision(
+        result = self._record_decision(
             pid, item, decision,
             "rejected" if decision == "reject" else "accepted",
             reason, round_no, rt_v, rt_issues, expect, result)
+        # 级联出清：主提案已终态，同内容兄弟提案（重复入队产物）自动关闭
+        casc = self._cascade_dedup(
+            pid, item.get("payload_hash") or _sig(item.get("content") or ""),
+            decision)
+        if casc:
+            result["cascade_closed"] = casc
+        return result
 
     def decisions(self):
         return list(read_jsonl(self.decisions_log))
