@@ -99,6 +99,8 @@ llm-adapter-poc/
 # 蜂巢工作记忆仓（任务产物版本化运行态；wm-repo 为 git 仓本体，不入公开仓）
 /hive/wm-repo/
 /hive/plans/naming_gov/specs/
+# 蜂巢 serve 本地环境配置（引用系统变量/个人数据文件路径，不入公开仓）
+/hive/config.local.json
 
 # 实验工作区（docs/experiments）：实验脚本 / result_*.json / _store 数据目录
 # 均为本地实验产物，不入库（_store 含 _index.json 与 *.lock，可由同目录

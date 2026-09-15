@@ -34,7 +34,12 @@ cd hive && cargo build --release
 # 配置密钥（执行器用）
 set HIVE_API_KEY=你的密钥
 
-# 起 serve（默认 4 worker；HIVE_WORKERS 可调）
+# 起 serve——推荐正路：serve_start.py 读本地配置注入 env（key 不落命令行历史）
+# 配置文件：hive/config.local.json（已 gitignore；值支持 直值 | {"env":"系统变量名"} | {"file":"key文件路径"}）
+# 推荐形态：HIVE_API_KEY 引系统变量（如 DEEPSEEK_API_KEY），HIVE_WEB_SEARCH_KEY 引 key 文件
+python serve_start.py            # 拉起（已在跑则拒绝）；--stop 停止；--status 查看心跳与任务统计
+
+# 或手动起 serve（env 需自行带全：HIVE_API_KEY 必填；默认 4 worker；HIVE_WORKERS 可调）
 target\release\hive.exe serve
 
 # 提交任务（stdin JSON）
@@ -73,6 +78,10 @@ target\release\hive.exe doctor
 | `workdir` | 否 | context 相对路径基准（默认进程 cwd） |
 | `timeout_s` | 否 | 5..=3600，默认 300；超时 rust 侧强杀并标 `timeout` |
 | `max_tokens` / `temperature` | 否 | 透传 API |
+| `tools` | 否 | 工具白名单，子集 `["lingshu_cg","web_search"]`；非空即启用 agent loop（function calling 循环），缺省 = 单发调用（历史行为逐位不变） |
+| `max_tool_rounds` | 否 | 工具轮上限，默认 5；达到后强制终答（不带 tools 再发一次） |
+| `mdcg_root` | 否 | lingshu_cg 的认知图根兜底（env `MDCG_ROOT` 优先）；如任务级隔离用临时图 |
+| `web_search_backend` | 否 | web_search 后端兜底（env `HIVE_WEB_SEARCH` 优先）：`zhipu` / `duckduckgo` |
 
 spec 在 submit 时做存在性校验（context 文件必须已存在，fail fast 防任务白跑）。
 
@@ -112,9 +121,24 @@ jobs/
 `exec.py`（零第三方依赖）：`argv[1] = job 目录`，读 `spec.json` 写 `result.json`：
 
 ```json
-{"ok": true,  "content": "...", "usage": {...}, "model": "...", "duration_s": ...}
-{"ok": false, "error": "...", ...}
+{"ok": true,  "content": "...", "usage": {...}, "model": "...",
+ "tool_trace": [...], "tool_rounds": 2, "duration_s": ...}
+{"ok": false, "error": "...", "tool_trace": [...], ...}
 ```
+
+`tool_trace` 每轮记录 `{round, tool, args, ok, brief, result}`（审计可回放）；
+API 错误收敛为 `ok:false` 但已发生的 trace 保留。
+
+### 工具面（agent loop）
+
+`spec.tools` 白名单启用后按 OpenAI function calling 循环：模型回 tool_calls →
+执行器执行 → tool 消息回喂 → 循环至终答；轮次耗尽强制终答（`forced_final: true`）。
+工具结果回喂前截断（4000 字符）防上下文爆炸；上下文预算逐轮校验，超限诚实终止。
+
+| 工具 | 说明 |
+|---|---|
+| `lingshu_cg` | 灵枢认知图（`op=route\|read\|write` 白名单，复用 MCP 面同一 dispatch）。权限硬编码 recorder（`can_admin=false`，spec 无法提权）——写入过校验闸门：DEFER 入审核队列 / REJECT 负记忆是设计行为，裁决权留给设计者。会话隔离 `session=hive_job_<id>`。write 的 `verification_basis` 前置校验合法枚举（防自由文本卡死审核队列）。 |
+| `web_search` | 网页搜索。`zhipu` 后端走 `/web_search` 端点（`HIVE_WEB_SEARCH_BASE` 缺省智谱官方，与 `HIVE_API_BASE` 解耦——后者常为 LLM 中转网关、无搜索路由；`HIVE_WEB_SEARCH_KEY` 缺省回落 `HIVE_API_KEY`）；`duckduckgo` 零 key 兜底。 |
 
 退出码 0 成功 / 2 规格错 / 3 API 错误。rust 侧以 result.json 的 error 字段定终态
 （done / error），执行器崩溃由超时兜底。env：`HIVE_API_KEY`（必填，缺失即 fail）、
@@ -125,11 +149,16 @@ jobs/
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `HIVE_API_KEY` | 无 | 执行器必填；缺失任务即 error |
-| `HIVE_API_BASE` | GLM 开放平台 | OpenAI 兼容 base url |
+| `HIVE_API_BASE` | GLM 开放平台 | OpenAI 兼容 base url（LLM 通道） |
 | `HIVE_JOBS_DIR` | `<exe>/../../jobs` | 任务根目录 |
 | `HIVE_EXEC_PY` | `<exe>/../../exec.py` | 执行器路径（serve 级） |
 | `HIVE_WORKERS` | 4 | worker 池大小 |
 | `HIVE_PYTHON` | `python` | 执行器解释器 |
+| `MDCG_ROOT` | 无 | lingshu_cg 认知图根（serve 级；任务级可用 `spec.mdcg_root` 兜底） |
+| `MDCG_HOME` | 执行器父目录 | md_cg 包所在仓根（同仓分发零配置） |
+| `HIVE_WEB_SEARCH` | `zhipu` | 搜索后端：`zhipu` / `duckduckgo` |
+| `HIVE_WEB_SEARCH_BASE` | 智谱官方 `/api/paas/v4` | zhipu 搜索端点 base（与 `HIVE_API_BASE` 解耦） |
+| `HIVE_WEB_SEARCH_KEY` | 回落 `HIVE_API_KEY` | 搜索密钥（key 与 LLM base 不配对时独立设置） |
 
 ## 验证
 
