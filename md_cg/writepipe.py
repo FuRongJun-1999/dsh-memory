@@ -24,9 +24,17 @@ write 的六道闸（audit 校验 / consistency 冲突 / review 审核 / gated �
 
 验收口径（交接文档 §3⑥）：全部既有写入测试零改动通过；新增/移除一个
 拦截器不改核心文件（register_before / unregister_before 即插即拔）。
+
+**③ 两段式提交（2026-09-16 叠加）**：链尾执行器与 gated 闸（两条**真实落盘**
+路径）各自在执行落盘前调 `twophase.begin` 落 intent、落盘后调 `twophase.commit`
+记 outcome；崩溃在两者之间时由 `twophase.reconcile` 据正文指纹补账/标记。
+边界（如实）：`_gate_audit` 的 REJECT（写负记忆）与各闸的 propose（**未落盘**，
+仅入审核队列）不在两段式覆盖面内——前者是短小负记录、后者本就没有落盘动作。
 """
 
 import time
+
+from . import twophase
 
 __all__ = ["WritePipeline", "default_pipeline"]
 
@@ -93,8 +101,23 @@ class WritePipeline:
             if out is not None:
                 ctx["halted_by"] = name
                 return out
-        out = _executor(ctx)
+        # ③ 两段式：闸门**全部放行**（确认要写）→ 先落意图，再执行落盘，
+        # 最后记结果。崩溃若发生在两者之间，`reconcile` 能据正文指纹回答
+        # 「那笔写入到底落盘了没有」，而不是留下一条无痕的静默记忆。
+        tok = twophase.begin(cg, ctx["nid"], a.get("content", ""),
+                             layer=a.get("layer") or "knowledge",
+                             actor="writepipe:executor")
+        try:
+            out = _executor(ctx)
+        except BaseException as exc:
+            # 执行器抛异常（权限拒绝/校验失败）= 写入未完成 → 账本记 error，
+            # 异常照抛不吞（两段式只记账，不改写既有错误语义）。
+            twophase.commit(cg, tok, status=twophase.STATUS_ERROR,
+                            reason=type(exc).__name__)
+            raise
         ctx["out"] = out
+        twophase.commit(cg, tok, status=twophase.STATUS_COMMITTED,
+                        reason="executor_ok")
         for _name, fn in self._after:
             fn(ctx, out)
         return out
@@ -224,6 +247,12 @@ def _gate_gated(ctx):
     hint = a.get("importance_hint")
     if hint is None and a.get("importance") is not None:
         hint = float(a["importance"])
+    # ③ 两段式：本闸是**替代执行路径**（自己落盘），意图必须由它先记——
+    # 若等 execute 在链后统一记，intent 会晚于本闸内部的写盘，「先行持久化」
+    # 就不成立了。落盘前的窗口因此仍然被账本覆盖。
+    tok = twophase.begin(cg, ctx["nid"], a.get("content", ""),
+                         layer=a.get("layer") or "contextual",
+                         actor="writepipe:gated")
     res = cg.remember_gated(
         ctx["nid"], a.get("content", ""), layer=a.get("layer") or "contextual",
         role=a.get("role"), tags=a.get("tags"),
@@ -237,6 +266,17 @@ def _gate_gated(ctx):
         relation=a.get("relation"))
     v = res.get("verdict")
     committed = v == "ACCEPT"
+    # 结局如实记：ACCEPT=落盘完成；MERGE=内容并入既有节点（不再以本次内容成
+    # 文，指纹对账不适用，故直接记 committed 并注明去向）；DROP/DEFER=未落盘。
+    if committed:
+        twophase.commit(cg, tok, status=twophase.STATUS_COMMITTED,
+                        reason="gated_accept")
+    elif v == "MERGE":
+        twophase.commit(cg, tok, status=twophase.STATUS_COMMITTED,
+                        reason="merged_into:%s" % res.get("merged_into"))
+    else:
+        twophase.commit(cg, tok, status=twophase.STATUS_ABORTED,
+                        reason="gated_%s" % str(v).lower())
     out = {"ok": committed, "id": ctx["nid"], "committed": committed,
            "gate": res, "verdict": ctx["verdict"]}
     if ctx.get("cvd") is not None:

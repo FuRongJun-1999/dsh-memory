@@ -2653,6 +2653,20 @@ def main():
     if _verifiers.get("loaded") or _verifiers.get("failed"):
         sys.stderr.write("[mdcg-mcp] 外部验证器: loaded=%s failed=%s\n"
                          % (_verifiers.get("loaded"), _verifiers.get("failed")))
+    # ③ 两段式对账：上个进程若被杀在「落盘前后」之间，账本里会留下「有意图
+    # 无结果」的写入——启动即清账（内容确已落盘 → 补账 committed；没落上 →
+    # 如实标记 interrupted）。失败**不阻塞启动**：对账是增益，不是服务前提，
+    # 但必须上报（stderr），不静默。
+    try:
+        _rep = cg.reconcile_writes()
+        if _rep.get("unpaired"):
+            sys.stderr.write("[mdcg-mcp] 写入两段式对账: 未结清=%s 补账=%s "
+                             "中断=%s\n" % (_rep.get("unpaired"),
+                                            _rep.get("committed"),
+                                            _rep.get("interrupted")))
+    except Exception as _exc:         # 对账故障不得影响服务可用性
+        sys.stderr.write("[mdcg-mcp] 两段式对账失败（不阻塞启动）: %r\n"
+                         % (_exc,))
     _start_sustain(cg)
 
     for line in sys.stdin:

@@ -607,8 +607,8 @@ class MdCG:
                         "created_at": fm.get("created_at", 0),
                         "verification_basis": fm.get("verification_basis"),
                         "has_neg_conditions": nodefile.has_non_applicable(content),
-                        "content_hash": hashlib.sha256(
-                            content.encode("utf-8")).hexdigest()[:12],
+                        # 内容指纹走 nodefile 的唯一实现（两段式对账依赖同一算法）
+                        "content_hash": nodefile.content_hash(content),
                         # 时空字段入索引快照：STG 查询免读文件（大域/目录索引的延伸）
                         "temporal": fm.get("temporal"),
                         "spatial": fm.get("spatial"),
@@ -839,6 +839,21 @@ class MdCG:
         """
         return lifecycle.set_state(self, node_id, dst, reason=reason,
                                    actor=actor, override=override)
+
+    def reconcile_writes(self, apply: bool = True, limit: int = 2000) -> dict:
+        """写入两段式对账（③ 两段式提交）：把崩溃遗留的半途写入**补账或标记**。
+
+        幂等（补出的 outcome 与正常 outcome 同形，二次扫描无未配对项）；
+        `apply=False` 为只读盘点。返回 `{"unpaired","committed","interrupted",
+        "applied","details"}`；账本为 root 下 `_write_2pc.jsonl`（append-only）。
+        """
+        from . import twophase       # 延迟导入：与写路径解耦，避免模块环
+        return twophase.reconcile(self, apply=apply, limit=limit)
+
+    def pending_writes(self, limit: int = 200) -> list:
+        """未结清的写入意图（有 intent 无 outcome）——只读，不改账本。"""
+        from . import twophase
+        return twophase.pending(self, limit=limit)
 
     # ------------------------------------------------------------------
     # 边域窄原语（写路径收口：白箱工具写 md 真源的唯一正路）。

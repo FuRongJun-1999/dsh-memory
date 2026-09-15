@@ -37,6 +37,7 @@ CCG 要素的语义对应（白箱第 1 篇第 17 章）：
 拿 `observation_position` 单槽加前缀冒充，等于把坐标的一维当成整条生效条件。
 故 CCG_REQUIRED == CCG_MARKS：6 行缺一不可，缺则补写、或按 q-3 判 BLINDSPOT。
 """
+import hashlib
 import json
 import time
 
@@ -62,6 +63,22 @@ VERIFICATION_BASIS = ("compiler", "test", "measurement", "formal_proof", "data",
 REPRODUCIBLE_BASIS = ("compiler", "test", "measurement", "formal_proof", "data")
 #: 来源一致性档：文科断言可用（来源表述一致即可）
 CONSISTENCY_BASIS = ("textbook", "public_kb")
+
+
+def content_hash(content: str) -> str:
+    """节点正文的**内容指纹**（sha256 前 12 位）——全仓唯一实现。
+
+    两处共用且必须逐位一致，否则对账/变更探测会永远"匹配成功"而失去意义
+    （与 `codeindex.region_hash` 同一纪律：两侧各写一份哈希算法，漂移就悄悄失效）：
+      ① 索引快照 `_index.json` 的 `content_hash`（变更探测）；
+      ② 写入两段式（`twophase`）的 intent 载荷指纹——崩溃后靠它回答
+         「那笔写入到底落盘了没有」。
+
+    口径：只哈希**正文**，不含 frontmatter——frontmatter 会被写路径正常改写
+    （importance / protected / 生命周期状态 / 时间戳），把它算进去则「内容没变、
+    元数据变了」也会判成不匹配，对账会大面积误报 interrupted。
+    """
+    return hashlib.sha256((content or "").encode("utf-8")).hexdigest()[:12]
 
 
 def dumps(frontmatter: dict, content: str) -> str:
