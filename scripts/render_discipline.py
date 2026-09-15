@@ -290,7 +290,9 @@ def main(argv=None):
     src = load_source(repo)
     targets = mx.get("targets", {})
 
-    names = args.target or ([n for n, t in targets.items() if t.get("enabled")] if args.all else [])
+    # render: false 的 target（本地私有手工件）不参与 --all 渲染：渲染会覆盖其本地增强段。
+    names = args.target or ([n for n, t in targets.items()
+                             if t.get("enabled") and t.get("render", True)] if args.all else [])
     if not names:
         print("未指定目标：用 --target <name> 或 --all", file=sys.stderr)
         return 2
@@ -307,6 +309,14 @@ def main(argv=None):
         if t.get("transport") == "file":
             path = expand(t["path"], repo)
             rec["path"] = path
+            if t.get("render") is False:
+                rec["render"] = False
+            if args.write and t.get("render") is False:
+                raise SystemExit(
+                    "目标 %s 声明 render: false（本地私有手工件，渲染会覆盖其本地增强段）：%s\n"
+                    "拒绝写盘。如需改动请直接编辑该文件，或先显式移除矩阵里的 render: false。"
+                    % (name, path)
+                )
             if args.write:
                 d = os.path.dirname(path)
                 if d:

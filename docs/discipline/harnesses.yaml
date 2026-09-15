@@ -150,3 +150,29 @@ targets:
       - 注入时机：Codex 按 skill 三级渐进加载（元数据常驻、正文触发时加载）；项目根 AGENTS.md 仍是
         会话起始全文注入主通道，本 skill 与之同源、并存不冲突。
       - 写入凭据：mdcg fail-closed，未配 MDCG_TOKEN 时只读 guest（读得到、写不进）；签发见插件 README。
+
+  # —— 本地私有注入件（.gitignore，不入公开仓）：只校验，不渲染 ——
+  # 它是「纪律本体 + 本地增强」的手工件（§1 设计者视角含本机路径、§0.6 工具规范、§5 运维注记），
+  # full 模板渲染会覆盖这些本地增强段，故 render: false（禁写盘）。
+  codebuddy-local:
+    enabled: true
+    render: false
+    transport: file
+    path: AGENTS.md
+    variant: full
+    format: markdown
+    memory: mcp/mdcg (cg,stg)
+    note: >-
+      根目录 AGENTS.md = 本机 CodeBuddy 会话注入件（见本文件 dsh preamble「仓库结构与公开边界」）。
+      历史缺陷（20260916 漂移实例）：它是手工件、长期不在渲染/校验矩阵内，0.1 / 0.6 把 DSH 端
+      注册名写死为通用工具名并加「非 cg」的反向否决，本端 agent 因此对工具名产生疑惑——
+      与「手写行号必腐化」同构：无守卫的手工件必然漂移。
+      修法：纳入矩阵只做校验（render: false），守卫 ①声明出口逐字一致；②工具名随端标注
+      （件内每处 DSH 端基元名须与 MCP 端正名 mdcg 同行出现）；③编号完备（缺条即其声明缺失）。
+    # 形态说明（20260916 修订）：本件 §2 路由表原为分组表格；markdown 表格单元格须转义
+    # 半角 '|'，而真源 execution.how 含半角 '|'（第 2 / 8 条）——与「逐字嵌入」物理不相容，
+    # 故曾退让为 verify_fields advisory（差异全量打印、不判失败，不静默）。
+    # 现按使用者裁定改为**列表形态**（与渲染产物同源、逐字真源），摘要化差异归零：
+    # 撤下 verify_fields，本件回到**全字段 strict**（trigger / action / negative / declaration）。
+    # 同轮另一项：真源第 1 条 how 补「与既有实践」，与 content / response.direct 自洽——
+    # 原 how 缺该语、与真源自身矛盾，手工件反而是对的（属真源过时，非件漂移）。
