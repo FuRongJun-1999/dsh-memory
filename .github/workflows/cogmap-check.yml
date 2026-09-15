@@ -1,0 +1,26 @@
+name: cogmap-check
+
+on:
+  push:
+    paths:
+      - README.md
+      - scripts/cogmap_sync.py
+      - md_cg/mcp_server.py
+      - .github/workflows/cogmap-check.yml
+  pull_request:
+    paths:
+      - README.md
+      - scripts/cogmap_sync.py
+      - md_cg/mcp_server.py
+      - .github/workflows/cogmap-check.yml
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: README 认知图与源码真源一致性（工具/op/链接/锚点）
+        run: python scripts/cogmap_sync.py check

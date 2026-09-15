@@ -2,7 +2,7 @@
 
 **灵枢（Lingshu）** —— 高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.4.5）
 
-[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![dsh.so security](https://www.dsh.so/badge/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7)  [![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)](https://github.com/deepseek-ai/deepseek-harness/releases) [![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)](#-多-harness-接入按端分目录) [![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)](package.json) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![dsh.so security](https://www.dsh.so/badge/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7)  [![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)](https://github.com/deepseek-ai/deepseek-harness/releases) [![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)](#多-harness-接入按端分目录) [![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)](package.json) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > **一句话**：让 AI Agent 拥有跨会话的长期记忆——对话自动沉淀为纯文本 md 认知图，
 > 规则化检索引擎决定「记什么、取什么」，全过程可审计、结果可复现。
@@ -79,6 +79,7 @@ dsh plugin --profile web add .
 - **写权限默认关闭**：不配凭据即以只读 `guest` 运行（读 / 召回 / 时间线可用，写入不落盘）。要真正落盘见「写入凭据」
 - 完整配置项（30+ 项）· 自动记忆机制 · DSH 看门狗 → [README 详细版](docs/README详细版_v0.4.5.md)
 - **非 DSH 宿主**（CodeBuddy / ZCode / Codex CLI / Claude Code）：走[多 harness 接入](#多-harness-接入按端分目录)，各端有独立三步接入说明
+- **装后验证**：重启 DSH 后对 Agent 说「列出你的记忆工具」应看到 `cg` / `stg`（`tools: 'all'` 时还有 `mdcg_*`）；大脑直连验证：`python -m md_cg.mcp_server`（stdio JSON-RPC）收到 initialize 应答即通，更多细节见 [README 详细版](docs/README详细版_v0.4.5.md)
 
 ---
 
@@ -195,18 +196,36 @@ python -m md_cg.bench_progressive        # 渐进式语义检索双实验（G0 9
 | 身份一致性 · 自我状态 · 演化史 | `cg(op=identity)` `cg(op=self_state)` `cg(op=evolution)` |
 | 加密 · 密级隔离 · 审计留痕 · 保护/遗忘 | `cg(op=protect)` `cg(op=forget)` · [护栏宪章](docs/guardrail-charter.md) |
 
+> **索引链**：能力 → op（本表）→ 实现模块（下方[工具面](#-工具面)认知图）→ 行号级代码映射（[功能调用映射表](docs/功能调用映射表_v0.1.md)）——每一步都可从 README 一跳到达源码，一致性由 `scripts/cogmap_sync.py check` 守卫。
+
 ---
 
 ## 🧰 工具面
 
-**两个认知基元 · 35 个 op**（`kernel` 面）：
+<!-- COGMAP:BEGIN (scripts/cogmap_sync.py 自动生成 · 真源 md_cg/mcp_server.py · 勿手改段内) -->
 
-| 基元 | op |
+**两个认知基元 · 35 个 op**（`kernel` 面）——下列 op 清单与实现模块由 [cogmap_sync](scripts/cogmap_sync.py) 从真源自动提取，`check` 门禁守卫漂移：
+
+| 基元 | op 数 | op 清单 |
+|---|---|---|
+| **`cg`** 认知图统一入口 | 31 | `theory` `link` `info` `route` `read` `write` `goal` `recent` `verify` `review` `forget` `protect` `identity` `consistency` `metacognition` `self_state` `evolution` `sustain` `scrub` `predict` `causal` `whitebox` `index_code` `index_doc` `ref` `session` `ingest` `export` `maintain` `consolidate` `insight` |
+| **`stg`** 语义时空图入口 | 4 | `relation` `timeline` `anchors` `consistency` |
+
+**op → 实现模块**（认知图投影：功能在哪段代码，一眼可达）：
+
+| op | 实现模块 |
 |---|---|
-| **`cg`** 认知图统一入口 | **31**：`theory` `link` `info` `route` `read` `write` `goal` `recent` `verify` `review` `forget` `protect` `identity` `consistency` `metacognition` `self_state` `evolution` `sustain` `scrub` `predict` `causal` `whitebox` `index_code` `index_doc` `ref` `session` `ingest` `export` `maintain` `consolidate` `insight` |
-| **`stg`** 语义时空图入口 | **4**：`relation` `timeline` `anchors` `consistency` |
+| `route` `goal` `recent` `verify` `review` `forget` `protect` `identity` `consistency` `metacognition` `self_state` `evolution` `sustain` `scrub` `predict` `causal` `whitebox` `ref` `session` `ingest` `export` `maintain` `consolidate` `insight` | （`_cg_dispatch` 内联） |
+| `read` `index_code` `index_doc` | `refindex` |
+| `write` | `audit` |
+| `info` | `audit`, `links`, `theory` |
+| `link` | `evidence`, `links`, `provenance`, `signer` |
+| `theory` | `theory` |
+| `relation` `timeline` `anchors` `consistency` | （`_stg_call` 内联） |
 
-**细粒度面**（`MDCG_MCP_SURFACE=full`，插件运行时使用）：`cg` + `stg` + **31 个 `mdcg_*`** = **33 个工具**。
+**细粒度面**（`MDCG_MCP_SURFACE=full`，插件运行时使用）：`cg` + `stg` + **31 个 `mdcg_*`** = **33 个工具**；逐个 op 的「功能 → 代码 → op」行号级映射见[功能调用映射表](docs/功能调用映射表_v0.1.md)。
+
+<!-- COGMAP:END -->
 
 | `tools` 模式 | 暴露数 | 说明 |
 |---|---|---|
@@ -216,7 +235,7 @@ python -m md_cg.bench_progressive        # 渐进式语义检索双实验（G0 9
 
 > 风险工具 `mdcg_forget` / `mdcg_restore` / `mdcg_review_decide` 需 `can_admin`，即使 `tools: 'all'` 也不自动暴露。
 > 35 op 已逐一冒烟验证：**35/35 可达，0 未知 op、0 意外崩溃**。
-> 每个 op 的「功能 → 代码（含行号）→ MCP op」见 [功能调用映射表](docs/功能调用映射表_v0.1.md)；历史 82 工具去向见 [迁移映射](docs/灵枢82工具_功能整理与迁移映射_v0.1.md)。
+> 历史 82 工具（旧 aeis 引擎）去向见 [迁移映射](docs/灵枢82工具_功能整理与迁移映射_v0.1.md)。
 
 ---
 
