@@ -61,11 +61,12 @@ PATHS_CAL = PATHS + ("semantic",)   # 口径 B：显式启用条件结构路（�
 def unlock_global_cap():
     """评测口径：解除 GLOBAL_CAP 截断（bench_membench patch_lexical_full 同法）。
 
-    默认 GLOBAL_CAP=500 会把 LIKE 预筛命中按「插入序」截到前 500 条再打分；
-    大型英文语料（turn 高度互相似）预筛命中数千条 → 证据 turn 被插入序随机
-    截掉，检索质量混入插入序 lottery（sanity：证据原文自检索仅 10% hit@1）。
-    评测主口径解除之，只测排序质量。mdcg 与 mdcos 各持一份 from-import 值，
-    必须双改（test_p43_pooling 先例）。
+    【2026-09-16 后语义更新】截断依据已由「插入序」改为「相关度」（`mdcg
+    .cut_by_relevance` 与 `mdcos._lexical` 均先全量打分再排序截断，cap 值仍
+    500）——插入序 lottery 已消除。评测仍解除 cap 的理由只剩一条：避免
+    「按相关度截掉尾部」在长语料上压低召回天花板（相近似 turn 数千条时，
+    排 501 名之后仍可能是证据）——评测要测**排序质量**而非截断策略。
+    mdcg 与 mdcos 各持一份 from-import 值，必须双改（test_p43_pooling 先例）。
     """
     import md_cg.mdcg as m
     import md_cg.mdcos as mo

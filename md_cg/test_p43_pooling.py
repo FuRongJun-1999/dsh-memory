@@ -41,7 +41,11 @@ PASS = FAIL = 0
 FAILS = []
 
 BODY = "召回截断 索引 分池 内容"
-QUERY = "召回截断"
+# 多词查询：索引类含全部查询词、知识类缺「分池」→ 相关度有**区分度**。
+# 原语料下 16 条分数全等（覆盖度口径），截断谁入榜只能由传入序决定——而传入序
+# 本身不确定（目录枚举 + 并行 prefetch），断言 `off=6` 实为顺序抽签的产物。
+QUERY = "召回截断 分池"
+KBODY = "召回截断 索引 内容"
 
 
 def ok(cond, label):
@@ -71,7 +75,12 @@ def _snapshot(root):
 
 
 def _mk(root):
-    """6 个索引类（code_/doc_）+ 10 个知识类，正文同源 → 词面完全等价竞争。"""
+    """6 个索引类（code_/doc_）+ 10 个知识类。
+
+    §七 的真实机制是「索引/产物类节点**词面命中率更高**」（正文短、查询词占比大），
+    故索引类正文短、知识类正文长（含背景说明），使索引类相似度**确实**高于知识类
+    ——挤占由相关度驱动，不依赖写入顺序（截断依据已改为相关度，见 `cut_by_relevance`）。
+    """
     cg = MdCGOS(root, actor="test")
     for i in range(4):
         cg.add(f"code_{i}", f"# 功能名：索引条目 {i}\n# 生效条件：条件 I\n\n{BODY} {i}\n",
@@ -80,7 +89,10 @@ def _mk(root):
         cg.add(f"doc_{i}", f"# 功能名：文档索引 {i}\n# 生效条件：条件 D\n\n{BODY} {i}\n",
                layer="knowledge", tags=["index"])
     for i in range(10):
-        cg.add(f"kp_{i}", f"# 功能名：知识 {i}\n# 生效条件：条件 K\n\n{BODY} {i}\n",
+        cg.add(f"kp_{i}",
+               f"# 功能名：知识 {i}\n# 生效条件：条件 K\n\n{KBODY} {i}\n"
+               f"备注：本条为知识类条目，含背景说明、推理链与引用出处，正文较长，"
+               f"查询词在全文中的占比因此显著低于索引类条目。\n",
                layer="knowledge")
     cg.add("n_rej", f"# 功能名：被否决\n# 生效条件：条件 R\n\n{BODY} 否\n",
            layer="rejected")
@@ -238,12 +250,27 @@ def main():
         # 但「乘数可复算」这一被测语义不变。
         base = {r[0]["id"]: r[1] for r in off}
         sc = {r[0]["id"]: r[1] for r in on}
-        ok(abs(sc["code_0"] - base.get("code_0", 0.0) * 0.6) < 1e-9,
-           f"(8) 索引类命中分 == 基础分 × 0.6（base={base.get('code_0', 0.0):.6f} → "
-           f"{sc.get('code_0', float('nan')):.6f}）")
-        common = [i for i in range(6) if f"kp_{i}" in base and f"kp_{i}" in sc]
-        ok(common and all(abs(sc[f"kp_{i}"] - base[f"kp_{i}"]) < 1e-9 for i in common),
-           f"(8) 知识类命中分不被削（权重 1.0；逐条比对 {len(common)} 条）")
+
+        def _pick_idx(d):
+            """挑一条「关闭态也有基础分」的索引类入榜条目。
+
+            截断依据改为相关度后，具体哪条索引入榜由分数序决定（不再是固定的
+            `code_0`——那正是按传入序截断时代的产物），故动态取。
+            """
+            return next((i for i in d if PL.pool_of(i) == "index" and i in base), None)
+
+        iid = _pick_idx(sc)
+        ok(iid is not None, "(8) 分池态含索引类条目（额度保底生效）")
+        ok(iid is not None and abs(sc[iid] - base[iid] * 0.6) < 1e-9,
+           f"(8) 索引类命中分 == 基础分 × 0.6（{iid}: base={base.get(iid, 0.0):.6f} → "
+           f"{sc.get(iid, float('nan')):.6f}）")
+        # 知识类权重 1.0 → 命中分应与关闭态同源分一致。不硬编码编号：关闭态额度
+        # 被索引类占满，只余 2 条知识类入榜，与分池态取的 6 条未必有同编号交集
+        # （全同分下由稳定序决定），故按「关闭态知识分基准」比对。
+        base_kp = [v for k, v in base.items() if k.startswith("kp_")]
+        sc_kp = [v for k, v in sc.items() if k.startswith("kp_")]
+        ok(base_kp and sc_kp and all(abs(v - base_kp[0]) < 1e-9 for v in sc_kp),
+           f"(8) 知识类命中分不被削（权重 1.0；base={base_kp[:1]} → on={sc_kp[:2]}）")
         ok(PL.weight_of("code_x", {}, True) == PL.WEIGHTS["index"]["weight"],
            "(8) weight_of 与表内系数一致")
         alt = {"knowledge": {"cap_ratio": 0.5, "weight": 1.0},
@@ -251,9 +278,10 @@ def main():
                "negative": {"cap_ratio": 0.1, "weight": 0.5}}
         on2, _m2 = cg.search(QUERY, k=20, record=False, pools=alt)
         sc2 = {r[0]["id"]: r[1] for r in on2}
-        ok(abs(sc2["code_0"] - base.get("code_0", 0.0) * 0.3) < 1e-9,
-           f"(8) 换表即换行为（base×0.3={base.get('code_0', 0.0) * 0.3:.6f} → "
-           f"{sc2.get('code_0', float('nan')):.6f}）")
+        iid2 = _pick_idx(sc2)
+        ok(iid2 is not None and abs(sc2[iid2] - base[iid2] * 0.3) < 1e-9,
+           f"(8) 换表即换行为（{iid2}: base×0.3={base.get(iid2, 0.0) * 0.3:.6f} → "
+           f"{sc2.get(iid2, float('nan')):.6f}）")
         ok(PL.caps(10, PL.resolve(alt)) == {"knowledge": 4, "index": 4, "negative": 2},
            f"(8) 换表额度同步可复算（实得 {PL.caps(10, PL.resolve(alt))}）")
 

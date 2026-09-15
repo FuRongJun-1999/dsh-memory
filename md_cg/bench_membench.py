@@ -297,10 +297,14 @@ def patch_random_path(cg, seed=0):
 
 
 def patch_symmetric_pool(cg):
-    """让 lexical 与 fuzzy 看到同样的全量候选池（消除 GLOBAL_CAP 截断偏置）。
+    """【2026-09-16 起已冗余】抬高 GLOBAL_CAP，让 lexical 与 fuzzy 候选池对称。
 
-    lexical 命中数超过 GLOBAL_CAP 时按**插入序**截断；fuzzy 则全库打分后取 Top-50。
-    两条路的候选池不对称，会系统性偏袒 fuzzy。抬高 cap 使其对等。
+    背景：lexical 命中数超 GLOBAL_CAP 时按**插入序**截断，fuzzy 则全库打分后取
+    Top-50；两条路候选池不对称，会系统性偏袒 fuzzy。当时以「抬高 cap」对冲。
+
+    现状：截断依据已改为**相关度**（`mdcg.cut_by_relevance` 与 `mdcos._lexical`
+    均先全量打分再排序截断，cap 值仍为 500）——插入序偏置的根因已消除，本 patch
+    不再必要。保留仅为兼容既有对照命令（`--symmetric-pool`）与历史口径复现。
     """
     from md_cg import mdcos as _m
     _m.GLOBAL_CAP = 10 ** 9
@@ -310,8 +314,9 @@ def patch_symmetric_pool(cg):
 def patch_lexical_full(cg):
     """让 lexical 也对**全量候选池**打分（消除「扫描范围」差异，只留排序算法差异）。
 
-    默认 _lexical 只在 LIKE 命中集上打分（中位约 20 条），而 _path_fuzzy 扫全库 1000 条；
-    仅抬高 GLOBAL_CAP 只修好「LIKE 全空」的兜底分支，非空命中时池仍不对等。
+    默认 _lexical 只在 LIKE 命中集上打分（中位约 20 条），而 _path_fuzzy 扫全库 1000 条。
+    注：截断依据改为相关度后（2026-09-16），「排序依据不对等」已消除，此处差异
+    仅剩**扫描范围**一项；本 patch 仍用于隔离排序算法差异的对照实验。
     """
     from md_cg.mdcg import bigrams
 

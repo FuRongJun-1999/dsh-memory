@@ -58,6 +58,40 @@ DEFAULT_RECENT_WINDOW = 200
 # 全量回退的读取上限，对齐 sqlite 版 `ORDER BY importance DESC, created_at DESC LIMIT 500`
 GLOBAL_CAP = 500
 
+
+def cut_by_relevance(docs, scored, total, pools=None, key_of=None, stat=None):
+    """候选截断：**先按相关度排序，再截断到 `total`**（截断依据=相关度）。
+
+    动机（真库实测 2026-09-16，11521 节点 / cap=500）：原实现是「LIKE 命中集
+    沿 `entries`（目录枚举序）取前 `total` 条 → 再打分」——命中集超上限时，
+    等价于用**写入顺序抽签**决定谁进候选池。实测 40 个抽样查询中 27 个命中数
+    超 cap（最差 10963/11073 ≈ 99%），被现状丢弃的候选平均分 0.650、被保留的
+    平均分 0.340，gold 进 top10 由 19/40 降至 29/40。
+
+    本函数把 cap 语义从「候选生成上限」降级为「输出上限」：候选质量责任交还
+    排序（与 `mdcos._lexical` 同源先例一致），**cap 值本身不变**。
+
+    `docs` 与 `scored` 必须同序同长（`MdCG._score` 输出序=输入序）。不一致时
+    不猜：退回原序截断，并在 `stat["cut_order"]` 标 `insert_fallback` 供审计。
+    分池生效时在**分数序**内按池额度截断（池内原序=分数序）。
+    返回 `(picked, report)`。
+    """
+    if len(scored) != len(docs):
+        if stat is not None:
+            stat["cut_order"] = "insert_fallback"
+        return pooling.cut_report(docs, total, pools=pools,
+                                  key_of=key_of or pooling.doc_key)
+    order = sorted(
+        range(len(docs)),
+        key=lambda i: (-float(scored[i][1]),
+                       -float(scored[i][0]["frontmatter"].get("importance") or 0),
+                       -float(scored[i][0]["frontmatter"].get("created_at") or 0)))
+    ranked = [docs[i] for i in order]
+    if stat is not None:
+        stat["cut_order"] = "relevance"
+    return pooling.cut_report(ranked, total, pools=pools,
+                              key_of=key_of or pooling.doc_key)
+
 # 条件论「观测时间」栏的默认观测窗口（秒）：调用方未提供 time_window 时，
 # 以写入时刻为锚开一个 1 小时窗口（与 AEIS 既有约定一致）。
 OBSERVATION_WINDOW_SEC = 3600.0
@@ -1441,26 +1475,30 @@ class MdCG:
                     return out
 
         # T2：跨桶 LIKE（§七 截断点：分池截断，索引类不再挤掉知识类）
+        # 截断依据=相关度（先全量打分再排序截断）：命中集沿 entries（目录枚举序）
+        # 排列，原来「取前 GLOBAL_CAP 条再打分」等价于用写入顺序抽签决定谁进
+        # 候选池。cap 值不变，变的只是拿什么排序（见 cut_by_relevance）。
         docs_all = self._read_many(entries, stat)
         # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
         hits = [d for d in docs_all if self._like(d[2], d[1], terms)
                 or (semantic_on() and d[1].get("semantic"))]
         stat["pre_cap"] = len(hits)
         stat["cap"] = GLOBAL_CAP
-        hits, _rep = pooling.cut_report(hits, GLOBAL_CAP, pools=pool_cfg,
-                                        key_of=pooling.doc_key)
+        hits, _rep = cut_by_relevance(hits, self._score(hits, q, qb, pool_cfg),
+                                      GLOBAL_CAP, pools=pool_cfg,
+                                      key_of=pooling.doc_key, stat=stat)
         pooling.record_audit(stat, _rep)
         out = try_stage(hits, TIER_GLOBAL_LIKE)
         if out:
             return out
 
-        # T3：全量兜底（同为分池截断点）
-        docs_all.sort(key=lambda d: (-float(d[1].get("importance") or 0),
-                                     -float(d[1].get("created_at") or 0)))
+        # T3：全量兜底（同为分池截断点；截断依据同为相关度，importance 作次级键）
         stat["pre_cap"] = len(docs_all)
         stat["cap"] = GLOBAL_CAP
-        picked, _rep = pooling.cut_report(docs_all, GLOBAL_CAP, pools=pool_cfg,
-                                          key_of=pooling.doc_key)
+        picked, _rep = cut_by_relevance(docs_all,
+                                        self._score(docs_all, q, qb, pool_cfg),
+                                        GLOBAL_CAP, pools=pool_cfg,
+                                        key_of=pooling.doc_key, stat=stat)
         pooling.record_audit(stat, _rep)
         scored = self._score(picked, q, qb, pool_cfg)
         return self._emit(scored, k, TIER_GLOBAL_SCAN, stat, route_bucket,
@@ -1568,6 +1606,8 @@ class MdCG:
                      "candidates": candidates,
                      # §七 分池审计：截断前候选数 / 全局额度 / 生效分池计划
                      "pre_cap": stat.get("pre_cap"), "cap": stat.get("cap"),
+                     # 截断依据审计：relevance=先打分再排序截断（现行）
+                     "cut_order": stat.get("cut_order"),
                      "pools": pool_plan,
                      "covered_neg": [nc["path"] for nc in neg_coverage],
                      # 阶段 1 大域收敛结果 + 完整打分明细（白箱可审计）

@@ -28,7 +28,8 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT
                    STATE_REJECT, STATE_DEFER, STATE_BLINDSPOT, TIER_BUCKET_LIKE,
                    TIER_BUCKET_SCAN, TIER_GLOBAL_LIKE, TIER_GLOBAL_SCAN,
                    GLOBAL_CAP, expand_query_terms_weighted,
-                   expand_query_terms_llm, en_zh_bigrams, semantic_on)
+                   expand_query_terms_llm, en_zh_bigrams, semantic_on,
+                   cut_by_relevance)
 from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
                self_state, predict, evolution, weights, pooling,
@@ -433,25 +434,27 @@ class MdCGOS(MdCG):
                 if out:
                     return out
 
+        # 截断依据=相关度（同 MdCG.search：cap 值不变，改的是拿什么排序）
         docs_all = self._read_many(entries, stat)
         # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
         hits = [d for d in docs_all if self._like(d[2], d[1], terms)
                 or (semantic_on() and d[1].get("semantic"))]
         stat["pre_cap"] = len(hits)
         stat["cap"] = GLOBAL_CAP
-        hits, _rep = pooling.cut_report(hits, GLOBAL_CAP, pools=pool_cfg,
-                                        key_of=pooling.doc_key)
+        hits, _rep = cut_by_relevance(hits, self._score(hits, q, qb, pool_cfg),
+                                      GLOBAL_CAP, pools=pool_cfg,
+                                      key_of=pooling.doc_key, stat=stat)
         pooling.record_audit(stat, _rep)
         out = try_stage(hits, TIER_GLOBAL_LIKE)
         if out:
             return out
 
-        docs_all.sort(key=lambda d: (-float(d[1].get("importance") or 0),
-                                     -float(d[1].get("created_at") or 0)))
         stat["pre_cap"] = len(docs_all)
         stat["cap"] = GLOBAL_CAP
-        picked, _rep = pooling.cut_report(docs_all, GLOBAL_CAP, pools=pool_cfg,
-                                          key_of=pooling.doc_key)
+        picked, _rep = cut_by_relevance(docs_all,
+                                        self._score(docs_all, q, qb, pool_cfg),
+                                        GLOBAL_CAP, pools=pool_cfg,
+                                        key_of=pooling.doc_key, stat=stat)
         pooling.record_audit(stat, _rep)
         scored = self._score(picked, q, qb, pool_cfg)
         return self._emit(scored, k, TIER_GLOBAL_SCAN, stat, route_bucket,
@@ -465,7 +468,9 @@ class MdCGOS(MdCG):
         LIKE 命中集沿 entries（目录枚举序）排列，插入序截断会让本路候选池
         随写入顺序漂移、不可复算，并可能把与查询最相关的节点随机丢弃。
         LIKE 全空时兜底池改用 importance/created_at 序（与 search 主路径同口径），
-        不再取插入序前 CAP。
+        不再取插入序前 CAP。返回序**恒为相关度降序**——原实现仅在超 cap 时
+        排序，≤cap 时直接返回 entries 枚举序，下游 seed/融合会拿到无语义依据
+        的顺序。
         """
         terms = expand_query_terms(query)
         # qb 与文档侧 normalize_en 口径对齐（同 MdCGOS.search，防大小写断裂）
@@ -477,16 +482,23 @@ class MdCGOS(MdCG):
         hits = [d for d in docs if self._like(d[2], d[1], terms)
                 or (semantic_on() and d[1].get("semantic"))]
         if not hits:
+            # 兜底池（LIKE 全空 = 无相关度信号）：截断依据=importance/created_at
+            # 序，确定可复算；此时 bigram 部分匹配不足以定序（共现噪声），
+            # 故本路不做「先全量打分再截断」。
             hits = sorted(
                 docs, key=lambda d: (-float(d[1].get("importance") or 0),
                                      -float(d[1].get("created_at") or 0))
             )[:GLOBAL_CAP]
+            stat["cut_order"] = "importance_fallback"
         scored = self._score(hits, query, qb)
+        # 恒按相关度排序（原实现仅超 cap 时排序 → ≤cap 时返回 entries 枚举序，
+        # 下游 seed/融合拿到无语义依据的顺序，不可复算）
+        scored.sort(key=lambda x: (-x[1],
+                    -float(x[0]["frontmatter"].get("importance") or 0)))
         if len(scored) > GLOBAL_CAP:
             stat["pre_cap"] = len(scored)
             stat["cap"] = GLOBAL_CAP
-            scored.sort(key=lambda x: (-x[1],
-                        -float(x[0]["frontmatter"].get("importance") or 0)))
+            stat["cut_order"] = "relevance"
             return scored[:GLOBAL_CAP]
         return scored
 
