@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """md 认知图 P1 验收 · 白箱认知架构 9 维度补全
 
-覆盖（对照 docs/认知图_MD目录方案_v0.1.md v0.3 待办 + 白箱 5 篇）：
+覆盖（对照 docs/mdcg/认知图_MD目录方案_v0.1.md v0.3 待办 + 白箱 5 篇）：
   1. MARKS 5 要素 + 验证基底 + 不适用条件
   2. 负记忆目录（rejected/unresolved）
   3. 资格判定四态（ACCEPT/REJECT/DEFER/BLINDSPOT）

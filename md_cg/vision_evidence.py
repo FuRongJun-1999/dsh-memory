@@ -3,7 +3,7 @@
 
 裁定依据
 --------
-`docs/认知图_G4-G8缺口裁定单_v0.1.md` §三（四态 = ACCEPT，条件 = 脱敏 + 只读 AEIS）。
+`docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md` §三（四态 = ACCEPT，条件 = 脱敏 + 只读 AEIS）。
 缺口根因（库外只读观测）：产出侧 `vision_pipeline.cg_ingest` 只取
 `p.get("model_evidence")`，白箱 `geometry_parts` 部件不带该键 → 部件节点证据面
 恒为 `{}`。即「证据口径未定义」，不是「没有证据」。

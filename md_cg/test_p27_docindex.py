@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """条件文档图端到端测试（P27 · 认知图的文档面）。
 
-R2 改造的验收（对照 docs/认知图_索引与工程规范化_计划_v0.1.md §六 R2、§七）：
+R2 改造的验收（对照 docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md §六 R2、§七）：
 
   ① 切块纪律：只切 level<=3；直接正文 <200 字且无子节的小节**合并进父节**
      （不单独建节点，其文字进父节摘要）。既不过细，也不丢内容。
@@ -41,7 +41,7 @@ FAILS = []
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.join(_BASE, "_md_cg_p27")
 DOCS = os.path.join(_BASE, "docs")
-PLAN_DOC = "认知图_MD目录方案_v0.1.md"
+PLAN_DOC = "mdcg/认知图_MD目录方案_v0.1.md"
 
 
 def check(name, cond, detail=""):

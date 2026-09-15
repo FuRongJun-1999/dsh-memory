@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """蜂巢工作记忆 · 任务产物版本化 v0.1（git 载体）
 
-设计定稿与共同记忆面：docs/蜂巢工作记忆_项目计划.md（三决策点、对接边界、运行手册）。
+设计定稿与共同记忆面：docs/hive/蜂巢工作记忆_项目计划.md（三决策点、对接边界、运行手册）。
 
 三级闸（写入 → 提交 → 合并，回退免费）：
   snapshot  commit 凭证 = result.json 终态 ok:true（第 5 条「未验证不写入」的任务级落码）
@@ -84,7 +84,7 @@ def cmd_init(wm: str) -> dict:
             "# 蜂巢工作记忆\n\n"
             "任务产物版本化仓（三级闸：snapshot→merge→revert）。\n"
             "内容推送 GitHub 前须过第 14 条双清单；默认只存本地/推私有仓。\n"
-            "设计定稿：docs/蜂巢工作记忆_项目计划.md\n"
+            "设计定稿：docs/hive/蜂巢工作记忆_项目计划.md\n"
         )
     _git_ok(wm, "add", "README.md")
     _git_ok(wm, "commit", "-m", "init 工作记忆仓")

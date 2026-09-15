@@ -70,7 +70,7 @@
 - `python run_bench.py --adapter your_mod.YourAdapter`：接入**你自己的记忆系统**（实现 `ingest(records)` / `search(query, k) -> [id,...]` / `name` 即可，零框架绑定）。
 
 > 人类可读的完整报告（口径 / 主表 / 分题型 / 归因 / 诚实边界）见
-> [`docs/横评_六家100题中英双查_v1.0.md`](../../../docs/横评_六家100题中英双查_v1.0.md)。
+> [`docs/eval/横评_六家100题中英双查_v1.0.md`](../../../docs/eval/横评_六家100题中英双查_v1.0.md)。
 
 ---
 

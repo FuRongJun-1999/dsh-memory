@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """层归位（P38 · G4 设计态验收）。
 
-对照 `docs/认知图_G4-G8缺口裁定单_v0.1.md` §二：批次流水账（`note_`/`milestone_`/
+对照 `docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md` §二：批次流水账（`note_`/`milestone_`/
 `retest6_`）与感知产物（`imgpart_`/`vpipe_`）混在 knowledge 层，语义上属**情境**，
 需归位到 `contextual` 且**保留可召回**。
 

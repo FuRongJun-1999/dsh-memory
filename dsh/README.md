@@ -41,7 +41,7 @@ python scripts/verify_discipline.py --target dsh
 ## 与「三层拆分规划」的关系
 
 本目录是**按 harness 维度**（DSH / CodeBuddy / ZCode）归置配置；
-[`../docs/灵枢三层拆分规划_v0.1.md`](../docs/灵枢三层拆分规划_v0.1.md) 讨论的是**另一种正交维度**
+[`../docs/mdcg/灵枢三层拆分规划_v0.1.md`](../docs/mdcg/灵枢三层拆分规划_v0.1.md) 讨论的是**另一种正交维度**
 （灵 / 脑 / 身 三仓职责分离，目标是主仓瘦身）。
 
 二者在 `dsh-web-start.bat` 上存在**归属分歧**：三层规划拟将其移出主仓至「身体仓（宿主启动）」，

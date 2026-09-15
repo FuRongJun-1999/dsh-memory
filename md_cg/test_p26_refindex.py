@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """代码索引 + 回读端到端测试（P26 · 认知图的代码面）。
 
-R1 改造的验收（对照 docs/认知图_索引与工程规范化_计划_v0.1.md）：
+R1 改造的验收（对照 docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md）：
 
   ① 渲染即 CCG：`codeindex.render` 必须产出 CCG 6 行。否则
      `judge_qualification` 第一步的 ccg_completeness 会直接判 BLINDSPOT ——

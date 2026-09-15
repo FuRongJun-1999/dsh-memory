@@ -17,7 +17,7 @@
     才回退外部 MCP stdio 子进程（legacy 路径）。
   · 调用结果：验证结论写回认知图（self 层，tags 含 `whitebox:verify`），可追溯。
 
-显式调用映射（详见 docs/功能调用映射表_v0.1.md）
+显式调用映射（详见 docs/mdcg/功能调用映射表_v0.1.md）
 ------------------------------------------------
   功能                 → 代码                                   → MCP
   白箱问答             → md_cg.whitebox.ask                     → cg(op=whitebox, action=ask)

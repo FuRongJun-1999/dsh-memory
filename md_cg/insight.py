@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """洞察条件层（P2 · insight）：洞见事件四件套。
 
-对齐 `docs/tool_table_v0.3.0.md`（insight_record / insight_verify /
-insight_report / insight_window）与 `docs/灵枢82工具_功能整理与迁移映射_v0.1.md`
+对齐 `docs/mdcg/tool_table_v0.3.0.md`（insight_record / insight_verify /
+insight_report / insight_window）与 `docs/mdcg/灵枢82工具_功能整理与迁移映射_v0.1.md`
 §五 P2 缺口。
 
 四件套

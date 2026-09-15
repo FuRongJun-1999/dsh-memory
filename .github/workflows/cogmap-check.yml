@@ -4,7 +4,7 @@ on:
   push:
     paths:
       - README.md
-      - docs/功能调用映射表_v0.1.md
+      - docs/mdcg/功能调用映射表_v0.1.md
       - scripts/cogmap_sync.py
       - md_cg/mcp_server.py
       - md_cg/whitebox.py
@@ -12,7 +12,7 @@ on:
   pull_request:
     paths:
       - README.md
-      - docs/功能调用映射表_v0.1.md
+      - docs/mdcg/功能调用映射表_v0.1.md
       - scripts/cogmap_sync.py
       - md_cg/mcp_server.py
       - md_cg/whitebox.py

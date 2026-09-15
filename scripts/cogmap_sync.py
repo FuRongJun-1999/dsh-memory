@@ -15,7 +15,7 @@
 
 投影（generated sections）：
   README.md                  COGMAP 段（工具面认知图）
-  docs/功能调用映射表_v0.1.md  FUNCMAP 段 ×3（id=cg / stg / wb：逐 op 行号级映射表）
+  docs/mdcg/功能调用映射表_v0.1.md  FUNCMAP 段 ×3（id=cg / stg / wb：逐 op 行号级映射表）
 段内所有 op / 工具 / 模块 / 函数均为可点击链接，直达 GitHub 源码行——行号由本脚本
 从真源 AST 自动提取，check 门禁保证永不过期（代码动了行号漂了即红灯，build 一键重挂）。
 
@@ -46,7 +46,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SERVER = ROOT / "md_cg" / "mcp_server.py"
 WHITEBOX = ROOT / "md_cg" / "whitebox.py"
 README = ROOT / "README.md"
-MAPDOC = ROOT / "docs" / "功能调用映射表_v0.1.md"
+MAPDOC = ROOT / "docs" / "mdcg" / "功能调用映射表_v0.1.md"
 
 # GitHub blob 链接的分支基座（GitHub 页面渲染视角 = 默认分支）
 BRANCH = "main"
@@ -363,7 +363,7 @@ def render_section(e: dict) -> str:
             "",
             mdcg_links,
             "",
-            "逐个 op 的「功能 → 代码 → op」行号级映射另见[功能调用映射表](docs/功能调用映射表_v0.1.md)。",
+            "逐个 op 的「功能 → 代码 → op」行号级映射另见[功能调用映射表](docs/mdcg/功能调用映射表_v0.1.md)。",
             "",
             END,
         ]

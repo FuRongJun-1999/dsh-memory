@@ -2208,7 +2208,7 @@ def _whitebox_call(cg, a):
     """显式调用白箱能力库（AEIS 降为本地库后的唯一入口）。
 
     显式调用映射：md_cg.whitebox.dispatch
-    见 docs/功能调用映射表_v0.1.md。
+    见 docs/mdcg/功能调用映射表_v0.1.md。
     """
     from . import whitebox
     return whitebox.dispatch(cg, a)

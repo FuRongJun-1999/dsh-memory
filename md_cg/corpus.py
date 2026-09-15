@@ -84,7 +84,7 @@ def seed(cg, marks=True, layer="knowledge", verification_basis="data"):
 def reset_root(root, clean=False):
     """确保测试根存在：保证「重跑 ≡ 首跑」，且上一轮残留节点不会被当成先验。
 
-    默认**不删目录**（对齐本仓已裁决的设计，见 docs/认知图_MD目录方案_v0.1.md
+    默认**不删目录**（对齐本仓已裁决的设计，见 docs/mdcg/认知图_MD目录方案_v0.1.md
     「幂等性：迁移按 node id 原子覆盖写，可反复执行，**不需要先清空目录**」）：
     `seed()` 用固定 node id 原子覆盖，同一套语料重跑落在同一批文件上，集合封闭。
 

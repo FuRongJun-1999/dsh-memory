@@ -29,9 +29,9 @@
 
 | 层 | 位置 | 一句话定位 | 文档入口 |
 |---|---|---|---|
-| 🧠 **灵枢大脑** | [`md_cg/`](md_cg/) | 记忆系统本体：对话沉淀为 md 认知图，记什么 / 取什么 / 能否写入全由确定性规则裁决，四层证据防火墙白箱剔除弱证据干扰 | [README 详细版](docs/README详细版_v0.4.5.md) |
+| 🧠 **灵枢大脑** | [`md_cg/`](md_cg/) | 记忆系统本体：对话沉淀为 md 认知图，记什么 / 取什么 / 能否写入全由确定性规则裁决，四层证据防火墙白箱剔除弱证据干扰 | [README 详细版](docs/mdcg/README详细版_v0.4.5.md) |
 | ⚙️ **Rust 检索引擎** | [`rust/`](rust/) | 只读侧检索核心：零第三方依赖三形态（库内嵌大批量 / `--serve` 多智能体进程实例 / 评测器），与 Python 口径逐位对齐 | [rust/README.md](rust/README.md) |
-| 🐝 **蜂群运行时** | [`swarm/`](swarm/) | 多进程蜂群执行层：.pbc 确定性实例 + Gossip 拓扑 / 水位信箱 / WAL-HMAC / 信任聚合 / 健康评分（Rust 纯 std 零依赖） | [功能说明 v0.6](docs/蜂群多智能体_功能说明_v0.6.md) |
+| 🐝 **蜂群运行时** | [`swarm/`](swarm/) | 多进程蜂群执行层：.pbc 确定性实例 + Gossip 拓扑 / 水位信箱 / WAL-HMAC / 信任聚合 / 健康评分（Rust 纯 std 零依赖） | [功能说明 v0.6](docs/swarm/蜂群多智能体_功能说明_v0.6.md) |
 | 📜 **中文编译器** | [`compiler/`](compiler/) | 术数编译器：词法 → 语法 → 名实校验 → 白名单代码生成 → 验证终裁，五环确定性编译链 + 封闭指令集结构性沙箱 | `python -m compiler.cli`（模块内文档） |
 | ⬢ **蜂巢并发引擎** | [`hive/`](hive/) | 蜂群多智能体并发调度：Rust 纯 std 零依赖 worker 池（原子领取 / 心跳 / 超时强杀 / kill / 崩溃恢复），文件协议即接口，LLM 调用委托零依赖 Python 执行器子进程，MCP 四工具接入 | [hive/README.md](hive/README.md) |
 
@@ -77,9 +77,9 @@ dsh plugin --profile web add .
 
 - **前置**：Node ≥ 22.19 · DSH 内核 ≥ 0.1.2-rc.1 · **大脑零安装**（`md_cg` 随包自带，无需 pip 装任何引擎）
 - **写权限默认关闭**：不配凭据即以只读 `guest` 运行（读 / 召回 / 时间线可用，写入不落盘）。要真正落盘见「写入凭据」
-- 完整配置项（30+ 项）· 自动记忆机制 · DSH 看门狗 → [README 详细版](docs/README详细版_v0.4.5.md)
+- 完整配置项（30+ 项）· 自动记忆机制 · DSH 看门狗 → [README 详细版](docs/mdcg/README详细版_v0.4.5.md)
 - **非 DSH 宿主**（CodeBuddy / ZCode / Codex CLI / Claude Code）：走[多 harness 接入](#多-harness-接入按端分目录)，各端有独立三步接入说明
-- **装后验证**：重启 DSH 后对 Agent 说「列出你的记忆工具」应看到 `cg` / `stg`（`tools: 'all'` 时还有 `mdcg_*`）；大脑直连验证：`python -m md_cg.mcp_server`（stdio JSON-RPC）收到 initialize 应答即通，更多细节见 [README 详细版](docs/README详细版_v0.4.5.md)
+- **装后验证**：重启 DSH 后对 Agent 说「列出你的记忆工具」应看到 `cg` / `stg`（`tools: 'all'` 时还有 `mdcg_*`）；大脑直连验证：`python -m md_cg.mcp_server`（stdio JSON-RPC）收到 initialize 应答即通，更多细节见 [README 详细版](docs/mdcg/README详细版_v0.4.5.md)
 
 ---
 
@@ -100,7 +100,7 @@ dsh plugin --profile web add .
 
 > **核心结论**：**将查询由英文换为中文（同一份英文语料、记忆系统均不变）：六家已有记忆系统的检索命中全部大幅提升（+12 ~ +45pp），无一例外**；**灵枢是最佳**——中文查询 hit@1 **99.0% 全表登顶**，英→中提升幅度 **+45pp 亦居本表之首**（双语入库在中文查询下同时拿到最高命中与最大提升）。
 > **诚实口径（非选择性引用，与横评报告一致）**：英文查询侧由 Letta 归档直插（73.0%）与纯向量 RAG（71.0%）领跑，灵枢四路融合在本池低于单词法基线（81.0% < 99.0%，饱和池上条件桶/实体路稀释词法命中）；中文提升混合了「查询语言」与「查询形态」双因素（`question_zh` 为关键词串、`question_en` 为自然问句），归因须谨慎。该池零干扰、全为 gold 证据，是**上界对照集**——高命中率不可外推为端到端记忆能力；Letta agent 模式 0 分是入库丢标记（可追溯性问题），非检索能力问题。
-> 完整题型分解 / MRR 全表 / 逐家入库取证 / 偏差判定单 → [六家横评报告](docs/横评_六家100题中英双查_v1.0.md) · 题集 → [data/benchmarks/bench6-100-zh-en/](data/benchmarks/bench6-100-zh-en/README.md)
+> 完整题型分解 / MRR 全表 / 逐家入库取证 / 偏差判定单 → [六家横评报告](docs/eval/横评_六家100题中英双查_v1.0.md) · 题集 → [data/benchmarks/bench6-100-zh-en/](data/benchmarks/bench6-100-zh-en/README.md)
 
 ---
 
@@ -118,7 +118,7 @@ dsh plugin --profile web add .
 
 > **直接回答**：英文检索问题，我们用**中文翻译 + 语义归一化**解决——英文 query 经 AI 语义归一化为中文标准关键词（归一主体=AI，系统只供词表真源），再经中→英字级原子映射与双语原子库匹配，返回英文原文。同一份 500 题语料上，**给定中文标准关键词时检索效果 hit@10 = 99.8%**（hit@1 96.8%；检索侧上界口径——AI 归一环节的质量未纳入该评测，机械归一的端到端下界见下表 ④）。三条对照边界：不做归一化、拿英文原题直接词面匹配只有 78.2-81.2%（同义词鸿沟硬边界）；机械词典查表归一端到端实测仅 57.6%；而 ②路对归一噪声高度鲁棒——漏 20% 关键词 / 错译 20% / 混入噪词，hit@10 仍稳在 99.2-99.8%。**结论：路线成立且不要求 AI 归一完美，只需大致方向对；99.8 是检索侧上界，端到端真实水平由 AI 归一质量决定（机械下界 57.6，AI 上界趋近 99.8）**。
 
-**第三方独立验证（2026-09-15，[报告全文](docs/第三方验证报告_LoCoMo_灵枢_.md)）**：上述关键数字已被第三方独立复现——②路 96.8/99.8/99.8 **逐位一致**，中文 96.4→96.8（噪声内）；并实证该 99.8 由**中文摘要层**挣得（去英文处理层 hit@10 反为 100.0%），英文标准归一化组件自身端到端为 81.0%（写入侧机械归一口径，较不归一 +58pp），检索失败 100% 归因归一化丢词/错译而非排序。本节口径标注与该实证一致：99.8 是「给定中文标准关键词」的检索侧上界，不声称英文机械归一化独立达到该水平。
+**第三方独立验证（2026-09-15，[报告全文](docs/eval/第三方验证报告_LoCoMo_灵枢_.md)）**：上述关键数字已被第三方独立复现——②路 96.8/99.8/99.8 **逐位一致**，中文 96.4→96.8（噪声内）；并实证该 99.8 由**中文摘要层**挣得（去英文处理层 hit@10 反为 100.0%），英文标准归一化组件自身端到端为 81.0%（写入侧机械归一口径，较不归一 +58pp），检索失败 100% 归因归一化丢词/错译而非排序。本节口径标注与该实证一致：99.8 是「给定中文标准关键词」的检索侧上界，不声称英文机械归一化独立达到该水平。
 
 **测试报告**（灵枢公开仓评测，方法学与口径真源 → [`md_cg/semantic/REPRODUCE.md`](md_cg/semantic/REPRODUCE.md)）：
 
@@ -150,15 +150,15 @@ dsh plugin --profile web add .
 
 | 基准 | 归属 | 状态 |
 |---|---|---|
-| **locomo-zh-500** | **自建**（LoCoMo 中文派生 · 500 题 / 567 turns / 0.6 MB） | **已随仓库公开** `data/benchmarks/locomo-zh-500/` · 可复现 · **我方成绩：中文 hit@1 94.6% · hit@5 / hit@10 99.2%（md_cg 完整主链路）；英文（语义归一化桥接）hit@10 99.8%——见上[中英双语检索差距](#-中英双语检索差距我们用中文语义归一化解决英文检索实证)①② 行** · **第三方独立复现：中文 96.8/99.6（自报 96.4/99.8 噪声内）、英文主路线 96.8/99.8/99.8 逐位一致** → [第三方验证报告](docs/第三方验证报告_LoCoMo_灵枢_.md) |
-| **bench6 · 六家横评** | **自建**（LoCoMo 中文派生 · 100 题 / 137 turns · **中英双查** / 约 90 KB） | **已随仓库公开** `data/benchmarks/bench6-100-zh-en/` · **六家同口径对照**（灵枢 5 口径 / 纯向量 RAG / mem0 / Graphiti / GraphRAG / Letta 两模式）· 报告 → [横评_六家100题中英双查_v1.0.md](docs/横评_六家100题中英双查_v1.0.md) |
+| **locomo-zh-500** | **自建**（LoCoMo 中文派生 · 500 题 / 567 turns / 0.6 MB） | **已随仓库公开** `data/benchmarks/locomo-zh-500/` · 可复现 · **我方成绩：中文 hit@1 94.6% · hit@5 / hit@10 99.2%（md_cg 完整主链路）；英文（语义归一化桥接）hit@10 99.8%——见上[中英双语检索差距](#-中英双语检索差距我们用中文语义归一化解决英文检索实证)①② 行** · **第三方独立复现：中文 96.8/99.6（自报 96.4/99.8 噪声内）、英文主路线 96.8/99.8/99.8 逐位一致** → [第三方验证报告](docs/eval/第三方验证报告_LoCoMo_灵枢_.md) |
+| **bench6 · 六家横评** | **自建**（LoCoMo 中文派生 · 100 题 / 137 turns · **中英双查** / 约 90 KB） | **已随仓库公开** `data/benchmarks/bench6-100-zh-en/` · **六家同口径对照**（灵枢 5 口径 / 纯向量 RAG / mem0 / Graphiti / GraphRAG / Letta 两模式）· 报告 → [横评_六家100题中英双查_v1.0.md](docs/eval/横评_六家100题中英双查_v1.0.md) |
 | LoCoMo | 第三方 `mteb/LoCoMo` BEIR（1976 题 / 5882 turns） | 上游来源（英文原版） |
 | memory-bench-1000 | **自建** | SNR 见评分报告 v2.0；已公开 `data/memory-bench-1000.jsonl` |
 
 > 上表四行性质不同，勿混读：`locomo-zh-500` 的分数是**本仓库我方成绩**（基于LoCoMo自建并公开的评测集，可复现）；`bench6 · 六家横评` 是同源派生的**小型同口径对照集**（零干扰池，只做六家系统横向对照，**非我方单方成绩**）；LoCoMo 一行指**上游英文原版 1976 题**，本仓库未在其上产出完整成绩；`memory-bench-1000` 是自建记忆库的评分报告。
 > **该成绩的性质（非虚假声明）**：`locomo-zh-500` 的分数是**写入侧结构化加工后的检索成绩**——入库前把每轮对话加工为「身份 / 时间 / 摘要 / 词 / 条件四槽」条目，再走词法 + 同义扩展检索。这与主流记忆系统所用的**向量化嵌入 + 关键词/摘要压缩**属**同一类写入侧加工**，差异只在索引与检索算法，不在「是否对原文做了加工」。因此该口径可用于**同口径对照**，不是对裸文本直读的虚高取巧。
 > `locomo-zh-500` 是**本仓库对外发布的检索评测集**：供外部在**同一份中文题面**上对自己的记忆系统做可对照评测。它只评检索命中（hit@k / MRR），**不评答案正确性**；被测池为**零干扰**（池内全是 gold），故高命中率不可外推为端到端记忆能力——完整边界与许可见 `data/benchmarks/locomo-zh-500/README.md`。
-> `bench6-100-zh-en` 沿用同一口径，并**每题提供中英两套词面**（评「换查询语言后是否仍命中」）；它同样是**上界对照集**——家间差距小于约 16% **不可判为显著**；评测入口已随仓库公开（`run_bench.py`：零依赖口径复现 + Adapter 协议接入你自己的系统），接入任意llm和向量方法都可复现，详见 [横评报告](docs/横评_六家100题中英双查_v1.0.md) 与 `data/benchmarks/bench6-100-zh-en/README.md`。
+> `bench6-100-zh-en` 沿用同一口径，并**每题提供中英两套词面**（评「换查询语言后是否仍命中」）；它同样是**上界对照集**——家间差距小于约 16% **不可判为显著**；评测入口已随仓库公开（`run_bench.py`：零依赖口径复现 + Adapter 协议接入你自己的系统），接入任意llm和向量方法都可复现，详见 [横评报告](docs/eval/横评_六家100题中英双查_v1.0.md) 与 `data/benchmarks/bench6-100-zh-en/README.md`。
 
 **复现我方成绩**（零上游依赖）：
 
@@ -177,15 +177,15 @@ python test/locomo_jaccard_probe.py      # 主路线 Jaccard 口径拆解（J2_f
 
 ## 🎯 能力自评（内部标尺，非横评声明）
 
-> 项目维护者按内部七维标尺（结构 / 检索 / 判断 / 调用 / 演化 / 连续 / 可信）自评 **综合 8.6 / 10**（全部维度 ≥ 8.5），并按外部行为级门槛自评为**条件性 L4 → L5 路上**——含未完成项与扣分理由的逐维证据，见 [AGI 七维评分报告 v2.0](docs/AGI七维评分报告_md_cg_v2.0.md)。
+> 项目维护者按内部七维标尺（结构 / 检索 / 判断 / 调用 / 演化 / 连续 / 可信）自评 **综合 8.6 / 10**（全部维度 ≥ 8.5），并按外部行为级门槛自评为**条件性 L4 → L5 路上**——含未完成项与扣分理由的逐维证据，见 [AGI 七维评分报告 v2.0](docs/eval/AGI七维评分报告_md_cg_v2.0.md)。
 > **不虚高的坦白**：五个 8.5 的共同上限是「机制齐备、门槛项未齐」——T 零信任未落地、R 仍是规则层意图理解、C 去污染仍是抽样而非穷尽、U 的 LLM 固化动作尚未自动放行。
 
 ### 第三方复评（七轮独立评估）
 
 > 独立评估者（非项目方）以「统一评分 v7」对灵枢与 deja-vu 做同权重八维对照（检索中英 / 可复现性 / 工程测试 / 架构独立性 / 诚实度 / 生态适配 / 部署运维）：**灵枢 9.258 / deja-vu 9.119（+0.139，七轮首次为正——评审者声明该差距在评审噪声以内）**，收敛轨迹 `7.79→8.29→8.57→8.72→9.13→9.133→9.258`；v7 含对自身四条建议全撤回的勘误（§三点五：所称「缺失能力」经复核均早已有之，含 `cg(op=ingest)` 后向索引通道）
-> 报告全文→ [第三方验证报告_灵枢_vs_dejavu_统一评分_v7.md](docs/第三方验证报告_灵枢_vs_dejavu_统一评分_v7.md) · 评估日期 2026-09-15，被评灵枢基线 `38412c4`
+> 报告全文→ [第三方验证报告_灵枢_vs_dejavu_统一评分_v7.md](docs/eval/第三方验证报告_灵枢_vs_dejavu_统一评分_v7.md) · 评估日期 2026-09-15，被评灵枢基线 `38412c4`
 >
-> **LoCoMo 第三方独立验证**（同日另一份独立报告，评测全流程从零实现、不调用灵枢任何 `bench_*` 脚本）：中文 96.8/99.6 独立复现（自报 96.4/99.8，噪声内）；英文主路线 ② 96.8/99.8/99.8 **逐位一致**；并给出更严格归因——99.8 由中文摘要层挣得（去英文层 hit@10 反为 100.0%）、英文标准归一化端到端真实水平 81.0%（写入侧机械归一口径，较不归一 +58pp）、检索失败 100% 归因归一化丢词/错译而非排序；同时确认数据集区分度（query 对 gold 覆盖 0.875 vs 非 gold 最佳 0.469）与 OOV 如实透出。报告全文→ [第三方验证报告_LoCoMo_灵枢_.md](docs/第三方验证报告_LoCoMo_灵枢_.md) · 配图 → [第三方验证报告_LoCoMo_灵枢_.png](docs/第三方验证报告_LoCoMo_灵枢_.png) · 独立评测脚本 `test/locomo_independent_eval.py`、`test/locomo_jaccard_probe.py`（第三方交付物原样入库，`REPO` 变量为第三方沙箱路径，复现需改为本机仓库路径）
+> **LoCoMo 第三方独立验证**（同日另一份独立报告，评测全流程从零实现、不调用灵枢任何 `bench_*` 脚本）：中文 96.8/99.6 独立复现（自报 96.4/99.8，噪声内）；英文主路线 ② 96.8/99.8/99.8 **逐位一致**；并给出更严格归因——99.8 由中文摘要层挣得（去英文层 hit@10 反为 100.0%）、英文标准归一化端到端真实水平 81.0%（写入侧机械归一口径，较不归一 +58pp）、检索失败 100% 归因归一化丢词/错译而非排序；同时确认数据集区分度（query 对 gold 覆盖 0.875 vs 非 gold 最佳 0.469）与 OOV 如实透出。报告全文→ [第三方验证报告_LoCoMo_灵枢_.md](docs/eval/第三方验证报告_LoCoMo_灵枢_.md) · 配图 → [第三方验证报告_LoCoMo_灵枢_.png](docs/eval/第三方验证报告_LoCoMo_灵枢_.png) · 独立评测脚本 `test/locomo_independent_eval.py`、`test/locomo_jaccard_probe.py`（第三方交付物原样入库，`REPO` 变量为第三方沙箱路径，复现需改为本机仓库路径）
 >
 > **口径声明**：两份报告均为外部独立口径，与上方内部七维自评（8.6）是**多套独立口径，分数不可互比**；LoCoMo 报告同时验证了数字可复现性与归因边界，其归因发现已如实吸收进[中英双语检索差距](#-中英双语检索差距我们用中文语义归一化解决英文检索实证)一节。
 
@@ -201,9 +201,9 @@ python test/locomo_jaccard_probe.py      # 主路线 Jaccard 口径拆解（J2_f
 | 重要性评分 · 预算装包 · 分层注入 · 记忆自净 | `cg(op=session)` `cg(op=scrub)` `cg(op=info)` |
 | 知识固化 · 结构变更账本 / 回滚 · 自维持巡检 | `mdcg_flywheel` `cg(op=consolidate)` `cg(op=maintain)` `cg(op=sustain)` |
 | 身份一致性 · 自我状态 · 演化史 | `cg(op=identity)` `cg(op=self_state)` `cg(op=evolution)` |
-| 加密 · 密级隔离 · 审计留痕 · 保护/遗忘 | `cg(op=protect)` `cg(op=forget)` · [护栏宪章](docs/guardrail-charter.md) |
+| 加密 · 密级隔离 · 审计留痕 · 保护/遗忘 | `cg(op=protect)` `cg(op=forget)` · [护栏宪章](docs/mdcg/guardrail-charter.md) |
 
-> **索引链**：能力 → op（本表）→ 实现模块（下方[工具面](#-工具面)认知图）→ 行号级代码映射（[功能调用映射表](docs/功能调用映射表_v0.1.md)）——每一步都可从 README 一跳到达源码，一致性由 `scripts/cogmap_sync.py check` 守卫。
+> **索引链**：能力 → op（本表）→ 实现模块（下方[工具面](#-工具面)认知图）→ 行号级代码映射（[功能调用映射表](docs/mdcg/功能调用映射表_v0.1.md)）——每一步都可从 README 一跳到达源码，一致性由 `scripts/cogmap_sync.py check` 守卫。
 
 ---
 
@@ -234,7 +234,7 @@ python test/locomo_jaccard_probe.py      # 主路线 Jaccard 口径拆解（J2_f
 
 [`mdcg_remember`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L97) [`mdcg_recall`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L118) [`mdcg_search`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L151) [`mdcg_get`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L160) [`mdcg_reflect`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L165) [`mdcg_verify`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L171) [`mdcg_flywheel`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L179) [`mdcg_mine_fix_pairs`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L184) [`mdcg_rejected`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L189) [`mdcg_unresolved`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L195) [`mdcg_propose`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L201) [`mdcg_review_list`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L209) [`mdcg_review_decide`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L214) [`mdcg_review_records`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L226) [`mdcg_forget`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L234) [`mdcg_protect`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L242) [`mdcg_forgetting_history`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L252) [`mdcg_identity`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L258) [`mdcg_consistency`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L284) [`mdcg_metacognition`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L304) [`mdcg_self_state`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L323) [`mdcg_predict`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L361) [`mdcg_causal`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L389) [`mdcg_evolution`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L406) [`mdcg_restore`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L429) [`mdcg_health`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L434) [`mdcg_whoami`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L439) [`mdcg_ingest`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L444) [`mdcg_watermarks`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L453) [`mdcg_whitebox`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L458) [`mdcg_service_info`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L479)
 
-逐个 op 的「功能 → 代码 → op」行号级映射另见[功能调用映射表](docs/功能调用映射表_v0.1.md)。
+逐个 op 的「功能 → 代码 → op」行号级映射另见[功能调用映射表](docs/mdcg/功能调用映射表_v0.1.md)。
 
 <!-- COGMAP:END -->
 
@@ -246,7 +246,7 @@ python test/locomo_jaccard_probe.py      # 主路线 Jaccard 口径拆解（J2_f
 
 > 风险工具 `mdcg_forget` / `mdcg_restore` / `mdcg_review_decide` 需 `can_admin`，即使 `tools: 'all'` 也不自动暴露。
 > 35 op 已逐一冒烟验证：**35/35 可达，0 未知 op、0 意外崩溃**。
-> 历史 82 工具（旧 aeis 引擎）去向见 [迁移映射](docs/灵枢82工具_功能整理与迁移映射_v0.1.md)。
+> 历史 82 工具（旧 aeis 引擎）去向见 [迁移映射](docs/mdcg/灵枢82工具_功能整理与迁移映射_v0.1.md)。
 
 ---
 
@@ -331,18 +331,19 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 
 | 文档 | 内容 |
 |---|---|
-| [README 详细版](docs/README详细版_v0.4.5.md) | 完整能力说明 · 配置项全表 · 安装与验证细节 |
-| [发布说明 v0.4.5](docs/release_v0.4.5.md) | 本版变更 / 兼容性 / 升级指引 |
-| [AGI 七维评分报告 v2.0](docs/AGI七维评分报告_md_cg_v2.0.md) | 逐维得分依据 / 扣分项 / 实库证据 / 诚实边界 |
-| [第三方复评 · 统一评分 v7](docs/第三方验证报告_灵枢_vs_dejavu_统一评分_v7.md) | 独立评估者七轮对照（灵枢 vs deja-vu）：八维加权 / 收敛轨迹 7.79→9.258 / 评审偏差声明 / 自身建议全撤回勘误 |
-| [第三方验证 · LoCoMo 独立复现](docs/第三方验证报告_LoCoMo_灵枢_.md) | 独立实现评测全流程：自报数字逐位复现 / 归因拆解（中文摘要层 vs 英文归一化 81.0%）/ 静默错译样本 / 数据集区分度证伪检查（配图 `第三方验证报告_LoCoMo_灵枢_.png`） |
-| [功能调用映射表](docs/功能调用映射表_v0.1.md) | 任何功能 → 调用哪段代码（含行号、MCP op） |
-| [护栏宪章 v2.0](docs/guardrail-charter.md) | 对外部智能体与人类使用者的行为边界 |
-| 教学四篇 | [白箱智能是什么？](docs/白箱智能是什么？.md) · [智能的认知过程](docs/智能的认知过程.md) · [智能的公理化基石](docs/智能的公理化基石.md) · [信息差为什么必然存在](docs/信息差为什么必然存在且自然扩大.md) |
+| **[docs/ 目录索引](docs/README.md)** | 六域快速索引（mdcg / swarm / hive / theory / eval / plans）· 新文档归域规则 |
+| [README 详细版](docs/mdcg/README详细版_v0.4.5.md) | 完整能力说明 · 配置项全表 · 安装与验证细节 |
+| [发布说明 v0.4.5](docs/mdcg/release_v0.4.5.md) | 本版变更 / 兼容性 / 升级指引 |
+| [AGI 七维评分报告 v2.0](docs/eval/AGI七维评分报告_md_cg_v2.0.md) | 逐维得分依据 / 扣分项 / 实库证据 / 诚实边界 |
+| [第三方复评 · 统一评分 v7](docs/eval/第三方验证报告_灵枢_vs_dejavu_统一评分_v7.md) | 独立评估者七轮对照（灵枢 vs deja-vu）：八维加权 / 收敛轨迹 7.79→9.258 / 评审偏差声明 / 自身建议全撤回勘误 |
+| [第三方验证 · LoCoMo 独立复现](docs/eval/第三方验证报告_LoCoMo_灵枢_.md) | 独立实现评测全流程：自报数字逐位复现 / 归因拆解（中文摘要层 vs 英文归一化 81.0%）/ 静默错译样本 / 数据集区分度证伪检查（配图 `第三方验证报告_LoCoMo_灵枢_.png`） |
+| [功能调用映射表](docs/mdcg/功能调用映射表_v0.1.md) | 任何功能 → 调用哪段代码（含行号、MCP op） |
+| [护栏宪章 v2.0](docs/mdcg/guardrail-charter.md) | 对外部智能体与人类使用者的行为边界 |
+| 教学四篇 | [白箱智能是什么？](docs/theory/白箱智能是什么？.md) · [智能的认知过程](docs/theory/智能的认知过程.md) · [智能的公理化基石](docs/theory/智能的公理化基石.md) · [信息差为什么必然存在](docs/theory/信息差为什么必然存在且自然扩大.md) |
 | [工作纪律·认知图条目 v1.1](docs/工作纪律_认知图条目_v1.1.json) | 自我约束的 17 条工作纪律（嵌套认知图条目 `work_discipline`） |
-| [六家记忆系统横评 v1.0](docs/横评_六家100题中英双查_v1.0.md) | 100 题 · **中英双查** · 六家同口径对照；含判定单 / 条件层归因 / 诚实边界（题集 → [data/benchmarks/bench6-100-zh-en/](data/benchmarks/bench6-100-zh-en/README.md)） |
+| [六家记忆系统横评 v1.0](docs/eval/横评_六家100题中英双查_v1.0.md) | 100 题 · **中英双查** · 六家同口径对照；含判定单 / 条件层归因 / 诚实边界（题集 → [data/benchmarks/bench6-100-zh-en/](data/benchmarks/bench6-100-zh-en/README.md)） |
 | [Rust 检索库](rust/README.md) | `mdcg_eval` 三形态：库内嵌大批量检索 / `--serve` 多智能体进程实例 / 公开数据集评测器（零依赖 · 与 Python 口径逐位对齐） |
-| [蜂群多智能体](docs/蜂群多智能体_功能说明_v0.6.md) | `swarm/` 多进程蜂群执行层（2026-09-13 自 protocol-compiler 迁入，大脑核心内部能力）：.pbc 确定性实例 + Gossip/拓扑/水位信箱/WAL-HMAC/信任聚合/健康评分（Rust 纯 std 零依赖 · 159 断言回归全绿） |
+| [蜂群多智能体](docs/swarm/蜂群多智能体_功能说明_v0.6.md) | `swarm/` 多进程蜂群执行层（2026-09-13 自 protocol-compiler 迁入，大脑核心内部能力）：.pbc 确定性实例 + Gossip/拓扑/水位信箱/WAL-HMAC/信任聚合/健康评分（Rust 纯 std 零依赖 · 159 断言回归全绿） |
 
 ### 多 harness 接入（按端分目录）
 
@@ -412,7 +413,7 @@ python scripts/run_tests.py --jobs 1         # 串行（默认并发 4）
 
 ## 护栏宪章（接入即接受约束）
 
-本插件接入即接受 **[灵枢护栏宪章 v2.0-published](docs/guardrail-charter.md)** 约束——对外部智能体与人类使用者的行为边界作出公开、可执行、可审计的规定，并保护人类使用者。
+本插件接入即接受 **[灵枢护栏宪章 v2.0-published](docs/mdcg/guardrail-charter.md)** 约束——对外部智能体与人类使用者的行为边界作出公开、可执行、可审计的规定，并保护人类使用者。
 
 ## 许可证
 

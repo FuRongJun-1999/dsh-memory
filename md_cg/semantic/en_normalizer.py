@@ -224,7 +224,7 @@ def _lookup_chain(extra_map=None):
 
     分层依据 = 词条来源的人工校对程度，即映射质量的确定性代理信号：
     CEDICT 层命中即 low_confidence（语境失配风险，实证 scavenger→食腐动物，
-    见 docs/第三方验证报告_LoCoMo_灵枢_.md 发现 5）。
+    见 docs/eval/第三方验证报告_LoCoMo_灵枢_.md 发现 5）。
     """
     chain = []
     if extra_map:

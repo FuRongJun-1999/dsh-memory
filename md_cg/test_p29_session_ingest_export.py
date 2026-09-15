@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """会话层 + 摄取分派 + 全库导出（P29 · P0 工程缺口验收）。
 
-对照 `docs/灵枢82工具_功能整理与迁移映射_v0.1.md` §五：P0 新增三个 op。
+对照 `docs/mdcg/灵枢82工具_功能整理与迁移映射_v0.1.md` §五：P0 新增三个 op。
 
   ① op 三处同步：`tokens.ALL_OPS` == `cg` 工具 op 描述 == `_cg_call` 分支
   ② session：note 幂等写入；recall 一次返回可续接上下文包；compact 启发式压缩
