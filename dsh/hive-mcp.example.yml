@@ -1,0 +1,62 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 蜂巢（hive）MCP 接入 · DSH 端配置样例（本机实测通过 2026-09-17）
+#
+#   作用：把 hive 的 4 个工具变成 DSH 原生工具，交给模型直接调用：
+#     mcp__hive__hive_spawn   提交 LLM 任务（毫秒返回 job_id，蜂巢后台并发执行）
+#     mcp__hive__hive_poll    查状态 / 读结果（含 handoff_ready 交回信号）
+#     mcp__hive__hive_kill    写 kill 标志强杀（worker ≤1s 生效）
+#     mcp__hive__hive_doctor  体检：serve 存活 / 任务统计 / env 资格列
+#
+#   放置位置：$DSH_HOME/profiles/<profile>/cordis.patch.yml（用户 patch 层，追加即可）
+#
+#   ⚠️ 必须包在 `- insert:` 里。用户 patch 层的裸条目 `- id: xxx` 语义是「覆盖已
+#      有行的 config」；对不存在的 id **不生效，而且不报错**。实测：裸写 mcp-hive
+#      后 `dsh --profile web --dump-config` 里查无此行、stderr 也为空；改成
+#      `- insert: [...]` 后立刻出现在 dump 里。
+#
+#   前置依赖（一次性）：
+#     1) profile 需能解析 @deepseek-ai/dsh-mcp-client（DSH 自带此包，用 link: 指过去）：
+#        {"@deepseek-ai/dsh-mcp-client": "link:<你的 DSH 安装目录>/node_modules/@deepseek-ai/dsh-mcp-client"}
+#        再用 pnpm install --lockfile-only 同步 lockfile（只写 lockfile，不动 node_modules）。
+#        node_modules 下的目录实体与其它 link: 依赖同形（Windows Junction），可手工补齐：
+#          New-Item -ItemType Junction -Path <profile>\\node_modules\\@deepseek-ai\\dsh-mcp-client -Target <上面的路径>
+#        （DSH 运行中跑 pnpm install 会被 <profile>\\node_modules\\@furongjun1999\\dsh-memory
+#          的目录锁挡住报 EPERM；用 Junction 可绕开，因为不重命名任何目录。）
+#     2) 生效时机：profile 的 patchReload 默认 "startup" → 改完要**重启 DSH**才加载。
+#
+#   实测要点（2026-09-17 本机，全部有回显证据）：
+#     · mcp-client 会清洗宿主环境变量：只继承 APPDATA / HOMEDRIVE / HOMEPATH /
+#       LOCALAPPDATA / PATH / PROCESSOR_ARCHITECTURE / SYSTEMDRIVE / SYSTEMROOT /
+#       TEMP / USERNAME / USERPROFILE / PROGRAMFILES 这 12 个
+#       （@modelcontextprotocol/sdk 的 stdio.js::DEFAULT_INHERITED_ENV_VARS）。
+#       → PYTHONPATH / PYTHONUTF8 必须在这里显式声明，否则
+#         `python -m hive.hive_mcp.mcp_server` 直接 ModuleNotFoundError。
+#     · hive/ 是 python 包；`-m hive.hive_mcp.mcp_server` 要求 PYTHONPATH 指向仓根。
+#     · serve 未存活时 hive_spawn 会自动拉起（复用 serve_start.start()）。该路径的
+#       env = MCP 进程 env + hive/config.local.json；而 config.local.json 里
+#       HIVE_API_KEY 的来源写作 {"env": "DEEPSEEK_API_KEY"} → 必须把
+#       DEEPSEEK_API_KEY 传下来，否则自动拉起的是「没钥匙的 serve」，任务必失败。
+#     · 验收（端到端）：mcp__hive__hive_spawn 提交 → mcp__hive__hive_poll 轮询到
+#       done。实测 job h1789598763792_32c0aa：claimed→running→done 5.77s，
+#       content 与提示词约定的令牌逐字相同，且 serve 由本次 spawn 自动拉起。
+#     · 可用 `node dsh/hive-mcp-probe.mjs` 在不动 DSH 的前提下单独验证 server 侧。
+#     · 本文件是公开仓模板：下面 4 个 <REPLACE_WITH_...> 占位符须换成你自己的
+#       绝对路径（正斜杠写法），否则客户端会以错误 cwd/PYTHONPATH 启动 server。
+# ─────────────────────────────────────────────────────────────────────────────
+- insert:
+    - id: mcp-hive
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: hive
+        transport: stdio
+        command: python
+        args: ['-m', 'hive.hive_mcp.mcp_server']
+        cwd: '<REPLACE_WITH_ABSOLUTE_PATH_TO_dsh-memory>'
+        env:
+          PYTHONPATH: '<REPLACE_WITH_ABSOLUTE_PATH_TO_dsh-memory>;<REPLACE_WITH_ABSOLUTE_PATH_TO_mdcg_lib>'
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: 'utf-8'
+          MDCG_ROOT: '<REPLACE_WITH_ABSOLUTE_PATH_TO_MDCG_ROOT>'
+          DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY
+        toolCallTimeoutMs: 60000
+        failOnStartupError: false

@@ -12,6 +12,8 @@
 | `cordis-patch-profile-web.example.yml` | profile `web` 的 config override **备份模板**（换 profile / 重装 / 升级后须核对仍在） |
 | `dsh-web-start.bat` | DSH web 宿主启动脚本（带 8GB heap 保护，防启动 OOM） |
 | `update-lingshu.ps1` / `update-lingshu.bat` | 灵枢插件一键更新：放行 pnpm 发布龄闸门 → 同步 lockfile → 停 DSH（释放目录锁）→ 安装并校验 → 重启。详见脚本头部注释 |
+| `hive-mcp.example.yml` | **蜂巢 MCP 接入样例**（追加进 `<profile>/cordis.patch.yml`）：把 `hive_spawn`/`hive_poll`/`hive_kill`/`hive_doctor` 以 `mcp__hive__*` 暴露给 DSH 模型。含 env 清洗、insert 形态、密钥传递等实测要点 |
+| `hive-mcp-probe.mjs` | 蜂巢 MCP server 探针：用 DSH 自带的 `@modelcontextprotocol/sdk` 直接握手 + `tools/list` + `hive_doctor`（`--spawn` 可跑一次真任务），**不动 DSH 进程**即可验证 server 侧 |
 
 ## 安装
 
@@ -23,6 +25,36 @@ dsh plugin --profile web add .        # 必须走 dsh plugin，勿用裸 npm ins
 ```
 
 再参照 `cordis.yml.example` 在 `<profile>/cordis.yml` 启用配置。
+
+## 蜂巢（hive）MCP 接入（任务调度 + 多智能体并发）
+
+把 `hive/hive_mcp/mcp_server.py` 作为 MCP 服务器接进 DSH，模型即可直接调用 4 个工具：
+`mcp__hive__hive_spawn` / `mcp__hive__hive_poll` / `mcp__hive__hive_kill` / `mcp__hive__hive_doctor`。
+
+完整配置见 [`hive-mcp.example.yml`](hive-mcp.example.yml)（**必须用 `- insert:` 形态**追加到
+`<profile>/cordis.patch.yml`；模板内 4 个 `<REPLACE_WITH_...>` 占位符换成你自己的绝对路径）。
+三条最容易踩的点：
+
+1. **env 会被清洗**：`dsh-mcp-client` 只继承 12 个系统变量，`PYTHONPATH` / `PYTHONUTF8` /
+   `DEEPSEEK_API_KEY` 都得在配置里显式写出，否则 `python -m hive.hive_mcp.mcp_server` 起不来。
+2. **密钥要传下去**：serve 未存活时 `hive_spawn` 会自动拉起它，而 `hive/config.local.json` 里
+   `HIVE_API_KEY` 取自宿主环境变量 `DEEPSEEK_API_KEY`；漏传 ⇒ 拉起一个「没钥匙的 serve」。
+3. **重启才生效**：profile 的 `patchReload` 默认 `startup`。
+
+验证（两步，都不需要动正在跑的 DSH；探针脚本内是占位符，用环境变量传入）：
+
+```bash
+set DSH_ROOT=<DSH 安装目录>
+set HIVE_REPO=<dsh-memory 仓的绝对路径>
+set HIVE_LIB=<认知图库仓的绝对路径>
+set MDCG_ROOT=<认知图根的绝对路径>
+node dsh/hive-mcp-probe.mjs              # 直接连 server：握手 + tools/list + hive_doctor
+node dsh/hive-mcp-probe.mjs --spawn      # 再真跑一个任务，验证写路径
+dsh --profile web --dump-config | findstr mcp-hive   # 确认配置确实进了组合后的插件树
+```
+
+重启后在 DSH 里调用 `mcp__hive__hive_doctor` 应报 serve 存活；`hive_spawn` 一个最小任务
+（如「回复 HIVE_DSH_MCP_OK」）再 `hive_poll` 到 `done` 即端到端通。
 
 ## 纪律注入（personaPrefix 受管块）
 
