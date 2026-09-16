@@ -202,6 +202,59 @@ def read_jsonl(path: str):
                 continue
 
 
+_COUNT_CACHE = {}          # abspath -> (bytes_scanned, mtime_ns, lines)
+
+
+def count_jsonl(path: str, chunk: int = 1 << 20) -> int:
+    """数 append-only 日志的行数——**流式计数、不物化**（内存 O(1)）。
+
+    存在的唯一理由：`len(list(read_jsonl(p)))` 是**危险的默认写法**。它把整份
+    日志解析成对象列表，日志一长就是灾难——本机实测（2026-09-16）：审计日志
+    4.3 GB，一次 health/盘点调用解析速率 ~1 MB/s、RSS 涨到 5 GB+ 仍在涨、
+    数十分钟不返回；调用方超时重试又在别的进程里再排一次队，最终把整条 MCP
+    通道堵死（一个只读的「体检」把服务打死，代价与收益完全不成比例）。
+    这里只数字节里的换行：不解析、不驻留，速度只受磁盘限制；进程内按
+    (已扫字节数, mtime) 缓存，文件只增长时只扫新增字节（O(增量)）。
+
+    语义边界（诚实声明）：数的是**换行符**，不是 JSON 记录——
+      ① 完整写入的日志（`append_jsonl` 每条尾带 `\\n`）换行数 == 记录数，与
+         `len(list(read_jsonl(p)))` 逐位相等（test_health_scale ⑦ 守卫）；
+      ② 末尾**未终止的半截行**不计入（下界，最多差 1 行；见 append_jsonl 的
+         ends_mid_line 修补分支——并发交错被杀的进程会留下这种尾巴）；
+      ③ 非法 JSON 行计入行数而 `read_jsonl` 会跳过——健康度是量级指标，不做
+         逐行校验，逐行解析正是上面那场事故的根因。
+    """
+    key = os.path.abspath(path or "")
+    try:
+        st = os.stat(key)
+    except OSError:
+        return 0
+    start, total = 0, 0
+    prev = _COUNT_CACHE.get(key)
+    if prev:
+        p_scan, p_mtime, p_count = prev
+        if p_scan == st.st_size and p_mtime == st.st_mtime_ns:
+            return p_count                      # 完全未变：零 IO
+        if p_scan < st.st_size and p_mtime != st.st_mtime_ns:
+            start, total = p_scan, p_count      # 只增长：扫增量
+    scanned, lines = start, 0
+    try:
+        with open(key, "rb") as f:
+            if start:
+                f.seek(start)
+            while True:
+                buf = f.read(chunk)
+                if not buf:
+                    break
+                scanned += len(buf)
+                lines += buf.count(b"\n")
+    except OSError:
+        return total or 0
+    total += lines
+    _COUNT_CACHE[key] = (scanned, st.st_mtime_ns, total)
+    return total
+
+
 class ShardedLog:
     """每写者独占一个分片的 append-only 日志——不能丢记录时用它。
 

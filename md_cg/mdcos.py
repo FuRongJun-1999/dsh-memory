@@ -34,7 +34,8 @@ from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
                self_state, predict, evolution, weights, pooling,
                writelimit)
-from .fsutil import FileLock, atomic_write, append_jsonl, read_jsonl
+from .fsutil import (FileLock, atomic_write, append_jsonl, read_jsonl,
+                     count_jsonl)
 from .security import (Principal, TenantRegistry, AccessDenied,
                        SENSITIVITY_ORDER, DEFAULT_SENSITIVITY, _rank)
 
@@ -2080,14 +2081,66 @@ class MdCGOS(MdCG):
 
     # ================= 健康度（并入 OS 指标） =================
 
+    AUDIT_COUNT_MAX_BYTES = 64 << 20      # 超过此规模不再全量精确计数（O(1) 体检纪律）
+
+    def _log_scale(self, path, est_sample=256 << 10):
+        """日志量级读数（O(1)）：以元数据为主，条数只在与规模相称时才精确。
+
+        为什么不去全量数条数（2026-09-16 使用者裁定「python 审查 4GB 数据是个
+        不明智的选择」+ 第 4 条现场取证）：
+
+          信息需求 = 量级（这条日志多大、多久没动）→ O(1) 元数据即可满足；
+          实际代价 = 全量解析/扫描 → O(n) 磁盘 IO（本机 4.0 GB 实测数十秒）；
+          且日志**无上界增长**（实测 ~2 条/s 持续写入、累计 ~21.5 M 条 / 4.0 GB）。
+          指标与代价错配，而「无上界」使任何「每次体检全量扫」的实现随运行时长
+          线性劣化——4 GB 只是让错配显形，不是错配本身。
+
+        故：有界规模内给精确行数（count_jsonl 流式、内存恒定）；超阈值只读元数据
+        + 尾部采样估算，**显式标注 exact=False 不假装精确**。要精确值走离线
+        count_jsonl 或审计日志分片轮转（属方向性决策，待定夺）。
+        """
+        try:
+            st = os.stat(path)
+        except OSError:
+            return {"bytes": 0, "mtime": None, "events": 0, "exact": True}
+        size = st.st_size
+        out = {"bytes": size, "mtime": st.st_mtime}
+        if size <= self.AUDIT_COUNT_MAX_BYTES:
+            out.update({"events": count_jsonl(path), "exact": True})
+            return out
+        est = None
+        try:
+            with open(path, "rb") as f:
+                f.seek(max(0, size - est_sample))
+                tail = f.read()
+            lines = [ln for ln in tail.split(b"\n") if ln.strip()]
+            if lines:
+                est = int(size / (len(tail) / float(len(lines))))
+        except OSError:
+            pass
+        out.update({
+            "events": est, "exact": False,
+            "note": ("超过 %.0f MB 不给全量精确计数（O(n) 磁盘 IO 与量级体检不匹配）；"
+                     "events 为尾部 %d KB 采样的估算值"
+                     % (self.AUDIT_COUNT_MAX_BYTES / 1048576.0, est_sample >> 10))})
+        return out
+
     def health_os(self):
         h = self.health()
+        audit = self._log_scale(self.audit_log)
         h["os"] = {
             "roles": self._role_counts(),
             "review_pending": len(self.review_list()),
             "review_records": len(self.review_records()),
-            "tombstones": len(list(read_jsonl(self.deletions_log))),
-            "audit_events": len(list(read_jsonl(self.audit_log))),
+            # 审计/墓碑面走 _log_scale（O(1) 量级读数）而非 list(read_jsonl(...))
+            # 也不再全量流式数行：物化读让只读体检把整条通道拖死（实测 4.0 GB
+            # 日志 → RSS 5 GB+、数十分钟不返回），而全量流式扫仍要 O(n) 磁盘 IO
+            # 且日志无上界增长（~2 条/s）→ 随运行时长线性劣化。见 _log_scale。
+            "tombstones": self._log_scale(self.deletions_log)["events"],
+            "audit_events": audit["events"],            # 超阈值时为估算值
+            "audit_events_exact": audit["exact"],       # False = 上面是估算，非精确
+            "audit_bytes": audit["bytes"],              # 量级看这个（O(1) 精确）
+            "audit_events_note": audit.get("note"),
             "reflections": len(self.last_d_records()),
             # 七件套覆盖度（第 5 篇）：目标槽 + 近期事件窗口
             "goals": {"total": len(self.list_goals()),
