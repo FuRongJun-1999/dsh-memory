@@ -21,6 +21,11 @@
  * 模型请求组装 system prompt 时自动注入灵枢最近记忆
  * （`stg(op=timeline)`，最近记忆节点时间线），让记忆"自动可用"而不只依赖
  * Agent 主动调用 recall/think 工具。失败静默（不影响请求）。
+ *
+ * ⚠️ 注入文本**必经** escapePromptBraces（src/lib/prompt_safety.ts，issue #16）：
+ * 宿主对 context 文本做严格 `{{variable}}` 插值，裸 `{{` 会让每轮 assemble 抛错
+ * → 会话永久不可用（记忆永久在库，非偶发）。记忆真源不动，只在**注入副本**上
+ * 打断 `{{`——新增任何 push context/section 的代码，同样必须过这道转义。
  */
 
 import '@deepseek-ai/dsh-session'
@@ -29,6 +34,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { MdcgClient } from './lib/mdcg_client.js'
+import { escapePromptBraces } from './lib/prompt_safety.js'
 
 /** 自动记忆开关。 */
 export interface MemoryHooksOptions {
@@ -207,9 +213,12 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           if (shouldPushRecall(text, lastRecallText, skippedSincePush)) {
             lastRecallText = text
             skippedSincePush = 0
+            // 注入边界转义（issue #16）：宿主 system-prompt 对 context 文本做严格
+            // `{{variable}}` 插值，裸 `{{` 会 throw → 该轮请求整体失败。记忆原文
+            // （含用户命令里的 `{{.X}}`）必须保真落库，故只在注入副本上打断 `{{`。
             assembly.contexts.push({
               name: 'lingshu:auto-recall',
-              text: `【灵枢最近记忆】\n${text.slice(0, RECALL_MAX_CHARS)}`,
+              text: escapePromptBraces(`【灵枢最近记忆】\n${text.slice(0, RECALL_MAX_CHARS)}`),
             })
           } else {
             skippedSincePush += 1
