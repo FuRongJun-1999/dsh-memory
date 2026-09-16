@@ -120,11 +120,16 @@ def start(config_path):
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     logf = open(SERVE_LOG, "ab")
     try:
+        # close_fds=True 必须显式指定（含 Windows）：detached 的 serve 是长命进程，
+        # 若关掉 close_fds 关闭语义，它会继承调用进程的可继承句柄——包括 IDE/终端
+        # 用于捕获输出的管道。调用方随后读不到 EOF，表现为「命令跑着永不返回」
+        # （2026-09-16 实测：后台脚本挂死 26 分钟，根因即此处）。
+        # Python 3.7+ 在 Windows 上 close_fds=True 仍能正确传递显式 std 句柄。
         subprocess.Popen(
             [EXE, "serve", "--jobs", JOBS],
             stdout=logf, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
             env=merged, cwd=HIVE_DIR, creationflags=flags,
-            start_new_session=(os.name != "nt"), close_fds=(os.name != "nt"))
+            start_new_session=(os.name != "nt"), close_fds=True)
     except OSError as e:
         logf.close()
         return out({"ok": False, "error": f"拉起失败（先 cargo build --release？）: {e}"})
