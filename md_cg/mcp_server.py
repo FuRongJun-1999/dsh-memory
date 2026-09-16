@@ -1491,8 +1491,67 @@ def _scrub_call(cg, a):
     raise ValueError(f"scrub 未知 action：{act}")
 
 
+# ---- action 缺省防呆（2026-09-16）------------------------------------------
+# 与「op 缺省静默降级」同构的第二类静默失败：op 传了、action 漏了 → 各分支按
+# 字面量默认 action 执行。若默认恰是**读类**，写意图会被静默吞掉且返回形似正常
+# 的结果——最典型是文档化契约 `cg(op=review, pid, decision, reason)`（不带
+# action）实际静默走 review_list，裁决从未落盘（契约与实现漂移）。
+# 处置：签名明确指向非默认 action → 按签名推导并透出 action_derived/hint_action；
+# 无签名可依 → 维持默认执行但同样透出标记，让「按默认走」可见而非静默。
+# 判据用「键存在且非 None」（False / 0 / "" 属显式传入），避免真值判断误吞。
+_ACTION_SIGS = {
+    "review":  (("decision", "decide"), ("node_id", "verify_record")),
+    "recent":  (("text", "add"), ("content", "add")),
+    "goal":    (("goal", "add"), ("action_hint", "add")),
+    "predict": (("hit", "feedback"), ("predicted_node_id", "feedback"),
+                ("actual_node_id", "feedback")),
+    "session": (("summary", "note"), ("text", "note"), ("content", "note")),
+    "insight": (("statement", "record"),),
+    "whitebox": (("questions", "verify_existing"), ("question", "ask"),
+                 ("message", "ask"), ("query", "ask"),
+                 ("marker", "verify_encoding"),
+                 ("content", "remember"), ("text", "remember")),
+}
+
+# op → 分支内缺省 action 字面量。**仅供缺省透出提示，不参与执行**；与各
+# _xxx_call / 分支里的 `a.get("action") or "<默认>"` 保持同步（同源守卫见
+# test_action_derive.py）。
+_ACTION_DEFAULT = {
+    "theory": "check", "link": "ls", "scrub": "sweep", "forget": "forget",
+    "protect": "stats", "identity": "profile", "consistency": "check",
+    "metacognition": "report", "self_state": "snapshot", "predict": "routes",
+    "causal": "path", "evolution": "summary", "sustain": "status",
+    "goal": "list", "recent": "list", "review": "list", "session": "recall",
+    "ingest": "stat", "export": "stat", "maintain": "stat",
+    "consolidate": "promote", "insight": "outlook",
+    "ccg": "compile", "ref": "read", "whitebox": "ping",
+}
+
+
+def _action_sig(a, op):
+    """action 缺省时的签名推导 → (action, 依据键)；无签名可依 → (None, None)。
+
+    `ingest` 单独处理：其 op 语义是**写**（摄入），缺省 action 却是**读**（stat）
+    ——「传了 path 却静默 stat」会把摄入整件事吞掉。类型按**保守优先**推导：
+    patterns→dir、`*.jsonl`→jsonl、其余 path→file（file 最保守：若实为目录会
+    报错可见，而不会误把整棵目录树摄进来）。
+    """
+    if op == "ingest":
+        path = str(a.get("path") or "").strip()
+        if path:
+            if a.get("patterns"):
+                return "dir", "patterns"
+            if path.lower().endswith(".jsonl"):
+                return "jsonl", "path(*.jsonl)"
+            return "file", "path"
+    for key, act in _ACTION_SIGS.get(op, ()):
+        if key in a and a.get(key) is not None:
+            return act, key
+    return None, None
+
+
 def _cg_call(cg, a):
-    """认知图唯一入口（外层：op 缺省推导兜底 + 推导透出；分发主体见 _cg_dispatch）。"""
+    """认知图唯一入口（外层：op/action 缺省推导兜底 + 推导透出；主体见 _cg_dispatch）。"""
     op0 = (a.get("op") or "").strip().lower()
     op = op0
     if not op:
@@ -1507,13 +1566,33 @@ def _cg_call(cg, a):
         else:
             op = "read"        # 无任何签名可依：维持旧缺省 read
     args = dict(a)
+    act0 = (args.get("action") or "").strip().lower()
+    act_sig = act_derived = None
+    if not act0:
+        act_derived, act_sig = _action_sig(args, op)
+        if act_derived:
+            args["action"] = act_derived     # 按签名补 action：避免写意图被默认吞掉
     args["op"] = op
     out = _cg_dispatch(cg, args)
-    if isinstance(out, dict) and not op0:
-        out["op"] = op
-        out["op_derived"] = True
-        out["hint"] = ("op 未显式传入，已按参数签名推导（本次按 %s 执行）；op 为必填参数，"
-                       "复杂任务中也请始终显式传 op，避免静默执行错误意图" % op)
+    if isinstance(out, dict):
+        if not op0:
+            out["op"] = op
+            out["op_derived"] = True
+            out["hint"] = ("op 未显式传入，已按参数签名推导（本次按 %s 执行）；op 为必填参数，"
+                           "复杂任务中也请始终显式传 op，避免静默执行错误意图" % op)
+        if not act0 and (act_derived or op in _ACTION_DEFAULT):
+            eff = act_derived or _ACTION_DEFAULT[op]
+            out.setdefault("action", eff)
+            out["action_derived"] = True
+            if act_derived:
+                out["hint_action"] = (
+                    "action 未显式传入，已按参数 %s 推导为 action=%s（旧行为会静默走默认 %s，"
+                    "意图被吞）；建议显式传 action" % (act_sig, act_derived,
+                                                     _ACTION_DEFAULT.get(op, "?")))
+            else:
+                out["hint_action"] = (
+                    "action 未显式传入，本次按 %s 的默认 action=%s 执行；"
+                    "若意图是其它 action 请显式传 action" % (op, eff))
     return out
 
 
@@ -2425,7 +2504,13 @@ def _stg_call(cg, a):
     if op == "consistency":
         return stg.consistency(cg, layer=a.get("layer"),
                                limit=int(a.get("limit") or 50))
-    raise ValueError(f"stg 未知 op：{op}")
+    if not op:
+        # fail-closed 且给出可操作提示：stg 的 op 四值签名区分度低于 cg（relation 需
+        # a+b、timeline/anchors/consistency 皆以 layer+limit 为主），**不做签名推导**
+        # ——猜错会静默返回错误视图，比报错更贵。
+        raise ValueError("stg 的 op 为必填参数（缺失即报错，不静默降级）；"
+                         "允许 op：relation | timeline | anchors | consistency")
+    raise ValueError(f"stg 未知 op：{op}（允许 relation | timeline | anchors | consistency）")
 
 
 # --------------------------------------------------------------------------
