@@ -4,10 +4,11 @@
 架构约束：验证能力不在认知图内（跑测试/识图/验收都不是记忆基底的职责）。
 认知图只做三件事：按内容类型选验证器 → 调用 → 记账。缺能力返回 DEFER，绝不假装通过。
 
-六类内容 → 验证动作：
+内容类型 → 验证动作：
     code        代码内容 → 实测              image_desc  图像描述 → 识图确认
     text        文字内容 → 合规 + 纪律        permission  权限操作 → 是否具有权限
     work_done   工作完成 → 验收              work_wip    工作进行 → 完整成果 + 纪律
+    ccg_marks   CCG 六要素 → 编外验证方实测（生成方不得自证）
 
 裁决四态复用 judge_qualification：ACCEPT / REJECT / DEFER / BLINDSPOT
 验证器签名：fn(payload: dict, ctx: dict) -> {"state":..., "evidence":..., "detail":...}
@@ -28,12 +29,14 @@ CONTENT_KINDS = {
     "permission": "权限操作 → 是否具有权限",
     "work_done": "工作完成 → 工作项是否通过验收",
     "work_wip": "工作进行 → 是否已有完整成果 + 是否符合纪律",
+    "ccg_marks": "CCG 六要素候选 → 编外验证方实测确认（生成方不得自证）",
 }
 
 # content_kind → 建议的 verification_basis
 # （见 nodefile.VERIFICATION_BASIS：compiler|test|measurement|formal_proof|data|textbook|public_kb|other）
 KIND_BASIS = {"code": "test", "image_desc": "measurement", "text": "other",
-              "permission": "data", "work_done": "test", "work_wip": "other"}
+              "permission": "data", "work_done": "test", "work_wip": "other",
+              "ccg_marks": "test"}
 
 VERIFIERS = {}
 
@@ -187,6 +190,73 @@ def _pending(kind, why):
     return _fn
 
 
+def _verify_ccg_marks(payload, ctx):
+    """CCG 六要素候选的验证闸门：**只认认知图外的复核裁决**（裁定 A）。
+
+    本闸门**不在写入路径里阻塞跑 LLM**——写入是同步闸门，等待外部单元会卡住写路径。
+    正确的异步三段式：compile（ccgc）→ 外部单元复核（蜂巢 reflect/verify，或
+    harness 端子代理）→ 带 `unit_verdict` 回到本闸门 → ACCEPT 才谈得上写入
+    （`ccgc.link` 仍**独立**校验签章，本闸门不是唯一防线）。
+
+    payload 键：
+        node_id       目标节点（必填）
+        unit_verdict  外部单元裁决 ACCEPT/REJECT/DEFER/BLINDSPOT
+                      （缺 → DEFER + 给出「下一步怎么拿到裁决」的通道提示）
+        verifier      验证方标识（须 != compiled_by，E041）
+        evidence      裁决依据（ACCEPT 而无依据 → DEFER：无依据不通过）
+        model/allow_degrade/channel  可选，仅用于探测降级通道
+    ctx 键：
+        compiled_by   编译执行者（E041 比对）
+    """
+    node_id = str(payload.get("node_id") or "").strip()
+    if not node_id:
+        return _verdict(DEFER, "ccg_marks", "缺少 node_id：六要素候选须指明目标节点")
+    verdict = str(payload.get("unit_verdict") or payload.get("verdict") or "").strip().upper()
+    verifier = str(payload.get("verifier") or "").strip()
+    evidence = str(payload.get("evidence") or "").strip()
+    compiled_by = str(ctx.get("compiled_by") or payload.get("compiled_by") or "").strip()
+
+    if verdict in STATES:
+        if not verifier:
+            return _verdict(DEFER, "ccg_marks",
+                            "有裁决但缺验证方标识（verifier）——无法证明是编外复核")
+        if compiled_by and verifier == compiled_by:
+            return _verdict(REJECT, "ccg_marks",
+                            "E041 自证拒绝：验证方标识 == 编译执行者（LLM 不得自己验证自己）")
+        if verdict == ACCEPT and not evidence:
+            return _verdict(DEFER, "ccg_marks",
+                            "ACCEPT 但未给出裁决依据（evidence 为空）——无依据不通过")
+        return _verdict(verdict, "ccg_marks", evidence or "（未给依据）",
+                        detail={"node_id": node_id, "verifier": verifier,
+                                "job_id": payload.get("job_id") or ""})
+
+    # 无裁决 → 探测复核通道，按三态给出「下一步怎么拿到裁决」（不阻塞、不假装通过）
+    try:
+        from . import units
+        p = units.probe(model=payload.get("model") or "",
+                        allow_degrade=bool(payload.get("allow_degrade")),
+                        channel=payload.get("channel") or "")
+    except Exception as exc:                      # noqa: BLE001 —— 探测失败亦不假装
+        return _verdict(DEFER, "ccg_marks",
+                        "未获复核裁决，且复核通道探测失败：%s: %s"
+                        % (type(exc).__name__, exc))
+    if p["state"] == units.HIVE:
+        nxt = ("复核通道=蜂巢（model=%s）：cg(op=ccg, action=review, node_id=%s, "
+               "blocking=true) 取得裁决后带 unit_verdict/verifier 重入本闸门"
+               % (p["model"], node_id))
+    elif p["state"] == units.SUBAGENT:
+        nxt = ("已降级 harness 端子代理（channel=%s）：把 units.review 返回的 prompt 交给"
+               "子代理执行，取回 JSON 裁决后带 unit_verdict/verifier 重入本闸门"
+               % p["channel"])
+    else:
+        nxt = p["hint"]
+    return _verdict(DEFER, "ccg_marks",
+                    "六要素候选尚未经编外复核（未获 unit_verdict）——缺复核恒不通过",
+                    detail={"channel_state": p["state"], "next": nxt,
+                            "jobs_dir": p["jobs_dir"], "model": p["model"],
+                            "node_id": node_id})
+
+
 # ---------- 分派入口 ----------
 
 def audit(content_kind, payload=None, ctx=None):
@@ -278,3 +348,7 @@ register_verifier("code", _verify_code)
 # 诚实说明缺什么，绝不假装通过。
 register_verifier("image_desc", _pending("image_desc", "未注入识图验证器（需视觉能力）"))
 register_verifier("work_done", _pending("work_done", "未注入验收器（需验收标准）"))
+# ccg_marks：闸门本身不是「能力」而是**准入判据**——只认编外单元的裁决
+# （unit_verdict + verifier）；无裁决时探测复核通道（蜂巢→配置→子代理）并给出
+# 下一步，恒不假装通过。真实复核由外部单元完成，认知图只负责记账。
+register_verifier("ccg_marks", _verify_ccg_marks)

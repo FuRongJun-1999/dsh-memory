@@ -17,6 +17,12 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Windows cmd 默认 GBK 代码页：带圈数字 ⑪⑫⑬ 等不在 GBK 内，打印即
+# UnicodeEncodeError，且崩在断言之后、报告之前 —— 同一测试「因环境而异」。
+# 测试自带 UTF-8 兜底，不依赖调用方记得加 -X utf8（可复现性纪律）。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 from md_cg.mdcg import MdCG
 from md_cg.mdcos import MdCGSecure
 from md_cg.security import DEFAULT_SENSITIVITY, Principal

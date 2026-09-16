@@ -73,7 +73,13 @@ ALL_OPS = ("help", "info", "route", "read", "write", "goal", "recent", "verify",
            #                情景重构（reconstruct）+ 盲区学习（learn）+
            #                结构洞察（outlook）；写入 action 按 can_write 收窄，
            #                learn/apply 与批量落库走 require_admin
-           "session", "ingest", "export", "maintain", "consolidate", "insight")
+           "session", "ingest", "export", "maintain", "consolidate", "insight",
+           # P3 新增（记忆可靠性闸，见 docs 讨论）：
+           #   ccg  CCG 六要素编译器（compile/review/attest/link/recalibrate/units）
+           #        —— 对话记录→六要素候选→**编外复核**→落库；裁定 A：编译者不得自证
+           #        （E041 机械拒绝 verifier == compiled_by）。复核通道优先蜂巢
+           #        reflect/verify 单元，不可用则提示配置或降级 harness 端子代理。
+           "ccg")
 
 
 class TokenError(Exception):
@@ -104,8 +110,10 @@ ROLE_SPECS = OrderedDict([
         # session=记会话要点；ingest=摄取外部文件流（记录单元本职）
         # maintain=写入前馈 prefeed（apply 类批量改写仍被 require_admin 拦截）
         # insight=记录洞见事件（record）；verify/learn 在分发层按单位职责收窄
+        # ccg=CCG 六要素编译器（记录单元本职：保存观测/过程/结果与误差）；
+        #     其准入不靠 admin 闸而靠签章机械闸（E040/E041/E042）——编译者不得自证
         "ops_allow": ["info", "route", "read", "write", "goal", "recent",
-                      "session", "ingest", "maintain", "insight"],
+                      "session", "ingest", "maintain", "insight", "ccg"],
         "delegable": False,
         "forbidden": ["self/anchor 层", "private/secret 密级", "裁决与删除"],
     }),

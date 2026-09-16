@@ -262,12 +262,18 @@ def main():
             kn = [t["name"] for t in kt]
             check("kernel 只暴露 2 个基元", kn == ["cg", "stg"], str(kn))
             info = kc.call("cg", {"op": "info"})
+            # 注：新增 content_kind（如 ccg_marks）须同步本清单——工具面自描述
+            # 与 audit.CONTENT_KINDS 真源逐类对齐，防「真源扩了、自描述没跟」。
             check("cg info 自描述审核体系",
                   info.get("surface") == "kernel"
                   and set(info.get("audit_kinds", {})) == {
                       "code", "image_desc", "text", "permission",
-                      "work_done", "work_wip"},
+                      "work_done", "work_wip", "ccg_marks"},
                   str(list(info.get("audit_kinds", {})))[:120])
+            check("cg info 自描述 CCG 契约角色（裁定 B）",
+                  info.get("ccg_contract", {}).get("生效条件") == "前置条件 precondition"
+                  and len(info.get("ccg_contract", {})) == 6,
+                  str(info.get("ccg_contract"))[:120])
             w = kc.call("cg", {"op": "write", "content_kind": "text",
                                "content": "hello", "node_id": "kw1"})
             check("未验证的写入进审核队列",

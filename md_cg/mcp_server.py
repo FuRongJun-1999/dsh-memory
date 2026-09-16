@@ -580,14 +580,23 @@ KERNEL_TOOLS = [
                        "op=insight：洞察（action=window|record|verify|list|report|"
                        "reconstruct|learn|outlook|catalog|fork|branch_rewrite|branch_search|"
                        "branch_merge|branch_discard|branches；权限按 action 分档：只读放行、"
-                       "条件记账与分支写需 can_write、落库 apply 与分支弃置需 admin）。",
+                       "条件记账与分支写需 can_write、落库 apply 与分支弃置需 admin）；"
+                       "op=ccg：CCG 六要素编译器（action=compile|review|attest|link|"
+                       "recalibrate|units|catalog；入参统一在 ccg 对象里）。"
+                       "把对话记录编译为六要素候选 → **编外复核**（裁定 A：编译者不得自证，"
+                       "E041 机械拒绝）→ 落库；复核优先走蜂巢 reflect/verify 单元，"
+                       "蜂巢不可用则提示配置，或显式 allow_degrade 降级 harness 端子代理。",
         "inputSchema": _s("",
             op=_p("string", "route|read|write|verify|review|protect|identity|"
                             "consistency|metacognition|self_state|evolution|sustain|"
                             "scrub|predict|causal|"
                             "forget|goal|recent|info|index_code|index_doc|ref|whitebox|"
                             "theory|link|session|ingest|export|maintain|consolidate|"
-                            "insight|help", True),
+                            "insight|ccg|help", True),
+            ccg=_p("object", "CCG 六要素编译器入参：{action, node_id, dialog, marks, "
+                             "slots, strict_spans, role, verdict, verifier, compiled_by, "
+                             "evidence, slot_corrections, model, jobs, blocking, wait_s, "
+                             "allow_degrade, channel, autostart, doctor, apply, basis}"),
             intent=_p("string", "route 的查询意图"), query=_p("string", "read 的查询"),
             goal=_p("string", "goal op 的目标文本；read 的定向目标（缺省用活跃目标）"),
             goal_status=_p("string", "goal op：active|done|dropped"),
@@ -604,7 +613,7 @@ KERNEL_TOOLS = [
             limit=_p("integer", "goal/recent 的返回条数；read 的近期事件条数"),
             node_id=_p("string", "节点 id"),
             content=_p("string", "write 的内容（建议含 CCG 5 要素注释）"),
-            content_kind=_p("string", "write 的内容类型：code|image_desc|text|permission|work_done|work_wip"),
+            content_kind=_p("string", "write 的内容类型：code|image_desc|text|permission|work_done|work_wip|ccg_marks"),
             layer=_p("string", "层：anchor|structural|knowledge|contextual|self"),
             tags=_p("array", "标签（cap:xxx 会作为 route 的建议能力名）"),
             importance=_p("number", "重要性 0-1"),
@@ -1605,12 +1614,15 @@ def _cg_dispatch(cg, a):
 
     if op == "info":
         from . import audit
+        from . import nodefile
         from . import theory as _th
         from . import links as _lk
         h = cg.health_os()
         h.update({"surface": SURFACE,
                   "tools": [t["name"] for t in tools_for_surface()],
-                  "audit_kinds": audit.kinds(), "whoami": cg.whoami()})
+                  "audit_kinds": audit.kinds(), "whoami": cg.whoami(),
+                  # 裁定 B：CCG 六要素的契约角色（术语真源在 nodefile，此处只透出）
+                  "ccg_contract": dict(nodefile.CCG_CONTRACT_ROLES)})
         # 能力外置可观测：本进程实际注入了哪些外部验证器（含失败原因）
         h["external_verifiers"] = audit.load_external_verifiers()
         h["theory"] = _th.check()
@@ -1844,7 +1856,180 @@ def _cg_dispatch(cg, a):
     if op == "insight":
         return _insight_call(cg, a)
 
+    if op == "ccg":
+        return _ccg_call(cg, a)
+
     raise ValueError(f"cg 未知 op：{op}")
+
+
+def _ccg_call(cg, a):
+    """CCG 六要素编译器（op=ccg）：对话记录 → 六要素候选 → **编外复核** → 落库。
+
+    定位：**记忆可靠性闸**——不是又一个写入通道，而是写入前「条件是否成立」的检查。
+    裁定 A（LLM 不得自己验证自己）由 ccgc 的 E041 **机械执行**，不依赖 prompt 自觉。
+
+    action（缺省 compile）：
+        compile      对话记录 → 六要素候选（五环编译）；候选+签章槽落
+                    `_ccgc_pending/<node_id>.json`（**不当场写库**）
+        review       派发编外复核单元：**蜂巢 reflect/verify 优先** → 不可用则提示配置
+                    → 显式 allow_degrade 才降级 harness 端子代理；拿到裁决即自动签章
+        attest       外部裁决签章（verifier 须 != compiled_by；E041/E042 机械把关）
+        link         读回候选+签章 → 准入校验 → apply=True 落库（成功后清 pending）
+        recalibrate  四槽修正（须编外验证方；E043 只放开 condition_space 四槽）
+        units        复核通道体检/计划（hive → 提示配置 → 子代理 三级链）
+        catalog      引擎自描述（错误码/契约角色/动作清单）
+
+    入参集中在 `ccg` 对象里（与 `redteam`/`verify` 同风格）——避免与既有扁平参数
+    重名（如 `verdict` 在 verify 面是 confirmed|weakened|falsified，语义不同）。
+
+    返回语义：`ok` 表示**本次请求本身**是否成立；`verdict` 是单元给出的裁决
+    （未复核为 None）；`passed` = 裁决为 ACCEPT。三者分开，避免「派发成功」
+    被误读成「复核通过」。
+
+    权限：编译器属写路径 → 记录/设计者角色可用（见 tokens.ALL_OPS 的 ccg 条目）。
+    attest/link 的准入**不靠 admin 闸**，而靠签章机械闸（E040/E041/E042）——理由：
+    默认部署（未设 MDCG_CAN_ADMIN）下再加 admin 会让编译器对使用者不可见
+    （「权限到位但通路不可见」是既有教训），而裁定 A 的保证本就在机械闸里。
+    """
+    from . import ccgc
+    from . import units as _units
+
+    o = a.get("ccg") or {}
+    if not isinstance(o, dict):
+        return {"ok": False, "op": "ccg",
+                "error": "ccg 参数须为对象：{action, node_id, dialog, ...}"}
+    act = str(o.get("action") or a.get("action") or "compile").strip().lower()
+    node_id = str(o.get("node_id") or a.get("node_id") or "").strip()
+    actor = str(getattr(getattr(cg, "principal", None), "actor", "") or o.get("actor") or "agent")
+    jobs = str(o.get("jobs") or "")
+
+    if act == "catalog":
+        return {"ok": True, "op": "ccg", "action": "catalog",
+                "actions": ["compile", "review", "attest", "link", "recalibrate",
+                            "units", "catalog"],
+                "states": list(ccgc.STATES), "contract_roles": list(ccgc.CONTRACT_ROLES),
+                "errors": dict(ccgc.E_CODES),
+                "rule": "裁定 A：验证方标识不得等于编译执行者（E041）；缺签章不写库（E040）；"
+                        "未通过不写库（E042）"}
+
+    if act == "units":
+        if o.get("doctor"):
+            return {"ok": True, "op": "ccg", "action": "units", **_units.doctor(jobs)}
+        p = _units.plan(jobs=jobs, model=o.get("model") or "",
+                        allow_degrade=bool(o.get("allow_degrade")),
+                        channel=o.get("channel") or "")
+        return {"ok": True, "op": "ccg", "action": "units", **p}
+
+    if act == "compile":
+        dialog = str(o.get("dialog") or o.get("content") or a.get("content") or "")
+        if not dialog.strip():
+            return {"ok": False, "op": "ccg", "action": "compile",
+                    "error": "缺对话记录：传 ccg.dialog（或顶层 content）"}
+        if not node_id:
+            return {"ok": False, "op": "ccg", "action": "compile",
+                    "error": "缺 node_id：六要素候选须指明目标节点"}
+        res = ccgc.compile_dialog(dialog, node_id, actor,
+                                  marks=o.get("marks"), slots=o.get("slots"),
+                                  strict_spans=bool(o.get("strict_spans", True)), cg=cg)
+        saved = ccgc.save_pending(cg, res)
+        return {"ok": bool(res.success), "op": "ccg", "action": "compile",
+                "compiled": ccgc.asdict(res), "pending": saved,
+                "actor": actor, "compiled_by": actor,
+                "hint": ("候选已落 pending；下一步 cg(op=ccg, action=review, "
+                         "ccg={node_id, blocking:true}) 交编外单元复核"
+                         "——编译者不得自证（E041）" if res.success else
+                         "编译未通过：" + (res.errors[0] if res.errors else "未知错误"))}
+
+    if act == "review":
+        got = ccgc.load_pending(cg, node_id)
+        if not got.get("ok") or not got.get("hash_ok"):
+            return {"ok": False, "op": "ccg", "action": "review",
+                    "error": got.get("error") or "pending 产物与编译时不一致（hash 不符）",
+                    "hint": "先 cg(op=ccg, action=compile, ccg={node_id, dialog}) 生成候选"}
+        compiled = got["compiled"]
+        role = str(o.get("role") or _units.REFLECT).strip().lower()
+        prompt = _units.prompt_for(role, compiled, dialog=str(o.get("dialog") or ""))
+        r = _units.review(prompt=prompt, role=role, node_id=node_id, jobs=jobs,
+                          model=o.get("model") or "",
+                          timeout_s=int(o.get("timeout_s") or _units.DEFAULT_TIMEOUT_S),
+                          allow_degrade=bool(o.get("allow_degrade")),
+                          channel=o.get("channel") or "",
+                          wait_s=float(o.get("wait_s") or _units.DEFAULT_TIMEOUT_S),
+                          blocking=bool(o.get("blocking")), cg=cg, actor=actor,
+                          autostart=bool(o.get("autostart")))
+        unit = r.get("unit")
+        out = {"ok": True, "op": "ccg", "action": "review", "state": r["state"],
+               "role": role, "node_id": node_id, "job_id": r.get("job_id"),
+               "transport": r.get("transport"), "verdict": (unit or {}).get("verdict"),
+               "passed": bool((unit or {}).get("verdict") == ccgc.ACCEPT),
+               "unit": unit, "channel": r.get("channel") or "",
+               "blocking": bool(o.get("blocking")), "hint": r.get("hint") or ""}
+        if r["state"] != _units.HIVE:
+            out["ok"] = False
+            out["prompt"] = r.get("prompt")      # 降级/配置路径：把复核请求包交回调用方
+            return out
+        if unit:                                  # 已获编外裁决 → 自动签章
+            args = r.get("attest") or {}
+            at = ccgc.attest(node_id, args.get("verdict") or ccgc.DEFER,
+                             args.get("verifier") or "", compiled.actor or actor,
+                             slot_corrections=args.get("slot_corrections"),
+                             evidence=args.get("evidence") or "", cg=cg)
+            out["attest"] = ccgc.asdict(at)
+            out["pending"] = ccgc.save_pending(cg, compiled, at)
+            out["hint"] = ("已签章（%s）；下一步 cg(op=ccg, action=link, "
+                           "ccg={node_id, apply:true}) 落库"
+                           % (args.get("verifier") or "-") if at.ok else
+                           "签章未通过：" + (at.error or "DEFER/REJECT 不构成准入"))
+        return out
+
+    if act == "attest":
+        got = ccgc.load_pending(cg, node_id)
+        if not got.get("ok") or not got.get("hash_ok"):
+            return {"ok": False, "op": "ccg", "action": "attest",
+                    "error": got.get("error") or "pending 产物与编译时不一致（hash 不符）",
+                    "hint": "先 cg(op=ccg, action=compile, ...) 生成候选"}
+        compiled = got["compiled"]
+        at = ccgc.attest(node_id, str(o.get("verdict") or ""),
+                         str(o.get("verifier") or ""),
+                         str(o.get("compiled_by") or compiled.actor or actor),
+                         slot_corrections=o.get("slot_corrections"),
+                         evidence=str(o.get("evidence") or ""), cg=cg)
+        return {"ok": bool(at.ok), "op": "ccg", "action": "attest",
+                "attest": ccgc.asdict(at),
+                "pending": ccgc.save_pending(cg, compiled, at),
+                "hint": ("签章通过；下一步 cg(op=ccg, action=link, ccg={node_id, apply:true})"
+                         if at.ok else "签章未通过：" + (at.error or "DEFER/REJECT 不构成准入"))}
+
+    if act == "link":
+        apply = bool(o.get("apply"))
+        res = ccgc.link_pending(cg, node_id, apply=apply, actor=actor,
+                                basis=str(o.get("basis") or "ccgc link"))
+        return {"ok": bool(res.ok), "op": "ccg", "action": "link", "apply": apply,
+                "link": ccgc.asdict(res),
+                "hint": ("已落库（entry_id=%s，written=%s）" % (res.entry_id, res.written)
+                         if res.ok and apply else
+                         ("准入通过（dry_run 未写库）；apply=true 才落库" if res.ok else
+                          "；".join(res.errors or []) or "准入未通过"))}
+
+    if act == "recalibrate":
+        corr = o.get("slot_corrections") or o.get("corrections") or {}
+        verifier = str(o.get("verifier") or "").strip()
+        compiled_by = str(o.get("compiled_by") or "").strip()
+        if not verifier or verifier == compiled_by:
+            return {"ok": False, "op": "ccg", "action": "recalibrate",
+                    "error": "E041 自证拒绝：recalibrate 须由编外验证方给出"
+                             "（verifier 必填且 != compiled_by）"}
+        res = ccgc.recalibrate(node_id, corr, verifier, compiled_by,
+                               evidence=str(o.get("evidence") or ""), cg=cg,
+                               apply=bool(o.get("apply")))
+        return {"ok": bool(res.ok), "op": "ccg", "action": "recalibrate",
+                "recalibrate": ccgc.asdict(res),
+                "hint": ("；".join(res.errors or []) or "修正已应用（apply=true）" if res.ok
+                         else "；".join(res.errors or []) or "修正未通过")}
+
+    return {"ok": False, "op": "ccg", "action": act,
+            "error": "ccg 未知 action：%s（可选 compile|review|attest|link|recalibrate|"
+                     "units|catalog）" % act}
 
 
 def _session_call(cg, a):

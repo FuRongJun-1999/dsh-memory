@@ -49,6 +49,27 @@ CCG_MARKS = ("功能名", "生效条件", "子功能", "执行", "验证方式",
 # 见 `condition_space_text`）——生效条件必须由 condition_space 四槽合成显式声明，
 # 不存在「常用条件默认省略」的合法情形。缺它即缺证据：补写，或判 BLINDSPOT。
 CCG_REQUIRED = CCG_MARKS
+
+# ---- 裁定 B（使用者 2026-09-16）：六要素的契约角色（术语真源） -----------------
+# 六要素不是注释/描述，而是**接口契约**——每行在契约里有一个确定角色：
+#     功能名 = 签名 signature（可执行入口符号）
+#     生效条件 = 前置条件 precondition（由 condition_space 四槽合成，唯一入口）
+#     子功能 = 依赖 dependency
+#     执行 = 调用 invocation
+#     验证方式 = 后置条件 postcondition + test
+#     不适用条件 = 拒绝域 rejection_domain
+# 「生效条件」的契约角色正是 **precondition**——这与其「不可隐含、必须四槽合成」
+# 的既有硬约束同源：缺前置条件的接口无法判定可否调用，故缺参即编译错误。
+# 本常量是术语的**唯一真源**；其余模块（如 ccgc.CONTRACT_ROLES）一律引用本处，
+# 禁止各自再定义一份，防「术语双写法」漂移。
+CCG_CONTRACT_ROLES = {
+    "功能名":     "签名 signature（可执行入口符号）",
+    "生效条件":   "前置条件 precondition",
+    "子功能":     "依赖 dependency",
+    "执行":       "调用 invocation",
+    "验证方式":   "后置条件 postcondition + test",
+    "不适用条件": "拒绝域 rejection_domain",
+}
 # 外部验证基底的可取值（frontmatter.verification_basis）
 #
 # 分两档（口径：文科宽松、理科严格）：

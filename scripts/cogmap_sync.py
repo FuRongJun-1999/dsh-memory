@@ -108,6 +108,7 @@ FUNC_DESC: dict[tuple[str, str], str] = {
     ("cg", "maintain"): "维护",
     ("cg", "consolidate"): "记忆固化 / 整理",
     ("cg", "insight"): "洞察 / 自主探索（信息差驱动）",
+    ("cg", "ccg"): "CCG 六要素编译（对话→候选→编外复核→落库）",
     ("stg", "relation"): "两节点关系",
     ("stg", "timeline"): "时间线",
     ("stg", "anchors"): "锚点检索（时空窗口）",
