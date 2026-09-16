@@ -39,11 +39,17 @@ EDGE_WEIGHTS = {
     "correlational": 0.45,
     "cyclic": 0.35,
     "opposite": 0.30,
+    # 正文引用边（linkref，写入侧自动解析，2026-09-17）：取弱权重——正文提及
+    # ≠ 语义相似 ≠ 因果依赖，故与 DEFAULT_EDGE_WEIGHT 同值；显式登记的意义在
+    # 「类型已知」（可审计、可按类型调参、可区分于未登记类型的兜底默认）。
+    "reference": 0.50,
 }
 DEFAULT_EDGE_WEIGHT = 0.50
 
 CAUSAL_TYPES = ("causal",)
 # 检索默认沿「有语义方向」的关系走：因果 / 时序 / 条件适用
+# 注：reference **刻意不入**——正文提及不应进入「前提→结论」条件序列遍历，
+# 否则 causal 链会被「提到过」这类无向弱关联稀释（模式分离）。
 CHAIN_TYPES_DEFAULT = ("causal", "sequential", "applies_to")
 
 MAX_DEPTH_DEFAULT = 5

@@ -357,10 +357,26 @@ _DEFAULT = None
 
 
 def install_default_gates(pipe):
-    """把默认六道闸以拦截器形态注册（幂等：同名替换，可重复调用）。"""
+    """把默认闸以拦截器形态注册（幂等：同名替换，可重复调用）。
+
+    链序（2026-09-17 起）：
+        before = linkref(解析) → audit → consistency → gated → 链尾执行器
+        after  = linkref(建边)
+
+    linkref 置于链首的理由：正文引用解析是**纯读、无副作用**，且其结果必须
+    先于任何短路闸写入 ctx，供 after 链消费。短路闸（REJECT/DEFER/gated）
+    返回终态时 `execute` 不跑 after 链，故未落盘的写入不会建边——语义正确。
+
+    linkref 的**落点是 after 而非注入 `a["edges"]`**：`cg.add` 是全量重建
+    fm，注入 edges 会在覆写既有节点时清空其原有边（破坏性副作用）；
+    `append_edge` 是边域窄原语且幂等（见 linkref 模块 docstring）。
+    """
+    from . import linkref
+    pipe.register_before("linkref", linkref.before_hook(), position=0)
     pipe.register_before("audit", _gate_audit)
     pipe.register_before("consistency", _gate_consistency)
     pipe.register_before("gated", _gate_gated)
+    pipe.register_after("linkref", linkref.after_hook())
     return pipe
 
 

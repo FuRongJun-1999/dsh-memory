@@ -11,6 +11,7 @@
 | `cordis.yml.example` | 插件配置示例（30+ 项：mdcg / memory / mutual / capability …） |
 | `cordis-patch-profile-web.example.yml` | profile `web` 的 config override **备份模板**（换 profile / 重装 / 升级后须核对仍在） |
 | `dsh-web-start.bat` | DSH web 宿主启动脚本（带 8GB heap 保护，防启动 OOM） |
+| `update-lingshu.ps1` / `update-lingshu.bat` | 灵枢插件一键更新：放行 pnpm 发布龄闸门 → 同步 lockfile → 停 DSH（释放目录锁）→ 安装并校验 → 重启。详见脚本头部注释 |
 
 ## 安装
 
