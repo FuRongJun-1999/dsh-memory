@@ -10,22 +10,31 @@
 （hive/ 为 python 包：PYTHONPATH 指向 dsh-memory 仓根）
 
 工具面（4 个）：
-  hive_spawn   提交任务（model/user_prompt 必填；system_prompt/context_files/
-               timeout_s/max_tokens/temperature 可选）→ job_id 毫秒即返
+  hive_spawn   提交任务（model/user_prompt 必填）→ job_id 毫秒即返。可选：
+               system_prompt/context_files/max_tokens/temperature/thinking/
+               tools/max_tool_rounds/mdcg_root/web_search_backend。
+               **统一子代理默认**（缺省即注入）：reasoning_effort=high、
+               context_budget_tokens=200000、timeout_s=600。模型名须与
+               HIVE_API_BASE 配对（deepseek base→deepseek-flash/deepseek-v4-pro；
+               智谱 base→glm-5.3-flash）。
   hive_poll    查状态：传 job_id 单查（含全文），不传=活跃任务摘要
                （content 截断 800 字防上下文爆炸，全文读 result_path）
   hive_kill    写 kill 标志（worker ≤1s 强杀）
-  hive_doctor  serve 存活 / 任务状态统计 / env 检查 / 启动指引
+  hive_doctor  serve 存活 / 任务状态统计 / 启动指引。env 分两列：
+               serve_env_source（config.local.json=serve env 的真实来源，判资格
+               看这列）与 mcp_process_env（仅诊断，勿用它判 serve 资格）
 
 env：HIVE_JOBS_DIR（默认 <仓>/hive/jobs）、HIVE_EXE（默认 <仓>/hive/target/
-release/hive.exe，自动探测）、HIVE_API_KEY / HIVE_API_BASE / HIVE_WORKERS
-（由 serve 进程环境透传给执行器）。
+release/hive.exe，自动探测）、HIVE_EXEC_PY（执行器，serve 级；指向
+hive/exec_cmd.py 可让同一 serve 兼跑确定性任务）；HIVE_API_KEY / HIVE_API_BASE /
+HIVE_WORKERS 等由 config.local.json 注入 serve，再由 serve 透传给执行器。
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
-import subprocess
 import sys
 import time
 import uuid
@@ -35,6 +44,36 @@ SERVER_VERSION = "0.1.0"
 PROTOCOL_VERSION = "2024-11-05"
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+HIVE_DIR = os.path.join(REPO, "hive")
+# 与 serve_start 的 DEFAULT_CONFIG / _exe_path / _jobs_dir 同口径（同一环境变量），
+# 使「真实部署」与「隔离测试」两形态都只需改 env，无需改代码。
+CONFIG_LOCAL = os.environ.get("HIVE_CONFIG") or os.path.join(HIVE_DIR, "config.local.json")
+
+# 统一子代理执行配置（使用者裁定 2026-09-16）：思考强度高 / 上下文 200k / 超时 10 分钟。
+# 缺省即注入 spec；调用方显式传值优先。
+DEFAULT_REASONING_EFFORT = "high"
+DEFAULT_CONTEXT_BUDGET_TOKENS = 200000
+DEFAULT_TIMEOUT_S = 600
+
+
+def _load_local_config():
+    """读 hive/config.local.json —— **serve 进程 env 的真实来源**。
+
+    复用 serve_start.load_config（单一真源，避免两处解析口径漂移）。→ ({}, err)。
+
+    为什么 doctor 要读配置而不是读进程 env：serve 的 env 在启动时固化，子进程无法反查；
+    用「MCP 进程 env」推断 serve 资格会得到错位结论（2026-09-16 实际误判的根因）。
+    """
+    try:
+        if HIVE_DIR not in sys.path:
+            sys.path.insert(0, HIVE_DIR)
+        import serve_start  # noqa: PLC0415 —— 同目录模块，延迟导入避开包名歧义
+    except Exception as e:  # noqa: BLE001
+        return {}, f"serve_start 不可导入（{type(e).__name__}），配置未生效"
+    if not os.path.exists(CONFIG_LOCAL):
+        return {}, f"配置文件不存在：{CONFIG_LOCAL}"
+    cfg, err = serve_start.load_config(CONFIG_LOCAL)
+    return (cfg or {}), err
 
 
 def _jobs_dir() -> str:
@@ -65,7 +104,13 @@ def _serve_alive(jobs: str) -> bool:
 
 
 def _ensure_serve(jobs: str) -> dict:
-    """serve 未存活则 detached 拉起；返回 {started: bool, note: str}。"""
+    """serve 未存活则 detached 拉起；返回 {started: bool, note: str}。
+
+    **直接复用 serve_start.start()**——拉起逻辑只此一处实现，杜绝「两条拉起路径 env
+    不一致」（2026-09-16 实测缺陷：MCP 侧自有实现硬编码 HIVE_JOBS_DIR，且 config 里的
+    HIVE_EXEC_PY 压过了测试注入的假执行器，导致 smoke 端到端误走真 API）。jobs / config /
+    exe 三个路径经 HIVE_JOBS_DIR / HIVE_CONFIG / HIVE_EXE 三个环境变量在两侧同口径解析。
+    """
     if _serve_alive(jobs):
         return {"started": False, "note": "serve 存活"}
     exe = _exe_path()
@@ -74,27 +119,28 @@ def _ensure_serve(jobs: str) -> dict:
             "started": False,
             "note": f"serve 未运行且未找到可执行文件 {exe}——先 cargo build --release（hive/ 下）",
         }
-    log_path = os.path.join(jobs, "_serve.log")
-    kwargs: dict = {}
-    if os.name == "nt":
-        kwargs["creationflags"] = (
-            subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
-        )
-    else:
-        kwargs["start_new_session"] = True
-    with open(log_path, "ab") as logf:
-        subprocess.Popen(
-            [exe, "serve", "--jobs", jobs],
-            stdout=logf,
-            stderr=logf,
-            stdin=subprocess.DEVNULL,
-            **kwargs,
-        )
-    for _ in range(30):
-        if _serve_alive(jobs):
-            return {"started": True, "note": "serve 已自动拉起"}
-        time.sleep(0.1)
-    return {"started": True, "note": "serve 已拉起（心跳未就绪，稍后自愈）"}
+    try:
+        if HIVE_DIR not in sys.path:
+            sys.path.insert(0, HIVE_DIR)
+        import serve_start  # noqa: PLC0415 —— 同目录模块，延迟导入避开包名歧义
+    except Exception as e:  # noqa: BLE001
+        return {"started": False, "note": f"serve_start 不可导入（{type(e).__name__}）：{e}"}
+    os.environ.setdefault("HIVE_JOBS_DIR", jobs)  # serve_start 模块级常量在 import 时求值
+    try:
+        # serve_start 库层函数不打印，此处重定向双保险：MCP 的 stdout 是 JSON-RPC 通道
+        with contextlib.redirect_stdout(io.StringIO()):
+            r = serve_start.start(CONFIG_LOCAL)
+    except Exception as e:  # noqa: BLE001
+        return {"started": False, "note": f"拉起异常（{type(e).__name__}）：{e}"}
+    if not r.get("ok"):
+        return {"started": False, "note": f"拉起失败：{r.get('error')}"}
+    return {
+        "started": True,
+        "note": "serve 已自动拉起（env=宿主+config.local.json，逻辑复用 serve_start）",
+        "pid": r.get("pid"),
+        "routes": {"HIVE_CONFIG": CONFIG_LOCAL, "HIVE_JOBS_DIR": jobs, "HIVE_EXE": exe},
+        "config_keys": r.get("env_keys", []),
+    }
 
 
 # ---------------------------------------------------------------- 工具实现
@@ -155,7 +201,9 @@ def _result_view(job_dir: str, head):
 
 def _t_spawn(a: dict) -> dict:
     if not (a.get("model") or "").strip():
-        return {"ok": False, "error": "缺必填参数 model"}
+        return {"ok": False, "error": (
+            "缺必填参数 model。模型名须与 HIVE_API_BASE 配对——deepseek base（api.deepseek.com）"
+            "→ deepseek-flash / deepseek-v4-pro；智谱 base → glm-5.3-flash。子代理推荐 flash 档。")}
     if not (a.get("user_prompt") or "").strip():
         return {"ok": False, "error": "缺必填参数 user_prompt"}
     jobs = _jobs_dir()
@@ -169,12 +217,25 @@ def _t_spawn(a: dict) -> dict:
         spec["system_prompt"] = a["system_prompt"]
     if a.get("context_files"):
         spec["context_files"] = a["context_files"]
-    if a.get("timeout_s"):
-        spec["timeout_s"] = int(a["timeout_s"])
+    # —— 统一子代理执行配置：缺省即注入（显式传值优先）
+    spec["timeout_s"] = int(a.get("timeout_s") or DEFAULT_TIMEOUT_S)
+    spec["reasoning_effort"] = a.get("reasoning_effort") or DEFAULT_REASONING_EFFORT
+    spec["context_budget_tokens"] = int(
+        a.get("context_budget_tokens") or DEFAULT_CONTEXT_BUDGET_TOKENS)
     if a.get("max_tokens"):
         spec["max_tokens"] = a["max_tokens"]
     if a.get("temperature") is not None:
         spec["temperature"] = a["temperature"]
+    if a.get("thinking") is not None:
+        spec["thinking"] = a["thinking"]
+    if a.get("tools"):
+        spec["tools"] = a["tools"]
+    if a.get("max_tool_rounds"):
+        spec["max_tool_rounds"] = int(a["max_tool_rounds"])
+    if a.get("mdcg_root"):
+        spec["mdcg_root"] = a["mdcg_root"]
+    if a.get("web_search_backend"):
+        spec["web_search_backend"] = a["web_search_backend"]
     spec["workdir"] = os.getcwd()
     job_id = _submit(jobs, spec)
     return {
@@ -182,6 +243,11 @@ def _t_spawn(a: dict) -> dict:
         "job_id": job_id,
         "jobs_dir": jobs,
         "serve": ensure,
+        "spec_defaults": {
+            "reasoning_effort": spec["reasoning_effort"],
+            "context_budget_tokens": spec["context_budget_tokens"],
+            "timeout_s": spec["timeout_s"],
+        },
         "hint": "hive_poll(job_id) 轮询；done 后 result.content_head 取摘要、result_path 读全文",
     }
 
@@ -232,6 +298,7 @@ def _t_kill(a: dict) -> dict:
 def _t_doctor(_a: dict) -> dict:
     jobs = _jobs_dir()
     exe = _exe_path()
+    cfg, cfg_err = _load_local_config()
     states = {}
     for jid in sorted(
         n for n in os.listdir(jobs)
@@ -247,9 +314,21 @@ def _t_doctor(_a: dict) -> dict:
         "exe_path": exe,
         "jobs_dir": jobs,
         "task_states": states,
-        "env": {
+        "serve_env_source": {
+            "note": ("serve 的 env 来源=config.local.json（serve 启动时固化，子进程无法反查）。"
+                     "判资格看本块，**不要**用 mcp_process_env 判——那会得到错位结论。"),
+            "path": CONFIG_LOCAL,
+            "exists": os.path.exists(CONFIG_LOCAL),
+            "keys": sorted(cfg.keys()),
+            "api_key_set": bool(cfg.get("HIVE_API_KEY")),
+            "api_base": cfg.get("HIVE_API_BASE"),
+            "exec_py": cfg.get("HIVE_EXEC_PY"),
+            "error": cfg_err,
+        },
+        "mcp_process_env": {
+            "note": "本进程 env，仅供诊断；它不等于 serve 的 env",
             "api_key_set": bool(os.environ.get("HIVE_API_KEY")),
-            "api_base": os.environ.get("HIVE_API_BASE", "https://open.bigmodel.cn/api/paas/v4"),
+            "api_base": os.environ.get("HIVE_API_BASE") or "(未设→执行器内置默认)",
             "workers": os.environ.get("HIVE_WORKERS", "4"),
         },
         "start_cmd": "hive serve（或 cargo run -p lingshu-hive -- serve；MCP spawn 会自动拉起）",
@@ -261,11 +340,11 @@ def _t_doctor(_a: dict) -> dict:
 TOOLS = [
     {
         "name": "hive_spawn",
-        "description": "灵枢蜂巢：提交 LLM 任务到并发队列，毫秒级返回 job_id（后台执行，不阻塞）。rust 并发调度：心跳/超时强杀/kill 全生命周期可观测。",
+        "description": "灵枢蜂巢：提交 LLM 任务到并发队列（毫秒级返回 job_id，后台执行不阻塞）。统一子代理默认：reasoning_effort=high / context_budget_tokens=200000 / timeout_s=600。确定性执行（跑命令/测试/回归）用自定义 worker，见 hive/exec_cmd.py。",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "model": {"type": "string", "description": "LLM 模型名（必填）"},
+                "model": {"type": "string", "description": "LLM 模型名（必填）。须与 HIVE_API_BASE 配对：deepseek base（api.deepseek.com）→ deepseek-flash / deepseek-v4-pro；智谱 base → glm-5.3-flash。子代理推荐 flash 档。"},
                 "user_prompt": {"type": "string", "description": "用户提示词（必填）"},
                 "system_prompt": {"type": "string", "description": "系统提示词（可选）"},
                 "context_files": {
@@ -273,7 +352,14 @@ TOOLS = [
                     "items": {"type": "string"},
                     "description": "上下文文件路径列表（相对 cwd 或绝对，可选）",
                 },
-                "timeout_s": {"type": "integer", "description": "硬超时秒（默认 300，5..3600）"},
+                "timeout_s": {"type": "integer", "description": "硬超时秒（默认 600=10min，5..3600）"},
+                "reasoning_effort": {"type": "string", "enum": ["low", "medium", "high"], "description": "思考强度（默认 high）"},
+                "context_budget_tokens": {"type": "integer", "description": "上下文预算 token（默认 200000）；注入 context_files 时超预算即拒"},
+                "thinking": {"type": "object", "description": '思考开关（可选，如 {"type":"enabled"}）'},
+                "tools": {"type": "array", "items": {"type": "string"}, "description": "执行器侧工具白名单（可选，如 lingshu_cg / web_search）"},
+                "max_tool_rounds": {"type": "integer", "description": "工具回合上限（可选）"},
+                "mdcg_root": {"type": "string", "description": "lingshu_cg 指向的认知图 root（可选）"},
+                "web_search_backend": {"type": "string", "description": "web_search 后端（可选）"},
                 "max_tokens": {"type": "number", "description": "可选"},
                 "temperature": {"type": "number", "description": "可选，[0,2]"},
             },
@@ -299,7 +385,7 @@ TOOLS = [
     },
     {
         "name": "hive_doctor",
-        "description": "灵枢蜂巢：健康检查——serve 存活/可执行文件/任务状态统计/env（密钥只报存在性不回显）/启动指引。",
+        "description": "灵枢蜂巢：健康检查——serve 存活/可执行文件/任务状态统计/启动指引。env 分两列：serve_env_source（config.local.json，判资格的权威列）与 mcp_process_env（仅诊断，勿用它判 serve 资格）。密钥只报存在性不回显。",
         "inputSchema": {"type": "object", "properties": {}},
     },
 ]

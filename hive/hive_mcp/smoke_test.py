@@ -8,7 +8,10 @@
   4. kill 通道：running 后写 kill 标志 → killed 终态
 
 注意：执行器是 serve 级配置（HIVE_EXEC_PY），故全程用统一 env 的单一
-Mcp 实例，首次 spawn 拉起的 serve 即带假执行器。
+Mcp 实例，首次 spawn 拉起的 serve 即带假执行器。假执行器与临时 jobs 目录经
+**测试专用 config**（`HIVE_CONFIG`）注入——serve env 的权威来源是 config
+（`{**os.environ, **cfg}`），靠宿主 env 覆盖既不符合部署语义、也会被 config 里的
+真执行器压过（2026-09-16 实测：smoke 误走真 API）。
 
 用法：python hive/hive_mcp/smoke_test.py
 """
@@ -110,7 +113,18 @@ def main() -> int:
     with open(fake_py, "w", encoding="utf-8") as f:
         f.write(FAKE_EXEC)
     jobs_dir = os.path.join(tmp, "jobs")
-    env_extra = {"HIVE_JOBS_DIR": jobs_dir, "HIVE_EXEC_PY": fake_py}
+    # 隔离形态：假执行器 + 临时 jobs 走测试专用 config（HIVE_CONFIG）；
+    # HIVE_API_BASE 指向丢弃端口，任何误走真 API 的路径都会立刻失败而非静默出网。
+    cfg_path = os.path.join(tmp, "config.smoke.json")
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "_note": "smoke_test 专用：假执行器 + 丢弃端口，勿用于部署",
+            "HIVE_EXEC_PY": fake_py,
+            "HIVE_API_KEY": "fake-key",
+            "HIVE_API_BASE": "http://127.0.0.1:9",
+            "HIVE_WORKERS": "2",
+        }, f, ensure_ascii=False)
+    env_extra = {"HIVE_CONFIG": cfg_path, "HIVE_JOBS_DIR": jobs_dir}
 
     print("== 1. MCP 协议面 ==")
     m = Mcp(env_extra)
@@ -122,8 +136,10 @@ def main() -> int:
     check("tools/list 四工具",
           set(names) == {"hive_spawn", "hive_poll", "hive_kill", "hive_doctor"})
     d = m.tool("hive_doctor", {}, rid=3)
-    check("doctor 返回 env 检查",
-          d.get("ok") is True and "api_key_set" in d.get("env", {}))
+    d_env = d.get("serve_env_source") or {}
+    check("doctor 返回 env 检查（权威列 serve_env_source）",
+          d.get("ok") is True and d_env.get("api_key_set") is True
+          and "mcp_process_env" in d and d_env.get("path") == cfg_path)
 
     print("== 2. spawn 结构校验 ==")
     bad = m.tool("hive_spawn", {"model": "x"}, rid=4)

@@ -13,6 +13,11 @@
       {"env": "DEEPSEEK_API_KEY"}   读系统环境变量（key 明文不落盘）
       {"file": "E:/个人数据/智谱api.txt"}  读文本文件全部内容并 strip（key 放个人数据目录）
     解析失败的键 fail fast 拒绝拉起，防止残缺 env 的 serve 上岗。
+
+本模块同时是**库**：mcp_server 首次拉起 serve 时调用 start()，故三个路径常量都可由
+环境变量覆盖（HIVE_CONFIG / HIVE_EXE / HIVE_JOBS_DIR），使同一套拉起逻辑同时服务
+「真实部署」与「隔离测试」两种形态。start()/stop()/status() 只返回 dict 不打印——
+stdio JSON-RPC 通道上多打一行即污染协议；打印只发生在 CLI 入口（emit）。
 """
 import json
 import os
@@ -21,15 +26,18 @@ import sys
 import time
 
 HIVE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CONFIG = os.path.join(HIVE_DIR, "config.local.json")
-EXE = os.path.join(HIVE_DIR, "target", "release", "hive.exe")
-JOBS = os.path.join(HIVE_DIR, "jobs")
+DEFAULT_CONFIG = os.environ.get("HIVE_CONFIG") or os.path.join(HIVE_DIR, "config.local.json")
+# 与 mcp_server.py 的 _exe_path / _jobs_dir 同一口径（同一环境变量），避免两条拉起路径漂移
+EXE = os.environ.get("HIVE_EXE") or os.path.join(
+    HIVE_DIR, "target", "release", "hive.exe" if os.name == "nt" else "hive")
+JOBS = os.environ.get("HIVE_JOBS_DIR") or os.path.join(HIVE_DIR, "jobs")
 SERVE_LOG = os.path.join(JOBS, "_serve.log")
 HEARTBEAT = os.path.join(JOBS, "_serve.json")
 FRESH_S = 15  # 心跳新鲜窗口（serve 每拍 <1s 刷）
 
 
-def out(obj):
+def emit(obj):
+    """打印 + 返回退出码。**只有 CLI 入口用它**；库层调用请直接取返回值。"""
     print(json.dumps(obj, ensure_ascii=False))
     return 0 if obj.get("ok") else 1
 
@@ -88,7 +96,7 @@ def serve_alive():
 def stop():
     hb = heartbeat()
     if not hb or not serve_alive():
-        return out({"ok": True, "stopped": False, "note": "serve 未在运行"})
+        return {"ok": True, "stopped": False, "note": "serve 未在运行"}
     pid = hb.get("pid")
     try:
         if os.name == "nt":
@@ -97,22 +105,23 @@ def stop():
         else:
             os.kill(pid, 15)
     except (subprocess.CalledProcessError, OSError) as e:
-        return out({"ok": False, "error": f"停止失败 pid={pid}: {e}"})
+        return {"ok": False, "error": f"停止失败 pid={pid}: {e}"}
     # 等心跳过期确认真停了
     for _ in range(30):
         if not serve_alive():
             break
         time.sleep(0.5)
-    return out({"ok": True, "stopped": True, "pid": pid})
+    return {"ok": True, "stopped": True, "pid": pid}
 
 
 def start(config_path):
+    """拉起 serve（已在跑则拒绝）。返回 dict；调用方决定是否打印。"""
     if serve_alive():
         hb = heartbeat()
-        return out({"ok": False, "error": f"serve 已在运行（pid={hb.get('pid')}），先 --stop 再启动"})
+        return {"ok": False, "error": f"serve 已在运行（pid={hb.get('pid')}），先 --stop 再启动"}
     env, err = load_config(config_path)
     if err:
-        return out({"ok": False, "error": err})
+        return {"ok": False, "error": err}
     os.makedirs(JOBS, exist_ok=True)
     merged = {**os.environ, **env}
     flags = 0
@@ -132,14 +141,14 @@ def start(config_path):
             start_new_session=(os.name != "nt"), close_fds=True)
     except OSError as e:
         logf.close()
-        return out({"ok": False, "error": f"拉起失败（先 cargo build --release？）: {e}"})
+        return {"ok": False, "error": f"拉起失败（先 cargo build --release？）: {e}"}
     for _ in range(20):  # 等首个心跳
         if serve_alive():
             hb = heartbeat()
-            return out({"ok": True, "pid": hb.get("pid"), "workers": hb.get("workers"),
-                        "jobs_dir": JOBS,
-                        "env_keys": sorted(env.keys()),
-                        "config": config_path})
+            return {"ok": True, "pid": hb.get("pid"), "workers": hb.get("workers"),
+                    "jobs_dir": JOBS,
+                    "env_keys": sorted(env.keys()),
+                    "config": config_path}
         time.sleep(0.5)
     tail = ""
     try:
@@ -147,7 +156,7 @@ def start(config_path):
             tail = f.read()[-400:]
     except OSError:
         pass
-    return out({"ok": False, "error": f"serve 心跳未出现，日志尾部：{tail}"})
+    return {"ok": False, "error": f"serve 心跳未出现，日志尾部：{tail}"}
 
 
 def status():
@@ -167,7 +176,7 @@ def status():
             except (OSError, ValueError):
                 pass
         info["job_states"] = states
-    return out(info)
+    return info
 
 
 def main():
@@ -178,10 +187,10 @@ def main():
         cfg = args[i + 1]
         args = args[:i] + args[i + 2:]
     if "--stop" in args:
-        return stop()
+        return emit(stop())
     if "--status" in args:
-        return status()
-    return start(cfg)
+        return emit(status())
+    return emit(start(cfg))
 
 
 if __name__ == "__main__":
