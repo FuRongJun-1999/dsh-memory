@@ -1,0 +1,54 @@
+{
+  "spec_version": 1,
+  "domain": "field_coverage",
+  "rules": [
+    {
+      "id": "R-ROLE-MISSING",
+      "title": "knowledge 节点缺 role 归属",
+      "severity": "WARN",
+      "matcher": {"layer": ["knowledge"]},
+      "mechanical": [{"check": "field_absent", "field": "role", "issue_kind": "missing_field"}],
+      "llm": [
+        {
+          "check": "role_inferable",
+          "question": "该节点能否从 writer/tags/正文确定 role（user/agent/tool/system/command 等）？能则给出 role 值，不能则 UNKNOWN。只输出 role 判定，不改写正文。",
+          "expect": "role 取值 或 UNKNOWN"
+        }
+      ],
+      "remedy": "按 writer/tags 回填 role（backfill，M4 由 designer 终裁）"
+    },
+    {
+      "id": "R-EVIDENCE-ZERO",
+      "title": "knowledge 节点无验证证据计数",
+      "severity": "WARN",
+      "matcher": {"layer": ["knowledge"]},
+      "mechanical": [{"check": "evidence_zero", "issue_kind": "missing_field"}],
+      "llm": [
+        {
+          "check": "evidence_sufficient",
+          "question": "verification_basis 与正文四要素是否已自足（不依赖 evidence_count 也能复核）？给出 SUFFICIENT 或 NEEDS_EVIDENCE 与理由。",
+          "expect": "SUFFICIENT 或 NEEDS_EVIDENCE"
+        }
+      ],
+      "remedy": "回填 evidence_count 或降权（backfill / demote）"
+    },
+    {
+      "id": "R-BASIS-MISSING",
+      "title": "节点缺验证基底（无法判定验证档）",
+      "severity": "WARN",
+      "matcher": {},
+      "mechanical": [{"check": "field_absent", "field": "verification_basis", "issue_kind": "missing_field"}],
+      "llm": [],
+      "remedy": "补 verification_basis（backfill；逃逸口 other 供『分析过但无法归类』）"
+    },
+    {
+      "id": "R-BASIS-RATIO-PACKAGE",
+      "title": "包内基底覆盖率过低（包级对照片段）",
+      "severity": "INFO",
+      "matcher": {},
+      "mechanical": [{"check": "field_ratio_below", "field": "verification_basis", "ratio": 0.9}],
+      "llm": [],
+      "remedy": "整包回填（backfill，需人工裁决）"
+    }
+  ]
+}

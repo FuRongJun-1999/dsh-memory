@@ -1,0 +1,21 @@
+{
+  "spec_version": 1,
+  "domain": "source_license",
+  "rules": [
+    {
+      "id": "R-BASIS-LICENSE",
+      "title": "赛道与验证基底不相容（来源执照）",
+      "severity": "HIGH",
+      "matcher": {},
+      "mechanical": [{"check": "basis_licensed", "issue_kind": "weak_source"}],
+      "llm": [
+        {
+          "check": "basis_replace",
+          "question": "该节点基底与赛道不相容：应替换为相容基底、降级还是移层？给出裁决与理由（允许基底见 evidence 字段）。",
+          "expect": "替换基底 或 降权 或 移层"
+        }
+      ],
+      "remedy": "替换基底 / 降权 / 移层（backfill / demote / move_layer）"
+    }
+  ]
+}

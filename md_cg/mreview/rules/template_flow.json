@@ -1,0 +1,21 @@
+{
+  "spec_version": 1,
+  "domain": "template_flow",
+  "rules": [
+    {
+      "id": "R-TEMPLATE-FLOW",
+      "title": "同模板流水（去数字骨架相同）",
+      "severity": "INFO",
+      "matcher": {},
+      "mechanical": [{"check": "template_flow_digits_only", "issue_kind": "template_flow"}],
+      "llm": [
+        {
+          "check": "batch_summary_candidate",
+          "question": "这些同模板条目是否应合并为一个『批次汇总』节点（保留可追溯信息与关键差异）？给出结论与理由。",
+          "expect": "MERGE_TO_SUMMARY 或 KEEP_AS_IS"
+        }
+      ],
+      "remedy": "合并为批次汇总节点（merge，样本一次裁决整组）"
+    }
+  ]
+}

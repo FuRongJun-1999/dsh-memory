@@ -1,0 +1,21 @@
+{
+  "spec_version": 1,
+  "domain": "duplication",
+  "rules": [
+    {
+      "id": "R-DUP-HASH-GROUP",
+      "title": "包内内容指纹重复",
+      "severity": "HIGH",
+      "matcher": {},
+      "mechanical": [{"check": "dup_hash_group", "issue_kind": "dup_content"}],
+      "llm": [
+        {
+          "check": "merge_or_keep",
+          "question": "同指纹成员是否应合并为一个节点（保留最新、其余合并计数）？给出可合并子集与理由；若属刻意的多副本（不同 session/分支）则说明保留理由。",
+          "expect": "可合并子集 或 保留理由"
+        }
+      ],
+      "remedy": "合并（merge；受保护节点须剔除）"
+    }
+  ]
+}
