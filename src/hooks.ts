@@ -21,6 +21,9 @@
  * 模型请求组装 system prompt 时自动注入灵枢最近记忆
  * （`stg(op=timeline)`，最近记忆节点时间线），让记忆"自动可用"而不只依赖
  * Agent 主动调用 recall/think 工具。失败静默（不影响请求）。
+ * ⚠️ 该注入块的**稳定性**决定宿主是否新追加快照：内容没变时也必须照旧 push
+ * （宿主按渲染后的整段文本去重）；跳过 push 反而会各追加一份「有块/无块」的快照
+ * —— 详见 installMemoryHooks 里的长注释。
  *
  * ⚠️ 注入文本**必经** escapePromptBraces（src/lib/prompt_safety.ts，issue #16）：
  * 宿主对 context 文本做严格 `{{variable}}` 插值，裸 `{{` 会让每轮 assemble 抛错
@@ -126,8 +129,6 @@ const RECALL_MIN_CHARS = 24
 const RECALL_MAX_CHARS = 1400
 /** 永久层不自动注入（按需用 mdcg_recall / lingshu_stg 取）。 */
 const RECALL_SKIP_LAYERS = new Set(['anchor', 'self'])
-/** 连续跳过多少步后强制补一次（内容未变也刷新，防止压缩归档后块消失）。 */
-const RECALL_REPUSH_EVERY = 8
 
 /** 分级递减渲染：按距当前的次序逐档收窄，早期条目信息量更大。
  *
@@ -157,17 +158,6 @@ function formatTimelineDecayed(payload: unknown): string {
     if (out.join('\n').length >= RECALL_MAX_CHARS) break
   }
   return out.join('\n').slice(0, RECALL_MAX_CHARS)
-}
-
-/** 去重：内容与上次相同就不再 push 新副本。
- *
- *  背景：本钩子挂在 `system-prompt/assemble` 上，每个 step 都会 push 一份，而每份
- *  都会留成独立的 surface 节点 → 同一块累积 N 份（实测 11 份 ≈2700 tok/请求），
- *  随步数线性增长。去重后同一块只占 1 份，外加每 RECALL_REPUSH_EVERY 步一次自愈刷新。 */
-function shouldPushRecall(text: string, lastText: string, skippedSincePush: number): boolean {
-  if (!text) return false
-  if (text !== lastText) return true
-  return skippedSincePush >= RECALL_REPUSH_EVERY
 }
 
 /** 安装自动记忆钩子（effect 作用域内，随插件卸载自动移除）。
@@ -200,19 +190,27 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
 
   // P1 完善（自动 recall 注入）：每次模型请求组装 system prompt 时，注入灵枢最近记忆。
   // 用 system-prompt/assemble 事件（waterfall）而非 llm/stream——后者请求 deep-frozen 不可改写。
+  //
+  // ⚠️ 必须**每步都 push**，哪怕内容与上一步逐字节相同。原因在宿主侧（dsh-agent-loop 的
+  // RuntimeContextProjection）：assembly.contexts 会被渲染成一段「运行时上下文快照」，
+  // 每个 step 拿渲染后的**整段文本**与上一份已提交的快照比对，**只有不同才**在会话里
+  // append 一条新的 user/message（append 语义，旧的不会被替换或移除）。于是：
+  //   · 内容不变 + 照旧 push → 渲染文本不变 → 宿主不追加任何东西（零开销、零增长）；
+  //   · 内容不变 + 跳过 push → 渲染文本**变了**（少了本块）→ 宿主追加一份「没有本块」的
+  //     快照；下一步再 push 又把本块加回来 → **再**追加一份。跳过一次反而多花两份快照
+  //     （实测每份 ~250 tok），这正是 v0.4.8「每 8 步强制补一次」的自愈刷新会把长会话的
+  //     inject 推到 30k+ tok 的原因。
+  // 因此本实现把「要不要补」交还给宿主：压缩归档后宿主会把 retained 置空并重新投影快照
+  // （RuntimeContextProjection 的 retained === null 分支），本块自然跟着回来——
+  // 不需要插件自己数步数做自愈。
   if (opts.autoRecall) {
     const recallLimit = Math.max(1, Math.min(10, opts.autoRecallLimit || 4))
-    // 去重状态：同一块内容只保留一份 surface 节点，避免随步数线性增长。
-    let lastRecallText = ''
-    let skippedSincePush = 0
     ctx.on('system-prompt/assemble', async (assembly, _ctx, next) => {
       try {
         // 异步取最近记忆节点（失败静默——不阻塞模型请求）
         if (graph.isReady()) {
           const text = formatTimelineDecayed(await graph.timeline(recallLimit))
-          if (shouldPushRecall(text, lastRecallText, skippedSincePush)) {
-            lastRecallText = text
-            skippedSincePush = 0
+          if (text) {
             // 注入边界转义（issue #16）：宿主 system-prompt 对 context 文本做严格
             // `{{variable}}` 插值，裸 `{{` 会 throw → 该轮请求整体失败。记忆原文
             // （含用户命令里的 `{{.X}}`）必须保真落库，故只在注入副本上打断 `{{`。
@@ -220,8 +218,6 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
               name: 'lingshu:auto-recall',
               text: escapePromptBraces(`【灵枢最近记忆】\n${text.slice(0, RECALL_MAX_CHARS)}`),
             })
-          } else {
-            skippedSincePush += 1
           }
         }
       }
