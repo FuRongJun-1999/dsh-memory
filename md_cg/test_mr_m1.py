@@ -87,17 +87,78 @@ def mkroot(root, nodes, *, access=(), inbox=(), decisions=(), forgetting=(),
 # 目录内文件名带写入者 pid（14916/16072/20184/6708），非本进程 pid。
 VOLATILE_DIRS = ("_index_log",)
 
+# 运行态文件（2026-09-16 取证补充）：真源被多 harness 共享时，外部写入者按自身
+# 节拍追加审计/重建引用索引。取证：真源 `_audit.jsonl` 尾部 actor="zcode"
+# （session=sess_775ac68e480e）连续 add code_*/cond_* —— 并发跑套件期间静置
+# 60s 无变化、非常驻写者，写入随外部 agent 活动发生。E10 若把它们计入指纹，
+# 断言对象就变成「全环境静置」而非「本进程零写入」→ 误报。故显式排除，
+# 并以 E10b/E10c（本进程 pid 与 actor 归因）承担「本进程零写入」的可裁决性。
+VOLATILE_FILES = ("_audit.jsonl", "_refindex.json")
 
-def snapshot(root, *, exclude_dirs=()):
-    """记忆数据面指纹；exclude_dirs 只用于剔除运行态目录（排除面显式、有据）。"""
+#: M1 侧可能出现的审计 actor（CLI/管线）。当前 M1 为纯读链路（generate→bundle→
+#: assemble 零写入），故预期新增行恒为空；留作「若将来引入写入」的兜底归因面。
+_M1_ACTORS = ("mreview", "m1", "cli", "test_mr_m1")
+
+
+def _audit_lines(root):
+    """审计行数（不解析内容，只做增量基数；轮转致行数下降时由调用方判空）。"""
+    p = os.path.join(root, "_audit.jsonl")
+    try:
+        with open(p, "rb") as f:
+            return sum(1 for _ in f)
+    except OSError:
+        return 0
+
+
+def _audit_new_since(root, base_lines):
+    """返回审计新增行（解析失败行跳过）；轮转（行数下降）视为无可归因新增。"""
+    p = os.path.join(root, "_audit.jsonl")
+    try:
+        with open(p, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except OSError:
+        return []
+    if len(lines) <= base_lines:
+        return []
+    out = []
+    for ln in lines[base_lines:]:
+        try:
+            out.append(json.loads(ln))
+        except Exception:                     # noqa: BLE001
+            continue
+    return out
+
+
+def _is_atomic_tmp(fn):
+    """原子写的中间态文件（`X.md.tmp-<rand>` / `.<name>.tmp-*`）。
+
+    取证（2026-09-16）：真源被外部写入者（`_audit.jsonl` 尾部 actor="zcode"）
+    以「写 .tmp 再 rename」方式更新，快照恰在窗口内会撞 FileNotFoundError，
+    或把同一份件的两个中间态算成差异——两者都与「M1 是否写入」无关。
+    """
+    return ".tmp-" in fn or fn.startswith(".") and ".md.tmp" in fn
+
+
+def snapshot(root, *, exclude_dirs=(), exclude_files=()):
+    """记忆数据面指纹；排除面必须显式声明且带取证理由（见上方常量）。
+
+    容错：外部写入者的原子写中间态与并发删除**跳过不记**（读取失败即剔除，
+    宁可漏记一次中间态，也不把环境噪声冒充成 M1 写入）。
+    """
     ex = set(exclude_dirs)
+    exf = set(exclude_files)
     out = {}
     for dp, dns, fns in os.walk(root):
         dns[:] = [d for d in dns if d not in ex]
         for fn in fns:
+            if fn in exf or _is_atomic_tmp(fn):
+                continue
             p = os.path.join(dp, fn)
-            with open(p, "rb") as f:
-                out[os.path.relpath(p, root)] = hashlib.md5(f.read()).hexdigest()
+            try:
+                with open(p, "rb") as f:
+                    out[os.path.relpath(p, root)] = hashlib.md5(f.read()).hexdigest()
+            except OSError:
+                continue
     return out
 
 
@@ -526,7 +587,8 @@ def phase_e():
     if not root:
         print("  SKIP 真源库不可用（外部 clone 环境）——非失败")
         return
-    before = snapshot(root, exclude_dirs=VOLATILE_DIRS)
+    before = snapshot(root, exclude_dirs=VOLATILE_DIRS, exclude_files=VOLATILE_FILES)
+    audit_before = _audit_lines(root)
     d = CLI.run(root, cold_limit=200)
     nodes = CF.load_index(root) or {}
     bb = d["bundle_stats"]
@@ -549,13 +611,28 @@ def phase_e():
        f"E8 断言集 verdict 合法（{rep.get('verdict')}）")
     ok(d["llm_checks"] and all(isinstance(t, (list, tuple)) and len(t) == 2
                                for t in d["llm_checks"]), "E9 LLM 待检清单可枚举（供 M2 排期）")
-    after = snapshot(root, exclude_dirs=VOLATILE_DIRS)
-    ok(after == before, "E10 真源只读（记忆数据面指纹不变，" + _diff(before, after) + "）")
+    after = snapshot(root, exclude_dirs=VOLATILE_DIRS, exclude_files=VOLATILE_FILES)
     logs = (os.listdir(os.path.join(root, "_index_log"))
             if os.path.isdir(os.path.join(root, "_index_log")) else [])
     _pidpref = str(os.getpid()) + "-"
     ok(not any(s.startswith(_pidpref) for s in logs),
        "E10b M1 未在真源留下本进程增量日志（写入者归属外部）")
+    # E10c：把「本进程零写入」从「全环境静置」里分离出来——审计新增行逐条按
+    # actor/pid 归因，只认本进程的行（VOLATILE_FILES 已排除的外部写入不背锅）。
+    new_audit = _audit_new_since(root, audit_before)
+    mine = [r for r in new_audit
+            if r.get("actor") in _M1_ACTORS or str(r.get("pid") or "") == str(os.getpid())]
+    ok(not mine, "E10c 审计新增行归属本进程为 0（实得 %d，新增 %d 行全部外部）"
+       % (len(mine), len(new_audit)))
+    if new_audit:
+        # 环境共享前提不成立（外部写入者本次确在写）：E10 的字节级不变已不
+        # 可归因于 M1，明确降级为「不适用」并报告外部行数——不静默通过，
+        # 也不把环境噪声判成本进程违规。
+        print("  E10 不适用：真源被外部写入者并发写入（新增审计 %d 行，"
+              "actor=%s）——本进程零写入由 E10b/E10c 承担"
+              % (len(new_audit), sorted({r.get("actor") for r in new_audit})))
+    else:
+        ok(after == before, "E10 真源只读（记忆数据面指纹不变，" + _diff(before, after) + "）")
 
     # ---- E11~ 审计基线复现（§6 M1 验收口径）----
     # 基线（2026-09-15 审计 node_26b0973a）：混层 57.9% / role 空 99.99% /

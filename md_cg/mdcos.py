@@ -23,6 +23,7 @@ import json
 import os
 import re
 import time
+import uuid
 
 from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT,
                    STATE_REJECT, STATE_DEFER, STATE_BLINDSPOT, TIER_BUCKET_LIKE,
@@ -1299,7 +1300,14 @@ class MdCGOS(MdCG):
                     return {"pid": dup["pid"], "dedup": True,
                             "dup_of": dup["pid"], "dup_status": dup["status"]}
                 return dup["pid"]
-            pid = "prop_" + _sig(node_id + str(time.time()))
+            # 唯一性取证（2026-09-16）：旧式 _sig(node_id + time.time()) 只带
+            # 「节点 id + 时间戳」，无进程熵——多 worker 在同一时刻用相同
+            # node_id 入队即产生 pid 碰撞（test_review_conformance【8】「pid
+            # 互不重复」偶发红，4 进程同用 w-node-K 时命中）。幂等由
+            # payload_hash 对账保证、与 pid 取值无关，故此处补熵是
+            # 只增不减契约（20 条互异由 test_review_conformance【8c】守卫）。
+            pid = "prop_" + _sig(node_id + str(time.time())
+                                 + uuid.uuid4().hex)
             _norm, vhash = _verify_norm(verify)
             rec = {"t": time.time(), "pid": pid, "id": node_id, "content": content,
                    "layer": layer, "tags": list(tags or []),
@@ -1602,6 +1610,12 @@ class MdCGOS(MdCG):
                 extra["verify_hash"] = expect
             nid = self.add(item["id"], content, layer=layer, tags=tags,
                            condition_space=item.get("condition_space"), **extra)
+            # 索引增量收尾（2026-09-16 取证）：add 只把条目放进本进程内存 _dirty，
+            # 未达 autoflush(64) 阈值时进程退出即永久丢失——裁决进程（review_cli /
+            # MCP op=review）通常只写 1~2 条，不 flush 则「节点在盘上但索引无条目」，
+            # 其他进程与重载后的长驻进程都检索不到，只能靠某次全量 rebuild 偶然救回。
+            # merge 分支绕开 add 直写节点文件，故其收尾同为索引重建（同因不同法）。
+            self.flush()
             result.update(ok=True, node_id=nid)
         else:  # merge
             target = merge_into or (item.get("extra") or {}).get("merge_into")
@@ -1632,6 +1646,12 @@ class MdCGOS(MdCG):
             decision)
         if casc:
             result["cascade_closed"] = casc
+        # 裁决链路统一收尾（2026-09-16 取证）：上面 accept/edit 分支的 flush 只覆盖
+        # 目标节点，而 `_record_decision → _write_review_record → add` 在这里又写了一个
+        # **审计记录节点**（self 层），reject 路径更是**只**写它——两者同样停留在内存
+        # `_dirty` 中。不在此收尾则「审计记录在盘上但索引无条目」，复核方与其它进程都
+        # 检索不到（与目标节点同因，只是漏点不同）。flush 幂等（`_dirty` 空即返回）。
+        self.flush()
         return result
 
     def decisions(self):

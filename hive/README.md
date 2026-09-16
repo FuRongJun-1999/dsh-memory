@@ -31,6 +31,7 @@ hive serve（rust 纯 std，常驻）
 执行器（可替换子进程，serve 级配置 HIVE_EXEC_PY）
    │  确定性任务 → exec_cmd.py：跑 command（零 LLM / 不涉网络）
    │  LLM 任务   → exec.py：调 OpenAI 兼容 chat/completions（GLM 同形）
+   │  编排任务   → orch.py：spec.orchestrate 真值 → 拆子任务 / 卡片收口（见「任务编排」）
    │  统一契约：读 spec.json → 写 result.json
    ▼
 result.json（error 字段区分成败，幂等终态）
@@ -74,7 +75,7 @@ target\release\hive.exe doctor
 | 工具 | 用途 |
 |---|---|
 | `hive_spawn` | 提交任务（spec 结构校验 fail fast），返回 job_id |
-| `hive_poll` | 无 id = 全部摘要（content 截 800 字）；带 id = 单查全文 |
+| `hive_poll` | 无 id = 全部摘要（content 截 800 字）；带 id = 单查全文；`handoff_ready=true` = 子代理满上下文交回，待主代理裁决续跑 |
 | `hive_kill` | 写 kill 标志，worker ≤1s 内强杀 |
 | `hive_doctor` | serve 存活 / 任务状态统计 / env 检查 |
 
@@ -102,15 +103,17 @@ MCP 首次拉起 serve 时同样按「宿主 env + config.local.json」组装，
 | `workdir` | 否 | context 相对路径基准（默认进程 cwd） |
 | `timeout_s` | 否 | 5..=3600，rust 侧默认 300，**MCP 面注入默认 600**（10min）；超时 rust 侧强杀并标 `timeout` |
 | `reasoning_effort` | 否 | 思考强度 `low`\|`medium`\|`high`（rust 侧白名单校验）；**MCP 面默认 `high`** |
-| `context_budget_tokens` | 否 | 输入 token 预算（执行器保守估算，超限 fail fast）；**MCP 面默认 200000** |
+| `context_budget_tokens` | 否 | 输入 token 预算（执行器保守估算）；达预算默认**交回续跑**（写进展卡 + `need_continue`，见下节）；**MCP 面默认 200000** |
+| `context_strict` | 否 | `true` 恢复旧行为（超预算即 `error` 终止，不交回）；缺省 = 交回续跑 |
 | `thinking` | 否 | 思考开关透传（如 `{"type":"enabled"}`） |
 | `max_tokens` / `temperature` | 否 | 透传 API |
 | `tools` | 否 | 工具白名单，子集 `["lingshu_cg","web_search"]`；非空即启用 agent loop（function calling 循环），缺省 = 单发调用（历史行为逐位不变） |
 | `max_tool_rounds` | 否 | 工具轮上限，默认 5；达到后强制终答（不带 tools 再发一次） |
 | `mdcg_root` | 否 | lingshu_cg 的认知图根兜底（env `MDCG_ROOT` 优先）；如任务级隔离用临时图 |
 | `web_search_backend` | 否 | web_search 后端兜底（env `HIVE_WEB_SEARCH` 优先）：`zhipu` / `duckduckgo` |
+| `orchestrate` | 否 | 编排形态：真值（`true` 或 `{"max_subtasks": N}`）→ 由 `orch.py` 接管（见「任务编排」）。多态转发须 `HIVE_EXEC_PY` 指向 `exec_cmd.py`；子任务上限默认 8 |
 
-确定性任务另有 `command` / `commands` 等字段，见下节。
+确定性任务与编排任务另有 `command` / `commands` / `orchestrate` 字段，见下节。
 
 spec 在 submit 时做存在性校验（context 文件必须已存在，fail fast 防任务白跑）。
 
@@ -140,6 +143,7 @@ jobs/
     result.json               # 结果（error 字段区分成败；终态判据）
     claimed.lock              # 原子领取锁（create_new）
     kill                      # kill 标志（存在即请求强杀）
+    progress.jsonl            # 进展卡（工具轮/终答/交回逐条留痕，见下节）
     claimed/ log.txt          # 运行态
 ```
 
@@ -172,6 +176,52 @@ API 错误收敛为 `ok:false` 但已发生的 trace 保留。
 退出码 0 成功 / 2 规格错 / 3 API 错误。rust 侧以 result.json 的 error 字段定终态
 （done / error），执行器崩溃由超时兜底。env：`HIVE_API_KEY`（必填，缺失即 fail）、
 `HIVE_API_BASE`（默认 `https://open.bigmodel.cn/api/paas/v4`）。
+
+## 满上下文换人续跑（handoff）
+
+**问题**：长任务跑着跑着把 200k 预算吃满——旧行为是整个任务判失败，已完成的几十轮
+工具调用随实例一起丢。**机制**：达预算时执行器**不失败**，而是写进展卡 + 交回：
+
+```json
+{"ok": true, "content": "【交回续跑】…", "completed": false,
+ "need_continue": true, "tool_rounds": 12,
+ "handoff": {"reason": "context_budget", "est_tokens": 210000,
+             "budget_tokens": 200000, "rounds_done": 12,
+             "progress_file": "progress.jsonl", "auto_continue": false}}
+```
+
+`ok:true` + `completed:false` 并存，是为了诚实区分「本次执行正常收口」与「任务已完成」——
+交回不是错误，实例退休而状态留在盘上（状态在库里，不在实例里）。
+
+| 观测面 | 交接信号 |
+|---|---|
+| `hive poll`（rust） | `completed` / `need_continue` / `handoff_ready`（派生，一眼判）/ `handoff` / `tool_rounds`；旧 result 缺失字段透传 Null，不伪造 false |
+| `hive_poll`（MCP） | result.json 原样透传 + 同口径 `handoff_ready` |
+| 进展卡 | `jobs/<id>/progress.jsonl`：`start` / `tool` / `final` / `handoff` / `error` 逐条（含 `ts`、`round`、证据） |
+
+读进展卡（主代理侧，`hive/wm.py`）：
+
+```cmd
+python hive\wm.py progress --job hive\jobs\<id>              :: 运行中/未快照
+python hive\wm.py progress --wm <WM> --job-id <id>           :: 已快照（两级查找：工作区 → task/<id> 分支）
+```
+
+**已快照来源走两级查找**：`snapshot` 提交后 HEAD 归还 `main`，产物只存在于
+`task/<job_id>` 分支——直读工作区必然落空，故先看工作区，落空再
+`git show task/<ID>:jobs/<ID>/progress.jsonl`（返回体 `source`/`ref` 标明读取出处）。
+
+**续跑编排（主代理裁决，执行器不自动续跑——`auto_continue` 恒 false）**：
+
+1. `poll` 见 `handoff_ready=true` → 读 `handoff` 卡与进展卡；
+2. 决定续跑 → 以「同 `system_prompt` + 进展摘要最小充分注入 + 剩余目标」`hive_spawn`
+   新 job（同 `session` 读回记忆面）；
+3. 不续跑 → 收尾：清理工作记忆临时进展态 + 结果蒸馏归档（`hive/wm.py snapshot`
+   入库产物；结论写灵枢记忆）。
+
+**边界（诚实）**：预算是**保守估算**（文本 4:1 字符折算，图像按 1200 tokens/张计入），
+估算偏高会提前交回——收窄任务或调大 `context_budget_tokens`。`context_strict=true`
+恢复旧 fail fast（超预算即 `error`）。进展卡是观测/交接通道：写失败只记 `log.txt`，
+不终杀任务。
 
 ## 确定性执行（exec_cmd.py · 零 LLM）
 
@@ -206,6 +256,81 @@ spec 带 `command` / `commands` → 跑命令；不带 → 转发给同目录 `e
 > `python md_cg/test_cond_match.py` 会报 `attempted relative import with no known
 > parent package`——须以 `-m md_cg.test_xxx` 形式运行，且 cwd / PYTHONPATH 指向仓根。
 
+## 任务编排（orch.py · 主代理只做编排）
+
+**问题**：单代理跑大任务时，主实例把上下文全花在「自己干活」上——拆解、执行、收口混在
+一个预算窗口里，边做边忘。**机制**：`orch.py` 让主实例只当**编排者**——拆子任务派出去、
+看卡片、收口结论；子任务在蜂巢 worker 池并发跑，各自独立上下文。
+
+与既有件的分工（避免重复建设）：
+
+| 件 | 管什么 | 与本层关系 |
+|---|---|---|
+| `exec.py` | 单代理执行器（LLM 委托 + 工具循环） | **复用**：同一 agent loop、同一 spec / result 契约 |
+| `exec_cmd.py` | 多态转发层 | `spec.orchestrate` 真值 → 转发本层（否则 `exec.py`） |
+| `md_cg/units.py` | ccgc 复核通道（reflect / verify 专用 role 面） | 不复用——编排面是任意子任务 |
+| `test/orchestrator_memory.py` | **记忆层**并发（卡片提交 / 收口 / 裁决） | 正交：它管「记忆节点并发写不打架」，本层管「任务怎么拆」 |
+
+### 编排三工具（不外传子代理）
+
+| 工具 | 说明 |
+|---|---|
+| `spawn_subtask` | 派发子任务（**毫秒即返，不阻塞**）。子任务 prompt 必须自足——子代理看不到编排者上下文，也不能再派发 |
+| `poll_subtasks` | 看进度与卡片；不传 `job_ids` = 本编排者派发的全部 |
+| `read_full` | 按需拉取**本编排者派发的**子任务的 `result.json` 全文（默认上限 20000 字符，超出给头 + 指针） |
+
+**卡片回流（省编排者上下文）**：`poll_subtasks` 默认只给 `content_head` 200 字 +
+`tool_trace` 尾部 6 条（`tool_calls` 全量仍可审计）+ `result_path` + `hint` 指路
+`read_full`；`full=true` 或 `read_full(job_id)` 才拿全文。
+
+### 权限（收窄派生令牌，真源 = `md_cg/tokens.py` 的 `ORCH_*`）
+
+| 能 / 不能 | 说明 |
+|---|---|
+| **能** 裁决子代理冲突 | `op=review` 在清单内（库层走 `require_admin`，故派生令牌 `can_admin=True`——能力所求，非越权） |
+| **不能** 动地基 | 层白名单不含核心层 `anchor` / `self` |
+| **不能** 删除 / 提权 | `forget` / `identity` / `protect` / `delegate` / `maintain` / `consolidate` 均不在清单 |
+| **不能** 自验派生 | 派生令牌结构上 `delegable=False`（二次 `derive` 被库层拒） |
+| 派生**只收窄** | `derive` 与父令牌 ops / layers 求交，不放大 |
+
+**fail-closed（硬纪律，不降级）**：令牌缺失 / 无效 → 立即写 `result.json`
+（`error_code=orch_token_unavailable`）并退出，**绝不**降级为默认 recorder 身份继续跑。
+理由（第 4 条）：静默降级 = 权限意图落空且不可见——模型每轮裁决都失败，但 job 仍以
+`done` 结束，使用者看到一次「成功」的编排，实际从未裁决过任何冲突。
+
+### 结构性护栏（不靠约定）
+
+- **防无限递归**：子 spec 由**白名单键**构造，`orchestrate` 不可能出现；子代理 `tools`
+  只能是 `lingshu_cg` / `web_search` 的子集（编排三工具不外传）——两条独立防线。
+- **越权读拒绝**：`read_full` 只允许读本编排者派发的子任务。
+- **上限诚实**：子任务数达 `max_subtasks`（默认 8）即报错，不静默丢弃、不静默排队。
+- **换人续跑不重复派发（能力边界如实标注）**：子任务清单落编排者自己的 job 目录
+  （`_children.json`），**同机**接管者读回清单即不重复派发。
+  边界：该文件**不在** `wm.py` 快照白名单内（白名单 = `spec.json` / `result.json` /
+  `log.txt` / `progress.jsonl` / `--artifacts`）——跨 worktree / 跨机经工作记忆接管时
+  清单**不回传**，接管者只能从 `progress.jsonl` 的 `spawn_subtask` 条目得知**派发过几个**、
+  拿不到完整清单，此时会重复派发。跨机续跑须显式 `wm.py snapshot --artifacts _children.json`
+  纳入（落 `artifacts/_children.json`，非 job 根）。
+
+### 启用
+
+```cmd
+:: ① 签发编排器令牌（父令牌须为 designer 且可派生）
+python -m md_cg.tokens issue --role designer          :: 若无 designer 令牌
+python -m md_cg.tokens orch --token-file-in <designer.token> --out <orch.token>
+
+:: ② 注入 serve 环境（serve 级，改后须重启 serve）
+set HIVE_ORCH_TOKEN_FILE=<orch.token>
+set HIVE_EXEC_PY=<仓>\hive\exec_cmd.py               :: 多态转发：按 spec.orchestrate 分流
+```
+
+```json
+{"model":"deepseek-flash","user_prompt":"查清这仓测试失败原因并给修复方案",
+ "orchestrate":{"max_subtasks":4}}
+```
+
+子任务跑在同一个 serve 的 worker 池里——编排者只负责派发与收口，不参与执行。
+
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
@@ -213,7 +338,9 @@ spec 带 `command` / `commands` → 跑命令；不带 → 转发给同目录 `e
 | `HIVE_API_KEY` | 无 | 执行器必填；缺失任务即 error |
 | `HIVE_API_BASE` | GLM 开放平台 | OpenAI 兼容 base url（LLM 通道） |
 | `HIVE_JOBS_DIR` | `<exe>/../../jobs` | 任务根目录 |
-| `HIVE_EXEC_PY` | `<exe>/../../exec.py` | 执行器路径（serve 级）。指向 `hive/exec_cmd.py` 可让同一 serve 兼跑确定性任务 |
+| `HIVE_EXEC_PY` | `<exe>/../../exec.py` | 执行器路径（serve 级）。指向 `hive/exec_cmd.py` 可让同一 serve 兼跑确定性任务与编排任务（多态转发） |
+| `HIVE_ORCH_TOKEN` | 无 | 编排器派生令牌明文（`python -m md_cg.tokens orch` 签发）；与下行二选一，**缺失即 fail-closed 拒绝启动**（不降级为默认身份） |
+| `HIVE_ORCH_TOKEN_FILE` | 无 | 同上，令牌文件路径（避免明文进环境变量 / 命令行历史） |
 | `HIVE_WORKERS` | 4 | worker 池大小 |
 | `HIVE_PYTHON` | `python` | 执行器解释器 |
 | `MDCG_ROOT` | 无 | lingshu_cg 认知图根（serve 级；任务级可用 `spec.mdcg_root` 兜底） |
@@ -224,12 +351,21 @@ spec 带 `command` / `commands` → 跑命令；不带 → 转发给同目录 `e
 
 ## 验证
 
-- `cargo test`：13 项全绿（含 3 个真子进程端到端：done / 超时强杀 / kill 通道，
-  FAKE_EXEC 假执行器注入，不依赖网络与密钥）。
+- `cargo test`：17 项全绿（含 3 个真子进程端到端：done / 超时强杀 / kill 通道，
+  FAKE_EXEC 假执行器注入，不依赖网络与密钥）；另有 4 项 `result_summary` 交接字段单测
+  （handoff_ready 派生 / 终态不误报 / 旧 result 字段不伪造 false / 截断与缺失）。
 - `python hive/hive_mcp/smoke_test.py`：13 项全过（MCP 协议面 / spawn 结构校验 /
   serve 自动拉起端到端 / kill 通道，全程统一 env 注入假执行器）。
+- `python hive/test_exec_tools.py`：47 项全绿（工具注册表 / lingshu_cg 真库层 /
+  web_search 假 urlopen / agent loop / 预算交回 / 图像护栏 / 提示词真源重建）。
 - `python hive/test_exec_cmd.py`：9 例全绿（确定性执行器——argv 校验 / 多步 fail_fast /
   cwd 缺失 / expect_files / expect_stdout_contains / 单步超时强杀 / LLM 委托转发）。
+- `python hive/test_wm_progress.py`：44 项全绿（工作记忆进展面——跨面契约 / 快照白名单 /
+  job 与已快照两源读取 / 分支态两级查找 / CLI 单行 JSON / 坏行诚实降级）。
+- `python hive/test_orch.py`：73 项全绿（编排器——权限收窄面 / 三工具护栏与结构性防递归 /
+  卡片截断与按需拉取 / `exec.py` 两个扩展口默认零变更 / `exec_cmd.py` 转发档 /
+  `main()` 装配与令牌缺失 fail-closed）。
+- `python scripts/run_tests.py hive`：蜂巢组整体回归入口。
 - 端到端四路径实测（2026-09-16，真 serve）：确定性成功 → `done`；命令 exit≠0 → `error`
   （error=失败步标签）；断言未命中 → `error`（error=`输出未命中预期子串：…`）；
   LLM 委托 → `done`（`deepseek-flash` / effort=high / 200k / 600s，content=`HIVE_UNIFIED_OK`）。

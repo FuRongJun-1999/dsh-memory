@@ -496,7 +496,9 @@ KERNEL_TOOLS = [
     {
         "name": "cg",
         "description": "认知图接口（唯一入口）。op=route：按情境条件路由，返回相关知识 + "
-                       "建议能力名（不执行，由调用方决定）；op=read：召回/检索/按 id 取；"
+                       "建议能力名（不执行，由调用方决定）；op=read：召回/检索/按 id 取"
+                       "（长内容自动截断 2000 行 / 50KB，返回 truncated+next_offset，"
+                       "续读传 offset=next_offset，不静默丢内容）；"
                        "op=write：写入前按 content_kind 审核（ACCEPT 落盘 / REJECT 进负记忆 / "
                        "DEFER 进审核队列）+ 节点间冲突检测（三级决策：情绪→反思→递归反思；"
                        "consistency=false 可关，on_conflict=reject|defer|record）；"
@@ -612,6 +614,7 @@ KERNEL_TOOLS = [
             include_recent=_p("boolean", "read：是否附近期事件窗口（默认否）"),
             limit=_p("integer", "goal/recent 的返回条数；read 的近期事件条数"),
             node_id=_p("string", "节点 id"),
+            offset=_p("integer", "read 的续读起始行（1 基；传上次返回的 next_offset）"),
             content=_p("string", "write 的内容（建议含 CCG 5 要素注释）"),
             content_kind=_p("string", "write 的内容类型：code|image_desc|text|permission|work_done|work_wip|ccg_marks"),
             layer=_p("string", "层：anchor|structural|knowledge|contextual|self"),
@@ -905,11 +908,60 @@ def _pick_source(path):
     return JsonlSource(path)
 
 
-def _node_view(node):
+READ_MAX_LINES = 2000           # 单次 read 返回行数上限（Pi⑦② 截断）
+READ_MAX_BYTES = 50 * 1024      # 单次 read 返回字节上限（Pi⑦② 截断）
+
+
+def _clip_text(text: str, *, offset: int = 0, max_lines: int = READ_MAX_LINES,
+               max_bytes: int = READ_MAX_BYTES) -> dict:
+    """行窗口 + 双阈值截断（Pi⑦② 截断必带续读提示）。
+
+    offset 为 1 基起始行（续读传上次 next_offset）。不静默丢内容——截断时
+    返回 total_lines / total_bytes / next_offset / note，调用方按 offset 续读。
+    """
+    text = text or ""
+    lines = text.split("\n")
+    total_lines = len(lines)
+    total_bytes = len(text.encode("utf-8"))
+    start = max(0, int(offset) - 1) if offset else 0
+    if start >= total_lines:
+        return {"text": "", "offset": start + 1, "next_offset": None,
+                "returned_lines": 0, "total_lines": total_lines,
+                "total_bytes": total_bytes, "truncated": False,
+                "note": f"offset={start + 1} 超出总行数 {total_lines}，返回空"}
+    got, used = [], 0
+    for ln in lines[start:start + max_lines]:
+        b = len(ln.encode("utf-8")) + 1
+        if got and used + b > max_bytes:
+            break
+        got.append(ln)
+        used += b
+    end = start + len(got)
+    truncated = end < total_lines
+    out = {"text": "\n".join(got), "offset": start + 1,
+           "next_offset": end + 1 if truncated else None,
+           "returned_lines": len(got), "total_lines": total_lines,
+           "total_bytes": total_bytes, "truncated": truncated, "note": ""}
+    if truncated:
+        out["note"] = (f"内容已截断（单次上限 {max_lines} 行 / {max_bytes} 字节）："
+                       f"共 {total_lines} 行 / {total_bytes} 字节，本次返回第 "
+                       f"{start + 1}–{end} 行；续读传 offset={end + 1}。")
+    return out
+
+
+def _node_view(node, offset: int = 0):
     if not node:
         return None
-    return {"id": node.get("id"), "path": node.get("path"),
-            "frontmatter": node.get("frontmatter"), "content": node.get("content")}
+    clip = _clip_text(node.get("content") or "", offset=offset)
+    out = {"id": node.get("id"), "path": node.get("path"),
+           "frontmatter": node.get("frontmatter"), "content": clip["text"]}
+    if clip["truncated"] or offset:
+        out.update({"truncated": clip["truncated"],
+                    "content_lines": clip["total_lines"],
+                    "content_bytes": clip["total_bytes"],
+                    "offset": clip["offset"], "next_offset": clip["next_offset"],
+                    "note": clip["note"]})
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -1651,7 +1703,8 @@ def _cg_dispatch(cg, a):
 
     if op == "read":
         if a.get("node_id"):
-            return _node_view(cg.get(a["node_id"]))
+            return _node_view(cg.get(a["node_id"]),
+                              offset=int(a.get("offset") or 0))
         q = a.get("query") or a.get("intent") or ""
         if a.get("budget_tokens"):
             return cg.recall(q, budget_tokens=int(a["budget_tokens"]),
@@ -2513,7 +2566,8 @@ def _dispatch(cg, name, args):
                             for n, s, q in res]}
 
     if name == "mdcg_get":
-        return _node_view(cg.get(a.get("node_id", "")))
+        return _node_view(cg.get(a.get("node_id", "")),
+                          offset=int(a.get("offset") or 0))
 
     if name == "mdcg_reflect":
         res, _ = cg.search(a.get("query", ""), k=int(a.get("k") or 10), record=False)

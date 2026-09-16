@@ -56,33 +56,8 @@ def _brief(rec, width=66):
     return text[:width] + ("…" if len(text) > width else "")
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(description="灵枢审核队列裁决（designer 权限）")
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--root", help="存储根目录（默认环境变量 MDCG_ROOT）")
-    sub = ap.add_subparsers(dest="cmd", required=True)
-
-    sub.add_parser("list", help="列出待审条目", parents=[common])
-    for name, help_ in (("accept", "按原样写入落盘"), ("reject", "丢弃（只记裁决）")):
-        s = sub.add_parser(name, help=help_, parents=[common])
-        s.add_argument("pid")
-        s.add_argument("--reason", default="", help="裁决理由（进留痕）")
-    s = sub.add_parser("edit", help="修订后写入", parents=[common])
-    s.add_argument("pid")
-    s.add_argument("--content", required=True)
-    s.add_argument("--tags", default=None, help="逗号分隔")
-    s.add_argument("--layer", default=None)
-    s.add_argument("--reason", default="")
-    s = sub.add_parser("merge", help="合并进已有节点", parents=[common])
-    s.add_argument("pid")
-    s.add_argument("--into", required=True, help="目标节点 id")
-    s.add_argument("--reason", default="")
-    s = sub.add_parser("rounds", help="某提案的裁决轮次历史", parents=[common])
-    s.add_argument("pid")
-    args = ap.parse_args(argv)
-
-    cg = _cg(args)
-
+def _execute(cg, args):
+    """按子命令执行裁决（cg 的生命周期由 main 统一收尾）。"""
     if args.cmd == "list":
         pend = cg.review_list()
         if not pend:
@@ -120,6 +95,42 @@ def main(argv=None):
         return 0
     print("裁决未生效：%s" % json.dumps(out, ensure_ascii=False))
     return 1
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="灵枢审核队列裁决（designer 权限）")
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--root", help="存储根目录（默认环境变量 MDCG_ROOT）")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("list", help="列出待审条目", parents=[common])
+    for name, help_ in (("accept", "按原样写入落盘"), ("reject", "丢弃（只记裁决）")):
+        s = sub.add_parser(name, help=help_, parents=[common])
+        s.add_argument("pid")
+        s.add_argument("--reason", default="", help="裁决理由（进留痕）")
+    s = sub.add_parser("edit", help="修订后写入", parents=[common])
+    s.add_argument("pid")
+    s.add_argument("--content", required=True)
+    s.add_argument("--tags", default=None, help="逗号分隔")
+    s.add_argument("--layer", default=None)
+    s.add_argument("--reason", default="")
+    s = sub.add_parser("merge", help="合并进已有节点", parents=[common])
+    s.add_argument("pid")
+    s.add_argument("--into", required=True, help="目标节点 id")
+    s.add_argument("--reason", default="")
+    s = sub.add_parser("rounds", help="某提案的裁决轮次历史", parents=[common])
+    s.add_argument("pid")
+    args = ap.parse_args(argv)
+
+    cg = _cg(args)
+    try:
+        return _execute(cg, args)
+    finally:
+        # 收尾（2026-09-16 取证）：裁决写入先进内存 _dirty，不落盘则「节点在盘上
+        # 但索引无条目」——已有 _index.json 的根重开不重扫目录，其它进程与重载后的
+        # 长驻进程都检索不到（只能靠某次全量 rebuild 偶然救回）。库层另有 atexit
+        # 兜底，但显式收尾才是正路：兜底只覆盖「正常退出」这一条路径。
+        cg.close()
 
 
 if __name__ == "__main__":

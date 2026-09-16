@@ -187,6 +187,32 @@ POSITION_ROLES = ("record", "reflect", "verify", "output", "sustain")
 
 DELEGABLE_ROLES = tuple(r for r, s in ROLE_SPECS.items() if s["delegable"])
 
+# --------------------------------------------------------------------------
+# 蜂巢编排器（hive/orch.py）派生收窄面 · 单一真源
+# --------------------------------------------------------------------------
+# 设计依据（取证 2026-09-16，源码级：本文件 derive() + md_cg/mdcos.py 的
+# require_admin 闸门）：
+#   ① 编排器要「能裁决子代理冲突」→ 必须过 `MdCGSecure.review_decide` 的库层
+#      `require_admin`。而 `derive()` 的 `can_admin = spec.can_admin and
+#      parent.can_admin`（**不可收窄**）→ 唯一可行 role 是 designer。
+#      （`narrowed_principal()` 的 can_admin 恒 False，裁决会被库层拒 —— 这是被
+#      代码证据排除的路径，不是偏好取舍。）
+#   ② 因此「不给 delete / 不给 anchor / 不给 delegate」**不能依赖 admin 闸**
+#      （can_admin=True 时该闸不拦清单内的 op），而由三重结构保证：
+#        · ops_allow 白名单（ALL_OPS 的**子集**）—— 不在清单的 op 被
+#          `_cg_dispatch` 前置 `require_op` 直接拒：forget=删除、identity=动地基、
+#          protect=固化、maintain/consolidate 的 apply 类批量改写，全在清单外；
+#        · layers_allow 白名单（排除 CORE_LAYERS=anchor/self）—— 写不进地基；
+#        · `derive()` 硬编码 `delegable=False` —— 派生令牌结构上不可再派生。
+#      白名单方向 fail-closed：ALL_OPS 将来新增 op，默认不在清单内 = 不给。
+#   ③ 残余面（诚实标注，未收窄）：can_admin=True 使清单内 op 的 admin 分支仍可
+#      通过 —— `recent` 的 clear、`consistency` 的 auto_flywheel 写、`review` 的
+#      裁决（功能所求）。改本常量即改编排器权限：签发（CLI `orch`）与
+#      hive/orch.py 同引此处，防两处硬编码漂移。
+ORCH_ROLE = "designer"
+ORCH_OPS_ALLOW = ("route", "read", "write", "review", "recent", "consistency")
+ORCH_LAYERS_ALLOW = tuple(l for l in ALL_LAYERS if l not in CORE_LAYERS)
+
 
 def normalize_role(role: str) -> str:
     r = (role or "").strip().lower()
@@ -474,6 +500,22 @@ def _csv_list(v):
     return [x.strip() for x in str(v).split(",") if x.strip()] or None
 
 
+def _write_secret(path: str, text: str) -> None:
+    """把令牌明文写入文件（0600，原子替换）——供 HIVE_ORCH_TOKEN_FILE 读取。"""
+    p = os.path.abspath(path)
+    d = os.path.dirname(p)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, p)
+    try:
+        os.chmod(p, 0o600)
+    except OSError:
+        pass
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="python -m md_cg.tokens",
@@ -501,6 +543,23 @@ def main(argv=None):
     p_d.add_argument("--actor", default=None)
     p_d.add_argument("--ttl", type=float, default=None)
     p_d.add_argument("--label", default="")
+    p_d.add_argument("--ops-allow", dest="ops_allow", default=None,
+                     help="收窄 op 白名单（逗号分隔；越界项被忽略，只能小于角色默认）")
+    p_d.add_argument("--layers-allow", dest="layers_allow", default=None,
+                     help="收窄可写层白名单（逗号分隔；越界项被忽略）")
+    p_d.add_argument("--clearance", default=None,
+                     help="收窄密级（默认取角色上限，且不超过父令牌）")
+
+    p_o = sub.add_parser(
+        "orch",
+        help="签发蜂巢编排器令牌（收窄面取自本模块 ORCH_* 真源，一步到位）")
+    p_o.add_argument("--token", default=None, help="父令牌明文（须为 designer 且可派生）")
+    p_o.add_argument("--token-file-in", dest="token_file_in", default=None,
+                     help="从文件读父令牌")
+    p_o.add_argument("--ttl", type=float, default=None, help="有效期（秒）")
+    p_o.add_argument("--label", default="hive-orchestrator")
+    p_o.add_argument("--out", default=None,
+                     help="把令牌明文写入该文件（0600；供 HIVE_ORCH_TOKEN_FILE 读取）")
 
     p_v = sub.add_parser("verify", help="校验令牌并打印身份")
     p_v.add_argument("--token", default=None)
@@ -526,7 +585,26 @@ def main(argv=None):
                 with open(a.token_file_in, encoding="utf-8") as f:
                     tok = f.read().strip()
             _print(derive(tok, a.role, actor=a.actor, ttl=a.ttl,
-                          label=a.label, path=a.token_file))
+                          label=a.label, path=a.token_file,
+                          clearance=a.clearance,
+                          layers_allow=_csv_list(a.layers_allow),
+                          ops_allow=_csv_list(a.ops_allow)))
+        elif a.cmd == "orch":
+            tok = a.token
+            if a.token_file_in:
+                with open(a.token_file_in, encoding="utf-8") as f:
+                    tok = f.read().strip()
+            r = derive(tok, ORCH_ROLE, actor="hive-orchestrator", ttl=a.ttl,
+                       label=a.label, path=a.token_file,
+                       layers_allow=list(ORCH_LAYERS_ALLOW),
+                       ops_allow=list(ORCH_OPS_ALLOW))
+            if a.out:
+                _write_secret(a.out, r["token"])
+                r = {k: v for k, v in r.items() if k != "token"}
+                r["token_written_to"] = os.path.abspath(a.out)
+            r["usage"] = ("把令牌明文放入 hive serve 的环境变量 HIVE_ORCH_TOKEN"
+                          "（或写文件后设 HIVE_ORCH_TOKEN_FILE）再重启 serve")
+            _print(r)
         elif a.cmd == "verify":
             tok = a.token
             if a.token_file_in:

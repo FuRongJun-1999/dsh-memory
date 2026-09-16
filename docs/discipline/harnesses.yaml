@@ -16,15 +16,45 @@
 #                            再注册为宿主工具（DSH 侧 = lingshu_cg / lingshu_stg）。
 #           底层服务是同一个 python -m md_cg.mcp_server；差别只在"谁去连它"。
 #           未列该项的端表示通路未在本矩阵登记，不代表该端无通路。
+# slot:     该产物在**宿主侧**占的注入位（对应下面 injection.slots 的键）。
+#           用途（Pi⑦⑤ 祖先链发现 + 防重复）：宿主从启动目录逐级上溯读同名件，故需按槽位
+#           发现「这条链上还并存哪些竞争件」；config-key 类产物无文件槽位，写 system-prompt-key。
 
 version: 1
 source: docs/工作纪律_认知图条目_v1.1.json
+
+# —— 注入面发现与防重复（Pi⑦⑤）——
+# 依据：宿主 agent 的注入件不是单点读取——它从启动目录逐级上溯读同名件（AGENTS.md /
+# CLAUDE.md / CODEBUDDY.md），故「产物落在哪」不等于「宿主只读到这一份」。本段把该事实
+# 声明为机械判据的输入，由 scripts/verify_discipline.py 裁决（判据见其 check_injection_matrix）：
+#   ① 同一物理文件被两个 target 写            → 后渲染者静默覆盖前者        → 硬失败
+#   ② 仓根出现会遮蔽本地私有件的槽位件         → 本地纪律注入在该宿主下失效   → 硬失败（§5 机械化的那条）
+#   ③ 同一条祖先链上并存同槽位件               → 宿主可能一并读到 / 按声明的
+#      择优顺序遮蔽                             → **发现面报告**（宿主侧事实，本仓不裁决，但不得假定不存在）
+injection:
+  version: 1
+  # 槽位 = 宿主侧的注入位；文件名列表 = **声明的宿主读取优先级**（首项优先，靠后者在同槽位被忽略）。
+  # 属「声明」而非「实测」：宿主行为一旦与此声明不符，应改本段而不是改判据。
+  slots:
+    codebuddy-session: [CODEBUDDY.md, AGENTS.md]
+    zcode-session: [AGENTS.md]
+    codex-session: [AGENTS.md]
+    claude-session: [CLAUDE.md]
+    plugin-skill: [SKILL.md]
+    # DSH 是配置键注入（personaPrefix），无文件级竞争面 —— 显式声明为空，不参与祖先链发现
+    system-prompt-key: []
+  # 仓根**允许**存在的槽位件：root AGENTS.md 是本地私有件（by design，见 codebuddy-local target）。
+  # 其余槽位件一旦出现在仓根，按 slots 声明顺序会遮蔽本地私有件 → 判硬失败。
+  root_allow: [AGENTS.md]
+  # 祖先链上溯终点：filesystem = 一路查到盘根（仓外命中只报告）；repo = 只查仓内。
+  chain_scope: filesystem
 
 targets:
 
   dsh:
     enabled: true
     transport: config-key
+    slot: system-prompt-key
     path: '~/.dsh/profiles/web/cordis.patch.yml'
     entry_id: system-prompt
     key: personaPrefix
@@ -56,6 +86,7 @@ targets:
   codebuddy:
     enabled: true
     transport: file
+    slot: codebuddy-session
     path: codebuddy/CODEBUDDY.md
     variant: full
     format: markdown
@@ -68,6 +99,7 @@ targets:
   zcode:
     enabled: true
     transport: file
+    slot: zcode-session
     path: zcode/AGENTS.md
     variant: full
     format: markdown
@@ -79,6 +111,7 @@ targets:
   codex:
     enabled: true
     transport: file
+    slot: codex-session
     path: codex/AGENTS.md
     variant: full
     format: markdown
@@ -92,6 +125,7 @@ targets:
   claude-code:
     enabled: true
     transport: file
+    slot: claude-session
     path: claude/CLAUDE.md
     variant: full
     format: markdown
@@ -113,6 +147,7 @@ targets:
   claude-code-plugin-skill:
     enabled: true
     transport: file
+    slot: plugin-skill
     path: claude/lingshu-memory/skills/linglu-discipline/SKILL.md
     variant: skill
     format: markdown
@@ -134,6 +169,7 @@ targets:
   codex-plugin-skill:
     enabled: true
     transport: file
+    slot: plugin-skill
     path: codex/lingshu-memory/skills/linglu-discipline/SKILL.md
     variant: skill
     format: markdown
@@ -158,6 +194,7 @@ targets:
     enabled: true
     render: false
     transport: file
+    slot: codebuddy-session
     path: AGENTS.md
     variant: full
     format: markdown

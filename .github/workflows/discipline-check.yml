@@ -18,6 +18,7 @@ on:
       - 'AGENTS.md'
       - 'scripts/render_discipline.py'
       - 'scripts/verify_discipline.py'
+      - 'scripts/test_injection_chain.py'
       - '.github/workflows/discipline-check.yml'
   pull_request:
     paths:
@@ -30,6 +31,7 @@ on:
       - 'AGENTS.md'
       - 'scripts/render_discipline.py'
       - 'scripts/verify_discipline.py'
+      - 'scripts/test_injection_chain.py'
       - '.github/workflows/discipline-check.yml'
 
 jobs:
@@ -42,3 +44,7 @@ jobs:
           python-version: "3.11"
       - name: 纪律真源 ↔ 各端产物一致性（缺失/孤儿/工具名随端/陈化 四项硬校验）
         run: python scripts/verify_discipline.py --allow-missing
+      # 注入面守卫自检：祖先链发现 / 槽位声明完备 / path_dup·root_shadow 硬判据 / dir 别名折叠
+      # （junction 别名折叠项在 Linux 上自动 SKIP——mklink 不存在，属环境差异非失败）
+      - name: 注入面发现与防重复自检（Pi⑦⑤）
+        run: python scripts/test_injection_chain.py

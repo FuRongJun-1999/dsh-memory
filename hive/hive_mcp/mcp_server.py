@@ -196,6 +196,10 @@ def _result_view(job_dir: str, head):
         r["content_truncated"] = True
         r.pop("content", None)
     r["result_path"] = p
+    # 交接信号派生字段：与 rust `result_summary` 同口径（同一事件两面一眼可判）。
+    # 原始字段（need_continue/completed/handoff）如实透传；缺失不伪造 false。
+    r["handoff_ready"] = (r.get("need_continue") is True
+                          and r.get("completed") is not True)
     return r
 
 
@@ -222,6 +226,9 @@ def _t_spawn(a: dict) -> dict:
     spec["reasoning_effort"] = a.get("reasoning_effort") or DEFAULT_REASONING_EFFORT
     spec["context_budget_tokens"] = int(
         a.get("context_budget_tokens") or DEFAULT_CONTEXT_BUDGET_TOKENS)
+    if a.get("context_strict") is not None:
+        # 旧 fail fast 开关（缺省=达预算交回续跑）；显式传值优先。
+        spec["context_strict"] = bool(a["context_strict"])
     if a.get("max_tokens"):
         spec["max_tokens"] = a["max_tokens"]
     if a.get("temperature") is not None:
@@ -354,7 +361,8 @@ TOOLS = [
                 },
                 "timeout_s": {"type": "integer", "description": "硬超时秒（默认 600=10min，5..3600）"},
                 "reasoning_effort": {"type": "string", "enum": ["low", "medium", "high"], "description": "思考强度（默认 high）"},
-                "context_budget_tokens": {"type": "integer", "description": "上下文预算 token（默认 200000）；注入 context_files 时超预算即拒"},
+                "context_budget_tokens": {"type": "integer", "description": "上下文预算 token（默认 200000）。达预算默认写进展卡交回续跑（result.need_continue / handoff_ready，见 hive_poll），不再整任务失败"},
+                "context_strict": {"type": "boolean", "description": "可选，默认 false=达预算交回续跑；true=保持旧行为（超预算即 error 终止，不交回）"},
                 "thinking": {"type": "object", "description": '思考开关（可选，如 {"type":"enabled"}）'},
                 "tools": {"type": "array", "items": {"type": "string"}, "description": "执行器侧工具白名单（可选，如 lingshu_cg / web_search）"},
                 "max_tool_rounds": {"type": "integer", "description": "工具回合上限（可选）"},
@@ -368,7 +376,7 @@ TOOLS = [
     },
     {
         "name": "hive_poll",
-        "description": "灵枢蜂巢：查任务状态。传 job_id 单查（含结果全文）；不传=活跃+近 1h 完成任务摘要（content 截 800 字）。含 elapsed_s/tokens 心跳观测。",
+        "description": "灵枢蜂巢：查任务状态。传 job_id 单查（含结果全文）；不传=活跃+近 1h 完成任务摘要（content 截 800 字）。含 elapsed_s/tokens 心跳观测。**handoff_ready=true = 子代理满上下文交回（need_continue）**：读 result.handoff + 进展卡（wm.py progress --job <job目录>）后决定是否 spawn 新 job 续跑（不自动续跑，裁决权在主代理）。",
         "inputSchema": {
             "type": "object",
             "properties": {"job_id": {"type": "string", "description": "任务 id（可选）"}},

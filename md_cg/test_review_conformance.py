@@ -237,6 +237,22 @@ def main():
               len(recs) == 20 and bad == 0, f"read={len(recs)} bad={bad}")
         check("pid 互不重复", len({r.get("pid") for r in recs}) == 20, "")
 
+        # 【8c】pid 唯一性守卫（2026-09-16 取证修复）：旧式
+        # "prop_" + _sig(node_id + time.time()) 无进程熵，同一时刻多 worker
+        # 用相同 node_id 入队会碰撞——本项在单进程内高频连续入队，把
+        # 「同一时刻多次 propose」这一碰撞条件压缩到必然暴露，防回归。
+        root2c = tempfile.mkdtemp(prefix="mdcg_conf_p3_")
+        cg2c = MdCGOS(root2c, actor="test")
+        pids2c = [cg2c.propose("same-node", f"# 功能名：唯一性 {i}\n\n内容 {i}。\n",
+                               layer="knowledge") for i in range(20)]
+        check("同 node_id 高频连续 propose：20 pid 互不重复",
+              len(set(pids2c)) == 20, f"uniq={len(set(pids2c))}/20")
+        check("pid 复现格式（prop_ + 12 hex，调用方依赖）",
+              all(isinstance(p, str) and len(p) == 17 and p.startswith("prop_")
+                  and all(ch in "0123456789abcdef" for ch in p[5:])
+                  for p in pids2c), pids2c[0])
+
+
         print("\n【9】decisions 并发：4 进程各裁决 1 个 pid")
         root3 = tempfile.mkdtemp(prefix="mdcg_conf_d_")
         cg3 = MdCGOS(root3, actor="test")

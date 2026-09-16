@@ -46,6 +46,18 @@ Python urllib 走系统证书，零依赖达成。执行器是可替换子进程
     ...文件全文...
     </context>
 块追加在 user_prompt 之前（AI 侧归一由调用方在 spec 里完成，执行器不加工）。
+图像/二进制文件不读内容（Pi⑦④ 护栏）：零依赖探尺寸，只登记块 + 计入预算
+（图像按 IMAGE_EST_TOKENS/张），避免二进制乱码污染上下文。
+
+进展面（v0.4 §5.3 满上下文换人续跑）：exec 在自己 job 目录追加 progress.jsonl
+（start/tool/final/handoff/error 五类条目，含步骤、完成项、中间结果摘要、证据、
+时间戳）。worker 零 git 依赖——进展只写自家 job 目录，由主代理 snapshot 纳白名单。
+
+达预算不 fail：每轮估算累计上下文（messages + 图像折算），超预算默认**交回**
+（写进展卡 + result.need_continue=true + completed=false，退出码 0），由主代理
+按需 spawn 新 job 续跑（不自动续跑）；spec.context_strict=true 时保持旧 fail fast。
+工具结果超 TOOL_MSG_MAX_CHARS 时全量落盘 job 目录（tool_<round>_<seq>.json）+
+回喂消息保尾（Pi⑦③，对齐 exec_cmd._dump_step/_render）。
 """
 from __future__ import annotations
 
@@ -62,8 +74,13 @@ EXIT_OK, EXIT_SPEC, EXIT_API = 0, 2, 3
 
 
 def log(job_dir: str, msg: str) -> None:
-    with open(os.path.join(job_dir, "log.txt"), "a", encoding="utf-8") as f:
-        f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
+    """写 job 日志。日志是观测面——写失败降级到 stderr，绝不打断任务。"""
+    line = f"[{time.strftime('%H:%M:%S')}] {msg}\n"
+    try:
+        with open(os.path.join(job_dir, "log.txt"), "a", encoding="utf-8") as f:
+            f.write(line)
+    except (OSError, TypeError):
+        sys.stderr.write(line)
 
 
 def write_result(job_dir: str, payload: dict) -> None:
@@ -76,27 +93,215 @@ def read_spec(job_dir: str) -> dict:
         return json.load(f)
 
 
-def build_messages(spec: dict, job_dir: str) -> list:
+def progress(job_dir: str | None, **entry) -> None:
+    """追加一条进展（v0.4 §5.3：worker 只写自家 job 目录，零 git 依赖）。
+
+    进展面是观测/交接通道——写失败只记 log，不终杀任务（诚实降级）。
+    非真实目录（如单测传 job_id 字面量）直接 no-op，不污染工作区。
+    """
+    if not job_dir or not os.path.isdir(job_dir):
+        return
+    entry.setdefault("ts", round(time.time(), 3))
+    try:
+        with open(os.path.join(job_dir, PROGRESS_FILE), "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as e:
+        log(job_dir, f"进展写入失败（不阻塞任务）: {e}")
+
+
+def sniff_kind(head: bytes) -> str:
+    """按魔数判类型：image:<fmt> | binary | text（零依赖，只吃文件头）。"""
+    for magic, fmt in _IMG_MAGIC:
+        if head.startswith(magic):
+            return "image:" + fmt
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image:webp"
+    return "binary" if b"\x00" in head else "text"
+
+
+def image_size(path: str) -> tuple:
+    """零依赖读图像尺寸 (w, h)；未知格式返回 (None, None)（诚实，不猜）。
+
+    覆盖 PNG(IHDR) / JPEG(SOFn) / GIF / BMP / WEBP(VP8X·VP8 ·VP8L)。
+    """
+    with open(path, "rb") as f:
+        head = f.read(32)
+        if head.startswith(b"\x89PNG\r\n\x1a\n"):
+            f.seek(16)
+            b = f.read(8)
+            if len(b) == 8:
+                return int.from_bytes(b[:4], "big"), int.from_bytes(b[4:8], "big")
+            return None, None
+        if head[:3] in (b"GIF",):
+            f.seek(6)
+            b = f.read(4)
+            if len(b) == 4:
+                return (int.from_bytes(b[:2], "little"),
+                        int.from_bytes(b[2:4], "little"))
+            return None, None
+        if head[:2] == b"BM":
+            f.seek(18)
+            b = f.read(8)
+            if len(b) == 8:
+                return (abs(int.from_bytes(b[:4], "little", signed=True)),
+                        abs(int.from_bytes(b[4:8], "little", signed=True)))
+            return None, None
+        if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+            return _webp_size(f)
+        if head[:2] == b"\xff\xd8":
+            return _jpeg_size(f)
+    return None, None
+
+
+def _jpeg_size(f) -> tuple:
+    """JPEG：扫段找 SOFn（C0–CF 去掉 C4/C8/CC），段内 精度1/高2/宽2。"""
+    f.seek(2)
+    while True:
+        b = f.read(1)
+        while b and b != b"\xff":
+            b = f.read(1)
+        if not b:
+            return None, None
+        m = f.read(1)
+        while m == b"\xff":     # 填充字节
+            m = f.read(1)
+        if not m:
+            return None, None
+        code = m[0]
+        if code in (0xD8, 0xD9) or 0xD0 <= code <= 0xD7:
+            continue
+        ln = f.read(2)
+        if len(ln) < 2:
+            return None, None
+        seg = int.from_bytes(ln, "big")
+        if 0xC0 <= code <= 0xCF and code not in (0xC4, 0xC8, 0xCC):
+            body = f.read(5)
+            if len(body) < 5:
+                return None, None
+            return (int.from_bytes(body[3:5], "big"),
+                    int.from_bytes(body[1:3], "big"))
+        if seg < 2:
+            return None, None
+        f.seek(seg - 2, os.SEEK_CUR)
+
+
+def _webp_size(f) -> tuple:
+    """WEBP：VP8X / VP8 （有损）/ VP8L（无损）三形态；其它返回未知。"""
+    f.seek(12)
+    fmt = f.read(4)
+    if fmt == b"VP8X":
+        f.seek(24)
+        b = f.read(6)
+        if len(b) == 6:
+            return (int.from_bytes(b[:3], "little") + 1,
+                    int.from_bytes(b[3:6], "little") + 1)
+    elif fmt == b"VP8 ":
+        f.seek(26)
+        b = f.read(4)
+        if len(b) == 4:
+            return (int.from_bytes(b[:2], "little") & 0x3FFF,
+                    int.from_bytes(b[2:4], "little") & 0x3FFF)
+    elif fmt == b"VP8L":
+        f.seek(21)
+        b = f.read(4)
+        if len(b) == 4:
+            v = int.from_bytes(b, "little")
+            return (v & 0x3FFF) + 1, ((v >> 14) & 0x3FFF) + 1
+    return None, None
+
+
+def resolve_system_prompt(spec: dict, job_dir: str) -> tuple:
+    """系统提示词真源（Pi⑦⑥）：声明 system_prompt_from 则**每次执行重建**。
+
+    取证结论：hive 每次 spawn 都由调用方重建 system_prompt（spec.json 是任务
+    证据而非 Pi 所指「持久化会话状态」），故默认路径结构性已满足「不持久化」；
+    唯一偏差窗口是 rust 侧 claimed 重投（崩溃恢复）复用旧 spec——声明 from 后
+    该窗口也走真源重建。缺文件 fail-closed（SpecError）：明确失败优于静默用旧
+    提示词。→ (prompt, source 标签)
+    """
+    ref = str(spec.get("system_prompt_from") or "").strip()
+    if ref:
+        path = ref if os.path.isabs(ref) else os.path.join(
+            spec.get("workdir") or os.getcwd(), ref)
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except OSError as e:
+            raise SpecError(
+                f"system_prompt_from 读取失败（fail-closed，不回落旧提示词）: "
+                f"{path}: {e}")
+        log(job_dir, f"系统提示词重建自 {path}（{len(text)} 字符）")
+        return text.strip(), f"file:{ref}"
+    literal = (spec.get("system_prompt") or "").strip()
+    return literal, ("literal" if literal else "none")
+
+
+def _context_block(rel: str, path: str, job_dir: str, meta: dict) -> str:
+    """单个 context 块：文本读全文；图像/二进制只登记（Pi⑦④）。"""
+    with open(path, "rb") as f:
+        head = f.read(BINARY_SNIFF_BYTES)
+    kind = sniff_kind(head)
+    if kind == "text":
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f'<context path="{rel}">\n{f.read()}\n</context>'
+    size = os.path.getsize(path)
+    if kind.startswith("image:"):
+        w, h = image_size(path)
+        dim = f"{w}x{h}" if w and h else "尺寸未知"
+        oversize = bool(w and h and max(w, h) > IMAGE_MAX_DIM)
+        meta["images"] += 1
+        meta["image_tokens"] += IMAGE_EST_TOKENS
+        note = (f"图像 {rel} {dim} bytes={size} 折算 {IMAGE_EST_TOKENS} tokens"
+                + ("（超单边上限，需先压缩）" if oversize else "（未压缩）"))
+        meta["notes"].append(note)
+        log(job_dir, "上下文块 " + note)
+        advice = (
+            f"当前 {dim} 超过单边上限 {IMAGE_MAX_DIM}px——请先压缩后再提交；"
+            "本执行器零依赖，不自动缩放。"
+            if oversize else
+            "尺寸在上限内（未压缩）；像素级分析请交由多模态模型/工具链处理。")
+        return (
+            f'<context path="{rel}" kind="image" format="{kind.split(":")[1]}" '
+            f'width="{w or "?"}" height="{h or "?"}" bytes="{size}" '
+            f'compressed="false" oversize="{str(oversize).lower()}" '
+            f'est_tokens="{IMAGE_EST_TOKENS}">\n'
+            f"（执行器不读图像内容（Pi⑦④ 护栏）：单张按 {IMAGE_EST_TOKENS} tokens "
+            f"计入预算。{advice}）\n</context>")
+    meta["binaries"] += 1
+    log(job_dir, f"上下文块 二进制 {rel} bytes={size}（不读入正文）")
+    return (f'<context path="{rel}" kind="binary" bytes="{size}">\n'
+            "（二进制文件不读入正文，避免乱码污染上下文；"
+            "如需内容请先转文本或改走工具通道。）\n</context>")
+
+
+def build_messages(spec: dict, job_dir: str) -> tuple:
+    """→ (messages, meta)；meta 记上下文块统计与图像预算折算（Pi⑦④）。
+
+    meta 键：contexts / images / image_tokens / binaries / notes /
+    system_prompt_source。
+    """
     user_prompt = spec.get("user_prompt", "")
     ctx_blocks = []
+    meta = {"contexts": 0, "images": 0, "image_tokens": 0, "binaries": 0,
+            "notes": []}
     base = spec.get("workdir") or os.getcwd()
     for rel in spec.get("context_files") or []:
         path = rel if os.path.isabs(rel) else os.path.join(base, rel)
         try:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                text = f.read()
+            block = _context_block(rel, path, job_dir, meta)
         except OSError as e:
             log(job_dir, f"context 读取失败 {path}: {e}")
-            ctx_blocks.append(f'<context path="{rel}" error="读取失败: {e}"></context>')
-            continue
-        ctx_blocks.append(f'<context path="{rel}">\n{text}\n</context>')
+            block = f'<context path="{rel}" error="读取失败: {e}"></context>'
+        ctx_blocks.append(block)
+        meta["contexts"] += 1
     prompt = ("\n\n".join(ctx_blocks) + "\n\n" + user_prompt) if ctx_blocks else user_prompt
     messages = []
-    sys_prompt = (spec.get("system_prompt") or "").strip()
+    sys_prompt, src = resolve_system_prompt(spec, job_dir)
+    meta["system_prompt_source"] = src
     if sys_prompt:
         messages.append({"role": "system", "content": sys_prompt})
     messages.append({"role": "user", "content": prompt})
-    return messages
+    return messages, meta
 
 
 _CJK_RANGES = (
@@ -130,7 +335,27 @@ LINGSHU_OPS_ALLOW = ("route", "read", "write")
 VERIFICATION_BASIS_ALLOW = ("compiler", "test", "measurement", "formal_proof",
                             "data", "textbook", "public_kb", "other")
 TOOL_MSG_MAX_CHARS = 4000    # 工具结果回喂模型的单条截断（防上下文爆炸）
+TOOL_MSG_TAIL_CHARS = 1200   # 截断时保尾长度（Pi⑦③：错误/收尾信息在尾部）
 DEFAULT_MAX_TOOL_ROUNDS = 5
+
+# ---------------------------------------------------------------- Pi⑦ 上下文护栏
+PROGRESS_FILE = "progress.jsonl"   # 进展卡（v0.4 §5.3 换人续跑的交接面）
+BINARY_SNIFF_BYTES = 8192          # 类型嗅探只吃文件头，整文件不进内存
+IMAGE_MAX_DIM = 2000               # 图像单边像素上限（超出=需先压缩再提交）
+IMAGE_EST_CHARS = 4800             # 单张图像的等价字符数（Pi 口径）
+IMAGE_EST_TOKENS = (IMAGE_EST_CHARS + 3) // 4   # 沿用 est_tokens 4:1 折算 = 1200
+
+_IMG_MAGIC = (
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"\xff\xd8\xff", "jpeg"),
+    (b"GIF87a", "gif"),
+    (b"GIF89a", "gif"),
+    (b"BM", "bmp"),
+)
+
+
+class SpecError(Exception):
+    """规格错（fail-closed）：由 main 以 EXIT_SPEC 收口，不静默降级。"""
 
 LINGSHU_TOOL_SCHEMA = {
     "type": "function",
@@ -199,6 +424,48 @@ TOOL_SCHEMAS = {
     "web_search": WEB_SEARCH_TOOL_SCHEMA,
 }
 
+# ---------------------------------------------------------------- 插件式扩展口
+# 两个注册口，均为**默认零行为变更**（不注册 = 与历史版本逐位一致）：
+#   register_tools   追加工具（编排器 orch.py 的 spawn_subtask/poll_subtasks/...）
+#   set_principal_factory  替换 lingshu_cg 的身份（默认 recorder 子代理 → 派生
+#                    令牌编排器）——权限由库层令牌裁决，本口只换身份不改闸门。
+# 为什么不 monkeypatch：工具名过滤与身份构造都是模块内引用，patch 会静默失效；
+# 显式注册口是唯一自洽的扩展面（对齐 md_cg/writepipe 的拦截器链精神）。
+_EXTRA_TOOLS: dict = {}          # name -> {"schema": dict, "handler": callable}
+_PRINCIPAL_FACTORY = None        # (args, job_id) -> Principal
+_TOOL_OPS_ALLOW = LINGSHU_OPS_ALLOW   # 工具侧前置白名单（注册身份时可同步收窄）
+
+
+def register_tools(schemas: dict, handler) -> None:
+    """追加工具：schemas={name: openai_function_schema}，handler(name,args,job_id,...)->dict。
+
+    同名覆盖既是显式意图（编排器可换掉 lingshu_cg 实现），也是本口唯一冲突面
+    ——故此处打印无警告、由调用方自负；run_with_tools 的 spec.tools 白名单
+    仍是第二道过滤（模型只能调用 spec 里显式列出的工具）。
+    """
+    for name, schema in (schemas or {}).items():
+        _EXTRA_TOOLS[str(name)] = {"schema": schema, "handler": handler}
+
+
+def set_principal_factory(fn, ops_allow=None) -> None:
+    """注入 lingshu_cg 的身份工厂（None 恢复默认 recorder）。
+
+    ops_allow：工具侧前置 op 白名单（None=保持默认 route/read/write）。仅为
+    「让模型当场看到越权并自修」的可用性问题，**真正的闸门在库层令牌**——
+    伪造本白名单不放行任何库层被拒的操作。
+    """
+    global _PRINCIPAL_FACTORY, _TOOL_OPS_ALLOW
+    _PRINCIPAL_FACTORY = fn
+    _TOOL_OPS_ALLOW = tuple(ops_allow) if ops_allow else LINGSHU_OPS_ALLOW
+
+
+def all_schemas() -> dict:
+    """可见工具 schema 全集（内置 + 注册）。"""
+    out = dict(TOOL_SCHEMAS)
+    for name, rec in _EXTRA_TOOLS.items():
+        out[name] = rec["schema"]
+    return out
+
 
 def _md_cg_import():
     """import md_cg（MDCG_HOME 优先，缺省=执行器父目录——同仓分发零配置）。"""
@@ -223,9 +490,9 @@ def tool_lingshu_cg(args: dict, job_id: str, mdcg_root: str = None) -> dict:
     （提交方显式指定——如任务级隔离用临时图）。
     """
     op = (args.get("op") or "").strip()
-    if op not in LINGSHU_OPS_ALLOW:
-        return {"ok": False, "error": f"op={op!r} 未对子代理开放（允许："
-                f"{', '.join(LINGSHU_OPS_ALLOW)}）"}
+    if op not in _TOOL_OPS_ALLOW:
+        return {"ok": False, "error": f"op={op!r} 未对当前身份开放（允许："
+                f"{', '.join(_TOOL_OPS_ALLOW)}）"}
     if op == "write":
         # 防卡队列：非法 verification_basis（自由文本）会在设计者 accept 落盘
         # 时才炸（入队侧不校验）——执行器侧前置拦截，让模型当场修正。
@@ -242,10 +509,21 @@ def tool_lingshu_cg(args: dict, job_id: str, mdcg_root: str = None) -> dict:
         home = _md_cg_import()
         from md_cg.mdcos import MdCGSecure
         from md_cg.security import Principal
-        principal = Principal(actor="hive-worker", clearance="secret",
-                              can_write=True, can_admin=False, role="recorder",
-                              auth_mode="hive-exec")
-        principal.session = f"hive_job_{job_id}"
+        if _PRINCIPAL_FACTORY is not None:
+            # 注册身份（编排器派生令牌）：身份与权限完全由调用方给定，本口
+            # 不做任何放大——Principal 字段即库层闸门的输入。工厂返回 None
+            # 时 fail-closed，**不降级**为默认子代理身份（静默降级会让
+            # 「裁决」权限意图落空且不可见，属第4条明令禁止的静默错执行）。
+            principal = _PRINCIPAL_FACTORY(args, job_id)
+            if principal is None:
+                return {"ok": False, "error": "身份工厂未返回 Principal"
+                        "（令牌缺失/不可用/lint 未过）—— fail-closed 拒绝执行"}
+        else:
+            principal = Principal(actor="hive-worker", clearance="secret",
+                                  can_write=True, can_admin=False, role="recorder",
+                                  auth_mode="hive-exec")
+        if not getattr(principal, "session", None):
+            principal.session = f"hive_job_{job_id}"
         cg = MdCGSecure(root, principal=principal)
         from md_cg.mcp_server import _cg_dispatch
         out = _cg_dispatch(cg, args)
@@ -360,9 +638,11 @@ def execute_tool(name: str, args_json: str, job_id: str,
         out = tool_lingshu_cg(args, job_id, mdcg_root=mdcg_root)
     elif name == "web_search":
         out = tool_web_search(args, backend_override=ws_backend)
+    elif name in _EXTRA_TOOLS:
+        out = _EXTRA_TOOLS[name]["handler"](name, args, job_id)
     else:
         out = {"ok": False,
-               "error": f"未知工具 {name!r}（允许：{', '.join(TOOL_SCHEMAS)}）"}
+               "error": f"未知工具 {name!r}（允许：{', '.join(all_schemas())}）"}
     # 统一 ok 语义：底层 dispatch（route/read）无 ok 键——无 error 即成功，
     # 保证 trace["ok"] 与模型侧自修判断的依据可靠。
     out.setdefault("ok", "error" not in out)
@@ -434,36 +714,125 @@ def _choice(data: dict) -> dict:
     return (data.get("choices") or [{}])[0]
 
 
-def run_with_tools(spec: dict, messages: list, job_id: str) -> dict:
+def _empty_turn(msg: dict) -> bool:
+    """content 与 tool_calls 双空 = 错误/中止的助手轮（Pi⑦①）。
+
+    这种轮次既不入上下文（空洞 assistant 轮会污染下一轮请求，协议也不接受），
+    也不冒充有效终答（否则 result 会是 ok=true + 空 content 的假成功）。
+    """
+    return not (msg.get("content") or "").strip() and not (msg.get("tool_calls"))
+
+
+def _shrink_tool_text(text: str, job_dir: str | None, tag: str) -> tuple:
+    """大输出全量落盘 + 回喂消息保尾（Pi⑦③，对齐 exec_cmd._dump_step/_render）。
+
+    小输出原样返回（历史行为逐位一致）。→ (喂给模型的文本, 落盘文件名或 "")
+    """
+    if len(text) <= TOOL_MSG_MAX_CHARS:
+        return text, ""
+    name = ""
+    if job_dir and os.path.isdir(job_dir):
+        name = f"tool_{tag}.json"
+        try:
+            with open(os.path.join(job_dir, name), "w", encoding="utf-8") as f:
+                f.write(text)
+        except OSError as e:
+            log(job_dir, f"工具输出落盘失败: {e}")
+            name = ""
+    head = text[:TOOL_MSG_MAX_CHARS - TOOL_MSG_TAIL_CHARS]
+    tail = text[-TOOL_MSG_TAIL_CHARS:]
+    note = (f"\n…（中间省略 {len(text) - TOOL_MSG_MAX_CHARS} 字符；完整输出"
+            f"{'见 ' + name if name else '落盘失败（job 目录不可写）'}，"
+            f"共 {len(text)} 字符）…\n")
+    return head + note + tail, name
+
+
+def _handoff(spec: dict, job_dir: str | None, trace: list, usage: dict, rnd: int,
+             est: int, budget: int) -> dict:
+    """满上下文换人续跑（v0.4 §5.3 落地）：写进展卡 + 标 need_continue 交回。
+
+    不自动续跑（续跑资格由主代理裁决）；completed=false 与 ok=true 并存，
+    诚实区分「本次执行正常收口」与「任务已完成」。
+
+    字段词汇契约：进展卡 handoff 条目与 result.json 的 handoff 块**同词**——
+    同一事件两个观测面（卡=主代理读的交接面，result=轮询面），字段名分叉会
+    让续跑提示词组装读到两套词汇（取证 2026-09-16：卡曾用 budget/无
+    auto_continue）。改字段须两面同步；`hive/test_wm_progress.py` 守卫互认。
+    """
+    done = [f"{t.get('round')}:{t.get('tool')} {t.get('brief')}"
+            for t in trace if t.get("ok")]
+    digest = (
+        f"【交回续跑】上下文达预算阈值：保守估算 {est} tokens > 预算 {budget}。"
+        f"本 job 已完成 {rnd} 轮工具调用，未终答。\n"
+        f"进展卡：{PROGRESS_FILE}（主代理读它组装续跑提示词）。\n"
+        f"已完成：{'; '.join(done[-8:]) or '（无）'}\n"
+        "续跑方式：以「同 system_prompt + 上文进展摘要 + 剩余目标」spawn 新 job"
+        "（读回同 session 记忆面）；是否续跑由主代理裁决，执行器不自动续跑。")
+    progress(job_dir, kind="handoff", round=rnd, est_tokens=est,
+             budget_tokens=budget, reason="context_budget", done=done[-20:],
+             progress_file=PROGRESS_FILE, auto_continue=False, summary=digest)
+    log(job_dir, f"达预算交回（need_continue）est={est} budget={budget} round={rnd}")
+    return {
+        "content": digest,
+        "usage": usage,
+        "model": spec.get("model"),
+        "tool_trace": trace,
+        "tool_rounds": rnd,
+        "completed": False,
+        "need_continue": True,
+        "handoff": {
+            "reason": "context_budget",
+            "est_tokens": est,
+            "budget_tokens": budget,
+            "rounds_done": rnd,
+            "progress_file": PROGRESS_FILE,
+            "auto_continue": False,
+        },
+    }
+
+
+def run_with_tools(spec: dict, messages: list, job_id: str,
+                   job_dir: str | None = None, base_tokens: int = 0) -> dict:
     """agent loop：模型回 tool_calls → 执行 → tool 消息回喂 → 循环至终答。
 
     轮次上限 max_tool_rounds（spec 可配，默认 5）：达到后若模型仍要求工具，
     发一次不带 tools 的请求强制终答（保证 result.content 有值，trace 诚实
     记 _force_final）。API 异常不抛出——以 {"_error","tool_trace"} 返回，
     由 main 写失败 result（trace 不丢，审计可回放）。
+
+    上下文档位：base_tokens=图像等非文本块折算（Pi⑦④）+ messages 文本估算；
+    超预算默认交回续跑（见 _handoff），spec.context_strict=true 保持旧 fail fast。
     """
-    names = [t for t in (spec.get("tools") or []) if t in TOOL_SCHEMAS]
-    schemas = [TOOL_SCHEMAS[t] for t in names]
+    _vis = all_schemas()
+    names = [t for t in (spec.get("tools") or []) if t in _vis]
+    schemas = [_vis[t] for t in names]
     max_rounds = max(1, int(spec.get("max_tool_rounds")
                             or DEFAULT_MAX_TOOL_ROUNDS))
     timeout = float(spec.get("timeout_s") or 300)
     budget = spec.get("context_budget_tokens")
     trace, usage_total = [], {}
 
-    def _budget_check() -> str:
+    def _budget_check() -> tuple:
         if not budget:
-            return ""
-        total = sum(est_tokens(m.get("content") or "") for m in messages
-                    if isinstance(m.get("content"), str))
-        return (f"上下文超预算: 保守估算 {total} tokens > 预算 {int(budget)}"
-                "（工具轮累积所致；请收窄任务或调大 context_budget_tokens）"
-                if total > int(budget) else "")
+            return 0, ""
+        total = base_tokens + sum(est_tokens(m.get("content") or "")
+                                  for m in messages
+                                  if isinstance(m.get("content"), str))
+        return total, (
+            f"上下文超预算: 保守估算 {total} tokens > 预算 {int(budget)}"
+            "（工具轮累积所致；请收窄任务或调大 context_budget_tokens）"
+            if total > int(budget) else "")
 
     rnd = 0
     while rnd <= max_rounds:
-        over = _budget_check()
+        est, over = _budget_check()
         if over:
-            return {"_error": over, "tool_trace": trace}
+            if spec.get("context_strict"):
+                progress(job_dir, kind="budget_stop", round=rnd, est_tokens=est,
+                         budget_tokens=int(budget), strict=True)
+                return {"_error": over, "tool_trace": trace}
+            return _handoff(spec, job_dir, trace, usage_total, rnd, est,
+                            int(budget))
         try:
             data = _post_chat(build_body(spec, messages,
                                          tools=schemas if schemas else None),
@@ -472,6 +841,13 @@ def run_with_tools(spec: dict, messages: list, job_id: str) -> dict:
             return {"_error": _api_err_text(e), "tool_trace": trace}
         _acc_usage(usage_total, data.get("usage") or {})
         msg = _choice(data).get("message") or {}
+        if _empty_turn(msg):
+            log(job_dir, "助手轮 content/tool_calls 双空 → 不入上下文、不冒充终答"
+                         "（Pi⑦①）")
+            progress(job_dir, kind="error", round=rnd, where="loop",
+                     error="空助手轮（content 与 tool_calls 双空）")
+            return {"_error": "模型返回空助手轮（content 与 tool_calls 双空）",
+                    "tool_trace": trace}
         calls = msg.get("tool_calls") or []
         if not calls:
             out = {"content": msg.get("content") or "",
@@ -480,6 +856,10 @@ def run_with_tools(spec: dict, messages: list, job_id: str) -> dict:
                    "tool_trace": trace}
             if rnd > 0:
                 out["tool_rounds"] = rnd
+            progress(job_dir, kind="final", round=rnd,
+                     content_head=(msg.get("content") or "")[:200],
+                     usage_total=(usage_total or {}).get("total_tokens"),
+                     tool_rounds=rnd)
             return out
         if rnd >= max_rounds:  # 超轮次仍要求工具 → 强制终答
             try:
@@ -491,6 +871,8 @@ def run_with_tools(spec: dict, messages: list, job_id: str) -> dict:
             msg = _choice(data).get("message") or {}
             trace.append({"round": rnd, "tool": "_force_final",
                           "ok": True, "brief": "轮次上限，强制终答"})
+            progress(job_dir, kind="force_final", round=rnd,
+                     content_head=(msg.get("content") or "")[:200])
             return {"content": msg.get("content") or "",
                     "usage": usage_total,
                     "model": data.get("model") or spec["model"],
@@ -505,14 +887,22 @@ def run_with_tools(spec: dict, messages: list, job_id: str) -> dict:
                                       job_id,
                                       mdcg_root=spec.get("mdcg_root"),
                                       ws_backend=spec.get("web_search_backend"))
-            trace.append({"round": rnd, "tool": fn.get("name"),
-                          "args": (fn.get("arguments") or "")[:300],
-                          "ok": bool(out.get("ok")), "brief": brief,
-                          "result": json.dumps(out, ensure_ascii=False)[:800]})
+            full = json.dumps(out, ensure_ascii=False)
+            text, spill = _shrink_tool_text(full, job_dir,
+                                            f"{rnd}_{len(trace)}")
+            rec = {"round": rnd, "tool": fn.get("name"),
+                   "args": (fn.get("arguments") or "")[:300],
+                   "ok": bool(out.get("ok")), "brief": brief,
+                   "result": full[:800]}
+            if spill:
+                rec["spill"] = spill
+            trace.append(rec)
+            progress(job_dir, kind="tool", round=rnd, tool=fn.get("name"),
+                     ok=bool(out.get("ok")), brief=brief,
+                     evidence=full[:200], spill=spill or None)
             messages.append({
                 "role": "tool", "tool_call_id": tc.get("id") or "",
-                "content": json.dumps(out, ensure_ascii=False)
-                [:TOOL_MSG_MAX_CHARS]})
+                "content": text})
         rnd += 1
     return {"_error": "工具轮次循环异常退出（不应到达）", "tool_trace": trace}
 
@@ -540,30 +930,45 @@ def main() -> int:
         return EXIT_SPEC
 
     try:
-        messages = build_messages(spec, job_dir)
+        messages, ctx_meta = build_messages(spec, job_dir)
+        base_tokens = ctx_meta.get("image_tokens", 0)
         budget = spec.get("context_budget_tokens")
         if budget:
-            total = sum(est_tokens(m["content"]) for m in messages)
+            total = base_tokens + sum(est_tokens(m["content"]) for m in messages)
             if total > int(budget):
                 msg = (
                     f"上下文超预算: 保守估算 {total} tokens > 预算 {int(budget)}"
-                    "（估算偏高估；请分片任务或调大 context_budget_tokens）"
+                    + (f"（含图像折算 {base_tokens}）" if base_tokens else "")
+                    + "（估算偏高估；请分片任务或调大 context_budget_tokens）"
                 )
                 write_result(job_dir, {"ok": False, "error": msg})
                 log(job_dir, f"超预算拦截 est={total} budget={budget}")
+                progress(job_dir, kind="budget_stop", est_tokens=total,
+                         budget_tokens=int(budget), where="spec")
                 return EXIT_SPEC
-        n_ctx = len(spec.get("context_files") or [])
-        tool_names = [t for t in (spec.get("tools") or []) if t in TOOL_SCHEMAS]
+        n_ctx = ctx_meta.get("contexts", 0)
+        tool_names = [t for t in (spec.get("tools") or []) if t in all_schemas()]
         job_id = os.path.basename(os.path.normpath(job_dir))
         log(
             job_dir,
             f"开始调用 model={spec.get('model')} ctx={n_ctx}"
+            + (f" imgs={ctx_meta['images']}" if ctx_meta["images"] else "")
+            + (f" bins={ctx_meta['binaries']}" if ctx_meta["binaries"] else "")
+            + (f" base_tokens={base_tokens}" if base_tokens else "")
+            + (f" prompt_src={ctx_meta.get('system_prompt_source')}"
+               if ctx_meta.get("system_prompt_source") not in (None, "none") else "")
             + (f" effort={spec['reasoning_effort']}" if spec.get("reasoning_effort") else "")
             + (f" budget={budget}" if budget else "")
             + (f" tools={tool_names}" if tool_names else ""),
         )
+        progress(job_dir, kind="start", model=spec.get("model"), ctx_files=n_ctx,
+                 images=ctx_meta["images"], binaries=ctx_meta["binaries"],
+                 image_tokens=base_tokens,
+                 system_prompt_source=ctx_meta.get("system_prompt_source"),
+                 task=(spec.get("user_prompt") or "")[:200])
         if tool_names:
-            out = run_with_tools(spec, messages, job_id)
+            out = run_with_tools(spec, messages, job_id, job_dir=job_dir,
+                                 base_tokens=base_tokens)
             if "_error" in out:
                 write_result(
                     job_dir,
@@ -576,6 +981,8 @@ def main() -> int:
                     },
                 )
                 log(job_dir, f"工具链失败: {out['_error'][:200]}")
+                progress(job_dir, kind="error", error=out["_error"][:300],
+                         where="tool_loop")
                 return EXIT_API
         else:
             out = call_llm(spec, messages)
@@ -586,12 +993,24 @@ def main() -> int:
                 "duration_s": round(time.time() - t0, 2),
             }
         )
+        out["system_prompt_source"] = ctx_meta.get("system_prompt_source")
+        out["context_meta"] = {k: v for k, v in ctx_meta.items() if k != "notes"}
         write_result(job_dir, out)
         tokens = out.get("usage", {}).get("total_tokens")
         n_tools = len(out.get("tool_trace") or [])
         log(job_dir, f"完成 tokens={tokens}"
-            + (f" tool_calls={n_tools}" if n_tools else ""))
+            + (f" tool_calls={n_tools}" if n_tools else "")
+            + (" 交回续跑(need_continue)" if out.get("need_continue") else ""))
         return EXIT_OK
+    except SpecError as e:
+        write_result(
+            job_dir,
+            {"ok": False, "error": str(e),
+             "finished_ts": time.time(), "duration_s": round(time.time() - t0, 2)},
+        )
+        log(job_dir, f"规格错: {e}")
+        progress(job_dir, kind="error", error=str(e), where="spec")
+        return EXIT_SPEC
     except urllib.error.HTTPError as e:
         try:
             detail = e.read().decode("utf-8", errors="replace")[:2000]

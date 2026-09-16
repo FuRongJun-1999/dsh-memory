@@ -89,6 +89,203 @@ def _cell(text):
     return str(text).replace("|", "\\|").replace("\n", " ").strip()
 
 
+# ------------------------------------------------- 注入面发现（Pi⑦⑤：祖先链发现 + 防重复）
+# 依据：宿主 agent 的注入件**不是单点读取**——它从启动目录逐级上溯读同名件（AGENTS.md /
+# CLAUDE.md / CODEBUDDY.md），故「产物落在哪」不等于「宿主只读到这一份」。三个可机械裁决的判据：
+#   ① 同一物理文件被两个 target 写     → 后渲染者静默覆盖前者（写入冲突）；
+#   ② 仓根出现会**遮蔽**本地私有件的槽位件 → 本地纪律注入在该宿主下失效（§5 明文纪律的机械化）；
+#   ③ 同一条祖先链上并存同槽位件        → 宿主可能一并读到（重复注入）或按声明的择优顺序遮蔽，
+#      属**宿主侧事实**：本仓无权裁决，但必须被**发现并报告**（而不是假定不存在）。
+# 防重复（Pi⑦⑤ worktree）：去重落在**目录层**——走祖先链时按物理目录身份（realpath+normcase）
+# 折叠别名拼写，使 worktree / junction / 大小写别名下同一份件只被查一次。
+# 反面取舍已实证：按「git 仓身份 + 仓内相对路径」做键**会错**——worktree 与其主仓的 AGENTS.md
+# 是同相对路径但**物理不同的两个文件**（各自 checkout 一份），折叠即把真实的重复注入源静默藏起。
+# 故此类同仓不同物理文件只**标注**（wt_dups），不折叠。
+
+def norm_path(path):
+    """归一化路径键：realpath（解析符号链接 / junction）+ normcase（Windows 大小写不敏感）。"""
+    return os.path.normcase(os.path.realpath(os.path.abspath(path)))
+
+
+def _under(path, root):
+    """path 是否落在 root 之内（含 root 自身）——按路径分量比较，防 dsh-memory-x 前缀误判。"""
+    p, r = norm_path(path), norm_path(root)
+    return p == r or p.startswith(r.rstrip(os.sep) + os.sep)
+
+
+def injection_conf(matrix):
+    """注入面声明段（矩阵 injection:）；未声明则返回空 dict（本能力整体静默降级）。"""
+    return matrix.get("injection") or {}
+
+
+def slot_files(matrix, slot):
+    """该注入槽位的竞争文件名（有序 = 声明的宿主择优优先级，首项优先）。"""
+    slots = injection_conf(matrix).get("slots") or {}
+    return [str(x) for x in (slots.get(slot) or [])]
+
+
+def _walk_ancestors(path, stop=None):
+    """走祖先目录链，返回 (去重后的目录链, 被折叠的别名拼写)。
+
+    去重键 = norm_path（realpath + normcase），即**物理目录身份**：
+      · 同一物理目录经 junction / symlink / 大小写等别名在链上出现两次 → 只查一次，
+        第二次记为 alias（`{"dir","alias_of"}`）—— 这就是「防重复」在目录层的落点：
+        宿主逐级上溯时，同一份件只会被本工具发现一次，不会误报成两份。
+      · 退出条件二选一：命中 stop（stop 本身**含**进链）或到达盘根。dirname 严格变短，
+        故 junction 自环也不会死循环。
+    """
+    out, seen, alias = [], {}, []
+    cur = os.path.dirname(os.path.abspath(path))
+    stop_key = norm_path(stop) if stop else None
+    while True:
+        key = norm_path(cur)
+        if key in seen:
+            alias.append({"dir": cur, "alias_of": seen[key]})
+        else:
+            seen[key] = cur
+            out.append(cur)
+        if stop_key and key == stop_key:
+            break
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    return out, alias
+
+
+def ancestor_dirs(path, stop=None):
+    """祖先目录链（最近 → 最远）：起点 = path 所在目录，含其自身。
+
+    stop 给定时把 stop **含**进链后停止（仓内检查用 stop=仓根）；缺省一路到盘根
+    （宿主侧事实要能被看见，故默认不收窄）。
+    """
+    return _walk_ancestors(path, stop)[0]
+
+
+def ancestor_alias_hits(path, stop=None):
+    """链上被折叠掉的别名目录拼写（同一物理目录出现两次时的后来者）。"""
+    return _walk_ancestors(path, stop)[1]
+
+
+_GIT_ID_CACHE = {}
+
+
+def _git(args, cwd):
+    import subprocess
+    try:
+        r = subprocess.run(["git"] + list(args), cwd=cwd, capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=5)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def git_identity(path):
+    """(common_dir, 仓内相对路径) —— worktree 与主仓共享 common_dir，故「同一逻辑件」
+    （同仓同相对路径）在 worktree 副本里键相同 → 用于**标注**「同仓另一 worktree 亦有一份」。
+
+    非 git 环境或 git 不可用 → (None, None)：调用方退化为 realpath 去重（宁少报不误报）。
+    结果按目录缓存（一次校验内多次调用同一目录只起一个 git 进程）。
+    """
+    d = os.path.dirname(os.path.abspath(path))
+    if d in _GIT_ID_CACHE:
+        base = _GIT_ID_CACHE[d]
+    else:
+        probe = d
+        base = (None, None)
+        while True:
+            if os.path.exists(os.path.join(probe, ".git")):
+                top = _git(["rev-parse", "--show-toplevel"], probe)
+                common = (_git(["rev-parse", "--path-format=absolute",
+                                "--git-common-dir"], probe)
+                          or _git(["rev-parse", "--git-common-dir"], probe))
+                if top and common:
+                    if not os.path.isabs(common):
+                        common = os.path.join(probe, common)
+                    base = (norm_path(common), os.path.abspath(top))
+                break
+            parent = os.path.dirname(probe)
+            if parent == probe:
+                break
+            probe = parent
+        _GIT_ID_CACHE[d] = base
+    common, top = base
+    if not common:
+        return None, None
+    try:
+        rel = os.path.relpath(os.path.abspath(path), top).replace("\\", "/")
+    except ValueError:          # Windows 跨盘符
+        return None, None
+    return common, rel
+
+
+def artifact_sha(text):
+    """产物内嵌的真源指纹（『前16位：xxxxxxxxxxxxxxxx』）；无指纹（手工件/未渲染）→ None。"""
+    m = re.search(r"前16位[）：:]*\s*([0-9a-f]{16})", text or "")
+    return m.group(1) if m else None
+
+
+def discover_injection_chain(target, repo, matrix, scope=None):
+    """祖先链发现：列出这条链上与 target **同槽位**的注入件（事实清单，不做裁决）。
+
+    返回：
+      slot   槽位名（无槽位 / 非文件目标 → None，调用方据此跳过）
+      files  该槽位的竞争文件名（有序 = 声明优先级）
+      hits   [{"path","dir","tier","rank","self_rank","sha","same_name","repo_id"}]
+             tier=repo（仓内）/ outside（仓外，宿主侧事实）；rank < self_rank ⇒ 声明顺序下自身被遮蔽
+      dedup  [{"dir","alias_of"}]   同一**物理目录**经别名在链上出现两次 → 折叠（防重复）
+      wt_dups [{"path","alias_of"}] 同仓（git common_dir + 相对路径相同）但**物理不同**的份
+    """
+    slot = target.get("slot")
+    if target.get("transport") != "file" or not slot:
+        return {"slot": None, "files": [], "hits": [], "dedup": [], "wt_dups": []}
+    files = slot_files(matrix, slot)
+    if not files:
+        return {"slot": None, "files": [], "hits": [], "dedup": [], "wt_dups": []}
+
+    scope = scope or injection_conf(matrix).get("chain_scope") or "filesystem"
+    stop = os.path.abspath(repo) if scope == "repo" else None
+    tpath = expand(target["path"], repo)
+    self_key, self_name = norm_path(tpath), os.path.basename(tpath)
+    self_rank = files.index(self_name) if self_name in files else len(files)
+
+    dirs, dedup = _walk_ancestors(tpath, stop=stop)
+    hits = []
+    for d in dirs:
+        for fn in files:
+            p = os.path.join(d, fn)
+            if not os.path.isfile(p):
+                continue
+            if norm_path(p) == self_key:
+                continue                      # 自身
+            try:
+                with io.open(p, encoding="utf-8", errors="replace") as f:
+                    sha = artifact_sha(f.read(65536))
+            except OSError:
+                sha = None
+            common, rel = git_identity(p)
+            hits.append({"path": p, "dir": d,
+                         "tier": "repo" if _under(d, repo) else "outside",
+                         "rank": files.index(fn), "self_rank": self_rank,
+                         "sha": sha, "same_name": fn == self_name,
+                         "repo_id": (common, rel) if common else None})
+
+    # worktree 重复发现（Pi⑦⑤）：同仓同相对路径的另一份 = **物理不同的另一个文件**。
+    # 关键取舍：**不折叠**——折叠会把「两份都可能被宿主读到的注入源」静默藏起来，
+    # 与去重的初衷（防止把同一份误报两次）相反。故只标注，由报告面交人裁决。
+    wt_dups, by_repo = [], {}
+    for h in hits:
+        if not h["repo_id"]:
+            continue
+        seen_p = by_repo.get(h["repo_id"])
+        if seen_p and norm_path(seen_p) != norm_path(h["path"]):
+            wt_dups.append({"path": h["path"], "alias_of": seen_p})
+        else:
+            by_repo.setdefault(h["repo_id"], h["path"])
+    return {"slot": slot, "files": files, "hits": hits, "dedup": dedup,
+            "wt_dups": wt_dups}
+
+
 def render_routing_compact(nodes):
     out = []
     for i, n in enumerate(nodes, 1):

@@ -176,6 +176,13 @@ fn cmd_submit(args: &[String], jobs: PathBuf) -> i32 {
 }
 
 /// result 摘要（content 截断到 head 字符，防控制台/MCP 上下文爆炸）。
+///
+/// 交接面透出（v0.4 §5.3 换人续跑）：exec.py 达预算交回时写
+/// `need_continue=true` + `completed=false` + `handoff` 卡——旧版此摘要只白名单
+/// 抽 content/usage/result_path，把交接信号丢在 result.json 里，主代理 CLI
+/// poll 面看不见、无法裁决续跑。故此处透出交接四字段 + 派生 handoff_ready
+/// （need_continue==true 且 completed!=true，一眼可判；原始字段仍如实透传，
+/// 缺失=Null 以区分「旧执行器/未标」与「显式 false」）。
 fn result_summary(dir: &std::path::Path, head: usize) -> Json {
     let p = dir.join("result.json");
     if !p.is_file() {
@@ -186,6 +193,9 @@ fn result_summary(dir: &std::path::Path, head: usize) -> Json {
             let content = r.get("content").and_then(|v| v.as_str()).unwrap_or("");
             let truncated = content.chars().count() > head;
             let cut: String = content.chars().take(head).collect();
+            let g = |k: &str| r.get(k).cloned().unwrap_or(Json::Null);
+            let need = matches!(r.get("need_continue"), Some(Json::Bool(true)));
+            let done = matches!(r.get("completed"), Some(Json::Bool(true)));
             Json::Obj(vec![
                 ("content_head".to_string(), Json::Str(cut)),
                 ("content_truncated".to_string(), Json::Bool(truncated)),
@@ -197,6 +207,14 @@ fn result_summary(dir: &std::path::Path, head: usize) -> Json {
                     "result_path".to_string(),
                     Json::Str(p.to_string_lossy().to_string()),
                 ),
+                ("completed".to_string(), g("completed")),
+                ("need_continue".to_string(), g("need_continue")),
+                (
+                    "handoff_ready".to_string(),
+                    Json::Bool(need && !done),
+                ),
+                ("handoff".to_string(), g("handoff")),
+                ("tool_rounds".to_string(), g("tool_rounds")),
             ])
         }
         Err(e) => Json::Obj(vec![(
@@ -382,4 +400,103 @@ fn cmd_doctor(jobs: PathBuf) -> i32 {
         ])
     );
     0
+}
+
+// ------------------------------------------------------------------ 单元测试
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 唯一临时目录（std 无 tempdir；标签+pid+纳秒防并行同名）。
+    fn tmpdir(tag: &str) -> PathBuf {
+        let mut p = std::env::temp_dir();
+        let ns = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        p.push(format!("hive_main_{}_{}_{}", tag, std::process::id(), ns));
+        std::fs::create_dir_all(&p).expect("建临时目录");
+        p
+    }
+
+    /// 交回卡（达预算换人续跑）：交接四字段 + handoff_ready 派生须透出。
+    #[test]
+    fn result_summary_exposes_handoff() {
+        let d = tmpdir("handoff");
+        let body = concat!(
+            r#"{"job_id":"j1","content":"进展摘要","completed":false,"#,
+            r#""need_continue":true,"tool_rounds":12,"#,
+            r#""handoff":{"steps_done":7,"next":"继续对齐 wm 白名单"},"#,
+            r#""usage":{"total_tokens":200000}}"#
+        );
+        std::fs::write(d.join("result.json"), body).unwrap();
+        let s = result_summary(&d, 1000);
+        assert_eq!(s.get("need_continue"), Some(&Json::Bool(true)));
+        assert_eq!(s.get("completed"), Some(&Json::Bool(false)));
+        assert_eq!(s.get("handoff_ready"), Some(&Json::Bool(true)));
+        assert_eq!(s.get("tool_rounds"), Some(&Json::Num(12.0)));
+        assert_eq!(
+            s.get("handoff").and_then(|h| h.get("steps_done")),
+            Some(&Json::Num(7.0))
+        );
+        assert_eq!(
+            s.get("handoff").and_then(|h| h.get("next")).and_then(|v| v.as_str()),
+            Some("继续对齐 wm 白名单")
+        );
+        assert_eq!(
+            s.get("usage").and_then(|u| u.get("total_tokens")),
+            Some(&Json::Num(200000.0))
+        );
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// 正常终态：completed=true → handoff_ready=false（不误报需要续跑）。
+    #[test]
+    fn result_summary_completed_is_not_handoff() {
+        let d = tmpdir("done");
+        std::fs::write(
+            d.join("result.json"),
+            r#"{"content":"done","completed":true,"need_continue":false}"#,
+        )
+        .unwrap();
+        let s = result_summary(&d, 1000);
+        assert_eq!(s.get("handoff_ready"), Some(&Json::Bool(false)));
+        assert_eq!(s.get("need_continue"), Some(&Json::Bool(false)));
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// 旧执行器/未标字段：如实透传 Null，不伪造 false（区分「未标」与「显式否」）。
+    #[test]
+    fn result_summary_missing_fields_stay_null() {
+        let d = tmpdir("legacy");
+        std::fs::write(d.join("result.json"), r#"{"content":"legacy"}"#).unwrap();
+        let s = result_summary(&d, 1000);
+        assert_eq!(s.get("need_continue"), Some(&Json::Null));
+        assert_eq!(s.get("completed"), Some(&Json::Null));
+        assert_eq!(s.get("handoff"), Some(&Json::Null));
+        assert_eq!(s.get("handoff_ready"), Some(&Json::Bool(false)));
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    /// content 超 head 截断 + 标记；无 result.json → Null。
+    #[test]
+    fn result_summary_truncates_and_handles_absent() {
+        let d = tmpdir("clip");
+        std::fs::write(
+            d.join("result.json"),
+            r#"{"content":"abcdefghij","completed":true}"#,
+        )
+        .unwrap();
+        let s = result_summary(&d, 4);
+        assert_eq!(
+            s.get("content_head").and_then(|v| v.as_str()),
+            Some("abcd")
+        );
+        assert_eq!(s.get("content_truncated"), Some(&Json::Bool(true)));
+        let empty = tmpdir("absent");
+        assert_eq!(result_summary(&empty, 100), Json::Null);
+        std::fs::remove_dir_all(&d).ok();
+        std::fs::remove_dir_all(&empty).ok();
+    }
 }

@@ -16,14 +16,23 @@ worker 的写权限被结构性限制在自己的 job 目录内（位置效应�
 用法（输出统一单行 JSON，对齐 hive CLI 风格）：
     python hive/wm.py init     [--wm DIR]
     python hive/wm.py snapshot --job JOB_DIR --wm DIR [--artifacts A1,A2] [--branch B]
+    python hive/wm.py progress [--job JOB_DIR] [--wm DIR --job-id ID] [--limit N]
     python hive/wm.py merge    --branch B --wm DIR
     python hive/wm.py log      --wm DIR [--branch B] [--limit N]
     python hive/wm.py revert   --commit SHA --wm DIR
     python hive/wm.py status   --wm DIR
 
 分支命名：task/<job_id>（默认取 result.json 的 job_id 字段，缺失用目录名）。
-提交物白名单：spec.json + result.json（必须）+ log.txt（可选）+ --artifacts（可选）。
+提交物白名单：spec.json + result.json（必须）+ progress.jsonl + log.txt（可选）
+              + --artifacts（可选）。
 内容推送 GitHub 前须过第 14 条双清单；默认只存本地 / 推私有仓。
+
+进展面（v0.4 §5.3 满上下文换人续跑，2026-09-16）：
+  worker（exec.py）在自己 job 目录追加 progress.jsonl（start/tool/final/handoff/
+  error 五类条目）——worker 零 git 依赖，进展只写自家目录。主代理两处消费：
+  ① snapshot 时按白名单纳入（本条），② progress 子命令读回以组装续跑提示词。
+  达预算交回（result.need_continue=true）时，progress 子命令聚合透出 handoff 卡；
+  是否续跑由主代理裁决，wm 不自动续跑（与 exec.py 同契约）。
 """
 from __future__ import annotations
 
@@ -37,6 +46,9 @@ import sys
 EXIT_OK = 0
 EXIT_FAIL = 1
 EXIT_USAGE = 2
+
+#: 进展卡文件名（与 hive/exec.py PROGRESS_FILE 同源契约，改一处须同步另一处）
+PROGRESS_FILE = "progress.jsonl"
 
 WM_DEFAULT = os.environ.get("HIVE_WM_DIR")
 if not WM_DEFAULT:
@@ -125,6 +137,12 @@ def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
     log_path = os.path.join(job, "log.txt")
     if os.path.isfile(log_path):
         shutil.copy2(log_path, os.path.join(dest, "log.txt"))
+    # 进展卡（v0.4 §5.3）：worker 写的交接面随快照入库，续跑/复盘才有据可依。
+    # 可选件——短任务（无工具轮次）不产生 progress，缺省不报错。
+    prog_path = os.path.join(job, PROGRESS_FILE)
+    has_progress = os.path.isfile(prog_path)
+    if has_progress:
+        shutil.copy2(prog_path, os.path.join(dest, PROGRESS_FILE))
     art_names: list[str] = []
     if artifacts:
         os.makedirs(os.path.join(dest, "artifacts"), exist_ok=True)
@@ -145,7 +163,91 @@ def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
     head = _git_ok(wm, "rev-parse", "--short", "HEAD").strip()
     _git_ok(wm, "checkout", "main")
     return {"ok": True, "job_id": job_id, "branch": branch, "commit": head,
-            "artifacts": art_names, "message": msg}
+            "artifacts": art_names, "progress": has_progress, "message": msg}
+
+
+# ---------------------------------------------------------------- 进展面读取
+
+def _parse_progress(lines, limit: int) -> tuple[list[dict], int]:
+    """解析进展卡行流：返回 (尾部 limit 条, 总行数)。坏行跳过不炸（诚实降级）。"""
+    entries: list[dict] = []
+    total = 0
+    for ln in lines:
+        ln = ln.strip()
+        if not ln:
+            continue
+        total += 1
+        try:
+            entries.append(json.loads(ln))
+        except json.JSONDecodeError:
+            continue
+    return (entries[-limit:] if limit > 0 else entries), total
+
+
+def _read_progress(path: str, limit: int) -> tuple[list[dict], int]:
+    """读工作区进展卡文件（委托 _parse_progress）。"""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return _parse_progress(f, limit)
+
+
+def cmd_progress(job: str | None = None, wm: str | None = None,
+                 job_id: str | None = None, limit: int = 50) -> dict:
+    """读进展卡（换人续跑的交接面）。
+
+    两种来源（恰需其一）：
+      --job JOB_DIR               运行中/未快照的 job 目录（worker 直写处）
+      --wm DIR --job-id ID        已快照入库的进展
+
+    已快照来源自动走**两级查找**（取证 2026-09-16）：cmd_snapshot 提交后把
+    HEAD 还原到 main，产物只存在于 `task/<job_id>` 分支——工作区直读必然落空。
+    故 ①先看工作区 `<wm>/jobs/<ID>/progress.jsonl`（分支被 merge 或手工
+    checkout 后的形态），②落空则 `git show task/<ID>:jobs/<ID>/progress.jsonl`
+    从分支读。两级皆空才判缺（避免「已快照」被误报成「无进展」）。
+
+    返回 entries（尾部 limit 条）+ handoff 聚合卡 + 逐类计数 + ref（读取出
+    处，诊断可见），供主代理组装续跑提示词；续跑与否仍由主代理裁决
+    （auto_continue 恒 false）。
+    """
+    if job and (wm or job_id):
+        return {"ok": False, "error": "二选一：--job 或 --wm+--job-id，不可并用"}
+    if job:
+        path = os.path.join(os.path.abspath(job), PROGRESS_FILE)
+        if not os.path.isfile(path):
+            return {"ok": False, "source": "job", "path": path,
+                    "error": f"进展卡不存在: {path}",
+                    "hint": "短任务（无工具轮次）不产生进展卡属正常；"
+                            "若预期有进展，核对 job 目录与 --job-id"}
+        entries, total = _read_progress(path, limit)
+        ref, source = path, "job"
+    elif wm and job_id:
+        wm = os.path.abspath(wm)
+        path = os.path.join(wm, "jobs", job_id, PROGRESS_FILE)
+        if os.path.isfile(path):
+            entries, total = _read_progress(path, limit)
+            ref, source = path, "wm"
+        else:
+            branch = f"task/{job_id}"
+            rel = f"jobs/{job_id}/{PROGRESS_FILE}"
+            r = _git(wm, "show", f"{branch}:{rel}")
+            if r.returncode != 0:
+                return {
+                    "ok": False, "source": "wm", "path": path,
+                    "error": f"进展卡不存在: 工作区与分支 {branch} 均无 {rel}",
+                    "hint": "核对 --job-id 是否拼写正确、或该 job 是否已 snapshot；"
+                            "短任务（无工具轮次）不产生进展卡属正常",
+                }
+            entries, total = _parse_progress(r.stdout.splitlines(), limit)
+            ref, source = f"{branch}:{rel}", "wm_branch"
+    else:
+        return {"ok": False, "error": "需 --job JOB_DIR 或 --wm DIR --job-id ID"}
+    kinds: dict[str, int] = {}
+    for e in entries:
+        k = str(e.get("kind") or "?")
+        kinds[k] = kinds.get(k, 0) + 1
+    handoff = next((e for e in reversed(entries) if e.get("kind") == "handoff"), None)
+    return {"ok": True, "source": source, "path": path, "ref": ref,
+            "count": len(entries), "total": total, "kinds": kinds,
+            "handoff": handoff, "entries": entries}
 
 
 def cmd_merge(branch: str, wm: str) -> dict:
@@ -220,6 +322,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--artifacts", default=None, help="逗号分隔的产物文件（相对 job 或绝对）")
     p.add_argument("--branch", default=None, help="默认 task/<job_id>")
 
+    p = sub.add_parser("progress")
+    p.add_argument("--job", default=None, help="job 目录（运行中/未快照）")
+    p.add_argument("--wm", default=None, help="已快照来源：工作记忆仓")
+    p.add_argument("--job-id", default=None, dest="job_id",
+                   help="已快照来源：job id（配 --wm）")
+    p.add_argument("--limit", type=int, default=50, help="取尾部 N 条，0=全量")
+
     p = sub.add_parser("merge")
     p.add_argument("--branch", required=True)
     p.add_argument("--wm", default=WM_DEFAULT)
@@ -242,6 +351,8 @@ def main(argv: list[str] | None = None) -> int:
             out = cmd_init(args.wm)
         elif args.cmd == "snapshot":
             out = cmd_snapshot(args.job, args.wm, args.artifacts, args.branch)
+        elif args.cmd == "progress":
+            out = cmd_progress(args.job, args.wm, args.job_id, args.limit)
         elif args.cmd == "merge":
             out = cmd_merge(args.branch, args.wm)
         elif args.cmd == "log":

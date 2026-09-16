@@ -10,10 +10,12 @@
   md_cg/      test_*.py → python -m md_cg.<name>
   compiler/   tests/*.py（脚本式 assert+sys.exit）→ -m compiler.tests.<name>
   swarm/      tests/*.py（脚本式 assert+sys.exit）→ -m swarm.tests.<name>
+  scripts/    test_*.py（脚本式，非包无 __init__）→ 直跑 python scripts/<name>.py
+  hive/       test_*.py（包内，脚本式）→ python -m hive.<name>
 
 用法（任意 cwd 均可，内部以仓库根为 subprocess cwd）：
   python scripts/run_tests.py                  # 全量
-  python scripts/run_tests.py md_cg            # 只跑一组：md_cg | compiler | swarm
+  python scripts/run_tests.py md_cg            # 只跑一组：md_cg | compiler | swarm | scripts | hive
   python scripts/run_tests.py -k p44           # 按关键字过滤模块名
   python scripts/run_tests.py --jobs 1         # 串行（默认并发 4）
   python scripts/run_tests.py --list           # 只列出目标不执行
@@ -49,6 +51,18 @@ def _discover():
                         [[sys.executable, "-X", "utf8", "-m",
                           f"{pkg}.tests.{stem}"],
                          [sys.executable, "-X", "utf8", f]]))
+    # scripts/ 不是包（无 __init__.py）→ 只能直跑；脚本内自带 sys.path 注入
+    for f in sorted(glob.glob(os.path.join(_REPO, "scripts", "test_*.py"))):
+        stem = os.path.splitext(os.path.basename(f))[0]
+        out.append(("scripts", f"scripts.{stem}",
+                    [[sys.executable, "-X", "utf8", f]]))
+    # hive/ 是包（有 __init__.py，与 md_cg 同形）→ -m 优先；测试内用 importlib
+    # 直载 exec.py/wm.py，-m 下 __file__ 正常，故回退直跑同样可用。
+    for f in sorted(glob.glob(os.path.join(_REPO, "hive", "test_*.py"))):
+        stem = os.path.splitext(os.path.basename(f))[0]
+        out.append(("hive", f"hive.{stem}",
+                    [[sys.executable, "-X", "utf8", "-m", f"hive.{stem}"],
+                     [sys.executable, "-X", "utf8", f]]))
     return out
 
 
@@ -103,14 +117,15 @@ def main():
     # 注：不用 argparse choices——部分 Python 版本对 nargs="*" 无值时
     # 以空列表过 choices 校验会误报 invalid choice（bpo-27227 老行为）。
     ap.add_argument("group", nargs="*", default=None,
-                    help="只跑指定组，可多选：md_cg compiler swarm（缺省全量）")
+                    help="只跑指定组，可多选：md_cg compiler swarm scripts hive"
+                         "（缺省全量）")
     ap.add_argument("-k", default="", help="按关键字过滤模块名")
     ap.add_argument("--jobs", type=int, default=4, help="并发数（默认 4）")
     ap.add_argument("--timeout", type=int, default=900, help="单测超时秒数")
     ap.add_argument("--list", action="store_true", help="只列出目标不执行")
     args = ap.parse_args()
 
-    _known = ("md_cg", "compiler", "swarm")
+    _known = ("md_cg", "compiler", "swarm", "scripts", "hive")
     _bad = [g for g in (args.group or ()) if g not in _known]
     if _bad:
         ap.error(f"invalid group: {', '.join(_bad)}（可选：{'/'.join(_known)}）")

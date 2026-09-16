@@ -224,7 +224,7 @@ with mock.patch.object(ex, "_post_chat", side_effect=err):
 check("D10 HTTP 错误收敛为 _error+trace 保留",
       "_error" in out and "500" in out["_error"] and "tool_trace" in out)
 
-# 预算拦截：工具轮累积超预算
+# 预算拦截：工具轮累积超预算 → 默认交回续跑（v0.4 §5.3 换人续跑）
 big_tool = json.loads(json.dumps(resp_route))
 big_tool["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] = \
     json.dumps({"op": "read", "query": "x"})
@@ -233,8 +233,90 @@ with mock.patch.object(ex, "_post_chat", side_effect=lambda b, t: seq.pop(0)):
     out = ex.run_with_tools({"model": "m1", "tools": ["lingshu_cg"],
                              "context_budget_tokens": 10},
                             [{"role": "user", "content": "q"}], "job_d")
-check("D11 工具轮超预算诚实终止", "_error" in out
-      and "超预算" in out["_error"], str(out)[:200])
+check("D11 超预算默认交回（不 fail）：need_continue+completed=false",
+      "_error" not in out and out.get("need_continue") is True
+      and out.get("completed") is False and out["handoff"]["reason"]
+      == "context_budget" and "交回续跑" in out["content"], str(out)[:300])
+check("D11b 交回带完整交接字段（预算/轮次/进展卡/不自动续跑）",
+      out["handoff"]["budget_tokens"] == 10
+      and out["handoff"]["progress_file"] == ex.PROGRESS_FILE
+      and out["handoff"]["auto_continue"] is False
+      and out["handoff"]["est_tokens"] >= 10, str(out["handoff"]))
+
+# context_strict=true → 保持旧 fail fast（历史行为，逐位兼容）
+seq = [json.loads(json.dumps(big_tool))]
+with mock.patch.object(ex, "_post_chat", side_effect=lambda b, t: seq.pop(0)):
+    out = ex.run_with_tools({"model": "m1", "tools": ["lingshu_cg"],
+                             "context_budget_tokens": 10,
+                             "context_strict": True},
+                            [{"role": "user", "content": "q"}], "job_d")
+check("D11c context_strict=true 保持旧 fail fast",
+      "_error" in out and "超预算" in out["_error"]
+      and "need_continue" not in out, str(out)[:200])
+
+# 大工具输出：全量落盘 + 回喂消息保尾（Pi⑦③）
+tmp_job = tempfile.mkdtemp(prefix="hive_exec_job_")
+seq = [json.loads(json.dumps(resp_route)), json.loads(json.dumps(resp_final))]
+captured.clear()
+with mock.patch.object(ex, "execute_tool",
+                       side_effect=lambda *a, **k: (
+                           {"ok": True, "blob": "B" * 9000}, "big")), \
+        mock.patch.object(ex, "_post_chat", side_effect=_cap):
+    out = ex.run_with_tools({"model": "m1", "tools": ["lingshu_cg"]},
+                            [{"role": "user", "content": "q"}], "job_d",
+                            job_dir=tmp_job)
+tool_msg = [m for m in captured[-1]["messages"] if m["role"] == "tool"][0]
+spill = out["tool_trace"][0].get("spill")
+check("D12 大输出落盘 job 目录（trace 留名）",
+      bool(spill) and os.path.isfile(os.path.join(tmp_job, spill))
+      and len(open(os.path.join(tmp_job, spill), encoding="utf-8").read()) > 9000,
+      str(spill))
+check("D12b 回喂消息保尾 + 非静默省略提示",
+      len(tool_msg["content"]) <= ex.TOOL_MSG_MAX_CHARS + 200
+      and "中间省略" in tool_msg["content"]
+      and tool_msg["content"].endswith('B"}\n'.strip())
+      and tool_msg["content"].count("B") > 1000
+      and "tool_0_0.json" in tool_msg["content"],
+      str(len(tool_msg["content"])))
+check("D12c 进展卡逐轮留痕（tool/final 两类条目）",
+      os.path.isfile(os.path.join(tmp_job, ex.PROGRESS_FILE)))
+_pe = [json.loads(x) for x in open(os.path.join(tmp_job, ex.PROGRESS_FILE),
+                                   encoding="utf-8") if x.strip()]
+check("D12d 进展条目含步骤/证据/时间戳",
+      [e["kind"] for e in _pe] == ["tool", "final"]
+      and _pe[0]["tool"] == "lingshu_cg" and _pe[0]["round"] == 0
+      and bool(_pe[0]["evidence"]) and isinstance(_pe[0]["ts"], float), str(_pe))
+
+# 双空助手轮不入上下文（Pi⑦①）
+seq = [{"choices": [{"message": {"content": "   "}}], "usage": {}, "model": "m1"}]
+with mock.patch.object(ex, "_post_chat", side_effect=lambda b, t: seq.pop(0)):
+    out = ex.run_with_tools({"model": "m1", "tools": ["lingshu_cg"]},
+                            [{"role": "user", "content": "q"}], "job_d")
+check("D13 双空助手轮不追加且诚实报错（Pi⑦①）",
+      "_error" in out and "空助手轮" in out["_error"], str(out)[:200])
+
+# API 错误后 messages 无空洞 assistant 轮（Pi⑦① 回归守卫）
+captured.clear()
+_seq2 = [json.loads(json.dumps(resp_route)),
+         urllib.error.HTTPError("u", 503, "boom", {}, io.BytesIO(b"e"))]
+
+
+def _cap2(body, t):
+    captured.append(json.loads(json.dumps(body)))
+    nxt = _seq2.pop(0)
+    if isinstance(nxt, Exception):
+        raise nxt
+    return nxt
+
+
+with mock.patch.object(ex, "_post_chat", side_effect=_cap2):
+    out = ex.run_with_tools({"model": "m1", "tools": ["lingshu_cg"]},
+                            [{"role": "user", "content": "q"}], "job_d")
+_bad = [m for m in captured[-1]["messages"]
+        if m["role"] == "assistant" and not m.get("tool_calls")
+        and not (m.get("content") or "").strip()]
+check("D14 失败轮不产生空洞 assistant 消息（Pi⑦①）",
+      "_error" in out and not _bad, str(captured[-1]["messages"])[:200])
 
 # ---------------------------------------------------------------- E 无工具路径等价
 print("[E] 无 tools 时保持单发历史路径")
@@ -245,6 +327,85 @@ body2 = ex.build_body({"model": "m"}, [{"role": "user", "content": "hi"}],
                       tools=[ex.TOOL_SCHEMAS["web_search"]])
 check("E2 tools 参数注入", body2.get("tools")
       and body2["tools"][0]["function"]["name"] == "web_search")
+
+# ---------------------------------------------------------------- F 上下文护栏
+print("[F] build_messages 上下文护栏（Pi⑦④ 图像/二进制 + ⑥ 提示词真源）")
+ctx_ws = tempfile.mkdtemp(prefix="hive_exec_ctx_")
+png = (b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR"
+       + (3000).to_bytes(4, "big") + (120).to_bytes(4, "big") + b"\x08\x06\x00")
+jpeg = (b"\xff\xd8" + b"\xff\xe0" + (16).to_bytes(2, "big") + b"\x00" * 14
+        + b"\xff\xc0" + (17).to_bytes(2, "big") + b"\x08"
+        + (600).to_bytes(2, "big") + (800).to_bytes(2, "big") + b"\x00" * 12)
+txt = "正文一\n" + "行" * 5
+binf = b"PK\x03\x04" + b"\x00" * 64 + b"\x01\x02"
+open(os.path.join(ctx_ws, "big.png"), "wb").write(png)
+open(os.path.join(ctx_ws, "photo.jpg"), "wb").write(jpeg)
+open(os.path.join(ctx_ws, "notes.txt"), "w", encoding="utf-8").write(txt)
+open(os.path.join(ctx_ws, "archive.bin"), "wb").write(binf)
+
+check("F1 尺寸探测（PNG IHDR / JPEG SOFn / 文本→未知）",
+      ex.image_size(os.path.join(ctx_ws, "big.png")) == (3000, 120)
+      and ex.image_size(os.path.join(ctx_ws, "photo.jpg")) == (800, 600)
+      and ex.image_size(os.path.join(ctx_ws, "notes.txt")) == (None, None),
+      str(ex.image_size(os.path.join(ctx_ws, "photo.jpg"))))
+check("F1b 类型嗅探不把二进制当文本",
+      ex.sniff_kind(png) == "image:png" and ex.sniff_kind(binf) == "binary"
+      and ex.sniff_kind(txt.encode("utf-8")) == "text")
+
+msgs, meta = ex.build_messages(
+    {"workdir": ctx_ws, "user_prompt": "看这些文件",
+     "context_files": ["big.png", "photo.jpg", "notes.txt", "archive.bin"]},
+    tmp_job)
+_user = [m for m in msgs if m["role"] == "user"][0]["content"]
+check("F2 图像不读内容 + 尺寸/超限/未压缩如实登记",
+      "kind=\"image\"" in _user and "width=\"3000\"" in _user
+      and "oversize=\"true\"" in _user and "compressed=\"false\"" in _user
+      and "先压缩" in _user and "3000x120" in _user, _user[:300])
+check("F3 二进制不读内容（NUL 哨兵不进正文）",
+      "kind=\"binary\"" in _user and "PK\x03\x04" not in _user)
+check("F4 文本块行为不变（逐字全文）",
+      f'<context path="notes.txt">\n{txt}\n</context>' in _user)
+check("F5 图像计入预算折算（4800 字符/张 → est_tokens=1200）",
+      meta["images"] == 2 and meta["binaries"] == 1
+      and meta["image_tokens"] == 2 * ex.IMAGE_EST_TOKENS
+      and ex.IMAGE_EST_TOKENS == 1200, str(meta))
+check("F5b 未压缩图像同样计入（预算口径不因阈值豁免）",
+      meta["image_tokens"] == 2400, str(meta["image_tokens"]))
+
+# base_tokens（图像折算）参与预算判定 → 交回续跑
+_seq3 = [json.loads(json.dumps(resp_route))]
+with mock.patch.object(ex, "_post_chat", side_effect=lambda b, t: _seq3.pop(0)):
+    out = ex.run_with_tools({"model": "m1", "tools": ["lingshu_cg"],
+                             "context_budget_tokens": 1300},
+                            [{"role": "user", "content": "q"}], "job_d",
+                            base_tokens=ex.IMAGE_EST_TOKENS)
+check("F6 图像折算计入预算（base_tokens 阻塞于首轮）",
+      out.get("need_continue") is True
+      and out["handoff"]["est_tokens"] >= ex.IMAGE_EST_TOKENS, str(out)[:200])
+
+# system prompt 真源（Pi⑦⑥）：声明 from → 每次执行重建；缺文件 fail-closed
+pfile = os.path.join(ctx_ws, "prompt.md")
+open(pfile, "w", encoding="utf-8").write("纪律真源 v1")
+_s, src = ex.resolve_system_prompt({"system_prompt_from": "prompt.md",
+                                    "workdir": ctx_ws,
+                                    "system_prompt": "旧提示词"}, tmp_job)
+check("F7 system_prompt_from 重建覆盖旧字面量",
+      _s == "纪律真源 v1" and src == "file:prompt.md", f"{_s!r}/{src}")
+open(pfile, "w", encoding="utf-8").write("纪律真源 v2（已更新）")
+_s2, _ = ex.resolve_system_prompt({"system_prompt_from": "prompt.md",
+                                   "workdir": ctx_ws}, tmp_job)
+check("F7b 同 spec 重跑取到最新真源（崩溃重投不复用旧提示词）",
+      _s2 == "纪律真源 v2（已更新）", _s2)
+try:
+    ex.resolve_system_prompt({"system_prompt_from": "nope.md",
+                              "workdir": ctx_ws}, tmp_job)
+    _raised = False
+except ex.SpecError:
+    _raised = True
+check("F8 真源缺失 fail-closed（不回落旧提示词）", _raised)
+_lit, src_lit = ex.resolve_system_prompt({"system_prompt": "字面量"}, tmp_job)
+check("F9 未声明 from 时行为逐位兼容（literal 标签）",
+      _lit == "字面量" and src_lit == "literal")
 
 print(f"\n结果：{PASS} 通过 / {FAIL} 失败")
 sys.exit(1 if FAIL else 0)

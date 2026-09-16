@@ -149,12 +149,29 @@ def _render(steps: list, elapsed: float, note: str = "") -> str:
     return "\n".join(lines)
 
 
-def _delegate(job_dir: str) -> int:
-    """无命令 → 转发 exec.py（LLM 委托型），行为逐位不变。"""
-    exe = os.environ.get("HIVE_LLM_EXEC_PY") or \
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "exec.py")
+def _delegate(job_dir: str, spec: dict | None = None) -> int:
+    """无命令 → 转发执行器：`spec.orchestrate` 真值 → orch.py（编排器），否则 exec.py。
+
+    为什么分档落在**转发层**而不是 exec.py 内部：编排器是独立 worker（要注册编排
+    工具、把身份换成派生令牌编排器），放转发层后 exec.py 的累积式修复面零触碰
+    （2026-09-16 Q1 裁定）。HIVE_ORCH_PY 可覆盖编排器路径（对称于 HIVE_LLM_EXEC_PY）。
+    """
+    if spec is None:
+        try:
+            with open(os.path.join(job_dir, "spec.json"), encoding="utf-8") as f:
+                spec = json.load(f)
+        except (OSError, ValueError):
+            spec = {}
+    here = os.path.dirname(os.path.abspath(__file__))
+    if spec.get("orchestrate"):
+        exe = os.environ.get("HIVE_ORCH_PY") or os.path.join(here, "orch.py")
+        what = "orch.py（编排器）"
+    else:
+        exe = os.environ.get("HIVE_LLM_EXEC_PY") or os.path.join(here, "exec.py")
+        what = "exec.py（LLM 委托）"
     if not os.path.isfile(exe):
-        return _fail(job_dir, f"spec 无 command/commands，需 LLM 委托但未找到 exec.py：{exe}", EXIT_EXEC)
+        return _fail(job_dir, f"spec 无 command/commands，需转发 {what} 但未找到：{exe}",
+                     EXIT_EXEC)
     p = subprocess.run([sys.executable, exe, job_dir], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     if p.stdout:
@@ -176,7 +193,7 @@ def run_cmd(job_dir: str) -> int:
     if err:
         return _fail(job_dir, err, EXIT_SPEC)
     if steps is None:
-        return _delegate(job_dir)
+        return _delegate(job_dir, spec)
 
     env = {str(k): str(v) for k, v in (spec.get("env") or {}).items()}
     env = {**os.environ, **env}

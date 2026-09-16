@@ -20,6 +20,8 @@ import os
 import re
 import json
 import time
+import atexit
+import weakref
 import hashlib
 import threading
 
@@ -57,6 +59,35 @@ DEFAULT_RECENT_WINDOW = 200
 
 # 全量回退的读取上限，对齐 sqlite 版 `ORDER BY importance DESC, created_at DESC LIMIT 500`
 GLOBAL_CAP = 500
+
+# ---------- 索引持久化 · 进程退出兜底（2026-09-16 取证） ----------
+# 脏索引（`_dirty`）靠调用方显式 flush()/close() 落分片日志。一次性脚本/CLI
+# （review_cli、backfill、migrate_* 等）写入 1~2 条后直接退出，未达 autoflush(64)
+# 阈值 → 日志无记录；而**已有 `_index.json` 的根重开时不重扫目录**，于是节点
+# 「在盘上但索引无条目」：其它进程与重载后的长驻进程都检索不到，只能靠某次全量
+# rebuild_index() 偶然救回（首例=审核裁决通路，见 mdcos.review_decide）。
+# 兜底语义（刻意收窄）：**正常进程退出时**对所有存活实例补一次 close()——
+# 幂等（`_dirty` 为空即 no-op）、不改变正常路径行为、不替代显式收尾
+# （异常退出 / 被 kill 仍须调用方自己保证）。WeakSet 不阻止实例回收。
+_LIVE_CGS = weakref.WeakSet()
+_ATEXIT_HOOK = None
+
+
+def _atexit_flush_all():
+    """进程退出兜底：把仍存活实例的脏索引落盘（异常吞掉——退出路径不该再抛）。"""
+    for cg in list(_LIVE_CGS):
+        try:
+            cg.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _register_atexit_hook():
+    global _ATEXIT_HOOK
+    if _ATEXIT_HOOK is None:
+        atexit.register(_atexit_flush_all)
+        _ATEXIT_HOOK = _atexit_flush_all
+    return _ATEXIT_HOOK
 
 
 def cut_by_relevance(docs, scored, total, pools=None, key_of=None, stat=None):
@@ -530,6 +561,9 @@ class MdCG:
         self._log = None
         self.index = self._load_index()
         sweep_stale_temps(self.root)
+        # 进程退出兜底登记（见模块级 _LIVE_CGS）：一次性脚本漏收尾时索引仍能落盘。
+        _LIVE_CGS.add(self)
+        _register_atexit_hook()
 
     # ---------- 索引（派生物，可重建） ----------
 

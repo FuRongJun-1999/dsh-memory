@@ -88,6 +88,81 @@ def check_tool_alignment(text, target):
     return bad
 
 
+def check_injection_matrix(mx, repo, names, probe_chain=True):
+    """Pi⑦⑤ 注入面发现 + 防重复（矩阵 injection: 段声明，本函数裁决）。
+
+    硬失败（本仓自身的问题，机械可裁决 —— 计入 bad）：
+      path_dup    两个 target 归一化后指向同一物理文件（或同一 config 键）
+                  → 后渲染者静默覆盖前者；若其一是 render:false 的手工件则更严重（手改被覆盖）
+      root_shadow 仓根出现会**遮蔽本地私有件**的槽位件（宿主按声明的择优顺序读取）
+                  → 本地纪律注入在该宿主下不生效（本文件 §5 明文那条纪律的机械化）
+
+    发现面（只报告，不判失败）：每条 file target 的**祖先链**上的同槽位件。
+      宿主从启动目录逐级上溯读同名件，仓外命中（用户 home / 父目录的 AGENTS.md 等）是宿主侧
+      事实——本仓无权裁决，但**必须被看见**（Pi⑦⑤ 的原始动机就是「假定不存在」导致重复注入）。
+      worktree / junction / 别名下同一**物理目录**在链上出现两次时，按物理身份折叠（dedup），
+      不把同一份件误报两份；同仓但物理不同的份（各 worktree 各自 checkout）只标注不折叠。
+    """
+    conf = R.injection_conf(mx)
+    slots = conf.get("slots") or {}
+    root_allow = [str(x) for x in (conf.get("root_allow") or [])]
+    targets = mx.get("targets", {})
+    out = {"ok": True, "path_dups": [], "root_shadow": [],
+           "chains": [], "dedup": [], "wt_dups": [], "probed": 0}
+
+    # ① 同一物理文件被两个 target 写：键 = 归一化路径（+ config 键的 entry_id）
+    by_key = {}
+    for name in names:
+        t = targets.get(name) or {}
+        try:
+            tpath = R.expand(t["path"], repo)
+        except (KeyError, TypeError):
+            continue
+        key = R.norm_path(tpath)
+        if t.get("transport") != "file":
+            key += "#" + str(t.get("entry_id") or "")
+        by_key.setdefault(key, []).append(name)
+    for key, group in sorted(by_key.items()):
+        if len(group) > 1:
+            manual = [n for n in group if (targets.get(n) or {}).get("render", True) is False]
+            out["path_dups"].append({"key": key, "targets": sorted(group),
+                                     "manual": sorted(manual)})
+
+    # ② 仓根遮蔽：仓根存在槽位件 F，且声明顺序里 F 排在本地私有件 L 之前，且 L 也在仓根
+    for slot, files in (slots or {}).items():
+        files = [str(x) for x in (files or [])]
+        present = [fn for fn in files if os.path.isfile(os.path.join(repo, fn))]
+        for fn in present:
+            for allow in root_allow:
+                if fn == allow or allow not in files or allow not in present:
+                    continue
+                if files.index(fn) < files.index(allow):
+                    out["root_shadow"].append({
+                        "slot": slot, "winner": fn, "loser": allow,
+                        "path": os.path.join(repo, fn)})
+
+    # ③ 祖先链发现（报告面）：逐 file target 走祖先目录，收集同槽位竞争件
+    for name in names:
+        t = targets.get(name) or {}
+        if not probe_chain:
+            continue
+        t = dict(t, _name=name)
+        chain = R.discover_injection_chain(t, repo, mx)
+        if not chain.get("slot"):
+            continue
+        out["probed"] += 1
+        for kind in ("dedup", "wt_dups"):
+            for d in chain.get(kind) or []:
+                out[kind].append(dict(d, target=name))
+        if chain["hits"]:
+            out["chains"].append(dict(chain, target=name,
+                                      shadowed=[h["path"] for h in chain["hits"]
+                                                if h["rank"] < h["self_rank"]]))
+
+    out["ok"] = not out["path_dups"] and not out["root_shadow"]
+    return out
+
+
 def check(target, src, repo, allow_missing):
     nodes = R.nodes_of(src)
     text, where = extract(target, repo)
@@ -157,6 +232,8 @@ def main(argv=None):
     ap.add_argument("--allow-missing", action="store_true", help="产物不存在时不计为失败")
     ap.add_argument("--cg-root", default=None,
                     help="认知图 root：校验 structural/ 投影节点一致性（缺省读环境变量 MDCG_ROOT；都无则跳过）")
+    ap.add_argument("--no-chain", action="store_true",
+                    help="跳过祖先链发现（Pi⑦⑤ 报告面）；硬判据（path_dup / root_shadow）不受影响")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
@@ -177,12 +254,19 @@ def main(argv=None):
     # 同一守卫（root 未提供则跳过：外部 clone 无认知图，不应因此误红）。
     cg_res = DN.check_cg_nodes(repo, DN.resolve_root(args.cg_root))
 
+    # Pi⑦⑤ 注入面发现 + 防重复（矩阵 injection: 段；未声明则整体静默跳过）
+    inj_res = (check_injection_matrix(mx, repo, names, probe_chain=not args.no_chain)
+               if R.injection_conf(mx) else None)
+
     bad = [r for r in results if not r["ok"]]
     if (not cg_res.get("skipped")) and (not cg_res["ok"]):
         bad = bad + [{"target": "cg-projection-nodes"}]
+    if inj_res is not None and not inj_res["ok"]:
+        bad = bad + [{"target": "injection-surface"}]
     if args.json:
         print(json.dumps({"ok": not bad, "results": results,
-                          "cg_projection_nodes": cg_res}, ensure_ascii=False, indent=2))
+                          "cg_projection_nodes": cg_res,
+                          "injection_surface": inj_res}, ensure_ascii=False, indent=2))
     else:
         for r in results:
             mark = "SKIP" if r["skipped"] else ("OK  " if r["ok"] else "DRIFT")
@@ -212,6 +296,42 @@ def main(argv=None):
                      cg_res["nodes"], cg_res.get("source_sha")))
             for d in cg_res["drift"]:
                 print("        漂移 第%d条 %s: %s" % (d["no"], d["kind"], d["detail"]))
+        if inj_res is not None:
+            hits = sum(len(c["hits"]) for c in inj_res["chains"])
+            inside = sum(1 for c in inj_res["chains"] for h in c["hits"] if h["tier"] == "repo")
+            print("[%s] %-10s variant=%-7s -> 注入面：%d 条链，同槽位命中 %d（仓内 %d / 仓外 %d）"
+                  "，别名折叠 %d，同仓 worktree 重复源 %d"
+                  % ("OK  " if inj_res["ok"] else "DRIFT", "injection", "-",
+                     inj_res["probed"], hits, inside, hits - inside,
+                     len(inj_res["dedup"]), len(inj_res["wt_dups"])))
+            for d in inj_res["path_dups"]:
+                print("        同一物理文件被多个 target 写：%s ← %s%s"
+                      % (d["key"], ", ".join(d["targets"]),
+                         "；含 render:false 手工件（%s），渲染会覆盖手改"
+                         % ", ".join(d["manual"]) if d["manual"] else ""))
+            for s in inj_res["root_shadow"]:
+                print("        仓根遮蔽：槽位 %s 声明顺序中 %s 优先于本地私有件 %s "
+                      "→ 后者在该宿主下不生效（%s）"
+                      % (s["slot"], s["winner"], s["loser"], s["path"]))
+            for c in inj_res["chains"]:
+                print("        祖先链 %s（槽位 %s）" % (c["target"], c["slot"]))
+                for h in c["hits"]:
+                    print("          ← %s（%s）"
+                          % (h["path"], " · ".join((
+                              "仓内" if h["tier"] == "repo" else "仓外",
+                              "同名" if h["same_name"] else "异名",
+                              "声明顺序下自身被遮蔽" if h["rank"] < h["self_rank"]
+                              else "声明顺序下自身优先",
+                              "指纹 " + str(h["sha"]) if h["sha"] else "未标注指纹"))))
+            for d in inj_res["dedup"]:
+                print("        别名折叠（同一物理目录经别名在链上出现两次，只查一次）：%s ≡ %s"
+                      % (d["dir"], d["alias_of"]))
+            for d in inj_res["wt_dups"]:
+                print("        同仓 worktree 另一份（物理不同，两份都可能被读到）：%s ∥ %s"
+                      % (d["path"], d["alias_of"]))
+            if any(h["tier"] == "outside" for c in inj_res["chains"] for h in c["hits"]):
+                print("        注：仓外命中是宿主侧事实（宿主从启动目录逐级上溯会读到），本仓不裁决——"
+                      "列出以保证「重复注入」不被假定为不存在。")
         print("")
         print("结论：%d/%d 目标一致%s" % (len(results) - len([r for r in results if not r["ok"]]), len(results),
                                         "" if not bad else "；漂移目标：" + ", ".join(r["target"] for r in bad)))
