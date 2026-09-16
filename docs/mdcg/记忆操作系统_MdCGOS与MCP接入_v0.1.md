@@ -35,10 +35,10 @@ P8 34 · P9 37 · P10 24 · P11 27 · P12 32 · P13 42 · P14 44 · P15 53 · P1
 | 3 | **RRF 并行多路召回** | `search_rrf(...)` | 词法 / 条件桶 / 实体 / 图扩展 四路并行 → Reciprocal Rank Fusion；结果带 **provenance**（可审计）|
 | 4 | **审核队列 edit/merge** | `propose` · `review_list` · `review_decide` | 海马体式 `hippocampus/inbox.jsonl` → `decisions.jsonl`；裁决 **accept / reject / edit / merge** |
 | 5 | **tombstone + 恢复检查** | `forget` · `restore` · `is_tombstoned` | 软删除入 `trash/` + `_deletions.jsonl` 删除清单；恢复时校验，须 `force` 才可强恢复 |
-| 6 | **payload-free 审计** | `_audit` · `audit_records` | 每次变更只记 `{t,op,id,actor,payload_hash}`，**绝不记内容** |
+| 6 | **payload-free 审计 + 分片轮转** | `_audit` · `audit_records` · `rotate_audit` · `audit_scale` | 每次变更只记 `{t,op,id,actor,payload_hash}`，**绝不记内容**；活动日志超 `AUDIT_ROTATE_BYTES` 即 `os.replace` 原子切分（分片数 ≤ `AUDIT_KEEP_SHARDS`）⇒ **单文件与总量都有上界**；读数走 O(1) 元数据口径（超大历史分片只给量级并标 `exact=False`）|
 | 7 | **budget-driven pack** | `recall(query, budget_tokens)` | 装到预算花完；**超大条目跳过而非停下**（继续尝试更小的）|
 
-另：`health_os()` 在原有健康度上并入 OS 指标（role 分布 / 待审数 / 墓碑数 / 审计事件数 / 反思数）。
+另：`health_os()` 在原有健康度上并入 OS 指标（role 分布 / 待审数 / 墓碑数 / 审计事件数 / 反思数）；审计面另透出**轮转证据**：`audit_shards` / `audit_total_bytes` / `audit_total_events` / `audit_total_exact` / `audit_oversized`。
 
 ---
 
