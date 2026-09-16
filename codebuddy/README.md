@@ -8,7 +8,7 @@
 | 文件 | 作用 | 性质 |
 |---|---|---|
 | `CODEBUDDY.md` | 16 条工作纪律全文（会话起始注入） | **渲染产物**，勿手改 |
-| `mcp.json` | 灵枢 MCP server 接入模板（复制进 CodeBuddy 设置） | 模板 |
+| `mcp.json` | 灵枢接入模板：`mdcg`（记忆大脑）+ `hive`（蜂巢并发）两条 MCP server（复制进 CodeBuddy 设置） | 模板 |
 | `README.md` | 本文件（接入说明 + 记忆策略） | 手写 |
 
 ## 三步接入
@@ -25,6 +25,18 @@ dsh-memory 仓库所在目录**。此处须用可解析的绝对路径——Pyth
 > **工具面 `MDCG_MCP_SURFACE=kernel`**（与 `md_cg/mcp_server.py` 的默认值一致）：只暴露 `cg` /
 > `stg` 两个认知基元；`cg` 已覆盖 `route` / `read` / `write` 等全部 op，**写入通道不缺**。
 > 细粒度 `mdcg_*` 工具仅在 `full` 面可见，属兼容 / 调试用途，日常接入无需开启。
+
+#### 1b. 接入蜂巢（多智能体并发 + 任务上下文管理）
+
+`mcp.json` 里同源的第二条 `mcpServers.hive` 一并合并——四工具 `hive_spawn` / `hive_poll` /
+`hive_kill` / `hive_doctor`，提供**跨 harness 通用的并发执行**与**任务上下文管理**
+（`context_files` 注入、预算交回续跑、进展卡观察）。语义与边界见
+[`../hive/README.md`](../hive/README.md) 的「各 harness 注册」。
+
+> 依赖 Rust 侧 `hive.exe` 与 `hive/config.local.json`（执行器密钥）。未构建时先
+> `cd hive && cargo build --release`；首次 `hive_spawn` 会自动以 detached 方式拉起 `serve`。
+> **确定性任务（跑命令 / 测试）不在 MCP 面**，走 CLI：
+> `hive/target/release/hive.exe submit --spec <spec.json>`。
 
 ### 2. 注入工作纪律
 

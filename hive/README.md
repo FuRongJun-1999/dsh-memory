@@ -92,6 +92,74 @@ target\release\hive.exe doctor
 （权威，**判资格看这列**）与 `mcp_process_env`（仅诊断，用它判会得到错位结论）。
 MCP 首次拉起 serve 时同样按「宿主 env + config.local.json」组装，两条拉起路径口径一致。
 
+### 各 harness 注册（通用接入）
+
+蜂巢对宿主是**标准 MCP server（stdio）**，各端只需在自己的 MCP 客户端配置里加一条 server
+条目——**不需要改 hive 代码**：
+
+```json
+{
+  "mcpServers": {
+    "hive": {
+      "command": "python",
+      "args": ["-m", "hive.hive_mcp.mcp_server"],
+      "env": { "PYTHONPATH": "<本机 dsh-memory 仓库绝对路径>" }
+    }
+  }
+}
+```
+
+TOML 形态（Codex CLI）：
+
+```toml
+[mcp_servers.hive]
+command = "python"
+args = ["-m", "hive.hive_mcp.mcp_server"]
+startup_timeout_sec = 120
+
+[mcp_servers.hive.env]
+PYTHONPATH = "<本机 dsh-memory 仓库绝对路径>"
+```
+
+**只需 `PYTHONPATH`**：jobs 目录、`config.local.json`、`hive.exe` 一律由该路径下的 `hive/`
+推导（`HIVE_JOBS_DIR` / `HIVE_EXE` / `HIVE_CONFIG` 可覆盖）。
+
+仓内已含该条目的模板（照抄即可）：
+
+| harness | 模板 | 客户端配置落点 |
+|---|---|---|
+| CodeBuddy / ZCode | [`../codebuddy/mcp.json`](../codebuddy/mcp.json) | CodeBuddy 用户级 `mcp.json`（ZCode 同构，仅 `MDCG_ACTOR` 不同） |
+| Claude Code | [`../claude/mcp.json.example`](../claude/mcp.json.example) | 项目级 `.mcp.json`（或 `claude mcp add`） |
+| Codex CLI | [`../codex/config.toml.example`](../codex/config.toml.example) | `~/.codex/config.toml` |
+| Claude / Codex 插件 | 插件内 `mcp.json.example` / `config.toml.example` | 同上（随插件分发） |
+| DSH | —— | **形态不同**：本端是插件内建桥（TS 侧 spawn + 工具注册），非原生 MCP 客户端；当前兜底 = CLI `hive submit` |
+
+**「通用并发」的落地语义**：池与 serve 由 `PYTHONPATH` 推导 ⇒ **多个 harness 指向同一仓库
+即共享同一并发池与同一个 serve 进程**（谁派的任务都进同一队列、由同一 worker 池消费）。
+要让某端用独立池（高优 / 隔离实验），给它加 `HIVE_JOBS_DIR`（+ 独立 `HIVE_CONFIG`）——
+不同 jobs 目录 = 不同 serve 实例，互不干扰。
+
+**两条必读边界**：
+
+1. **`workdir` 取 MCP 进程 cwd**（MCP 面不接受 `workdir` 入参）⇒ 各端启动 MCP 进程的工作
+   目录即 `context_files` 相对路径的基准；喂上下文请用**绝对路径**，或确认该端 cwd。
+2. **确定性执行与编排不在 MCP 面**（`command` / `commands` / `orchestrate` / `workdir` 四键
+   只走 CLI）⇒ 跑测试 / 脚本 / 批量命令请用 `hive.exe submit --spec <spec.json>`（执行器
+   `exec_cmd.py`，零 LLM）；MCP 面传入会被 fail fast 拒绝（不静默丢弃）。
+   ⚠ **submit 只认 `--spec <file>` 或 stdin 的 `-`**：位置参数会被忽略并转而读**空 stdin**，
+   表现为 exitCode 1 且**无任何输出**（易误判成 serve 故障，实为参数形态问题）。
+
+### 任务上下文管理（谁负责哪一段）
+
+蜂巢把「任务上下文」拆成四段，各有明确归属——主代理据此裁决，而不是把上下文一股脑塞进一次调用：
+
+| 段 | 承载 | 说明 |
+|---|---|---|
+| 注入 | `hive_spawn` 的 `context_files`（+ `system_prompt` / `user_prompt`） | 逐个读入为 `<context path="...">` 块拼在 prompt 前；读取失败写错误块不中断 |
+| 预算 | `context_budget_tokens`（MCP 面默认 200000）+ `context_strict` | 达预算**默认交回续跑**（写进展卡 + `need_continue`）；`context_strict=true` 才恢复「超预算即 error」 |
+| 交接 | `hive_poll` 的 `handoff_ready` + 进展卡 `progress.jsonl` | `handoff_ready=true` = 子代理满上下文交回；主代理读卡后裁决**续跑**（新 spawn 带卡）或**收口** |
+| 观察 | `hive_poll`（无 id = 全部摘要 / 带 id = 单查全文） | 主代理只做编排：派发 → 观察 → 裁决，不把子任务上下文搬进自己的窗口 |
+
 ## spec 字段
 
 | 字段 | 必填 | 说明 |

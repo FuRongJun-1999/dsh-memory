@@ -10,10 +10,16 @@
 #           compact —— 精简形态（执行公约 + 路由表 + 声明），供「每轮都在」的系统提示槽位
 #           skill   —— SKILL.md 形态（YAML frontmatter + 纪律正文），供 Claude Code / Codex 插件的 skills/ 目录
 # enabled:  是否纳入 render --write 与 verify 的默认范围
-# memory:   该端 Agent 访问灵枢记忆的通路；仅声明事实，不参与渲染与校验。两种形态：
+# memory:   该端 Agent 访问灵枢记忆的通路；仅声明事实，不参与渲染与校验。三种形态：
 #           ① MCP 客户端配置 —— 写客户端配置里的 server 名（如 mcp/mdcg）；
 #           ② 宿主内建桥   —— 插件直接 spawn 同一个 md_cg.mcp_server 为子进程，
 #                            再注册为宿主工具（DSH 侧 = lingshu_cg / lingshu_stg）。
+#           ③ 蜂巢并发通路 —— hive = 另一个 MCP server（python -m hive.hive_mcp.mcp_server，
+#                            四工具 hive_spawn / hive_poll / hive_kill / hive_doctor），
+#                            提供多智能体并发 + 任务上下文管理（context_files 注入、预算交回、
+#                            进展卡 / handoff）。池与 serve 由 PYTHONPATH 指向的仓库内 hive/ 推导
+#                            ⇒ 多端指向同一仓库即**共享同一并发池**（「通用并发」的落地形态）；
+#                            要隔离可加 HIVE_JOBS_DIR / HIVE_CONFIG 指定独立池。
 #           底层服务是同一个 python -m md_cg.mcp_server；差别只在"谁去连它"。
 #           未列该项的端表示通路未在本矩阵登记，不代表该端无通路。
 # slot:     该产物在**宿主侧**占的注入位（对应下面 injection.slots 的键）。
@@ -62,6 +68,10 @@ targets:
     format: text
     marker: lingshu:discipline
     memory: plugin/lingshu_cg+lingshu_stg (插件内建桥，spawn md_cg.mcp_server；tools=core)
+    # hive：本端未经 MCP 面接入——插件是内建桥形态（TS 侧 spawn + 工具注册），接蜂巢须在
+    # src/lib/ 新增 hive 客户端与四工具暴露，非「写一条配置」可解。当前兜底=CLI
+    # （hive.exe submit --spec <spec.json>）。详见 hive/README.md「各 harness 注册」。
+    memory_excluded: mcp/hive（形态差异：非原生 MCP 客户端，待插件 TS 侧接入）
     note: >-
       DSH 系统提示 order=0（DEPLOYMENT_PERSONA_PREFIX），每轮注入；
       严格 {{variable}} 插值 ⇒ 正文禁含裸 {{ 。
@@ -90,7 +100,7 @@ targets:
     path: codebuddy/CODEBUDDY.md
     variant: full
     format: markdown
-    memory: mcp/mdcg (cg,stg)
+    memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
     note: >-
       CodeBuddy 会话起始全文注入。**根目录 CODEBUDDY.md 优先于 AGENTS.md**——
       本仓产物落 codebuddy/CODEBUDDY.md（不落根，避免屏蔽本地私有 AGENTS.md）；
@@ -104,6 +114,7 @@ targets:
     variant: full
     format: markdown
     preserve: true
+    memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
     note: >-
       ZCode 读项目根 AGENTS.md。本仓产物落 zcode/AGENTS.md（不落根，避免与
       CodeBuddy 的 CODEBUDDY.md 及本地 AGENTS.md 冲突）；复制到项目根生效。
@@ -116,7 +127,7 @@ targets:
     variant: full
     format: markdown
     preserve: true
-    memory: mcp/mdcg (cg,stg)
+    memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
     note: >-
       Codex CLI 读项目根 AGENTS.md（另支持 ~/.codex/AGENTS.md 全局）。
       本仓产物落 codex/AGENTS.md（不落根，根 AGENTS.md 是本地私有件）；
@@ -130,7 +141,7 @@ targets:
     variant: full
     format: markdown
     preserve: true
-    memory: mcp/mdcg (cg,stg)
+    memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
     note: >-
       Claude Code（Anthropic）会话起始读取项目根 CLAUDE.md（另支持 ~/.claude/CLAUDE.md
       全局、CLAUDE.local.md 私有附加）。本仓产物落 claude/CLAUDE.md（不落根——根 AGENTS.md
@@ -151,7 +162,7 @@ targets:
     path: claude/lingshu-memory/skills/linglu-discipline/SKILL.md
     variant: skill
     format: markdown
-    memory: mcp/mdcg (cg,stg)
+    memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
     note: >-
       Claude Code 插件形态（插件根 = claude/lingshu-memory/，经仓根 .claude-plugin/marketplace.json
       分发：/plugin marketplace add FuRongJun-1999/dsh-memory → /plugin install）。
@@ -173,7 +184,7 @@ targets:
     path: codex/lingshu-memory/skills/linglu-discipline/SKILL.md
     variant: skill
     format: markdown
-    memory: mcp/mdcg (cg,stg)
+    memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
     note: >-
       Codex 插件形态（插件根 = codex/lingshu-memory/，.codex-plugin/plugin.json，name 与文件夹一致；
       经仓根 .agents/plugins/marketplace.json 分发：codex plugin marketplace add <本仓路径> → codex plugin add）。
@@ -198,7 +209,7 @@ targets:
     path: AGENTS.md
     variant: full
     format: markdown
-    memory: mcp/mdcg (cg,stg)
+    memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
     note: >-
       根目录 AGENTS.md = 本机 CodeBuddy 会话注入件（见本文件 dsh preamble「仓库结构与公开边界」）。
       历史缺陷（20260916 漂移实例）：它是手工件、长期不在渲染/校验矩阵内，0.1 / 0.6 把 DSH 端

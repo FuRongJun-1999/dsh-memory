@@ -11,6 +11,13 @@
         "MDCG_CLEARANCE": "private",
         "MDCG_TOKEN": ""
       }
+    },
+    "hive": {
+      "command": "python",
+      "args": ["-m", "hive.hive_mcp.mcp_server"],
+      "env": {
+        "PYTHONPATH": "REPLACE_WITH_ABSOLUTE_PATH_TO_dsh-memory"
+      }
     }
   }
 }

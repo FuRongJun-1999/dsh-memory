@@ -8,14 +8,14 @@
 | 文件 | 作用 | 性质 |
 |---|---|---|
 | `AGENTS.md` | 16 条工作纪律全文（会话起始注入） | **渲染产物**，勿手改 |
-| `config.toml.example` | 灵枢 MCP server 接入模板（合并进 `~/.codex/config.toml`） | 模板 |
+| `config.toml.example` | 灵枢接入模板：`mdcg`（记忆大脑）+ `hive`（蜂巢并发）两条 MCP server（合并进 `~/.codex/config.toml`） | 模板 |
 | `README.md` | 本文件（接入说明 + 记忆策略） | 手写 |
 
 ## 三步接入
 
 ### 1. 接入记忆大脑（MCP）
 
-把 `config.toml.example` 里的 `[mcp_servers.mdcg]` 与 `[mcp_servers.mdcg.env]` 两段合并进
+把 `config.toml.example` 里的 `[mcp_servers.mdcg]` / `[mcp_servers.mdcg.env]` 两段合并进
 `~/.codex/config.toml`，然后把 `PYTHONPATH` 的占位值
 （`REPLACE_WITH_ABSOLUTE_PATH_TO_dsh-memory`）替换为**你本机 dsh-memory 仓库所在目录**。
 此处须用可解析的绝对路径——Python 要据此定位仓库内的 `md_cg` 包，相对路径会随进程
@@ -24,6 +24,15 @@
 工具面说明见 [`../codebuddy/README.md`](../codebuddy/README.md)：`MDCG_MCP_SURFACE=kernel`
 只暴露 `cg` / `stg` 两个认知基元，`cg` 已覆盖 `route` / `read` / `write` 等全部 op，
 **写入通道不缺**。`md_cg` 大脑随仓库自带，无需 pip 安装任何引擎。
+
+#### 1b. 接入蜂巢（多智能体并发 + 任务上下文管理）
+
+`config.toml.example` 里同源的 `[mcp_servers.hive]` 与 `[mcp_servers.hive.env]` 一并合并进
+`~/.codex/config.toml`——四工具 `hive_spawn` / `hive_poll` / `hive_kill` / `hive_doctor`，
+提供**跨 harness 通用的并发执行**与**任务上下文管理**（`context_files` 注入、预算交回续跑、
+进展卡观察）。语义与边界见 [`../hive/README.md`](../hive/README.md) 的「各 harness 注册」。
+**确定性任务（跑命令 / 测试）不在 MCP 面**，走 CLI：
+`hive/target/release/hive.exe submit --spec <spec.json>`。
 
 ### 2. 注入工作纪律
 

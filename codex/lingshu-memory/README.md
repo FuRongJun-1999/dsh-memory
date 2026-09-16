@@ -20,12 +20,17 @@ codex plugin list   # 确认已安装
 
 ## 装后两步（缺一不可）
 
-1. **接入记忆大脑（MCP）**：把本插件目录 `config.toml.example` 的 `[mcp_servers.mdcg]` 与
-   `[mcp_servers.mdcg.env]` 两段合并进 `~/.codex/config.toml`，把 `PYTHONPATH` 占位值替换为
-   **你本机 dsh-memory 仓库的绝对路径**（Python 据此定位 `md_cg` 包）。
+1. **接入记忆大脑与蜂巢（MCP）**：把本插件目录 `config.toml.example` 的 `[mcp_servers.mdcg]` /
+   `[mcp_servers.mdcg.env]` 与 `[mcp_servers.hive]` / `[mcp_servers.hive.env]` 各段合并进
+   `~/.codex/config.toml`，把两处 `PYTHONPATH` 占位值替换为
+   **你本机 dsh-memory 仓库的绝对路径**（Python 据此定位 `md_cg` / `hive` 包）。
 
    工具面说明：`MDCG_MCP_SURFACE=kernel` 只暴露 `cg` / `stg` 两个认知基元，
-   `cg` 已覆盖 `route` / `read` / `write` 等全部 op，**写入通道不缺**。
+   `cg` 已覆盖 `route` / `read` / `write` 等全部 op，**写入通道不缺**；
+   `hive` 暴露 `hive_spawn` / `hive_poll` / `hive_kill` / `hive_doctor` 四工具
+   （通用多智能体并发 + 任务上下文管理，语义见 `hive/README.md`）。
+   **多个 harness 指向同一仓库即共享同一并发池与同一个 serve**；要隔离请设
+   `HIVE_JOBS_DIR` / `HIVE_CONFIG`。
 
 2. **开新线程**：Codex 需新线程才加载插件与配置更新。首次对话可直接说
    「先查灵枢记忆：cg(op=route, intent=…)」验证通路。
@@ -49,7 +54,7 @@ python -m md_cg.tokens issue --role designer --actor codex
 |---|---|---|
 | `.codex-plugin/plugin.json` | 插件清单（name 与文件夹一致 · interface 完整 · 无 hooks 字段） | 手写 |
 | `skills/linglu-discipline/SKILL.md` | 16 条工作纪律 + 记忆操作规程 | **渲染产物**，勿手改 |
-| `config.toml.example` | 灵枢 MCP 接入模板（与 `codex/config.toml.example` 同源） | 模板副本 |
+| `config.toml.example` | 灵枢 MCP 接入模板（`mdcg` 记忆 + `hive` 蜂巢两段 server，与 `codex/config.toml.example` 同源） | 模板副本 |
 | `README.md` | 本文件 | 手写 |
 
 ## 维护（面向灵枢维护者）

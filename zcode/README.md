@@ -18,6 +18,10 @@ ZCode 侧的记忆访问复用同一套 MCP 大脑，配置方式与 CodeBuddy �
 （见 [`../codebuddy/mcp.json`](../codebuddy/mcp.json) 与 [`../codebuddy/README.md`](../codebuddy/README.md)），
 只需把 `MDCG_ACTOR` 改为 `zcode`。
 
+该模板同源含第二条 MCP server `hive`（蜂巢：多智能体并发 + 任务上下文管理），一并合并即可；
+ZCode 与 CodeBuddy 指向同一仓库时**共享同一并发池**。语义与边界见
+[`../hive/README.md`](../hive/README.md) 的「各 harness 注册」。
+
 ## 与 CodeBuddy 并存
 
 两者互不干扰——CodeBuddy 读根目录 `CODEBUDDY.md`，ZCode 读根目录 `AGENTS.md`；

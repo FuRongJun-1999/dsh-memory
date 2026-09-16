@@ -1,11 +1,12 @@
-# 灵枢（Lingshu）记忆 MCP · Codex CLI 接入模板（lingshu-memory 插件版）
+# 灵枢（Lingshu）MCP · Codex CLI 接入模板（lingshu-memory 插件版）
 #
 # 与仓内 codex/config.toml.example 同源（插件分发副本，改动以仓库为准）。
-# 用法：把下面两段合并进 ~/.codex/config.toml（模板于 codex-cli 0.147.0 验证），
+# 用法：把下面各段合并进 ~/.codex/config.toml（模板于 codex-cli 0.147.0 验证），
 # 然后把 PYTHONPATH 替换为本机 dsh-memory 仓库的**绝对路径**（Python 据此定位
-# md_cg 包，相对路径会随进程工作目录漂移而失效）。
+# md_cg / hive 包，相对路径会随进程工作目录漂移而失效）。
 # 不填 MDCG_TOKEN 时以只读 guest 运行；要写入记忆请按本目录 README.md 签发令牌。
 
+# ── 灵枢大脑（长期记忆）：cg / stg 两基元，其余能力经 op 分发 ──
 [mcp_servers.mdcg]
 command = "python"
 args = ["-m", "md_cg.mcp_server"]
@@ -18,3 +19,20 @@ MDCG_ACTOR = "codex"
 MDCG_TENANT = "default"
 MDCG_CLEARANCE = "private"
 MDCG_TOKEN = ""
+
+# ── 蜂巢（多智能体并发 + 任务上下文管理）──
+# 四工具：hive_spawn / hive_poll / hive_kill / hive_doctor。
+# 上下文管理：spawn 传 context_files 注入上下文（workdir 取 MCP 进程 cwd）；达
+# context_budget_tokens 默认写进展卡并交回续跑（poll 的 handoff_ready=true）。
+# 池与 serve 由 PYTHONPATH 指向的仓库内 hive/ 推导——**多个 harness 指向同一仓库
+# 即共享同一并发池与同一个 serve**；要隔离可加 HIVE_JOBS_DIR / HIVE_CONFIG 指定
+# 独立池。首次 spawn 自动 detached 拉起 serve。
+# 确定性执行（command / commands）与编排（orchestrate）不在 MCP 面，请走 CLI：
+# hive/target/release/hive.exe submit --spec <spec.json>（执行器 hive/exec_cmd.py）。
+[mcp_servers.hive]
+command = "python"
+args = ["-m", "hive.hive_mcp.mcp_server"]
+startup_timeout_sec = 120
+
+[mcp_servers.hive.env]
+PYTHONPATH = "REPLACE_WITH_ABSOLUTE_PATH_TO_dsh-memory"

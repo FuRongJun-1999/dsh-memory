@@ -9,7 +9,7 @@
 | 文件 | 作用 | 性质 |
 |---|---|---|
 | `CLAUDE.md` | 16 条工作纪律全文（会话起始注入） | **渲染产物**，勿手改 |
-| `mcp.json.example` | 灵枢 MCP server 接入模板（另存为项目根 `.mcp.json`） | 模板 |
+| `mcp.json.example` | 灵枢接入模板：`mdcg`（记忆大脑）+ `hive`（蜂巢并发）两条 MCP server（另存为项目根 `.mcp.json`） | 模板 |
 | `README.md` | 本文件（接入说明 + 记忆策略） | 手写 |
 
 ## 三步接入
@@ -31,6 +31,19 @@ claude mcp add mdcg --env PYTHONPATH=<本机 dsh-memory 绝对路径> --env MDCG
 工具面说明见 [`../codebuddy/README.md`](../codebuddy/README.md)：`MDCG_MCP_SURFACE=kernel`
 只暴露 `cg` / `stg` 两个认知基元，`cg` 已覆盖 `route` / `read` / `write` 等全部 op，
 **写入通道不缺**。`md_cg` 大脑随仓库自带，无需 pip 安装任何引擎。
+
+#### 1b. 接入蜂巢（多智能体并发 + 任务上下文管理）
+
+`mcp.json.example` 里同源的第二条 `mcpServers.hive` 一并写入 `.mcp.json`——四工具
+`hive_spawn` / `hive_poll` / `hive_kill` / `hive_doctor`，提供**跨 harness 通用的并发执行**与
+**任务上下文管理**（`context_files` 注入、预算交回续跑、进展卡观察）。或用命令注册（效果等同）：
+
+```bash
+claude mcp add hive --env PYTHONPATH=<本机 dsh-memory 绝对路径> -- python -m hive.hive_mcp.mcp_server
+```
+
+语义与边界见 [`../hive/README.md`](../hive/README.md) 的「各 harness 注册」。**确定性任务
+（跑命令 / 测试）不在 MCP 面**，走 CLI：`hive/target/release/hive.exe submit --spec <spec.json>`。
 
 ### 2. 注入工作纪律
 
