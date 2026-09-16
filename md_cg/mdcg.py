@@ -385,8 +385,10 @@ def normalize_en(text: str) -> str:
 # **评测侧**改用 eval_common.use_jaccard() 显式注入——长 turn 语料上
 # precise 0%→8.97% / temporal 0%→6.77% / interference 1.28%→20.51% /
 # reference 0%→3.76%（与 Rust mdcg-eval --score jaccard 逐位一致）。
-# 主库不切：短条目语料上 jaccard 会退化（test_p17_predict G4——可预测锚点
-# 由因果起点 a 错配到语义邻居 x），收益随文档长度单调增长。
+# 主库不切：收益随文档长度单调增长，短条目语料上无增益（该语料本无长度偏置）。
+# 另注：test_p17_predict G4 曾出现的「可预测锚点由因果起点 a 错配到语义邻居 x」
+# 已由 predict.anchor_from_description 的**可起推资格**修复（2026-09-16，出边
+# 非空优先），锚点漂移不再是切换打分口径的理由；口径切换仍按上列数据收益决定。
 SCORE_MODES = ("legacy", "jaccard")
 SCORE_MODE = os.environ.get("MDCG_SCORE_MODE") or "legacy"
 

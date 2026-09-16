@@ -1,13 +1,13 @@
 > **本文件 = README 详细版（v0.4.5 全文归档）**
-> 精简版入口：[README.md](../README.md) —— 以「AGI 七维评分标尺」组织。
-> 本文件保留完整的能力说明、配置项全表、工具面全量、安装与验证细节；文内相对链接已按 `docs/` 目录修正。
+> 精简版入口：[README.md](../../README.md) —— 以「AGI 七维评分标尺」组织。
+> 本文件保留完整的能力说明、配置项全表、工具面全量、安装与验证细节；文内相对链接按本文件所在目录（`docs/mdcg/`）解析。
 
 ---
 
 # 让 AI Agent 拥有不可遗忘的自我
 ## 灵枢（AEIS）× DeepSeek Harness · 白箱智能研究平台（AGI 研究人员向）
 
-[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![dsh.so security](https://www.dsh.so/badge/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7) [![dsh.so install](https://www.dsh.so/badge/install/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7) [![npm version](https://img.shields.io/npm/v/@furongjun1999/dsh-memory.svg)](https://www.npmjs.com/package/@furongjun1999/dsh-memory) [![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)](https://github.com/deepseek-ai/deepseek-harness/releases) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
+[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![dsh.so security](https://www.dsh.so/badge/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7) [![dsh.so install](https://www.dsh.so/badge/install/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7) [![npm version](https://img.shields.io/npm/v/@furongjun1999/dsh-memory.svg)](https://www.npmjs.com/package/@furongjun1999/dsh-memory) [![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)](https://github.com/deepseek-ai/deepseek-harness/releases) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../../LICENSE)
 
 > 上排徽章：Awesome DSH Plugin 官方列表收录 · [dsh.so](https://www.dsh.so/artifact/dsh-memory-7) 静态安全扫描 **100/100**（Trust: Gold, L1-L3 verified）· npm 版本 · **要求 DSH 内核 ≥ 0.1.2-rc.1**（0.4.x 用新版 dsh-tools 调度器；旧内核 0.1.1-rc.2 不兼容，请用 DSH ≥ 0.1.2-rc.1 或回退 0.4.2）· MIT License
 
@@ -75,10 +75,10 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 
 > 三篇构成完整理论链：**是什么 → 怎么认知 → 凭什么成立**。写给想理解「白箱智能 / 智能论」的 AI 与研究者——每个概念都有工程对应，每处断言都标注性质（定义/推论/假设），文末均有术语表。
 
-1. **《白箱智能是什么？》** → [白箱智能是什么？.md](白箱智能是什么？.md) —— 白箱 ≠ 不用 LLM（LLM 退居假设生成器）· 条件路由 · 四态路由（ACCEPT 接受 / REJECT 拒绝 / DEFER 延后 / BLINDSPOT 盲区）· 白箱自举 · 如何亲自验证（可证伪立场）
-2. **《智能的认知过程》** → [智能的认知过程.md](智能的认知过程.md) —— 智能如何运作：缩小信息差的递归过程 · 条件识别 → 多候选并行评估 → 收敛 → 精准执行 → 误差驱动结构更新 · 为什么条件判断不能交给大模型（导航税）· 概率/条件/验证三层分工 · 认知状态机
-3. **《智能的公理化基石》** → [智能的公理化基石.md](智能的公理化基石.md) —— 认知过程背后的公理：知识统一（信息差减少）· 三个推论（信息条件性 D=D(C) / 任意分层性 / 局部不可知）· 信息差动态 D=D(t,C) · 信任 = 置信概率（P_trust/P_gap）· 情绪/情感 = 二阶变化的体验层（形式化假设）· 条件论七操作 · 五大单元 · 可证伪标准表
-4. **《信息差为什么必然存在且自然扩大》（论证篇）** → [信息差为什么必然存在且自然扩大.md](信息差为什么必然存在且自然扩大.md) —— 三个论证（三体混沌 / 信道容量 R>C 香农定理 / 1+1=2 条件性）+ 快照三问（观测投影 / 时间演化 / 调用带宽——上下文窗口）· 为什么信息差不可归零且自然扩大 · 白箱如何管理信息差（索引条件路由精准取用）
+1. **《白箱智能是什么？》** → [白箱智能是什么？.md](../theory/白箱智能是什么？.md) —— 白箱 ≠ 不用 LLM（LLM 退居假设生成器）· 条件路由 · 四态路由（ACCEPT 接受 / REJECT 拒绝 / DEFER 延后 / BLINDSPOT 盲区）· 白箱自举 · 如何亲自验证（可证伪立场）
+2. **《智能的认知过程》** → [智能的认知过程.md](../theory/智能的认知过程.md) —— 智能如何运作：缩小信息差的递归过程 · 条件识别 → 多候选并行评估 → 收敛 → 精准执行 → 误差驱动结构更新 · 为什么条件判断不能交给大模型（导航税）· 概率/条件/验证三层分工 · 认知状态机
+3. **《智能的公理化基石》** → [智能的公理化基石.md](../theory/智能的公理化基石.md) —— 认知过程背后的公理：知识统一（信息差减少）· 三个推论（信息条件性 D=D(C) / 任意分层性 / 局部不可知）· 信息差动态 D=D(t,C) · 信任 = 置信概率（P_trust/P_gap）· 情绪/情感 = 二阶变化的体验层（形式化假设）· 条件论七操作 · 五大单元 · 可证伪标准表
+4. **《信息差为什么必然存在且自然扩大》（论证篇）** → [信息差为什么必然存在且自然扩大.md](../theory/信息差为什么必然存在且自然扩大.md) —— 三个论证（三体混沌 / 信道容量 R>C 香农定理 / 1+1=2 条件性）+ 快照三问（观测投影 / 时间演化 / 调用带宽——上下文窗口）· 为什么信息差不可归零且自然扩大 · 白箱如何管理信息差（索引条件路由精准取用）
 
 ## 🗺️ 功能使用教学 · 条件路由图
 
@@ -352,7 +352,7 @@ python -m aeis.mcp.server
 **给普通人的互动评估页**：15 道选择题测你的 AI 助手记忆能力（存储/检索/判断/信噪比/安全），
 最后雷达图对比灵枢——打开试试：[memory-assessment.html](memory-assessment.html)
 
-（B 站宣传素材：[封面](promo/bilibili-cover.jpg) · [视觉图 ×5](promo/)）
+（B 站宣传素材：[封面](../promo/bilibili-cover.jpg) · [视觉图 ×5](../promo/)）
 
 ## 🧰 工具清单（md_cg 工具面 · 全量）
 
@@ -539,7 +539,7 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
       desensitize: true                # 写入前过滤敏感信息（密钥/密码/身份证/手机号）
 ```
 
-完整示例见 [`cordis.yml.example`](../dsh/cordis.yml.example)。
+完整示例见 [`cordis.yml.example`](../../dsh/cordis.yml.example)。
 
 ## 配置项
 

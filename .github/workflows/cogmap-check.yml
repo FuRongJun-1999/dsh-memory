@@ -6,17 +6,21 @@ on:
       - README.md
       - docs/mdcg/功能调用映射表_v0.1.md
       - scripts/cogmap_sync.py
+      - scripts/link_check.py
       - md_cg/mcp_server.py
       - md_cg/whitebox.py
       - .github/workflows/cogmap-check.yml
+      - '**/*.md'
   pull_request:
     paths:
       - README.md
       - docs/mdcg/功能调用映射表_v0.1.md
       - scripts/cogmap_sync.py
+      - scripts/link_check.py
       - md_cg/mcp_server.py
       - md_cg/whitebox.py
       - .github/workflows/cogmap-check.yml
+      - '**/*.md'
 
 jobs:
   check:
@@ -28,3 +32,5 @@ jobs:
           python-version: "3.11"
       - name: 认知图文档与源码真源一致性（README COGMAP + 映射表 FUNCMAP：工具/op/链接/锚点/FUNC_DESC/分支数自检）
         run: python scripts/cogmap_sync.py check
+      - name: 全库文档相对链接巡检（按文档目录解析，防文件移位后断链复发）
+        run: python scripts/link_check.py

@@ -141,7 +141,11 @@ def check(target, src, repo, allow_missing):
 
     res["toolname"] = check_tool_alignment(text, target)
 
-    res["ok"] = not res["missing"] and not res["orphans"] and not res["toolname"]
+    # 陈化（产物内嵌指纹 ≠ 当前真源指纹）与缺失/孤儿/工具名漂移**同为硬失败**：
+    # 改真源未重渲染的产物，会把旧纪律继续注入各端——静默放行等于门禁形同虚设。
+    # 无指纹的产物（如 render:false 的手工投影）m 为空 → stale=False，不受影响。
+    res["ok"] = (not res["missing"] and not res["orphans"]
+                 and not res["toolname"] and not res["stale"])
     return res
 
 

@@ -47,6 +47,9 @@ SERVER = ROOT / "md_cg" / "mcp_server.py"
 WHITEBOX = ROOT / "md_cg" / "whitebox.py"
 README = ROOT / "README.md"
 MAPDOC = ROOT / "docs" / "mdcg" / "功能调用映射表_v0.1.md"
+# 映射表所在目录（仓根相对）。段内**相对文件链接必须按该目录解析**，
+# 否则 GitHub/浏览器按文档目录解析成 `docs/mdcg/md_cg/x.py` → 必断。
+MAPDOC_DIR = MAPDOC.parent.relative_to(ROOT).as_posix()
 
 # GitHub blob 链接的分支基座（GitHub 页面渲染视角 = 默认分支）
 BRANCH = "main"
@@ -290,11 +293,23 @@ def _flink(e: dict, fkey: str, fname: str) -> str:
     return f"[`{label}`]({_blob(e, line, fkey)})" if line else f"`{label}`"
 
 
-def _mdlink(mod: str) -> str:
-    """实现模块 → 仓内源文件相对链接（相对路径，GitHub 渲染后可点击）。"""
+def _rel_from_root(cand: str, doc_dir: str = "") -> str:
+    """仓根相对路径 → 目标文档目录相对路径（相对链接按文档目录解析，非仓根）。"""
+    if not doc_dir:
+        return cand
+    depth = len([p for p in doc_dir.strip("/").split("/") if p])
+    return "../" * depth + cand
+
+
+def _mdlink(mod: str, doc_dir: str = "") -> str:
+    """实现模块 → 仓内源文件相对链接（GitHub 渲染后可点击）。
+
+    `doc_dir` = 目标文档相对仓根的目录（如 `docs/mdcg`）；缺省空串 = 文档在仓根。
+    相对链接由**浏览器按文档目录**解析，故须显式换算，不能直接用仓根路径。
+    """
     for cand in (f"md_cg/{mod}.py", f"md_cg/{mod}/__init__.py"):
         if (ROOT / cand).exists():
-            return f"[`{mod}`]({cand})"
+            return f"[`{mod}`]({_rel_from_root(cand, doc_dir)})"
     return f"`{mod}`"
 
 
@@ -317,8 +332,11 @@ def _mod_table(e: dict) -> str:
     return "\n".join(lines)
 
 
-def _map_rows(e: dict, tool: str, call_fmt: str) -> list[str]:
-    """逐 op 映射表行：功能（中文）| 显式调用 | 代码位置（分支→函数链→模块，全链接）。"""
+def _map_rows(e: dict, tool: str, call_fmt: str, doc_dir: str = "") -> list[str]:
+    """逐 op 映射表行：功能（中文）| 显式调用 | 代码位置（分支→函数链→模块，全链接）。
+
+    `doc_dir` 透传给 `_mdlink`：本表投影到 `docs/mdcg/`，模块链接须按该目录换算。
+    """
     fkey = "server" if tool != "whitebox" else "whitebox"
     rows = []
     ops = {"cg": e["cg_ops"], "stg": e["stg_ops"], "whitebox": e["wb_ops"]}[tool]
@@ -329,7 +347,7 @@ def _map_rows(e: dict, tool: str, call_fmt: str) -> list[str]:
             parts.append(_flink(e, fkey, fname))
         mods = sorted(e["op_modules"].get((tool, op), set()))
         for m in mods:
-            parts.append(_mdlink(m))
+            parts.append(_mdlink(m, doc_dir))
         chain = " → ".join(parts) if len(parts) > 1 else parts[0]
         label = desc or f"`{op}`"
         rows.append(f"| {label} | {call_fmt.format(op=op)} | {chain} |")
@@ -380,14 +398,14 @@ _MAP_HEAD = "| 功能 | 显式调用 | 代码位置（点击直达源码行） |
 def _map_section(e: dict, seg: str) -> str:
     """映射表单段：FUNCMAP 标记包裹的一张逐 op 表。"""
     if seg == "cg":
-        rows = _map_rows(e, "cg", "`cg(op={op})`")
+        rows = _map_rows(e, "cg", "`cg(op={op})`", MAPDOC_DIR)
         title = f"**认知基元 `cg` · {len(e['cg_ops'])} 个 op**（行号由本管线从真源自动提取，`check` 门禁守卫漂移）："
     elif seg == "stg":
-        rows = _map_rows(e, "stg", "`stg(op={op})`")
+        rows = _map_rows(e, "stg", "`stg(op={op})`", MAPDOC_DIR)
         title = f"**语义时空基元 `stg` · {len(e['stg_ops'])} 个 op**："
     else:
         rows = _map_rows(
-            e, "whitebox", "`cg(op=whitebox, action={op})`"
+            e, "whitebox", "`cg(op=whitebox, action={op})`", MAPDOC_DIR
         )
         title = "**白箱能力库 `whitebox`（AEIS 能力库唯一显式入口）· action 分发**："
     return "\n".join([_funcmap_begin(seg), "", title, "", *_MAP_HEAD, *rows, "", FUNCMAP_END])
@@ -465,12 +483,18 @@ def check(e: dict) -> list[str]:
             errors.append(f"{dname} 不存在：{dpath}")
             continue
         text = dpath.read_text(encoding="utf-8")
-        errors.extend(_check_doc(e, dname, text, secs))
+        rel_dir = dpath.parent.relative_to(ROOT).as_posix()
+        errors.extend(_check_doc(e, dname, text, secs, "" if rel_dir == "." else rel_dir))
     return errors
 
 
-def _check_doc(e: dict, dname: str, text: str, sections: list[tuple[str, str, str]]) -> list[str]:
-    """单文档校验：段一致性 / op·工具引用 ⊆ 真源 / 文件链接与锚点存在。"""
+def _check_doc(e: dict, dname: str, text: str, sections: list[tuple[str, str, str]],
+               doc_dir: str = "") -> list[str]:
+    """单文档校验：段一致性 / op·工具引用 ⊆ 真源 / 文件链接与锚点存在。
+
+    `doc_dir` = 文档相对仓根的目录。**相对链接按文档目录解析**（与 GitHub/浏览器
+    一致）——按仓根解析会漏检 `docs/mdcg/` 下的整片断链（历史漏检实证）。
+    """
     errors: list[str] = []
 
     # 1) 标记段一致性
@@ -508,7 +532,8 @@ def _check_doc(e: dict, dname: str, text: str, sections: list[tuple[str, str, st
             if not any((ROOT / c).exists() for c in (f"md_cg/{mod}.py", f"md_cg/{mod}/__init__.py")):
                 errors.append(f"op {tool}({op}) 引用的实现模块无源文件：md_cg/{mod}.*")
 
-    # 3) 文件链接存在 + 锚点存在
+    # 3) 文件链接存在 + 锚点存在（相对链接按**文档所在目录**解析，非仓根）
+    base = (ROOT / doc_dir) if doc_dir else ROOT
     anchors = {_gh_anchor(t) for t in _md_titles(text)}
     for link in _LINK_RE.findall(text):
         if link.startswith(("http://", "https://", "mailto:")):
@@ -517,12 +542,14 @@ def _check_doc(e: dict, dname: str, text: str, sections: list[tuple[str, str, st
         if path:
             if path in FILE_LINK_ALLOWLIST:
                 continue
-            if not (ROOT / path).exists():
-                errors.append(f"{dname} 文件链接不存在：{link}")
+            target = (base / path).resolve()
+            if not target.exists():
+                rel = f"{doc_dir}/{link}" if doc_dir else link
+                errors.append(f"{dname} 文件链接不存在：{link}（按文档目录解析为 {rel}）")
                 continue
             if frag:  # 跨文件锚点：校验目标文件内的标题锚点
                 try:
-                    sub = (ROOT / path).read_text(encoding="utf-8")
+                    sub = target.read_text(encoding="utf-8")
                 except OSError:
                     continue
                 if not _md_file_has_anchor(sub, frag):

@@ -1,0 +1,44 @@
+name: discipline-check
+
+# 工作纪律真源 → 各端产物的一致性守卫（外部评审建议 2：守卫接入 CI）。
+# 硬失败四项：产物缺失 / 孤儿声明 / 工具名未随端标注 / 产物陈化（内嵌指纹 ≠ 真源指纹）。
+# 陈化与缺失同级退出 1——改真源未重渲染的产物会把旧纪律继续注入各端，放行等于无守卫。
+#
+# --allow-missing：仓外目标（~/.dsh 受管块）与本地私有件（AGENTS.md，.gitignore）
+# 在 CI 上不存在属预期；缺失跳过，但产物存在时仍逐字严格校验。
+on:
+  push:
+    paths:
+      - 'docs/工作纪律_认知图条目_v1.1.json'
+      - 'docs/discipline/**'
+      - 'codebuddy/**'
+      - 'zcode/**'
+      - 'codex/**'
+      - 'claude/**'
+      - 'AGENTS.md'
+      - 'scripts/render_discipline.py'
+      - 'scripts/verify_discipline.py'
+      - '.github/workflows/discipline-check.yml'
+  pull_request:
+    paths:
+      - 'docs/工作纪律_认知图条目_v1.1.json'
+      - 'docs/discipline/**'
+      - 'codebuddy/**'
+      - 'zcode/**'
+      - 'codex/**'
+      - 'claude/**'
+      - 'AGENTS.md'
+      - 'scripts/render_discipline.py'
+      - 'scripts/verify_discipline.py'
+      - '.github/workflows/discipline-check.yml'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 纪律真源 ↔ 各端产物一致性（缺失/孤儿/工具名随端/陈化 四项硬校验）
+        run: python scripts/verify_discipline.py --allow-missing

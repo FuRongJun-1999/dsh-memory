@@ -428,10 +428,18 @@ def predictability(blindspot):
 def anchor_from_description(cg, description):
     """盲区描述 → 锚点节点（检索器打分，与 AEIS 的 LIKE→坐标回退同构）。
 
-    只取**首个可用候选**：按标签/层过滤掉推断脚手架（`gap_hint`/`scene`）与
-    负记忆（`unresolved`/`rejected`），其余按检索名次顺延。过滤理由见上方常量注释。
-    候选全被过滤时返回 None（等价「无锚点」），由调用方按 no_anchor 处理，
-    而不是硬凑一个不可起推的节点。
+    择锚规则：候选池内**可起推者优先**——出边非空是路线生成的必要条件，无出边的
+    节点只能靠语义回退硬凑路线，起点语义即失真。**全部不可起推时才降级**为首个合格
+    候选（诚实降级：宁可标注锚点弱，不假装有锚）。
+    动机（实测）：同分并列时检索序不可依赖——「正题节点」与其「同名+近义描述」变体
+    词法分可完全相同（各自都为 1.0），纯按检索名次取首位会漂到无出边的近义变体上。
+
+    过滤与择锚分两关：先按标签/层过滤掉推断脚手架（`gap_hint`/`scene`）与负记忆
+    （`unresolved`/`rejected`），再在剩余候选里按**可起推资格**择优——出边非空者
+    立即采纳，无出边者记为降级候选继续后看，全池无可起推者才降级取首个合格候选。
+    候选全被过滤时返回 None（等价「无锚点」），由调用方按 no_anchor 处理。
+    邻接表不可用（chain 取表异常）时退回「取首个合格候选」——辅助判据故障不应
+    让整条预测链失效（兜底优先于择优）。
     """
     q = str(description or "").strip()
     if not q:
@@ -440,6 +448,12 @@ def anchor_from_description(cg, description):
         results, _meta = cg.search(q, k=ANCHOR_FETCH_K, record=False, judge=False)
     except Exception:
         return None
+    try:
+        from . import chain
+        out_edges = chain.adjacency(cg)
+    except Exception:
+        out_edges = None
+    fallback = None
     for item in results:
         nd = item[0] if isinstance(item, (tuple, list)) else item
         if not isinstance(nd, dict):
@@ -459,8 +473,12 @@ def anchor_from_description(cg, description):
         # 兜底：fs 派生的 id 可能是相对路径（如 unresolved/bs_x.md），归一为裸节点名
         if "/" in str(nid) and str(nid).endswith(".md"):
             nid = os.path.basename(str(nid))[:-3]
-        return nid
-    return None
+        # 可起推资格：出边非空是路线生成的必要条件；不可起推者只作降级候选。
+        if out_edges is None or out_edges.get(nid):
+            return nid
+        if fallback is None:
+            fallback = nid
+    return fallback
 
 
 # ---------------------------------------------------------------- 路线生成
