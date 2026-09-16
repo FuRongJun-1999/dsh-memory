@@ -71,10 +71,9 @@ NAME_ALLOWLIST = {
 }
 
 # 文档链接但外部 clone 后不存在的仓内路径（带理由）：链接语义=「本地会有此文件」。
-FILE_LINK_ALLOWLIST = {
-    "AGENTS.md": "仓库根纪律投影（.gitignore「本地使用不共享」，外部 clone 无此文件属预期）；"
-    "README 指向它是刻意的（CodeBuddy 注入通道说明）",
-}
+# 现为空：原登记项 `AGENTS.md` 随 README 改指入库产物 codebuddy/CODEBUDDY.md 而撤销
+# ——条目一旦无引用即死配置，留着会让「README 引用了本地私有件」的旧事实继续误导。
+FILE_LINK_ALLOWLIST = {}
 
 # 中文功能描述（文档层真源）：功能调用映射表「功能」列的内容。
 # check 门禁要求覆盖全部 op/action——新功能落地漏登记描述即红灯。

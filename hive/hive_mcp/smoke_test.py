@@ -30,6 +30,8 @@ ENV = dict(os.environ, PYTHONUTF8="1", PYTHONPATH=REPO)
 EXE = os.path.join(REPO, "hive", "target", "release",
                    "hive.exe" if os.name == "nt" else "hive")
 
+from hive.hive_mcp import mcp_server as HM  # noqa: E402 —— REPO 须先入 sys.path
+
 PASS = 0
 FAIL = 0
 
@@ -155,6 +157,31 @@ def main() -> int:
           good.get("ok") is True and (good.get("job_id") or "").startswith("h"))
     st_path = os.path.join(jobs_dir, good["job_id"], "status.json")
     check("job 目录 status 落盘", os.path.isfile(st_path))
+
+    print("== 2b. spawn 入参白名单（面差异显式拒绝）==")
+    for i, (key, val) in enumerate((("command", "echo hi"),
+                                    ("commands", ["echo hi"]),
+                                    ("orchestrate", True),
+                                    ("workdir", "/tmp"))):
+        r = m.tool("hive_spawn", {"model": "fake", "user_prompt": "0.1", key: val},
+                   rid=20 + i)
+        check(f"{key} 被显式拒绝（不再静默丢弃）",
+              r.get("ok") is False and key in (r.get("error") or ""),
+              json.dumps(r, ensure_ascii=False)[:200])
+    inside = m.tool("hive_spawn",
+                    {"model": "fake", "user_prompt": "0.1", "timeout_s": 60,
+                     "system_prompt": "s", "context_strict": False,
+                     "tools": ["lingshu_cg"], "max_tool_rounds": 2,
+                     "mdcg_root": jobs_dir, "web_search_backend": "duckduckgo",
+                     "temperature": 0.2, "max_tokens": 128,
+                     "thinking": {"type": "enabled"}}, rid=30)
+    check("白名单内参数零回归（合法 spawn 不受新校验影响）",
+          inside.get("ok") is True, json.dumps(inside, ensure_ascii=False)[:200])
+    props = set(HM.TOOLS[0]["inputSchema"]["properties"])
+    check("schema properties 与 SPAWN_ALLOWED_KEYS 同集（防两处漂移）",
+          props == set(HM.SPAWN_ALLOWED_KEYS),
+          f"schema-only={sorted(props - set(HM.SPAWN_ALLOWED_KEYS))} "
+          f"whitelist-only={sorted(set(HM.SPAWN_ALLOWED_KEYS) - props)}")
 
     if not os.path.isfile(EXE):
         print(f"== 3/4. 跳过（未找到 {EXE}，先 cargo build --release）==")

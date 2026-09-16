@@ -203,7 +203,29 @@ def _result_view(job_dir: str, head):
     return r
 
 
+# hive_spawn 入参白名单——与 TOOLS[0].inputSchema.properties **逐键同集**（smoke_test 断言守卫，
+# 防两处漂移导致「schema 收得下、白名单拒得掉」）。
+# 为什么需要它：spec 由 _t_spawn 内逐字段 if 赋值**白名单构造**，未列入的键既不进 spec 也不报错。
+# 宿主照 hive/README.md「spec 字段」表传 command / commands / orchestrate / workdir 时——
+# 前三个只属 CLI/spec 层（exec_cmd.py / orch.py），workdir 由本面强制取进程 cwd——四者皆被
+# 静默丢弃，表现为「以为在跑确定性任务、实际走了 LLM 路径烧 token」。故显式拒绝并指路 CLI。
+SPAWN_ALLOWED_KEYS = frozenset({
+    "model", "user_prompt", "system_prompt", "context_files", "timeout_s",
+    "reasoning_effort", "context_budget_tokens", "context_strict", "thinking",
+    "tools", "max_tool_rounds", "mdcg_root", "web_search_backend",
+    "max_tokens", "temperature",
+})
+
+
 def _t_spawn(a: dict) -> dict:
+    unknown = sorted(k for k in a if k not in SPAWN_ALLOWED_KEYS)
+    if unknown:
+        return {"ok": False, "error": (
+            f"hive_spawn 不接受参数：{', '.join(unknown)}——本工具只提交 LLM 委托型任务，"
+            "入参白名单外的键进不了 spec，故显式拒绝（不再静默丢弃）。"
+            "确定性执行（command / commands）与编排（orchestrate）请改走 CLI："
+            "`hive submit` 提交带这些字段的 spec.json，执行器见 hive/exec_cmd.py；"
+            "workdir 由本面强制取 MCP 进程 cwd，需指定基准目录请用绝对路径 context_files。")}
     if not (a.get("model") or "").strip():
         return {"ok": False, "error": (
             "缺必填参数 model。模型名须与 HIVE_API_BASE 配对——deepseek base（api.deepseek.com）"
@@ -347,7 +369,7 @@ def _t_doctor(_a: dict) -> dict:
 TOOLS = [
     {
         "name": "hive_spawn",
-        "description": "灵枢蜂巢：提交 LLM 任务到并发队列（毫秒级返回 job_id，后台执行不阻塞）。统一子代理默认：reasoning_effort=high / context_budget_tokens=200000 / timeout_s=600。确定性执行（跑命令/测试/回归）用自定义 worker，见 hive/exec_cmd.py。",
+        "description": "灵枢蜂巢：提交 LLM 任务到并发队列（毫秒级返回 job_id，后台执行不阻塞）。统一子代理默认：reasoning_effort=high / context_budget_tokens=200000 / timeout_s=600。**只接受下方 properties 列出的 15 个参数**：白名单外的键（如 command / commands / orchestrate / workdir）会被显式拒绝——确定性执行（跑命令/测试/回归）与编排请改走 CLI（hive submit + hive/exec_cmd.py / orch.py）。",
         "inputSchema": {
             "type": "object",
             "properties": {

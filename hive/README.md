@@ -74,7 +74,7 @@ target\release\hive.exe doctor
 
 | 工具 | 用途 |
 |---|---|
-| `hive_spawn` | 提交任务（spec 结构校验 fail fast），返回 job_id |
+| `hive_spawn` | 提交 LLM 任务（**入参白名单** + spec 结构校验 fail fast），返回 job_id；确定性/编排任务走 CLI（见「确定性执行」「任务编排」） |
 | `hive_poll` | 无 id = 全部摘要（content 截 800 字）；带 id = 单查全文；`handoff_ready=true` = 子代理满上下文交回，待主代理裁决续跑 |
 | `hive_kill` | 写 kill 标志，worker ≤1s 内强杀 |
 | `hive_doctor` | serve 存活 / 任务状态统计 / env 检查 |
@@ -113,7 +113,12 @@ MCP 首次拉起 serve 时同样按「宿主 env + config.local.json」组装，
 | `web_search_backend` | 否 | web_search 后端兜底（env `HIVE_WEB_SEARCH` 优先）：`zhipu` / `duckduckgo` |
 | `orchestrate` | 否 | 编排形态：真值（`true` 或 `{"max_subtasks": N}`）→ 由 `orch.py` 接管（见「任务编排」）。多态转发须 `HIVE_EXEC_PY` 指向 `exec_cmd.py`；子任务上限默认 8 |
 
-确定性任务与编排任务另有 `command` / `commands` / `orchestrate` 字段，见下节。
+**面差异（先看清再传参）**：上表是 **spec.json 字段表**（CLI `hive submit` 的全集）。
+MCP 面的 `hive_spawn` **只接受其中 15 键**——除 `workdir`（本面强制取 MCP 进程 cwd）与
+`orchestrate` 外的全部，`command` / `commands` 亦不在其列。这四个键**只走 CLI**（见下节）；
+MCP 面传入会被**显式拒绝**（fail fast 并指路 CLI），不再静默丢弃——静默丢弃的后果是
+「以为在跑确定性任务、实际走了 LLM 路径烧 token」。白名单与 `hive_spawn` 的 schema
+同集，由 `hive/hive_mcp/smoke_test.py` 断言守卫。
 
 spec 在 submit 时做存在性校验（context 文件必须已存在，fail fast 防任务白跑）。
 

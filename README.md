@@ -421,7 +421,7 @@ python scripts/run_tests.py --jobs 1         # 串行（默认并发 4）
 
 | 入口 | 内容 | 位置 |
 |---|---|---|
-| **工程纪律（17 条）** | 每条 ≡ 一个认知图节点（生效条件 / 执行锚点 / 不适用条件 / 直答出口），含触发词路由 | 真源：[`docs/工作纪律_认知图条目_v1.1.json`](docs/工作纪律_认知图条目_v1.1.json) · 全文投影：[`AGENTS.md`](AGENTS.md) |
+| **工程纪律（17 条）** | 每条 ≡ 一个认知图节点（生效条件 / 执行锚点 / 不适用条件 / 直答出口），含触发词路由 | 真源：[`docs/工作纪律_认知图条目_v1.1.json`](docs/工作纪律_认知图条目_v1.1.json) · 全文投影：[`codebuddy/CODEBUDDY.md`](codebuddy/CODEBUDDY.md)（各端产物见 [多 harness 接入](#多-harness-接入按端分目录)） |
 | **设计者视角（元技能）** | 在动手前回答「该不该做 / 为什么做 / 条件够不够」：条件空间声明 → 四态资格裁决（ACCEPT/REJECT/DEFER/BLINDSPOT）→ 失配归因；附自检 17/17 | [`skills/skills/designer-perspective/`](skills/skills/designer-perspective/)（`tests/selftest.py` 可自行验收） |
 
 > **按需裁剪**：17 条中部分条款针对灵枢私有管线（如图像选源线），复用时建议只取方法论 / 执行 / 执行调度 / 合规 / 记忆闭环五组通用条款。多 harness 渲染与防漂移守卫见 [多 harness 接入](#多-harness-接入按端分目录)。
