@@ -251,6 +251,20 @@ def phase_b(tmp):
                     peers=[], now=NOW)["hits"] == [],
        "B12 全时窗是合法声明 → 不判过期")
 
+    # B12b-B12c 时间窗来源链（真库口径：索引快照只带 time_window，**无 condition_space 键**）
+    m_nocs = {k: v for k, v in m.items() if k != "condition_space"}
+    hits = LC.locate_ex("b1", "stale", meta=dict(m_nocs, role="k"), content=body, text="",
+                        fm={"condition_space": full_cs(tw=EXPIRED)}, peers=[],
+                        now=NOW)["hits"]
+    ok(len(hits) == 1 and hits[0]["rule"] == "time_window_expired",
+       "B12b 快照无条件空间 → 回退 fm 真源仍判过期（实得 %d 条）" % len(hits))
+
+    hits = LC.locate_ex("b1", "stale",
+                        meta=dict(m_nocs, role="k", time_window=list(EXPIRED)),
+                        content=body, text="", fm={}, peers=[], now=NOW)["hits"]
+    ok(len(hits) == 1 and hits[0]["rule"] == "time_window_expired",
+       "B12c 快照只带 time_window → 真库口径下仍判过期（修复前恒 0 命中）")
+
     # B13-B14 dup
     same = ccg(fn="重复节点")
     peers = LC.build_peers([{"node_id": "b1", "content": same},

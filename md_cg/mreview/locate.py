@@ -403,11 +403,22 @@ def _loc_weak_source(node_id, meta, content, ctx):
 
 
 def _loc_stale(node_id, meta, content, ctx):
-    """条件空间时间窗已过期——越出适用边界（是「失效声明」不是「事实错误」）。"""
+    """条件空间时间窗已过期——越出适用边界（是「失效声明」不是「事实错误」）。
+
+    时间窗来源链与 `_loc_missing_field` 的槽检查同构：`meta.condition_space`
+    （显式注入面）→ `fm.condition_space`（文件真源）→ `meta.time_window`
+    （索引快照字段）。**索引快照只透传 `time_window`**（`mdcg.py` `_stage` 口径：
+    时空字段入快照、condition_space 整块不入），故只读 `meta.condition_space`
+    会令 stale 在真库上恒不命中——本链的第三跳即为此而设。
+    """
+    fm = ctx.get("fm") or {}
     cs = meta.get("condition_space")
     if not isinstance(cs, dict):
-        return []
-    tw = cs.get("time_window")
+        csf = fm.get("condition_space")
+        cs = csf if isinstance(csf, dict) else None
+    tw = (cs or {}).get("time_window")
+    if tw is None:
+        tw = meta.get("time_window")
     if NF.is_full_time_window(tw):
         return []           # 全时窗是**合法声明**（任意时刻成立），不判过期
     try:
