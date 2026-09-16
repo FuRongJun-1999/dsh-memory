@@ -10,8 +10,10 @@
   · **确定性**——同一输入两次调用逐字节一致；`now` 显式传入，不靠墙钟。
   · **不猜**——语义级矛盾归 blindspot（`contradiction_semantic`），不编造字符区间。
 
-覆盖：A 基础工具（纯函数）  B 六类定位器（含字段层门限、指纹不一致成因）
-      C 提示过滤与 blindspot  D 契约与确定性  E 批量与包  F 零写入
+覆盖：A 基础工具（纯函数）  B 问题面定位器（含字段层门限、指纹不一致成因）+ 观测面
+      （observation_aged：观测时刻不是失效声明，**不进告警面**）
+      C 提示过滤与 blindspot（含 stale 的**依赖存在性**判据：载体消失/漂移）
+      D 契约与确定性  E 批量与包  F 零写入
 运行：python -m md_cg.test_mr_m3
 """
 from __future__ import annotations
@@ -19,9 +21,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import sys
 import tempfile
 
+from . import codeindex as CI
 from . import conformance as CF
 from . import nodefile as NF
 from . import writelimit as WL
@@ -238,32 +242,81 @@ def phase_b(tmp):
                         content=ccg(), text="", fm={}, peers=[], now=NOW)["hits"]
     ok(hits == [], "B10 文科×textbook 合规 → 零命中（不误报）")
 
-    # B11-B12 stale
+    # B11-B12c observation_aged（原「stale」的时间窗口径：**观测时刻不是失效声明**）
     m5 = dict(m, role="k", tags=["a"], condition_space=full_cs(tw=EXPIRED))
     body = ccg()
-    hits = LC.locate_ex("b1", "stale", meta=m5, content=body, text="", fm={},
-                        peers=[], now=NOW)["hits"]
+    hits = LC.locate_ex("b1", "observation_aged", meta=m5, content=body, text="",
+                        fm={}, peers=[], now=NOW)["hits"]
     ok(len(hits) == 1 and hits[0]["field"] == "condition_space"
-       and "已过期" in hits[0]["evidence"], "B11 时间窗过期 → stale（越出适用边界）")
+       and hits[0]["severity"] == "info" and "观测时刻" in hits[0]["evidence"],
+       "B11 时间窗过期 → observation_aged（观测面·info，不冒充失效）")
 
     m6 = dict(m5, condition_space=full_cs(tw=(0.0, NF.FULL_TIME_WINDOW_MAX)))
-    ok(LC.locate_ex("b1", "stale", meta=m6, content=body, text="", fm={},
+    ok(LC.locate_ex("b1", "observation_aged", meta=m6, content=body, text="", fm={},
                     peers=[], now=NOW)["hits"] == [],
-       "B12 全时窗是合法声明 → 不判过期")
+       "B12 全时窗是合法声明 → 不判")
 
     # B12b-B12c 时间窗来源链（真库口径：索引快照只带 time_window，**无 condition_space 键**）
     m_nocs = {k: v for k, v in m.items() if k != "condition_space"}
-    hits = LC.locate_ex("b1", "stale", meta=dict(m_nocs, role="k"), content=body, text="",
+    hits = LC.locate_ex("b1", "observation_aged", meta=dict(m_nocs, role="k"),
+                        content=body, text="",
                         fm={"condition_space": full_cs(tw=EXPIRED)}, peers=[],
                         now=NOW)["hits"]
-    ok(len(hits) == 1 and hits[0]["rule"] == "time_window_expired",
-       "B12b 快照无条件空间 → 回退 fm 真源仍判过期（实得 %d 条）" % len(hits))
+    ok(len(hits) == 1 and hits[0]["rule"] == "observation_window_passed",
+       "B12b 快照无条件空间 → 回退 fm 真源仍判（实得 %d 条）" % len(hits))
 
-    hits = LC.locate_ex("b1", "stale",
+    hits = LC.locate_ex("b1", "observation_aged",
                         meta=dict(m_nocs, role="k", time_window=list(EXPIRED)),
                         content=body, text="", fm={}, peers=[], now=NOW)["hits"]
-    ok(len(hits) == 1 and hits[0]["rule"] == "time_window_expired",
-       "B12c 快照只带 time_window → 真库口径下仍判过期（修复前恒 0 命中）")
+    ok(len(hits) == 1 and hits[0]["rule"] == "observation_window_passed",
+       "B12c 快照只带 time_window → 真库口径下仍判")
+
+    # B12d-B12e **观测面不进评审告警面**（B+C 修正的关键隔离断言）
+    hits = LC.locate_ex("b1", None, meta=m5, content=body, text="", fm={},
+                        peers=[], now=NOW)["hits"]
+    ok(all(h["issue_kind"] != "observation_aged" for h in hits),
+       "B12d 默认全量定位不含 observation_aged（不进评审告警面）")
+    ok("observation_aged" in LC.ADVISORY_KINDS
+       and "observation_aged" not in LC.ISSUE_KINDS,
+       "B12e observation_aged 归观测面（ADVISORY_KINDS），不占问题面 D1 六类")
+
+    # C stale —— **依赖存在性**（B+C 修正：时效判定看载体是否还在，不看观测时刻）
+    src = tempfile.mkdtemp(prefix="m3src_")
+    slines = ["def f():", "    return 1", "", "def g():", "    return 2"]
+    with open(os.path.join(src, "mod.py"), "w", encoding="utf-8") as f:
+        f.write("\n".join(slines))
+    ref_ok = {"path": "mod.py", "name": "f", "kind": "def", "lineno": 1, "end": 2,
+              "lang": "py", "precise": True,
+              "hash": CI.region_hash(slines, 1, 2), "root": src}
+    hits = LC.locate_ex("c1", "stale", meta={}, content=body, text="",
+                        fm={"code_ref": dict(ref_ok)}, peers=[], now=NOW)["hits"]
+    ok(hits == [], "C1 依赖源文件在且区间哈希吻合 → 零命中（不误报）")
+
+    hits = LC.locate_ex("c1", "stale", meta={}, content=body, text="",
+                        fm={"code_ref": dict(ref_ok, hash="000000000000")},
+                        peers=[], now=NOW)["hits"]
+    ok(len(hits) == 1 and hits[0]["rule"] == "ref_stale"
+       and hits[0]["field"] == "code_ref",
+       "C2 源文件在但区间哈希不符（已漂移）→ stale")
+
+    hits = LC.locate_ex("c1", "stale", meta={}, content=body, text="",
+                        fm={"code_ref": dict(ref_ok, path="gone.py")},
+                        peers=[], now=NOW)["hits"]
+    ok(len(hits) == 1 and hits[0]["rule"] == "ref_dangling",
+       "C3 依赖源文件不存在（悬空）→ stale（载体消失）")
+
+    hits = LC.locate_ex("c1", "stale", meta={}, content=body, text="",
+                        fm={"doc_ref": {"path": "x.md", "lineno": 1, "end": 2,
+                                        "hash": "000000000000"}},
+                        peers=[], now=NOW)["hits"]
+    ok(hits == [], "C4 ref 无 root（判不了）→ 零命中（观测手段不足不冒充失效）")
+
+    hits = LC.locate_ex("c1", None, meta=m5, content=body, text="",
+                        fm={"code_ref": dict(ref_ok, path="gone.py")},
+                        peers=[], now=NOW)["hits"]
+    ok(any(h["issue_kind"] == "stale" for h in hits),
+       "C5 默认全量定位会跑 stale（依赖存在性属问题面）")
+    shutil.rmtree(src, ignore_errors=True)
 
     # B13-B14 dup
     same = ccg(fn="重复节点")

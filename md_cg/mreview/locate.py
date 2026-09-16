@@ -11,6 +11,8 @@ D1 契约：
 * **span**       —— 命中处的字符区间 `[start, end)`（半开），**相对正文 content**；
                     纯字段级缺失无字符区间可指 → `None`
 * **issue_kind** —— dup / missing_field / stale / contradiction / weak_source / template_flow
+                    （`ISSUE_KINDS`＝问题面）；另有 `ADVISORY_KINDS`（观测面，可显式定位
+                    但**不进默认全量、不进评审告警面**，见下「stale 与 observation_aged」）
 * **evidence**   —— 白箱判据：为什么算问题（人可复核、机器可断言）
 
 定位的职责边界：M2 的意见说「这一条有问题」，D1 回答「问题在这一条的哪个字段/哪一段」。
@@ -37,6 +39,18 @@ BLINDSPOT 项交回 LLM 意见层（`status="blindspot"`，见 `locate()` 返回
 `snippet`（命中片段）、`rule`（触发定位的判据名，审计用）、`peer`（同组对照节点）、
 `cause`（`contradiction` 的**成因**判定，见 `hash_mismatch_cause`——同一条命中
 可能是「真不一致」也可能是「索引快照滞后」，两种成因不分会让复核者误判为数据损坏）。
+
+**`stale` 与 `observation_aged` 的判据源分工（2026-09-16 修正）**：
+
+* `stale`（**问题面**）—— **依赖存在性**：`code_ref`/`doc_ref` 指的源文件已不存在
+  （悬空）或已漂移（区间哈希不符）。判据直接调 `refindex.probe_ref`，**不另立一份**
+  （防「术语双写法」漂移）。代码知识的真值挂在源文件上，源没了/改了才是适用边界越出。
+* `observation_aged`（**观测面**，`ADVISORY_KINDS`，**不进默认全量**）——
+  `condition_space.time_window` 已过。这是**观测时刻**不是失效声明：写入端
+  （`mdcg.add`，见其 `OBSERVATION_WINDOW_SEC`）在未给 time_window 时以**写入时刻**
+  自动填 1 小时窗，故真库中「已过期」绝大多数是「写入超过 1 小时」，与知识是否失效
+  无关——把它当问题投进评审告警面就是系统性误报（实测：全库 1453 条过期里 1434 条
+  属默认窗填充）。需要时效判定用 `stale`（依赖存在性），不是这里。
 """
 from __future__ import annotations
 
@@ -50,16 +64,23 @@ import time
 from .. import conformance as CF
 from .. import crosscheck as CC
 from .. import nodefile as NF
+from .. import refindex as RI
 from .. import writelimit as WL
 from . import ruleset as RS
 
-__all__ = ["ISSUE_KINDS", "KIND_ALIASES", "canonical_kind", "locate", "locate_many",
-           "locate_package", "sentence_spans", "mark_spans", "load_node", "main",
-           "field_layer_scope", "hash_mismatch_cause", "HASH_CAUSES"]
+__all__ = ["ISSUE_KINDS", "ADVISORY_KINDS", "KIND_ALIASES", "canonical_kind", "locate",
+           "locate_many", "locate_package", "sentence_spans", "mark_spans", "load_node",
+           "main", "field_layer_scope", "hash_mismatch_cause", "HASH_CAUSES"]
 
-#: D1 的问题类别（真源：立项文档 §5 D1）
+#: D1 的问题类别（真源：立项文档 §5 D1）——**问题面**：命中即「知识有问题」
 ISSUE_KINDS = ("dup", "missing_field", "stale", "contradiction",
                "weak_source", "template_flow")
+
+#: **观测面**（咨询级）：可显式定位，但**不进默认全量定位、不进评审告警面**。
+#: 判据：本类命中说的是「观测手段的副产品」（如「这条记忆写入超过 1 小时」），
+#: 不是「知识有问题」——把它混进 ISSUE_KINDS 会让每一次写入在 1 小时后自动变成
+#: 待评审问题（系统性误报）。故与问题面分表，只有显式点名才产出。
+ADVISORY_KINDS = ("observation_aged",)
 
 #: M1（ruleset 机械层）与 D1 的用词归并——两处说的是同一件事，不许各说各话
 KIND_ALIASES = {"dup_content": "dup",        # M1 `dup_hash_group`
@@ -82,6 +103,11 @@ MTIME_TOLERANCE = 1.0
 
 #: `content_hash` 不一致的**成因**（确定性判据，不猜；见 `hash_mismatch_cause`）
 HASH_CAUSES = ("index_lag", "true_mismatch", "unknown")
+
+#: `refindex.probe_ref` 的五态里，哪些构成「依赖已失效」（`stale` 判据，见 `_loc_stale`）：
+#: 只有这两态说明**载体真的没了/改了**；`unresolved`（拿不到 root）与 `error`（读盘失败）
+#: 是观测手段不足，按「不猜」纪律不判。
+_REF_DEAD_STATUSES = ("dangling", "stale")
 
 #: 字段层门限缓存（规则库是包内数据文件，进程内不变 → 惰性算一次）
 _FIELD_LAYER_CACHE = None
@@ -290,10 +316,18 @@ def _snippet(text, span) -> str:
 
 
 def _hit(node_id, kind, field, span, evidence, *, rule=None, line=None,
-         sentence=None, snippet=None, peer=None, cause=None, status="located") -> dict:
+         sentence=None, snippet=None, peer=None, cause=None, status="located",
+         severity=None) -> dict:
+    """命中行（四键契约 + 增强键）。
+
+    `severity` 是**观测面专用**的等级标注（`ADVISORY_KINDS` 命中带 `"info"`）：
+    问题面命中不带（问题即问题，无等级可降）；本键让下游一眼分清「这是观测
+    副产品」与「这是待修的问题」，不必靠 issue_kind 名字去猜。
+    """
     return {"node_id": node_id, "field": field, "span": span, "issue_kind": kind,
             "evidence": evidence, "rule": rule, "line": line, "sentence": sentence,
-            "snippet": snippet, "peer": peer, "cause": cause, "status": status}
+            "snippet": snippet, "peer": peer, "cause": cause, "status": status,
+            "severity": severity}
 
 
 def _line_of(text, content, span):
@@ -403,13 +437,67 @@ def _loc_weak_source(node_id, meta, content, ctx):
 
 
 def _loc_stale(node_id, meta, content, ctx):
-    """条件空间时间窗已过期——越出适用边界（是「失效声明」不是「事实错误」）。
+    """**依赖存在性**——声明的载体（源文件）已不存在 / 已漂移（真正的适用边界越出）。
+
+    知识的真值挂在它描述的对象上：代码知识挂在源文件的符号上，源没了或改了，
+    知识才真的不再成立。判据与 `refindex` **同源**（`probe_ref`，不另立一份）：
+
+    ============== ====================================== ==========
+    probe_ref 态    含义                                   本判据
+    ============== ====================================== ==========
+    ``ok``         源文件在、区间哈希匹配                  不判
+    ``stale``      源文件在、区间哈希不符（源被改，漂移）  **stale**
+    ``dangling``   源文件不存在（载体消失）                **stale**
+    ``unresolved`` 拿不到 root（判不了）                    不判（不猜）
+    ``error``      读盘失败                                不判（不猜）
+    ============== ====================================== ==========
+
+    后两态是**观测手段不足**，不是「依赖已失效」——按「不猜」纪律如实不报。
+
+    **时间窗不在此处判**（2026-09-16 修正的原缺陷）：`condition_space.time_window`
+    是写入端**观测时刻**栏（`mdcg.add` 未给时自动填「写入时刻 +1h」，见其
+    `OBSERVATION_WINDOW_SEC`），不是知识的有效期——拿它判「适用边界越出」，
+    等于把「这条记忆写入超过 1 小时」冒充为「失效」。真实适用前提由知识自己
+    声明在 `code_ref`/`doc_ref` 上，故改由依赖存在性裁决；观测时刻本身不丢，
+    降级为 `observation_aged`（观测面，见 `ADVISORY_KINDS`）。
+    """
+    fm = ctx.get("fm") or {}
+    hits = []
+    for key in ("code_ref", "doc_ref"):
+        ref = fm.get(key)
+        if not isinstance(ref, dict) or not ref:
+            continue
+        # root 基准必须取自 ref 自身（`_code_ref`/`_doc_ref` 落的是**源大域** root，
+        # path 相对它）；`ctx["root"]` 是**认知图** root——拿它去拼会把每一条依赖
+        # 都误判成悬空。ref 无 root（旧节点）时 probe 返回 `unresolved` → 不判。
+        probe = RI.probe_ref(ref)
+        st = str(probe.get("status") or "")
+        if st not in _REF_DEAD_STATUSES:
+            continue
+        rel = str(ref.get("path") or "?")
+        if st == "dangling":
+            ev = ("依赖的源文件已不存在（%s：%s）——知识所指的载体消失，适用边界越出"
+                  % (key, rel))
+        else:
+            ev = ("依赖的源文件已漂移（%s：%s）：索引区间哈希 %s ≠ 现算 %s——"
+                  "源被改动，知识所指的符号可能已不是原物"
+                  % (key, rel, probe.get("hash_expected"), probe.get("hash")))
+        hits.append(_hit(node_id, "stale", key, None, ev, rule="ref_" + st))
+    return hits
+
+
+def _loc_observation_aged(node_id, meta, content, ctx):
+    """时间窗已过——**这是观测时刻，不是失效声明**（观测面，不进告警面）。
 
     时间窗来源链与 `_loc_missing_field` 的槽检查同构：`meta.condition_space`
     （显式注入面）→ `fm.condition_space`（文件真源）→ `meta.time_window`
     （索引快照字段）。**索引快照只透传 `time_window`**（`mdcg.py` `_stage` 口径：
-    时空字段入快照、condition_space 整块不入），故只读 `meta.condition_space`
-    会令 stale 在真库上恒不命中——本链的第三跳即为此而设。
+    时空字段入快照、condition_space 整块不入），故第三跳必留。
+
+    **不进默认全量**（不在 `ISSUE_KINDS`）：写入端未给 time_window 时以写入时刻
+    自动填 1 小时窗，故真库「已过期」绝大多数是「写入超过 1 小时」，与知识是否
+    失效无关。观测时刻本身仍如实报（审计有用），只是**不冒充问题**——命中带
+    `severity="info"` 标记它是咨询级。
     """
     fm = ctx.get("fm") or {}
     cs = meta.get("condition_space")
@@ -420,7 +508,7 @@ def _loc_stale(node_id, meta, content, ctx):
     if tw is None:
         tw = meta.get("time_window")
     if NF.is_full_time_window(tw):
-        return []           # 全时窗是**合法声明**（任意时刻成立），不判过期
+        return []           # 全时窗是**合法声明**（任意时刻成立），不判
     try:
         hi = float(tw[1])
     except (TypeError, ValueError, IndexError, KeyError):
@@ -429,10 +517,11 @@ def _loc_stale(node_id, meta, content, ctx):
     if now is None or hi >= float(now):
         return []
     span = mark_spans(content or "").get("生效条件")
-    return [_hit(node_id, "stale", "condition_space", span,
-                 "时间窗 %s 已过期（hi=%.0f < now=%.0f）——适用边界越出"
+    return [_hit(node_id, "observation_aged", "condition_space", span,
+                 "观测时间窗 %s 已过（hi=%.0f < now=%.0f）——这是**观测时刻**，"
+                 "不是失效声明（知识不因观测过去而失效）；时效判定见 stale"
                  % (NF.time_window_text(tw) or "?", hi, float(now)),
-                 rule="time_window_expired",
+                 rule="observation_window_passed", severity="info",
                  line=_line_of(ctx.get("text"), content, span),
                  snippet=_snippet(content, span))]
 
@@ -530,6 +619,7 @@ LOCATORS = {
     "missing_field": _loc_missing_field,
     "weak_source": _loc_weak_source,
     "stale": _loc_stale,
+    "observation_aged": _loc_observation_aged,
     "dup": _loc_dup,
     "template_flow": _loc_template_flow,
     "contradiction": _loc_contradiction,
@@ -600,7 +690,7 @@ def _norm_hint(issue_hint):
                 blind.append("%s：%s" % (s, why))
             else:
                 ck = canonical_kind(s)
-                if ck in ISSUE_KINDS:
+                if ck in ISSUE_KINDS or ck in ADVISORY_KINDS:
                     kinds.add(ck)
                 else:
                     fields.add(s)       # 不是类别 → 当作字段过滤
