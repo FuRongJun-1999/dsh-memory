@@ -1811,14 +1811,21 @@ class MdCGOS(MdCG):
                        budget_tokens=1200, include_state=True):
         """按需恢复：一次调用返回「可续接的上下文包」（替代 hook 自动注入）。
 
-        内容 = 最近会话要点 + 活跃目标 + 近期事件 + 未解问题 (+ 自我状态卡)。
-        纯只读、无副作用；返回体受 budget_tokens 约束（超出即裁剪并显式上报）。
-        无 hook 的载体应在会话开始时显式调用本 op 一次。
+        内容 = 最近会话要点 + 活跃目标 + **任务台账（进行中 + 近期完成）** + 近期事件
+        + 未解问题 (+ 自我状态卡)。纯只读、无副作用；返回体受 budget_tokens 约束
+        （超出即裁剪并显式上报）。无 hook 的载体应在会话开始时显式调用本 op 一次。
+
+        任务段（2026-09-16 新增）是「忘记已实现的工程」的直接解药：新会话开机即见
+        「还在做的」与「刚做完的」，不必先想到去查。任务属结构层、跨会话稳定，
+        故**不按 session 过滤**——工程台账跟着工程走，不跟着会话走。
         """
         limit = max(1, min(int(limit or 5), 50))
         budget = max(200, int(budget_tokens or 1200))
         pack = {"ok": True, "session": session, "source": "session_recall",
-                "notes": [], "goals": [], "recent": [], "unresolved": [],
+                "notes": [], "goals": [],
+                "tasks": {"active": [], "done": [], "active_total": 0,
+                          "done_total": 0},
+                "recent": [], "unresolved": [],
                 "degraded": []}
         # ① 会话要点
         try:
@@ -1832,6 +1839,22 @@ class MdCGOS(MdCG):
                              for g in self.active_goals(limit=5)]
         except Exception:                                  # noqa: BLE001
             pack["degraded"].append("goals")
+        # ②.5 任务台账（structural 层）——见 docstring：不按 session 过滤
+        try:
+            from . import tasks as _tasks
+            ts = _tasks.session_tasks(self, active_limit=5, done_limit=5)
+            pack["tasks"] = {
+                "active": [{"id": t["id"], "name": t["name"], "status": t["status"],
+                            "plan": (t.get("plan") or "")[:300],
+                            "updated_at": t.get("updated_at")}
+                           for t in ts["active"]],
+                "done": [{"id": t["id"], "name": t["name"], "status": t["status"],
+                          "result": (t.get("result") or "")[:300],
+                          "updated_at": t.get("updated_at")}
+                         for t in ts["done"]],
+                "active_total": ts["active_total"], "done_total": ts["done_total"]}
+        except Exception:                                  # noqa: BLE001
+            pack["degraded"].append("tasks")
         # ③ 近期事件（原始滚动窗口）
         try:
             evs = self.recent_events(limit=max(1, int(recent_limit or 10)))
@@ -1859,18 +1882,29 @@ class MdCGOS(MdCG):
                 pack["self_state"] = _ss.summary(self, session=session)
             except Exception:                              # noqa: BLE001
                 pack["degraded"].append("self_state")
-        # ⑥ 预算裁剪：交替丢 recent / notes 尾部，超出预算则显式上报
+        # ⑥ 预算裁剪：交替丢 recent / notes 尾部；任务段**最后才让位**
+        #    （任务台账是结构性结论，事件流水是易失过程——先丢过程），
+        #    被裁的事实在 tasks_truncated 里显式上报，不静默丢。
+        tasks_trimmed = False
         pack["tokens"] = est_tokens(json.dumps(pack, ensure_ascii=False))
-        while pack["tokens"] > budget and (pack["recent"] or pack["notes"]):
-            if len(pack["recent"]) >= len(pack["notes"]):
+        while pack["tokens"] > budget and (pack["recent"] or pack["notes"]
+                                           or pack["tasks"]["active"]
+                                           or pack["tasks"]["done"]):
+            if pack["recent"] and len(pack["recent"]) >= len(pack["notes"]):
                 pack["recent"].pop()
-            else:
+            elif pack["notes"]:
                 pack["notes"].pop()
+            elif pack["tasks"]["done"] or pack["tasks"]["active"]:
+                (pack["tasks"]["done"] or pack["tasks"]["active"]).pop()
+                tasks_trimmed = True
+            else:
+                pack["recent"].pop()
             pack["tokens"] = est_tokens(json.dumps(pack, ensure_ascii=False))
         pack["budget_tokens"] = budget
         pack["truncated"] = pack["tokens"] > budget
-        pack["note"] = ("只读上下文包：会话要点 + 目标 + 近期事件 + 未解问题"
-                        "（+自我状态卡）。库侧替代 hook 自动注入；"
+        pack["tasks_truncated"] = tasks_trimmed
+        pack["note"] = ("只读上下文包：会话要点 + 目标 + 任务台账（进行中/近期完成）"
+                        "+ 近期事件 + 未解问题（+自我状态卡）。库侧替代 hook 自动注入；"
                         "会话开始时显式调用本 op 一次即可续接。")
         return pack
 

@@ -55,7 +55,7 @@ ALL_LAYERS = ("anchor", "structural", "knowledge", "contextual", "self",
 # 认知图 op 全集（与 mcp_server._cg_call 对齐，供 ops_allow 收窄）
 #   help  按需披露入口：工具面投影（见 md_cg/tool_face.py）后，被外置的完整
 #         op/参数语义在此从真源取回；只读元信息，不经角色闸（不属于写/裁决面）
-ALL_OPS = ("help", "info", "route", "read", "write", "goal", "recent", "verify",
+ALL_OPS = ("help", "info", "route", "read", "write", "goal", "task", "recent", "verify",
            "review", "forget", "protect", "identity", "consistency",
            "metacognition", "self_state", "evolution", "sustain", "scrub",
            "predict", "causal", "whitebox", "index_code", "index_doc", "ref",
@@ -112,7 +112,9 @@ ROLE_SPECS = OrderedDict([
         # insight=记录洞见事件（record）；verify/learn 在分发层按单位职责收窄
         # ccg=CCG 六要素编译器（记录单元本职：保存观测/过程/结果与误差）；
         #     其准入不靠 admin 闸而靠签章机械闸（E040/E041/E042）——编译者不得自证
-        "ops_allow": ["info", "route", "read", "write", "goal", "recent",
+        # task=结构层任务台账（工程做到哪一步/结果是什么）——记录单元本职：
+        #     保存过程与结果；「不得自证」由 done 时的结果必填闸承接
+        "ops_allow": ["info", "route", "read", "write", "goal", "task", "recent",
                       "session", "ingest", "maintain", "insight", "ccg"],
         "delegable": False,
         "forbidden": ["self/anchor 层", "private/secret 密级", "裁决与删除"],

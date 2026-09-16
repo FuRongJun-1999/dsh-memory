@@ -87,6 +87,7 @@ FUNC_DESC: dict[tuple[str, str], str] = {
     ("cg", "read"): "读取（按 id / 召回 / 预算）",
     ("cg", "write"): "写入（含冲突检测 / 闸门 / 审核）",
     ("cg", "goal"): "目标（写入 / 状态 / 清单）",
+    ("cg", "task"): "任务实体（登记 / 计划 / 状态 / 结果；done 无结果拒收）",
     ("cg", "recent"): "最近记忆（事件窗口）",
     ("cg", "verify"): "外部裁决回填（节点证据验证）",
     ("cg", "review"): "审核队列（DEFER / 提案裁决）",

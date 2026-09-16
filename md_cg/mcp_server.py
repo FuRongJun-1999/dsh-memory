@@ -509,6 +509,12 @@ KERNEL_TOOLS = [
                        "op=forget：软删除/恢复（受保护节点需 override）；"
                        "op=goal：目标槽（第 5 篇七件套之「目标」，"
                        "action=add|list|status；目标不进召回，只给 read 定向）；"
+                       "op=task：结构层任务实体（跨会话的工程台账，与信任/自我/协议同级；"
+                       "action=open 登记或更新（同名即同卡）、status 状态迁移"
+                       "（进行中/受阻/完成/放弃，迁 完成 时结果必填）、plan_add 追加计划变更、"
+                       "get 单卡全字段、list 清单、find 同族提示（只提示不合并）、"
+                       "session 会话装配面（进行中+近期完成）；"
+                       "任务只存骨架，中间过程不入库，任务知识走 knowledge 层）；"
                        "op=recent：近期事件窗口（七件套之「近期事件」，"
                        "action=add|list|clear，滚动保留最近 N 条）；"
                        "op=identity：身份特征识别（智能论 v3.4 位置效应 + 扮演论"
@@ -592,7 +598,7 @@ KERNEL_TOOLS = [
             op=_p("string", "route|read|write|verify|review|protect|identity|"
                             "consistency|metacognition|self_state|evolution|sustain|"
                             "scrub|predict|causal|"
-                            "forget|goal|recent|info|index_code|index_doc|ref|whitebox|"
+                            "forget|goal|task|recent|info|index_code|index_doc|ref|whitebox|"
                             "theory|link|session|ingest|export|maintain|consolidate|"
                             "insight|ccg|help", True),
             ccg=_p("object", "CCG 六要素编译器入参：{action, node_id, dialog, marks, "
@@ -600,7 +606,8 @@ KERNEL_TOOLS = [
                              "evidence, slot_corrections, model, jobs, blocking, wait_s, "
                              "allow_degrade, channel, autostart, doctor, apply, basis}"),
             intent=_p("string", "route 的查询意图"), query=_p("string", "read 的查询"),
-            goal=_p("string", "goal op 的目标文本；read 的定向目标（缺省用活跃目标）"),
+            goal=_p("string", "goal op 的目标文本；read 的定向目标（缺省用活跃目标）；"
+                              "task op：任务目标（CCG「执行」栏）"),
             goal_status=_p("string", "goal op：active|done|dropped"),
             priority=_p("number", "goal op：优先级 0-1（兼作定向偏置依据）"),
             deadline=_p("string", "goal op：截止时间（仅排序用，不做硬约束）"),
@@ -720,7 +727,8 @@ KERNEL_TOOLS = [
                                      "路径命中私有提示时保守降为 private）"),
             ref=_p("object", "ref op：直接给 code_ref/doc_ref 对象（与 node_id 二选一）"),
             root=_p("string", "ref op：覆盖 ref 里记录的 root（索引结果的跨机器搬迁）"),
-            name=_p("string", "sustain：心跳名（默认 md_cg）"),
+            name=_p("string", "sustain：心跳名（默认 md_cg）；"
+                              "task op：任务名（**身份判据**：同名即同任务，slug 归一后落 id）"),
             session=_p("string", "read（search/recall 分支）：会话归属过滤"
                                  "（frontmatter.session；缺省不过滤）；"
                                  "sustain：会话 id（resume/note 用）"),
@@ -763,7 +771,8 @@ KERNEL_TOOLS = [
             hit=_p("boolean", "predict feedback：是否命中（缺省按 predicted==actual）"),
             rule=_p("string", "evolution record：规律（必填，一句话认知规律）"),
             missing=_p("string", "evolution record：补的是哪一维缺失条件"),
-            change=_p("string", "evolution record：这次具体改了什么"),
+            change=_p("string", "evolution record：这次具体改了什么；"
+                                "task op：本轮计划变更/新增问题（追加进「计划变更」节，可追溯）"),
             kind=_p("string", "evolution：condition_gap|layer_shift|general"),
             entry_id=_p("string", "evolution show/rollback：条目 id"),
             source=_p("string", "evolution record：来源 consolidate|verify|manual；"
@@ -844,7 +853,20 @@ KERNEL_TOOLS = [
             neighbors=_p("boolean", "insight reconstruct：是否并入一跳邻域（默认 true）"),
             recent_days=_p("integer", "insight outlook：近期窗口天数（默认 7）"),
             sample_limit=_p("integer", "insight outlook：抽样清单条数（默认 8）"),
-            max_events=_p("integer", "ingest：单次最多摄取事件数")),
+            max_events=_p("integer", "ingest：单次最多摄取事件数"),
+            task_status=_p("string", "task op：active|blocked|done|dropped；"
+                                     "迁 done 必须同时给 result（缺一不收）"),
+            plan=_p("string", "task op：分步计划（每轮覆盖更新，跨会话持久存在）"),
+            result=_p("string", "task op：任务结果（done 时必填；本次不传则**保留旧值**，"
+                                "不会被静默清空）"),
+            acceptance=_p("string", "task op：验收判据（怎么算完成）"),
+            boundary=_p("string", "task op：不适用条件/边界"),
+            note=_p("string", "task op：本轮备注（change 是计划变更，note 是附注）；"
+                              "self_state relate：备注"),
+            condition=_p("string", "task op：生效条件（CCG「生效条件」栏）；"
+                                   "self_state relate：关系成立条件"),
+            active_limit=_p("integer", "task action=session：进行中任务条数（默认 5）"),
+            done_limit=_p("integer", "task action=session：近期已完成条数（默认 5）")),
     },
     {
         "name": "stg",
@@ -1503,6 +1525,14 @@ _ACTION_SIGS = {
     "review":  (("decision", "decide"), ("node_id", "verify_record")),
     "recent":  (("text", "add"), ("content", "add")),
     "goal":    (("goal", "add"), ("action_hint", "add")),
+    # task：**写意图优先、读意图最后**。name→open 先命中——open（upsert）本身
+    # 兼容 plan/result/change 全字段，故「name+change」同传也不会丢信息；把
+    # change→plan_add 放其后，只在「只给 change」时才是纯追加变更。node_id→get
+    # 置于末位：否则「node_id+change」会被静默当成只读（写意图被吞，
+    # 与 review 的 `pid+decision` 静默走 list 同构）。
+    "task":    (("name", "open"), ("task_status", "status"),
+                ("result", "status"), ("change", "plan_add"),
+                ("node_id", "get")),
     "predict": (("hit", "feedback"), ("predicted_node_id", "feedback"),
                 ("actual_node_id", "feedback")),
     "session": (("summary", "note"), ("text", "note"), ("content", "note")),
@@ -1521,7 +1551,7 @@ _ACTION_DEFAULT = {
     "protect": "stats", "identity": "profile", "consistency": "check",
     "metacognition": "report", "self_state": "snapshot", "predict": "routes",
     "causal": "path", "evolution": "summary", "sustain": "status",
-    "goal": "list", "recent": "list", "review": "list", "session": "recall",
+    "goal": "list", "task": "list", "recent": "list", "review": "list", "session": "recall",
     "ingest": "stat", "export": "stat", "maintain": "stat",
     "consolidate": "promote", "insight": "outlook",
     "ccg": "compile", "ref": "read", "whitebox": "ping",
@@ -1606,6 +1636,70 @@ def _help_call(cg, a):
     from .tool_face import help_text
     return help_text(ALL_TOOLS, query=a.get("query") or a.get("intent"),
                      limit=int(a.get("limit") or a.get("k") or 40))
+
+
+def _task_call(cg, a):
+    """结构层任务实体（op=task）——跨会话的工程台账。
+
+    action:
+      open / add   登记或更新任务卡（**同名即同卡**；未给字段沿用旧值，不静默清空）
+      status       状态迁移（active|blocked|done|dropped；迁 done 时「结果」必填）
+      plan_add     追加计划变更（执行中发现的偏差与新问题）
+      get          单卡全字段读回
+      list         任务清单（默认；可按 task_status 过滤）
+      find         同族任务提示（**只提示，不自动合并**）
+      session      会话装配面（进行中 + 近期完成）——供上下文召回
+
+    :param name: 任务名（身份判据：同名即同任务，slug 归一后落节点 id）
+    """
+    from . import tasks as _t
+    act = (a.get("action") or "").strip().lower()
+    if not act:
+        act = _action_sig(a, "task")[0] or "list"
+    name = a.get("name") or a.get("task_name") or a.get("task") or ""
+    nid = a.get("node_id") or a.get("task_id") or ""
+    tstat = a.get("task_status") or a.get("new_status") or ""
+
+    if act in ("open", "add", "upsert"):
+        imp = a.get("importance")
+        try:
+            imp = float(imp) if imp is not None else None
+        except (TypeError, ValueError):
+            imp = None
+        return _t.upsert(cg, name or nid,
+                         plan=a.get("plan"), status=tstat or None,
+                         result=a.get("result"), condition=a.get("condition"),
+                         goal=a.get("goal_text") or a.get("goal"),
+                         acceptance=a.get("acceptance"), boundary=a.get("boundary"),
+                         change=a.get("change"), note=a.get("note"),
+                         tags=a.get("tags"), importance=imp, actor=a.get("actor"))
+
+    if act in ("status", "set_status"):
+        if not tstat:
+            return {"ok": False, "error": "缺 task_status",
+                    "hint": "可选 active|blocked|done|dropped；迁 done 必须同时给 result"}
+        return _t.set_status(cg, nid or name, tstat, result=a.get("result"),
+                             note=a.get("note"), actor=a.get("actor"))
+
+    if act == "plan_add":
+        return _t.plan_add(cg, nid or name, a.get("change") or a.get("text"),
+                           actor=a.get("actor"))
+
+    if act == "get":
+        return _t.get_task(cg, nid or name)
+
+    if act == "find":
+        return _t.find_similar(cg, name, k=int(a.get("k") or a.get("limit") or 5))
+
+    if act == "session":
+        return _t.session_tasks(cg, active_limit=int(a.get("active_limit") or 5),
+                                done_limit=int(a.get("done_limit") or 5))
+
+    if act != "list":
+        return {"ok": False, "error": "未知 task action：%r" % act,
+                "hint": "可选 open|status|plan_add|get|list|find|session"}
+
+    return _t.list_tasks(cg, status=tstat or None, limit=a.get("limit"))
 
 
 def _cg_dispatch(cg, a):
@@ -1827,6 +1921,9 @@ def _cg_dispatch(cg, a):
         return {"goals": cg.list_goals(status=a.get("goal_status"),
                                        limit=int(a.get("limit") or 20)),
                 "active": cg.active_goals(limit=int(a.get("limit") or 5))}
+
+    if op == "task":
+        return _task_call(cg, a)
 
     if op == "recent":
         act = (a.get("action") or "list").strip().lower()

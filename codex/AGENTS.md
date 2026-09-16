@@ -172,6 +172,7 @@
 | `write` | 写入（先按 content_kind 审核 + 冲突检测，ACCEPT 落盘 / DEFER 入审核队列 / REJECT 入负记忆）。**自动归属**：frontmatter 带 `writer`/`session`/`harness`（服务端身份，不可伪造） | `content` / `content_kind`（text/code/…）/ `node_id`（同 id 即改写）/ `layer` / `tags` / `importance` / `verification_basis` / `condition_space` / `gated` / `consistency` / `on_conflict`（reject\|defer\|record） |
 | `verify` | 对节点做证据验证（confirmed/weakened/falsified）——**非队列裁决** | `node_id` / `verdict` / `evidence` |
 | `review` | 审核队列：`action=list/rounds/records` 查看；传 `pid`+`decision`+`reason` 即裁决落盘（accept/reject/edit/merge，**需 can_admin**；本机未配置外部验证器时写入恒 DEFER 入队，靠此裁决落盘） | `action` / `pid` / `decision` / `reason` / `edits` / `merge_into` |
+| `task` | 结构层任务实体（工程台账，跨会话/上下文压缩后不遗忘）：`name` 即身份（同名即同任务，slug 归一），`action` = open/status/plan_add/get/list/find/session（缺省 list）；**迁 `done` 必须同时给 `result`**（缺一不收，拒收不落盘）；未提供的字段沿用旧值（结果不会被静默清空） | `name` / `action` / `plan`（分步计划，每轮覆盖） / `change`（计划变更，逐轮追加） / `result` / `task_status`（active\|blocked\|done\|dropped） / `goal` / `acceptance` / `boundary` / `condition` / `node_id` |
 | `recent` | 近期事件窗口 | `action`（add/list/clear）/ `limit` |
 | `forget` / `protect` | 软删除/恢复 / 写保护 | `node_id` |
 | `help` | 取回工具面上**被投影外置**的完整 op / 参数文档（工具面渐进披露：常驻提示只留一行职责，参数语义按需取；不带 `query` 则列出全部工具） | `query`（工具名或 op 名，如 `cg` / `write`）/ `limit` |
