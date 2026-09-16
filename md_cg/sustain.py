@@ -797,6 +797,8 @@ class SustainLoop:
         self.evolves = []
         self.last_tidy = None
         self.tidys = []
+        # 数据健康不变量断言集结论（Pi⑤）：与 tidy 同节奏，只取结论不落盘
+        self.last_conformance = None
         self._started_at = None
         self._th = None
         self._stop = threading.Event()
@@ -894,6 +896,21 @@ class SustainLoop:
         with self._lock:
             self.tidys.append(rec)
             self.tidys = self.tidys[-20:]
+        self._tick_conformance()
+
+    def _tick_conformance(self):
+        """数据健康不变量断言集（Pi⑤）——与 tidy 同节奏，**只取结论**。
+
+        复用 tidy 的 6h 节奏而不新开周期：两者都是「存量数据体检」，且都是
+        只读巡检。纪律：本断言集**只告警不改数据**，故 `auto_*` 在此无意义；
+        `check_paths=False` 跳过 1.1 万次 stat，`_audit.jsonl` 只读尾窗。
+        """
+        from . import conformance
+        try:
+            self.last_conformance = conformance.report_summary(self.cg)
+        except Exception as e:                              # noqa: BLE001
+            self.last_conformance = {"ok": False, "verdict": "BLINDSPOT",
+                                     "error": f"{type(e).__name__}: {e}"}
 
     def _tick_evolve(self):
         """演化巡检（G7）：盘点固化/重要性候选 —— 让「有能力」变成「有驱动」。
@@ -980,6 +997,7 @@ class SustainLoop:
                 "evolves": self.evolves[-5:],
                 "last_tidy": self.last_tidy,
                 "tidys": self.tidys[-5:],
+                "last_conformance": self.last_conformance,
                 "peers": peers(self.d),
                 "sessions": self.ledger.summary()}
 

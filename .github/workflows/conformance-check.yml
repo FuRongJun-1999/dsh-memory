@@ -1,0 +1,36 @@
+name: conformance-check
+
+# 数据健康不变量断言集（Pi⑤）自测。
+# 刻意**不**跑真源库：CI 无 `AEIS/data/mdcg`，且断言集的价值在于「注入即检出」——
+# 自测用 tempfile 合成库自备数据源（吸取 test_p27【9】教训：探针依赖仓外目录状态
+# 会在外部 clone 下误报）。真源基线报告由部署侧 `--write-baseline` 本地产出。
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - md_cg/conformance.py
+      - md_cg/test_conformance.py
+      - md_cg/sustain.py
+      - .github/workflows/conformance-check.yml
+  pull_request:
+    paths:
+      - md_cg/conformance.py
+      - md_cg/test_conformance.py
+      - md_cg/sustain.py
+      - .github/workflows/conformance-check.yml
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 断言集自测（五条不变量注入即检出 / 零写入 / CLI 退出码 / sustain 挂点）
+        run: python -m md_cg.test_conformance
+      - name: 默认根可用性（无真源时应如实 BLINDSPOT，不得伪装 PASS）
+        run: |
+          python -m md_cg.conformance --root /tmp/does-not-exist; rc=$?
+          echo "exit=$rc"
+          test "$rc" = "2"
