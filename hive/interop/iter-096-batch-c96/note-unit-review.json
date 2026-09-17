@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-096-batch-c96",
+ "round": 1,
+ "candidate_commit": "12fe022",
+ "branch": "task/iter-096-batch-c96",
+ "unit_job": "h1789678070068_7e14a5",
+ "verdict": "ACCEPT",
+ "package_n": 19,
+ "text": "逐条比对通过：条件均说明有效输入/状态，锚定默认形参、模块常量、假值/空早退；None 与假值分支、返回形状、空容器前置均与源码一致；未发现 assert 语义误读或源码不支持断言。HmacLocalSigner 类条与 __init__ 条重复但内容不冲突；main 对 argv 默认表述略简，不影响结论。position_ok=true 不再要求行号。\nreason: 条件与源码语义一致，未发现足以拒绝的不符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
