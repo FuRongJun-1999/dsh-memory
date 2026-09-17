@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-125-batch-c125",
+ "round": 1,
+ "candidate_commit": "3937c59",
+ "branch": "task/iter-125-batch-c125",
+ "unit_job": "h1789687474150_4a5fb2",
+ "verdict": "ACCEPT",
+ "package_n": 15,
+ "text": "复核15条：均锚定形参、模块常量、早退与分支参数；None/假值、get 缺键回落、返回拼接等与源码一致；未发现额外断言，position_ok=true。\nreason: 所有功能级生效条件与给定源码片段相符，未发现语义或前置偏差。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
