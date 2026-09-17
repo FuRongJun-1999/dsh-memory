@@ -54,6 +54,7 @@ QUERY_CONTEXT = {
 }
 
 
+# 生效条件：形参 c 若提供映射接口，则取 c["zh_fields"]（缺失或假值回落 {}）再取其 "condition"（缺失或假值回落 {}），返回三槽 observation_position/observation_tool/existence_constraint，各自以 cond.get(中文键, "") 取值——中文键缺失时回落空串，键存在而值为 None 时结果即为 None（不回落）。
 def cond_of(c):
     """zh_fields.condition（中文三槽）→ mdcos 期望的英文槽名。
 
@@ -65,6 +66,7 @@ def cond_of(c):
             "existence_constraint": cond.get("存在约束", "")}
 
 
+# 生效条件：形参 c 若提供映射接口，则 f = c["zh_fields"] 为假值（缺失/None/{}）时当作 {}，返回 [str(f["identity"] 或 "")] + [str(t) for t in (f["terms"] 或 [])]：identity 缺失或假值时首元素为空串（列表恒有 1 项），terms 缺失或假值时只有首元素。
 def tags_of(c):
     """喂 entity 路的裸词 tags = identity + terms。
 
@@ -77,24 +79,30 @@ def tags_of(c):
     return [str(f.get("identity") or "")] + [str(t) for t in (f.get("terms") or [])]
 
 
+# 生效条件：类无 __init__，实例化无需任何形参；其 describe_ingest(nids) 对任意 nids（含空）恒返回 []，而 reset()、add(nid, text)、search(query, k=5) 对任意实参一律抛 NotImplementedError。
 class Adapter:
     """统一适配接口。六家一律只回吐 id 列表，指标计算交回 bench6_common。"""
     name = "adapter"
 
+# 生效条件：无可选/必需形参，任何调用一律抛 NotImplementedError（基类接口桩）。
     def reset(self):
         raise NotImplementedError
 
+# 生效条件：对任意 nid 与 text 一律抛 NotImplementedError（形参不参与任何判断）。
     def add(self, nid, text):
         raise NotImplementedError
 
+# 生效条件：对任意 query 与任意 k（默认 5）一律抛 NotImplementedError，不返回结果。
     def search(self, query, k=5):
         raise NotImplementedError
 
+# 生效条件：对任意 nids（包括空列表或 None）都直接返回空列表 []，不读取任何存储。
     def describe_ingest(self, nids):
         """回读真实存储内容样本，用于取证「入库语言与入库形态」。"""
         return []
 
 
+# 生效条件：必须以 rows、variant、paths 三个必需形参构造（context 默认 None、with_meta 默认 False、rebuild 默认 False 可选），构造后 search(query, k=5) 是否向 search_rrf 传 context 由 context 是否为 None 决定，describe_ingest(nids)/bucket_health() 的取证内容取决于 variant 对应 root 库的索引状态。
 class LingshuAdapter(Adapter):
     """灵枢臂：进程内 MdCGOS。
 
@@ -103,6 +111,7 @@ class LingshuAdapter(Adapter):
 
     name = "lingshu"
 
+# 生效条件：root 固定为 os.path.join(ROOT_BASE, variant)；rebuild 为真且 os.path.isdir(root) 为真时先 rmtree，索引中已有节点数 ≥ len(rows) 时直接 return（幂等复用、不写库），否则按 rows 逐条 add（with_meta 为真时同时补 tags=tags_of(c)、condition_space=cond_of(c)）后 flush。
     def __init__(self, rows, variant, paths, context=None, with_meta=False,
                  rebuild=False):
         from md_cg.bench_locomo_zh_public import body_of
@@ -138,6 +147,7 @@ class LingshuAdapter(Adapter):
                                         judge=False, record=False, **kw)
         return [r[0]["id"] for r in res]
 
+# 生效条件：只遍历 nids[:2]，节点索引中 .get(nid) 为假值（缺失）的 nid 被跳过，其余按 os.path.join(self.cg.root, e["path"]) 读文件头 300 字符，抛 OSError 时 file_head 保持空串，输出各字段用 e.get（缺键为 None）。
     def describe_ingest(self, nids):
         """回读真实落盘内容（索引元数据 + 文件头），取证入库语言与形态。
 
@@ -161,6 +171,7 @@ class LingshuAdapter(Adapter):
                         "file_head": head})
         return out
 
+# 生效条件：无参数，遍历 self.cg.index["nodes"] 各节点的 e.get("bucket")，其缺失或为假值（None/空串等）时归入 "<none>" 计数，再把计数字典交 routing.bucket_health 并返回其结果。
     def bucket_health(self):
         """桶健康度自检（routing.bucket_health）：取证条件路由是否有区分力。"""
         from md_cg import routing
@@ -180,6 +191,7 @@ class VectorRagAdapter(Adapter):
 
     name = "vector_rag"
 
+# 生效条件：base 依次按 base 形参 → os.environ.get("BENCH6_EMBED_BASE") → "http://127.0.0.1:1234/v1" 取值（每级为空串/None 均继续回落）再去掉尾部 "/"，model 依次按 model 形参 → os.environ.get("BENCH6_EMBED_MODEL") → "" 取值（空串也回落），timeout 直接取形参（含 0），ids/vecs 置 []、_dim 置 0。
     def __init__(self, base=None, model=None, timeout=30):
         self.base = (base or os.environ.get("BENCH6_EMBED_BASE")
                      or "http://127.0.0.1:1234/v1").rstrip("/")
@@ -189,6 +201,7 @@ class VectorRagAdapter(Adapter):
         self.vecs = []
         self._dim = 0
 
+# 生效条件：以 self.base + path 为 URL、method="POST"、JSON 编码的 payload 为 body、Content-Type: application/json、超时 self.timeout 发出请求，返回响应体按 UTF-8 解码后 json.loads 的对象。
     def _post(self, path, payload):
         req = urllib.request.Request(
             self.base + path, method="POST",
@@ -197,6 +210,7 @@ class VectorRagAdapter(Adapter):
         with urllib.request.urlopen(req, timeout=self.timeout) as r:
             return json.loads(r.read().decode("utf-8"))
 
+# 生效条件：self.model 为真值时直接返回；否则请求 self.base + "/models"，从 data.get("data") 筛出 id 非空的模型名列表，该列表为空时抛 RuntimeError，否则优先取名字含 embed/bge/gte/m3 的第一个，无匹配则取 ids[0]，写入 self.model 后返回。
     def resolve_model(self):
         """未显式指定时，从 /models 取第一个 embedding 模型。"""
         if self.model:
@@ -216,12 +230,14 @@ class VectorRagAdapter(Adapter):
             self.model = ids[0]
         return self.model
 
+# 生效条件：对任意 text 以 self.model 调 _post("/embeddings", {"model":…, "input": text})，取 d["data"][0]["embedding"]，令 self._dim 等于该向量长度并返回该向量。
     def embed(self, text):
         d = self._post("/embeddings", {"model": self.model, "input": text})
         v = d["data"][0]["embedding"]
         self._dim = len(v)
         return v
 
+# 生效条件：按 batch（默认 32）把 texts 切片，每片整批 POST /embeddings 成功时按 x.get("index", 0) 排序后依次收集 r["embedding"]，该片抛任何异常时改为对片内每条调 self.embed 回退，self._dim 为 0 且有结果时置为最后一条向量长度，最后返回 out。
     def embed_many(self, texts, batch=32):
         """批量嵌入（服务不支持 batch 时逐条回退）。"""
         out = []
@@ -240,10 +256,12 @@ class VectorRagAdapter(Adapter):
     def reset(self):
         self.ids, self.vecs = [], []
 
+# 生效条件：对任意 nid 与 text，把 nid 追加到 self.ids、把 self.embed(text) 的向量追加到 self.vecs，二者按下标一一对应，不查重、不返回。
     def add(self, nid, text):
         self.ids.append(nid)
         self.vecs.append(self.embed(text))
 
+# 生效条件：self.vecs 为空时直接返回 []；否则嵌入 query 并对每条候选计算余弦相似度（qn 或 vn 为 0 时用 1.0 兜底），按相似度降序、同分按 id 升序排序后返回前 k 个 nid。
     def search(self, query, k=5):
         if not self.vecs:
             return []
@@ -257,6 +275,7 @@ class VectorRagAdapter(Adapter):
         scored.sort(key=lambda x: (-x[0], x[1]))
         return [nid for _s, nid in scored[:k]]
 
+# 生效条件：对任意 nids 都只取前 2 项（nids[:2]），各返回 {"id": nid, "form": "原样英文文本 → embedding", "lang": "en", "dim": self._dim}，不读磁盘内容。
     def describe_ingest(self, nids):
         return [{"id": nid, "form": "原样英文文本 → embedding",
                  "lang": "en", "dim": self._dim} for nid in nids[:2]]
@@ -264,6 +283,7 @@ class VectorRagAdapter(Adapter):
 
 # ------------------------------------------------------------------ 套件与评分
 
+# 生效条件：lang 等于 "zh" 时逐题取 q["question_zh"]，lang 为其它任何值（含 "en"）时取 q["question_en"]，对 questions 每项调 adapter.search(query, k=k)，verbose 为真且序数能被 50 整除时打印进度，返回 {qid: 检索结果列表}。
 def run_suite(adapter, questions, lang, k=5, verbose=True):
     """一套查询语言跑一遍 → {qid: [id...]}（顺序即相关性降序）。"""
     key = "question_zh" if lang == "zh" else "question_en"
@@ -276,6 +296,7 @@ def run_suite(adapter, questions, lang, k=5, verbose=True):
     return hits
 
 
+# 生效条件：对 langs 中每个 lang 依次跑 run_suite(adapter, questions, lang, k=k)、bc.rows_from_hits 与 ec.summarize，结果写入 out["langs"][lang]；最后取 questions 前 2 条的 qid 调 adapter.describe_ingest 存入 out["ingest_probe"] 并返回 out。
 def evaluate(arm, adapter, questions, k=5, langs=("zh", "en")):
     """一套库 × 两种查询语言 → 指标 + per-question 明细 + 回读取证。"""
     out = {"arm": arm, "k": k, "langs": {}}
@@ -290,6 +311,7 @@ def evaluate(arm, adapter, questions, k=5, langs=("zh", "en")):
     return out
 
 
+# 生效条件：model 依次按 model 形参 → os.environ.get("BENCH6_EMBED_MODEL") → "text-embedding-bge-m3" 取值（形参为空串/None、环境变量缺失或为空串都会继续回落），随后 resolve_model()，再把 pool 中每条的 t["id"]、t["ingest"] 分别装进 vec.ids 与批量嵌入结果 vec.vecs 后返回 vec。
 def build_vector_rag(pool, model=None):
     """向量基线：池内英文原文批量嵌入（零 LLM、无结构化）。"""
     vec = VectorRagAdapter(model=model or os.environ.get("BENCH6_EMBED_MODEL")
@@ -303,6 +325,7 @@ def build_vector_rag(pool, model=None):
     return vec
 
 
+# 生效条件：argv 为 None 时取 sys.argv[1:]，其中出现 "--rebuild" 则各臂以 rebuild=True 建库，非 "-" 开头的项构成 only 白名单，仅当 only 为空或臂名在 only 中时执行对应臂（only 为空时额外执行 2×2 消融块），跑完返回含 manifest/results/elapsed_s 的 payload。
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     rebuild = "--rebuild" in argv
@@ -322,6 +345,7 @@ def main(argv=None):
     rows = [corpus_by_id[t["id"]] for t in pool]
     results, table = {}, {}
 
+# 生效条件：形参 name 出现在外层 main 的 only 白名单中时返回 True；only 为空（假值）时对任何 name 都返回 True；only 非空且不含 name 时返回 False。
     def _want(name):
         return not only or name in only
 
