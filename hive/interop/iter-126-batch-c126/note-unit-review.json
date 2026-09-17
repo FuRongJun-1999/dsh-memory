@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-126-batch-c126",
+ "round": 1,
+ "candidate_commit": "cabfc43",
+ "branch": "task/iter-126-batch-c126",
+ "unit_job": "h1789687667304_0788fc",
+ "verdict": "REJECT",
+ "package_n": 18,
+ "text": "复核：多数条目与源码一致。但 `_leading_js_comments` 将块限定为 `/** ... */`，源码只要求 `*/` 结尾并向上遇 `/*`；`render` 条件未锚定必需键 `item[\"lineno\"]`/`item[\"end\"]`，缺失会 KeyError；`hit` 未说明闭包 `names`/`paths` 来自 `skip_matcher` 归一化规则。`position_ok` 按 true 采信。\n\nreason: 存在与源码不符及必需前置遗漏，不能整批接受。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
