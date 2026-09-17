@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-118-batch-c118",
+ "round": 1,
+ "candidate_commit": "8bc0b41",
+ "branch": "task/iter-118-batch-c118",
+ "unit_job": "h1789685216481_85e205",
+ "verdict": "ACCEPT",
+ "package_n": 20,
+ "text": "复核完毕：20 条条件均锚定形参、模块常量、None/假值分支、早退与返回形状；_append、_parse、_apply_state、rollback 的 skipped/remove 语义与源码一致，未发现额外断言或位置问题。\nreason: 逐条比对源码，条件描述准确，无源码不支持的断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
