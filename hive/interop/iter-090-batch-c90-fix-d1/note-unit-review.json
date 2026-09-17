@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-090-batch-c90-fix-d1",
+ "round": 3,
+ "candidate_commit": "92cc9d1",
+ "branch": "task/iter-090-batch-c90-fix-d1",
+ "unit_job": "h1789675039681_2424f9",
+ "verdict": "BLINDSPOT",
+ "package_n": 20,
+ "text": "逐条核对：多数条目的形参/常量、None/假值分支、早退与返回形状均与片段一致。但 allows_layer/allows_op 的条件断言了 `_in_scope` 的「None→True、含 '*'→True」语义；该 helper 未出现在任何 src_segment 中，无法确认其实现，故这两条不能排除与源码不符的风险。其余条目未见新增断言。\n\nreason: 关键 helper `_in_scope` 未提供，相关分支无法验证。\nverdict: BLINDSPOT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
