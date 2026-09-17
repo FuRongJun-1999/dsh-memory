@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-114-batch-c114-fix",
+ "round": 2,
+ "candidate_commit": "fd3a78e",
+ "branch": "task/iter-114-batch-c114-fix",
+ "unit_job": "h1789684190192_2b0ef6",
+ "verdict": "REJECT",
+ "package_n": 20,
+ "text": "复核：upsert 条件有误：源码仅在 `slug != (name or \"\").strip()` 时附 `slug_normalized`，并非与“被归一化前原串”比较；`_append_change` 用 `_today()`，非“当前时间”；`_write` 的 actor 对任意假值回落，不止 None/空串。其余多数吻合，但已足判不符。\nreason: 存在功能级生效条件与源码不一致。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
