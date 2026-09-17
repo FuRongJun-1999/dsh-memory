@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-081-batch-c81",
+ "round": 1,
+ "candidate_commit": "e20d625",
+ "branch": "task/iter-081-batch-c81",
+ "unit_job": "h1789670867999_c13881",
+ "verdict": "ACCEPT",
+ "package_n": 28,
+ "text": "复核28条：条件均给出触发输入/状态与缺省/早退；形参、ROOT/README/MAPDOC/_BLOB_FILE 等常量锚定正确；None/假值、返回形状、空容器/长度分支与源码一致；未发现 assert 语义错置、闭包前置误述或源码不支持断言。注释/docstring 位置未见定义行前违规。\nreason: 条件与源码片段逐条一致，无新增断言或分支语义偏差。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
