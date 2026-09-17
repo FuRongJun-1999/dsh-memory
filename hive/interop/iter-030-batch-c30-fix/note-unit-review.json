@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-030-batch-c30-fix",
+ "round": 2,
+ "candidate_commit": "22cd354",
+ "branch": "task/iter-030-batch-c30-fix",
+ "unit_job": "h1789663371319_4288f6",
+ "verdict": "REJECT",
+ "package_n": 32,
+ "text": "条件总体可锚定形参/常量，但非全量一致：_handoff 称 job_dir 任意值即写进展卡，实际 progress 对非目录 job_dir 会 no-op；且 _post_chat 的 api_base 用 get 仅缺键才默认，空 env 不回落。\nreason: _handoff 条件未覆盖 progress 对非目录 job_dir 的 no-op 前置，故与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
