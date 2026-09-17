@@ -46,7 +46,10 @@ STATUS_FILE, RESULT_FILE, KILL_FILE = "status.json", "result.json", "kill"
 LOG_NAME = "_units.jsonl"
 TERMINAL_STATES = ("done", "error", "timeout", "killed")
 FRESH_S, DEFAULT_TIMEOUT_S, DEFAULT_POLL_S = 5.0, 120, 1.0
-DEFAULT_MAX_TOKENS = 2048
+#: 复核委派的 completion 预算。**必须对齐统一默认（文档：最大输出 200000）**——
+#: 该模型 reasoning 与正文**共享 completion 预算**，小预算会把正文吃光并静默返回空正文：
+#: 实测 2048 → reasoning 2048 / content 空；16384 → 时好时坏；200000 → 正常出裁决。
+DEFAULT_MAX_TOKENS = 200000
 
 ENV_JOBS_DIR, ENV_EXE = "HIVE_JOBS_DIR", "HIVE_EXE"
 ENV_MODEL, ENV_API_KEY = "MDCG_UNIT_MODEL", "HIVE_API_KEY"
@@ -155,7 +158,8 @@ def plan(jobs: str = "", model: str = "", fresh_s: float = FRESH_S,
             "jobs_dir": p["jobs_dir"], "serve": p["serve"], "channel": p["channel"],
             "chain": [
                 {"order": 1, "transport": HIVE, "action": "派发 reflect/verify 单元并等待 result.json",
-                 "when": "jobs/_serve.json 心跳 < %ss 且 %s 已配置" % (int(FRESH_S), ENV_MODEL)},
+                 "when": ("jobs/_serve.json 心跳 < %ss 且（%s 已配置 **或调用方显式传 model**）"
+                          % (int(FRESH_S), ENV_MODEL))},
                 {"order": 2, "transport": CONFIGURE, "action": "返回配置指引（不自动拉起、不假装通过）",
                  "when": "蜂巢不可用"},
                 {"order": 3, "transport": SUBAGENT, "action": "返回复核请求包，由 harness 端子代理执行并回填",
@@ -260,6 +264,13 @@ def poll(job_id: str, jobs: str = "") -> dict:
             out["error"] = res.get("error") or out["error"]
             out["usage"] = res.get("usage")
             out["model"] = res.get("model")
+            # 空正文**不得报成功**：reasoning 与正文共享 completion 预算，预算不足时
+            # job 仍自称 ok 但 content 为空 → 若不拦，会被误读成「复核单元无答复」
+            # （假死锁）。run() 早已有同等校验，此处补齐，消除两处口径不一致。
+            if out["ok"] and not str(out["content"] or "").strip():
+                out["ok"] = False
+                out["error"] = ("空正文：job 自称 ok 但 content 为空（多为 reasoning 吃尽"
+                                "完成预算；提高 max_tokens，勿把预算不足当通道不可用）")
         else:
             out["ok"], out["content"] = True, res
     return out
