@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-104-batch-c104-fix",
+ "round": 2,
+ "candidate_commit": "7731ee1",
+ "branch": "task/iter-104-batch-c104-fix",
+ "unit_job": "h1789680376248_8ee1cb",
+ "verdict": "REJECT",
+ "package_n": 21,
+ "text": "复核：children_index/parents_index 的 tgt 描述不严谨。源码为 `tgt=e.get('target') or e.get('target_id')`，仅 `tgt is None` 才跳过；若 target 与 target_id 均为假但非 None（空串/0）则保留该假值且不跳过。条件写成“首个真值、None 跳过”未覆盖此 None/假值分支。其余条目与源码一致，position_ok 可接受。\n\nreason: tgt 假值分支描述与源码不符，需修正。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
