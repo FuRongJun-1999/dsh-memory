@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler1",
+ "round": 1,
+ "candidate_commit": "15eb37c",
+ "branch": "task/t1-compiler1",
+ "unit_job": "h1789687592533_55ea74",
+ "verdict": "ACCEPT",
+ "package_n": 33,
+ "text": "逐条比对：条件均锚定签名形参、默认值、None/假值回落、早退与循环停止条件；子节点追加、返回形状、_STOP/_INST_STOP 与源码一致，未见 assert 误述或源码不支持断言。position_ok=true，行号不作额外要求。整体通过。  \nreason: 全部候选生效条件与源码分支语义一致，无实质性不符或额外断言。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
