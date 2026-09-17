@@ -50,6 +50,7 @@ DIM_KEYWORDS = (
 )
 
 
+# 生效条件：对 sys.stdout 与 sys.stderr 依次尝试 reconfigure(encoding="utf-8")，任何异常都被 try/except 吞掉后继续；
 def _stdout_utf8():
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -58,6 +59,7 @@ def _stdout_utf8():
             pass
 
 
+# 生效条件：text 为 None 或空串时返回 default，text 已是 dict/list 时原样返回，否则返回 json.loads(text) 的结果；
 def _load_json_arg(text, default):
     if text is None or text == "":
         return default
@@ -66,12 +68,14 @@ def _load_json_arg(text, default):
     return json.loads(text)
 
 
+# 生效条件：value 为假值（None/""/[]/{}/0）时返回 []，value 是 str 时返回 [value]，其余返回 list(value)；
 def _as_list(value):
     if not value:
         return []
     return [value] if isinstance(value, str) else list(value)
 
 
+# 生效条件：text 为假值时先置为 ""，按 DIM_KEYWORDS 顺序返回首个含命中关键词的维度，全部未命中返回 "条件边界"；
 def classify_dimension(text):
     """把失配描述归入五失配维度之一；未命中归入「条件边界」。"""
     text = text or ""
@@ -81,10 +85,12 @@ def classify_dimension(text):
     return "条件边界"
 
 
+# 生效条件：key 在 FOUR_DIMS 中时原样返回 key，否则返回 classify_dimension(key) 的归类结果；
 def _dim_of_key(key):
     return key if key in FOUR_DIMS else classify_dimension(key)
 
 
+# 生效条件：conditions 为假值（None/""/{}）时返回 {}，conditions 是 str 时先 json.loads 再 dict(...)，其余直接 dict(conditions)；
 def normalize_conditions(conditions):
     if not conditions:
         return {}
@@ -95,6 +101,7 @@ def normalize_conditions(conditions):
 
 # ---------------------------------------------------------------- 步骤 1：声明
 
+# 生效条件：position 为假值时回落 "designer"，不在 POSITION_MAP 中时 raise SystemExit，space 假值时用空 OrderedDict 并 setdefault 观测位置，返回含 space_id、layer、missing_dims 的 OrderedDict；
 def declare_core(position="designer", space=None):
     """条件空间声明：四维 + 有效范围 + 切换规则（3.1/3.2）。"""
     position = position or "designer"
@@ -115,6 +122,7 @@ def declare_core(position="designer", space=None):
 
 # ---------------------------------------------------------------- 步骤 2-3：白箱三问 + 四态
 
+# 生效条件：evidence 取 candidate["evidence"] or conditions["anchors"] 再 _as_list，vpath 取 verification_path or candidate["verification_path"] 再 _as_list；evidence 为空返回 (False,"观测工具",detail)，否则 conditions 缺任一 FOUR_DIMS 时返回 (False, 首个缺失维度, detail)，否则 vpath 为空返回 (False,"条件边界",detail)，全齐返回 (True,None,detail)；
 def whitebox_check(candidate, conditions, verification_path=None):
     """白箱三问（第〇章）。返回 (ok, missing_dim, detail)。"""
     evidence = _as_list(candidate.get("evidence") or conditions.get("anchors"))
@@ -134,6 +142,7 @@ def whitebox_check(candidate, conditions, verification_path=None):
     return True, None, detail
 
 
+# 生效条件：candidates 为假值（None/[]）判 BLINDSPOT，否则逐候选按 not_applicable 与 query 的冲突记 REJECT、when 与 conditions 不符记 DEFER，全为 REJECT 判 REJECT、无合格候选取首个 DEFER、多个合格候选仅唯一 distinguishing 时选之否则 DEFER，verdict 仍空时由 whitebox_check(cand, conditions, verification_path) 定 ACCEPT 或 DEFER；
 def judge_core(query, conditions=None, candidates=None, verification_path=None):
     """四态资格裁决（6章.2）：先拒绝，后接受。"""
     conditions = normalize_conditions(conditions)
@@ -248,6 +257,7 @@ def emit_mcp_calls(result):
     return calls
 
 
+# 生效条件：从 result["conditions"] 取四维（.get 缺键显示 <未声明>）、从 result["traces"] 中首个含 "whitebox" 的项渲染白箱行，emit_mcp 为真值时追加 emit_mcp_calls(result) 的 JSON，返回 '\n'.join(lines)；
 def render_verdict(result, emit_mcp=False):
     c = result["conditions"]
     lines = ["[判定单]",
@@ -275,6 +285,7 @@ def render_verdict(result, emit_mcp=False):
 
 # ---------------------------------------------------------------- 步骤 5：归因 / 蒸馏
 
+# 生效条件：error 为假值时先 dict({})，missing 取 error.get("missing","")，dim 取 error.get("dimension") or classify_dimension(missing) 且不在 FIVE_MISMATCH 时回落 "条件边界"，返回含 triple/mismatch_dim/discipline 的 OrderedDict；
 def attribute_core(error):
     """条件层归因：三方条件空间失配 + 五失配维度定位（附录22.3）。"""
     error = dict(error or {})
@@ -297,6 +308,7 @@ def attribute_core(error):
     ])
 
 
+# 生效条件：对 rows 每行按 dimension 或 classify_dimension(row.get("missing","")) 分组（不在 FIVE_MISMATCH 归入 "条件边界"），每组以首行 symptom/missing 生成一条带 when/rule/change 的纪律项，rows 为空返回空 items 列表；
 def distill_core(rows):
     """失败集合 → 带适用条件的可复用纪律（1.1.1）。"""
     groups = defaultdict(list)
@@ -318,6 +330,7 @@ def distill_core(rows):
     return items
 
 
+# 生效条件：对 items 逐项（依赖 it["missing"]/["rule"]/["when"]/["change"]/["evidence"]）编号渲染 markdown 段落，items 为空时返回仅含标题与说明的文本；
 def render_distill(items):
     lines = ["# 蒸馏纪律（失败资产化）", "",
              "> 失败 → 根因（条件层）→ 可复用纪律（带适用条件）→ 注入 → 不再犯（1.1.1）", ""]
@@ -334,6 +347,7 @@ def render_distill(items):
 
 # ---------------------------------------------------------------- probe / selftest
 
+# 生效条件：按 os.environ.get("DMCG_HOME") 再 DEFAULT_DMCG_HOME 顺序，跳过假值或不含 md_cg 子目录的 base，命中的 base 插入 sys.path 后 import md_cg.mdcos，成功返回 available=True/mode=read-only，import 抛异常返回 available=False/degraded 附 error，全部未命中返回 available=False、base=None；
 def probe_mdcg():
     """探测 md_cg 认知图可用性（只读 import，不实例化、不写库）。"""
     bases = [os.environ.get("DMCG_HOME"), DEFAULT_DMCG_HOME]
@@ -358,6 +372,7 @@ def probe_mdcg():
                         ("error", "未找到 md_cg（可设 DMCG_HOME 指向 dsh-memory 根目录）")])
 
 
+# 生效条件：按 case.get("kind") 分派 —— declare 比对 declare_core 的 missing_dims 与 expect 的 dims_complete/observation_position_contains，judge 与 verify 比对 judge_core 的 verdict/missing_dim 与 expect 的 state/missing_dim/require_verification_path/require_missing_dim，missing 比对 attribute_core 的 mismatch_dim，其余 kind 记 ok=False；
 def run_cases(cases):
     results = []
     for case in cases:
@@ -397,6 +412,7 @@ def run_cases(cases):
 
 # ---------------------------------------------------------------- CLI
 
+# 生效条件：items 为假值（None/空列表）时返回空 OrderedDict，否则每项不含 "=" 时 raise SystemExit，含 "=" 的按首个 "=" 拆分并 strip 后写入 space；
 def _parse_space(items):
     space = OrderedDict()
     for it in items or []:

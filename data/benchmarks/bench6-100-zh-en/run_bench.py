@@ -59,6 +59,7 @@ except Exception:
 
 # ---------------------------------------------------------------- 数据加载
 
+# 生效条件：作为生成器逐行读取 path，line.strip() 非空时 yield json.loads(line)，空行与纯空白行被跳过；
 def iter_jsonl(path):
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -67,6 +68,7 @@ def iter_jsonl(path):
                 yield json.loads(line)
 
 
+# 生效条件：读 QUESTIONS_JSONL 与 POOL_JSONL 分别得 questions/pool 列表，RESULTS_JSON 路径存在时再读取该 JSON 否则 results 为 None，返回 (questions, pool, results)；
 def load_dataset():
     """题集三件套：questions.jsonl / pool.jsonl（results_v1.0.json 可选）。"""
     questions = list(iter_jsonl(QUESTIONS_JSONL))
@@ -80,6 +82,7 @@ def load_dataset():
 
 # ------------------------------------------------- 指标（与 eval_common 同源）
 
+# 生效条件：evidence 为假值（None/空集合）时返回 0，否则返回 ids 中首个落在 evidence 内的 1-based 名次，全部未命中返回 0；
 def first_evidence_rank(ids, evidence):
     """首个证据 id 的排名（1-based；未命中 0）。同 md_cg/eval_common.py。"""
     if not evidence:
@@ -90,6 +93,7 @@ def first_evidence_rank(ids, evidence):
     return 0
 
 
+# 生效条件：rows 为假值（空列表）时返回 {"n": 0}，否则按 rank==1 计 hit@1、0<rank<=k（k 默认 5）计 hit@k、1/rank 计 MRR，并按 r["qtype"] 分组同口径统计后返回 out；
 def summarize(rows, k=5):
     """hit@1 / hit@k / MRR + 分题型。公式与 md_cg/eval_common.summarize 一致。"""
     if not rows:
@@ -113,6 +117,7 @@ def summarize(rows, k=5):
     return out
 
 
+# 生效条件：对 questions 每题取 ids_by_qid.get(q["qid"]) or [] 后截断到 k 个 id，rank 由 first_evidence_rank(ids, set(q["evidence_turns"])) 得出，返回含 qid/qtype/rank 的行列表；
 def rows_from_ranks(questions, ids_by_qid, k):
     """{qid: [id,...]} → 明细行（qid/qtype/rank）。"""
     rows = []
@@ -125,6 +130,7 @@ def rows_from_ranks(questions, ids_by_qid, k):
 
 # ---------------------------------------------------------- 口径自证（可信度）
 
+# 生效条件：遍历 results["arms"][arm]["langs"][lang]，side 无 "rows" 键记 skipped 并跳过，有则按 qid 过滤出与 questions 同长的行，否则记 FAIL 跳过，通过者以 summarize(rows,k) 与 stored["summary"] 在 tol（默认 1e-9）内比对 n/hit@1/hit@k/mrr 及 by_qtype，全通过 ok 加一，返回 (ok, total, skipped)；
 def verify_results(results, questions, k, tol=1e-9):
     """用 results_v1.0.json 的逐题 ranks 重算 summary，与存储值逐位断言。
 
@@ -195,16 +201,19 @@ class CharNGramBaseline:
         self.docs = {}
 
     @staticmethod
+# 生效条件：text 先去空白转小写得 t，len(t)<n 时 t 非空返回 {t}、t 为空串返回 set()，否则返回全部长度 n 滑窗子串集合；
     def _grams(text, n):
         t = "".join(ch.lower() for ch in text if not ch.isspace())
         if len(t) < n:
             return {t} if t else set()
         return {t[i:i + n] for i in range(len(t) - n + 1)}
 
+# 生效条件：以 records 每项的 r["id"] 为键、_grams(r.get("text") or "", self.k_ngram) 为值整体重建 self.docs（旧内容被覆盖）；
     def ingest(self, records):
         self.docs = {r["id"]: self._grams(r.get("text") or "", self.k_ngram)
                      for r in records}
 
+# 生效条件：query 的 n-gram 集合 q 为空时返回 []，否则跳过 dg 为空或无交集的文档，按 交集/sqrt(|q|*|dg|) 降序（同分按 id 升序）排序后返回前 k 个 id；
     def search(self, query, k):
         q = self._grams(query, self.k_ngram)
         if not q:
@@ -223,6 +232,7 @@ class CharNGramBaseline:
 
 # ------------------------------------------------------------------ 运行器
 
+# 生效条件：先 adapter.ingest(pool) 一次，再对 langs（默认 ("zh","en")）每种语言用 adapter.search(q["question_<lang>"], k) 逐题取 id，经 rows_from_ranks 与 summarize 得 out[lang]，返回 out；
 def run_adapter(adapter, questions, pool, k, langs=("zh", "en")):
     """按 Adapter 协议跑双查：ingest 一次，每种词面各查全部题目。"""
     adapter.ingest(pool)
@@ -236,6 +246,7 @@ def run_adapter(adapter, questions, pool, k, langs=("zh", "en")):
     return out
 
 
+# 生效条件：遍历 results["arms"] 中 langs.zh.summary 与 langs.en.summary 同时为真值的臂，按 k 打印中英 hit@1/hit@k/MRR 与 zh-en 差并统计 zh hit@1 更高的 flips，函数无返回值；
 def print_main_table(results, k):
     """六家 × 中英主表 + 「中文提升」幅度（数据取自发表快照）。"""
     print("=" * 78)
@@ -272,6 +283,7 @@ def print_main_table(results, k):
     print("归因与边界见本目录 README.md「诚实边界」（zh 为关键词串、en 为自然问句）。")
 
 
+# 生效条件：先把 HERE 插入 sys.path，spec 经 rpartition(".") 后无模块名时 raise SystemExit，否则 import 该模块、getattr 类并零参实例化，实例缺 ingest/search 可调用或 name 属性时 raise SystemExit，否则返回 inst；
 def load_adapter(spec):
     """--adapter pkg.mod.ClassName → 实例化（零参）。"""
     if HERE not in sys.path:
@@ -290,6 +302,7 @@ def load_adapter(spec):
     return inst
 
 
+# 生效条件：解析命令行（--k 默认 5、--demo、--adapter）后加载题集，results 为真值时先 verify_results 校验、ok!=total 即 raise SystemExit 并打印主表，args.demo 为真值时实跑内置 CharNGramBaseline，args.adapter 为真值时 load_adapter 后跑双查评测；
 def main():
     ap = argparse.ArgumentParser(
         description="bench6 中英双查公开评测（零依赖；--demo/--adapter 见 docstring）")

@@ -22,6 +22,7 @@ ALGO = "rust_codegen-0.1"
 RUNTIME_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rust_runtime")
 
 
+# 生效条件：compile_source(source, strict=strict) 的 result["ok"] 为真时，在 abspath(out_dir) 下建 src/、写 program.pbc 与 build_meta.json 并返回 {"ok": True, "project_dir": out_dir, "pbc": ..., "instructions": len(code)}；result["ok"] 为假时返回 {"ok": False, "result": result, "algo": ALGO}；
 def generate_rust_project(source: str, out_dir: str, strict: bool = False) -> Dict:
     """中文源码 → Rust cargo 项目。返回 {ok, project_dir, pbc, result}。"""
     code, result = compile_source(source, strict=strict)
@@ -49,6 +50,7 @@ def generate_rust_project(source: str, out_dir: str, strict: bool = False) -> Di
             "instructions": len(code), "result": result, "algo": ALGO}
 
 
+# 生效条件：project_dir 下 target/release/protocol_vm.exe 不存在时改用同名 protocol_vm，二者皆不存在时以 cwd=project_dir、timeout=180 跑 cargo build --release，returncode!=0 抛 RuntimeError，否则返回 exe 路径；
 def build_rust_exe(project_dir: str) -> str:
     """定位/触发构建 → protocol_vm 可执行文件路径。"""
     project_dir = os.path.abspath(project_dir)
@@ -64,6 +66,7 @@ def build_rust_exe(project_dir: str) -> str:
     return exe
 
 
+# 生效条件：以 timeout 跑 cargo build --release（cwd=project_dir），returncode!=0 返回 stage=build，否则定位 exe（.exe 不在则无后缀版）、trust 真值时加 --trust repr(trust)、symbols 真值时加 --symbols，运行 returncode!=0 返回 stage=run，末行 JSON 解析失败返回 stage=parse，成功返回 {"ok": True, "state": state}；
 def build_and_run(project_dir: str, symbols: Optional[Dict] = None,
                   trust: float = 0.0, timeout: int = 120) -> Dict:
     """cargo build --release + run → 终态 JSON（与 Python run_pbc 同构）。"""
@@ -96,6 +99,7 @@ def build_and_run(project_dir: str, symbols: Optional[Dict] = None,
     return {"ok": True, "state": state}
 
 
+# 生效条件：generate_rust_project(source, out_dir, strict=strict) 的 ok 为假时原样返回 gen，否则 build_and_run(gen["project_dir"]) 的 ok 为假时返回 rr，两者皆真时返回 {**gen, "state": rr["state"]}；
 def compile_source_to_rust(source: str, out_dir: str,
                            strict: bool = False) -> Dict:
     """一步到位：源码 → 生成 → build → 运行终态。"""

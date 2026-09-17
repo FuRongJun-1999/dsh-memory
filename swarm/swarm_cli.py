@@ -37,17 +37,20 @@ from .rust_codegen import generate_rust_project
 from .rust_swarm import make_swarm_config, run_swarm, verify_wal_signatures
 
 
+# 生效条件：无条件把 payload 以 ensure_ascii=False 序列化为单行 JSON 打印到 stdout，随后 sys.exit(code)；
 def _emit(payload: Dict, code: int) -> None:
     """stdout 单行 JSON 契约（harness 解析面）；stderr 留给人类细节。"""
     print(json.dumps(payload, ensure_ascii=False))
     sys.exit(code)
 
 
+# 生效条件：先把 detail 原样写入 stderr，再以 {"ok": False, "stage": stage, "error": detail[:2000]} 与 code（默认 1）调用 _emit 退出；
 def _fail(stage: str, detail: str, code: int = 1) -> None:
     print(detail, file=sys.stderr)
     _emit({"ok": False, "stage": stage, "error": detail[:2000]}, code)
 
 
+# 生效条件：spec 以 "@" 开头时取 spec[1:] 为路径、非绝对路径则拼接 base_dir 并读取该文件内容返回，spec 不以 "@" 开头时原样返回 spec；
 def _load_source(spec: str, base_dir: str) -> str:
     """source 字段：内嵌术数源码，或 "@file" 引用（相对 config 所在目录）。"""
     if spec.startswith("@"):
@@ -102,6 +105,7 @@ def cmd_run(args: argparse.Namespace) -> None:
            "health": health}, 0)
 
 
+# 生效条件：args.wal 路径不存在时 _fail("verify", ..., 2) 退出，否则用 verify_wal_signatures(args.wal, args.secret) 的结果：all_valid 为真时输出 ok=True 且 exit 0，为假时 ok=False 且 exit 1；
 def cmd_verify(args: argparse.Namespace) -> None:
     if not os.path.exists(args.wal):
         _fail("verify", f"WAL 不存在: {args.wal}", 2)
@@ -109,6 +113,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
     _emit({"ok": bool(v["all_valid"]), "stage": "verify", **v}, 0 if v["all_valid"] else 1)
 
 
+# 生效条件：解析 argv（None 时取 sys.argv）并在 stdout/stderr 支持 reconfigure 时改为 UTF-8，子命令由 required=True 保证存在，解析后调用 args.fn —— run 走 cmd_run、verify 走 cmd_verify；
 def main(argv: List[str] = None) -> None:
     # Windows GBK 教训（仓 25ff66f 先例）：stdout 强制 UTF-8
     if hasattr(sys.stdout, "reconfigure"):

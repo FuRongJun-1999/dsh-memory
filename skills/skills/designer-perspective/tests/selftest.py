@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import designer  # noqa: E402  （路径注入后导入）
 
 
+# 生效条件：读取 cases_path 的 JSONL（strip 后为空的行跳过）交给 designer.run_cases，返回 (results, passed, total) 三元组；
 def run(cases_path):
     with open(cases_path, encoding="utf-8") as fh:
         cases = [json.loads(line) for line in fh if line.strip()]
@@ -30,6 +31,7 @@ def run(cases_path):
     return results, passed, total
 
 
+# 生效条件：argv（None 时取 sys.argv）解析后 --cases 缺省为 HERE/cases.jsonl，调用 run 后 passed==total 返回 0 否则返回 1，--json 为真值时打印 JSON 汇总、否则打印逐项明细；
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="selftest.py",
                                  description="设计者视角 · 认知能力验收")
