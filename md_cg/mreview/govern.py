@@ -112,24 +112,29 @@ ACTIONS = ("role", "role_rollback", "role_history", "role_stats")
 
 # ---- 通用工具 ------------------------------------------------------------
 
+# 生效条件：传入 cg 即返回 os.path.join(cg.root, GOVERN_LOG)，无分支。
 def _log_path(cg) -> str:
     return os.path.join(cg.root, GOVERN_LOG)
 
 
+# 生效条件：fm 为假值（None/{}）时按 {} 处理，其 .get("tags") 为假值（None/空串/空列表）时回落 []，否则对该值逐项过滤，只保留 isinstance(t, str) 的元素。
 def _tags(fm: dict) -> list:
     return [t for t in ((fm or {}).get("tags") or []) if isinstance(t, str)]
 
 
+# 生效条件：detail 为假值（None/空串）时返回 kind，否则返回 "%s:%s" % (kind, detail)。
 def _reason_key(kind: str, detail: str = None) -> str:
     return kind if not detail else "%s:%s" % (kind, detail)
 
 
+# 生效条件：box 缺 key 时以 box.get(key, 0) 取 0 再加 1 写回 box[key]；key 已存在（含值为非数值）时直接对现值 +1。
 def _bump(box: dict, key: str) -> None:
     box[key] = box.get(key, 0) + 1
 
 
 # ---- 靶子定位（rule 驱动）------------------------------------------------
 
+# 生效条件：rules/rules_dir 经 _as_rules 得到的列表中存在 id == rule_id 的项、且该项 matcher.layer 非空、mechanical 中存在 check == CHECK_FIELD_ABSENT 且 field 为真的项时，返回 {'rule_id','title','field','layers','severity','remedy','llm'}；该项不存在或 layers/field 为空则抛 ValueError。
 def role_rule(*, rules=None, rules_dir=None, rule_id: str = RULE_ROLE) -> dict:
     """从 M1 规则库取「role 回填」靶规则 → `{field, layers, remedy, …}`。
 
@@ -192,6 +197,7 @@ def _candidate_role(e, fm, *, sources, role_map) -> tuple:
                               else REASON_NO_SOURCE)
 
 
+# 生效条件：按序判定——_readable_guard(cg, e) 为假返回 ("denied", None)；cg._read(e) 的 fm 为 None 返回 ("unreadable", None)；crypto.is_encrypted(content) 为真返回 ("locked", None)；fm.get("role") 非空白返回 ("present", None)；否则 _candidate_role(e, fm, sources=sources, role_map=role_map) 的 role 为假返回 ("unfillable", {id,layer,reason,writer})，role 为真返回 ("", {id,layer,role,source,basis,before,had_key,writer})。
 def _classify(cg, e, nid, *, sources, role_map) -> tuple:
     """单条裁决 → `(skip_reason, item|gap)`；skip_reason 为空串表示可回填。"""
     if not _readable_guard(cg, e):
@@ -241,6 +247,7 @@ def _iter_scope(cg, *, layers, layer=None, prefix=None, ids=None) -> list:
 
 # ---- 预演 -----------------------------------------------------------------
 
+# 生效条件：以 x 经 _as_cg 得 cg 并先经 role_rule(rules,rules_dir,rule_id) 取规则（缺规则/缺 layer/缺 field 时该步抛 ValueError），role_map 非空时的条目以小写去空白键合并进 WRITER_ROLE_MAP 副本，再遍历 _iter_scope(cg, layers=rule["layers"], layer=layer, prefix=prefix, ids=ids) 逐条 _classify 后返回不写盘的 rep；每条 item 仅在 limit is None 或 len(rep["items"]) < limit 时追加（limit=0 时 items 为空但 targeted 仍累加），sample 为真且 planned_ids 非空时以 max(1, len(planned_ids)//int(sample)) 为步长取前 int(sample) 项。
 def role_plan(x, layer=None, limit=None, ids=None, prefix=None, *,
               sources=DEFAULT_SOURCES, role_map=None, rule_id=RULE_ROLE,
               rules=None, rules_dir=None, sample=0) -> dict:
@@ -366,6 +373,7 @@ def role_apply(x, ids=None, entry_ids=None, layer=None, limit=None,
     return rep
 
 
+# 生效条件：只处理 action == ACTION_ROLE 的留痕，且 batch 为真时要求 rec.get("batch") == batch（batch 为 None/假值时不按批次过滤）、entry_ids 为真时要求 rec.get("entry_id") ∈ set(entry_ids)；rec 的 write_id 已在既有 ACTION_ROLE_ROLLBACK 记录中 → skipped_done，节点不在索引或 read 不到或加密 → missing，当前 fm.get("role") 为空白或与 rec.get("value") 不等 → conflict 不覆盖，相等时按 fm_before.get("had_key") 恢复 fm_before["role"] 或删除 role 键；reverted 非 0 时 cg.rebuild_index()。
 def role_rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
     """按留痕反向应用：撤销 role 回填。
 
@@ -423,6 +431,7 @@ def role_rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
     return rep
 
 
+# 生效条件：action 为真时只保留 r.get("action") == action 的记录、batch 为真时只保留 r.get("batch") == batch 的记录，total/by_action 统计的是过滤后的 recs 全量；records 在 limit 为假值（0/None）时返回全部 recs，否则返回 recs[-int(limit):]。
 def history(x, limit=100, action=None, batch=None) -> dict:
     """读 `_govern.jsonl` 留痕（治理动作的可审计面）。"""
     cg = _as_cg(x)
@@ -437,6 +446,7 @@ def history(x, limit=100, action=None, batch=None) -> dict:
             "by_action": by_action, "records": tail}
 
 
+# 生效条件：x 经 _as_cg 且 role_rule(rules=rules, rules_dir=rules_dir, rule_id=rule_id) 命中并声明了 matcher.layer 与 field_absent.field 时，返回以 conformance.load_index(cg.root) 的节点为口径的统计（by_layer 计全部节点、by_value 只计 role 非空白者、target_met 由 role_ratio_kn >= float(THRESHOLDS["role_coverage_min"]) 决定、gap_to_target 取 max(0.0, thr-kn)）；规则缺失或声明不全时在 role_rule 处抛 ValueError。
 def role_stats(x, *, rule_id=RULE_ROLE, rules=None, rules_dir=None) -> dict:
     """只读对照：role 覆盖率 + 取值分布（治理前后量化用）。
 
@@ -466,6 +476,7 @@ def role_stats(x, *, rule_id=RULE_ROLE, rules=None, rules_dir=None) -> dict:
 
 # ---- 统一入口 ------------------------------------------------------------
 
+# 生效条件：action 不在 ACTIONS 内时抛 ValueError；action == ACTION_ROLE 时以 kw.pop("apply", False) 为真调用 role_apply(x, **kw)、为假（含缺该键）调用 role_plan(x, **kw)；其余情况以 {ACTION_ROLE_ROLLBACK: role_rollback, "role_history": history, "role_stats": role_stats}[action] 取 fn 并返回 fn(x, **kw)。
 def run(x, action, **kw) -> dict:
     """`role`（`apply=True` 则执行）/ `role_rollback` / `role_history` / `role_stats`。"""
     if action not in ACTIONS:
@@ -485,6 +496,7 @@ def run(x, action, **kw) -> dict:
 # 须写在子命令**之后**：`govern plan --root <root>`。写在子命令之前会被顶层解析器
 # 当作位置参数吃掉（`scripts/review_cli.py` 的同型坑，2026-09-15 实测更正）。
 
+# 生效条件：s 为假值（None/空串）时直接返回 DEFAULT_SOURCES；否则按 "," 切分并 strip 丢弃空段，任一段不在 ALL_SOURCES 内即抛 ValueError，切分后 vals 为空（如 s=","）也抛 ValueError，其余返回该非空元组。
 def _parse_sources(s) -> tuple:
     """CLI 侧来源档解析：逗号分隔，值域封闭（非法即抛，不静默降级）。"""
     if not s:
@@ -498,6 +510,7 @@ def _parse_sources(s) -> tuple:
     return vals
 
 
+# 生效条件：无参数，调用即返回 argparse.ArgumentParser(add_help=False)，其中已含 --root(default=None)、--rules-dir(default=None)、--json(store_true) 三项，无分支。
 def _common_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("--root", default=None, help="真源根（缺省读环境变量 MDCG_ROOT）")
@@ -506,6 +519,7 @@ def _common_parser() -> argparse.ArgumentParser:
     return ap
 
 
+# 生效条件：传入 p 即向它注册 --layer/--prefix/--ids/--limit(type=int)/--sources 五个参数，无分支且无返回值。
 def _add_scope_args(p) -> None:
     p.add_argument("--layer", help="收窄到该层（须在规则 matcher 层之内）")
     p.add_argument("--prefix", help="只处理该 id 前缀")
@@ -516,17 +530,20 @@ def _add_scope_args(p) -> None:
                         % ",".join(DEFAULT_SOURCES))
 
 
+# 生效条件：传入 a 后返回 {'layer': a.layer, 'prefix': a.prefix, 'limit': a.limit, 'ids': [...], 'sources': _parse_sources(a.sources), 'rules_dir': a.rules_dir}，其中 ids 由 a.ids（为假值即 None/空串）按 "," 切分去空段、结果为空则回落 None，sources 由 a.sources 经 _parse_sources 解析（假值 → DEFAULT_SOURCES，非法值抛 ValueError）。
 def _scope_kw(a) -> dict:
     return {"layer": a.layer, "prefix": a.prefix, "limit": a.limit,
             "ids": [i.strip() for i in (a.ids or "").split(",") if i.strip()] or None,
             "sources": _parse_sources(a.sources), "rules_dir": a.rules_dir}
 
 
+# 生效条件：SOURCE_LAYER 在 sources 内时向 sys.stderr 打印 "警告：" + LAYER_DEFAULT_WARNING，否则不输出。
 def _warn_layer_default(sources) -> None:
     if SOURCE_LAYER in sources:
         print("警告：" + LAYER_DEFAULT_WARNING, file=sys.stderr)
 
 
+# 生效条件：传入 msg 即向 sys.stderr 打印该 msg 并返回 2，无分支。
 def _die(msg: str) -> int:
     print(msg, file=sys.stderr)
     return 2
