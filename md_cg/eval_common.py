@@ -403,6 +403,7 @@ def install_read_cache(cg):
     cache = {}
     orig = cg._read
 
+# 生效条件：entry["path"] 未在闭包 cache 中时调用 orig(entry) 存入并返回，已在 cache 中则直接返回缓存值（cache 与原 _read 由外层 install_read_cache 提供）；
     def _cached(entry):
         p = entry["path"]
         if p not in cache:
