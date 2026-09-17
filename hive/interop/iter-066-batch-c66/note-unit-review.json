@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-066-batch-c66",
+ "round": 1,
+ "candidate_commit": "9c97a22",
+ "branch": "task/iter-066-batch-c66",
+ "unit_job": "h1789665647726_1124ca",
+ "verdict": "REJECT",
+ "package_n": 33,
+ "text": "复核发现多处不符：_jpeg_size 对 SOFn 分支未检查 seg<2；_md_cg_import 回落为文件目录的父目录（dirname 两次），非“文件父目录”；tool_lingshu_cg、run_with_tools、main 条件称后续 BLINDSPOT，但给定源码已含相应后续路径。故不应 ACCEPT。\nreason: 存在与源码不符及伪 BLINDSPOT，候选生效条件需修正后重审。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
