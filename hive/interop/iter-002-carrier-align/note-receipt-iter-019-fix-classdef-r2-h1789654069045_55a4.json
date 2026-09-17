@@ -1,0 +1,15 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-019-fix-classdef",
+ "commit": "6e3f7ae",
+ "verdict": "PASS",
+ "receipt_job": "h1789654069045_55a4",
+ "receipt_sha16": "aea9f5193142b3d4",
+ "received_ts": 1789654069,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-019-fix-classdef commit=6e3f7ae verdict=PASS | 机器重放两步（逐字）：test_codeindex=PASS 47 / FAIL 0 / SKIP 0；cogmap_sync check=通过。另（验证端 shell 实测，env 无 brain-root）：A1 test_condition_anchor=PASS 15 / FAIL 0（含新增 A14/A15）；A2 直接复现：对无 __init__ 的 ClassDef（NodeType）调用 judge 返回 verdict=BLINDSPOT reason=该符号无参数且无外部引用，不再抛 AttributeError；A3 判据面复算 files=99 value=d5755fcd17aaf674（由 06623b506bd29575 演进），md_cg 组=SUMMARY 88/88 通过，3 跳过，再校准凭证 4_ai/.zcode-verify/recalibration-iter019.json",
+ "commands_sanitized": "[{\"label\": \"test_condition_anchor\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_condition_anchor\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}]",
+ "related_note": "",
+ "note": "由 ingest_receipts.py v2 生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
