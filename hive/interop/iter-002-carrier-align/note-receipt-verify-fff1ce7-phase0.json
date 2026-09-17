@@ -1,0 +1,14 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "verify-fff1ce7-phase0",
+ "commit": "fff1ce7",
+ "verdict": "PASS",
+ "receipt_job": "h1789634407680_445c",
+ "receipt_sha16": "c04abdbe75ff377c",
+ "received_ts": 1789634407,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=verify-fff1ce7-phase0 commit=fff1ce7 verdict=PASS | zcode 验证端回执",
+ "commands_sanitized": "[{\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}, {\"label\": \"verifier_selftest\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.whitebox_kb.wisdom.verifier\", \"--self-test\"]}]",
+ "note": "本文件由 ingest_receipts.py 幂等生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

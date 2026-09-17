@@ -1,0 +1,8 @@
+received_at	verify_id	commit	verdict	receipt_job	iter_id
+2026-09-17T18:28:46	verify-fff1ce7-phase0	fff1ce7	PASS	h1789634407680_445c	iter-002-carrier-align
+2026-09-17T18:28:46	verify-3963ded-protocol	3963ded	PASS	h1789636777351_3b14	iter-002-carrier-align
+2026-09-17T18:28:46	verify-3963ded-protocol-rerun	3963ded	PASS	h1789637125839_1b94	iter-002-carrier-align
+2026-09-17T18:28:46	iter-002-carrier-align	c43a4d3	PASS	h1789638536516_21f8	iter-002-carrier-align
+2026-09-17T18:28:46	iter-002-carrier-align	c43a4d3	PASS	h1789638856744_2494	iter-002-carrier-align
+2026-09-17T18:28:46	verify-b8db9fe	b8db9fe	PASS	h1789639271694_4724	iter-002-carrier-align
+2026-09-17T18:28:46	verify-a337fd6	a337fd6	PASS	h1789640254664_5104	iter-002-carrier-align

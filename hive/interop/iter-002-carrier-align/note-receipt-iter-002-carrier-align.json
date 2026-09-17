@@ -1,0 +1,14 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-002-carrier-align",
+ "commit": "c43a4d3",
+ "verdict": "PASS",
+ "receipt_job": "h1789638536516_21f8",
+ "receipt_sha16": "cef286dc24f7ab1c",
+ "received_ts": 1789638536,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-002-carrier-align commit=c43a4d3 verdict=PASS | zcode 验证端回执：候选5ee9c25..3963ded四条全过(85/85+3skip,42/0,59/0,cogmap通过),A1/A2/A3全过(A3指纹be5bfbb5d03b4d3d),测试文件自再校准零变更",
+ "commands_sanitized": "[{\"label\": \"md_cg_group\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/run_tests.py\", \"md_cg\", \"--jobs\", \"4\"]}, {\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}]",
+ "note": "本文件由 ingest_receipts.py 幂等生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
