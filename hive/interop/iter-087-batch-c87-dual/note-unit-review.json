@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-087-batch-c87-dual",
+ "round": 5,
+ "candidate_commit": "d25e4fb",
+ "branch": "task/iter-087-batch-c87-dual",
+ "unit_job": "h1789675756745_9ad7d8",
+ "verdict": "REJECT",
+ "package_n": 1,
+ "text": "reason: 条件漏述 self.ids/vecs/_dim 初始化，且 env 回落源码为 os.environ.get 非下标，语义不精确。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
