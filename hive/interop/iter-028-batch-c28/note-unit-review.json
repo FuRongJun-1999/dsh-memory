@@ -1,12 +1,12 @@
 {
  "kind": "unit-review",
  "iter_id": "iter-028-batch-c28",
- "round": 1,
+ "round": 2,
  "candidate_commit": "454aeb9",
  "branch": "task/iter-028-batch-c28",
- "unit_job": "h1789660832948_2d5354",
- "verdict": "ACCEPT",
+ "unit_job": "h1789661024700_fcc35e",
+ "verdict": "DEFER",
  "package_n": 0,
- "text": "批次为空，候选新增条目为 0；无功能级生效条件可核验，未涉及形参、模块常量、早退前置、闭包来源、返回形状、长度与空容器等冲突，也无注释位置问题。\nreason: 空批次无候选条件，未发现可拒绝项。\nverdict: ACCEPT",
+ "text": "reason: 批次为空，无候选新增条目可供核验，无法复核功能级生效条件。\nverdict: DEFER",
  "paths_policy": "脱敏（模块名已掩码）"
 }
