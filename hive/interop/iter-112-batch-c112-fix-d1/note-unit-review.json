@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-112-batch-c112-fix-d1",
+ "round": 3,
+ "candidate_commit": "42ac39a",
+ "branch": "task/iter-112-batch-c112-fix-d1",
+ "unit_job": "h1789683643935_96a622",
+ "verdict": "ACCEPT",
+ "package_n": 18,
+ "text": "复核 18 条：均正确回答输入/状态，锚定形参、模块常量与早退前置；None/假值、闭包 seen/verbose、返回形状、长度与空容器语义均与源码一致；未发现 assert、参数使用或补充断言偏差。position_ok 均 true，无需行号。\nreason: 全部功能级生效条件与源码相符，未发现 Zero-Trust 语义偏差。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
