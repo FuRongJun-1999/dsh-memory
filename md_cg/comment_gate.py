@@ -174,8 +174,16 @@ def _stats(verdicts) -> dict:
 
 def apply(x, ids=None, n=None, seed=None, verdicts=None, actor=None, note=None,
           batch=None) -> dict:
-    """落抽检批次 + 人工裁决到 _comment_gate.jsonl。**不改写任何节点**。"""
+    """落抽检批次 + 人工裁决到 _comment_gate.jsonl。**不改写任何节点**。
+
+    权限**自持在模块内**（与 refine 同档）：apply 虽只落留痕，但它决定后续是否放行
+    **扩批**，故按管理面处理。放在此处而非分发层，是为避免「分发面漏挂一道闸」
+    这类易失同步的权限缺口。
+    """
     cg = refine._as_cg(x)
+    _principal = getattr(cg, "principal", None)
+    if _principal is not None:
+        _principal.require_admin("maintain_comment_gate")
     p = plan(cg, ids=ids, n=n, seed=seed)
     batch = batch or time.strftime("%Y%m%d-%H%M%S")
     stats = _stats(verdicts)

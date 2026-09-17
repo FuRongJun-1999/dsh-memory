@@ -126,6 +126,30 @@ def main():
     run1 = comment_gate.run(cg, "comment_gate", n=5)
     _check("run(comment_gate) 走只读工单", run1["dry_run"] is True
            and run1["action"] == "comment_gate")
+    from . import mcp_server
+    d1 = mcp_server._maintain_call(cg, {"op": "maintain", "action": "comment_gate", "n": 5})
+    _check("经 maintain 分派可达（op 面接线）",
+           d1.get("action") == "comment_gate" and d1.get("dry_run") is True
+           and d1.get("readonly") is True, str(d1.get("action")))
+    d2 = mcp_server._maintain_call(cg, {"action": "comment_gate_gate"})
+    _check("经 maintain 分派可取闸门（comment_gate_gate）",
+           "expand_allowed" in d2, str(sorted(d2.keys()))[:90])
+    from .mdcos import MdCGSecure as _S
+    from .security import AccessDenied as _AD
+    cg_low = _S(root, principal=Principal(tenant="default", actor="t_low",
+                                          role="record", can_write=True,
+                                          can_admin=False))
+    denied = False
+    try:
+        comment_gate.apply(cg_low, n=5, seed="cmt-1", verdicts=["忠实"])
+    except _AD:
+        denied = True
+    except Exception:
+        denied = False
+    _check("apply 需管理权（闸门自持在模块内，分发面不漏挂）", denied)
+    d3 = mcp_server._maintain_call(cg, {"action": "comment_gate_verdict"})
+    _check("经 maintain 分派可取闸门（别名 comment_gate_verdict）",
+           "expand_allowed" in d3, str(sorted(d3.keys()))[:90])
     run2 = comment_gate.run(cg, "comment_gate_verdict")
     _check("run(comment_gate_verdict) 走闸门", "expand_allowed" in run2)
     raised = False
