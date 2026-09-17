@@ -1,0 +1,19 @@
+{
+ "kind": "verify-request",
+ "iter_id": "iter-011-delta",
+ "candidate_commit": "bdd5b83",
+ "branch": "task/iter-011-facts-llm",
+ "base_commit": "8ea5837",
+ "subject": "iter-011 修订增量：4 条注释文本按 LLM 校验意见改写（referenced/judge/_guards/_externals）",
+ "claim": "仅改注释文本，不改代码；4 条均过 condition_anchor 锚点门禁；主版本 8ea5837 已由你裁定 PASS 并合入 main。",
+ "what_to_verify": [
+  "A1 diff 仅含 4 行注释文本变化",
+  "A2 修订后文本是否比原句更准确（或无退化）",
+  "A3 同树 test_condition_anchor 13/0"
+ ],
+ "replay": {
+  "diff": "git diff 8ea5837..bdd5b83 -- md_cg",
+  "run": "git archive --format=tar bdd5b83 | tar -xf - -C <tmp> && PYTHONPATH=<tmp> python -X utf8 -m md_cg.test_condition_anchor"
+ },
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
