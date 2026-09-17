@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-024-batch-c8",
+ "round": 1,
+ "candidate_commit": "9c7e7fe",
+ "branch": "task/iter-024-batch-c8",
+ "unit_job": "h1789657684464_e9fe17",
+ "verdict": "REJECT",
+ "package_n": 57,
+ "text": "复核发现条件有过度概括：`_as_terms` 在 `limit=0` 时先 append 再 break，实际返回 1 项，并非“最多 limit”；`contextualize_history` 中 `int(limit) or 50` 使 `limit=0` 返回 50 条；`_extract_json_obj` 取首 `{` 至末 `}`，不是任意成对花括号可解析；`_extract_json` 对无指定键的 dict 返回 `[obj]` 而非 `[]`。这些未锚定假值/首尾匹配前置。\nreason: 存在假值分支与首尾匹配不符，条件过度断言。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
