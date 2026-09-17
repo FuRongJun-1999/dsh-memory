@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-025-batch-c9",
- "candidate_commit": "30c1a40",
+ "candidate_commit": "697125b",
  "branch": "task/iter-025-batch-c9",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -20,12 +20,17 @@
  "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
  "increment_vs_base": {
   "base": "main",
-  "file": "md_cg/sources.py",
-  "new_annotation_lines": 5,
-  "total_lines_on_branch": 5
+  "file": "md_cg/forgetting.py",
+  "new_annotation_lines": 17,
+  "total_lines_on_branch": 17
  },
  "known_open": {
-  "excluded": []
+  "excluded": [
+   "redundancy",
+   "assess",
+   "longterm_assess",
+   "longterm_show"
+  ]
  },
  "process_standard": [
   "注释置于 def/class 行正上方（装饰器之下）",
