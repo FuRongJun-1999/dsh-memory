@@ -1,0 +1,11 @@
+{
+ "kind": "recalibration-acceptance",
+ "iter_id": "iter-012-pilot-facts",
+ "merged": [],
+ "criteria_fingerprint_after": "CRITERIA_FINGERPRINT files=99 value=06623b506bd29575 commit=main",
+ "merged_marks": 18,
+ "group_after_merge": [
+  "===== SUMMARY 117/117 通过，3 跳过（依赖缺失/平台不符） ====="
+ ],
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

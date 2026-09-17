@@ -19,3 +19,5 @@ received_at	verify_id	commit	verdict	receipt_job	iter_id
 2026-09-17T19:17:25	verify-2969fda-r2-h1789643845415_5eb4	2969fda	PASS	h1789643845415_5eb4	iter-002-carrier-align
 2026-09-17T19:47:36	verify-0a0f8ef-r2-h1789645656276_2d64	0a0f8ef	PASS	h1789645656276_2d64	iter-002-carrier-align
 2026-09-17T19:57:35	iter-011-facts-llm-r2-h1789646255101_1a38	8ea5837	PASS	h1789646255101_1a38	iter-002-carrier-align
+2026-09-17T20:08:34	iter-011-delta-r2-h1789646914770_3d64	bdd5b83	PASS	h1789646914770_3d64	iter-002-carrier-align
+2026-09-17T20:08:34	iter-012-pilot-facts-r2-h1789646914827_1428	3c92bca	PASS	h1789646914827_1428	iter-002-carrier-align

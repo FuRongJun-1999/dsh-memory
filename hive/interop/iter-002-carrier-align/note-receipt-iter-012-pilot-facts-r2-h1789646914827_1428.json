@@ -1,0 +1,15 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-012-pilot-facts",
+ "commit": "3c92bca",
+ "verdict": "PASS",
+ "receipt_job": "h1789646914827_1428",
+ "receipt_sha16": "7824c017e5b6e77e",
+ "received_ts": 1789646914,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-012-pilot-facts commit=3c92bca verdict=PASS | 机器重放两步（逐字）：test_codeindex=PASS 47 / FAIL 0 / SKIP 0；cogmap_sync check=通过。另（验证端实测，env 无 brain-root）：A1 候选树全组=SUMMARY 117/117 通过，3 跳过（与声明一致）；A2 语义抽查 9 条（8 落盘+1 BLINDSPOT 留档）均锚定真实输入/状态、无凭空断言，末条有「；。」标点微瑕不影响语义。备注：archive 临时目录无 .git 时 cogmap check 报「无法从 origin 解析 GitHub」，须在有 .git 的 checkout 面跑（流程备忘）",
+ "commands_sanitized": "[{\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}]",
+ "related_note": "",
+ "note": "由 ingest_receipts.py v2 生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
