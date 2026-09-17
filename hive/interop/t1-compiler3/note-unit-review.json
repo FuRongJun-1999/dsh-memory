@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler3",
+ "round": 1,
+ "candidate_commit": "74e207d",
+ "branch": "task/t1-compiler3",
+ "unit_job": "h1789689101159_bc1652",
+ "verdict": "REJECT",
+ "package_n": 18,
+ "text": "复核：多数条目与源码一致。第10条 symbol=visit 的 condition 描述 def_use_chains 的 chains 计数，但 src_segment 是 symbol_table 的 visit（symbols/infer），对象错配。第12条 _is_cjk_or_alpha 称空串按 isalpha 为 False，但源码先执行 _is_cjk(ch)→ord(ch)，空串会 TypeError，并非返回 False，属补充源码不支持断言。其余未见实质不符。\nreason: 第10条条件与所附源码不一致，第12条空串语义断言不成立。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
