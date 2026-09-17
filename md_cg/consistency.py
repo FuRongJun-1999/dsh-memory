@@ -102,6 +102,7 @@ def _prims():
     return _ccg_field, _declared_conditions, _neg_hit, _weighted_coverage
 
 
+# 生效条件：xs 为可迭代对象时，逐项 str(x).strip() 后仅当结果非空且未出现过才加入 out 并返回 out；xs 为 None/False/0 时在 for 处迭代失败（TypeError）；
 def _dedup(xs):
     out = []
     for x in xs:
@@ -111,6 +112,7 @@ def _dedup(xs):
     return out
 
 
+# 生效条件：fm 给出时，遍历 fm.get("edges")（缺键或假值按空列表）中元素，dict 元素按 to→target→node→id 取首个真值、非 dict 元素直接作候选，候选真值时 str(t) 加入 out 并返回；
 def _edge_targets(fm):
     """节点声明的出边目标（兼容 dict / str 两种形态）。"""
     out = []
@@ -124,6 +126,7 @@ def _edge_targets(fm):
     return out
 
 
+# 生效条件：fm 与 node_id 给出时，若 fm.get("tags")（缺键/假值按空）小写后与 DISCIPLINE_TAGS 有交集，或 str(node_id) 以 "discipline_" 或 "work_discipline" 开头，返回 True；否则返回 False；
 def _is_discipline(fm, node_id):
     tags = {str(t).lower() for t in (fm.get("tags") or [])}
     if tags & set(DISCIPLINE_TAGS):
@@ -139,6 +142,7 @@ def _is_discipline(fm, node_id):
 SEPARATION_REL = "distinct_from"
 
 
+# 生效条件：fm 给出时，仅处理 fm.get("edges")（缺键/假值按空）中的 dict 元素，relation_type 或 relation（缺省空串）小写等于 SEPARATION_REL 时，按 target→to→id 取首个真值且未重复则加入 out；
 def separation_targets(fm):
     """节点已声明的分离对象（`distinct_from` 出边），用于幂等与去重。"""
     out = []
@@ -154,6 +158,7 @@ def separation_targets(fm):
     return out
 
 
+# 生效条件：fm 与 content 给出时，以 content（假值按空串）、fm.get("condition_space")、fm.get("non_applicable_conditions") 解析，返回去重后的 (set(pos), set(neg))；
 def condition_terms(fm, content):
     """节点声明的（正条件, 负条件）词面集合——分离判定与重构取线索共用。"""
     pos, neg = _new_terms(content or "", fm.get("condition_space"),
@@ -161,6 +166,7 @@ def condition_terms(fm, content):
     return set(pos), set(neg)
 
 
+# 生效条件：pos_a、neg_a、pos_b、neg_b 给出的条件词面小写化后，两侧并集均空时返回 overlap 0.0、distinct False；否则计算交集/并集比并返回 distinct 为 overlap <= CLASH_LOW；
 def condition_distinct(pos_a, neg_a, pos_b, neg_b):
     """两组条件是否「实质不同」：任一侧条件词面几乎不重合即为不同情境。
 
@@ -177,6 +183,7 @@ def condition_distinct(pos_a, neg_a, pos_b, neg_b):
     return {"overlap": round(overlap, 4), "distinct": overlap <= CLASH_LOW}
 
 
+# 生效条件：content、condition_space、non_applicable_conditions 给出时，content 的 `生效条件` 字段与 condition_space 中键不以 `__` 开头且不为 `time_window` 的值并入 pos（list/tuple/set 展平，其他非 None/"" 值 str 化），non_applicable_conditions 各项及 content 的 `不适用条件` 字段值并入 neg，最后 _dedup 返回；
 def _new_terms(content, condition_space, non_applicable_conditions):
     """新节点声明的（正条件, 负条件）——与既有节点同口径解析。"""
     _ccg_field, _declared, _neg_hit, _cov = _prims()
@@ -198,6 +205,7 @@ def _new_terms(content, condition_space, non_applicable_conditions):
     return _dedup(pos), _dedup(neg)
 
 
+# 生效条件：content 与 neg_texts 给出时，neg_texts 中任一短语去掉「不得/禁止/严禁/不能/不可/不要/勿」前缀且长度 >=2 后作为子串出现在 content（假值按空串）中则返回 True，否则 False；
 def _ban_hit(content, neg_texts):
     """纪律禁令命中：去掉「不得/禁止/…」前缀后，短语是否**整体出现**在正文中。
 
@@ -215,6 +223,7 @@ def _ban_hit(content, neg_texts):
     return False
 
 
+# 生效条件：content 为真时按行过滤，跳过 strip 后以 "#" 开头且含全角或半角冒号的行，其余原行以换行连接返回；content 假值按空串返回 ""；
 def _body_text(content):
     """去掉 CCG 声明行（`# 字段：值`）后的正文。
 
@@ -231,6 +240,7 @@ def _body_text(content):
     return "\n".join(out)
 
 
+# 生效条件：content 给出时（假值按空串）解析 CCG 的 `# 功能名` 与 `# 子功能` 字段并返回两者；
 def _slot_text(content):
     """结论槽：CCG 声明的 `# 功能名` / `# 子功能`（结构字段，非正文词面）。
 
@@ -250,6 +260,7 @@ def _slot_text(content):
 # L0 情绪通道（信息差二阶变化）
 # --------------------------------------------------------------------------
 
+# 生效条件：conflict_strength 被夹取到 [0,1]（假值按 0.0），prev_strength 为 None 时 d2=0.0，否则 d2=c-夹取后的 prev_strength；按 c>=EMO_AVOID 或 d2>0.2 返回 avoiding，或 c<=EMO_APPROACH 且 d2<=0 返回 approaching，否则 stable；
 def emotional_bias(conflict_strength, prev_strength=None):
     """L0：把冲突强度映射为情绪倾向（approaching / stable / avoiding）。
 
@@ -279,6 +290,7 @@ def emotional_bias(conflict_strength, prev_strength=None):
             "note": "情绪通道独立，不参与信任/资格计算（智能论 §十一）"}
 
 
+# 生效条件：cg 给出时，若 cg.root 下 LOG_FILE 可读，则逐行解析 JSON 并取 .get("conflict_strength")，返回最后一条可解析记录的该键值（缺键或值为 None 则为 None）；路径不可用或 OSError 返回 None；
 def _last_strength(cg):
     """上一条留痕的冲突强度（二阶差分的基线）。流式读，不载全量。"""
     p = os.path.join(cg.root, LOG_FILE)
@@ -554,6 +566,7 @@ def check(cg, content, layer=None, condition_space=None,
     return rec
 
 
+# 生效条件：missing 为假值（None/空容器/空串）返回 ""；否则逐项仅取 m.get("need") 真值者，格式化为 `need（why）`（why 缺键用 ""，值为 None 则格式化 "None"），以 "；" 连接；
 def _missing_text(missing):
     """结构化缺口 → 一行文本（作为飞轮的 known_clues）。
 
@@ -567,6 +580,7 @@ def _missing_text(missing):
                     for m in missing if m.get("need"))
 
 
+# 生效条件：cg 提供可调用 flywheel_step 时，以 query（假值按空串）前 200 字符、verdict、missing 文本（空则 reason）、conflicts 非 None 则作 detail 否则 missing 调用；结果 dict 的 unresolved_id 真值时返回它，否则回落 id；无 flywheel_step 或异常返回 None；
 def _fire_flywheel(cg, query, verdict, reason, missing, conflicts=None):
     """把冲突作为「误差」投给知识飞轮，返回 unresolved 条目 id（失败不阻塞写入）。
 
@@ -592,6 +606,7 @@ def _fire_flywheel(cg, query, verdict, reason, missing, conflicts=None):
 # 留痕 / 统计 / 自描述
 # --------------------------------------------------------------------------
 
+# 生效条件：cg 与 rec 给出时，将 rec 序列化为 JSON 行追加到 cg.root 下 LOG_FILE，OSError 被吞掉，返回 rec；
 def log(cg, rec):
     """append-only 留痕：每条判定可审计。"""
     p = os.path.join(cg.root, LOG_FILE)
@@ -603,6 +618,7 @@ def log(cg, rec):
     return rec
 
 
+# 生效条件：cg 给出时，若 cg.root 下 LOG_FILE 可读，则逐行解析 JSON（空行/解析失败跳过）；limit 真值时返回 out[-int(limit):][::-1]（int(limit)=0 时为全部倒序），limit 为假值（0/None/""）时返回 out[::-1]；路径不可用或 OSError 返回 []；
 def history(cg, limit=100):
     """最近冲突判定留痕（倒序）。"""
     p = os.path.join(cg.root, LOG_FILE)
@@ -652,6 +668,7 @@ def summary(cg):
             "min_gain": MIN_GAIN}
 
 
+# 生效条件：无 required 形参，调用即返回引用 EMO_AVOID/EMO_APPROACH、VERDICTS、CLASH_HIGH/CLASH_LOW、SAME_COND_HIGH/SLOT_HIGH/CONCLUSION_SAME、MAX_DEPTH/MAX_NODES/MIN_GAIN 等模块级常量的自描述字典；
 def catalog():
     """自描述：三级决策 + 四态 + 递归约束（供 MCP / 文档对照验证）。"""
     return {
