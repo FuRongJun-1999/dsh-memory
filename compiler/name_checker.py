@@ -127,6 +127,7 @@ class Symbol:
 # 格式：(名称, 种类, 属性字典)
 # declared_at = (0, 0) 表示预定义（非源码中声明）
 
+# 生效条件：传入 name 与 kind 时返回 source='predefined'、declared_at=(0,0)、used=False 且 attributes 为剩余关键字参数的 Symbol；
 def _make(name: str, kind: SymbolKind, **attrs) -> Symbol:
     """便捷构造预定义符号"""
     return Symbol(name=name, kind=kind, declared_at=(0, 0),
@@ -284,17 +285,20 @@ for _name, _sym in PREDEFINED_SYMBOLS.items():
     SYMBOLS_BY_KIND.setdefault(_sym.kind, []).append(_name)
 
 
+# 生效条件：传入 kind 时返回模块级常量 SYMBOLS_BY_KIND 中该 kind 对应的名称列表，该 kind 不在表中时返回空列表；
 def get_symbols_by_kind(kind: SymbolKind) -> List[str]:
     """获取某一类的所有符号名称"""
     return SYMBOLS_BY_KIND.get(kind, [])
 
 
+# 生效条件：name 存在于模块级常量 PREDEFINED_SYMBOLS 时返回其 attributes 的 'section'，否则返回 None；
 def get_section_for_symbol(name: str) -> Optional[str]:
     """获取符号对应的协议框架条款号"""
     sym = PREDEFINED_SYMBOLS.get(name)
     return sym.attributes.get("section") if sym else None
 
 
+# 生效条件：name 存在于模块级常量 PREDEFINED_SYMBOLS 时返回其 attributes 的 'description'，否则返回 None；
 def get_description(name: str) -> Optional[str]:
     """获取符号的描述"""
     sym = PREDEFINED_SYMBOLS.get(name)
@@ -957,12 +961,14 @@ class NameChecker:
 # 便捷函数
 # =============================================================================
 
+# 生效条件：传入 ast 时构造 NameChecker 并对其执行 check，返回 (错误列表, 警告列表)；
 def check_names(ast: ProgramNode) -> Tuple[List[str], List[str]]:
     """便捷函数：对 AST 执行名实校验"""
     checker = NameChecker()
     return checker.check(ast)
 
 
+# 生效条件：无入参，调用即遍历模块级常量 PREDEFINED_SYMBOLS 返回按 'section' 排序的 name/kind/section/description 字典列表；
 def get_predefined_symbol_list() -> List[Dict[str, str]]:
     """获取所有预定义符号的清单（用于文档生成/IDE提示）"""
     result = []
