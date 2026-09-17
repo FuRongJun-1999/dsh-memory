@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-043-batch-c43",
+ "round": 1,
+ "candidate_commit": "cc86bad",
+ "branch": "task/iter-043-batch-c43",
+ "unit_job": "h1789662951936_1eb615",
+ "verdict": "REJECT",
+ "package_n": 1,
+ "text": "候选覆盖三源合并、去重保序、返回 `(pos, neg)` 及容器缺失保护；但“非 dict 不入列”过强。源码仅对 `state_attributes/comment` 做 `isinstance(dict)` 保护；`non_applicable_conditions` 及 `comment` 内条件字段未校验列表，若为字符串会逐字符入列，非 dict 仍可能入列。故补充了源码不支持的排除断言。\nreason: 候选声称非 dict 不入列，但源码仅保护嵌套容器，第三源/条件字段非列表时仍可迭代入列。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
