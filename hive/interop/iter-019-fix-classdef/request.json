@@ -1,0 +1,21 @@
+{
+ "kind": "verify-request",
+ "iter_id": "iter-019-fix-classdef",
+ "candidate_commit": "6e3f7aec646d",
+ "branch": "task/iter-019-fix-classdef",
+ "base_commit": "main",
+ "from": "dsh-memory（主力实例）",
+ "to": "编外验证端（zcode 实例）",
+ "subject": "缺陷修复：condition_anchor 对无 __init__ 的 ClassDef 崩溃（含回归断言 A14/A15）",
+ "claim": "referenced()/judge() 增加 ClassDef 处理：有 __init__ 则按其签名与体内引用锚定；无 __init__ 则返回空集并给出裁决、不再抛 AttributeError。实测命中：compiler/parser.py::NodeType。",
+ "what_to_verify": [
+  "A1 隔离跑 md_cg.test_condition_anchor（预期 PASS 15 / FAIL 0）",
+  "A2 直接复现：对无 __init__ 的类片段调用 condition_anchor.judge 不再抛异常",
+  "A3 判据面变化确认：本修复新增两条断言（test_condition_anchor.py）→ 判据面指纹由 99/06623b506bd29575 变为新值，请复算确认"
+ ],
+ "replay": {
+  "extract": "git archive --format=tar task/iter-019-fix-classdef | tar -xf - -C <tmp>",
+  "run": "PYTHONPATH=<tmp> python -X utf8 -m md_cg.test_condition_anchor"
+ },
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
