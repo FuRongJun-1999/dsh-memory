@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-095-batch-c95-fix",
+ "round": 2,
+ "candidate_commit": "9e4e656",
+ "branch": "task/iter-095-batch-c95-fix",
+ "unit_job": "h1789677841675_752bdf",
+ "verdict": "REJECT",
+ "package_n": 24,
+ "text": "复核：多数条件与源码一致，锚定形参/常量/早退。但 `_usage` 将 `r.edges` 限定为 `list`，源码仅迭代 `(r.get(\"edges\") or [])` 并筛 `dict`，tuple 同样计入；`_ratio` 的 `small/checks/n/T` 与 `_grab` 的 `spaces` 为闭包前置，单独片段未定义且条件未锚定来源。故不能全量确认。\nreason: 存在条件过窄与闭包前置未锚定，不能全量确认。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
