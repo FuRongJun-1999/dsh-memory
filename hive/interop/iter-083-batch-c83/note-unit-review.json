@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-083-batch-c83",
+ "round": 1,
+ "candidate_commit": "8f7e58b",
+ "branch": "task/iter-083-batch-c83",
+ "unit_job": "h1789671307152_a92b6d",
+ "verdict": "REJECT",
+ "package_n": 25,
+ "text": "复核发现：`calibrate_turn` 条件描述“带 ctx 的 v3 版”，但源码签名仅 `(r, date_key=None, title_key=None)`，无 `ctx/canon/last_canon/canon_hits/intents` 等分支；`calibrate_lm_turn`/`calibrate_lc_turn` 却传 `ctx=ctx`，将直接 `TypeError`。这未锚定目标形参且未揭示失败前置。`build_eval_cg` 未说明 `last_canon = hits or last_canon` 更新。其余多数条目基本符合；`_cached` 注释在定义行前。  \nreason: 核心标定函数条件与给定源码不符，且包装器传 ctx 必 TypeError。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
