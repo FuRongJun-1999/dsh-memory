@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-070-batch-c70-fix-r2",
+ "round": 3,
+ "candidate_commit": "f879102",
+ "branch": "task/iter-070-batch-c70-fix",
+ "unit_job": "h1789671527289_aefe1f",
+ "verdict": "REJECT",
+ "package_n": 32,
+ "text": "复核结论：除 main 外，各条件基本能锚定形参、None/假值分支、返回形状与早退。main 条目标注 BLINDSPOT，称源码在 `if args.write:` 处截断、未见 `--json/--cg-root`，但所给 src_segment 已含 `if args.json` 与 `DN.resolve_root(args.cg_root)`；该描述与证据不符，且未给出可核验的输入/状态生效条件，不能通过。建议补全 main 末尾并重写。\n\nreason: main 的 BLINDSPOT 断言与所给源码段不符，未满足生效条件复核要求。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
