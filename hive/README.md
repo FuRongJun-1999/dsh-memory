@@ -52,6 +52,7 @@ set HIVE_API_KEY=你的密钥
 
 # 起 serve——**唯一推荐正路**：serve_start.py 读本地配置注入 env（key 不落命令行历史）
 # 配置文件：hive/config.local.json（已 gitignore；值支持 直值 | {"env":"系统变量名"} | {"file":"key文件路径"}）
+#   首次使用请复制入库模板 hive/config.local.example.json 改名后改值（模板本身不入 gitignore，随仓分发）
 # 推荐形态：HIVE_API_KEY 引系统变量（如 DEEPSEEK_API_KEY），HIVE_WEB_SEARCH_KEY 引 key 文件
 python serve_start.py            # 拉起（已在跑则拒绝）；--stop 停止；--status 查看心跳与任务统计
 
@@ -135,7 +136,9 @@ PYTHONPATH = "<本机 dsh-memory 仓库绝对路径>"
 ```
 
 **只需 `PYTHONPATH`**：jobs 目录、`config.local.json`、`hive.exe` 一律由该路径下的 `hive/`
-推导（`HIVE_JOBS_DIR` / `HIVE_EXE` / `HIVE_CONFIG` 可覆盖）。注意：这段 env 只作用于
+推导（`HIVE_JOBS_DIR` / `HIVE_EXE` / `HIVE_CONFIG` 可覆盖）。`config.local.json` **不入库**
+（含密钥），首次使用请复制同目录的入库模板 `config.local.example.json` 改名后改值。
+注意：这段 env 只作用于
 **MCP 进程自身**（用于定位路径）；**serve 的运行 env 由 `config.local.json` 决定**，
 与客户端配置里写了什么无关——两者不是一回事，不要互相推断。
 
@@ -214,7 +217,10 @@ pending → claimed → running → done | error | timeout | killed
 - **原子领取**：worker 以 `create_new` 写 `claimed.lock`，多 serve / 多 worker 竞争
   只有一个成功，无需外层锁。
 - **心跳**：worker 周期性刷新 `status.json` 的 heartbeat；serve 侧 `_serve.json`
-  心跳供 doctor 判活（新鲜度 + pid 双判据）。
+  心跳供 doctor 判活——**三层判据缺一不可**：心跳新鲜（`FRESH_MS`）**且** pid 存活
+  **且** 该 pid 确实是本程序（同映像名）。第三层是 2026-09-17 补的：pid 号会被无关
+  进程复用，只判「号是否存在」会让一个残留 pid 冒充 serve 而误挡启动（且文案会把
+  运维引向一个并不存在的 serve）。
 - **超时强杀**：超过 `timeout_s` → `child.kill()` → 终态 `timeout`。
 - **kill 通道**：`kill` 标志文件，worker 1s 轮询粒度检测后强杀（诚实边界：非即时信号）。
 - **崩溃恢复**：serve 重启时 `recover_orphans`——`claimed` 重新投递、`running` 标
@@ -224,7 +230,7 @@ pending → claimed → running → done | error | timeout | killed
 
 ```text
 jobs/
-  _serve.json                 # serve 心跳（pid/ts/workers）
+  _serve.json                 # serve 心跳（pid/ts/workers/exec_py/exec_mode）
   <job_id>/
     spec.json                 # 任务规格（submit 时写入）
     status.json               # 状态（先写 status 后写 spec = 就绪信号）
@@ -425,7 +431,7 @@ set HIVE_EXEC_PY=<仓>\hive\exec_cmd.py               :: 多态转发：按 spec
 |---|---|---|
 | `HIVE_API_KEY` | 无 | 执行器必填；缺失任务即 error |
 | `HIVE_API_BASE` | GLM 开放平台 | OpenAI 兼容 base url（LLM 通道） |
-| `HIVE_JOBS_DIR` | `<exe>/../../jobs` | 任务根目录（**同一 jobs 目录至多一个 serve**：CLI 与 MCP 均有单实例守卫，`--force` 可强起） |
+| `HIVE_JOBS_DIR` | `<exe>/../../jobs` | 任务根目录（**同一 jobs 目录至多一个 serve**：CLI 与 MCP 均有单实例守卫，判活为三层——心跳新鲜 + pid 存活 + pid 身份；守卫认为在跑时会拦启动，确认无 serve 在跑（如心跳残留）请加 `--force`） |
 | `HIVE_EXEC_PY` | `<exe>/../../exec.py` | 执行器路径（serve 级，**启动时固化并写入心跳**）。指向 `hive/exec_cmd.py` 可让同一 serve 兼跑确定性任务与编排任务（多态转发）；**未设时回退默认 `exec.py`（llm_only）——确定性执行不可用**：serve 启动时 stderr 告警、doctor 的 `exec_mode` 显示 `llm_only` |
 | `HIVE_ORCH_TOKEN` | 无 | 编排器派生令牌明文（`python -m md_cg.tokens orch` 签发）；与下行二选一，**缺失即 fail-closed 拒绝启动**（不降级为默认身份） |
 | `HIVE_ORCH_TOKEN_FILE` | 无 | 同上，令牌文件路径（避免明文进环境变量 / 命令行历史） |
@@ -439,9 +445,13 @@ set HIVE_EXEC_PY=<仓>\hive\exec_cmd.py               :: 多态转发：按 spec
 
 ## 验证
 
-- `cargo test`：17 项全绿（含 3 个真子进程端到端：done / 超时强杀 / kill 通道，
-  FAKE_EXEC 假执行器注入，不依赖网络与密钥）；另有 4 项 `result_summary` 交接字段单测
-  （handoff_ready 派生 / 终态不误报 / 旧 result 字段不伪造 false / 截断与缺失）。
+- `cargo test`：22 项全绿（lib 17 + main 5；lib 含 3 个真子进程端到端：done / 超时强杀 /
+  kill 通道，FAKE_EXEC 假执行器注入，不依赖网络与密钥；main 含 4 项 `result_summary`
+  交接字段单测与 1 项存活判据身份层单测——无关进程不得被判成 serve）。
+- `python hive/test_serve_entry.py`：38 项全绿（serve 入口口径守卫——存活窗口单一常量源、
+  单实例守卫三层判据、执行器资格由 serve 自报心跳承载、推荐入口唯一、假存活端到端复现
+  四种心跳形态）。**干净克隆可直接跑**（配置载体 local 优先、缺失退回入库模板
+  `config.local.example.json`）。
 - `python hive/hive_mcp/smoke_test.py`：13 项全过（MCP 协议面 / spawn 结构校验 /
   serve 自动拉起端到端 / kill 通道，全程统一 env 注入假执行器）。
 - `python hive/test_exec_tools.py`：47 项全绿（工具注册表 / lingshu_cg 真库层 /
@@ -466,6 +476,10 @@ set HIVE_EXEC_PY=<仓>\hive\exec_cmd.py               :: 多态转发：按 spec
 - TLS 不进 rust：纯 std 无第三方库不可行，HTTPS 全在执行器（D-005 的结构性取舍，
   不是遗留缺陷）。
 - kill 与超时的检测粒度 = 1s 轮询，非信号级即时。
-- doctor 判活主判据 = 心跳新鲜度，pid 探测（tasklist / kill -0）是尽力而为的辅助。
+- doctor 判活 = 三层（心跳新鲜 + pid 存活 + **pid 身份**：Windows tasklist 映像名列 /
+  unix `/proc/<pid>/cmdline`）。身份层在零依赖边界下可能取不到映像名——此时**保守判假**
+  （宁可放行一次启动，也不误报「已有 serve 在跑」把运维引向不存在的进程）。
+- 单实例守卫的「在跑」判定**不构成授权**：`--force` 是显式豁免出口，用于确认无 serve
+  在跑（如心跳残留）的情形。
 - 归属是归因不参与调度：任务无身份隔离，共享 jobs 目录的调用方互见（与灵枢记忆
   「归属归因」同构的多任务版）。

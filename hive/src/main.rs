@@ -111,8 +111,12 @@ fn run() -> i32 {
 /// （本仓曾出现 CLI doctor 5000ms vs serve_start 15000ms 的真实口径冲突）。
 const FRESH_MS: f64 = 15_000.0;
 
-/// 单实例判据：心跳新鲜 **且** pid 存活（与 `serve_start.serve_alive()` 同口径）。
-/// 返回在跑 serve 的 pid。
+/// 单实例判据：心跳新鲜 **且** pid 存活 **且** 该 pid 是本程序（与
+/// `serve_start.serve_alive()` 同口径）。返回在跑 serve 的 pid。
+///
+/// 第三层是 2026-09-17 第三方 v13 实测补上的：原判据只问「pid 号是否活着」，
+/// 无关进程（如 sleep）复用该 pid 号即让 serve 被「假存活」挡住拒绝启动。
+/// 三层缺一不可，且**三层都只说明「疑似在跑」，不构成授权**。
 fn serve_running(jobs: &PathBuf) -> Option<u32> {
     let hb = job::read_serve_heartbeat(jobs)?;
     let ts = hb.get("ts").and_then(|x| x.as_f64()).unwrap_or(0.0);
@@ -122,7 +126,7 @@ fn serve_running(jobs: &PathBuf) -> Option<u32> {
     hb.get("pid")
         .and_then(|x| x.as_f64())
         .map(|f| f as u32)
-        .filter(|p| pid_alive(*p))
+        .filter(|p| pid_alive(*p) && pid_is_self_program(*p))
 }
 
 fn cmd_serve(args: &[String], jobs: PathBuf) -> i32 {
@@ -142,8 +146,8 @@ fn cmd_serve(args: &[String], jobs: PathBuf) -> i32 {
             println!(
                 "{}",
                 err_json(format!(
-                    "serve 已在运行（pid={pid}）——同一 jobs 目录至多一个 serve。\
-                     先 `python hive/serve_start.py --stop`；确需重复拉起请加 --force"
+                    "serve 已在运行（pid={pid}，已核对进程身份）——同一 jobs 目录至多一个 serve。\
+                     先 `python hive/serve_start.py --stop`；若确认无 serve 在跑（如心跳残留）请加 --force"
                 ))
             );
             return 1;
@@ -344,19 +348,37 @@ fn cmd_kill(args: &[String], jobs: PathBuf) -> i32 {
     }
 }
 
-/// PID 存活探测（尽力而为：Windows tasklist / unix kill -0 等价形态）。
+/// Windows：查该 pid 的 tasklist 行 → (映像名, pid 字符串)。查不到 → None。
+///
+/// 用 `/FO CSV` 后**按列精确比对**，不用子串包含——旧实现 `输出.contains(pid 字符串)`
+/// 会让 pid=441 被 4410 命中（假存活）。
+#[cfg(target_os = "windows")]
+fn tasklist_row(pid: u32) -> Option<(String, String)> {
+    let out = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+        .output()
+        .ok()?;
+    let s = String::from_utf8_lossy(&out.stdout);
+    for line in s.lines() {
+        // CSV 形如 "hive.exe","1234","Console","1","12,345 K"
+        let cols: Vec<&str> = line.split("\",\"").collect();
+        if cols.len() >= 2 {
+            let pid_s = cols[1].trim_matches('"').trim();
+            if pid_s == pid.to_string() {
+                return Some((cols[0].trim_matches('"').trim().to_string(), pid_s.to_string()));
+            }
+        }
+    }
+    None
+}
+
+/// PID **号**存活探测（Windows tasklist 精确列比对 / unix `kill -0`）。
 /// 零依赖下失败不致命——doctor 同时以心跳新鲜度为主判据。
+/// 注意：只回答「这个号有没有进程」，**不足以判定「serve 还在跑」**，见 `pid_is_self_program`。
 fn pid_alive(pid: u32) -> bool {
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-            .output()
-            .map(|o| {
-                let s = String::from_utf8_lossy(&o.stdout);
-                s.contains(&pid.to_string())
-            })
-            .unwrap_or(false)
+        tasklist_row(pid).is_some()
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -365,6 +387,45 @@ fn pid_alive(pid: u32) -> bool {
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
+    }
+}
+
+/// 该 pid 是否**就是本程序**（同映像名）——pid 号会被无关进程复用。
+///
+/// 2026-09-17 第三方 v13 实测缺陷（新发现 A）：单实例守卫原判据只问「pid 号是否
+/// 存在」，任何无关进程（如 sleep）复用该 pid 号都会让 serve 被「假存活」挡住拒绝
+/// 启动，且文案引导运维去停一个并不存在的 serve。故加一层身份核对：
+/// Windows 取 tasklist 映像名列，unix 读 `/proc/<pid>/cmdline` 首个 token 的 basename。
+///
+/// 零依赖边界：拿不到映像名返回 false（宁可放行启动，也不误报「已有 serve 在跑」）
+/// ——存活与新鲜仍由另两层判据把守（三层全真才判活）。
+fn pid_is_self_program(pid: u32) -> bool {
+    let me = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(|s| s.to_string_lossy().to_lowercase()))
+        .unwrap_or_default();
+    if me.is_empty() {
+        return false;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        tasklist_row(pid)
+            .map(|(name, _)| name.to_lowercase() == me)
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        match std::fs::read(format!("/proc/{pid}/cmdline")) {
+            Ok(b) => {
+                let s = String::from_utf8_lossy(&b);
+                let first = s.split('\0').next().unwrap_or("");
+                std::path::Path::new(first)
+                    .file_name()
+                    .map(|x| x.to_string_lossy().to_lowercase() == me)
+                    .unwrap_or(false)
+            }
+            Err(_) => false,
+        }
     }
 }
 
@@ -389,12 +450,17 @@ fn cmd_doctor(jobs: PathBuf) -> i32 {
             let fresh = now as f64 - ts < FRESH_MS; // 与 serve_start.FRESH_S 同口径
             let pid = v.get("pid").and_then(|x| x.as_f64()).map(|f| f as u32);
             let pid_ok = pid.map(pid_alive).unwrap_or(false);
+            // 第三层身份判据（v13 新发现 A）：pid 号存活 ≠ serve 存活——号会被复用。
+            let pid_identity = pid.map(pid_is_self_program).unwrap_or(false);
             (
-                fresh && pid_ok,
+                fresh && pid_ok && pid_identity,
                 Json::Obj(vec![
                     ("pid".to_string(), pid.map(|p| Json::Num(p as f64)).unwrap_or(Json::Null)),
                     ("heartbeat_age_ms".to_string(), Json::Num(now as f64 - ts)),
                     ("fresh".to_string(), Json::Bool(fresh)),
+                    // 判活三层分开透出：排障时一眼看出「过期」「pid 不存在」还是「pid 不是 serve」
+                    ("pid_alive".to_string(), Json::Bool(pid_ok)),
+                    ("pid_is_self_program".to_string(), Json::Bool(pid_identity)),
                     (
                         "workers".to_string(),
                         v.get("workers").cloned().unwrap_or(Json::Null),
@@ -536,6 +602,32 @@ mod tests {
         p.push(format!("hive_main_{}_{}_{}", tag, std::process::id(), ns));
         std::fs::create_dir_all(&p).expect("建临时目录");
         p
+    }
+
+    /// 存活判据第三层（v13 新发现 A）：pid 号存活 ≠ serve 存活。
+    ///
+    /// 正向：本进程映像名就是 current_exe → 身份层判真。
+    /// 反向：拿一个必然存在但**不是本程序**的 pid 探测（Windows PID 4 = System；
+    /// unix PID 1 = init）→ 必须判假，否则无关进程复用 pid 号就能冒充 serve
+    /// （单实例守卫误挡启动的根因）。
+    #[test]
+    fn pid_identity_layer_rejects_foreign_process() {
+        assert!(pid_alive(std::process::id()), "本进程必须判存活");
+        assert!(
+            pid_is_self_program(std::process::id()),
+            "本进程映像名 == current_exe → 身份层须判真"
+        );
+        #[cfg(target_os = "windows")]
+        let foreign = 4u32; // System：必然存在，映像名非 hive
+        #[cfg(not(target_os = "windows"))]
+        let foreign = 1u32; // init：必然存在，cmdline 非本 exe
+        if pid_alive(foreign) {
+            assert!(
+                !pid_is_self_program(foreign),
+                "无关进程不得被判成 serve（v13：pid 号复用致假存活）"
+            );
+        }
+        assert!(!pid_alive(999_999), "超大 pid 号应为不存在");
     }
 
     /// 交回卡（达预算换人续跑）：交接四字段 + handoff_ready 派生须透出。

@@ -124,11 +124,26 @@ def _fresh_s() -> float:
 
 
 def _serve_alive(jobs: str) -> bool:
-    """serve 心跳新鲜度判活（窗口见 `_fresh_s`）。"""
-    hb = _heartbeat(jobs)
-    if not hb:
-        return False
-    return (time.time() - hb.get("ts", 0) / 1000.0) < _fresh_s()
+    """serve 存活判定——**直接复用 `serve_start.serve_alive(jobs)`**（三层判据：
+    心跳新鲜 + pid 存活 + 该 pid 是本程序），保证 MCP 面与 CLI 面、rust 侧同口径。
+
+    历史缺陷（2026-09-17 v13 新发现 A 的同族）：本处曾**只判 ts 新鲜度**，与 rust
+    `serve_running`（新鲜 + pid 存活）分叉——同一份心跳两面得两个结论：崩溃后的残留
+    心跳会被判成「serve 存活」而拒绝重复拉起，而 CLI `--stop` 又可能因判据不同
+    回「未在运行」，两条逃生口同时失效。判据只此一处实现，勿再自持一份。
+
+    serve_start 不可导入时退回「仅新鲜度」并如实降级（宁可少判一层，不阻断拉起）。
+    """
+    try:
+        if HIVE_DIR not in sys.path:
+            sys.path.insert(0, HIVE_DIR)
+        import serve_start  # noqa: PLC0415 —— 同目录模块，延迟导入避开包名歧义
+        return bool(serve_start.serve_alive(jobs))
+    except Exception:  # noqa: BLE001
+        hb = _heartbeat(jobs)
+        if not hb:
+            return False
+        return (time.time() - hb.get("ts", 0) / 1000.0) < _fresh_s()
 
 
 def _ensure_serve(jobs: str) -> dict:

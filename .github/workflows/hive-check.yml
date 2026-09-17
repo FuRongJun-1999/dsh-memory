@@ -1,0 +1,31 @@
+name: hive-check
+
+# 蜂巢入口口径守卫（2026-09-17 第三方 v13 两条发现）：
+#   A 存活判据只问「pid 号是否存在」→ 无关进程复用 pid 号即冒充 serve，误挡启动；
+#   B 口径守卫测试硬读被 gitignore 的 config.local.json → 新克隆崩在首条断言之前。
+# 本 job 天然就是「干净克隆」形态（config.local.json 不入库，仓里只有
+# config.local.example.json）——守卫若再退回硬读 local，此 job 立刻红灯。
+# hive 零第三方依赖（D-005 纯 std），故 CI 不需安装任何依赖包。
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - hive/**
+      - .github/workflows/hive-check.yml
+  pull_request:
+    paths:
+      - hive/**
+      - .github/workflows/hive-check.yml
+
+jobs:
+  entry-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: serve 入口口径守卫（窗口 / 单实例三层判据 / 资格来源 / 假存活端到端复现）
+        run: python hive/test_serve_entry.py
+      - name: rust 单测（含存活判据身份层：无关进程不得被判成 serve）
+        run: cargo test --manifest-path hive/Cargo.toml

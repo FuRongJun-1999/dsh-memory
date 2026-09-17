@@ -11,7 +11,7 @@
     JSON 对象，键=环境变量名，值支持三形态：
       "字符串"                  直值
       {"env": "DEEPSEEK_API_KEY"}   读系统环境变量（key 明文不落盘）
-      {"file": "E:/个人数据/智谱api.txt"}  读文本文件全部内容并 strip（key 放个人数据目录）
+      {"file": "/path/to/api_key.txt"}  读文本文件全部内容并 strip（key 放仓外私有目录）
     解析失败的键 fail fast 拒绝拉起，防止残缺 env 的 serve 上岗。
 
 本模块同时是**库**：mcp_server 首次拉起 serve 时调用 start()，故三个路径常量都可由
@@ -80,22 +80,101 @@ def load_config(path):
     return env, None
 
 
-def heartbeat():
+def heartbeat(jobs=None):
+    """读 serve 心跳。jobs 给定时读该 jobs 目录的 `_serve.json`（MCP 面用于对齐自己的 jobs）。"""
+    path = os.path.join(jobs, "_serve.json") if jobs else HEARTBEAT
     try:
-        with open(HEARTBEAT, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
         return None
 
 
-def serve_alive():
-    hb = heartbeat()
-    return bool(hb and (time.time() * 1000 - hb.get("ts", 0)) < FRESH_S * 1000)
+def _tasklist_row(pid):
+    """Windows：查该 pid 的 tasklist 行 → [映像名, pid 字符串]；查不到返回 None。
+
+    用 `/FO CSV` 后按列精确比对，**不用子串包含**——旧实现 `pid 字符串 in 输出`
+    会让 pid=441 被 4410 命中（假存活）。
+    """
+    try:
+        r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+                           capture_output=True, text=True, errors="replace")
+    except OSError:
+        return None
+    for line in (r.stdout or "").splitlines():
+        cols = line.split('","')
+        if len(cols) >= 2 and cols[1].strip().strip('"') == str(pid):
+            return [cols[0].strip().strip('"'), cols[1].strip().strip('"')]
+    return None
+
+
+def pid_alive(pid):
+    """该 pid **号**是否存在（Windows tasklist 精确列比对 / unix `kill -0`）。
+
+    只回答「这个号有没有进程」——**不足以判定「serve 还在跑」**，见 `pid_is_self_program`。
+    """
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    if os.name == "nt":
+        return _tasklist_row(pid) is not None
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def pid_is_self_program(pid):
+    """该 pid 是否**就是本程序**（同映像名）——pid 号会被无关进程复用。
+
+    2026-09-17 第三方 v13 实测缺陷（新发现 A）：单实例守卫原判据只问「pid 号是否
+    存在」，任何无关进程（如 sleep）复用该 pid 号都会让 serve 被「假存活」挡住拒绝
+    启动，且文案引导运维去停一个并不存在的 serve。故加一层身份核对：
+    Windows 取 tasklist 映像名列，unix 读 `/proc/<pid>/cmdline` 首个 token 的 basename。
+
+    零依赖边界：拿不到映像名返回 False（宁可放行启动，也不误报「已有 serve 在跑」）
+    ——存活与新鲜仍由另两层判据把守（`serve_alive` 三层全真才判活）。
+    """
+    want = os.path.basename(EXE).lower()
+    if not want or not isinstance(pid, int) or pid <= 0:
+        return False
+    if os.name == "nt":
+        row = _tasklist_row(pid)
+        return bool(row) and row[0].lower() == want
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            first = f.read().split(b"\x00")[0]
+    except OSError:
+        return False
+    return os.path.basename(first.decode("utf-8", "replace")).lower() == want
+
+
+def serve_alive(jobs=None):
+    """serve 存活三层判据：心跳新鲜 **且** pid 存活 **且** 该 pid 是本程序。
+
+    三层缺一不可：只看新鲜度 → 崩溃后残留心跳冒充存活；只看 pid 号 → 无关进程
+    复用的 pid 冒充 serve（v13 实测）。与 rust `serve_running` / `cmd_doctor`、
+    MCP `_serve_alive` 同一口径（跨语言靠常量注释约定 + `hive/test_serve_entry.py` 守卫）。
+    """
+    hb = heartbeat(jobs)
+    if not hb:
+        return False
+    if (time.time() * 1000 - hb.get("ts", 0)) >= FRESH_S * 1000:
+        return False
+    pid = hb.get("pid")
+    return pid_alive(pid) and pid_is_self_program(pid)
 
 
 def stop():
     hb = heartbeat()
     if not hb or not serve_alive():
+        # 陈旧心跳要如实说明原因——否则「--stop 说没在跑 / 启动又被挡住」会成为
+        # 两个同时失效的逃生口（v13 实测：守卫与 stop 判据不一致时正是如此）。
+        if hb:
+            pid = hb.get("pid")
+            why = "该 pid 已不存在" if not pid_alive(pid) else "该 pid 不属于本程序"
+            return {"ok": True, "stopped": False,
+                    "note": f"serve 未在运行（存在陈旧心跳：pid={pid}，{why}）——可直接启动，无需 --stop"}
         return {"ok": True, "stopped": False, "note": "serve 未在运行"}
     pid = hb.get("pid")
     try:
@@ -163,6 +242,16 @@ def status():
     hb = heartbeat()
     alive = serve_alive()
     info = {"ok": True, "alive": alive, "heartbeat": hb, "jobs_dir": JOBS}
+    if hb and not alive:
+        # 判死时给出三层判据明细——运维一眼看出是「心跳过期」还是「pid 假存活」，
+        # 而不是只拿到一个 false 去猜。
+        pid = hb.get("pid")
+        info["stale_heartbeat"] = {
+            "pid": pid,
+            "pid_alive": pid_alive(pid),
+            "pid_is_self_program": pid_is_self_program(pid),
+            "age_s": round((time.time() * 1000 - hb.get("ts", 0)) / 1000.0, 1),
+        }
     if alive and os.path.exists(JOBS):
         states = {}
         for jid in os.listdir(JOBS):

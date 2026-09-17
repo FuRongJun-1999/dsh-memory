@@ -1,0 +1,10 @@
+{
+  "_comment": "hive serve 本地配置模板。用法：复制本文件为同目录 config.local.json，再按本机实情改值——后者被 .gitignore 排除（不会入库），本模板入库以便任何新克隆者有可抄形态。值支持三形态：\"字符串\" 直值 | {\"env\": \"系统环境变量名\"} 读系统变量 | {\"file\": \"key 文件路径\"} 读整个文件并 strip 空白（适合 key 文件只含一行）。任一键解析失败（引用的 env 未设 / 文件不可读）→ serve_start.py 拒绝拉起（fail fast，防残缺 env 的 serve 上岗）；临时无值的键可删掉或改直值。",
+  "HIVE_API_KEY": {"env": "DEEPSEEK_API_KEY"},
+  "HIVE_API_BASE": "https://api.deepseek.com",
+  "HIVE_WEB_SEARCH_KEY": {"env": "ZHIPU_API_KEY"},
+  "_note_exec_py": "HIVE_EXEC_PY 指向 <本仓>/hive/exec_cmd.py 时，同一 serve 兼跑确定性任务（spec.command/commands）与 LLM 委托；不设则回退 exec.py（llm_only，确定性执行不可用）。本项是 serve 级、启动时固化并写入心跳，改动后须 --stop 再启动才生效。",
+  "HIVE_EXEC_PY": {"env": "HIVE_EXEC_PY"},
+  "_note_mdcg_root": "MDCG_ROOT 指向本机灵枢认知图根（如 <AEIS>/data/mdcg），供 lingshu_cg 工具读写记忆。",
+  "MDCG_ROOT": {"env": "MDCG_ROOT"}
+}
