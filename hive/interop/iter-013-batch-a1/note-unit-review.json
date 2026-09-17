@@ -1,12 +1,17 @@
 {
  "kind": "unit-review",
  "iter_id": "iter-013-batch-a1",
- "round": "scoped",
- "unit_job": "h1789646891735_aa4590",
- "verdict": "ACCEPT",
- "package_n": 1,
- "candidate_commit": "b9bbcafc83ce",
- "scope_note": "首轮复核因打包范围未收窄（扫全树 31 条 / 15 UNKNOWN）而 REJECT，其结论不作数；本轮仅复核分支新增条目，并剔除被点名 2 条（bench6 竞赛工具与 bench 记忆基准）",
- "text": "条件与源码一致：`_fn(payload, ctx)` 不使用 payload/ctx，直接返回 `_verdict(DEFER, kind, why)`；`kind/why` 是外层闭包前置，非 `_fn` 形参。未把内部返回值、局部变量误当输入，也未新增无源断言。\nreason: 已锚定外层 kind/why 前置，且对任意 payload/ctx 的返回与源码一致。\nverdict: ACCEPT",
- "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名（模块名亦已掩码）"
+ "round": 4,
+ "candidate_commit": "19f084780269",
+ "unit_job": "h1789647876228_514d7e",
+ "verdict": "REJECT",
+ "package_n": 15,
+ "fixed": [
+  {
+   "symbol": "md_cg/backfill.py::exempt_rollback",
+   "new": "当 x 可解析为 cg 时，日志中 action 为 exempt 的记录若其非空 write_id 已存在于既有 action 为 exempt_rollback 的记录 write_id 集合中，则跳过并计入 skipped_done，否则在通过 batch 与 entry_ids 过滤后，节点存在且可读、EXEMPT_FLAG 当前为假时，该记录才被还原并计入 reverted；。"
+  }
+ ],
+ "text": "复核：多数条与源码相符。关键不符：3 `_fn` 是内层闭包，形参为 payload/ctx，并非“传入 kind/why 后返回 _fn”，kind/why 来自 `_pending` 闭包。10 源码用 assert 强制 bigram 零交集，失败抛 AssertionError，不是“交集为空才追加”的普通分支。4 若 root 属性存在但为 None，源码会传入 os.path.join 并报错，条件“带 root 即返回”过宽。\nreason: 条件3错述 _fn 形参与闭包来源，10 将 assert 写成条件追加，4 对 root=None 过宽，故拒收。\nverdict: REJECT",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名（模块名已掩码）"
 }
