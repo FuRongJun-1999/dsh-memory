@@ -61,6 +61,7 @@ BINS = ((0.0, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.01))
 # 基础工具
 # --------------------------------------------------------------------------
 
+# 生效条件：形参 d2 与模块常量 D2_EMOTION 比较——d2 > D2_EMOTION 返回 "avoiding"，d2 < -D2_EMOTION 返回 "approaching"，其余（含 |d2| 不超过阈值）返回 "stable"；
 def _emotion(d2: float) -> str:
     """情绪：d²D/dt² 的符号（智能论 §十一）。"""
     if d2 > D2_EMOTION:
@@ -70,12 +71,14 @@ def _emotion(d2: float) -> str:
     return "stable"
 
 
+# 生效条件：形参 q 经 str(q or "") 小写并仅保留字母数字字符得到 s 后，s[:n]（n 默认 16，n 为 0 等使前缀为空的取值时前缀为空串）非空则返回该前缀，否则（q 为假值、无字母数字字符或 n 为 0）返回 "(empty)"；
 def _key(q, n: int = 16) -> str:
     """查询归一化键（用于盲区聚合 / 相似匹配）。"""
     s = "".join(ch for ch in str(q or "").lower() if ch.isalnum())
     return s[:n] or "(empty)"
 
 
+# 生效条件：形参 s 经 str(s or "") 并剔除 strip() 为空的字符后长度为 0 时返回 set()，长度为 1 时返回 {s}，长度 ≥2 时返回 {s[i:i+2] for i in range(len(s)-1)}；
 def _bigrams(s) -> set:
     s = "".join(ch for ch in str(s or "") if ch.strip())
     if len(s) < 2:
@@ -83,6 +86,7 @@ def _bigrams(s) -> set:
     return {s[i:i + 2] for i in range(len(s) - 1)}
 
 
+# 生效条件：形参 a、b 经 _bigrams 处理后任一结果为空集（如 a 或 b 为空、仅含空白字符）时返回 0.0，否则返回两集合交集大小除以并集大小；
 def _jaccard(a, b) -> float:
     A, B = _bigrams(a), _bigrams(b)
     if not A or not B:
@@ -90,6 +94,7 @@ def _jaccard(a, b) -> float:
     return len(A & B) / len(A | B)
 
 
+# 生效条件：形参 rec 被复制并 setdefault("t", time.time()) 后，向 os.path.join(cg.root, LOG_FILE) 追加写入抛 OSError 时静默跳过，两类情形均返回补过 t 的 rec 副本；
 def _log(cg, rec: dict) -> dict:
     """独立留痕（append-only）。失败不阻塞主流程。"""
     rec = dict(rec)
@@ -101,16 +106,19 @@ def _log(cg, rec: dict) -> dict:
     return rec
 
 
+# 生效条件：形参 cg 的 reflection_log 属性缺失或为假值时回落到 os.path.join(cg.root, "_reflection.jsonl")，返回该路径 read_jsonl 结果的 list；
 def _reflections(cg) -> list:
     path = getattr(cg, "reflection_log", "") or os.path.join(
         cg.root, "_reflection.jsonl")
     return list(read_jsonl(path))
 
 
+# 生效条件：形参 cg 的 index 属性缺失或为假值、或其 "nodes" 键缺失、或该键值为假值（如空 dict）时返回 {}，否则返回该 "nodes" 值；
 def _nodes(cg) -> dict:
     return (getattr(cg, "index", None) or {}).get("nodes") or {}
 
 
+# 生效条件：形参 cg 的 get(nid) 为假值、或其结果缺 "frontmatter" 键、或该键值为假值时返回 {}，否则返回该 node 的 frontmatter；
 def _fm(cg, nid) -> dict:
     node = cg.get(nid) or {}
     return node.get("frontmatter") or {}
@@ -120,6 +128,7 @@ def _fm(cg, nid) -> dict:
 # 观测面 1：信息差轨迹（D / dD / d²D）
 # --------------------------------------------------------------------------
 
+# 生效条件：形参 cg 的反思留痕中不存在 d_curr 为 int/float 的记录时返回 ok=False/insufficient_data/n=0；否则按 window（默认 50，window 为假值 0 时取全部记录）截取尾部计算，返回 ok=True 及 d_current、d1、由 d1 与 ±0.01 判定的 trend（converging/diverging/flat）等字段；
 def trace(cg, window: int = 50) -> dict:
     """信息差轨迹：D(t) → dD/dt（方向）→ d²D/dt²（情绪）。
 
@@ -164,6 +173,7 @@ def trace(cg, window: int = 50) -> dict:
 # 观测面 2：自信校准（期望正确率 vs 实际验证通过率）
 # --------------------------------------------------------------------------
 
+# 生效条件：形参 cg 的 index.nodes 中满足 evidence_count>0 且 frontmatter 的正例+负例>0 的节点计数 used，在 used >= int(max_scan)（默认 2000，max_scan 为 0 时立即 break 使 used=0）时截断——used 为 0 返回 ok=False/insufficient_data，否则按 used 与常量 MIN_SAMPLES、期望减实际的 gap 与 GAP_OVERCONFIDENT/GAP_UNDERCONFIDENT 判定 verdict（insufficient_data/overconfident/underconfident/calibrated）；
 def calibration(cg, max_scan: int = 2000) -> dict:
     """自信校准：我说的可信吗？
 
@@ -245,6 +255,7 @@ def calibration(cg, max_scan: int = 2000) -> dict:
 # 观测面 3：盲区地图（我知道我不知道什么）
 # --------------------------------------------------------------------------
 
+# 生效条件：形参 cg 的反思留痕按 window（默认 200，window 为 0 时切片 [0:] 取全部）截尾，聚合其中 BLINDSPOT/DEFER 计数非零且 query 非空的记录（计数转换失败则跳过该条）；返回 ok=True，items 与 unresolved 各取前 int(limit)（limit 默认 20，limit 为 0 时两项均为空列表），unresolved_count 为未截断的完整计数；
 def blindspots(cg, limit: int = 20, window: int = 200) -> dict:
     """盲区地图：反复 BLINDSPOT / DEFER 的查询邻域 + 未解问题清单。
 
@@ -292,12 +303,14 @@ def blindspots(cg, limit: int = 20, window: int = 200) -> dict:
 # 观测面 4：信任（P_gap / P_trust / 情感）
 # --------------------------------------------------------------------------
 
+# 生效条件：形参 events 为假值（空容器）时返回 0.0，否则返回其中等于 "confirmed" 的元素个数除以 events 长度；
 def _rate(events) -> float:
     if not events:
         return 0.0
     return sum(1 for v in events if v == "confirmed") / len(events)
 
 
+# 生效条件：形参 cg 的反思留痕中 d_curr 为数值的序列按 window（默认 100，window 为 0 时切片 [0:] 取全部）截尾得 p_gap（截尾结果为空则为 None）；取自 evidence_count>0 的节点的验证事件（扫描数受 int(max_scan) 上限、默认 2000，按 window 同样规则截尾）为空时返回 p_trust=None/emotion=None 分支，否则按三段 confirmed 通过率差返回 d1、d2、emotion 与 verdicts；
 def trust(cg, window: int = 100, max_scan: int = 2000) -> dict:
     """P_gap（信息差置信）+ P_trust（验证稳定置信）+ d²T/dt²（情感）。
 
@@ -354,6 +367,7 @@ def trust(cg, window: int = 100, max_scan: int = 2000) -> dict:
 # 自报告：汇总 + 确定性建议
 # --------------------------------------------------------------------------
 
+# 生效条件：形参 tr.get("ok") 为假时产出 no_trace；否则按 tr["d2"] > D2_EMOTION 产出 diverging、state_rates["BLINDSPOT"] >= BLINDSPOT_DENSE 产出 blindspot_dense；再按 cal 的 verdict 为 overconfident/underconfident 与 bs.get("unresolved_count", 0) > 0 各自追加；全部未触发时返回单条 stable（形参 tt 在函数体内未被使用）；
 def _advise(tr, cal, bs, tt) -> list:
     """确定性建议（非 LLM）：每条都带触发它的证据，可复核。"""
     out = []
@@ -393,6 +407,7 @@ def _advise(tr, cal, bs, tt) -> list:
     return out
 
 
+# 生效条件：给定 cg 与透传给 trace 的 window（默认 50）时恒定返回 ok=True 且含 trace/calibration/blindspots/trust/advice 的 rec，并以 op="report" 写一条留痕后返回该 rec；
 def report(cg, window: int = 50) -> dict:
     """完整元认知报告（四观测面 + 确定性建议），并独立留痕。"""
     tr = trace(cg, window=window)
@@ -424,6 +439,7 @@ def report(cg, window: int = 50) -> dict:
     return rec
 
 
+# 生效条件：形参 query 经 str(query or "").strip() 为空（含 None、空串、纯空白）时返回 {'ok': False, 'reason': 'empty_query'}；相似历史（_jaccard 得分 >= min_sim，默认 0.25，排序后取前 int(k)，k 默认 5、k 为 0 时为空）为空时返回 ok=True/warning="no_prior"；否则按 BLINDSPOT/DEFER/ACCEPT 计数与 max(1, n//2) 及 prior_d<0.5 判定，返回带 warning/recommendation 的 out；
 def self_check(cg, query: str, k: int = 5, min_sim: float = 0.25) -> dict:
     """元认知闸门：回答之前先自问「我对这件事的认知状态如何」。
 
@@ -505,6 +521,7 @@ def self_check(cg, query: str, k: int = 5, min_sim: float = 0.25) -> dict:
 # 留痕查询 / 自描述
 # --------------------------------------------------------------------------
 
+# 生效条件：形参 limit（默认 100）为真时取 read_jsonl(os.path.join(cg.root, LOG_FILE)) 的尾部 int(limit) 条，limit 为 0 等假值时保留全部记录，返回 ok=True 与倒序的 records；
 def history(cg, limit: int = 100) -> dict:
     """元认知留痕（倒序，最新在前）。"""
     recs = list(read_jsonl(os.path.join(cg.root, LOG_FILE)))
@@ -513,6 +530,7 @@ def history(cg, limit: int = 100) -> dict:
     return {"ok": True, "n": len(recs), "records": recs[::-1]}
 
 
+# 生效条件：给定 cg 时恒定返回含 n_reflections（tr.get("n", 0)）、d_current、emotion、calibration、p_trust、p_gap 的 dict，字段分别取自对 trace(window=20)、calibration、trust(window=50) 的调用结果，缺键按其 .get 回落；
 def summary(cg) -> dict:
     """一句话元认知状态（供 health / OS 面板使用）。"""
     tr = trace(cg, window=20)
@@ -528,6 +546,7 @@ def summary(cg) -> dict:
     }
 
 
+# 生效条件：无入参且无分支，恒定返回含 module/role/theory/faces/constraints 及由模块常量 GAP_OVERCONFIDENT、GAP_UNDERCONFIDENT、BLINDSPOT_DENSE、D_LOW、MIN_SAMPLES 构成的 thresholds 的静态 dict；
 def catalog() -> dict:
     """自描述：元认知的观测面与独立性约束。"""
     return {
