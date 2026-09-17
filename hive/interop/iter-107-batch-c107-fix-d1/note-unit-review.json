@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-107-batch-c107-fix-d1",
+ "round": 3,
+ "candidate_commit": "4edf8d0",
+ "branch": "task/iter-107-batch-c107-fix-d1",
+ "unit_job": "h1789681540141_2a3f02",
+ "verdict": "ACCEPT",
+ "package_n": 22,
+ "text": "经逐条对照，所有条件均锚定实际形参、模块常量或早退分支；未发现 assert 语义、None/假值、闭包来源、参数使用、返回形状、长度/空容器前置等误述；亦无源码不支持的断言，position_ok=true 可信。\nreason: 条件与源码分支一致，未发现实质不符或位置问题。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
