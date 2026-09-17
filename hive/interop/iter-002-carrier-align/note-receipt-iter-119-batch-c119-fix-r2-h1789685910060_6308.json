@@ -1,0 +1,15 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-119-batch-c119-fix",
+ "commit": "3531789",
+ "verdict": "PASS",
+ "receipt_job": "h1789685910060_6308",
+ "receipt_sha16": "2cf88bbc6cf6abfa",
+ "received_ts": 1789685910,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-119-batch-c119-fix commit=3531789 verdict=PASS | 机器重放两步（逐字）：test_codeindex=PASS 47 / FAIL 0 / SKIP 0；cogmap_sync check=通过。另（验证端实测，env 无 brain-root）：19 条：可见性 19/19、md_cg 组 88/88 一次全绿",
+ "commands_sanitized": "[{\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}]",
+ "related_note": "",
+ "note": "由 ingest_receipts.py v2 生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
