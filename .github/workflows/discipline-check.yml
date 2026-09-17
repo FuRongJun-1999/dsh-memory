@@ -42,6 +42,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      # 守卫链的硬依赖：两个校验步骤都 import render_discipline，后者用 yaml.safe_load
+      # 读 docs/discipline/harnesses.yaml（适配矩阵真源）。
+      # 20260917 取证：本步骤此前缺失 → 自 d99c707 引入起 7/7 运行全红
+      # （ModuleNotFoundError: No module named 'yaml'，崩在 verify_discipline.py L25
+      # → render_discipline.py L28），门禁形同未上线：红着等于没门禁。
+      - name: 安装守卫链依赖（PyYAML：render_discipline 解析 harnesses.yaml）
+        run: python -m pip install pyyaml
       - name: 纪律真源 ↔ 各端产物一致性（缺失/孤儿/工具名随端/陈化 四项硬校验）
         run: python scripts/verify_discipline.py --allow-missing
       # 注入面守卫自检：祖先链发现 / 槽位声明完备 / path_dup·root_shadow 硬判据 / dir 别名折叠

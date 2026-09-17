@@ -29,8 +29,14 @@ jobs:
           python-version: "3.11"
       - name: 断言集自测（五条不变量注入即检出 / 零写入 / CLI 退出码 / sustain 挂点）
         run: python -m md_cg.test_conformance
+      # 断言「无真源时如实 BLINDSPOT（退出码 2），不得伪装 PASS」。
+      # 20260917 取证：原写法 `python …; rc=$?` 在 Actions 默认 shell（/usr/bin/bash -e）下，
+      # python 的非零退出即终止脚本（日志止于 ##[error]Process completed with exit code 2，
+      # echo "exit=$rc" 从未执行）——断言被壳层语义吃掉，步骤恒红。断言意图正确，包装错误。
+      # 改 `|| rc=$?`：赋值先于 -e 判定，断言由 test 裁决。
       - name: 默认根可用性（无真源时应如实 BLINDSPOT，不得伪装 PASS）
         run: |
-          python -m md_cg.conformance --root /tmp/does-not-exist; rc=$?
+          rc=0
+          python -m md_cg.conformance --root /tmp/does-not-exist || rc=$?
           echo "exit=$rc"
           test "$rc" = "2"
