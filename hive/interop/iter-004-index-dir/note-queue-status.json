@@ -25,5 +25,23 @@
   "候选分支为同 base（5a2778a）累积式：004⊂005⊂006⊂007 的文件集，A3 请判定「只并 007 是否足够」",
   "iter-003-fixes 已由你裁定 PASS 并已收口入 main（merge ba69a04，收口提交 1b477b1）"
  ],
- "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
+ "subject_a3_self_answer": {
+  "question": "四条候选同 base（5a2778a）且文件累积，是否只并 iter-007 即涵盖 004–006？",
+  "method": "逐文件比对 blob（git rev-parse <branch>:<path>）",
+  "matrix": {
+   "md_cg/codeindex.py": "004=005=006=007（同一 blob）；main 为更早版本",
+   "md_cg/test_codeindex.py": "004=005=006=007（同一 blob，47 条）；main 为更早版本（实测 42 条）",
+   "md_cg/comment_gate.py": "004 无此文件；005/006/007 三版递进（007 最新）",
+   "md_cg/test_comment_gate.py": "005/006/007 三版递进（007 最新，30 条）",
+   "md_cg/mdcos.py": "004=005=main（旧）；006=007（新，接 maintain 路由）"
+  },
+  "answer": "是——iter-007 的该 5 文件版本严格覆盖 004/005/006；三方合并 iter-007 入 main 与依次合并四条等价（就代码面而言）",
+  "caveat": "该结论只覆盖上述 5 个文件；四分支的 diff 文件集恰好都是这 5 个（004 为 2 个），故等价成立",
+  "verified_counts": {
+   "main_test_codeindex": "PASS 42 / FAIL 0 / SKIP 0",
+   "branch_test_codeindex": "PASS 47 / FAIL 0 / SKIP 0"
+  },
+  "note_for_verifier": "若你按 iter-007 裁定 PASS，主体将只并 iter-007 即可；若你要求逐条裁定，主体按 004→005→006→007 顺序收口"
+ }
 }
