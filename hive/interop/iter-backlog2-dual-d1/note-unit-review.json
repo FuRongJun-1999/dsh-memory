@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-backlog2-dual-d1",
+ "round": 3,
+ "candidate_commit": "69ee395",
+ "branch": "task/iter-backlog2-dual-d1",
+ "unit_job": "h1789677930542_323cb2",
+ "verdict": "REJECT",
+ "package_n": 26,
+ "text": "复核：多数条件与源码一致；但 `_path_entity` 追加还须 `_read` 得 `c` 非 None 且 `_open_content` 非 None，`_path_graph` 还须种子 `self.get` 为真并读取/打开成功，条件漏记这些早退前置。`report_summary` 成功分支也返回 `verdict` 键，未列全。\nreason: 存在漏记早退前置与返回键，未完整锚定源码分支。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
