@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-085-batch-c85-fix-d1",
+ "round": 3,
+ "candidate_commit": "c0025ed",
+ "branch": "task/iter-085-batch-c85-fix-d1",
+ "unit_job": "h1789672336209_91ddc0",
+ "verdict": "ACCEPT",
+ "package_n": 22,
+ "text": "复核 21 条：条件均覆盖输入/状态与必需形参、模块常量、早退前置；逐条比对源码，未发现 assert 语义、None/假值分支、闭包来源、参数使用、返回形状、长度/空容器前置等不符；也未添加源码外断言。position_ok=true 下位置视为合规。\n\nreason: 全部条件可由所给源码片段直接验证，未见语义漂移或越权断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
