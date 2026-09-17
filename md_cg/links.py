@@ -59,10 +59,12 @@ class LinkError(Exception):
 # 存储
 # --------------------------------------------------------------------------
 
+# 生效条件：path 为真值（非 None/非空串）时直接返回 path；否则取 `os.environ.get(LINKS_FILE_ENV)`，其为真值时返回之；环境变量缺失或为空串（假值）时回落 DEFAULT_LINKS_FILE。
 def links_file(path: str = None) -> str:
     return path or os.environ.get(LINKS_FILE_ENV) or DEFAULT_LINKS_FILE
 
 
+# 生效条件：p=links_file(path)，仅当 `os.path.exists(p)` 为真且 json.load 得到 dict 且 `d.get("links")` 为 dict 时，`d.setdefault("schema", SCHEMA)`（已有 schema 键则保留原值）并返回 d；路径不存在、抛 OSError/ValueError、或 links 非 dict 时返回 `{"schema": SCHEMA, "links": {}, "updated_at": None}`。
 def load(path: str = None) -> dict:
     p = links_file(path)
     if os.path.exists(p):
@@ -77,6 +79,7 @@ def load(path: str = None) -> dict:
     return {"schema": SCHEMA, "links": {}, "updated_at": None}
 
 
+# 生效条件：传入 data（dict）与可选 path 时，p=links_file(path)，以 `dict(data)` 浅拷贝并强制覆盖 schema=SCHEMA、updated_at=time.time()，写入 p+".tmp"（目录名为空时 makedirs(".")），chmod 0o600 的 OSError 被吞，`os.replace(tmp, p)` 后返回 p。
 def save(data: dict, path: str = None) -> str:
     p = links_file(path)
     os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
@@ -94,17 +97,20 @@ def save(data: dict, path: str = None) -> str:
     return p
 
 
+# 生效条件：传入 peer 时，对 f"{peer}|{time.time()}|{os.getpid()}" 做 utf-8 编码的 sha256，返回 "lk_" 拼接 `hexdigest()` 的前 12 个十六进制字符（peer 为 None 时按 "None" 参与哈希）。
 def _new_id(peer: str) -> str:
     h = hashlib.sha256(f"{peer}|{time.time()}|{os.getpid()}".encode("utf-8"))
     return "lk_" + h.hexdigest()[:12]
 
 
+# 生效条件：传入 link（dict）与 action，构造含 at/action 的 rec 并并入 kw 中值非 None 的项；link 缺 "audit" 键时由 setdefault 建空列表后 append，link 已有 "audit" 列表则直接 append 一条记录（已有值为 None 等非列表时 append 会失败，源码未兜）。
 def _audit(link: dict, action: str, **kw):
     rec = {"at": time.time(), "action": action}
     rec.update({k: v for k, v in kw.items() if v is not None})
     link.setdefault("audit", []).append(rec)
 
 
+# 生效条件：peer 为 None 或 strip 后为空串时返回空串 p；strip 后以 "agent:" 开头时原样返回 p；否则返回 "agent:" + p。
 def _norm_peer(peer: str) -> str:
     p = (peer or "").strip()
     return p if (not p or p.startswith("agent:")) else "agent:" + p
@@ -122,6 +128,7 @@ def _find(data: dict, peer: str):
     return None, None
 
 
+# 生效条件：调用方传入 data（须含 "links" 映射）、lid、link 时，执行 `data["links"][lid] = link` 并 save(data, path)，返回 link（data 无 "links" 键时该赋值抛 KeyError，源码未兜）。
 def _commit(data: dict, lid: str, link: dict, path: str = None):
     data["links"][lid] = link
     save(data, path)
@@ -132,6 +139,7 @@ def _commit(data: dict, lid: str, link: dict, path: str = None):
 # 版本对齐度 → 信任上限
 # --------------------------------------------------------------------------
 
+# 生效条件：以 `peer_theory or {}` 取 t，pv=`t.get("version") or t.get("theory_version")`；pv 为假值（None/空串）返回 aligned False、cap CAP_MISALIGNED、reason 为「对端未声明版本」；pv 在本地 theory.check() 的 accepted_versions（缺失时按 []）内返回 aligned True、cap CAP_ALIGNED；否则返回 aligned False、cap CAP_MISALIGNED 并附对端版本与本地集合。
 def version_alignment(peer_theory: dict = None) -> dict:
     """对端版本 vs 本地认可集合 → `{aligned, cap, reason}`。"""
     from .theory import check as _theory_check
@@ -151,6 +159,7 @@ def version_alignment(peer_theory: dict = None) -> dict:
             "local_accepted": accepted, "peer_version": pv}
 
 
+# 生效条件：cap 初始为 CAP_ALIGNED；`alignment.get("aligned")` 为假时 cap=min(cap, CAP_MISALIGNED)；position_map 为假值（None 或空 dict）时 cap=min(cap, CAP_INCOMPLETE)；返回该 cap（数值大小关系由常量定义，源码未在本段校验）。
 def _cap_for(alignment: dict, position_map: dict = None) -> float:
     cap = CAP_ALIGNED
     if not alignment.get("aligned"):
@@ -160,6 +169,7 @@ def _cap_for(alignment: dict, position_map: dict = None) -> float:
     return cap
 
 
+# 生效条件：传入 position 时返回含 position、委派 `md_cg.weights` 得到的 dominant/secondary/excluded/order，以及 class（`_w.is_viewpoint(position)` 真取 VIEWPOINT，否则取 FUNCTIONAL）的字典，不修改任何状态。
 def position_preference(position: str) -> dict:
     """该位置的分量偏好序（委派 `md_cg.weights`，纯结构、无数值）。
 
@@ -182,11 +192,13 @@ FUNCTIONAL = "functional"
 # 签名载荷（确定性：同参数必同字节）
 # --------------------------------------------------------------------------
 
+# 生效条件：传入 body 时返回 `json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))` 的 utf-8 编码字节。
 def _canon(body: dict) -> bytes:
     return json.dumps(body, ensure_ascii=False, sort_keys=True,
                       separators=(",", ":")).encode("utf-8")
 
 
+# 生效条件：传入 peer_node_id 与可选 peer_theory/position_map 时，t=`peer_theory or {}`，返回 _canon 字节串，其中 theory_version 取 `t.get("version") or t.get("theory_version")`、theory_hash 取 `t.get("hash") or t.get("theory_hash")`、position_map 为 `(position_map or {})` 各项按 key 排序后值经 str() 的映射。
 def handshake_payload(peer_node_id: str, peer_theory: dict = None,
                       position_map: dict = None) -> bytes:
     t = peer_theory or {}
@@ -199,6 +211,7 @@ def handshake_payload(peer_node_id: str, peer_theory: dict = None,
     })
 
 
+# 生效条件：传入 peer_node_id、evidence、positive 时返回 _canon 字节串，evidence 经 str()（None 得 "None"）、positive 经 bool()（0/""/None 得 False）。
 def evidence_payload(peer_node_id: str, evidence: str, positive: bool) -> bytes:
     return _canon({"peer_node_id": peer_node_id, "evidence": str(evidence),
                    "positive": bool(positive)})
@@ -306,6 +319,7 @@ def handshake(peer_node_id: str, *, peer_theory: dict = None,
 # 观测（P_trust 更新 / 反例击穿）
 # --------------------------------------------------------------------------
 
+# 生效条件：peer 经 load(path)/_find 命中连接（未命中或 status 为 "withdrawn" 时抛 LinkError）；`_signer.verify_for(...)` 返回值中 ok 非真时按 `ver.get("on_fail") or "degrade"` 处置——"reject" 抛 LinkError，其余置 isolated/degraded 后返回 ok False；验签通过则 delta=UP_STEP if positive else -DOWN_STEP，P_trust 置 `round(max(0.0, min(cap, before + delta)), 6)`（cap 取 `link.get("p_trust_cap") or 0.0`），负证据且新 P_trust<DEGRADE_BELOW 且原状态在 IN_TRUST 时降级，返回 ok True、link、delta。
 def observe(peer: str, *, evidence: str, positive: bool = True,
             subsystem: str = None, peer_signature: str = None,
             path: str = None, signers_file: str = None,
@@ -370,6 +384,7 @@ def observe(peer: str, *, evidence: str, positive: bool = True,
 # 状态迁移（宪章第二十二条响应阶梯）
 # --------------------------------------------------------------------------
 
+# 生效条件：status 不在 STATUS 中抛 LinkError；否则写入 link["status"]=status，status 为 "isolated" 时同时置 p_trust_cap=CAP_ISOLATED、p_trust=0.0，并写留痕（clause 为假值含 None/空串时回落「宪章第二十二条（响应阶梯）」），返回 link。
 def _set_status(link: dict, status: str, *, actor: str = "system",
                 clause: str = None, reason: str = None):
     if status not in STATUS:
@@ -384,6 +399,7 @@ def _set_status(link: dict, status: str, *, actor: str = "system",
     return link
 
 
+# 生效条件：传入 peer 与 status 时，先 load(path)/_find 定位（未命中抛 LinkError），再 `_set_status(link, status, actor=actor, reason=reason)` 并 `_commit(data, lid, link, path)`，返回 `{"ok": True, "link": link}`。
 def _transition(peer, status, *, reason=None, path=None, actor="system"):
     data = load(path)
     lid, link = _find(data, peer)
@@ -412,16 +428,19 @@ def promote(peer: str, *, path: str = None, actor: str = "system") -> dict:
     return {"ok": True, "link": link}
 
 
+# 生效条件：传入 peer 时无条件返回 `_transition(peer, "degraded", reason=reason, path=path, actor=actor)`，reason/path/actor 原样透传。
 def degrade(peer: str, *, reason: str = None, path: str = None,
             actor: str = "system") -> dict:
     return _transition(peer, "degraded", reason=reason, path=path, actor=actor)
 
 
+# 生效条件：传入 peer 时无条件返回 `_transition(peer, "isolated", reason=reason, path=path, actor=actor)`，reason/path/actor 原样透传。
 def isolate(peer: str, *, reason: str = None, path: str = None,
             actor: str = "system") -> dict:
     return _transition(peer, "isolated", reason=reason, path=path, actor=actor)
 
 
+# 生效条件：传入 peer 时无条件返回 `_transition(peer, "withdrawn", reason=reason, path=path, actor=actor)`，reason/path/actor 原样透传（30 天冷静期不在本函数内校验）。
 def withdraw(peer: str, *, reason: str = None, path: str = None,
              actor: str = "system") -> dict:
     """声明退出（宪章第二十一条附 3：30 天冷静期由上层流程保证）。"""
@@ -465,6 +484,7 @@ def decay_all(*, path: str = None, now: float = None,
 # 查询 / 自描述 / CLI
 # --------------------------------------------------------------------------
 
+# 生效条件：`_find(load(path), peer)` 命中时返回该 link；未命中时抛 LinkError。
 def get(peer: str, *, path: str = None) -> dict:
     lid, link = _find(load(path), peer)
     if not link:
@@ -472,6 +492,7 @@ def get(peer: str, *, path: str = None) -> dict:
     return link
 
 
+# 生效条件：status 为真值时过滤掉 `link.get("status") != status` 的连接，subsystem 为真值时过滤掉 `link.get("subsystem") != subsystem` 的连接（两者为 None/空串则不过滤）；返回 `{"file": links_file(path), "count": len(out), "links": out}`，out 按 (status, peer_node_id) 排序。
 def ls(*, path: str = None, status: str = None, subsystem: str = None) -> dict:
     data = load(path)
     out = []
@@ -490,6 +511,7 @@ def ls(*, path: str = None, status: str = None, subsystem: str = None) -> dict:
     return {"file": links_file(path), "count": len(out), "links": out}
 
 
+# 生效条件：无 required 形参，调用即返回自描述 dict，其中 "file" 由无参 `links_file()` 决定（随 LINKS_FILE_ENV 环境变量与 DEFAULT_LINKS_FILE 回落变化），其余字段由 STATUS 列表与模块级常量（P_TRUST_INIT/UP_STEP/DOWN_STEP/DEGRADE_BELOW/DECAY_DAYS/PROBATION_SECONDS/CAP_*）拼成。
 def catalog() -> dict:
     return {
         "layer": "连接层（蜂群互联层1）",
@@ -518,10 +540,12 @@ def catalog() -> dict:
     }
 
 
+# 生效条件：传入 obj 时执行 `print(json.dumps(obj, ensure_ascii=False, indent=1, default=str))`，无返回值（不可序列化对象经 default=str 转字符串）。
 def _print(obj):
     print(json.dumps(obj, ensure_ascii=False, indent=1, default=str))
 
 
+# 生效条件：argv 为 None 时 argparse 取 sys.argv，子命令为 required；a.cmd 为 catalog/ls/handshake/observe/promote|degrade|isolate|withdraw/show/decay 时分别以 a.links_file（──links-file）、a.status、peer、a.evidence、`positive=not a.negative`、a.reason、a.signers_file 等分派执行；捕获 LinkError 打印到 stderr 并返回 2，否则返回 0（argparse 自身错误退出不在本段返回值内）。
 def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="python -m md_cg.links",
