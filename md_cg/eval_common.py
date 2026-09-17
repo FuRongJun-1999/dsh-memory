@@ -94,6 +94,7 @@ def use_jaccard():
     m.SCORE_MODE = "jaccard"
 
 
+# 生效条件：对 path 调用 open(path, encoding="utf-8") 后逐行读取，仅对 strip 后非空的 line yield json.loads(line)；
 def iter_jsonl(path):
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -102,6 +103,7 @@ def iter_jsonl(path):
                 yield json.loads(line)
 
 
+# 生效条件：ds 等于 "lm" 时 path=LM_Q，否则 path=LC_Q；先由 iter_jsonl(path) 取全部 rows，再仅当 qtypes 为真值时保留 r["qtype"] 在 qtypes 中的行（qtypes 为 None/空串/空容器等假值则不过滤）；
 def load_questions(ds, qtypes=None):
     """ds: 'lm' | 'lc'。qtypes 过滤题型（None=全部）。"""
     path = LM_Q if ds == "lm" else LC_Q
@@ -111,6 +113,7 @@ def load_questions(ds, qtypes=None):
     return rows
 
 
+# 生效条件：对 rows/n（seed 默认 7），若 not n 或 n >= len(rows) 则原样返回 rows，否则返回 random.Random(seed).sample(rows, n)；
 def sample_questions(rows, n, seed=7):
     if not n or n >= len(rows):
         return rows
@@ -119,12 +122,14 @@ def sample_questions(rows, n, seed=7):
 
 # ------------------------------------------------------------------ 建库
 
+# 生效条件：对 t，若 t.get("speaker") 为真值则返回 f"{t['speaker']}: {t['text']} [{t['date']}]"，否则返回 f"{t['text']} [{t['date']}]"；
 def lm_turn_text(t):
     """LongMemEval turn → 入库文本（日期内联，词法路可召回时间词）。"""
     return f"{t['speaker']}: {t['text']} [{t['date']}]" if t.get("speaker") \
         else f"{t['text']} [{t['date']}]"
 
 
+# 生效条件：对 r，若 r.get("title") 为真值则返回 f"{r['text']} [{r['title']}]"，否则返回 r["text"]；
 def lc_turn_text(r):
     """LoCoMo turn → 入库文本（title 含 Data time 时间戳，内联保序）。"""
     return f"{r['text']} [{r['title']}]" if r.get("title") else r["text"]
@@ -147,6 +152,7 @@ _STOP_HEADS = frozenset(
 _NEG_MARKS = ("n't", " not ", " never ", "nobody", "nothing", "no one", "none of")
 
 
+# 生效条件：对 text（limit 默认 4），按正则收集非 _STOP_HEADS 开头的大写词与 4 位年/时刻/日期数字并去重后，返回前 limit 项；
 def _extract_entities(text, limit=4):
     """确定性实体近似：连续大写词（人名/地名）+ 日期/时间数字。只读 turn 正文。
     纯数字编号（"1."）不是实体——只保留年份/时刻/日期形态，否则列表编号会
@@ -162,6 +168,7 @@ def _extract_entities(text, limit=4):
     return ents[:limit]
 
 
+# 生效条件：对 title，若 title 为假值则返回空串，否则按 YYYY-MM-DD、英文星期日期、d/d/d 三个正则顺序取首个匹配串，无匹配返回空串；
 def _date_tag(title):
     """从 title 抽规范化日期串做 tag。整段 title 入 tags 会污染实体路
     （_path_entity 的 `query in t` 方向：长 tag 是误报源）。"""
@@ -239,6 +246,7 @@ def calibrate_lc_turn(r, ctx=None):
 # 指代消解，把语料加工成可沿链行走的形态。以下三步全部是**确定性规则近似**
 # （纯标准库、盲于查询集、随报告公开词表），不引入任何模型依赖。
 
+# 生效条件：对 corpus_path（min_df 默认 3），逐行取 text=str(r.get("text") or "")、spk=str(r.get("speaker") or "").strip()，以 {spk}（spk 真值）或空集合并入正文大写词首词（排除 _STOP_HEADS）更新 df 计数，最后返回计数 >= min_df 的词集合；
 def build_canon(corpus_path, min_df=3):
     """离线实体规范化：全语料扫一遍，聚合大写词/人名的文档频次（df）。
     df≥min_df 的是 canonical 实体（会话成员 + 高频专名）——单 turn 局部抽取
@@ -268,6 +276,7 @@ _INTENT_HEADS = ("plan", "going to", "thinking of", "thinking about", "want to",
                  "prefer", "favorite", "love", "hate", "enjoy")
 
 
+# 生效条件：对 text 小写并前后加空格得到 low，返回 _INTENT_HEADS 中满足 f" {h}" 出现在 low 的项；
 def _intent_of(text):
     low = f" {text.lower()} "
     return [h for h in _INTENT_HEADS if f" {h}" in low]
@@ -406,6 +415,7 @@ def install_read_cache(cg):
 
 # ------------------------------------------------------------------ 检索与指标
 
+# 生效条件：对 cg/query（k 默认 5、paths 默认 PATHS、judge 默认 False），若 fusion 为真值则加入 kw["fusion"]，若 path_weights 为真值则加入 kw["path_weights"]，若 context is not None（含空 dict/空串）则加入 kw["context"]，再调用 cg.search_rrf(...)；
 def run_query(cg, query, k=5, paths=PATHS, judge=False, fusion=None,
               path_weights=None, context=None):
     """单查询，返回 (结果四元组列表, meta)。
@@ -426,6 +436,7 @@ def run_query(cg, query, k=5, paths=PATHS, judge=False, fusion=None,
     return cg.search_rrf(query, k=k, paths=paths, judge=judge, record=False, **kw)
 
 
+# 生效条件：当 evidence 为真值且 res 中某 r 的 r[0]["id"] 属于 evidence 时返回首个 1-based 排名，否则（evidence 为假值或未命中）返回 0；
 def first_evidence_rank(res, evidence):
     """首个证据 turn 的排名（1-based；未命中 0）。"""
     if not evidence:
@@ -436,6 +447,7 @@ def first_evidence_rank(res, evidence):
     return 0
 
 
+# 生效条件：对 questions 中每个 it，若 context_of 为真值则 ctx=context_of(it) 否则 ctx=None；以 k/paths/judge/fusion/path_weights 调用 run_query，按 evidence_turns 算 first_evidence_rank，收集 qid/qtype/rank/top1_score/n_res 行，返回 rows；
 def evaluate_group(cg, questions, k=5, paths=PATHS, judge=False, verbose=True,
                    fusion=None, path_weights=None, context_of=None):
     """一组题 → per-question 明细行。负例组传 judge=False（拒答看分数线）。
@@ -462,6 +474,7 @@ def evaluate_group(cg, questions, k=5, paths=PATHS, judge=False, verbose=True,
     return rows
 
 
+# 生效条件：当 rows 为真值时按 k（默认 5）计算 hit@1、hit@k、MRR、score_p10/p50 及 by_qtype 指标，否则返回 {"n": 0}；
 def summarize(rows, k=5):
     """hit@1 / hit@K / MRR + 分题型。score_p10 供拒答线校准。"""
     if not rows:
@@ -492,6 +505,7 @@ def summarize(rows, k=5):
     return out
 
 
+# 生效条件：当 rows 非空时按 r["top1_score"] < line 统计拒答数并返回拒绝率，否则返回 {"n": 0}；
 def refusal_metrics(rows, line):
     """负例组：Top-1 分 < line 记为拒答。返回拒答率与明细统计。"""
     n = len(rows)
@@ -502,6 +516,7 @@ def refusal_metrics(rows, line):
             "refused": ref, "line": line}
 
 
+# 生效条件：当 rows 非空时返回 r["top1_score"] < line 的行占比，否则返回 0.0；
 def false_refusal_rate(rows, line):
     """正例误杀（被错误拒答的正例比例）：正例 Top-1 分 < line。"""
     n = len(rows)
@@ -510,6 +525,7 @@ def false_refusal_rate(rows, line):
     return sum(1 for r in rows if r["top1_score"] < line) / n
 
 
+# 生效条件：当 pos_rows 中存在 rank==1 的行时，返回这些行 top1_score 升序后 max(0, len//10) 索引处的值，否则返回 0.0；
 def calibrate_line(pos_rows):
     """拒答线 = 正例 hit@1 题 Top-1 分的 10 分位。"""
     scores = sorted(r["top1_score"] for r in pos_rows if r["rank"] == 1)
@@ -518,6 +534,7 @@ def calibrate_line(pos_rows):
     return scores[max(0, len(scores) // 10)]
 
 
+# 生效条件：当 name/payload 给出时，确保 RESULTS 目录（os.makedirs(RESULTS, exist_ok=True)），将 payload 以 ensure_ascii=False、indent=2 写入 RESULTS/name 并返回 path；
 def save_result(name, payload):
     """评测结果 JSON 落盘（报告数据源）。"""
     os.makedirs(RESULTS, exist_ok=True)
@@ -528,6 +545,7 @@ def save_result(name, payload):
     return path
 
 
+# 生效条件：对 groups（k 默认 5），若某组 s 的 s.get("n") 为假（缺 n 或 n=0）则打印 0 行并跳过，否则按 s["hit@1"]、s[f"hit@{k}"]、s["mrr"] 打印并遍历 s.get("by_qtype", {}) 输出子行；
 def print_table(title, groups, k=5):
     """groups: {组名: summarize 输出}。"""
     print(f"\n== {title}（证据命中口径，k={k}）==")
@@ -544,5 +562,6 @@ def print_table(title, groups, k=5):
                   f"{st[f'hit@{k}']:>9.1%}{st['mrr']:>8.3f}")
 
 
+# 生效条件：对任意 x，返回 f"{x * 100:.1f}%" 的百分比字符串；
 def pct(x):
     return f"{x * 100:.1f}%"
