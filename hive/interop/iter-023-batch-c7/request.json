@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-023-batch-c7",
- "candidate_commit": "b6f30c5",
+ "candidate_commit": "cb592cc",
  "branch": "task/iter-023-batch-c7",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -21,11 +21,13 @@
  "increment_vs_base": {
   "base": "main",
   "file": "md_cg/predict.py",
-  "new_annotation_lines": 44,
-  "total_lines_on_branch": 44
+  "new_annotation_lines": 43,
+  "total_lines_on_branch": 43
  },
  "known_open": {
-  "excluded": []
+  "excluded": [
+   "feedback"
+  ]
  },
  "process_standard": [
   "注释置于 def/class 行正上方（装饰器之下）",
