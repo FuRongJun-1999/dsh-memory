@@ -1,12 +1,12 @@
 {
  "kind": "unit-review",
  "iter_id": "iter-027-batch-c27",
- "round": 1,
+ "round": 2,
  "candidate_commit": "e28661b",
  "branch": "task/iter-027-batch-c27",
- "unit_job": "h1789660686648_c46111",
+ "unit_job": "h1789660973354_d50d7e",
  "verdict": "REJECT",
- "package_n": 14,
- "text": "逐条比对：多数条件已锚定输入状态、早退、模块常量与返回形状。但 14 的“可解析 JSON 数组”未排除空数组；源码 `if not items` 对空数组回退，不会标 `'llm'`。8 也未提 `CN_STOP_GRAMS` 过滤，且 cap=0 非空断言过强；3 同长排序还含 frontmatter importance/created_at。故存在源码不支持的断言/遗漏。\nreason: 主要不符：空 JSON 数组在源码中触发 whitebox_fallback，条件却称可解析数组即合并标 llm。\nverdict: REJECT",
+ "package_n": 3,
+ "text": "1) cn_recall_grams：开关、长度、2-gram 去重、cap 早退基本符；但“cap=0 返回首 1 个 gram 非空”未限定存在可入 out 的 gram，空 query 或全停用 gram 时仍返回 []，属源码不支持断言。\n2) normalize_en：假值、清标点、≥2 英文词小写/停用/时态处理符，中文数字保留。\n3) _extract_json_array：首末括号、i/j 早退、非法 JSON 抛异常均符。\nreason: 第1条 cap=0“非空”断言过强，其他两条与源码相符。\nverdict: REJECT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
