@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-062-cogmap-anchor-fix",
+ "round": 1,
+ "candidate_commit": "f734951",
+ "branch": "task/iter-062-cogmap-anchor-fix",
+ "unit_job": "local(self-run)",
+ "verdict": "ACCEPT",
+ "package_n": 0,
+ "text": "BUILD rc=0（README 1 段 + 映射表 3 段写回）；CHECK rc=0：通过（cg 34 op / stg 4 op / whitebox 6 action / mdcg_* 31 个；双文档标记段、op/工具引用、文件链接、锚点、FUNC_DESC 覆盖全部一致）。",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
