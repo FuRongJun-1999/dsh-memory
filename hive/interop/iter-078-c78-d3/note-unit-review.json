@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-078-c78-d3",
+ "round": 5,
+ "candidate_commit": "f63a031",
+ "branch": "task/iter-078-c78-d3",
+ "unit_job": "h1789675039552_ed7302",
+ "verdict": "REJECT",
+ "package_n": 9,
+ "text": "逐条核对：_fm_of、_access、_contradiction、_apply_offset、calibrate、sweep、summary、put 的条件与源码主体一致；位置均 ok。惟 _pool_candidates 的条件称“返回各池排序后的 dict”过泛：源码仅 stale/hot/unverified/orphan/disputed/low_conf 有 sort，random 池未排序。另 summary 中 sweep 统计不校验 ok，但可解为仅 decontaminate 校验 ok，不构成主错。\nreason: _pool_candidates 声称各池排序，但源码 random 池未排序，与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
