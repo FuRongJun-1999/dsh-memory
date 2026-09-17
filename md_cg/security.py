@@ -28,6 +28,7 @@ class AccessDenied(Exception):
     """权限拒绝（读/写/管理）。"""
 
 
+# 生效条件：形参 level 为模块级常量 SENSITIVITY_ORDER 中的元素时返回其下标，否则抛 AccessDenied。
 def _rank(level: str) -> int:
     try:
         return SENSITIVITY_ORDER.index(level)
@@ -65,6 +66,7 @@ class Principal:
     theory_version —— 当前声明的协议版本（审计与 whoami 用）
     """
 
+# 生效条件：clearance 须为模块级常量 SENSITIVITY_ORDER 成员（否则 _rank 抛 AccessDenied），session 为假值（含 None/空串）时生成 sess_ 随机串，expires_at 为假值（含 None/0）时存 None 否则 float(expires_at)，layers_allow/ops_allow 为 None 时存 None 否则 tuple 化。
     def __init__(self, tenant: str = "default", actor: str = "system",
                  clearance: str = DEFAULT_SENSITIVITY, can_write: bool = True,
                  can_admin: bool = False, session: str = None,
@@ -99,10 +101,12 @@ class Principal:
 
     # ---------- 基础判定 ----------
 
+# 生效条件：形参 sensitivity 与 self.clearance 均可被 _rank 映射到模块级常量 SENSITIVITY_ORDER 中时，返回前者排名是否不高于后者；任一不在其中则 _rank 抛 AccessDenied。
     def allows(self, sensitivity: str) -> bool:
         """clearance 是否覆盖该敏感度（可读/可写）。"""
         return _rank(sensitivity) <= _rank(self.clearance)
 
+# 生效条件：无 required 形参或模块级常量前置，仅当 self.expires_at（来自 __init__ 的 expires_at）不为 None 且 time.time() 大于它时返回 True，否则返回 False。
     def expired(self) -> bool:
         return self.expires_at is not None and time.time() > self.expires_at
 
@@ -120,10 +124,12 @@ class Principal:
 
     # ---------- 强制校验（越权即 AccessDenied） ----------
 
+# 生效条件：无 required 形参或模块级常量前置，当 self.expired()（来自 __init__ 的 expires_at 与当前时间比较）为 True 时抛 AccessDenied，否则无操作返回 None。
     def _require_live(self):
         if self.expired():
             raise AccessDenied(f"actor={self.actor} 令牌已过期")
 
+# 生效条件：先调用 self._require_live()（过期则抛 AccessDenied）；再要求 self.allows_op(op) 为 True，否则抛 AccessDenied。
     def require_op(self, op: str):
         self._require_live()
         if not self.allows_op(op):
@@ -131,6 +137,7 @@ class Principal:
                 f"角色 {self.role} 无权执行 op={op}（作用域 "
                 f"{list(self.ops_allow) if self.ops_allow is not None else '不限'}）")
 
+# 生效条件：依次要求 self._require_live() 未抛异常、self.theory_ok 为 True、self.can_write 为 True、self.allows(sensitivity) 为 True；任一不满足则抛 AccessDenied。
     def require_write(self, sensitivity: str):
         self._require_live()
         if not self.theory_ok:
@@ -143,6 +150,7 @@ class Principal:
             raise AccessDenied(
                 f"写入敏感度 {sensitivity} 超出 clearance {self.clearance}")
 
+# 生效条件：先要求 self.require_write(sensitivity) 未抛异常；随后将形参 layer 为假值（None/空串）时按 "knowledge" 处理，并要求 self.allows_layer(layer) 为 True，否则抛 AccessDenied。
     def require_layer_write(self, layer: str, sensitivity: str):
         """写层校验：密级 + 层白名单双闸门（核心私有内容不可越权修改）。"""
         self.require_write(sensitivity)
@@ -152,6 +160,7 @@ class Principal:
                 f"角色 {self.role} 无权写入 {layer} 层"
                 f"（可写层 {list(self.layers_allow) if self.layers_allow is not None else '不限'}）")
 
+# 生效条件：要求 self._require_live() 未抛异常、self.theory_ok 为 True、self.can_admin 为 True 时通过；否则抛 AccessDenied（消息用形参 op 标记操作）。
     def require_admin(self, op: str):
         self._require_live()
         if not self.theory_ok:
@@ -160,6 +169,7 @@ class Principal:
         if not self.can_admin:
             raise AccessDenied(f"actor={self.actor} 无管理权限（{op}）")
 
+# 生效条件：无 required 形参或模块级常量前置，返回包含 self 各属性（tenant/actor/clearance/can_write/can_admin/session/harness/unit/role/token_id/parent/auth_mode/expires_at/theory_ok/theory_version 及 layers_allow/ops_allow）的 dict；其中 layers_allow/ops_allow 为 None 时值为 None，否则 list 化。
     def as_dict(self):
         return {"tenant": self.tenant, "actor": self.actor,
                 "clearance": self.clearance, "can_write": self.can_write,
@@ -188,12 +198,14 @@ class TenantRegistry:
     设计意图：私有租户的 root 指向仓库外目录，开源仓库里只放 public 租户的根。
     """
 
+# 生效条件：形参 path 为 None 时取 ~/.mdcg/_tenants.json，否则取 path；self.data 初始化为 _load() 结果（self.path 经 os.path.exists 为真且 JSON 解析为 dict 时取该 dict，否则回落 {"schema":1,"tenants":{}}）。
     def __init__(self, path: str = None):
         if path is None:
             path = os.path.join(os.path.expanduser("~"), ".mdcg", "_tenants.json")
         self.path = path
         self.data = self._load()
 
+# 生效条件：当 self.path 经 os.path.exists 为真且内容可解析为 dict 时返回该 dict；否则（os.path.exists 为假、非 dict、JSON 解析失败或 OSError）返回 {"schema":1,"tenants":{}}。
     def _load(self):
         if os.path.exists(self.path):
             try:
@@ -205,6 +217,7 @@ class TenantRegistry:
                 pass
         return {"schema": 1, "tenants": {}}
 
+# 生效条件：无 required 形参或模块级常量前置，将 self.data 以 JSON 写入 self.path + ".tmp"，随后 os.replace 到 self.path；目录名称为空时用 "." 创建。
     def _save(self):
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         tmp = self.path + ".tmp"
@@ -212,6 +225,7 @@ class TenantRegistry:
             json.dump(self.data, f, ensure_ascii=False, indent=1)
         os.replace(tmp, self.path)
 
+# 生效条件：形参 clearance_cap 须为模块级常量 SENSITIVITY_ORDER 成员（否则 _rank 抛 AccessDenied）；形参 tenant/root 提供后写入 self.data["tenants"]（要求 self.data 含 "tenants" 键，否则 KeyError），_save 成功则返回新登记项。
     def register(self, tenant: str, root: str, clearance_cap: str = DEFAULT_SENSITIVITY,
                  description: str = ""):
         _rank(clearance_cap)
@@ -224,13 +238,16 @@ class TenantRegistry:
         self._save()
         return self.data["tenants"][tenant]
 
+# 生效条件：self.data 含 "tenants" 键（否则 KeyError），且该映射中存在形参 tenant 时返回其值，否则返回 None（.get 缺键回落 None，键存在值为 None 也返回 None）。
     def get(self, tenant: str):
         return self.data["tenants"].get(tenant)
 
+# 生效条件：self.get(tenant) 返回真值（非 None/空 dict 等）时返回 t["root"]（若 t 无 "root" 键则 KeyError）；返回假值时返回 None。
     def root_of(self, tenant: str):
         t = self.get(tenant)
         return t["root"] if t else None
 
+# 生效条件：self.get(tenant) 返回真值时返回 t["clearance_cap"]（缺键则 KeyError）；返回假值时返回模块级常量 DEFAULT_SENSITIVITY。
     def cap_of(self, tenant: str):
         t = self.get(tenant)
         return t["clearance_cap"] if t else DEFAULT_SENSITIVITY
@@ -238,6 +255,7 @@ class TenantRegistry:
     def all(self):
         return dict(self.data["tenants"])
 
+# 生效条件：cap 由 cap_of(tenant) 决定（形参 tenant 未注册时取模块级常量 DEFAULT_SENSITIVITY）；clearance 为假值（含 None/空串）时 want 取 cap，否则先取 clearance，再在 _rank(want) > _rank(cap) 时夹紧为 cap；actor 为假值时取 tenant；返回 Principal(...)。
     def principal_for(self, tenant: str, actor: str = None, clearance: str = None,
                       can_write: bool = True, can_admin: bool = False,
                       session: str = None) -> Principal:
