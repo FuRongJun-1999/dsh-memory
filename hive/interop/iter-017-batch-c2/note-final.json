@@ -1,13 +1,10 @@
 {
  "kind": "batch-final",
  "iter_id": "iter-017-batch-c2",
- "delivered_commit": "7cb1f01dd455",
- "held_commit": "12b4fcf929b0",
+ "delivered_commit": "b6abfcdbaf11",
+ "held_commit": "9711339859db",
  "excluded": [
-  "__init__",
-  "cn_recall_grams",
-  "normalize_en",
-  "_extract_json_array"
+  "ReturnStmtNode"
  ],
  "rule": "findings 全部入 held 即交付",
  "paths_policy": "脱敏"

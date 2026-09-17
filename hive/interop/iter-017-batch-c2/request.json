@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-017-batch-c2",
- "candidate_commit": "7cb1f01dd455",
+ "candidate_commit": "b6abfcdbaf11",
  "branch": "task/iter-017-batch-c2",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -20,13 +20,10 @@
  "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
  "action": "batch-split",
  "known_open": {
-  "held_branch": "task/iter-017-held",
-  "held_commit": "12b4fcf929b0",
+  "held_branch": "task/iter-018-held",
+  "held_commit": "9711339859db",
   "excluded": [
-   "__init__",
-   "cn_recall_grams",
-   "normalize_en",
-   "_extract_json_array"
+   "ReturnStmtNode"
   ],
   "unit_r2_quote": "除 _extract_json_array 外，其余条件基本与源码一致",
   "unit_r1_findings": {
