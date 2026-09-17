@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-111-batch-c111",
+ "round": 1,
+ "candidate_commit": "db61347",
+ "branch": "task/iter-111-batch-c111",
+ "unit_job": "h1789683336148_978ffc",
+ "verdict": "ACCEPT",
+ "package_n": 18,
+ "text": "复核 18 条：均锚定实际形参/常量与早退分支；None/假值、返回形状、_narrow 求交、递归吊销、chmod 忽略 OSError 等与源码一致，未发现源码外断言；position_ok=true 可满足。\nreason: 全部候选条件与源码语义一致，未发现分支、假值、返回形状或前置来源偏差。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
