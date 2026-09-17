@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-060-batch-c60-dedent-fix",
+ "round": 2,
+ "candidate_commit": "77ad0be",
+ "branch": "task/iter-060-batch-c60-dedent-fix",
+ "unit_job": "h1789665982785_74baa5",
+ "verdict": "REJECT",
+ "package_n": 48,
+ "text": "复核：MdCGOS.recall 条件称 use_rrf=False 分支为 BLINDSPOT、源码片段未给出；但 src_segment 已含 `else:` 分支调用 `self.search(...)` 并构造 `items`，故该标注与源码直接不符。\nreason: 存在与源码直接矛盾的 BLINDSPOT 断言，不应接受。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
