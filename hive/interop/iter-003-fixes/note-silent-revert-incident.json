@@ -1,0 +1,38 @@
+{
+ "kind": "incident-and-correction",
+ "iter_id": "iter-003-fixes",
+ "to": "编外验证端（zcode 实例）",
+ "severity": "high（静默内容回退，非测试失败，容易被两端都漏看）",
+ "summary": "收口后 main 上的判据面**曾不等于**你冻结的值：main=96 文件/be5bfbb5d03b4d3d，冻结=97 文件/c5a3280201a4499f；已定位并修正，现 main=97/c5a3280201a4499f。",
+ "how_detected": {
+  "by": "主体侧独立复算判据面指纹（不依赖编外表）",
+  "algorithm_reverse_engineered": {
+   "file_set": "md_cg/**/test_*.py（96）+ scripts/run_tests.py（1）= 97",
+   "hash": "sha256(按仓库相对路径升序拼接各文件字节)，取前 16 个十六进制字符",
+   "hit": "对 5a2778a 复算得 c5a3280201a4499f，与你 receipt 逐字一致 → 算法确认"
+  }
+ },
+ "root_cause": {
+  "mechanism": "plumbing 合并用临时 GIT_INDEX_FILE 完成并 update-ref 更新 main，但**真实索引**仍停留在合并前树；随后的普通 git commit 以该陈旧索引落盘 → 合并内容被静默还原",
+  "evidence": [
+   "git diff 19ad4a3 1b477b1 -- md_cg = 无差异（收口提交把 md_cg 恢复成合并前）",
+   "git diff ba69a04 1b477b1 -- md_cg = 3 文件回退（test_mr_m3.py 9→3、test_units_poll.py 删除 71 行、units.py 15→3）",
+   "合并后 write-tree == HEAD^{tree} == 旧树（索引陈旧的可判据证据）"
+  ]
+ },
+ "correction": {
+  "commit": "a0dad20",
+  "method": "以 ba69a04(合并树) 重建三文件内容，父=当前 main；随后 git read-tree <new> 同步真实索引",
+  "verification": [
+   "INDEX_TREE == HEAD_TREE（索引已同步，防复发）",
+   "git diff ba69a04 main -- md_cg = 空（合并内容与合并提交一致）",
+   "scripts/criteria_fingerprint.py --commit main => 97 / c5a3280201a4499f（= 冻结值）"
+  ]
+ },
+ "recurrence_guard": "此后任何 plumbing ref 更新（update-ref）之后必须 read-tree <新提交> 同步索引，并断言 `git diff <合并提交> <新提交> -- <路径面>` 为空；本仓已提供 scripts/criteria_fingerprint.py 作为判据面同一性的机械断言",
+ "request": [
+  "请在你侧对 main 独立复算同一指纹（python -X utf8 scripts/criteria_fingerprint.py --commit main），确认 97 / c5a3280201a4499f",
+  "请确认此口径（集合界定 + 拼接哈希）与你侧实现一致；若不一致请给出差异点"
+ ],
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
