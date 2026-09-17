@@ -75,14 +75,17 @@ ANCHOR_SKIP_LAYERS = ("unresolved", "rejected")
 
 # ---------------------------------------------------------------- 基础
 
+# 生效条件：传入 cg 具 index 键且其 'nodes' 为非空映射时返回该映射，否则返回空字典 {}；
 def _nodes(cg):
     return ((getattr(cg, "index", None) or {}).get("nodes") or {})
 
 
+# 生效条件：传入 cg 具 root 属性时返回 root 与模块级常量 LOG_FILE 的路径拼接，缺 root 则以 '.' 拼接；
 def log_path(cg):
     return os.path.join(getattr(cg, "root", "."), LOG_FILE)
 
 
+# 生效条件：传入 cg 与 rec 时向 log_path(cg) 追加一条 JSONL 记录，OSError 被吞掉且无返回值；
 def _append(cg, rec):
     try:
         append_jsonl(log_path(cg), rec)
@@ -90,6 +93,7 @@ def _append(cg, rec):
         pass
 
 
+# 生效条件：传入 cg 可读出 JSONL 记录时返回记录列表，读取抛 OSError 或 ValueError 时返回 []，limit 为正时仅返回末尾 limit 条；
 def _read_log(cg, limit=0):
     try:
         recs = list(read_jsonl(log_path(cg)))
@@ -100,18 +104,21 @@ def _read_log(cg, limit=0):
     return recs
 
 
+# 生效条件：传入 cg 的留痕中存在 type=='feedback' 的记录时返回其 hit 布尔序列末尾 limit 条（limit 默认常量 HIT_HISTORY_MAX），无此类记录则返回空列表；
 def _hit_history(cg, limit=HIT_HISTORY_MAX):
     """D-006 命中历史（持久化 · 差异 2）：只取 feedback 记录。"""
     return [bool(r.get("hit")) for r in _read_log(cg)
             if r.get("type") == "feedback"][-int(limit):]
 
 
+# 生效条件：传入 cg 与 nid 时返回邻接表中 nid 的出边列表 [(目标 id, 边字典)]，该键无出边则为 []；
 def _out_edges(cg, nid):
     """出边（含层级边）：[(target_id, edge_dict)]，复用 chain 邻接缓存。"""
     from . import chain
     return list((chain.adjacency(cg).get(nid) or []))
 
 
+# 生效条件：传入 cg 与 nid 时返回邻接表中所有以 nid 为目标的源节点集合，无入边则为空集；
 def _in_sources(cg, nid):
     """入边来源集合（父节点）：用于 D-002「共同父节点」结构模式判定。"""
     from . import chain
@@ -124,6 +131,7 @@ def _in_sources(cg, nid):
     return srcs
 
 
+# 生效条件：传入 edge 的 'confidence' 可转 float 时返回裁剪到 [0.0,1.0] 的值，取键失败或转换抛 AttributeError/TypeError/ValueError 时返回 1.0；
 def _edge_conf(edge):
     try:
         return max(0.0, min(1.0, float(edge.get("confidence", 1.0))))
@@ -133,6 +141,7 @@ def _edge_conf(edge):
 
 # ---------------------------------------------------------------- D-002 过滤门
 
+# 生效条件：causal_link 成立条件为 a_id 的出边中存在目标 b_id 且其关系类型属于模块级常量 CAUSAL_BRANCH_TYPES，成立返回 True，否则返回 False；
 def has_causal_link(cg, a_id, b_id):
     """直接因果/时序边：A → B 已声明（直通，无需过滤）。"""
     from . import chain
@@ -142,11 +151,13 @@ def has_causal_link(cg, a_id, b_id):
     return False
 
 
+# 生效条件：传入 cg、a_id、b_id 时，a_id 与 b_id 的入边来源集合交集非空返回 True，交集为空返回 False；
 def has_structural_pattern(cg, a_id, b_id):
     """结构模式：A、B 共享父节点（可解释的间接关联 → 伪因果豁免）。"""
     return bool(_in_sources(cg, a_id) & _in_sources(cg, b_id))
 
 
+# 生效条件：cg 具 attention_policy 且非 None、且 get_weights() 返回可取值的映射时返回 float(weights.get(node_id, 0.0))，策略缺失、取权重抛异常或转换失败时返回 0.0；
 def preference_weight(cg, node_id):
     """D-005：AttentionPolicy 适配器（duck-typed `get_weights()`）。
 
@@ -166,6 +177,7 @@ def preference_weight(cg, node_id):
         return 0.0
 
 
+# 生效条件：cg/a_id/b_id 下 has_causal_link 成立返回 (True,'causal_link')，否则 has_structural_pattern 成立返回 (True,'structural_pattern')，否则 preference_weight(cg,b_id) 大于常量 PREFERENCE_THRESHOLD 返回 (True,'preference_weight')，三者皆不成立返回 (False,'rejected_semantic_only')；
 def causal_gate(cg, a_id, b_id):
     """D-002 伪因果过滤门 → (准入?, 理由)。
 
@@ -185,6 +197,7 @@ def causal_gate(cg, a_id, b_id):
 
 # ---------------------------------------------------------------- 语义邻近
 
+# 生效条件：cg.get(node_id) 的 content 去空后非空时以前 200 字符检索，返回相似度不低于常量 SEMANTIC_MIN_SIM 且非自身的至多 k 个 (nid, similarity)；content 为空或检索抛异常时返回 []；
 def semantic_neighbors(cg, node_id, k=SEMANTIC_TOP_K):
     """语义邻近候选：[(node_id, similarity)]。
 
@@ -223,6 +236,7 @@ def semantic_neighbors(cg, node_id, k=SEMANTIC_TOP_K):
 
 # ---------------------------------------------------------------- D-001 分支
 
+# 生效条件：传入 cg 与 node_id 时，其出边中关系类型属于常量 CAUSAL_BRANCH_TYPES 者直通为 causal 候选，semantic 为真时再并入经 causal_gate 放行的语义邻近候选，按 confidence 降序、node_id 升序返回；
 def branch_candidates(cg, node_id, semantic=True):
     """D-001 局部分支候选：因果/时序边直通 + 语义邻近（经 D-002 门）。"""
     from . import chain
@@ -254,6 +268,7 @@ def branch_candidates(cg, node_id, semantic=True):
 
 # ---------------------------------------------------------------- D-003 / D-004
 
+# 生效条件：conf 可转 float 时裁剪到 [0,1] 得 c，按 base=1-c 返回 confidence=c 与裁剪到 [0,1] 的 [c-base*0.5, c+base*0.5] 区间，转换失败则按 c=0.0 计算；
 def _uncertainty(conf):
     """D-001 不确定带：base=1-conf，上下界 = conf ± base*0.5（AEIS 同式）。"""
     try:
@@ -267,6 +282,7 @@ def _uncertainty(conf):
             "method": "linear_local_approx"}
 
 
+# 生效条件：传入 cg 与 path 且 path 非空时，返回其中 tags 含 'boundary' 或 has_neg_conditions，或 content 匹配「不适用|不确定|边界|盲区」的节点占比；path 为空返回 0.0；
 def _boundary_consistency(cg, path):
     """boundary 维：路径节点是否声明了适用边界/不确定条件（0-1）。"""
     if not path:
@@ -284,6 +300,7 @@ def _boundary_consistency(cg, path):
     return round(hit / len(path), 4)
 
 
+# 生效条件：传入 route 时返回其 sources 与 relations 去重并集大小除以 4.0 且上限 1.0 的值，两键皆缺时返回 0.0；
 def _branch_diversity(route):
     """balance 维：路径覆盖的推理通道维度数 / 4。
 
@@ -295,6 +312,7 @@ def _branch_diversity(route):
     return round(min(1.0, len(dims) / 4.0), 4)
 
 
+# 生效条件：route 的 'confs' 长度不少于 2 时，相邻差绝对值最大值不超过 0.35 返回 'smooth' 否则 'jump'；长度不足 2 或无可算步长返回 'unknown'；
 def extrapolation_validity(route):
     """D-003：局部线性外推有效性（smooth / jump / unknown）。"""
     confs = route.get("confs") or []
@@ -306,6 +324,7 @@ def extrapolation_validity(route):
     return "smooth" if max(abs(s) for s in steps) <= 0.35 else "jump"
 
 
+# 生效条件：传入 cg 且 _hit_history(cg) 非空时返回其命中占比，序列为空时返回模块级常量 BASE_HIT_RATE；
 def hit_rate(cg):
     """历史命中率（无样本 → 基线 0.40，对齐 D-006）。"""
     h = _hit_history(cg)
@@ -316,6 +335,7 @@ def hit_rate(cg):
 
 # ---------------------------------------------------------------- P-T-73/74 通道贝叶斯
 
+# 生效条件：传入 hits 序列时以 base*prior_k 与 (1-base)*prior_k 为先验（prior_k 默认常量 PRIOR_STRENGTH、base 默认常量 BASE_HIT_RATE），按命中数 k 与总数 n 返回 alpha/beta/mean/std/ci95/samples/hits；hits 为空即为纯先验，mean 等于 base；
 def beta_posterior(hits, prior_k=PRIOR_STRENGTH, base=BASE_HIT_RATE):
     """Beta-Bernoulli 后验（纯函数）：命中序列 → 后验参数与区间。
 
@@ -346,6 +366,7 @@ def beta_posterior(hits, prior_k=PRIOR_STRENGTH, base=BASE_HIT_RATE):
             "samples": n, "hits": k}
 
 
+# 生效条件：传入 cg 时把 type=='feedback' 的记录按 channel 字段（缺失归 'unlabeled'）分组为 {channel: [hit...]}，仅取末尾 limit 条（limit 默认常量 HIT_HISTORY_MAX）；
 def channel_history(cg, limit=HIT_HISTORY_MAX):
     """feedback 留痕按通道分组（P-T-74 通道级可信度）→ {channel: [hit...]}。
 
@@ -361,6 +382,7 @@ def channel_history(cg, limit=HIT_HISTORY_MAX):
     return out
 
 
+# 生效条件：channel 非 None 时返回该通道（无记录即先验）的 beta_posterior 并附 channel 键，channel 为 None 时返回 {'all': 全量后验, 'channels': 各通道后验}；
 def channel_posterior(cg, channel=None, limit=HIT_HISTORY_MAX):
     """通道级后验查询：channel=None → 全量+分通道；channel=str → 单通道。"""
     hist = channel_history(cg, limit=limit)
@@ -375,6 +397,7 @@ def channel_posterior(cg, channel=None, limit=HIT_HISTORY_MAX):
                          for ch, hits in sorted(hist.items())}}
 
 
+# 生效条件：传入 cg 与 route 时，trend 取 route 的 confidence、boundary 取 _boundary_consistency(cg, route['path'])、verification 缺省时取 hit_rate(cg)、balance 取 _branch_diversity(route)，并按模块级常量 W_TREND/W_BOUNDARY/W_VERIFICATION/W_BALANCE 加权返回 composite；
 def score_route(cg, route, verification=None):
     """D-004 T_pred 四维评分（verification 跨路线共享，来自命中率）。"""
     trend = float(route.get("confidence") or 0.0)
@@ -392,6 +415,7 @@ def score_route(cg, route, verification=None):
 
 # ---------------------------------------------------------------- 盲区驱动
 
+# 生效条件：blindspot_id 去空后非空且能取到盲区报表时，匹配 unresolved 的 node_id 返回 kind='unresolved'，否则匹配 items 的 query 或其 _key 相等返回 kind='blindspot_cluster'，均未命中或取报表抛异常返回 None；
 def find_blindspot(cg, blindspot_id):
     """按 id 定位盲区：unresolved 节点优先，其次盲区邻域（按 query 键）。"""
     from . import metacognition
@@ -415,6 +439,7 @@ def find_blindspot(cg, blindspot_id):
     return None
 
 
+# 生效条件：blindspot 的 description 中匹配到「可预测性：X」时返回 X 去除空白并小写，未匹配则返回 'predictable'；
 def predictability(blindspot):
     """可预测性：盲区可显式声明 `# 可预测性：unknowable`。
 
@@ -425,6 +450,7 @@ def predictability(blindspot):
     return m.group(1).strip().lower() if m else "predictable"
 
 
+# 生效条件：description 去空后非空时以 cg.search 取常量 ANCHOR_FETCH_K 个候选，跳过 layer 属常量 ANCHOR_SKIP_LAYERS 或 tags 命中常量 ANCHOR_SKIP_TAGS 者，返回首个出边非空的合格节点 id，否则降级返回首个合格候选 id；description 为空、检索抛异常或候选全被过滤返回 None；
 def anchor_from_description(cg, description):
     """盲区描述 → 锚点节点（检索器打分，与 AEIS 的 LIKE→坐标回退同构）。
 
@@ -483,6 +509,7 @@ def anchor_from_description(cg, description):
 
 # ---------------------------------------------------------------- 路线生成
 
+# 生效条件：cg.get(nid) 的 content 含非空行时返回首行去掉开头 '#' 后的前 60 字符，否则返回 nid；
 def _label(cg, nid):
     node = cg.get(nid) or {}
     for line in (node.get("content") or "").splitlines():
@@ -492,6 +519,7 @@ def _label(cg, nid):
     return nid
 
 
+# 生效条件：start_id 去空后非空且存在于 _nodes(cg) 时，horizon 裁剪到 [1, HORIZON_HARD]、max_branches 裁剪到 [1, MAX_BRANCHES_HARD] 后 DFS，返回 status='ok' 及带 uncertainty_bound/extrapolation_validity/score/path_labels 的 routes；start_id 为空或不在节点集中返回 status='start_not_found'；
 def _generate(cg, start_id, horizon, max_branches, semantic=True):
     """D-001 局部路径 DFS 生成候选未来（差异 3：增加 path 防环）。"""
     start_id = str(start_id or "").strip()
@@ -538,6 +566,7 @@ def _generate(cg, start_id, horizon, max_branches, semantic=True):
                      "generated_at": time.time()}}
 
 
+# 生效条件：传入 cg、res、sort、limit 时，sort 不属于常量 SORT_KEYS 则退回 'composite'，按该键排序并在 limit 为正时截断，追加一条 type 为 log_type（默认 'predict_routes'）的留痕后返回 res；
 def _finalize(cg, res, sort, limit, log_type="predict_routes"):
     """排序 / 限流 / 留痕（预测本身可审计）。"""
     if sort not in SORT_KEYS:
@@ -556,6 +585,7 @@ def _finalize(cg, res, sort, limit, log_type="predict_routes"):
     return res
 
 
+# 生效条件：blindspot_id 非空时转交 routes_from_blindspot；否则 start_id 为空返回 status='no_start'，_generate 返回非 ok 则原样返回，ok 则经 _finalize(cg, res, sort, limit) 返回；
 def routes(cg, start_id=None, blindspot_id=None, horizon=HORIZON_DEFAULT,
            max_branches=MAX_BRANCHES_DEFAULT, sort="composite", limit=0,
            semantic=True):
@@ -580,6 +610,7 @@ def routes(cg, start_id=None, blindspot_id=None, horizon=HORIZON_DEFAULT,
     return _finalize(cg, res, sort, limit)
 
 
+# 生效条件：find_blindspot 得 None 时返回 status='blindspot_not_found'，其 predictability 为 'unknowable' 时返回 status='unpredictable'，anchor_from_description 无锚点时返回 status='no_anchor'，有锚点则以其 _generate 并在 ok 时经 _finalize（log_type='predict_routes_blindspot'）返回；
 def routes_from_blindspot(cg, blindspot_id, horizon=HORIZON_DEFAULT,
                           max_branches=MAX_BRANCHES_DEFAULT, sort="composite",
                           limit=0, semantic=True):
@@ -610,10 +641,12 @@ def routes_from_blindspot(cg, blindspot_id, horizon=HORIZON_DEFAULT,
 _SAFE_LAYERS = ("knowledge", "contextual", "structural")
 
 
+# 生效条件：传入 edge 时返回其 'target'、'to'、'dst' 中首个非空值，三者皆空则返回 None；
 def _edge_target(edge):
     return edge.get("target") or edge.get("to") or edge.get("dst")
 
 
+# 生效条件：传入 cg 与 node_id 时，仅当存在指向 node_id 的因果/时序边且其源节点 frontmatter 的 layer 属于常量 _SAFE_LAYERS，才把该边 confidence 提升 min(1.0, 原值+delta)（delta 默认常量 EDGE_BOOST）并回写，返回被改源节点列表，无满足者返回空列表；
 def _boost_incoming(cg, node_id, delta=EDGE_BOOST, actor="predict"):
     """命中 → 指向该节点的因果/时序边置信度 +delta。
 
@@ -670,6 +703,7 @@ def _boost_incoming(cg, node_id, delta=EDGE_BOOST, actor="predict"):
     return changed
 
 
+# 生效条件：传入 cg 时若 _hit_history(cg, limit) 样本数少于常量 MIN_SAMPLES，返回 threshold 为常量 BASE_HIT_RATE 且 reflect=False；样本足够则以 max(BASE_HIT_RATE, mean-2σ) 为 threshold，命中均值低于该值时 reflect=True；
 def dynamic_hit_threshold(cg, limit=HIT_HISTORY_MAX):
     """D-006 命中率动态校准（2.7.2 动态死区）。
 
@@ -743,10 +777,12 @@ LEARN_LOG = "_learn.jsonl"
 LEARN_MAX_STEPS = 8
 
 
+# 生效条件：传入 cg 具 root 属性时返回 root 与模块级常量 LEARN_LOG 的路径拼接，缺 root 则以 '.' 拼接；
 def learn_log_path(cg):
     return os.path.join(getattr(cg, "root", "."), LEARN_LOG)
 
 
+# 生效条件：传入 cg 与 rec 时向 learn_log_path(cg) 追加一条 JSONL 记录，任何异常被吞掉且无返回值；
 def _learn_append(cg, rec):
     try:
         append_jsonl(learn_log_path(cg), rec)
@@ -754,6 +790,7 @@ def _learn_append(cg, rec):
         pass
 
 
+# 生效条件：nid 去空后非空、cg.get(nid) 的 frontmatter layer 等于 'knowledge' 且其 content 含常量 consolidate.CCG_REQUIRED 全部要素行时返回 True，否则返回 False；
 def _is_settled(cg, nid):
     """终点是否已达「可判定」态：知识层 ∧ CCG 五要素齐全。"""
     nid = str(nid or "").strip()
@@ -775,11 +812,13 @@ def _is_settled(cg, nid):
         return False
 
 
+# 生效条件：传入 route 且其 'path' 非空时返回路径最后一个节点 id，路径为空或 route 为 None 时返回 None；
 def _terminal_node(route):
     path = list((route or {}).get("path") or [])
     return path[-1] if path else None
 
 
+# 生效条件：传入 cg、bid、step、actor 时，cg 中不存在由 bid 的 sha1 派生的 gap 节点 id 则写入 contextual 的 gap_hint 节点并返回该 id；该 id 已存在或 cg.add 抛异常时返回 None；
 def _write_gap(cg, bid, step, actor):
     """把待补线索写成 contextual 的 ``gap_hint`` 节点（幂等，非事实断言）。"""
     nid = "gap_%s" % hashlib.sha1(bid.encode("utf-8")).hexdigest()[:10]
@@ -805,6 +844,7 @@ def _write_gap(cg, bid, step, actor):
         return None
 
 
+# 生效条件：blindspot_id 给出但 find_blindspot 找不到时返回 ok=False 与 status='not_found'；否则逐条按 unknowable/no_anchor/unresolved/carried/resolved 判定，apply 为真且 cg 可写时才把 carried/unresolved 落成幂等 gap_hint 节点；
 def learn_blindspots(cg, blindspot_id=None, limit=LEARN_MAX_STEPS,
                      horizon=HORIZON_DEFAULT, max_branches=MAX_BRANCHES_DEFAULT,
                      apply=False, actor="insight", **extra):
@@ -903,6 +943,7 @@ def learn_blindspots(cg, blindspot_id=None, limit=LEARN_MAX_STEPS,
                      "resolved 仅表示已有可判定终点，未改动任何事实层节点")}
 
 
+# 生效条件：传入 cg 时基于 _read_log(cg) 统计 type 以 'predict_routes' 开头的调用数与 n_routes 合计、feedback 样本与命中率（无样本取常量 BASE_HIT_RATE），并附 channel_posterior 与 dynamic_hit_threshold，recent 取末尾 limit 条（limit 默认 20，为 0 时为空）；
 def stats(cg, limit=20):
     """预测统计：调用数、生成路线数、反馈样本、命中率、动态阈值。"""
     recs = _read_log(cg)
@@ -921,6 +962,7 @@ def stats(cg, limit=20):
 
 # ---------------------------------------------------------------- 因果推理
 
+# 生效条件：传入 cg 与 path 且 path 长度不少于 2 时，对每对相邻节点返回其在邻接表中且关系类型属于常量 CAUSAL_BRANCH_TYPES 的边条件（无匹配则为空串）逐跳列表，path 更短则返回空列表；
 def _path_conditions(cg, path):
     """路径上每跳的边条件（与节点对一一对应）。"""
     from . import chain
@@ -937,6 +979,7 @@ def _path_conditions(cg, path):
     return conds
 
 
+# 生效条件：a_id 或 b_id 去空后为空时返回 ok=False 与 error='missing_node'；a_id 等于 b_id 返回可达且长度 0；否则仅在常量 CAUSAL_BRANCH_TYPES 边上于 max_depth（下限 1）内 BFS，可达返回路径与逐跳 conditions，不可达返回 reachable=False；
 def causal_path(cg, a_id, b_id, max_depth=5):
     """因果路径推理：A 能否沿因果/时序边到达 B（BFS，最短路径）。
 
