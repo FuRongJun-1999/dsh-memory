@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-114-batch-c114",
+ "round": 1,
+ "candidate_commit": "1da2f32",
+ "branch": "task/iter-114-batch-c114",
+ "unit_job": "h1789684088741_fdbe86",
+ "verdict": "REJECT",
+ "package_n": 21,
+ "text": "",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
