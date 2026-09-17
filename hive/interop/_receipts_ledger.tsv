@@ -12,3 +12,4 @@ received_at	verify_id	commit	verdict	receipt_job	iter_id
 2026-09-17T18:40:49	iter-006-cg-wiring	c138196	PASS	h1789641534845_57f4	iter-002-carrier-align
 2026-09-17T18:40:49	iter-007-cg-sources	97c2681	PASS	h1789641535117_5a64	iter-002-carrier-align
 2026-09-17T18:48:39	iter-009-condition-anchor	9d444fe	PASS	h1789642081794_310c	iter-002-carrier-align
+2026-09-17T18:51:23	iter-009-condition-anchor#corr-h1789642217723_5990	9d444fe	PASS	h1789642217723_5990	iter-002-carrier-align
