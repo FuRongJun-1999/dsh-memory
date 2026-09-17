@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-105-batch-c105-fix",
+ "round": 2,
+ "candidate_commit": "0913567",
+ "branch": "task/iter-105-batch-c105-fix",
+ "unit_job": "h1789680853491_1038ab",
+ "verdict": "REJECT",
+ "package_n": 21,
+ "text": "复核：多数条目与源码一致，但存在关键偏差。#21 末句错误：`declared` 仅由形参 `declared_terms` 决定，无可读节点时若 `declared_terms` 非空仍非空，并非为空。#16 漏述 `apply=True` 且 `written` 为空时仍执行 `invalidate_cache(cg)`。#4/#6 对 `tgt = target or target_id` 的首个真值回退（空串/0 回退）描述不全。\nreason: 存在与源码不符的生效条件，尤其 `_condition_space` 的 `declared` 前置错误。 \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
