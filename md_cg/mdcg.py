@@ -183,6 +183,7 @@ VERIFICATION_BASIS = nodefile.VERIFICATION_BASIS
 _EN_ZH_PRONOUNS = {"我", "你", "他", "她", "它", "我们", "你们", "他们"}
 
 
+# 生效条件：无 required 形参，锚定环境变量名 MDCG_SEMANTIC；当 os.environ.get("MDCG_SEMANTIC") == "1" 时返回 True，否则返回 False。
 def semantic_on() -> bool:
     """语义摘要路开关（MDCG_SEMANTIC=1，默认关闭零回归）。
 
@@ -308,6 +309,7 @@ CN_STOP_GRAMS = {
 }
 
 
+# 生效条件：当 query 非空且环境变量 MDCG_CN_GRAMS 不为 "0" 时，对 query 中长度 ≥ max(min_run,2) 的连续中文串切 2-gram，去重且排除 CN_STOP_GRAMS，最多 cap 个返回；MDCG_CN_GRAMS=="0" 或 query 为假值时返回 []（cap<=0 仍会 append 后立即返回首个 gram）。
 def cn_recall_grams(query: str, min_run: int = 4, cap: int = 16) -> list:
     """构词法 v1 · 中文召回扩展：把连续中文串切成 2-gram 作为额外召回键。
 
@@ -391,6 +393,7 @@ def strip_tense_en(w: str) -> str:
         return w[:-1]
     return w
 
+# 生效条件：给定 text（假值按 "" 处理），先清除非中文/空格/字母数字字符，再对长度 ≥2 的英文词小写、若在 EN_STOPWORDS 中剔除否则 strip_tense_en 去时态复数，压缩空白后返回；中文保持不变。
 def normalize_en(text: str) -> str:
     """英文归一化：小写 + 去停用词 + 去时态复数。中文部分不动。
 
@@ -487,6 +490,7 @@ _LLM_EXPAND_PROMPT = (
 )
 
 
+# 生效条件：当 raw（假值按 "" 处理）去空白后首个 "[" 位置 i 满足 0 ≤ i 且末个 "]" 位置 j > i 时，返回 json.loads(s[i:j+1])；否则返回 None。
 def _extract_json_array(raw: str):
     """从 LLM 输出里抠出第一个 JSON 数组（容忍前后废话/代码围栏）。"""
     s = (raw or "").strip()
