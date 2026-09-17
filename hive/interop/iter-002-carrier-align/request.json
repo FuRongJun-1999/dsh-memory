@@ -1,0 +1,36 @@
+{
+ "iter_id": "iter-002-carrier-align",
+ "type": "verification_request",
+ "requester_instance": "main (DSH 端)",
+ "verifier_instance_expected": "verifier (ZCode 端 · 身份固化不轮换)",
+ "candidate_commits": [
+  "5ee9c25",
+  "0872e5b",
+  "fff1ce7",
+  "3c598c2",
+  "3963ded"
+ ],
+ "candidate_branch": "task/iter-002-carrier-align",
+ "candidate_worktree": "2_ai/dsh-memory (main instance)",
+ "verification_face": "4_ai/dsh-memory",
+ "criteria_face": "2_ai/dsh-memory-verifier worktree（判据冻结；A3 用其文件集合 hash）",
+ "requested_assertions": [
+  "A1",
+  "A2",
+  "A3"
+ ],
+ "requested_commands": [
+  "python -X utf8 scripts/run_tests.py md_cg --jobs 4",
+  "python -X utf8 -m md_cg.test_codeindex",
+  "python -X utf8 -m md_cg.test_p26_refindex",
+  "python -X utf8 scripts/cogmap_sync.py check"
+ ],
+ "delivery": "hive job spec.json dropped into verifier jobs dir (design 7.4 step 3; file protocol as interface)",
+ "notes": [
+  "candidate-side new test md_cg/test_codeindex.py must NOT enter this round criteria face (design 7.6)",
+  "p26 assertion change was adjudicated ACCEPT in iter-001 and advanced into criteria at recalibration",
+  "main instance requests full-suite run on the verification face; no criteria from requester"
+ ],
+ "sanitization": "no spec body / prompt / result.content / api info / absolute local paths (design 7.3)",
+ "requested_at": "2026-09-17T09:16:43.122Z"
+}
