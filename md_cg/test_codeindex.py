@@ -238,6 +238,31 @@ def main():
                isinstance(_i3, list) and len(_i3) >= 1
                and len(s3["skip_dirs"]) == len(s1["skip_dirs"]),
                "items=" + str(len(_i3)))
+        # ---- index-dir-integrity（Phase 1）：截断可复算 + 目录序确定 ----
+        _check("截断计数可复算：hit_files/indexed_items 就位且与条目数一致",
+               s1.get("hit_files", 0) >= 1 and s1.get("indexed_items") == len(_i1),
+               "hit=%s items=%s len=%s" % (s1.get("hit_files"),
+                                           s1.get("indexed_items"), len(_i1)))
+        _check("越限快照同样带 hit_files/indexed_items（与 files 同源）",
+               s3.get("hit_files", 0) >= 1 and s3.get("indexed_items") == len(_i3),
+               "hit=%s items=%s len=%s" % (s3.get("hit_files"),
+                                           s3.get("indexed_items"), len(_i3)))
+        nested = os.path.join(tmp, "nested")
+        for sub in ("z_sub", "a_sub"):
+            os.makedirs(os.path.join(nested, sub))
+            with open(os.path.join(nested, sub, "x.py"), "w", encoding="utf-8") as f:
+                f.write(PY_SRC)
+        _n1, _ne1, sn1 = codeindex.index_dir(nested)
+        _n2, _ne2, sn2 = codeindex.index_dir(nested)
+        _p1 = [x["path"] for x in _n1]
+        _p2 = [x["path"] for x in _n2]
+        _check("嵌套目录：两次运行条目路径序逐项一致（dirnames 已排序）",
+               _p1 == _p2 and len(_p1) > 1, str(_p1)[:120])
+        _check("嵌套目录：a_sub 先于 z_sub（与文件系统返回序无关）",
+               _p1.index(next(p for p in _p1 if p.startswith("a_sub/")))
+               < _p1.index(next(p for p in _p1 if p.startswith("z_sub/"))),
+               str(_p1)[:140])
+        _check("嵌套目录 stats 幂等（同输入两次一致）", sn1 == sn2)
 
         # ---------------- ⑦ 载体两窗口（裁决 A） ----------------
         print()
