@@ -393,6 +393,7 @@ def skip_matcher(skip_dirs):
     return hit, rules
 
 
+# 生效条件：当 root 为可 os.walk 的目录时返回 (items, errors, stats)；patterns 为 None 时按模块常量 SUFFIX 取后缀，命中 max_files 或 max_items 上限则在 stats['truncated'] 上报截断，fresh 为 None 时逐文件读盘。
 def index_dir(root, patterns=None, max_files=500, max_items=2000,
               fresh=None, on_file=None, skip_dirs=None):
     """按大域（目录）遍历代码，产出 `(items, errors, stats)`。零 LLM。

@@ -567,6 +567,7 @@ def _cap_body(content: str) -> str:
     return "\n".join(keep)
 
 
+# 生效条件：当 fm 为可 get 的 frontmatter、e 为带 id 的节点条目、content 为正文文本时，返回 title+e.id+功能名/生效条件/子功能字段+正文前 300 字合并后的小写串（不含 fm.tags）。
 def _cap_text(e, fm, content) -> str:
     """候选匹配文本：节点标识 + CCG 字段 + 正文（**不含 `fm.tags`**）。"""
     parts = [_as_text(fm.get("title")), e.get("id") or ""]

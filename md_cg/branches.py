@@ -120,6 +120,7 @@ def search(cg, query: str, branch_id: str, **kw):
     return cg.search(query, branch=str(branch_id or "").strip().lower(), **kw)
 
 
+# 生效条件：当 node_id 经 str 转换并 strip 后含 '@'、cg.index['nodes'] 中存在该 id 且其 branch_id 非空、content 不是 dict 且不是 None 时返回 {'ok': True, 'node': nid, 'branch_id': ...}，否则返回 {'ok': False, 'error': ...}。
 def rewrite(cg, node_id, content, tags=None, importance=None,
             actor="branch_rewrite", **extra) -> dict:
     """分支实验改写的**唯一正路**（防裸 add 丢分支归属）。

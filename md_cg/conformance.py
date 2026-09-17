@@ -210,6 +210,7 @@ def _edge_metrics(nodes: dict) -> dict:
             "non_canonical": non_canonical, "dangling": dangling, "samples": samples}
 
 
+# 生效条件：遍历 nodes 的值作为记录，path 经 str(r.get("path") or "") 为空即 missing++ 并 continue，不以记录含 layer/path 为前置；仅对非空 path 执行 layer 与 head 检查（layer 非空且 head != layer 且 head in LAYER_DIRS 时 layer_mismatch++），且 check_exists 为 True 时才对非空 path 以 os.path.join(root, rel) 判断不存在并计入 missing，最终返回 missing/layer_mismatch/samples 统计；。
 def _path_metrics(root: str, nodes: dict, check_exists: bool) -> dict:
     missing = mismatch = 0
     samples = []

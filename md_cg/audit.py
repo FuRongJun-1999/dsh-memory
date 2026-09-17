@@ -70,6 +70,7 @@ def load_rulebook(path=None):
     return rules if isinstance(rules, dict) else {}
 
 
+# 生效条件：当 rules 的 forbidden 与 required 去空后非全空时，逐条对 text 做 re.search（非法正则跳过），无禁止命中且必需项全部命中才返回 ACCEPT，否则 REJECT；两类都为空时返回 DEFER。
 def _rule_check(text, rules):
     """规则为空 → DEFER（无规则不能假装合规）。"""
     forbidden = [r for r in (rules.get("forbidden") or []) if r]

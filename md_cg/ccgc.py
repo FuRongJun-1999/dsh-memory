@@ -91,6 +91,7 @@ class CompileResult:
     verdict: Optional[Dict] = None                              # 验证单元终裁
 
     @property
+# 生效条件：BLINDSPOT：缺证据（无 required 形参与模块级常量，仅有未给出的 self.errors 来源）。
     def has_errors(self) -> bool:
         return len(self.errors) > 0
 
@@ -881,4 +882,3 @@ __all__ = ["ACCEPT", "REJECT", "DEFER", "BLINDSPOT", "STATES", "CONTRACT_ROLES",
            "compile_dialog", "attest", "link", "recalibrate",
            "PENDING_DIR", "pending_path", "save_pending", "load_pending",
            "drop_pending", "link_pending"]
-
