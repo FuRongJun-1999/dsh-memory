@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-095-batch-c95-fix-d1-dual",
+ "round": 5,
+ "candidate_commit": "1549be8",
+ "branch": "task/iter-095-batch-c95-fix-d1-dual",
+ "unit_job": "h1789679032297_d2e9d5",
+ "verdict": "ACCEPT",
+ "package_n": 3,
+ "text": "三项功能级条件与源码一致：_edge_metrics 的 edges 真值/list/tuple、dict边、键组合/关系/悬空/样本口径吻合；_reach_metrics 的 ACCESS_LOG 缺失早退、非空行计数、ids 与 id/node_id/nid 处理及分母吻合；_coverage_metrics 的 knowledge 筛选、mixed、全库/知识层 ratio 口径吻合。未见 assert、None/假值、闭包、返回形状或空容器前置错误。\nreason: 三个生效条件均准确锚定源码分支与早退/分母口径，未发现不符或新增断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
