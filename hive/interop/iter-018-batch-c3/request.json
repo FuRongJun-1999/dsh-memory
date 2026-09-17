@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-018-batch-c3",
- "candidate_commit": "713e353",
+ "candidate_commit": "fd00f406032a",
  "branch": "task/iter-018-batch-c3",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -20,13 +20,14 @@
  "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
  "known_open": {
   "held_branch": "task/iter-018-held",
+  "held_commit": "80d5fa4d6c30",
   "excluded": [
    "ReturnStmtNode"
   ],
-  "unit_r3_quote": "多数条目已锚定 NodeType/形参/空容器，基本与源码一致",
   "unit_r3_finding": {
-   "ReturnStmtNode": "条件称 value 为 None 或假值时实例 value 为 None；源码为 self.value = value，0/False 等假值会被保留"
-  }
+   "ReturnStmtNode": "条件称 value 为 None 或假值时实例 value 为 None；源码为 self.value = value，0/False 被保留"
+  },
+  "unit_r3_quote": "多数条目已锚定 NodeType/形参/空容器，基本与源码一致"
  },
- "delivery_rule": "交付条件 = 单元无 finding，或 finding 已全部移入 held；本批为后者"
+ "delivery_rule": "交付条件 = 单元无 finding，或 finding 已全部移入 held"
 }
