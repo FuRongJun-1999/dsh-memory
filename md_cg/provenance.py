@@ -54,16 +54,19 @@ class ProvenanceError(Exception):
 # 路径 / 规范化
 # --------------------------------------------------------------------------
 
+# 生效条件：path 为真值时返回 path；否则 os.environ.get(LEDGER_ENV) 为非空真值时返回该环境变量值；否则返回 os.path.join(root, LEDGER_NAME)。
 def ledger_file(root: str, path: str = None) -> str:
     """台账路径：显式 → MDCG_LINK_FILE → <root>/_link.jsonl。"""
     return path or os.environ.get(LEDGER_ENV) or os.path.join(root, LEDGER_NAME)
 
 
+# 生效条件：传入 root（path 为真值则以其为准，否则由 ledger_file 的回落决定落点）时返回 ledger_file(root, path) 结果拼接 FAIL_SUFFIX。
 def fail_log_file(root: str, path: str = None) -> str:
     """降级留痕路径（台账写不进时的「本该建的边」）。"""
     return ledger_file(root, path) + FAIL_SUFFIX
 
 
+# 生效条件：value 为 None 返回 []；否则 list/tuple/set 逐个元素、其他类型视作单元素，元素经 str(x).strip() 后非空且未出现过才保留（重复只留首次）。
 def as_list(value) -> list:
     """把单值 / 序列统一成去重、去空白的字符串列表。"""
     if value is None:
@@ -87,6 +90,7 @@ def normalize_relation(rel, default: str = DEFAULT_RELATION) -> str:
     return r
 
 
+# 生效条件：normalize_relation(rel, default) 抛 ProvenanceError（含 rel 为假值/仅空白且 default 非法时）则原样返回 default；否则返回该调用的返回值。
 def coerce_relation(rel, default: str = DEFAULT_RELATION) -> str:
     """宽松兜底：非法关系名回退默认值（**写路径用，保证永不阻断写入**）。"""
     try:
@@ -95,6 +99,7 @@ def coerce_relation(rel, default: str = DEFAULT_RELATION) -> str:
         return default
 
 
+# 生效条件：child 或 parent 为假值或仅空白使 str(x or "").strip() 为空、或二者 strip 后相等（自环）时返回 None；否则返回含 schema/t/child/parent/rel/batch/actor 的 dict，note 为真值时才附上并截断到 200 字符。
 def make_edge(child, parent, *, relation=DEFAULT_RELATION, batch=None,
               actor="system", note=None, t=None):
     """构造一条派生边；自环 / 空端点返回 None（**不产生无意义边**）。"""
@@ -110,6 +115,7 @@ def make_edge(child, parent, *, relation=DEFAULT_RELATION, batch=None,
     return edge
 
 
+# 生效条件：对 as_list(parents) 的每个父项调用 make_edge，只保留返回非 None 的边，全部被丢弃时返回空列表。
 def edges_for(child, parents, **kw) -> list:
     """`(child, [parents]) → [edge]`：空端点 / 自环自动丢弃。"""
     out = []
@@ -124,6 +130,7 @@ def edges_for(child, parents, **kw) -> list:
 # 写：台账追加（record 为写路径唯一入口，永不抛）
 # --------------------------------------------------------------------------
 
+# 生效条件：edges 为 None/空/全为假元素时返回 0；否则在 FileLock(p, timeout=_LOCK_TIMEOUT) 内逐条 append_jsonl，抛 OSError 时转抛 ProvenanceError，成功返回 len(edges)。
 def append(root: str, edges, *, path: str = None) -> int:
     """台账追加（加锁串行，防 Windows 并发交错丢边）。IO 失败抛 `ProvenanceError`。"""
     edges = [e for e in (edges or []) if e]
@@ -140,6 +147,7 @@ def append(root: str, edges, *, path: str = None) -> int:
     return len(edges)
 
 
+# 生效条件：给定 root/path/child/parents/relation/reason/code 即恒返回 {'ok': False, 'added': 0, 'edges': [], 'degraded': True, 'degrade_code': code, 'reason': reason}，其中写 fail_log_file 台账的异常被 except Exception 吞掉。
 def _degrade(root: str, path, child, parents, relation, reason,
              code: str) -> dict:
     """降级留痕：把「本该建的边」记进 .fail 台账（自身也 best-effort）。"""
@@ -154,6 +162,7 @@ def _degrade(root: str, path, child, parents, relation, reason,
             "degrade_code": code, "reason": reason}
 
 
+# 生效条件：edges_for 抛异常时经 _degrade(code='bad_edge') 返回；edges 为空时返回 {'ok': True, 'added': 0, 'edges': [], 'reason': 'no_parents'}；append 抛 ProvenanceError 或其他异常时经 _degrade(code='ledger_io') 返回；其余返回 {'ok': True, 'added': n, 'edges': edges, 'ledger': …}，恒不向外抛。
 def record(root: str, child, parents, *, relation=DEFAULT_RELATION,
            batch=None, actor="system", note=None, path: str = None) -> dict:
     """写路径建链入口：**永不抛**（G8 硬约束：建链失败不得阻断节点写入）。
@@ -185,6 +194,7 @@ def record(root: str, child, parents, *, relation=DEFAULT_RELATION,
 # 读：台账 / 索引 / 悬空巡检
 # --------------------------------------------------------------------------
 
+# 生效条件：遍历 read_jsonl(ledger_file(root, path))，仅收录 isinstance(r, dict) 且 r.get("child") 与 r.get("parent") 均为真值（键缺失或值为假即丢弃）的记录。
 def load(root: str, *, path: str = None) -> list:
     """读台账（跳过坏行；只取有端点的记录）。"""
     out = []
@@ -205,6 +215,7 @@ def _dedupe(rows):
     return out
 
 
+# 生效条件：child/parent/relation/batch 各为真值时才做对应等值过滤（假值或 None 不过滤），去重后 limit 为真值时返回 out[:int(limit)]，limit 为 None 或 0 时返回全部 out。
 def edges(root: str, *, child=None, parent=None, relation=None, batch=None,
           limit: int = None, path: str = None) -> list:
     """按端点 / 关系 / 批次过滤台账边（只读，去重，保持写入顺序）。"""
@@ -223,6 +234,7 @@ def edges(root: str, *, child=None, parent=None, relation=None, batch=None,
     return out[:int(limit)] if limit else out
 
 
+# 生效条件：以 (getattr(cg, "index", None) or {}).get("nodes") or {} 遍历（缺失时视作空）；prefix 为真值时仅保留 str(nid).startswith(prefix) 的节点，输出经 _dedupe 去重。
 def index_edges(cg, *, prefix: str = None) -> list:
     """从**索引快照**恢复派生边（零读文件）——台账丢失/未重建时的只读兜底。"""
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
@@ -238,11 +250,13 @@ def index_edges(cg, *, prefix: str = None) -> list:
     return _dedupe(out)
 
 
+# 生效条件：给定 cg 即返回 _dedupe(load(cg.root, path=path) + index_edges(cg))，台账记录在前、按边去重。
 def all_edges(cg, *, path: str = None) -> list:
     """台账 ∪ 索引声明（台账优先，按边去重）。"""
     return _dedupe(load(cg.root, path=path) + index_edges(cg))
 
 
+# 生效条件：include_index 为真值时取 all_edges(cg, path=path)、为假时取 load(cg.root, path=path)，对 child/parent 不在 cg 索引节点键集合中的边记为 dangling 并列出 missing；返回 ok=not dangling，dangling 仅取 int(limit)（默认 20）项，不写盘。
 def check(cg, *, path: str = None, limit: int = 20,
           include_index: bool = True) -> dict:
     """只读巡检：检出**悬空派生边**（端点不在索引内）。**不删边、不写盘**。
@@ -273,6 +287,7 @@ def check(cg, *, path: str = None, limit: int = 20,
             "note": "只读巡检：悬空边仅检出并报告，不自动删除（关系事实由人处置）"}
 
 
+# 生效条件：apply 为假值（默认 False）时只返回 dry_run 报表（written=0、sample=es[:5]）；apply 为真值时把 index_edges(cg) 的边写入 ledger_file(cg.root, path) 并返回 written=len(es)。
 def rebuild_ledger(cg, *, apply: bool = False, path: str = None) -> dict:
     """按 frontmatter 重建台账——**只重放已声明的边，不发明任何边**。
 
@@ -292,6 +307,7 @@ def rebuild_ledger(cg, *, apply: bool = False, path: str = None) -> dict:
             "written": len(es), "ledger": p}
 
 
+# 生效条件：check(cg, path=path, limit=3) 成功时返回 edges/dangling/ledger/exists/sample（悬空边 child->parent）；该调用抛任何异常时被 except Exception 吞掉并返回 {}。
 def summary(cg, *, path: str = None) -> dict:
     """轻量摘要（只读；失败不抛，避免拖垮 health_os / 常驻循环）。"""
     try:
@@ -304,6 +320,7 @@ def summary(cg, *, path: str = None) -> dict:
         return {}
 
 
+# 生效条件：root 为真值时 ledger 字段取 ledger_file(root)，否则取常量 LEDGER_NAME；其余自描述字段（SCHEMA、RELATIONS、DEFAULT_RELATION、FM_FIELD/FM_REL_FIELD 等）恒定返回。
 def catalog(root: str = None) -> dict:
     """自描述（供 MCP catalog / 人工核对）。"""
     return {
