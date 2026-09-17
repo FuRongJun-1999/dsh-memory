@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-035-batch-c35",
- "candidate_commit": "4683070",
+ "candidate_commit": "ba44a78",
  "branch": "task/iter-035-batch-c35",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
