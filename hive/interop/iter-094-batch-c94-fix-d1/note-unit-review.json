@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-094-batch-c94-fix-d1",
+ "round": 3,
+ "candidate_commit": "908185d",
+ "branch": "task/iter-094-batch-c94-fix-d1",
+ "unit_job": "h1789677379404_3cf2ae",
+ "verdict": "REJECT",
+ "package_n": 22,
+ "text": "复核：多数条件吻合。发现两处不符：1) `_usage` 对 `tag_prefix` 直接计数，未过滤空前缀，条件“为真值的取值”过强；2) `_reach_metrics` 的 `ids` 仅 list/tuple 才计入 `seen`，条件未加此前置。故不接受。\nreason: 上述两条补充/遗漏了源码分支前置，与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
