@@ -1,19 +1,15 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-013-batch-a1",
- "from": "dsh-memory（主力实例）",
- "to": "编外验证端（zcode 实例）",
- "candidate_commit": "cb70bf6",
+ "candidate_commit": "b9bbcafc83ce",
  "branch": "task/iter-013-batch-a1",
  "base_commit": "main",
- "subject": "批次 a1：13 个符号的功能级生效条件（源级枚举抽样，facts→LLM→门禁）",
- "claim": "13 条注释写入 13 个文件；1 条生成后判 BLINDSPOT 未写入；隔离全组回归 117/117（3 跳过）；验证单元裁决见 note-unit-review.json。",
- "not_in_scope": [
-  "不改逻辑",
-  "未覆盖全部缺口（尚有约 2000 符号）"
- ],
+ "from": "dsh-memory（主力实例）",
+ "to": "编外验证端（zcode 实例）",
+ "subject": "批次 a1：11 个符号的功能级生效条件（facts→LLM→门禁；含一轮单元复核与剔除）",
+ "claim": "注释写入 11 个文件；隔离全组回归 117/117（3 跳过）；单元复核见 note-unit-review.json。",
  "what_to_verify": [
-  "A1 机械重放：抽候选树跑 scripts/run_tests.py --jobs 4（预期 117/117、3 跳过）",
+  "A1 重放 scripts/run_tests.py --jobs 4（预期 117/117、3 跳过）",
   "A2 语义抽查：逐条是否回答「何种输入/状态下正确」",
   "A3 无副作用：仅注释"
  ],

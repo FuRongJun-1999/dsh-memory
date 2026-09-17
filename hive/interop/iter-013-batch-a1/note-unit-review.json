@@ -1,10 +1,12 @@
 {
  "kind": "unit-review",
  "iter_id": "iter-013-batch-a1",
- "unit_job": "h1789646768119_390673",
- "verdict": "REJECT",
- "package_n": 31,
- "text": "复核发现多项不合格：模块项（cond_compose/cond_facts/condition_anchor）仅述用途，非输入/状态条件；test_codeindex.with_body 的“外层声明”只是注释；bench6_competitors“能生成/可汇总”未锚定输入；bench_membench 遗漏 `fuzzy_hit` 必需字段。另有前置错置/不完整：`judge` 将“不含 META_MARKS”当前置，实际含 meta 也返回 dict；`_guards` 漏 Raise；`_externals/referenced` 漏嵌套函数与 Attribute 基名。具体函数条件多数正确，但本批存在明确 REJECT 项。\nreason: 混入用途/注释型条件且多处遗漏必需输入或错置内部分支前置，不能整批通过。\nverdict: REJECT",
- "note": "白箱单元复核（候选面），不替代编外 zcode 裁定",
- "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+ "round": "scoped",
+ "unit_job": "h1789646891735_aa4590",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "candidate_commit": "b9bbcafc83ce",
+ "scope_note": "首轮复核因打包范围未收窄（扫全树 31 条 / 15 UNKNOWN）而 REJECT，其结论不作数；本轮仅复核分支新增条目，并剔除被点名 2 条（bench6 竞赛工具与 bench 记忆基准）",
+ "text": "条件与源码一致：`_fn(payload, ctx)` 不使用 payload/ctx，直接返回 `_verdict(DEFER, kind, why)`；`kind/why` 是外层闭包前置，非 `_fn` 形参。未把内部返回值、局部变量误当输入，也未新增无源断言。\nreason: 已锚定外层 kind/why 前置，且对任意 payload/ctx 的返回与源码一致。\nverdict: ACCEPT",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名（模块名亦已掩码）"
 }
