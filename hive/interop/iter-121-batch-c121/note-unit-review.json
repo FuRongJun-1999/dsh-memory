@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-121-batch-c121",
+ "round": 1,
+ "candidate_commit": "daa4654",
+ "branch": "task/iter-121-batch-c121",
+ "unit_job": "h1789686471605_5f8a28",
+ "verdict": "REJECT",
+ "package_n": 18,
+ "text": "复核：多数条目与源码一致。第4条 normalize_relation 条件有误：源码 `r=str(rel or \"\").strip().lower(); if not r: r=default`，故 `rel=\"   \"` 这类空白串也会回退 default；条件只写 None/空串，并称 strip 后不在 RELATIONS 即抛，按字面不符。其余未见返回形状/参数前置错误。\nreason: normalize_relation 漏述空白串 strip 后为空也走 default，与源码 if not r 不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
