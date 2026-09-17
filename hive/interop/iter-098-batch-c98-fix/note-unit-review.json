@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-098-batch-c98-fix",
+ "round": 2,
+ "candidate_commit": "928da2c",
+ "branch": "task/iter-098-batch-c98-fix",
+ "unit_job": "h1789678586696_0230f9",
+ "verdict": "REJECT",
+ "package_n": 22,
+ "text": "复核22条：多数条件准确，已锚定输入状态、None/假值分支、早退、返回形状与常量前置。唯 `coverage_index` 末尾断言不严谨：源码先执行 `{nid: 0 for nid in nodes}`；若 `nodes` 为 int/True 等不可迭代非映射，会先在此抛 TypeError，而非在 `nodes.items()`。该句属补充源码不支持的异常位置断言，故整批不应 ACCEPT。\nreason: `coverage_index` 对非映射 `nodes` 的异常位置断言过强且不总成立。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
