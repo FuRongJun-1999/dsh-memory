@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-017-batch-c2",
+ "round": 1,
+ "candidate_commit": "cd343b6",
+ "branch": "task/iter-017-batch-c2",
+ "unit_job": "h1789652890224_21599b",
+ "verdict": "REJECT",
+ "package_n": 15,
+ "text": "复核：多数条件锚定形参/早退基本准确；但第15条 `__init__` 条件称依赖模块级 `SCHEMA`，源码片段只使用 `LAYERS`，未出现 `SCHEMA`，属源码不支持的断言。另第12条 `cn_recall_grams` 的“至多 cap 个”在 cap≤0 时不成立；第10条 `normalize_en` 仅对 `[a-zA-Z]{2,}` 小写，单字母英文不保证小写。\nreason: 存在未锚定/不支持的断言（尤其 __init__ 的 SCHEMA 依赖与 cap 边界）。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
