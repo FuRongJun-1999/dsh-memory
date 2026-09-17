@@ -108,6 +108,7 @@ class WeightError(Exception):
 # 基础查询
 # --------------------------------------------------------------------------
 
+# 生效条件：position 经 str(position or "").strip() 作为 SPEC 的键，命中时返回对应 spec dict，未命中（含 position 为 None/空串/未知）抛 WeightError；
 def _spec(position: str) -> dict:
     s = SPEC.get(str(position or "").strip())
     if s is None:
@@ -115,6 +116,7 @@ def _spec(position: str) -> dict:
     return s
 
 
+# 生效条件：component 经 str(component or "").strip() 后若结果在 COMPONENTS 中返回该规范分量字符串，否则抛 WeightError；
 def _comp(component: str) -> str:
     c = str(component or "").strip()
     if c not in COMPONENTS:
@@ -122,32 +124,38 @@ def _comp(component: str) -> str:
     return c
 
 
+# 生效条件：position 可被 _spec 解析且其结果 "class" 等于 VIEWPOINT 时返回 True，非 VIEWPOINT 返回 False，未知 position 抛 WeightError；
 def is_viewpoint(position: str) -> bool:
     """是否认知视角（3 项都涉及，不设零）。"""
     return _spec(position)["class"] == VIEWPOINT
 
 
+# 生效条件：position 可被 _spec 解析且其结果 "class" 等于 FUNCTIONAL 时返回 True，非 FUNCTIONAL 返回 False，未知 position 抛 WeightError；
 def is_functional(position: str) -> bool:
     """是否功能单元（身份即排除）。"""
     return _spec(position)["class"] == FUNCTIONAL
 
 
+# 生效条件：position 经 _spec(position) 验证可解析后，返回原始 position 是否在模块级 DAILY 中；带首尾空白等未 strip 的值会因不在 DAILY 返回 False，未知 position 抛 WeightError；
 def in_daily_eval(position: str) -> bool:
     """是否参与日常评估（设计者=False，元参照系）。"""
     _spec(position)
     return position in DAILY
 
 
+# 生效条件：position 可被 _spec 解析且其 spec 含 "primary" 键时返回该值，未知 position 抛 WeightError；
 def dominant(position: str) -> str:
     """主导分量（权重最高者）。"""
     return _spec(position)["primary"]
 
 
+# 生效条件：position 可被 _spec 解析且其 spec 含 "secondary" 键时返回该值（视角可为 None），未知 position 抛 WeightError；
 def secondary(position: str):
     """次主导分量；视角返回 None（另两项并列、均 >0）。"""
     return _spec(position)["secondary"]
 
 
+# 生效条件：position 可被 _spec 解析且其 spec 含 "excluded" 键时返回该值（视角可为 None），未知 position 抛 WeightError；
 def excluded(position: str):
     """被排除分量（≈0）；视角返回 None（不设零）。"""
     return _spec(position)["excluded"]
@@ -157,6 +165,7 @@ def excluded(position: str):
 # 序比较（本模块的权威结论：只有序，没有数值）
 # --------------------------------------------------------------------------
 
+# 生效条件：position 与 component 分别经 _spec 与 _comp 验证后，若 component 等于该位置 spec["excluded"] 返回 RANK_EXCLUDED，否则若等于 spec["primary"] 返回 RANK_PRIMARY，否则返回 RANK_SECONDARY；
 def rank(position: str, component: str) -> float:
     """分量在该位置的序秩（占位量级）：2 主导 / 1 参与 / 0 排除。"""
     s = _spec(position)
@@ -168,6 +177,7 @@ def rank(position: str, component: str) -> float:
     return RANK_SECONDARY
 
 
+# 生效条件：position、a、b 经 rank 可得序秩，若 rank(position,a)==rank(position,b) 返回 None，否则返回 ra>rb 的 bool；任一参数未知则抛 WeightError；
 def prefers(position: str, a: str, b: str):
     """该位置是否**严格**偏好 a 胜过 b。
 
@@ -179,6 +189,7 @@ def prefers(position: str, a: str, b: str):
     return ra > rb
 
 
+# 生效条件：position 经 _spec 验证且 COMPONENTS 可用时，按 -rank(position,c) 与 COMPONENTS.index(c) 排序，返回 {"preferred":[rank>0], "excluded":[rank==0], "primary":dominant(position), "secondary":secondary(position)}（无 dominant 键）；
 def order(position: str):
     """从高到低排列的分量（并列者按 COMPONENTS 稳定序）；排除项单独列出。"""
     _spec(position)
@@ -189,6 +200,7 @@ def order(position: str):
             "primary": dominant(position), "secondary": secondary(position)}
 
 
+# 生效条件：position 经 _spec 验证且 COMPONENTS 可用时，将各分量 rank 归一化到 4 位小数返回；若 total 为 0 则按 total=1.0 计算；
 def weights(position: str) -> dict:
     """占位数值权重（序秩归一化）；**未标定**，仅供仿真。"""
     _spec(position)
@@ -201,6 +213,7 @@ def weights(position: str) -> dict:
 # 合成（占位：f(一致性, 位置可预测性, 版本对齐度)）
 # --------------------------------------------------------------------------
 
+# 生效条件：position 经 _spec 可解析且 COMPONENTS 可用时，components 对每个分量经 .get(c,0.0) 取值并截到 [0,1]；若 components 无 .get 或该值不能 float 则该分量值记 0.0，仍按 weights(position) 加权求和返回含 score/values/weights/dominant 的 dict；
 def blend(position: str, components: dict) -> dict:
     """按位置的权重合成单一信任标量。
 
@@ -229,6 +242,7 @@ def blend(position: str, components: dict) -> dict:
 # 不变量自检（把上轮的三条结构约束落成可执行断言）
 # --------------------------------------------------------------------------
 
+# 生效条件：模块级 POSITION_ORDER、COMPONENTS、SPEC、VIEWPOINT、FUNCTIONAL 等常量齐备时，invariants() 逐条自检并返回 {"ok": all(checks[*].ok), "checks": ...}；
 def invariants() -> dict:
     """逐条自检结构约束，返回 {ok, checks{name: {ok, detail}}}。"""
     checks = {}
@@ -294,6 +308,7 @@ def invariants() -> dict:
 # 自描述
 # --------------------------------------------------------------------------
 
+# 生效条件：模块级 COMPONENTS、COMPONENT_LABELS、VIEWPOINT、FUNCTIONAL、SPEC、POSITION_ORDER、DAILY 齐备时，返回位置权重矩阵自描述 dict，其中 components 按 COMPONENT_LABELS、positions 按 SPEC、daily_eval 按 DAILY 展开；
 def catalog() -> dict:
     """位置权重矩阵自描述（供 MCP / 文档对照验证）。"""
     return {
@@ -357,6 +372,7 @@ IMPORTANCE_PROTECT = 0.70   # ≥ 此值：保护下限（已保护/高危节点
 APPLY_DELTA = 0.05          # 变动小于此值不写盘（防 IO 放大）
 
 
+# 生效条件：e 为可 .get 的映射时，遍历 e.get("edges")（假值视为空）逐项按 dict 的 to/target/node/id 或标量转 str 追加非假值，再取 e.get("subgraph")，若为 dict 取其 "nodes" 否则取 subgraph 本身，且当其为 list/tuple 时追加其中 dict 的 id 或标量转 str 的非假值，返回 out；
 def _targets(e: dict):
     """索引快照里的「出边目标」：edges ∪ subgraph.nodes（兼容 dict/str）。"""
     out = []
@@ -377,6 +393,7 @@ def _targets(e: dict):
     return out
 
 
+# 生效条件：basis 为 None 时返回 BASIS_TRUST_MISSING；否则把 str(basis).strip().lower() 作为 BASIS_TRUST 的键，命中返回对应权重，未命中（含空串）返回 BASIS_TRUST_MISSING；
 def basis_trust(basis):
     """验证基底 → 可信权重；缺失/未知一律给最低档（不假装可信）。"""
     if basis is None:
@@ -395,6 +412,7 @@ def coverage_index(cg) -> dict:
     return indeg
 
 
+# 生效条件：cg.index 的 "nodes" 为 dict 时，layer 真值仅处理 e.get("layer")==layer 的节点，layer 假值不过滤；content_hash 为假值（None/空串/0 等）的节点输出 0.0，同 (e.get("layer"), content_hash) 第二次撞车时当前与首次节点均输出 1.0，否则输出 0.0；
 def redundancy_map(cg, layer=None) -> dict:
     """同层内容哈希撞车 → 冗余度 1.0，否则 0.0（精确冗余，O(N) 免读文件）。
 
@@ -420,6 +438,7 @@ def redundancy_map(cg, layer=None) -> dict:
     return out
 
 
+# 生效条件：cg.index 的 nodes 为 dict 且 entry 非 None 或 nodes.get(nid) 命中时，e 按 entry 优先否则 nodes.get(nid)；indeg/red 分别仅在为 None 时回落 coverage_index(cg)/redundancy_map(cg, layer=e.get("layer"))（空容器不回落）；按 IMPORTANCE_MIX、COV_SAT 及 e.get("verification_basis") 的 basis_trust 计算 coverage/redundancy/basis 分量，按 bool(e.get("protected")) 选择 IMPORTANCE_PROTECT 或 IMPORTANCE_FLOOR 作下限、IMPORTANCE_CEIL 作上限，返回含 before（e.get("importance",0.5) or 0.5）、after、components、protected 的 dict；entry 与 nodes.get(nid) 均为 None 返回 None；
 def node_importance(cg, nid, indeg=None, red=None, entry=None):
     """单节点结构重要性分解（可审计：给出分量而非只给分）。"""
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
@@ -547,6 +566,7 @@ def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
     }
 
 
+# 生效条件：cg.root/MAINTAIN_LOG 可读出 action=="importance" 记录后，entry_ids 为真值时按记录 id 是否在 {str(x) for x in entry_ids} 过滤；否则 batch 为真值时按 r.get("batch")==batch 过滤；否则取最后一条记录的 batch 再按其过滤；无 importance 记录返回 {"ok":False,"error":"no_records","reverted":0}，过滤后无记录返回 {"ok":False,"error":"batch_not_found",...}；对命中且 cg.get(nid) 为真的记录写回 rec.get("before") 并计数，若 reverted 且 cg 有 rebuild_index 则调用，最后 append_jsonl 写 actor 并返回 {"ok":True,"batch":batch,"reverted":reverted,"ids":ids}；
 def rollback(cg, batch=None, entry_ids=None, actor="maintain"):
     """把重要性重算反向应用（bulk 改写的可回滚兑现）。
 
@@ -594,6 +614,7 @@ def rollback(cg, batch=None, entry_ids=None, actor="maintain"):
     return {"ok": True, "batch": batch, "reverted": reverted, "ids": ids}
 
 
+# 生效条件：cg.root/MAINTAIN_LOG 可读出 JSONL 记录后，action 为真值时按 r.get("action")==action 过滤，假值不过滤；返回 recs[-int(limit):]，其中 limit=0 时 int(0)=0 使切片为 recs[0:] 返回全部而非空；
 def history(cg, limit=100, action=None):
     """维护留痕（最近 limit 条），可按 action 过滤。"""
     recs = list(read_jsonl(os.path.join(cg.root, MAINTAIN_LOG)))
