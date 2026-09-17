@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-097-batch-c97-fix-dual",
+ "round": 5,
+ "candidate_commit": "333174e",
+ "branch": "task/iter-097-batch-c97-fix-dual",
+ "unit_job": "h1789679153476_4f63f3",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "复核：public 除绑定 self 外无额外必需形参；实例调用后返回形状确为 {'name': self.name}。源码 docstring 明确“不得含密钥”，返回体无其他字段，故“不含密钥材料”未超出源码契约。无 assert/None/假值/闭包/早退/长度前置问题；position_ok=true 已满足。  \nreason: 条件与源码及 docstring 契约一致，返回形状和前置描述无偏差。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
