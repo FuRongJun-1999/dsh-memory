@@ -21,5 +21,6 @@
  "unit_review": {
   "verdict": "REJECT",
   "round": 3
- }
+ },
+ "supersede_note": "编外曾裁定 df03dd6 PASS（二轮版本）；其后又修正 7 条，请以最终 tip 复核"
 }
