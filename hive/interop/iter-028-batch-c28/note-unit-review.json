@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-028-batch-c28",
  "round": 1,
- "candidate_commit": "8828acf",
+ "candidate_commit": "454aeb9",
  "branch": "task/iter-028-batch-c28",
- "unit_job": "h1789660479726_95ce8a",
- "verdict": "REJECT",
- "package_n": 11,
- "text": "复核不通过：`_window_overlap` 条件与源码功能不符。源码在算 `span` 前先 `if hi <= lo: return 0.0`；因此 `span <= 0` 时必有 `hi <= lo`，实际返回 `0.0`，而非条件所写“span ≤ 0 返回 1.0”。该分支被早退遮蔽，条件把不可达代码当生效条件。其余条目基本吻合。\n\nreason: `_window_overlap` 的 span≤0 分支被 hi≤lo 早退遮蔽，条件误述其返回 1.0。\nverdict: REJECT",
+ "unit_job": "h1789660832948_2d5354",
+ "verdict": "ACCEPT",
+ "package_n": 0,
+ "text": "批次为空，候选新增条目为 0；无功能级生效条件可核验，未涉及形参、模块常量、早退前置、闭包来源、返回形状、长度与空容器等冲突，也无注释位置问题。\nreason: 空批次无候选条件，未发现可拒绝项。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
