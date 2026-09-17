@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-078-c78-d1",
+ "round": 3,
+ "candidate_commit": "96cdf04",
+ "branch": "task/iter-078-c78-d1",
+ "unit_job": "h1789670582988_948089",
+ "verdict": "REJECT",
+ "package_n": 22,
+ "text": "复核：多数条件与源码一致。明确不符：`decontaminate` 条件称返回含 `skipped`，源码实为 `skipped_protected`/`skipped_done`，无 `skipped` 键；`_fm_of` 未覆盖 `cg.get` 成功但 `frontmatter` 为假值时仍返回 `{}`；`summary` 对 `sweep` 不要求 `ok` 的表述有歧义。  \nreason: 存在返回键名与分支覆盖不符，未满足 Zero-Trust 精确性。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
