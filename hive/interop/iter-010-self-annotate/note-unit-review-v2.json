@@ -1,0 +1,14 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-010-self-annotate",
+ "round": 2,
+ "reviewer": "验证单元（units role=VERIFY）",
+ "unit_job": "h1789645105426_23dfcf",
+ "verdict": "REJECT",
+ "reason": "reason: 多项为 facts 复述且有关键遗漏，未达功能级生效条件。",
+ "package_n": 10,
+ "no_facts": [],
+ "text": "复核：多数注释只是复述 required/doc_head/returns，如 _src_seg、_unparse 仅写返回表达式；_unparse 漏异常回退 ''；_externals 漏 names[:12]；signature 未标 ClassDef 分支；judge 的 META_MARKS/IDENT 可算状态前置，但整体未回答“何种输入/状态下正确”。\nreason: 多项为 facts 复述且有关键遗漏，未达功能级生效条件。\nverdict: REJECT",
+ "note": "白箱单元复核（候选面），不替代编外 zcode 裁定",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

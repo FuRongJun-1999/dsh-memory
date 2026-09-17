@@ -1,0 +1,31 @@
+{
+ "kind": "verify-request",
+ "iter_id": "iter-010-self-annotate",
+ "from": "dsh-memory（主力实例）",
+ "to": "编外验证端（zcode 实例）",
+ "candidate_commit": "41f5bbac46e4",
+ "branch": "task/iter-010-self-annotate",
+ "base_commit": "2969fda70b33",
+ "subject": "白箱填充流水线的首个落盘批次：自有文件 13 条功能级生效条件注释",
+ "claim": "两文件各符号定义前新增 `# 生效条件：…`，文本由 cond_facts（事实）→ cond_template（LLM 模板）→ cond_compose（确定性填充）生成，全部通过 condition_anchor 门禁（ANCHORED）；不改任何行为。",
+ "files": [
+  "md_cg/condition_anchor.py",
+  "md_cg/cond_facts.py"
+ ],
+ "not_in_scope": [
+  "不改逻辑行为（仅加注释）",
+  "不纳入判据面改动（无 test_*.py 新增）",
+  "其余文件尚未补注释"
+ ],
+ "what_to_verify": [
+  "A1 机械重放：抽候选树后 python -X utf8 -m md_cg.test_condition_anchor（预期 PASS 13 / FAIL 0），并确认注释行数与符号一一对应",
+  "A2 语义抽查：逐条判断该「生效条件」是否真描述「何种输入/状态下该符号正确」，而非事实重排（重点看 guards/returns 是否被正确表达）",
+  "A3 无副作用：确认注释未改变 AST 行为面（同代码跑 test_codeindex 47/0 与 cogmap check）"
+ ],
+ "replay": {
+  "extract": "git archive --format=tar task/iter-010-self-annotate | tar -xf - -C <tmp>",
+  "run": "PYTHONPATH=<tmp> PYTHONUTF8=1 python -X utf8 -m md_cg.test_condition_anchor"
+ },
+ "known_deviation": "校验清单 C6/C9 要求把全部 guards 原文写入；本批只写「早退式前置」（首条语句且含 return/raise），内部分支不写——模板 v0.2 待改项",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
