@@ -373,7 +373,9 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 
 ### 多 harness 接入（按端分目录）
 
-共享层（`md_cg/` 大脑 · `data/` · `docs/` · `scripts/`）在仓库根；**harness 专属配置按端归置**：
+> **主推路径：MCP 直挂**——各端接入的**共性是挂载同一个 stdio MCP server**（`python -m md_cg.mcp_server`）：任何支持 MCP 的宿主直接挂上即可，**不依赖任何插件系统**。
+
+共享层（`md_cg/` 大脑 · `data/` · `docs/` · `scripts/`）在仓库根；**harness 专属配置按端归置**，下表列的只是各端**纪律注入方式**的差异（纪律如何进入上下文），大脑与记忆真源零改动：
 
 | 目录 | harness | 接入文档 | 纪律注入方式 |
 |---|---|---|---|
@@ -386,7 +388,10 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 > 五端纪律**同源**（`docs/工作纪律_认知图条目_v1.1.json`），由 `scripts/render_discipline.py` 渲染、
 > `scripts/verify_discipline.py` 守卫漂移；矩阵见 `docs/discipline/harnesses.yaml`。
 
-### 插件生态形态（免手工复制，本仓自带双端 marketplace）
+<details>
+<summary><b>可选补充：插件形态安装（仅 Claude Code / Codex CLI · 省手工复制，非主推路径）</b></summary>
+
+> 等价于按上表手工配置，只是把纪律 skill 与配置样例随插件一起拿到；**不装插件不影响任何能力**。
 
 | 宿主 | 安装 | 插件位置 | 装后一步 |
 |---|---|---|---|
@@ -397,6 +402,8 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 > `.agents/plugins/marketplace.json`。插件不含大脑本体（`md_cg/` 不随插件分发）——MCP 装好后
 > 大脑仍是你本机的 dsh-memory 仓库；插件形态的纪律 skill 同样由真源渲染（`skill` 变体，
 > 矩阵槽位 `claude-code-plugin-skill` / `codex-plugin-skill`），漂移由同一 `verify_discipline.py` 守卫。
+
+</details>
 
 ---
 
