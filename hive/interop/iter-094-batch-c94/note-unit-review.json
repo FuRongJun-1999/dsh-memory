@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-094-batch-c94",
+ "round": 1,
+ "candidate_commit": "1e38b6b",
+ "branch": "task/iter-094-batch-c94",
+ "unit_job": "h1789677228239_cab764",
+ "verdict": "REJECT",
+ "package_n": 24,
+ "text": "复核：多数条件与源码吻合，闭包/假值/早退锚定基本正确。但 `_reach_metrics` 称返回“有效行数”，源码中 `lines += 1` 在 `json.loads` 前，解析失败也计入，应是非空行数。`_regression` 的 `level` 实际恒为 `\"FAIL\"`，仅 `ok=not worse`，条件表述不精确。`_usage` 形参 `edges` 未使用，条件未锚定。故不可按现状 ACCEPT。\n\nreason: 存在与源码不符的生效条件（reach 行数语义、regression level、未用形参）。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
