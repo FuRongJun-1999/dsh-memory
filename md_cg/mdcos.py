@@ -171,6 +171,7 @@ def _ccg_field(content: str, name: str) -> str:
     return ""
 
 
+# 生效条件：当 fm 为 dict 且 content 为字符串时，返回从 CCG 正文、state_attributes.comment 与 non_applicable_conditions 三处合并去重后的 (生效条件列表, 不适用条件列表)。
 def _declared_conditions(fm: dict, content: str):
     """节点声明的条件证据 → (生效条件列表, 不适用条件列表)。
 
