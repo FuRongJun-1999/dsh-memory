@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-042-batch-c42",
+ "round": 1,
+ "candidate_commit": "2424087",
+ "branch": "task/iter-042-batch-c42",
+ "unit_job": "h1789662803694_3cefa9",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "复核：两项均与源码相符。`_declared_conditions` 以 `fm` 为 dict、`content` 为 str 为前置，三来源分别入 pos/neg；`state_attributes`/`comment` 非 dict 或缺省时跳过，`_push` 去空、转字符串、去重保序。`_redteam_required` 仅当环境变量去空白转小写后命中 `(\"1\",\"true\",\"yes\")` 返回 True，否则 False。未见 assert、None/假值、闭包、返回形状或空容器不符。\nreason: 两项条件均准确覆盖源码分支与返回语义，未发现不支持的断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
