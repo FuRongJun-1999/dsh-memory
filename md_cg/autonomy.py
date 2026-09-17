@@ -44,7 +44,7 @@ GAIN_COOLDOWN = 3600.0 # 冷却秒数：过期后 σ 回 1.0（给探索机会�
 _GAIN_STUCK = ("carried", "unresolved", "unknowable", "no_anchor")
 
 
-# 生效条件：当 cg 带 root 属性时返回 os.path.join(cg.root, EXPLORE_LOG)，cg 无 root 时回退 '.' 后与模块常量 EXPLORE_LOG 拼接。
+# 生效条件：cg 无 root 属性时以 '.' 作为 os.path.join 的第一参数，有 root 属性时始终使用 cg.root 的值（即使为 None，也会传入 os.path.join 导致报错），再与模块常量 EXPLORE_LOG 拼接。
 def _explore_log_path(cg):
     return os.path.join(getattr(cg, "root", "."), EXPLORE_LOG)
 
