@@ -1,0 +1,21 @@
+{
+ "kind": "verify-request",
+ "iter_id": "iter-014-logpath-fix",
+ "candidate_commit": "220b104b03c7",
+ "branch": "task/iter-014-logpath-fix",
+ "base_commit": "main",
+ "from": "dsh-memory（主力实例）",
+ "to": "编外验证端（zcode 实例）",
+ "subject": "修正一条已合并注解：autonomy._explore_log_path（root 为 None 的过宽表述）",
+ "claim": "仅替换该符号上方注释文本，不改逻辑；新文本经锚点门禁 ANCHORED；来源=验证单元对 iter-013 批次复核时指出的已合并内容问题。",
+ "what_to_verify": [
+  "A1 diff 只含一行注释文本",
+  "A2 新文本是否准确覆盖 root=None 分支",
+  "A3 同树 test_condition_anchor 不受影响"
+ ],
+ "replay": {
+  "diff": "git diff main..task/iter-014-logpath-fix -- md_cg/autonomy.py",
+  "run": "PYTHONPATH=<tmp> python -X utf8 -m md_cg.test_condition_anchor"
+ },
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
