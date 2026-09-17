@@ -33,6 +33,7 @@ SESSION_SENSITIVITY = "private"
 # 事件源
 # --------------------------------------------------------------------------
 
+# 生效条件：无必填构造形参，类常量 name="source" 即实例默认；仅当子类覆写 events() 时才产出事件，基类 events() 恒抛 NotImplementedError。
 class Source:
     """事件源基类。"""
 
@@ -97,6 +98,7 @@ class JsonlSource(Source):
                        "cwd": o.get("cwd")}
 
 
+# 生效条件：path 指向的内容可读且 zstandard 可导入时返回 StringIO(raw.decode("utf-8", errors="replace"))；ImportError 时返回 None。
 def _zstd_reader(path):
     """返回可读的文本迭代器；zstd 不可用返回 None。"""
     import io
@@ -334,6 +336,7 @@ class Ingestor:
         return result
 
 
+# 生效条件：text 为 None 或假值时按 "" 参与 sha1；n 默认 12，返回 hexdigest 前 n 位（n=0 得空串）。
 def _sig(text: str, n: int = 12) -> str:
     import hashlib
     return hashlib.sha1((text or "").encode("utf-8")).hexdigest()[:n]
@@ -371,6 +374,7 @@ INGEST_REGISTRY = {
 }
 
 
+# 生效条件：path 为 None 或空串时 splitext 得 "" 且未登记 → 返回 None；扩展名（小写）存在于 INGEST_REGISTRY 时返回其 kind。
 def dispatch_of(path: str):
     """按扩展名返回摄取方式（session / doc / code）；未登记返回 None。"""
     return INGEST_REGISTRY.get(os.path.splitext(path or "")[1].lower())
@@ -516,6 +520,7 @@ class FileDispatcher:
         return res
 
 
+# 生效条件：cg 必填；action 为 None/空串时 (action or "stat") 归为 stat；file/jsonl 缺 path 返回 ok=False；dir 的 max_files/max_items 走 int(x or 500)/int(x or 2000)，传 0 也变 500/2000；未知 action 抛 ValueError。
 def run(cg, action: str = "stat", **kw):
     """ingest op 唯一入口。"""
     act = (action or "stat").strip().lower()
