@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-060-mdcos-r2-d3b",
+ "round": 7,
+ "candidate_commit": "6123c5e",
+ "branch": "task/iter-060-mdcos-r2-d3",
+ "unit_job": "h1789671358341_b415a6",
+ "verdict": "ACCEPT",
+ "package_n": 51,
+ "text": "reason: 逐条对照源码，条件均锚定必需形参/模块常量/早退前置，None与假值分支、返回形状和参数使用未见不符，未补充源码不支持断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
