@@ -24,5 +24,6 @@
   "file": "note-unit-review.json",
   "quote": "逐条对照源码，15 条均说明触发输入/状态，锚定必要形参、模块常量与早退分支；未发现与源码不符或源码不支持的断言"
  },
- "history_note": "本批经六轮单元复核（含两处我的流水线缺陷修正：注释插入位置偏移、v5 漏回填已修正文本）"
+ "history_note": "本批经六轮单元复核（含两处我的流水线缺陷修正：注释插入位置偏移、v5 漏回填已修正文本）",
+ "supersede_note": "编外曾裁定 cb70bf6 PASS；该 commit 有注释位置偏移缺陷（见 note-receipt-superseded.json），请以 5b340d0 复核"
 }

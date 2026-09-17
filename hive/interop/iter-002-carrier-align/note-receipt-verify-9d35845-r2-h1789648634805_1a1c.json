@@ -1,0 +1,15 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "verify-9d35845",
+ "commit": "9d35845",
+ "verdict": "PASS",
+ "receipt_job": "h1789648634805_1a1c",
+ "receipt_sha16": "37c5e76069ae28de",
+ "received_ts": 1789648634,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=verify-9d35845 commit=9d35845 verdict=PASS | 机器重放两步（逐字）：test_codeindex=PASS 47 / FAIL 0 / SKIP 0；cogmap_sync check=通过。另（验证端 shell 实测，env 无 brain-root）：test_condition_anchor=PASS 13 / FAIL 0；verifier self-test=5/5 通过；run_tests md_cg 首跑 87/88（semantic_canonical 单发红，已知竞态家族）复跑=SUMMARY 88/88 通过，3 跳过。iter-013 交付面补正（第六轮单元 ACCEPT，tip 5b340d0）已接收",
+ "commands_sanitized": "[{\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}]",
+ "related_note": "",
+ "note": "由 ingest_receipts.py v2 生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

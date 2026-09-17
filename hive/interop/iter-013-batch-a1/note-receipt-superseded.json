@@ -1,0 +1,16 @@
+{
+ "kind": "receipt-superseded",
+ "iter_id": "iter-013-batch-a1",
+ "verified_commit": "cb70bf6",
+ "verdict": "PASS（编外）",
+ "current_tip": "5b340d0",
+ "why_not_merged": "被裁定 commit cb70bf6 存在**注释插入位置偏移**（`# 生效条件：` 落在 def 行之后；codeindex 约定是定义行之前）；该缺陷在提交候选之后才由我的复核打包发现，故裁定虽 PASS 但不宜并入 main",
+ "what_changed_since": [
+  "注释位置修正为定义行之前（codeindex 可识别）",
+  "按验证单元六轮意见修正 4 条文本（exempt_rollback/audit._pending/bench_blind_comp.gen_questions 等）",
+  "验证单元 r6：ACCEPT（逐条与源码一致）"
+ ],
+ "request": "请以 tip **5b340d0** 复核（口径同 request.json：A1 全组重放 / A2 语义抽查 / A3 注释位置须在定义行之前）；若通过，主体按 §7.4 收口 5b340d0",
+ "process_lesson": "提交候选前必须先自检注释位置与打包范围（本轮两次返工：位置偏移、v5 漏回填），否则浪费一轮编外裁定",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

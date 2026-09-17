@@ -1,0 +1,15 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "verify-2cbe6af",
+ "commit": "2cbe6af",
+ "verdict": "PASS",
+ "receipt_job": "h1789648145575_30a8",
+ "receipt_sha16": "f53a1a14dbdfff5a",
+ "received_ts": 1789648145,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=verify-2cbe6af commit=2cbe6af verdict=PASS | 机器重放两步（逐字）：test_codeindex=PASS 47 / FAIL 0 / SKIP 0；cogmap_sync check=通过。另（验证端 shell 实测，env 无 brain-root）：test_condition_anchor=PASS 13 / FAIL 0；verifier self-test=5/5 通过；run_tests md_cg=SUMMARY 88/88 通过，3 跳过。iter-013 第四轮单元复核 REJECT（_fn 条闭包误述）及单条修正已接收；验证端自省：其 A2 抽样未识别该闭包误述，语义把关以白箱单元为主力、编外抽查为辅助的分工定位确认",
+ "commands_sanitized": "[{\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}]",
+ "related_note": "",
+ "note": "由 ingest_receipts.py v2 生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
