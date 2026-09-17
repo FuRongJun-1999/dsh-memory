@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-022-batch-c6",
- "candidate_commit": "b216177",
+ "candidate_commit": "4dc5623",
  "branch": "task/iter-022-batch-c6",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -17,5 +17,22 @@
   "extract": "git archive --format=tar task/iter-022-batch-c6 | tar -xf - -C <tmp>",
   "run": "cd <tmp> && python -X utf8 scripts/run_tests.py --jobs 4"
  },
- "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
+ "increment_vs_base": {
+  "base": "main",
+  "file": "md_cg/refindex.py",
+  "new_annotation_lines": 25,
+  "total_lines_on_branch": 25
+ },
+ "known_open": {
+  "excluded": [
+   "probe_ref"
+  ]
+ },
+ "process_standard": [
+  "注释置于 def/class 行正上方（装饰器之下）",
+  "类符号 facts 取自 __init__",
+  "request 标增量 vs 累计口径",
+  "组跑偶发红须以同树单跑复核"
+ ]
 }
