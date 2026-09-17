@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-097-batch-c97",
+ "round": 1,
+ "candidate_commit": "2fdc5ac",
+ "branch": "task/iter-097-batch-c97",
+ "unit_job": "h1789678218487_51213a",
+ "verdict": "REJECT",
+ "package_n": 17,
+ "text": "复核：多数条目吻合，但 HmacLocalSigner.__init__ 漏了 key_file 为真而 key 为假时 self.key=load_key(self.key_file)；policy_for 把 subsystem 假值一律视为空策略，未锚定源码 `subsystem or \"\"` 可能命中空串键，且 signer 回落对“已声明但缺 signer”的策略同样生效。\nreason: 上述条件未完整锚定 None/假值与缺 signer 的实际回落分支。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
