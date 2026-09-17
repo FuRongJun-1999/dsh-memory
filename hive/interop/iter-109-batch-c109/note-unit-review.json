@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-109-batch-c109",
+ "round": 1,
+ "candidate_commit": "68db045",
+ "branch": "task/iter-109-batch-c109",
+ "unit_job": "h1789681986169_ba4b5d",
+ "verdict": "ACCEPT",
+ "package_n": 22,
+ "text": "逐条对照源码：条件均覆盖输入/状态、形参与常量、早退与返回形状；None/假值、空容器、limit 截断、加密节点计入长度等均与源码一致；未发现源码不支持断言。apply 盲区“只写”指 else 分支内新增，通用键在分支外，不构成误述；position_ok=true 已满足。\nreason: 全部候选条件与源码分支及前置一致，未发现需拦截的语义偏差。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
