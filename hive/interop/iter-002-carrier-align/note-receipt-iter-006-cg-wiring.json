@@ -1,0 +1,14 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-006-cg-wiring",
+ "commit": "c138196",
+ "verdict": "PASS",
+ "receipt_job": "h1789641534845_57f4",
+ "receipt_sha16": "f180125c06b855e2",
+ "received_ts": 1789641534,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-006-cg-wiring commit=c138196 verdict=PASS | mdcos.py 与 97c2681 零差异，由 iter-007 tip 承接验证；一致性核对+承接声明（主实例 8627f56 A3 自答一致）；env 声明：shell 无 brain-root",
+ "commands_sanitized": "[{\"label\": \"mark\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}]",
+ "note": "本文件由 ingest_receipts.py 幂等生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

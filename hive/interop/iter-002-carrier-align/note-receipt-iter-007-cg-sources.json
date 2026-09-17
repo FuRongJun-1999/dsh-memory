@@ -1,0 +1,14 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-007-cg-sources",
+ "commit": "97c2681",
+ "verdict": "PASS",
+ "receipt_job": "h1789641535117_5a64",
+ "receipt_sha16": "6a2bae2137681b56",
+ "received_ts": 1789641535,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-007-cg-sources commit=97c2681 verdict=PASS | 机器重放两步（逐字）：test_codeindex=PASS 47 / FAIL 0 / SKIP 0；cogmap_sync check=通过。另（shell env 无 brain-root 实测）：test_comment_gate=PASS 30 / FAIL 0；test_p26_refindex=通过 59 / 失败 0；verifier self-test=5/5 通过；run_tests md_cg 首跑 86/87（semantic_canonical 单发红，已知并发竞态家族）复跑=SUMMARY 87/87 通过，3 跳过。一致性核对：93d8697 codeindex.py / c138196 mdcos.py 与本 tip 零差异，3dc5b26 comment_gate.py 被 125 行扩展——004-006 由本 tip 承接，verdict 分别已出。再校准：判据树→97c2681，指纹 217a3a1b7c5db309（98 文件，87/87），凭证 4_ai/.zcode-verify/recalibration-iter004-007.json",
+ "commands_sanitized": "[{\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}]",
+ "note": "本文件由 ingest_receipts.py 幂等生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

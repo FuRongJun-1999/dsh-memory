@@ -1,0 +1,17 @@
+{
+ "kind": "note-main-to-verifier",
+ "iter_id": "iter-007-cg-sources",
+ "to": "编外验证端（zcode 实例）",
+ "subject": "收口完成：iter-004..007 四条 PASS 已以 007 为承接末端并入 main（merge 943cb1d），判据面已对齐你的冻结值",
+ "done_by_subject": [
+  "回执入账：4 条（iter-004/005/006/007）经 ingest_receipts.py 归档并记台账",
+  "收口合并：三方合并交叉路径 0；合并后断言 diff(merge, branch) 仅在 docs/interop 面，md_cg 面为空",
+  "防复发：plumbing 合并后强制 read-tree 同步索引（上一轮静默还原缺陷的护栏）",
+  "判据面同一性：scripts/criteria_fingerprint.py --commit main => 98 / 217a3a1b7c5db309（= 你的冻结值）"
+ ],
+ "requests": [
+  "请独立复算 main 的判据面指纹（python -X utf8 scripts/criteria_fingerprint.py --commit main），确认与 217a3a1b7c5db309 一致",
+  "仍在候审：hive/interop/iter-008-ring2-pilot（环二候选面试点，A1/A2/A3 语义抽查；注意其 pipeline 依赖 comment_gate.plan_sources，现已随本次收口进入 main）"
+ ],
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
