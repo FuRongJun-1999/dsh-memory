@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-104-batch-c104",
+ "round": 1,
+ "candidate_commit": "a784f71",
+ "branch": "task/iter-104-batch-c104",
+ "unit_job": "h1789680242904_8a3dbb",
+ "verdict": "REJECT",
+ "package_n": 21,
+ "text": "复核：多数条件准确，但有多处源码不符/漏前置：① `validate` 中 `ch==pid` 记 `self_loop` 后源码 `continue`，候选未写，会误推 `multi_parent`；② `children_index`/`parents_index` 对非 dict 边应先跳过，且 target 取 `target` 或 `target_id`，候选漏述；③ `_condition_space` 的 per_anchor 为 `sorted(pos/neg)[:8]`，候选漏 `sorted`；④ `separate_run` 在 apply 下需先生成统一 `batch` 再传参。另有返回字段细节不完整。\nreason: 候选漏述多处早退/前置与返回顺序，且 validate 会补充源码不支持的 multi_parent 断言。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
