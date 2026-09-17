@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-050-batch-c50",
+ "round": 1,
+ "candidate_commit": "5071305",
+ "branch": "task/iter-050-batch-c50",
+ "unit_job": "h1789663951384_fcee43",
+ "verdict": "UNPARSED",
+ "package_n": 1,
+ "text": "",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
