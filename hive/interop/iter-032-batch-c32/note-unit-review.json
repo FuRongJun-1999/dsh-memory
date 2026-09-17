@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-032-batch-c32",
+ "round": 1,
+ "candidate_commit": "4442c30",
+ "branch": "task/iter-032-batch-c32",
+ "unit_job": "h1789661577017_5323e0",
+ "verdict": "REJECT",
+ "package_n": 33,
+ "text": "复核发现：markdown_table 误称 evidence 缺省显示“—”，源码 `(h.get(\"evidence\") or \"\")` 实际为空串；_loc_missing_field 漏列正文 CCG_MARKS 缺行追加命中的分支。其余条件基本与源码一致。\nreason: markdown_table 的 evidence 缺省值描述与源码不符，且 _loc_missing_field 漏报 CCG 缺行分支。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
