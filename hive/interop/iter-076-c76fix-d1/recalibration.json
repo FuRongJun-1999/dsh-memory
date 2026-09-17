@@ -3,7 +3,7 @@
  "iter_id": "iter-076-c76fix-d1",
  "verified_commit": "2441b2b",
  "verdict": "PASS",
- "merge_commit": "90ac7e7c44fe",
+ "merge_commit": "d12d7c2ed24a",
  "checks": [
   "diff(merge, branch) -- md_cg 空",
   "criteria_fingerprint 保持",
