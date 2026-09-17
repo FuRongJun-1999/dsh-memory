@@ -1,0 +1,20 @@
+{
+ "kind": "verify-request",
+ "iter_id": "iter-119-cogmap-anchor-fix2",
+ "candidate_commit": "e7ce893",
+ "branch": "task/iter-119-cogmap-anchor-fix2",
+ "base_commit": "main",
+ "from": "dsh-memory（主力实例）",
+ "to": "编外验证端（zcode 实例）",
+ "subject": "cogmap 真源锚二次漂移修复（回应验证端 6 问题挂账）",
+ "claim": "真源行号锚已随注释合并位移重建：README COGMAP 段 1 段、功能调用映射表 FUNCMAP 段 3 段重写；cogmap_sync check 全绿（由 6 问题 → 0）。",
+ "what_to_verify": [
+  "A1 python -X utf8 scripts/cogmap_sync.py check（预期 rc=0，6 问题归零）",
+  "A2 FUNCMAP/COGMAP 锚点与真源当前行号一致"
+ ],
+ "replay": {
+  "extract": "git archive --format=tar task/iter-119-cogmap-anchor-fix2 | tar -xf - -C <tmp>",
+  "run": "python -X utf8 scripts/cogmap_sync.py check"
+ },
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
