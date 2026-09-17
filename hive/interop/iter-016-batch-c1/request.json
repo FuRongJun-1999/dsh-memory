@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-016-batch-c1",
- "candidate_commit": "8c70146f1c40",
+ "candidate_commit": "42c20ad273d6",
  "branch": "task/iter-016-batch-c1",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -21,5 +21,6 @@
  "unit_review": {
   "verdict": "REJECT",
   "round": 2
- }
+ },
+ "action": "batch-split"
 }
