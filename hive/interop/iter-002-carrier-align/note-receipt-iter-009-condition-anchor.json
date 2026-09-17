@@ -1,0 +1,14 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-009-condition-anchor",
+ "commit": "9d444fe",
+ "verdict": "PASS",
+ "receipt_job": "h1789642081794_310c",
+ "receipt_sha16": "df44f066162b17bc",
+ "received_ts": 1789642081,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-009-condition-anchor commit=9d444fe verdict=PASS | 机器重放两步（逐字）：test_condition_anchor=PASS 13 / FAIL 0；cogmap_sync check=通过。另（验证端 4_ai 面实测，env 无 brain-root）：A2 反证=构造「x 为字符串时返回拼接结果」锚定 return x+1 的语义错误样例，判定 ANCHORED 且 reason 无语义背书（只判锚点不判语义，无误判通过）；A3 边界=self 单提 WEAK/真实参数 ANCHORED/kwonly 无默认算必需/不可解析 BLINDSPOT/无参无引用 BLINDSPOT 五项全过。main tip 同轮核对 e830ee6（iter-004..007 收口 + §四.7/§四.8 + criteria_fingerprint 工具）",
+ "commands_sanitized": "[{\"label\": \"test_condition_anchor\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_condition_anchor\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}]",
+ "note": "本文件由 ingest_receipts.py 幂等生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
