@@ -1,0 +1,15 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-025-batch-c9",
+ "commit": "697125b",
+ "verdict": "PASS",
+ "receipt_job": "h1789658898770_5e34",
+ "receipt_sha16": "915738f85078b222",
+ "received_ts": 1789658898,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-025-batch-c9 commit=697125b verdict=PASS | 机器重放两步（逐字）：test_codeindex=PASS 47 / FAIL 0 / SKIP 0；cogmap_sync check=通过。另（验证端 shell 实测，env 无 brain-root）：A1 候选树全组首跑 116/117（test_mr_m1 竞态单发红）单跑 1/1 绿、md_cg 组复跑=SUMMARY 88/88 通过，3 跳过；A2 语义抽查 sources.py 5 条 + forgetting.py 17 条 + crosscheck.py 20 条位置 0 异常、以输入约束开头；增量核对 forgetting new_annotation_lines=17 与实测一致（4 条 excluded 确认）",
+ "commands_sanitized": "[{\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}]",
+ "related_note": "",
+ "note": "由 ingest_receipts.py v2 生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
