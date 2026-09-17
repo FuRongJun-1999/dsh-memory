@@ -1,0 +1,95 @@
+{
+ "template": "调用 {symbol} 时，{required_clause}；{optional_clause}；{externals_clause}；{guards_clause}；在这些输入/状态下，{returns_clause}，功能说明为 {doc_clause}。",
+ "slots": [
+  {
+   "name": "symbol",
+   "from": "name",
+   "rule": "直接填 name；kind=func 时句首写“调用 name 时”；不得用 lineno、end、decorators 做条件。"
+  },
+  {
+   "name": "required_clause",
+   "from": "required",
+   "rule": "required 非空时填“必须提供实参 a、b”并列出全部 required；required 为空时填“无必需实参”；若 required 与 externals 均为空，整条输出 BLINDSPOT：缺证据（缺必需实参与外部名锚点）。"
+  },
+  {
+   "name": "optional_clause",
+   "from": "optional",
+   "rule": "optional 非空时逐个填“name 默认 default，可省略”；为空时填“无显式可选实参”；不得据默认值推断类型。"
+  },
+  {
+   "name": "externals_clause",
+   "from": "externals",
+   "rule": "externals 非空时填“体内引用的外部名 a、b 需在作用域中可解析”并列出全部；为空时填“无体内外部名依赖”；若同时 required 为空则整条 BLINDSPOT：缺证据（缺输入锚点）。"
+  },
+  {
+   "name": "guards_clause",
+   "from": "guards",
+   "rule": "guards 非空时逐个填“守卫条件 cond 成立”并保留 cond 源码；为空时填“无显式守卫”；若 cond 中标识符不在 required、optional、externals 中且无赋值证据，整条 BLINDSPOT：缺证据（缺该标识符定义）。"
+  },
+  {
+   "name": "returns_clause",
+   "from": "returns",
+   "rule": "returns 非空时填“返回表达式限定为 r1、r2、r3”并保留前 3 个原文；为空时填“返回未提供”并整条 BLINDSPOT：缺证据（缺返回表达式）。"
+  },
+  {
+   "name": "doc_clause",
+   "from": "doc_head",
+   "rule": "doc_head 非空时填“文档首行：doc_head”；为空时填“未提供文档首行契约”；doc_head 仅作功能说明，不得替代 required、externals、guards 的输入状态约束。"
+  }
+ ],
+ "rules": [
+  "组句顺序固定为 symbol→required_clause→optional_clause→externals_clause→guards_clause→returns_clause→doc_clause，用中文分号连接，整条为单句。",
+  "锚点规则：condition 必须至少包含一个 required 名或一个 externals 名；两者都无时输出 BLINDSPOT：缺证据（缺必需形参与外部名锚点）。",
+  "guards 规则：guards 非空时必须把每个 guard.cond 原样作为状态约束写入；不得改写逻辑；cond 中未解析标识符按 slots 规则触发 BLINDSPOT。",
+  "optional 规则：只写默认值与可省略性；若 guard 中用 optional 名，只按 guard 源码写该名出现，不补充类型或范围。",
+  "returns 规则：只引用 returns 前 3 个表达式原文；不得补全省略号后的结构；returns 为空触发 BLINDSPOT：缺证据（缺返回表达式）。",
+  "doc_head 规则：仅作为功能语义补充；若与 guards 或 returns 冲突，触发 BLINDSPOT：缺证据（契约冲突）。",
+  "禁用规则：输出不得包含门禁枚举的禁用短语；若生成候选含此类短语，删除或 BLINDSPOT。",
+  "BLINDSPOT 格式：证据不足时输出“BLINDSPOT：缺证据（缺什么）”，不得猜；括号内必须指向 required、optional、externals、guards、returns、doc_head 中的具体空项或未解析名。",
+  "机械复核规则：condition 中每个类型、范围、结构断言必须能映射到 optional.default、guards.cond、returns 或 doc_head 原文；映射不到则 BLINDSPOT。",
+  "局部名规则：guards.cond 中标识符若不在 required、optional、externals 中，且 facts 未记录其定义，触发 BLINDSPOT：缺证据（缺局部变量定义）。"
+ ],
+ "checklist": [
+  "condition 非空；若不以“BLINDSPOT：”开头，则必须包含 required 中至少一个名称或 externals 中至少一个名称。",
+  "condition 不得包含禁用短语集合 D 中任一项（D 由门禁枚举）。",
+  "若 condition 不以“BLINDSPOT：”开头且 required 非空，condition 必须出现 required 全部名称，且含“必须提供实参”或“必须提供形参”。",
+  "若 condition 不以“BLINDSPOT：”开头且 optional 非空，condition 必须出现每个 optional.name 及对应 default 原文，或出现“可省略”。",
+  "若 condition 不以“BLINDSPOT：”开头，condition 中裸标识符集合必须来自 required∪optional∪externals∪guards.cond∪returns 原文∪doc_head 原文，且至少一个来自 required∪externals。",
+  "若 condition 不以“BLINDSPOT：”开头且 guards 非空，condition 必须包含每个 guards[i].cond 原文，或包含“守卫条件”+cond+“成立/为真/为假”的原文组合。",
+  "若 condition 不以“BLINDSPOT：”开头且 returns 非空，condition 必须包含 returns 中至少一个表达式的前 20 个字符片段。",
+  "若 required 与 externals 均为空，condition 必须以“BLINDSPOT：缺证据”开头。",
+  "若 guards.cond 中存在标识符不属于 required∪optional∪externals，condition 必须以“BLINDSPOT：缺证据”开头，且括号内出现该标识符。",
+  "condition 必须为单句，以“调用 {name} 时”或“{name} 在”开头；若为 BLINDSPOT，则必须以“BLINDSPOT：缺证据（”开头。",
+  "若 condition 不以“BLINDSPOT：”开头且 doc_head 非空，condition 必须包含 doc_head 原文或 doc_head 首 10 个字符片段；若 doc_head 为空且 returns 为空，必须以“BLINDSPOT：”开头。",
+  "condition 不得把 lineno、end、decorators 的值作为条件文本。"
+ ],
+ "examples": [
+  {
+   "symbol": "_first_def",
+   "facts_used": "name,required,optional,externals,guards,returns,doc_head",
+   "condition": "调用 _first_def 时，必须提供实参 tree；无显式可选实参；体内引用的外部名 ast、isinstance 需在作用域中可解析；无显式守卫；在这些输入/状态下，返回表达式限定为 None、node、sub，功能说明为文档首行：取片段里第一个函数定义（含 async）；只有类时退其 __init__，再退类本身。"
+  },
+  {
+   "symbol": "is_candidate",
+   "facts_used": "name,required,optional,externals,guards,returns,doc_head",
+   "condition": "调用 is_candidate 时，必须提供实参 cg、nid；无显式可选实参；体内引用的外部名 bool、PREFIX、nodefile、str 需在作用域中可解析；守卫条件 not str(nid).startswith(PREFIX) 为假（即 str(nid).startswith(PREFIX) 为真）；在这些输入/状态下，返回表达式限定为 '生效条件' not in comp['required_present']、False，功能说明为文档首行：候选判据：代码节点且正文缺『生效条件』（机械判据，唯一）。"
+  },
+  {
+   "symbol": "plan",
+   "facts_used": "name,required,optional,externals,guards,returns,doc_head",
+   "condition": "调用 plan 时，必须提供实参 x；可选参数 ids、n、seed 默认均为 None，可省略；体内引用的外部名 dict、SAMPLE_SEED、SAMPLE_N、candidates、PREFIX、SPEC、refine、int、sorted、_item、len、round 需在作用域中可解析；守卫条件 ids 成立时进入该分支；在这些输入/状态下，返回表达式以 {'root': cg.root, 'dry_run': True, 'readonly': True, 'action': 'comment_gate', ...} 开头，功能说明为文档首行：抽检工单（只读）：确定性样本 + 源码落点 + 口径声明 + 样本充分性。"
+  },
+  {
+   "symbol": "judge",
+   "facts_used": "name,required,optional,externals,guards,returns,doc_head",
+   "condition": "BLINDSPOT：缺证据（guards 条件为 hits，但 hits 不在 required、optional、externals 中，facts 未提供局部变量定义或前置赋值证据，无法机械复核 hits 的输入或状态取值）。"
+  }
+ ],
+ "_provenance": {
+  "source": "LLM 单次调用（deepseek-flash）",
+  "job_id": "h1789643186033_ba80bc",
+  "prompt_chars": 2939,
+  "generated_for": "白箱条件填充器的槽位与校验清单",
+  "note": "模板由 LLM 产出；填充由 md_cg/cond_compose.py 确定性执行；校验由 md_cg/condition_anchor.py + 后续 LLM 复核"
+ }
+}
