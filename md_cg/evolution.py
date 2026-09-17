@@ -84,18 +84,22 @@ _STATE_RE = re.compile(r"```json state\s*\n(.*?)\n```", re.S)
 # 路径 / 追加
 # --------------------------------------------------------------------------
 
+# 生效条件：cg 可解析出 root 时，返回 os.path.join(cg.root, 模块常量 EVOLUTION_DIR)，无守卫分支。
 def evolution_dir(cg) -> str:
     return os.path.join(cg.root, EVOLUTION_DIR)
 
 
+# 生效条件：cg 可解析出 root 时，返回 evolution_dir(cg) 与模块常量 LEDGER_NAME 的 os.path.join 结果。
 def ledger_path(cg) -> str:
     return os.path.join(evolution_dir(cg), LEDGER_NAME)
 
 
+# 生效条件：无入参，任何一次调用都返回 "evo-" + time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex 的前 4 位。
 def new_entry_id() -> str:
     return "evo-" + time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
 
 
+# 生效条件：cg 与 text 给定时，在 FileLock(ledger_path(cg)) 内取旧内容（读不到或空则回退 _HEADER，不以换行结尾则补一个换行）并 atomic_write 写入 old + text，无需 text 非空。
 def _append(cg, text: str):
     """向账本追加一条（读-改-写 + 跨进程锁，崩溃不留半截文件）。"""
     p = ledger_path(cg)
@@ -112,6 +116,7 @@ def _append(cg, text: str):
         atomic_write(p, old + text)
 
 
+# 生效条件：ledger_path(cg) 对应路径不存在时返回 ""，否则以 encoding="utf-8"、errors="replace" 打开并返回 f.read() 的全部内容。
 def read_ledger(cg) -> str:
     p = ledger_path(cg)
     if not os.path.exists(p):
@@ -124,7 +129,9 @@ def read_ledger(cg) -> str:
 # 渲染 / 解析
 # --------------------------------------------------------------------------
 
+# 生效条件：field、before、after 任意取值下都返回 f"{field} {_short(before)}→{_short(after)}"。
 def _fmt_change(field, before, after) -> str:
+# 生效条件：v 为 list/tuple 返回 f"{len(v)}条"，为 dict 返回 f"{len(v)}键"，为 None 返回 "—"，为 float 返回 f"{v:g}"，其余类型返回 str(v)。
     def _short(v):
         if isinstance(v, (list, tuple)):
             return f"{len(v)}条"
@@ -138,6 +145,7 @@ def _fmt_change(field, before, after) -> str:
     return f"{field} {_short(before)}→{_short(after)}"
 
 
+# 生效条件：before 与 after 中任一为假值（None、{} 等）时该侧按 {} 参与比较，返回 STATE_FIELDS 中 b.get(k) != a.get(k) 的字段对应的 _fmt_change(k, b.get(k), a.get(k)) 列表。
 def diff(before, after):
     """状态差异 → 人类可读列表（只比认知状态字段）。"""
     b, a = before or {}, after or {}
@@ -145,6 +153,7 @@ def diff(before, after):
             for k in STATE_FIELDS if b.get(k) != a.get(k)]
 
 
+# 生效条件：entry 含键 'entry_id'（缺失即 KeyError）时，按 _BULLET_ORDER 输出值不属 None/""/[]/{} 的字段行（node_id 假值显示 '—'），并在 entry.get("state") 为真值时追加 json 状态块，返回以 "\n" 连接的文本。
 def _fmt(entry: dict) -> str:
     lines = [f"## {entry['entry_id']} · `{entry.get('node_id') or '—'}`", ""]
     for k in _BULLET_ORDER:
@@ -162,6 +171,7 @@ def _fmt(entry: dict) -> str:
     return "\n".join(lines)
 
 
+# 生效条件：text 中 _ENTRY_RE 匹配到 0 个条目时返回 []，匹配到则按各匹配区间解析为字典列表（node 为空或 "—" 时 node_id 置 None，state 段 json.loads 抛 ValueError 时 state 置 None，kind 缺省回落模块常量 KIND_CONDITION_GAP）。
 def _parse(text: str):
     out = []
     marks = list(_ENTRY_RE.finditer(text))
@@ -190,6 +200,7 @@ def _parse(text: str):
 # 认知状态
 # --------------------------------------------------------------------------
 
+# 生效条件：cg.get(node_id) 为假值（含 None）时返回 None，否则返回 frontmatter 中属于 STATE_FIELDS 且值不为 None 的字段（"layer" 缺失时用 node.get("path") 首段补上），保留 []/{}/"" 等显式空值。
 def state_of(cg, node_id):
     """抽取节点的认知状态（可回滚字段），节点不存在返回 None。
 
@@ -209,6 +220,7 @@ def state_of(cg, node_id):
 # 记录
 # --------------------------------------------------------------------------
 
+# 生效条件：pattern.strip() 非空且 kind 属于模块常量 KINDS 时追加并返回条目 e（pattern 为空白或 kind 未知抛 ValueError；action 去空白后为空且 extra 为真时取 extra.pop("change", "") 作 action；before/after 任一 non-None 时 state 记入二者 or {}；extra 中值不属 None/""/[]/{} 的键并入 e）。
 def record(cg, node_id=None, pattern="", missing="", action="", evidence="",
            source="", kind=KIND_CONDITION_GAP, before=None, after=None,
            extra=None):
@@ -249,6 +261,7 @@ def record(cg, node_id=None, pattern="", missing="", action="", evidence="",
 # 查询
 # --------------------------------------------------------------------------
 
+# 生效条件：cg 给定时返回 _parse(read_ledger(cg)) 的列表——node_id 为真值则只留该节点记录、kind 为真值则只留该类型记录、newest_first 为真值则 reverse、limit 为真值时截断为前 int(limit) 条（limit 为 0/None 等假值时不截断）。
 def entries(cg, limit=None, node_id=None, kind=None, newest_first=True):
     recs = _parse(read_ledger(cg))
     if node_id:
@@ -262,6 +275,7 @@ def entries(cg, limit=None, node_id=None, kind=None, newest_first=True):
     return recs
 
 
+# 生效条件：遍历 entries(cg, limit=0)（limit=0 为假值故不截断，覆盖全部记录），命中 r.get("entry_id") == entry_id 时返回该记录，否则返回 None。
 def show(cg, entry_id):
     for r in entries(cg, limit=0):
         if r.get("entry_id") == entry_id:
@@ -269,10 +283,12 @@ def show(cg, entry_id):
     return None
 
 
+# 生效条件：cg 与 node_id 给定时返回 {"node_id": node_id, "entries": entries(cg, limit=limit, node_id=node_id)}——node_id 为假值时 entries 不按节点过滤，limit 默认 50 为真值故截断，传 0 等假值则不截断。
 def history(cg, node_id, limit=50):
     return {"node_id": node_id, "entries": entries(cg, limit=limit, node_id=node_id)}
 
 
+# 生效条件：cg 给定时返回统计字典，其中 recs 取 entries(cg, limit=0) 全量、real 剔除 kind == 模块常量 KIND_ROLLBACK（missing 为空的条目不计入 by_missing、kind 缺省回落 KIND_CONDITION_GAP、source 缺省回落 "unknown"），top_patterns 取按 count 降序 pattern 升序排序后的前 int(limit) 项（limit 为 0 时切片为空列表）。
 def patterns(cg, limit=10):
     """规律统计：哪一维条件反复缺失、由谁触发、哪些规律重复出现。
 
@@ -301,6 +317,7 @@ def patterns(cg, limit=10):
             "by_source": by_source, "top_patterns": top[:int(limit)]}
 
 
+# 生效条件：cg 给定时返回固定结构字典——missing_top 取 patterns(cg) 的 by_missing 中计数最大项的键（by_missing 为空则 "（暂无）"），top_pattern 取 top_patterns[0]["pattern"]（为空则 "（暂无）"），recent 取 entries(cg, limit=5)。
 def summary(cg):
     p = patterns(cg)
     missing_top = (max(p["by_missing"].items(), key=lambda kv: kv[1])[0]
@@ -322,6 +339,7 @@ def summary(cg):
 # 回滚
 # --------------------------------------------------------------------------
 
+# 生效条件：cg.get(node_id) 为假时返回 ([], [{"field": "*", "reason": "节点不存在"}])，否则先处理 target 中的 "layer"（为真且不同于当前 path 首段时经 cg._move_layer 迁移并 appended "layer"，抛异常则记入 skipped，相同/为假时直接 appended "layer"），再按 STATE_FIELDS 处理：k 在 remove 中且存在于 frontmatter 则 pop 并 appended "-k"，k 在 target 中且值相同则 appended k、不同则改写并在 changed 时经 cg._write_node 回写，最终返回 (applied, skipped)（若层迁移后 node 取不回则提前返回）。
 def _apply_state(cg, node_id, target, remove=()):
     """把目标状态写回节点。返回 (applied, skipped)。
 
@@ -375,6 +393,7 @@ def _apply_state(cg, node_id, target, remove=()):
     return applied, skipped
 
 
+# 生效条件：cg 与 entry_id 定位 show(cg, entry_id) 后逐项判定——条目不存在返回未找到错误、kind == 模块常量 KIND_ROLLBACK 返回拒回滚错误、state 的 before 为假值返回无回滚状态错误、node_id 为假值返回未绑定节点错误、state_of 为 None 返回节点不可读错误；dry_run 为真值时返回含 current/target/would_remove/would_change 的预览；否则经 _apply_state(target, remove=after 中不属 before 且非 "layer" 的字段) 回写、尝试 cg.rebuild_index()（异常静默）并 record 一条 KIND_ROLLBACK 条目后返回 ok=True 结果。
 def rollback(cg, entry_id, dry_run=False, note=""):
     """把某条演化撤回其 before 状态，并记一条 rollback 条目（撤销不可静默）。"""
     src = show(cg, entry_id)
@@ -423,6 +442,7 @@ def rollback(cg, entry_id, dry_run=False, note=""):
 # 自描述
 # --------------------------------------------------------------------------
 
+# 生效条件：无入参，任何调用都返回含 module/schema/ledger/carrier/principles/fields/kinds/state_fields/condition_dims/rollback/actions 的固定字典（kinds、state_fields、condition_dims 分别来自模块常量 KINDS、STATE_FIELDS、CONDITION_DIMS）。
 def catalog():
     return {
         "module": "evolution",
