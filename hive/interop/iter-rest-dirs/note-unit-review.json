@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-rest-dirs",
+ "round": 1,
+ "candidate_commit": "1ed4d0a",
+ "branch": "task/iter-rest-dirs",
+ "unit_job": "h1789684070478_de7d51",
+ "verdict": "REJECT",
+ "package_n": 46,
+ "text": "复核发现与源码不符：emit_mcp_calls 的 BLINDSPOT 分支追加的是两条 read（mdcg_metacognition/mdcg_predict），条件却称各 verdict 均追加 write；cmd_run 运行失败用 rr.get('stage','swarm')，parse 失败时 stage='parse'，条件写死 stage=swarm；swarm_cli.main 仅检查 sys.stdout.reconfigure 后直接调用 sys.stderr.reconfigure，条件称 stdout/stderr 支持时改 UTF-8 不严谨。其余条目基本贴合。\nreason: 存在分支语义与源码不符，整批不应通过。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
