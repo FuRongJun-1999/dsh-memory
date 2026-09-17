@@ -1,0 +1,14 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-003-fixes",
+ "commit": "5a2778a",
+ "verdict": "PASS",
+ "receipt_job": "h1789640957061_0a3c",
+ "receipt_sha16": "b70b88991bab46ab",
+ "received_ts": 1789640957,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-003-fixes commit=5a2778a verdict=PASS | 机器重放两步（逐字）：test_units_poll=PASS 7 / FAIL 0；cogmap_sync check=通过。另（shell env 无 brain-root 实测）：test_mr_m3=M3 自测：109 通过 / 0 失败 / 0 跳过（hermetic 修复生效，与主侧证据一致）；run_tests md_cg 复跑=SUMMARY 86/86 通过，3 跳过（首跑 semantic_canonical 单发红为并发竞态偶发：单跑/复跑/连跑3次全绿，且 main 面单跑亦偶发红，非本候选回归）。再校准完成：判据树推进至 5a2778a（86/86），新指纹 c5a3280201a4499f（97 文件），凭证 4_ai/.zcode-verify/recalibration-iter003.json。baseline 符号化版已落 4_ai/dsh-memory/hive/interop/iter-000-baseline/verdict.sanitized.json（无 <local-root>/ 残留）。env 声明：四条结论取自验证端 shell（无 MDCG_ROOT）",
+ "commands_sanitized": "[{\"label\": \"test_units_poll\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_units_poll\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}]",
+ "note": "本文件由 ingest_receipts.py 幂等生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

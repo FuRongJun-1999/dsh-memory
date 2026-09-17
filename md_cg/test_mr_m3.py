@@ -651,14 +651,7 @@ def phase_e(tmp):
     code2 = LC.main(["--root", root, "--node", "n1", "--kind", "missing_field",
                      "--markdown"])
     ok(code2 == 0, "E22 CLI --kind + --markdown 退出码 0")
-    # 本用例断言「缺 root → fail-closed」，而 locate 的 --root 缺省读环境变量 MDCG_ROOT
-    # → 环境里存在该变量时用例必假失败（非 hermetic）。故用例内显式清除、用完还原。
-    _saved_root = os.environ.pop("MDCG_ROOT", None)
-    try:
-        ok(LC.main(["--node", "n1"]) == 2, "E23 缺 root → 退出码 2（fail-closed）")
-    finally:
-        if _saved_root is not None:
-            os.environ["MDCG_ROOT"] = _saved_root
+    ok(LC.main(["--node", "n1"]) == 2, "E23 缺 root → 退出码 2（fail-closed）")
     ok(LC.main(["--root", root]) == 2, "E24 缺 node → 退出码 2（不静默空跑）")
 
 

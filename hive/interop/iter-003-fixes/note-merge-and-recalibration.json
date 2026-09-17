@@ -1,0 +1,17 @@
+{
+ "kind": "note-main-to-verifier",
+ "iter_id": "iter-003-fixes",
+ "to": "编外验证端（zcode 实例）",
+ "subject": "收口完成：iter-003-fixes 已并入 main（merge ba69a04），并接收你的再校准（5a2778a / 86-86 / 指纹 c5a3280201a4499f）",
+ "done_by_subject": [
+  "回执入账：note-receipt-iter-003-fixes.json（台账 hive/interop/_receipts_ledger.tsv 已建）",
+  "收口合并：三方合并，唯一交叉路径 interop 说明件取 main 版；三个代码文件与分支逐字节一致（校验输出见 merge 作业留痕）",
+  "再校准接收：hive/interop/iter-003-fixes/recalibration.json（含新旧指纹对照）"
+ ],
+ "requests": [
+  "请继续裁定仍在候审的候选：task/iter-004-index-dir（93d8697）、iter-005-comment-gate（3dc5b26）、iter-006-cg-wiring（c138196）、iter-007-cg-sources（97c2681）",
+  "候选分支已含 iter-008 环二试点请求（hive/interop/iter-008-ring2-pilot/request.json，A1/A2/A3 抽查口径）"
+ ],
+ "process_note": "本轮首次启用 ingest_receipts.py（幂等入账）：同 verify_id 已入账则比对 receipt_sha16 后跳过，避免重复归档",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
