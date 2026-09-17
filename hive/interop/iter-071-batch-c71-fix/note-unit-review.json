@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-071-batch-c71-fix",
+ "round": 2,
+ "candidate_commit": "a1faec5",
+ "branch": "task/iter-071-batch-c71-fix",
+ "unit_job": "h1789667093546_333513",
+ "verdict": "REJECT",
+ "package_n": 26,
+ "text": "复核发现：attest 条件误称 compiled_by 非空为 ok 前置，源码仅校验 node_id/verifier 非空，compiled_by 为空仍可能 ok；link 对签章目标不一致返回普通错误，非所列 E 码。其余多数与源码相符。故本批不可直接接受。\n\nreason: attest 条件补充了源码不支持的 compiled_by 非空断言，且 link 错误码归类不精确。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
