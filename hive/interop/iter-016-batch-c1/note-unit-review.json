@@ -1,0 +1,10 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-016-batch-c1",
+ "candidate_commit": "4e7f0b6",
+ "unit_job": "h1789651948828_803621",
+ "verdict": "REJECT",
+ "package_n": 11,
+ "text": "复核发现不符：`_term_degree` 源码仅回退长度 L≥2 子串；条件未限定 L，term=\"ab\",text=\"a\" 会误述为 0.25，实为 0.0；且“term 长度<2 返回0.0”与整词命中先返回1.0冲突。`_declared_conditions` 漏掉 `state_attributes.comment[\"不适用条件\"]` 也进 neg。`_slot_overlap` 中 pos 有值而 q_domain 空时仍计入权重2.0(sim=0)，条件未说明。\nreason: 存在源码分支漏写与命中范围误述，条件不完整且有假断言。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
