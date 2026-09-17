@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-078-batch-c78-fix",
+ "round": 2,
+ "candidate_commit": "9e62653",
+ "branch": "task/iter-078-batch-c78-fix",
+ "unit_job": "h1789669894691_28cd2d",
+ "verdict": "REJECT",
+ "package_n": 29,
+ "text": "复核：多数条目贴合，但存在不可接受处：_quota 的 rest 可为负，写成“补给”不符源码 `out[key]+=rest`；_pool_candidates 未锚定 `reads` 仅在 `_fm_of` 返回非空 fm 时递增；audit 的 unverified 漏 `age>=unverified_days`，orphan_noise 漏 contextual/零访问/importance 阈值；catalog 的 actions 是硬编码非模块常量。故本批应退回。\nreason: 多处生效条件漏关键前置或与源码语义不符，不能作为功能级条件。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
