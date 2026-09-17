@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-047-batch-c47",
+ "round": 1,
+ "candidate_commit": "a19e0b6",
+ "branch": "task/iter-047-batch-c47",
+ "unit_job": "h1789663524313_11218d",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "条件与源码一致：三处来源合并、strip/非空/桶内去重、pos/neg 分桶、无有效项返回空列表均相符；未见 assert 误述、None/假值分支矛盾或额外断言。  \nreason: 所述三来源合并去重及空返回与源码实现一致。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
