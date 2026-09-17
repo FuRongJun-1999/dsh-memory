@@ -24,6 +24,7 @@ ALGO = "rust_swarm-0.1"
 DEFAULT_SECRET = "蜂群默认密钥"
 
 
+# 生效条件：instances 每项必含 id（i["id"]），role/trust/symbols 分别缺省回落 "worker"/0.0/{}，rounds 经 max(1, int(rounds))，routes 为 None 或空时得到空列表、否则每项必含 from 与 to（r["from"]/r["to"]），condition_space 非 None 时写入 cfg["condition_space"]，返回 cfg；
 def make_swarm_config(instances: List[Dict], routes: Optional[List[Dict]] = None,
                       rounds: int = 1, shared_secret: str = DEFAULT_SECRET,
                       topology: str = "",
@@ -47,6 +48,7 @@ def make_swarm_config(instances: List[Dict], routes: Optional[List[Dict]] = None
     return cfg
 
 
+# 生效条件：先把 config 写入 project_dir/swarm.json，exe 为假值时回落 build_rust_exe(project_dir)，以 [exe, "swarm", "--config", cfg_path, "--wal", wal_full] 运行且 pbc_path 真值时追加 --pbc，returncode!=0 返回 stage=swarm，末行 JSON 解析失败返回 stage=parse，成功返回 {"ok": True, "report": report, "wal": wal_full}；
 def run_swarm(project_dir: str, config: Dict, wal_path: str = "events.jsonl",
               timeout: int = 120, pbc_path: Optional[str] = None,
               exe: Optional[str] = None) -> Dict:
@@ -85,6 +87,7 @@ def run_swarm(project_dir: str, config: Dict, wal_path: str = "events.jsonl",
     return {"ok": True, "report": report, "wal": wal_full}
 
 
+# 生效条件：逐行读 wal_path，strip 后为空则跳过，否则以 rec["type"]/["from"]/["to"]/["round"]/["ts"] 与 rec.get("seq", 0) 及原始 payload 文本重算 HMAC 与 rec["hmac"] 比对，type=="__snapshot__" 只计入 snapshots 而其余计入 total/verified/bad，all_valid = bad==0 and snap_bad==0；
 def verify_wal_signatures(wal_path: str, shared_secret: str) -> Dict:
     """WAL 逐条验签（Python hmac 独立实现——交叉验证 Rust 手写 SHA256）。
     签名串 v0.7.1：seq|type|from|to|round|ts|payload（与 Rust swarm.rs 约定
@@ -126,6 +129,7 @@ def verify_wal_signatures(wal_path: str, shared_secret: str) -> Dict:
             "all_valid": bad == 0 and snap_bad == 0}
 
 
+# 生效条件：trust_values 逐项 clamp 到 [0.0, 1.0] 后得到 ts，ts 为空列表时四项全返回 0.0，否则返回 avg=sum/n、min(ts)、var=sum((t-avg)^2)/n 与 avg>0 时的 align=1-var/avg（avg 为 0 时 align=0.0）；
 def aggregate_trust_python(trust_values: List[float]) -> Dict:
     """信任聚合 Python 参照（对齐 aeis.swarm.trust_aggregator.snapshot 操作化定义：
     T_alignment = 1 - T_variance / T_avg；值域 0-1 夹取）。"""
@@ -143,6 +147,7 @@ DEFAULT_HEALTH_WEIGHTS = {"success": 0.4, "uptime": 0.2, "threat": 0.2,
                           "integrity": 0.2}
 
 
+# 生效条件：weights/verify_fail/total_events/gossip_coverage 为 None 或假值时分别回落 DEFAULT_HEALTH_WEIGHTS 与空 dict，对 round_outcomes 每实例按 total=max(1,len(outcomes))、非 None 计参与、True 计成功、False 计 error，total_events 缺省 0 时 ir=1.0*覆盖率（否则 (t-vf)/t*cov，cov 由 gc.get(iid,1.0) 夹取到 0-1），score 夹取到 [0,1]；
 def aggregate_health_python(round_outcomes: Dict[str, list],
                             verify_fail: Optional[Dict[str, int]] = None,
                             total_events: Optional[Dict[str, int]] = None,
