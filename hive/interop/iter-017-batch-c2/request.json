@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-017-batch-c2",
- "candidate_commit": "0c49753a50e5",
+ "candidate_commit": "7cb1f01dd455",
  "branch": "task/iter-017-batch-c2",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -18,5 +18,25 @@
   "run": "cd <tmp> && python -X utf8 scripts/run_tests.py --jobs 4"
  },
  "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
- "action": "batch-split"
+ "action": "batch-split",
+ "known_open": {
+  "held_branch": "task/iter-017-held",
+  "held_commit": "12b4fcf929b0",
+  "excluded": [
+   "__init__",
+   "cn_recall_grams",
+   "normalize_en",
+   "_extract_json_array"
+  ],
+  "unit_r2_quote": "除 _extract_json_array 外，其余条件基本与源码一致",
+  "unit_r1_findings": {
+   "__init__": "声称依赖未出现的模块级 SCHEMA",
+   "cn_recall_grams": "『至多 cap 个』在 cap≤0 时不成立",
+   "normalize_en": "仅对 [a-zA-Z]{2,} 小写，单字母英文不保证"
+  },
+  "unit_r2_finding": {
+   "_extract_json_array": "漏 i<0 返回 None 分支；json.loads 非法子串会抛异常而非返回 None"
+  }
+ },
+ "delivery_rule": "交付条件 = 单元无 finding，或 finding 已全部移入 held（held 不阻塞交付）；本批为后者"
 }
