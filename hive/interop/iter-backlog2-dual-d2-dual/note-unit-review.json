@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-backlog2-dual-d2-dual",
+ "round": 5,
+ "candidate_commit": "2722e54",
+ "branch": "task/iter-backlog2-dual-d2-dual",
+ "unit_job": "h1789679211334_b39b46",
+ "verdict": "ACCEPT",
+ "package_n": 4,
+ "text": "复核四条：build 的 `rows or load_rows()`、`have` 起始快照、`flush/return` 与源码一致；paired_test 空 `r4` 返回 `{}`、b01/b10/p、bootstrap CI、MRR None 形状一致；print_sig 以 `r4` 非空追加 scope、调用与无返回一致；_path_semantic 的 `__` 过滤、空 `tw` 早退、`neg_gate`、加权封顶、`score<=0` 跳过一致。未发现参数误用、源码外断言或关键空容器/假值前置遗漏。position_ok=true。\nreason: 四条功能级生效条件均准确锚定源码分支与前置，无实质偏差。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
