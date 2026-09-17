@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-113-batch-c113-fix-d1-d2",
+ "round": 4,
+ "candidate_commit": "ebfccd3",
+ "branch": "task/iter-113-batch-c113-fix-d1-d2",
+ "unit_job": "h1789684002086_d876b0",
+ "verdict": "ACCEPT",
+ "package_n": 14,
+ "text": "复核14条：条件与源码一致，覆盖触发输入、假值跳过、None/空容器、返回形状及权限异常；锚定形参、模块常量与早退前置，未发现不符或超源码断言。位置题给 position_ok=true。\nreason: 全部候选功能级生效条件均与对应源码分支一致。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
