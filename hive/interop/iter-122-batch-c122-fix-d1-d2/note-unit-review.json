@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-122-batch-c122-fix-d1-d2",
+ "round": 4,
+ "candidate_commit": "79664e4",
+ "branch": "task/iter-122-batch-c122-fix-d1-d2",
+ "unit_job": "h1789686933127_2f7160",
+ "verdict": "REJECT",
+ "package_n": 5,
+ "text": "1) root 必传、_ensure_repo 先于 MdCGOS 可锚定；但 repo_path 回落 LINGSHU_REPO、均假值抛 RuntimeError 属 _ensure_repo 内部，src_segment 未给，属源码不支持断言。2) anchor_global 一致，None 会写 \"None\"。3) merge_global 一致。4) submit 主体一致；needs_adjudication 源码为 cvd.get(\"verdict\")==\"DEFER\"，条件写 conflict.verdict 不精确。5) adjudicate 一致。\nreason: 第1条补充未给源码的 _ensure_repo 行为，第4条 verdict 取值表述不精确，不能全采纳。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
