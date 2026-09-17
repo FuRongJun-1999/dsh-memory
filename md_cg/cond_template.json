@@ -91,5 +91,17 @@
   "prompt_chars": 2939,
   "generated_for": "白箱条件填充器的槽位与校验清单",
   "note": "模板由 LLM 产出；填充由 md_cg/cond_compose.py 确定性执行；校验由 md_cg/condition_anchor.py + 后续 LLM 复核"
- }
+ },
+ "refinements": [
+  {
+   "version": "v0.2",
+   "source": "主体依据验证单元/校验者实测修正，待 LLM 复核",
+   "changes": [
+    "C5 原口径『不得补充 facts 未提供的细节』改为：**不得补充源码与 facts 都不支持的断言**——校验者与生成者必须拿到相同证据面（facts + 源码片段）",
+    "C6/C9 增加 `early` 条件：只有『首条语句且含 return/raise』的守卫才是前置条件；函数内部分支不写",
+    "校验输出必须给出禁用短语集合 D（已随提示词提供），否则 C2 不可核验"
+   ],
+   "evidence": "iter-010 两轮 REJECT（模板拼句无功能语义）；iter-011 校验 v2：仅给 facts 时 11 条 C5 误报，其『改写』比原句更含糊"
+  }
+ ]
 }

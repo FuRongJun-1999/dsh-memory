@@ -1,0 +1,15 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "verify-2969fda",
+ "commit": "2969fda",
+ "verdict": "PASS",
+ "receipt_job": "h1789643845415_5eb4",
+ "receipt_sha16": "2aaeeac252970ed0",
+ "received_ts": 1789643845,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=verify-2969fda commit=2969fda verdict=PASS | 机器重放两步（逐字）：test_codeindex=PASS 47 / FAIL 0 / SKIP 0；cogmap_sync check=通过。另（验证端 shell 实测，env 无 brain-root）：test_condition_anchor=PASS 13 / FAIL 0；test_comment_gate=PASS 30 / FAIL 0；verifier self-test=5/5 通过；run_tests md_cg=SUMMARY 88/88 通过，3 跳过。备注：白箱填充流水线 v0.1 新模块（cond_facts/cond_compose/cond_template）暂无独立单测文件，测试记录在文档，不影响既有判据面",
+ "commands_sanitized": "[{\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}]",
+ "related_note": "",
+ "note": "由 ingest_receipts.py v2 生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

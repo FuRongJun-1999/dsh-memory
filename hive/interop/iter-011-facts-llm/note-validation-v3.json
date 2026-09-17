@@ -1,0 +1,123 @@
+{
+ "kind": "llm-validation",
+ "iter_id": "iter-011-facts-llm",
+ "round": "v3（同证据面）",
+ "validator_job": "h1789645556668_e73bf4",
+ "stats": {
+  "PASS": 9,
+  "REVISE": 4
+ },
+ "adopted_revisions": [
+  "_externals",
+  "_guards",
+  "judge",
+  "referenced"
+ ],
+ "adopted_count": 4,
+ "rejected_revisions": [],
+ "candidate_commit": "bdd5b8301083",
+ "detail": [
+  {
+   "symbol": "_first_def",
+   "verdict": "PASS",
+   "failed": [],
+   "evidence": "src_segment: for node in ast.walk(tree): if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)): return node; ... return None",
+   "revised": ""
+  },
+  {
+   "symbol": "signature",
+   "verdict": "PASS",
+   "failed": [],
+   "evidence": "src_segment: if isinstance(fn, ast.ClassDef): return [], []; ... for a, d in zip(fn.args.kwonlyargs, fn.args.kw_defaults): (optional if d is not None else required).append(a.arg)",
+   "revised": ""
+  },
+  {
+   "symbol": "referenced",
+   "verdict": "REVISE",
+   "failed": [
+    "C6"
+   ],
+   "evidence": "src_segment: elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node is not fn: local.add(node.name)",
+   "revised": "fn 为函数定义节点时，返回其体内 Load 名字集合剔除 fn 的形参名、Store/Del 本地名及嵌套函数/异步函数定义名后的差集。"
+  },
+  {
+   "symbol": "judge",
+   "verdict": "REVISE",
+   "failed": [
+    "C1",
+    "C7"
+   ],
+   "evidence": "src_segment: if strong or weak: out.update(verdict=\"ANCHORED\", ok=True, ...); if not required and not refs: out.update(verdict=\"BLINDSPOT\", ...); out.update(verdict=\"WEAK\", ...)",
+   "revised": "cond 与 src 给定后：若 str(cond) 含 META_MARKS 则返回 REJECT_META；否则解析 src，取 _first_def、signature、referenced，并按 cond 中标识符是否命中 required 或 referenced 得出 ANCHORED（ok=True）、无 required/refs 时 BLINDSPOT、否则 WEAK；prefi"
+  },
+  {
+   "symbol": "judge_batch",
+   "verdict": "PASS",
+   "failed": [],
+   "evidence": "src_segment: for pid, cond, src in pairs: r = judge(cond, src); r[\"id\"] = pid; ... return {\"rows\": rows, \"stats\": stat, \"ok\": sum(1 for r in rows if r[\"ok\"])}",
+   "revised": ""
+  },
+  {
+   "symbol": "_src_seg",
+   "verdict": "PASS",
+   "failed": [],
+   "evidence": "src_segment: return ast.get_source_segment(chr(10).join(src_lines), node) or \"\"; except Exception: return \"\"",
+   "revised": ""
+  },
+  {
+   "symbol": "_defaults",
+   "verdict": "PASS",
+   "failed": [],
+   "evidence": "src_segment: for a, d in zip(tail, defaults): optional.append({\"name\": a.arg, \"default\": _src_seg(src_lines, d)[:40]}); for a, d in zip(fn.args.kwonlyargs, fn.args.kw_defaults): if d is None: required",
+   "revised": ""
+  },
+  {
+   "symbol": "_guards",
+   "verdict": "REVISE",
+   "failed": [
+    "C6"
+   ],
+   "evidence": "src_segment: elif isinstance(st, ast.Assert): out.append({\"kind\": \"assert\", \"cond\": _unparse(st.test), \"early\": True}); elif isinstance(st, ast.Raise): out.append({\"kind\": \"raise\", \"cond\": _unparse(st",
+   "revised": "fn 具 body 时，扫描其前 6 条语句中的 If/Assert/Raise 并收集条件源码；If 仅在第 0 条且子树含 Return/Raise 时 early 为 True，Assert 与 Raise 的 early 为 True。"
+  },
+  {
+   "symbol": "_unparse",
+   "verdict": "PASS",
+   "failed": [],
+   "evidence": "src_segment: try: return ast.unparse(node)[:80]; except Exception: return \"\"",
+   "revised": ""
+  },
+  {
+   "symbol": "_returns",
+   "verdict": "PASS",
+   "failed": [],
+   "evidence": "src_segment: if isinstance(node, ast.Return) and node.value is not None: s = _unparse(node.value); if s and s not in out: out.append(s); if len(out) >= 3: break",
+   "revised": ""
+  },
+  {
+   "symbol": "_externals",
+   "verdict": "REVISE",
+   "failed": [
+    "C6"
+   ],
+   "evidence": "src_segment: elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node is not fn: local.add(node.name)",
+   "revised": "fn 为函数定义节点时，返回其体内 ast.Name 引用名剔除 fn 的形参名、Store/Del 本地名及嵌套函数/异步函数定义名后取前 12 项的名字列表。"
+  },
+  {
+   "symbol": "_doc",
+   "verdict": "PASS",
+   "failed": [],
+   "evidence": "src_segment: d = ast.get_docstring(node) or \"\"; return d.strip().split(chr(10))[0][:100]",
+   "revised": ""
+  },
+  {
+   "symbol": "file_facts",
+   "verdict": "PASS",
+   "failed": [],
+   "evidence": "src_segment: text = open(path, encoding=\"utf-8\", errors=\"replace\").read(); tree = ast.parse(text); ... return out",
+   "revised": ""
+  }
+ ],
+ "note": "v2（仅给 facts）11 条 C5 误报已归因为证据面不对等；v3 同证据面后仅 3 条真实遗漏并采纳",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

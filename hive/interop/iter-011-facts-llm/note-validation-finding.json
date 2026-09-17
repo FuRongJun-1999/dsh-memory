@@ -1,0 +1,10 @@
+{
+ "kind": "validation-finding",
+ "iter_id": "iter-011-facts-llm",
+ "finding": "校验者与生成者证据面不对等 → C5 系统性误报",
+ "evidence": "v2 校验仅给 facts：11/13 判 REVISE，failed 全为 C5，理由均为『补充 facts 未提供的细节』（ast.walk / defaults 长度切分 / Load/Store/Del / 前 6 条 / 前 3 项 / utf-8）——这些在源码中真实存在；且其 `revised` 文本更含糊（如把『前 6 条』改成『前若干语句』）",
+ "correction": "校验者必须与生成者拿到相同证据面（facts + 源码片段）；C5 口径改为『不得补充源码与 facts 都不支持的断言』",
+ "applied_to": "md_cg/cond_template.json :: refinements[v0.2]",
+ "consequence": "本批不采纳 v2 的 revised 文本（采纳会降质）；以 v3（同证据面）复校为准",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
