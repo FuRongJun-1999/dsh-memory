@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-089-batch-c89",
+ "round": 1,
+ "candidate_commit": "c66fa65",
+ "branch": "task/iter-089-batch-c89",
+ "unit_job": "h1789673035961_01e2ba",
+ "verdict": "REJECT",
+ "package_n": 24,
+ "text": "复核：多数条目与源码相符。关键不符：`_open_cg` 中 tenant/actor 用 `os.environ.get(k, default)`，仅当变量缺失才回落；环境变量为空串时返回空串，条件“缺失或为空串回落”不成立。其次 `_collect` 在 subjects 为空/None 时仍强制要求 `subject:` 标签，条件表述有误导。故不应全接受。\n\nreason: `_open_cg` 对环境变量空串回落的判断与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
