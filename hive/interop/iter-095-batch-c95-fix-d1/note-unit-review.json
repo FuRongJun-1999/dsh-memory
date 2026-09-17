@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-095-batch-c95-fix-d1",
+ "round": 3,
+ "candidate_commit": "36592aa",
+ "branch": "task/iter-095-batch-c95-fix-d1",
+ "unit_job": "h1789677921046_6ba51a",
+ "verdict": "ACCEPT",
+ "package_n": 21,
+ "text": "逐条比对源码：各条均明确输入/状态，锚定形参/常量/早退前置；假值、None、or 短路、返回形状与源码一致；未发现源码不支持的断言；position_ok 均为 true。  \nreason: 全部条件与源码分支及返回形状一致，无越界断言。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
