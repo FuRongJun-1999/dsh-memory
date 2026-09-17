@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-020-batch-c4",
- "candidate_commit": "89b761b",
+ "candidate_commit": "a51d2ef",
  "branch": "task/iter-020-batch-c4",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -17,5 +17,14 @@
   "extract": "git archive --format=tar task/iter-020-batch-c4 | tar -xf - -C <tmp>",
   "run": "cd <tmp> && python -X utf8 scripts/run_tests.py --jobs 4"
  },
- "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
+ "known_open": {
+  "excluded": [
+   "compiler/parser.py::StepNode"
+  ],
+  "unit_r1_finding": "StepNode 条件称「statement 为 None 时 add_child 跳过」，片段无此依据（越证）→ 已剔除",
+  "held_note": "StepNode 待单独打磨；其余 17 条经单元复核未再点出问题"
+ },
+ "position_fix": "按编外对 iter-018 c3 的 A3 判定修复：注释改置 def/class 行正上方（装饰器之下）；本批自检 ok=17 / bad=0",
+ "class_aware": "类符号 facts 取自其 __init__（此前为空导致门禁必拒）"
 }
