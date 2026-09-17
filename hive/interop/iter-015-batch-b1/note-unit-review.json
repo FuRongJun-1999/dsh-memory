@@ -1,10 +1,15 @@
 {
  "kind": "unit-review",
  "iter_id": "iter-015-batch-b1",
- "candidate_commit": "36055c1",
- "unit_job": "h1789649119545_e7d52b",
+ "round": 2,
+ "candidate_commit": "df03dd6d0c4f",
+ "unit_job": "h1789649484686_e8ef32",
  "verdict": "REJECT",
  "package_n": 23,
- "text": "复核：`perturb_kw` 条件称三种 mode 均按 idx 扰动，但源码 `noise3` 分支不用 idx；且全空白 text 会因 `if not words` 早退原样返回，并非“非空即扰动”。`_decide_mem` 称 fix 出现在召回文本即命中，源码 `if case[\"fix\"] and ...` 要求 fix 非空，空 fix 会回退。条件未锚定 nonempty 前置。\nreason: 候选条件漏掉空/空白早退与 fix 非空前置，且 noise3 的 idx 断言源码不支持。\nverdict: REJECT",
+ "fixed": [
+  "md_cg/bench_en_atoms_public.py::perturb_kw",
+  "md_cg/bench_task_ab.py::_decide_mem"
+ ],
+ "text": "复核：多数条件锚定形参与常量，但有源码不符/漏前置：bench_task_ab_llm.main 的 argv=None 实际由 argparse 读 sys.argv[1:]；branches.branch_tag 对 0/False 等假值也按空；_verdict 返回还含 detail；_rule_check 实际返回 (verdict,msg)；diag_failures 未锚定 search_rrf 非空，res 空会 IndexError。其余基本可接受，建议逐条修正。\n\nreason: 存在条件与源码不符并漏关键前置，不能整体通过。\nverdict: REJECT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
