@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-065-batch-c65-fix",
+ "round": 2,
+ "candidate_commit": "956e3a9",
+ "branch": "task/iter-065-batch-c65-fix",
+ "unit_job": "h1789665791639_04aa20",
+ "verdict": "REJECT",
+ "package_n": 48,
+ "text": "复核不通过：`_identity_call`、`_self_state_call`、`_sustain_call`、`_scrub_call`、`_task_call`、`_maintain_call`、`_build_principal` 将源码已展示的分支误标为截断/BLINDSPOT；另 `_s` 的“任意 **props”未限定值须为 dict，`_pick_source` 未提非 dict JSON 的 AttributeError。\nreason: 存在与 src_segment 直接矛盾的缺证据断言及未覆盖异常前置，候选条件不可整体采信。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
