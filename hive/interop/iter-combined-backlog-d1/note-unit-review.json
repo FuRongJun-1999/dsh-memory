@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-combined-backlog-d1",
  "round": 3,
- "candidate_commit": "f8c5a0c",
+ "candidate_commit": "5117f51",
  "branch": "task/iter-combined-backlog-d1",
- "unit_job": "h1789675756859_2b0306",
- "verdict": "ACCEPT",
- "package_n": 75,
- "text": "复核：逐项对照源码，条件均回答输入/状态，锚定形参、模块常量与早退前置；未发现 assert、None/假值、闭包来源、返回形状、长度/空容器等不符；未补充源码外断言；position_ok=true 位置合规。\nreason: 全部条件与源码分支及前置一致，未发现需拒绝的偏差。\nverdict: ACCEPT",
+ "unit_job": "h1789676482025_47f667",
+ "verdict": "REJECT",
+ "package_n": 52,
+ "text": "复核：多数条目贴合，但 `_path_entity` 未锚定 `_read/_open_content` 返回 None 的早退；`_path_graph` 未提 `self.get(nid)` 为空跳过及读取失败早退；`VectorRagAdapter` 将 `os.environ.get(...)` 写成 `os.environ[...]`，缺键语义不符；`_path_semantic` 未提 `context` 影响情境亲和，`_path_chain` 的 `seed_map` 非入参且未提 `seeds[:8]`。  \nreason: 存在源码不符与漏早退前置，整批不可直接通过。  \nverdict: REJECT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
