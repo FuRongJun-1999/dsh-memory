@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-122-batch-c122",
+ "round": 1,
+ "candidate_commit": "f3decdc",
+ "branch": "task/iter-122-batch-c122",
+ "unit_job": "h1789686744498_e62873",
+ "verdict": "REJECT",
+ "package_n": 8,
+ "text": "核验：1、2、5、6、7、8 基本符合源码。  \n3 不完整：`OrcMemory.__init__` 先执行 `_ensure_repo(repo_path)`；若 `repo_path` 与 `LINGSHU_REPO` 均假会先抛 `RuntimeError`，不会创建 `MdCGOS`，条件漏此早退前置。  \n4 略有出入：`extra_ctx` 源码直接格式化，并非“为空则空串”，显式 `None` 会成 `\"None\"`。  \n因此不能整批接受。\n\nreason: 第3条未锚定 `_ensure_repo` 早退前置，第4条含源码不支持的假值回落表述。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
