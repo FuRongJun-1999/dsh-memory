@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-021-batch-c5",
- "candidate_commit": "85f6eb2",
+ "candidate_commit": "e875072",
  "branch": "task/iter-021-batch-c5",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -17,5 +17,25 @@
   "extract": "git archive --format=tar task/iter-021-batch-c5 | tar -xf - -C <tmp>",
   "run": "cd <tmp> && python -X utf8 scripts/run_tests.py --jobs 4"
  },
- "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
+ "increment_vs_base": {
+  "base": "main",
+  "new_annotation_lines": 25,
+  "total_lines_on_branch": 25,
+  "note": "按编外提示区分口径：本字段为相对 main 的**实际增量**；total 为分支累计"
+ },
+ "known_open": {
+  "excluded": [
+   "watermarks",
+   "read_stamp",
+   "diagnose",
+   "heal"
+  ],
+  "unit_r1_findings": {
+   "watermarks": "称 JSON 非 dict 返回 {}，源码未校验顶层 dict，非空 list 会 AttributeError",
+   "read_stamp": "未锚定 ts 可转 float 前置",
+   "diagnose": "称受 check_* 开关控制，但可见 refs 检查未受 check_provenance 守卫",
+   "heal": "漏述 allow_evolve 演化动作"
+  }
+ }
 }
