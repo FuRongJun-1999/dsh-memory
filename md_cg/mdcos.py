@@ -64,6 +64,7 @@ DEFAULT_BUDGET = 1200  # recall 默认 token 预算
 DEFAULT_MAX_ITEM_TOKENS = 250
 
 
+# 生效条件：text 为假值（None/空串）时返回 0，否则按「CJK 0.6/字 + 其余 /4」计算并返回 int(cjk*0.6 + other/4) + 1。
 def est_tokens(text: str) -> int:
     """确定性 token 估算：CJK 0.6/字 + 其余 /4（与白箱 adapter 口径一致）。"""
     if not text:
@@ -74,6 +75,7 @@ def est_tokens(text: str) -> int:
     return int(cjk * 0.6 + other / 4) + 1
 
 
+# 生效条件：text 非空且 max_tokens > 0 时返回 est_tokens 口径 ≤ max_tokens 的摘录，text 为空或 max_tokens ≤ 0 时返回空串 ''，est_tokens(text) ≤ max_tokens 时原样返回 text。
 def excerpt_tokens(text: str, max_tokens: int) -> str:
     """按 est_tokens 口径截取正文前 max_tokens 的摘录（用于 recall 的单条上限）。
 
@@ -103,10 +105,12 @@ def excerpt_tokens(text: str, max_tokens: int) -> str:
     return out
 
 
+# 生效条件：text 为可调用 .strip().encode("utf-8") 的字符串时，返回 hashlib.sha1(text.strip().encode("utf-8")).hexdigest()[:n]，n 默认 12 只决定摘要截取长度。
 def _sig(text: str, n: int = 12) -> str:
     return hashlib.sha1(text.strip().encode("utf-8")).hexdigest()[:n]
 
 
+# 生效条件：term 与 text 均非空时，term 整词出现在 text 中返回 1.0；否则仅当 term 长度 n≥2 且存在长度 L 满足 2≤L<n 的最长命中子串时返回 0.5*L/n；term 或 text 为空、term 长度 <2、或无此类命中子串时返回 0.0。
 def _term_degree(term: str, text: str) -> float:
     """词在文本中的分级命中（0~1）：整词出现 1.0；否则取最长命中子串的长度比 × 0.5。
 
@@ -129,6 +133,7 @@ def _term_degree(term: str, text: str) -> float:
     return 0.0
 
 
+# 生效条件：tw 为 {词: 权重} 映射（None 视作空），只累加 t 不以 "__" 开头且权重 w > 0 的项，返回 num/den；tw 无有效项（den 为 0）时返回 0.0，text 任意（转交 _term_degree）。
 def _weighted_coverage(tw: dict, text: str) -> float:
     """词权 × 分级命中的加权覆盖率 ∈ [0,1]。"""
     num = den = 0.0
@@ -150,6 +155,7 @@ def _weighted_coverage(tw: dict, text: str) -> float:
 # 条件空间重合率是《激活引擎》cond_match 已被认证的度量。
 # ---------------------------------------------------------------------------
 
+# 生效条件：content 中某行以 "#" 开头、含 name、且以 "：" 或 ":" partition 出的 head.strip() 恰等于 name 时返回该行 val.strip()（首个命中即返回）；无此行使返回空串 ''，content 为 None/空按空串处理。
 def _ccg_field(content: str, name: str) -> str:
     """取 CCG 正文中 `# <name>：` 那一行的值（确定性扫描，无正则回溯风险）。"""
     for line in (content or "").splitlines():
@@ -195,6 +201,7 @@ def _declared_conditions(fm: dict, content: str):
     return pos, neg
 
 
+# 生效条件：neg_texts 非空且 tw 中存在长度 ≥ 2、权重 ≥ min_weight（默认 0.6）的词，其对该拼接 blob 的 _term_degree ≥ 0.5 时返回 True；neg_texts 为空或无此类词时返回 False。
 def _neg_hit(tw: dict, neg_texts, min_weight: float = 0.6) -> bool:
     """不适用条件是否被查询词**整词**命中——条件级负路由。
 
@@ -212,6 +219,7 @@ def _neg_hit(tw: dict, neg_texts, min_weight: float = 0.6) -> bool:
     return False
 
 
+# 生效条件：a 与 b 均为可取 a[0]、a[1]（b[0]、b[1]）并能 float() 的两元素窗口，否则（TypeError/ValueError/IndexError/KeyError）返回 0.0；交叠 hi > lo 时返回 min(1.0,(hi-lo)/span)，span ≤ 0 返回 1.0，hi ≤ lo 返回 0.0。
 def _window_overlap(a, b) -> float:
     """两个时间窗 [t1,t2] 的交叠比（0~1）= 交叠长度 / 较短窗长度。"""
     try:
@@ -226,6 +234,7 @@ def _window_overlap(a, b) -> float:
     return 1.0 if span <= 0 else min(1.0, (hi - lo) / span)
 
 
+# 生效条件：cs 为映射；仅当 cs["observation_position"] 有值才把 q_domain 与它的 domain_similarity 以权重 2.0 计入，仅当 observation_tool/existence_constraint 有值才以 tw 取最佳 _term_degree 并按 1.0 计入，仅当 cs["time_window"] 与 ctx_tw 同时有值才按 1.0 计入 _window_overlap；缺信息槽不进分母，den 为 0 时返回 0.0，否则返回加权平均。
 def _slot_overlap(tw: dict, cs: dict, q_domain=None, ctx_tw=None) -> float:
     """condition_space 四槽的加权重合度 ∈ [0,1]。
 
@@ -253,6 +262,7 @@ def _slot_overlap(tw: dict, cs: dict, q_domain=None, ctx_tw=None) -> float:
     return (sum(w * v for w, v in parts) / den) if den else 0.0
 
 
+# 生效条件：verify 为真值时返回 (norm, _sig(norm)) 二元组，norm 为 json.dumps(verify, sort_keys=True, ensure_ascii=False, separators=(",",":"), default=str)；verify 为假值（None/空）时返回 ('', '')。
 def _verify_norm(verify):
     """判据规范化 + 指纹：判据由 propose 声明，指纹不一致即视为被改写。"""
     if not verify:
