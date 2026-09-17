@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-049-batch-c49",
+ "round": 1,
+ "candidate_commit": "749f236",
+ "branch": "task/iter-049-batch-c49",
+ "unit_job": "h1789663839298_7b4f96",
+ "verdict": "DEFER",
+ "package_n": 0,
+ "text": "空批次无候选分支实际新增条目；未附源码、形参、模块常量、早退前置、闭包来源、返回形状、长度/空容器等上下文，1–5 项均无可核验对象；Zero-Trust 下不能推定通过。\nreason: 空批次缺少候选条目与源码上下文，无法执行功能级生效条件复核。\nverdict: DEFER",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
