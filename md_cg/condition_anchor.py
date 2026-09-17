@@ -50,7 +50,7 @@ def signature(fn):
     return required, optional
 
 
-# 生效条件：fn 为函数定义节点时，返回其体内 Load 名字集合剔除 fn 的形参名与 Store/Del 本地赋值名后的差集。
+# 生效条件：fn 为函数定义节点时，返回其体内 Load 名字集合剔除 fn 的形参名、Store/Del 本地名及嵌套函数/异步函数定义名后的差集。
 def referenced(fn):
     """函数体内引用的名字（剔除形参与本地赋值目标）——代表来自模块/外部的状态与常量。"""
     params = {a.arg for a in list(getattr(fn.args, "posonlyargs", [])) + list(fn.args.args)}
@@ -78,7 +78,7 @@ def referenced(fn):
     return names - params - local
 
 
-# 生效条件：cond 与 src 给定且 str(cond) 中不含 META_MARKS 元素时，返回 verdict/ok/anchors/required/optional/referenced/meta_marks 组成的 dict，prefix/suffix 仅回显不参与判定。
+# 生效条件：cond 与 src 给定后：若 str(cond) 含 META_MARKS 则返回 REJECT_META；否则解析 src，取 _first_def、signature、referenced，并按 cond 中标识符是否命中 required 或 referenced 得出 ANCHORED（ok=True）、无 required/refs 时 BLINDSPOT、否则 WEAK；prefix/suffix 仅回显不参与判定。
 def judge(cond, src, prefix="", suffix=""):
     """判定单条候选条件。返回 dict：verdict/ok/anchors/required/optional/referenced/meta_marks。
 

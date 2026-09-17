@@ -42,7 +42,7 @@ def _defaults(fn, src_lines):
     return required, optional
 
 
-# 生效条件：fn 具 body 时，扫描其前 6 条语句中的 If/Assert 并收集条件源码，仅当第 0 条 If 的子树含 Return/Raise 时该项 early 置 True。
+# 生效条件：fn 具 body 时，扫描其前 6 条语句中的 If/Assert/Raise 并收集条件源码；If 仅在第 0 条且子树含 Return/Raise 时 early 为 True，Assert 与 Raise 的 early 为 True。
 def _guards(fn):
     """前置守卫：函数体前若干语句中的 if/assert/raise（条件源码），代表显式前置契约。"""
     out = []
@@ -83,7 +83,7 @@ def _returns(fn):
     return out
 
 
-# 生效条件：fn 为函数定义节点时，返回其体内引用名剔除 fn 的形参名与 Store/Del 本地名后取前 12 项的名字列表。
+# 生效条件：fn 为函数定义节点时，返回其体内 ast.Name 引用名剔除 fn 的形参名、Store/Del 本地名及嵌套函数/异步函数定义名后取前 12 项的名字列表。
 def _externals(fn):
     """体内引用的外部名（剔除形参与本地赋值）——即状态/常量来源。"""
     params = set()
