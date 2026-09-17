@@ -190,6 +190,7 @@ def _dup_metrics(nodes: dict) -> dict:
             "largest": sorted(groups.values(), reverse=True)[:5]}
 
 
+# 生效条件：对 nodes 中每个节点的 "edges" 真值且为 list/tuple 的边列表，仅遍历其中 dict 边；依据 CANONICAL_EDGE_KEYS 与 "type" 统计键组合、关系类型、总边数、非规范键样本（最多 5）和悬空边，返回汇总字典。
 def _edge_metrics(nodes: dict) -> dict:
     types, key_mix = Counter(), Counter()
     total = dangling = with_edges = non_canonical = 0
@@ -269,6 +270,7 @@ def _gate_metrics(root: str) -> dict:
             "audit_tail_window": AUDIT_TAIL}
 
 
+# 生效条件：对 root 与 nodes，若 root/ACCESS_LOG 路径不存在则返回 {"distinct": None, "ratio": None, "lines": None}；否则逐行解析 JSON，当 "ids" 为 list 或 tuple 时把其中真值元素 str 后加入 seen，且当 "id"/"node_id"/"nid" 任一真值时把其 str 加入 seen，返回 distinct 为 seen 与 nodes 键交集数量、ratio 为 distinct/max(len(nodes),1)、lines 为非空行数。
 def _reach_metrics(root: str, nodes: dict) -> dict:
     p = os.path.join(root, ACCESS_LOG)
     if not os.path.exists(p):
@@ -295,6 +297,7 @@ def _reach_metrics(root: str, nodes: dict) -> dict:
     return {"distinct": hit, "ratio": hit / max(len(nodes), 1), "lines": lines}
 
 
+# 生效条件：对 nodes，筛出 layer 字符串为 "knowledge" 的 kn；mixed 为 kn 中标签前缀含 doc 或 code 的数量；返回全库 nodes 数与 knowledge 层数、mixed、mixed_ratio=mixed/max(len(kn),1)，以及全库口径 role_ratio/basis_ratio/evidence_ratio/state_ratio 和 knowledge 层口径 role_ratio_kn/basis_ratio_kn/evidence_ratio_kn。
 def _coverage_metrics(nodes: dict) -> dict:
     """混层口径 + 字段覆盖率（9-15 审计基线口径，逐项可复现）。
 
