@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-079-batch-c79-fix",
+ "round": 2,
+ "candidate_commit": "9761664",
+ "branch": "task/iter-079-batch-c79-fix",
+ "unit_job": "h1789670404221_dd0fd2",
+ "verdict": "REJECT",
+ "package_n": 29,
+ "text": "复核发现：多数条目通过；但 `_pool_candidates` 的 disputed/low_conf 漏掉 `negative_evidence>0` 与 `confidence<LOW_CONF` 门限；`_apply_offset` 中 offset=0 亦不保证新旧差<1e-9。故存在与源码不符及未锚定常量。\nreason: 第8/22条前置缺失且一处断言不成立。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
