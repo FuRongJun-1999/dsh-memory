@@ -68,6 +68,7 @@ NOISE_ZH = "天气 音乐 旅行"
 WRONG_POOLS = ["经济 历史 音乐", "天体 地理 化学", "科技 法律 医学"]
 
 
+# 生效条件：text 非空且 mode 为 drop20/noise3/wrong20 时按 idx 错位扰动并返回新串；text 为空返回 text or ""，mode 不在三者之内时原样返回 text。
 def perturb_kw(text, mode, idx):
     """②路 query 关键词扰动（确定性规则，验证归一噪声灵敏度）。
 

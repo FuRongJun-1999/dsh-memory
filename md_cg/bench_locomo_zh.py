@@ -100,6 +100,7 @@ def max_df_auto(n_pool):
     return max(MAX_DF_FIXED, int(round(0.05 * n_pool)))
 
 
+# 生效条件：path 指向逐行 JSON 的 UTF-8 文本时，跳过空行并逐行 yield json.loads 结果。
 def iter_jsonl(path):
     with open(path, encoding="utf-8") as f:
         for line in f:

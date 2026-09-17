@@ -94,6 +94,7 @@ def build_pool(sample, corpus_by_id):
     return [corpus_by_id[i] for i in sorted(pool_ids)], dangling
 
 
+# 生效条件：c 为含 text 键的映射时取其去空白文本，date 非空则返回 "文本 [date]"，date 为空则只返回 text。
 def ingest_text_en(c):
     """六家共用的英文写入文本：原始陈述 + 会话时间。
 

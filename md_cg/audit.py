@@ -50,6 +50,7 @@ def register_verifier(kind, fn, override=False):
     VERIFIERS[kind] = fn
 
 
+# 生效条件：传入 state、kind、evidence（detail 可缺省为 None）时，返回以 state/kind/evidence 为键、basis 取 KIND_BASIS.get(kind)（查不到即 None）的判定字典。
 def _verdict(state, kind, evidence, detail=None):
     return {"state": state, "kind": kind, "basis": KIND_BASIS.get(kind),
             "evidence": evidence, "detail": detail}

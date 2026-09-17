@@ -40,6 +40,7 @@ GROUPS = {
 POS_GROUPS = ("precise", "temporal", "interference")
 
 
+# 生效条件：命令行参数可被解析、GROUPS 中每组题型可按 --n 抽样时，按 --calibrated 选择 ROOT_LC_CAL 或 legacy 库评估并打印，无返回值。
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=0, help="每组抽样上限（0=全量）")

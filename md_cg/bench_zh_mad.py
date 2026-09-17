@@ -286,6 +286,7 @@ def build_tables(corpus):
     return df
 
 
+# 生效条件：c 含 zh_fields（terms/condition/time/identity）且 df 为词到频次的映射时，返回 person/event/time/identity/place/condition 六轴取值字典。
 def axis_values(c, df):
     """一条 turn 的六个关系轴取值（用户裁决：条件链 + 人物/事件/时间/身份/地点）。"""
     f = c["zh_fields"]

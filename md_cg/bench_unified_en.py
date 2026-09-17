@@ -67,6 +67,7 @@ def build(root, corpus, semantic_of=None, zh_body=False):
     return cg
 
 
+# 生效条件：cg 可对 questions 做 evaluate_group 时，按 semantic 设置或清除 MDCG_SEMANTIC，返回词法路 rows 及其按 qtype 汇总的 by_type。
 def run_arm(cg, questions, tag, semantic=False):
     if semantic:
         os.environ["MDCG_SEMANTIC"] = "1"

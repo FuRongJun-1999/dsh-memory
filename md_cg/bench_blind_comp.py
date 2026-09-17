@@ -122,6 +122,7 @@ D_TPL = [
 DISTRACT_POOL = ["马", "鱼", "狗", "鸟", "羊", "猪", "鸭", "肉", "奶", "蛋", "油", "米"]
 
 
+# 生效条件：s 为字符串时返回其全部相邻二元组集合；当 len(s) 小于 2 时返回空集合。
 def _bigrams(s):
     return {s[i:i + 2] for i in range(len(s) - 1)}
 
