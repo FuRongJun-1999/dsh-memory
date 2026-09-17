@@ -63,6 +63,7 @@ DEFAULT_KNOWLEDGE_PROBES = [
 # 启动命令
 # --------------------------------------------------------------------------
 
+# 生效条件：无必需形参；exe 取 MDCG_WHITEBOX_CMD，该值为假时取 sys.executable、再为假时取 "python"，args 取 MDCG_WHITEBOX_ARGS.split()（该值为真时）否则 ["-m","aeis.mcp.server"]，返回 [exe]+args。
 def _launch_cmd():
     """外部白箱 MCP server 启动命令（legacy 路径，需显式配置）。
 
@@ -79,6 +80,7 @@ def _launch_cmd():
 # 白箱 MCP stdio 客户端（零第三方依赖）
 # --------------------------------------------------------------------------
 
+# 生效条件：类无自定义 __init__（无必需构造形参）；实例化后仅当子类覆写 call 时 ask/remember 才走通，否则 call 抛 NotImplementedError。
 class _WhiteboxApi:
     """白箱业务接口（`ask` / `remember`）。
 
@@ -260,6 +262,7 @@ class LocalWhiteboxClient(_WhiteboxApi):
         return self.engine.call_tool(name, args)
 
 
+# 生效条件：无必需形参；包内 from .whitebox_kb.engine import get_engine 成功时返回它，ImportError 时改为 from whitebox_kb.engine import get_engine 并返回。
 def _load_get_engine():
     """兼容两种导入方式（包内 / 平铺）。"""
     try:
@@ -269,6 +272,7 @@ def _load_get_engine():
     return get_engine
 
 
+# 生效条件：cmd 或 env 为真，或 MDCG_WHITEBOX_CMD / MDCG_WHITEBOX_ARGS 为真时返回 _SubprocessWhiteboxClient(cmd=cmd, env=env, timeout=timeout)，否则返回 LocalWhiteboxClient(db_path=db_path)。
 def WhiteboxClient(cmd=None, env=None, timeout=None, db_path=None):
     """白箱客户端工厂。
 
@@ -286,6 +290,7 @@ def WhiteboxClient(cmd=None, env=None, timeout=None, db_path=None):
 # 结果归一化
 # --------------------------------------------------------------------------
 
+# 生效条件：data 为 dict 时按 route、mode、path 顺序取首个非空 str 值返回，否则（含 data 非 dict、三键均无或均为空/非 str）返回 ""。
 def _extract_route(data):
     if isinstance(data, dict):
         for key in ("route", "mode", "path"):
@@ -295,6 +300,7 @@ def _extract_route(data):
     return ""
 
 
+# 生效条件：data 为 dict 时先按 reply/answer/text/response/content/message 取首个 strip 后非空的 str 返回，再对 result、data 两键的 dict 值递归取非空结果，均无则返回 fallback or ""。
 def _extract_reply(data, fallback=""):
     if isinstance(data, dict):
         for key in ("reply", "answer", "text", "response", "content", "message"):
@@ -314,6 +320,7 @@ def _extract_reply(data, fallback=""):
 # 验证：编码能力 / 已有知识回答能力
 # --------------------------------------------------------------------------
 
+# 生效条件：client 为 None 时自建 WhiteboxClient() 并在 finally 关闭；marker、fact、question 为假值时分别用带毫秒时间戳的默认口令、默认事实、默认追问，cg 仅传给 _record（cg 为 None 则 node_id 为 None，不自建 client），异常时返回 ok=False 并同样 _record。
 def verify_encoding(cg=None, client=None, marker=None, fact=None,
                     question=None, session_id="md_cg-whitebox-verify"):
     """验证白箱「编码能力」。
@@ -346,6 +353,7 @@ def verify_encoding(cg=None, client=None, marker=None, fact=None,
             cli.close()
 
 
+# 生效条件：client 为 None 时自建 WhiteboxClient() 并在 finally 关闭；questions 为假值（None 或空）时用 DEFAULT_KNOWLEDGE_PROBES，逐问后仅当至少一问 reply 非空且 route 为 self 或 self_fallback 时 ok=True，异常返回 ok=False。
 def verify_existing(cg=None, client=None, questions=None,
                     session_id="md_cg-whitebox-verify"):
     """验证白箱「已有知识回答能力」。
@@ -380,6 +388,7 @@ def verify_existing(cg=None, client=None, questions=None,
             cli.close()
 
 
+# 生效条件：client 为 None 时自建 WhiteboxClient() 并在 finally 关闭；依次对 service_info、mdcg_service_info、info 调用 call，首个 isError 为假即返回 ok=True 与该 tool/info，全部不可用返回 ok=False，start 或整体异常返回 ok=False。
 def ping(client=None, session_id="md_cg-whitebox-ping"):
     """白箱连通性探测：调 service_info（或 info）判断能力库是否在线。"""
     own = client is None
@@ -402,6 +411,7 @@ def ping(client=None, session_id="md_cg-whitebox-ping"):
             cli.close()
 
 
+# 生效条件：client 为 None 时以 WhiteboxClient(timeout=kw.get("timeout")) 自建并在 finally 关闭；随后 cli.start() 并返回 cli.ask(message, session_id=session_id)。
 def ask(message, session_id="md_cg-whitebox-verify", client=None, **kw):
     """显式调用白箱回答一个问题。"""
     own = client is None
@@ -414,6 +424,7 @@ def ask(message, session_id="md_cg-whitebox-verify", client=None, **kw):
             cli.close()
 
 
+# 生效条件：client 为 None 时以 WhiteboxClient(timeout=kw.get("timeout")) 自建并在 finally 关闭；随后 cli.start() 并返回 cli.remember(content, importance=importance, tags=tags)。
 def remember(content, importance=0.9, tags=None, client=None, **kw):
     """显式调用白箱编码一条知识。"""
     own = client is None
@@ -430,6 +441,7 @@ def remember(content, importance=0.9, tags=None, client=None, **kw):
 # 留痕与报告
 # --------------------------------------------------------------------------
 
+# 生效条件：cg 为 None 时返回 None；否则以 whitebox_verify_{kind}_{毫秒时间戳} 为 id 调 cg.add 写入 self 层，成功返回该 nid，cg.add 抛异常时返回 None。
 def _record(cg, kind, ok, payload):
     """把验证结论写入认知图（self 层）。失败不阻断验证本身。"""
     if cg is None:
@@ -446,6 +458,7 @@ def _record(cg, kind, ok, payload):
         return None
 
 
+# 生效条件：cg 为 None 时返回 {'ok': False, 'error': '需要 cg 实例'}；否则以 k=int(limit or 20)（limit 为 0/空串/None 时 k 变 20）调 cg.search("白箱能力验证", layer="self", record=False)，只保留 tags 中任一以 "whitebox:" 开头的项并返回 count 与 items。
 def report(cg=None, limit=20):
     """汇总最近的「白箱能力验证」留痕。"""
     if cg is None:
@@ -467,6 +480,7 @@ def report(cg=None, limit=20):
 # MCP 统一入口（由 mcp_server._whitebox_call 调用）
 # --------------------------------------------------------------------------
 
+# 生效条件：action=(args.action or "ping") 小写后，ask/chat/query 走 ask（question/message/query 均假则传 ""），remember/encode/write 走 remember 且 importance=float(a.get("importance", 0.9))，verify_encoding/encoding 走 verify_encoding，verify_existing/existing/knowledge 走 verify_existing（questions 取 a.questions 或 a.question 单元素列表），report/history 走 report(limit=int(a.get("limit") or 20))，ping/status/info 走 ping()，其余抛 ValueError。
 def dispatch(cg, args):
     """cg(op=whitebox) 的分发：action=ask|remember|verify_encoding|verify_existing|ping|report。"""
     a = args or {}
