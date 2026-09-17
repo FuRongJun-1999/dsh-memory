@@ -436,6 +436,7 @@ class NameChecker:
     6. 信息差/信任值相关操作是否合法
     """
 
+# 生效条件：无必需形参，构造后 symbol_table 为模块级常量 PREDEFINED_SYMBOLS 的 dict 副本，errors/warnings 为空列表，declared_in_current/predefined_used/user_declared 为空集，current_condition_space 为 None。
     def __init__(self):
         # 符号表 = 预定义符号 + 用户声明符号
         self.symbol_table: Dict[str, Symbol] = dict(PREDEFINED_SYMBOLS)
@@ -452,6 +453,7 @@ class NameChecker:
 
     # ---- 主入口 ----
 
+# 生效条件：以 ProgramNode 实参 ast 调用时先清空 errors/warnings/declared_in_current/predefined_used/user_declared 并把 current_condition_space 置 None，再对 ast.statements 逐条 _check_statement，最后对 declared_in_current 中经 symbol_table.get 取到且 used 为 False 的符号追加"未被使用"警告，返回 (self.errors, self.warnings)；ast.statements 为空时返回两个空列表。
     def check(self, ast: ProgramNode) -> Tuple[List[str], List[str]]:
         """
         执行名实校验
@@ -486,6 +488,7 @@ class NameChecker:
 
     # ---- 语句分发 ----
 
+# 生效条件：stmt 为 None 时直接返回；否则按 stmt.type 分派——CONDITION_STMT→_check_condition、LOOP_STMT→_check_loop、BLOCK→对 statements 逐个递归、INSTRUCTION_STMT→_check_instruction、SHUYUE→_check_shuyue、STEP→_check_step、ASSIGN_STMT→_check_assign，WENYUE/DAYUE/LITERAL 及 IDENTIFIER 静默通过，其余类型向 warnings 追加"未处理的语句类型: {stmt.type.name}"。
     def _check_statement(self, stmt: ASTNode):
         """根据语句类型分发检查"""
         if stmt is None:
@@ -529,6 +532,7 @@ class NameChecker:
 
     # ---- 各类语句检查 ----
 
+# 生效条件：以 stmt 调用时先检查 stmt.condition 表达式并做条件空间切换检测，then_body 为真值时递归 _check_statement(stmt.then_body)，else_body 为真值时递归 _check_statement(stmt.else_body)，最后把 current_condition_space 置为 None。
     def _check_condition(self, stmt: ConditionStmtNode):
         """检查条件语句"""
         # 检查条件表达式
@@ -548,12 +552,14 @@ class NameChecker:
         # 恢复条件空间
         self.current_condition_space = None
 
+# 生效条件：以 stmt 调用时检查 stmt.condition 表达式，且仅当 stmt.body 为真值时才递归 _check_statement(stmt.body)。
     def _check_loop(self, stmt: LoopStmtNode):
         """检查循环语句（当…执行）：条件表达式 + 循环体"""
         self._check_expression(stmt.condition)
         if stmt.body:
             self._check_statement(stmt.body)
 
+# 生效条件：operands 为空列表（假值）时返回 0；否则在其中逐项计数，None 项跳过，IDENTIFIER 与其后同行的连续 IDENTIFIER/LITERAL 合并计为 1，其余项各计 1，返回 logical_count。
     def _count_logical_operands(self, operands: List[ASTNode]) -> int:
         """
         计算逻辑操作数（合并被词法分析器误拆的多词短语）
@@ -593,6 +599,7 @@ class NameChecker:
         
         return logical_count
 
+# 生效条件：以 stmt 调用时先按逻辑操作数计算 op_count，仅当 stmt.instruction 在模块级常量 INSTRUCTION_CONSTRAINTS 中时——op_count < min_operands 向 errors 追加操作数不足，否则 max_operands 不为 None 且 op_count > max_operands 时向 warnings 追加操作数过多；随后对 stmt.operands 中非 None 的 IDENTIFIER 调 _check_identifier、LITERAL 调 _check_literal，最后调 _check_instruction_in_condition_space(stmt)。
     def _check_instruction(self, stmt: InstructionStmtNode):
         """检查指令语句"""
         instr_type = stmt.instruction
@@ -628,16 +635,19 @@ class NameChecker:
         # 3. 检查当前条件空间是否允许该指令
         self._check_instruction_in_condition_space(stmt)
 
+# 生效条件：以 stmt 调用时对 stmt.steps 逐项调 _check_step，steps 为空时无任何追加动作。
     def _check_shuyue(self, stmt: ShuyueNode):
         """检查术曰块"""
         for step in stmt.steps:
             self._check_step(step)
 
+# 生效条件：以 stmt 调用时仅当 stmt.statement 为真值才递归 _check_statement(stmt.statement)，否则无动作。
     def _check_step(self, stmt: StepNode):
         """检查步骤"""
         if stmt.statement:
             self._check_statement(stmt.statement)
 
+# 生效条件：stmt.target 命中模块级常量 PREDEFINED_SYMBOLS 且属于源码 protected 集合（存在优先/不伤害/信任优先/缩小信息差/协议降熵/知识统一/P0/P1/P2/验证单元/维生系统/记录单元/硬锚点/公理实现）时向 errors 追加"锚点层保护符号，不可赋值"并直接返回；否则 target 不在 symbol_table 时以 SymbolKind.VARIABLE 与 source="user_declared" 登记并把 name 加入 declared_in_current/user_declared，target 已在 symbol_table 时把其 used 置 True；最后 stmt.value_node 为真值时检查该表达式。
     def _check_assign(self, stmt: AssignStmtNode):
         """检查赋值语句"""
         target = stmt.target
@@ -679,6 +689,7 @@ class NameChecker:
 
     # ---- 表达式检查 ----
 
+# 生效条件：expr 为 None 时返回；否则按 expr.type 分派——IDENTIFIER→_check_identifier(expr.name, expr.line, expr.column)、BINARY_EXPR→递归 left 与 right、COMPARISON→递归 left 与 right 并调 _check_trust_comparison(expr)、LITERAL→_check_literal(expr)、UNARY_EXPR→对 expr.children（为 None 时按空列表）逐个递归、CALL_EXPR→有 name 属性时 _check_identifier(expr.name, expr.line, expr.column)，其余类型无动作。
     def _check_expression(self, expr: ASTNode):
         """检查表达式"""
         if expr is None:
@@ -706,6 +717,7 @@ class NameChecker:
 
     # ---- 专项检查 ----
 
+# 生效条件：以 name/line/col 调用时——name 已在 symbol_table 则置其 used=True，且 source=="predefined" 时加入 predefined_used 后返回；否则 name 包含某个预定义符号（s in name 且 s != name）时以 attributes={"auto_declared":True,"contains":contained} 自动登记为用户变量并返回；否则存在被包含匹配（name in s 且 s != name）时向 warnings 追加"可能是 '{container[0]}' 的一部分"并返回；否则以 attributes={"auto_declared":True} 自动登记为用户变量。
     def _check_identifier(self, name: str, line: int, col: int):
         """检查标识符是否已声明
 
@@ -757,6 +769,7 @@ class NameChecker:
         )
         self.user_declared.add(name)
 
+# 生效条件：仅当 node.literal_type == "number" 时检查——literal_value 为 int/float 且 < 0 则向 warnings 追加"负值"；literal_value 为 float 且 0.0 <= 值 <= 1.0 且（"trust" in str(node.value).lower() 或值 > 0.95）时才进入该分支，但其中 value > 1.0 的判断因外层已限 ≤1.0 恒不成立故不追加范围警告；literal_value 为 float 且 current_condition_space == "伴侣" 且值 > 0.15 时向 errors 追加"情感权重不可超过 0.15"。
     def _check_literal(self, node: LiteralNode):
         """检查字面量"""
         if node.literal_type == "number":
@@ -786,6 +799,7 @@ class NameChecker:
                     f"情感权重不可超过 0.15，当前值: {value}"
                 )
 
+# 生效条件：condition 为 None 时返回；仅当 condition.type == COMPARISON 且 condition.left 为 IDENTIFIER 且 left.name == "条件空间" 且 condition.right 为 IDENTIFIER 时——right.name 在模块级常量 CONDITION_SPACE_RULES 中则把 current_condition_space 置为该名称，否则 right.name 不在 PREDEFINED_SYMBOLS 中时向 warnings 追加"未知的条件空间: '{space_name}'"。
     def _check_condition_space_switch(self, condition: ASTNode):
         """
         检测条件语句中的条件空间切换
@@ -812,6 +826,7 @@ class NameChecker:
                             f"未知的条件空间: '{space_name}'"
                         )
 
+# 生效条件：self.current_condition_space 为假值（None 或空串）时返回；CONDITION_SPACE_RULES.get(该名称) 为空时返回；allowed = rules.get("allowed_instructions") 为 None 时返回"无限制"；否则 instr_name 非空（stmt.instruction 在源码 instr_names 映射中）且不在 allowed 中时向 warnings 追加"指令 '{instr_name}' 可能受限"。
     def _check_instruction_in_condition_space(self, stmt: InstructionStmtNode):
         """检查当前条件空间是否允许该指令"""
         if not self.current_condition_space:
@@ -841,6 +856,7 @@ class NameChecker:
                 f"条件空间中，指令 '{instr_name}' 可能受限"
             )
 
+# 生效条件：expr 不是 ComparisonNode 实例时返回；否则当 expr.left/expr.right 中 IDENTIFIER 的名字属于 {"信任值","P_trust","T_pred","T_context","E_weight","情感权重"}，且 expr.right 为 LITERAL、其 literal_value 为 int/float 且 < 0 或 > 1 时，向 warnings 追加"信任值比较阈值 {val} 超出 [0,1] 范围"。
     def _check_trust_comparison(self, expr: ASTNode):
         """检查信任值比较的合理性"""
         if not isinstance(expr, ComparisonNode):
@@ -870,6 +886,7 @@ class NameChecker:
 
     # ---- 公共方法 ----
 
+# 生效条件：以 name 与 kind 调用即用 Symbol(name=name, kind=kind, declared_at=(line, col), source="user_declared") 覆盖写入 symbol_table，并把 name 加入 declared_in_current 与 user_declared；line/col 省略时均取 0。
     def declare(self, name: str, kind: SymbolKind, line: int = 0, col: int = 0):
         """手动声明符号"""
         self.symbol_table[name] = Symbol(
@@ -880,10 +897,12 @@ class NameChecker:
         self.declared_in_current.add(name)
         self.user_declared.add(name)
 
+# 生效条件：以 name 调用时返回 self.symbol_table.get(name)，name 不在符号表中时返回 None。
     def get_symbol(self, name: str) -> Optional[Symbol]:
         """获取符号"""
         return self.symbol_table.get(name)
 
+# 生效条件：无必需形参，调用即返回 self.symbol_table 的 dict 浅拷贝，与调用时符号表内容一致。
     def get_all_symbols(self) -> Dict[str, Symbol]:
         """获取所有符号"""
         return dict(self.symbol_table)
@@ -898,14 +917,17 @@ class NameChecker:
         return {n: s for n, s in self.symbol_table.items()
                 if s.source == "user_declared"}
 
+# 生效条件：以 kind 调用时返回 self.symbol_table.values() 中 s.kind == kind 的符号列表，无匹配时返回空列表。
     def get_symbols_by_kind(self, kind: SymbolKind) -> List[Symbol]:
         """按种类获取符号"""
         return [s for s in self.symbol_table.values() if s.kind == kind]
 
+# 生效条件：以 space_name 调用即无条件把 self.current_condition_space 置为该值，空串或 None 也照样写入且不做校验或回落。
     def set_condition_space(self, space_name: str):
         """手动设置当前条件空间"""
         self.current_condition_space = space_name
 
+# 生效条件：无必需形参，调用后 symbol_table 重新等于模块级常量 PREDEFINED_SYMBOLS 的 dict 副本，errors/warnings 为空列表，declared_in_current/predefined_used/user_declared 为空集，current_condition_space 为 None。
     def reset(self):
         """重置（保留预定义符号）"""
         self.symbol_table = dict(PREDEFINED_SYMBOLS)
