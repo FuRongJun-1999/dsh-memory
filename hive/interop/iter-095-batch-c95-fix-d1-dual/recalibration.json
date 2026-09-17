@@ -1,0 +1,15 @@
+{
+ "kind": "recalibration-acceptance",
+ "iter_id": "iter-095-batch-c95-fix-d1-dual",
+ "verified_commit": "1549be8",
+ "verdict": "PASS",
+ "merge_commit": "0895db053c4d",
+ "checks": [
+  "diff(merge, branch) -- md_cg 空",
+  "criteria_fingerprint 保持",
+  "main 注释计数 + 全组回归"
+ ],
+ "merged_marks": 589,
+ "merged_files": 45,
+ "paths_policy": "脱敏"
+}
