@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-070-render-r20",
+ "round": 5,
+ "candidate_commit": "a9596fc",
+ "branch": "task/iter-070-render-r20",
+ "unit_job": "h1789668006390_d8db61",
+ "verdict": "REJECT",
+ "package_n": 31,
+ "text": "复核发现：_walk_ancestors 条件称 stop 为真即含 stop 后停止，但源码仅在 `norm_path(cur)==norm_path(stop)` 时停止；stop 不在祖先链时会继续到盘根。artifact_sha 正则允许“前16位”与摘要间的 `）：:` 与空白，条件写“紧跟”不符。render 的 `%%OVERVIEW%%` 实际为 `str(...).strip()`，条件未锚定。\nreason: 存在条件与源码早退、正则及替换语义不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
