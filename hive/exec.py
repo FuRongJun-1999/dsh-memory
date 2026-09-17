@@ -73,6 +73,7 @@ DEFAULT_API_BASE = "https://open.bigmodel.cn/api/paas/v4"
 EXIT_OK, EXIT_SPEC, EXIT_API = 0, 2, 3
 
 
+# 生效条件：当 job_dir 与 msg 传入时，向 job_dir/log.txt 追加带 time.strftime('%H:%M:%S') 前缀的 msg 行；若 open/write 抛 OSError 或 TypeError，则把同一行写到 sys.stderr；
 def log(job_dir: str, msg: str) -> None:
     """写 job 日志。日志是观测面——写失败降级到 stderr，绝不打断任务。"""
     line = f"[{time.strftime('%H:%M:%S')}] {msg}\n"
@@ -83,16 +84,19 @@ def log(job_dir: str, msg: str) -> None:
         sys.stderr.write(line)
 
 
+# 生效条件：当 job_dir 与 payload 传入时，以写模式打开 job_dir/result.json 并用 json.dump(payload, ensure_ascii=False) 写入；打开/序列化异常向上传播；
 def write_result(job_dir: str, payload: dict) -> None:
     with open(os.path.join(job_dir, "result.json"), "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False)
 
 
+# 生效条件：当 job_dir 传入时，以 UTF-8 打开 job_dir/spec.json 并返回 json.load(f) 的结果；打开/解析异常向上传播；
 def read_spec(job_dir: str) -> dict:
     with open(os.path.join(job_dir, "spec.json"), encoding="utf-8") as f:
         return json.load(f)
 
 
+# 生效条件：当 job_dir 为真且 os.path.isdir(job_dir) 为真时，entry 补默认 ts=round(time.time(),3) 后以 JSON 行追加到 job_dir/PROGRESS_FILE，写入 OSError 时只调用 log 不终杀；job_dir 为假值或不是目录时直接 no-op 返回；
 def progress(job_dir: str | None, **entry) -> None:
     """追加一条进展（v0.4 §5.3：worker 只写自家 job 目录，零 git 依赖）。
 
@@ -109,6 +113,7 @@ def progress(job_dir: str | None, **entry) -> None:
         log(job_dir, f"进展写入失败（不阻塞任务）: {e}")
 
 
+# 生效条件：当 head 以 _IMG_MAGIC 中某项开头时返回 'image:<fmt>'；否则 head[:4]==b'RIFF' 且 head[8:12]==b'WEBP' 返回 'image:webp'；否则 head 含 b'\x00' 返回 'binary'，不含返回 'text'；
 def sniff_kind(head: bytes) -> str:
     """按魔数判类型：image:<fmt> | binary | text（零依赖，只吃文件头）。"""
     for magic, fmt in _IMG_MAGIC:
@@ -119,6 +124,7 @@ def sniff_kind(head: bytes) -> str:
     return "binary" if b"\x00" in head else "text"
 
 
+# 生效条件：当 path 传入并打开读前 32 字节 head 后，若 head 以 PNG 魔数开头则 seek16 读 8 字节，长度 8 返回大端 (宽,高) 否则 (None,None)；若 head[:3]==b'GIF' 则 seek6 读 4 字节，长度 4 返回小端 (宽,高) 否则 (None,None)；若 head[:2]==b'BM' 则 seek18 读 8 字节，长度 8 返回小端有符号绝对值 (宽,高) 否则 (None,None)；若 head[:4]==b'RIFF' 且 head[8:12]==b'WEBP' 则返回 _webp_size(f)；若 head[:2]==b'\xff\xd8' 则返回 _jpeg_size(f)；其余返回 (None,None)；
 def image_size(path: str) -> tuple:
     """零依赖读图像尺寸 (w, h)；未知格式返回 (None, None)（诚实，不猜）。
 
@@ -185,6 +191,7 @@ def _jpeg_size(f) -> tuple:
         f.seek(seg - 2, os.SEEK_CUR)
 
 
+# 生效条件：当 f 传入时，从偏移 12 读 4 字节 fmt：fmt==b'VP8X' 则 seek24 读 6 字节，长度 6 返回 (小端 b[:3]+1, 小端 b[3:6]+1)；fmt==b'VP8 ' 则 seek26 读 4 字节，长度 4 返回 (小端 b[:2]&0x3FFF, 小端 b[2:4]&0x3FFF)；fmt==b'VP8L' 则 seek21 读 4 字节，长度 4 返回 ((v&0x3FFF)+1, ((v>>14)&0x3FFF)+1)；其余或长度不足返回 (None,None)；
 def _webp_size(f) -> tuple:
     """WEBP：VP8X / VP8 （有损）/ VP8L（无损）三形态；其它返回未知。"""
     f.seek(12)
@@ -210,6 +217,7 @@ def _webp_size(f) -> tuple:
     return None, None
 
 
+# 生效条件：当 spec 与 job_dir 传入时，若 spec['system_prompt_from'] 去空白非空，则以 ref 绝对路径或 spec['workdir'] or os.getcwd() 拼接路径读取，读取 OSError 抛 SpecError，成功返回 (text.strip(), 'file:'+ref) 并 log job_dir；否则返回 (spec['system_prompt'] or '' 去空白, 'literal' 若该文本非空否则 'none')；
 def resolve_system_prompt(spec: dict, job_dir: str) -> tuple:
     """系统提示词真源（Pi⑦⑥）：声明 system_prompt_from 则**每次执行重建**。
 
@@ -274,6 +282,7 @@ def _context_block(rel: str, path: str, job_dir: str, meta: dict) -> str:
             "如需内容请先转文本或改走工具通道。）\n</context>")
 
 
+# 生效条件：当 spec 与 job_dir 传入时，以 spec.get('user_prompt','') 为基，base=spec.get('workdir') or os.getcwd()，对 spec.get('context_files') or [] 每个 rel 解析路径并调 _context_block，OSError 时替换为 error 块并 log，meta['contexts'] 计数；有 ctx_blocks 时 prompt=块拼接+'\n\n'+user_prompt，否则仅 user_prompt；resolve_system_prompt 返回 sys_prompt 非空则加 system 消息，最后加 user 消息并返回 (messages, meta)；
 def build_messages(spec: dict, job_dir: str) -> tuple:
     """→ (messages, meta)；meta 记上下文块统计与图像预算折算（Pi⑦④）。
 
@@ -313,6 +322,7 @@ _CJK_RANGES = (
 )
 
 
+# 生效条件：当 text 为假值（空串）返回 0；否则逐字符按 _CJK_RANGES 统计 cjk 与 other，返回 cjk+(other+3)//4；
 def est_tokens(text: str) -> int:
     """保守 token 估算——**偏高估**：宁可提前拦截，不放行超限输入白跑 API。
 
@@ -436,6 +446,7 @@ _PRINCIPAL_FACTORY = None        # (args, job_id) -> Principal
 _TOOL_OPS_ALLOW = LINGSHU_OPS_ALLOW   # 工具侧前置白名单（注册身份时可同步收窄）
 
 
+# 生效条件：当 schemas 为真 dict 时，遍历其 items，将每个 name 经 str() 后以 {'schema': schema, 'handler': handler} 写入 _EXTRA_TOOLS，覆盖同名；schemas 为假值（None/空）时不注册任何工具；
 def register_tools(schemas: dict, handler) -> None:
     """追加工具：schemas={name: openai_function_schema}，handler(name,args,job_id,...)->dict。
 
@@ -447,6 +458,7 @@ def register_tools(schemas: dict, handler) -> None:
         _EXTRA_TOOLS[str(name)] = {"schema": schema, "handler": handler}
 
 
+# 生效条件：当 fn 传入时赋给 _PRINCIPAL_FACTORY；ops_allow 为真值则 _TOOL_OPS_ALLOW=tuple(ops_allow)，否则（None/空）回落 LINGSHU_OPS_ALLOW；
 def set_principal_factory(fn, ops_allow=None) -> None:
     """注入 lingshu_cg 的身份工厂（None 恢复默认 recorder）。
 
@@ -459,6 +471,7 @@ def set_principal_factory(fn, ops_allow=None) -> None:
     _TOOL_OPS_ALLOW = tuple(ops_allow) if ops_allow else LINGSHU_OPS_ALLOW
 
 
+# 生效条件：无 required 形参；返回 dict(TOOL_SCHEMAS) 并用 _EXTRA_TOOLS 中每个 name 的 rec['schema'] 覆盖同名键；
 def all_schemas() -> dict:
     """可见工具 schema 全集（内置 + 注册）。"""
     out = dict(TOOL_SCHEMAS)
@@ -467,6 +480,7 @@ def all_schemas() -> dict:
     return out
 
 
+# 生效条件：无 required 形参；当 MDCG_HOME 去空白非空时 home=该值，否则 home=__file__ 的祖父目录；若 home 不在 sys.path 则插入开头，随后导入 md_cg 相关模块并返回 home；
 def _md_cg_import():
     """import md_cg（MDCG_HOME 优先，缺省=执行器父目录——同仓分发零配置）。"""
     home = os.environ.get("MDCG_HOME", "").strip()
@@ -564,6 +578,7 @@ def tool_web_search(args: dict, backend_override: str = None) -> dict:
 ZHIPU_SEARCH_BASE = "https://open.bigmodel.cn/api/paas/v4"
 
 
+# 生效条件：当 query/count/backend 传入时，api_base=HIVE_WEB_SEARCH_BASE 去空白非空否则 ZHIPU_SEARCH_BASE，再去尾斜杠；api_key=HIVE_WEB_SEARCH_KEY 去空白非空否则 HIVE_API_KEY；若 api_key 假值返回 {'ok':False,...,'error':'搜索密钥未设置'}；否则 POST api_base/web_search，timeout=30，解析 search_result 前 count 项并返回 {'ok':True,...,'results':items}；
 def _ws_zhipu(query: str, count: int, backend: str) -> dict:
     # 端点与 LLM base 解耦（实测教训：HIVE_API_BASE 常指向 LLM 中转网关，
     # 只代理 chat/completions——锚上去 web_search 必 404）。搜索端点独立：
@@ -597,6 +612,7 @@ _DDG_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Gecko/20100101 "
            "Firefox/125.0")
 
 
+# 生效条件：当 query/count/backend 传入时，请求 https://html.duckduckgo.com/html/?q=quote(query)，以 result__a 正则取前 count 个命中，逐个提取 title、uddg 解码后的 url、本结果块内最近 snippet，返回 {'ok':True,'backend':backend,'query':query,'results':items}；请求/解析异常向上传播；
 def _ws_duckduckgo(query: str, count: int, backend: str) -> dict:
     import html
     import re
@@ -627,6 +643,7 @@ def _ws_duckduckgo(query: str, count: int, backend: str) -> dict:
     return {"ok": True, "backend": backend, "query": query, "results": items}
 
 
+# 生效条件：当 name/args_json/job_id 传入时，json.loads(args_json or '{}') 失败返回 ({'ok':False,'error':'工具参数不是合法 JSON: ...'}, '')；否则 name=='lingshu_cg' 调 tool_lingshu_cg(args,job_id,mdcg_root)，name=='web_search' 调 tool_web_search(args,backend_override=ws_backend)，name 在 _EXTRA_TOOLS 中调其 handler(name,args,job_id)，否则返回未知工具错误；随后对 out 设默认 ok='error' not in out，按 results/knowledge 长度生成 brief，返回 (out,brief)；
 def execute_tool(name: str, args_json: str, job_id: str,
                  mdcg_root: str = None, ws_backend: str = None) -> tuple:
     """执行一次工具调用，返回 (结果dict, trace简报)。未知工具诚实报错。"""
@@ -651,6 +668,7 @@ def execute_tool(name: str, args_json: str, job_id: str,
     return (out, brief)
 
 
+# 生效条件：当 spec 与 messages 传入时，body 必含 spec['model'] 与 messages；tools 为真值才注入；spec['thinking']、spec['reasoning_effort']、spec['max_tokens'] 为真值才注入；spec['temperature'] is not None（含 0）才注入；返回 body；
 def build_body(spec: dict, messages: list, tools: list = None) -> dict:
     """请求体构造：必填 model/messages + 可选参数存在才注入（不送 null/缺省键）。
 
@@ -672,6 +690,7 @@ def build_body(spec: dict, messages: list, tools: list = None) -> dict:
     return body
 
 
+# 生效条件：当 body 与 timeout 传入时，api_key=os.environ.get('HIVE_API_KEY','')，若假值（未设或空串）抛 RuntimeError('HIVE_API_KEY 未设置...')；否则 api_base=os.environ.get('HIVE_API_BASE', DEFAULT_API_BASE).rstrip('/')，仅缺键时回落 DEFAULT_API_BASE，键存在空串不回落；POST {api_base}/chat/completions 并以 timeout 请求，返回 json.loads(resp.read().decode('utf-8'))；
 def _post_chat(body: dict, timeout: float) -> dict:
     """裸 POST chat/completions，返回原始响应 dict。HTTP 异常向上传播。"""
     api_base = os.environ.get("HIVE_API_BASE", DEFAULT_API_BASE).rstrip("/")
@@ -692,6 +711,7 @@ def _post_chat(body: dict, timeout: float) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+# 生效条件：当 spec 与 messages 传入时，以 build_body(spec,messages) 与 float(spec.get('timeout_s') or 300) 调 _post_chat；返回 content=choices[0].message.content（choices 缺/空则 [{}]），usage=data.get('usage') or {}，model=data.get('model') or spec['model']；
 def call_llm(spec: dict, messages: list) -> dict:
     """单发调 chat/completions（无工具历史路径）；返回归一化 result。"""
     data = _post_chat(build_body(spec, messages),
@@ -704,16 +724,19 @@ def call_llm(spec: dict, messages: list) -> dict:
     }
 
 
+# 生效条件：当 total 与 u 传入时，u 为真 dict 则遍历其 items，仅 value 为 int/float 时把 total[k]=total.get(k,0)+v；u 为假值（None/空）不修改 total；
 def _acc_usage(total: dict, u: dict) -> None:
     for k, v in (u or {}).items():
         if isinstance(v, (int, float)):
             total[k] = total.get(k, 0) + v
 
 
+# 生效条件：当 data 传入时，返回 (data.get('choices') or [{}])[0]：choices 缺键/空列表/假值时返回 {}，否则返回 choices 的第一个元素；
 def _choice(data: dict) -> dict:
     return (data.get("choices") or [{}])[0]
 
 
+# 生效条件：当 msg 传入时，若 (msg.get('content') or '').strip() 为空且 msg.get('tool_calls') 为假值（None/空列表等）则返回 True，否则 False；
 def _empty_turn(msg: dict) -> bool:
     """content 与 tool_calls 双空 = 错误/中止的助手轮（Pi⑦①）。
 
@@ -723,6 +746,7 @@ def _empty_turn(msg: dict) -> bool:
     return not (msg.get("content") or "").strip() and not (msg.get("tool_calls"))
 
 
+# 生效条件：当 text/job_dir/tag 传入时，若 len(text)<=TOOL_MSG_MAX_CHARS 返回 (text,'')；否则若 job_dir 为真且 os.path.isdir(job_dir) 为真，则尝试把 text 写入 job_dir/tool_{tag}.json，成功 name=该文件名，OSError 则 log 并把 name=''；最终返回 (text[:TOOL_MSG_MAX_CHARS-TOOL_MSG_TAIL_CHARS]+省略说明+text[-TOOL_MSG_TAIL_CHARS:], name)；
 def _shrink_tool_text(text: str, job_dir: str | None, tag: str) -> tuple:
     """大输出全量落盘 + 回喂消息保尾（Pi⑦③，对齐 exec_cmd._dump_step/_render）。
 
@@ -747,6 +771,7 @@ def _shrink_tool_text(text: str, job_dir: str | None, tag: str) -> tuple:
     return head + note + tail, name
 
 
+# 生效条件：当 spec/job_dir/trace/usage/rnd/est/budget 传入时，基于 trace 中 ok 项生成 digest，调用 progress 写进展卡（仅 job_dir 为真且为目录时该卡才落盘，非目录时 progress no-op），并返回 content=digest、usage、model=spec.get('model')、tool_trace=trace、tool_rounds=rnd、completed=False、need_continue=True 及 handoff 块；
 def _handoff(spec: dict, job_dir: str | None, trace: list, usage: dict, rnd: int,
              est: int, budget: int) -> dict:
     """满上下文换人续跑（v0.4 §5.3 落地）：写进展卡 + 标 need_continue 交回。
@@ -907,6 +932,7 @@ def run_with_tools(spec: dict, messages: list, job_id: str,
     return {"_error": "工具轮次循环异常退出（不应到达）", "tool_trace": trace}
 
 
+# 生效条件：当 e 传入时，若 isinstance(e, urllib.error.HTTPError) 为真则读取 e.read() 解码前 2000 字符（失败则 detail=''）并返回 f'HTTP {e.code}: {detail or e.reason}'；否则返回 f'{type(e).__name__}: {e}'；
 def _api_err_text(e: Exception) -> str:
     if isinstance(e, urllib.error.HTTPError):
         try:
