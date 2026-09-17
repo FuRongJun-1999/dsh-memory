@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-068-batch-c68",
+ "round": 1,
+ "candidate_commit": "57e8f96",
+ "branch": "task/iter-068-batch-c68",
+ "unit_job": "h1789666219181_f5ed92",
+ "verdict": "REJECT",
+ "package_n": 33,
+ "text": "复核：多数条件与源码一致。但 `derive_fields` 条目错位：其片段中的 `# 生效条件：field、value、basis 给定…` 实际位于嵌套函数 `_put` 定义行之前，描述的是 `_put`，却挂在 `derive_fields` 下；末尾 `_put` 条目又未包含该注释。违反“注释位置须在定义行之前/符号锚定”，应驳回。\n\nreason: `derive_fields` 的生效条件注释实际锚定内部 `_put`，符号与注释位置不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
