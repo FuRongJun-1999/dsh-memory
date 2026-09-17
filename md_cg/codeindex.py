@@ -216,12 +216,14 @@ def extract(source, path="", suffix=None):
 def condition_space(item):
     """条目 → 条件空间四槽（纯函数，**唯一来源**）。
 
-    为什么必须与 `render` 同源：正文的 `# 生效条件：` 行与 frontmatter 的
+    为什么必须与 `render` 同源：正文的 `# 索引元条件：` 行与 frontmatter 的
     `condition_space` 一旦各写一套，就会出现「正文有声明、条件空间是空的」
     ——`nodefile.condition_space_text(require_full=True)` 只看 frontmatter，
     于是节点**存得进、判得了，条件空间却没声明**。改造前正是这样：正文写
     「大域=X；检索…时」（第三种方言），frontmatter 只写 `observation_position`
     **单槽**。单槽不是生效条件（见 nodefile.CONDITION_SLOTS_REQUIRED），
+    该四槽在正文里由「索引元条件」行承载（**不再**占用「生效条件」字段——
+    Phase 0 契约裁决，见 nodefile.INDEX_META_MARK），
     故本函数按四槽齐备产出，供 `render` 与 `refindex.add_items` 共用。
 
     时间槽用**全时窗哨兵**而非 `mdcg.add` 缺省补的「写入时刻锚定 1 小时窗」：
@@ -245,7 +247,7 @@ def condition_space(item):
 
 
 def render(item):
-    """条目 → CCG 6 行正文（可被 search 命中，不含实现）。
+    """条目 → 正文三分区：源码 CCG 区（人工优先）→ 合成 CCG 区 → 索引元信息区。
 
     **必须渲染成 CCG 格式**，这是本模块最容易踩的坑：
     `judge_qualification` 第一步就查 `ccg_completeness` 的 5 要素
@@ -255,6 +257,16 @@ def render(item):
     `# path::name` / `# sig` / `# doc:` 这类非 CCG 行，于是**所有代码节点
     恒定 BLINDSPOT**：存得进、判不了、检索不到（与「目标节点的 CCG 渲染」
     是同一策略，见 mdcg.py 的对应注释）。
+
+    Phase 0 修复（行序压制 + 字段语义分家；契约见
+    docs/mdcg/代码评审与条件化注释_契约_v0.1.md）：
+      ① **源码 CCG 区置首**——mdcos._ccg_field 取**首个**匹配，置首即
+         「人工优先」的确定性序：人工声明的生效条件不再被合成行压制；
+      ② 合成区**不再产出生效条件行**——索引元条件不是功能前置条件
+         （裁定见 nodefile.INDEX_META_MARK）。故源码未声明的条目会**诚实地
+         缺该要素（BLINDSPOT）**，而不是被元条件冒充成 DEFER；
+      ③ 索引元信息区改用非 CCG 字段名（索引元条件行 + 位置行），两个语义
+         不再挤同一个字段名（可机械判：nodefile.is_ccg_mark）。
     """
     name = item["name"]
     kind = item["kind"]
@@ -270,18 +282,26 @@ def render(item):
     else:
         basis = (f"{LANG_WEAK}（正则弱提取，未过编译器；区间为**上界**，"
                  f"以 op=ref 回读为准：{path} L{item['lineno']}-L{item['end']}）")
-    lines = [
+    # ---- 三分区组装（顺序即语义，不许随手改）------------------------------
+    #   ① 源码 CCG 区：人工/源码声明逐字保留，**置首**取得「首个匹配」优先权
+    #   ② 合成 CCG 区：机械补齐 5 要素，保证 ccg_completeness 不因缺行整体失效
+    #   ③ 索引元信息区：非 CCG 字段名 + 位置行（与 CCG_MARKS 零重名）
+    lines = ["# " + c for c in comments]
+    lines += [
         f"# 功能名：{name}（{kind}）",
-        f"# 生效条件：{nodefile.condition_space_text(condition_space(item))}",
         f"# 子功能：{parent + '.' if parent else ''}{sub[:MAX_DOC]}",
         f"# 执行：{sig}",
         f"# 验证方式：{basis}",
         "# 不适用条件：其它大域的**同名**符号（同名不同域时以 path 区分；"
         f"本条目属于 {path}）",
+        # 索引元条件**不占用**生效条件字段：它是「条目在何处/何时可被观测」，
+        # 不是「这段代码在何种输入下正确」。合成即冒充（nodefile.INDEX_META_MARK）。
+        f"# {nodefile.INDEX_META_MARK}："
+        + nodefile.condition_space_text(condition_space(item),
+                                        require_full=False),
         f"# 位置：{path}:{item['lineno']}-{item['end']}"
         f"（{item.get('lang')}，precise={bool(item.get('precise', True))}）",
     ]
-    lines.extend("# " + c for c in comments)
     return "\n".join(lines)
 
 

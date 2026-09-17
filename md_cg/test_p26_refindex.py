@@ -208,30 +208,56 @@ def main():
               ignite and ignite["parent"] == "Reactor", str(ignite and ignite["parent"]))
 
         # ===================================================== ④ 渲染即 CCG
-        print("\n【4】render 产出 CCG（R1 核心修复）")
+        print("\n【4】render 产出 CCG（R1 核心修复 + Phase 0 契约裁决）")
         rendered = codeindex.render(py_item)
         cpl = nodefile.ccg_completeness(rendered)
-        check("render 的 CCG 5 要素齐全（complete=True）",
-              cpl["complete"] is True, str(cpl["required_present"]))
-        check("render 6 行全在（all_present=True）", cpl["all_present"] is True)
-        check("render 不复制实现正文",
-              "return mass * speed" not in rendered)
+        check("render 不复制实现正文", "return mass * speed" not in rendered)
+        # Phase 0 契约裁决（docs/mdcg/代码评审与条件化注释_契约_v0.1.md）：
+        # 生效条件只承载**功能前置条件**，不由索引元条件合成。ALPHA 的
+        # compute_energy 没有源码 CCG 注释 → 诚实缺该要素，而非被元条件冒充。
+        missing = [m for m in nodefile.CCG_REQUIRED
+                   if m not in cpl["required_present"]]
+        check("合成区不冒充生效条件（源码未声明 → 无该行）",
+              "# 生效条件：" not in rendered, rendered.split("\n")[0][:60])
+        check("缺生效条件被诚实判定（complete=False 且恰缺该要素）",
+              cpl["complete"] is False and missing == ["生效条件"], str(missing))
+        check("合成区其余 5 要素齐备（不因缺条件整体失效）",
+              all(m in cpl["required_present"] for m in nodefile.CCG_MARKS
+                  if m != "生效条件"), str(cpl["required_present"]))
 
-        # 生效条件**必须**与 frontmatter 同源：四槽合成，单槽不是生效条件。
-        # 改造前正文写「大域=X；检索…时」（第三种方言），frontmatter 只写单槽
-        # observation_position → condition_space_text(require_full=True) 恒为 ""。
+        # 条件空间**必须**与 frontmatter 同源：四槽齐备，单槽不是条件空间。
         cs = codeindex.condition_space(py_item)
         check("condition_space 四槽齐备",
               set(cs) == set(nodefile.CONDITION_SLOTS_REQUIRED), str(sorted(cs)))
         synth = nodefile.condition_space_text(cs)
-        check("四槽合成出非空生效条件（单槽冒充已废止）", bool(synth), synth)
-        cond_line = next((ln for ln in rendered.split("\n")
-                          if ln.startswith("# 生效条件：")), "")
-        check("正文生效条件 = 四槽合成结果（正文与 frontmatter 同源）",
-              cond_line == f"# 生效条件：{synth}", cond_line)
+        check("四槽合成出非空条件声明（单槽冒充已废止）", bool(synth), synth)
+        # 索引元条件**独立承载**且与 CCG 六要素零重名（同源同函数）
+        meta_head = f"# {nodefile.INDEX_META_MARK}："
+        meta_line = next((ln for ln in rendered.split("\n")
+                          if ln.startswith(meta_head)), "")
+        check("索引元条件独立成行且非 CCG 字段名",
+              bool(meta_line) and not nodefile.is_ccg_mark(nodefile.INDEX_META_MARK),
+              meta_line[:70])
+        check("索引元条件 = 四槽同源（与 frontmatter 同一纯函数）",
+              meta_line == meta_head + nodefile.condition_space_text(
+                  cs, require_full=False), meta_line[:90])
         check("时间槽用全时窗哨兵（不把写入时刻伪造成条件）",
               nodefile.is_full_time_window(cs.get("time_window")),
               str(cs.get("time_window")))
+        # 人工优先：源码声明生效条件时必须置首且胜出（行序压制的反面自证）
+        annotated = dict(py_item)
+        annotated["comments"] = ["# 生效条件：mass > 0 且 speed >= 0"]
+        r2_lines = codeindex.render(annotated).split("\n")
+        first_cond = next((ln for ln in r2_lines
+                           if ln.startswith("# 生效条件：")), "")
+        check("源码声明的生效条件置首且逐字保留（未被压制）",
+              first_cond == "# 生效条件：mass > 0 且 speed >= 0", first_cond)
+        # 合成行按条目实际 kind 构造，避免把 kind 字面量写死在断言里（防漂移）
+        synth_head = f"# 功能名：{py_item['name']}（{py_item['kind']}）"
+        check("源码区先于合成区（人工优先的确定性序）",
+              synth_head in r2_lines
+              and r2_lines.index(first_cond) < r2_lines.index(synth_head),
+              str(r2_lines[:3]))
         weak = codeindex.condition_space(js_item)
         check("弱提取在方法槽诚实降级（不冒充编译器）",
               codeindex.LANG_WEAK in weak["observation_tool"]
@@ -239,22 +265,25 @@ def main():
               weak["observation_tool"])
 
         # ===================================================== ⑤ 检索 + 资格
-        print("\n【5】检索资格判定（旧行为：代码节点恒定 BLINDSPOT）")
+        print("\n【5】检索资格判定（Phase 0：合成区不冒充生效条件 → 诚实 BLINDSPOT）")
         cg.flush()
         py_nid = codeindex.node_id(py_item)
         read = call_tool(cg, "cg", {"op": "read", "query": "compute_energy", "k": 10})
         hits = [r for r in read.get("results", []) if r["node"]["id"] == py_nid]
         check("代码节点可被检索到（存得进→查得到）", bool(hits),
               f"hits={len(hits)}")
-        check("CCG 完整 + 基底已声明 → DEFER（不再恒定 BLINDSPOT，情境未确认条件不冒充接受）",
-              bool(hits) and hits[0]["state"] == "DEFER",
+        # Phase 0 契约裁决的**代价面**（预期变更，非回归）：源码未声明功能
+        # 生效条件前，代码条目缺证据 → BLINDSPOT。改造前它靠「索引元条件占用
+        # 生效条件字段」取得 DEFER——而那正是「补了注释与没补不可区分」的病根。
+        check("源码未声明生效条件 → BLINDSPOT（不再用索引元条件冒充 DEFER）",
+              bool(hits) and hits[0]["state"] == "BLINDSPOT",
               str(hits[0]["state"] if hits else None))
 
         js_nid = codeindex.node_id(js_item)
         read_js = call_tool(cg, "cg", {"op": "read", "query": "areaOfCircle", "k": 10})
         js_hits = [r for r in read_js.get("results", []) if r["node"]["id"] == js_nid]
-        check("弱提取节点同样可判（state=DEFER，非 BLINDSPOT）",
-              bool(js_hits) and js_hits[0]["state"] == "DEFER",
+        check("弱提取节点同样诚实缺证据（state=BLINDSPOT）",
+              bool(js_hits) and js_hits[0]["state"] == "BLINDSPOT",
               str(js_hits[0]["state"] if js_hits else None))
 
         # ===================================================== ⑥ code_ref

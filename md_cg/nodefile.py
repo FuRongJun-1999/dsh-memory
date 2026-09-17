@@ -39,6 +39,7 @@ CCG 要素的语义对应（白箱第 1 篇第 17 章）：
 """
 import hashlib
 import json
+import re
 import time
 
 _DELIM = "---"
@@ -70,6 +71,30 @@ CCG_CONTRACT_ROLES = {
     "验证方式":   "后置条件 postcondition + test",
     "不适用条件": "拒绝域 rejection_domain",
 }
+
+# ---- 裁定 C（Phase 0 契约裁决 · 2026-09-17）：索引元条件与功能生效条件字段分家 ----
+# 病根：codeindex.render 曾把**机械推导的索引元条件**（本地源码仓 / 全时窗 /
+# AST 工具 / 文件可读）写成「生效条件」行，与「功能生效条件」（人工声明：
+# 这段代码在何种输入/状态下正确）**共用同一字段名**。检索侧
+# mdcos._ccg_field 取首个匹配 → 源码里人工写的生效条件行被永久压制 →
+# 「补了注释」与「没补」在检索结果上不可区分。
+# 处置（沿用 backfill.py 已裁定先例「观测位置 ≠ 生效条件」）：
+#   · 「生效条件」只承载**功能前置条件**，来源仅限人工/源码声明，
+#     **不由 render 合成**（合成即冒充）；
+#   · 索引元条件改由 INDEX_META_MARK 承载，与 CCG_MARKS **零重名**
+#     （机械可判，见 is_ccg_mark）。
+# 权威契约：docs/mdcg/代码评审与条件化注释_契约_v0.1.md
+INDEX_META_MARK = "索引元条件"
+
+
+def is_ccg_mark(name: str) -> bool:
+    """该字段名是否为 CCG 六要素之一（合成区零重名契约的机械判据）。
+
+    给「合成区字段名 ∩ CCG_MARKS = ∅」提供**可执行**判据，而不是靠注释约定：
+    test_codeindex 逐行核合成区用到的字段名。
+    """
+    return str(name).strip() in CCG_MARKS
+
 # 外部验证基底的可取值（frontmatter.verification_basis）
 #
 # 分两档（口径：文科宽松、理科严格）：
@@ -344,3 +369,29 @@ def is_legacy_position_condition(text) -> bool:
     """
     s = "" if text is None else str(text).strip()
     return s.startswith(LEGACY_POSITION_PREFIX) and len(s) > len(LEGACY_POSITION_PREFIX)
+
+
+def cond_terms(text: str) -> list[str]:
+    """生效条件声明 → 匹配短语列表（确定性切分，无语义猜测）。
+
+    切分规则：按槽分隔「；/;」拆槽（condition_space_text 以「；」连四槽）
+    → 每槽剥「槽标签：」前缀（载体/位置、时间、方法、约束等标签是通用词，
+    参与命中必误判）→ 槽内按「，,、/（）」切短语 → 丢弃长度 <2、纯数字、
+    全时窗哨兵短语（全时窗 = 时间维无信息量，不因其未命中而降级）。
+    """
+    out, seen = [], set()
+    for slot in re.split(r"[；;]", str(text or "")):
+        if "：" in slot:
+            slot = slot.split("：", 1)[1]
+        elif ":" in slot:
+            slot = slot.split(":", 1)[1]
+        for seg in re.split(r"[，,、/（）()]", slot):
+            seg = seg.strip()
+            if len(seg) < 2 or seg.isdigit():
+                continue
+            if "全时窗" in seg or "任意时刻" in seg:
+                continue
+            if seg not in seen:
+                seen.add(seg)
+                out.append(seg)
+    return out
