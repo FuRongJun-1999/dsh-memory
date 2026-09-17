@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-015-batch-b1",
- "candidate_commit": "28d8c8b9a783",
+ "candidate_commit": "ab643ad0a64e",
  "branch": "task/iter-015-batch-b1",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -20,7 +20,7 @@
  "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
  "unit_review": {
   "verdict": "REJECT",
-  "round": 3
+  "round": 4
  },
  "supersede_note": "编外曾裁定 df03dd6 PASS（二轮版本）；其后又修正 7 条，请以最终 tip 复核"
 }

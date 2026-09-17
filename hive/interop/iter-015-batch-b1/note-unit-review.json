@@ -1,20 +1,14 @@
 {
  "kind": "unit-review",
  "iter_id": "iter-015-batch-b1",
- "round": 3,
- "candidate_commit": "28d8c8b9a783",
- "unit_job": "h1789649906285_52c3f7",
+ "round": 4,
+ "candidate_commit": "ab643ad0a64e",
+ "unit_job": "h1789650123985_004b77",
  "verdict": "REJECT",
  "package_n": 23,
  "fixed": [
-  "md_cg/audit.py::_verdict",
-  "md_cg/bench6_c0mpetitors.py::main",
-  "md_cg/bench_locomo.py::main",
-  "md_cg/bench_longmem.py::main",
-  "md_cg/bench_membench.py::diag_failures",
-  "md_cg/bench_task_ab_llm.py::main",
-  "md_cg/branches.py::branch_tag"
+  "md_cg/bench_task_ab.py::_decide_mem"
  ],
- "text": "复核：多数条目与源码相符。发现 R3/R7 不符：`_decide_mem` 条件漏掉 `case[\"fix\"]` 必须为真，空串会被误判为命中；`perturb_kw` 实际以去空后 `words` 非空为前置，空白串不扰动，条件只写 text 非空。故不通过。\nreason: 两处条件在假值/空词容器处与源码分支不一致，不能 ACCEPT。\nverdict: REJECT",
+ "text": "复核仍见不符：`branch_tag` 用 `branch_id or \"\"`，把 0/False 等假值也当空，条件却只称 None/空串按空（R3）；`_verdict` 返回含 `detail` 键，条件返回形状未列（R1）；`diag_failures` 空 `res` 时仍取 `res[0]`，条件未限非空（R7）。故此前 1 处未修好，且有新增不符。\nreason: 假值同化未修好，另见返回形状与空结果条件不符。\nverdict: REJECT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
