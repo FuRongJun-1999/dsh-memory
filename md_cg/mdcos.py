@@ -274,6 +274,7 @@ def _verify_norm(verify):
     return norm, _sig(norm)
 
 
+# 生效条件：无 required 形参；当 os.environ 中 MDCG_REDTEAM_REQUIRED 去空白小写后为 "1"/"true"/"yes" 时返回 True，否则返回 False。
 def _redteam_required():
     return os.environ.get("MDCG_REDTEAM_REQUIRED", "").strip().lower() \
         in ("1", "true", "yes")
