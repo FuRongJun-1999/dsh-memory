@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-105-batch-c105",
+ "round": 1,
+ "candidate_commit": "4f6ada5",
+ "branch": "task/iter-105-batch-c105",
+ "unit_job": "h1789680686158_67c840",
+ "verdict": "REJECT",
+ "package_n": 21,
+ "text": "复核：多数贴合，但存在源码不符：separation_pairs 漏 `if not inter: continue`，`min_jaccard=0` 时零交集对会被误纳；children/parents_index 漏 `target/target_id` 回退与 `None` 跳过；多处 `cg.index` 未按 `getattr` 兜底。\nreason: 候选条件未完整锚定实际分支，Zero-Trust 下应拒。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
