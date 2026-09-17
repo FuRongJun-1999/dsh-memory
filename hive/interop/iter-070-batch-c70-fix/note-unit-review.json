@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-070-batch-c70-fix",
+ "round": 2,
+ "candidate_commit": "f879102",
+ "branch": "task/iter-070-batch-c70-fix",
+ "unit_job": "h1789666835866_6da027",
+ "verdict": "BLINDSPOT",
+ "package_n": 32,
+ "text": "复核：除 main 外，各条基本锚定必需形参、默认值、假值回落、早退前置与返回形状，未见与片段冲突。main 条目标记 BLINDSPOT 合理，但“源码段在 `if args.write:` 处截断”不准确，实际片段止于 `if args.do_print:`；discover_injection_chain 片段也在 wt_dups 循环中截断，未显示最终 return，返回形状缺证。故整体不能 ACCEPT。  \nreason: 多数条件与片段相符，但 main 截断位置表述有误且两处源码截断导致返回路径/形状无法完全核验。  \nverdict: BLINDSPOT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
