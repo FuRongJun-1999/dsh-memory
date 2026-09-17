@@ -1,0 +1,10 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-015-batch-b1",
+ "candidate_commit": "36055c1",
+ "unit_job": "h1789649119545_e7d52b",
+ "verdict": "REJECT",
+ "package_n": 23,
+ "text": "复核：`perturb_kw` 条件称三种 mode 均按 idx 扰动，但源码 `noise3` 分支不用 idx；且全空白 text 会因 `if not words` 早退原样返回，并非“非空即扰动”。`_decide_mem` 称 fix 出现在召回文本即命中，源码 `if case[\"fix\"] and ...` 要求 fix 非空，空 fix 会回退。条件未锚定 nonempty 前置。\nreason: 候选条件漏掉空/空白早退与 fix 非空前置，且 noise3 的 idx 断言源码不支持。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}

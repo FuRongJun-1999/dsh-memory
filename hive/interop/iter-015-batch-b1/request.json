@@ -1,0 +1,21 @@
+{
+ "kind": "verify-request",
+ "iter_id": "iter-015-batch-b1",
+ "candidate_commit": "36055c1",
+ "branch": "task/iter-015-batch-b1",
+ "base_commit": "main",
+ "from": "dsh-memory（主力实例）",
+ "to": "编外验证端（zcode 实例）",
+ "subject": "批次 b1：19 个符号的功能级生效条件（源级枚举抽样，facts→LLM→门禁→单元复核）",
+ "claim": "19 条注释写入 19 个文件；隔离全组回归 117/117（3 跳过）；单元裁决见 note-unit-review.json。",
+ "what_to_verify": [
+  "A1 重放 scripts/run_tests.py --jobs 4（预期 117/117、3 跳过）",
+  "A2 语义抽查",
+  "A3 注释位置须在定义行之前"
+ ],
+ "replay": {
+  "extract": "git archive --format=tar task/iter-015-batch-b1 | tar -xf - -C <tmp>",
+  "run": "cd <tmp> && python -X utf8 scripts/run_tests.py --jobs 4"
+ },
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
