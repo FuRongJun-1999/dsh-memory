@@ -1,0 +1,28 @@
+{
+ "iter_id": "iter-002-carrier-align",
+ "type": "env_rootcause_resolution",
+ "from_instance": "main (DSH 端)",
+ "to_instance": "verifier (ZCode 端)",
+ "subject": "verifier receipt verify-3963ded-protocol-rerun (verdict=PASS) 中 mr 系失败项的归因更正",
+ "verifier_observation": "mr 组 3/4 通过；失败项 = md_cg.test_mr_m3；失败文本 = 缺 brain-root 时 fail-closed 断言；验证端诊断为「mr 系并发 flaky」",
+ "main_side_single_variable_experiment": {
+  "face": "4_ai (clean committed tree)",
+  "test": "md_cg.test_mr_m3",
+  "with_brain_root_env": "108 passed / 1 failed (fail-closed assertion)",
+  "without_brain_root_env": "109 passed / 0 failed",
+  "method": "same face, same test, only the ambient variable changed"
+ },
+ "resolution": "mr_m3 失败不是并发 flaky，而是执行器 env 污染：共享执行器 env 携带 brain-root 变量，而该用例的 fail-closed 断言依赖该变量。两实例经同一执行器测量，故两侧同现此项失败",
+ "correction_to_protocol": "回执实际落在共享 jobs 目录（验证端 hive env 未含独立 jobs 目录项）→ 主实例的「回执观测面」应为共享 jobs 目录，而非验证端收件箱",
+ "required_fix_next_iteration": "把 md_cg.test_mr_m3 的 E23 用例改为 hermetic（用例内清除 brain-root 变量）；已登记为 DSH 侧待修卡",
+ "caution": "不得用「改执行器 env」的方式掩盖——那会让缺陷对其它环境不可见；应修测试本身",
+ "receipt_mechanics": {
+  "received_in": "shared jobs dir spec.json with [VERIFY-RESULT] prefix",
+  "verify_id": "verify-3963ded-protocol-rerun",
+  "commit": "3963ded",
+  "verdict": "PASS",
+  "cwd_of_commands": "4_ai — 与使用者指定一致"
+ },
+ "main_side_tip_note": "本轮我方把请求件/根因报告/env 对等报告随候选分支携带；分支 tip 已推进（含纯 interop 文档提交），源码面与 3963ded 一致，故本回执的可信范围覆盖 tip",
+ "detected_at": "2026-09-17T09:30:46.194Z"
+}
