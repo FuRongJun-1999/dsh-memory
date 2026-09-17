@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-backlog4-dual-d2",
+ "round": 4,
+ "candidate_commit": "7d0cc2b",
+ "branch": "task/iter-backlog4-dual-d2",
+ "unit_job": "h1789680565936_a4b4f3",
+ "verdict": "ACCEPT",
+ "package_n": 7,
+ "text": "复核：build 的 rows 假值回落、have 快照、flush/返回均符；print_sig 仅 r4 有 a 时加 scope、无返回符；ConsistencyError 消息与 `conflicts or []` 符；_prims 四元组符；summary 计数/None verdict/bias/常量符；_path_semantic 的 tw 过滤、空早退、neg_gate、打分封顶、score<=0、out 均符。未发现源码不支持断言；position_ok 认可。ConsistencyError 两条重复但条件一致。\nreason: 各条均与源码一致，未发现语义或前置错配。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
