@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-027-batch-c11",
+ "round": 1,
+ "candidate_commit": "c6b430d",
+ "branch": "task/iter-027-batch-c11",
+ "unit_job": "h1789659961980_2cb390",
+ "verdict": "REJECT",
+ "package_n": 15,
+ "text": "复核：多数条目与源码一致，但存在不符项。`expand_query_terms_llm` 条件称可解析 JSON 数组即标 `'llm'`，源码对空数组会因 `if not items` 抛错并回退 `'whitebox_fallback'`。`lexical_sim` 的“mode 或 SCORE_MODE 为 jaccard”不精确，源码为 `(mode or SCORE_MODE) == 'jaccard'`，显式非空 mode 会覆盖全局。`en_zh_terms` 称返回中文语素列表，实际保留专有/未知原名。故整批不宜接受。\nreason: 存在与源码不符的生效条件（空 JSON 数组回退、mode 覆盖语义、返回项非纯中文语素）。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
