@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-083-batch-c83-fix-d1",
+ "round": 3,
+ "candidate_commit": "71cbf2a",
+ "branch": "task/iter-083-batch-c83-fix-d1",
+ "unit_job": "h1789671447654_ac17c9",
+ "verdict": "REJECT",
+ "package_n": 21,
+ "text": "复核发现 build_eval_cg 条件漏述循环内 `if r['id'] in cg.index['nodes']: continue`，已存在节点被跳过而不写入，且其行不会更新 last_canon；故“逐行写入并维护 last_canon”与源码不符。\nreason: build_eval_cg 漏掉已有 id 的 continue 早退，写入与 last_canon 维护描述不准。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
