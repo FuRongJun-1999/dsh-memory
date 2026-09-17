@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-070-render-r21",
+ "round": 6,
+ "candidate_commit": "78a3d9d",
+ "branch": "task/iter-070-render-r21",
+ "unit_job": "h1789668365827_5c100d",
+ "verdict": "ACCEPT",
+ "package_n": 27,
+ "text": "逐条比对：条件均说明输入/状态与必需键/早退；None与假值回退、缺键 KeyError、空容器、缓存、返回形状均与源码分支一致；未发现 assert 语义、闭包前置、参数误用、长度/空容器或注释位置违例。_title 的 None 最终会成字符串 \"None\"，候选已写 str，不构成新增断言。\n\nreason: 与源码逐分支相符，无实质越界断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
