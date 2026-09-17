@@ -80,6 +80,7 @@ def as_list(value) -> list:
     return out
 
 
+# 生效条件：rel 为假值（None/空串）或 str(rel).strip().lower() 后为空白的串（如 "   "）时 r 回落 default（默认常量 DEFAULT_RELATION）；r 不在 RELATIONS 内（含回落后的 default 本身非法）即抛 ProvenanceError，否则返回该小写串。
 def normalize_relation(rel, default: str = DEFAULT_RELATION) -> str:
     """严格校验关系名；非法抛 `ProvenanceError`（显式 API 用）。"""
     r = str(rel or "").strip().lower()
@@ -204,6 +205,7 @@ def load(root: str, *, path: str = None) -> list:
     return out
 
 
+# 生效条件：rows 中每行按 (r.get("child"), r.get("parent"), r.get("rel")) 三元组判重，仅首次出现的行保留，按原顺序返回去重列表。
 def _dedupe(rows):
     out, seen = [], set()
     for r in rows:
