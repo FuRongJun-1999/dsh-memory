@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-backlog5-dual",
+ "round": 2,
+ "candidate_commit": "1bb1819",
+ "branch": "task/iter-backlog5-dual",
+ "unit_job": "h1789686686106_6e7656",
+ "verdict": "REJECT",
+ "package_n": 47,
+ "text": "复核：除 subgraph.expand 外，其余条目基本与源码/常量锚定一致。expand 条件称“对未出现过的 (ch,cur) 追加 part_of 边并压栈”，但源码中边与压栈前置独立：边看 `key not in seen_edges`，压栈看 `ch not in seen`。故 (ch,cur) 已见但 ch 未入 seen 时仍会压栈；ch 已入 seen 但边未见时仍会加边。该句与源码不符。  \nreason: expand 条件把边去重与入栈前置混同，与源码不符。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
