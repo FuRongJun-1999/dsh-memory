@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-060-mdcos-r2-d1",
+ "round": 4,
+ "candidate_commit": "5bc360b",
+ "branch": "task/iter-060-mdcos-r2-d1",
+ "unit_job": "h1789669594514_31880c",
+ "verdict": "REJECT",
+ "package_n": 56,
+ "text": "复核发现多处与源码不符：_candidates 中 branch 并非“为真时才过滤”，默认 branch=None 时仍会剔除 branch_id 非 None 的节点；__init__ 把 autoflush/actor 默认值写成固定传递，忽略入参覆盖；health_os 实际键名为 tombstones，非 tombstone；_path_bucket 实际经 routing.bucket_dir(route_key(...)) 构造桶名。故不能按候选新增条目接受。\nreason: 存在 branch 默认过滤、参数默认值及键名等关键源码不一致。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
