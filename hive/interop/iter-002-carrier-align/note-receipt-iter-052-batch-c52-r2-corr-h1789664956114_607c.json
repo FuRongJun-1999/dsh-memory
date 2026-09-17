@@ -1,0 +1,15 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-052-batch-c52-r2",
+ "commit": "9682035",
+ "verdict": "PASS",
+ "receipt_job": "h1789664956114_607c",
+ "receipt_sha16": "7f365f10c08a057e",
+ "received_ts": 1789664956,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-052-batch-c52-r2 commit=9682035 verdict=PASS | 验证端自纠更正：前条回执的「少报 4 条」归因有误——whitebox.py 3 条+mdcos.py 1 条系 main 侧其他迭代内容，非 iter-052 候选；iter-052 候选（9682035，基于 13bbdbc）声明 0 条写入属实，候选树组跑=SUMMARY 88/88 通过，3 跳过。申报无违规，撤回前条违规记录",
+ "commands_sanitized": "[{\"label\": \"mark\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}]",
+ "related_note": "hive/interop/iter-002-carrier-align/note-receipt-iter-052-batch-c52-r2-h1789664867332_4a28.json",
+ "note": "由 ingest_receipts.py v2 生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

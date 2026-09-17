@@ -1,0 +1,15 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-060-batch-c60-dedent-r2",
+ "commit": "8127be1",
+ "verdict": "PASS",
+ "receipt_job": "h1789665861512_638c",
+ "receipt_sha16": "dfc7c5bf580cc282",
+ "received_ts": 1789665861,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-060-batch-c60-dedent-r2 commit=8127be1 verdict=PASS | 更正重发（前条 cogmap 步失败系验证端工作树未对齐 main 时点，非候选缺陷）：dedent 修复确认 sustain.py 25 条 0 缩进 0 位置异常；候选树全组=SUMMARY 117/117 通过，3 跳过。口径提请照旧（45 vs 树内 25）。机器重放两步（逐字）：test_codeindex=PASS 47 / FAIL 0 / SKIP 0；cogmap_sync check=通过",
+ "commands_sanitized": "[{\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}]",
+ "related_note": "hive/interop/iter-002-carrier-align/note-receipt-iter-060-batch-c60-dedent-r2-h1789665561936_6034.json",
+ "note": "由 ingest_receipts.py v2 生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
