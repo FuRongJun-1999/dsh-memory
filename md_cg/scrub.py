@@ -109,6 +109,7 @@ def _access(cg):
         return {}, {}
 
 
+# 生效条件：`from . import chain` 成功且 chain.adjacency(cg) 正常返回时返回该 dict，导入或调用抛任何异常时返回 {}。
 def _adjacency(cg) -> dict:
     try:
         from . import chain
@@ -117,6 +118,7 @@ def _adjacency(cg) -> dict:
         return {}
 
 
+# 生效条件：float(ts or 0) 抛 TypeError/ValueError 时返回 0.0，转换后为 0（含 ts 为 0/空串/None 等假值）时返回 0.0，否则返回 (now - ts)/86400.0。
 def _days(ts, now) -> float:
     try:
         ts = float(ts or 0)
@@ -125,6 +127,7 @@ def _days(ts, now) -> float:
     return (now - ts) / 86400.0 if ts else 0.0
 
 
+# 生效条件：调用即返回带 t 与 op 的 rec；写 append_jsonl(os.path.join(cg.root, SCRUB_LOG), rec) 抛任何异常都被吞掉，不影响返回值。
 def _log(cg, op: str, **rec) -> dict:
     rec = dict(rec, t=time.time(), op=op)
     try:
@@ -134,6 +137,7 @@ def _log(cg, op: str, **rec) -> dict:
     return rec
 
 
+# 生效条件：仅当 read_jsonl(cg.root 下 SCRUB_LOG) 的记录 op=="decontaminate" 且 ok 为真时，把 (rec.get("node_id"), rec.get("kind")) 收进返回集合；无此类记录返回空集。
 def _handled(cg) -> set:
     """已处置过的 (node_id, kind)：保证去污染幂等（审计即状态）。"""
     out = set()
@@ -210,6 +214,7 @@ def _pool_candidates(cg, *, now, stale_days, unverified_days, max_reads=200):
     return pools
 
 
+# 生效条件：strategy=="random" 时直接返回 {"random": int(n)}；strategy=="risk" 时按剔除 hot/random 后的 STRATUM_WEIGHTS 权重分配；其它策略名走全权重分配，两者都把 int(n) 余量补进已存在的 random 键否则补进 stale。
 def _quota(n: int, strategy: str) -> dict:
     if strategy == "random":
         return {"random": int(n)}
@@ -231,6 +236,7 @@ def _quota(n: int, strategy: str) -> dict:
     return out
 
 
+# 生效条件：k<=0 或 pool 为假值（空池）时返回 []，否则取池前 k*3 项后用 random.Random(f"{seed}:{stratum}") 稳定洗牌并返回前 k 项（池长不足 k*3 时对全池洗牌）。
 def _pick(pool, k: int, seed, stratum: str):
     """从池中取 k 个：风险最高的 3k 个入池，再按 seed 稳定洗牌。"""
     if k <= 0 or not pool:
@@ -242,6 +248,7 @@ def _pick(pool, k: int, seed, stratum: str):
     return cand[:k]
 
 
+# 生效条件：strategy 经 str(strategy or "stratified").lower() 后属于 stratified/risk/random 时返回带分层标签的样本（seed 为 None 时取 0，n 为 0 时 picked 为空），否则抛 ValueError。
 def sample(cg, n: int = DEFAULT_SAMPLE, *, strategy: str = "stratified",
            seed=None, stale_days: float = STALE_DAYS,
            unverified_days: float = UNVERIFIED_DAYS,
@@ -284,12 +291,14 @@ def sample(cg, n: int = DEFAULT_SAMPLE, *, strategy: str = "stratified",
 # ② 联想
 # --------------------------------------------------------------------------
 
+# 生效条件：a 或 b 为假值（空集）时返回 0.0，否则返回 len(a & b)/len(a | b)。
 def _jaccard(a: set, b: set) -> float:
     if not a or not b:
         return 0.0
     return len(a & b) / len(a | b)
 
 
+# 生效条件：对 node_id 汇总关系链（chain.walk 出边与入边，max_depth=int(hops)）、子图层级（subgraph.expand 命中项与父索引逐级上溯 int(hops) 层）以及 lexical 为真时的词法近邻（只在 _nodes 前 int(max_scan) 个节点内比 bigram、sim≥min_sim 者），返回按 weight 降序的 items[:int(limit)]。
 def associate(cg, node_id: str, *, hops: int = DEFAULT_HOPS, limit: int = 30,
               lexical: bool = True, min_sim: float = 0.25,
               max_scan: int = MAX_ASSOC_SCAN) -> dict:
@@ -392,6 +401,7 @@ _NEG_WORDS = ("禁止", "不得", "不要", "不能", "切勿", "避免", "不�
 _POS_WORDS = ("应当", "建议", "必须", "需要", "可以", "允许", "推荐", "宜")
 
 
+# 生效条件：v 为 bool 返回 None；v 为 int/float 时仅 f>1e8 返回 f 否则 None；str(v or "").strip() 为空返回 None；否则按 "%Y-%m-%dT%H:%M:%S"/"%Y-%m-%d %H:%M:%S"/"%Y-%m-%d" 依次取前 19/19/10 字符尝试解析，全失败后再试 float(s)，>1e8 返回否则 None，float 亦失败返回 None。
 def _to_ts(v):
     """宽松时间解析：秒级时间戳 / ISO / `YYYY-MM-DD`。无法识别 → None。"""
     if isinstance(v, bool):
@@ -415,6 +425,7 @@ def _to_ts(v):
         return None
 
 
+# 生效条件：对 (content or "").splitlines() 的每行去 # 后，先试中文全角 "："、无则试 ":"，切出的键长度在 2–12、值非空且键不在 _SKIP_KEYS 时以 setdefault 记录（每键只留首次出现），无合格行返回 {}。
 def _kv_pairs(content) -> dict:
     """抽 `键：值` 对（中文/英文冒号），跳过结构字段。"""
     out = {}
@@ -432,12 +443,14 @@ def _kv_pairs(content) -> dict:
     return out
 
 
+# 生效条件：c 取 content or ""，含 _NEG_WORDS 任一返回 -1 分量、含 _POS_WORDS 任一返回 +1 分量，结果为两者之和（都不含时为 0）。
 def _polarity(content) -> int:
     c = content or ""
     return (-1 if any(w in c for w in _NEG_WORDS) else 0) + \
            (1 if any(w in c for w in _POS_WORDS) else 0)
 
 
+# 生效条件：按 _EXPIRY_KEYS 顺序遍历 fm，返回首个满足「键在 fm 中且 _to_ts 非 None 且 ts<now」的 (k, fm.get(k))；该键解析为 None 或 ts≥now 时继续检查后续键，全不满足返回 None。
 def _expired(fm, now):
     for k in _EXPIRY_KEYS:
         if k in fm:
@@ -476,6 +489,7 @@ def _contradiction(cg, content, related, max_compare=10):
     return None
 
 
+# 生效条件：ids 在 node_ids 为 None 时取索引全部键、为 str 时取单元素列表、否则取 list(node_ids)，limit 为真值时截断为前 int(limit) 个；跳过 layer 在 SELF_LAYERS 的节点和 cg.get 取不到正文的节点，对剩余每个节点按 min_severity 门限累加 expired/unverified/orphan_noise/duplicate/contradiction，返回 ok=无 high 且无 medium 的结果。
 def audit(cg, node_ids=None, *, hops: int = 1, min_severity: str = "info",
           limit=None, unverified_days: float = UNVERIFIED_DAYS,
           lexical: bool = True, min_sim: float = 0.15) -> dict:
@@ -562,6 +576,7 @@ def audit(cg, node_ids=None, *, hops: int = 1, min_severity: str = "info",
             "t": now}
 
 
+# 生效条件：循环 max(1, int(times)) 次调用 cg.verify(nid, "scrub:"+kind+":"+str(detail)[:120], "weakened")，返回最后一次调用结果（times≤0 时按 1 次执行）。
 def _weaken(cg, nid, kind, detail, times=1):
     res = None
     for _ in range(max(1, int(times))):
@@ -569,6 +584,7 @@ def _weaken(cg, nid, kind, detail, times=1):
     return res
 
 
+# 生效条件：kinds 为真且 issue 的 kind 不在其中则跳过；kind 为 duplicate/unverified 记 hint，已出现在 _handled 记 skip，protect.is_protected 为真且 override 为假记 skip_protected，dry_run 为真记 planned；仅 dry_run 为假时对余下 issue 执行 _weaken，并在 demote 为真、severity 为 high 或 low 且当前层非 contextual 时降级到 contextual，返回计数与 actions。
 def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
                   min_severity: str = "medium", hops: int = 1, actor=None,
                   override: bool = False, weaken_times: int = 1,
@@ -758,6 +774,7 @@ def sweep(cg, *, n: int = DEFAULT_SAMPLE, seed=None, dry_run: bool = True,
     return out
 
 
+# 生效条件：返回 cg.root 下 SCRUB_LOG 的全部记录条数 n 与 recs[-int(limit):]（limit=0 时切片为 recs[0:] 即返回全部记录）。
 def history(cg, limit: int = 100) -> dict:
     recs = list(read_jsonl(os.path.join(cg.root, SCRUB_LOG)))
     return {"n": len(recs), "records": recs[-int(limit):]}
@@ -779,6 +796,7 @@ def summary(cg) -> dict:
                            if last else None)}
 
 
+# 生效条件：无入参调用即返回固定的 actions 列表、STRATA 列表、CONTAMINATION 映射（每项取 severity 与 actions）与 STALE_DAYS/UNVERIFIED_DAYS/LOW_CONF/ORPHAN_IMPORTANCE/MAX_OFFSET 阈值字典。
 def catalog() -> dict:
     return {"actions": ["sample", "associate", "audit", "decontaminate",
                         "calibrate", "sweep", "history", "summary", "catalog"],
