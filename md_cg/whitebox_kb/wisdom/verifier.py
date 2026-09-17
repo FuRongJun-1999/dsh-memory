@@ -171,7 +171,16 @@ class VerifyResult:
 # v6（2026-08-31）：cases 形态修复（list→tuple）后指纹归一化同值，旧 False
 # 条目对修复免疫；bump 版本作废全部旧缓存——长驻进程内存快照复活毒条目的
 # 终局解（版本不符整体清空，任何进程加载即重建）。
-VERIFIER_VERSION = 6
+VERIFIER_VERSION = 10  # v10：结构规范的字面匹配改大小写不敏感——该表是语言无关的
+                       # 任务语义判据（要求去重结构出现），字面取自 Python 命名习惯
+                       # （set/seen），JS 标准 API 写作 `new Set(arr)`，敏感匹配把正确
+                       # 实现判为「未见对应结构」（实测 code-js/去重 假失败）。v9：
+                       # Python 模板（含 {fn} 占位符）先展开占位符再走 Python
+                       # 判据——逐字复用 _render_placeholders（模板不再降级为文本判据，
+                       # R1/R2/R3/R4 全量生效）。v8：非 Python 源码改走文本判据（Rust/JS
+                       # 不再静默跳过假通过）+ `_audit_all` 审计面纳入语言单元表；
+                       # v7：R3/R4 由死代码转为软模式恒执行 + 判据校准（入口/窗口/顶层）
+                       # + evidence 诚实化——判据变更必须 bump，否则旧判定被缓存复用
 _CACHE_VERSION_KEY = "_verifier_version"
 _STATS_KEY = "_stats"
 
@@ -643,7 +652,12 @@ class Verifier:
             if kw in req.task:
                 if kw in ("反转",) and "字典" in req.task:
                     continue  # 字典反转：值变键语义，无序列反转结构
-                hit = any(p in req.code for p in patterns)
+                # 大小写不敏感：本表是**语言无关的任务语义判据**（要求「去重结构
+                # 出现」这一事实），而字面取自 Python 命名习惯（set/seen）——
+                # JS 标准 API 写作 `new Set(arr)`，敏感匹配把正确实现判为
+                # 「未见对应结构」（实测 code-js/去重 假失败，v10 修正）。
+                # 放宽仅限大小写，令牌本身仍必须出现（不弱化判据强度）。
+                hit = any(p.lower() in req.code.lower() for p in patterns)
                 if not hit and not req.expected_structure.get("structure_optional"):
                     errors.append(f"任务含「{kw}」但代码未见对应结构 {patterns}")
 
@@ -666,12 +680,19 @@ class Verifier:
         # 条件论注释规范（WB-SPEC v1.2，用户条件论要求）：
         # R1 函数/类等抽象的总体功能必须中文注释（docstring 或紧跟 # 中文注释）
         # R2 注释须为中文语境（英文缩写嵌入中文说明；纯英文注释行违规）
+        # R3/R4（六要素契约）恒执行并回报达标率——见 _check_comment_spec 的纪律说明
+        self._comment_notes = []
+        self._ccg_stat = {}
         errors.extend(self._check_comment_spec(req))
 
         if errors:
-            return {"level": "规范符合性", "ok": False, "evidence": "; ".join(errors)}
-        return {"level": "规范符合性", "ok": True,
-                "evidence": "结构规范 + 语义对齐 + 条件论注释通过"}
+            return {"level": "规范符合性", "ok": False, "ccg": self._ccg_stat,
+                    "evidence": "; ".join(errors)}
+        # evidence 必须**如实**：改造前无论 R3/R4 是否执行都写「条件论注释通过」，
+        # 等于把「没检查」冒充「检查通过」（固化记录里留下了这类伪证）。
+        detail = "；".join(self._comment_notes) or "R3/R4 无可检符号"
+        return {"level": "规范符合性", "ok": True, "ccg": self._ccg_stat,
+                "evidence": f"结构规范 + 语义对齐 + 条件论注释 R1/R2 通过（{detail}）"}
 
     def _check_comment_spec(self, req: VerifyRequest) -> list:
         """条件论注释规范（WB-SPEC v1.2）：R1 函数/类中文注释 + R2 注释中文语境。
@@ -680,6 +701,8 @@ class Verifier:
             紧跟的 # 中文注释描述其总体功能。
         R2：注释行必须为中文语境（含中文字符）——英文缩写嵌入中文说明；
             纯英文注释行（无任何中文）违规。
+        非 Python 源码分两档（见下方 except 分支）：Python 模板（含 `{fn}` 占位符）
+        展开后走本函数的**全量**判据；真·非 Python（Rust/JS）走文本判据。
         expected_structure.no_comment_spec=True 可豁免（如注入型组装片段）。
         """
         if req.expected_structure.get("no_comment_spec"):
@@ -688,7 +711,26 @@ class Verifier:
         try:
             tree = ast.parse(code)
         except SyntaxError:
-            return []
+            # 分支 A·Python 模板：`*_UNITS` 的 pattern 是**带占位符的模板**
+            # （`def {fn}(arr):`），ast.parse 必然 SyntaxError。改造前这类模板
+            # 与 Rust/JS 一样落到 `return []` 静默跳过；v8 起落到文本判据——
+            # 但那是**降级判据**（只查三要素字面，不查 R1 逐符号中文注释 / R2
+            # 纯英文注释行）。故此优先展开占位符再进 Python 判据（v9），
+            # 使 Python 模板与六域单元获得同强度判据。
+            rendered = self._render_placeholders(code, req)
+            if rendered != code:
+                try:
+                    tree = ast.parse(rendered)
+                except SyntaxError:
+                    return self._check_comment_spec_text(req)
+                code = rendered
+            else:
+                # 分支 B·真非 Python 源码（Rust / JavaScript 模板）：ast 无法解析。
+                # 改造前此处 `return []` = **静默跳过**，等于给多语言单元发
+                # 「假通过」——实测 RUST_UNITS/JS_UNITS 各 5 单元的 CCG 契约 0/5
+                # 达标，而 verifier 报「R3 缺 0」（`_ccg_stat` 留空、不进分母）
+                # → 审计报告完全隐身。
+                return self._check_comment_spec_text(req)
         src_lines = code.splitlines()
         _has_cn = lambda s: any('\u4e00' <= c <= '\u9fff' for c in s)
         errs = []
@@ -719,62 +761,189 @@ class Verifier:
                 bad_lines.append(f"L{i}")
         if bad_lines:
             errs.append(f"纯英文注释行（条件论 R2，须中文说明）: {bad_lines[:5]}")
-        # R3：条件论注释三要素（功能条件/子功能/执行方式）——升级期软模式：
-        # 只统计达标情况写入 evidence，不拦截（expected_structure.require_cond_comment
-        # 为 True 时硬拦截——全库升级完成后开启）
-        if req.expected_structure.get("require_cond_comment"):
-            missing3 = self._cond_comment_missing(tree, src_lines)
-            if missing3:
-                errs.append(f"条件论三要素注释缺失（R3）: {missing3[:5]}")
-        # R4：不适用条件（代码语义条件协议 v1.0）——何时不能用的盲区声明。
-        # 软模式（require_not_cond=True 时硬拦截——全库补齐后开启）
-        if req.expected_structure.get("require_not_cond"):
-            missing4 = self._not_cond_missing(tree, src_lines)
-            if missing4:
-                errs.append(f"不适用条件缺失（R4·代码语义条件协议）: {missing4[:5]}")
+        # R3/R4：CCG 六要素注释——**默认软模式恒执行**（2026-09-17 修复）。
+        #
+        # 改造前的缺陷（「规范没有被执行」的机械根因，用户 2026-09-17 定性）：
+        #   ① R3/R4 被包在 `require_cond_comment` / `require_not_cond` 开关内，
+        #      而全仓**无任何调用方**传入这两个键 → 判据为**死代码**，恒不执行；
+        #   ② 但 evidence 恒写「条件论注释通过」——R1/R2 通过即谎报六要素达标，
+        #      于是 code_solidified.json 留下「零标记却通过」的**伪证**；
+        #   ③ 判据自身只查**首个** def、窗口只覆盖 def 前 2 行——与既有单元库
+        #      104+ 处标记的实际形态（`# 生效条件：` 紧跟 def 行之后）物理不相容。
+        # 现纪律：软模式**恒执行**并把达标率写入 evidence（诚实报告，不静默），
+        # 硬拦截仅在开关被显式传入时（全库升级完成后由调用方开启）。
+        r3_missing, total = self._cond_comment_missing(tree, src_lines)
+        if total:
+            self._comment_notes.append(
+                f"R3 三要素 {total - len(r3_missing)}/{total} 达标")
+        r4_missing, _ = self._not_cond_missing(tree, src_lines)
+        # 结构化留痕：软模式不拦截，若只把结论写进 evidence **字符串**，
+        # `--audit` 就无法机械汇总缺失清单——「规范没被执行」正是这样隐身的。
+        self._ccg_stat = {"r3_total": total, "r3_missing": r3_missing,
+                          "r4_missing": r4_missing}
+        if r3_missing:
+            msg = f"条件论三要素注释缺失（R3）: {r3_missing[:5]}"
+            if req.expected_structure.get("require_cond_comment"):
+                errs.append(msg)
+            else:
+                self._comment_notes.append(msg + "（软模式，不拦截）")
+        if r4_missing:
+            msg = f"不适用条件缺失（R4·代码语义条件协议）: {r4_missing[:5]}"
+            if req.expected_structure.get("require_not_cond"):
+                errs.append(msg)
+            else:
+                self._comment_notes.append(msg + "（软模式，不拦截）")
         return errs
 
-    def _not_cond_missing(self, tree, src_lines) -> list:
-        """R4：单元主函数注释缺「不适用条件」标记（盲区声明——何时不能用）。
+    def _render_placeholders(self, code: str, req: VerifyRequest) -> str:
+        """展开单元模板占位符（`{fn}` → 具体标识符），使模板可被 ast 解析。
 
-        与 R3 同窗口（def 后 4 行注释）。不适用条件=代码盲区注册表，
-        知道何时不能调用与知道何时调用同等重要。
+        为什么需要：`*_UNITS` 的 pattern 是模板形态（`def {fn}(arr):`），
+        未经 `code_compose.compose_code` 替换前**不是合法 Python**——直接
+        ast.parse 必 SyntaxError，判据就会降级（v7 静默跳过 / v8 文本判据）。
+        展开后 template 与「运行时真实生成的代码」同形，R1/R2/R3/R4 全量判据
+        才真正作用于模板本体（v9）。
+
+        占位符名真源：`expected_structure["params"]`（调用方传单元声明的参数名），
+        缺省回退约定名 `("fn",)`（`code_compose` 第 17 行声明的模板约定）。
+        只替换**声明过的**占位符——不做正则通配，避免误伤 f-string / dict 字面量
+        （`{x}`、`{1: 1}` 形态）。
+        返回值与输入相同 = 无占位符可展开（调用方据此判定「真·非 Python」）。
         """
-        _has_cn = lambda s: any('\u4e00' <= c <= '\u9fff' for c in s)
-        funcs = [n for n in ast.walk(tree)
-                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
-                                   ast.ClassDef))]
-        if not funcs:
-            return []
-        f = funcs[0]
-        block = [ln for ln in src_lines[max(0, f.lineno - 2):f.lineno + 8]
-                 if ln.strip().startswith('#') and _has_cn(ln)]
-        if not block:
-            return [f.name]
-        joined = " ".join(b.strip().lstrip('#').strip() for b in block)
-        return [f.name] if "不适用条件" not in joined else []
+        names = req.expected_structure.get("params") or ("fn",)
+        out = code
+        for p in names:
+            out = out.replace("{" + str(p) + "}", "solve")
+        return out
 
-    def _cond_comment_missing(self, tree, src_lines) -> list:
-        """R3：单元主函数/类缺三要素标记（生效条件/子功能/执行）。
+    def _check_comment_spec_text(self, req: VerifyRequest) -> list:
+        """非 Python 源码的 CCG 契约判据（Rust / JavaScript，`//` 或 `#` 注释）。
 
-        检查首个 def/class（单元抽象总体功能的入口声明——用户核心关注）；
-        内部辅助函数（dfs/walk 等）由 R1（中文注释）覆盖，三要素列入精修。
-        窗口 [lineno-2 : lineno+6]：三要素注释为 def 后 3-4 行。
+        存在理由：`ast.parse` 对非 Python 源码抛 `SyntaxError`。改造前该分支直接
+        `return []` = **静默跳过**——多语言单元在校验器眼里永远「合规」，
+        `_ccg_stat` 留空不进分母，缺口在审计报告里完全隐身
+        （实测：verifier 报 R3 缺 0，文本实缺 5/5）。
+
+        判据与 Python 分支**同口径**（分层不重复）：
+          · 入口符号 = 首个非空非注释行（Rust `fn {fn}(...)`、JS `function {fn}(...)`）；
+          · 注释块 = 入口行之后的连续 `//`/`#` 行；
+          · R3 三要素（生效条件/子功能/执行）+ R4 不适用条件——软模式，恒执行；
+          · R1/R2 精神：注释块须含中文（缺失则硬拦截，与 Python 分支一致）。
         """
-        _has_cn = lambda s: any('\u4e00' <= c <= '\u9fff' for c in s)
-        funcs = [n for n in ast.walk(tree)
-                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
-                                   ast.ClassDef))]
-        if not funcs:
+        lines = req.code.splitlines()
+        entry = next((i for i, ln in enumerate(lines)
+                      if ln.strip() and not ln.strip().startswith(("//", "#"))),
+                     None)
+        if entry is None:
             return []
-        f = funcs[0]
-        block = [ln for ln in src_lines[max(0, f.lineno - 2):f.lineno + 6]
-                 if ln.strip().startswith('#') and _has_cn(ln)]
-        if not block:
-            return [f.name]  # R1 已管（无中文注释），此处仅标记
-        joined = " ".join(b.strip().lstrip('#').strip() for b in block)
+        block = []
+        for ln in lines[entry + 1:]:
+            s = ln.strip()
+            if s.startswith(("//", "#")):
+                block.append(s.lstrip("/#").strip())
+            elif not s:
+                continue
+            else:
+                break
+        joined = " ".join(block)
+        _has_cn = lambda s: any('\u4e00' <= c <= '\u9fff' for c in s)
+        errs = []
+        if not block or not _has_cn(joined):
+            errs.append(f"入口符号缺中文注释（条件论 R1/R2）: L{entry + 1}")
         need = ("生效条件", "子功能", "执行")
-        return [f.name] if not all(k in joined for k in need) else []
+        r3_missing = [k for k in need if k not in joined]
+        r4_missing = [] if "不适用条件" in joined else [f"L{entry + 1}"]
+        # 与 Python 分支同款结构化留痕（分母记 1 = 入口符号，不是「整个文件」）
+        self._ccg_stat = {"r3_total": 1, "r3_missing": r3_missing,
+                          "r4_missing": r4_missing, "mode": "text"}
+        if r3_missing:
+            msg = f"条件论三要素注释缺失（R3·文本判据）: {r3_missing}"
+            if req.expected_structure.get("require_cond_comment"):
+                errs.append(msg)
+            else:
+                self._comment_notes.append(msg + "（软模式，不拦截）")
+        if r4_missing:
+            msg = "不适用条件缺失（R4·文本判据）"
+            if req.expected_structure.get("require_not_cond"):
+                errs.append(msg)
+            else:
+                self._comment_notes.append(msg + "（软模式，不拦截）")
+        return errs
+
+    def _ccg_scope(self, tree) -> list:
+        """R3/R4 共同判定面：CCG 注释的**检查对象** = 单元入口（唯一口径）。
+
+        三处判据校准（2026-09-17，依据 `--audit` 实测暴露的噪声）：
+          ① **只用 `tree.body` 顶层**——改造前用 `ast.walk`，会把**类内方法**
+             也展开计入（实测 `Cat` 与 `Cat.speak` 同现、`speak` 重复两次）；
+          ② **排除 `*_test` / `test_*` / `_` 前缀**——测试样例代码与私有辅助
+             不是契约对象（实测 `closure_test`/`gen_test`/`with_test` 等被计入分母）；
+          ③ **取首个合格符号 = 单元对外入口**——`*_units.py` 的既有约定：
+             pattern 首符号承载「何时可调 / 做什么 / 怎么用」，内部辅助
+             （dfs/walk/find/h1/up/down）无外部调用方，由 R1 中文注释覆盖。
+        与改造前注释声明的设计意图一致（「检查首个 def/class；内部辅助函数由
+        R1 覆盖」），修的是**窗口错位与谎报**，不是检查面。
+        """
+        for n in getattr(tree, "body", []):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                nm = n.name
+                if (nm.startswith("_") or nm.endswith("_test")
+                        or nm.startswith("test_")):
+                    continue
+                return [n]
+        return []
+
+    def _ccg_block(self, f, src_lines) -> tuple:
+        """读取单个符号的 CCG 注释块：返回 (注释行文本列表, docstring)。
+
+        窗口 = def/class 签名行之后、**函数体首个语句之前**的 `#` 注释
+        （多行签名的续行非 `#` 起始，自然跳过）+ docstring。
+        该窗口即既有单元库 104+ 处标记的实际物理位置（`# 生效条件：` 紧贴
+        def 行下一行）；`f.body[0].lineno` 保证多行签名下窗口仍正确。
+        与 `codeindex._body_comments` 同款语义（就近实现，避免跨包 import 环）。
+        """
+        out = []
+        start = f.lineno
+        body = getattr(f, "body", None)
+        end = (body[0].lineno - 1) if body else start
+        for ln in src_lines[start:max(start, end)]:
+            s = ln.strip()
+            if s.startswith("#"):
+                out.append(s.lstrip("#").strip())
+        doc = (ast.get_docstring(f) or "").strip()
+        return out, doc
+
+    def _cond_comment_missing(self, tree, src_lines) -> tuple:
+        """R3：缺「生效条件/子功能/执行」三要素的符号清单；返回 (missing, total)。
+
+        要素名真源 = `nodefile.CCG_CONTRACT_ROLES`（六要素接口契约）；
+        R3 只抽其中三要素——功能名由 R1 覆盖、验证方式与不适用条件由
+        `codeindex.render` 落槽（分层不重复，改造前此三要素从未被检查过）。
+        """
+        funcs = self._ccg_scope(tree)
+        need = ("生效条件", "子功能", "执行")
+        missing = []
+        for f in funcs:
+            block, doc = self._ccg_block(f, src_lines)
+            joined = " ".join(block) + " " + doc
+            if not all(k in joined for k in need):
+                missing.append(f.name)
+        return missing, len(funcs)
+
+    def _not_cond_missing(self, tree, src_lines) -> tuple:
+        """R4：缺「不适用条件」的符号清单；返回 (missing, total)。
+
+        不适用条件 = 拒绝域 rejection_domain（何时**不能**调用）——
+        知道边界才敢调用，与「何时能调用」同等重要。
+        """
+        funcs = self._ccg_scope(tree)
+        missing = []
+        for f in funcs:
+            block, doc = self._ccg_block(f, src_lines)
+            joined = " ".join(block) + " " + doc
+            if "不适用条件" not in joined:
+                missing.append(f.name)
+        return missing, len(funcs)
 
     # ---------- ⑥ 集成测试 ----------
     def _check_integration(self, req: VerifyRequest) -> Dict[str, Any]:
@@ -894,11 +1063,19 @@ def _audit_all() -> None:
     domains = [('compiler', COMPILER_UNITS), ('pylang', PYTHON_UNITS),
                ('graph', GRAPH_UNITS), ('os', OS_UNITS),
                ('browser', BROWSER_UNITS), ('net', NET_UNITS)]
+    # 语言单元表（白箱自举主干）：改造前**不在审计面**——`_audit_all` 只遍历六域
+    # `*_units.py`，而模板生产的 CODE_UNITS/RUST_UNITS/JS_UNITS 从不进报告。
+    # 「规范没被执行」正是这样隐身的：生成端零契约 + 审计端不看它。
+    from code_compose import CODE_UNITS, RUST_UNITS, JS_UNITS
+    lang_domains = [('code-py', CODE_UNITS), ('code-rust', RUST_UNITS),
+                    ('code-js', JS_UNITS)]
     t0 = time.time()
     v = Verifier()
     total = ok = 0
     fails = []
     by_domain = {}
+    ccg_total = ccg_missing = 0
+    ccg_gaps = []          # [(uid, r3_missing, r4_missing)] —— 软模式缺失清单
     for dname, units in domains:
         d_ok = d_fail = 0
         for uid, u in units.items():
@@ -908,6 +1085,18 @@ def _audit_all() -> None:
                 cases=list(u.get('cases', [])),
                 expected_structure={'inject': True} if u.get('needs_inject') else {})
             r = v.verify(req)
+            # CCG 六要素（软模式）汇总：R3/R4 缺失**不拦截**，故不能只看 r.ok——
+            # 必须单独取「规范符合性」check 里的结构化 ccg 块；否则「规范未执行」
+            # 会再次隐身（改造前 evidence 恒写「条件论注释通过」，无从发现）。
+            spec = next((c for c in r.checks if isinstance(c, dict)
+                         and c.get("level") == "规范符合性"), None)
+            st = (spec or {}).get("ccg") or {}
+            if st.get("r3_total"):
+                ccg_total += st["r3_total"]
+                ccg_missing += len(st.get("r3_missing") or [])
+                if st.get("r3_missing") or st.get("r4_missing"):
+                    ccg_gaps.append((uid, st.get("r3_missing") or [],
+                                     st.get("r4_missing") or []))
             if r.ok:
                 ok += 1; d_ok += 1
             else:
@@ -917,6 +1106,59 @@ def _audit_all() -> None:
     print(f"=== 全量审计（verifier v{VERIFIER_VERSION}）: {ok}/{total} 通过 "
           f"({100.0 * ok / total:.1f}%） 耗时 {time.time() - t0:.1f}s ===")
     print("各域:", by_domain)
+    # CCG 六要素报告必须**显式打印**：单元"校验通过"只代表 L1-L3 + R1/R2 过了，
+    # 六要素接口契约是否达成是另一件事——两者混为一谈正是问题根源。
+    rate = (100.0 * (ccg_total - ccg_missing) / ccg_total) if ccg_total else 0.0
+    print(f"CCG 三要素（R3 软模式）: {ccg_total - ccg_missing}/{ccg_total} 符号达标"
+          f"（{rate:.1f}%） | 有缺失的单元 {len(ccg_gaps)}/{total} 个")
+    if ccg_gaps:
+        print("--- CCG 注释缺失清单（软模式，不拦截）---")
+        for uid, m3, m4 in ccg_gaps:
+            print(f"[{uid}] R3缺={m3[:6]} R4缺={m4[:4]}")
+    # --- 语言单元表（自举主干）CCG 契约审计 ---
+    # 与六域**分开统计**，原因有二：
+    #   ① RUST/JS 模板非 Python 语法，L1 语法必失败属正常（校验器与目标语言
+    #      不匹配），此处只问「契约是否写进模板」——走文本判据
+    #      （`_check_comment_spec_text`，mode="text"）；
+    #   ② CODE_UNITS 是 Python 模板但含 `{fn}` 占位符（未替换前非法 Python），
+    #      v9 起由 `_render_placeholders` 展开后走**全量 Python 判据**
+    #      （mode="python"：R1 逐符号中文注释 + R2 注释语境 + R3/R4），
+    #      故本节 `params` 必须透传单元声明的占位符名。
+    # 两档判据强度不同但**达标口径一致**（三要素 + 不适用条件齐备）。
+    lang_total = lang_ok = 0
+    lang_gaps = []
+    lang_modes = {}        # 判据档位计数（python=全量判据 / text=文本判据）
+    for dname, units in lang_domains:
+        for uid, u in units.items():
+            lang_total += 1
+            r = v.verify(VerifyRequest(task=u.get('task', ''), code=u['pattern'],
+                                       unit_id=uid, cases=[],
+                                       expected_structure={
+                                           'params': u.get('params') or ['fn']}))
+            spec = next((c for c in r.checks if isinstance(c, dict)
+                         and c.get("level") == "规范符合性"), None) or {}
+            st = spec.get("ccg") or {}
+            r3m = st.get("r3_missing") or []
+            r4m = st.get("r4_missing") or []
+            md = st.get("mode", "python")
+            lang_modes[md] = lang_modes.get(md, 0) + 1
+            # 「达标」= 判据产出 + 无硬失败 + 契约齐备，三者缺一不可——
+            # 只统计 ccg 缺失会漏报 R1/R2 硬失败（spec.ok=False 但 ccg 齐备
+            # 仍会被算作达标）= 新的谎报面（同 v7「没检查冒充检查通过」同构）。
+            if not st.get("r3_total"):
+                lang_gaps.append((dname, uid, md, "判据未产出（ccg 块为空）"))
+            elif not spec.get("ok"):
+                lang_gaps.append((dname, uid, md,
+                                  f"硬失败: {str(spec.get('evidence'))[:90]}"))
+            elif r3m or r4m:
+                lang_gaps.append((dname, uid, md, f"R3缺={r3m} R4缺={r4m}"))
+            else:
+                lang_ok += 1
+    lrate = (100.0 * lang_ok / lang_total) if lang_total else 0.0
+    print(f"=== 语言单元表 CCG 契约: {lang_ok}/{lang_total} 达标（{lrate:.1f}%）"
+          f" | 判据档位 {lang_modes}（python=展开占位符后全量判据 / text=文本判据）===")
+    for dname, uid, md, desc in lang_gaps:
+        print(f"   [{dname}/{uid}] mode={md} {desc}")
     print(f"缓存: 共 {s['total']} 条（通过 {s['passed']} / 失败 {s['failed']}）"
           f" | 本进程命中 {s['hits']} / 未命中 {s['misses']}（命中率 {s['hit_rate']}%）")
     if fails:

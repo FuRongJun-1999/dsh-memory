@@ -20,6 +20,11 @@ CODE_UNITS = {
         "task": "排序",
         "pattern": (
             "def {fn}(arr):\n"
+            "    # 生效条件：arr 为可迭代且元素互相可比较（同构可排序）；原地修改入参\n"
+            "    # 子功能：① 相邻比较交换 ② 每轮把当前最大元素浮到尾部\n"
+            "    # 执行：双层循环（外层 n 轮 × 内层 n-1-i），相邻逆序则原地交换\n"
+            "    # 验证方式：样例驱动（4 组：乱序/逆序/单元素/空序列）\n"
+            "    # 不适用条件：元素不可比较 / 需稳定排序 / 大规模数据（O(n²) 过慢）\n"
             "    # 排序：冒泡法（相邻比较交换，较小元素浮到头部）\n"
             "    n = len(arr)\n"
             "    for i in range(n):\n"
@@ -35,6 +40,11 @@ CODE_UNITS = {
         "task": "去重",
         "pattern": (
             "def {fn}(arr):\n"
+            "    # 生效条件：arr 为可迭代且元素可哈希（可放入 set）；返回新列表不改入参\n"
+            "    # 子功能：① 集合判重（seen）② 按首次出现顺序收集\n"
+            "    # 执行：单层遍历 + 集合判重 + 列表追加（O(n) 时间 / O(n) 空间）\n"
+            "    # 验证方式：样例驱动（3 组：含重复/空/全同）\n"
+            "    # 不适用条件：元素不可哈希（list/dict/嵌套结构）/ 需保留末次出现\n"
             "    # 去重：保留首次出现顺序（seen 集合判重）\n"
             "    seen = set()\n"
             "    out = []\n"
@@ -50,6 +60,11 @@ CODE_UNITS = {
         "task": "计数",
         "pattern": (
             "def {fn}(arr):\n"
+            "    # 生效条件：arr 为可迭代且元素可哈希（Counter 内部用 dict 计数）\n"
+            "    # 子功能：① 调 Counter 统计词频 ② 转回内建 dict 返回\n"
+            "    # 执行：Counter(arr) 一次遍历计数 + dict() 类型转换\n"
+            "    # 验证方式：样例驱动（3 组：混合值/空/同值）\n"
+            "    # 不适用条件：元素不可哈希 / 需要按频率排序的输出\n"
             "    # 计数：元素出现频率（Counter 统计）\n"
             "    from collections import Counter\n"
             "    return dict(Counter(arr))\n"),
@@ -60,6 +75,11 @@ CODE_UNITS = {
         "task": "最大",
         "pattern": (
             "def {fn}(arr):\n"
+            "    # 生效条件：arr 为可索引序列且元素支持 > 比较；空序列有定义（返回 None）\n"
+            "    # 子功能：① 空序列短路返回 None ② 线性扫描取最大\n"
+            "    # 执行：以 arr[0] 为初值，单层遍历比较更新（O(n)）\n"
+            "    # 验证方式：样例驱动（4 组：乱序/单元素/空/全负）\n"
+            "    # 不适用条件：元素不可比较 / 需同时返回下标 / 空序列需抛异常（本实现返 None）\n"
             "    # 最大值：线性扫描取最大（空列表返回 None）\n"
             "    if not arr:\n"
             "        return None\n"
@@ -75,6 +95,11 @@ CODE_UNITS = {
         "task": "反转",
         "pattern": (
             "def {fn}(arr):\n"
+            "    # 生效条件：arr 支持切片下标协议（list/str/tuple 等序列）\n"
+            "    # 子功能：① 步长 -1 切片逆序 ② 返回新序列（不改入参）\n"
+            "    # 执行：arr[::-1] 单次切片（O(n) 时间，非原地）\n"
+            "    # 验证方式：样例驱动（3 组：整数/空/字符串）\n"
+            "    # 不适用条件：不支持切片的对象（set/生成器/迭代器）/ 需要原地反转\n"
             "    # 反转：切片逆序（倒序排列）\n"
             "    return arr[::-1]\n"),
         "cases": [([1, 2, 3], [3, 2, 1]), ([], []), (["a", "b"], ["b", "a"])],
@@ -84,6 +109,11 @@ CODE_UNITS = {
         "task": "求和",
         "pattern": (
             "def {fn}(arr):\n"
+            "    # 生效条件：arr 可迭代且元素支持 + 累加（数值或可拼接同构类型）\n"
+            "    # 子功能：① 累加所有元素 ② 空序列返回 0（累加器初值）\n"
+            "    # 执行：单层遍历累加（O(n)）\n"
+            "    # 验证方式：样例驱动（3 组：多元素/空/单元素）\n"
+            "    # 不适用条件：元素不可相加 / 需 Kahan 补偿精度 / 超大数防溢出（无保护）\n"
             "    # 求和：累加所有元素（空列表返回 0）\n"
             "    total = 0\n"
             "    for x in arr:\n"
@@ -96,6 +126,11 @@ CODE_UNITS = {
         "task": "最大公约数",
         "pattern": (
             "def {fn}(a, b):\n"
+            "    # 生效条件：a、b 为非负整数（a=0 合法，返回 b）；无除零风险（b=0 时循环不执行）\n"
+            "    # 子功能：① 辗转相除迭代（a,b ← b,a%b）② 余数为 0 时返回当前 a\n"
+            "    # 执行：while 循环取余，每次把问题规模缩到 (b, a mod b)\n"
+            "    # 验证方式：样例驱动（4 组：互质/有公约数/含 0/常规对）\n"
+            "    # 不适用条件：负数输入（Python 取模语义可跑但结果符号未定义）/ 非整数 / 浮点\n"
             "    while b:\n"
             "        a, b = b, a % b\n"
             "    return a\n"),
@@ -106,6 +141,11 @@ CODE_UNITS = {
         "task": "斐波那契",
         "pattern": (
             "def {fn}(n):\n"
+            "    # 生效条件：n 为整数；n <= 0 有定义（返回空列表）\n"
+            "    # 子功能：① n<=0 短路返回 [] ② 迭代生成数列 ③ 截取前 n 项\n"
+            "    # 执行：以 [0,1] 起，while len(fib) < n 迭代追加（O(n) 时间 / O(n) 空间）\n"
+            "    # 验证方式：样例驱动（3 组：n=1 / n=5 / n=10）\n"
+            "    # 不适用条件：极大 n（内存线性增长）/ 只取单个数值（本实现返回列表）/ n 非整数\n"
             "    if n <= 0:\n"
             "        return []\n"
             "    fib = [0, 1]\n"
@@ -119,6 +159,11 @@ CODE_UNITS = {
         "task": "素数",
         "pattern": (
             "def {fn}(n):\n"
+            "    # 生效条件：n 为整数；n < 2 有定义（返回 False，0/1 非素数）\n"
+            "    # 子功能：① 小于 2 短路返回 False ② 从 2 试除至 √n\n"
+            "    # 执行：while i*i <= n 试除，发现因子即返回 False（O(√n)）\n"
+            "    # 验证方式：样例驱动（6 组：素数 2/3/17、合数 4、边界 1/0）\n"
+            "    # 不适用条件：大整数（√n 试除过慢，应用 Miller-Rabin）/ 非整数 / 需要因子分解\n"
             "    if n < 2:\n"
             "        return False\n"
             "    i = 2\n"
@@ -152,6 +197,11 @@ RUST_UNITS = {
     "排序-冒泡": {
         "task": "排序", "lang": "rust",
         "pattern": ("fn {fn}(arr: &mut Vec<i32>) {\n"
+                    "    // 生效条件：arr 为 Vec<i32> 可变借用（原地排序，调用方保留所有权）\n"
+                    "    // 子功能：① 相邻比较交换 ② 每轮把当前最大元素浮到尾部\n"
+                    "    // 执行：双层 for 循环 + arr.swap 原地交换（O(n²)）\n"
+                    "    // 验证方式：py_ref 等价实现跑样例（3 组：乱序/逆序/空）\n"
+                    "    // 不适用条件：非 i32 元素（需泛型 + Ord 约束）/ 需稳定排序\n"
                     "    let n = arr.len();\n"
                     "    for i in 0..n {\n"
                     "        for j in 0..n - 1 - i {\n"
@@ -171,13 +221,25 @@ RUST_UNITS = {
     },
     "求和": {
         "task": "求和", "lang": "rust",
-        "pattern": "fn {fn}(arr: &[i32]) -> i32 {\n    arr.iter().sum()\n}\n",
+        "pattern": ("fn {fn}(arr: &[i32]) -> i32 {\n"
+                    "    // 生效条件：arr 为 &[i32]（不可变借用，不消耗所有权）\n"
+                    "    // 子功能：① 迭代求和（iter().sum()）② 空切片自然返回 0（sum 单位元）\n"
+                    "    // 执行：一次迭代累加（O(n)）\n"
+                    "    // 验证方式：py_ref 等价实现跑样例（3 组：多元素/空/单元素）\n"
+                    "    // 不适用条件：i32 溢出（大数组需 i64）/ 非 i32 / 浮点精度需求\n"
+                    "    arr.iter().sum()\n"
+                    "}\n"),
         "cases": [([1, 2, 3], 6), ([], 0), ([5], 5)],
         "py_ref": "def solve(arr): return sum(arr)\n",
     },
     "最大值": {
         "task": "最大", "lang": "rust",
         "pattern": ("fn {fn}(arr: &[i32]) -> Option<i32> {\n"
+                    "    // 生效条件：arr 为 &[i32]；空切片有定义（返回 None）\n"
+                    "    // 子功能：① 迭代取最大（max()）② 空切片返回 None（Option 语义）\n"
+                    "    // 执行：iter().copied().max() 单次遍历（O(n)）\n"
+                    "    // 验证方式：py_ref 等价实现跑样例（3 组：乱序/单元素/空）\n"
+                    "    // 不适用条件：非 i32 / 需要下标 / 空切片需 panic（本实现返回 None）\n"
                     "    arr.iter().copied().max()\n}\n"),
         "cases": [([3, 1, 2], 3), ([7], 7), ([], None)],
         "py_ref": "def solve(arr): return max(arr) if arr else None\n",
@@ -185,6 +247,11 @@ RUST_UNITS = {
     "去重-保序": {
         "task": "去重", "lang": "rust",
         "pattern": ("fn {fn}(arr: &[i32]) -> Vec<i32> {\n"
+                    "    // 生效条件：arr 为 &[i32]；返回新 Vec 不改入参\n"
+                    "    // 子功能：① HashSet 判重 ② 按首次出现顺序收集\n"
+                    "    // 执行：filter + seen.insert 副作用判重 + collect 一次性构建\n"
+                    "    // 验证方式：py_ref 等价实现跑样例（3 组：含重复/空/全同）\n"
+                    "    // 不适用条件：非 Hash+Eq 元素（需泛型约束）/ 需保留末次出现\n"
                     "    let mut seen = std::collections::HashSet::new();\n"
                     "    arr.iter().copied().filter(|x| seen.insert(*x)).collect()\n}\n"),
         "cases": [([1, 2, 2, 3, 1], [1, 2, 3]), ([], []), ([1, 1, 1], [1])],
@@ -195,6 +262,11 @@ RUST_UNITS = {
     "反转": {
         "task": "反转", "lang": "rust",
         "pattern": ("fn {fn}(arr: &[i32]) -> Vec<i32> {\n"
+                    "    // 生效条件：arr 为 &[i32]；返回新 Vec 不改入参\n"
+                    "    // 子功能：① 逆序迭代（rev）② 收集为新 Vec（collect）\n"
+                    "    // 执行：iter().rev().copied().collect()（O(n) 时间 / O(n) 空间）\n"
+                    "    // 验证方式：py_ref 等价实现跑样例（3 组：多元素/空/单元素）\n"
+                    "    // 不适用条件：非 i32 / 需要原地反转（应改用 Vec::reverse）\n"
                     "    arr.iter().rev().copied().collect()\n}\n"),
         "cases": [([1, 2, 3], [3, 2, 1]), ([], []), ([7], [7])],
         "py_ref": "def solve(arr): return arr[::-1]\n",
@@ -204,26 +276,54 @@ RUST_UNITS = {
 JS_UNITS = {
     "排序": {
         "task": "排序", "lang": "javascript",
-        "pattern": "function {fn}(arr) {\n    return arr.slice().sort((a, b) => a - b);\n}\n",
+        "pattern": ("function {fn}(arr) {\n"
+                    "    // 生效条件：arr 为数组且元素为数值；返回副本不改入参\n"
+                    "    // 子功能：① slice() 复制 ② 数值升序排序（显式比较器）\n"
+                    "    // 执行：sort((a, b) => a - b) 排副本（O(n log n)）\n"
+                    "    // 验证方式：py_ref 等价实现跑样例（3 组：乱序/逆序/空）\n"
+                    "    // 不适用条件：非数值元素（默认字典序，须改写比较器）/ 需稳定排序\n"
+                    "    return arr.slice().sort((a, b) => a - b);\n"
+                    "}\n"),
         "cases": [([3, 1, 2], [1, 2, 3]), ([5, 4, 3, 2, 1], [1, 2, 3, 4, 5]),
                   ([], [])],
         "py_ref": "def solve(arr): return sorted(arr)\n",
     },
     "求和": {
         "task": "求和", "lang": "javascript",
-        "pattern": "function {fn}(arr) {\n    return arr.reduce((s, x) => s + x, 0);\n}\n",
+        "pattern": ("function {fn}(arr) {\n"
+                    "    // 生效条件：arr 为数组且元素可数值相加；空数组有定义（返回 0）\n"
+                    "    // 子功能：① reduce 累加 ② 空数组返回初值 0\n"
+                    "    // 执行：arr.reduce((s, x) => s + x, 0) 单次遍历（O(n)）\n"
+                    "    // 验证方式：py_ref 等价实现跑样例（3 组：多元素/空/单元素）\n"
+                    "    // 不适用条件：非数值元素（字符串会被拼接）/ 需高精度（浮点误差累积）\n"
+                    "    return arr.reduce((s, x) => s + x, 0);\n"
+                    "}\n"),
         "cases": [([1, 2, 3], 6), ([], 0), ([5], 5)],
         "py_ref": "def solve(arr): return sum(arr)\n",
     },
     "反转": {
         "task": "反转", "lang": "javascript",
-        "pattern": "function {fn}(arr) {\n    return arr.slice().reverse();\n}\n",
+        "pattern": ("function {fn}(arr) {\n"
+                    "    // 生效条件：arr 为真数组（具备 slice 方法）；返回副本不改入参\n"
+                    "    // 子功能：① slice() 复制 ② reverse() 逆序副本\n"
+                    "    // 执行：arr.slice().reverse()（O(n) 时间 / O(n) 空间）\n"
+                    "    // 验证方式：py_ref 等价实现跑样例（3 组：多元素/空/单元素）\n"
+                    "    // 不适用条件：类数组对象（arguments/NodeList 须先 Array.from 转换）\n"
+                    "    return arr.slice().reverse();\n"
+                    "}\n"),
         "cases": [([1, 2, 3], [3, 2, 1]), ([], []), (["a", "b"], ["b", "a"])],
         "py_ref": "def solve(arr): return arr[::-1]\n",
     },
     "去重": {
         "task": "去重", "lang": "javascript",
-        "pattern": "function {fn}(arr) {\n    return [...new Set(arr)];\n}\n",
+        "pattern": ("function {fn}(arr) {\n"
+                    "    // 生效条件：arr 为可迭代对象（元素可进 Set）；返回新数组不改入参\n"
+                    "    // 子功能：① Set 去重 ② 展开为数组（保首次出现顺序）\n"
+                    "    // 执行：[...new Set(arr)] 一次遍历 + 展开（O(n)）\n"
+                    "    // 验证方式：py_ref 等价实现跑样例（3 组：含重复/空/全同）\n"
+                    "    // 不适用条件：对象元素（Set 按引用判重，值相同不合并）/ 需保留末次出现\n"
+                    "    return [...new Set(arr)];\n"
+                    "}\n"),
         "cases": [([1, 2, 2, 3, 1], [1, 2, 3]), ([], []), ([1, 1, 1], [1])],
         "py_ref": "def solve(arr):\n    seen = set(); out = []\n"
                   "    for x in arr:\n        if x not in seen: seen.add(x); out.append(x)\n"
@@ -231,7 +331,14 @@ JS_UNITS = {
     },
     "最大": {
         "task": "最大", "lang": "javascript",
-        "pattern": "function {fn}(arr) {\n    return arr.length ? Math.max(...arr) : null;\n}\n",
+        "pattern": ("function {fn}(arr) {\n"
+                    "    // 生效条件：arr 为数组；空数组有定义（返回 null）\n"
+                    "    // 子功能：① 长度判断 ② 展开取最大值（空数组返回 null）\n"
+                    "    // 执行：Math.max(...arr) 展开为参数列表（O(n)）\n"
+                    "    // 验证方式：py_ref 等价实现跑样例（3 组：乱序/单元素/空）\n"
+                    "    // 不适用条件：超大数组（展开超参数上限，应改 reduce）/ 含 NaN / 非数值\n"
+                    "    return arr.length ? Math.max(...arr) : null;\n"
+                    "}\n"),
         "cases": [([3, 1, 2], 3), ([7], 7), ([], None)],
         "py_ref": "def solve(arr): return max(arr) if arr else None\n",
     },
