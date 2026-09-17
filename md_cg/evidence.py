@@ -62,22 +62,27 @@ class EvidenceError(Exception):
 # 路径与身份
 # --------------------------------------------------------------------------
 
+# 生效条件：当传入 path 为真值时返回 path；否则若环境变量 SWARM_DIR_ENV 为真值则返回其值；否则返回模块级常量 DEFAULT_SWARM_DIR。
 def swarm_dir(path: str = None) -> str:
     return path or os.environ.get(SWARM_DIR_ENV) or DEFAULT_SWARM_DIR
 
 
+# 生效条件：当传入 swarm 参数（假值回落到 swarm_dir 的默认逻辑）时，返回 os.path.join(swarm_dir(swarm), "peers")。
 def peers_dir(swarm: str = None) -> str:
     return os.path.join(swarm_dir(swarm), "peers")
 
 
+# 生效条件：当传入 swarm 参数（假值回落到 swarm_dir 的默认逻辑）时，返回 os.path.join(swarm_dir(swarm), "inbox")。
 def inbox_dir(swarm: str = None) -> str:
     return os.path.join(swarm_dir(swarm), "inbox")
 
 
+# 生效条件：当传入 root 为真值时返回 root；否则返回环境变量 ROOT_ENV 的值（可能为 None）。
 def _root_of(root: str = None) -> str:
     return root or os.environ.get(ROOT_ENV)
 
 
+# 生效条件：当 explicit 或环境变量 NODE_ID_ENV strip 后非空时返回该值；否则若 _root_of(root) 返回真值，返回基于规范绝对路径的 'node-<12hex>'；否则抛出 EvidenceError。
 def node_id(root: str = None, explicit: str = None) -> str:
     """本节点身份。
 
@@ -106,11 +111,13 @@ def _theory_state() -> dict:
         return {}
 
 
+# 生效条件：当传入 obj 时，返回其 json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(',',':')).encode("utf-8") 字节。
 def _canon(obj) -> bytes:
     return json.dumps(obj, ensure_ascii=False, sort_keys=True,
                       separators=(",", ":")).encode("utf-8")
 
 
+# 生效条件：当传入 s 时，返回 str(s) 中每个字符若为字母数字或 '_' '-' 则保留，否则替换为 '_' 的字符串。
 def _slug(s) -> str:
     return "".join(ch if (ch.isalnum() or ch in "_-") else "_" for ch in str(s))
 
@@ -119,6 +126,7 @@ def _slug(s) -> str:
 # 节点名片（发现）
 # --------------------------------------------------------------------------
 
+# 生效条件：当传入 root、subsystem（默认常量 SUBSYSTEM）、signers_file 时，基于 _signer.policy_for 和 _signer.get_signer 返回名片字典，其中 root 为 os.path.abspath(_root_of(root)) 若 _root_of(root) 真值否则 None。
 def card(root: str = None, *, subsystem: str = SUBSYSTEM,
          signers_file: str = None) -> dict:
     """本节点名片：身份 + 版本 + 签名器公开信息（**不含密钥**）。"""
@@ -139,6 +147,7 @@ def card(root: str = None, *, subsystem: str = SUBSYSTEM,
     }
 
 
+# 生效条件：当传入 root、swarm、subsystem（默认常量 SUBSYSTEM）、signers_file 时，调用 card 得到 c，将 c 以 JSON 写入 peers_dir(swarm)/<c["node_id"]>.json，返回 {"ok": True, "file": p, "card": c}。
 def publish_card(root: str = None, *, swarm: str = None,
                  subsystem: str = SUBSYSTEM, signers_file: str = None) -> dict:
     """把本节点名片写入共享目录 `peers/<node_id>.json`（0600）。"""
@@ -148,6 +157,7 @@ def publish_card(root: str = None, *, swarm: str = None,
     return {"ok": True, "file": p, "card": c}
 
 
+# 生效条件：当 peers_dir(swarm) 是目录时，遍历其中 .json 文件，加载为 dict 且 kind 等于常量 CARD_KIND 的名片，若 exclude_self 为真则排除 node_id 等于 node_id(root) 的名片（node_id(root) 抛 EvidenceError 时 self_id 为 None 不排除），返回按文件名排序的列表及计数；目录不存在则返回空列表。
 def peers(swarm: str = None, *, exclude_self: bool = True,
           root: str = None) -> dict:
     """发现共享目录里的对端名片（按 node_id 排序）。"""
@@ -183,6 +193,7 @@ _PACK_FIELDS = ("schema", "kind", "pack_id", "from_node", "from_root",
                 "theory", "created_at", "subjects", "items")
 
 
+# 生效条件：当传入 pack 字典时，返回仅含模块级常量 _PACK_FIELDS 中字段（缺失字段取 pack.get(k) 得到 None）的规范化 JSON 字节。
 def _pack_payload(pack: dict) -> bytes:
     """签名载荷：固定字段 + 排序序列化，同参数必同字节。"""
     body = {}
@@ -191,6 +202,7 @@ def _pack_payload(pack: dict) -> bytes:
     return _canon(body)
 
 
+# 生效条件：当传入 cg、subjects、since 时，遍历 cg.index["nodes"] 中按 node_id 排序的节点，仅收集标签含常量 TAG_OBS、不含 TAG_ANCHOR/TAG_TRAIT、不含 TAG_XNODE、能提取 subject: 标签且该 subject 在 subjects（subjects 为真时）或不限制（subjects 假值时）、且若 since 为真且 ts 为真则要求 float(ts) >= float(since) 的节点，返回含 node_id、subject、text（截断 MAX_TEXT）、kind、role、layer、过滤后的 tags、importance、verification_basis、ts 的列表。
 def _collect(cg, subjects=None, since=None) -> list:
     """收集本根**本地原始**观测证据（排除档案节点与已导入的跨节点证据）。"""
     want = set(subjects or [])
@@ -237,6 +249,7 @@ def _collect(cg, subjects=None, since=None) -> list:
     return items
 
 
+# 生效条件：当传入 cg、subjects、since、swarm、subsystem（默认 SUBSYSTEM）、signers_file、require_signature（默认 True）时，收集证据并截断至常量 MAX_ITEMS，用 _signer.sign_for 以常量 SIGN_ACTION 签名，若 require_signature 为真且签名未成功则抛出 EvidenceError，否则返回含 pack、count、truncated、signed 的字典。
 def export_pack(cg, *, subjects=None, since=None, swarm: str = None,
                 subsystem: str = SUBSYSTEM, signers_file: str = None,
                 require_signature: bool = True) -> dict:
@@ -275,6 +288,7 @@ def export_pack(cg, *, subjects=None, since=None, swarm: str = None,
             "truncated": truncated, "signed": pack["sig"]["signed"]}
 
 
+# 生效条件：当传入 pack、path、swarm 时，若 path 为假值则用 os.path.join(inbox_dir(swarm), f"{_slug(pack.get('from_node'))}__{pack.get('pack_id')}.json") 生成路径，将 pack 以 JSON 写入该路径并返回 {"ok": True, "file": path}。
 def write_pack(pack: dict, path: str = None, swarm: str = None) -> dict:
     """把证据包落盘到收件箱（或指定路径）。"""
     if not path:
@@ -288,6 +302,7 @@ def write_pack(pack: dict, path: str = None, swarm: str = None) -> dict:
 # 证据包：导入
 # --------------------------------------------------------------------------
 
+# 生效条件：当 src 是 dict 时直接返回 src；否则以 src 为路径打开 JSON 文件并返回 json.load(f)。
 def _read_pack(src) -> dict:
     if isinstance(src, dict):
         return src
@@ -295,6 +310,7 @@ def _read_pack(src) -> dict:
         return json.load(f)
 
 
+# 生效条件：当 pack 为 dict 且 kind 等于常量 KIND、int(pack.get("schema") or 0) 不大于常量 SCHEMA、from_node strip 后非空、items 为 list 时返回空字符串；否则按序返回对应错误字符串（非 dict、kind 不符、schema 过新、缺 from_node、缺 items）。
 def _validate(pack: dict) -> str:
     if not isinstance(pack, dict):
         return "证据包不是 JSON 对象"
@@ -309,10 +325,12 @@ def _validate(pack: dict) -> str:
     return ""
 
 
+# 生效条件：当传入 from_node 和 orig 时，返回 f"xnode_{_slug(from_node)}_{_slug(orig)}"。
 def _xnode_id(from_node: str, orig: str) -> str:
     return f"xnode_{_slug(from_node)}_{_slug(orig)}"
 
 
+# 生效条件：当传入 pack、reason、swarm、**kw 时，构建含 at、reason、from_node、pack_id 及 kw 中非 None 项的拒绝记录，尝试追加到 inbox_dir(swarm)/_rejected.jsonl（OSError 忽略），返回 {"ok": False, "rejected": True, "reason": reason, "from_node": ...} 并合并 kw 中非 None 项。
 def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
     rec = {"at": time.time(), "reason": reason,
            "from_node": (pack or {}).get("from_node"),
@@ -330,6 +348,7 @@ def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
     return out
 
 
+# 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、且有签名或 signer 等于 "null" 方可通过；通过则对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，importance 默认 0.5，verification_basis 默认 "data"），统计 written/skipped，若 archive 为真则写包到收件箱，返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
 def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                 signers_file: str = None, archive: bool = True) -> dict:
     """导入对端证据包：验签 → 落本根（带 `source:<node>` 标签）。
@@ -404,6 +423,7 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
 # 查询
 # --------------------------------------------------------------------------
 
+# 生效条件：当传入 cg、subject、source、limit（默认 100）时，收集标签含常量 TAG_XNODE 的节点，若 subject 为真则仅保留 subject 标签等于 subject 的节点，若 source 为真则仅保留 source 标签等于 source 的节点，返回最后 int(limit or 100) 条记录（limit 为假值如 0 时取 100）的 count 与列表。
 def evidence(cg, *, subject: str = None, source: str = None,
              limit: int = 100) -> dict:
     """列本根已导入的跨节点证据（按来源/主体过滤）。"""
@@ -432,6 +452,7 @@ def evidence(cg, *, subject: str = None, source: str = None,
     return {"count": len(out), "evidence": out}
 
 
+# 生效条件：无参数调用时返回包含模块级常量 SUBSYSTEM、SIGN_ACTION、SWARM_DIR_ENV、NODE_ID_ENV、ROOT_ENV、MAX_ITEMS、MAX_TEXT 及 swarm_dir() 等字段的自描述字典。
 def catalog() -> dict:
     return {
         "layer": "跨节点证据存储（蜂群互联 v0.3）",
@@ -453,6 +474,7 @@ def catalog() -> dict:
 # 工具
 # --------------------------------------------------------------------------
 
+# 生效条件：当传入 path 和 obj 时，在 path 所在目录（若 dirname 为空则 "."）创建目录，将 obj 以 JSON 写入 path+".tmp"（ensure_ascii=False, indent=1, sort_keys=True），尝试 chmod 0600，替换到 path，返回 path。
 def _write_json(path: str, obj) -> str:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = path + ".tmp"
@@ -466,6 +488,7 @@ def _write_json(path: str, obj) -> str:
     return path
 
 
+# 生效条件：当传入 root 且 _root_of(root) 返回真值时，以 designer 角色 Principal（tenant 取 os.environ.get("MDCG_TENANT", "default") 的实际值，actor 取 os.environ.get("MDCG_ACTOR", "swarm-cli") 的实际值）打开 MdCGSecure；否则抛出 EvidenceError。
 def _open_cg(root: str = None):
     """CLI 用：以 designer 身份打开根（令牌路径仍推荐走 MCP）。"""
     from .mdcos import MdCGSecure
@@ -483,6 +506,7 @@ def _open_cg(root: str = None):
     return MdCGSecure(r, principal=p)
 
 
+# 生效条件：当传入 obj 时，打印 json.dumps(obj, ensure_ascii=False, indent=1, default=str)。
 def _print(obj):
     print(json.dumps(obj, ensure_ascii=False, indent=1, default=str))
 
