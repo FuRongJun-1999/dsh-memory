@@ -2138,6 +2138,19 @@ class MdCGOS(MdCG):
                                         min_jaccard=min_jaccard,
                                         min_cluster=common["min_cluster"])
             return refine.history(self, limit=limit or 100, batch=batch)
+        if act in ("comment_gate", "comment_gate_gate", "comment_gate_verdict"):
+            # 环二：代码符号「条件化注释」抽样闸门（复用 refine 范式，对象换成 code_ 节点）。
+            # plan 出工单（只读）；apply 只落抽检留痕（**不改节点**）但决定扩批放行；
+            # gate 复算通过率。绝不盲跑全量。权威实现见 md_cg/comment_gate.py。
+            from . import comment_gate as _cg_gate
+            who = actor or getattr(self, "actor", "maintain")
+            canon = ("comment_gate" if act == "comment_gate"
+                     else "comment_gate_verdict")
+            return _cg_gate.run(
+                self, canon, ids=ids,
+                n=(extra.get("sample_n") or extra.get("n")), seed=extra.get("seed"),
+                apply=apply, verdicts=extra.get("verdicts"), actor=who,
+                note=extra.get("reason"), batch=batch)
         if act == "stat":
             nodes = self.index.get("nodes") or {}
             by_layer, imp_sum, protected, missing_basis = {}, 0.0, 0, 0

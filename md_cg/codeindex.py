@@ -415,11 +415,24 @@ def index_dir(root, patterns=None, max_files=500, max_items=2000,
     pats = tuple(patterns or SUFFIX)
     hit_skip, skip_rules = skip_matcher(skip_dirs)
     items, errors, files = [], [], 0
+    hit_files = 0
     seen_suffix = set()
     stats = {"root": root, "patterns": list(pats), "files": 0, "truncated": False,
              "truncated_reason": "", "max_files": max_files, "max_items": max_items,
              "skipped_suffixes": [], "skipped_unchanged": 0,
-             "skip_dirs": list(skip_rules), "skipped_dirs": []}
+             "skip_dirs": list(skip_rules), "skipped_dirs": [],
+             # 截断**可复算**：命中（后缀匹配）文件数与本轮已产出条目数。
+             # 与 truncated_reason 一起读，调用方才能核对「差多少」而不是只看到"被截断了"。
+             "hit_files": 0, "indexed_items": 0}
+
+    def _snap():
+        """把「截断相关」计数一次性落进 stats（三处 return 共用，避免各处口径漂移）。"""
+        stats["files"] = files
+        stats["hit_files"] = hit_files
+        stats["indexed_items"] = len(items)
+        stats["skipped_suffixes"] = sorted(
+            s for s in seen_suffix if s and s not in pats)[:12]
+
     for dirpath, dirnames, filenames in os.walk(root):
         rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
         if rel_dir == ".":
@@ -434,21 +447,22 @@ def index_dir(root, patterns=None, max_files=500, max_items=2000,
                 stats["skipped_dirs"].append(child)
                 continue
             keep.append(d)
-        dirnames[:] = keep
+        # 目录序**必须确定性**：os.walk 给出的 dirnames 顺序由文件系统决定，
+        # 同一次输入两次运行可能不同 → 索引结果不可复算。排序后 walk 顺序唯一。
+        dirnames[:] = sorted(keep)
         for fn in sorted(filenames):
             ext = os.path.splitext(fn)[1].lower()
             seen_suffix.add(ext)
             if not fn.lower().endswith(pats):
                 continue
+            hit_files += 1
             if files >= max_files or len(items) >= max_items:
                 stats["truncated"] = True
                 stats["truncated_reason"] = (
                     f"files={files}>=max_files={max_files}"
                     if files >= max_files else
                     f"items={len(items)}>=max_items={max_items}")
-                stats["files"] = files
-                stats["skipped_suffixes"] = sorted(
-                    s for s in seen_suffix if s and s not in pats)[:12]
+                _snap()
                 return items, errors, stats
             files += 1
             fp = os.path.join(dirpath, fn)
@@ -469,12 +483,9 @@ def index_dir(root, patterns=None, max_files=500, max_items=2000,
                     stats["truncated"] = True
                     stats["truncated_reason"] = (
                         f"items={len(items)}>=max_items={max_items}")
-                    stats["files"] = files
-                    stats["skipped_suffixes"] = sorted(
-                        s for s in seen_suffix if s and s not in pats)[:12]
+                    _snap()
                     return items, errors, stats
             except (OSError, UnicodeDecodeError, ValueError) as exc:
                 errors.append(f"{rel}: {exc}")
-    stats["files"] = files
-    stats["skipped_suffixes"] = sorted(s for s in seen_suffix if s and s not in pats)[:12]
+    _snap()
     return items, errors, stats
