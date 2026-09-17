@@ -1,12 +1,12 @@
 {
  "kind": "unit-review",
  "iter_id": "iter-018-batch-c3",
- "round": 1,
+ "round": 2,
  "candidate_commit": "713e353",
  "branch": "task/iter-018-batch-c3",
- "unit_job": "h1789653981636_8a70b8",
+ "unit_job": "h1789654126985_4b513a",
  "verdict": "ACCEPT",
  "package_n": 0,
- "text": "批次为空，无候选分支实际新增条目，故无需核验生效条件、早退前置、闭包来源、返回形状或空容器前置；未发现可拒绝项。\nreason: 空批次核验范围为空，无候选条目可判不符。\nverdict: ACCEPT",
+ "text": "批次为空，无候选分支/新增条目；无法锚定形参、常量、早退前置，也无源码不符或超范围断言。空集视为无待驳项。\nreason: 空批次无可复核条目，未引入任何生效条件或断言。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
