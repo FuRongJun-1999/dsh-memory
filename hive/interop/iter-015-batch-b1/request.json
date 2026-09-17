@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-015-batch-b1",
- "candidate_commit": "df03dd6d0c4f",
+ "candidate_commit": "28d8c8b9a783",
  "branch": "task/iter-015-batch-b1",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -20,10 +20,6 @@
  "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
  "unit_review": {
   "verdict": "REJECT",
-  "round": 2,
-  "fixed": [
-   "md_cg/bench_en_atoms_public.py::perturb_kw",
-   "md_cg/bench_task_ab.py::_decide_mem"
-  ]
+  "round": 3
  }
 }
