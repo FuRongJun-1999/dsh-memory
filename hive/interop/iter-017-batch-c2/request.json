@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-017-batch-c2",
- "candidate_commit": "cd343b6",
+ "candidate_commit": "0c49753a50e5",
  "branch": "task/iter-017-batch-c2",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -17,5 +17,6 @@
   "extract": "git archive --format=tar task/iter-017-batch-c2 | tar -xf - -C <tmp>",
   "run": "cd <tmp> && python -X utf8 scripts/run_tests.py --jobs 4"
  },
- "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
+ "action": "batch-split"
 }
