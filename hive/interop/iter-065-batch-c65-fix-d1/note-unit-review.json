@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-065-batch-c65-fix-d1",
+ "round": 3,
+ "candidate_commit": "a3f74ea",
+ "branch": "task/iter-065-batch-c65-fix-d1",
+ "unit_job": "h1789668745951_c1ff9e",
+ "verdict": "REJECT",
+ "package_n": 42,
+ "text": "复核发现多处不符：_task_call 称 get/list/find/session 分支“源码截断”，但 src_segment 已完整给出这些分支；_build_principal 的 guest 分支也非截断，实际返回 `_attach_theory(p), None`。另 _pick_source 对非 dict JSON 会 `AttributeError`，并非条件所称返回 JsonlSource；_action_sig 的 `.jsonl` 判定含 `path.lower()`。故整批不应接受。\n\nreason: 存在与源码不符及不完整条件，需按源码修正后再验。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
