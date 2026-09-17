@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-106-batch-c106",
+ "round": 1,
+ "candidate_commit": "9ef6f7a",
+ "branch": "task/iter-106-batch-c106",
+ "unit_job": "h1789681127698_b20588",
+ "verdict": "ACCEPT",
+ "package_n": 23,
+ "text": "逐条对照 src_segment：形参默认、早退顺序、or 假值链、ENV_* 常量锚定、返回键与终态判据均一致；未发现 assert 语义、None/假值、闭包前置、参数误用、返回形状或空容器前置被误述。position_ok=true 表示注释已紧贴定义，无需行号。无源码不支持断言。\nreason: 23 项条件均与源码分支及前置一致，未发现需否决项。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
