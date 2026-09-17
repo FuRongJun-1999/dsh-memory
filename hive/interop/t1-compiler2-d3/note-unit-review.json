@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler2-d3",
+ "round": 4,
+ "candidate_commit": "20becf3",
+ "branch": "task/t1-compiler2-d3",
+ "unit_job": "h1789689461821_0c855b",
+ "verdict": "REJECT",
+ "package_n": 17,
+ "text": "复核：多数条件与源码吻合；assemble 的 ZHIZU 特殊回填未展开但未冲突。reset 条有误：源码用 `seed_trust is None` 判断，故 BUILTIN_TRUST_VALUE 键存在但值为 None 时仍取实参 trust，而条件写“存在时取该键注入值”。\nreason: reset 条件漏述 BUILTIN_TRUST_VALUE 键存在且值为 None 时仍取实参 trust，与源码 None 分支不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
