@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-098-batch-c98",
+ "round": 1,
+ "candidate_commit": "b7ae33b",
+ "branch": "task/iter-098-batch-c98",
+ "unit_job": "h1789678459546_da7040",
+ "verdict": "REJECT",
+ "package_n": 22,
+ "text": "复核发现：blend 条件错误地把 `components` 支持 `.get` 当前置；源码不支持时 `AttributeError` 会被捕获并记 0.0，仍返回。invariants/catalog 的“仅读取模块级…”遗漏 SPEC、VIEWPOINT、FUNCTIONAL 等必需常量。order 返回键应为 `primary` 而非 `dominant`。coverage_index 对真值非映射 nodes 不返回空字典而会异常。其余基本吻合。\nreason: 多条条件与源码语义、返回形状或依赖常量不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
