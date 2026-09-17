@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-102-batch-c102-fix",
+ "round": 2,
+ "candidate_commit": "0bae4d6",
+ "branch": "task/iter-102-batch-c102-fix",
+ "unit_job": "h1789679843869_34cc77",
+ "verdict": "REJECT",
+ "package_n": 22,
+ "text": "逐条核对：多数条目与源码一致，锚定形参/常量、假值分支、返回形状等基本准确。唯 `pool_of` 条件不符：源码为 `str(e.get(\"layer\") or \"\") in NEG_LAYERS`，任何非空 layer 命中即返回 `POOL_NEGATIVE`；条件写成“仅当该空串落在 NEG_LAYERS 中才返回”，遗漏并误导为只有空串命中，属源码不符。\nreason: `pool_of` 的 NEG_LAYERS 判断被误述为空串条件，遗漏非空 layer 命中分支。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
