@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-023-batch-c7",
+ "round": 1,
+ "candidate_commit": "b6f30c5",
+ "branch": "task/iter-023-batch-c7",
+ "unit_job": "h1789657302291_141277",
+ "verdict": "REJECT",
+ "package_n": 50,
+ "text": "复核：多数条目能锚定形参/常量/早退，语义与源码一致。但 feedback 条目的条件写“predicted 去空后非空时”才处理，源码并无该早退；predicted 为空仍会 strip 后写入 feedback 留痕，hit 未显式给出时按 pred==act 判定，可能为 True，并继续 dynamic_hit_threshold/self_state。此系补充源码不支持的前置，故本批不能整体接受。其余抽查未发现同类硬冲突。\n\nreason: feedback 条件添加了源码不存在的 predicted 非空前置，空值也会写入留痕。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
