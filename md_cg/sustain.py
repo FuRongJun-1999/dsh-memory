@@ -80,6 +80,7 @@ _POLL = 0.2                       # 循环轮询步长（常驻进程 CPU 可忽
 # 心跳
 # --------------------------------------------------------------------------
 
+# 生效条件：d 为真值时返回 d，d 为 None/空串时回落 MDCG_SUSTAIN_DIR，该环境变量也未设或为空串时返回 os.path.join(os.path.expanduser("~"), ".mdcg", "sustain")；
 def net_dir(d: str = None) -> str:
     """心跳戳目录：显式 → MDCG_SUSTAIN_DIR → ~/.mdcg/sustain（仓库外）。"""
     return (d or os.environ.get("MDCG_SUSTAIN_DIR")
@@ -106,6 +107,7 @@ def write_stamp(name: str, d: str = None, **extra) -> dict:
     return rec
 
 
+# 生效条件：stamp_path(name, d) 所得路径上 os.path.exists 为真且 json.load 结果为 dict 时，返回该 rec 并附加 age=max(0.0, time.time() - float(rec.get("ts") or 0))；该路径不可读、json.load 抛 ValueError/OSError 或 rec 非 dict 时返回 None；
 def read_stamp(name: str, d: str = None):
     """读心跳戳并附 age（秒）；不存在 / 损坏 → None。"""
     p = stamp_path(name, d)
@@ -605,6 +607,7 @@ def _audit(root: str, op: str, action: str, detail: str = ""):
                   "detail": str(detail)[:200], "pid": os.getpid()})
 
 
+# 生效条件：按 diagnose(cg, name=name, stale_temp_age=stale_temp_age) 的 issues code 集合分派——命中 index_drift/index_orphan 重建索引、ref_stale/ref_dangling 按 ref 重建源索引、index_log_backlog 合并索引分片、stale_temps 清理陈旧临时文件、half_line_logs 修补半截日志；ccg_backlog 仅 allow_evolve=True 且 reflect_fn 非 None 时才 consolidate（否则记 needs_llm），importance_drift 仅 allow_evolve=True 时才重算重要性（否则记 evolve_disabled）；dry_run=True 时各动作只记入 actions 不落盘，返回含 after["ok"]、dry_run、actions、before/after 的 stats 与 t 的 dict；
 def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
          stale_temp_age: float = STALE_TEMP_AGE,
          allow_evolve: bool = False, reflect_fn=None, verify_fn=None) -> dict:
@@ -618,6 +621,7 @@ def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
     root = cg.root
     actions = []
 
+# 生效条件：闭包 dry_run 为真时向 actions 追加 {"code": code, "detail": detail, "applied": False} 并返回；否则调用 fn()，成功追加 applied=True/ok=True，抛异常时追加 applied=True/ok=False 与 error，最后执行 _audit(root, "heal", code, detail)；
     def act(code: str, detail: str, fn):
         if dry_run:
             actions.append({"code": code, "detail": detail, "applied": False})
@@ -643,6 +647,7 @@ def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
     if "stale_temps" in codes:
         paths = _list_stale_temps(root, stale_temp_age)
 
+# 生效条件：对闭包变量 paths 中每个路径尝试 os.remove(p)，单个路径的 OSError 被吞掉后继续处理后续路径；
         def _sweep():
             for p in paths:
                 try:
@@ -662,6 +667,7 @@ def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
         if allow_evolve and reflect_fn is not None:
             from . import consolidate as _cd
 
+# 生效条件：调用时返回 _cd.consolidate(cg.root, apply=True, reflect_fn=reflect_fn, verify_fn=verify_fn)；
             def _consolidate():
                 return _cd.consolidate(cg.root, apply=True,
                                        reflect_fn=reflect_fn,
@@ -674,6 +680,7 @@ def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
         if allow_evolve:
             from . import weights
 
+# 生效条件：调用时返回 weights.recalc(cg, apply=True, actor="sustain_evolve")；
             def _importance():
                 return weights.recalc(cg, apply=True, actor="sustain_evolve")
             act("importance", "重算结构重要性（确定性；可 rollback）", _importance)
@@ -693,6 +700,7 @@ def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
 # 会话水位（重启续接）
 # --------------------------------------------------------------------------
 
+# 生效条件：以 root 实例化后账本固定指向 os.path.join(root, LEDGER_FILE)，其 _load/_save/note/resume_point/sessions/summary 均以该路径为唯一读写对象；
 class SessionLedger:
     """会话水位账本：<root>/_sessions.json。
 
@@ -700,10 +708,12 @@ class SessionLedger:
     这里记「某个会话发生过什么」——重启后按会话给出续接点。
     """
 
+# 生效条件：传入 root 时置 self.root=root 且 self.path=os.path.join(root, LEDGER_FILE)，不做其他校验；
     def __init__(self, root: str):
         self.root = root
         self.path = os.path.join(root, LEDGER_FILE)
 
+# 生效条件：self.path（root/LEDGER_FILE）可读且 json 结果为 dict、且 d.get("sessions") 也是 dict 时返回该 d；self.path 不可读、json.load 抛 ValueError/OSError、或 d 非 dict / sessions 非 dict 时返回 {"schema": 1, "sessions": {}}；
     def _load(self):
         if os.path.exists(self.path):
             try:
@@ -715,9 +725,11 @@ class SessionLedger:
                 pass
         return {"schema": 1, "sessions": {}}
 
+# 生效条件：传入 d 时执行 atomic_write(self.path, json.dumps(d, ensure_ascii=False, indent=1))，自身无返回值；
     def _save(self, d):
         atomic_write(self.path, json.dumps(d, ensure_ascii=False, indent=1))
 
+# 生效条件：以 session 为键 setdefault 会话记录后写 events=int(s.get("events") or 0)+int(n)（n 默认 1，n=0 时计数不变），t 非 None 时写 last_t 且 first_t 为空时一并写入，seq 非 None 时写 last_seq，actor 为真值时写 actor，最后写 updated_at 并 _save，返回 dict(s, session=session)；
     def note(self, session: str, *, t=None, seq=None, n: int = 1,
              actor: str = None) -> dict:
         """记一笔会话活动（事件计数 + 最后 (t, seq) 水位）。"""
@@ -737,6 +749,7 @@ class SessionLedger:
         self._save(d)
         return dict(s, session=session)
 
+# 生效条件：_load()["sessions"].get(session) 为假值（键缺失或值为空 dict）时返回 {"session": session, "resume": None, "events": 0}；否则返回 {"session": session, "events": s.get("events", 0), "resume": {"t": s.get("last_t"), "seq": s.get("last_seq")}, "last_t": s.get("last_t"), "actor": s.get("actor")}；
     def resume_point(self, session: str) -> dict:
         """重启续接点：(t, seq) 之后的事件才是新的。"""
         s = self._load()["sessions"].get(session)
@@ -746,9 +759,11 @@ class SessionLedger:
                 "resume": {"t": s.get("last_t"), "seq": s.get("last_seq")},
                 "last_t": s.get("last_t"), "actor": s.get("actor")}
 
+# 生效条件：无参调用时返回 dict(self._load()["sessions"]) 的浅拷贝，账本缺失/损坏时 _load 回落默认值故此处为 {}；
     def sessions(self) -> dict:
         return dict(self._load()["sessions"])
 
+# 生效条件：取 d=_load()["sessions"] 后返回 {"sessions": len(d), "events": sum(int(v.get("events") or 0)), "latest": max(v.get("last_t") or 0) if d else None}，d 为空时 latest 为 None；
     def summary(self) -> dict:
         d = self._load()["sessions"]
         return {"sessions": len(d),
@@ -757,6 +772,7 @@ class SessionLedger:
                 if d else None}
 
 
+# 生效条件：os.path.exists(os.path.join(cg.root, "_sources.json")) 为真且 json.load 成功时返回 dict((d or {}).get("sources") or {})（d 或 sources 为假值即回落 {}）；该路径不可读或 json.load 抛 ValueError/OSError 时返回 {}；
 def watermarks(cg) -> dict:
     """源视角水位快照（读 sources.Ingestor 的 _sources.json）。"""
     p = os.path.join(cg.root, "_sources.json")
@@ -781,6 +797,7 @@ class SustainLoop:
     让对端立刻看到「正常下线」而不是「失联」。
     """
 
+# 生效条件：传入 cg 时按 name 与各 DEFAULT_* 默认值初始化——self.d=net_dir(d)（d 假值时回落 MDCG_SUSTAIN_DIR/~/ .mdcg/sustain）、self.ledger=ledger or SessionLedger(cg.root)（ledger 假值时新建），beat/heal/scrub/evolve/tidy 间隔 float() 化、auto_heal/auto_scrub/auto_evolve/auto_tidy bool() 化后存为实例属性；
     def __init__(self, cg, name: str = "md_cg", *,
                  beat_interval: float = DEFAULT_BEAT_INTERVAL,
                  heal_interval: float = DEFAULT_HEAL_INTERVAL,
@@ -825,6 +842,7 @@ class SustainLoop:
 
     # ---- 心跳 ----
 
+# 生效条件：task_running 非 None 时先置 self.task_running=bool(task_running)，再 write_stamp(self.name, self.d, task_running=self.task_running, root=self.cg.root, uptime=... if self._started_at else 0.0)，beats 自增并记 last_beat=rec["ts"]，返回该 rec；
     def beat(self, task_running: bool = None) -> dict:
         if task_running is not None:
             self.task_running = bool(task_running)
@@ -849,6 +867,7 @@ class SustainLoop:
         self._th.start()
         return self
 
+# 生效条件：调用时置 _stop 事件，self._th 非 None 时 join(timeout)（默认 3.0）后置为 None，随后 clear_stamp(self.name, self.d)，返回 self；
     def stop(self, timeout: float = 3.0):
         self._stop.set()
         if self._th is not None:
@@ -857,6 +876,7 @@ class SustainLoop:
         clear_stamp(self.name, self.d)
         return self
 
+# 生效条件：self._stop 未置位期间轮询，按 beat_interval/heal_interval/scrub_interval/evolve_interval/tidy_interval 到期分别执行 beat 与 _tick_heal/_tick_scrub/_tick_evolve/_tick_tidy，各 tick 抛出的异常被吞掉不中断循环，末尾以 _stop.wait(_POLL) 休眠；
     def _run(self):
         next_beat = time.time() + self.beat_interval
         next_heal = time.time() + self.heal_interval
@@ -897,6 +917,7 @@ class SustainLoop:
                 next_tidy = now + self.tidy_interval
             self._stop.wait(_POLL)
 
+# 生效条件：以 apply=self.auto_tidy 调 writelimit.tidy_contextual(self.cg, actor="sustain_tidy")，把 t/scanned/groups/members/applied_count/auto_tidy 记入 self.last_tidy 与 tidys（仅保留最近 20 条），随后调 _tick_conformance()；auto_tidy=False（默认）时只盘点不落盘；
     def _tick_tidy(self):
         """整理巡检（contextual 流水治理·读侧）：同构组聚合 + 成员降权。
 
@@ -917,6 +938,7 @@ class SustainLoop:
             self.tidys = self.tidys[-20:]
         self._tick_conformance()
 
+# 生效条件：把 conformance.report_summary(self.cg) 的结论写入 self.last_conformance；该调用抛异常时写入 {"ok": False, "verdict": "BLINDSPOT", "error": "<类型名>: <消息>"}；
     def _tick_conformance(self):
         """数据健康不变量断言集（Pi⑤）——与 tidy 同节奏，**只取结论**。
 
@@ -931,6 +953,7 @@ class SustainLoop:
             self.last_conformance = {"ok": False, "verdict": "BLINDSPOT",
                                      "error": f"{type(e).__name__}: {e}"}
 
+# 生效条件：恒以 evolution_candidates(self.cg) 只读盘点并记入 last_evolve 与 evolves（保留最近 20 条）；仅当 self.auto_evolve 为真且 ev["importance_drift"]["n"] 为真时才额外执行 weights.recalc(self.cg, apply=True, actor="sustain_evolve")，其异常写入 rec["applied"]；
     def _tick_evolve(self):
         """演化巡检（G7）：盘点固化/重要性候选 —— 让「有能力」变成「有驱动」。
 
@@ -957,6 +980,7 @@ class SustainLoop:
             self.evolves.append(rec)
             self.evolves = self.evolves[-20:]
 
+# 生效条件：以 dry_run=not self.auto_scrub 调 scrub.sweep(self.cg)，把 t/ok/n_issues/n_high_medium/applied/dry_run 记入 last_scrub 与 scrubs（保留最近 20 条）；auto_scrub=False（默认）时 dry_run=True 只读巡检；
     def _tick_scrub(self):
         """记忆自净：抽查 → 联想 → 去污染 → 校准偏差。
 
@@ -975,6 +999,7 @@ class SustainLoop:
             self.scrubs.append(rec)
             self.scrubs = self.scrubs[-20:]
 
+# 生效条件：先 diagnose(self.cg, name=self.name) 并将 ok 与 issues code 记入 last_diagnose；仅当 self.auto_heal 为真且 rep["ok"] 为假时才调 heal(self.cg, name=self.name)，其 actions 非空时把各 action 的 code 记入 heals（保留最近 20 条）；
     def _tick_heal(self):
         rep = diagnose(self.cg, name=self.name)
         self.last_diagnose = {"t": time.time(), "ok": rep["ok"],
@@ -990,6 +1015,7 @@ class SustainLoop:
 
     # ---- 状态 ----
 
+# 生效条件：以 read_stamp(self.name, self.d) 判定 state（有戳走 judge(age, interval=self.beat_interval, task_running=...)，无戳为 "stopped"），返回含 name/running/pid/uptime（无 _started_at 时为 0.0）/beats/last_beat/各 interval 与 auto_* 开关/heals[-5:]/evolves[-5:]/tidys[-5:]/peers(self.d)/ledger.summary() 的 dict；
     def status(self) -> dict:
         st = read_stamp(self.name, self.d)
         state = (judge(st["age"], interval=self.beat_interval,
@@ -1055,6 +1081,7 @@ def stop_all():
             pass
 
 
+# 生效条件：以 read_stamp(name) 有戳时返回 heartbeat={'age': round(st["age"],1), 'state': judge(...), 'pid', 'task_running'}、无戳时 {'state':'absent'}，loop 取 get_loop(cg, name) 有值时给 running/beats/state、无值时 {'running': False}，并附带 SessionLedger(cg.root).summary()、scrub_summary(cg)、evolve_summary(cg)、provenance_summary(cg)；
 def summary(cg, name: str = "md_cg") -> dict:
     """并入 health_os 的轻量摘要（只读戳与计数，不做巡检）。"""
     st = read_stamp(name)
