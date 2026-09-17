@@ -567,7 +567,7 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 | `memory.assistantMessage` | boolean | `false` | agent 回复 → 自动 remember |
 | `memory.toolResult` | boolean | `false` | 工具结果 → 自动 remember |
 | `memory.importance` | number | `0.6` | 自动记忆的重要性（0~1） |
-| `memory.autoRecall` | boolean | `true` | 模型请求前自动注入灵枢最近记忆（`system-prompt/assemble` 注入，失败静默） |
+| `memory.autoRecall` | boolean | `true` | 模型请求前自动注入灵枢最近记忆（`system-prompt/assemble` 注入，失败静默；注入块的「快照去重」语义见下文「自动召回注入」） |
 | `memory.autoRecallLimit` | number | `4` | 自动召回条数（1~10） |
 | `memory.desensitize` | boolean | `true` | 写入前过滤敏感信息（`sk-`密钥/密码/`Bearer`令牌/18位身份证/11位手机号 → `[已过滤]`；纯凭据消息跳过写入） |
 | `toolCallTimeoutMs` | number | `60000` | 单次工具调用超时 |
@@ -585,6 +585,9 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 - **记忆以 md 文档落盘**（`mdcg.root`，默认 `data/mdcg`）；⚠️ **写权限默认关闭**——不配凭据时以只读 guest 运行：读 / 召回 / 时间线照常，写入不落盘（插件启动会告警）。打开方式见配置表 `env.MDCG_TOKEN`
 - **敏感信息脱敏**（`memory.desensitize`）：写入前过滤 `sk-`密钥 / API key / 密码 / `Bearer`令牌 / 18位身份证 / 11位手机号（替换为 `[已过滤:类别]`）；纯凭据消息整条跳过，不落库
 - **自动召回注入**（`memory.autoRecall`）：每次模型请求组装 system prompt 时自动注入灵枢最近记忆（`system-prompt/assemble` 事件），记忆"自动可用"；召回失败静默不阻塞请求
+  - **快照去重语义（改注入方式前必读）**：注入块落在 `assembly.contexts` 里，宿主会把它渲染成一段「运行时上下文快照」，并**按渲染后的整段文本去重**——文本与上一份已提交的快照相同则不提交任何东西，不同才在会话里 `append` 一条 `user/message`（append 语义，旧快照不会被替换或移除）。
+  - 因此本插件**每步都照旧 push**，内容没变也不跳过：跳过会让渲染文本在「有块 / 无块」之间跳变，反而每步各追加一份（实测 ~250 tok/份），长会话里每请求 `inject` 会随步数线性涨到 30k+ tok。
+  - 压缩归档后的自愈交给宿主：宿主检测到上一份快照已被替换掉（`retained` 置空）时会重新投影当前快照，注入块自然跟着回来——不需要插件自己数步数做强制刷新。
 
 ## 🛟 DSH 看门狗（scripts/）
 
