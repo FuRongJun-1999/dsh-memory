@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-126-batch-c126-fix-d1",
+ "round": 3,
+ "candidate_commit": "5fd2916",
+ "branch": "task/iter-126-batch-c126-fix-d1",
+ "unit_job": "h1789688023060_cd9778",
+ "verdict": "ACCEPT",
+ "package_n": 17,
+ "text": "逐条核对 17 项：分支条件、假值/None 回落、早退、闭包 names/paths 来源、返回形状与 position_ok 均与 src_segment 一致。未发现 assert 语义误读、未加源码不支持断言、未漏必需形参/常量前置。_leading_js_comments 的 lookback/空行/块注释描述与实现相符。故全批可接受。\nreason: 所有候选功能级生效条件均与源码分支语义一致，无加码或漏锚。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
