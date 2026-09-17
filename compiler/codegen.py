@@ -77,6 +77,7 @@ class CodeGenerator:
     将 AST 翻译为兼容的 Python 代码
     """
     
+# 生效条件：name_checker 为假值（含默认 None、空串等）时 self.name_checker 取 NameChecker()，否则取传入的 name_checker。
     def __init__(self, name_checker: Optional[NameChecker] = None):
         self.name_checker = name_checker or NameChecker()
         self.output: List[str] = []
@@ -85,6 +86,7 @@ class CodeGenerator:
         self.warnings: List[str] = []
         self._temp_counter: int = 0
     
+# 生效条件：传入 ast 时，重置 output/indent_level/errors/warnings/_temp_counter，依次调用 _write_header、遍历 ast.statements 生成各语句、调用 _write_footer，最后返回 "\n".join(self.output)。
     def generate(self, ast: ProgramNode) -> str:
         """
         将 AST 翻译为 Python 代码
@@ -278,6 +280,7 @@ class CodeGenerator:
     
     # ---- 语句生成 ----
     
+# 生效条件：stmt 为 None 直接返回；否则按 stmt.type 分派到 CONDITION_STMT/INSTRUCTION_STMT/ASSIGN_STMT/SHUYUE/STEP/WENYUE/DAYUE/LITERAL 分支，其他类型向 warnings 追加未处理警告。
     def _generate_statement(self, stmt: ASTNode):
         """根据语句类型分发"""
         if stmt is None:
@@ -303,6 +306,7 @@ class CodeGenerator:
         else:
             self.warnings.append(f"L{stmt.line} 未处理的语句类型: {stmt.type.name}")
     
+# 生效条件：传入 stmt 时，输出 "if " + stmt.condition 表达式 + ":"，缩进递增后生成 stmt.then_body；当 stmt.else_body 为真值时再输出 "else:" 并缩进生成 stmt.else_body，之后缩进回退。
     def _gen_condition(self, stmt: ConditionStmtNode):
         """生成条件语句"""
         self._write(f"if ")
@@ -318,6 +322,7 @@ class CodeGenerator:
             self._generate_statement(stmt.else_body)
             self.indent_level -= 1
     
+# 生效条件：传入 stmt 时，按 stmt.instruction 从 INSTRUCTION_NAMES 取名称（缺键回落 "未知指令"）写注释；遍历 stmt.operands，将 IDENTIFIER 写成带双引号的 op.name、数字 LITERAL 写成 str(op.literal_value)、非数字 LITERAL 写成带双引号的 literal_value；再从 INSTRUCTION_MAP 按 stmt.instruction 取模板（缺键回落 "# 未知指令: {args}"），按模板含 "{args}"、args 非空、其他三种情况拼出 code，最后输出 `  →  {code}`。
     def _gen_instruction(self, stmt: InstructionStmtNode):
         """生成指令语句"""
         instr_name = INSTRUCTION_NAMES.get(stmt.instruction, "未知指令")
@@ -344,12 +349,14 @@ class CodeGenerator:
         
         self._writeln(f"  →  {code}")
     
+# 生效条件：传入 stmt 时，输出 stmt.target + " = " + stmt.value_node 表达式 + 换行。
     def _gen_assign(self, stmt: AssignStmtNode):
         """生成赋值语句"""
         self._write(f"{stmt.target} = ")
         self._gen_expression(stmt.value_node)
         self._writeln("")
     
+# 生效条件：传入 stmt 时，从 stmt.attributes.get("question","") 和 .get("answer","") 取问/答（缺键回落空串）并写注释，输出 "def protocol_procedure():"，缩进递增后遍历 stmt.steps 调用 _gen_step，然后缩进回退并输出空行。
     def _gen_shuyue(self, stmt: ShuyueNode):
         """生成术曰块"""
         question = stmt.attributes.get("question", "")
@@ -366,21 +373,25 @@ class CodeGenerator:
         self.indent_level -= 1
         self._writeln("")
     
+# 生效条件：传入 stmt 时，输出 "# 步骤 {stmt.step_num}"，再按 stmt.statement 生成语句。
     def _gen_step(self, stmt: StepNode):
         """生成步骤"""
         self._writeln(f"# 步骤 {stmt.step_num}")
         self._generate_statement(stmt.statement)
     
+# 生效条件：传入 stmt 时，输出 "# ❓ 问曰：{stmt.question}" 注释行。
     def _gen_wenyue(self, stmt: WenyueNode):
         """生成问曰（作为注释）"""
         self._writeln(f"# ❓ 问曰：{stmt.question}")
     
+# 生效条件：传入 stmt 时，输出 "# ✅ 答曰：{stmt.answer}" 注释行。
     def _gen_dayue(self, stmt: DayueNode):
         """生成答曰（作为注释）"""
         self._writeln(f"# ✅ 答曰：{stmt.answer}")
     
     # ---- 表达式生成 ----
     
+# 生效条件：expr 为 None 时写 "None"；否则按 expr.type 分派：IDENTIFIER 写 expr.name，LITERAL 数字写 str(expr.literal_value)、非数字写带双引号 literal_value，COMPARISON/BINARY_EXPR 分别生成比较/二元表达式，其他类型写 "# 未支持的表达式: {expr.type.name}"。
     def _gen_expression(self, expr: ASTNode):
         """生成表达式"""
         if expr is None:
@@ -401,6 +412,7 @@ class CodeGenerator:
         else:
             self._write(f"# 未支持的表达式: {expr.type.name}")
     
+# 生效条件：传入 expr 时，生成 expr.left，将 expr.op 经 COMPARISON_OP_MAP.get 映射（缺键回落 expr.op 本身），再生成 expr.right。
     def _gen_comparison(self, expr):
         """生成比较表达式"""
         self._gen_expression(expr.left)
@@ -408,6 +420,7 @@ class CodeGenerator:
         self._write(f" {op} ")
         self._gen_expression(expr.right)
     
+# 生效条件：传入 expr 时，生成 expr.left，输出 " {expr.operator} "，再生成 expr.right。
     def _gen_binary(self, expr):
         """生成二元表达式"""
         self._gen_expression(expr.left)
@@ -423,6 +436,7 @@ class CodeGenerator:
         else:
             self.output.append("")
     
+# 生效条件：传入 text 时，若 self.output 非空且最后一项不以换行结尾，则把 text 追加到该最后一项末尾；否则以当前缩进前缀将 text 追加为新项。
     def _write(self, text: str):
         """写入（不换行，不自动缩进）"""
         if self.output and not self.output[-1].endswith("\n"):
@@ -435,6 +449,7 @@ class CodeGenerator:
 # 便捷函数
 # =============================================================================
 
+# 生效条件：传入 ast（ProgramNode）时，返回 CodeGenerator(name_checker).generate(ast) 生成的字符串；name_checker 缺省为 None。
 def generate_code(ast: ProgramNode, name_checker: Optional[NameChecker] = None) -> str:
     """便捷函数：将 AST 翻译为 Python 代码"""
     gen = CodeGenerator(name_checker)
