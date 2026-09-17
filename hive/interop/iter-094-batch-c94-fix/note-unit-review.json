@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-094-batch-c94-fix",
+ "round": 2,
+ "candidate_commit": "d312a83",
+ "branch": "task/iter-094-batch-c94-fix",
+ "unit_job": "h1789677332103_51cda4",
+ "verdict": "REJECT",
+ "package_n": 24,
+ "text": "复核：多数条目锚定形参/常量/早退，position_ok 可采。但 `_coverage_metrics` 条件称 knowledge 层分母也给出 state 覆盖率；源码仅返回 `state_ratio`（全库），无 `state_ratio_kn`，属返回形状/源码不支持断言。`_edge_metrics` 的 `key_mix` 实际还把非规范键 `type` 纳入组合，且 `target` 用 `or` 回落，条件表述略宽。\nreason: 存在返回形状与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
