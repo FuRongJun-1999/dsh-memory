@@ -38,6 +38,7 @@ import sys
 import time
 
 
+# 生效条件：repo_path 为真值时 root 取 repo_path，否则回落到 os.environ.get("LINGSHU_REPO")；两者都为假值时抛 RuntimeError，有值时若 root 不在 sys.path 则插入到 sys.path[0]，并返回 root。
 def _ensure_repo(repo_path: str | None = None):
     """把灵枢仓库根加入 sys.path。"""
     root = repo_path or os.environ.get("LINGSHU_REPO")
@@ -93,6 +94,7 @@ class OrcMemory:
       L2 细节层  session=<sub>       importance=0.4   layer=contextual
     """
 
+# 生效条件：用必需形参 root 构造实例，先以 repo_path（默认 None）调 _ensure_repo，并把调用方传入的 global_budget/card_budget（未传时为默认实参 1200/600）的原值存入实例属性，_global_id 置 None、_seq 置 0。
     def __init__(self, root: str, repo_path: str | None = None,
                  global_budget: int = 1200, card_budget: int = 600):
         _ensure_repo(repo_path)
@@ -110,6 +112,7 @@ class OrcMemory:
 
     # ================= L0 全局态 =================
 
+# 生效条件：以 task_desc 为查询词、self.global_budget 为预算、session="main" 调 recall；out["pack"] 为真值时返回 recovered=True 分支（nodes=pack、tokens_used），为假值时新建 "glob_"+毫秒时间戳 节点（正文含 task_desc 与 extra_ctx）并把 _global_id 指向它，返回 recovered=False。
     def anchor_global(self, task_desc: str, extra_ctx: str = "") -> dict:
         """开工锚定：读全局态；不存在则创建。返回主代理开局上下文。"""
         out = self.cg.recall(task_desc, budget_tokens=self.global_budget,
@@ -127,6 +130,7 @@ class OrcMemory:
         self._global_id = nid
         return {"recovered": False, "node_id": nid, "nodes": []}
 
+# 生效条件：生成 "glob_"+毫秒时间戳 节点并写入 task_desc/summary 正文；仅当 derived_from 为真值时才把该键传入 cg.add 的 kwargs，随后把 _global_id 指向新节点并返回 nid。
     def merge_global(self, task_desc: str, summary: str,
                      derived_from: list[str] | None = None) -> str:
         """把子代理结论合并进全局态（主代理专属动作）。"""
@@ -180,6 +184,7 @@ class OrcMemory:
 
     # ================= 子代理写入 =================
 
+# 生效条件：basis 不在模块级常量 VALID_BASIS 中即抛 ValueError；condition 为假值时生效条件取 f"{feature} {subfeature}"，evidence/impact/pending 为假值时回落 "无"，detail 为真值才额外写 L2 细节（否则 detail_id 为 None），返回含 card_id、detail_id、conflict、needs_adjudication 的字典。
     def submit(self, sub: str, feature: str, subfeature: str,
                conclusion: str, evidence: str = "", impact: str = "",
                pending: str = "无", condition: str | None = None,
@@ -260,6 +265,7 @@ class OrcMemory:
                                     "pending": v})
         return out
 
+# 生效条件：需同时给出 pid、decision、reason，函数直接返回 self.cg.review_decide(pid, decision, reason=reason) 的返回值。
     def adjudicate(self, pid: str, decision: str, reason: str) -> dict:
         """主代理裁决冲突（decision: accept|reject|edit|merge）。"""
         return self.cg.review_decide(pid, decision, reason=reason)
@@ -268,6 +274,7 @@ class OrcMemory:
         """待裁决队列。"""
         return self.cg.review_list()
 
+# 生效条件：传入 node_id，用 self.cg.index["nodes"][node_id] 直接取键（缺键时按字典取值抛 KeyError），返回 self.cg._read(该路径) 的值。
     def drill_down(self, node_id: str) -> tuple:
         """需要追问细节时，按 id 精确取单条（这是唯一的细节读入口）。"""
         return self.cg._read(self.cg.index["nodes"][node_id])
@@ -290,6 +297,7 @@ class OrcMemory:
 
     # ================= 收口检查点（J-Space 证据链映射） =================
 
+# 生效条件：先调 self.refresh()；cards 为 None 时改用 self.collect_cards()；对每张卡以 exclude=c["id"]、auto_flywheel=False 调 check_consistency，仅 verdict 属 ("REJECT","DEFER","BLINDSPOT") 才计入 detections，返回 {"checked": len(cards), "detections": detections, "clean": not detections}。
     def final_check(self, cards: list[dict] | None = None) -> dict:
         """收口全库一致性复查——并行盲区补全（证据链的「检查点」环节）。
 
@@ -318,6 +326,7 @@ class OrcMemory:
         return {"checked": len(cards), "detections": detections,
                 "clean": not detections}
 
+# 生效条件：以 subs 调 collect_cards 得 cards，再以 cards 调 final_check、以 subs 调 pending_items，fingerprint 取 sorted(c["id"]) 的 JSON 做 SHA-256 后前 16 位，返回 {"cards": 卡数, "pending", "final_check", "fingerprint", "stats"}。
     def closeout(self, subs: list[str] | None = None) -> dict:
         """收口报告——证据链五环节的集成出口（源—地图—断言—检查点—报告）：
         源=L2 细节在盘、地图=index（refresh 后）、断言=卡片结论、
@@ -338,6 +347,7 @@ class OrcMemory:
     # ================= 工具 =================
 
     @staticmethod
+# 生效条件：node 为 dict 时取 node.get("content", "")（缺 "content" 键回落空串），否则取 str(node)；返回把换行替换为空格后截取前 100 个字符的字符串。
     def _brief(node) -> str:
         if isinstance(node, dict):
             c = node.get("content", "")
@@ -363,6 +373,7 @@ class OrcMemory:
 # ============================================================
 # 自检：跑一遍完整四阶段流程，验证设计可用
 # ============================================================
+# 生效条件：须有 LINGSHU_REPO 环境变量为真值——selftest 以默认 repo_path=None 构造 OrcMemory，_ensure_repo 会回落到该环境变量；未设置时构造阶段即抛 RuntimeError，设置成功后在 tempfile.mkdtemp 目录上建 OrcMemory(global_budget=1200, card_budget=600) 并走完全流程返回 om。
 def selftest():
     import tempfile
     tmp = tempfile.mkdtemp(prefix="orc_selftest_")
