@@ -111,6 +111,7 @@ _CCG_LINE_RE = re.compile(
     r"^\s*#\s*(功能名|生效条件|子功能|执行|验证方式|不适用条件)\s*[:：]")
 
 
+# 生效条件：给定 content，返回剔除所有匹配 _CCG_LINE_RE 的行后以换行连接的非声明正文；content 为 None 时按空串处理。
 def body_text(content: str) -> str:
     """剥掉 CCG 声明行后的正文——验证只认正文，不认已写下的声明。"""
     return "\n".join(l for l in (content or "").split("\n")
@@ -171,6 +172,7 @@ VERIFY_PROMPT = (
 
 # ---- LLM 侧（黑箱只在离线工序，产出候选）--------------------------------
 
+# 生效条件：给定 role，按显式参数、角色环境变量、通用兜底依次解析并返回 (model, base, key)；key 不落 DEEPSEEK_API_KEY 除非 role 为 REFLECT_ROLE。
 def role_config(role: str, model: str = None, base: str = None,
                 key: str = None) -> tuple:
     """解析某角色的 (model, base, key)：显式参数 > 角色环境变量 > 通用兜底。
@@ -197,6 +199,7 @@ def role_config(role: str, model: str = None, base: str = None,
     return model, base, key
 
 
+# 生效条件：给定 prompt 且 role 解析或通用兜底得到非空 key 时，向 base 的 /chat/completions 发 POST 并返回首个 choice 的 message.content；key 为空则抛 RuntimeError。
 def http_llm(prompt: str, model: str = None, base: str = None, key: str = None,
              role: str = None, timeout: int = 120, max_tokens: int = 1200) -> str:
     """标准库 HTTP 调 LLM（OpenAI 兼容 /chat/completions）。零第三方依赖。
@@ -234,6 +237,7 @@ def http_llm(prompt: str, model: str = None, base: str = None, key: str = None,
     return data["choices"][0]["message"]["content"]
 
 
+# 生效条件：给定 role，若 role_config 得到非空 key 则 GET base/models 并返回含 ok/model_available/models 的字典；无 key 或请求异常则返回 ok=False 及错误信息。
 def probe_models(role: str, timeout: int = 20) -> dict:
     """零 token 探测：列出该角色网关的可用模型 id（GET /models）。"""
     model, base, key = role_config(role)
@@ -292,6 +296,7 @@ def _as_terms(v, limit: int = MAX_TERMS):
     return out
 
 
+# 生效条件：给定 raw，若 _extract_json_obj 解析出 dict，则按 CCG_FIELDS 与 FIELD_ALIASES 提取非空字段并规范为列表或单值返回字典；否则返回 {}。
 def parse_candidate(raw: str) -> dict:
     """LLM 原始输出 → {字段: 列表/字符串}；解析失败返回 {}。"""
     obj = _extract_json_obj(raw)
@@ -317,6 +322,7 @@ def parse_candidate(raw: str) -> dict:
     return out
 
 
+# 生效条件：给定 raw，若解析出 dict，则按 CCG_FIELDS 提取 keep/drop/has_keep/reason 结构返回字典；否则返回 {}。
 def parse_verdict(raw: str) -> dict:
     """验证单元输出 → {字段: {keep, drop, has_keep, reason}}；解析失败返回 {}。"""
     obj = _extract_json_obj(raw)
@@ -342,6 +348,7 @@ def parse_verdict(raw: str) -> dict:
     return out
 
 
+# 生效条件：给定 kept 与 verdict，若 verdict 为空则返回 (dict(kept), {})；否则按 drop 与 has_keep 收窄候选并返回 (收窄后候选, 被剔除明细)。
 def narrow_by_verdict(kept: dict, verdict: dict):
     """按验证单元裁决收窄候选——**只能否决，不能新增**。
 
@@ -377,6 +384,7 @@ def narrow_by_verdict(kept: dict, verdict: dict):
 
 # ---- 确定性验证（零 LLM）-------------------------------------------------
 
+# 生效条件：给定 term 与 body，若 term 的 bigram 序列非空则返回命中 bigram 数除以总 bigram 数，否则返回 0.0。
 def grounding_score(term: str, body: str) -> float:
     """候选短语在正文里的字符级支撑度 = 命中 bigram 数 / 总 bigram 数。"""
     bg = bigrams(term or "")
@@ -386,6 +394,7 @@ def grounding_score(term: str, body: str) -> float:
     return hit / len(bg)
 
 
+# 生效条件：给定 cand 与 body，按 thresholds 更新 DEFAULT_GROUNDING 后逐字段过滤候选，返回 (达标 kept, detail)；不达标者丢弃。
 def grounding_filter(cand: dict, body: str, thresholds: dict = None):
     """逐字段过滤候选：返回 (kept, detail)。不达标者丢弃（对应「不猜测」）。"""
     th = dict(DEFAULT_GROUNDING)
@@ -405,6 +414,7 @@ def grounding_filter(cand: dict, body: str, thresholds: dict = None):
     return kept, detail
 
 
+# 生效条件：给定 pos_terms、neg_terms、body，返回含 pos_recall、neg_separated、no_conflict、ok 的回放判定字典。
 def replay_check(pos_terms, neg_terms, body: str) -> dict:
     """回放生产判定：正例召回 + 负例剔除 + 无自相矛盾。
 
@@ -438,10 +448,12 @@ def replay_check(pos_terms, neg_terms, body: str) -> dict:
 
 # ---- 写盘（固化）---------------------------------------------------------
 
+# 生效条件：给定 content 与 field，当 content 含 "# field：" 或 "# field:" 时返回 True，否则 False。
 def _has_ccg_line(content: str, field: str) -> bool:
     return f"# {field}：" in (content or "") or f"# {field}:" in (content or "")
 
 
+# 生效条件：给定 fm 与 content，对每个 CCG_FIELDS，若 frontmatter.comment 值非空或正文含对应 CCG 行则记入，返回已有字段字典。
 def existing_fields(fm: dict, content: str) -> dict:
     """节点当前已有的四要素：正文 CCG 行 或 frontmatter.comment 任一存在即算有。"""
     comment = (fm.get("state_attributes") or {}).get("comment") or {}
@@ -455,6 +467,7 @@ def existing_fields(fm: dict, content: str) -> dict:
     return out
 
 
+# 生效条件：给定 content、field、value，若已有 "# field：" 行则替换并返回新正文；否则插在 "# 功能名" 之后，若无则该行前置。
 def _upsert_ccg_line(content: str, field: str, value: str) -> str:
     """在正文里写入/替换 `# <字段>：<值>`，优先插在「# 功能名」之后。"""
     lines = (content or "").split("\n")
@@ -474,12 +487,14 @@ def _upsert_ccg_line(content: str, field: str, value: str) -> str:
     return newline + "\n" + (content or "")
 
 
+# 生效条件：给定 kept 字段字典，返回一句话规律字符串，列出缺失字段名并声明补齐后可路由。
 def _evo_pattern(kept: dict) -> str:
     """规律（一句话）：这一类节点反复缺的正是这批条件。"""
     names = "、".join(kept.keys())
     return f"缺「{names}」的节点条件不可判；补齐后四要素完整、可路由"
 
 
+# 生效条件：给定 prov 字典，拼接 reflect/verify 模型、grounding、replay、verification_basis 中存在的证据项并返回。
 def _evo_evidence(prov: dict) -> str:
     """证据：本次固化凭什么成立（模型 / 闸门 / 回放）。"""
     parts = []
@@ -499,6 +514,7 @@ def _evo_evidence(prov: dict) -> str:
     return " · ".join(parts)
 
 
+# 生效条件：给定 cg、e、fm、content、kept、prov，将 kept 字段写入正文 CCG 行与 frontmatter.comment，不适用条件同步 non_applicable_conditions，并写 llm_consolidation 与演化记录，返回 None。
 def _apply_node(cg, e, fm: dict, content: str, kept: dict, prov: dict,
                 basis: str = "", basis_enum: str = BASIS_ENUM_DEFAULT):
     """把通过验证的字段固化进 md：正文 CCG 行 + frontmatter.comment + 负条件 + provenance。
@@ -543,6 +559,7 @@ def _apply_node(cg, e, fm: dict, content: str, kept: dict, prov: dict,
         before=before, after=evolution.state_of(cg, nid) or {})
 
 
+# 生效条件：给定 root，扫描正排层节点并执行反思→白箱闸门→验证→固化，返回报表 rep；require_verify=True 且无 verify_fn 时全部 DEFER。
 def consolidate(root: str, layer: str = None, limit: int = None, apply: bool = False,
                 overwrite: bool = False, llm_fn=None, reflect_fn=None,
                 verify_fn=None, reflect_model: str = "", verify_model: str = "",
@@ -695,6 +712,7 @@ def consolidate(root: str, layer: str = None, limit: int = None, apply: bool = F
     return rep
 
 
+# 生效条件：给定 root 与 basis，对缺 "# 验证方式" 行的节点补写验证方式并在需要时写入 basis_enum，返回统计 rep。
 def fill_verification_basis(root: str, basis: str, layer: str = None,
                             limit: int = None, apply: bool = False,
                             basis_enum: str = BASIS_ENUM_DEFAULT) -> dict:
@@ -755,6 +773,7 @@ MAINTAIN_LOG = "_maintain.jsonl"
 CCG_REQUIRED = ("生效条件", "子功能", "执行", "不适用条件")
 
 
+# 生效条件：给定 cg、nid、e、fm、content、target_layer，把节点写入目标层（必要时按 routing 分桶）并删除旧路径，返回新相对路径与 bucket。
 def _relocate_layer(cg, nid, e, fm, content, target_layer):
     """把节点正文迁到目标层的正确目录（含分桶），删除旧文件。返回新相对路径。"""
     d = os.path.join(cg.root, target_layer)
@@ -773,6 +792,7 @@ def _relocate_layer(cg, nid, e, fm, content, target_layer):
             "bucket": bucket}
 
 
+# 生效条件：给定 root，把 source_layer 中命中次数不小于 min_merge 或 importance 不小于 min_importance 且条件完整的节点提升到 target_layer，返回统计 rep。
 def promote_memories(root, source_layer="contextual", target_layer="knowledge",
                      min_merge=2, min_importance=0.6, require_conditions=True,
                      limit=None, apply=False, actor="maintain") -> dict:
@@ -844,6 +864,7 @@ def promote_memories(root, source_layer="contextual", target_layer="knowledge",
     return rep
 
 
+# 生效条件：给定 root，按 _maintain.jsonl 中 action=promote 记录（可再按 node_ids/batch 过滤）把节点迁回原层，成功返回 ok=True/reverted/ids，无记录返回 ok=False/error=no_records。
 def rollback_promotion(root, node_ids=None, batch=None, actor="maintain") -> dict:
     """回滚情境提升：把 promoted_from 层迁回，并记一条演化条目。"""
     cg = MdCGOS(root)
@@ -902,11 +923,13 @@ def rollback_promotion(root, node_ids=None, batch=None, actor="maintain") -> dic
 CONTEXTUALIZE_REASON_DEFAULT = "情境性内容归位（批次流水账 / 感知产物）"
 
 
+# 生效条件：给定 e，返回 e.id 字符串，若缺 id 则回落到 basename(e.path) 去掉 .md。
 def _entry_id(e) -> str:
     """索引条目取 id：优先 `id` 字段，回落到文件名（索引不保证带 id）。"""
     return str(e.get("id") or os.path.basename(e.get("path") or "")[:-3])
 
 
+# 生效条件：给定 root 与 base，若 base 不在维护日志已用批次中则返回 base，否则返回 base.n 且 n 为最小未用序号。
 def _unique_batch(root, base) -> str:
     """批次号去重：**同一秒内的两次调用不得共用批次号**。
 
@@ -921,6 +944,7 @@ def _unique_batch(root, base) -> str:
     return f"{base}.{n}"
 
 
+# 生效条件：给定 root 且 prefixes 或 node_ids 至少一个非空，把 source_layer 中匹配的节点迁到 target_layer，返回统计 rep；两者皆空则抛 ValueError。
 def contextualize_prefixes(root, prefixes=None, node_ids=None,
                            source_layer="knowledge", target_layer="contextual",
                            reason="", limit=None, apply=False,
@@ -999,6 +1023,7 @@ def contextualize_prefixes(root, prefixes=None, node_ids=None,
     return rep
 
 
+# 生效条件：给定 root，按 _maintain.jsonl 中 action=contextualize 记录（可再按 node_ids/batch 过滤）把节点迁回原层，成功返回 ok=True/reverted/ids，无记录返回 ok=False/error=no_records。
 def rollback_contextualize(root, node_ids=None, batch=None, actor="maintain") -> dict:
     """回滚层归位：按 `_maintain.jsonl` 的 contextualize 记录把节点迁回原层。"""
     cg = MdCGOS(root)
@@ -1047,6 +1072,7 @@ def contextualize_history(root, limit=50):
     return {"ok": True, "records": recs[-(int(limit) or 50):]}
 
 
+# 生效条件：给定 root，读取 root 下 MAINTAIN_LOG 的 JSONL 并返回记录列表。
 def _read_maintain(root):
     from .fsutil import read_jsonl
     return list(read_jsonl(os.path.join(root, MAINTAIN_LOG)))
@@ -1080,6 +1106,7 @@ CONCEPT_TAGS = ("concept", "induced")
 INDUCE_SKIP_TAGS = ("insight", "scene", "reconstructed", "gap_hint", "concept")
 
 
+# 生效条件：给定 members，返回 CONCEPT_PREFIX 拼接排序后成员串的 SHA1 前 10 位。
 def _concept_id(members):
     """概念节点 id：由成员清单派生，保证「同成员 ⇒ 同 id」的幂等性。"""
     h = hashlib.sha1("|".join(sorted(str(m) for m in members))
@@ -1087,12 +1114,14 @@ def _concept_id(members):
     return CONCEPT_PREFIX + h[:10]
 
 
+# 生效条件：给定 a 与 b，若任一为空集则返回 0.0，否则返回交集大小除以并集大小。
 def _jaccard(a, b):
     if not a or not b:
         return 0.0
     return len(a & b) / float(len(a | b))
 
 
+# 生效条件：给定 term_sets，返回出现次数不小于 max(2, ceil(min_share * len(term_sets))) 的词面排序列表；空输入返回 []。
 def _common_terms(term_sets, min_share=0.6):
     """出现在 ≥ min_share 比例成员中的词面（共同条件）；少于 2 个成员共享不算。"""
     if not term_sets:
@@ -1105,6 +1134,7 @@ def _common_terms(term_sets, min_share=0.6):
     return sorted(t for t, c in cnt.items() if c >= need)
 
 
+# 生效条件：给定 term_sets，按集合排序去重拼接后返回前 limit（默认 INDUCE_MAX_TERMS）个词面。
 def _union_terms(term_sets, limit=INDUCE_MAX_TERMS):
     seen = []
     for s in term_sets:
@@ -1114,6 +1144,7 @@ def _union_terms(term_sets, limit=INDUCE_MAX_TERMS):
     return seen[:limit]
 
 
+# 生效条件：给定 cg、cid、members、reason、actor、batch，为概念节点与成员节点写对称 inferred 边（已存在则跳过），返回含 concept 与 members 的字典。
 def _link_concept(cg, cid, members, reason, actor, batch):
     """写概念↔成员对称 inferred 边（幂等：已存在则不重复写）。"""
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
@@ -1160,6 +1191,7 @@ def _link_concept(cg, cid, members, reason, actor, batch):
     return out
 
 
+# 生效条件：给定 members、common_pos、neg_union，返回标注 inferred 的概念节点正文，含功能名、生效条件、子功能、执行、验证方式、不适用条件。
 def _concept_payload(members, common_pos, neg_union):
     """概念节点正文：把成员的共性条件抽象为可追溯的知识条目（显式标注 inferred）。"""
     label = "、".join(common_pos[:INDUCE_MAX_TERMS])
@@ -1176,6 +1208,7 @@ def _concept_payload(members, common_pos, neg_union):
     )
 
 
+# 生效条件：给定 cg_or_root，从 source_layer 聚类归纳为 target_layer 概念节点，apply=True 才写盘并返回统计 rep。
 def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowledge",
                     min_cluster=INDUCE_MIN_CLUSTER, min_jaccard=INDUCE_MIN_JACCARD,
                     max_nodes=INDUCE_MAX_NODES, require_conditions=True,
