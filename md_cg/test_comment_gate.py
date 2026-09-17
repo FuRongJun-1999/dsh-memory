@@ -158,6 +158,24 @@ def main():
     except ValueError:
         raised = True
     _check("未知 action fail-closed", raised)
+    # ---- 源级候选枚举（绕开重索引代价；不依赖认知图）----
+    sp1 = comment_gate.plan_sources(code, n=20, seed="src-1")
+    _check("源级枚举可见未注释符号（不依赖认知图）",
+           sp1["examined"] >= 1 and sp1["candidates"] >= 1 and sp1["sampled"] >= 1,
+           "examined=%s cands=%s sampled=%s" % (sp1["examined"], sp1["candidates"],
+                                                sp1["sampled"]))
+    src_names = [it["name"] for it in sp1["items"]]
+    _check("源级工单排除已注释符号（no_cond 在、with_cond 不在）",
+           "no_cond" in src_names and "with_cond" not in src_names, str(src_names))
+    _check("源级工单带源码坐标（path/lineno/end）",
+           all((it["code_ref"].get("path") and it["code_ref"].get("lineno")
+                and it["code_ref"].get("end")) for it in sp1["items"]))
+    _check("源级抽样确定性（同 seed 同工单）",
+           comment_gate.plan_sources(code, n=20, seed="src-1")["items"] == sp1["items"])
+    _check("源级工单只读且声明模式",
+           sp1["dry_run"] is True and sp1["mode"] == "source_level")
+    _check("源级枚举经 run 分派可达",
+           comment_gate.run(cg, "comment_gate_sources", n=5)["mode"] == "source_level")
     print()
     print("PASS %d / FAIL %d" % (_ok, len(_bad)))
     for b in _bad:

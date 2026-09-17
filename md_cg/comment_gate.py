@@ -24,7 +24,7 @@ import json
 import os
 import time
 
-from . import nodefile, refine
+from . import codeindex, nodefile, refine
 
 #: 放行阈值**唯一真源在 refine**（不在此处再定义一份，防口径漂移）
 GATE_MIN_PASS_RATE = refine.GATE_MIN_PASS_RATE
@@ -230,6 +230,83 @@ def gate(x, batch=None) -> dict:
             "batches": len({r.get("batch") for r in recs}), **stats}
 
 
+def candidates_from_sources(root, patterns=None, max_files=None, max_items=None,
+                            skip_dirs=None):
+    """**源级**候选枚举（不依赖认知图）：扫源码树，筛出注释里缺『生效条件』的符号。
+
+    为什么需要它（2026-09-17 实测）：真实库 2934 条 code_ 节点的生效条件 **100% 是旧 render
+    的合成值**，故**图内候选池为 0**；而「源码里哪些符号缺条件注释」是**源侧事实**，
+    无须先重索引（重索引会让 2934 条同时失去条件、判 BLINDSPOT）。本入口绕开该一次性代价。
+
+    判据唯一且机械：符号的 **井号注释窗口**（leading + body，见 codeindex）中不存在以
+    『生效条件』开头的行；只认井号注释、不认 docstring——落点按 q-0 裁决。
+    """
+    items, errors, stats = codeindex.index_dir(
+        root, patterns=patterns, max_files=int(max_files or 500),
+        max_items=int(max_items or 2000), skip_dirs=skip_dirs)
+    cands = []
+    for it in items:
+        has = any(str(c).lstrip("#").strip().startswith("生效条件")
+                  for c in (it.get("comments") or []))
+        if not has:
+            cands.append(it)
+    return {"root": root, "items": cands, "errors": errors, "stats": stats,
+            "examined": len(items), "candidates": len(cands),
+            "note": ("源级枚举：判据=井号注释窗口内无『生效条件』行；"
+                     "不含图内节点状态，故不受存量渲染影响")}
+
+
+def _landing_src(it) -> dict:
+    return {"id": codeindex.node_id(it), "name": it.get("name"),
+            "kind": it.get("kind"),
+            "family": (it.get("path") or "").split("/")[0] or ".",
+            "code_ref": {"path": it.get("path"), "lineno": it.get("lineno"),
+                         "end": it.get("end"), "lang": it.get("lang"),
+                         "precise": it.get("precise")},
+            "comments": [str(c) for c in (it.get("comments") or [])],
+            "landing_rule": ("定义行紧邻上方连续井号注释（leading）或定义行紧邻下方、"
+                             "体首语句之前（body）"),
+            "landing_note": "两窗口按源码物理行序合并；靠前者胜出（契约 §三.2）"}
+
+
+def plan_sources(root, n=None, seed=None, patterns=None, skip_dirs=None,
+                 max_files=None, max_items=None) -> dict:
+    """**源级**工单（只读）：确定性抽样 + 源码落点；不依赖认知图、不改任何节点。
+
+    抽样口径：按大域（顶层目录）**确定性轮转**（族内按 sha(seed,id) 排序）。
+    刻意**不复制** refine 的浮点最大余数分配——那是第二份实现，会引入漂移；
+    源级候选列表是精确的（无「先抽样再过滤」的口径损失），轮转已给出跨族覆盖。
+    """
+    seed = seed or SAMPLE_SEED
+    n = SAMPLE_N if n is None else int(n)
+    got = candidates_from_sources(root, patterns=patterns, skip_dirs=skip_dirs,
+                                 max_files=max_files, max_items=max_items)
+    fams = {}
+    for it in got["items"]:
+        top = (it.get("path") or "").split("/")[0] or "."
+        fams.setdefault(top, []).append(it)
+    pools = {f: len(v) for f, v in fams.items()}
+    names = sorted(fams)
+    for f in names:
+        fams[f].sort(key=lambda it: refine._sha(seed, codeindex.node_id(it)))
+    picked = []
+    while len(picked) < n and any(fams[f] for f in names):
+        for f in names:
+            if fams[f] and len(picked) < n:
+                picked.append(fams[f].pop(0))
+    work = [_landing_src(it) for it in picked]
+    return {"root": root, "dry_run": True, "readonly": True, "mode": "source_level",
+            "action": "comment_gate_sources", "op": "maintain",
+            "seed": seed, "requested": n, "examined": got["examined"],
+            "candidates": got["candidates"], "sampled": len(work),
+            "families": len(pools), "strata": pools,
+            "items": work, "worklist": work, "spec": SPEC,
+            "scan_errors": list(got["errors"])[:10], "scan_stats": got["stats"],
+            "gate_rule": SPEC["gate"],
+            "note": ("源级工单（只读）：不依赖认知图、不改任何节点；"
+                     "抽样为按大域的确定性轮转。")}
+
+
 def run(x, action, **kw) -> dict:
     """maintain op 分派入口（与 backfill.run 同形，便于 mcp_server 侧并列分派）。"""
     if action == "comment_gate":
@@ -240,5 +317,9 @@ def run(x, action, **kw) -> dict:
         return plan(x, ids=kw.get("ids"), n=kw.get("n"), seed=kw.get("seed"))
     if action == "comment_gate_verdict":
         return gate(x, batch=kw.get("batch"))
+    if action in ("comment_gate_sources", "comment_gate_source_plan"):
+        root = kw.get("root") or getattr(x, "root", None) or str(x)
+        return plan_sources(root, n=kw.get("n"), seed=kw.get("seed"),
+                            patterns=kw.get("patterns"), skip_dirs=kw.get("skip_dirs"))
     raise ValueError("未知 comment_gate action：%s（允许 comment_gate / "
                      "comment_gate_verdict）" % action)
