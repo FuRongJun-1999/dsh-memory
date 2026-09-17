@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-027-batch-c27",
+ "round": 1,
+ "candidate_commit": "d3295dc",
+ "branch": "task/iter-027-batch-c27",
+ "unit_job": "h1789660320208_0d3c64",
+ "verdict": "ACCEPT",
+ "package_n": 11,
+ "text": "复核：11 项条件均与源码一致。est_tokens 的 not text→0；excerpt_tokens 空/预算早退与 ≤max_tokens；_sig 摘要截断；_term_degree 整词/最长子串；_weighted_coverage 过滤与 den；_ccg_field 扫描；_declared_conditions 三源去重；_neg_hit 阈值；_window_overlap 异常与交叠；_slot_overlap 缺失槽；_verify_norm 真/假值。未发现源码不符、额外断言或前置错位。\nreason: 各条件锚定实际分支与早退，未发现不符或越界断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
