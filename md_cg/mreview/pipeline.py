@@ -79,6 +79,7 @@ SYSTEM_PROMPT = """你是记忆评审流水线中的【验证单元】。
 
 # ---- 级 4-A · spec 构造 ---------------------------------------------------
 
+# 生效条件：exe 为真值时返回 str(exe)，否则 HIVE_EXE 经 (os.environ.get("HIVE_EXE") or "").strip() 后非空则返回该值，否则按 os.name 返回 os.path.join(_ROOT, "hive", "target", "release", "hive.exe" 或 "hive")；
 def hive_exe(exe=None) -> str:
     """蜂巢可执行文件：显式参数 > HIVE_EXE > 仓内 release 构建。"""
     if exe:
@@ -90,10 +91,12 @@ def hive_exe(exe=None) -> str:
     return os.path.join(_ROOT, "hive", "target", "release", name)
 
 
+# 生效条件：name 为假值（None/""/0/False 等）时以 "pkg" 为输入，否则 str(name)，结果经 re.sub(r"[^0-9A-Za-z_.\-]", "_", ...) 替换并截取前 120 字符；
 def _safe(name) -> str:
     return re.sub(r"[^0-9A-Za-z_.\-]", "_", str(name or "pkg"))[:120]
 
 
+# 生效条件：path 与 obj 给定后，若 os.path.dirname(path) 非空则 os.makedirs 该目录，随后以 UTF-8、ensure_ascii=False、indent=2 将 obj 写入 path 并返回 path；
 def _dump_json(path: str, obj) -> str:
     d = os.path.dirname(path)
     if d:
@@ -109,6 +112,7 @@ _ENTRY_KEYS = ("ref", "node_id", "proposal_id", "origin", "layer", "tags", "role
                "excerpt")
 
 
+# 生效条件：pkg/asm/workdir 给定，base 取 _safe(pkg.get("bundle_id"))（bundle_id 假值→"pkg"），entries 取 pkg.get("entries") or [] 的前 int(entry_limit) 项且仅保留 _ENTRY_KEYS，写出 workdir/base.bundle.json 与 workdir/base.rules.json（asm 原样），返回这两个 join(workdir,...) 路径（workdir 相对时不保证绝对）；
 def dump_context(pkg: dict, asm: dict, workdir: str, *, entry_limit=64) -> list:
     """包 + 规则装配 → context 文件（**绝对路径**，工人执行期内有效）。
 
@@ -128,6 +132,7 @@ def dump_context(pkg: dict, asm: dict, workdir: str, *, entry_limit=64) -> list:
     return [bp, rp]
 
 
+# 生效条件：pkg/asm 给定，节点清单标题恒输出、节点项取 pkg.get("entries") or []；机械命中取 asm.get("mechanical") or []，非空列前 int(max_mech) 条否则输出「无」，llm 取 asm.get("llm") or [] 非空列前 40 条；返回 join(L)；
 def build_prompt(pkg: dict, asm: dict, *, max_mech=120) -> str:
     """user_prompt：节点清单 + 机械命中 + 待检问题 + 输出要求。"""
     ents = pkg.get("entries") or []
@@ -167,6 +172,7 @@ def build_prompt(pkg: dict, asm: dict, *, max_mech=120) -> str:
     return "\n".join(L)
 
 
+# 生效条件：pkg/asm 给定，model 按 model or os.environ.get('HIVE_MODEL') or DEFAULT_MODEL 取值（空串/假值均回落），context_files 按 list(context_files or [])，timeout_s 转 int、temperature 转 float、max_tokens 转 int，node_ids 取 pkg.entries 中 node_id 真值的 str，返回含 meta 的 spec 字典；
 def build_spec(pkg: dict, asm: dict, *, context_files=None, model=None,
                timeout_s=600, temperature=0.0, max_tokens=4096) -> dict:
     """(pkg, asm) → hive spec（文件协议的可投递单元）。"""
@@ -202,6 +208,7 @@ def build_packages(*, root=None, sources=None, limit=None, nodes=None,
 
 # ---- 级 4-B · 投递 / 收卷 -------------------------------------------------
 
+# 生效条件：argv 给定，环境变量副本强制 PYTHONUTF8="1"，env 真值时用其 str 值更新，随后 subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", env=e, timeout=timeout, cwd=cwd, input=stdin_text, shell=False)；
 def _run(argv, *, env=None, timeout=120, cwd=None, stdin_text=None):
     """统一子进程入口：argv 列表 + 显式 UTF-8 + PYTHONUTF8=1，不经 shell（第15条）。"""
     e = dict(os.environ)
@@ -213,6 +220,7 @@ def _run(argv, *, env=None, timeout=120, cwd=None, stdin_text=None):
                           input=stdin_text, shell=False)
 
 
+# 生效条件：text 为假值时 (text or "").strip().splitlines() 为空、循环不执行并返回 None；否则从末尾行向前找以 "{" 开头且 json.loads 成功且 isinstance(obj, dict) 的行返回该 dict，未找到返回 None；
 def _last_json(text: str):
     """stdout 逐行解析取最后一个 JSON 对象（容忍前导日志行）。"""
     for line in reversed((text or "").strip().splitlines()):
@@ -228,6 +236,7 @@ def _last_json(text: str):
     return None
 
 
+# 生效条件：exe/jobs_dir/spec 给定，创建 jobs_dir 并在临时目录写 spec.json 后执行 [exe,"submit","--spec",sp,"--jobs",jobs_dir]；returncode 非 0 返回 ok False + error，否则 _last_json(p.stdout) 为假（含 None/空 dict）返回 ok False「submit 输出非 JSON」，否则 d.setdefault("ok", True) 后返回 d；
 def submit(exe: str, jobs_dir: str, spec: dict, *, timeout=120) -> dict:
     """投递单包 spec → {"ok":True,"job_id":...}；失败返回 ok=False + error。"""
     os.makedirs(jobs_dir, exist_ok=True)
@@ -245,11 +254,13 @@ def submit(exe: str, jobs_dir: str, spec: dict, *, timeout=120) -> dict:
     return d
 
 
+# 生效条件：specs 为可迭代列表时逐项调用 submit(exe, jobs_dir, s, timeout=timeout) 并返回等长列表；specs 为空则返回空列表；
 def submit_many(exe: str, jobs_dir: str, specs: list, *, timeout=120) -> list:
     """批量投递（hive 侧并发消费；本函数逐条投递并保序配对）。"""
     return [submit(exe, jobs_dir, s, timeout=timeout) for s in specs]
 
 
+# 生效条件：exe/jobs_dir 给定，job_id 为真值时 argv 追加 str(job_id)，假值（None/""）时仅列全部；运行后 returncode 非 0 返回 ok False + error，否则 _last_json(p.stdout) 为真值（非空 dict）时返回该 dict，为假值时返回 ok False「poll 输出非 JSON」；
 def poll(exe: str, jobs_dir: str, job_id=None, *, timeout=120) -> dict:
     """查询 job 状态（不传 job_id = 列出全部）。"""
     argv = [exe, "poll"]
@@ -265,10 +276,12 @@ def poll(exe: str, jobs_dir: str, job_id=None, *, timeout=120) -> dict:
                  "stdout": (p.stdout or "")[:800]}
 
 
+# 生效条件：j.get("job_id") 为真值时返回该值，否则返回 j.get("id")（若 id 为 0/""/False 则原样返回该假值，若 id 缺失返回 None）；
 def _job_id(j: dict):
     return j.get("job_id") or j.get("id")
 
 
+# 生效条件：j.get("state") 为真值时返回 str(state)；否则 j.get("status") 为 dict 时返回 str(status.get("state") or "")；否则返回 str(status or "")；
 def _job_state(j: dict) -> str:
     """state 读取兼容两种形态（扁平 / status 嵌套）；仅供轮询判终态。"""
     s = j.get("state")
@@ -280,6 +293,7 @@ def _job_state(j: dict) -> str:
     return str(st or "")
 
 
+# 生效条件：exe/jobs_dir 给定，job_ids 真值集合限观测；循环 poll 直到 pending 为空且（want 为 None 或 want <= 已观测）返回 ok=not failed，若 pending 非空或 want 未全观测且到 max(1.0,float(timeout_s)) 截止则返回 ok False + error，每次间隔 sleep(max(0.05,float(interval_s)))；
 def wait_jobs(exe: str, jobs_dir: str, job_ids=None, *, timeout_s=900,
               interval_s=1.0, on_tick=None) -> dict:
     """轮询至全部终态（或超时）→ done/failed/pending 三分类 + 原始快照。"""
@@ -321,6 +335,7 @@ def wait_jobs(exe: str, jobs_dir: str, job_ids=None, *, timeout_s=900,
         time.sleep(max(0.05, float(interval_s)))
 
 
+# 生效条件：jobs_dir/job_id 给定，join(jobs_dir,str(job_id),"result.json") 路径缺失时返回 ok False「result.json 不存在」，读取时 OSError/ValueError 返回 ok False「读取失败」，json 对象非 dict 返回 ok False「result 非对象」，否则返回该 dict；
 def read_result(jobs_dir: str, job_id: str) -> dict:
     """读工人产出（job 目录的 result.json）。"""
     p = os.path.join(jobs_dir, str(job_id), "result.json")
@@ -334,6 +349,7 @@ def read_result(jobs_dir: str, job_id: str) -> dict:
     return obj if isinstance(obj, dict) else {"ok": False, "error": "result 非对象"}
 
 
+# 生效条件：jobs_dir/job_ids 给定，job_ids 为假值（None/[]）时返回空 dict，否则返回 {str(j): read_result(jobs_dir, j) for j in job_ids}；
 def collect(jobs_dir: str, job_ids) -> dict:
     """按 job_id 收卷（读 result.json），返回 {job_id: result} 保序映射。"""
     return {str(j): read_result(jobs_dir, j) for j in (job_ids or [])}
@@ -341,6 +357,7 @@ def collect(jobs_dir: str, job_ids) -> dict:
 
 # ---- 级 5-A · 意见解析与格式校验（校验率 100% 是验收口径）-----------------
 
+# 生效条件：text 去空格后为空返回 None；否则先 try json.loads(整体)，成功返回；否则找 ```(?:json)?...``` 围栏内 json.loads 成功返回；否则取 s.find("{") 与 s.rfind("}") 且 0<=i<k 的切片 json.loads 成功返回；均失败返回 None；
 def _extract_json(text: str):
     """从模型文本抽 JSON 对象：整体 → ```围栏``` → 首尾大括号切片。"""
     s = (text or "").strip()
@@ -365,6 +382,7 @@ def _extract_json(text: str):
     return None
 
 
+# 生效条件：result 非 dict 返回 ok False；result.get("error") 真值返回 ok False「工人报错」；v=result.get("verdicts")，v is None 时从 result.get("content") or "" 经 _extract_json 取 dict，非 dict 返回 ok False，否则 v=obj.get("verdicts") 且 summary=obj.get("summary") or summary；v 非 list 返回 ok False；否则返回 ok True、verdicts=v、summary=str(summary)；
 def parse_opinions(result: dict) -> dict:
     """result.json → {"ok":True,"verdicts":[...],"summary":...}。
 
@@ -389,11 +407,13 @@ def parse_opinions(result: dict) -> dict:
     return {"ok": True, "verdicts": v, "summary": str(summary)}
 
 
+# 生效条件：v 经 str(v or "").strip().upper() 得 s，若 s 在模块级 VERDICTS 中则返回 s，否则返回 None；
 def _norm_verdict(v):
     s = str(v or "").strip().upper()
     return s if s in VERDICTS else None
 
 
+# 生效条件：op 非 dict 返回「意见非对象」；nid 为空返回「缺 node_id」；node_ids 非 None 且 nid 不在其中返回越界错误；_norm_verdict(op.get("verdict")) 为 None 返回「verdict 越界」；reason 去空格空返回「缺 reason」；vd=="REJECT" 且 evidence 去空格空返回「REJECT 缺 evidence」；否则返回 None；
 def validate_opinion(op, node_ids=None):
     """单条意见格式校验：合法返回 None，非法返回错误串。"""
     if not isinstance(op, dict):
@@ -413,6 +433,7 @@ def validate_opinion(op, node_ids=None):
     return None
 
 
+# 生效条件：verdicts 为假值（None/[]）时 total=0、rate=1.0、ok=False；否则逐条 validate_opinion，无效记入 invalid，有效项复制并写入 _norm_verdict(op.get("verdict"))，最后返回 total、valid、invalid、rate=len(valid)/total、ok=bool(valid) and not invalid；
 def validate_opinions(verdicts, node_ids=None) -> dict:
     """批量校验：valid/invalid 明细 + 通过率（用于 100% 口径断言）。"""
     total = len(verdicts or [])
@@ -487,6 +508,7 @@ def opinion_doc(pkg: dict, opinions: list, *, reviewer: str, summary="",
     return "\n".join(L)
 
 
+# 生效条件：cg/pkg/opinions/reviewer/applier 给定，CC.detect_self_verify 判 reviewer 与 applier 同一→refused self_verify_disallowed；opinions 为空→ok True skipped no_opinions；dry_run 真→ok True committed False；否则 (pipe or WP.default_pipeline()).execute，AccessDenied→refused layer_denied，其他异常→write_error，成功→ok 取 out.ok、committed 取 out.committed、moved_to 取 out.moved_to、deferred=bool(out.moved_to) and not out.committed；
 def apply_opinions(cg, pkg: dict, opinions: list, *, reviewer, applier,
                    dry_run=False, pipe=None, layer=OPINION_LAYER,
                    importance=0.4, tags=None, node_id=None,
@@ -550,6 +572,7 @@ def apply_opinions(cg, pkg: dict, opinions: list, *, reviewer, applier,
 
 # ---- 编排 ----------------------------------------------------------------
 
+# 生效条件：pkg/asm/cg 给定，exe=hive_exe(exe)，jobs_dir/ctx_dir 假值回落到 tempfile.gettempdir() 下路径；dump_context 后 build_spec、submit，若 submit 无 ok 或无 _job_id 返回 stage submit；wait_jobs 后若 failed 或 done 空返回 stage wait；read_result+parse_opinions 失败返回 stage parse；否则 validate_opinions 并 apply_opinions，返回 ok=app.ok 及计数；
 def run_package(*, pkg, asm, cg, exe=None, jobs_dir=None, ctx_dir=None,
                 reviewer="mreview-worker", applier="mreview-applier",
                 model=None, timeout_s=900, interval_s=1.0, dry_run=False,
@@ -590,6 +613,7 @@ def run_package(*, pkg, asm, cg, exe=None, jobs_dir=None, ctx_dir=None,
             "apply": app, "stages": {"submit": True, "wait": True, "parse": True}}
 
 
+# 生效条件：pairs/cg 给定，先对每对 pkg,asm 执行 dump_context/build_spec/submit，收集 ok 且有 job_id 的 jids；wait_jobs 后逐 jid 若 state!="done" 记 stage wait，否则 read_result/parse_opinions/validate_opinions/apply_opinions 并累计；返回 ok=all(results.ok) and bool(results) 及聚合计数；
 def run_batch(*, pairs, cg, exe=None, jobs_dir=None, ctx_dir=None,
               reviewer="mreview-worker", applier="mreview-applier", model=None,
               timeout_s=1800, interval_s=1.0, dry_run=False, on_tick=None) -> dict:
