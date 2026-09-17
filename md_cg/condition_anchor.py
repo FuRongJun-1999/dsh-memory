@@ -53,6 +53,8 @@ def signature(fn):
 # 生效条件：fn 为函数定义节点时，返回其体内 Load 名字集合剔除 fn 的形参名、Store/Del 本地名及嵌套函数/异步函数定义名后的差集。
 def referenced(fn):
     """函数体内引用的名字（剔除形参与本地赋值目标）——代表来自模块/外部的状态与常量。"""
+    if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return set()  # 类（无 __init__）等非函数节点：无「体内引用」语义，返回空集不崩溃
     params = {a.arg for a in list(getattr(fn.args, "posonlyargs", [])) + list(fn.args.args)}
     params |= {a.arg for a in fn.args.kwonlyargs}
     if getattr(fn.args, "vararg", None):
@@ -102,6 +104,13 @@ def judge(cond, src, prefix="", suffix=""):
     if fn is None:
         out.update(verdict="BLINDSPOT", reason="片段中无函数/类定义")
         return out
+    if isinstance(fn, ast.ClassDef):
+        _init = None
+        for _sub in fn.body:
+            if isinstance(_sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and _sub.name == "__init__":
+                _init = _sub
+                break
+        fn = _init if _init is not None else fn
     required, optional = signature(fn)
     refs = referenced(fn)
     mentions = set(IDENT.findall(text))

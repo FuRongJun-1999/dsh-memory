@@ -64,6 +64,12 @@ def main():
     _check("A13 批量统计正确（ANCHORED/WEAK/REJECT_META 各 1）",
            b["stats"].get("ANCHORED") == 1 and b["stats"].get("WEAK") == 1
            and b["stats"].get("REJECT_META") == 1 and b["ok"] == 1, str(b["stats"]))
+    _r = ca.judge("tree 为 AST 节点", "class NoInit:" + chr(10) + "    x = 1" + chr(10))
+    _check("A14 无 __init__ 的类不崩溃并给出裁决",
+           _r["verdict"] in ("ANCHORED", "WEAK", "BLINDSPOT"), str(_r))
+    _r = ca.judge("x 为整数", "class C:" + chr(10) + "    def __init__(self, x):" + chr(10) + "        self.x = x" + chr(10))
+    _check("A15 有 __init__ 的类按其形参锚定",
+           _r["verdict"] == "ANCHORED" and _r["anchors"] == ["x"], str(_r))
     print()
     print("PASS %d / FAIL %d" % (_ok, len(_bad)))
     for x in _bad:
