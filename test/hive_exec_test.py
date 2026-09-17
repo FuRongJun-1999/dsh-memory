@@ -15,11 +15,13 @@ hive_exec = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(hive_exec)
 
 
+# 生效条件：无必需形参，被调用即执行；断言 hive_exec.est_tokens("abcd"*100)（400 个 ASCII 字符）返回 100（400/4）。
 def test_est_tokens_ascii_pure():
     # 400 ASCII 字符 → 400/4 = 100
     assert hive_exec.est_tokens("abcd" * 100) == 100
 
 
+# 生效条件：无必需形参，被调用即执行；断言 hive_exec.est_tokens("汉"*50)（50 个汉字）返回 50。
 def test_est_tokens_cjk_pure():
     # 50 个汉字 → 50（保守偏高估；实际 DeepSeek 约 1.6 字/token）
     assert hive_exec.est_tokens("汉" * 50) == 50
