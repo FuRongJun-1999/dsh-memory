@@ -64,6 +64,7 @@ class SignerError(Exception):
 # 契约与内置实现
 # --------------------------------------------------------------------------
 
+# 生效条件：实现方提供可调用的 sign(payload, ctx) 与 verify(payload, signature, ctx) 即满足鸭子类型契约；name 缺省为 'abstract'，基类实现直接抛 NotImplementedError。
 class Signer:
     """签名器契约。工程侧实现只需满足这两个方法（鸭子类型即可）。"""
 
@@ -83,6 +84,7 @@ class Signer:
         return {"name": self.name}
 
 
+# 生效条件：sign 对任意 payload 恒返回 ''，verify 仅当 signature 为 '' 或 None 时返回 True（name 为 'null'）。
 class NullSigner(Signer):
     """不签名（观察期 / 纯本地）。验签时把「空签名」视为通过。"""
 
@@ -140,6 +142,7 @@ _REGISTRY = {
 _LOADED_MODULES = set()
 
 
+# 生效条件：payload 为 str 时先按 utf-8 编码，其 base64 文本构成 body['payload']；ctx 非空时以 str 化并按 key 排序后并入 body，最终返回 json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')。
 def canonical(payload, ctx: dict = None) -> bytes:
     """规范化待签字节串：payload 走 base64，ctx 按 key 排序——避免表示歧义。"""
     if isinstance(payload, str):
@@ -155,6 +158,7 @@ def canonical(payload, ctx: dict = None) -> bytes:
 # 注册表（工程侧注入点）
 # --------------------------------------------------------------------------
 
+# 生效条件：name 去空白后非空且 factory 可调用时登记进 _REGISTRY 并返回 {'ok': True, 'name': name, 'signers': sorted(_REGISTRY)}，否则抛 SignerError。
 def register_signer(name: str, factory) -> dict:
     """注册签名器。`factory` 为无参可调用（返回实例）或类本身。"""
     name = (name or "").strip()
@@ -166,6 +170,7 @@ def register_signer(name: str, factory) -> dict:
     return {"ok": True, "name": name, "signers": sorted(_REGISTRY)}
 
 
+# 生效条件：name 已在 _REGISTRY 且不是 'null' 或 DEFAULT_SIGNER 时从注册表移除并返回 {'ok': True, 'signers': sorted(_REGISTRY)}，否则抛 SignerError。
 def unregister_signer(name: str) -> dict:
     if name not in _REGISTRY:
         raise SignerError(f"签名器不存在：{name}")
@@ -175,14 +180,17 @@ def unregister_signer(name: str) -> dict:
     return {"ok": True, "signers": sorted(_REGISTRY)}
 
 
+# 生效条件：无 required 形参，调用即返回 {'default': default_name(), 'signers': sorted(_REGISTRY)}。
 def list_signers() -> dict:
     return {"default": default_name(), "signers": sorted(_REGISTRY)}
 
 
+# 生效条件：环境变量 SIGNER_ENV 取值去空白后非空则返回该值，否则返回 DEFAULT_SIGNER。
 def default_name() -> str:
     return (os.environ.get(SIGNER_ENV) or "").strip() or DEFAULT_SIGNER
 
 
+# 生效条件：环境变量 SIGNER_MODULE_ENV 给出的模块名非空且未加载过时导入该模块并调用其无参 register()，模块加载失败或缺 register() 可调用则抛 SignerError。
 def _autoload():
     """按 MDCG_SIGNER_MODULE 自动加载工程侧注册模块（进程内只做一次）。"""
     mod = (os.environ.get(SIGNER_MODULE_ENV) or "").strip()
@@ -199,6 +207,7 @@ def _autoload():
     reg()
 
 
+# 生效条件：name 去空白后非空（为空取 default_name()）且该名已在 _REGISTRY 时构造实例，实例须具备可调用的 sign/verify 否则抛 SignerError；factory 形参含 key_file 时以 key_file 传入构造。
 def get_signer(name: str = None, key_file: str = None) -> Signer:
     """取签名器实例。未注册即抛错（fail-closed，不静默降级为 null）。"""
     _autoload()
@@ -221,6 +230,7 @@ def get_signer(name: str = None, key_file: str = None) -> Signer:
     return inst
 
 
+# 生效条件：inspect.signature(factory) 的形参名中含 'key_file' 时返回 True，否则（含 TypeError/ValueError）返回 False。
 def _accepts_key_file(factory) -> bool:
     try:
         import inspect
@@ -233,10 +243,12 @@ def _accepts_key_file(factory) -> bool:
 # 密钥（仅内置 hmac-local 需要；工程侧自行管理私钥）
 # --------------------------------------------------------------------------
 
+# 生效条件：显式 path 非空即返回该 path，否则返回环境变量 KEY_FILE_ENV 的值，两者皆空返回 DEFAULT_KEY_FILE。
 def key_file_path(path: str = None) -> str:
     return path or os.environ.get(KEY_FILE_ENV) or DEFAULT_KEY_FILE
 
 
+# 生效条件：key_file_path(path) 处可读出非空内容时返回该内容 bytes，否则生成 secrets.token_urlsafe(32) 密钥、经 save_key 落盘后返回该密钥。
 def load_key(path: str = None) -> bytes:
     p = key_file_path(path)
     if os.path.exists(p):
@@ -249,6 +261,7 @@ def load_key(path: str = None) -> bytes:
     return key
 
 
+# 生效条件：key 为 bytes 时原样写、否则 str(key).encode('utf-8')，写入 key_file_path(path) 同目录的临时文件后 os.replace 覆盖到该路径并返回它。
 def save_key(key: bytes, path: str = None) -> str:
     p = key_file_path(path)
     os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
@@ -272,6 +285,7 @@ def _default_policy() -> dict:
             "require_peer_signature": False, "on_verify_fail": "degrade"}
 
 
+# 生效条件：pol 中 'signer'/'sign_on'/'require_peer_signature'/'on_verify_fail' 键覆盖默认策略，sign_on 只保留属于 SIGN_ACTIONS 的项，on_verify_fail 不在 ON_VERIFY_FAIL 时回落 'degrade'。
 def _normalize(pol: dict) -> dict:
     out = _default_policy()
     out.update({k: pol[k] for k in ("signer", "sign_on",
@@ -287,10 +301,12 @@ def _normalize(pol: dict) -> dict:
     return out
 
 
+# 生效条件：显式 path 非空即返回该 path，否则返回环境变量 SIGNERS_FILE_ENV 的值，两者皆空返回 DEFAULT_SIGNERS_FILE。
 def signers_file(path: str = None) -> str:
     return path or os.environ.get(SIGNERS_FILE_ENV) or DEFAULT_SIGNERS_FILE
 
 
+# 生效条件：signers_file(path) 处可读出 dict 时补上缺省 schema/subsystems 后返回该 dict，否则返回 {'schema': SCHEMA, 'default_signer': DEFAULT_SIGNER, 'subsystems': {}, 'updated_at': None}。
 def load_policies(path: str = None) -> dict:
     p = signers_file(path)
     if os.path.exists(p):
