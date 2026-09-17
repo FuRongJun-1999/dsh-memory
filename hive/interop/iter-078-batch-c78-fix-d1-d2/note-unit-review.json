@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-078-batch-c78-fix-d1-d2",
+ "round": 4,
+ "candidate_commit": "48c4406",
+ "branch": "task/iter-078-batch-c78-fix-d1-d2",
+ "unit_job": "h1789670093681_e11069",
+ "verdict": "REJECT",
+ "package_n": 18,
+ "text": "复核发现 `sample` 条件与源码不符：`seed`（None→0）未传入 `_pool_candidates`，候选池仅由 `now/stale_days/unverified_days/max_reads` 构造；`seed` 实际用于后续 `_pick` 洗牌。其余条目基本一致。\nreason: sample 条件误称 seed 参与候选池构造，源码中 seed 仅用于 _pick。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
