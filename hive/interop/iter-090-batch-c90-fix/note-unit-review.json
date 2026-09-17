@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-090-batch-c90-fix",
+ "round": 2,
+ "candidate_commit": "f54dc80",
+ "branch": "task/iter-090-batch-c90-fix",
+ "unit_job": "h1789673829039_2a2ff4",
+ "verdict": "REJECT",
+ "package_n": 21,
+ "text": "复核发现 `TenantRegistry.all` 条件与源码不符：源码为 `dict(self.data[\"tenants\"])`，不仅要求含 `\"tenants\"` 键，还要求其值可转 dict；若值为 `None`/标量等会抛 `TypeError`/`ValueError`，并非只可能 `KeyError`。其余条目未见明显冲突，`_in_scope` 语义未在片段内故未展开。\nreason: `TenantRegistry.all` 将含 `tenants` 键视为充分条件，遗漏值须为 dict-like，源码可抛 TypeError/ValueError，故不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
