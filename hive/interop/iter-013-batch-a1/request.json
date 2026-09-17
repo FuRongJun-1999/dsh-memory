@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-013-batch-a1",
- "candidate_commit": "19f084780269",
+ "candidate_commit": "5b340d0",
  "branch": "task/iter-013-batch-a1",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -17,5 +17,12 @@
   "extract": "git archive --format=tar task/iter-013-batch-a1 | tar -xf - -C <tmp>",
   "run": "cd <tmp> && python -X utf8 scripts/run_tests.py --jobs 4"
  },
- "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
+ "unit_review": {
+  "verdict": "ACCEPT",
+  "round": 6,
+  "file": "note-unit-review.json",
+  "quote": "逐条对照源码，15 条均说明触发输入/状态，锚定必要形参、模块常量与早退分支；未发现与源码不符或源码不支持的断言"
+ },
+ "history_note": "本批经六轮单元复核（含两处我的流水线缺陷修正：注释插入位置偏移、v5 漏回填已修正文本）"
 }
