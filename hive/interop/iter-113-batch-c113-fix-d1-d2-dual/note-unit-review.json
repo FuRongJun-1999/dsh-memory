@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-113-batch-c113-fix-d1-d2-dual",
+ "round": 5,
+ "candidate_commit": "31be536",
+ "branch": "task/iter-113-batch-c113-fix-d1-d2-dual",
+ "unit_job": "h1789684849270_18a3d9",
+ "verdict": "REJECT",
+ "package_n": 2,
+ "text": "复核：条目1 rollback 的过滤、假值分支、冲突条件、回滚顺序与返回 rep 基本贴合源码。条目2 _cli 的分派、权限早退、token 校验、limit=None→100、返回 0 正确，但未锚定 `--action` 默认 `worklist`、`--batch` 默认模块常量 `CROSSCHECK_BATCH`、`--ids` 解析及其对 worklist/crosscheck 的传入，也未说明 rollback 分支不使用 entry_ids；功能级输入状态不完整。\nreason: 条目2遗漏关键默认值与模块常量，条件不完整。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
