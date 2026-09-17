@@ -100,6 +100,7 @@ CONDITION_MARK = "〔来源限定〕"
 
 # ---- 赛道与来源执照 ------------------------------------------------------
 
+# 生效条件：给定 fm，若显式 track/discipline_type 命中枚举则返回对应赛道；否则用相关元数据与正文 CCG 字段匹配提示词，返回 humanities/science/undetermined。
 def classify_track(fm: dict, content: str = "") -> str:
     """判定节点赛道：`humanities` / `science` / `undetermined`。
 
@@ -133,11 +134,13 @@ def classify_track(fm: dict, content: str = "") -> str:
     return "undetermined"
 
 
+# 生效条件：给定 track，返回 SOURCE_POLICY 中映射的策略名；未知 track 返回空串。
 def source_policy(track: str) -> str:
     """赛道 → 来源策略名（空串表示不可判定，应 DEFER）。"""
     return SOURCE_POLICY.get(track or "", "")
 
 
+# 生效条件：给定 track，若为 science 返回 REPRODUCIBLE_BASIS，若为 humanities 返回 CONSISTENCY_BASIS，否则返回 ()。
 def allowed_basis(track: str) -> tuple:
     if track == "science":
         return tuple(nodefile.REPRODUCIBLE_BASIS)
@@ -146,15 +149,18 @@ def allowed_basis(track: str) -> tuple:
     return ()
 
 
+# 生效条件：给定 track 与 basis，当 basis 非空且其字符串形式属于 allowed_basis(track) 时返回 True，否则 False。
 def basis_licensed(track: str, basis) -> bool:
     """来源执照：理科要可复现证据，文科要来源一致性；赛道未定一律不发放。"""
     return bool(basis) and str(basis) in allowed_basis(track)
 
 
+# 生效条件：给定 field，返回 FIELD_NORMALIZE 映射值；未知字段返回空串。
 def normalize_field(field) -> str:
     return FIELD_NORMALIZE.get(str(field or "").strip(), "")
 
 
+# 生效条件：给定 v，若为 None 返回 []；否则将单值或列表转为去除空白后非空字符串的列表。
 def _as_source(v) -> list:
     if v is None:
         return []
@@ -164,6 +170,7 @@ def _as_source(v) -> list:
 
 # ---- B 型识别与条件化改写 ------------------------------------------------
 
+# 生效条件：给定 text，若含 VALUATION_MARKERS 或匹配 VALUATION_PATTERNS 则返回 B_CLAIM，否则 A_CLAIM。
 def claim_type(text) -> str:
     """`A_fact`（事实性）或 `B_valuation`（评价性断言）。"""
     s = str(text or "")
@@ -176,10 +183,12 @@ def claim_type(text) -> str:
     return A_CLAIM
 
 
+# 生效条件：给定 text，返回其去除首尾空白后是否以 CONDITION_MARK 开头。
 def is_conditioned(text) -> bool:
     return str(text or "").strip().startswith(CONDITION_MARK)
 
 
+# 生效条件：给定 text、label、source，若 text 非空且 label 非空且 source 解析后非空，则返回带 CONDITION_MARK 的来源限定表述；已条件化原样返回；否则 None。
 def conditioned_claim(text, label, source):
     """把评价性断言改写为**带来源限定的条件表述**；缺来源/标签则返回 `None`（不写）。
 
@@ -198,6 +207,7 @@ def conditioned_claim(text, label, source):
     return f"{CONDITION_MARK}据{label}（{src}）的表述：{body}"
 
 
+# 生效条件：给定 fm 与 content，提取 CCG 声明字段、comment 值与正文长句，返回断言列表，每项含 text/type/where/field。
 def extract_claims(fm: dict, content: str) -> list:
     """提取可核对断言：CCG 声明字段 + comment 值 + 正文长句。
 
@@ -240,6 +250,7 @@ def extract_claims(fm: dict, content: str) -> list:
     return out
 
 
+# 生效条件：给定 fm、content、claim、new_text，按 claim.where 定位并在唯一匹配时替换断言返回 (content, True)，否则返回 (content, False)。
 def _rewrite_claim(fm: dict, content: str, claim: dict, new_text: str):
     """节点内定位并替换一条断言 → `(content, ok)`；定位不唯一则 fail-closed 不动。"""
     where, field = claim.get("where"), claim.get("field")
@@ -269,6 +280,7 @@ def _rewrite_claim(fm: dict, content: str, claim: dict, new_text: str):
 
 # ---- 工单 ----------------------------------------------------------------
 
+# 生效条件：给定 fm 与 content，返回缺失项列表：verification_basis 无效则加入该名，正文无 "# 验证方式" 行则加入该名。
 def _need(fm: dict, content: str) -> list:
     need = []
     if not nodefile.verification_basis_valid(fm):
@@ -278,6 +290,7 @@ def _need(fm: dict, content: str) -> list:
     return need
 
 
+# 生效条件：给定 nid、e、fm、content，返回含 id、layer、track、claims、need、source_policy 的工单行字典。
 def _worklist_row(nid: str, e: dict, fm: dict, content: str) -> dict:
     track = classify_track(fm, content)
     return {
@@ -290,6 +303,7 @@ def _worklist_row(nid: str, e: dict, fm: dict, content: str) -> dict:
     }
 
 
+# 生效条件：给定 fm 与 content，若正文或 comment 中声明的执行字段为占位文本则返回 True；未声明执行时以正文整体占位判定。
 def _is_placeholder_shell(fm: dict, content: str) -> bool:
     """空壳判定：核心可执行内容未被填充 → 禁止接线（不得把「待填充」固化成事实）。
 
@@ -305,6 +319,7 @@ def _is_placeholder_shell(fm: dict, content: str) -> bool:
     return nodefile.is_placeholder_text(content)
 
 
+# 生效条件：给定 cg，逐节点按 layer/ids/prefix 过滤后产出状态为 skip（internal/denied/locked/derived/present/placeholder/unreadable 等）或 row 的扫描结果。
 def _scan(cg, layer=None, ids=None, prefix=None):
     """逐节点产出扫描结果：`{"status", "reason"?, "id", "row"?}`。
 
@@ -355,6 +370,7 @@ _SKIP_KEY = {"locked": "skipped_locked", "derived": "skipped_derived",
              "unreadable": "skipped_unreadable", "internal": "skipped_internal"}
 
 
+# 生效条件：给定 x（路径或 MdCGOS），只读扫描并生成缺 verification_basis 或 "# 验证方式" 的节点工单，返回统计 rep。
 def build_worklist(x, layer=None, limit=None, ids=None, prefix=None) -> dict:
     """生成核对工单（只读）：缺 `verification_basis`/`验证方式` 的节点入列。
 
@@ -418,6 +434,7 @@ _VERIFY_TEMPLATE = """你是独立**验证单元**（verify）。对下列候选
 硬约束：你只能否决（drop）或存疑（defer），**不得新增候选、不得改写 value**。"""
 
 
+# 生效条件：给定 row、fm、content，用 row 的 track/source_policy/need/claims 与 fm 标题、content 前 1200 字符填充反思模板并返回字符串。
 def reflect_prompt(row: dict, fm: dict, content: str) -> str:
     claims = "\n".join(f"- [{c['type']}] {c['text']}" for c in (row.get("claims") or []))
     return _REFLECT_TEMPLATE.format(
@@ -428,6 +445,7 @@ def reflect_prompt(row: dict, fm: dict, content: str) -> str:
         body=(content or "")[:1200])
 
 
+# 生效条件：给定 row 与 rows，把候选字段、值、依据、来源序列化为 JSON 并填充验证模板返回字符串。
 def verify_prompt(row: dict, rows: list) -> str:
     cands = [{"field": r.get("field"), "value": r.get("value"),
               "basis": r.get("basis"), "source": r.get("source")} for r in rows]
@@ -458,6 +476,7 @@ def _extract_json(raw, want_list=True):
     return []
 
 
+# 生效条件：给定 item，若为 dict 则规范化 field/value/basis/source/verdict/reason 后返回字典，否则返回 {}。
 def _norm_row(item) -> dict:
     if not isinstance(item, dict):
         return {}
@@ -471,6 +490,7 @@ def _norm_row(item) -> dict:
     }
 
 
+# 生效条件：给定 raw，解析 JSON 行并保留 field 为“验证方式”或“verification_basis”（统一为“验证方式”）的行，返回列表。
 def parse_reflect_rows(raw) -> list:
     out = []
     for item in _extract_json(raw, want_list=True):
@@ -1055,4 +1075,3 @@ def _cli(argv=None) -> int:
 
 if __name__ == "__main__":                              # pragma: no cover
     sys.exit(_cli())
-
