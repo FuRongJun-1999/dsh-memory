@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-074-batch-c74",
+ "round": 1,
+ "candidate_commit": "52151ce",
+ "branch": "task/iter-074-batch-c74",
+ "unit_job": "h1789668690072_98587a",
+ "verdict": "ACCEPT",
+ "package_n": 22,
+ "text": "复核 22 条：均锚定形参、模块常量与早退/假值前置；None、空容器、返回形状、常量集合、条件空间清理、未使用警告等与源码一致。个别警告仅概括文本，未添加源码不支持断言；未发现注释位置违规。\nreason: 逐条与源码比对，未发现语义偏差或新增断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
