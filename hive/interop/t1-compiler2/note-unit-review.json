@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler2",
+ "round": 1,
+ "candidate_commit": "eea0994",
+ "branch": "task/t1-compiler2",
+ "unit_job": "h1789688199512_fb952c",
+ "verdict": "REJECT",
+ "package_n": 20,
+ "text": "复核：条目1过宽：strict 且 name_errors 非空时返回 `warnings=name_warnings`，并非 `warnings: []`。条目14对 BUILTIN_TRUST_VALUE 已存在但值为 None 时描述不准（源码仍取实参 trust）。其余条件基本与源码分派、早退、返回形状一致。\nreason: 条目1对错误返回的 warnings 断言与源码不符，故不能全盘接受。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
