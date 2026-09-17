@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-093-batch-c93",
+ "round": 1,
+ "candidate_commit": "632ca48",
+ "branch": "task/iter-093-batch-c93",
+ "unit_job": "h1789676796510_673780",
+ "verdict": "REJECT",
+ "package_n": 24,
+ "text": "复核：`build` 条与源码不符。源码 `for r in rows` 直接取 `r[\"id\"]`/`r[\"text\"]`，未筛选“含 id”条目；跳过依据 `have` 是构建开始快照，新增 id 不写回，并非实时 `cg.index[\"nodes\"]`。其余条目基本与 `src_segment` 一致，形参、常量、早退前置已锚定；`position_ok` 已满足。故仅 `build` 需修正。\n\nreason: `build` 条目新增了源码不存在的“仅含 id 条目”过滤，并误述幂等跳过依据为实时节点集。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
