@@ -88,6 +88,7 @@ class ProgramNode(ASTNode):
 
 
 @dataclass
+# 生效条件：传入 question 即成立，节点类型为 NodeType.WENYUE，self.question 与 self.value 均等于该 question。
 class WenyueNode(ASTNode):
     """问曰节点"""
     def __init__(self, question: str, line: int = 1, column: int = 1):
@@ -97,6 +98,7 @@ class WenyueNode(ASTNode):
 
 
 @dataclass
+# 生效条件：传入 answer 即成立，节点类型为 NodeType.DAYUE，self.answer 与 self.value 均等于该 answer。
 class DayueNode(ASTNode):
     """答曰节点"""
     def __init__(self, answer: str, line: int = 1, column: int = 1):
@@ -128,6 +130,7 @@ class StepNode(ASTNode):
 
 
 @dataclass
+# 生效条件：传入 condition 与 then_body 即成立，二者依次加为子节点；仅当 else_body 非 None 时 else_body 才被加为子节点。
 class ConditionStmtNode(ASTNode):
     """条件语句：若 [条件] 则 [操作] [否则 [操作]]（body 可为语句列表）"""
     def __init__(self, condition: ASTNode, then_body, else_body=None,
@@ -143,6 +146,7 @@ class ConditionStmtNode(ASTNode):
 
 
 @dataclass
+# 生效条件：传入 condition 与 body 即成立，节点类型为 NodeType.LOOP_STMT，condition 与 body 依次加为子节点。
 class LoopStmtNode(ASTNode):
     """循环语句：当 [条件] 执行 [操作]（while 语义，body 可为语句列表）"""
     def __init__(self, condition: ASTNode, body, line: int = 1, column: int = 1):
@@ -154,6 +158,7 @@ class LoopStmtNode(ASTNode):
 
 
 @dataclass
+# 生效条件：传入可迭代的 statements 即成立，节点类型为 NodeType.BLOCK，statements 中每个元素被 add_child 追加为子节点。
 class BlockNode(ASTNode):
     """语句块：多条顺序执行的语句（循环体/条件体多语句支持）"""
     def __init__(self, statements, line: int = 1, column: int = 1):
@@ -164,6 +169,7 @@ class BlockNode(ASTNode):
 
 
 @dataclass
+# 生效条件：传入 name、params 与 body 即成立，节点类型为 NodeType.FUNC_DEF，name 与 params 存为字段，body 被加为子节点。
 class FuncDefNode(ASTNode):
     """函数定义：定义 名（参数）：语句（body 可为语句列表）"""
     def __init__(self, name: str, params: List[str], body, line: int = 1, column: int = 1):
@@ -175,6 +181,7 @@ class FuncDefNode(ASTNode):
 
 
 @dataclass
+# 生效条件：value 为真值 ASTNode 时被加为子节点；value 为 None 时节点仍成立（类型 NodeType.RETURN_STMT）但不加子节点。
 class ReturnStmtNode(ASTNode):
     """返回语句：返回 [表达式]"""
     def __init__(self, value: Optional[ASTNode], line: int = 1, column: int = 1):
@@ -185,6 +192,7 @@ class ReturnStmtNode(ASTNode):
 
 
 @dataclass
+# 生效条件：传入 name 与 args 即成立，节点类型为 NodeType.CALL_EXPR，args 中每个元素被 add_child 追加为子节点。
 class CallExprNode(ASTNode):
     """函数调用：名（参数1，参数2）"""
     def __init__(self, name: str, args: List[ASTNode], line: int = 1, column: int = 1):
@@ -196,6 +204,7 @@ class CallExprNode(ASTNode):
 
 
 @dataclass
+# 生效条件：传入 instruction 即成立，节点类型为 NodeType.INSTRUCTION_STMT；operands 为 None 时按空列表处理，非 None 时每个操作数被加为子节点。
 class InstructionStmtNode(ASTNode):
     """指令语句：道德经助记符 + 操作数"""
     def __init__(self, instruction: TokenType, operands: List[ASTNode] = None,
@@ -208,6 +217,7 @@ class InstructionStmtNode(ASTNode):
 
 
 @dataclass
+# 生效条件：传入 target 与 value 即成立，节点类型为 NodeType.ASSIGN_STMT，target 存为字段，value 存于 value_node 并被加为子节点。
 class AssignStmtNode(ASTNode):
     """赋值语句：标识符 = 值"""
     def __init__(self, target: str, value: ASTNode, line: int = 1, column: int = 1):
@@ -218,6 +228,7 @@ class AssignStmtNode(ASTNode):
 
 
 @dataclass
+# 生效条件：传入 left、operator 与 right 即成立，节点类型为 NodeType.BINARY_EXPR，left 与 right 依次加为子节点。
 class BinaryExprNode(ASTNode):
     """二元表达式：左 操作符 右"""
     def __init__(self, left: ASTNode, operator: str, right: ASTNode,
@@ -231,6 +242,7 @@ class BinaryExprNode(ASTNode):
 
 
 @dataclass
+# 生效条件：传入 left、op 与 right 即成立，节点类型为 NodeType.COMPARISON，left 与 right 依次加为子节点。
 class ComparisonNode(ASTNode):
     """比较表达式"""
     def __init__(self, left: ASTNode, op: str, right: ASTNode,
@@ -244,6 +256,7 @@ class ComparisonNode(ASTNode):
 
 
 @dataclass
+# 生效条件：传入 name 即成立，节点类型为 NodeType.IDENTIFIER，self.name 与 self.value 均等于该 name。
 class IdentifierNode(ASTNode):
     """标识符"""
     def __init__(self, name: str, line: int = 1, column: int = 1):
@@ -253,6 +266,7 @@ class IdentifierNode(ASTNode):
 
 
 @dataclass
+# 生效条件：传入 value 与 literal_type 即成立，节点类型为 NodeType.LITERAL，literal_value 与 value 均等于该 value，literal_type 原样保存。
 class LiteralNode(ASTNode):
     """字面量"""
     def __init__(self, value: Union[str, float, int], literal_type: str,
@@ -267,6 +281,7 @@ class LiteralNode(ASTNode):
 # 语法分析器
 # =============================================================================
 
+# 生效条件：传入 tokens 即成立，current_token 取 tokens[0]（tokens 为空时为 None）；errors 为 None 时以空列表作为 self.errors。
 class Parser:
     """
     语法分析器 v2.0
@@ -1015,12 +1030,14 @@ class Parser:
 # 便捷函数
 # =============================================================================
 
+# 生效条件：传入 tokens 且 errors 为 None 或列表时，返回 Parser(tokens, errors or []).parse() 得到的 ProgramNode。
 def parse_tokens(tokens: List[Token], errors: List[str] = None) -> ProgramNode:
     """便捷函数：将 Token 列表解析为 AST"""
     parser = Parser(tokens, errors or [])
     return parser.parse()
 
 
+# 生效条件：传入 source 字符串时，tokenize(source) 产出 tokens 与 lex_errors，再返回 (parse_tokens(tokens, []) 的 AST, lex_errors, 该 AST 的 errors 属性或 [])。
 def parse_source(source: str) -> tuple:
     """便捷函数：从源代码直接解析为 AST"""
     from .lexer import tokenize
