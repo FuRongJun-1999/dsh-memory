@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-085-batch-c85-fix-d1-dual",
+ "round": 5,
+ "candidate_commit": "96d2a97",
+ "branch": "task/iter-085-batch-c85-fix-d1-dual",
+ "unit_job": "h1789673210363_89031e",
+ "verdict": "REJECT",
+ "package_n": 3,
+ "text": "复核：\n1 build_packages 基本符；sources 回落、generate、bundle、assemble、zip 配对与返回形状正确，仅调用写法简略。\n2 verifier_principal 不符：actor 有默认且总会取 TK.role_spec 构造，非“给出时”才生效；且漏 clearance_cap 回落 \"internal\"、can_write/can_admin 布尔化、role/unit/auth_mode。\n3 main 不符：argv=None 也会解析 sys.argv，非“给出时”；其余 root 早退、切片、dry_run、返回码正确。\n\nreason: 条件把默认参数误述为显式给出才生效，与源码语义不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
