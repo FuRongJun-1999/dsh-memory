@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-103-batch-c103-dual",
+ "round": 5,
+ "candidate_commit": "e8aced3",
+ "branch": "task/iter-103-batch-c103-dual",
+ "unit_job": "h1789680696828_a51843",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "条件完整对应源码分支顺序：`entry or {}`、`layer` 去假转 `str` 查 `NEG_LAYERS`，再 `node_id` 去假转 `str` 查 `INDEX_PREFIXES`，再 `tags` 假值按 `[]`、转小写后匹配四项，最后返回 `POOL_KNOWLEDGE`。已锚定形参、模块常量与早退前置，未见 None/假值语义、返回形状或分支参数使用错误，也未补充源码不支持断言；`position_ok=true`。\nreason: 条件与源码实际分支、假值处理和常量锚点一致，未发现不符或越权断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
