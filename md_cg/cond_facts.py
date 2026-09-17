@@ -14,6 +14,7 @@ import ast
 import os
 
 
+# 生效条件：src_lines 与 node 能让 ast.get_source_segment(chr(10).join(src_lines), node) 成功取到片段时返回该源码段，取段为空或抛异常时返回 ""。
 def _src_seg(src_lines, node):
     try:
         return ast.get_source_segment(chr(10).join(src_lines), node) or ""
@@ -21,6 +22,7 @@ def _src_seg(src_lines, node):
         return ""
 
 
+# 生效条件：fn 为函数定义节点时，按其 defaults 与 kw_defaults 切分，返回 (排除 self/cls 的必需形参名列表, 含 name 与 default 源码的可选形参列表)。
 def _defaults(fn, src_lines):
     """必需的形参名 + 可选形参 (名, 默认值源码)。"""
     args = list(getattr(fn.args, "posonlyargs", [])) + list(fn.args.args)
@@ -40,6 +42,7 @@ def _defaults(fn, src_lines):
     return required, optional
 
 
+# 生效条件：fn 具 body 时，扫描其前 6 条语句中的 If/Assert/Raise 并收集条件源码；If 仅在第 0 条且子树含 Return/Raise 时 early 为 True，Assert 与 Raise 的 early 为 True。
 def _guards(fn):
     """前置守卫：函数体前若干语句中的 if/assert/raise（条件源码），代表显式前置契约。"""
     out = []
@@ -58,6 +61,7 @@ def _guards(fn):
     return out
 
 
+# 生效条件：node 能被 ast.unparse 成功解析时返回其源码前 80 字符，抛异常时返回 ""。
 def _unparse(node):
     try:
         return ast.unparse(node)[:80]
@@ -66,6 +70,7 @@ def _unparse(node):
         return ""
 
 
+# 生效条件：fn 为函数定义节点时，返回其体内 value 非空的 Return 表达式源码去重后的前 3 项列表 out。
 def _returns(fn):
     out = []
     for node in ast.walk(fn):
@@ -78,6 +83,7 @@ def _returns(fn):
     return out
 
 
+# 生效条件：fn 为函数定义节点时，返回其体内 ast.Name 引用名剔除 fn 的形参名、Store/Del 本地名及嵌套函数/异步函数定义名后取前 12 项的名字列表。
 def _externals(fn):
     """体内引用的外部名（剔除形参与本地赋值）——即状态/常量来源。"""
     params = set()
@@ -101,11 +107,13 @@ def _externals(fn):
     return names[:12]
 
 
+# 生效条件：node 具非空 docstring 时返回其去空白首行的前 100 字符，无 docstring 时返回 ""。
 def _doc(node):
     d = ast.get_docstring(node) or ""
     return d.strip().split(chr(10))[0][:100]
 
 
+# 生效条件：path 指向的内容可按 utf-8 读取且 ast.parse 成功时，返回其中每个 FunctionDef/AsyncFunctionDef/ClassDef 节点的事实列表 out。
 def file_facts(path):
     text = open(path, encoding="utf-8", errors="replace").read()
     src_lines = text.split(chr(10))

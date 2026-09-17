@@ -18,6 +18,7 @@ META_MARKS = ("索引元条件", "源文件存在", "全时窗", "本地仓", "�
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
+# 生效条件：tree 为可被 ast.walk 遍历的 AST 时，返回其中首个 FunctionDef/AsyncFunctionDef 节点，无函数而含 ClassDef 时返回该类体的 __init__ 或类自身，否则返回 None。
 def _first_def(tree):
     """取片段里第一个函数定义（含 async）；只有类时退其 __init__，再退类本身。"""
     for node in ast.walk(tree):
@@ -32,6 +33,7 @@ def _first_def(tree):
     return None
 
 
+# 生效条件：fn 为含 args 的函数定义节点时按 defaults 长度切分，返回 (无默认值且排除 self/cls 的形参名, 有默认值的形参名)；fn 为 ClassDef 时返回 ([], [])。
 def signature(fn):
     """返回 (required, optional)：required=无默认值的形参（跳过 self/cls），optional=有默认值者。"""
     if isinstance(fn, ast.ClassDef):
@@ -48,6 +50,7 @@ def signature(fn):
     return required, optional
 
 
+# 生效条件：fn 为函数定义节点时，返回其体内 Load 名字集合剔除 fn 的形参名、Store/Del 本地名及嵌套函数/异步函数定义名后的差集。
 def referenced(fn):
     """函数体内引用的名字（剔除形参与本地赋值目标）——代表来自模块/外部的状态与常量。"""
     params = {a.arg for a in list(getattr(fn.args, "posonlyargs", [])) + list(fn.args.args)}
@@ -75,6 +78,7 @@ def referenced(fn):
     return names - params - local
 
 
+# 生效条件：cond 与 src 给定后：若 str(cond) 含 META_MARKS 则返回 REJECT_META；否则解析 src，取 _first_def、signature、referenced，并按 cond 中标识符是否命中 required 或 referenced 得出 ANCHORED（ok=True）、无 required/refs 时 BLINDSPOT、否则 WEAK；prefix/suffix 仅回显不参与判定。
 def judge(cond, src, prefix="", suffix=""):
     """判定单条候选条件。返回 dict：verdict/ok/anchors/required/optional/referenced/meta_marks。
 
@@ -116,6 +120,7 @@ def judge(cond, src, prefix="", suffix=""):
     return out
 
 
+# 生效条件：pairs 为可逐项解包出 (id, cond, src) 的序列时，对每条调用 judge 并回填 id，返回 {'rows': rows, 'stats': 各 verdict 计数, 'ok': rows 中 ok 为真者个数}。
 def judge_batch(pairs):
     """批量入口：pairs=[(id, cond, src), ...] → 汇总统计（供环二流水线调用）。"""
     rows = []
