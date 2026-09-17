@@ -1,0 +1,253 @@
+{
+ "kind": "ring2-proposal-batch",
+ "iter_id": "iter-008-ring2-pilot",
+ "face": "候选面（不进入判据面；未改任何源码文件；未触发重索引）",
+ "batch": {
+  "n": 10,
+  "scope": "md_cg 本体",
+  "seed": "pilot-v2",
+  "skip_dirs": [
+   "whitebox_kb"
+  ],
+  "generator": "hive LLM 单次调用（deepseek-flash）",
+  "self_check": "机械自检：禁词表 + 参数锚点（弱判据，只拦元条件话术与完全无锚点者）"
+ },
+ "self_check_result": {
+  "pass": 10,
+  "blindspot": 0,
+  "reject": 0,
+  "honest_note": "机械自检不能判定语义正确性；语义抽查留给编外验证端"
+ },
+ "cost": {
+  "prompt_tokens": 3293,
+  "completion_tokens": 7467,
+  "reasoning_tokens": 6834,
+  "total_tokens": 10760,
+  "elapsed_s": 38.7
+ },
+ "items": [
+  {
+   "id": "code_a14f5e1f6e0b",
+   "code_ref": {
+    "path": "audit.py",
+    "name": "_rule_check",
+    "lineno": 73,
+    "end": 94
+   },
+   "proposed_when": "text 为 str，rules 为支持 get 的映射，rules 的 forbidden/required 为 None 或由 str 正则模式构成的可迭代对象（非法模式会跳过，空规则返回 DEFER）。",
+   "self_check": {
+    "forbidden_words": [],
+    "param_anchors": [
+     "DEFER",
+     "forbidden",
+     "get",
+     "required",
+     "rules",
+     "text"
+    ],
+    "blindspot": false,
+    "pass": true
+   }
+  },
+  {
+   "id": "code_099dfdcaad02",
+   "code_ref": {
+    "path": "autonomy.py",
+    "name": "_explore_log_path",
+    "lineno": 47,
+    "end": 48
+   },
+   "proposed_when": "cg 的 root 属性缺省或为 str/PathLike，EXPLORE_LOG 为 str/PathLike。",
+   "self_check": {
+    "forbidden_words": [],
+    "param_anchors": [
+     "EXPLORE_LOG",
+     "root"
+    ],
+    "blindspot": false,
+    "pass": true
+   }
+  },
+  {
+   "id": "code_ccafa2d625d7",
+   "code_ref": {
+    "path": "backfill.py",
+    "name": "_cap_text",
+    "lineno": 570,
+    "end": 578
+   },
+   "proposed_when": "e 与 fm 为支持 get 的映射，content 为 str，_as_text/_ccg_field/_cap_body 对相应输入不抛异常并返回可拼接文本。",
+   "self_check": {
+    "forbidden_words": [],
+    "param_anchors": [
+     "_as_text",
+     "_cap_body",
+     "_ccg_field",
+     "content",
+     "get",
+     "str"
+    ],
+    "blindspot": false,
+    "pass": true
+   }
+  },
+  {
+   "id": "code_5675d3a5012f",
+   "code_ref": {
+    "path": "branches.py",
+    "name": "rewrite",
+    "lineno": 123,
+    "end": 167
+   },
+   "proposed_when": "cg 支持 index[\"nodes\"] 与 get/_fm_of，node_id 为含 @ 的字符串且对应索引节点存在并有非空 branch_id，content 为 str，tags/importance 为 None 或可覆盖值，extra 不含保留键或允许被静默剥离。",
+   "self_check": {
+    "forbidden_words": [],
+    "param_anchors": [
+     "None",
+     "_fm_of",
+     "branch_id",
+     "content",
+     "extra",
+     "get"
+    ],
+    "blindspot": false,
+    "pass": true
+   }
+  },
+  {
+   "id": "code_5e7e7df860cd",
+   "code_ref": {
+    "path": "ccgc.py",
+    "name": "has_errors",
+    "lineno": 94,
+    "end": 95
+   },
+   "proposed_when": "self 具有 errors 属性且 self.errors 为支持 len() 的容器。",
+   "self_check": {
+    "forbidden_words": [],
+    "param_anchors": [
+     "errors",
+     "len",
+     "self"
+    ],
+    "blindspot": false,
+    "pass": true
+   }
+  },
+  {
+   "id": "code_c45ca6d65c1b",
+   "code_ref": {
+    "path": "census.py",
+    "name": "load",
+    "lineno": 34,
+    "end": 62
+   },
+   "proposed_when": "root 为 os.walk 可接受的路径，ARCHIVE_DIRS 为字符串集合，待读 .md 文件可读且为 UTF-8，nodefile.loads 对内容返回 (fm, content) 且 fm 为假值或支持 get 的映射。",
+   "self_check": {
+    "forbidden_words": [],
+    "param_anchors": [
+     "ARCHIVE_DIRS",
+     "content",
+     "get",
+     "loads",
+     "nodefile",
+     "root"
+    ],
+    "blindspot": false,
+    "pass": true
+   }
+  },
+  {
+   "id": "code_1216be26a6ea",
+   "code_ref": {
+    "path": "chain.py",
+    "name": "backlinks",
+    "lineno": 224,
+    "end": 290
+   },
+   "proposed_when": "cg.index[\"nodes\"] 为映射且 node_id 为其中键，visible(cg, nodes[node_id]) 为真，relation_types 为 None 或字符串/字符串可迭代，include_hierarchy 为 bool，limit/session/branch 为 None 或既有 search 口径可处理值。",
+   "self_check": {
+    "forbidden_words": [],
+    "param_anchors": [
+     "None",
+     "branch",
+     "include_hierarchy",
+     "index",
+     "limit",
+     "node_id"
+    ],
+    "blindspot": false,
+    "pass": true
+   }
+  },
+  {
+   "id": "code_224c9874cb7a",
+   "code_ref": {
+    "path": "codeindex.py",
+    "name": "index_dir",
+    "lineno": 396,
+    "end": 491
+   },
+   "proposed_when": "root 为可遍历路径，patterns 为 None 或后缀字符串可迭代，max_files/max_items 为正整数，fresh/on_file 为 None 或对应签名可调用，skip_dirs 为 None 或 skip_matcher 可接受规则，SUFFIX 已定义为后缀可迭代。",
+   "self_check": {
+    "forbidden_words": [],
+    "param_anchors": [
+     "None",
+     "SUFFIX",
+     "fresh",
+     "max_files",
+     "max_items",
+     "on_file"
+    ],
+    "blindspot": false,
+    "pass": true
+   }
+  },
+  {
+   "id": "code_0963307b3bb5",
+   "code_ref": {
+    "path": "comment_gate.py",
+    "name": "candidates",
+    "lineno": 104,
+    "end": 113
+   },
+   "proposed_when": "cg 支持 is_candidate 与 refine._pool，PREFIX 为字符串，ids 为 None 或可迭代且元素可 str 并可作为节点 id 传给 is_candidate。",
+   "self_check": {
+    "forbidden_words": [],
+    "param_anchors": [
+     "None",
+     "PREFIX",
+     "_pool",
+     "ids",
+     "is_candidate",
+     "refine"
+    ],
+    "blindspot": false,
+    "pass": true
+   }
+  },
+  {
+   "id": "code_a9eec5c1da55",
+   "code_ref": {
+    "path": "conformance.py",
+    "name": "_path_metrics",
+    "lineno": 213,
+    "end": 233
+   },
+   "proposed_when": "root 为路径字符串，nodes 为支持 values 的映射且每个值为支持 get 的映射，check_exists 为 bool，LAYER_DIRS 为字符串集合。",
+   "self_check": {
+    "forbidden_words": [],
+    "param_anchors": [
+     "LAYER_DIRS",
+     "bool",
+     "check_exists",
+     "get",
+     "nodes",
+     "root"
+    ],
+    "blindspot": false,
+    "pass": true
+   }
+  }
+ ]
+}

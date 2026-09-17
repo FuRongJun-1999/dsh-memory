@@ -1,0 +1,27 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "verify-a337fd6",
+ "commit": "a337fd6",
+ "ref": "main（主体仓 tip）",
+ "verdict": "PASS",
+ "receipt_job": "h1789640254664_5104",
+ "received_ts": 1789640254664,
+ "channel": "共享蜂巢作业目录（编外侧以 cmd spec + status 对形态回执）",
+ "replay_literal": [
+  "test_codeindex = PASS 42 / FAIL 0 / SKIP 0",
+  "cogmap_sync check = 通过"
+ ],
+ "extra_shell_env_without_brain_root": {
+  "test_p26_refindex": "通过 59 / 失败 0",
+  "test_p27_docindex": "通过 78 / 失败 0",
+  "verifier_selftest": "5/5 通过",
+  "run_tests_md_cg": "SUMMARY 85/85 通过，3 跳过"
+ },
+ "counting_note": {
+  "observation": "编外侧 test_codeindex 计 42 条，主体侧工作树计 47 条",
+  "root_cause": "仓库版本差异，非跑法差异：main 面 test_codeindex.py 为较早修订（12323 字节），主体侧新增 25 行（5 条断言）尚未入库",
+  "evidence": "git diff --stat md_cg/test_codeindex.py => +25 行（修改在 HEAD=main 之上，位于候选分支）"
+ },
+ "my_action": "归档并入库；main 面（Phase 0 载体对齐）已获编外独立重放一致",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

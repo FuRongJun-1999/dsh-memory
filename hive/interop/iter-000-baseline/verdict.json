@@ -1,0 +1,29 @@
+{
+ "iter_id": "iter-000-baseline",
+ "type": "baseline_frozen_criteria",
+ "verifier_instance": "verifier",
+ "verifier_note": "ZCode 端专职验证实例（身份固化不轮换，裁定 2026-09-17）",
+ "subject_instance": "main (DSH 端)",
+ "base_commit": "38b731ff6c74e6f68ce1c13482cbc8d9c7939200",
+ "worktree": "<verifier-instance-worktree>（脱敏：本机绝对路径不入库）",
+ "frozen_at": "2026-09-17T15:41:26+08:00",
+ "criteria_suite": {
+  "runner": "scripts/run_tests.py",
+  "result": "113/113 PASS, 3 SKIP",
+  "note": "全量五组（md_cg/compiler/swarm/scripts/hive），工作树纯 HEAD 无在途改动"
+ },
+ "fingerprint": {
+  "algorithm": "sha256(test_*.py + run_tests.py)",
+  "files": 95,
+  "value": "8e03d715210b4325",
+  "note": "指纹机制待互验基础设施 §10 步骤1-2 实现后升级为 serve 心跳自报"
+ },
+ "role_binding": {
+  "primary": "DSH 端（候选：执行计划 todos）",
+  "verifier": "ZCode 端（冻结判据/verdict/不参与修改）"
+ },
+ "constraints": [
+  "q-0/q-1/q-2 未裁决不进 Phase 2",
+  "A3: verifier_fingerprint 不得在本轮迭代中途变化"
+ ]
+}
