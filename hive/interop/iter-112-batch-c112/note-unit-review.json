@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-112-batch-c112",
+ "round": 1,
+ "candidate_commit": "ea4f108",
+ "branch": "task/iter-112-batch-c112",
+ "unit_job": "h1789683447722_da39d6",
+ "verdict": "REJECT",
+ "package_n": 18,
+ "text": "复核：多数条目与源码一致。唯一实质不符在 `_apply_node`：源码先以初始 `basis` 计算 `value` 并写「验证方式」/comment，之后才在 `verification_basis_valid(fm)` 为真时把 `basis` 改为 fm 合法值。候选条件把“改用 fm 值”提前到 value 计算前，导致 `BASIS_TEXT[basis]` 可能指向错误 basis；该顺序断言源码不支持。\nreason: `_apply_node` 的 basis 覆盖与 value 计算顺序被写反，条件与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
