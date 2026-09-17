@@ -1,0 +1,15 @@
+{
+ "kind": "recalibration-acceptance",
+ "iter_id": "iter-combined-backlog-d2",
+ "verified_commit": "6714268",
+ "verdict": "PASS",
+ "merge_commit": "2816f55ed0dd",
+ "checks": [
+  "diff(merge, branch) -- md_cg 空",
+  "criteria_fingerprint 保持",
+  "main 注释计数 + 全组回归"
+ ],
+ "merged_marks": 527,
+ "merged_files": 45,
+ "paths_policy": "脱敏"
+}
