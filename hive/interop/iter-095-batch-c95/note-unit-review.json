@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-095-batch-c95",
+ "round": 1,
+ "candidate_commit": "64b210c",
+ "branch": "task/iter-095-batch-c95",
+ "unit_job": "h1789677634911_33792a",
+ "verdict": "REJECT",
+ "package_n": 24,
+ "text": "reason: 多数条件与源码一致，但 metrics_of/render 漏列必需输入 rep[\"nodes\"]，_reach_metrics 漏 ids 可为 tuple，report_summary 成功分支漏返回 verdict 键，输入/返回形状未完整锚定。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
