@@ -1,0 +1,15 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-011-facts-llm",
+ "commit": "8ea5837",
+ "verdict": "PASS",
+ "receipt_job": "h1789646255101_1a38",
+ "receipt_sha16": "f7fc8fbb099ecb98",
+ "received_ts": 1789646255,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-011-facts-llm commit=8ea5837 verdict=PASS | 机器重放两步（逐字）：test_condition_anchor=PASS 13 / FAIL 0；test_codeindex=PASS 47 / FAIL 0 / SKIP 0。另（验证端语义审读）：A2 逐条审读 13 条生效条件——每条均以输入约束开头回答「何种输入/状态下正确」（如 fn 为函数定义节点/tree 可被 ast.walk 遍历/path 可 utf-8 读取且 ast.parse 成功）；细节全部可溯源（defaults 长度切分/前 6 条语句/前 3 项/前 12 项均与源码一致）；iter-010 三类缺陷（凭空断言/返回当前置/局部变量污染）均未再现。A3 无副作用确认：仅加注释，行为面全绿",
+ "commands_sanitized": "[{\"label\": \"test_condition_anchor\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_condition_anchor\"]}, {\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}]",
+ "related_note": "",
+ "note": "由 ingest_receipts.py v2 生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
