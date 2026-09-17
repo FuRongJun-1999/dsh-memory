@@ -78,10 +78,12 @@ class LockedError(CryptoError):
 
 # ---- ChaCha20（RFC 8439 §2.3）--------------------------------------------
 
+# 生效条件：x、n 为入参，返回 ((x << n) & 0xFFFFFFFF) | (x >> (32 - n))；源码未校验 x、n 类型或范围。
 def _rotl32(x, n):
     return ((x << n) & 0xFFFFFFFF) | (x >> (32 - n))
 
 
+# 生效条件：s、a、b、c、d 为入参，依次读写 s[a]、s[b]、s[c]、s[d] 并按源码顺序做加法、异或、_rotl32 更新；源码未校验 s 元素类型或索引范围。
 def _quarter_round(s, a, b, c, d):
     s[a] = (s[a] + s[b]) & 0xFFFFFFFF
     s[d] = _rotl32(s[d] ^ s[a], 16)
@@ -93,6 +95,7 @@ def _quarter_round(s, a, b, c, d):
     s[b] = _rotl32(s[b] ^ s[c], 7)
 
 
+# 生效条件：key、counter、nonce 为入参，按 const + key 解包 + counter 低 32 位 + nonce 解包构造 state，执行 10 次双轮后返回 16 个 32 位小端打包的 64 字节块。
 def _chacha_block(key, counter, nonce):
     """生成 64 字节密钥流块。"""
     const = b"expand 32-byte k"
@@ -113,6 +116,7 @@ def _chacha_block(key, counter, nonce):
     return struct.pack("<16I", *[(w[i] + st[i]) & 0xFFFFFFFF for i in range(16)])
 
 
+# 生效条件：key、counter、nonce、data 为入参，对 data 从 0 到 len(data) 步长 64 分块，每块用 _chacha_block(key, counter + i//64, nonce) 生成密钥流并逐字节异或，返回等长 bytes；data 为空时返回 b""。
 def _chacha20_xor(key, counter, nonce, data):
     out = bytearray(len(data))
     for i in range(0, len(data), 64):
@@ -124,6 +128,7 @@ def _chacha20_xor(key, counter, nonce, data):
 
 # ---- Poly1305（RFC 8439 §2.5）-------------------------------------------
 
+# 生效条件：key、msg 为入参，取 key[:16] 掩码得 r、key[16:] 得 s，msg 按 16 字节分块加 b"\x01" 累加，返回 (acc + s) 低 128 位的 16 字节小端；源码未校验 key 长度或 msg 类型。
 def _poly1305(key, msg):
     r = int.from_bytes(key[:16], "little") & 0x0FFFFFFC0FFFFFFC0FFFFFFC0FFFFFFF
     s = int.from_bytes(key[16:], "little")
@@ -135,10 +140,12 @@ def _poly1305(key, msg):
     return ((acc + s) & ((1 << 128) - 1)).to_bytes(16, "little")
 
 
+# 生效条件：b 为入参，返回 b"\x00" * ((16 - len(b) % 16) % 16)；b 长度为 16 的倍数（含空）时返回 b""。
 def _pad16(b):
     return b"\x00" * ((16 - len(b) % 16) % 16)
 
 
+# 生效条件：otk、aad、ct 为入参，返回 _poly1305(otk, aad + _pad16(aad) + ct + _pad16(ct) + struct.pack("<Q", len(aad)) + struct.pack("<Q", len(ct))) 的结果。
 def _aead_mac(otk, aad, ct):
     return _poly1305(otk, aad + _pad16(aad) + ct + _pad16(ct)
                      + struct.pack("<Q", len(aad)) + struct.pack("<Q", len(ct)))
@@ -146,6 +153,7 @@ def _aead_mac(otk, aad, ct):
 
 # ---- AEAD：ChaCha20-Poly1305（RFC 8439 §2.8）-----------------------------
 
+# 生效条件：key、nonce、plaintext、aad=b"" 为入参；len(key) != KEY_LEN 或 len(nonce) != NONCE_LEN 时抛 CryptoError；否则以 _chacha_block(key,0,nonce)[:32] 为 otk、_chacha20_xor(key,1,nonce,plaintext) 为 ct，返回 (ct, _aead_mac(otk, aad, ct))。
 def aead_encrypt(key, nonce, plaintext, aad=b""):
     """返回 (ciphertext, tag)。key=32B / nonce=12B。"""
     if len(key) != KEY_LEN:
@@ -157,6 +165,7 @@ def aead_encrypt(key, nonce, plaintext, aad=b""):
     return ct, _aead_mac(otk, aad, ct)
 
 
+# 生效条件：key、nonce、ct、tag、aad=b"" 为入参；len(key) != KEY_LEN 或 len(nonce) != NONCE_LEN 时抛 CryptoError；否则算 otk，若 hmac.compare_digest(_aead_mac(otk,aad,ct), tag) 为假抛 CryptoError，为真返回 _chacha20_xor(key,1,nonce,ct)。
 def aead_decrypt(key, nonce, ct, tag, aad=b""):
     """验签后解密；失败抛 CryptoError（不返回任何明文）。"""
     if len(key) != KEY_LEN:
@@ -171,20 +180,24 @@ def aead_decrypt(key, nonce, ct, tag, aad=b""):
 
 # ---- KDF / 主密钥（KEK）--------------------------------------------------
 
+# 生效条件：b 为入参，返回 base64.b64encode(b).decode("ascii") 得到的字符串。
 def _b64e(b):
     return base64.b64encode(b).decode("ascii")
 
 
+# 生效条件：s 为入参，返回 base64.b64decode(str(s).encode("ascii")) 的结果；默认 validate=False，非字母字符被丢弃，可能返回空字节或部分数据，源码未校验 s 合法性。
 def _b64d(s):
     return base64.b64decode(str(s).encode("ascii"))
 
 
+# 生效条件：passphrase、salt 为入参，将 str(passphrase).encode("utf-8") 作为口令、salt 作为盐，按 SCRYPT_N、SCRYPT_R、SCRYPT_P、SCRYPT_DKLEN 调 hashlib.scrypt 返回 KEK。
 def scrypt_kek(passphrase, salt):
     """口令 → KEK（scrypt）。用于「人类口令」场景，避免直接存放原始密钥。"""
     return hashlib.scrypt(str(passphrase).encode("utf-8"), salt=salt,
                           n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, dklen=SCRYPT_DKLEN)
 
 
+# 生效条件：master_file=None、env_var=MASTER_ENV、create=True 为可选入参；从 os.environ.get(env_var) 读取并 strip，若 raw 非空则长度 64 走 bytes.fromhex、否则 _b64d，解码失败抛 CryptoError；否则 path = master_file or MASTER_FILE，若 os.path.exists(path) 为真则读取并 _b64d；若 create 为假返回 None；否则生成 KEY_LEN 随机密钥写入 path 并返回 key。
 def load_master_key(master_file=None, env_var=MASTER_ENV, create=True):
     """KEK 来源：环境变量 → 主密钥文件（可选自动生成）；都没有返回 None。"""
     raw = (os.environ.get(env_var) or "").strip()
@@ -210,22 +223,26 @@ def load_master_key(master_file=None, env_var=MASTER_ENV, create=True):
     return key
 
 
+# 生效条件：kek 为入参，返回 hashlib.sha256(b"mdcg-kek|" + kek).hexdigest()[:16]；源码未校验 kek 类型。
 def kek_fingerprint(kek):
     return hashlib.sha256(b"mdcg-kek|" + kek).hexdigest()[:16]
 
 
 # ---- 身份一致性（AAD 绑定）----------------------------------------------
 
+# 生效条件：tenant、actor 为入参，返回 hashlib.sha256(f"mdcg-id|v{ENVELOPE_VERSION}|{tenant}|{actor}".encode("utf-8")).hexdigest()[:16]；ENVELOPE_VERSION 为模块级常量。
 def identity_fingerprint(tenant, actor):
     """身份指纹：tenant + actor 的确定性摘要（不泄露原文）。"""
     raw = f"mdcg-id|v{ENVELOPE_VERSION}|{tenant}|{actor}".encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:16]
 
 
+# 生效条件：tenant、actor 为入参，返回 f"mdcg-dek|v{ENVELOPE_VERSION}|{tenant}|{actor}".encode("utf-8")。
 def _dek_aad(tenant, actor):
     return f"mdcg-dek|v{ENVELOPE_VERSION}|{tenant}|{actor}".encode("utf-8")
 
 
+# 生效条件：node_id、tenant、actor 为入参，返回 f"mdcg-node|v{ENVELOPE_VERSION}|{tenant}|{actor}|{node_id}".encode("utf-8")。
 def _node_aad(node_id, tenant, actor):
     return (f"mdcg-node|v{ENVELOPE_VERSION}|{tenant}|{actor}|{node_id}"
             .encode("utf-8"))
@@ -233,10 +250,12 @@ def _node_aad(node_id, tenant, actor):
 
 # ---- 密钥库（DEK 信封）---------------------------------------------------
 
+# 生效条件：root 为入参，返回 os.path.join(root, KEYS_FILE)；KEYS_FILE 为模块级常量。
 def keys_path(root):
     return os.path.join(root, KEYS_FILE)
 
 
+# 生效条件：root 为入参；若 os.path.exists(keys_path(root)) 为假，返回 {"v": ENVELOPE_VERSION, "alg": ALG, "envelopes": {}}；否则尝试 json.load，若结果为 dict 且其 "envelopes" 为 dict 则返回该 dict；若 json 解析 ValueError 或 OSError 则返回同样的空结构。
 def _load_keys(root):
     p = keys_path(root)
     if not os.path.exists(p):
@@ -251,16 +270,19 @@ def _load_keys(root):
     return {"v": ENVELOPE_VERSION, "alg": ALG, "envelopes": {}}
 
 
+# 生效条件：root、data 为入参，将 data 经 json.dumps(data, ensure_ascii=False, indent=1) 后由 atomic_write 写入 keys_path(root)。
 def _save_keys(root, data):
     from .fsutil import atomic_write
     atomic_write(keys_path(root),
                  json.dumps(data, ensure_ascii=False, indent=1))
 
 
+# 生效条件：tenant、actor 为入参，返回 f"{tenant}|{actor}"。
 def _envelope_key(tenant, actor):
     return f"{tenant}|{actor}"
 
 
+# 生效条件：root、kek、tenant、actor、clearance="private"、rotate=False 为入参；若 kek 为假抛 LockedError；否则加载 keys，若 _envelope_key(tenant, actor) 已在 envelopes 中且 rotate 为假则返回 unwrap_dek(root, kek, tenant, actor, clearance)；否则生成新 DEK 与 nonce，用 aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor)) 包裹后写入 envelopes[k] 并保存，返回 dek。
 def provision_dek(root, kek, tenant, actor, clearance="private", rotate=False):
     """为 (tenant, actor) 生成 / 取回 DEK，用 KEK 包裹后存入 `_keys.json`。
 
@@ -288,6 +310,7 @@ def provision_dek(root, kek, tenant, actor, clearance="private", rotate=False):
     return dek
 
 
+# 生效条件：root、kek、tenant、actor、clearance=None 为入参；若 kek 为假抛 LockedError；否则取 _load_keys(root)["envelopes"] 中 _envelope_key(tenant, actor) 的信封，无则抛 LockedError；若 env["id_fp"] 不等于 identity_fingerprint(tenant, actor) 抛 LockedError；否则从 env["ct"] 解出 raw，按 TAG_LEN 切出 ct/tag，调 aead_decrypt；若 aead_decrypt 抛 CryptoError 则转抛 LockedError；clearance 形参默认 None 但源码未在条件中使用。
 def unwrap_dek(root, kek, tenant, actor, clearance=None):
     """解出 DEK；身份指纹不符 / KEK 不对 / 无信封 → LockedError。"""
     if not kek:
@@ -306,16 +329,19 @@ def unwrap_dek(root, kek, tenant, actor, clearance=None):
         raise LockedError(f"身份 / 主密钥不匹配：{e}") from e
 
 
+# 生效条件：root、tenant、actor 为入参，返回 _envelope_key(tenant, actor) in (_load_keys(root).get("envelopes") or {}) 的布尔结果。
 def has_envelope(root, tenant, actor):
     return _envelope_key(tenant, actor) in (
         _load_keys(root).get("envelopes") or {})
 
 
+# 生效条件：root、kek、tenant、actor、clearance="private" 为入参，返回 provision_dek(root, kek, tenant, actor, clearance=clearance, rotate=True)。
 def rotate_dek(root, kek, tenant, actor, clearance="private"):
     return provision_dek(root, kek, tenant, actor, clearance=clearance,
                          rotate=True)
 
 
+# 生效条件：root 为入参，遍历 _load_keys(root).get("envelopes") or {} 的每项，按 "|" partition 出 tenant/actor，收集 id_fp、clearance、created_at 后返回列表；无信封时返回 []。
 def envelopes(root):
     """信封清单（不含密钥材料）：供运维审计「谁被签发了密钥」。"""
     out = []
@@ -329,10 +355,12 @@ def envelopes(root):
 
 # ---- 节点正文封装 --------------------------------------------------------
 
+# 生效条件：content 为入参；bool(content) 为假（如空串或 None）时返回 False；否则返回 content.lstrip().startswith(ENC_PREFIX)。
 def is_encrypted(content):
     return bool(content) and content.lstrip().startswith(ENC_PREFIX)
 
 
+# 生效条件：content、dek、node_id、tenant、actor 为入参，生成 NONCE_LEN 随机 nonce，将 str(content).encode("utf-8") 以 aead_encrypt(dek, nonce, ..., _node_aad(node_id, tenant, actor)) 加密，返回 f"{ENC_PREFIX}{_b64e(nonce + tag + ct)}{ENC_SUFFIX}"。
 def seal_node(content, dek, node_id, tenant, actor):
     """明文 → 密文标记块（正文整体加密；frontmatter 不在此处处理）。"""
     nonce = secrets.token_bytes(NONCE_LEN)
@@ -341,6 +369,7 @@ def seal_node(content, dek, node_id, tenant, actor):
     return f"{ENC_PREFIX}{_b64e(nonce + tag + ct)}{ENC_SUFFIX}"
 
 
+# 生效条件：content、dek、node_id、tenant、actor 为入参；若 is_encrypted(content) 为假则原样返回 content；否则 strip 后切掉 ENC_PREFIX/ENC_SUFFIX，base64 解出 raw，按 NONCE_LEN、TAG_LEN 切出 nonce/tag/ct，调 aead_decrypt(dek, nonce, ct, tag, _node_aad(node_id, tenant, actor)) 并 utf-8 解码返回；aead_decrypt 失败抛 CryptoError。
 def open_node(content, dek, node_id, tenant, actor):
     """密文标记块 → 明文；未加密原样返回；失败抛 CryptoError。"""
     if not is_encrypted(content):
@@ -357,6 +386,7 @@ def open_node(content, dek, node_id, tenant, actor):
 
 # ---- 审计（payload-free）-------------------------------------------------
 
+# 生效条件：root、rec 为入参，复制 rec，若未提供 ts 则设 time.time()，设 payload_free=True，尝试 append_jsonl(os.path.join(root, AUDIT_FILE), rec)；OSError 时静默忽略。
 def audit(root, rec):
     from .fsutil import append_jsonl
     rec = dict(rec)
@@ -368,6 +398,7 @@ def audit(root, rec):
         pass
 
 
+# 生效条件：root 为入参，返回 list(read_jsonl(os.path.join(root, AUDIT_FILE))) 得到的记录列表。
 def audit_records(root):
     from .fsutil import read_jsonl
     return list(read_jsonl(os.path.join(root, AUDIT_FILE)))
@@ -375,6 +406,7 @@ def audit_records(root):
 
 # ---- 自描述 --------------------------------------------------------------
 
+# 生效条件：无入参，返回包含 module="crypto"、ALG、ENCRYPTED_LEVELS、MASTER_ENV、KEYS_FILE 等模块级常量的自描述字典。
 def catalog():
     """自描述：加密范围、密钥层级、身份一致性、威胁模型（供 MCP 对照）。"""
     return {
