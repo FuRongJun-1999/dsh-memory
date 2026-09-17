@@ -1,10 +1,14 @@
 {
  "kind": "unit-review",
  "iter_id": "iter-016-batch-c1",
- "candidate_commit": "4e7f0b6",
- "unit_job": "h1789651948828_803621",
+ "round": 2,
+ "candidate_commit": "8c70146f1c40",
+ "unit_job": "h1789652104240_7dcc38",
  "verdict": "REJECT",
  "package_n": 11,
- "text": "复核发现不符：`_term_degree` 源码仅回退长度 L≥2 子串；条件未限定 L，term=\"ab\",text=\"a\" 会误述为 0.25，实为 0.0；且“term 长度<2 返回0.0”与整词命中先返回1.0冲突。`_declared_conditions` 漏掉 `state_attributes.comment[\"不适用条件\"]` 也进 neg。`_slot_overlap` 中 pos 有值而 q_domain 空时仍计入权重2.0(sim=0)，条件未说明。\nreason: 存在源码分支漏写与命中范围误述，条件不完整且有假断言。\nverdict: REJECT",
+ "fixed": [
+  "md_cg/mdcos.py::_term_degree"
+ ],
+ "text": "复核：多数条目与源码一致。明确偏差：`_declared_conditions` 的条件漏列 neg 来源——源码还把 `fm[\"state_attributes\"][\"comment\"][\"不适用条件\"]` 并入 neg，condition 未述。另 `_slot_overlap` 中 position 槽有值即计权重 2，`q_domain` 为空时 sim=0，表述略含糊但可接受。\nreason: `_declared_conditions` 条件漏述 comment 中的“不适用条件”来源，与源码不符。\nverdict: REJECT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
