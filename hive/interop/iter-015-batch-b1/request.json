@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-015-batch-b1",
- "candidate_commit": "ab643ad0a64e",
+ "candidate_commit": "a55c8d57d430",
  "branch": "task/iter-015-batch-b1",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
@@ -22,5 +22,6 @@
   "verdict": "REJECT",
   "round": 4
  },
- "supersede_note": "编外曾裁定 df03dd6 PASS（二轮版本）；其后又修正 7 条，请以最终 tip 复核"
+ "supersede_note": "编外曾裁定 df03dd6 PASS（二轮版本）；其后又修正 7 条，请以最终 tip 复核",
+ "action": "batch-split"
 }

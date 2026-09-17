@@ -1,0 +1,18 @@
+{
+ "kind": "batch-split",
+ "iter_id": "iter-015-batch-b1",
+ "delivered_branch": "task/iter-015-batch-b1",
+ "delivered_commit": "a55c8d57d430",
+ "held_branch": "task/iter-015-held",
+ "held_commit": "5819a43bc2cc",
+ "excluded": [
+  "branch_tag",
+  "_decide_mem"
+ ],
+ "package_n": 20,
+ "unit_verdict": "ACCEPT",
+ "unit_job": "h1789650264478_e1a44d",
+ "text": "复核 20 条：功能级条件与所给源片段的核心控制流、分支、返回值基本一致；未发现 R1–R8 已剔除类别之外的新不匹配。截断片段不影响已述核心路径判定。\n\nreason: 条件与源片段一致，未发现剔除类别外的新反例。\nverdict: ACCEPT",
+ "why": "单元整批复核每轮仍剩 1-2 条，不再磨措辞：把反复点名条目移入 held 分支单独打磨，交付其余经多轮确认干净的条目",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
