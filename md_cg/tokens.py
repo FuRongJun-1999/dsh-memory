@@ -216,11 +216,13 @@ ORCH_OPS_ALLOW = ("route", "read", "write", "review", "recent", "consistency")
 ORCH_LAYERS_ALLOW = tuple(l for l in ALL_LAYERS if l not in CORE_LAYERS)
 
 
+# 生效条件：role 为假值（None/空串）时按 "" 处理，经 strip().lower() 得 r，r 命中 ROLE_ALIASES 键时返回别名，否则返回 r 本身。
 def normalize_role(role: str) -> str:
     r = (role or "").strip().lower()
     return ROLE_ALIASES.get(r, r)
 
 
+# 生效条件：normalize_role(role) 得 r，r 不在 ROLE_SPECS 中即抛 TokenError，否则返回 dict(ROLE_SPECS[r]) 的浅拷贝。
 def role_spec(role: str):
     r = normalize_role(role)
     if r not in ROLE_SPECS:
@@ -228,6 +230,7 @@ def role_spec(role: str):
     return dict(ROLE_SPECS[r])
 
 
+# 生效条件：无 required 形参，调用即返回含 SCHEMA、token_file()、CORE_PRIVATE_SENSITIVITIES/CORE_LAYERS/ALL_LAYERS/POSITION_ROLES/DELEGABLE_ROLES/ROLE_ALIASES/ROLE_SPECS 各自 list/dict 拷贝的字典。
 def catalog():
     """角色职责矩阵（供 whoami / service_info / 文档自描述）。"""
     return {"schema": SCHEMA, "token_file": token_file(),
@@ -243,10 +246,12 @@ def catalog():
 # 存储（仓库外，0600）
 # --------------------------------------------------------------------------
 
+# 生效条件：path 为真值时返回 path，否则回落 os.environ.get(TOKEN_FILE_ENV)（取到空串同为假值），仍为假值时返回 DEFAULT_TOKEN_FILE。
 def token_file(path: str = None) -> str:
     return path or os.environ.get(TOKEN_FILE_ENV) or DEFAULT_TOKEN_FILE
 
 
+# 生效条件：p=token_file(path) 的 os.path.exists(p) 为真且 json.load 得到 dict 时，setdefault("tokens", {}) 后返回该 dict；路径不存在、解析结果非 dict 或抛 OSError/ValueError 时返回 {"schema": SCHEMA, "tokens": {}}。
 def _load(path: str = None) -> dict:
     p = token_file(path)
     if os.path.exists(p):
@@ -261,6 +266,7 @@ def _load(path: str = None) -> dict:
     return {"schema": SCHEMA, "tokens": {}}
 
 
+# 生效条件：以 data 为内容、p=token_file(path) 为目标，先对 os.path.dirname(p) or "." 做 makedirs(exist_ok=True)，写 p+".tmp" 后 os.replace 覆盖 p，再尝试 chmod 0600（仅吞 OSError）。
 def _save(data: dict, path: str = None):
     p = token_file(path)
     os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
@@ -274,14 +280,17 @@ def _save(data: dict, path: str = None):
         pass
 
 
+# 生效条件：secret 经 encode("utf-8") 后取 sha256 的 hexdigest；secret 非 str 时按其 encode 失败抛出。
 def _hash(secret: str) -> str:
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
+# 生效条件：_rank(want) <= _rank(cap) 时返回 want，否则返回 cap。
 def _clamp_level(want: str, cap: str) -> str:
     return want if _rank(want) <= _rank(cap) else cap
 
 
+# 生效条件：allow 为 None 时按 parent_allow 是否为 None 返回 None 或 list(parent_allow)；否则 parent_allow 为 None 或含 "*" 时返回 list(allow)；否则 allow 含 "*" 时返回 list(parent_allow)；否则返回 [x for x in allow if x in parent_allow]。
 def _narrow(allow, parent_allow):
     """求交：子权限只能收窄。父为 None（不限制）时取子；子为 None 时取父。"""
     if allow is None:
@@ -293,10 +302,12 @@ def _narrow(allow, parent_allow):
     return [x for x in allow if x in parent_allow]
 
 
+# 生效条件：role/token_id/secret 即使为假值也照拼，返回 f"{PREFIX}.{role}.{token_id}.{secret}"。
 def make_token(role: str, token_id: str, secret: str) -> str:
     return f"{PREFIX}.{role}.{token_id}.{secret}"
 
 
+# 生效条件：token 为假值时按 "" 处理，split(".") 后长度不为 4 或 parts[0] != PREFIX 即抛 TokenError；长度与前缀合规后 role/token_id/secret 任一为空再抛 TokenError；否则返回 (role.lower(), token_id, secret)。
 def parse_token(token: str):
     parts = (token or "").strip().split(".")
     if len(parts) != 4 or parts[0] != PREFIX:
@@ -311,6 +322,7 @@ def parse_token(token: str):
 # 签发 / 校验 / 派生 / 吊销
 # --------------------------------------------------------------------------
 
+# 生效条件：role 经 normalize_role+role_spec（未知角色抛 TokenError），clearance 为假值时取 spec["clearance_cap"] 再经 _clamp_level 收窄到该 cap，layers_allow/ops_allow 经 _narrow 与 spec 默认求交，actor 为假值时取 role，delegable is None 时取 spec["delegable"]、否则按所传值取 bool，ttl 为真值时 expires_at=now+float(ttl)、为假值（None/0）时 None，记录写入 token_file(path) 后返回含明文 token 的字典。
 def issue(role: str, actor: str = None, clearance: str = None,
           tenant: str = "default", ttl: float = None, label: str = "",
           issued_by: str = "root", parent: str = None, delegable: bool = None,
@@ -345,6 +357,7 @@ def issue(role: str, actor: str = None, clearance: str = None,
             "expires_at": rec["expires_at"], "token_file": token_file(path)}
 
 
+# 生效条件：token 先经 parse_token（格式非法即抛 TokenError），其后 _load(path) 的 tokens 中该 token_id 无记录、rec 的 role 与解析出的 role 不等、revoked_at 为真、hash 与 _hash(secret) 经 hmac.compare_digest 不等、expires_at 为真且小于当前时间中任一成立即抛 TokenError；否则返回 Principal，tenant=tenant or rec.get("tenant") or "default"、actor=rec.get("actor") or role、clearance=rec.get("clearance") or "internal"、can_write/can_admin 取对应 rec 值的 bool。
 def verify_token(token: str, tenant: str = None, path: str = None) -> Principal:
     """校验令牌 → Principal。任何异常都抛 TokenError（fail-closed）。"""
     role, token_id, secret = parse_token(token)
@@ -371,6 +384,7 @@ def verify_token(token: str, tenant: str = None, path: str = None) -> Principal:
         ops_allow=rec.get("ops_allow"), auth_mode="token")
 
 
+# 生效条件：parent_token 经 verify_token(parent_token, path=path) 成功且父记录 delegable 为真才继续，否则抛 TokenError；role 经 normalize_role+role_spec，clearance 为假值时取 spec["clearance_cap"] 再 _clamp_level，若仍高于 parent.clearance 则降为 parent.clearance 并向 clamped 追加 "clearance"；layers/ops 先与 spec 求交再与父记录求交；can_write/can_admin 取 spec 与父对应值的与；ttl 为真值时 expires_at=now+float(ttl)、为假值（None/0）时沿用父记录 expires_at；新记录 delegable 恒 False、parent/issued_by 为 parent.token_id，返回含明文 token 与 clamped 的字典。
 def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
            label: str = "", path: str = None, clearance: str = None,
            layers_allow=None, ops_allow=None):
@@ -414,6 +428,7 @@ def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
             "expires_at": rec["expires_at"]}
 
 
+# 生效条件：normalize_role(unit) 结果不在 POSITION_ROLES 时抛 TokenError；否则返回 Principal：unit/role=u、can_admin 恒 False、clearance=_clamp_level(spec["clearance_cap"], p.clearance)、can_write=bool(spec["can_write"]) and bool(p.can_write)、layers_allow/ops_allow=_narrow(spec 对应值, p 对应值)，tenant/actor/session/harness/token_id/parent/expires_at/auth_mode/theory 等沿用 p。
 def narrowed_principal(p: Principal, unit: str) -> Principal:
     """按「单元」收窄 principal 权限（**请求级**身份，只能变小不能变大）。
 
@@ -450,6 +465,7 @@ def narrowed_principal(p: Principal, unit: str) -> Principal:
         theory_ok=p.theory_ok, theory_version=p.theory_version)
 
 
+# 生效条件：token_id 在 _load(path) 的 tokens 中无记录时抛 TokenError；有记录则将其 revoked_at 置为 time.time() 并 _save，再对 tokens 中 parent 等于 token_id 的每个子令牌递归 revoke(c, path)，返回 {"ok": True, "token_id": token_id, "revoked_children": children}。
 def revoke(token_id: str, path: str = None):
     data = _load(path)
     rec = (data.get("tokens") or {}).get(token_id)
@@ -488,10 +504,12 @@ def list_tokens(path: str = None, include_revoked: bool = False):
 # CLI：签发 / 派生 / 清单 / 吊销 / 角色矩阵
 # --------------------------------------------------------------------------
 
+# 生效条件：obj 一律经 json.dumps(obj, ensure_ascii=False, indent=1) 加换行写入 sys.stdout；obj 不可 JSON 序列化时抛出 TypeError。
 def _print(obj):
     sys.stdout.write(json.dumps(obj, ensure_ascii=False, indent=1) + "\n")
 
 
+# 生效条件：v 为假值（None/空串）时返回 None；否则按 "," 切分、strip 后丢弃空项，结果为空列表时同样返回 None。
 def _csv_list(v):
     """CLI 的逗号分隔白名单 → list；空值返回 None（= 不额外收窄）。
 
@@ -502,6 +520,7 @@ def _csv_list(v):
     return [x.strip() for x in str(v).split(",") if x.strip()] or None
 
 
+# 生效条件：path 经 os.path.abspath 得 p，其 dirname 非空时 makedirs(exist_ok=True)，text 原样写入 p+".tmp" 后 os.replace 覆盖 p，再尝试 chmod 0600（仅吞 OSError）。
 def _write_secret(path: str, text: str) -> None:
     """把令牌明文写入文件（0600，原子替换）——供 HIVE_ORCH_TOKEN_FILE 读取。"""
     p = os.path.abspath(path)
