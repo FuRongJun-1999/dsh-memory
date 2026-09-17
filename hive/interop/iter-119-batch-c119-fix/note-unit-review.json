@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-119-batch-c119-fix",
+ "round": 2,
+ "candidate_commit": "3531789",
+ "branch": "task/iter-119-batch-c119-fix",
+ "unit_job": "h1789685598878_50f79b",
+ "verdict": "ACCEPT",
+ "package_n": 19,
+ "text": "逐条比对源码：条件均指明关键输入/状态、所需形参或模块常量、None/假值/空容器/返回形状等分支；未发现 assert 语义、闭包前置、参数使用、早退或长度判断的错述，也未追加源码不支持断言。position_ok 均满足。\nreason: 全部功能级条件与对应源码一致，无超范围或错述。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
