@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-061-batch-c61",
+ "round": 1,
+ "candidate_commit": "da437d0",
+ "branch": "task/iter-061-batch-c61",
+ "unit_job": "h1789665032435_bf16bd",
+ "verdict": "REJECT",
+ "package_n": 6,
+ "text": "复核：net_dir、read_stamp、watermarks、summary 基本与源码相符；diagnose 对 locked_nodes 的 fix=None，“带 fix”表述过宽且返回 ok 片段未全。heal 条件不全：演化动作除 allow_evolve=True 外，源码还要求 reflect_fn is not None，漏锚必需前置。\nreason: heal 演化动作漏掉 reflect_fn 非空前置，且 diagnose 返回逻辑因片段截断不可全证。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
