@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-rest-dirs-d1",
+ "round": 2,
+ "candidate_commit": "1ddf8f2",
+ "branch": "task/iter-rest-dirs-d1",
+ "unit_job": "h1789684520854_43ffa0",
+ "verdict": "ACCEPT",
+ "package_n": 44,
+ "text": "逐条复核：条件均锚定对应形参/常量/早退分支；None/假值、空容器、异常与返回形状描述基本与源码一致。少数为省略或略宽（如 generate_rust_project 未列复制模板、render_verdict 假值也显示 `<未声明>`、swarm_cli.main 仅检查 stdout 后即 reconfigure stderr），但不改变功能级生效条件；position_ok=true。未发现源码不支持的断言或 assert/None 分支错置。\nreason: 条件与源码分支语义一致，仅个别省略/表述略宽，不构成反例。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
