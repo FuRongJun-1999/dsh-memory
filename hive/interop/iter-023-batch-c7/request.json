@@ -17,5 +17,20 @@
   "extract": "git archive --format=tar task/iter-023-batch-c7 | tar -xf - -C <tmp>",
   "run": "cd <tmp> && python -X utf8 scripts/run_tests.py --jobs 4"
  },
- "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
+ "increment_vs_base": {
+  "base": "main",
+  "file": "md_cg/predict.py",
+  "new_annotation_lines": 44,
+  "total_lines_on_branch": 44
+ },
+ "known_open": {
+  "excluded": []
+ },
+ "process_standard": [
+  "注释置于 def/class 行正上方（装饰器之下）",
+  "类符号 facts 取自 __init__",
+  "request 标增量 vs 累计口径",
+  "组跑偶发红须以同树单跑复核"
+ ]
 }
