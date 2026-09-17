@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-076-batch-c76-fix",
+ "round": 2,
+ "candidate_commit": "a7f4db6",
+ "branch": "task/iter-076-batch-c76-fix",
+ "unit_job": "h1789669047876_19cd2c",
+ "verdict": "REJECT",
+ "package_n": 27,
+ "text": "复核：多数条件与源码一致。关键不符：`promote` 条件称 `probation_until` 缺失/为 0 且 now>0 时 `left>0` 抛 `LinkError`；源码实为 `0-time.time()<0`，不抛，视为观察期满。`decay_all` 的 `link[\"decay\"]` 在 if 前已无条件赋值，条件未区分；`_find` 候选集为 set，迭代序不保证。故不能接受。\nreason: `promote` 对观察期缺失/0 的分支描述与源码相反，且 `decay_all` 赋值时机不精确。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
