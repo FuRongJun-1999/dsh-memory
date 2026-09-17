@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-067-mcp-r14",
+ "round": 1,
+ "candidate_commit": "b40545b",
+ "branch": "task/iter-067-mcp-r14",
+ "unit_job": "h1789666328317_08a9b5",
+ "verdict": "REJECT",
+ "package_n": 34,
+ "text": "复核：多数条目贴合源码。但 _pick_source 未锚定首行 JSON 为对象，非 dict 会 AttributeError，并非“其余情况返回 JsonlSource”；_stg_call 的 relation 源码用 `a.get(\"a\",\"\")/a.get(\"b\",\"\")`，非 `a[\"a\"]/a[\"b\"]`；_start_sustain 的 `MDCG_AUTO_*` 空串不回落 `DEFAULT_*`，如 AUTO_SCRUB 空串会成真。\nreason: 存在至少三处与源码语义不符，未满足零信任生效条件。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
