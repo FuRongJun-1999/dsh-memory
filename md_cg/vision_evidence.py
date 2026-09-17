@@ -116,15 +116,18 @@ _RE_DIR_N = re.compile(r"_(\d+)$")
 
 # ---- 通用工具 -------------------------------------------------------------
 
+# 生效条件：x 为 str 时返回 MdCGOS(x) 新实例，否则原样返回 x。
 def _as_cg(x):
     """接受 root 路径或已构造 cg 实例——保持密级隔离与密钥上下文。"""
     return MdCGOS(x) if isinstance(x, str) else x
 
 
+# 生效条件：无必需形参，调用即返回 time.strftime("%Y%m%d-%H%M%S") 的当前批次串。
 def _now_batch() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
 
+# 生效条件：base 为字符串批号，先读 _log_path(cg) 的 jsonl 收集 batch 字段中以 base 开头的已有值，base 未被占用则原样返回 base，已占用则返回首个未占用的 f"{base}.{i}"（i 从 2 递增）。
 def _unique_batch(cg, base: str) -> str:
     """同秒重复调用时批号去重（后缀 .2/.3…），保证按批次回滚不打偏。"""
     seen = set()
@@ -140,21 +143,25 @@ def _unique_batch(cg, base: str) -> str:
     return f"{base}.{i}"
 
 
+# 生效条件：cg 具 root 属性时取 cg.root、否则取 str(cg) 作为 root，返回 os.path.join(root, EVIDENCE_LOG)。
 def _log_path(cg) -> str:
     root = cg.root if hasattr(cg, "root") else str(cg)
     return os.path.join(root, EVIDENCE_LOG)
 
 
+# 生效条件：batch 与 nid 恒以 "%s|%s" 拼接成条目号，不做空值或类型校验。
 def _entry_id(batch: str, nid: str) -> str:
     return "%s|%s" % (batch, nid)
 
 
+# 生效条件：v 为 list/tuple 时返回各元素 str(x).strip() 后非空项以「；」连接；否则 v 为 None 返回空串，其余值返回 str(v).strip()。
 def _as_text(v) -> str:
     if isinstance(v, (list, tuple)):
         return "；".join(str(x).strip() for x in v if str(x).strip())
     return "" if v is None else str(v).strip()
 
 
+# 生效条件：path 经 abspath→dirname→basename 取名后匹配 _RE_DIR_N，命中则返回 int(m.group(1))，未命中返回 None。
 def _gallery_no(path: str):
     """图集编号：目录名尾部 `_<N>`；缺省 None（脱敏引用用）。"""
     name = os.path.basename(os.path.dirname(os.path.abspath(path)))
@@ -162,10 +169,12 @@ def _gallery_no(path: str):
     return int(m.group(1)) if m else None
 
 
+# 生效条件：gal 非 None 时返回 "图集_%s" % gal，gal 为 None 时返回 "图集_?"。
 def _gallery_ref(gal) -> str:
     return "图集_%s" % (gal if gal is not None else "?")
 
 
+# 生效条件：无必需形参，按 os.environ.get(VISION_ROOT_ENV) or os.environ.get(LEGACY_VISION_ROOT_ENV) or DEFAULT_VISION_ROOT 取值——某环境变量为空串时视为假值继续回落下一项。
 def vision_root() -> str:
     """视觉证据归档根：env 覆盖 > 遗留 env > 本仓 data/vision 的父目录。"""
     return (os.environ.get(VISION_ROOT_ENV)
@@ -179,6 +188,7 @@ aeis_root = vision_root
 
 # ---- 证据源（只读归档） ---------------------------------------------------
 
+# 生效条件：root 下 data/vision/*/*.json 逐文件读；文件 OSError/ValueError、JSON 顶层非 dict、parts 非非空 list、或过滤后（type 与 cond_hash 皆真值的 dict）无记录时跳过该文件，否则收入含 path/gallery/image_id/algo/identity_cond_hash/by_type/by_cond 的 src 并最终返回 out 列表。
 def load_sources(root: str) -> list:
     """扫描 `AEIS/data/vision/*/*.json`，取逐部件结构化结果（主证据源）。"""
     base = os.path.join(root, "data", "vision")
@@ -215,6 +225,7 @@ def load_sources(root: str) -> list:
 
 # ---- 节点正文解析 ---------------------------------------------------------
 
+# 生效条件：content 为 None 或空串时按 "" 处理；逐行 strip 后跳过空行与以 # 开头的行，返回首个含 ROOT_MARK 或匹配 _RE_PART 的行，全部无命中返回 ""。
 def _find_body_line(content: str) -> str:
     for ln in (content or "").split("\n"):
         s = ln.strip()
@@ -225,6 +236,7 @@ def _find_body_line(content: str) -> str:
     return ""
 
 
+# 生效条件：rest 为 None/假值时按 "" 处理，分别用 _RE_COND/_RE_VERDICT/_RE_REASON/_RE_FG 捕获；fg 命中则转 float、ValueError 时置 None；reason 命中并 strip 后为空则置 None；返回含 cond_hash/verdict/reason/fg_ratio 四键的 dict（未命中键值为 None）。
 def _fields(rest: str) -> dict:
     m = _RE_COND.search(rest or "")
     v = _RE_VERDICT.search(rest or "")
@@ -242,6 +254,7 @@ def _fields(rest: str) -> dict:
             "fg_ratio": fg}
 
 
+# 生效条件：content 无正文行（空串、全为注释/空行、或无 ROOT_MARK 且不匹配 _RE_PART）返回 None；首行含 ROOT_MARK 返回 kind="root" 记录（n_parts 由 _RE_NPARTS 转 int、未命中为 None，cond_hash 取自 _fields）；否则须匹配 _RE_PART，不匹配返回 None，匹配后 bbox 按逗号切分对非空项做 int(float(x))（ValueError 则 bbox=None）并返回 kind="part" 记录。
 def parse_node(content: str):
     """视觉节点正文 → 结构化记录；非视觉节点 → None。"""
     line = _find_body_line(content)
@@ -268,6 +281,7 @@ def parse_node(content: str):
 
 # ---- 节点集合 -------------------------------------------------------------
 
+# 生效条件：layer 透传给 cg._candidates，nid 取 e["id"] 或 path 去 .md 后须以 prefixes 中任一开头且 cg._read 返回非 None 的 fm 才被计数；加密内容记录 locked=True/parsed=None 且不触发 limit 检查，非加密内容 parse_node 后若 limit 非 None 且节点数已达 limit 即 break（因此最多多计该条）。
 def _vision_nodes(cg, layer=None, prefixes=VISION_PREFIXES, limit=None) -> list:
     """收集视觉节点（只读 index）。
 
@@ -295,6 +309,7 @@ def _vision_nodes(cg, layer=None, prefixes=VISION_PREFIXES, limit=None) -> list:
     return nodes
 
 
+# 生效条件：nodes 中 parsed 为 dict、kind=="root" 且 cond_hash 为真值的节点，以其 tags[-1]（无 tags 时为空串）为标签 setdefault 记录首个 cond_hash，返回标签→cond_hash 的 out。
 def _family_root_cond(nodes) -> dict:
     """家族标签(image_id) → 根节点 cond_hash。"""
     out = {}
@@ -306,6 +321,7 @@ def _family_root_cond(nodes) -> dict:
     return out
 
 
+# 生效条件：n["id"] 以 "vpipe_" 开头时先以 roots.get(tags[-1] 或 "") 取 cond——cond 为假返回 (None,"no_family_root")，cond 为真则在 sources 中匹配 identity_cond_hash 成功返回 (s,"identity_cond_hash")、未命中再按该标签匹配 image_id 成功返回 (s,"image_id")、仍失败返回 (None,"no_source_archive")；非 vpipe_ 时取 tags 中首个匹配 _RE_IMG_TAG 的 img<N>（未取到则不匹配）按 image_id 命中返回 (s,"image_tag")，否则返回 (None,"no_source_archive")。
 def _pick_source(n, sources, roots) -> tuple:
     """→ (source, joined_by)；无法定位图集 → (None, 原因)。"""
     nid = n["id"]
@@ -339,6 +355,7 @@ def _pick_source(n, sources, roots) -> tuple:
 
 # ---- 三档映射 -------------------------------------------------------------
 
+# 生效条件：parsed.cond_hash 为真值时按 str(cond_hash) 从 src["by_cond"] 取候选——其中 type 与 parsed["type"] 相同者直接返回 (r,"cond_hash")，否则候选仅 1 条返回 (cands[0],"cond_hash")、多于 1 条返回 (None,None)；候选为空或 cond_hash 为假时若 parsed.type 为真则按 src["by_type"].get(type) 命中返回 (r,"type")，否则返回 (None,None)。
 def _match_record(src, parsed, joined_by):
     """在归档里定位对应部件记录（imgpart 优先 cond_hash 精确，vpipe 按 type）。"""
     if parsed.get("cond_hash"):
@@ -355,6 +372,7 @@ def _match_record(src, parsed, joined_by):
     return None, None
 
 
+# 生效条件：n["locked"] 为真→BLINDSPOT(reason="locked")；否则 parsed 缺失→"unparsed"、kind 非 "part"→"root_no_verdict"；否则 _pick_source(n,sources,roots) 无源→以 why 为 reason；否则 _match_record 无记录→"no_matching_part"；否则 parsed 与 rec 的 verdict 均为真且不等→"verdict_mismatch"；否则 TIER2_FIELDS 中任一字段为 None→"missing_field:…"；全部通过才返回 STATUS_WHITEBOX 与 ev（未用到的形参 aeis_root_used 不参与判定）。
 def build_evidence(n, sources, roots, aeis_root_used):
     """单节点 → (status, evidence, meta)；严格三档，缺源即 BLINDSPOT。"""
     parsed = n.get("parsed")
@@ -397,6 +415,7 @@ def build_evidence(n, sources, roots, aeis_root_used):
 
 # ---- 预演 / 执行 / 回滚 / 留痕 --------------------------------------------
 
+# 生效条件：x 经 _as_cg 转换；prefixes 为假值回落 VISION_PREFIXES、aeis_root_ 为假值回落 aeis_root()；ids 为真值时才按 set(ids) 过滤 nodes；对 nodes 调 build_evidence，locked 节点只累加 skipped_locked，白箱项入 items、其余入 blindspot_items，全程不写盘并返回含 aeis_root/sources/nodes_scanned/targeted/blindspot/by_reason 的报表。
 def plan(x, layer=None, prefixes=None, limit=None,
          aeis_root_=None, ids=None) -> dict:
     """预演：产出证据回填清单，不写盘。"""
@@ -445,6 +464,7 @@ def plan(x, layer=None, prefixes=None, limit=None,
     }
 
 
+# 生效条件：x 经 _as_cg，batch 为假值回落 BATCH_DEFAULT 并交给 _unique_batch(cg, …) 去重；ids 为真值才按 id 过滤、entry_ids 为真值才按 _entry_id(batch,id) 过滤；循环中节点不在 cg.index["nodes"] 记 skipped_drift，fm 为 None 或内容加密记 skipped_locked，fm 已有同 status（白箱还要求 evidence 相同）记 skipped_already，否则改写 fm 并落盘、追加 jsonl、收集 entry_id；written 非 0 时 cg.rebuild_index() 并尝试 evolution.record（异常被吞）后返回 rep。
 def apply(x, ids=None, entry_ids=None, layer=None, prefixes=None,
           limit=None, batch=None, aeis_root_=None, actor=None) -> dict:
     """执行回填：逐节点改写 frontmatter 证据面，写 `_vision_evidence.jsonl`。"""
@@ -528,6 +548,7 @@ def apply(x, ids=None, entry_ids=None, layer=None, prefixes=None,
     return rep
 
 
+# 生效条件：x 经 _as_cg 后读 _log_path(cg) 日志，只处理 action=="vision_evidence" 记录；batch 为真值时仅取 batch 相同记录、entry_ids 为真值时仅取 entry_id 在集合内记录、该 entry_id 已出现在 rollback 日志则记 skipped_done；节点缺失或 _read 返回 fm 为 None 记 missing，EVIDENCE_KEYS 一个都不在 fm 中记 skipped_done，否则删除命中键、写盘并追加 rollback 留痕，reverted 非 0 时重建索引后返回 rep。
 def rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
     """按留痕反向应用：删除本批次写入的证据键（幂等，防覆盖）。"""
     cg = _as_cg(x)
@@ -580,6 +601,7 @@ def rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
     return rep
 
 
+# 生效条件：x 经 _as_cg 后逐条读 _log_path(cg)，batch 为真值时才按 rec.get("batch")==batch 过滤；limit 非 None 且 >=0 时执行 recs = recs[-limit:]（limit=0 因 -0 切片退化为全量），limit 为 None 或负数时不截断，返回 {root,total,returned,records}。
 def history(x, limit=100, batch=None) -> dict:
     cg = _as_cg(x)
     recs = []
@@ -596,6 +618,7 @@ def history(x, limit=100, batch=None) -> dict:
 
 # ---- CLI（真实库预演/执行用；MCP 侧走 maintain action） -------------------
 
+# 生效条件：argv 为 None 时 argparse 取 sys.argv；--prefixes 默认由 ",".join(VISION_PREFIXES) 提供并切出非空前缀；a.rollback 为真调 rollback（entry_ids 切分后为空则传 None）、否则 a.apply 为真调 apply、否则调 plan；--json 为真打印整份 JSON，否则按固定关键字打印并恒返回 0。
 def _main(argv=None) -> int:
     import argparse
     ap = argparse.ArgumentParser(description="G5 视觉证据回填（默认只预演）")
