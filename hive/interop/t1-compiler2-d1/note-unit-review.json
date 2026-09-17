@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler2-d1",
+ "round": 2,
+ "candidate_commit": "c75ffbc",
+ "branch": "task/t1-compiler2-d1",
+ "unit_job": "h1789688853005_d888a3",
+ "verdict": "REJECT",
+ "package_n": 18,
+ "text": "reason: 条目1有误：strict下name_errors非空时源码返回warnings=name_warnings且含name_errors键，并非warnings:[]；条目13亦对BUILTIN_TRUST_VALUE为None时语义表述不准。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
