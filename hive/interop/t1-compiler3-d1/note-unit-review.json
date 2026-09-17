@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler3-d1",
+ "round": 2,
+ "candidate_commit": "6264126",
+ "branch": "task/t1-compiler3-d1",
+ "unit_job": "h1789689371564_55a199",
+ "verdict": "ACCEPT",
+ "package_n": 12,
+ "text": "复核：13 条均与源码实际分支一致，锚定形参、默认值、早退与空容器；None/假值、col=0、args 真值、异常后仍发 token、闭包 current 前置等无冲突；未新增源码不支持断言。\nreason: 所有候选生效条件均准确，未发现需驳回的偏差。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
