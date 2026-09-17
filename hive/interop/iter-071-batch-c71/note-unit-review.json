@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-071-batch-c71",
+ "round": 1,
+ "candidate_commit": "23cb7e8",
+ "branch": "task/iter-071-batch-c71",
+ "unit_job": "h1789666976688_814059",
+ "verdict": "REJECT",
+ "package_n": 26,
+ "text": "复核：多数条目准确；但 link、recalibrate、RuleParser.candidates 的 src_segment 已完整，却仍标 BLINDSPOT，未回答生效条件。link_pending 的“否则返回带错误的 out”误述：link dry-run 成功时返回 res.ok=True 且无 errors。_sha/_sentences 称“任意值”过宽，非 str 真值会异常。\nreason: 存在虚假 BLINDSPOT 与返回分支误述，不能接受。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
