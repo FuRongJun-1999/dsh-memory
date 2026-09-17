@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-052-batch-c52",
+ "round": 1,
+ "candidate_commit": "9682035",
+ "branch": "task/iter-052-batch-c52",
+ "unit_job": "h1789664221261_7fc33a",
+ "verdict": "DEFER",
+ "package_n": 0,
+ "text": "空批次中候选条目数为 0，未提供任何功能级生效条件文本或源码锚点。无法核验其是否说明正确输入/状态、是否锚定形参/模块常量/早退前置、是否与源码不符、是否越界断言、注释是否位于定义行前。故不判定 ACCEPT/REJECT，亦不补充断言。\nreason: 批次为空，无候选条目可供 Zero-Trust 复核。\nverdict: DEFER",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
