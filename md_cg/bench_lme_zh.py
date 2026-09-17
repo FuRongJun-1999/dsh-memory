@@ -222,6 +222,7 @@ def build_pool(n_q, n_distract, seed=7):
     return pool
 
 
+# 生效条件：DIR 目录下的 questions.json 是 UTF-8 合法 JSON 时，返回 json.load 得到的对象。
 def load_questions_zh():
     with open(os.path.join(DIR, "questions.json"), encoding="utf-8") as f:
         return json.load(f)

@@ -381,6 +381,7 @@ def plan(x, layer=None, limit=None, ids=None, include_partial=False,
 
 # ---- 回填写入 / 回滚 / 留痕 ----------------------------------------------
 
+# 生效条件：x 可被 _as_cg 解释为 CG 句柄时，按 layer/ids/prefix/entry_ids 选定条目做回填并返回含 written 等计数的 rep，其中 limit 非 None 时把写入数截断到该值。
 def apply(x, ids=None, entry_ids=None, layer=None, limit=None,
           batch=BATCH_DEFAULT, include_partial=False, basis_text=None,
           actor=None, prefix=None) -> dict:

@@ -63,6 +63,7 @@ def load(root):
     return out
 
 
+# 生效条件：rows 非空、每行可解包为 (_, _, d, t) 且 keyfn(d, t) 可调用时，打印桶数、最大桶占比、单例桶比与期望扫描占比，无返回值。
 def report(name, rows, keyfn):
     cnt = collections.Counter(keyfn(d, t) for _, _, d, t in rows)
     n = len(rows)

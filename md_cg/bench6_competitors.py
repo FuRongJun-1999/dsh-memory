@@ -119,6 +119,7 @@ def print_matrix(rows, k):
         print("  ".join(c.ljust(wi) for c, wi in zip(cells, w)))
 
 
+# 生效条件：argv 为 None 时改读 sys.argv[1:] 解析 --k，随后按 MAIN_ARMS 与 COMPETITOR_ARMS 各自装载结果，返回含 k、arms、missing 的 payload。
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     k = 5

@@ -157,6 +157,7 @@ def _as_cg(x):
     return MdCGOS(x)
 
 
+# 生效条件：content 为字符串（None 视作空串）时，若其中含 "# " + field_name + "：" 或 "# " + field_name + ":" 则返回 True，否则 False。
 def _has_ccg_line(content: str, field_name: str) -> bool:
     text = content or ""
     return ("# " + field_name + "：") in text or ("# " + field_name + ":") in text

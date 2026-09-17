@@ -364,6 +364,7 @@ def pool_diag(cg, qs):
     return 0
 
 
+# 生效条件：cg.search_rrf 可用、queries 每项含 q/target/mode 时，对目标未列首的题打印顶替者与目标在 ARM5 各单路的排名，最多打印 limit 例。
 def diag_failures(cg, queries, k=10, arm=ARM5, limit=6, path_weights=None):
     """打印失败案例：谁把目标挤掉了、目标在单路里排第几。"""
     print(f"\n失败案例诊断（{'+'.join(arm)}，Top-{k} 未把目标排第一）")
