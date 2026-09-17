@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-022-batch-c6",
+ "round": 1,
+ "candidate_commit": "b216177",
+ "branch": "task/iter-022-batch-c6",
+ "unit_job": "h1789656392279_558d74",
+ "verdict": "REJECT",
+ "package_n": 42,
+ "text": "复核发现一处不符：`probe_ref` 条件称 `hash_match` 为 `None` 或 `True` 时 `ok=True`；但源码为 `ok=expect is None or bool(match)`，当 `expect` 为空串等假值时 `hash_match=None` 却 `ok=False`、`status='stale'`。其余条目均锚定形参/常量/早退，返回形状与分支一致，未见其他新增断言。\nreason: probe_ref 的 None/假值分支断言与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
