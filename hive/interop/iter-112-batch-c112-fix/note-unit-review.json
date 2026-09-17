@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-112-batch-c112-fix",
+ "round": 2,
+ "candidate_commit": "2f00967",
+ "branch": "task/iter-112-batch-c112-fix",
+ "unit_job": "h1789683570427_a56b15",
+ "verdict": "REJECT",
+ "package_n": 19,
+ "text": "复核第13条 rollback：源码对「验证方式」撤销要求 `cur_line.strip()` 非空且 strip 后等于 `str(rec.get(\"verification_value\") or \"\").strip()`；候选条件只写“现行值等于 verification_value”，漏掉非空与 strip 前置，空/空白值时会误判命中。其余未见实质不符。\nreason: 第13条 rollback 漏「验证方式」行非空+strip 前置，与源码假值分支不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
