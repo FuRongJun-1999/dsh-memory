@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-070-batch-c70",
+ "round": 1,
+ "candidate_commit": "c1429e9",
+ "branch": "task/iter-070-batch-c70",
+ "unit_job": "h1789666727712_add8ab",
+ "verdict": "REJECT",
+ "package_n": 32,
+ "text": "复核发现硬伤：`ancestor_alias_hits` 实际返回 `[{\"dir\",\"alias_of\"}]` 字典列表，非“拼写列表”；`render_routing_compact/full` 对 `execution.how`、`response.direct` 的 `None/0/False` 会 `str` 成 `\"None\"/\"0\"/\"False\"`，并非假值回落空串；`slot_files` 槽值可为字符串并逐字符迭代，条件限定“列表”过窄；`artifact_sha` 正则含可选 `\\s*`，条件漏述。BLINDSPOT 两项可保留，但上述不符源码，整体不应 ACCEPT。  \nreason: 候选条件存在返回形状与假值分支不符，并含源码不支持或过窄断言。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
