@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-048-batch-c48",
+ "round": 1,
+ "candidate_commit": "ba8b4a9",
+ "branch": "task/iter-048-batch-c48",
+ "unit_job": "h1789663679009_5d27b2",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "reason: 条件准确覆盖 fm/content 三处正负来源，去重保序与空值忽略均与 _push 及源码分支一致。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
