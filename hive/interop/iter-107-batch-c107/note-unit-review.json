@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-107-batch-c107",
+ "round": 1,
+ "candidate_commit": "a701356",
+ "branch": "task/iter-107-batch-c107",
+ "unit_job": "h1789681295802_322494",
+ "verdict": "REJECT",
+ "package_n": 23,
+ "text": "复核结论：多数条件锚定准确。但 `serve_state` 有一处与源码不符：`_serve.json` 存在而 `json.load` 抛 `OSError/ValueError` 时，源码的 `exists` 来自 `os.path.isfile(p)` 仍为 `True`，仅 `alive=False` 返回；条件写成“缺失或读取抛错时 exists/alive=False”，误称读取失败时 `exists=False`。`_json_of` 对 raw 假值用 `raw or \"\"`，条件写 `str(raw).strip()`，终态多同但表述不严。其余形参、常量、早退、返回形状基本一致。建议修正后重审。\nreason: serve_state 读取异常时 exists 仍为 True，条件断言 exists=False 与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
