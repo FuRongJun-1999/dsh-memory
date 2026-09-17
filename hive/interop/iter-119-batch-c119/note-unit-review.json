@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-119-batch-c119",
+ "round": 1,
+ "candidate_commit": "eab788b",
+ "branch": "task/iter-119-batch-c119",
+ "unit_job": "h1789685352822_1a70a8",
+ "verdict": "REJECT",
+ "package_n": 18,
+ "text": "复核：多数条件锚定形参/常量正确。rollback 项与源码不符：源码 `remove=[k for k in after if k != \"layer\" and k not in before]`，明确排除 `layer`；候选仅写“after 中新增字段作 remove”，会误纳 `layer`。patterns 项亦未说明聚合基于排除 `KIND_ROLLBACK` 的 `real` 集。其余早退/返回形状基本一致。position_ok=true 不另究。  \nreason: rollback 的 remove 漏“排除 layer”，与源码不符。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
