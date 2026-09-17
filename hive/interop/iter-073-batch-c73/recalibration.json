@@ -3,13 +3,13 @@
  "iter_id": "iter-073-batch-c73",
  "verified_commit": "f388304",
  "verdict": "PASS",
- "merge_commit": "e1b6c3248b71",
+ "merge_commit": "2c1295532f47",
  "checks": [
   "diff(merge, branch) -- md_cg 空",
   "criteria_fingerprint 保持",
   "main 注释计数 + 全组回归"
  ],
- "merged_marks": 328,
- "merged_files": 38,
+ "merged_marks": 352,
+ "merged_files": 39,
  "paths_policy": "脱敏"
 }
