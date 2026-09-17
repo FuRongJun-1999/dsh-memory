@@ -1,0 +1,15 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-015-batch-split",
+ "commit": "a55c8d5",
+ "verdict": "PASS",
+ "receipt_job": "h1789650549305_545c",
+ "receipt_sha16": "6f9f5e0fccba8a5a",
+ "received_ts": 1789650549,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-015-batch-split commit=a55c8d5 verdict=PASS | 机器重放两步（逐字）：test_codeindex=PASS 47 / FAIL 0 / SKIP 0；cogmap_sync check=通过。另（验证端 shell 实测，env 无 brain-root）：交付分支 a55c8d5 全组=SUMMARY 117/117 通过，3 跳过（拆批后一次全绿）；main tip 29990b6 组跑首跑 87/88（semantic_canonical 竞态单发红）复跑=SUMMARY 88/88 通过，3 跳过；test_condition_anchor=PASS 13 / FAIL 0；verifier self-test=5/5 通过。拆批决策（干净条目交付+2 条 held 单独打磨）已接收",
+ "commands_sanitized": "[{\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}]",
+ "related_note": "",
+ "note": "由 ingest_receipts.py v2 生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

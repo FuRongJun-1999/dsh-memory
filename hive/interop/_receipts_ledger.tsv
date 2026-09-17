@@ -1,6 +1,7 @@
 received_at	verify_id	commit	verdict	receipt_job	iter_id
 	iter-002-tip				iter-002-carrier-align
 	superseded		PASS（编外）		iter-013-batch-a1
+	superseded		PASS（编外）		iter-015-batch-b1
 2026-09-17T16:40:07	verify-fff1ce7-phase0	fff1ce7	PASS	h1789634407680_445c	iter-002-carrier-align
 2026-09-17T17:19:37	verify-3963ded-protocol	3963ded	PASS	h1789636777351_3b14	iter-002-carrier-align
 2026-09-17T17:25:25	verify-3963ded-protocol-rerun	3963ded	PASS	h1789637125839_1b94	iter-002-carrier-align
@@ -26,3 +27,5 @@ received_at	verify_id	commit	verdict	receipt_job	iter_id
 2026-09-17T20:29:05	verify-2cbe6af-r2-h1789648145575_30a8	2cbe6af	PASS	h1789648145575_30a8	iter-002-carrier-align
 2026-09-17T20:37:14	verify-9d35845-r2-h1789648634805_1a1c	9d35845	PASS	h1789648634805_1a1c	iter-002-carrier-align
 2026-09-17T20:48:30	iter-014-logpath-fix-r2-h1789649310717_56a0	220b104	PASS	h1789649310717_56a0	iter-002-carrier-align
+2026-09-17T20:59:13	iter-015-batch-b1-r2-h1789649953694_40d0	df03dd6	PASS	h1789649953694_40d0	iter-002-carrier-align
+2026-09-17T21:09:09	iter-015-batch-split-r2-h1789650549305_545c	a55c8d5	PASS	h1789650549305_545c	iter-002-carrier-align
