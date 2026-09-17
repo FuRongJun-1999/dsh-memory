@@ -1,0 +1,13 @@
+{
+ "kind": "recalibration-acceptance",
+ "iter_id": "iter-014-logpath-fix",
+ "verified_commit": "220b104",
+ "verdict": "PASS",
+ "merge_commit": "82e00b01e13a",
+ "checks": [
+  "diff(merge, branch) -- md_cg 空",
+  "criteria_fingerprint 保持 99/06623b506bd29575",
+  "md_cg/autonomy.py 中的修正注解已入 main"
+ ],
+ "paths_policy": "脱敏"
+}
