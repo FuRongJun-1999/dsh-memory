@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-113-batch-c113",
+ "round": 1,
+ "candidate_commit": "d0a9a9b",
+ "branch": "task/iter-113-batch-c113",
+ "unit_job": "h1789683753582_b69160",
+ "verdict": "REJECT",
+ "package_n": 20,
+ "text": "复核：多数条目与源码一致，但 `_apply_node` 条件称 source 参与更新「验证方式」行/comment，源码仅用 value，source 只用于条件化与 evidence；`_rows_for` 的 value 回退实为 `or` 假值回退，非仅“缺”；`_rewind_claim` 对 comment 列表会替换所有匹配项而非单个。存在不符。\nreason: `_apply_node` 对 source 生效范围描述与源码不符，需修正后再验。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
