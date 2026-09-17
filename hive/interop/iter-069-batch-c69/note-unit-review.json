@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-069-batch-c69",
+ "round": 1,
+ "candidate_commit": "83895ae",
+ "branch": "task/iter-069-batch-c69",
+ "unit_job": "h1789666475091_de939c",
+ "verdict": "REJECT",
+ "package_n": 32,
+ "text": "复核：多数条目与源码吻合；但 _derive 的 BLINDSPOT 称 importance/important_refs/dimensions/links/old 回退缺失，实际片段已含；refresh 的 BLINDSPOT 称 force/指纹一致返回分支未出现，实际已出现。_iso 将 OSError 归于 float(ts) 亦不精确。故不可全收。\nreason: 多个 BLINDSPOT/异常归因描述与给定源码片段不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
