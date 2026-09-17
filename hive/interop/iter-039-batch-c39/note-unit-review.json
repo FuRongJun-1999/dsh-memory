@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-039-batch-c39",
+ "round": 1,
+ "candidate_commit": "47f47ea",
+ "branch": "task/iter-039-batch-c39",
+ "unit_job": "h1789662407914_e32218",
+ "verdict": "REJECT",
+ "package_n": 1,
+ "text": "源码中 comment 的「适用条件」也并入生效条件，候选未明示；“某来源缺失即对应列表为空”不成立：三处独立追加，正文缺失时 comment 或 non_applicable_conditions 仍可使 pos/neg 非空，只有所有贡献来源缺失/为空时相应输出列表才空。形参 fm/content、去重保序、返回二元列表基本相符。\nreason: 候选含源码不支持的“某来源缺失即对应列表为空”，且遗漏 comment 的“适用条件”并入生效条件。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
