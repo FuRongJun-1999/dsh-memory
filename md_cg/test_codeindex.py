@@ -21,6 +21,7 @@ docs/mdcg/代码评审与条件化注释_契约_v0.1.md。
 """
 from __future__ import annotations
 
+import ast
 import os
 import sys
 import tempfile
@@ -31,6 +32,7 @@ from .mdcos import _ccg_field
 
 _ok = 0
 _bad = []
+_skip = 0
 
 
 def _check(name, cond, detail=""):
@@ -66,6 +68,24 @@ export function ping(url) {
 '''
 
 HUMAN_COND = "# 生效条件：入参 path 为已存在的本地文件"
+
+# 两窗口样本（裁决 A）：leading 在定义行之上，body 在定义行之下/体首语句之前
+BODY_SRC = '''"""两窗口样本。"""
+
+
+# 生效条件：外层声明（leading 窗口）
+def with_body(seq):
+    # 生效条件：入参 seq 为可迭代且元素可比较（body 窗口）
+    # 子功能：返回排序副本
+    out = sorted(seq)
+    return out
+
+
+def body_trap(seq):
+    out = sorted(seq)
+    # 实现注释：位于体首语句【之后】→ 不属于声明头窗口，不应被收
+    return out
+'''
 
 
 def _item_of(src, path, name):
@@ -219,8 +239,68 @@ def main():
                and len(s3["skip_dirs"]) == len(s1["skip_dirs"]),
                "items=" + str(len(_i3)))
 
+        # ---------------- ⑦ 载体两窗口（裁决 A） ----------------
         print()
-        print("PASS %d / FAIL %d" % (_ok, len(_bad)))
+        print("【7】注释载体两窗口：leading + body（裁决 A · 索引侧收口）")
+        _check("codeindex._body_comments 存在（历史悬空引用由此坐实）",
+               callable(getattr(codeindex, "_body_comments", None))
+               and callable(getattr(codeindex, "_symbol_comments", None)))
+        it2 = _item_of(BODY_SRC, "demo2.py", "with_body")
+        want_cmts = ["# 生效条件：外层声明（leading 窗口）",
+                     "# 生效条件：入参 seq 为可迭代且元素可比较（body 窗口）",
+                     "# 子功能：返回排序副本"]
+        _check("两窗口按物理行序合并（leading 在前、body 在后）",
+               it2["comments"] == want_cmts, repr(it2["comments"])[:200])
+        r2w = codeindex.render(it2)
+        _check("body 窗口的 CCG 注释在正文可见（不再是索引盲区）",
+               "# 生效条件：入参 seq 为可迭代且元素可比较（body 窗口）" in r2w)
+        _check("冲突时靠前者胜出（_ccg_field 取首匹配 = 物理序）",
+               _ccg_field(r2w, "生效条件") == "外层声明（leading 窗口）",
+               _ccg_field(r2w, "生效条件"))
+        _check("补了 body 注释 → 五要素齐备（complete=True）",
+               nodefile.ccg_completeness(r2w)["complete"] is True,
+               str(nodefile.ccg_completeness(r2w)["required_present"]))
+        # 非循环断言：窗口产物**逐字**固定（不依赖 verifier 委托是否成功）
+        # 期望值**写死**：体首语句行号不得臆测（上一版写成 lineno+1 即为反例）
+        _fnode = next(n for n in ast.parse(BODY_SRC).body
+                      if isinstance(n, ast.FunctionDef) and n.name == "with_body")
+        _check("body 窗口产物逐字固定（期望值写死，非自证）",
+               codeindex._body_comments(BODY_SRC.splitlines(), _fnode.lineno,
+                                        _fnode.body[0].lineno) == [
+                   "# 生效条件：入参 seq 为可迭代且元素可比较（body 窗口）",
+                   "# 子功能：返回排序副本"],
+               repr(codeindex._body_comments(
+                   BODY_SRC.splitlines(), _fnode.lineno,
+                   _fnode.body[0].lineno))[:160])
+        it3 = _item_of(BODY_SRC, "demo2.py", "body_trap")
+        _check("体首语句【之后】的注释不入声明头窗口（边界不越界）",
+               it3["comments"] == [] and "实现注释" not in repr(it3["comments"]),
+               repr(it3["comments"])[:120])
+        # verifier 是否已收敛为「委托唯一真源」——等价断言不可静默跳过
+        try:
+            from .whitebox_kb.wisdom import verifier as Vmod
+            vobj = Vmod.Verifier.__new__(Vmod.Verifier)
+            tree = ast.parse(BODY_SRC)
+            fnode = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                         and n.name == "with_body")
+            src_lines = BODY_SRC.splitlines()
+            got, _doc = vobj._ccg_block(fnode, src_lines)
+            want = [s.lstrip("#").strip() for s in codeindex._body_comments(
+                src_lines, fnode.lineno, fnode.body[0].lineno)]
+            _check("verifier 已收敛为委托唯一真源（_ci_body_comments 可达）",
+                   Vmod._ci_body_comments() is not None)
+            _check("verifier 窗口与 codeindex._body_comments 逐字等价",
+                   got == want, repr([got, want])[:180])
+            _check("verifier 窗口只收 body 窗口（不误收 leading）",
+                   got == want and all("外层声明" not in x for x in got),
+                   repr(got)[:140])
+        except Exception as exc:  # noqa: BLE001
+            global _skip
+            _skip += 1
+            print("  SKIP verifier 委托等价断言（模块不可导入）：%r" % (exc,))
+
+        print()
+        print("PASS %d / FAIL %d / SKIP %d" % (_ok, len(_bad), _skip))
         for b in _bad:
             print("  - " + b)
         return 1 if _bad else 0

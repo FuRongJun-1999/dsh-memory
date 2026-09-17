@@ -56,6 +56,51 @@ def _leading_comments(lines, lineno):
     return list(reversed(out))
 
 
+def _body_first_line(node):
+    """符号体首个语句的行号（1-based）；无体 → 定义行本身（窗口为空）。"""
+    body = getattr(node, "body", None) or []
+    return body[0].lineno if body else node.lineno
+
+
+def _body_comments(lines, lineno, body_lineno):
+    """符号**体内首个语句之前**的连续 `#` 注释（定义行紧下方，声明头区）。
+
+    这是与 `_leading_comments`（定义行**之上**）并列的**第二个窗口**：
+
+    · 既有白箱单元库 104+ 处把 CCG 注释块写在**这里**
+      （例：`md_cg/whitebox_kb/wisdom/python_code_units.py` 的模板
+      `def tokenize(src):` 下一行即 `    # 生效条件：参数 src 合法`）；
+    · 本函数是 body 窗口的**唯一真源**——`whitebox_kb/wisdom/verifier._ccg_block`
+      委托此处（历史文档里那句「与 `codeindex._body_comments` 同款语义」曾是
+      **悬空引用**：该名当时并不存在）。
+
+    参数：`lines`=源码行列表（`source.split("\\n")`）；`lineno`=定义行（1-based）；
+    `body_lineno`=体首个语句行（1-based）。窗口 = `lines[lineno : body_lineno-1]`
+    （0-based 切片：定义行之后 → 体首语句之前），只收 `#` 起始行。
+    语法上该窗口**结构性地只可能含注释/空行/docstring**——体首语句之前的区域。
+    """
+    start = lineno                      # 0-based 索引 → 定义行的下一行
+    end = max(start, body_lineno - 1)
+    out = []
+    for ln in lines[start:end]:
+        s = ln.strip()
+        if s.startswith("#"):
+            out.append(s)
+    return out
+
+
+def _symbol_comments(lines, node):
+    """符号的「源码 CCG 区」= leading 窗口 + body 窗口，**按物理行序**合并。
+
+    不发明额外优先级：两个窗口在源文件里的物理先后天然确定（leading 在定义行
+    之上、body 在其下），而检索侧 `mdcos._ccg_field` 取**首个**匹配——于是
+    「靠前者胜出」与「物理序」是同一件事，确定性可复算。
+    单窗口文件的行为与改造前逐字一致（只多收 body 窗口）。
+    """
+    return (_leading_comments(lines, node.lineno)
+            + _body_comments(lines, node.lineno, _body_first_line(node)))
+
+
 def _sig(source, node):
     try:
         seg = ast.get_source_segment(source, node) or ""
@@ -101,7 +146,7 @@ def _extract_python(source, path):
             "path": path, "name": node.name, "kind": kind, "parent": parent,
             "lineno": node.lineno, "end": getattr(node, "end_lineno", node.lineno),
             "sig": _sig(source, node), "doc": _doc_of(node),
-            "comments": _leading_comments(lines, node.lineno)})
+            "comments": _symbol_comments(lines, node)})
     return items
 
 

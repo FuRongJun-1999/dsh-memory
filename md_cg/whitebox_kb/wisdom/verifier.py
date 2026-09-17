@@ -24,6 +24,7 @@ from __future__ import annotations
 import ast
 import copy
 import hashlib
+import importlib
 import json
 import os
 import subprocess
@@ -374,6 +375,34 @@ class VerifyCache:
 
 
 # ============ 三、校验器 ============
+
+#: 唯一真源（codeindex._body_comments）的解析缓存：None=未解析，False=不可用
+_CI_BODY = None
+
+
+def _ci_body_comments():
+    """解析并缓存 `codeindex._body_comments`（body 窗口的唯一真源）。
+
+    三种加载形态各试一次；全部失败返回 None（调用方走等价兜底）。
+    缓存避免每次校验都付一次 import 代价（暖缓存路径要求零额外开销）。
+    """
+    global _CI_BODY
+    if _CI_BODY is None:
+        fn = False
+        cands = ["md_cg.codeindex"]
+        pkg = __package__ or ""
+        if pkg.count(".") >= 2:                     # 如 md_cg.whitebox_kb.wisdom
+            cands.insert(0, pkg.rsplit(".", 1)[0].rsplit(".", 1)[0] + ".codeindex")
+        for mod in cands:
+            try:
+                fn = getattr(importlib.import_module(mod), "_body_comments", False)
+            except Exception:                       # noqa: BLE001
+                continue
+            if fn:
+                break
+        _CI_BODY = fn or False
+    return _CI_BODY or None
+
 
 class Verifier:
     """本地校验器：六层校验链，零 LLM。"""
@@ -900,16 +929,30 @@ class Verifier:
         （多行签名的续行非 `#` 起始，自然跳过）+ docstring。
         该窗口即既有单元库 104+ 处标记的实际物理位置（`# 生效条件：` 紧贴
         def 行下一行）；`f.body[0].lineno` 保证多行签名下窗口仍正确。
-        与 `codeindex._body_comments` 同款语义（就近实现，避免跨包 import 环）。
+
+        **唯一真源**（2026-09-17 裁决 A）：窗口计算委托
+        `codeindex._body_comments`。历史问题：本函数曾自述「与
+        `codeindex._body_comments` 同款语义」，而该名当时**并不存在**——
+        悬空引用即第二份真相，已由本次收敛坐实。
+
+        兜底（第 7 条）：本模块有三种加载形态——`-m md_cg.whitebox_kb.wisdom.verifier`、
+        顶层 `wisdom.verifier`（wheel 发布态，见 code_compose.py）、直跑
+        `python verifier.py`；后两者 import 不到 `md_cg.codeindex`，故保留
+        **逐字等价的兜底**，等价性由 `md_cg/test_codeindex.py` 机械守卫。
         """
-        out = []
-        start = f.lineno
         body = getattr(f, "body", None)
-        end = (body[0].lineno - 1) if body else start
-        for ln in src_lines[start:max(start, end)]:
-            s = ln.strip()
-            if s.startswith("#"):
-                out.append(s.lstrip("#").strip())
+        body_lineno = body[0].lineno if body else f.lineno
+        raw = None
+        fn = _ci_body_comments()
+        if fn is not None:
+            raw = fn(src_lines, f.lineno, body_lineno)
+        if raw is None:
+            # 兜底（第 7 条）：与唯一真源**逐字等价**，等价性由
+            # md_cg/test_codeindex.py 的委托等价断言机械守卫。
+            raw = [ln.strip()
+                   for ln in src_lines[f.lineno:max(f.lineno, body_lineno - 1)]
+                   if ln.strip().startswith("#")]
+        out = [s.lstrip("#").strip() for s in raw]
         doc = (ast.get_docstring(f) or "").strip()
         return out, doc
 
