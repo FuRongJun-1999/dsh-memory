@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-034-batch-c34",
+ "round": 1,
+ "candidate_commit": "12ab866",
+ "branch": "task/iter-034-batch-c34",
+ "unit_job": "h1789661831499_5bc9d0",
+ "verdict": "REJECT",
+ "package_n": 33,
+ "text": "复核：多数条目与源码一致，但关键条件不实。`_iso` 的 except 不含 OverflowError，inf/超大 ts 会抛，非返回空串；`history` 负 limit 真值时切片不是“前 int(limit) 条”；`_identity_ref` 仅 try 包 `identity.profile` 调用，后续 `.get` 异常不会降级为 `(None,0)`；`_derive` 遗漏必需形参 subject/window；`index` 实际对 dim 先 strip/lower 后传 `dim_tag`，非原 dim；`refresh` 简化了 rebuild/tail/strict 分支，不能断言仅 force/指纹不一致写入。存在源码不符与过度断言。\n\nreason: 条件含未捕获异常、参数遗漏与分支简化，未逐分支锚定源码。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
