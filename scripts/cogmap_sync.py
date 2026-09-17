@@ -58,6 +58,7 @@ BEGIN = "<!-- COGMAP:BEGIN (scripts/cogmap_sync.py 自动生成 · 真源 md_cg/
 END = "<!-- COGMAP:END -->"
 
 
+# 生效条件：传入任意 seg（含空串）即原样嵌入，返回 "<!-- FUNCMAP:BEGIN id={seg} (scripts/cogmap_sync.py 自动生成 · 勿手改段内) -->"，无分支与校验；
 def _funcmap_begin(seg: str) -> str:
     return f"<!-- FUNCMAP:BEGIN id={seg} (scripts/cogmap_sync.py 自动生成 · 勿手改段内) -->"
 
@@ -127,6 +128,7 @@ FUNC_DESC: dict[tuple[str, str], str] = {
 
 # ---------------------------------------------------------------- 真源提取
 
+# 生效条件：el 非 ast.Dict 时返回 None；el 是 ast.Dict 时按 zip(el.keys, el.values) 顺序找首个「键为 ast.Constant 且 k.value == "name" 且值为 ast.Constant」的项并返回 str(v.value)；无此配对返回 None；
 def _dict_name(el: ast.expr) -> str | None:
     """从列表元素（Dict 字面量）里取 "name" 字段的值。"""
     if not isinstance(el, ast.Dict):
@@ -137,6 +139,7 @@ def _dict_name(el: ast.expr) -> str | None:
     return None
 
 
+# 生效条件：tree.body 顶层中出现 name == fname 的 ast.FunctionDef 时返回 (node.lineno, ''.join(src_lines[node.lineno-1:node.end_lineno]))；无同名顶层函数返回 None；
 def _func_span(src_lines: list[str], tree: ast.Module, fname: str) -> tuple[int, str] | None:
     """返回 (函数起始行号[1-based], 函数源码文本)。"""
     for node in tree.body:
@@ -145,6 +148,7 @@ def _func_span(src_lines: list[str], tree: ast.Module, fname: str) -> tuple[int,
     return None
 
 
+# 生效条件：以模块常量 ROOT 为 cwd 执行 git remote get-url origin 成功、且其 stdout.strip() 能匹配 r"github\.com[:/](.+?)(?:\.git)?/?$" 时返回 f"https://github.com/{m.group(1)}"；子进程抛 OSError 或无匹配则 raise SystemExit；
 def _repo_base() -> str:
     """git origin → GitHub 仓库基址（https://github.com/Owner/repo）。"""
     try:
@@ -160,6 +164,7 @@ def _repo_base() -> str:
     return f"https://github.com/{m.group(1)}"
 
 
+# 生效条件：返回 tree.body 顶层各 ast.FunctionDef 的 name→lineno 字典（同名键后者覆盖前者）；无顶层函数则为空字典；
 def _all_funcs(tree: ast.Module) -> dict[str, int]:
     """模块全部顶层函数名 → def 行号。"""
     return {n.name: n.lineno for n in tree.body if isinstance(n, ast.FunctionDef)}
@@ -269,23 +274,27 @@ def extract() -> dict:
 _BLOB_FILE = {"server": "mcp_server.py", "whitebox": "whitebox.py"}
 
 
+# 生效条件：e 含 "repo_base" 与 "branch" 键、且 fkey（缺省 "server"）命中模块常量 _BLOB_FILE 时返回 f"{e['repo_base']}/blob/{e['branch']}/md_cg/{_BLOB_FILE[fkey]}#L{line}"；任一键缺失即 KeyError；
 def _blob(e: dict, line: int, fkey: str = "server") -> str:
     """真源文件第 line 行的 GitHub blob 链接（人类点击直达代码行）。"""
     return f"{e['repo_base']}/blob/{e['branch']}/md_cg/{_BLOB_FILE[fkey]}#L{line}"
 
 
+# 生效条件：e["tool_lines"].get(name) 取到真值行号时返回 `[`name`](blob)`，缺键或行号为 0/None 等假值时返回纯文本 `name`；
 def _tlink(e: dict, name: str) -> str:
     """工具名 → 定义行链接。"""
     line = e["tool_lines"].get(name)
     return f"[`{name}`]({_blob(e, line)})" if line else f"`{name}`"
 
 
+# 生效条件：e["op_lines"].get((tool, op)) 为真值行号时返回 `[`op`](blob)`，缺键或行号为假值时返回纯文本 `op`；
 def _olink(e: dict, tool: str, op: str) -> str:
     """op → dispatch 实现分支行链接。"""
     line = e["op_lines"].get((tool, op))
     return f"[`{op}`]({_blob(e, line)})" if line else f"`{op}`"
 
 
+# 生效条件：e["funcs"].get(fkey, {}).get(fname) 为真值行号时返回链接（fkey == "whitebox" 时标签为 whitebox.{fname}，否则为 fname），缺键或行号为假值时返回该标签的纯文本；
 def _flink(e: dict, fkey: str, fname: str) -> str:
     """函数名 → def 行链接（fkey 文件内）；whitebox 实现函数带模块前缀消歧。"""
     line = e["funcs"].get(fkey, {}).get(fname)
@@ -293,6 +302,7 @@ def _flink(e: dict, fkey: str, fname: str) -> str:
     return f"[`{label}`]({_blob(e, line, fkey)})" if line else f"`{label}`"
 
 
+# 生效条件：doc_dir 为空串时原样返回 cand；doc_dir 非空时返回 "../" 重复「doc_dir 去首尾 "/" 后按 "/" 切分出的非空段数」次再接 cand；
 def _rel_from_root(cand: str, doc_dir: str = "") -> str:
     """仓根相对路径 → 目标文档目录相对路径（相对链接按文档目录解析，非仓根）。"""
     if not doc_dir:
@@ -301,6 +311,7 @@ def _rel_from_root(cand: str, doc_dir: str = "") -> str:
     return "../" * depth + cand
 
 
+# 生效条件：按 (md_cg/{mod}.py, md_cg/{mod}/__init__.py) 顺序取首个满足 (ROOT / cand).exists() 的候选，返回 [`mod`](_rel_from_root(cand, doc_dir))；两候选均不满足则返回纯文本 `mod`；
 def _mdlink(mod: str, doc_dir: str = "") -> str:
     """实现模块 → 仓内源文件相对链接（GitHub 渲染后可点击）。
 
@@ -313,6 +324,7 @@ def _mdlink(mod: str, doc_dir: str = "") -> str:
     return f"`{mod}`"
 
 
+# 生效条件：e 含 "cg_ops"/"stg_ops"/"op_modules" 时，对 tool=cg、stg 分别遍历其 op 列表，把 e["op_modules"].get((tool, op), set()) 的模块链接化并聚合排序，返回表头加行的 Markdown 表文本；某 (tool, op) 缺键或集合为空时该 op 落到 e["func_lines"].get(fn) 真值则带链接、否则纯文本的内联列；
 def _mod_table(e: dict) -> str:
     """op → 实现模块（按工具分组、按模块聚合，减少表行数；全链接化）。"""
     lines = ["| op（点击直达实现分支） | 实现模块（点击直达源码） |", "|---|---|"]
@@ -332,6 +344,7 @@ def _mod_table(e: dict) -> str:
     return "\n".join(lines)
 
 
+# 生效条件：tool 为 "cg"/"stg"/"whitebox" 之一（否则按 tool 索引 ops 字典抛 KeyError），逐 op 生成 "| 功能 | call_fmt.format(op=op) | 分支→函数链→模块 |" 行；FUNC_DESC 缺 (tool, op) 时功能列退化为 `op`，doc_dir 缺省空串透传给 _mdlink；
 def _map_rows(e: dict, tool: str, call_fmt: str, doc_dir: str = "") -> list[str]:
     """逐 op 映射表行：功能（中文）| 显式调用 | 代码位置（分支→函数链→模块，全链接）。
 
@@ -354,6 +367,7 @@ def _map_rows(e: dict, tool: str, call_fmt: str, doc_dir: str = "") -> list[str]
     return rows
 
 
+# 生效条件：e 含 "cg_ops"/"stg_ops"/"mdcg_tools"/"kernel_tools" 键时返回 BEGIN..END 包裹的 README 段文本（含 op 数、op 清单、_mod_table、mdcg 工具链接）；缺键时索引抛 KeyError；
 def render_section(e: dict) -> str:
     cg_n, stg_n = len(e["cg_ops"]), len(e["stg_ops"])
     cg_list = " ".join(_olink(e, "cg", o) for o in e["cg_ops"])
@@ -395,6 +409,7 @@ def render_section(e: dict) -> str:
 _MAP_HEAD = "| 功能 | 显式调用 | 代码位置（点击直达源码行） |", "|---|---|---|"
 
 
+# 生效条件：seg == "cg" 输出 cg 表、seg == "stg" 输出 stg 表、其余任意 seg（含 "wb"）输出 whitebox 表，返回由 _funcmap_begin(seg) 与 FUNCMAP_END 包裹的标题加表行文本；
 def _map_section(e: dict, seg: str) -> str:
     """映射表单段：FUNCMAP 标记包裹的一张逐 op 表。"""
     if seg == "cg":
@@ -411,6 +426,7 @@ def _map_section(e: dict, seg: str) -> str:
     return "\n".join([_funcmap_begin(seg), "", title, "", *_MAP_HEAD, *rows, "", FUNCMAP_END])
 
 
+# 生效条件：固定对 ("cg","stg","wb") 各取 _map_section(e, seg)，返回 [(seg, 段文本)] 三元列表；e 缺某段所需键时由对应 _map_section 内的索引抛 KeyError；
 def render_mapdoc(e: dict) -> list[tuple[str, str]]:
     """[(seg, 段内容)]：映射表文档的全部 FUNCMAP 段。"""
     return [(seg, _map_section(e, seg)) for seg in ("cg", "stg", "wb")]
@@ -418,6 +434,7 @@ def render_mapdoc(e: dict) -> list[tuple[str, str]]:
 
 # ---------------------------------------------------------------- 段替换通用
 
+# 生效条件：text 中能匹配 re.escape(begin)+".*?"+re.escape(end)（re.S 跨行、非贪婪，止于首个 end）时以 repl 替换该段并返回 (新文本, True)；无匹配则返回 (text, False)；
 def _splice(text: str, begin: str, end: str, repl: str) -> tuple[str, bool]:
     """替换 text 中首个 begin..end 段为 repl；无段时返回原文并标记未找到。"""
     m = re.search(re.escape(begin) + r".*?" + re.escape(end), text, re.S)
@@ -428,6 +445,7 @@ def _splice(text: str, begin: str, end: str, repl: str) -> tuple[str, bool]:
 
 # ---------------------------------------------------------------- README 工具
 
+# 生效条件：逐行扫描 text.splitlines()，行 lstrip() 以 "```" 开头时翻转围栏标志并跳过，围栏外匹配 r" {0,3}#{1,6} " 的行去掉井号标记与首尾空白后收入列表返回；无此类行返回空列表；
 def _md_titles(text: str) -> list[str]:
     """收集 md 文档围栏代码块外的全部标题行（页内锚点校验用，不限 README）。"""
     titles, fence = [], False
@@ -440,6 +458,7 @@ def _md_titles(text: str) -> list[str]:
     return titles
 
 
+# 生效条件：返回 title.strip().lower() 逐字符结果——isspace() 的字符转 "-"，isalnum() 或 "_"/"-" 的字符保留，其余字符丢弃；
 def _gh_anchor(title: str) -> str:
     """GitHub 锚点算法近似：lower → 非 \\w- 字符删除（中文/字母数字/下划线保留）→ 空格转 '-'。"""
     out = []
@@ -457,6 +476,7 @@ _STG_OP_RE = re.compile(r"stg\(op=([a-z_]+)\)")
 _MDCG_RE = re.compile(r"\bmdcg_[a-z_]+\b")
 
 
+# 生效条件：e 含 "op_lines"/"branch_counts"/"cg_ops"/"stg_ops"/"mdcg_tools"/"op_modules" 键时，依次做 FUNC_DESC 覆盖、宽松与规范分支计数相等、README 与功能调用映射表两文档的标记段一致、op/工具引用、op_modules 模块候选、相对链接与锚点、段外手写行号锚校验，返回错误列表（无错为空列表）；文档 dpath 不满足 .exists() 时记一条错误并跳过该文档；
 def check(e: dict) -> list[str]:
     errors: list[str] = []
 
@@ -488,6 +508,7 @@ def check(e: dict) -> list[str]:
     return errors
 
 
+# 生效条件：依据 e（"cg_ops"/"stg_ops"/"mdcg_tools"/"op_modules"）与 sections 校验 dname 文档 text：标记段缺失或与渲染不一致、rg 提取到的 cg/stg op 与 mdcg 工具名超出真源与 NAME_ALLOWLIST、op_modules 模块在 md_cg/{mod}.py 与 md_cg/{mod}/__init__.py 均不满足 exists()、相对链接与锚点缺失（doc_dir 空串以 ROOT 为基准，非空以 ROOT/doc_dir 为基准）、"_strip_sections(text)" 后残留 "*.py:行号" 形态，逐项追加到返回的错误列表；
 def _check_doc(e: dict, dname: str, text: str, sections: list[tuple[str, str, str]],
                doc_dir: str = "") -> list[str]:
     """单文档校验：段一致性 / op·工具引用 ⊆ 真源 / 文件链接与锚点存在。
@@ -565,6 +586,7 @@ def _check_doc(e: dict, dname: str, text: str, sections: list[tuple[str, str, st
     return errors
 
 
+# 生效条件：返回把 text 中 BEGIN..END 段以及 cg/stg/wb 三段 FUNCMAP（各自 begin 字面量 + 非贪婪 ".*?" + FUNCMAP_END，re.S）全部删除后的剩余文本；无匹配段时即原文；
 def _strip_sections(text: str) -> str:
     """剥掉全部生成段——手写纪律只约束段外内容。"""
     pats = [re.escape(BEGIN) + r".*?" + re.escape(END)]
@@ -575,12 +597,14 @@ def _strip_sections(text: str) -> str:
     return out
 
 
+# 生效条件：frag 属于 _md_titles(text) 各标题经 _gh_anchor 得到的集合时返回 True，否则返回 False；
 def _md_file_has_anchor(text: str, frag: str) -> bool:
     return frag in {_gh_anchor(t) for t in _md_titles(text)}
 
 
 # ---------------------------------------------------------------- 入口
 
+# 生效条件：读取 path 字节，CRLF 计数 > 纯 LF 计数时 nl 取 "\r\n"（计数相等或更少时取 "\n"），返回 (raw.decode("utf-8") 并把 "\r\n" 替换为 "\n" 的文本, nl)；非 UTF-8 内容在解码处抛 UnicodeDecodeError；
 def _load(path: Path) -> tuple[str, str]:
     """读文档：内容归一为换行（与渲染对齐），返回 (文本, 原行尾风格)。"""
     raw = path.read_bytes()
@@ -589,12 +613,14 @@ def _load(path: Path) -> tuple[str, str]:
     return raw.decode("utf-8").replace("\r\n", "\n"), nl
 
 
+# 生效条件：nl != "\n" 时先把 text 中全部 "\n" 换成 "\r\n"，再以 UTF-8 编码写回 path；nl == "\n" 时原样写；返回 None；
 def _save(path: Path, text: str, nl: str) -> None:
     if nl != "\n":
         text = text.replace("\n", "\r\n")
     path.write_bytes(text.encode("utf-8"))
 
 
+# 生效条件：返回两项——("README", 模块常量 README, [(BEGIN, END, render_section(e))]) 与 ("功能调用映射表", 模块常量 MAPDOC, render_mapdoc(e) 各 seg 的三元组)；e 缺所需键时由渲染函数索引抛 KeyError；
 def _targets(e: dict) -> list[tuple[str, Path, list[tuple[str, str, str]]]]:
     """全部投影目标：[(文档名, 路径, [(begin, end, 渲染内容)])]。"""
     readme_secs = [(BEGIN, END, render_section(e))]
@@ -602,6 +628,7 @@ def _targets(e: dict) -> list[tuple[str, Path, list[tuple[str, str, str]]]]:
     return [("README", README, readme_secs), ("功能调用映射表", MAPDOC, map_secs)]
 
 
+# 生效条件：对 _targets(extract()) 的每个文档逐段执行 _splice，任一段未匹配到 begin..end 即打印缺段提示、ok=False 并跳过该文档写回；全部匹配才 _save 写回并打印段数，最后返回 0，存在缺段时返回 1；
 def build() -> int:
     e = extract()
     ok = True
@@ -625,6 +652,7 @@ def build() -> int:
     return 0 if ok else 1
 
 
+# 生效条件：len(sys.argv) < 2 或 sys.argv[1] 不属于 ("check","build","print") 时打印 __doc__ 并返回 2；sys.argv[1] == "print" 打印各目标各段后返回 0；sys.argv[1] == "build" 时返回 build() 的 0/1；sys.argv[1] == "check" 时 check(e) 有错则逐条打印并返回 1、无错打印口径并返回 0；
 def main() -> int:
     if len(sys.argv) < 2 or sys.argv[1] not in ("check", "build", "print"):
         print(__doc__)
