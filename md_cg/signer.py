@@ -81,6 +81,7 @@ class Signer:
     def describe(self) -> dict:
         return {"name": self.name, "kind": "abstract"}
 
+# 生效条件：无 required 形参，调用即返回仅含 {'name': self.name} 的 dict，不含密钥材料。
     def public(self) -> dict:
         """可对外公开的验证信息（**不得含密钥**）。"""
         return {"name": self.name}
