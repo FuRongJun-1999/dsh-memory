@@ -61,6 +61,7 @@ class PoolError(ValueError):
 # 分类 / 校验 / 计划
 # --------------------------------------------------------------------------
 
+# 生效条件：pools 为 None 或 False 时返回 None；pools is True 时先替换为模块常量 WEIGHTS 再交 validate；pools 为其他值（含 dict）时直接交 validate(pools)。
 def resolve(pools):
     """把 `pools` 参数解成生效配置：None→关闭；True→内置表；dict→校验后副本。"""
     if pools is None or pools is False:
@@ -84,6 +85,7 @@ def pool_of(node_id, entry=None) -> str:
     return POOL_KNOWLEDGE
 
 
+# 生效条件：pools 非 dict、缺 POOL_ORDER 中任一池、pools[p] or {} 不是 dict、float(spec.get("cap_ratio")) 或 float(spec.get("weight", 1.0)) 抛 TypeError/ValueError、ratio<=0、weight<=0、或各池 cap_ratio 之和与 1.0 之差超过 _RATIO_EPS 时抛 PoolError，全部通过才返回各项为 float 的 out（desc 经 spec.get("desc") or WEIGHTS[p]["desc"] 补齐）。
 def validate(pools) -> dict:
     """校验并归一化权重表（**硬约束：额度之和必须恰为 1.0**）。"""
     if not isinstance(pools, dict):
@@ -114,6 +116,7 @@ def validate(pools) -> dict:
     return out
 
 
+# 生效条件：total 先 int(total)，total<=0 时各池返回 0；total < len(POOL_ORDER) 时把 total 全给 POOL_KNOWLEDGE、其余池为 0；否则每池保底 1、余量按 left*float(pools[p]["cap_ratio"]) 取 floor 后，余数按小数部分降序（并列按 POOL_ORDER 序）补 1，返回额度之和恰为 total 的 out。
 def caps(total: int, pools) -> dict:
     """按比例分配额度；**各池额度之和恰等于 total**。
 
@@ -141,6 +144,7 @@ def caps(total: int, pools) -> dict:
     return out
 
 
+# 生效条件：total 给出后，pools 为 None/False 等使 resolve(pools) 返回假值时返回 {'enabled': False, 'total': int(total), 'note': ...}；cfg 为真时用 caps(total, cfg) 并逐池取 cfg[p]["weight"]/cfg[p]["cap_ratio"]，返回启用态计划。
 def plan(total: int, pools=None) -> dict:
     """分池计划（供审计 / A/B 复算）：额度 + 系数 + 是否启用。"""
     cfg = resolve(pools)
@@ -155,6 +159,7 @@ def plan(total: int, pools=None) -> dict:
             "index_prefixes": list(INDEX_PREFIXES)}
 
 
+# 生效条件：pools 为 None/False 使 resolve(pools) 返回假值时返回 1.0；cfg 为真时返回 float(cfg[pool_of(node_id, entry)]["weight"])，其中 entry 缺省为 None。
 def weight_of(node_id, entry=None, pools=None) -> float:
     """节点的打分乘数（未启用分池 → 1.0，保证原行为）。"""
     cfg = resolve(pools)
@@ -163,6 +168,7 @@ def weight_of(node_id, entry=None, pools=None) -> float:
     return float(cfg[pool_of(node_id, entry)]["weight"])
 
 
+# 生效条件：docs 与 total 给出后无条件调用 take(docs, total, pools=pools, key_of=key_of) 并只返回其第 0 项，pools 与 key_of 缺省为 None 原样透传。
 def allocate(docs, total: int, *, pools=None, key_of=None) -> list:
     """分池截断（只要结果；需要各池实取数用 `take()`）。未启用 → 平截（原行为）。
 
@@ -172,6 +178,7 @@ def allocate(docs, total: int, *, pools=None, key_of=None) -> list:
     return take(docs, total, pools=pools, key_of=key_of)[0]
 
 
+# 生效条件：cfg 为真时先 quota=caps(total, cfg)，遍历 docs 时 key_of 为真则用 key_of(d) 解出 (nid, entry)、否则把 d 解包为 (nid, entry)，按 pool_of(nid, entry) 入 buckets；backflow 为真时以 total 减去各池 min(len(buckets[p]), quota[p]) 得 left，按 POOL_ORDER 只对尚有 room 的池补 quota 到 left 用尽为止，返回 (buckets, quota)。
 def _bucketize(docs, total: int, cfg, key_of, backflow: bool):
     """归池 + 分额 + 回流 → `(buckets, quota)`（`take` 与 `cut_report` 共用）。"""
     quota = caps(total, cfg)
@@ -193,6 +200,7 @@ def _bucketize(docs, total: int, cfg, key_of, backflow: bool):
     return buckets, quota
 
 
+# 生效条件：docs 经 list(docs or [])（None/空容器→[]），pools 为 None/False 使 resolve(pools) 返回假值时返回 (docs[:int(total)], {})；cfg 为真时转为 cut_report(docs, total, pools=pools, key_of=key_of, backflow=backflow) 并返回 (picked, report["taken"])。
 def take(docs, total: int, *, pools=None, key_of=None, backflow: bool = True):
     """分池截断并**回报各池实取数** → `(picked, taken)`。
 
@@ -210,6 +218,7 @@ def take(docs, total: int, *, pools=None, key_of=None, backflow: bool = True):
     return picked, report["taken"]
 
 
+# 生效条件：docs 经 list(docs or [])、total 经 int(total)，pools 为 None/False 使 resolve(pools) 返回假值时返回 (docs[:total], {"enabled": False})；cfg 为真时用 _bucketize(docs, total, cfg, key_of, backflow)，按 POOL_ORDER 逐池取 buckets[p][:quota[p]] 拼接 picked 并记录 taken/cands/lost，返回启用态完整 report。
 def cut_report(docs, total: int, *, pools=None, key_of=None,
                backflow: bool = True):
     """同 `take`，但回报**完整池账** → `(picked, report)`。
@@ -235,11 +244,13 @@ def cut_report(docs, total: int, *, pools=None, key_of=None,
                     "cands": cands, "taken": taken, "lost": lost}
 
 
+# 生效条件：docs 与 total 给出后无条件调用 take(docs, total, pools=pools, key_of=doc_key) 并只返回其第 0 项，pools 缺省为 None 原样透传。
 def cut(docs, total: int, *, pools=None) -> list:
     """检索 T2/T3 截断点专用：`docs = [(entry, fm, content)]`（只取结果）。"""
     return take(docs, total, pools=pools, key_of=doc_key)[0]
 
 
+# 生效条件：report 为真值且 report.get("enabled") 为真时，把 dict(report["taken"])/dict(report["cands"])/dict(report["lost"]) 写入 stat 的 pool_taken/pool_cands/pool_lost；否则一个键都不写，始终返回 stat。
 def record_audit(stat: dict, report) -> dict:
     """把 `cut_report` 的池账落进检索 `stat`（**关闭态不写** → 不伪造池账）。
 
@@ -252,6 +263,7 @@ def record_audit(stat: dict, report) -> dict:
     return stat
 
 
+# 生效条件：d[1].get("id") 取到真值（非 None/空串等假值）时以其为 node_id，否则回落 d[0]["path"]，并总是把 d[0] 作为 entry 返回；d[0] 无 "path" 键时在回落分支抛 KeyError。
 def doc_key(d):
     """检索文档三元组 `(entry, fm, content)` → `(node_id, entry)`。"""
     return (d[1].get("id") or d[0]["path"]), d[0]
@@ -261,6 +273,7 @@ def doc_key(d):
 # 口径冻结与复测（只读）
 # --------------------------------------------------------------------------
 
+# 生效条件：xs 先按 float 排序，xs 为空时返回 0.0；否则取 idx=max(0, min(len(xs)-1, ceil(q*len(xs))-1)) 并返回 xs[idx]，q 本身未做取值范围校验。
 def _pct(xs, q):
     """分位数（最近秩法，确定性；零依赖）。"""
     xs = sorted(float(x) for x in xs)
@@ -270,6 +283,7 @@ def _pct(xs, q):
     return xs[idx]
 
 
+# 生效条件：ids=sorted((cg.index.get("nodes") or {}).keys()) 为空时返回 []；否则 n 经 max(1, int(n))（n=0 会变成 1）、step=max(1, len(ids)//max(1,int(n)))，对 ids[::step][:max(1,int(n))] 逐个 cg._read(entry)，读失败或无 content 则 continue，首个以 # 开头的行按「含全角冒号取其后、否则去 # 与空格」生成 q，q 非空才追加，返回 out。
 def bench_queries(cg, n: int = 50) -> list:
     """从索引**确定性**取样查询词（按 id 排序等距抽，取节点标题行）。
 
@@ -308,10 +322,12 @@ DELTA_KEYS = ("p95_scanned", "p50_scanned", "mean_candidates",
               "index_share", "knowledge_share", "pool_lost_rate")
 
 
+# 生效条件：xs 为真值（非空容器）时返回 sum(xs)/len(xs)，xs 为假值（空容器或 None）时返回 0.0。
 def _mean(xs):
     return (sum(xs) / len(xs)) if xs else 0.0
 
 
+# 生效条件：res 为假值（None/空列表）时返回空 dict；否则对每个 r 取 node=r[0] or {}，以 pool_of(node.get("id"), node.get("frontmatter")) 归池并累加计数，返回 out。
 def _pool_counts(res) -> dict:
     """结果集的归池构成（对分池**敏感**的口径：索引类是否吃满召回）。"""
     out = {}
@@ -322,6 +338,7 @@ def _pool_counts(res) -> dict:
     return out
 
 
+# 生效条件：queries 为真值时用 list(queries)、为假值（None/空列表）时改用 bench_queries(cg, n=n_queries)；逐 q 调 cg.search(q, k=int(k), record=False, judge=judge, pools=pools) 且该调用抛异常则跳过该 q；meta.get("pre_cap") 为 None 时回落 meta.get("candidates")/cap，仅 cap 为真且 pre>cap 才计入截断与损失，且 pl.get("lost") 与 pl.get("cands") 均非空才计入 pool_lost_rate。
 def measure(cg, queries=None, *, k: int = 20, pools=None, judge: bool = False,
             n_queries: int = 50) -> dict:
     """同口径跑一遍（**只读**）：系统成本口径 + 结果构成口径 + 池级截断损失。
@@ -387,12 +404,14 @@ def measure(cg, queries=None, *, k: int = 20, pools=None, judge: bool = False,
                      "同口径前后对比只看方向与幅度，不当绝对结论")}
 
 
+# 生效条件：调用即从 md_cg.mdcg 取 GLOBAL_CAP（getattr 缺省 0），取到假值（0/None/空串）时经 or 0 回落 0，返回 int(...)。
 def meta_cap(cg) -> int:
     """读当前全局额度（避免硬编码漂移）。"""
     from . import mdcg
     return int(getattr(mdcg, "GLOBAL_CAP", 0) or 0)
 
 
+# 生效条件：queries 为真值时用 list(queries)、为假值（None/空列表）时用 bench_queries(cg, n=n_queries)；before 恒以 pools=None 调用 measure，after 在 pools 为 None 时用模块常量 WEIGHTS、pools 显式（含 False）时原样传入；delta 只统计 DELTA_KEYS 中 before/after 两侧均为 int/float 的键，其余不参与 Δ 计算。
 def compare(cg, queries=None, *, k: int = 20, pools=None, n_queries: int = 50) -> dict:
     """§七 要求的「同口径复测」：关闭态 vs 启用态 一并给出 + 差值 + 副作用归因。"""
     qs = list(queries) if queries else bench_queries(cg, n=n_queries)
@@ -418,6 +437,7 @@ def compare(cg, queries=None, *, k: int = 20, pools=None, n_queries: int = 50) -
                             "只说明该口径测不到池内重分配")}
 
 
+# 生效条件：无入参，调用即返回由模块常量 POOL_ORDER/WEIGHTS/INDEX_PREFIXES/NEG_LAYERS/ENV_SWITCH 组装的自描述 dict，cap_ratio_sum 为 round(sum(WEIGHTS[p]["cap_ratio"] for p in POOL_ORDER), 12)。
 def catalog() -> dict:
     """自描述（供 MCP / 人工核对）。"""
     return {"layer": "召回分池与降权（§七）",
@@ -441,6 +461,7 @@ def catalog() -> dict:
             }
 
 
+# 生效条件：pools 非 None 且非 False 时原样返回 pools；pools 为 None 或 False 时读 os.environ.get(ENV_SWITCH)，缺失/空串经 or "" 归空串并 strip().lower()，属于 ("1","on","true","yes","y") 则返回 True，否则返回 None。
 def from_env(pools=None):
     """载体侧开关：`pools` 显式给出时优先；否则读 `MDCG_POOLING`（默认关）。"""
     if pools is not None and pools is not False:
