@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-083-batch-c83-fix-d1-d2-dual",
+ "round": 5,
+ "candidate_commit": "39280b3",
+ "branch": "task/iter-083-batch-c83-fix-d1-d2-dual",
+ "unit_job": "h1789673174060_cd8749",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "条件与源码一致：以 entry[\"path\"] 为键，未命中时 orig(entry) 存入 cache，最终返回 cache[p]；命中即返回缓存。闭包来源说明不违背嵌套定义，且无额外断言。\nreason: 条件准确覆盖 cache 命中/未命中分支及必需 entry[\"path\"]，无源码不符或超范围断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
