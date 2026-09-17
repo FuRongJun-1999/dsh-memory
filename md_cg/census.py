@@ -31,6 +31,7 @@ DEFAULT_ROOT = os.path.join(
 ARCHIVE_DIRS = ("trash", "_protected_history", "_protected", "_index_log", "hippocampus")
 
 
+# 生效条件：当 root 为记忆库根目录、其下 .md 能被 nodefile.loads 解析出 frontmatter 时，返回 [(node_id, layer, condition_space, tags)...]；ARCHIVE_DIRS 与 _protected_history_ 目录整棵剪枝，无 frontmatter 的 md 跳过。
 def load(root):
     """遍历 md 记忆库根，返回 [(node_id, layer, condition_space, tags), ...]。
 

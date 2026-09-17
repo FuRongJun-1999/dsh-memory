@@ -101,6 +101,7 @@ def _item(cg, nid) -> dict:
     return it
 
 
+# 生效条件：ids 非空时返回经 is_candidate(cg, i) 过滤后的显式候选与 meta.source='explicit_ids'；ids 为空时经 refine._pool(cg, PREFIX) 扫描返回候选与 meta.source='scan'（含 skipped_protected）。
 def candidates(cg, ids=None):
     """候选池（只读）→ (ids, meta)。"""
     if ids:
