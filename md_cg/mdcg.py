@@ -73,6 +73,7 @@ _LIVE_CGS = weakref.WeakSet()
 _ATEXIT_HOOK = None
 
 
+# 生效条件：当模块级 `_LIVE_CGS` 含实例时，函数对每个实例调用 close() 并吞掉异常，不返回值。
 def _atexit_flush_all():
     """进程退出兜底：把仍存活实例的脏索引落盘（异常吞掉——退出路径不该再抛）。"""
     for cg in list(_LIVE_CGS):
@@ -82,6 +83,7 @@ def _atexit_flush_all():
             pass
 
 
+# 生效条件：当模块级 `_ATEXIT_HOOK` 为 None 时注册 `_atexit_flush_all` 并缓存为 `_ATEXIT_HOOK`，否则直接返回已缓存的 `_ATEXIT_HOOK`。
 def _register_atexit_hook():
     global _ATEXIT_HOOK
     if _ATEXIT_HOOK is None:
@@ -90,6 +92,7 @@ def _register_atexit_hook():
     return _ATEXIT_HOOK
 
 
+# 生效条件：当 `len(scored)` 与 `len(docs)` 不一致时，该分支不按 `scored` 排序而直接返回 `cut_report(docs, total, ...)` 并在 `stat` 非 None 时标记 `insert_fallback`；二者同长时按 `scored` 排序后截断到 `total` 并返回 `cut_report(ranked, total, ...)`。
 def cut_by_relevance(docs, scored, total, pools=None, key_of=None, stat=None):
     """候选截断：**先按相关度排序，再截断到 `total`**（截断依据=相关度）。
 
@@ -193,6 +196,7 @@ def semantic_on() -> bool:
     return os.environ.get("MDCG_SEMANTIC") == "1"
 
 
+# 生效条件：当 `text` 含英文字母且环境变量 `MDCG_EN_ATOMS` 为 `'1'` 且 `normalize_en_query` 可用时，返回小写化并过滤后的中文语素列表；`text` 无字母、开关未开或归一化异常时返回 `[]`。
 def en_zh_terms(text: str) -> list:
     """原子级中英归一 v1（2026-09-13 管线接入）：英文词 → 中文语素召回词。
 
@@ -229,6 +233,7 @@ def en_zh_terms(text: str) -> list:
             if t and (len(t) >= 2 or t not in _EN_ZH_PRONOUNS)]
 
 
+# 生效条件：当 `text` 经 `en_zh_terms` 产出非空语素时，返回长度≥2 的语素集合与相邻中文语素拼接的 char-bigram 并集；语素为空时返回空集。
 def en_zh_bigrams(text: str) -> set:
     """英→中语素的打分侧补充：中文语素进 query bigram 集合。
 
@@ -259,6 +264,7 @@ def en_zh_bigrams(text: str) -> set:
     return grams
 
 
+# 生效条件：当 `query` 为字符串时，返回整句、≥2 字符分词、同义词组展开、`cn_recall_grams` 及（若 `MDCG_EN_ATOMS=1`）英→中语素去重后的列表；无扩展项时至少含归一化整句。
 def expand_query_terms(query: str) -> list:
     """与 aeis.core 同实现：整句 + 分词（≥2字符）+ 同义词组展开 + 英文归一化
     + 英→中语素召回扩展（en_zh_terms，MDCG_EN_ATOMS=1 开启，默认关）。"""
@@ -287,6 +293,7 @@ def expand_query_terms(query: str) -> list:
     return list(dict.fromkeys(terms))
 
 
+# 生效条件：当 `s` 为字符串时，先去掉空白字符；去空白后长度≤1 返回 `{s}`，否则返回所有相邻 2-gram 集合。
 def bigrams(s: str) -> set:
     s = "".join(s.split())
     if len(s) <= 1:
@@ -362,6 +369,7 @@ EN_IRREGULAR = {
     "dealt": "deal", "lent": "lend", "bent": "bend",
 }
 
+# 生效条件：当 `w` 为英文单词字符串时，先查 `EN_IRREGULAR` 映射，否则按保守后缀规则（-ing/-ed/-ies/-es/-s 等长度阈值）返回归一化词形；不适用规则时原样返回 `w`。
 def strip_tense_en(w: str) -> str:
     """英文时态/复数归零（保守策略：宁可少剥不可误剥）"""
     if w in EN_IRREGULAR:
@@ -424,6 +432,7 @@ SCORE_MODES = ("legacy", "jaccard")
 SCORE_MODE = os.environ.get("MDCG_SCORE_MODE") or "legacy"
 
 
+# 生效条件：当 `qb` 与 `nb` 均为非空集合时，若 `mode` 或模块级 `SCORE_MODE` 为 `'jaccard'` 返回交集/并集，否则返回交集/len(`qb`)；任一为空返回 0.0。
 def lexical_sim(qb: set, nb: set, mode: str = None) -> float:
     """查询/文档二元组集合的相似度。mode 缺省取模块级 `SCORE_MODE`。
 
@@ -438,6 +447,7 @@ def lexical_sim(qb: set, nb: set, mode: str = None) -> float:
     return inter / len(qb)
 
 
+# 生效条件：当 `query` 为字符串时，返回含整句、≥2 字符分词及命中 `SYNONYM_GROUPS_WEIGHTED` 组加权项（同名取最大权重）的字典；空串返回 `{}`。
 def expand_query_terms_weighted(query: str) -> dict:
     """分级版查询扩展：返回 {词: 隶属度}，隶属度 ∈ (0, 1]。
 
@@ -486,6 +496,7 @@ def _extract_json_array(raw: str):
     return json.loads(s[i:j + 1])
 
 
+# 生效条件：当 `query` 非空时，若 `cache` 传入且含该查询则返回其副本；若 `llm_fn` 为 None 返回带 `__source__='whitebox'` 的白箱加权字典；若 `llm_fn` 返回可解析 JSON 数组则合并至多 `max_terms` 项并标 `'llm'`；异常时回退白箱并标 `'whitebox_fallback'`；空 `query` 返回 `{}`。
 def expand_query_terms_llm(query: str, llm_fn=None, cache=None,
                            max_terms: int = 12) -> dict:
     """LLM 查询侧扩展（黑箱只在**查询时刻**，索引侧全程白箱）。
