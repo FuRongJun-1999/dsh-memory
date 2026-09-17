@@ -35,10 +35,12 @@ LANG_WEAK = "other"
 # --------------------------------------------------------------------------
 # Python：AST 提取（精确）
 # --------------------------------------------------------------------------
+# 生效条件：node 传入后，取 ast.get_docstring(node, clean=True) 的返回值，若该返回值为假值则回落空串，返回 strip 后截断到模块级 MAX_DOC 的文本；
 def _doc_of(node):
     return (ast.get_docstring(node, clean=True) or "").strip()[:MAX_DOC]
 
 
+# 生效条件：lines 为源码行列表、lineno 为 1-based 定义行时，从 lines[lineno-2] 向上收集连续以 "#" 起始的行，遇空行且已收集到注释即停止，遇空行且未收集到注释则跳过继续，遇非注释非空行停止，返回按物理顺序排列的注释列表；lineno<=1 或初始无匹配时返回空列表；
 def _leading_comments(lines, lineno):
     """定义行前的连续注释（# ...）。"""
     out, i = [], lineno - 2
@@ -56,12 +58,14 @@ def _leading_comments(lines, lineno):
     return list(reversed(out))
 
 
+# 生效条件：node 具有真值 body 属性时返回 body[0].lineno；否则（body 为 None/假值/缺属性）返回 node.lineno；
 def _body_first_line(node):
     """符号体首个语句的行号（1-based）；无体 → 定义行本身（窗口为空）。"""
     body = getattr(node, "body", None) or []
     return body[0].lineno if body else node.lineno
 
 
+# 生效条件：lines 为 source.split("\n") 得到的行列表、lineno 为 1-based 定义行、body_lineno 为 1-based 体首语句行时，在 end=max(lineno, body_lineno-1) 下扫描 lines[lineno:end]，收集 strip 后以 "#" 起始的行并返回；body_lineno-1 <= lineno 时返回空列表；
 def _body_comments(lines, lineno, body_lineno):
     """符号**体内首个语句之前**的连续 `#` 注释（定义行紧下方，声明头区）。
 
@@ -89,6 +93,7 @@ def _body_comments(lines, lineno, body_lineno):
     return out
 
 
+# 生效条件：lines 为源码行列表且 node 含 lineno 时，返回 _leading_comments(lines, node.lineno) 与 _body_comments(lines, node.lineno, _body_first_line(node)) 的拼接结果（leading 在前、body 在后）；
 def _symbol_comments(lines, node):
     """符号的「源码 CCG 区」= leading 窗口 + body 窗口，**按物理行序**合并。
 
@@ -101,6 +106,7 @@ def _symbol_comments(lines, node):
             + _body_comments(lines, node.lineno, _body_first_line(node)))
 
 
+# 生效条件：source 与 node 传入后，取 ast.get_source_segment(source, node) 的返回值，若抛 ValueError/TypeError 或返回假值则 seg 为空串，返回 seg.split("\n",1)[0].strip()[:200]；
 def _sig(source, node):
     try:
         seg = ast.get_source_segment(source, node) or ""
@@ -109,6 +115,7 @@ def _sig(source, node):
     return seg.split("\n", 1)[0].strip()[:200]
 
 
+# 生效条件：tree 为 AST 根节点时，调用嵌套 rec(tree, "") 按 ast.iter_child_nodes 源码顺序递归产出 (定义节点, 所属类名)；ClassDef 自身以当前 parent 产出并对其内部递归改用类名，FunctionDef/AsyncFunctionDef 以当前 parent 产出并保持 parent，其他节点递归保持 parent；
 def _walk_defs(tree):
     """按**源码顺序**产出 (定义节点, 所属类名)。
 
@@ -116,6 +123,7 @@ def _walk_defs(tree):
     父级归属是「子功能」与「不适用条件」两项的判定依据（同名方法必须能区分
     是哪个类的），不能省。
     """
+# 生效条件：node 为 AST 节点、parent 为当前所属类名字符串时，按 ast.iter_child_nodes(node) 顺序递归产出 (定义节点, 所属类名)：ClassDef 以 parent 产出并递归改用 child.name，FunctionDef/AsyncFunctionDef 以 parent 产出并递归保持 parent，其他节点递归保持 parent；
     def rec(node, parent):
         for child in ast.iter_child_nodes(node):
             if isinstance(child, ast.ClassDef):
@@ -129,6 +137,7 @@ def _walk_defs(tree):
     return rec(tree, "")
 
 
+# 生效条件：source 可被 ast.parse 成功解析时，返回首项为 module 条目（path、name=os.path.basename(path) or "<module>"、lineno=1、end=len(source.split("\n"))、doc=_doc_of(tree)）后接 _walk_defs(tree) 各定义条目的列表；source 触发 SyntaxError 时抛 ValueError(f"{path}:{exc.lineno}: {exc.msg}")；
 def _extract_python(source, path):
     try:
         tree = ast.parse(source)
@@ -163,6 +172,7 @@ _JS_DEF = re.compile(
 _JS_MODULE_SCOPE_ONLY = ("const", "type", "enum")
 
 
+# 生效条件：lines 为源码行列表、lineno 为 1-based 定义行时，从 lines[lineno-2] 向上收集连续以 "//" 开头的行注释，或遇到 strip 后以 "*/" 结尾的行时向上收集到首个 strip 后以 "/*" 开头的行（含该行）作为块注释；lookback 默认 25 限制收集行数，lookback=0 时循环不进入并返回空列表；遇空行且已有收集即停止，空行且未收集则跳过，其他行停止；
 def _leading_js_comments(lines, lineno, lookback=25):
     """定义行前的连续行注释块，或紧邻的 /** ... */ 块。"""
     out, i = [], lineno - 2
@@ -227,6 +237,7 @@ EXTRACTORS = {
 SUFFIX = tuple(sorted(EXTRACTORS))
 
 
+# 生效条件：lines 为行列表、lineno 与 end 为 1-based 行号时，对 "\n".join(lines[max(0, lineno-1):max(0, end)]) 的 UTF-8 字节求 sha1，返回其十六进制前 12 位；
 def region_hash(lines, lineno, end):
     """被引用行的 sha1 前 12 位（变更探测用，非内容寻址）。
 
@@ -237,6 +248,7 @@ def region_hash(lines, lineno, end):
     return hashlib.sha1(seg.encode("utf-8")).hexdigest()[:12]
 
 
+# 生效条件：source 与 path 传入后，ext=suffix or os.path.splitext(path)[1].lower()；当 ext 存在于模块级 EXTRACTORS 时，用对应 fn(source, path) 抽取并给每个条目补 lang/precise/basis/hash（hash 由 region_hash(lines, it["lineno"], it["end"]) 算）后返回；ext 不在 EXTRACTORS 时抛 ValueError(f"无提取器（suffix={ext or '<none>'}）")；
 def extract(source, path="", suffix=None):
     """抽取一个文件的条目；按后缀分派提取器。语法错误抛 ValueError。
 
@@ -258,6 +270,7 @@ def extract(source, path="", suffix=None):
     return items
 
 
+# 生效条件：item 为条目字典时，path=item.get("path") or ""、top=path.split("/")[0] or "."，按 item.get("precise", True)（缺键默认 True，键存在假值走弱提取）选择 LANG_COMPILER 或 LANG_WEAK 方法文本，返回 observation_position 用 top、time_window 用 nodefile.FULL_TIME_WINDOW_MIN 与 nodefile.FULL_TIME_WINDOW_MAX、observation_tool 用方法文本、existence_constraint 含 path 的四槽字典；
 def condition_space(item):
     """条目 → 条件空间四槽（纯函数，**唯一来源**）。
 
@@ -291,6 +304,7 @@ def condition_space(item):
     }
 
 
+# 生效条件：item 为含 "name"、"kind"、"path"、"lineno"、"end" 键的条目字典时（缺这些必需键会 KeyError），返回由 item.get("comments") 的源码 CCG 区、合成 CCG 区、索引元信息区依次拼接的正文；parent/doc/comments/sig 按 item.get 缺键或假值回落，precise 缺键默认 True、键存在假值走弱提取，item["lineno"]/item["end"] 用于 basis 与位置行；
 def render(item):
     """条目 → 正文三分区：源码 CCG 区（人工优先）→ 合成 CCG 区 → 索引元信息区。
 
@@ -350,12 +364,14 @@ def render(item):
     return "\n".join(lines)
 
 
+# 生效条件：item 为含 "path" 与 "name" 键的字典时（缺任一键会 KeyError），返回 "code_" 加 (item["path"] + "::" + item["name"]).encode("utf-8") 的 sha1 十六进制前 12 位；
 def node_id(item):
     """稳定 id：path::name 的短哈希（重复索引幂等）。"""
     key = (item["path"] + "::" + item["name"]).encode("utf-8")
     return "code_" + hashlib.sha1(key).hexdigest()[:12]
 
 
+# 生效条件：skip_dirs 传入后，遍历 (skip_dirs or ()) 把每项 str(raw).strip().replace("\\","/").strip("/")，空串跳过；含 "/" 的加入 paths，不含 "/" 的加入 names；若归一化后无规则返回 (None, [])，否则返回 (hit, rules)，其中 hit(rel_dir, base) 在 base 命中 names 或 rel_dir 等于/前缀匹配 paths 中某条加 "/" 时为 True；
 def skip_matcher(skip_dirs):
     """把调用方的 `skip_dirs` 编译成「该子目录是否排除」的判定 `hit(rel_dir, base)`。
 
@@ -385,6 +401,7 @@ def skip_matcher(skip_dirs):
     if not rules:
         return None, []
 
+# 生效条件：在 skip_matcher 返回的闭包中，rel_dir 与 base 传入后，若 base 命中由 skip_dirs 归一化出的不含 "/" 的目录名集合 names 则返回 True；否则若 rel_dir 等于或以其某个含 "/" 的路径规则 paths 加 "/" 为前缀则返回 True；两者都不满足返回 False；
     def hit(rel_dir, base):
         if base in names:
             return True
