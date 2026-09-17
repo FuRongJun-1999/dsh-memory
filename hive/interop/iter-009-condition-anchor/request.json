@@ -1,0 +1,30 @@
+{
+ "kind": "verify-request",
+ "iter_id": "iter-009-condition-anchor",
+ "from": "dsh-memory（主力实例）",
+ "to": "编外验证端（zcode 实例）",
+ "candidate_commit": "9d444fe98a76",
+ "branch": "task/iter-009-condition-anchor",
+ "base_commit": "2236dc440fc5",
+ "subject": "环二门禁增补：候选生效条件的「锚点」确定性判据（零 LLM）",
+ "claim": "新增 condition_anchor：以 ast 取签名与体内引用，判定候选条件是否锚定真实输入/状态；输出 ANCHORED/WEAK/BLINDSPOT/REJECT_META；不可判一律 BLINDSPOT、不默认通过。",
+ "files": [
+  "md_cg/condition_anchor.py",
+  "md_cg/test_condition_anchor.py"
+ ],
+ "not_in_scope": [
+  "不改任何已有模块行为",
+  "不接入 comment_gate 主流程（待裁定后再接线）",
+  "不判语义正确性"
+ ],
+ "what_to_verify": [
+  "A1 机械重放：git archive 抽分支树后 python -X utf8 -m md_cg.test_condition_anchor（预期 PASS 13 / FAIL 0）",
+  "A2 反证：构造一个「条件锚点存在但语义错误」的样例，确认本判据**不**误判为通过（说明它只是锚点门禁，非语义判据）",
+  "A3 边界：确认 self/cls 跳过、kwonly 无默认值算必需、不可解析与无参无引用均为 BLINDSPOT"
+ ],
+ "replay": {
+  "extract": "git archive --format=tar task/iter-009-condition-anchor | tar -xf - -C <tmp>",
+  "run": "PYTHONPATH=<tmp> PYTHONUTF8=1 python -X utf8 -m md_cg.test_condition_anchor"
+ },
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
