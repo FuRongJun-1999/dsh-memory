@@ -3,12 +3,15 @@
 //! spec.json（v0.2）：
 //! ```json
 //! {
-//!   "model": "glm-4.7",             // 必填：LLM 模型名
+//!   "model": "<与 HIVE_API_BASE 配对的模型名>",  // 必填：LLM 模型名（确定性执行写 "cmd"）
 //!   "system_prompt": "...",         // 可选：系统提示词
 //!   "user_prompt": "...",           // 必填：用户提示词
 //!   "context_files": ["a.md"],      // 可选：上下文文件（相对 workdir 或绝对）
 //!   "workdir": "...",               // 可选：context 相对路径基准（默认 submit 时 cwd）
 //!   "timeout_s": 300,               // 可选：硬超时（默认 300，5..=3600）
+//!   "command": ["python", "x.py"],  // 可选：确定性执行（单条，零 LLM；需 serve 用 exec_cmd.py）
+//!   "commands": [{"command": [...]}], // 可选：多步确定性执行（同上，逐步落 step_i_stdout.txt）
+//!   "orchestrate": {"subtasks": [...]}, // 可选：编排（同上，走 orch.py）
 //!   "max_tokens": 4096,             // 可选
 //!   "temperature": 0.7,             // 可选，[0, 2]
 //!   "thinking": {"type": "enabled"},  // 可选：思考开关（DeepSeek V4.1 同形，type ∈ enabled|disabled）

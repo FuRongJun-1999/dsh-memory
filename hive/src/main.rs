@@ -106,6 +106,25 @@ fn run() -> i32 {
     }
 }
 
+/// serve 心跳新鲜窗口（毫秒）——**必须与 `serve_start.py` 的 `FRESH_S = 15` 同口径**。
+/// 两面用同一窗口判「serve 是否在跑」，否则同一个 serve 会得到两个结论
+/// （本仓曾出现 CLI doctor 5000ms vs serve_start 15000ms 的真实口径冲突）。
+const FRESH_MS: f64 = 15_000.0;
+
+/// 单实例判据：心跳新鲜 **且** pid 存活（与 `serve_start.serve_alive()` 同口径）。
+/// 返回在跑 serve 的 pid。
+fn serve_running(jobs: &PathBuf) -> Option<u32> {
+    let hb = job::read_serve_heartbeat(jobs)?;
+    let ts = hb.get("ts").and_then(|x| x.as_f64()).unwrap_or(0.0);
+    if job::now_ms() as f64 - ts >= FRESH_MS {
+        return None;
+    }
+    hb.get("pid")
+        .and_then(|x| x.as_f64())
+        .map(|f| f as u32)
+        .filter(|p| pid_alive(*p))
+}
+
 fn cmd_serve(args: &[String], jobs: PathBuf) -> i32 {
     let workers = arg_of(args, "--workers")
         .and_then(|w| w.parse::<usize>().ok())
@@ -115,7 +134,39 @@ fn cmd_serve(args: &[String], jobs: PathBuf) -> i32 {
                 .and_then(|w| w.parse::<usize>().ok())
                 .unwrap_or(4)
         });
-    let cfg = ServeCfg::new(jobs, workers, default_exec_py());
+    // 单实例守卫：同一 jobs 目录至多一个 serve。CLI 裸起 serve 曾无此检查，与
+    // `serve_start.start()`（有检查）形成「同一约束两种执行结果」的口径冲突——
+    // 双实例会互覆 `_serve.json` 致 pid 判据漂移，`--stop` 只杀得掉一个。
+    if !args.iter().any(|a| a == "--force") {
+        if let Some(pid) = serve_running(&jobs) {
+            println!(
+                "{}",
+                err_json(format!(
+                    "serve 已在运行（pid={pid}）——同一 jobs 目录至多一个 serve。\
+                     先 `python hive/serve_start.py --stop`；确需重复拉起请加 --force"
+                ))
+            );
+            return 1;
+        }
+    }
+    let exec_py = default_exec_py();
+    // 执行器资格自检：env 未给 HIVE_EXEC_PY 时回退 exec.py（仅 LLM 委托），确定性执行
+    // （spec.command / commands / orchestrate）在本 serve 上不可用。这正是「CLI 裸起
+    // serve」与「MCP 拉起（serve_start 读 config.local.json 注入完整 env）」的能力差异
+    // 点——**显式告警，不允许静默残缺**（静默残缺的后果是以为在跑确定性任务、实际走了
+    // LLM 路径烧 token）。
+    if std::env::var("HIVE_EXEC_PY")
+        .map(|v| v.trim().is_empty())
+        .unwrap_or(true)
+    {
+        eprintln!(
+            "[hive serve] 警告：HIVE_EXEC_PY 未设置，执行器回退 {}（llm_only）——\
+             确定性执行不可用。正路是 `python hive/serve_start.py`（读 config.local.json）；\
+             或显式设 HIVE_EXEC_PY=<hive>/exec_cmd.py",
+            exec_py.display()
+        );
+    }
+    let cfg = ServeCfg::new(jobs, workers, exec_py);
     let stop = Arc::new(AtomicBool::new(false));
     // Ctrl+C 简易处理：不挂 handler（零依赖下跨平台信号处理受限），
     // 进程被终止时 claimed/running 由下次启动的 recover_orphans 清理。
@@ -317,13 +368,25 @@ fn pid_alive(pid: u32) -> bool {
     }
 }
 
+/// 无 serve 心跳时的执行器资格兜底：按本进程 env 推导，并**如实标注来源**
+/// （`doctor_env_or_default` ≠ serve 自报值——判资格时应优先看 `exec_source`）。
+fn fallback_exec() -> (String, String, &'static str) {
+    let p = default_exec_py();
+    let mode = scheduler::exec_mode_of(&p);
+    (p.to_string_lossy().to_string(), mode, "doctor_env_or_default")
+}
+
 fn cmd_doctor(jobs: PathBuf) -> i32 {
     std::fs::create_dir_all(&jobs).ok();
     let now = job::now_ms();
+    // 执行器资格：**优先采信 serve 自报（心跳），无心跳才回退本进程 env 推导**。
+    // 跨进程 env 不可反查，故心跳是唯一权威来源；用本进程 env 判资格必得错位结论
+    // （本仓真实案例：CLI 裸起 serve 的执行器是 exec.py，doctor 进程 env 里却有
+    //  指向 exec_cmd.py 的 HIVE_EXEC_PY，据此判资格会把「llm_only」看成「兼跑命令」）。
     let (serve_alive, serve_info) = match job::read_serve_heartbeat(&jobs) {
         Some(v) => {
             let ts = v.get("ts").and_then(|x| x.as_f64()).unwrap_or(0.0);
-            let fresh = now as f64 - ts < 5000.0;
+            let fresh = now as f64 - ts < FRESH_MS; // 与 serve_start.FRESH_S 同口径
             let pid = v.get("pid").and_then(|x| x.as_f64()).map(|f| f as u32);
             let pid_ok = pid.map(pid_alive).unwrap_or(false);
             (
@@ -336,10 +399,40 @@ fn cmd_doctor(jobs: PathBuf) -> i32 {
                         "workers".to_string(),
                         v.get("workers").cloned().unwrap_or(Json::Null),
                     ),
+                    // 执行器资格（serve 启动时固化 → 权威；旧版本心跳无此键时为 null）
+                    (
+                        "exec_py".to_string(),
+                        v.get("exec_py").cloned().unwrap_or(Json::Null),
+                    ),
+                    (
+                        "exec_mode".to_string(),
+                        v.get("exec_mode").cloned().unwrap_or(Json::Null),
+                    ),
                 ]),
             )
         }
         None => (false, Json::Null),
+    };
+
+    // 顶层执行器资格汇总 + 来源标注（诚实：心跳缺失时说明是推导值而非 serve 自报值）。
+    let (exec_py_eff, exec_mode_eff, exec_source) = match &serve_info {
+        Json::Obj(kv) => {
+            let f = |k: &str| {
+                kv.iter()
+                    .find(|(kk, _)| kk == k)
+                    .and_then(|(_, v)| v.as_str())
+                    .map(|s| s.to_string())
+            };
+            match f("exec_py") {
+                Some(p) => (
+                    p,
+                    f("exec_mode").unwrap_or_else(|| "unknown".into()),
+                    "serve_heartbeat",
+                ),
+                None => fallback_exec(),
+            }
+        }
+        _ => fallback_exec(),
     };
 
     let mut counts: Vec<(String, u64)> = Vec::new();
@@ -371,9 +464,30 @@ fn cmd_doctor(jobs: PathBuf) -> i32 {
             ("serve", serve_info),
             ("jobs_dir", Json::Str(jobs.to_string_lossy().to_string())),
             ("task_states", Json::Arr(counts_json)),
+            // 执行器资格（判「本 serve 能否跑确定性任务」看这三项，**不看**下面的 env）
+            ("exec_py", Json::Str(exec_py_eff)),
+            ("exec_mode", Json::Str(exec_mode_eff)),
+            ("exec_source", Json::Str(exec_source.into())),
+            (
+                "exec_note",
+                Json::Str(
+                    "exec_mode 判据=执行器文件名（exec_cmd.py=多态转发：带 command 跑命令、\
+                     不带转 LLM；其余=仅 LLM 委托）。确证正路：提交带 command 的探针任务，\
+                     result.content 以「确定性执行」开头即证明。"
+                        .into(),
+                ),
+            ),
             (
                 "env",
                 Json::Obj(vec![
+                    (
+                        "note".to_string(),
+                        Json::Str(
+                            "本块=doctor 进程自身 env，**仅诊断**；它不是 serve 的 env。\
+                             判 serve 资格请看上面的 exec_py/exec_mode（serve 自报）。"
+                                .into(),
+                        ),
+                    ),
                     (
                         "api_key_set".to_string(),
                         Json::Bool(std::env::var("HIVE_API_KEY").map(|v| !v.is_empty()).unwrap_or(false)),
@@ -395,7 +509,11 @@ fn cmd_doctor(jobs: PathBuf) -> i32 {
             ),
             (
                 "start_cmd",
-                Json::Str("hive serve（或 cargo run -p lingshu-hive -- serve）".into()),
+                Json::Str(
+                    "python hive/serve_start.py（唯一推荐：读 config.local.json 注入完整 env）。\
+                     裸 `hive serve` 不读配置——执行器回退 exec.py（llm_only），确定性执行不可用。"
+                        .into(),
+                ),
             ),
         ])
     );

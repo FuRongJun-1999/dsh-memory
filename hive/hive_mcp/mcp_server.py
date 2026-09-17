@@ -92,15 +92,43 @@ def _exe_path() -> str:
 
 # ---------------------------------------------------------------- serve 管理
 
-def _serve_alive(jobs: str) -> bool:
-    """serve 心跳新鲜度（<5s）判活。"""
-    p = os.path.join(jobs, "_serve.json")
+def _heartbeat(jobs: str) -> dict:
+    """读 serve 心跳（`_serve.json`）——**执行器资格的权威来源**（serve 启动时固化）。
+
+    跨进程 env 不可反查，故「serve 真实生效的执行器」只能由 serve 自己写出来。
+    不存在 / 解析失败 → {}（旧版本心跳无 exec_py/exec_mode 键时也走这里）。
+    """
     try:
-        with open(p, encoding="utf-8") as f:
-            hb = json.load(f)
-        return (time.time() - hb.get("ts", 0) / 1000.0) < 5.0
+        with open(os.path.join(jobs, "_serve.json"), encoding="utf-8") as f:
+            return json.load(f) or {}
     except (OSError, ValueError):
+        return {}
+
+
+def _fresh_s() -> float:
+    """serve 存活判定的心跳新鲜窗口（秒）——**单一常量源 = serve_start.FRESH_S**。
+
+    必须与 CLI 侧 `hive/src/main.rs` 的 `FRESH_MS = 15000` 同口径（跨语言只能靠注释
+    约定 + 守卫测试对齐）。历史缺陷：本处曾硬编码 5.0s，与 serve_start 的 15s、
+    CLI doctor 的 5000ms 形成三处不一致——窗口偏小会把「心跳稍慢」误判为死，进而
+    由 `_ensure_serve` 重复拉起第二个 serve（双实例抢队列 / `_serve.json` pid 互覆 /
+    `--stop` 只杀得掉一个）。serve_start 不可导入时退回 15.0 保底。
+    """
+    try:
+        if HIVE_DIR not in sys.path:
+            sys.path.insert(0, HIVE_DIR)
+        import serve_start  # noqa: PLC0415 —— 同目录模块，延迟导入避开包名歧义
+        return float(serve_start.FRESH_S)
+    except Exception:  # noqa: BLE001
+        return 15.0
+
+
+def _serve_alive(jobs: str) -> bool:
+    """serve 心跳新鲜度判活（窗口见 `_fresh_s`）。"""
+    hb = _heartbeat(jobs)
+    if not hb:
         return False
+    return (time.time() - hb.get("ts", 0) / 1000.0) < _fresh_s()
 
 
 def _ensure_serve(jobs: str) -> dict:
@@ -336,6 +364,7 @@ def _t_doctor(_a: dict) -> dict:
         st = _read_status(jobs, jid)
         s = (st or {}).get("state") or "unknown"
         states[s] = states.get(s, 0) + 1
+    hb = _heartbeat(jobs)
     return {
         "ok": True,
         "serve_alive": _serve_alive(jobs),
@@ -343,9 +372,18 @@ def _t_doctor(_a: dict) -> dict:
         "exe_path": exe,
         "jobs_dir": jobs,
         "task_states": states,
+        # 执行器资格（**优先采信 serve 自报的心跳**，与 CLI doctor 同口径）
+        "exec_py": hb.get("exec_py"),
+        "exec_mode": hb.get("exec_mode"),
+        "exec_source": "serve_heartbeat" if hb.get("exec_py") else "no_heartbeat_or_legacy",
+        "exec_note": ("exec_mode 判据=执行器文件名（exec_cmd.py=多态转发：带 command 跑命令、"
+                      "不带转 LLM；其余=仅 LLM 委托）。确证正路=提交带 command 的探针任务，"
+                      "result.content 以「确定性执行」开头即证明。"),
         "serve_env_source": {
             "note": ("serve 的 env 来源=config.local.json（serve 启动时固化，子进程无法反查）。"
-                     "判资格看本块，**不要**用 mcp_process_env 判——那会得到错位结论。"),
+                     "判资格看本块，**不要**用 mcp_process_env 判——那会得到错位结论。"
+                     "另注：本块是**配置期望值**，serve 实际生效值看顶层 exec_py/exec_mode"
+                     "（改了配置未重启 serve 时两者会不同）。"),
             "path": CONFIG_LOCAL,
             "exists": os.path.exists(CONFIG_LOCAL),
             "keys": sorted(cfg.keys()),
@@ -360,7 +398,9 @@ def _t_doctor(_a: dict) -> dict:
             "api_base": os.environ.get("HIVE_API_BASE") or "(未设→执行器内置默认)",
             "workers": os.environ.get("HIVE_WORKERS", "4"),
         },
-        "start_cmd": "hive serve（或 cargo run -p lingshu-hive -- serve；MCP spawn 会自动拉起）",
+        "start_cmd": ("python hive/serve_start.py（唯一推荐：读 config.local.json 注入完整 env；"
+                      "MCP spawn 会自动拉起）。裸 `hive serve` 不读配置——执行器回退 exec.py"
+                      "（llm_only），确定性执行不可用。"),
     }
 
 

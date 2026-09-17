@@ -164,11 +164,25 @@ pub fn list_jobs(jobs: &Path) -> Vec<String> {
 }
 
 /// 写 serve 心跳。
-pub fn write_serve_heartbeat(jobs: &Path, workers: usize) -> Result<(), String> {
+///
+/// `exec_py` / `exec_mode` 是**执行器资格的权威来源**（serve 启动时固化）：serve 的 env
+/// 对另一个进程不可反查，doctor 若拿自身 env 判资格必得错位结论。故由 serve 把自己
+/// 真实生效的执行器写进心跳——任何入口（CLI doctor / MCP doctor）读同一块即同口径。
+pub fn write_serve_heartbeat(
+    jobs: &Path,
+    workers: usize,
+    exec_py: &Path,
+    exec_mode: &str,
+) -> Result<(), String> {
     let v = Json::Obj(vec![
         ("pid".to_string(), Json::Num(std::process::id() as f64)),
         ("ts".to_string(), Json::Num(now_ms() as f64)),
         ("workers".to_string(), Json::Num(workers as f64)),
+        (
+            "exec_py".to_string(),
+            Json::Str(exec_py.to_string_lossy().to_string()),
+        ),
+        ("exec_mode".to_string(), Json::Str(exec_mode.to_string())),
     ]);
     write_json(&jobs.join("_serve.json"), &v).map_err(|e| e.to_string())
 }

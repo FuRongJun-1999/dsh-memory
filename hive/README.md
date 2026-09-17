@@ -50,13 +50,16 @@ cd hive && cargo build --release
 # 配置密钥（执行器用）
 set HIVE_API_KEY=你的密钥
 
-# 起 serve——推荐正路：serve_start.py 读本地配置注入 env（key 不落命令行历史）
+# 起 serve——**唯一推荐正路**：serve_start.py 读本地配置注入 env（key 不落命令行历史）
 # 配置文件：hive/config.local.json（已 gitignore；值支持 直值 | {"env":"系统变量名"} | {"file":"key文件路径"}）
 # 推荐形态：HIVE_API_KEY 引系统变量（如 DEEPSEEK_API_KEY），HIVE_WEB_SEARCH_KEY 引 key 文件
 python serve_start.py            # 拉起（已在跑则拒绝）；--stop 停止；--status 查看心跳与任务统计
 
-# 或手动起 serve（env 需自行带全：HIVE_API_KEY 必填；默认 4 worker；HIVE_WORKERS 可调）
-target\release\hive.exe serve
+# 手动起 serve（**不读 config.local.json**，env 需自行带全；同一 jobs 目录至多一个 serve）
+# ⚠ 直起 hive.exe serve 而未显式设 HIVE_EXEC_PY 时，执行器回退 exec.py（llm_only）——
+#   spec 的 command / commands / orchestrate 会失败（确定性执行需 exec_cmd.py）。
+#   确需手动起：先 set HIVE_EXEC_PY=<仓>/hive/exec_cmd.py，或直接用上一行的 serve_start.py。
+target\release\hive.exe serve   # 已有 serve 在跑会被拒绝；--force 可强起（迁机 / 心跳残留时用）
 
 # 提交任务（stdin JSON）——模型名须与 HIVE_API_BASE 配对（见 spec 字段表）
 echo {"model":"deepseek-flash","user_prompt":"总结这份文档","context_files":["README.md"]} | target\release\hive.exe submit -
@@ -87,10 +90,20 @@ target\release\hive.exe doctor
 `context_budget_tokens=200000`、`timeout_s=600`（10 分钟）；spawn 返回体 `spec_defaults`
 回显实际生效值便于核对。
 
-**serve env 的真实来源 = `config.local.json`**（`serve_start.py` 读注入）。serve 的 env
-在启动时固化，子进程无法反查——故 `hive_doctor` 把 env 拆两列：`serve_env_source`
-（权威，**判资格看这列**）与 `mcp_process_env`（仅诊断，用它判会得到错位结论）。
-MCP 首次拉起 serve 时同样按「宿主 env + config.local.json」组装，两条拉起路径口径一致。
+**serve env 的真实来源 = `config.local.json`**（**仅当经 `serve_start.py` 拉起时**）。serve 的
+env 在启动时固化，子进程无法反查——故 `hive_doctor` 从**serve 自报的心跳**读执行器资格
+（`exec_py` / `exec_mode` / `exec_source`，**权威**），另有 `serve_env_source`（config 期望值）
+与 `mcp_process_env`（仅诊断，用它判必得错位结论）两组参考值。
+
+**两条拉起路径的 env 口径并不相同**（此为实测缺陷，勿混同）：
+
+- `python hive/serve_start.py` / MCP 首次 spawn → 读 `config.local.json` 注入 ⇒ 与配置一致；
+- 裸 `hive.exe serve` → **不读任何配置**，只认进程 env ⇒ `HIVE_EXEC_PY` 等常缺失，
+  执行器回退 `exec.py`（llm_only），确定性执行不可用（serve 启动时 stderr 会告警；
+  `HIVE_API_KEY` 同样拿不到，LLM 任务报「HIVE_API_KEY 未设置」）。
+
+判定「当前 serve 能不能跑确定性任务」的唯一可靠办法：看 doctor 的 `exec_mode`
+（`exec_source=serve_heartbeat` 时即 serve 自报值），或直接提交一个带 `command` 的探针任务。
 
 ### 各 harness 注册（通用接入）
 
@@ -122,7 +135,9 @@ PYTHONPATH = "<本机 dsh-memory 仓库绝对路径>"
 ```
 
 **只需 `PYTHONPATH`**：jobs 目录、`config.local.json`、`hive.exe` 一律由该路径下的 `hive/`
-推导（`HIVE_JOBS_DIR` / `HIVE_EXE` / `HIVE_CONFIG` 可覆盖）。
+推导（`HIVE_JOBS_DIR` / `HIVE_EXE` / `HIVE_CONFIG` 可覆盖）。注意：这段 env 只作用于
+**MCP 进程自身**（用于定位路径）；**serve 的运行 env 由 `config.local.json` 决定**，
+与客户端配置里写了什么无关——两者不是一回事，不要互相推断。
 
 仓内已含该条目的模板（照抄即可）：
 
@@ -410,8 +425,8 @@ set HIVE_EXEC_PY=<仓>\hive\exec_cmd.py               :: 多态转发：按 spec
 |---|---|---|
 | `HIVE_API_KEY` | 无 | 执行器必填；缺失任务即 error |
 | `HIVE_API_BASE` | GLM 开放平台 | OpenAI 兼容 base url（LLM 通道） |
-| `HIVE_JOBS_DIR` | `<exe>/../../jobs` | 任务根目录 |
-| `HIVE_EXEC_PY` | `<exe>/../../exec.py` | 执行器路径（serve 级）。指向 `hive/exec_cmd.py` 可让同一 serve 兼跑确定性任务与编排任务（多态转发） |
+| `HIVE_JOBS_DIR` | `<exe>/../../jobs` | 任务根目录（**同一 jobs 目录至多一个 serve**：CLI 与 MCP 均有单实例守卫，`--force` 可强起） |
+| `HIVE_EXEC_PY` | `<exe>/../../exec.py` | 执行器路径（serve 级，**启动时固化并写入心跳**）。指向 `hive/exec_cmd.py` 可让同一 serve 兼跑确定性任务与编排任务（多态转发）；**未设时回退默认 `exec.py`（llm_only）——确定性执行不可用**：serve 启动时 stderr 告警、doctor 的 `exec_mode` 显示 `llm_only` |
 | `HIVE_ORCH_TOKEN` | 无 | 编排器派生令牌明文（`python -m md_cg.tokens orch` 签发）；与下行二选一，**缺失即 fail-closed 拒绝启动**（不降级为默认身份） |
 | `HIVE_ORCH_TOKEN_FILE` | 无 | 同上，令牌文件路径（避免明文进环境变量 / 命令行历史） |
 | `HIVE_WORKERS` | 4 | worker 池大小 |

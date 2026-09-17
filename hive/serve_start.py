@@ -33,7 +33,7 @@ EXE = os.environ.get("HIVE_EXE") or os.path.join(
 JOBS = os.environ.get("HIVE_JOBS_DIR") or os.path.join(HIVE_DIR, "jobs")
 SERVE_LOG = os.path.join(JOBS, "_serve.log")
 HEARTBEAT = os.path.join(JOBS, "_serve.json")
-FRESH_S = 15  # 心跳新鲜窗口（serve 每拍 <1s 刷）
+FRESH_S = 15  # 心跳新鲜窗口（serve 每拍 <1s 刷）。**须与 src/main.rs 的 FRESH_MS=15000 同值**——两面判「serve 是否在跑」必须同口径，否则同一个 serve 得两个结论
 
 
 def emit(obj):

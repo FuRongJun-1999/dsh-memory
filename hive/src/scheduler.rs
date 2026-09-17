@@ -14,7 +14,7 @@
 use crate::exec;
 use crate::job;
 use crate::spec;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -28,16 +28,39 @@ pub struct ServeCfg {
     pub workers: usize,
     /// 执行器脚本路径（默认 exec.py，测试可注入假执行器）。
     pub exec_py: PathBuf,
+    /// 执行器形态（由 `exec_mode_of` 从 exec_py 推得，写进心跳供 doctor 判资格）。
+    pub exec_mode: String,
     /// 主循环扫描间隔（毫秒）。
     pub poll_ms: u64,
 }
 
+/// 执行器形态判据：**文件名**（非内容探测，宁可保守）。
+///
+/// `exec_cmd.py` = 多态转发器——spec 带 command/commands 跑命令（零 LLM），
+/// 不带时转发 exec.py（LLM 委托）；其余（含兜底 exec.py）= 仅 LLM 委托。
+///
+/// 诚实边界：这是启发式。确证形态的正路是提交一个带 `command` 的探针任务——
+/// result.content 以「确定性执行」开头即证明该 serve 兼跑确定性任务。
+pub fn exec_mode_of(exec_py: &Path) -> String {
+    let stem = exec_py
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if stem == "exec_cmd" {
+        "deterministic+llm".into()
+    } else {
+        "llm_only".into()
+    }
+}
+
 impl ServeCfg {
     pub fn new(jobs: PathBuf, workers: usize, exec_py: PathBuf) -> Self {
+        let exec_mode = exec_mode_of(&exec_py);
         ServeCfg {
             jobs,
             workers: workers.clamp(1, 64),
             exec_py,
+            exec_mode,
             poll_ms: 400,
         }
     }
@@ -65,7 +88,7 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
 
     // 主循环：心跳 + 扫描领取
     while !stop.load(Ordering::SeqCst) {
-        let _ = job::write_serve_heartbeat(&cfg.jobs, cfg.workers);
+        let _ = job::write_serve_heartbeat(&cfg.jobs, cfg.workers, &cfg.exec_py, &cfg.exec_mode);
         for id in job::list_jobs(&cfg.jobs) {
             let dir = job::job_dir(&cfg.jobs, &id);
             let st = match job::read_status(&dir) {
