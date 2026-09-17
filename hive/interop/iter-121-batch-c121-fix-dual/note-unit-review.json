@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-121-batch-c121-fix-dual",
+ "round": 5,
+ "candidate_commit": "a72ddb4",
+ "branch": "task/iter-121-batch-c121-fix-dual",
+ "unit_job": "h1789687570260_1eda3f",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "两条均与源码吻合。normalize_relation：条件覆盖假值/空白串回落 default，并锚定 DEFAULT_RELATION、RELATIONS、ProvenanceError 与 `if not r` 前置；`str(rel or \"\")` 对假值和空白串均得空串，回落逻辑成立，非法 default 亦抛错，返回小写串。_dedupe：按 (child,parent,rel) 三元组判重、首次保留、原序返回，逐行对应。均无源码不支持的断言，position_ok=true 无需行号。\n\nreason: 两条条件的输入状态、常量前置与返回形状均与源码一致，未增改语义。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
