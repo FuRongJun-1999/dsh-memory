@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-240-batch-c240",
+ "round": 1,
+ "candidate_commit": "e55f1bf",
+ "branch": "task/iter-240-batch-c240",
+ "unit_job": "h1789723201483_14bdc7",
+ "verdict": "REJECT",
+ "package_n": 6,
+ "text": "复核：_terms/_trial/_pct 与源码相符。_decide_mem 命中分支漏返回 `tokens`，返回形状不完整。_report 未锚定 `rows` 非空；空 `rows` 会在 `n` 除法处 `ZeroDivisionError`。main 未提 `mem_arm.mine_fix_pairs(...)` 写库，记忆臂命中前置缺失。故条件有缺项。\nreason: 多条条件遗漏必需前置或返回字段，尤其 `_report` 空 `rows` 前置缺失。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
