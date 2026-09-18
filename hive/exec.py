@@ -947,6 +947,7 @@ def _api_err_text(e: Exception) -> str:
     return f"{type(e).__name__}: {e}"
 
 
+# 生效条件：len(sys.argv) < 2 时打印 usage 并返回 EXIT_SPEC；否则 job_dir 取 sys.argv[1]，spec 读取异常、超 context_budget_tokens、SpecError 均返回 EXIT_SPEC，工具链 _error 或 urllib HTTPError 或其他异常返回 EXIT_API，成功（含无可见 tools 时走 call_llm）返回 EXIT_OK；
 def main() -> int:
     if len(sys.argv) < 2:
         print("usage: exec.py <job_dir>", file=sys.stderr)

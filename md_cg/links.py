@@ -222,6 +222,7 @@ def evidence_payload(peer_node_id: str, evidence: str, positive: bool) -> bytes:
 # 握手（文档 §5.1 五步：① 声明 → ② 校验 → ③ 建档 → ④ 观察期；⑤ 转正见 promote）
 # --------------------------------------------------------------------------
 
+# 生效条件：peer_node_id 为假值（空串）时抛 LinkError，不以 agent: 开头的会被补前缀；ver.ok 为假时按 on_fail 取 reject 抛 LinkError、取 isolate 置 isolated、否则置 degraded，declared_charter 为假值时观察期按 PROBATION_SECONDS*2 计，未失败但版本不符仅记 version_misaligned 审计，正常路径返回 {'ok': True, 'link', 'alignment', 'signature'}；
 def handshake(peer_node_id: str, *, peer_theory: dict = None,
               position_map: dict = None, declared_charter: bool = True,
               subsystem: str = None, peer_signature: str = None,
@@ -453,6 +454,7 @@ def withdraw(peer: str, *, reason: str = None, path: str = None,
 # 衰减（无观测向初值回归）
 # --------------------------------------------------------------------------
 
+# 生效条件：now 为假值（None 或 0）时回落 time.time()；仅 status 属于 IN_TRUST 的链接参与，days=max(0, (now-last)/86400) 为 0 时跳过，否则按 DECAY_DAYS 算向 P_TRUST_INIT 回归后的 p_trust 与 decay，decay 绝对值 > 1e-9 才计入 changed 并 save，最终返回 {'ok': True, 'changed', 'count'}；
 def decay_all(*, path: str = None, now: float = None,
               actor: str = "system") -> dict:
     data = load(path)
