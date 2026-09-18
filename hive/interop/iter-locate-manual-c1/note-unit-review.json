@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-locate-manual-c1",
+ "round": 1,
+ "candidate_commit": "a0a9bfc",
+ "branch": "task/iter-locate-manual-c1",
+ "unit_job": "h1789731755419_53e347",
+ "verdict": "REJECT",
+ "package_n": 34,
+ "text": "reason: locate_many 条件称 items=None 时 root 须为真值否则抛 ValueError，但源码仅在 root is None 时抛；root=\"\" 等假值不会早退，属 None/假值分支不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
