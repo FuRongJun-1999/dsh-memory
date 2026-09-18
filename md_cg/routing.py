@@ -29,6 +29,7 @@ _SKELETON_TAIL = re.compile(r"(知识点)?内容\s*[（(]按骨架填充[)）]\s
 ORPHAN = "orphan"
 
 
+# 生效条件：raw 为真值时按 NFKC 归一化并 strip，最多 3 轮剥离 _INSTANCE_TAIL（无变化即停）、再剥 _SKELETON_TAIL、空白转下划线后返回；raw 为假值（None/空串）或处理后为空串时返回 ORPHAN。
 def normalize_domain(raw: str) -> str:
     """把自由文本的域描述归一化成稳定的短键。
 
@@ -50,6 +51,7 @@ def normalize_domain(raw: str) -> str:
     return s or ORPHAN
 
 
+# 生效条件：tags 为真值时取其中首个 str(t) 以 "domain:" 开头的项，返回其前缀后内容的 normalize_domain 结果；无此标签且 condition_space 为真值时返回 normalize_domain(condition_space.get("observation_position"))（缺键即 None 归一为 ORPHAN）；tags 为假值且 condition_space 为假值时返回 ORPHAN。
 def route_key(condition_space: dict = None, tags=None) -> str:
     """导出条件路由键。优先级：tags 的 domain: > observation_position 归一化 > orphan。
 
@@ -65,6 +67,7 @@ def route_key(condition_space: dict = None, tags=None) -> str:
     return ORPHAN
 
 
+# 生效条件：key 等于 ORPHAN 时原样返回 ORPHAN；否则返回 "cond_" + 把 key 中非[\w中文-]字符替换为下划线并截前 24 字符的串 + "_" + key 的 sha256（utf-8）前 8 位十六进制。
 def bucket_dir(key: str) -> str:
     """路由键 → 目录名。中文键保留可读前缀 + 短哈希，避免文件系统非法字符/超长。"""
     if key == ORPHAN:
@@ -115,6 +118,7 @@ BIG_DOMAINS = {
 }
 
 
+# 生效条件：terms 为真值时对 BIG_DOMAINS 每个大域统计命中词数，最高分为 0 或 terms 为假值（None/空）时返回 None，否则返回最高分大域名（并列取 BIG_DOMAINS 迭代序首个最高分）。
 def big_domain_classify(terms) -> str | None:
     """阶段 1：14 大域并行打分 → 收敛到 top-1。
 
@@ -137,6 +141,7 @@ def big_domain_classify(terms) -> str | None:
     return best[0]
 
 
+# 生效条件：terms 为假值（None/空）时返回 {每个 BIG_DOMAINS 域: 0}；terms 为真值时返回 {大域: 该域词表命中 terms 中词的个数}。
 def big_domain_score_breakdown(terms) -> dict:
     """暴露打分明细，便于审计与回归测试。"""
     if not terms:
@@ -156,6 +161,7 @@ def big_domain_score_breakdown(terms) -> dict:
 # 老函数保持不动 → P0/P1 基线可比性不受影响；新函数只供新路径（fuzzy）使用。
 # ---------------------------------------------------------------------------
 
+# 生效条件：term 或 word 为假值（None/空串）返回 0.0；相等返回 1.0；word 是 term 子串返回 len(word)/len(term)；term 是 word 子串返回 len(term)/len(word)；二者无包含关系返回 0.0。
 def membership(term: str, word: str) -> float:
     """词 term 对代表词 word 的隶属度（0.0~1.0，越接近 1 越隶属）。
 
@@ -175,6 +181,7 @@ def membership(term: str, word: str) -> float:
     return 0.0
 
 
+# 生效条件：无入参，恒遍历模块级常量 BIG_DOMAINS 的各域代表词表，返回 {代表词: 包含该词的域个数}。
 def _build_domain_df() -> dict:
     """代表词 → 覆盖它的大域数（IDF 的分母）。"""
     df = {}
@@ -187,6 +194,7 @@ def _build_domain_df() -> dict:
 _DOMAIN_DF = _build_domain_df()
 
 
+# 生效条件：恒返回 math.log(1.0 + len(BIG_DOMAINS) / _DOMAIN_DF.get(word, 1))，即 word 在 _DOMAIN_DF 中取其覆盖域数，缺键（含任何未登记值）时按 _DOMAIN_DF.get 的默认 1 代入。
 def domain_idf(word: str) -> float:
     """代表词的区分度权重：log(1 + 大域总数 / 覆盖它的大域数)。
 
@@ -196,6 +204,7 @@ def domain_idf(word: str) -> float:
     return math.log(1.0 + len(BIG_DOMAINS) / _DOMAIN_DF.get(word, 1))
 
 
+# 生效条件：terms 是 dict 时以其条目（键 str(t) 以 "__" 开头者剔除、值为 float）为词权重并忽略 weights，否则以 wmap.get(t, 1.0) 为权重（weights 为假值即 None/空 dict 时 wmap 为空、全部权重取 1.0，terms 为假值则词集为空）；逐域累加「词权重 × 该词在域词表内最大（membership × domain_idf）」，权重 <=0 的词跳过，返回 {大域: round(得分, 6)}。
 def big_domain_score_weighted(terms, weights=None) -> dict:
     """阶段 1（分级版）：14 大域并行打分，按「隶属度 × IDF」加权。
 
@@ -226,6 +235,7 @@ def big_domain_score_weighted(terms, weights=None) -> dict:
     return out
 
 
+# 生效条件：以 terms、weights 计算各域加权得分（terms 为假值时各域均为 0.0），得分为空或最高分 <= min_score（默认 0.0）时返回 None，否则返回最高分大域名。
 def big_domain_classify_weighted(terms, weights=None, min_score: float = 0.0):
     """阶段 1（分级版）收敛到 top-1；全部低于 min_score → None。"""
     scores = big_domain_score_weighted(terms, weights)
@@ -237,6 +247,7 @@ def big_domain_classify_weighted(terms, weights=None, min_score: float = 0.0):
     return best[0]
 
 
+# 生效条件：a 或 b 为假值（None/空串）返回 0.0；相等返回 1.0；a 是 b 子串返回 len(a)/len(b)；b 是 a 子串返回 len(b)/len(a)；否则按二者二元组字符集合的 Jaccard 返回 len(ga & gb)/len(ga | gb)，任一集合为空（如单字符键）时返回 0.0。
 def domain_similarity(a: str, b: str) -> float:
     """两个归一化域键的相似度（0~1）：相同 1.0；包含取长度比；否则二元组 Jaccard。
 
@@ -258,6 +269,7 @@ def domain_similarity(a: str, b: str) -> float:
     return len(ga & gb) / len(ga | gb)
 
 
+# 生效条件：counts 各值之和为 0（含空 dict 与全 0 计数）时返回 {'ok': True, 'reason': 'empty', 'buckets': 0}；否则在最大桶占比 >30%、桶数 >1 且单例桶占比 >50%、期望扫描 >30% 中命中的项写入 problems，返回含 ok(=problems 为空)、buckets、nodes、max_bucket_share、singleton_ratio、expected_scan、problems 的 dict。
 def bucket_health(counts: dict) -> dict:
     """分区健康度自检。分桶键一旦退化（巨桶或碎片化），条件路由就是纸面收益，
     必须在写入侧就能发现，而不是等召回变差才回头查。
