@@ -468,6 +468,7 @@ def node_importance(cg, nid, indeg=None, red=None, entry=None):
             "protected_floor": protected}
 
 
+# 生效条件：给定 cg 且 nodes = cg.index["nodes"] 时按 layer 过滤、limit 为真值才 ids = ids[:int(limit)] 逐节点重算，abs(after-before) < float(min_delta) 记 unchanged；仅 apply=True 才把 frontmatter.importance/importance_source/importance_components 写回（after >= IMPORTANCE_PROTECT 且未 protected 时补写 protected/protection_reason），并向 cg.root 下 append_jsonl(..., MAINTAIN_LOG) 记 batch 后 rebuild_index。
 def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
            actor="maintain", dry_run_samples=10):
     """结构重要性重算：覆盖度 + 冗余度 + 验证基底 → 重排节点重要性。
