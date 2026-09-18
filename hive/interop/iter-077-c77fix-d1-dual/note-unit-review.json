@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-077-c77fix-d1-dual",
+ "round": 5,
+ "candidate_commit": "d2c1904",
+ "branch": "task/iter-077-c77fix-d1-dual",
+ "unit_job": "h1789693858870_030acd",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "两条条件均与源码相符：_find 的键/规范化候选匹配及 (None,None) 返回准确；promote 的早退、probation、观察期 <=0 成功分支和 LinkError 条件准确。未添加源码不支持断言，position_ok 已满足。\nreason: 条件锚定实际分支、返回形状与早退前置，无源码不符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
