@@ -59,6 +59,7 @@ class WmError(Exception):
     """git 操作失败（带 stderr 摘要）。"""
 
 
+# 生效条件：wm 与 args 传入时以 ["git", "-C", wm, *args] 调用 subprocess.run（capture_output=True、text=True、encoding="utf-8"、errors="replace"、shell=False、env=dict(os.environ, PYTHONUTF8="1")）并返回该 CompletedProcess，non-zero 与 stderr 不在本符号判定。
 def _git(wm: str, *args: str) -> subprocess.CompletedProcess:
     env = dict(os.environ, PYTHONUTF8="1")
     return subprocess.run(
@@ -68,6 +69,7 @@ def _git(wm: str, *args: str) -> subprocess.CompletedProcess:
     )
 
 
+# 生效条件：wm 与 args 传入时转交 _git(wm, *args)，其 returncode != 0 时抛 WmError（消息取 r.stderr 为真值、为空串则回落 r.stdout，strip 后截 300 字符），returncode == 0 时返回 r.stdout。
 def _git_ok(wm: str, *args: str) -> str:
     r = _git(wm, *args)
     if r.returncode != 0:
@@ -75,6 +77,7 @@ def _git_ok(wm: str, *args: str) -> str:
     return r.stdout
 
 
+# 生效条件：path 能按 encoding="utf-8" 打开时返回 json.load(f) 的结果；path 打不开或内容非合法 JSON 时由 open/json.load 抛出，本符号不捕获、不校验。
 def _read_json(path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -82,6 +85,7 @@ def _read_json(path: str) -> dict:
 
 # ---------------------------------------------------------------- 三级闸命令
 
+# 生效条件：wm 下 .git 为目录时直接返回 {"ok": True, "wm": wm, "note": "已是 git 仓（幂等）"}；否则 os.makedirs(wm, exist_ok=True) 后依次 git init -b main、config user.name/ user.email/core.quotepath、写 README.md、add README.md、commit，返回 {"ok": True, "wm": wm, "branch": "main"}。
 def cmd_init(wm: str) -> dict:
     """建工作记忆仓（幂等）；本地配置不依赖全局 git 身份。"""
     os.makedirs(wm, exist_ok=True)
@@ -103,6 +107,7 @@ def cmd_init(wm: str) -> dict:
     return {"ok": True, "wm": wm, "branch": "main"}
 
 
+# 生效条件：job 下 result.json 非 os.path.isfile 时先返回凭证不足错误，result.json 可读但 result.get("ok") is not True 时返回带 verdict（str(result.get("error",""))[:200]）的错误，job 下 spec.json 非 os.path.isfile 时返回规格缺失错误；通过后 job_id 取 str(result.get("job_id") or os.path.basename(job))（result.job_id 为 None/空串时回落 basename(job)），branch 为真值时用 branch、假值时回落 f"task/{job_id}"，随后先 rmtree/makedirs(wm/jobs/<job_id>) 并拷 spec.json、result.json、log.txt 与 PROGRESS_FILE（两者各自 os.path.isfile 为真才拷、PROGRESS_FILE 缺失即 has_progress=False 不报错），artifacts 为真值时才按逗号切分（strip 后非空段）、相对名拼 job、任一源非 os.path.isfile 即返回 artifacts 缺失错误，全部存在才拷入 artifacts/ 并收集 basename，然后 checkout -B branch、add jobs、commit（model 取 result.get("model") 为假值回落 "?"，duration_s 为真值才附）、rev-parse --short HEAD、checkout main，返回 ok True 与 job_id/branch/commit/artifacts/progress/message。
 def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
                  branch: str | None = None) -> dict:
     """凭证闸：result.ok=true 才许提交；白名单拷贝产物后 commit 到任务分支。
@@ -168,6 +173,7 @@ def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
 
 # ---------------------------------------------------------------- 进展面读取
 
+# 生效条件：lines 逐行 strip，空行跳过且不计 total，非空行 total+1 并尝试 json.loads，抛 json.JSONDecodeError 的行不入 entries；返回 entries 在 limit > 0 时取 entries[-limit:]，limit <= 0（含 0）时返回全部 entries，并附非空行总数 total。
 def _parse_progress(lines, limit: int) -> tuple[list[dict], int]:
     """解析进展卡行流：返回 (尾部 limit 条, 总行数)。坏行跳过不炸（诚实降级）。"""
     entries: list[dict] = []
@@ -184,12 +190,14 @@ def _parse_progress(lines, limit: int) -> tuple[list[dict], int]:
     return (entries[-limit:] if limit > 0 else entries), total
 
 
+# 生效条件：path 按 encoding="utf-8"、errors="replace" 打开成文件对象并连同 limit 交给 _parse_progress，故 limit > 0 返回尾部 limit 条、limit <= 0 返回全部，附非空行总数；path 打不开由 open 抛出。
 def _read_progress(path: str, limit: int) -> tuple[list[dict], int]:
     """读工作区进展卡文件（委托 _parse_progress）。"""
     with open(path, encoding="utf-8", errors="replace") as f:
         return _parse_progress(f, limit)
 
 
+# 生效条件：job 为真值且（wm 或 job_id 为真值）时返回 "二选一" 错误；仅 job 为真值（wm/job_id 均假值）时读 os.path.abspath(job)/PROGRESS_FILE，非 os.path.isfile 则返回 source="job" 的进展卡缺失错误；wm 与 job_id 均为真值（job 假值）时先试 wm/jobs/<job_id>/PROGRESS_FILE（os.path.isfile 为真即读，source="wm"），否则 git show task/<job_id>:jobs/<job_id>/PROGRESS_FILE，其 returncode != 0 返回 source="wm" 的缺失错误，成功则按 r.stdout.splitlines() 解析（source="wm_branch"）；job 假值且 wm/job_id 中任一为假值（含仅传 wm、仅传 job_id、全不传）走 else 返回 "需 --job JOB_DIR 或 --wm DIR --job-id ID"；limit 默认 50，limit > 0 取尾部 limit 条、limit <= 0 取全部，返回 ok True 与 source/path/ref/count/total/kinds（str(e.get("kind") or "?") 计数）及 entries 中倒序第一个 kind=="handoff" 的条目（无则为 None）。
 def cmd_progress(job: str | None = None, wm: str | None = None,
                  job_id: str | None = None, limit: int = 50) -> dict:
     """读进展卡（换人续跑的交接面）。
@@ -250,6 +258,7 @@ def cmd_progress(job: str | None = None, wm: str | None = None,
             "handoff": handoff, "entries": entries}
 
 
+# 生效条件：wm 上 rev-parse --abbrev-ref HEAD 的结果 strip 后不等于 "main" 时返回 f"当前在 {cur}，merge 须在 main 上执行"错误；等于 "main" 时执行 git merge --no-ff branch，returncode != 0 时返回 conflict=("CONFLICT" in (r.stdout+r.stderr).strip())、error 为该拼接 strip 后截 500 字符，returncode == 0 时 rev-parse --short HEAD 并返回 {"ok": True, "merged": branch, "commit": head}。
 def cmd_merge(branch: str, wm: str) -> dict:
     """主代理显式合并任务分支到 main；冲突诚实报错不自动解决。"""
     cur = _git_ok(wm, "rev-parse", "--abbrev-ref", "HEAD").strip()
@@ -269,6 +278,7 @@ def cmd_merge(branch: str, wm: str) -> dict:
     return {"ok": True, "merged": branch, "commit": head}
 
 
+# 生效条件：wm 上 rev-parse --abbrev-ref HEAD 的结果 strip 后不等于 "main" 时返回 f"当前在 {cur}，revert 须在 main 上执行"错误；等于 "main" 时用 rev-list --parents -n1 sha 的字段数 > 2 判断 merge 并据此在 git revert --no-edit 上附加 ("-m","1")，执行 git revert ... sha，returncode != 0 时返回 conflict=("CONFLICT" in (r.stdout+r.stderr).strip()) 与截 500 字符 error，成功则 rev-parse --short HEAD 并返回 {"ok": True, "reverted": sha, "commit": head}。
 def cmd_revert(sha: str, wm: str) -> dict:
     """回退到任意提交点（生成反向提交，历史不丢=全记）；冲突同样诚实。
 
@@ -290,12 +300,14 @@ def cmd_revert(sha: str, wm: str) -> dict:
     return {"ok": True, "reverted": sha, "commit": head}
 
 
+# 生效条件：wm 上执行 git log --oneline f"-n{limit}" ref，其中 ref 取 branch 为真值时的 branch、branch 为假值（None/空串）时回落 "main"（limit=0 时即 -n0），返回 {"ok": True, "ref": ref, "log": out.splitlines() 中的非空行}。
 def cmd_log(wm: str, branch: str | None = None, limit: int = 20) -> dict:
     ref = branch or "main"
     out = _git_ok(wm, "log", "--oneline", f"-n{limit}", ref)
     return {"ok": True, "ref": ref, "log": [ln for ln in out.splitlines() if ln.strip()]}
 
 
+# 生效条件：wm 上依次执行 rev-parse --abbrev-ref HEAD（strip 为 branch）、status --porcelain、log --oneline -n3，返回 {"ok": True, "wm": wm, "branch": cur, "dirty_entries": dirty 中非空行数, "recent": recent 中的非空行}。
 def cmd_status(wm: str) -> dict:
     cur = _git_ok(wm, "rev-parse", "--abbrev-ref", "HEAD").strip()
     dirty = _git_ok(wm, "status", "--porcelain")
@@ -309,6 +321,7 @@ def cmd_status(wm: str) -> dict:
 
 # ---------------------------------------------------------------- CLI
 
+# 生效条件：argv 为 None 时 argparse 取 sys.argv，解析出的 args.cmd 为 "init"/"snapshot"/"progress"/"merge"/"log"/"revert" 时分别调用 cmd_init(args.wm)/cmd_snapshot(args.job,args.wm,args.artifacts,args.branch)/cmd_progress(args.job,args.wm,args.job_id,args.limit)/cmd_merge(args.branch,args.wm)/cmd_log(args.wm,args.branch,args.limit)/cmd_revert(args.commit,args.wm)，其余 cmd 走 else 调 cmd_status(args.wm)（init/snapshot/merge/log/revert/status 的 --wm 未给出时用模块级 WM_DEFAULT，各子命令 required 参数缺失由 argparse 直接退出）；任一调用抛 WmError 时打印 {"ok": False, "error": str(e)} 并返回 EXIT_FAIL，否则打印 out 且 out.get("ok") 为真返回 EXIT_OK、假返回 EXIT_FAIL。
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="wm", description="蜂巢工作记忆（任务产物版本化）")
     sub = ap.add_subparsers(dest="cmd", required=True)
