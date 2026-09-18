@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-186-batch-c186",
+ "round": 1,
+ "candidate_commit": "9ab7420",
+ "branch": "task/iter-186-batch-c186",
+ "unit_job": "h1789709643354_85ef4e",
+ "verdict": "REJECT",
+ "package_n": 11,
+ "text": "复核：多数项准确；但 `expand_from_seeds` 的“种子自身不在返回中”过强。源码仅对当前 sid 跳过末节点 `nid==sid`，多种子时其他种子可由他 seed 链写入 `best`。另 `adjacency` 缓存早退应补 `cached is not None`，非仅“存在”。\nreason: 存在源码不支持的全局种子排除断言。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
