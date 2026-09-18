@@ -820,6 +820,7 @@ def _handoff(spec: dict, job_dir: str | None, trace: list, usage: dict, rnd: int
     }
 
 
+# 生效条件：spec/messages/job_id 给定即进入 while rnd <= max_rounds（max_rounds=max(1, int(spec.get("max_tool_rounds") or DEFAULT_MAX_TOOL_ROUNDS))，budget 取 spec.get("context_budget_tokens")）：超预算且 spec.get("context_strict") 为真返回 {"_error": over, "tool_trace": trace}、否则转 _handoff；API 异常或空助手轮返回 {"_error", "tool_trace"}；模型无 tool_calls 返回 content/usage/model/tool_trace；rnd >= max_rounds 仍要求工具则去掉 tools 强制终答（forced_final=True）。
 def run_with_tools(spec: dict, messages: list, job_id: str,
                    job_dir: str | None = None, base_tokens: int = 0) -> dict:
     """agent loop：模型回 tool_calls → 执行 → tool 消息回喂 → 循环至终答。
@@ -841,6 +842,7 @@ def run_with_tools(spec: dict, messages: list, job_id: str,
     budget = spec.get("context_budget_tokens")
     trace, usage_total = [], {}
 
+# 生效条件：无入参，budget 为假值（None/0/空串）时立即返回 (0, "")；否则 total = base_tokens + 对 messages 中 content 为 str 的项累加 est_tokens(content or "")，仅当 total > int(budget) 时返回超预算文案、否则返回空串。
     def _budget_check() -> tuple:
         if not budget:
             return 0, ""

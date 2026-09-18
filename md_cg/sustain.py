@@ -465,6 +465,7 @@ def evolution_candidates(cg, *, layer: str = None, top: int = 8,
                      "重要性重算为确定性动作（有 rollback）")}
 
 
+# 生效条件：给定 cg 后只读汇总（nodes 取自 cg.index、disk 计数、refindex.check_refs），stale_temp_age 传入 _list_stale_temps；check_heartbeat / check_evolution(evolve_top) / check_provenance(provenance_top) 为真时分别追加对应 issue，返回 ok = 无 severity=="warning" 的 issue 连同 stats。
 def diagnose(cg, *, name: str = "md_cg", stale_temp_age: float = STALE_TEMP_AGE,
              check_heartbeat: bool = True, check_evolution: bool = True,
              evolve_top: int = 5, check_provenance: bool = True,

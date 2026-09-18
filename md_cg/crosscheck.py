@@ -724,6 +724,7 @@ def _rows_from_verdicts(nid, track, pre):
     return rrows, vrows
 
 
+# 生效条件：x 经 _as_cg 解析且 batch = batch or CROSSCHECK_BATCH 后逐节点扫描，裁决来源按 vmap（verdicts 归一化后非 None）→ reflect_fn 非 None → 二者皆无记 no_reflect 三条分支取行；allow_self_verify=False 时同执行者自证记 self_verify_disallowed，再经 gate_rows 闸门与 require_verify 后 fold_verdicts，仅 apply=True 才 _apply_node 写盘并在有写入时 cg.rebuild_index；limit 非 None 且已达标数 >= limit 时用 continue 跳过（非终止）。
 def crosscheck(x, layer=None, limit=None, ids=None, reflect_fn=None,
                verify_fn=None, verdicts=None, apply=False,
                batch=CROSSCHECK_BATCH, actor=None, require_verify=True,
