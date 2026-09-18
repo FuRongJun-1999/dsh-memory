@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-338-batch-c338",
+ "round": 1,
+ "candidate_commit": "1703b00",
+ "branch": "task/iter-338-batch-c338",
+ "unit_job": "h1789758104835_9687bd",
+ "verdict": "REJECT",
+ "package_n": 1,
+ "text": "reason: 漏述截断分支内 t<=0 时 skipped(excerpt_empty) 并 continue 的早退，且 min_excerpt 未锚定派生公式，条件不完整。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
