@@ -26,3 +26,17 @@
 ## 5 硬约束
 - 验证方**不得**改写被验证仓的源码与测试；jobs 写入属通道例外；
 - 我方**不得**用内部通道伪装外部 PASS：内部通道结论在台账中标注 `via=internal`，与外部 `via=<provider>` 区分。
+
+## 6 结算与升级（机械执行）
+- **状态机**：`offered` →（窗口内认领）`claimed`；→（超 `claim_min`）`escalated` →（内部独立复核）`internal-verified`；被后继版本顶替的候选标 `superseded`。
+- **`_coord/multiport.py dispatch`**：结算 `offered`/`escalated` 条目，读该 iter 的 `note-unit-review.json` 口径：
+  - `verdict=ACCEPT` → `internal-verified`，`claimed_via=internal:ACCEPT`（**仅内部口径，不冒外部 PASS**）；
+  - `REJECT/DEFER/BLINDSPOT/未解析` → 保持待处理并提示重做候选；**不得**记为 verified。
+- **`supersede --iter <id> --note <原因>`**：内部复核判 REJECT 且已有后继版本时使用，并在该 iter 目录写 `note-supersede.json`（`verdict_of_record` / `reason` / `superseded_by` / `superseding_commit`）。
+- **纠正义务**：若 `request.json` 曾声明的 `unit_review.verdict` 与 note 实际不符，必须如实更正并把历史写入 `verdict_history`；隐瞒即等同伪造通过。
+- **实现要点（历史实例，2026-09-18）**：协作脚本里的仓库路径必须显式绝对——曾用 `dirname³(__file__)`，脚本位于 `_coord/` 时解析到用户主目录，导致 note 永远读不到、状态永远停在 `escalated`（表现为"对方没回执"）。凡"读不到 note"，先核对路径解析，再怀疑对方。
+
+## 7 一眼可见的投放索引
+- `_coord/multiport.py status --index hive/interop/_offers_index.md` 生成 `hive/interop/_offers_index.md`（**机生成，勿手改**）；
+- 任何验证端只读这一个文件即可知道：有哪些候选、分支/commit、状态、认领方式、备注；
+- 索引与账本同源（`_dispatch_ledger.tsv`）；**账本是唯一事实来源，索引只是视图**。
