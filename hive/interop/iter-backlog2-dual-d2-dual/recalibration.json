@@ -1,0 +1,15 @@
+{
+ "kind": "recalibration-acceptance",
+ "iter_id": "iter-backlog2-dual-d2-dual",
+ "verified_commit": "b180c4d",
+ "verdict": "PASS",
+ "merge_commit": "0f2bdd72fb05",
+ "checks": [
+  "diff(merge, branch) -- md_cg 空",
+  "criteria_fingerprint 保持",
+  "main 注释计数 + 全组回归"
+ ],
+ "merged_marks": 933,
+ "merged_files": 63,
+ "paths_policy": "脱敏"
+}
