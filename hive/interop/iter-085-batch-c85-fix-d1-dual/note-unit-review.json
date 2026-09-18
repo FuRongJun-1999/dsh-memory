@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-085-batch-c85-fix-d1-dual",
  "round": 5,
- "candidate_commit": "3d8e564",
+ "candidate_commit": "019bb31",
  "branch": "task/iter-085-batch-c85-fix-d1-dual",
- "unit_job": "h1789701191785_9dc6db",
+ "unit_job": "h1789702574772_a3cab5",
  "verdict": "REJECT",
  "package_n": 3,
- "text": "复核：1 基本符，但返回形状应为含 pairs 的 dict，且 zip 两侧需 b.get('bundles') or [] / a.get('packages') or []；条件未锚定。2 actor 有默认，非“给出时”前置；session 是 uuid4().hex[:12]，且 clearance 回落 \"internal\"、can_write/admin 布尔化未提。3 argv=None 仍解析 sys.argv，非“给出时”；返回判据是 rep.get(\"ok\")，非 rep['ok']。多处不严密，Zero-Trust 不通过。\nreason: 条件未准确锚定默认值、空容器回落与返回形状。\nverdict: REJECT",
+ "text": "复核：大体锚定形参/常量/假值回落，但 build_packages 源码返回含 candidates/bundles/assembled/pairs 的 dict，条件却说返回 zip 配对；main 中 pairs 来自 built[\"pairs\"]，且判定用 rep.get(\"ok\") 非 rep[\"ok\"]。存在返回形状不符。\nreason: 条件对 build_packages/main 的返回形状描述不准确，按零信任应拒。\nverdict: REJECT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
