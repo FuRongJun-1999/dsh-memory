@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-176-batch-c176",
+ "round": 1,
+ "candidate_commit": "1c2aa01",
+ "branch": "task/iter-176-batch-c176",
+ "unit_job": "h1789707542033_317c97",
+ "verdict": "ACCEPT",
+ "package_n": 10,
+ "text": "逐条核对：10 项生效条件均说明输入/状态，锚定形参、模块常量、早退或闭包来源；未发现与源码不符的 assert 语义、None/假值分支、参数使用、返回形状、空容器/长度或除零守卫问题，也无源码不支持的断言。position_ok=true 均接受。\nreason: 各条件与源码分支语义一致，未发现不实新增断言或遗漏前置。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
