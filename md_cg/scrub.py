@@ -154,6 +154,7 @@ def _handled(cg) -> set:
 # ① 记忆抽查
 # --------------------------------------------------------------------------
 
+# 生效条件：当 cg 的节点/访问/邻接数据可取时，对每个「layer 不在 SELF_LAYERS」的节点（源码仅以 `if layer in SELF_LAYERS: continue` 排除，未要求 layer 非空）按 now、stale_days、unverified_days 判定入池——last 访问时间距今≥stale_days 时入 stale，last 为假值且 created_at 距今≥stale_days 时入 stale，访问计数 acc≥3 入 hot，邻接度 deg==0 且 layer=="contextual" 入 orphan，evidence_count≤0 且 layer=="knowledge" 且 age_d≥unverified_days 入 unverified，evidence_count>0 且 reads<int(max_reads) 且 _fm_of 返回非空前台时按 negative_evidence>0 入 disputed、按 confidence<LOW_CONF（confidence 缺键回落 0.6）入 low_conf（max_reads 为 0 时 int(max_reads)=0，reads<0 恒假，故 disputed/low_conf 不产生），每个节点无条件入 random 池，最后按各池 key 排序返回 pools（片段仅见排序段，未展示抽样阶段）；多分支无法一句话覆盖全部分支。
 def _pool_candidates(cg, *, now, stale_days, unverified_days, max_reads=200):
     """构造各层候选池（不读文件的部分先用索引 + 访问日志）。"""
     nodes = _nodes(cg)
@@ -531,6 +532,7 @@ def audit(cg, node_ids=None, *, hops: int = 1, min_severity: str = "info",
         content = node.get("content") or ""
         age_d = _days(fm.get("created_at") or e.get("created_at"), now)
 
+# 生效条件：kind 是 CONTAMINATION 的键（否则 KeyError）且 CONTAMINATION[kind] 取出的 sev 在 SEVERITY_ORDER 中的值（缺键按 0）不小于闭包变量 min_severity 在 SEVERITY_ORDER 中的值（缺键按 0）时，把 {node_id, layer, kind, severity, detail, fix} 用 **extra 覆盖更新后追加到闭包 issues；sev 的值更小则直接 return 不追加（该函数无返回值）。
         def add(kind, detail, **extra):
             sev, actions = CONTAMINATION[kind]
             if SEVERITY_ORDER.get(sev, 0) < SEVERITY_ORDER.get(min_severity, 0):
@@ -671,6 +673,7 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
 # ④ 校准偏差
 # --------------------------------------------------------------------------
 
+# 生效条件：对 cg 中每个「layer 不在 SELF_LAYERS」且 evidence_count≥int(min_evidence)（min_evidence=0 时该比较恒假而不早退）的节点，若 protect.is_protected 为假或 override 为真，且 cg.get(nid) 未抛异常并返回真值节点，则取 fm.get("confidence", 0.6)（缺键才回落 0.6，键存在为 None/假值不回落）为 old，算出 round(max(0.0, min(0.99, old+float(offset))),4)，与 old 差<1e-9 时跳过，否则写 fm["confidence"] 与 fm["calibration"] 并调用 cg._write_node 成功时 adjusted+1（写回异常被吞掉不计数），返回 (adjusted, skipped)，其中 skipped 只累计「layer 属 SELF_LAYERS」或被 protect 拦下且非 override 的节点。
 def _apply_offset(cg, offset, *, override=False, min_evidence=1):
     nodes = _nodes(cg)
     adjusted = skipped = 0
