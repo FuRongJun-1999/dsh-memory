@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-267-batch-c267",
+ "round": 1,
+ "candidate_commit": "40c8c46",
+ "branch": "task/iter-267-batch-c267",
+ "unit_job": "h1789738434251_8d378c",
+ "verdict": "REJECT",
+ "package_n": 2,
+ "text": "1) MdCGOS.__init__：ACCEPT。root/autoflush/actor 默认与透传、路径拼接及两处 makedirs(exist_ok=True) 均与源码一致。\n2) MdCGSecure.__init__：REJECT。源码为 super().__init__(root, actor=self.principal.actor, **kw)，master_key 未作父类第三参传入，仅最后传 self._init_crypto(master_key)；条件此点与源码不符。\n\nreason: MdCGSecure 条件误述 master_key 传给父类构造，与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
