@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-296-batch-c296-fix",
+ "round": 2,
+ "candidate_commit": "3359d3a",
+ "branch": "task/iter-296-batch-c296-fix",
+ "unit_job": "h1789748399272_6b278c",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "条件逐项与 `MdCG.__init__` 段内源码一致：root 绝对化并建目录；autoflush 原样赋值，0 不回落；`self.index = self._load_index()`；`_LIVE_CGS.add(self)` 后 `_register_atexit_hook()`。未发现越界、误述或源码不支持的断言。`_load_index` 分支已明确排除在本段外，合理。\nreason: 该条件所述构造行为均可在自身 src_segment 的 __init__ 内直接核验，且与源码相符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
