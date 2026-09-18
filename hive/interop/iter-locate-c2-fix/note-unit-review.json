@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-locate-c2-fix",
+ "round": 2,
+ "candidate_commit": "49135e7",
+ "branch": "task/iter-locate-c2-fix",
+ "unit_job": "h1789737956243_8e5e49",
+ "verdict": "ACCEPT",
+ "package_n": 19,
+ "text": "逐条核对 19 条：各条件所述输入/状态、早退、None/假值分支、必需参数与模块常量引用、返回形状及空容器前置，均与对应 src_segment 一致；未发现越界到其它符号或源码不支持的断言。\nreason: 全部条件均获本符号源码段证据支持，无 REJECT 或 BLINDSPOT。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
