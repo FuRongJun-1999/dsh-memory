@@ -93,6 +93,7 @@ CASES = [
 ]
 
 
+# 生效条件：给定 text，当 expand_query_terms_weighted(text) 为真值字典时返回其中键不以 `__` 开头的项（键转 str、值转 float），并先弹出 `__source__`；当该调用返回假值（None/空/其他假值）时返回空字典 {}；
 def _terms(text):
     tw = expand_query_terms_weighted(text) or {}
     tw.pop("__source__", None)
@@ -112,6 +113,7 @@ def _pick_lexical(error, candidates):
     return best
 
 
+# 生效条件：给定 error、candidates、fix、max_turns，在 pool 非空且 turns<max_turns 时每轮把 _pick_lexical(error, pool) 选中的 last 记入 touched：若 last==fix 立即返回 {'success': True, 'turns': turns, 'pick': last, 'touched': touched}，否则从 pool 移除 last 继续；候选耗尽或 max_turns 为 0/负值时退出，返回 {'success': False, 'turns': turns, 'pick': last, 'touched': touched}（未进入循环时 success=False、turns=0、pick=None、touched=[]）；
 def _trial(error, candidates, fix, max_turns):
     """无记忆臂：选错就排除该动作、下一轮重选（模拟试错）。"""
     pool = list(candidates)
@@ -142,10 +144,12 @@ def _decide_mem(cg, query, case, candidates, max_turns, budget):
     return fb
 
 
+# 生效条件：传入 x 时，返回 f"{100.0 * x:.1f}%" 的字符串（即 x 乘以 100 后保留一位小数的百分比表示）；
 def _pct(x):
     return f"{100.0 * x:.1f}%"
 
 
+# 生效条件：rows 为非空序列（n>0）且每项可解包为 (c, rn, rm)、c 含 trap/id/error、rn/rm 含 success/turns/touched（tokens 经 .get('tokens') or 0 把缺键或假值计 0，hit 经 .get 缺键或假值不计数），mined 含 pairs/knowledge_ids/rejected_ids 键，max_turns 为数值时，打印两臂指标与逐例清单，并按首次正确率与重复犯错率的大小关系（提升/相等/其余）输出三分支结论；
 def _report(rows, mined, max_turns):
     n = len(rows)
     print("\n" + "=" * 74)
@@ -205,6 +209,7 @@ def _report(rows, mined, max_turns):
     print()
 
 
+# 生效条件：调用 main(argv) 时由 argparse 解析 argv（argv 为 None 则取 sys.argv[1:]），--cases 为 0 用全部 CASES、非 0（含负值）用 CASES[:a.cases]，--max-turns 默认 2，--budget 默认 2000；随后在临时目录创建 none_arm/mem_arm，先用 mem_arm.mine_fix_pairs 从 cases 的 error/fix 写入修复对作为记忆臂命中前置，再逐例以 _trial 与 _decide_mem 生成 rows 并 _report，最终返回 0；
 def main(argv=None):
     ap = argparse.ArgumentParser(description="任务级 A/B：无记忆 vs 有记忆")
     ap.add_argument("--cases", type=int, default=0, help="只用前 N 个用例（0=全部）")
