@@ -401,6 +401,7 @@ def basis_trust(basis):
     return BASIS_TRUST.get(str(basis).strip().lower(), BASIS_TRUST_MISSING)
 
 
+# 生效条件：cg 的 index（getattr(cg,"index",None) or {}）与其 "nodes" 同为真值时，返回以这些节点 id 为键的入度表，仅当 _targets(e) 给出的目标 t 也在 nodes 且 t != nid 时计数 +1；index 或 "nodes" 为假值（None/{}）时 nodes 回落 {}，直接返回空 dict。
 def coverage_index(cg) -> dict:
     """入度表：nid → 被多少节点指向（覆盖度，O(N) 免读文件）。"""
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
