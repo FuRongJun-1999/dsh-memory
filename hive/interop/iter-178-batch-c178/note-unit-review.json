@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-178-batch-c178",
+ "round": 1,
+ "candidate_commit": "d81a46d",
+ "branch": "task/iter-178-batch-c178",
+ "unit_job": "h1789707956533_430977",
+ "verdict": "REJECT",
+ "package_n": 12,
+ "text": "复核：`_stats` 条件称 dict 元素的 `.get(\"verdict\")` 可计入 passed，但源码先执行 `if v in okv`，dict 不可哈希会抛 TypeError，故该 dict 分支实际不可达；其余条目基本与源码一致。\n\nreason: `_stats` 的 dict 计数分支与源码运行语义不符，条件补充了源码不支持的通过计数断言。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
