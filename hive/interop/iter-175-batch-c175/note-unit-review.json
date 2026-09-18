@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-175-batch-c175",
+ "round": 1,
+ "candidate_commit": "d6cf44a",
+ "branch": "task/iter-175-batch-c175",
+ "unit_job": "h1789707391847_794a87",
+ "verdict": "ACCEPT",
+ "package_n": 11,
+ "text": "复核通过：rank_of 空 ids/ev 回 0；_agg 多独立 if 与真值除；_show n=0 除零；full_rank 空 docs/qa；exp_locomo 返回字典分母 max 兜零，n=0 异常已由 _show 条目覆盖；main、rank_fn、engine_rank 假值、false_accepts 长度与 gold_ids、state_dist 非零过滤、fa_rate max 均符。无新断言。\nreason: 各生效条件与源码分支、空容器/假值/闭包前置及返回形状一致。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
