@@ -82,9 +82,11 @@ TRANSITIONS = frozenset({
 })
 
 
+# 生效条件：以 src、dst、code、reason 四个实参构造时，父类 ValueError 消息由 f-string 拼成「非法状态迁移 src→dst（code）：reason」，并把四个值分别存为同名属性。
 class TransitionError(ValueError):
     """非法生命周期迁移（写路径用 `require_transition` 直接抛这个）。"""
 
+# 生效条件：接收 src、dst、code、reason 四个实参，调用 super().__init__ 传入 f"非法状态迁移 {src}→{dst}（{code}）：{reason}"，并将四者依次赋给 self.src、self.dst、self.code、self.reason。
     def __init__(self, src, dst, code, reason):
         super().__init__(f"非法状态迁移 {src}→{dst}（{code}）：{reason}")
         self.src, self.dst, self.code, self.reason = src, dst, code, reason
@@ -92,6 +94,7 @@ class TransitionError(ValueError):
 
 # ---------------------------------------------------------------- 纯函数裁决
 
+# 生效条件：fm 非 dict 直接返回 "active"；fm 为 dict 时取 fm.get(STATE_FIELD)，该值属于 STATES 则原样返回，缺键或值不在 STATES 均返回 "active"。
 def state_of(fm) -> str:
     """frontmatter → 状态；缺字段或未知值 → "active"（存量兼容，不猜测）。"""
     if not isinstance(fm, dict):
@@ -100,11 +103,13 @@ def state_of(fm) -> str:
     return s if s in STATES else "active"
 
 
+# 生效条件：按 _RANK.get(dst, 0) > _RANK.get(src, 0) 判定，src 或 dst 不在 _RANK 键中时该侧按 0 参与比较。
 def is_downgrade(src: str, dst: str) -> bool:
     """是否向「更低」的状态迁移（active < converged < demoted < archived）。"""
     return _RANK.get(dst, 0) > _RANK.get(src, 0)
 
 
+# 生效条件：src 不在 STATES 时先替换为 "active"；dst 不在 STATES 返回 False；替换后 src == dst 返回 True；否则返回 (src, dst) in TRANSITIONS 的布尔值。
 def can_transition(src, dst) -> bool:
     """迁移是否合法（含幂等；未知 src 按 active 处理）。"""
     src = src if src in STATES else "active"
@@ -115,6 +120,7 @@ def can_transition(src, dst) -> bool:
     return (src, dst) in TRANSITIONS
 
 
+# 生效条件：src 不在 STATES 时替换为 "active"；dst 不在 STATES 返回 (False, 'unknown_state', ...)；src == dst 返回 (True, 'noop', ...)；(src, dst) 不在 TRANSITIONS 返回 (False, 'illegal_transition', ...)；is_downgrade(src, dst) 且 protected 为真且 override 为假时返回 (False, 'protected', ...)；其余返回 (True, 'ok', f'{src}→{dst} 合法')。
 def check(src, dst, protected: bool = False, override: bool = False):
     """迁移合法性裁决 → `(ok, code, reason)`。**唯一裁决点**（纯函数，无 IO）。
 
@@ -138,6 +144,7 @@ def check(src, dst, protected: bool = False, override: bool = False):
     return True, "ok", f"{src}→{dst} 合法"
 
 
+# 生效条件：以 src、dst、protected、override 调 check 后，ok 为真时返回其 code，ok 为假时抛 TransitionError，抛出时 src 参数在 STATES 中则原样、否则替换为 "active"，dst、code、why 按源码透传。
 def require_transition(src, dst, protected: bool = False, override: bool = False):
     """合法则返回 code，非法则抛 `TransitionError`（写路径的硬拒入口）。"""
     ok, code, why = check(src, dst, protected=protected, override=override)
@@ -146,6 +153,7 @@ def require_transition(src, dst, protected: bool = False, override: bool = False
     return code
 
 
+# 生效条件：src 取 state_of(fm)，prot 取 bool(fm.get("protected") or fm.get("immutable"))；check 返回 ok 假或 code == "noop" 时原样返回 (ok, code, why) 且不改 fm；否则把 dst 写入 fm[STATE_FIELD]，并把含 at/from/to/reason/actor 的新条目追加到由 fm.get(HISTORY_FIELD) or [] 复制的列表、截取末 HISTORY_KEEP 条写回 fm[HISTORY_FIELD]，返回 (True, code, why)。
 def stamp(fm: dict, dst: str, reason: str = None, actor: str = None,
           override: bool = False):
     """在给定 frontmatter 上**就地**推进状态（无 IO）→ `(ok, code, why)`。
@@ -170,6 +178,7 @@ def stamp(fm: dict, dst: str, reason: str = None, actor: str = None,
 
 # ---------------------------------------------------------------- 索引同步
 
+# 生效条件：cg.index 非 dict 时静默 return；index 的 "nodes" 中查不到 node_id 时 return；否则把 fm.get(STATE_FIELD)（缺键即 None）写入该条目，cg._dirty 为 dict 时记入该条目并调用可调用的 cg.flush。
 def _sync_index(cg, node_id, fm) -> None:
     """把 state 同步进索引快照（免读文件可查）；无索引实现时静默跳过。
 
@@ -193,6 +202,7 @@ def _sync_index(cg, node_id, fm) -> None:
 
 # ---------------------------------------------------------------- 推进 / 回填
 
+# 生效条件：cg.get(node_id) 为假值返回 {'ok': False, 'error': 'node_not_found', ...}；否则以 state_of(fm) 作 src 调 stamp——stamp 不 ok 返回 ok=False + error=code，code == "noop" 返回 ok=True + changed=False；其余情况取 fm[HISTORY_FIELD][-1]["at"] 后写盘、_sync_index 并追加审计 JSONL（append_jsonl 抛异常被吞掉），返回 ok=True + changed=True。
 def set_state(cg, node_id: str, dst: str, reason: str = None,
               actor: str = None, override: bool = False) -> dict:
     """推进一个节点的生命周期状态（**唯一推进入口**）。
@@ -226,6 +236,7 @@ def set_state(cg, node_id: str, dst: str, reason: str = None,
     return {**base, "ok": True, "changed": True, "reason": why, "at": at}
 
 
+# 生效条件：nodes 取 (cg.index or {}).get("nodes") or {}，遍历中缺 STATE_FIELD 或该值不在 STATES 的 nid 计入 missing（累计数达 limit 即 break，limit <= 0 时立即 break 使 missing 为空），apply 假值只返回 dry_run=True 的盘点结果，apply 为真时对每个 missing 中 cg.get 取不到的记入 failed、取到的把 state_of(fm) 显式写回 fm[STATE_FIELD] 并写盘与 _sync_index 后记入 done，返回 dry_run=False 的结果。
 def backfill(cg, apply: bool = False, limit: int = 5000) -> dict:
     """存量回填：把缺 `state` 的节点显式补成 `active`（幂等）。
 
