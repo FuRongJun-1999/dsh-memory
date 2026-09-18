@@ -46,6 +46,7 @@ ARMS_MAIN = [
 ]
 
 
+# 生效条件：传入的 text 先经 en_normalizer.normalize_en_query(text) 归一（返回词条列表即 " ".join(terms) 返回），该调用及其解包一旦抛任何 Exception 则原样返回 text。
 def norm_atoms(text):
     """灵枢标准归一化：英文 → 中文语义原子序列（en_normalizer 正身）。"""
     try:
@@ -55,6 +56,7 @@ def norm_atoms(text):
         return text
 
 
+# 生效条件：以 os.path.join(DATA,"corpus567.jsonl") 与 os.path.join(DATA,"questions500.jsonl") 逐行读取、仅对 line.strip() 为真的行做 json.loads 分别追加，返回 (corpus, qs) 两列表（无入参，故始终执行该双文件读取）。
 def load():
     corpus, qs = [], []
     with open(os.path.join(DATA, "corpus567.jsonl"), encoding="utf-8") as f:
@@ -68,6 +70,7 @@ def load():
     return corpus, qs
 
 
+# 生效条件：build(rows,field_fn,root,semantic=False) 先按 root 是否存在决定是否 shutil.rmtree，再逐行 content=field_fn(r) or ""（假值回落空串，strip 后为空则改记“（空）”）、node_id=r["id"] 调 cg.add；semantic 为真时额外传 semantic=norm_atoms(r.get("text") or "")，首次 cg.add 抛 TypeError 则弹出 semantic 重试（重试异常不再捕获），其它 Exception 被静默跳过，最后返回 cg。
 def build(rows, field_fn, root, semantic=False):
     if os.path.exists(root):
         shutil.rmtree(root)
@@ -90,6 +93,7 @@ def build(rows, field_fn, root, semantic=False):
     return cg
 
 
+# 生效条件：仅当 nd 是 dict 且按 ("id","node_id","nid","name") 顺序 nd.get(k) 取到的首个值是 str 时返回该字符串，nd 非 dict 或这些键取值均非 str 时返回 None。
 def node_id_of(nd):
     if isinstance(nd, dict):
         for k in ("id", "node_id", "nid", "name"):
@@ -99,6 +103,7 @@ def node_id_of(nd):
     return None
 
 
+# 生效条件：evaluate(cg,qs,k=20) 只统计 gold=set(q.get("evidence_turns") or []) 非空的题，逐题以 cg.search(q["question"], k=k) 取结果（该调用抛任何异常即按 results=[] 计），用 node_id_of 抽取 id 后在结果下标上定 rank，按 rank 累计 hit@1/hit@5/hit@10 与 MRR、未命中 id 记入 miss_ranks，最终用题数 n 作分母输出 hit1/hit5/hit10/mrr（n 为 0 时该除法会除零）及按 qtype 分组明细，返回 out。
 def evaluate(cg, qs, k=20):
     """独立判定：rank / hit@k / MRR 全部自己算，不使用灵枢任何评测函数。"""
     n = 0
@@ -149,6 +154,7 @@ def evaluate(cg, qs, k=20):
     return out
 
 
+# 生效条件：main() 以 sys.argv[1:] 中首个非 "--" 开头参数经 int 作 only（无此类参数则 30），用 load() 得 corpus/qs_all 并取 qs=qs_all[:only]，arms 由模块常量 SEM 为真取 [("F_sem",...)）否则取 ARMS_MAIN，每个 arm 各自 tempfile.mkdtemp 后 build(corpus, fn, root, semantic=SEM)、evaluate(cg, qs)、打印并写 /tmp/locomo_res_{name}.json、再 rmtree（SEM 或 only>=100 时另打印各 qtype 明细），末尾以 random.seed(7) 在打乱后的 allids[:20] 上算随机下界；该函数无返回。
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     only = int(args[0]) if args else 30
