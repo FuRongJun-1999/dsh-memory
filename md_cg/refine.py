@@ -131,6 +131,7 @@ def _sha(*parts) -> str:
     return h.hexdigest()
 
 
+# 生效条件：遍历 cg.index 的 nodes，仅收 str(nid) 以 prefix 开头且条目 protected 为假值的 nid 进 ids（排序后返回），protected 为真值的计入 protected 计数；
 def _pool(cg, prefix) -> tuple:
     """抽检池：id 以 prefix 开头、非受保护节点（与 induce 的池口径一致）。"""
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
@@ -533,6 +534,7 @@ def gate(x, batch=None) -> dict:
                      "闸门未放行，禁止扩大批次；不得盲跑全量。")}
 
 
+# 生效条件：batch 为真值时只保留该批次记录，total 先记为过滤后条数；limit 非 None 且 >=0 时以 recs[-int(limit):] 截尾（limit=0 因 [-0:] 等价 [0:] 仍返回全部记录），limit 为 None 或负数时不截断；
 def history(x, limit=100, batch=None) -> dict:
     cg = _as_cg(x)
     recs = _read_log(cg)
