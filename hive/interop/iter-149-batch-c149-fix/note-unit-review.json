@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-149-batch-c149-fix",
+ "round": 2,
+ "candidate_commit": "eb11a0c",
+ "branch": "task/iter-149-batch-c149-fix",
+ "unit_job": "h1789696563613_adedcc",
+ "verdict": "REJECT",
+ "package_n": 15,
+ "text": "复核15条：14条与源码相符。唯 probe_ref 条件中“expect 为真值不符……→hash_match=None”不符源码：真值不匹配时 `match=(got==expect)` 为 False，故 `hash_match=False`；仅 None/\"\"/0/False 等假值 expect 时 `match` 才为 None。同条 stale 描述正确。其余形参、早退、假值回落、闭包来源、返回形状均匹配。\n\nreason: probe_ref 将真值 hash 不匹配时的 hash_match 误写为 None，与源码 False 不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
