@@ -58,10 +58,12 @@ SPEC = {
 }
 
 
+# 生效条件：cg 传入后返回 os.path.join(cg.root, LOG_NAME)，即以 cg.root 与模块级常量 LOG_NAME 拼接的日志路径（cg 缺 root 属性时抛 AttributeError）。
 def _log_path(cg) -> str:
     return os.path.join(cg.root, LOG_NAME)
 
 
+# 生效条件：cg 与 nid 传入后，先看 str(nid) 是否以模块级常量 PREFIX 开头（不以则返回 False）；以 PREFIX 开头时取 cg.get(nid)（缺节点按空字典）的 content（假值按空串）经 nodefile.ccg_completeness 判断，若 "生效条件" 不在其 required_present 中则返回 True，否则 False。
 def is_candidate(cg, nid) -> bool:
     """候选判据：代码节点且正文缺『生效条件』（机械判据，唯一）。"""
     if not str(nid).startswith(PREFIX):
@@ -71,6 +73,7 @@ def is_candidate(cg, nid) -> bool:
     return "生效条件" not in comp["required_present"]
 
 
+# 生效条件：cg 与 nid 传入后，从 cg.get(nid)（缺节点按空字典）的 frontmatter（假值按空字典）的 code_ref（假值按空字典）中按 path/name/kind/lineno/end/lang/precise 各键取 ref.get(k)（缺键为 None），返回含 code_ref 与固定 landing_rule、landing_note 字段的落点字典。
 def _landing(cg, nid) -> dict:
     """工单条目 → 源码落点（坐标 + 落点规则），供补写者直接定位。"""
     node = cg.get(nid) or {}
@@ -84,6 +87,7 @@ def _landing(cg, nid) -> dict:
     }
 
 
+# 生效条件：cg 与 nid 传入后，取 cg.get(nid)（缺节点按空字典）的 content（假值按空串）算长度与 refine._sha(content)[:16] 作为 source_sha，并结合 refine._entry(cg, nid) 的 layer/tags（tags 假值按空列表）与 nodefile.CCG_MARKS 得出 ccg_missing，最后合并 _landing(cg, nid) 的返回构成工单条目字典。
 def _item(cg, nid) -> dict:
     node = cg.get(nid) or {}
     content = node.get("content") or ""
@@ -173,6 +177,7 @@ def _stats(verdicts) -> dict:
                         "rate %.4f < %.2f" % (rate, GATE_MIN_PASS_RATE)))}
 
 
+# 生效条件：x 传入后经 refine._as_cg 得到 cg，若 cg.principal 非 None 则调用其 require_admin("maintain_comment_gate")；随后调用 plan(cg, ids=ids, n=n, seed=seed) 取工单、调用 _stats(verdicts) 取闸门统计，batch 假值回落 time.strftime("%Y%m%d-%H%M%S")，os.makedirs(cg.root, exist_ok=True) 后把含 batch/actor/seed/pool/sample/verdicts/gate 等字段的记录以追加方式写入 _log_path(cg)，并返回 ok=True 的留痕结果。
 def apply(x, ids=None, n=None, seed=None, verdicts=None, actor=None, note=None,
           batch=None) -> dict:
     """落抽检批次 + 人工裁决到 _comment_gate.jsonl。**不改写任何节点**。
@@ -203,6 +208,7 @@ def apply(x, ids=None, n=None, seed=None, verdicts=None, actor=None, note=None,
                       "闸门未放行：" + stats["reason"]))}
 
 
+# 生效条件：x 传入后经 refine._as_cg 得到 cg，读取 _log_path(cg) 且仅当 os.path.exists 为真时逐行解析（空行跳过、json.loads 抛 ValueError 的行跳过），batch 为真时仅保留 batch 字段匹配的记录；recs 为空时返回 expand_allowed=False、reason="no_batch"，否则取 recs[-1] 的 verdicts 经 _stats 复算并返回。
 def gate(x, batch=None) -> dict:
     """扩批闸门：读留痕复算通过率（不写盘）。"""
     cg = refine._as_cg(x)
@@ -231,6 +237,7 @@ def gate(x, batch=None) -> dict:
             "batches": len({r.get("batch") for r in recs}), **stats}
 
 
+# 生效条件：root 传入后调用 codeindex.index_dir 扫描（max_files 假值回落 500，max_items 假值回落 2000），对返回 items 的每条 comments（假值按空列表）逐条先 str(c).lstrip("#").strip() 再判断是否以 "生效条件" 开头，全部不以该串开头的项进入候选并返回含 items/errors/stats/examined/candidates 的字典。
 def candidates_from_sources(root, patterns=None, max_files=None, max_items=None,
                             skip_dirs=None):
     """**源级**候选枚举（不依赖认知图）：扫源码树，筛出注释里缺『生效条件』的符号。
@@ -257,6 +264,7 @@ def candidates_from_sources(root, patterns=None, max_files=None, max_items=None,
                      "不含图内节点状态，故不受存量渲染影响")}
 
 
+# 生效条件：it 传入后取 it.get("path")（假值按空串）按 "/" 分割首段作为 family（首段为空则 family="."），并返回含 id=codeindex.node_id(it)、name/kind、code_ref（path/lineno/end/lang/precise 各缺省 None）、comments（假值按空列表逐项 str）、以及固定 landing_rule 与 landing_note 的字典。
 def _landing_src(it) -> dict:
     return {"id": codeindex.node_id(it), "name": it.get("name"),
             "kind": it.get("kind"),
@@ -270,6 +278,7 @@ def _landing_src(it) -> dict:
             "landing_note": "两窗口按源码物理行序合并；靠前者胜出（契约 §三.2）"}
 
 
+# 生效条件：root 传入后调用 candidates_from_sources(root, patterns=patterns, skip_dirs=skip_dirs, max_files=max_files, max_items=max_items) 得候选，seed 假值回落 SAMPLE_SEED，n 为 None 时取 SAMPLE_N 否则 int(n)（0 保持 0），按 path 首段（空则 "."）分族与 sha(seed, node_id) 排序后做族间确定性轮转取至多 n 项，返回只读源级工单。
 def plan_sources(root, n=None, seed=None, patterns=None, skip_dirs=None,
                  max_files=None, max_items=None) -> dict:
     """**源级**工单（只读）：确定性抽样 + 源码落点；不依赖认知图、不改任何节点。
@@ -308,6 +317,7 @@ def plan_sources(root, n=None, seed=None, patterns=None, skip_dirs=None,
                      "抽样为按大域的确定性轮转。")}
 
 
+# 生效条件：x 与 action 传入后，action=="comment_gate" 时若 kw.get("apply") 为真则转 apply(x, ids,n,seed,verdicts,actor,note,batch)，否则转 plan(x, ids,n,seed)；action=="comment_gate_verdict" 时转 gate(x, batch)；action 为 "comment_gate_sources" 或 "comment_gate_source_plan" 时以 root=kw.get("root") or getattr(x,"root",None) or str(x) 转 plan_sources(...)；其余 action 抛 ValueError。
 def run(x, action, **kw) -> dict:
     """maintain op 分派入口（与 backfill.run 同形，便于 mcp_server 侧并列分派）。"""
     if action == "comment_gate":
