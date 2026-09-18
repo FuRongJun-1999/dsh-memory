@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-180-batch-c180-fix-d1-dual",
- "candidate_commit": "5e07563",
+ "candidate_commit": "0b37478",
  "branch": "task/iter-180-batch-c180-fix-d1-dual",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
