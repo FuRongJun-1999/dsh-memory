@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-152-batch-c152-fix",
+ "round": 2,
+ "candidate_commit": "67269fe",
+ "branch": "task/iter-152-batch-c152-fix",
+ "unit_job": "h1789697543667_cddc03",
+ "verdict": "ACCEPT",
+ "package_n": 15,
+ "text": "逐条比对：15 项条件均能对应源码分支；None/假值、早退、模块常量、返回形状锚定一致。save 未显式列 exist_ok/encoding、_payload 同长度依赖 SEALED_FIELDS 无重复，属非关键省略，未改变生效语义。position_ok 均有效，未发现新增断言或源码不符。\nreason: 条件与源码分支一致，仅有非关键省略，不影响生效判定。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
