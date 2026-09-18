@@ -322,3 +322,7 @@ ts	iter	branch	commit	status	claim_by	claimed_via	note
 1789756974	iter-consistency-c1-fix-d1	task/iter-consistency-c1-fix-d1	e0e525c	landed			重新入队（测试抖动，重试） ｜ 校验和落地 +2 条
 1789757002	iter-326-batch-c326	task/iter-326-batch-c326	1063ca1	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
 1789757002	iter-weights-c1	task/iter-weights-c1	9338434	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条（按提交回填）
+1789758332	iter-sustain-c1	task/iter-sustain-c1	033862f	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
+1789758387	iter-338-batch-c338-fix	task/iter-338-batch-c338-fix	0b98f1a	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
+1789758673	iter-reach-c2-fix	task/iter-reach-c2-fix	3d5a5d1	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条
+1789758712	iter-ccgc-c3	task/iter-ccgc-c3	8f3553b	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条
