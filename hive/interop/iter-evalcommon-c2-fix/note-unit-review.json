@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-evalcommon-c2-fix",
+ "round": 2,
+ "candidate_commit": "8bbc263",
+ "branch": "task/iter-evalcommon-c2-fix",
+ "unit_job": "h1789754642324_d383b7",
+ "verdict": "ACCEPT",
+ "package_n": 4,
+ "text": "1) calibrate_lm_turn ACCEPT：t/ctx 默认、转调 date_key、返回均符。  \n2) calibrate_lc_turn ACCEPT：r/ctx 默认、转调 title_key、返回均符。  \n3) build_eval_cg ACCEPT：rebuild/rmtree、cg_cls 假值回落、have>=n_rows 早退、两口径、id 跳过、进度、flush 返回均符。  \n4) install_read_cache ACCEPT：cache 键 path、orig 包装赋回、not-in 缓存含假值均符。  \nreason: 四条条件均在本符号段内有源码证据，无越界或额外断言。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
