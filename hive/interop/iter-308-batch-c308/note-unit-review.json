@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-308-batch-c308",
+ "round": 1,
+ "candidate_commit": "788f3f8",
+ "branch": "task/iter-308-batch-c308",
+ "unit_job": "h1789753636081_3d86df",
+ "verdict": "ACCEPT",
+ "package_n": 8,
+ "text": "逐条复核：1–8 均 ACCEPT。条件均给出正确输入/状态，锚定 required 形参/类常量/早退，未与源码冲突；未见 None/假值、闭包、分支参数、返回形状、长度/空容器越界，也未补充源码不支持断言。\nreason: 8 条条件均能在各自 src_segment 内找到一致证据，无越界或缺失。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
