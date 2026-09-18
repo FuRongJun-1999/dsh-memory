@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-157-batch-c157",
+ "round": 1,
+ "candidate_commit": "5ac1710",
+ "branch": "task/iter-157-batch-c157",
+ "unit_job": "h1789701648305_94f27f",
+ "verdict": "REJECT",
+ "package_n": 13,
+ "text": "复核：cmd_snapshot 条件称“全部通过才拷贝”，源码在 artifacts 校验前已 rmtree/makedirs 并拷 spec/result/log/progress，且 artifacts 逐项校验逐项拷贝；cmd_progress 漏述仅 wm 或仅 job_id 非空也走 else 报同一错。其余条目基本吻合。\nreason: 存在与源码分支/副作用不符之处，不能接受。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
