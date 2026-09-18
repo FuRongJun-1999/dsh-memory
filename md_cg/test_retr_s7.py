@@ -66,6 +66,23 @@ def _build(root):
     return cg
 
 
+# 生效条件：无条件建一个带 edges 的库（A 词法命中，B/C 无词面交集但沿边可达，D 孤立）并返回 cg。
+def _build_edges(root):
+    cg = MdCG(root)
+    cg.add("A", "工程 结构 应力 梁 截面", "knowledge", importance=0.5,
+           condition_space={"observation_position": "工程 结构"})
+    cg.add("B", "qxzq 与检索词无交集", "knowledge", importance=0.5,
+           condition_space={"observation_position": "工程 结构"})
+    cg.add("C", "ppyx 另一段无交集文本", "knowledge", importance=0.5,
+           condition_space={"observation_position": "工程 结构"})
+    cg.add("D", "孤立节点 无任何边", "knowledge", importance=0.5,
+           condition_space={"observation_position": "工程 结构"})
+    cg.append_edge("A", {"target": "B", "relation_type": "related"})
+    cg.append_edge("B", {"target": "C", "relation_type": "related"})
+    cg.flush()
+    return cg
+
+
 # 生效条件：无条件以「S7 关」与「S7 开」各检索一次同一 query，返回 (关结果, 关meta, 开结果, 开meta, s7审计dict)。
 def _both(cg, q):
     _setenv(MDCG_GATE_S7_POSTINGS=None)
@@ -169,7 +186,8 @@ def main():
     rn, mn = cg2.search("阿尔法", k=10, judge=False, record=False)
     gn = (mn.get("gates") or {}).get("s7") or {}
     check("无发布表：no_index 回退",
-          gn.get("reason") == "no_index" and gn.get("fallback") == "full_scan", str(gn))
+          str(gn.get("reason") or "").endswith("no_index")
+          and gn.get("fallback") == "full_scan", str(gn))
 
     # ---- 10) 幂等：重复检索一致 ----
     _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S7_POSTINGS="1")
@@ -182,6 +200,106 @@ def main():
     postings.build(cg)
     rq3, _mq3 = cg.search("阿尔法", k=10, judge=False, record=False)
     check("重建后结果仍一致", _snap(rq3) == _snap(rq1), str(_snap(rq3)) + " vs " + str(_snap(rq1)))
+
+    # ---- 11) 组合语义：S7 只是 T2 的加速器，不得缩小 S3 的可达域 ----
+    root3 = tempfile.mkdtemp(prefix="retr_s7s3_")
+    cg3 = _build_edges(root3)
+    postings.build(cg3)
+    _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S1_DOMAIN="0", MDCG_GATE_S1B_BUCKET="0",
+            MDCG_GATE_S2_COND="0", MDCG_GATE_S3_SPREAD="1", MDCG_GATE_S7_POSTINGS=None)
+    r3a, m3a = cg3.search("工程 应力", k=5, judge=False, record=False)
+    g3a = (m3a.get("gates") or {}).get("s3") or {}
+    _setenv(MDCG_GATE_S7_POSTINGS="1")
+    r3b, m3b = cg3.search("工程 应力", k=5, judge=False, record=False)
+    g3b = (m3b.get("gates") or {}).get("s3") or {}
+    check("组合：S3 单独生效时确实扩散（用例有效）",
+          g3a.get("expanded") == 2 and m3a.get("tier") == "T2b_spread_activation",
+          str(g3a) + " tier=" + str(m3a.get("tier")))
+    check("组合：S7+S3 的扩散规模与结果均不退化",
+          g3b.get("expanded") == g3a.get("expanded") and _snap(r3b) == _snap(r3a),
+          str(g3b) + " vs " + str(g3a) + " / " + str(_snap(r3b)) + " vs " + str(_snap(r3a)))
+
+    # ---- 12) 并列同分：次序必须与全表一致（候选集是过滤，不是重排）----
+    root4 = tempfile.mkdtemp(prefix="retr_s7tie_")
+    cg4 = MdCG(root4)
+    for nid in ("t1", "t2", "t3"):
+        cg4.add(nid, "并列 重复 内容", "knowledge", importance=0.5)
+    cg4.flush()
+    postings.build(cg4)
+    _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S1_DOMAIN="0", MDCG_GATE_S1B_BUCKET="0",
+            MDCG_GATE_S2_COND="0", MDCG_GATE_S7_POSTINGS=None)
+    rt0, _mt0 = cg4.search("重复 内容", k=5, judge=False, record=False)
+    _setenv(MDCG_GATE_S7_POSTINGS="1")
+    rt1, mt1 = cg4.search("重复 内容", k=5, judge=False, record=False)
+    gt = (mt1.get("gates") or {}).get("s7") or {}
+    check("并列同分：次序与全表一致（保持索引原序，不受集合迭代序影响）",
+          len(rt0) == 3 and _snap(rt1) == _snap(rt0),
+          str(_snap(rt1)) + " vs " + str(_snap(rt0)) + " " + str(gt))
+
+    # ---- 13) 快照过期：节点被改写后必须回退全量（宁可慢，不可丢召回）----
+    root5 = tempfile.mkdtemp(prefix="retr_s7stale_")
+    cg5 = _build(root5)
+    postings.build(cg5)
+    _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S7_POSTINGS="1",
+            MDCG_GATE_S1_DOMAIN="0", MDCG_GATE_S1B_BUCKET="0", MDCG_GATE_S2_COND="0",
+            MDCG_S7_FRESHNESS=None)
+    _r5, _m5 = cg5.search("阿尔法", k=10, judge=False, record=False)
+    check("快照新鲜：stale_reason 为空",
+          postings.stale_reason(root5, cg5.index["nodes"]) == "",
+          postings.stale_reason(root5, cg5.index["nodes"]))
+    # 改写已有节点（节点数不变 → 只可能是目录 mtime 变化）
+    cg5.add("n1", "阿尔法 贝塔 伽马 追加", "knowledge")
+    cg5.flush()
+    _sr = postings.stale_reason(root5, cg5.index["nodes"])
+    check("改写后：指纹判定过期（dir_touched）", _sr == "dir_touched", _sr)
+    _setenv(MDCG_GATE_S7_POSTINGS=None)
+    rs0, ms0 = cg5.search("追加", k=10, judge=False, record=False)
+    _setenv(MDCG_GATE_S7_POSTINGS="1")
+    rs1, ms1 = cg5.search("追加", k=10, judge=False, record=False)
+    gs5 = (ms1.get("gates") or {}).get("s7") or {}
+    check("过期：reason 记 stale_index 并回退全量、结果与全表一致",
+          str(gs5.get("reason") or "").startswith("stale_index:")
+          and gs5.get("fallback") == "full_scan" and _snap(rs1) == _snap(rs0),
+          str(gs5) + " / " + str(_snap(rs1)) + " vs " + str(_snap(rs0)))
+    # 新增节点（节点数变化）
+    cg5.add("n9", "阿尔法 新增节点", "knowledge")
+    cg5.flush()
+    check("新增节点：指纹判定过期（node_count_changed）",
+          postings.stale_reason(root5, cg5.index["nodes"]) == "node_count_changed",
+          postings.stale_reason(root5, cg5.index["nodes"]))
+    # 重建后重新新鲜
+    postings.build(cg5)
+    _r6, m6 = cg5.search("阿尔法", k=10, judge=False, record=False)
+    check("重建后恢复新鲜并重新窄化",
+          postings.stale_reason(root5, cg5.index["nodes"]) == ""
+          and (m6.get("gates") or {}).get("s7", {}).get("cands") is not None,
+          str((m6.get("gates") or {}).get("s7")))
+    # skip 开关：仅供离线对照，跳过指纹后仍窄化
+    _setenv(MDCG_S7_FRESHNESS="skip")
+    cg5.add("n9", "阿尔法 新增节点 又改", "knowledge")
+    cg5.flush()
+    _r7, m7 = cg5.search("阿尔法", k=10, judge=False, record=False)
+    g7 = (m7.get("gates") or {}).get("s7") or {}
+    check("skip 开关：跳过指纹校验后仍走候选窄化（改动路径可见）",
+          g7.get("cands") is not None and g7.get("fallback") is None, str(g7))
+    # ---- 14) 抽样构建（limit）不得留下看似新鲜的快照 ----
+    root6 = tempfile.mkdtemp(prefix="retr_s7part_")
+    cg6 = _build(root6)
+    st6 = postings.build(cg6, limit=2)
+    check("抽样构建：stats 标 partial 且不写 snapshot",
+          st6.get("partial") is True and "snapshot" not in st6
+          and postings.stale_reason(root6, cg6.index["nodes"]) == "no_snapshot",
+          str({k: st6.get(k) for k in ("partial", "snapshot", "nodes")})
+          + " / " + postings.stale_reason(root6, cg6.index["nodes"]))
+    _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S7_POSTINGS="1",
+            MDCG_GATE_S1_DOMAIN="0", MDCG_GATE_S1B_BUCKET="0", MDCG_GATE_S2_COND="0",
+            MDCG_S7_FRESHNESS=None)
+    rp1, mp1 = cg6.search("阿尔法", k=10, judge=False, record=False)
+    gp1 = (mp1.get("gates") or {}).get("s7") or {}
+    check("抽样构建：检索一律回退全量（不静默漏召回）",
+          gp1.get("fallback") == "full_scan"
+          and str(gp1.get("reason") or "").endswith("no_snapshot"),
+          str(gp1))
     _restore(old)
 
     print("\ntest_retr_s7: %d 通过 / %d 失败" % (passed, failed))

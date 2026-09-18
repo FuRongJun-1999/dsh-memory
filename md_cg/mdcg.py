@@ -1887,24 +1887,37 @@ class MdCG:
                 gates["s7"] = {"reason": "no_module", "in": len(entries_full),
                                "fallback": "full_scan"}
             else:
-                _ids7, _why = _pd.candidates(self.root, terms)
-                if _ids7 is None:
-                    gates["s7"] = {"reason": _why, "in": len(entries_full),
-                                   "fallback": "full_scan"}
+                # 发布表是**快照**：节点被改写后可能漏掉命中 → 先验快照指纹，过期即回退全量
+                # （宁可慢，不可丢召回）。指纹只做 stat（≈目录数，本库 1,074 目录 ≈ 0.03s）。
+                # MDCG_S7_FRESHNESS=skip 只供离线对照实测使用；生产默认 auto。
+                _stale = ""
+                if os.environ.get("MDCG_S7_FRESHNESS") != "skip":
+                    _stale = _pd.stale_reason(self.root, self.index.get("nodes") or {})
+                if _stale:
+                    gates["s7"] = {"reason": "stale_index:" + _stale,
+                                   "in": len(entries_full), "fallback": "full_scan"}
                 else:
-                    _by_id = {}
-                    for _e in entries_full:
-                        _nid = _e.get("id") or os.path.splitext(
-                            os.path.basename(_e.get("path") or ""))[0]
-                        _by_id[_nid] = _e
-                    _keep = [_by_id[k] for k in _ids7 if k in _by_id]
-                    gates["s7"] = {"cands": len(_keep), "in": len(entries_full),
-                                   "terms": len(terms)}
-                    if _keep:
-                        entries = _keep
-                        _s7_narrowed = True
+                    _ids7, _why = _pd.candidates(self.root, terms)
+                    if _ids7 is None:
+                        gates["s7"] = {"reason": _why, "in": len(entries_full),
+                                       "fallback": "full_scan"}
                     else:
-                        gates["s7"]["fallback"] = "no_candidate"
+                        # 保持**索引原序**（不是发布表序）：候选集是过滤，不是重排。
+                        # 完全并列（同分同重要性）时排序稳定，故只有原序一致，S7 的
+                        # results 才能与全表扫描逐字节一致（独立复核口径）。
+                        _keep = []
+                        for _e in entries_full:
+                            _nid = _e.get("id") or os.path.splitext(
+                                os.path.basename(_e.get("path") or ""))[0]
+                            if _nid in _ids7:
+                                _keep.append(_e)
+                        gates["s7"] = {"cands": len(_keep), "in": len(entries_full),
+                                       "terms": len(terms)}
+                        if _keep:
+                            entries = _keep
+                            _s7_narrowed = True
+                        else:
+                            gates["s7"]["fallback"] = "no_candidate"
         _s7_scan0 = stat["scanned"]        # S7 窄化前的扫描基线（供 T3 兜底还原口径）
         docs_all = self._read_many(entries, stat)
         # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
@@ -1916,9 +1929,14 @@ class MdCG:
         # 约束：扩散只走索引里的 edges（不读文件）；**不得引入未通过 S1/S2 门控**的节点；
         # 命中不足时自然落回原 T2/T3 路径（无召回损失）。
         if _s3 and hits:
-            _act, _seeds = self._spread_activation(entries, hits, _s3_hops, _s3_decay)
+            # 组合语义（S3×S7）：S7 只是 T2 的候选加速器，**不得**改变 S3 的可达域。
+            # 若把窄化后的 entries 当 allowed，S7+S3 会把扩散限制在词法候选内，
+            # 恰好丢掉 S3 的目标（「只沿 edges 可达、词面无交集」的节点）→ 组合退化。
+            # 故 allowed 恒取 S1/S2 门控后的全量候选（S7 关时 entries 即全量，行为不变）。
+            _s3_pool = entries_full if _s7_narrowed else entries
+            _act, _seeds = self._spread_activation(_s3_pool, hits, _s3_hops, _s3_decay)
             if _act:
-                _by_path = {e.get("path"): e for e in entries}
+                _by_path = {e.get("path"): e for e in _s3_pool}
                 _extra_entries = [_by_path[p] for p in _act if p in _by_path]
                 _extra_docs = self._read_many(_extra_entries, stat)
                 _seen = {d[0]["path"] for d in hits}
