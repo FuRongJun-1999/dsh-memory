@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-223-batch-c223",
+ "round": 1,
+ "candidate_commit": "7a6c75a",
+ "branch": "task/iter-223-batch-c223",
+ "unit_job": "h1789719831945_0f4446",
+ "verdict": "ACCEPT",
+ "package_n": 8,
+ "text": "复核：8 条条件均与源码相符。stratified_sample 空 rows 返回 []/{}；build_pool 悬空、去重、排序正确；turn_rec 假值落空串；align_queries 异常语义正确；rank_of 适配与 1-based 排名；rows_from_hits 截取与 top1_score；prepare 复用/重跑分支；load 返回形状正确。未发现补充源码不支持的断言。\nreason: 逐条比对源码，条件均准确且位置已紧贴定义，无 Zero-Trust 冲突。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
