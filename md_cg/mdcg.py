@@ -1929,6 +1929,7 @@ class MdCG:
         except OSError:
             pass
 
+# 生效条件：无 required 形参；遍历 self.access_log 的 read_jsonl 记录，ts 取 rec.get("t", 0)（缺键回落 0），对 rec.get("ids", []) 中每个 nid 计数加一，且 ts 大于该 nid 已记最大 ts 时更新 last[nid]=ts，返回 (counts, last)；
     def access_counts(self):
         counts, last = {}, {}
         for rec in read_jsonl(self.access_log):
