@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-200-batch-c200-fix",
+ "round": 2,
+ "candidate_commit": "d25ba42",
+ "branch": "task/iter-200-batch-c200-fix",
+ "unit_job": "h1789713788553_189ae9",
+ "verdict": "ACCEPT",
+ "package_n": 10,
+ "text": "逐条复核 1–10：条件均说明何种输入/状态生效，锚定 CONTENT_KINDS、VERIFIERS、STATES、payload/ctx 形参及早退前置；None/假值回落、异常捕获、返回形状与源码一致，未发现源码不支持的断言；position_ok 均为 true。\nreason: 全部候选条件与源码分支一致，无越界或缺失前置。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
