@@ -36,12 +36,14 @@ HEARTBEAT = os.path.join(JOBS, "_serve.json")
 FRESH_S = 15  # 心跳新鲜窗口（serve 每拍 <1s 刷）。**须与 src/main.rs 的 FRESH_MS=15000 同值**——两面判「serve 是否在跑」必须同口径，否则同一个 serve 得两个结论
 
 
+# 生效条件：obj 为 dict（非 dict 时 obj.get 会抛 AttributeError）时打印其 ensure_ascii=False 的 JSON，并返回 0 当 obj.get("ok") 为真值，否则返回 1（ok 缺失或为 0/""/None/[] 等假值同样返回 1）。
 def emit(obj):
     """打印 + 返回退出码。**只有 CLI 入口用它**；库层调用请直接取返回值。"""
     print(json.dumps(obj, ensure_ascii=False))
     return 0 if obj.get("ok") else 1
 
 
+# 生效条件：v 为 str 时原样返回（空串也返回空串）；v 为含 "env" 键的 dict 时返回 os.environ.get(该名, "") 去空白后的值、空串则回落 None；v 为 dict 且无 "env" 键但有 "file" 键时读该路径去空白、空则 None、抛 OSError 则 None（非 UTF-8 内容抛出的 UnicodeDecodeError 未被捕获）；其余 dict 及非 str/dict 一律返回 None。
 def resolve(v):
     """配置值三形态解析：str 直值 / {"env": name} / {"file": path}。失败返回 None。"""
     if isinstance(v, str):
@@ -80,6 +82,7 @@ def load_config(path):
     return env, None
 
 
+# 生效条件：jobs 为真值时读 os.path.join(jobs, "_serve.json")，jobs 为 None 或空串等假值时回落模块常量 HEARTBEAT，该路径能打开且 json.load 成功则返回其内容，抛 OSError/ValueError 则返回 None。
 def heartbeat(jobs=None):
     """读 serve 心跳。jobs 给定时读该 jobs 目录的 `_serve.json`（MCP 面用于对齐自己的 jobs）。"""
     path = os.path.join(jobs, "_serve.json") if jobs else HEARTBEAT
@@ -90,6 +93,7 @@ def heartbeat(jobs=None):
         return None
 
 
+# 生效条件：对传入的 pid（未做类型与正负校验，比较用 str(pid)）执行 tasklist /FO CSV 后，在其 stdout 中遇到的第一个按 '","' 切分、列数≥2 且第 2 列 strip 再 strip('"') 后等于 str(pid) 的行即返回 [第 1 列映像名, pid 字符串]，无此行或 subprocess.run 抛 OSError 时返回 None。
 def _tasklist_row(pid):
     """Windows：查该 pid 的 tasklist 行 → [映像名, pid 字符串]；查不到返回 None。
 
@@ -108,6 +112,7 @@ def _tasklist_row(pid):
     return None
 
 
+# 生效条件：pid 为 int 且大于 0 时（否则直接返回 False），os.name 为 "nt" 时返回 _tasklist_row(pid) 是否非 None，非 "nt" 时 os.kill(pid, 0) 未抛 OSError 返回 True、抛 OSError 返回 False。
 def pid_alive(pid):
     """该 pid **号**是否存在（Windows tasklist 精确列比对 / unix `kill -0`）。
 
@@ -124,6 +129,7 @@ def pid_alive(pid):
         return False
 
 
+# 生效条件：模块常量 EXE 的 basename 小写 want 非空且 pid 为 int 大于 0 时（否则 False），"nt" 下要求 _tasklist_row(pid) 非空且其映像名小写等于 want，非 "nt" 下要求 /proc/<pid>/cmdline 首个 b"\x00" 前 token 的 basename 小写等于 want（读取抛 OSError 则 False），相等返回 True，否则 False。
 def pid_is_self_program(pid):
     """该 pid 是否**就是本程序**（同映像名）——pid 号会被无关进程复用。
 
@@ -165,6 +171,7 @@ def serve_alive(jobs=None):
     return pid_alive(pid) and pid_is_self_program(pid)
 
 
+# 生效条件：heartbeat() 为假值时返回 {ok:True, stopped:False, note:"serve 未在运行"}；心跳为真而 serve_alive() 为假时按 not pid_alive(pid) 分别给出"该 pid 已不存在"或"该 pid 不属于本程序"的陈旧心跳 note 并返回 stopped:False；两者皆真时按 os.name 用 taskkill /PID … /F（check=True）或 os.kill(pid, 15)，抛 CalledProcessError/OSError 返回 {ok:False, error:"停止失败 pid=…"}，否则最多轮询 30 次×0.5s serve_alive（未转假也照常退出循环）后一律返回 {ok:True, stopped:True, pid}。
 def stop():
     hb = heartbeat()
     if not hb or not serve_alive():
@@ -238,6 +245,7 @@ def start(config_path):
     return {"ok": False, "error": f"serve 心跳未出现，日志尾部：{tail}"}
 
 
+# 生效条件：始终返回 {ok:True, alive, heartbeat, jobs_dir:JOBS}；hb 为真而 serve_alive() 为假时额外附 stale_heartbeat（pid、pid_alive(pid)、pid_is_self_program(pid)、以及按 hb.get("ts", 0) 缺失记 0 算出的 age_s）；alive 为真且 JOBS 路径存在时额外遍历其中各子目录的 status.json，把 json.load(f).get("state", "?")（缺 state 键记 "?"，抛 OSError/ValueError 的条目跳过）按值计数写入 job_states。
 def status():
     hb = heartbeat()
     alive = serve_alive()
@@ -268,6 +276,7 @@ def status():
     return info
 
 
+# 生效条件：参数取自 sys.argv[1:]（"--config" 存在时取其紧随的一项作为 cfg，缺该项会在 args[i+1] 抛未捕获的 IndexError，否则用模块常量 DEFAULT_CONFIG）；处理后 args 仍含 "--stop" 时返回 emit(stop())，否则含 "--status" 时返回 emit(status())，两者都不含时返回 emit(start(cfg))。
 def main():
     args = sys.argv[1:]
     cfg = DEFAULT_CONFIG
