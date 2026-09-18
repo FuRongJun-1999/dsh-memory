@@ -1,0 +1,15 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "iter-142-batch-c142-fix",
+ "commit": "0bf89cb",
+ "verdict": "FAIL",
+ "receipt_job": "h1789705655301_58ac",
+ "receipt_sha16": "d01a6462ffb82f95",
+ "received_ts": 1789705655,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=iter-142-batch-c142-fix commit=0bf89cb verdict=FAIL | 更正前条误判 PASS（验证端 test_codeindex 步骤当时未细看输出）：test_codeindex.py L293 调用 codeindex._body_comments，但该分支 codeindex.py 无此属性（AttributeError）——分支自身 test/实现不一致，判定 FAIL 需主实例修复后重交。注：md_cg 组 88/88 全绿为模块级回归事实，但 test_codeindex 自身不通过故整体 FAIL",
+ "commands_sanitized": "[{\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}]",
+ "related_note": "hive/interop/iter-002-carrier-align/note-receipt-iter-142-batch-c142-fix-d1-r2-h1789695604669_0a7c.json",
+ "note": "由 ingest_receipts.py v2 生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
