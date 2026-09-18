@@ -1426,9 +1426,11 @@ class MdCG:
             if _fm_dom:
                 # 对账支路：frontmatter 已有标签但索引快照没同步（历史部分失败/旧索引）→ 修索引，不重写文件
                 if e.get("big_domain") != _fm_dom:
+                    st["index_synced"] += 1
+                    if dry_run:            # dry-run 语义：只统计，不改内存也不落盘
+                        continue
                     e["big_domain"] = _fm_dom
                     self._stage(nid, _strip_empty_gate_fields(e))
-                    st["index_synced"] += 1
                 else:
                     st["already"] += 1
                 continue
@@ -1646,6 +1648,15 @@ class MdCG:
                    # 分支实验场：默认（branch=None）分支节点全部隐身；
                    # branch=<id> 时主支 + 本分支可见、其他分支仍隐身
                    and e.get("branch_id") in (None, branch)]
+
+        # 默认关：索引里可能残留门控字段（曾开启过 / 回填过）→ 返回前剥离，
+        # 保证候选 entry 形状与「从未启用过本功能」逐字节一致（独立复核 2026-09-19）。
+        # 只在确有残留时才拷贝（默认路径无额外开销）。
+        if (os.environ.get("MDCG_RETRIEVAL_PIPELINE") != "1" and entries
+                and any(("big_domain" in e) or ("observation_position" in e)
+                        for e in entries)):
+            entries = [_strip_empty_gate_fields(dict(e), enabled=False)
+                       for e in entries]
 
         # ---- S1/S2 检索前门控（契约 docs/hive/检索路径与认知结构契约_v0.1.md）----
         # 历史偏差：大域先验与条件空间都只在「扫完 + 排完」之后才用（审计偏差 2/4）。

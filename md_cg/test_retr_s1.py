@@ -254,6 +254,10 @@ def main():
     check("对账前状态成立（索引缺键 / fm 有键）",
           cg4.index["nodes"]["g1"].get("big_domain") is None
           and cg4.get("g1")["frontmatter"].get("big_domain") == "工程")
+    st4d = cg4.backfill_big_domain(dry_run=True)
+    check("对账 dry-run：只统计不改内存",
+          st4d["index_synced"] == 1
+          and "big_domain" not in cg4.index["nodes"]["g1"], str(st4d))
     st4 = cg4.backfill_big_domain()
     check("backfill 对账支路修索引",
           st4["index_synced"] == 1 and st4["written"] == 0, str(st4))
@@ -305,6 +309,25 @@ def main():
           all(("big_domain" not in r[0] and "observation_position" not in r[0])
               for r in _r5b),
           str([sorted(r[0].keys()) for r in _r5b])[:160])
+
+    # 7d 索引曾在「开启态」构建（条目带门控键）→ 默认关时 search 必须返回剥离后的候选
+    _setenv(MDCG_RETRIEVAL_PIPELINE="1")
+    root7 = tempfile.mkdtemp(prefix="retr_resid_")
+    _write_raw(root7, "q1", "knowledge", GONG, pos="工程 结构", bd="工程")
+    cg7 = MdCG(root7)
+    cg7.rebuild_index()
+    check("开启态：索引条目带门控键",
+          cg7.index["nodes"]["q1"].get("big_domain") == "工程"
+          and cg7.index["nodes"]["q1"].get("observation_position") == "工程 结构")
+    _setenv(MDCG_RETRIEVAL_PIPELINE=None)
+    _r7, _m7 = cg7.search("工程 应力", k=10, judge=False, record=False)
+    check("默认关：残留门控键被剥离（候选）",
+          bool(_r7) and all(("big_domain" not in r[0]
+                             and "observation_position" not in r[0])
+                            for r in _r7),
+          str([sorted(r[0].keys()) for r in _r7])[:160])
+    check("默认关：索引条目本身未被就地改写",
+          cg7.index["nodes"]["q1"].get("big_domain") == "工程")
     _restore(old)
 
     print("\ntest_retr_s1: %d 通过 / %d 失败" % (passed, failed))
