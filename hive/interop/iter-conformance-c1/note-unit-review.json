@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-conformance-c1",
+ "round": 1,
+ "candidate_commit": "eac37f4",
+ "branch": "task/iter-conformance-c1",
+ "unit_job": "h1789756281675_6cabb0",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "1) _usage：ACCEPT。edges 未引用；四字段真值过滤并 str；_basis_of/_tag_prefixes 展开；edges 中 dict 项按 edge_rel 计数；edge_type 仅真键；返回 used，均段内可证。\n2) check：ACCEPT。root/check_paths/baseline/small/_ratio/verdict/返回字段与段内一致；无越界或额外断言。\nreason: 两条条件均准确锚定各自源码段，未发现不符、越界或需外部证据。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
