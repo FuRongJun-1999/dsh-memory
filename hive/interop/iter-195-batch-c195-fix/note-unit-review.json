@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-195-batch-c195-fix",
+ "round": 2,
+ "candidate_commit": "562e959",
+ "branch": "task/iter-195-batch-c195-fix",
+ "unit_job": "h1789712338293_9490f5",
+ "verdict": "REJECT",
+ "package_n": 11,
+ "text": "复核：多数条目能锚定形参、模块常量与早退，未发现 assert/None 分支误述。但 main 条目的四臂名称与源码不符：源码为 J2_full/J2_body/J2_zh/J0_raw，条件写成 J2_raw。因此该条不能通过，整体应驳回。\nreason: main 条目把源码四臂中的 J0_raw 误作 J2_raw，条件与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
