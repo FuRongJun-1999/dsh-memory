@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-census-c1-fix",
+ "round": 2,
+ "candidate_commit": "fe45ec9",
+ "branch": "task/iter-census-c1-fix",
+ "unit_job": "h1789749578845_aed483",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "1) by_keys：ACCEPT。空 keys→{}；d.get(k) 缺键得 None；sort_keys/ensure_ascii、sha256[:10]、t 未参与均与段内一致。  \n2) main：ACCEPT。load(root)→rows；空序列先打印总节点，再 `if not rows` 空库 return 2；非空继续分层/分布/A-D report 后 return 0。未越界，未补源码外断言；首行 md 记忆库未述不影响分支。  \nreason: 两条条件均可由各自 src_segment 直接验证，与源码分支/返回一致。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
