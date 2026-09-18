@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-178-batch-c178-fix",
+ "round": 2,
+ "candidate_commit": "0edbb54",
+ "branch": "task/iter-178-batch-c178-fix",
+ "unit_job": "h1789708049890_ac26cf",
+ "verdict": "ACCEPT",
+ "package_n": 12,
+ "text": "逐条对照源码：12 条均锚定形参、模块常量、None/假值回落、早退与异常分支；_stats 的 dict 不可哈希抛 TypeError、v.get 分支不可达描述与源码一致；未见 assert 语义、闭包来源、参数误用、返回形状、长度/空容器或源码不支持断言。position_ok=true 无需行号。\nreason: 所列生效条件与 md_cg/comment_gate.py 源码逐分支一致，无驳回项。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
