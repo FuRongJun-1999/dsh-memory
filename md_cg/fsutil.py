@@ -28,6 +28,7 @@ _RENAME_TRIES = 20
 _RENAME_WAIT = 0.005
 
 
+# 生效条件：tmp 与 path 给定后循环至多 _RENAME_TRIES 次调用 os.replace(tmp, path)，成功即返回；仅捕获 PermissionError，非最后一次则 time.sleep(_RENAME_WAIT) 重试，最后一次仍 PermissionError 则抛出。
 def _publish(tmp: str, path: str):
     """把临时文件 rename 到位，Windows 上短重试。"""
     for i in range(_RENAME_TRIES):
@@ -40,6 +41,7 @@ def _publish(tmp: str, path: str):
             time.sleep(_RENAME_WAIT)
 
 
+# 生效条件：path 与 data 给定时取 path 所在目录 d 建目录，用 tempfile.mkstemp 在 d 内建临时文件按 encoding 写入 data，durable 为真才 flush+os.fsync（假值不 fsync），再经 _publish(tmp, path) 替换；任一步失败时 finally 里若 tmp 仍非 None 且 os.path.exists(tmp) 为真则 os.remove（OSError 忽略）。
 def atomic_write(path: str, data: str, encoding: str = "utf-8", durable: bool = False):
     """整文件替换。临时文件与目标同目录（保证同一文件系统，rename 才原子），
     临时名唯一（并发写者不共享），失败即清理而不是留在可能刚写满的磁盘上。
@@ -71,6 +73,7 @@ def atomic_write(path: str, data: str, encoding: str = "utf-8", durable: bool = 
                 pass
 
 
+# 生效条件：os.path.isdir(d) 为假时直接返回；否则对 d 下名字以 "." 开头且含 ".tmp-" 的条目，当 now - os.path.getmtime(p) > older_than 时 os.remove(p)（OSError 忽略），其余条目不动。
 def sweep_stale_temps(d: str, older_than: float = 3600):
     """清理被杀死的进程留下的唯一命名临时文件（它们不会被下一个写者复用清掉）。"""
     if not os.path.isdir(d):
@@ -87,6 +90,7 @@ def sweep_stale_temps(d: str, older_than: float = 3600):
             pass
 
 
+# 生效条件：path 加 ".lock" 后缀作为锁文件，进入时按 timeout 秒内以 poll 间隔轮询获取 OS 级排它锁（IS_WIN 用 msvcrt.locking 锁首字节，否则 fcntl.flock），超时仍未获锁时 strict 为真抛 TimeoutError、否则返回自身放行。
 class FileLock:
     """跨进程排它锁（OS 级）。
 
@@ -102,6 +106,7 @@ class FileLock:
     好过静默放行后退化为无锁并发（丢一条提案/裁决比让写入者等一下代价大）。
     """
 
+# 生效条件：path 加 ".lock" 后缀存入 self.path，timeout、poll、strict 原样保存，并置 self._f = None、self.acquired = False。
     def __init__(self, path: str, timeout: float = 10.0, poll: float = 0.01,
                  strict: bool = False):
         self.path = path + ".lock"
@@ -111,6 +116,7 @@ class FileLock:
         self._f = None
         self.acquired = False
 
+# 生效条件：先按 self.path 建父目录并 open(self.path, "a+b")，再在 self.timeout 到期前每 self.poll 秒尝试加锁（IS_WIN 用 msvcrt.locking(LK_NBLCK)，否则 fcntl.flock(LOCK_EX|LOCK_NB)）；成功即置 self.acquired=True 并返回 self；OSError 的 errno 不在 (EACCES, EAGAIN, EDEADLK) 时直接 raise，超时后 self.strict 为真抛 TimeoutError、否则返回 self 放行。
     def __enter__(self):
         os.makedirs(os.path.dirname(os.path.abspath(self.path)) or ".", exist_ok=True)
         self._f = open(self.path, "a+b")
@@ -134,6 +140,7 @@ class FileLock:
                     return self          # 放行，不阻断写路径
                 time.sleep(self.poll)
 
+# 生效条件：self.acquired 为真时按 IS_WIN 用 msvcrt.locking(LK_UNLCK) 或 fcntl.flock(LOCK_UN) 解锁（OSError 被吞掉）；finally 中只要 self._f 为真就 close，随后 self._f=None、self.acquired=False。
     def __exit__(self, *exc):
         try:
             if self.acquired:
@@ -151,6 +158,7 @@ class FileLock:
             self.acquired = False
 
 
+# 生效条件：os.path.getsize(path) 为 0 时返回 False；否则二进制打开 path 并从 size-1 处读 1 字节，返回 f.read(1) != b"\n"；getsize/open/seek/read 抛 OSError 时返回 False。
 def ends_mid_line(path: str) -> bool:
     """行式日志的最后一字节是否不是换行——即上一个写者被杀死留下的半截记录。
     追加者若不先补一个换行，新记录会粘在这行上，两条都解析不出来。"""
@@ -165,6 +173,7 @@ def ends_mid_line(path: str) -> bool:
         return False
 
 
+# 生效条件：record 序列化为 json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"；若 ends_mid_line(path) 为真则在行首再补一个 "\n"；随后建父目录并以 O_CREAT|O_WRONLY|O_APPEND、权限 0o600 打开 path 写入该行 UTF-8 字节后关闭。
 def append_jsonl(path: str, record: dict):
     """向 append-only 日志追加一条记录（best-effort 语义）。
 
@@ -187,6 +196,7 @@ def append_jsonl(path: str, record: dict):
         os.close(fd)
 
 
+# 生效条件：os.path.exists(path) 为假时生成器直接结束不产出；否则逐行 strip，空行跳过，json.loads 成功则 yield 该对象，抛 ValueError 的行跳过，其余异常不捕获。
 def read_jsonl(path: str):
     """读 append-only 日志，跳过被截断/粘连的坏行（不因自身簿记而失败）。"""
     if not os.path.exists(path):
@@ -205,6 +215,7 @@ def read_jsonl(path: str):
 _COUNT_CACHE = {}          # abspath -> (bytes_scanned, mtime_ns, lines)
 
 
+# 生效条件：os.stat(os.path.abspath(path or "")) 抛 OSError 时返回 0；缓存命中且已扫字节数与 mtime_ns 均与 stat 一致时直接返回缓存计数；若缓存已扫字节 < 当前 size 且 mtime_ns 不同则从该偏移起按 chunk 分块累计 b"\n" 个数并加上缓存值；读文件抛 OSError 时返回 total or 0（已累计值为假则返回 0）。
 def count_jsonl(path: str, chunk: int = 1 << 20) -> int:
     """数 append-only 日志的行数——**流式计数、不物化**（内存 O(1)）。
 
@@ -255,6 +266,7 @@ def count_jsonl(path: str, chunk: int = 1 << 20) -> int:
     return total
 
 
+# 生效条件：directory 经 abspath 后作为分片目录并 makedirs(exist_ok=True)，实例分片文件名由 os.getpid() 与 uuid.uuid4().hex[:8] 拼成 "{pid}-{hex8}.log"，append 时各写者只写自己这一分片，从而不共享写入点。
 class ShardedLog:
     """每写者独占一个分片的 append-only 日志——不能丢记录时用它。
 
@@ -263,6 +275,7 @@ class ShardedLog:
     代价是读取要合并 N 个分片，靠记录里的单调序号 (t, seq) 恢复全局写入顺序。
     """
 
+# 生效条件：directory 经 abspath 存入 self.dir 并 makedirs(exist_ok=True)，self.path 为 self.dir 下 "{os.getpid()}-{uuid.uuid4().hex[:8]}.log"，并置 self._seq = 0、self._fh = None。
     def __init__(self, directory: str):
         self.dir = os.path.abspath(directory)
         os.makedirs(self.dir, exist_ok=True)
@@ -271,6 +284,7 @@ class ShardedLog:
         self._seq = 0
         self._fh = None
 
+# 生效条件：self._seq 先自增 1，record 被 dict(record, _t=time.time(), _s=self._seq) 复制；self._fh 为 None 时以 "a"、encoding="utf-8"、newline="\n" 打开 self.path，随后写入 json.dumps(ensure_ascii=False, separators=(",", ":")) + "\n" 并 flush。
     def append(self, record: dict):
         self._seq += 1
         record = dict(record, _t=time.time(), _s=self._seq)
