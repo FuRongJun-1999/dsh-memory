@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-149-batch-c149-fix-d1-dual",
+ "round": 5,
+ "candidate_commit": "10f07e4",
+ "branch": "task/iter-149-batch-c149-fix-d1-dual",
+ "unit_job": "h1789701908682_ada89d",
+ "verdict": "REJECT",
+ "package_n": 3,
+ "text": "reason: prune 与 save 基本相符；但 summary 漏述 `d.get(\"files\") or {}`、`e.get(\"nodes\") or []` 的假值兜底，且写 `load()[\"files\"]` 会误示缺失键行为。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
