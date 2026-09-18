@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-191-batch-c191-fix-d1",
+ "round": 3,
+ "candidate_commit": "407d891",
+ "branch": "task/iter-191-batch-c191-fix-d1",
+ "unit_job": "h1789711450078_beca76",
+ "verdict": "REJECT",
+ "package_n": 10,
+ "text": "9 的 anchors 条件与源码不符：源码为 `t_rel = time_relation(iv,q_t) if (q_t and iv) else None`，随后 `if q_t and t_rel not in (...): continue`；因此只要传入 q_t，而节点 iv 为 None，t_rel=None 也会被过滤。条件写成“q_t 与 iv 均非 None 时要求”遗漏此生效分支。q_b 同理：传入 bbox 而节点 bb 为 None 也会跳过。其余 1–8、10 基本吻合；relation 双缺失时 missing 会列两项，单数表述略含糊。\n\nreason: anchors 遗漏“提供查询但节点缺对应维度即被过滤”的源码分支。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
