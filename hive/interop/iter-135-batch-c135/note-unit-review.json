@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-135-batch-c135",
+ "round": 1,
+ "candidate_commit": "78e003d",
+ "branch": "task/iter-135-batch-c135",
+ "unit_job": "h1789690879719_f0cd80",
+ "verdict": "REJECT",
+ "package_n": 18,
+ "text": "复核：多数条目与源码一致，但 main 条件称 prepare/analyze/build/run/seed-control“分别调用同名函数”不实：build→build_all、run→run_ablation、seed-control→run_seed_control。另 analyze 实际记录 hit_terms、df1、all_df（df==len(corpus)），非泛称“全库 df”；build_arm 的 coref 分支实际锚定 `not own`，而 own 仅在 norm 开启时生成，不能简化为“本条自身无实体”。故不能全接受。\nreason: main 子命令映射与源码不符，且 analyze/coref 条件表述未完全锚定实际分支。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
