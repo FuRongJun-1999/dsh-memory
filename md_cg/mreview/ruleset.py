@@ -35,12 +35,14 @@ SEVERITIES = ("INFO", "WARN", "HIGH")
 _BLANK = (None, "", "None", "[]", "{}")
 
 
+# 生效条件：v 为 list/tuple/dict 时返回 not v（空容器为 True、非空为 False），其余类型返回 v is None 或 str(v).strip() 属于 ("", "None")。
 def _blank(v) -> bool:
     if isinstance(v, (list, tuple, dict)):
         return not v
     return v is None or str(v).strip() in ("", "None")
 
 
+# 生效条件：int(v) 可转换时返回该整数值，v 触发 TypeError 或 ValueError 时返回 0（源码未校验正负或范围）。
 def _as_int(v) -> int:
     try:
         return int(v)
@@ -48,6 +50,7 @@ def _as_int(v) -> int:
         return 0
 
 
+# 生效条件：以 entry.get("ref")/entry.get("node_id")（缺键得 None）、field、kind、evidence、rule["id"]（rule 缺 id 键抛 KeyError）组装 dict，severity 取 severity or rule.get("severity") or "WARN"，故 severity 传 None/空串时依次回落到规则 severity、再回落 "WARN"。
 def _issue(entry, rule, kind, field, evidence, severity=None) -> dict:
     return {"ref": entry.get("ref"), "node_id": entry.get("node_id"),
             "field": field, "issue_kind": kind, "evidence": evidence,
@@ -56,18 +59,21 @@ def _issue(entry, rule, kind, field, evidence, severity=None) -> dict:
 
 # ---------------------------- 机械检查器注册表 ----------------------------
 
+# 生效条件：field 取 spec.get("field")（缺键为 None），对每个 _blank(e.get(field)) 为真的条目生成一条 issue，issue_kind 取 spec.get("issue_kind") or "missing_field"（空串/None 回落 "missing_field"），无此类条目时返回空列表。
 def _chk_field_absent(entries, spec, rule):
     field = spec.get("field")
     return [_issue(e, rule, spec.get("issue_kind") or "missing_field", field,
                    "字段 %s 为空" % field) for e in entries if _blank(e.get(field))]
 
 
+# 生效条件：issue_kind 取 spec.get("issue_kind") or "missing_field"，field 固定为 "evidence_count"，对每个 _as_int(e.get("evidence_count")) == 0 的条目生成一行证据计数 issue（缺键、空串、非法值均折算为 0 而命中），无此类条目时返回空列表。
 def _chk_evidence_zero(entries, spec, rule):
     return [_issue(e, rule, spec.get("issue_kind") or "missing_field", "evidence_count",
                    "evidence_count=0（无验证证据计数）")
             for e in entries if _as_int(e.get("evidence_count")) == 0]
 
 
+# 生效条件：field 取 spec.get("field")、thr 取 float(spec.get("ratio", 1.0))（缺 ratio 键默认 1.0），非空 field 条目数除以 max(len(entries), 1) 得 ratio，ratio < thr 时返回一条 ref/node_id 为 None、issue_kind="package_ratio"、severity 取 rule.get("severity") or "INFO" 的 issue，ratio >= thr 时返回 []。
 def _chk_field_ratio_below(entries, spec, rule):
     field, thr = spec.get("field"), float(spec.get("ratio", 1.0))
     ratio = sum(1 for e in entries if not _blank(e.get(field))) / max(len(entries), 1)
@@ -78,6 +84,7 @@ def _chk_field_ratio_below(entries, spec, rule):
              "rule_id": rule["id"], "severity": rule.get("severity") or "INFO"}]
 
 
+# 生效条件：h 取 str(e.get("content_hash") or "")（缺键或假值均为 ""），_blank(h) 或 h == "None" 的条目跳过，h 已在 seen 中时按 dup_content/"content_hash" 出 issue，首次出现则以 seen[h]=e.get("ref") 记录，返回累积的 out。
 def _chk_dup_hash_group(entries, spec, rule):
     seen, out = {}, []
     for e in entries:
@@ -92,6 +99,7 @@ def _chk_dup_hash_group(entries, spec, rule):
     return out
 
 
+# 生效条件：骨架 sk 取 WL._skeleton(e.get("excerpt") or "")，sk 为空或 len(sk) < WL.MIN_SKELETON 的条目跳过，sk 已在 seen 中时按 template_flow/"content" 出 issue，首次出现则记 seen[sk]=e.get("ref")，返回累积的 out。
 def _chk_template_flow(entries, spec, rule):
     seen, out = {}, []
     for e in entries:
@@ -106,6 +114,7 @@ def _chk_template_flow(entries, spec, rule):
     return out
 
 
+# 生效条件：basis 取 e.get("verification_basis")，_blank(basis) 的条目跳过；其余条目以 CC.classify_track({"layer": e.get("layer"), "tags": e.get("tags") or []}, e.get("excerpt") or "") 判 CC.basis_licensed(track, basis)，为假时按 weak_source/"verification_basis" 出 issue，返回 out。
 def _chk_basis_licensed(entries, spec, rule):
     out = []
     for e in entries:
@@ -134,6 +143,7 @@ MECH_CHECKS = {
 
 # ---------------------------- 规则库加载 ----------------------------
 
+# 生效条件：d 取 rules_dir or RULES_DIR（rules_dir 为 None 或空串时回落 RULES_DIR），os.path.isdir(d) 为假则 files 为空列表；为目录时读其中 *.json，任一规则缺 id/matcher/severity、severity 不在 SEVERITIES、id 重复、mechanical 项 check 不在 MECH_CHECKS 均抛 ValueError，全部合法则返回 {"rules_dir": d, "files": files, "rules": rules, "count": len(rules)}。
 def load_rules(rules_dir=None) -> dict:
     """读 `rules/*.json`。格式非法/字段缺失/id 重复 → 抛 ValueError（不静默降级）。"""
     d = rules_dir or RULES_DIR
@@ -159,6 +169,7 @@ def load_rules(rules_dir=None) -> dict:
     return {"rules_dir": d, "files": files, "rules": rules, "count": len(rules)}
 
 
+# 生效条件：m 取 rule.get("matcher") or {}；m["layer"] 为真且与 ctx["layers"] 无交集时返回 (False, "包内无 X 层条目")，m["tags_any"] 为真且与 ctx["tag_prefixes"] 无交集时返回 (False, 标签提示)，两者均不触发时返回 (True, "matcher 命中")。
 def _match(rule, ctx) -> tuple:
     """matcher 语义：包内**存在**该类条目即入包（执行时按同条件过滤）。"""
     m = rule.get("matcher") or {}
@@ -169,6 +180,7 @@ def _match(rule, ctx) -> tuple:
     return True, "matcher 命中"
 
 
+# 生效条件：rule.get("matcher") or {} 的 "layer" 为真时，返回 str(e.get("layer")) 落在 set(m["layer"]) 内的条目列表；matcher 无 layer 或为假值时返回 list(entries) 全量。
 def _scope(entries, rule) -> list:
     m = rule.get("matcher") or {}
     if m.get("layer"):
@@ -177,6 +189,7 @@ def _scope(entries, rule) -> list:
     return list(entries)
 
 
+# 生效条件：rules 为 None 时返回 load_rules(rules_dir)["rules"]；rules 为 dict 且不含 "rules" 键时抛 ValueError，含该键时返回 list(rules.get("rules") or [])；其余形态返回 list(rules)。
 def _as_rules(rules, rules_dir=None) -> list:
     """规则入参防呆：None→读规则库；{"rules":[...]}→取内层；列表→原样。
 
@@ -191,6 +204,7 @@ def _as_rules(rules, rules_dir=None) -> list:
     return list(rules)
 
 
+# 生效条件：pkg 为 dict 时 entries 取 pkg.get("entries") or []，规则先经 _as_rules(rules, rules_dir) 归一，ctx 由 entries 的 layer 与 tags 冒号前缀集构成，逐条规则 _match 命中后经 _scope 过滤并对 mechanical 项调 MECH_CHECKS[spec["check"]]、对 llm 项列出 scope_refs 前 200，返回含 bundle_id/group_kind/group_key/size/matched/mechanical/llm/mechanical_by_kind/mechanical_flagged 的 dict。
 def assemble(pkg: dict, *, rules=None, rules_dir=None) -> dict:
     """单个待评包 → 规则集 + 机械检查结果 + 待 LLM 检查清单。"""
     rl = _as_rules(rules, rules_dir)
@@ -222,6 +236,7 @@ def assemble(pkg: dict, *, rules=None, rules_dir=None) -> dict:
             "mechanical_flagged": len({i.get("ref") for i in mech if i.get("ref")})}
 
 
+# 生效条件：result 为 dict 时规则先经 _as_rules(rules, rules_dir) 得 rl，再对 result.get("bundles") or [] 逐包调用 assemble(p, rules=rl)（rules_dir 不向 assemble 透传），返回 {"packages": out, "stats": {bundles/mechanical_total/mechanical_by_kind/llm_checks/rules}, "bundles_input": result.get("stats")}。
 def assemble_all(result: dict, *, rules=None, rules_dir=None) -> dict:
     """全部包装配 + 汇总（包级统计供 M2 spec 与 M4 量化复跑）。"""
     rl = _as_rules(rules, rules_dir)
