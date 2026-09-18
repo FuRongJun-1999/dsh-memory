@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-103-batch-c103-dual",
  "round": 5,
- "candidate_commit": "e8aced3",
+ "candidate_commit": "3657ffd",
  "branch": "task/iter-103-batch-c103-dual",
- "unit_job": "h1789680696828_a51843",
+ "unit_job": "h1789695018937_236fca",
  "verdict": "ACCEPT",
  "package_n": 1,
- "text": "条件完整对应源码分支顺序：`entry or {}`、`layer` 去假转 `str` 查 `NEG_LAYERS`，再 `node_id` 去假转 `str` 查 `INDEX_PREFIXES`，再 `tags` 假值按 `[]`、转小写后匹配四项，最后返回 `POOL_KNOWLEDGE`。已锚定形参、模块常量与早退前置，未见 None/假值语义、返回形状或分支参数使用错误，也未补充源码不支持断言；`position_ok=true`。\nreason: 条件与源码实际分支、假值处理和常量锚点一致，未发现不符或越权断言。\nverdict: ACCEPT",
+ "text": "条件与源码分支顺序一致：entry/None 假值经 `entry or {}`，layer 去假值转 str 命中 `NEG_LAYERS` 则返回 `POOL_NEGATIVE`；否则 node_id 去假值转 str 命中 `INDEX_PREFIXES`，或 tags 假值按 `[]`、元素小写命中指定集合则返回 `POOL_INDEX`；否则 `POOL_KNOWLEDGE`。tags 源码为 `str(t).lower()`，条件简写未改变字符串标签语义，未补充源码不支持断言。\n\nreason: 条件覆盖假值/None、早退顺序、模块常量与返回分支，未发现实质不符。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
