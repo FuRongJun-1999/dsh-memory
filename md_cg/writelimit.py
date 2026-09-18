@@ -57,6 +57,7 @@ def enabled() -> bool:
         not in ("0", "false", "no")
 
 
+# 生效条件：形参 content 为假值返回 None；否则 strip 后若 _RE_TITLE 命中且标题骨架 s 非空且 len(s)>=MIN_SKELETON 返回 "t:"+s，否则返回 None；无标题且 len(text)>=MAX_CONTENT 返回 None；无标题且 len(text)<MAX_CONTENT 时全文骨架 s 非空且 len(s)>=MIN_SKELETON 返回 s，否则返回 None；
 def template_signature(content: str):
     """同模板流水签名：标题模板优先，其次全文骨架。
 
@@ -80,6 +81,7 @@ def template_signature(content: str):
     return s if s and len(s) >= MIN_SKELETON else None
 
 
+# 生效条件：形参 text 为任意字符串时，依次清除 URL、长十六进制、长数字、数字与空白后返回 s（空串返回空串）；
 def _skeleton(text: str) -> str:
     s = _RE_URL.sub(" ", text)
     s = _RE_HEX.sub(" ", s)
@@ -91,10 +93,12 @@ def _skeleton(text: str) -> str:
 
 # ---------- 状态持久化 ----------
 
+# 生效条件：形参 cg 提供 root 时返回 os.path.join(cg.root, STATE_FILE)；
 def _state_path(cg) -> str:
     return os.path.join(cg.root, STATE_FILE)
 
 
+# 生效条件：形参 cg 使 _state_path(cg) 可读取且 json.load 得到 dict 且 st.get("sigs")/st.get("rate") 均为 dict 时返回 st；否则若读取或解析抛 OSError/ValueError 或该 dict 中 sigs/rate 任一非 dict 则返回 {"sigs": {}, "rate": {}}（顶层非 dict 会在 st.get 处抛 AttributeError）；
 def _load(cg) -> dict:
     try:
         with open(_state_path(cg), encoding="utf-8") as f:
@@ -184,6 +188,7 @@ def check(cg, content, layer="contextual", role=None, node_id=None,
     return None
 
 
+# 生效条件：形参 content 的 template_signature 非空，且 st["sigs"].get(sig) 为 None 或该记录 nid 为假值时，写入 {"nid": node_id, ...} 并保存；否则不写并返回 None；
 def record_accepted(cg, node_id, content, now=None) -> None:
     """ACCEPT 落盘后确保签名→节点映射存在（check 已预占位，此处兜底）。"""
     sig = template_signature(content)
@@ -225,6 +230,7 @@ def converge_into(cg, target: str, content: str) -> dict:
 
 # ---------- 读侧：已落盘同构组的周期整理（sustain 巡检入口）----------
 
+# 生效条件：形参 cg 的 index["nodes"] 中 layer=="contextual" 且 cg.get 可取的节点按 template_signature 非空分组，扫描到 scanned>=limit（limit=0 立即 break）为止，成员数≥min_group 的组按成员数降序进入 planned；apply 为真且 planned 非空时，逐组循环且累计 n_ap>=MAX_APPLY 后不再开新组（组内成员仍可继续 n_ap 累加超过），跳过 protected/immutable 成员，保留每组最早节点并追加整理聚合、成员降权，输出 out（out["planned"] 仅取 planned[:20]；apply 假或 planned 空直接返回 out）；
 def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
                     limit=2000) -> dict:
     """扫描 contextual 层已落盘节点，按模板签名分组并整理。
@@ -333,6 +339,7 @@ def _demote(cg, e: dict, actor: str = "sustain_tidy") -> None:
         cg._dirty[e["id"]] = entry
 
 
+# 生效条件：形参 cg 使 _load(cg) 返回 dict 时，返回 enabled()、st["sigs"] 计数、nid 为真的 live_sigs、st["rate"] 键数与 STATE_FILE 组成的摘要；
 def stats(cg) -> dict:
     """限流状态摘要（诊断面）。"""
     st = _load(cg)
