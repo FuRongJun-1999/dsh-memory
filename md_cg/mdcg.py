@@ -1703,6 +1703,17 @@ class MdCG:
         # S4 层级激活优先级：同样必须显式 =1（新层加成会改变排序，属显式启用项）
         _s4 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
                and os.environ.get("MDCG_GATE_S4_LAYER") == "1")
+        # S1b 细口径桶收敛（query 侧推断候选桶）；params: topk（默认 3）、min_sim（默认 0.34）
+        _s1b = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+                and os.environ.get("MDCG_GATE_S1B_BUCKET") == "1")
+        try:
+            _s1b_topk = int(os.environ.get("MDCG_BUCKET_TOPK", "3"))
+        except ValueError:
+            _s1b_topk = 3
+        try:
+            _s1b_minsim = min(1.0, max(0.0, float(os.environ.get("MDCG_BUCKET_MIN_SIM", "0.34"))))
+        except ValueError:
+            _s1b_minsim = 0.34
         if _s4 and entries:
             _bo = layer_boosts()
             _lc = {}
@@ -1738,6 +1749,51 @@ class MdCG:
                                    "dropped": 0, "fallback": "insufficient"}
             elif os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0":
                 gates["s1"] = {"domain": None, "reason": "no_domain_signal"}
+            # ---- S1b 细口径桶收敛（设计见 docs/hive/检索收敛实测与S1b设计_v0.1.md）----
+            # 为何：真实库 91.1% 节点有非 orphan 桶、期望扫描仅 2.1%（细口径），但 T0/T1 桶路
+            # 只在调用方传 context 时可用；普通 search(q) 无 context 就只能全扫。S1b 让 query 侧
+            # 自己推断候选桶（只用索引，不读文件），把这份收敛拿回来。
+            # 召回安全：orphan/无桶节点恒留兜底；命中不足 min_results 即回退（不改 entries）。
+            if _s1b and entries:
+                if _s1b_topk <= 0:
+                    gates["s1b"] = {"keys": [], "reason": "disabled_by_topk"}
+                else:
+                    _sizes = {}
+                    for _e in entries:
+                        _b = _e.get("bucket")
+                        if _b and _b != routing.ORPHAN:
+                            _sizes[_b] = _sizes.get(_b, 0) + 1
+                    _best = {}
+                    for _b in _sizes:
+                        _kk = routing.bucket_key_readable(_b)
+                        if not _kk:
+                            continue
+                        _sim = 0.0
+                        for _t in terms:
+                            _sv = routing.domain_similarity(_t, _kk)
+                            if _sv > _sim:
+                                _sim = _sv
+                        if _sim >= _s1b_minsim:
+                            _best[_b] = _sim
+                    if not _best:
+                        gates["s1b"] = {"keys": [], "reason": "no_key_match",
+                                       "in": len(entries), "buckets": len(_sizes)}
+                    else:
+                        _picked = sorted(_best.items(),
+                                         key=lambda kv: (-kv[1], -_sizes[kv[0]]))[:_s1b_topk]
+                        _keep = {_b for _b, _ in _picked}
+                        _kept = [e for e in entries
+                                 if (e.get("bucket") in _keep)
+                                 or not e.get("bucket")
+                                 or e.get("bucket") == routing.ORPHAN]
+                        gates["s1b"] = {"keys": [_b for _b, _ in _picked],
+                                        "sims": [round(_v, 4) for _, _v in _picked],
+                                        "in": len(entries), "out": len(_kept),
+                                        "sizes": {_b: _sizes[_b] for _b, _ in _picked}}
+                        if len(_kept) >= max(1, min_results):
+                            entries = _kept
+                        else:
+                            gates["s1b"]["fallback"] = "insufficient"
             if os.environ.get("MDCG_GATE_S2_COND", "1") != "0" and isinstance(context, dict):
                 kept = [e for e in entries if _cond_prefilter_pass(e, context)]
                 gates["s2"] = {"in": len(entries), "out": len(kept),

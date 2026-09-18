@@ -338,6 +338,23 @@ def domain_terms(text, limit: int = 400) -> list:
     return out
 
 
+# 生效条件：bucket 为假值或等于 ORPHAN 时返回空串；否则去掉 "cond_" 前缀、并当末段为 8 位十六进制哈希时剥掉该段，返回剩余的可读键。
+def bucket_key_readable(bucket: str) -> str:
+    """桶目录名 → 可读键（S1b query 侧桶推断用）：'cond_感知系统_d94e90d2' → '感知系统'。
+
+    与 `bucket_dir` 互逆（丢哈希段）；`orphan`/空值返回空串（S1b 不把 orphan 当键，orphan 恒作兜底）。
+    """
+    if not bucket or bucket == ORPHAN:
+        return ""
+    s = str(bucket)
+    if s.startswith("cond_"):
+        s = s[len("cond_"):]
+    head, sep, tail = s.rpartition("_")
+    if sep and len(tail) == 8 and all(c in "0123456789abcdef" for c in tail):
+        s = head
+    return s
+
+
 # 生效条件：text 为假值或取不到任何域词时返回 None；否则返回 big_domain_classify(domain_terms(text))
 # 的结果（无有效域信号时亦为 None，调用方据此决定是否落域字段）。
 def classify_text(text, limit: int = 400):
