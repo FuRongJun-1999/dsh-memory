@@ -1,0 +1,15 @@
+{
+ "kind": "recalibration-acceptance",
+ "iter_id": "iter-133-batch-c133-dual-dual",
+ "verified_commit": "1a79aae",
+ "verdict": "PASS",
+ "merge_commit": "d250bac97e32",
+ "checks": [
+  "diff(merge, branch) -- md_cg 空",
+  "criteria_fingerprint 保持",
+  "main 注释计数 + 全组回归"
+ ],
+ "merged_marks": 874,
+ "merged_files": 58,
+ "paths_policy": "脱敏"
+}
