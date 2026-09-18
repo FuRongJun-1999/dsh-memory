@@ -84,6 +84,7 @@ VERDICTS = ("ACCEPT", "REJECT", "DEFER", "BLINDSPOT")
 class ConsistencyError(Exception):
     """硬冲突：写入被拒（自否定 / 违反纪律）。"""
 
+# 生效条件：verdict 与 reason 必传并赋给同名属性、拼成异常消息 `[{verdict}] {reason}`；conflicts 为假值（None/空容器等，源码 `conflicts or []`）时 self.conflicts 回落到 []，为真值时原样保留；
     def __init__(self, verdict, reason, conflicts=None):
         self.verdict = verdict
         self.reason = reason
@@ -95,6 +96,7 @@ class ConsistencyError(Exception):
 # 原语：延迟导入 mdcos（避免 mdcg ← mdcos ← consistency 的循环导入）
 # --------------------------------------------------------------------------
 
+# 生效条件：无 required 形参，任一调用返回 ( _ccg_field, _declared_conditions, _neg_hit, _weighted_coverage ) 四元组；
 def _prims():
     """取 md_cg 已有的条件匹配原语（条件论「反题」的既有实现）。"""
     from .mdcos import (_ccg_field, _declared_conditions, _neg_hit,
@@ -640,6 +642,7 @@ def history(cg, limit=100):
     return out[-int(limit):][::-1] if limit else out[::-1]
 
 
+# 生效条件：逐行 json.loads 计数（不可解析行跳过、OSError 忽略、路径缺失则计数为 0），每行 total 加 1 并按 r.get("verdict")（缺键即 None 键）与 emotional.bias 为真值时的 b 累加，返回 {'records','by_verdict','by_bias','max_scan','max_depth','min_gain'}，后三者取模块常量 MAX_SCAN/MAX_DEPTH/MIN_GAIN；
 def summary(cg):
     """冲突面汇总（流式计数，供 health 审计）。"""
     p = os.path.join(cg.root, LOG_FILE)
