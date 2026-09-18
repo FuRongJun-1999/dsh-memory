@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-192-batch-c192",
+ "round": 1,
+ "candidate_commit": "df94274",
+ "branch": "task/iter-192-batch-c192",
+ "unit_job": "h1789711650720_d0fbc4",
+ "verdict": "REJECT",
+ "package_n": 11,
+ "text": "复核：1-8、10-11 条件基本贴合源码，position_ok 可信。问题在条目9：源码 `items[:limit]` 当 `limit=None`（假值）时返回全部，并非空；仅 `0/False` 等数值零才空。条目10未说明 `time_window/bbox` 元素不可转 float 会直接抛异常。故不能整体放行。\nreason: 条目9对 limit 假值切片语义的断言与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
