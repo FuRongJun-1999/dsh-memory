@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-301-batch-c301-fix",
+ "round": 2,
+ "candidate_commit": "48bffcd",
+ "branch": "task/iter-301-batch-c301-fix",
+ "unit_job": "h1789750460725_080930",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "条件与 __init__ 源码一致：root 经 abspath 并 makedirs 根与 LAYERS 子目录；autoflush 默认 64 原样存；self.index = self._load_index()；self 加入 _LIVE_CGS。未发现假值分支、参数使用、返回形状或前置来源不符；对 _load_index 前置不作断言，属谨慎限定而非越界。  \nreason: 条件与源码 __init__ 行为一致，未补充源码不支持内容。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
