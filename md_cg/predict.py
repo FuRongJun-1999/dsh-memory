@@ -531,6 +531,7 @@ def _generate(cg, start_id, horizon, max_branches, semantic=True):
     ver = hit_rate(cg)
     out = []
 
+# 生效条件：当 depth < horizon（enclosing 上界）时，对 branch_candidates(cg, cur, semantic=semantic) 取前 max_branches 个候选展开——候选 node_id 已在 path 中则 continue 跳过，否则把 cand["confidence"] 连乘（初始 1.0，结果 round 4）连同 conds/sources/relations 各自追加 cand 对应字段后作为一条路径写入外层 out，并以该 node_id、depth+1 递归；depth >= horizon 时直接返回且不产生任何路径。
     def dfs(cur, path, confs, conds, sources, relations, depth):
         if depth >= horizon:
             return
@@ -727,6 +728,7 @@ def dynamic_hit_threshold(cg, limit=HIT_HISTORY_MAX):
                     else "命中率正常"}
 
 
+# 生效条件：cg 与 predicted_node_id 给出即执行——predicted_node_id 为假值（None/0/""）时 pred 取空串，actual_node_id 为假值时 act 回落为 pred，hit 为 None 时按 pred==act 判定；hit 为真时 out["boosted"] 取 _boost_incoming(cg, act, EDGE_BOOST, actor=actor)，hit 为假时 out["rejected_id"] 取 cg.add_rejected(...)（该调用抛异常时改记 out["rejected_error"]），随后 out 合并 dynamic_hit_threshold(cg)，sync_self 为真时导入 self_state.refresh(cg, actor=actor) 写 out["self_state"]（抛异常时写 out["self_state_error"]），返回 out。
 def feedback(cg, predicted_node_id, actual_node_id=None, hit=None, note="",
              actor="predict", sync_self=True, channel=None):
     """预测反馈（D-006）：hit → 边置信度 +0.05；miss → 登记 rejected。
