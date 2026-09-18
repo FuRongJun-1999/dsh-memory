@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-173-batch-c173",
+ "round": 1,
+ "candidate_commit": "4bb6440",
+ "branch": "task/iter-173-batch-c173",
+ "unit_job": "h1789706763168_fce0cc",
+ "verdict": "REJECT",
+ "package_n": 12,
+ "text": "复核：resolve 的 file 分支实际是 dict 无 env 且含 file 即触发，并非“只含 file”；file 读取还可抛 UnicodeDecodeError 未提。stop 源码在 30 次轮询后无论 serve_alive 是否转假都返回 ok=True/stopped=True，条件写成“转假后返回”。start 的 open(SERVE_LOG) 在 try 外，OSError 会外抛；load_config 对非 dict JSON 会 AttributeError。其余条目基本相符。\nreason: resolve 分支限定与 stop 超时返回语义与源码不符，故 REJECT。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
