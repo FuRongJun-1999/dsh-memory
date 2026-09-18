@@ -76,6 +76,7 @@ class Compiler:
         self._resolve()
         return self.code
 
+# 生效条件：当 self.funcs 中存在 stmt.name 时（不存在则 KeyError），place 其入口标签、编译 stmt.body 并 emit RETURN。
     def _compile_func(self, stmt):
         """编译函数定义：入口标签 → body 编译 → RETURN"""
         entry_lbl, params = self.funcs[stmt.name]
@@ -88,12 +89,15 @@ class Compiler:
         self.label_count += 1
         return f"L{self.label_count}"
 
+# 生效条件：把 label 作为键写入 self.labels[label] = len(self.code)（当前无写入位置的约束）。
     def _place(self, label):
         self.labels[label] = len(self.code)
 
+# 生效条件：每次调用向 self.code 追加二元组 (op, arg)；arg 省略或显式传 None 时第二项即为 None。
     def _emit(self, op, arg=None):
         self.code.append((op, arg))
 
+# 生效条件：遍历 self.pending，label 不在 self.labels 时抛 SyntaxError('未定义标签')；命中 ZHIZU 的槽位回填 (arg[0], labels[label])、命中 CALL 的回填 (labels[label], arg[1])、其余回填 labels[label]。
     def _resolve(self):
         for idx, label in self.pending:
             if label not in self.labels:
@@ -108,6 +112,7 @@ class Compiler:
                 self.code[idx] = (op, self.labels[label])
 
     # ---- 语句 ----
+# 生效条件：s 为 None 时直接返回；否则按 s.type 分派——BLOCK 递归各语句、SHUYUE 发 ENTER_SHUYUE+各步骤+RETURN_STEP、CONDITION_STMT 编译 condition 与 then_body/else_body 并回填 else/end 标签、LOOP_STMT 编译当型循环、INSTRUCTION_STMT 转 _instr、ASSIGN_STMT 求值后发 STORE_NAME、RETURN_STMT 有 value 则求值否则发 PUSH_CONST None 再发 RETURN、CALL_EXPR 转 _call_expr、WENYUE/DAYUE 跳过，其余类型向 warnings 追加未编译语句提示。
     def _stmt(self, s):
         if s is None:
             return
@@ -163,6 +168,7 @@ class Compiler:
             self.warnings.append(f"L{s.line} 未编译语句类型: {s.type.name}")
 
     # ---- 道德经指令 ----
+# 生效条件：按 s.instruction 分派——DAO 发 (DAO, val)，val 为 None（operands 为空或 _operand_value 返回 None）时用 '无名路径'；DE 发 float(val)，val 为 None 时 0.0、非数值时抛 SyntaxError 名实不符；ZIRAN/WUWEI/ZHI 各发对应无参指令；ZHIZU 以 float(val)（None 时 0.0）为阈值新建标签并挂 pending 与 zhizu_labels；其余指令向 warnings 追加未接入提示。
     def _instr(self, s):
         op = s.instruction
         operands = s.operands
@@ -191,6 +197,7 @@ class Compiler:
         else:
             self.warnings.append(f"L{s.line} 指令 {op.name} 未接入 VM（诚实边界）")
 
+# 生效条件：node.type 为 LITERAL 时返回 node.literal_value、为 IDENTIFIER 时返回 node.name，其余类型返回 None。
     def _operand_value(self, node):
         if node.type == NodeType.LITERAL:
             return node.literal_value
@@ -199,6 +206,7 @@ class Compiler:
         return None
 
     # ---- 表达式 ----
+# 生效条件：e 为 None 时发 PUSH_CONST None 后返回；否则按 e.type 分派——LITERAL 发 PUSH_CONST literal_value、IDENTIFIER 发 LOAD_NAME name、COMPARISON 先编译 left/right 再发 COMP_MAP[e.op]（映射缺失时记未知比较词并返回）、BINARY_EXPR 同序走 ARITH_MAP[e.operator]（缺失时记未知运算符并返回）、CALL_EXPR 转 _call_expr，其余类型向 warnings 追加未编译表达式。
     def _expr(self, e):
         if e is None:
             self._emit(Opcode.PUSH_CONST, None)
@@ -228,6 +236,7 @@ class Compiler:
         else:
             self.warnings.append(f"L{e.line} 未编译表达式: {e.type.name}")
 
+# 生效条件：先对 e.args 逐个求值入栈；若 e.name 不在 self.funcs 则向 warnings 追加未定义函数并返回（不发 CALL），否则发 CALL (entry_lbl, params) 并挂 pending。
     def _call_expr(self, e):
         """函数调用编译：实参求值入栈 → CALL (入口, 参数名)"""
         for a in e.args:

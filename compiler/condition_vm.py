@@ -83,6 +83,7 @@ class ConditionVM:
     def __init__(self):
         self.reset()
 
+# 生效条件：symbols 为假值（None/空 dict）时以空 dict 起步、condition_stack 为假值时以空 list 起步；symbols 中 BUILTIN_TRUST_VALUE 键缺失（pop 得 None）时 trust_value 取实参 trust，存在时取该键注入值；TRUST_COMPONENT_NAMES 中的键被 pop 为对应初值；仅当 pop 出的 seed_space 非 None 时才调用 _switch_condition_space。
     def reset(self, symbols=None, trust=0.0, condition_stack=None):
         self.ip = 0
         self.stack = []
@@ -106,6 +107,7 @@ class ConditionVM:
         self.trace = []                      # 执行轨迹（可解释性）
         self.call_stack = []                 # 调用栈帧 [(返回ip, 保存的符号表)]
 
+# 生效条件：code 自 ip=0 逐条执行至 ip 越界；steps 超过 max_steps（默认 100000）抛 RecursionError；catch_halt 为真（默认）时捕获 VMHalt 记 halt 并 break，为假时 VMHalt 直接上抛；trace 为假值时返回字典的 trace 字段为 None。
     def run(self, code, trace=False, catch_halt=True, symbols=None,
             trust=0.0, condition_stack=None, max_steps=100000):
         """执行字节码；code = [(op, arg), ...]
@@ -145,6 +147,7 @@ class ConditionVM:
         return v is not None and v is not False and v != 0
 
     # ---- 内建名（缺陷②③）：名与实指向同一处存储 ----
+# 生效条件：condition_stack 为空时返回 DEFAULT_CONDITION_SPACE；否则栈顶为 dict 时返回 top.get('name') or DEFAULT_CONDITION_SPACE（缺 'name' 键或该键值为假值均回落默认），栈顶非 dict 时返回 str(top)。
     def _condition_space_name(self):
         """当前条件空间名（栈空 → 默认）"""
         if self.condition_stack:
@@ -154,6 +157,7 @@ class ConditionVM:
             return str(top)
         return DEFAULT_CONDITION_SPACE
 
+# 生效条件：name 为 '恢复默认' 或 DEFAULT_CONDITION_SPACE 时把 condition_stack 截到首元素、若仍有元素则把栈顶改为默认空间 frame；否则构造 {'name': name, 'trust_at_create': trust_value} 替换栈顶（栈空则压入）。
     def _switch_condition_space(self, name):
         """切换条件空间——使「条件空间切换」在 VM 上真正可执行
 
@@ -172,6 +176,7 @@ class ConditionVM:
         else:
             self.condition_stack.append(frame)
 
+# 生效条件：name 等于 BUILTIN_TRUST_VALUE 返回 trust_value、等于 BUILTIN_CONDITION_SPACE 返回当前空间名、在 CONDITION_SPACE_NAMES 中返回 name 自身、等于 BUILTIN_TRUST_THRESHOLD 返回 DEFAULT_TRUST_THRESHOLD、在 self.trust_parts 中返回对应分量值，其余返回 _MISSING。
     def _builtin_load(self, name):
         """内建名取值；非内建名返回 _MISSING"""
         if name == BUILTIN_TRUST_VALUE:
@@ -297,6 +302,7 @@ class ConditionVM:
         else:
             raise ValueError(f"未知指令 {op}")
 
+# 生效条件：无必需形参，返回含 trust（round 3 位）、symbols、condition_space、condition_space_name、trust_parts、stack 的快照字典。
     def _state(self):
         return {"trust": round(self.trust_value, 3),
                 "symbols": dict(self.symbols),
@@ -310,6 +316,7 @@ class ConditionVM:
 # 汇编器：文本 → 字节码（标签支持）
 # =============================================================================
 
+# 生效条件：逐行 strip 处理 src——空行或以 '#' 开头的行跳过，以 ':' 结尾的行登记为标签（值=当前 code 长度），其余行按 parts[0] 助记符分派（PUSH_CONST、LOAD_NAME/STORE_NAME、JUMP、JUMP_IF_FALSE、DAO、DE、ZHIZU、ZIRAN/WUWEI/ZHI/ENTER_SHUYUE/RETURN_STEP、CMP_EQ/CMP_GT/CMP_LT），未知助记符抛 SyntaxError，最后回填 pending 标签（标签未定义亦抛 SyntaxError）并返回 code。
 def assemble(src):
     """汇编文本 → [(op, arg), ...]
     格式：指令 [参数] [@标签]；标签行 '名:'"""
@@ -359,6 +366,7 @@ def assemble(src):
     return code
 
 
+# 生效条件：s 含 '.' 时返回 float(s)，否则返回 int(s)。
 def _num(s):
     return float(s) if "." in s else int(s)
 
