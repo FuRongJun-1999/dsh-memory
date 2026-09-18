@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-100-batch-c100-dual",
+ "round": 5,
+ "candidate_commit": "ab01ee4",
+ "branch": "task/iter-100-batch-c100-dual",
+ "unit_job": "h1789721791893_349a4f",
+ "verdict": "REJECT",
+ "package_n": 5,
+ "text": "复核：第2、3、4、5条基本与源码相符；第3条“深度/增益”措辞略含 max_nodes，但不改语义。第1条 symbol=ConsistencyError，但条件描述的是 __init__，且注释实际在 __init__ 上方而非类定义紧贴；应与第5条归并到 ConsistencyError.__init__，故位置/符号不符。\nreason: 第1条符号与位置错位，条件实为 __init__。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
