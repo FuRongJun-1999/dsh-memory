@@ -39,6 +39,7 @@ class Source:
 
     name = "source"
 
+# 生效条件：任何调用都直接 raise NotImplementedError（基类占位，无其它分支）。
     def events(self):
         raise NotImplementedError
 
@@ -56,6 +57,7 @@ class JsonlSource(Source):
       text_key   —— 文本字段（默认 "text"）
     """
 
+# 生效条件：传入 path；name 为假值（None/空串）时回落为 "jsonl:"+os.path.basename(path)，t_key/role_key/text_key/default_role 原样存为属性（默认值 "time"/"role"/"text"/"user"）。
     def __init__(self, path: str, name: str = None, t_key="time", role_key="role",
                  text_key="text", default_role="user"):
         self.path = path
@@ -66,6 +68,7 @@ class JsonlSource(Source):
     def key(self):
         return self.name
 
+# 生效条件：o.get(self.t_key) 为 int/float 时返回 float(v) 乘 1000（v<1e12）或乘 1（否则）；为字符串且 v[:19] 按 "%Y-%m-%dT%H:%M:%S" 解析成功时返回 mktime*1000，抛 ValueError 时返回 0.0；键缺失或其它类型返回 0.0。
     def _ts(self, o):
         v = o.get(self.t_key)
         if isinstance(v, (int, float)):
@@ -77,6 +80,7 @@ class JsonlSource(Source):
                 return 0.0
         return 0.0
 
+# 生效条件：os.path.exists(self.path) 为真时逐行产出，空行、json.loads 抛 ValueError、o.get(self.text_key) 为假的行被跳过，产出项为 t=self._ts(o)、seq=o.get("seq", i)、role=o.get(self.role_key) or self.default_role、text=str(text)、session/cwd 取 o 同名键；path 不存在时直接 return 不产出。
     def events(self):
         if not os.path.exists(self.path):
             return
@@ -121,6 +125,7 @@ class DSHSessionSource(Source):
       tool/result       → role=tool-output
     """
 
+# 生效条件：传入 path 即成立，include_reasoning 原样存为属性（默认 False），name 固定为 "dsh:"+os.path.basename(os.path.dirname(path))。
     def __init__(self, path: str, include_reasoning: bool = False):
         self.path = path
         self.include_reasoning = include_reasoning
@@ -137,6 +142,7 @@ class DSHSessionSource(Source):
         files.sort(key=lambda p: -os.path.getsize(p))
         return files[:limit] if limit else files
 
+# 生效条件：self.path 以 ".zstd" 结尾时经 _zstd_reader 逐行产出（其返回 None 时 raise RuntimeError），否则以 utf-8/errors=replace 打开 self.path 逐行产出。
     def _lines(self):
         if self.path.endswith(".zstd"):
             fh = _zstd_reader(self.path)
@@ -166,6 +172,7 @@ class DSHSessionSource(Source):
             return "\n".join(parts)
         return ""
 
+# 生效条件：逐行解析后按 o.get("type") 分派——"session" 只更新 sess/cwd 不产出；"user/message" 产出 role=user 与 _text_of(data.get("content"))；"assistant/message" 产出 role=assistant 与 _text_of(msg.get("content"))，include_reasoning 为真时再把 content 中 type=="reasoning" 且有 text 的项追加 "\n[reasoning] "+str(c["text"])；"tool/call" 产出 role=command 与 f"{name}({arguments or ''})"；"tool/result" 产出 role=tool-output，仅当 inner[0] 为 dict 时 text=_text_of(inner[0].get("content"))；其它 type 或 ev 中 text 为空的事件不产出。
     def events(self):
         sess = None
         cwd = None
@@ -222,6 +229,7 @@ class Ingestor:
         {source_key: {"t": 最后时间戳(ms), "seq": 最后序号, "count": 已摄取条数}}
     """
 
+# 生效条件：传入带 root 的 cg 即成立，layer/sensitivity 默认 SESSION_LAYER/SESSION_SENSITIVITY 并原样存为属性，路径为 os.path.join(cg.root, "_sources.json")。
     def __init__(self, cg, layer: str = SESSION_LAYER,
                  sensitivity: str = SESSION_SENSITIVITY):
         self.cg = cg
@@ -231,6 +239,7 @@ class Ingestor:
 
     # ---- watermark ----
 
+# 生效条件：self.path 存在、json.load 成功且结果为 dict 时返回该 dict；path 不存在、抛 ValueError/OSError 或结果非 dict 时返回 {"schema": 1, "sources": {}}。
     def _load(self):
         if os.path.exists(self.path):
             try:
@@ -242,15 +251,18 @@ class Ingestor:
                 pass
         return {"schema": 1, "sources": {}}
 
+# 生效条件：传入 d 时以 ensure_ascii=False/indent=1 写入 self.path+".tmp"，再 os.replace 覆盖 self.path。
     def _save(self, d):
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False, indent=1)
         os.replace(tmp, self.path)
 
+# 生效条件：key 命中 self._load()["sources"] 时返回其值，缺 key 时返回 {}（_load 结果缺 "sources" 键则抛 KeyError）。
     def watermark(self, key: str):
         return self._load()["sources"].get(key, {})
 
+# 生效条件：调用即返回 dict(self._load()["sources"]) 的浅拷贝（_load 结果缺 "sources" 键则抛 KeyError）。
     def watermarks(self):
         return dict(self._load()["sources"])
 
@@ -383,6 +395,7 @@ def dispatch_of(path: str):
 class FileDispatcher:
     """单一入口吃多种文件：按扩展名分派到会话流 / 文档 / 代码三条摄取链。"""
 
+# 生效条件：传入 cg 即成立，sensitivity 为假值（None/空串）时所用 Ingestor 回落 SESSION_SENSITIVITY，否则用传入值。
     def __init__(self, cg, sensitivity=None):
         self.cg = cg
         # 会话链默认 sensitivity=private；调用方可显式覆盖（测试/受限环境）
@@ -390,6 +403,7 @@ class FileDispatcher:
 
     # ---- stat：看水位与支持面 ----
 
+# 生效条件：from . import refindex 与 refindex.Ledger(self.cg.root).stat() 均不抛异常时返回该 stat 结果，抛任何异常时返回 {}。
     def _ledger_stat(self):
         try:
             from . import refindex
@@ -397,6 +411,7 @@ class FileDispatcher:
         except Exception:                                  # noqa: BLE001
             return {}
 
+# 生效条件：调用即返回由 INGEST_REGISTRY 按 kind 分组并排序后的 extensions、list(INGEST_ACTIONS)、self.ingestor.watermarks()、self._ledger_stat() 与固定 note。
     def stat(self):
         kinds = {}
         for ext, kind in INGEST_REGISTRY.items():
@@ -410,6 +425,7 @@ class FileDispatcher:
 
     # ---- 单文件 ----
 
+# 生效条件：dispatch_of(path) 为 None 时返回 ok=False 的「不支持的后缀」结果；path 不是文件时返回 ok=False 的「文件不存在」结果；kind=="session" 时转 ingest_jsonl(path, dry_run=dry_run)（layer/sensitivity 不参与）；其它 kind 转 _ingest_doc_or_code(path, kind, layer=layer, sensitivity=sensitivity, dry_run=dry_run)。
     def ingest_file(self, path, layer=None, sensitivity=None, dry_run=False):
         kind = dispatch_of(path)
         if kind is None:
@@ -423,6 +439,7 @@ class FileDispatcher:
         return self._ingest_doc_or_code(path, kind, layer=layer,
                                          sensitivity=sensitivity, dry_run=dry_run)
 
+# 生效条件：kind=="code" 用 codeindex 否则用 docindex；mod.extract 抛 ValueError 时返回 ok=False 的「抽取失败」；dry_run 为真时只返回 items 计数与前 20 个 node_id 不写盘；否则经 refindex.add_items（kind 为 code_ref/doc_ref）写入并返回 indexed、ids[:20] 与 sensitivity。
     def _ingest_doc_or_code(self, path, kind, layer=None, sensitivity=None,
                             dry_run=False):
         from . import codeindex, docindex, refindex
@@ -451,6 +468,7 @@ class FileDispatcher:
 
     # ---- 目录 ----
 
+# 生效条件：调用即 os.walk(root) 统计每个文件名经 dispatch_of 得到的 kind（无匹配记 "unsupported"）并返回 dry_run 预演计数结果。
     def _dry_dir(self, root):
         counts = {}
         for _dp, _dn, fns in os.walk(root):
@@ -461,6 +479,7 @@ class FileDispatcher:
                 "counts": counts,
                 "note": "预演：仅统计各链文件数，未做任何写入"}
 
+# 生效条件：root 非目录时返回 ok=False 的「目录不存在」；dry_run 为真时返回 _dry_dir(root)；否则对 doc_ref/code_ref 两链各以 patterns/max_files/max_items/incremental/ledger 调 refindex.index_dir 与 add_items，并把 root 下 **/*.jsonl 前 max_files 个逐个 ingest_jsonl 后返回 out。
     def ingest_dir(self, root, layer=None, sensitivity=None, patterns=None,
                    max_files=500, max_items=2000, incremental=False,
                    dry_run=False):
@@ -510,6 +529,7 @@ class FileDispatcher:
                 return DSHSessionSource(path)
         return JsonlSource(path)
 
+# 生效条件：path 不是文件时返回 ok=False 的「文件不存在」；否则经 _auto_source(path) 选源后调 self.ingestor.ingest(src, dry_run=dry_run, max_events=max_events)，并补上 ok=True/kind/path/source_class 后返回。
     def ingest_jsonl(self, path, dry_run=False, max_events=None):
         if not os.path.isfile(path):
             return {"ok": False, "error": f"文件不存在：{path}"}
