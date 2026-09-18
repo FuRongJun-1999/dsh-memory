@@ -93,6 +93,7 @@ GENERIC_PARAMS = frozenset({
 })
 
 
+# 生效条件：desc 为 None/空串等假值时按 `desc or ""` 回落空串、`_OP_SEC_RE.finditer` 无匹配而返回空 dict；否则以每个匹配的组 1 为键、组 2 去首尾空白并去掉结尾「；/;」后为值填入并返回。
 def op_sections(desc):
     """从工具 description 里切出 {op: 段落}（机械切分，无损）。"""
     out = {}
@@ -101,6 +102,7 @@ def op_sections(desc):
     return out
 
 
+# 生效条件：tools 为空时可迭代但无元素、返回空 set；否则遍历每个工具，并入其 `t.get("description") or ""` 经 op_sections 得到的键，以及其 `(t.get("inputSchema") or {}).get("properties") or {}` 中名为 op/action 的属性 description（缺省 ""）里 `_ENUM_RE` 匹配串按 "|" 拆出的词，返回并集 vocab。
 def op_vocab(tools):
     """全量 op 词汇表（用于判定「这是 op 专属参数的描述」）。"""
     vocab = set()
@@ -115,6 +117,7 @@ def op_vocab(tools):
     return vocab
 
 
+# 生效条件：head=(desc or "")[:prefix_len]（desc 假值即空串、prefix_len 默认 18），当 vocab 中存在长度 ≥3 且作为子串出现在 head 中的元素时返回 True，否则（含 vocab 为空）返回 False。
 def _is_op_specific(desc, vocab, prefix_len=18):
     head = (desc or "")[:prefix_len]
     return any(len(o) >= 3 and o in head for o in vocab)
@@ -142,10 +145,12 @@ def short_desc(desc, vocab, op_specific=False):
     return d
 
 
+# 生效条件：tool 的 "inputSchema" 键存在且值为真时原样返回该值；键缺失或值为 None/{} 等假值时按 `or {}` 回落返回空 dict。
 def _schema_of(tool):
     return tool.get("inputSchema") or {}
 
 
+# 生效条件：tool 须含 "name" 键（缺失即 KeyError），desc=`tool.get("description") or ""`、isch=`_schema_of(tool)`；逐条属性去掉 "_req" 键后，若其 description 为真则按「key 在 GENERIC_PARAMS 或 `not _is_op_specific(d, vocab)`」判为 generic，再经 short_desc 投影——非空则替换 description、空则弹出该 description 键；返回 name 与 `TOOL_BRIEFS.get(name) or _first_sentence(desc,140)` 的 description，inputSchema 的 type 取 `isch.get("type") or "object"`，仅当 required 非空时才带 "required"。
 def slim_tool(tool, vocab):
     """投影单个工具（不修改入参）。"""
     name = tool["name"]
@@ -172,6 +177,7 @@ def slim_tool(tool, vocab):
             "inputSchema": out_schema}
 
 
+# 生效条件：d=折叠 (desc or "") 空白，按 "。"、"；"、";" 顺序取各字符在 d 中 `find` 的首次出现位置 i，遇到首个满足 0<i<=limit 者即返回 d[:i+1]；三个字符的首次位置均不满足时，len(d)>limit 返回 d[:limit].rstrip()+"…"，否则原样返回 d（limit=0 时无 i 满足，d 非空则返回 "…"）。
 def _first_sentence(desc, limit):
     d = " ".join((desc or "").split())
     for ch in ("。", "；", ";"):
@@ -181,6 +187,7 @@ def _first_sentence(desc, limit):
     return (d[:limit].rstrip() + "…") if len(d) > limit else d
 
 
+# 生效条件：环境变量 FULL_ENV 取值 `(os.environ.get(FULL_ENV) or "").strip().lower()=="full"`（未设或设为空串均不成立）时原样返回入参 tools；否则以 tools 算出 vocab 并返回 `[slim_tool(t, vocab) for t in tools]`（tools 为空则返回空列表）。
 def slim_tools(tools):
     """投影整个工具面。MDCG_TOOL_FACE=full 时原样返回（调试/兼容）。"""
     if (os.environ.get(FULL_ENV) or "").strip().lower() == "full":
@@ -192,6 +199,7 @@ def slim_tools(tools):
 # --------------------------------------------------------------------------
 # 按需披露：cg(op=help, query=…)
 # --------------------------------------------------------------------------
+# 生效条件：取 `_schema_of(tool)` 的 properties，仅保留 description（缺省 ""）满足 `_is_op_specific(desc, {op})` 的属性，每项记为 name/type/required(k in required)/desc，返回该列表的 `out[:limit]` 切片（limit 默认 40，limit=0 得空列表，负值从尾部削减）。
 def _params_for(tool, op, limit=40):
     isch = _schema_of(tool)
     props = isch.get("properties") or {}
@@ -204,6 +212,7 @@ def _params_for(tool, op, limit=40):
     return out[:limit]
 
 
+# 生效条件：tools 用于建 `by_name={t["name"]: t}`（某工具缺 "name" 即 KeyError），q=(query or "").strip()——q 为空串返回 {"ok":True,"tool_index":[每工具 name 与 `TOOL_BRIEFS.get(name) or _first_sentence(desc,120)`],"usage":...}；q 等于某工具名时返回该工具的 description/ops（op_sections 键排序）/params/required；否则逐工具收集「q 出现在 op 段落键中」与「pname==q 或 len(q)>=4 且 pname 以 q 开头」两类命中（不互斥、可同时追加），全部工具遍历后无命中返回 {"ok":False,"error",...,"hint",...}，有命中返回 {"ok":True,"query":q,"hits":hits[:max(1, limit)]}（limit≤1 时按 1 条截取）。
 def help_text(tools, query=None, limit=40):
     """从**完整真源**按需渲染说明——被投影掉的原文在此无损取回。"""
     q = (query or "").strip()
