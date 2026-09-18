@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-266-batch-c266-fix",
+ "round": 2,
+ "candidate_commit": "7678bd7",
+ "branch": "task/iter-266-batch-c266-fix",
+ "unit_job": "h1789738309280_2efc5a",
+ "verdict": "ACCEPT",
+ "package_n": 3,
+ "text": "1) ACCEPT：`__init__(root, autoflush=64, actor=\"system\")` 及各路径拼接、makedirs(exist_ok=True) 均吻合。  \n2) ACCEPT：`principal or Principal()`、以 `principal.actor` 调父类、再 `_init_crypto(master_key)` 顺序吻合。  \n3) ACCEPT：`action or \"promote\"` 归一化及各分派、未知 action 抛 `ValueError` 吻合。  \n无越界，`position_ok=true`。  \nreason: 三条生效条件均可由各自 src_segment 直接验证，未见源码不符或额外断言。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
