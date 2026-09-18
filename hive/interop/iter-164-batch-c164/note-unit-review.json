@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-164-batch-c164",
+ "round": 1,
+ "candidate_commit": "0f6a4b4",
+ "branch": "task/iter-164-batch-c164",
+ "unit_job": "h1789703935369_9faa0f",
+ "verdict": "REJECT",
+ "package_n": 10,
+ "text": "不符：verify_patch 的 `and` 返回 `r.get(\"ok\")` 原值而非必然 bool；csre_freshness 在 `kp_fp != last_kp_fp` 且 `last_kp_fp is None` 时仍返回 `kp_fp`，条件未覆盖；persist_triggers 实际用 `ensure_ascii=False`，条件漏写。\nreason: 多条生效条件与源码返回形状、None 分支及序列化参数不完全一致。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
