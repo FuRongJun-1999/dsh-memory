@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler2-d4",
+ "round": 5,
+ "candidate_commit": "800b5e5",
+ "branch": "task/t1-compiler2-d4",
+ "unit_job": "h1789689796772_aca760",
+ "verdict": "REJECT",
+ "package_n": 16,
+ "text": "复核结果：16项中15项与源码一致；但第1项 `compile_source` 将 strict 名实错误失败路径写成 `warnings: []`，源码该路径实际返回 `warnings=name_warnings`，返回形状不符。\nreason: `compile_source` 失败分支 warnings 字段描述与源码不符，未区分 name_warnings。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
