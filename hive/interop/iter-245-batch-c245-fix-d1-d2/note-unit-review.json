@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-245-batch-c245-fix-d1-d2",
+ "round": 4,
+ "candidate_commit": "d4c86cd",
+ "branch": "task/iter-245-batch-c245-fix-d1-d2",
+ "unit_job": "h1789725068333_c06fd5",
+ "verdict": "ACCEPT",
+ "package_n": 3,
+ "text": "复核：1 reverse_map 条件覆盖 min_len、CHAR_ATOMS/STOPWORDS 前置、去前缀、过滤与返回形状，与源码顺序/计数一致；2 clean 无参，命中正则才替换写回并 compile，否则零改动，均返回 0，一致；3 main 的 mode 取 argv、build 的 --min-len、clean/analyze/未知分支均一致。未发现新增断言或 None/假值误述；position_ok=true 可接受。\nreason: 三条条件均准确锚定源码分支、前置与返回，无需修正。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
