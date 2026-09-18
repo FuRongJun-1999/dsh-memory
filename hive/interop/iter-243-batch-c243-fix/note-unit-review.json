@@ -4,9 +4,9 @@
  "round": 2,
  "candidate_commit": "e7b23ce",
  "branch": "task/iter-243-batch-c243-fix",
- "unit_job": "h1789723957975_8f4f90",
+ "unit_job": "h1789723957978_4127e1",
  "verdict": "ACCEPT",
  "package_n": 5,
- "text": "复核：5 条均回答输入/状态下正确性，锚定形参、模块常量、闭包前置与早退；未发现 assert/None 假值/返回形状/长度空容器或参数使用偏差。\nreason: 条件与源码逐项相符，未补充源码不支持的断言。\nverdict: ACCEPT",
+ "text": "逐条比对源码：1 早退 i<0 或 j<=i、json.loads/ValueError 返回 None 一致；2 _as_terms 的 None/str/list/tuple/其它分派、strip/MAX_TERM_LEN/去重/limit<=0 一致；3 action 过滤、int(limit) or 50 与 0 回落一致；4 rep[\"reasons\"].get(reason,0)+1、无返回 None 一致；5 ids is not None 与 startswith(pref) 分支一致。position_ok=true，未加源码不支持断言。\nreason: 五项条件均准确锚定源码分支、前置和返回形状，未发现不符。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }

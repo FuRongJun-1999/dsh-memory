@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-242-batch-c242",
+ "round": 1,
+ "candidate_commit": "7fe0755",
+ "branch": "task/iter-242-batch-c242",
+ "unit_job": "h1789723593446_93172a",
+ "verdict": "REJECT",
+ "package_n": 5,
+ "text": "1、2、4、5 与源码基本一致；2 的 limit≤0 仅在存在有效项时返回 1 项，表述略宽但可接受。3 不符：`int(limit) or 50` 仅在 `int(limit)` 成功且结果为 0 时回落 50；若 limit=None、\"\"、[] 等假值，`int(limit)` 会先抛 TypeError/ValueError，并非回落 50。故该条件补充了源码不支持的“假值回落”断言。\nreason: contextualize_history 条件错误扩大假值回落范围，None/\"\" 实际会抛异常。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}

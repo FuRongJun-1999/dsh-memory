@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-242-batch-c242-fix",
+ "round": 2,
+ "candidate_commit": "ad4ea3d",
+ "branch": "task/iter-242-batch-c242-fix",
+ "unit_job": "h1789723647474_e67218",
+ "verdict": "ACCEPT",
+ "package_n": 5,
+ "text": "复核：1 对 raw 假值/无 `{`/`j<=i` 返回 None，ValueError 捕获一致；2 None 早退、str/list/tuple/其他分支、strip 标点、去重、MAX_TERM_LEN、limit 后 break 均一致，limit<=0 返回首有效项成立；3 过滤 action 后 `recs[-(int(limit) or 50):]` 一致，int 失败先于切片抛错；4 `_bump` 闭包 `rep[\"reasons\"]` 计数且无 return 一致；5 `_hit` 依 ids 是否为 None 在 `nid in ids` 与 `startswith(pref)` 间选择一致。未发现补充断言、返回形状或分支不符；position_ok=true 均可。\nreason: 五条条件均与源码片段语义一致，未发现必填前置/分支/返回形状不符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
