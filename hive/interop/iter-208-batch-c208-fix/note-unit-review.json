@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-208-batch-c208-fix",
+ "round": 2,
+ "candidate_commit": "331696a",
+ "branch": "task/iter-208-batch-c208-fix",
+ "unit_job": "h1789717637202_85f810",
+ "verdict": "ACCEPT",
+ "package_n": 10,
+ "text": "逐条核验：1-5、7-10 对假值回落、模块常量默认、切片/长度与 limit 语义、None 与空容器分支、返回形状的表述均与源码一致；第6条未展开 inputSchema.type 兜底与 GENERIC_PARAMS 判定，但所述 KeyError、description 回落、_req 清洗、short_desc 空值删除、required 非空写入均无冲突，未见过度断言。position_ok=true 无需行号。\nreason: 各条件与源码分支一致，第6条仅有非冲突省略。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
