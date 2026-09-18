@@ -1362,6 +1362,7 @@ class MdCGOS(MdCG):
                     "dup_of": None, "dup_status": None}
         return pid
 
+# 生效条件：当 self.decisions_log 可被 read_jsonl 读取时，仅 r.get("pid") 为真值的记录写入 st[r["pid"]]，后出现记录覆盖先出现记录，返回 pid → 最新一条裁决记录的字典；
     def _pid_status(self):
         """pid → 最新一条裁决记录（多轮再审批时取最后一轮）。"""
         st = {}
