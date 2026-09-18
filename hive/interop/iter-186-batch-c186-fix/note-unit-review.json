@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-186-batch-c186-fix",
+ "round": 2,
+ "candidate_commit": "1cf7983",
+ "branch": "task/iter-186-batch-c186-fix",
+ "unit_job": "h1789709792573_3f790d",
+ "verdict": "ACCEPT",
+ "package_n": 11,
+ "text": "reason: 逐条比对源码，11条条件均准确描述输入/状态、None/假值、空容器、早退与返回形状；未发现源码不支持或与分支不符之处。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
