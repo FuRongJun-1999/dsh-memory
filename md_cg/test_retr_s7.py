@@ -353,6 +353,26 @@ def main():
     check("根级节点：被改写后判过期（root_file_touched）",
           postings.stale_reason(root7, _fake, _meta7) == "root_file_touched",
           postings.stale_reason(root7, _fake, _meta7))
+    # ---- 16) CLI 输出：不得打印快照指纹本体（上千个目录键）----
+    import io
+    import contextlib
+    from md_cg import build_postings as _bp
+    root9 = tempfile.mkdtemp(prefix="retr_s7cli_")
+    _build(root9)
+    _buf = io.StringIO()
+    with contextlib.redirect_stdout(_buf):
+        _rc1 = _bp.main(["--root", root9])
+        _rc2 = _bp.main(["--root", root9, "--if-stale"])
+        _rc3 = _bp.main(["--root", root9, "--stats"])
+    _out = _buf.getvalue()
+    check("CLI 三条路径返回 0 且输出无 snapshot 本体（只报 dirs 规模）",
+          _rc1 == 0 and _rc2 == 0 and _rc3 == 0
+          and "dir_mtimes" not in _out and "file_mtimes" not in _out
+          and '"dirs"' in _out,
+          _out[:300])
+    check("CLI --if-stale 第二次调用报 fresh 不重建",
+          '"reason": "fresh"' in _out and '"rebuilt": false' in _out,
+          _out[-200:])
     _restore(old)
 
     print("\ntest_retr_s7: %d 通过 / %d 失败" % (passed, failed))
