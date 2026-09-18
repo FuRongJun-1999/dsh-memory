@@ -40,6 +40,7 @@ FIELD_LABEL = {"trigger": "触发", "action": "动作", "negative": "不适用",
 FIELD_ORDER = ("trigger", "action", "negative", "declaration")
 
 
+# 生效条件：n 为纪律节点、key 为 "action"/"declaration" 时返回 str(n 的 execution.how / response.direct，缺键回落 "")，key 为 "trigger"/"negative" 时返回 R._list_or(n 的 conditions.apply / negative.reject，默认文本「（无前置条件，始终适用）」/「（无）」)，key 为其它值时抛 KeyError(key)。
 def field_value(n, key):
     """取该条纪律在指定字段上的『渲染口径』文本（与 render_discipline 生成产物同源）。"""
     if key == "action":
@@ -53,10 +54,12 @@ def field_value(n, key):
     raise KeyError(key)
 
 
+# 生效条件：对任意 s（含非字符串）先 str(s)、再以 re.sub(r"\s+"," ") 折叠空白并 strip() 返回单行文本，s 为空串或纯空白时返回 ""。
 def norm(s):
     return re.sub(r"\s+", " ", str(s)).strip()
 
 
+# 生效条件：target["transport"] == "file" 时按 R.expand(target["path"], repo) 读该文件，路径不是常规文件则返回 (None,"未生成："+path)，是则返回 (全文, path)；transport 非 "file" 时改调 R.read_config_key(target, repo)，其 text 为 None 则返回 (None,"未找到受管块："+R.expand(target["path"], repo))，否则返回 (text, R.expand(target["path"], repo))。
 def extract(target, repo):
     """返回 (text, source_desc) 或 (None, 说明)"""
     if target.get("transport") == "file":
@@ -71,6 +74,7 @@ def extract(target, repo):
     return text, R.expand(target["path"], repo)
 
 
+# 生效条件：str(target 的 memory or "") 以 "plugin/" 开头时直接返回 []（memory 缺失或为假值经 or 归一为 ""，不豁免）；否则逐行扫 text，含 TOOLNAME_DSH 任一名称且不含 MCP_CANON 的行按 1 起行号与 strip 后前 100 字符记入返回列表，无命中返回 []。
 def check_tool_alignment(text, target):
     """工具名随端标注守卫：MCP 端件里出现的 DSH 端注册名，必须与 MCP 端正名同行。
 
@@ -88,6 +92,7 @@ def check_tool_alignment(text, target):
     return bad
 
 
+# 生效条件：out["ok"] 仅当 names 中各 target 经 R.expand 归一化后的路径键无重复（path_dups 为空）且仓根槽位件未遮蔽 root_allow 中本地件（root_shadow 为空）时为 True；probe_chain 为假值时第三段祖先链发现整段跳过（probed 仍为 0），为真时对每个 file target 采集 dedup/wt_dups/hits。
 def check_injection_matrix(mx, repo, names, probe_chain=True):
     """Pi⑦⑤ 注入面发现 + 防重复（矩阵 injection: 段声明，本函数裁决）。
 
@@ -163,6 +168,7 @@ def check_injection_matrix(mx, repo, names, probe_chain=True):
     return out
 
 
+# 生效条件：extract(target, repo) 取不到文本时 res["skipped"]=True、res["ok"]=bool(allow_missing) 并立即返回；取到文本时 res["ok"] 仅当 missing、orphans、toolname、stale 均为空/假时为 True，其中 target 的 verify_fields 中值为 "advisory" 的字段记入 advisory 而非 missing，且空串或已出现在 norm(text) 中的字段值不参与比对。
 def check(target, src, repo, allow_missing):
     nodes = R.nodes_of(src)
     text, where = extract(target, repo)
