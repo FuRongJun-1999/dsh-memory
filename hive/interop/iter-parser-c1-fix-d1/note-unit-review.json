@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-parser-c1-fix-d1",
+ "round": 3,
+ "candidate_commit": "f8ee28f",
+ "branch": "task/iter-parser-c1-fix-d1",
+ "unit_job": "h1789738070254_b2ea21",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "reason: 条件所述前置、循环分隔符、NUMBER/PERIOD/step_content 真值分支及最终属性与返回均可在该符号源码段逐项对应，未越界或增补断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
