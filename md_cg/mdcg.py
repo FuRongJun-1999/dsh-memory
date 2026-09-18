@@ -558,6 +558,15 @@ def expand_query_terms_llm(query: str, llm_fn=None, cache=None,
         return dict(base)
 
 
+# 生效条件：无条件删除 entry 中门控可选字段（big_domain / observation_position）的假值键并返回 entry；真值键原样保留。
+def _strip_empty_gate_fields(entry):
+    """索引快照里的门控可选字段：仅真值落键 → 默认关闭时索引形状与改动前一致。"""
+    for _k in ("big_domain", "observation_position"):
+        if _k in entry and not entry[_k]:
+            del entry[_k]
+    return entry
+
+
 # 生效条件：entry 与其 frontmatter 的 condition_space 取 cs（缺键/假值按 {}）；ctx 为假值或非 dict 时无条件返回 True；
 # ctx 与 cs 同时给出非空 observation_position 且 routing.normalize_domain 归一化后不同时返回 False；
 # ctx 与 cs 同时给出长度 2 的 time_window 且两区间不相交时返回 False（区间相交或任一侧缺值/不可转 float 一律返回 True）。
@@ -583,7 +592,8 @@ def _cond_prefilter_pass(entry, ctx) -> bool:
                 return False
         except Exception:
             pass
-    cw, nw = ctx.get("time_window"), cs.get("time_window")
+    # 索引快照把 time_window 平铺在 entry 上（不在 condition_space 里）——直接读 cs 会让 S2 时间门控永不生效
+    cw, nw = ctx.get("time_window"), (entry.get("time_window") or cs.get("time_window"))
     if (isinstance(cw, (list, tuple)) and len(cw) == 2
             and isinstance(nw, (list, tuple)) and len(nw) == 2):
         try:
@@ -725,7 +735,7 @@ class MdCG:
                     nid = fm.get("id") or fn[:-3]
                     rel = os.path.relpath(p, self.root).replace("\\", "/")
                     parent = os.path.basename(dirpath)
-                    nodes[nid] = {
+                    nodes[nid] = _strip_empty_gate_fields({
                         "path": rel, "layer": fm.get("layer", layer),
                         # role 必须回填：它写在节点 frontmatter 里（写入时 role or "user"），
                         # 但索引重建时若不复制，os.roles 会全部退化为 (none)，
@@ -766,7 +776,7 @@ class MdCG:
                         # G8 派生溯源：frontmatter 声明入索引 → 悬空巡检零读文件
                         "derived_from": fm.get("derived_from") or [],
                         "derived_relation": fm.get("derived_relation"),
-                    }
+                    })
         return nodes
 
 # 生效条件：每次调用都以 self._scan_nodes() 的结果重建 nodes 与 buckets，在 FileLock 下 atomic_write 覆盖 index_path 并 ShardedLog.clear(index_log_dir)，随后替换 self.index、清空 _dirty 并返回 idx（无 .md 时也照样覆盖为空索引）；
@@ -880,7 +890,9 @@ class MdCG:
         # 为何在写入侧：检索侧要按域收敛，节点就必须带域；query 侧分类器已存在，
         # 缺的只是这一列节点元数据（审计偏差 4 的根因）。调用方可显式传入覆盖。
         # 无有效域信号（classify_text 返回 None）时**不写**该字段 → 留在兜底池。
-        if not fm.get("big_domain"):
+        # 默认（MDCG_RETRIEVAL_PIPELINE 未设）**不写**该字段：默认口径与改动前一致；
+        # 开启后新写入的节点开始积累域标签，历史节点由 md_cg.backfill_bigdomain 补齐。
+        if os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1" and not fm.get("big_domain"):
             try:
                 _bd = routing.classify_text(content)
             except Exception:
@@ -938,7 +950,7 @@ class MdCG:
         # 私有内容封装（默认恒等；MdCGSecure 覆盖为 AEAD 加密）。
         # 索引派生同样基于落盘内容，保证与 _scan_nodes 重建结果一致。
         sealed = self._write_node(node_id, path, fm, content)
-        self._stage(node_id, {
+        self._stage(node_id, _strip_empty_gate_fields({
             "path": os.path.relpath(path, self.root).replace("\\", "/"),
             "layer": layer, "tags": tags, "bucket": bucket,
             "importance": importance, "created_at": fm["created_at"],
@@ -966,7 +978,7 @@ class MdCG:
             "branched_from": fm.get("branched_from"),
             # 生命周期状态（②）：索引快照透出 → 免读文件可查（与 _scan_nodes 同口径）
             lifecycle.STATE_FIELD: fm.get(lifecycle.STATE_FIELD),
-        })
+        }))
         subgraph.invalidate_cache(self)
         chain.invalidate_cache(self)
         # G8 常态化建链：仅对**新增**节点、仅在显式声明来源时建边。
@@ -1826,10 +1838,8 @@ class MdCG:
             pool_plan["taken"] = dict(stat["pool_taken"])
             pool_plan["cands"] = dict(stat.get("pool_cands") or {})
             pool_plan["lost"] = dict(stat.get("pool_lost") or {})
-        return out, {"tier": tier, "scanned": stat["scanned"], "bucket": bucket,
-                     "candidates": candidates,
-                     # S1/S2 分阶段审计（契约 §5.3）：编外复核端据此逐项核对收敛是否真的发生
-                     "gates": stat.get("gates"),
+        meta = {"tier": tier, "scanned": stat["scanned"], "bucket": bucket,
+                "candidates": candidates,
                      # §七 分池审计：截断前候选数 / 全局额度 / 生效分池计划
                      "pre_cap": stat.get("pre_cap"), "cap": stat.get("cap"),
                      # 截断依据审计：relevance=先打分再排序截断（现行）
@@ -1839,6 +1849,10 @@ class MdCG:
                      # 阶段 1 大域收敛结果 + 完整打分明细（白箱可审计）
                      "big_domain": big_domain,
                      "big_domain_scores": big_scores}
+        # 分阶段审计仅在门控真的产生信息时落键（默认关闭 → meta 与改动前逐字节一致；契约 §5.3）
+        if stat.get("gates"):
+            meta["gates"] = stat["gates"]
+        return out, meta
 
     # ---------- 五大单元之四：反思 / 验证 / 输出 ----------
 
@@ -1938,7 +1952,7 @@ class MdCG:
                 and os.path.exists(old_full)):
             os.remove(old_full)
         rel = os.path.relpath(new_path, self.root).replace("\\", "/")
-        self._stage(node_id, {
+        self._stage(node_id, _strip_empty_gate_fields({
             "path": rel, "layer": to_layer, "tags": fm.get("tags", []),
             "bucket": None, "importance": fm.get("importance", 0.5),
             "created_at": fm.get("created_at", 0),
@@ -1951,7 +1965,7 @@ class MdCG:
             "big_domain": fm.get("big_domain"),
             "observation_position": (fm.get("condition_space") or {}).get("observation_position"),
             "evidence_count": fm.get("evidence_count", 0),
-        })
+        }))
         self.index["buckets"] = self._count_buckets(self.index["nodes"])
         return {"id": node_id, "from": from_layer, "to": to_layer,
                 "path": rel, "reason": reason}
