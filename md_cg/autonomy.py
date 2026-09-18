@@ -94,6 +94,7 @@ def gain_gate(cg, bid: str, now: float | None = None,
             "reason": "有增益证据或冷却已过"}
 
 
+# 生效条件：cg 的反思记录经 metacognition._reflections 取末 int(window) 条切片（window=0 时切片即全量），按非空 query 聚合后仅 score=W_D2*d2_abs+W_BLINDSPOT*blindspot+W_DEFER*defer>0 的项进入 out，其中 enforce_gain 为真值时还须 gain_gate(cg, …, now)["sigma"]>0 否则该项标 deferred_exhausted 转入 deferred，enforce_gain 为假值时不做增益筛选全数进入 out，最终 out 按 (-score, -last_t) 排序后截取 max(1, int(limit)) 条（limit=0 或负数也返回 1 条）并随 n_signals=len(agg) 返回；
 def proposals(cg, window: int = 200, limit: int = 3,
               enforce_gain: bool = True) -> dict:
     """从反思日志聚合信息差信号，产出排序后的探索提案。
@@ -157,6 +158,7 @@ def proposals(cg, window: int = 200, limit: int = 3,
                             "σ(Gain) 资格筛选（实现值=outcomes 留痕）")}
 
 
+# 生效条件：cg 必需，该符号始终返回 ok=True、action="explore"；其中 bypass_gain 为真值时以 enforce_gain=False 调 proposals、为假值时以 True 调（window/limit 原样透传），逐条提案用 apply/actor 调 predict.learn_blindspots 并把其首个 step 的 terminal 记入 outcomes[bid]，同一 blindspot_id 本轮已见则记为 skipped，调用抛异常则记为 error（"%s: %s" % (type(exc).__name__, exc)），最后 append_jsonl 写 _explore_log_path(cg) 时仅 OSError 被忽略；
 def explore(cg, apply: bool = False, limit: int = 3, window: int = 200,
             actor: str = "autonomy", bypass_gain: bool = False) -> dict:
     """最小探索闭环：提案 → 逐盲区五态验证 →（apply）回写待补线索。
