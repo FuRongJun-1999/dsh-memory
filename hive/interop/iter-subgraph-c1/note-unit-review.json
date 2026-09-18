@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-subgraph-c1",
+ "round": 1,
+ "candidate_commit": "23193ea",
+ "branch": "task/iter-subgraph-c1",
+ "unit_job": "h1789755186094_6927a4",
+ "verdict": "ACCEPT",
+ "package_n": 3,
+ "text": "逐条复核：1) children_index 缓存直返、declared 子节点、两组 rel 方向、None 跳过及回写缓存均与源码一致，ACCEPT。2) parents_index 反查方向与源码对称，ACCEPT。3) reconstruct_scene 的节点池/layer/max_nodes、锚点与 limit、blindspot、reconstructed、neighbors、apply 写节点/日志均在本段可证，ACCEPT。未发现越界或源码外断言。\nreason: 三条生效条件均被各自 src_segment 内源码支持，无越界或额外断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
