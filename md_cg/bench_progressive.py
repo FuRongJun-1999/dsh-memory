@@ -48,11 +48,13 @@ from md_cg.test_sem_noise import (                           # noqa: E402
     GOLD, GOLD_COND, NEG_TEXTS, NEIGHBORS, QUERY, UNREL_DOCS, _doc)
 
 
+# 生效条件：ev、ids 给定时按 ids 顺序找首个满足 nid in ev 的 1-based 位次返回，找不到（或 ids 为空、ev 为空）时返回 0。
 def rank_of(ev, ids):
     """gold 在 id 排名中的位次（不在则 0）。"""
     return next((r for r, nid in enumerate(ids, 1) if nid in ev), 0)
 
 
+# 生效条件：rank 为 1 时 st["h1"] 加 1，rank 落在 0<rank<=5 时 st["h5"] 加 1，落在 0<rank<=10 时 st["h10"] 加 1，rank 为真值时 st["rr"] 加 1.0/rank（负 rank 亦进入该分支得负增量），无返回值。
 def _agg(rank, st):
     if rank == 1:
         st["h1"] += 1
@@ -64,6 +66,7 @@ def _agg(rank, st):
         st["rr"] += 1.0 / rank
 
 
+# 生效条件：label、st、n 与可选 extra 给定时打印 label、st["h1"/"h5"/"h10"]*100.0/n、st["rr"]/n 及 extra 组成的行，n 为 0 时因源码直接相除抛 ZeroDivisionError（源码未校验 n）。
 def _show(label, st, n, extra=""):
     print("  %-22s hit@1=%5.1f%%  hit@5=%5.1f%%  hit@10=%5.1f%%  "
           "MRR=%.4f%s" % (label, st["h1"] * 100.0 / n,
@@ -71,6 +74,7 @@ def _show(label, st, n, extra=""):
                           st["rr"] / n, extra))
 
 
+# 生效条件：qa、docs 给定时对 docs 每项按 jaccard(qa, na) 降序、id 升序排序并返回其 id 序列，docs 为空返回空列表，qa 为空时全部分数相同故只按 id 升序。
 def full_rank(qa, docs):
     """全池 Jaccard 排序 → id 序列（与 run_arm 同判据）。"""
     scored = sorted(((jaccard(qa, na), nid) for nid, na in docs),
@@ -78,6 +82,7 @@ def full_rank(qa, docs):
     return [nid for _s, nid in scored]
 
 
+# 生效条件：无 required 形参；以模块级常量 CORPUS、QUESTIONS 逐行 json.loads 建语料与题目，每题取 evidence_turns 与 question 分词结果，qa 为空则跳过且不计入 n，最终返回含 g0/g2/g1i/g1f/n/fa10_conservative/avg_pool 的统计字典（分母均以 max(·,1) 兜零）。
 def exp_locomo():
     """实验一：原子面渐进三形态。"""
     t0 = time.time()
@@ -93,6 +98,7 @@ def exp_locomo():
 
     pool_sizes = []                        # G1 各阶段候选池大小（统计面）
 
+# 生效条件：used 给定时对其 frozenset 调 full_rank 取前 20 条，把该池大小追加进 pool_sizes，返回由这些 id 与 0.0 组成的二元组列表。
     def rank_fn(used):
         ranked = full_rank(frozenset(used), docs)[:20]
         pool_sizes.append(len(ranked))
@@ -177,12 +183,14 @@ def exp_controlled():
         KW = dict(paths=("lexical", "bucket", "entity", "graph", "fuzzy"),
                   fusion="sum", judge_ranking=True)
 
+# 生效条件：used 给定时，used 为假值（空列表等）则查询串仅为 QUERY，否则为 QUERY 加空格再加空格连接的 used，再经 cg.search_rrf(k=10, judge=True, **KW) 返回 (id, 分值) 列表。
         def engine_rank(used):
             res, _m = cg.search_rrf(QUERY + (" " + " ".join(used)
                                              if used else ""),
                                     k=10, judge=True, **KW)
             return [(r[0]["id"], r[1]) for r in res]
 
+# 生效条件：res 给定时遍历其前 10 项，跳过 r[0]["id"] 属于外层 gold_ids 的项，对余项取 r[2]（len(r)<=2 时取空 dict）并仅在 (ji or {}).get("state")=="ACCEPT" 时把该 id 收入，返回收集到的 out 列表。
         def false_accepts(res):
             out = []
             for r in res[:10]:
@@ -194,6 +202,7 @@ def exp_controlled():
                     out.append(nid)
             return out
 
+# 生效条件：res 给定时遍历其前 10 项，len(r)>2 时取 (r[2] or {}).get("state")、否则取 None，该值属于 ACCEPT/DEFER/REJECT/BLINDSPOT 四键之一则对应计数、否则计入「无judge」，返回只保留计数非零项的字典（全零则返回空 dict）。
         def state_dist(res):
             """渐进循环四态分布（top10 内 judge state 计数，只列非零项）。
 
@@ -207,6 +216,7 @@ def exp_controlled():
                 d[st if st in d else "无judge"] += 1
             return {k: v for k, v in d.items() if v}
 
+# 生效条件：res、fa 给定时返回 100.0*len(fa)/max(1, min(10, len(res)))，即 len(res)>=10 时除以 10、不足时除以 len(res)，len(res) 为 0 时被 max(1,·) 兜为除数 1。
         def fa_rate(res, fa):
             return 100.0 * len(fa) / max(1, min(10, len(res)))
 
@@ -264,6 +274,7 @@ def exp_controlled():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# 生效条件：无 required 形参；先执行 exp_locomo()，再按 exp_controlled() 返回值 ok 的真假返回 0（真）或 1（假）。
 def main():
     exp_locomo()
     ok = exp_controlled()
