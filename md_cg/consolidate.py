@@ -262,6 +262,7 @@ def probe_models(role: str, timeout: int = 20) -> dict:
     return res
 
 
+# 生效条件：raw 为 None 或 strip 后不含 "{"（i<0）、或末个 "}" 的位置 j<=i 时返回 None；否则对 s 从首个 "{" 到末个 "}" 的切片 json.loads，成功则返回解析结果，抛 ValueError 时返回 None。
 def _extract_json_obj(raw: str):
     """从 LLM 输出里抠出第一个 JSON 对象（容忍代码围栏 / 前后废话）。"""
     s = (raw or "").strip()
@@ -274,6 +275,7 @@ def _extract_json_obj(raw: str):
         return None
 
 
+# 生效条件：v 为 None 返回 []；否则按 v 是 str 取 [v]、是 list/tuple 取逐项、其他取 [str(v)]，逐项 strip 并去两端包裹标点后跳过空串及长度超 MAX_TERM_LEN 的项，未出现过的才 append，每次 append 后若 len(out) >= limit 即 break 返回 out（故 limit<=0 且存在有效项时仍返回 1 项）。
 def _as_terms(v, limit: int = MAX_TERMS):
     """把 LLM 给的值规范成去重、限长的短语列表。"""
     if v is None:
@@ -586,6 +588,7 @@ def consolidate(root: str, layer: str = None, limit: int = None, apply: bool = F
            "per_field": {f: 0 for f in CCG_FIELDS}, "verify_dropped": 0,
            "verification_basis_missing": 0, "samples": []}
 
+# 生效条件：以 reason 为键写入闭包 rep["reasons"]，计数按 rep["reasons"].get(reason, 0) + 1 递增（键缺失从 0 起算），无返回值。
     def _bump(reason):
         rep["reasons"][reason] = rep["reasons"].get(reason, 0) + 1
 
@@ -962,6 +965,7 @@ def contextualize_prefixes(root, prefixes=None, node_ids=None,
                          "（如 ['note_','imgpart_']），拒绝对整层无差别改写")
     cg = MdCGOS(root)
 
+# 生效条件：e 经 _entry_id 得到 nid 后，若闭包 ids 不为 None 则返回 nid in ids 的真假，若 ids 为 None 则返回 nid.startswith(pref) 的真假。
     def _hit(e) -> bool:
         nid = _entry_id(e)
         return nid in ids if ids is not None else nid.startswith(pref)
@@ -1065,6 +1069,7 @@ def rollback_contextualize(root, node_ids=None, batch=None, actor="maintain") ->
     return {"ok": True, "reverted": reverted, "ids": ids}
 
 
+# 生效条件：对 _read_maintain(root) 中 action 为 "contextualize" 或 "contextualize_rollback" 的记录，取 recs[-(int(limit) or 50):] 作为 records 返回 {'ok': True, ...}——仅当 int(limit) 成功且为 0 时回落 50，limit 为 None/""/[] 等无法 int() 的值会先抛 TypeError/ValueError。
 def contextualize_history(root, limit=50):
     """层归位的批次记录（只读）。"""
     recs = [r for r in _read_maintain(root)
