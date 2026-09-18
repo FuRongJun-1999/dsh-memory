@@ -1,0 +1,24 @@
+{
+ "kind": "verify-request",
+ "iter_id": "iter-t3-reach-r5",
+ "candidate_commit": "e46265d",
+ "branch": "task/t3-reach",
+ "base_commit": "main",
+ "from": "dsh-memory（主力实例）",
+ "to": "编外验证端（zcode 实例）",
+ "subject": "检索路径改造 T3：大域收敛 → 条件门控 → 图扩散（A1/A2/A3）",
+ "claim": "新增 md_cg/reach.py 收敛层并接入 MdCG.search/MdCGOS.search：读盘前按 bigram 倒排收敛候选（超集精确：LIKE 与打分>0 两路），条件门控只提前必要条件，edges 图扩散补召回，不适用条件整段回退；A3 触碰比 0.6116→0.2063 且随查询变化，A2 结果集 new ⊇ old（LIKE 命中 miss=0），A1 全组回归 117/117 + 新增 test_reach 17/17。",
+ "what_to_verify": [
+  "A1 重放 scripts/run_tests.py --jobs 4（预期 117/117、3 跳过；含 md_cg.test_reach）",
+  "A2 召回：对若干查询独立计算「全量 LIKE 命中集」与「收敛集内 LIKE 命中集」，断言差集为空",
+  "A3 触碰比：同进程 MDCG_REACH=1/0 对照 scanned/NODES，断言均值下降且 scanned 随查询变化",
+  "A4 反例：自造 term 含空格/大写、标签命中、tag_bonus、加密节点、content_hash 缺失、",
+  "   索引陈旧（先建索引再新增节点）等情形，断言收敛集仍为超集",
+  "A5 回退：MDCG_REACH=0 / 单字符 term / 索引不可用 时结果与旧路径逐条一致"
+ ],
+ "replay": {
+  "extract": "git archive --format=tar task/t3-reach | tar -xf - -C <tmp>",
+  "run": "cd <tmp> && python -X utf8 -m md_cg.test_reach && python -X utf8 scripts/run_tests.py --jobs 4"
+ },
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}
