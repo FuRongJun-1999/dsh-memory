@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-142-batch-c142-fix-d1-d2-dual",
+ "round": 5,
+ "candidate_commit": "26205af",
+ "branch": "task/iter-142-batch-c142-fix-d1-d2-dual",
+ "unit_job": "h1789722177733_0f2bea",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "复核：条件与源码分支一致。缺失 AUDIT_FILE 时早退空列表；open/读取 OSError 返回当前 out（打开即抛则为空）；空行跳过，json.loads 抛 ValueError 跳过；正常返回 out[-int(limit or 100):]，0/None/空串等假值按 100。锚定形参 cg、limit 与模块常量 AUDIT_FILE，未添加源码不支持断言；position_ok=true 无需行号。\nreason: 条件完整且与源码相符，无过度或缺失断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
