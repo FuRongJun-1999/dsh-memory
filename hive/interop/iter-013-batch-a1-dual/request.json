@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-013-batch-a1-dual",
- "candidate_commit": "423bbb3",
+ "candidate_commit": "43e14da",
  "branch": "task/iter-013-batch-a1-dual",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
