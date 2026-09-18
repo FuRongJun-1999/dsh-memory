@@ -89,6 +89,7 @@ KNOWN_DANGLING = {"scene_3_session_10_turn_19"}
 MAX_DF_FIXED = 5
 
 
+# 生效条件：任意 n_pool（含 0 等假值，源码不做校验）下返回 max(MAX_DF_FIXED, int(round(0.05 * n_pool)))，结果不小于模块级常量 MAX_DF_FIXED。
 def max_df_auto(n_pool):
     """池规模 → edges 的 df 上限。
 
@@ -109,11 +110,13 @@ def iter_jsonl(path):
                 yield json.loads(line)
 
 
+# 生效条件：path 能被 open(path, encoding="utf-8") 打开时返回 json.load(f) 的解析结果。
 def load_json(path):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
+# 生效条件：os.path.isdir(d) 为假时直接返回空 dict；为真时按 sorted(os.listdir(d)) 顺序读取后缀为 .json 的分片并 out.update(part)（后者覆盖前者），任一分片不是 dict 时抛 SystemExit，否则返回合并后的 out。
 def load_chunks(d):
     """合并目录下全部分片 JSON（后者覆盖前者，便于修订单条）。"""
     out = {}
@@ -276,6 +279,7 @@ def cmd_prepare(verbose=True):
 
 
 # ------------------------------------------------------------------ build
+# 生效条件：max_df 为 None（默认）时用 max_df_auto(len(corpus)) 自动取值，max_df 传出值（含 0 等假值）则直接使用；随后对 bz.ARMS 每臂调 bz.build_arm(corpus, arm, max_df=md, root_base=...) 并返回 {arm["name"]: 建库结果}；verbose 形参在该符号源码段内未参与如何分支。
 def cmd_build(max_df=None, verbose=True):
     corpus, _ = cmd_prepare(verbose=False)
     md = max_df if max_df is not None else max_df_auto(len(corpus))
@@ -297,6 +301,7 @@ GATE_RE = re.compile(r"拒答率：([\d.]+)%")
 LINE_RE = re.compile(r"拒答线（正例 hit@1 题 Top-1 分 p10）：([\d.]+)")
 
 
+# 生效条件：RUST_BIN 经 os.path.exists 为假时抛 SystemExit；否则以 argv 列表 [RUST_BIN, "--dataset", "lc", "--tag", name, "--lib", lib, "--qfile", qfile]（extra 为真值时追加其元素）执行 subprocess.run，返回码非 0 或 stdout 未匹配 ROW_RE 时抛 SystemExit，成功时返回 (got, neg, line)，其中 GATE_RE/LINE_RE 未命中时对应值为 None。
 def run_one(name, lib, qfile, extra=None):
     """调用 Rust 评测器跑一臂（--dataset lc 的组映射 + 显式 lib/qfile）。
 
@@ -327,6 +332,7 @@ def run_one(name, lib, qfile, extra=None):
         (float(line.group(1)) if line else None)
 
 
+# 生效条件：对 rows 中每个 (label, got, note) 按 GROUPS 顺序打印 got[g] 的 hit@1/MRR（got 缺任一 GROUPS 键会 KeyError），并对 POS_GROUPS 组按样本数 n 加权算正例 hit@1/MRR；baseline 非 None 且某行 label 等于 baseline 时该行值记为参照，其后 label 不等于 baseline 的行附加 Δpp，无返回值。
 def print_table(title, rows, baseline=None):
     """rows: [(label, got, note)]；baseline = 参照行 label（算 Δ）。"""
     print(f"\n== {title} ==")
@@ -356,6 +362,7 @@ def print_table(title, rows, baseline=None):
               + f"{ov_h1 * 100:>10.1f}%{ov_mrr:>10.3f}{delta}{suffix}")
 
 
+# 生效条件：seeds 等于 "sorted" 时给每个 run_one 追加 ["--graph-seeds", "sorted"]，seeds 为其它值（含 None）时不追加；先 cmd_build(max_df=max_df) 取各臂库，再对 bz.ARMS 逐臂 run_one，neg 非 None 时把拒答率写入 note，返回 rows 并以 bz.ARMS[0]["name"] 为 baseline 打印主表。
 def cmd_run(max_df=None, seeds=None):
     """消融主表（5 组；正例 hit@1/MRR = precise+temporal+interference）。"""
     roots = cmd_build(max_df=max_df)
@@ -374,6 +381,7 @@ def cmd_run(max_df=None, seeds=None):
     return rows
 
 
+# 生效条件：cmd_build(max_df=max_df) 后取 bz.ARMS[-1]["name"] 对应的库，对同一库分别以索引序（lczh_a4_index，无额外参数）与 --graph-seeds sorted（lczh_a4_sorted）各跑一次 run_one，返回这两行结果并以 baseline="a4/index" 打印对照表。
 def cmd_seed(max_df=None):
     """对照：同一个 a4 库，只切换 graph 路种子口径（隔离种子缺陷与边质量）。"""
     roots = cmd_build(max_df=max_df)
@@ -390,6 +398,7 @@ def cmd_seed(max_df=None):
     return rows
 
 
+# 生效条件：kind 等于 "turn" 时从 RAW_TURNS 读取并按 id/speaker/date/text 打印 rows[start:end]（序号自 start+1 起，text 截到 width）；kind 为其它任何值时改从 RAW_QUESTIONS 按 qid/qtype/question 打印同一区间，无返回值。
 def cmd_show(kind, start, end, width=240):
     """打印 [start, end) 区间的待标注项（分批产出时读原文用）。
 
@@ -404,6 +413,7 @@ def cmd_show(kind, start, end, width=240):
             print(f"{i}\t{r['qid']}\t{r['qtype']}\t{r['question'][:width]}")
 
 
+# 生效条件：len(argv) > 1 时 cmd 取 argv[1]、否则 cmd 为 "status"；遍历 argv 时遇 "--max-df" 取 argv[i+1] 转 int 为 max_df、遇 "--seeds" 取 argv[i+1] 为 seeds；cmd 为 "show" 时调 cmd_show(argv[2], int(argv[3]), int(argv[4]))，为 "dump"/"status"/"prepare" 时分别无参转调同名函数，为 "build"/"seed" 时传 max_df=max_df，为 "run" 时传 max_df=max_df 与 seeds=seeds，其余 cmd 值抛 SystemExit("未知子命令")。
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else "status"
     max_df = None
