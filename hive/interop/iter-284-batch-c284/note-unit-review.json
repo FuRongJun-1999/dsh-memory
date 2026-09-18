@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-284-batch-c284",
+ "round": 1,
+ "candidate_commit": "a89554e",
+ "branch": "task/iter-284-batch-c284",
+ "unit_job": "h1789744132890_2dbd81",
+ "verdict": "REJECT",
+ "package_n": 9,
+ "text": "复核：第1-8条未发现与源码冲突，可 ACCEPT。第9条 _ref_call REJECT：stat 实际返回 {ok,action,ledger,note}，非直接 summary()；prune 实参 dry_run=bool(a.get(\"dry_run\"))、max_nodes=int(a.get(\"max_nodes\") or refindex.MAX_CHECK)，条件写成“dry_run=max_nodes 同上”与源码不符。无越界/BLINDSPOT。\nreason: 第9条 _ref_call 的 stat 返回形状与 prune 实参与源码不符，故整批 REJECT。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
