@@ -404,6 +404,7 @@ def normalize_en(text: str) -> str:
     """
     # 清标点（保留中文字符和空格和数字）
     cleaned = re.sub(r'[^\u4e00-\u9fff a-zA-Z0-9]', ' ', text or "")
+# 生效条件：m.group(0) 小写后不在模块级常量 EN_STOPWORDS 中时返回 strip_tense_en(该小写词)，命中 EN_STOPWORDS 时返回空串 ""；
     def _norm_word(m):
         w = m.group(0).lower()
         if w in EN_STOPWORDS:
@@ -462,6 +463,7 @@ def expand_query_terms_weighted(query: str) -> dict:
     q = query or ""
     weights = {}
 
+# 生效条件：w 为真值且 float(v) 严格大于 weights 中 w 的现有值（w 不在 weights 时基准为 0.0）才写入 weights[w]；w 为 ""/0/None 等假值或 float(v) 不大于现有值时不做任何写入；
     def put(w, v):
         if w and float(v) > weights.get(w, 0.0):
             weights[w] = float(v)
@@ -557,6 +559,7 @@ def expand_query_terms_llm(query: str, llm_fn=None, cache=None,
 
 
 class MdCG:
+# 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
     def __init__(self, root: str, autoflush: int = 64):
         self.root = os.path.abspath(root)
         os.makedirs(self.root, exist_ok=True)
@@ -582,6 +585,7 @@ class MdCG:
 
     # ---------- 索引（派生物，可重建） ----------
 
+# 生效条件：os.path.exists(self.index_path) 为真、json.load 成功且其 "schema" 等于模块级 SCHEMA 时以该快照为基底，否则以 self._scan_nodes() 结果与空 buckets 新建；随后重放 ShardedLog.read_all(self.index_log_dir)：记录无 id 跳过、e 为 None 则 pop 该 nid（tombstone）、e 非 None 则覆盖，最终 buckets 由 _count_buckets 重算；
     def _load_index(self):
         idx = None
         if os.path.exists(self.index_path):
@@ -616,6 +620,7 @@ class MdCG:
                 buckets[b] = buckets.get(b, 0) + 1
         return buckets
 
+# 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析且 "schema" 等于 SCHEMA 时以该快照为基底，否则用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}} 作基底（不重扫目录），再对 index_log_dir 逐条重放（无 id 跳过、e 为 None 则 pop、否则覆盖），落盘并清空日志后替换 self.index 并返回 idx；
     def compact_index(self):
         with FileLock(self.index_path):
             idx = {"schema": SCHEMA, "nodes": {}, "buckets": {}}
@@ -641,6 +646,7 @@ class MdCG:
         self.index = idx
         return idx
 
+# 生效条件：self._dirty 非空时才（必要时新建 ShardedLog）逐条 append、清空 _dirty 并关闭分片句柄；self._dirty 为空时立即返回、不写任何记录；
     def flush(self):
         if not self._dirty:
             return
@@ -663,6 +669,7 @@ class MdCG:
             self._log.close()
             self._log = None
 
+# 生效条件：遍历模块级 LAYERS 各层目录下所有 .md 文件，读取抛 OSError 的跳过；nid 取 fm.get("id")，为假值时回落去掉 .md 的文件名；bucket 取父目录名、父目录等于层名时为 None；返回 nodes；
     def _scan_nodes(self):
         nodes = {}
         for layer in LAYERS:
@@ -720,6 +727,7 @@ class MdCG:
                     }
         return nodes
 
+# 生效条件：每次调用都以 self._scan_nodes() 的结果重建 nodes 与 buckets，在 FileLock 下 atomic_write 覆盖 index_path 并 ShardedLog.clear(index_log_dir)，随后替换 self.index、清空 _dirty 并返回 idx（无 .md 时也照样覆盖为空索引）；
     def rebuild_index(self):
         nodes = self._scan_nodes()
         idx = {"schema": SCHEMA, "nodes": nodes,
@@ -914,6 +922,7 @@ class MdCG:
                               actor=extra.get("actor"))
         return node_id
 
+# 生效条件：node_id、dst、reason、actor、override 全部原样转交 lifecycle.set_state 并返回其结果，本方法自身不做校验、分支或参数回落；
     def set_state(self, node_id: str, dst: str, reason: str = None,
                   actor: str = None, override: bool = False) -> dict:
         """节点生命周期状态推进（② 显式状态机：**唯一推进入口**，见 lifecycle.py）。
@@ -925,6 +934,7 @@ class MdCG:
         return lifecycle.set_state(self, node_id, dst, reason=reason,
                                    actor=actor, override=override)
 
+# 生效条件：每次调用都延迟导入 twophase 并以原样 apply（含 False）与 limit（含 0）转调 twophase.reconcile(self, apply=apply, limit=limit) 并返回，自身不做参数回落；
     def reconcile_writes(self, apply: bool = True, limit: int = 2000) -> dict:
         """写入两段式对账（③ 两段式提交）：把崩溃遗留的半途写入**补账或标记**。
 
@@ -935,6 +945,7 @@ class MdCG:
         from . import twophase       # 延迟导入：与写路径解耦，避免模块环
         return twophase.reconcile(self, apply=apply, limit=limit)
 
+# 生效条件：每次调用都延迟导入 twophase 并以原样 limit（含 0）转调 twophase.pending(self, limit=limit) 并返回，自身不做参数回落；
     def pending_writes(self, limit: int = 200) -> list:
         """未结清的写入意图（有 intent 无 outcome）——只读，不改账本。"""
         from . import twophase
@@ -953,6 +964,7 @@ class MdCG:
     #    按 child_id 去重，重复追加返回 False 不落盘。
     # ------------------------------------------------------------------
 
+# 生效条件：self.get(node_id) 返回假值（取不到节点）时返回 None；取到时返回 (frontmatter or {}, content or "", root 下 node.get("path") 或回落 f"{node_id}.md")；
     def _edge_node(self, node_id):
         """取节点 (fm, content, full_path)；不存在返回 None。"""
         node = self.get(node_id)
@@ -961,6 +973,7 @@ class MdCG:
         return (node.get("frontmatter") or {}, node.get("content") or "",
                 os.path.join(self.root, node.get("path") or f"{node_id}.md"))
 
+# 生效条件：self.index["nodes"].get(node_id) 非 None 时把该条目 edges 置为 fm.get("edges") or []、subgraph 置为 fm.get("subgraph") 并标脏；条目为 None 则完全不同步（subgraph 缓存失效调用被静默吞异常）；
     def _sync_edge_entry(self, node_id, fm):
         """边域变更后同步索引 entry（edges/subgraph 键）并标脏。"""
         entry = self.index["nodes"].get(node_id)
@@ -974,6 +987,7 @@ class MdCG:
         except Exception:
             pass
 
+# 生效条件：node_id 取不到节点返回 False；fm.edges 非 list 时重置为 []；已存在 dict 边其 str(target or "") 与 str(relation_type or "") 同时等于 edge 归一值（缺键为 ""）时返回 False（幂等），否则追加 dict(edge)、写盘并同步后返回 True；
     def append_edge(self, node_id: str, edge: dict) -> bool:
         """向既有节点追加一条出边（fm.edges），幂等去重。
 
@@ -998,6 +1012,7 @@ class MdCG:
         self._sync_edge_entry(node_id, fm)
         return True
 
+# 生效条件：node_id 取不到节点返回 False；subgraph 非 dict 时重置为 {"nodes":[]}、其 nodes 非 list 时重置为 []；child_id 已在列表中返回 False（幂等），否则追加 str(child_id)、写盘并同步后返回 True；
     def append_subgraph_node(self, node_id: str, child_id: str) -> bool:
         """向既有父节点追加层级子节点（fm.subgraph.nodes），幂等去重。
 
@@ -1021,6 +1036,7 @@ class MdCG:
         self._sync_edge_entry(node_id, fm)
         return True
 
+# 生效条件：node_id 取不到节点返回 False；tags 非 list 时重置为 []；先按 remove（假值按空集合）删除、再把 add（假值按空列表）中不在结果内的 str 项追加，结果等于原 tags 时返回 False 不落盘，否则写盘、同步索引 tags、标脏并返回 True；
     def update_tags(self, node_id: str, add=None, remove=None) -> bool:
         """节点 tags 增删（节点状态更新窄原语——causal 候选状态迁移面）。
 
@@ -1051,6 +1067,7 @@ class MdCG:
             self._dirty[node_id] = entry
         return True
 
+# 生效条件：node_id 取不到节点返回 False；在 fm.get("edges") or [] 中找首个 dict 且 str(target or "")==str(target_id)、str(relation_type or "")==str(relation_type) 的边，找不到返回 False；命中则把该边 condition_space 置为 dict(condition_space or {})、写盘并同步后返回 True；
     def set_edge_condition(self, node_id: str, target_id: str,
                            relation_type: str, condition_space: dict) -> bool:
         """改既有节点上指定出边的 condition_space（模式分离更新面）。
@@ -1076,6 +1093,7 @@ class MdCG:
         self._sync_edge_entry(node_id, fm)
         return True
 
+# 生效条件：nid（"rej_"+sha1(hypothesis) 前 10 位）已在 self.index["nodes"] 中时直接返回该 nid 不写盘（幂等）；否则以 hypothesis/reason/verification_basis（默认 "test"）拼正文并 add(..., layer="rejected", importance=0.0, **extra) 返回新 nid；
     def add_rejected(self, hypothesis: str, reason: str, verification_basis: str = "test",
                      tags=None, **extra) -> str:
         """第 5 篇 L2：负记忆——失败/否决的假设库。重复证伪幂等。"""
@@ -1089,6 +1107,7 @@ class MdCG:
                         tags=tags, verification_basis=verification_basis,
                         importance=0.0, **extra)  # importance=0：不被检索优先
 
+# 生效条件：nid（"unr_"+sha1(question) 前 10 位）已在 self.index["nodes"] 中时直接返回；否则拼接 question、known_clues（假值渲染「（暂无）」）、context 非空才追加「现场」行、goal（假值渲染「（未设定）」）与 verification_basis 后 add(layer="unresolved", importance=0.3)；
     def add_unresolved(self, question: str, known_clues: str = "",
                        goal: str = "", verification_basis: str = "data",
                        tags=None, context: str = "", **extra) -> str:
@@ -1122,6 +1141,7 @@ class MdCG:
                 f"# 验证方式：other\n"
                 f"# 不适用条件：目标状态为 done/dropped 时不再参与定向\n")
 
+# 生效条件：status 不属于模块级 GOAL_STATUSES 时抛 ValueError；goal 经 (goal or "").strip() 后为空（None/空串/纯空白）时抛 ValueError("goal 不能为空")；否则按 "goal_"+sha1(goal utf-8) 前 10 位生成 gid 并 add(layer="goals", importance=float(priority), goal_status=status, deadline=deadline, ...)；
     def add_goal(self, goal: str, priority: float = 0.5, deadline=None,
                  conditions: str = "", action: str = "", tags=None,
                  status: str = "active", **extra) -> str:
@@ -1143,6 +1163,7 @@ class MdCG:
                         goal_text=goal, goal_status=status,
                         deadline=deadline, **extra)
 
+# 生效条件：self.index["nodes"].get(node_id) 为假值或其 layer 不等于 "goals" 时返回 None；_read 得到的 fm 为 None 时返回 None；否则返回 dict，其中 goal 取 goal_text 假值回落 ""、status 取 goal_status 假值回落 "active"、priority/created_at 取 importance/created_at 假值回落 0.0；
     def _goal_entry(self, node_id):
         e = self.index["nodes"].get(node_id)
         if not e or e.get("layer") != "goals":
@@ -1174,6 +1195,7 @@ class MdCG:
         """当前活跃目标（默认最多 5 条）——检索定向的默认来源。"""
         return self.list_goals(status="active", limit=limit)
 
+# 生效条件：status 不属于模块级 GOAL_STATUSES 时抛 ValueError；self.get(node_id) 取不到节点或其 frontmatter 的 layer 不等于 "goals" 时返回 None；否则写回 goal_status 与 status_changed_at 并返回 {"id": node_id, "status": status}；
     def set_goal_status(self, node_id: str, status: str):
         """目标状态机：active → done/dropped（可回退）。"""
         if status not in GOAL_STATUSES:
@@ -1188,6 +1210,7 @@ class MdCG:
                          fm, node["content"])
         return {"id": node_id, "status": status}
 
+# 生效条件：goal 为真值（非 None/空串/0）时返回 str(goal)；goal 为假值时返回 self.active_goals(limit=limit) 中非空 goal 文本以空格拼接的字符串；
     def goal_text(self, goal=None, limit: int = 5) -> str:
         """检索定向用的目标文本：显式 goal 优先，否则拼接活跃目标。"""
         if goal:
@@ -1197,6 +1220,7 @@ class MdCG:
 
     # ---------- 近期事件滚动窗口（白箱第 5 篇第 3 章「近期事件」）----------
 
+# 生效条件：role 为假值回落 "user"、text 为假值回落 ""、tags/meta 为假值回落 []/{} 后拼成 rec 追加到 recent_log，再按 window（默认模块级 DEFAULT_RECENT_WINDOW）调 roll_recent 截断，返回 {"event": rec, "dropped": dropped}；
     def remember_event(self, role: str, text: str, tags=None, meta=None,
                        window: int = DEFAULT_RECENT_WINDOW):
         """追加一条近期事件（原始、未结构化），并按窗口滚动截断。"""
@@ -1218,6 +1242,7 @@ class MdCG:
                 json.dumps(r, ensure_ascii=False) + "\n" for r in keep))
         return len(recs) - len(keep)
 
+# 生效条件：roles 为真值时按 r.get("role") 是否在 set(roles) 内过滤；since 非 None 时按 float(r.get("t") or 0) >= float(since) 过滤；limit 为真值时取末 limit 条、为 None/0 等假值时取全部；newest_first 为真值时反转返回，否则按原序返回；
     def recent_events(self, limit: int = 20, roles=None, since=None,
                       newest_first: bool = True):
         """读取近期事件（默认最新在前）。roles 过滤角色，since 过滤时间戳。"""
@@ -1230,6 +1255,7 @@ class MdCG:
         out = recs[-limit:] if limit else recs
         return list(reversed(out)) if newest_first else out
 
+# 生效条件：无条件读取全部记录并在 FileLock 下把 recent_log 原子写空，返回被清条数（无记录时为 0）；
     def clear_recent(self):
         """清空近期窗口（返回被清条数）。"""
         recs = list(read_jsonl(self.recent_log))
@@ -1237,6 +1263,7 @@ class MdCG:
             atomic_write(self.recent_log, "")
         return len(recs)
 
+# 生效条件：无条件把 entry 写入 _dirty[node_id] 与 index["nodes"][node_id]；entry.get("bucket") 为真值时该桶计数 +1；当 len(self._dirty) >= self.autoflush 时调 flush()（autoflush 为 0 时每次标脏都立即 flush）；
     def _stage(self, node_id, entry):
         self._dirty[node_id] = entry
         self.index["nodes"][node_id] = entry
@@ -1246,6 +1273,7 @@ class MdCG:
         if len(self._dirty) >= self.autoflush:
             self.flush()
 
+# 生效条件：无条件 pop index["nodes"][node_id]（不存在则无操作）；被 pop 的条目有真值 bucket 时该桶计数 -1，减后 <=0 则删除该桶键；随后无论是否命中都把 _dirty[node_id] 置 None（删除 tombstone）并立即调 flush() 持久化；
     def _unstage(self, node_id):
         """摘除索引条目并**持久化**——与 `_stage` 对称的删除原语。
 
@@ -1268,15 +1296,18 @@ class MdCG:
 
     # ---------- 内容封装钩子（默认恒等；MdCGSecure 覆盖为「私有内容加密」）----
 
+# 生效条件：默认实现无条件原样返回 content，node_id 与 sensitivity 均不改变返回值；
     def _seal_content(self, node_id: str, content: str,
                       sensitivity: str = None) -> str:
         """写入前的正文封装钩子。默认原样返回；加密实现见 `crypto.seal_node`。"""
         return content
 
+# 生效条件：默认实现无条件返回传入的 content（不返回 None），node_id 与 fm 不参与；
     def _open_content(self, node_id: str, fm: dict, content: str):
         """读取后的正文解封钩子。返回 None 表示不可读（无密钥 / 身份不符）。"""
         return content
 
+# 生效条件：无条件以 fm.get("sensitivity") 调 _seal_content 封装后执行 atomic_write(path, nodefile.dumps(fm, sealed), durable=durable) 并返回 sealed，durable 原样透传、无校验；
     def _write_node(self, node_id: str, path: str, fm: dict, content: str,
                     durable: bool = False):
         """统一节点写盘口：先封装再原子写。**所有写盘点都应走这里**，
@@ -1287,6 +1318,7 @@ class MdCG:
 
     # ---------- 读 ----------
 
+# 生效条件：index["nodes"].get(node_id) 为假值时回落 self._dirty.get(node_id)，仍为假值返回 None；打开 root 下 e["path"] 抛 OSError 返回 None；_open_content 返回 None（无密钥/身份不符）返回 None；否则返回 {id, frontmatter, content, path}；
     def get(self, node_id: str):
         e = self.index["nodes"].get(node_id) or self._dirty.get(node_id)
         if not e:
@@ -1302,6 +1334,7 @@ class MdCG:
             return None                     # 有节点但无密钥 → 不可读即不存在
         return {"id": node_id, "frontmatter": fm, "content": content, "path": e["path"]}
 
+# 生效条件：打开 os.path.join(self.root, entry["path"]) 成功时返回 nodefile.loads 的 (fm, content)；抛 OSError 时返回 (None, None)（entry 的 "path" 按源码直接取键，无 .get 回落）；
     def _read(self, entry):
         p = os.path.join(self.root, entry["path"])
         try:
@@ -1501,6 +1534,7 @@ class MdCG:
         big_domain = routing.big_domain_classify(terms)
         big_scores = routing.big_domain_score_breakdown(terms)
 
+# 生效条件：docs 经 self._score(docs, q, qb, pool_cfg) 后分数 >0 的条数达到闭包阈值 min_results 时返回 self._emit(scored, k, tier, stat, route_bucket, record, len(docs), judge, context, neg_coverage, big_domain, big_scores, pool_cfg)（tier 原样透传）；未达阈值返回 None；
         def try_stage(docs, tier):
             scored = self._score(docs, q, qb, pool_cfg)
             valid = sum(1 for _, s in scored if s > 0)
@@ -1556,6 +1590,7 @@ class MdCG:
                           record, len(picked), judge,
                           context, neg_coverage, big_domain, big_scores, pool_cfg)
 
+# 生效条件：entries 逐条经 _read 得 content 为 None 的跳过、_open_content 返回 None 的跳过，其余以 (e, fm, c) 进入 docs，并把 len(docs) 累加进 stat["scanned"] 后返回 docs；
     def _read_many(self, entries, stat):
         docs = []
         for e in entries:
@@ -1580,6 +1615,7 @@ class MdCG:
         tags_l = tags.lower()
         return any(t in body_l or t.lower() in tags_l for t in terms)
 
+# 生效条件：semantic_on() 为真、semantic.canonical.pair_hits 导入成功且该 doc 的 fm 有 semantic 时 raw = min(1.0, max(lexical_sim(qb, 该文档 normalize_en 后的 bigram, mode), pair_hits(fm["semantic"], q)) + tag_bonus)，否则 raw = min(1.0, sim + tag_bonus)；tag_bonus 仅在 fm.tags 中有 t 满足 str(t) in q 或 q in str(t) 时为 0.05，否则 0.0；pools 为真值时 raw 再乘 pooling.weight_of(...) 并夹到 [0,1]；返回 scored 列表；
     def _score(self, docs, q, qb, pools=None, mode=None):
         # 语义摘要路（MDCG_SEMANTIC=1 opt-in，默认关闭零回归）：
         # doc 侧 fm.semantic 标准原子序列 × query 归一序列的组合窗口共现分
@@ -1616,6 +1652,7 @@ class MdCG:
         return scored
 
 
+# 生效条件：scored 按 (-分数, -importance) 排序后取前 k 条逐条判定——judge 为真值时调 judge_qualification(r[0], stat["query"] 或 "", context)，否则 qual={"state":None,"reason":"judge_disabled"}；再把 neg_coverage 前 3 条以 id=其 path 追加到 out 末尾（该项 layer=="rejected"→STATE_REJECT，否则 STATE_DEFER，读文件抛 OSError 则跳过）；record 为真且 results 非空时调 record_access；pool_plan 以 pooling.plan(stat["cap"] 或模块级 GLOBAL_CAP, pools) 生成，stat["pool_taken"] 为真时并入 taken/cands/lost；返回 (out, 含 tier/scanned/bucket/candidates/pre_cap/cap/cut_order/pools/big_domain 的审计 dict)；
     def _emit(self, scored, k, tier, stat, bucket, record, candidates,
               judge, context, neg_coverage, big_domain=None, big_scores=None,
               pools=None):
@@ -1667,6 +1704,7 @@ class MdCG:
 
     # ---------- 五大单元之四：反思 / 验证 / 输出 ----------
 
+# 生效条件：无条件计算 d_prev/_compute_d(query, results) 与 states（results 为假值时 states 为空列表）并尝试追加 reflection_log（OSError 静默吞掉），返回含 user_feedback 的反思 dict；
     def reflect(self, query: str, results, user_feedback: str = None):
         """反思单元（白箱第 3 篇第 13 章）。
 
@@ -1716,6 +1754,7 @@ class MdCG:
         """反思日志全量记录（测试/审计用）。"""
         return list(read_jsonl(self.reflection_log))
 
+# 生效条件：results 为假值（空列表/None）时返回 1.0；否则返回 max(0.0, 1.0 - （r[1]>0 且 r[2]["state"]==STATE_ACCEPT 的条数 / len(results)）)，query 不参与计算；
     def _compute_d(self, query, results):
         """信息差 D 的简化度量（白箱第 4 篇）：
         D = 1 - 有效命中比例，0=信息差为零（完美），1=完全空白。
@@ -1732,6 +1771,7 @@ class MdCG:
                      if r[1] > 0 and r[2]["state"] == STATE_ACCEPT)
         return max(0.0, 1.0 - accept / len(results))
 
+# 生效条件：to_layer 不属于模块级 LAYERS 时抛 ValueError；self.get(node_id) 取不到节点或当前层（fm.layer 或路径首段）等于 to_layer 时返回 None；否则调 protect.guard_move 后写入 demotion 审计、搬文件到目标层并按新层 _stage、重算 buckets，返回 {id, from, to, path, reason}；
     def _move_layer(self, node_id: str, to_layer: str, reason: str = ""):
         """把节点搬到另一层（可信度降级用），同步索引与 demotion 审计字段。"""
         if to_layer not in LAYERS:
@@ -1773,6 +1813,7 @@ class MdCG:
         return {"id": node_id, "from": from_layer, "to": to_layer,
                 "path": rel, "reason": reason}
 
+# 生效条件：verdict 不在 {confirmed,weakened,falsified} 时抛 ValueError；node_id 取不到节点返回 None；verdict=="falsified" 时以 content[:200] 为假设写入 rejected 层、删除原文件并 _unstage，返回 {"action":"falsified","new_id":None,"evidence_count":None,"demoted":None}；confirmed/weakened 时 confidence 分别 +0.05 / -0.15（夹到 [0,0.99] 并 round 2）、evidence_count 与 positive_evidence/negative_evidence 各 +1、追加 evidence_log，且仅当 weakened 后 confidence < DEMOTE_CONFIDENCE 且 layer=="knowledge" 时调 _move_layer 到 contextual 并 set_state("demoted")，否则 _write_node 回写并同步索引 evidence_count；
     def verify(self, node_id: str, evidence: str, verdict: str):
         """验证单元（白箱第 3 篇第 13 章）：对节点做一次外部验证裁决。
 
@@ -1836,6 +1877,7 @@ class MdCG:
 
     # ---------- 知识飞轮（白箱第 2 篇第 8 章）----------
 
+# 生效条件：error_report 是 str 时经 json.loads 解析，否则按映射使用；question 由 query/actual_state/expected_state 缺键回落 "?" 拼成；detail 为 list 时非 dict 元素跳过，其中 type=="same_condition_divergence"、"condition_clash" 及其他真值 type 各渲染一条现场短语并以 " | " 连接作为 context（known_clues 取 missing 或 ""）传给 add_unresolved，返回 {"unresolved_id": nid, "question": question}；
     def flywheel_step(self, error_report: str):
         """知识飞轮入口：错误 → 寻找遗漏条件 → 验证 → 结构更新。
 
@@ -1877,6 +1919,7 @@ class MdCG:
 
     # ---------- 访问计数：append-only，检索路径不写节点文件 ----------
 
+# 生效条件：无条件尝试把 {"t": time.time(), "ids": list(node_ids), "tier": tier} 追加到 access_log，append 抛 OSError 时静默吞掉；
     def record_access(self, node_ids, tier=None):
         try:
             append_jsonl(self.access_log,
@@ -1916,6 +1959,7 @@ class MdCG:
 
     # ---------- 健康度 ----------
 
+# 生效条件：无条件以 index.get("buckets", {}) 生成分桶健康度并记 total_nodes，再遍历 index["nodes"] 逐条读文件（抛 OSError 跳过），按 layer 统计 total/ccg_complete/verification_basis_set/neg_conditions_set，另统计 rejected 与 unresolved 层数量，返回 h；
     def health(self):
         """扩充：分桶健康度 + 5 要素完整度 + 验证基底覆盖率 + 负记忆密度。"""
         h = routing.bucket_health(self.index.get("buckets", {}))
