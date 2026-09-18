@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-226-batch-c226-fix",
+ "round": 2,
+ "candidate_commit": "0971e64",
+ "branch": "task/iter-226-batch-c226-fix",
+ "unit_job": "h1789720450405_18a9ea",
+ "verdict": "ACCEPT",
+ "package_n": 8,
+ "text": "逐条复核：8 条条件均与源码分支一致；假值/None 处理、早退、排序、返回形状及 e4 闭包引用 en_rows/char_atoms 均未发现冲突，也未新增源码不支持断言。\nreason: 条件准确锚定源码前置与结果，未发现不符或超源码断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
