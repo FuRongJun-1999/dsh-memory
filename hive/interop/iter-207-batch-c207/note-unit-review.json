@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-207-batch-c207",
+ "round": 1,
+ "candidate_commit": "015af15",
+ "branch": "task/iter-207-batch-c207",
+ "unit_job": "h1789716553026_428488",
+ "verdict": "ACCEPT",
+ "package_n": 9,
+ "text": "逐条核对：假值回落、空容器、KeyError、阈值、排序、切片与返回形状均与源码一致；slim_tool 的 _req 过滤、generic 判定、short_desc 空值弹出及 required 省略亦准确。未见无依据断言。\nreason: 所有条件均与源码分支及返回形状一致，未发现矛盾或新增断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
