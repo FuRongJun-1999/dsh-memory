@@ -1703,6 +1703,10 @@ class MdCG:
         # S4 层级激活优先级：同样必须显式 =1（新层加成会改变排序，属显式启用项）
         _s4 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
                and os.environ.get("MDCG_GATE_S4_LAYER") == "1")
+        # S7 倒排候选层（只作候选生成器；召回与全表扫描一致）；见 md_cg/postings.py
+        _s7 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+               and os.environ.get("MDCG_GATE_S7_POSTINGS") == "1")
+        _s7_narrowed = False
         if _s4 and entries:
             _bo = layer_boosts()
             _lc = {}
@@ -1869,6 +1873,39 @@ class MdCG:
         # 截断依据=相关度（先全量打分再排序截断）：命中集沿 entries（目录枚举序）
         # 排列，原来「取前 GLOBAL_CAP 条再打分」等价于用写入顺序抽签决定谁进
         # 候选池。cap 值不变，变的只是拿什么排序（见 cut_by_relevance）。
+        # ---- S7 倒排候选层：用发布表取出「含查询词全部 bigram」的节点作为候选 ----
+        # 候选 ⊇ 真命中集 → 随后仍走既有 `_like` 精确过滤 → 结果与全表扫描一致（契约 §7「候选内加速」定位）。
+        # 不可用时（单字词 / 无发布表 / 空候选）一律回退全表；T3 兜底也强制走全量（保持兜底口径不变）。
+        entries_full = entries
+        if _s7 and entries:
+            _pd = None
+            try:
+                from . import postings as _pd
+            except Exception:
+                _pd = None
+            if _pd is None:
+                gates["s7"] = {"reason": "no_module", "in": len(entries_full),
+                               "fallback": "full_scan"}
+            else:
+                _ids7, _why = _pd.candidates(self.root, terms)
+                if _ids7 is None:
+                    gates["s7"] = {"reason": _why, "in": len(entries_full),
+                                   "fallback": "full_scan"}
+                else:
+                    _by_id = {}
+                    for _e in entries_full:
+                        _nid = _e.get("id") or os.path.splitext(
+                            os.path.basename(_e.get("path") or ""))[0]
+                        _by_id[_nid] = _e
+                    _keep = [_by_id[k] for k in _ids7 if k in _by_id]
+                    gates["s7"] = {"cands": len(_keep), "in": len(entries_full),
+                                   "terms": len(terms)}
+                    if _keep:
+                        entries = _keep
+                        _s7_narrowed = True
+                    else:
+                        gates["s7"]["fallback"] = "no_candidate"
+        _s7_scan0 = stat["scanned"]        # S7 窄化前的扫描基线（供 T3 兜底还原口径）
         docs_all = self._read_many(entries, stat)
         # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
         hits = [d for d in docs_all if self._like(d[2], d[1], terms)
@@ -1918,6 +1955,18 @@ class MdCG:
             return out
 
         # T3：全量兜底（同为分池截断点；截断依据同为相关度，importance 作次级键）
+        # S7 只作 T2 的候选加速；T2 未达阈值时兜底必须回到**全量**，否则兜底口径被 S7 改变（与改动前不等价）。
+        if _s7_narrowed:
+            # 口径还原：T3 是「全量兜底」，S7 只是 T2 的加速器——回退时 scanned 必须
+            # 与「从未窄化」逐值一致，否则同配置的审计指标被候选层改变（独立复核要求）。
+            # 窄化那趟的读取量另记为 attempted（诚实计量，不混入 scanned）。
+            _attempted = stat["scanned"] - _s7_scan0
+            stat["scanned"] = _s7_scan0
+            entries = entries_full
+            docs_all = self._read_many(entries, stat)
+            _s7_narrowed = False
+            gates.setdefault("s7", {}).update(
+                {"fallback": "t3_full", "attempted": _attempted})
         stat["pre_cap"] = len(docs_all)
         stat["cap"] = GLOBAL_CAP
         picked, _rep = cut_by_relevance(docs_all,
