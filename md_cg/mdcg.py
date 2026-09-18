@@ -1438,7 +1438,9 @@ class MdCG:
             # 只改内存 entry 会在重启后丢掉标签（S1 失效，且二次回填因 fm 已有标签而跳过）
             self._stage(nid, e)
             st["written"] += 1
-        if not dry_run and st["written"]:
+        # 写入与「只对账索引」两种情形都要落盘：索引持久化靠 _dirty → flush → _index_log 重放，
+        # 只 _stage 不 flush 会在重启后丢掉标签（对账支路尤其容易漏）。
+        if not dry_run and (st["written"] or st["index_synced"]):
             self.flush()
         return st
 

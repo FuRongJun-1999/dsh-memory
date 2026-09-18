@@ -11,6 +11,7 @@
 - backfill_big_domain：dry-run 不改盘、真跑落盘、二次跑幂等
 """
 import io
+import json
 import os
 import sys
 import tempfile
@@ -18,6 +19,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from md_cg import nodefile, routing  # noqa: E402
+from md_cg.fsutil import ShardedLog  # noqa: E402
 from md_cg.mdcg import MdCG  # noqa: E402
 
 passed = 0
@@ -206,17 +208,26 @@ def main():
           cg3r.index["nodes"]["g1"].get("big_domain") == "工程",
           str(cg3r.index["nodes"]["g1"].get("big_domain")))
 
-    # 对账支路：fm 有标签、索引缺 → 只修索引（不重写文件），且修完重载可见
+    # 对账支路（真状态）：**磁盘索引缺键**而 frontmatter 有 → 只修索引不重写文件，且修完重载可见。
+    # 造法：rebuild 写出的磁盘索引里删掉该键并清空索引日志（否则日志重放会把键带回来，测试就变成自证）。
     root4 = tempfile.mkdtemp(prefix="retr_bf2_")
     _write_raw(root4, "g1", "knowledge", GONG, bd="工程")
     cg4 = MdCG(root4)
     cg4.rebuild_index()
-    del cg4.index["nodes"]["g1"]["big_domain"]
+    idx = json.load(io.open(cg4.index_path, encoding="utf-8"))
+    idx["nodes"]["g1"].pop("big_domain", None)
+    io.open(cg4.index_path, "w", encoding="utf-8").write(
+        json.dumps(idx, ensure_ascii=False))
+    ShardedLog.clear(cg4.index_log_dir)
+    cg4 = MdCG(root4)                    # 重载：内存索引确实缺键，而 fm 有
+    check("对账前状态成立（索引缺键 / fm 有键）",
+          cg4.index["nodes"]["g1"].get("big_domain") is None
+          and cg4.get("g1")["frontmatter"].get("big_domain") == "工程")
     st4 = cg4.backfill_big_domain()
     check("backfill 对账支路修索引",
           st4["index_synced"] == 1 and st4["written"] == 0, str(st4))
     cg4r = MdCG(root4)
-    check("对账后重载索引可见",
+    check("对账后重载索引可见（真持久化）",
           cg4r.index["nodes"]["g1"].get("big_domain") == "工程",
           str(cg4r.index["nodes"]["g1"].get("big_domain")))
 
