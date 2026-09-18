@@ -1,0 +1,13 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-t2-disasm-truthy-r5",
+ "round": 9,
+ "candidate_commit": "d09eb9c",
+ "branch": "task/t2-disasm-truthy",
+ "base_commit": "a3664d1",
+ "unit_job": "蜂巢编外验证单元（多轮）",
+ "verdict": "PENDING",
+ "package_n": 7,
+ "text": "内部单元复核共 8 轮（r1..r8），每轮均由编外验证单元给出真实反例，作者逐条修复并固化为测试：r1 NaN/DAO/真值同构/自证循环 → r2 递归 NaN/字面量 inf·nan/字符串 op → r3 越界跳转/冒号实参/CALL 非串参 → r4 CALL 参数引号化/字符串 op 按名比对 → r5 LOAD·STORE 名字引号化 → r6 U+2028/29 串内转义 → r7 CALL 参数表 list 约束/CR 归一 → r8 行分隔符须在引号串之外识别（_lines）。本轮结论：r1..r8 全部反例已修复；r8 之后的复验尚在进行，未取得 ACCEPT 前不主张收口。",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
