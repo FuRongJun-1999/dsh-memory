@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-194-batch-c194-fix",
+ "round": 2,
+ "candidate_commit": "6f75ac8",
+ "branch": "task/iter-194-batch-c194-fix",
+ "unit_job": "h1789712117372_8f9cc8",
+ "verdict": "ACCEPT",
+ "package_n": 11,
+ "text": "逐条对照源码：11 条条件均正确描述输入/状态、假值回落、早退、常量/形参与返回形状；未混淆 None 与空值，未虚构 assert 或分支，position_ok=true 已满足。\nreason: 全部候选条件逐行符合源码语义，未发现不符或越权断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
