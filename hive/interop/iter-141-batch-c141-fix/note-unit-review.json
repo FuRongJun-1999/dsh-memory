@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-141-batch-c141-fix",
+ "round": 2,
+ "candidate_commit": "f479d00",
+ "branch": "task/iter-141-batch-c141-fix",
+ "unit_job": "h1789692833527_7f6f76",
+ "verdict": "REJECT",
+ "package_n": 17,
+ "text": "复核后多数条件与源码一致，position_ok=true 无需再追行号。问题：_nid 断言 time.time() 使同一 (prefix, subject_id, seed) 每次调用必得不同结果，源码未保证唯一；history 未提读取中途 OSError 时 `return out`（未做尾部切片）的早退分支，故“最终返回 out[-int(limit or 100):]”不完整。\nreason: _nid 的时间唯一性断言超出源码，history 漏写 OSError 早退，条件不完全符合。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
