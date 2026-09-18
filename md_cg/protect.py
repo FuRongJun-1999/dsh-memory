@@ -53,10 +53,12 @@ class ProtectionError(PermissionError):
 
 # ---------------------------------------------------------------- 判定
 
+# 生效条件：对任意 cg、node_id 无条件返回 `(cg.index 或其假值时的 {})["nodes"]`（该键缺失或假值时为 `{}`）中以 node_id 为键的值，索引无此键时返回 None。
 def _entry(cg, node_id):
     return ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)
 
 
+# 生效条件：cg 索引中无 node_id 条目时返回 None；有条目时先取 layer/importance（缺 importance 键回落 0.5）/protected/protection_reason/immutable/self_state，仅当条目缺 protected 或 immutable、或（缺 self_state 且条目 layer∈PROTECTED_LAYERS）时再经 cg.get(node_id) 用 frontmatter 覆盖这四个键（cg.get 抛异常或返回假值时保留索引值；layer 取 frontmatter.layer or 索引 layer，importance 缺键时回落索引 importance）。
 def _fm(cg, node_id):
     """取判定所需的 frontmatter 字段；索引快照缺 protected 时回退读文件。"""
     e = _entry(cg, node_id)
@@ -91,6 +93,7 @@ def _fm(cg, node_id):
     return fm
 
 
+# 生效条件：cg 索引无 node_id 条目（_fm 直接返回 None，不走回退读文件）时返回 (False, '')；有条目时按 layer∈PROTECTED_LAYERS 返回 (True, 层保护)；否则 protected is True 时返回 (True, protection_reason 或 '显式保护标记')；否则 importance（缺失/假值/float 转换异常一律按 0.0）≥AUTO_PROTECT_IMPORTANCE 时返回 (True, 重要性保护)；其余返回 (False, '')。
 def is_protected(cg, node_id):
     """**不可遗忘**判定 → (是否受保护, 原因)。节点不存在返回 (False, "")。"""
     fm = _fm(cg, node_id)
@@ -110,6 +113,7 @@ def is_protected(cg, node_id):
     return False, ""
 
 
+# 生效条件：cg 索引无 node_id 条目时返回 (False, '')；有条目时若 self_state is True 一律返回 (False, '')（自我状态豁免）；否则 layer∈PROTECTED_LAYERS 返回 (True, 层保护)；否则 immutable is True 返回 (True, protection_reason 或 '显式不可覆盖标记')；其余返回 (False, '')。
 def is_immutable(cg, node_id):
     """**不可覆盖**判定 → (是否不可篡改, 原因)。比不可遗忘更窄，只认强信号。
 
@@ -133,6 +137,7 @@ def is_immutable(cg, node_id):
 
 # ---------------------------------------------------------------- 留痕
 
+# 生效条件：对任意 cg、action、node_id、reason（actor/snapshot 缺省为 None）都构造含 t/action/node_id/reason/actor/snapshot 的 rec 并返回，同时尝试追加写入 cg.root 下的 AUDIT_FILE，该写入抛出的任何异常被吞掉且不影响返回值。
 def _audit(cg, action, node_id, reason, actor=None, snapshot=None):
     rec = {"t": time.time(), "action": action, "node_id": node_id,
            "reason": reason, "actor": actor, "snapshot": snapshot}
@@ -143,6 +148,7 @@ def _audit(cg, action, node_id, reason, actor=None, snapshot=None):
     return rec
 
 
+# 生效条件：cg.get(node_id) 抛异常或返回假值时返回 None；否则在 cg.root/HISTORY_DIR/node_id 下以时间戳命名写入当前 frontmatter 与 content，_write_node 抛异常时返回 None，成功则返回相对 cg.root 且以 '/' 分隔的路径。
 def snapshot(cg, node_id):
     """把节点当前版本快照进 `_protected_history/<id>/<ts>.md`，返回相对路径。"""
     try:
@@ -163,6 +169,7 @@ def snapshot(cg, node_id):
     return os.path.relpath(p, cg.root).replace("\\", "/")
 
 
+# 生效条件：cg.root/HISTORY_DIR/node_id 不是目录时返回 []；是目录时返回该目录下以 .md 结尾（不递归）的文件按名称排序后的 `HISTORY_DIR/node_id/文件名` 列表，无匹配文件则列表为空。
 def history(cg, node_id):
     """受保护节点的历史版本列表（按时间升序）。"""
     d = os.path.join(cg.root, HISTORY_DIR, node_id)
@@ -175,12 +182,14 @@ def history(cg, node_id):
 
 # ---------------------------------------------------------------- 守卫
 
+# 生效条件：对任意 cg、node_id、why、action、override、actor 都无条件返回 {'override': True, 'reason': why, 'snapshot': snapshot(...) 的结果, 'audit': _audit(cg, action, node_id, why, actor, snap) 的结果}，override 形参本身不改变返回内容。
 def _allow(cg, node_id, why, action, override, actor):
     snap = snapshot(cg, node_id)
     rec = _audit(cg, action, node_id, why, actor, snap)
     return {"override": True, "reason": why, "snapshot": snap, "audit": rec}
 
 
+# 生效条件：is_immutable(cg, node_id) 为假（含 self_state is True、layer 不在 PROTECTED_LAYERS 且 immutable 非 True 的情形）时返回 None；为真时 override 取真值则返回 _allow(..., 'override_write', override, actor)，否则抛出 ProtectionError；layer 形参不参与该判定。
 def guard_write(cg, node_id, layer=None, override=False, actor=None):
     """覆盖既有节点前的守卫（只认**不可覆盖**信号）。
 
@@ -196,6 +205,7 @@ def guard_write(cg, node_id, layer=None, override=False, actor=None):
         f"节点 {node_id} 受写保护（{why}）；覆盖需显式 override=True")
 
 
+# 生效条件：is_protected(cg, node_id) 为假时返回 None；为真时 override 取真值则返回 _allow(..., 'override_forget', override, actor)，否则抛出 ProtectionError。
 def guard_forget(cg, node_id, override=False, actor=None):
     """删除前的守卫。受保护节点 = 不可遗忘。"""
     prot, why = is_protected(cg, node_id)
@@ -207,6 +217,7 @@ def guard_forget(cg, node_id, override=False, actor=None):
         f"节点 {node_id} 不可遗忘（{why}）；删除需显式 override=True")
 
 
+# 生效条件：is_protected(cg, node_id) 为假时返回 None；为真且 to_layer∈PROTECTED_LAYERS（保护层间互搬）时也返回 None；为真且 to_layer 不在 PROTECTED_LAYERS 时，override 取真值则返回 _allow(..., 'override_move', override, actor)，否则抛出 ProtectionError。
 def guard_move(cg, node_id, to_layer, override=False, actor=None):
     """降级/搬迁前的守卫：受保护节点不得被移出保护层。"""
     prot, why = is_protected(cg, node_id)
@@ -220,6 +231,7 @@ def guard_move(cg, node_id, to_layer, override=False, actor=None):
         f"节点 {node_id} 受写保护（{why}）；降级移出保护层需显式 override=True")
 
 
+# 生效条件：cg.get(node_id) 抛异常或返回假值时返回 None；否则把 protected=True 与 protection_reason=reason 写入 cg.root 下 node["path"]（该键缺失即抛 KeyError）对应的 frontmatter 并保持原 content，随后门条目存在时同步其 protected/protection_reason，返回 {'node_id': node_id, 'protected': True, 'reason': reason}。
 def mark(cg, node_id, reason):
     """给节点打上 `protected=True` 标记（写回 frontmatter，不动 content）。"""
     try:
@@ -240,6 +252,7 @@ def mark(cg, node_id, reason):
     return {"node_id": node_id, "protected": True, "reason": reason}
 
 
+# 生效条件：遍历 cg.index.nodes（或其假值时的空字典）的每个键，对 is_protected 为真的节点计入 ids 并按 layer（缺失/假值记为 '?'）累加 by_layer，其中原因串含 "importance=" 或以 "重要性保护" 开头的计入 auto_by_importance，对 is_immutable 为真的计入 immutable_ids，返回含 protected_count/immutable_count/by_layer/auto_by_importance/ids/immutable_ids 的字典。
 def stats(cg):
     """保护面盘点：不可遗忘数 / 不可覆盖数 / 分层分布 / 自动保护命中数。"""
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
