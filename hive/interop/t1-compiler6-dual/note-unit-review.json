@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "t1-compiler6-dual",
  "round": 5,
- "candidate_commit": "81fd72a",
+ "candidate_commit": "af399e4",
  "branch": "task/t1-compiler6-dual",
- "unit_job": "h1789691168776_43eb77",
+ "unit_job": "h1789695846871_c19516",
  "verdict": "ACCEPT",
  "package_n": 14,
- "text": "复核结论：各条均与源码一致，覆盖构造默认 None/0.0/None、越界 None、halt 真值 break、trace 空分支、bool 先于 int、tag6 条件、deserialize 标签与空 data、Opcode[name] KeyError；未发现不支持断言或返回形状错误。position_ok=true 可接受。\nreason: 功能级条件逐项吻合源码，锚定必要形参、早退与分支语义，无新增断言。\nverdict: ACCEPT",
+ "text": "逐条比对 debugger.py 与 pbc.py：默认形参、None/假值、bool 先于 int、tag 分支、空 data、max_steps=0、越界早退、返回 dict/list/trace 形状均与源码一致。未发现 assert 误读、闭包来源、未用参数或额外断言。position_ok=true，不再追行号。  \nreason: 所有条件均精确锚定源码形参、分支与返回形状，未发现不符或新增断言。  \nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
