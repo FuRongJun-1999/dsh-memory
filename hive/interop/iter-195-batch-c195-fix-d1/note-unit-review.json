@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-195-batch-c195-fix-d1",
+ "round": 3,
+ "candidate_commit": "7c0d126",
+ "branch": "task/iter-195-batch-c195-fix-d1",
+ "unit_job": "h1789712416923_e05bc9",
+ "verdict": "ACCEPT",
+ "package_n": 10,
+ "text": "复核通过：各条均锚定形参/模块常量/闭包 ca，假值与早退分支、返回形状、qtype/miss 聚合与源码一致；run 中 qatoms_of 调用先于 st.n 仅属顺序省略，计数结果不变。未发现源码不支持断言。\nreason: 条件与源码分支及返回形状一致，仅有无害顺序省略。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
