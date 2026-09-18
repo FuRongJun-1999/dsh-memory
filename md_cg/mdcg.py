@@ -743,6 +743,7 @@ class MdCG:
 
     # ---------- 写 ----------
 
+# 生效条件：node_id/content 必填，layer 不在 LAYERS 内、或 verification_basis 非 None 且不在 VERIFICATION_BASIS 内时抛 ValueError；consistency 为真且 _cons.check 判 REJECT 时，on_conflict="reject" 抛 ConsistencyError、on_conflict="defer" 返回 None，verdict 为 BLINDSPOT 且 on_conflict="defer" 同样返回 None，其余情形完成写盘/入索引后返回 node_id。
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             tags=None, condition_space=None, importance: float = 0.5,
             confidence: float = 0.6, edges=None, verification_basis: str = None,
