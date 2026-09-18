@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-210-batch-c210-fix",
+ "round": 2,
+ "candidate_commit": "c6a4399",
+ "branch": "task/iter-210-batch-c210-fix",
+ "unit_job": "h1789717962274_c59d29",
+ "verdict": "ACCEPT",
+ "package_n": 9,
+ "text": "已逐条对照源码：各条件对输入/状态、真假值分支、早退前置、模块常量（EXIT_SPEC/EXIT_EXEC、HEAD_CHARS、DEFAULT_STEP_TIMEOUT_S）及返回形状的描述基本一致。`_run_step` 中 `list(step[\"command\"])` 仅列表化，未改变“缺键 KeyError、command 来自该键”的功能级条件。未发现源码不支持的断言；position_ok=true，不再要求行号。整体可接受。\n\nreason: 各功能级条件与源码分支一致，关键前置、常量与返回形状无误。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
