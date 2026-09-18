@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-284-batch-c284-fix",
+ "round": 2,
+ "candidate_commit": "38e5ea1",
+ "branch": "task/iter-284-batch-c284-fix",
+ "unit_job": "h1789744399348_c40f93",
+ "verdict": "REJECT",
+ "package_n": 9,
+ "text": "复核：1-6、8-9 与源码一致，ACCEPT。7 REJECT：`summary/catalog 各返 scrub.summary/scrub.catalog(cg)` 与源码不符；源码为 `scrub.summary(cg)` 与 `scrub.catalog()`，catalog 不接收 cg。其余 sample/associate/audit/decontaminate/calibrate/sweep/history 分支及 target/假值切分均吻合。4 中 relations 包装未展开但不构成错误。\nreason: 条目7 catalog 分支参数与源码不符：源码为 scrub.catalog()，非 scrub.catalog(cg)。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
