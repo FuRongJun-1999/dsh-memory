@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-192-batch-c192-fix-dual",
  "round": 5,
- "candidate_commit": "5a45221",
+ "candidate_commit": "45c0df1",
  "branch": "task/iter-192-batch-c192-fix-dual",
- "unit_job": "h1789713973463_cbd5f4",
+ "unit_job": "h1789715026905_c26fb0",
  "verdict": "REJECT",
  "package_n": 5,
- "text": "复核：1) legacy_candidates 不符：第三候选由 archive_root() 返回，且仅 archive is not None 才追加；条件写成 dirname(plugin_root())/AEIS... 并暗示总有三项，属源码不支持断言。2) time_relation 吻合。3) _scan 吻合。4) relation 返回/falsy 前置吻合；仅“cg 上 _node”措辞不宜，_node 为模块函数。5) anchors 基本吻合，items 为 hits[:limit]。整体因第1条不应接受。\nreason: 第1条误述 archive_root 路径且漏 archive 非 None 前置，违反源码。\nverdict: REJECT",
+ "text": "复核：第1条与源码不符：第三候选来自 archive_root()，且仅当 archive_root() is not None 时才追加；条件写成 dirname(plugin_root())/<private-lib>/... 并称“三个候选”，遗漏 None 早退前置。条目2-5核心语义与源码一致。整体因第1条应否决。\nreason: 第1条未锚定 archive_root() 非 None 前置，且归档路径表述与源码不符。\nverdict: REJECT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
