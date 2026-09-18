@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-258-batch-c258",
+ "round": 1,
+ "candidate_commit": "e0c838c",
+ "branch": "task/iter-258-batch-c258",
+ "unit_job": "h1789731317621_0f30a7",
+ "verdict": "REJECT",
+ "package_n": 31,
+ "text": "复核：多数条目与源码相符。但 `_pick_source` 称首个非空行非会话格式即返回 `JsonlSource`；若 `json.loads` 得非 dict（数组/字符串/数字），源码 `o.get` 先抛 `AttributeError`，而 except 仅捕 `ValueError/OSError`，不会回落 `JsonlSource`。`_s` 对非 dict prop 值亦同。\nreason: `_pick_source` 对非 dict 首行的异常路径描述与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
