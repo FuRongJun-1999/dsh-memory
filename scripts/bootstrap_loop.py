@@ -41,10 +41,12 @@ try:
 except Exception:                                   # 兜底：解析器缺失时不高挂
     class _dp:                                      # type: ignore
         @staticmethod
+# 生效条件：调用即返回 os.path.join(BRAIN, "data")，结果只取决于模块级常量 BRAIN，不接收参数。
         def data_root() -> str:
             return os.path.join(BRAIN, "data")
 
         @staticmethod
+# 生效条件：以 name 拼出 os.path.join(BRAIN, "data", name)，该路径 os.path.isfile 为真时返回该路径，否则返回 None。
         def find_existing(name: str):
             p = os.path.join(BRAIN, "data", name)
             return p if os.path.isfile(p) else None
@@ -54,6 +56,7 @@ os.makedirs(STATE, exist_ok=True)
 LOG = os.path.join(STATE, "bootstrap_log.jsonl")
 
 
+# 生效条件：evt 为 dict 时（含空 dict）先写入 evt["ts"]，再以 ensure_ascii=False 序列化追加一行到 LOG。
 def log_event(evt: dict) -> None:
     evt["ts"] = time.strftime("%Y-%m-%d %H:%M:%S")
     with open(LOG, "a", encoding="utf-8") as f:
@@ -61,6 +64,7 @@ def log_event(evt: dict) -> None:
 
 
 # ==================== 通道 A：路由缺口扫描（零 LLM） ====================
+# 生效条件：limit_units 为真值且已遍历单元计数 count > limit_units 时提前返回当前 gaps，limit_units 为 None 或 0 时不限流；遍历每个 DOMAIN_UNITS 域单元时 domain_route 抛异常记 error 项、返回 unit != uid 或 ok 假值记 got 项，全遍历后返回 gaps。
 def scan_route_gaps(limit_units: int | None = None) -> list:
     from code_compose import domain_route, DOMAIN_UNITS
 
@@ -102,6 +106,7 @@ def scan_route_gaps(limit_units: int | None = None) -> list:
     return gaps
 
 
+# 生效条件：gap["unit"] 按 "-" 切分后存在长度 >= 2 的片段时返回 {domain, unit, add_triggers=前 3 个片段}，无此类片段时返回 None。
 def build_trigger_patch(gap):
     uid = gap["unit"]
     parts = [p for p in uid.split("-") if len(p) >= 2]
@@ -110,6 +115,7 @@ def build_trigger_patch(gap):
     return {"domain": gap["domain"], "unit": uid, "add_triggers": parts[:3]}
 
 
+# 生效条件：DOMAIN_UNITS.get(patch["domain"], {}).get(patch["unit"]) 取到的单元为 None 时返回 False；取到单元时把 patch["add_triggers"] 中长度 >= 2 且不在现 triggers 集合的项追加（无新项不修改 triggers），两种情况均返回 True。
 def apply_patch(patch):
     from code_compose import DOMAIN_UNITS
     unit = DOMAIN_UNITS.get(patch["domain"], {}).get(patch["unit"])
@@ -123,6 +129,7 @@ def apply_patch(patch):
     return True
 
 
+# 生效条件：patch["unit"] 作为 uid 拼出 "写一个{uid}单元" 探针调用 domain_route，返回 domain_route 结果的 unit == patch["unit"] 且 ok 为真值的布尔与。
 def verify_patch(patch):
     from code_compose import domain_route
     uid = patch["unit"]
@@ -131,6 +138,7 @@ def verify_patch(patch):
     return r.get("unit") == uid and r.get("ok")
 
 
+# 生效条件：patches 中某 patch 的 domain 命中 files 六键之一、对应 os.path.exists(path) 为真、且 path 内容正则搜到 `"uid": {` 行且其后 600 字符块内无 "triggers" 时才插入 triggers 行并让 changed 自增，否则跳过；返回 changed。
 def persist_triggers(patches):
     import re
     files = {
@@ -277,6 +285,7 @@ def run_channel_b(llm_generate=None, max_tasks=5):
     return stats
 
 
+# 生效条件：channel_b 为假值时只走通道 A——scan_route_gaps() 的 gaps 非空则取前 max_patches 个构建含 add_triggers 的补丁，apply_patch 为假或 verify_patch 为假计入 patches_failed、verify_patch 为真计入 patches_verified，persisted 非空才 persist_triggers(patches)；channel_b 为真值时额外 import llm_channel 并以 max_tasks=3 调 run_channel_b，其异常写入 result["channel_b"]["error"]；随后 log_event 并返回 result。
 def run_once(channel_b=False, max_patches=20):
     result = {"gaps": 0, "patches_applied": 0, "patches_verified": 0,
               "patches_failed": 0, "persisted_files": 0}
@@ -316,6 +325,7 @@ def run_once(channel_b=False, max_patches=20):
     return result
 
 
+# 生效条件：_dp.find_existing("verify_cache.json") 返回 None 时只记 status=skipped 并返回；否则读取该 json 的固定键 "a866f668bd6f4a1c048e16f684df69bf" 条目，记录 a866_ok、checks 中是否含 "缓存命中"、非 "_" 前缀键数量；读取或处理抛异常记 error 后返回。
 def gap_watch() -> None:
     """GAP_DEBUG 诊断：自报本进程视角的配对信任指纹状态——
     区分「本进程写的 False」vs「他进程写回」。
@@ -381,6 +391,7 @@ def csre_freshness(last_kp_fp):
     return last_kp_fp
 
 
+# 生效条件：argparse 从命令行取 --interval（默认 600）、--channel-b、--once 后，--once 为真时只调一次 run_once(channel_b=args.channel_b)，并在环境变量 GAP_DEBUG 为非空真值时调 gap_watch() 后返回；未给 --once 时进入无限循环：每轮 run_once(channel_b=args.channel_b)（异常记 loop_error 后继续），GAP_DEBUG 为非空真值时才 gap_watch()，随后无条件执行 csre_freshness(last_kp_fp)，再按 --interval 睡眠。
 def main():
     """长期循环：--interval 秒一轮 run_once，异常留痕不中断。
 
