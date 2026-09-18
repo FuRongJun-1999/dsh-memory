@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-301-batch-c301",
+ "round": 1,
+ "candidate_commit": "5d2ee36",
+ "branch": "task/iter-301-batch-c301",
+ "unit_job": "h1789750225846_ed95cd",
+ "verdict": "REJECT",
+ "package_n": 1,
+ "text": "root: str、abspath、makedirs(root/LAYERS)、self.autoflush=autoflush、_LIVE_CGS.add(self) 均与 __init__ 相符；但“把 root/_index.json 载入 self.index”不符：源码为 self.index=self._load_index()，仅当 _index.json 存在、JSON 可解析且 schema==SCHEMA 时才载入为基底，否则 _scan_nodes 重建并重放 ShardedLog、重算 buckets。该条件缺此前置且写成无条件载入。  \nreason: 对 self.index 的载入省略了存在且 schema 匹配前置，与 _load_index 源码不符。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
