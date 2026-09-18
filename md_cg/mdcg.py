@@ -1397,6 +1397,7 @@ class MdCG:
         return out
 
     @staticmethod
+# 生效条件：node_dict 的 content 经 ccg_completeness 判为不完整 → BLINDSPOT；否则由 query 与 context（仅当 context 为 dict 时并入）合成情境串，命中 frontmatter 的任一 non_applicable_conditions 词 → REJECT；否则情境非空（query 去空白后非空，或 context 为真）且「生效条件」文本非空、非"无条件"、其词项全未命中且词项非空 → DEFER；否则无 verification_basis → DEFER；否则 ACCEPT；
     def judge_qualification(node_dict, query: str, context=None):
         """四态判定（白箱第 1/2 篇）。
 
