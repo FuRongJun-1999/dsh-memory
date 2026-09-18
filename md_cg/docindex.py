@@ -81,6 +81,7 @@ _FENCE = re.compile(r"^\s*(```+|~~~+)")
 _ATX = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
 
 
+# 生效条件：lines 非空且 lines[0].strip() == "---" 时，从下标 1 起找到首个 strip() == "---" 的行并返回其后一行下标 i+1；lines 为空、首行不是 "---" 或找不到闭合 "---" 时返回 0；
 def _body_start(lines):
     """跳过开头 YAML frontmatter，返回正文起始行下标（0 基）。"""
     if lines and lines[0].strip() == "---":
@@ -90,6 +91,7 @@ def _body_start(lines):
     return 0
 
 
+# 生效条件：从 start（默认 0）遍历 lines，未处于围栏时遇 _FENCE 匹配行打开同标记围栏、围栏内遇同标记行关闭并继续；围栏外 _ATX 匹配行追加 {level: 一级 # 个数, title: 去空白后的标题, lineno: i+1}；返回 out 列表；start 不小于 len(lines) 时返回空列表；
 def _headings(lines, start=0):
     """产出 ATX 标题 `{level,title,lineno}`；**围栏代码块内的 `#` 不算标题**。"""
     out, fence = [], None
@@ -112,6 +114,7 @@ def _headings(lines, start=0):
     return out
 
 
+# 生效条件：title 真值时取其 strip 后小写，删去 `*[]() 与除 \w\s- 外字符，再把空白/下划线连成 "-" 并 strip("-")；title 为假值（含 None、空串）时按空串处理并返回 ""；
 def _anchor(title):
     a = (title or "").strip().lower()
     a = re.sub(r"`|\*|\[|\]|\(|\)", "", a)
@@ -119,6 +122,7 @@ def _anchor(title):
     return re.sub(r"[\s_]+", "-", a).strip("-")
 
 
+# 生效条件：region_lines 逐行 strip 后跳过空行与 "---"，去掉行首 #+ 和 >|*- 标记，以空格连接成 text；返回 text[:limit]（limit 默认 MAX_SUMMARY；limit=0 返回 ""，limit=None 返回全文，limit='' 时切片抛 TypeError，负 limit 按负索引切片）；
 def _summary(region_lines, limit=MAX_SUMMARY):
     """把一段正文压成一行摘要（去 markdown 噪声，不逐字保留）。"""
     parts = []
@@ -145,11 +149,13 @@ def _path_titles(heads, i):
     return out
 
 
+# 生效条件：直接以 lines、lineno、end 调用 codeindex.region_hash 并返回其结果；
 def _region_hash(lines, lineno, end):
     # 唯一实现复用 codeindex.region_hash：两侧各写一份，漂移检测会悄悄失效。
     return codeindex.region_hash(lines, lineno, end)
 
 
+# 生效条件：ext = suffix 真值时原样使用的 suffix，否则取 os.path.splitext(path)[1].lower()；ext 不在 SUFFIX 时抛 ValueError；在 SUFFIX 时把 source 按 "\n" 拆分，经 _body_start 与 _headings 得到标题，仅 level<=MAX_LEVEL 且非 small 的标题生成条目，小/过深子节摘要并入父摘要，返回 items；
 def extract(source, path="", suffix=None):
     """抽取一份 md 的章节条目；按后缀分派。返回条目列表（可能为空）。
 
@@ -213,6 +219,7 @@ def extract(source, path="", suffix=None):
 # --------------------------------------------------------------------------
 # 渲染 / id
 # --------------------------------------------------------------------------
+# 生效条件：item.get("path") 缺键或为假值时 path 取 ""，top 取 path.split("/")[0] or "."（故空 path 时 top="."）；path 为真值时 top 取其 "/" 前首段，首段为空则 top="."；返回含 observation_position（大域=top）、time_window（[nodefile.FULL_TIME_WINDOW_MIN, nodefile.FULL_TIME_WINDOW_MAX]）、observation_tool、existence_constraint（以 path 拼入）的四槽字典；
 def condition_space(item):
     """章节条目 → 条件空间四槽（纯函数，**唯一来源**）。
 
@@ -237,6 +244,7 @@ def condition_space(item):
     }
 
 
+# 生效条件：item 含 heading、path、lineno、end、anchor 键时渲染 7 行 CCG 文本（第2行取 condition_space(item) 文本），item.get("parent") 或 "" 假值回落 "（顶层章节）"，item.get("summary_parts") 假值回落 "（该节无直接正文，见子节）"，item.get("children") 假值回落空列表且不追加子节行，children 非空时追加 "# 子节：" + 前 12 个；返回以 "\n" 连接的行串；
 def render(item):
     """章节条目 → CCG 6 行正文（可被 search 命中，不含全文）。
 
@@ -265,6 +273,7 @@ def render(item):
     return "\n".join(lines)
 
 
+# 生效条件：以 item["path"] + "#" + "/".join(item["heading_path"]) 为 key，item.get("dup", 1)（缺键取 1）大于 1 时追加 "#" + item["dup"]，返回 "doc_" + sha1(key utf-8) hexdigest 前 12 位；
 def node_id(item):
     """稳定 id：path#heading_path 的短哈希（重复索引幂等；同名用 dup 区分）。"""
     key = item["path"] + "#" + "/".join(item["heading_path"])
