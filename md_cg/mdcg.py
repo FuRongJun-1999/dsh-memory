@@ -168,6 +168,8 @@ TIER_BUCKET_LIKE = "T0_bucket_like"
 TIER_BUCKET_SCAN = "T1_bucket_scan"
 TIER_GLOBAL_LIKE = "T2_global_like"
 TIER_GLOBAL_SCAN = "T3_global_scan"
+# S3 图扩散激活（契约 §3 S3）：从词法命中节点沿 edges 扩散得到的候选，单独成层以便审计
+TIER_SPREAD = "T2b_spread_activation"
 
 # 资格判定四态（该不该用——白箱第 1 篇核心）
 STATE_ACCEPT = "ACCEPT"           # 条件满足，有资格执行
@@ -1665,6 +1667,21 @@ class MdCG:
         big_domain = routing.big_domain_classify(terms)
         big_scores = routing.big_domain_score_breakdown(terms)
         gates = {}
+        # S3 图扩散参数（三个都只在总开关开启且 S3 子开关未显式关闭时生效）
+        _s3 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+               and os.environ.get("MDCG_GATE_S3_SPREAD", "1") != "0")
+        try:
+            _s3_hops = max(1, int(os.environ.get("MDCG_SPREAD_HOPS", "2")))
+        except ValueError:
+            _s3_hops = 2
+        try:
+            _s3_decay = min(1.0, max(0.0, float(os.environ.get("MDCG_SPREAD_DECAY", "0.5"))))
+        except ValueError:
+            _s3_decay = 0.5
+        try:
+            _s3_gain = min(1.0, max(0.0, float(os.environ.get("MDCG_SPREAD_GAIN", "0.2"))))
+        except ValueError:
+            _s3_gain = 0.2
         if os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1" and entries:
             if os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0" and big_domain:
                 # 域内 ∪ 未标域（兜底池）：无域标签的历史节点绝不能因「域内够多」被丢
@@ -1757,6 +1774,40 @@ class MdCG:
         # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
         hits = [d for d in docs_all if self._like(d[2], d[1], terms)
                 or (semantic_on() and d[1].get("semantic"))]
+        # ---- S3 图扩散激活（契约 §3 S3；flag 控，默认关）----
+        # 为何：edges 一直只被写入、检索从不使用（审计偏差 1）。这里从词法命中节点沿
+        # edges 双向扩散，把「关联但词面不重叠」的记忆作为独立一层候选（TIER_SPREAD）。
+        # 约束：扩散只走索引里的 edges（不读文件）；**不得引入未通过 S1/S2 门控**的节点；
+        # 命中不足时自然落回原 T2/T3 路径（无召回损失）。
+        if _s3 and hits:
+            _act, _seeds = self._spread_activation(entries, hits, _s3_hops, _s3_decay)
+            if _act:
+                _by_path = {e.get("path"): e for e in entries}
+                _extra_entries = [_by_path[p] for p in _act if p in _by_path]
+                _extra_docs = self._read_many(_extra_entries, stat)
+                _seen = {d[0]["path"] for d in hits}
+                _extra_docs = [d for d in _extra_docs if d[0]["path"] not in _seen]
+                _sc_hits = self._score(hits, q, qb, pool_cfg)
+                _sc_extra = self._score(_extra_docs, q, qb, pool_cfg)
+                _bonus = [(doc, max(sc, _act.get(doc["path"], 0.0) * _s3_gain))
+                          for doc, sc in _sc_extra]
+                _merged = _sc_hits + _bonus
+                _valid = sum(1 for _, s in _merged if s > 0)
+                gates["s3"] = {"seeds": len(_seeds), "expanded": len(_bonus),
+                               "hops": _s3_hops, "decay": _s3_decay,
+                               "gain": _s3_gain, "valid": _valid}
+                if _valid >= min_results:
+                    _merged.sort(key=lambda x: (-x[1], -float(
+                        x[0]["frontmatter"].get("importance") or 0)))
+                    if record and _merged[:k]:
+                        self.record_access([r[0]["id"] for r in _merged[:k]], TIER_SPREAD)
+                    return self._emit(_merged, k, TIER_SPREAD, stat, route_bucket,
+                                      record, len(_merged), judge, context,
+                                      neg_coverage, big_domain, big_scores, pool_cfg)
+            else:
+                gates["s3"] = {"seeds": len(_seeds), "expanded": 0,
+                               "hops": _s3_hops, "reason": "no_edges"}
+
         stat["pre_cap"] = len(hits)
         stat["cap"] = GLOBAL_CAP
         hits, _rep = cut_by_relevance(hits, self._score(hits, q, qb, pool_cfg),
@@ -1779,6 +1830,53 @@ class MdCG:
         return self._emit(scored, k, TIER_GLOBAL_SCAN, stat, route_bucket,
                           record, len(picked), judge,
                           context, neg_coverage, big_domain, big_scores, pool_cfg)
+
+# 生效条件：无条件按 hits 的 path 与 allowed 集合做双向邻接扩散（只读 index["nodes"] 的 edges/target，不读节点文件），
+# hops<=0 或无命中/无 allowed 时返回 ({}, seeds)；否则返回 ({被扩散节点 path: decay**跳数}, seeds)，不含种子自身；
+# 目标必须是 allowed（未过 S1/S2 门控的节点一律不引入）且在 index 中存在。
+    def _spread_activation(self, entries, hits, hops, decay):
+        """从词法命中节点沿 edges 双向扩散（契约 §3 S3）。
+
+        只用索引快照（`edges`/`target`）不读文件；`allowed` = 已通过 S1/S2 门控的候选，
+        因此扩散**不可能**把未过门控的节点拉进结果。返回 ({nid: 激活值}, 种子 id 集合)。
+        """
+        nodes = self.index.get("nodes") or {}
+        allowed, seeds = set(), set()
+        for e in entries:
+            nid = e.get("id") or os.path.splitext(os.path.basename(e.get("path") or ""))[0]
+            if nid in nodes:
+                allowed.add(nid)
+        for d in hits:
+            p = d[0].get("path")
+            nid = os.path.splitext(os.path.basename(p or ""))[0]
+            if nid in nodes and nid in allowed:
+                seeds.add(nid)
+        if hops <= 0 or not seeds:
+            return {}, seeds
+        adj = {}
+        for nid in allowed:
+            for ed in (nodes[nid].get("edges") or []):
+                if isinstance(ed, dict):
+                    t = str(ed.get("target") or "")
+                    if t:
+                        adj.setdefault(nid, set()).add(t)
+                        adj.setdefault(t, set()).add(nid)
+        act, seen, frontier = {}, set(seeds), set(seeds)
+        for hop in range(1, hops + 1):
+            nxt = set()
+            for nid in frontier:
+                for t in adj.get(nid, ()):
+                    if t in seen or t not in allowed or t not in nodes:
+                        continue
+                    seen.add(t)
+                    nxt.add(t)
+                    # 键用**节点文件路径**（与 search 的 entries/doc["path"] 同口径，避免 id/path 混用）
+                    act[nodes[t].get("path") or t] = decay ** hop
+            frontier = nxt
+            if not frontier:
+                break
+        return act, seeds
+
 
 # 生效条件：entries 逐条经 _read 得 content 为 None 的跳过、_open_content 返回 None 的跳过，其余以 (e, fm, c) 进入 docs，并把 len(docs) 累加进 stat["scanned"] 后返回 docs；
     def _read_many(self, entries, stat):
