@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-087-batch-c87-dual",
  "round": 5,
- "candidate_commit": "ee758ec",
+ "candidate_commit": "e07a513",
  "branch": "task/iter-087-batch-c87-dual",
- "unit_job": "h1789694800121_be5e3b",
- "verdict": "ACCEPT",
+ "unit_job": "h1789697066497_6b1c79",
+ "verdict": "REJECT",
  "package_n": 1,
- "text": "复核：`__init__` 确无必需形参，base/model/timeout 均有默认；base/model 用 `or` 对 None/空串等假值逐级回落，base 最终 `rstrip(\"/\")`，timeout 缺省 30。候选将 `os.environ.get` 简写为环境变量键，未改变所述回落语义；未发现 assert 误述、分支参数误用、返回形状或空容器前置错误。position_ok=true，位置可接受。\n\nreason: 条件与源码 `__init__` 的默认参数及假值回落一致，无实质新增断言。\nverdict: ACCEPT",
+ "text": "复核：condition 覆盖默认形参与 base/model 假值回落，但将源码 `os.environ.get(\"BENCH6_EMBED_BASE\")`、`os.environ.get(\"BENCH6_EMBED_MODEL\")` 写成直接索引 `os.environ[\"...\"]`。直接索引在变量缺失时抛 KeyError，不能继续 `or` 回落，属实质性不符。另 `rstrip` 应作用于最终 base 值；ids/vecs/_dim 初始化未列但非关键。position_ok=true。\nreason: 环境变量访问写成 `os.environ[...]`，与源码 `.get` 的空值/缺失回落语义不符。\nverdict: REJECT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
