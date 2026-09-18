@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler8",
+ "round": 1,
+ "candidate_commit": "b7996c6",
+ "branch": "task/t1-compiler8",
+ "unit_job": "h1789691433424_c05df5",
+ "verdict": "ACCEPT",
+ "package_n": 19,
+ "text": "复核完毕：19条条件均与源码分支一致，覆盖 None/类型早退、参数前置、比较映射、单级二元、空 tokens/边界、错误分支、停止收集、check 计数与 detail、词法错误首项、空 TEST_CASES、assert 链等；未发现补充断言或位置问题。\nreason: 所有候选条件均准确锚定源码实际分支与前置，未见不符或越界断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
