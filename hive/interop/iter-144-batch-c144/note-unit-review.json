@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-144-batch-c144",
+ "round": 1,
+ "candidate_commit": "3e652ef",
+ "branch": "task/iter-144-batch-c144",
+ "unit_job": "h1789695283295_a02d2a",
+ "verdict": "REJECT",
+ "package_n": 16,
+ "text": "复核多与源码一致，但存在不符：_serve_alive 的 try 同时包住 import 与 serve_start.serve_alive(jobs)，可导入但调用抛异常也会降级；候选称“不可导入时”才降级，误述分支。_heartbeat 的 json.load(f) or {} 真值可为 list/数字，非必为 dict。_t_kill 未锚定 job_id 缺失时 `or \"\"` 会拼 jobs/ 并可能写 jobs/kill。Zero-Trust 下不能接受。\nreason: _serve_alive 可导入但调用异常也降级，候选条件误述失败路径，故 REJECT。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
