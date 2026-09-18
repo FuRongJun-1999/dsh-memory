@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "t1-compiler6-dual-dual",
- "candidate_commit": "7a857ed",
+ "candidate_commit": "f3e0608",
  "branch": "task/t1-compiler6-dual-dual",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
