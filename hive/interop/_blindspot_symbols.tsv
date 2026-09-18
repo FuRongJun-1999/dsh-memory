@@ -29,13 +29,6 @@ md_cg/semantic/en_normalizer.py::normalize_en_query	2	active	query
 md_cg/sustain.py::SustainLoop	2	active	cg
 md_cg/sustain.py::SustainLoop.start	2	active	
 md_cg/sustain.py::diagnose	2	active	cg
-md_cg/whitebox.py::LocalWhiteboxClient.__init__	2	active	
-md_cg/whitebox.py::LocalWhiteboxClient.close	2	active	
-md_cg/whitebox.py::LocalWhiteboxClient.engine	2	active	
-md_cg/whitebox.py::LocalWhiteboxClient.start	2	active	
-md_cg/whitebox.py::_SubprocessWhiteboxClient.__init__	2	active	
-md_cg/whitebox.py::_SubprocessWhiteboxClient._reader	2	active	
-md_cg/whitebox.py::_SubprocessWhiteboxClient.close	2	active	
 scripts/bootstrap_watchdog.py::_dp	2	active	
 scripts/bootstrap_watchdog.py::_dp.data_root	2	active	
 compiler/api.py::CompileOptions	1	active	
@@ -130,15 +123,6 @@ md_cg/mreview/govern.py::main	0	active
 md_cg/progressive.py::core_subset	0	active	
 md_cg/progressive.py::discriminative	0	active	
 md_cg/progressive.py::progressive_search	0	active	
-md_cg/reach.py::ReachIndex	0	active	
-md_cg/reach.py::ReachIndex.__init__	0	active	
-md_cg/reach.py::ReachIndex.build	0	active	
-md_cg/reach.py::ReachIndex.diffuse	0	active	
-md_cg/reach.py::ReachIndex.load	0	active	
-md_cg/reach.py::ReachIndex.postings	0	active	
-md_cg/reach.py::ReachIndex.save	0	active	
-md_cg/reach.py::_index	0	active	
-md_cg/reach.py::narrow	0	active	
 md_cg/security.py::Principal	0	active	
 md_cg/semantic/canonical.py::atoms_zh	0	active	
 md_cg/semantic/canonical.py::oov_of	0	active	
@@ -191,22 +175,22 @@ scripts/verify_discipline.py::main	0	active
 test/hive_wm_test.py::make_cases	0	active	
 test/mock_mcp.py::main	0	active	
 test/orchestrator_memory.py::OrcMemory	0	active	
-md_cg/mdcos.py::MdCGOS._closed_pids	32	stalled-anchorless	
-md_cg/mdcos.py::MdCGOS.review_records	32	stalled-anchorless	
-md_cg/mdcos.py::MdCGOS	31	stalled-anchorless	
-md_cg/mdcos.py::MdCGSecure	31	stalled-anchorless	
+md_cg/mdcos.py::MdCGOS._closed_pids	35	stalled-anchorless	
+md_cg/mdcos.py::MdCGOS.review_records	35	stalled-anchorless	
+md_cg/mdcos.py::MdCGOS	34	stalled-anchorless	
+md_cg/mdcos.py::MdCGSecure	34	stalled-anchorless	
 md_cg/mdcos.py::MdCGOS.maintain	20	stalled-anchorless	
+md_cg/mdcos.py::MdCGOS._role_counts	17	stalled-anchorless	
+compiler/parser.py::ASTNode	16	stalled-anchorless	
+compiler/parser.py::NodeType	16	stalled-anchorless	
+md_cg/mdcos.py::MdCGSecure.lock	16	stalled-anchorless	
+md_cg/mdcos.py::MdCGSecure.unlock	16	stalled-anchorless	
 md_cg/mdcos.py::MdCGOS.insight	15	stalled-anchorless	
-md_cg/mdcos.py::MdCGOS._role_counts	14	stalled-anchorless	
-md_cg/mdcos.py::MdCGSecure.lock	13	stalled-anchorless	
-md_cg/mdcos.py::MdCGSecure.unlock	13	stalled-anchorless	
-compiler/parser.py::ASTNode	12	stalled-anchorless	
-compiler/parser.py::NodeType	12	stalled-anchorless	
-compiler/parser.py::Parser._skip_punctuation_before	8	stalled-anchorless	
+compiler/parser.py::Parser._skip_punctuation_before	12	stalled-anchorless	
+compiler/parser.py::Parser._match	11	stalled-anchorless	
 md_cg/mdcg.py::MdCG.active_goals	8	stalled-anchorless	
 md_cg/mdcg.py::MdCG.close	8	stalled-anchorless	
 md_cg/mdcg.py::MdCG.list_goals	8	stalled-anchorless	
-compiler/parser.py::Parser._match	7	stalled-anchorless	
 compiler/parser.py::ProgramNode	6	stalled-anchorless	
 compiler/parser.py::ShuyueNode	6	stalled-anchorless	
 compiler/parser.py::StepNode	6	stalled-anchorless	
@@ -227,6 +211,7 @@ md_cg/sources.py::DSHSessionSource.discover	5	stalled-anchorless
 md_cg/sources.py::DSHSessionSource.key	5	stalled-anchorless	
 md_cg/sources.py::JsonlSource.key	5	stalled-anchorless	
 md_cg/sources.py::Source.key	5	stalled-anchorless	
+md_cg/whitebox.py::LocalWhiteboxClient	5	stalled-anchorless	
 compiler/codegen.py::CodeGenerator._write_footer	4	stalled-anchorless	
 compiler/codegen.py::CodeGenerator._writeln	4	stalled-anchorless	
 compiler/condition_vm.py::ConditionVM.__init__	4	stalled-anchorless	
@@ -254,7 +239,7 @@ md_cg/signer.py::_default_policy	4	stalled-anchorless
 md_cg/subgraph.py::_issue	4	stalled-anchorless	
 md_cg/theory.py::TheoryError	4	stalled-anchorless	
 md_cg/weights.py::WeightError	4	stalled-anchorless	
-md_cg/whitebox.py::LocalWhiteboxClient	4	stalled-anchorless	
+md_cg/whitebox.py::_SubprocessWhiteboxClient	4	stalled-anchorless	
 md_cg/writelimit.py::enabled	4	stalled-anchorless	
 md_cg/writepipe.py::WritePipeline	4	stalled-anchorless	
 md_cg/writepipe.py::WritePipeline.__init__	4	stalled-anchorless	
@@ -292,15 +277,20 @@ md_cg/signer.py::NullSigner.describe	3	stalled-anchorless
 md_cg/signer.py::Signer.describe	3	stalled-anchorless	
 md_cg/tokens.py::TokenError	3	stalled-anchorless	
 md_cg/tokens.py::list_tokens	3	stalled-anchorless	
-md_cg/whitebox.py::_SubprocessWhiteboxClient	3	stalled-anchorless	
-md_cg/mdcos.py::MdCGOS._audit_node_id	32	stalled-other	pid,round_no
-md_cg/mdcos.py::MdCGOS._record_hash	32	stalled-other	rec
-md_cg/mdcos.py::MdCGOS._session_digest	32	stalled-other	content
-md_cg/mdcos.py::MdCGOS._session_node_id	32	stalled-other	session,summary
-md_cg/mdcos.py::MdCGOS.judge_qualification	32	stalled-other	node_dict,query
+md_cg/whitebox.py::LocalWhiteboxClient.__init__	3	stalled-anchorless	
+md_cg/whitebox.py::LocalWhiteboxClient.close	3	stalled-anchorless	
+md_cg/whitebox.py::LocalWhiteboxClient.engine	3	stalled-anchorless	
+md_cg/whitebox.py::LocalWhiteboxClient.start	3	stalled-anchorless	
+md_cg/whitebox.py::_SubprocessWhiteboxClient.close	3	stalled-anchorless	
+md_cg/mdcos.py::MdCGOS._audit_node_id	35	stalled-other	pid,round_no
+md_cg/mdcos.py::MdCGOS._record_hash	35	stalled-other	rec
+md_cg/mdcos.py::MdCGOS._session_digest	35	stalled-other	content
+md_cg/mdcos.py::MdCGOS._session_node_id	35	stalled-other	session,summary
+md_cg/mdcos.py::MdCGOS.judge_qualification	35	stalled-other	node_dict,query
 md_cg/mdcos.py::MdCGOS.recall	20	stalled-other	query
 md_cg/mdcos.py::MdCGOS.review_decide	20	stalled-other	pid,decision
 md_cg/mdcos.py::MdCGOS.search	20	stalled-other	query
+md_cg/mdcos.py::MdCGSecure._resolve_master_key	16	stalled-other	master_key
 compiler/analyzer.py::visit	15	stalled-other	node
 md_cg/mcp_server.py::_causal_call	13	stalled-other	cg,a
 md_cg/mcp_server.py::_evolution_call	13	stalled-other	cg,a
@@ -311,7 +301,6 @@ md_cg/mcp_server.py::_ref_call	13	stalled-other	cg,a
 md_cg/mcp_server.py::_scrub_call	13	stalled-other	cg,a
 md_cg/mcp_server.py::_self_state_call	13	stalled-other	cg,a
 md_cg/mcp_server.py::_task_call	13	stalled-other	cg,a
-md_cg/mdcos.py::MdCGSecure._resolve_master_key	13	stalled-other	master_key
 md_cg/eval_common.py::calibrate_turn	8	stalled-other	r
 md_cg/mdcg.py::MdCG._ccg_line	8	stalled-other	content,name
 md_cg/mdcg.py::MdCG._cond_terms	8	stalled-other	cond_text
@@ -389,6 +378,8 @@ md_cg/bench6_arms.py::LingshuAdapter.search	3	stalled-other	query
 md_cg/fsutil.py::ShardedLog.clear	3	stalled-other	directory
 md_cg/fsutil.py::ShardedLog.read_all	3	stalled-other	directory
 md_cg/nodefile.py::cond_terms	3	stalled-other	text
+md_cg/reach.py::ReachIndex	3	stalled-other	root
+md_cg/reach.py::_index	3	stalled-other	cg
 md_cg/security.py::Principal._in_scope	3	stalled-other	allow,name
 md_cg/security.py::Principal.allows_layer	3	stalled-other	layer
 md_cg/security.py::Principal.allows_op	3	stalled-other	op
