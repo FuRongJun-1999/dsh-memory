@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-mdcg-bigsrc-c1",
+ "round": 1,
+ "candidate_commit": "d17ebd3",
+ "branch": "task/iter-mdcg-bigsrc-c1",
+ "unit_job": "h1789734812223_e6d808",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "核验：条件锚定形参 `root`、`autoflush` 与模块常量 `LAYERS`；源码实际执行 `abspath(root)`、建 root/LAYERS 目录、原样存 `autoflush`、调用 `_load_index()`、`sweep_stale_temps`、`_LIVE_CGS.add` 与 `_register_atexit_hook`，均相符。“从 `_index.json` 加载”是对 `_load_index` 的合理概括，非独立断言；未添加源码不支持前置。position_ok=true。\nreason: 条件与 `__init__` 源码一致，索引加载表述虽概括但无不符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
