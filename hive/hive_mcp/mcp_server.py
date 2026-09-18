@@ -56,6 +56,7 @@ DEFAULT_CONTEXT_BUDGET_TOKENS = 200000
 DEFAULT_TIMEOUT_S = 600
 
 
+# 生效条件：无必需形参；HIVE_DIR 可导入 serve_start 且 os.path.exists(CONFIG_LOCAL) 为真时返回 serve_start.load_config(CONFIG_LOCAL) 的 (cfg or {}, err)（cfg 为假值时第一项回落 {}），serve_start 导入失败或 CONFIG_LOCAL 不存在时返回 ({}, 原因串)。
 def _load_local_config():
     """读 hive/config.local.json —— **serve 进程 env 的真实来源**。
 
@@ -76,12 +77,14 @@ def _load_local_config():
     return (cfg or {}), err
 
 
+# 生效条件：无必需形参；HIVE_JOBS_DIR 为空串或未设时取 os.path.join(REPO, "hive", "jobs")，否则取该变量值，makedirs(exist_ok=True) 后返回该路径。
 def _jobs_dir() -> str:
     d = os.environ.get("HIVE_JOBS_DIR") or os.path.join(REPO, "hive", "jobs")
     os.makedirs(d, exist_ok=True)
     return d
 
 
+# 生效条件：无必需形参；HIVE_EXE 为真值时直接返回该值，否则返回 REPO/hive/target/release/ 下按 os.name == "nt" 取名的 hive.exe 或 hive。
 def _exe_path() -> str:
     exe = os.environ.get("HIVE_EXE")
     if exe:
@@ -92,6 +95,7 @@ def _exe_path() -> str:
 
 # ---------------------------------------------------------------- serve 管理
 
+# 生效条件：jobs 给定；打开 jobs/_serve.json 并 json.load 成功且结果为真值时返回该 dict，json.load 结果为假值或抛 OSError/ValueError 时返回 {}。
 def _heartbeat(jobs: str) -> dict:
     """读 serve 心跳（`_serve.json`）——**执行器资格的权威来源**（serve 启动时固化）。
 
@@ -105,6 +109,7 @@ def _heartbeat(jobs: str) -> dict:
         return {}
 
 
+# 生效条件：无必需形参；HIVE_DIR 可导入 serve_start 且 float(serve_start.FRESH_S) 求值不抛异常时返回该值，try 段内任意异常（导入失败、属性缺失或 float 转换失败）一律回落 15.0。
 def _fresh_s() -> float:
     """serve 存活判定的心跳新鲜窗口（秒）——**单一常量源 = serve_start.FRESH_S**。
 
@@ -123,6 +128,7 @@ def _fresh_s() -> float:
         return 15.0
 
 
+# 生效条件：jobs 给定；serve_start 可导入且 serve_start.serve_alive(jobs) 未抛异常时返回其布尔结果，try 段内任意异常（含 serve_alive 自身抛出）则回落为：_heartbeat(jobs) 为假值返回 False，否则按 (time.time() - hb.get("ts", 0) / 1000.0) < _fresh_s() 判定。
 def _serve_alive(jobs: str) -> bool:
     """serve 存活判定——**直接复用 `serve_start.serve_alive(jobs)`**（三层判据：
     心跳新鲜 + pid 存活 + 该 pid 是本程序），保证 MCP 面与 CLI 面、rust 侧同口径。
@@ -146,6 +152,7 @@ def _serve_alive(jobs: str) -> bool:
         return (time.time() - hb.get("ts", 0) / 1000.0) < _fresh_s()
 
 
+# 生效条件：jobs 给定；_serve_alive(jobs) 为真时返回 {started: False, note: "serve 存活"}，否则仅在 _exe_path() 可被 isfile 判定为真、serve_start 可导入、serve_start.start(CONFIG_LOCAL) 不抛异常且其返回 r 的 get("ok") 为真时返回 started: True（含 pid/routes/config_keys），以上任一失败分支返回 started: False 及对应 note，拉超前以 os.environ.setdefault 设 HIVE_JOBS_DIR。
 def _ensure_serve(jobs: str) -> dict:
     """serve 未存活则 detached 拉起；返回 {started: bool, note: str}。
 
@@ -188,6 +195,7 @@ def _ensure_serve(jobs: str) -> dict:
 
 # ---------------------------------------------------------------- 工具实现
 
+# 生效条件：jobs 与 spec 给定且不做校验，即生成 h{毫秒时间戳}_{uuid4 前 6 位} 的 job_id，建 jobs/job_id 目录并写 spec.json 与 status.json（state=pending、timeout_s 取 spec.get("timeout_s", 300) 缺键回落 300、model 取 spec.get("model") 缺键为 None），返回 job_id。
 def _submit(jobs: str, spec: dict) -> str:
     job_id = f"h{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
     d = os.path.join(jobs, job_id)
@@ -214,6 +222,7 @@ def _submit(jobs: str, spec: dict) -> str:
     return job_id
 
 
+# 生效条件：jobs 与 job_id 给定；json.load(jobs/job_id/status.json) 成功时返回解析值本身，抛 OSError 或 ValueError 时返回 None。
 def _read_status(jobs: str, job_id: str):
     p = os.path.join(jobs, job_id, "status.json")
     try:
@@ -223,6 +232,7 @@ def _read_status(jobs: str, job_id: str):
         return None
 
 
+# 生效条件：job_dir 与 head 给定；job_dir/result.json 未通过 os.path.isfile 时返回 None，json.load 抛 OSError/ValueError 时返回 {"error": "result.json 解析失败: …"}，否则返回该 dict：head 非 None（含 head=0）且 len(content) > head 时把 content 截成 content_head 并置 content_truncated，并统一加 result_path 与 handoff_ready（need_continue is True 且 completed 非 True）。
 def _result_view(job_dir: str, head):
     p = os.path.join(job_dir, "result.json")
     if not os.path.isfile(p):
@@ -260,6 +270,7 @@ SPAWN_ALLOWED_KEYS = frozenset({
 })
 
 
+# 生效条件：a 给定；当 a 含 SPAWN_ALLOWED_KEYS 之外的键、a.get("model") 去空白后为空、a.get("user_prompt") 去空白后为空、或 a.get("context_files") 中任一项（相对项按 os.getcwd() 拼接）未通过 isfile 时返回 ok: False 与对应 error，否则组装 spec（timeout_s/context_budget_tokens 以 int(x or 默认) 把 0/空值/缺键回落默认，workdir 固定为 os.getcwd()）并返回 ok: True 含 job_id/jobs_dir/serve。
 def _t_spawn(a: dict) -> dict:
     unknown = sorted(k for k in a if k not in SPAWN_ALLOWED_KEYS)
     if unknown:
@@ -324,6 +335,7 @@ def _t_spawn(a: dict) -> dict:
     }
 
 
+# 生效条件：a 给定；a.get("job_id") 为真时，jobs/<job_id> 非目录返回 ok: False 任务不存在，否则返回 {"ok": True, "job": st}（st 为 _read_status 结果，读不到时用 {"error": "status 不可读"}，并附 head=None 的全文 result）；job_id 缺失或为假值时遍历 jobs 下以 "h" 开头的目录，仅 state 属 pending/claimed/running，或 state 属 done/error/timeout/killed 且距今 (heartbeat_ts or created_ts or 0) 不足 3600_000 毫秒者入选，返回 ok/count/jobs。
 def _t_poll(a: dict) -> dict:
     jobs = _jobs_dir()
     job_id = a.get("job_id")
@@ -355,6 +367,7 @@ def _t_poll(a: dict) -> dict:
     return {"ok": True, "count": len(items), "jobs": items}
 
 
+# 生效条件：a 给定；a.get("job_id") or "" 拼出的 jobs/<job_id> 非目录时返回 ok: False 任务不存在（job_id 为空串时 d 落到 jobs 本身，isdir 为真），否则在 kill 标志未存在时创建它并返回 ok: True 与 job_id/hint。
 def _t_kill(a: dict) -> dict:
     jobs = _jobs_dir()
     job_id = a.get("job_id") or ""
@@ -367,6 +380,7 @@ def _t_kill(a: dict) -> dict:
     return {"ok": True, "job_id": job_id, "hint": "worker 检测到 kill 标志后强杀（≤1s）"}
 
 
+# 生效条件：_a 给定且内容未被使用；遍历 jobs 下以 "h" 开头的目录按 (status or {}).get("state") or "unknown" 计数并读 _heartbeat(jobs) 后返回单个 ok: True 字典，其中 serve_alive=_serve_alive(jobs)、exe_found=os.path.isfile(_exe_path())、exec_source 依 hb.get("exec_py") 真值取 "serve_heartbeat" 否则 "no_heartbeat_or_legacy"。
 def _t_doctor(_a: dict) -> dict:
     jobs = _jobs_dir()
     exe = _exe_path()
@@ -483,6 +497,7 @@ _DISPATCH = {
 }
 
 
+# 生效条件：req 给定；按 req.get("method", "") 分派——initialize 返回 protocolVersion/capabilities/serverInfo，notifications/initialized 返回 None，tools/list 返回 TOOLS，tools/call 以 (params or {}).get("arguments") or {} 调 _DISPATCH 中的 fn（名字不在表内返回 -32602 错误，fn 抛异常则包成 {"ok": False, "error": …} 的文本 content）；其余 method 在 req.get("id") 非 None 时返回 -32601，id 为 None 时返回 None。
 def _rpc(req: dict):
     method = req.get("method", "")
     rid = req.get("id")
@@ -519,6 +534,7 @@ def _rpc(req: dict):
     return None
 
 
+# 生效条件：无必需形参；逐行读 sys.stdin，空行与 json.loads 抛 ValueError 的行被跳过，仅 _rpc(req) 返回非 None 时向 stdout 写一行 JSON 并 flush，读到 EOF 后返回 0。
 def main() -> int:
     for line in sys.stdin:
         line = line.strip()
