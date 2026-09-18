@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-178-batch-c178-fix-dual",
  "round": 5,
- "candidate_commit": "7f52fa4",
+ "candidate_commit": "378674b",
  "branch": "task/iter-178-batch-c178-fix-dual",
- "unit_job": "h1789709451272_fed5c0",
+ "unit_job": "h1789709744911_bc11b3",
  "verdict": "ACCEPT",
  "package_n": 2,
- "text": "复核两项：plan 的 seed/n 假值回落、ids 真/假分支与源码一致；_stats 的 None→[]、okv 计数、dict 触发 TypeError 致 elif 不可达、reviewed=0 与阈值逻辑均符。position_ok=true 已满足，未发现源码不支持断言。\nreason: 条件均锚定形参、模块常量与分支/异常语义，与源码相符。\nverdict: ACCEPT",
+ "text": "两条条件均与源码一致：plan 的 seed 假值回落、n 仅 None 取 SAMPLE_N、ids 真/假分支及 sample_ids+is_candidate 过滤均准确；_stats 的 None→[]、okv 计数、普通 dict 因 `v in okv` 不可哈希先抛 TypeError 致 `v.get` 分支不可达、零审核与阈值比较均符。位置已贴定义，无需行号。\nreason: 两条件均锚定源码分支与模块常量，未补不支持的断言。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
