@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-226-batch-c226",
+ "round": 1,
+ "candidate_commit": "663d661",
+ "branch": "task/iter-226-batch-c226",
+ "unit_job": "h1789720351380_f59cfa",
+ "verdict": "REJECT",
+ "package_n": 8,
+ "text": "复核：1-6、8 基本吻合源码，假值/None/返回形状/闭包来源均未越界。条目7 main 条件不完整：源码跑臂③前先以 `ec.iter_jsonl(b6.EN_QUESTIONS)` 构建 `en_rows`，故成功返回 0 还需 `b6.EN_QUESTIONS` 可读、`ec.iter_jsonl` 可用；条件仅锚定 CORPUS/QUESTIONS/CHAR_ATOMS，遗漏该必需模块前置。run_arm 的“仅 st['n']+=1”前源码还先算 ev，表述略松但不改语义。\nreason: main 生效条件遗漏 b6.EN_QUESTIONS/ec.iter_jsonl 前置，未完整锚定成功执行所需模块依赖。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
