@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-mdcg-c2",
+ "round": 1,
+ "candidate_commit": "b6bd76c",
+ "branch": "task/iter-mdcg-c2",
+ "unit_job": "h1789750325499_dc6549",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "条件与源码段一致：root 经 abspath、创建 root/LAYERS 子目录、`_load_index()` 读取 root/_index.json、autoflush 默认 64 且原样存入均可见；无越界或额外断言。  \nreason: 该条准确锚定 `__init__` 必需 root、模块 LAYERS 与 autoflush 默认/传入，证据在本段。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
