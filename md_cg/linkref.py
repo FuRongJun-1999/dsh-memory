@@ -107,6 +107,7 @@ EDGE_CONFIDENCE = 1.0
 VERIFIED = False          # 未经人工/证据验证——白箱诚实标记
 
 
+# 生效条件：cg.index 的 "nodes" 取到条目且 cg._readable 可调用时，仅把 guard(条目) 为真的 id 纳入白名单（判定抛异常即跳过该条）；_readable 不可调用时直接返回 nodes 的全部键；cg.index 取值抛异常或 "nodes" 为假值回落空 dict 时返回空集。
 def known_ids(cg):
     """库内**对当前身份可读**的节点 id 集合（白名单；读隔离一致性）。
 
@@ -139,6 +140,7 @@ def known_ids(cg):
     return out
 
 
+# 生效条件：逐 tid∈ids，cache 非 None 且 tid 已在 cache 时用 cache[tid] 作判据，否则以 bool(cg.get(tid)) 为判据（cg.get 抛异常记 False）并在 cache 非 None 时回写 cache[tid]；判据为真才把 tid 追加进 out。
 def live_targets(cg, ids, cache=None):
     """从 ids 中筛出**当前身份实读可得**的目标（读隔离的第二道：密钥面）。
 
@@ -168,16 +170,19 @@ def live_targets(cg, ids, cache=None):
     return out
 
 
+# 生效条件：nid 是 str 且 ID_SHAPE_RE.match(nid) 命中时返回 True，否则返回 False。
 def is_linkable_id(nid):
     """id 形态是否可作链接面端点（排除 `None`/中文标题键/含中文混合 id 等脏键）。"""
     return bool(isinstance(nid, str) and ID_SHAPE_RE.match(nid))
 
 
+# 生效条件：is_linkable_id(nid) 为真且 (layer or "") 不属于 SOURCE_EXCLUDE_LAYERS 时返回 True，否则 False（layer 为假值时按空串判定）。
 def is_linkable_source(nid, layer):
     """源节点是否可建 reference 边：形态合法 **且** 不在审计留痕层。"""
     return is_linkable_id(nid) and (layer or "") not in SOURCE_EXCLUDE_LAYERS
 
 
+# 生效条件：text 为假值直接返回 []；否则对 text 中 ID_RE 的每个捕获组 tid，在 tid 不在 seen、不在 ex（exclude 为真时含 str(exclude)）且（known 为 None 或 tid in known）时按首次出现顺序加入 out 并去重。
 def extract_refs(text, known=None, exclude=None):
     """抽取正文中指向节点 id 的裸引用。
 
@@ -206,6 +211,7 @@ def extract_refs(text, known=None, exclude=None):
     return out
 
 
+# 生效条件：总是返回以 str(target) 为 target、常量 RELATION/EDGE_CONFIDENCE/VERIFIED 为关系与置信字段的 dict，created_at 在 now 非 None 时取 float(now)（now=0 亦取 0.0）、now 为 None 时取 time.time()。
 def make_edge(target, now=None, source="auto:linkref"):
     """构造一条 reference 边（形态对齐旁路语料：target/relation_type/...）。"""
     return {
@@ -219,12 +225,14 @@ def make_edge(target, now=None, source="auto:linkref"):
     }
 
 
+# 生效条件：无入参，调用即返回闭包 _before 本身，本调用不做任何引用解析或 ctx 写入。
 def before_hook():
     """before 拦截器工厂：解析正文引用 → 存 ctx（不落盘、永不短路）。
 
     写入方可用 `linkref=False` 显式关闭本次自动建链（opt-out）；
     写入 self 层（审计留痕）或非规范 id 时自动跳过。
     """
+# 生效条件：ctx 中 a=ctx["a"] 或 {} 的 "linkref" 不为 False、nid=a["node_id"] 或 ctx["nid"] 经 is_linkable_source(nid, a["layer"]) 为真、且 a["content"] 为真时，用 known_ids(ctx["cg"]) 对 content 抽取引用（排除 nid），结果非空则写入 ctx["linkref_targets"]；各条件不满足即提前返回 None，函数始终返回 None。
     def _before(ctx):
         a = ctx.get("a") or {}
         if a.get("linkref") is False:
@@ -249,6 +257,7 @@ def after_hook():
     纪律（G8 第 2 条）：建链失败**不得**阻断写入——所有异常就地吞掉。
     这同时满足 writepipe 的「after 故障不吞」契约（钩子自身不抛即不触发）。
     """
+# 生效条件：out 是 dict 且 out.get("committed") 为真、ctx["linkref_targets"] 非空、ctx["cg"] 非 None 且 nid（out["id"] 或 ctx["nid"]）为真时，对 live_targets(cg, targets) 返回的每个 tid 调用 cg.append_edge(nid, make_edge(tid, now=now))，append_edge 抛异常即跳过该条；否则提前返回，函数无返回语句。
     def _after(ctx, out):
         if not isinstance(out, dict) or not out.get("committed"):
             return
