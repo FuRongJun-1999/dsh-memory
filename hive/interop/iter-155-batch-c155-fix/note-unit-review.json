@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-155-batch-c155-fix",
+ "round": 2,
+ "candidate_commit": "227c05e",
+ "branch": "task/iter-155-batch-c155-fix",
+ "unit_job": "h1789701237471_f418a2",
+ "verdict": "ACCEPT",
+ "package_n": 15,
+ "text": "逐条复核 15 个候选条件：均与实际分支一致。_blank/_as_int 类型与异常、_issue/各 _chk 的 or 回落与空列表、load_rules 常量与校验、_match/_scope 交集与全量返回、_as_rules 形态、assemble/assemble_all 返回形状及 rules_dir 不透传均准确；未发现 assert 误述、None/假值混淆、闭包前置错置或源码不支持断言。position_ok=true 已紧贴定义行。\nreason: 全部候选条件与源码分支及回退语义一致，未发现零信任问题。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
