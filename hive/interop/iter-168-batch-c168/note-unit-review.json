@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-168-batch-c168",
+ "round": 1,
+ "candidate_commit": "e64acac",
+ "branch": "task/iter-168-batch-c168",
+ "unit_job": "h1789705530330_0e9021",
+ "verdict": "REJECT",
+ "package_n": 12,
+ "text": "复核：多数条目与源码一致；但 zh_layer 漏述 `strip(\" ,，、|\")`，zh_question 漏述 `strip(\" ,，、\")`，会改变“空串/非空”判定；build 未锚定形参 `pool` 实际未使用，源码用 `corpus or POOL`，且还固定传入 `ec.lm_turn_text`、`\"lmezh\"` 等。故候选条件不完整。\nreason: 关键清洗与未用形参漏述，存在空值分支/参数使用不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
