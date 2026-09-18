@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-221-batch-c221-fix",
+ "round": 2,
+ "candidate_commit": "8f17776",
+ "branch": "task/iter-221-batch-c221-fix",
+ "unit_job": "h1789719557237_22e5a5",
+ "verdict": "ACCEPT",
+ "package_n": 6,
+ "text": "已逐条复核：check 的 PASS/FAIL 与 detail 原样、Mcp 类/ __init__ 的 ENV/env_extra/cwd、call 的 params None 与 EOF/id、tool 的调用与返回链、wait_state 的 tries/state/耗尽返回，均与源码一致；未发现假值回落、None 分支、闭包前置、返回形状或空容器长度误断言。position_ok=true。\n\nreason: 六条条件均与源码一致，无额外断言或前置遗漏。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
