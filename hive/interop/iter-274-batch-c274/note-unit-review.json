@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-274-batch-c274",
+ "round": 1,
+ "candidate_commit": "59a77d8",
+ "branch": "task/iter-274-batch-c274",
+ "unit_job": "h1789739540629_1765ad",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "条目1：MdCGOS.__init__ 的 root/autoflush/actor 透传、路径拼接及 hippocampus/trash 的 makedirs 均与源码一致；actor 假值不回落 system 属实。条目2：MdCGSecure.__init__ 的 principal 假值回落、actor 传父类、_init_crypto(master_key)、**kw 转交均见源码；未越界，position_ok=true。\nreason: 两条候选条件均与各自源码段相符，未发现越界或非源码断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
