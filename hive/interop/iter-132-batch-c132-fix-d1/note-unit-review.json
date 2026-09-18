@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-132-batch-c132-fix-d1",
+ "round": 3,
+ "candidate_commit": "987efea",
+ "branch": "task/iter-132-batch-c132-fix-d1",
+ "unit_job": "h1789690239150_901cc7",
+ "verdict": "ACCEPT",
+ "package_n": 17,
+ "text": "逐条核对：条件均锚定源码形参、模块常量与假值回落；None/空容器早退、返回形状与分支参数一致，未发现越界断言；position_ok=true 无需行号。\nreason: 全部条件与源码逐项吻合，无假值/早退/返回形状偏差。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
