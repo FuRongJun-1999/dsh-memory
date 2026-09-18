@@ -201,6 +201,7 @@ def _leading_js_comments(lines, lineno, lookback=25):
     return list(reversed(out))
 
 
+# 生效条件：对 source 用 _JS_DEF.finditer 命中项生成条目（首项模块条目 name 为 os.path.basename(path) or "<module>"），跳过 kind 属于 _JS_MODULE_SCOPE_ONLY 且 indent 组非空的命中；其余命中按出现顺序取 lineno、kind、name、sig，end 为下一命中行号减一或 len(source.split("\n")) 且不小于 lineno，comments 由 _leading_js_comments(lines, lineno) 生成。
 def _extract_weak(source, path):
     """正则弱提取：返回条目，`end` 为**上界**（到下一个定义之前），不保证精确。"""
     lines = source.split("\n")
