@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-194-batch-c194-fix-dual",
  "round": 5,
- "candidate_commit": "d0e2ba1",
+ "candidate_commit": "528ce38",
  "branch": "task/iter-194-batch-c194-fix-dual",
- "unit_job": "h1789713728196_0eaa6a",
+ "unit_job": "h1789714022410_17756f",
  "verdict": "REJECT",
  "package_n": 1,
- "text": "reason: 条件漏掉 archive_root() 非 None 才追加第三候选的前置，且第三路径写成 dirname(plugin_root())/AEIS…，源码实际为 archive_root()/_archive/ctp-aeis-data/name；与源码不符。\nverdict: REJECT",
+ "text": "第三候选来源不符：源码用 `archive_root()`，且仅当 `archive_root() is not None` 时才追加；候选写成 `dirname(plugin_root())/<private-lib>/...` 并暗示恒有三项，补充了源码不支持的断言。其余两候选、isfile 过滤与顺序正确。\nreason: 第三候选未锚定 `archive_root()` 非 None 前置，且路径展开与源码不符。\nverdict: REJECT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
