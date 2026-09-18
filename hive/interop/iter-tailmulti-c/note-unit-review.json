@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-tailmulti-c",
+ "round": 1,
+ "candidate_commit": "a4bf865",
+ "branch": "task/iter-tailmulti-c",
+ "unit_job": "h1789759247566_4f11c5",
+ "verdict": "REJECT",
+ "package_n": 7,
+ "text": "逐条：1、2、3、4、6、7 与源码一致，ACCEPT；第5条 REJECT：源码 sha256 输入为 f\"{subject_id}|{seed}|{time.time()}\"，prefix 未参与哈希，条件称 prefix 一并拼接后哈希，与源码不符。  \nreason: 仅第5条哈希输入误含 prefix，整批因此 REJECT。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
