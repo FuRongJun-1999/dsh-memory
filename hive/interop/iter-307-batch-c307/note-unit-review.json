@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-307-batch-c307",
+ "round": 1,
+ "candidate_commit": "19d01b4",
+ "branch": "task/iter-307-batch-c307",
+ "unit_job": "h1789753164570_ee4e7e",
+ "verdict": "REJECT",
+ "package_n": 8,
+ "text": "1 ACCEPT；2 REJECT：源码 super 仅传 actor，session 未上抛，而是 super 后 `self.session=principal.session`；3-8 ACCEPT。未越界，无 BLINDSPOT。  \nreason: 第2条 MdCGSecure 的 session 传递描述与源码不符，故整批 REJECT。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
