@@ -36,11 +36,13 @@ _TARBALL_RE = re.compile(r"^tarball:[ \t]*(\S+)[ \t]*$", re.M)
 _VERSION_RE = re.compile(r"(\d+\.\d+\.\d+)")
 
 
+# 生效条件：path 指向的文件按 UTF-8 可读且为含 "version" 键的 JSON 对象时返回该键的值（缺该键抛 KeyError，非 JSON 抛 ValueError，打不开抛 OSError，源码均未捕获）。
 def read_package_version(path):
     with open(path, "r", encoding="utf-8") as fh:
         return json.load(fh)["version"]
 
 
+# 生效条件：path 指向文件读出的全文经 _TARBALL_RE.search 命中时返回捕获组 1，无任何匹配时返回 None。
 def read_entry_tarball(path):
     """返回条目声明的 tarball URL；未声明返回 None。"""
     with open(path, "r", encoding="utf-8") as fh:
@@ -49,6 +51,7 @@ def read_entry_tarball(path):
     return match.group(1) if match else None
 
 
+# 生效条件：url 以 "/" 切分取末段、末段若以 ".tgz" 结尾则去掉该 4 字符后，_VERSION_RE.findall 有匹配时返回最后一个匹配串，无匹配时返回 None。
 def version_in_asset(url):
     """从 tarball URL 文件名里取版本；取不到返回 None。"""
     name = url.rsplit("/", 1)[-1]
@@ -58,6 +61,7 @@ def version_in_asset(url):
     return found[-1] if found else None
 
 
+# 生效条件：entry_path 非文件时 require_entry 为真返回 (2,'error')、为假返回 (0,'skipped')；entry_path 为文件而 package_path 非文件返回 (2,'error')；两者为文件时 read_package_version/read_entry_tarball 抛 OSError/ValueError/KeyError 返回 (2,'error')，tarball 未声明返回 (0,'ok')，文件名取不到版本或取的版本 != package.json 的 version 返回 (1,'mismatch')，相等返回 (0,'ok')。
 def check(entry_path, package_path, require_entry=False):
     """返回 (code, status, detail)。"""
     if not os.path.isfile(entry_path):
@@ -85,6 +89,7 @@ def check(entry_path, package_path, require_entry=False):
     return 0, "ok", "tarball 版本与包版本一致：%s" % version
 
 
+# 生效条件：argv 为 None 时由 argparse 读取 sys.argv[1:]、否则按 argv 解析 --entry/--package/--require-entry/--json（前两者缺省为 DEFAULT_ENTRY/DEFAULT_PACKAGE），随后以 check(args.entry, args.package, args.require_entry) 的返回值按 --json 打印 JSON 或文本行并返回该 code。
 def main(argv=None):
     parser = argparse.ArgumentParser(description="注册表条目 tarball 版本一致性门禁")
     parser.add_argument("--entry", default=DEFAULT_ENTRY, help="注册表条目 yml 路径")
