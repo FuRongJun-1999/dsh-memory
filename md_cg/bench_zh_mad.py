@@ -62,6 +62,7 @@ QUESTIONS20 = os.path.join(ZP, "questions20.jsonl")
 AXES = ("person", "event", "time", "identity", "place", "condition")
 
 
+# 生效条件：path 以 UTF-8 打开后逐行读取，仅 strip 后非空的行经 json.loads 产出，空白行被跳过。
 def iter_jsonl(path):
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -70,11 +71,13 @@ def iter_jsonl(path):
                 yield json.loads(line)
 
 
+# 生效条件：path 以 UTF-8 打开成功时返回 json.load(f) 的解析结果，片段内无其它分支。
 def load_json(path):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
+# 生效条件：raw 经 str() 后按“；”切分，仅含“=”的段被解析，其中键为身份/时间/摘要时写对应槽位、键为条件时按“|”与“:”写入 condition、键为词时按“,”拆出非空项写入 terms，其它键或未出现的槽位保持 out 的默认空值。
 def parse_zh(raw):
     """中文层串 → 槽位 dict。
 
@@ -107,6 +110,7 @@ def parse_zh(raw):
     return out
 
 
+# 生效条件：当 MANUAL_ZH/MANUAL_Q/LM_Q/LM_H 可读取、hay 覆盖 want_ids 且 meta 含 man_q 全部 qid 时写出 CORPUS20/QUESTIONS20 并返回 (corpus, questions)，缺 turn 或 qid 分别 raise SystemExit，verbose（默认 True）为真值时额外打印统计、假值时静默。
 def prepare(verbose=True):
     """生成 corpus20.jsonl 与 questions20.jsonl（幂等覆盖）。"""
     man_zh = load_json(MANUAL_ZH)
@@ -125,6 +129,7 @@ def prepare(verbose=True):
         raise SystemExit(f"[失败] haystack 缺以下 turn：{sorted(missing)}")
 
     # corpus：按 turn id 的数值序（= 时间序），保证「承接前一条」有确定语义
+# 生效条件：tid 经 rsplit("t",1) 得到至少两段且最后一段可被 int() 解析时返回该整数，否则源码未做校验会抛错。
     def turn_no(tid):
         return int(tid.rsplit("t", 1)[1])
 
@@ -171,6 +176,7 @@ def prepare(verbose=True):
     return corpus, questions
 
 
+# 生效条件：prepare(verbose=False) 返回 corpus/questions 后，对每题以 evidence_turns[0]（空则 ""）取 ev0，命中词限于 ev0 非空且词出现在 zh_of[ev0] 中，df1 收集池内 df==1 的词、all_df 收集 df==len(corpus) 的词，verbose（默认 True）为真值时打印后返回 per_q、为假值时直接返回 per_q。
 def analyze(verbose=True):
     """诊断：查询词能否落到 gold 中文层 / 池内其他条目（决定各轴是否有可桥接的实体）。
 
@@ -254,6 +260,7 @@ EN_NAME_RE = re.compile(r"\b[A-Z][a-z]{2,}(?:[ ][A-Z][a-z]{2,})*\b")
 DATE_RE = re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})")
 
 
+# 生效条件：DATE_RE.search(str(raw or "")) 有匹配时返回零填充的 YYYY-MM-DD，无匹配（含 raw 为假值回落成 ""）时返回 ""。
 def norm_time(raw):
     """'2023/05/24 04:49' → '2023-05-24'（跨条目统一格式，使日期查询可命中）。"""
     m = DATE_RE.search(str(raw or ""))
@@ -263,6 +270,7 @@ def norm_time(raw):
     return f"{int(y):04d}-{int(mo):02d}-{int(d):02d}"
 
 
+# 生效条件：对 str(text or "") 用 EN_NAME_RE 扫描，匹配串按空白切分后任一部分命中 EN_STOP 即跳过，其余项按首次出现顺序去重加入 out 并返回；text 为假值时扫描空串返回 []。
 def en_names(text):
     """英文原文中的专名候选（跨语言桥：中文查询里的英文专名可经 entity 路命中）。"""
     out, seen = [], set()
@@ -276,6 +284,7 @@ def en_names(text):
     return out
 
 
+# 生效条件：遍历 corpus，对每条记录的 zh_fields["terms"] 去重后逐词判断，词非空且不在 STOP_ZH 时使 df[词] 计数加一，返回 df。
 def build_tables(corpus):
     """全库统计：# 词项 df（**只读语料**，与查询集无关）。"""
     df = {}
@@ -322,6 +331,7 @@ INTENT_CLASSES = (
 )
 
 
+# 生效条件：按 INTENT_CLASSES 顺序检查 c["zh_fields"]["summary"]，首个命中类目的首个包含于摘要的动词返回 (cls, v)，全不命中返回 ('', '')。
 def intent_of(c):
     """意图抽象：摘要 → (规范类目, 命中的动词原形)。
 
@@ -339,6 +349,7 @@ def intent_of(c):
     return "", ""
 
 
+# 生效条件：把 c["zh_fields"]["terms"] 与 en_names(c["text"]) 逐项 strip 后跳过空串、STOP_ZH（原形或小写）及已见项去重入 out，再用 norm_time(条件.get("时间窗口") or c 的 time) 得到非空且未出现的时窗串追加；df 形参在该片段内未参与条件判断。
 def normalize_terms(c, df):
     """实体规范化：去停用 + 去重 + 附时间规范式 + 附英文专名（跨语言对齐）。"""
     f = c["zh_fields"]
@@ -355,6 +366,7 @@ def normalize_terms(c, df):
     return out
 
 
+# 生效条件：遍历 corpus 并以 root=os.path.join(HERE, root_base or f"_md_cg_eval_zhprobe_{arm['name']}")（root_base 为 None/空串时回落）建库，graph 分支仅当 arm.get("graph") 为真且某轴取值的同值 id 数落在 [2, max_df]（默认 5）时为这些 id 两两建有向边，coref 仅当 arm.get("coref") 为真、本条 own 为空（own 只在 arm.get("norm") 为真时由 normalize_terms 生成，否则恒为 []）且 prev_own 非空时承接前一条自身 canonical，intent 分支仅当 arm.get("intent") 为真且 intent_of 返回 cls 非空时写意图行并把意图词与长度>=2 的动词加入 tags，verbose（默认 True）为真值时打印臂统计、root 已是目录时先整树删除再建 MdCGOS。
 def build_arm(corpus, arm, max_df=5, root_base=None, verbose=True):
     """按消融臂建库。每臂一个独立 root，互不污染。
 
@@ -454,6 +466,7 @@ ARMS = [
 ]
 
 
+# 生效条件：先执行 prepare(verbose=False) 取得 corpus，再对 ARMS 每臂以 max_df=max_df（默认 5，原样下传不做假值回落）调用 build_arm 并汇总为 roots 返回。
 def build_all(max_df=5):
     corpus, _ = prepare(verbose=False)
     print(f"== 建库（消融 {len(ARMS)} 臂，max_df={max_df}）==")
@@ -470,6 +483,7 @@ ROW_RE = re.compile(
 GROUPS = ["precise", "temporal", "interference", "reference"]
 
 
+# 生效条件：os.path.exists(RUST_BIN) 为真时以 argv=[RUST_BIN,"--dataset","mad","--tag",name,"--lib",lib]（extra 为真值时追加 list(extra)）执行 subprocess，返回码非 0 或 ROW_RE 在 stdout 未匹配到任何组时 raise SystemExit，否则返回 {组:(n,hit@1,hit@5,MRR)}。
 def run_one(name, lib, extra=None):
     """调用 **Rust 检索器** 跑一臂，返回 {组: (n, hit@1, hit@5, MRR)}。
 
@@ -497,6 +511,7 @@ def run_one(name, lib, extra=None):
     return got
 
 
+# 生效条件：先打印 title 与表头，再遍历 rows 的 (label, got, note)，对 GROUPS 每组用 got[g] 取 (n,h1,h5,mrr) 并累计总体 hit@1/MRR，仅当 baseline 不为 None 且 label==baseline 时记 ref，仅当 ref 已记录且 label!=baseline 时输出 Δ。
 def print_table(title, rows, baseline=None):
     """rows: [(label, got, note)]；baseline = 参照行 label（算 Δ）。"""
     print(f"\n== {title} ==")
@@ -525,6 +540,7 @@ def print_table(title, rows, baseline=None):
               + f"{ov_h1 * 100:>10.1f}%{ov_mrr:>10.3f}{delta}{suffix}")
 
 
+# 生效条件：对 ARMS 每臂以 lib=f"_md_cg_eval_zhprobe_{name}"、无 extra 调用 run_one 组成 rows，并以 ARMS[0]["name"] 为 baseline 调 print_table 后返回 rows。
 def run_ablation():
     """消融主表：逐臂调用 Rust 检索器并汇总（种子口径 = 缺省，即生产现状）。"""
     rows = []
@@ -538,6 +554,7 @@ def run_ablation():
     return rows
 
 
+# 生效条件：以最后一个臂 ARMS[-1]['name'] 对应的库路径，先无 extra 调 run_one("a4_index", lib)、再以 extra=("--graph-seeds","sorted") 调 run_one("a4_sorted", lib) 组成 rows，并以 baseline="a4/index" 调 print_table 后返回。
 def run_seed_control():
     """对照：**同一个 a4 库**（写入侧与边结构完全相同），只切换 graph 路种子口径。
 
@@ -556,6 +573,7 @@ def run_seed_control():
     return rows
 
 
+# 生效条件：cmd 取 argv[1]（len(argv)<=1 时为 "prepare"），cmd=="prepare"/"analyze"/"build"/"run"/"seed-control" 分别调用 prepare/analyze/build_all/run_ablation/run_seed_control，cmd=="all" 依次调用 prepare、analyze、build_all、run_ablation、run_seed_control，其余值 raise SystemExit。
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else "prepare"
     if cmd == "prepare":
