@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-183-batch-c183",
+ "round": 1,
+ "candidate_commit": "80d8cf2",
+ "branch": "task/iter-183-batch-c183",
+ "unit_job": "h1789709078782_ffaa5f",
+ "verdict": "ACCEPT",
+ "package_n": 10,
+ "text": "逐条核对 10 项：resolve_python 环境/isfile/cur/glob 回落准确；log_watch 赋值在 try 外、异常吞、返回 None 准确；read_tail n=0 与跳过解析失败准确；last_log_ts 空尾/异常返回准确；consecutive_degraded 逆序计数/健康 break 准确；missing_paths 顺序与三重检查准确；find_bootstrap_procs 仅 bootstrap_loop.py 行提取 PID 准确；kill_procs 逐项吞异常准确；restart check_only/Popen/sleep/verify/error 准确；main 分支阈值、check_only、kill/restart、返回码准确。未发现源码不符或新增断言，position_ok 已满足。\nreason: 所有条件均与源码分支、早退/None 语义、返回形状和参数使用一致。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
