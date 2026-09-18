@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-192-batch-c192-fix-dual",
+ "round": 5,
+ "candidate_commit": "ca38724",
+ "branch": "task/iter-192-batch-c192-fix-dual",
+ "unit_job": "h1789713417796_32ae2e",
+ "verdict": "REJECT",
+ "package_n": 4,
+ "text": "",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
