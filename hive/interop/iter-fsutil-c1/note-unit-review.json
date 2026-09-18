@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-fsutil-c1",
+ "round": 1,
+ "candidate_commit": "e0177ed",
+ "branch": "task/iter-fsutil-c1",
+ "unit_job": "h1789756636803_1a1cde",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "两条条件均与源码段一致：read_all 覆盖目录判断、排序 listdir、`.log` 过滤、read_jsonl 汇总、`_t/_s` 排序与空返回；clear 覆盖 keep 真值排除、假值全删、`.log` 过滤、OSError 忽略与非目录返回。无越界或新增断言。\n\nreason: 两条生效条件均能由各自 src_segment 直接验证，未发现不符或越界。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
