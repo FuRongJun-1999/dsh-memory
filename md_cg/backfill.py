@@ -127,11 +127,13 @@ CAP_RULES = OrderedDict(
 
 # ---- 通用工具 ------------------------------------------------------------
 
+# 生效条件：x 为 str 时返回 MdCGOS(x)，否则原样返回 x。
 def _as_cg(x):
     """接受 root 路径或已构造的 cg 实例——保持密级隔离与密钥上下文。"""
     return MdCGOS(x) if isinstance(x, str) else x
 
 
+# 生效条件：v 为 list/tuple 时返回分号连接的非空元素文本；v 为 None 或空串时返回 ""；否则返回 str(v).strip()（v 为 0 或 False 走此支返回 "0"/"False"）。
 def _as_text(v) -> str:
     if isinstance(v, (list, tuple)):
         return "；".join(str(x).strip() for x in v if str(x).strip())
@@ -140,12 +142,14 @@ def _as_text(v) -> str:
     return str(v).strip()
 
 
+# 生效条件：fm 为假值时按 {} 处理，state_attributes.comment 为 dict 时返回该 dict，否则返回 {}。
 def _comment(fm: dict) -> dict:
     st = (fm or {}).get("state_attributes")
     c = st.get("comment") if isinstance(st, dict) else None
     return c if isinstance(c, dict) else {}
 
 
+# 生效条件：fm 的 state_attributes 为 dict 且其下 comment 为 dict 时原样返回该 comment；否则创建并返回空 comment dict（state_attributes 非 dict 时置 fm["state_attributes"]={}，comment 非 dict 时置 st["comment"]={}）。
 def _ensure_comment(fm: dict) -> dict:
     st = fm.get("state_attributes")
     if not isinstance(st, dict):
@@ -158,10 +162,12 @@ def _ensure_comment(fm: dict) -> dict:
     return c
 
 
+# 生效条件：e 的 id 为真值时返回 id，否则返回 e 的 path 基名去掉最后 3 个字符（path 为假值时基名为空，结果空串）。
 def _node_id(e: dict) -> str:
     return e.get("id") or os.path.basename(e.get("path") or "")[:-3]
 
 
+# 生效条件：fm 的 condition_space 四槽齐全时返回 nodefile.condition_space_text 合成文本，否则返回空串。
 def _condition_text(fm: dict) -> str:
     """→ 条件空间四槽合成的生效条件声明；四槽不齐 → ""（不冒充）。
 
@@ -172,14 +178,17 @@ def _condition_text(fm: dict) -> str:
     return nodefile.condition_space_text((fm or {}).get("condition_space"))
 
 
+# 生效条件：s 为真值时返回其 sha1 前 12 位，s 为假值（None/空串等）时对空串取 sha1 前 12 位。
 def _sha(s: str) -> str:
     return hashlib.sha1((s or "").encode("utf-8")).hexdigest()[:12]
 
 
+# 生效条件：batch 与 nid 经 f-string 拼接后取 sha1 前 12 位；两者为 None 会字符串化为 "None"。
 def _entry_id(batch: str, nid: str) -> str:
     return hashlib.sha1(f"{batch}|{nid}".encode("utf-8")).hexdigest()[:12]
 
 
+# 生效条件：content 中 strip 后以 # 开头且去掉 # 与空白后、全角或半角冒号前首段等于 field 的整行被删除，其余行保留并 join。
 def _remove_ccg_line(content: str, field: str) -> str:
     """删掉 `# <字段>：…` 整行（回滚用）。"""
     keep = []
@@ -192,6 +201,7 @@ def _remove_ccg_line(content: str, field: str) -> str:
     return "\n".join(keep)
 
 
+# 生效条件：cg.root 与模块级常量 BACKFILL_LOG 拼接为返回路径。
 def _log_path(cg) -> str:
     return os.path.join(cg.root, BACKFILL_LOG)
 
@@ -213,6 +223,7 @@ def derive_fields(fm: dict, content: str, basis_text: str = None,
     ph = placeholder_out if placeholder_out is not None else []
     out = {}
 
+# 生效条件：field 与 basis 在 value 为真值且 nodefile.is_placeholder_text(value) 为假时写入 out；value 为假值不写入；value 为占位文本时仅把 field 记入 ph。
     def _put(field, value, basis):
         """有值且非占位标记才写出；占位值只记名，绝不渲染成事实。"""
         if not value:
@@ -267,6 +278,7 @@ def derive_fields(fm: dict, content: str, basis_text: str = None,
 
 # ---- 节点筛选 ------------------------------------------------------------
 
+# 生效条件：cg 无 _readable 可调用时返回 True；有可调用时返回 bool(fn(e))，fn(e) 抛异常时返回 False。
 def _readable_guard(cg, e) -> bool:
     fn = getattr(cg, "_readable", None)
     if not callable(fn):
@@ -317,6 +329,7 @@ def _classify(cg, e, nid, basis_text=None):
     }
 
 
+# 生效条件：x 经 _as_cg 后遍历 cg.index.nodes，按 ids/layer/prefix 过滤，内部层/不可读/locked/derived/present/unfillable/placeholder/partial 且 include_partial 为 False 分别计数跳过，其余标记 entry_id 并计入 targeted，items 受 limit 限制（limit 为 None 或 len(items) < limit 时追加），返回 dry_run rep。
 def plan(x, layer=None, limit=None, ids=None, include_partial=False,
          basis_text=None, prefix=None) -> dict:
     """预演：产出可回填清单，不写盘。
@@ -529,6 +542,7 @@ def rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
     return rep
 
 
+# 生效条件：x 经 _as_cg，action/batch 为真值时过滤对应日志记录；limit 不为 None 且 >=0 时按 recs[-limit:] 截断（limit=0 时切片为全部记录），limit 为 None 或负数时不截断；返回 total/returned/records。
 def history(x, limit=100, action=None, batch=None) -> dict:
     cg = _as_cg(x)
     recs = []
@@ -556,6 +570,7 @@ def history(x, limit=100, action=None, batch=None) -> dict:
 _CAP_TEMPLATE_LINES = ("验证方式",)
 
 
+# 生效条件：content 中去除 # 与空白后、全角或半角冒号前首段命中 _CAP_TEMPLATE_LINES 的行被剔除，其余行保留并 join。
 def _cap_body(content: str) -> str:
     """正文（供关键词匹配）——剔除 CCG 模板行，防模板词污染候选。"""
     keep = []
@@ -580,6 +595,7 @@ def _cap_text(e, fm, content) -> str:
     return " ".join(parts).lower()
 
 
+# 生效条件：text 包含 CAP_RULES 中某 cap 的至少一个关键词时，该 cap 以匹配关键词与置信度加入返回，按置信度降序、cap 升序排序；无匹配返回空 hits。
 def cap_matches(text: str) -> list:
     hits = []
     for cap, kws in CAP_RULES.items():
@@ -591,6 +607,7 @@ def cap_matches(text: str) -> list:
     return hits
 
 
+# 生效条件：x 经 _as_cg，遍历 nodes 按 ids/layer 过滤，不可读计 denied，读取失败或加密计 locked，扫描后以 _cap_text 匹配并过滤 confidence >= min_conf 且标签未含 cap:，无命中计 present，有命中则 targeted 并受 limit 限制加入 items，返回 dry_run rep。
 def cap_plan(x, layer=None, limit=None, ids=None, min_conf=0.5) -> dict:
     """预演：按关键词启发式给出 `cap:<op>` 标签建议（含依据与置信度），不写盘。"""
     cg = _as_cg(x)
@@ -628,6 +645,7 @@ def cap_plan(x, layer=None, limit=None, ids=None, min_conf=0.5) -> dict:
     return rep
 
 
+# 生效条件：x 经 _as_cg，batch 假值回落 BATCH_DEFAULT；先 cap_plan 得 items，按 entry_ids 过滤；逐个检查节点存在、读取可读、无新增标签分别计 drift/locked/drift，成功写 tags 并记日志，limit 非 None 且 written >= limit 时 break；返回 rep。
 def cap_apply(x, ids=None, entry_ids=None, layer=None, limit=None,
               batch=BATCH_DEFAULT, min_conf=0.5, actor=None) -> dict:
     """注入 `cap:<op>` 标签：只改 frontmatter.tags，不动正文。"""
@@ -678,6 +696,7 @@ def cap_apply(x, ids=None, entry_ids=None, layer=None, limit=None,
     return rep
 
 
+# 生效条件：x 经 _as_cg，读取日志中 action=cap 且未回滚的记录，按 batch/entry_ids 过滤，节点存在且原加入标签仍在 tags 中时移除，否则计 conflict/missing，返回 rep。
 def cap_rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
     """撤销 cap 注入：仅移除**仍在 tags 里**的 `cap:` 标签（防覆盖后续修改）。"""
     cg = _as_cg(x)
@@ -732,6 +751,7 @@ def cap_rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
 EXEMPT_FLAG = "ccg_exempt"
 
 
+# 生效条件：fm 的 verification_basis 合法且 content 的 ccg_completeness 标记 complete 时返回 (True, [])，否则把缺失项放入 miss 返回 ready=False。
 def _exempt_ready(fm: dict, content: str):
     """摘豁免前置条件 → `(ready, missing)`。
 
@@ -747,6 +767,7 @@ def _exempt_ready(fm: dict, content: str):
     return (not miss), miss
 
 
+# 生效条件：x 经 _as_cg，遍历 nodes 按 ids/prefix/layer 过滤，内部层/不可读/读取失败或加密分别计数跳过，fm 无 EXEMPT_FLAG 计 not_exempt，require_ready 为真且不 ready 时计 unready 并在 want 为 None 时跳过，否则生成 item 受 limit 限制；sample 为真值时按 id 序等距抽取 sample 个。
 def exempt_plan(x, layer=None, limit=None, ids=None, require_ready=True,
                 sample=0, prefix=None) -> dict:
     """预演：列出可摘 `ccg_exempt` 的节点（默认要求证据就绪），不写盘。
@@ -806,6 +827,7 @@ def exempt_plan(x, layer=None, limit=None, ids=None, require_ready=True,
     return rep
 
 
+# 生效条件：x 经 _as_cg，batch 假值回落 BATCH_DEFAULT；先 exempt_plan 得 items，按 entry_ids 过滤；逐个检查节点存在、可读、EXEMPT_FLAG 仍真、require_ready 为真时 _exempt_ready 再次通过；不通过计 skipped_unready 并记 exempt_skip；通过则置 EXEMPT_FLAG=False 写盘记日志；limit 限制 written；返回 rep。
 def exempt_apply(x, ids=None, entry_ids=None, layer=None, limit=None,
                  batch=BATCH_DEFAULT, require_ready=True, actor=None,
                  prefix=None) -> dict:
@@ -923,6 +945,7 @@ def exempt_rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
 #   ③ verify_conditions    只读复算：验收指标 legacy_position == 0
 
 
+# 生效条件：x 经 _as_cg，遍历 nodes 按 prefix/layer 过滤，内部层/不可读/读取失败或加密/derived 层或 SKIP_TAGS 分别计数跳过；扫描后，正文已有生效条件计 declared，derive_fields 可推出计 derivable，否则按 condition_space 缺失槽计 pending 并受 limit 限制收集 items；返回 rep。
 def conditions_pending(x, prefix=None, layer=None, limit=None) -> dict:
     """只读台账：列出「未声明生效条件、且四槽推不出」的节点及其缺失槽。
 
@@ -981,6 +1004,7 @@ def conditions_pending(x, prefix=None, layer=None, limit=None) -> dict:
     return rep
 
 
+# 生效条件：cg 的留痕日志中存在 basis 为 LEGACY_CONDITION_BASIS 且未被回滚的 backfill 生效条件写入时，按 node 记录最后一次的 after/original 返回；无匹配返回空。
 def _legacy_condition_records(cg) -> dict:
     """→ {node: {after, original, …}}：我们**自己写下的**单槽冒充行（真源 = 留痕）。
 
@@ -1008,6 +1032,7 @@ def _legacy_condition_records(cg) -> dict:
     return out
 
 
+# 生效条件：x 经 _as_cg，从 _legacy_condition_records 取候选，按 prefix 过滤，节点不存在/不可读/读取失败或加密分别计 missing/denied/locked；当前生效条件等于留痕 after 时，四槽合成非空则 rewrite 否则 drop，不等则 conflict；items 受 limit 限制；返回 dry_run rep。
 def fix_conditions_plan(x, prefix=None, limit=None) -> dict:
     """预演：清洗存量单槽冒充行。不写盘。
 
@@ -1057,6 +1082,7 @@ def fix_conditions_plan(x, prefix=None, limit=None) -> dict:
     return rep
 
 
+# 生效条件：x 经 _as_cg，batch 假值回落 FIX_BATCH_DEFAULT；先 fix_conditions_plan 得 items，按 ids/entry_ids 过滤；逐个再验当前值仍等于 before 且 comment_before 一致，否则 skipped_drift；rewrite 时 upsert 生效条件行并写 comment，drop 时删行并还原 comment；写盘记 condition_fix，drop 另记 condition_pending；limit 限制 rewritten+dropped；返回 rep。
 def fix_conditions_apply(x, ids=None, entry_ids=None, prefix=None, limit=None,
                          batch=FIX_BATCH_DEFAULT, actor=None) -> dict:
     """执行清洗：`rewrite` 改写为四槽合成声明；`drop` 删行并登记待补。
@@ -1147,6 +1173,7 @@ def fix_conditions_apply(x, ids=None, entry_ids=None, prefix=None, limit=None,
     return rep
 
 
+# 生效条件：x 经 _as_cg，读取日志中 action=condition_fix 且未回滚的记录，按 batch/entry_ids 过滤，节点存在且当前生效条件等于 after 时，还原 before（空则删行）并还原 comment_before，否则计 conflict/missing；返回 rep。
 def fix_conditions_rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
     """按留痕反向应用：恢复被改写的旧值 / 重建被删除的冒充行。
 
@@ -1213,6 +1240,7 @@ def fix_conditions_rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
     return rep
 
 
+# 生效条件：x 经 _as_cg，遍历 nodes 按 prefix 过滤、内部层跳过，读取失败或加密跳过；对每个节点当前生效条件行，缺失计 absent，否则按 is_legacy_position_condition、等于 _condition_text 合成、等于 comment、其他分别计数，legacy_ids 受 limit 限制；返回 rep。
 def verify_conditions(x, prefix=None, limit=None) -> dict:
     """复算核对（只读）：生效条件行的来源分布 + 弱等价残留计数。
 
