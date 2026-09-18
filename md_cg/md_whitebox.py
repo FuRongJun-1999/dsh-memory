@@ -71,6 +71,7 @@ DEFAULT_ROOT = os.path.join(os.path.dirname(_HERE), "_md_cg_wisdom_graph")
 # frontmatter 值 → 列值
 # --------------------------------------------------------------------------
 
+# 生效条件：v 为 None 或等于空串时返回 default，v 已是 dict/list 时原样返回 v，否则尝试 json.loads(v)，抛 ValueError/TypeError 时返回 default；
 def _j(v, default):
     """frontmatter 值 → Python 对象（已是容器则原样，字符串则尝试 JSON）。"""
     if v is None or v == "":
@@ -83,6 +84,7 @@ def _j(v, default):
         return default
 
 
+# 生效条件：v 为 None 或等于空串时返回 default（缺省 "{}"），v 是 str 时原样返回 v，否则 json.dumps(v, ensure_ascii=False)，抛 TypeError/ValueError 时返回 default；
 def _js(v, default="{}"):
     """frontmatter 值 → JSON 文本（入 TEXT 列）。"""
     if v is None or v == "":
@@ -95,6 +97,7 @@ def _js(v, default="{}"):
         return default
 
 
+# 生效条件：float(v) 成功即返回该浮点值，抛 TypeError/ValueError 时返回 default（缺省 0.0）；
 def _f(v, default=0.0):
     try:
         return float(v)
@@ -102,6 +105,7 @@ def _f(v, default=0.0):
         return default
 
 
+# 生效条件：对 root（缺省 DEFAULT_ROOT）取 os.path.abspath 的 utf-8 字节 sha1 前 12 位为 key，返回系统临时目录下 f"md_cg_native_{key}.db"；
 def default_db_path(root=DEFAULT_ROOT):
     """还原库默认位置：系统临时目录。
 
@@ -112,6 +116,7 @@ def default_db_path(root=DEFAULT_ROOT):
     return os.path.join(tempfile.gettempdir(), f"md_cg_native_{key}.db")
 
 
+# 生效条件：db_path 能以只读 uri 连接并成功统计 nodes/edges 两表行数时返回 (int(n), int(e))，否则在任一步抛异常时返回 (0, 0)；
 def _counts(db_path):
     """(nodes, edges) 计数；不可读返回 (0, 0)。"""
     try:
@@ -124,6 +129,7 @@ def _counts(db_path):
         return 0, 0
 
 
+# 生效条件：给定 src/tgt/rel/conf/ver 即返回列序对齐 edges 表的 11 元组，id 由 str(src)/str(tgt) 与 rel 拼接，rel 为假值（None/空串）时以 "similar" 参与拼接并 strip().lower()，ver 为假值时 int(ver or 0) 取 0；
 def _edge_row(src, tgt, rel, conf, ver):
     """边行（列序对齐 `aeis_core` 的 edges 表）。"""
     src, tgt = str(src), str(tgt)
@@ -132,6 +138,7 @@ def _edge_row(src, tgt, rel, conf, ver):
             int(ver or 0), 0.0, 0.0, "extracted")
 
 
+# 生效条件：传入 cg 与 con 时按 (LAYERS 序, 路径字典序) 排序 cg.index["nodes"] 逐条建行，cg.get(nid) 为假值则跳过该节点，子图/边来自节点的 frontmatter，最终 executemany 写入两表并 commit，返回 (nodes 行数, edges 行数)；
 def _restore(cg, con, verbose=False):
     """md 语料 → 检索库（nodes / edges 两表）。返回 (n_nodes, n_edges)。
 
@@ -143,6 +150,7 @@ def _restore(cg, con, verbose=False):
     from .mdcg import LAYERS as _md_layers
     _ord = {name: i for i, name in enumerate(_md_layers)}
 
+# 生效条件：nid 的 cg.index["nodes"] 条目（无条目或值为假则视为空 dict）中 path 为真时取其为 p，否则用 layer 或 "zz" 拼 f"{nid}.md"、反斜杠替换为 "/"，返回 (LAYERS 序表的 .get(p 首段, 99), p)；
     def _order_key(nid):
         e = cg.index["nodes"].get(nid) or {}
         p = str(e.get("path")
@@ -203,6 +211,7 @@ def _restore(cg, con, verbose=False):
     return len(n_rows), len(e_rows)
 
 
+# 生效条件：db_path 为假值（None/空串）时回落 default_db_path(root)，当 not force 且 os.path.exists(db_path) 为真且 _counts 得 nodes>0 时直接返回 {reused: True}，否则删除该路径后以 MdCGOS(root) 与 SpacetimeMemoryEngine 经 _restore 重建并返回 {reused: False}，root 缺省 DEFAULT_ROOT；
 def build_db_from_md(root=DEFAULT_ROOT, db_path=None, force=False, verbose=True):
     """把 md 语料还原为白箱检索引擎可用的库（幂等：已存在且非空则复用）。
 
@@ -245,6 +254,7 @@ def build_db_from_md(root=DEFAULT_ROOT, db_path=None, force=False, verbose=True)
 # 门面：md 语料驱动的白箱问答
 # --------------------------------------------------------------------------
 
+# 生效条件：以 root=DEFAULT_ROOT、db_path=None、force_rebuild=False、verbose=False 构造时，__init__ 调用 build_db_from_md 并把 stats["db"] 记为实例 db_path、_engine 置 None；
 class MdWhitebox:
     """md 语料驱动的白箱问答。
 
@@ -252,6 +262,7 @@ class MdWhitebox:
     引擎。`seed=False`：随包种子卡是另一份知识，不该混进 md 语料还原库。
     """
 
+# 生效条件：root 缺省 DEFAULT_ROOT、db_path 缺省 None（交由 build_db_from_md 回落默认路径）、force_rebuild 缺省 False（作为 force 传入）、verbose 缺省 False 时，调用 build_db_from_md 并将 stats["db"] 存入 self.db_path、self._engine 置 None；
     def __init__(self, root=DEFAULT_ROOT, db_path=None, force_rebuild=False,
                  verbose=False):
         self.root = root
@@ -261,12 +272,14 @@ class MdWhitebox:
         self._engine = None
 
     @property
+# 生效条件：self._engine 为 None 时以 db_path=self.db_path、seed=False 构造 WhiteboxEngine 并缓存，否则直接返回已缓存实例；
     def engine(self):
         if self._engine is None:
             from .whitebox_kb.engine import WhiteboxEngine
             self._engine = WhiteboxEngine(db_path=self.db_path, seed=False)
         return self._engine
 
+# 生效条件：question 给定（session_id 缺省 "md-whitebox-eval"）时返回 self.engine.chat(question, session_id=session_id) 的结果；
     def ask(self, question, session_id="md-whitebox-eval"):
         """白箱问答。返回含 `route` / `reply` / `hits` 的原始结果。"""
         return self.engine.chat(question, session_id=session_id)
