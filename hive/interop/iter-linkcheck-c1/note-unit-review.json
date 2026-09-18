@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-linkcheck-c1",
+ "round": 1,
+ "candidate_commit": "a4032b2",
+ "branch": "task/iter-linkcheck-c1",
+ "unit_job": "h1789740999779_ff0c8b",
+ "verdict": "ACCEPT",
+ "package_n": 5,
+ "text": "1) ACCEPT；2) ACCEPT；3) ACCEPT；4) ACCEPT；5) ACCEPT。\n核验：五条均锚定形参、模块常量、早退/分支与返回形状，空值与假值语义相符；未越界到其它符号，未补充源码外断言。\nreason: 五条条件均与各自 src_segment 相符，未越界或增补源码外断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
