@@ -281,6 +281,7 @@ def _redteam_required():
         in ("1", "true", "yes")
 
 
+# 生效条件：以任意 root 构造时按其拼接 audit_log/hippocampus/trash 等路径并 makedirs 创建 hippocampus 与 trash_dir（exist_ok=True），autoflush 透传父类、actor 存入 self.actor；
 class MdCGOS(MdCG):
     """MdCG + 记忆 OS 七项能力。"""
 
@@ -583,6 +584,7 @@ class MdCGOS(MdCG):
     # ================= 资格判定（legacy 记忆豁免） =================
 
     @staticmethod
+# 生效条件：node_dict 的 frontmatter 中 ccg_exempt 为真且 content 去空白后非空时返回 DEFER 记录，否则以 (node_dict, query, context) 转 MdCG.judge_qualification；
     def judge_qualification(node_dict, query: str, context=None):
         """在父类四态之上支持 legacy 记忆（迁移进来的自由文本）。
 
@@ -1412,6 +1414,7 @@ class MdCGOS(MdCG):
     AUDIT_TAG = "review-record"
 
     @staticmethod
+# 生效条件：从 rec 取 pid/round/decision/status/redteam_verdict/issues/verify_hash/reason/actor/t 十键（缺键回落 None）做 sort_keys 紧凑 JSON 序列化后返回 sha1 hexdigest；
     def _record_hash(rec):
         """裁决记录指纹：外部审计方按同规则重算即可验证未被篡改。"""
         keys = ("pid", "round", "decision", "status", "redteam_verdict",
@@ -1422,6 +1425,7 @@ class MdCGOS(MdCG):
         return hashlib.sha1(norm.encode("utf-8")).hexdigest()
 
     @staticmethod
+# 生效条件：对任意 pid 取其 '_' 分段末段、round_no 经 int() 转换后拼成 f"rev_{末段}_r{轮次}"；
     def _audit_node_id(pid: str, round_no) -> str:
         return f"rev_{pid.split('_')[-1]}_r{int(round_no)}"
 
@@ -1781,6 +1785,7 @@ class MdCGOS(MdCG):
     SESSION_TAG = "session"
 
     @staticmethod
+# 生效条件：对任意 session 与 summary（None 分别按空串处理，summary 另去首尾空白）取 sha1 前 12 位拼成 "sess_{sig}"，同 (session, summary) 得同 id；
     def _session_node_id(session, summary):
         """会话要点节点 id：同 (session, summary) → 同 id（幂等覆盖，不新增）。"""
         sig = hashlib.sha1(
@@ -1789,6 +1794,7 @@ class MdCGOS(MdCG):
         return f"sess_{sig}"
 
     @staticmethod
+# 生效条件：content 中「执行」字段真值时返回其前 500 字符，否则返回首个非空行去空白后前 500 字符，全空或无行时返回空串；
     def _session_digest(content):
         """从会话节点正文取一行摘要（`# 执行：` 优先，否则首个非空行）。"""
         v = _ccg_field(content, "执行")
@@ -2948,6 +2954,7 @@ class MdCGOS(MdCG):
         return evolution.catalog()
 
 
+# 生效条件：以 root 构造并把 **kw 透传父类，principal 为假值（None）时回落新建 Principal()、否则用传入的 principal，其 actor 作为 actor 传给父类，master_key 原样交给 _init_crypto；
 class MdCGSecure(MdCGOS):
     """带权限的记忆 OS：租户 + 密级（clearance）× 节点敏感度（sensitivity）。
 
@@ -2996,6 +3003,7 @@ class MdCGSecure(MdCGOS):
             self.kek = self.dek = None
 
     @staticmethod
+# 生效条件：master_key 为 bytes/bytearray 时直接取字节，否则转 str 去空白后若该串是存在路径则读文件内容，len==64 走 bytes.fromhex、否则走 base64 解码，所得长度不等于 crypto.KEY_LEN 时抛 CryptoError；
     def _resolve_master_key(master_key):
         """接受 32B bytes / 64 位 hex / base64 / 密钥文件路径。"""
         if isinstance(master_key, (bytes, bytearray)):
