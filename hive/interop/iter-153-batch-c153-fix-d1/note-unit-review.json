@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-153-batch-c153-fix-d1",
+ "round": 3,
+ "candidate_commit": "1beeb1b",
+ "branch": "task/iter-153-batch-c153-fix-d1",
+ "unit_job": "h1789698686852_f99db0",
+ "verdict": "ACCEPT",
+ "package_n": 12,
+ "text": "逐条核对：触发输入/状态、None与假值分支、闭包延迟导入来源、参数使用、返回形状及长度空容器前置均与源码一致；未发现新增断言或位置问题。position_ok=true，无需行号。\nreason: 全部候选条件与源码分支、前置及返回形状相符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
