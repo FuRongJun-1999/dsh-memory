@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-246-batch-c246",
+ "round": 1,
+ "candidate_commit": "d9b7ade",
+ "branch": "task/iter-246-batch-c246",
+ "unit_job": "h1789725200375_1b7729",
+ "verdict": "REJECT",
+ "package_n": 6,
+ "text": "1/2/4 与源码一致。3 的 TypeError 重试异常未被捕获，条件未限定“首次”；5 漏 cg.search 异常兜底；6 漏 load、qs=qs_all[:only]、build(...semantic=SEM) 等关键生效路径，only 仅赋值未说明用途。\nreason: 多条条件遗漏源码关键分支或限定不清，未完整回答输入/状态。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
