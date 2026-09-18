@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-164-batch-c164-fix",
+ "round": 2,
+ "candidate_commit": "bd7c9fd",
+ "branch": "task/iter-164-batch-c164-fix",
+ "unit_job": "h1789704059207_2619b4",
+ "verdict": "REJECT",
+ "package_n": 9,
+ "text": "复核：1/3/4/5/8/9 与源码一致；2 对 limit_units 真值截断、假值遍历及异常/落盘描述吻合；7 基本吻合，但 run_channel_b 实际传入 generate_code，条件漏写。第6条不符：源码用 `os.path.exists(path)`，条件写成 `os.path.isfile`；且“isfile 为真”是源码不支持的额外前置断言，会改变目录/特殊路径情形。故批次不能接受。\nreason: 第6条将 os.path.exists 误作 os.path.isfile 并添加源码不支持的前置断言。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
