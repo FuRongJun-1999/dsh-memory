@@ -33,6 +33,7 @@ CHAR_ATOMS = os.path.join(REPO, "md_cg", "lexicon", "char_atoms_clean.json")
 ZH_RANGE = ("\u4e00", "\u9fff")
 
 
+# 生效条件：解析模块级常量 CHAR_ATOMS 指向的 JSON 得 data，取 lex = data.get("lexicon") or {}，返回 {ch: str(v.get("en") or "")}；lexicon 缺失或为假值时 lex 为 {}，返回空 dict；
 def load_char_atoms():
     with io.open(CHAR_ATOMS, encoding="utf-8") as f:
         data = json.load(f)
@@ -40,12 +41,14 @@ def load_char_atoms():
     return {ch: str(v.get("en") or "") for ch, v in lex.items()}
 
 
+# 生效条件：遍历 (text or "") 的每个字符，落在模块级常量 ZH_RANGE 的 [lo, hi] 区间内时取 char_atoms.get(ch, "")（仅该键缺失才回落空串），否则保留原字符，以空格连接后交 normalize_en；text 为假值（None/空串）时 parts 为空列表，返回 normalize_en("")；
 def zh_map_en(text, char_atoms):
     lo, hi = ZH_RANGE
     parts = [char_atoms.get(ch, "") if lo <= ch <= hi else ch for ch in (text or "")]
     return normalize_en(" ".join(parts))
 
 
+# 生效条件：打开模块级常量 DATA 下的 corpus567.jsonl 与 questions500.jsonl，各自只对 l.strip() 为真的行执行 json.loads，按行序返回 (c, q)；
 def load():
     c, q = [], []
     with io.open(os.path.join(DATA, "corpus567.jsonl"), encoding="utf-8") as f:
@@ -55,6 +58,7 @@ def load():
     return c, q
 
 
+# 生效条件：a、b 均为真值（非空集合）时算 inter = len(a & b)，inter 为 0 返回 0.0，否则返回 len(a & b)/len(a | b)；a 或 b 为假值时提前返回 0.0；
 def jaccard(a, b):
     if not a or not b:
         return 0.0
@@ -62,6 +66,7 @@ def jaccard(a, b):
     return inter / len(a | b) if inter else 0.0
 
 
+# 生效条件：遍历 questions 时，ev = set(q.get("evidence_turns") or []) 为假值的 q 直接跳过且不计入任何计数；否则先 st["n"] 加 1，若 qatoms_of(q) 为假值则再 st["empty"] 加 1 并 continue，其余 q 按 (-jaccard(qa, na), nid) 升序取首个 nid 命中 ev 的位次 rank（无命中为 0），rank==1 时 st 与 qtype 计 h1、0 < rank <= 5 时计 h5、0 < rank <= 10 时 st 与 qtype 计 h10、rank 为真时 st 与 qtype 各累加 1.0/rank、rank 为 0 时把 q["qid"] 记入 miss，并以 q.get("qtype") or "?" 归组；最终返回以 n = max(st["n"], 1) 为分母的 n/hit1/hit5/hit10/mrr/qtype/miss 字典（verbose_qtype 为真值时先逐 qtype 打印分行）；
 def run(questions, docs, qatoms_of, label, verbose_qtype=False):
     st = dict(h1=0, h5=0, h10=0, rr=0.0, n=0, empty=0)
     qt = defaultdict(lambda: dict(n=0, h1=0, h10=0, rr=0.0))
@@ -110,11 +115,16 @@ def main():
     ca = load_char_atoms()
     print("语料 %d · 题 %d · 字级原子库 %d 字\n" % (len(corpus), len(questions), len(ca)))
 
+# 生效条件：返回 frozenset(normalize_en(str(c.get("text") or "")).split())；c 的 "text" 键缺失或其值为假值（None/空串）时按 "" 处理，得空 frozenset；
     def body_norm(c):     return frozenset(normalize_en(str(c.get("text") or "")).split())
+# 生效条件：返回 frozenset(str(c.get("text") or "").lower().split())，即不做 normalize，仅转小写后按空白切词；c 的 "text" 键缺失或其值为假值时按 "" 处理，得空 frozenset；
     def body_raw(c):      return frozenset(str(c.get("text") or "").lower().split())
+# 生效条件：返回 frozenset(zh_map_en(str(c.get("zh") or ""), ca).split())，其中 ca 取自其所在的 main 作用域；c 的 "zh" 键缺失或其值为假值时按 "" 处理，得空 frozenset；
     def zh_only(c):       return frozenset(zh_map_en(str(c.get("zh") or ""), ca).split())
+# 生效条件：返回 frozenset(list(body_norm(c)) + list(zh_only(c)))，即正文归一化词表与中文映射词表合并去重后的集合；
     def full(c):          return frozenset(list(body_norm(c)) + list(zh_only(c)))
 
+# 生效条件：返回 frozenset(zh_map_en(str(q.get("question") or ""), ca).split())；q 的 "question" 键缺失或其值为假值时按 "" 处理，得空 frozenset；
     def q_atoms(q):
         return frozenset(zh_map_en(str(q.get("question") or ""), ca).split())
 
