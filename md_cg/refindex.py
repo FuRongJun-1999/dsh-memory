@@ -225,6 +225,7 @@ class Ledger:
             files.pop(k, None)
         return len(dead)
 
+# 生效条件：对 load()["files"] 中「条目 root（为假值时用 os.path.dirname(键) 兜底）不是目录」的条目逐一 pop 并返回删除条数，无匹配时返回 0。
     def prune(self) -> int:
         """剪掉「源大域已不存在」的条目（整个目录被搬走/删除）。
 
@@ -248,12 +249,14 @@ class Ledger:
             "truncated_reason": reason or "",
         }
 
+# 生效条件：无参数调用即生效，取 self.load() 结果把 updated_at 置为 _now()，再以 atomic_write 把 json.dumps(..., ensure_ascii=False, indent=1, sort_keys=True) 写入 self.path，无返回值。
     def save(self) -> None:
         d = self.load()
         d["updated_at"] = _now()
         atomic_write(self.path, json.dumps(d, ensure_ascii=False,
                                            indent=1, sort_keys=True))
 
+# 生效条件：无参数调用即生效，返回含 path、schema、load()["files"] 条目数、nodes 总数（各条目 nodes 列表长度之和）、updated_at、exists=os.path.isfile(self.path) 的 out；age_s 在 updated_at 为假值（0.0）时为 None，否则为 max(0.0, time.time()-up)；仅当 load() 的 last_index 为 dict 时才并入 out["last_index"]。
     def summary(self) -> dict:
         d = self.load()
         files = d.get("files") or {}
