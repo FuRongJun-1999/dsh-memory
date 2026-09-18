@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-259-batch-c259",
+ "round": 1,
+ "candidate_commit": "d8fdc9c",
+ "branch": "task/iter-259-batch-c259",
+ "unit_job": "h1789732445712_9e6d4e",
+ "verdict": "REJECT",
+ "package_n": 34,
+ "text": "复核发现多处不符：`field_layer_scope` 中 `rules=None` 且 `rules_dir` 非 None 时源码仍会 `RS.load_rules(rules_dir)`，条件误写为“两者皆 None”才加载；`_loc_dup` 对 peer hash 源码不 `.strip()`，条件多了 strip；`_loc_missing_field` 的 `field_layers` 仅 None 才回落，条件写成“或”，且 importance 漏 `_as_float` 为 None；`_as_int` 漏 OverflowError 传播语义。\nreason: 条件与源码存在分支、归一化和异常语义不符，不能视为功能级生效条件。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
