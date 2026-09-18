@@ -1991,6 +1991,60 @@ class MdCG:
     def _emit(self, scored, k, tier, stat, bucket, record, candidates,
               judge, context, neg_coverage, big_domain=None, big_scores=None,
               pools=None):
+        # ---- S5 负记忆抑制（契约 §3 S5；flag 控、默认关）----
+        # 现状：rejected/unresolved 命中只会被「附加」到结果里（sensing），对正候选毫无影响。
+        # 这里把它变成**抑制信号**：与负记忆「边相邻」或「词面高度重叠」的正候选按
+        # w ← w × (1-λ) 降权（只降权、不删除、下限 0）；开关默认关 → 行为与改动前一致。
+        _s5 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+               and os.environ.get("MDCG_GATE_S5_NEG") == "1")
+        _s5_lam, _s5_thr, _s5_hits = 0.5, 0.5, []
+        if _s5 and neg_coverage and scored:
+            try:
+                _s5_lam = min(1.0, max(0.0, float(os.environ.get("MDCG_NEG_LAMBDA", "0.5"))))
+            except ValueError:
+                _s5_lam = 0.5
+            try:
+                _s5_thr = min(1.0, max(0.0, float(os.environ.get("MDCG_NEG_SIM", "0.5"))))
+            except ValueError:
+                _s5_thr = 0.5
+            _negs = []
+            for _nc in neg_coverage[:10]:
+                try:
+                    with open(os.path.join(self.root, _nc["path"]), encoding="utf-8") as _f:
+                        _fm_n, _c_n = nodefile.loads(_f.read())
+                except OSError:
+                    continue
+                _negs.append((str(_fm_n.get("id") or os.path.splitext(
+                    os.path.basename(_nc["path"]))[0]), _fm_n, _c_n))
+            for _i, (_doc, _sc) in enumerate(scored):
+                _pid = str(_doc.get("id") or _doc.get("path") or "")
+                _pt = {str(_e.get("target") or "")
+                       for _e in (_doc["frontmatter"].get("edges") or [])
+                       if isinstance(_e, dict)}
+                _hit = False
+                for _nid, _nfm, _nc_content in _negs:
+                    _nt = {str(_e.get("target") or "")
+                           for _e in (_nfm.get("edges") or []) if isinstance(_e, dict)}
+                    if _nid == _pid or _pid in _nt or _nid in _pt:
+                        _hit = True
+                        break
+                    try:
+                        _sim = lexical_sim(bigrams(normalize_en(_doc.get("content") or "")),
+                                           bigrams(normalize_en(_nc_content)))
+                    except Exception:
+                        _sim = 0.0
+                    if _sim >= _s5_thr:
+                        _hit = True
+                        break
+                if _hit:
+                    scored[_i] = (_doc, max(0.0, _sc * (1.0 - _s5_lam)))
+                    _s5_hits.append(_pid)
+        # 审计只在「确有负记忆命中」时落键（与 S1/S2「产生信息才落键」同规则）
+        if _s5 and neg_coverage:
+            _g = stat.setdefault("gates", {})
+            _g["s5"] = {"lambda": _s5_lam, "threshold": _s5_thr,
+                        "neg": len(neg_coverage), "suppressed": len(_s5_hits),
+                        "suppressed_ids": _s5_hits[:20]}
         scored.sort(key=lambda x: (-x[1],
                                    -float(x[0]["frontmatter"].get("importance") or 0)))
         results = scored[:k]
@@ -2015,7 +2069,8 @@ class MdCG:
                      "content": content, "path": nc["path"]}
             qual = {"state": STATE_REJECT if nc["layer"] == "rejected" else STATE_DEFER,
                     "reason": f"查询已被{nc['layer']}层覆盖：见 {nc['path']}"}
-            out.append((entry, 1.0, qual))
+            # S5 开时：负记忆条目不再与正候选同权（契约 §3 S5）
+            out.append((entry, (max(0.0, 1.0 - _s5_lam) if _s5 else 1.0), qual))
         if record and results:
             self.record_access([r[0]["id"] for r in results], tier)
         pool_plan = pooling.plan(stat.get("cap") or GLOBAL_CAP, pools)
