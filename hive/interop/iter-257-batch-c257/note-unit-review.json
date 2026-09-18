@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-257-batch-c257",
+ "round": 1,
+ "candidate_commit": "0d9c7d5",
+ "branch": "task/iter-257-batch-c257",
+ "unit_job": "h1789730499961_9d7f9b",
+ "verdict": "REJECT",
+ "package_n": 43,
+ "text": "多处与源码不符：`_identity_call` positions 应包 `{\"positions\":...}`；`_self_state_call` snapshot/read/get 应包 `{\"state\":...}`、relations 应包 `{\"relations\":...}`；`_cg_call` 漏“action 空且 op 有 `_ACTION_DEFAULT` 时补默认 action”分支；`_make_query_expand` 漏 `str(...).strip()`。\nreason: 上述条件未完整/准确锚定源码返回形状与默认 action 分支。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
