@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-sustain-c1",
+ "round": 1,
+ "candidate_commit": "033862f",
+ "branch": "task/iter-sustain-c1",
+ "unit_job": "h1789758255514_38e49d",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "核对 `SustainLoop.__init__`：condition 锚定必需形参 `cg`，描述 `name` 直接赋值、各 interval/`auto_*` 的 `float()/bool()`、`ledger or SessionLedger(cg.root)` 假值回落、`d=net_dir(d)` 及运行态 `None/False/[]/Event/Lock` 初始化；均在 `src_segment` 内可见，未越界到其它符号。未发现 assert、None/假值分支、闭包、返回形状或空容器前置误述。`position_ok=true`，注释紧贴定义行。轻微概括 `beats=0` 不影响功能条件。  \nreason: 条件与 `SustainLoop.__init__` 源码一致，未越界且无源码不支持断言。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
