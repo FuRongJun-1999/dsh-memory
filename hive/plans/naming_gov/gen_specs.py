@@ -33,6 +33,7 @@ SPEC_COMMON = {
 }
 
 
+# 生效条件：当 title、bucket、node_md 均提供时（无前置校验），读取 SYSTEM_PROMPT_FILE 全文作为 system_prompt，生成含 title 与 bucket 的 user_prompt，并返回以 SPEC_COMMON 为底、覆盖 model='deepseek-flash'、system_prompt、user_prompt、context_files=[node_md] 的 spec；
 def build_spec(title: str, bucket: str, node_md: str) -> dict:
     with open(SYSTEM_PROMPT_FILE, encoding="utf-8") as f:
         system_prompt = f.read()
@@ -54,6 +55,7 @@ def build_spec(title: str, bucket: str, node_md: str) -> dict:
     return spec
 
 
+# 生效条件：当 args.report 与 args.mdcg 均非空（分别来自 --report/env NAMING_REPORT、--mdcg/env MDCG_ROOT，默认空串）且从 args.report JSON 的 rows 中筛出 class=="隔离区" 且 bucket_sample==args.bucket 后按 args.offset:args.offset+args.limit 切出的 batch 非空时，遍历 batch：os.path.isfile(node_md) 为假则 fail++ 跳过，否则写 spec 到 args.out/tag（tag=args.batch_tag or f"batch{args.limit}_off{args.offset}"），args.submit 为假时 ok++，为真时用 args.hive 或 os.path.join(HERE,"..","..","target","release","hive.exe") 提交并按 returncode 计 ok/fail；最终 ok 非零返回 0，否则返回 1；而 args.report 或 args.mdcg 为空、或 batch 为空时返回 2；
 def main() -> int:
     ap = argparse.ArgumentParser(description="命名治理批次 spec 生成器")
     ap.add_argument("--bucket", required=True, help="隔离区桶名（naming_report 的 bucket_sample）")
