@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-135-batch-c135-fix-dual",
+ "round": 5,
+ "candidate_commit": "8cf3a33",
+ "branch": "task/iter-135-batch-c135-fix-dual",
+ "unit_job": "h1789691795329_2a7dc0",
+ "verdict": "REJECT",
+ "package_n": 18,
+ "text": "复核：多数条件与源码一致；但 normalize_terms 把时间回落写成 c 的 time，源码为 c[\"zh_fields\"][\"time\"]（f[\"time\"]），c 无顶层 time。prepare 也未列 turn_no 可解析前置，故“当…时写出”不充分。\nreason: normalize_terms 时间来源写错，且 prepare 漏 turn_no 可解析前置，条件不充分。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
