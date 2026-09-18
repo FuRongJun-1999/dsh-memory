@@ -443,6 +443,7 @@ class Parser:
         
         return shuyue
     
+# 生效条件：无 required 形参（self 除外）时，若 self.current_token 为 WENYUE 且后续 _consume 能依次消费 DAYUE、SHUYUE，则收集 question/answer，循环跳过分隔符后仅当 current_token 为 NUMBER 时取 int(float(value))、可选消费 PERIOD，且仅当 _parse_step_content() 返回真值才 shuyue.add_step(StepNode(...))，非 NUMBER 时 break，最后设 shuyue.attributes 的 question/answer 并返回 shuyue；
     def _parse_wenyue_block(self) -> Optional[ASTNode]:
         """解析 问曰：... 答曰：... 术曰：... 结构"""
         # 问曰
