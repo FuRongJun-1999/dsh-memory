@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-264-batch-c264",
+ "round": 1,
+ "candidate_commit": "364f4fd",
+ "branch": "task/iter-264-batch-c264",
+ "unit_job": "h1789737866088_d0339f",
+ "verdict": "ACCEPT",
+ "package_n": 3,
+ "text": "1) MdCGOS.__init__：段内含 super(root, autoflush=autoflush)、self.actor=actor、makedirs(hippocampus/trash_dir, exist_ok=True)，默认 64/system，ACCEPT。\n2) MdCGSecure.__init__：principal or Principal()，super(root, actor=self.principal.actor, **kw)，_init_crypto(master_key)，ACCEPT。\n3) MdCGSecure.crypto_status：unlocked 与 kek_fp 条件表达式与源码一致，ACCEPT。\n无越界，未新增源码不支持断言。\nreason: 三条生效条件均可由各自源码段直接支持，与源码一致。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
