@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-reach-c1-fix",
+ "round": 2,
+ "candidate_commit": "0700771",
+ "branch": "task/iter-reach-c1-fix",
+ "unit_job": "h1789739206837_c68800",
+ "verdict": "REJECT",
+ "package_n": 9,
+ "text": "1 REJECT：__init__ 的 hash_complete 初始为 True，非“空/0/False”。  \n2 REJECT：build 异常时返回 None 无条件；_fail/reads/docs 仅限记录 partial。  \n3 ACCEPT；4 REJECT：同 1；5 ACCEPT；6 ACCEPT；7 ACCEPT；8 ACCEPT；9 ACCEPT。位置均 ok，无越界。  \nreason: 条目 1/2/4 与源码不符，整体不通过。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
