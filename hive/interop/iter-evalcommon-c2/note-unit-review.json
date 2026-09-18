@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-evalcommon-c2",
+ "round": 1,
+ "candidate_commit": "db003b4",
+ "branch": "task/iter-evalcommon-c2",
+ "unit_job": "h1789754429827_39a771",
+ "verdict": "REJECT",
+ "package_n": 4,
+ "text": "1 ACCEPT：形参/默认/转调键/返回均符。  \n2 ACCEPT：同上，title_key/title 符。  \n3 REJECT：末句“不 flush 句柄由调用方处理”与源码返回前 `cg.flush()` 不符；其余 rmtree、复用、跳过 id、calib_of 两口径均符。  \n4 ACCEPT：`p not in cache` 保证假值不重读，替换并返回 cache 符。  \nreason: 第3条“不 flush 句柄由调用方处理”与源码 `cg.flush()` 冲突。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
