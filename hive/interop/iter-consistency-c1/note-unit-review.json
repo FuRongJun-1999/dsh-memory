@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-consistency-c1",
+ "round": 1,
+ "candidate_commit": "6e61f38",
+ "branch": "task/iter-consistency-c1",
+ "unit_job": "h1789756265715_fe67d5",
+ "verdict": "REJECT",
+ "package_n": 2,
+ "text": "1) REJECT：seeds 假值返回 `frontier_exhausted` 未锚定 `int(max_depth)>0`；若 `max_depth<=0`，源码直接走 `depth_exceeded`。且 `resolved_by` 实为 discriminator 列表，不是单节点。  \n2) ACCEPT：check 的四态顺序、L2 触发条件、飞轮入参与 `query or content` 均能在 src_segment 内核验，未见越界。  \nreason: 第一条缺少 `max_depth` 正前置并误述返回形状，故整批判 REJECT。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
