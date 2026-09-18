@@ -7,6 +7,18 @@
 - 执行结果：远端 `task/*` 由 **842 → 615**（删除 **227** = 已并入 104 + stale/superseded 123），失败 0。
 - `origin/main` 未做任何改写（仍是 1497 提交，tip 见下）。
 
+## 特例（删除后原样恢复 1 条）
+
+`task/iter-002-carrier-align` 虽属「已并入 main」，但它是**编外验证端（zcode 实例）当前轮询的验证锚点**
+（回执以约 10 分钟节奏引用其 tip：03:09:56 / 03:20:01 / 03:30:00 …）。为避免切断互验协议，
+删除后**按记录的 SHA 原样恢复**：
+
+```
+git push origin 83aef1c9def4:refs/heads/task/iter-002-carrier-align   # [new branch] ok
+```
+
+净结果：删除 **226** 条（已并入 103 + stale/superseded 123），恢复 1 条；远端 `task/*` 842 → **616**。
+
 ## 可恢复性
 
 每个被删分支的 SHA 记在 `hive/interop/_pruned_branches.tsv`（`branch<TAB>sha12<TAB>reason`）。
