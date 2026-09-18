@@ -42,6 +42,7 @@ NORMALIZER = os.path.join(HERE, "md_cg", "semantic", "en_normalizer.py")
 AUTO_BEGIN, AUTO_END = "<<EN_ZH_AUTO>>", "<<END_EN_ZH_AUTO>>"
 
 
+# 生效条件：无需入参；逐行读取模块常量 QUESTIONS 指向的内容，仅在 line.strip() 为真的行上 json.loads 该行并追加到 qs，最终返回 qs（全为空白行时返回空列表）。
 def load_questions():
     qs = []
     with io.open(QUESTIONS, encoding="utf-8") as f:
@@ -51,6 +52,7 @@ def load_questions():
     return qs
 
 
+# 生效条件：入参 min_len 给定；逐条 lexicon 记录的 en_raw（假值时回落 en，两者皆假值则取空串）转小写、下划线转空格并剥离 to/a/an 前缀后，不在 STOPWORDS 且能 fullmatch [a-z]+ 者计入 wordlike 并仅当长度 ≥ min_len 时并入 en→zh 集合（< min_len 计 too_short 后排除，STOPWORDS 计 stopword 后排除），最终单一 zh 的入 cand、多 zh 的入 conflicts，返回 (cand, conflicts, stat)。
 def reverse_map(min_len):
     """char_atoms_clean → (候选 {en: zh}, 冲突 {en: [zh...]}, 统计 dict)"""
     with io.open(CHAR_ATOMS, encoding="utf-8") as f:
@@ -84,6 +86,7 @@ def reverse_map(min_len):
     return cand, conflicts, stat
 
 
+# 生效条件：required 为空（无入参）；对 QUESTIONS 经 load_questions 读入的题面按 normalize_en_query 的 detail 统计 unknown_keep/proper_noun_keep 词次后，对 min_len=2、3、4 各调一次 reverse_map 打印统计，再对 min_len=3 二次调 reverse_map 取 cand 算命中词次、打印 top15 一对多冲突、并以 extra_map=cand 复跑 normalize_en_query 统计扩表后英文保留词次，全程只打印、返回 None。
 def analyze():
     """扩表收益上界：500 题 OOV 词频 × 反查覆盖率（词次口径）。"""
     qs = load_questions()
@@ -135,6 +138,7 @@ def analyze():
           % (n_kept, n_after))
 
 
+# 生效条件：入参 min_len 给定；cand 取 reverse_map(min_len) 中键不在 EN_ZH 的部分，若 NORMALIZER 中匹配到 AUTO_BEGIN…AUTO_END 标记段则整段替换，否则要求锚点行存在（缺失即断言失败不写回）后插入，compile 校验通过则写回 NORMALIZER 并返回 0（conf 仅用于打印）。
 def build(min_len):
     """反查扩表 → 字面量写回 en_normalizer.py（幂等标记块，重跑即刷新）。"""
     cand, conf, stat = reverse_map(min_len)
@@ -169,6 +173,7 @@ def build(min_len):
     return 0
 
 
+# 生效条件：无入参；在模块常量 NORMALIZER 中匹配不到「# ---- 机械扩表 … AUTO_END」段时打印零改动并返回 0，匹配到时删除该段、compile 校验通过后写回并返回 0。
 def clean():
     """删除 en_normalizer.py 中的机械扩表段（幂等；段不存在则零改动）。"""
     with io.open(NORMALIZER, encoding="utf-8") as f:
@@ -185,6 +190,7 @@ def clean():
     return 0
 
 
+# 生效条件：无入参；按 sys.argv[1] 分派（长度不超 1 时回落为 "analyze"）——"analyze" 调 analyze() 返回 0；"build" 时 ml 初值 3，若 sys.argv 含 "--min-len" 则取其下一个元素 int() 后覆盖 ml，返回 build(ml)；"clean" 返回 clean()；其余取值（含空串等未知模式）打印 __doc__ 并返回 2。
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "analyze"
     if mode == "analyze":
