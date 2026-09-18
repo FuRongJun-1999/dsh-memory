@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-304-batch-c304",
+ "round": 1,
+ "candidate_commit": "17ec96b",
+ "branch": "task/iter-304-batch-c304",
+ "unit_job": "h1789752155417_7a63bd",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "条目1：__init__ 段内可见 `_ensure_repo(repo_path)`、`MdCGOS(root)`、预算默认值存储、`_global_id=None`、`_seq=0`，与条件一致。ACCEPT。\n条目2：stats 段内可见遍历 `index[\"nodes\"]`、`_read` 后按 `session/layer` 三键计数并返回 dict，与条件一致。ACCEPT。\n无越界，无源码不支持断言，位置 ok。\nreason: 两条生效条件均与各自 src_segment 源码逐项一致。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
