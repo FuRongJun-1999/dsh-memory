@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-135-batch-c135-fix",
+ "round": 2,
+ "candidate_commit": "8232281",
+ "branch": "task/iter-135-batch-c135-fix",
+ "unit_job": "h1789690978786_616963",
+ "verdict": "ACCEPT",
+ "package_n": 18,
+ "text": "已逐条复核 18 项：条件均锚定形参/常量/早退/分支前置，未发现 assert 语义、None/假值、闭包来源、返回形状、长度空容器等偏差；position_ok 均已紧贴定义。无源码不支持断言。\nreason: 所有候选生效条件与源码分支及前置一致。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
