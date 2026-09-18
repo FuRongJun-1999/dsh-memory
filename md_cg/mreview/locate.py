@@ -113,12 +113,14 @@ _REF_DEAD_STATUSES = ("dangling", "stale")
 _FIELD_LAYER_CACHE = None
 
 
+# 生效条件：kind 经 str(kind or "").strip() 得 k（None/空串等假值 → 空串 ""），k 命中 KIND_ALIASES 时返回其规范名，否则原样返回 k。
 def canonical_kind(kind) -> str:
     """M1/D1 用词 → D1 规范名（未知原样返回，不假装认路）。"""
     k = str(kind or "").strip()
     return KIND_ALIASES.get(k, k)
 
 
+# 生效条件：仅当 rules 与 rules_dir 均为 None 且模块级 _FIELD_LAYER_CACHE 非 None 时直接返回该缓存；否则遍历 rules（dict 取其 "rules" 键的列表、非 dict 直接 list(rules)）或 rules_dir 经 RS.load_rules 取得的 rules 列表，从限了 matcher.layer 的 mechanical 规则中收集 field_absent 的 spec["field"] 与 evidence_zero 的 evidence_count，返回 {字段: 排序列}，且只在 rules 与 rules_dir 均为 None 时写回 _FIELD_LAYER_CACHE。
 def field_layer_scope(rules=None, rules_dir=None) -> dict:
     """字段 → 适用层清单（**派生**自 M1 规则库，不在此另立一份）。
 
@@ -155,6 +157,7 @@ def field_layer_scope(rules=None, rules_dir=None) -> dict:
     return out
 
 
+# 生效条件：(scope or {}).get(field) 为假值（scope 为 None、空 dict 或 field 不在其中）→ 返回 True；want 为真值时仅当 str((meta or {}).get("layer")) 在 set(want) 内返回 True，否则 False。
 def _layer_ok(field, scope, meta) -> bool:
     """字段层门限：**限层的字段只在该层的节点上检查**。
 
@@ -168,6 +171,7 @@ def _layer_ok(field, scope, meta) -> bool:
     return str((meta or {}).get("layer")) in set(want)
 
 
+# 生效条件：os.path.getmtime(path) 成功则返回该 mtime；抛 OSError 或 TypeError → 返回 None。
 def _mtime(path):
     """文件 mtime（不可读 → `None`，不假装知道）。"""
     try:
@@ -176,6 +180,7 @@ def _mtime(path):
         return None
 
 
+# 生效条件：root 或 rel（path 为真值时取 path，否则取 meta 的 "path"）为空 → 返回 ("unknown", "无 root/path 可用，取不到盘上 mtime，成因未判定")；两者都有时取节点文件与 CF.INDEX_FILE 的 mtime，任一为 None → 返回 ("unknown", "节点文件或索引快照不可读，成因未判定")，节点 mtime 减索引 mtime 之差 > MTIME_TOLERANCE → 返回 ("index_lag", …)，否则返回 ("true_mismatch", …)。
 def hash_mismatch_cause(meta, *, root=None, path=None) -> tuple:
     """`content_hash` 声明值 ≠ 正文实算值 → **成因**判定（靠 mtime 证据，不猜）。
 
@@ -204,12 +209,14 @@ def hash_mismatch_cause(meta, *, root=None, path=None) -> tuple:
 
 # ---------------------------- 基础工具（纯函数） ----------------------------
 
+# 生效条件：v 为 list/tuple/dict 时返回 not v（空容器 → True）；其余类型返回 v is None 或 str(v).strip() 为 "" 或 "None"。
 def _blank(v) -> bool:
     if isinstance(v, (list, tuple, dict)):
         return not v
     return v is None or str(v).strip() in ("", "None")
 
 
+# 生效条件：int(float(v)) 可算（含数字字符串）则返回该整数；抛 TypeError 或 ValueError（含 v 为 None、非数字串）→ 返回 None。
 def _as_int(v):
     try:
         return int(float(v))
@@ -217,6 +224,7 @@ def _as_int(v):
         return None
 
 
+# 生效条件：float(v) 可算则返回该浮点数；抛 TypeError 或 ValueError（含 v 为 None、非数字串）→ 返回 None。
 def _as_float(v):
     try:
         return float(v)
@@ -227,6 +235,7 @@ def _as_float(v):
 _SENT_END = "。！？；!?;\n"
 
 
+# 生效条件：content 为假值（None/空串）按 "" 处理，逐字符命中 _SENT_END 切出且 seg.strip() 非空的段以 len(out) 为序号追加 (索引, start, i+1, 原文)，末尾 tail.strip() 非空亦追加；无合格段 → 返回空列表。
 def sentence_spans(content: str) -> list:
     """正文 → `[(句索引, start, end, 原文)]`；空句不编号（索引连续，确定性）。"""
     text, out, start = content or "", [], 0
@@ -246,6 +255,7 @@ def sentence_spans(content: str) -> list:
 _RE_MARK = re.compile(r"^#[ \t]*(?P<mark>[^：:\n]{1,16})[：:][^\n]*", re.M)
 
 
+# 生效条件：在 content（假值 → ""）上用模块级 _RE_MARK 迭代匹配，以 m.group("mark").strip() 为键 setdefault 记下首次出现的 [m.start(), m.end())；无匹配（含 content 为假值）→ 返回空 dict。
 def mark_spans(content: str) -> dict:
     """正文 CCG 要素行 → `{要素名: [start, end)}`；同要素取首次出现（确定性）。"""
     out = {}
@@ -254,6 +264,7 @@ def mark_spans(content: str) -> dict:
     return out
 
 
+# 生效条件：(text or "").split("\n") 的每行 strip 后非空、不以 "#" 开头且含 ":" 时，取首个冒号前的键 k，k 非空且尚未入表则记 (1-based 行号, [该行起始偏移, 起始偏移+len(line)])；text 为假值或无合格行 → 返回空 dict。
 def key_line_spans(text: str) -> dict:
     """节点文件原文 → `{键: (1-based 行号, [start, end))}`。
 
@@ -271,6 +282,7 @@ def key_line_spans(text: str) -> dict:
     return out
 
 
+# 生效条件：index 为 dict 时其 "nodes" 为 dict 则返回 index["nodes"]，否则返回 index 本身；index 为 None/非 dict 时调 CF.load_index(root)，抛 OSError 或 ValueError → 返回 {}，返回值为 dict 且其 "nodes" 为 dict → 返回该 "nodes"，是 dict → 原样返回，否则返回 {}。
 def _index(root, index=None) -> dict:
     """索引节点表 `{node_id: meta}`（兼容 load_index 的 `{"nodes": …}` 形态）。"""
     if isinstance(index, dict):
@@ -284,6 +296,7 @@ def _index(root, index=None) -> dict:
     return idx if isinstance(idx, dict) else {}
 
 
+# 生效条件：_index(root, index) 中 node_id 对应值非 dict → 返回 None；否则用 meta.get("path")（绝对路径直接用，否则 join(root, str(rel or ""))）读文件——OSError 时返回 content/text 为 None、fm 为 {} 的 dict，成功则把 NF.loads(text) 得到的 content 与 fm（假值 → {}）连同 meta/path/text 一并返回。
 def load_node(node_id, root, *, index=None) -> dict:
     """读一个节点（索引 meta + 文件 frontmatter + 正文原文）。
 
@@ -307,6 +320,7 @@ def load_node(node_id, root, *, index=None) -> dict:
             "text": text, "path": fp}
 
 
+# 生效条件：span 为 None → 返回 ""；否则取 (text or "")[span[0]:span[1]] 去空白并把换行替换为 "⏎"，长度超 SNIPPET_MAX 时截断并追加 "…"。
 def _snippet(text, span) -> str:
     """命中片段（供人工核对肉眼确认「指的是不是这一句」）。"""
     if span is None:
@@ -315,6 +329,7 @@ def _snippet(text, span) -> str:
     return seg[:SNIPPET_MAX] + ("…" if len(seg) > SNIPPET_MAX else "")
 
 
+# 生效条件：任意 node_id/kind/field/span/evidence 均原样写入返回 dict 的 node_id/issue_kind/field/span/evidence 键，可选 rule/line/sentence/snippet/peer/cause/severity 未传时为 None、status 未传时为 "located"，不做任何校验。
 def _hit(node_id, kind, field, span, evidence, *, rule=None, line=None,
          sentence=None, snippet=None, peer=None, cause=None, status="located",
          severity=None) -> dict:
