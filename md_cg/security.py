@@ -36,6 +36,7 @@ def _rank(level: str) -> int:
         raise AccessDenied(f"未知敏感度/密级：{level}") from None
 
 
+# 生效条件：全部形参均可省略、clearance 默认取模块常量 DEFAULT_SENSITIVITY，构造时先经 _rank(clearance) 校验，随后 session 为假值（含空串）回落为 sess_+uuid 十二位、role 假值回落 "system"、expires_at 为假值（含 0）置 None、layers_allow/ops_allow 为 None 时保持 None 否则转 tuple、theory_ok 经 bool() 转换。
 class Principal:
     """调用方身份（一次会话一个）。
 
@@ -111,14 +112,17 @@ class Principal:
         return self.expires_at is not None and time.time() > self.expires_at
 
     @staticmethod
+# 生效条件：allow 为 None 时返回 True（未声明=不限制），allow 非 None 时返回 "'*' in allow 或 name in allow" 的布尔结果。
     def _in_scope(allow, name: str) -> bool:
         if allow is None:                     # 未声明 = 不限制（兼容直接构造）
             return True
         return "*" in allow or name in allow
 
+# 生效条件：layer 为假值（None/空串）时以 "knowledge" 参与判定，返回 self._in_scope(self.layers_allow, layer or "knowledge") 的结果。
     def allows_layer(self, layer: str) -> bool:
         return self._in_scope(self.layers_allow, layer or "knowledge")
 
+# 生效条件：op 为假值（None/空串）时以 "" 参与，先经 strip().lower() 归一化，返回 self._in_scope(self.ops_allow, (op or "").strip().lower()) 的结果。
     def allows_op(self, op: str) -> bool:
         return self._in_scope(self.ops_allow, (op or "").strip().lower())
 
@@ -191,6 +195,7 @@ class Principal:
                 f"write={self.can_write}, admin={self.can_admin})")
 
 
+# 生效条件：path 为 None 时落至 os.path.expanduser("~") 下的 .mdcg/_tenants.json，path 非 None（含空串）时按传入值使用，并在构造内以 self._load() 的返回填充 self.data。
 class TenantRegistry:
     """租户注册表：tenant → {root, clearance_cap, description}。
 
@@ -252,6 +257,7 @@ class TenantRegistry:
         t = self.get(tenant)
         return t["clearance_cap"] if t else DEFAULT_SENSITIVITY
 
+# 生效条件：self.data 含 "tenants" 键时返回其浅拷贝 dict(self.data["tenants"])；该键缺失时按 self.data["tenants"] 取值会 KeyError，无默认回落。
     def all(self):
         return dict(self.data["tenants"])
 
