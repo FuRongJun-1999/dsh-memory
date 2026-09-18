@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-266-batch-c266",
+ "round": 1,
+ "candidate_commit": "080a19b",
+ "branch": "task/iter-266-batch-c266",
+ "unit_job": "h1789738168280_7a7076",
+ "verdict": "REJECT",
+ "package_n": 2,
+ "text": "MdCGOS：REJECT。源码中 audit_log=root/_audit.jsonl、audit_archive=root/AUDIT_ARCHIVE、deletions_log=root/_deletions.jsonl、trash_dir=root/TRASH；仅 inbox_log、decisions_log 在 root/hippocampus 下，故“各日志路径拼到 root/hippocampus 下”与源码不符。MdCGSecure：ACCEPT，principal or Principal()、actor=self.principal.actor、_init_crypto(master_key) 均吻合。\nreason: MdCGOS 条件误述日志路径归属，与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
