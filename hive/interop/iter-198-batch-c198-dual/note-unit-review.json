@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-198-batch-c198-dual",
+ "round": 5,
+ "candidate_commit": "801137c",
+ "branch": "task/iter-198-batch-c198-dual",
+ "unit_job": "h1789714606630_69726d",
+ "verdict": "REJECT",
+ "package_n": 1,
+ "text": "第三候选与前置不符：源码先 `archive = archive_root()`，仅当 `archive is not None` 才追加 `os.path.join(archive, \"_archive\", \"ctp-aeis-data\", name)`；condition 却称固定拼出三候选且未锚定 None 前置，并改写为 `dirname(plugin_root())/<private-lib>/...`，属源码不支持的断言。前两项及 `isfile` 过滤顺序正确。\nreason: 第三项来源与 archive_root 非 None 前置被遗漏/改写，条件并非源码实际生效状态。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
