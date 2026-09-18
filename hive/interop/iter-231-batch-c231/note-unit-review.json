@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-231-batch-c231",
+ "round": 1,
+ "candidate_commit": "77959b2",
+ "branch": "task/iter-231-batch-c231",
+ "unit_job": "h1789721247862_8653c5",
+ "verdict": "REJECT",
+ "package_n": 7,
+ "text": "复核发现两处不符：`load_transcripts` 的“非目录（含空值）返回空列表”对 `None` 不成立，`os.path.isdir(None)` 会抛 `TypeError`；`opt` 在 `name` 位于 `argv` 末尾时 `argv[index+1]` 抛 `IndexError`，并非返回后邻元素或默认，`main` 的“否则打印并返回 1”也因此过宽。其余条目基本一致。\nreason: 条件把未覆盖的异常路径误述为正常返回，需修正。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
