@@ -293,6 +293,7 @@ def _pick_by_cues(sents: List[str], cues, limit: int = 1) -> List[str]:
     return out
 
 
+# 生效条件：类无 __init__ 形参，实例化即成立，类属性 name 恒为模块级常量 SRC_RULE，候选能力经 candidates(dialog, ctx=None) 以 dialog 为必需入参调用；
 class RuleParser:
     """内生规则解析器：**诚实下界能力**，不是主路径。
 
@@ -371,6 +372,7 @@ def _invoke_parser(parser, dialog: str, ctx: Optional[dict]) -> Dict[str, Any]:
 # 核心：compile_dialog（对话记录 → 六要素候选；只编译，不入库）
 # =============================================================================
 
+# 生效条件：dialog 空记 E001、node_id 空记 E002、actor 空记 E003，且 cg 转换后非 None 而 node_id 非空时该节点不存在再记 E002，存在任一 errors 即以 verdict{passed:False, reason:errors[0], authority:VERIFICATION_UNIT} 提前返回 res；否则按「marks/slots 任一为非空 dict → SRC_EXPLICIT；二者皆空且 parser 为 None → SRC_RULE（附下界告警）；二者皆空且 parser 非 None → SRC_PARSER」收集候选，四槽逐个校验（key 不在 cand_slots 即跳过；time_window 非长度 2 的 list/tuple 记 E021；其余槽空值/占位记 E021；仅当非「src_kind==SRC_EXPLICIT 且 strict_spans=False」豁免时，值非 dialog 子串记 E011、span 非空而定位失败记 E010），clean_slots 缺必需槽或 condition_space_text 为空记 E020；五要素按同样规则过滤后入 res.lines（生效条件行只由四槽 env_text 合成），验证基底按「候选 basis → 验证方式命中 _BASIS_CUES → 默认 other 并附告警」取值、不在 nodefile.VERIFICATION_BASIS 中记 E030；最终 res.success 与 verdict.passed 同取「无 errors」，verdict 恒带 requires_attestation=True，通过时再按 nodefile.CCG_REQUIRED 缺失项补 warning；
 def compile_dialog(dialog: str, node_id: str, actor: str, *,
                    marks: Optional[Dict[str, Any]] = None,
                    slots: Optional[Dict[str, Any]] = None,
