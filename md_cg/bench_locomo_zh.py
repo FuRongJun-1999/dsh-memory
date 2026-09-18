@@ -137,6 +137,7 @@ _SPEAKER_RE = re.compile(r"^([A-Za-z][A-Za-z .'\-]{0,24}): ")
 _DATE_RE = re.compile(r"Data time: (\d{1,2}:\d{2} [AP]M on \w+ \d{1,2} \w+, \d{4})")
 
 
+# 生效条件：调用即从 locomo_corpus.jsonl 建 id→记录映射、读 locomo_questions.jsonl，逐题取 q.get("evidence_turns") or []（缺键或假值按空列表）去重排序为证据 turn，text/title 用 c.get(...) or "" 兜假值、speaker/date 由 _SPEAKER_RE.match / _DATE_RE.search 命中才非空；verbose=True 时额外打印含 KNOWN_DANGLING 未登记告警与直接取键 q["qtype"] 的题型统计，verbose=False 时只跳过打印，写 RAW_TURNS/RAW_QUESTIONS 与返回 (rows, questions) 不变。
 def cmd_dump(verbose=True):
     """确定性派生：证据 turn 全集 + 题库 → raw_turns/raw_questions（零标注）。"""
     os.makedirs(ZH_TURNS, exist_ok=True)
@@ -180,6 +181,7 @@ def cmd_dump(verbose=True):
 
 
 # ------------------------------------------------------------------ status
+# 生效条件：verbose=True 时打印写入/查询侧完成度、多余 turn/qid 键与待补项（各截取前 head 项），并对已产出中文层用 bz.parse_zh 检查 identity/time/summary/terms 四项真值（并非五槽），非全真者记入 bad；verbose=False 时不打印、不做该槽位检查，返回值中 bad 恒为 []。
 def cmd_status(verbose=True, head=12):
     """产出进度：中文层 / 中文查询的覆盖与缺口（分批产出时用）。"""
     turns, questions = cmd_dump(verbose=False)
@@ -221,6 +223,7 @@ def cmd_status(verbose=True, head=12):
 
 
 # ------------------------------------------------------------------ prepare
+# 生效条件：miss_t 或 miss_q 任一非空即 raise SystemExit，否则按 sort_key（仅接受 scene_数字_session_数字_turn_数字 形式的 id，否则 raise SystemExit）对 turns 数值序排序，写出 corpus567.jsonl/questions500.jsonl 并返回 (corpus, out_q)，其中 answer 与 evidence_turns 为假值时分别落为 "" 与 []，verbose 只控制末尾打印。
 def cmd_prepare(verbose=True):
     """合并中文层 → corpus567.jsonl + questions500.jsonl（幂等覆盖）。"""
     turns, questions = cmd_dump(verbose=False)
@@ -235,6 +238,7 @@ def cmd_prepare(verbose=True):
             f"先跑 `status` 看缺口。")
 
     # 语料：按 (scene, session, turn) 数值序 —— 「承接前一条」需要确定的时间序
+# 生效条件：tid 匹配 ^scene_(\d+)_session_(\d+)_turn_(\d+)$ 时返回三个整数的 tuple（scene, session, turn），否则 raise SystemExit（不做其他容错或回退）。
     def sort_key(tid):
         m = re.match(r"scene_(\d+)_session_(\d+)_turn_(\d+)$", tid)
         if not m:
