@@ -52,11 +52,13 @@ PROTOCOL_VERSION = "2024-11-05"
 # 工具定义
 # --------------------------------------------------------------------------
 
+# 生效条件：传 _desc 与任意 props 时返回 {"type":"object","properties":props,"required":[...]}，required 仅列出 props 中值含真值 "_req" 键的条目名。
 def _s(_desc, **props):
     return {"type": "object", "properties": props, "required":
             [k for k, v in props.items() if v.get("_req")]}
 
 
+# 生效条件：始终返回 {"type":t,"description":desc}，仅当 req 为真值时该字典额外含 "_req": True。
 def _p(t, desc, req=False):
     d = {"type": t, "description": desc}
     if req:
@@ -74,6 +76,7 @@ def _make_query_expand(exp):
         return None
     from .mdcg import expand_query_terms_weighted
 
+# 生效条件：在外层 _make_query_expand(exp) 的 exp 为真值前提下被调用时，先 out=expand_query_terms_weighted(q)，再对 _exp（默认绑定外层 exp）每项——dict 项取 term=str(it.get("term") or "").strip()、w=float(it.get("weight",0.5))（抛 TypeError/ValueError 则 w=0.5），非 dict 项取 term=str(it).strip()、w=0.5，term 非空时 out[term]=max(out.get(term,0.0), max(0.0,min(1.0,w)))，最后置 out["__source__"]="llm" 并返回 out。
     def _expand(q, _exp=exp):
         out = expand_query_terms_weighted(q)
         for it in _exp:
@@ -888,6 +891,7 @@ ALL_TOOLS = KERNEL_TOOLS + TOOLS
 SURFACE = os.environ.get("MDCG_MCP_SURFACE", "kernel").strip().lower()
 
 
+# 生效条件：模块级 SURFACE 等于 "full" 时以 ALL_TOOLS、否则以 KERNEL_TOOLS 调 slim_tools 并返回其结果。
 def tools_for_surface():
     """kernel：只暴露 2 个基元；full：2 个基元 + 31 个细粒度工具（兼容/调试）。
 
@@ -905,10 +909,12 @@ def tools_for_surface():
 # 序列化
 # --------------------------------------------------------------------------
 
+# 生效条件：始终返回 json.dumps(obj, ensure_ascii=False, default=str)。
 def _j(obj) -> str:
     return json.dumps(obj, ensure_ascii=False, default=str)
 
 
+# 生效条件：path 以 ".zstd" 结尾时直接返回 DSHSessionSource(path)；否则读首个非空行做 json.loads，该 dict 满足 o.get("type")=="session" 或同时含 "type"/"seq"/"data" 时返回 DSHSessionSource(path)，能解析但不满足时返回 JsonlSource(path)，json.loads 抛 ValueError 或 open/读抛 OSError 或无非空行时落到返回 JsonlSource(path)。
 def _pick_source(path):
     """按内容嗅探源类型：DSH 会话格式 vs 通用 JSONL。"""
     from .sources import DSHSessionSource, JsonlSource
@@ -934,6 +940,7 @@ READ_MAX_LINES = 2000           # 单次 read 返回行数上限（Pi⑦② 截�
 READ_MAX_BYTES = 50 * 1024      # 单次 read 返回字节上限（Pi⑦② 截断）
 
 
+# 生效条件：text 先按 text or "" 归一，start 由 offset 定（offset 为假值取 0，否则 max(0,int(offset)-1)）；start≥total_lines 时返回空 text、next_offset=None 的窗口结果；否则从 start 起按 max_lines 行收集（max_lines=0 时 got 为空），且仅当已收集非空且 used+b>max_bytes 时提前 break（首行即便超 max_bytes 也收），end<total_lines 时 truncated=True、next_offset=end+1 并写续读 note。
 def _clip_text(text: str, *, offset: int = 0, max_lines: int = READ_MAX_LINES,
                max_bytes: int = READ_MAX_BYTES) -> dict:
     """行窗口 + 双阈值截断（Pi⑦② 截断必带续读提示）。
@@ -971,6 +978,7 @@ def _clip_text(text: str, *, offset: int = 0, max_lines: int = READ_MAX_LINES,
     return out
 
 
+# 生效条件：node 为假值时返回 None；否则用 _clip_text(node.get("content") or "", offset=offset) 构造 {id,path,frontmatter,content}，且当 clip["truncated"] 为真或 offset 为真值时追加 truncated/content_lines/content_bytes/offset/next_offset/note。
 def _node_view(node, offset: int = 0):
     if not node:
         return None
@@ -1067,6 +1075,7 @@ def _identity_call(cg, a):
     raise ValueError(f"identity 未知 action：{act}")
 
 
+# 生效条件：act=(a.get("action") or "check").strip().lower()；"check" 时以 content/text、layer、condition_space、non_applicable_conditions、tags、exclude、limit=int(a.get("limit") or consistency.MAX_SCAN)、depth（非 None 时 int(depth)，否则 consistency.MAX_DEPTH）、auto_flywheel 调 cg.check_consistency；"history" 返回 {"records": cg.consistency_history(limit=int(a.get("limit") or 100))}；"stats" 返回 cg.consistency_stats()；"catalog" 返回 consistency.catalog()；其余 act 抛 ValueError。
 def _consistency_call(cg, a):
     """节点间自动冲突检测统一入口（cg op=consistency 与 mdcg_consistency 共用）。
 
@@ -1188,6 +1197,7 @@ def _self_state_call(cg, a):
     raise ValueError(f"self_state 未知 action：{act}")
 
 
+# 生效条件：act=(a.get("action") or "routes").strip().lower()；act 属 routes/route/predict 时以 start_id=a.get("start_id") or a.get("node_id")、blindspot_id、horizon=int(a.get("horizon") or predict.HORIZON_DEFAULT)、max_branches=int(a.get("max_branches") or predict.MAX_BRANCHES_DEFAULT)、sort=a.get("sort") or "composite"、limit=int(a.get("limit") or 0)、semantic=bool(a.get("semantic", True)) 调 cg.predict_routes；act 属 feedback/rate 时调 cg.predict_feedback；act=="stats" 时调 cg.predict_stats(limit=int(a.get("limit") or 20))；act=="catalog" 时返回 predict.catalog()；其余 act 抛 ValueError。
 def _predict_call(cg, a):
     """生成式预测统一入口（cg op=predict 与 mdcg_predict 共用）。
 
@@ -1301,6 +1311,7 @@ def _evolution_call(cg, a):
     raise ValueError(f"evolution 未知 action：{act}")
 
 
+# 生效条件：value 为 None 时返回 []，value 为 list/tuple/set 时按其元素、其它类型按 str(value).replace(",", " ").split() 取项，再对每项 str(x).strip()，非空且未出现过才按序追加并返回去重列表。
 def _split_ids(value):
     """把 'a,b c' / ['a','b'] / 'a' 统一成去空白的 id 列表（None → []）。
 
@@ -1321,6 +1332,7 @@ def _split_ids(value):
     return out
 
 
+# 生效条件：始终构造 ex（verify=a.get("verify")、importance=float(a["importance"]) 当 a.get("importance") is not None 否则 None、verification_basis=a.get("verification_basis") or (verdict or {}).get("basis")、non_applicable_conditions、role、derived_from=_split_ids(a.get("derived_from")) or None、relation），返回其中值不属于 (None, [], '', {}) 的键值对。
 def _proposal_extras(a, verdict=None):
     """入队时保全 write 的落盘要素，避免裁决 accept 后退化成默认值。
 
@@ -1580,6 +1592,7 @@ def _action_sig(a, op):
     return None, None
 
 
+# 生效条件：op0=(a.get("op") or "").strip().lower()，op0 为空时按 a.get("content")→"write"、a.get("query") 或 a.get("node_id")→"read"、a.get("intent")→"route"、都无→"read" 推导 op；act0=(args.get("action") or "").strip().lower()，act0 为空时用 _action_sig(args, op) 推导且推导出时写回 args["action"]；args["op"]=op 后调 _cg_dispatch，返回 dict 且 op0 为空时补 out["op"]、out["op_derived"]=True 与 hint，act0 为空且 (act_derived 或 op in _ACTION_DEFAULT) 时 setdefault("action", eff)、out["action_derived"]=True 并按是否有 act_derived 写 hint_action。
 def _cg_call(cg, a):
     """认知图唯一入口（外层：op/action 缺省推导兜底 + 推导透出；主体见 _cg_dispatch）。"""
     op0 = (a.get("op") or "").strip().lower()
@@ -1626,6 +1639,7 @@ def _cg_call(cg, a):
     return out
 
 
+# 生效条件：始终调 help_text(ALL_TOOLS, query=a.get("query") or a.get("intent"), limit=int(a.get("limit") or a.get("k") or 40)) 并返回其结果。
 def _help_call(cg, a):
     """按需披露入口（工具面渐进披露的读取面，见 md_cg/tool_face.py）。
 
@@ -2261,6 +2275,7 @@ def _ccg_call(cg, a):
                      "units|catalog）" % act}
 
 
+# 生效条件：act=(a.get("action") or "recall").strip().lower()；act=="note" 时若 principal 非 None 且其 can_write 为假先 require_admin("session_note")，再调 cg.session_note(summary/text/content 之一或 ""，importance=float(0.6 if a.get("importance") is None else a.get("importance")) 等)；act=="recall" 时调 cg.session_recall(...)；act=="compact" 时若 a.get("note") 为真且 principal 非 None 且无写权先 require_admin("session_compact")，再调 cg.session_compact(...)；其余 act 抛 ValueError。
 def _session_call(cg, a):
     """会话三件套（P0）：note 写要点 / recall 续接 / compact 压摘要。
 
@@ -2299,6 +2314,7 @@ def _session_call(cg, a):
     raise ValueError(f"session 未知 action：{act}（允许 note/recall/compact）")
 
 
+# 生效条件：flag=a.get("prune", True)，flag 为字符串时重算为 flag.strip().lower() not in ("false","0","no","off","")；若 not flag 或 stats.get("truncated") 为真则返回 None；否则返回 refindex.prune_orphans(cg, kind=kind, root=root, items=items, dry_run=bool(a.get("prune_dry_run"))).
 def _prune_after_index(cg, a, *, kind, root, items, stats):
     """索引后的**节点级对账**：清退「同 root + 同 path 的过期代」。
 
@@ -2321,6 +2337,7 @@ def _prune_after_index(cg, a, *, kind, root, items, stats):
         dry_run=bool(a.get("prune_dry_run")))
 
 
+# 生效条件：sd=list(stats.get("skipped_dirs") or [])，返回 {"skipped_dirs": sd[:limit], "skipped_dirs_count": len(sd), "skip_dirs": list(stats.get("skip_dirs") or [])}，且仅当 len(sd)>limit 时追加 skipped_dirs_note。
 def _skip_dirs_report(stats, limit=20):
     """把「本次被 skip_dirs 排掉的目录」压成可审计字段。
 
@@ -2335,6 +2352,7 @@ def _skip_dirs_report(stats, limit=20):
     return out
 
 
+# 生效条件：act=(a.get("action") or "stat").strip().lower()；act 属 ("file","dir","jsonl") 且 principal 非 None 且其 can_write 为假时先 require_admin(f"ingest_{act}")，随后以 action=act 及各透传参数调 sources.run 并返回。
 def _ingest_call(cg, a):
     """文件摄取分派（P0）：file / dir / jsonl / stat。
 
@@ -2355,6 +2373,7 @@ def _ingest_call(cg, a):
         max_events=a.get("max_events"))
 
 
+# 生效条件：act=(a.get("action") or "stat").strip().lower()；principal 非 None 时一律先 require_admin(f"export_{act}")，随后以 include_content=True if a.get("include_content") is None else bool(a.get("include_content")) 等参数调 _ex.run 并返回。
 def _export_call(cg, a):
     """全库导出（P0）：graph / nodes / slice / stat。
 
@@ -2373,6 +2392,7 @@ def _export_call(cg, a):
         include_content=True if inc is None else bool(inc))
 
 
+# 生效条件：act=(a.get("action") or "stat").strip().lower()，apply=bool(a.get("apply"))，mode=str(a.get("mode") or "").strip().lower()；principal 非 None 时对 act=="rollback"、act in ("importance","separate") 且 apply、act=="longterm" 且 apply、act=="prefeed" 且 a.get("write") 真且无写权、act in ("backfill","cap","exempt") 且 apply、act in ("backfill_rollback","cap_rollback","exempt_rollback")、act=="vision_evidence" 且 apply、act=="vision_evidence_rollback"、act=="refine" 且 apply 分别 require_admin；随后 act=="longterm" 且 mode in ("list","ls","show","read") 时仅以 action/mode/limit/snapshot_id 调 cg.maintain，否则以全部参数调 cg.maintain。
 def _maintain_call(cg, a):
     """记忆维护（P1）：importance / longterm / prefeed / separate / rollback / stat。
 
@@ -2437,6 +2457,7 @@ def _maintain_call(cg, a):
         verdicts=a.get("verdicts"), reason=a.get("reason"))
 
 
+# 生效条件：act=(a.get("action") or "promote").strip().lower()；principal 非 None 时一律先 require_admin(f"consolidate_{act}")；imp=a.get("min_importance")，为 None 时回落为 a.get("importance")，随后以 imp 等参数调 cg.consolidate_run 并返回。
 def _consolidate_call(cg, a):
     """离线固化（P1）：promote / promote_rollback / promote_history。
 
@@ -2461,6 +2482,7 @@ def _consolidate_call(cg, a):
         actor=getattr(principal, "actor", None) if principal is not None else None)
 
 
+# 生效条件：act=(a.get("action") or "outlook").strip().lower()，apply=bool(a.get("apply"))；principal 非 None 时 can_write=bool(principal.can_write)，对 act in ("record","verify") 且无写权、act in ("fork","branch_rewrite","branch_merge") 且无写权、act in ("reconstruct","learn") 且 apply、act=="branch_discard" 分别 require_admin；随后以 action=act 等参数调 cg.insight 并返回。
 def _insight_call(cg, a):
     """洞察（P2）：window / record / verify / list / report / reconstruct / learn /
     outlook / catalog / fork / branch_rewrite / branch_search / branch_merge /
@@ -2575,6 +2597,7 @@ def _ref_call(cg, a):
     return out
 
 
+# 生效条件：始终 import 白箱模块并返回 whitebox.dispatch(cg, a)。
 def _whitebox_call(cg, a):
     """显式调用白箱能力库（AEIS 降为本地库后的唯一入口）。
 
@@ -2585,6 +2608,7 @@ def _whitebox_call(cg, a):
     return whitebox.dispatch(cg, a)
 
 
+# 生效条件：op=(a.get("op") or "").strip().lower()；op=="relation" 时返回 stg.relation(cg, a.get("a",""), a.get("b",""))；op=="timeline" 时返回 stg.timeline(cg, layer=a.get("layer"), limit=int(a.get("limit") or 50), desc=bool(a.get("desc", True)))；op=="anchors" 时返回 stg.anchors(cg, time_window=a.get("time_window"), bbox=a.get("bbox"), layer=a.get("layer"), limit=int(a.get("limit") or 50))；op=="consistency" 时返回 stg.consistency(cg, layer=a.get("layer"), limit=int(a.get("limit") or 50))；op 为空或其它的值抛 ValueError。
 def _stg_call(cg, a):
     """语义时空图唯一入口。"""
     from . import stg
@@ -2614,6 +2638,7 @@ def _stg_call(cg, a):
 # 工具实现
 # --------------------------------------------------------------------------
 
+# 生效条件：a=args or {}，unit=(a.get("as_unit") or "").strip()；unit 为空或 cg.principal 为 None 时直接返回 _dispatch(cg,name,a)；否则先 narrowed_principal(cg.principal, unit)，TokenError 时返回 {"ok":False,"error":f"as_unit 非法：{e}"}，成功则暂存 cg.principal、置为 narrowed、try 返回 _dispatch、finally 还原。
 def call_tool(cg, name, args):
     """MCP tools/call 入口：按 `as_unit` 做**请求级身份收窄**（单进程多身份）。
 
@@ -2869,6 +2894,7 @@ def _dispatch(cg, name, args):
 # JSON-RPC / stdio 主循环
 # --------------------------------------------------------------------------
 
+# 生效条件：error 非 None 时 msg 含 "error"=error、否则含 "result"=result，随后向 sys.stdout 写 _j(msg)+"\n" 并 flush，无返回值。
 def _reply(rid, result=None, error=None):
     msg = {"jsonrpc": "2.0", "id": rid}
     if error is not None:
@@ -2879,6 +2905,7 @@ def _reply(rid, result=None, error=None):
     sys.stdout.flush()
 
 
+# 生效条件：os.environ.get("MDCG_SUSTAIN","1") 取值属 ("0","false","False") 时返回 None；否则以 name=os.environ.get("MDCG_SUSTAIN_NAME") or "md_cg"、各 interval=float(os.environ.get(...) or sustain.DEFAULT_*)（空串回落默认）、各 auto_* 取 os.environ.get 默认值且值属 ("0","false","False") 时为关，调 sustain.ensure_loop 后 lp.start() 并返回 lp。
 def _start_sustain(cg):
     """启动常驻自维持循环（MDCG_SUSTAIN=0 关闭；间隔可用环境变量调）。"""
     if os.environ.get("MDCG_SUSTAIN", "1") in ("0", "false", "False"):
@@ -2911,6 +2938,7 @@ def _start_sustain(cg):
     return lp
 
 
+# 生效条件：s=str(s or "").strip()；不以 "session-" 开头、或去前缀按 "-" 分组后长度不等于 [8,4,4,4,12]、或某组字符不都在 "0123456789abcdef" 时返回 False，三者皆过返回 True。
 def _is_dsh_session(s: str) -> bool:
     """DSH 会话 id 形态判定：session-<8>-<4>-<4>-<4>-<12>（uuid4）。"""
     s = str(s or "").strip()
@@ -2922,6 +2950,7 @@ def _is_dsh_session(s: str) -> bool:
     return all(all(c in "0123456789abcdef" for c in g) for g in groups)
 
 
+# 生效条件：s=str(raw or "").strip()；s 为空返回 "anonymous"；非 DSH 形态返回 s；DSH 形态时以 root=os.environ.get("MDCG_DSH_SESSIONS_ROOT") or ~/.dsh/sessions 遍历条目，存在 root/<name>/s 目录则返回 s，os.listdir 抛 OSError 时返回 s，否则返回 "anonymous"。
 def _normalize_session(raw):
     """会话 id 归一 + 轻校验（只影响归因，不影响写入）。
 
