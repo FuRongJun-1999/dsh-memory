@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-150-batch-c150",
+ "round": 1,
+ "candidate_commit": "3defa1d",
+ "branch": "task/iter-150-batch-c150",
+ "unit_job": "h1789696760244_397709",
+ "verdict": "REJECT",
+ "package_n": 15,
+ "text": "reason: 第1条误述：hash 为假值但非 None（如空串/0）时源码为 ok=False/status=stale，并非 ok=True/status=ok。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
