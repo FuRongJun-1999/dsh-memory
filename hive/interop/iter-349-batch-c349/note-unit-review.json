@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-349-batch-c349",
+ "round": 1,
+ "candidate_commit": "5ea2cb9",
+ "branch": "task/iter-349-batch-c349",
+ "unit_job": "h1789761674344_3838de",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "条目1 ACCEPT；条目2 ACCEPT。两条均锚定 refresh/audit 源码段内默认参数、早退、分支与返回形状，未发现不符、越界或补充断言，位置合规。\n\nreason: 两条条件均与对应源码段证据一致，未越界或补充源码不支持断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
