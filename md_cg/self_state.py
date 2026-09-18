@@ -457,6 +457,7 @@ def _render(state):
     return "\n".join(lines) + "\n"
 
 
+# 生效条件：当 cg 可用时，refresh 以 subject（默认 DEFAULT_SUBJECT）和 window（默认 RECENT_WINDOW）聚合九项；若留痕末条存在且状态卡缺失或 state_version/state_hash 与留痕末条不一致，则按留痕重建元数据；若 force 为假且未触发重建且旧 state_hash 等于新指纹，返回 changed=False 的幂等跳过；否则若留痕末条存在且状态卡 state_hash（状态卡缺失时视为 None）与留痕末条不同，则 strict 为真时返回 ok=False、error='chain_broken'，strict 为假时以留痕末条 hash 修复 prev_hash 并写入，最终写入时返回 changed=True 及新 state_version/state_hash；
 def refresh(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW, importance=None,
             important_refs=None, dimensions=None, links=None,
             actor="self_state", force=False, strict=False, session=None):
@@ -698,6 +699,7 @@ def _issue(code, severity, why, **extra):
     return d
 
 
+# 生效条件：当 cg 可用时，audit 对 subject（默认 DEFAULT_SUBJECT）和 window（默认 RECENT_WINDOW）执行一致性审计；若对应状态卡不存在则返回 ok=False、verdict='absent'（含已收集的 issues）；否则基于留痕历史与现算值收集 issues，按有无 error 返回 verdict='broken'、无 error 但有 warn 返回 'drift'、均无返回 'consistent'，且 ok 为无 error；
 def audit(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW):
     """自我信息一致性审计：全部判定可重算（不依赖人的判断）。"""
     from . import protect as _protect
