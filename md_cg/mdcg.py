@@ -38,6 +38,33 @@ LAYERS = ("anchor", "structural", "knowledge", "contextual", "self",
           "rejected", "unresolved", "goals")
 # 有条件分区的层：knowledge 是主检索层；负记忆/目标目录按自己的 MARKS 走，不路由
 BUCKETED_LAYERS = ("knowledge",)
+
+# ---- S4 层级激活优先级（契约 §3 S4）----
+# 认知优先级：anchor/self（自我与锚点）先激活，其次 structural，再次 knowledge/contextual。
+# 语义是**加成**而非过滤：只改初始激活值/排序，不改变任何门控（不会把被门控剔除的节点拉回来）。
+LAYER_BOOST_DEFAULT = {
+    "anchor": 0.20, "self": 0.20, "structural": 0.15,
+    "knowledge": 0.10, "contextual": 0.05,
+}
+
+
+# 生效条件：env 为假值（None/空串）时返回 LAYER_BOOST_DEFAULT 的副本；否则按「层=值,层=值」解析，
+# 忽略无等号的项与不可转 float 的值（负值夹到 0.0），未出现的层保留默认值，返回合并后的 dict。
+def layer_boosts(env=None) -> dict:
+    """层级加成表：`MDCG_LAYER_BOOST="anchor=0.3,knowledge=0.05"`（部分覆盖，未提及的层取默认）。"""
+    out = dict(LAYER_BOOST_DEFAULT)
+    raw = env if env is not None else os.environ.get("MDCG_LAYER_BOOST", "")
+    if not raw:
+        return out
+    for part in str(raw).split(","):
+        if "=" not in part:
+            continue
+        k, v = part.split("=", 1)
+        try:
+            out[k.strip()] = max(0.0, float(v.strip()))
+        except ValueError:
+            continue
+    return out
 # 负记忆的 MARKS 必填（与 knowledge 的 5 要素不同）
 NEG_MEMORY_MARKS = {
     "rejected":   ("假设", "否决原因", "验证"),
@@ -1673,6 +1700,16 @@ class MdCG:
         # 参数：hops（默认 2）、decay（默认 0.5）、gain（默认 0.2）。
         _s3 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
                and os.environ.get("MDCG_GATE_S3_SPREAD") == "1")
+        # S4 层级激活优先级：同样必须显式 =1（新层加成会改变排序，属显式启用项）
+        _s4 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+               and os.environ.get("MDCG_GATE_S4_LAYER") == "1")
+        if _s4 and entries:
+            _bo = layer_boosts()
+            _lc = {}
+            for _e in entries:
+                _l = str(_e.get("layer") or "")
+                _lc[_l] = _lc.get(_l, 0) + 1
+            gates["s4"] = {"boosts": _bo, "layers": _lc}
         try:
             _s3_hops = max(1, int(os.environ.get("MDCG_SPREAD_HOPS", "2")))
         except ValueError:
@@ -1923,6 +1960,10 @@ class MdCG:
                 _pair_hits = _canon.pair_hits
             except Exception:
                 sem_on = False
+        # S4 层级激活优先级（契约 §3 S4）：加成而非过滤；子开关须显式 =1
+        _s4_on = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+                  and os.environ.get("MDCG_GATE_S4_LAYER") == "1")
+        _boost = layer_boosts() if _s4_on else None
         scored = []
         for e, fm, c in docs:
             # 归一化 content 后取 bigram（与 query 侧 normalize_en 对称）
@@ -1939,6 +1980,8 @@ class MdCG:
             if pools:                       # §七 降权：乘数只来自显式权重表（可复算）
                 raw = max(0.0, min(1.0, raw * pooling.weight_of(
                     fm.get("id") or e["path"], e, pools)))
+            if _boost:                      # S4：层级加成（最后一步；上限仍夹在 1.0）
+                raw = min(1.0, raw + _boost.get(str(fm.get("layer") or ""), 0.0))
             scored.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
                             "content": c, "path": e["path"]}, raw))
         return scored
