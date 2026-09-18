@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-113-batch-c113-fix-d1-d2-dual",
- "candidate_commit": "31be536",
+ "candidate_commit": "abd6bd3",
  "branch": "task/iter-113-batch-c113-fix-d1-d2-dual",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
