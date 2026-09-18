@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-227-batch-c227",
+ "round": 1,
+ "candidate_commit": "b7f4bc2",
+ "branch": "task/iter-227-batch-c227",
+ "unit_job": "h1789720590473_d74b6e",
+ "verdict": "ACCEPT",
+ "package_n": 8,
+ "text": "逐条核对：1-4、6-8 与源码一致；5 的 BLINDSPOT 条件、consts 过滤 externals、terse 空槽位省略、returns[:2] 等均未与源码冲突。各条均锚定所需参数/常量/早退/返回形状，position_ok=true，未发现源码不支持的断言。\nreason: 条件与源码分支及前置一致，无实质不符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
