@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-runtests-c1",
+ "round": 1,
+ "candidate_commit": "bc0ef45",
+ "branch": "task/iter-runtests-c1",
+ "unit_job": "h1789745616073_587dac",
+ "verdict": "ACCEPT",
+ "package_n": 5,
+ "text": "逐条：1 ACCEPT：分组 glob、排序、下划线跳过、空列表返回均符。2 ACCEPT：超时、No module 回退、末尾切片符。3 ACCEPT：exists 判定符。4 ACCEPT：isdir 判定符。5 ACCEPT：参数默认、组校验、_SKIPS、线程与返回码符。均未越界，未补源码不支持断言。\nreason: 五条条件均可在各自 src_segment 内逐项证实，无明显不符或越界。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
