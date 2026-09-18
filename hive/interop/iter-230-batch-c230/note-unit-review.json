@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-230-batch-c230",
+ "round": 1,
+ "candidate_commit": "28adf94",
+ "branch": "task/iter-230-batch-c230",
+ "unit_job": "h1789721099896_43c682",
+ "verdict": "ACCEPT",
+ "package_n": 7,
+ "text": "逐条复核：_norm_text/_j/_f 的假值、None、异常与返回形状均与源码一致；load_nodes 的 layers/limit 真值前置、空列表不过滤、排序与 dict 行返回准确；load_edges 的只读 URI、source_id 聚合及 normalize_edge 实参默认值正确；main/opt 的 opt 闭包来源、--db/--root 早退、layers 切分及恒返 0 均吻合。未发现超源断言；position_ok=true 不再要求行号。\nreason: 七条生效条件均准确锚定源码分支，无实质不符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
