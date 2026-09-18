@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-103-batch-c103-dual",
  "round": 5,
- "candidate_commit": "3657ffd",
+ "candidate_commit": "5846d84",
  "branch": "task/iter-103-batch-c103-dual",
- "unit_job": "h1789695018937_236fca",
+ "unit_job": "h1789697353052_cf4ad8",
  "verdict": "ACCEPT",
  "package_n": 1,
- "text": "条件与源码分支顺序一致：entry/None 假值经 `entry or {}`，layer 去假值转 str 命中 `NEG_LAYERS` 则返回 `POOL_NEGATIVE`；否则 node_id 去假值转 str 命中 `INDEX_PREFIXES`，或 tags 假值按 `[]`、元素小写命中指定集合则返回 `POOL_INDEX`；否则 `POOL_KNOWLEDGE`。tags 源码为 `str(t).lower()`，条件简写未改变字符串标签语义，未补充源码不支持断言。\n\nreason: 条件覆盖假值/None、早退顺序、模块常量与返回分支，未发现实质不符。\nverdict: ACCEPT",
+ "text": "reason: 条件与源码一致：覆盖 entry or {}、layer 去假值后查 NEG_LAYERS 早退；否则 node_id 转 str 后 startswith INDEX_PREFIXES，tags 去假值后逐项 str().lower() 匹配四值；否则 POOL_KNOWLEDGE。锚定形参及模块常量，无源码外断言。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
