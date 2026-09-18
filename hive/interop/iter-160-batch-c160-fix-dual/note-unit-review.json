@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-160-batch-c160-fix-dual",
  "round": 5,
- "candidate_commit": "a8d9283",
+ "candidate_commit": "9bb0930",
  "branch": "task/iter-160-batch-c160-fix-dual",
- "unit_job": "h1789704902053_2953ea",
+ "unit_job": "h1789705407726_74288f",
  "verdict": "ACCEPT",
  "package_n": 4,
- "text": "已逐条对照：四条条件均锚定入参、常量、早退与 verbose 分支；None/假值、bad 空返回、排序失败 SystemExit 等与源码一致，未见过度断言。\nreason: 候选条件准确反映源码语义，无实质不符。\nverdict: ACCEPT",
+ "text": "复核：四条条件与源码一致。cmd_dump 的 evidence_turns 假值回退、text/title 兜底、speaker/date 正则命中、verbose 仅控打印，写文件与返回不变；cmd_status 仅 verbose 下校验 identity/time/summary/terms 四项真值，verbose=False 时 bad 返回 []；cmd_prepare 缺项即 SystemExit、sort_key 解析与异常、answer/evidence_turns 回退、verbose 仅末尾打印；sort_key 正则与返回 tuple/异常无误。未发现源码不支持的断言。\nreason: 四条功能级条件均与源码语义一致，未发现不实或关键遗漏。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
