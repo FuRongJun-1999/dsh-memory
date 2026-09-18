@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-153-batch-c153-fix",
+ "round": 2,
+ "candidate_commit": "2bec168",
+ "branch": "task/iter-153-batch-c153-fix",
+ "unit_job": "h1789698321755_e3940c",
+ "verdict": "REJECT",
+ "package_n": 13,
+ "text": "复核：1-2、4-13 条与源码基本相符。第 3 条 `_gate_consistency` 条件有误：源码 `blocked` 仅两种——`v==\"REJECT\"` 且 `oc==\"reject\"`，或 `v∈{\"REJECT\",\"BLINDSPOT\"}` 且 `oc==\"defer\"`。因此 `oc` 为其它非 `\"reject\"`（如 `\"foo\"`）时，即便 `v` 为 REJECT/BLINDSPOT，也不会 `cg.propose`，而是返 None。条件写成“on_conflict 非 reject”扩大了入队分支。\nreason: `_gate_consistency` 将仅 `oc==\"defer\"` 的 REJECT/BLINDSPOT 入队条件扩大为所有非 reject，与源码返 None 不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
