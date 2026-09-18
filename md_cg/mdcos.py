@@ -287,6 +287,7 @@ class MdCGOS(MdCG):
     HIPPOCAMPUS = "hippocampus"
     TRASH = "trash"
 
+# 生效条件：传入 root 时以 super().__init__(root, autoflush=autoflush) 初始化父类，把 actor 存入 self.actor，并按 root（及类常量 AUDIT_ARCHIVE/HIPPOCAMPUS/TRASH）拼出 audit_log/audit_archive/hippocampus/inbox_log/decisions_log/trash_dir 等路径，同时 makedirs(hippocampus/trash_dir, exist_ok=True)。
     def __init__(self, root: str, autoflush: int = 64, actor: str = "system"):
         super().__init__(root, autoflush=autoflush)
         self.actor = actor
@@ -457,6 +458,7 @@ class MdCGOS(MdCG):
         s = self._log_scale(path)
         return {"bytes": size, "events": s["events"], "exact": False}
 
+# 生效条件：在已用 root 构造的实例上遍历 _audit_shards() 的分片名，对 `_audit.<n>.jsonl` 形式中 int(n) 成功的取最大值 top（解析失败 continue、无可解析项时 top=0），返回 top+1。
     def _next_shard_seq(self) -> int:
         top = 0
         for n in self._audit_shards():
@@ -486,6 +488,7 @@ class MdCGOS(MdCG):
         self._save_audit_index(idx)
         return gone
 
+# 生效条件：在已用 root 构造的实例上以 _log_scale(audit_log) 取活动读数为 active，对磁盘现有分片 present 中未登记者按 _audit_count_shard 采纳进 idx（OSError 则 continue，有采纳才写回索引），返回 active 并附 shards/shard_bytes/shard_events（均只统计 k in present）/oversized（非 exact 分片数）/total_bytes/total_events（active["events"] 为 None 时取 None）/total_exact/rotate_bytes=self.AUDIT_ROTATE_BYTES/keep_shards=self.AUDIT_KEEP_SHARDS。
     def audit_scale(self) -> dict:
         """审计面量级读数（O(1) 稳态）：活动文件实时读数 + 归档分片索引缓存。
 
@@ -547,6 +550,7 @@ class MdCGOS(MdCG):
                     payload_hash=_sig(content))
         return nid
 
+# 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点、roles 为 None 且 include_work 为假时剔除 WORK_ROLES 角色，其余收集进 out 返回。
     def _candidates(self, layer=None, roles=None, include_work=False,
                     session=None, branch=None):
         """候选池：按层 + role 过滤。默认剔除工作角色（工具输出/命令/编辑）。
@@ -736,6 +740,7 @@ class MdCGOS(MdCG):
             return scored[:GLOBAL_CAP]
         return scored
 
+# 生效条件：context 为 None 时返回 []；否则用 routing.bucket_dir(routing.route_key(ctx, ctx.get("tags"))) 取桶（context 非 dict 时 ctx 按 {} 处理），entries 中 bucket 等于该桶的经 self._read_many + self._score(docs, query, bigrams(query)) 返回，无命中则返回 []。
     def _path_bucket(self, query, entries, context):
         """条件桶路径：命中路由桶的节点优先。"""
         if context is None:
@@ -849,6 +854,7 @@ class MdCGOS(MdCG):
         scored.sort(key=lambda x: -x[1])
         return scored, prov
 
+# 生效条件：以 expand or expand_query_terms_weighted 作扩展函数并对 query 调用（结果为假值按 {} 处理），从其中 pop "__source__"（缺键为 "whitebox"）得 source，tw 为空返回 ([], source)，否则对 entries 中存在 _weighted_coverage>0 的条目按 0.6·cov+0.3·aff+0.1·ctx_aff（context 非 None 时以 route_key(ctx, ctx.get("tags")) 得 ctx_domain，context 非 dict 时用 {}）打分，返回 (out, source)。
     def _path_fuzzy(self, query, entries, context=None, expand=None):
         """模糊路径（分级隶属度）：返回 (scored, source)。
 
@@ -1369,6 +1375,7 @@ class MdCGOS(MdCG):
         return {pid for pid, r in self._pid_status().items()
                 if r.get("status") in ("accepted", "rejected")}
 
+# 生效条件：在已用 root 构造的实例上遍历 self.inbox_log 记录，其 pid 在 _pid_status() 中 status 为 accepted/rejected 时跳过，其余复制该记录并写入 status=s.get("status") or "pending"、round=int(s.get("round") or 0)、issues=list(s.get("issues") or []) 后返回 out。
     def review_list(self):
         """待审核候选（含被红队打回、待再审批的条目）。"""
         st = self._pid_status()
@@ -1952,6 +1959,7 @@ class MdCGOS(MdCG):
                         "会话开始时显式调用本 op 一次即可续接。")
         return pack
 
+# 生效条件：以 self.recent_events(limit=max(1, int(limit or 40))) 取事件（limit 为 0/None/"" 等假值时回落 40，异常时 evs=[]），session 为真值时按 (r.get("meta") or {}).get("session")==session 过滤，正文按行去重收集长度≥8 的要点、user 行优先排序后取前 max(1, int(max_points or 8))（max_points 假值时回落 8）拼 summary，note 为真值时再调 session_note 写入并在 out 附 written_id。
     def session_compact(self, session=None, limit=40, max_points=8,
                         note=False, importance=0.5):
         """上下文压缩摘要：把会话近期事件压成要点（可选写入会话节点）。
@@ -2454,6 +2462,7 @@ class MdCGOS(MdCG):
                      % (self.AUDIT_COUNT_MAX_BYTES / 1048576.0, est_sample >> 10))})
         return out
 
+# 生效条件：在已用 root 构造的实例上以 self.health() 为基底，附加 os 面读数（_role_counts、review_list/review_records 长度、_log_scale(deletions_log)["events"]、audit_scale 的 events/exact/bytes/shards/total_bytes/total_events/total_exact/oversized、last_d_records 长度、goals 的 total 与 active_goals(limit=0)、recent_events(limit=0)、protect_stats 去掉 ids/immutable_ids、forgetting/identity/consistency/metacognition/self_state/evolution 的 summary）后返回 h。
     def health_os(self):
         h = self.health()
         audit = self.audit_scale()
@@ -2703,6 +2712,7 @@ class MdCGOS(MdCG):
 
     # ============ 独立元认知（观察自身认知的二阶单元，不参与裁决）============
 
+# 生效条件：在已用 root 构造的实例上以 window（缺省 50）转调 metacognition.report(self, window=window) 并返回其结果。
     def metacognition_report(self, window=50):
         """元认知报告：轨迹 / 校准 / 盲区 / 信任 + 确定性建议。
 
@@ -2712,34 +2722,42 @@ class MdCGOS(MdCG):
         """
         return metacognition.report(self, window=window)
 
+# 生效条件：在已用 root 构造的实例上以 window（缺省 50）转调 metacognition.trace(self, window=window) 并返回其结果。
     def metacognition_trace(self, window=50):
         """信息差轨迹 D(t) → dD/dt（方向）→ d²D/dt²（情绪）。"""
         return metacognition.trace(self, window=window)
 
+# 生效条件：在已用 root 构造的实例上以 max_scan（缺省 2000）转调 metacognition.calibration(self, max_scan=max_scan) 并返回其结果。
     def metacognition_calibration(self, max_scan=2000):
         """自信校准：期望正确率 vs 实际验证通过率（过度自信 / 过度保守）。"""
         return metacognition.calibration(self, max_scan=max_scan)
 
+# 生效条件：在已用 root 构造的实例上以 limit（缺省 20）、window（缺省 200）转调 metacognition.blindspots(self, limit=limit, window=window) 并返回其结果。
     def metacognition_blindspots(self, limit=20, window=200):
         """盲区地图：反复 BLINDSPOT 的查询邻域 + 未解问题清单。"""
         return metacognition.blindspots(self, limit=limit, window=window)
 
+# 生效条件：在已用 root 构造的实例上以 window（缺省 100）转调 metacognition.trust(self, window=window) 并返回其结果。
     def metacognition_trust(self, window=100):
         """P_gap（信息差置信）+ P_trust（验证稳定置信）+ d²T/dt²（情感）。"""
         return metacognition.trust(self, window=window)
 
+# 生效条件：传入 query，并以 k（缺省 5）、min_sim（缺省 0.25）转调 metacognition.self_check(self, query, k=k, min_sim=min_sim) 并返回其结果。
     def self_check(self, query, k=5, min_sim=0.25):
         """元认知闸门：回答前先自问「我对这件事的认知状态如何」。"""
         return metacognition.self_check(self, query, k=k, min_sim=min_sim)
 
+# 生效条件：在已用 root 构造的实例上以 limit（缺省 100）转调 metacognition.history(self, limit=limit) 并返回其结果。
     def metacognition_history(self, limit=100):
         """元认知留痕（倒序）。"""
         return metacognition.history(self, limit=limit)
 
+# 生效条件：在已用 root 构造的实例上转调 metacognition.summary(self) 并返回其结果。
     def metacognition_summary(self):
         """一句话元认知状态（供 health / 面板）。"""
         return metacognition.summary(self)
 
+# 生效条件：不带 self 转调 metacognition.catalog() 并返回其结果。
     def metacognition_catalog(self):
         """自描述：观测面 + 理论出处 + 独立性约束。"""
         return metacognition.catalog()
@@ -2748,10 +2766,12 @@ class MdCGOS(MdCG):
     # self 层只放状态卡（单例）+ 关系节点；九项自我信息只登记当前值与指针，
     # 具体任务/人物/会话/时间/信任的细节由认知图按五维索引连接（不搬运内容）。
 
+# 生效条件：在已用 root 构造的实例上以 subject（缺省为模块级常量 self_state.DEFAULT_SUBJECT）转调 self_state.snapshot(self, subject) 并返回其结果。
     def self_state_snapshot(self, subject=self_state.DEFAULT_SUBJECT):
         """读自我状态卡（薄）：信息差/信任/情绪/情感/短期记忆/重要性/身份/关系。"""
         return self_state.snapshot(self, subject)
 
+# 生效条件：subject 缺省为 self_state.DEFAULT_SUBJECT，且当 kw 中 session 为假值（缺键/None/""）时置为 getattr(self, "session", None)，随后以 (**kw) 转调 self_state.refresh(self, subject, **kw) 并返回其结果。
     def self_state_refresh(self, subject=self_state.DEFAULT_SUBJECT, **kw):
         """刷新状态卡：聚合九项自我信息 → 写卡 + 版本链留痕（幂等）。
 
@@ -2761,44 +2781,54 @@ class MdCGOS(MdCG):
             kw["session"] = getattr(self, "session", None)
         return self_state.refresh(self, subject, **kw)
 
+# 生效条件：subject 缺省为模块级常量 self_state.DEFAULT_SUBJECT，以 (**kw) 转调 self_state.bootstrap(self, subject, **kw) 并返回其结果。
     def self_state_bootstrap(self, subject=self_state.DEFAULT_SUBJECT, **kw):
         """会话启动加载：状态卡 + 关系 + 最近留痕 + 五维索引（跨会话自我续接）。"""
         return self_state.bootstrap(self, subject, **kw)
 
+# 生效条件：传入 frm 与 to，以 (**kw) 转调 self_state.relate(self, frm, to, **kw) 并返回其结果。
     def self_state_relate(self, frm, to, **kw):
         """写一条有向关系（自我 ↔ 其他智能），reciprocal=True 时双向。"""
         return self_state.relate(self, frm, to, **kw)
 
+# 生效条件：以 subject（缺省 None）与 direction（缺省 "both"）转调 self_state.relations(self, subject=subject, direction=direction) 并返回其结果。
     def self_state_relations(self, subject=None, direction="both"):
         """列出关系节点（按 subject 过滤出/入）。"""
         return self_state.relations(self, subject=subject, direction=direction)
 
+# 生效条件：传入 dim 与 value，以 (**kw) 转调 self_state.index(self, dim, value, **kw) 并返回其结果。
     def self_state_index(self, dim, value, **kw):
         """按五维索引（task/person/session/time/trust）反查具体详情节点。"""
         return self_state.index(self, dim, value, **kw)
 
+# 生效条件：以 subject（缺省为模块级常量 self_state.DEFAULT_SUBJECT）转调 self_state.dimensions(self, subject) 并返回其结果。
     def self_state_dimensions(self, subject=self_state.DEFAULT_SUBJECT):
         """状态卡登记的五维索引标签。"""
         return self_state.dimensions(self, subject)
 
+# 生效条件：以 subject（缺省为模块级常量 self_state.DEFAULT_SUBJECT）与 (**kw) 转调 self_state.audit(self, subject, **kw) 并返回其结果。
     def self_state_audit(self, subject=self_state.DEFAULT_SUBJECT, **kw):
         """自我信息一致性审计：单例/版本链/时序/派生自洽/跨面一致/身份/关系/保护/索引。"""
         return self_state.audit(self, subject, **kw)
 
+# 生效条件：以 limit（缺省 100）、subject（缺省 None）转调 self_state.history(self, limit=limit, subject=subject) 并返回其结果。
     def self_state_history(self, limit=100, subject=None):
         """自我状态留痕（倒序，含版本链 hash）。"""
         return self_state.history(self, limit=limit, subject=subject)
 
+# 生效条件：subject 缺省为模块级常量 self_state.DEFAULT_SUBJECT，session 为假值（None/""）时回落 getattr(self, "session", None)，随后转调 self_state.summary(self, subject, session=session or getattr(self, "session", None)) 并返回其结果。
     def self_state_summary(self, subject=self_state.DEFAULT_SUBJECT,
                            session=None):
         """一句话自我状态（供 health / 面板；session= 会话归因切片）。"""
         return self_state.summary(self, subject,
                                   session=session or getattr(self, "session", None))
 
+# 生效条件：不带 self 转调 self_state.catalog() 并返回其结果。
     def self_state_catalog(self):
         """自描述：九项自我信息 + 五维索引 + 审计规则。"""
         return self_state.catalog()
 
+# 生效条件：传入 node_id，relation_types 为假值（None/""等）时回落模块级常量 chain.CAUSAL_TYPES，连同 max_depth（缺省 chain.MAX_DEPTH_DEFAULT）、direction（缺省 "out"）、max_chains（缺省 50）、sort（缺省 "strength"）转调 chain.walk 并返回其结果。
     def causal_chain(self, node_id, relation_types=None,
                      max_depth=chain.MAX_DEPTH_DEFAULT, direction="out",
                      max_chains=50, sort="strength"):
@@ -2811,12 +2841,14 @@ class MdCGOS(MdCG):
                           max_depth=max_depth, direction=direction,
                           max_chains=max_chains, sort=sort)
 
+# 生效条件：传入 node_id，以 (**kw) 转调 chain.explain(self, node_id, **kw) 并返回其结果。
     def explain_chain(self, node_id, **kw):
         """人类可读链式解释：「什么条件下 → 发生什么」。"""
         return chain.explain(self, node_id, **kw)
 
     # ============ 生成式预测 / 因果推理 ============
 
+# 生效条件：在已用 root 构造的实例上按原值透传 start_id/blindspot_id/horizon（缺省 predict.HORIZON_DEFAULT）/max_branches（缺省 predict.MAX_BRANCHES_DEFAULT）/sort（缺省 "composite"）/limit（缺省 0）/semantic（缺省 True）调用 predict.routes 并返回其结果。
     def predict_routes(self, start_id=None, blindspot_id=None,
                        horizon=predict.HORIZON_DEFAULT,
                        max_branches=predict.MAX_BRANCHES_DEFAULT,
@@ -2827,6 +2859,7 @@ class MdCGOS(MdCG):
                               max_branches=max_branches, sort=sort,
                               limit=limit, semantic=semantic)
 
+# 生效条件：传入 predicted_node_id 与 actual_node_id，并以 hit（缺省 None）/note（缺省 ""）/actor（缺省 "predict"）/sync_self（缺省 True）转调 predict.feedback 并返回其结果。
     def predict_feedback(self, predicted_node_id, actual_node_id=None,
                          hit=None, note="", actor="predict", sync_self=True):
         """预测反馈（D-006）：命中 → 边置信度 +0.05；未命中 → 登记 rejected。
@@ -2838,18 +2871,22 @@ class MdCGOS(MdCG):
                                 hit=hit, note=note, actor=actor,
                                 sync_self=sync_self)
 
+# 生效条件：在已用 root 构造的实例上以 limit（缺省 20）转调 predict.stats(self, limit=limit) 并返回其结果。
     def predict_stats(self, limit=20):
         """预测统计：调用数 / 路线数 / 命中率 / 动态阈值。"""
         return predict.stats(self, limit=limit)
 
+# 生效条件：不带 self 转调 predict.catalog() 并返回其结果。
     def predict_catalog(self):
         """自描述：D-001~D-006 决策、权重、校准参数、与 AEIS 的差异。"""
         return predict.catalog()
 
+# 生效条件：传入 a_id 与 b_id，以 max_depth（缺省 5）转调 predict.causal_path(self, a_id, b_id, max_depth=max_depth) 并返回其结果。
     def causal_path(self, a_id, b_id, max_depth=5):
         """因果路径推理：A 能否沿因果/时序边到达 B（伪因果防护的完整语义）。"""
         return predict.causal_path(self, a_id, b_id, max_depth=max_depth)
 
+# 生效条件：传入 a_id 与 b_id，转调 predict.causal_gate(self, a_id, b_id) 并返回其结果。
     def causal_gate(self, a_id, b_id):
         """D-002 伪因果过滤门 → (准入?, 理由)。"""
         return predict.causal_gate(self, a_id, b_id)
@@ -2857,6 +2894,7 @@ class MdCGOS(MdCG):
     # ============ 演化账本（md 载体：规律 + 状态，可回滚）============
     # 每一次修改 = 对一条缺失条件的补充；记录的是认知规律与状态，不是实现。
 
+# 生效条件：在已用 root 构造的实例上转调 evolution.record，其中 kind 为假值（None/""）时回落模块级常量 evolution.KIND_CONDITION_GAP，**extra 为空字典时传 extra=None，node_id/pattern/missing/action/evidence/source/before/after 原值透传。
     def evolution_record(self, node_id=None, pattern="", missing="", action="",
                          evidence="", source="", kind=None, before=None,
                          after=None, **extra):
@@ -2867,31 +2905,38 @@ class MdCGOS(MdCG):
             kind=kind or evolution.KIND_CONDITION_GAP,
             before=before, after=after, extra=extra or None)
 
+# 生效条件：在已用 root 构造的实例上以 limit（缺省 50）、node_id（缺省 None）、kind（缺省 None）转调 evolution.entries，返回 {"entries": ...}。
     def evolution_entries(self, limit=50, node_id=None, kind=None):
         """账本条目（倒序）。"""
         return {"entries": evolution.entries(
             self, limit=limit, node_id=node_id, kind=kind)}
 
+# 生效条件：传入 entry_id，转调 evolution.show(self, entry_id)，返回 {"entry": ...}。
     def evolution_show(self, entry_id):
         """单条演化条目。"""
         return {"entry": evolution.show(self, entry_id)}
 
+# 生效条件：传入 node_id，以 limit（缺省 50）转调 evolution.history(self, node_id, limit=limit) 并返回其结果。
     def evolution_history(self, node_id, limit=50):
         """某节点的演化史（倒序）。"""
         return evolution.history(self, node_id, limit=limit)
 
+# 生效条件：在已用 root 构造的实例上以 limit（缺省 10）转调 evolution.patterns(self, limit=limit) 并返回其结果。
     def evolution_patterns(self, limit=10):
         """规律统计：哪一维条件反复缺失、由谁触发、哪些规律重复出现。"""
         return evolution.patterns(self, limit=limit)
 
+# 生效条件：在已用 root 构造的实例上转调 evolution.summary(self) 并返回其结果。
     def evolution_summary(self):
         """一句话演化状态（供 health / 面板）。"""
         return evolution.summary(self)
 
+# 生效条件：传入 entry_id，以 dry_run（缺省 False）、note（缺省 ""）转调 evolution.rollback 并返回其结果（含 note 为空时原样传空串）。
     def evolution_rollback(self, entry_id, dry_run=False, note=""):
         """把某条演化撤回其 before 状态；撤销本身也记一条条目。"""
         return evolution.rollback(self, entry_id, dry_run=dry_run, note=note)
 
+# 生效条件：不带 self 转调 evolution.catalog() 并返回其结果。
     def evolution_catalog(self):
         """自描述：载体 + 原则 + 字段 + 可回滚范围。"""
         return evolution.catalog()
@@ -2907,6 +2952,7 @@ class MdCGSecure(MdCGOS):
       · 审计带 tenant/actor/session（可追溯到哪个会话做了什么）
     """
 
+# 生效条件：传入 root 时 principal 为假值（None 等）则新建 Principal()，以 self.principal.actor 作 actor 调父类 MdCGOS.__init__(root, actor=..., **kw)，再设 self.session = self.principal.session 并执行 self._init_crypto(master_key)（master_key 缺省 None）。
     def __init__(self, root: str, principal: Principal = None,
                  master_key=None, **kw):
         self.principal = principal or Principal()
@@ -2919,6 +2965,7 @@ class MdCGSecure(MdCGOS):
 
     # ---------- 私有内容加密（密钥即访问权 + 身份一致性识别）----------
 
+# 生效条件：master_key 非 None 时取 self._resolve_master_key(master_key)、为 None 时取 crypto.load_master_key()；kek 为假值时置 _crypto_error="no_master_key" 且 self.kek=self.dek=None 并返回；否则置 self.kek 并调 crypto.provision_dek(self.root, kek, tenant, actor, clearance=...) 得 dek；捕获 crypto.CryptoError 或 OSError 时置 _crypto_error=str(e) 且 self.kek=self.dek=None。
     def _init_crypto(self, master_key=None):
         """解析 KEK（显式 → 环境变量 → 仓库外主密钥文件），签发本身份 DEK。
 
