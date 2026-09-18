@@ -2051,6 +2051,38 @@ class MdCG:
         scored.sort(key=lambda x: (-x[1],
                                    -float(x[0]["frontmatter"].get("importance") or 0)))
         results = scored[:k]
+        # ---- S6 一致性交叉验证（契约 §3 S6；flag 控、默认关）----
+        # 只读复用 crosscheck 的「赛道 × 来源执照」判定：对 top-k 逐个给出赛道、声明依据是否被
+        # 该赛道许可、以及断言条数。**不进主排序**（scored/out 的次序一律不动），只落审计摘要。
+        _s6 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+               and os.environ.get("MDCG_GATE_S6_CROSSCHECK") == "1")
+        if _s6:
+            try:
+                from . import crosscheck as _cc
+            except Exception:
+                _cc = None
+            if _cc is not None:
+                _rows6, _track6, _flagged6 = [], {}, []
+                for _r in results:
+                    _fm6 = _r[0].get("frontmatter") or {}
+                    _c6 = _r[0].get("content") or ""
+                    try:
+                        _tk6 = _cc.classify_track(_fm6, _c6)
+                        _bs6 = _fm6.get("verification_basis")
+                        _ok6 = bool(_cc.basis_licensed(_tk6, _bs6)) if _bs6 else False
+                        _cl6 = len(_cc.extract_claims(_fm6, _c6))
+                    except Exception:
+                        _tk6, _bs6, _ok6, _cl6 = "undetermined", None, False, 0
+                    _track6[_tk6] = _track6.get(_tk6, 0) + 1
+                    _rid6 = _r[0].get("id") or _r[0].get("path")
+                    _rows6.append({"id": _rid6, "track": _tk6, "basis": _bs6,
+                                   "licensed": _ok6, "claims": _cl6})
+                    # 只在「赛道已定 ∧ 声明了依据 ∧ 依据不被该赛道许可」时点名（赛道未定不点名）
+                    if _tk6 in ("science", "humanities") and _bs6 and not _ok6:
+                        _flagged6.append({"id": _rid6, "track": _tk6, "basis": _bs6})
+                stat.setdefault("gates", {})["s6"] = {
+                    "checked": len(_rows6), "by_track": _track6,
+                    "flagged": _flagged6, "rows": _rows6}
         # 资格判定（与性能正交）
         out = []
         for r in results:
