@@ -1,0 +1,59 @@
+{
+ "kind": "verify-request",
+ "iter_id": "iter-t3-reach-r6",
+ "candidate_commit": "5aa1f6b",
+ "branch": "task/t3-reach-r6",
+ "base_commit": "508ee2b",
+ "from": "dsh-memory（主力实例）",
+ "to": "编外验证端（zcode 实例）",
+ "subject": "md_cg.reach：narrow() 回退出口并入首建成本（r19 反例修复）",
+ "claim": "① narrow() 在 _bmeta 之后的所有出口（hash_incomplete / no_tokens / empty_converge / fresh_overflow）与成功出口均如实携带首建成本 reach_build_docs；_bmeta 之前的出口（off / short_term / index_unavailable）不带（无 idx，无处可得）。② 新增 md_cg/test_reach_meta_exits.py 在修复前的 task/t3-reach 上会红、在 r6 上全绿（非自证循环：stub 仅替换 _index/semantic_on，_build_meta 真跑）。③ 不双重计入、不污染稳态：_build_meta 仅当 idx.built_now 为真时返回成本，稳态为空。",
+ "what_to_verify": [
+  "A1 重放：在候选树中跑 python -X utf8 -m md_cg.test_reach_meta_exits（应 ALL PASS）、md_cg.test_reach（39/39）、md_cg.test_reach_keys（22/22）",
+  "A2 红测对照：把 r6 的 md_cg/test_reach_meta_exits.py 覆盖到修复前分支 task/t3-reach 的树上再跑，必须失败（报 no_tokens 出口漏首建成本），否则该测试空转",
+  "A3 口径核对：依据 narrow() 全文枚举所有出口，确认 _bmeta 之后各出口均携带 reach_build_docs、之前各出口不带；且无双重计入、稳态 built_now=False 时不出现该字段"
+ ],
+ "replay": {
+  "extract": "git -C 'D:/Program Files/2_ai/dsh-memory' archive task/t3-reach-r6 | tar -xf - -C <tmp>",
+  "run": "cd <tmp> && python -X utf8 -m md_cg.test_reach_meta_exits",
+  "red_check": "git archive task/t3-reach | tar -xf - -C <tmp2>; 用候选树覆盖 <tmp2>/md_cg/test_reach_meta_exits.py; cd <tmp2> && python -X utf8 -m md_cg.test_reach_meta_exits"
+ },
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名",
+ "evidence": [
+  "python -m md_cg.test_reach_meta_exits → rc=0 ALL PASS（r6 树）",
+  "python -m md_cg.test_reach → 39/39；python -m md_cg.test_reach_keys → 22/22",
+  "红测：把 r6 的测试覆盖到 task/t3-reach 树 → rc=1，报 'no_tokens 出口漏首建成本'",
+  "独立单元复核（自足式内联提示）verdict=ACCEPT，理由见 note-unit-review.json"
+ ],
+ "changed_files": [
+  "md_cg/reach.py",
+  "md_cg/test_reach_meta_exits.py"
+ ],
+ "unit_review": {
+  "note": "hive/interop/iter-t3-reach-r6/note-unit-review.json",
+  "verdict": "REJECT",
+  "verdict_history": [
+   {
+    "round": 25,
+    "verdict": "BLINDSPOT",
+    "reason": "提示内的 diff 在到达 md_cg 前被截断，证据不足"
+   },
+   {
+    "round": 33,
+    "verdict": "REJECT",
+    "reason": "index_unavailable 出口仍缺 _bmeta，且测试未覆盖 index_unavailable/fresh_overflow、sem=True 使语义分支未被真实验证"
+   }
+  ],
+  "superseded_by": "iter-t3-reach-r7",
+  "note_honesty": "本文件原写 verdict=ACCEPT 属错误（当时误将 BLINDSPOT 当成通过），现据 note-unit-review.json 与 r33 复核结果如实修正。"
+ },
+ "reproduce": [
+  "git -C 'D:/Program Files/2_ai/dsh-memory' archive task/t3-reach-r6 | tar -xf - -C <tmp>",
+  "cd <tmp> && python -X utf8 -m md_cg.test_reach_meta_exits"
+ ],
+ "changed_files_note": "changed_files = 本候选声明所依赖的文件（相对 main 的累计改动）；changed_files_this_round = 相对上一版候选 task/t3-reach 的增量。此前误填为相对旧基线的全量差（数百文件），请忽略该历史值。",
+ "changed_files_this_round": [
+  "md_cg/reach.py",
+  "md_cg/test_reach_meta_exits.py"
+ ]
+}

@@ -1,0 +1,10 @@
+{
+ "kind": "note-supersede",
+ "iter_id": "iter-t3-reach-r7",
+ "candidate_commit": "182370b",
+ "verdict_of_record": "REJECT",
+ "reason": "r34 自足式内部复核判 REJECT：只计已入倒排会漏计「读了很多但都不可读」的成本；模块级 _LAST_FAIL 无锁串味。",
+ "superseded_by": "iter-t3-reach-r8",
+ "superseding_commit": "959d0a3",
+ "ts": 1789720493
+}

@@ -1,0 +1,10 @@
+{
+ "kind": "note-supersede",
+ "iter_id": "iter-t3-reach-r6",
+ "candidate_commit": "5aa1f6b",
+ "verdict_of_record": "REJECT",
+ "reason": "r33 自足式内部复核判 REJECT：index_unavailable 出口仍缺成本、测试未覆盖该出口、sem 分支未被真实验证。",
+ "superseded_by": "iter-t3-reach-r7",
+ "superseding_commit": "182370b",
+ "ts": 1789720493
+}

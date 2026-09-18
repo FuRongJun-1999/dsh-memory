@@ -1,0 +1,5 @@
+ts	iter	branch	commit	status	claim_by	claimed_via	note
+1789714181	iter-t2-disasm-truthy-r12	task/t2-disasm-truthy-r12	233fd52	internal-verified	1789714781	internal:ACCEPT	
+1789714181	iter-t3-reach-r6	task/t3-reach-r6	5aa1f6b	superseded	1789714781		r33 \u81ea\u8db3\u5f0f\u590d\u6838 REJECT\uff1aindex_unavailable \u51fa\u53e3\u7f3a\u6210\u672c\uff1b\u7531 r7 \u63a5\u66ff
+1789720493	iter-t3-reach-r8	task/t3-reach-r8	959d0a3	internal-verified	1789721093	internal:ACCEPT	
+1789720510	iter-t3-reach-r7	task/t3-reach-r7	182370b	superseded	1789721110		r34 \u81ea\u8db3\u5f0f\u590d\u6838 REJECT\uff1a\u6f0f\u8ba1\u4e0d\u53ef\u8bfb\u8bfb\u76d8 + \u6a21\u5757\u7ea7\u72b6\u6001\u4e32\u5473\uff1b\u7531 r8 \u63a5\u66ff

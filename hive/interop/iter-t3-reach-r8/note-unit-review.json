@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-t3-reach-r8",
+ "round": 35,
+ "candidate_commit": "959d0a3",
+ "branch": "task/t3-reach-r8",
+ "base_commit": "182370b",
+ "unit_job": "self-contained",
+ "verdict": "ACCEPT",
+ "prompt_style": "inline-code-full-file+diff",
+ "text": "a) `built_reads` 在 `cg._read(e)` 返回后自增，`c is None` 也计数，堵住 r34「不可读继续」路径；唯 `_read` 自身首节点抛错时 reads=0、fail 空，但按“完成一次 _read”定义不算已读盘。  \nb) `_LAST_FAIL` 已删；`_index_with_meta` 每次新建 fail 容器，`_index` 经 `_fail` 写入，无模块级可变状态串味；`_CACHE` 无锁属旧有。  \nc) ⑥⑦⑧ 用 ReadStubCG 真实触发不可读后失败、部分入倒排后失败、成功；断言硬编码，非自证。  \nd) 新增 `reach_build_reads` 是附加键；`reach` 降级契约与 `reach_build_docs` 入索引口径不变。  \ne) 可构造首节点 `_read` 抛错使 fail 空，但同上不属“已完成读盘”。  \nreason: r8 已堵住 r34 具体反例，失败元数据与调用绑定，测试未自证，降级契约不变。  \nverdict: ACCEPT"
+}
