@@ -88,6 +88,7 @@ PATHSETS = (("lexical",), ("lexical", "bucket"),
 
 # ------------------------------------------------------------------ 写入侧加工
 
+# 生效条件：c 含 'zh_fields' 且其中 identity/time/summary/terms/condition 均存在时，返回按身份、时间、摘要、词、条件及 c['text'] 拼成的正文，缺任一键则抛 KeyError；
 def body_of(c):
     """正文：与 bench_zh_mad.build_arm 的 a0 臂**逐字一致**（无意图行/无承接行）。"""
     f = c["zh_fields"]
@@ -102,6 +103,7 @@ def body_of(c):
     ])
 
 
+# 生效条件：c 含 'zh_fields'，terms 可迭代且 summary 经 str() 后参与空白切分时，将 terms 与切分词合并后交 routing.big_domain_classify 返回域判定结果；
 def write_domain(c):
     """写入侧域判定：只读 turn 自身的 zh_fields（盲于查询集）。"""
     f = c["zh_fields"]
@@ -115,6 +117,7 @@ def query_domain(q):
     return routing.big_domain_classify(list(mg.expand_query_terms(q["question"])))
 
 
+# 生效条件：mode 为 'base' 时返回 []；mode 为 'bare' 时返回 bz.normalize_terms(c, df) 的列表；其余 mode 下取 doms.get(c['id']) 得 d，d 为真值时返回 ['domain:'+d]，否则返回 []；
 def arm_tags(c, mode, df, doms):
     if mode == "base":
         return []
@@ -125,6 +128,7 @@ def arm_tags(c, mode, df, doms):
     return [f"domain:{d}"] if d else []
 
 
+# 生效条件：传入 corpus/name/mode/df 时先清空 HERE+ARM_PREFIX+name 同名目录再建 MdCGOS 并返回 (cg, doms)；mode 为 'shuf' 时把有域节点的域随机重排，verbose 为假值时跳过桶健康输出；
 def build_domain_arm(corpus, name, mode, df, verbose=True):
     """按臂建库。四臂唯一差异是 tags 内容（layer/正文/edges 全同）。"""
     import shutil
@@ -176,6 +180,7 @@ def main():
     n_ctx = sum(1 for v in qctx.values() if v)
     print(f"查询侧落域 {n_ctx}/{len(questions)} = {n_ctx / len(questions):.1%}")
 
+# 生效条件：q 含 'qid' 键时返回查询上下文映射中该 qid 对应的值，映射缺该键时 .get 返回 None（q 缺 'qid' 则抛 KeyError）；
     def context_of(q):
         return qctx.get(q["qid"])
 
@@ -219,6 +224,7 @@ def main():
     ec.save_result("axis_domain_locomo_zh.json", out)
 
     # ---- 裁决摘要 ----
+# 生效条件：a 与 p 以 '|' 拼成键后，在结果字典的 cells 映射中取该键，含键时返回其值，缺键时 .get 返回 {}；
     def cell(a, p):
         return out["cells"].get(f"{a}|{p}", {})
 
