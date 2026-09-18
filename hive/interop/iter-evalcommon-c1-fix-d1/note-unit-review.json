@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-evalcommon-c1-fix-d1",
+ "round": 3,
+ "candidate_commit": "755906f",
+ "branch": "task/iter-evalcommon-c1-fix-d1",
+ "unit_job": "h1789753097669_5ceaa5",
+ "verdict": "REJECT",
+ "package_n": 3,
+ "text": "1) calibrate_turn：REJECT。条件所述 `ctx[\"canon\"]`、`canon_hits`、`last_canon`、正则追加等分支不在本段；实际函数仅 `r,date_key,title_key`，直接由 `ents` 生成 tags/cond_space。越界：ctx/canon_hits/last_canon 分支。  \n2) build_eval_cg：ACCEPT。rebuild/rmtree、`have>=n_rows` 复用、calib_of 真假走 A/B、flush 后返回均符；canon 预计算仅表述略简，未构成反证。  \n3) install_read_cache：ACCEPT。闭包 cache/orig、path 命中返回、未命中 orig 存入并返回均符。  \nreason: 第1条条件分支越界且与源码不符。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
