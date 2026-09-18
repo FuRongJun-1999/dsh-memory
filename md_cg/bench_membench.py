@@ -58,6 +58,7 @@ def load_rows(path=DATA):
         return [json.loads(l) for l in f if l.strip()]
 
 
+# 生效条件：以 root（默认模块常量 ROOT）建 MdCGOS，rows 为假值（None/空容器）时回落 load_rows() 取数据，逐行用 r["id"] 与 r["text"] 调 add，仅当 r["id"] 已在构建开始时取的 cg.index["nodes"] 快照 have 中才 continue（该快照不随新增 id 更新），verbose 假值则不打印，最后 cg.flush() 并返回 cg。
 def build(root=ROOT, rows=None, verbose=True):
     """把数据集写进 md 认知图（幂等：同 id 覆盖）。"""
     rows = rows or load_rows()
@@ -217,6 +218,7 @@ def _pct(x):
     return f"{x * 100:5.1f}%"
 
 
+# 生效条件：r4 长度为 0 时返回 {}；否则以 seed 建 rng，对 (1,"self@1") 与 (k,f"self@{k}") 由 r4/r5 的 0<rank<=kk 命中向量算 b01/b10，m=b01+b10 为 0 时 p=1.0 否则取 McNemar 精确单侧和除以 2**m，并用 n_boot 次有放回重采样取 deltas[int(0.025*n_boot)] 与 deltas[int(0.975*n_boot)-1] 为 ci，另加 MRR 键（b01/b10/p 与 ci 均为 None）后返回。
 def paired_test(r4, r5, k=10, seed=0, n_boot=5000):
     """配对显著性：bootstrap 95% CI + McNemar 精确单侧 p（H1: 五路更好）。"""
     from math import comb
@@ -247,6 +249,7 @@ def paired_test(r4, r5, k=10, seed=0, n_boot=5000):
     return out
 
 
+# 生效条件：scopes 以 ("全合并", r4, r5) 起头，仅当某模式在 r4 中有条目时才追加该模式（orig/head/para/drop）的 (模式名, 筛选后 a, 筛选后 b)；对每个 scope 用 k、seed 调 paired_test 并逐项打印 self@1、self@k、MRR 的 delta/ci/b01-b10/p，函数本身不返回值。
 def print_sig(r4, r5, qs, k=10, seed=0):
     """按查询模式 + 全模式合并，打印配对显著性。"""
     print(f"\n配对显著性（五路 − 四路，配对 bootstrap 5000 次 + McNemar 精确单侧）")
