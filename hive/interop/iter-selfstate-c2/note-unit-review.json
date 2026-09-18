@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-selfstate-c2",
+ "round": 1,
+ "candidate_commit": "3d45882",
+ "branch": "task/iter-selfstate-c2",
+ "unit_job": "h1789737053469_c22109",
+ "verdict": "ACCEPT",
+ "package_n": 31,
+ "text": "逐条复核 31 条：各条件均能由对应 src_segment 直接支持，形参默认/模块常量、None与假值分支、异常捕获、返回形状、长度空容器均一致；无越界或源码不支持断言。\nreason: 所有候选条件与源码段一致，未发现需拒项或缺证项。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
