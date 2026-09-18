@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-196-batch-c196",
+ "round": 1,
+ "candidate_commit": "17bc70b",
+ "branch": "task/iter-196-batch-c196",
+ "unit_job": "h1789712726739_d4b008",
+ "verdict": "ACCEPT",
+ "package_n": 11,
+ "text": "复核：各条均对应源码分支。lexicon/en 假值、text/zh/question 缺省空串、ZH_RANGE 区间、空行过滤、jaccard 早退、run 的 evidence_turns/empty/max(n,1)/verbose_qtype、main 四臂与落盘均一致；嵌套函数闭包 ca 可由 main 上下文锚定。未发现源码不支持断言或返回形状错误。\nreason: 条件与源码分支及前置一致，未发现语义错误。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
