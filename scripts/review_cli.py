@@ -34,6 +34,7 @@ from md_cg.mdcos import MdCGSecure        # noqa: E402
 from md_cg.security import Principal      # noqa: E402
 
 
+# 生效条件：args 的 root 属性为真值（含 getattr 缺省 None 时回落）否则回落 os.environ.get("MDCG_ROOT", "")，两者皆空串或该值经 os.path.isdir 判定不是目录时 sys.exit 退出，否则返回该 root。
 def _root(args):
     root = getattr(args, "root", None) or os.environ.get("MDCG_ROOT", "")
     if not root:
@@ -44,6 +45,7 @@ def _root(args):
     return root
 
 
+# 生效条件：args 就绪时先构造写死权限的 Principal(actor="designer-cli", clearance="secret", can_write=True, can_admin=True, role="designer", auth_mode="local-cli")，再以 _root(args) 取到的存储根返回 MdCGSecure(root, principal=p)。
 def _cg(args):
     p = Principal(actor="designer-cli", clearance="secret",
                   can_write=True, can_admin=True, role="designer",
@@ -51,11 +53,13 @@ def _cg(args):
     return MdCGSecure(_root(args), principal=p)
 
 
+# 生效条件：rec 支持 .get 时，取 rec.get("content") 为假值则取 rec.get("statement")、再为假值则取空串，把其中的换行替换为空格，并按 width（缺省 66）切片后仅当 len(text) > width 才追加 "…"，返回该字符串。
 def _brief(rec, width=66):
     text = (rec.get("content") or rec.get("statement") or "").replace("\n", " ")
     return text[:width] + ("…" if len(text) > width else "")
 
 
+# 生效条件：cg 与 args 就绪时按 args.cmd 分派——"list" 时 cg.review_list() 为空则打印空队列并返回 0、非空则逐条打印（tags 取真值拼接、layer/round 为假值显示 "?"/0）后返回 0；"rounds" 时打印 cg.review_rounds(args.pid) 并返回 0；"edit" 时以 args.content 加真值 args.tags（按逗号分割并剔除空项）/args.layer 组成 edits 调 cg.review_decide；其余 cmd 以 getattr(args, "into", None) 与 args.reason 调 cg.review_decide；后两类再按 out.get("ok") 为真返回 0，否则打印 out 并返回 1。
 def _execute(cg, args):
     """按子命令执行裁决（cg 的生命周期由 main 统一收尾）。"""
     if args.cmd == "list":
@@ -97,6 +101,7 @@ def _execute(cg, args):
     return 1
 
 
+# 生效条件：argv 为 None（默认）时由 argparse 解析 sys.argv、否则解析传入的 argv（子命令 dest="cmd" 为 required，已注册 list/accept/reject/edit/merge/rounds 并带 --root 等参数），解析成功后构造 cg=_cg(args) 并返回 _execute(cg, args)，finally 中执行 cg.close()。
 def main(argv=None):
     ap = argparse.ArgumentParser(description="灵枢审核队列裁决（designer 权限）")
     common = argparse.ArgumentParser(add_help=False)
