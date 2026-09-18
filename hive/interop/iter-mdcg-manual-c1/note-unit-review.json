@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-mdcg-manual-c1",
+ "round": 1,
+ "candidate_commit": "14c6660",
+ "branch": "task/iter-mdcg-manual-c1",
+ "unit_job": "h1789733113184_390ef5",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "两条候选均与源码分支一致：`_d_prev2` 的 `len(recs) >= 2` 与 `recs[-2].get(\"d_curr\", 1.0)` 语义正确；`_last_d` 的 `if recs` 非空前置及 `recs[-1].get(...)` 语义正确。`None` 与缺键回落、空/不足长度返回 1.0 均无误差，未补充源码不支持断言。\nreason: 两条件完整准确锚定日志读取、长度/空容器前置及 dict.get 的 None/缺键行为。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
