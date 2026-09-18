@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler7-d1",
+ "round": 2,
+ "candidate_commit": "8f4e194",
+ "branch": "task/t1-compiler7-d1",
+ "unit_job": "h1789690301079_695466",
+ "verdict": "REJECT",
+ "package_n": 21,
+ "text": "复核：多数条目与源码吻合，但存在失实。cmd_tokens 在 source 非 None 时无条件先打印 Token 列表，errors 非空也打印后才返回 1；条件将“打印 Token 列表”限定为 errors 为空。cmd_compile 失败时逐条错误列表仅在 not args.verbose 下打印，条件未锚定 verbose。cmd_run/cmd_debug 数值转换不是“全数字串”，而是 strip 后允许一个小数点的 isdigit。main 无子命令时 command 为 None 而非空串。位置均 OK。\n\nreason: 多条生效条件遗漏分支参数/状态或与源码打印逻辑不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
