@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-sources-c1",
+ "round": 1,
+ "candidate_commit": "46d9d5d",
+ "branch": "task/iter-sources-c1",
+ "unit_job": "h1789737783406_0ac500",
+ "verdict": "ACCEPT",
+ "package_n": 25,
+ "text": "逐条核对 25 条：条件均能在 src_segment 内找到对应形参/常量/分支/返回；None/假值、早退、去重、dry_run、水位写回等语义与源码一致；未发现补充断言或越界。类级条目仅覆盖 __init__，但仍在自身类段内，且与方法条目重复不影响正确性。\nreason: 25条均与各自源码段吻合，无越界或无依据断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
