@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-341-batch-c341",
+ "round": 1,
+ "candidate_commit": "1f3a010",
+ "branch": "task/iter-341-batch-c341",
+ "unit_job": "h1789759032338_f62fa4",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "核对：签名 node_id/content 无默认值；layer/verification_basis 校验与源码一致；consistency 下 REJECT/BLINDSPOT 与 on_conflict 的 raise/None 返回及最终 return node_id 均在本段可见，未越界或增补源码外断言。\nreason: 条件逐点与 MdCG.add 源码段相符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
