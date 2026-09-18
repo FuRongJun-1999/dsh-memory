@@ -45,6 +45,7 @@ from . import twophase
 __all__ = ["WritePipeline", "default_pipeline"]
 
 
+# 生效条件：调用即对 cg 执行 flush()（无脏数据时为 no-op），且仅当该调用抛异常而 out 是 dict 时在 out 写入 "flush_error"，异常本身不外抛；
 def _commit_visibility(cg, out):
     """写提交边界（2026-09-16）：把内存脏索引落分片日志，使本次写入对其他进程立即可见。
 
@@ -76,6 +77,7 @@ class WritePipeline:
 
     # ---------- 注册表 ----------
 
+# 生效条件：fn 可调用时先按 name 摘除同名项，再在 position 为 None 时把 (str(name), fn) 追加到链尾、否则插入 max(0, int(position))（position=0 非 None，走插入分支）；fn 不可调用则抛 TypeError；
     def register_before(self, name, fn, position=None):
         """注册 before 拦截器（同名幂等替换；position=None 追加到链尾）。
 
@@ -90,11 +92,13 @@ class WritePipeline:
         else:
             self._before.insert(max(0, int(position)), item)
 
+# 生效条件：按 str(name) 过滤 _before，仅保留 x[0] != str(name) 的项（即删除全部同名项），并返回删除前后长度是否不等以表示是否确有移除；
     def unregister_before(self, name):
         n0 = len(self._before)
         self._before = [x for x in self._before if x[0] != str(name)]
         return len(self._before) != n0
 
+# 生效条件：fn 可调用时先按 name 摘除同名项，再把 (str(name), fn) 追加到 _after 链尾；fn 不可调用则抛 TypeError；
     def register_after(self, name, fn):
         """注册 after 观察者：fn(ctx, out)，落盘成功后按序调用。"""
         if not callable(fn):
@@ -102,6 +106,7 @@ class WritePipeline:
         self.unregister_after(name)
         self._after.append((str(name), fn))
 
+# 生效条件：按 str(name) 过滤 _after，仅保留 x[0] != str(name) 的项（即删除全部同名项），并返回删除前后长度是否不等以表示是否确有移除；
     def unregister_after(self, name):
         n0 = len(self._after)
         self._after = [x for x in self._after if x[0] != str(name)]
@@ -113,6 +118,7 @@ class WritePipeline:
 
     # ---------- 执行 ----------
 
+# 生效条件：传入 cg 与 a（a 为假值如 None 时按 {} 处理，nid 取 a.get("node_id") 或其假值回落 "mem_"+毫秒时间戳），任一 before 钩子返回非 None 即记 halted_by 并经 _commit_visibility 短路返回该响应，全部放行则记 twophase 意图后跑 _executor（其抛 BaseException 时记 STATUS_ERROR 并原样重抛）再顺序跑 after 链、_commit_visibility 并返回落盘 out；
     def execute(self, cg, a):
         """写入请求入口：跑 before 链 → 链尾执行器 → after 链。
 
@@ -157,6 +163,7 @@ class WritePipeline:
 # 默认链（原 mcp_server._cg_dispatch op=="write" 分支，行为逐字节搬运）
 # --------------------------------------------------------------------------
 
+# 生效条件：ctx["a"] 经 audit.audit 得出的 state 为 ACCEPT 时返 None 放行，为 REJECT 时经 cg.add_rejected 返回 ok=False/moved_to="rejected"，其余 state 经 cg.propose 返回 moved_to="review_queue"（pr 带 dedup 时再附 dedup/dup_of/dup_status 并改写 hint）；
 def _gate_audit(ctx):
     """校验闸：audit.audit 四态。ACCEPT 放行；REJECT 负记忆；其余入审核队列。"""
     a = ctx["a"]
@@ -264,6 +271,7 @@ def _gate_consistency(ctx):
     return out
 
 
+# 生效条件：ctx["a"] 的 gated 为假值时返 None 放行；为真值时按 cg.remember_gated 返回的 verdict 落两段式账，且仅 verdict 为 ACCEPT 时 ok/committed 为 True，verdict 为 MERGE 时记 committed 并置 moved_to="merged_into:"+merged_into，verdict 为 DROP/DEFER 时记 aborted 且 moved_to 为其小写值；
 def _gate_gated(ctx):
     """主动遗忘闸（gated=true 时启用）：writelimit 限流 + forgetting 三问四态。
 
@@ -318,6 +326,7 @@ def _gate_gated(ctx):
     return out
 
 
+# 生效条件：由链尾以含 cg 与 a 的 ctx 调用即无条件执行 cg.add 落盘并返回 ok=True/committed=True，ctx["cvd"] 非 None 时附加 consistency 字段；
 def _executor(ctx):
     """链尾执行器（常驻不可卸载）：cg.add 直写落盘。
 
@@ -343,6 +352,7 @@ def _executor(ctx):
     return out
 
 
+# 生效条件：value 传入即无条件延迟导入并转调 mcp_server._split_ids 后原样返回其结果（本符号无自身分支）；
 def _split_ids(value):
     # 与 mcp_server._split_ids 同源（延迟导入，单一真源）
     from .mcp_server import _split_ids as _f
@@ -356,6 +366,7 @@ def _split_ids(value):
 _DEFAULT = None
 
 
+# 生效条件：pipe 传入即对其依次注册 before 的 linkref(position=0)/audit/consistency/gated 与 after 的 linkref（同名幂等替换），并返回同一 pipe；
 def install_default_gates(pipe):
     """把默认闸以拦截器形态注册（幂等：同名替换，可重复调用）。
 
@@ -380,6 +391,7 @@ def install_default_gates(pipe):
     return pipe
 
 
+# 生效条件：模块级 _DEFAULT 为 None 时新建 WritePipeline 并经 install_default_gates 注册后缓存返回，否则直接返回已缓存的 _DEFAULT 单例；
 def default_pipeline():
     """进程级默认写入链（单例）。自定义闸门 register_before 即插即拔。"""
     global _DEFAULT
