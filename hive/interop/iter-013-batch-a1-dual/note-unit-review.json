@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-013-batch-a1-dual",
  "round": 5,
- "candidate_commit": "434b910",
+ "candidate_commit": "423bbb3",
  "branch": "task/iter-013-batch-a1-dual",
- "unit_job": "h1789693265907_877105",
- "verdict": "REJECT",
+ "unit_job": "h1789693265932_63f786",
+ "verdict": "ACCEPT",
  "package_n": 10,
- "text": "核验：1/2/5/6/7/9/10 符；3 宜补“至少 window 条该 bid 终态”前置；4 不符：`want = set(entry_ids) if entry_ids else None`，空 `entry_ids` 不启用过滤，条件漏空容器前置；8 不符：`body_of` 在“条件”与 `text` 间有空字符串元素，返回多一空行，条件未提。故整批不能 ACCEPT。\nreason: 第4条空 entry_ids 过滤前置、第8条空行返回形状未准确锚定。\nverdict: REJECT",
+ "text": "复核：10 条均锚定可达前置（形参/闭包/日志/字段）与分支结果。_pending/_fn 闭包来源正确；gain_gate 无历史与停滞/冷却分支符合源码；exempt_rollback 的 skipped_done 早退及 reverted 前置正确；query_domain、gen_questions 的 assert 零交集、eval_arm、body_of、_pick_lexical 平局策略、_user_prompt 记忆前置均与源码一致。未发现实质性不符或无支撑断言。\nreason: 十条功能级生效条件均与源码分支相符，位置按 position_ok=true 采信。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
