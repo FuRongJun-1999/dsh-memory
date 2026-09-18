@@ -1231,6 +1231,7 @@ class MdCG:
         dropped = self.roll_recent(window)
         return {"event": rec, "dropped": dropped}
 
+# 生效条件：read_jsonl(recent_log) 条数 <= window（默认 DEFAULT_RECENT_WINDOW）时返回 0 不写盘；否则在 FileLock 下 atomic_write 保留 recs[-window:] 并返回 len(recs) - len(keep)；window 为 0 时 recs[-0:] 即全部记录，返回 0 且不实际截断。
     def roll_recent(self, window: int = DEFAULT_RECENT_WINDOW) -> int:
         """把窗口截断到最近 window 条，返回丢弃条数（未超限则 0，幂等）。"""
         recs = list(read_jsonl(self.recent_log))
@@ -1750,6 +1751,7 @@ class MdCG:
             return recs[-1].get("d_curr", 1.0)
         return 1.0
 
+# 生效条件：无条件返回 list(read_jsonl(self.reflection_log))（日志为空时返回空列表）。
     def last_d_records(self):
         """反思日志全量记录（测试/审计用）。"""
         return list(read_jsonl(self.reflection_log))
@@ -1937,6 +1939,7 @@ class MdCG:
                     last[nid] = ts
         return counts, last
 
+# 生效条件：access_counts() 的 counts 为空返回 0；否则对每个 nid 在索引中存在且 _read 返回 fm 非 None 的节点累加 access_count、last_access 取 max 并落盘、n +1；最后在 FileLock 下清空 access_log 并返回 n（索引缺该 id 或读盘失败的不计）。
     def compact_access(self):
         counts, last = self.access_counts()
         if not counts:
