@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler6",
+ "round": 1,
+ "candidate_commit": "83b5672",
+ "branch": "task/t1-compiler6",
+ "unit_job": "h1789690026410_fe9c0a",
+ "verdict": "ACCEPT",
+ "package_n": 14,
+ "text": "逐条核对：条件均覆盖触发输入/状态与早退前置，形参默认值、None/bool/int 分支、KeyError/ValueError、返回形状及空 trace/空 data 语义与源码一致；未发现额外断言或参数误用。position_ok=true 已满足位置要求。\nreason: 与给定源码逐条吻合，无新增不支持断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
