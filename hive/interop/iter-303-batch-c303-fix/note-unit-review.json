@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-303-batch-c303-fix",
+ "round": 2,
+ "candidate_commit": "b4ede42",
+ "branch": "task/iter-303-batch-c303-fix",
+ "unit_job": "h1789751909289_14c5ba",
+ "verdict": "ACCEPT",
+ "package_n": 7,
+ "text": "逐条：1 ACCEPT；2 ACCEPT；3 ACCEPT；4 ACCEPT；5 ACCEPT；6 ACCEPT；7 ACCEPT。均落在各自 src_segment/方法内，未越界；形参默认、假值回落、glob/limit、content 形状、OSError 早退与返回形状均与源码一致，无源码不支持断言。  \nreason: 七条均可由对应源码段直接验证，语义和归属均符合。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
