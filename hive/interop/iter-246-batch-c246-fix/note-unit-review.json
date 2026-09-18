@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-246-batch-c246-fix",
+ "round": 2,
+ "candidate_commit": "a2d5e53",
+ "branch": "task/iter-246-batch-c246-fix",
+ "unit_job": "h1789725364067_b52b84",
+ "verdict": "ACCEPT",
+ "package_n": 6,
+ "text": "逐条核对：1-4 与源码一致；5 的 gold 非空过滤、search 异常回退空结果、rank/MRR、n 除零均准确，未列 avg_nres 但未作排他断言；6 的 only/arms/临时目录/随机下界主干也一致。未发现 assert 语义、None/假值、闭包前置、参数使用或返回形状方面的伪断言。position_ok=true，无需行号。\n\nreason: 各生效条件均与源码分支语义一致，未发现不支持断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
