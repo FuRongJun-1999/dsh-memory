@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-273-batch-c273",
+ "round": 1,
+ "candidate_commit": "1e84d60",
+ "branch": "task/iter-273-batch-c273",
+ "unit_job": "h1789739270737_0f42de",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "逐条：1) MdCGOS.__init__：root 必传，autoflush=64、actor=\"system\"；按 self.root/类常量拼接 _audit、_deletions、hippocampus、trash，并 exist_ok=True 建目录，符合。2) MdCGSecure.__init__：principal 假值回落 Principal()，master_key=None；以 principal.actor 调 super(root, actor=..., **kw)，再 _init_crypto(master_key)，符合；省略 session 赋值非错误断言。均未越界，position_ok=true。\nreason: 两条均锚定本段形参/默认值/父类调用与目录副作用，未见源码不符或越界。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
