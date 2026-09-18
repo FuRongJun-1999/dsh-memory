@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-196-batch-c196-dual",
+ "round": 5,
+ "candidate_commit": "4a9ee6c",
+ "branch": "task/iter-196-batch-c196-dual",
+ "unit_job": "h1789714297819_eac808",
+ "verdict": "REJECT",
+ "package_n": 2,
+ "text": "条目1不合格：源码第三候选有 `archive is not None` 前置，条件未提；且源码用 `archive_root()/_archive/ctp-aeis-data/name`，条件写成 `dirname(plugin_root())/<private-lib>/...`，片段不支持该展开。条目2主体相符：无参、四臂、仅 `J2_full` 传 `verbose_qtype=True`、写 `/tmp/locomo_jaccard_res.json`；但 `DATA`/`CHAR_ATOMS` 未在片段出现，main 仅调 `load()`/`load_char_atoms()`，应改锚调用或补证。\nreason: 条目1漏早退前置且第三路径锚定不符，条目2模块常量来源未被片段支持。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
