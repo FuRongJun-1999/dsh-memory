@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-selfstate-c3-fix",
+ "round": 2,
+ "candidate_commit": "5dbb02f",
+ "branch": "task/iter-selfstate-c3-fix",
+ "unit_job": "h1789757228582_2f3a00",
+ "verdict": "REJECT",
+ "package_n": 2,
+ "text": "1) refresh：ACCEPT。缺省形参、tail 重建、session 合并、版本 max+1、幂等早退、chain_repaired/strict、state_rebuilt、返回形状均贴合源码。\n2) audit：REJECT。st=None 时源码先做单例 duplicate_state 检查，再记 missing_state 并返回 absent，非“先记 missing_state”；且 verdict='consistent' 可仅有 info issue（如 identity_missing），非“无 issue”。\n\nreason: refresh 符合，audit 两处与源码不符，故整批 REJECT。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
