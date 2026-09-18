@@ -939,6 +939,7 @@ class NameChecker:
         self.user_declared = set()
         self.current_condition_space = None
 
+# 生效条件：required 为空，固定输出标题三段并遍历 sorted(self.predefined_used) 追加每个能在 symbol_table.get(name) 命中的符号行（缺键或假值则跳过）；当 self.user_declared、self.errors、self.warnings 各自非空时追加对应段落，而 errors 与 warnings 同时为空时改为输出「名实校验通过，无错误无警告」行，最终返回这些行以 "\n" 连接的结果。
     def report(self) -> str:
         """生成校验报告"""
         lines = []
