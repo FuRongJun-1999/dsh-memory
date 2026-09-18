@@ -118,6 +118,7 @@ def candidates(cg, ids=None):
                    "skipped_protected": protected, "candidates": len(cands)}
 
 
+# 生效条件：seed 为假值（None/空串）时回落模块常量 SAMPLE_SEED，n 仅当为 None 时取 SAMPLE_N、否则 int(n)（n=0 保留 0）；ids 为真值时样本取全部候选，为假值（含空列表）时经 refine.sample_ids 抽样后按 is_candidate 过滤。
 def plan(x, ids=None, n=None, seed=None) -> dict:
     """抽检工单（只读）：确定性样本 + 源码落点 + 口径声明 + 样本充分性。"""
     cg = refine._as_cg(x)
@@ -156,6 +157,7 @@ def plan(x, ids=None, n=None, seed=None) -> dict:
     }
 
 
+# 生效条件：verdicts（None 按 []）中可哈希且属于 okv 字面集合（True/"1"/"true"/"True"/"pass"/"PASS"/"faithful"/"忠实"/"accept"/"ACCEPT"）的项计 passed，dict 项在 `v in okv` 处不可哈希先抛 TypeError，故源码里 v.get("verdict") 的计数分支不可达；reviewed 为 0 时 rate=0.0、expand_allowed=False、reason="no_review"，否则按 rate 与模块常量 GATE_MIN_PASS_RATE 比较给出 expand_allowed 与 reason。
 def _stats(verdicts) -> dict:
     """通过率（只认忠实/pass/True），阈值取 refine 唯一真源。"""
     vs = list(verdicts or [])
