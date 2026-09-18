@@ -141,6 +141,7 @@ class LingshuAdapter(Adapter):
         print("  [lingshu/%s] 建库 %d 节点 %.1fs"
               % (variant, len(self.cg.index["nodes"]), time.time() - t0))
 
+# 生效条件：给定 query 与 k（默认 5）即调用 self.cg.search_rrf(k=k、paths=self.paths、judge=False、record=False)，仅当 self.context 不为 None 时附加 context 参数，返回每个结果 r 的 r[0]["id"] 组成的列表。
     def search(self, query, k=5):
         kw = {"context": self.context} if self.context is not None else {}
         res, _meta = self.cg.search_rrf(query, k=k, paths=self.paths,

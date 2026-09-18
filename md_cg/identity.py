@@ -117,6 +117,7 @@ def subject_node_id(subject_id):
     return f"{PROFILE_PREFIX}{_slug(kind)}_{_slug(name)}"
 
 
+# 生效条件：给定 prefix 与 subject_id（seed 缺省为空串且原样参与哈希，不做回落）即返回 f"{PROFILE_PREFIX}{prefix}_{_slug(subject_id)}_{sha256(f'{subject_id}|{seed}|{time.time()}')前10位}"——prefix 只参与结果拼接、不参与哈希，因哈希含 time.time() 故每次调用返回的后缀都不同。
 def _nid(prefix, subject_id, seed=""):
     h = hashlib.sha256(f"{subject_id}|{seed}|{time.time()}".encode("utf-8"))
     return f"{PROFILE_PREFIX}{prefix}_{_slug(subject_id)}_{h.hexdigest()[:10]}"
