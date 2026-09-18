@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-zhenatoms-c1",
+ "round": 1,
+ "candidate_commit": "e015d50",
+ "branch": "task/iter-zhenatoms-c1",
+ "unit_job": "h1789748520830_312228",
+ "verdict": "REJECT",
+ "package_n": 3,
+ "text": "逐条：\n1) M：ACCEPT。段内无条件执行 `ZH_EN[zh]=en`，覆盖空串/假值，形参与目标已锚定。\n2) segment：ACCEPT。空串时 `while` 不进入并返回 `[]`；循环内匹配、单字符推进、结束返回均在段内，`_sorted` 遍历顺序由 `for key in _sorted` 锚定。\n3) serialize：REJECT。越界：`text` 为空串时 `segment` 返回空列表并导致返回空串，该分支/返回证据在 `segment` 段内，不在 `serialize` 段内。\nreason: serialize 条把 segment 的空串早退与返回形状归入自身，越界到其它符号。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
