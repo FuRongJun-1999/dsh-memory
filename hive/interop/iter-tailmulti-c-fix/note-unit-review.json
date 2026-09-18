@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-tailmulti-c-fix",
+ "round": 2,
+ "candidate_commit": "74baa54",
+ "branch": "task/iter-tailmulti-c-fix",
+ "unit_job": "h1789759459608_5b87a9",
+ "verdict": "ACCEPT",
+ "package_n": 7,
+ "text": "reason: 逐条核对，7 条条件均能在各自 src_segment 内找到对应分支/返回/前置，未越界，未补源码不支持的断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
