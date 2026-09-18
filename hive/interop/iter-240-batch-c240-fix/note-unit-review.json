@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-240-batch-c240-fix",
+ "round": 2,
+ "candidate_commit": "b0dcb5a",
+ "branch": "task/iter-240-batch-c240-fix",
+ "unit_job": "h1789723332439_47453b",
+ "verdict": "ACCEPT",
+ "package_n": 5,
+ "text": "复核：5 条均锚定实际形参/常量与早退前置；_terms 的假值转 {}、pop、键过滤与 float 转换一致；_trial 循环、返回形状及未入循环初值一致；_pct 格式一致；_report 非空 rows 除法前置、字段访问、.get or 0 与 hit 判断一致，三分支口径可接受；main 的 argv、--cases 切片、默认值、临时目录、mine_fix_pairs、_trial/_decide_mem/_report、return 0 均符。未发现源码不支持断言，position_ok=true 无需行号。\nreason: 五条功能级生效条件均与源码语义及必需前置一致，未发现越界断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
