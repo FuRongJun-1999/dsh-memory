@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-linkrefbackfill-c1",
+ "round": 1,
+ "candidate_commit": "ac23781",
+ "branch": "task/iter-linkrefbackfill-c1",
+ "unit_job": "h1789745647421_1d1ba5",
+ "verdict": "ACCEPT",
+ "package_n": 5,
+ "text": "逐条复核（均 position_ok，证据在各自 src_segment 内）：\n1) `_edge_node`：try 返回 `cg._edge_node(nid)`、except Exception 返回 None，吻合 → ACCEPT。\n2) `scan`：过滤链（is_linkable_id→got→is_linkable_source→refs→gaps→live）、`nodes_with_gap`/候选四字段、`len(gaps)-len(live)` 计入 dead、`%2000` 打 stderr、返回 (cands,stats) 全部对上；refs/gaps 为空时不加 skipped_*，\"仅累加 skipped_*\" 属概括性表述，无实质冲突 → ACCEPT。\n3) `do_propose`：文本三值+`out_path or \"(未落盘)\"`、propose 参数与单返回 pid，吻合 → ACCEPT。\n4) `do_apply`：未 accepted 返回 2；dead/added/skipped/failed 与 `1 if failed else 0`，吻合 → ACCEPT。\n5) `main`：root 假值返 3、clearance 回落 DEFAULT_SENSITIVITY、--in 假值回落、scan、--out、--apply/--pid、--propose、dry-run 返回全吻合 → ACCEPT。\n未见越界或源码不支持之断言。\nreason: 五条条件均可在各自源码段内逐项落实，无越界或与源码相悖之处。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
