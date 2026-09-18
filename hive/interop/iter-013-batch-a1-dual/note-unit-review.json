@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-013-batch-a1-dual",
+ "round": 5,
+ "candidate_commit": "434b910",
+ "branch": "task/iter-013-batch-a1-dual",
+ "unit_job": "h1789693265907_877105",
+ "verdict": "REJECT",
+ "package_n": 10,
+ "text": "核验：1/2/5/6/7/9/10 符；3 宜补“至少 window 条该 bid 终态”前置；4 不符：`want = set(entry_ids) if entry_ids else None`，空 `entry_ids` 不启用过滤，条件漏空容器前置；8 不符：`body_of` 在“条件”与 `text` 间有空字符串元素，返回多一空行，条件未提。故整批不能 ACCEPT。\nreason: 第4条空 entry_ids 过滤前置、第8条空行返回形状未准确锚定。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
