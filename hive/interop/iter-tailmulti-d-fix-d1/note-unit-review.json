@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-tailmulti-d-fix-d1",
+ "round": 3,
+ "candidate_commit": "54b9589",
+ "branch": "task/iter-tailmulti-d-fix-d1",
+ "unit_job": "h1789759979309_df4b30",
+ "verdict": "REJECT",
+ "package_n": 8,
+ "text": "1 REJECT：dist 为空时 mid=0，但 print 仍取 dist[0]/[-1]，会 IndexError，不能“打印并返回0”。8 REJECT：run_swarm 失败 stage 为 rr.get(\"stage\",\"swarm\")，条件写成固定 stage=swarm。其余 ACCEPT。\nreason: 两条生效条件与源码不符：pool_diag 空 dist 未保护 min/max；cmd_run 失败 stage 非固定。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
