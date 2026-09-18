@@ -558,6 +558,7 @@ def expand_query_terms_llm(query: str, llm_fn=None, cache=None,
         return dict(base)
 
 
+# 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
 # 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
     def __init__(self, root: str, autoflush: int = 64):
@@ -612,6 +613,7 @@ class MdCG:
         return idx
 
     @staticmethod
+# 生效条件：nodes 须为带 values() 的映射且各元素支持 .get("bucket")；仅当 bucket 取值为真值时才计入返回计数，缺键或假值均跳过。
     def _count_buckets(nodes):
         buckets = {}
         for e in nodes.values():
@@ -1131,6 +1133,7 @@ class MdCG:
     # ---------- 目标槽（白箱第 5 篇第 3 章「目标」）----------
 
     @staticmethod
+# 生效条件：传入 goal 即返回渲染文本；conditions 为假值（含默认空串）时「生效条件」行填「（未声明——视为任意情境下有效）」，action 为假值时填默认执行说明。
     def _goal_content(goal, conditions="", action=""):
         """目标节点的 CCG 渲染：目标不是知识，但按 CCG 格式落盘，
         保证 judge_qualification 能给出 ACCEPT 而非 BLINDSPOT。"""
@@ -1347,6 +1350,7 @@ class MdCG:
     # ---------- 资格判定（与性能 tier 正交）----------
 
     @staticmethod
+# 生效条件：content 为假值时按空串扫描并返回 ""；仅当某行去空白后以 "#" 开头、包含 name，且按全角或半角冒号切出的 head 去空白后等于 name 时返回该值，否则返回 ""。
     def _ccg_line(content: str, name: str) -> str:
         """取 CCG 正文 `# <name>：` 行的值。
 
@@ -1366,6 +1370,7 @@ class MdCG:
         return ""
 
     @staticmethod
+# 生效条件：cond_text 为假值时按空串返回空列表；仅当按槽分隔与槽内分隔切出的短语长度≥2、非纯数字且不含时间维哨兵短语时进入返回列表，重复短语只保留首次。
     def _cond_terms(cond_text: str):
         """生效条件声明 → 匹配短语列表（确定性切分，无语义猜测）。
 
@@ -1606,6 +1611,7 @@ class MdCG:
         return docs
 
     @staticmethod
+# 生效条件：terms 为空时返回 False；否则任一 t 在 positive_body(content) 的小写串中出现，或该 t 的小写形式出现在 fm 的 tags（tags 取自 fm.get("tags") or []，缺键或假值按空列表拼接）小写串中即返回 True。
     def _like(content, fm, terms):
         # 负条件行（`# 不适用条件：`）是反例声明，不作召回键：命中它只应由
         # judge_qualification 走 REJECT，不能把节点召回。tags 仍参与匹配。
