@@ -22,6 +22,7 @@ TARGET_REL = "scripts/run_tests.py"
 TRUNC = 16
 
 
+# 生效条件：给定 root 时，递归收集 root/md_cg 下文件名以 test_ 开头且以 .py 结尾的文件（跳过 __pycache__ 目录），并在 os.path.exists(root/TARGET_REL) 为真时追加模块级常量 TARGET_REL，返回去重排序后的以 "/" 分隔的相对路径列表；
 def files_from_worktree(root):
     out = []
     for base, dirs, names in os.walk(os.path.join(root, "md_cg")):
@@ -34,6 +35,7 @@ def files_from_worktree(root):
     return sorted(set(out))
 
 
+# 生效条件：对给定 commit 执行 git archive --format=tar 的 returncode 为 0 时，把 stdout 作为 tar 解包到 tempfile.mkdtemp 新建的目录并返回该目录路径，returncode 非 0 时抛 SystemExit；
 def worktree_of(commit):
     """把某修订抽到临时目录（git archive + tarfile，纯 Python，不改 .git/工作树）。"""
     r = subprocess.run(["git", "archive", "--format=tar", commit], capture_output=True)
@@ -45,6 +47,7 @@ def worktree_of(commit):
     return tmp
 
 
+# 生效条件：给定 root 时，逐个以二进制读取 files_from_worktree(root) 返回的每个文件并更新 sha256，返回 {"files": 该列表长度, "value": 摘要 hexdigest 的前 TRUNC 位}；
 def fingerprint(root):
     files = files_from_worktree(root)
     h = hashlib.sha256()
@@ -54,6 +57,7 @@ def fingerprint(root):
     return {"files": len(files), "value": h.hexdigest()[:TRUNC]}
 
 
+# 生效条件：无必需形参；--commit 为非空串时 root 取 worktree_of(--commit)，为空串时取 --root（argparse 缺省 "."），--json 为真时打印 json.dumps(fp) 否则打印 CRITERIA_FINGERPRINT 单行文本，均返回 0，且 fp["commit"] 在 --commit 为空串时回落为 "<worktree>"、非空串时为该参数值；
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--commit", default="")
