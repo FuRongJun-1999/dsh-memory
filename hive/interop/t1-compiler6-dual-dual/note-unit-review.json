@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler6-dual-dual",
+ "round": 5,
+ "candidate_commit": "7a857ed",
+ "branch": "task/t1-compiler6-dual-dual",
+ "unit_job": "h1789691957523_0b293f",
+ "verdict": "ACCEPT",
+ "package_n": 14,
+ "text": "复核：各条均对应实际分支；默认值 None/0.0/None、早退 ip>=len、max_steps=0 不进入、tag0-6、trace 空时 halt=None 等均与源码一致；未发现额外断言、None/假值误述或返回形状错误。position_ok=true，注释已贴定义行。\nreason: 条件与源码分支、默认值、早退前置及返回形状一致，未见越界断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
