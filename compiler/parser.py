@@ -795,6 +795,7 @@ class Parser:
         merged_name = "".join(parts)
         return IdentifierNode(merged_name, line, col)
     
+# 生效条件：无 required 形参，current_token 为 None 或类型为其他时返回 None；为 NUMBER 时返回 float 值 LiteralNode；为 IDENTIFIER 时若后随 PERIOD 再跟 NUMBER 则拼接为小数、后随 PERIOD 而后续非 NUMBER 则 float(prefix) 成功返回数值节点、ValueError 时返回 IdentifierNode、后随 NUMBER 则拼接转 float、其余后随返回 IdentifierNode。
     def _parse_numeric_value(self) -> Optional[ASTNode]:
         """解析数值（可能跨多个 token）"""
         if self.current_token is None:
@@ -831,6 +832,7 @@ class Parser:
         
         return None
     
+# 生效条件：无 required 形参，取自 self.current_token 的标识符消费后：紧跟 EQUALS 则解析表达式返回 AssignStmtNode(target=ident,...)；紧跟 LPAREN 则循环收集 IDENTIFIER/NUMBER 参数（其他 token 直接 _advance 跳过），遇到 RPAREN 或无 RPAREN 时均返回 CallExprNode(ident, args,...)；其余情况返回 IdentifierNode(ident,...)。
     def _parse_assign_or_call(self) -> Optional[ASTNode]:
         """解析赋值或调用
 
@@ -873,6 +875,7 @@ class Parser:
 
         return IdentifierNode(ident, line, col)
     
+# 生效条件：无 required 形参，先以 _parse_expression() 得 left，仅当随后 self.current_token.type 属于 DENGYU/DAYU/XIAOYU/WEI/BUWEI 时消费该 token（映射为 ==/>/</==/!=，WEI 与 DENGYU 均映射 ==）并取 right（_parse_numeric_value 返回 None 时改调 _parse_expression）返回 ComparisonNode，否则原样返回 left。
     def _parse_comparison(self) -> ASTNode:
         """解析比较表达式"""
         left = self._parse_expression()
@@ -992,6 +995,7 @@ class Parser:
                 self._advance()
             return LiteralNode("".join(parts).strip(), "string")
     
+# 生效条件：必填实参 left 已解析，仅当 self.current_token.type 为 OP_ADD/OP_SUB/OP_MUL/OP_DIV 时消费该运算符、以 _parse_expression() 解析 right 并返回 BinaryExprNode（单级，不再递归调用自身），否则原样返回 left。
     def _parse_binary_tail(self, left: ASTNode) -> ASTNode:
         """解析二元算术尾部：left [+|-|*|/] right（右结合单级，满足循环体自增语义）"""
         if self.current_token and self.current_token.type in (
@@ -1012,11 +1016,13 @@ class Parser:
     
     # ---- 辅助方法 ----
     
+# 生效条件：无 required 形参，self.pos >= len(self.tokens)（含 tokens 为空列表）或 self.current_token 非 None 且其 type 为 TokenType.EOF 时返回 True，否则返回 False。
     def _is_at_end(self) -> bool:
         return self.pos >= len(self.tokens) or (
             self.current_token is not None and self.current_token.type == TokenType.EOF
         )
     
+# 生效条件：无 required 形参，pos < len(self.tokens)-1 时 pos 加 1、current_token 置为 tokens[pos] 并返回之；pos == len(self.tokens)-1 时 pos 加 1、current_token 置为 None 并返回 None；pos 已大于 len(self.tokens)-1 时不改动，返回当前 self.current_token。
     def _advance(self) -> Optional[Token]:
         if self.pos < len(self.tokens) - 1:
             self.pos += 1
@@ -1026,6 +1032,7 @@ class Parser:
             self.current_token = None
         return self.current_token
 
+# 生效条件：无 required 形参，仅当 self.pos < len(self.tokens)-1 时返回 self.tokens[self.pos + 1]（不推进 self.pos），否则返回 None（含 tokens 为空时）。
     def _peek_next(self) -> Optional[Token]:
         """查看下一个 token（不消费）"""
         if self.pos < len(self.tokens) - 1:
@@ -1038,6 +1045,7 @@ class Parser:
             return True
         return False
     
+# 生效条件：必填实参 token_type 与 message 到位，self.current_token 非 None 且 type == token_type 时返回该 token 并 _advance；否则向 self.errors 追加含 token_type 不符位置与 message 的字符串并返回 None（current_token 为 None 时位置记为 EOF）。
     def _consume(self, token_type: TokenType, message: str) -> Optional[Token]:
         if self.current_token and self.current_token.type == token_type:
             token = self.current_token
@@ -1048,6 +1056,7 @@ class Parser:
             self.errors.append(f"{loc} {message}，实际得到: '{self.current_token.value if self.current_token else 'EOF'}'")
             return None
     
+# 生效条件：无 required 形参，从 self.current_token 起循环收集，current_token 为 None、type 为 TokenType.EOF 或 type 属于 stop_types 时停止；循环内 type 为 COLON 的 token 只 _advance 不加入 parts，其余加入 parts 后推进，返回 parts（stop_types 为空元组时只有 EOF 或 token 耗尽能终止）。
     def _collect_until(self, *stop_types: TokenType) -> List[Token]:
         """收集 Token 直到遇到停止类型"""
         parts = []
