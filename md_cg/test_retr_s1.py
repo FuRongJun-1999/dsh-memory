@@ -195,7 +195,23 @@ def main():
           s2.get("fallback") == "empty" and meta.get("scanned") == 2, str(s2))
     _restore(old)
 
-    # ---- 6) backfill ----
+    # ---- 6) backfill（运维口径：先开总开关，再补齐存量）----
+    _setenv(MDCG_RETRIEVAL_PIPELINE="1")
+    # 6a 默认关时回填必须是 no-op（不写 fm、不写索引）
+    root6 = tempfile.mkdtemp(prefix="retr_bf0_")
+    _write_raw(root6, "g9", "knowledge", GONG)
+    cg6 = MdCG(root6)
+    cg6.rebuild_index()
+    _setenv(MDCG_RETRIEVAL_PIPELINE=None)
+    st6 = cg6.backfill_big_domain()
+    check("默认关：回填 no-op（skipped）",
+          st6.get("skipped") == "pipeline_disabled" and st6["written"] == 0,
+          str(st6))
+    check("默认关：回填不改 fm/索引",
+          "big_domain" not in (cg6.get("g9")["frontmatter"] or {})
+          and "big_domain" not in cg6.index["nodes"]["g9"])
+    _setenv(MDCG_RETRIEVAL_PIPELINE="1")
+
     root3 = tempfile.mkdtemp(prefix="retr_bf_")
     _write_raw(root3, "g1", "knowledge", GONG)
     _write_raw(root3, "y1", "knowledge", YI)
@@ -257,7 +273,8 @@ def main():
           str(meta5))
     # 7b 同库同查询：关→开→关 三次，首末两次的 results/meta 必须完全一致
     _ra, meta_a = cg.search("工程 应力", k=10, judge=False, record=False)
-    snap_a = ([(r[0]["id"], round(float(r[1]), 6)) for r in _ra],
+    snap_a = ([(r[0]["id"], round(float(r[1]), 6), sorted(r[0].keys()))
+               for r in _ra],
               {k: v for k, v in meta_a.items() if k != "gates"})
     _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S1_DOMAIN="1",
             MDCG_GATE_S2_COND="1")
@@ -265,7 +282,8 @@ def main():
     _setenv(MDCG_RETRIEVAL_PIPELINE=None, MDCG_GATE_S1_DOMAIN=None,
             MDCG_GATE_S2_COND=None)
     _rb, meta_b = cg.search("工程 应力", k=10, judge=False, record=False)
-    snap_b = ([(r[0]["id"], round(float(r[1]), 6)) for r in _rb],
+    snap_b = ([(r[0]["id"], round(float(r[1]), 6), sorted(r[0].keys()))
+               for r in _rb],
               {k: v for k, v in meta_b.items() if k != "gates"})
     check("默认口径等价：关→开→关 首末一致", snap_a == snap_b,
           str(snap_a)[:160] + " vs " + str(snap_b)[:160])

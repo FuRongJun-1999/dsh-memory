@@ -1408,6 +1408,11 @@ class MdCG:
         """
         st = {"seen": 0, "already": 0, "written": 0, "no_signal": 0,
               "unreadable": 0, "index_synced": 0, "dry_run": bool(dry_run)}
+        # 前置：功能未开启时**不做任何写入**——域标签是 S1 的元数据，默认口径不得被改变：
+        # 否则「回填写索引」会与「_scan_nodes 默认关剥键」冲突，写/重建两条路口径不一致。
+        if os.environ.get("MDCG_RETRIEVAL_PIPELINE") != "1":
+            st["skipped"] = "pipeline_disabled"
+            return st
         for nid, e in list((self.index.get("nodes") or {}).items()):
             if limit and st["written"] >= limit:
                 break
@@ -1422,7 +1427,7 @@ class MdCG:
                 # 对账支路：frontmatter 已有标签但索引快照没同步（历史部分失败/旧索引）→ 修索引，不重写文件
                 if e.get("big_domain") != _fm_dom:
                     e["big_domain"] = _fm_dom
-                    self._stage(nid, e)
+                    self._stage(nid, _strip_empty_gate_fields(e))
                     st["index_synced"] += 1
                 else:
                     st["already"] += 1
@@ -1445,7 +1450,7 @@ class MdCG:
             e["big_domain"] = dom
             # 必须走 _stage：索引持久化靠 _dirty → flush → _index_log 重放，
             # 只改内存 entry 会在重启后丢掉标签（S1 失效，且二次回填因 fm 已有标签而跳过）
-            self._stage(nid, e)
+            self._stage(nid, _strip_empty_gate_fields(e))
             st["written"] += 1
         # 写入与「只对账索引」两种情形都要落盘：索引持久化靠 _dirty → flush → _index_log 重放，
         # 只 _stage 不 flush 会在重启后丢掉标签（对账支路尤其容易漏）。
