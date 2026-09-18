@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-317-batch-c317",
+ "round": 1,
+ "candidate_commit": "ed22c35",
+ "branch": "task/iter-317-batch-c317",
+ "unit_job": "h1789755498061_85b516",
+ "verdict": "REJECT",
+ "package_n": 4,
+ "text": "1 ACCEPT：空串经 abspath 解析为 cwd，返回链一致。  \n2 ACCEPT：初始 dirname(abspath)、seen/alias 去重、stop 真假分支、返回 (out, alias) 均一致。  \n3 ACCEPT：text or \"\"、正则、m.group(1)/None 一致。  \n4 REJECT：now 假值时源码为 datetime.now().strftime(\"%Y-%m-%d %H:%M:%S\")，非 datetime.now()。  \nreason: 第4条 now 假值替换值描述与源码不符，其余条段内可验证且一致。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
