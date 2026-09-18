@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-backlog2-dual-d2-dual",
  "round": 5,
- "candidate_commit": "b180c4d",
+ "candidate_commit": "248ff36",
  "branch": "task/iter-backlog2-dual-d2-dual",
- "unit_job": "h1789695789501_9faa82",
+ "unit_job": "h1789700493245_0531fb",
  "verdict": "ACCEPT",
  "package_n": 4,
- "text": "复核四项：build 的 ROOT/rows 假值回落、have 快照、verbose/flush/return 与源码一致；paired_test 空 r4 早退、McNemar、bootstrap CI、MRR None 一致；print_sig scopes 构造、r4 有则加、调用与无返回一致；_path_semantic 扩展过滤、空返回、neg_gate 剔除、加权封顶、score<=0 一致。未发现 assert/None假值/闭包/返回形状/长度前置不符，position_ok 满足。\nreason: 四项功能级条件均准确锚定输入状态、早退与分支，未发现源码不符或新增断言。\nverdict: ACCEPT",
+ "text": "逐条核验：build 的 rows 假值回落、have 快照、逐行 add、flush/return 与源码一致；paired_test 空 r4 返回 {}，b01/b10/p、bootstrap CI、MRR 形状一致；print_sig scopes 起头与仅 a 非空追加、三指标打印、无返回一致；_path_semantic 扩展过滤 __、空扩展早退、neg_gate 剔除、三项加权封顶与 score<=0 跳过一致。个别非实质顺序/未用参数未展开，不改变功能级生效条件。\nreason: 候选条件均锚定源码实际分支，未发现 assert、None/假值、闭包、返回形状等实质不符。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }

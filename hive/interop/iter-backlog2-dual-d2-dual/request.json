@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-backlog2-dual-d2-dual",
- "candidate_commit": "b180c4d",
+ "candidate_commit": "248ff36",
  "branch": "task/iter-backlog2-dual-d2-dual",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
