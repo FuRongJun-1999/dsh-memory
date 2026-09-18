@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-159-batch-c159-fix",
+ "round": 2,
+ "candidate_commit": "c4bc52c",
+ "branch": "task/iter-159-batch-c159-fix",
+ "unit_job": "h1789702191257_77892a",
+ "verdict": "REJECT",
+ "package_n": 14,
+ "text": "逐条对照：多数条件锚定形参/常量/早退，None/假值分支与返回形状基本一致。但 cmd_dump 条件称 verbose 打印“悬空计数”，源码实际打印 missing 完整列表；cmd_status 条件称返回“计数 dict”，源码 dict 还含 miss_turns/miss_qids/bad 列表。两处属源码不支持的概括，功能级描述不精确。其余未发现 assert/闭包/返回形状冲突，position_ok 无异议。\nreason: cmd_dump 与 cmd_status 的“计数”措辞与源码实际打印/返回的列表不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
