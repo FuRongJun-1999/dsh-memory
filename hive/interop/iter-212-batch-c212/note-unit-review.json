@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-212-batch-c212",
+ "round": 1,
+ "candidate_commit": "e465f69",
+ "branch": "task/iter-212-batch-c212",
+ "unit_job": "h1789718180753_99037f",
+ "verdict": "ACCEPT",
+ "package_n": 9,
+ "text": "逐条比对 9 项：_default_out 无前置；_row 锚定 cg.get None 早退、frontmatter/layer/content 假值回落与 _ROW_KEYS 过滤；_iter_entries 锚定 nodes 回落、ids/layer/tag/since/until/limit 真值语义；_write_jsonl 锚定 tmp+replace、_row None 跳过、by_layer 汇总；各 export_* 与 run 的分派/回落/返回补充均与源码一致。未发现 assert、None/假值混述、闭包来源错误、参数误用、返回形状或空容器前置不符；无源码外断言。position_ok=true。\nreason: 所有候选功能级生效条件均与源码分支和真值语义一致。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
