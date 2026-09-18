@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-265-batch-c265",
+ "round": 1,
+ "candidate_commit": "5acbfc0",
+ "branch": "task/iter-265-batch-c265",
+ "unit_job": "h1789738014869_d33824",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "MdCGOS：ACCEPT。__init__ 段内可见 root、autoflush=64、actor=\"system\"→self.actor，以及各 audit/deletions/hippocampus(inbox/decisions)/trash 路径与 makedirs(..., exist_ok=True)。\nMdCGSecure：ACCEPT。__init__ 段内可见 principal or Principal()、super().__init__(root, actor=self.principal.actor, **kw)、_init_crypto(master_key)。\nreason: 两条候选条件均能由各自 src_segment 内构造器实现直接证实，无源码不符或越界。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
