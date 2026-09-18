@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-analyzer-c1-fix",
+ "round": 2,
+ "candidate_commit": "66d109b",
+ "branch": "task/iter-analyzer-c1-fix",
+ "unit_job": "h1789753756354_c68adf",
+ "verdict": "ACCEPT",
+ "package_n": 3,
+ "text": "1) symbol_table：ACCEPT；None早退/初始symbols、FUNC_DEF与ASSIGN_STMT记录规则、空target记录、value_node None→unknown均符。  \n2) def_use_chains：ACCEPT；None早退空chains、target/value真值才计数、返回def/use均符。  \n3) infer：ACCEPT；int/float含bool→number、str→string、其余unknown均符。  \n无越界或源码不支持断言。  \nreason: 三条条件均与各自 src_segment 内源码逐项一致，未发现越界或缺失证据。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
