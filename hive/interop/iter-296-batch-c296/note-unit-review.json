@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-296-batch-c296",
+ "round": 1,
+ "candidate_commit": "83f75a1",
+ "branch": "task/iter-296-batch-c296",
+ "unit_job": "h1789748166141_d84f3a",
+ "verdict": "REJECT",
+ "package_n": 1,
+ "text": "条件中 root 绝对化、makedirs(root/LAYERS)、autoflush 原样赋值（0 不回落 64）均与 __init__ 相符。但“并加载 _index.json”过度断言：构造仅调用 `_load_index()`；仅在 `index_path` 存在且 `schema == SCHEMA` 时才读取，否则 `_scan_nodes()` 重建并重放日志。\n\nreason: 主体正确，但“加载 _index.json”未限定存在且 schema 校验，与 `_load_index` 前置不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
