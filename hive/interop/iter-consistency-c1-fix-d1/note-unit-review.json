@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-consistency-c1-fix-d1",
+ "round": 3,
+ "candidate_commit": "e0e525c",
+ "branch": "task/iter-consistency-c1-fix-d1",
+ "unit_job": "h1789756824280_149e7f",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "两条均可在各自 src_segment 内验证：1) `_recursive_reflect` 的 frontier 先判、node_budget 早退、discriminators/resolved、gain_below_threshold、depth_exceeded 及 seeds 空返回 depth=0 与源码一致；2) `check` 的 verdict 顺序、DEFER 递归、auto_flywheel、log/return 均一致，未越界。\nreason: 两条条件均与自身源码段相符且无越界或源码不支持断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
