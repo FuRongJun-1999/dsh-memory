@@ -33,16 +33,19 @@ COLD_DIR = "_branches"
 _BRANCH_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
+# 生效条件：调用 branch_tag(branch_id) 时，返回 "branch:" 拼接 str(branch_id or "").strip().lower()（branch_id 为假值时以空串参与拼接）。
 def branch_tag(branch_id: str) -> str:
     """分支节点的标注 tag（fork 时写入；branch_summary 也带它以便反查）。"""
     return "branch:" + str(branch_id or "").strip().lower()
 
 
+# 生效条件：调用 branch_node_id(orig, branch_id) 时，返回 orig 与 str(branch_id or "").strip().lower() 以 @ 拼接的字符串（branch_id 为假值时用空串）。
 def branch_node_id(orig: str, branch_id: str) -> str:
     """分支副本 id：`<主支nid>@<branch_id>`（@ 文件名合法、撞名不可能）。"""
     return "%s@%s" % (orig, str(branch_id or "").strip().lower())
 
 
+# 生效条件：调用 _audit(cg, op, **meta) 时，仅当 getattr(cg, "_audit", None) 不为 None 才用 op 等调用之，且该调用抛出的任何 Exception 被静默吞掉；否则直接返回。
 def _audit(cg, op: str, **meta) -> None:
     """生命周期留痕；审计失败绝不阻断主流程（G8 同哲学）。"""
     a = getattr(cg, "_audit", None)
@@ -54,12 +57,14 @@ def _audit(cg, op: str, **meta) -> None:
         pass
 
 
+# 生效条件：调用 _iter_branch_nodes(cg, branch_id) 时，返回 cg.index 的 "nodes" 字典（假值则视为空字典）中所有 v.get("branch_id") 等于 str(branch_id or "").strip().lower() 的 (k, v) 列表。
 def _iter_branch_nodes(cg, branch_id: str):
     bid = str(branch_id or "").strip().lower()
     return [(k, v) for k, v in (cg.index.get("nodes") or {}).items()
             if v.get("branch_id") == bid]
 
 
+# 生效条件：调用 _fm_of(rec) 时，若 rec 为假值返回 {}；否则返回 rec.get("frontmatter")（若该值真）或 rec 本身。
 def _fm_of(rec):
     """get 返回形态兼容：{'frontmatter': fm, 'content': c} 或平铺 fm。"""
     if not rec:
@@ -67,6 +72,7 @@ def _fm_of(rec):
     return rec.get("frontmatter") or rec
 
 
+# 生效条件：调用 fork(cg, node_ids, branch_id=None, note=None) 时，先将 node_ids 去空转字符串，为空则返回 {"ok": False, "error": ...}；否则 branch_id 为 None 时生成 "br_"+uuid4().hex[:8]，再 str(branch_id).strip().lower()，若不匹配模块常量 _BRANCH_RE 则返回错误；然后对每个 nid 跳过含 "@"、cg.get(nid) 为假值或 cg.get(branch_node_id(nid, branch_id)) 已存在者，其余经 cg.add 复制并记入 forked，最终返回 ok=bool(forked) 及 branch_id/tag/forked/skipped。
 def fork(cg, node_ids, branch_id=None, note=None) -> dict:
     """把主支节点复制成分支实验副本。
 
@@ -115,6 +121,7 @@ def fork(cg, node_ids, branch_id=None, note=None) -> dict:
             "tag": branch_tag(branch_id), "forked": forked, "skipped": skipped}
 
 
+# 生效条件：调用 search(cg, query, branch_id, **kw) 时，以 branch=str(branch_id or "").strip().lower() 为参数转调 cg.search，并原样返回其结果。
 def search(cg, query: str, branch_id: str, **kw):
     """分支内检索：主支 + 本分支可见、其他分支隐身（_candidates branch 过滤）。"""
     return cg.search(query, branch=str(branch_id or "").strip().lower(), **kw)
@@ -168,6 +175,7 @@ def rewrite(cg, node_id, content, tags=None, importance=None,
     return {"ok": True, "node": nid, "branch_id": e.get("branch_id")}
 
 
+# 生效条件：调用 merge(cg, branch_id, reason=None) 时，先取 bid=str(branch_id or "").strip().lower() 与 _iter_branch_nodes(cg, bid)，若结果为空返回 {"ok": False, "error": ...}；否则遍历每个分支节点，若其 branched_from 取不到主支节点则记 skipped，否则把分支内容用 cg.add 回写主支（override=True、derived_from 追加分支 nid、relation="merged_from" 等），最终返回 ok=bool(merged) 等。
 def merge(cg, branch_id, reason=None) -> dict:
     """把分支上的改写按 branched_from 溯源回写主支。
 
@@ -211,6 +219,7 @@ def merge(cg, branch_id, reason=None) -> dict:
             "hint": "分支节点保留：可 branch_search 继续实验，或 discard 冷归档"}
 
 
+# 生效条件：调用 discard(cg, branch_id, summary) 时，若 cg.principal 存在则先 require_admin("branch_discard")；取 bid=str(branch_id or "").strip().lower()，若 summary 缺少模块常量 BRANCH_MARKS 中任一标记则返回错误，若 _iter_branch_nodes(cg, bid) 为空也返回错误；否则写 "branch_summary_"+bid 知识节点，把分支节点文件移入 COLD_DIR/bid 并从 cg.index["nodes"] 弹出，最后返回 ok=True 等。
 def discard(cg, branch_id, summary: str) -> dict:
     """放弃分支：校验教训必填 → 写 branch_summary 教训节点 → 分支冷归档。
 
@@ -259,6 +268,7 @@ def discard(cg, branch_id, summary: str) -> dict:
             "summary_node": sid, "cold_dir": "%s/%s" % (COLD_DIR, bid)}
 
 
+# 生效条件：调用 list_branches(cg) 时，遍历 cg.index 的 "nodes"（假值则空字典），仅对 e.get("branch_id") 为真值的节点按 bid 分组，收集节点 id 和 branched_from，返回 ok=True 与按 branch_id 排序的分组列表。
 def list_branches(cg) -> dict:
     """按 branch_id 聚合现存分支（节点清单 + 溯源主支）。"""
     groups = {}
