@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-genspecs-c1",
+ "round": 1,
+ "candidate_commit": "d37cb1d",
+ "branch": "task/iter-genspecs-c1",
+ "unit_job": "h1789749370212_0ba21b",
+ "verdict": "REJECT",
+ "package_n": 2,
+ "text": "1) build_spec：ACCEPT。段内证据吻合：无入参校验；读 SYSTEM_PROMPT_FILE；user_prompt 用 title/bucket；返回 SPEC_COMMON 副本并覆盖 model/system_prompt/user_prompt/context_files=[node_md]。\n2) main：REJECT。默认 hive_exe 源码为 os.path.join(HERE,\"..\",\"..\",\"target\",\"release\",\"hive.exe\")，条中“HERE 相对路径 target/release/hive.exe”漏两级 `..`，与源码不符；其余早退/过滤/切片/isfile/ok-fail/return 吻合。\nreason: main 条对默认 hive_exe 的 HERE 相对路径描述与源码漏两级父目录不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
