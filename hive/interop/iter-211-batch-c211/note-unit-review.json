@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-211-batch-c211",
+ "round": 1,
+ "candidate_commit": "7340d7f",
+ "branch": "task/iter-211-batch-c211",
+ "unit_job": "h1789718066907_bc95c3",
+ "verdict": "ACCEPT",
+ "package_n": 9,
+ "text": "逐条比对：9 条条件均覆盖对应输入/状态，锚定形参、常量与早退；None/假值、ids/limit、排序、返回键及异常分支均与源码一致，未发现源码不支持的断言；position_ok=true，无需行号。整体可接受。\n\nreason: 9条功能级条件与源码语义一致，无关键误述或虚假断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
