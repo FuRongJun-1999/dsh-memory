@@ -46,6 +46,7 @@ try:
 except Exception:                                   # 兜底
     class _dp:                                      # type: ignore
         @staticmethod
+# 生效条件：无入参的 staticmethod，恒返回 os.path.join(BRAIN, "data")，结果只由模块级常量 BRAIN 决定，不读取任何环境变量或 argv。
         def data_root() -> str:
             return os.path.join(BRAIN, "data")
 
@@ -63,6 +64,7 @@ HEALTHY_ROUNDS = ("bootstrap_v2", "loop_start", "csre_rebuild")
 DEGRADED_ROUNDS = ("loop_error", "csre_rebuild_error")
 
 
+# 生效条件：无入参；LINGSHU_PYTHON 环境变量为非空串且 os.path.isfile(env) 为真时返回该值，否则当 sys.executable 非空且其 basename 含 "python" 时返回 sys.executable，否则按 LOCALAPPDATA 拼出的 Programs\Python\Python3*\python.exe 与 C:\Python3*\python.exe 两个 glob 取 reverse 排序后首命中返回，两个模式均无命中时返回 cur or "python"（cur 为空串则回落 "python"）。
 def resolve_python() -> str:
     """选定拉起循环用的解释器。
 
@@ -87,6 +89,7 @@ def resolve_python() -> str:
 PY = resolve_python()
 
 
+# 生效条件：evt 须支持 evt["ts"] 键赋值（该赋值在 try 之外，非映射类型会直接抛 TypeError），随后把 evt 以 json.dumps(ensure_ascii=False) 追加一行写入 WLOG；open/write 抛任何异常都只被 except 静默吞掉，函数返回 None。
 def log_watch(evt: dict) -> None:
     evt["ts"] = _dt.datetime.now().strftime(TS_FMT)
     try:
@@ -96,6 +99,7 @@ def log_watch(evt: dict) -> None:
         pass
 
 
+# 生效条件：n 默认取 6，先读 LOG 中 strip 后非空的行的后 n 条（n=0 时 lines[-0:] 等价 lines[0:]，返回全部非空行），逐行 json.loads，解析失败的行 continue 跳过、成功行按原顺序进 out；LOG 打开或读取抛异常时返回 []。
 def read_tail(n: int = 6) -> list:
     """读循环日志末 n 条（解析失败的行跳过）。"""
     try:
@@ -112,6 +116,7 @@ def read_tail(n: int = 6) -> list:
         return []
 
 
+# 生效条件：无入参，先取 read_tail(1)；末条列表为空时返回 (None, None)，否则对 last.get("ts", "") 按 TS_FMT strptime（缺 "ts" 键取到空串）成功则返回 (epoch_ts, last)，strptime 抛异常时返回 (None, None)。
 def last_log_ts() -> tuple[float | None, dict | None]:
     """读循环日志末条记录，返回 (epoch_ts, 原始行 dict)。"""
     tail = read_tail(1)
@@ -125,6 +130,7 @@ def last_log_ts() -> tuple[float | None, dict | None]:
         return None, None
 
 
+# 生效条件：无入参，对 read_tail(20) 逆序扫描，evt.get("round") 属于 DEGRADED_ROUNDS 时 n 加一、属于 HEALTHY_ROUNDS 时 break 终止扫描、其他 round（如 gap_watch）既不计数也不打断，返回累计 n（首条即健康或无匹配时为 0）。
 def consecutive_degraded() -> int:
     """末尾连续「错误类轮次」计数——内容级判据。"""
     n = 0
@@ -137,6 +143,7 @@ def consecutive_degraded() -> int:
     return n
 
 
+# 生效条件：无入参，按序收集 os.path.isdir(WISDOM) 为假时的 WISDOM、os.path.isfile(BOOTSTRAP) 为假时的 BOOTSTRAP、WISDOM 下 wisdom-book-cloud.db 的 os.path.isfile 为假时的该路径，返回 miss（三者均通过时为 []）。
 def missing_paths() -> list:
     """关键路径缺失检查——这类故障重启无用，须人工介入。"""
     miss = []
@@ -150,6 +157,7 @@ def missing_paths() -> list:
     return miss
 
 
+# 生效条件：无入参，用 wmic 列出名字含 python 的进程后，仅对 stdout 中含 "bootstrap_loop.py" 的行以行尾数字正则提取 pid，匹配到才追加 {"pid","cmd"}；subprocess.run 或解析抛异常时静默返回空 procs。
 def find_bootstrap_procs() -> list:
     """仅按命令行匹配 bootstrap_loop.py 的 python 进程。
 
@@ -178,6 +186,7 @@ def find_bootstrap_procs() -> list:
     return procs
 
 
+# 生效条件：procs 为可迭代列表，逐项以 p["pid"] 执行 taskkill /F /PID（p 缺 "pid" 键或 taskkill 调用抛异常的项被 except 吞掉后继续下一项），procs 为空则不做任何动作并返回 None。
 def kill_procs(procs: list) -> None:
     for p in procs:
         try:
@@ -187,6 +196,7 @@ def kill_procs(procs: list) -> None:
             pass
 
 
+# 生效条件：check_only 为真值时直接返回 {'action':'would_restart','cmd':[PY, BOOTSTRAP, '--interval', '600']}；为假值时以 env 中 GAP_DEBUG="1"、cwd=BRAIN 的 Popen 拉起同一命令行，sleep 6 秒后用 last_log_ts() 判断末条 round 是否为 'loop_start'，返回 action='restarted' 带 proc.pid 与 verify（loop_start_seen / no_loop_start_yet），Popen 等抛异常则返回 action='restart_failed' 与截断 200 字的 error。
 def restart(check_only: bool) -> dict:
     """拉起 bootstrap_loop（与设计一致：--interval 600, GAP_DEBUG=1）。"""
     env = dict(os.environ)
@@ -211,6 +221,7 @@ def restart(check_only: bool) -> dict:
         return {"action": "restart_failed", "error": str(e)[:200]}
 
 
+# 生效条件：无入参，从 sys.argv 读 --interval（默认 600）与 --check-only（store_true），按序分支：关键路径缺失→status=config_error 返 3；末条日志 ts 不可解析→no_log 返 1；日志年龄 ≤ 2*interval+GRACE 且 consecutive_degraded() ≥ DEGRADE_LIMIT→degraded，仅在 find_bootstrap_procs() 非空且非 check_only 时 kill 后 restart(False)，action 为 restarted 记 recovered，返 0（degraded/recovered）否则 2；年龄 ≤ 上限→alive 返 0；否则按进程有无（stale_running/not_running）非 check_only 时 kill，再 restart(check_only)，restarted/would_restart 记 recovered/would_recover 返 0、其余记 recover_failed 返 2。
 def main() -> int:
     ap = argparse.ArgumentParser(description="bootstrap_loop 停转检测与守护 v2")
     ap.add_argument("--interval", type=int, default=600)
