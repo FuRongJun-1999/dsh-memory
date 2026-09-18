@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-133-batch-c133",
+ "round": 1,
+ "candidate_commit": "2becdac",
+ "branch": "task/iter-133-batch-c133",
+ "unit_job": "h1789690406654_08023a",
+ "verdict": "ACCEPT",
+ "package_n": 19,
+ "text": "逐条复核：各条件的分支入口、None/假值回落、必需参数、模块常量、早退前置与返回形状均与源码一致；未发现补充源码不支持的断言；position_ok=true 满足。\nreason: 条件均忠实反映源码分支与边界语义，未发现不符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
