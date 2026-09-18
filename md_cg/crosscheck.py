@@ -915,6 +915,7 @@ def _rewind_claim(fm: dict, content: str, c: dict):
     return content, False
 
 
+# 生效条件：x 经 _as_cg 后，对 read_jsonl(_log_path(cg)) 中 action=="crosscheck"、batch 为 None 或等于参数 batch、且 entry_ids 为假值不做 id 过滤（为真值时仅取 entry_id 在集合中的）的记录逐条处理：node 缺失或已处理则跳过，索引无该 node 或 cg._read 得 fm 为 None 或 crypto.is_encrypted(content) 为真时 skipped_drift 加一，write_id 双方非空且不等时 conflict 加一，否则撤销 claims_conditioned、在当前「验证方式」行非空且等于 rec 的 verification_value 时撤销该行、再按 fm_before 还原，reverted 为空则 conflict 加一，非空则写回节点、追加 crosscheck_rollback 日志、reverted 与 entry_ids 加一，最终 reverted 非零时 cg.rebuild_index()，返回 rep；
 def rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
     """按留痕反向应用：撤销核对写入（当前值 ≠ 写入值时跳过，计入 conflict）。"""
     cg = _as_cg(x)
@@ -1034,6 +1035,7 @@ def _load_verdicts(path: str):
         return rows
 
 
+# 生效条件：argv（为 None 时由 argparse 读 sys.argv）解析后按 --action 分派——worklist 调 build_worklist，history 调 history（--limit 默认 None，为 None 时传 100），rollback 在 can_write_knowledge(principal) 为假时抛 SystemExit 否则调 rollback，crosscheck 在 --apply 为真且 can_write_knowledge(principal) 为假时抛 SystemExit 否则调 crosscheck；--token（默认 os.environ.get("MDCG_TOKEN") or ""）为真值时先 tokens.verify_token 校验、失败抛 SystemExit；最后打印 rep 并返回 0；
 def _cli(argv=None) -> int:
     ap = argparse.ArgumentParser(
         prog="python -m md_cg.crosscheck",
