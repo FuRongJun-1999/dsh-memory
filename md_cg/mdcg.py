@@ -558,6 +558,42 @@ def expand_query_terms_llm(query: str, llm_fn=None, cache=None,
         return dict(base)
 
 
+# 生效条件：entry 与其 frontmatter 的 condition_space 取 cs（缺键/假值按 {}）；ctx 为假值或非 dict 时无条件返回 True；
+# ctx 与 cs 同时给出非空 observation_position 且 routing.normalize_domain 归一化后不同时返回 False；
+# ctx 与 cs 同时给出长度 2 的 time_window 且两区间不相交时返回 False（区间相交或任一侧缺值/不可转 float 一律返回 True）。
+def _cond_prefilter_pass(entry, ctx) -> bool:
+    """S2 条件空间前置门控：**不读正文**即可判定的硬槽（契约 §3 S2）。
+
+    铁律（宁多勿漏）：只剔除**明确不匹配**；任一侧信息不足一律放行。
+      · observation_position：双方都有且归一化后不同 → 不匹配；
+      · time_window：双方都有且**区间不相交** → 不匹配（相交即放行，
+        否则缺省窗口 [created_at, created_at+WINDOW] 会把历史观测整片判死）；
+      · 其余槽（existence_constraint / observation_tool 等语义判定）留在 judge_qualification（后置）。
+    """
+    if not isinstance(ctx, dict):
+        return True
+    # 索引快照把可判定硬槽平铺在 entry 上（免读文件）；兼容直接传 condition_space 的调用方
+    entry = entry or {}
+    cs = entry.get("condition_space") or {}
+    want = ctx.get("observation_position") or ""
+    have = entry.get("observation_position") or cs.get("observation_position") or ""
+    if want and have:
+        try:
+            if routing.normalize_domain(str(want)) != routing.normalize_domain(str(have)):
+                return False
+        except Exception:
+            pass
+    cw, nw = ctx.get("time_window"), cs.get("time_window")
+    if (isinstance(cw, (list, tuple)) and len(cw) == 2
+            and isinstance(nw, (list, tuple)) and len(nw) == 2):
+        try:
+            if float(cw[1]) < float(nw[0]) or float(nw[1]) < float(cw[0]):
+                return False
+        except (TypeError, ValueError):
+            return True
+    return True
+
+
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
 # 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
@@ -715,6 +751,10 @@ class MdCG:
                         "branch_id": fm.get("branch_id"),
                         "branched_from": fm.get("branched_from"),
                         "evidence_count": fm.get("evidence_count", 0),
+                        # S1 大域先验：域标签入索引快照 → 候选收敛零读文件（与 add() 同口径）
+                        "big_domain": fm.get("big_domain"),
+                        # S2 条件门控所需的可判定硬槽（免读文件即可门控）
+                        "observation_position": (fm.get("condition_space") or {}).get("observation_position"),
                         # 嵌套子图 / 关系边入索引快照：递归展开与链式遍历免读文件
                         "subgraph": fm.get("subgraph"),
                         "edges": fm.get("edges") or [],
@@ -836,6 +876,17 @@ class MdCG:
             "evidence_count": 0, "positive_evidence": 0, "negative_evidence": 0,
         }
         fm.update(extra)
+        # S1 大域先验：写入时固化「内容 → 大域」（契约 §3 S1）。
+        # 为何在写入侧：检索侧要按域收敛，节点就必须带域；query 侧分类器已存在，
+        # 缺的只是这一列节点元数据（审计偏差 4 的根因）。调用方可显式传入覆盖。
+        # 无有效域信号（classify_text 返回 None）时**不写**该字段 → 留在兜底池。
+        if not fm.get("big_domain"):
+            try:
+                _bd = routing.classify_text(content)
+            except Exception:
+                _bd = None
+            if _bd:
+                fm["big_domain"] = _bd
         # 生命周期状态（② 显式状态机，真源 `lifecycle.py`）：add 是**全量重建
         # fm** 而非增量更新，故必须显式处理状态——否则已定型/已降权节点会被静默
         # 打回 active（与 ④ rewrite 必须重传 branch_id 同构的坑）。口径：
@@ -897,6 +948,8 @@ class MdCG:
             "temporal": fm.get("temporal"),
             "spatial": fm.get("spatial"),
             "time_window": cs.get("time_window"),
+            "big_domain": fm.get("big_domain"),
+            "observation_position": cs.get("observation_position"),
             "subgraph": fm.get("subgraph"),
             "edges": fm.get("edges") or [],
             "protected": fm.get("protected"),
@@ -1321,6 +1374,52 @@ class MdCG:
         atomic_write(path, nodefile.dumps(fm, sealed), durable=durable)
         return sealed
 
+    # ---------- S1 前置元数据：域标签回填 ----------
+
+# 生效条件：dry_run 为真时只统计不改盘；否则遍历 index["nodes"]，get(nid) 取不到（无密钥/文件缺失）计入 unreadable，
+# fm 已有 big_domain 计入 already，content 为 None 计入 unreadable，routing.classify_text(content) 为 None 计入 no_signal，
+# 其余写 fm["big_domain"] → _write_node → 同步索引 entry["big_domain"]；limit 为真值时 written 达 limit 即停；写完 flush()；返回统计 dict。
+    def backfill_big_domain(self, dry_run: bool = False, limit: int = None) -> dict:
+        """为缺 `big_domain` 的节点补域标签（S1 大域收敛的前置元数据；幂等）。
+
+        只改这一列元数据，不动 content/importance/edges/条件空间；
+        走 `get()`（解密）→ `_write_node()`（重新封装），保证加密库不会双重封装。
+        """
+        st = {"seen": 0, "already": 0, "written": 0, "no_signal": 0,
+              "unreadable": 0, "dry_run": bool(dry_run)}
+        for nid, e in list((self.index.get("nodes") or {}).items()):
+            if limit and st["written"] >= limit:
+                break
+            st["seen"] += 1
+            got = self.get(nid)
+            if not got:
+                st["unreadable"] += 1
+                continue
+            fm, content = got["frontmatter"], got["content"]
+            if fm.get("big_domain"):
+                st["already"] += 1
+                continue
+            if content is None:
+                st["unreadable"] += 1
+                continue
+            try:
+                dom = routing.classify_text(content)
+            except Exception:
+                dom = None
+            if not dom:
+                st["no_signal"] += 1
+                continue
+            if dry_run:
+                st["written"] += 1
+                continue
+            fm["big_domain"] = dom
+            self._write_node(nid, os.path.join(self.root, e["path"]), fm, content)
+            e["big_domain"] = dom
+            st["written"] += 1
+        if not dry_run and st["written"]:
+            self.flush()
+        return st
+
     # ---------- 读 ----------
 
 # 生效条件：index["nodes"].get(node_id) 为假值时回落 self._dirty.get(node_id)，仍为假值返回 None；打开 root 下 e["path"] 抛 OSError 返回 None；_open_content 返回 None（无密钥/身份不符）返回 None；否则返回 {id, frontmatter, content, path}；
@@ -1509,8 +1608,38 @@ class MdCG:
                    # 分支实验场：默认（branch=None）分支节点全部隐身；
                    # branch=<id> 时主支 + 本分支可见、其他分支仍隐身
                    and e.get("branch_id") in (None, branch)]
+
+        # ---- S1/S2 检索前门控（契约 docs/hive/检索路径与认知结构契约_v0.1.md）----
+        # 历史偏差：大域先验与条件空间都只在「扫完 + 排完」之后才用（审计偏差 2/4）。
+        # 这里把它们前移到候选构建：候选先按域收敛、再按可判定硬槽门控。
+        # 默认（MDCG_RETRIEVAL_PIPELINE 未设）全关 → 行为与改动前等价。
+        big_domain = routing.big_domain_classify(terms)
+        big_scores = routing.big_domain_score_breakdown(terms)
+        gates = {}
+        if os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1" and entries:
+            if os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0" and big_domain:
+                same = [e for e in entries if e.get("big_domain") == big_domain]
+                # 召回安全：域内候选不足以支撑 min_results 时不收敛，留全量兜底
+                if len(same) >= max(1, min_results):
+                    gates["s1"] = {"domain": big_domain, "in": len(same),
+                                   "dropped": len(entries) - len(same)}
+                    entries = same
+                else:
+                    gates["s1"] = {"domain": big_domain, "in": len(same),
+                                   "dropped": 0, "fallback": "insufficient"}
+            elif os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0":
+                gates["s1"] = {"domain": None, "reason": "no_domain_signal"}
+            if os.environ.get("MDCG_GATE_S2_COND", "1") != "0" and isinstance(context, dict):
+                kept = [e for e in entries if _cond_prefilter_pass(e, context)]
+                gates["s2"] = {"in": len(entries), "out": len(kept),
+                               "dropped": len(entries) - len(kept)}
+                # 门控清空则回退（宁多勿漏）
+                if kept:
+                    entries = kept
+                else:
+                    gates["s2"]["fallback"] = "empty"
         if not entries:
-            return [], {"tier": None, "reason": "no_candidates", "scanned": 0}
+            return [], {"tier": None, "reason": "no_candidates", "scanned": 0, "gates": gates}
 
         # 负记忆覆盖：查询词是否已被否决议过
         neg_coverage = []
@@ -1531,16 +1660,14 @@ class MdCG:
                     if any(t in content for t in terms):
                         neg_coverage.append(e)
 
-        stat = {"scanned": 0, "query": q}
+        stat = {"scanned": 0, "query": q, "gates": gates}
         route_bucket = None
         if context is not None:
             ctx = context if isinstance(context, dict) else {}
             route_bucket = routing.bucket_dir(
                 routing.route_key(ctx, ctx.get("tags")))
 
-        # 阶段 1：14 大域并行打分 → 收敛到 top-1（白箱第 2 篇第 5 章）
-        big_domain = routing.big_domain_classify(terms)
-        big_scores = routing.big_domain_score_breakdown(terms)
+        # 阶段 1 大域打分已在候选构建前算好（S1 门控要用）；此处不再重复计算。
 
 # 生效条件：docs 经 self._score(docs, q, qb, pool_cfg) 后分数 >0 的条数达到闭包阈值 min_results 时返回 self._emit(scored, k, tier, stat, route_bucket, record, len(docs), judge, context, neg_coverage, big_domain, big_scores, pool_cfg)（tier 原样透传）；未达阈值返回 None；
         def try_stage(docs, tier):
@@ -1701,6 +1828,8 @@ class MdCG:
             pool_plan["lost"] = dict(stat.get("pool_lost") or {})
         return out, {"tier": tier, "scanned": stat["scanned"], "bucket": bucket,
                      "candidates": candidates,
+                     # S1/S2 分阶段审计（契约 §5.3）：编外复核端据此逐项核对收敛是否真的发生
+                     "gates": stat.get("gates"),
                      # §七 分池审计：截断前候选数 / 全局额度 / 生效分池计划
                      "pre_cap": stat.get("pre_cap"), "cap": stat.get("cap"),
                      # 截断依据审计：relevance=先打分再排序截断（现行）
@@ -1819,6 +1948,8 @@ class MdCG:
                 node["content"].encode("utf-8")).hexdigest()[:12],
             "temporal": fm.get("temporal"), "spatial": fm.get("spatial"),
             "time_window": (fm.get("condition_space") or {}).get("time_window"),
+            "big_domain": fm.get("big_domain"),
+            "observation_position": (fm.get("condition_space") or {}).get("observation_position"),
             "evidence_count": fm.get("evidence_count", 0),
         })
         self.index["buckets"] = self._count_buckets(self.index["nodes"])
