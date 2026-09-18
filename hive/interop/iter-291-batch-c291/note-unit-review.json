@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-291-batch-c291",
+ "round": 1,
+ "candidate_commit": "6a9e849",
+ "branch": "task/iter-291-batch-c291",
+ "unit_job": "h1789746931025_6bee76",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "条件与 `MdCG.__init__` 源码逐项吻合：root 被 `os.path.abspath` 绝对化，`makedirs(exist_ok=True)` 建根及 `LAYERS` 子目录；日志路径、`_load_index()`、`sweep_stale_temps`、`_LIVE_CGS`/`_register_atexit_hook` 均在 `__init__` 段内；`autoflush` 原样赋值，无 `or` 回落，0 保留。未发现 assert、None/假值、闭包、返回形状或越界断言问题。\nreason: 段内证据支持该条件全部要点，无越界且无源码不支持断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
