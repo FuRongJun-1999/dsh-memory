@@ -1,0 +1,15 @@
+{
+ "kind": "recalibration-acceptance",
+ "iter_id": "t1-compiler4",
+ "verified_commit": "b8bba78",
+ "verdict": "PASS",
+ "merge_commit": "5dd025fc680b",
+ "checks": [
+  "diff(merge, branch) -- md_cg 空",
+  "criteria_fingerprint 保持",
+  "main 注释计数 + 全组回归"
+ ],
+ "merged_marks": 855,
+ "merged_files": 57,
+ "paths_policy": "脱敏"
+}
