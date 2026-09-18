@@ -365,3 +365,5 @@ received_at	verify_id	commit	verdict	receipt_job	iter_id
 2026-09-18T10:38:14	iter-153-batch-c153-fix-d1-r2-h1789699094427_589c	1beeb1b	PASS	h1789699094427_589c	iter-002-carrier-align
 2026-09-18T10:47:33	verify-a2a5c5a-r2-h1789699653243_5378	a2a5c5a	PASS	h1789699653243_5378	iter-002-carrier-align
 2026-09-18T10:58:18	verify-0e29594-r2-h1789700298636_12ec	0e29594	PASS	h1789700298636_12ec	iter-002-carrier-align
+2026-09-18T11:10:58	iter-t2-disasm-truthy-r5-r2-h1789701058795_6a1c	d09eb9c	PASS	h1789701058795_6a1c	iter-002-carrier-align
+2026-09-18T11:10:58	iter-t3-reach-r5-r2-h1789701058942_6428	3db654c	PASS	h1789701058942_6428	iter-002-carrier-align
