@@ -71,6 +71,7 @@ def resolve(pools):
     return validate(pools)
 
 
+# 生效条件：entry 为假值（含 None）时按 entry or {} 处理，其 "layer" 去假值后经 str() 属模块常量 NEG_LAYERS → 返回 POOL_NEGATIVE；否则 node_id 去假值转 str 后以模块常量 INDEX_PREFIXES 起始，或 entry 的 "tags"（假值按 []）小写后任一元素恰为 index/artifact/code_index/doc_index → 返回 POOL_INDEX；其余 → POOL_KNOWLEDGE。
 def pool_of(node_id, entry=None) -> str:
     """节点归池（确定性、只看 id 前缀 / 层 / 标签，不读文件）。"""
     e = entry or {}
