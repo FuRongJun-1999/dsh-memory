@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-173-batch-c173-fix-d1",
+ "round": 3,
+ "candidate_commit": "c382ca5",
+ "branch": "task/iter-173-batch-c173-fix-d1",
+ "unit_job": "h1789706971359_af3c3f",
+ "verdict": "ACCEPT",
+ "package_n": 9,
+ "text": "逐项核对：输入状态、假值/None 分支、模块常量、早退前置、返回形状均与源码一致；position_ok=true 下位置有效，未发现源码不支持断言。\nreason: 批次条件与源码逐项吻合。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
