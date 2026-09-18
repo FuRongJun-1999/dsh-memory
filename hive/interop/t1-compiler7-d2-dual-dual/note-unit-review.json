@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler7-d2-dual-dual",
+ "round": 5,
+ "candidate_commit": "afbe2ba",
+ "branch": "task/t1-compiler7-d2-dual-dual",
+ "unit_job": "h1789696057807_e7be05",
+ "verdict": "ACCEPT",
+ "package_n": 16,
+ "text": "reason: 所有条件均与源码分支一致，未发现 None/假值、形参、返回形状或前置锚定错误。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
