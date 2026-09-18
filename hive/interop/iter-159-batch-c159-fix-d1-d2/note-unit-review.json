@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-159-batch-c159-fix-d1-d2",
+ "round": 4,
+ "candidate_commit": "6f642ad",
+ "branch": "task/iter-159-batch-c159-fix-d1-d2",
+ "unit_job": "h1789702382901_04688a",
+ "verdict": "ACCEPT",
+ "package_n": 10,
+ "text": "复核：各 condition 与源码语义一致；None/假值、早退、extra/seeds、返回形状、加权 Δ、show 分支均锚定源码；position_ok 全 true，未见新增无源断言。\nreason: 全部条目均与源码吻合，无功能性误述。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
