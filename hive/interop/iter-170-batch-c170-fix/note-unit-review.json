@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-170-batch-c170-fix",
+ "round": 2,
+ "candidate_commit": "562e77b",
+ "branch": "task/iter-170-batch-c170-fix",
+ "unit_job": "h1789705941673_4c3513",
+ "verdict": "REJECT",
+ "package_n": 13,
+ "text": "核验：多数条目锚定形参/常量/早退，基本符源码。但 `_connect` 称任何 db 都返回连接且源码不报错，实为 `sqlite3.connect` 对 None/空串/不存在 URI 会抛 `OperationalError`；`load_nodes` 对真值非字符串 limit 可抛 `TypeError`，非仅 `ValueError`。故存在源码不支持断言，应拒。\n\nreason: `_connect` 与 `load_nodes` 的条件对异常/返回行为断言过强。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
