@@ -1,0 +1,13 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-t2-disasm-truthy-r5",
+ "round": 7,
+ "candidate_commit": "9770e22",
+ "branch": "task/t2-disasm-truthy",
+ "base_commit": "0e29594",
+ "unit_job": "h1789700185782_69a1c9",
+ "verdict": "REJECT",
+ "package_n": 7,
+ "text": "复核：r1-r4 中 NaN 感知、DAO 字面量、越界标签、冒号实参、U+2028/29、_truthy 同构等修复基本成立；parity 用显式 CPython 表也破了自证。但 CALL 元组参数校验仍漏：`disasm([(Opcode.CALL,(0,()))])` 时 `(arg[1] or [])` 把空 tuple 当空表通过 `all`，渲染为 `CALL @L0`，`assemble` 回 `(0,[])`，`code_equal` 因 tuple≠list 为假；非空 tuple `(\"x\",)` 同样被降级为 list。更严重者 `arg[1] is None`：校验通过后 `for x in arg[1]` 抛 TypeError，而非声明 ValueError。测试②d/②f仅覆盖 list，未覆盖空/非空 tuple 与 None，故未证明 R3-③ 修复。建议校验 `arg[1]` 必须为 list/tuple 且元素为 str，或保留容器类型/显式拒绝。另 assemble 仅按 `\\n` 切分，CR-only 旧源不再分行（次要）。\nreason: CALL 参数表校验仍漏空/非空 tuple 与 None，导致往返失败或 TypeError，测试未覆盖。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
