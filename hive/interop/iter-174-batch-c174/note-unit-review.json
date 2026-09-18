@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-174-batch-c174",
+ "round": 1,
+ "candidate_commit": "f83c1f6",
+ "branch": "task/iter-174-batch-c174",
+ "unit_job": "h1789707108350_4bc462",
+ "verdict": "REJECT",
+ "package_n": 12,
+ "text": "reason: main 条件误述：源码先剥离 --config 及其后一项再判 --stop/--status，故 [\"--config\",\"--status\"] 会走 start 而非 status；stop 也未说明 30 轮后即使仍活仍返回 stopped=true。其余条目大体吻合。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
