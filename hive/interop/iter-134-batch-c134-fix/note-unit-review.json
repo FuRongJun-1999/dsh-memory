@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-134-batch-c134-fix",
+ "round": 2,
+ "candidate_commit": "abb9cbb",
+ "branch": "task/iter-134-batch-c134-fix",
+ "unit_job": "h1789690749655_27e770",
+ "verdict": "ACCEPT",
+ "package_n": 18,
+ "text": "逐条复核 18 条，条件均与源码一致：覆盖输入/状态、必需形参/模块常量与早退前置；未发现 assert 语义、None/假值、闭包来源、分支参数、返回形状、长度/空容器误述或新增断言。position_ok=true 已满足位置要求。\nreason: 所有生效条件均与源码相符，未发现不支持断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
