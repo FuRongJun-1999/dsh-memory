@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-133-batch-c133-dual",
+ "round": 5,
+ "candidate_commit": "1fb7296",
+ "branch": "task/iter-133-batch-c133-dual",
+ "unit_job": "h1789691097733_333afe",
+ "verdict": "ACCEPT",
+ "package_n": 19,
+ "text": "逐条对照源码：各条件均覆盖输入/状态、形参与模块常量、None/假值/空容器/早退前置；未发现 assert 语义、返回形状、闭包来源或分支参数误述；少数字段省略不构成源码不支持的断言。position_ok 均 true，位置满足。\nreason: 全部候选条件与源码一致，无实质性不符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
