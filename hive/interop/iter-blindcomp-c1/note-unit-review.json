@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-blindcomp-c1",
+ "round": 1,
+ "candidate_commit": "af4a35e",
+ "branch": "task/iter-blindcomp-c1",
+ "unit_job": "h1789746541826_353c34",
+ "verdict": "ACCEPT",
+ "package_n": 4,
+ "text": "1 ACCEPT：assert_material 段内断言顺序、UNSEEN 不在 zh、相邻字符原子、去重及集合关系、AssertionError 均一致。  \n2 ACCEPT：gen_corpus 段内 SEED、金标生成、22 次干扰、50 重试 break/else raise、返回 corpus 均一致。  \n3 ACCEPT：run_arm 环境开关、norm 替换/raw 保持/False pop、lexical k=5、by_type/probe 返回均一致。  \n4 ACCEPT：main 调用链、清理建库、gold 加 semantic、四臂 run_arm、save_result/out 字段均段内可见。  \nreason: 四条条件均可在各自 src_segment 内逐项验证，未发现不符或越界。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
