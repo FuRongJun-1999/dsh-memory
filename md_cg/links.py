@@ -116,6 +116,7 @@ def _norm_peer(peer: str) -> str:
     return p if (not p or p.startswith("agent:")) else "agent:" + p
 
 
+# 生效条件：data.get("links") 为真 dict 时，peer 直接是键则返回 (peer, links[peer])；否则在 {peer, _norm_peer(peer)} 中匹配任一 link_id 或 link 的 peer_node_id 并返回首个 (lid, lk)；均不匹配返回 (None, None)。
 def _find(data: dict, peer: str):
     """按 link_id 或 peer_node_id 定位（容忍省略 `agent:` 前缀）。"""
     links = data.get("links") or {}
@@ -410,6 +411,7 @@ def _transition(peer, status, *, reason=None, path=None, actor="system"):
     return {"ok": True, "link": link}
 
 
+# 生效条件：连接存在且 link["status"]=="probation" 且 float(link.get("probation_until") or 0) - time.time() <= 0 时置 normal、promoted_at，提交并返回 {'ok': True, 'link'}；连接不存在、非 probation 或观察期未满均抛 LinkError。
 def promote(peer: str, *, path: str = None, actor: str = "system") -> dict:
     """观察期满且无异常 → normal。"""
     data = load(path)
