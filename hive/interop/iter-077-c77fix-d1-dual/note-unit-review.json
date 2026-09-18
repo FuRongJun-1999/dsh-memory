@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-077-c77fix-d1-dual",
  "round": 5,
- "candidate_commit": "5778260",
+ "candidate_commit": "820529f",
  "branch": "task/iter-077-c77fix-d1-dual",
- "unit_job": "h1789693858870_8cf444",
+ "unit_job": "h1789696825809_e48071",
  "verdict": "ACCEPT",
  "package_n": 2,
- "text": "两条核心分支均与源码相符：`_find` 真 `links` 下先键命中，再按 `{peer,_norm_peer(peer)}` 匹配 `lid/peer_node_id`，未命中 `(None,None)`；但假值 `links` 经 `or {}` 也走同返回，条件未显式列。`promote` 的 `not link`、非 probation、`left>0` 三个早退均抛 LinkError；`left<=0` 后置 normal/promoted_at、提交并返回 ok/link。需注意空 dict link 会被 `not link` 当不存在，`status` 缺失为 KeyError。位置 ok，无相反断言。\nreason: 条件准确锚定主要生效与早退分支，仅有假值/必需键细节未展开，不足以推翻。\nverdict: ACCEPT",
+ "text": "两项条件均未发现与源码不符：_find 的键直返、cands 匹配、首匹配与 None 返回准确；promote 的 not link、status!=probation、left>0 早退及 left<=0 成功路径、返回形状准确。假值字段前置已在表达式中体现或属畸形输入，未新增源码不支持断言；position_ok=true。\nreason: 两候选条件均与源码分支、早退和返回形状一致，无额外断言。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
