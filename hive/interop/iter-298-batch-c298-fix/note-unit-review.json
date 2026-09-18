@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-298-batch-c298-fix",
+ "round": 2,
+ "candidate_commit": "bae2a99",
+ "branch": "task/iter-298-batch-c298-fix",
+ "unit_job": "h1789749126812_c4103e",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "复核：该条对应 MdCG.__init__。源码段内逐项可见：root 经 abspath、建 self.root 与 LAYERS 子目录、self.autoflush=autoflush（默认 64）、self.index=self._load_index()、sweep_stale_temps(self.root)、_LIVE_CGS.add(self)、_register_atexit_hook()。未发现与 assert、None/假值、返回形状、空容器等不符，也未补充源码不支持断言；所涉副作用均在本符号段内。\nreason: 条件与 __init__ 源码逐项吻合，且未越界到其它符号。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
