@@ -123,6 +123,7 @@ def _is_op_specific(desc, vocab, prefix_len=18):
     return any(len(o) >= 3 and o in head for o in vocab)
 
 
+# 生效条件：desc 为假值返回 None；否则空白归一化后按 _ENUM_RE 结果分派——恰 1 组返回该组、多于 1 组返回 ENUM_PLACEHOLDER、0 组时若 op_specific 为真则 d 长度 ≤OP_SPECIFIC_LIMIT 原样返回否则 None，若 op_specific 为假则 d 长度 >GENERIC_LIMIT 时返回 d[:GENERIC_LIMIT].rstrip()+"…"、否则原样返回 d。
 def short_desc(desc, vocab, op_specific=False):
     """投影一条参数描述。
 
