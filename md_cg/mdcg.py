@@ -1651,7 +1651,10 @@ class MdCG:
                 else:
                     gates["s2"]["fallback"] = "empty"
         if not entries:
-            return [], {"tier": None, "reason": "no_candidates", "scanned": 0, "gates": gates}
+            _m = {"tier": None, "reason": "no_candidates", "scanned": 0}
+            if gates:                      # 默认关时 gates 为空 → 不落键（口径与改动前一致）
+                _m["gates"] = gates
+            return [], _m
 
         # 负记忆覆盖：查询词是否已被否决议过
         neg_coverage = []

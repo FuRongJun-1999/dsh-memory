@@ -199,11 +199,31 @@ def main():
           st3["written"] == 0 and st3["already"] == 2
           and st3["no_signal"] == 1, str(st3))
 
-    # ---- 7) 开关关时结果与改动前等价（同库同查询，开关切换前后结果一致）----
+    # ---- 7) 默认口径等价（真比较，不是自证）----
+    # 7a 无候选分支：开关关时 meta 不得多出 gates 键
     _setenv(MDCG_RETRIEVAL_PIPELINE=None, MDCG_GATE_S1_DOMAIN=None,
             MDCG_GATE_S2_COND=None)
-    _r4, meta4 = cg.search("工程 应力", k=10, judge=False, record=False)
-    check("开关关：结果集合稳定", _ids(_r4) == sorted(_ids(_r4)), str(_ids(_r4)))
+    _r5, meta5 = cg.search("xyzzy", layer="goals", k=10, judge=False,
+                           record=False)
+    check("默认关：无候选分支 meta 无 gates 键",
+          meta5.get("reason") == "no_candidates" and "gates" not in meta5,
+          str(meta5))
+    # 7b 同库同查询：关→开→关 三次，首末两次的 results/meta 必须完全一致
+    _ra, meta_a = cg.search("工程 应力", k=10, judge=False, record=False)
+    snap_a = ([(r[0]["id"], round(float(r[1]), 6)) for r in _ra],
+              {k: v for k, v in meta_a.items() if k != "gates"})
+    _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S1_DOMAIN="1",
+            MDCG_GATE_S2_COND="1")
+    cg.search("工程 应力", k=10, judge=False, record=False)
+    _setenv(MDCG_RETRIEVAL_PIPELINE=None, MDCG_GATE_S1_DOMAIN=None,
+            MDCG_GATE_S2_COND=None)
+    _rb, meta_b = cg.search("工程 应力", k=10, judge=False, record=False)
+    snap_b = ([(r[0]["id"], round(float(r[1]), 6)) for r in _rb],
+              {k: v for k, v in meta_b.items() if k != "gates"})
+    check("默认口径等价：关→开→关 首末一致", snap_a == snap_b,
+          str(snap_a)[:160] + " vs " + str(snap_b)[:160])
+    check("默认关：meta 仍不含 gates 键", "gates" not in meta_b,
+          str(sorted(meta_b.keys())))
     _restore(old)
 
     print("\ntest_retr_s1: %d 通过 / %d 失败" % (passed, failed))
