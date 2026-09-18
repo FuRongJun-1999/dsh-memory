@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-262-batch-c262-fix",
+ "round": 2,
+ "candidate_commit": "96235f4",
+ "branch": "task/iter-262-batch-c262-fix",
+ "unit_job": "h1789736933530_69e73d",
+ "verdict": "REJECT",
+ "package_n": 31,
+ "text": "复核：仅 `_derive` 条不通过：源码在 `links is None` 时回落到 `old[\"state_links\"]`，条件写成“old 同名字段”，与源码不符。其余条目的输入/假值/早退/返回形状与各自 `src_segment` 相符，未发现越界或额外断言。\nreason: `_derive` 的 links 回落来源描述与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
