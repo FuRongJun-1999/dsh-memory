@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-ccgc-c1",
+ "round": 1,
+ "candidate_commit": "caa0759",
+ "branch": "task/iter-ccgc-c1",
+ "unit_job": "h1789737054145_008ae1",
+ "verdict": "REJECT",
+ "package_n": 26,
+ "text": "逐条核验：多数与源码一致。REJECT：#7 _value_grounded 漏「分片为空 return False」；#14 link 源码仅拒绝 verifier 为真且相等，并未要求 verifier 非空，条件多加准入。其余 ACCEPT，未越界。\nreason: 存在与源码不符/补充源码不支持断言的条件（#7、#14）。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
