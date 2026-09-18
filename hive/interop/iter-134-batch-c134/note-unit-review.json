@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-134-batch-c134",
+ "round": 1,
+ "candidate_commit": "37f00fc",
+ "branch": "task/iter-134-batch-c134",
+ "unit_job": "h1789690624070_634422",
+ "verdict": "REJECT",
+ "package_n": 18,
+ "text": "复核：多数条与源码相符；但第15条 run_ablation 条件错：源码为 `run_one(name, f\"_md_cg_eval_zhprobe_{name}\")`，臂名作 `--tag`，lib 是“前缀+臂名”，并非“以臂名作 lib 名”。第14条 print_table 的 Δ 仅在 baseline 行出现并设置 ref 后对后续行输出，条件未限定顺序，属过度概括。\n\nreason: run_ablation 的 lib 实参描述与源码不符，故整体应驳回。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
