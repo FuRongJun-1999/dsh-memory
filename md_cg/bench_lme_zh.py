@@ -75,6 +75,7 @@ ZH_Q_PROMPT = """从下面英文问题里抽出中文关键词：只输出名词
 
 
 # ------------------------------------------------------------------ LLM
+# 生效条件：环境变量 DEEPSEEK_API_KEY 为真值（缺省或空串即抛 RuntimeError「需要 DEEPSEEK_API_KEY」）且 range(retries) 至少迭代一次（retries≥1）时，用 messages、max_tokens 调 llm_chat 并返回 (content, usage)；全部重试失败或 retries=0（last 保持 None）时抛 RuntimeError「LLM 调用失败：…」。
 def _llm(messages, max_tokens=400, retries=3):
     from md_cg.bench_task_ab_llm import llm_chat
     key = os.environ.get("DEEPSEEK_API_KEY")
@@ -100,6 +101,7 @@ _DEFAULT_COND = {"observation_position": "会话陈述", "observation_tool": "�
                  "existence_constraint": "公开"}
 
 
+# 生效条件：p 经 os.path.isfile(p) 判定为普通文件时按 utf-8 打开并返回 json.load(f)；os.path.isfile(p) 为假（含目录、不存在路径、空串）时返回 {}。
 def _load_json(p):
     if os.path.isfile(p):
         with open(p, encoding="utf-8") as f:
@@ -107,6 +109,7 @@ def _load_json(p):
     return {}
 
 
+# 生效条件：无参调用即返回 (_load_json(MAN_ZH), _load_json(MAN_Q))，每个元素在模块级常量 MAN_ZH / MAN_Q 指向普通文件时为解析出的 JSON、否则为 {}。
 def _load_manual():
     """读入会话模型直接产出的中文层 / 中文查询词（零 API 依赖）。
 
@@ -119,6 +122,7 @@ def _load_manual():
     return _load_json(MAN_ZH), _load_json(MAN_Q)
 
 
+# 生效条件：z 为真值且 re.search(r"条件=([^；;]+)") 命中，并按 [|｜] 切分后至少有一段以 ":" / "：" 分为两段且首段 strip 后在模块级常量 _COND_KEYS 中时，返回非空映射 dict；z 为假值、正则未命中或映射为空时返回 None。
 def _cond_of(z):
     """从中文层的「条件=观测位置:…|观测工具:…|…」抽条件空间 dict。"""
     m = re.search(r"条件=([^；;]+)", z or "")
@@ -132,6 +136,7 @@ def _cond_of(z):
     return out or None
 
 
+# 生效条件：模块级常量 CACHE 经 os.path.isfile(CACHE) 判定为普通文件时按 utf-8 打开并返回 json.load(f)；否则返回 {}。
 def _load_cache():
     if os.path.isfile(CACHE):
         with open(CACHE, encoding="utf-8") as f:
@@ -139,12 +144,14 @@ def _load_cache():
     return {}
 
 
+# 生效条件：以 c 为输入即 os.makedirs(DIR, exist_ok=True) 后按 utf-8 把 c 以 ensure_ascii=False、indent=1 写入模块级常量 CACHE，无前置校验、无返回值。
 def _save_cache(c):
     os.makedirs(DIR, exist_ok=True)
     with open(CACHE, "w", encoding="utf-8") as f:
         json.dump(c, f, ensure_ascii=False, indent=1)
 
 
+# 生效条件：cache 命中 "L2:"+turn["id"] 时直接返回该缓存值；否则用 ZH_PROMPT 拼 json.dumps({"date": turn.get("date"), "text": turn.get("text")})（键缺失回落 null）调 _llm，依次取 max_tokens=1200、2600，对 content or "" 去代码块与标签后 strip(" ,，、|")，首个非空即 break，把结果写回 cache 并返回（两次皆空则缓存并返回 ""）。
 def zh_layer(turn, cache):
     """一条 turn → 中文词袋。缓存 key 带版本号：prompt 改版必须失效旧缓存。
 
@@ -171,6 +178,7 @@ def zh_layer(turn, cache):
     return s
 
 
+# 生效条件：cache 命中 "Q2:"+q["qid"] 时直接返回该缓存值；否则以 ZH_Q_PROMPT+q["question"] 调 _llm(max_tokens=1200)，去代码块后 strip(" ,，、") 写入 cache[key]，结果为空串时抛 RuntimeError「查询侧关键词为空…」，非空时返回 cache[key]。
 def zh_question(q, cache):
     """英文问题 → 中文关键词（与写入侧同源；额度须 ≥1200，否则推理烧空 content）。"""
     key = "Q2:" + q["qid"]
@@ -186,6 +194,7 @@ def zh_question(q, cache):
 
 
 # ------------------------------------------------------------------ 池
+# 生效条件：模块级常量 POOL 为普通文件时直接返回其中非空行的 json.loads 列表（此时不读 n_q、n_distract、seed）；否则以 random.Random(seed)、每组 max(1, n_q//len(GROUPS)) 条（取 q["evidence_turns"][0] 为 gold）采样后追加 rng.sample(rest, min(n_distract, len(rest))) 干扰项，写出 POOL 与 questions.json 并返回 pool。
 def build_pool(n_q, n_distract, seed=7):
     """采样：n_q 题（分组覆盖）各取 evidence_turns[0] 为 gold，再取干扰。"""
     if os.path.isfile(POOL):
@@ -229,6 +238,7 @@ def load_questions_zh():
 
 
 # ------------------------------------------------------------------ 建库 / 评测
+# 生效条件：以 ec.build_eval_cg(None, root, corpus or POOL, ec.lm_turn_text, "lmezh", calib_of=calib if zh_of 为真值 else None, rebuild=rebuild) 执行并返回其结果（形参 pool 在该调用中未被使用，实际用 corpus or POOL；zh_only 只在内层 calib 中生效，不传给 build_eval_cg）。
 def build(root, pool, zh_of=None, rebuild=False, zh_only=False, corpus=None):
     """zh_of: turn_id → 中文层；None = 裸文本库。
 
@@ -238,6 +248,7 @@ def build(root, pool, zh_of=None, rebuild=False, zh_only=False, corpus=None):
     上界而非全译库真值。故另设 F 臂（池只含 20 条 gold、正文全中文）隔离该假象，
     单测中文层自身的可区分性。
     """
+# 生效条件：作为 build 的内层函数闭包使用 zh_of/zh_only，ctx 未被使用；zh_of 为真值且 zh_of.get(r["id"]) 为真值时 cs = _cond_of(z) or cs，否则 cs = dict(_DEFAULT_COND)；zh_only 为真值时返回 (z or ec.lm_turn_text(r), [], cs)，否则返回 (ec.lm_turn_text(r) 在 z 为真值时再拼 "\n"+z, [], cs)。
     def calib(r, ctx=None):
         z = zh_of.get(r["id"]) if zh_of else None
         cs = dict(_DEFAULT_COND)
@@ -289,6 +300,7 @@ def main():
     print(f"中文层：本地 {len(man_zh)} 条（查询词本地 {len(man_q)} 条），"
           f"缓存合计 {len(cache)} 条，模型 {MODEL}（本轮不调用）")
 
+# 生效条件：对 r 调 zh_layer(r, cache)（cache 为闭包变量）成功时返回 (r["id"], 中文层, None)；zh_layer 抛任何异常时返回 (r["id"], "", f"{type(exc).__name__}: {exc}")。
     def work(r):
         try:
             return r["id"], zh_layer(r, cache), None

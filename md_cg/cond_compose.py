@@ -22,10 +22,12 @@ BUILTINS = set(dir(builtins))
 TPL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cond_template.json")
 
 
+# 生效条件：调用 load_template 时可选实参 path 为假值（None/空串等）则打开并 json.load 模块级常量 TPL_PATH，否则打开并解析 path，返回 json.load 得到的对象；
 def load_template(path=None):
     return json.load(open(path or TPL_PATH, encoding="utf-8"))
 
 
+# 生效条件：调用 import_names 时必须提供 path，且对该 path 内容 ast.parse 抛 SyntaxError 时返回空集合，否则返回 ast.Import 的 (asname 或 name 首段) 与 ast.ImportFrom 的 (asname 或 name) 构成的集合；
 def import_names(path):
     """该文件里 import 进来的名字（这些不是「状态来源」，是固定依赖，不进条件）。"""
     names = set()
@@ -43,6 +45,7 @@ def import_names(path):
     return names
 
 
+# 生效条件：调用 module_constants 时必须提供 path，且对该 path 内容 ast.parse 抛 SyntaxError 时返回空集合，否则返回顶层 ast.Assign 的 Name 目标与 ast.AnnAssign 的 Name 目标构成的集合减去 import_names(path) 的结果；
 def module_constants(path):
     """模块级常量名（顶层赋值目标）——它们是真正的『状态来源』，函数/类定义不算。"""
     consts = set()
@@ -60,6 +63,7 @@ def module_constants(path):
     return consts - import_names(path)
 
 
+# 生效条件：调用 explained_guards 时必须提供 rec、allowed，且 rec.get("guards") 的假值经 or [] 视为空，仅保留其中 g.get("early") 为真、且 g.get("cond")（假值经 or "" 按空串）内所有标识符都在 allowed、BUILTINS 或 self/cls 中的守卫并返回列表；
 def explained_guards(rec, allowed):
     """只保留「早退式」且标识符全部可解释的守卫（模板校验清单第 6/9 条）。"""
     out = []
@@ -73,6 +77,7 @@ def explained_guards(rec, allowed):
     return out
 
 
+# 生效条件：调用 compose 时必须提供 rec（且 rec 含 name 键，直接 rec["name"] 取值），imports、consts 为假值时回落为空集合，terse 控制空槽位是否省略；当 rec["required"] 为空且 rec["externals"] 中在 consts 内的项也为空时返回固定 BLINDSPOT 串，否则按 required/optional/externals/explained_guards/returns/doc_head 拼接并返回以“。”结尾的字符串；
 def compose(rec, imports=None, terse=True, consts=None):
     """按模板把一条事实填成中文生效条件；terse=True 省略空槽位。"""
     imports = imports or set()
@@ -118,6 +123,7 @@ def compose(rec, imports=None, terse=True, consts=None):
     return body_text + "。"
 
 
+# 生效条件：调用 compose_symbol 时必须提供 path、rec（terse 可选），它用 path 取得 import 名与模块常量，以 rec 和 terse 调用 compose 生成 condition，再按 rec["lineno"] 与 rec["end"] 从 path 按换行切分的行列表切片交给 condition_anchor.judge，返回含 name/kind/lineno/end/condition/gate/anchors 的字典；
 def compose_symbol(path, rec, terse=True):
     """生成并**当场过门禁**（condition_anchor.judge），返回条件与裁决。"""
     imports = import_names(path)
@@ -131,6 +137,7 @@ def compose_symbol(path, rec, terse=True):
             "anchors": verdict["anchors"]}
 
 
+# 生效条件：调用 compose_file 时必须提供 path（terse 可选），遍历 cond_facts.file_facts(path) 的每条 rec，调用 compose_symbol(path, rec, terse=terse)，返回全部结果组成的列表 out；
 def compose_file(path, terse=True):
     out = []
     for rec in cond_facts.file_facts(path):
@@ -138,6 +145,7 @@ def compose_file(path, terse=True):
     return out
 
 
+# 生效条件：调用 main 时省略 argv 或 argv 为 None 则取 sys.argv[1:]，否则使用传入 argv（空列表不回落），argv 含 "--terse" 则 terse=True，含 "--json" 则打印 rows 的 JSON 后返回 0，否则以非 "--" 开头的实参作为文件路径收集 rows，打印每个 gate/path/lineno/name/condition 与 STAT 统计后返回 0；
 def main(argv=None):
     argv = list(argv if argv is not None else sys.argv[1:])
     terse = "--terse" in argv

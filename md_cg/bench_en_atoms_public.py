@@ -90,6 +90,7 @@ def perturb_kw(text, mode, idx):
     return text
 
 
+# 生效条件：CHAR_ATOMS 可读时按 data.get("lexicon") or {} 取词库，lexicon 缺失或为假值即返回空字典，否则逐键返回 {ch: str(v.get("en") or "")}（v 缺 "en" 或 "en" 为假值时该键值为空串）。
 def load_char_atoms():
     """字级英文原子库：{中文字: 英文短语}。"""
     with io.open(CHAR_ATOMS, encoding="utf-8") as f:
@@ -98,6 +99,7 @@ def load_char_atoms():
     return {ch: str(v.get("en") or "") for ch, v in lex.items()}
 
 
+# 生效条件：以 text or "" 逐字符、char_atoms 为字级映射表——字符落在 ZH_RANGE 内时取 char_atoms.get(ch, "")（缺键回落空串），其余字符原样保留，返回 normalize_en(" ".join(parts))；text 为假值（None/空串）时按空串返回 normalize_en("")。
 def zh_map_en(text, char_atoms):
     """中文逐字→英文短语映射串；英文/数字原样保留（交 normalize_en 归一）。"""
     lo, hi = ZH_RANGE
@@ -110,6 +112,7 @@ def zh_map_en(text, char_atoms):
     return normalize_en(" ".join(parts))
 
 
+# 生效条件：以 normalize_en(str(c.get("text") or "")).split() 为基词集，body_only 为真时只返回该集合的 frozenset；body_only 为假（默认 False）时再并入 zh_map_en(str(c.get("zh") or ""), char_atoms) 拆出的词，返回合并后的 frozenset。
 def node_atom_set(c, char_atoms, body_only=False):
     """doc 侧节点原子集：中文五槽字级映射 ∪ 英文正文归一词（双语双路 doc 侧）。
 
@@ -122,6 +125,7 @@ def node_atom_set(c, char_atoms, body_only=False):
     return frozenset(toks)
 
 
+# 生效条件：a 或 b 为假值（None/空集）时返回 0.0，否则交集非空返回 len(a & b)/len(a | b)、交集为空亦返回 0.0。
 def jaccard(a, b):
     if not a or not b:
         return 0.0
@@ -129,10 +133,12 @@ def jaccard(a, b):
     return inter / len(a | b) if inter else 0.0
 
 
+# 生效条件：对 st.items() 每个值取 round(v, 1) 组成同键字典，st 为空字典时返回空字典。
 def round_dict(st):
     return {k: round(v, 1) for k, v in st.items()}
 
 
+# 生效条件：遍历 questions 逐问评测——qatoms_of(q) 为假值时仅累加 st["n"] 不计命中，否则按 jaccard 对 docs 降序（同分按 nid 升序）排序、以首个 nid 落在 q.get("evidence_turns") or [] 中的 rank 累加 hit@1/5/10 与 1/rank 的 MRR，打印后返回 {k: v/max(st["n"],1)（rr 项）或 v*100.0/max(st["n"],1)}。
 def run_arm(questions, docs, qatoms_of, label):
     """单臂评测：全池 Jaccard 排序，hit@1/5/10 + MRR。"""
     st = {"h1": 0, "h5": 0, "h10": 0, "rr": 0.0, "n": 0}
@@ -161,6 +167,7 @@ def run_arm(questions, docs, qatoms_of, label):
     return {k: (v / n if k == "rr" else v * 100.0 / n) for k, v in st.items()}
 
 
+# 生效条件：CORPUS、QUESTIONS、CHAR_ATOMS 与 b6.EN_QUESTIONS 均可读（en_rows 由 ec.iter_jsonl 读取 b6.EN_QUESTIONS 构建）时，载入语料与题、构建 docs 与 docs_body、逐臂 run_arm 并打印锚点，返回 0。
 def main():
     t0 = time.time()
     with io.open(CORPUS, encoding="utf-8") as f:
@@ -191,6 +198,7 @@ def main():
     # 臂④ 机械归一端到端下界：英文问句 → 词表直译为中文词（CEDICT 28294 键
     #     ∪ EN_ZH 手工层，无 AI）→ ②同链路。与②唯一差异 = query 归一来源：
     #     ②=AI 理解式归一的输出形态（标注关键词），④=机械查表归一。
+# 生效条件：以 en_rows.get(q.get("qid"), "")（qid 缺键回落空串）取英文题面，经 normalize_en_query 取出的 terms 拼接后由 zh_map_en 映射，返回 frozenset(zh_map_en(" ".join(terms), char_atoms).split())；terms 为空时返回空 frozenset。
     def e4(q):
         terms, _ = normalize_en_query(en_rows.get(q.get("qid"), ""))
         return frozenset(zh_map_en(" ".join(terms), char_atoms).split())

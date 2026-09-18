@@ -103,11 +103,13 @@ def task_node_id(name: str) -> str:
     return TASK_PREFIX + slug
 
 
+# 生效条件：v 为 None 或 str(v).strip() 为 "" 时返回 False，否则返回 True。
 def _has(v) -> bool:
     """「本次调用是否提供了该字段」——空串/None 一律视为未提供（不静默清空）。"""
     return v is not None and str(v).strip() != ""
 
 
+# 生效条件：无必需形参且无模块级常量约束，恒返回 time.strftime("%Y-%m-%d %H:%M") 的当前时间文本。
 def _today() -> str:
     return time.strftime("%Y-%m-%d %H:%M")
 
@@ -124,6 +126,7 @@ def _field_line(content: str, field: str) -> str:
     return ""
 
 
+# 生效条件：(content or "") 的行中 strip 后以 "## " 开头者成为节名 s[3:].strip() 并切换当前节，其余行累入当前节，返回各节内容以 "\n" join 后 strip 的字典；无任何标题行时仅返回 {"__body__": 全篇 strip}；content 为 None/空串时返回 {"__body__": ""}。
 def sections(content: str) -> dict:
     """正文 → `{节名: 节内容}`；无标题部分归入 `__body__`。"""
     out: dict = {"__body__": []}
@@ -138,6 +141,7 @@ def sections(content: str) -> dict:
     return {k: "\n".join(v).strip() for k, v in out.items()}
 
 
+# 生效条件：t = (text or "").strip()，t 为 ""/"（无）"/"（未填）" 时返回 ""，否则 len(t) <= n（默认 200）时返回 t，超出时返回 t[:n].rstrip() + "…"。
 def _brief(text: str, n: int = 200) -> str:
     t = (text or "").strip()
     if t in ("", "（无）", "（未填）"):
@@ -253,6 +257,7 @@ def _entry(cg, nid: str):
 
 # ---------------------------------------------------------------- 写操作
 
+# 生效条件：slugify(name) 为空串或不匹配 _SLUG_RE 时返回 {'ok': False, 含 slug 的非法名 error}；否则 st = str(status if _has(status) else (旧卡 task_status or "active")).strip().lower()，st 不在 TASK_STATUSES 时返回未知状态错误，st == "done" 且合并后结果节 _has(new_res) 为假时返回「转 done 必须填结果」拒收，其余情况渲染写入并返回按 old 是否为 None 区分新建/更新的 out。
 def upsert(cg, name: str, *, plan: str = None, status: str = None,
            result: str = None, condition: str = None, goal: str = None,
            acceptance: str = None, boundary: str = None, change: str = None,

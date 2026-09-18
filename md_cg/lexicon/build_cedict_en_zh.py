@@ -50,6 +50,7 @@ CEDICT_URL = "https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdb
 LINE_RE = re.compile(r"^(\S+)\s+(\S+)\s+\[[^\]]+\]\s+/(.+)/\s*$")
 
 
+# 生效条件：无必需形参，被调用即创建模块常量 RAW_DIR、按 CEDICT_URL 发请求（UA 头 + timeout=120），把响应体写入 RAW_GZ，再以 gzip 解压并按 errors="replace" 解码写入 RAW_TXT，最后打印字节数与行数并返回 0；
 def download():
     os.makedirs(RAW_DIR, exist_ok=True)
     req = urllib.request.Request(
@@ -67,6 +68,7 @@ def download():
     return 0
 
 
+# 生效条件：无必需形参，迭代时逐行读模块常量 RAW_TXT，仅当 strip 后非空、不以 "#" 开头且 LINE_RE.match 命中时产出 (第 2 组, 第 3 组)，其余行跳过（生成器，无产出即为空）；
 def iter_entries():
     """CEDICT 行 → (简体, [英文释义段])。注释/空行跳过。"""
     with io.open(RAW_TXT, encoding="utf-8") as f:
@@ -80,6 +82,7 @@ def iter_entries():
             yield m.group(2), m.group(3)
 
 
+# 生效条件：min_len 取默认 3（调用方可传入覆盖，传入 0 则 len(sub)<min_len 恒不成立、不再做长度过滤），遍历 iter_entries() 的释义按 / 分段、剥 (…) 注、按 ;, 切子段并 strip+lower+去 to/a/an 前缀，子段须 fullmatch [a-z]+、不在 STOPWORDS、长度 ≥ min_len 才计入 rev[en]；末尾按 zh 集大小 1 写入 cand[en]、>1 写入 conflicts[en]，返回 (cand, conflicts, stat)；
 def reverse_map(min_len=3):
     """词级反查 → (候选 {en: zh}, 冲突 {en: [zh...]}, 统计 dict)。
 
@@ -122,6 +125,7 @@ def reverse_map(min_len=3):
     return cand, conflicts, stat
 
 
+# 生效条件：无必需形参，逐行读模块引用 b6.CORPUS567 并跳过空白行，每行 json.loads 后取 (c.get("zh") or "") 与 (c.get("zh_fields") or {}) 中所有 str 值拼接成一条，最终以换行连成整串返回（无有效行时返回空串）；
 def _corpus_text():
     """领域语料全文（zh 正文+五槽摘要）——冲突集频次消歧用。
 
@@ -143,6 +147,7 @@ def _corpus_text():
     return "\n".join(buf)
 
 
+# 生效条件：无必需形参，逐行读模块引用 b6.CORPUS567 并跳过空白行；摘要取 (c.get("zh_fields") or {}).get("summary") 且 str(...).strip() 后为空时回落 c.get("zh")，非空则 semantic_atoms 切分后空格连接入 sums；正文取 c.get("zh").strip() 非空则同样切分入 bodys；返回 ("\n".join(sums), "\n".join(bodys))（两级均可能为空串）；
 def _atoms_texts():
     """doc 侧同构消歧空间（2026-09-14 消歧口径升级）。
 
@@ -175,6 +180,7 @@ def _atoms_texts():
     return "\n".join(sums), "\n".join(bodys)
 
 
+# 生效条件：给定冲突英文词 en、候选中文集合 zhs、文本对 texts=(摘要原子串, 正文原子串)，仅对 2 ≤ len(z) ≤ 4 且按 sorted(zhs) 顺序的候选，依次用摘要 frag 计数、摘要全零时改用正文 frag 计数、前两级全零时改用单原子碎片计数求和（级别 0/1/2 依次），任一非零即入 scored；scored 为空返回 (None, -1)，否则按 (-计数, 级别, 长度, 字典序) 排序返回 scored[0] 的中文词与级别；
 def _disambiguate(en, zhs, texts):
     """单英文词冲突集三级消歧：摘要碎片串 → 正文碎片串 → 碎片字级和。
 
@@ -216,6 +222,7 @@ def _disambiguate(en, zhs, texts):
     return scored[0][3], scored[0][1]
 
 
+# 生效条件：min_len 取默认 3、domain 取默认 True（两者均可由调用方传入覆盖，domain 传假值则跳过消歧分支）；先 reverse_map(min_len) 取 cand/conf/stat，当 domain 为真且 conf 非空时以 _atoms_texts() 对每个冲突词调 _disambiguate 并计 disambiguated/body/char/dropped，命中则写回 cand 并 conf.pop(en)、未命中仅计 dropped；随后无条件把 set(cand) & set(EN_ZH) 的键从 cand 移除（手工表优先），再写出 OUT_JSON 并返回 0；
 def build(min_len=3, domain=True):
     cand, conf, stat = reverse_map(min_len)
     stat["disambiguated"] = 0
@@ -274,6 +281,7 @@ def build(min_len=3, domain=True):
     return 0
 
 
+# 生效条件：无必需形参，两次逐行读模块常量 QUESTIONS 并跳过空白行：第一次对 str(q.get("question") or "") 调 normalize_en_query，把 detail 中 action=="unknown_keep" 的 str(d.get("orig") or "").lower() 逐个计入 Counter；第二次累加各问句 normalize_en_query 返回的第 0 项长度得 total_tokens；打印去重词数/词次/原子序列长度与 top 30 后返回 0（无有效行时计数为零仍返回 0）；
 def analyze():
     """集成后 normalize 的最终残留取证（en_normalizer 已加载 cedict_en_zh.json，
     此处 unknown_keep 即全链路翻译后的真 OOV）。"""
@@ -304,6 +312,7 @@ def analyze():
     return 0
 
 
+# 生效条件：无必需形参，mode = sys.argv[1] if len(sys.argv) > 1 else "analyze"（仅按参数个数回落，sys.argv[1] 为空串时 mode 即空串、不回落默认）；mode=="download" 返回 download()、"build" 返回 build()、"analyze" 返回 analyze()，其余取值打印模块 doc 并返回 2；
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "analyze"
     if mode == "download":

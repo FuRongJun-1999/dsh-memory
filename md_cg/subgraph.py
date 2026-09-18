@@ -40,6 +40,7 @@ SEP_MAX_NODES = 400          # 单次扫描节点上限（防 O(N²) 读盘爆�
 SEP_MAX_PAIRS = 50           # 单次返回/落库的候选对上限
 
 
+# 生效条件：fm 为假值或 fm.get("subgraph") 取值为假（None/[]/{}/空串）时直接返回 {'nodes': [], 'edges': []}；subgraph 为 list/tuple 时其元素作节点、边记空列表，为 dict 时节点取 sg.get("nodes")（缺键或假值回落 []）、边取 sg.get("edges")（同样回落），为其他类型仍返回空；节点项为 dict 时取 n.get("id")、否则取元素本身，nid 为 None 跳过，仅当 str(nid).strip() 非空且未出现过才追加；边只保留 isinstance(e, dict) 的项；
 def declared(fm):
     """规范化 `frontmatter.subgraph` → `{"nodes": [id...], "edges": [edge...]}`。
 
@@ -68,6 +69,7 @@ def declared(fm):
     return {"nodes": nodes, "edges": [e for e in raw_edges if isinstance(e, dict)]}
 
 
+# 生效条件：当 getattr(cg,"index",None) 的 nodes 字典中存在 nid（entry 非 None）且 "subgraph" in entry 时，返回 {'id': nid, 'subgraph': entry.get("subgraph"), 'edges': entry.get("edges") or []}（subgraph 值为 None 也照样返回）；否则改走 cg.get(nid)，返回 (node or {}).get("frontmatter") or {}，节点不存在或 frontmatter 为假值时得空 dict；
 def _fm(cg, nid):
     """取节点 frontmatter：优先索引快照（免 IO），快照缺字段时回退读文件。"""
     entry = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(nid)
@@ -89,6 +91,7 @@ def _fm(cg, nid):
 SRC_REL_MAP = {"hierarchical": "contains"}
 
 
+# 生效条件：rel 先经 str(rel or "").strip().lower() 归一（None/空串得 ""），返回 {'target': str(tgt), 'relation_type': SRC_REL_MAP.get(rel, rel), 'confidence': confidence, 'verified': verified}——归一后的 rel 命中模块常量 SRC_REL_MAP 时用映射值、未命中（含 rel 为空串）时原样保留，confidence/verified 直接透传默认 1.0/0 的实参不做校验；
 def normalize_edge(tgt, rel, confidence=1.0, verified=0):
     """源库边 → md_cg 本地边（迁移器专用）。做两件事：
 
@@ -140,6 +143,7 @@ def children_index(cg):
     return idx
 
 
+# 生效条件：返回 list(children_index(cg).get(nid) or [])，即 nid 在索引中无键或对应值为空（None/空列表）时得空列表，否则返回其子 id 的浅拷贝列表；
 def children(cg, nid):
     """直接子节点 id 列表：`subgraph.nodes` 声明 ∪ 边式父子关系。"""
     return list(children_index(cg).get(nid) or [])
@@ -183,6 +187,7 @@ def parents_index(cg):
     return idx
 
 
+# 生效条件：无条件执行——把 cg 的 _subgraph_parents 与 _subgraph_children 依次 setattr 为 None（setattr 抛异常被 except 吞掉后继续下一个），无返回值，与 cg 是否已建有缓存无关；
 def invalidate_cache(cg):
     """写入/删除节点后调用，丢弃父子正查/反查缓存。"""
     for attr in ("_subgraph_parents", "_subgraph_children"):
@@ -192,12 +197,14 @@ def invalidate_cache(cg):
             pass
 
 
+# 生效条件：取 parents_index(cg).get(nid) or []，列表非空时返回其首元素，键缺失或值为空/假（None、[]）时返回 None；多父时只返回第一个，不在此处报歧义；
 def parent_of(cg, nid):
     """唯一父（多父时返回第一个并置 `ambiguous` 标记由 validate 报出）。"""
     ps = parents_index(cg).get(nid) or []
     return ps[0] if ps else None
 
 
+# 生效条件：max_depth 非 None 时先 max(0, min(int(max_depth), MAX_DEPTH_HARD)) 收敛；以 nid 为根迭代 DFS，已入 seen 的节点跳过，len(seen) >= max_nodes（max_nodes 传 0 时首次循环即成立）置 truncated=True 并 break，depth >= max_depth 且 children 非空时置 truncated=True 并 continue，否则对 children(cg,cur) 逆序、对未出现过的 (ch,cur) 追加 part_of 边并压栈；返回 {'root','nodes','paths','edges','n_nodes','n_edges','truncated'}；
 def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
     """递归展开子树（迭代 DFS，防递归深度爆栈）。
 
@@ -237,6 +244,7 @@ def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
             "truncated": truncated}
 
 
+# 生效条件：先调用 expand(cg, nid, max_depth=max_depth, max_nodes=max_nodes)，对其中每条边复制一份并追加 source/target 互换、relation_type="parent_of"、confidence/verified 沿用原边 .get(…,1.0/0) 的反向边；返回 root=nid、nodes=ex["nodes"]、paths=ex["paths"]、n_nodes=ex["n_nodes"]、n_edges=双边后条数、truncated=ex["truncated"]；
 def flatten(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
     """把嵌套子图摊平成「节点 + 边」，父子生成**对称双边**。
 
@@ -257,6 +265,7 @@ def flatten(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
             "truncated": ex["truncated"]}
 
 
+# 生效条件：known 取 cg.index 的 nodes 键集合，仅当 parents_index(cg).get(nid) or [] 为空（键缺失或空列表）的 nid 才视为树根，返回其排序后的 id 列表；
 def roots(cg):
     """无父节点（树根）的 id 列表。"""
     known = set(((getattr(cg, "index", None) or {}).get("nodes") or {}).keys())
@@ -264,6 +273,7 @@ def roots(cg):
     return sorted(nid for nid in known if not (pmap.get(nid) or []))
 
 
+# 生效条件：known 取 cg.index 的 nodes 键列表，max_scan 为真值时截断为 known[:int(max_scan)]；逐 pid 遍历 declared(_fm(cg,pid))["nodes"]：ch==pid 记 self_loop 并 continue（不再进入悬空/多父判断），ch 不在 known_set 记 dangling_child，随后 parent 中已有 ch 且 prev != pid 记 multi_parent、否则写 parent[ch]=pid；再沿 parent 指针上溯，遇本路径已访问节点记 cycle；_issue 仅在 len(issues) < limit*4 时追加（limit 为 0 时 0<0 不成立，不追加任何 issue）；返回 scanned、issues=len(issues)、items=issues[:limit]、truncated=len(issues)>limit；
 def validate(cg, limit=50, max_scan=None):
     """树一致性校验：自环 / 悬空子节点 / 多父 / 环。
 
@@ -320,6 +330,7 @@ def validate(cg, limit=50, max_scan=None):
 #   · 边携带 reason + 判定分量，供后续重构/审计追溯；
 #   · 条件**相同**的相似对**不是**分离候选（那是重复，该走 MERGE）。
 
+# 生效条件：cg.get(nid) 为假值（None/{}）时返回 None；否则取 fm=node.get("frontmatter") or {}、content=node.get("content") or ""，返回 {'grams': bigrams(forgetting.payload(content)), 'pos','neg': consistency.condition_terms(fm, content) 的结果, 'layer': fm.get("layer")}——grams 为空也照常返回该字典，不返回 None；
 def _node_terms_and_grams(cg, nid):
     """读取节点并返回 (payload 二元组, 正条件词面, 负条件词面)；不可读返回 None。"""
     from . import consistency, forgetting
@@ -334,6 +345,7 @@ def _node_terms_and_grams(cg, nid):
     return {"grams": grams, "pos": pos, "neg": neg, "layer": fm.get("layer")}
 
 
+# 生效条件：pool 初取 cg.index 的 nodes 键，layer 为假值（None/""）时不按层过滤、否则只留 e.get("layer")==layer 的 nid，ids 为真值时只留 str(x) 属于该集合的 nid；pool 排序后 truncated=len(pool)>int(max_nodes)、并截为前 int(max_nodes) 个；只有 _node_terms_and_grams 返回非 None 且 grams 非空的节点进 cache；对 cache 键两两比较——无公共 bigram 跳过、jaccard 小于 float(min_jaccard) 跳过、condition_distinct 的 distinct 为假或 overlap > float(max_cond_overlap) 跳过，其余成候选并按 (-jaccard,a,b) 排序；返回 scanned、compared、candidates=out[:int(limit)]、total_candidates、truncated、note；
 def separation_pairs(cg, layer=None, ids=None, max_nodes=SEP_MAX_NODES,
                      min_jaccard=SEP_MIN_JACCARD,
                      max_cond_overlap=SEP_MAX_COND_OVERLAP,
@@ -393,6 +405,7 @@ def separation_pairs(cg, layer=None, ids=None, max_nodes=SEP_MAX_NODES,
             "note": "只读候选；apply=True 才写分离边"}
 
 
+# 生效条件：batch 为假值（None 或空串）时回落到 time.strftime("%Y%m%d-%H%M%S")；按 (a,b)、(b,a) 两向处理：cg.get(src) 为假值跳过，dst 已出现在 consistency.separation_targets(fm) 中跳过，否则往 fm["edges"] 追加 distinct_from 边、向 fm["pattern_separated_from"] 追加 dst，按 os.path.join(cg.root, e.get("path") or f"{src}.md") 调 cg._write_node 写盘并追加 MAINTAIN_LOG 行，src 记入 written；返回 {'a','b','written','batch'}；
 def mark_separated(cg, a, b, reason="", actor="maintain", batch=None):
     """写入 (a↔b) 对称 `distinct_from` 边（幂等：已存在则不重复写）。"""
     from . import consistency
@@ -427,6 +440,7 @@ def mark_separated(cg, a, b, reason="", actor="maintain", batch=None):
     return {"a": a, "b": b, "written": written, "batch": batch}
 
 
+# 生效条件：pairs 为 None 时调 separation_pairs 取 candidates 与 meta（scanned/compared/truncated/total_candidates），否则 cands=list(pairs) 且 meta 中 scanned/compared 记 0、truncated 记 False、total_candidates=len(cands)；apply 为真值时先生成统一 batch=time.strftime(...)，逐个候选调 mark_separated(..., batch=batch)，written 非空且 cg 有 rebuild_index 时调 cg.rebuild_index()、否则调 invalidate_cache(cg)，apply 为假值时不写盘；返回 ok、action='separate'、dry_run=not apply、layer、candidates、written、written_count、elapsed_ms、log 与 meta、note；
 def separate_run(cg, layer=None, pairs=None, apply=False, ids=None,
                  min_jaccard=SEP_MIN_JACCARD, limit=SEP_MAX_PAIRS,
                  actor="maintain"):
@@ -487,6 +501,7 @@ RECON_COMMON_SHARE = 0.5      # 共同条件判定：≥ 半数锚点共享
 RECON_SCENE_PREFIX = "scene_"
 
 
+# 生效条件：clues 为 None 时返回 []；clues 为 str 时包装成单元素列表；逐项取 str(c or "").strip().lower()，空串跳过，整串去重入 out，再按 re.split(r"[\s,，、;；/|]+") 切词、去重后追加；返回 out；
 def _clue_terms(clues):
     """线索归一化：字符串 / 列表 → 去重词面（保留整串 + 切分后的词）。"""
     if clues is None:
@@ -507,6 +522,7 @@ def _clue_terms(clues):
     return out
 
 
+# 生效条件：term_sets 为假值（None/[]）时返回 []；否则对每个集合的 set(s or ()) 统计词面出现次数，need = max(2, int(len(term_sets)*RECON_COMMON_SHARE) 向上取整)，返回出现次数 >= need 的词面排序列表（阈值取自模块常量 RECON_COMMON_SHARE）；
 def _shared_terms(term_sets):
     """出现在 ≥ RECON_COMMON_SHARE 比例集合中的词面（且至少 2 个集合共享）。"""
     if not term_sets:
@@ -519,6 +535,7 @@ def _shared_terms(term_sets):
     return sorted(t for t, c in cnt.items() if c >= need)
 
 
+# 生效条件：按 term_sets 原顺序遍历每个集合的 sorted(s or ())，首次出现的词面追加到 seen，返回 seen[:limit]（limit 默认 99，传 0 时切片为空列表，无 or 回落）；
 def _uniq_terms(term_sets, limit=99):
     seen = []
     for s in term_sets:
@@ -528,6 +545,7 @@ def _uniq_terms(term_sets, limit=99):
     return seen[:limit]
 
 
+# 生效条件：bigrams(" ".join(clue_terms)) 为空时返回 []；否则遍历 pool，cg.get(nid) 为假值、或 forgetting.payload 后 bigrams 为空、或与 clue_grams 无交集时跳过，否则 jac=inter/len(并集 or 1)、exact 为 clue_terms 中非空且作为子串出现在 body 的个数，score=jac+0.05*exact，仅 score >= RECON_MIN_SCORE 才收录，最终按 (-score, nid) 排序返回；
 def _anchor_scores(cg, pool, clue_terms):
     """按词面重合给候选锚点打分（返回 [(nid, score, shared, exact)]，降序）。"""
     from . import forgetting
@@ -556,6 +574,7 @@ def _anchor_scores(cg, pool, clue_terms):
     return scored
 
 
+# 生效条件：对 anchor_ids 中每个 nid，cg.get(nid) 为假值跳过，否则取 fm 与 consistency.condition_terms 得 pos/neg，per[nid] 记为 {"effective": sorted(pos)[:8], "non_applicable": sorted(neg)[:8]}；返回 common=_shared_terms(pos_sets)、individual=_uniq_terms(pos_sets) 中不在 common 的项、non_applicable=_uniq_terms(neg_sets)、declared=list(declared_terms or [])、per_anchor=per；
 def _condition_space(cg, anchor_ids, declared_terms=None):
     """合成锚点群的条件空间：共同条件 / 个别条件 / 不适用条件 / 逐锚点明细。"""
     from . import consistency

@@ -162,6 +162,7 @@ COMPOUND_ZH_PHRASES = sorted(
     key=lambda kv: -len(kv[0]))
 
 
+# 生效条件：w 长度 >2 且末字符与倒数第二字符相同且末字符不属于 "aeiousl" 时返回 w[:-1]，否则原样返回 w。
 def _de_double(w):
     """双写辅音还原（CVC 动词屈折）：regrett→regret / runn→run / stopp→stop。
 
@@ -172,6 +173,7 @@ def _de_double(w):
     return w
 
 
+# 生效条件：word 小写后命中 IRREGULAR 键则返回该表值；否则按序判定小写形——以 "ed" 结尾且长度 >4 返回 _de_double(w[:-2])、以 "ing" 结尾且长度 >5 返回 _de_double(w[:-3])、以 "s" 结尾且不以 "ss" 结尾返回 w[:-1]、其余返回该小写形 w。
 def strip_tense(word):
     """英文屈折归零：不规则动词查表；规则动词去 -ed/-ing/-s + 双写辅音还原"""
     w = word.lower()
@@ -186,10 +188,12 @@ def strip_tense(word):
     return w
 
 
+# 生效条件：w.lower() 属于模块级 STOPWORDS 时返回 True，否则返回 False（w 为空串时 lower 为空串，返回 False）。
 def is_stopword(w):
     return w.lower() in STOPWORDS
 
 
+# 生效条件：w 为真值（非空串）时返回 w[0].isupper()，w 为假值时返回 False。
 def is_proper(w):
     """专有词：原始 query 中首字母大写（人名/品牌/地名不归一化）"""
     return w[0].isupper() if w else False
@@ -198,6 +202,7 @@ def is_proper(w):
 _CEDICT_CACHE = None
 
 
+# 生效条件：模块级 _CEDICT_CACHE 为 None 时读取 lexicon/cedict_en_zh.json 并取 json 的 "map" 键（缺该键回落 {}）写入缓存，遇 OSError/ValueError 写入 {}；缓存非 None 时直接返回 _CEDICT_CACHE。
 def cedict_map():
     """词级 CEDICT 反查表（build_cedict_en_zh.py 产物，17700 键级）。
 
@@ -218,6 +223,7 @@ def cedict_map():
     return _CEDICT_CACHE
 
 
+# 生效条件：extra_map 为真值（非 None 且非空映射）时链首加入 (extra_map, "extra")，(EN_ZH, "manual") 恒加入，cedict_map() 返回非空映射时追加 (cedict, "cedict")，最后返回该链 chain。
 def _lookup_chain(extra_map=None):
     """置信分层查表链（第三方验证 2026-09-15）：extra（实验注入）→
     EN_ZH（人工逐词校对）→ CEDICT（机械反查，第一义项直译）。
@@ -324,6 +330,7 @@ def normalize_en_query(query, extra_map=None):
     return terms, inline_hits + detail
 
 
+# 生效条件：detail 中某项 d 的 d.get("low_confidence") 为真值时，取 (d.get("orig") or "").lower()，仅当结果非空且尚未出现在 out 中才按序追加，最终返回去重保序的 out。
 def low_confidence_terms(detail):
     """从归一化 detail 提取低置信映射词清单（去重保序）。
 
@@ -340,6 +347,7 @@ def low_confidence_terms(detail):
     return out
 
 
+# 生效条件：len(sys.argv) > 1 时 query 为 sys.argv[1:] 以空格连接，否则 query 为字面默认 "I eat beef yesterday"；随后打印归一化 terms 与逐条 detail，无返回值。
 def main():
     import sys
     query = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "I eat beef yesterday"

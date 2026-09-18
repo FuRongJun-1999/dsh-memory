@@ -143,6 +143,7 @@ class ConditionVM:
                 "halt": halt,
                 "trace": self.trace if trace else None}
 
+# 生效条件：形参 v 同时满足 v is not None、v is not False、v != 0 时返回 True，否则返回 False（空串 ""、空列表 [] 等经 v != 0 判定仍为 True）。
     def _truthy(self, v):
         return v is not None and v is not False and v != 0
 

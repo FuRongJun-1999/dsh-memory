@@ -48,6 +48,7 @@ MDCG_LAYERS = ("anchor", "structural", "knowledge", "contextual", "self",
                "rejected", "unresolved")
 
 
+# 生效条件：s 为假值（None/空串）时返回 s or ""（即空串），否则返回把 "\r\n" 与 "\r" 依次替换为 "\n" 后的字符串。
 def _norm_text(s: str) -> str:
     """统一换行：md 是 LF 文本格式，把 CRLF/CR 规范化为 LF。
 
@@ -59,6 +60,7 @@ def _norm_text(s: str) -> str:
     return s.replace("\r\n", "\n").replace("\r", "\n")
 
 
+# 生效条件：v 为 None 或 v == "" 时返回 default；v 是 dict/list 时原样返回 v；其余值经 json.loads(v) 解析成功则返回解析结果，抛 ValueError/TypeError 时返回 default。
 def _j(v, default):
     if v is None or v == "":
         return default
@@ -70,6 +72,7 @@ def _j(v, default):
         return default
 
 
+# 生效条件：float(v) 转换成功时返回该浮点值，抛 TypeError/ValueError 时返回 default（未传则取默认实参 0.0）。
 def _f(v, default=0.0):
     try:
         return float(v)
@@ -77,6 +80,7 @@ def _f(v, default=0.0):
         return default
 
 
+# 生效条件：db 以只读 URI 打开 nodes 表；layers 为真值时加 "layer IN (...)" 过滤（None 或空列表不过滤），limit 为真值时拼接 LIMIT int(limit)（None/0/"" 等假值不加 LIMIT），返回按 created_at 排序的行转成的 dict 列表 rows。
 def load_nodes(db: str, layers=None, limit=None):
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
@@ -92,6 +96,7 @@ def load_nodes(db: str, layers=None, limit=None):
     return rows
 
 
+# 生效条件：db 以只读 URI 打开，遍历 edges 表全部行，按 source_id 聚合为 defaultdict(list)，每项取 normalize_edge(target_id, relation_type, _f(confidence, 0.7), int(verified or 0))，返回该 out。
 def load_edges(db: str):
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     out = collections.defaultdict(list)
@@ -193,8 +198,10 @@ def migrate(db: str, root: str, layers=None, limit=None, dry_run=False,
     return report
 
 
+# 生效条件：从 argv 取 --db/--root，二者任一为假值时打印 __doc__ 并返回 1；二者均真值时 --layers 为真值则按逗号切分并 strip 成列表（否则 None），再以 limit=--limit、dry_run=("--dry-run" in argv)、clearance=--clearance 或 "private" 调用 migrate 并返回 0（表达式 0 if migrate(...) else 0 恒为 0）。
 def main(argv):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+# 生效条件：外层 main 作用域的 argv 中若含 name，则返回其后的下一个元素 argv[argv.index(name)+1]，否则返回 default（未传则 None）。
     def opt(name, default=None):
         return argv[argv.index(name) + 1] if name in argv else default
     db = opt("--db")

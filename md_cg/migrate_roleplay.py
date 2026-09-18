@@ -54,6 +54,7 @@ TURN_ROLE = {"user": "user", "bot": "assistant", "assistant": "assistant"}
 # 读取源数据
 # --------------------------------------------------------------------------
 
+# 生效条件：path 能被 io.open 以 encoding="utf-8" 打开且内容为合法 JSON 时返回 json.load(f)，否则在 OSError 或 JSON 解析的 ValueError 时返回 default（仅这两类被捕获，其余异常不返回 default）。
 def _read_json(path, default):
     try:
         with io.open(path, encoding="utf-8") as f:
@@ -62,6 +63,7 @@ def _read_json(path, default):
         return default
 
 
+# 生效条件：roleplay_dir 下 _roles.json 读出的 raw 是 dict 且 raw.get("meta") 也是 dict 时返回 raw["meta"]，raw 是 dict 但 "meta" 非 dict（缺键或非 dict 值）时返回 raw，raw 不是 dict 时返回 {}。
 def load_roles(roleplay_dir):
     """读取 `_roles.json`，归一化根/嵌套两种格式 → {role_id: meta}。"""
     raw = _read_json(os.path.join(roleplay_dir, "_roles.json"), {})
@@ -70,6 +72,7 @@ def load_roles(roleplay_dir):
     return raw if isinstance(raw, dict) else {}
 
 
+# 生效条件：os.path.isdir(transcripts_dir) 为真时返回 out（按文件名排序只取 .jsonl，stem 以 "__" 切出 role_id/client_id 且 client_id 为空串时回落 "shared"，逐行 strip 后跳过空行与 json.loads 的 ValueError 行，成功 append 后 idx 递增，单个文件 OSError 则跳过该文件）；os.path.isdir 为假时直接返回空 out；transcripts_dir 为 None 时 os.path.isdir 会抛 TypeError。
 def load_transcripts(transcripts_dir):
     """读取全部 `*.jsonl` 转录 → [(role_id, client_id, idx, entry)]。"""
     out = []
@@ -100,6 +103,7 @@ def load_transcripts(transcripts_dir):
     return out
 
 
+# 生效条件：mutual_dir 为真值且 os.path.isdir(join(mutual_dir,"tasks")) 为真时，先按文件名序对 result-*.json 追加 (tid, claim, result) 并记入 seen（claim 取 task-{tid}.json 的 payload.claim，缺 payload/claim 或为假值时 strip 前回落 ""，task 文件读出为假值则回落 {}），再对未出现在 seen 的 task-*.json 追加 (tid, claim, None)，返回 out；mutual_dir 为假值（""/None 等）或 tasks 非目录时返回空 out。
 def load_mutual(mutual_dir):
     """读取互维任务/裁决 → [(task_id, claim, result|None)]。"""
     out, seen = [], set()
@@ -131,6 +135,7 @@ def load_mutual(mutual_dir):
 # 迁移
 # --------------------------------------------------------------------------
 
+# 生效条件：对 role_id 与 meta，标题角色名取 meta.get("name") 为真值时的该值、为假值或缺失时回落 role_id，随后仅对 scenario/first_mes/nsfw 中 meta.get(key) 不属于 (None, "", False) 的键各追加一行后返回 "\n".join(lines)。
 def _role_content(role_id, meta):
     name = meta.get("name") or role_id
     lines = [f"# 角色 {name}（{role_id}）"]
@@ -264,9 +269,11 @@ def migrate(data_dir, root, mutual_dir=None, dry_run=False,
     return report
 
 
+# 生效条件：argv 中同时出现 "--data-dir" 与 "--root" 且各自后一元素的取值为真值（非空串）时，以 opt("--mutual-dir")、"--dry-run" in argv、clearance 缺省 "private"、tenant 缺省 "default"、actor 缺省 "dsh-memory" 调用 migrate 并返回 0；二者任一缺失或取到空串时打印 __doc__ 并返回 1；若 "--data-dir"/"--root" 位于 argv 末尾则取后一元素时抛 IndexError，而非走返回 1 分支。
 def main(argv):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
+# 生效条件：name 出现在外层 main 的形参 argv（闭包读取）中且其后还有元素时返回 argv[argv.index(name)+1]，name 不在 argv 时返回 default（默认 None），name 位于 argv 末尾时 argv[index+1] 抛 IndexError 而不返回 default。
     def opt(name, default=None):
         return argv[argv.index(name) + 1] if name in argv else default
 

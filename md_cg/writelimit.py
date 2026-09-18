@@ -203,6 +203,7 @@ def record_accepted(cg, node_id, content, now=None) -> None:
         _save(cg, st)
 
 
+# 生效条件：cg.get(target) 为假值返回 {"ok": False, "error": "target_missing"}；否则以 content 空白归一后截 80 字追加 "【聚合 stamp】" 行、fm["merge_count"]=int(fm.get("merge_count") or 0)+1 后 _write_node 落盘（重要性不变），并返回 {"ok": True, "merge_count": 新值}。
 def converge_into(cg, target: str, content: str) -> dict:
     """同构聚合落库：正文追加一行【聚合】摘要，merge_count+1。
 
@@ -307,6 +308,7 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
     return out
 
 
+# 生效条件：e 提供 "id"/"path"，对其 frontmatter 副本在 tags 不含 "tidy:converged" 时追加该 tag、importance 置 round(max(0.1, float(fm.get("importance",0.5) or 0)*0.5), 3)，经 lifecycle.stamp(fm,"converged",reason=...,actor=actor) 后 _ok 为真时 setdefault(lifecycle.STATE_FIELD,"converged")，随后 cg._write_node 落盘，且 cg.index["nodes"].get(e["id"]) 非 None 时同步 tags/importance/状态字段到索引。
 def _demote(cg, e: dict, actor: str = "sustain_tidy") -> None:
     """成员降权：tags += tidy:converged，importance×0.5（下限 0.1）。
 

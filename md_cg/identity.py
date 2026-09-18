@@ -132,6 +132,7 @@ def log(cg, rec):
         pass
 
 
+# 生效条件：cg.root 下 AUDIT_FILE 路径缺失或打开即抛 OSError 时返回空列表；否则逐行解析非空 JSON（json.loads 抛 ValueError 的行跳过），读取中途抛 OSError 时返回已解析的部分 out，正常返回 out[-int(limit or 100):]，其中 limit 为 0/空串等假值时按 100 取值；
 def history(cg, limit=100):
     p = os.path.join(cg.root, AUDIT_FILE)
     out = []

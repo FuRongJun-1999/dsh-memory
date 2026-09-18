@@ -53,6 +53,7 @@ BOUNDARIES = [
 ]
 
 
+# 生效条件：rows 为含 qtype 的行列表、n 取默认 N_QUESTIONS、seed 取默认 SEED 时（rows 为空则分组与配额皆空、out 为空列表；n=0 时各型配额与 out 皆为空/0），按 int(n*组大小/总行数) 定配额并把余数按小数部分降序补足，逐型用 random.Random("%d:%s"%(seed,qt)) 抽 min(配额,组大小) 条，返回按 qid 排序的 (out, quota)
 def stratified_sample(rows, n=N_QUESTIONS, seed=SEED):
     """按 qtype 比例分层抽样（最大余额法）。
 
@@ -78,6 +79,7 @@ def stratified_sample(rows, n=N_QUESTIONS, seed=SEED):
     return out, quota
 
 
+# 生效条件：sample 为含 qid 与 evidence_turns 的题列表、corpus_by_id 为 id→池行的映射时，把不在 corpus_by_id 中的 evidence_turns 逐题记为 {"qid":…,"missing":[…]} 收入 dangling，其余去重后返回 (按 id 排序的 corpus_by_id 行列表, dangling)
 def build_pool(sample, corpus_by_id):
     """池 = 抽中题的 gold 引用 turn 去重。返回 (pool, dangling)。
 
@@ -108,6 +110,7 @@ def ingest_text_en(c):
     return "%s [%s]" % (text, date) if date else text
 
 
+# 生效条件：c 含 "id" 键时返回 {'id': c["id"], 'speaker'/'date'/'text' 为 c.get(键) or ""（键缺失或值为 None/""/0/[] 等假值均落空串）, 'ingest': ingest_text_en(c)}；缺 "id" 键时 c["id"] 抛 KeyError
 def turn_rec(c):
     """池行 → 落盘行（六家共用的英文侧视图）。"""
     return {"id": c["id"], "speaker": c.get("speaker") or "",
@@ -115,6 +118,7 @@ def turn_rec(c):
             "ingest": ingest_text_en(c)}
 
 
+# 生效条件：sample 每题的 qid 在 en_by_qid 中且中英 evidence_turns 逐字相等时返回按 sample 顺序的 {qid, qtype, question_zh, question_en, evidence_turns} 列表；en_by_qid.get(qid) 为 None 抛 KeyError，两列表不等抛 AssertionError
 def align_queries(sample, en_by_qid):
     """中英双查询词面按 qid join，断言 evidence_turns 逐字一致。
 
@@ -134,6 +138,7 @@ def align_queries(sample, en_by_qid):
     return out
 
 
+# 生效条件：ids 为 id 序列、evidence 为证据 id 集合时，把 ids 包装成 [({"id": x}, 0.0)] 后原样返回 ec.first_evidence_rank 的结果
 def rank_of(ids, evidence):
     """首个证据 id 的排名（1-based；未命中 0）。
 
@@ -144,6 +149,7 @@ def rank_of(ids, evidence):
     return ec.first_evidence_rank(res, set(evidence))
 
 
+# 生效条件：questions 每题含 qid，hits_by_qid 缺该 qid 或其值为假值（含空列表）时按空 id 列表处理，取前 k=K 条后返回每题 {qid, qtype, rank, top1_score(ids 非空为 1.0 否则 0.0), n_res} 的行列表
 def rows_from_hits(questions, hits_by_qid, k=K):
     """把任一家的 id 列表统一转成 ec.summarize 的明细行。
 
@@ -160,6 +166,7 @@ def rows_from_hits(questions, hits_by_qid, k=K):
     return rows
 
 
+# 生效条件：force 为假且 os.path.exists(MANIFEST) 与 os.path.exists(QUESTIONS_JSONL) 均为真时读回 MANIFEST 直接返回（verbose 为真时打印复用信息）；否则重建口径、写 POOL_JSONL/QUESTIONS_JSONL/MANIFEST 后返回该 man
 def prepare(force=False, verbose=True):
     """固化口径层产物（幂等）。返回 manifest。"""
     if not force and os.path.exists(MANIFEST) and os.path.exists(QUESTIONS_JSONL):
@@ -212,6 +219,7 @@ def prepare(force=False, verbose=True):
     return man
 
 
+# 生效条件：无参调用时读 MANIFEST 常量并返回 {'questions': QUESTIONS_JSONL 行列表, 'pool': POOL_JSONL 行列表, 'manifest': 该 JSON 对象}
 def load():
     """读回已固化的口径层产物。六家适配器只经此取题与池。"""
     man = json.load(open(MANIFEST, encoding="utf-8"))

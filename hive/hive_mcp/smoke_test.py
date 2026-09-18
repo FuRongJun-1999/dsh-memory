@@ -36,6 +36,7 @@ PASS = 0
 FAIL = 0
 
 
+# 生效条件：cond 为真时 PASS 自增并打印 `  [PASS] {name}`（两个前导空格），cond 为假时 FAIL 自增并打印 `  [FAIL] {name}  {detail}`（两前导空格，detail 默认空串）。
 def check(name: str, cond: bool, detail: str = "") -> None:
     global PASS, FAIL
     if cond:
@@ -46,9 +47,11 @@ def check(name: str, cond: bool, detail: str = "") -> None:
         print(f"  [FAIL] {name}  {detail}")
 
 
+# 生效条件：env_extra 为真值（非空 dict）时在 dict(ENV) 副本上 env.update(env_extra) 再以该 env 启动 mcp_server 子进程，env_extra 为 None 或空 dict 时只用 dict(ENV) 启动。
 class Mcp:
     """stdio JSON-RPC 客户端（子进程形态，逐行协议）。"""
 
+# 生效条件：env_extra 为真值（非空 dict）时在 dict(ENV) 副本上 env.update(env_extra) 后传给 subprocess.Popen 的 env，env_extra 为 None 或空 dict 时仅用 dict(ENV)。
     def __init__(self, env_extra: dict | None = None):
         env = dict(ENV)
         if env_extra:
@@ -60,6 +63,7 @@ class Mcp:
             cwd=REPO, text=True, encoding="utf-8",
         )
 
+# 生效条件：params 不为 None 时请求体写入 req["params"]（为 None 时省略该键），写入 stdin 并 flush 后循环读 stdout，读到空串（EOF，not line）抛 RuntimeError("server 输出关闭")，某行经 json.loads 解析后 resp.get("id") == rid 时返回该 resp。
     def call(self, method: str, params: dict | None = None, rid: int = 1) -> dict:
         req = {"jsonrpc": "2.0", "id": rid, "method": method}
         if params is not None:
@@ -74,11 +78,13 @@ class Mcp:
             if resp.get("id") == rid:
                 return resp
 
+# 生效条件：把 name 与 args 组装为 {"name": name, "arguments": args} 以 tools/call 和 rid（默认 1）发出，返回对 resp["result"]["content"][0]["text"] 的 json.loads 结果（result/content/[0]/text 均按直接下标取值，缺键或越界本片段不回落默认）。
     def tool(self, name: str, args: dict, rid: int = 1) -> dict:
         resp = self.call("tools/call",
                          {"name": name, "arguments": args}, rid)
         return json.loads(resp["result"]["content"][0]["text"])
 
+# 生效条件：先执行 self.p.stdin.close() 与 self.p.wait(timeout=5)，此两步中任一抛出 Exception 时改调 self.p.kill()，未抛出则不 kill。
     def close(self):
         try:
             self.p.stdin.close()
@@ -98,6 +104,7 @@ with open(os.path.join(d, "result.json"), "w", encoding="utf-8") as f:
 """
 
 
+# 生效条件：以 tries（默认 80）为轮数逐轮按 jid 调用 hive_poll 取 view，轮内 st 为 (view.get("job") or {}).get("state") 且 st in states 时返回 (True, view)，否则睡 0.1s 再试，耗尽 tries 轮后返回 (False, view)（tries<=0 时不轮询，view 仍为 {}）。
 def wait_state(m: Mcp, jid: str, states: set, rid: int, tries: int = 80):
     view = {}
     for _ in range(tries):
