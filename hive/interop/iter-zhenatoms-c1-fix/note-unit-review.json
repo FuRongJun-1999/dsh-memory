@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-zhenatoms-c1-fix",
+ "round": 2,
+ "candidate_commit": "a2929b3",
+ "branch": "task/iter-zhenatoms-c1-fix",
+ "unit_job": "h1789748739673_f20dfc",
+ "verdict": "ACCEPT",
+ "package_n": 3,
+ "text": "1) ACCEPT：M 对任意 zh/en（含假值）均执行 ZH_EN[zh]=en；无 return，隐式返回 None，条件未误称返回非 None。\n2) ACCEPT：segment 空串返回 []；非空循环、_sorted/startswith/append/pos/break 均与段内一致。\n3) ACCEPT：serialize 对 segment(text) 各 a 用 ZH_EN.get 默认 \"[a]\"，再 \" \".join 返回字符串，与段内一致。\nreason: 三条均可在各自 src_segment 内证实，未越界或补充不支持断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
