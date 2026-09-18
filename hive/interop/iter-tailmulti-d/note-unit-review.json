@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-tailmulti-d",
+ "round": 1,
+ "candidate_commit": "66f0b0b",
+ "branch": "task/iter-tailmulti-d",
+ "unit_job": "h1789759497657_cbe1dd",
+ "verdict": "REJECT",
+ "package_n": 7,
+ "text": "1-2 ACCEPT：段内证据覆盖所述输入、早退、分支、patch 与返回。\n3 REJECT：last_kp_fp 为 None 且 kp_fp 变化时，源码返回 kp_fp，而非 last_kp_fp；“重建并返回 kp_fp”也不应绑定 last_kp_fp 非 None。\n4-7 ACCEPT：键、调用、默认/required、返回与 out 写入等均与段内一致。\nreason: 仅条目3与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
