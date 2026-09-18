@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-191-batch-c191",
+ "round": 1,
+ "candidate_commit": "75d62f7",
+ "branch": "task/iter-191-batch-c191",
+ "unit_job": "h1789711021297_01bfbc",
+ "verdict": "REJECT",
+ "package_n": 11,
+ "text": "复核：多数条件与源码一致，位置无需行号。但 `anchors` 未说明 time_window/bbox 长度形合但元素不可 float 时源码会直接抛异常，并非落入 None/error；`_preview` 将 `if not e` 写成仅“无 node_id”，漏掉条目存在但为假值也返回 `\"\"` 的分支。属源码边界漏述/不符。\nreason: 条件未覆盖异常与假值边界，不能视为完全符合源码。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
