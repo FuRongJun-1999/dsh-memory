@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-194-batch-c194-fix-dual",
+ "round": 5,
+ "candidate_commit": "d0e2ba1",
+ "branch": "task/iter-194-batch-c194-fix-dual",
+ "unit_job": "h1789713728196_0eaa6a",
+ "verdict": "REJECT",
+ "package_n": 1,
+ "text": "reason: 条件漏掉 archive_root() 非 None 才追加第三候选的前置，且第三路径写成 dirname(plugin_root())/AEIS…，源码实际为 archive_root()/_archive/ctp-aeis-data/name；与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
