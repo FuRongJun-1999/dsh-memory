@@ -1792,6 +1792,10 @@ class MdCG:
                         if len(_kept) >= max(1, min_results):
                             entries = _kept
                         else:
+                            # 回退：entries 保持不变 → 审计的 out 必须记「真实输出规模」，
+                            # 命中桶本可保留的数量另存 would_keep（独立复核 2026-09-19 指出口径误导）
+                            gates["s1b"]["would_keep"] = len(_kept)
+                            gates["s1b"]["out"] = len(entries)
                             gates["s1b"]["fallback"] = "insufficient"
             if os.environ.get("MDCG_GATE_S2_COND", "1") != "0" and isinstance(context, dict):
                 kept = [e for e in entries if _cond_prefilter_pass(e, context)]

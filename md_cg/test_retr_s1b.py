@@ -134,6 +134,28 @@ def main():
           str(g2d) + " gates=" + str(sorted((m2d.get("gates") or {}).keys())))
     _setenv(MDCG_GATE_S4_LAYER=None)
 
+    # 5c) 候选不足 → 回退全量（专属小库：两个分桶各 1 节点、无 orphan；min_results=3）
+    root_ins = tempfile.mkdtemp(prefix="retr_s1bins_")
+    cgi = MdCG(root_ins)
+    cgi.add("a1", "感知系统 记忆", "knowledge", tags=["domain:感知系统"])
+    cgi.add("b1", "图数据库 邻接", "knowledge", tags=["domain:图数据库"])
+    cgi.flush()
+    bi = [e.get("bucket") for e in cgi.index["nodes"].values()
+          if e.get("path", "").endswith("a1.md")][0]
+    # 对照组必须用**同一个 min_results**（否则比的是两次不同检索，不是回退等价）
+    _setenv(MDCG_GATE_S1B_BUCKET=None)
+    r_ioff, _m = cgi.search(QUERY, k=10, judge=False, record=False, min_results=3)
+    _setenv(MDCG_GATE_S1B_BUCKET="1")
+    r_ins, m_ins = cgi.search(QUERY, k=10, judge=False, record=False, min_results=3)
+    gi = (m_ins.get("gates") or {}).get("s1b") or {}
+    check("候选不足 → fallback=insufficient",
+          gi.get("fallback") == "insufficient" and gi.get("keys") == [bi], str(gi))
+    check("回退时审计 out 记真实输出（= in，不回退口径误导）",
+          gi.get("out") == gi.get("in") == 2 and gi.get("would_keep") == 1, str(gi))
+    check("回退后结果与 S1b 关闭时一致（含异桶节点）",
+          _ids(r_ins) == _ids(r_ioff) and "b1" in _ids(r_ins),
+          str(_ids(r_ins)) + " vs " + str(_ids(r_ioff)))
+
     # ---- 6) topk / min_sim 可配 ----
     _setenv(MDCG_BUCKET_TOPK="0")
     r3, m3 = cg.search(QUERY, k=10, judge=False, record=False)
