@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-185-batch-c185",
+ "round": 1,
+ "candidate_commit": "53cc3db",
+ "branch": "task/iter-185-batch-c185",
+ "unit_job": "h1789709331122_ed601d",
+ "verdict": "REJECT",
+ "package_n": 11,
+ "text": "复核：walk 条目 max_depth 判断写错。源码用 nhop=hops+[hop]：收链为 len(nhop)<=max_depth、下探为 len(nhop)<max_depth；条件写 len(hops) 会少算新跳，max_depth=0 时误判。其余条目与源码一致。\nreason: walk 的 max_depth 长度判断锚定错位，与源码 nhop 不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
