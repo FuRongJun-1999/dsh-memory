@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-insight-c1",
+ "round": 1,
+ "candidate_commit": "2a4f385",
+ "branch": "task/iter-insight-c1",
+ "unit_job": "h1789753807879_e2f015",
+ "verdict": "ACCEPT",
+ "package_n": 6,
+ "text": "1 _read_event：ACCEPT。  \n2 event_id：ACCEPT。  \n3 record：ACCEPT。  \n4 _normalize_evidence：ACCEPT。  \n5 outlook：ACCEPT。  \n6 _q：ACCEPT。  \n六条均锚定各自源码段内形参/常量/早退/分支，未越界，未补不支持断言。  \nreason: 六条条件均能在各自 src_segment 内验证且与源码一致，无越界或新增断言。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
