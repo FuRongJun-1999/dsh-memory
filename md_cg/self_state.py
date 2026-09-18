@@ -92,12 +92,14 @@ STATE_LINK_TYPE = "refers_to"
 
 # ---------------------------------------------------------------- 基础工具
 
+# 生效条件：对 required 形参 text，返回 str(text or "") 经正则把非中英文数字连续段折叠为下划线、strip('_') 并 lower 后的字符串（text 为假值时返回空串）；
 def _slug(text):
     """归一化 id 片段：保留中英文数字，其余折叠为下划线。"""
     s = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "_", str(text or ""))
     return s.strip("_").lower()
 
 
+# 生效条件：对 required 形参 ts，当 float(ts) 可转换且 time.localtime 不抛 OSError 时返回本地时间 "%Y-%m-%d %H:%M:%S" 格式串；当 float(ts) 抛 TypeError/ValueError 或 time.localtime 抛 OSError 时返回空串；
 def _iso(ts):
     try:
         return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(ts)))
@@ -105,24 +107,29 @@ def _iso(ts):
         return ""
 
 
+# 生效条件：subject 未传时取模块常量 DEFAULT_SUBJECT，返回模块常量 STATE_PREFIX 拼接 _slug(subject) 的结果；
 def state_node_id(subject=DEFAULT_SUBJECT):
     """状态卡节点 id（单例：同一 subject 只有一个）。"""
     return STATE_PREFIX + _slug(subject)
 
 
+# 生效条件：对 required 形参 frm 与 to，返回模块常量 RELATION_PREFIX 拼接 _slug(frm)、"__"、_slug(to) 的字符串；
 def relation_node_id(frm, to):
     """关系节点 id（有向）。"""
     return f"{RELATION_PREFIX}{_slug(frm)}__{_slug(to)}"
 
 
+# 生效条件：对 required 形参 cg，返回 os.path.join(cg.root, LOG_FILE)（LOG_FILE 为模块常量）；
 def log_path(cg):
     return os.path.join(cg.root, LOG_FILE)
 
 
+# 生效条件：对 required 形参 dim 与 value，返回 f"{dim}:{_slug(value)}"；
 def dim_tag(dim, value):
     return f"{dim}:{_slug(value)}"
 
 
+# 生效条件：对 required 形参 p_trust，若 p_trust is None 或 float(p_trust) 抛 TypeError/ValueError 则返回 None；否则按模块常量 TRUST_BANDS 顺序取首个 v >= lo 的档名，均不满足返回 "low"；
 def trust_band(p_trust):
     """把 P_trust 映射到信任档（索引维度之一）。"""
     if p_trust is None:
@@ -139,6 +146,7 @@ def trust_band(p_trust):
 
 # ---------------------------------------------------------------- 留痕
 
+# 生效条件：对 required 形参 cg 与 rec，调用 append_jsonl(log_path(cg), rec)；若抛出 OSError 则静默忽略，无返回值；
 def _append_log(cg, rec):
     try:
         append_jsonl(log_path(cg), rec)
@@ -146,6 +154,7 @@ def _append_log(cg, rec):
         pass
 
 
+# 生效条件：对 required 形参 cg 与可选 limit/subject，读取 log_path(cg) 留痕（OSError 时为空列表）；subject 为真值时只保留 r.get("subject") == subject 的记录；倒序后，limit 为真值时返回 recs[:int(limit)]，limit 为假值（如 0）时返回全部倒序记录；
 def history(cg, limit=100, subject=None):
     """自我状态留痕（倒序）。"""
     try:
@@ -158,6 +167,7 @@ def history(cg, limit=100, subject=None):
     return recs[:int(limit)] if limit else recs
 
 
+# 生效条件：对 required 形参 cg 与可选 subject，调用 history(cg, limit=0, subject=subject) 取全部倒序留痕；有记录时返回 recs[0]（最新一条），否则返回 None；
 def _last_log(cg, subject=None):
     recs = history(cg, limit=0, subject=subject)
     return recs[0] if recs else None
@@ -165,6 +175,7 @@ def _last_log(cg, subject=None):
 
 # ---------------------------------------------------------------- 读卡
 
+# 生效条件：对 required 形参 cg 与 node_id，尝试返回 cg.get(node_id)；若 cg.get 抛任何异常则返回 None；
 def _node(cg, node_id):
     try:
         return cg.get(node_id)
@@ -172,15 +183,18 @@ def _node(cg, node_id):
         return None
 
 
+# 生效条件：对 required 形参 cg 与 node_id，取 _node(cg, node_id) 结果（假值时用空字典）的 "frontmatter" 值；该值假值时返回空字典，否则返回该 frontmatter；
 def _fm_of(cg, node_id):
     node = _node(cg, node_id)
     return (node or {}).get("frontmatter") or {}
 
 
+# 生效条件：对 required 形参 cg 与 node_id，从 cg.index（getattr 取不到或假值时用空字典）的 "nodes" 字段（假值时用空字典）中取 node_id 对应条目；缺键返回 None；
 def _entry(cg, node_id):
     return ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)
 
 
+# 生效条件：对 required 形参 cg 与 subject（未传时 DEFAULT_SUBJECT），若 state_node_id(subject) 在 cg.index.nodes 中不存在，或该节点没有非空 frontmatter，返回 None；否则返回由该 frontmatter 扁平化出的 dict，其中 subject 为 fm.get("state_subject") or subject，d_current/p_trust 分别从 information_gap/trust 子字典取；
 def snapshot(cg, subject=DEFAULT_SUBJECT):
     """读当前状态卡 → 扁平 dict（不存在返回 None）。只读，不写盘。"""
     nid = state_node_id(subject)
@@ -205,6 +219,7 @@ def snapshot(cg, subject=DEFAULT_SUBJECT):
     return out
 
 
+# 生效条件：对 required 形参 state，返回对指定核心字段（subject、information_gap、trust、emotion、affect、importance_self、important_refs、identity_ref、short_term、relations、prediction、dimensions、state_links）做 sort_keys=True、ensure_ascii=False、default=str 的 JSON 序列化后 SHA-256 前 16 位十六进制（不含 state_version）；
 def _fingerprint(state):
     """状态指纹：只对「会漂移的实质字段」取哈希，用于幂等刷新与版本链。
 
@@ -232,6 +247,7 @@ def _fingerprint(state):
 
 # ---------------------------------------------------------------- 聚合（九项）
 
+# 生效条件：对 required 形参 cg，返回预测校准 dict；samples==0 时 ok=False、hit_rate=None 且 note 提示无预测留痕；samples>0 且 th.get("reflect") 为真时 note 建议反思，否则 note 正常；ece 与 calibration 仅在 metacognition.calibration 返回 ok 为真时给出，否则为 None；
 def _prediction_face(cg):
     """预测校准（第九项）：我预测得准吗、该不该反思？
 
@@ -277,6 +293,7 @@ def _prediction_face(cg):
     }
 
 
+# 生效条件：对 required 形参 cg 与 window，尝试用 cg.recent_events(limit=int(window), newest_first=False) 取记录（异常时 recs=[]），返回 n=len(recs)、span=[min(ts), max(ts)] if ts else None、roles 角色计数、ptr 为 cg.recent_log 的 basename（缺省 "_recent.jsonl"）；
 def _recent_summary(cg, window):
     """短期记忆：只做窗口摘要，原文仍留在 _recent.jsonl（薄自我的关键取舍）。"""
     try:
@@ -293,6 +310,7 @@ def _recent_summary(cg, window):
             "ptr": os.path.basename(getattr(cg, "recent_log", "_recent.jsonl"))}
 
 
+# 生效条件：对 required 形参 cg 与 subject，若 identity.profile(cg, subject) 抛异常则返回 (None, 0)；否则返回 (prof.anchor.node_id（缺省 None）, len(prof.get("anchors") or []))；
 def _identity_ref(cg, subject):
     """身份：只存指针（锚点节点 id），锚点内容仍在 self 层原节点里。"""
     try:
@@ -304,6 +322,7 @@ def _identity_ref(cg, subject):
     return ref, len(anchors)
 
 
+# 生效条件：对 required 形参 cg 与 subject，遍历 cg.index.nodes 中标签含 TAG_RELATION 或以 RELATION_PREFIX 开头的节点，统计 tags 含 "rel_from:{_slug(subject)}" 的个数为 out、含 "rel_to:{_slug(subject)}" 的个数为 in，返回 {"out": out, "in": inn}；
 def _relation_counts(cg, subject):
     """关系：从索引里的关系节点统计出/入度（不读文件正文）。"""
     slug = _slug(subject)
@@ -320,6 +339,7 @@ def _relation_counts(cg, subject):
     return {"out": out, "in": inn}
 
 
+# 生效条件：对 required 形参 dimensions（假值时按空字典），只保留键 str(dim).strip().lower() 属于模块常量 DIMENSIONS 且 val 非 None 的维度；val 为 list/tuple/set 时展开，否则包装为单元素；过滤空字符串并去重后放入 out，返回 out；
 def _normalize_dimensions(dimensions):
     """维度入参 → {dim: [value...]}（只保留已知维度）。"""
     out = {}
@@ -337,6 +357,7 @@ def _normalize_dimensions(dimensions):
     return out
 
 
+# 生效条件：对 required 形参 cg、subject、window、importance、important_refs、dimensions、links、old，聚合 trace/trust/recent/identity/relations/prediction 等生成薄状态 dict；emotion 与 affect 仅在对应 trace/trust ok 且二阶值为非 None 时取 emotion，否则为 "unknown"；importance 为 None 时回落 old.importance_self 再回落 1.0；important_refs 为 None 时回落 old.important_refs；dimensions 归一化后为空则回落 old.dimensions，并自动追加 trust band 与今日时间；links 为 None 时回落 old.state_links；
 def _derive(cg, subject, window, importance, important_refs, dimensions,
             links, old):
     """聚合九项自我信息 → 薄状态（纯读，不写盘）。"""
@@ -394,6 +415,7 @@ def _derive(cg, subject, window, importance, important_refs, dimensions,
 
 # ---------------------------------------------------------------- 写卡
 
+# 生效条件：对 required 形参 state，读取其 information_gap、trust、short_term、dimensions 等字段，渲染并返回末尾带换行的状态卡正文；span 为空时显示（无），角色为空时显示（无）；
 def _render(state):
     """状态卡正文：人类可读，且与 frontmatter 字段一一对应。"""
     ig, tt = state["information_gap"], state["trust"]
@@ -559,6 +581,7 @@ def refresh(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW, importance=None,
 
 # ---------------------------------------------------------------- 关系
 
+# 生效条件：对 required 形参 cg、frm、to 与可选 relation_type/strength/reciprocal，若 _slug(frm) == _slug(to) 返回 {"ok": False, "error": "self_loop", ...}；否则 relation_type 不在模块常量 RELATION_TYPES 时回落 "other"，strength 的 float 失败时 w=0.5、成功时夹在 0.0~1.0，写入关系节点，reciprocal 为真时同时写反向，返回 ok=True 及 written 列表；
 def relate(cg, frm, to, relation_type="collaborator", strength=0.5,
            condition="", note="", reciprocal=False, actor="self_state"):
     """写一条有向关系（自我 ↔ 其他智能）。reciprocal=True 时同时写反向。"""
@@ -597,6 +620,7 @@ def relate(cg, frm, to, relation_type="collaborator", strength=0.5,
             "reciprocal": bool(reciprocal)}
 
 
+# 生效条件：对 required 形参 cg 与可选 subject/direction，遍历 cg.index.nodes 中标签含 TAG_RELATION 或以 RELATION_PREFIX 开头的节点；subject 为真值时按 _slug(subject) 过滤，direction 为 "out" 只保留出边、"in" 只保留入边、"both" 保留出或入边、其他 direction 不做方向过滤；返回按 strength（importance）降序、再按 node_id 升序排序的关系列表 out；
 def relations(cg, subject=None, direction="both"):
     """列出关系节点（按 subject 过滤出/入）。"""
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
@@ -629,6 +653,7 @@ def relations(cg, subject=None, direction="both"):
 
 # ---------------------------------------------------------------- 索引
 
+# 生效条件：对 required 形参 cg、dim、value 与可选 limit/with_content，若 dim 小写去空白后不在模块常量 DIMENSIONS 中，返回 {"ok": False, "error": "unknown_dimension", "allowed": list(DIMENSIONS)}；否则匹配 cg.index.nodes 中 tags 含 dim_tag(dim, value) 的节点，按 importance 降序、created_at 降序排序，取 hits[:int(limit)]（limit=0 时切片为空），with_content 为真时附加节点 content 前 400 字符，返回 ok=True 及 count/items；
 def index(cg, dim, value, limit=50, with_content=False):
     """按五维索引反查具体详情节点（认知图连接，不是内容搬运）。"""
     d = str(dim or "").strip().lower()
@@ -654,6 +679,7 @@ def index(cg, dim, value, limit=50, with_content=False):
             "count": len(hits), "items": items}
 
 
+# 生效条件：对 required 形参 cg 与 subject（未传时 DEFAULT_SUBJECT），若 snapshot(cg, subject) 返回假值则返回 {"ok": False, "error": "no_state", "subject": subject}；否则返回 {"ok": True, "subject": subject, "dimensions": st.get("dimensions") or {}}；
 def dimensions(cg, subject=DEFAULT_SUBJECT):
     """状态卡登记的五维索引标签。"""
     st = snapshot(cg, subject)
@@ -665,6 +691,7 @@ def dimensions(cg, subject=DEFAULT_SUBJECT):
 
 # ---------------------------------------------------------------- 审计
 
+# 生效条件：对 required 形参 code、severity、why，返回含这三个键并合并 **extra 的 dict；
 def _issue(code, severity, why, **extra):
     d = {"code": code, "severity": severity, "why": why}
     d.update(extra)
@@ -847,6 +874,7 @@ def audit(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW):
 
 # ---------------------------------------------------------------- 加载 / 概览
 
+# 生效条件：对 required 形参 cg 与可选 subject/window/auto_refresh/actor，先取 snapshot(cg, subject)；若 st 为 None 且 auto_refresh 为真则 refresh 后重新 snapshot；若 st 非 None 且 auto_refresh 为真且 st.state_ts 的年龄 > 模块常量 STALE_AFTER 则 refresh 后重新 snapshot；然后取 relations、history(limit=5, subject)、dimensions，返回 ok=st is not None 及这些字段；
 def bootstrap(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW,
               auto_refresh=True, actor="bootstrap"):
     """会话启动：加载自我状态卡 + 关系 + 最近留痕 + 索引概览。
@@ -874,6 +902,7 @@ def bootstrap(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW,
             "loaded_at": time.time()}
 
 
+# 生效条件：对 required 形参 cg、out、st、session，若 session 为假值直接返回 out；否则写入 out["session"]=str(session)、out["session_registered"]=bool(s in st.dimensions.session 列表)、out["session_refs"]（调用 index(cg, "session", s, limit=20) 的结果；异常时写入 count=0、degraded=True），返回 out；
 def _with_session_slice(cg, out, st, session):
     """给 summary 结果补「本会话切片」（薄卡 + 富索引，不改单例语义）。
 
@@ -895,6 +924,7 @@ def _with_session_slice(cg, out, st, session):
     return out
 
 
+# 生效条件：对 required 形参 cg 与可选 subject/session，取 snapshot(cg, subject)；若为假值，经 _with_session_slice 返回 {"ok": False, "subject": subject, "note": "无状态卡"}；否则构造含 version、d_current、emotion、p_trust、trust_band、text 等字段的 dict，再经 _with_session_slice 返回；
 def summary(cg, subject=DEFAULT_SUBJECT, session=None):
     """一句话自我状态（供 health / 面板）。
 
@@ -927,6 +957,7 @@ def summary(cg, subject=DEFAULT_SUBJECT, session=None):
     return _with_session_slice(cg, out, st, session)
 
 
+# 生效条件：无参调用时返回模块自描述 dict，内含模块常量 SCHEMA_VERSION、DEFAULT_SUBJECT、LOG_FILE、DIMENSIONS、TRUST_BANDS、RELATION_TYPES、DRIFT_TOL、STALE_AFTER 等；
 def catalog():
     """自描述：九项自我信息 + 五维索引 + 审计规则（供协议对照验证）。"""
     return {
