@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-compiler-c1",
+ "round": 1,
+ "candidate_commit": "d3068b5",
+ "branch": "task/iter-compiler-c1",
+ "unit_job": "h1789740997916_8b5a43",
+ "verdict": "REJECT",
+ "package_n": 2,
+ "text": "1) ACCEPT：compile_source 的 errors 非空、strict 真值且 name_errors 非空、SyntaxError 捕获及成功返回均与源码一致。\n2) REJECT：Compiler.compile 源码为第三遍先统一编译所有函数体，第四遍才从 main_start 编译非 FUNC_DEF 主体；条件“在其余语句之后编译函数体”顺序不符。其余 skip_lbl→main_start、zhizu place、_resolve、返回 self.code 一致。\n\nreason: 第2条条件与实际编译顺序不符，整体不通过。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
