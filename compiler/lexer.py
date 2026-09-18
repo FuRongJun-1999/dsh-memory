@@ -111,6 +111,7 @@ class Token:
     line: int = 1
     column: int = 1
     
+# 生效条件：在 Token 实例上调用时读取 self.type.name、self.value、self.line、self.column，str(self.value) 长度超过 30 时取前 30 字符并追加 "..."，否则原样使用。
     def __repr__(self) -> str:
         v = str(self.value)[:30]
         if len(str(self.value)) > 30:
@@ -202,11 +203,13 @@ PUNCTUATION_MAP = {
 # 工具函数
 # =============================================================================
 
+# 生效条件：传入单个字符 ch 后取 ord(ch) 得码点，码点落在 0x4E00–0x9FFF（19968–40959）时返回 True，否则返回 False。
 def _is_cjk(ch: str) -> bool:
     """是否为 CJK 统一汉字"""
     code = ord(ch)
     return 0x4E00 <= code <= 0x9FFF
 
+# 生效条件：传入字符 ch，当 _is_cjk(ch) 为真、或 ch.isalpha() 为真、或 ch == "_" 时返回 True，三者皆不满足时返回 False。
 def _is_cjk_or_alpha(ch: str) -> bool:
     """是否为中文、字母、下划线"""
     return _is_cjk(ch) or ch.isalpha() or ch == "_"
@@ -234,6 +237,7 @@ class Lexer:
         self.tokens: List[Token] = []
         self.errors: List[str] = []
     
+# 生效条件：以 self.source 与初始 self.pos=0、line=1、column=1 逐字符扫描——换行分支推进 self.line、空白分支推进 self.column、`//` 交 _skip_comment、`"` 或 `“` 交 _read_string、isdigit/`.`/`-` 且 _peek_isdigit 交 _read_number、PUNCTUATION_MAP 中字符与 `=`、`＝` 直接 _emit、CJK/字母/下划线交 _read_and_segment，其余字符追加到 self.errors，循环结束后 _emit(EOF) 并返回 (self.tokens, self.errors)。
     def tokenize(self) -> Tuple[List[Token], List[str]]:
         """执行词法分析"""
         self.tokens = []
@@ -391,6 +395,7 @@ class Lexer:
     
     # ---- 数字读取 ----
     
+# 生效条件：self.pos + 1 小于 len(self.source) 且 self.source[self.pos + 1].isdigit() 为真时返回 True，否则（越界或非数字）返回 False。
     def _peek_isdigit(self) -> bool:
         return self.pos + 1 < len(self.source) and self.source[self.pos + 1].isdigit()
     
@@ -432,6 +437,7 @@ class Lexer:
     
     # ---- 字符串读取 ----
     
+# 生效条件：self.source[self.pos] 为 `"` 时 end_quote 取 `"`、为 `“` 时取 `”`，随后逐字符累积进 result 直到遇 end_quote；遇 `\n` 时向 self.errors 记 "字符串未闭合" 并 break（此时 self.pos 仍在串长内，仍会 pos+=1、column+=1 跳过该换行），最后 _emit(TokenType.STRING, 累积内容)。
     def _read_string(self):
         """读取字符串"""
         quote_char = self.source[self.pos]
@@ -458,6 +464,7 @@ class Lexer:
     
     # ---- 注释跳过 ----
     
+# 生效条件：从 self.pos 起自增扫描，直到 self.pos >= len(self.source) 或 self.source[self.pos] == "\n" 时停止；只推进 self.pos，不改 self.line、self.column，也不追加 token。
     def _skip_comment(self):
         while self.pos < len(self.source) and self.source[self.pos] != "\n":
             self.pos += 1
