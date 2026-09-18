@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-117-batch-c117-fix-dual",
  "round": 5,
- "candidate_commit": "08cf2b3",
+ "candidate_commit": "0317a5d",
  "branch": "task/iter-117-batch-c117-fix-dual",
- "unit_job": "h1789685598883_aceaa6",
+ "unit_job": "h1789695163636_96106b",
  "verdict": "REJECT",
  "package_n": 3,
- "text": "复核：1、2 与源码基本相符。3 有偏差：drift 源码为 `if not _blank(fm.get(\"role\"))`，候选写成 `fm[\"role\"]` 非空，补充了键存在且空白算非空的断言；且 `fm is None` 的 `skipped_missing` 位于 `_readable_guard` 之后，候选列举提前，早退顺序不准确。其余 batch、entry_ids、rebuild、plan_remaining 正确。\nreason: 第三条件把 drift 判空与 fm None 早退顺序写错，非源码语义。\nverdict: REJECT",
+ "text": "1、2 与源码一致：_candidate_role 各来源优先级、域外即返回、fallback 正确；_iter_scope 的 layer 校验、ids/prefix 真值收窄、nid 升序正确。\n\n3 不符：drift 前置应为 `not _blank(fm.get(\"role\"))`，键缺失/None/空白均不算 drift；候选写 `fm[\"role\"] 非空` 会误判空白且暗示键存在。且 `_read` 的 fm None 在 `_readable_guard` 之后，候选并列顺序易误导。\n\nreason: 条目3的 drift/空白分支与源码不符，故整批不通过。\nverdict: REJECT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
