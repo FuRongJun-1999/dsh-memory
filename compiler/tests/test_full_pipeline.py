@@ -73,6 +73,7 @@ TEST_CASES = {
 }
 
 
+# 生效条件：name/source/expect_success 三个必填实参到位，以 CompileOptions(llm_assist=False, strict=False) 编译 source，passed=(result.success == expect_success)，打印分支按 result.success 走，最终返回 {'name': name, 'passed': passed, 'result': result}。
 def run_test(name: str, source: str, expect_success: bool) -> dict:
     """运行单个测试"""
     print(f"\n{'─' * 60}")
@@ -106,6 +107,7 @@ def run_test(name: str, source: str, expect_success: bool) -> dict:
     return {"name": name, "passed": passed, "result": result}
 
 
+# 生效条件：无 required 形参，遍历模块级 TEST_CASES 各项调用 run_test 后 passed_count==total 时打印全部通过并返回 True，否则返回 False（TEST_CASES 为空时 0==0 仍返回 True）。
 def run_all_tests():
     """运行所有测试"""
     print("=" * 60)
@@ -142,6 +144,7 @@ def run_all_tests():
 # LLM 桥接层测试段已裁剪：大脑侧编译器不携带 llm_bridge（离线测试留原仓）。
 
 
+# 生效条件：无 required 形参，以函数内字面量 source 经 CompileOptions(llm_assist=False, strict=False) 编译，result.success 及 checks 中各 needle in code、"if" in code、"halt" in code 任一 assert 不成立即抛 AssertionError，全部成立时返回 True。
 def test_code_generation_quality():
     """测试代码生成质量"""
     print(f"\n{'=' * 60}")

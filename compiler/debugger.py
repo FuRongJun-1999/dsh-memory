@@ -7,9 +7,11 @@ debugger.py · 调试器（第六阶段 C4）：VM 单步 + 条件空间状态
 from .condition_vm import ConditionVM, VMHalt
 
 
+# 生效条件：以 code 构造，__init__ 内 ConditionVM().reset(symbols, trust, condition_stack)（默认 None/0.0/None）后置 ip=0、trace=[]，供 step/run/state 使用。
 class VMDebugger:
     """单步调试器：step() 执行一条指令并返回状态快照"""
 
+# 生效条件：以 code 建立实例，调 self.vm.reset(symbols, trust, condition_stack)（三者默认 None/0.0/None），并置 self.ip=0、self.trace=[]。
     def __init__(self, code, symbols=None, trust=0.0, condition_stack=None):
         self.vm = ConditionVM()
         self.code = code
@@ -17,6 +19,7 @@ class VMDebugger:
         self.ip = 0
         self.trace = []          # 每步状态（调试轨迹）
 
+# 生效条件：始终（halt 默认 None）返回含 self.ip、当前指令名（self.ip<len(code) 时取 code[ip][0] 的名称，否则为 "EOF"）、vm.stack、vm.symbols、round(vm.trust_value,3)、vm.condition_stack、halt 的字典。
     def _snapshot(self, halt=None):
         return {"ip": self.ip,
                 "op": self._op_name(self.code[self.ip][0]) if self.ip < len(self.code) else "EOF",
@@ -30,6 +33,7 @@ class VMDebugger:
     def _op_name(op):
         return op.name if hasattr(op, "name") else str(op)
 
+# 生效条件：self.ip>=len(self.code) 时返回 None，否则执行 self.code[self.ip]、ip 自增 1，vm._exec 抛 VMHalt 时 halt=h.kind 否则 halt=None，把 _snapshot(halt) 追加进 trace 后返回该快照。
     def step(self):
         """执行一条指令 → 状态快照（止/无为=halt；越界=None）"""
         if self.ip >= len(self.code):
@@ -45,6 +49,7 @@ class VMDebugger:
         self.trace.append(snap)
         return snap
 
+# 生效条件：在 self.ip<len(self.code) 且 len(self.trace)<max_steps（默认 1000，传 0 时循环不进入）期间反复 step，遇到快照的 halt 为真即 break，最后返回 self.trace。
     def run(self, max_steps=1000):
         """单步直到 halt/结束 → 轨迹（调试输出）"""
         while self.ip < len(self.code) and len(self.trace) < max_steps:
@@ -53,6 +58,7 @@ class VMDebugger:
                 break
         return self.trace
 
+# 生效条件：返回 ip、list(vm.stack)、dict(vm.symbols)、round(vm.trust_value,3)、list(vm.condition_stack) 及 halt（trace 非空时取 trace[-1].get("halt")，为空时为 None）。
     def state(self):
         return {"ip": self.ip, "stack": list(self.vm.stack),
                 "symbols": dict(self.vm.symbols),
@@ -61,6 +67,7 @@ class VMDebugger:
                 "halt": self.trace[-1].get("halt") if self.trace else None}
 
 
+# 生效条件：load_pbc(path) 的每条 (n,a) 经 Opcode[n] 转枚举后（未知名抛 KeyError），以 symbols、trust（默认 0.0）、condition_stack（默认 None）构造 VMDebugger 并返回其 run() 的轨迹。
 def debug_pbc(path, symbols=None, trust=0.0, condition_stack=None):
     """.pbc 文件 → 单步调试轨迹"""
     from .pbc import load_pbc

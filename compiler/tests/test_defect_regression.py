@@ -36,6 +36,7 @@ from compiler.parser import parse_tokens, NodeType
 pass_n = fail_n = 0
 
 
+# 生效条件：调用须传 name 与 ok，ok 为真时全局 pass_n 加 1 并以 'OK ' 作前缀打印、为假时 fail_n 加 1 并以 'FAIL' 作前缀；detail 为真值时追加 ' — ' + detail，detail 为默认空串时不追加。
 def check(name, ok, detail=''):
     global pass_n, fail_n
     if ok:
@@ -45,6 +46,7 @@ def check(name, ok, detail=''):
     print('[%s] %s%s' % ('OK ' if ok else 'FAIL', name, ' — ' + detail if detail else ''))
 
 
+# 生效条件：入参 src 经 tokenize(src) 后若 errs 非空则返回 ['LEXERR:' + str(errs[0])]（只取 errs 第一项），errs 为空时用 parse_tokens(toks, []) 解析并返回 [s.type.name for s in ast.statements]。
 def top_types(src):
     """返回顶层语句类型名列表（观察块边界）"""
     toks, errs = tokenize(src)

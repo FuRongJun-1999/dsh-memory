@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from compiler.condition_vm import ConditionVM, Opcode, VMHalt, assemble
 
 pass_n = fail_n = 0
+# 生效条件：调用须传 name 与 ok，ok 为真时全局 pass_n 加 1、为假时 fail_n 加 1；detail 为真值（非空串）时打印行追加 " — " + detail，detail 为默认空串时只打印 name。
 def check(name, ok, detail=''):
     global pass_n, fail_n
     if ok: pass_n += 1

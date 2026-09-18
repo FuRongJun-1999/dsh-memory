@@ -16,6 +16,7 @@ from compiler.parser import parse_tokens
 from compiler.name_checker import NameChecker
 
 
+# 生效条件：无必需形参，调用即返回挂载 compile/check/explain/init/tokens/ast/compile-pbc/run/debug/rust/version/help 子命令的 argparse.ArgumentParser（compile 的 -o 默认 "./output"、compile-pbc 默认 "out.pbc"、rust 的 -o 默认 "out/rust_project" 且 --trust 默认 0.0）。
 def create_parser() -> argparse.ArgumentParser:
     """创建命令行参数解析器"""
     parser = argparse.ArgumentParser(
@@ -155,6 +156,7 @@ def cmd_compile(args) -> int:
         return 1
 
 
+# 生效条件：args.input 可读出源码（非 None）且 validate_source 结果 result["valid"] 为真时打印 token/statement 计数与警告后返回 0；source 为 None 或 valid 为假（打印 errors 与 warnings）时返回 1。
 def cmd_check(args) -> int:
     """执行 check 命令"""
     source = _read_input(args.input)
@@ -187,6 +189,7 @@ def cmd_check(args) -> int:
         return 1
 
 
+# 生效条件：args.term 命中内置 explanations 字典的键时打印该条解释，未命中时打印「暂无内置解释」并提示搜索源文件用法；两条路径均返回 0。
 def cmd_explain(args) -> int:
     """执行 explain 命令"""
     # 暂时使用简单的内置解释
@@ -219,6 +222,7 @@ def cmd_explain(args) -> int:
     return 0
 
 
+# 生效条件：args.project_name 对应目录不存在时创建 src/tests/output 与 src/main.proto、protocol.toml 并返回 0；该目录已存在时打印「目录已存在」并返回 1。
 def cmd_init(args) -> int:
     """执行 init 命令"""
     project_name = args.project_name
@@ -295,6 +299,7 @@ def cmd_tokens(args) -> int:
     return 0
 
 
+# 生效条件：args.input 可读出源码（非 None）且 tokenize(source) 的 lex_errors 为空时，用 parse_tokens(tokens, []) 解析并打印 node_to_dict 的 JSON 后返回 0；source 为 None 或 lex_errors 非空（打印词法错误）时返回 1。
 def cmd_ast(args) -> int:
     """执行 ast 命令（调试用）"""
     source = _read_input(args.input)
@@ -310,6 +315,7 @@ def cmd_ast(args) -> int:
     
     ast = parse_tokens(tokens, [])
     
+# 生效条件：node 为 None 时返回字符串 "null"；否则返回含 type（有 type 属性取 node.type.name，否则取 str(type(node))）、line、value 的字典，且 getattr(node, 'children', []) 非空时追加递归 node_to_dict(c, depth+1) 的 children 列表。
     def node_to_dict(node, depth=0):
         if node is None:
             return "null"
@@ -327,6 +333,7 @@ def cmd_ast(args) -> int:
     return 0
 
 
+# 生效条件：无必需形参，调用即从 compiler 导入 __version__、打印版本与支持能力说明并返回 0。
 def cmd_version() -> int:
     """显示版本信息"""
     from compiler import __version__
@@ -335,6 +342,7 @@ def cmd_version() -> int:
     return 0
 
 
+# 生效条件：path 能被 Path(path).read_text(encoding="utf-8-sig") 成功读取时返回该文本（BOM 被剥离）；抛 FileNotFoundError 或其他 Exception 时打印错误并返回 None。
 def _read_input(path: str) -> Optional[str]:
     """读取输入文件（utf-8-sig：剥离 BOM——真实文件可能带 BOM）"""
     try:
@@ -387,6 +395,7 @@ def main():
         return 0
 
 
+# 生效条件：args.input 可读出源码（非 None）且 compile_to_pbc(src, args.output) 的 result["ok"] 为真时，打印指令条数与 args.output 文件大小（文件不存在则记 0）并返回 0；src 为 None 或 ok 为假（打印前 5 条错误）时返回 1。
 def cmd_compile_pbc(args) -> int:
     """原生编译：中文源码 → .pbc（C3）"""
     import os
@@ -420,6 +429,7 @@ def cmd_run(args) -> int:
     return 0
 
 
+# 生效条件：args.input 可读出源码（非 None）且 generate_rust_project(source, args.output) 的 gen["ok"] 为真时打印项目信息；args.no_run 为真则返回 0，否则以解析后的 args.set 与 args.trust 调 build_and_run，rr["ok"] 为真打印 Rust VM 终态并返回 0、为假打印构建或运行 stderr 返回 1；source 为 None 或 gen["ok"] 为假返回 1。
 def cmd_rust(args) -> int:
     """Rust 原生后端（v0.4 · VM 路线）：源码 → cargo 项目 →（可选）构建运行"""
     import io
