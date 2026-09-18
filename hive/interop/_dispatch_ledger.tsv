@@ -296,3 +296,15 @@ ts	iter	branch	commit	status	claim_by	claimed_via	note
 1789752031	iter-303-batch-c303-fix	task/iter-303-batch-c303-fix	b4ede42	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +7 条
 1789752031	iter-mdcos-c1	task/iter-mdcos-c1	a8d6071	landed			无实际新增条件（已落实） ｜ 校验和落地 +8 条（账面被陈旧快照覆盖，按提交恢复）
 1789752220	iter-304-batch-c304	task/iter-304-batch-c304	17ec96b	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条
+1789752544	iter-security-c1	task/iter-security-c1	0534628	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +6 条
+1789752708	iter-305-batch-c305-fix	task/iter-305-batch-c305-fix	43b4d15	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +4 条
+1789752846	iter-condvm-c1	task/iter-condvm-c1	1e4cc7d	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
+1789752846	iter-whitebox-c2	task/iter-whitebox-c2	b1efbfe	landed			无实际新增条件（已落实） ｜ 校验和落地 +2 条（账面被陈旧快照覆盖，按提交恢复）
+1789753031	iter-306-batch-c306	task/iter-306-batch-c306	2d1250d	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +6 条
+1789753474	iter-307-batch-c307-fix	task/iter-307-batch-c307-fix	72574ec	stale			无实际新增条件（已落实）
+1789753600	iter-ccgc-c2	task/iter-ccgc-c2	253d237	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
+1789753600	iter-namecheck-c1	task/iter-namecheck-c1	7c8bba8	stale			无实际新增条件（已落实）
+1789753774	iter-308-batch-c308	task/iter-308-batch-c308	788f3f8	stale			无实际新增条件（已落实）
+1789753923	iter-309-batch-c309	task/iter-309-batch-c309	69005b2	stale			无实际新增条件（已落实）
+1789753923	iter-analyzer-c1-fix	task/iter-analyzer-c1-fix	66d109b	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +3 条
+1789753923	iter-insight-c1	task/iter-insight-c1	2a4f385	landed			无实际新增条件（已落实） ｜ 校验和落地 +6 条（账面被陈旧快照覆盖，按提交恢复）
