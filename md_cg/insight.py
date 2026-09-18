@@ -59,10 +59,12 @@ V_LABELS = {"v1": "可检索/被引用", "v2": "实践重复", "v3": "外部确�
 
 # ---------------------------------------------------------------- 基础
 
+# 生效条件：cg 可提供 root 时返回 os.path.join(cg.root, INSIGHT_LOG)。
 def log_path(cg):
     return os.path.join(cg.root, INSIGHT_LOG)
 
 
+# 生效条件：向 log_path(cg) 追加 JSONL 的调用若抛任何异常都会被 except Exception 吞掉，无论成败最终都返回 rec。
 def _append(cg, rec):
     """留痕（best-effort）：审计不该反过来打断主流程。"""
     try:
@@ -72,6 +74,7 @@ def _append(cg, rec):
     return rec
 
 
+# 生效条件：getattr(cg,"index",None) 或其 "nodes" 为 None/假值时返回空列表，否则返回 nodes 中 (e or {}).get("tags") or [] 含 TAG_EVENT 的节点 id 列表。
 def _events(cg):
     """全部洞见事件节点 id（按 index 层标签粗筛，避免全量读盘）。"""
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
@@ -98,6 +101,7 @@ def _read_event(cg, node_id):
 
 # ---------------------------------------------------------------- 条件快照
 
+# 生效条件：conditions 为 None/假值时按空 dict 处理且 missing 登记 CONDITION_KEYS 中不在其中的键；retrievability 由 raw.get("retrievability",0.0) or 0.0 转 float（失败落 0.0）并截断到 [0,1]，pressure/tone 不在 PRESSURES/TONES 白名单（含空串回落 "medium"/"neutral"）时落 "medium"/"neutral"，cross_domain 为字符串时包成单元素列表再排序去重，continuity_turns 经 int(raw.get(...) or 0)（失败落 0）取 max(0,·)。
 def normalize(conditions=None):
     """C1–C8 归一化；**缺失项显式登记**而不是静默补默认值。"""
     raw = dict(conditions or {})
@@ -126,6 +130,7 @@ def normalize(conditions=None):
     return {"conditions": out, "missing": missing}
 
 
+# 生效条件：conditions 经 normalize 后，retrievability ≥ C1_WINDOW_MIN、cross_domain 非空、pressure == "low" 三者同时成立时 open 为 True 且 blocked_by 为空，否则 blocked_by 列出未通过的闸门键名。
 def window(conditions=None):
     """开窗判定：C1 ≥ 0.6 ∧ 跨域（≥1 个域）∧ 低压力。
 
@@ -223,6 +228,7 @@ def _normalize_evidence(evidence=None, v_types=None):
     return out
 
 
+# 生效条件：_read_event(cg,node_id) 取不到事件节点、或 verdict 经 str(verdict or "").strip().lower() 后非空且不是 verified/falsified 时抛 ValueError；verdict 为 None 或空白时按 v3 → v2 → v1 条数 ≥ V1_MIN_EVIDENCE 的顺序定 verified，有证据但不达门槛或无证据则保持 STATE_PENDING 并附 reason；显式 verdict 直接采信，verified 分支重要度保底 IMPORTANCE_FLOOR 并置保护位，falsified 分支打 TAG_FALSIFIED。
 def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
            actor=None, note=""):
     """用 V1/V2/V3 外部证据裁决洞见事件。
@@ -305,6 +311,7 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
 
 # ---------------------------------------------------------------- list / report
 
+# 生效条件：state 为真值时只保留 insight_state 与之相等的项（state 为 None/空串等假值则不过滤），limit 为 0 等假值时返回按 created_at 排序后的全部列表，limit 为真值时返回 out[-int(limit):]——limit 为负时该切片等价于 out[|limit|:]，即去掉排序后前 |limit| 条而非取前 |limit| 条。
 def list_events(cg, state=None, limit=0):
     out = []
     for nid in _events(cg):
@@ -326,6 +333,7 @@ def list_events(cg, state=None, limit=0):
     return out[-int(limit):] if limit else out
 
 
+# 生效条件：now 为 None/0 等假值时取 time.time()，window_days 为真值时按 now - window_days*86400 过滤 created_at；已裁决数 verified+falsified < CER_MIN_SAMPLES 时直接返回 cer/se/two_se/significant 为 None、layer_state="insufficient" 的结果，否则按 p=verified/denom 算出 se 与 significant，significant 为假时 p<0.3 取 degraded、否则 watch，significant 为真时 p≥0.5 取 reliable、否则 watch。
 def report(cg, window_days=None, now=None):
     """CER 条件有效洞见率报告（样本不足不判定）。
 
@@ -369,10 +377,12 @@ def report(cg, window_days=None, now=None):
 
 # ---------------------------------------------------------------- outlook
 
+# 生效条件：entry 为假值或 (entry or {}).get("layer") 为假值时返回 "unknown"，否则返回该 layer 值的 str 形式。
 def _layer_of(entry):
     return str((entry or {}).get("layer") or "unknown")
 
 
+# 生效条件：values 为空/假值时返回 min/p50/p90/max 全为 None 的字典，否则对 sorted(values) 取 0.0/0.5/0.9/1.0 位置的值并各自 round(·,4)。
 def _quartiles(values):
     if not values:
         return {"min": None, "p50": None, "p90": None, "max": None}
