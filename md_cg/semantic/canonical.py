@@ -67,6 +67,7 @@ def oov_of(text):
 
 
 @functools.lru_cache(maxsize=256)
+# 生效条件：t = text or ""（text 为 None/空串时按 ""），仅当 t 含 [A-Za-z] 时经 normalize_en_query 归一——含字母的 term 原样保留、其余经 zh_en_atoms.segment 展开——返回 tuple(out)；归一抛异常或 t 无字母时返回 tuple(semantic_atoms(t))；
 def query_atoms(text):
     """query 侧归一（同 semantic_atoms，缓存——每轮检索全 doc 复用）。
 

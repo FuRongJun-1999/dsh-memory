@@ -214,6 +214,7 @@ def _gate_audit(ctx):
     return out
 
 
+# 生效条件：ctx["a"]["consistency"] 为假值时返回 None；on_conflict 缺键或假值回落 "defer"，仅当 verdict=REJECT 且 on_conflict=reject（返回 moved_to="conflict_rejected"）或 verdict∈{REJECT,BLINDSPOT} 且 on_conflict=defer（转 review_queue，去重命中时改写 hint）才拦截，其余 on_conflict 取值返回 None；
 def _gate_consistency(ctx):
     """冲突闸：节点间自动冲突检测（三级决策）。
 
