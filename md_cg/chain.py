@@ -76,6 +76,7 @@ def edge_target(edge):
     return str(edge).strip() or None
 
 
+# 生效条件：base 取 EDGE_WEIGHTS.get(edge_rel(edge), DEFAULT_EDGE_WEIGHT)；edge 为 dict 时 conf 为 float(edge.get("confidence", 1.0))（缺该键得 1.0，值不可转 float 如 None 触发 TypeError/ValueError 时也回落 1.0），非 dict 时 conf 恒为 1.0，返回 round(base * max(0.0, min(1.0, conf)), 6)；
 def edge_weight(edge):
     """边权重 = 类型 base × 边置信度（缺失置信度视为 1.0 的已声明边）。"""
     base = EDGE_WEIGHTS.get(edge_rel(edge), DEFAULT_EDGE_WEIGHT)
@@ -88,6 +89,7 @@ def edge_weight(edge):
     return round(base * max(0.0, min(1.0, conf)), 6)
 
 
+# 生效条件：edge 非 dict 时返回 ""；edge 为 dict 时按 ("condition","conditions","条件") 顺序取第一个真值（list/tuple 先以 "；" 连接其中 str(x).strip() 非空的项，连接结果为空则视为假值跳过该键）并返回 str(v).strip()；三键均无真值且 edge.get("condition_space") 为 dict 时返回 condition_space_text(cs, require_full=False)；否则返回 ""；
 def edge_condition(edge):
     """边的条件标注：条件链上「这一跳在什么条件下成立」。"""
     if not isinstance(edge, dict):
@@ -107,6 +109,7 @@ def edge_condition(edge):
     return ""
 
 
+# 生效条件：cg.get(nid) 为假值（该节点缺失或为空）时返回 []；否则以 node.get("frontmatter") or {} 与 node.get("content") or "" 调 _declared_conditions，返回其正向条件列表 pos；
 def node_conditions(cg, nid):
     """节点自己声明的生效条件（CCG `# 生效条件：` 等三处来源合并）。"""
     node = cg.get(nid)
@@ -118,6 +121,7 @@ def node_conditions(cg, nid):
     return pos
 
 
+# 生效条件：cg 已有 _chain_adj 且其 [0] 等于 bool(include_hierarchy) 时直接返回缓存的 [1]；否则以 cg.index["nodes"]（无 index 或无该键时视为无节点）逐节点收集 frontmatter.edges 中 edge_target 非空的出边，include_hierarchy 为真时再为 subgraph.nodes 各合成一条 relation_type="part_of"、confidence=1.0 的层级边，仅对有出边的 nid 建表，写回 cg._chain_adj=(bool(include_hierarchy), adj) 后返回 adj；
 def adjacency(cg, include_hierarchy=True):
     """出邻接表：nid → [(target_id, edge_dict)]。
 
@@ -152,6 +156,7 @@ def adjacency(cg, include_hierarchy=True):
     return adj
 
 
+# 生效条件：调用即把 cg._chain_adj 置为 None（赋值抛异常时静默忽略），无返回值；
 def invalidate_cache(cg):
     """写入/删除节点后丢弃邻接缓存（与 subgraph.invalidate_cache 成对调用）。"""
     try:
@@ -160,6 +165,7 @@ def invalidate_cache(cg):
         pass
 
 
+# 生效条件：对 adj 的每个 src→[(tgt, e)] 逐条把 (src, e) 追加到 rev[tgt]（同 tgt 多次追加保持出现顺序），adj 为空字典时 rev 为空字典并返回；
 def _reverse(adj):
     rev = {}
     for src, outs in adj.items():
@@ -168,6 +174,7 @@ def _reverse(adj):
     return rev
 
 
+# 生效条件：start_id 起步迭代 DFS——max_depth 非 None 时先钳为 max(0, min(int(max_depth), MAX_DEPTH_HARD))，rels 为 (relation_types or ()) 的小写元组（None 或空则不作类型过滤），direction=="in" 时邻接表改用 _reverse(adjacency(cg, include_hierarchy))，每跳要求 rel∈rels（rels 非空时）、tgt 不在 seen、weight*edge_weight(e) ≥ min_weight，链在 max_depth 为 None 或 len(hops+[hop]) ≤ max_depth 时收入、在 max_depth 为 None 或 len(hops+[hop]) < max_depth 时继续下探，首跳且边无显式条件时条件回退 start_id 的 node_conditions，扩展节点数受 max_nodes、收链数受 max_chains 限制，sort=="length" 时按 (depth, -avg_weight) 排序否则按 (-weight, -depth) 排序，返回 chains[:max_chains]；
 def walk(cg, start_id, relation_types=CAUSAL_TYPES, max_depth=MAX_DEPTH_DEFAULT,
          direction="out", max_nodes=MAX_NODES_DEFAULT, min_weight=0.0,
          max_chains=200, include_hierarchy=True, sort="strength"):
@@ -231,6 +238,7 @@ def walk(cg, start_id, relation_types=CAUSAL_TYPES, max_depth=MAX_DEPTH_DEFAULT,
     return chains[:max_chains]
 
 
+# 生效条件：kw 未含 relation_types 时先注入 CAUSAL_TYPES，再以 walk(cg, start_id, **kw) 的每条链逐跳渲染（跳条件为空串则显示「（未声明条件）」），返回 {"start": start_id, "count": 渲染链数, "chains": rendered}；
 def explain(cg, start_id, **kw):
     """人类可读的链式解释：「什么条件下 → 发生什么」。"""
     kw.setdefault("relation_types", CAUSAL_TYPES)
@@ -248,6 +256,7 @@ def explain(cg, start_id, **kw):
     return {"start": start_id, "count": len(rendered), "chains": rendered}
 
 
+# 生效条件：seeds 为 dict 时取其 items、否则取 list(seeds or [])（假值 seeds 得空列表，返回空 best），逐 (sid, s0) 跳过 sid 为假值或 float(s0) 抛 TypeError/ValueError 的项，对 walk(cg, sid, relation_types, max_depth, max_nodes, max_chains, include_hierarchy) 每条链取 nodes[-1] 为 nid（nid==sid 则跳过）并按 s0*链 weight*decay^depth 对每个 nid 只保留最高分，返回 best；
 def expand_from_seeds(cg, seeds, relation_types=CHAIN_TYPES_DEFAULT,
                       max_depth=MAX_DEPTH_DEFAULT, decay=0.9,
                       max_nodes=MAX_NODES_DEFAULT, max_chains=500,
