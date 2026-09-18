@@ -225,6 +225,7 @@ class Lexer:
     阶段二：精分（对中文/字母串做关键字切分）
     """
     
+# 生效条件：source 原样存入 self.source（不做类型与空值校验），同时把 pos 置 0、line 与 column 置 1、tokens 与 errors 置为空列表。
     def __init__(self, source: str):
         self.source = source
         self.pos = 0
@@ -301,6 +302,7 @@ class Lexer:
     
     # ---- 阶段一：粗分 ----
     
+# 生效条件：从 self.pos（__init__ 的 source 上的游标）起贪婪吞并 _is_cjk_or_alpha 或 isdigit 的字符（一个都不满足则 text 为空串且游标不动），再以 (text, 起始列) 调用 self._segment。
     def _read_and_segment(self):
         """
         读取连续的中文/字母/数字/下划线，然后做关键字精分
@@ -328,6 +330,7 @@ class Lexer:
     
     # ---- 阶段二：精分 ----
     
+# 生效条件：text 为空串时 while 不执行、不发任何 token；否则从 i 起在 SORTED_KW 中取最长匹配关键字发出 KEYWORD_MAP[kw]，无匹配时 text[i] 为 CJK 则取连续 CJK 整段、否则取到下一个关键字起点前的字符段作为 IDENTIFIER 发出（切出的段为空串则不发出）。
     def _segment(self, text: str, start_col: int):
         """
         正向最大匹配（Forward Maximum Matching）
@@ -391,6 +394,7 @@ class Lexer:
     def _peek_isdigit(self) -> bool:
         return self.pos + 1 < len(self.source) and self.source[self.pos + 1].isdigit()
     
+# 生效条件：从 self.source[self.pos] 起按可选 '-'、整数位、可选 '.' 加小数位拼成字符串，float() 成功即发出 NUMBER，抛 ValueError 时先追加一条「非法数值」到 self.errors 但仍发出同一个 NUMBER token。
     def _read_number(self):
         """读取数值（支持整数、小数、负数）"""
         start_col = self.column
@@ -460,6 +464,7 @@ class Lexer:
     
     # ---- Token 输出 ----
     
+# 生效条件：col 不为 None（含 0）时用 col、col 为 None 时才回落 self.column，向 self.tokens 追加 Token(token_type, value, self.line, 该列)。
     def _emit(self, token_type: TokenType, value: str, col: int = None):
         """输出一个 Token"""
         c = col if col is not None else self.column
@@ -470,6 +475,7 @@ class Lexer:
 # 便捷函数
 # =============================================================================
 
+# 生效条件：source 交给新建的 Lexer(source)，返回其 tokenize() 给出的 (tokens, errors) 二元组。
 def tokenize(source: str) -> Tuple[List[Token], List[str]]:
     """便捷函数"""
     lexer = Lexer(source)

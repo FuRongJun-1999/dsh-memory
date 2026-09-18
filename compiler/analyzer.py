@@ -4,6 +4,7 @@ analyzer.py · 分析器（第六阶段 C4）：字节码可读转储
 """
 
 
+# 生效条件：code 为可解包为 (op, arg) 二元组的可迭代序列（空序列返回空列表）时，逐项产出「序号 名称 参数」字符串列表，op 具 name 属性取 op.name、否则取 str(op)。
 def bytecode_dump(code):
     """字节码（枚举/字符串 op）→ 可读指令列表"""
     lines = []
@@ -13,6 +14,7 @@ def bytecode_dump(code):
     return lines
 
 
+# 生效条件：source 与 strict（默认 False，原样透传）交给 compile_source，返回的 result["ok"] 为假值（False/0/空）时得 (None, result)，为真值时得 (bytecode_dump(code), result)。
 def analyze_source(source, strict=False):
     """中文源码 → 字节码转储（分析器入口）"""
     from .compiler import compile_source
@@ -22,6 +24,7 @@ def analyze_source(source, strict=False):
     return bytecode_dump(code), result
 
 
+# 生效条件：path 不做任何前置校验（None/空串等假值同样透传）直接交给 load_pbc，返回 bytecode_dump(load_pbc(path))。
 def analyze_pbc(path):
     """.pbc 文件 → 字节码转储"""
     from .pbc import load_pbc
@@ -44,6 +47,7 @@ if __name__ == "__main__":
 
 # ============ T11 · 分析器完整化（F3 符号表 / F4 调用图 / F5 数据流） ============
 
+# 生效条件：node 不为 None 时先把 node 追加进 out，再对 children/body/then_body/else_body/statements/left/right/value_node/value 字段（值为 list 逐项、非 list 视作单项）及真值 args 中带 type 属性的项递归；node 为 None 时直接返回且不改动 out。
 def _walk(node, out):
     """递归收集 AST 节点（children 与已知子节点字段）"""
     if node is None:
@@ -111,6 +115,7 @@ def symbol_table(ast) -> dict:
     return symbols
 
 
+# 生效条件：ast 从 current=None 起递归，遇 FUNC_DEF 把 current 换成该函数名并 graph.setdefault(name, [])，仅当 current 为真值且 callee（CALL_EXPR 的 name）未在 graph[current] 中时追加 callee，返回 graph。
 def call_graph(ast) -> dict:
     """F4 调用图：函数名 → [被调用的函数名]（含主程序段调用）。"""
     graph = {}
@@ -174,6 +179,7 @@ def def_use_chains(ast) -> dict:
     return chains
 
 
+# 生效条件：传入 ast，返回仅含 'symbol_table'、'call_graph'、'def_use_chains' 三键的字典，各值分别以同一 ast 调用 symbol_table/call_graph/def_use_chains 得到。
 def full_analysis(ast) -> dict:
     """三合一：F3 符号表 + F4 调用图 + F5 数据流。"""
     return {"symbol_table": symbol_table(ast),
