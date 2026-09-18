@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-245-batch-c245-fix-d1",
+ "round": 3,
+ "candidate_commit": "13254b3",
+ "branch": "task/iter-245-batch-c245-fix-d1",
+ "unit_job": "h1789724895909_e09369",
+ "verdict": "REJECT",
+ "package_n": 4,
+ "text": "复核：第1/3/4条与源码一致。第2条不符：源码对 detail 中每个 d 都执行 n_tok+=1，而条件将 n_tok 写成按 unknown_keep/proper_noun_keep 累计；且未锚定 w=str(d.get(\"orig\") or \"\").lower() 作为 unk/proper 键。\nreason: analyze 条件误述 n_tok 累计前置并遗漏 orig 小写键。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
