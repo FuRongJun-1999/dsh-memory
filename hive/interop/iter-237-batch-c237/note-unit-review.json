@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-237-batch-c237",
+ "round": 1,
+ "candidate_commit": "1d7de8e",
+ "branch": "task/iter-237-batch-c237",
+ "unit_job": "h1789722441338_9669a0",
+ "verdict": "ACCEPT",
+ "package_n": 6,
+ "text": "逐条对照：field_value 四键返回与 KeyError 一致；norm 归一化一致；extract 的 file/非 file 早退与返回形状一致；check_tool_alignment 的 plugin/ 早退及行记录一致；check_injection_matrix 的 path_dups/root_shadow/probe_chain/ok 判据一致；check 的 None 早退、字段记账、orphans、stale、toolname、ok 汇总一致。position_ok 均 true，未发现源码不支持的断言。\nreason: 各条件与给定源码分支、早退、返回形状及判据一致，无新增断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
