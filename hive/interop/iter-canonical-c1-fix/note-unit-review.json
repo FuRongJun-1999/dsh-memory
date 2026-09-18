@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-canonical-c1-fix",
+ "round": 2,
+ "candidate_commit": "7d31960",
+ "branch": "task/iter-canonical-c1-fix",
+ "unit_job": "h1789742351385_00d7ea",
+ "verdict": "ACCEPT",
+ "package_n": 4,
+ "text": "1) ACCEPT：None 缓存分支与 `__file__`/atoms.json、`data.get(\"atoms\", [])` 建集均符。\n2) ACCEPT：`(text or \"\").split()` 空返回及逐段 `zh_en_atoms.segment` extend 均符。\n3) ACCEPT：返回 `semantic_atoms(text)` 中不在 `atoms_zh()` 的 token，空列表情形符。\n4) ACCEPT：pairs 空返回 0.0；`query_atoms` 位置索引、`win` 窗口命中与 `hit/len(pairs)` 均可段内验证。\n无越界或额外断言。\nreason: 四条条件均能由各自 src_segment 直接验证且未越界。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
