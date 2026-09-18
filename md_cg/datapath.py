@@ -8,12 +8,12 @@
 
 为什么默认锚定「插件仓自身」而不是 `data/mdcg` 相对路径：
   相对路径随进程 cwd 漂移——node 侧插件与 python 侧脚本 cwd 不同
-  （历史事故：DSH 进程 cwd 在 AEIS 时，记忆真源落到 `AEIS/data/mdcg`，
+  （历史事故：DSH 进程 cwd 在私有库目录时，记忆真源落到 `AEIS/data/mdcg`，
   与插件仓内的 `data/` 分裂成两处）。锚定 `__file__` 后默认值稳定。
 
 设计边界：
   - 本模块只决定「**新写入去哪**」，不搬运、不改写既有数据。
-    已有库（如 `AEIS/data/mdcg`）继续由其配置显式指定即可。
+    已有库（如 [私有库根]/`AEIS/data/mdcg`/data/mdcg）继续由其配置显式指定即可。
   - 纯标准库、无包内相对导入——可被 `sys.path` 以顶层模块方式加载，
     绕开 `md_cg/__init__.py` 的重依赖。
 
@@ -98,16 +98,36 @@ def state_dir(*parts: str, create: bool = True) -> str:
     return p
 
 
-# 生效条件：name 依次拼成 data_root()/name、plugin_root()/name、dirname(plugin_root())/AEIS/_archive/ctp-aeis-data/name 三个候选，仅保留其中 os.path.isfile 为真的项并按此顺序返回列表。
+# 生效条件：name 依次拼成 data_root()/name、plugin_root()/name、dirname(plugin_root())/[私有归档根]/_archive/ctp-aeis-data/name 三个候选，仅保留其中 os.path.isfile 为真的项并按此顺序返回列表。
+def archive_root() -> str | None:
+    """私有侧归档根（公开仓不含私有库名）：本机配置提供，未配置则没有该候选。
+
+    取值顺序：环境变量 MDCG_ARCHIVE_ROOT -> 插件仓同级的 .mdcg_archive_root 文件内容。
+    """
+    value = os.environ.get("MDCG_ARCHIVE_ROOT", "").strip()
+    if value:
+        return value
+    marker = os.path.join(os.path.dirname(plugin_root()), ".mdcg_archive_root")
+    if os.path.isfile(marker):
+        try:
+            with open(marker, "r", encoding="utf-8") as fh:
+                text = fh.read().strip()
+        except OSError:
+            return None
+        return text or None
+    return None
+
+
 def legacy_candidates(name: str) -> list:
     """历史位置候选（只读兼容：三仓分离前的校验缓存等）。
 
     仅用于「读旧件」，顺序：数据根 → 插件仓根 → 归档区。
     """
     out = [os.path.join(data_root(), name),
-           os.path.join(plugin_root(), name),
-           os.path.join(os.path.dirname(plugin_root()), "AEIS", "_archive",
-                        "ctp-aeis-data", name)]
+           os.path.join(plugin_root(), name)]
+    archive = archive_root()
+    if archive is not None:
+        out.append(os.path.join(archive, "_archive", "ctp-aeis-data", name))
     return [p for p in out if os.path.isfile(p)]
 
 
