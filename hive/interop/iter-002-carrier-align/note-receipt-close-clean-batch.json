@@ -1,0 +1,17 @@
+{
+ "kind": "note-receipt-close",
+ "scope": "无发现的 PASS 回执（仅记账）",
+ "verify_ids": [
+  "verify-afbee06c",
+  "verify-ad1993af"
+ ],
+ "verified_commits": [
+  "afbee06c",
+  "ad1993af"
+ ],
+ "verdicts": "PASS",
+ "findings": [],
+ "note": "两条回执重放五步全过（含 cogmap_sync check=通过，即确认分叉消解后校验和结果持续成立），未提出任何发现，按 §7.4 仅登记不开工单。",
+ "standing_rule": "回执 verdict=PASS 且 findings 为空 ⇒ 记账即可；只有 findings 非空才进「复现→修复→外部复验」四步链。",
+ "closed_ts": 1789725695
+}
