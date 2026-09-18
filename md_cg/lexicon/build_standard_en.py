@@ -8,6 +8,7 @@ import collections
 import json, io, os, re
 
 MORPHEMES = {}
+# 生效条件：以形参 zh、en 调用时无条件执行 MORPHEMES[zh] = en（同键覆盖），无返回值、无前置校验。
 def M(zh, en):
     MORPHEMES[zh] = en
 
@@ -53,6 +54,7 @@ E = []
 DEFAULT_CLS = "compositional"
 
 
+# 生效条件：以形参 zh、glosses、std、legacy 调用（cls 省略时取 DEFAULT_CLS）时无条件向 E 追加五元组 (zh, glosses, std, legacy, cls)，无返回、无校验。
 def A(zh, glosses, std, legacy, cls=DEFAULT_CLS):
     E.append((zh, glosses, std, legacy, cls))
 
@@ -130,6 +132,7 @@ A("咖啡", [("咖啡","coffee")], "coffee", ["coffee"], "opaque")
 A("巧克力", [("巧克力","chocolate")], "chocolate", ["chocolate"], "opaque")
 
 
+# 生效条件：无参调用时遍历模块级 E 的每条 (zh, glosses, std, legacy, cls)，凡 zh 不以 glosses 语素 zh 顺序拼接结果开头、或 "_".join(glosses 英文) != std、或 re.search(r"[A-Z]", std) 命中者追加 problems 并 continue，其余条目进 entries；随后将含 MORPHEMES 与 entries 的 out 写入 __file__ 同目录下 standard_en.json，打印统计并逐条打印 problems，problems 非空返回 1，否则返回 0。
 def main():
     problems = []
     entries = []
