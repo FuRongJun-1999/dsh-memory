@@ -268,6 +268,7 @@ class Ingestor:
 
     # ---- 摄取 ----
 
+# 生效条件：对必需形参 source，先按 watermark(source.key()) 跳过 t<last_t（wm 的 "t" 为假值时视作 0）及 t==last_t 且 last_seq 非 None 且 ev["seq"] 为 int 且 <= last_seq 的事件、并按 (session, seq) 去重，max_events 为真值（非 0/None）时取满即停；dry_run 为假时逐条 cg.add（nid 已在 cg.index["nodes"] 中则跳过，cg.add 抛异常则 denied+=1、记 last_error 并继续），denied 与 last_error 同时成立时补 last_error/hint，mine_fix_pairs 为真且 new_events 非空且非 dry_run 时结果附 fix_pairs，new_events 非空且非 dry_run 时以末事件写回水位（count 累加 written），最后返回 result。
     def ingest(self, source, mine_fix_pairs: bool = True, max_events: int = None,
                dry_run: bool = False):
         """摄取一个源的新事件。返回统计。
