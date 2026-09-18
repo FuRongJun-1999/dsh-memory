@@ -109,6 +109,7 @@ def write_domain(c):
     return routing.big_domain_classify(terms)
 
 
+# 生效条件：q 含 question 字段时，返回 mg.expand_query_terms(q["question"]) 的词列表经 routing.big_domain_classify 得到的域分类。
 def query_domain(q):
     """查询侧域判定：与写入侧共用同一份 routing 词表（两侧同构）。"""
     return routing.big_domain_classify(list(mg.expand_query_terms(q["question"])))

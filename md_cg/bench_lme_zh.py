@@ -253,6 +253,7 @@ def build(root, pool, zh_of=None, rebuild=False, zh_only=False, corpus=None):
                             calib_of=calib if zh_of else None, rebuild=rebuild)
 
 
+# 生效条件：给定 cg、questions 与 qtext_of 时，对每题用 qtext_of(q) 替换 question 后经 ec.evaluate_group 评测，并按 k 汇总为结果。
 def eval_arm(cg, questions, qtext_of, k=5):
     rows = []
     for q in questions:
