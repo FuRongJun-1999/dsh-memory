@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-reviewcli-c1-fix",
+ "round": 2,
+ "candidate_commit": "8e1894e",
+ "branch": "task/iter-reviewcli-c1-fix",
+ "unit_job": "h1789744556428_549695",
+ "verdict": "ACCEPT",
+ "package_n": 5,
+ "text": "1 ACCEPT：_root 的 getattr/or 回落、空值与 isdir 早退、返回 root 均吻合。  \n2 ACCEPT：_cg 先构造固定 Principal，再 _root(args) 返回 MdCGSecure，吻合。  \n3 ACCEPT：_brief 的 content/statement、换行替换、切片及省略号条件吻合。  \n4 ACCEPT：_execute 的 list/rounds/edit/else 分派与 out.ok 返回吻合。  \n5 ACCEPT：main 的 argv、subparsers、_cg/_execute、finally close 吻合。  \nreason: 五条条件均未越界，且与各自源码段一致，无源码不支持断言。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
