@@ -75,6 +75,7 @@ _ILLEGAL_RE = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff_.-]+")
 
 # ---------------------------------------------------------------- 命名与解析
 
+# 生效条件：name 为 None/空串或 strip 后为空时返回空串，否则把 `/`、`\`、`..` 及 _ILLEGAL_RE 命中字符折叠为 `-`、压缩连续 `-` 并去首尾 `-.` 后取前 64 字符再去首尾 `-.` 返回；
 def slugify(name: str) -> str:
     """任务名 → 语义 slug（稳定标识；同 slug 即同任务）。
 
@@ -149,6 +150,7 @@ def _brief(text: str, n: int = 200) -> str:
     return t if len(t) <= n else t[:n].rstrip() + "…"
 
 
+# 生效条件：以 (old_text or "").strip() 为 base（base 为「（无）」或「（未填）」时置空），_has(change) 判定为假时返回 base or "（无）"，为真时拼出 `- [今日] change.strip()`，base 非空返回 base+"\n"+该行再 strip，base 为空只返回该行；
 def _append_change(old_text: str, change: str) -> str:
     """「计划变更」节追加一行（累积式，不覆盖历史）。"""
     base = (old_text or "").strip()
@@ -207,6 +209,7 @@ def _read_task(cg, nid: str):
             "path": rec.get("path"), "sec": sections(content)}
 
 
+# 生效条件：以 layer="structural"、tags=list(tags)、importance=float(importance)、override=True、task_name=name、task_status=status、task_updated_at=time.time()、actor=actor or "task" 等构成 kw，extra 为真值时经 kw.update(extra) 追加覆盖，随后调用 cg.add(nid, content, **kw) 并返回其结果；
 def _write(cg, nid: str, name: str, content: str, status: str, tags,
            importance: float, actor, extra: dict = None):
     """唯一写盘点——走 `cg.add`（权限闸 / 归属注入全部复用既有链路）。
