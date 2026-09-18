@@ -352,6 +352,7 @@ class RuleParser:
         return out
 
 
+# 生效条件：对给定 parser、dialog、ctx，getattr(parser,"candidates",parser) 得到的 fn 被调用为 fn(dialog, ctx or {})，若该调用抛 Exception 或返回非 dict 则返回 {"marks": {}, "slots": {}}，否则返回该 dict 并 setdefault("marks",{}) 与 setdefault("slots",{}) 后的结果。
 def _invoke_parser(parser, dialog: str, ctx: Optional[dict]) -> Dict[str, Any]:
     """调用外部/内生解析器，统一形态；异常不视作通过（返回空候选）。"""
     fn = getattr(parser, "candidates", parser)
