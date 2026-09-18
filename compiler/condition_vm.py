@@ -71,6 +71,7 @@ _MISSING = object()
 
 class VMHalt(Exception):
     """止：正常停止（含 yield 让出——kind 区分）"""
+# 生效条件：kind 缺省为 "halt"，state 缺省为 None；state or {} 使 None/0/""/[] 等假值均回落为 {}，随后 super().__init__(f"VM {kind}")。
     def __init__(self, kind="halt", state=None):
         self.kind = kind
         self.state = state or {}
