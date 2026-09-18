@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-registry-c1",
+ "round": 1,
+ "candidate_commit": "41d0749",
+ "branch": "task/iter-registry-c1",
+ "unit_job": "h1789744988338_8a6877",
+ "verdict": "ACCEPT",
+ "package_n": 5,
+ "text": "1 ACCEPT；2 ACCEPT；3 ACCEPT；4 ACCEPT；5 ACCEPT。\nreason: 五条均与各自 src_segment 一致，分支、返回、异常、默认值与早退条件均可在段内证实，无越界或额外断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
