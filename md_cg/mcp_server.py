@@ -66,6 +66,7 @@ def _p(t, desc, req=False):
     return d
 
 
+# 生效条件：exp 为假值（None/空容器等）时返回 None，exp 为真值时返回 _expand 闭包——该闭包调用时先取 expand_query_terms_weighted(q)，再对 exp 每项（dict 项 term=str(it.get("term") or "").strip()、w=float(it.get("weight",0.5)) 抛 TypeError/ValueError 则 w=0.5；非 dict 项 term=str(it).strip()、w=0.5）在 term 非空时写 out[term]=max(out.get(term,0.0), max(0.0,min(1.0,w)))，最后置 out["__source__"]="llm" 并返回 out；
 def _make_query_expand(exp):
     """把调用方（LLM/多智能体）提供的扩展词包装成 query_expand 注入函数。
 
@@ -1570,6 +1571,7 @@ _ACTION_DEFAULT = {
 }
 
 
+# 生效条件：op == "ingest" 时若 str(a.get("path") or "").strip() 非空，则按 a.get("patterns") 为真值→("dir","patterns")、该 path 小写以 ".jsonl" 结尾→("jsonl","path(*.jsonl)")、否则→("file","path")；其他 op 按常量 _ACTION_SIGS.get(op, ()) 的顺序取第一个 key 存在于 a 且 a.get(key) is not None 的项返回 (act, key)，无匹配则返回 (None, None)；
 def _action_sig(a, op):
     """action 缺省时的签名推导 → (action, 依据键)；无签名可依 → (None, None)。
 
@@ -2978,6 +2980,7 @@ def _normalize_session(raw):
     return "anonymous"
 
 
+# 生效条件：环境变量 MDCG_SESSION（优先）或 DSH_SESSION_ID 去空白后非空时把 p.session 设为 _normalize_session(raw)，MDCG_HARNESS 去空白后非空时把 p.harness 设为该值，MDCG_UNIT 去空白后非空时把 p.unit 设为该值，三者均为空串或未设置时 p 的对应字段保持原值；
 def _apply_attribution(p):
     """归因维度注入（嵌套身份：(harness, session)），**不参与授权**。
 
@@ -2998,6 +3001,7 @@ def _apply_attribution(p):
         p.unit = unit
 
 
+# 生效条件：环境变量 MDCG_TOKEN 去空白后非空时经 verify_token(token, tenant=os.environ.get("MDCG_TENANT")) 构造——抛 TokenError 则返回 (None, f"令牌校验失败：{e}")，成功则返回 (_attach_theory(p), None)；否则 MDCG_LEGACY_ENV_AUTH 值为 "1"/"true"/"True" 时按 MDCG_CAN_ADMIN/MDCG_CAN_WRITE 落到 designer/recorder/output 角色的 legacy_env 身份，两者都不满足时构造 can_write=False、can_admin=False、auth_mode="anonymous" 的 guest 身份，后两条路径同样返回 (_attach_theory(p), None)；
 def _build_principal():
     """构造 Principal（令牌优先，fail-closed）。返回 (principal, error)。
 
@@ -3048,6 +3052,7 @@ def _build_principal():
     return _attach_theory(p), None
 
 
+# 生效条件：p 传入后调用 theory.ensure() 得到 st，把 p.theory_ok 置为 bool(st.get("theory_ok"))（缺键或假值均为 False，而非保留原值或 None），p.theory_version 置为 st.get("version")（缺键为 None），返回 p，且校验过程不抛异常；
 def _attach_theory(p):
     """附加版本层状态（theory_ok / theory_version）。校验永不抛异常。
 
@@ -3060,6 +3065,7 @@ def _attach_theory(p):
     return p
 
 
+# 生效条件：环境变量 MDCG_ROOT 非空且其 os.path.abspath 规范化后的 basename 小写不以 "_md_cg_" 开头、且 _build_principal() 返回的 err 为空时，构造 MdCGSecure(root, principal=principal, autoflush=1) 并对 sys.stdin 逐行 method 分派（initialize 回 protocolVersion=PROTOCOL_VERSION 与 SERVER_NAME/SERVER_VERSION，tools/list 回 tools_for_surface()，tools/call 经 call_tool 后回 content，shutdown 跳出循环），遍历结束后调用 sustain.stop_all() 与 cg.close() 并返回 0；MDCG_ROOT 为空或 basename 命中 "_md_cg_" 前缀返回 2，令牌校验失败返回 3；
 def main():
     root = os.environ.get("MDCG_ROOT")
     if not root:
