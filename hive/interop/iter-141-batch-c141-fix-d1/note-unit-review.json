@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-141-batch-c141-fix-d1",
+ "round": 3,
+ "candidate_commit": "7a4c3c6",
+ "branch": "task/iter-141-batch-c141-fix-d1",
+ "unit_job": "h1789693266048_b2325b",
+ "verdict": "ACCEPT",
+ "package_n": 15,
+ "text": "已逐条复核：各条对假值/None、早退、形参覆盖、返回形状、标签/层/票聚合的描述与 src_segment 一致；未发现 assert 语义、闭包前置或分支参数误用；position_ok=true 不追行号。  \nreason: 条件与源码分支一致，无实质不符。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
