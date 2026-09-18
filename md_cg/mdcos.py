@@ -749,6 +749,7 @@ class MdCGOS(MdCG):
         docs = self._read_many(inb, stat)
         return self._score(docs, query, bigrams(query))
 
+# 生效条件：当 query 与 entries 传入时，仅当 entry 的 tags 中存在长度 >=2 且 t 在 query 中或 query 在 t 中的项时，读取并追加该节点及分数 1.0；否则跳过；返回 out；
     def _path_entity(self, query, entries):
         """实体路径：tags 命中。（返回节点字典，与 _lexical 同构）"""
         out = []
@@ -765,6 +766,7 @@ class MdCGOS(MdCG):
                              "content": c, "path": e["path"]}, 1.0))
         return out
 
+# 生效条件：当 seeds 非空时，仅取前 5 个种子，从每个种子节点的 frontmatter.edges 取 target（dict 取 target，否则 str(edge)），若 target 在 entries 映射中且不在 seed_ids 中则读取并追加分数 s*0.5；seeds 为空返回 []；depth 默认 1 但本段未使用；
     def _path_graph(self, query, entries, seeds, depth=1):
         """图扩展路径：从词法种子沿 edges 一跳扩展。"""
         if not seeds:
@@ -793,6 +795,7 @@ class MdCGOS(MdCG):
                                  "content": c, "path": e["path"]}, s * 0.5))
         return out
 
+# 生效条件：当 seeds 非空且 seed_map 非空时，用 relation_types 或 CHAIN_TYPES_DEFAULT、max_depth 或 MAX_DEPTH_DEFAULT、decay 调用 chain.expand_from_seeds，仅保留 best 中仍存在于 entries（按 id(e)）的节点，读取成功者加入 scored 并按分数降序返回 (scored, prov)；seeds/seed_map/best 为空返回 ([], {})；
     def _path_chain(self, query, entries, seeds, context=None,
                     relation_types=None, max_depth=None, decay=0.9):
         """关系链路径：沿 causal/sequential/applies_to 边**多跳**扩散。
