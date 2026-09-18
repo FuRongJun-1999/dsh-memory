@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-t2-disasm-truthy-r5",
- "candidate_commit": "d09eb9c",
+ "candidate_commit": "319d567",
  "branch": "task/t2-disasm-truthy",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",
