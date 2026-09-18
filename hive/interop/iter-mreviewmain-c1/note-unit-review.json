@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-mreviewmain-c1",
+ "round": 1,
+ "candidate_commit": "25e17e2",
+ "branch": "task/iter-mreviewmain-c1",
+ "unit_job": "h1789747939470_c87080",
+ "verdict": "ACCEPT",
+ "package_n": 3,
+ "text": "1) ACCEPT：root or 假值回落，sources 默认 CD.SOURCES 透传，full 真值才增三键，均见源码。\n2) ACCEPT：六键直接下标即 KeyError；assertions 真值才追加，failed 空/缺回落「无」，一致。\n3) ACCEPT：parse_args(None) 取 sys.argv[1:]；sources 逗号切分去空；a.out 真值才 UTF-8 dump；末尾统一 return 0。\nreason: 三条条件均在各自 src_segment 内有直接证据，未越界也未添加源码不支持的断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
