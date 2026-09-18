@@ -182,6 +182,7 @@ class LingshuAdapter(Adapter):
         return routing.bucket_health(counts)
 
 
+# 生效条件：无必需构造形参，base 为假值（None/空串）时先回落 os.environ["BENCH6_EMBED_BASE"]、再回落 "http://127.0.0.1:1234/v1" 并 rstrip("/")，model 为假值时回落 os.environ["BENCH6_EMBED_MODEL"]、再回落空串 ""，timeout 缺省为 30。
 class VectorRagAdapter(Adapter):
     """纯向量 RAG 基线（零 LLM）：英文原文直嵌入 + 余弦 Top-k。
 
