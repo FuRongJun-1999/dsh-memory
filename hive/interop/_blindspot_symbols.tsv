@@ -1,25 +1,4 @@
 symbol	tries	class	required
-compiler/api.py::CompileOptions	2	active	
-compiler/api.py::CompileResult	2	active	
-compiler/api.py::CompileResult.has_errors	2	active	
-compiler/api.py::CompileResult.has_warnings	2	active	
-compiler/parser.py::AssignStmtNode	2	active	
-compiler/parser.py::BinaryExprNode	2	active	
-compiler/parser.py::BlockNode	2	active	
-compiler/parser.py::CallExprNode	2	active	
-compiler/parser.py::ComparisonNode	2	active	
-compiler/parser.py::ConditionStmtNode	2	active	
-compiler/parser.py::DayueNode	2	active	
-compiler/parser.py::FuncDefNode	2	active	
-compiler/parser.py::IdentifierNode	2	active	
-compiler/parser.py::InstructionStmtNode	2	active	
-compiler/parser.py::LiteralNode	2	active	
-compiler/parser.py::LoopStmtNode	2	active	
-compiler/parser.py::ReturnStmtNode	2	active	
-compiler/parser.py::WenyueNode	2	active	
-md_cg/md_whitebox.py::MdWhitebox.engine	2	active	
-md_cg/mdcg.py::MdCG.add	2	active	node_id,content
-md_cg/mdcg.py::MdCG.search	2	active	query
 md_cg/predict.py::dfs	2	active	cur,path,confs,conds,sources,relations,depth
 md_cg/predict.py::feedback	2	active	cg,predicted_node_id
 md_cg/semantic/canonical.py::query_atoms	2	active	text
@@ -27,9 +6,7 @@ md_cg/semantic/en_normalizer.py::normalize_en_query	2	active	query
 md_cg/sustain.py::SustainLoop	2	active	cg
 md_cg/sustain.py::diagnose	2	active	cg
 scripts/bootstrap_watchdog.py::_dp	2	active	
-scripts/bootstrap_watchdog.py::_dp.data_root	2	active	
 compiler/debugger.py::VMDebugger._op_name	1	active	op
-data/benchmarks/bench6-100-zh-en/run_bench.py::CharNGramBaseline._grams	1	active	text,n
 md_cg/bench_p0.py::brute_force	1	active	q
 md_cg/refindex.py::Ledger	1	active	root
 skills/skills/designer-perspective/scripts/designer.py::_build_parser	1	active	
@@ -47,40 +24,19 @@ compiler/condition_vm.py::ConditionVM._exec	0	active
 compiler/lexer.py::Lexer	0	active	
 hive/hive_mcp/smoke_test.py::main	0	active	
 hive/interop/iter-008-ring2-pilot/replay/pilot_build.py::usable	0	active	
-hive/plans/naming_gov/gen_specs.py::build_spec	0	active	
-hive/plans/naming_gov/gen_specs.py::main	0	active	
-md_cg/autonomy.py::explore	0	active	
-md_cg/autonomy.py::proposals	0	active	
 md_cg/bench_lme_zh.py::main	0	active	
-md_cg/bench_locomo_zh_public.py::build_pool	0	active	
-md_cg/bench_locomo_zh_public.py::main	0	active	
 md_cg/bench_membench.py::main	0	active	
 md_cg/bench_p0.py::main	0	active	
 md_cg/bench_progressive.py::exp_controlled	0	active	
-md_cg/ccgc.py::CompileResult.has_errors	0	active	
-md_cg/census.py::by_keys	0	active	
-md_cg/census.py::main	0	active	
 md_cg/conformance.py::check	0	active	
 md_cg/consistency.py::check	0	active	
 md_cg/crosscheck.py::crosscheck	0	active	
 md_cg/insight.py::outlook	0	active	
-md_cg/lexicon/build_standard_en.py::A	0	active	
-md_cg/lexicon/build_standard_en.py::M	0	active	
-md_cg/lexicon/build_standard_en.py::main	0	active	
 md_cg/links.py::handshake	0	active	
 md_cg/migrate_aeis.py::migrate	0	active	
 md_cg/migrate_roleplay.py::migrate	0	active	
-md_cg/mreview/__main__.py::_fmt_summary	0	active	
-md_cg/mreview/__main__.py::main	0	active	
-md_cg/mreview/__main__.py::run	0	active	
 md_cg/mreview/govern.py::main	0	active	
-md_cg/progressive.py::core_subset	0	active	
-md_cg/progressive.py::discriminative	0	active	
-md_cg/progressive.py::progressive_search	0	active	
 md_cg/security.py::Principal	0	active	
-md_cg/semantic/zh_en_atoms.py::M	0	active	
-md_cg/semantic/zh_en_atoms.py::segment	0	active	
-md_cg/semantic/zh_en_atoms.py::serialize	0	active	
 md_cg/subgraph.py::reconstruct_scene	0	active	
 md_cg/tokens.py::main	0	active	
 md_cg/weights.py::recalc	0	active	
@@ -94,21 +50,18 @@ md_cg/mdcos.py::MdCGOS._closed_pids	35	stalled-anchorless
 md_cg/mdcos.py::MdCGOS.review_records	35	stalled-anchorless	
 md_cg/mdcos.py::MdCGOS	34	stalled-anchorless	
 md_cg/mdcos.py::MdCGSecure	34	stalled-anchorless	
+md_cg/mdcg.py::MdCG.active_goals	28	stalled-anchorless	
+md_cg/mdcg.py::MdCG.close	28	stalled-anchorless	
+md_cg/mdcg.py::MdCG.list_goals	28	stalled-anchorless	
+md_cg/mdcg.py::MdCG	25	stalled-anchorless	
 compiler/parser.py::ASTNode	23	stalled-anchorless	
 compiler/parser.py::NodeType	23	stalled-anchorless	
 md_cg/mdcos.py::MdCGOS.maintain	20	stalled-anchorless	
 compiler/parser.py::Parser._match	18	stalled-anchorless	
 md_cg/mdcos.py::MdCGOS._role_counts	17	stalled-anchorless	
-md_cg/mdcg.py::MdCG.active_goals	16	stalled-anchorless	
-md_cg/mdcg.py::MdCG.close	16	stalled-anchorless	
-md_cg/mdcg.py::MdCG.list_goals	16	stalled-anchorless	
 md_cg/mdcos.py::MdCGSecure.lock	16	stalled-anchorless	
 md_cg/mdcos.py::MdCGSecure.unlock	16	stalled-anchorless	
 md_cg/mdcos.py::MdCGOS.insight	15	stalled-anchorless	
-md_cg/mdcg.py::MdCG	13	stalled-anchorless	
-compiler/parser.py::ProgramNode	6	stalled-anchorless	
-compiler/parser.py::ShuyueNode	6	stalled-anchorless	
-compiler/parser.py::StepNode	6	stalled-anchorless	
 hive/exec.py::SpecError	6	stalled-anchorless	
 hive/exec.py::_budget_check	6	stalled-anchorless	
 md_cg/consistency.py::_recursive_reflect	6	stalled-anchorless	
@@ -162,7 +115,6 @@ md_cg/writepipe.py::WritePipeline	4	stalled-anchorless
 md_cg/writepipe.py::WritePipeline.__init__	4	stalled-anchorless	
 md_cg/writepipe.py::WritePipeline.names	4	stalled-anchorless	
 scripts/bootstrap_loop.py::_dp	4	stalled-anchorless	
-scripts/bootstrap_loop.py::_dp.data_root	4	stalled-anchorless	
 scripts/render_discipline.py::main	4	stalled-anchorless	
 test/locomo_jaccard_probe.py::main	4	stalled-anchorless	
 test/orchestrator_memory.py::OrcMemory._next_seq	4	stalled-anchorless	
@@ -204,15 +156,15 @@ md_cg/mdcos.py::MdCGOS._record_hash	35	stalled-other	rec
 md_cg/mdcos.py::MdCGOS._session_digest	35	stalled-other	content
 md_cg/mdcos.py::MdCGOS._session_node_id	35	stalled-other	session,summary
 md_cg/mdcos.py::MdCGOS.judge_qualification	35	stalled-other	node_dict,query
+md_cg/mdcg.py::MdCG._ccg_line	28	stalled-other	content,name
+md_cg/mdcg.py::MdCG._cond_terms	28	stalled-other	cond_text
+md_cg/mdcg.py::MdCG._count_buckets	28	stalled-other	nodes
+md_cg/mdcg.py::MdCG._goal_content	28	stalled-other	goal
+md_cg/mdcg.py::MdCG._like	28	stalled-other	content,fm,terms
+md_cg/mdcg.py::MdCG.judge_qualification	28	stalled-other	node_dict,query
 md_cg/mdcos.py::MdCGOS.recall	20	stalled-other	query
 md_cg/mdcos.py::MdCGOS.review_decide	20	stalled-other	pid,decision
 md_cg/mdcos.py::MdCGOS.search	20	stalled-other	query
-md_cg/mdcg.py::MdCG._ccg_line	16	stalled-other	content,name
-md_cg/mdcg.py::MdCG._cond_terms	16	stalled-other	cond_text
-md_cg/mdcg.py::MdCG._count_buckets	16	stalled-other	nodes
-md_cg/mdcg.py::MdCG._goal_content	16	stalled-other	goal
-md_cg/mdcg.py::MdCG._like	16	stalled-other	content,fm,terms
-md_cg/mdcg.py::MdCG.judge_qualification	16	stalled-other	node_dict,query
 md_cg/mdcos.py::MdCGSecure._resolve_master_key	16	stalled-other	master_key
 compiler/analyzer.py::visit	15	stalled-other	node
 md_cg/eval_common.py::calibrate_turn	8	stalled-other	r
@@ -232,6 +184,17 @@ md_cg/backfill.py::_classify	6	stalled-other	cg,e,nid
 md_cg/backfill.py::derive_fields	6	stalled-other	fm,content
 md_cg/backfill.py::rollback	6	stalled-other	x
 md_cg/backfill.py::run	6	stalled-other	x,action
+md_cg/scrub.py::_access	6	stalled-other	cg
+md_cg/scrub.py::_apply_offset	6	stalled-other	cg,offset
+md_cg/scrub.py::_contradiction	6	stalled-other	cg,content,related
+md_cg/scrub.py::_fm_of	6	stalled-other	cg,nid
+md_cg/scrub.py::_nodes	6	stalled-other	cg
+md_cg/scrub.py::_pool_candidates	6	stalled-other	cg,now,stale_days,unverified_days
+md_cg/scrub.py::add	6	stalled-other	kind,detail
+md_cg/scrub.py::calibrate	6	stalled-other	cg
+md_cg/scrub.py::put	6	stalled-other	nid,via,weight
+md_cg/scrub.py::summary	6	stalled-other	cg
+md_cg/scrub.py::sweep	6	stalled-other	cg
 md_cg/sources.py::DSHSessionSource	6	stalled-other	path
 md_cg/sources.py::FileDispatcher	6	stalled-other	cg
 md_cg/sources.py::Ingestor	6	stalled-other	cg
@@ -255,17 +218,6 @@ md_cg/identity.py::_nid	4	stalled-other	prefix,subject_id
 md_cg/insight.py::event_id	4	stalled-other	statement
 md_cg/insight.py::record	4	stalled-other	cg
 md_cg/mreview/pipeline.py::opinion_doc	4	stalled-other	pkg,opinions,reviewer
-md_cg/scrub.py::_access	4	stalled-other	cg
-md_cg/scrub.py::_apply_offset	4	stalled-other	cg,offset
-md_cg/scrub.py::_contradiction	4	stalled-other	cg,content,related
-md_cg/scrub.py::_fm_of	4	stalled-other	cg,nid
-md_cg/scrub.py::_nodes	4	stalled-other	cg
-md_cg/scrub.py::_pool_candidates	4	stalled-other	cg,now,stale_days,unverified_days
-md_cg/scrub.py::add	4	stalled-other	kind,detail
-md_cg/scrub.py::calibrate	4	stalled-other	cg
-md_cg/scrub.py::put	4	stalled-other	nid,via,weight
-md_cg/scrub.py::summary	4	stalled-other	cg
-md_cg/scrub.py::sweep	4	stalled-other	cg
 md_cg/self_state.py::audit	4	stalled-other	cg
 md_cg/self_state.py::refresh	4	stalled-other	cg
 md_cg/subgraph.py::children_index	4	stalled-other	cg
@@ -278,13 +230,13 @@ md_cg/writelimit.py::_push_rate	4	stalled-other	st,key,now
 md_cg/writelimit.py::_save	4	stalled-other	cg,st
 md_cg/writelimit.py::check	4	stalled-other	cg,content
 md_cg/writepipe.py::_gate_consistency	4	stalled-other	ctx
-scripts/bootstrap_loop.py::_dp.find_existing	4	stalled-other	name
 scripts/bootstrap_loop.py::csre_freshness	4	stalled-other	last_kp_fp
-test/orchestrator_memory.py::OrcMemory._brief	4	stalled-other	node
 test/orchestrator_memory.py::OrcMemory.dispatch_prompt	4	stalled-other	sub,task
 md_cg/bench6_arms.py::LingshuAdapter.search	3	stalled-other	query
 md_cg/fsutil.py::ShardedLog.clear	3	stalled-other	directory
 md_cg/fsutil.py::ShardedLog.read_all	3	stalled-other	directory
+md_cg/mdcg.py::MdCG.add	3	stalled-other	node_id,content
+md_cg/mdcg.py::MdCG.search	3	stalled-other	query
 md_cg/nodefile.py::cond_terms	3	stalled-other	text
 md_cg/reach.py::ReachIndex	3	stalled-other	root
 md_cg/reach.py::_index	3	stalled-other	cg
