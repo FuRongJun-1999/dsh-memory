@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-262-batch-c262-fix-d1",
+ "round": 3,
+ "candidate_commit": "67c8bd3",
+ "branch": "task/iter-262-batch-c262-fix-d1",
+ "unit_job": "h1789737069091_e7e4fa",
+ "verdict": "REJECT",
+ "package_n": 30,
+ "text": "逐条复核：1-29 在各自 src_segment 内可证，条件与源码一致，ACCEPT。30 catalog：条件称 audit_rules 取自模块常量，但源码段中为硬编码字面量列表，未引用模块常量；其余字段来源正确。无越界/缺证据。  \nreason: 第30条补充了源码不支持的“audit_rules 取自模块常量”断言，故整批 REJECT。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
