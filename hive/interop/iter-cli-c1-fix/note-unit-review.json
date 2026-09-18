@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-cli-c1-fix",
+ "round": 2,
+ "candidate_commit": "05a2b42",
+ "branch": "task/iter-cli-c1-fix",
+ "unit_job": "h1789745224172_715e3a",
+ "verdict": "ACCEPT",
+ "package_n": 5,
+ "text": "1) ACCEPT：早退、CompileOptions、写文件/返回、verbose分支均符源码。  \n2) ACCEPT：非EOF token打印与errors分支符；标题行省略不构成矛盾。  \n3) ACCEPT：reconfigure、help/未知命令、各cmd转调均符。  \n4) ACCEPT：--set解析、run_pbc、打印与返回0均符。  \n5) ACCEPT：--set解析、debug_pbc、trace/空提示/返回0均符。  \n无越界，无源码外断言。  \nreason: 五条均可由各自 src_segment 直接验证且与源码一致。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
