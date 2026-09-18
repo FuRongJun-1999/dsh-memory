@@ -86,11 +86,11 @@ def main():
           str(sorted(meta_off.keys())))
     snap_off = [(r[0]["id"], round(float(r[1]), 6)) for r in r_off]
 
-    # 1b 总开关开、子开关未设 → 各阶段仍必须为关（契约 §4：子开关默认 0）
-    _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S1_DOMAIN=None,
-            MDCG_GATE_S2_COND=None, MDCG_GATE_S3_SPREAD=None)
+    # 1b 总开关开、S1/S2 显式关、S3 子开关未设 → S3 必须仍为关（显式 =1 才生效）
+    _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S1_DOMAIN="0",
+            MDCG_GATE_S2_COND="0", MDCG_GATE_S3_SPREAD=None)
     r_m, m_m = cg.search("工程 应力", k=5, judge=False, record=False)
-    check("总开关开而子开关未设：阶段全关（无 gates / 结果不变）",
+    check("S3 子开关未设：不生效（无 gates / 结果不变）",
           "gates" not in m_m
           and [(r[0]["id"], round(float(r[1]), 6)) for r in r_m] == snap_off,
           str(m_m.get("gates")) + " " + str([r[0]["id"] for r in r_m]))
@@ -151,6 +151,25 @@ def main():
     check("无 edges：落回原路径且召回不丢",
           _score_of(r4, "A") is not None and m4.get("tier") != TIER_SPREAD,
           str(m4.get("tier")))
+
+    # ---- 5b) 幂等：重复检索 / 索引重建后同口径 ----
+    _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S1_DOMAIN="0",
+            MDCG_GATE_S2_COND="0", MDCG_GATE_S3_SPREAD="1",
+            MDCG_SPREAD_HOPS="2", MDCG_SPREAD_DECAY="0.5",
+            MDCG_SPREAD_GAIN="0.2")
+    _snap = lambda rs: [(r[0]["id"], round(float(r[1]), 6)) for r in rs]
+    ra, ma = cg.search("工程 应力", k=5, judge=False, record=False)
+    rb, mb = cg.search("工程 应力", k=5, judge=False, record=False)
+    check("S3 幂等：重复检索同口径",
+          _snap(ra) == _snap(rb)
+          and (ma.get("gates") or {}) == (mb.get("gates") or {}),
+          str(_snap(ra)) + " vs " + str(_snap(rb)))
+    cg.rebuild_index()
+    rc, mc = cg.search("工程 应力", k=5, judge=False, record=False)
+    check("S3 幂等：索引重建后同口径",
+          _snap(rc) == _snap(ra)
+          and (mc.get("gates") or {}) == (ma.get("gates") or {}),
+          str(_snap(rc)) + " vs " + str(_snap(ra)))
 
     # ---- 6) 默认口径等价（关→开→关）----
     _setenv(MDCG_RETRIEVAL_PIPELINE=None, MDCG_GATE_S1_DOMAIN=None,

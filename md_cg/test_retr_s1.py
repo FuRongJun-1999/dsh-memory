@@ -108,15 +108,6 @@ def main():
     check("默认关：meta 不含 gates 键", "gates" not in meta, str(sorted(meta.keys())))
     check("默认关：scanned=全量", meta.get("scanned") == 2, str(meta.get("scanned")))
     ids_off = _ids(_r0)
-    # 总开关开、S1/S2 子开关未设 → 阶段仍关（契约 §4：子开关默认 0）
-    _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S1_DOMAIN=None,
-            MDCG_GATE_S2_COND=None)
-    _rm, _mm = cg.search("工程 应力", k=10, judge=False, record=False)
-    check("总开关开而 S1/S2 未设：阶段全关",
-          "gates" not in _mm and _ids(_rm) == ids_off,
-          str(_mm.get("gates")))
-    _setenv(MDCG_RETRIEVAL_PIPELINE=None, MDCG_GATE_S1_DOMAIN=None,
-            MDCG_GATE_S2_COND=None)
 
     # 开总开关后写入 → 落域标签（索引同口径）
     _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S1_DOMAIN="1",

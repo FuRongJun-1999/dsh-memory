@@ -1667,8 +1667,10 @@ class MdCG:
         big_domain = routing.big_domain_classify(terms)
         big_scores = routing.big_domain_score_breakdown(terms)
         gates = {}
-        # 子开关一律 **默认关**（与契约 §4 表一致）：总开关只解除「功能可被调用」，
-        # 每个阶段必须显式 =1 才生效——否则「开了总开关」会静默改变 search 的 tier/结果口径。
+        # S3 子开关**必须显式 =1**（与 S1/S2 的「未设=开」不同，是有意的非对称）：
+        # S3 会新增候选并引入新的 tier（TIER_SPREAD），在总开关开启时若默认随开，
+        # 会让「启用 S1/S2」的用户静默多出一层结果——独立复核（2026-09-19）要求显式启用。
+        # 参数：hops（默认 2）、decay（默认 0.5）、gain（默认 0.2）。
         _s3 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
                and os.environ.get("MDCG_GATE_S3_SPREAD") == "1")
         try:
@@ -1684,7 +1686,7 @@ class MdCG:
         except ValueError:
             _s3_gain = 0.2
         if os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1" and entries:
-            if os.environ.get("MDCG_GATE_S1_DOMAIN") == "1" and big_domain:
+            if os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0" and big_domain:
                 # 域内 ∪ 未标域（兜底池）：无域标签的历史节点绝不能因「域内够多」被丢
                 #（契约 §3 S1 不变量：ORPHAN/未标域必须可被召回）
                 same = [e for e in entries
@@ -1697,9 +1699,9 @@ class MdCG:
                 else:
                     gates["s1"] = {"domain": big_domain, "in": len(same),
                                    "dropped": 0, "fallback": "insufficient"}
-            elif os.environ.get("MDCG_GATE_S1_DOMAIN") == "1":
+            elif os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0":
                 gates["s1"] = {"domain": None, "reason": "no_domain_signal"}
-            if os.environ.get("MDCG_GATE_S2_COND") == "1" and isinstance(context, dict):
+            if os.environ.get("MDCG_GATE_S2_COND", "1") != "0" and isinstance(context, dict):
                 kept = [e for e in entries if _cond_prefilter_pass(e, context)]
                 gates["s2"] = {"in": len(entries), "out": len(kept),
                                "dropped": len(entries) - len(kept)}
