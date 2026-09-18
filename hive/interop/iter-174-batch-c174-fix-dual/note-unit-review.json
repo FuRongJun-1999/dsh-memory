@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-174-batch-c174-fix-dual",
+ "round": 5,
+ "candidate_commit": "ba95f9e",
+ "branch": "task/iter-174-batch-c174-fix-dual",
+ "unit_job": "h1789707845579_6d55df",
+ "verdict": "ACCEPT",
+ "package_n": 3,
+ "text": "逐条核对：load_config 的 path 缺失、OSError/ValueError、下划线跳过、resolve None 收集与返回形状均与源码一致；serve_alive 的 heartbeat 假值、ts 缺省 0、FRESH_S*1000、pid_alive 且 pid_is_self_program 一致；start 的 serve_alive 早退、load_config 错误透传、JOBS/合并 env/Popen OSError、20×0.5s 轮询、成功字段及 SERVE_LOG 尾 400 字符均一致。未发现补充断言或位置问题。\nreason: 三条生效条件均准确覆盖源码分支，无与源码不符之处。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
