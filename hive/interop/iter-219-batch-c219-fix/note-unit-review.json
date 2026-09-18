@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-219-batch-c219-fix",
+ "round": 2,
+ "candidate_commit": "3e94176",
+ "branch": "task/iter-219-batch-c219-fix",
+ "unit_job": "h1789719310327_c8723a",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "核查：条件准确回答生效输入，锚定必需形参 v；与源码三合取一致，None/False/0 为假，空串/列表/字典因 `!=0` 为真，未增源码不支持断言；无闭包/早退/长度前置。position_ok=true。  \nreason: 描述与源码逻辑及空容器分支一致。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
