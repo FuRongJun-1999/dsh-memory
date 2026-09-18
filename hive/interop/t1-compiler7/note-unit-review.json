@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler7",
+ "round": 1,
+ "candidate_commit": "3b220c0",
+ "branch": "task/t1-compiler7",
+ "unit_job": "h1789690097660_8d4715",
+ "verdict": "REJECT",
+ "package_n": 22,
+ "text": "复核：多数条目与源码一致；但 serialize 条件与源码不符。源码 tag5 分支仅判断 isinstance(arg, tuple)，未校验 len==2 或元素类型；任意长度≥2 的 tuple（如 (1,2,3)）会按前两项编码，长度1 会 IndexError，元素类型不符会 struct.error，并非“其他类型抛 ValueError”。该条件额外断言了源码不支持的二元/类型前置。\nreason: serialize 的 tag5 未校验二元和类型，condition 却称仅 (float,int) 二元且其他抛 ValueError，故不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
