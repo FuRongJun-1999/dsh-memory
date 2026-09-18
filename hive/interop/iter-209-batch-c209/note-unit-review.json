@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-209-batch-c209",
+ "round": 1,
+ "candidate_commit": "dad2188",
+ "branch": "task/iter-209-batch-c209",
+ "unit_job": "h1789717777419_627d66",
+ "verdict": "ACCEPT",
+ "package_n": 9,
+ "text": "各条与源码逐行核对：_write_result 的 tmp/flush/fsync/os.replace、_fail 的 `if extra` 与默认 EXIT_SPEC、_norm_steps 的两级分支与既有 str 又非「非空全 str list」报错、_dump_step 的 OSError 静默且 head/truncated 恒记、_run_step 的回退链与四类早退、_render 的 note 真值追加与末 6/4 行、_delegate 的空串回落与 isfile 早退、run_cmd 的 fail_fast 假值才不中断及相对路径基准、main 的兜底均一致。仅两处措辞偏松：env「非 dict 则空」实为「假值则空」，真值非 dict 会抛 AttributeError；main 目录不成立时打印的是不存在提示而非用法。不改变生效条件主干。\n\nreason: 九条生效条件与源码分支、形参、早退及返回形状一致，仅 env 非 dict 与 main 提示语措辞略宽。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
