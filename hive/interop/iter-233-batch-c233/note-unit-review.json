@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-233-batch-c233",
+ "round": 1,
+ "candidate_commit": "ed7ac94",
+ "branch": "task/iter-233-batch-c233",
+ "unit_job": "h1789721716723_9d6c15",
+ "verdict": "REJECT",
+ "package_n": 8,
+ "text": "复核：多数条件吻合，但存在不符。`_lineage_key` 遗漏 `branched_from` 为真且 `str(v)==\"None\"` 时仍继续查 `branch_id`；`bundle` 未说明原始非空 `content` 也统一截为 `int(content_limit)`；`_load_content` 称“在 root 下”未覆盖绝对 `rel` 经 `os.path.join` 会忽略 root。需修正后再验。\nreason: 存在与源码不符的分支覆盖（lineage 循环与 content 截断），需修正。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
