@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-tailmulti-d-fix",
+ "round": 2,
+ "candidate_commit": "7e67150",
+ "branch": "task/iter-tailmulti-d-fix",
+ "unit_job": "h1789759730127_962112",
+ "verdict": "REJECT",
+ "package_n": 8,
+ "text": "逐条：1 ACCEPT；2 ACCEPT；3 ACCEPT；4 REJECT（csre_freshness：last_kp_fp=None 且 kp_fp 不等时源码返回新 kp_fp，并非返回传入 None）；5 ACCEPT；6 ACCEPT；7 ACCEPT；8 ACCEPT。其余条件与 src_segment 相符，position_ok=true。\nreason: 第4条 csre_freshness 对 last_kp_fp=None 分支的返回语义与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
