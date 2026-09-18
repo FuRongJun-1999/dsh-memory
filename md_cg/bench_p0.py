@@ -50,6 +50,7 @@ def timeit(fn, repeat=5):
     return statistics.median(ts), min(ts), max(ts)
 
 
+# 生效条件：模块级常量 ROOT 不是目录（not os.path.isdir(ROOT)）时打印未找到提示并返回 1；否则在 ROOT 上建 MdCG 依次跑检索延迟、情境对比与写入/维护基准，打印各项统计与耗时，并返回 0。
 def main():
     if not os.path.isdir(ROOT):
         print(f"未找到 md 库 {ROOT}，请先跑 python -m md_cg.test_p0")
@@ -82,6 +83,7 @@ def main():
 
     # ---- 2. 条件路由（情境正确）vs 全量 vs 朴素全库读盘扫描 ----
     # 朴素参照：每个查询都把全部节点文件读出来做一次子串匹配（无索引的代价上限）
+# 生效条件：给定 q 时遍历 cg.index["nodes"] 逐个读取 ROOT/e["path"]，内容含 q 子串（q 为空串时任何可读内容都命中）即收集其 path，读取抛 OSError 的条目被跳过，返回 hits 列表。
     def brute_force(q):
         hits = []
         for e in cg.index["nodes"].values():

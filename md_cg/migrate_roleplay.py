@@ -145,6 +145,7 @@ def _role_content(role_id, meta):
     return "\n".join(lines)
 
 
+# 生效条件：以 data_dir 的 roleplay、transcripts 子目录收集计划节点，mutual_dir 为假值（None/空串）时不加载互维数据；按 tenant、actor 派生 principal 后，dry_run 为真则只汇总、written=0 且不回读，为假则逐条 override 写入并回读校验 content/layer/tags；clearance 非 "private" 时 sensitivity 取 DEFAULT_SENSITIVITY、否则为 "private"；verbose 为真时打印 report；最终返回该 report。
 def migrate(data_dir, root, mutual_dir=None, dry_run=False,
             clearance="private", tenant="default", actor="dsh-memory", verbose=True):
     """把角色扮演 / 互维数据迁入认知图。

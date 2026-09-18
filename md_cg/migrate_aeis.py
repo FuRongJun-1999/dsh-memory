@@ -107,6 +107,7 @@ def load_edges(db: str):
     return out
 
 
+# 生效条件：以 db、root 建库后，dry_run 为真则跳过写入与回读校验（written=0、count_equal 恒为真、health 为 None），为假则按 rows 逐条 override 写入并做 10 项字段回读比对累计 field_mismatches；clearance 非 "private" 时 sensitivity 取 DEFAULT_SENSITIVITY、否则为 "private"；layer 不在 LAYER_MAP 的记入 unknown_layers 并按 knowledge 写入；verbose 为真时打印 report；最终返回该 report。
 def migrate(db: str, root: str, layers=None, limit=None, dry_run=False,
             clearance: str = "private", verbose=True):
     rows = load_nodes(db, layers, limit)
