@@ -1,0 +1,13 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-t3-reach-r4",
+ "round": 1,
+ "candidate_commit": "3381adc",
+ "branch": "task/t3-reach",
+ "base_commit": "798500d",
+ "unit_job": "h1789700185774_a3c4af",
+ "verdict": "REJECT",
+ "package_n": 4,
+ "text": "复核：新反例成立。T1′ 读入 `reach_entries` 后仍以 `_like(...) or semantic` 过滤 `hits_r`；图扩散并入 `narrow` 的非 LIKE 邻居（如 `other_2`）会被此过滤丢弃，根本进不了 `cut_by_relevance`/最终结果。`test_reach` 的 (3) 只断言 `narrow` 含 `other_2`，未断言 `search` 结果含它，故声明③“图扩散补召回”未被证明且实现未落地。另 `narrow` 扩散种子用未按 `entries` 过滤的 `paths`，可能从越层/越权索引节点拉入候选，虽最终再按 `entries` 过滤，但会放大读盘/内存；测试仅用 fake.adj，未覆盖真实越权种子。A2/A3 证据不能覆盖该漏洞。\n\nreason: 图扩散补召回在结果层被 `_like/semantic` 过滤，且测试只验 narrow 未验 search，声明③不成立。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
