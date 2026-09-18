@@ -1998,7 +1998,9 @@ class MdCG:
         _s5 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
                and os.environ.get("MDCG_GATE_S5_NEG") == "1")
         _s5_lam, _s5_thr, _s5_hits = 0.5, 0.5, []
-        if _s5 and neg_coverage and scored:
+        # λ/阈值的解析必须在「scored 是否为空」之外：否则 scored 为空时负记忆条目会按默认 λ 降权、
+        # 审计也会记错配置（独立复核 2026-09-19 指出）
+        if _s5 and neg_coverage:
             try:
                 _s5_lam = min(1.0, max(0.0, float(os.environ.get("MDCG_NEG_LAMBDA", "0.5"))))
             except ValueError:
@@ -2007,13 +2009,14 @@ class MdCG:
                 _s5_thr = min(1.0, max(0.0, float(os.environ.get("MDCG_NEG_SIM", "0.5"))))
             except ValueError:
                 _s5_thr = 0.5
+        if _s5 and neg_coverage and scored:
             _negs = []
             for _nc in neg_coverage[:10]:
                 try:
                     with open(os.path.join(self.root, _nc["path"]), encoding="utf-8") as _f:
                         _fm_n, _c_n = nodefile.loads(_f.read())
-                except OSError:
-                    continue
+                except Exception:
+                    continue        # 解析异常同样放行（信息不足不得中断检索）
                 _negs.append((str(_fm_n.get("id") or os.path.splitext(
                     os.path.basename(_nc["path"]))[0]), _fm_n, _c_n))
             for _i, (_doc, _sc) in enumerate(scored):

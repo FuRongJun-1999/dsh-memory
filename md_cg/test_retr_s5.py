@@ -8,7 +8,7 @@
 - 重叠抑制：与 rejected 节点词面高度重叠的正候选 → w × (1-λ)
 - 相邻抑制：与 rejected 节点有边相连（文本不重叠）的正候选同样被抑制
 - 无关候选不被抑制；λ 可配（0=不抑制，1=压到 0 且不低于 0）
-- 阈值可配：thr=0.99 时重叠抑制关闭、相邻抑制仍在
+- 阈值真的在过滤：部分重叠候选在 thr=0.6 下不抑制、thr=0.4 下被抑制
 - 负记忆条目在 S5 开时不再与正候选同权（1.0 → 1-λ）
 - 无负记忆命中时不落 s5 审计；幂等（重复检索 / 索引重建）
 """
@@ -70,6 +70,8 @@ def _build(root):
     cg.add("pos_overlap", TEXT, "knowledge")
     cg.add("pos_edge", "泽塔 量子 比特 纠缠", "knowledge")
     cg.add("pos_clean", "泽塔 海流 洋流 潮汐", "knowledge")
+    #   pos_mid    ：与负记忆部分重叠（包含度≈0.5）→ 用来验证阈值真的在过滤
+    cg.add("pos_mid", "阿尔法 贝塔 海流 洋流", "knowledge")
     cg.add("h_rej", NEGTEXT, "rejected")
     cg.append_edge("pos_edge", {"target": "h_rej", "relation_type": "related"})
     cg.flush()
@@ -134,17 +136,32 @@ def main():
           sc1["pos_overlap"] == 0.0 and sc1["pos_edge"] == 0.0
           and min(sc1.values()) >= 0.0, str(sc1))
 
-    # ---- 5) 阈值可配：thr=0.0 时任何 sim≥0 的候选都被抑制（含无关候选 pos_clean）----
-    # 注：本侧 lexical_sim 为包含度型——完全包含的文本恒为 1.0，故用 0.99 无法证明阈值生效；
-    #     改用 0.0 观察「阈值放宽 → 抑制面扩大」。
-    _setenv(MDCG_NEG_LAMBDA="0.5", MDCG_NEG_SIM="0.0")
+    # ---- 5) 阈值真的在过滤：部分重叠候选（包含度≈0.5）在 0.6 下不抑制、0.4 下被抑制 ----
+    _setenv(MDCG_NEG_LAMBDA="0.5", MDCG_NEG_SIM="0.6")
     r2, m2 = cg.search(QUERY, k=10, judge=False, record=False)
     sc2 = _scores(r2)
-    g2 = (m2.get("gates") or {}).get("s5") or {}
-    check("thr=0.0：抑制面扩大（无关候选也被抑制）",
-          abs(sc2["pos_clean"] - base["pos_clean"] * 0.5) < 1e-9
-          and "pos_clean" in set(g2.get("suppressed_ids") or []),
-          str(sc2) + " " + str(g2))
+    sup2 = set(((m2.get("gates") or {}).get("s5") or {}).get("suppressed_ids") or [])
+    check("thr=0.6：部分重叠不抑制、完全重叠仍抑制",
+          sc2["pos_mid"] == base["pos_mid"]
+          and "pos_mid" not in sup2 and "pos_overlap" in sup2,
+          str(sc2) + " " + str(sorted(sup2)))
+    _setenv(MDCG_NEG_SIM="0.4")
+    r3, m3 = cg.search(QUERY, k=10, judge=False, record=False)
+    sc3 = _scores(r3)
+    sup3 = set(((m3.get("gates") or {}).get("s5") or {}).get("suppressed_ids") or [])
+    check("thr=0.4：部分重叠也被抑制",
+          abs(sc3["pos_mid"] - base["pos_mid"] * 0.5) < 1e-9
+          and "pos_mid" in sup3,
+          str(sc3) + " " + str(sorted(sup3)))
+
+    # ---- 5b) 配置的 λ 必须真的生效（含审计）----
+    _setenv(MDCG_NEG_LAMBDA="0.25", MDCG_NEG_SIM="0.5")
+    r4, m4 = cg.search(QUERY, k=10, judge=False, record=False)
+    sc4 = _scores(r4)
+    g4 = (m4.get("gates") or {}).get("s5") or {}
+    check("λ=0.25：负记忆条目 0.75 且审计记 0.25",
+          sc4.get("rejected/h_rej.md") == 0.75 and g4.get("lambda") == 0.25,
+          "%s %s" % (sc4.get("rejected/h_rej.md"), g4))
 
     # ---- 6) 无负记忆命中：不落 s5 审计 ----
     r3, m3 = cg.search("西格玛 欧米伽", k=10, judge=False, record=False)
