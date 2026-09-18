@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-consistency-c1-fix",
+ "round": 2,
+ "candidate_commit": "a55cb34",
+ "branch": "task/iter-consistency-c1-fix",
+ "unit_job": "h1789756545855_6659f1",
+ "verdict": "REJECT",
+ "package_n": 2,
+ "text": "`_recursive_reflect`：REJECT。条件称“该层有 discriminators 即返回 resolved，否则节点访问数超过 max_nodes 返 node_budget”与源码控制流不符：源码在每节点处理前检查 `nodes_visited > max_nodes`，超预算会先返回 `node_budget`，可压过同层已收集的 discriminators；且 seeds 假值时是进入 `for` 首轮后由 `if not frontier` 返回，并非“不进循环体首层”。其余阈值/返回形状基本相符。\n\n`check`：ACCEPT。分支优先级、DEFER 后 L2 条件、auto_flywheel 与 log/return 均与源码一致。\n\nreason: `_recursive_reflect` 条件存在控制流顺序错误，`check` 条件通过。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
