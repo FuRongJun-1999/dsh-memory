@@ -311,3 +311,5 @@ ts	iter	branch	commit	status	claim_by	claimed_via	note
 1789754186	iter-namecheck-c2	task/iter-namecheck-c2	b159129	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
 1789754567	iter-backfill-c2	task/iter-backfill-c2	ad41e7e	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +4 条
 1789754723	iter-evalcommon-c2-fix	task/iter-evalcommon-c2-fix	8bbc263	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +4 条
+1789755306	iter-subgraph-c1	task/iter-subgraph-c1	23193ea	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +3 条
+1789755306	iter-tasks-c1	task/iter-tasks-c1	ab42e9c	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +3 条（按提交回填）
