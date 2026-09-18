@@ -41,6 +41,7 @@ KIND_BASIS = {"code": "test", "image_desc": "measurement", "text": "other",
 VERIFIERS = {}
 
 
+# 生效条件：kind 属于 CONTENT_KINDS 且（kind 不在 VERIFIERS 或 override 为真值）时把 fn 写入 VERIFIERS[kind]；kind 未知、或 kind 已在 VERIFIERS 而 override 为假值时抛 ValueError。
 def register_verifier(kind, fn, override=False):
     """注入/替换某类内容的验证器（外部能力接入点）。"""
     if kind not in CONTENT_KINDS:
@@ -58,6 +59,7 @@ def _verdict(state, kind, evidence, detail=None):
 
 # ---------- 规则库（合规 / 纪律） ----------
 
+# 生效条件：path 为假值（None 或空串）时回落到 os.environ 的 MDCG_POLICY_FILE，所得路径仍为假值或 os.path.exists 判定为假时返回 {}；否则按 json.load 读取，抛 OSError/ValueError 或结果非 dict 时返回 {}，是 dict 则返回该 dict。
 def load_rulebook(path=None):
     """{"forbidden": [正则], "required": [正则]}；缺失返回空规则。"""
     path = path or os.environ.get("MDCG_POLICY_FILE")
@@ -98,12 +100,14 @@ def _rule_check(text, rules):
 
 # ---------- 内建验证器 ----------
 
+# 生效条件：以 payload['content']（为假值则回落 payload['text']，再为假值取空串）作为文本，用 ctx['rules']（为假值则回落 load_rulebook()）做规则检查，返回 _verdict(检查状态, 'text', 证据)。
 def _verify_text(payload, ctx):
     text = str(payload.get("content") or payload.get("text") or "")
     state, ev = _rule_check(text, ctx.get("rules") or load_rulebook())
     return _verdict(state, "text", ev)
 
 
+# 生效条件：ctx['principal'] 缺失或为 None 时恒 DEFER；否则按 payload['action']（为假值取空串）是否属于 admin/forget/restore/review_decide 分别取 p.can_admin 或 p.can_write，且 p 具 allows 方法而 payload['sensitivity'] 为真值时再叠加 p.allows(sensitivity)，按最终 ok 返回 ACCEPT/REJECT。
 def _verify_permission(payload, ctx):
     p = ctx.get("principal")
     if p is None:
@@ -121,6 +125,7 @@ def _verify_permission(payload, ctx):
                     f"can_admin={getattr(p, 'can_admin', None)}")
 
 
+# 生效条件：payload['content']（为假值取空串）经 ctx['rules']（为假值回落 load_rulebook()）检查后，state==REJECT 即 REJECT；否则 ctx['cg'] 非 None 且 payload['topic']（为假值回落 payload['query']，再为假值取空串）非空且 cg.search 结果含 ACCEPT 状态节点时 DEFER（查询抛异常则跳过该路）；再 state==DEFER 时 DEFER，否则 ACCEPT。
 def _verify_work_wip(payload, ctx):
     text = str(payload.get("content") or "")
     state, ev = _rule_check(text, ctx.get("rules") or load_rulebook())
@@ -142,6 +147,7 @@ def _verify_work_wip(payload, ctx):
     return _verdict(ACCEPT, "work_wip", f"纪律通过且未见重复成果（{ev}）")
 
 
+# 生效条件：payload['content']（为假值取空串）为空白即 REJECT '空内容'；ast.parse 抛 SyntaxError 即 REJECT 语法错误；payload['test_cmd'] 与 os.environ 的 MDCG_CODE_TEST_CMD 均为假值时 ACCEPT（仅静态验证）；否则 shlex.split 抛 ValueError 或 subprocess 抛 OSError/SubprocessError 即 DEFER，returncode 为 0 即 ACCEPT，非 0 即 REJECT 并附 returncode 与 stdout/stderr 尾部。
 def _verify_code(payload, ctx):
     """代码内容 → 实测：AST 可解析为最低门槛；给了 test_cmd 则真跑测试。
 
@@ -194,6 +200,7 @@ def _pending(kind, why):
     return _fn
 
 
+# 生效条件：payload['node_id'] 去空后为空即 DEFER；否则取 payload['unit_verdict']（为假值回落 payload['verdict']）去空转大写，其属于 STATES 时——verifier 为空即 DEFER、ctx['compiled_by']（为假值回落 payload['compiled_by']）非空且等于 verifier 即 REJECT E041、verdict==ACCEPT 而 evidence 为空即 DEFER、其余按该 verdict 裁定；其不属于 STATES 时经 units.probe 探测（探测抛异常亦恒 DEFER）后恒 DEFER 并给出通道与下一步提示。
 def _verify_ccg_marks(payload, ctx):
     """CCG 六要素候选的验证闸门：**只认认知图外的复核裁决**（裁定 A）。
 
@@ -263,6 +270,7 @@ def _verify_ccg_marks(payload, ctx):
 
 # ---------- 分派入口 ----------
 
+# 生效条件：content_kind 去空后不在 CONTENT_KINDS 即 BLINDSPOT；否则取 VERIFIERS 中该 kind 的验证器，缺失即 DEFER，调用抛异常即 DEFER，成功则以返回值 state（不在 STATES 时降级为 DEFER）连同 evidence/detail 构造裁定。
 def audit(content_kind, payload=None, ctx=None):
     """按内容类型分派验证器。未知类型 → BLINDSPOT；缺验证器 → DEFER。"""
     kind = (content_kind or "").strip()
@@ -280,6 +288,7 @@ def audit(content_kind, payload=None, ctx=None):
     return _verdict(state, kind, str(v.get("evidence") or ""), v.get("detail"))
 
 
+# 生效条件：对模块级常量 CONTENT_KINDS 中的每个 k 返回 action=CONTENT_KINDS[k]、basis=KIND_BASIS[k]、verifier 为 'builtin'（k 在 VERIFIERS 中）否则 'missing'。
 def kinds():
     """内容类型清单 + 验证器可用性（供 service_info / health 自描述）。"""
     return {k: {"action": CONTENT_KINDS[k], "basis": KIND_BASIS[k],
@@ -300,6 +309,7 @@ def kinds():
 VERIFIER_MODULES_ENV = "MDCG_VERIFIER_MODULES"
 
 
+# 生效条件：modules 为 None 时按 os.environ 的 VERIFIER_MODULES_ENV（为假值取空串）取逗号分隔模块名，去空后列表为空即返回空报告；否则逐个 import_module 并调用其可调用的 register(本模块)，单个导入或调用失败记入 failed 且 strict 为真值时立即抛出、为假值时继续，成功者记入 loaded，最后以 CONTENT_KINDS 生成 verifiers 可用性映射。
 def load_external_verifiers(modules=None, strict=False):
     """按 `MDCG_VERIFIER_MODULES`（逗号分隔 import 路径）加载外部验证器模块。
 
