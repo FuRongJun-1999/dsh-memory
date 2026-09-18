@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-162-batch-c162-fix",
+ "round": 2,
+ "candidate_commit": "30dc43a",
+ "branch": "task/iter-162-batch-c162-fix",
+ "unit_job": "h1789703109748_395a2f",
+ "verdict": "REJECT",
+ "package_n": 13,
+ "text": "逐条复核：除第6条 snapshot 外，其余早退、None/假值、常量与形参锚定均与源码一致。snapshot 条件将源码的单反斜杠替换误写为双反斜杠替换，语义多一层，应修正。\nreason: snapshot 的反斜杠替换描述与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
