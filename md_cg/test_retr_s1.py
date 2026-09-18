@@ -123,27 +123,42 @@ def main():
           "big_domain" not in (cg.get("n_none")["frontmatter"] or {}))
 
     # ---- 4) S1：收敛 / 回退 / 无域信号 ----
+    # 收敛要以「已标域」为前提（未标域节点按兜底池保留）→ 先回填 cg 的存量节点
+    st_bf = cg.backfill_big_domain()
+    check("回填后：存量节点获得域标签",
+          cg.index["nodes"]["n_off"].get("big_domain") == "工程"
+          and cg.index["nodes"]["n_yi"].get("big_domain") == "医学", str(st_bf))
     _r1, meta = cg.search("工程 应力", k=10, judge=False, record=False)
     s1 = (meta.get("gates") or {}).get("s1") or {}
     check("S1 收敛到工程域", s1.get("domain") == "工程", str(s1))
-    check("S1 丢弃异域候选", s1.get("dropped", 0) >= 2, str(s1))
-    check("S1 scanned 下降", meta.get("scanned", 99) <= 1, str(meta.get("scanned")))
+    check("S1 丢弃异域候选、保留未标域",
+          s1.get("dropped") == 1 and s1.get("in") == 3, str(s1))
+    check("S1 scanned 下降（4 -> 3）", meta.get("scanned") == 3,
+          str(meta.get("scanned")))
 
     root_fb = tempfile.mkdtemp(prefix="retr_s1fb_")
     _write_raw(root_fb, "g1", "knowledge", GONG)
     _write_raw(root_fb, "y1", "knowledge", YI)
+    _write_raw(root_fb, "u1", "knowledge", "xyzzy zzz")   # 无域信号 → 兜底池
     cgfb = MdCG(root_fb)
     cgfb.rebuild_index()
     cgfb.backfill_big_domain()
     _r2, meta = cgfb.search("工程 应力", k=5, min_results=3, judge=False, record=False)
     s1 = (meta.get("gates") or {}).get("s1") or {}
     check("S1 域内不足 -> 回退全量", s1.get("fallback") == "insufficient", str(s1))
-    check("S1 回退后 scanned=全量", meta.get("scanned") == 2, str(meta.get("scanned")))
+    check("S1 回退后 scanned=全量", meta.get("scanned") == 3, str(meta.get("scanned")))
+
+    # 兜底召回：未标域节点必须留在域内集合里（否则历史节点被域收敛整片丢弃）
+    _r3b, meta = cgfb.search("工程 应力", k=1, judge=False, record=False)
+    s1 = (meta.get("gates") or {}).get("s1") or {}
+    check("S1 保留未标域节点（兜底池）",
+          s1.get("in") == 2 and s1.get("dropped") == 1 and meta.get("scanned") == 2,
+          str(s1) + " scanned=" + str(meta.get("scanned")))
 
     _r3, meta = cgfb.search("xyzzy zzz", k=10, judge=False, record=False)
     s1 = (meta.get("gates") or {}).get("s1") or {}
     check("S1 无域信号 -> 不收敛",
-          s1.get("reason") == "no_domain_signal" and meta.get("scanned") == 2, str(s1))
+          s1.get("reason") == "no_domain_signal" and meta.get("scanned") == 3, str(s1))
 
     # ---- 5) S2：位置 / 时间窗 / 信息不足 / 全滤回退 ----
     _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S1_DOMAIN="0",
@@ -256,6 +271,22 @@ def main():
           str(snap_a)[:160] + " vs " + str(snap_b)[:160])
     check("默认关：meta 仍不含 gates 键", "gates" not in meta_b,
           str(sorted(meta_b.keys())))
+
+    # 7c 候选 entry 形状：默认关时即便节点带 observation_position/big_domain，
+    #     返回的候选也不得平铺这两个键（独立复核指出的默认口径变化点）
+    root5 = tempfile.mkdtemp(prefix="retr_shape_")
+    _write_raw(root5, "p1", "knowledge", GONG, pos="工程 结构", bd="工程")
+    cg5 = MdCG(root5)                    # 默认关下建索引
+    cg5.rebuild_index()
+    check("默认关：索引条目不落门控字段",
+          "big_domain" not in cg5.index["nodes"]["p1"]
+          and "observation_position" not in cg5.index["nodes"]["p1"],
+          str(sorted(cg5.index["nodes"]["p1"].keys())))
+    _r5b, _m5b = cg5.search("工程 应力", k=10, judge=False, record=False)
+    check("默认关：候选 entry 无门控字段",
+          all(("big_domain" not in r[0] and "observation_position" not in r[0])
+              for r in _r5b),
+          str([sorted(r[0].keys()) for r in _r5b])[:160])
     _restore(old)
 
     print("\ntest_retr_s1: %d 通过 / %d 失败" % (passed, failed))

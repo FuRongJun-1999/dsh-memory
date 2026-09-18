@@ -558,11 +558,20 @@ def expand_query_terms_llm(query: str, llm_fn=None, cache=None,
         return dict(base)
 
 
-# 生效条件：无条件删除 entry 中门控可选字段（big_domain / observation_position）的假值键并返回 entry；真值键原样保留。
-def _strip_empty_gate_fields(entry):
-    """索引快照里的门控可选字段：仅真值落键 → 默认关闭时索引形状与改动前一致。"""
+# 生效条件：enabled 为假值（默认取 MDCG_RETRIEVAL_PIPELINE=="1"）时无条件删除 entry 中 big_domain / observation_position 两键并返回 entry；
+# enabled 为真值时仅删除其中假值的键（真值原样保留）并返回 entry。
+def _strip_empty_gate_fields(entry, enabled=None):
+    """索引快照里的门控可选字段落键策略。
+
+    默认关闭（总开关未设）→ 两个键**一律不落**：索引条目与 search() 返回的候选 entry
+    形状与改动前逐字节一致（否则真实库中大量节点的 observation_position 会平铺进
+    候选，改变默认口径——独立复核 2026-09-19 指出）。
+    开启后 → 真值才落键（假值不落）。
+    """
+    if enabled is None:
+        enabled = os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
     for _k in ("big_domain", "observation_position"):
-        if _k in entry and not entry[_k]:
+        if _k in entry and (not enabled or not entry[_k]):
             del entry[_k]
     return entry
 
@@ -1642,7 +1651,10 @@ class MdCG:
         gates = {}
         if os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1" and entries:
             if os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0" and big_domain:
-                same = [e for e in entries if e.get("big_domain") == big_domain]
+                # 域内 ∪ 未标域（兜底池）：无域标签的历史节点绝不能因「域内够多」被丢
+                #（契约 §3 S1 不变量：ORPHAN/未标域必须可被召回）
+                same = [e for e in entries
+                        if not e.get("big_domain") or e.get("big_domain") == big_domain]
                 # 召回安全：域内候选不足以支撑 min_results 时不收敛，留全量兜底
                 if len(same) >= max(1, min_results):
                     gates["s1"] = {"domain": big_domain, "in": len(same),
