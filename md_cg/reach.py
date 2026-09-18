@@ -160,6 +160,7 @@ def _fingerprint(cg) -> str:
     return h.hexdigest()
 
 
+# 生效条件：root 为调用方传入的根路径字符串，实例化后 path 取 os.environ.get("MDCG_REACH_INDEX") 的值，未设或为空串时回落 os.path.join(root, INDEX_NAME)；post/adj/hashes/sem 初始化为空容器，persist_failed=False，built_fingerprint=""，built_now=False，hash_complete=True，built_docs/built_reads=0，built_at=0.0；
 class ReachIndex:
     """bigram 倒排 + 邻接表（edges），落盘于 <root>/_reach_index.json。"""
 
@@ -299,6 +300,7 @@ def _index_with_meta(cg, force: bool = False):
     return idx, fail
 
 
+# 生效条件：必填 cg 提供 root 与指纹，force 默认 False、_fail 默认 None；当 force 为假且 _CACHE.get(ReachIndex(cg.root).path) 的 hit 为真、hit[1] 等于 _fingerprint(cg) 且 _ttl() 未超时时，返回 hit[0] 并置其 built_now=False；否则以 idx=ReachIndex(cg.root) 继续：先若 force 为假且 idx.load() 为真则按 _ttl() 判 expired，再无条件设 idx.hash_complete=_hash_complete(cg)，随后若 force 为假且 expired 为假且 idx.post 非空且 _disk_fresh(idx,cg) 为真则置 idx.built_now=False、写 _CACHE[ReachIndex(cg.root).path]=(idx,fp) 并返回 idx；否则 try 中 idx.build(cg) 且 idx.built_now=True 后 idx.save()，save 成功则 persist_failed=False、写 _CACHE[ReachIndex(cg.root).path]=(idx,fp) 并返回 idx，save 抛 OSError 则 persist_failed=True、pop 缓存并返回 idx；idx.build 或 save 抛其他异常（含 save 非 OSError）则当 _fail 非 None 且 built_reads 或 built_docs 非零时向 _fail 写入 reach_build_docs、reach_build_reads、reach_build_partial=True，并返回 None；
 def _index(cg, force: bool = False, _fail=None) -> "ReachIndex | None":
     root = cg.root
     fp = _fingerprint(cg)
