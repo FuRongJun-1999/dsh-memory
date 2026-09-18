@@ -1398,7 +1398,7 @@ class MdCG:
         走 `get()`（解密）→ `_write_node()`（重新封装），保证加密库不会双重封装。
         """
         st = {"seen": 0, "already": 0, "written": 0, "no_signal": 0,
-              "unreadable": 0, "dry_run": bool(dry_run)}
+              "unreadable": 0, "index_synced": 0, "dry_run": bool(dry_run)}
         for nid, e in list((self.index.get("nodes") or {}).items()):
             if limit and st["written"] >= limit:
                 break
@@ -1408,8 +1408,15 @@ class MdCG:
                 st["unreadable"] += 1
                 continue
             fm, content = got["frontmatter"], got["content"]
-            if fm.get("big_domain"):
-                st["already"] += 1
+            _fm_dom = fm.get("big_domain")
+            if _fm_dom:
+                # 对账支路：frontmatter 已有标签但索引快照没同步（历史部分失败/旧索引）→ 修索引，不重写文件
+                if e.get("big_domain") != _fm_dom:
+                    e["big_domain"] = _fm_dom
+                    self._stage(nid, e)
+                    st["index_synced"] += 1
+                else:
+                    st["already"] += 1
                 continue
             if content is None:
                 st["unreadable"] += 1
@@ -1427,6 +1434,9 @@ class MdCG:
             fm["big_domain"] = dom
             self._write_node(nid, os.path.join(self.root, e["path"]), fm, content)
             e["big_domain"] = dom
+            # 必须走 _stage：索引持久化靠 _dirty → flush → _index_log 重放，
+            # 只改内存 entry 会在重启后丢掉标签（S1 失效，且二次回填因 fm 已有标签而跳过）
+            self._stage(nid, e)
             st["written"] += 1
         if not dry_run and st["written"]:
             self.flush()

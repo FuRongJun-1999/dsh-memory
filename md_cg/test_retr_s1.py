@@ -56,13 +56,15 @@ def _restore(old):
             os.environ[k] = v
 
 
-def _write_raw(root, nid, layer, content, pos=None, tw=None):
+def _write_raw(root, nid, layer, content, pos=None, tw=None, bd=None):
     fm = {"id": nid, "layer": layer, "modality": "text", "importance": 0.5,
           "confidence": 0.6, "condition_space": {"time_window": tw or [0, 10 ** 12]},
           "tags": [], "created_at": 0, "access_count": 0, "last_access": 0,
           "edges": []}
     if pos:
         fm["condition_space"]["observation_position"] = pos
+    if bd:
+        fm["big_domain"] = bd
     p = os.path.join(root, layer, nid + ".md")
     os.makedirs(os.path.dirname(p), exist_ok=True)
     io.open(p, "w", encoding="utf-8").write(nodefile.dumps(fm, content))
@@ -198,6 +200,25 @@ def main():
     check("backfill 幂等",
           st3["written"] == 0 and st3["already"] == 2
           and st3["no_signal"] == 1, str(st3))
+    # 索引持久化：重开库（走 _index_log 重放）后条目仍带域标签
+    cg3r = MdCG(root3)
+    check("backfill 索引持久化（重载可见）",
+          cg3r.index["nodes"]["g1"].get("big_domain") == "工程",
+          str(cg3r.index["nodes"]["g1"].get("big_domain")))
+
+    # 对账支路：fm 有标签、索引缺 → 只修索引（不重写文件），且修完重载可见
+    root4 = tempfile.mkdtemp(prefix="retr_bf2_")
+    _write_raw(root4, "g1", "knowledge", GONG, bd="工程")
+    cg4 = MdCG(root4)
+    cg4.rebuild_index()
+    del cg4.index["nodes"]["g1"]["big_domain"]
+    st4 = cg4.backfill_big_domain()
+    check("backfill 对账支路修索引",
+          st4["index_synced"] == 1 and st4["written"] == 0, str(st4))
+    cg4r = MdCG(root4)
+    check("对账后重载索引可见",
+          cg4r.index["nodes"]["g1"].get("big_domain") == "工程",
+          str(cg4r.index["nodes"]["g1"].get("big_domain")))
 
     # ---- 7) 默认口径等价（真比较，不是自证）----
     # 7a 无候选分支：开关关时 meta 不得多出 gates 键
