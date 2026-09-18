@@ -2237,6 +2237,7 @@ class MdCGOS(MdCG):
                     "note": "只读盘点；apply 类动作需管理权限（require_admin）。"}
         raise ValueError(f"maintain 未知 action：{act}（可选 {list(self.MAINTAIN_ACTIONS)}）")
 
+# 生效条件：action 为假值时回落 "promote"，随后按 str(action or "promote").strip().lower() 分派到 promote、promote_rollback|rollback、promote_history、induce、contextualize、contextualize_rollback|relayer_rollback、contextualize_history 各路实现，全部不匹配时抛 ValueError。
     def consolidate_run(self, action="promote", **kw):
         """离线固化面（P1：promote；P2：induce/run）。"""
         from . import consolidate
