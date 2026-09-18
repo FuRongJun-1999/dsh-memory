@@ -345,6 +345,7 @@ def _hit(node_id, kind, field, span, evidence, *, rule=None, line=None,
             "severity": severity}
 
 
+# 生效条件：text 为真值、span 与 content 均非 None 且 text.find(content)>=0 时，返回 text.count("\n",0,min(off+span[0],len(text)))+1 的 1-based 行号；text 假值或 span/content 为 None 或 content 未找到时返回 None。
 def _line_of(text, content, span):
     """正文区间 → 节点文件原文的 1-based 行号（供人工核对直接跳文件）。"""
     if not text or span is None or content is None:
@@ -361,6 +362,7 @@ def _line_of(text, content, span):
 # 新增判据 = 加函数 + 注册，不改 locate 主流程（与 M1「引擎冻结、规则可增删」同构）。
 # ctx = {"fm", "text", "root", "index", "peers", "now"}
 
+# 生效条件：在 node_id/meta/content/ctx 下，对 FM_SCAN_FIELDS 中除 verification_basis、condition_space 外且 _layer_ok(f,scope,meta) 为真的字段，若 meta.get(f) 与 ctx.get("fm") 或 {} 中的同名字段皆 _blank 则记 field_absent；对过 _layer_ok 且 _as_int(meta.get("evidence_count"))==0 记 evidence_zero；对 meta.get("importance") 非 None 且 _as_float 为 None 或不在 [0.0,1.0] 记 field_invalid；对 condition_space 经 meta 或回落 ctx.get("fm") 后 NF.condition_space_missing 非空记 condition_slots；对正文缺 NF.CCG_MARKS 行记 ccg_incomplete，返回这些命中列表。
 def _loc_missing_field(node_id, meta, content, ctx):
     """frontmatter/正文结构字段为空（判据与 M1 `field_absent`/`evidence_zero` 同源）。
 
@@ -422,6 +424,7 @@ def _loc_missing_field(node_id, meta, content, ctx):
     return hits
 
 
+# 生效条件：meta.get("verification_basis") 为空时回落 ctx.get("fm") 或 {} 的 verification_basis，若两者皆 _blank 返回 basis_absent 命中；非空但 str(basis) 不在 NF.VERIFICATION_BASIS 返回 basis_enum 命中；在枚举内时按 CC.classify_track 依 meta.get("layer")、meta.get("tags") 与 content 判赛道，若 CC.basis_licensed 为假返回 basis_licensed 命中；否则返回 []。
 def _loc_weak_source(node_id, meta, content, ctx):
     """验证基底缺失/越枚举/与赛道不相容（与 M1 `basis_licensed` 判据逐字同源）。"""
     fm = ctx.get("fm") or {}
@@ -451,6 +454,7 @@ def _loc_weak_source(node_id, meta, content, ctx):
     return []
 
 
+# 生效条件：ctx.get("fm") 或 {} 中 code_ref 或 doc_ref 为非空 dict 且 RI.probe_ref(ref) 返回的 status 属于 _REF_DEAD_STATUSES（dangling 或 stale）时，返回对应 stale 命中（dangling 归因载体消失、stale 归因区间哈希不符）；否则返回 []。
 def _loc_stale(node_id, meta, content, ctx):
     """**依赖存在性**——声明的载体（源文件）已不存在 / 已漂移（真正的适用边界越出）。
 
@@ -501,6 +505,7 @@ def _loc_stale(node_id, meta, content, ctx):
     return hits
 
 
+# 生效条件：从 meta.get("condition_space") 或回落 ctx.get("fm") 的 condition_space（须为 dict）取 time_window，缺则取 meta.get("time_window")，若 NF.is_full_time_window(tw) 或 float(tw[1]) 抛 TypeError/ValueError/IndexError/KeyError 或 ctx.get("now") 为 None 或 hi>=float(now) 则返回 []；否则返回一条 severity="info" 的 observation_aged 命中。
 def _loc_observation_aged(node_id, meta, content, ctx):
     """时间窗已过——**这是观测时刻，不是失效声明**（观测面，不进告警面）。
 
@@ -541,6 +546,7 @@ def _loc_observation_aged(node_id, meta, content, ctx):
                  snippet=_snippet(content, span))]
 
 
+# 生效条件：h 取 str(meta.get("content_hash") or "").strip()，若 _blank(h) 则 h=NF.content_hash(content 或 "")；对 ctx.get("peers") 或 [] 中 node_id 不等于本节点且 ph=str(p.get("hash") or "") 或回落 NF.content_hash(p.get("content") or "") 后非空且等于 h 的 peer 计入 matched；matched 非空时返回一条 dup 命中（span=[0,len(body)]），否则返回 []。
 def _loc_dup(node_id, meta, content, ctx):
     """同组同内容指纹（与 M1 `dup_hash_group` 同判据；D1 名 `dup`）。"""
     body = content if content is not None else ""
@@ -564,6 +570,7 @@ def _loc_dup(node_id, meta, content, ctx):
                  snippet=_snippet(body, span))]
 
 
+# 生效条件：对 ctx.get("peers") 或 [] 中每个非自身 peer，按 sentence_spans 对齐 content 与 peer content 的句子，当同一句位上去数字骨架相同（WL._skeleton(seg) 非空、长度 ≥ WL.MIN_SKELETON 且等于 peer 骨架）且 seg.strip() != ptext.strip() 的句子数达到 MIN_FLOW_SENTENCES 时，为这些句各返回一条 template_flow 命中；否则返回 []。
 def _loc_template_flow(node_id, meta, content, ctx):
     """同模板流水：与同组节点逐句「去数字骨架相同、字面不同」→ 指向那些句。
 
@@ -601,6 +608,7 @@ def _loc_template_flow(node_id, meta, content, ctx):
     return hits
 
 
+# 生效条件：meta.get("content_hash") 非 _blank 且 content 非 None 且 h != NF.content_hash(content) 时，返回一条 hash_declared_vs_actual 的 contradiction 命中（cause 由 hash_mismatch_cause 依 meta/ctx.get("root")/ctx.get("path") 判）；ctx.get("fm") 或 {} 的 id 非 _blank 且 str(fm_id) != str(node_id) 时额外返回一条 id_declared_vs_index 命中；两者皆不成立返回 []。
 def _loc_contradiction(node_id, meta, content, ctx):
     """**确定性**矛盾：声明与事实不符（指纹 / 标识）。
 
@@ -647,6 +655,7 @@ SEMANTIC_ONLY = {
 }
 
 
+# 生效条件：始终返回 SEMANTIC_ONLY 中以 str(kind or "").strip() 为键查得的值，缺键时返回空串（空串表示可定位）。
 def blindspot_reason(kind) -> str:
     """D1 拒绝定位的类别 → 理由（空串表示可定位）。"""
     return SEMANTIC_ONLY.get(str(kind or "").strip(), "")
@@ -654,6 +663,7 @@ def blindspot_reason(kind) -> str:
 
 # ---------------------------- 主入口 ----------------------------
 
+# 生效条件：items 中每项按 content=it.get("content") or ""、hash=str(it.get("hash") or "").strip() 或回落 NF.content_hash(content)、sk=WL.template_signature(content) or "" 预处理后，返回 {node_id: [同 hash 或同非空 sk 的其他 peer]}；items 为空/None 返回空 dict。
 def build_peers(items) -> dict:
     """`[{node_id, content, hash?, …}]` → `{node_id: [peer, …]}`。
 
@@ -683,6 +693,7 @@ def build_peers(items) -> dict:
     return out
 
 
+# 生效条件：对 issue_hint（None/str/dict 或其 list/tuple）逐 hint 分类，返回 (kinds, fields, blind)：能 canonical_kind 到 ISSUE_KINDS 或 ADVISORY_KINDS 的入 kinds，blindspot_reason 非空的入 blind，其余非空 kind 与 field 入 fields；issue_hint 为 None 时 kinds/fields 为空集、blind 为空列表。
 def _norm_hint(issue_hint):
     """issue_hint → `(kinds, fields, blindspot)`。
 
@@ -714,6 +725,7 @@ def _norm_hint(issue_hint):
     return kinds, fields, blind
 
 
+# 生效条件：当 meta 与 content 均非 None 时不读盘；否则 root 为 None 抛 ValueError，经 load_node 读不到节点返回 {"hits": [], "blindspot": blind+["节点 %s 不在索引"%node_id], "load": None}；读到时补 meta/content/text/fm/path，按 kinds 非空时只跑 sorted(kinds)、否则 fields 非空或 issue_hint 为 None 时跑 sorted(ISSUE_KINDS)、否则 run=[] 执行 LOCATORS，对命中按 fields 过滤、补 line 并排序后返回 {"hits": hits, "blindspot": blind, "load": {...}}。
 def locate_ex(node_id, issue_hint=None, *, meta=None, content=None, fm=None, text=None,
               root=None, index=None, peers=None, now=None, path=None,
               field_layers=None) -> dict:
@@ -776,11 +788,13 @@ def locate_ex(node_id, issue_hint=None, *, meta=None, content=None, fm=None, tex
                      "content_len": len(content or "")}}
 
 
+# 生效条件：给定 node_id（必填）与可选 issue_hint 及 kw 后，直接返回 locate_ex(node_id, issue_hint, **kw) 结果的 "hits" 列表。
 def locate(node_id, issue_hint=None, **kw) -> list:
     """**D1 契约入口**：`locate(node_id, issue_hint) -> [{field, span, issue_kind, evidence}]`。"""
     return locate_ex(node_id, issue_hint, **kw)["hits"]
 
 
+# 生效条件：给定 hits 与 key 后，返回 hits 中每个 h.get(key) 字符串化取值到出现次数的字典（键升序）；hits 为 None/空时返回空 dict。
 def _counts(hits, key) -> dict:
     out = {}
     for h in hits or []:
@@ -789,6 +803,7 @@ def _counts(hits, key) -> dict:
     return dict(sorted(out.items()))
 
 
+# 生效条件：items 显式给出时不读盘；items 为 None 时 root 为 None 抛 ValueError，否则按 node_ids 逐节点 load_node 组装 items（读不到的记入 missing）；随后对每个 item 调 locate_ex 汇总 hits 或 clean，并返回含 nodes/hits/by_kind/by_field/by_rule/clean/missing 的 dict。
 def locate_many(node_ids=None, *, root=None, index=None, items=None,
                 issue_hint=None, now=None) -> dict:
     """批量定位：**同一批内**互为对照（`dup` / `template_flow` 的组 = 本批）。
@@ -832,6 +847,7 @@ def locate_many(node_ids=None, *, root=None, index=None, items=None,
             "clean": clean, "missing": missing}
 
 
+# 生效条件：从 pkg.get("entries") or [] 取条目并跳过 e.get("node_id") 为空者，root 非 None 时逐个 load_node 取正文，取不到时回落 e.get("excerpt") or ""，组装 items 调 locate_many 后返回其结果并附加 bundle_id 与 entries 数量；pkg 为 None 时 entries 为空列表。
 def locate_package(pkg, *, root=None, index=None, issue_hint=None, now=None) -> dict:
     """M1 包 → 定位汇总（组的作用域 = 本包，与 M1 机械层同口径）。
 
@@ -859,6 +875,7 @@ def locate_package(pkg, *, root=None, index=None, issue_hint=None, now=None) -> 
     return out
 
 
+# 生效条件：给定 hits 后返回 total=len(hits or [])、去重 node_id 数、排序后的 node_ids、以及 by_kind/by_field/by_rule 计数；hits 为 None/空时 total=0、nodes=0、node_ids=[]。
 def summary(hits) -> dict:
     """命中汇总（审计留痕用）。"""
     nodes = sorted({str(h.get("node_id")) for h in hits or []})
@@ -867,6 +884,7 @@ def summary(hits) -> dict:
             "by_rule": _counts(hits, "rule")}
 
 
+# 生效条件：给定 hits 后逐条生成 Markdown 行并返回表头加各行：field/line/snippet 取 h.get(...) or "—"（假值回落 "—"），span 为 None 时显示 "—" 否则 "起-止"，evidence 取 (h.get("evidence") or "").replace("|","\\|")（假值回落空串）。
 def markdown_table(hits) -> str:
     """人工核对清单：每行一条命中，末列留空供核对者填判定（D1 验收抽样用）。"""
     head = ("| # | node_id | issue_kind | field | span | line | 片段 | evidence | 人工判定 |\n"
@@ -882,6 +900,7 @@ def markdown_table(hits) -> str:
     return head + "\n".join(rows)
 
 
+# 生效条件：解析 argv（缺省 sys.argv）后，--root 为假值（含默认 os.environ.get("MDCG_ROOT") 为 None 或空串）时打印提示并返回 2；--node 追加列表为空时打印提示并返回 2；否则以 --root 与 --node 调 locate_many，并按 --json 或 --markdown 输出后返回 0，两者皆无则逐行打印命中与汇总后返回 0。
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m md_cg.mreview.locate",
                                  description="记忆评审 M3 · D1 字段级定位")
