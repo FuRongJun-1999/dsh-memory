@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-224-batch-c224",
+ "round": 1,
+ "candidate_commit": "e602409",
+ "branch": "task/iter-224-batch-c224",
+ "unit_job": "h1789720001509_f7437d",
+ "verdict": "ACCEPT",
+ "package_n": 8,
+ "text": "逐条对照：空 rows/n=0、最大余额与配额、悬空与去重、turn_rec 的 or 假值、align_queries 的 None→KeyError 与不等→AssertionError、rank_of 适配、rows_from_hits 缺/假值按空及 k 截断、prepare 双文件早退、load 三键读回，均与源码一致；未发现新增断言、参数误用或返回形状错误。position_ok=true 故不另究行号。\nreason: 八条条件均与源码语义、默认常量、None/假值/异常分支及返回形状一致。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
