@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-160-batch-c160-fix-dual",
+ "round": 5,
+ "candidate_commit": "6700d53",
+ "branch": "task/iter-160-batch-c160-fix-dual",
+ "unit_job": "h1789704061752_b888c8",
+ "verdict": "ACCEPT",
+ "package_n": 4,
+ "text": "四条条件均与源码一致：cmd_dump 覆盖 verbose 分支、假值兜底与 q[\"qtype\"] 打印；cmd_status 正确限定 verbose 内 parse_zh 四项检查且 bad 返回 []；cmd_prepare 早退、sort_key、假值 answer/evidence、verbose 控制打印均准确；sort_key 匹配/早退/返回 tuple 无误。\nreason: 四条候选条件均准确锚定源码分支与前置，未发现语义偏差或额外断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
