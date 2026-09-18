@@ -82,10 +82,12 @@ SEVERITY_ORDER = {"high": 3, "medium": 2, "low": 1, "info": 0}
 # 工具
 # --------------------------------------------------------------------------
 
+# 生效条件：当 cg 的 index 为真且其 "nodes" 为真时返回该值，否则（cg 无 index、index 为假值、缺 "nodes" 或 "nodes" 为假值）返回 {}；
 def _nodes(cg) -> dict:
     return (getattr(cg, "index", None) or {}).get("nodes") or {}
 
 
+# 生效条件：cg 与 nid 传入后，若 cache 非 None 且 nid 已在 cache 中则直接返回 cache[nid]（即使其值为假值）；否则尝试 cg.get(nid)，异常或返回假值时按空节点处理，再取其中的 "frontmatter" 真值，若为假值则用 {}；cache 非 None 时把结果写入 cache[nid] 后返回；
 def _fm_of(cg, nid, cache=None) -> dict:
     """取节点 frontmatter（带可选缓存）。不可读（缺密钥 / 已删）→ {}。"""
     if cache is not None and nid in cache:
@@ -101,6 +103,7 @@ def _fm_of(cg, nid, cache=None) -> dict:
     return fm
 
 
+# 生效条件：cg.access_counts() 调用成功时返回其结果（访问次数, 最后访问时间）；调用抛出任何 Exception 时返回 ({}, {})；
 def _access(cg):
     """(访问次数, 最后访问时间)：读访问日志，未 compact 的也算。"""
     try:
@@ -309,6 +312,7 @@ def associate(cg, node_id: str, *, hops: int = DEFAULT_HOPS, limit: int = 30,
     """
     related = {}
 
+# 生效条件：nid 为真且 nid != node_id 时，构造 rec={'node_id':nid,'via':via,'weight':round(float(weight),4),'depth':int(depth)} 并并入 extra；仅当 related 中 nid 不存在或 rec['weight'] 大于已有 weight 时更新 related[nid]；nid 为假或等于 node_id 时直接返回；
     def put(nid, via, weight, depth=1, **extra):
         if not nid or nid == node_id:
             return
@@ -460,6 +464,7 @@ def _expired(fm, now):
     return None
 
 
+# 生效条件：对 content 取 kv_pairs、bigrams 和 polarity，遍历 related（若 related 为假值则视为空）的前 int(max_compare) 个 r，以 r["node_id"] 调 cg.get；若某 oid 节点可读非空，先在其 content 与 content 的共同键中找到值不同者并返回 {'with':oid,'via':r.get('via'),'why':'同键不同值：...'}；否则若极性乘积 <0 且双方 bigram 非空，且共享 bigram 数 >=3 且 ratio>=0.15，返回 {'with':oid,'via':r.get('via'),'why':'极性相反且共享内容：...'}；全部遍历完无命中则返回 None；
 def _contradiction(cg, content, related, max_compare=10):
     """与同族节点比对：同键不同值 / 极性相反且共享 bigram。"""
     kv_a = _kv_pairs(content)
@@ -702,6 +707,7 @@ def _apply_offset(cg, offset, *, override=False, min_evidence=1):
     return adjusted, skipped
 
 
+# 生效条件：cg 和 apply/override/actor/max_offset/min_evidence 传入后，若 metacognition.calibration(cg) 返回 ok 假，则返回 {'ok':False,'reason':cal.get('reason') or 'insufficient_data',...}；若 ok 真，则用 gap=float(cal.get('gap') or 0.0) 和 max_offset 计算 offset=round(max(-max_offset,min(max_offset,-gap)),4)，对 cal.get('bins') or [] 中 accuracy 非 None 的 bin 生成 bins_bias 并排序；仅当 apply 为真且 abs(offset)>1e-9 时调用 _apply_offset(cg,offset,override=override,min_evidence=min_evidence) 并写日志，最后返回 ok True 及 verdict/gap/建议 offset 等字段；
 def calibrate(cg, *, apply: bool = False, override: bool = False, actor=None,
               max_offset: float = MAX_OFFSET, min_evidence: int = 1) -> dict:
     """校准偏差：自报置信 vs 实测正确率 → 偏置建议（`apply=True` 才写回）。"""
@@ -750,6 +756,7 @@ def calibrate(cg, *, apply: bool = False, override: bool = False, actor=None,
 # 一轮完整自净 + 审计
 # --------------------------------------------------------------------------
 
+# 生效条件：cg 与 n/seed/dry_run/hops/strategy/apply_calibration/actor 传入后，按 n 与 strategy、seed 调 sample；对 sample 结果前 8 个 node_id 按 hops 调 associate；按 dry_run/hops/actor 调 decontaminate；按 apply_calibration/actor 调 calibrate；若 decontaminate 的 audit.issues 中存在 severity 为 high 或 medium 的项则 out.ok 为 False，否则为 True，并返回含 sample/associate/audit/decontaminate/calibration/t 的 out；
 def sweep(cg, *, n: int = DEFAULT_SAMPLE, seed=None, dry_run: bool = True,
           hops: int = DEFAULT_HOPS, strategy: str = "stratified",
           apply_calibration: bool = False, actor=None) -> dict:
@@ -780,6 +787,7 @@ def history(cg, limit: int = 100) -> dict:
     return {"n": len(recs), "records": recs[-int(limit):]}
 
 
+# 生效条件：读取 cg.root 下 SCRUB_LOG 的 JSONL 记录，过滤 op=="sweep" 得 sweeps、op=="decontaminate" 且 ok 为真得 decs；last 为 sweeps 最后一项或 None；返回 {'sweeps':len(sweeps),'decontaminated':len(decs),'last_sweep':last 的 t/n_issues/n_high_medium/applied/dry_run/calibration 或 None}；
 def summary(cg) -> dict:
     """给 health_os / 自维持循环用的只读摘要。"""
     recs = list(read_jsonl(os.path.join(cg.root, SCRUB_LOG)))
