@@ -89,10 +89,12 @@ class _WhiteboxApi:
       · `_SubprocessWhiteboxClient` —— MCP stdio 子进程（legacy，显式配置时）
     """
 
+# 生效条件：以 required 形参 name 与 args 调用该抽象方法时无条件抛出 NotImplementedError，不产生任何返回。
     def call(self, name, args):
         """调用白箱工具，返回 {isError, text, data}。"""
         raise NotImplementedError
 
+# 生效条件：给定 required 形参 message（session_id 省略时取默认 "md_cg-whitebox-verify"）即转调 self.call("wisdom_chat", {...})，按返回 r 组装 {ok: not r["isError"], route: _extract_route(data), reply: _extract_reply(data, r.get("text")), raw}，其中 data 由 r.get("data") or {} 得到（data 缺失或为假值时为 {}），故 raw 恒取该 data、不回落到 r.get("text")。
     def ask(self, message, session_id="md_cg-whitebox-verify"):
         """白箱问答（wisdom_chat）。返回归一化的 {ok, route, reply, raw}。"""
         r = self.call("wisdom_chat", {"message": message, "session_id": session_id})
@@ -102,6 +104,7 @@ class _WhiteboxApi:
                 "reply": _extract_reply(data, r.get("text")),
                 "raw": data if data is not None else r.get("text")}
 
+# 生效条件：给定 required 形参 content（importance 省略时取 0.9 并 float() 转换；tags 为 None/[]/"" 等假值时按 tags or ["md_cg","whitebox-probe"] 回落为 list(["md_cg","whitebox-probe"])）即转调 self.call("remember", {...})，返回 {ok: not r["isError"], raw: r.get("data") or r.get("text")}。
     def remember(self, content, importance=0.9, tags=None):
         """白箱编码（remember）：把一条知识交给白箱写入其记忆库。"""
         r = self.call("remember", {"content": content,
@@ -129,6 +132,7 @@ class _SubprocessWhiteboxClient(_WhiteboxApi):
         self._lock = threading.Lock()
 
     # -- 生命周期 ---------------------------------------------------------
+# 生效条件：当 self.proc 非 None 且 self.proc.poll() 为 None 时直接返回 self；否则启动 self.cmd 子进程并以模块级常量 PROTOCOL_VERSION 与 CLIENT_NAME 发 initialize 请求和 notifications/initialized 通知后返回 self。
     def start(self):
         if self.proc is not None and self.proc.poll() is None:
             return self
@@ -177,15 +181,18 @@ class _SubprocessWhiteboxClient(_WhiteboxApi):
             except ValueError:
                 continue
 
+# 生效条件：给定 required 形参 payload 时，若 self.proc is None 或 self.proc.poll() is not None 则抛 RuntimeError("白箱进程未运行（启动失败或已退出）")，否则把 json.dumps(payload, ensure_ascii=False) + "\n" 写入 self.proc.stdin 并 flush，无返回。
     def _write(self, payload):
         if self.proc is None or self.proc.poll() is not None:
             raise RuntimeError("白箱进程未运行（启动失败或已退出）")
         self.proc.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
         self.proc.stdin.flush()
 
+# 生效条件：给定 required 形参 method 与 params 时，以 {"jsonrpc": "2.0", "method": method, "params": params}（无 id）调用 self._write，自身无返回。
     def _notify(self, method, params):
         self._write({"jsonrpc": "2.0", "method": method, "params": params})
 
+# 生效条件：给定 required 形参 method 与 params 时在 self._lock 内取自增 id 并写入请求，随后循环取 self._q：remain <= 0 或 queue.Empty 时先 self.close() 再抛 TimeoutError，msg.get("id") 不等于 rid 时 continue，msg.get("error") 为真时抛 RuntimeError，id 匹配且无 error 时返回 msg.get("result")（缺 "result" 键返回 None）。
     def _request(self, method, params):
         with self._lock:
             rid = self._next_id
@@ -210,6 +217,7 @@ class _SubprocessWhiteboxClient(_WhiteboxApi):
                 return msg.get("result")
 
     # -- 业务接口 ---------------------------------------------------------
+# 生效条件：给定 required 形参 name 与 args（args 为假值时按 {"name": name, "arguments": args or {}} 发空字典）即以 "tools/call" 发请求，把结果 content 中 type=="text" 的块文本拼接后 json.loads，失败（ValueError/TypeError）则 data=None，返回 {"isError": bool((result or {}).get("isError")), "text": text, "data": data}。
     def call(self, name, args):
         """调用白箱 MCP 工具，返回 {isError, text, data}。"""
         result = self._request("tools/call", {"name": name, "arguments": args or {}})
@@ -257,6 +265,7 @@ class LocalWhiteboxClient(_WhiteboxApi):
             self._engine = None
 
     # -- 业务接口 ---------------------------------------------------------
+# 生效条件：给定 required 形参 name 与 args 时直接转调 self.engine.call_tool(name, args) 并返回其结果，不做任何形参改写或校验。
     def call(self, name, args):
         """调用白箱工具，返回 {isError, text, data}（形状对齐 MCP）。"""
         return self.engine.call_tool(name, args)
