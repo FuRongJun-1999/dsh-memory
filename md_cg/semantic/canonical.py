@@ -32,6 +32,7 @@ WIN = 6          # 组合共现窗口（token 距离，探针实证口径）
 _ATOMS_ZH = None
 
 
+# 生效条件：模块级常量 `_ATOMS_ZH` 为 None 时按 `__file__` 所在目录的 atoms.json 取 `data.get("atoms", [])` 各项 `zh` 建集合并缓存，非 None 时直接返回 `_ATOMS_ZH`。
 def atoms_zh():
     """标准语义基准词表（atoms.json 的 zh 概念集，模块级缓存）。"""
     global _ATOMS_ZH
@@ -44,6 +45,7 @@ def atoms_zh():
     return _ATOMS_ZH
 
 
+# 生效条件：`text` 为 None 或空串时 `(text or "").split()` 得空序列、返回空列表 out；否则按空白切分后逐段经 `zh_en_atoms.segment` 展开 extend 进 out 并返回。
 def semantic_atoms(text):
     """semantic 字段容错切分：按空格分段逐段贪心匹配。
 
@@ -57,6 +59,7 @@ def semantic_atoms(text):
     return out
 
 
+# 生效条件：`text` 传入后，返回 `semantic_atoms(text)` 结果中不属于 `atoms_zh()` 词表集合的 token 列表（无匹配项时为空列表）。
 def oov_of(text):
     """OOV 审计：切分产物中不在标准词表的 token 列表（空列表=全部合法）。"""
     zh = atoms_zh()
@@ -91,6 +94,7 @@ def query_atoms(text):
     return tuple(semantic_atoms(t))
 
 
+# 生效条件：`doc_semantic` 经 `semantic_atoms` 切分后相邻原子对集合 pairs 为空（单原子或无原子）时返回 0.0；否则以 `query_atoms(qtext)` 建立 token→位置表，统计两原子位置差绝对值 ≤ `win`（默认形参 WIN）的命中对数 hit，返回 hit/len(pairs)。
 def pair_hits(doc_semantic, qtext, win=WIN):
     """组合窗口共现命中率 ∈ [0,1]。
 
