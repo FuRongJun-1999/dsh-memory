@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-predict-c1",
+ "round": 1,
+ "candidate_commit": "0aa6d63",
+ "branch": "task/iter-predict-c1",
+ "unit_job": "h1789756636931_a9e013",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "1) ACCEPT：pred/act、hit=None、boost/reject、dynamic、sync_self 异常分支均与段内源码一致。  \n2) ACCEPT：depth>=horizon 早退、候选遍历、path 去重、confidence round4、递归及 out 追加均与段内源码一致。  \nreason: 两条均无源码不符、越界或臆断断言。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
