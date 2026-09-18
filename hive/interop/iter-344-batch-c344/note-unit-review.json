@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-344-batch-c344",
+ "round": 1,
+ "candidate_commit": "5122c54",
+ "branch": "task/iter-344-batch-c344",
+ "unit_job": "h1789759718894_e9fb33",
+ "verdict": "REJECT",
+ "package_n": 2,
+ "text": "refresh：REJECT。分支/早退大体对，但“issue='chain_repaired'”“返回 issue 为 chain_repaired/state_rebuilt”不符：源码 chain_issue 为 None 或 dict（含 code），返回字段 issue 即该 dict；strict 早退 detail 亦为 dict。未越界。\naudit：ACCEPT。ok/verdict 三分支正确；未列 duplicate_state 不改变 error→broken 结论；“window 取 snapshot”表述略松。\nreason: refresh 对返回 issue 的类型/形状描述与源码 None/dict 不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
