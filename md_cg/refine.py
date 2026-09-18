@@ -94,25 +94,30 @@ SPEC = {
 
 # ---- 通用工具 -------------------------------------------------------------
 
+# 生效条件：x 为 str 时返回 MdCGOS(x)，否则原样返回 x；
 def _as_cg(x):
     return MdCGOS(x) if isinstance(x, str) else x
 
 
+# 生效条件：cg 具 "root" 属性时以该值为根、否则以 str(cg) 为根，与模块常量 REFINE_LOG 拼接返回；
 def _log_path(cg) -> str:
     root = cg.root if hasattr(cg, "root") else str(cg)
     return os.path.join(root, REFINE_LOG)
 
 
+# 生效条件：read_jsonl(_log_path(cg)) 返回假值时按空列表处理，仅保留 action 字段等于 "refine" 的记录；
 def _read_log(cg) -> list:
     return [r for r in (read_jsonl(_log_path(cg)) or [])
             if r.get("action") == "refine"]
 
 
+# 生效条件：cg 无 index 或 index["nodes"] 为假值时以空字典查找；nodes.get(nid) 为假值时返回空字典 {}；
 def _entry(cg, nid):
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     return nodes.get(nid) or {}
 
 
+# 生效条件：取 _entry(cg, nid) 的 path（假值回落空串）的父目录 basename；该 basename 为假值时返回 "(root)"；
 def _family(cg, nid):
     """家族 = 节点所在 `cond_*` 目录名（无则 `(root)`）。"""
     p = str(_entry(cg, nid).get("path") or "").replace("\\", "/")
@@ -120,6 +125,7 @@ def _family(cg, nid):
     return d or "(root)"
 
 
+# 生效条件：对传入的 parts 逐项 str 后以 "|" 连接并 UTF-8 编码，返回 sha1 的 hexdigest；
 def _sha(*parts) -> str:
     h = hashlib.sha1("|".join(str(p) for p in parts).encode("utf-8"))
     return h.hexdigest()
@@ -140,6 +146,7 @@ def _pool(cg, prefix) -> tuple:
     return ids, protected
 
 
+# 生效条件：cg 的 id 池经 prefix（假值回落 PREFIX_DEFAULT）过滤后，n 为 None 用 SAMPLE_N、否则 int(n)，seed 假值回落 SAMPLE_SEED；pool 为空或 n<=0 时返回 ([], meta)，否则按家族分层最大余数分配并在层内按 _sha(seed, id) 升序取前 k 个返回 (picked, meta)；
 def sample_ids(cg, n=None, seed=None, prefix=None) -> tuple:
     """确定性分层抽样（家族=层，家族内按 sha1(seed|id) 排序）。
 
@@ -180,6 +187,7 @@ def sample_ids(cg, n=None, seed=None, prefix=None) -> tuple:
     return picked, meta
 
 
+# 生效条件：对 cg 中 nid 对应节点（cg.get(nid) 为假值时用空字典）生成字段；content 长度大于 EXCERPT_MAX 时 body 截断且 body_truncated 为 True，否则 body 为全 content；
 def _item(cg, nid) -> dict:
     node = cg.get(nid) or {}
     fm = node.get("frontmatter") or {}
@@ -203,6 +211,7 @@ def _item(cg, nid) -> dict:
 
 # ---- 预演：与 induce 同源的聚类口径 ---------------------------------------
 
+# 生效条件：pool 中能取到 grams 的 nid 进入 cache；按 keys 顺序贪心，与当前 a 的 _jaccard >= float(min_jaccard) 且未分配的后续 b 并入组，组大小达到 int(min_cluster) 才成组，返回 (cache, keys, groups)；
 def _cluster(cg, pool, min_jaccard, min_cluster) -> tuple:
     """贪心聚类（与 `consolidate.induce_memories` 同源）。返回 (cache, keys, groups)。"""
     from . import subgraph
@@ -228,6 +237,7 @@ def _cluster(cg, pool, min_jaccard, min_cluster) -> tuple:
     return cache, keys, groups
 
 
+# 生效条件：terms 为空时对每个 t 返回 df[t]=0；否则对 keys 中每个 k 的 cache[k]["pos"] 统计各 term 出现次数，返回 df；
 def _term_df(cache, keys, terms) -> dict:
     """词面在抽检样本内的文档频率（不含语义推断）。"""
     df = {t: 0 for t in terms}
@@ -241,6 +251,7 @@ def _term_df(cache, keys, terms) -> dict:
     return df
 
 
+# 生效条件：x 转为 cg；min_jaccard 为 None 取 MIN_JACCARD、否则 float(min_jaccard)，min_cluster 为 None 取 MIN_CLUSTER、否则 int(min_cluster)；ids 为真值时 pool 为显式 ids 去重排序且 meta 标记 explicit_ids=True，否则 pool/meta 来自 sample_ids(cg, n=n, seed=seed, prefix=prefix)；对 pool 聚类后，require_conditions 为真且某组 common 为空时跳过该组并累计 skipped_no_cond；返回含 candidates 与 sample_adequacy 的只读预演字典；
 def preview(x, ids=None, n=None, seed=None, prefix=None,
             min_jaccard=None, min_cluster=None, require_conditions=True) -> dict:
     """提炼预演（只读）：抽样 → 同源聚类 → 共性条件 + 来源 + 泛化度标记。"""
@@ -316,6 +327,7 @@ def preview(x, ids=None, n=None, seed=None, prefix=None,
 
 # ---- 工单 ---------------------------------------------------------------
 
+# 生效条件：x 转为 cg；prefix 假值回落 PREFIX_DEFAULT，seed 假值回落 SAMPLE_SEED；ids 为真值时 sample 为显式 ids 去重排序且 real_pool=len(sample)、skipped=0、families=0，否则 sample/meta 来自 sample_ids(cg, n=n, seed=seed, prefix=prefix) 并取 meta["pool"]/meta["skipped_protected"]/meta["families"]；items 为 sample 的 _item，preview 以 sample 为显式 ids 调用，返回只读工单；
 def plan(x, ids=None, n=None, seed=None, prefix=None,
          min_jaccard=None, min_cluster=None) -> dict:
     """抽检工单（只读）：确定性样本 + 原文摘录 + 字段缺口 + 口径声明 + 预演。"""
@@ -366,6 +378,7 @@ def plan(x, ids=None, n=None, seed=None, prefix=None,
     }
 
 
+# 生效条件：x 转为 cg；target 为 None 取 CALIBRATE_TARGET、否则 int(target)，cap 为 None 取 CALIBRATE_CAP、否则 int(cap)，初始 n=min(SAMPLE_N if n0 is None else int(n0), cap)；循环以 n 调 preview(cg, n=n, seed=seed, prefix=prefix, min_jaccard=min_jaccard, min_cluster=min_cluster) 并记录 step，直到 pv["clusters"] >= target 则 chosen=step 并 break，或 n >= min(cap, pool or cap) 则 break；chosen 为 None 时 blocked=True 并按 steps 汇总 recommend，否则 recommend 基于 chosen；返回只读校准报告；
 def calibrate(x, target=None, cap=None, n0=None, seed=None, prefix=None,
               min_jaccard=None, min_cluster=None) -> dict:
     """样本量校准（只读）：20 条起步有界爬坡，直到产出 `target` 个候选或触顶。
@@ -425,6 +438,7 @@ def calibrate(x, target=None, cap=None, n0=None, seed=None, prefix=None,
 
 # ---- 留痕与扩批闸门 ------------------------------------------------------
 
+# 生效条件：candidates 中取 concept_id 为真值的 id 列表；verdicts 中为 dict 且 concept_id 非空且首次出现的条目计入 reviewed 并累加其中 faithful/added_info 的真值计数；ids 非空时按 reviewed < len(ids) → awaiting_human_review、added 非零 → added_info_detected、faithful_rate < GATE_MIN_PASS_RATE → faithful_rate_below_gate、否则 ok 且 expand_allowed=True；ids 为空时 reason="no_candidates" 且 expand_allowed=False；
 def _verdict_stats(verdicts, candidates) -> dict:
     ids = [c.get("concept_id") for c in candidates if c.get("concept_id")]
     seen, faithful, added = set(), 0, 0
@@ -457,6 +471,7 @@ def _verdict_stats(verdicts, candidates) -> dict:
             "expand_allowed": expand, "reason": reason}
 
 
+# 生效条件：x 转为 cg；以 ids/n/seed/prefix/min_jaccard/min_cluster 调 plan 得到 p，batch 假值（含 None/空串）回落当前时间字符串；从 p["preview"]["candidates"] 与 verdicts 经 _verdict_stats 得 stats；把含 batch/actor/prefix/seed/sample/verdicts/gate/note 的 record 追加写入 _log_path(cg)，返回 rep；
 def apply(x, batch=None, actor=None, verdicts=None, note=None,
           ids=None, n=None, seed=None, prefix=None,
           min_jaccard=None, min_cluster=None) -> dict:
@@ -493,6 +508,7 @@ def apply(x, batch=None, actor=None, verdicts=None, note=None,
     return rep
 
 
+# 生效条件：x 转为 cg；batch 为真值时只保留 _read_log(cg) 中 batch 字段相等的记录，过滤后为空时返回 batches=0、expand_allowed=False、reason="no_batch"；否则取最后一条记录，以其 verdicts 与 candidates（假值转空列表）经 _verdict_stats 复算并返回 expand_allowed/reason 等；
 def gate(x, batch=None) -> dict:
     """扩批闸门：读留痕复算通过率（不写盘）。"""
     cg = _as_cg(x)
@@ -531,6 +547,7 @@ def history(x, limit=100, batch=None) -> dict:
 
 # ---- CLI（真实库抽检/预演用；MCP 侧走 maintain action） -------------------
 
+# 生效条件：解析 argv（None 时由 argparse 取 sys.argv）得到 root/n/seed/prefix/min-jaccard/min-cluster/report 等参数；a.calibrate 为真时调 calibrate 并打印 target/cap/pool/blocked/sample_adequacy/recommend 及每步摘要；否则 a.preview 为真选 preview、为假选 plan，调用后打印 thin 摘要与候选并返回 0；
 def _main(argv=None) -> int:
     import argparse
     import json
