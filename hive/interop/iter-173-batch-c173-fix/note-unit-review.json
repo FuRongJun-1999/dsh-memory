@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-173-batch-c173-fix",
+ "round": 2,
+ "candidate_commit": "65199ad",
+ "branch": "task/iter-173-batch-c173-fix",
+ "unit_job": "h1789706840809_283926",
+ "verdict": "REJECT",
+ "package_n": 12,
+ "text": "复核发现：start 中 serve_alive() 为假且 load_config 返回 err 非空时，条件仅写“返回该 err”，但源码实际返回 {\"ok\": False, \"error\": err}，返回形状未锚定；其余条件与源码片段基本相符，position_ok 均满足。\nreason: start 的 load_config 错误分支返回形状与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
