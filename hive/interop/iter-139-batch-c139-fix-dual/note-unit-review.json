@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-139-batch-c139-fix-dual",
+ "round": 5,
+ "candidate_commit": "f77d9c5",
+ "branch": "task/iter-139-batch-c139-fix-dual",
+ "unit_job": "h1789695664426_ea9442",
+ "verdict": "ACCEPT",
+ "package_n": 14,
+ "text": "逐条对照 src_segment，所有 condition 均准确锚定形参/常量/前置：_publish 重试与异常、atomic_write durable 与 finally、sweep 前缀/mtime、FileLock 轮询/超时/strict、ends_mid_line 空文件与 OSError、append_jsonl 补换行、read_jsonl 跳过坏行、count_jsonl 缓存增量、ShardedLog 分片路径与 append 均与源码一致；无额外断言。\nreason: 全部候选条目的生效条件与源码一致，未发现语义或前置不符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
