@@ -3024,6 +3024,7 @@ class MdCGSecure(MdCGOS):
         self._crypto_error = "locked"
         return self.crypto_status()
 
+# 生效条件：调用 crypto_status 时，返回当前加密状态字典；unlocked 取决于 self.dek is not None，kek_fp 在 self.kek 为假值时取 None，否则取 crypto.kek_fingerprint(self.kek)。
     def crypto_status(self):
         """当前加密状态（不含密钥材料）。"""
         return {
