@@ -1,5 +1,298 @@
 ts	iter	branch	commit	status	claim_by	claimed_via	note
 1789714181	iter-t2-disasm-truthy-r12	task/t2-disasm-truthy-r12	233fd52	internal-verified	1789714781	internal:ACCEPT	
 1789714181	iter-t3-reach-r6	task/t3-reach-r6	5aa1f6b	superseded	1789714781		r33 自足式复核 REJECT：index_unavailable 出口缺成本；由 r7 接替
-1789720493	iter-t3-reach-r8	task/t3-reach-r8	959d0a3	internal-verified	1789721093	internal:ACCEPT	
+1789720493	iter-t3-reach-r8	task/t3-reach-r8	959d0a3	landed	1789721093	internal:ACCEPT	校验和不通过：测试回归红 | 校验和落地（代码 lane）
 1789720510	iter-t3-reach-r7	task/t3-reach-r7	182370b	superseded	1789721110		r34 自足式复核 REJECT：漏计不可读读盘 + 模块级状态串味；由 r8 接替
+1789721646	iter-027-batch-c11	task/iter-027-batch-c11	c6b430d	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-100-batch-c100	task/iter-100-batch-c100	85c1a4b	superseded			基线陈旧与 main 冲突 → 已重放为 iter-100-batch-c100-dual@ab01ee4（重审 verdict=REJECT，inter=[]）
+1789721646	iter-104-batch-c104-fix-d1	task/iter-104-batch-c104-fix-d1	7c9b579	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-115-batch-c115-fix-d1	task/iter-115-batch-c115-fix-d1	1bbc744	superseded			基线陈旧与 main 冲突 → 已重放为 iter-115-batch-c115-fix-d1-dual@723c767（重审 verdict=ACCEPT，inter=[]）
+1789721646	iter-131-batch-c131-fix-d1	task/iter-131-batch-c131-fix-d1	75d78d5	stale			重放到当前 main 后无实际新增条件（已落实或被后继批次覆盖）→ 不待裁定
+1789721646	iter-136-batch-c136-dual-dual	task/iter-136-batch-c136-dual-dual	f27fa65	stale			重放到当前 main 后无实际新增条件（已落实或被后继批次覆盖）→ 不待裁定
+1789721646	iter-142-batch-c142-fix-d1-d2	task/iter-142-batch-c142-fix-d1-d2	20298ae	superseded			基线陈旧与 main 冲突 → 已重放为 iter-142-batch-c142-fix-d1-d2-dual@26205af（重审 verdict=ACCEPT，inter=[]）
+1789721646	iter-144-batch-c144-fix	task/iter-144-batch-c144-fix	1109c70	stale			重放到当前 main 后无实际新增条件（已落实或被后继批次覆盖）→ 不待裁定
+1789721646	iter-145-batch-c145-fix-d1	task/iter-145-batch-c145-fix-d1	d67cbb6	superseded			基线陈旧与 main 冲突 → 已重放为 iter-145-batch-c145-fix-d1-dual@99294aa（重审 verdict=REJECT，inter=[]）
+1789721646	iter-166-batch-c166	task/iter-166-batch-c166	61879df	stale			重放到当前 main 后无实际新增条件（已落实或被后继批次覆盖）→ 不待裁定
+1789721646	iter-167-batch-c167-fix	task/iter-167-batch-c167-fix	02cf208	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-168-batch-c168-fix	task/iter-168-batch-c168-fix	a5adc11	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-172-batch-c172-fix-d1	task/iter-172-batch-c172-fix-d1	8e5df63	superseded			基线陈旧与 main 冲突 → 已重放为 iter-172-batch-c172-fix-d1-dual@4d15d9f（重审 verdict=ACCEPT，inter=[]）
+1789721646	iter-205-batch-c205	task/iter-205-batch-c205	00130c1	superseded			基线陈旧与 main 冲突 → 已重放为 iter-205-batch-c205-dual@b5551fd（重审 verdict=REJECT，inter=[]）
+1789721646	iter-209-batch-c209	task/iter-209-batch-c209	dad2188	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-210-batch-c210-fix	task/iter-210-batch-c210-fix	c6a4399	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-211-batch-c211	task/iter-211-batch-c211	7340d7f	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-212-batch-c212	task/iter-212-batch-c212	e465f69	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-213-batch-c213	task/iter-213-batch-c213	4c073cb	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-214-batch-c214	task/iter-214-batch-c214	3778555	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-215-batch-c215-fix	task/iter-215-batch-c215-fix	4006f2c	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-216-batch-c216-fix-d1	task/iter-216-batch-c216-fix-d1	09459b8	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-217-batch-c217	task/iter-217-batch-c217	d82b378	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-218-batch-c218	task/iter-218-batch-c218	83bb758	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-219-batch-c219-fix	task/iter-219-batch-c219-fix	3e94176	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-220-batch-c220	task/iter-220-batch-c220	21f6069	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-221-batch-c221-fix	task/iter-221-batch-c221-fix	8f17776	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-222-batch-c222-fix	task/iter-222-batch-c222-fix	6a9c21b	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-223-batch-c223	task/iter-223-batch-c223	7a6c75a	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-224-batch-c224	task/iter-224-batch-c224	e602409	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-225-batch-c225-fix	task/iter-225-batch-c225-fix	ffab717	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-226-batch-c226-fix	task/iter-226-batch-c226-fix	0971e64	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-227-batch-c227	task/iter-227-batch-c227	b7f4bc2	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-228-batch-c228	task/iter-228-batch-c228	2fdb43e	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-230-batch-c230	task/iter-230-batch-c230	28adf94	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-231-batch-c231-fix	task/iter-231-batch-c231-fix	087c747	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789721646	iter-232-batch-c232	task/iter-232-batch-c232	94513e9	landed		internal:ACCEPT	环二 backlog：内部复核 ACCEPT，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789722708	iter-115-batch-c115-fix-d1-dual	task/iter-115-batch-c115-fix-d1-dual	723c767	landed		internal:ACCEPT	基线陈旧佩逍：重放到当前 main 后独立复核 ACCEPT、inter=[]，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789722708	iter-142-batch-c142-fix-d1-d2-dual	task/iter-142-batch-c142-fix-d1-d2-dual	26205af	landed		internal:ACCEPT	基线陈旧佩逍：重放到当前 main 后独立复核 ACCEPT、inter=[]，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789722708	iter-172-batch-c172-fix-d1-dual	task/iter-172-batch-c172-fix-d1-dual	4d15d9f	landed		internal:ACCEPT	基线陈旧佩逍：重放到当前 main 后独立复核 ACCEPT、inter=[]，待编外裁定 ｜ 校验和落地（ACCEPT ∧ inter=[] ∧ 零删除 ∧ 测试绿）@ 85e478a
+1789725495	iter-013-batch-a1	task/iter-013-batch-a1	5b340d0	stale			无实际新增条件（已落实）
+1789725495	iter-013-batch-a1-dual	task/iter-013-batch-a1-dual	43e14da	stale			无实际新增条件（已落实）
+1789725495	iter-031-batch-c31-fix	task/iter-031-batch-c31-fix	802b165	stale			无实际新增条件（已落实）
+1789725495	iter-035-batch-c35-fix2	task/iter-035-batch-c35-fix2	d1fec6a	stale			无实际新增条件（已落实）
+1789725495	iter-038-batch-c38	task/iter-038-batch-c38	4ff1eaf	stale			无实际新增条件（已落实）
+1789725495	iter-040-042-mdcos-dual	task/iter-040-042-mdcos-dual	973a819	stale			无实际新增条件（已落实）
+1789725495	iter-040-batch-c40	task/iter-040-batch-c40	3687717	stale			无实际新增条件（已落实）
+1789725495	iter-041-batch-c41	task/iter-041-batch-c41	63aa0c7	stale			无实际新增条件（已落实）
+1789725495	iter-042-batch-c42	task/iter-042-batch-c42	2424087	stale			无实际新增条件（已落实）
+1789725495	iter-044-batch-c44	task/iter-044-batch-c44	9e154f0	stale			无实际新增条件（已落实）
+1789725495	iter-046-batch-c46	task/iter-046-batch-c46	cdcf70e	stale			无实际新增条件（已落实）
+1789725495	iter-047-batch-c47	task/iter-047-batch-c47	a19e0b6	stale			无实际新增条件（已落实）
+1789725495	iter-048-batch-c48	task/iter-048-batch-c48	ba8b4a9	stale			无实际新增条件（已落实）
+1789725495	iter-051-batch-c51	task/iter-051-batch-c51	67bd200	stale			无实际新增条件（已落实）
+1789725495	iter-060-mdcos-r2-d3b	task/iter-060-mdcos-r2-d3	6123c5e	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +3 条
+1789725495	iter-061-anchor-dedent	task/iter-061-anchor-dedent	dd811d0	stale			无实际新增条件（已落实）
+1789725495	iter-062-cogmap-anchor-fix	task/iter-062-cogmap-anchor-fix	f734951	stale			无实际新增条件（已落实）
+1789725496	iter-070-render-r21	task/iter-070-render-r21	78a3d9d	stale			无实际新增条件（已落实）
+1789725496	iter-073-batch-c73	task/iter-073-batch-c73	f388304	stale			无实际新增条件（已落实）
+1789725496	iter-074-batch-c74	task/iter-074-batch-c74	52151ce	stale			无实际新增条件（已落实）
+1789725496	iter-075-batch-c75	task/iter-075-batch-c75	9898767	stale			无实际新增条件（已落实）
+1789725496	iter-076-batch-c76-fix-d1-d2	task/iter-076-batch-c76-fix-d1-d2	d66d991	stale			无实际新增条件（已落实）
+1789725496	iter-076-c76fix-d1	task/iter-076-c76fix-d1	2441b2b	stale			无实际新增条件（已落实）
+1789725496	iter-077-c77fix-d1	task/iter-077-c77fix-d1	4d0a723	stale			无实际新增条件（已落实）
+1789725496	iter-077-c77fix-d1-dual	task/iter-077-c77fix-d1-dual	820529f	stale			无实际新增条件（已落实）
+1789725496	iter-079-batch-c79-fix-d1-d2	task/iter-079-batch-c79-fix-d1-d2	d31b3be	stale			无实际新增条件（已落实）
+1789725496	iter-080-batch-c80	task/iter-080-batch-c80	5d90644	stale			无实际新增条件（已落实）
+1789725496	iter-081-batch-c81	task/iter-081-batch-c81	e20d625	stale			无实际新增条件（已落实）
+1789725496	iter-082-batch-c82-fix-d1	task/iter-082-batch-c82-fix-d1	817bf08	stale			无实际新增条件（已落实）
+1789725496	iter-083-batch-c83-fix-d1-d2	task/iter-083-batch-c83-fix-d1-d2	619f49c	stale			无实际新增条件（已落实）
+1789725496	iter-083-batch-c83-fix-d1-d2-dual	task/iter-083-batch-c83-fix-d1-d2-dual	39280b3	stale			无实际新增条件（已落实）
+1789725496	iter-084-batch-c84-fix-d1	task/iter-084-batch-c84-fix-d1	527ce3b	stale			无实际新增条件（已落实）
+1789725496	iter-085-batch-c85-fix-d1	task/iter-085-batch-c85-fix-d1	c0025ed	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +3 条
+1789725496	iter-086-batch-c86-fix	task/iter-086-batch-c86-fix	f74b4d7	stale			无实际新增条件（已落实）
+1789725496	iter-087-batch-c87	task/iter-087-batch-c87	26f6400	stale			无实际新增条件（已落实）
+1789725496	iter-088-batch-c88	task/iter-088-batch-c88	59ea39e	stale			无实际新增条件（已落实）
+1789725496	iter-089-batch-c89-fix-d1	task/iter-089-batch-c89-fix-d1	58869f7	stale			无实际新增条件（已落实）
+1789725496	iter-090-batch-c90-fix-d1-d2	task/iter-090-batch-c90-fix-d1-d2	41c6f15	stale			无实际新增条件（已落实）
+1789725496	iter-092-batch-c92-fix-d1	task/iter-092-batch-c92-fix-d1	84d316b	stale			无实际新增条件（已落实）
+1789725497	iter-093-batch-c93-fix-d1-d2	task/iter-093-batch-c93-fix-d1-d2	0075976	stale			无实际新增条件（已落实）
+1789725497	iter-094-batch-c94-fix-d1-d2	task/iter-094-batch-c94-fix-d1-d2	949564c	stale			无实际新增条件（已落实）
+1789725497	iter-095-batch-c95-fix-d1	task/iter-095-batch-c95-fix-d1	36592aa	stale			无实际新增条件（已落实）
+1789725497	iter-095-batch-c95-fix-d1-dual	task/iter-095-batch-c95-fix-d1-dual	1549be8	stale			无实际新增条件（已落实）
+1789725497	iter-096-batch-c96	task/iter-096-batch-c96	12fe022	stale			无实际新增条件（已落实）
+1789725497	iter-097-batch-c97-fix	task/iter-097-batch-c97-fix	b7e99f2	stale			无实际新增条件（已落实）
+1789725497	iter-097-batch-c97-fix-dual	task/iter-097-batch-c97-fix-dual	333174e	stale			无实际新增条件（已落实）
+1789725497	iter-098-batch-c98-fix-d1	task/iter-098-batch-c98-fix-d1	d3a4b62	stale			无实际新增条件（已落实）
+1789725497	iter-099-batch-c99-fix-d1	task/iter-099-batch-c99-fix-d1	f4f2d94	stale			无实际新增条件（已落实）
+1789725497	iter-101-batch-c101-fix-d1-d2	task/iter-101-batch-c101-fix-d1-d2	c101f9c	stale			无实际新增条件（已落实）
+1789725497	iter-102-batch-c102-fix-d1	task/iter-102-batch-c102-fix-d1	3e61306	stale			无实际新增条件（已落实）
+1789725497	iter-103-batch-c103	task/iter-103-batch-c103	d570154	stale			无实际新增条件（已落实）
+1789725497	iter-103-batch-c103-dual	task/iter-103-batch-c103-dual	5846d84	stale			无实际新增条件（已落实）
+1789725497	iter-106-batch-c106	task/iter-106-batch-c106	9ef6f7a	stale			无实际新增条件（已落实）
+1789725497	iter-107-batch-c107-fix-d1	task/iter-107-batch-c107-fix-d1	4edf8d0	stale			无实际新增条件（已落实）
+1789725497	iter-108-batch-c108	task/iter-108-batch-c108	3646098	stale			无实际新增条件（已落实）
+1789725497	iter-109-batch-c109	task/iter-109-batch-c109	68db045	stale			无实际新增条件（已落实）
+1789725497	iter-110-batch-c110-fix	task/iter-110-batch-c110-fix	3043e80	stale			无实际新增条件（已落实）
+1789725497	iter-111-batch-c111	task/iter-111-batch-c111	db61347	stale			无实际新增条件（已落实）
+1789725497	iter-112-batch-c112-fix-d1	task/iter-112-batch-c112-fix-d1	42ac39a	stale			无实际新增条件（已落实）
+1789725497	iter-113-batch-c113-fix-d1-d2	task/iter-113-batch-c113-fix-d1-d2	ebfccd3	stale			无实际新增条件（已落实）
+1789725497	iter-113-batch-c113-fix-d1-d2-dual	task/iter-113-batch-c113-fix-d1-d2-dual	05a4a06	stale			无实际新增条件（已落实）
+1789725497	iter-114-batch-c114-fix-d1-d2	task/iter-114-batch-c114-fix-d1-d2	65d1d75	stale			无实际新增条件（已落实）
+1789725497	iter-116-batch-c116-fix-d1	task/iter-116-batch-c116-fix-d1	87c75b5	stale			无实际新增条件（已落实）
+1789725497	iter-117-batch-c117-fix	task/iter-117-batch-c117-fix	b5adb1a	landed		receipt	无实际新增条件（已落实） ｜ 校验和落地 +3 条（账面被陈旧快照覆盖，按提交恢复）
+1789725497	iter-118-batch-c118	task/iter-118-batch-c118	8bc0b41	stale		receipt	无实际新增条件（已落实）
+1789725497	iter-119-batch-c119-fix	task/iter-119-batch-c119-fix	3531789	stale		receipt	无实际新增条件（已落实）
+1789725497	iter-119-cogmap-anchor-fix2	task/iter-119-cogmap-anchor-fix2	e7ce893	stale		receipt	无实际新增条件（已落实）
+1789725497	iter-120-batch-c120-fix-d1	task/iter-120-batch-c120-fix-d1	95b61dc	stale		receipt	无实际新增条件（已落实）
+1789725497	iter-121-batch-c121-fix	task/iter-121-batch-c121-fix	43c1c3f	stale		receipt	无实际新增条件（已落实）
+1789725497	iter-121-batch-c121-fix-dual	task/iter-121-batch-c121-fix-dual	a72ddb4	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-123-batch-c123-fix	task/iter-123-batch-c123-fix	854a8db	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-124-batch-c124-fix	task/iter-124-batch-c124-fix	288a81d	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-125-batch-c125	task/iter-125-batch-c125	3937c59	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-126-batch-c126-fix-d1	task/iter-126-batch-c126-fix-d1	5fd2916	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-127-batch-c127-fix-d1	task/iter-127-batch-c127-fix-d1	d7f75ad	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-127-batch-c127-fix-d1-dual	task/iter-127-batch-c127-fix-d1-dual	c7a7210	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-128-batch-c128	task/iter-128-batch-c128	b231df2	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-129-batch-c129-fix-d1	task/iter-129-batch-c129-fix-d1	29fb190	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-130-batch-c130	task/iter-130-batch-c130	1acb0aa	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-132-batch-c132-fix-d1	task/iter-132-batch-c132-fix-d1	987efea	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-132-batch-c132-fix-d1-dual	task/iter-132-batch-c132-fix-d1-dual	480a9af	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-133-batch-c133	task/iter-133-batch-c133	2becdac	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-133-batch-c133-dual	task/iter-133-batch-c133-dual	1fb7296	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-133-batch-c133-dual-dual	task/iter-133-batch-c133-dual-dual	1a79aae	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-134-batch-c134-fix	task/iter-134-batch-c134-fix	abb9cbb	stale			无实际新增条件（已落实）
+1789725498	iter-135-batch-c135-fix	task/iter-135-batch-c135-fix	8232281	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-135-batch-c135-fix-dual	task/iter-135-batch-c135-fix-dual	d17e654	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-136-batch-c136	task/iter-136-batch-c136	01559f1	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-136-batch-c136-dual	task/iter-136-batch-c136-dual	1b97a90	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-137-batch-c137-fix	task/iter-137-batch-c137-fix	edf6f4d	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-137-batch-c137-fix-dual	task/iter-137-batch-c137-fix-dual	aec6dfb	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-138-batch-c138-fix-d1	task/iter-138-batch-c138-fix-d1	41f423b	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-139-batch-c139-fix	task/iter-139-batch-c139-fix	7807a3a	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-139-batch-c139-fix-dual	task/iter-139-batch-c139-fix-dual	16871f1	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-140-batch-c140	task/iter-140-batch-c140	264bd5a	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-141-batch-c141-fix-d1	task/iter-141-batch-c141-fix-d1	7a4c3c6	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-143-batch-c143-fix	task/iter-143-batch-c143-fix	0b395d3	stale		receipt	无实际新增条件（已落实）
+1789725498	iter-146-batch-c146-fix-d1-d2	task/iter-146-batch-c146-fix-d1-d2	89d93b2	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-147-batch-c147	task/iter-147-batch-c147	d49d75f	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-148-batch-c148	task/iter-148-batch-c148	03464b8	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-149-batch-c149-fix-d1	task/iter-149-batch-c149-fix-d1	297bf8d	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-150-batch-c150-fix	task/iter-150-batch-c150-fix	f1740b3	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-151-batch-c151-fix-d1	task/iter-151-batch-c151-fix-d1	b1a476a	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-152-batch-c152-fix	task/iter-152-batch-c152-fix	67269fe	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-153-batch-c153-fix-d1	task/iter-153-batch-c153-fix-d1	1beeb1b	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-154-batch-c154-fix	task/iter-154-batch-c154-fix	5af9158	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-155-batch-c155-fix	task/iter-155-batch-c155-fix	227c05e	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-157-batch-c157-fix	task/iter-157-batch-c157-fix	ce9f6ea	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-158-batch-c158-fix	task/iter-158-batch-c158-fix	8555ce7	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-159-batch-c159-fix-d1-d2	task/iter-159-batch-c159-fix-d1-d2	6f642ad	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-160-batch-c160-fix	task/iter-160-batch-c160-fix	8d9cf22	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-160-batch-c160-fix-dual	task/iter-160-batch-c160-fix-dual	9bb0930	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-161-batch-c161-fix	task/iter-161-batch-c161-fix	93a4842	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-162-batch-c162-fix-d1-d2	task/iter-162-batch-c162-fix-d1-d2	f6b3920	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-163-batch-c163-fix-d1	task/iter-163-batch-c163-fix-d1	d364fd1	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-165-batch-c165	task/iter-165-batch-c165	816f644	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-169-batch-c169	task/iter-169-batch-c169	a7b26cc	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-170-batch-c170-fix-d1	task/iter-170-batch-c170-fix-d1	92759fd	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-171-batch-c171-fix-d1	task/iter-171-batch-c171-fix-d1	1ae8298	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-173-batch-c173-fix-d1	task/iter-173-batch-c173-fix-d1	c382ca5	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-174-batch-c174-fix	task/iter-174-batch-c174-fix	1fef081	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-174-batch-c174-fix-dual	task/iter-174-batch-c174-fix-dual	95b0f93	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-175-batch-c175	task/iter-175-batch-c175	d6cf44a	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-176-batch-c176	task/iter-176-batch-c176	1c2aa01	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-177-batch-c177-fix-d1	task/iter-177-batch-c177-fix-d1	e9ed21e	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-178-batch-c178-fix	task/iter-178-batch-c178-fix	0edbb54	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-178-batch-c178-fix-dual	task/iter-178-batch-c178-fix-dual	378674b	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-179-batch-c179-fix-d1	task/iter-179-batch-c179-fix-d1	01b5ff2	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-180-batch-c180-fix-d1	task/iter-180-batch-c180-fix-d1	398240d	landed		receipt	无实际新增条件（已落实） ｜ 校验和落地 +2 条（账面被陈旧快照覆盖，按提交恢复）
+1789725499	iter-181-batch-c181	task/iter-181-batch-c181	c4b33c7	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-182-batch-c182-fix	task/iter-182-batch-c182-fix	dea4ec8	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-183-batch-c183	task/iter-183-batch-c183	80d8cf2	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-184-batch-c184	task/iter-184-batch-c184	813e8fa	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-185-batch-c185-fix-d1	task/iter-185-batch-c185-fix-d1	3d7aead	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-186-batch-c186-fix	task/iter-186-batch-c186-fix	1cf7983	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-186-batch-c186-fix-dual	task/iter-186-batch-c186-fix-dual	ef93a0a	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-187-batch-c187	task/iter-187-batch-c187	cfc65b1	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-188-batch-c188	task/iter-188-batch-c188	b7df981	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-189-batch-c189	task/iter-189-batch-c189	035105e	stale		receipt	无实际新增条件（已落实）
+1789725499	iter-190-batch-c190	task/iter-190-batch-c190	02368c1	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-191-batch-c191-fix-d1-d2	task/iter-191-batch-c191-fix-d1-d2	fd8ec30	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-192-batch-c192-fix	task/iter-192-batch-c192-fix	173b02a	landed		receipt	无实际新增条件（已落实） ｜ 校验和落地 +4 条（账面被陈旧快照覆盖，按提交恢复）
+1789725500	iter-193-batch-c193	task/iter-193-batch-c193	02eaf1e	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-194-batch-c194-fix	task/iter-194-batch-c194-fix	6f75ac8	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-195-batch-c195-fix-d1	task/iter-195-batch-c195-fix-d1	7c0d126	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-196-batch-c196	task/iter-196-batch-c196	17bc70b	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-197-batch-c197	task/iter-197-batch-c197	80839da	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-198-batch-c198	task/iter-198-batch-c198	6cd7fb3	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-199-batch-c199	task/iter-199-batch-c199	51126d6	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-200-batch-c200-fix	task/iter-200-batch-c200-fix	d25ba42	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-201-batch-c201	task/iter-201-batch-c201	c2b2164	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-202-batch-c202-fix-d1-d2	task/iter-202-batch-c202-fix-d1-d2	25fde6e	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-203-batch-c203	task/iter-203-batch-c203	c7702e9	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-204-batch-c204	task/iter-204-batch-c204	214d089	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-206-batch-c206	task/iter-206-batch-c206	7153850	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-207-batch-c207	task/iter-207-batch-c207	015af15	stale		receipt	无实际新增条件（已落实）
+1789725500	iter-208-batch-c208-fix	task/iter-208-batch-c208-fix	331696a	landed			无实际新增条件（已落实） ｜ 校验和落地 +1 条（账面被陈旧快照覆盖，按提交恢复）
+1789725500	iter-233-batch-c233-fix	task/iter-233-batch-c233-fix	1ee3317	stale			无实际新增条件（已落实）
+1789725500	iter-234-batch-c234	task/iter-234-batch-c234	cac5c9e	landed			无实际新增条件（已落实） ｜ 校验和落地 +6 条（账面被陈旧快照覆盖，按提交恢复）
+1789725500	iter-235-batch-c235	task/iter-235-batch-c235	0cc1390	stale			无实际新增条件（已落实）
+1789725500	iter-236-batch-c236	task/iter-236-batch-c236	4225aaf	landed			无实际新增条件（已落实） ｜ 校验和落地 +6 条（账面被陈旧快照覆盖，按提交恢复）
+1789725500	iter-237-batch-c237	task/iter-237-batch-c237	1d7de8e	stale			无实际新增条件（已落实）
+1789725500	iter-240-batch-c240-fix	task/iter-240-batch-c240-fix	b0dcb5a	landed			无实际新增条件（已落实） ｜ 校验和落地 +5 条（账面被陈旧快照覆盖，按提交恢复）
+1789725500	iter-241-batch-c241	task/iter-241-batch-c241	1c960f4	landed			无实际新增条件（已落实） ｜ 校验和落地 +1 条（账面被陈旧快照覆盖，按提交恢复）
+1789725501	iter-242-batch-c242-fix	task/iter-242-batch-c242-fix	ad4ea3d	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +5 条
+1789725501	iter-243-batch-c243-fix	task/iter-243-batch-c243-fix	e7b23ce	stale			无实际新增条件（已落实）
+1789725501	iter-244-batch-c244-fix	task/iter-244-batch-c244-fix	9ae1228	landed			无实际新增条件（已落实） ｜ 校验和落地 +6 条（账面被陈旧快照覆盖，按提交恢复）
+1789725501	iter-245-batch-c245-fix-d1-d2	task/iter-245-batch-c245-fix-d1-d2	d4c86cd	stale			无实际新增条件（已落实）
+1789725501	iter-246-batch-c246-fix	task/iter-246-batch-c246-fix	a2d5e53	landed			无实际新增条件（已落实） ｜ 校验和落地 +6 条（账面被陈旧快照覆盖，按提交恢复）
+1789725501	iter-backlog2-dual-d2	task/iter-backlog2-dual-d2	36b7680	stale		receipt	无实际新增条件（已落实）
+1789725501	iter-backlog2-dual-d2-dual	task/iter-backlog2-dual-d2-dual	248ff36	stale		receipt	无实际新增条件（已落实）
+1789725501	iter-backlog4-dual-d2	task/iter-backlog4-dual-d2	7d0cc2b	landed			无实际新增条件（已落实） ｜ 校验和落地 +3 条（账面被陈旧快照覆盖，按提交恢复）
+1789725501	iter-combined-backlog-d2	task/iter-combined-backlog-d2	6714268	stale		receipt	无实际新增条件（已落实）
+1789725501	iter-hive-exec-d3	task/iter-hive-exec-d3	d5726e0	stale		receipt	无实际新增条件（已落实）
+1789725501	iter-rest-dirs-d1	task/iter-rest-dirs-d1	1ddf8f2	stale		receipt	无实际新增条件（已落实）
+1789725501	iter-t1-tail-dual	task/iter-t1-tail-dual	a111ce6	stale		receipt	无实际新增条件（已落实）
+1789725501	iter-test-hive	task/iter-test-hive	852a530	stale		receipt	无实际新增条件（已落实）
+1789727313	iter-249-batch-c249	task/iter-249-batch-c249	fc989ad	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +47 条
+1789728454	iter-248-batch-c248-fix-d1	task/iter-248-batch-c248-fix-d1	66e9fc2	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
+1789728454	iter-251-batch-c251	task/iter-251-batch-c251	d011f01	stale			无实际新增条件（已落实）
+1789728454	iter-252-batch-c252	task/iter-252-batch-c252	41eb041	landed			无实际新增条件（已落实） ｜ 校验和落地 +44 条（账面被陈旧快照覆盖，按提交恢复）
+1789728454	iter-253-batch-c253	task/iter-253-batch-c253	1eab988	landed			无实际新增条件（已落实） ｜ 校验和落地 +3 条（账面被陈旧快照覆盖，按提交恢复）
+1789729115	iter-254-batch-c254-fix	task/iter-254-batch-c254-fix	f93160a	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
+1789731229	iter-257-batch-c257-fix-d1	task/iter-257-batch-c257-fix-d1	f9a0150	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +29 条
+1789733220	iter-mdcg-manual-c1	task/iter-mdcg-manual-c1	14c6660	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条
+1789734046	iter-locate-n15-c1-fix	task/iter-locate-n15-c1-fix	15e1a38	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +15 条
+1789734905	iter-mdcg-bigsrc-c1	task/iter-mdcg-bigsrc-c1	d17ebd3	stale			无实际新增条件（已落实）
+1789734915	iter-mdcos-bigsrc-c1-fix	task/iter-mdcos-bigsrc-c1-fix	5bbac9e	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +32 条
+1789736571	iter-mcpsrv-bigsrc-c1-fix3	task/iter-mcpsrv-bigsrc-c1-fix3	2fb8ec2	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +6 条
+1789737213	iter-backfill-c1	task/iter-backfill-c1	d0951c8	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +28 条
+1789737213	iter-selfstate-c2	task/iter-selfstate-c2	3d45882	landed			无实际新增条件（已落实） ｜ 校验和落地 +31 条（账面被陈旧快照覆盖，按提交恢复）
+1789737389	iter-ccgc-c1-fix	task/iter-ccgc-c1-fix	54885e2	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +24 条
+1789737804	iter-263-batch-c263	task/iter-263-batch-c263	3260d9b	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +20 条
+1789737961	iter-264-batch-c264	task/iter-264-batch-c264	364f4fd	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
+1789737961	iter-sources-c1	task/iter-sources-c1	46d9d5d	landed			无实际新增条件（已落实） ｜ 校验和落地 +1 条（账面被陈旧快照覆盖，按提交恢复）
+1789738152	iter-265-batch-c265	task/iter-265-batch-c265	5acbfc0	stale			无实际新增条件（已落实）
+1789738152	iter-locate-c2-fix	task/iter-locate-c2-fix	49135e7	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +19 条
+1789738152	iter-parser-c1-fix-d1	task/iter-parser-c1-fix-d1	f8ee28f	landed			无实际新增条件（已落实） ｜ 校验和落地 +1 条（账面被陈旧快照覆盖，按提交恢复）
+1789738368	iter-266-batch-c266-fix	task/iter-266-batch-c266-fix	7678bd7	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
+1789738634	iter-267-batch-c267-fix	task/iter-267-batch-c267-fix	1bfaf92	stale			无实际新增条件（已落实）
+1789738996	iter-whitebox-c1	task/iter-whitebox-c1	73454e2	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条
+1789739139	iter-272-batch-c272	task/iter-272-batch-c272	53452b2	stale			无实际新增条件（已落实）
+1789739382	iter-273-batch-c273	task/iter-273-batch-c273	1e84d60	stale			无实际新增条件（已落实）
+1789739626	iter-274-batch-c274	task/iter-274-batch-c274	59a77d8	stale			无实际新增条件（已落实）
+1789739626	iter-reach-c1-fix-d1	task/iter-reach-c1-fix-d1	1570aed	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +7 条
+1789741133	iter-forgetting-c1	task/iter-forgetting-c1	8818410	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +5 条
+1789741133	iter-linkcheck-c1	task/iter-linkcheck-c1	a4032b2	landed			无实际新增条件（已落实） ｜ 校验和落地 +5 条（账面被陈旧快照覆盖，按提交恢复）
+1789742454	iter-282-batch-c282	task/iter-282-batch-c282	6a0bc09	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
+1789742454	iter-canonical-c1-fix	task/iter-canonical-c1-fix	7d31960	landed			无实际新增条件（已落实） ｜ 校验和落地 +4 条（账面被陈旧快照覆盖，按提交恢复）
+1789743912	iter-283-batch-c283	task/iter-283-batch-c283	77d49ba	stale			无实际新增条件（已落实）
+1789743912	iter-compiler-c2	task/iter-compiler-c2	5178377	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条
+1789744625	iter-llmchannel-c1-fix	task/iter-llmchannel-c1-fix	61de3b8	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +5 条
+1789744625	iter-reviewcli-c1-fix	task/iter-reviewcli-c1-fix	8e1894e	landed			无实际新增条件（已落实） ｜ 校验和落地 +5 条（账面被陈旧快照覆盖，按提交恢复）
+1789745014	iter-registry-c1	task/iter-registry-c1	41d0749	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +5 条
+1789745146	iter-285-batch-c285-fix	task/iter-285-batch-c285-fix	dece50d	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +9 条
+1789745343	iter-cli-c1-fix	task/iter-cli-c1-fix	05a2b42	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +5 条
+1789745711	iter-286-batch-c286-fix	task/iter-286-batch-c286-fix	581ac09	stale			无实际新增条件（已落实）
+1789745711	iter-linkrefbackfill-c1	task/iter-linkrefbackfill-c1	ac23781	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +5 条
+1789745711	iter-runtests-c1	task/iter-runtests-c1	bc0ef45	landed			无实际新增条件（已落实） ｜ 校验和落地 +5 条（账面被陈旧快照覆盖，按提交恢复）
+1789745994	iter-287-batch-c287	task/iter-287-batch-c287	ecfba6e	stale			无实际新增条件（已落实）
+1789746238	iter-288-batch-c288	task/iter-288-batch-c288	91263ae	stale			无实际新增条件（已落实）
+1789746485	iter-289-batch-c289	task/iter-289-batch-c289	f43e9a7	stale			无实际新增条件（已落实）
+1789746612	iter-blindcomp-c1	task/iter-blindcomp-c1	af4a35e	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +4 条
+1789746756	iter-290-batch-c290	task/iter-290-batch-c290	5459f46	stale			无实际新增条件（已落实）
+1789746882	iter-corpus-c1-fix	task/iter-corpus-c1-fix	d990634	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +4 条
+1789746882	iter-unifieden-c1-fix	task/iter-unifieden-c1-fix	9c23d3d	landed			无实际新增条件（已落实） ｜ 校验和落地 +3 条（账面被陈旧快照覆盖，按提交恢复）
+1789747036	iter-291-batch-c291	task/iter-291-batch-c291	6a9e849	stale			无实际新增条件（已落实）
+1789747286	iter-292-batch-c292	task/iter-292-batch-c292	9b972c0	stale			无实际新增条件（已落实）
+1789747411	iter-bench6comp-c1	task/iter-bench6comp-c1	b0e83c8	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +4 条
+1789747411	iter-criteria-c1	task/iter-criteria-c1	4e7e414	landed			无实际新增条件（已落实） ｜ 校验和落地 +4 条（账面被陈旧快照覆盖，按提交恢复）
+1789747411	iter-migrate-c1	task/iter-migrate-c1	56beb84	landed			无实际新增条件（已落实） ｜ 校验和落地 +4 条（账面被陈旧快照覆盖，按提交恢复）
+1789747499	iter-293-batch-c293	task/iter-293-batch-c293	a88bd7a	stale			无实际新增条件（已落实）
+1789747758	iter-294-batch-c294	task/iter-294-batch-c294	2716ee5	stale			无实际新增条件（已落实）
+1789748005	iter-295-batch-c295	task/iter-295-batch-c295	0730a6a	stale			无实际新增条件（已落实）
+1789748005	iter-bstden-c1	task/iter-bstden-c1	f4e98f4	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +3 条
+1789748005	iter-mreviewmain-c1	task/iter-mreviewmain-c1	25e17e2	landed			无实际新增条件（已落实） ｜ 校验和落地 +3 条（账面被陈旧快照覆盖，按提交恢复）
+1789748214	iter-progressive-c1-fix	task/iter-progressive-c1-fix	b9007a0	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +3 条
+1789748487	iter-296-batch-c296-fix	task/iter-296-batch-c296-fix	3359d3a	stale			无实际新增条件（已落实）
+1789748618	iter-autonomy-c1	task/iter-autonomy-c1	623143c	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条
+1789748777	iter-297-batch-c297	task/iter-297-batch-c297	5f54934	stale			无实际新增条件（已落实）
+1789748777	iter-zhenatoms-c1-fix	task/iter-zhenatoms-c1-fix	a2929b3	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +3 条
+1789749190	iter-298-batch-c298-fix	task/iter-298-batch-c298-fix	bae2a99	stale			无实际新增条件（已落实）
+1789749437	iter-benchlocomo-c1	task/iter-benchlocomo-c1	5f61b20	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条
+1789749709	iter-299-batch-c299-fix	task/iter-299-batch-c299-fix	fcf6e09	stale			无实际新增条件（已落实）
+1789749709	iter-census-c1-fix	task/iter-census-c1-fix	fe45ec9	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条
+1789749709	iter-genspecs-c1-fix	task/iter-genspecs-c1-fix	ad07c20	landed			无实际新增条件（已落实） ｜ 校验和落地 +2 条（账面被陈旧快照覆盖，按提交恢复）
+1789750031	iter-300-batch-c300	task/iter-300-batch-c300	dada228	stale			无实际新增条件（已落实）
+1789750398	iter-mdcg-c2	task/iter-mdcg-c2	b6bd76c	stale			无实际新增条件（已落实）
+1789750524	iter-301-batch-c301-fix	task/iter-301-batch-c301-fix	48bffcd	stale			无实际新增条件（已落实）
+1789751632	iter-302-batch-c302-fix-d1-d2	task/iter-302-batch-c302-fix-d1-d2	2648cec	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +8 条
+1789752031	iter-303-batch-c303-fix	task/iter-303-batch-c303-fix	b4ede42	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +7 条
+1789752031	iter-mdcos-c1	task/iter-mdcos-c1	a8d6071	landed			无实际新增条件（已落实） ｜ 校验和落地 +8 条（账面被陈旧快照覆盖，按提交恢复）
+1789752220	iter-304-batch-c304	task/iter-304-batch-c304	17ec96b	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条
