@@ -56,10 +56,12 @@ R_MISMATCH = "content_mismatch"         # 落了别的正文 → interrupted（�
 R_UNREADABLE = "node_unreadable"        # 读节点失败 → interrupted（不猜测）
 
 
+# 生效条件：给定 cg 且其 root 属性可参与 os.path.join 时，恒返回 os.path.join(cg.root, LOG_FILE)，无分支与早退。
 def log_path(cg) -> str:
     return os.path.join(cg.root, LOG_FILE)
 
 
+# 生效条件：text 为假值（None/""）时按空串处理，否则用 text 本身，返回去尾换行后的字符串（仅剥 "\n"）。
 def _norm(text: str) -> str:
     """正文口径归一（**对账正确性的前提**）：`nodefile.dumps` 写盘时会给正文补尾
     换行，`loads` 读回即带它。若 intent 按入参原文、对账按读回内容各算一次指纹，
@@ -69,10 +71,12 @@ def _norm(text: str) -> str:
     return (text or "").rstrip("\n")
 
 
+# 生效条件：给定 cg 与 rec 时，把 rec 以 JSONL 追加写入 log_path(cg)，无返回值、无分支。
 def _append(cg, rec: dict) -> None:
     append_jsonl(log_path(cg), rec)
 
 
+# 生效条件：pr 取自 cg.principal 或（假值时）回落 cg.session——pr 为真字符串时 meta["session"]=pr；否则 pr 非 None 时把 pr.session 记入 session、把 pr.writer 或（假值时）pr.unit 记入 writer；actor 为真时 meta["actor"]=actor，最后返回 meta。
 def _ident(cg, actor=None) -> dict:
     """归因字段（尽力而为）：principal 缺省时留空，不编造。"""
     pr = getattr(cg, "principal", None) or getattr(cg, "session", None)
@@ -91,6 +95,7 @@ def _ident(cg, actor=None) -> dict:
     return meta
 
 
+# 生效条件：给定 cg、node_id、content 时生成 iid 与 content_hash（对 _norm(content) 计算），先写 phase="intent" 记录再返回 tok；layer 为真才写入 rec["layer"]，actor 与 **meta 分别经 _ident、rec.update 合入。
 def begin(cg, node_id: str, content: str, layer: str = None,
           actor: str = None, **meta) -> dict:
     """记录写入**意图**（先行持久化）→ 返回令牌 tok（供 `commit` 配对）。
@@ -112,6 +117,7 @@ def begin(cg, node_id: str, content: str, layer: str = None,
     return tok
 
 
+# 生效条件：nid 取 node_id，node_id 为假值（None/""）时回落 (tok or {}).get("node_id")，iid 取 (tok or {}).get("iid")（tok 为假值时两项均为 None）；status 用实参或默认 STATUS_COMMITTED；tok 为真且 tok.get("content_hash") 为真才写入 content_hash；reason 为真才写入 rec["reason"]；追加记录后返回 rec。
 def commit(cg, tok: dict, status: str = STATUS_COMMITTED, node_id: str = None,
            reason: str = None, **meta) -> dict:
     """记录写入**结果**（与 intent 按 iid 配对）。返回结果记录。"""
@@ -131,6 +137,7 @@ def commit(cg, tok: dict, status: str = STATUS_COMMITTED, node_id: str = None,
 # ----------------------------------------------------------------------
 # 读侧：盘点 / 对账
 
+# 生效条件：log_path(cg) 不是文件时直接返回空列表；否则逐行读取，空行跳过，json.loads 抛异常的行跳过，返回成功解析的记录列表。
 def records(cg) -> list:
     """读全部账本记录（append-only，坏行跳过不炸）。"""
     out = []
@@ -149,6 +156,7 @@ def records(cg) -> list:
     return out
 
 
+# 生效条件：遍历 records(cg)，记录 r.get("iid") 为假值（缺键或空串）时跳过；否则按 iid 建槽，仅当槽内 intent/outcome 仍为 None 时分别填入首个 phase=="intent" / phase=="outcome" 的记录，返回 pairs。
 def _pair(cg) -> dict:
     """把账本配成 {iid: {"intent":…, "outcome":…}}（同时计入无 iid 的脏行）。"""
     pairs = {}
@@ -164,6 +172,7 @@ def _pair(cg) -> dict:
     return pairs
 
 
+# 生效条件：遍历 _pair(cg) 取有 intent 且 outcome 为 None 的槽（展开 intent 字段）组成 out，按 r.get("t") or 0 升序排序后返回 out[:max(0, int(limit))]——limit 为 0 或负数时切片为空列表，默认值 200 仅在未传参时生效。
 def pending(cg, limit: int = 200) -> list:
     """未结清的写入意图（有 intent 无 outcome）——只读，不改盘。
 
@@ -177,6 +186,7 @@ def pending(cg, limit: int = 200) -> list:
     return out[:max(0, int(limit))]
 
 
+# 生效条件：intent 的 id 为假值或 cg.get(nid) 抛异常时返回 (STATUS_INTERRUPTED, R_UNREADABLE)；取回 node 为假值时返回 (STATUS_INTERRUPTED, R_NODE_MISSING)；intent 的 content_hash 为真且与 _norm(node.get("content") or "") 的指纹不等时返回 (STATUS_INTERRUPTED, R_MISMATCH)；否则返回 (STATUS_COMMITTED, R_NODE_OK)。
 def _judge(cg, intent: dict):
     """判定一笔未结清意图的真实结局 → `(status, code)`。**不猜测**：读不到就如实说。"""
     nid = intent.get("id")
@@ -195,6 +205,7 @@ def _judge(cg, intent: dict):
     return STATUS_COMMITTED, R_NODE_OK
 
 
+# 生效条件：以 limit 调 pending(cg, limit=limit) 得到未结清意图并统计 unpaired/committed/interrupted；apply 为真时对每笔 intent 调 commit 补写 outcome（reconciled=True、actor="twophase:reconcile"），apply 为假值时只报告不写账本，rep["applied"]=bool(apply)；limit 为 0 或负数时 pending 返回空、details 为空列表。
 def reconcile(cg, apply: bool = True, limit: int = 2000) -> dict:
     """启动/巡检对账：把半途写入**补账或如实标记**。
 
