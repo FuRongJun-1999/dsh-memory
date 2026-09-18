@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-136-batch-c136-dual",
  "round": 5,
- "candidate_commit": "28ce8d9",
+ "candidate_commit": "ddb169b",
  "branch": "task/iter-136-batch-c136-dual",
- "unit_job": "h1789691898242_d5be9e",
+ "unit_job": "h1789695401125_f8e698",
  "verdict": "ACCEPT",
  "package_n": 9,
- "text": "逐条核对：形参、默认值、假值回落、早退、超时/错误分支及返回形状均与源码一致；#2 因 data 永不为 None，raw 恒取 data；#4 未提线程但未作错误断言。位置 position_ok=true 已足。未发现 assert 语义、None/假值、闭包来源、参数使用、返回形状或空容器问题。\nreason: 全部条件与源码一致，无新增不支持断言或关键前置误述。\nverdict: ACCEPT",
+ "text": "逐条核对 1–9：必需形参与默认值、None/假值回落、早退/锁内流程、模块常量、返回形状均与源码一致；ask 的 raw 恒取 data、remember 假 tags 回落、call 的 json 失败置 None 等关键分支准确；position_ok=true 已紧贴定义，无需行号。未发现不符或源码不支持断言。\nreason: 候选条件均准确锚定源码生效前置与返回形状，无额外断言。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
