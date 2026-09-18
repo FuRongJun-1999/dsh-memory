@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-188-batch-c188",
+ "round": 1,
+ "candidate_commit": "b7df981",
+ "branch": "task/iter-188-batch-c188",
+ "unit_job": "h1789710033309_97e012",
+ "verdict": "ACCEPT",
+ "package_n": 11,
+ "text": "逐条核对 11 条：`plugin_root/paths_file/default_data_root` 的常量与拼接正确；`_user_paths` 的 dict/异常回落 `{}` 正确；`data_root/mdcg_root` 的 env→cfg 真值分支、相对路径锚定 `plugin_root()` 正确；`state_dir` 的 `*parts` 空/非空与 `create` 真值门控正确；`legacy_candidates/find_existing` 顺序、过滤、空列表与 None 正确；`describe` 的 `is_default/source/isdir` 与源码一致；`set_user_root` 的目录创建、`setdefault`、反斜杠替换、写回格式正确。未发现源码不支持断言，`position_ok` 已满足。\nreason: 11条条件均与源码分支和返回形状一致，无需修改。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
