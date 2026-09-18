@@ -886,6 +886,7 @@ class MdCGOS(MdCG):
                          "content": c, "path": e["path"]}, round(score, 6)))
         return out, source
 
+# 生效条件：当 query 与 entries 传入时，用 expand_query_terms_weighted(query) 扩展并过滤 __ 键；扩展为空返回 []；否则遍历 entries，neg_gate=True 时剔除 _neg_hit(tw, neg) 的节点，其余按 0.6*生效条件覆盖率+0.3*槽位重合+0.1*情境亲和封顶 1.0 打分，score<=0 跳过，返回 out；
     def _path_semantic(self, query, entries, context=None, neg_gate: bool = True):
         """条件空间结构化匹配路径（白箱语义路，零依赖）。
 
