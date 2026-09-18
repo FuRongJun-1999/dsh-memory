@@ -1,0 +1,15 @@
+{
+ "kind": "recalibration-acceptance",
+ "iter_id": "iter-152-batch-c152-fix",
+ "verified_commit": "67269fe",
+ "verdict": "PASS",
+ "merge_commit": "28d0384f3aea",
+ "checks": [
+  "diff(merge, branch) -- md_cg 空",
+  "criteria_fingerprint 保持",
+  "main 注释计数 + 全组回归"
+ ],
+ "merged_marks": 973,
+ "merged_files": 65,
+ "paths_policy": "脱敏"
+}
