@@ -192,6 +192,7 @@ def build_spec(pkg: dict, asm: dict, *, context_files=None, model=None,
                      "size": pkg.get("size"), "node_ids": nids}}
 
 
+# 生效条件：当模块级常量 CD.SOURCES 可用时，sources 为假值则回落 CD.SOURCES，调用 CD.generate 生成候选，再经 BD.bundle(c.get('candidates') or [], nodes, root, max_per_bundle) 与 RS.assemble_all(b, rules_dir) 组装，最终将 bundles 与 packages 按 zip 配对返回。
 def build_packages(*, root=None, sources=None, limit=None, nodes=None,
                    max_per_bundle=50, rules_dir=None, now=None) -> dict:
     """级 1-3 串联：候选 → 捆包 → 规则装配，产出配对的 (pkg, asm) 列表。"""
@@ -455,6 +456,7 @@ def validate_opinions(verdicts, node_ids=None) -> dict:
 
 # ---- 级 5-B · 落库（verify 令牌 + writepipe 六道闸；不自造通道）-----------
 
+# 生效条件：当 actor 给出时，从 TK.role_spec('verify') 读取 clearance_cap/can_write/can_admin/layers_allow 构造 Principal；session 为假值时生成 'mrev_' + uuid 前 12 位；layers_allow 为假值时回落 spec.get('layers_allow') 或 []；ops_allow 原样传入。
 def verifier_principal(*, actor="mreview-verifier", session=None,
                        layers_allow=None, ops_allow=None) -> Principal:
     """验证单元 Principal——角色规格取自 tokens 真源（避免手写漂移）。"""
@@ -690,6 +692,7 @@ def run_batch(*, pairs, cg, exe=None, jobs_dir=None, ctx_dir=None,
 
 # ---- CLI -----------------------------------------------------------------
 
+# 生效条件：当 argv 给出时，argparse 解析命令行；root 取 a.root 或 os.environ.get('MDCG_ROOT')，若 root 为假值则 SystemExit；否则用 verifier_principal(actor=a.applier) 构造 MdCGSecure，build_packages(root=root, limit=None) 得到 pairs，按 a.packages（假值 0 则取全部）切片，run_batch 以 dry_run=(a.dry_run or not a.apply) 运行，打印 JSON 报告，返回 0（rep['ok'] 为真）或 1。
 def main(argv=None):                                        # pragma: no cover
     import argparse
     ap = argparse.ArgumentParser(prog="python -m md_cg.mreview.pipeline",
