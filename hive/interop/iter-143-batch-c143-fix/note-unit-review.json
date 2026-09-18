@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-143-batch-c143-fix",
+ "round": 2,
+ "candidate_commit": "0b395d3",
+ "branch": "task/iter-143-batch-c143-fix",
+ "unit_job": "h1789695107168_179cd6",
+ "verdict": "ACCEPT",
+ "package_n": 16,
+ "text": "逐条核对：形参/早退、`or` 假值回落、`serve_start` 模块常量来源、`_rpc` 分派与 `main` 循环均与源码相符；`position_ok` 已覆盖位置。未发现新增断言或返回形状/假值分支错误。\nreason: 全部条件与源码一致，未发现需驳回项。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
