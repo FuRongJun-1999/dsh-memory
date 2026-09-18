@@ -1738,6 +1738,7 @@ class MdCG:
             pass
         return reflection
 
+# 生效条件：list(read_jsonl(self.reflection_log)) 至少 2 条记录时返回倒数第二条的 "d_curr"（该键缺失时回落 1.0，键在而其值为 None 时返回 None），不足 2 条时返回 1.0。
     def _d_prev2(self):
         """上一次的前一次 D 值，用于二阶差分。"""
         recs = list(read_jsonl(self.reflection_log))
@@ -1745,6 +1746,7 @@ class MdCG:
             return recs[-2].get("d_curr", 1.0)
         return 1.0
 
+# 生效条件：list(read_jsonl(self.reflection_log)) 非空时返回最后一条的 "d_curr"（该键缺失时回落 1.0，键在而其值为 None 时返回 None），为空时返回 1.0。
     def _last_d(self):
         recs = list(read_jsonl(self.reflection_log))
         if recs:
