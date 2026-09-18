@@ -52,24 +52,29 @@ class TheoryError(Exception):
 # 存储
 # --------------------------------------------------------------------------
 
+# 生效条件：path 为真值时返回 path，否则取 os.environ.get(THEORY_FILE_ENV)，该值为空串/未设置时回落模块常量 DEFAULT_THEORY_FILE。
 def theory_file(path: str = None) -> str:
     return path or os.environ.get(THEORY_FILE_ENV) or DEFAULT_THEORY_FILE
 
 
+# 生效条件：传入可被 json 序列化的 payload（dict）时返回 json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))。
 def _canon(payload: dict) -> str:
     """规范化 JSON：键排序 + 紧凑分隔符（哈希可复现的唯一前提）。"""
     return json.dumps(payload, sort_keys=True, ensure_ascii=False,
                       separators=(",", ":"))
 
 
+# 生效条件：payload 可被 _canon 序列化时返回 hashlib.sha256(_canon(payload).encode("utf-8")).hexdigest() 的十六进制摘要。
 def declaration_hash(payload: dict) -> str:
     return hashlib.sha256(_canon(payload).encode("utf-8")).hexdigest()
 
 
+# 生效条件：对 SEALED_FIELDS 中每个 k 用 decl.get(k) 取值（缺键即 None），返回同集合长度的 dict。
 def _payload(decl: dict) -> dict:
     return {k: decl.get(k) for k in SEALED_FIELDS}
 
 
+# 生效条件：以 dict(decl) 为副本 d，写入 d["declaration_hash"]=declaration_hash(_payload(d))，返回该副本（不改动入参 decl）。
 def seal(decl: dict) -> dict:
     """封缄：补上 declaration_hash。"""
     d = dict(decl)
@@ -77,6 +82,7 @@ def seal(decl: dict) -> dict:
     return d
 
 
+# 生效条件：p=theory_file(path) 后，os.path.exists(p) 为假返回 None；open/json.load 抛 OSError 或 ValueError 也返回 None；否则 d 是 dict 时返回 d，不是 dict 返回 None。
 def load(path: str = None):
     p = theory_file(path)
     if not os.path.exists(p):
@@ -89,6 +95,7 @@ def load(path: str = None):
     return d if isinstance(d, dict) else None
 
 
+# 生效条件：p=theory_file(path)，先 os.makedirs(os.path.dirname(p) or ".")，把 decl 以 ensure_ascii=False, indent=1 写入 p+".tmp" 再 os.replace 到 p，os.chmod(p, 0o600) 抛 OSError 时忽略，最终返回 p。
 def save(decl: dict, path: str = None) -> str:
     p = theory_file(path)
     os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
@@ -107,6 +114,7 @@ def save(decl: dict, path: str = None) -> str:
 # 声明与校验
 # --------------------------------------------------------------------------
 
+# 生效条件：v=(version or PROTOCOL_VERSION).strip()，v 为空串时抛 TheoryError；accepted 为假值（None/空）时 acc=[v]，否则 list(accepted) 并剔除 strip 后为空的项，v 不在 acc 时 insert(0, v)；declared_by 假值回落 "designer"，declared_at=float(now if now is not None else time.time())，返回含 SCHEMA 的 dict。
 def make_declaration(version: str = None, accepted=None,
                      declared_by: str = "designer", now: float = None) -> dict:
     """构造（未封缄的）版本声明。accepted 默认只含自身版本。"""
@@ -122,6 +130,7 @@ def make_declaration(version: str = None, accepted=None,
             "declared_at": float(now if now is not None else time.time())}
 
 
+# 生效条件：d=decl if decl is not None else load(theory_file(path))；d 为假时返回 theory_ok=True、auto=True、version=PROTOCOL_VERSION 的状态；d.get("schema")!=SCHEMA、hmac.compare_digest(str(d.get("declaration_hash") or ""), declaration_hash(_payload(d))) 不通过、v=d.get("theory_version") 为假、或 v 不在 acc=[str(x) for x in (d.get("accepted_versions") or [])] 时各自返回同一个 base 且 theory_ok=False，其余情况 base 更新为 theory_ok=True、reason="ok"。
 def check(path: str = None, decl: dict = None) -> dict:
     """校验版本声明 → 状态字典（永不抛异常，供启动路径安全调用）。
 
@@ -164,6 +173,7 @@ def check(path: str = None, decl: dict = None) -> dict:
     return base
 
 
+# 生效条件：p=theory_file(path)，仅当 load(p) 为 None 时尝试 declare(PROTOCOL_VERSION, actor="system:autoinit", path=p, append_audit=False) 并吞掉 TheoryError/OSError，最终返回 check(p)。
 def ensure(path: str = None) -> dict:
     """启动路径：无声明则落盘默认声明（声明常态化），再返回校验状态。
 
@@ -179,6 +189,7 @@ def ensure(path: str = None) -> dict:
     return check(p)
 
 
+# 生效条件：version=None/空串时在 make_declaration 内回落 PROTOCOL_VERSION（仅回落结果 strip 后仍为空才抛 TheoryError），seal 后若 append_audit 为真值则把 (old or {}).get("audit") 或 [] 追加一条（仅 old 为真时追加）写入 decl["audit"]，save(decl, path) 后返回 {'ok': True, 'declaration': decl, 'status': check(path)}。
 def declare(version: str = None, accepted=None, actor: str = "designer",
             path: str = None, append_audit: bool = True) -> dict:
     """写入版本声明（版本更新权的唯一物理落点）。"""
@@ -195,11 +206,13 @@ def declare(version: str = None, accepted=None, actor: str = "designer",
     return {"ok": True, "declaration": decl, "status": check(path)}
 
 
+# 生效条件：以 path 调 load、check、theory_file，返回 {"declaration": load(path), "status": check(path), "theory_file": theory_file(path)}。
 def show(path: str = None) -> dict:
     return {"declaration": load(path), "status": check(path),
             "theory_file": theory_file(path)}
 
 
+# 生效条件：返回含模块常量 SCHEMA、PROTOCOL_VERSION、list(SEALED_FIELDS)、list(ESCAPE_OPS) 及 theory_file() 与 THEORY_ENV/THEORY_FILE_ENV 的自描述 dict。
 def catalog() -> dict:
     """版本层自描述（供 whoami / service_info 暴露）。"""
     return {"schema": SCHEMA, "theory_file": theory_file(),
@@ -213,10 +226,12 @@ def catalog() -> dict:
 # CLI
 # --------------------------------------------------------------------------
 
+# 生效条件：把 json.dumps(obj, ensure_ascii=False, indent=1)+"\n" 写入 sys.stdout，无返回值。
 def _print(obj):
     sys.stdout.write(json.dumps(obj, ensure_ascii=False, indent=1) + "\n")
 
 
+# 生效条件：argv 交给 ap.parse_args（argv 为 None 时 argparse 读 sys.argv），子解析器 required=True 缺 cmd 时由 argparse 报错退出；a.cmd 为 declare/check/ensure/show/catalog 之一且未抛 TheoryError 时打印并返回 0，抛出 TheoryError 时写 stderr 返回 2。
 def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="python -m md_cg.theory",
