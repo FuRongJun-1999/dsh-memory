@@ -46,6 +46,7 @@ _CARRIER_RE = re.compile(r"载体/位置：(.*?)；时间：(.*?)；方法：", 
 
 # ---------------------------------------------------------------- 基础工具
 
+# 生效条件：当显式参数 explicit 为真值时以其为候选 root，为假值（None/空串）时回落到环境变量 MDCG_ROOT，二者均假值则返回 None；候选经 expanduser/normpath 后仅当 os.path.isdir 为真才返回该路径，否则返回 None。
 def resolve_root(explicit=None):
     """认知图 root：显式参数 > MDCG_ROOT 环境变量 > None（跳过）。"""
     root = explicit or os.environ.get("MDCG_ROOT")
@@ -55,6 +56,7 @@ def resolve_root(explicit=None):
     return root if os.path.isdir(root) else None
 
 
+# 生效条件：对 path 指向的文本，raw 以“---”开头且从第 4 个字符起能找到“\n---”时返回 (fm, body)，否则返回 (None, raw)。
 def _read_node(path):
     with io.open(path, encoding="utf-8") as f:
         raw = f.read()
@@ -76,10 +78,12 @@ def _read_node(path):
     return fm, body
 
 
+# 生效条件：对任意 fm_lines，均返回“---\n” + “\n”.join(fm_lines) + “\n---\n”。
 def _fm_render(fm_lines):
     return "---\n" + "\n".join(fm_lines) + "\n---\n"
 
 
+# 生效条件：fm 中 key 对应的原始值为假值（缺键/None/空串等）时返回 {}；为真值且 json.loads 成功且结果为 dict 时返回该 dict；json.loads 抛异常或结果非 dict 时返回 {}。
 def _json_field(fm, key):
     raw = fm.get(key)
     if not raw:
@@ -91,12 +95,14 @@ def _json_field(fm, key):
     return val if isinstance(val, dict) else {}
 
 
+# 生效条件：对任意 s，返回对 str(s) 做连续空白折叠为单空格并 strip 首尾空白后的字符串。
 def _norm(s):
     return re.sub(r"\s+", " ", str(s)).strip()
 
 
 # ---------------------------------------------------------------- 期望形态
 
+# 生效条件：当 n 含“id”键时，以 n、i、sha、source_rel 为输入，按 semantic 缺省回落 n["id"]、conditions.apply 经 R._list_or 处理、execution.how、response.direct、content、negative.reject、node_id=n["id"]、no=i 构造期望字段字典；n 缺“id”时因 n.get("semantic", n["id"]) 与 n["id"] 求值而抛 KeyError。
 def expected_fields(n, i, sha, source_rel):
     """该条纪律在投影节点上的『可机械派生』期望值。"""
     cond = n.get("conditions") or {}
@@ -117,6 +123,7 @@ def expected_fields(n, i, sha, source_rel):
     }
 
 
+# 生效条件：对含 no、semantic、nac、how、source_rel、node_id、sha、content、trigger、direct 等键的 exp，返回按 exp、carrier、time_txt 拼接的六行列表；其中 exp["nac"] 为空可迭代对象时“不适用条件”行显示“（无）”。
 def expected_body(exp, carrier, time_txt):
     """投影节点正文六行（与既有节点同构）。"""
     nac = "；".join(exp["nac"]) or "（无）"
@@ -133,6 +140,7 @@ def expected_body(exp, carrier, time_txt):
     ]
 
 
+# 生效条件：当 body（或空串）匹配 _CARRIER_RE 时返回捕获的两组；否则 created_at 为真值时按其时间戳格式化为日期、为假值（None/0/空串）时用当前日期，并与 DEFAULT_CARRIER 组合返回“<日期> 起长期有效”。
 def _carrier_of(body, created_at):
     m = _CARRIER_RE.search(body or "")
     if m:
@@ -144,6 +152,7 @@ def _carrier_of(body, created_at):
 
 # ---------------------------------------------------------------- 盘点
 
+# 生效条件：当 root/NODE_DIR 是目录时，扫描该目录下 .md 文件，将 _read_node 得到非空 fm 且 tags 正则中带引号的标签以 TAG_PREFIX 开头处的整数为键，记录 path/fm/body 到返回字典；root/NODE_DIR 不是目录时返回空字典。
 def scan_nodes(root):
     """返回 {条号(int): {"path", "raw", "fm", "body"}}（tags 含 discipline:N）。"""
     out = {}
@@ -168,6 +177,7 @@ def scan_nodes(root):
     return out
 
 
+# 生效条件：当 root 不为 None 时，基于 repo 加载真源与矩阵，对每条真源节点在 scan_nodes(root) 结果中检查缺失、source_sha 不等、condition_space.trigger 经 _norm 不等、expected_body 各行经 _norm 不包含于节点正文、fm.id 规范化后为空，任一项成立即记入 drift 并返回 ok=not drift；root 为 None 时返回 skipped。
 def check_cg_nodes(repo, root, allow_missing=True):
     """守卫：真源 ↔ 认知图投影节点一致性。root 为 None 时返回 skipped。"""
     if root is None:
@@ -212,6 +222,7 @@ def check_cg_nodes(repo, root, allow_missing=True):
 
 # ---------------------------------------------------------------- 同步
 
+# 生效条件：对给定 path，按 fm_order 顺序逐项取 fm.get(k, "")（缺键为空串）生成 front matter，并写入其与 body_lines 以换行连接并 rstrip 后加换行的内容。
 def _write_node(path, fm, fm_order, body_lines):
     lines = []
     for k in fm_order:
@@ -221,6 +232,7 @@ def _write_node(path, fm, fm_order, body_lines):
         f.write(_fm_render(lines) + "\n".join(body_lines).rstrip() + "\n")
 
 
+# 生效条件：当 exp 含 nac、trigger、sha、no 等键时，以 now 计算 nid="mem_%d" % int(now*1000)，并返回该 nid 与按 exp 内容生成的固定 front matter 行列表。
 def _new_node_fm(exp, now):
     nac = json.dumps(exp["nac"], ensure_ascii=False)
     cs = json.dumps({"trigger": exp["trigger"], "harness": "codebuddy|zcode|dsh",
@@ -251,6 +263,7 @@ def _new_node_fm(exp, now):
     return nid, fm
 
 
+# 生效条件：当 root 不为 None 时，基于 repo 加载真源并与 scan_nodes(root) 比对：对缺失条号生成 created 记录（write 为真时写新节点），对正文或 source_sha 不一致条号生成 changed 记录（write 为真时写回），返回 changed/created/nodes/source_sha；root 为 None 时返回 skipped。
 def sync_cg_nodes(repo, root, write=False):
     """把真源同步进认知图投影节点。write=False 时干跑（只报告差异）。"""
     if root is None:
@@ -305,6 +318,7 @@ def sync_cg_nodes(repo, root, write=False):
             "source_sha": sha, "nodes": len(nodes)}
 
 
+# 生效条件：argv 为 None 时 argparse 从 sys.argv 解析，否则解析给定 argv；解析出 --write 时执行 sync_cg_nodes(repo, resolve_root(args.cg_root), write=True) 并返回 0；否则执行 check_cg_nodes(repo, resolve_root(args.cg_root)) 并按返回的 ok 返回 0/1。
 def main(argv=None):
     ap = argparse.ArgumentParser(description="工作纪律认知图投影节点同步器与守卫")
     ap.add_argument("--repo", default=R.REPO_DEFAULT)
