@@ -53,6 +53,7 @@ from md_cg.mdcos import MdCGSecure              # noqa: E402
 from md_cg.security import DEFAULT_SENSITIVITY, Principal    # noqa: E402
 
 
+# 生效条件：传入 cg 与 nid 后，cg._edge_node(nid) 不抛异常时返回其读值（fm, content, path），抛任意 Exception 时返回 None。
 def _edge_node(cg, nid):
     """读 (fm, content, path)；失败返回 None（口径同 append_edge）。"""
     try:
@@ -61,6 +62,7 @@ def _edge_node(cg, nid):
         return None
 
 
+# 生效条件：传入 cg 后遍历 sorted(known_ids(cg))，仅当 nid 通过 is_linkable_id、_edge_node(cg,nid) 返回真值、is_linkable_source(nid, fm.get("layer")) 为真、extract_refs(content or "", known, exclude=nid) 非空、其中存在不在 fm.get("edges") target 集内的 gap、且 live_targets(cg, gaps, cache=live_cache) 非空时，该节点计入 nodes_with_gap 并为每个存活 gap 追加 {node,target,layer,relation_type} 候选项（其余情况仅累加对应 skipped_* 后跳过），最终返回 (cands, stats)；verbose（默认 True）只在 nodes_scanned 每满 2000 时向 stderr 打印进度。
 def scan(cg, verbose=True):
     """扫描全库：返回 (候选列表, 统计)。只读。
 
@@ -115,6 +117,7 @@ def scan(cg, verbose=True):
     return cands, stats
 
 
+# 生效条件：传入 cg、cands、stats、out_path 即用 stats["nodes_with_gap"]、stats["pairs"]、stats["nodes_total"] 与 out_path or "(未落盘)" 组装提案文本，调用 cg.propose(node_id="mem_%d" % int(time.time()*1000)、layer="contextual"、tags 含 linkref/backfill/edge-proposal、linkref_batch 取自 stats 与 out_path) 并返回 pid，无其他返回分支。
 def do_propose(cg, cands, stats, out_path):
     content = (
         "【linkref 存量回填提案】扫描到 %d 个源节点存在「正文已引用他节点、"
@@ -136,6 +139,7 @@ def do_propose(cg, cands, stats, out_path):
     return pid
 
 
+# 生效条件：传入 cg、pid、cands 后，若 cg._pid_status() 取出的 st.get(pid) or {} 中 status 不等于 "accepted"（含 pid 不在 st 中），打印拒绝并返回 2；否则逐条处理 cands——live_targets(cg,[c["target"]]) 为空计入 dead 跳过，cg.append_edge(c["node"], linkref.make_edge(...)) 为真计入 added、为假计入 skipped、抛 Exception 计入 failed，最后返回 1（failed 非 0）或 0。
 def do_apply(cg, pid, cands):
     st = cg._pid_status()
     rec = st.get(pid) or {}
@@ -166,6 +170,7 @@ def do_apply(cg, pid, cands):
     return 1 if failed else 0
 
 
+# 生效条件：a.root（--root 缺省取 os.environ.get("MDCG_ROOT")）为假值时返回 3；否则以 clearance=--clearance（缺省读 os.environ.get("MDCG_CLEARANCE")，未设或为空串则回落模块常量 DEFAULT_SENSITIVITY）建 Principal 与 MdCGSecure——给了 --in 则读该 JSON 的 "candidates"/"stats"（缺键或假值回落 []/{}），未给则 scan(cg, verbose=not a.quiet)；--out 非空时写出清单文件；随后 --apply 且给了 --pid 时返回 do_apply(cg, a.pid, cands)，--apply 缺 --pid 返回 3，否则 --propose 时返回 0，两者皆无按 dry-run 返回 0。
 def main():
     ap = argparse.ArgumentParser(description="linkref 存量回填（默认 dry-run）")
     ap.add_argument("--root", default=os.environ.get("MDCG_ROOT"),
