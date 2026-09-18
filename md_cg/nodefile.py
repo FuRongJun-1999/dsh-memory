@@ -389,6 +389,7 @@ def is_legacy_position_condition(text) -> bool:
     return s.startswith(LEGACY_POSITION_PREFIX) and len(s) > len(LEGACY_POSITION_PREFIX)
 
 
+# 生效条件：text 为假值（None/空串）时按空文本处理返回 []；否则按「；/;」拆槽、槽内含「：」或「:」时取首个分隔符之后的内容，再按「，,、/（）()」切短语，丢弃长度 <2、纯数字及命中时间维哨兵关键词的短语并去重后返回 out；
 def cond_terms(text: str) -> list[str]:
     """生效条件声明 → 匹配短语列表（确定性切分，无语义猜测）。
 

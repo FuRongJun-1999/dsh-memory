@@ -139,6 +139,7 @@ def ref_of(node) -> tuple:
 # 索引水位（_refindex.json）：增量 + 截断留痕
 # --------------------------------------------------------------------------
 
+# 生效条件：以 root 为必填实参构造，实例化即置 self.root=root、self.path=os.path.join(root, LEDGER_FILE)、self._d=None；
 class Ledger:
     """`<root>/_refindex.json`：每个源文件的 (size, mtime) 水位 + 节点区间。"""
 
