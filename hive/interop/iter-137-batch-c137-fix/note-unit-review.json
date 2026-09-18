@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-137-batch-c137-fix",
+ "round": 2,
+ "candidate_commit": "edf6f4d",
+ "branch": "task/iter-137-batch-c137-fix",
+ "unit_job": "h1789691433428_5f327b",
+ "verdict": "ACCEPT",
+ "package_n": 13,
+ "text": "逐条核对 13 项：条件均锚定形参、_CFG/环境变量/模块常量与早退；None/假值、or 回落、长度比较、返回形状与源码一致；未发现 assert 语义、闭包来源、参数使用或源码不支持断言；position_ok=true 位置满足。\nreason: 全部候选条件与源码分支相符，无新增断言或不符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
