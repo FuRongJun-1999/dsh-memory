@@ -54,11 +54,13 @@ MAIN_ARMS = [
 LANGS = ("zh", "en")
 
 
+# 生效条件：questions、hits、k 三者给定即成立，以 hits 结合 k 经 bc.rows_from_hits 生成 rows，再返回 (ec.summarize(rows, k=k), rows)。
 def _score_hits(questions, hits, k):
     rows = bc.rows_from_hits(questions, hits, k=k)
     return ec.summarize(rows, k=k), rows
 
 
+# 生效条件：manifest_note 传入但源码未使用该形参，结果只取决于模块常量 ec.RESULTS 下 bench6_arms_result.json——该路径不存在时打印警告并返回 {}，路径可读时返回 json.load 结果 .get('results') or {}（results 键缺失或该值为假值时同样得到 {}）。
 def load_main(manifest_note):
     """读主进程臂结果（含灵枢 5 口径 + 向量基线）。"""
     path = os.path.join(ec.RESULTS, "bench6_arms_result.json")
@@ -69,6 +71,7 @@ def load_main(manifest_note):
         return json.load(f).get("results") or {}
 
 
+# 生效条件：由 arm 拼出模块常量 ARM_OUT 下 <arm>.json，该路径不存在时返回 (None, '缺文件 …（该臂未跑或跑失败）')；路径可读时用 questions 与 k 对遍历模块常量 LANGS 各语言的 hits 评分（raw['langs']、某语言块、其 hits 缺失或为假值时按 {} 处理，errors 缺失或为假值时按 [] 处理），返回 (out, None)。
 def load_competitor(arm, questions, k):
     path = os.path.join(ARM_OUT, "%s.json" % arm)
     if not os.path.exists(path):
@@ -94,6 +97,7 @@ def load_competitor(arm, questions, k):
     return out, None
 
 
+# 生效条件：遍历 rows 的每个 (label, r)，仅当 r['langs'] 对模块常量 LANGS 每个语言都存在真值时，才用 k 读 s['hit@k'] 并打印 hit@1/hit@k/MRR 及未回收率（unmapped_rate 为 None 时显示 n/a）；否则只打印 label 加「—」占位行，不打印数值。
 def print_matrix(rows, k):
     """六家 × 两语言主表（hit@1 / hit@k / MRR）。"""
     head = ("系统", "zh hit@1", "zh hit@%d" % k, "zh MRR",
