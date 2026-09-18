@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-165-batch-c165",
+ "round": 1,
+ "candidate_commit": "816f644",
+ "branch": "task/iter-165-batch-c165",
+ "unit_job": "h1789704444538_5cd550",
+ "verdict": "ACCEPT",
+ "package_n": 14,
+ "text": "逐条复核 14 项：假值/None 回落、早退前置、必需形参与常量锚定、异常与返回分支均与源码一致；scan_nodes 未列 fm_raw 别名但不影响生效条件，position_ok 已满足，未发现源码不支持的断言。\nreason: 候选条件整体与源码语义吻合，无需驳回。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
