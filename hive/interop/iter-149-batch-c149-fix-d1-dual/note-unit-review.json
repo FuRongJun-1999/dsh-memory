@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-149-batch-c149-fix-d1-dual",
  "round": 5,
- "candidate_commit": "8268ccb",
+ "candidate_commit": "7e6f118",
  "branch": "task/iter-149-batch-c149-fix-d1-dual",
- "unit_job": "h1789703110223_1eeb08",
- "verdict": "ACCEPT",
+ "unit_job": "h1789703476487_b19c91",
+ "verdict": "REJECT",
  "package_n": 3,
- "text": "三项均与源码一致：prune 按 root 或 dirname 兜底判非目录，pop 后返回 len(dead)，空匹配为 0；save 除 self 外无参，更新 updated_at 后 atomic_write 写入 self.path，无返回；summary 的 files/nodes/updated_at/age_s（up 为 0.0 时 None）/last_index 为 dict 才并入均准确。position_ok=true，未见源码不支持断言。\nreason: 条件准确锚定源码分支、返回形状与假值语义，无实质不符。\nverdict: ACCEPT",
+ "text": "复核：\n1. prune 准确：对 `load()[\"files\"]` 中 root 假值时用 `dirname(k)` 兜底，非目录条目 pop，返回删除数；无匹配返回 0。\n2. save 准确：`self.load()` 后置 `updated_at=_now()`，`atomic_write` 写 `json.dumps(..., ensure_ascii=False, indent=1, sort_keys=True)`，无返回值。\n3. summary 不符：源码是 `files = d.get(\"files\") or {}`，非 `load()[\"files\"]` 条目数；`nodes` 对每项用 `e.get(\"nodes\") or []`，缺失/假值计 0。条件未写这两个 None/假值兜底，却表述为“各条目 nodes 列表长度之和”。`age_s` 与 `last_index` 描述基本正确。\nreason: 第3条 summary 漏写 files/nodes 的假值兜底且误写为 load()[\"files\"]。\nverdict: REJECT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
