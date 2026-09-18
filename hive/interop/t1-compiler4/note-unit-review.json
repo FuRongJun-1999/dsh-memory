@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler4",
+ "round": 1,
+ "candidate_commit": "b8bba78",
+ "branch": "task/t1-compiler4",
+ "unit_job": "h1789689731797_76fca2",
+ "verdict": "ACCEPT",
+ "package_n": 8,
+ "text": "逐条核对：各条件均锚定实际形参、None/假值早退、真值门控与返回形状；_ast_to_text 对术曰/问曰/答曰前缀及 INSTRUCTION_STMT 的 strip/回退仅属摘要省略，未与源码相反或添加源码不支持断言。position_ok=true 满足。\nreason: 条件整体与源码一致，未发现需否决的语义不符或额外断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
