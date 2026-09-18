@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-genspecs-c1-fix",
+ "round": 2,
+ "candidate_commit": "ad07c20",
+ "branch": "task/iter-genspecs-c1-fix",
+ "unit_job": "h1789749605747_268c41",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "1) build_spec：ACCEPT。形参、SYSTEM_PROMPT_FILE 读取、user_prompt 生成、SPEC_COMMON 覆盖字段及返回均符，无越界。  \n2) main：ACCEPT。report/mdcg 空与 batch 空返 2，筛选切片、tag/hive、submit 计数、最终返回均符，无越界。  \nreason: 两条功能级条件均与各自源码段一致，未发现不符、越界或源码不支持断言。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
