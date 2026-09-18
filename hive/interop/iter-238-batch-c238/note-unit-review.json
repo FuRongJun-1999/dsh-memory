@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-238-batch-c238",
+ "round": 1,
+ "candidate_commit": "4a416ec",
+ "branch": "task/iter-238-batch-c238",
+ "unit_job": "h1789722572893_2aef55",
+ "verdict": "REJECT",
+ "package_n": 4,
+ "text": "条目1/2/3与对应源码基本一致，锚定形参、假值过滤、None/早退与返回形状。条目4不符：其 condition 描述的是 def_use_chains.visit 的 ASSIGN_STMT/IDENTIFIER 及 def/use 计数，但 src_segment 是 symbol_table.visit；源码仅处理 FUNC_DEF/ASSIGN_STMT，无 IDENTIFIER 分支、无 def/use 计数，属张冠李戴并补充源码不支持断言。position_ok=true 不额外要求行号。故整批不可接受。\nreason: 条目4条件与所给源码不符且新增不支持分支，整批应拒。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}

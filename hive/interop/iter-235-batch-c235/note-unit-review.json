@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-235-batch-c235",
+ "round": 1,
+ "candidate_commit": "0cc1390",
+ "branch": "task/iter-235-batch-c235",
+ "unit_job": "h1789722177719_5df56e",
+ "verdict": "ACCEPT",
+ "package_n": 6,
+ "text": "逐条核对：1 body_of 字段齐备时返回 join 行、空行后 text，吻合；2 write_domain 合并 terms+summary 空白项并调 big_domain_classify，吻合；3 arm_tags 三路与 `if d else []` 一致；4 build_domain_arm 的 root/rmtree、shuf 非空重排、add/flush/verbose/return 与源码一致，虽未列 eval_src/verification_basis，但非分支生效条件；5 context_of 为闭包 qctx.get，缺 qid 抛 KeyError；6 cell 为 out[\"cells\"].get 默认 {}。未见源码不支持断言。\nreason: 六条条件均与源码分支、返回形状及前置语义一致。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
