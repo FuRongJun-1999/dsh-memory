@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-146-batch-c146",
+ "round": 1,
+ "candidate_commit": "03361e3",
+ "branch": "task/iter-146-batch-c146",
+ "unit_job": "h1789695865767_9144e7",
+ "verdict": "REJECT",
+ "package_n": 15,
+ "text": "复核：多数条目准确；但 `list_events` 条件称 `limit<0` 时取前 `|limit|` 条，源码 `out[-int(limit):]` 实为 `out[|limit|:]`，是去掉前 `|limit|` 条。另 `_q` 条件未锚定闭包前置 `vs` 来源（`_quartiles` 的非空 `sorted(values)`）。`verify` 对空白 verdict 的假值/非空边界也不精确。故不可全量接受。\nreason: 存在与源码不符的负数 limit 切片及闭包前置缺失。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
