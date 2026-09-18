@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-140-batch-c140",
+ "round": 1,
+ "candidate_commit": "264bd5a",
+ "branch": "task/iter-140-batch-c140",
+ "unit_job": "h1789692226245_577912",
+ "verdict": "ACCEPT",
+ "package_n": 14,
+ "text": "逐条比对 14 条条件与源码：形参、默认值、常量 `_RENAME_TRIES/_RENAME_WAIT`、异常重试、`durable` 真值分支、清理 `finally`、`isdir` 早退、末字节判断、JSONL 跳过、count 缓存/增量、FileLock/ShardedLog 路径与状态，均与源码相符。重复条目一致；未发现 assert、None/假值、闭包、返回形状、空容器长度等误述。位置 `position_ok=true` 接受。\n\nreason: 所有候选生效条件均与源码分支语义相符，无实质不符或额外断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
