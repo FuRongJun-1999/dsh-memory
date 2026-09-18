@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-127-batch-c127-fix-d1-dual",
  "round": 5,
- "candidate_commit": "870dbf7",
+ "candidate_commit": "370d030",
  "branch": "task/iter-127-batch-c127-fix-d1-dual",
- "unit_job": "h1789689101162_663de2",
+ "unit_job": "h1789695256943_cc14d4",
  "verdict": "ACCEPT",
  "package_n": 1,
- "text": "条件与源码一致：先构造模块条目（name=basename(path) or \"<module>\"），再遍历 _JS_DEF.finditer(source)，跳过 kind∈_JS_MODULE_SCOPE_ONLY 且 indent 非空的命中；其余按序保留 lineno/kind/name/sig，end 取下一保留命中 lineno-1 或 len(lines)，并 max(lineno,end)，comments 调 _leading_js_comments(lines,lineno)。锚定 source/path 与模块常量，未发现不符或额外断言。\nreason: 条件准确覆盖该函数生成条目的输入状态、过滤与字段来源。\nverdict: ACCEPT",
+ "text": "条件与源码一致：锚定 _JS_DEF/_JS_MODULE_SCOPE_ONLY、indent 早退、hits 顺序、end=max/len(lines) 及 _leading_js_comments；未列 sig[:200] 不构成不符。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
