@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-162-batch-c162",
+ "round": 1,
+ "candidate_commit": "d8ca97b",
+ "branch": "task/iter-162-batch-c162",
+ "unit_job": "h1789702939511_22e48c",
+ "verdict": "REJECT",
+ "package_n": 13,
+ "text": "reason: _fm 回填漏了 `if node:` 前置：仅当 cg.get 返回真值节点时才用 frontmatter 回填；返回 None/假值时不回填。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
