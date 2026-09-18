@@ -103,6 +103,7 @@ def oov_stats(questions):
             if questions else 0.0}
 
 
+# 生效条件：不适用（无必需形参与模块级常量）
 def main():
     t0 = time.time()
     rows500 = list(ec.iter_jsonl(b6.QUESTIONS500))

@@ -163,6 +163,7 @@ def build_domain_arm(corpus, name, mode, df, verbose=True):
 
 # ------------------------------------------------------------------ 主流程
 
+# 生效条件：不适用（无必需形参与模块级常量）
 def main():
     corpus = list(ec.iter_jsonl(CORPUS567))
     questions = list(ec.iter_jsonl(QUESTIONS500))

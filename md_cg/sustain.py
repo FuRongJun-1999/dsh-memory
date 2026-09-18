@@ -856,6 +856,7 @@ class SustainLoop:
 
     # ---- 生命周期 ----
 
+# 生效条件：不适用（无必需形参与模块级常量）
     def start(self):
         if self._th is not None and self._th.is_alive():
             return self

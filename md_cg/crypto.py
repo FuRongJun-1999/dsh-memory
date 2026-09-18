@@ -68,10 +68,12 @@ MASTER_FILE = os.path.join(os.path.expanduser("~"), ".mdcg", "master.key")
 SCRYPT_N, SCRYPT_R, SCRYPT_P, SCRYPT_DKLEN = 2 ** 14, 8, 1, 32
 
 
+# 生效条件：不适用（无必需形参与模块级常量）
 class CryptoError(Exception):
     """加解密 / 密钥相关错误。"""
 
 
+# 生效条件：不适用（无必需形参与模块级常量）
 class LockedError(CryptoError):
     """无密钥或身份不符——内容不可读（fail-closed，绝不降级为明文）。"""
 

@@ -20,6 +20,7 @@ from .codegen import CodeGenerator
 # =============================================================================
 
 @dataclass
+# 生效条件：不适用（无必需形参与模块级常量）
 class CompileOptions:
     """编译选项"""
     llm_assist: bool = False        # 是否启用 LLM 辅助（辞意/说故校验）
@@ -37,6 +38,7 @@ class CompileOptions:
 # =============================================================================
 
 @dataclass
+# 生效条件：不适用（无必需形参与模块级常量）
 class CompileResult:
     """编译结果"""
     success: bool = False
@@ -55,10 +57,12 @@ class CompileResult:
     verdict: Optional[Dict] = None
     
     @property
+# 生效条件：不适用（无必需形参与模块级常量）
     def has_errors(self) -> bool:
         return len(self.errors) > 0
     
     @property
+# 生效条件：不适用（无必需形参与模块级常量）
     def has_warnings(self) -> bool:
         return len(self.warnings) > 0
     
