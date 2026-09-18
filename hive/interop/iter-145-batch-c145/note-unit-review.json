@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-145-batch-c145",
+ "round": 1,
+ "candidate_commit": "bace35f",
+ "branch": "task/iter-145-batch-c145",
+ "unit_job": "h1789695524600_fbb0e7",
+ "verdict": "REJECT",
+ "package_n": 15,
+ "text": "复核：多数条目与源码一致，锚定形参/常量/早退前置，position_ok 无需行号。唯 `list_events` 条件中“负数 limit 会取前 |limit| 项”不符：`out[-int(limit):]` 在 limit=-k 时等价 `out[k:]`，即跳过前 k 项并取剩余，不是取前 k 项；长度不足时为空。该错误影响生效条件准确性。\nreason: list_events 对负数 limit 的切片语义描述错误，整批应退回修正。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
