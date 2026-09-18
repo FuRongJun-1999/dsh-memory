@@ -1890,10 +1890,18 @@ class MdCG:
                 # 发布表是**快照**：节点被改写后可能漏掉命中 → 先验快照指纹，过期即回退全量
                 # （宁可慢，不可丢召回）。指纹只做 stat（≈目录数，本库 1,074 目录 ≈ 0.03s）。
                 # MDCG_S7_FRESHNESS=skip 只供离线对照实测使用；生产默认 auto。
+                # 组合语义（S7×语义路）：MDCG_SEMANTIC=1 时「frontmatter 有 semantic 的节点」
+                # 在 _like 之外**无条件入池**（见下方 hits 构造），而该标志只在节点文件里
+                # （索引快照没有该键）→ 候选阶段无法识别它们，窄化会漏读 → 漏召回。
+                # 故语义路开启时 S7 一律不窄化（独立复核 2026-09-19 REJECT 第 1 条）。
+                _sem = semantic_on()
                 _stale = ""
-                if os.environ.get("MDCG_S7_FRESHNESS") != "skip":
+                if not _sem and os.environ.get("MDCG_S7_FRESHNESS") != "skip":
                     _stale = _pd.stale_reason(self.root, self.index.get("nodes") or {})
-                if _stale:
+                if _sem:
+                    gates["s7"] = {"reason": "semantic_on", "in": len(entries_full),
+                                   "fallback": "full_scan"}
+                elif _stale:
                     gates["s7"] = {"reason": "stale_index:" + _stale,
                                    "in": len(entries_full), "fallback": "full_scan"}
                 else:

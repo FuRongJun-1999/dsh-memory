@@ -33,7 +33,20 @@ def main(argv=None):
     cg = MdCG(a.root)
     nodes = cg.index.get("nodes") or {}
     if a.stats:
-        print(json.dumps(postings.stats(a.root, nodes), ensure_ascii=False))
+        st = postings.stats(a.root, nodes)
+        m = st.get("meta")
+        brief = None
+        if isinstance(m, dict):
+            brief = {k: m.get(k) for k in ("schema", "built_at", "nodes", "terms",
+                                           "postings", "partial")}
+            snap = m.get("snapshot")
+            if isinstance(snap, dict):
+                # 指纹本体很长（上千个目录）——只报规模，需要细节直接读 meta 文件
+                brief["dirs"] = len(snap.get("dir_mtimes") or {})
+                brief["root_files"] = len(snap.get("file_mtimes") or {})
+        print(json.dumps({"terms": st.get("terms"), "postings": st.get("postings"),
+                          "stale_reason": st.get("stale_reason"),
+                          "meta": brief}, ensure_ascii=False))
         return 0
     if a.if_stale:
         sr = postings.stale_reason(a.root, nodes)

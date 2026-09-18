@@ -97,16 +97,26 @@ def snapshot(root: str, index_nodes) -> dict:
     目录 mtime 必然变化，故「目录 mtime + 节点数」能以 O(目录数) 次 stat
     发现「发布表已过期」，无需重读/重哈希任何节点文件。
     """
-    dirs = set()
+    dirs, files = set(), {}
     for e in (index_nodes or {}).values():
-        dirs.add(os.path.dirname((e or {}).get("path") or ""))
+        p = (e or {}).get("path") or ""
+        d = os.path.dirname(p)
+        if d:
+            dirs.add(d)
+        elif p:
+            # 根级节点（path 无目录）不能靠「根目录 mtime」判定：我们自己写的
+            # _postings.json / _postings_meta.json 就在根目录，会把根目录 mtime 改掉
+            # → 快照刚建就自判过期（独立复核 2026-09-19 指出）。改为逐文件记 mtime。
+            files[p] = _mtime_ns(os.path.join(root or "", p))
     return {"nodes": len(index_nodes or {}),
             "dir_mtimes": {d: _mtime_ns(os.path.join(root or "", d)) for d in dirs},
+            "file_mtimes": files,
             "index_mtime": _mtime_ns(os.path.join(root or "", "_index.json"))}
 
 
-# 生效条件：meta 非 dict 或 schema 不符 → 'no_meta'；无 snapshot → 'no_snapshot'；节点数/目录集合/目录 mtime/索引 mtime
-# 任一不一致 → 对应 reason；全部一致 → ''（空串，代表新鲜可用）。index_nodes 为假值时按「无索引」返回 'no_index'。
+# 生效条件：meta 非 dict 或 schema 不符 → 'no_meta'（无数据文件时 'no_index'）；无 snapshot → 'no_snapshot'；
+# 节点数 / 目录集合 / 目录 mtime / 根级文件集合 / 根级文件 mtime / 索引 mtime 任一不一致 → 对应 reason；
+# 全部一致 → ''（空串，代表新鲜可用）。index_nodes 为假值时返回 'no_index'。
 def stale_reason(root: str, index_nodes, meta=None) -> str:
     """返回 '' 表示快照仍与当前索引一致；否则返回过期原因（调用方必须回退全量）。"""
     if not index_nodes:
@@ -123,12 +133,25 @@ def stale_reason(root: str, index_nodes, meta=None) -> str:
     want = snap.get("dir_mtimes") or {}
     dirs_now = set()
     for e in index_nodes.values():
-        dirs_now.add(os.path.dirname((e or {}).get("path") or ""))
+        d = os.path.dirname((e or {}).get("path") or "")
+        if d:
+            dirs_now.add(d)          # 根级路径（无目录）由 file_mtimes 记账，见下
     if set(want.keys()) != dirs_now:
         return "dirs_changed"
     for d, mt in want.items():
         if _mtime_ns(os.path.join(root or "", d)) != mt:
             return "dir_touched"
+    want_files = snap.get("file_mtimes") or {}
+    files_now = set()
+    for e in index_nodes.values():
+        p = (e or {}).get("path") or ""
+        if p and not os.path.dirname(p):
+            files_now.add(p)
+    if set(want_files.keys()) != files_now:
+        return "root_files_changed"
+    for p, mt in want_files.items():
+        if _mtime_ns(os.path.join(root or "", p)) != mt:
+            return "root_file_touched"
     if snap.get("index_mtime") != _mtime_ns(os.path.join(root or "", "_index.json")):
         return "index_touched"
     return ""

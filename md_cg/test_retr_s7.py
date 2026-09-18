@@ -13,6 +13,7 @@
 import os
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -160,7 +161,9 @@ def main():
 
     # ---- 7) T3 兜底：候选非空但 T2 零命中 → 必须恢复全量再兜底 ----
     r0, m0, r1, m1, g = _both(cg, "贝塔伽")
-    check("T3 用例：T2 确实零命中（用例有效）", True)
+    check("T3 用例：窄化后命中不足而全量有命中（用例有效，非自证）",
+          len(r0) > 0 and 0 < g.get("cands", 0) < len(r0),
+          "full_hits=%d s7=%s" % (len(r0), g))
     check("T3 兜底：结果与全表一致（含空结果）", _snap(r1) == _snap(r0),
           str(_snap(r1)) + " vs " + str(_snap(r0)))
     check("T3 兜底：标记 t3_full 且扫描量等于全量",
@@ -282,6 +285,30 @@ def main():
     g7 = (m7.get("gates") or {}).get("s7") or {}
     check("skip 开关：跳过指纹校验后仍走候选窄化（改动路径可见）",
           g7.get("cands") is not None and g7.get("fallback") is None, str(g7))
+    # ---- 13b) 组合语义（S7×MDCG_SEMANTIC）：语义路开启时不窄化 ----
+    root8 = tempfile.mkdtemp(prefix="retr_s7sem_")
+    cg8 = MdCG(root8)
+    cg8.add("s1", "阿尔法 贝塔", "knowledge", semantic="阿尔法", verification_basis="test")
+    cg8.add("s2", "qxzq 与查询无词面交集", "knowledge", semantic="阿尔法", verification_basis="test")
+    cg8.flush()
+    postings.build(cg8)
+    _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S7_POSTINGS="1",
+            MDCG_GATE_S1_DOMAIN="0", MDCG_GATE_S1B_BUCKET="0", MDCG_GATE_S2_COND="0",
+            MDCG_S7_FRESHNESS=None, MDCG_SEMANTIC="1")
+    _rr0, mm0 = cg8.search("阿尔法", k=10, judge=False, record=False)
+    _setenv(MDCG_GATE_S7_POSTINGS=None)
+    _rr_off, mm_off = cg8.search("阿尔法", k=10, judge=False, record=False)
+    gs8 = (mm0.get("gates") or {}).get("s7") or {}
+    check("语义路开：S7 不窄化（reason=semantic_on）且扫描量等于全量",
+          gs8.get("reason") == "semantic_on" and gs8.get("fallback") == "full_scan"
+          and mm0.get("scanned") == mm_off.get("scanned"),
+          str(gs8) + " scanned=%s vs %s" % (mm0.get("scanned"), mm_off.get("scanned")))
+    check("语义路开：无词面交集的语义节点仍入池（不漏召回）",
+          _snap(_rr0) == _snap(_rr_off)
+          and any(x[0]["id"] == "s2" for x in _rr0),
+          str(_snap(_rr0)) + " vs " + str(_snap(_rr_off)))
+    _setenv(MDCG_SEMANTIC=None)
+
     # ---- 14) 抽样构建（limit）不得留下看似新鲜的快照 ----
     root6 = tempfile.mkdtemp(prefix="retr_s7part_")
     cg6 = _build(root6)
@@ -300,6 +327,32 @@ def main():
           gp1.get("fallback") == "full_scan"
           and str(gp1.get("reason") or "").endswith("no_snapshot"),
           str(gp1))
+    # ---- 15) 根级节点：快照按**文件** mtime 记账（不依赖根目录 mtime）----
+    # 背景（独立复核 REJECT 第 3 条）：根目录里也躺着我们自己的 _postings*.json，
+    # 若用「根目录 mtime」判定，则快照刚建就被自己的写入改旧。故根级节点路径
+    # （path 无目录）改为逐文件记 mtime。
+    root7 = tempfile.mkdtemp(prefix="retr_s7root_")
+    _dst = os.path.join(root7, "r1.md")
+    with open(_dst, "w", encoding="utf-8") as f:
+        f.write("---\nid: r1\nlayer: knowledge\n---\n根级节点\n")
+    _fake = {"r1": {"path": "r1.md", "layer": "knowledge"}}
+    _snap7 = postings.snapshot(root7, _fake)
+    _meta7 = {"schema": postings.SCHEMA, "snapshot": _snap7}
+    check("根级节点：快照记 file_mtimes、不记根目录（dir_mtimes 无空键）",
+          _snap7.get("file_mtimes", {}).get("r1.md") is not None
+          and "" not in (_snap7.get("dir_mtimes") or {}),
+          str(_snap7)[:200])
+    with open(postings.postings_path(root7), "w", encoding="utf-8") as f:
+        f.write("{}")
+    with open(postings.meta_path(root7), "w", encoding="utf-8") as f:
+        f.write("{}")
+    check("根级节点：自身派生文件写入后快照仍新鲜（不自判过期）",
+          postings.stale_reason(root7, _fake, _meta7) == "",
+          postings.stale_reason(root7, _fake, _meta7))
+    os.utime(_dst, (time.time() + 5, time.time() + 5))
+    check("根级节点：被改写后判过期（root_file_touched）",
+          postings.stale_reason(root7, _fake, _meta7) == "root_file_touched",
+          postings.stale_reason(root7, _fake, _meta7))
     _restore(old)
 
     print("\ntest_retr_s7: %d 通过 / %d 失败" % (passed, failed))
