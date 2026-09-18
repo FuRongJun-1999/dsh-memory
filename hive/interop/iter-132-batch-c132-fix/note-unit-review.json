@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-132-batch-c132-fix",
+ "round": 2,
+ "candidate_commit": "a589e62",
+ "branch": "task/iter-132-batch-c132-fix",
+ "unit_job": "h1789690185258_2f7580",
+ "verdict": "REJECT",
+ "package_n": 19,
+ "text": "复核 19 条：多数与源码吻合；唯 `history` 条不符：`limit=0` 时源码为 `recs[-int(0):]`，即 `recs[0:]`，返回全部记录，并非“取空”。故该条件误述，不能放行。另 `_pool` 未明示 `cg.index`/`nodes` 缺失假值时空池，属次要遗漏。\nreason: `history` 将 limit=0 描述为取空，源码实际返回全部记录，存在硬性不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
