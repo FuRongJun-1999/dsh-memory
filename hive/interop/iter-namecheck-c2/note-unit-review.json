@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-namecheck-c2",
+ "round": 1,
+ "candidate_commit": "b159129",
+ "branch": "task/iter-namecheck-c2",
+ "unit_job": "h1789754099979_8b120e",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "逐条：1) NameChecker：required 空，__init__ 仅 self；symbol_table 为 dict(PREDEFINED_SYMBOLS)，errors/warnings 空列表，三集合空，current_condition_space 为 None，与源码一致，ACCEPT。2) report：无 required；标题三段；sorted(predefined_used) 经 get/if sym；user_declared/errors/warnings 非空追加；无错警追加通过行；最终 join 返回，均符，ACCEPT。\nreason: 两条条件均与各自 src_segment 内证据一致，未越界且无源码不支持断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
