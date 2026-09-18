@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-251-batch-c251",
+ "round": 1,
+ "candidate_commit": "d011f01",
+ "branch": "task/iter-251-batch-c251",
+ "unit_job": "h1789727778932_a061a6",
+ "verdict": "ACCEPT",
+ "package_n": 44,
+ "text": "逐条对照 src_segment：条件均锚定实际分支、早退、默认值与假值语义；未发现 assert 错置、None/假值混淆、闭包来源错误、返回形状或长度前置越界。position_ok 已满足，无需行号。\n\nreason: 全部候选条件与给定源码片段一致，未发现不符或源码外断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
