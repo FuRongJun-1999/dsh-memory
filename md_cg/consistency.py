@@ -81,6 +81,7 @@ DISCIPLINE_TAGS = ("discipline", "纪律", "work_discipline", "rule", "规则", 
 VERDICTS = ("ACCEPT", "REJECT", "DEFER", "BLINDSPOT")
 
 
+# 生效条件：以 verdict 与 reason 构造异常（消息 `[{verdict}] {reason}`），conflicts 传假值（None/空容器等，源码 `conflicts or []`）时 self.conflicts 为 []，传真值时原样保留；
 class ConsistencyError(Exception):
     """硬冲突：写入被拒（自否定 / 违反纪律）。"""
 
