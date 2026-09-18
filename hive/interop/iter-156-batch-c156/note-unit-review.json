@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-156-batch-c156",
+ "round": 1,
+ "candidate_commit": "c768641",
+ "branch": "task/iter-156-batch-c156",
+ "unit_job": "h1789701325060_bed280",
+ "verdict": "REJECT",
+ "package_n": 15,
+ "text": "复核发现多处不精确：`_chk_dup_hash_group` 跳过条件是 `_blank(h) or h==\"None\"`，`_blank` 还会跳过纯空白及 strip 后为 `\"None\"` 的值，条件仅列空串/精确 `\"None\"`；`_chk_basis_licensed` 的 `CC.classify_track(fm, e.get(\"excerpt\") or \"\")` 漏了 excerpt 实参；`_match`/`_scope` 用 `m.get(\"layer\")`、`m.get(\"tags_any\")` 真值判断，键存在但值为 `[]` 时不会过滤/拒绝，条件误作“含键”。其余及 `position_ok` 基本相符。\nreason: 存在假值分支、跳过条件和漏参不符，未过 Zero-Trust。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
