@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-190-batch-c190",
+ "round": 1,
+ "candidate_commit": "02368c1",
+ "branch": "task/iter-190-batch-c190",
+ "unit_job": "h1789710520608_1943c8",
+ "verdict": "ACCEPT",
+ "package_n": 11,
+ "text": "逐条对照源码：输入/状态、形参默认、模块常量、早退前置、假值/None 分支、返回形状与长度/空容器判断均吻合；未发现 assert 误述、闭包来源、参数误用或新增断言。`position_ok=true` 已满足，无需行号。措辞“构造 ValueError 子类”指实例化，不影响生效条件。\n\nreason: 批次条件与源码逐项一致，未发现语义或前置偏差。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
