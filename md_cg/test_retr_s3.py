@@ -86,6 +86,15 @@ def main():
           str(sorted(meta_off.keys())))
     snap_off = [(r[0]["id"], round(float(r[1]), 6)) for r in r_off]
 
+    # 1b 总开关开、子开关未设 → 各阶段仍必须为关（契约 §4：子开关默认 0）
+    _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S1_DOMAIN=None,
+            MDCG_GATE_S2_COND=None, MDCG_GATE_S3_SPREAD=None)
+    r_m, m_m = cg.search("工程 应力", k=5, judge=False, record=False)
+    check("总开关开而子开关未设：阶段全关（无 gates / 结果不变）",
+          "gates" not in m_m
+          and [(r[0]["id"], round(float(r[1]), 6)) for r in r_m] == snap_off,
+          str(m_m.get("gates")) + " " + str([r[0]["id"] for r in r_m]))
+
     # ---- 2) S3 开（S1/S2 关），hops=1 ----
     _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S1_DOMAIN="0",
             MDCG_GATE_S2_COND="0", MDCG_GATE_S3_SPREAD="1",
