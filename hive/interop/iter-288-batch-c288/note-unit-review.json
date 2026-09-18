@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-288-batch-c288",
+ "round": 1,
+ "candidate_commit": "91263ae",
+ "branch": "task/iter-288-batch-c288",
+ "unit_job": "h1789746139498_b64c53",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "reason: 条件与 __init__ 源码一致：root 经 abspath 并建 root/LAYERS 目录，autoflush 直接赋值且默认 64、无假值回落，未越界。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
