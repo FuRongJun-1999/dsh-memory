@@ -58,6 +58,7 @@ def _bbox(fm):
     return None
 
 
+# 生效条件：a、b 均非 None 且各可解包为两个元素时，按 a 相对 b 依次返回 equals（两端全等）、before（a2<b1）、after（a1>b2）、contains（a1<=b1 且 a2>=b2）、during（a1>=b1 且 a2<=b2）或 overlaps（其余）；a 或 b 为 None 时返回 None；
 def time_relation(a, b):
     """Allen 区间代数的 6 个基本态。"""
     if a is None or b is None:
@@ -109,6 +110,7 @@ def _node(cg, node_id):
             "content": n.get("content") or ""}
 
 
+# 生效条件：cg.index["nodes"] 存在时按 list(...items())[:max_scan] 遍历，layer 为真值时仅保留 e.get("layer")==layer 的条目（layer 为假值不筛层），e 含 "temporal" 或 "spatial" 键时直接以快照字段构造 frontmatter、否则调用 cg._read(e) 且在 fm 为 None 时跳过；返回 out 列表（max_scan=None 切片取全部，0 时为空）；
 def _scan(cg, layer=None, max_scan=5000):
     """遍历节点：时空字段直接读索引快照（不读文件，O(1)/节点）。
 
@@ -170,6 +172,7 @@ def _preview(cg, node_id, n=200):
     return opened[:n]
 
 
+# 生效条件：cg 上 _node(cg, a_id) 与 _node(cg, b_id) 均返回真值时返回含 a_id/b_id、时间关系、空间关系和 time_known/space_known 的 dict；任一 _node 结果为假值时返回 {"error":"node_not_found","missing":[...]}；
 def relation(cg, a_id, b_id):
     """两节点间的时空关系（a 相对 b）。"""
     na, nb = _node(cg, a_id), _node(cg, b_id)
@@ -201,6 +204,7 @@ def timeline(cg, layer=None, limit=50, desc=True, max_scan=5000):
                       for s, e, i, l in items[:limit]]}
 
 
+# 生效条件：time_window 为长度 2 的 list/tuple 时 q_t=(float(time_window[0]),float(time_window[1]))（元素不可转 float 会直接抛异常，源码未捕获），bbox 为长度 4 的 list/tuple 时同理构造 q_b；q_t 与 q_b 均为 None 时返回 {"error":"need_time_window_or_bbox"}；否则扫描节点并要求时间关系在 during/contains/overlaps/equals、空间关系在 inside/contains/overlaps/equals（提供查询侧才检查），返回 hits[:limit]（limit=None 取全部，0/False 取空）；
 def anchors(cg, time_window=None, bbox=None, layer=None, limit=50, max_scan=5000):
     """落在给定时间窗 / 空间范围内的节点。"""
     q_t = None
