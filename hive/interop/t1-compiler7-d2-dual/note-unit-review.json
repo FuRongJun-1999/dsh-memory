@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "t1-compiler7-d2-dual",
  "round": 5,
- "candidate_commit": "5a4775c",
+ "candidate_commit": "2115721",
  "branch": "task/t1-compiler7-d2-dual",
- "unit_job": "h1789692000472_9bd4c5",
+ "unit_job": "h1789696004557_369916",
  "verdict": "ACCEPT",
  "package_n": 16,
- "text": "复核16条：create_parser、cmd_check/explain/init/ast/version、_read_input、cmd_compile_pbc、cmd_rust、node_to_dict、pbc 各条均与源码分支一致；None/假值、早退、默认值、返回形状无冲突，position_ok 均为 true。\nreason: 所有功能级生效条件均与给定源码匹配，无缺锚或误述。\nverdict: ACCEPT",
+ "text": "复核 16 条：均明确触发输入/状态、早退与返回路径；create_parser 子命令及默认值、cmd_* 的 None/valid/ok 分支、pbc 标签解析、compile_to_pbc 写入与否、run_pbc 透传均与源码一致。未发现 assert 语义、假值分支、闭包前置、返回形状或空容器前置偏差；position_ok=true 按贴合处理。\nreason: 条件与源码分支及默认值一致，未发现不支持断言。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
