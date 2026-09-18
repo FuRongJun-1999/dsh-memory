@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-206-batch-c206",
+ "round": 1,
+ "candidate_commit": "7153850",
+ "branch": "task/iter-206-batch-c206",
+ "unit_job": "h1789716408773_98f3f9",
+ "verdict": "ACCEPT",
+ "package_n": 9,
+ "text": "逐条比对：known_ids 的 nodes/guard 早退、live_targets 的 cache 回写、is_linkable_id/source 的 None 与假值、extract_refs 的 seen/ex/known 顺序、make_edge 的 now=0、before_hook/_before/_after 的闭包与 committed 前置均与源码一致。个别键取值简写为 `[]`，但继续/早退语义等价；未发现源码不支持断言。position_ok=true 已计入。\nreason: 9 条功能级生效条件与源码分支、早退、None/假值及返回形状一致，无实质不符。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
