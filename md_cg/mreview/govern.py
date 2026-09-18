@@ -163,6 +163,7 @@ def role_rule(*, rules=None, rules_dir=None, rule_id: str = RULE_ROLE) -> dict:
 
 # ---- 取值推导（唯一入口：只搬运已声明的证据）------------------------------
 
+# 生效条件：按 sources 逐档判定——含 SOURCE_TAGS 时取 fm 的 tags 内首个 ROLE_TAG_PREFIX 前缀标签，其值属 ALL_ROLES 则返回 (值, BASIS_TAG, SOURCE_TAGS, None)，值域外则返回 (None,None,None, REASON_TAG_OOD 原因)；tags 未定出时含 SOURCE_MAP 则以小写 writer 取 role_map 值，属 WORK_ROLES 返回 REASON_MAP_WORK 原因、属 ALL_ROLES 返回 (值,"WRITER_ROLE_MAP[writer]",SOURCE_MAP,None)、否则返回 REASON_MAP_OOD 原因（命中域外值即返回、不降级）；再否且含 SOURCE_LAYER 且 LAYER_DEFAULT_ROLE 命中 e["layer"] 时返回 (值, BASIS_LAYER, SOURCE_LAYER, None)；全部未命中则 writer 非空返回 REASON_WRITER_NO_MAP:writer，writer 为空返回 REASON_NO_SOURCE。
 def _candidate_role(e, fm, *, sources, role_map) -> tuple:
     """→ `(role, basis, source, reason)`：有来源则 reason=None；无来源则 role=None。
 
@@ -219,6 +220,7 @@ def _classify(cg, e, nid, *, sources, role_map) -> tuple:
                 "had_key": "role" in fm, "writer": fm.get("writer")}
 
 
+# 生效条件：want 由必填 layers 决定；layer 为真值时须属 layers 否则抛 ValueError，且命中后 want 收窄为 {layer}；ids 为真值时只保留白名单内 nid、为假值（None/[]）时不过滤；prefix 为真值时只保留 nid 以之开头者；仅 str(e.get("layer")) 属 want 的条目按 nid 升序进入返回列表。
 def _iter_scope(cg, *, layers, layer=None, prefix=None, ids=None) -> list:
     """按规则作用域遍历索引条目 → `[(nid, entry)]`（只读、nid 稳定序）。
 
@@ -305,6 +307,7 @@ def role_plan(x, layer=None, limit=None, ids=None, prefix=None, *,
 
 # ---- 执行 / 回滚 / 留痕 / 对照 -------------------------------------------
 
+# 生效条件：x 经 _as_cg，batch 为假值时回落 BATCH_DEFAULT；先调 role_plan 取 items，entry_ids 为真值时按 entry_id 收窄；逐项处理：索引无该节点或 _read 得 fm 为 None → skipped_missing，_readable_guard 为假 → skipped_denied，crypto.is_encrypted(content) 为真 → skipped_locked，fm["role"] 非空 → skipped_drift，否则写回 role 并 append_jsonl 留痕、written 递增；written 非零时 cg.rebuild_index()，返回含 plan_remaining 的 rep。
 def role_apply(x, ids=None, entry_ids=None, layer=None, limit=None,
                batch=BATCH_DEFAULT, sources=DEFAULT_SOURCES, role_map=None,
                rule_id=RULE_ROLE, rules=None, rules_dir=None, actor=None,
