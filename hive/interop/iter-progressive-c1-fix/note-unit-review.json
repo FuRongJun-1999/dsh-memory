@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-progressive-c1-fix",
+ "round": 2,
+ "candidate_commit": "b9007a0",
+ "branch": "task/iter-progressive-c1-fix",
+ "unit_job": "h1789748167963_6cd6bb",
+ "verdict": "ACCEPT",
+ "package_n": 3,
+ "text": "1) ACCEPT：过滤空返回、n=max(1,int(len*ratio)) 及 ratio 边界均与源码一致。\n2) ACCEPT：n<2/not unused 早退、cov/gap、严格 > min_gap、同 gap 保序均一致。\n3) ACCEPT：早退返回、pool 选择、阶段记录、末段 break、nxt 分支均在本段内且一致，无越界。\nreason: 三条条件均有本符号源码证据且描述准确，未发现不符或越界断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
