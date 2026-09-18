@@ -87,6 +87,7 @@ CCG_CONTRACT_ROLES = {
 INDEX_META_MARK = "索引元条件"
 
 
+# 生效条件：name 无论为何值先经 str().strip() 归一（name 为 None 时即字符串 "None"），归一结果落在模块常量 CCG_MARKS 中即返回 True，否则 False。
 def is_ccg_mark(name: str) -> bool:
     """该字段名是否为 CCG 六要素之一（合成区零重名契约的机械判据）。
 
@@ -111,6 +112,7 @@ REPRODUCIBLE_BASIS = ("compiler", "test", "measurement", "formal_proof", "data")
 CONSISTENCY_BASIS = ("textbook", "public_kb")
 
 
+# 生效条件：content 为 None 或空串时按源码的 content or "" 回落空串计算，非空时按其原值编码，一律返回 sha256(utf-8) 十六进制摘要的前 12 位（content 的 frontmatter 不计入口径由调用方保证）。
 def content_hash(content: str) -> str:
     """节点正文的**内容指纹**（sha256 前 12 位）——全仓唯一实现。
 
@@ -127,6 +129,7 @@ def content_hash(content: str) -> str:
     return hashlib.sha256((content or "").encode("utf-8")).hexdigest()[:12]
 
 
+# 生效条件：frontmatter（任意 dict，键按 sorted 输出）与 content（任意 str）均无前置校验即生效；content 不以 "\n" 结尾时补一个换行，返回 "---" + 各键的 "{k}: {json.dumps(v, ensure_ascii=False)}" 行 + "---" 行 + 正文。
 def dumps(frontmatter: dict, content: str) -> str:
     lines = [_DELIM]
     for k in sorted(frontmatter):
@@ -138,6 +141,7 @@ def dumps(frontmatter: dict, content: str) -> str:
     return "\n".join(lines) + "\n" + body
 
 
+# 生效条件：text 以 "---\n" 开头且其后存在 "\n---\n" 时才解析——head 段内含 ":" 的行按首个 ":" 拆键值（json.loads 成功取值、抛 ValueError 则保留原字符串），不含 ":" 的行跳过，返回 (fm, content)；不满足上述两个起始条件时返回 ({}, text)。
 def loads(text: str):
     """返回 (frontmatter dict, content str)。非法格式返回 ({}, 原文)。"""
     if not text.startswith(_DELIM + "\n"):
@@ -160,6 +164,7 @@ def loads(text: str):
     return fm, content
 
 
+# 生效条件：content 中出现 "# {mark}：" 或 "# {mark}:"（中/英文冒号）即把该 mark 计入 present 与 required_present；complete 为 required_present 覆盖全部 CCG_REQUIRED、all_present 为 present 覆盖全部 CCG_MARKS，ratio = len(required_present)/len(CCG_REQUIRED)，四键连同两个清单一起返回。
 def ccg_completeness(content: str) -> dict:
     """CCG 要素齐全度——白箱可审计性的量化指标。
 
@@ -182,6 +187,7 @@ def ccg_completeness(content: str) -> dict:
     }
 
 
+# 生效条件：fm 的 "verification_basis" 缺键或取值为 None 时（.get 回落 None）直接返回 False；取值非 None 时，仅当该值属于模块常量 VERIFICATION_BASIS 才返回 True。
 def verification_basis_valid(fm: dict) -> bool:
     """frontmatter.verification_basis 是否落在可接受枚举里。"""
     vb = fm.get("verification_basis")
@@ -198,6 +204,7 @@ def verification_basis_valid(fm: dict) -> bool:
 PLACEHOLDER_MARKERS = ("骨架锚点", "内容待填充", "待填充", "骨架节点")
 
 
+# 生效条件：value 为 None 或 str(value).strip() 为空串时返回 True；否则仅当去空白后的字符串包含 PLACEHOLDER_MARKERS 中任一标记词时返回 True，其余返回 False（不做语义判断）。
 def is_placeholder_text(value) -> bool:
     """占位标记的纯函数判定：空值或含占位标记 → 不可渲染为事实。
 
@@ -210,6 +217,7 @@ def is_placeholder_text(value) -> bool:
     return any(m in s for m in PLACEHOLDER_MARKERS)
 
 
+# 生效条件：content 中含 "# 不适用条件："（全角冒号）或 "# 不适用条件:"（半角冒号）即返回 True，两者都不出现返回 False。
 def has_non_applicable(content: str) -> bool:
     """是否声明了不适用条件——REJECT 路径成立的必要条件。
 
@@ -223,6 +231,7 @@ def has_non_applicable(content: str) -> bool:
 NEG_FIELD = "不适用条件"
 
 
+# 生效条件：content 为 None 时按 "" 处理；逐行 strip 后，仅当该行以 "#" 开头且 lstrip("#").strip() 又以 NEG_FIELD 开头时丢弃该行，其余行原样保留（保留原缩进），返回保留行的 "\n".join。
 def positive_body(content: str) -> str:
     """剥离 `# 不适用条件：` 行后的正文——负条件不作召回键。
 
@@ -278,6 +287,7 @@ FULL_TIME_WINDOW_TEXT = "全时窗（任意时刻成立）"
 LEGACY_POSITION_PREFIX = "观测位置："
 
 
+# 生效条件：value 为 list/tuple 时用「、」连接各元素 str().strip() 后非空的部分（空元素跳过）；value 为 None 时返回 ""；其余类型返回 str(value).strip()。
 def _as_slot_text(value) -> str:
     """槽值 → 单行文本；列表值用「、」连接（「；」留给槽间分隔，不可混用）。"""
     if isinstance(value, (list, tuple)):
@@ -287,6 +297,7 @@ def _as_slot_text(value) -> str:
     return str(value).strip()
 
 
+# 生效条件：value 可被 value[0]、value[1] 取下标并 float 化，且 lo <= FULL_TIME_WINDOW_MIN 同时 hi >= FULL_TIME_WINDOW_MAX 时返回 True；取值或 float 转换抛 TypeError/ValueError/IndexError/KeyError 时返回 False。
 def is_full_time_window(value) -> bool:
     """时间窗是否覆盖全时窗（任意时刻成立）。解析不了 → False（不冒充已声明）。"""
     try:
@@ -296,6 +307,7 @@ def is_full_time_window(value) -> bool:
     return lo <= FULL_TIME_WINDOW_MIN and hi >= FULL_TIME_WINDOW_MAX
 
 
+# 生效条件：float(value) 能被 time.gmtime 接受时按 UTC 返回 "%Y-%m-%d %H:%M"；转换或格式化抛 TypeError/ValueError/OSError/OverflowError 时返回 ""。
 def _fmt_ts(value) -> str:
     """unix 时间戳 → 「YYYY-MM-DD HH:MM」（UTC）；解析不了 → ""。"""
     try:
@@ -304,6 +316,7 @@ def _fmt_ts(value) -> str:
         return ""
 
 
+# 生效条件：先判 is_full_time_window(value) 为真则直接返回 FULL_TIME_WINDOW_TEXT（不落裸数组）；否则取 value[0]、value[1] 的 UTC 文本（下标/取值抛 TypeError/IndexError/KeyError 返回 ""），两者有任一为空串也返回 ""，均非空时返回 "{lo}～{hi}（UTC）"。
 def time_window_text(value) -> str:
     """时间窗 → 可读文本。
 
@@ -321,6 +334,7 @@ def time_window_text(value) -> str:
     return f"{lo}～{hi}（UTC）"
 
 
+# 生效条件：cs 为非 dict 时返回 ""；否则取 cs.get(key)（缺 key 键得 None），key == "time_window" 走时间窗文本、其余键走槽值文本，结果为假值或经 is_placeholder_text 判为占位时返回 ""，否则返回该文本。
 def condition_slot_text(cs, key: str) -> str:
     """单槽 → 可读值；缺失/空/待填充占位 → ""（不冒充已声明）。"""
     if not isinstance(cs, dict):
@@ -332,6 +346,7 @@ def condition_slot_text(cs, key: str) -> str:
     return s
 
 
+# 生效条件：cs（任意值，非 dict 由 condition_slot_text 兜为 ""）下，仅把 CONDITION_SLOTS 中 condition_slot_text(cs, key) 返回非空串的槽按固定顺序收集为 (槽名, 标签, 文本) 列表，缺失槽不写入。
 def condition_space_slots(cs) -> list:
     """→ [(槽名, 标签, 文本)]，只含**已声明**的槽（缺失槽不写）。"""
     out = []
@@ -342,12 +357,14 @@ def condition_space_slots(cs) -> list:
     return out
 
 
+# 生效条件：cs（任意值）下，以 condition_space_slots(cs) 实际产出的槽名为已声明集合 have，返回 CONDITION_SLOTS 中不在 have 里的键名列表（已声明槽不计）。
 def condition_space_missing(cs) -> list:
     """缺失槽名清单（待补台账用）；已声明槽不计。"""
     have = {k for k, _l, _t in condition_space_slots(cs)}
     return [k for k, _l in CONDITION_SLOTS if k not in have]
 
 
+# 生效条件：cs 任意值；require_full（默认 True）为真且 condition_space_slots(cs) 的槽数不等于 len(CONDITION_SLOTS) 时返回 ""；否则按固定顺序用「；」连接已声明槽的 "{label}：{text}"（require_full 为 False 时仅部分槽也照渲，无槽则返回 ""）。
 def condition_space_text(cs, require_full: bool = True) -> str:
     """condition_space → 单行生效条件声明。**唯一合成入口**（纯函数，无 IO）。
 
@@ -362,6 +379,7 @@ def condition_space_text(cs, require_full: bool = True) -> str:
     return "；".join(f"{label}：{text}" for _k, label, text in slots)
 
 
+# 生效条件：text 为 None 时按 "" 处理；去空白后的字符串以 LEGACY_POSITION_PREFIX 开头且长度严格大于该前缀长度时返回 True，其余（含仅等于前缀本身、空串）返回 False。
 def is_legacy_position_condition(text) -> bool:
     """文本是否为「观测位置：X」形态的单槽冒充（旧口径残留）。
 
