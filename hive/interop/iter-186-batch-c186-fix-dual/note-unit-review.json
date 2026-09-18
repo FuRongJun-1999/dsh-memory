@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-186-batch-c186-fix-dual",
  "round": 5,
- "candidate_commit": "0db62c7",
+ "candidate_commit": "2e1c57b",
  "branch": "task/iter-186-batch-c186-fix-dual",
- "unit_job": "h1789711635079_5c3874",
+ "unit_job": "h1789711979694_5001a8",
  "verdict": "ACCEPT",
  "package_n": 2,
- "text": "两项条件均与源码相符。edge_rel：dict 用 or 链取首个真值，非 dict 置 None，最终 `rel or \"\"` 再 strip/lower，缺失或全假得空串；edge_target：dict 中 target/target_id 回落，仅 t is not None 才 str.strip，None 早退，非 dict 空白串转 None。均锚定 edge 形参，未增断言，position_ok 已贴定义行。\nreason: 条件完整覆盖输入状态、None/假值分支与返回形状，与源码无冲突。\nverdict: ACCEPT",
+ "text": "复核：edge_rel 条件覆盖 dict/非 dict、取值链、假值回落、空串返回，锚定 edge 形参，无源码外断言。edge_target 覆盖 dict 分支 target/target_id 回落、None 判断、edge is None 早退、裸值 strip-or-None，与源码 None/假值语义一致。position_ok=true。\nreason: 两条条件均逐支对应源码，未发现不符或新增断言。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
