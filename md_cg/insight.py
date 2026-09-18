@@ -82,6 +82,7 @@ def _events(cg):
             if TAG_EVENT in ((e or {}).get("tags") or [])]
 
 
+# 生效条件：cg 具备 get，node_id 经 str(node_id or "").strip() 后非空（0/空串等假值回落空串即返回 None）、cg.get(nid) 返回真值节点、且该节点 frontmatter 的 tags（缺键或假值时按 [] 计）包含 TAG_EVENT 时返回该节点，否则返回 None。
 def _read_event(cg, node_id):
     """读洞见事件节点；非事件节点（标签不符）返回 None。"""
     nid = str(node_id or "").strip()
@@ -150,6 +151,7 @@ def window(conditions=None):
             "note": "开窗仅表示「条件具备」；是否有效一律由 verify 的外部证据裁决"}
 
 
+# 生效条件：任意 statement（假值按 "" 计）与 ts（None/0 等假值时回落 time.time()）下恒返回 "ins_%d_%s"，其中时间数字为 int(ts or time.time())、哈希为 str(statement or "").encode("utf-8") 的 sha1 前 8 位。
 def event_id(statement, ts=None):
     return "ins_%d_%s" % (int(ts or time.time()),
                           hashlib.sha1(str(statement or "").encode("utf-8")).hexdigest()[:8])
@@ -157,6 +159,7 @@ def event_id(statement, ts=None):
 
 # ---------------------------------------------------------------- record
 
+# 生效条件：cg 具备 add/_append，statement 经 str(statement or "").strip() 为空时抛 ValueError；非空时以 str(node_id or event_id(statement)).strip() 为 nid（node_id 假值时回落到 event_id(statement)），_read_event 命中已有事件则返回 duplicate=True/existed_before=True 且 state 取该节点 frontmatter 的 insight_state，未命中则以 STATE_PENDING 写入新节点并返回 duplicate=False/existed_before=False，返回中的 window 来自 window(conditions)。
 def record(cg, statement=None, conditions=None, category="", source="",
            tags=None, importance=0.5, node_id=None, actor=None, **extra):
     """记录一条洞见事件（pending）＋ C1–C8 条件快照。
@@ -207,6 +210,7 @@ def record(cg, statement=None, conditions=None, category="", source="",
 
 # ---------------------------------------------------------------- verify
 
+# 生效条件：evidence 为 str/dict 时先包成单元素列表、为 None 或假值时按 [] 遍历；每个 dict 项 type 经 str(...).strip().lower() 属 V_TYPES 才保留否则回落 "v1"，ref 取 item.get("ref") 或 item.get("source") 或 ""、note 取 item.get("note") 或 ""，非 dict 项一律记为 {"type":"v1","ref":str(item),"note":""}；v_types 中仅 strip().lower() 后属 V_TYPES 的项追加空 ref/note 条目，最终返回 out。
 def _normalize_evidence(evidence=None, v_types=None):
     """证据归一化：接受 ``["ref", ...]`` / ``[{"type","ref","note"}]`` / ``v_types``。"""
     ev = evidence
@@ -387,12 +391,14 @@ def _quartiles(values):
     if not values:
         return {"min": None, "p50": None, "p90": None, "max": None}
     vs = sorted(values)
+# 生效条件：给定 f 与闭包列表 vs，取下标 i = min(len(vs)-1, max(0, int(round(f*(len(vs)-1)))))（f 越界被夹到两端）并返回 round(vs[i], 4)；vs 为空时 min 得到 -1 的取值行为源码未做校验。
     def _q(f):
         i = min(len(vs) - 1, max(0, int(round(f * (len(vs) - 1)))))
         return round(vs[i], 4)
     return {"min": _q(0.0), "p50": _q(0.5), "p90": _q(0.9), "max": _q(1.0)}
 
 
+# 生效条件：cg.index（取不到或假值时 nodes 为空、total=0 使 protected_rate 与 growth 回落 None）与 now（假值时回落 time.time()）决定 d1，float(recent_days) 参与 lo_recent 计算，window_days 透传 report 得 d2；suggestions 依序在 basis["unset"] 非零、hi_imp_unprotected 非空、no_neg 非零、pending>=3、layers["unresolved"] 非零、contextual>max(3, knowledge)、rep["layer_state"]=="insufficient" 时各自追加一条，high_importance_unprotected 取排序后前 sample_limit 项（sample_limit=0 时为空列表）。
 def outlook(cg, window_days=None, sample_limit=8, recent_days=7, now=None):
     """结构洞察：D1 结构判断 + D2 盲区与趋势建议（只读）。
 
