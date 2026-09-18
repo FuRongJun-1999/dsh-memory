@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-mcpsrv-bigsrc-c1",
+ "round": 3,
+ "candidate_commit": "09f6923",
+ "branch": "task/iter-mcpsrv-bigsrc-c1",
+ "unit_job": "h1789735884081_42bf60",
+ "verdict": "ACCEPT",
+ "package_n": 6,
+ "text": "1) ACCEPT — `if not exp: return None`，真值返回闭包，闭包体全在本段。\n2) ACCEPT — ingest 三档推导与 `_ACTION_SIGS` 回退顺序、`is not None` 均与源码一致。\n3) ACCEPT — or 链后 strip，raw/harness/unit 非空才赋值。\n4) ACCEPT — token→verify_token(tenant=env)、legacy 三值判等、guest 只读，各路径均 _apply_attribution+_attach_theory。\n5) ACCEPT — ensure() 后 bool(st.get)、version、return p。\n6) ACCEPT — 两处 return 2、err→3、autoflush=1、消息循环与 return 0 均在段内。\nreason: 六条条件均未越界，与各自 src_segment 源码语义一致，无源码外断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
