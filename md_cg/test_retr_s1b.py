@@ -115,12 +115,24 @@ def main():
     check("S1b 保留 orphan 兜底节点", "o1" in ids1, str(ids1))
     check("S1b 丢弃异桶节点", "g1" not in ids1, str(ids1))
 
-    # ---- 5) 命中不到桶 → 回退不收敛 ----
+    # ---- 5) 命中不到桶 → 回退不收敛（与「S1b 关」的同查询结果逐条比较，避免自证）----
+    _setenv(MDCG_GATE_S1B_BUCKET=None)
+    r2c, _m2c = cg.search("完全无关的词 词组", k=10, judge=False, record=False)
+    _setenv(MDCG_GATE_S1B_BUCKET="1")
     r2, m2 = cg.search("完全无关的词 词组", k=10, judge=False, record=False)
     g2 = (m2.get("gates") or {}).get("s1b") or {}
-    check("无键命中：no_key_match 且不收敛",
-          g2.get("reason") == "no_key_match" and g2.get("in") == g2.get("in")
-          and "out" not in g2, str(g2))
+    check("无键命中：no_key_match 且结果与关闭时一致",
+          g2.get("reason") == "no_key_match" and "out" not in g2
+          and _ids(r2) == _ids(r2c),
+          str(g2) + " " + str(_ids(r2)) + " vs " + str(_ids(r2c)))
+    # 5b) S4 显式关闭时 S1b 仍生效（证明门控未与 S4 耦合）
+    _setenv(MDCG_GATE_S4_LAYER="0")
+    r2d, m2d = cg.search(QUERY, k=10, judge=False, record=False)
+    g2d = (m2d.get("gates") or {}).get("s1b") or {}
+    check("S4 显式关闭时 S1b 仍生效",
+          g2d.get("keys") == [b_sense] and "s4" not in (m2d.get("gates") or {}),
+          str(g2d) + " gates=" + str(sorted((m2d.get("gates") or {}).keys())))
+    _setenv(MDCG_GATE_S4_LAYER=None)
 
     # ---- 6) topk / min_sim 可配 ----
     _setenv(MDCG_BUCKET_TOPK="0")
