@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-192-batch-c192-fix",
+ "round": 2,
+ "candidate_commit": "173b02a",
+ "branch": "task/iter-192-batch-c192-fix",
+ "unit_job": "h1789711758649_eb78ec",
+ "verdict": "ACCEPT",
+ "package_n": 11,
+ "text": "逐条核对：11 条均与源码分支、早退、None/假值、长度切片、异常与返回形状一致；未发现补充源码不支持断言，position_ok=true 也满足。\nreason: 所有候选条件均准确覆盖源码分支且无源码不支持断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
