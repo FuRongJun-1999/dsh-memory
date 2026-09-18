@@ -38,6 +38,7 @@ SKIP_SCHEMES = ("http://", "https://", "mailto:", "tel:", "data:", "#")
 NON_PATH_CHARS = "[]*<>{}"
 
 
+# 生效条件：用必需形参 args 追加到 ["git","-c","core.quotepath=false"] 后在模块常量 REPO 目录下执行（capture_output=True、text、encoding=utf-8、errors=replace、shell=False），返回 (r.stdout or "") 逐行 strip 后的非空行列表——r.stdout 为 None 或空串时返回 []，且不检查返回码。
 def _git(args):
     # core.quotepath=false：否则非 ASCII 路径被八进制转义，tracked 集合无法匹配
     r = subprocess.run(["git", "-c", "core.quotepath=false"] + args, cwd=REPO,
@@ -46,6 +47,7 @@ def _git(args):
     return [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
 
 
+# 生效条件：成功导入 cogmap_sync 时返回 set(getattr(cogmap_sync,"FILE_LINK_ALLOWLIST",{}) or {})，即该属性为真值字典时得到其键集合、属性缺失或为假值（None/{}）时得到空集；导入触发 Exception 时打印警告并返回 set()（无必需形参）。
 def _allowlist():
     """复用管线白名单（单一真源）。导入失败时返回空集并提示——避免静默改变口径。"""
     try:
@@ -57,6 +59,7 @@ def _allowlist():
         return set()
 
 
+# 生效条件：必需形参 relcand 精确命中必需形参 tracked 集合时返回 True；否则仅当 tracked 中存在以 relcand.rstrip("/")+"/" 为前缀的元素时返回 True，tracked 为空集时 any(...) 为 False 而返回 False。
 def _tracked_ok(relcand, tracked):
     """目标为目录时，只要其下有受管文件即视为已入库。"""
     if relcand in tracked:
@@ -65,6 +68,7 @@ def _tracked_ok(relcand, tracked):
     return any(p.startswith(prefix) for p in tracked)
 
 
+# 生效条件：对 _git(["ls-files","*.md"]) 的每个 rel 且 os.path.isfile 为真者读文并按模块常量 LINK 逐条匹配——raw 以 SKIP_SCHEMES 开头则跳过；target（raw 去 "#" 首段）为空或含 NON_PATH_CHARS 者计入 non_path；否则按 target 是否以 "/" 前缀分别以 REPO 或文档所在目录 normpath 得 cand 与 relcand，relcand 或 target 命中 _allowlist() 计入 n_allowed，cand 不满足 os.path.exists 计入 broken，否则 _tracked_ok(relcand,tracked) 为假计入 untracked，其余计入 n_ok，最终返回含 files/broken/untracked/non_path/ok/allowed 的 dict。
 def scan():
     files = _git(["ls-files", "*.md"])
     tracked = set(_git(["ls-files"]))
@@ -103,6 +107,7 @@ def scan():
             "non_path": non_path, "ok": n_ok, "allowed": n_allowed}
 
 
+# 生效条件：无必需形参，取 scan() 结果后，若 res["broken"] 或 res["untracked"] 任一为非空列表则打印断链结论并返回 1，二者皆为空列表时打印全部可达结论并返回 0（另有非路径条目仅计数打印，不影响返回值）。
 def main():
     res = scan()
     n = res["ok"] + res["allowed"] + len(res["broken"]) + len(res["untracked"])
