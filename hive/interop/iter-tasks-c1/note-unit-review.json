@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-tasks-c1",
+ "round": 1,
+ "candidate_commit": "ab42e9c",
+ "branch": "task/iter-tasks-c1",
+ "unit_job": "h1789755163342_cf0ac6",
+ "verdict": "ACCEPT",
+ "package_n": 3,
+ "text": "1) slugify ACCEPT：None/空/strip 后空早退，路径/非法字符折叠、压缩、截断顺序与源码一致。\n2) _append_change ACCEPT：base 规范化、_has 假返回、真拼接与条件 strip 返回均吻合；[今日]即 _today()。\n3) _write ACCEPT：kw 构造、extra 真值覆盖、cg.add 返回均吻合，省略项由“等”涵盖。\nreason: 三条均可在各 src_segment 内验证，未见越界、源码不符或额外断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
