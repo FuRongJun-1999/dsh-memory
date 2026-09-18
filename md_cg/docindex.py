@@ -137,6 +137,7 @@ def _summary(region_lines, limit=MAX_SUMMARY):
     return text[:limit]
 
 
+# 生效条件：以 heads[i]["level"]-1 为需匹配层级向前回溯，返回按层级递减补齐的祖先标题列表（不含 heads[i] 自身）。
 def _path_titles(heads, i):
     """第 i 个标题的祖先链（不含自身），按层级补齐。"""
     out, need = [], heads[i]["level"] - 1
@@ -282,6 +283,7 @@ def node_id(item):
     return "doc_" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
 
 
+# 生效条件：以 root 为根 os.walk，patterns 假值回落 SUFFIX；files 达到 max_files 或 items 达到 max_items 时提前返回并置 stats["truncated"]/truncated_reason；fresh 非 None 且 fresh(rel, fp) 为真时跳过该文件读盘并计 skipped_unchanged；on_file 非 None 且 open/extract 成功后以 (rel, fp, got) 回调；名字在 SKIP_DIRS 的目录仅剪枝不记录，skip_dirs 经 codeindex.skip_matcher 命中的目录剪枝并记入 stats["skipped_dirs"]；返回 (items, errors, stats)。
 def index_dir(root, patterns=None, max_files=500, max_items=2000,
               fresh=None, on_file=None, skip_dirs=None):
     """按大域（目录）遍历 md，产出 `(items, errors, stats)`。零 LLM。
