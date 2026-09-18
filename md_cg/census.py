@@ -80,12 +80,14 @@ def report(name, rows, keyfn):
     print(f"  ★条件路由后期望扫描占比 = {exp * 100:.1f}%  (100%=退化成全量, 越低越有效)")
 
 
+# 生效条件：传入 keys（任意可迭代键序列，含空序列时对 json.dumps({}) 求哈希）即返回一个接收 (d, t) 的 lambda，该 lambda 按 keys 逐个取 d.get(k)（缺键得 None）并 sort_keys=True、ensure_ascii=False 序列化后取 sha256 十六进制前 10 位，形参 t 不参与计算。
 def by_keys(keys):
     return lambda d, t: hashlib.sha256(
         json.dumps({k: d.get(k) for k in keys}, sort_keys=True,
                    ensure_ascii=False).encode()).hexdigest()[:10]
 
 
+# 生效条件：以 root 调用 load(root) 得 rows，先打印「总节点: len(rows)」（空序列也会先打印该行），仅当 rows 为假值时才打印空库提示并 return 2，否则继续打印分层与各维度取值分布、并执行方案A/B/C/D 的 report 后 return 0。
 def main(root):
     rows = load(root)
     print(f"md 记忆库: {root}")
