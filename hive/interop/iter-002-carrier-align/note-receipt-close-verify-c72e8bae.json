@@ -1,0 +1,24 @@
+{
+ "kind": "note-receipt-close",
+ "verify_id": "verify-c72e8bae",
+ "receipt_job": "h1789723800880_2d6c",
+ "verified_commit": "c72e8bae",
+ "verdict": "PASS",
+ "received_ts": 1789723800,
+ "findings_closed": [
+  {
+   "finding": "cogmap_sync check 6 个问题（README COGMAP 段 + FUNCMAP:cg/stg/wb 三段锚漂移 + 两处 md_cg/mentions.py 断链）",
+   "external_confirmation": "本条回执实为外部复验：cogmap_sync check=通过（cg 34 / stg 4 / whitebox 6 / mdcg_* 31；双文档标记段、op/工具引用、文件链接、锚点、FUNC_DESC 覆盖全部一致），并明确“连续五轮的 6 问题挂账随本轮分叉消解合并清零”",
+   "four_step_chain": [
+    "1 发现：编外回执 verify-9e9ef28f（16:41）报 6 项",
+    "2 复现：干净 worktree@origin/main 同报 6 项（排除环境差异）",
+    "3 修复：按真源重生成标记段 a8f6341",
+    "4 外部复验：本条回执（所验 c72e8bae 含 a8f6341）确认通过"
+   ],
+   "note": "之前两轮回执（fce78aba / b8419d04）仍报 6 项，原因是它们验的是未含修复的另一条线（本地 main 与 origin/main 双线分叉）；合并消解后即为通过。"
+  }
+ ],
+ "unhandled_findings": [],
+ "other_steps": "test_codeindex 47/0/0 · test_p26_refindex 59/0 · test_p27_docindex 78/0 · wisdom.verifier --self-test 5/5 均 PASS",
+ "closed_ts": 1789724441
+}
