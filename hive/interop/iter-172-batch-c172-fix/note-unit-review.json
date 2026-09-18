@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-172-batch-c172-fix",
+ "round": 2,
+ "candidate_commit": "3ca6f9c",
+ "branch": "task/iter-172-batch-c172-fix",
+ "unit_job": "h1789706547973_6eee65",
+ "verdict": "REJECT",
+ "package_n": 12,
+ "text": "复核：多数条目与源码一致。但 `record_accepted` 将源码 `rec is None or not rec.get(\"nid\")` 写成“为 None 或缺 `nid`”，漏了 `nid=\"\"`、`0`、`None` 等假值时也会重写；`check` 在签名非空但聚合条件不成立时会预占位并 `_push_rate/_save`，条件仅述返回 `None`，遗漏该副作用。\nreason: `record_accepted` 假值分支与 `check` 副作用遗漏，候选条件不精确。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
