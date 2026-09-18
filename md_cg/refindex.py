@@ -142,11 +142,13 @@ def ref_of(node) -> tuple:
 class Ledger:
     """`<root>/_refindex.json`：每个源文件的 (size, mtime) 水位 + 节点区间。"""
 
+# 生效条件：当传入 root 时，self.root 取该 root，self.path 为 os.path.join(root, LEDGER_FILE)，self._d 置为 None；
     def __init__(self, root: str):
         self.root = root
         self.path = os.path.join(root, LEDGER_FILE)
         self._d = None
 
+# 生效条件：当 self._d is not None 时直接返回 self._d；否则读取 self.path 的 JSON，仅当 obj 是 dict 且 obj.get("schema") == SCHEMA 且 obj.get("files") 是 dict 时用 obj，否则（含 OSError/ValueError、结构不符）回落为 {"schema": SCHEMA, "updated_at": 0.0, "files": {}} 并缓存返回；
     def load(self) -> dict:
         if self._d is not None:
             return self._d
@@ -162,6 +164,7 @@ class Ledger:
         self._d = d or {"schema": SCHEMA, "updated_at": 0.0, "files": {}}
         return self._d
 
+# 生效条件：传入 rel、fp 时，若 self.load()["files"].get(_src_key(fp)) 缺失或为假值、或 os.stat(fp) 抛 OSError、或条目 e.get("size") != st.st_size，则返回 False；否则返回 abs(float(e.get("mtime") or 0.0) - st.st_mtime) < 1e-6（mtime 缺失或假值时按 0.0）；
     def is_fresh(self, rel: str, fp: str) -> bool:
         """源文件自上次索引后未变（size + mtime 双等）→ 可跳过不重切。"""
         e = self.load()["files"].get(_src_key(fp))
@@ -175,6 +178,7 @@ class Ledger:
             return False
         return abs(float(e.get("mtime") or 0.0) - st.st_mtime) < 1e-6
 
+# 生效条件：当 rel、fp、kind、nodes 传入且 os.stat(fp) 成功时，向 self.load()["files"][_src_key(fp)] 写条目，其中 root 为 root if root else os.path.dirname(key)、path 为 rel、kind 为 kind、size/mtime 取 st、nodes 为每项 n.get("id")/n.get("lineno")/n.get("end")/n.get("hash")；os.stat(fp) 抛 OSError 时不写入；
     def record(self, rel: str, fp: str, kind: str, nodes,
                root: str = None) -> None:
         """记一个源文件的水位（节点区间用于判 stale）。
@@ -200,9 +204,11 @@ class Ledger:
             ],
         }
 
+# 生效条件：当传入 fp 时，self.load()["files"].pop(_src_key(fp), None)，即删除对应键（不存在也静默）；
     def drop(self, fp: str) -> None:
         self.load()["files"].pop(_src_key(fp), None)
 
+# 生效条件：当传入 root、kind、seen 时，对 self.load()["files"] 中满足 os.path.abspath(e.get("root") or "") == os.path.abspath(root) 且 e.get("kind") == kind 且键 k 不在 seen 的条目删除，返回删除数量；
     def reconcile(self, root: str, kind: str, seen) -> int:
         """一次**完整**索引后对账：本 (root, kind) 下没被扫到的旧条目剪掉。
 
@@ -232,6 +238,7 @@ class Ledger:
             files.pop(k, None)
         return len(dead)
 
+# 生效条件：当 kind、root、files、indexed、truncated 传入时，self.load()["last_index"] 被设为含 ts=_now()、kind、root、files、indexed、truncated=bool(truncated)、truncated_reason=reason or "" 的字典；reason 为假值（默认 ""/None）时 truncated_reason 回落 ""；
     def note_index(self, *, kind: str, root: str, files: int, indexed: int,
                    truncated: bool, reason: str = "") -> None:
         """记「最近一次索引」结果——截断在这里留痕，供 diagnose 看见。"""
@@ -290,12 +297,14 @@ def index_dir(root: str, *, kind: str, patterns=None, max_files: int = 500,
     seen = set()                       # 本次真正走过的源文件（用于对账）
     if ledger is not None:
         if incremental:
+# 生效条件：当 rel、fp 传入时，ok = ledger.is_fresh(rel, fp)；若 ok 为真则将 _src_key(fp) 加入 seen 并返回 ok，若 ok 为假则直接返回 False；
             def fresh(rel, fp):                         # noqa: E306
                 ok = ledger.is_fresh(rel, fp)
                 if ok:
                     seen.add(_src_key(fp))
                 return ok
 
+# 生效条件：当 rel、fp、got 传入时，将 _src_key(fp) 加入 seen，并以 root=root 调用 ledger.record(rel, fp, kind, [{"id": node_id_of(it, kind), "lineno": it.get("lineno"), "end": it.get("end"), "hash": it.get("hash")} for it in got])；
         def on_file(rel, fp, got):                      # noqa: E306
             seen.add(_src_key(fp))
             ledger.record(rel, fp, kind,
@@ -408,6 +417,7 @@ def _doc_ref(it: dict, root: str) -> dict:
 # 回读（唯一实现：op=ref 与 check_refs 共用）
 # --------------------------------------------------------------------------
 
+# 生效条件：传入 ref 为假值（如 None/{}）时按 {} 处理，rel 取 ref.get("path") or ""；root 与 ref.get("root") 均为假值时返回含 ref/path/status:"unresolved"/ok:False/error:"ref 未记录 root..." 的 out；否则用 root or ref.get("root") 与 rel 拼 fp，os.path.isfile(fp) 为假时返回 status:"dangling"、stale:True，读取抛 OSError/UnicodeDecodeError 时返回 status:"error"；读取成功时 lineno 取 int(ref.get("lineno") or 1)（假值回落 1）、end 取 int(ref.get("end") or lineno)（假值回落 lineno），ref.get("hash") 为 None 时 match=None、ok=True、status:"ok"，ref.get("hash") 为真值且等于 region_hash 时 ok=True/status:"ok"、不等时 ok=False/status:"stale"，ref.get("hash") 为假值但非 None（如 ""/0/False）时 ok=False/status:"stale"；with_text 为真时 out["text"] 取 lines[max(0,lineno-1):max(max(0,lineno-1),end)] 的 join；
 def probe_ref(ref: dict, *, root: str = None, with_text: bool = False) -> dict:
     """只读探测单个 ref 的状态（不回读整篇，除非 with_text）。"""
     from . import codeindex
@@ -485,6 +495,7 @@ def check_refs(cg, *, ledger: "Ledger" = None, max_nodes: int = MAX_CHECK,
     stale, dangling, unresolved, errors = [], [], [], []
     covered = set()
 
+# 生效条件：当 nid、ref、kind、rel 传入时，p = probe_ref(ref) 后按 p["status"] 分派：为 "dangling" 时把含 node_id/ref_kind/path/lineno/end/error 的 row 加入 dangling，为 "stale" 时补 hash_expected/hash 加入 stale，为 "unresolved" 时加入 unresolved，为 "error" 时加入 errors；其他状态不加入；
     def _probe_one(nid, ref, kind, rel):
         p = probe_ref(ref)
         row = {"node_id": nid, "ref_kind": kind, "path": rel,
@@ -526,6 +537,7 @@ def check_refs(cg, *, ledger: "Ledger" = None, max_nodes: int = MAX_CHECK,
                                kind, rel)
 
     # 回退：ledger 未覆盖的索引节点
+# 生效条件：当 nid 传入时，若 only_tagged 为假值立即返回 True；否则取 (nodes.get(nid) or {}).get("tags") or []，仅当其中存在 "code" 或 "doc" 返回 True，否则返回 False；
     def _candidate(nid):
         if not only_tagged:
             return True
