@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-reviewcli-c1",
+ "round": 1,
+ "candidate_commit": "7464344",
+ "branch": "task/iter-reviewcli-c1",
+ "unit_job": "h1789744348714_46905d",
+ "verdict": "REJECT",
+ "package_n": 5,
+ "text": "1 ACCEPT；2 REJECT：越界：_root(args) 取非空存储根前置；且 Principal 实际先构造，非在 _root 后；3 ACCEPT；4 ACCEPT；5 ACCEPT。\nreason: 批次含一条越界且与源码顺序不符的条件，不能整体通过。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
