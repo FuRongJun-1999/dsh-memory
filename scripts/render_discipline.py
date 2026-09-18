@@ -112,6 +112,7 @@ def _cell(text):
 # 是同相对路径但**物理不同的两个文件**（各自 checkout 一份），折叠即把真实的重复注入源静默藏起。
 # 故此类同仓不同物理文件只**标注**（wt_dups），不折叠。
 
+# 生效条件：传入 path 即无条件返回 os.path.normcase(os.path.realpath(os.path.abspath(path)))，源码未对 path 做真值/类型判断，假值同样走该返回；
 def norm_path(path):
     """归一化路径键：realpath（解析符号链接 / junction）+ normcase（Windows 大小写不敏感）。"""
     return os.path.normcase(os.path.realpath(os.path.abspath(path)))
@@ -137,6 +138,7 @@ def slot_files(matrix, slot):
     return [str(x) for x in (slots.get(slot) or [])]
 
 
+# 生效条件：传入 path 后从 os.path.dirname(os.path.abspath(path)) 起逐级上溯，每级按 norm_path 判重（重复级记入 alias 而不入 out，但循环继续），当 stop 为真值且 norm_path(stop) 命中该级（该级已先记入 out/alias 再 break）或 dirname 不再变短时停止，返回 (out, alias)；stop 为 None 或空串时 stop_key 为 None，不设停止键，仅到盘根才停；
 def _walk_ancestors(path, stop=None):
     """走祖先目录链，返回 (去重后的目录链, 被折叠的别名拼写)。
 
@@ -236,6 +238,7 @@ def git_identity(path):
     return common, rel
 
 
+# 生效条件：text 为假值（None/空串）时按空串搜索，text 中「前16位」后（「）：:」可有可无、可含空白）紧跟 16 位小写 [0-9a-f] 时返回该 16 位，否则返回 None；
 def artifact_sha(text):
     """产物内嵌的真源指纹（『前16位：xxxxxxxxxxxxxxxx』）；无指纹（手工件/未渲染）→ None。"""
     m = re.search(r"前16位[）：:]*\s*([0-9a-f]{16})", text or "")
@@ -354,6 +357,7 @@ _TEMPLATES = {
 }
 
 
+# 生效条件：target.get("variant","compact") 的值被 _TEMPLATES 收录（键存在但值为 None 等未收录值同样未命中而 raise SystemExit）时，读取 repo/docs/discipline/templates 下该模板并做 %%…%% 替换（now 为假值则回落 datetime.now() 格式化时间，target 的 preamble 为真值时 rstrip() 后接两换行、为假值时空串），替换后 text 不含 "{{" 才返回 text.rstrip()+"\n"，含 "{{" 则 raise SystemExit 而不返回；
 def render(target, src, repo, now=None):
     variant = target.get("variant", "compact")
     tname = _TEMPLATES.get(variant)
