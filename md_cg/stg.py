@@ -23,6 +23,7 @@ PLACEHOLDER_LOCKED = "[密文·预览已脱敏]"
 PLACEHOLDER_DENIED = "[无权限·预览已脱敏]"
 
 
+# 生效条件：fm 的 temporal 非 None 且 float(t) 可成功时返回 (float(t), float(t))；temporal 缺失/为 None/转换抛 TypeError 或 ValueError 时回退到 fm["condition_space"]（假值按 {} 处理）的 time_window，仅当其为长度 2 的 list/tuple 且两元素可 float 时返回 (float(tw[0]), float(tw[1]))，否则返回 None。
 def _interval(fm):
     """节点时间区间：优先 temporal（事件时刻），回退 condition_space.time_window（观测窗）。
 
@@ -45,6 +46,7 @@ def _interval(fm):
     return None
 
 
+# 生效条件：fm["spatial"]（假值按 {} 处理）为 dict 且其 bbox 是长度 4 的 list/tuple 且四元素可 float 时返回浮点四元组，spatial 非 dict、bbox 非长度 4 序列或元素转换抛 TypeError/ValueError 时返回 None。
 def _bbox(fm):
     sp = fm.get("spatial") or {}
     bb = sp.get("bbox") if isinstance(sp, dict) else None
@@ -74,6 +76,7 @@ def time_relation(a, b):
     return "overlaps"
 
 
+# 生效条件：a 或 b 为 None 时返回 None，否则按 a=(ax1,ay1,ax2,ay2)、b=(bx1,by1,bx2,by2) 依序判定 ax2<=bx1→"left_of"、ax1>=bx2→"right_of"、ay2<=by1→"above"、ay1>=by2→"below"、四边全含→"contains"、四边全被含→"inside"，全部不满足时返回 "overlaps"。
 def space_relation(a, b):
     """RCC-8 简化的 7 个空间态（图像坐标：y 向下为正）。"""
     if a is None or b is None:
@@ -97,6 +100,7 @@ def space_relation(a, b):
 
 # ---------- 查询实现 ----------
 
+# 生效条件：cg.get(node_id) 为真值（非 None、非空映射）时返回 {"id": node_id, "frontmatter": n.get("frontmatter") or {}（假值回落 {}）, "content": n.get("content") or ""（假值回落 ""）}，cg.get(node_id) 为假值时返回 None。
 def _node(cg, node_id):
     n = cg.get(node_id)
     if not n:
@@ -127,6 +131,7 @@ def _scan(cg, layer=None, max_scan=5000):
     return out
 
 
+# 生效条件：cg.index["nodes"].get(node_id) 缺失或为假值时返回 ""；否则 cg._readable 可调用且对其返回假值或抛异常时返回 PLACEHOLDER_DENIED；cg._read(e) 的 frontmatter 为 None 时返回 ""；content 非密文时返回 content[:n]（n 默认 200）；content 为密文时，cg._open_content 可调用且取到非 None 且非密文的 opened 才返回 opened[:n]，opened 为 None、抛异常或仍为密文时返回 PLACEHOLDER_LOCKED。
 def _preview(cg, node_id, n=200):
     """按需读单个节点正文做预览（只发生在最终返回的条目上）。
 
@@ -180,6 +185,7 @@ def relation(cg, a_id, b_id):
                      "space_known": ba is not None and bb is not None}}
 
 
+# 生效条件：以 _scan(cg,layer=layer,max_scan=max_scan) 为范围，_interval 为 None 的节点被跳过，其余按 (start,end) 以 reverse=bool(desc) 排序，返回 count=全部命中数、limit=传入 limit、items 为排序后前 limit 项（limit=0 时为空列表）且每项附 _preview(cg,id)。
 def timeline(cg, layer=None, limit=50, desc=True, max_scan=5000):
     """按时间排序的节点列表。"""
     items = []
@@ -224,6 +230,7 @@ def anchors(cg, time_window=None, bbox=None, layer=None, limit=50, max_scan=5000
             "items": hits[:limit]}
 
 
+# 生效条件：遍历 _scan(cg,layer=layer,max_scan=max_scan) 每条 frontmatter，bb 非 None 且不满足 bb[0]<=bb[2] and bb[1]<=bb[3] 记 invalid_bbox、iv 非 None 且 iv[0]>iv[1] 记 inverted_time_window、temporal 非 None 且 time_window 为长度 2 的 list/tuple 且 float 比较成功却不满足 tw[0]<=t<=tw[1] 记 temporal_outside_window（转换抛 TypeError/ValueError 则忽略），返回 scanned 计数、issues 总数与 issues[:limit]（limit 默认 50）。
 def consistency(cg, layer=None, limit=50, max_scan=5000):
     """时空字段自洽性检查：非法 bbox / 时间倒置 / 窗口与时刻冲突。"""
     issues = []
