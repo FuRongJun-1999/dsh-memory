@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-210-batch-c210",
+ "round": 1,
+ "candidate_commit": "efbc963",
+ "branch": "task/iter-210-batch-c210",
+ "unit_job": "h1789717872677_420af0",
+ "verdict": "REJECT",
+ "package_n": 9,
+ "text": "复核：_norm_steps 条件有误：step 缺失 `'command'` 时 `argv=None`，源码不走 `isinstance(argv, str)` 分支，而落入非空字符串数组校验，返回“必须是非空字符串数组”，并非“只收 argv 数组”类报错。其余条目大体与源码相符。\nreason: _norm_steps 对缺失 command 的错误分支归类与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
