@@ -357,3 +357,9 @@ received_at	verify_id	commit	verdict	receipt_job	iter_id
 2026-09-18T10:19:05	iter-152-batch-c152-r2-h1789697945083_5308	1c494be	PASS	h1789697945083_5308	iter-002-carrier-align
 2026-09-18T10:19:06	iter-103-batch-c103-dual-r2-h1789697946151_618c	3657ffd	PASS	h1789697946151_618c	iter-002-carrier-align
 2026-09-18T10:19:06	iter-113-batch-c113-fix-d1-d2-dual-r2-h1789697946462_6bc8	abd6bd3	PASS	h1789697946462_6bc8	iter-002-carrier-align
+2026-09-18T10:29:08	iter-153-batch-c153-r2-h1789698548948_5e08	f41eab3	PASS	h1789698548948_5e08	iter-002-carrier-align
+2026-09-18T10:29:09	iter-117-batch-c117-fix-dual-r2-h1789698549309_5c38	d7f7b8c	PASS	h1789698549309_5c38	iter-002-carrier-align
+2026-09-18T10:29:09	iter-127-batch-c127-fix-d1-dual-r2-h1789698549643_0fd8	c7a7210	PASS	h1789698549643_0fd8	iter-002-carrier-align
+2026-09-18T10:29:09	iter-153-batch-c153-fix-r2-h1789698549105_60d4	2bec168	PASS	h1789698549105_60d4	iter-002-carrier-align
+2026-09-18T10:38:14	iter-135-batch-c135-fix-dual-r2-h1789699094626_6a94	d17e654	PASS	h1789699094626_6a94	iter-002-carrier-align
+2026-09-18T10:38:14	iter-153-batch-c153-fix-d1-r2-h1789699094427_589c	1beeb1b	PASS	h1789699094427_589c	iter-002-carrier-align
