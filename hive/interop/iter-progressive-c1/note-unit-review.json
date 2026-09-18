@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-progressive-c1",
+ "round": 1,
+ "candidate_commit": "6059e32",
+ "branch": "task/iter-progressive-c1",
+ "unit_job": "h1789747940780_6a9376",
+ "verdict": "REJECT",
+ "package_n": 3,
+ "text": "1) ACCEPT：`(atoms or ())` 过滤假值后空即返 `[]`；否则 `n=max(1,int(len(toks)*ratio))` 取前 n，ratio=1.0 取全部，吻合。\n2) REJECT：源码维护 `best_gap=float(min_gap)`，仅当 `gap>best_gap` 更新，返回**最大 gap 且 > min_gap** 的原子；并非“第一个大于 min_gap”。\n3) REJECT：`pool` 回落实为 `toks`（真值过滤后的 atoms），条件写成 `atoms 全集`；若 atoms 含假值，行为不符。\nreason: 第2、3条与源码分支/回退来源不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
