@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-093-batch-c93-fix-d1-d2-dual",
  "round": 5,
- "candidate_commit": "f6415fe",
+ "candidate_commit": "26a9ff4",
  "branch": "task/iter-093-batch-c93-fix-d1-d2-dual",
- "unit_job": "h1789678385224_80276e",
+ "unit_job": "h1789694882759_fa4a13",
  "verdict": "REJECT",
  "package_n": 3,
- "text": "复核：build 条件与源码一致（`rows or load_rows`、`have` 初快照、`verbose`、flush/return 均准）；print_sig 的 scopes 仅按 r4 非空追加、调用与无返回值也准。但 paired_test 条件称“r4 长度为 0 时返回 {}；否则以 seed 建 rng”，源码实际在 `n=len(r4)` 与空早退之前已执行 `rng=random.Random(seed)`，早退前置位置描述错误。\nreason: paired_test 将早退前的 rng 初始化误述为仅非空时执行，与源码不符。\nverdict: REJECT",
+ "text": "复核：1、3 与源码基本相符。2 的前半及 McNemar/bootstrap 描述正确，但 MRR 返回形状有误：源码为 `\"ci\": (None, None)`，并非 `ci` 为 None；且 MRR 还含非空 `delta`。该差异属返回形状不符。\nreason: 第2条将 MRR 的 ci 写成 None，源码实为 (None,None)，返回形状不符。\nverdict: REJECT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
