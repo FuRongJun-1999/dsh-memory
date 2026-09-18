@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-corpus-c1",
+ "round": 1,
+ "candidate_commit": "1782bb5",
+ "branch": "task/iter-corpus-c1",
+ "unit_job": "h1789746519419_6bbba4",
+ "verdict": "REJECT",
+ "package_n": 4,
+ "text": "复核：\n1) body：ACCEPT。marks 真值分派、返回标签/纯叙述，锚定形参 marks，与源码相符。\n2) node_id：REJECT。源码为 `kp_{di:02d}_{pi:02d}_{ai}`；条件漏“di 与 pi 之间的下划线”，返回形状不符。\n3) seed：ACCEPT。遍历 DOMAINS/ASPECTS、cg.add 参数、importance、flush、返回 n 均相符。\n4) reset_root：ACCEPT。clean 真且 isdir 才 rmtree，随后总 makedirs，描述相符。\nreason: 三条准确；node_id 条返回形状漏 di/pi 间下划线，与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
