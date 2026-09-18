@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-152-batch-c152",
+ "round": 1,
+ "candidate_commit": "eebc7b8",
+ "branch": "task/iter-152-batch-c152",
+ "unit_job": "h1789697302118_bda499",
+ "verdict": "REJECT",
+ "package_n": 15,
+ "text": "复核：1-10、12-15 条基本与源码一致，锚定形参、模块常量、早退与返回形状；position_ok=true 无需再要行号。问题在第11条 declare：括注“version 空白会抛 TheoryError”不符源码——`make_declaration` 中为 `(version or PROTOCOL_VERSION).strip()`，version=None/空串会回落 PROTOCOL_VERSION，仅回落结果 strip 后仍为空才抛。第8条表述正确。故存在源码不支持的断言。\nreason: declare 条目误称 version 空白必抛 TheoryError，实际会回落 PROTOCOL_VERSION。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
