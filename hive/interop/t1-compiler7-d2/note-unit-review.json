@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler7-d2",
+ "round": 3,
+ "candidate_commit": "e865c44",
+ "branch": "task/t1-compiler7-d2",
+ "unit_job": "h1789690697255_cde8f0",
+ "verdict": "ACCEPT",
+ "package_n": 16,
+ "text": "逐条核对：create_parser 子命令与默认值、cmd_check/cmd_ast/cmd_compile_pbc/cmd_rust 的 None/ok 早退、cmd_init 存在分支、_read_input 异常、pbc 标签/读写、run_pbc 透传、node_to_dict/_op_name 返回形状均与源码一致。括号仅修饰后置失败分支，未新增断言；position_ok=true 接受。\nreason: 全部生效条件与源码一致，锚定早退/默认/返回形状，无额外断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
