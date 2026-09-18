@@ -790,6 +790,7 @@ def watermarks(cg) -> dict:
 # 常驻循环
 # --------------------------------------------------------------------------
 
+# 生效条件：传入 cg 即构造实例并把 self.cg 指向它，name/beat_interval/heal_interval/auto_heal/scrub_interval/auto_scrub/evolve_interval/auto_evolve/tidy_interval/auto_tidy 用各默认值（DEFAULT_* 与 False/True）经 float()/bool() 落为 self 属性，ledger 为假值（默认 None）时回落 SessionLedger(cg.root)，d 经 net_dir(d) 赋值，其余运行态字段初始化为 False/None/空列表/空 Event/Lock
 class SustainLoop:
     """常驻自维持循环：后台线程周期心跳 + 周期巡检 + 必要时自愈。
 
