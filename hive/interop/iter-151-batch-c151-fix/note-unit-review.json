@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-151-batch-c151-fix",
+ "round": 2,
+ "candidate_commit": "dbaf532",
+ "branch": "task/iter-151-batch-c151-fix",
+ "unit_job": "h1789697102558_86010f",
+ "verdict": "REJECT",
+ "package_n": 14,
+ "text": "declare 条件与源码不符：源码在函数开头无条件 `old=load(path)`，先于 `make_declaration/seal`，而条件写成 `append_audit` 为真时才取 old，顺序也反。其余条目基本准确。\nreason: declare 的 old=load(path) 是无条件前置且先于 make_declaration，条件误述为 append_audit 为真时才取。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
