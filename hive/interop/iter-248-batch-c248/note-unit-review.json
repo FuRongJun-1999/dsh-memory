@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-248-batch-c248",
+ "round": 1,
+ "candidate_commit": "871d527",
+ "branch": "task/iter-248-batch-c248",
+ "unit_job": "h1789726613778_2574b1",
+ "verdict": "REJECT",
+ "package_n": 47,
+ "text": "复核47条：多数条目准确锚定形参、缺省常量、早退与返回形状，未发现其他实质不符。唯一问题在 MdCGOS._path_fuzzy：条件称“context 非 None 且为 dict 时才计 ctx_aff”，但源码只要 context 非 None 就进入，非 dict 时以 {} 继续计算 ctx_domain；ctx_aff 由 ctx_domain 真值决定，并非 dict 前置。position_ok=true 不另要求行号。\nreason: _path_fuzzy 误加“必须为 dict”前置，源码对非 dict 非 None 仍以空 dict 计算 ctx_domain，可能计入 ctx_aff。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
