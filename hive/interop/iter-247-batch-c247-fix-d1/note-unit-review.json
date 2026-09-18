@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-247-batch-c247-fix-d1",
+ "round": 3,
+ "candidate_commit": "45554ca",
+ "branch": "task/iter-247-batch-c247-fix-d1",
+ "unit_job": "h1789726055668_cec2a7",
+ "verdict": "REJECT",
+ "package_n": 4,
+ "text": "",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
