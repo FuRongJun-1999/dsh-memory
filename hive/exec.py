@@ -159,6 +159,7 @@ def image_size(path: str) -> tuple:
     return None, None
 
 
+# 生效条件：当 f 可读且从偏移 2 起扫描段时，段码为 0xD8/0xD9/0xD0–0xD7 则继续扫描；遇 EOF/标记字节读不到/段长字段不足 2 字节/SOFn 段体不足 5 字节/非 SOFn 分支 seg<2 均返回 (None, None)；命中 SOFn（0xC0–0xCF 排除 0xC4/0xC8/0xCC）且读满 5 字节则返回 (body[3:5] 大端、body[1:3] 大端)；其余非 SOFn 段按 seg-2 继续 seek；
 def _jpeg_size(f) -> tuple:
     """JPEG：扫段找 SOFn（C0–CF 去掉 C4/C8/CC），段内 精度1/高2/宽2。"""
     f.seek(2)
@@ -244,6 +245,7 @@ def resolve_system_prompt(spec: dict, job_dir: str) -> tuple:
     return literal, ("literal" if literal else "none")
 
 
+# 生效条件：当传入 rel/path/job_dir/meta 且 path 可被 open("rb") 读取首 BINARY_SNIFF_BYTES 字节并用 sniff_kind 分类时，text 分支用 utf-8 errors=replace 读全文并返回文本 context；image: 前缀分支取 image_size(path) 的 w/h（w/h 均为真才显示尺寸并可能 oversize，否则显示“尺寸未知”且 width/height 用“?”），累加 meta["images"]/["image_tokens"]、向 meta["notes"] 追加并 log(job_dir,...)，返回带 w/h/oversize 的图像 context；其余分支累加 meta["binaries"]、log(job_dir,...) 并返回不读正文的二进制 context；
 def _context_block(rel: str, path: str, job_dir: str, meta: dict) -> str:
     """单个 context 块：文本读全文；图像/二进制只登记（Pi⑦④）。"""
     with open(path, "rb") as f:
@@ -494,6 +496,7 @@ def _md_cg_import():
     return home
 
 
+# 生效条件：当 args["op"]（args.get("op") 或空串）在 _TOOL_OPS_ALLOW 内，且 op != "write" 或 verification_basis 为 None 或在 VERIFICATION_BASIS_ALLOW 内，且 MDCG_ROOT 去空格非空或 mdcg_root 去空格非空（两者皆空返回未配置错误），并成功导入 md_cg 且 _PRINCIPAL_FACTORY 为 None 或 _PRINCIPAL_FACTORY(args, job_id) 返回非 None（返回 None 则 fail-closed 拒绝），则给 principal 无 session 时设 f"hive_job_{job_id}"，经 _cg_dispatch(cg,args) 返回 dict 或包成 {"ok": True, "data": out}；op 不在白名单、write 的 vb 非法、root 空、principal 为 None、或任一异常时返回相应 {"ok": False,...}；
 def tool_lingshu_cg(args: dict, job_id: str, mdcg_root: str = None) -> dict:
     """灵枢认知图工具：复用 MCP 面同一 dispatch（op 白名单 route/read/write）。
 
@@ -547,6 +550,7 @@ def tool_lingshu_cg(args: dict, job_id: str, mdcg_root: str = None) -> dict:
                 "mdcg_home": home}
 
 
+# 生效条件：当 args["query"]（args.get("query") or ""）去空格非空时，count 取 int(args.get("count") or 5) 后 max(1,min(...,10))（count 缺键/None/0/空串等假值回落 5），backend 取 env HIVE_WEB_SEARCH 去空格小写，为空则取 backend_override 去空格小写，仍为空则 "zhipu"；backend 为 "zhipu" 返回 _ws_zhipu(query,count,backend)，为 "duckduckgo" 返回 _ws_duckduckgo(query,count,backend)，否则返回未知后端错误；query 为空返回 query 必填；HTTPError 返回 HTTP 错误，其他异常返回类名+消息；
 def tool_web_search(args: dict, backend_override: str = None) -> dict:
     """网页搜索。zhipu：/web_search 端点（base/key 独立 env，见 _ws_zhipu）；
     duckduckgo：零 key 兜底（html.duckduckgo.com 抓取解析，弱依赖可被墙）。
