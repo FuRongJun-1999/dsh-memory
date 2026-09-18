@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-autonomy-c1",
+ "round": 1,
+ "candidate_commit": "623143c",
+ "branch": "task/iter-autonomy-c1",
+ "unit_job": "h1789748524999_70b0a7",
+ "verdict": "ACCEPT",
+ "package_n": 2,
+ "text": "复核：proposals 条所述窗口切片、非空 query 聚合、score>0、enforce_gain 门槛与 deferred_exhausted、排序截断、n_signals 均在段内，ACCEPT。explore 条所述 enforce_gain=not bypass_gain、seen 去重 skipped、异常 error、outcomes 记录、仅吞 OSError 均在段内，ACCEPT。无越界或源码不支持断言。\nreason: 两条候选条件均与各自 src_segment 内证据一致。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
