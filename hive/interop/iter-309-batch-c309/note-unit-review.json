@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-309-batch-c309",
+ "round": 1,
+ "candidate_commit": "69005b2",
+ "branch": "task/iter-309-batch-c309",
+ "unit_job": "h1789753876600_42032c",
+ "verdict": "ACCEPT",
+ "package_n": 8,
+ "text": "逐条核验：1 MdCGOS.__init__、2 MdCGSecure.__init__、3 judge_qualification、4 _record_hash、5 _audit_node_id、6 _session_node_id、7 _session_digest、8 MdCGSecure._resolve_master_key，均与各自 src_segment 一致。参数默认、假值回落、返回/早退/异常、哈希键序均有源码锚点；未见越界到其它符号或源码外断言；position_ok=true。全部 ACCEPT。\nreason: 八条生效条件均可由各自源码段直接证实，未发现不符或越界。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
