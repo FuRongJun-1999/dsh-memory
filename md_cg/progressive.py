@@ -44,6 +44,7 @@ from __future__ import annotations
 MIN_DISCRIM = 0.1
 
 
+# 生效条件：atoms 经 `a for a in (atoms or ()) if a` 过滤后为空（atoms 为 None/空容器/元素全为假值）→ 返回 []，否则取过滤后前 n 项，n = max(1, int(len(toks)*ratio))，故 ratio=0 或负值时仍返回 1 项、ratio=1.0 时返回全部。
 def core_subset(atoms, ratio=0.5):
     """Stage-1 宽检索核心子集：归一序列前 int(len*ratio) 个（保序，确定性）。
 
@@ -57,6 +58,7 @@ def core_subset(atoms, ratio=0.5):
     return toks[:n]
 
 
+# 生效条件：cand_sets 长度 < 2 或 unused 为假值/空序列 → 返回 None；否则对 unused 保序逐项算 cov=命中 cand_sets 的比例、gap=1-|2*cov-1|，返回 gap 严格大于 float(min_gap)（默认模块常量 MIN_DISCRIM）者中 gap 最大者，同 gap 取 unused 原序靠前者；无满足者返回 None。
 def discriminative(unused, cand_sets, min_gap=MIN_DISCRIM):
     """候选间区分度最大的未用原子（确定性：同 gap 取归一序列原序靠前者）。
 
@@ -76,6 +78,7 @@ def discriminative(unused, cand_sets, min_gap=MIN_DISCRIM):
     return best
 
 
+# 生效条件：atoms 真值过滤后为空 → 返回 {'stages': [], 'added': [], 'converged': False}；否则从 used=core_subset(toks, ratio) 起在 range(max_stages) 内循环，每阶段记录 rank_fn(used) 的前 k（默认 10）个 cid 与当前 used，若 stage==max_stages-1 则 break 且 converged 保持 False，非末阶段则用 pool（cond_pool 为真值时取 list(cond_pool)，否则回落为 toks 真值过滤后的 atoms）中未用原子对 top 的 cand_atoms.get(cid, frozenset()) 调 discriminative：结果非 None 时并入 used 并追加进 added 继续循环，为 None 时置 converged=True 提前结束。
 def progressive_search(rank_fn, atoms, cand_atoms,
                        ratio=0.5, k=10, max_stages=4,
                        cond_pool=None, min_gap=MIN_DISCRIM):
