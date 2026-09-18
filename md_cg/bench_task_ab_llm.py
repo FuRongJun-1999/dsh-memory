@@ -134,6 +134,7 @@ for _c in CASES:
 
 
 # ---- LLM 客户端（OpenAI 兼容，零第三方依赖）-------------------------------
+# 生效条件：给定 model/base/key/messages 即构造 JSON POST 到 base.rstrip("/")+"/chat/completions"，返回 (choices[0].message 的 content 或缺失/假值回落 ""、data.get("usage") 或缺失/假值回落 {}、耗时 dt)，timeout/max_tokens/temperature 仅作为请求参数传入。
 def llm_chat(model, base, key, messages, timeout=180, max_tokens=200,
              temperature=0.0):
     payload = json.dumps({
@@ -154,6 +155,7 @@ def llm_chat(model, base, key, messages, timeout=180, max_tokens=200,
     return content, (data.get("usage") or {}), dt
 
 
+# 生效条件：raw（None/空串视为 ""）中首个 "{" 至末个 "}" 的子串能解析出 pick，或全文匹配到单个数字 1-9，且该编号落在 1..n 内时返回该编号（pick 为数字字符串先转 int），否则返回 None。
 def _parse_pick(raw, n):
     """从模型输出里抠出候选编号（1..n）；解析失败返回 None。"""
     s = raw or ""
@@ -174,6 +176,7 @@ def _parse_pick(raw, n):
     return None
 
 
+# 生效条件：以 case["id"] 播种打乱 [(fix,case["fix"]),(trap,case["trap"]),(decoy,case["decoy"])] 后取三种循环排列，n<=3 返回其前 n 个，n>3 返回 6 种全排列的前 n 个。
 def _orders(case, n):
     """候选顺序。默认取 3 种循环排列（每个候选在 3 个位置各出现一次，天然去位置偏差）；
     n>3 时退回全 6 种排列。基准顺序由 case id 播种打乱，避免跨用例雷同。"""
@@ -204,12 +207,14 @@ def _user_prompt(case, opts, memory=None):
     return "\n".join(lines)
 
 
+# 生效条件：cg 存在时把模块常量 CASES 逐条以 c["task"] 为 error、c["lesson"] 为 fix 组成列表传给 cg.mine_fix_pairs 并原样返回其结果。
 def _build_memory(cg):
     """Phase A：把 5 条「项目规范」写进记忆（真实 mine_fix_pairs）。"""
     return cg.mine_fix_pairs(
         [{"error": c["task"], "fix": c["lesson"]} for c in CASES])
 
 
+# 生效条件：以 "本项目规范："+case["query"] 且 budget_tokens=budget、k=10 调用 cg.recall，取 pack 各项 content（缺失/假值为 ""）拼接，返回其前 1500 字符与 case["marker"] 是否出现在未截断拼接文本中。
 def _recall_memory(cg, case, budget):
     res = cg.recall("本项目规范：" + case["query"],
                     budget_tokens=budget, k=10)
@@ -217,6 +222,7 @@ def _recall_memory(cg, case, budget):
     return text[:1500], (case["marker"] in text)
 
 
+# 生效条件：在 cfg["max_turns"] 轮内以 cfg["model"]/cfg["base"]/cfg["key"] 调 llm_chat（timeout=cfg["timeout"]、max_tokens=cfg["max_tokens"]）并累加 usage["total_tokens"]，pick 等于 correct_pos 或为 None 时中止（否则在仍有剩余轮次时追加 assistant/user 消息重选），最终 pick 为 None 则 kind="invalid"、否则 kind=opts[pick-1][0]。
 def _run_one(cfg, case, opts, correct_pos, memory):
     messages = [{"role": "system", "content": SYS_PROMPT},
                 {"role": "user", "content": _user_prompt(case, opts, memory)}]
@@ -240,6 +246,7 @@ def _run_one(cfg, case, opts, correct_pos, memory):
             "turns": turns, "tokens": tokens, "latency": dt}
 
 
+# 生效条件：cfg["use_mem"] 为真时对每个 case 以 cfg["budget"] 先串行召回写入 mems、否则存 (None, False)，再对每 case × _orders(case, n_perms) 的排列 × ("none","mem") 两臂建任务交 ThreadPoolExecutor(max_workers=workers) 执行，返回按 arm 分组的 {"none": [...], "mem": [...]} 行表。
 def _run_model(label, cfg, cases, cg, n_perms, workers):
     # 记忆召回先串行算好（MdCGOS 非线程安全），LLM 调用再并发。
     mems = {}
@@ -255,6 +262,7 @@ def _run_model(label, cfg, cases, cg, n_perms, workers):
             for arm in ("none", "mem"):
                 tasks.append((case, oi, opts, correct_pos, arm))
 
+# 生效条件：t 解包为 (case, oi, opts, correct_pos, arm)，arm=="mem" 时 memory/hit 取闭包 mems[case["id"]]、否则为 (None, False)，_run_one 抛异常时以 kind="error"、pick=None 的占位行替代，随后补上 case/arm/hit 并打印该行后返回 r。
     def work(t):
         case, oi, opts, correct_pos, arm = t
         memory, hit = mems[case["id"]] if arm == "mem" else (None, False)
@@ -277,10 +285,12 @@ def _run_model(label, cfg, cases, cg, n_perms, workers):
     return rows
 
 
+# 生效条件：n 为真值时返回 f"{100.0*x/n:.1f}%"，n 为假值（0）时返回 "-"。
 def _pct(x, n):
     return f"{100.0 * x / n:.1f}%" if n else "-"
 
 
+# 生效条件：以 rows["none"] 的行数 n 汇总 none/mem 两臂的 correct、kind=="trap"、kind∈("invalid","error")、tokens、latency、hit 与 pick∈(1,2,3) 的分布并打印（n_perms 仅用于表头文字），返回该 agg 字典。
 def _report(label, rows, n_perms):
     n = len(rows["none"])
     print(f"\n{'-' * 78}")
