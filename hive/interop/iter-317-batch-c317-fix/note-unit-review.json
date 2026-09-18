@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-317-batch-c317-fix",
+ "round": 2,
+ "candidate_commit": "7ddc16f",
+ "branch": "task/iter-317-batch-c317-fix",
+ "unit_job": "h1789755802625_b88683",
+ "verdict": "REJECT",
+ "package_n": 4,
+ "text": "1 ACCEPT：norm_path 无分支，形参 path，空串经 abspath 为 cwd。  \n2 REJECT：源码先按 norm_path 去重再判 stop；若当前节点已是重复别名，stop 命中时只追加 alias、不进 out，条件“计入 out 后 break”不总成立。  \n3 ACCEPT：text or \"\"，匹配 group1，否则 None，无别的分支。  \n4 ACCEPT：variant/now 真值分支、未知 variant 与裸 {{ 抛 SystemExit、返回形状均符。  \nreason: 第2条 stop 命中重复节点时不入 out，与源码去重顺序不符。  \nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
