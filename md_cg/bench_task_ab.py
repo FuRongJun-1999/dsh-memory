@@ -131,6 +131,7 @@ def _trial(error, candidates, fix, max_turns):
             "touched": touched}
 
 
+# 生效条件：case["fix"] 为真且其字符串出现在 cg.recall(query, budget_tokens=budget, k=20) 返回 pack 各项 content 拼接成的 text 中时返回 hit=True、turns=1、touched=[]；否则以 case["error"]、candidates、case["fix"]、max_turns 调 _trial 并回填 hit=False、turns=1+fb["turns"]、tokens=int(tokens_used or 0)。
 def _decide_mem(cg, query, case, candidates, max_turns, budget):
     """有记忆臂：先召回，命中修复知识则一次到位；否则回退到试错。"""
     res = cg.recall(query, budget_tokens=budget, k=20)
