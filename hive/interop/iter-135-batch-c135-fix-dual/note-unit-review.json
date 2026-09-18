@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-135-batch-c135-fix-dual",
  "round": 5,
- "candidate_commit": "952cb4c",
+ "candidate_commit": "d17e654",
  "branch": "task/iter-135-batch-c135-fix-dual",
- "unit_job": "h1789695336144_151e31",
+ "unit_job": "h1789698686816_567c97",
  "verdict": "ACCEPT",
  "package_n": 18,
- "text": "逐条核对：条件均描述源码实际生效分支/早退；UTF-8、非空行、None/假值、verbose、max_df/root_base、返回形状与空容器前置均可对应。`normalize_terms` 的“c 的 time”应理解为 `c[\"zh_fields\"][\"time\"]`，非冲突。未发现 assert 语义、闭包来源、参数误用或源码不支持断言。position_ok=true 无需行号。\nreason: 未发现与源码不符或补加断言的生效条件。\nverdict: ACCEPT",
+ "text": "逐条对照：iter_jsonl、load_json、parse_zh、prepare、analyze、norm_time、en_names、build_tables、intent_of、normalize_terms、build_arm、build_all、run_one、print_table、run_ablation、run_seed_control、main、turn_no 的条件均与源码分支、前置、假值回退、返回/异常语义一致；未发现 assert 误述、None/假值混淆、闭包前置错置、参数未用或补断。position_ok=true 已足够。\nreason: 全部候选条件与源码相符，未发现不支持断言或漏锚。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
