@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-343-batch-c343",
+ "round": 1,
+ "candidate_commit": "7d8f074",
+ "branch": "task/iter-343-batch-c343",
+ "unit_job": "h1789759388563_0ae8bd",
+ "verdict": "REJECT",
+ "package_n": 2,
+ "text": "refresh：分支/早退/返回、rebuild、strict、session 处理均与源码一致；但“cg 可提供 snapshot/_last_log/_derive/_append_log”不符，它们是模块函数，仅 cg.add 为方法。audit：absent、verdict、ok=not errors 与源码一致；但“cg 可提供 snapshot/history/relations”亦不符，且 index 由 getattr 可缺省，非必需前置。未发现越界，但前置来源有源码级错误。\n\nreason: 前置依赖归属与源码不符，非 cg 提供。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
