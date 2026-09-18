@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-tailmulti-e-fix",
+ "round": 2,
+ "candidate_commit": "0d576d6",
+ "branch": "task/iter-tailmulti-e-fix",
+ "unit_job": "h1789760072964_f64df2",
+ "verdict": "ACCEPT",
+ "package_n": 5,
+ "text": "逐条对照：1-5 的分支、返回、常量与早退均可在各自 src_segment 内直接核实；未见 assert 误判、None/假值混淆、闭包来源错置、返回形状错误或越界。\nreason: 五条条件均与源码段内证据一致，无越界或证据缺口。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
