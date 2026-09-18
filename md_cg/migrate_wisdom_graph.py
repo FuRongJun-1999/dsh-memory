@@ -43,6 +43,7 @@ DEFAULT_DB = os.path.join(_HERE, "whitebox_kb", "wisdom", "wisdom-book-cloud.db"
 DEFAULT_ROOT = os.path.join(os.path.dirname(_HERE), "_md_cg_wisdom_graph")
 
 
+# 生效条件：s 为假值（None/""/0 等）时返回 s or ""（None→""、0→""），否则返回把 "\r\n"、"\r" 依次替换为 "\n" 的字符串。
 def _norm_text(s):
     """统一换行：md 按 LF 存，源库常含 CRLF，不规范化会造成假失败。"""
     if not s:
@@ -50,6 +51,7 @@ def _norm_text(s):
     return s.replace("\r\n", "\n").replace("\r", "\n")
 
 
+# 生效条件：v 为 None 或等于 "" 时返回 default；v 是 dict 或 list 时原样返回 v；否则 json.loads(v)，遇 ValueError/TypeError 时返回 default。
 def _j(v, default):
     if v is None or v == "":
         return default
@@ -61,6 +63,7 @@ def _j(v, default):
         return default
 
 
+# 生效条件：float(v) 成功时返回该浮点值（含 v="" 之外的数值串），抛 TypeError/ValueError 时返回 default，default 缺省为 0.0。
 def _f(v, default=0.0):
     try:
         return float(v)
@@ -68,10 +71,12 @@ def _f(v, default=0.0):
         return default
 
 
+# 生效条件：任何传入的 db 都拼成 f"file:{db}?mode=ro" 并 uri=True 返回 sqlite3.connect 的连接（源码未对 db 做存在性或类型校验）。
 def _connect(db):
     return sqlite3.connect(f"file:{db}?mode=ro", uri=True)
 
 
+# 生效条件：db 经 _connect 只读打开，limit 为真值（非 None/0/""）时 SQL 追加 f" LIMIT {int(limit)}"，limit 为假值时无 LIMIT、返回按 created_at 排序的全部 nodes 字典列表。
 def load_nodes(db, limit=None):
     con = _connect(db)
     con.row_factory = sqlite3.Row
@@ -83,6 +88,7 @@ def load_nodes(db, limit=None):
     return rows
 
 
+# 生效条件：db 只读打开后逐条 edges 按 rel=(relation_type or "").strip() 分派——等于 LEVEL_REL 的记入 children[source_id]，其余记入 relations[source_id] 的边字典（target、relation_type、confidence=_f(conf,0.7)、verified=int(ver or 0)，且仅当 _j(cs,None) 为真值时加 condition_space、仅当 weight 不为 None 时加 weight=_f(weight,1.0)），返回 (children, relations)。
 def load_graph(db):
     """返回 (children_of, relations_of)。
 
@@ -115,6 +121,7 @@ def load_graph(db):
 # 写：sqlite → md
 # --------------------------------------------------------------------------
 
+# 生效条件：db/root 取默认 DEFAULT_DB/DEFAULT_ROOT（或调用方所传）；dry_run 为真值时不做写入，rep 只有统计字段而无 verify/ok；dry_run 为假值时以 MdCGOS(root) 把 load_nodes(db, limit)（limit 真值才加 LIMIT）的节点按 id 覆盖写入，并令 rep["verify"]=verify(db, root, verbose=verbose)、rep["ok"]=bool(rep["verify"]["ok"])；verbose 为真值时打印 rep。
 def export(db=DEFAULT_DB, root=DEFAULT_ROOT, limit=None, dry_run=False,
            verbose=True):
     rows = load_nodes(db, limit)
@@ -180,6 +187,7 @@ def export(db=DEFAULT_DB, root=DEFAULT_ROOT, limit=None, dry_run=False,
 # 校验：md 侧 vs sqlite 侧（逐节点全量，不抽样）
 # --------------------------------------------------------------------------
 
+# 生效条件：db/root 取默认 DEFAULT_DB/DEFAULT_ROOT（或调用方所传），在 md_ids 与 load_nodes(db) 的交集上做 L1 子/父集合比对、L2 非层级边 target 集合比对、L3 字段比对（condition_space 经 _cs_same 剔除 time_window）后，out["ok"] 仅当无缺失节点、无 child_bad/parent_bad/rel_bad/field_bad、roots_equal 为真且 sg.validate(cg, limit=5) 的 issues==0；verbose 为真值时打印去掉 tree_validate 键的 out。
 def verify(db=DEFAULT_DB, root=DEFAULT_ROOT, verbose=True):
     from . import subgraph as sg
 
@@ -219,6 +227,7 @@ def verify(db=DEFAULT_DB, root=DEFAULT_ROOT, verbose=True):
             rel_bad.append({"id": nid, "db": want, "md": got})
 
     # ---- L3 字段等价 ----
+# 生效条件：a、b 各自经 _j(a, {}) or {} 转成字典（None/"" 得空 dict）后 pop("time_window")，仅当剔除该槽后的两字典相等才返回 True，否则 False。
     def _cs_same(a, b):
         """md 写入侧按条件论纪律自动补 time_window（`mdcg.add` 的观测时间窗），
         比对时剔除该槽——它是有意增强，不是迁移失真。"""
@@ -278,6 +287,7 @@ REC_SUBTREE_SQL = (
     "WHERE e.relation_type = ?) SELECT id FROM sub")
 
 
+# 生效条件：db/root 取默认 DEFAULT_DB/DEFAULT_ROOT（或调用方所传），仅遍历 sg.roots(cg)∩md_ids 的前 n_roots 个根（n_roots 为 0 时切片为空、不做子树比对），每根比对 db 递归 CTE 子树与 sg.flatten(cg, nid, max_nodes=10**9) 的 nodes，out["ok"] 仅当该样本无失配且 forest_partition_ok（n_db==n_md==len(md_ids)）成立；verbose 为真值时打印 out。
 def bench_graph(db=DEFAULT_DB, root=DEFAULT_ROOT, n_roots=30, verbose=True):
     """L4 子树展开等价 + 森林完整性（回答「图**查询**能否由 md 承担」）。
 
@@ -295,6 +305,7 @@ def bench_graph(db=DEFAULT_DB, root=DEFAULT_ROOT, n_roots=30, verbose=True):
     con = _connect(db)
     roots_md = sorted(set(sg.roots(cg)) & md_ids)
 
+# 生效条件：用外层闭包的 con 执行 REC_SUBTREE_SQL、参数为 (nid, LEVEL_REL)，返回结果各行第 0 列构成的集合。
     def _db_subtree(nid):
         return {r[0] for r in con.execute(REC_SUBTREE_SQL, (nid, LEVEL_REL)).fetchall()}
 
@@ -323,10 +334,12 @@ def bench_graph(db=DEFAULT_DB, root=DEFAULT_ROOT, n_roots=30, verbose=True):
     return out
 
 
+# 生效条件：argv 含 "--verify-only" 时返回 0/1 取决于 verify(db, root)["ok"]，含 "--bench-graph" 时返回 0/1 取决于 bench_graph(db, root)["ok"]，否则以 opt 取的 --db/--root/--limit 调 export（opt("--limit") 缺失或为空串时 limit=None，否则 int(lim)；dry_run="--dry-run" in argv），rep.get("dry_run") 为真时直接返回 0，否则按 rep.get("ok") 真→0、假→1。
 def main(argv):
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
 
+# 生效条件：name 出现在外层 argv 中时返回 argv[argv.index(name) + 1]（即首次出现位置的后一个元素），name 不在 argv 中时返回 default，default 缺省为 None。
     def opt(name, default=None):
         return argv[argv.index(name) + 1] if name in argv else default
 
