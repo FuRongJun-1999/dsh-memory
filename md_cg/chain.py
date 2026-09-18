@@ -57,6 +57,7 @@ MAX_DEPTH_HARD = 64
 MAX_NODES_DEFAULT = 500
 
 
+# 生效条件：edge 为 dict 时按 relation_type→relation→type 顺序取首个真值、非 dict 时 rel 记为 None，两者统一返回 str(rel or "").strip().lower()——键缺失或全为假值时得空串。
 def edge_rel(edge):
     """取边的 relation_type（兼容 dict / 字符串两种写法），统一小写。"""
     if isinstance(edge, dict):
@@ -66,6 +67,7 @@ def edge_rel(edge):
     return str(rel or "").strip().lower()
 
 
+# 生效条件：edge 为 dict 时取 target or target_id（前者假值回落后者），该值非 None 则返回其 str().strip()、为 None 返回 None；edge is None 返回 None；其余（裸字符串等）返回 str(edge).strip() 或空白串时 None。
 def edge_target(edge):
     """取边的目标节点 id（兼容 target / target_id / 裸字符串）。"""
     if isinstance(edge, dict):
