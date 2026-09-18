@@ -182,10 +182,12 @@ _CFG = {
 }
 
 
+# 生效条件：无入参，模块级常量 CHILDREN_FILE 与 _CFG['job_dir'] 可用时返回 os.path.join(_CFG['job_dir'], CHILDREN_FILE)。
 def _children_path() -> str:
     return os.path.join(_CFG["job_dir"], CHILDREN_FILE)
 
 
+# 生效条件：无入参，读取 _children_path()（由模块级 CHILDREN_FILE 拼接）成功且 JSON 的 data.get('children') 为真值时返回 list(data['children'])，否则（OSError/ValueError 或 children 为 None/空/假值）返回 []。
 def _load_children() -> list:
     """读回子任务清单。
 
@@ -200,6 +202,7 @@ def _load_children() -> list:
         return []
 
 
+# 生效条件：无入参，当 _CFG['children'] 可被 json.dump 时写临时文件并 os.replace 到 _children_path()，OSError 被吞，函数总返回 None。
 def _save_children() -> None:
     try:
         tmp = _children_path() + ".tmp"
@@ -212,6 +215,7 @@ def _save_children() -> None:
 
 # ------------------------------------------------------------- 身份（Q3 落地）
 
+# 生效条件：无入参，环境变量 HIVE_ORCH_TOKEN 去空白后非空则返回该值；否则读 HIVE_ORCH_TOKEN_FILE 去空白后非空才尝试打开并返回文件内容 strip 值，path 为空串则返回 ''，打开 OSError 抛 OrcError。
 def _read_token() -> str:
     tok = (os.environ.get("HIVE_ORCH_TOKEN") or "").strip()
     if tok:
@@ -226,6 +230,7 @@ def _read_token() -> str:
         raise OrcError(f"读令牌文件失败：{path}（{e}）")
 
 
+# 生效条件：job_id 提供且 _read_token() 返回非空令牌、verify_token(tok) 返回非 None principal 时，设置 principal.session=f"hive_orch_{job_id}" 并尽力设 principal.harness="hive-orch"，返回 principal；令牌缺失、校验抛异常或 principal 为 None 均抛 OrcError。
 def load_principal(job_id: str):
     """读派生令牌 → Principal（fail-closed：任何失败抛 OrcError）。
 
@@ -259,6 +264,7 @@ def load_principal(job_id: str):
 
 # ------------------------------------------------------------------ 卡片视图
 
+# 生效条件：job_id 指向 _CFG['jobs'] 下任务，full 缺省 False 用 CARD_CHARS 截断（True 则不截断）；view 为空时按 state 是否在 TERMINAL_STATES 填 hint 后返回，view 含 content_head 时填 card['content_head'] 与 card['content_truncated']=True，否则填 card['content']=view.get('content')，并透传 view 中 ok/need_continue/handoff_ready/error_code/usage，card['tool_calls']=len(view.get('tool_trace') or [])，tool_trace_brief 取 trace[-TRACE_MAX:] 的 tool/ok/brief。
 def _card(job_id: str, full: bool = False) -> dict:
     """子任务卡片（Q2）：正文头 + 工具轨迹摘要 + 指针；full=True 时不截断。"""
     jobs = _CFG["jobs"]
@@ -296,12 +302,14 @@ def _card(job_id: str, full: bool = False) -> dict:
     return card
 
 
+# 生效条件：无入参，遍历 _CFG['children'] 返回每项 c['job_id']；若某项缺 job_id 则抛 KeyError。
 def _known_children() -> list:
     return [c["job_id"] for c in _CFG["children"]]
 
 
 # -------------------------------------------------------------- 工具实现（三）
 
+# 生效条件：a 为 dict，在 len(_CFG['children']) < _CFG['max_subtasks']、a.get('user_prompt') 去空白后非空、a.get('model') 或 _CFG['model'] 去空白后非空、a.get('tools') 各项（缺省/空列表回落 list(SUB_TOOLS_ALLOW)，若 tools 为空也回落）均属 SUB_TOOLS_ALLOW、a.get('context_files') 每项对应路径 isfile 为真时，构造 sub 白名单键（仅当 a.get(k) not in (None, '', [], {}) 才写入 system_prompt/context_files/max_tool_rounds/web_search_backend/mdcg_root/max_tokens/temperature/thinking），timeout_s 取 int(a.get('timeout_s') or _hm.DEFAULT_TIMEOUT_S)，context_budget_tokens 取 int(a.get('context_budget_tokens') or _hm.DEFAULT_CONTEXT_BUDGET_TOKENS)，reasoning_effort 取 a.get('reasoning_effort') or _hm.DEFAULT_REASONING_EFFORT，提交后 append 到 _CFG['children']、_save_children()、_ex.progress(kind='spawn_subtask') 并返回 ok=True 及 defaults；上述前置失败则返回对应 {'ok': False, 'error': ...}。
 def _spawn(a: dict) -> dict:
     """派发子任务。
 
@@ -362,6 +370,7 @@ def _spawn(a: dict) -> dict:
             "hint": "不要等；继续派发其它子任务，稍后用 poll_subtasks 收口"}
 
 
+# 生效条件：a 为 dict，a.get('job_ids') 转字符串后非空则用之，否则回落到 _known_children()；若 ids 仍空返回 {'ok': True, 'count': 0, 'children': [], 'hint': ...}，否则 full=bool(a.get('full')) 逐 id 调 _card，done 计 c.get('state') 在 TERMINAL_STATES 的卡片，返回 count/done/active/children。
 def _poll(a: dict) -> dict:
     ids = [str(x) for x in (a.get("job_ids") or [])] or _known_children()
     if not ids:
@@ -374,6 +383,7 @@ def _poll(a: dict) -> dict:
             "active": len(cards) - len(done), "children": cards}
 
 
+# 生效条件：a 为 dict，a.get('job_id') 去空白后非空且 jid 属于 _known_children() 时，cap=int(a.get('max_chars') or FULL_MAX_CHARS)，读 _CFG['jobs']/jid/result.json；OSError 返回 {'ok': False, ...}，len(raw)>cap 时返回 truncated=True/head，否则返回 truncated=False/raw；job_id 缺失或越权返回 {'ok': False, ...}。
 def _read_full(a: dict) -> dict:
     jid = (a.get("job_id") or "").strip()
     if not jid:
@@ -397,6 +407,7 @@ def _read_full(a: dict) -> dict:
             "chars": len(raw), "raw": raw}
 
 
+# 生效条件：按 name 分派，name=='spawn_subtask' 返回 _spawn(args)、'poll_subtasks' 返回 _poll(args)、'read_full' 返回 _read_full(args)，其余 name 返回 {'ok': False, 'error': ...}；job_id 形参在源码中未被使用。
 def orch_handler(name: str, args: dict, job_id: str) -> dict:
     """编排三工具的处理器（注册进 exec.register_tools）。"""
     if name == "spawn_subtask":
@@ -410,6 +421,7 @@ def orch_handler(name: str, args: dict, job_id: str) -> dict:
 
 # ---------------------------------------------------------------------- 入口
 
+# 生效条件：spec 为 dict，spec.get('tools') 去空/缺省时初始 tools=['lingshu_cg','web_search']，否则 tools 为 given 去重；added 为 ("lingshu_cg",)+ORCH_TOOLS 中不在 tools 的项，tools.extend(added) 后返回 (tools, added)。
 def merge_tools(spec: dict) -> tuple:
     """算最终工具白名单：编排三工具是**能力下限**（强制并入），lingshu_cg 缺省并入。
 
@@ -424,6 +436,7 @@ def merge_tools(spec: dict) -> tuple:
     return tools, added
 
 
+# 生效条件：len(sys.argv)<2 时输出 usage 并返回 EXIT_SPEC；否则 job_dir=normpath(sys.argv[1])、job_id=basename(job_dir)，read_spec 异常则写 result 返回 EXIT_SPEC，spec.orchestrate.max_subtasks 为真值时尝试 _CFG['max_subtasks']=max(1,int(...))（TypeError/ValueError 静默跳过），load_principal(job_id) 抛 OrcError 则写 result 返回 EXIT_SPEC，成功则 _CFG.update({job_id, job_dir, jobs=_hm._jobs_dir(), model=(spec.get('model') or '').strip(), children=_load_children()})、merge_tools 补 tools、缺 system_prompt 填 ORCH_SYSTEM_PROMPT、写回 spec、register_tools(ORCH_SCHEMAS, orch_handler)、set_principal_factory(...)、log/progress，最后返回 _ex.main() 并在 finally 调 _save_children()。
 def main() -> int:
     if len(sys.argv) < 2:
         sys.stderr.write("usage: orch.py <job_dir>\n")
@@ -502,4 +515,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
