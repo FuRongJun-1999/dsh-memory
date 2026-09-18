@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-261-batch-c261-fix-d1",
+ "round": 3,
+ "candidate_commit": "54f7f58",
+ "branch": "task/iter-261-batch-c261-fix-d1",
+ "unit_job": "h1789736312778_d498b4",
+ "verdict": "REJECT",
+ "package_n": 29,
+ "text": "逐条复核：多数 ACCEPT。第20条 _derive 不符：importance 应回落 old.importance_self，links 应回落 old.state_links，非“同名字段”。第9条 _last_log 越界：history 的 limit=0/过滤倒序不在本段。第2条 state_node_id 越界：_slug 假值折空不在本段。其余与源码段一致。\nreason: 存在源码不符与越界描述，故整批 REJECT。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
