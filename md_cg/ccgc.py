@@ -95,10 +95,12 @@ class CompileResult:
     def has_errors(self) -> bool:
         return len(self.errors) > 0
 
+# 生效条件：对任意 code，msg 取 E_CODES.get(code, code)（缺键回落 code 本身），向 self.errors 追加 "code 空格 msg"，extra 为真值时再追加 "（extra）"。
     def err(self, code: str, extra: str = "") -> None:
         msg = E_CODES.get(code, code)
         self.errors.append(code + " " + msg + (("（" + extra + "）") if extra else ""))
 
+# 生效条件：无入参，首行按 self.success 输出「编译成功」或「编译失败（len(self.errors) 个错误）」，要素行取 nodefile.CCG_MARKS 与 self.lines 的交集，errors 列前 10 条、warnings 列前 5 条，返回 "\n".join(out)。
     def summary(self) -> str:
         out = ["编译成功" if self.success else
                "编译失败（%d 个错误）" % len(self.errors)]
@@ -141,14 +143,17 @@ class LinkResult:
 # 工具（就地实现，避免跨模块 import 环——与 mdcg.py 复制 _ccg_line 的既有做法一致）
 # =============================================================================
 
+# 生效条件：对任意 s（含 None/空串，源码以 `(s or "")` 兜底为空串），返回 hashlib.sha1(该串 utf-8 编码).hexdigest()[:12]。
 def _sha(s: str) -> str:
     return hashlib.sha1((s or "").encode("utf-8")).hexdigest()[:12]
 
 
+# 生效条件：对任意 cg，返回 os.path.join(cg.root, LOG_NAME)（即 cg.root 与模块级常量 LOG_NAME 的拼接）。
 def _log_path(cg) -> str:
     return os.path.join(cg.root, LOG_NAME)
 
 
+# 生效条件：x 为 None 或非 str 时原样返回 x；x 为 str 时返回 MdCGOS(x) 构造出的 cg 实例。
 def _as_cg(x):
     """接受 root 路径或已构造的 cg 实例——保持密级隔离与密钥上下文。"""
     if x is None or not isinstance(x, str):
@@ -163,6 +168,7 @@ def _has_ccg_line(content: str, field_name: str) -> bool:
     return ("# " + field_name + "：") in text or ("# " + field_name + ":") in text
 
 
+# 生效条件：在 `(content or "").split("\n")` 中命中首个 strip 后以 "#" 开头、含 field_name、且去 "#" 后按全角或半角冒号切出的名字等于 field_name 的行→替换为 "# field_name：value" 并返回；否则若有行 strip 后以 "# 功能名" 开头→在该行后插入新行并返回；否则返回 `"# field_name：value\n" + (content or "")`。
 def _upsert_ccg_line(content: str, field_name: str, value: str) -> str:
     """写入/替换 `# <字段>：<值>`，优先插在「# 功能名」之后。
 
@@ -185,6 +191,7 @@ def _upsert_ccg_line(content: str, field_name: str, value: str) -> str:
     return newline + "\n" + (content or "")
 
 
+# 生效条件：对任意 path 与 rec，以追加模式写入 json.dumps(rec, ensure_ascii=False) + "\n"，仅 OSError 被吞掉且无返回值。
 def _append_jsonl(path: str, rec: dict) -> None:
     try:
         with open(path, "a", encoding="utf-8") as f:
@@ -193,6 +200,7 @@ def _append_jsonl(path: str, rec: dict) -> None:
         pass
 
 
+# 生效条件：path 为假值或 os.path.exists(path) 为假→返回 []；否则逐行 strip、跳过空行、json.loads 成功者追加、单行 json.loads 抛 ValueError 者跳过，中途 open/读取抛 OSError 时返回 []；全部读完返回 out。
 def _read_jsonl(path: str) -> List[dict]:
     out: List[dict] = []
     if not path or not os.path.exists(path):
@@ -220,6 +228,7 @@ def _read_jsonl(path: str) -> List[dict]:
 _FRAG_SPLIT = re.compile(r"[；;、，,]+")
 
 
+# 生效条件：value 经 `str(value).strip()`（None 记 ""）后为空→False；否则按 _FRAG_SPLIT 切分并去掉空分片，若分片列表为空→False；否则返回全部分片都在 dialog 中的 all 判定结果。
 def _value_grounded(dialog: str, value) -> bool:
     """值是否 grounded：按分片切分后，每个分片都是对话记录的字面子串。
 
@@ -235,6 +244,7 @@ def _value_grounded(dialog: str, value) -> bool:
     return all(f in dialog for f in frags)
 
 
+# 生效条件：span 经 `str(span).strip()`（None 记 ""）后须非空且作为连续子串出现在 dialog 中，否则返回 False。
 def _span_grounded(dialog: str, span) -> bool:
     """引用 span 是否 grounded：必须是对话记录的**连续**字面子串。"""
     s = "" if span is None else str(span).strip()
@@ -266,10 +276,12 @@ _SENT_SPLIT = re.compile(r"[。！？!?；;\n]+")
 _TS_PAT = re.compile(r"(20\d{2})[-/年](\d{1,2})[-/月](\d{1,2})")
 
 
+# 生效条件：dialog 为假值时按 "" 处理，按模块级 _SENT_SPLIT 切分后 strip 并过滤空串，返回句子列表。
 def _sentences(dialog: str) -> List[str]:
     return [s.strip() for s in _SENT_SPLIT.split(dialog or "") if s.strip()]
 
 
+# 生效条件：对 sents 逐句判 `any(c in s for c in cues)`，命中即 append，命中后 `len(out) >= limit` 即 break——limit 为 0 或负数时首个命中项仍被 append 后立刻 break（多返 1 项）；cues 为空容器时 any 恒假、返回空列表。
 def _pick_by_cues(sents: List[str], cues, limit: int = 1) -> List[str]:
     """按线索词命中挑句（命中即整句作为候选——整句天然是原文子串，不会捏造）。"""
     out: List[str] = []
@@ -292,6 +304,7 @@ class RuleParser:
 
     name = SRC_RULE
 
+# 生效条件：sents（来自 _sentences(dialog)）非空时「功能名」取首句（超 30 字符截前 30）；pos/tool/cons 仅在 _pick_by_cues 用 _CUES 对应线索命中时写入对应槽；time_window 先按 _TS_PAT 在 dialog 中匹配，命中且 mktime 未抛 ValueError/OverflowError/OSError 才填 [当日0点, +86399]，否则回落 [nodefile.FULL_TIME_WINDOW_MIN, nodefile.FULL_TIME_WINDOW_MAX] 并标 synthetic="full_time_window"；「不适用条件/执行/子功能」按 _NEG_CUES/_EXEC_CUES/_SUB_CUES 命中首句写入；「验证方式」取 _BASIS_CUES 中首个出现在 dialog 中的线索。
     def candidates(self, dialog: str, ctx: Optional[dict] = None) -> Dict[str, Any]:
         sents = _sentences(dialog)
         out: Dict[str, Any] = {"marks": {}, "slots": {}}
@@ -431,6 +444,7 @@ def compile_dialog(dialog: str, node_id: str, actor: str, *,
         res.warnings.append(
             "strict_spans=False：显式入参豁免名实门，含未经对话原文支撑的声明（已留痕）。")
 
+# 生效条件：item 为 dict 时返回 (item.get("value"), item.get("span"), item.get("basis"), item.get("synthetic"))（各键缺失即回落 None）；item 非 dict 时返回 (item, None, None, None)。
     def _field(item):
         """候选项 → (value, span, basis, synthetic)；容忍裸值与 dict 两种形态。"""
         if isinstance(item, dict):
@@ -552,6 +566,7 @@ def compile_dialog(dialog: str, node_id: str, actor: str, *,
 # attest：认知图**外**的验证方签章（裁定 A 的落点）
 # =============================================================================
 
+# 生效条件：依次判 strip 后的 node_id 为空→E002；verifier 为空→E003；verifier==compiled_by→E041；state（verdict.strip()）不在模块级 STATES→非法裁决；state 非 ACCEPT→E042；全部通过才 res.ok=True；随后恒算 token=_sha(...)，仅当 ledger 为真且 _as_cg(cg) 非 None 时追加一条 ccgc_attest 审计 jsonl。
 def attest(node_id: str, verdict: str, verifier: str, compiled_by: str, *,
            slot_corrections: Optional[Dict[str, Any]] = None,
            evidence: str = "", cg: Any = None, ledger: bool = True) -> AttestResult:
@@ -598,6 +613,7 @@ def attest(node_id: str, verdict: str, verifier: str, compiled_by: str, *,
 # link：签章通过才写入（缺签章恒不写入）
 # =============================================================================
 
+# 生效条件：依次判 compiled.success 为假→返回带错误；attestation 为 None→E040；attestation.node_id 不等于 compiled.node_id 的取值→目标不一致拒绝；attestation.verifier 为真值且 == `(actor or compiled.actor)`→E041；attestation.ok 为假→E042；_as_cg(cg) 为 None→E002；节点不在 cg.index 的 nodes 中→E002；apply 为假→ok=True 的 dry-run 返回；否则 apply 为真时写入（fm 为 None 或 content 加密→E004），basis 为假值则回落 compiled.sources.get("verification_basis") 或 "other"，成功后 out.written=len(compiled.lines)。
 def link(compiled: CompileResult, attestation: Optional[AttestResult], *,
          cg: Any = None, apply: bool = False, actor: str = "",
          basis: str = "") -> LinkResult:
@@ -688,6 +704,7 @@ def link(compiled: CompileResult, attestation: Optional[AttestResult], *,
 # recalibrate：用后续验证修正生效条件（裁定 A 的闭环）
 # =============================================================================
 
+# 生效条件：node_id 空→E002；verifier 为真值且==compiled_by→E041；corrections 为假值（空 dict/None）→E043；corrections 含不在模块级 nodefile.CONDITION_SLOTS 的键→E043；_as_cg(cg) 为 None→E002；节点不在 cg.index 的 nodes 中→E002；fm 为 None 或内容加密→E004；旧槽合并 corrections 后 condition_space_text 为空→E020；apply 为假→ok=True 的 dry-run 返回；否则写入并按 1 计 written。
 def recalibrate(node_id: str, corrections: Dict[str, Any], verifier: str,
                 compiled_by: str, *, evidence: str = "", cg: Any = None,
                 apply: bool = False) -> LinkResult:
@@ -774,11 +791,13 @@ def recalibrate(node_id: str, corrections: Dict[str, Any], verifier: str,
 PENDING_DIR = "_ccgc_pending"
 
 
+# 生效条件：node_id 为 None 或空串时按 "" 处理，非 [0-9A-Za-z_.\-] 字符一律替换为 "-"，取前 80 个字符；结果为空串时返回 "unnamed"。
 def _safe_name(node_id: str) -> str:
     """node_id → 文件名安全形态（分支节点形如 mem_x@br1，须剥掉非 [A-Za-z0-9_.-]）。"""
     return re.sub(r"[^0-9A-Za-z_.\-]", "-", str(node_id or ""))[:80] or "unnamed"
 
 
+# 生效条件：_as_cg(cg) 的 root 属性为假值→返回 ""；否则返回 os.path.join(str(root), PENDING_DIR, _safe_name(node_id) + ".json")。
 def pending_path(cg, node_id: str) -> str:
     _cg = _as_cg(cg)
     root = getattr(_cg, "root", None)
@@ -787,12 +806,14 @@ def pending_path(cg, node_id: str) -> str:
     return os.path.join(str(root), PENDING_DIR, _safe_name(node_id) + ".json")
 
 
+# 生效条件：lines、slots 为假值时按 {} 处理，返回 `_sha(json.dumps({"lines":..., "slots":...}, ensure_ascii=False, sort_keys=True))`。
 def _payload_hash(lines, slots) -> str:
     """候选内容摘要（六行 + 四槽，键序无关）——签章与产物的绑定依据。"""
     return _sha(json.dumps({"lines": lines or {}, "slots": slots or {}},
                            ensure_ascii=False, sort_keys=True))
 
 
+# 生效条件：_as_cg(cg) 为 None→返回 {'ok': False, 'error': '未提供 cg'}；pending_path 为空→返回 {'ok': False, 'error': '无法定位 pending 目录'}；否则写 json（OSError 时返回 ok=False 且带 path 与异常名），成功返回 {'ok': True, 'path': p, 'hash': rec['hash']}，其中 attest 按 `attestation is not None` 决定是否落盘。
 def save_pending(cg, compiled: CompileResult,
                  attestation: Optional[AttestResult] = None) -> dict:
     """候选（+ 可选签章）落 pending；返回 {ok, path, hash}。"""
@@ -815,6 +836,7 @@ def save_pending(cg, compiled: CompileResult,
     return {"ok": True, "path": p, "hash": rec["hash"]}
 
 
+# 生效条件：_as_cg(cg) 为 None→error='未提供 cg'；pending_path 为空或 os.path.isfile(p) 为假→error=未找到 pending；open/json.load 抛 OSError 或 ValueError→error=pending 不可读；否则按 dataclasses.fields 过滤重建 CompileResult 与（rec['attest'] 为真值时的）AttestResult，hash_ok = `rec.get("hash") == _payload_hash(c.lines, c.slots)`，ok=True。
 def load_pending(cg, node_id: str) -> dict:
     """读回候选与签章，并校验 hash（内容被改即 hash_ok=False，调用方须拒绝写入）。"""
     _cg = _as_cg(cg)
@@ -847,6 +869,7 @@ def load_pending(cg, node_id: str) -> dict:
     return out
 
 
+# 生效条件：pending_path(cg, node_id) 为空→返回 False；否则 os.remove 成功→True，抛 OSError→False。
 def drop_pending(cg, node_id: str) -> bool:
     """删除 pending（link 成功后调用；失败静默——待办件不是事实，无需强保证）。"""
     p = pending_path(cg, node_id)
@@ -859,6 +882,7 @@ def drop_pending(cg, node_id: str) -> bool:
         return False
 
 
+# 生效条件：load_pending(cg, node_id) 的 ok 为假→带其 error 返回 LinkResult；hash_ok 为假→以「hash 不符」错误返回；否则转调 link(got["compiled"], got.get("attest"), cg=cg, apply=apply, actor=actor, basis=basis) 并返回其结果，且仅当 res.ok 与 apply 同时为真时调用 drop_pending。
 def link_pending(cg, node_id: str, *, apply: bool = False, actor: str = "",
                  basis: str = "") -> LinkResult:
     """从 pending 读回候选与签章后 link：hash 校验 → 签章准入 → 写入 → 清理 pending。"""
