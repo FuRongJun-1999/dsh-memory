@@ -92,6 +92,7 @@ _POSITION_TAGS = {
 }
 
 
+# 生效条件：subject_id 为假值（None/空串）时 s 为空串、无 ":" 可切，返回 ("user","")；否则 strip 后含 ":" 则按首个冒号切成 kind/name，kind 经 strip().lower() 后不在 SUBJECT_KIND 即改记 "user"，不含 ":" 时整串作为 name 归 "user"。
 def split_subject(subject_id):
     """`"self:lingshu"` → `("self", "lingshu")`；无前缀按 `user` 处理。"""
     s = (subject_id or "").strip()
@@ -104,10 +105,12 @@ def split_subject(subject_id):
     return "user", s
 
 
+# 生效条件：对 str(s) 的每个字符，isalnum() 为真或字符属于 "_-" 时原样保留，其余一律替换为 "_"（s 为 None/非字符串时按 str(s) 结果逐字符处理）。
 def _slug(s):
     return "".join(ch if (ch.isalnum() or ch in "_-") else "_" for ch in str(s))
 
 
+# 生效条件：subject_id 经 split_subject 与 _slug 处理后，按 PROFILE_PREFIX + kind + "_" + name 拼出档案节点 id。
 def subject_node_id(subject_id):
     """主体的档案节点 id（锚点载体）：`identity_<kind>_<name>`。"""
     kind, name = split_subject(subject_id)
@@ -119,6 +122,7 @@ def _nid(prefix, subject_id, seed=""):
     return f"{PROFILE_PREFIX}{prefix}_{_slug(subject_id)}_{h.hexdigest()[:10]}"
 
 
+# 生效条件：rec 先被 dict(rec) 拷贝，仅当拷贝中缺 "ts" 键时补 time.time()，随后写入 cg.root 下 AUDIT_FILE 指向的 jsonl；写盘抛 OSError 时静默跳过并返回 None。
 def log(cg, rec):
     rec = dict(rec)
     rec.setdefault("ts", time.time())
@@ -152,6 +156,7 @@ def history(cg, limit=100):
 # 扮演论三接口：memory / anchor / values
 # --------------------------------------------------------------------------
 
+# 生效条件：subject_id 定 kind 默认值，kind 参数为真值时覆盖之；node_id 为假值时用 _nid("obs", subject_id, text[:32])（含 time.time()）生成；标签为 list(tags or []) 追加 subject:<subject_id>、TAG_OBS、kind:<k>，evidence 为真值时再追加一条 evidence:<evidence>；condition_space 以 dict(condition_space or {}) 为底并 setdefault subject/kind；落层用 layer 真值否则 "knowledge"，role 为真值时随 extra 传 role；返回 {"ok": True, "node_id", "subject_id", "kind"}。
 def observe(cg, subject_id, text, *, kind=None, role=None, layer=None, tags=None,
             condition_space=None, importance=0.5, verification_basis=None,
             evidence=None, node_id=None, override=False):
@@ -178,6 +183,7 @@ def observe(cg, subject_id, text, *, kind=None, role=None, layer=None, tags=None
     return {"ok": True, "node_id": nid, "subject_id": subject_id, "kind": k}
 
 
+# 生效条件：kind 参数为真值时覆盖 split_subject(subject_id) 得到的类型，k 不在 SUBJECT_KIND 时抛 ValueError；k 为 "self" 落 "self" 层、其余落 "anchor" 层，但 requested_layer 等于 "self" 且 k 不为 "self" 时抛 ValueError（不写盘）；节点 id 取自 subject_node_id(subject_id)，返回含 layer 与 protected True。
 def set_anchor(cg, subject_id, text, *, kind=None, condition_space=None,
                importance=0.9, override=False, requested_layer=None):
     """anchor 接口：写入身份锚点（不可遗忘）。
@@ -209,6 +215,7 @@ def set_anchor(cg, subject_id, text, *, kind=None, condition_space=None,
             "layer": layer, "protected": True}
 
 
+# 生效条件：kind 参数为真值时覆盖 split_subject(subject_id) 得到的类型；node_id 为假值时用 _nid("trait", subject_id, trait[:24]) 生成；落层硬编码为 "structural"；position 为真值时追加 position:<position> 标签；verification_basis 缺省为 "data"，importance 缺省 0.6；返回 layer 为 "structural" 与所用 condition_space。
 def add_trait(cg, subject_id, trait, *, condition_space=None, importance=0.6,
               position=None, kind=None, verification_basis="data",
               override=False, node_id=None):
@@ -238,6 +245,7 @@ def add_trait(cg, subject_id, trait, *, condition_space=None, importance=0.6,
 # 位置效应推断（智能论 v3.4 §十三）
 # --------------------------------------------------------------------------
 
+# 生效条件：tags 先转为 set(tags or []) 后并列判定——role 属于 ("command","tool-output") 或 layer 等于 "contextual" 则加 "record"；tags 与 _POSITION_TAGS 各项标记集有交集则加对应 pos；ev_pos 或 ev_neg 为真值则加 "verify"；role 属于 ("user","assistant") 或 tags 中任一字符串以 "cap:" 开头则加 "output"；layer 等于 "goals" 则加 "sustain"；返回该并集。
 def _votes(role, layer, tags, vb, ev_pos, ev_neg):
     """把一条行为证据映射到位置效应候选（可多面）。规则可审计、可扩展。"""
     tags = set(tags or [])
@@ -257,6 +265,7 @@ def _votes(role, layer, tags, vb, ev_pos, ev_neg):
     return v
 
 
+# 生效条件：遍历 cg.index.get("nodes")（缺键或值为假时取空 dict，此时必然返回 position=unknown、confidence=0.0、votes={}），仅统计标签含 "subject:<subject_id>" 且不含 TAG_ANCHOR/TAG_TRAIT 的节点，票由 _votes 得出；无任何票时返回 unknown/0.0/{}；有票时 winners 为 POSITION_ORDER 中票数等于最高票的位置，position 取 winners[0]，confidence=round(top/total, 3)，多赢家时以 tie 列出。
 def infer_position(cg, subject_id):
     """按该主体的行为证据投票推断位置效应（带 confidence / votes，可审计）。
 
@@ -288,12 +297,14 @@ def infer_position(cg, subject_id):
             "tie": winners if len(winners) > 1 else []}
 
 
+# 生效条件：pos 取自 POSITIONS，缺键时以空 dict 兜底，故未知 pos 返回 {"position": pos, "unit": None, "effect": None, "duty": None}。
 def _position_view(pos):
     meta = POSITIONS.get(pos) or {}
     return {"position": pos, "unit": meta.get("unit"),
             "effect": meta.get("effect"), "duty": meta.get("duty")}
 
 
+# 生效条件：仅遍历标签含 "subject:<subject_id>" 的节点，其中带 TAG_ANCHOR 者进 anchors，否则（elif）带 TAG_TRAIT 者进 traits——两标签同时存在时只进 anchors、不进 traits；anchor 取 anchors[0] 或 None；位置相关字段来自 infer_position(cg, subject_id)。
 def profile(cg, subject_id):
     """主体画像 = 身份锚点 + 位置效应 + 条件特征（取代单一「用户画像」）。"""
     k, name = split_subject(subject_id)
@@ -324,6 +335,7 @@ def profile(cg, subject_id):
     return out
 
 
+# 生效条件：counts 按每个以 "subject:" 开头的字符串标签出现次数累加（即标签次数，不是节点数），按 (-次数, sid) 排序后逐个 sid 调 infer_position；limit 为 0/None/空串等使 `limit and int(limit) > 0` 为假时返回全量 out，仅当 limit 为真值且 int(limit) > 0 时返回前 int(limit) 项。
 def positions(cg, limit=0):
     """所有主体的位置效应分布（OS 视角：谁在记录/反思/验证/输出/维生）。"""
     nodes = cg.index.get("nodes") or {}
@@ -342,6 +354,7 @@ def positions(cg, limit=0):
     return out[:int(limit)] if limit and int(limit) > 0 else out
 
 
+# 生效条件：cg.root/AUDIT_FILE 不存在时返回 0；否则逐行统计 strip() 后非空的行数，读取途中抛 OSError 时返回已累计的 n。
 def _audit_count(cg):
     p = os.path.join(cg.root, AUDIT_FILE)
     if not os.path.exists(p):
@@ -357,6 +370,7 @@ def _audit_count(cg):
     return n
 
 
+# 生效条件：以 positions(cg)（limit 缺省 0，返回全量）得主体列表并按各自 position 聚合计数，与 _audit_count(cg) 一并返回 subjects/by_position/audit_records。
 def summary(cg):
     """身份面汇总：主体数 + 位置分布（供 health / 运维审计，流式计数不载全量）。"""
     ps = positions(cg)
@@ -367,6 +381,7 @@ def summary(cg):
             "audit_records": _audit_count(cg)}
 
 
+# 生效条件：无入参，恒返回 POSITION_ORDER 中每个 p 的 POSITIONS[p] 副本、INTERFACES 各值副本以及 list(SUBJECT_KIND)。
 def catalog():
     """自描述：位置效应表 + 三接口（供 MCP / 文档对照协议验证）。"""
     return {"positions": {p: dict(POSITIONS[p]) for p in POSITION_ORDER},
