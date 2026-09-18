@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-254-batch-c254-fix",
+ "round": 2,
+ "candidate_commit": "f93160a",
+ "branch": "task/iter-254-batch-c254-fix",
+ "unit_job": "h1789728707344_783d0d",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "条件与源码一致：除 self 外无必需形参；经 read_jsonl(self.access_log) 遍历；ts=rec.get(\"t\",0)、ids=rec.get(\"ids\",[])；逐 nid 计数，仅当 ts>last.get(nid,0) 更新最大 ts；返回 (counts,last)。无早退、None/假值误述、闭包前置或额外断言；position_ok=true。\nreason: 条件逐项吻合源码且未新增不支持断言。\nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
