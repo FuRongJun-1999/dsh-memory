@@ -648,6 +648,7 @@ class MdCGOS(MdCG):
         big_scores = routing.big_domain_score_breakdown(terms)
         neg_coverage = self._neg_coverage(terms) if include_neg else []
 
+# 生效条件：对 docs 调 self._score 后，若其中分数 >0 的条数达到（search 作用域内的）min_results 就返回 self._emit(scored, k, tier, stat, route_bucket, record, len(docs), ...)，否则返回 None。
         def try_stage(docs, tier):
             scored = self._score(docs, q, qb, pool_cfg)
             valid = sum(1 for _, s in scored if s > 0)
@@ -984,6 +985,7 @@ class MdCGOS(MdCG):
                          "content": c, "path": e["path"]}, round(score, 6)))
         return out, gt
 
+# 生效条件：query 去空白为空→empty_query、候选为空→no_candidates；否则按 paths 各路召回后融合（fusion=="max" 取各路最大贡献、否则求和），recall_only 中的路只以 0 分补池不参与打分，judge 与 judge_ranking 同时为真时对 fused 前 max(k*2,10) 条做资格裁决（REJECT/BLINDSPOT 剔除、DEFER 降权 0.5），否则直接取 fused 前 k。
     def search_rrf(self, query: str, k: int = 20, layer: str = None,
                    context=None, roles=None, include_work: bool = False,
                    judge: bool = True, paths=("lexical", "bucket", "entity", "graph"),
@@ -1859,6 +1861,7 @@ class MdCGOS(MdCG):
         out.sort(key=lambda n: -n["created_at"])
         return out[:max(1, int(limit or 5))]
 
+# 生效条件：limit 经 max(1,min(int(limit or 5),50))、budget_tokens 经 max(200,int(budget_tokens or 1200)) 归一后逐段取数（include_state 为真才取 self_state），每段异常只把段名追加进 degraded，再由 while 循环按预算交替裁 recent/notes 尾部、任务段最后才裁并置 tasks_truncated。
     def session_recall(self, session=None, limit=5, recent_limit=10,
                        budget_tokens=1200, include_state=True):
         """按需恢复：一次调用返回「可续接的上下文包」（替代 hook 自动注入）。
@@ -2543,6 +2546,7 @@ class MdCGOS(MdCG):
 
     # ---- 主动遗忘（写入侧三问闸门）+ 写保护盘点 ----
 
+# 生效条件：kw 中 gated 为假值时旁路直接 ACCEPT 写入并返回 bypass；否则 writelimit.check 非 None 时按 CONVERGE→MERGE 并经 converge_into 并入 target、DROP/DEFER 只记 forgetting 日志，无限流拦截时按 forgetting.assess 的四态处理（ACCEPT 走 add，ConsistencyError 或 written 为 None 转 DEFER；MERGE 走 reinforce；DROP/DEFER 不落库只留痕）。
     def remember_gated(self, node_id, content, layer="contextual", **kw):
         """写入情景层记忆前的**主动遗忘闸门**：三问 → 四态。
 
@@ -3035,6 +3039,7 @@ class MdCGSecure(MdCGOS):
             "envelopes": crypto.envelopes(self.root),
         }
 
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，若 sens 不在 crypto.ENCRYPTED_LEVELS 或 content 已加密则原样返回 content；否则 self.dek 为假值时写 seal_denied 审计并抛 crypto.LockedError，有 dek 时 seal_node 并写 seal 审计后返回密文。
     def _seal_content(self, node_id, content, sensitivity=None):
         """私有内容（private / secret）写入前加密；无密钥 → fail-closed。"""
         sens = sensitivity or DEFAULT_SENSITIVITY
@@ -3055,6 +3060,7 @@ class MdCGSecure(MdCGOS):
                                  "actor": self.principal.actor})
         return sealed
 
+# 生效条件：content 为 None 或非加密时原样返回 content；加密但 self.dek 为假值时写 read_locked 审计并返回 None；crypto.open_node 抛 CryptoError 时写 open_failed 审计并返回 None，成功则返回明文。
     def _open_content(self, node_id, fm, content):
         """密文解封；无密钥 / 身份不符 → None（不可读），失败留审计。"""
         if content is None or not crypto.is_encrypted(content):
@@ -3077,6 +3083,7 @@ class MdCGSecure(MdCGOS):
 
     # ---------- 索引：把 role / sensitivity / 写入归属一并索引 ----------
 
+# 生效条件：对传入的 kw 生效——writer/session 缺键时分别落 self.principal.actor 与 self.session，self.principal.harness 为真值时 harness 缺键才落该值，已存在的键一律不覆盖。
     def _attribution(self, kw):
         """写入归属注入（归因维度，不参与授权）。
 
@@ -3090,6 +3097,7 @@ class MdCGSecure(MdCGOS):
             kw.setdefault("harness", self.principal.harness)
         return kw
 
+# 生效条件：在 super()._scan_nodes() 结果上逐节点重新 _read，仅当读出的 fm 为真值时把 role、sensitivity（假值回落 DEFAULT_SENSITIVITY）、writer、session 写回该条目。
     def _scan_nodes(self):
         nodes = super()._scan_nodes()
         for nid, e in nodes.items():
@@ -3101,6 +3109,7 @@ class MdCGSecure(MdCGOS):
                 e["session"] = fm.get("session")
         return nodes
 
+# 生效条件：仅当 self.index["nodes"] 中已存在 nid 时，把该条目的 sensitivity 置为 sens 并标记进 self._dirty；nid 不存在则不做任何事、无返回。
     def _index_sensitivity(self, nid, sens):
         e = self.index["nodes"].get(nid)
         if e is not None:
@@ -3109,6 +3118,7 @@ class MdCGSecure(MdCGOS):
 
     # ---------- 写：权限校验 ----------
 
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 _rank(sens) 并 principal.require_layer_write(layer, sens)，再 _attribution(kw) 后转 super().add，最后按下发的 nid 调 _index_sensitivity 并返回 nid。
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
@@ -3119,6 +3129,7 @@ class MdCGSecure(MdCGOS):
         self._index_sensitivity(nid, sens)
         return nid
 
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write("rejected", sens) 与 _attribution(kw) 后转 super().add_rejected，最后按下发的 nid 调 _index_sensitivity 并返回 nid。
     def add_rejected(self, hypothesis: str, reason: str, sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
         self.principal.require_layer_write("rejected", sens)
@@ -3127,6 +3138,7 @@ class MdCGSecure(MdCGOS):
         self._index_sensitivity(nid, sens)
         return nid
 
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write("unresolved", sens) 与 _attribution(kw) 后转 super().add_unresolved(question, known_clues, goal)，最后调 _index_sensitivity 并返回 nid。
     def add_unresolved(self, question: str, known_clues: str = "", goal: str = "",
                        sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
@@ -3136,11 +3148,13 @@ class MdCGSecure(MdCGOS):
         self._index_sensitivity(nid, sens)
         return nid
 
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write(kw.get("layer") or "contextual", sens)，再转 super().propose(node_id, content, sensitivity=sens) 并返回其结果。
     def propose(self, node_id: str, content: str, sensitivity: str = None, **kw):
         sens = sensitivity or DEFAULT_SENSITIVITY
         self.principal.require_layer_write(kw.get("layer") or "contextual", sens)
         return super().propose(node_id, content, sensitivity=sens, **kw)
 
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 _rank(sens) 并 principal.require_layer_write("goals", sens)，再转 super().add_goal，最后按 gid 调 _index_sensitivity 并返回 gid。
     def add_goal(self, goal: str, sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
         _rank(sens)
@@ -3149,10 +3163,12 @@ class MdCGSecure(MdCGOS):
         self._index_sensitivity(gid, sens)
         return gid
 
+# 生效条件：先 principal.require_layer_write("goals", DEFAULT_SENSITIVITY)，再转 super().set_goal_status(node_id, status)。
     def set_goal_status(self, node_id: str, status: str):
         self.principal.require_layer_write("goals", DEFAULT_SENSITIVITY)
         return super().set_goal_status(node_id, status)
 
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，经 _rank(sens) 与 principal.require_write(sens) 后把 m 基于 meta 复制并 setdefault tenant/session、harness 与 unit 为真值时补入，再强制 m["sensitivity"]=sens，text 经 _seal_content("_recent", text, sens) 后连 tags=tags 一起转 super().remember_event（window 为 None 时不传该参，否则带上 window）。
     def remember_event(self, role: str, text: str, tags=None, meta=None,
                        window=None, sensitivity: str = None):
         sens = sensitivity or DEFAULT_SENSITIVITY
@@ -3173,6 +3189,7 @@ class MdCGSecure(MdCGOS):
 
     # ---------- 读：密级过滤 ----------
 
+# 生效条件：e 的 sensitivity 为假值时先 _read 回填为 fm 的 sensitivity or DEFAULT_SENSITIVITY，再以 self.principal.allows(sens) 的布尔结果为准。
     def _readable(self, e) -> bool:
         sens = e.get("sensitivity")
         if not sens:
@@ -3183,6 +3200,7 @@ class MdCGSecure(MdCGOS):
             e["sensitivity"] = sens
         return self.principal.allows(sens)
 
+# 生效条件：先以 limit=None 取 super().list_goals(status=status) 的全量，再只保留 index 中 _readable(e) 为真的目标，limit 为真值时返回 keep[:limit]、否则返回全部 keep。
     def list_goals(self, status=None, limit=None):
         """读隔离：只返回当前 clearance 可见的目标（active_goals/goal_text 同源过滤）。"""
         out = super().list_goals(status=status, limit=None)
@@ -3193,6 +3211,7 @@ class MdCGSecure(MdCGOS):
                 keep.append(g)
         return keep[:limit] if limit else keep
 
+# 生效条件：先以 limit=0 取全量，逐条跳过 meta.tenant 与 self.principal.tenant 不一致的、以及 principal.allows(meta 的 sensitivity or DEFAULT_SENSITIVITY) 为假的，文本加密时解封失败（None）也跳过，最后 limit 为真值返回 keep[:limit]、否则返回全部 keep。
     def recent_events(self, limit=20, roles=None, since=None, newest_first=True):
         """读隔离：只返回本 tenant 且当前 clearance 可见的近期事件。"""
         out = super().recent_events(limit=0, roles=roles, since=since,
@@ -3213,25 +3232,30 @@ class MdCGSecure(MdCGOS):
             keep.append(r)
         return keep[:limit] if limit else keep
 
+# 生效条件：先 principal.require_admin("clear_recent")，再转 super().clear_recent()。
     def clear_recent(self):
         self.principal.require_admin("clear_recent")
         return super().clear_recent()
 
+# 生效条件：在 super()._candidates(layer=layer, roles=roles, include_work=include_work, session=session, branch=branch) 的结果上，只保留 self._readable(e) 为真的条目。
     def _candidates(self, layer=None, roles=None, include_work=False,
                     session=None, branch=None):
         out = super()._candidates(layer=layer, roles=roles, include_work=include_work,
                                   session=session, branch=branch)
         return [e for e in out if self._readable(e)]
 
+# 生效条件：在 super()._neg_coverage(terms) 的结果上，只保留 self._readable(e) 为真的条目。
     def _neg_coverage(self, terms):
         return [e for e in super()._neg_coverage(terms) if self._readable(e)]
 
+# 生效条件：node_id 在 self.index["nodes"] 中存在且 self._readable(e) 为假时返回 None，否则转 super().get(node_id)。
     def get(self, node_id: str):
         e = self.index["nodes"].get(node_id)
         if e is not None and not self._readable(e):
             return None                     # 读隔离：不可见即不存在
         return super().get(node_id)
 
+# 生效条件：把 *a/**kw 原样转给 super().search_rrf 后，仅保留其结果中每条以 self.index["nodes"].get(结果节点 id) 为索引（索引缺该 id 时用结果节点自身）经 self._readable 判为可见的条目再返回。
     def search_rrf(self, *a, **kw):
         """RRF 路径里的图扩展会绕过 _candidates，这里显式再过滤一次。"""
         res, meta = super().search_rrf(*a, **kw)
@@ -3241,18 +3265,22 @@ class MdCGSecure(MdCGOS):
 
     # ---------- 管理：需 can_admin ----------
 
+# 生效条件：先 principal.require_admin("forget")，再转 super().forget(node_id, reason, override=override)。
     def forget(self, node_id: str, reason: str = "", override: bool = False):
         self.principal.require_admin("forget")
         return super().forget(node_id, reason, override=override)
 
+# 生效条件：先 principal.require_admin("restore")，再转 super().restore(node_id, force=force)。
     def restore(self, node_id: str, force: bool = False):
         self.principal.require_admin("restore")
         return super().restore(node_id, force=force)
 
+# 生效条件：先 principal.require_admin("review_decide")，再把 *a/**kw 原样转给 super().review_decide。
     def review_decide(self, *a, **kw):
         self.principal.require_admin("review_decide")
         return super().review_decide(*a, **kw)
 
+# 生效条件：先 principal.require_admin("evolution_rollback")，再转 super().evolution_rollback(entry_id, dry_run=dry_run, note=note)。
     def evolution_rollback(self, entry_id, dry_run=False, note=""):
         """回滚是管理操作：撤回结构变更 → 需 can_admin。"""
         self.principal.require_admin("evolution_rollback")
@@ -3260,6 +3288,7 @@ class MdCGSecure(MdCGOS):
 
     # ---------- 身份/审计 ----------
 
+# 生效条件：无入参，返回 principal.as_dict、root、按 SENSITIVITY_ORDER 中 p.allows 为真筛出的 readable_sensitivities、index 中 _readable 为真的 nodes_visible 与 nodes_total、encryption（crypto_status）；tokens.role_spec 可用时另补 role_label/duty/forbidden，导入或取值异常则跳过。
     def whoami(self):
         p = self.principal
         out = {"principal": p.as_dict(), "root": self.root,
@@ -3279,6 +3308,7 @@ class MdCGSecure(MdCGOS):
             pass
         return out
 
+# 生效条件：对 meta 先 setdefault tenant/session/clearance，并在 principal.harness、principal.unit 为真值时补入同名键，再转 super()._audit(op, node_id, **meta)。
     def _audit(self, op, node_id, **meta):
         meta.setdefault("tenant", self.principal.tenant)
         meta.setdefault("session", self.principal.session)
@@ -3290,6 +3320,7 @@ class MdCGSecure(MdCGOS):
             meta.setdefault("unit", self.principal.unit)
         super()._audit(op, node_id, **meta)
 
+# 生效条件：在 super().health_os() 结果上写入 os.sustain（sustain.summary(self)）与 security（principal 的 tenant/clearance、_sensitivity_counts、crypto_status）后返回。
     def health_os(self):
         h = super().health_os()
         # 持续性自维持（常驻 / 心跳 / 会话续接）：只读摘要，不做巡检
@@ -3302,6 +3333,7 @@ class MdCGSecure(MdCGOS):
         }
         return h
 
+# 生效条件：对 self.index["nodes"] 遍历生效——按每条 e 的 sensitivity（假值回落 DEFAULT_SENSITIVITY）累计计数并返回该字典。
     def _sensitivity_counts(self):
         c = {}
         for e in self.index["nodes"].values():
