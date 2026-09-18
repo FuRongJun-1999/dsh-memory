@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-290-batch-c290",
+ "round": 1,
+ "candidate_commit": "5459f46",
+ "branch": "task/iter-290-batch-c290",
+ "unit_job": "h1789746670194_766a96",
+ "verdict": "ACCEPT",
+ "package_n": 1,
+ "text": "复核：该条件锚定 `__init__` 的形参 `root`/`autoflush`，所述 `os.path.abspath`、按 `root` 与 `LAYERS` 建目录、`self.autoflush = autoflush`、`_load_index()`、`sweep_stale_temps(self.root)`、`_LIVE_CGS.add(self)` 均在 `src_segment` 的 `__init__` 内；未见 assert、None/假值、返回形状、空容器等不符，未越界或补源码不支持断言。`position_ok=true`。  \nreason: 条件与 `MdCG.__init__` 源码一致，证据在段内，无越界或未支持断言。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
