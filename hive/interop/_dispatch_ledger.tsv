@@ -308,3 +308,6 @@ ts	iter	branch	commit	status	claim_by	claimed_via	note
 1789753923	iter-309-batch-c309	task/iter-309-batch-c309	69005b2	stale			无实际新增条件（已落实）
 1789753923	iter-analyzer-c1-fix	task/iter-analyzer-c1-fix	66d109b	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +3 条
 1789753923	iter-insight-c1	task/iter-insight-c1	2a4f385	landed			无实际新增条件（已落实） ｜ 校验和落地 +6 条（账面被陈旧快照覆盖，按提交恢复）
+1789754186	iter-namecheck-c2	task/iter-namecheck-c2	b159129	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
+1789754567	iter-backfill-c2	task/iter-backfill-c2	ad41e7e	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +4 条
+1789754723	iter-evalcommon-c2-fix	task/iter-evalcommon-c2-fix	8bbc263	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +4 条
