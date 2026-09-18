@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-160-batch-c160",
+ "round": 1,
+ "candidate_commit": "0c84a39",
+ "branch": "task/iter-160-batch-c160",
+ "unit_job": "h1789702496150_2c1f79",
+ "verdict": "REJECT",
+ "package_n": 14,
+ "text": "复核：多数条目贴合源码。但 run_one 条件不完整：源码在 RUST_BIN 存在、ROW_RE 命中之外，还要求 p.returncode==0，否则 SystemExit；该早退前置未被锚定。cmd_status 的“五槽校验”也偏宽，代码只对 identity/time/summary/terms 四项做真值检查，且非 verbose 时 bad 返回 []。load_chunks 未覆盖 *.json 为目录的异常。以上存在源码不符/前置遗漏，不能 ACCEPT。\nreason: run_one 漏列 returncode==0 早退前置，且 cmd_status 的“五槽校验”与源码四项真值检查不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
