@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-131-batch-c131-fix",
+ "round": 2,
+ "candidate_commit": "7491096",
+ "branch": "task/iter-131-batch-c131-fix",
+ "unit_job": "h1789689895547_d69732",
+ "verdict": "REJECT",
+ "package_n": 18,
+ "text": "reason: ccg_completeness 条件漏述源码返回的 all_present 键，返回形状描述不完整；其余条目未见与源码不符。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
