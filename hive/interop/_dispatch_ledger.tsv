@@ -317,3 +317,8 @@ ts	iter	branch	commit	status	claim_by	claimed_via	note
 1789755979	iter-318-batch-c318	task/iter-318-batch-c318	dc113f9	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +4 条
 1789756345	iter-conformance-c1	task/iter-conformance-c1	eac37f4	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条
 1789756503	iter-scrub-c2-fix-d1	task/iter-scrub-c2-fix-d1	4e13ad5	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +3 条
+1789756768	iter-fsutil-c1	task/iter-fsutil-c1	e0177ed	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条
+1789756768	iter-predict-c1	task/iter-predict-c1	0aa6d63	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条
+1789756974	iter-consistency-c1-fix-d1	task/iter-consistency-c1-fix-d1	e0e525c	landed			重新入队（测试抖动，重试） ｜ 校验和落地 +2 条
+1789757002	iter-326-batch-c326	task/iter-326-batch-c326	1063ca1	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
+1789757002	iter-weights-c1	task/iter-weights-c1	9338434	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条（按提交回填）
