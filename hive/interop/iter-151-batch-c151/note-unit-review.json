@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-151-batch-c151",
+ "round": 1,
+ "candidate_commit": "5801743",
+ "branch": "task/iter-151-batch-c151",
+ "unit_job": "h1789696993584_d2d1e3",
+ "verdict": "REJECT",
+ "package_n": 14,
+ "text": "复核：1-8、10-14 条与源码一致，形参、常量、早退前置均锚定，未增源码不支持断言。第 9 条 `check` 不完整：`d` 假值分支源码还写入 `accepted_versions=[PROTOCOL_VERSION]` 与 `reason`；hmac 通过后 `base.update` 还回填 `declaration_hash`。condition 未列这些，返回形状与源码不完全一致。\nreason: `check` 条目漏述关键返回字段更新，需补齐后再验收。\nverdict: REJECT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
