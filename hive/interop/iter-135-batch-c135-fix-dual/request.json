@@ -1,7 +1,7 @@
 {
  "kind": "verify-request",
  "iter_id": "iter-135-batch-c135-fix-dual",
- "candidate_commit": "8cf3a33",
+ "candidate_commit": "952cb4c",
  "branch": "task/iter-135-batch-c135-fix-dual",
  "base_commit": "main",
  "from": "dsh-memory（主力实例）",

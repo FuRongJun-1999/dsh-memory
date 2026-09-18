@@ -2,11 +2,11 @@
  "kind": "unit-review",
  "iter_id": "iter-135-batch-c135-fix-dual",
  "round": 5,
- "candidate_commit": "8cf3a33",
+ "candidate_commit": "952cb4c",
  "branch": "task/iter-135-batch-c135-fix-dual",
- "unit_job": "h1789691795329_2a7dc0",
- "verdict": "REJECT",
+ "unit_job": "h1789695336144_151e31",
+ "verdict": "ACCEPT",
  "package_n": 18,
- "text": "复核：多数条件与源码一致；但 normalize_terms 把时间回落写成 c 的 time，源码为 c[\"zh_fields\"][\"time\"]（f[\"time\"]），c 无顶层 time。prepare 也未列 turn_no 可解析前置，故“当…时写出”不充分。\nreason: normalize_terms 时间来源写错，且 prepare 漏 turn_no 可解析前置，条件不充分。\nverdict: REJECT",
+ "text": "逐条核对：条件均描述源码实际生效分支/早退；UTF-8、非空行、None/假值、verbose、max_df/root_base、返回形状与空容器前置均可对应。`normalize_terms` 的“c 的 time”应理解为 `c[\"zh_fields\"][\"time\"]`，非冲突。未发现 assert 语义、闭包来源、参数误用或源码不支持断言。position_ok=true 无需行号。\nreason: 未发现与源码不符或补加断言的生效条件。\nverdict: ACCEPT",
  "paths_policy": "脱敏（模块名已掩码）"
 }
