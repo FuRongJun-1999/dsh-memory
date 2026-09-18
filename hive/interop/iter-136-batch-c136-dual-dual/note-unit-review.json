@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "iter-136-batch-c136-dual-dual",
+ "round": 5,
+ "candidate_commit": "f27fa65",
+ "branch": "task/iter-136-batch-c136-dual-dual",
+ "unit_job": "h1789695438707_8930fc",
+ "verdict": "ACCEPT",
+ "package_n": 9,
+ "text": "逐条核对：形参必需性/默认值、or 假值回落、None 分支、早退、模块常量、返回形状均与源码一致；未发现 assert 语义、闭包来源或长度空容器类越权断言，position_ok 均 true。  \nreason: 九条条件均忠实锚定源码分支与返回，未发现不符或补充断言。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
