@@ -1,0 +1,12 @@
+{
+ "kind": "unit-review",
+ "iter_id": "t1-compiler8-dual",
+ "round": 5,
+ "candidate_commit": "d1e141a",
+ "branch": "task/t1-compiler8-dual",
+ "unit_job": "h1789692833501_ac98cd",
+ "verdict": "ACCEPT",
+ "package_n": 19,
+ "text": "逐条比对：数值解析的 None/OTHER、PERIOD/NUMBER 分支；赋值/调用的 EQUALS/LPAREN/else；比较映射与 numeric-None 回退；binary_tail 单级；_is_at_end/_advance/_peek_next/_consume/_collect_until 的长度、EOF、None 前置；各 check、top_types、run_test、run_all_tests、code_generation 断言均与源码一致。末尾 test_loop_compile 重复条目内容相同，不引入新断言；position_ok=true 满足。  \nreason: 所有候选生效条件均与源码分支、必需形参/常量、None与空容器前置及返回形状一致。  \nverdict: ACCEPT",
+ "paths_policy": "脱敏（模块名已掩码）"
+}
