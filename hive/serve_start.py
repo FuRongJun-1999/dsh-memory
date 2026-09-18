@@ -60,6 +60,7 @@ def resolve(v):
     return None
 
 
+# 生效条件：path 不存在时直接返回 (None, "配置文件不存在：{path}")；存在但 open/json.load 抛 OSError 或 ValueError 时返回解析失败；读入 JSON 对象后遍历其键，下划线开头键跳过，其余键经 resolve 得 None 即记入 bad 并返回 (None, 配置项解析失败…)，全部通过返回 (env, None)。
 def load_config(path):
     if not os.path.exists(path):
         return None, f"配置文件不存在：{path}"
@@ -155,6 +156,7 @@ def pid_is_self_program(pid):
     return os.path.basename(first.decode("utf-8", "replace")).lower() == want
 
 
+# 生效条件：heartbeat(jobs) 为假值、或其 ts 键缺省记 0 使 age ≥ FRESH_S*1000 毫秒时返回 False；否则以 hb.get("pid")（缺键为 None）同时满足 pid_alive 与 pid_is_self_program 才返回 True。
 def serve_alive(jobs=None):
     """serve 存活三层判据：心跳新鲜 **且** pid 存活 **且** 该 pid 是本程序。
 
@@ -200,6 +202,7 @@ def stop():
     return {"ok": True, "stopped": True, "pid": pid}
 
 
+# 生效条件：serve_alive() 为真时返回 ok:False 的「已在运行（pid=hb.get('pid')）」；否则 load_config(config_path) 报错时原样返回该 error；配置通过则建 JOBS 目录、以合并环境 Popen([EXE, "serve", "--jobs", JOBS])，Popen 抛 OSError 返回「拉起失败」，否则最多 20 次 ×0.5s 轮询 serve_alive()，出现心跳即返回 ok:True（含 pid/workers/jobs_dir/env_keys/config=config_path），20 轮仍无则返回 SERVE_LOG 末尾 400 字符的「心跳未出现」。
 def start(config_path):
     """拉起 serve（已在跑则拒绝）。返回 dict；调用方决定是否打印。"""
     if serve_alive():
