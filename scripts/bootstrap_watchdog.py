@@ -64,7 +64,7 @@ HEALTHY_ROUNDS = ("bootstrap_v2", "loop_start", "csre_rebuild")
 DEGRADED_ROUNDS = ("loop_error", "csre_rebuild_error")
 
 
-# 生效条件：无入参；LINGSHU_PYTHON 环境变量为非空串且 os.path.isfile(env) 为真时返回该值，否则当 sys.executable 非空且其 basename 含 "python" 时返回 sys.executable，否则按 LOCALAPPDATA 拼出的 Programs\Python\Python3*\python.exe 与 C:\Python3*\python.exe 两个 glob 取 reverse 排序后首命中返回，两个模式均无命中时返回 cur or "python"（cur 为空串则回落 "python"）。
+# 生效条件：无入参；LINGSHU_PYTHON 环境变量为非空串且 os.path.isfile(env) 为真时返回该值，否则当 sys.executable 非空且其 basename 含 "python" 时返回 sys.executable，否则按 LOCALAPPDATA 拼出的 Programs\Python\Python3*\python.exe 与 [系统盘]:\Python3*\python.exe 两个 glob 取 reverse 排序后首命中返回，两个模式均无命中时返回 cur or "python"（cur 为空串则回落 "python"）。
 def resolve_python() -> str:
     """选定拉起循环用的解释器。
 
@@ -79,7 +79,7 @@ def resolve_python() -> str:
         return cur
     la = os.environ.get("LOCALAPPDATA", "")
     for pat in (os.path.join(la, "Programs", "Python", "Python3*", "python.exe"),
-                r"C:\Python3*\python.exe"):
+                r"[系统盘]:\Python3*\python.exe"):
         hits = sorted(glob.glob(pat), reverse=True)
         if hits:
             return hits[0]
