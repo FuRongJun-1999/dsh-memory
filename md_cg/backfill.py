@@ -866,6 +866,7 @@ def exempt_apply(x, ids=None, entry_ids=None, layer=None, limit=None,
     return rep
 
 
+# 生效条件：当 x 可解析为 cg 时，日志中 action 为 exempt 的记录若其非空 write_id 已存在于既有 action 为 exempt_rollback 的记录 write_id 集合中，则跳过并计入 skipped_done，否则在通过 batch 与 entry_ids 过滤后，节点存在且可读、EXEMPT_FLAG 当前为假时，该记录才被还原并计入 reverted；。
 def exempt_rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
     """反向还原 `ccg_exempt`：仅当当前仍为「已摘」状态时还原，否则计 conflict。"""
     cg = _as_cg(x)

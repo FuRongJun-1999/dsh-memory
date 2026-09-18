@@ -186,6 +186,7 @@ def _orders(case, n):
     return list(itertools.permutations(base))[:n]
 
 
+# 生效条件：case 含 task 且 opts 为 (kind, txt) 序列时，返回含场景、编号候选与选择指令的提示文本，memory 非空时在开头插入记忆段。
 def _user_prompt(case, opts, memory=None):
     lines = []
     if memory:

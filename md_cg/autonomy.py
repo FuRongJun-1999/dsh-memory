@@ -49,6 +49,7 @@ def _explore_log_path(cg):
     return os.path.join(getattr(cg, "root", "."), EXPLORE_LOG)
 
 
+# 生效条件：给定 cg 与 bid 读取探索留痕，无该 bid 的 outcomes 时返回 gain=None、sigma=1.0，最近 window（默认 GAIN_WINDOW）次终态全属 _GAIN_STUCK 且 now-last_t 小于 cooldown（默认 GAIN_COOLDOWN）时返回 sigma=0.0、gain=0，其余返回 sigma=1.0、gain=1。
 def gain_gate(cg, bid: str, now: float | None = None,
               window: int = GAIN_WINDOW, cooldown: float = GAIN_COOLDOWN) -> dict:
     """信息增益门槛（P-T-40 第四保护投影，纯读无副作用）。

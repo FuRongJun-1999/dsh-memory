@@ -186,7 +186,9 @@ def _verify_code(payload, ctx):
     return _verdict(REJECT, "code", f"实测失败 rc={p.returncode}：{tail}")
 
 
+# 生效条件：调用 _pending 并传入 kind 与 why 后，其返回的内层闭包 _fn 对任意 payload/ctx 均求值为 _verdict(DEFER, kind, why)，其中 kind 与 why 来自外层 _pending 的闭包，而非 _fn 的形参；。
 def _pending(kind, why):
+# 生效条件：调用 _pending 并传入 kind 与 why 后，其返回的内层闭包 _fn 对任意 payload/ctx 均求值为 _verdict(DEFER, kind, why)，其中 kind 与 why 来自外层 _pending 的闭包，而非 _fn 的形参；。
     def _fn(payload, ctx):
         return _verdict(DEFER, kind, why)
     return _fn

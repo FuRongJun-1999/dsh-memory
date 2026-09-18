@@ -100,6 +100,7 @@ def _terms(text):
             if not str(k).startswith("__")}
 
 
+# 生效条件：candidates 非空且 error 可被 _terms 处理时，按 _weighted_coverage 返回覆盖得分最高的候选，字面平局时取候选顺序最前者。
 def _pick_lexical(error, candidates):
     """无记忆臂的确定性策略：按字面覆盖选 top-1（字面平局时按候选顺序）。"""
     tw = _terms(error)

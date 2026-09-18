@@ -55,6 +55,7 @@ CONFIGS = (
 REFERENCE = {"lexical": 0.936, "lexical,fuzzy": 0.976}
 
 
+# 生效条件：c 含 zh_fields（identity、time、summary、terms、condition）与 text 时，返回按身份/时间/摘要/词/条件/原始陈述拼接的正文。
 def body_of(c):
     """正文：与 bench_axis_domain.body_of / bench_zh_mad 的 a0 臂**逐字一致**。
 

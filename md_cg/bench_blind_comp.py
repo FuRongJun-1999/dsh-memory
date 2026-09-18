@@ -161,6 +161,7 @@ def gen_corpus():
     return corpus
 
 
+# 生效条件：对 UNSEEN 中每个 c 生成 L1 与 L2 题；当 c 属于 L3_SET 时，用 assert 强制其 COMP_L3 问句与 g_c 的 gold 文本 bigram 零交集，失败抛 AssertionError，通过后追加 L3 题。
 def gen_questions():
     """33 题。L3 生成时校验 query×gold bigram 零交集（纪律4）。"""
     questions = []
