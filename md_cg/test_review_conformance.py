@@ -11,6 +11,9 @@
   ⑦ 并发幂等（真多进程）：N 进程同内容并发 propose → 恰好 1 条、pid 全同
   ⑧ 并发不丢（真多进程）：N 进程×M 条不同内容 → inbox 读回恰好 N×M 条
   ⑨ decisions 并发不丢（真多进程）：并发裁决 → 记录恰好 N 条且指纹完整
+  ⑩ 安全层转发：MdCGSecure.propose 的幂等/info 透传
+  ⑪ NOOP 裁决：只留痕（jsonl + 审计节点）不落业务节点、不写负记忆、终态关闭、
+     统计可见，且与 reject 的留痕状态可区分
 
 运行：python -m md_cg.test_review_conformance
 """
@@ -89,7 +92,7 @@ def _run_worker(workdir, root, mode, arg="", timeout=120):
 def main():
     workdir = tempfile.mkdtemp(prefix="mdcg_conf_wk_")
     root = tempfile.mkdtemp(prefix="mdcg_conf_")
-    root2 = root2b = root3 = root4 = ""
+    root2 = root2b = root3 = root4 = root5 = ""
     _ensure_worker(workdir)
     try:
         cg = MdCGOS(root, actor="test")
@@ -295,13 +298,67 @@ def main():
               "info" not in (sec_rec.get("extra") or {}),
               str(sec_rec.get("extra")))
 
+        # ---------------- ⑪ NOOP 裁决（治理层动作） ----------------
+        print("\n【11】NOOP 裁决：只留痕、不落节点、不写负记忆、终态关闭")
+        root5 = tempfile.mkdtemp(prefix="mdcg_conf_noop_")
+        cg5 = MdCGOS(root5, actor="test-noop")
+
+        def _neg_n():
+            """负记忆条目数（rejected 层）——NOOP 不得增加它。"""
+            return sum(1 for e in cg5.index["nodes"].values()
+                       if (e.get("layer") or "") == "rejected")
+
+        nb = _neg_n()
+        np1 = cg5.propose("noop1", "# 功能名：NOOP 探针\n\n已评估，判定无需改动。\n",
+                          layer="knowledge")
+        dn = cg5.review_decide(np1, "noop", reason="评估过，无需改动")
+        check("noop 裁决成功且 decision=noop",
+              dn.get("ok") is True and dn.get("decision") == "noop", str(dn)[:80])
+        check("noop 不落业务节点", not cg5.get("noop1"), "")
+        nrecs = [r for r in cg5.decisions() if r.get("pid") == np1]
+        check("noop 进 decisions 留痕（status=noop + record_hash）",
+              len(nrecs) == 1 and nrecs[0].get("status") == "noop"
+              and bool(nrecs[0].get("record_hash")),
+              f"n={len(nrecs)} status={nrecs[0].get('status') if nrecs else '-'}")
+        check("noop 不写负记忆（rejected 条目数不增）", _neg_n() == nb,
+              f"{nb}→{_neg_n()}")
+        check("noop 后提案终态关闭（review_list 不再列出）",
+              not any(r.get("pid") == np1 for r in cg5.review_list()), "")
+        dn2 = cg5.review_decide(np1, "noop")
+        check("重复 noop 幂等拒绝（already_decided）",
+              dn2.get("ok") is False and dn2.get("error") == "already_decided",
+              str(dn2.get("error")))
+        audit = cg5.review_records(pid=np1)
+        check("noop 的 md 审计记录节点已落（外部来源可复核）",
+              len(audit) == 1, f"n={len(audit)}")
+        vrec = cg5.verify_review_record(audit[0]["id"]) if audit else {}
+        check("noop 审计记录指纹复核一致且状态为 noop",
+              vrec.get("ok") is True and vrec.get("status") == "noop",
+              str(vrec)[:90])
+        st5 = cg5.review_stats()
+        check("review_stats 统计到 noop（by_decision.noop=1）且队列已清",
+              st5.get("noop") == 1
+              and (st5.get("by_decision") or {}).get("noop") == 1
+              and st5.get("pending") == 0 and st5.get("closed") == 1,
+              str(st5))
+        # 语义分界：noop 与 reject 都终止提案，但留痕状态必须可区分
+        # （否则「评估过、无需改动」会被误读为「否掉了这条候选」）
+        rj1 = cg5.propose("rej1", "# 功能名：NOOP 对照探针\n\n对照用。\n",
+                          layer="knowledge")
+        dr = cg5.review_decide(rj1, "reject", reason="对照")
+        rjrec = [r for r in cg5.decisions() if r.get("pid") == rj1]
+        check("noop 与 reject 留痕状态可区分（noop vs rejected）",
+              dr.get("ok") is True and bool(rjrec)
+              and rjrec[0].get("status") == "rejected",
+              f"reject_status={rjrec[0].get('status') if rjrec else '-'}")
+
         print(f"\n===== conformance：PASS={PASS} FAIL={FAIL} =====")
         if FAILS:
             print("失败项：", "；".join(FAILS))
         return 1 if FAIL else 0
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
-        for r in (root, root2, root2b, root3, root4):
+        for r in (root, root2, root2b, root3, root4, root5):
             if r:
                 shutil.rmtree(r, ignore_errors=True)
 

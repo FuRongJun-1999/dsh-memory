@@ -281,6 +281,29 @@ def _redteam_required():
         in ("1", "true", "yes")
 
 
+# ---- 审核队列裁决动作（治理层）· 2026-09-19 阶段一 ----------------------------
+# **命名空间隔离**：`noop` 一词在 lifecycle.py / trust.py 中已被占用为**状态迁移
+# 结果码**（`check`/`stamp` 返回的 code，语义「同状态、不写盘」）；这里的 noop 是
+# **审核队列裁决动作**（语义「已评估、判定不改变任何现有记忆」）。沿用
+# `lifecycle_state` 改名先例（同结构两义必生歧义）：两处**不共用常量、不互相
+# import**，靠各自的常量名与返回体区分——迁移结果码出现在 `(ok, code, why)`，
+# 裁决动作出现在 `review_decide` 的入参与 decisions.jsonl 的 `decision` 字段。
+DECISION_ACCEPT = "accept"
+DECISION_REJECT = "reject"
+DECISION_EDIT = "edit"
+DECISION_MERGE = "merge"
+DECISION_NOOP = "noop"
+
+#: 合法裁决动作全集——`review_decide` 的唯一校验源（原先硬编码在函数体，与
+#: status 映射、工具面 schema、CLI 子命令三处各写一份，加动作必漏）。
+DECISION_ACTIONS = (DECISION_ACCEPT, DECISION_REJECT, DECISION_EDIT,
+                    DECISION_MERGE, DECISION_NOOP)
+
+#: 终态裁决状态集（写进 decisions.jsonl 的 `status` 字段）：三者都把提案**关闭**。
+#: `needs_reapproval` 刻意不在列——红队打回后仍待再审批，必须继续可见。
+TERMINAL_DECISION_STATUS = ("accepted", "rejected", "noop")
+
+
 # 生效条件：以任意 root 构造时按其拼接 audit_log/hippocampus/trash 等路径并 makedirs 创建 hippocampus 与 trash_dir（exist_ok=True），autoflush 透传父类、actor 存入 self.actor；
 class MdCGOS(MdCG):
     """MdCG + 记忆 OS 七项能力。"""
@@ -1486,20 +1509,20 @@ class MdCGOS(MdCG):
                 st[r["pid"]] = r
         return st
 
-# 生效条件：实例已构建（内部先读 _pid_status()）；返回其 status ∈ ("accepted", "rejected") 的 pid 集合，status=="needs_reapproval" 视为未关闭、不计入；
+# 生效条件：实例已构建（内部先读 _pid_status()）；返回其 status ∈ TERMINAL_DECISION_STATUS（accepted/rejected/noop）的 pid 集合，status=="needs_reapproval" 视为未关闭、不计入；
     def _closed_pids(self):
         """已被终态裁决关闭的 pid（needs_reapproval 仍视为打开）。"""
         return {pid for pid, r in self._pid_status().items()
-                if r.get("status") in ("accepted", "rejected")}
+                if r.get("status") in TERMINAL_DECISION_STATUS}
 
-# 生效条件：在已用 root 构造的实例上遍历 self.inbox_log 记录，其 pid 在 _pid_status() 中 status 为 accepted/rejected 时跳过，其余复制该记录并写入 status=s.get("status") or "pending"、round=int(s.get("round") or 0)、issues=list(s.get("issues") or []) 后返回 out。
+# 生效条件：在已用 root 构造的实例上遍历 self.inbox_log 记录，其 pid 在 _pid_status() 中 status ∈ TERMINAL_DECISION_STATUS 时跳过，其余复制该记录并写入 status=s.get("status") or "pending"、round=int(s.get("round") or 0)、issues=list(s.get("issues") or []) 后返回 out。
     def review_list(self):
         """待审核候选（含被红队打回、待再审批的条目）。"""
         st = self._pid_status()
         out = []
         for r in read_jsonl(self.inbox_log):
             s = st.get(r.get("pid")) or {}
-            if s.get("status") in ("accepted", "rejected"):
+            if s.get("status") in TERMINAL_DECISION_STATUS:
                 continue
             rec = dict(r)
             rec["status"] = s.get("status") or "pending"
@@ -1507,6 +1530,26 @@ class MdCGOS(MdCG):
             rec["issues"] = list(s.get("issues") or [])
             out.append(rec)
         return out
+
+# 生效条件：实例已构建（内部读 decisions_log、_pid_status()、review_list()、_closed_pids()）；返回 records=decisions 记录总数、by_decision=按 decision 值分组计数（decision 为假值时归入 "unknown"）、proposals=有裁决记录的 pid 数、pending=review_list() 长度、closed=_closed_pids() 长度、noop=by_decision 中 noop 计数（缺省 0）、terminal_status=终态状态集清单；
+    def review_stats(self):
+        """裁决动作分布统计（含 NOOP）。
+
+        存在意义：NOOP（已评估、判定不改变任何现有记忆）若只落在 jsonl 里、
+        没有统计出口，则「这条候选被评估过」在治理面不可见——与「静默忽略」
+        等价。口径=decisions.jsonl 逐条记录（权威源，不另建统计文件）；队列
+        视图复用 review_list/_closed_pids，避免在此复制第二份终态判定逻辑。
+        """
+        by = {}
+        for r in read_jsonl(self.decisions_log):
+            d = str(r.get("decision") or "").strip() or "unknown"
+            by[d] = by.get(d, 0) + 1
+        return {"records": sum(by.values()), "by_decision": by,
+                "proposals": len(self._pid_status()),
+                "pending": len(self.review_list()),
+                "closed": len(self._closed_pids()),
+                "noop": by.get(DECISION_NOOP, 0),
+                "terminal_status": list(TERMINAL_DECISION_STATUS)}
 
 # 生效条件：当 pid 传入时，从 decisions_log 读取并仅保留 r.get("pid")==pid 的记录，映射为含 round/decision/status/redteam/issues/t/actor/record_node_id/record_hash 的列表返回；
     def review_rounds(self, pid: str):
@@ -1693,23 +1736,30 @@ class MdCGOS(MdCG):
                 "verify_hash": src.get("verify_hash"),
                 "source": "hippocampus/decisions.jsonl"}
 
-# 生效条件：decision 须为 "accept"/"reject"/"edit"/"merge" 之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'）后追加内容并 rebuild_index，reject 只记裁决；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
+# 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'）后追加内容并 rebuild_index，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
     def review_decide(self, pid: str, decision: str, edits: dict = None,
                       merge_into: str = None, reason: str = "",
                       redteam: dict = None, issues=None):
-        """审核裁决：accept / reject / edit / merge。
+        """审核裁决：accept / reject / edit / merge / noop。
 
         accept  → 按 inbox 原样写入
         reject  → 丢弃（只记裁决，不落节点）
         edit    → 用 edits 覆盖 content/tags/layer 后写入
         merge   → 合并进已有节点 merge_into（内容追加 + 不适用条件并集）
+        noop    → 已评估、判定**不改变任何现有记忆**：只留痕（decisions.jsonl +
+                  审计记录节点）并关闭提案，不落业务节点、不进负记忆
+
+        noop 与 reject 的区别是语义而非路径：reject 是「否掉这条候选」，noop 是
+        「评估过了、无需改动」。二者都不写目标节点，故 noop 不可借道绕过 accept
+        的写入门控（它根本不写）。此处 noop 是**裁决动作**，与 lifecycle/trust 中
+        同名的**状态迁移结果码**分属两层（见模块常量区注释）。
 
         两条验证纪律（借自任务分级协议的验证端）：
           1. 判据只读：verify 由 propose 声明，裁决阶段传入不同判据 → verify_readonly。
           2. 红队门控 + 再审批：redteam.verdict=reject（或带 issues 的 reject）不落库，
              该 pid 转 needs_reapproval；修复后必须带 round 递增的 pass 再审批。
         """
-        if decision not in ("accept", "reject", "edit", "merge"):
+        if decision not in DECISION_ACTIONS:
             raise ValueError(f"未知裁决：{decision}")
         item = next((r for r in read_jsonl(self.inbox_log)
                      if r.get("pid") == pid), None)
@@ -1759,7 +1809,12 @@ class MdCGOS(MdCG):
 
         result = {"pid": pid, "decision": decision, "round": round_no,
                   "redteam": rt_v or "absent"}
-        if decision == "reject":
+        if decision == DECISION_NOOP:
+            # 已评估、判定不改变任何现有记忆：不落业务节点、不进负记忆，唯一产物
+            # 是下面 _record_decision 写的留痕（jsonl + 审计记录节点）。放在最前，
+            # 免得将来有人往 accept/edit 分支加副作用时把它卷进去。
+            result["ok"] = True
+        elif decision == "reject":
             result["ok"] = True
         elif decision in ("accept", "edit"):
             content = item["content"]
@@ -1801,9 +1856,12 @@ class MdCGOS(MdCG):
             self.rebuild_index()
             result.update(ok=True, node_id=target)
 
+        # status 映射统一出口：reject→"rejected"、noop→"noop"（同为终态，见
+        # TERMINAL_DECISION_STATUS）、其余→"accepted"。
         result = self._record_decision(
             pid, item, decision,
-            "rejected" if decision == "reject" else "accepted",
+            {DECISION_REJECT: "rejected", DECISION_NOOP: DECISION_NOOP}
+            .get(decision, "accepted"),
             reason, round_no, rt_v, rt_issues, expect, result)
         # 级联出清：主提案已终态，同内容兄弟提案（重复入队产物）自动关闭
         casc = self._cascade_dedup(

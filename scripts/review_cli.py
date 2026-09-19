@@ -12,7 +12,13 @@
   python scripts/review_cli.py reject  <pid> --reason "内容有误"
   python scripts/review_cli.py edit    <pid> --content "修正后内容" --reason "..."
   python scripts/review_cli.py merge   <pid> --into <已有节点id> --reason "..."
+  python scripts/review_cli.py noop    <pid> --reason "已评估，判定无需改动"
   python scripts/review_cli.py rounds  <pid>        # 某提案裁决轮次历史
+  python scripts/review_cli.py stats                # 裁决动作统计（含 noop）
+
+noop 语义：**已评估、判定不改变任何现有记忆**——只留痕（decisions.jsonl +
+审计 md 节点）并关闭提案，不落业务节点、不进负记忆。它与 reject 的区别是
+「评估过了、无需改动」而非「否掉这条候选」，故不可借 noop 绕过 accept 门控。
 
 裁决留痕：decisions.jsonl + 审计 md 节点（由 review_decide 内部完成）。
 """
@@ -59,7 +65,7 @@ def _brief(rec, width=66):
     return text[:width] + ("…" if len(text) > width else "")
 
 
-# 生效条件：cg 与 args 就绪时按 args.cmd 分派——"list" 时 cg.review_list() 为空则打印空队列并返回 0、非空则逐条打印（tags 取真值拼接、layer/round 为假值显示 "?"/0）后返回 0；"rounds" 时打印 cg.review_rounds(args.pid) 并返回 0；"edit" 时以 args.content 加真值 args.tags（按逗号分割并剔除空项）/args.layer 组成 edits 调 cg.review_decide；其余 cmd 以 getattr(args, "into", None) 与 args.reason 调 cg.review_decide；后两类再按 out.get("ok") 为真返回 0，否则打印 out 并返回 1。
+# 生效条件：cg 与 args 就绪时按 args.cmd 分派——"list" 时 cg.review_list() 为空则打印空队列并返回 0、非空则逐条打印（tags 取真值拼接、layer/round 为假值显示 "?"/0）后返回 0；"rounds" 时打印 cg.review_rounds(args.pid) 并返回 0；"stats" 时打印 cg.review_stats() 的记录数/提案数/待审数/已关闭数与动作分布（含 noop 计数）并返回 0；"edit" 时以 args.content 加真值 args.tags（按逗号分割并剔除空项）/args.layer 组成 edits 调 cg.review_decide；其余 cmd（含 noop）以 getattr(args, "into", None) 与 args.reason 调 cg.review_decide；后两类再按 out.get("ok") 为真返回 0，否则打印 out 并返回 1。
 def _execute(cg, args):
     """按子命令执行裁决（cg 的生命周期由 main 统一收尾）。"""
     if args.cmd == "list":
@@ -78,6 +84,17 @@ def _execute(cg, args):
 
     if args.cmd == "rounds":
         print(json.dumps(cg.review_rounds(args.pid), ensure_ascii=False, indent=1))
+        return 0
+
+    if args.cmd == "stats":
+        st = cg.review_stats()
+        by = st.get("by_decision") or {}
+        print("裁决记录 %d 条 · 提案 %d 个 · 待审 %d 条 · 已关闭 %d 个" % (
+            st.get("records", 0), st.get("proposals", 0),
+            st.get("pending", 0), st.get("closed", 0)))
+        print("  动作分布：%s" % ("、".join(
+            "%s=%d" % (k, by[k]) for k in sorted(by)) or "（无记录）"))
+        print("  其中 noop（已评估、判定无需改动）= %d 条" % st.get("noop", 0))
         return 0
 
     if args.cmd == "edit":
@@ -109,7 +126,10 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("list", help="列出待审条目", parents=[common])
-    for name, help_ in (("accept", "按原样写入落盘"), ("reject", "丢弃（只记裁决）")):
+    sub.add_parser("stats", help="裁决动作统计（含 noop）", parents=[common])
+    for name, help_ in (("accept", "按原样写入落盘"),
+                        ("reject", "丢弃（只记裁决）"),
+                        ("noop", "已评估、判定不改变现有记忆（只留痕）")):
         s = sub.add_parser(name, help=help_, parents=[common])
         s.add_argument("pid")
         s.add_argument("--reason", default="", help="裁决理由（进留痕）")

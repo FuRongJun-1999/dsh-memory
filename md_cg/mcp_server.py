@@ -225,11 +225,13 @@ TOOLS = [
     },
     {
         "name": "mdcg_review_decide",
-        "description": "审核裁决：accept / reject / edit / merge（merge 需 merge_into）。"
+        "description": "审核裁决：accept / reject / edit / merge / noop（merge 需 merge_into）。"
+                       "noop=已评估、判定不改变任何现有记忆：只留痕并关闭提案，"
+                       "不落业务节点、不进负记忆（与 reject 的区别是语义而非路径）。"
                        "redteam.verdict=reject 不落库，转 needs_reapproval，"
                        "修复后须带递增 round 的 pass 再审批；判据只读不可改。",
         "inputSchema": _s("", pid=_p("string", "提案 id", True),
-                          decision=_p("string", "accept|reject|edit|merge", True),
+                          decision=_p("string", "accept|reject|edit|merge|noop", True),
                           edits=_p("object", "edit 时的覆盖字段"), merge_into=_p("string", "merge 目标节点 id"),
                           reason=_p("string", "裁决理由"),
                           redteam=_p("object", "红队裁决 {verdict:pass|reject, issues:[], round:n}"),
@@ -687,7 +689,7 @@ KERNEL_TOOLS = [
             marker=_p("string", "whitebox verify_encoding：唯一口令标记（缺省自动生成）"),
             fact=_p("string", "whitebox verify_encoding：待编码事实"),
             questions=_p("array", "whitebox verify_existing：探针问题列表"),
-            action=_p("string", "review: list|decide|rounds；forget: forget|restore；"
+            action=_p("string", "review: list|decide|rounds|stats；forget: forget|restore；"
                                 "protect: stats|check|mark|snapshot|history|forgetting；"
                                 "identity: observe|anchor|trait|profile|positions|catalog；"
                                 "consistency: check|history|stats|catalog；"
@@ -2080,6 +2082,10 @@ def _cg_dispatch(cg, a):
         act = (a.get("action") or "list").strip().lower()
         if act == "list":
             return {"pending": cg.review_list()}
+        if act == "stats":
+            # 裁决动作分布（含 noop）：无此出口则「已评估、判定无需改动」这类
+            # 裁决只在 jsonl 里躺着，治理面看不到——与「静默忽略」等价。
+            return cg.review_stats()
         if act == "rounds":
             pid = a.get("pid", "")
             return {"pid": pid, "rounds": cg.review_rounds(pid)}
