@@ -408,6 +408,20 @@ def _after_trust(ctx, out):
     if isinstance(prop, dict) and prop.get("changed"):
         out["propagation"] = {"changed": prop.get("changed"),
                               "updated": (prop.get("updated") or [])[:10]}
+    # 热路径失效（2026-09-19 热温冷分层）：写入后清缓存
+    try:
+        from . import hotcache as _hc
+        _hc.invalidate(cg, nid)
+    except Exception:                                  # noqa: BLE001
+        pass  # 缓存失效失败不阻断写入（永不抛）
+
+    # 冷路径入队（2026-09-19 热温冷分层）：异步深度验证
+    try:
+        from . import coldverify as _cv
+        _cv.enqueue(cg, nid, action="reverify",
+                    reason="writepipe:after_trust")
+    except Exception:                                  # noqa: BLE001
+        pass  # 入队失败不阻断写入
 
 
 # 生效条件：由链尾以含 cg 与 a 的 ctx 调用即无条件执行 cg.add 落盘并返回 ok=True/committed=True，ctx["cvd"] 非 None 时附加 consistency 字段；

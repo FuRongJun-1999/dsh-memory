@@ -1728,6 +1728,14 @@ def _status_call(cg, a):
     if uc:
         bits.append(f"{statushdr.MARK_UNVERIFIED} 未验证({uc})")
     rep["status_head"] = " · ".join(bits) if bits else statushdr.MARK_UNVERIFIED + " 空"
+    # 冷路径队列状态（2026-09-19 热温冷分层）
+    try:
+        from . import coldverify as _cv
+        q = _cv.get(cg)
+        if q is not None:
+            rep["coldverify"] = q.status()
+    except Exception:                                  # noqa: BLE001
+        pass
     return rep
 
 

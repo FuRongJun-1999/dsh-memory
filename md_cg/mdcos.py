@@ -1040,7 +1040,8 @@ class MdCGOS(MdCG):
                    record: bool = True, query_expand=None,
                    path_weights=None, recall_only=None, fusion: str = "sum",
                    goal_text=None, judge_ranking: bool = False,
-                   session=None, branch=None):
+                   session=None, branch=None,
+                   early_stop_threshold=None):
         """并行多路召回 + RRF 融合。返回 (results, meta)。
 
         每路各自排序 → Reciprocal Rank Fusion：
@@ -1074,6 +1075,16 @@ class MdCGOS(MdCG):
         q = (query or "").strip()
         if not q:
             return [], {"tier": None, "reason": "empty_query", "paths": {}}
+        # 热路径：query 结果缓存命中即返回（不改 RRF 核心）
+        from . import hotcache as _hc
+        hc = _hc.get(self)
+        if hc is not None:
+            cached = hc.get_query(q, k=k, layer=layer, session=session,
+                                  branch=branch)
+            if cached is not None:
+                _results, _meta = cached
+                _meta["cached"] = True
+                return _results, _meta
         entries = self._candidates(layer=layer, roles=roles, include_work=include_work,
                                    session=session, branch=branch)
         if not entries:
@@ -1145,9 +1156,30 @@ class MdCGOS(MdCG):
                 node_by_id.setdefault(node["id"], (node, s))
         fused_all = sorted(rrf.items(), key=lambda kv: (-kv[1], kv[0]))
 
+        # 温路径早停判据（2026-09-19 热温冷分层）：
+        # top-1 RRF 分 >= threshold 且 top-k 全部来自 >=2 路共识 → 提前返回
+        # 不改 RRF 核心算法，只在融合后判断
+        early_stopped = False
+        if early_stop_threshold is not None and len(fused_all) >= k:
+            top1_score = fused_all[0][1]
+            if top1_score >= early_stop_threshold:
+                # 检查 top-k 是否全部来自多路共识（prov 中 >=2 路）
+                topk_ids = [nid for nid, _ in fused_all[:k]]
+                multi_consensus = all(
+                    len({p["path"] for p in prov.get(nid, [])}) >= 2
+                    for nid in topk_ids
+                )
+                if multi_consensus:
+                    early_stopped = True
+
         quals = {}
         filtered = 0
-        if judge and judge_ranking:
+        if early_stopped:
+            # 早停：直接取 top-k，不做 judge_ranking
+            fused = fused_all[:k]
+            judge = False  # 早停时跳过资格判定
+            judge_ranking = False
+        elif judge and judge_ranking:
             # 证据防火墙：语义/词法融合产生候选（不要漏），资格授予优先级（不要错）
             kept = []
             for nid, fs in fused_all[:max(k * 2, 10)]:
@@ -1173,10 +1205,22 @@ class MdCGOS(MdCG):
             results.append((node, round(fs, 6), qual, prov.get(nid, [])))
         if record and results:
             self.record_access([r[0]["id"] for r in results], "RRF")
+        # 热路径：写 query 结果缓存
+        if hc is not None and results:
+            hc.put_query(q, results, {"tier": "RRF", "scanned": stat["scanned"],
+                         "paths": per_path, "fused": len(results),
+                         "judge_ranking": bool(judge and judge_ranking),
+                         "judge_filtered": filtered,
+                         "early_stopped": early_stopped,
+                         "expand_source": fuzzy_source,
+                         "goal_used": goal_used,
+                         "provenance": prov}, k=k, layer=layer,
+                         session=session, branch=branch)
         return results, {"tier": "RRF", "scanned": stat["scanned"],
                          "paths": per_path, "fused": len(results),
                          "judge_ranking": bool(judge and judge_ranking),
                          "judge_filtered": filtered,
+                         "early_stopped": early_stopped,
                          "expand_source": fuzzy_source,
                          "goal_used": goal_used,
                          "provenance": prov}
