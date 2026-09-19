@@ -71,6 +71,9 @@ STRATUM_WEIGHTS = {"stale": 0.20, "low_conf": 0.20, "disputed": 0.15,
 CONTAMINATION = {
     "contradiction": ("high", ("weaken", "demote")),
     "expired": ("high", ("weaken", "demote")),
+    # 未生效（双时间轴另一侧，2026-09-19）：**不是错误**——只提示「此刻不适用」，
+    # 故 severity=info、处置仅 hint（不 weaken / 不 demote / 不删）。
+    "not_yet": ("info", ("hint",)),
     "duplicate": ("medium", ("hint",)),
     "orphan_noise": ("low", ("weaken", "demote")),
     "unverified": ("info", ("hint",)),
@@ -465,6 +468,23 @@ def _expired(fm, now):
     return None
 
 
+# 未生效键（双时间轴的起点，2026-09-19 · 真源 md_cg/trust.py）。
+# 纪律：`valid_from` **绝不并入 `_EXPIRY_KEYS`**——两者语义相反（「尚未开始」vs
+# 「已经结束」），并入会让「未来才生效」被误判为「已失效」并触发 weaken/demote。
+_NOT_YET_KEYS = ("valid_from", "valid_since", "effective_from", "starts_at")
+
+
+# 生效条件：按 _NOT_YET_KEYS 顺序遍历 fm，返回首个满足「键在 fm 中且 _to_ts 非 None 且 ts>now」的 (k, fm.get(k))；全不满足返回 None。
+def _not_yet(fm, now):
+    """宽松判定「尚未生效」（与 `_expired` 同口径，方向相反）。"""
+    for k in _NOT_YET_KEYS:
+        if k in fm:
+            ts = _to_ts(fm.get(k))
+            if ts is not None and ts > now:
+                return k, fm.get(k)
+    return None
+
+
 # 生效条件：对 content 取 kv_pairs、bigrams 和 polarity，遍历 related（若 related 为假值则视为空）的前 int(max_compare) 个 r，以 r["node_id"] 调 cg.get；若某 oid 节点可读非空，先在其 content 与 content 的共同键中找到值不同者并返回 {'with':oid,'via':r.get('via'),'why':'同键不同值：...'}；否则若极性乘积 <0 且双方 bigram 非空，且共享 bigram 数 >=3 且 ratio>=0.15，返回 {'with':oid,'via':r.get('via'),'why':'极性相反且共享内容：...'}；全部遍历完无命中则返回 None；
 def _contradiction(cg, content, related, max_compare=10):
     """与同族节点比对：同键不同值 / 极性相反且共享 bigram。"""
@@ -545,6 +565,12 @@ def audit(cg, node_ids=None, *, hops: int = 1, min_severity: str = "info",
         hit = _expired(fm, now)
         if hit:
             add("expired", f"时效已过：{hit[0]}={hit[1]}", evidence=hit[0])
+
+        # 双时间轴另一侧（2026-09-19）：尚未生效**不是错误**——只提示「此刻不适用」，
+        # 处置由 CONTAMINATION["not_yet"] 定为 info 级 + 仅 hint（不 weaken / 不 demote）。
+        ny = _not_yet(fm, now)
+        if ny:
+            add("not_yet", f"尚未生效：{ny[0]}={ny[1]}", evidence=ny[0])
 
         if (layer == "knowledge" and age_d >= unverified_days
                 and int(e.get("evidence_count") or 0) <= 0):

@@ -111,6 +111,82 @@ REPRODUCIBLE_BASIS = ("compiler", "test", "measurement", "formal_proof", "data")
 #: 来源一致性档：文科断言可用（来源表述一致即可）
 CONSISTENCY_BASIS = ("textbook", "public_kb")
 
+# ---- 裁定 D（2026-09-19）：可验证记忆单元的**字段名真源** --------------------------
+# 「子功能」的契约角色是**依赖 dependency**（见 CCG_CONTRACT_ROLES），其落字段即
+# `depends_on`——名字与角色对齐（不叫 sub_features，避免同一概念两种写法）。
+# 依赖一旦失效，下游的「还成不成立」就变了，故它与验证态、时间轴同属一层。
+DEPENDS_ON_FIELD = "depends_on"
+
+#: 双时间轴：何时开始成立 / 何时不再成立（判定未生效·生效中·已过期）。
+#: `valid_until` 既有（已被 scrub 的过期消费面使用）；`valid_from` 本轮补齐。
+VALID_FROM_FIELD = "valid_from"
+VALID_UNTIL_FIELD = "valid_until"
+
+#: 验证态字段。**刻意不叫 `state`**——该名已被裁决四态（ACCEPT/REJECT/DEFER/
+#: BLINDSPOT）占用，`lifecycle_state` 的先例同此动机（观测位置不同即命名不同）。
+#: 状态枚举与合法迁移表的**行为真源是 md_cg/trust.py**；本处只登记字段名，
+#: **不复制枚举**——复制即制造第二份真源，与 CCG_CONTRACT_ROLES 的单一真源纪律相悖。
+VERIFICATION_STATE_FIELD = "verification_state"
+
+# ---- 「子功能」声明的**值语义**：哨兵与解析 --------------------------------------
+# 行存在 ≠ 有声明：`# 子功能：无` 是合法填充（绝大多数知识节点不依赖任何单元），
+# 若把它也算成「声明了依赖」，全库普通节点都会被 E050 硬拒——闸门立刻沦为噪声源。
+# 故必须区分「行存在」与「构成真实声明」，判据收在这里（单一真源，ccgc/writepipe 共用）。
+DEP_DECL_SENTINELS = ("无依赖", "无", "不适用", "不需要", "none", "n/a", "na", "-", "—")
+
+
+# 生效条件：value 为 None 或 strip 后为空 → True；strip 后等于 DEP_DECL_SENTINELS 任一项、或为该哨兵加尾部括号说明（如「无（不依赖其他单元）」）→ True；其余 False（不做语义判断）；
+def is_dep_sentinel(value) -> bool:
+    """纯函数：依赖槽的值是否属于「无依赖」哨兵。
+
+    只认**完全相等**或**哨兵+括号说明**两种形态，不做语义猜测——「无法确定」
+    这类真实陈述不得被误判为「无」（宁可多要求一次 depends_on，不可漏掉声明）。
+    """
+    s = "" if value is None else str(value).strip()
+    if not s:
+        return True
+    for mark in DEP_DECL_SENTINELS:
+        if s == mark:
+            return True
+        for lp, rp in (("（", "）"), ("(", ")")):
+            if s.startswith(mark + lp) and s.endswith(rp):
+                return True
+    return False
+
+
+# 生效条件：content 中不存在名字等于 field_name 的 `# 字段：` 行 → 返回 None；存在 → 返回首个命中行首个冒号之后的 strip 结果（可为空串）；
+def ccg_field_value(content, field_name: str):
+    """读取 `# <字段>：<值>` 的值（首个命中行；全/半角冒号兼容）。无该行 → None。
+
+    与 `ccgc._upsert_ccg_line` 的解析口径一致（去 `#`→按冒号切名字→名字相等即
+    命中）——即**写入口径与读入口径共用同一条行语义**，避免「写进去读不出」。
+    """
+    for ln in (content or "").split("\n"):
+        s = ln.strip()
+        if not s.startswith("#"):
+            continue
+        if s.lstrip("#").strip().split("：")[0].split(":")[0].strip() != field_name:
+            continue
+        for p in ("# " + field_name + "：", "# " + field_name + ":"):
+            if p in ln:
+                return ln.split(p, 1)[1].strip()
+        return ""
+    return None
+
+
+# 生效条件：content 中「# 子功能：」行缺失 → False；行存在且其值为空或命中依赖哨兵（is_dep_sentinel）→ False；行存在且值非哨兵 → True；
+def declares_dependency(content) -> bool:
+    """「# 子功能：」是否构成**真实依赖声明**（行存在 ∧ 值非空 ∧ 非哨兵）。
+
+    这是 E050 硬拒的**前置判据真源**：只有真实声明，才要求 `depends_on` 给出可
+    解析目标。行缺失按「未声明」处理——依赖不是必填元数据；**只有「声称依赖却
+    不落字段」才是契约违规**（声称与落盘不一致，传播链会从源头断掉）。
+    """
+    val = ccg_field_value(content, "子功能")
+    if val is None:
+        return False
+    return not is_dep_sentinel(val)
+
 
 # 生效条件：content 为 None 或空串时按源码的 content or "" 回落空串计算，非空时按其原值编码，一律返回 sha256(utf-8) 十六进制摘要的前 12 位（content 的 frontmatter 不计入口径由调用方保证）。
 def content_hash(content: str) -> str:

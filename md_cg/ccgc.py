@@ -60,6 +60,9 @@ E_CODES = {
     "E041": "自证拒绝：验证方标识 == 编译执行者（LLM 不得自己验证自己）",
     "E042": "验证未通过：签章判定 REJECT / BLINDSPOT",
     "E043": "修正非法：只允许修正 condition_space 四槽",
+    "E050": ("依赖声明缺失：正文声明了子功能（依赖），但 depends_on 未给出"
+             "可解析目标——依赖必须是可解析的字段，不能只是散文"),
+    "E051": "依赖目标不存在：depends_on 指向的节点不在库中（悬空依赖）",
 }
 
 # ---- 候选来源标识（写进留痕，可溯源到「谁说的」） ----
@@ -617,6 +620,34 @@ def attest(node_id: str, verdict: str, verifier: str, compiled_by: str, *,
 # =============================================================================
 
 # 生效条件：依次判 compiled.success 为假→返回带错误；attestation 为 None→E040；attestation.node_id 不等于 compiled.node_id 的取值→目标不一致拒绝；attestation.verifier 为真值且 == `(actor or compiled.actor)`→E041；attestation.ok 为假→E042；_as_cg(cg) 为 None→E002；节点不在 cg.index 的 nodes 中→E002；apply 为假→ok=True 的 dry-run 返回；否则 apply 为真时写入（fm 为 None 或 content 加密→E004），basis 为假值则回落 compiled.sources.get("verification_basis") 或 "other"，成功后 out.written=len(compiled.lines)。
+def _check_deps(_cg, node_id: str) -> List[str]:
+    """依赖声明硬闸门 → 错误列表（E050 / E051）。**读面失败不误杀**（返回空即放行）。
+
+    契约口径：CCG「子功能」行的契约角色是**依赖 dependency**（nodefile 术语真源）。
+    正文声明了子功能，就必须在 `depends_on` 给出可解析目标——否则「依赖」只剩散文，
+    被依赖单元一旦变动，下游无处可传（失效传播从源头断链）。
+    二者齐全时目标必须真实存在：悬空依赖 = 声称依赖一个并不存在的地基。
+    """
+    errs: List[str] = []
+    try:
+        node = _cg.get(node_id)
+    except Exception:                       # noqa: BLE001 —— 读面异常按「无声明」放行
+        return errs
+    if not node:
+        return errs
+    from . import trust as _trust
+    fm = node.get("frontmatter") or {}
+    deps = _trust.as_deps(fm.get(nodefile.DEPENDS_ON_FIELD))
+    if nodefile.declares_dependency(node.get("content") or "") and not deps:
+        errs.append("E050 " + E_CODES["E050"])
+    known = set((getattr(_cg, "index", None) or {}).get("nodes") or {})
+    missing = [d for d in deps if d not in known]
+    if missing:
+        errs.append("E051 " + E_CODES["E051"] + "：" + ",".join(missing[:5]))
+    return errs
+
+
+# 生效条件：依次判 compiled.success 为假→返回带错误；attestation 为 None→E040；attestation.node_id 不等于 compiled.node_id 的取值→目标不一致拒绝；attestation.verifier 为真值且 == `(actor or compiled.actor)`→E041；attestation.ok 为假→E042；_as_cg(cg) 为 None→E002；节点不在 cg.index 的 nodes 中→E002；依赖声明闸门（E050/E051）不通过→拒绝写入；apply 为假→ok=True 的 dry-run 返回；否则 apply 为真时写入（fm 为 None 或 content 加密→E004），basis 为假值则回落 compiled.sources.get("verification_basis") 或 "other"，成功后 out.written=len(compiled.lines)。
 def link(compiled: CompileResult, attestation: Optional[AttestResult], *,
          cg: Any = None, apply: bool = False, actor: str = "",
          basis: str = "") -> LinkResult:
@@ -653,6 +684,10 @@ def link(compiled: CompileResult, attestation: Optional[AttestResult], *,
     entry = (_cg.index.get("nodes") or {}).get(node_id)
     if not entry:
         out.errors.append("E002 节点不存在：" + node_id)
+        return out
+    _dep_errs = _check_deps(_cg, node_id)
+    if _dep_errs:
+        out.errors.extend(_dep_errs)
         return out
     if not apply:
         out.ok = True

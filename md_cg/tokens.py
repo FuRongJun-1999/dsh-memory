@@ -79,7 +79,10 @@ ALL_OPS = ("help", "info", "route", "read", "write", "goal", "task", "recent", "
            #        —— 对话记录→六要素候选→**编外复核**→落库；裁定 A：编译者不得自证
            #        （E041 机械拒绝 verifier == compiled_by）。复核通道优先蜂巢
            #        reflect/verify 单元，不可用则提示配置或降级 harness 端子代理。
-           "ccg")
+           # P4 新增（可验证记忆单元，2026-09-19）：
+           #   status  验证态 / 依赖 / 双时间轴 / 履历查询（只读）
+           #        —— 「它还成不成立」的读面；真源 md_cg/trust.py
+           "ccg", "status")
 
 
 class TokenError(Exception):
@@ -115,7 +118,7 @@ ROLE_SPECS = OrderedDict([
         # task=结构层任务台账（工程做到哪一步/结果是什么）——记录单元本职：
         #     保存过程与结果；「不得自证」由 done 时的结果必填闸承接
         "ops_allow": ["info", "route", "read", "write", "goal", "task", "recent",
-                      "session", "ingest", "maintain", "insight", "ccg"],
+                      "session", "ingest", "maintain", "insight", "ccg", "status"],
         "delegable": False,
         "forbidden": ["self/anchor 层", "private/secret 密级", "裁决与删除"],
     }),
@@ -128,7 +131,7 @@ ROLE_SPECS = OrderedDict([
         # maintain=反思后的前馈/模式分离候选（apply 类改写走 require_admin）
         # insight=发现差异/新路径：开窗 window + 情景重构 reconstruct + 盲区学习 learn
         "ops_allow": ["info", "route", "read", "write", "recent", "metacognition",
-                      "session", "maintain", "insight"],
+                      "session", "maintain", "insight", "status"],
         "delegable": False,
         "forbidden": ["knowledge/self/anchor 层", "private/secret 密级", "裁决与删除"],
     }),
@@ -137,7 +140,8 @@ ROLE_SPECS = OrderedDict([
         "duty": "判断规则、执行结果和结构是否有效；只写验证证据与负记忆",
         "can_write": True, "can_admin": False, "clearance_cap": "internal",
         "layers_allow": ["rejected", "contextual"],
-        "ops_allow": ["info", "route", "read", "write", "verify", "insight"],
+        "ops_allow": ["info", "route", "read", "write", "verify", "insight",
+                      "status"],
         "delegable": False,
         "forbidden": ["knowledge/self/anchor 层（不得改被验证内容）",
                       "private/secret 密级", "裁决与删除"],
@@ -150,7 +154,7 @@ ROLE_SPECS = OrderedDict([
         # session 仅开放只读 recall；note/compact 在分发层按 can_write 拦截
         # insight 仅开放只读呈现（list/report/outlook/reconstruct）；写入被 can_write 拦截
         "ops_allow": ["info", "route", "read", "recent", "whitebox", "session",
-                      "insight"],
+                      "insight", "status"],
         "delegable": False,
         "forbidden": ["全部写入", "private/secret 密级", "管理操作"],
     }),
@@ -164,7 +168,7 @@ ROLE_SPECS = OrderedDict([
         # insight=整体结构洞察 outlook（趋势/盲区/建议）+ 条件层报告 report
         "ops_allow": ["info", "read", "write", "sustain", "scrub", "evolution",
                       "self_state", "metacognition", "link", "session",
-                      "maintain", "insight"],
+                      "maintain", "insight", "status"],
         "delegable": False,
         "forbidden": ["knowledge/anchor 层", "private/secret 密级", "裁决与删除"],
     }),
@@ -173,7 +177,7 @@ ROLE_SPECS = OrderedDict([
         "duty": "无令牌时的降级身份：只读、最低密级",
         "can_write": False, "can_admin": False, "clearance_cap": "internal",
         "layers_allow": [],
-        "ops_allow": ["info", "route", "read", "recent", "whitebox"],
+        "ops_allow": ["info", "route", "read", "recent", "whitebox", "status"],
         "delegable": False,
         "forbidden": ["全部写入", "private/secret 密级", "管理操作"],
     }),

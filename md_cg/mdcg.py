@@ -26,7 +26,7 @@ import hashlib
 import threading
 
 from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
-               lifecycle, reach)
+               lifecycle, reach, trust)
 from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
                      read_jsonl, sweep_stale_temps)
 
@@ -802,6 +802,12 @@ class MdCG:
                         # 写入路径也因此无需读盘就能校验迁移合法性。重建口径与
                         # _stage 一致（旧库无该字段 → None → state_of 视为 active）。
                         lifecycle.STATE_FIELD: fm.get(lifecycle.STATE_FIELD),
+                        # 可验证记忆单元（trust）：重建口径与 _stage 三件同源
+                        # （验证态 / 依赖 / 双时间轴）——索引缺键即免读文件不可判。
+                        trust.STATE_FIELD: fm.get(trust.STATE_FIELD),
+                        trust.DEPS_FIELD: fm.get(trust.DEPS_FIELD),
+                        trust.FROM_FIELD: fm.get(trust.FROM_FIELD),
+                        trust.UNTIL_FIELD: fm.get(trust.UNTIL_FIELD),
                         # 记忆演化分支（④）：重建口径与 _stage 一致
                         "branch_id": fm.get("branch_id"),
                         "branched_from": fm.get("branched_from"),
@@ -849,7 +855,8 @@ class MdCG:
             non_applicable_conditions=None, override: bool = False,
             consistency: bool = False, on_conflict: str = "reject",
             derived_from=None, relation: str = provenance.DEFAULT_RELATION,
-            semantic: str = None, **extra) -> str:
+            semantic: str = None, depends_on=None, valid_from=None,
+            valid_until=None, verification_state: str = None, **extra) -> str:
         """写入一个节点。
 
         verification_basis: 外部验证基底（白箱信任的硬门槛），
@@ -870,6 +877,16 @@ class MdCG:
                   衍生层，正文原文无损；OOV token 记 fm.semantic_oov 警告不拒绝
                   （词表覆盖有限，拒绝会堵死合法写入）。检索面经
                   MDCG_SEMANTIC=1 开启组合共现打分（mdcg._score）。
+        depends_on:（可验证记忆单元）本节点**依赖**的节点 id，单个或列表。落
+                    frontmatter.depends_on（= CCG「子功能」槽的落字段，见 nodefile）。
+                    被依赖单元变动/证伪时，本节点由 trust.mark_dependents **同步**
+                    标 doubted（一跳，低成本）；多跳交巡检 trust.propagate。
+        valid_from / valid_until: 双时间轴（何时开始成立 / 何时不再成立），
+                    使时效可判定：未生效 / 生效中 / 已过期（trust.validity）。
+        verification_state: 验证态（unverified/verified/doubted/rechecking/expired，
+                    真源 trust.py）。**覆写既有节点时默认继承**——add 是全量重建
+                    fm，不显式继承会把已 verified 静默打回 unverified（与
+                    lifecycle_state 同构的坑）；显式传入则走迁移裁决，非法即拒。
         """
         if layer not in LAYERS:
             raise ValueError(f"未知层：{layer}（允许：{LAYERS}）")
@@ -983,6 +1000,44 @@ class MdCG:
                                or _pe.get("protected") or _pe.get("immutable")),
                 override=override)
             fm[lifecycle.STATE_FIELD] = want_state
+        # 可验证记忆单元（真源 `trust.py`）：验证态 + 依赖声明 + 双时间轴。
+        # 与 lifecycle 同构的坑——add 是**全量重建 fm**：既有 verified 节点被普通
+        # 覆写时若不显式继承，会静默打回 unverified。故默认继承，显式传入才裁决。
+        prev_vstate = trust.state_of(prev_entry)
+        if prev_entry and trust.STATE_FIELD not in prev_entry:
+            prev_vstate = trust.state_of(
+                (self.get(node_id) or {}).get("frontmatter"))
+        _v_alias = fm.pop(trust.STATE_FIELD, None)   # **extra 通道的兼容写法
+        want_vstate = verification_state or _v_alias
+        if want_vstate is None:
+            fm[trust.STATE_FIELD] = prev_vstate
+        else:
+            _pe_v = prev_entry or {}
+            trust.require_transition(
+                prev_vstate, want_vstate,
+                protected=bool(fm.get("protected") or fm.get("immutable")
+                               or _pe_v.get("protected") or _pe_v.get("immutable")),
+                override=override)
+            fm[trust.STATE_FIELD] = want_vstate
+        # 依赖声明（CCG「子功能」的落字段）与双时间轴：**覆写即继承**语义——
+        # 一次普通覆写抹掉依赖，会让失效传播从源头断链（下游永远收不到存疑信号）。
+        _deps = trust.as_deps(depends_on) or trust.as_deps(fm.get(trust.DEPS_FIELD))
+        if not _deps and prev_entry:
+            _deps = trust.as_deps(prev_entry.get(trust.DEPS_FIELD))
+        if _deps:
+            fm[trust.DEPS_FIELD] = _deps
+        else:
+            fm.pop(trust.DEPS_FIELD, None)      # 不保留空列表噪声
+        for _fk, _fv in ((trust.FROM_FIELD, valid_from),
+                         (trust.UNTIL_FIELD, valid_until)):
+            if _fv is None:
+                _fv = fm.get(_fk)
+                if _fv is None and prev_entry:
+                    _fv = prev_entry.get(_fk)
+            if _fv in (None, ""):
+                fm.pop(_fk, None)
+            else:
+                fm[_fk] = _fv
         # G8 派生溯源：把「来源声明」写进 frontmatter（单一真相源），台账为派生物。
         # 只声明事实、不做校验式拒绝——关系名非法仅回退默认值，不阻断写入。
         parents = provenance.as_list(derived_from)
@@ -1027,9 +1082,15 @@ class MdCG:
             "branched_from": fm.get("branched_from"),
             # 生命周期状态（②）：索引快照透出 → 免读文件可查（与 _scan_nodes 同口径）
             lifecycle.STATE_FIELD: fm.get(lifecycle.STATE_FIELD),
+            # 可验证记忆单元（trust）：验证态 + 依赖 + 双时间轴入快照 → 免读文件可查
+            trust.STATE_FIELD: fm.get(trust.STATE_FIELD),
+            trust.DEPS_FIELD: fm.get(trust.DEPS_FIELD),
+            trust.FROM_FIELD: fm.get(trust.FROM_FIELD),
+            trust.UNTIL_FIELD: fm.get(trust.UNTIL_FIELD),
         }))
         subgraph.invalidate_cache(self)
         chain.invalidate_cache(self)
+        trust.invalidate_cache(self)     # 依赖声明可能变化 → 反查索引作废
         # G8 常态化建链：仅对**新增**节点、仅在显式声明来源时建边。
         # 硬约束：建链失败绝不阻断写入（record 永不抛，失败降级留痕）。
         if parents:
@@ -1050,6 +1111,30 @@ class MdCG:
         """
         return lifecycle.set_state(self, node_id, dst, reason=reason,
                                    actor=actor, override=override)
+
+# 生效条件：无条件转调 trust.set_state(self, node_id, dst, reason=..., actor=..., evidence=..., method=..., trigger=..., override=...) 并原样返回其结果，本方法自身不做校验、分支或参数回落；
+    def set_verification(self, node_id: str, dst: str, reason: str = None,
+                         actor: str = None, evidence: str = None,
+                         method: str = None, trigger: str = None,
+                         override: bool = False) -> dict:
+        """节点**验证态**推进（真源 `trust.py`：唯一推进入口）。
+
+        与 `set_state`（生命周期）**正交**：一个管「节点是否还在服役」
+        （active/converged/demoted/archived），一个管「它现在还成不成立」
+        （unverified/verified/doubted/rechecking/expired）。两套状态集不共享常量。
+
+        非法迁移走负路由（`ok=False` + `error` 机器码，不抛）；受保护节点不接受
+        降级（需 `override=True`）；审计追加 `<root>/_trust.jsonl`，索引快照同步。
+        """
+        return trust.set_state(self, node_id, dst, reason=reason,
+                               actor=actor, evidence=evidence,
+                               method=method, trigger=trigger,
+                               override=override)
+
+# 生效条件：只读转调 trust.describe(self, node_id) 并返回其结果，自身不做校验或分支；
+    def verification(self, node_id: str) -> dict:
+        """单节点验证态全貌（验证态 + 依赖 + 反查 + 时间轴 + 履历）。只读。"""
+        return trust.describe(self, node_id)
 
 # 生效条件：每次调用都延迟导入 twophase 并以原样 apply（含 False）与 limit（含 0）转调 twophase.reconcile(self, apply=apply, limit=limit) 并返回，自身不做参数回落；
     def reconcile_writes(self, apply: bool = True, limit: int = 2000) -> dict:
@@ -2483,8 +2568,15 @@ class MdCG:
             # 从原位置删除（节点进入 rejected 层）
             os.remove(os.path.join(self.root, node["path"]))
             self._unstage(node_id)      # 同上：索引删除必须可重放（防幽灵条目）
+            trust.invalidate_cache(self)        # 索引已变 → 反查索引作废
+            # 地基塌了：直接下游立即标存疑（**同步一跳**，永不抛、不阻断本次裁决）
+            propagation = trust.mark_dependents(
+                self, node_id,
+                reason=f"上游 {node_id} 被证伪（falsified）——依赖的地基已不存在",
+                actor="verify:falsified", trigger="verify_falsified")
             return {"action": "falsified", "new_id": None,
-                    "evidence_count": None, "demoted": None}
+                    "evidence_count": None, "demoted": None,
+                    "propagation": propagation}
         # confirmed/weakened：调整 confidence（白箱第 5 篇：
         # 反例的权重应该比正例大——这里用非对称步长实现）
         fm = node["frontmatter"]
@@ -2516,8 +2608,29 @@ class MdCG:
             e = self.index["nodes"].get(node_id)
             if e is not None:
                 e["evidence_count"] = fm["evidence_count"]
+        # 验证态流转（可验证记忆单元）：外部证据裁决**就是**验证态迁移。
+        #   confirmed → verified（首次转正；已在 verified 则幂等 no-op）
+        #   weakened  → doubted（证据被削弱 ⇒ 存疑，待复核）
+        # 受保护节点不接受降级——负路由 ok=False 只说明「不可降」，不回滚已完成的
+        # 证据计数（与上方 lifecycle 降级同风格：不假装成功，也不推翻既成事实）。
+        if verdict == "confirmed":
+            ver = self.set_verification(
+                node_id, "verified",
+                reason=f"外部裁决 confirmed：{str(evidence)[:80]}",
+                actor="verify:confirmed", evidence=evidence,
+                method=fm.get("verification_basis"), trigger="verify")
+        else:
+            ver = self.set_verification(
+                node_id, "doubted",
+                reason=f"外部裁决 weakened：{str(evidence)[:80]}",
+                actor="verify:weakened", evidence=evidence, trigger="verify")
+        # 结论已变 ⇒ 下游的「地基动了」：同步一跳传播（永不抛，降级不阻断）
+        propagation = trust.mark_dependents(
+            self, node_id, reason=f"上游验证结论变为 {verdict}",
+            actor=f"verify:{verdict}", trigger=f"verify_{verdict}")
         return {"action": verdict, "confidence": fm["confidence"],
-                "evidence_count": fm["evidence_count"], "demoted": demoted}
+                "evidence_count": fm["evidence_count"], "demoted": demoted,
+                "verification": ver, "propagation": propagation}
 
     # ---------- 知识飞轮（白箱第 2 篇第 8 章）----------
 

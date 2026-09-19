@@ -129,11 +129,12 @@ def _run(tmp):
                                  "content": "PASSED SKIPME",
                                  "layer": "knowledge"})
     _check("移除即恢复(核心文件零改动)", out.get("committed") is True, repr(out))
-    # 默认 before 链含 linkref（2026-09-17 R-L1b：正文裸 id 引用解析，置链首）
+    # 默认 before 链含 linkref→deps→audit→consistency→gated（2026-09-19 deps 闸门新增）
     _check("单例默认链", singleton.names()["before"]
-           == ["linkref", "audit", "consistency", "gated"],
+           == ["linkref", "deps", "audit", "consistency", "gated"],
            repr(singleton.names()))
-    _check("单例默认after链", singleton.names()["after"] == ["linkref"],
+    _check("单例默认after链", singleton.names()["after"]
+           == ["linkref", "trust"],
            repr(singleton.names()))
 
     # ---------- 3 链序 / 短路 / REWRITE ----------

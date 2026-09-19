@@ -40,7 +40,7 @@ write 的六道闸（audit 校验 / consistency 冲突 / review 审核 / gated �
 
 import time
 
-from . import twophase
+from . import twophase, trust
 
 __all__ = ["WritePipeline", "default_pipeline"]
 
@@ -326,7 +326,88 @@ def _gate_gated(ctx):
         out["moved_to"] = "merged_into:" + str(res.get("merged_into"))
     elif v in ("DROP", "DEFER"):
         out["moved_to"] = v.lower()
+    # gated 是**替代落盘路径**（自行落盘/合并后直接返回终态、不跑 after 链），故
+    # 一跳同步传播须在此单独触发——否则 MERGE 类覆写会漏传下游（非对称边界，
+    # 与 `_after_trust` 注释互指）。
+    if committed or v == "MERGE":
+        prop = trust.mark_dependents(
+            cg, ctx["nid"],
+            reason="上游节点被 gated 写入/合并（内容或验证态可能已变）",
+            actor="writepipe:gated", trigger="write_gated")
+        if isinstance(prop, dict) and prop.get("changed"):
+            out["propagation"] = {"changed": prop.get("changed"),
+                                  "updated": (prop.get("updated") or [])[:10]}
     return out
+
+
+# 生效条件：ctx["a"]["content"] 含「# 子功能：」行且 depends_on 解析为空时返回 ok=False/error="E050" 的终态；depends_on 含库中不存在的 id 时返回 ok=False/error="E051" 的终态；其余（未声明子功能 / 声明且目标齐备）返回 None 放行；
+def _gate_deps(ctx):
+    """依赖声明闸（before 链：linkref 之后、audit 之前）：**硬拒条件缺失**。
+
+    为何是硬拒而非告警：依赖是失效传播的**唯一入口**。声明缺失时，「上游变了
+    下游要存疑」这条链从源头就不存在——它既不报错、也不留任何信号，缺陷以
+    「静默不传播」的形态长期存活（比报错更难发现）。故按契约缺失处理，与
+    `ccgc` 的 E 码体系同构（E050 声明缺失 / E051 目标不存在）。
+
+    张力消解（与 provenance「写路径永不阻断」纪律的边界，二者不冲突）：
+      - **声明缺失 / 目标不可解析 = 契约违规** → 硬拒（本闸只做这件事）；
+      - **传播落盘失败 = 运维降级** → 告警不阻断（见 `_after_trust`）。
+
+    判据基于**入参**而非落盘后回读：首次写入时节点尚不存在，回读式校验会
+    永远放行（等于闸门失效）。
+    """
+    a = ctx["a"]
+    cg = ctx["cg"]
+    from . import nodefile
+    if not nodefile.declares_dependency(a.get("content") or ""):
+        return None
+    deps = trust.as_deps(a.get("depends_on"))
+    if not deps:
+        return {"ok": False, "id": ctx["nid"], "committed": False,
+                "gate": "deps", "error": "E050",
+                "verdict": ctx.get("verdict"),
+                "hint": "依赖声明缺失（E050）：正文声明了「# 子功能：」，但 "
+                        "depends_on 未给出可解析目标。依赖必须是**可解析的字段**"
+                        "（形如 depends_on=[\"<被依赖节点 id>\"]），不能只是散文——"
+                        "否则被依赖单元变动时，下游无处可传。补齐后重试；"
+                        "本闸是契约闸门的正常行为，不是工具故障。"}
+    known = set((getattr(cg, "index", None) or {}).get("nodes") or {})
+    missing = [d for d in deps if d not in known]
+    if missing:
+        return {"ok": False, "id": ctx["nid"], "committed": False,
+                "gate": "deps", "error": "E051", "missing": missing[:10],
+                "verdict": ctx.get("verdict"),
+                "hint": "依赖目标不存在（E051）：depends_on 指向 "
+                        + ", ".join(missing[:5])
+                        + "，但库中查无此节点——声称依赖一个并不存在的地基，"
+                          "失效传播会在此处断链。请先建立被依赖节点，或修正 id。"}
+    return None
+
+
+# 生效条件：out 为 dict 且 out["committed"] 为真时，调 trust.mark_dependents 做一跳同步传播（异常吞掉并降级），并在节点时间轴非「时效内」时往 out 写 "validity" 提示；其余情况直接返回不做任何动作；
+def _after_trust(ctx, out):
+    """after 观察者：落盘后触发**一跳同步传播** + 时效提示。
+
+    为何落在 after 而非 before：只有真正落盘（内容确实变了）才构成「地基动了」；
+    before 链短路路径（REJECT / DEFER）本就不跑 after 链，语义天然正确。
+    例外：`gated` 是替代落盘路径（自行落盘并返回终态、不跑 after），故它的
+    传播在 `_gate_gated` 内部单独触发（见该处注释）。
+
+    **永不抛**：传播失败只降级（`trust.mark_dependents` 内部已兜底并写台账），
+    绝不把「写入已成功」改写为失败——与 `_commit_visibility` 同款边界。
+    """
+    if not isinstance(out, dict) or not out.get("committed"):
+        return
+    cg = ctx["cg"]
+    nid = ctx.get("nid")
+    if not nid:
+        return
+    prop = trust.mark_dependents(
+        cg, nid, reason="上游节点被写入/覆写（内容或验证态可能已变）",
+        actor="writepipe:trust", trigger="write")
+    if isinstance(prop, dict) and prop.get("changed"):
+        out["propagation"] = {"changed": prop.get("changed"),
+                              "updated": (prop.get("updated") or [])[:10]}
 
 
 # 生效条件：由链尾以含 cg 与 a 的 ctx 调用即无条件执行 cg.add 落盘并返回 ok=True/committed=True，ctx["cvd"] 非 None 时附加 consistency 字段；
@@ -347,7 +428,12 @@ def _executor(ctx):
            non_applicable_conditions=a.get("non_applicable_conditions"),
            override=bool(a.get("override")), consistency=False,
            derived_from=_split_ids(a.get("derived_from")),
-           relation=a.get("relation"))
+           relation=a.get("relation"),
+           # 可验证记忆单元（裁定 D）：依赖/双时间轴/验证态随写入落 fm。
+           # 透传而非丢弃——落盘面丢字段＝上游声明静默失效（比报错难发现）。
+           depends_on=trust.as_deps(a.get("depends_on")),
+           valid_from=a.get("valid_from"), valid_until=a.get("valid_until"),
+           verification_state=a.get("verification_state"))
     out = {"ok": True, "id": ctx["nid"], "committed": True,
            "verdict": ctx["verdict"]}
     if ctx.get("cvd") is not None:
@@ -369,28 +455,40 @@ def _split_ids(value):
 _DEFAULT = None
 
 
-# 生效条件：pipe 传入即对其依次注册 before 的 linkref(position=0)/audit/consistency/gated 与 after 的 linkref（同名幂等替换），并返回同一 pipe；
+# 生效条件：pipe 传入即对其依次注册 before 的 linkref(position=0)/deps/audit/consistency/gated 与 after 的 linkref/trust（同名幂等替换），并返回同一 pipe；
 def install_default_gates(pipe):
     """把默认闸以拦截器形态注册（幂等：同名替换，可重复调用）。
 
-    链序（2026-09-17 起）：
-        before = linkref(解析) → audit → consistency → gated → 链尾执行器
-        after  = linkref(建边)
+    链序（2026-09-19 起）：
+        before = linkref(解析) → deps(依赖声明) → audit → consistency → gated
+                 → 链尾执行器
+        after  = linkref(建边) → trust(一跳传播)
 
     linkref 置于链首的理由：正文引用解析是**纯读、无副作用**，且其结果必须
     先于任何短路闸写入 ctx，供 after 链消费。短路闸（REJECT/DEFER/gated）
     返回终态时 `execute` 不跑 after 链，故未落盘的写入不会建边——语义正确。
 
+    deps 夹在 linkref 与 audit 之间的理由：两件事都与内容政策无关，故在 audit
+    之前；linkref 之后是因为它只解析正文引用、不动依赖声明——依赖是**字段域**
+    而非正文域，顺序倒置不会互相污染，但保持「解析在前、裁决在后」的一致读序。
+
+    after 的 trust 置于 linkref 之后：建边先于传播——传播按 `depends_on`
+    反查（字段域）而非边域，故顺序不影响正确性；置于其后只为让 ctx 中的
+    边信息先落定，便于排障时读 ctx。
+
     linkref 的**落点是 after 而非注入 `a["edges"]`**：`cg.add` 是全量重建
     fm，注入 edges 会在覆写既有节点时清空其原有边（破坏性副作用）；
     `append_edge` 是边域窄原语且幂等（见 linkref 模块 docstring）。
+    依赖声明同忌经 `a["edges"]` 注入——走 `depends_on` 字段域。
     """
     from . import linkref
     pipe.register_before("linkref", linkref.before_hook(), position=0)
+    pipe.register_before("deps", _gate_deps)
     pipe.register_before("audit", _gate_audit)
     pipe.register_before("consistency", _gate_consistency)
     pipe.register_before("gated", _gate_gated)
     pipe.register_after("linkref", linkref.after_hook())
+    pipe.register_after("trust", _after_trust)
     return pipe
 
 

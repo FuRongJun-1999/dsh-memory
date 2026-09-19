@@ -583,9 +583,10 @@ KERNEL_TOOLS = [
                        "op=export：全库导出（action=graph|nodes|slice|stat；导出整库属管理"
                        "操作，一律 require_admin）；"
                        "op=maintain：记忆维护（action=stat|history|importance|longterm|"
-                       "prefeed|separate|rollback|backfill|cap|exempt|vision_evidence|refine "
-                       "及其 *_history；权限按 action 分档：只读放行、prefeed 写入需 "
-                       "can_write、批量改写与 rollback 需 admin；dry-run 只出报表不改盘）；"
+                       "prefeed|separate|rollback|backfill|cap|exempt|vision_evidence|refine|"
+                       "propagate 及其 *_history；propagate = 验证态的**多跳**失效传播巡检"
+                       "（默认预演，apply 需 admin）；权限按 action 分档：只读放行、prefeed "
+                       "写入需 can_write、批量改写与 rollback 需 admin；dry-run 只出报表不改盘）；"
                        "op=consolidate：离线固化（action=promote 提升 | induce 归纳 | "
                        "contextualize 语境化，及其 _rollback/_history；批量提升属管理操作，"
                        "一律 require_admin）；"
@@ -597,14 +598,20 @@ KERNEL_TOOLS = [
                        "recalibrate|units|catalog；入参统一在 ccg 对象里）。"
                        "把对话记录编译为六要素候选 → **编外复核**（裁定 A：编译者不得自证，"
                        "E041 机械拒绝）→ 落库；复核优先走蜂巢 reflect/verify 单元，"
-                       "蜂巢不可用则提示配置，或显式 allow_degrade 降级 harness 端子代理。",
+                       "蜂巢不可用则提示配置，或显式 allow_degrade 降级 harness 端子代理。"
+                       "op=status：**可验证记忆单元**读面（验证态 unverified|verified|"
+                       "doubted|expired|rechecking + 依赖 depends_on + 双时间轴 valid_from/"
+                       "valid_until + 履历台账）；给 node_id 看单节点全貌、不给看全库摘要、"
+                       "action=ledger 读台账。所有读面返回体统一带 status_head 状态头"
+                       "（✓已验证 / △已修改 / !异常 / ?存疑），hint 亦升级为该格式"
+                       "（MDCG_STATUS_HEAD=0 回退旧文本）。",
         "inputSchema": _s("",
             op=_p("string", "route|read|write|verify|review|protect|identity|"
                             "consistency|metacognition|self_state|evolution|sustain|"
                             "scrub|predict|causal|"
                             "forget|goal|task|recent|info|index_code|index_doc|ref|whitebox|"
                             "theory|link|session|ingest|export|maintain|consolidate|"
-                            "insight|ccg|help", True),
+                            "insight|ccg|status|help", True),
             ccg=_p("object", "CCG 六要素编译器入参：{action, node_id, dialog, marks, "
                              "slots, strict_spans, role, verdict, verifier, compiled_by, "
                              "evidence, slot_corrections, model, jobs, blocking, wait_s, "
@@ -628,6 +635,15 @@ KERNEL_TOOLS = [
             offset=_p("integer", "read 的续读起始行（1 基；传上次返回的 next_offset）"),
             content=_p("string", "write 的内容（建议含 CCG 5 要素注释）"),
             content_kind=_p("string", "write 的内容类型：code|image_desc|text|permission|work_done|work_wip|ccg_marks"),
+            depends_on=_p("array", "write/verify：本单元**依赖**的节点 id 列表（CCG「子功能」"
+                                   "的落字段，单值/逗号串亦可）。被依赖单元被修改或被证伪时，"
+                                   "本节点**同跳**标「存疑」（一跳同步；多跳走 maintain"
+                                   " action=propagate）。正文声明了依赖却无可解析目标 → 硬拒"
+                                   "（E050 缺 depends_on / E051 目标悬空）"),
+            valid_from=_p("string", "双时间轴**起点**（ISO8601，如 2026-01-01）：此刻起才成立"
+                                    "（未到点在 scrub 报 not_yet，仅提示不降权）"),
+            valid_until=_p("string", "双时间轴**终点**（ISO8601）：此刻后不再成立"
+                                     "（过期在 scrub 报 expired，weaken/demote）"),
             layer=_p("string", "层：anchor|structural|knowledge|contextual|self"),
             tags=_p("array", "标签（cap:xxx 会作为 route 的建议能力名）"),
             importance=_p("number", "重要性 0-1"),
@@ -980,12 +996,23 @@ def _clip_text(text: str, *, offset: int = 0, max_lines: int = READ_MAX_LINES,
 
 
 # 生效条件：node 为假值时返回 None；否则用 _clip_text(node.get("content") or "", offset=offset) 构造 {id,path,frontmatter,content}，且当 clip["truncated"] 为真或 offset 为真值时追加 truncated/content_lines/content_bytes/offset/next_offset/note。
+def _trust_state(fm):
+    """节点验证态（缺字段按 unverified；导入失败不拖垮读面）。"""
+    try:
+        from . import trust
+        return trust.state_of(fm)
+    except Exception:                                      # noqa: BLE001
+        return None
+
+
 def _node_view(node, offset: int = 0):
     if not node:
         return None
     clip = _clip_text(node.get("content") or "", offset=offset)
     out = {"id": node.get("id"), "path": node.get("path"),
-           "frontmatter": node.get("frontmatter"), "content": clip["text"]}
+           "frontmatter": node.get("frontmatter"), "content": clip["text"],
+           # 可验证记忆单元：读面 additive 透出验证态（**不改排序权重**，保基准）
+           "verification_state": _trust_state(node.get("frontmatter"))}
     if clip["truncated"] or offset:
         out.update({"truncated": clip["truncated"],
                     "content_lines": clip["total_lines"],
@@ -1646,7 +1673,62 @@ def _cg_call(cg, a):
                 out["hint_action"] = (
                     "action 未显式传入，本次按 %s 的默认 action=%s 执行；"
                     "若意图是其它 action 请显式传 action" % (op, eff))
+        # 状态摘要协议（**单出口挂载**，控制爆炸半径——不逐 op 改造）：
+        # 把「它还成不成立」（验证态/存疑/异常/时效）以状态头透出，并把既有
+        # hint 升级为状态头格式（MDCG_STATUS_HEAD=0 回退旧文本）。挂载失败不阻断读面。
+        try:
+            from . import statushdr
+            statushdr.annotate(cg, out)
+        except Exception as exc:                           # noqa: BLE001
+            out.setdefault("status_head_error", type(exc).__name__)
     return out
+
+
+def _status_call(cg, a):
+    """验证态 / 依赖 / 双时间轴 / 履历查询（op=status，**只读**）。
+
+    真源 `md_cg/trust.py`。三形态（`cg(op="status")` 取摘要，`node_id=` 取单节点）：
+      · 给 `node_id`     → 单节点全貌（describe + 履历 + 状态头渲染）；
+      · 不给 / patrol    → 全库摘要（存疑 / 过期 / 未生效 / 悬空四类计数）；
+      · `action=ledger`  → 读验证态台账（`_trust.jsonl`，可按节点过滤）。
+    """
+    from . import statushdr, trust
+    nid = str(a.get("node_id") or a.get("id") or "").strip()
+    act = str(a.get("action") or "").strip().lower()
+    limit = int(a.get("limit") or 20)
+    if act in ("ledger", "log"):
+        rows = trust.load_ledger(cg, node_id=nid or None, limit=limit)
+        return {"op": "status", "action": "ledger", "node_id": nid or None,
+                "count": len(rows), "rows": rows, "readonly": True}
+    if nid and act not in ("patrol", "summary"):
+        de = trust.describe(cg, nid)
+        de.update({"op": "status", "action": "describe", "readonly": True,
+                   "status_head": statushdr.render(cg, nid),
+                   "ledger": trust.load_ledger(cg, node_id=nid, limit=limit)})
+        return de
+    rep = trust.patrol(cg, limit=limit)
+    rep.update({"op": "status", "action": act or "summary",
+                "summary": trust.summary(cg), "catalog": trust.catalog(cg.root)})
+    # 摘要形态主动挂全库级状态头（annotate 的 _collect_ids 找不到 node_id 不会自动注入）
+    s = rep.get("summary") or {}
+    bits = []
+    dc = s.get("doubted", 0)
+    ec = s.get("expired", 0)
+    nc = s.get("not_yet", 0)
+    uc = s.get("unverified", 0)
+    vc = s.get("verified", 0)
+    if ec:
+        bits.append(f"{statushdr.MARK_ABNORMAL} 异常({ec})")
+    if dc:
+        bits.append(f"{statushdr.MARK_DOUBTED} 存疑({dc})")
+    if nc:
+        bits.append(f"{statushdr.MARK_MODIFIED} 未生效({nc})")
+    if vc:
+        bits.append(f"{statushdr.MARK_VERIFIED} 已验证({vc})")
+    if uc:
+        bits.append(f"{statushdr.MARK_UNVERIFIED} 未验证({uc})")
+    rep["status_head"] = " · ".join(bits) if bits else statushdr.MARK_UNVERIFIED + " 空"
+    return rep
 
 
 # 生效条件：始终调 help_text(ALL_TOOLS, query=a.get("query") or a.get("intent"), limit=int(a.get("limit") or a.get("k") or 40)) 并返回其结果。
@@ -1736,6 +1818,9 @@ def _cg_dispatch(cg, a):
     _p = getattr(cg, "principal", None)
     if _p is not None and hasattr(_p, "require_op"):
         _p.require_op(op)          # 角色作用域闸门：越权即 AccessDenied
+
+    if op == "status":
+        return _status_call(cg, a)
 
     if op == "theory":
         from . import theory as _th
@@ -2407,7 +2492,7 @@ def _export_call(cg, a):
 
 # 生效条件：act=(a.get("action") or "stat").strip().lower()，apply=bool(a.get("apply"))，mode=str(a.get("mode") or "").strip().lower()；principal 非 None 时对 act=="rollback"、act in ("importance","separate") 且 apply、act=="longterm" 且 apply、act=="prefeed" 且 a.get("write") 真且无写权、act in ("backfill","cap","exempt") 且 apply、act in ("backfill_rollback","cap_rollback","exempt_rollback")、act=="vision_evidence" 且 apply、act=="vision_evidence_rollback"、act=="refine" 且 apply 分别 require_admin；随后 act=="longterm" 且 mode in ("list","ls","show","read") 时仅以 action/mode/limit/snapshot_id 调 cg.maintain，否则以全部参数调 cg.maintain。
 def _maintain_call(cg, a):
-    """记忆维护（P1）：importance / longterm / prefeed / separate / rollback / stat。
+    """记忆维护（P1）：importance / longterm / prefeed / separate / rollback / stat / propagate。
 
     权限**按 action 分档**（比整 op 收窄更贴合语义）：
       · 只读（stat / history / longterm mode=list|show）→ 不额外拦截；
@@ -2422,6 +2507,19 @@ def _maintain_call(cg, a):
     apply = bool(a.get("apply"))
     mode = str(a.get("mode") or "").strip().lower()
     actor = getattr(principal, "actor", None) if principal is not None else None
+    # P4 可验证记忆单元（2026-09-19）：**多跳**失效传播巡检（写路径只做一跳同步，
+    # 保写入延迟恒定——多跳的重算成本交给巡检面）。
+    #   · 预演（默认 apply=False）→ 只出可达集报表，放行写层角色先看影响面；
+    #   · apply=True → 直接改写下游验证态（同步写盘）→ 管理操作。
+    if act == "propagate":
+        from . import trust as _trust
+        if apply and principal is not None:
+            principal.require_admin("maintain_propagate")
+        rep = _trust.propagate(cg, apply=apply,
+                               max_nodes=int(a.get("max_nodes") or 500),
+                               actor=actor or "patrol")
+        rep.update({"op": "maintain", "action": "propagate"})
+        return rep
     if principal is not None and act == "rollback":
         principal.require_admin("maintain_rollback")
     if principal is not None and act in ("importance", "separate") and apply:
