@@ -1,0 +1,28 @@
+{
+  "_note": "模板（脱敏后随仓分发）：<REPO_ROOT> = 本仓检出目录，<MDCG_ROOT> = 认知图库根。本文件为一次性清理任务的执行留痕（改名验收脚本 → 删除历史探针 scripts/_tmp_*，保留 _mdcg_* 流程件），复用价值仅在形态参考；运行前须替换全部占位符。",
+  "model": "cmd",
+  "user_prompt": "工作区清理：验收脚本正式化改名（scripts/_tmp_meta_indep_verify.py → scripts/mdcg_verify_render_meta.py，先改名再验证可跑）→ 删除 23 个历史探针脚本与 1 个探针产物（scripts/_tmp_*，均零引用）；保留 _mdcg_lib_backup.py / _mdcg_reindex_code.py / mdcg_stale_servers.py 三个流程件",
+  "cwd": "<REPO_ROOT>",
+  "timeout_s": 600,
+  "timeout_step_s": 300,
+  "fail_fast": true,
+  "env": {
+    "PYTHONUTF8": "1",
+    "MDCG_ROOT": "<MDCG_ROOT>"
+  },
+  "commands": [
+    {
+      "label": "rename_verify_script",
+      "command": ["python", "-X", "utf8", "-c", "import os; os.replace('scripts/_tmp_meta_indep_verify.py','scripts/mdcg_verify_render_meta.py'); print('renamed ->', os.path.exists('scripts/mdcg_verify_render_meta.py'), os.path.exists('scripts/_tmp_meta_indep_verify.py'))"]
+    },
+    {
+      "label": "verify_renamed_script",
+      "command": ["python", "-X", "utf8", "scripts/mdcg_verify_render_meta.py"]
+    },
+    {
+      "label": "cleanup_probes",
+      "command": ["python", "-X", "utf8", "-c", "import glob,os; fs=sorted(glob.glob('scripts/_tmp_*')); print('remove',len(fs)); [print('  rm',f) for f in fs]; [os.remove(f) for f in fs]; print('remaining', sorted(glob.glob('scripts/_tmp_*')))"]
+    }
+  ],
+  "expect_stdout_contains": ["renamed -> True False", "\"ok\": true", "remaining []"]
+}

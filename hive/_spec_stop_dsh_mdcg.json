@@ -1,0 +1,22 @@
+{
+  "_note": "模板（脱敏后随仓分发）：<REPO_ROOT> = 本仓检出目录，<PID_A>/<PID_B> = 待终止的 md_cg MCP server 进程号。本文件为一次性止血任务的执行留痕（终止持旧代码的 server 进程，止住旧 codeindex.render 对新契约节点的覆盖写入），属形态参考而非可直接执行件；运行前须替换占位符，进程号可用 `python scripts/mdcg_stale_servers.py list` 查出。",
+  "model": "cmd",
+  "user_prompt": "止血：终止 DSH 宿主两个运行 merge(491f6bb) 前旧代码的 md_cg MCP server 进程（PID <PID_A> / <PID_B>），止住旧 codeindex.render 对新契约节点的覆盖写入",
+  "cwd": "<REPO_ROOT>",
+  "fail_fast": false,
+  "timeout_step_s": 120,
+  "commands": [
+    {
+      "label": "kill_pid_a",
+      "command": ["python", "-X", "utf8", "scripts/mdcg_stale_servers.py", "kill", "--pid", "<PID_A>"]
+    },
+    {
+      "label": "kill_pid_b",
+      "command": ["python", "-X", "utf8", "scripts/mdcg_stale_servers.py", "kill", "--pid", "<PID_B>"]
+    },
+    {
+      "label": "verify_remaining_servers",
+      "command": ["python", "-X", "utf8", "scripts/mdcg_stale_servers.py", "list"]
+    }
+  ]
+}

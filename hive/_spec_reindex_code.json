@@ -1,0 +1,64 @@
+{
+  "_note": "模板（脱敏后随仓分发）：<REPO_ROOT> = 本仓检出目录，<MDCG_ROOT> = 认知图库根。运行前须把全部占位符替换为实际绝对路径。三个被调脚本均已参数化——mdcg_stale_servers.py 经 __file__ 推导仓根 + 读环境变量 MDCG_ROOT；_mdcg_lib_backup.py / _mdcg_reindex_code.py 走 --root/--repo 显式入参；mdcg_verify_render_meta.py 经 __file__ 推导仓根 + 读环境变量 MDCG_ROOT（缺失即 exit 2）。",
+  "model": "cmd",
+  "user_prompt": "md_cg+compiler 代码节点全量重建（前置污染源守卫 + 备份 + 双域全量重切 + 过期代清退 + 悬空清退 + 机械验收 + 稳定期复测）；验收判据 meta_indep == total 且 old_synth == 0 且 active_old_synth == 0",
+  "cwd": "<REPO_ROOT>",
+  "timeout_s": 1800,
+  "timeout_step_s": 1800,
+  "fail_fast": true,
+  "env": {
+    "PYTHONUTF8": "1",
+    "MDCG_ROOT": "<MDCG_ROOT>"
+  },
+  "commands": [
+    {
+      "label": "preflight_no_stale",
+      "command": ["python", "-X", "utf8", "scripts/mdcg_stale_servers.py",
+                  "list", "--fail-on-stale"]
+    },
+    {
+      "label": "backup",
+      "command": ["python", "-X", "utf8", "scripts/_mdcg_lib_backup.py",
+                  "--root", "<MDCG_ROOT>"]
+    },
+    {
+      "label": "rebuild_md_cg",
+      "command": ["python", "-X", "utf8", "scripts/_mdcg_reindex_code.py",
+                  "--root", "<MDCG_ROOT>",
+                  "--repo", "<REPO_ROOT>",
+                  "--domain", "md_cg",
+                  "--incremental", "0",
+                  "--prune", "1",
+                  "--dangling", "1",
+                  "--max-check", "20000",
+                  "--max-files", "4000",
+                  "--max-items", "80000"]
+    },
+    {
+      "label": "rebuild_compiler",
+      "command": ["python", "-X", "utf8", "scripts/_mdcg_reindex_code.py",
+                  "--root", "<MDCG_ROOT>",
+                  "--repo", "<REPO_ROOT>",
+                  "--domain", "compiler",
+                  "--incremental", "0",
+                  "--prune", "1",
+                  "--dangling", "1",
+                  "--max-check", "20000",
+                  "--max-files", "4000",
+                  "--max-items", "80000"]
+    },
+    {
+      "label": "verify_meta_indep",
+      "command": ["python", "-X", "utf8", "scripts/mdcg_verify_render_meta.py"]
+    },
+    {
+      "label": "settle_20s",
+      "command": ["python", "-X", "utf8", "-c", "import time; time.sleep(20)"]
+    },
+    {
+      "label": "verify_meta_indep_recheck",
+      "command": ["python", "-X", "utf8", "scripts/mdcg_verify_render_meta.py"]
+    }
+  ],
+  "expect_stdout_contains": ["\"ok\": true", "\"old_synth\": 0", "\"active_old_synth\": 0"]
+}
