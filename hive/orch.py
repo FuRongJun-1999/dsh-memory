@@ -32,7 +32,7 @@ fail-closed（本文件的硬纪律，不降级）
 ----------------------------------------------------------------------------
   · 令牌缺失 / 不可用 → 立即写 result 并退出，**绝不**降级为 recorder 身份继续
     跑：静默降级 = 权限意图落空且不可见（第 4 条明令禁止的静默错执行）。
-  · 子任务 tools 只允许 lingshu_cg / web_search（编排工具不传给子代理）。
+  · 子任务 tools 只允许 lingshu_cg / web_search / read_file（编排工具不传给子代理）。
   · 子任务 spec **不可能**带 orchestrate（走白名单构造 + 本文件不构造该键）
     → 结构上防无限递归。
   · read_full 只允许读**本编排者派发的**子任务（越权读被拒）。
@@ -66,7 +66,7 @@ FULL_MAX_CHARS = 20000          # read_full 单次默认上限（超出给头 + 
 DEFAULT_MAX_SUBTASKS = 8        # 单 job 子任务上限（spec.orchestrate.max_subtasks 可调）
 CHILDREN_FILE = "_children.json"
 TERMINAL_STATES = ("done", "error", "timeout", "killed")
-SUB_TOOLS_ALLOW = ("lingshu_cg", "web_search")   # 子代理可用工具（编排工具不外传）
+SUB_TOOLS_ALLOW = ("lingshu_cg", "web_search", "read_file")   # 子代理可用工具（编排工具不外传；read_file 只读）
 ORCH_TOOLS = ("spawn_subtask", "poll_subtasks", "read_full")
 
 ORCH_SYSTEM_PROMPT = """你是蜂巢**编排者**（orchestrator），不是执行者。职责：
@@ -79,7 +79,8 @@ ORCH_SYSTEM_PROMPT = """你是蜂巢**编排者**（orchestrator），不是执�
 纪律：
 - 能并行的就一次派多个，不要串行等待
 - 子任务 prompt 必须**自足**（子代理看不到你的上下文，也不能再派发子任务）
-- 不要替子任务干活；你自己只在需要查/写记忆或裁决时调用 lingshu_cg
+- 不要替子任务干活；你自己只在需要查/写记忆或裁决时调用 lingshu_cg，
+  需要核对本地文件时用 read_file（只读）
 - 冲突以**证据**裁决，不以多数票；证据不足就如实说「未定」，不要编造
 - 子任务失败要如实汇报失败原因，不要用其它子任务的结果顶替"""
 
@@ -97,8 +98,9 @@ def _spawn_schema() -> dict:
             "name": "spawn_subtask",
             "description": (
                 "派发一个子代理任务（毫秒即返，不阻塞）。子任务在蜂巢 worker 池并发执行；"
-                "用 poll_subtasks 看进度、read_full 读细节。子代理可带 lingshu_cg（记忆）"
-                "与 web_search（联网）工具，但不能再派发子任务。"),
+                "用 poll_subtasks 看进度、read_full 读细节。子代理可带 lingshu_cg（记忆）、"
+                "web_search（联网）与 read_file（读本地文件/目录，只读）工具，"
+                "但不能再派发子任务。"),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -110,8 +112,8 @@ def _spawn_schema() -> dict:
                     "context_files": {"type": "array", "items": {"type": "string"},
                                       "description": "要注入子代理的文件路径（相对/绝对）"},
                     "tools": {"type": "array", "items": {"type": "string"},
-                              "description": "只能是 lingshu_cg / web_search 的子集；"
-                                             "缺省=两者都给（编排工具不外传）"},
+                              "description": "只能是 lingshu_cg / web_search / read_file 的子集；"
+                                             "缺省=三者都给（编排工具不外传）"},
                     "timeout_s": {"type": "integer", "description": "缺省 600"},
                     "context_budget_tokens": {"type": "integer", "description": "缺省 200000"},
                     "reasoning_effort": {"type": "string", "description": "缺省 high"},
@@ -421,16 +423,19 @@ def orch_handler(name: str, args: dict, job_id: str) -> dict:
 
 # ---------------------------------------------------------------------- 入口
 
-# 生效条件：spec 为 dict，spec.get('tools') 去空/缺省时初始 tools=['lingshu_cg','web_search']，否则 tools 为 given 去重；added 为 ("lingshu_cg",)+ORCH_TOOLS 中不在 tools 的项，tools.extend(added) 后返回 (tools, added)。
+# 生效条件：spec 为 dict，spec.get('tools') 去空/缺省时初始 tools=['lingshu_cg','web_search','read_file']，否则 tools 为 given 去重；added 为 ("lingshu_cg",)+ORCH_TOOLS 中不在 tools 的项，tools.extend(added) 后返回 (tools, added)。
 def merge_tools(spec: dict) -> tuple:
     """算最终工具白名单：编排三工具是**能力下限**（强制并入），lingshu_cg 缺省并入。
 
     为什么强制：编排器没有这三工具就不是编排器（模型会转而自己干活，交出的
     "编排结果"其实是单代理结果，而 job 仍是 done —— 静默的能力缺失）。显式
     spec.tools 里想关掉编排能力属误配置，并入后由 added 字段留痕可审计。
+
+    read_file 只读、默认全路径放开（读放开 / 写严格）：进缺省面但**不强制并入**，
+    显式 spec.tools 不含它即视为使用者主动收窄编排者读面。
     """
     given = [str(t) for t in (spec.get("tools") or [])]
-    tools = list(dict.fromkeys(given)) if given else ["lingshu_cg", "web_search"]
+    tools = list(dict.fromkeys(given)) if given else ["lingshu_cg", "web_search", "read_file"]
     added = [t for t in ("lingshu_cg",) + ORCH_TOOLS if t not in tools]
     tools.extend(added)
     return tools, added

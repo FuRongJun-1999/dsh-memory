@@ -141,7 +141,8 @@ orc._CFG.update({"job_id": "orchjob", "job_dir": JOB_DIR, "jobs": JOBS,
                  "model": "m_test", "max_subtasks": 2, "children": []})
 
 _t, _added = orc.merge_tools({})
-check("B1 缺省 tools 注入 lingshu_cg + web_search", {"lingshu_cg", "web_search"} <= set(_t))
+check("B1 缺省 tools 注入 lingshu_cg + web_search + read_file",
+      {"lingshu_cg", "web_search", "read_file"} <= set(_t))
 check("B2 编排三工具为能力下限（强制并入）", set(orc.ORCH_TOOLS) <= set(_t))
 _t2, _ = orc.merge_tools({"tools": ["lingshu_cg"]})
 check("B3 显式 tools 仍补编排三工具且不重复",
@@ -167,6 +168,10 @@ _s1 = json.load(open(os.path.join(JOBS, C1, "spec.json"), encoding="utf-8"))
 check("B9 子 spec 无 orchestrate（结构性防递归）", "orchestrate" not in _s1)
 check("B10 子 spec tools ⊆ 子代理白名单",
       set(_s1["tools"]) <= set(orc.SUB_TOOLS_ALLOW), str(_s1["tools"]))
+check("B10b read_file 在子代理白名单内且工具描述同步（防漂移）",
+      "read_file" in orc.SUB_TOOLS_ALLOW
+      and "read_file" in orc._spawn_schema()["function"]["parameters"]
+      ["properties"]["tools"]["description"], str(list(orc.SUB_TOOLS_ALLOW)))
 check("B11 子任务默认注入与 MCP 面同源",
       _s1["timeout_s"] == orc._hm.DEFAULT_TIMEOUT_S
       and _s1["reasoning_effort"] == orc._hm.DEFAULT_REASONING_EFFORT
@@ -258,8 +263,8 @@ def _exec_call(name, args_json, job_id):
 
 
 _base = set(ex.all_schemas())
-check("C1 未注册时工具面 = 内置两工具（零变更）",
-      _base == {"lingshu_cg", "web_search"}, str(_base))
+check("C1 未注册时工具面 = 内置三工具（零变更）",
+      _base == {"lingshu_cg", "web_search", "read_file"}, str(_base))
 ex.register_tools({"spawn_subtask": {"type": "function",
                                      "function": {"name": "spawn_subtask"}}},
                   lambda n, a, j: {"ok": True, "echo": n})

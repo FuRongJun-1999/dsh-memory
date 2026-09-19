@@ -455,7 +455,7 @@ TOOLS = [
                 "context_budget_tokens": {"type": "integer", "description": "上下文预算 token（默认 200000）。达预算默认写进展卡交回续跑（result.need_continue / handoff_ready，见 hive_poll），不再整任务失败"},
                 "context_strict": {"type": "boolean", "description": "可选，默认 false=达预算交回续跑；true=保持旧行为（超预算即 error 终止，不交回）"},
                 "thinking": {"type": "object", "description": '思考开关（可选，如 {"type":"enabled"}）'},
-                "tools": {"type": "array", "items": {"type": "string"}, "description": "执行器侧工具白名单（可选，如 lingshu_cg / web_search）"},
+                "tools": {"type": "array", "items": {"type": "string"}, "description": "执行器侧工具白名单（可选，如 lingshu_cg / web_search / read_file；read_file 为只读面，写仍只走 lingshu_cg op=write）"},
                 "max_tool_rounds": {"type": "integer", "description": "工具回合上限（可选）"},
                 "mdcg_root": {"type": "string", "description": "lingshu_cg 指向的认知图 root（可选）"},
                 "web_search_backend": {"type": "string", "description": "web_search 后端（可选）"},

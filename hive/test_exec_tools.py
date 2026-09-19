@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""蜂巢执行器工具面单测（agent loop + lingshu_cg + web_search）。
+"""蜂巢执行器工具面单测（agent loop + lingshu_cg + web_search + read_file）。
 
 不打真 API：LLM 侧以假 _post_chat 序列驱动 loop；搜索侧以假 urlopen 喂
 预置响应测解析；lingshu 侧用临时认知图 root 走真实 md_cg 库层（最小闭环）。
@@ -45,10 +45,12 @@ def check(name, cond, detail=""):
 
 # ---------------------------------------------------------------- A 工具注册
 print("[A] 工具注册表与参数面")
-check("A1 注册表仅两个工具", set(ex.TOOL_SCHEMAS) == {"lingshu_cg", "web_search"})
+check("A1 注册表仅三个工具",
+      set(ex.TOOL_SCHEMAS) == {"lingshu_cg", "web_search", "read_file"})
 check("A2 schema 名与键一致",
       ex.TOOL_SCHEMAS["lingshu_cg"]["function"]["name"] == "lingshu_cg"
-      and ex.TOOL_SCHEMAS["web_search"]["function"]["name"] == "web_search")
+      and ex.TOOL_SCHEMAS["web_search"]["function"]["name"] == "web_search"
+      and ex.TOOL_SCHEMAS["read_file"]["function"]["name"] == "read_file")
 check("A3 lingshu op 枚举=白名单",
       ex.TOOL_SCHEMAS["lingshu_cg"]["function"]["parameters"]["properties"]
       ["op"]["enum"] == list(ex.LINGSHU_OPS_ALLOW))
@@ -406,6 +408,93 @@ check("F8 真源缺失 fail-closed（不回落旧提示词）", _raised)
 _lit, src_lit = ex.resolve_system_prompt({"system_prompt": "字面量"}, tmp_job)
 check("F9 未声明 from 时行为逐位兼容（literal 标签）",
       _lit == "字面量" and src_lit == "literal")
+
+# ---------------------------------------------------------------- G read_file
+print("[G] read_file 只读工具（读放开 / 写严格）")
+
+rw = tempfile.mkdtemp(prefix="hive_exec_read_")
+os.makedirs(os.path.join(rw, "sub"))
+open(os.path.join(rw, "lines.txt"), "w", encoding="utf-8").write(
+    "".join(f"第{i}行\n" for i in range(1, 6)))
+open(os.path.join(rw, "sub", "inner.txt"), "w", encoding="utf-8").write("内层内容")
+open(os.path.join(rw, "big.png"), "wb").write(png)
+open(os.path.join(rw, "archive.bin"), "wb").write(binf)
+
+check("G1 schema 参数面只有只读键（无任何写参数）",
+      set(ex.TOOL_SCHEMAS["read_file"]["function"]["parameters"]["properties"])
+      == {"path", "offset", "limit", "max_chars"},
+      str(ex.TOOL_SCHEMAS["read_file"]["function"]["parameters"]["properties"]))
+
+_o = ex.tool_read_file({"path": "lines.txt"}, workdir=rw)
+check("G2 相对路径以 workdir 为基准 + 全文行窗元数据",
+      _o["ok"] and _o["kind"] == "text" and _o["lines_total"] == 5
+      and _o["lines_returned"] == 5 and _o["content"].startswith("第1行")
+      and _o["replacements"] == 0 and _o["encoding"] == "utf-8(replace)",
+      str(_o)[:200])
+
+_o = ex.tool_read_file({"path": "lines.txt", "offset": 2, "limit": 2}, workdir=rw)
+check("G3 offset/limit 分页续读（第2-3行，窗口满即 truncated）",
+      _o["ok"] and _o["offset"] == 2 and _o["lines_returned"] == 2
+      and _o["content"] == "第2行\n第3行\n" and _o["lines_total"] == 5
+      and _o["truncated"] is True, str(_o)[:200])
+
+_o = ex.tool_read_file({"path": "lines.txt", "max_chars": 3}, workdir=rw)
+check("G4 max_chars 截断（不把整文件灌进上下文）",
+      _o["ok"] and _o["lines_returned"] == 1 and _o["truncated"] is True,
+      str(_o)[:200])
+
+_o = ex.tool_read_file({"path": "."}, workdir=rw)
+_names = {e["name"]: e for e in _o.get("entries") or []}
+check("G5 目录给清单（子目录优先、带类型与字节）",
+      _o["ok"] and _o["kind"] == "dir" and _o["total"] == 4
+      and _o["entries"][0]["name"] == "sub"
+      and _names["sub"]["type"] == "dir" and _names["sub"]["bytes"] is None
+      and _names["lines.txt"]["bytes"] > 0, str(_o)[:200])
+
+_o = ex.tool_read_file({"path": "big.png"}, workdir=rw)
+check("G6 图像只给元数据不给正文（尺寸另附）",
+      _o["ok"] and _o["kind"] == "image:png" and _o["content"] is None
+      and (_o["width"], _o["height"]) == (3000, 120), str(_o)[:200])
+
+_o = ex.tool_read_file({"path": "archive.bin"}, workdir=rw)
+check("G7 二进制只给类型+字节数（不猜内容）",
+      _o["ok"] and _o["kind"] == "binary" and _o["content"] is None
+      and _o["bytes"] > 0, str(_o)[:160])
+
+open(os.path.join(rw, "gbk.txt"), "wb").write("中文内容".encode("gbk"))
+_o = ex.tool_read_file({"path": "gbk.txt"}, workdir=rw)
+check("G8 非 UTF-8 按替换处标记存疑（不静默当正文）",
+      _o["ok"] and _o["replacements"] > 0 and "存疑" in (_o.get("note") or ""),
+      str(_o)[:160])
+
+_o = ex.tool_read_file({"path": "nope.txt"}, workdir=rw)
+check("G9 路径不存在诚实报错（不猜内容）",
+      _o["ok"] is False and "路径不存在" in _o["error"], str(_o)[:160])
+_o = ex.tool_read_file({"path": " "}, workdir=rw)
+check("G10 path 必填", _o["ok"] is False and "必填" in _o["error"])
+
+# 白名单：非空即收窄（越界拒读）；未设置 = 读放开（缺省）
+out_dir = tempfile.mkdtemp(prefix="hive_exec_outside_")
+open(os.path.join(out_dir, "secret.txt"), "w", encoding="utf-8").write("外部文件")
+os.environ["HIVE_READ_ROOTS"] = rw + os.pathsep + out_dir
+_o = ex.tool_read_file({"path": os.path.join(out_dir, "secret.txt")})
+check("G11 白名单内可读（多根按 os.pathsep 切分）", _o["ok"] is True,
+      str(_o)[:160])
+os.environ["HIVE_READ_ROOTS"] = out_dir
+_o = ex.tool_read_file({"path": os.path.join(rw, "lines.txt")})
+check("G12 越界拒读（越界即拒，不猜内容）",
+      _o["ok"] is False and "白名单" in _o["error"]
+      and _o.get("roots") == [os.path.realpath(out_dir)], str(_o)[:200])
+os.environ.pop("HIVE_READ_ROOTS", None)
+_o = ex.tool_read_file({"path": os.path.join(rw, "lines.txt")})
+check("G13 未设置环境变量 = 读放开（缺省全路径开放）", _o["ok"] is True)
+
+_o, _b = ex.execute_tool("read_file", json.dumps({"path": "lines.txt"}),
+                         "job_r", workdir=rw)
+check("G14 execute_tool 透传 workdir 并正常分发",
+      _o["ok"] is True and _b == "ok items=0", f"{_o!r}/{_b!r}")
+_o, _ = ex.execute_tool("nope", "{}", "job_r")
+check("G15 未知工具错误列出 read_file", "read_file" in _o["error"])
 
 print(f"\n结果：{PASS} 通过 / {FAIL} 失败")
 sys.exit(1 if FAIL else 0)

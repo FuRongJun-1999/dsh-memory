@@ -193,7 +193,7 @@ PYTHONPATH = "<本机 dsh-memory 仓库绝对路径>"
 | `context_strict` | 否 | `true` 恢复旧行为（超预算即 `error` 终止，不交回）；缺省 = 交回续跑 |
 | `thinking` | 否 | 思考开关透传（如 `{"type":"enabled"}`） |
 | `max_tokens` / `temperature` | 否 | 透传 API |
-| `tools` | 否 | 工具白名单，子集 `["lingshu_cg","web_search"]`；非空即启用 agent loop（function calling 循环），缺省 = 单发调用（历史行为逐位不变） |
+| `tools` | 否 | 工具白名单，子集 `["lingshu_cg","web_search","read_file"]`；非空即启用 agent loop（function calling 循环），缺省 = 单发调用（历史行为逐位不变） |
 | `max_tool_rounds` | 否 | 工具轮上限，默认 5；达到后强制终答（不带 tools 再发一次） |
 | `mdcg_root` | 否 | lingshu_cg 的认知图根兜底（env `MDCG_ROOT` 优先）；如任务级隔离用临时图 |
 | `web_search_backend` | 否 | web_search 后端兜底（env `HIVE_WEB_SEARCH` 优先）：`zhipu` / `duckduckgo` |
@@ -262,10 +262,16 @@ API 错误收敛为 `ok:false` 但已发生的 trace 保留。
 执行器执行 → tool 消息回喂 → 循环至终答；轮次耗尽强制终答（`forced_final: true`）。
 工具结果回喂前截断（4000 字符）防上下文爆炸；上下文预算逐轮校验，超限诚实终止。
 
+**读写不对称（2026-09-19 裁定）**：**读放开、写严格**——`read_file` 只读、默认全路径
+开放（部署可用 `HIVE_READ_ROOTS` 收窄）；执行器的**唯一写路径**是 `lingshu_cg op=write`
+（recorder 令牌 + 校验闸门 DEFER/REJECT）。`read_file` 的 schema 内**没有任何写参数**，
+结构上不可能落盘改状态。
+
 | 工具 | 说明 |
 |---|---|
 | `lingshu_cg` | 灵枢认知图（`op=route\|read\|write` 白名单，复用 MCP 面同一 dispatch）。权限硬编码 recorder（`can_admin=false`，spec 无法提权）——写入过校验闸门：DEFER 入审核队列 / REJECT 负记忆是设计行为，裁决权留给设计者。会话隔离 `session=hive_job_<id>`。write 的 `verification_basis` 前置校验合法枚举（防自由文本卡死审核队列）。 |
 | `web_search` | 网页搜索。`zhipu` 后端走 `/web_search` 端点（`HIVE_WEB_SEARCH_BASE` 缺省智谱官方，与 `HIVE_API_BASE` 解耦——后者常为 LLM 中转网关、无搜索路由；`HIVE_WEB_SEARCH_KEY` 缺省回落 `HIVE_API_KEY`）；`duckduckgo` 零 key 兜底。 |
+| `read_file` | 读本地文件/目录（**只读**：不落盘、不改状态）。目录给清单（子目录优先，超 `READ_DIR_MAX=300` 截断）；文本给行窗分页（`offset`/`limit`/`max_chars`，默认 2000 行 / 60000 字符，窗口满标 `truncated`，大文件行总数记 `null` 不假装精确）；图像只给类型+尺寸、二进制只给类型+字节数（`content=null`，不猜内容）；非 UTF-8 按替换处计数并在 `note` 标存疑。相对路径基准 = `workdir`（缺省进程 cwd）；`HIVE_READ_ROOTS` 非空时越界即拒读（错误里带回 `roots`）。 |
 
 退出码 0 成功 / 2 规格错 / 3 API 错误。rust 侧以 result.json 的 error 字段定终态
 （done / error），执行器崩溃由超时兜底。env：`HIVE_API_KEY`（必填，缺失即 fail）、
@@ -395,7 +401,7 @@ spec 带 `command` / `commands` → 跑命令；不带 → 转发给同目录 `e
 ### 结构性护栏（不靠约定）
 
 - **防无限递归**：子 spec 由**白名单键**构造，`orchestrate` 不可能出现；子代理 `tools`
-  只能是 `lingshu_cg` / `web_search` 的子集（编排三工具不外传）——两条独立防线。
+  只能是 `lingshu_cg` / `web_search` / `read_file` 的子集（编排三工具不外传）——两条独立防线。
 - **越权读拒绝**：`read_full` 只允许读本编排者派发的子任务。
 - **上限诚实**：子任务数达 `max_subtasks`（默认 8）即报错，不静默丢弃、不静默排队。
 - **换人续跑不重复派发（能力边界如实标注）**：子任务清单落编排者自己的 job 目录
@@ -442,6 +448,7 @@ set HIVE_EXEC_PY=<仓>\hive\exec_cmd.py               :: 多态转发：按 spec
 | `HIVE_WEB_SEARCH` | `zhipu` | 搜索后端：`zhipu` / `duckduckgo` |
 | `HIVE_WEB_SEARCH_BASE` | 智谱官方 `/api/paas/v4` | zhipu 搜索端点 base（与 `HIVE_API_BASE` 解耦） |
 | `HIVE_WEB_SEARCH_KEY` | 回落 `HIVE_API_KEY` | 搜索密钥（key 与 LLM base 不配对时独立设置） |
+| `HIVE_READ_ROOTS` | 无（= 读放开） | `read_file` 可读根白名单（`os.pathsep` 切分，支持多根，逐项 `expanduser+realpath`）。**未设置或全空 = 读放开**（缺省全路径开放）；设为至少一个真实目录即收窄，越界即拒读；只影响 `read_file`，不影响 `lingshu_cg`（认知图用自己的 root） |
 
 ## 验证
 
@@ -454,13 +461,14 @@ set HIVE_EXEC_PY=<仓>\hive\exec_cmd.py               :: 多态转发：按 spec
   `config.local.example.json`）。
 - `python hive/hive_mcp/smoke_test.py`：13 项全过（MCP 协议面 / spawn 结构校验 /
   serve 自动拉起端到端 / kill 通道，全程统一 env 注入假执行器）。
-- `python hive/test_exec_tools.py`：47 项全绿（工具注册表 / lingshu_cg 真库层 /
-  web_search 假 urlopen / agent loop / 预算交回 / 图像护栏 / 提示词真源重建）。
+- `python hive/test_exec_tools.py`：62 项全绿（工具注册表 / lingshu_cg 真库层 /
+  web_search 假 urlopen / **read_file 只读面**（读写不对称 / 白名单收窄 / 行窗分页 /
+  非文本诚实面）/ agent loop / 预算交回 / 图像护栏 / 提示词真源重建）。
 - `python hive/test_exec_cmd.py`：9 例全绿（确定性执行器——argv 校验 / 多步 fail_fast /
   cwd 缺失 / expect_files / expect_stdout_contains / 单步超时强杀 / LLM 委托转发）。
 - `python hive/test_wm_progress.py`：44 项全绿（工作记忆进展面——跨面契约 / 快照白名单 /
   job 与已快照两源读取 / 分支态两级查找 / CLI 单行 JSON / 坏行诚实降级）。
-- `python hive/test_orch.py`：73 项全绿（编排器——权限收窄面 / 三工具护栏与结构性防递归 /
+- `python hive/test_orch.py`：74 项全绿（编排器——权限收窄面 / 三工具护栏与结构性防递归 /
   卡片截断与按需拉取 / `exec.py` 两个扩展口默认零变更 / `exec_cmd.py` 转发档 /
   `main()` 装配与令牌缺失 fail-closed）。
 - `python scripts/run_tests.py hive`：蜂巢组整体回归入口。

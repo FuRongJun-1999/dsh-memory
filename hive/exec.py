@@ -34,6 +34,14 @@ max_tool_rounds（默认 5，随后发一次不带 tools 的请求强制终答�
               审核队列/REJECT 负记忆是设计行为）；会话隔离 session=hive_job_<id>。
   web_search  网页搜索；zhipu 后端复用 HIVE_API_KEY/HIVE_API_BASE 调
               /web_search 端点，duckduckgo 兜底（零 key，html 抓取）。
+  read_file   读本地文件/目录（只读，默认全路径开放）；文本给行窗分页
+              （offset/limit，首行行号=offset），目录给条目清单，图像/二进制
+              只给类型+字节数不返回正文。部署侧可用 HIVE_READ_ROOTS 收窄
+              可读根（未设置=放开）。
+读写不对称（2026-09-19 裁定，勿对称化）：**读放开、写严格**——读错只损失
+一次召回（可重试、tool_trace 可回放路径），写错污染长期记忆（不可逆、会
+传播给后续检索）。故执行器只增只读工具，写路径唯一 = lingshu_cg op=write
+（recorder 令牌 + 校验闸门）。
 每轮工具调用记入 result.json 的 tool_trace（审计可回放）；工具结果回喂前
 截断（TOOL_MSG_MAX_CHARS），防上下文爆炸。
 
@@ -350,6 +358,23 @@ TOOL_MSG_MAX_CHARS = 4000    # 工具结果回喂模型的单条截断（防上�
 TOOL_MSG_TAIL_CHARS = 1200   # 截断时保尾长度（Pi⑦③：错误/收尾信息在尾部）
 DEFAULT_MAX_TOOL_ROUNDS = 5
 
+# ------------------------------------------------- 读放开 · 写严格（2026-09-19 裁定）
+# 不对称原则（使用者裁定，勿对称化）：**读放开，写严格管理**。
+#   读 = read_file 工具：worker 推理中途可动态读本地文件/目录（含清单发现），
+#        默认无路径白名单（读放开）；部署侧可用 HIVE_READ_ROOTS 收窄。
+#   写 = 唯一写路径是 lingshu_cg op=write，过库层令牌（recorder，不可提权）+
+#        校验闸门（DEFER 入审核队列 / REJECT 负记忆）；执行器**不提供任何
+#        写工具**——本文件新增工具时不得引入落盘/改状态能力（见 test_exec_tools
+#        的「只读面」断言：schema 无任何写参数）。
+# 为什么不对称：读错的代价是「一次没读到」——可重试、可回放（tool_trace 记
+# 路径）；写错的代价是污染长期记忆——不可逆、会传播给后续所有检索。
+READ_MAX_LINES = 2000        # 单次默认读行数（offset/limit 分页续读）
+READ_HARD_LINES = 20000      # 单次行数硬上限（模型申请不得超过）
+READ_MAX_CHARS = 60000       # 单次默认字符上限（约 1.5 万 tokens）
+READ_HARD_CHARS = 400000     # 单次字符硬上限（模型申请不得超过）
+READ_DIR_MAX = 300           # 目录清单最多返回条目数（超出截断并标记）
+READ_FULL_BYTES = 2000000    # 文件大于此值：不再统计精确行总数（诚实记 None）
+
 # ---------------------------------------------------------------- Pi⑦ 上下文护栏
 PROGRESS_FILE = "progress.jsonl"   # 进展卡（v0.4 §5.3 换人续跑的交接面）
 BINARY_SNIFF_BYTES = 8192          # 类型嗅探只吃文件头，整文件不进内存
@@ -431,9 +456,44 @@ WEB_SEARCH_TOOL_SCHEMA = {
     },
 }
 
+READ_FILE_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "read_file",
+        "description": (
+            "读本地文件（只读，无副作用，全路径开放）。path 指向文件 → 返回"
+            "内容：默认最多 2000 行 / 60000 字符，用 offset/limit 分页续读"
+            "（返回的 offset 即首行行号，可直接引用行号）。path 指向目录 → "
+            "返回条目清单（名字/类型/字节数），用于发现文件。图像与二进制不"
+            "返回正文，只给类型与字节数（诚实，不猜内容）。路径不存在、或"
+            "被部署侧 HIVE_READ_ROOTS 白名单拦下时返回 ok=false——照实上报，"
+            "**不得编造文件内容**。本工具只读：写走 lingshu_cg op=write。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "文件或目录路径。相对路径基准 = spec.workdir"
+                                   "（缺省 = 执行器进程 cwd）"},
+                "offset": {"type": "integer",
+                           "description": "起始行号，1-based（默认 1）"},
+                "limit": {"type": "integer",
+                          "description": f"最多读多少行（默认 {READ_MAX_LINES}，"
+                                         f"硬上限 {READ_HARD_LINES}）"},
+                "max_chars": {"type": "integer",
+                              "description": f"字符上限（默认 {READ_MAX_CHARS}，"
+                                             f"硬上限 {READ_HARD_CHARS}）"},
+            },
+            "required": ["path"],
+        },
+    },
+}
+
 TOOL_SCHEMAS = {
     "lingshu_cg": LINGSHU_TOOL_SCHEMA,
     "web_search": WEB_SEARCH_TOOL_SCHEMA,
+    "read_file": READ_FILE_TOOL_SCHEMA,
 }
 
 # ---------------------------------------------------------------- 插件式扩展口
@@ -647,9 +707,149 @@ def _ws_duckduckgo(query: str, count: int, backend: str) -> dict:
     return {"ok": True, "backend": backend, "query": query, "results": items}
 
 
-# 生效条件：当 name/args_json/job_id 传入时，json.loads(args_json or '{}') 失败返回 ({'ok':False,'error':'工具参数不是合法 JSON: ...'}, '')；否则 name=='lingshu_cg' 调 tool_lingshu_cg(args,job_id,mdcg_root)，name=='web_search' 调 tool_web_search(args,backend_override=ws_backend)，name 在 _EXTRA_TOOLS 中调其 handler(name,args,job_id)，否则返回未知工具错误；随后对 out 设默认 ok='error' not in out，按 results/knowledge 长度生成 brief，返回 (out,brief)；
+# 生效条件：当 env HIVE_READ_ROOTS 去空白非空时，按 os.pathsep 切分、每项 expanduser+realpath 后返回非空项 tuple（读被收窄到这些根）；未设置或全空返回空 tuple（= 读放开，默认）；
+def read_roots() -> tuple:
+    """读路径白名单（部署开关）。未设置 = 读放开（默认，2026-09-19 裁定）。
+
+    只影响 read_file 的可读范围，不影响 lingshu_cg（认知图有自己的 root）。
+    空值语义刻意区分「未设置」与「设置为空」：前者放开，后者同样放开——
+    要收窄必须给出至少一个真实目录（避免误设空串导致静默全放开又以为锁了）。
+    """
+    raw = (os.environ.get("HIVE_READ_ROOTS") or "").strip()
+    if not raw:
+        return ()
+    roots = []
+    for p in raw.split(os.pathsep):
+        p = p.strip()
+        if p:
+            roots.append(os.path.realpath(os.path.expanduser(p)))
+    return tuple(roots)
+
+
+# 生效条件：当 path 与 root 均为 realpath 规范化绝对路径时，path 等于 root 或以 root + os.sep 开头返回 True，否则 False；
+def _under(path: str, root: str) -> bool:
+    """路径归属判定（前缀比较，防 /a/bc 被 /a/b 误判）。"""
+    return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+
+
+# 生效条件：当 args[key] 可 int() 转换且 > 0 时返回 min(该值, hi)，转换失败（None/空/非数字）或 <= 0 时返回 default；
+def _int_arg(args: dict, key: str, default: int, hi: int) -> int:
+    """容错读整数参数：非法值回落默认而非抛错（工具面不因参数脏而崩）。"""
+    try:
+        v = int(args.get(key))
+    except (TypeError, ValueError):
+        return default
+    return default if v <= 0 else min(v, hi)
+
+
+# 生效条件：当 real 目录可 os.listdir 时返回 {'ok':True,'path','kind':'dir','total','truncated','entries'}，条目按（子目录优先，名字小写序）排序、每项含 name/type/bytes（子目录 bytes=None）、超过 READ_DIR_MAX 截断；listdir/stat 抛 OSError 时返回 {'ok':False,...} 诚实报错（不猜目录内容）；
+def _list_dir(real: str) -> dict:
+    """目录清单（读放开的一半：先能发现，才谈读得到）。"""
+    try:
+        names = os.listdir(real)
+    except OSError as e:
+        return {"ok": False, "path": real, "kind": "dir",
+                "error": f"{type(e).__name__}: {e}"}
+    entries = []
+    for n in names:
+        full = os.path.join(real, n)
+        try:
+            is_dir = os.path.isdir(full)
+            size = None if is_dir else os.path.getsize(full)
+        except OSError:
+            is_dir, size = False, None
+        entries.append({"name": n, "type": "dir" if is_dir else "file",
+                        "bytes": size})
+    entries.sort(key=lambda e: (e["type"] != "dir", e["name"].lower()))
+    return {"ok": True, "path": real, "kind": "dir", "total": len(entries),
+            "truncated": len(entries) > READ_DIR_MAX,
+            "entries": entries[:READ_DIR_MAX]}
+
+
+# 生效条件：当 path 可 utf-8 errors=replace 打开、offset>=1、limit>=1、max_chars>=1 时，逐行流式读取：从第 offset 行起收集至多 limit 行且累计字符 < max_chars；文件字节数 <= READ_FULL_BYTES 时继续数到 EOF 返回精确 lines_total，超过则提前停并将 lines_total 记 None；返回 (content, lines_total|None, lines_returned, truncated, 替换符个数)；
+def _read_text_window(path: str, offset: int, limit: int,
+                      max_chars: int, size: int) -> tuple:
+    """行窗读取：流式（大文件不进内存），行总数要么精确要么诚实记 None。"""
+    out, chars, n, total, exact = [], 0, 0, 0, True
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for i, line in enumerate(f, 1):
+            total = i
+            if i < offset:
+                continue
+            if n < limit and chars < max_chars:
+                out.append(line)
+                chars += len(line)
+                n += 1
+                continue
+            if size > READ_FULL_BYTES:      # 窗口已满且文件超大：不再数行
+                exact = False
+                break
+    content = "".join(out)
+    return (content, (total if exact else None), n,
+            bool(n >= limit or chars >= max_chars), content.count("\ufffd"))
+
+
+# 生效条件：当 args 含非空 path 时，以 workdir（缺省 os.getcwd()）为相对基准求 realpath；HIVE_READ_ROOTS 非空且 real 不在任一根下返回 {'ok':False,error,roots}；real 为目录走 _list_dir；非 isfile 返回 {'ok':False,'error':'路径不存在'}；否则读 BINARY_SNIFF_BYTES 头经 sniff_kind 分类：text 返回行窗正文与分页元数据（含 encoding/replacements，replacements>0 附存疑提示），image:* 另附 image_size 尺寸、binary 只给 bytes，二者 content=None；打开/取尺寸抛 OSError 时返回 {'ok':False,...} 诚实报错；
+def tool_read_file(args: dict, workdir: str = None) -> dict:
+    """读本地文件（只读面）：文本给行窗、目录给清单、图像/二进制给元数据。
+
+    读放开：默认无路径白名单（使用者裁定）；部署可用 HIVE_READ_ROOTS 收窄。
+    **无任何写参数、不落盘、不改状态**——执行器的写路径只有 lingshu_cg。
+    """
+    p = str(args.get("path") or "").strip()
+    if not p:
+        return {"ok": False, "error": "path 必填（文件或目录）"}
+    base = workdir or os.getcwd()
+    real = os.path.realpath(p if os.path.isabs(p) else os.path.join(base, p))
+    roots = read_roots()
+    if roots and not any(_under(real, r) for r in roots):
+        return {"ok": False, "path": real,
+                "error": "路径超出 HIVE_READ_ROOTS 白名单，拒读（越界即拒，"
+                         "不猜内容）",
+                "roots": list(roots)}
+    if os.path.isdir(real):
+        return _list_dir(real)
+    if not os.path.isfile(real):
+        return {"ok": False, "path": real,
+                "error": f"路径不存在（不猜内容）: {real}"}
+    try:
+        size = os.path.getsize(real)
+        with open(real, "rb") as f:
+            head = f.read(BINARY_SNIFF_BYTES)
+    except OSError as e:
+        return {"ok": False, "path": real, "error": f"{type(e).__name__}: {e}"}
+    kind = sniff_kind(head)
+    if kind != "text":
+        info = {"ok": True, "path": real, "kind": kind, "bytes": size,
+                "content": None,
+                "note": "非文本：不返回正文（诚实，不猜内容）。图像要进上下文"
+                        "请用 spec.context_files 走图像块（含预算折算）。"}
+        if kind.startswith("image:"):
+            w, h = image_size(real)
+            info["width"], info["height"] = w, h
+        return info
+    offset = _int_arg(args, "offset", 1, READ_HARD_LINES)
+    limit = _int_arg(args, "limit", READ_MAX_LINES, READ_HARD_LINES)
+    mchars = _int_arg(args, "max_chars", READ_MAX_CHARS, READ_HARD_CHARS)
+    try:
+        content, total, n, truncated, bad = _read_text_window(
+            real, offset, limit, mchars, size)
+    except OSError as e:
+        return {"ok": False, "path": real, "error": f"{type(e).__name__}: {e}"}
+    out = {"ok": True, "path": real, "kind": "text", "bytes": size,
+           "offset": offset, "lines_returned": n, "lines_total": total,
+           "truncated": truncated, "encoding": "utf-8(replace)",
+           "replacements": bad, "content": content}
+    if bad:
+        out["note"] = (f"解码替换 {bad} 处（非 UTF-8 或二进制污染）——按替换处"
+                       "标记存疑，勿据此断言原文。")
+    return out
+
+
+# 生效条件：当 name/args_json/job_id 传入时，json.loads(args_json or '{}') 失败返回 ({'ok':False,'error':'工具参数不是合法 JSON: ...'}, '')；否则 name=='lingshu_cg' 调 tool_lingshu_cg(args,job_id,mdcg_root)，name=='web_search' 调 tool_web_search(args,backend_override=ws_backend)，name=='read_file' 调 tool_read_file(args,workdir)，name 在 _EXTRA_TOOLS 中调其 handler(name,args,job_id)，否则返回未知工具错误；随后对 out 设默认 ok='error' not in out，按 results/knowledge 长度生成 brief，返回 (out,brief)；
 def execute_tool(name: str, args_json: str, job_id: str,
-                 mdcg_root: str = None, ws_backend: str = None) -> tuple:
+                 mdcg_root: str = None, ws_backend: str = None,
+                 workdir: str = None) -> tuple:
     """执行一次工具调用，返回 (结果dict, trace简报)。未知工具诚实报错。"""
     try:
         args = json.loads(args_json or "{}")
@@ -659,6 +859,8 @@ def execute_tool(name: str, args_json: str, job_id: str,
         out = tool_lingshu_cg(args, job_id, mdcg_root=mdcg_root)
     elif name == "web_search":
         out = tool_web_search(args, backend_override=ws_backend)
+    elif name == "read_file":
+        out = tool_read_file(args, workdir=workdir)
     elif name in _EXTRA_TOOLS:
         out = _EXTRA_TOOLS[name]["handler"](name, args, job_id)
     else:
@@ -917,7 +1119,8 @@ def run_with_tools(spec: dict, messages: list, job_id: str,
             out, brief = execute_tool(fn.get("name"), fn.get("arguments"),
                                       job_id,
                                       mdcg_root=spec.get("mdcg_root"),
-                                      ws_backend=spec.get("web_search_backend"))
+                                      ws_backend=spec.get("web_search_backend"),
+                                      workdir=spec.get("workdir"))
             full = json.dumps(out, ensure_ascii=False)
             text, spill = _shrink_tool_text(full, job_dir,
                                             f"{rnd}_{len(trace)}")
