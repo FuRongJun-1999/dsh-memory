@@ -20,20 +20,31 @@ R2 改造的验收（对照 docs/mdcg/认知图_索引与工程规范化_计划_
   ⑦ 不静默：truncated / skipped_suffixes / skipped_dirs 显式上报；排除为**追加**
      （只增不减，内置 .git/.venv/node_modules 不可被关闭）；只读契约（源 mtime 不变）；
      幂等（重跑节点数不变）；`index_doc` 进 ALL_OPS 且与工具 schema 一致。
+  ⑧ fence 往返列六件套的形状与边界：BINDING_FIELDS / binding_of / binding_key
+     （**不含行位**）/ binding_slug / validate_binding / binding_drift / locate。
+     为什么必须钉死：列形状漂移会让对账器把坏列当好消息（漏报）；键若悄悄带上
+     行位，真源上方插一行就会让整库失配——两者都是静默退化，只有断言看得见。
+  ⑨ 逐字节回放回归：对**真实索引出的卡**断言 `render(条目) + "\n" == 卡片正文`。
+     ⑧ 只证「列可定位」；只有逐字节相等才证明卡片是真源条目的**派生物**而非另一份
+     副本（渲染漂移或人工改写时列全然不变，对账器看不出来）。外部历史库另段抽样
+     （设 MDCG_ROOT 则跑，未设如实 SKIP 不虚报通过）。
 
 运行：python -m md_cg.test_p27_docindex
+     设 MDCG_ROOT=<认知图库根> 追加跑【12b】外部历史库逐字节回放抽样
 """
 from __future__ import annotations
 
 import os
+import random
 import shutil
 import sys
 import tempfile
 
-from . import codeindex, corpus, docindex, nodefile, routing, tokens
+from . import codeindex, corpus, docindex, nodefile, refindex, routing, tokens
 from . import mcp_server
-from .mdcos import MdCGOS          # 生产路径：forget 属 OS 层，基础层 MdCG 无删除原语
+from .mdcos import MdCGOS, MdCGSecure   # 生产路径：forget 属 OS 层，基础层 MdCG 无删除原语
 from .mcp_server import call_tool
+from .security import Principal
 
 PASS = FAIL = 0
 FAILS = []
@@ -53,6 +64,79 @@ def check(name, cond, detail=""):
         FAIL += 1
         FAILS.append(name)
         print(f"  [FAIL] {name}  · {detail}")
+
+
+def _norm(p):
+    """路径归一（大小写 + 分隔符）：root 归属比对用，避免同一目录被判成两个。"""
+    return os.path.normcase(os.path.normpath(str(p or "")))
+
+
+# 逐字节回放：把「往返列」从「形状可校验」推进到「内容可无损重建」。
+# 生效条件：cg 已索引完成的库；索引条目 tags 含 "doc" 且 frontmatter 有非空 doc_ref。
+# 判据：真源同键条目 `render(条目)` 补一个换行 == 卡片正文——`nodefile.dumps` 对不以
+# 换行结尾的正文补 '\n'，故卡片正文恒比 render 多 1 字节（是常态，不是缺陷；判等
+# 一律按 `render + "\n"`，避免把口径差当回归）。
+# 为什么非此不可：列形状对（validate_binding）只保证「可定位」；只有逐字节相等才
+# 证明卡片是真源条目的**派生物**而非另一份副本。渲染漂移或人工改写卡片正文时，
+# 列全都不变（路径/行位/hash 都是真源侧的值），对账器看不出来——本函数才看得见。
+# 悬空（真源已移出）/ 未解析如实计数：那是数据面事实，不冒充渲染失败。
+def _replay_cards(cg, roots=None, sample=0, seed=7):
+    nodes = (getattr(cg, "index", {}) or {}).get("nodes") or {}
+    picks = []
+    for nid in sorted(nodes):
+        if "doc" not in ((nodes.get(nid) or {}).get("tags") or []):
+            continue
+        kind, ref = refindex.ref_of(cg.get(nid))
+        if kind != "doc_ref" or not ref:
+            continue
+        if roots is not None and _norm(ref.get("root")) not in roots:
+            continue
+        picks.append((nid, ref))
+    if sample and len(picks) > sample:
+        picks = sorted(random.Random(seed).sample(picks, sample))
+    out = {"sampled": len(picks), "ok": 0, "dangling": 0, "gone": 0,
+           "unreadable": 0, "mismatch": []}
+    cache = {}
+    for nid, ref in picks:
+        fp = (str(ref.get("root") or ""), str(ref.get("path") or ""))
+        ckey = (_norm(fp[0]), fp[1])
+        if ckey not in cache:
+            # 把「源文件已移出」（数据面事实，非缺陷）与其它 IO/抽取异常（可能是真
+            # 问题：权限、编码、源被改成无标题文档）分开计数——混为一谈会把真实
+            # 故障伪装成历史遗留，静默吞掉回归。三态：True 读得 / False 不存在 /
+            # None 读不了。
+            try:
+                with open(os.path.join(fp[0], fp[1]), "r", encoding="utf-8",
+                          errors="replace") as f:
+                    cache[ckey] = (True, docindex.extract(f.read(), fp[1]))
+            except FileNotFoundError:
+                cache[ckey] = (False, None)
+            except (OSError, ValueError):
+                cache[ckey] = (None, None)
+        hit, items = cache[ckey]
+        if hit is not True:
+            out["gone" if hit is False else "unreadable"] += 1
+            continue
+        node = cg.get(nid) or {}
+        want = docindex.binding_key(docindex.binding_of(node))
+        # 键（path#heading_path）在同名标题重复时可能命中多条：先按行位锁定同名代，
+        # 行位也漂了才回落首条（此时本来就判「不符」，不掩盖结论）。
+        cands = [i for i in items if docindex.binding_key(i) == want]
+        if not cands:
+            out["dangling"] += 1
+            continue
+        item = next((i for i in cands if i.get("lineno") == ref.get("lineno")),
+                    cands[0])
+        got = docindex.render(item) + "\n"
+        content = node.get("content") or ""
+        if got == content:
+            out["ok"] += 1
+            continue
+        k = next((i for i in range(min(len(got), len(content)))
+                  if got[i] != content[i]), min(len(got), len(content)))
+        out["mismatch"].append(
+            f"{nid}@{k} 回放={got[k:k + 24]!r} 卡片={content[k:k + 24]!r}")
+    return out
 
 
 LONG = "这是总览段落，" + "用以验证章节切块在长正文下的表现，" * 12 + "结束。"
@@ -513,6 +597,156 @@ def main():
         ck4 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 5000})
         check("清幽灵后悬空仍为零", not (ck4.get("dangling") or []),
               str(ck4.get("dangling"))[:130])
+
+        # ============================================ ⑪ fence 往返列（binding）
+        # 缺口：往返列（取列 / 造键 / 校验 / 漂移 / 反查）是「条件卡 ↔ Markdown 真源」
+        # 的可校验面，此前零测试。列形状一旦漂移，对账器会把坏列当好消息（漏报）；
+        # 键若悄悄带上行位，真源上方插一行就会让整库失配——故两者都要钉死。
+        print("\n【11】fence 往返列：形状 / 键不含行位 / 校验 / 漂移 / 反查")
+        li = docindex.extract(GUIDE, "guide.md")
+        s9b = next(i for i in li if i["heading"] == "9. 分阶段实施")
+        rendered = docindex.render(s9b)
+        gnode = cg.get(g_id) or {}
+        g_ref = (gnode.get("frontmatter") or {}).get("doc_ref") or {}
+        b0 = docindex.binding_of(gnode)
+        check("必需列齐全且无空值",
+              isinstance(b0, dict)
+              and all(b0.get(k) not in (None, "") for k in docindex.BINDING_FIELDS),
+              str(sorted(docindex.BINDING_FIELDS)))
+        check("列面 = 必需列 + 附加列（无第二份列口径）",
+              set(b0 or {}) == set(docindex.BINDING_FIELDS)
+              | set(docindex.BINDING_OPTIONAL),
+              str(sorted(set(b0 or {}) ^ (set(docindex.BINDING_FIELDS)
+                                          | set(docindex.BINDING_OPTIONAL)))))
+        check("必需列/附加列 ⊆ 写侧 doc_ref 列（读写同一列面）",
+              (set(docindex.BINDING_FIELDS) | set(docindex.BINDING_OPTIONAL))
+              <= set(g_ref),
+              str(sorted(set(docindex.BINDING_FIELDS) - set(g_ref))))
+        check("binding_of 与直接读 frontmatter 同源（同一投影）",
+              b0 == docindex.binding_of({"frontmatter": {"doc_ref": g_ref}}))
+        check("binding_of 对非索引节点返回 None（不猜、不补默认值）",
+              docindex.binding_of(None) is None
+              and docindex.binding_of([]) is None
+              and docindex.binding_of({}) is None
+              and docindex.binding_of({"frontmatter": {"tags": ["doc"]}}) is None)
+        check("validate_binding：本仓卡片列形状合法（ok + 零 issue）",
+              docindex.validate_binding(b0) == {"ok": True, "issues": []},
+              str(docindex.validate_binding(b0)))
+        check("validate_binding：非 dict 如实报错且不抛",
+              docindex.validate_binding(None)
+              == {"ok": False, "issues": ["绑定不是字典（该节点无 doc_ref）"]})
+        lo0 = b0["lineno"]
+        bad_detail = []
+        for _nm, _b, _want in (
+                ("缺列", {k: v for k, v in b0.items() if k != "anchor"},
+                 "缺列 anchor"),
+                ("类型错 root", {**b0, "root": 123},
+                 "root 应为字符串，实为 int"),
+                ("类型错 lineno", {**b0, "lineno": "十"}, "行位不是整数"),
+                ("行位越界", {**b0, "lineno": 0}, "lineno 越界（0 < 1）"),
+                ("区间倒置", {**b0, "end": lo0 - 1},
+                 f"end 早于 lineno（{lo0}-{lo0 - 1}）")):
+            _v = docindex.validate_binding(_b)
+            if _v["ok"] or _want not in _v["issues"]:
+                bad_detail.append(f"{_nm}→{_v['issues']}")
+        check("validate_binding 逐类坏列均被点出（缺列/类型错/越界/区间倒置）",
+              not bad_detail, "; ".join(bad_detail)[:170])
+        b_shift = docindex.binding_of({"frontmatter": {"doc_ref": {
+            **g_ref, "lineno": lo0 + 40, "end": g_ref["end"] + 40}}})
+        check("键不含行位：行位位移不改键（重排后仍是同一章节）",
+              docindex.binding_key(b0) == docindex.binding_key(b_shift)
+              == "guide.md#总览/9. 分阶段实施",
+              docindex.binding_key(b0))
+        check("漂移按固定列序报出变化项（lineno → end → hash）",
+              docindex.binding_drift(b0, b_shift) == ["lineno", "end"]
+              and docindex.binding_drift(b0, {**b0, "hash": "zz"}) == ["hash"]
+              and docindex.binding_drift(
+                  b0, {**b0, "hash": "zz", "lineno": lo0 + 1})
+              == ["lineno", "hash"],
+              str(docindex.binding_drift(b0, b_shift)))
+        check("同列零漂移（无变化不报 / 空值不炸）",
+              docindex.binding_drift(b0, dict(b0)) == []
+              and docindex.binding_drift(None, None) == [])
+        check("binding_key 缺 heading_path 回落 path#anchor · 非 dict 返空串",
+              docindex.binding_key({"path": "a.md", "anchor": "s1"}) == "a.md#s1"
+              and docindex.binding_key({"path": "a.md"}) == "a.md#"
+              and docindex.binding_key(None) == "")
+        check("binding_slug 与 render 正文「本条目属于」逐字同源",
+              docindex.binding_slug(b0) == "guide.md#9-分阶段实施"
+              and f"本条目属于 {docindex.binding_slug(b0)}" in rendered,
+              docindex.binding_slug(b0))
+        check("反查取最内层（父节区间内的子节优先，不回落父节）",
+              docindex.locate(li, 12)["heading"] == "9. 分阶段实施"
+              and docindex.locate(li, 30)["heading"] == "代码示例",
+              str((docindex.locate(li, 12) or {}).get("heading")))
+        check("反查区间闭合（标题行与末行都算本节）",
+              docindex.locate(li, s9b["lineno"])["heading"] == "9. 分阶段实施"
+              and docindex.locate(li, s9b["end"])["heading"] == "9. 分阶段实施")
+        check("反查越界/非整数/空表 → None（fail-closed 不猜）",
+              docindex.locate(li, 10 ** 6) is None
+              and docindex.locate(li, 0) is None
+              and docindex.locate(li, "x") is None
+              and docindex.locate(li, None) is None
+              and docindex.locate([], 10) is None)
+
+        # ================================ ⑫ 逐字节回放回归（往返列无损）
+        # ⑪ 只证「列可校验」；本段把口径推到内容无损：卡片必须是真源条目的派生物
+        # （render 补一个换行 == 卡片正文）。root 限定为本次真正索引过的两个真源，
+        # 断言只落在本轮写入的卡上——历史残留不参与，避免把脏数据当回归。
+        print("\n【12】逐字节回放回归：render(条目) + 换行 == 卡片正文")
+        cg.flush()
+        rp = _replay_cards(cg, roots={_norm(fx), _norm(DOCS)})
+        print(f"      取样 {rp['sampled']} 卡：一致 {rp['ok']} · 键未命中 "
+              f"{rp['dangling']} · 源已移出 {rp['gone']} · 读不了 "
+              f"{rp['unreadable']}")
+        check("回放取样命中卡片（root 限定=本次索引的两个真源）",
+              rp["sampled"] > 0, str(rp["sampled"]))
+        check("可读卡 100% 逐字节回放一致（写侧 render 与读侧同源）",
+              not rp["mismatch"],
+              f"一致 {rp['ok']}/{rp['sampled']}；" + "；".join(rp["mismatch"][:2]))
+        check("零键未命中 / 零源已移出 / 零读不了（源在库则必可重定位并读回）",
+              rp["dangling"] == 0 and rp["gone"] == 0
+              and rp["unreadable"] == 0,
+              f"键未命中={rp['dangling']} 源已移出={rp['gone']} "
+              f"读不了={rp['unreadable']}")
+        check("回放账目闭合（一致 + 键未命中 + 源已移出 + 读不了 = 取样数）",
+              (rp["ok"] + rp["dangling"] + rp["gone"] + rp["unreadable"])
+              == rp["sampled"],
+              f"{rp['ok']}+{rp['dangling']}+{rp['gone']}+{rp['unreadable']}"
+              f" vs {rp['sampled']}")
+
+        # 历史抽样：真实认知图库（仓外数据面，历史卡最多）。以 MDCG_ROOT 显式声明；
+        # 裸 clone / CI 无此数据面 → 如实报 SKIP（不虚报通过、也不 FAIL）。
+        ext_root = os.environ.get("MDCG_ROOT") or ""
+        if not (ext_root and os.path.isdir(ext_root)):
+            print("\n【12b】历史抽样：跳过（未设 MDCG_ROOT 或目录不存在）"
+                  "—— 本仓语料回放见【12】")
+        else:
+            print(f"\n【12b】历史抽样：外部认知图库 {ext_root}（只读身份）")
+            ext = MdCGSecure(ext_root, principal=Principal(
+                actor="p27-replay", clearance="secret", can_write=False,
+                can_admin=False, role="designer", auth_mode="local-cli"))
+            try:
+                hp = _replay_cards(ext, sample=120)
+            finally:
+                ext.close()
+            print(f"      抽样 {hp['sampled']} 卡：一致 {hp['ok']} · 键未命中 "
+                  f"{hp['dangling']} · 源已移出 {hp['gone']} · 读不了 "
+                  f"{hp['unreadable']}")
+            check("【12b】历史库抽样命中卡片（数据面可达）",
+                  hp["sampled"] > 0, str(hp["sampled"]))
+            check("【12b】可读历史卡零回放不符（未被渲染漂移/人工改写腐化）",
+                  not hp["mismatch"],
+                  f"一致 {hp['ok']}/{hp['sampled']}；"
+                  + "；".join(hp["mismatch"][:2]))
+            check("【12b】未读回的全部是「源已移出」（非 IO/抽取故障）",
+                  hp["unreadable"] == 0,
+                  f"源已移出={hp['gone']} 读不了={hp['unreadable']}")
+            check("【12b】抽样账目闭合（无静默丢弃）",
+                  (hp["ok"] + hp["dangling"] + hp["gone"] + hp["unreadable"])
+                  == hp["sampled"],
+                  f"{hp['ok']}+{hp['dangling']}+{hp['gone']}+{hp['unreadable']}"
+                  f" vs {hp['sampled']}")
 
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
