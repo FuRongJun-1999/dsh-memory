@@ -142,8 +142,13 @@ def main():
         n_sq = sq.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
         n_md = len(md_conn._all_rows())
         print(f"  派生库 nodes={n_sq}  md 直读行={n_md}")
-        ok &= _ok(n_sq == n_md == stats["nodes"] == 4355,
-                  "行数等价且为 4355")
+        # 判据=三方等价（派生库 == md 直读 == 还原计数）。旧断言把 `== 4355`（导出前
+        # 快照行数）一并写死：绝对行数是本地数据面规模、非代码契约，锚死它会让「数据面
+        # 正常生长」被误判成等价性破坏（2026-09-19 重跑 migrate_wisdom_graph.export 后
+        # 4355 → 4459 即由此假红）。保留量级下界防退化为空库。
+        ok &= _ok(n_sq == n_md == stats["nodes"] and n_sq >= 4000,
+                  f"行数三方等价（派生库 {n_sq} == md 直读 {n_md} == "
+                  f"还原 {stats['nodes']}）且 >= 4000")
 
         print("== [2] 8 处真实 SQL 逐位对拍 ==")
         names, prefixes, kps = _sample_params(md_conn)
