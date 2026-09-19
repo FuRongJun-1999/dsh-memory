@@ -146,7 +146,13 @@ def cut_by_relevance(docs, scored, total, pools=None, key_of=None, stat=None):
         range(len(docs)),
         key=lambda i: (-float(scored[i][1]),
                        -float(scored[i][0]["frontmatter"].get("importance") or 0),
-                       -float(scored[i][0]["frontmatter"].get("created_at") or 0)))
+                       -float(scored[i][0]["frontmatter"].get("created_at") or 0),
+                       # 终键：三级全等时按 nid 定序。没有它，sorted 的**稳定性**
+                       # 会把顺序回落到输入序（docs = index["nodes"] 物理序），
+                       # 于是「同分同权重同写入时刻」的结果顺序随写入序/重建序漂移
+                       # —— 索引重建前后不可复现（S6 幂等实测：created_at 被量化到
+                       # ~1ms，4 次快速写入常两两碰撞，导致 ~50% 概率重建后换序）。
+                       str(scored[i][0].get("id") or "")))
     ranked = [docs[i] for i in order]
     if stat is not None:
         stat["cut_order"] = "relevance"
@@ -816,7 +822,11 @@ class MdCG:
                         "derived_from": fm.get("derived_from") or [],
                         "derived_relation": fm.get("derived_relation"),
                     })
-        return nodes
+        # 索引序确定性：按 nid 排序返回。os.walk 的遍历序是**文件系统事实**
+        # （NTFS 上常为字母序，但换 FS / 目录碎片化后不保证），若直接作为
+        # index["nodes"] 的物理序，就会让「完全并列」的结果顺序依赖重建路径。
+        # 排序后重建序恒定（增量路径另由 cut_by_relevance 的 nid 终键兜住）。
+        return {k: nodes[k] for k in sorted(nodes)}
 
 # 生效条件：每次调用都以 self._scan_nodes() 的结果重建 nodes 与 buckets，在 FileLock 下 atomic_write 覆盖 index_path 并 ShardedLog.clear(index_log_dir)，随后替换 self.index、清空 _dirty 并返回 idx（无 .md 时也照样覆盖为空索引）；
     def rebuild_index(self):
@@ -1297,7 +1307,10 @@ class MdCG:
             g = self._goal_entry(nid)
             if g and (status is None or g["status"] == status):
                 out.append(g)
-        out.sort(key=lambda g: (-g["priority"], -g["created_at"]))
+        # 终键 nid：同 priority 且 created_at 碰撞（量化到 ~1ms）时定序，
+        # 否则并列顺序回落到 self.index["nodes"] 的物理序（增量路径=写入序）。
+        out.sort(key=lambda g: (-g["priority"], -g["created_at"],
+                                str(g.get("id") or "")))
         return out[:limit] if limit else out
 
 # 生效条件：等价于 list_goals(status="active", limit=limit)，limit 缺省 5；返回按 (-priority, -created_at) 降序的活跃目标列表；
@@ -1787,7 +1800,8 @@ class MdCG:
                                        "in": len(entries), "buckets": len(_sizes)}
                     else:
                         _picked = sorted(_best.items(),
-                                         key=lambda kv: (-kv[1], -_sizes[kv[0]]))[:_s1b_topk]
+                                         key=lambda kv: (-kv[1], -_sizes[kv[0]],
+                                                         str(kv[0])))[:_s1b_topk]
                         _keep = {_b for _b, _ in _picked}
                         _kept = [e for e in entries
                                  if (e.get("bucket") in _keep)
@@ -2006,7 +2020,8 @@ class MdCG:
                                "gain": _s3_gain, "valid": _valid}
                 if _valid >= min_results:
                     _merged.sort(key=lambda x: (-x[1], -float(
-                        x[0]["frontmatter"].get("importance") or 0)))
+                        x[0]["frontmatter"].get("importance") or 0),
+                        str(x[0].get("id") or "")))
                     if record and _merged[:k]:
                         self.record_access([r[0]["id"] for r in _merged[:k]], TIER_SPREAD)
                     return self._emit(_merged, k, TIER_SPREAD, stat, route_bucket,
@@ -2229,7 +2244,8 @@ class MdCG:
                         "neg": len(neg_coverage), "suppressed": len(_s5_hits),
                         "suppressed_ids": _s5_hits[:20]}
         scored.sort(key=lambda x: (-x[1],
-                                   -float(x[0]["frontmatter"].get("importance") or 0)))
+                                   -float(x[0]["frontmatter"].get("importance") or 0),
+                                   str(x[0].get("id") or "")))
         results = scored[:k]
         # ---- S6 一致性交叉验证（契约 §3 S6；flag 控、默认关）----
         # 只读复用 crosscheck 的「赛道 × 来源执照」判定：对 top-k 逐个给出赛道、声明依据是否被

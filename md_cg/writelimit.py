@@ -265,11 +265,12 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
     for sig, members in groups.items():
         if len(members) < min_group:
             continue
-        members.sort(key=lambda m: float((m.get("frontmatter") or {})
-                                         .get("created_at", 0) or 0))
+        members.sort(key=lambda m: (float((m.get("frontmatter") or {})
+                                          .get("created_at", 0) or 0),
+                                    str(m.get("id") or "")))
         planned.append({"sig": sig[:40], "keep": members[0]["id"],
                         "members": [m["id"] for m in members[1:]]})
-    planned.sort(key=lambda p: -len(p["members"]))
+    planned.sort(key=lambda p: (-len(p["members"]), str(p.get("sig") or "")))
     out = {"t": time.time(), "actor": actor, "scanned": scanned,
            "groups": len(planned),
            "members": sum(len(p["members"]) for p in planned),

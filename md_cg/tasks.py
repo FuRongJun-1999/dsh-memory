@@ -424,7 +424,10 @@ def session_tasks(cg, active_limit: int = 5, done_limit: int = 5) -> dict:
             active.append(t)
         elif t["status"] == "done":
             done.append(t)
-    key = lambda x: -(x.get("updated_at") or 0)          # noqa: E731
+    # 终键 id：同 updated_at 并列时定序，否则顺序回落到 cg.index["nodes"]
+    # 的物理序（增量路径=写入序，重建路径=nid 序）。
+    key = lambda x: (-(x.get("updated_at") or 0),         # noqa: E731
+                     str(x.get("id") or ""))
     active.sort(key=key)
     done.sort(key=key)
     return {"ok": True,

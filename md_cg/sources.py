@@ -145,7 +145,7 @@ class DSHSessionSource(Source):
         root = root or os.path.join(os.path.expanduser("~"), ".dsh", "sessions")
         files = glob.glob(os.path.join(root, "**", "session.jsonl"), recursive=True)
         files += glob.glob(os.path.join(root, "**", "session.jsonl.zstd"), recursive=True)
-        files.sort(key=lambda p: -os.path.getsize(p))
+        files.sort(key=lambda p: (-os.path.getsize(p), p))
         return files[:limit] if limit else files
 
 # 生效条件：self.path 以 ".zstd" 结尾时经 _zstd_reader 逐行产出（其返回 None 时 raise RuntimeError），否则以 utf-8/errors=replace 打开 self.path 逐行产出。

@@ -188,7 +188,8 @@ def export_stat(cg):
         if ca:
             t_min = ca if t_min is None else min(t_min, ca)
             t_max = ca if t_max is None else max(t_max, ca)
-    top_tags = sorted(by_tag.items(), key=lambda kv: -kv[1])[:15]
+    top_tags = sorted(by_tag.items(),
+                      key=lambda kv: (-kv[1], str(kv[0])))[:15]
     return {"ok": True, "action": "stat", "total": len(nodes),
             "by_layer": by_layer, "by_verification_basis": by_basis,
             "protected": protected, "with_non_applicable": with_neg,

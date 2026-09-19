@@ -666,7 +666,8 @@ def index(cg, dim, value, limit=50, with_content=False):
     hits = [(nid, e) for nid, e in nodes.items()
             if tag in (e.get("tags") or [])]
     hits.sort(key=lambda kv: (-float(kv[1].get("importance") or 0),
-                              -float(kv[1].get("created_at") or 0)))
+                              -float(kv[1].get("created_at") or 0),
+                              str(kv[0] or "")))
     items = []
     for nid, e in hits[:int(limit)]:
         item = {"node_id": nid, "layer": e.get("layer"),

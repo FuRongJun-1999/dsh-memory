@@ -233,10 +233,14 @@ def walk(cg, start_id, relation_types=CAUSAL_TYPES, max_depth=MAX_DEPTH_DEFAULT,
                 stack.append((tgt, seen | {tgt}, nhop, nw))
         if not extended and not hops:
             continue
+    # 终键 tuple(nodes)：图遍历序取决于邻接结构的枚举序，并列（同 depth/
+    # weight/avg_weight）时若无终键，截断结果随索引构建路径漂移。
     if sort == "length":            # 对齐 AEIS infer_causal_paths 的 Occam 偏好
-        chains.sort(key=lambda c: (c["depth"], -c["avg_weight"]))
+        chains.sort(key=lambda c: (c["depth"], -c["avg_weight"],
+                                   tuple(c["nodes"])))
     else:
-        chains.sort(key=lambda c: (-c["weight"], -c["depth"]))
+        chains.sort(key=lambda c: (-c["weight"], -c["depth"],
+                                   tuple(c["nodes"])))
     return chains[:max_chains]
 
 

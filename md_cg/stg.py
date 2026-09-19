@@ -197,7 +197,7 @@ def timeline(cg, layer=None, limit=50, desc=True, max_scan=5000):
         if iv is None:
             continue
         items.append((iv[0], iv[1], n["id"], n["layer"]))
-    items.sort(key=lambda x: (x[0], x[1]), reverse=bool(desc))
+    items.sort(key=lambda x: (x[0], x[1], x[2]), reverse=bool(desc))
     return {"count": len(items), "limit": limit,
             "items": [{"id": i, "layer": l, "start": s, "end": e,
                        "preview": _preview(cg, i)}

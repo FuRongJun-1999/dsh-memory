@@ -771,14 +771,16 @@ class MdCGOS(MdCG):
             # 故本路不做「先全量打分再截断」。
             hits = sorted(
                 docs, key=lambda d: (-float(d[1].get("importance") or 0),
-                                     -float(d[1].get("created_at") or 0))
+                                     -float(d[1].get("created_at") or 0),
+                                     str(d[0].get("id") or ""))
             )[:GLOBAL_CAP]
             stat["cut_order"] = "importance_fallback"
         scored = self._score(hits, query, qb)
         # 恒按相关度排序（原实现仅超 cap 时排序 → ≤cap 时返回 entries 枚举序，
         # 下游 seed/融合拿到无语义依据的顺序，不可复算）
         scored.sort(key=lambda x: (-x[1],
-                    -float(x[0]["frontmatter"].get("importance") or 0)))
+                    -float(x[0]["frontmatter"].get("importance") or 0),
+                    str(x[0].get("id") or "")))
         if len(scored) > GLOBAL_CAP:
             stat["pre_cap"] = len(scored)
             stat["cap"] = GLOBAL_CAP
@@ -897,7 +899,7 @@ class MdCGOS(MdCG):
             prov[out_id] = {"chain": info["chain"]["nodes"],
                             "conditions": info["conditions"],
                             "depth": info["depth"]}
-        scored.sort(key=lambda x: -x[1])
+        scored.sort(key=lambda x: (-x[1], str(x[0].get("id") or "")))
         return scored, prov
 
 # 生效条件：以 expand or expand_query_terms_weighted 作扩展函数并对 query 调用（结果为假值按 {} 处理），从其中 pop "__source__"（缺键为 "whitebox"）得 source，tw 为空返回 ([], source)，否则对 entries 中存在 _weighted_coverage>0 的条目按 0.6·cov+0.3·aff+0.1·ctx_aff（context 非 None 时以 route_key(ctx, ctx.get("tags")) 得 ctx_domain，context 非 dict 时用 {}）打分，返回 (out, source)。
@@ -917,7 +919,8 @@ class MdCGOS(MdCG):
             return [], source
         dom_scores = routing.big_domain_score_weighted(tw)
         dom_total = sum(dom_scores.values()) or 1.0
-        top_domains = sorted(dom_scores.items(), key=lambda kv: -kv[1])[:3]
+        top_domains = sorted(dom_scores.items(),
+                             key=lambda kv: (-kv[1], str(kv[0])))[:3]
         ctx_domain = None
         if context is not None:
             ctx = context if isinstance(context, dict) else {}
@@ -1010,7 +1013,8 @@ class MdCGOS(MdCG):
             return [], ""
         dom_scores = routing.big_domain_score_weighted(tw)
         dom_total = sum(dom_scores.values()) or 1.0
-        top_domains = sorted(dom_scores.items(), key=lambda kv: -kv[1])[:3]
+        top_domains = sorted(dom_scores.items(),
+                             key=lambda kv: (-kv[1], str(kv[0])))[:3]
         stat = {"scanned": 0}
         out = []
         for e, fm, c in self._read_many(entries, stat):
@@ -1105,8 +1109,11 @@ class MdCGOS(MdCG):
         per_path = {}
         ro = set(recall_only or ())
         for name, scored in ranked.items():
+            # 终键 nid：此处 rank 直接进 RRF（w/(K+rank)），并列若回落输入序
+            # 会改变融合分——同分同 importance 必须由 nid 定序才可复算。
             scored = sorted(scored, key=lambda x: (-x[1],
-                            -float(x[0]["frontmatter"].get("importance") or 0)))
+                            -float(x[0]["frontmatter"].get("importance") or 0),
+                            str(x[0].get("id") or "")))
             per_path[name] = len(scored)
             if name in ro:
                 continue
@@ -1136,7 +1143,7 @@ class MdCGOS(MdCG):
         for scored in ranked.values():
             for node, s in scored:
                 node_by_id.setdefault(node["id"], (node, s))
-        fused_all = sorted(rrf.items(), key=lambda kv: -kv[1])
+        fused_all = sorted(rrf.items(), key=lambda kv: (-kv[1], kv[0]))
 
         quals = {}
         filtered = 0
@@ -1152,7 +1159,7 @@ class MdCGOS(MdCG):
                     filtered += 1
                     continue
                 kept.append((nid, fs if st == STATE_ACCEPT else fs * 0.5))
-            kept.sort(key=lambda x: -x[1])
+            kept.sort(key=lambda x: (-x[1], x[0]))
             fused = kept[:k]
         else:
             fused = fused_all[:k]
@@ -1910,7 +1917,7 @@ class MdCGOS(MdCG):
                 "layer": e.get("layer"), "tags": tags,
                 "summary": self._session_digest(content),
             })
-        out.sort(key=lambda n: -n["created_at"])
+        out.sort(key=lambda n: (-n["created_at"], str(n.get("id") or "")))
         return out[:max(1, int(limit or 5))]
 
 # 生效条件：limit 经 max(1,min(int(limit or 5),50))、budget_tokens 经 max(200,int(budget_tokens or 1200)) 归一后逐段取数（include_state 为真才取 self_state），每段异常只把段名追加进 degraded，再由 while 循环按预算交替裁 recent/notes 尾部、任务段最后才裁并置 tasks_truncated。
