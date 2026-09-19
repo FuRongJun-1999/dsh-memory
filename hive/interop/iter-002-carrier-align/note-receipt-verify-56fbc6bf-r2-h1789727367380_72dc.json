@@ -1,0 +1,15 @@
+{
+ "kind": "receipt-archive",
+ "verify_id": "verify-56fbc6bf",
+ "commit": "56fbc6bf",
+ "verdict": "PASS",
+ "receipt_job": "h1789727367380_72dc",
+ "receipt_sha16": "0b6447b21efe4c8c",
+ "received_ts": 1789727367,
+ "channel": "共享蜂巢作业目录（编外以 cmd spec + status 对形态投递）",
+ "replay_literal_sanitized": "[VERIFY-RESULT] verify_id=verify-56fbc6bf commit=56fbc6bf verdict=PASS | 机器重放五步（逐字）：test_codeindex=PASS 47 / FAIL 0 / SKIP 0；test_p26_refindex=通过 59 / 失败 0；test_p27_docindex=通过 78 / 失败 0；wisdom.verifier --self-test=自测: 5/5 通过；cogmap_sync check=cogmap check: 通过（cg 34 op / stg 4 op / whitebox 6 action / mdcg_* 31 个；双文档标记段、op/工具引用、文件链接、锚点、FUNC_DESC 覆盖全部一致）。另（验证端 shell 实测，非重放步，env 无 MDCG_ROOT）：run_tests md_cg --jobs 4 一次全绿=SUMMARY 89/89 通过，3 跳过",
+ "commands_sanitized": "[{\"label\": \"test_codeindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_codeindex\"]}, {\"label\": \"test_p26_refindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_p26_refindex\"]}, {\"label\": \"test_p27_docindex\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.test_p27_docindex\"]}, {\"label\": \"wisdom_selftest\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"-m\", \"md_cg.whitebox_kb.wisdom.verifier\", \"--self-test\"]}, {\"label\": \"cogmap_check\", \"cwd\": \"<second-instance>\", \"command\": [\"python\", \"-X\", \"utf8\", \"scripts/cogmap_sync.py\", \"check\"]}]",
+ "related_note": "",
+ "note": "由 ingest_receipts.py v2 生成（脱敏）；推送仍由主体门禁后执行",
+ "paths_policy": "脱敏：无盘符/无系统目录/无实例目录名"
+}

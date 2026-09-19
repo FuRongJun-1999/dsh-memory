@@ -329,3 +329,7 @@ ts	iter	branch	commit	status	claim_by	claimed_via	note
 1789758981	iter-tailmulti-b	task/iter-tailmulti-b	708509a	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +5 条
 1789759151	iter-341-batch-c341	task/iter-341-batch-c341	1f3a010	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条
 1789759151	iter-tailmulti-a	task/iter-tailmulti-a	65fabc3	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +7 条（按提交回填）
+1789777733	iter-348-batch-c348	task/iter-348-batch-c348	6910941	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +1 条（按提交回填）
+1789777733	iter-349-batch-c349	task/iter-349-batch-c349	5ea2cb9	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +2 条（按提交回填）
+1789777733	iter-tailmulti-c-fix	task/iter-tailmulti-c-fix	74baa54	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +7 条（按提交回填）
+1789777733	iter-tailmulti-e-fix	task/iter-tailmulti-e-fix	0d576d6	landed			自动入队（内部复核 ACCEPT） ｜ 校验和落地 +5 条（按提交回填）

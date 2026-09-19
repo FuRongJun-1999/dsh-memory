@@ -1,4 +1,6 @@
 received_at	verify_id	commit	verdict	receipt_job	iter_id
+	close-clean-batch				iter-002-carrier-align
+	close-verify-cogmap-batch				iter-002-carrier-align
 	iter-002-tip				iter-002-carrier-align
 	superseded		PASS（编外）		iter-013-batch-a1
 	superseded		PASS（编外）		iter-015-batch-b1
@@ -478,11 +480,14 @@ received_at	verify_id	commit	verdict	receipt_job	iter_id
 2026-09-18T15:44:53	verify-e11f50ad-r2-h1789717493262_5454	e11f50ad	PASS	h1789717493262_5454	iter-002-carrier-align
 2026-09-18T15:48:03	iter-208-batch-c208-r2-h1789717683207_599c	7f4c5fd	PASS	h1789717683207_599c	iter-002-carrier-align
 2026-09-18T15:48:04	iter-198-batch-c198-dual-r2-h1789717684927_56c4	bdee1ad	PASS	h1789717684927_56c4	iter-002-carrier-align
+2026-09-18T16:41:22	close-verify-9e9ef28f		PASS	h1789720882607_18f4	iter-002-carrier-align
 2026-09-18T16:41:22	verify-9e9ef28f-r2-h1789720882607_18f4	9e9ef28f	PASS	h1789720882607_18f4	iter-002-carrier-align
+2026-09-18T16:50:32	close-verify-998538a1		PASS	h1789721432376_6850	iter-002-carrier-align
 2026-09-18T16:50:32	verify-998538a1-r2-h1789721432376_6850	998538a1	PASS	h1789721432376_6850	iter-002-carrier-align
 2026-09-18T16:59:40	verify-fce78aba-r2-h1789721980170_56bc	fce78aba	PASS	h1789721980170_56bc	iter-002-carrier-align
 2026-09-18T17:09:48	verify-b8419d04-r2-h1789722588204_5004	b8419d04	PASS	h1789722588204_5004	iter-002-carrier-align
 2026-09-18T17:19:26	verify-9a43cbb0-r2-h1789723166808_5bc8	9a43cbb0	PASS	h1789723166808_5bc8	iter-002-carrier-align
+2026-09-18T17:30:00	close-verify-c72e8bae		PASS	h1789723800880_2d6c	iter-002-carrier-align
 2026-09-18T17:30:00	verify-c72e8bae-r2-h1789723800880_2d6c	c72e8bae	PASS	h1789723800880_2d6c	iter-002-carrier-align
 2026-09-18T17:39:28	verify-afbee06c-r2-h1789724368550_3878	afbee06c	PASS	h1789724368550_3878	iter-002-carrier-align
 2026-09-18T17:49:34	verify-ad1993af-r2-h1789724974583_6dd0	ad1993af	PASS	h1789724974583_6dd0	iter-002-carrier-align
