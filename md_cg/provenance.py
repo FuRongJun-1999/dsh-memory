@@ -27,6 +27,7 @@ import json
 import os
 import time
 
+from . import trust as _trust
 from .fsutil import FileLock, append_jsonl, atomic_write, read_jsonl
 
 LEDGER_NAME = "_link.jsonl"
@@ -338,3 +339,245 @@ def catalog(root: str = None) -> dict:
         "distinct_from": ("links.py = 跨节点信任 P_trust（_links.json）；"
                           "本层 = 节点派生关系（_link.jsonl）"),
     }
+
+
+# --------------------------------------------------------------------------
+# 读：三元组反查原语（阶段二 4.2 · find_entity_contexts 式）
+# --------------------------------------------------------------------------
+# 术语映射（**同一件事，勿新造第二套字段**）：三元组 `subject / predicate /
+# object` 在本层就是派生边的 `child / rel / parent`——即节点写入时声明的
+# `derived_from` 关系。不另建 subject/predicate/object 参数字面量，理由有二：
+#   ① `cg` 工具面是**扁平 schema**，`subject` 已被 `identity`（`subject:<id>`
+#      主体语义）与 `link.evidence`（证据主体）占用，同名异义会把两处口径搅在一起；
+#   ② `edges()` 已是唯一谓词载体（child/parent/relation/batch 四键），反查只是它的
+#      **只读超集**——另造一套参数必然分叉。
+# 与 `edges()` 的三处**有意**差异（不是漂移）：
+#   · 时间轴缺省 `observed`（边只有记录时刻 `t`，见 FIND_DEFAULT_AXIS）；
+#   · 默认排序 `desc`（按 `t` 新→旧）且 `limit` 缺省 50、上限 500（分页原语，
+#     不给「静默全量倾倒」）；
+#   · 加 `aggregation`（分页前全集分桶）与 `expand_nodes`（端点摘要，索引级零读盘）。
+
+#: 排序方向（封闭枚举，拒收未知名——与 `trust.TIME_OPERATORS` 同风格）
+ORDERINGS = ("desc", "asc")
+#: 聚合维度（封闭枚举）：按谓词 / 对象端 / 主体端分桶
+AGGREGATIONS = ("by_relation", "by_parent", "by_child")
+#: 聚合维度 → 边字段（谓词在边上叫 `rel`；聚合名沿用三元组术语命名）
+_AGG_FIELD = {"by_relation": "rel", "by_parent": "parent", "by_child": "child"}
+#: 反查缺省时间轴：派生边只有一个时刻字段 `t`（写入时刻，观察轴），
+#: **效力轴字段根本不存在**。与 `mdcg.search` 缺省 `effective` **有意不同**：
+#: 那里 `effective_from/until` 是可选声明（多数节点没写），沿用 fail-open 不会
+#: 出错；这里若缺省 `effective`，则「给了时间条件却恒不过滤」——把静默 no-op
+#: 当成了「没有匹配」，属无法复算的错答。
+FIND_DEFAULT_AXIS = "observed"
+DEFAULT_FIND_LIMIT = 50
+MAX_FIND_LIMIT = 500
+#: `expand_nodes=True` 时透出的索引字段白名单（只读索引快照，**零读节点文件**）
+EXPAND_FIELDS = ("layer", "tags", "importance", "writer", "session",
+                 "derived_from", "derived_relation", "derived_batch",
+                 "temporal", "time_window", "condition_space")
+
+
+# 生效条件：value 为 None 或 str(value).strip() 为空时返回 "desc"；小写后命中 ORDERINGS 返回该值；否则抛 ProvenanceError。
+def _ordering_of(value) -> str:
+    """排序方向归一 → `"desc"` / `"asc"`；未知 → `ProvenanceError`（fail-closed）。"""
+    if value is None or not str(value).strip():
+        return "desc"
+    v = str(value).strip().lower()
+    if v not in ORDERINGS:
+        raise ProvenanceError(f"未知 ordering {value!r}（允许：{ORDERINGS}）")
+    return v
+
+
+# 生效条件：value 为 None 或 str(value).strip() 为空时返回 None（= 不聚合）；小写后命中 AGGREGATIONS 返回该值；否则抛 ProvenanceError。
+def _aggregation_of(value):
+    """聚合维度归一 → `None` / `AGGREGATIONS` 之一；未知 → `ProvenanceError`。"""
+    if value is None or not str(value).strip():
+        return None
+    v = str(value).strip().lower()
+    if v not in AGGREGATIONS:
+        raise ProvenanceError(f"未知 aggregation {value!r}（允许：{AGGREGATIONS}）")
+    return v
+
+
+# 生效条件：axis 为 "observed" 且 edge.get("t") 可经 trust.parse_time 解析时返回 (t, t, False)；axis 非 observed 或 t 不可解析/缺失时返回 (None, None, True)。
+def _edge_window(edge, axis: str):
+    """边的轴窗口 → `(start, end, missing)`（与 `trust.time_window_of` **同形**）。
+
+    observed 轴：`t`（写入时刻）→ `(t, t, False)`；`t` 缺失（`index_edges` 兜底边
+    不带时间）→ `(None, None, True)`。其余轴一律 `(None, None, True)`——边没有效力轴
+    声明可读，如实报「不可判定」，由**轴策略**处置（observed fail-closed 剔除并计入
+    `axis_missing`；effective fail-open 保留），不在这里悄悄换轴。
+    """
+    if str(axis) == "observed":
+        t = _trust.parse_time((edge or {}).get("t"))
+        if t is None:
+            return None, None, True
+        return t, t, False
+    return None, None, True
+
+
+# 生效条件：start_operator 与 end_operator 均为 None 时返回 "overlap"，否则返回 "endpoint"。
+def _mode_of(start_operator, end_operator) -> str:
+    """时间过滤模式（与 `trust.window_match` 的显式分叉口径同源，不另立判据）。"""
+    return "endpoint" if (start_operator is not None or end_operator is not None) \
+        else "overlap"
+
+
+# 生效条件：nid 不在 (cg.index or {}).get("nodes") or {} 的 dict 条目中（含 cg.index 缺失、条目非 dict）时返回 {'id': nid, 'present': False}；否则返回 {'id','present':True} 并附 EXPAND_FIELDS 中值非 None 的字段。
+def _node_digest(cg, nid) -> dict:
+    """端点摘要（只读索引快照，**零读节点文件**）；端点缺失 → `present=False`。"""
+    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    e = nodes.get(nid)
+    if not isinstance(e, dict):
+        return {"id": nid, "present": False}
+    d = {"id": nid, "present": True}
+    for k in EXPAND_FIELDS:
+        if e.get(k) is not None:
+            d[k] = e[k]
+    return d
+
+
+# 生效条件：child/parent/relation/batch 各为真值（str(x).strip() 非空）时归一为过滤条件，relation 经 normalize_relation 非法即抛 ProvenanceError；ordering/aggregation 经 _ordering_of/_aggregation_of 非法即抛；offset 为负或 limit<=0 或 limit>MAX_FIND_LIMIT 即抛；时间五参经 trust.check_time_args 校验，why 非空即抛 ProvenanceError；返回 {'ok': True, 'readonly': True, 'op': 'edges', 'triple', 'total', 'matched', 'returned', 'offset', 'limit', 'ordering', 'aggregation', 'edges', 'aggregates', 'nodes_expanded', 'time_filter', 'ledger', 'distinct_from', 'note'}，其中 total=谓词过滤后条数、matched=时间过滤后条数（dropped+matched==total）、edges=按 t 排序后 offset:offset+limit 切片（expand_nodes 时每边附 child_node/parent_node 摘要）、aggregates 为分页前全集分桶（未请求为 None）。
+def find_edges(cg, *, child=None, parent=None, relation=None, batch=None,
+               start_time=None, end_time=None, start_operator=None,
+               end_operator=None, time_axis=None, ordering=None, offset=0,
+               limit=None, aggregation=None, expand_nodes: bool = False,
+               path: str = None) -> dict:
+    """三元组反查（阶段二 4.2）：按**任意端 / 谓词 / 时间**反查派生边（只读）。
+
+    `subject/predicate/object` ≡ `child/rel/parent`（见本节术语映射注释）。
+
+    谓词（`child` / `parent` / `relation` / `batch`）与 `edges()` **同源同义**：
+    给了就等值过滤、不给就不过滤。时间条件走 `trust.check_time_args`
+    （**与检索共用的唯一校验点**，本层不另写一套），比较语义由
+    `trust.window_match` 提供（不给 operator = 区间重叠；给 operator = 端点比较）。
+
+    fail-closed 清单（宁可报错，不静默降级）：
+      · `relation` 非 `RELATIONS`（经 `normalize_relation`）；
+      · `ordering` / `aggregation` 非各自枚举；
+      · `offset < 0`；`limit <= 0` 或 `> MAX_FIND_LIMIT`（**不把 0/负数当「全部」**）；
+      · 时间五参非法（未知轴 / 未知算子 / 给了算子缺时间 / start > end）。
+
+    分页与聚合的次序是刻意的：**聚合基于分页前全集**（`matched`），
+    否则「先切页再聚合」会给出随 offset 漂移的分桶——不可复算。
+    审计块 `time_filter.dropped + matched == total` 由本函数保证。
+    """
+    # ---- 谓词归一（空/空白 = 不约束，与 edges() 同口径） ------------------
+    c_f = str(child).strip() if child is not None and str(child).strip() else None
+    p_f = str(parent).strip() if parent is not None and str(parent).strip() else None
+    b_f = str(batch).strip() if batch is not None and str(batch).strip() else None
+    r_f = normalize_relation(relation) if (relation is not None
+                                           and str(relation).strip()) else None
+    # ---- 排序 / 分页 / 聚合 入参校验 --------------------------------------
+    ord_v = _ordering_of(ordering)
+    agg_v = _aggregation_of(aggregation)
+    try:
+        off = int(offset or 0)
+    except (TypeError, ValueError) as exc:
+        raise ProvenanceError(f"offset 非法：{offset!r}") from exc
+    if off < 0:
+        raise ProvenanceError(f"offset 不能为负：{off}")
+    lim = DEFAULT_FIND_LIMIT if limit is None else int(limit)
+    if lim <= 0:
+        raise ProvenanceError(f"limit 必须为正整数（0/负数不当「全部」）：{limit!r}")
+    if lim > MAX_FIND_LIMIT:
+        raise ProvenanceError(f"limit 超上限 {MAX_FIND_LIMIT}：{lim}")
+    # ---- 时间算子：复用唯一校验点，缺省轴按本层语义补 observed -----------
+    enabled, axis0, why = _trust.check_time_args(
+        start_time=start_time, end_time=end_time,
+        start_operator=start_operator, end_operator=end_operator,
+        time_axis=time_axis)
+    if why:
+        raise ProvenanceError(why)
+    axis = FIND_DEFAULT_AXIS if time_axis is None else axis0
+    q_s = _trust.parse_time(start_time) if enabled else None
+    q_e = _trust.parse_time(end_time) if enabled else None
+
+    rows = all_edges(cg, path=path)
+    cand = []
+    for e in rows:
+        if c_f and e.get("child") != c_f:
+            continue
+        if p_f and e.get("parent") != p_f:
+            continue
+        if r_f and e.get("rel") != r_f:
+            continue
+        if b_f and e.get("batch") != b_f:
+            continue
+        cand.append(e)
+    total = len(cand)
+
+    # ---- 时间过滤（候选层：与 trust.filter_by_time 同策略） ---------------
+    dropped = missing = 0
+    kept = []
+    for e in cand:
+        if not enabled:
+            kept.append(e)
+            continue
+        cs, ce, miss = _edge_window(e, axis)
+        if miss:
+            if axis == "observed":                 # 观察轴 fail-closed
+                dropped += 1
+                missing += 1
+                continue
+            kept.append(e)                         # 效力轴 fail-open（无效力声明可读）
+            continue
+        if _trust.window_match(cs, ce, q_s, q_e, start_operator, end_operator):
+            kept.append(e)
+        else:
+            dropped += 1
+    if dropped + len(kept) != total:               # 审计不变式（可复算）
+        raise ProvenanceError(
+            f"审计不变式破缺：dropped({dropped}) + kept({len(kept)}) != total({total})")
+
+    # ---- 排序（t 缺失按 0 计，确定性次级键防抖） --------------------------
+    kept.sort(key=lambda e: (float(e.get("t") or 0.0),
+                             str(e.get("child") or ""),
+                             str(e.get("parent") or "")),
+              reverse=(ord_v == "desc"))
+    page = kept[off:off + lim]
+    if expand_nodes:
+        page = [dict(e) for e in page]
+        for e in page:
+            e["child_node"] = _node_digest(cg, e.get("child"))
+            e["parent_node"] = _node_digest(cg, e.get("parent"))
+
+    # ---- 聚合（分页前全集；无分页漂移） ----------------------------------
+    aggregates = None
+    if agg_v:
+        field = _AGG_FIELD[agg_v]
+        buckets = {}
+        for e in kept:
+            k = str(e.get(field) or "")
+            b = buckets.get(k)
+            if b is None:
+                b = buckets[k] = {"key": k, "count": 0, "t_min": None,
+                                  "t_max": None, "sample": []}
+            b["count"] += 1
+            t = e.get("t")
+            if t is not None:
+                t = float(t)
+                b["t_min"] = t if b["t_min"] is None else min(b["t_min"], t)
+                b["t_max"] = t if b["t_max"] is None else max(b["t_max"], t)
+            if len(b["sample"]) < 3:
+                b["sample"].append(f"{e.get('child')}->{e.get('parent')}"
+                                   f"({e.get('rel')})")
+        aggregates = sorted(buckets.values(), key=lambda b: (-b["count"], b["key"]))
+
+    return {"ok": True, "readonly": True, "op": "edges",
+            "triple": {"child": c_f, "relation": r_f, "parent": p_f, "batch": b_f},
+            "total": total, "matched": len(kept), "returned": len(page),
+            "offset": off, "limit": lim, "ordering": ord_v,
+            "aggregation": agg_v, "aggregates": aggregates,
+            "nodes_expanded": bool(expand_nodes),
+            "edges": page,
+            "time_filter": _trust.time_filter_meta(
+                axis=axis, mode=_mode_of(start_operator, end_operator),
+                start=start_time, end=end_time,
+                start_operator=start_operator, end_operator=end_operator,
+                dropped=dropped, axis_missing=missing, applied=bool(enabled)),
+            "ledger": ledger_file(cg.root, path),
+            "distinct_from": "links.py = 跨节点信任 P_trust（_links.json）",
+            "note": ("只读：台账 ∪ 索引声明（台账优先，按边去重）；"
+                     "聚合基于分页前全集；边时刻字段为 t（观察轴），"
+                     "无效力轴字段——真实时间条件请用缺省 time_axis=observed")}

@@ -169,6 +169,7 @@
 |---|---|---|
 | `route` | 任务开始路由记忆（返回知识 + 建议能力，不执行） | `intent`（任务意图） |
 | `read` | 召回/检索/按 id 取（`session`=只取该会话归属的记忆，缺省不过滤；`validity=true`=时效过滤（显式启用，缺省不过滤），**仅排除「已过期」，「未生效」一律保留**——两者语义相反） | `query` / `node_id` / `k` / `layer` / `budget_tokens` / `context` / `session` / `validity` |
+| `edges` | 三元组反查（**只读**）：按派生边任意端/谓词/时间反查「这条记忆从哪来 / 谁由它派生」（subject/predicate/object 即 child/relation/parent）；`expand_nodes=true` 附命中端点节点卡 | `child` / `parent` / `relation` / `batch` / `start_time` / `end_time` / `time_axis` / `ordering` / `offset` / `limit` / `aggregation` / `expand_nodes` |
 | `write` | 写入（先按 content_kind 审核 + 冲突检测，ACCEPT 落盘 / DEFER 入审核队列 / REJECT 入负记忆）。**自动归属**：frontmatter 带 `writer`/`session`/`harness`（服务端身份，不可伪造） | `content` / `content_kind`（text/code/…）/ `node_id`（同 id 即改写）/ `layer` / `tags` / `importance` / `verification_basis` / `condition_space` / `gated` / `consistency` / `on_conflict`（reject\|defer\|record） |
 | `verify` | 对节点做证据验证（confirmed/weakened/falsified）——**非队列裁决** | `node_id` / `verdict` / `evidence` |
 | `review` | 审核队列：`action=list/rounds/records/stats` 查看；传 `pid`+`decision`+`reason` 即裁决落盘（accept/reject/edit/merge/noop，**需 can_admin**；`noop`=已评估且判定不改动任何现有记忆，只留痕不入库、不进负记忆；本机未配置外部验证器时写入恒 DEFER 入队，靠此裁决落盘） | `action` / `pid` / `decision` / `reason` / `edits` / `merge_into` |

@@ -614,14 +614,22 @@ KERNEL_TOOLS = [
                        "valid_until + 履历台账）；给 node_id 看单节点全貌、不给看全库摘要、"
                        "action=ledger 读台账。所有读面返回体统一带 status_head 状态头"
                        "（✓已验证 / △已修改 / !异常 / ?存疑），hint 亦升级为该格式"
-                       "（MDCG_STATUS_HEAD=0 回退旧文本）。",
+                       "（MDCG_STATUS_HEAD=0 回退旧文本）。"
+                       "op=edges：**三元组反查**读面（阶段二 4.2）：按派生边任意端 / "
+                       "谓词 / 时间反查「这条记忆从哪来、谁由它派生」——subject/predicate/"
+                       "object ≡ child/relation/parent（`derived_from` 派生的三元组）。"
+                       "支持排序（ordering=desc 按写入时刻新→旧，缺省/asc）、分页"
+                       "（offset/limit）、**分页前全集**聚合（aggregation=by_relation|"
+                       "by_parent|by_child）、端点索引摘要（expand_nodes=true）。"
+                       "时间条件缺省走**观察轴**（派生边只有写入时刻 t，无效力声明）"
+                       "——与 op=read 缺省效力轴**有意不同**，由库层单点校验。",
         "inputSchema": _s("",
             op=_p("string", "route|read|write|verify|review|protect|identity|"
                             "consistency|metacognition|self_state|evolution|sustain|"
                             "scrub|predict|causal|"
                             "forget|goal|task|recent|info|index_code|index_doc|ref|whitebox|"
                             "theory|link|session|ingest|export|maintain|consolidate|"
-                            "insight|ccg|status|help", True),
+                            "insight|ccg|status|edges|help", True),
             ccg=_p("object", "CCG 六要素编译器入参：{action, node_id, dialog, marks, "
                              "slots, strict_spans, role, verdict, verifier, compiled_by, "
                              "evidence, slot_corrections, model, jobs, blocking, wait_s, "
@@ -640,9 +648,11 @@ KERNEL_TOOLS = [
             meta=_p("object", "recent op：附加元数据"),
             window=_p("integer", "recent op：滚动窗口大小（默认 200）"),
             include_recent=_p("boolean", "read：是否附近期事件窗口（默认否）"),
-            limit=_p("integer", "goal/recent 的返回条数；read 的近期事件条数"),
+            limit=_p("integer", "goal/recent 的返回条数；read 的近期事件条数；"
+                                "edges 分页条数（缺省 50、上限 500，0/负数报错不当「全部」）"),
             node_id=_p("string", "节点 id"),
-            offset=_p("integer", "read 的续读起始行（1 基；传上次返回的 next_offset）"),
+            offset=_p("integer", "read 的续读起始行（1 基；传上次返回的 next_offset）；"
+                                 "edges 的分页偏移（排序后切片，默认 0）"),
             content=_p("string", "write 的内容（建议含 CCG 5 要素注释）"),
             content_kind=_p("string", "write 的内容类型：code|image_desc|text|permission|work_done|work_wip|ccg_marks"),
             depends_on=_p("array", "write/verify：本单元**依赖**的节点 id 列表（CCG「子功能」"
@@ -657,13 +667,15 @@ KERNEL_TOOLS = [
             valid_until=_p("string", "双时间轴**终点**（ISO8601）：此刻后不再成立"
                                      "（过期在 scrub 报 expired，weaken/demote）"),
             start_time=_p("string", "时间算子：查询窗起点（ISO8601/时间戳）。启用后 "
-                                    "read 按 time_axis 轴把候选收敛到窗内"),
+                                    "read 按 time_axis 轴把候选收敛到窗内；edges 按边"
+                                    "写入时刻 t 收敛（**edges 缺省轴 observed**，与 read 不同）"),
             end_time=_p("string", "时间算子：查询窗终点（缺省该侧=无界）"),
             start_operator=_p("string", "时间算子：起点比较 gt|gte|eq|lte|lt"
                                         "（两端都不给算子=区间重叠语义）"),
             end_operator=_p("string", "时间算子：终点比较 gt|gte|eq|lte|lt"),
-            time_axis=_p("string", "时间算子轴：effective（效力轴，缺省）|"
-                                   "observed（观察轴 temporal/time_window）"),
+            time_axis=_p("string", "时间算子轴：effective（效力轴，read 缺省）|"
+                                   "observed（观察轴 temporal/time_window；"
+                                   "**edges 的缺省轴**——派生边只有记录时刻，无效力声明）"),
             layer=_p("string", "层：anchor|structural|knowledge|contextual|self"),
             tags=_p("array", "标签（cap:xxx 会作为 route 的建议能力名）"),
             importance=_p("number", "重要性 0-1"),
@@ -855,14 +867,22 @@ KERNEL_TOOLS = [
             verdicts=_p("array", "maintain refine apply：人工核对裁决 "
                                  "[{concept_id, faithful, added_info, note}]；"
                                  "缺省只落抽检留痕（不改节点）"),
-            batch=_p("string", "maintain/consolidate：批次号（回滚用）"),
+            batch=_p("string", "maintain/consolidate：批次号（回滚用）；"
+                               "edges：按派生边批次号过滤"),
             derived_from=_p("string", "write/remember：派生来源节点 id（G8，可用逗号/空格"
                                       "分隔多个）；声明后写入 frontmatter 并建派生边"),
-            relation=_p("string", "write/remember/link derive：派生关系名，"
+            relation=_p("string", "write/remember/link derive/edges：派生关系名（**谓词**），"
                                   "默认 derived_from（split_from|extracted_from|"
                                   "merged_from|refined_from|source）"),
-            child=_p("string", "link derive：按子节点 id 过滤派生边"),
-            parent=_p("string", "link derive：按父节点 id 过滤派生边"),
+            child=_p("string", "link derive/edges：按子节点 id 过滤派生边"
+                               "（edges 中即三元组的**主体**）"),
+            parent=_p("string", "link derive/edges：按父节点 id 过滤派生边"
+                                "（edges 中即三元组的**对象**）"),
+            ordering=_p("string", "edges：排序方向 desc（按写入时刻 新→旧，缺省）|asc"),
+            aggregation=_p("string", "edges：分页前全集分桶 by_relation|by_parent|"
+                                     "by_child（缺省不聚合）"),
+            expand_nodes=_p("boolean", "edges：是否附端点索引摘要 child_node/"
+                                       "parent_node（默认否；只读索引快照）"),
             ledger_only=_p("boolean", "link derive_dangling：只看台账、忽略索引声明"),
             pools=_p("object", "search/sustain pool_bench：召回分池表"
                                "{knowledge:{cap_ratio,weight},index:{…},"
@@ -1766,6 +1786,35 @@ def _status_call(cg, a):
     return rep
 
 
+# 生效条件：a 的 child/parent/relation/batch/时间五参/ordering/aggregation/offset/limit/expand_nodes 原样透传给 provenance.find_edges（本层不校验、不填默认，合法性单点在库层）；始终返回该只读结果字典（含 edges/total/matched/returned/aggregates/time_filter 审计块）。
+def _edges_call(cg, a):
+    """三元组反查（op=edges，**只读**）：按任意端 / 谓词 / 时间反查派生边。
+
+    三元组术语 `subject / predicate / object` 在本层就是 `child / rel / parent`
+    （即 `derived_from` 派生边）——**不新造第二套参数**：`cg` 工具面是扁平
+    schema，`subject` 已被 `identity`（主体语义）占用，同名异义会把两处口径搅在
+    一起；且 `relation`/`child`/`parent`/`batch` 已是 `link derive` 的既有谓词面。
+
+    参数**原样透传、不填默认、不做二次校验**，与 `_read_call` 同一策略：
+    合法性判定单点在库层（`provenance._ordering_of/_aggregation_of` 与
+    `trust.check_time_args`）。本层若自补默认，缺省轴（边 = `observed`，检索 =
+    `effective`）与枚举集就会两处分叉，日后必然漂移。
+
+    不暴露 `path`（库层测试用注入点）：MCP 面不接受文件系统路径。
+    """
+    from . import provenance as _pv
+    return _pv.find_edges(
+        cg,
+        child=a.get("child"), parent=a.get("parent"),
+        relation=a.get("relation"), batch=a.get("batch"),
+        start_time=a.get("start_time"), end_time=a.get("end_time"),
+        start_operator=a.get("start_operator"), end_operator=a.get("end_operator"),
+        time_axis=a.get("time_axis"),
+        ordering=a.get("ordering"), offset=a.get("offset") or 0,
+        limit=a.get("limit"), aggregation=a.get("aggregation"),
+        expand_nodes=bool(a.get("expand_nodes")))
+
+
 # 生效条件：始终调 help_text(ALL_TOOLS, query=a.get("query") or a.get("intent"), limit=int(a.get("limit") or a.get("k") or 40)) 并返回其结果。
 def _help_call(cg, a):
     """按需披露入口（工具面渐进披露的读取面，见 md_cg/tool_face.py）。
@@ -1856,6 +1905,9 @@ def _cg_dispatch(cg, a):
 
     if op == "status":
         return _status_call(cg, a)
+
+    if op == "edges":
+        return _edges_call(cg, a)
 
     if op == "theory":
         from . import theory as _th

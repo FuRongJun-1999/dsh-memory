@@ -38,7 +38,8 @@ FULL_ENV = "MDCG_TOOL_FACE"
 CG_HELP_HINT = '完整 op/参数语义：cg(op="help", query="<op 名 | 参数名 | 工具名>")'
 
 TOOL_BRIEFS = {
-    "cg": "灵枢认知图唯一入口（33 op：写/读/审/护/演化/元认知/预测/白箱/验证态 status…）。" + CG_HELP_HINT,
+    "cg": "灵枢认知图唯一入口（34 op：写/读/审/护/演化/元认知/预测/白箱/验证态 status/"
+          "三元组反查 edges…）。" + CG_HELP_HINT,
     "stg": "语义时空图 4 op：relation|timeline|anchors|consistency。" + CG_HELP_HINT,
     "mdcg_remember": "写入记忆节点（gated=true 走主动遗忘闸门；正文建议含 CCG 五要素）。",
     "mdcg_recall": "按 token 预算召回记忆包（RRF 多路融合，可开模糊/条件语义路与查询扩展）。",
