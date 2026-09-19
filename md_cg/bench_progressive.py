@@ -154,6 +154,7 @@ def exp_locomo():
             "avg_pool": sum(pool_sizes) / max(len(pool_sizes), 1)}
 
 
+# 生效条件：无必需形参；自建临时库（tempfile.mkdtemp + MdCGOS）注入 GOLD/NEIGHBORS 语料后跑渐进消歧，finally 清理临时目录；返回指标 dict，不依赖外部数据；
 def exp_controlled():
     """实验二：受控干扰池——条件冒充形态下渐进消歧（引擎侧真检索）。"""
     print("\n[progressive] 实验二 受控干扰池（42+2 节点真实 MdCGOS）")

@@ -617,6 +617,7 @@ class MdCGOS(MdCG):
                 out.append(e)
         return out
 
+# 生效条件：query strip 后为空即返回 ([], {"tier": None, "reason": "empty_query", "scanned": 0})；pool_cfg 由 pooling.resolve(pooling.from_env(pools)) 解析；_candidates 为空即返回 no_candidates；其余与 MdCG.search 同构（T0–T3 阶梯 + 资格判定），并按 roles/include_work 默认剔除工具输出与命令类 role；
     def search(self, query: str, layer: str = None, k: int = 20,
                context=None, min_results: int = 1, record: bool = True,
                include_neg: bool = True, judge: bool = True,
@@ -1376,6 +1377,7 @@ class MdCGOS(MdCG):
                 st[r["pid"]] = r
         return st
 
+# 生效条件：实例已构建（内部先读 _pid_status()）；返回其 status ∈ ("accepted", "rejected") 的 pid 集合，status=="needs_reapproval" 视为未关闭、不计入；
     def _closed_pids(self):
         """已被终态裁决关闭的 pid（needs_reapproval 仍视为打开）。"""
         return {pid for pid, r in self._pid_status().items()
@@ -1538,6 +1540,7 @@ class MdCGOS(MdCG):
             self._audit("review_cascade", b, cascade_of=pid, decision=decision)
         return closed
 
+# 生效条件：遍历 self.index["nodes"]；仅取 layer=="self" 且 tags 含 AUDIT_TAG 的节点，pid 为真值时再要求 tags 含 f"pid:{pid}"；按 (created_at, id) 升序返回不含正文的条目；
     def review_records(self, pid: str = None):
         """列出裁决记录节点（self 层 / audit 标签），供外部来源审计。"""
         out = []
@@ -2065,6 +2068,7 @@ class MdCGOS(MdCG):
                        "discard": "已丢弃（不写）", "defer": "留待复核（不写不并）"}.get(dec, "")
         return out
 
+# 生效条件：act 取 str(action or "stat") 去空白并 lower 后按分支分派（importance / longterm / prefeed / separate / stat 等）；未识别 act 走 stat 兜底；只读与写层 action 库层不鉴权，apply 类批量改写由 MCP 分发层 require_admin 把守；
     def maintain(self, action="stat", layer=None, limit=None, apply=False,
                  min_delta=None, max_rows=None, force=False, keep=None,
                  mode=None, snapshot_id=None, batch=None, entry_ids=None,
@@ -2307,6 +2311,7 @@ class MdCGOS(MdCG):
                        "fork", "branch_rewrite", "branch_search",
                        "branch_merge", "branch_discard", "branches")
 
+# 生效条件：act 取 str(action or "outlook") 去空白并 lower；只读分支 window/list/report/reconstruct/outlook/catalog，记账分支 record/verify（写 contextual 层），落库分支 learn(apply)/reconstruct(apply) 与六分支 act（fork/branch_rewrite/branch_search/branch_merge/branch_discard/branches）；落库与分支类由 _insight_call 的 require_admin 把守；
     def insight(self, action="outlook", **kw):
         """洞察条件层 + 情景重构 + 盲区学习 + 结构洞察（P2）。
 
@@ -2520,6 +2525,7 @@ class MdCGOS(MdCG):
         }
         return h
 
+# 生效条件：无前置；遍历 self.index["nodes"] 按 e.get("role") 或 "(none)" 计数，返回 role → 计数 dict（不过滤、不排序）；
     def _role_counts(self):
         c = {}
         for e in self.index["nodes"].values():
@@ -3024,11 +3030,13 @@ class MdCGSecure(MdCGOS):
             raise crypto.CryptoError("主密钥须为 32 字节")
         return k
 
+# 生效条件：调用 self._init_crypto(master_key)；master_key 为 None 时回落环境变量与主密钥文件，密钥缺失或长度非 32 字节抛 crypto.CryptoError；成功后返回 crypto_status()；
     def unlock(self, master_key=None):
         """运行时解锁（显式密钥 / 重新加载环境变量或主密钥文件）。"""
         self._init_crypto(master_key)
         return self.crypto_status()
 
+# 生效条件：无前置；丢弃内存中的 self.kek / self.dek 并置 _crypto_error="locked"（已落盘密文不受影响）；返回 crypto_status()；
     def lock(self):
         """锁定：丢弃内存中的密钥（已落盘密文不受影响）。"""
         self.kek = self.dek = None

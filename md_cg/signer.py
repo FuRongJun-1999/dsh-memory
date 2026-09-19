@@ -78,6 +78,7 @@ class Signer:
     def verify(self, payload: bytes, signature: str, ctx: dict = None) -> bool:
         raise NotImplementedError
 
+# 生效条件：无前置；返回 {"name": self.name, "kind": "abstract"}，不含密钥材料，供注册表自描述用。
     def describe(self) -> dict:
         return {"name": self.name, "kind": "abstract"}
 
@@ -101,6 +102,7 @@ class NullSigner(Signer):
     def verify(self, payload: bytes, signature: str, ctx: dict = None) -> bool:
         return signature in ("", None)
 
+# 生效条件：无前置；返回 {"name", "kind": "none", "note"}，其中 note 明示「不签名；仅用于观察期或纯本地场景」，不含密钥材料。
     def describe(self) -> dict:
         return {"name": self.name, "kind": "none",
                 "note": "不签名；仅用于观察期或纯本地场景"}
@@ -134,6 +136,7 @@ class HmacLocalSigner(Signer):
         want = self.sign(payload, ctx)
         return hmac.compare_digest(want, sig)
 
+# 生效条件：无前置；返回 {"name", "kind": "hmac-sha256", "key_file", "note"}——含 key_file 路径但不含密钥材料（密钥本身只经 public() 的 key_id 暴露）。
     def describe(self) -> dict:
         return {"name": self.name, "kind": "hmac-sha256",
                 "key_file": self.key_file,
@@ -290,6 +293,7 @@ def save_key(key: bytes, path: str = None) -> str:
 # 子系统签名策略（D-4：智能体自行决定子系统怎么用签名链）
 # --------------------------------------------------------------------------
 
+# 生效条件：无参无外部依赖；返回默认策略 {"signer": None, "sign_on": ["handshake"], "require_peer_signature": False, "on_verify_fail": "degrade"}（调用方需经 policy() 归一化后再用）；
 def _default_policy() -> dict:
     return {"signer": None, "sign_on": ["handshake"],
             "require_peer_signature": False, "on_verify_fail": "degrade"}

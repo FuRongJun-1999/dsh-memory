@@ -480,6 +480,7 @@ def revoke(token_id: str, path: str = None):
     return {"ok": True, "token_id": token_id, "revoked_children": children}
 
 
+# 生效条件：从 _load(path)（path 为 None 时取默认令牌文件）的 tokens 取值；条目的 revoked_at 为真且 include_revoked 为假时跳过；返回不含密钥材料与摘要的清单；
 def list_tokens(path: str = None, include_revoked: bool = False):
     """令牌清单（不含密钥材料与摘要）。"""
     out = []
@@ -537,6 +538,7 @@ def _write_secret(path: str, text: str) -> None:
         pass
 
 
+# 生效条件：argv 为 None 时取 sys.argv[1:]；经 argparse 解析（--token-file 与必填子命令 issue/verify/revoke/list/roles 等）；参数非法时经 argparse 退出，写盘失败抛 OSError；
 def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="python -m md_cg.tokens",

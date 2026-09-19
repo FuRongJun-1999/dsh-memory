@@ -255,6 +255,7 @@ class VectorRagAdapter(Adapter):
                 self._dim = len(out[-1])
         return out
 
+# 生效条件：无前置；把 self.ids 与 self.vecs 同时清空（二者下标耦合，必须成对重置），self._dim 保留原值不动；
     def reset(self):
         self.ids, self.vecs = [], []
 

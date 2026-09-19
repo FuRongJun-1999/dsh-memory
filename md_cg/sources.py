@@ -43,6 +43,7 @@ class Source:
     def events(self):
         raise NotImplementedError
 
+# 生效条件：无前置；返回类常量 self.name（基类为 "source"），作为 watermark 的稳定标识，不含路径与运行期状态；
     def key(self):
         """源的稳定标识（用于 watermark）。"""
         return self.name
@@ -66,6 +67,7 @@ class JsonlSource(Source):
         self.t_key, self.role_key, self.text_key = t_key, role_key, text_key
         self.default_role = default_role
 
+# 生效条件：无前置；返回 self.name（构造时已回落为 "jsonl:"+basename(path)），只随构造参数变化、不随文件内容变化；
     def key(self):
         return self.name
 
@@ -133,6 +135,7 @@ class DSHSessionSource(Source):
         self.include_reasoning = include_reasoning
         self.name = "dsh:" + os.path.basename(os.path.dirname(path))
 
+# 生效条件：无前置；返回 self.name（构造时固定为 "dsh:"+basename(dirname(path))），与 include_reasoning 取值无关；
     def key(self):
         return self.name
 

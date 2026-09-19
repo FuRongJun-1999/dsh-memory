@@ -189,6 +189,7 @@ class Principal:
                 "ops_allow": (None if self.ops_allow is None
                               else list(self.ops_allow))}
 
+# 生效条件：无前置；仅返回 tenant/actor/role/clearance/write/admin 的短摘要用于日志与排障，不含 token、密钥材料与能力白名单明细；
     def __repr__(self):
         return (f"Principal(tenant={self.tenant!r}, actor={self.actor!r}, "
                 f"role={self.role!r}, clearance={self.clearance!r}, "

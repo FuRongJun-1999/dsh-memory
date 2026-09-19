@@ -58,6 +58,7 @@ PATHS = ("lexical", "bucket", "entity", "graph")   # 引擎默认四路 RRF
 PATHS_CAL = PATHS + ("semantic",)   # 口径 B：显式启用条件结构路（负路由所在）
 
 
+# 生效条件：仅评测口径调用（主库不调用）；必须双改 md_cg.mdcg 与 md_cg.mdcos 两份 from-import 的同名值（漏改其一即静默失效），置为 10**9；无返回值、不落盘；
 def unlock_global_cap():
     """评测口径：解除 GLOBAL_CAP 截断（bench_membench patch_lexical_full 同法）。
 
@@ -74,6 +75,7 @@ def unlock_global_cap():
     mo.GLOBAL_CAP = 10 ** 9
 
 
+# 生效条件：仅评测口径调用（短条目语料下 jaccard 会退化）；把 md_cg.mdcg.SCORE_MODE 置为 "jaccard"（mdcos 读同一份、无需双改）；无返回值、不落盘；
 def use_jaccard():
     """评测口径：词法打分切 jaccard（对称归一化，长度自惩罚）。
 
@@ -181,6 +183,7 @@ def _date_tag(title):
     return m.group(0) if m else ""
 
 
+# 生效条件：r 为语料 turn 行（缺 text/role 等键时按空串处理）；date_key/title_key 为 None 时对应日期取空串；返回 (CCG 五要素正文, tags, condition_space) 三元组，仅当原文出现强否定标记才生成不适用条件、否则显式写「（无）」；
 def calibrate_turn(r, date_key=None, title_key=None):
     """turn 行 → (CCG 五要素正文, tags, condition_space)。
 
@@ -284,6 +287,7 @@ def _intent_of(text):
     return [h for h in _INTENT_HEADS if f" {h}" in low]
 
 
+# 生效条件：r 为语料 turn 行；ctx 为写入时全库视图（canon/intents/last_canon），ctx 为 None 时按空视图处理并退化为 v2 行为；返回 (CCG 五要素正文, tags, condition_space) 三元组；
 def calibrate_turn(r, date_key=None, title_key=None, ctx=None):
     """turn 行 → (CCG 五要素正文, tags, condition_space)。
 

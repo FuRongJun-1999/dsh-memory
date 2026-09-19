@@ -100,6 +100,7 @@ def node_id(root: str = None, explicit: str = None) -> str:
     return "node-" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
 
 
+# 生效条件：包内 md_cg.theory 可导入且 _th.check() 成功时返回 {version, accepted, theory_ok}；任何异常（版本层缺失或校验失败）一律吞掉返回 {}，不阻断证据层主流程；
 def _theory_state() -> dict:
     try:
         from . import theory as _th
@@ -511,6 +512,7 @@ def _print(obj):
     print(json.dumps(obj, ensure_ascii=False, indent=1, default=str))
 
 
+# 生效条件：argv 为 None 时取 sys.argv[1:]；经 argparse 解析后必填子命令（catalog/card/export/import 等）之一，参数缺失或非法由 argparse 直接退出；返回进程退出码；
 def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="python -m md_cg.evidence",

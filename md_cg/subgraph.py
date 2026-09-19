@@ -288,6 +288,7 @@ def validate(cg, limit=50, max_scan=None):
     known_set = set(known)
     parent, issues = {}, []
 
+# 生效条件：仅当 len(issues) < limit*4 时把 kw 追加进 issues（限流防报告膨胀）；无返回值，只改外层 issues；
     def _issue(**kw):
         if len(issues) < limit * 4:
             issues.append(kw)

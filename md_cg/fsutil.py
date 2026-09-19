@@ -294,6 +294,7 @@ class ShardedLog:
                                   separators=(",", ":")) + "\n")
         self._fh.flush()
 
+# 生效条件：幂等；self._fh 为真值时 flush 并关闭句柄、再把 self._fh 置 None，为 None 时直接返回不报错；
     def close(self):
         if self._fh:
             self._fh.close()

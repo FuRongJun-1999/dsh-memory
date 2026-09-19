@@ -747,6 +747,7 @@ class MdCG:
         # 每次 flush，句柄无需常驻；下一次 append 会按需重开。
         self._log.close()
 
+# 生效条件：随认知图对象生命周期结束调用、可重复；先 flush() 落未达 autoflush 阈值的脏索引（否则尾部写入虽在盘上但不可见），再关闭并置空日志句柄（句柄为假值时跳过关闭）；
     def close(self):
         # 先落脏索引再关句柄：否则未达 autoflush 阈值的尾部写入会永久丢失，
         # 已有 _index.json 的根重开时不会重扫目录，节点将「在盘上但不可见」。
@@ -1286,6 +1287,7 @@ class MdCG:
                 "created_at": float(fm.get("created_at") or 0.0),
                 "path": e["path"]}
 
+# 生效条件：遍历 self.index["nodes"] 中 layer=="goals" 的节点，_goal_entry 取不到者跳过；status 为假值时不过滤、否则仅保留 status 相等者；按 (-priority, -created_at) 降序，limit 为真值时截断 out[:limit]，否则返回全量；
     def list_goals(self, status=None, limit=None):
         """列出目标，按 (priority, created_at) 降序。status 过滤 active/done/dropped。"""
         out = []
@@ -1298,6 +1300,7 @@ class MdCG:
         out.sort(key=lambda g: (-g["priority"], -g["created_at"]))
         return out[:limit] if limit else out
 
+# 生效条件：等价于 list_goals(status="active", limit=limit)，limit 缺省 5；返回按 (-priority, -created_at) 降序的活跃目标列表；
     def active_goals(self, limit: int = 5):
         """当前活跃目标（默认最多 5 条）——检索定向的默认来源。"""
         return self.list_goals(status="active", limit=limit)
@@ -1642,6 +1645,7 @@ class MdCG:
 
     # ---------- 检索（性能阶梯 + 资格判定）----------
 
+# 生效条件：query strip 后为空即返回 ([], {"tier": None, "reason": "empty_query", "scanned": 0})；非空时按 T0–T3 性能阶梯取候选（layer / session / branch 为假值时对应维度不过滤），judge 为真时对每条结果附独立的四态资格判定；返回 (results, meta)；
     def search(self, query: str, layer: str = None, k: int = 20,
                context=None, min_results: int = 1, record: bool = True,
                include_neg: bool = True, judge: bool = True, pools=None,

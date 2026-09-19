@@ -51,6 +51,7 @@ _RE_WS = re.compile(r"\s+")
 _RE_TITLE = re.compile(r"^\s*#\s*功能名[：:]\s*(.+?)\s*$", re.M)
 
 
+# 生效条件：读环境变量 MDCG_WRITELIMIT（缺省 "1"），strip 并 lower 后不在 ("0", "false", "no") 中即返回 True——默认开启，仅显式关闭值才停用；
 def enabled() -> bool:
     """总开关：env MDCG_WRITELIMIT=0/false/no 时关闭所有限流。"""
     return os.environ.get("MDCG_WRITELIMIT", "1").strip().lower() \

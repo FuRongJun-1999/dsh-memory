@@ -251,6 +251,7 @@ def before_hook():
     return _before
 
 
+# 生效条件：返回 after 拦截器闭包 _after(ctx, out)——仅当 out 是 dict 且 out.get("committed") 为真、ctx["linkref_targets"] 非空、ctx["cg"] 非 None 且 nid 为真时才对 live 目标逐个 append_edge；任一不成立即提前返回、不建边（建边失败就地吞掉，不阻断写入主流程）；
 def after_hook():
     """after 拦截器工厂：落盘成功后经 append_edge 建 reference 边（幂等）。
 

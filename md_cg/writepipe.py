@@ -71,6 +71,7 @@ def _commit_visibility(cg, out):
 class WritePipeline:
     """写入拦截器链（实例级；default_pipeline() 提供进程级默认单例）。"""
 
+# 生效条件：无前置；初始化 _before / _after 两条空链（元素为 (name, fn) 二元组），不做任何注册、不触盘；
     def __init__(self):
         self._before = []  # [(name, fn)]
         self._after = []   # [(name, fn)]
@@ -112,6 +113,7 @@ class WritePipeline:
         self._after = [x for x in self._after if x[0] != str(name)]
         return len(self._after) != n0
 
+# 生效条件：无前置；返回 {"before": [...注册名], "after": [...注册名]}，只暴露名字不暴露函数对象，顺序即执行顺序；
     def names(self):
         return {"before": [n for n, _f in self._before],
                 "after": [n for n, _f in self._after]}

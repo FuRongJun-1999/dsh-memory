@@ -151,6 +151,7 @@ class _SubprocessWhiteboxClient(_WhiteboxApi):
         self._notify("notifications/initialized", {})
         return self
 
+# 生效条件：幂等、可重复调用；self.proc 为 None 时直接返回；否则先关 stdin 再 terminate 并 wait(timeout=3)，超时或异常则 kill 兜底；无返回值、不抛异常；
     def close(self):
         proc, self.proc = self.proc, None
         if proc is None:
@@ -247,6 +248,7 @@ class LocalWhiteboxClient(_WhiteboxApi):
     故 `ask / remember / ping / verify_*` 及其留痕逻辑无需任何改动。
     """
 
+# 生效条件：db_path 为 None 时由引擎按默认路径取库；_ignored 吞掉子进程版遗留形参以保持接口同形；构造只记录路径、不加载引擎（延迟到 self.engine 首次访问）；
     def __init__(self, db_path=None, **_ignored):
         self.db_path = db_path
         self._engine = None
@@ -259,10 +261,12 @@ class LocalWhiteboxClient(_WhiteboxApi):
         return self._engine
 
     # -- 生命周期（与子进程版语义对齐：start 即确保可用，失败即抛） --------
+# 生效条件：先取 self.engine（首次访问才真正加载知识库）并调 service_info() 以确认可服务，不可用即抛；成功后返回 self，可重复调用；
     def start(self):
         _ = self.engine.service_info()
         return self
 
+# 生效条件：幂等；self._engine 为 None 时直接返回，否则关闭引擎并置 None（只释放句柄，不删除落盘数据）；
     def close(self):
         if self._engine is not None:
             self._engine.close()

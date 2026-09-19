@@ -364,6 +364,7 @@ def patch_zero_importance(cg):
     cg._read = _z
 
 
+# 生效条件：cg 与 qs 均须可用；内部先经 cg._candidates() 取候选池、cg._read_many 读正文，再按每题 query terms 统计 _like 命中数；只打印诊断（含 GLOBAL_CAP 与截断计数）并返回 None，不改库；
 def pool_diag(cg, qs):
     """候选池对称性诊断：lexical 的 LIKE 命中数是否真的被 GLOBAL_CAP 截断。"""
     from md_cg import mdcos as _m
@@ -462,6 +463,7 @@ def ablate(cg, qs, args):
     return 0
 
 
+# 生效条件：argv 经 argparse 解析（--n/--k/--seed/--rebuild/--per-path/--sweep/--diag/--ablate/--sympool/--fusion/--lexfull/--zero-importance 等）；外部数据集缺失即抛异常、不静默降级；返回进程退出码；
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=250, help="抽样 signal 条数（0=全量）")

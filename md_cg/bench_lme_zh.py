@@ -274,6 +274,7 @@ def eval_arm(cg, questions, qtext_of, k=5):
     return ec.summarize(rows, k=k)
 
 
+# 生效条件：argv 由 argparse 解析（--n-q/--n-distract/--k/--build/--rebuild/--workers 等）；--build 只产池即返回，否则需外部数据在指定路径就位、缺失即抛异常不静默降级；
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-q", type=int, default=20)
