@@ -77,6 +77,22 @@ def explained_guards(rec, allowed):
     return out
 
 
+def behavior_anchors(rec, allowed):
+    """可陈述的行为锚点：doc 摘要 / 早退式守卫 / 引用了入参或模块常量的返回表达式。
+
+    只有形参清单而没有任何行为锚点者，判 BLINDSPOT（验证单元实测：仅复述入参/局部变量表达式不算条件）。
+    """
+    import re as _re
+    doc = (rec.get("doc_head") or "").strip()
+    guards = explained_guards(rec, allowed)
+    rets = []
+    for r in rec.get("returns") or []:
+        ids = set(_re.findall(r"[A-Za-z_][A-Za-z0-9_]*", r))
+        if ids & allowed:          # 引用局部变量的返回表达式（如 d.strip()...）不作行为锚点
+            rets.append(r)
+    return doc, guards, rets
+
+
 # 生效条件：调用 compose 时必须提供 rec（且 rec 含 name 键，直接 rec["name"] 取值），imports、consts 为假值时回落为空集合，terse 控制空槽位是否省略；当 rec["required"] 为空且 rec["externals"] 中在 consts 内的项也为空时返回固定 BLINDSPOT 串，否则按 required/optional/externals/explained_guards/returns/doc_head 拼接并返回以“。”结尾的字符串；
 def compose(rec, imports=None, terse=True, consts=None):
     """按模板把一条事实填成中文生效条件；terse=True 省略空槽位。"""
@@ -88,9 +104,10 @@ def compose(rec, imports=None, terse=True, consts=None):
     # 外部名只保留「模块级常量」——它们才是可陈述的状态来源（函数与 import 不是条件）
     externals = [x for x in (rec.get("externals") or []) if x in consts]
     allowed = set(required) | {o["name"] for o in optional} | set(externals)
-    guards = explained_guards(rec, allowed)
+    doc, guards, returns_ok = behavior_anchors(rec, allowed)
+    if not doc and not guards and not returns_ok:
+        return "BLINDSPOT：缺功能证据（仅形参清单，未描述功能前置状态或行为）"
     returns = list(rec.get("returns") or [])
-    doc = (rec.get("doc_head") or "").strip()
     # 模板规则：必需与外部锚点皆无 → BLINDSPOT（不可判，不猜）
     if not required and not externals:
         return "BLINDSPOT：缺证据（无必需形参且无体内外部名锚点）"
@@ -112,8 +129,8 @@ def compose(rec, imports=None, terse=True, consts=None):
             parts.append("断言 " + g["cond"] + " 成立")
         else:
             parts.append("可能抛出 " + (g["cond"] or "异常"))
-    if returns:
-        parts.append("返回 " + " 或 ".join(returns[:2]))
+    if returns_ok:
+        parts.append("返回 " + " 或 ".join(returns_ok[:2]))
     head = "调用 " + name + " 时" if rec.get("kind") != "class" else "构造/使用 " + name + " 时"
     body_text = head + "，" + "；".join(parts)
     if doc:

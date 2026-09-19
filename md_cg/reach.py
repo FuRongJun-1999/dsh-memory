@@ -24,9 +24,9 @@
 → 返回 (None, meta)，调用方继续走原全量阶段，**旧行为不变**。
 
 # 功能名：检索候选收敛层
-# 生效条件：MdCG/MdCGSecure.search 在 T2 全局阶段之前调用本层时；进程环境 MDCG_REACH != "0"；库根可写（首建缓存）或缓存已存在；查询各 term 长度 >= 2（bigram 能覆盖子串语义）
+# 生效条件：MdCG/MdCGSecure.search 在 T2 全局阶段之前调用本层时；进程环境 MDCG_REACH == "1"（显式 opt-in，默认关——依据 docs/hive/检索路径与认知结构契约_v0.1.md §7「不在默认路径上启用新行为」，与 MDCG_RETRIEVAL_PIPELINE 同纪律）；库根可写（首建缓存）或缓存已存在；查询各 term 长度 >= 2（bigram 能覆盖子串语义）
 # 子功能：bigram 倒排大域收敛（LIKE 与词法打分双路并集，超集精确）；条件门控（只提前「接受的必要条件」：层/角色/会话/分支 + 可读性；时窗/生命周期/密级等仅排序或由调用方负责，不作门控）；edges 图扩散补召回；命中不足或条件不满足时回退全量
-# 执行：from md_cg import reach；reach.narrow(cg, entries, terms, qb, context) -> (entries 或 None, meta)；缓存文件 <root>/_reach_index.json（MDCG_REACH_INDEX 可改写落点）；开关 MDCG_REACH=0 关闭
+# 执行：from md_cg import reach；reach.narrow(cg, entries, terms, qb, context) -> (entries 或 None, meta)；缓存文件 <root>/_reach_index.json（MDCG_REACH_INDEX 可改写落点）；开关 MDCG_REACH=1 显式开启（默认关，未设即不生效）
 # 验证方式：md_cg/test_reach.py（收敛集必含 LIKE/打分命中集、门控/扩散/回退逐项断言）；_coord/a3_reach.py（A1 全组回归、A2 新旧结果对比、A3 触碰比）
 # A3 口径（与文档对齐）：meta.scanned 只计**检索读盘**（_read_many）；索引首建/重建的全库读盘
 # 另计于 meta.reach_build_docs，两者不可混淆——报 A3 时须同时给「稳态均值」与「含首建均值」。
@@ -37,7 +37,7 @@
 # 仅改 semantic 标志不会改变键；该情形由 TTL（默认 600s）兜底——**在 TTL 窗口内**改 semantic 标志可能破坏 new 包含 old（窗口上界=TTL）；若需秒级精确，应把 semantic 纳入索引条目后再入键。
 # 已知风险（如实声明）：落盘缓存 post 内含**明文 bigram**，目前未按主体/密级隔离——
 # 多主体共用同一 root 时，缓存文件本身即构成跨主体词面信息（读盘/内存无越权，但文件级隔离未做）。
-# 不适用条件：①查询含单字符 term（bigram 无法表达单字子串）→ 不收敛 ①b库内有节点缺 content_hash 且非本次重建 → 不收敛（宁全量不冒陈旧丢召回）①c图扩散默认关闭（MDCG_REACH_DIFFUSE=1 开启：扩散节点参与 top-k 竞争，召回增加但 A2 的集合包含性不再逐位保证） ②MDCG_REACH=0 ③索引内容过时（content_hash 不符 / 超过 MDCG_REACH_TTL 默认 600s）时先全量重建，重建失败即不收敛 ④只读根且无缓存时：当次仍以内存索引收敛，但**不入进程缓存**（下次调用重新构建）——收敛收益减少但结果不丢，且与声明一致 ⑤首建当次额外读全库（meta.reach_build_docs 如实暴露），A3 稳态值不含该次 ⑤密级（clearance）过滤由调用方与 _readable 负责，本层不新增 ⑥首建当次调用会读全库（meta.reach_build_docs 如实暴露），稳态才享受收敛收益
+# 不适用条件：①查询含单字符 term（bigram 无法表达单字子串）→ 不收敛 ①b库内有节点缺 content_hash 且非本次重建 → 不收敛（宁全量不冒陈旧丢召回）①c图扩散默认关闭（MDCG_REACH_DIFFUSE=1 开启：扩散节点参与 top-k 竞争，召回增加但 A2 的集合包含性不再逐位保证） ②MDCG_REACH 未设或不等于 "1"（默认关，契约 §7） ③索引内容过时（content_hash 不符 / 超过 MDCG_REACH_TTL 默认 600s）时先全量重建，重建失败即不收敛 ④只读根且无缓存时：当次仍以内存索引收敛，但**不入进程缓存**（下次调用重新构建）——收敛收益减少但结果不丢，且与声明一致 ⑤首建当次额外读全库（meta.reach_build_docs 如实暴露），A3 稳态值不含该次 ⑤密级（clearance）过滤由调用方与 _readable 负责，本层不新增 ⑥首建当次调用会读全库（meta.reach_build_docs 如实暴露），稳态才享受收敛收益
 """
 from __future__ import annotations
 
@@ -103,9 +103,11 @@ def _build_meta(idx) -> dict:
     return {}
 
 
-# 生效条件：环境变量 MDCG_REACH 等于 "0" 时返回 False，其余（含未设置）返回 True。
+# 生效条件：环境变量 MDCG_REACH **恰为 "1"** 时返回 True；未设置或其它取值（含 "0"）返回 False——即默认关。
+# 依据：docs/hive/检索路径与认知结构契约_v0.1.md §7「不在默认路径上启用新行为」（先 flag 化、逐项验证、再讨论默认开启）
+# 与 §5.1「开关关 → run_tests 全绿且与现状一致」。启用与否由调用点 reach.enabled() 前置守卫，保证关态下不向 meta 落任何 reach* 键。
 def enabled() -> bool:
-    return os.environ.get("MDCG_REACH", "1") != "0"
+    return os.environ.get("MDCG_REACH") == "1"
 
 
 # 生效条件：环境变量 MDCG_REACH_DIFFUSE 等于 "1" 时返回 True，其余（含未设置）返回 False。

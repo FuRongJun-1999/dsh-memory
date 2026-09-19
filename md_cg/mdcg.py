@@ -26,7 +26,7 @@ import hashlib
 import threading
 
 from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
-               lifecycle)
+               lifecycle, reach)
 from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
                      read_jsonl, sweep_stale_temps)
 
@@ -1873,6 +1873,48 @@ class MdCG:
                 if out:
                     return out
 
+        # T1'（reach）：大域收敛 → 条件门控 → 图扩散（2026-09-18 新增）。
+        # 层级仍报 TIER_GLOBAL_LIKE（它就是「全量 LIKE」阶段的收敛实现，test_p0 契约
+        # 「无 context 走全量阶梯」不因优化而变）；收敛与否由 meta.reach* 字段区分。
+        # 收敛集是 LIKE 命中集与词法打分>0 集合的**超集**（必要条件倒排，见
+        # md_cg/test_reach.py 包含性断言），故本阶段不可能丢召回；任一不适用条件
+        # （MDCG_REACH 未开启 / 单字符 term / 索引不可用 / 收敛集为空）整段跳过，由下方全量阶段兜底。
+        # 默认关（契约 §7「不在默认路径上启用新行为」）：整段不进入 → meta 键集合与改动前逐字节一致。
+        reach_entries, _rstat = None, {}
+        if reach.enabled():
+            reach_entries, _rstat = reach.narrow(self, entries, terms, qb, context, q=q)
+        if _rstat:
+            stat.update(_rstat)
+        if reach_entries is not None:
+            _pre_scan = int(stat.get("scanned") or 0)   # 收敛阶段读盘基线（供回退审计）
+            docs_r = self._read_many(reach_entries, stat)
+            _dif = set(_rstat.get("reach_diffused_paths") or ())
+            hits_r = [d for d in docs_r
+                      if self._like(d[2], d[1], terms)
+                      or (semantic_on() and d[1].get("semantic"))
+                      or d[0].get("path") in _dif]     # 图扩散补召回：无词面命中也放行进打分
+            stat["pre_cap"] = len(hits_r)     # 与 T2 同序：截断**前**的候选数
+            stat["cap"] = GLOBAL_CAP
+            # 与 T2 **无条件**同序调用（不可按 cap 短路：cut_by_relevance 还会写
+            # 池账 pool_taken/cands/lost，短路会让 meta.pools.taken 缺失 → test_p43(13) 红）
+            hits_r, _rep = cut_by_relevance(hits_r, self._score(hits_r, q, qb, pool_cfg),
+                                            GLOBAL_CAP, pools=pool_cfg,
+                                            key_of=pooling.doc_key, stat=stat)
+            pooling.record_audit(stat, _rep)
+            out = try_stage(hits_r, TIER_GLOBAL_LIKE)
+            if out:
+                return out
+            # 收敛阶段未产出结果 → 继续走下方全量 T2/T3；此时必须**改写 reach 审计**，
+            # 否则 meta.reach 谎报 converged、A3 也会把「收敛读+全量读」双计当成收敛（r14 复核取证）
+            stat["reach"] = "reverted"          # 已回退：本次结果不是收敛路径产出的
+            stat["reach_reverted"] = True
+            # 收敛阶段确实读过盘 → 如实暴露其读盘量，A3 可据此扣减（**不**回滚 scanned：
+            # 累计读盘是事实；也**不**清除 reach_build_docs：首建成本真实发生过，r16 复核取证）
+            stat["reach_reverted_docs"] = int(stat.get("scanned") or 0) - _pre_scan
+            for _k in ("reach_seed", "reach_diffused", "reach_hops", "reach_diffused_paths",
+                       "reach_fresh_nodes"):
+                stat.pop(_k, None)
+
         # T2：跨桶 LIKE（§七 截断点：分池截断，索引类不再挤掉知识类）
         # 截断依据=相关度（先全量打分再排序截断）：命中集沿 entries（目录枚举序）
         # 排列，原来「取前 GLOBAL_CAP 条再打分」等价于用写入顺序抽签决定谁进
@@ -2263,7 +2305,21 @@ class MdCG:
                      "covered_neg": [nc["path"] for nc in neg_coverage],
                      # 阶段 1 大域收敛结果 + 完整打分明细（白箱可审计）
                      "big_domain": big_domain,
-                     "big_domain_scores": big_scores}
+                     "big_domain_scores": big_scores,
+                     # reach 收敛层审计（2026-09-18）：reach=converged/off/short_term/...
+                     # 与 reach_seed（倒排命中数）/reach_diffused（图扩散增量）——
+                     # A3「触碰量随查询变化」的观测面（scanned 只报读盘数）
+                     "reach": stat.get("reach"),
+                     "reach_seed": stat.get("reach_seed"),
+                     "reach_diffused": stat.get("reach_diffused"),
+                     "reach_hops": stat.get("reach_hops"),
+                     # 首建全库读盘量（仅本次调用发生重建时出现）与新节点并入数
+                     "reach_build_docs": stat.get("reach_build_docs"),
+                     "reach_fresh_nodes": stat.get("reach_fresh_nodes"),
+                     # 回退审计：reach_reverted=True 表示本次结果来自全量路径；
+                     # reach_reverted_docs 为收敛阶段已发生的读盘量（A3 可据此扣减）
+                     "reach_reverted": stat.get("reach_reverted"),
+                     "reach_reverted_docs": stat.get("reach_reverted_docs")}
         # 分阶段审计仅在门控真的产生信息时落键（默认关闭 → meta 与改动前逐字节一致；契约 §5.3）
         if stat.get("gates"):
             meta["gates"] = stat["gates"]
