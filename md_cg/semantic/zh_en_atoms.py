@@ -17,6 +17,7 @@ import re
 
 ZH_EN = {}
 
+# 生效条件：传入任意 zh 与 en（含空串等假值）时，段内无条件执行 ZH_EN[zh] = en，即以 zh 为键写入 en 并返回。
 def M(zh, en):
     ZH_EN[zh] = en
 
@@ -106,6 +107,7 @@ for zh, en in [("电脑","electric brain"),("电话","electric speech"),("电视
 # ---- 贪心最长匹配 ----
 _sorted = sorted(ZH_EN.keys(), key=len, reverse=True)
 
+# 生效条件：text 为空串时 while pos < len(text) 不进入、直接返回空列表；否则按 _sorted 顺序用 text.startswith(key, pos) 命中即 append 该 key、pos 增 len(key) 并 break，未命中则 append text[pos] 且 pos 增 1，直至 pos 达 len(text) 后返回该原子列表。
 def segment(text):
     """贪心最长匹配：文本 → 原子列表"""
     result = []
@@ -124,6 +126,7 @@ def segment(text):
     return result
 
 
+# 生效条件：对每个由 text 经 segment(text) 得到的原子 a，按 ZH_EN.get(a, "[" + a + "]") 取值（a 为 ZH_EN 缺失键时用 "[" + a + "]"），再以单空格 " ".join 连接为字符串返回。
 def serialize(text):
     """中文文本 → 标准英文原子序列"""
     return " ".join(ZH_EN.get(a, "[" + a + "]") for a in segment(text))

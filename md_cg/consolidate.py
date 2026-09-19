@@ -1332,6 +1332,7 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
 
 # ---- CLI ----------------------------------------------------------------
 
+# 生效条件：不适用（无必需形参与模块级常量）
 def _cli(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="md_cg 离线固化：反思单元(LLM)产出候选 → 白箱闸门 → "

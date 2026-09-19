@@ -281,6 +281,7 @@ def _redteam_required():
         in ("1", "true", "yes")
 
 
+# 生效条件：以任意 root 构造时按其拼接 audit_log/hippocampus/trash 等路径并 makedirs 创建 hippocampus 与 trash_dir（exist_ok=True），autoflush 透传父类、actor 存入 self.actor；
 class MdCGOS(MdCG):
     """MdCG + 记忆 OS 七项能力。"""
 
@@ -583,6 +584,7 @@ class MdCGOS(MdCG):
     # ================= 资格判定（legacy 记忆豁免） =================
 
     @staticmethod
+# 生效条件：node_dict 的 frontmatter 中 ccg_exempt 为真且 content 去空白后非空时返回 DEFER 记录，否则以 (node_dict, query, context) 转 MdCG.judge_qualification；
     def judge_qualification(node_dict, query: str, context=None):
         """在父类四态之上支持 legacy 记忆（迁移进来的自由文本）。
 
@@ -1132,6 +1134,7 @@ class MdCGOS(MdCG):
 
     # ================= 7. budget-driven pack =================
 
+# 生效条件：query（配合 use_rrf 取 items）逐条按 budget_tokens 与 max_item_tokens 装包：若 used+t > budget_tokens，则 max_item_tokens 为真且 room=budget_tokens-used 不小于 min_excerpt（max_item_tokens 为真时取 max(1, min(50, max_item_tokens // 5))，否则为 0）时按 keep=min(max_item_tokens, room) 摘录，摘录后 est_tokens<=0 则该条以 excerpt_empty 进 skipped 并 continue；否则以 oversize_or_over_budget 进 skipped 并 continue；未超预算则计入 used 并 append，include_recent 为真时再按 left=budget_tokens-used 追加 recent_limit 条近期事件（逐条 est_tokens 不超过 left 才计入），最终返回含 pack/tokens_used/budget/skipped/recent/meta 的 dict。
     def recall(self, query: str, budget_tokens: int = DEFAULT_BUDGET, k: int = 20,
                layer: str = None, context=None, roles=None,
                include_work: bool = False, judge: bool = True, use_rrf: bool = True,
@@ -1412,6 +1415,7 @@ class MdCGOS(MdCG):
     AUDIT_TAG = "review-record"
 
     @staticmethod
+# 生效条件：从 rec 取 pid/round/decision/status/redteam_verdict/issues/verify_hash/reason/actor/t 十键（缺键回落 None）做 sort_keys 紧凑 JSON 序列化后返回 sha1 hexdigest；
     def _record_hash(rec):
         """裁决记录指纹：外部审计方按同规则重算即可验证未被篡改。"""
         keys = ("pid", "round", "decision", "status", "redteam_verdict",
@@ -1422,6 +1426,7 @@ class MdCGOS(MdCG):
         return hashlib.sha1(norm.encode("utf-8")).hexdigest()
 
     @staticmethod
+# 生效条件：对任意 pid 取其 '_' 分段末段、round_no 经 int() 转换后拼成 f"rev_{末段}_r{轮次}"；
     def _audit_node_id(pid: str, round_no) -> str:
         return f"rev_{pid.split('_')[-1]}_r{int(round_no)}"
 
@@ -1576,6 +1581,7 @@ class MdCGOS(MdCG):
                 "verify_hash": src.get("verify_hash"),
                 "source": "hippocampus/decisions.jsonl"}
 
+# 生效条件：decision 须为 "accept"/"reject"/"edit"/"merge" 之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'）后追加内容并 rebuild_index，reject 只记裁决；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
     def review_decide(self, pid: str, decision: str, edits: dict = None,
                       merge_into: str = None, reason: str = "",
                       redteam: dict = None, issues=None):
@@ -1781,6 +1787,7 @@ class MdCGOS(MdCG):
     SESSION_TAG = "session"
 
     @staticmethod
+# 生效条件：对任意 session 与 summary（None 分别按空串处理，summary 另去首尾空白）取 sha1 前 12 位拼成 "sess_{sig}"，同 (session, summary) 得同 id；
     def _session_node_id(session, summary):
         """会话要点节点 id：同 (session, summary) → 同 id（幂等覆盖，不新增）。"""
         sig = hashlib.sha1(
@@ -1789,6 +1796,7 @@ class MdCGOS(MdCG):
         return f"sess_{sig}"
 
     @staticmethod
+# 生效条件：content 中「执行」字段真值时返回其前 500 字符，否则返回首个非空行去空白后前 500 字符，全空或无行时返回空串；
     def _session_digest(content):
         """从会话节点正文取一行摘要（`# 执行：` 优先，否则首个非空行）。"""
         v = _ccg_field(content, "执行")
@@ -2948,6 +2956,7 @@ class MdCGOS(MdCG):
         return evolution.catalog()
 
 
+# 生效条件：以 root 构造并把 **kw 透传父类，principal 为假值（None）时回落新建 Principal()、否则用传入的 principal，其 actor 作为 actor 传给父类，master_key 原样交给 _init_crypto；
 class MdCGSecure(MdCGOS):
     """带权限的记忆 OS：租户 + 密级（clearance）× 节点敏感度（sensitivity）。
 
@@ -2996,6 +3005,7 @@ class MdCGSecure(MdCGOS):
             self.kek = self.dek = None
 
     @staticmethod
+# 生效条件：master_key 为 bytes/bytearray 时直接取字节，否则转 str 去空白后若该串是存在路径则读文件内容，len==64 走 bytes.fromhex、否则走 base64 解码，所得长度不等于 crypto.KEY_LEN 时抛 CryptoError；
     def _resolve_master_key(master_key):
         """接受 32B bytes / 64 位 hex / base64 / 密钥文件路径。"""
         if isinstance(master_key, (bytes, bytearray)):

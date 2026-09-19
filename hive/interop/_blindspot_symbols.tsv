@@ -1,0 +1,245 @@
+symbol	tries	class	required
+md_cg/predict.py::dfs	2	active	cur,path,confs,conds,sources,relations,depth
+md_cg/predict.py::feedback	2	active	cg,predicted_node_id
+md_cg/semantic/canonical.py::query_atoms	2	active	text
+md_cg/semantic/en_normalizer.py::normalize_en_query	2	active	query
+md_cg/sustain.py::SustainLoop	2	active	cg
+md_cg/sustain.py::diagnose	2	active	cg
+scripts/bootstrap_watchdog.py::_dp	2	active	
+compiler/debugger.py::VMDebugger._op_name	1	active	op
+md_cg/bench_p0.py::brute_force	1	active	q
+md_cg/refindex.py::Ledger	1	active	root
+skills/skills/designer-perspective/scripts/designer.py::_build_parser	1	active	
+skills/skills/designer-perspective/scripts/designer.py::emit_mcp_calls	1	active	result
+skills/skills/designer-perspective/scripts/designer.py::main	1	active	
+swarm/swarm_cli.py::cmd_run	1	active	args
+test/hive_exec_test.py::test_build_body_full_optional	1	active	
+test/hive_exec_test.py::test_build_body_minimal	1	active	
+test/hive_exec_test.py::test_build_body_thinking_and_effort	1	active	
+test/hive_exec_test.py::test_est_tokens_mixed_and_empty	1	active	
+compiler/codegen.py::CodeGenerator	0	active	
+compiler/codegen.py::CodeGenerator._write_header	0	active	
+compiler/condition_vm.py::ConditionVM	0	active	
+compiler/condition_vm.py::ConditionVM._exec	0	active	
+compiler/lexer.py::Lexer	0	active	
+hive/hive_mcp/smoke_test.py::main	0	active	
+hive/interop/iter-008-ring2-pilot/replay/pilot_build.py::usable	0	active	
+md_cg/bench_lme_zh.py::main	0	active	
+md_cg/bench_membench.py::main	0	active	
+md_cg/bench_p0.py::main	0	active	
+md_cg/bench_progressive.py::exp_controlled	0	active	
+md_cg/conformance.py::check	0	active	
+md_cg/consistency.py::check	0	active	
+md_cg/crosscheck.py::crosscheck	0	active	
+md_cg/insight.py::outlook	0	active	
+md_cg/links.py::handshake	0	active	
+md_cg/migrate_aeis.py::migrate	0	active	
+md_cg/migrate_roleplay.py::migrate	0	active	
+md_cg/mreview/govern.py::main	0	active	
+md_cg/security.py::Principal	0	active	
+md_cg/subgraph.py::reconstruct_scene	0	active	
+md_cg/tokens.py::main	0	active	
+md_cg/weights.py::recalc	0	active	
+scripts/bootstrap_loop.py::run_channel_b	0	active	
+scripts/cogmap_sync.py::extract	0	active	
+scripts/verify_discipline.py::main	0	active	
+test/hive_wm_test.py::make_cases	0	active	
+test/mock_mcp.py::main	0	active	
+test/orchestrator_memory.py::OrcMemory	0	active	
+md_cg/mdcos.py::MdCGOS._closed_pids	35	stalled-anchorless	
+md_cg/mdcos.py::MdCGOS.review_records	35	stalled-anchorless	
+md_cg/mdcos.py::MdCGOS	34	stalled-anchorless	
+md_cg/mdcos.py::MdCGSecure	34	stalled-anchorless	
+md_cg/mdcg.py::MdCG.active_goals	28	stalled-anchorless	
+md_cg/mdcg.py::MdCG.close	28	stalled-anchorless	
+md_cg/mdcg.py::MdCG.list_goals	28	stalled-anchorless	
+md_cg/mdcg.py::MdCG	25	stalled-anchorless	
+compiler/parser.py::ASTNode	23	stalled-anchorless	
+compiler/parser.py::NodeType	23	stalled-anchorless	
+md_cg/mdcos.py::MdCGOS.maintain	20	stalled-anchorless	
+compiler/parser.py::Parser._match	18	stalled-anchorless	
+md_cg/mdcos.py::MdCGOS._role_counts	17	stalled-anchorless	
+md_cg/mdcos.py::MdCGSecure.lock	16	stalled-anchorless	
+md_cg/mdcos.py::MdCGSecure.unlock	16	stalled-anchorless	
+md_cg/mdcos.py::MdCGOS.insight	15	stalled-anchorless	
+hive/exec.py::SpecError	6	stalled-anchorless	
+hive/exec.py::_budget_check	6	stalled-anchorless	
+md_cg/consistency.py::_recursive_reflect	6	stalled-anchorless	
+md_cg/datapath.py::legacy_candidates	6	stalled-anchorless	
+compiler/compiler.py::Compiler.__init__	5	stalled-anchorless	
+compiler/compiler.py::Compiler._new_label	5	stalled-anchorless	
+hive/exec.py::main	5	stalled-anchorless	
+md_cg/ccgc.py::AttestResult	5	stalled-anchorless	
+md_cg/ccgc.py::CompileResult	5	stalled-anchorless	
+md_cg/ccgc.py::LinkResult	5	stalled-anchorless	
+md_cg/ccgc.py::RuleParser	5	stalled-anchorless	
+md_cg/insight.py::_normalize_evidence	5	stalled-anchorless	
+md_cg/insight.py::_q	5	stalled-anchorless	
+md_cg/insight.py::_read_event	5	stalled-anchorless	
+md_cg/sources.py::DSHSessionSource.discover	5	stalled-anchorless	
+md_cg/sources.py::DSHSessionSource.key	5	stalled-anchorless	
+md_cg/sources.py::JsonlSource.key	5	stalled-anchorless	
+md_cg/sources.py::Source.key	5	stalled-anchorless	
+md_cg/whitebox.py::LocalWhiteboxClient	5	stalled-anchorless	
+compiler/codegen.py::CodeGenerator._write_footer	4	stalled-anchorless	
+compiler/codegen.py::CodeGenerator._writeln	4	stalled-anchorless	
+compiler/compiler.py::Compiler	4	stalled-anchorless	
+compiler/condition_vm.py::ConditionVM.__init__	4	stalled-anchorless	
+compiler/condition_vm.py::Opcode	4	stalled-anchorless	
+compiler/condition_vm.py::Opcode.names	4	stalled-anchorless	
+compiler/condition_vm.py::VMHalt	4	stalled-anchorless	
+compiler/condition_vm.py::VMHalt.__init__	4	stalled-anchorless	
+compiler/name_checker.py::Symbol	4	stalled-anchorless	
+compiler/name_checker.py::SymbolKind	4	stalled-anchorless	
+compiler/parser.py::Parser._parse_expression	4	stalled-anchorless	
+hive/orch.py::OrcError	4	stalled-anchorless	
+hive/orch.py::_poll_schema	4	stalled-anchorless	
+hive/orch.py::_read_full_schema	4	stalled-anchorless	
+hive/orch.py::_spawn_schema	4	stalled-anchorless	
+hive/wm.py::WmError	4	stalled-anchorless	
+md_cg/codeindex.py::_snap	4	stalled-anchorless	
+md_cg/eval_common.py::unlock_global_cap	4	stalled-anchorless	
+md_cg/eval_common.py::use_jaccard	4	stalled-anchorless	
+md_cg/links.py::LinkError	4	stalled-anchorless	
+md_cg/links.py::decay_all	4	stalled-anchorless	
+md_cg/protect.py::ProtectionError	4	stalled-anchorless	
+md_cg/provenance.py::ProvenanceError	4	stalled-anchorless	
+md_cg/signer.py::SignerError	4	stalled-anchorless	
+md_cg/signer.py::_default_policy	4	stalled-anchorless	
+md_cg/subgraph.py::_issue	4	stalled-anchorless	
+md_cg/theory.py::TheoryError	4	stalled-anchorless	
+md_cg/weights.py::WeightError	4	stalled-anchorless	
+md_cg/whitebox.py::_SubprocessWhiteboxClient	4	stalled-anchorless	
+md_cg/writelimit.py::enabled	4	stalled-anchorless	
+md_cg/writepipe.py::WritePipeline	4	stalled-anchorless	
+md_cg/writepipe.py::WritePipeline.__init__	4	stalled-anchorless	
+md_cg/writepipe.py::WritePipeline.names	4	stalled-anchorless	
+scripts/bootstrap_loop.py::_dp	4	stalled-anchorless	
+scripts/render_discipline.py::main	4	stalled-anchorless	
+test/locomo_jaccard_probe.py::main	4	stalled-anchorless	
+test/orchestrator_memory.py::OrcMemory._next_seq	4	stalled-anchorless	
+test/orchestrator_memory.py::OrcMemory.close	4	stalled-anchorless	
+test/orchestrator_memory.py::OrcMemory.collect_cards	4	stalled-anchorless	
+test/orchestrator_memory.py::OrcMemory.pending_items	4	stalled-anchorless	
+test/orchestrator_memory.py::OrcMemory.pending_reviews	4	stalled-anchorless	
+test/orchestrator_memory.py::OrcMemory.refresh	4	stalled-anchorless	
+test/orchestrator_memory.py::OrcMemory.stats	4	stalled-anchorless	
+compiler/lexer.py::Token	3	stalled-anchorless	
+compiler/lexer.py::TokenType	3	stalled-anchorless	
+compiler/name_checker.py::NameChecker.get_predefined_symbols	3	stalled-anchorless	
+compiler/name_checker.py::NameChecker.get_user_symbols	3	stalled-anchorless	
+compiler/name_checker.py::NameChecker.report	3	stalled-anchorless	
+compiler/name_checker.py::Symbol.__repr__	3	stalled-anchorless	
+md_cg/bench6_arms.py::VectorRagAdapter.reset	3	stalled-anchorless	
+md_cg/evidence.py::EvidenceError	3	stalled-anchorless	
+md_cg/evidence.py::_theory_state	3	stalled-anchorless	
+md_cg/evidence.py::main	3	stalled-anchorless	
+md_cg/fsutil.py::ShardedLog.close	3	stalled-anchorless	
+md_cg/linkref.py::after_hook	3	stalled-anchorless	
+md_cg/pooling.py::PoolError	3	stalled-anchorless	
+md_cg/security.py::AccessDenied	3	stalled-anchorless	
+md_cg/security.py::Principal.__repr__	3	stalled-anchorless	
+md_cg/security.py::TenantRegistry	3	stalled-anchorless	
+md_cg/security.py::TenantRegistry.all	3	stalled-anchorless	
+md_cg/signer.py::HmacLocalSigner.describe	3	stalled-anchorless	
+md_cg/signer.py::NullSigner.describe	3	stalled-anchorless	
+md_cg/signer.py::Signer.describe	3	stalled-anchorless	
+md_cg/tokens.py::TokenError	3	stalled-anchorless	
+md_cg/tokens.py::list_tokens	3	stalled-anchorless	
+md_cg/whitebox.py::LocalWhiteboxClient.__init__	3	stalled-anchorless	
+md_cg/whitebox.py::LocalWhiteboxClient.close	3	stalled-anchorless	
+md_cg/whitebox.py::LocalWhiteboxClient.engine	3	stalled-anchorless	
+md_cg/whitebox.py::LocalWhiteboxClient.start	3	stalled-anchorless	
+md_cg/whitebox.py::_SubprocessWhiteboxClient.close	3	stalled-anchorless	
+md_cg/mdcos.py::MdCGOS._audit_node_id	35	stalled-other	pid,round_no
+md_cg/mdcos.py::MdCGOS._record_hash	35	stalled-other	rec
+md_cg/mdcos.py::MdCGOS._session_digest	35	stalled-other	content
+md_cg/mdcos.py::MdCGOS._session_node_id	35	stalled-other	session,summary
+md_cg/mdcos.py::MdCGOS.judge_qualification	35	stalled-other	node_dict,query
+md_cg/mdcg.py::MdCG._ccg_line	28	stalled-other	content,name
+md_cg/mdcg.py::MdCG._cond_terms	28	stalled-other	cond_text
+md_cg/mdcg.py::MdCG._count_buckets	28	stalled-other	nodes
+md_cg/mdcg.py::MdCG._goal_content	28	stalled-other	goal
+md_cg/mdcg.py::MdCG._like	28	stalled-other	content,fm,terms
+md_cg/mdcg.py::MdCG.judge_qualification	28	stalled-other	node_dict,query
+md_cg/mdcos.py::MdCGOS.recall	20	stalled-other	query
+md_cg/mdcos.py::MdCGOS.review_decide	20	stalled-other	pid,decision
+md_cg/mdcos.py::MdCGOS.search	20	stalled-other	query
+md_cg/mdcos.py::MdCGSecure._resolve_master_key	16	stalled-other	master_key
+compiler/analyzer.py::visit	15	stalled-other	node
+md_cg/eval_common.py::calibrate_turn	8	stalled-other	r
+md_cg/mcp_server.py::_ccg_call	7	stalled-other	cg,a
+md_cg/mcp_server.py::_cg_dispatch	7	stalled-other	cg,a
+md_cg/mcp_server.py::_dispatch	7	stalled-other	cg,name,args
+md_cg/mcp_server.py::_sustain_call	7	stalled-other	cg,a
+scripts/render_discipline.py::_walk_ancestors	7	stalled-other	path
+scripts/render_discipline.py::artifact_sha	7	stalled-other	text
+scripts/render_discipline.py::norm_path	7	stalled-other	path
+scripts/render_discipline.py::render	7	stalled-other	target,src,repo
+hive/exec.py::_context_block	6	stalled-other	rel,path,job_dir,meta
+hive/exec.py::_jpeg_size	6	stalled-other	f
+hive/exec.py::tool_lingshu_cg	6	stalled-other	args,job_id
+hive/exec.py::tool_web_search	6	stalled-other	args
+md_cg/backfill.py::_classify	6	stalled-other	cg,e,nid
+md_cg/backfill.py::derive_fields	6	stalled-other	fm,content
+md_cg/backfill.py::rollback	6	stalled-other	x
+md_cg/backfill.py::run	6	stalled-other	x,action
+md_cg/scrub.py::_access	6	stalled-other	cg
+md_cg/scrub.py::_apply_offset	6	stalled-other	cg,offset
+md_cg/scrub.py::_contradiction	6	stalled-other	cg,content,related
+md_cg/scrub.py::_fm_of	6	stalled-other	cg,nid
+md_cg/scrub.py::_nodes	6	stalled-other	cg
+md_cg/scrub.py::_pool_candidates	6	stalled-other	cg,now,stale_days,unverified_days
+md_cg/scrub.py::add	6	stalled-other	kind,detail
+md_cg/scrub.py::calibrate	6	stalled-other	cg
+md_cg/scrub.py::put	6	stalled-other	nid,via,weight
+md_cg/scrub.py::summary	6	stalled-other	cg
+md_cg/scrub.py::sweep	6	stalled-other	cg
+md_cg/sources.py::DSHSessionSource	6	stalled-other	path
+md_cg/sources.py::FileDispatcher	6	stalled-other	cg
+md_cg/sources.py::Ingestor	6	stalled-other	cg
+md_cg/sources.py::JsonlSource	6	stalled-other	path
+compiler/analyzer.py::def_use_chains	5	stalled-other	ast
+compiler/analyzer.py::infer	5	stalled-other	node
+compiler/analyzer.py::symbol_table	5	stalled-other	ast
+hive/exec.py::run_with_tools	5	stalled-other	spec,messages,job_id
+md_cg/ccgc.py::_invoke_parser	5	stalled-other	parser,dialog,ctx
+md_cg/ccgc.py::compile_dialog	5	stalled-other	dialog,node_id,actor
+md_cg/sources.py::DSHSessionSource._text_of	5	stalled-other	content
+md_cg/sources.py::FileDispatcher._auto_source	5	stalled-other	path
+md_cg/bench_membench.py::pool_diag	4	stalled-other	cg,qs
+md_cg/conformance.py::_usage	4	stalled-other	nodes,edges
+md_cg/docindex.py::sensitivity_for	4	stalled-other	path
+md_cg/eval_common.py::build_eval_cg	4	stalled-other	cg_cls,root,corpus_path,text_of,src_tag
+md_cg/eval_common.py::calibrate_lc_turn	4	stalled-other	r
+md_cg/eval_common.py::calibrate_lm_turn	4	stalled-other	t
+md_cg/eval_common.py::install_read_cache	4	stalled-other	cg
+md_cg/identity.py::_nid	4	stalled-other	prefix,subject_id
+md_cg/insight.py::event_id	4	stalled-other	statement
+md_cg/insight.py::record	4	stalled-other	cg
+md_cg/mreview/pipeline.py::opinion_doc	4	stalled-other	pkg,opinions,reviewer
+md_cg/self_state.py::audit	4	stalled-other	cg
+md_cg/self_state.py::refresh	4	stalled-other	cg
+md_cg/subgraph.py::children_index	4	stalled-other	cg
+md_cg/subgraph.py::parents_index	4	stalled-other	cg
+md_cg/tasks.py::_append_change	4	stalled-other	old_text,change
+md_cg/tasks.py::_write	4	stalled-other	cg,nid,name,content,status,tags,importance,actor
+md_cg/tasks.py::slugify	4	stalled-other	name
+md_cg/weights.py::coverage_index	4	stalled-other	cg
+md_cg/writelimit.py::_push_rate	4	stalled-other	st,key,now
+md_cg/writelimit.py::_save	4	stalled-other	cg,st
+md_cg/writelimit.py::check	4	stalled-other	cg,content
+md_cg/writepipe.py::_gate_consistency	4	stalled-other	ctx
+scripts/bootstrap_loop.py::csre_freshness	4	stalled-other	last_kp_fp
+test/orchestrator_memory.py::OrcMemory.dispatch_prompt	4	stalled-other	sub,task
+md_cg/bench6_arms.py::LingshuAdapter.search	3	stalled-other	query
+md_cg/fsutil.py::ShardedLog.clear	3	stalled-other	directory
+md_cg/fsutil.py::ShardedLog.read_all	3	stalled-other	directory
+md_cg/mdcg.py::MdCG.add	3	stalled-other	node_id,content
+md_cg/mdcg.py::MdCG.search	3	stalled-other	query
+md_cg/nodefile.py::cond_terms	3	stalled-other	text
+md_cg/reach.py::ReachIndex	3	stalled-other	root
+md_cg/reach.py::_index	3	stalled-other	cg
+md_cg/security.py::Principal._in_scope	3	stalled-other	allow,name
+md_cg/security.py::Principal.allows_layer	3	stalled-other	layer
+md_cg/security.py::Principal.allows_op	3	stalled-other	op

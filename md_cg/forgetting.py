@@ -80,6 +80,7 @@ LOG_FILE = "_forgetting.jsonl"
 
 # ---------------------------------------------------------------- 三问
 
+# 生效条件：role 与 verification_basis 各自经 str(x or "").strip().lower() 后按序判——role 命中模块常量 EXTERNAL_ROLES 返回 "external_surprising"；否则 role 命中 INTERNAL_ROLES、或两者都不命中前者时 verification_basis 命中 DETERMINISTIC_BASIS，返回 "internal_deterministic"；否则 role 为 "assistant"/"agent" 返回 "self_generated"；全不命中返回 "unknown"。
 def source_kind(role=None, verification_basis=None):
     """Q3 的来源面：内部确定性产生 vs 外部惊奇来源。"""
     r = str(role or "").strip().lower()
@@ -125,6 +126,7 @@ def payload(content):
     return "".join(out)
 
 
+# 生效条件：content 经 payload/bigrams 得空集合时直接返回零值 best（max=0.0、with=None、compared=0）；否则遍历 cg.index 的 nodes，跳过 nid==exclude，layer 为真值时只比较 str(layer 字段 or "")==layer 的节点，cg.get(nid) 抛异常/返回假值、或该节点 content 的 bigrams 为空则跳过，每计入一个节点后若 n>=limit 立即 break（故 limit 为 0 或负数时只比较首项即停），返回覆盖度最大者 best（无覆盖度提升时不更新 with/jaccard，compared 为实际计入数）。
 def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE):
     """Q1 重复？——新内容被既有同层节点覆盖的最大比例。"""
     new = bigrams(payload(content))
@@ -186,6 +188,7 @@ def importance_score(hint, novelty, kind, content):
     return {"score": round(max(0.0, min(1.0, s)), 4), "from": "heuristic"}
 
 
+# 生效条件：以 source_kind(role,verification_basis) 的 kind 与 redundancy(cg,content,layer=layer,exclude=node_id) 的 red["max"] 为输入，按 if/elif 顺序取首个命中分支——imp["score"]≥PROTECT_IMPORTANCE→"ACCEPT"；否则 kind=="internal_deterministic" 且 red["max"]≥DUP_DROP→"DROP"；否则 red["max"]≥DUP_MERGE→"MERGE"；否则 red["max"]≥DUP_DROP 且 imp["score"]<IMPORTANCE_MIN→"DEFER"；否则 imp["score"]≥IMPORTANCE_MIN→"ACCEPT"；否则 novelty≥NOVELTY_MIN→"ACCEPT"；否则→"DEFER"。
 def assess(cg, content, layer="contextual", role=None, verification_basis=None,
            importance_hint=None, node_id=None):
     """三问 → 四态裁决。返回完整判据（可审计，不只给结论）。"""
@@ -376,6 +379,7 @@ def current_path(cg) -> str:
     return os.path.join(longterm_dir(cg), "current.json")
 
 
+# 生效条件：apply 为真且由 cg.index 的 nodes（layer 为假值时不过滤、为真时仅取 layer 字段相等者，max_rows 为真值时先取 ids[:int(max_rows)]）算出的 snapshot_id 与 current.json 所记 snapshot_id 不同或其记录的 path 文件不存在（same 为假）时，才写断面文件、原子更新 current 指针、执行 _prune 并追加维护日志；apply 为假时只返回 dry_run=True 的统计（out 与 force 在源码中未被引用）。
 def longterm_assess(cg, apply=False, out=None, layer=None, keep=LONGTERM_KEEP,
                     max_rows=None, force=False, actor="maintain"):
     """评估后分层落盘：生成一个可回溯的长期记忆断面。
@@ -495,6 +499,7 @@ def longterm_list(cg, limit=20):
     return {"current": cur, "snapshots": out}
 
 
+# 生效条件：longterm_dir(cg) 不可列出（OSError）时返回 {"ok":False,"error":"no_snapshot"}；否则在倒序文件名中取首个满足 snapshot_id 为 None 或为其子串的 .jsonl（snapshot_id="" 与任意文件名匹配），无匹配返回 {"ok":False,"error":"snapshot_not_found"}；命中则逐行聚合该文件（空行与 json.loads 抛 ValueError 的行跳过），返回 file/total/tiers/by_layer/islands。
 def longterm_show(cg, snapshot_id=None):
     """读取某个断面的分层统计（不载全量行，只聚合）。"""
     d = longterm_dir(cg)

@@ -85,6 +85,7 @@ CARD_RULE = """
 """
 
 
+# 生效条件：传入 root（str）时先以 repo_path（默认 None）调用 _ensure_repo，再构造自持的 MdCGOS(root)，并把 global_budget/card_budget 按实参（缺省 1200/600）存为实例属性，_global_id 置 None、_seq 置 0。
 class OrcMemory:
     """主代理/子代理分层记忆编排器。
 
@@ -355,6 +356,7 @@ class OrcMemory:
             c = str(node)
         return c.replace("\n", " ")[:100]
 
+# 生效条件：被调用时遍历 self.cg.index["nodes"]，按 _read 得到的 fm 中 session=="main" 计入 L0_global、layer=="knowledge" 且 sess 为真计入 L1_card、layer=="contextual" 且 sess 为真计入 L2_detail，返回该三键计数 dict。
     def stats(self) -> dict:
         """三层各自的节点数——用来监控细节层是否在膨胀。"""
         n = {"L0_global": 0, "L1_card": 0, "L2_detail": 0}

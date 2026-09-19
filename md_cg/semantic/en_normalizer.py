@@ -242,6 +242,7 @@ def _lookup_chain(extra_map=None):
     return chain
 
 
+# 生效条件：query 为字符串，query.lower().strip() 命中 COMPOUND_ZH 即返回单元素 [comp_zh] 与 phrase_mapped 记录；否则经 COMPOUND_ZH_PHRASES 内嵌替换、剥除 's 与分词后逐词映射，返回 terms 与 inline_hits + detail；
 def normalize_en_query(query, extra_map=None):
     """英文 query → 语义原子序列（中文语素）
 

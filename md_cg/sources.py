@@ -48,6 +48,7 @@ class Source:
         return self.name
 
 
+# 生效条件：required 形参 path 总被存入 self.path；可选形参 name 为假值（None/空串）时 self.name 回落到 "jsonl:"+os.path.basename(path)，为真值时用 name 本身，t_key/role_key/text_key/default_role 原样存入属性。
 class JsonlSource(Source):
     """通用 JSONL 会话源。
 
@@ -115,6 +116,7 @@ def _zstd_reader(path):
     return io.StringIO(raw.decode("utf-8", errors="replace"))
 
 
+# 生效条件：required 形参 path 总被存入 self.path，可选形参 include_reasoning 原样存入，self.name 恒为 "dsh:"+os.path.basename(os.path.dirname(path))（与 include_reasoning 取值无关）。
 class DSHSessionSource(Source):
     """DeepSeek Harness 会话源。
 
@@ -135,6 +137,7 @@ class DSHSessionSource(Source):
         return self.name
 
     @staticmethod
+# 生效条件：可选形参 root 为假值（None/空串）时改用默认目录 os.path.join(expanduser("~"),".dsh","sessions")，否则用传入 root；对 root 下递归 glob 到的 session.jsonl 与 session.jsonl.zstd 按 -os.path.getsize 降序排序（两处 glob 均无命中时为空列表），可选形参 limit 为假值（None/0）时返回全部 files，否则返回 files[:limit]。
     def discover(root: str = None, limit: int = None):
         root = root or os.path.join(os.path.expanduser("~"), ".dsh", "sessions")
         files = glob.glob(os.path.join(root, "**", "session.jsonl"), recursive=True)
@@ -157,6 +160,7 @@ class DSHSessionSource(Source):
                 yield from f
 
     @staticmethod
+# 生效条件：required 形参 content 为 str 时原样返回 content；为 list 时收集其中 str 元素及 type 属于 ("text","input-text") 且 text 为真值的 dict 元素（取 str(c["text"])），以 "\n" 连接返回（无可收集元素时为空串 ""）；既非 str 也非 list 时返回 ""。
     def _text_of(content):
         """content 可能是 [{type,text}] 或字符串。"""
         if isinstance(content, str):
@@ -222,6 +226,7 @@ class DSHSessionSource(Source):
 # 摄取器
 # --------------------------------------------------------------------------
 
+# 生效条件：required 形参 cg 总被存入并以其 cg.root 拼出 self.path=os.path.join(cg.root,"_sources.json")；layer/sensitivity 原样存入，未传时取模块级常量 SESSION_LAYER、SESSION_SENSITIVITY 作为默认值。
 class Ingestor:
     """增量摄取：watermark + 去重 + 写节点 + 自动 fix-pair 挖掘。
 
@@ -393,6 +398,7 @@ def dispatch_of(path: str):
     return INGEST_REGISTRY.get(os.path.splitext(path or "")[1].lower())
 
 
+# 生效条件：required 形参 cg 总被存入；可选形参 sensitivity 为假值（None/空串）时内部 Ingestor 的 sensitivity 回落模块级常量 SESSION_SENSITIVITY，为真值时用传入的 sensitivity。
 class FileDispatcher:
     """单一入口吃多种文件：按扩展名分派到会话流 / 文档 / 代码三条摄取链。"""
 
@@ -518,6 +524,7 @@ class FileDispatcher:
     # ---- 会话流 ----
 
     @staticmethod
+# 生效条件：required 形参 path 能被 open(...,encoding="utf-8",errors="replace") 打开时读前 50000 字符，head 含 '"user/message"'、'"assistant/message"'、'"tool/call"' 任一标记则返回 DSHSessionSource(path)，否则返回 JsonlSource(path)；打开抛 OSError 时直接返回 JsonlSource(path)。
     def _auto_source(path):
         """通用 JSONL vs DSH 会话：按内容探测，避免调用方选错源类型。"""
         try:

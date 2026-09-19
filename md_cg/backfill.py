@@ -208,6 +208,7 @@ def _log_path(cg) -> str:
 
 # ---- 字段推导（唯一入口：只搬运已声明的证据） -----------------------------
 
+# 生效条件：fm 与 content 给定时，仅对 content 中尚无对应 CCG 行的字段（功能名/生效条件/子功能/执行/验证方式/不适用条件）从 fm 的已有声明（state_attributes.comment、frontmatter、verification_basis、或形参 basis_text）取值，值非空且非占位文本才写入 out，假值不写、占位文本只把字段名追加进 placeholder_out（未传该形参时用临时列表）。
 def derive_fields(fm: dict, content: str, basis_text: str = None,
                   placeholder_out: list = None) -> dict:
     """按**已有声明**推导可回填字段 → `{field: (value, basis)}`。
@@ -289,6 +290,7 @@ def _readable_guard(cg, e) -> bool:
         return False
 
 
+# 生效条件：仅当 cg 对 e 读出的 fm 非 None、content 未被 crypto.is_encrypted、e['layer'] 不在 SKIP_LAYERS 且 fm.get('tags') 无命中 SKIP_TAGS、ccg_completeness(content)['complete'] 为假时才继续——derive_fields（受 basis_text 影响）过滤掉 content 已有 CCG 行的可写字段为空时按 placeholder_out 是否非空返回 ('placeholder'/'unfillable', None)，非空时返回 ('', item)（item 的 id 取 nid、class 依 undeducible 是否为空取 'backfillable' 或 'partial'）；上述四个前置不满足时依次返回 ('unreadable'/'locked'/'derived'/'present', None)。
 def _classify(cg, e, nid, basis_text=None):
     """→ (skip_reason, item)；skip_reason 非空表示不参与回填。"""
     fm, content = cg._read(e)
@@ -472,6 +474,7 @@ def apply(x, ids=None, entry_ids=None, layer=None, limit=None,
     return rep
 
 
+# 生效条件：x 经 _as_cg 定位后读留痕日志，仅对 action=='backfill' 且（batch 为假值则不过滤 batch，否则 rec['batch']==batch）、（entry_ids 为假值则不过滤，否则 rec['entry_id'] 属于该集合）、write_id 未出现在已完成 rollback 集合中、节点命中 cg.index['nodes'] 且 cg._read(e) 的 fm 可读、字段当前 _ccg_field(content, f) 等于留痕 after 的记录执行撤销写回（before 为 None 则删该 comment 键，否则还原原值），无字段可撤销只计 conflict 不写盘，reverted 非空时 rebuild_index，结果汇总进返回的 rep。
 def rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
     """按留痕反向应用：撤销本批次回填（当前值 ≠ 写入值时跳过，防覆盖）。"""
     cg = _as_cg(x)
@@ -1295,6 +1298,7 @@ ACTIONS = ("backfill", "backfill_rollback", "backfill_history",
            "exempt", "exempt_rollback", "exempt_history")
 
 
+# 生效条件：按其 action 分派——action=='backfill' 时 kw['apply'] 为真调 apply(x, 去掉 apply 的 kw)、否则调 plan 同参；action=='cap'/'exempt' 同理在 kw['apply'] 为真时调 cap_apply/exempt_apply、否则调 cap_plan/exempt_plan；action=='backfill_rollback'/'cap_rollback'/'exempt_rollback' 分别调 rollback/cap_rollback/exempt_rollback(x, **kw)；action=='backfill_history' 调 history(x, **kw)，'cap_history'/'exempt_history' 调 history(x, action='cap'/'exempt', **kw)；其余 action 值抛 ValueError。
 def run(x, action, **kw) -> dict:
     """`maintain` op 的分派入口：action ∈ ACTIONS。"""
     if action == "backfill":

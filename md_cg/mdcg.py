@@ -38,6 +38,33 @@ LAYERS = ("anchor", "structural", "knowledge", "contextual", "self",
           "rejected", "unresolved", "goals")
 # 有条件分区的层：knowledge 是主检索层；负记忆/目标目录按自己的 MARKS 走，不路由
 BUCKETED_LAYERS = ("knowledge",)
+
+# ---- S4 层级激活优先级（契约 §3 S4）----
+# 认知优先级：anchor/self（自我与锚点）先激活，其次 structural，再次 knowledge/contextual。
+# 语义是**加成**而非过滤：只改初始激活值/排序，不改变任何门控（不会把被门控剔除的节点拉回来）。
+LAYER_BOOST_DEFAULT = {
+    "anchor": 0.20, "self": 0.20, "structural": 0.15,
+    "knowledge": 0.10, "contextual": 0.05,
+}
+
+
+# 生效条件：env 为假值（None/空串）时返回 LAYER_BOOST_DEFAULT 的副本；否则按「层=值,层=值」解析，
+# 忽略无等号的项与不可转 float 的值（负值夹到 0.0），未出现的层保留默认值，返回合并后的 dict。
+def layer_boosts(env=None) -> dict:
+    """层级加成表：`MDCG_LAYER_BOOST="anchor=0.3,knowledge=0.05"`（部分覆盖，未提及的层取默认）。"""
+    out = dict(LAYER_BOOST_DEFAULT)
+    raw = env if env is not None else os.environ.get("MDCG_LAYER_BOOST", "")
+    if not raw:
+        return out
+    for part in str(raw).split(","):
+        if "=" not in part:
+            continue
+        k, v = part.split("=", 1)
+        try:
+            out[k.strip()] = max(0.0, float(v.strip()))
+        except ValueError:
+            continue
+    return out
 # 负记忆的 MARKS 必填（与 knowledge 的 5 要素不同）
 NEG_MEMORY_MARKS = {
     "rejected":   ("假设", "否决原因", "验证"),
@@ -168,6 +195,8 @@ TIER_BUCKET_LIKE = "T0_bucket_like"
 TIER_BUCKET_SCAN = "T1_bucket_scan"
 TIER_GLOBAL_LIKE = "T2_global_like"
 TIER_GLOBAL_SCAN = "T3_global_scan"
+# S3 图扩散激活（契约 §3 S3）：从词法命中节点沿 edges 扩散得到的候选，单独成层以便审计
+TIER_SPREAD = "T2b_spread_activation"
 
 # 资格判定四态（该不该用——白箱第 1 篇核心）
 STATE_ACCEPT = "ACCEPT"           # 条件满足，有资格执行
@@ -558,6 +587,62 @@ def expand_query_terms_llm(query: str, llm_fn=None, cache=None,
         return dict(base)
 
 
+# 生效条件：enabled 为假值（默认取 MDCG_RETRIEVAL_PIPELINE=="1"）时无条件删除 entry 中 big_domain / observation_position 两键并返回 entry；
+# enabled 为真值时仅删除其中假值的键（真值原样保留）并返回 entry。
+def _strip_empty_gate_fields(entry, enabled=None):
+    """索引快照里的门控可选字段落键策略。
+
+    默认关闭（总开关未设）→ 两个键**一律不落**：索引条目与 search() 返回的候选 entry
+    形状与改动前逐字节一致（否则真实库中大量节点的 observation_position 会平铺进
+    候选，改变默认口径——独立复核 2026-09-19 指出）。
+    开启后 → 真值才落键（假值不落）。
+    """
+    if enabled is None:
+        enabled = os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+    for _k in ("big_domain", "observation_position"):
+        if _k in entry and (not enabled or not entry[_k]):
+            del entry[_k]
+    return entry
+
+
+# 生效条件：entry 与其 frontmatter 的 condition_space 取 cs（缺键/假值按 {}）；ctx 为假值或非 dict 时无条件返回 True；
+# ctx 与 cs 同时给出非空 observation_position 且 routing.normalize_domain 归一化后不同时返回 False；
+# ctx 与 cs 同时给出长度 2 的 time_window 且两区间不相交时返回 False（区间相交或任一侧缺值/不可转 float 一律返回 True）。
+def _cond_prefilter_pass(entry, ctx) -> bool:
+    """S2 条件空间前置门控：**不读正文**即可判定的硬槽（契约 §3 S2）。
+
+    铁律（宁多勿漏）：只剔除**明确不匹配**；任一侧信息不足一律放行。
+      · observation_position：双方都有且归一化后不同 → 不匹配；
+      · time_window：双方都有且**区间不相交** → 不匹配（相交即放行，
+        否则缺省窗口 [created_at, created_at+WINDOW] 会把历史观测整片判死）；
+      · 其余槽（existence_constraint / observation_tool 等语义判定）留在 judge_qualification（后置）。
+    """
+    if not isinstance(ctx, dict):
+        return True
+    # 索引快照把可判定硬槽平铺在 entry 上（免读文件）；兼容直接传 condition_space 的调用方
+    entry = entry or {}
+    cs = entry.get("condition_space") or {}
+    want = ctx.get("observation_position") or ""
+    have = entry.get("observation_position") or cs.get("observation_position") or ""
+    if want and have:
+        try:
+            if routing.normalize_domain(str(want)) != routing.normalize_domain(str(have)):
+                return False
+        except Exception:
+            pass
+    # 索引快照把 time_window 平铺在 entry 上（不在 condition_space 里）——直接读 cs 会让 S2 时间门控永不生效
+    cw, nw = ctx.get("time_window"), (entry.get("time_window") or cs.get("time_window"))
+    if (isinstance(cw, (list, tuple)) and len(cw) == 2
+            and isinstance(nw, (list, tuple)) and len(nw) == 2):
+        try:
+            if float(cw[1]) < float(nw[0]) or float(nw[1]) < float(cw[0]):
+                return False
+        except (TypeError, ValueError):
+            return True
+    return True
+
+
+# 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
 # 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
     def __init__(self, root: str, autoflush: int = 64):
@@ -612,6 +697,7 @@ class MdCG:
         return idx
 
     @staticmethod
+# 生效条件：nodes 须为带 values() 的映射且各元素支持 .get("bucket")；仅当 bucket 取值为真值时才计入返回计数，缺键或假值均跳过。
     def _count_buckets(nodes):
         buckets = {}
         for e in nodes.values():
@@ -687,7 +773,7 @@ class MdCG:
                     nid = fm.get("id") or fn[:-3]
                     rel = os.path.relpath(p, self.root).replace("\\", "/")
                     parent = os.path.basename(dirpath)
-                    nodes[nid] = {
+                    nodes[nid] = _strip_empty_gate_fields({
                         "path": rel, "layer": fm.get("layer", layer),
                         # role 必须回填：它写在节点 frontmatter 里（写入时 role or "user"），
                         # 但索引重建时若不复制，os.roles 会全部退化为 (none)，
@@ -713,6 +799,10 @@ class MdCG:
                         "branch_id": fm.get("branch_id"),
                         "branched_from": fm.get("branched_from"),
                         "evidence_count": fm.get("evidence_count", 0),
+                        # S1 大域先验：域标签入索引快照 → 候选收敛零读文件（与 add() 同口径）
+                        "big_domain": fm.get("big_domain"),
+                        # S2 条件门控所需的可判定硬槽（免读文件即可门控）
+                        "observation_position": (fm.get("condition_space") or {}).get("observation_position"),
                         # 嵌套子图 / 关系边入索引快照：递归展开与链式遍历免读文件
                         "subgraph": fm.get("subgraph"),
                         "edges": fm.get("edges") or [],
@@ -724,7 +814,7 @@ class MdCG:
                         # G8 派生溯源：frontmatter 声明入索引 → 悬空巡检零读文件
                         "derived_from": fm.get("derived_from") or [],
                         "derived_relation": fm.get("derived_relation"),
-                    }
+                    })
         return nodes
 
 # 生效条件：每次调用都以 self._scan_nodes() 的结果重建 nodes 与 buckets，在 FileLock 下 atomic_write 覆盖 index_path 并 ShardedLog.clear(index_log_dir)，随后替换 self.index、清空 _dirty 并返回 idx（无 .md 时也照样覆盖为空索引）；
@@ -741,6 +831,7 @@ class MdCG:
 
     # ---------- 写 ----------
 
+# 生效条件：node_id/content 必填，layer 不在 LAYERS 内、或 verification_basis 非 None 且不在 VERIFICATION_BASIS 内时抛 ValueError；consistency 为真且 _cons.check 判 REJECT 时，on_conflict="reject" 抛 ConsistencyError、on_conflict="defer" 返回 None，verdict 为 BLINDSPOT 且 on_conflict="defer" 同样返回 None，其余情形完成写盘/入索引后返回 node_id。
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             tags=None, condition_space=None, importance: float = 0.5,
             confidence: float = 0.6, edges=None, verification_basis: str = None,
@@ -833,6 +924,19 @@ class MdCG:
             "evidence_count": 0, "positive_evidence": 0, "negative_evidence": 0,
         }
         fm.update(extra)
+        # S1 大域先验：写入时固化「内容 → 大域」（契约 §3 S1）。
+        # 为何在写入侧：检索侧要按域收敛，节点就必须带域；query 侧分类器已存在，
+        # 缺的只是这一列节点元数据（审计偏差 4 的根因）。调用方可显式传入覆盖。
+        # 无有效域信号（classify_text 返回 None）时**不写**该字段 → 留在兜底池。
+        # 默认（MDCG_RETRIEVAL_PIPELINE 未设）**不写**该字段：默认口径与改动前一致；
+        # 开启后新写入的节点开始积累域标签，历史节点由 md_cg.backfill_bigdomain 补齐。
+        if os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1" and not fm.get("big_domain"):
+            try:
+                _bd = routing.classify_text(content)
+            except Exception:
+                _bd = None
+            if _bd:
+                fm["big_domain"] = _bd
         # 生命周期状态（② 显式状态机，真源 `lifecycle.py`）：add 是**全量重建
         # fm** 而非增量更新，故必须显式处理状态——否则已定型/已降权节点会被静默
         # 打回 active（与 ④ rewrite 必须重传 branch_id 同构的坑）。口径：
@@ -884,7 +988,7 @@ class MdCG:
         # 私有内容封装（默认恒等；MdCGSecure 覆盖为 AEAD 加密）。
         # 索引派生同样基于落盘内容，保证与 _scan_nodes 重建结果一致。
         sealed = self._write_node(node_id, path, fm, content)
-        self._stage(node_id, {
+        self._stage(node_id, _strip_empty_gate_fields({
             "path": os.path.relpath(path, self.root).replace("\\", "/"),
             "layer": layer, "tags": tags, "bucket": bucket,
             "importance": importance, "created_at": fm["created_at"],
@@ -894,6 +998,8 @@ class MdCG:
             "temporal": fm.get("temporal"),
             "spatial": fm.get("spatial"),
             "time_window": cs.get("time_window"),
+            "big_domain": fm.get("big_domain"),
+            "observation_position": cs.get("observation_position"),
             "subgraph": fm.get("subgraph"),
             "edges": fm.get("edges") or [],
             "protected": fm.get("protected"),
@@ -910,7 +1016,7 @@ class MdCG:
             "branched_from": fm.get("branched_from"),
             # 生命周期状态（②）：索引快照透出 → 免读文件可查（与 _scan_nodes 同口径）
             lifecycle.STATE_FIELD: fm.get(lifecycle.STATE_FIELD),
-        })
+        }))
         subgraph.invalidate_cache(self)
         chain.invalidate_cache(self)
         # G8 常态化建链：仅对**新增**节点、仅在显式声明来源时建边。
@@ -1131,6 +1237,7 @@ class MdCG:
     # ---------- 目标槽（白箱第 5 篇第 3 章「目标」）----------
 
     @staticmethod
+# 生效条件：传入 goal 即返回渲染文本；conditions 为假值（含默认空串）时「生效条件」行填「（未声明——视为任意情境下有效）」，action 为假值时填默认执行说明。
     def _goal_content(goal, conditions="", action=""):
         """目标节点的 CCG 渲染：目标不是知识，但按 CCG 格式落盘，
         保证 judge_qualification 能给出 ACCEPT 而非 BLINDSPOT。"""
@@ -1317,6 +1424,71 @@ class MdCG:
         atomic_write(path, nodefile.dumps(fm, sealed), durable=durable)
         return sealed
 
+    # ---------- S1 前置元数据：域标签回填 ----------
+
+# 生效条件：dry_run 为真时只统计不改盘；否则遍历 index["nodes"]，get(nid) 取不到（无密钥/文件缺失）计入 unreadable，
+# fm 已有 big_domain 计入 already，content 为 None 计入 unreadable，routing.classify_text(content) 为 None 计入 no_signal，
+# 其余写 fm["big_domain"] → _write_node → 同步索引 entry["big_domain"]；limit 为真值时 written 达 limit 即停；写完 flush()；返回统计 dict。
+    def backfill_big_domain(self, dry_run: bool = False, limit: int = None) -> dict:
+        """为缺 `big_domain` 的节点补域标签（S1 大域收敛的前置元数据；幂等）。
+
+        只改这一列元数据，不动 content/importance/edges/条件空间；
+        走 `get()`（解密）→ `_write_node()`（重新封装），保证加密库不会双重封装。
+        """
+        st = {"seen": 0, "already": 0, "written": 0, "no_signal": 0,
+              "unreadable": 0, "index_synced": 0, "dry_run": bool(dry_run)}
+        # 前置：功能未开启时**不做任何写入**——域标签是 S1 的元数据，默认口径不得被改变：
+        # 否则「回填写索引」会与「_scan_nodes 默认关剥键」冲突，写/重建两条路口径不一致。
+        if os.environ.get("MDCG_RETRIEVAL_PIPELINE") != "1":
+            st["skipped"] = "pipeline_disabled"
+            return st
+        for nid, e in list((self.index.get("nodes") or {}).items()):
+            if limit and st["written"] >= limit:
+                break
+            st["seen"] += 1
+            got = self.get(nid)
+            if not got:
+                st["unreadable"] += 1
+                continue
+            fm, content = got["frontmatter"], got["content"]
+            _fm_dom = fm.get("big_domain")
+            if _fm_dom:
+                # 对账支路：frontmatter 已有标签但索引快照没同步（历史部分失败/旧索引）→ 修索引，不重写文件
+                if e.get("big_domain") != _fm_dom:
+                    st["index_synced"] += 1
+                    if dry_run:            # dry-run 语义：只统计，不改内存也不落盘
+                        continue
+                    e["big_domain"] = _fm_dom
+                    self._stage(nid, _strip_empty_gate_fields(e))
+                else:
+                    st["already"] += 1
+                continue
+            if content is None:
+                st["unreadable"] += 1
+                continue
+            try:
+                dom = routing.classify_text(content)
+            except Exception:
+                dom = None
+            if not dom:
+                st["no_signal"] += 1
+                continue
+            if dry_run:
+                st["written"] += 1
+                continue
+            fm["big_domain"] = dom
+            self._write_node(nid, os.path.join(self.root, e["path"]), fm, content)
+            e["big_domain"] = dom
+            # 必须走 _stage：索引持久化靠 _dirty → flush → _index_log 重放，
+            # 只改内存 entry 会在重启后丢掉标签（S1 失效，且二次回填因 fm 已有标签而跳过）
+            self._stage(nid, _strip_empty_gate_fields(e))
+            st["written"] += 1
+        # 写入与「只对账索引」两种情形都要落盘：索引持久化靠 _dirty → flush → _index_log 重放，
+        # 只 _stage 不 flush 会在重启后丢掉标签（对账支路尤其容易漏）。
+        if not dry_run and (st["written"] or st["index_synced"]):
+            self.flush()
+        return st
+
     # ---------- 读 ----------
 
 # 生效条件：index["nodes"].get(node_id) 为假值时回落 self._dirty.get(node_id)，仍为假值返回 None；打开 root 下 e["path"] 抛 OSError 返回 None；_open_content 返回 None（无密钥/身份不符）返回 None；否则返回 {id, frontmatter, content, path}；
@@ -1347,6 +1519,7 @@ class MdCG:
     # ---------- 资格判定（与性能 tier 正交）----------
 
     @staticmethod
+# 生效条件：content 为假值时按空串扫描并返回 ""；仅当某行去空白后以 "#" 开头、包含 name，且按全角或半角冒号切出的 head 去空白后等于 name 时返回该值，否则返回 ""。
     def _ccg_line(content: str, name: str) -> str:
         """取 CCG 正文 `# <name>：` 行的值。
 
@@ -1366,6 +1539,7 @@ class MdCG:
         return ""
 
     @staticmethod
+# 生效条件：cond_text 为假值时按空串返回空列表；仅当按槽分隔与槽内分隔切出的短语长度≥2、非纯数字且不含时间维哨兵短语时进入返回列表，重复短语只保留首次。
     def _cond_terms(cond_text: str):
         """生效条件声明 → 匹配短语列表（确定性切分，无语义猜测）。
 
@@ -1392,6 +1566,7 @@ class MdCG:
         return out
 
     @staticmethod
+# 生效条件：node_dict 的 content 经 ccg_completeness 判为不完整 → BLINDSPOT；否则由 query 与 context（仅当 context 为 dict 时并入）合成情境串，命中 frontmatter 的任一 non_applicable_conditions 词 → REJECT；否则情境非空（query 去空白后非空，或 context 为真）且「生效条件」文本非空、非"无条件"、其词项全未命中且词项非空 → DEFER；否则无 verification_basis → DEFER；否则 ACCEPT；
     def judge_qualification(node_dict, query: str, context=None):
         """四态判定（白箱第 1/2 篇）。
 
@@ -1502,8 +1677,144 @@ class MdCG:
                    # 分支实验场：默认（branch=None）分支节点全部隐身；
                    # branch=<id> 时主支 + 本分支可见、其他分支仍隐身
                    and e.get("branch_id") in (None, branch)]
+
+        # 默认关：索引里可能残留门控字段（曾开启过 / 回填过）→ 返回前剥离，
+        # 保证候选 entry 形状与「从未启用过本功能」逐字节一致（独立复核 2026-09-19）。
+        # 只在确有残留时才拷贝（默认路径无额外开销）。
+        if (os.environ.get("MDCG_RETRIEVAL_PIPELINE") != "1" and entries
+                and any(("big_domain" in e) or ("observation_position" in e)
+                        for e in entries)):
+            entries = [_strip_empty_gate_fields(dict(e), enabled=False)
+                       for e in entries]
+
+        # ---- S1/S2 检索前门控（契约 docs/hive/检索路径与认知结构契约_v0.1.md）----
+        # 历史偏差：大域先验与条件空间都只在「扫完 + 排完」之后才用（审计偏差 2/4）。
+        # 这里把它们前移到候选构建：候选先按域收敛、再按可判定硬槽门控。
+        # 默认（MDCG_RETRIEVAL_PIPELINE 未设）全关 → 行为与改动前等价。
+        big_domain = routing.big_domain_classify(terms)
+        big_scores = routing.big_domain_score_breakdown(terms)
+        gates = {}
+        # S3 子开关**必须显式 =1**（与 S1/S2 的「未设=开」不同，是有意的非对称）：
+        # S3 会新增候选并引入新的 tier（TIER_SPREAD），在总开关开启时若默认随开，
+        # 会让「启用 S1/S2」的用户静默多出一层结果——独立复核（2026-09-19）要求显式启用。
+        # 参数：hops（默认 2）、decay（默认 0.5）、gain（默认 0.2）。
+        _s3 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+               and os.environ.get("MDCG_GATE_S3_SPREAD") == "1")
+        # S4 层级激活优先级：同样必须显式 =1（新层加成会改变排序，属显式启用项）
+        _s4 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+               and os.environ.get("MDCG_GATE_S4_LAYER") == "1")
+        # S7 倒排候选层（只作候选生成器；召回与全表扫描一致）；见 md_cg/postings.py
+        _s7 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+               and os.environ.get("MDCG_GATE_S7_POSTINGS") == "1")
+        _s7_narrowed = False
+        if _s4 and entries:
+            _bo = layer_boosts()
+            _lc = {}
+            for _e in entries:
+                _l = str(_e.get("layer") or "")
+                _lc[_l] = _lc.get(_l, 0) + 1
+            gates["s4"] = {"boosts": _bo, "layers": _lc}
+        try:
+            _s3_hops = max(1, int(os.environ.get("MDCG_SPREAD_HOPS", "2")))
+        except ValueError:
+            _s3_hops = 2
+        try:
+            _s3_decay = min(1.0, max(0.0, float(os.environ.get("MDCG_SPREAD_DECAY", "0.5"))))
+        except ValueError:
+            _s3_decay = 0.5
+        try:
+            _s3_gain = min(1.0, max(0.0, float(os.environ.get("MDCG_SPREAD_GAIN", "0.2"))))
+        except ValueError:
+            _s3_gain = 0.2
+        if os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1" and entries:
+            if os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0" and big_domain:
+                # 域内 ∪ 未标域（兜底池）：无域标签的历史节点绝不能因「域内够多」被丢
+                #（契约 §3 S1 不变量：ORPHAN/未标域必须可被召回）
+                same = [e for e in entries
+                        if not e.get("big_domain") or e.get("big_domain") == big_domain]
+                # 召回安全：域内候选不足以支撑 min_results 时不收敛，留全量兜底
+                if len(same) >= max(1, min_results):
+                    gates["s1"] = {"domain": big_domain, "in": len(same),
+                                   "dropped": len(entries) - len(same)}
+                    entries = same
+                else:
+                    gates["s1"] = {"domain": big_domain, "in": len(same),
+                                   "dropped": 0, "fallback": "insufficient"}
+            elif os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0":
+                gates["s1"] = {"domain": None, "reason": "no_domain_signal"}
+            # ---- S1b 细口径桶收敛（设计见 docs/hive/检索收敛实测与S1b设计_v0.1.md）----
+            # 为何：真实库 91.1% 节点有非 orphan 桶、期望扫描仅 2.1%（细口径），但 T0/T1 桶路
+            # 只在调用方传 context 时可用；普通 search(q) 无 context 就只能全扫。S1b 让 query 侧
+            # 自己推断候选桶（只用索引，不读文件），把这份收敛拿回来。
+            # 召回安全：orphan/无桶节点恒留兜底；命中不足 min_results 即回退（不改 entries）。
+            # 开关与参数就地定义（位于“总开关块”内，不在 S4 块内）：S1b 只依赖总开关 + MDCG_GATE_S1B_BUCKET。
+            _s1b = (os.environ.get("MDCG_GATE_S1B_BUCKET") == "1")
+            try:
+                _s1b_topk = int(os.environ.get("MDCG_BUCKET_TOPK", "3"))
+            except ValueError:
+                _s1b_topk = 3
+            try:
+                _s1b_minsim = min(1.0, max(0.0, float(os.environ.get("MDCG_BUCKET_MIN_SIM", "0.34"))))
+            except ValueError:
+                _s1b_minsim = 0.34
+            if _s1b and entries:
+                if _s1b_topk <= 0:
+                    gates["s1b"] = {"keys": [], "reason": "disabled_by_topk"}
+                else:
+                    _sizes = {}
+                    for _e in entries:
+                        _b = _e.get("bucket")
+                        if _b and _b != routing.ORPHAN:
+                            _sizes[_b] = _sizes.get(_b, 0) + 1
+                    _best = {}
+                    for _b in _sizes:
+                        _kk = routing.bucket_key_readable(_b)
+                        if not _kk:
+                            continue
+                        _sim = 0.0
+                        for _t in terms:
+                            _sv = routing.domain_similarity(_t, _kk)
+                            if _sv > _sim:
+                                _sim = _sv
+                        if _sim >= _s1b_minsim:
+                            _best[_b] = _sim
+                    if not _best:
+                        gates["s1b"] = {"keys": [], "reason": "no_key_match",
+                                       "in": len(entries), "buckets": len(_sizes)}
+                    else:
+                        _picked = sorted(_best.items(),
+                                         key=lambda kv: (-kv[1], -_sizes[kv[0]]))[:_s1b_topk]
+                        _keep = {_b for _b, _ in _picked}
+                        _kept = [e for e in entries
+                                 if (e.get("bucket") in _keep)
+                                 or not e.get("bucket")
+                                 or e.get("bucket") == routing.ORPHAN]
+                        gates["s1b"] = {"keys": [_b for _b, _ in _picked],
+                                        "sims": [round(_v, 4) for _, _v in _picked],
+                                        "in": len(entries), "out": len(_kept),
+                                        "sizes": {_b: _sizes[_b] for _b, _ in _picked}}
+                        if len(_kept) >= max(1, min_results):
+                            entries = _kept
+                        else:
+                            # 回退：entries 保持不变 → 审计的 out 必须记「真实输出规模」，
+                            # 命中桶本可保留的数量另存 would_keep（独立复核 2026-09-19 指出口径误导）
+                            gates["s1b"]["would_keep"] = len(_kept)
+                            gates["s1b"]["out"] = len(entries)
+                            gates["s1b"]["fallback"] = "insufficient"
+            if os.environ.get("MDCG_GATE_S2_COND", "1") != "0" and isinstance(context, dict):
+                kept = [e for e in entries if _cond_prefilter_pass(e, context)]
+                gates["s2"] = {"in": len(entries), "out": len(kept),
+                               "dropped": len(entries) - len(kept)}
+                # 门控清空则回退（宁多勿漏）
+                if kept:
+                    entries = kept
+                else:
+                    gates["s2"]["fallback"] = "empty"
         if not entries:
-            return [], {"tier": None, "reason": "no_candidates", "scanned": 0}
+            _m = {"tier": None, "reason": "no_candidates", "scanned": 0}
+            if gates:                      # 默认关时 gates 为空 → 不落键（口径与改动前一致）
+                _m["gates"] = gates
+            return [], _m
 
         # 负记忆覆盖：查询词是否已被否决议过
         neg_coverage = []
@@ -1524,16 +1835,14 @@ class MdCG:
                     if any(t in content for t in terms):
                         neg_coverage.append(e)
 
-        stat = {"scanned": 0, "query": q}
+        stat = {"scanned": 0, "query": q, "gates": gates}
         route_bucket = None
         if context is not None:
             ctx = context if isinstance(context, dict) else {}
             route_bucket = routing.bucket_dir(
                 routing.route_key(ctx, ctx.get("tags")))
 
-        # 阶段 1：14 大域并行打分 → 收敛到 top-1（白箱第 2 篇第 5 章）
-        big_domain = routing.big_domain_classify(terms)
-        big_scores = routing.big_domain_score_breakdown(terms)
+        # 阶段 1 大域打分已在候选构建前算好（S1 门控要用）；此处不再重复计算。
 
 # 生效条件：docs 经 self._score(docs, q, qb, pool_cfg) 后分数 >0 的条数达到闭包阈值 min_results 时返回 self._emit(scored, k, tier, stat, route_bucket, record, len(docs), judge, context, neg_coverage, big_domain, big_scores, pool_cfg)（tier 原样透传）；未达阈值返回 None；
         def try_stage(docs, tier):
@@ -1564,10 +1873,103 @@ class MdCG:
         # 截断依据=相关度（先全量打分再排序截断）：命中集沿 entries（目录枚举序）
         # 排列，原来「取前 GLOBAL_CAP 条再打分」等价于用写入顺序抽签决定谁进
         # 候选池。cap 值不变，变的只是拿什么排序（见 cut_by_relevance）。
+        # ---- S7 倒排候选层：用发布表取出「含查询词全部 bigram」的节点作为候选 ----
+        # 候选 ⊇ 真命中集 → 随后仍走既有 `_like` 精确过滤 → 结果与全表扫描一致（契约 §7「候选内加速」定位）。
+        # 不可用时（单字词 / 无发布表 / 空候选）一律回退全表；T3 兜底也强制走全量（保持兜底口径不变）。
+        entries_full = entries
+        if _s7 and entries:
+            _pd = None
+            try:
+                from . import postings as _pd
+            except Exception:
+                _pd = None
+            if _pd is None:
+                gates["s7"] = {"reason": "no_module", "in": len(entries_full),
+                               "fallback": "full_scan"}
+            else:
+                # 发布表是**快照**：节点被改写后可能漏掉命中 → 先验快照指纹，过期即回退全量
+                # （宁可慢，不可丢召回）。指纹只做 stat（≈目录数，本库 1,074 目录 ≈ 0.03s）。
+                # MDCG_S7_FRESHNESS=skip 只供离线对照实测使用；生产默认 auto。
+                # 组合语义（S7×语义路）：MDCG_SEMANTIC=1 时「frontmatter 有 semantic 的节点」
+                # 在 _like 之外**无条件入池**（见下方 hits 构造），而该标志只在节点文件里
+                # （索引快照没有该键）→ 候选阶段无法识别它们，窄化会漏读 → 漏召回。
+                # 故语义路开启时 S7 一律不窄化（独立复核 2026-09-19 REJECT 第 1 条）。
+                _sem = semantic_on()
+                _stale = ""
+                if not _sem and os.environ.get("MDCG_S7_FRESHNESS") != "skip":
+                    _stale = _pd.stale_reason(self.root, self.index.get("nodes") or {})
+                if _sem:
+                    gates["s7"] = {"reason": "semantic_on", "in": len(entries_full),
+                                   "fallback": "full_scan"}
+                elif _stale:
+                    gates["s7"] = {"reason": "stale_index:" + _stale,
+                                   "in": len(entries_full), "fallback": "full_scan"}
+                else:
+                    _ids7, _why = _pd.candidates(self.root, terms)
+                    if _ids7 is None:
+                        gates["s7"] = {"reason": _why, "in": len(entries_full),
+                                       "fallback": "full_scan"}
+                    else:
+                        # 保持**索引原序**（不是发布表序）：候选集是过滤，不是重排。
+                        # 完全并列（同分同重要性）时排序稳定，故只有原序一致，S7 的
+                        # results 才能与全表扫描逐字节一致（独立复核口径）。
+                        _keep = []
+                        for _e in entries_full:
+                            _nid = _e.get("id") or os.path.splitext(
+                                os.path.basename(_e.get("path") or ""))[0]
+                            if _nid in _ids7:
+                                _keep.append(_e)
+                        gates["s7"] = {"cands": len(_keep), "in": len(entries_full),
+                                       "terms": len(terms)}
+                        if _keep:
+                            entries = _keep
+                            _s7_narrowed = True
+                        else:
+                            gates["s7"]["fallback"] = "no_candidate"
+        _s7_scan0 = stat["scanned"]        # S7 窄化前的扫描基线（供 T3 兜底还原口径）
         docs_all = self._read_many(entries, stat)
         # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
         hits = [d for d in docs_all if self._like(d[2], d[1], terms)
                 or (semantic_on() and d[1].get("semantic"))]
+        # ---- S3 图扩散激活（契约 §3 S3；flag 控，默认关）----
+        # 为何：edges 一直只被写入、检索从不使用（审计偏差 1）。这里从词法命中节点沿
+        # edges 双向扩散，把「关联但词面不重叠」的记忆作为独立一层候选（TIER_SPREAD）。
+        # 约束：扩散只走索引里的 edges（不读文件）；**不得引入未通过 S1/S2 门控**的节点；
+        # 命中不足时自然落回原 T2/T3 路径（无召回损失）。
+        if _s3 and hits:
+            # 组合语义（S3×S7）：S7 只是 T2 的候选加速器，**不得**改变 S3 的可达域。
+            # 若把窄化后的 entries 当 allowed，S7+S3 会把扩散限制在词法候选内，
+            # 恰好丢掉 S3 的目标（「只沿 edges 可达、词面无交集」的节点）→ 组合退化。
+            # 故 allowed 恒取 S1/S2 门控后的全量候选（S7 关时 entries 即全量，行为不变）。
+            _s3_pool = entries_full if _s7_narrowed else entries
+            _act, _seeds = self._spread_activation(_s3_pool, hits, _s3_hops, _s3_decay)
+            if _act:
+                _by_path = {e.get("path"): e for e in _s3_pool}
+                _extra_entries = [_by_path[p] for p in _act if p in _by_path]
+                _extra_docs = self._read_many(_extra_entries, stat)
+                _seen = {d[0]["path"] for d in hits}
+                _extra_docs = [d for d in _extra_docs if d[0]["path"] not in _seen]
+                _sc_hits = self._score(hits, q, qb, pool_cfg)
+                _sc_extra = self._score(_extra_docs, q, qb, pool_cfg)
+                _bonus = [(doc, max(sc, _act.get(doc["path"], 0.0) * _s3_gain))
+                          for doc, sc in _sc_extra]
+                _merged = _sc_hits + _bonus
+                _valid = sum(1 for _, s in _merged if s > 0)
+                gates["s3"] = {"seeds": len(_seeds), "expanded": len(_bonus),
+                               "hops": _s3_hops, "decay": _s3_decay,
+                               "gain": _s3_gain, "valid": _valid}
+                if _valid >= min_results:
+                    _merged.sort(key=lambda x: (-x[1], -float(
+                        x[0]["frontmatter"].get("importance") or 0)))
+                    if record and _merged[:k]:
+                        self.record_access([r[0]["id"] for r in _merged[:k]], TIER_SPREAD)
+                    return self._emit(_merged, k, TIER_SPREAD, stat, route_bucket,
+                                      record, len(_merged), judge, context,
+                                      neg_coverage, big_domain, big_scores, pool_cfg)
+            else:
+                gates["s3"] = {"seeds": len(_seeds), "expanded": 0,
+                               "hops": _s3_hops, "reason": "no_edges"}
+
         stat["pre_cap"] = len(hits)
         stat["cap"] = GLOBAL_CAP
         hits, _rep = cut_by_relevance(hits, self._score(hits, q, qb, pool_cfg),
@@ -1579,6 +1981,18 @@ class MdCG:
             return out
 
         # T3：全量兜底（同为分池截断点；截断依据同为相关度，importance 作次级键）
+        # S7 只作 T2 的候选加速；T2 未达阈值时兜底必须回到**全量**，否则兜底口径被 S7 改变（与改动前不等价）。
+        if _s7_narrowed:
+            # 口径还原：T3 是「全量兜底」，S7 只是 T2 的加速器——回退时 scanned 必须
+            # 与「从未窄化」逐值一致，否则同配置的审计指标被候选层改变（独立复核要求）。
+            # 窄化那趟的读取量另记为 attempted（诚实计量，不混入 scanned）。
+            _attempted = stat["scanned"] - _s7_scan0
+            stat["scanned"] = _s7_scan0
+            entries = entries_full
+            docs_all = self._read_many(entries, stat)
+            _s7_narrowed = False
+            gates.setdefault("s7", {}).update(
+                {"fallback": "t3_full", "attempted": _attempted})
         stat["pre_cap"] = len(docs_all)
         stat["cap"] = GLOBAL_CAP
         picked, _rep = cut_by_relevance(docs_all,
@@ -1590,6 +2004,53 @@ class MdCG:
         return self._emit(scored, k, TIER_GLOBAL_SCAN, stat, route_bucket,
                           record, len(picked), judge,
                           context, neg_coverage, big_domain, big_scores, pool_cfg)
+
+# 生效条件：无条件按 hits 的 path 与 allowed 集合做双向邻接扩散（只读 index["nodes"] 的 edges/target，不读节点文件），
+# hops<=0 或无命中/无 allowed 时返回 ({}, seeds)；否则返回 ({被扩散节点 path: decay**跳数}, seeds)，不含种子自身；
+# 目标必须是 allowed（未过 S1/S2 门控的节点一律不引入）且在 index 中存在。
+    def _spread_activation(self, entries, hits, hops, decay):
+        """从词法命中节点沿 edges 双向扩散（契约 §3 S3）。
+
+        只用索引快照（`edges`/`target`）不读文件；`allowed` = 已通过 S1/S2 门控的候选，
+        因此扩散**不可能**把未过门控的节点拉进结果。返回 ({nid: 激活值}, 种子 id 集合)。
+        """
+        nodes = self.index.get("nodes") or {}
+        allowed, seeds = set(), set()
+        for e in entries:
+            nid = e.get("id") or os.path.splitext(os.path.basename(e.get("path") or ""))[0]
+            if nid in nodes:
+                allowed.add(nid)
+        for d in hits:
+            p = d[0].get("path")
+            nid = os.path.splitext(os.path.basename(p or ""))[0]
+            if nid in nodes and nid in allowed:
+                seeds.add(nid)
+        if hops <= 0 or not seeds:
+            return {}, seeds
+        adj = {}
+        for nid in allowed:
+            for ed in (nodes[nid].get("edges") or []):
+                if isinstance(ed, dict):
+                    t = str(ed.get("target") or "")
+                    if t:
+                        adj.setdefault(nid, set()).add(t)
+                        adj.setdefault(t, set()).add(nid)
+        act, seen, frontier = {}, set(seeds), set(seeds)
+        for hop in range(1, hops + 1):
+            nxt = set()
+            for nid in frontier:
+                for t in adj.get(nid, ()):
+                    if t in seen or t not in allowed or t not in nodes:
+                        continue
+                    seen.add(t)
+                    nxt.add(t)
+                    # 键用**节点文件路径**（与 search 的 entries/doc["path"] 同口径，避免 id/path 混用）
+                    act[nodes[t].get("path") or t] = decay ** hop
+            frontier = nxt
+            if not frontier:
+                break
+        return act, seeds
+
 
 # 生效条件：entries 逐条经 _read 得 content 为 None 的跳过、_open_content 返回 None 的跳过，其余以 (e, fm, c) 进入 docs，并把 len(docs) 累加进 stat["scanned"] 后返回 docs；
     def _read_many(self, entries, stat):
@@ -1606,6 +2067,7 @@ class MdCG:
         return docs
 
     @staticmethod
+# 生效条件：terms 为空时返回 False；否则任一 t 在 positive_body(content) 的小写串中出现，或该 t 的小写形式出现在 fm 的 tags（tags 取自 fm.get("tags") or []，缺键或假值按空列表拼接）小写串中即返回 True。
     def _like(content, fm, terms):
         # 负条件行（`# 不适用条件：`）是反例声明，不作召回键：命中它只应由
         # judge_qualification 走 REJECT，不能把节点召回。tags 仍参与匹配。
@@ -1632,6 +2094,10 @@ class MdCG:
                 _pair_hits = _canon.pair_hits
             except Exception:
                 sem_on = False
+        # S4 层级激活优先级（契约 §3 S4）：加成而非过滤；子开关须显式 =1
+        _s4_on = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+                  and os.environ.get("MDCG_GATE_S4_LAYER") == "1")
+        _boost = layer_boosts() if _s4_on else None
         scored = []
         for e, fm, c in docs:
             # 归一化 content 后取 bigram（与 query 侧 normalize_en 对称）
@@ -1648,6 +2114,8 @@ class MdCG:
             if pools:                       # §七 降权：乘数只来自显式权重表（可复算）
                 raw = max(0.0, min(1.0, raw * pooling.weight_of(
                     fm.get("id") or e["path"], e, pools)))
+            if _boost:                      # S4：层级加成（最后一步；上限仍夹在 1.0）
+                raw = min(1.0, raw + _boost.get(str(fm.get("layer") or ""), 0.0))
             scored.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
                             "content": c, "path": e["path"]}, raw))
         return scored
@@ -1657,9 +2125,98 @@ class MdCG:
     def _emit(self, scored, k, tier, stat, bucket, record, candidates,
               judge, context, neg_coverage, big_domain=None, big_scores=None,
               pools=None):
+        # ---- S5 负记忆抑制（契约 §3 S5；flag 控、默认关）----
+        # 现状：rejected/unresolved 命中只会被「附加」到结果里（sensing），对正候选毫无影响。
+        # 这里把它变成**抑制信号**：与负记忆「边相邻」或「词面高度重叠」的正候选按
+        # w ← w × (1-λ) 降权（只降权、不删除、下限 0）；开关默认关 → 行为与改动前一致。
+        _s5 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+               and os.environ.get("MDCG_GATE_S5_NEG") == "1")
+        _s5_lam, _s5_thr, _s5_hits = 0.5, 0.5, []
+        # λ/阈值的解析必须在「scored 是否为空」之外：否则 scored 为空时负记忆条目会按默认 λ 降权、
+        # 审计也会记错配置（独立复核 2026-09-19 指出）
+        if _s5 and neg_coverage:
+            try:
+                _s5_lam = min(1.0, max(0.0, float(os.environ.get("MDCG_NEG_LAMBDA", "0.5"))))
+            except ValueError:
+                _s5_lam = 0.5
+            try:
+                _s5_thr = min(1.0, max(0.0, float(os.environ.get("MDCG_NEG_SIM", "0.5"))))
+            except ValueError:
+                _s5_thr = 0.5
+        if _s5 and neg_coverage and scored:
+            _negs = []
+            for _nc in neg_coverage[:10]:
+                try:
+                    with open(os.path.join(self.root, _nc["path"]), encoding="utf-8") as _f:
+                        _fm_n, _c_n = nodefile.loads(_f.read())
+                except Exception:
+                    continue        # 解析异常同样放行（信息不足不得中断检索）
+                _negs.append((str(_fm_n.get("id") or os.path.splitext(
+                    os.path.basename(_nc["path"]))[0]), _fm_n, _c_n))
+            for _i, (_doc, _sc) in enumerate(scored):
+                _pid = str(_doc.get("id") or _doc.get("path") or "")
+                _pt = {str(_e.get("target") or "")
+                       for _e in (_doc["frontmatter"].get("edges") or [])
+                       if isinstance(_e, dict)}
+                _hit = False
+                for _nid, _nfm, _nc_content in _negs:
+                    _nt = {str(_e.get("target") or "")
+                           for _e in (_nfm.get("edges") or []) if isinstance(_e, dict)}
+                    if _nid == _pid or _pid in _nt or _nid in _pt:
+                        _hit = True
+                        break
+                    try:
+                        _sim = lexical_sim(bigrams(normalize_en(_doc.get("content") or "")),
+                                           bigrams(normalize_en(_nc_content)))
+                    except Exception:
+                        _sim = 0.0
+                    if _sim >= _s5_thr:
+                        _hit = True
+                        break
+                if _hit:
+                    scored[_i] = (_doc, max(0.0, _sc * (1.0 - _s5_lam)))
+                    _s5_hits.append(_pid)
+        # 审计只在「确有负记忆命中」时落键（与 S1/S2「产生信息才落键」同规则）
+        if _s5 and neg_coverage:
+            _g = stat.setdefault("gates", {})
+            _g["s5"] = {"lambda": _s5_lam, "threshold": _s5_thr,
+                        "neg": len(neg_coverage), "suppressed": len(_s5_hits),
+                        "suppressed_ids": _s5_hits[:20]}
         scored.sort(key=lambda x: (-x[1],
                                    -float(x[0]["frontmatter"].get("importance") or 0)))
         results = scored[:k]
+        # ---- S6 一致性交叉验证（契约 §3 S6；flag 控、默认关）----
+        # 只读复用 crosscheck 的「赛道 × 来源执照」判定：对 top-k 逐个给出赛道、声明依据是否被
+        # 该赛道许可、以及断言条数。**不进主排序**（scored/out 的次序一律不动），只落审计摘要。
+        _s6 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+               and os.environ.get("MDCG_GATE_S6_CROSSCHECK") == "1")
+        if _s6:
+            try:
+                from . import crosscheck as _cc
+            except Exception:
+                _cc = None
+            if _cc is not None:
+                _rows6, _track6, _flagged6 = [], {}, []
+                for _r in results:
+                    _fm6 = _r[0].get("frontmatter") or {}
+                    _c6 = _r[0].get("content") or ""
+                    try:
+                        _tk6 = _cc.classify_track(_fm6, _c6)
+                        _bs6 = _fm6.get("verification_basis")
+                        _ok6 = bool(_cc.basis_licensed(_tk6, _bs6)) if _bs6 else False
+                        _cl6 = len(_cc.extract_claims(_fm6, _c6))
+                    except Exception:
+                        _tk6, _bs6, _ok6, _cl6 = "undetermined", None, False, 0
+                    _track6[_tk6] = _track6.get(_tk6, 0) + 1
+                    _rid6 = _r[0].get("id") or _r[0].get("path")
+                    _rows6.append({"id": _rid6, "track": _tk6, "basis": _bs6,
+                                   "licensed": _ok6, "claims": _cl6})
+                    # 只在「赛道已定 ∧ 声明了依据 ∧ 依据不被该赛道许可」时点名（赛道未定不点名）
+                    if _tk6 in ("science", "humanities") and _bs6 and not _ok6:
+                        _flagged6.append({"id": _rid6, "track": _tk6, "basis": _bs6})
+                stat.setdefault("gates", {})["s6"] = {
+                    "checked": len(_rows6), "by_track": _track6,
+                    "flagged": _flagged6, "rows": _rows6}
         # 资格判定（与性能正交）
         out = []
         for r in results:
@@ -1681,7 +2238,8 @@ class MdCG:
                      "content": content, "path": nc["path"]}
             qual = {"state": STATE_REJECT if nc["layer"] == "rejected" else STATE_DEFER,
                     "reason": f"查询已被{nc['layer']}层覆盖：见 {nc['path']}"}
-            out.append((entry, 1.0, qual))
+            # S5 开时：负记忆条目不再与正候选同权（契约 §3 S5）
+            out.append((entry, (max(0.0, 1.0 - _s5_lam) if _s5 else 1.0), qual))
         if record and results:
             self.record_access([r[0]["id"] for r in results], tier)
         pool_plan = pooling.plan(stat.get("cap") or GLOBAL_CAP, pools)
@@ -1691,8 +2249,8 @@ class MdCG:
             pool_plan["taken"] = dict(stat["pool_taken"])
             pool_plan["cands"] = dict(stat.get("pool_cands") or {})
             pool_plan["lost"] = dict(stat.get("pool_lost") or {})
-        return out, {"tier": tier, "scanned": stat["scanned"], "bucket": bucket,
-                     "candidates": candidates,
+        meta = {"tier": tier, "scanned": stat["scanned"], "bucket": bucket,
+                "candidates": candidates,
                      # §七 分池审计：截断前候选数 / 全局额度 / 生效分池计划
                      "pre_cap": stat.get("pre_cap"), "cap": stat.get("cap"),
                      # 截断依据审计：relevance=先打分再排序截断（现行）
@@ -1702,6 +2260,10 @@ class MdCG:
                      # 阶段 1 大域收敛结果 + 完整打分明细（白箱可审计）
                      "big_domain": big_domain,
                      "big_domain_scores": big_scores}
+        # 分阶段审计仅在门控真的产生信息时落键（默认关闭 → meta 与改动前逐字节一致；契约 §5.3）
+        if stat.get("gates"):
+            meta["gates"] = stat["gates"]
+        return out, meta
 
     # ---------- 五大单元之四：反思 / 验证 / 输出 ----------
 
@@ -1801,7 +2363,7 @@ class MdCG:
                 and os.path.exists(old_full)):
             os.remove(old_full)
         rel = os.path.relpath(new_path, self.root).replace("\\", "/")
-        self._stage(node_id, {
+        self._stage(node_id, _strip_empty_gate_fields({
             "path": rel, "layer": to_layer, "tags": fm.get("tags", []),
             "bucket": None, "importance": fm.get("importance", 0.5),
             "created_at": fm.get("created_at", 0),
@@ -1811,8 +2373,10 @@ class MdCG:
                 node["content"].encode("utf-8")).hexdigest()[:12],
             "temporal": fm.get("temporal"), "spatial": fm.get("spatial"),
             "time_window": (fm.get("condition_space") or {}).get("time_window"),
+            "big_domain": fm.get("big_domain"),
+            "observation_position": (fm.get("condition_space") or {}).get("observation_position"),
             "evidence_count": fm.get("evidence_count", 0),
-        })
+        }))
         self.index["buckets"] = self._count_buckets(self.index["nodes"])
         return {"id": node_id, "from": from_layer, "to": to_layer,
                 "path": rel, "reason": reason}

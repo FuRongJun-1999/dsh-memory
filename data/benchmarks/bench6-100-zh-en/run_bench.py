@@ -186,6 +186,7 @@ def verify_results(results, questions, k, tol=1e-9):
 
 # ------------------------------------------------------- 内置词面基线（演示）
 
+# 生效条件：不适用（无必需形参与模块级常量）
 class CharNGramBaseline:
     """零依赖词面基线：字符 2-gram 计数余弦。中英通吃、完全确定性。
 
@@ -196,6 +197,7 @@ class CharNGramBaseline:
 
     name = "char-bigram-baseline"
 
+# 生效条件：不适用（无必需形参与模块级常量）
     def __init__(self, k_ngram=2):
         self.k_ngram = k_ngram
         self.docs = {}

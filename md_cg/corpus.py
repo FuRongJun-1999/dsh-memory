@@ -40,6 +40,7 @@ MARKS = ("# 功能名：", "# 生效条件：", "# 子功能：", "# 执行：",
 EXPECTED_NODES = sum(len(points) for _dom, points in DOMAINS) * len(ASPECTS)
 
 
+# 生效条件：给定 dom、point、aspect 且 marks 取默认 True（真值）时，返回带「# 功能名/生效条件/子功能/执行/验证方式/不适用条件」MARKS 行的完整正文；marks 为假值时返回不含 MARKS 行、仅叙述「{point} 是 {dom} 领域的知识点」的正文。
 def body(dom, point, aspect, marks=True):
     """节点正文。marks=True 给完整 CCG 五要素，否则给纯叙述正文（无 MARKS 行）。"""
     if marks:
@@ -56,10 +57,12 @@ def body(dom, point, aspect, marks=True):
             "常用于条件化检索与召回对照。\n")
 
 
+# 生效条件：给定 di、pi、ai 时返回 f-string 拼成的字符串 `kp_{di:02d}_{pi:02d}_{ai}`（di 与 pi 之间由下划线分隔，di、pi 两位补零后接 ai）。
 def node_id(di, pi, ai):
     return f"kp_{di:02d}_{pi:02d}_{ai}"
 
 
+# 生效条件：给定 cg 及默认 marks=True、layer="knowledge"、verification_basis="data" 时，按模块级 DOMAINS 与 ASPECTS 逐组合调用 cg.add（节点 id 取自 node_id，importance=0.4+0.1*ai，tags 为 domain:{dom}，condition_space 含 observation_position/observation_tool/existence_constraint），每写一个 n 加一，最后 cg.flush() 并返回 n。
 def seed(cg, marks=True, layer="knowledge", verification_basis="data"):
     """把整套语料写进 cg，返回写入节点数。幂等：节点 id 固定（同 id 原子覆盖）。"""
     n = 0
@@ -81,6 +84,7 @@ def seed(cg, marks=True, layer="knowledge", verification_basis="data"):
     return n
 
 
+# 生效条件：给定 root 且 clean 为真、os.path.isdir(root) 成立时先 shutil.rmtree(root)，随后无论 clean 取值都以 exist_ok=True 调用 os.makedirs(root)。
 def reset_root(root, clean=False):
     """确保测试根存在：保证「重跑 ≡ 首跑」，且上一轮残留节点不会被当成先验。
 

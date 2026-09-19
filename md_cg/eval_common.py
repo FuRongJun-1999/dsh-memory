@@ -233,10 +233,12 @@ def calibrate_turn(r, date_key=None, title_key=None):
     return body, tags, cond_space
 
 
+# 生效条件：任意 t 与可选 ctx（默认 None）传入即原样转调 calibrate_turn(t, date_key="date", ctx=ctx)，返回其结果；
 def calibrate_lm_turn(t, ctx=None):
     return calibrate_turn(t, date_key="date", ctx=ctx)
 
 
+# 生效条件：任意 r 与可选 ctx（默认 None）传入即原样转调 calibrate_turn(r, title_key="title", ctx=ctx)，返回其结果；
 def calibrate_lc_turn(r, ctx=None):
     return calibrate_turn(r, title_key="title", ctx=ctx)
 
@@ -345,6 +347,7 @@ def calibrate_turn(r, date_key=None, title_key=None, ctx=None):
     return body, tags, cond_space
 
 
+# 生效条件：rebuild=True 且 os.path.isdir(root) 时先 rmtree(root)；cg_cls 为假值（如 None）时回落 MdCGOS(root, autoflush=500)；语料行数 n_rows ≤ cg.index["nodes"] 现有节点数（n_rows=0 的空语料也满足）时直接复用返回 cg；否则逐行写入——calib_of 为真走标定口径 B（先 build_canon，calib_of(r, {"canon": canon, "last_canon": last_canon}) 取 body/tags/condition_space），calib_of 为假（含 None）走 legacy 口径 A（用 text_of(r)），id 已在 cg.index["nodes"] 的行跳过，verbose 为真时每 20000 行打印进度，循环后 cg.flush() 再返回 cg；
 def build_eval_cg(cg_cls, root, corpus_path, text_of, src_tag, verbose=True,
                   calib_of=None, rebuild=False):
     """幂等建库：节点数已达语料行数则直接复用。返回 cg（不 flush 句柄）。
@@ -398,6 +401,7 @@ def build_eval_cg(cg_cls, root, corpus_path, text_of, src_tag, verbose=True,
     return cg
 
 
+# 生效条件：对传入 cg，用闭包 cache（键为 entry["path"]）包装其原 cg._read 并赋回 cg._read，返回该 cache；仅当 p = entry["path"] 不在 cache 时调用 orig(entry) 并缓存其（含假值）结果，p 已在 cache 中时直接返回缓存值；
 def install_read_cache(cg):
     """评测只读：节点文件读进内存，避免逐次检索重复磁盘 I/O。"""
     cache = {}

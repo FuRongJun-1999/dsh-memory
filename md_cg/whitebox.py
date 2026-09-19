@@ -113,6 +113,7 @@ class _WhiteboxApi:
         return {"ok": not r["isError"], "raw": r.get("data") or r.get("text")}
 
 
+# 生效条件：以假值 cmd（None/空序列）构造时 self.cmd 取 _launch_cmd()，真值 cmd 时取 list(cmd)；timeout 与 MDCG_WHITEBOX_TIMEOUT 环境变量都取假值时 self.timeout 为 float(60.0)，否则取其中首个真值；env 为真值时按 str(v) 合并进 os.environ 副本，假值时 self.env 仅为 os.environ 副本。
 class _SubprocessWhiteboxClient(_WhiteboxApi):
     """外部白箱 MCP stdio 客户端（legacy 路径，需显式配置才启用）。
 
@@ -120,6 +121,7 @@ class _SubprocessWhiteboxClient(_WhiteboxApi):
     进程懒启动、调用串行化、超时即杀（下次调用自动重启）。
     """
 
+# 生效条件：cmd 为真值时 self.cmd=list(cmd)，否则回落 _launch_cmd()；timeout 为真值则直接用，否则回落 os.environ.get("MDCG_WHITEBOX_TIMEOUT")，再否则 60.0；env 为真值时其键值经 str() 合并进 os.environ 副本。
     def __init__(self, cmd=None, env=None, timeout=None):
         self.cmd = list(cmd) if cmd else _launch_cmd()
         self.timeout = float(timeout or os.environ.get("MDCG_WHITEBOX_TIMEOUT") or 60.0)
@@ -168,6 +170,7 @@ class _SubprocessWhiteboxClient(_WhiteboxApi):
                 pass
 
     # -- 内部 IO ----------------------------------------------------------
+# 生效条件：self.proc 为 None 或 proc.stdout 为 None 时直接返回；否则逐行 strip 后跳过空行，非空行 json.loads 成功则放入 self._q，抛 ValueError 则跳过该行。
     def _reader(self):
         stream = self.proc.stdout if self.proc else None
         if stream is None:
@@ -249,6 +252,7 @@ class LocalWhiteboxClient(_WhiteboxApi):
         self._engine = None
 
     @property
+# 生效条件：self._engine 为 None 时调用 _load_get_engine()(db_path=self.db_path) 创建并缓存后返回它，非 None 时直接返回缓存实例。
     def engine(self):
         if self._engine is None:
             self._engine = _load_get_engine()(db_path=self.db_path)

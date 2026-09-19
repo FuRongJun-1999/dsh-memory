@@ -58,6 +58,7 @@ DEFAULT_SENSITIVITY = "internal"
 PRIVATE_HINTS = ("private", "secret", "internal", "未公开", "私有", "内部")
 
 
+# 生效条件：override 为真值即返回 (override, "调用方显式指定")；否则 path（假值按 ""）按 "\" 与 "/" 分段，任一段小写含 PRIVATE_HINTS 中任一提示即返回 ("private", 路径段命中理由)，全部不命中返回 (DEFAULT_SENSITIVITY, 默认密级理由)；
 def sensitivity_for(path, override=None):
     """返回 (密级, 依据)。override 优先；否则按路径段保守降级。
 

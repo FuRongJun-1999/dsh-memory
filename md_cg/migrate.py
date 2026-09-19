@@ -17,6 +17,7 @@ from .mdcg import MdCG
 from . import routing, subgraph
 
 
+# 生效条件：v 为假值（None、空串等）时直接返回 default，否则 v 被 json.loads 成功解析时返回解析结果，抛出 ValueError 或 TypeError 时仍返回 default。
 def _j(v, default):
     if not v:
         return default
@@ -26,6 +27,7 @@ def _j(v, default):
         return default
 
 
+# 生效条件：db 为 sqlite3.connect 可打开的库且 limit 为假值（None、0、空串）时返回 nodes 全表行的 dict 列表；limit 为真值时先 int(limit) 并追加 " limit N" 子句后返回其结果。
 def load_nodes(db, limit=None):
     c = sqlite3.connect(db)
     c.row_factory = sqlite3.Row
@@ -35,6 +37,7 @@ def load_nodes(db, limit=None):
     return [dict(r) for r in c.execute(sql)]
 
 
+# 生效条件：db 可连接且能查询其 edges 表时，返回以 source_id 分组的 defaultdict(list)，每个 source_id 对应 target_id、relation_type、confidence、verified 经 subgraph.normalize_edge 规范化后的边列表。
 def load_edges(db):
     """读源库边，规范化为 md_cg 本地边（键名 `relation_type`、方向按 SRC_REL_MAP）。
 
@@ -49,6 +52,7 @@ def load_edges(db):
     return out
 
 
+# 生效条件：db、root 给定后按 load_nodes(db, limit) 的 rows 逐行 add 到 MdCG(root) 并 flush，再对每行按 cg.get 取不到→"missing"、content 去尾换行不等→"content"、tags 不等→"tags"、importance 差>1e-9→"importance"、edges 长度不等→"edges" 的 elif 顺序累计 report.field_mismatches，verbose 为真值时额外打印 report JSON，最终返回 (cg, report)。
 def migrate(db, root, limit=None, verbose=True):
     rows = load_nodes(db, limit)
     edges = load_edges(db)

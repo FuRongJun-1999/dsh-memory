@@ -615,6 +615,7 @@ class Parser:
         
         return FuncDefNode(name, params, body, start_line, start_col)
     
+# 生效条件：无 required 形参，仅当 self.current_token 存在且其 type 属于 TokenType 的 {COMMA, PERIOD, SEMICOLON, COLON, QUESTION, EXCLAM} 之一时循环调用 self._advance；可变位置形参 target_types 在函数体内未被使用。
     def _skip_punctuation_before(self, *target_types: TokenType):
         """跳过标点符号"""
         while self.current_token and self.current_token.type in (

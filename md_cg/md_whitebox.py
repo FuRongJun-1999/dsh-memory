@@ -273,6 +273,7 @@ class MdWhitebox:
 
     @property
 # 生效条件：self._engine 为 None 时以 db_path=self.db_path、seed=False 构造 WhiteboxEngine 并缓存，否则直接返回已缓存实例；
+# 生效条件：不适用（无必需形参与模块级常量）
     def engine(self):
         if self._engine is None:
             from .whitebox_kb.engine import WhiteboxEngine
@@ -284,14 +285,17 @@ class MdWhitebox:
         """白箱问答。返回含 `route` / `reply` / `hits` 的原始结果。"""
         return self.engine.chat(question, session_id=session_id)
 
+# 生效条件：不适用（无必需形参与模块级常量）
     def close(self):
         if self._engine is not None:
             self._engine.close()
             self._engine = None
 
+# 生效条件：不适用（无必需形参与模块级常量）
     def __enter__(self):
         return self
 
+# 生效条件：不适用（无必需形参与模块级常量）
     def __exit__(self, *exc):
         self.close()
         return False

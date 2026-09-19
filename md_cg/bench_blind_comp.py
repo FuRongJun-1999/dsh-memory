@@ -127,6 +127,7 @@ def _bigrams(s):
     return {s[i:i + 2] for i in range(len(s) - 1)}
 
 
+# 生效条件：无参调用且 ATOMS_PATH 载入 atoms 后，逐条确认 UNSEEN 各组合词不在其中文集合、其相邻字符对均为原子，并确认 UNSEEN 无重复、set(COMP_EN)==set(UNSEEN)、set(COMP_L3)<=set(UNSEEN)，全部成立才静默通过，任一断言不成立即 AssertionError。
 def assert_material():
     """盲测纪律的机器化：素材在/不在 atoms + 组合词互相不冲突。"""
     atoms = json.load(open(ATOMS_PATH, encoding="utf-8"))["atoms"]
@@ -140,6 +141,7 @@ def assert_material():
     assert set(COMP_EN) == set(UNSEEN) and set(COMP_L3) <= set(UNSEEN)
 
 
+# 生效条件：以 SEED 初始化 random.Random 后对 UNSEEN 每词按 G_TPL 取模板生成含 gold 的篇目，再对 j=0..21 用 DISTRACT_POOL 随机取两个不同词按 D_TPL 造文，50 次重试内首次出现不含 UNSEEN 任何组合词的文本即 break 并 append，22 篇齐备后返回 corpus，50 次全冲突则 raise AssertionError。
 def gen_corpus():
     """33 篇受控语料：11 gold + 22 干扰。确定性，断言内嵌。"""
     rng = random.Random(SEED)
@@ -186,6 +188,7 @@ def gen_questions():
 CORPUS = None   # gen_questions 需引用语料正文（L3 校验），main 内先建语料
 
 
+# 生效条件：以 cg/questions/tag/en_atoms 与默认 semantic=False 调用时，en_atoms 为真则设 os.environ["MDCG_EN_ATOMS"]="1"、为假则 pop，semantic 为真则设 MDCG_SEMANTIC="1" 且仅当 semantic=="norm" 时把带真值 q_atoms 的题替换为 q_atoms 文本、semantic=="raw" 保持原句、semantic 为假则 pop，随后在 lexical 路径以 k=5 评测并返回 (按 ALL/L1_surface/L2_crosslingual/L3_semantic 分型的 by_type, 仅 en_atoms 为真时按 L2_crosslingual 题收集中文语素的 probe)。
 def run_arm(cg, questions, tag, en_atoms, semantic=False):
     """单臂评测：臂差异只在查询侧环境开关展开。返回 (summary_by_type, l2_probe)。
 
@@ -225,6 +228,7 @@ def run_arm(cg, questions, tag, en_atoms, semantic=False):
     return by_type, probe
 
 
+# 生效条件：无参调用时先 assert_material 再经 gen_corpus/gen_questions 得到语料与题，os.path.isdir(ARM_ROOT) 为真则删除该目录，以 ARM_ROOT 建 cg 并写入 CORPUS 全部篇目，os.path.isdir(ARM_ROOT+"_b2") 为真则删除该目录、以该路径建 cg2 并仅对 gold 为真值的篇目附加 semantic=" ".join(gold) 后写入，再依次以 (cg,b0_legacy,False,False)/(cg,b1_enatoms,True,False)/(cg2,b2_comp,False,"norm")/(cg2,b3_unified,False,"raw") 四臂调 run_arm 汇总指标与 b1 的 L2 探针，最后 ec.save_result 写出 blind_comp_baseline.json 并在 out 中记录 seed/n_corpus/n_q/arms/l2_probe/elapsed_s/boundaries。
 def main():
     global CORPUS
     t0 = time.time()

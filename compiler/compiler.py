@@ -45,6 +45,7 @@ class Compiler:
         self.warnings = []
         self.funcs = {}        # 函数名 → (入口ip, 参数名列表)
 
+# 生效条件：传入 ast（带 statements 可迭代）即生效，先按 NodeType.FUNC_DEF 收集 funcs 并 emit 跳过 JUMP、后置编译函数体，再对非 FUNC_DEF 语句编译主体、把跳过标签指向主体开始、把 zhizu_labels 置于末尾并 _resolve 后返回 self.code；不含 FUNC_DEF 时主体直接编译并同样返回 self.code。
     def compile(self, ast):
         # 第一遍：收集函数定义（入口标签 + 参数）
         for stmt in ast.statements:
@@ -249,6 +250,7 @@ class Compiler:
         self.pending.append((len(self.code) - 1, entry_lbl))
 
 
+# 生效条件：传入 source（可配默认 strict=True）后先 tokenize/parse，errors 非空即返回 (None,{ok:False,errors,warnings:[]})；否则执行 NameChecker.check，仅当 strict 为真且 name_errors 非空时返回 (None,{ok:False,errors:name_errors,warnings:name_warnings,name_errors:name_errors})，strict 为假值时不因此提前返回而继续编译；compiler.compile 抛 SyntaxError 时返回 (None,{ok:False,errors:[str(e)],warnings:[],name_errors:[str(e)]})，否则返回 (code,{ok:True,errors:[],warnings:compiler.warnings})。
 def compile_source(source, strict=True):
     """中文源码 → 字节码（含名实校验静态检查）
     返回 (code, result)：result = {ok, errors, warnings, name_errors}"""

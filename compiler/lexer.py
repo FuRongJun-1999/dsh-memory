@@ -219,6 +219,7 @@ def _is_cjk_or_alpha(ch: str) -> bool:
 # 词法分析器
 # =============================================================================
 
+# 生效条件：以 source 为必填实参构造，实例化即置 self.source=source，并将 pos 置 0、line 置 1、column 置 1、tokens 与 errors 置空列表；
 class Lexer:
     """
     词法分析器 v2.0

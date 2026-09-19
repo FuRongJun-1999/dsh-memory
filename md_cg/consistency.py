@@ -319,6 +319,7 @@ def _last_strength(cg):
 # L2 递归反思（受深度 / 节点数 / 循环 / 增益门槛约束）
 # --------------------------------------------------------------------------
 
+# 生效条件：以 cg 节点图、seeds 中非空项为初始 frontier、tw_pos/tw_neg 词权，在 d=1..int(max_depth) 每轮先判 frontier 空返回 frontier_exhausted，再逐 nid 处理时若 nodes_visited > max_nodes 先返回 node_budget（可先于同层 discriminators），否则处理完该层后有 discriminators（非 seed_set 节点声明条件与 tw_pos/tw_neg 覆盖 >= CLASH_HIGH）返回 resolved，否则 last_gain < min_gain 返回 gain_below_threshold，循环耗尽返回 depth_exceeded；seeds 假值时 frontier 空，在 d=1 进入循环后由首判返回 frontier_exhausted（depth=0）；
 def _recursive_reflect(cg, seeds, tw_pos, tw_neg, max_depth=MAX_DEPTH,
                        max_nodes=MAX_NODES, min_gain=MIN_GAIN):
     """递归反思：沿关系链找「区分条件」，每层检查信息增益。
@@ -381,6 +382,7 @@ def _recursive_reflect(cg, seeds, tw_pos, tw_neg, max_depth=MAX_DEPTH,
 # 主入口：三级决策
 # --------------------------------------------------------------------------
 
+# 生效条件：以 cg.index.nodes 为既有节点、content（假值按 ""）经 _new_terms 得 pos/neg 并算 tw_pos/tw_neg，按循环中 hard（自否定或纪律命中）→ divergences（同条件槽且 concl < CONCLUSION_SAME）→ strength ≥ CLASH_HIGH → strength ≥ CLASH_LOW → comparable==0 且 (pos or neg) → 否则 ACCEPT 的顺序定 verdict；DEFER 且 int(depth)>0 且 emo["bias"] != "approaching" 时调 _recursive_reflect 补 recursion，auto_flywheel 且 verdict∈{REJECT,DEFER,BLINDSPOT} 时加 unresolved_id，最后 log 并返回 rec；
 def check(cg, content, layer=None, condition_space=None,
           non_applicable_conditions=None, tags=None, exclude=None,
           limit=MAX_SCAN, depth=MAX_DEPTH, auto_flywheel=False,

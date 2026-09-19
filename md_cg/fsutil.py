@@ -300,6 +300,7 @@ class ShardedLog:
             self._fh = None
 
     @staticmethod
+# 生效条件：directory 是目录时，按 sorted(os.listdir(directory)) 顺序对每个以 ".log" 结尾的文件调用 read_jsonl 汇总记录，再按每条记录 r.get("_t", 0)、r.get("_s", 0)（缺键取 0）排序后返回全部记录；directory 不是目录时直接返回 []。
     def read_all(directory: str):
         """按全局写入顺序回放所有分片。"""
         if not os.path.isdir(directory):
@@ -313,6 +314,7 @@ class ShardedLog:
         return recs
 
     @staticmethod
+# 生效条件：directory 是目录时，遍历 os.listdir(directory)，对以 ".log" 结尾且不满足「keep 为真值且 os.path.abspath(p) == keep」的条目调用 os.remove（keep 为 None/空串等假值时该排除条件恒不成立，所有 ".log" 条目都会被删），删除时的 OSError 被忽略；directory 不是目录时直接返回。
     def clear(directory: str, keep: str = None):
         """合并进快照后清理分片。keep 用于保留当前进程正在写的那个。"""
         if not os.path.isdir(directory):

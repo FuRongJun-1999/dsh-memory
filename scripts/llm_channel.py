@@ -23,6 +23,7 @@ import urllib.request
 CONFIG_PATH = os.path.expanduser("~/.zcode/v2/config.json")
 
 
+# 生效条件：当 CONFIG_PATH 能被 json.load 解析成功、且其中 provider 字典某项的 name.lower() 含 provider_hint（provider_hint 为空串时 `"" in name.lower()` 恒真而命中首个 provider）且该项 options.apiKey 为真值时，返回 (apiKey, 该项 options.baseURL 删去全部 "/v1" 子串)；解析失败或无此匹配项时返回 None。
 def _load_key(provider_hint: str) -> tuple[str, str] | None:
     """从 ZCode config.json 读 (api_key, base_url)。"""
     try:
@@ -38,6 +39,7 @@ def _load_key(provider_hint: str) -> tuple[str, str] | None:
     return None
 
 
+# 生效条件：os.environ 的 DEEPSEEK_API_KEY 为真值时直接返回 (该值, "https://api.deepseek.com")；否则令 hint=(os.environ.get("DEEPSEEK_PROVIDER_HINT") or "").strip()，按顺序取 _load_key(hint)（仅 hint 非空时参与）、_load_key("314007fa")、_load_key("deepseek") 中首个非 None 结果的首元素配 "https://api.deepseek.com"，三者皆 None 时返回 (None, None)。
 def _deepseek() -> tuple[str, str]:
     # 优先环境变量，回退 ZCode config
     k = os.environ.get("DEEPSEEK_API_KEY")
@@ -52,6 +54,7 @@ def _deepseek() -> tuple[str, str]:
     return (r[0], "https://api.deepseek.com") if r else (None, None)
 
 
+# 生效条件：os.environ["GLM_API_KEY"] 为其真值，或该值为假值/缺失时回落到 os.environ["BIGMODEL_API_KEY"] 为真值时，返回 (该键值, "https://open.bigmodel.cn/api/paas/v4")；两者均缺失或均为空串时返回 (None, None)。
 def _glm() -> tuple[str, str]:
     k = os.environ.get("GLM_API_KEY") or os.environ.get("BIGMODEL_API_KEY")
     if k:
@@ -70,6 +73,7 @@ SPEC_PROMPT = """你是白箱代码生成器。输出**纯 Python 函数**（def
 任务："""
 
 
+# 生效条件：对任意 text（含空串）先 strip，仅当 strip 结果以 "```" 开头才按行丢弃以 ``` 开头的首行与 strip 后以 ``` 开头的末行并以 "\n" 连接，最终返回 text.strip()。
 def strip_code(text: str) -> str:
     text = text.strip()
     if text.startswith("```"):
@@ -82,6 +86,7 @@ def strip_code(text: str) -> str:
     return text.strip()
 
 
+# 生效条件：provider 为 "auto" 时 deepseek 与 glm 两通道均入列、"deepseek"/"glm" 只入对应通道，遍历中跳过 key 为假的通道，首个请求成功且其 strip_code 结果非空时返回 {"ok": True, "code": code, "provider": pname}（pname 为 glm 时 model 取 model or "glm-5.3-flash"、max_tokens 取 max(max_tokens, 2000)，否则 model 取 model or 该 pname 默认模型名、max_tokens 取原值）；provider 为其他值或所有通道 key 假/请求抛异常/结果为空时返回 {"ok": False, "error": "全部通道不可用（deepseek/glm）", "code": ""}。
 def generate_code(task_desc: str, provider: str = "auto",
                   model: str | None = None, max_tokens: int = 800) -> dict:
     """通道 B：LLM 生成代码初稿。返回 {"ok", "code", "provider", "error"}。"""

@@ -48,6 +48,7 @@ ARM_ROOT = os.path.join(HERE, "_md_cg_eval_unified_en")  # gitignore 已覆盖
 K = 10
 
 
+# 生效条件：传入 root 使 os.path.isdir(root) 为真时先执行 shutil.rmtree(root, ignore_errors=True)、否则跳过，随后遍历 corpus 每项 c，semantic_of 不为 None 且 semantic_of(c) 返回真值时以 semantic=sem 传入，正文按 zh_body 真值取 c.get("zh")、假值取 b6.ingest_text_en(c)，并以 c["id"] 为键 add 后 flush 并 install_read_cache，最终返回 cg；
 def build(root, corpus, semantic_of=None, zh_body=False):
     """单库构建：正文形态与 fm.semantic 摘要层是仅有的两个自由度。"""
     if os.path.isdir(root):
@@ -83,6 +84,7 @@ def run_arm(cg, questions, tag, semantic=False):
     return rows, by_type
 
 
+# 生效条件：questions 为真时逐 q 取 q["question"]（缺该键抛 KeyError）经 query_atoms，仅当 atom 含任一满足 "A" <= ch <= "z" 的字符才计入 n_keep，n_tok 为 0 时 keep_ratio 为 0.0、否则 round(n_keep/n_tok,4)，questions 为空时 q_with_keep_ratio 为 0.0、否则 round(n_q_with_keep/len(questions),4)，返回含 n_questions/n_atoms/n_en_keep 的 dict；
 def oov_stats(questions):
     """题级 en→zh 归一覆盖统计：英文保留词占比 = 词表覆盖瓶颈的直接量化。"""
     n_tok = n_keep = n_q_with_keep = 0
@@ -101,6 +103,7 @@ def oov_stats(questions):
             if questions else 0.0}
 
 
+# 生效条件：不适用（无必需形参与模块级常量）
 def main():
     t0 = time.time()
     rows500 = list(ec.iter_jsonl(b6.QUESTIONS500))
@@ -116,6 +119,7 @@ def main():
     ec.unlock_global_cap()
     ec.use_jaccard()
 
+# 生效条件：对 c 先取 (c.get("zh_fields") or {}).get("summary") 再 or "" 并 str().strip()，该值为空时回落为 (c.get("zh") or "") 的 str().strip()，所得 s 非空则返回 " ".join(semantic_atoms(s))、否则返回空串；
     def sem_of(c):
         s = str((c.get("zh_fields") or {}).get("summary") or "").strip()
         if not s:

@@ -465,6 +465,7 @@ def evolution_candidates(cg, *, layer: str = None, top: int = 8,
                      "重要性重算为确定性动作（有 rollback）")}
 
 
+# 生效条件：给定 cg 后只读汇总（nodes 取自 cg.index、disk 计数、refindex.check_refs），stale_temp_age 传入 _list_stale_temps；check_heartbeat / check_evolution(evolve_top) / check_provenance(provenance_top) 为真时分别追加对应 issue，返回 ok = 无 severity=="warning" 的 issue 连同 stats。
 def diagnose(cg, *, name: str = "md_cg", stale_temp_age: float = STALE_TEMP_AGE,
              check_heartbeat: bool = True, check_evolution: bool = True,
              evolve_top: int = 5, check_provenance: bool = True,
@@ -790,6 +791,7 @@ def watermarks(cg) -> dict:
 # 常驻循环
 # --------------------------------------------------------------------------
 
+# 生效条件：传入 cg 即构造实例并把 self.cg 指向它，name/beat_interval/heal_interval/auto_heal/scrub_interval/auto_scrub/evolve_interval/auto_evolve/tidy_interval/auto_tidy 用各默认值（DEFAULT_* 与 False/True）经 float()/bool() 落为 self 属性，ledger 为假值（默认 None）时回落 SessionLedger(cg.root)，d 经 net_dir(d) 赋值，其余运行态字段初始化为 False/None/空列表/空 Event/Lock
 class SustainLoop:
     """常驻自维持循环：后台线程周期心跳 + 周期巡检 + 必要时自愈。
 
@@ -856,6 +858,7 @@ class SustainLoop:
 
     # ---- 生命周期 ----
 
+# 生效条件：不适用（无必需形参与模块级常量）
     def start(self):
         if self._th is not None and self._th.is_alive():
             return self

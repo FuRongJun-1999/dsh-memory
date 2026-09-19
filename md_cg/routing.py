@@ -300,3 +300,67 @@ def bucket_health(counts: dict) -> dict:
         "expected_scan": expected_scan,
         "problems": problems,
     }
+
+
+# ---------------------------------------------------------------------------
+# 节点侧大域标签（S1 大域先验收敛的前置元数据）
+#
+# 为何需要：`big_domain_classify` 一直只作用于 **query 侧**（terms），节点侧没有域字段，
+# 于是「14 大域并行打分」算完只能写进 meta（审计偏差 4：先验算出来却当成报告）。
+# 要让大域先验真正参与候选收敛，节点必须在写入时固化自己的域。
+# 口径：与查询侧同一个分类器（BIG_DOMAINS + big_domain_classify），保证两侧同构。
+# ---------------------------------------------------------------------------
+
+# 域词取词：中文（≥2 字）与拉丁词（≥2 字）。词表命中用「包含关系」判定，
+# 故 2 字以上的切口足以覆盖 1~4 字代表词（如「工程」命中「工程师」）。
+DOMAIN_TERM_RE = re.compile(r"[\u4e00-\u9fff]{2,}|[A-Za-z][A-Za-z0-9_]{1,}")
+
+
+# 生效条件：text 为假值（None/空串）时返回 []；否则以 DOMAIN_TERM_RE 取词、按出现顺序去重后返回，
+# 最多 limit 个（limit 为假值/负数时按空处理，返回 []）。
+def domain_terms(text, limit: int = 400) -> list:
+    """从节点正文/标题抽「域词」（供 big_domain_classify 使用）。
+
+    只做最小分词：中文按 ≥2 字连续片段、拉丁按 [A-Za-z][A-Za-z0-9_]+ 取词；
+    去重保序，最多 limit 个（默认 400，避免长文把分类器拖慢）。
+    """
+    if not text or not limit or limit < 1:
+        return []
+    out, seen = [], set()
+    for m in DOMAIN_TERM_RE.finditer(str(text)):
+        w = m.group(0)
+        if w in seen:
+            continue
+        seen.add(w)
+        out.append(w)
+        if len(out) >= limit:
+            break
+    return out
+
+
+# 生效条件：bucket 为假值或等于 ORPHAN 时返回空串；否则去掉 "cond_" 前缀、并当末段为 8 位十六进制哈希时剥掉该段，返回剩余的可读键。
+def bucket_key_readable(bucket: str) -> str:
+    """桶目录名 → 可读键（S1b query 侧桶推断用）：'cond_感知系统_d94e90d2' → '感知系统'。
+
+    与 `bucket_dir` 互逆（丢哈希段）；`orphan`/空值返回空串（S1b 不把 orphan 当键，orphan 恒作兜底）。
+    """
+    if not bucket or bucket == ORPHAN:
+        return ""
+    s = str(bucket)
+    if s.startswith("cond_"):
+        s = s[len("cond_"):]
+    head, sep, tail = s.rpartition("_")
+    if sep and len(tail) == 8 and all(c in "0123456789abcdef" for c in tail):
+        s = head
+    return s
+
+
+# 生效条件：text 为假值或取不到任何域词时返回 None；否则返回 big_domain_classify(domain_terms(text))
+# 的结果（无有效域信号时亦为 None，调用方据此决定是否落域字段）。
+def classify_text(text, limit: int = 400):
+    """正文 → 大域名（节点侧域标签真源）。与查询侧共用 big_domain_classify。
+
+    返回 None 表示「无有效域信号」——此时**不写** big_domain 字段，
+    该节点留在 ORPHAN/兜底池（S1 收敛时必须能被兜底召回，见契约 §3 S1 不变量）。
+    """
+    return big_domain_classify(domain_terms(text, limit))

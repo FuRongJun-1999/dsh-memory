@@ -69,6 +69,7 @@ def _walk(node, out):
                 _walk(a, out)
 
 
+# 生效条件：ast 为 None 时 visit 早退，函数返回初始 symbols={"variables":{},"functions":{}}；否则递归遍历，type.name=="FUNC_DEF" 时以 getattr(node,"name","") 为键、params 取 getattr(node,"params",[]) or []（假值回落 []）存入 functions，type.name=="ASSIGN_STMT" 时以 getattr(node,"target","") 为键（空串也记录）存入 variables，值为 value_node 为 None 时的 "unknown" 或 infer(value_node) 的返回，其余节点仅递归不记录；
 def symbol_table(ast) -> dict:
     """F3 符号表转储：变量（赋值目标+函数参数）与函数签名完整视图。
 
@@ -79,6 +80,7 @@ def symbol_table(ast) -> dict:
     """
     symbols = {"variables": {}, "functions": {}}
 
+# 生效条件：node 的 literal_value 属性（getattr 缺省为 None）为 int/float（含 bool）时返回 "number"，为 str 时返回 "string"，其余（含属性缺失/None/其他类型）返回 "unknown"；
     def infer(node):
         v = getattr(node, "literal_value", None)
         if isinstance(v, (int, float)):
@@ -146,6 +148,7 @@ def call_graph(ast) -> dict:
     return graph
 
 
+# 生效条件：ast 为 None 时 visit 早退，函数返回初始空 chains {}；否则递归遍历，type.name=="ASSIGN_STMT" 且 getattr(node,"target","") 为真值时对 chains[target]["def"] 增 1，type.name=="IDENTIFIER" 且 getattr(node,"value","") 为真值时对 chains[name]["use"] 增 1，返回变量到 {"def": 次数, "use": 次数} 的 chains，其余节点仅递归不记录；
 def def_use_chains(ast) -> dict:
     """F5 数据流：变量 → {'def': 次数, 'use': 次数}（定义-使用链统计）。"""
     chains = {}

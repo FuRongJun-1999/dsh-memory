@@ -110,12 +110,14 @@ def _load(cg) -> dict:
     return {"sigs": {}, "rate": {}}
 
 
+# 生效条件：调用方传入 cg 与 st，无任何早退守卫，一经调用即以 json.dumps(st, ensure_ascii=False, sort_keys=True) 在 _state_path(cg) 的 FileLock 内原子写入。
 def _save(cg, st: dict) -> None:
     p = _state_path(cg)
     with FileLock(p):
         atomic_write(p, json.dumps(st, ensure_ascii=False, sort_keys=True))
 
 
+# 生效条件：调用方传入 st、key、now，st 须含 "rate" 键（st["rate"].get(key, []) 缺该 key 时按空列表处理），按 now - t < RATE_WINDOW 过滤后追加 now，并只回写末尾 RATE_MAX*4 项。
 def _push_rate(st: dict, key: str, now: float) -> None:
     win = [t for t in st["rate"].get(key, []) if now - t < RATE_WINDOW]
     win.append(now)
@@ -124,6 +126,7 @@ def _push_rate(st: dict, key: str, now: float) -> None:
 
 # ---------- 写入侧：前置限流 + 同构聚合 ----------
 
+# 生效条件：仅当 layer=="contextual" 且 enabled() 为真、且 importance_hint 为 None 或 float(importance_hint)<0.7（转换抛 TypeError/ValueError 时同样继续）才进入限流，此时 now 为 None 取 time.time()，key 取 f"{layer}:{role or 'user'}"（role 为 None/空串等假值回落 'user'）：同 key 窗口内条数 ≥ RATE_MAX 返回 DEFER；否则 signature 非空且 st["sigs"] 中该签名记录在 CONVERGE_WINDOW 内、nid 有效且 cg.get(rec["nid"]) 存在时，正文 strip 后完全一致返回 DROP、不一致返回 CONVERGE；其余情形返回 None 放行。
 def check(cg, content, layer="contextual", role=None, node_id=None,
           importance_hint=None, now=None):
     """remember_gated 前置限流。None=放行；否则 {"verdict": DEFER|CONVERGE}。

@@ -118,6 +118,7 @@ def archive_root() -> str | None:
     return None
 
 
+# 生效条件：给定 name 时按 data_root()/name、plugin_root()/name 顺序拼接候选，仅当 archive_root() 不为 None 才追加其下 _archive/ctp-aeis-data/name，最终只返回其中 os.path.isfile 为真的路径（其余被过滤掉），故全都不满足时返回空列表。
 def legacy_candidates(name: str) -> list:
     """历史位置候选（只读兼容：三仓分离前的校验缓存等）。
 

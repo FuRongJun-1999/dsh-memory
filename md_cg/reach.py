@@ -160,10 +160,12 @@ def _fingerprint(cg) -> str:
     return h.hexdigest()
 
 
+# 生效条件：root 为调用方传入的根路径字符串，实例化后 path 取 os.environ.get("MDCG_REACH_INDEX") 的值，未设或为空串时回落 os.path.join(root, INDEX_NAME)；post/adj/hashes/sem 初始化为空容器，persist_failed=False，built_fingerprint=""，built_now=False，hash_complete=True，built_docs/built_reads=0，built_at=0.0；
 class ReachIndex:
     """bigram 倒排 + 邻接表（edges），落盘于 <root>/_reach_index.json。"""
 
     # 生效条件：root 给定时记录根目录与缓存路径；构造本身不读盘。
+# 生效条件：对任意 root（含空串等假值），当 MDCG_REACH_INDEX 环境变量为非空字符串时 self.path 取该值，否则 self.path 回落到 os.path.join(root, INDEX_NAME)。
     def __init__(self, root: str):
         self.root = root
         # 缓存落点：默认 <root>/_reach_index.json；环境变量 MDCG_REACH_INDEX 可改到别处
@@ -182,6 +184,7 @@ class ReachIndex:
         self.built_at = 0.0
 
     # 生效条件：缓存文件存在且 JSON 可解析、schema 版本相符时载入 post/adj/hashes 并返回 True；文件缺失/损坏/版本不符返回 False（调用方转入重建）。
+# 生效条件：读取 self.path 时若 open/json.load 抛 OSError 或 ValueError、或解析结果不是 dict、或其中 "v" 与模块级常量 SCHEMA_VERSION 不等则返回 False，否则回填 post/adj/hashes/sem/built_at/fp 并返回 True。
     def load(self) -> bool:
         try:
             with open(self.path, encoding="utf-8") as f:
@@ -199,6 +202,7 @@ class ReachIndex:
         return True
 
     # 生效条件：cg 有 index["nodes"] 且可逐条 _read 时，全量重建倒排与邻接：文档 token = bigrams(positive_body 小写) ∪ bigrams(标签小写) ∪ bigrams(normalize_en(content))（前者覆盖 LIKE、后者覆盖词法打分）；邻接取 index 内 edges 的 target，仅保留在索引中的目标。
+# 生效条件：当 cg 的 index 提供 nodes 时，对每个 path 非空、cg._read 返回内容非 None 且 cg._open_content 亦返回非 None 的节点写入 hashes/post（fm.semantic 为真时并入 sem），并只把两端均已入 hashes 的 edges 建成 adj，随后按原始 content_hash 是否齐全设置 hash_complete 并返回 self。
     def build(self, cg):
         nodes = cg.index.get("nodes") or {}
         id2path = {k: (v.get("path") or "") for k, v in nodes.items()}
@@ -246,6 +250,7 @@ class ReachIndex:
         return self
 
     # 生效条件：在 FileLock(缓存路径) 内以 atomic_write 写回 post（逗号连接）/adj/hashes/built_at；写失败抛 OSError（调用方按不收敛处理）。
+# 生效条件：以模块级常量 SCHEMA_VERSION 与实例的 built_at/built_fingerprint/post/adj/hashes/sem 组装 JSON，并在 FileLock(self.path, timeout=5.0) 内 atomic_write 到 self.path，无返回值。
     def save(self):
         d = {"v": SCHEMA_VERSION, "built_at": self.built_at, "fp": self.built_fingerprint,
              "post": {k: list(v) for k, v in self.post.items()},
@@ -254,6 +259,7 @@ class ReachIndex:
             atomic_write(self.path, json.dumps(d, ensure_ascii=False))
 
     # 生效条件：tokens 为可迭代的 bigram 集合时返回倒排并集（path 集合）；空 tokens 返回空集。
+# 生效条件：对 tokens 中每个元素取 self.post.get(元素)，仅当取值为非空列表时把其中路径并入返回集合（缺键或空列表不贡献）。
     def postings(self, tokens) -> set:
         out = set()
         for b in tokens:
@@ -263,6 +269,7 @@ class ReachIndex:
         return out
 
     # 生效条件：seeds 为 path 集合时按 adj 做 hops 跳扩散并返回 seeds ∪ 各跳邻居；邻居超出 limit（默认收敛集 DIFFUSE_MAX_FACTOR 倍 + 1）即停止吸收。
+# 生效条件：返回集以 seeds 起步，limit 不大于 0（含默认 0）时上限改取 max(len(seeds),1)*DIFFUSE_MAX_FACTOR+1、否则用传入的 limit，再沿 self.adj 逐跳扩展 max(0,hops) 层，一旦返回集大小达到上限立即返回（hops 为 0 或负时只返回 seeds 集合）。
     def diffuse(self, seeds, hops: int = 1, limit: int = 0) -> set:
         out = set(seeds)
         if limit <= 0:
@@ -293,6 +300,7 @@ def _index_with_meta(cg, force: bool = False):
     return idx, fail
 
 
+# 生效条件：必填 cg 提供 root 与指纹，force 默认 False、_fail 默认 None；当 force 为假且 _CACHE.get(ReachIndex(cg.root).path) 的 hit 为真、hit[1] 等于 _fingerprint(cg) 且 _ttl() 未超时时，返回 hit[0] 并置其 built_now=False；否则以 idx=ReachIndex(cg.root) 继续：先若 force 为假且 idx.load() 为真则按 _ttl() 判 expired，再无条件设 idx.hash_complete=_hash_complete(cg)，随后若 force 为假且 expired 为假且 idx.post 非空且 _disk_fresh(idx,cg) 为真则置 idx.built_now=False、写 _CACHE[ReachIndex(cg.root).path]=(idx,fp) 并返回 idx；否则 try 中 idx.build(cg) 且 idx.built_now=True 后 idx.save()，save 成功则 persist_failed=False、写 _CACHE[ReachIndex(cg.root).path]=(idx,fp) 并返回 idx，save 抛 OSError 则 persist_failed=True、pop 缓存并返回 idx；idx.build 或 save 抛其他异常（含 save 非 OSError）则当 _fail 非 None 且 built_reads 或 built_docs 非零时向 _fail 写入 reach_build_docs、reach_build_reads、reach_build_partial=True，并返回 None；
 def _index(cg, force: bool = False, _fail=None) -> "ReachIndex | None":
     root = cg.root
     fp = _fingerprint(cg)
@@ -364,6 +372,7 @@ def _disk_fresh(idx: ReachIndex, cg) -> bool:
     return bool(idx.built_fingerprint) and idx.built_fingerprint == _fingerprint(cg)
 
 
+# 生效条件：仅当 enabled() 为真、terms 中各项长度均不小于 2、_index_with_meta(cg) 返回的 idx 非 None 且 idx.hash_complete 为真、由 qb/terms/q 生成的 token 集非空、按 entries 过滤后的 got 非空、且 entries 中未索引或 created_at 晚于 idx.built_at 的新节点数不超过 _FRESH_MAX 时返回 (got, meta)，否则按守卫失败原因返回 (None, {"reach": off/short_term/index_unavailable/hash_incomplete/no_tokens/empty_converge/fresh_overflow})。
 def narrow(cg, entries, terms, qb, context=None, hops: int = 1, q: str = ""):
     meta = {"reach": "on"}
     if not enabled():

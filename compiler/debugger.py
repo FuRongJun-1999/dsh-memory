@@ -30,6 +30,7 @@ class VMDebugger:
                 "halt": halt}
 
     @staticmethod
+# 生效条件：op 具 name 属性（含其值为 None/空串）时返回 op.name，否则返回 str(op)；
     def _op_name(op):
         return op.name if hasattr(op, "name") else str(op)
 

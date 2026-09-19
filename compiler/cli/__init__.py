@@ -116,6 +116,7 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# 生效条件：args.input 经 _read_input 返回非 None 时，以 args.llm_assist/args.strict 构造 CompileOptions 调 compile_source，result.success 为真则在 Path(args.output) 目录写入 {Path(args.input).stem}.py 并返回 0、为假返回 1；args.verbose 为真时先打印 summary() 再打印一个空行，为假时按成功打印「编译成功 → 输出文件」与 token/语句/耗时行、按失败打印「编译失败」及 result.errors 各行；_read_input 返回 None 时直接返回 1。
 def cmd_compile(args) -> int:
     """执行 compile 命令"""
     source = _read_input(args.input)
@@ -275,6 +276,7 @@ path = "./protocol_runtime"
     return 0
 
 
+# 生效条件：args.input 经 _read_input 返回非 None 时调 tokenize，先逐个打印所有 type.name 非 "EOF" 的 token（行/列/类型/值），随后 errors 非空则打印词法错误数及各错误并返回 1、errors 为空则返回 0；_read_input 返回 None 时直接返回 1。
 def cmd_tokens(args) -> int:
     """执行 tokens 命令（调试用）"""
     source = _read_input(args.input)
@@ -355,6 +357,7 @@ def _read_input(path: str) -> Optional[str]:
         return None
 
 
+# 生效条件：sys.stdout 具 reconfigure 属性时以 errors="replace" 重配；parser.parse_args() 得到的 args.command 为 None 或 "help"、或不属于已列出的命令名时打印帮助并返回 0，为 "compile"/"check"/"explain"/"init"/"tokens"/"ast"/"compile-pbc"/"run"/"debug"/"rust"/"version" 时分别转调对应 cmd_* 并返回其返回值。
 def main():
     """CLI 主入口"""
     # Windows 控制台默认 GBK：输出中的 emoji（✅❌⚠️📖…）会触发 UnicodeEncodeError。
@@ -414,6 +417,7 @@ def cmd_compile_pbc(args) -> int:
     return 0
 
 
+# 生效条件：args.set 中每项含 "=" 时以首个 "=" 切出 name 与 val，val.strip() 去掉首个 "." 后 isdigit 为真则存 float(val)、否则存 val.strip() 字符串（不含 "=" 的项被跳过，args.set 为空时 symbols 为空字典）；之后以 args.pbc 与 symbols 调 run_pbc，并打印 trust、symbols、由 state["condition_space"] 各项 name 组成的条件空间与 halt 后返回 0。
 def cmd_run(args) -> int:
     """执行 .pbc（C3 独立运行时；--set 注入初始符号）"""
     from compiler.pbc import run_pbc
@@ -464,6 +468,7 @@ def cmd_rust(args) -> int:
     return 0
 
 
+# 生效条件：args.set 中每项含 "=" 时以首个 "=" 切出 name 与 val，val.strip() 去掉首个 "." 后 isdigit 为真则存 float(val)、否则存 val.strip() 字符串（不含 "=" 的项被跳过，args.set 为空时 symbols 为空字典）；之后以 args.pbc 与 symbols 调 debug_pbc，trace 非空时逐条打印 snap 的 ip/op/trust/条件空间 name 列表/halt，trace 为空（含 .pbc 为空或不可执行）时打印对应提示，两种情况均返回 0。
 def cmd_debug(args) -> int:
     """单步调试 .pbc（C4 调试器；--set 注入初始符号）"""
     from compiler.debugger import debug_pbc

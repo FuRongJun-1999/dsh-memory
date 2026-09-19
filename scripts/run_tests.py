@@ -33,6 +33,7 @@ import sys
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+# 生效条件：以模块级常量 _REPO 为根，glob 到 md_cg/test_*.py、compiler 与 swarm 下 tests/*.py（basename 以 "_" 开头者跳过）、scripts/test_*.py、hive/test_*.py 并按名排序，把每个文件名取 stem 后以 (组名, 显示名, argv 候选列表) 追加进 out 并最终返回 out（各组均无匹配文件时返回空列表）；
 def _discover():
     """返回 [(组名, 显示名, argv)]；argv 为候选列表（依次尝试直到成功启动）。"""
     import glob
@@ -66,6 +67,7 @@ def _discover():
     return out
 
 
+# 生效条件：给定 name、候选命令列表 argvs、超时秒数 timeout，逐个 subprocess.run（cwd 为模块级常量 _REPO，env 在 os.environ 基础上覆盖 PYTHONUTF8=1/PYTHONIOENCODING=utf-8，shell=False，encoding="utf-8"/errors="replace"）：抛 TimeoutExpired 即返回 (name, False, f"超时（>{timeout}s）")；若 returncode!=0 且 stderr 含 "No module named" 且 len(argvs)>1 则记下该 stderr 末 300 字符继续下一候选，否则返回 (name, returncode==0, stdout+stderr 拼接后末 800 字符)；所有候选都命中回退条件时返回 (name, False, 最后记下的片段)；
 def _run_one(name, argvs, timeout):
     env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
     last = ""
@@ -84,6 +86,7 @@ def _run_one(name, argvs, timeout):
     return name, False, last
 
 
+# 生效条件：当模块级常量 _REPO 下 md_cg/whitebox_kb/wisdom/wisdom-book-cloud.db 存在时返回 None，不存在时返回依赖缺失说明字符串；
 def _dep_db():
     p = os.path.join(_REPO, "md_cg", "whitebox_kb", "wisdom",
                      "wisdom-book-cloud.db")
@@ -92,6 +95,7 @@ def _dep_db():
                  "（.gitignore 忽略，需本地生成）")
 
 
+# 生效条件：当模块级常量 _REPO 下 _md_cg_wisdom_graph 为目录时返回 None，不是目录（含不存在）时返回依赖缺失说明字符串；
 def _dep_mdroot():
     p = os.path.join(_REPO, "_md_cg_wisdom_graph")
     return (None if os.path.isdir(p)
@@ -112,6 +116,7 @@ _SKIPS = {
 }
 
 
+# 生效条件：解析命令行（位置参数 group 为 nargs="*"、default=None，-k 默认 ""，--jobs 默认 4，--timeout 默认 900，--list 为 store_true）后，若 args.group 里有不在 ("md_cg","compiler","swarm","scripts","hive") 中的组名则 ap.error 报错退出（args.group 为 None 或空列表时该检查不触发）；groups 取 set(args.group) 或（其为假值时）全部五组；targets 由 _discover() 按 groups 过滤且 args.k 为假值或出现在显示名中；args.list 为真时打印组名与显示名及总数并返回 0；否则先按 _SKIPS 探测跳过有原因的目标，再以 max(1, args.jobs) 个线程跑 _run_one(name, a, args.timeout)，无失败打印汇总返回 0，有失败打印失败名单返回 1；
 def main():
     ap = argparse.ArgumentParser(description="灵枢全仓测试入口（python -m 约定）")
     # 注：不用 argparse choices——部分 Python 版本对 nargs="*" 无值时

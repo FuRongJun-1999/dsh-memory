@@ -470,6 +470,7 @@ def verifier_principal(*, actor="mreview-verifier", session=None,
                      ops_allow=ops_allow, auth_mode="mreview")
 
 
+# 生效条件：pkg、opinions、reviewer 给定时恒返回 "\n".join(L)；summary 为真值才追加「整包结论」行，invalid 为真值才追加「【未落库条目】」行，二者取默认 "" / None 时不追加；
 def opinion_doc(pkg: dict, opinions: list, *, reviewer: str, summary="",
                 invalid=None) -> str:
     """评审意见节点正文（核心修改四要素：内容/原因/位置/验证）。"""

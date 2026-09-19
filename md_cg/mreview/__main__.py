@@ -20,6 +20,7 @@ from . import candidates as CD
 from . import ruleset as RS
 
 
+# 生效条件：root 为假值（None/空串）时回落 mdcg_root()，sources 缺省取模块常量 CD.SOURCES 并透传给 CD.generate，返回 dict out，且仅当 full 为真值时额外带上 candidates_full、bundles_full、packages_full 三键。
 def run(root=None, *, sources=CD.SOURCES, cold_limit=500, patrol_window=200,
         max_per_bundle=50, limit=None, patrol_offset=None, rules_dir=None,
         full=False) -> dict:
@@ -55,6 +56,7 @@ def run(root=None, *, sources=CD.SOURCES, cold_limit=500, patrol_window=200,
     return out
 
 
+# 生效条件：d 必须已含 candidates、bundle_stats、assemble_stats、root、content_missing、llm_checks 这些键（直接下标取值，缺键即 KeyError），且仅当 d.get("assertions") 为真值（非空映射）时才追加断言集一行，其 failed 空或缺失时回落显示「无」。
 def _fmt_summary(d: dict) -> str:
     c, b, a = d["candidates"], d["bundle_stats"], d["assemble_stats"]
     lines = ["", "== M1 机械层（候选 → 捆绑 → 规则装配） ==",
@@ -77,6 +79,7 @@ def _fmt_summary(d: dict) -> str:
     return "\n".join(lines)
 
 
+# 生效条件：argv 为 None 时 argparse 改从 sys.argv[1:] 取参，--sources 按逗号切分并丢弃空串后组成元组传入 run，仅当 --out 为非空串时才以 UTF-8 落盘 JSON dump，各分支之后统一 return 0。
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m md_cg.mreview",
                                  description="M1 机械层：候选生成→捆绑→规则装配（只读零写入）")

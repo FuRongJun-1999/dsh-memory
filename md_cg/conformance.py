@@ -357,6 +357,7 @@ def unanalyzed(nodes: dict) -> dict:
 
 # ---------------------------- G1 · 类型空间正交性审计 ----------------------------
 
+# 生效条件：调用 _usage(nodes, edges) 时 edges 形参未被源码引用，对 nodes.values() 中每个节点 r，仅当 r.get("layer")、r.get("role")、r.get("derived_relation")、r.get("lifecycle_state") 为真值时分别以 str 值计入对应 Counter，_basis_of(r) 与 _tag_prefixes(r) 展开的元素分别计入 verification_basis 与 tag_prefix，再遍历各 r 的 r.get("edges") or [] 中 isinstance(e, dict) 的项按 edge_rel(e) 计数，最终 edge_type 仅保留键为真值的计数，返回 used 字典；
 def _usage(nodes: dict, edges: dict) -> dict:
     """各类型空间的**实测**取值（与 enum_spaces 的声明值对照）。"""
     from .chain import edge_rel
@@ -422,6 +423,7 @@ def _ck(cid: str, level: str, ok: bool, detail: str) -> dict:
     return {"id": cid, "level": level, "ok": bool(ok), "detail": detail}
 
 
+# 生效条件：调用 check(root, check_paths, baseline, strict) 时，root 原样传入 load_index 得 nodes，check_paths 原样传入 _path_metrics 并在 index.path.present 检查消息中当其为假时追加“（--no-path-check 未查盘）”，baseline 为真时追加 _regression 基线不劣化检查、为假（None 或空 dict）时跳过，n=len(nodes) 小于 THRESHOLDS["min_nodes"] 时 small 为真且使 _ratio 各项及 reach.ratio、stratum.mixed_ratio 在 val 为 None 或 small 为真时记 BLINDSPOT、否则记 WARN，最终 verdict 为 FAIL（存在 level="FAIL" 且 ok 为假）、否则 WARN（存在 level="WARN" 且 ok 为假，或 strict 为真且存在 level="BLINDSPOT"）、否则 PASS，返回含 REPORT_VERSION、t、elapsed_s、root 绝对路径、verdict、nodes、checks、counts、coverage、dup、edges、paths、gate、reach、unanalyzed、g1、thresholds 的 dict；
 def check(root: str, *, check_paths: bool = True,
           baseline: dict = None, strict: bool = False) -> dict:
     """跑一遍全部断言，返回报告 dict（零写入：不修任何数据、不落任何文件）。"""
