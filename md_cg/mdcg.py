@@ -808,6 +808,10 @@ class MdCG:
                         trust.DEPS_FIELD: fm.get(trust.DEPS_FIELD),
                         trust.FROM_FIELD: fm.get(trust.FROM_FIELD),
                         trust.UNTIL_FIELD: fm.get(trust.UNTIL_FIELD),
+                        # 规范时间轴键（2026-09-19 阶段一）：与 _stage 同口径，
+                        # 重建索引后新旧口径一致（检索面 validity 须免读盘可判）。
+                        trust.EFFECTIVE_FROM_FIELD: fm.get(trust.EFFECTIVE_FROM_FIELD),
+                        trust.EFFECTIVE_UNTIL_FIELD: fm.get(trust.EFFECTIVE_UNTIL_FIELD),
                         # 记忆演化分支（④）：重建口径与 _stage 一致
                         "branch_id": fm.get("branch_id"),
                         "branched_from": fm.get("branched_from"),
@@ -856,7 +860,8 @@ class MdCG:
             consistency: bool = False, on_conflict: str = "reject",
             derived_from=None, relation: str = provenance.DEFAULT_RELATION,
             semantic: str = None, depends_on=None, valid_from=None,
-            valid_until=None, verification_state: str = None, **extra) -> str:
+            valid_until=None, effective_from=None, effective_until=None,
+            believed_at=None, verification_state: str = None, **extra) -> str:
         """写入一个节点。
 
         verification_basis: 外部验证基底（白箱信任的硬门槛），
@@ -883,6 +888,12 @@ class MdCG:
                     标 doubted（一跳，低成本）；多跳交巡检 trust.propagate。
         valid_from / valid_until: 双时间轴（何时开始成立 / 何时不再成立），
                     使时效可判定：未生效 / 生效中 / 已过期（trust.validity）。
+                    **历史名**——2026-09-19 阶段一新增规范名 `effective_from` /
+                    `effective_until`（新调用方优先用它；旧参数名照旧落旧键，
+                    读取侧由 trust.FROM_ALIASES/UNTIL_ALIASES 统一回落，存量不迁移）。
+        believed_at: 信念时间（体系**何时确认此条**）——取代/审核的锚。
+                    **不是效力语义**：既非「未生效」也非「已过期」，与双时间轴物理隔离
+                    （绝不并入 scrub 的任一键族）；覆写默认继承，缺省不写。
         verification_state: 验证态（unverified/verified/doubted/rechecking/expired，
                     真源 trust.py）。**覆写既有节点时默认继承**——add 是全量重建
                     fm，不显式继承会把已 verified 静默打回 unverified（与
@@ -1028,16 +1039,71 @@ class MdCG:
             fm[trust.DEPS_FIELD] = _deps
         else:
             fm.pop(trust.DEPS_FIELD, None)      # 不保留空列表噪声
-        for _fk, _fv in ((trust.FROM_FIELD, valid_from),
-                         (trust.UNTIL_FIELD, valid_until)):
-            if _fv is None:
-                _fv = fm.get(_fk)
-                if _fv is None and prev_entry:
-                    _fv = prev_entry.get(_fk)
-            if _fv in (None, ""):
-                fm.pop(_fk, None)
-            else:
-                fm[_fk] = _fv
+        # 双时间轴键族（2026-09-19 阶段一）：规范键 `effective_*` 优先、历史键
+        # `valid_*` 回落。**落键口径**——显式新参数 → 落规范键；旧参数名 → 照旧落
+        # 旧键（既有调用面字节不变，零破坏）；均未给 → 本次 fm → 旧快照，任一有值即继承
+        # （不把 `valid_from` 悄悄改名，避免无谓 diff）。同族双写必留歧义，故落一键、剔另一键。
+        for _spec, _legacy, _nv in (
+                (trust.EFFECTIVE_FROM_FIELD, trust.FROM_FIELD, effective_from),
+                (trust.EFFECTIVE_UNTIL_FIELD, trust.UNTIL_FIELD, effective_until)):
+            if _nv is not None:
+                fm[_spec] = _nv
+                fm.pop(_legacy, None)
+                continue
+            _lv = valid_from if _spec == trust.EFFECTIVE_FROM_FIELD else valid_until
+            if _lv is not None:
+                fm[_legacy] = _lv
+                fm.pop(_spec, None)
+                continue
+            _val, _key = None, None
+            for _k in (_spec, _legacy):
+                if fm.get(_k) not in (None, ""):
+                    _val, _key = fm.get(_k), _k
+                    break
+            if _val is None and prev_entry:
+                for _k in (_spec, _legacy):
+                    if prev_entry.get(_k) not in (None, ""):
+                        _val, _key = prev_entry.get(_k), _k
+                        break
+            fm.pop(_spec, None)
+            fm.pop(_legacy, None)
+            if _val not in (None, ""):
+                fm[_key] = _val
+        # 审计 / 血缘向字段（**不进索引白名单** → 索引快照里没有这些键）的统一回读
+        # 来源：惰性读节点文件一次、多字段共用。照搬 prev_entry 会让已落盘字段在
+        # 下次普通覆写时静默丢失（lifecycle_state / verification_state 两度踩的同一坑）。
+        _old = {}
+
+        def _old_fm(key):
+            if not prev_entry:
+                return None
+            if "fm" not in _old:
+                _old["fm"] = (self.get(node_id) or {}).get("frontmatter") or {}
+            return _old["fm"].get(key)
+
+        # 信念时间（体系何时确认此条）：与效力时间**物理隔离**的第三类语义——
+        # 覆写即继承，缺省不写空值噪声。
+        _bel = believed_at if believed_at is not None else fm.get(trust.BELIEVED_FIELD)
+        if _bel in (None, ""):
+            _bel = _old_fm(trust.BELIEVED_FIELD)
+            if _bel is None and prev_entry:
+                _bel = prev_entry.get(trust.BELIEVED_FIELD)   # 防御：万一被透传
+        if _bel in (None, ""):
+            fm.pop(trust.BELIEVED_FIELD, None)
+        else:
+            fm[trust.BELIEVED_FIELD] = _bel
+        # 巩固 / 归纳留痕（2026-09-19 阶段一 · 真源 md_cg/consolidate.py）：成员侧
+        # 「巩固进哪一条 + 何时」与概念侧「前身是谁 + 何时」同族（nodefile.
+        # CONSOLIDATION_FIELDS）——同属审计/血缘向、索引里没有，故同样回读继承；
+        # 缺了它，概念节点被一次普通覆写（如审核 edit/merge 重写）就丢掉前身清单，
+        # 「任一合并条目可定位全部前身」即断。
+        for _cf in nodefile.CONSOLIDATION_FIELDS:
+            if fm.get(_cf) in (None, "", [], {}):
+                _cv = _old_fm(_cf)
+                if _cv in (None, "", [], {}):
+                    fm.pop(_cf, None)
+                else:
+                    fm[_cf] = _cv
         # G8 派生溯源：把「来源声明」写进 frontmatter（单一真相源），台账为派生物。
         # 只声明事实、不做校验式拒绝——关系名非法仅回退默认值，不阻断写入。
         parents = provenance.as_list(derived_from)
@@ -1087,6 +1153,10 @@ class MdCG:
             trust.DEPS_FIELD: fm.get(trust.DEPS_FIELD),
             trust.FROM_FIELD: fm.get(trust.FROM_FIELD),
             trust.UNTIL_FIELD: fm.get(trust.UNTIL_FIELD),
+            # 规范时间轴键（2026-09-19 阶段一）：检索面 validity 过滤免读盘即可判定。
+            # `believed_at`（信念时间）属审计/取代锚，**不进索引热点**（只落 fm）。
+            trust.EFFECTIVE_FROM_FIELD: fm.get(trust.EFFECTIVE_FROM_FIELD),
+            trust.EFFECTIVE_UNTIL_FIELD: fm.get(trust.EFFECTIVE_UNTIL_FIELD),
         }))
         subgraph.invalidate_cache(self)
         chain.invalidate_cache(self)

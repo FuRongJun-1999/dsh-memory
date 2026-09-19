@@ -134,6 +134,39 @@ DEPENDS_ON_FIELD = "depends_on"
 VALID_FROM_FIELD = "valid_from"
 VALID_UNTIL_FIELD = "valid_until"
 
+#: 双时间轴的**规范键**（2026-09-19 阶段一）：新写入落此；历史键 `valid_from` /
+#: `valid_until` 保留为**读取侧回落别名**（存量不迁移、零破坏）。本处只登记字段名；
+#: **行为真源**（取值优先级 `effective_* > valid_* > 其余别名` 与三态判定）见
+#: md_cg/trust.py 的 FROM_ALIASES / UNTIL_ALIASES / validity()。
+EFFECTIVE_FROM_FIELD = "effective_from"
+EFFECTIVE_UNTIL_FIELD = "effective_until"
+
+#: 信念时间：体系**何时确认此条**——取代（supersede）/ 审核的排序锚。
+#: **第三类语义**：既不是「尚未开始」也不是「已经结束」，故**不入** scrub 的任一
+#: 键族（并入即把「已确认」误判成「已生效 / 已失效」）。物理隔离守卫见
+#: test_validity_filter.py 的交叉断言。
+BELIEVED_AT_FIELD = "believed_at"
+
+#: 过期时刻（写盘冗余：由 effective_until 派生，供审计 / 对账免计算直读）。
+EXPIRED_AT_FIELD = "expired_at"
+
+#: 巩固留痕（2026-09-19 阶段一）：何时巩固 / 巩固进哪一条（成员 → 概念 id）。
+#: 与 `promoted_at`（层迁移时刻）同族——把「归并产物可溯源」从流程记录升为一等字段。
+#: **行为真源**（写入侧）见 md_cg/consolidate.py 的 induce / promote。
+CONSOLIDATED_AT_FIELD = "consolidated_at"
+CONSOLIDATED_INTO_FIELD = "consolidated_into"
+
+#: 归纳来源（概念节点侧）：前身成员清单 / 归纳时刻。与 `consolidated_*` 同族——
+#: 成员侧列「巩固进哪一条」，概念侧列「前身是谁」，两侧互查即完整血缘。
+INDUCED_FROM_FIELD = "induced_from"
+INDUCED_AT_FIELD = "induced_at"
+
+#: 巩固 / 归纳留痕字段族（单一真源）：全族**不进索引白名单**（审计/血缘向，非查询
+#: 热点），故 `add()` 覆写时须**回读节点文件**继承（索引快照里没有这些键）——
+#: 否则概念节点被一次普通覆写（如审核 edit/merge 重写）即丢掉前身清单。
+CONSOLIDATION_FIELDS = (CONSOLIDATED_AT_FIELD, CONSOLIDATED_INTO_FIELD,
+                        INDUCED_FROM_FIELD, INDUCED_AT_FIELD)
+
 #: 验证态字段。**刻意不叫 `state`**——该名已被裁决四态（ACCEPT/REJECT/DEFER/
 #: BLINDSPOT）占用，`lifecycle_state` 的先例同此动机（观测位置不同即命名不同）。
 #: 状态枚举与合法迁移表的**行为真源是 md_cg/trust.py**；本处只登记字段名，

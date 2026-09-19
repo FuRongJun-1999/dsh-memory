@@ -116,6 +116,43 @@ def _t1():
           and "valid_until" in scrub._EXPIRY_KEYS
           and "valid_from" in scrub._NOT_YET_KEYS,
           str(scrub._EXPIRY_KEYS))
+    # ---- 2026-09-19 阶段一：规范键族 + 第三类语义（信念时间）交叉守卫 ----
+    check("①阶段一：effective_from 属未生效族、绝不入已结束族",
+          "effective_from" in scrub._NOT_YET_KEYS
+          and "effective_from" not in scrub._EXPIRY_KEYS,
+          str(scrub._EXPIRY_KEYS))
+    check("①阶段一：effective_until/expired_at 属已结束族、不入未生效族",
+          "effective_until" in scrub._EXPIRY_KEYS
+          and "expired_at" in scrub._EXPIRY_KEYS
+          and "effective_until" not in scrub._NOT_YET_KEYS
+          and "expired_at" not in scrub._NOT_YET_KEYS,
+          str(scrub._EXPIRY_KEYS))
+    check("①阶段一：believed_at 两族都不入（第三类语义·物理隔离）",
+          trust.BELIEVED_FIELD not in scrub._EXPIRY_KEYS
+          and trust.BELIEVED_FIELD not in scrub._NOT_YET_KEYS,
+          str(scrub._EXPIRY_KEYS))
+    check("①键族同步守卫：trust 别名元组 ⊆ scrub 对应键族（两侧禁各自漂移）",
+          set(trust.FROM_ALIASES) <= set(scrub._NOT_YET_KEYS)
+          and set(trust.UNTIL_ALIASES) <= set(scrub._EXPIRY_KEYS),
+          str(trust.FROM_ALIASES) + " / " + str(scrub._NOT_YET_KEYS))
+    # ---- 规范键优先、别名回落（双轨读取）----
+    check("①规范键优先：effective_from 压过 valid_from",
+          trust.validity({"effective_from": FUT,
+                          "valid_from": "2020-01-01"})[0] == "not_yet")
+    check("①别名回落：仅历史键时照常判定（存量兼容）",
+          trust.validity({"valid_from": FUT})[0] == "not_yet")
+    check("①规范键不可解析 → 继续回落别名（不因写坏一键而漏判）",
+          trust.validity({"effective_until": "坏值",
+                          "valid_until": PAST})[0] == "expired")
+    check("①believed_at 不参与时效判定（物理隔离·绝不误判）",
+          trust.validity({"believed_at": PAST})[0] == "unknown"
+          and trust.is_expired({"believed_at": PAST}) is False)
+    check("①believed_at 读取器：epoch 值 / 缺字段 None",
+          trust.believed_at({"believed_at": PAST}) is not None
+          and trust.believed_at({}) is None)
+    check("①time_window_msg 点名实际命中键（规范名/历史名各归其位）",
+          "effective_from" in trust.time_window_msg({"effective_from": FUT})
+          and "valid_from" in trust.time_window_msg({"valid_from": FUT}))
 
 
 # ------------------------------------------------- ②③ 候选面 + 默认关

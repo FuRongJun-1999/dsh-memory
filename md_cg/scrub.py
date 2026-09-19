@@ -402,7 +402,12 @@ def associate(cg, node_id: str, *, hops: int = DEFAULT_HOPS, limit: int = 30,
 # ③ 去污染：确定性判据
 # --------------------------------------------------------------------------
 
-_EXPIRY_KEYS = ("valid_until", "expires_at", "expire_at", "expiry", "deadline")
+# 已结束键族（2026-09-19 阶段一：补规范名 `effective_until` 与冗余时刻 `expired_at`）。
+# 纪律：`believed_at`（信念时间）**两族都不入**——它既不是「已结束」也不是「尚未开始」，
+# 而是「体系何时确认此条」的取代/审核锚。键族真源见 md_cg/trust.py（FROM_ALIASES/UNTIL_ALIASES），
+# 两侧新增键须同步（交叉守卫 test_validity_filter）。
+_EXPIRY_KEYS = ("effective_until", "valid_until", "expires_at", "expire_at",
+                "expiry", "deadline", "expired_at")
 _SKIP_KEYS = ("功能名", "执行", "条件", "来源", "标签", "状态", "备注", "标题",
               "描述", "name", "id", "title", "layer", "tags", "说明")
 _NEG_WORDS = ("禁止", "不得", "不要", "不能", "切勿", "避免", "不应", "不可")
@@ -469,8 +474,9 @@ def _expired(fm, now):
 
 
 # 未生效键（双时间轴的起点，2026-09-19 · 真源 md_cg/trust.py）。
-# 纪律：`valid_from` **绝不并入 `_EXPIRY_KEYS`**——两者语义相反（「尚未开始」vs
+# 纪律一：`valid_from` **绝不并入 `_EXPIRY_KEYS`**——两者语义相反（「尚未开始」vs
 # 「已经结束」），并入会让「未来才生效」被误判为「已失效」并触发 weaken/demote。
+# 纪律二：`believed_at`（信念时间）同上，**两族都不入**——第三类语义（体系何时确认）。
 _NOT_YET_KEYS = ("valid_from", "valid_since", "effective_from", "starts_at")
 
 

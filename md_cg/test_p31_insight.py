@@ -201,6 +201,30 @@ def main():
               mfm.get("induced_concept") == cid
               and cid in {e.get("target") for e in (mfm.get("edges") or [])},
               str(mfm.get("induced_concept")))
+        # ---- 2026-09-19 阶段一：巩固留痕字段一等公民 ----
+        check("成员侧记 consolidated_into（规范名·巩固进哪一条）",
+              mfm.get("consolidated_into") == cid
+              and mfm.get("induced_concept") == cid,
+              str(mfm.get("consolidated_into")))
+        check("成员侧记 consolidated_at（何时巩固）",
+              bool(mfm.get("consolidated_at")), str(mfm.get("consolidated_at")))
+        check("概念侧记 consolidated_at（概念形成即巩固时刻）",
+              bool(cfm.get("consolidated_at"))
+              and cfm.get("induced_at") == cfm.get("consolidated_at"),
+              f"{cfm.get('consolidated_at')} / {cfm.get('induced_at')}")
+        check("前身可定位：概念侧 induced_from 与成员侧列互查一致",
+              set(cfm.get("induced_from") or []) == {"ind_1", "ind_2", "ind_3"}
+              and all(((cg.get(m) or {}).get("frontmatter") or {}
+                       ).get("consolidated_into") == cid
+                      for m in ("ind_1", "ind_2", "ind_3")))
+        # add() 是**全量重建 fm**——覆写后留痕必须仍在（回读节点继承，非索引快照）
+        cg.add("ind_1", IND_A, layer="contextual", importance=0.4,
+               verification_basis="other", actor="p31")
+        mfm2 = (cg.get("ind_1") or {}).get("frontmatter") or {}
+        check("覆写后成员侧巩固留痕继承（consolidated_into/at 不丢）",
+              mfm2.get("consolidated_into") == cid
+              and bool(mfm2.get("consolidated_at")),
+              str(mfm2.get("consolidated_into")))
         check("induce 留痕 _maintain.jsonl",
               any(r.get("action") == "induce"
                   for r in consolidate._read_maintain(ROOT)))

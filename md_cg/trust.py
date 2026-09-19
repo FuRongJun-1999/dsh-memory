@@ -57,9 +57,27 @@ HISTORY_FIELD = "verification_history"
 HISTORY_KEEP = 20
 #: 依赖声明字段（CCG「子功能」槽的落字段）
 DEPS_FIELD = "depends_on"
-#: 双时间轴字段
+#: 双时间轴（**效力时间**）字段。2026-09-19 阶段一：规范名迁移到
+#: `effective_from` / `effective_until`（**新写入落规范键**），历史名
+#: `valid_from` / `valid_until` 保留为**读取侧回落别名**（存量不迁移、零破坏）。
 FROM_FIELD = "valid_from"
 UNTIL_FIELD = "valid_until"
+#: 规范名（新写入落此；读取时优先于同名族旧键）
+EFFECTIVE_FROM_FIELD = "effective_from"
+EFFECTIVE_UNTIL_FIELD = "effective_until"
+#: 信念时间（体系**何时确认此条**）：取代/审核的锚。
+#: **不是效力语义**——它既不是「已结束」也不是「尚未开始」，
+#: 故绝不并入 `scrub._EXPIRY_KEYS`（已结束族）或 `scrub._NOT_YET_KEYS`（未生效族）。
+BELIEVED_FIELD = "believed_at"
+#: 过期时刻（写盘冗余：由 `effective_until` 派生落盘，供审计/对账直读）。
+EXPIRED_FIELD = "expired_at"
+
+#: 端点取值优先级（**规范键优先、别名回落**，2026-09-19 阶段一）。
+#: 与 `scrub._NOT_YET_KEYS` / `scrub._EXPIRY_KEYS` 同键族——两处共用同一套别名，
+#: 任一侧新增键须同步另一侧（交叉守卫测试 test_validity_filter 守住）。
+FROM_ALIASES = (EFFECTIVE_FROM_FIELD, FROM_FIELD, "valid_since", "starts_at")
+UNTIL_ALIASES = (EFFECTIVE_UNTIL_FIELD, UNTIL_FIELD,
+                 "expires_at", "expire_at", "expiry", "deadline")
 #: 验证态迁移审计（append-only，与 _lifecycle.jsonl / _maintain.jsonl 同风格）
 AUDIT_FILE = "_trust.jsonl"
 
@@ -222,16 +240,38 @@ def parse_time(value):
     return None
 
 
+def first_endpoint(fm, keys):
+    """按 `keys` 优先级取首个**可解析**端点 → `(epoch, key)`；全链无值 → `(None, None)`。
+
+    单点定义「规范键优先、别名回落」的取值口径：某键**存在但不可解析**时继续回落
+    （而非按 None 定案）——「写坏了的时间值」不得遮蔽同族另一个合法键。
+    """
+    if not isinstance(fm, dict):
+        return None, None
+    for k in keys:
+        if k in fm:
+            ts = parse_time(fm.get(k))
+            if ts is not None:
+                return ts, k
+    return None, None
+
+
 def validity(fm, now: float = None):
     """双时间轴判定 → `(kind, start, end)`。
 
     kind ∈ `unknown`（无时间轴约束）/ `not_yet`（未生效）/ `active`（生效中）/
     `expired`（已过期）。任一端点不可解析 → 该端点按 None 处理（不猜测、不误判）。
+
+    端点取值（2026-09-19 阶段一）：**规范键优先、别名回落**——
+    起点 `effective_from` > `valid_from` > `valid_since` > `starts_at`；
+    终点 `effective_until` > `valid_until` > `expires_at` > `expire_at` > `expiry` > `deadline`。
+    `believed_at`（信念时间）**不参与**本判定：它是「体系何时确认此条」（取代/审核的锚），
+    不是效力端点——并入任一方向都会把「已确认」误判成「已生效/已失效」。
     """
     if not isinstance(fm, dict):
         return "unknown", None, None
-    start = parse_time(fm.get(FROM_FIELD))
-    end = parse_time(fm.get(UNTIL_FIELD))
+    start, _sk = first_endpoint(fm, FROM_ALIASES)
+    end, _ek = first_endpoint(fm, UNTIL_ALIASES)
     if start is None and end is None:
         return "unknown", None, None
     t = time.time() if now is None else float(now)
@@ -240,6 +280,18 @@ def validity(fm, now: float = None):
     if end is not None and t > end:
         return "expired", start, end
     return "active", start, end
+
+
+def believed_at(fm) -> float:
+    """信念时间（体系**何时确认此条**）→ epoch 秒；缺字段/不可解析 → None（不猜测）。
+
+    用途：取代（supersede）/ 审核的排序锚——「谁更晚被确认」是判定新旧的正路；
+    **不得**拿 `valid_from`/`valid_until` 代替（那是事实在任务世界里何时有效，
+    与体系何时知道它无关）。
+    """
+    if not isinstance(fm, dict):
+        return None
+    return parse_time(fm.get(BELIEVED_FIELD))
 
 
 def is_expired(fm, now: float = None) -> bool:
@@ -253,14 +305,16 @@ def is_expired(fm, now: float = None) -> bool:
 
 
 def time_window_msg(fm, now: float = None) -> str:
-    """时效判定的一句话（空串表示无时间轴约束）。"""
+    """时效判定的一句话（空串表示无时间轴约束）。**点名实际命中的键**（含别名）。"""
     kind, start, end = validity(fm, now=now)
     if kind == "unknown":
         return ""
     if kind == "not_yet":
-        return f"未生效（{FROM_FIELD} 未到）"
+        _ts, k = first_endpoint(fm, FROM_ALIASES)
+        return f"未生效（{k or FROM_FIELD} 未到）"
     if kind == "expired":
-        return f"已过期（{UNTIL_FIELD} 已过）"
+        _ts, k = first_endpoint(fm, UNTIL_ALIASES)
+        return f"已过期（{k or UNTIL_FIELD} 已过）"
     return "时效内"
 
 

@@ -119,6 +119,21 @@ def main():
     eq(trust.validity({"valid_until": "2001-01-01"})[0], "expired", "过去=expired")
     eq(trust.validity({})[0], "unknown", "无时间轴=unknown（不受限，非 active）")
     eq(trust.validity(None)[0], "unknown", "非 dict 亦 unknown（不猜测）")
+    # 2026-09-19 阶段一：规范键优先 + 别名回落 + 信念时间（第三类语义）物理隔离
+    eq(trust.validity({"effective_from": "2099-01-01"})[0], "not_yet",
+       "规范键起点生效")
+    eq(trust.validity({"effective_from": "2099-01-01",
+                       "valid_from": "2020-01-01"})[0], "not_yet",
+       "规范键优先于历史键")
+    eq(trust.validity({"effective_until": "坏值",
+                       "valid_until": "2001-01-01"})[0], "expired",
+       "规范键不可解析 → 继续回落别名（不猜测定案）")
+    eq(trust.validity({"effective_until": "2001-01-01"})[0], "expired",
+       "规范键终点生效")
+    eq(trust.validity({"believed_at": "2001-01-01"})[0], "unknown",
+       "信念时间不参与时效判定（第三类语义）")
+    ok(trust.believed_at({"believed_at": "2020-01-01"}) is not None
+       and trust.believed_at({}) is None, "believed_at 读取器（epoch/None）")
 
     # ---------------------------------------------------------------- ④ 缺省与幂等
     phase("④ 缺省/幂等")
@@ -164,6 +179,19 @@ def main():
     eq(trust.state_of(fmb), "verified", "覆写后验证态继承（防静默打回）")
     eq(fmb.get("depends_on"), [A], "覆写后依赖继承")
     eq(fmb.get("valid_from"), "2020-01-01", "覆写后时间轴继承")
+    # 阶段一：规范键与信念时间的覆写继承（同 lifecycle/verification 的坑）
+    cg.add(B, ccg("下游 v3", [A]), layer="knowledge", depends_on=[A],
+           effective_from="2021-01-01", effective_until="2031-01-01",
+           believed_at="2022-01-01")
+    fmb3 = (cg.get(B) or {}).get("frontmatter") or {}
+    eq(fmb3.get("effective_from"), "2021-01-01", "新规范参数落规范键")
+    eq("valid_from" in fmb3, False, "落规范键时剔同族历史键（禁同族双写歧义）")
+    eq(fmb3.get("believed_at"), "2022-01-01", "信念时间写入落 believed_at")
+    cg.add(B, ccg("下游 v4", [A]), layer="knowledge", depends_on=[A])
+    fmb4 = (cg.get(B) or {}).get("frontmatter") or {}
+    eq(fmb4.get("effective_from"), "2021-01-01", "覆写后规范起点继承")
+    eq(fmb4.get("effective_until"), "2031-01-01", "覆写后规范终点继承")
+    eq(fmb4.get("believed_at"), "2022-01-01", "覆写后信念时间继承")
 
     # ---------------------------------------------------------------- ⑦ 反查索引
     phase("⑦ 反查索引")

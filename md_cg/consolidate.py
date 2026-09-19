@@ -1107,6 +1107,10 @@ CONCEPT_MEMBER_REL = "instance_of"   # member → concept（inferred）
 CONCEPT_PREFIX = "concept_"
 CONCEPT_IMPORTANCE = 0.5
 CONCEPT_TAGS = ("concept", "induced")
+# 巩固留痕字段（2026-09-19 阶段一）：**字段名真源在 md_cg/nodefile.py**，
+# 本处只做短别名引用（非复制），与 `nodefile.VALID_FROM_FIELD` 的登记纪律同构。
+CONSOLIDATED_AT_FIELD = nodefile.CONSOLIDATED_AT_FIELD
+CONSOLIDATED_INTO_FIELD = nodefile.CONSOLIDATED_INTO_FIELD
 # 归纳候选排除：受保护节点，以及洞察/场景/前馈/概念等派生物（避免自我进食）
 INDUCE_SKIP_TAGS = ("insight", "scene", "reconstructed", "gap_hint", "concept")
 
@@ -1186,6 +1190,12 @@ def _link_concept(cg, cid, members, reason, actor, batch):
                       "reason": reason, "created_at": time.time(),
                       "confidence": 0.5, "verified": 0, "evidence": "inferred"})
         fm["edges"] = edges
+        # 巩固留痕（2026-09-19 阶段一）：`consolidated_into` 为**规范名**，
+        # `induced_concept` 保留为历史别名（既有读取面零破坏）；`consolidated_at`
+        # 补齐**成员侧**巩固时刻——此前只有概念侧 `induced_at`，成员侧无从判定
+        # 「何时被并进去」，故「合并后前身可定位」只在概念侧半成立。
+        fm[CONSOLIDATED_INTO_FIELD] = cid
+        fm[CONSOLIDATED_AT_FIELD] = time.time()
         fm["induced_concept"] = cid
         ent = nodes.get(m) or {}
         cg._write_node(m, os.path.join(cg.root, ent.get("path") or f"{m}.md"),
@@ -1309,9 +1319,11 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
             continue
         content = _concept_payload(p["members"], p["common_conditions"],
                                    p["non_applicable"])
+        _consolidated_at = time.time()   # 概念形成时刻 = 巩固时刻（单一取值，禁两处取时）
         cg.add(cid, content, layer=target_layer, tags=list(CONCEPT_TAGS),
                importance=CONCEPT_IMPORTANCE, verification_basis="other",
-               induced_from=list(p["members"]), induced_at=time.time(),
+               induced_from=list(p["members"]), induced_at=_consolidated_at,
+               consolidated_at=_consolidated_at,
                induction={"method": "bigram_jaccard", "min_jaccard": float(min_jaccard),
                           "common_conditions": p["common_conditions"], "batch": batch,
                           "actor": actor, "evidence": "inferred"},
