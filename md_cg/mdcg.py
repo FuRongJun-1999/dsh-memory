@@ -1743,11 +1743,11 @@ class MdCG:
 
     # ---------- 检索（性能阶梯 + 资格判定）----------
 
-# 生效条件：query strip 后为空即返回 ([], {"tier": None, "reason": "empty_query", "scanned": 0})；非空时按 T0–T3 性能阶梯取候选（layer / session / branch 为假值时对应维度不过滤），judge 为真时对每条结果附独立的四态资格判定；返回 (results, meta)；
+# 生效条件：query strip 后为空即返回 ([], {"tier": None, "reason": "empty_query", "scanned": 0})；非空时按 T0–T3 性能阶梯取候选（layer / session / branch / validity 为假值时对应维度不过滤），judge 为真时对每条结果附独立的四态资格判定；返回 (results, meta)；
     def search(self, query: str, layer: str = None, k: int = 20,
                context=None, min_results: int = 1, record: bool = True,
                include_neg: bool = True, judge: bool = True, pools=None,
-               session=None, branch=None):
+               session=None, branch=None, validity=None):
         """返回 (results, meta)。results = [(node_dict, score, qualification)]。
 
         meta 含 tier（性能层级）、scanned（读取节点数）、bucket（路由桶）、candidates。
@@ -1760,11 +1760,16 @@ class MdCG:
         pools：（§七 召回分池）None=关闭（默认，沿用 GLOBAL_CAP 平截，原行为）；
                True=内置显式权重表；dict=自定义表（各池 cap_ratio 之和必须 == 1.0）。
                也受 MDCG_POOLING=1 影响（载体侧开关）。分池只重分配截断额度、不抬高上限。
+        validity：时效过滤（显式启用，缺省 None 不过滤）——真值时剔除**已过期**
+               （valid_until 已过）节点；**未生效（valid_from 未到）保留**，因其与
+               「已失效」语义相反（scrub 纪律「valid_from 绝不并入 _EXPIRY_KEYS」）。
+               判定走 trust.validity 唯一真源；时间轴缺失/端点不可解析 → 不过滤（不猜测）。
         """
         q = (query or "").strip()
         if not q:
             return [], {"tier": None, "reason": "empty_query", "scanned": 0}
         pool_cfg = pooling.resolve(pooling.from_env(pools))
+        now = time.time() if validity else None      # 统一取一次 now，保判定口径一致
 
         terms = expand_query_terms(q)
         # 英文归一化后再取 bigram（小写+去停用词+去时态；中文不动）
@@ -1778,7 +1783,9 @@ class MdCG:
                    and (not session or e.get("session") == session)
                    # 分支实验场：默认（branch=None）分支节点全部隐身；
                    # branch=<id> 时主支 + 本分支可见、其他分支仍隐身
-                   and e.get("branch_id") in (None, branch)]
+                   and e.get("branch_id") in (None, branch)
+                   # 时效：只在显式启用时排除已过期（not_yet 保留）
+                   and not (validity and trust.is_expired(e, now=now))]
 
         # 默认关：索引里可能残留门控字段（曾开启过 / 回填过）→ 返回前剥离，
         # 保证候选 entry 形状与「从未启用过本功能」逐字节一致（独立复核 2026-09-19）。

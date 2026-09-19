@@ -142,6 +142,11 @@ TOOLS = [
                                              "仅在查询时刻生效，索引侧仍白箱"),
                           session=_p("string", "会话归属过滤（frontmatter.session；"
                                      "多会话共用 root 时只取本会话记忆；缺省不过滤）"),
+                          validity=_p("boolean", "时效过滤（**显式启用**，缺省不过滤）："
+                                                 "仅排除**已过期**（valid_until 已过）节点；"
+                                                 "**未生效（valid_from 未到）一律保留**——"
+                                                 "「尚未开始」与「已失效」语义相反，预约/计划类"
+                                                 "记忆在生效前仍可召回"),
                           goal=_p("string", "当前目标（第 5 篇第 3 章）：启用 goal 路给召回定向；"
                                             "省略则自动取活跃目标"),
                           goal_path=_p("boolean", "启用目标定向路（默认否；给 goal 即自动启用）"),
@@ -159,7 +164,10 @@ TOOLS = [
                           layer=_p("string", "限定层"), context=_p("object", "情境"),
                           roles=_p("array", "限定角色"), include_work=_p("boolean", "含工作角色"),
                           session=_p("string", "会话归属过滤（frontmatter.session；"
-                                     "缺省不过滤）")),
+                                     "缺省不过滤）"),
+                          validity=_p("boolean", "时效过滤（显式启用，缺省不过滤）：仅排除"
+                                                 "**已过期**（valid_until 已过）节点，"
+                                                 "未生效（valid_from 未到）保留")),
     },
     {
         "name": "mdcg_get",
@@ -752,6 +760,10 @@ KERNEL_TOOLS = [
             session=_p("string", "read（search/recall 分支）：会话归属过滤"
                                  "（frontmatter.session；缺省不过滤）；"
                                  "sustain：会话 id（resume/note 用）"),
+            validity=_p("boolean", "read（search/recall 分支）：时效过滤（显式启用，"
+                                   "缺省不过滤）——仅排除**已过期**（valid_until 已过）"
+                                   "节点；**未生效（valid_from 未到）保留**"
+                                   "（两者语义相反，预约/计划类记忆生效前仍可召回）"),
             ts=_p("number", "sustain note：事件时间戳"),
             seq=_p("integer", "sustain note：事件序号"),
             task_running=_p("boolean", "sustain：任务执行中（心跳阈值放宽）"),
@@ -2004,11 +2016,13 @@ def _cg_dispatch(cg, a):
                              goal_text=a.get("goal"),
                              include_recent=bool(a.get("include_recent")),
                              recent_limit=int(a.get("limit") or 10),
-                             session=a.get("session"))
+                             session=a.get("session"),
+                             validity=a.get("validity"))
         from . import refindex
         res, meta = cg.search(q, layer=a.get("layer"), k=int(a.get("k") or 20),
                               context=a.get("context"),
-                              session=a.get("session"))
+                              session=a.get("session"),
+                              validity=a.get("validity"))
         return {"meta": meta, "results": [
             {"node": _node_view(n), "score": s, "state": q2.get("state"),
              "reason": q2.get("reason"), **refindex.ref_fields(n)}
@@ -2878,7 +2892,8 @@ def _dispatch(cg, name, args):
                          include_recent=bool(a.get("include_recent")),
                          recent_limit=int(a.get("recent_limit") or 10),
                          query_expand=_make_query_expand(a.get("expand")),
-                         session=a.get("session"))
+                         session=a.get("session"),
+                         validity=a.get("validity"))
 
     if name == "mdcg_search":
         from . import refindex
@@ -2887,7 +2902,8 @@ def _dispatch(cg, name, args):
                               roles=tuple(a["roles"]) if a.get("roles") else None,
                               include_work=bool(a.get("include_work")),
                               pools=a.get("pools"),
-                              session=a.get("session"))
+                              session=a.get("session"),
+                              validity=a.get("validity"))
         return {"meta": meta,
                 "results": [{"node": _node_view(n), "score": s, "state": q.get("state"),
                              "reason": q.get("reason"), **refindex.ref_fields(n)}

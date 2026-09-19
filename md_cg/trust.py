@@ -242,6 +242,16 @@ def validity(fm, now: float = None):
     return "active", start, end
 
 
+def is_expired(fm, now: float = None) -> bool:
+    """`validity` 的布尔快捷：是否「**已过期**」。
+
+    只判 `expired`——`not_yet`（尚未生效）**不算**：两者语义相反
+    （见 `scrub._NOT_YET_KEYS` 纪律「`valid_from` 绝不并入 `_EXPIRY_KEYS`」），
+    「尚未开始」不等于「已失效」。无时间轴 / 端点不可解析 → False（不猜测、不误杀）。
+    """
+    return validity(fm, now=now)[0] == "expired"
+
+
 def time_window_msg(fm, now: float = None) -> str:
     """时效判定的一句话（空串表示无时间轴约束）。"""
     kind, start, end = validity(fm, now=now)

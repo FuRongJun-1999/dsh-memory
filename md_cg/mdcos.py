@@ -34,7 +34,7 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT
 from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
                self_state, predict, evolution, weights, pooling,
-               writelimit, reach)
+               writelimit, reach, trust)
 from .fsutil import (FileLock, atomic_write, append_jsonl, read_jsonl,
                      count_jsonl)
 from .security import (Principal, TenantRegistry, AccessDenied,
@@ -551,9 +551,9 @@ class MdCGOS(MdCG):
                     payload_hash=_sig(content))
         return nid
 
-# 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点、roles 为 None 且 include_work 为假时剔除 WORK_ROLES 角色，其余收集进 out 返回。
+# 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），validity 为真值而 trust.is_expired(e) 为真时剔除（**只排已过期，not_yet 保留**），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点、roles 为 None 且 include_work 为假时剔除 WORK_ROLES 角色，其余收集进 out 返回。
     def _candidates(self, layer=None, roles=None, include_work=False,
-                    session=None, branch=None):
+                    session=None, branch=None, validity=None):
         """候选池：按层 + role 过滤。默认剔除工作角色（工具输出/命令/编辑）。
 
         session：会话归属过滤（frontmatter.session，写入时自动落盘）——
@@ -561,7 +561,13 @@ class MdCGOS(MdCG):
         branch：分支可见性（记忆演化分支④）——None（默认）时分支实验
         节点全部隐身（实验不污染主支检索）；branch=<id> 时主支 + 该分支
         可见、其他分支仍隐身。
+        validity：时效过滤（**显式启用**，缺省 None 不过滤）——真值时剔除
+        **已过期**（valid_until 已过 / expired）节点；**未生效（valid_from
+        未到 / not_yet）一律保留**，因其与「已失效」语义相反（scrub 纪律
+        「valid_from 绝不并入 _EXPIRY_KEYS」），预约/计划类记忆在生效前仍可召回。
+        判定走 trust.validity 唯一真源；时间轴缺失/端点不可解析 → 不过滤（不猜测）。
         """
+        now = time.time() if validity else None
         out = []
         for e in self.index["nodes"].values():
             if e.get("layer") in ("rejected", "unresolved", "goals"):
@@ -569,6 +575,8 @@ class MdCGOS(MdCG):
             if session and e.get("session") != session:
                 continue
             if e.get("branch_id") not in (None, branch):
+                continue
+            if validity and trust.is_expired(e, now=now):
                 continue
             if layer and e.get("layer") != layer:
                 continue
@@ -617,23 +625,25 @@ class MdCGOS(MdCG):
                 out.append(e)
         return out
 
-# 生效条件：query strip 后为空即返回 ([], {"tier": None, "reason": "empty_query", "scanned": 0})；pool_cfg 由 pooling.resolve(pooling.from_env(pools)) 解析；_candidates 为空即返回 no_candidates；其余与 MdCG.search 同构（T0–T3 阶梯 + 资格判定），并按 roles/include_work 默认剔除工具输出与命令类 role；
+# 生效条件：query strip 后为空即返回 ([], {"tier": None, "reason": "empty_query", "scanned": 0})；pool_cfg 由 pooling.resolve(pooling.from_env(pools)) 解析；_candidates 为空即返回 no_candidates；其余与 MdCG.search 同构（T0–T3 阶梯 + 资格判定），并按 roles/include_work 默认剔除工具输出与命令类 role，validity 真值时候选层剔除已过期节点；
     def search(self, query: str, layer: str = None, k: int = 20,
                context=None, min_results: int = 1, record: bool = True,
                include_neg: bool = True, judge: bool = True,
                roles=None, include_work: bool = False, pools=None,
-               session=None, branch=None):
+               session=None, branch=None, validity=None):
         """在父类语义之上加 role 过滤（默认剔除工具输出/命令/编辑）。
 
         返回 (results, meta)，与 MdCG.search 完全同构（T0–T3 阶梯 + 资格判定）。
         pools：§七 召回分池（None=关闭原行为 / True=内置表 / dict=自定义表）。
+        validity：时效过滤（显式启用，缺省不过滤）——只排已过期，未生效保留；
+        详见 _candidates。
         """
         q = (query or "").strip()
         if not q:
             return [], {"tier": None, "reason": "empty_query", "scanned": 0}
         pool_cfg = pooling.resolve(pooling.from_env(pools))
         entries = self._candidates(layer=layer, roles=roles, include_work=include_work,
-                                   session=session, branch=branch)
+                                   session=session, branch=branch, validity=validity)
         if not entries:
             return [], {"tier": None, "reason": "no_candidates", "scanned": 0}
 
@@ -1033,14 +1043,14 @@ class MdCGOS(MdCG):
                          "content": c, "path": e["path"]}, round(score, 6)))
         return out, gt
 
-# 生效条件：query 去空白为空→empty_query、候选为空→no_candidates；否则按 paths 各路召回后融合（fusion=="max" 取各路最大贡献、否则求和），recall_only 中的路只以 0 分补池不参与打分，judge 与 judge_ranking 同时为真时对 fused 前 max(k*2,10) 条做资格裁决（REJECT/BLINDSPOT 剔除、DEFER 降权 0.5），否则直接取 fused 前 k。
+# 生效条件：query 去空白为空→empty_query、候选为空→no_candidates；否则按 paths 各路召回后融合（fusion=="max" 取各路最大贡献、否则求和），recall_only 中的路只以 0 分补池不参与打分，judge 与 judge_ranking 同时为真时对 fused 前 max(k*2,10) 条做资格裁决（REJECT/BLINDSPOT 剔除、DEFER 降权 0.5），否则直接取 fused 前 k；validity 真值时候选层剔除已过期节点，且 query 缓存按 validity 分键不串口径。
     def search_rrf(self, query: str, k: int = 20, layer: str = None,
                    context=None, roles=None, include_work: bool = False,
                    judge: bool = True, paths=("lexical", "bucket", "entity", "graph"),
                    record: bool = True, query_expand=None,
                    path_weights=None, recall_only=None, fusion: str = "sum",
                    goal_text=None, judge_ranking: bool = False,
-                   session=None, branch=None,
+                   session=None, branch=None, validity=None,
                    early_stop_threshold=None):
         """并行多路召回 + RRF 融合。返回 (results, meta)。
 
@@ -1071,6 +1081,9 @@ class MdCGOS(MdCG):
             REJECT / BLINDSPOT 剔除，DEFER 降权 ×0.5，ACCEPT 保位。候选池取
             fused 前 max(k*2,10) 再裁决补位。语义联系可以是认知噪声（等权 RRF
             双重奖励「多路都靠前」的干扰项），唯有条件证据可授予优先级。
+        validity: 时效过滤（显式启用，缺省不过滤）。**只排已过期**，未生效
+            （valid_from 未到）保留——两者语义相反（scrub 纪律「valid_from 绝不
+            并入 _EXPIRY_KEYS」）。详见 _candidates。
         """
         q = (query or "").strip()
         if not q:
@@ -1080,13 +1093,13 @@ class MdCGOS(MdCG):
         hc = _hc.get(self)
         if hc is not None:
             cached = hc.get_query(q, k=k, layer=layer, session=session,
-                                  branch=branch)
+                                  branch=branch, validity=validity)
             if cached is not None:
                 _results, _meta = cached
                 _meta["cached"] = True
                 return _results, _meta
         entries = self._candidates(layer=layer, roles=roles, include_work=include_work,
-                                   session=session, branch=branch)
+                                   session=session, branch=branch, validity=validity)
         if not entries:
             return [], {"tier": None, "reason": "no_candidates", "paths": {}}
 
@@ -1215,7 +1228,7 @@ class MdCGOS(MdCG):
                          "expand_source": fuzzy_source,
                          "goal_used": goal_used,
                          "provenance": prov}, k=k, layer=layer,
-                         session=session, branch=branch)
+                         session=session, branch=branch, validity=validity)
         return results, {"tier": "RRF", "scanned": stat["scanned"],
                          "paths": per_path, "fused": len(results),
                          "judge_ranking": bool(judge and judge_ranking),
@@ -1227,14 +1240,14 @@ class MdCGOS(MdCG):
 
     # ================= 7. budget-driven pack =================
 
-# 生效条件：query（配合 use_rrf 取 items）逐条按 budget_tokens 与 max_item_tokens 装包：若 used+t > budget_tokens，则 max_item_tokens 为真且 room=budget_tokens-used 不小于 min_excerpt（max_item_tokens 为真时取 max(1, min(50, max_item_tokens // 5))，否则为 0）时按 keep=min(max_item_tokens, room) 摘录，摘录后 est_tokens<=0 则该条以 excerpt_empty 进 skipped 并 continue；否则以 oversize_or_over_budget 进 skipped 并 continue；未超预算则计入 used 并 append，include_recent 为真时再按 left=budget_tokens-used 追加 recent_limit 条近期事件（逐条 est_tokens 不超过 left 才计入），最终返回含 pack/tokens_used/budget/skipped/recent/meta 的 dict。
+# 生效条件：query（配合 use_rrf 取 items）逐条按 budget_tokens 与 max_item_tokens 装包：若 used+t > budget_tokens，则 max_item_tokens 为真且 room=budget_tokens-used 不小于 min_excerpt（max_item_tokens 为真时取 max(1, min(50, max_item_tokens // 5))，否则为 0）时按 keep=min(max_item_tokens, room) 摘录，摘录后 est_tokens<=0 则该条以 excerpt_empty 进 skipped 并 continue；否则以 oversize_or_over_budget 进 skipped 并 continue；未超预算则计入 used 并 append，include_recent 为真时再按 left=budget_tokens-used 追加 recent_limit 条近期事件（逐条 est_tokens 不超过 left 才计入），最终返回含 pack/tokens_used/budget/skipped/recent/meta 的 dict；validity 真值时向候选层透传时效过滤（只排已过期）。
     def recall(self, query: str, budget_tokens: int = DEFAULT_BUDGET, k: int = 20,
                layer: str = None, context=None, roles=None,
                include_work: bool = False, judge: bool = True, use_rrf: bool = True,
                paths=None, query_expand=None, fusion=None,
                goal_text=None, include_recent=False, recent_limit: int = 10,
                judge_ranking: bool = False, session=None, branch=None,
-               max_item_tokens: int = DEFAULT_MAX_ITEM_TOKENS):
+               validity=None, max_item_tokens: int = DEFAULT_MAX_ITEM_TOKENS):
         """按 token 预算装包：装到预算花完为止。
 
         装包策略（2026-09-14 调整）：
@@ -1253,6 +1266,7 @@ class MdCGOS(MdCG):
         include_recent=True 时，把近期事件窗口（第 5 篇第 3 章）附在包后，
         保证当前任务的连续性；它不参与 RRF 正排，但计入 token 预算。
         返回 {pack: [...], tokens_used, budget, skipped: [...], recent: [...], meta}
+        validity：时效过滤（显式启用，缺省不过滤）——只排已过期，未生效保留。
         """
         if use_rrf:
             kw = dict(k=k, layer=layer, context=context, roles=roles,
@@ -1268,11 +1282,14 @@ class MdCGOS(MdCG):
             kw["judge_ranking"] = judge_ranking
             if branch is not None:
                 kw["branch"] = branch
+            if validity:
+                kw["validity"] = validity
             results, meta = self.search_rrf(query, **kw)
             items = [(r[0], r[1], r[2], r[3]) for r in results]
         else:
             res, meta = self.search(query, layer=layer, k=k, context=context,
-                                    judge=judge, session=session, branch=branch)
+                                    judge=judge, session=session, branch=branch,
+                                    validity=validity)
             items = [(r[0], r[1], r[2], []) for r in res]
 
         pack, skipped, used = [], [], 0
@@ -3349,11 +3366,11 @@ class MdCGSecure(MdCGOS):
         self.principal.require_admin("clear_recent")
         return super().clear_recent()
 
-# 生效条件：在 super()._candidates(layer=layer, roles=roles, include_work=include_work, session=session, branch=branch) 的结果上，只保留 self._readable(e) 为真的条目。
+# 生效条件：在 super()._candidates(layer=layer, roles=roles, include_work=include_work, session=session, branch=branch, validity=validity) 的结果上，只保留 self._readable(e) 为真的条目。
     def _candidates(self, layer=None, roles=None, include_work=False,
-                    session=None, branch=None):
+                    session=None, branch=None, validity=None):
         out = super()._candidates(layer=layer, roles=roles, include_work=include_work,
-                                  session=session, branch=branch)
+                                  session=session, branch=branch, validity=validity)
         return [e for e in out if self._readable(e)]
 
 # 生效条件：在 super()._neg_coverage(terms) 的结果上，只保留 self._readable(e) 为真的条目。
@@ -3367,13 +3384,25 @@ class MdCGSecure(MdCGOS):
             return None                     # 读隔离：不可见即不存在
         return super().get(node_id)
 
-# 生效条件：把 *a/**kw 原样转给 super().search_rrf 后，仅保留其结果中每条以 self.index["nodes"].get(结果节点 id) 为索引（索引缺该 id 时用结果节点自身）经 self._readable 判为可见的条目再返回。
+# 生效条件：把 *a/**kw 原样转给 super().search_rrf 后，仅保留其结果中每条以 self.index["nodes"].get(结果节点 id) 为索引（索引缺该 id 时用结果节点自身）经 self._readable 判为可见的条目，且 kw["validity"] 为真时该条目经 trust.is_expired 判为未过期者，再返回。
     def search_rrf(self, *a, **kw):
-        """RRF 路径里的图扩展会绕过 _candidates，这里显式再过滤一次。"""
+        """RRF 路径里的图扩展会绕过 _candidates，这里显式再过滤一次。
+
+        时效过滤（validity）同属候选资格：图扩展会把过期节点重新带回结果，
+        故必须在此与读可见性一并二次过滤，否则过期节点经扩散路径绕过 _candidates。
+        """
         res, meta = super().search_rrf(*a, **kw)
-        res = [r for r in res
-               if self._readable(self.index["nodes"].get(r[0]["id"], r[0]))]
-        return res, meta
+        validity = kw.get("validity")
+        now = time.time() if validity else None
+        keep = []
+        for r in res:
+            e = self.index["nodes"].get(r[0]["id"], r[0])
+            if not self._readable(e):
+                continue
+            if validity and trust.is_expired(e, now=now):
+                continue
+            keep.append(r)
+        return keep, meta
 
     # ---------- 管理：需 can_admin ----------
 

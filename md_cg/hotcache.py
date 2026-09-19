@@ -8,8 +8,10 @@ frontmatter 读取也从磁盘降为内存命中。
 
 【设计】
   - 节点缓存：LRU dict，key=node_id → value=(frontmatter, body_excerpt)
-  - query 缓存：LRU dict，key=(query, k, layer, session, branch)
+  - query 缓存：LRU dict，key=(query, k, layer, session, branch, validity)
     → value=(results, meta)
+    validity 必须进键：同一 query 在「不过滤 / 只排已过期」两种口径下
+    结果不同，不入键会串口径（正确性缺陷，非优化项）。
   - 失效策略：写入时 invalidate 受影响节点 + query 全清（保守策略，
     因为 RRF 融合后一个节点的变动可能影响全局排序）
   - TTL：query 缓存 300s（5 分钟），节点缓存无 TTL（写入即失效）
@@ -80,12 +82,16 @@ class HotCache:
     # ---------- query 缓存 ----------
 
     @staticmethod
-    def _query_key(query, k, layer, session, branch):
-        return (query, k, layer or None, session or None, branch or None)
+    def _query_key(query, k, layer, session, branch, validity=None):
+        # validity 必须进键：同一 query 在「不过滤 / 排已过期」两种口径下结果不同，
+        # 不入键会串结果（正确性缺陷，非优化项）。
+        return (query, k, layer or None, session or None, branch or None,
+                bool(validity) or None)
 
-    def get_query(self, query, k=20, layer=None, session=None, branch=None):
+    def get_query(self, query, k=20, layer=None, session=None, branch=None,
+                  validity=None):
         """返回 (results, meta) 或 None（未缓存/过期）。"""
-        key = self._query_key(query, k, layer, session, branch)
+        key = self._query_key(query, k, layer, session, branch, validity)
         entry = self._queries.get(key)
         if entry is None:
             self._stats["query_misses"] += 1
@@ -100,9 +106,9 @@ class HotCache:
         return results, dict(meta)
 
     def put_query(self, query, results, meta, k=20, layer=None,
-                  session=None, branch=None):
+                  session=None, branch=None, validity=None):
         """写入/更新 query 缓存。"""
-        key = self._query_key(query, k, layer, session, branch)
+        key = self._query_key(query, k, layer, session, branch, validity)
         self._queries[key] = (time.time(), list(results), dict(meta))
         self._queries.move_to_end(key)
         while len(self._queries) > self._max_queries:
