@@ -5,7 +5,10 @@
 ① 单次 read 返回受「2000 行 / 50KB」双阈值约束，且**不静默丢内容**——
    截断必带 total_lines / total_bytes / next_offset / note；
 ② 续读按 offset 连续取回可拼回原文（不丢不重，可裁决的等价性判据）；
-③ 小内容行为逐位兼容（不新增键、content 原样）——防回归。
+③ 小内容行为兼容——旧四键（id/path/frontmatter/content）不丢、content 原样；
+   验证态 `verification_state` 为**有意的 additive 透出**（不参与排序），
+   故 B1 断言「旧键 ⊆ 新键 ∧ 验证态在场」而非「键集逐一相等」。
+   真源：protocol.py 的 read.node.required 已把 `verification_state` 列为必需键。
 
 运行：python -m md_cg.test_read_clip
 """
@@ -91,9 +94,10 @@ def main():
     node = {"id": "n1", "path": "/p/n1.md", "frontmatter": {"layer": "knowledge"},
             "content": "短内容"}
     v = _node_view(node)
-    check("B1 小节点键集不变（零回归）",
-          set(v) == {"id", "path", "frontmatter", "content"}
-          and v["content"] == "短内容", str(sorted(v)))
+    check("B1 旧四键不丢（零回归）+ 验证态 additive 透出",
+          {"id", "path", "frontmatter", "content"} <= set(v)
+          and v["content"] == "短内容"
+          and v["verification_state"] == "unverified", str(sorted(v)))
     check("B2 空节点维持 None（旧契约）", _node_view(None) is None)
 
     big = dict(node, content=many)

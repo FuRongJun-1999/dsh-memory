@@ -423,7 +423,7 @@ def _ck(cid: str, level: str, ok: bool, detail: str) -> dict:
     return {"id": cid, "level": level, "ok": bool(ok), "detail": detail}
 
 
-# 生效条件：调用 check(root, check_paths, baseline, strict) 时，root 原样传入 load_index 得 nodes，check_paths 原样传入 _path_metrics 并在 index.path.present 检查消息中当其为假时追加“（--no-path-check 未查盘）”，baseline 为真时追加 _regression 基线不劣化检查、为假（None 或空 dict）时跳过，n=len(nodes) 小于 THRESHOLDS["min_nodes"] 时 small 为真且使 _ratio 各项及 reach.ratio、stratum.mixed_ratio 在 val 为 None 或 small 为真时记 BLINDSPOT、否则记 WARN，最终 verdict 为 FAIL（存在 level="FAIL" 且 ok 为假）、否则 WARN（存在 level="WARN" 且 ok 为假，或 strict 为真且存在 level="BLINDSPOT"）、否则 PASS，返回含 REPORT_VERSION、t、elapsed_s、root 绝对路径、verdict、nodes、checks、counts、coverage、dup、edges、paths、gate、reach、unanalyzed、g1、thresholds 的 dict；
+# 生效条件：调用 check(root, check_paths, baseline, strict) 时，root 原样传入 load_index 得 nodes，check_paths 原样传入 _path_metrics 并在 index.path.present 检查消息中当其为假时追加“（--no-path-check 未查盘）”，baseline 为真时追加 _regression 基线不劣化检查、为假（None 或空 dict）时跳过，n=len(nodes) 小于 THRESHOLDS["min_nodes"] 时 small 为真且使 _ratio 各项及 reach.ratio、stratum.mixed_ratio 在 val 为 None 或 small 为真时记 BLINDSPOT、否则记 WARN，最终 verdict 为 FAIL（存在 level="FAIL" 且 ok 为假）、否则 WARN（存在 level="WARN" 且 ok 为假，或 strict 为真且存在 level="BLINDSPOT"）、否则 PASS，返回含 REPORT_VERSION、t、elapsed_s、root 绝对路径、verdict、nodes、checks、counts、coverage、dup、edges、paths、gate、reach、unanalyzed、g1、protocol（=protocol.audit() 静态对账，恒追加四条 FAIL 级断言：op.declared 无未登记分支 / verb.implemented live 动词均有实现分支 / verb.reserved_clean 预留动词未被静默实现 / shape.declared 形状声明完备）、thresholds 的 dict；
 def check(root: str, *, check_paths: bool = True,
           baseline: dict = None, strict: bool = False) -> dict:
     """跑一遍全部断言，返回报告 dict（零写入：不修任何数据、不落任何文件）。"""
@@ -498,6 +498,33 @@ def check(root: str, *, check_paths: bool = True,
                       f"闸门裁决样本 {gate['decisions_total']} 条 {gate['decisions']}"
                       f"（下限 {T['gate_sample_min']}）"))
 
+    # ---- 记忆动词协议 v1 静态对账（声明 ↔ MCP 面实现，纯源码事实、不连库）----
+    # 与 G1 的分工：G1 对账**数据值域**，这里对账**动词面**——两者都是
+    # 「声明了没做 / 做了没说」的前置红灯，属结构性不变量（FAIL 级，fail-closed）。
+    from . import protocol as _proto
+    pa = _proto.audit()
+    checks.append(_ck("protocol.op.extension_surface", "WARN", True,
+                      f"协议 v{pa['protocol_version']} 冻结面={pa['declared']}"
+                      f"（live {len(pa['live'])} / reserved {len(pa['reserved'])}）；"
+                      f"MCP 面另有 {len(pa['extension_ops'])} 个扩展 op 不属协议面"
+                      f"（文档一致性由 cogmap 门禁承担）"))
+    checks.append(_ck("protocol.verb.implemented", "FAIL",
+                      not pa["missing_impl"],
+                      f"声明为 live 的动词 {pa['live']} 均有实现分支"
+                      if not pa["missing_impl"] else
+                      f"声明为 live 却无实现分支：{pa['missing_impl']}"))
+    checks.append(_ck("protocol.verb.reserved_clean", "FAIL",
+                      not pa["reserved_leaked"],
+                      f"reserved 动词 {pa['reserved']} 未出现实现分支"
+                      if not pa["reserved_leaked"] else
+                      f"reserved 动词被静默实现（须先改 status=live）："
+                      f"{pa['reserved_leaked']}"))
+    checks.append(_ck("protocol.shape.declared", "FAIL",
+                      not pa["shape_errors"],
+                      f"{len(pa['declared'])} 个动词形状声明完备"
+                      if not pa["shape_errors"] else
+                      f"形状声明不完整：{pa['shape_errors']}"))
+
     # ---- 基线不劣化（有 baseline 时才可判）----
     if baseline:
         checks += _regression({"mixed_ratio": cov["mixed_ratio"],
@@ -517,7 +544,7 @@ def check(root: str, *, check_paths: bool = True,
                        "total": len(checks)},
             "coverage": cov, "dup": dup, "edges": edges, "paths": paths,
             "gate": gate, "reach": reach, "unanalyzed": un, "g1": g1,
-            "thresholds": T}
+            "protocol": pa, "thresholds": T}
 
 
 # 生效条件：对 cur 各键，baseline（或其 metrics）缺失、该键在基线为 None 或 cur 值为 None 时跳过；否则以 val > b+1e-9 判劣化，产出 level 恒为 "FAIL"、ok=not worse 的检查项；
@@ -596,6 +623,17 @@ def render(rep: dict) -> str:
       f"/{rep['gate']['audit_tail_window']} 行）={rep['gate']['audit_ops']}")
     a(f"  G3 unanalyzed 派生={rep['unanalyzed']['count']}"
       f" ({rep['unanalyzed']['ratio'] * 100:.1f}%)")
+    pr = rep.get("protocol") or {}
+    if pr:
+        a("\n-- 记忆动词协议 v1 静态对账 --")
+        a(f"  {pr['doc']}  frozen={pr['frozen']}  ok={pr['ok']}")
+        a(f"  声明={pr['declared']}")
+        a(f"  live={pr['live']}  reserved={pr['reserved']}（未实现即如实登记，不冒充）")
+        a(f"  MCP 面 op 分支={len(pr['actual'])} 个，其中扩展能力面"
+          f"（不属协议 v1）{len(pr['extension_ops'])} 个")
+        if pr["errors"]:
+            for e in pr["errors"]:
+                a(f"  !! {e}")
     a("\n-- G1 类型空间正交性 --")
     for name, spec in rep["g1"].items():
         if name.startswith("_"):
