@@ -1817,7 +1817,9 @@ class MdCG:
     def search(self, query: str, layer: str = None, k: int = 20,
                context=None, min_results: int = 1, record: bool = True,
                include_neg: bool = True, judge: bool = True, pools=None,
-               session=None, branch=None, validity=None):
+               session=None, branch=None, validity=None,
+               start_time=None, end_time=None, start_operator=None,
+               end_operator=None, time_axis=None):
         """返回 (results, meta)。results = [(node_dict, score, qualification)]。
 
         meta 含 tier（性能层级）、scanned（读取节点数）、bucket（路由桶）、candidates。
@@ -1834,6 +1836,12 @@ class MdCG:
                （valid_until 已过）节点；**未生效（valid_from 未到）保留**，因其与
                「已失效」语义相反（scrub 纪律「valid_from 绝不并入 _EXPIRY_KEYS」）。
                判定走 trust.validity 唯一真源；时间轴缺失/端点不可解析 → 不过滤（不猜测）。
+              start_time/end_time/start_operator/end_operator/time_axis：时间算子
+               （阶段二 4.1，**显式启用**）——按 `time_axis` 轴把候选收敛到查询时间窗内。
+               轴未指定 → 回落 `effective`；轴/算子非法、孤 operator、start>end 一律
+               `ValueError`（fail-closed 只针对**调用方误用**，不针对节点缺字段）。
+               效力轴缺字段 fail-open（保留）、观察轴缺字段 fail-closed（剔除）。
+               审计落 `meta["time_filter"]`，且**仅在启用时**落键（默认关零变更）。
         """
         q = (query or "").strip()
         if not q:
@@ -1865,6 +1873,30 @@ class MdCG:
                         for e in entries)):
             entries = [_strip_empty_gate_fields(dict(e), enabled=False)
                        for e in entries]
+
+        # ---- 时间算子（阶段二 4.1）：候选**资格**过滤（在 S1/S2 收敛之前）----
+        # 与 validity 各司其职、互不替代：
+        #   validity = 「是否已失效」——默认关、只排过期、未生效一律保留；
+        #   时间算子 = 「是否落在查询时间窗内」——轴 + 算子显式启用，双端可空 = 无界。
+        # fail-closed 只针对**调用方误用**（轴/算子非法、孤 operator、start>end →
+        # ValueError）；节点缺字段按**轴策略**处置：效力轴 fail-open（可选声明，
+        # 缺 = 沉默不是否认）、观察轴 fail-closed（写入侧保证存在，缺 = 数据异常，
+        # 须计数可见而非静默放行）。审计块仅在启用时落键（默认关零变更纪律）。
+        _tf_audit = None
+        _en_t, _ax_t, _why_t = trust.check_time_args(
+            start_time, end_time, start_operator, end_operator, time_axis)
+        if _why_t:
+            raise ValueError(_why_t)
+        if _en_t:
+            _qs_t, _qe_t = trust.parse_time(start_time), trust.parse_time(end_time)
+            entries, _dr_t, _ms_t = trust.filter_by_time(
+                entries, _ax_t, _qs_t, _qe_t, start_operator, end_operator)
+            _tf_audit = trust.time_filter_meta(
+                axis=_ax_t,
+                mode="endpoint" if (start_operator or end_operator) else "overlap",
+                start=_qs_t, end=_qe_t, start_operator=start_operator,
+                end_operator=end_operator, dropped=_dr_t, axis_missing=_ms_t,
+                applied=True)
 
         # ---- S1/S2 检索前门控（契约 docs/hive/检索路径与认知结构契约_v0.1.md）----
         # 历史偏差：大域先验与条件空间都只在「扫完 + 排完」之后才用（审计偏差 2/4）。
@@ -2016,6 +2048,8 @@ class MdCG:
                         neg_coverage.append(e)
 
         stat = {"scanned": 0, "query": q, "gates": gates}
+        if _tf_audit:
+            stat["time_filter"] = _tf_audit
         route_bucket = None
         if context is not None:
             ctx = context if isinstance(context, dict) else {}
@@ -2501,6 +2535,10 @@ class MdCG:
         # 分阶段审计仅在门控真的产生信息时落键（默认关闭 → meta 与改动前逐字节一致；契约 §5.3）
         if stat.get("gates"):
             meta["gates"] = stat["gates"]
+        # 时间算子审计（阶段二 4.1）：同规则——只在时间算子真的启用时落键，
+        # 未启用则 meta 键集合与改动前逐字节一致（默认关零变更纪律）。
+        if stat.get("time_filter"):
+            meta["time_filter"] = stat["time_filter"]
         return out, meta
 
     # ---------- 五大单元之四：反思 / 验证 / 输出 ----------

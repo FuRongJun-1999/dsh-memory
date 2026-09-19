@@ -574,9 +574,11 @@ class MdCGOS(MdCG):
                     payload_hash=_sig(content))
         return nid
 
-# 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），validity 为真值而 trust.is_expired(e) 为真时剔除（**只排已过期，not_yet 保留**），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点、roles 为 None 且 include_work 为假时剔除 WORK_ROLES 角色，其余收集进 out 返回。
+# 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），validity 为真值而 trust.is_expired(e) 为真时剔除（**只排已过期，not_yet 保留**），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点、roles 为 None 且 include_work 为假时剔除 WORK_ROLES 角色，时间算子启用时按 time_axis 轴过滤（效力轴不可判定 fail-open、观察轴不可判定 fail-closed 并入 self._time_filter_stat），其余收集进 out 返回。
     def _candidates(self, layer=None, roles=None, include_work=False,
-                    session=None, branch=None, validity=None):
+                    session=None, branch=None, validity=None,
+                    start_time=None, end_time=None, start_operator=None,
+                    end_operator=None, time_axis=None):
         """候选池：按层 + role 过滤。默认剔除工作角色（工具输出/命令/编辑）。
 
         session：会话归属过滤（frontmatter.session，写入时自动落盘）——
@@ -589,6 +591,11 @@ class MdCGOS(MdCG):
         未到 / not_yet）一律保留**，因其与「已失效」语义相反（scrub 纪律
         「valid_from 绝不并入 _EXPIRY_KEYS」），预约/计划类记忆在生效前仍可召回。
         判定走 trust.validity 唯一真源；时间轴缺失/端点不可解析 → 不过滤（不猜测）。
+        start_time/end_time/start_operator/end_operator/time_axis：时间算子
+        （阶段二 4.1，**显式启用**）——按 `time_axis` 轴把候选收敛到查询时间窗内。
+        轴未指定 → 回落 `effective`；轴/算子非法、孤 operator、start>end 一律
+        `ValueError`（fail-open 只针对**节点缺字段**，不针对**调用方误用**）。
+        效力轴缺字段 fail-open（保留）；观察轴缺字段 fail-closed（剔除）。
         """
         now = time.time() if validity else None
         out = []
@@ -610,6 +617,27 @@ class MdCGOS(MdCG):
             elif not include_work and r in WORK_ROLES:
                 continue
             out.append(e)
+        # ---- 时间算子（阶段二 4.1）：候选层**唯一**过滤点 ----
+        # 与 validity 各司其职，互不替代：validity=「是否已失效」（默认关、只排过期）；
+        # 时间算子=「是否落在查询时间窗内」（轴 + 算子显式启用，双端可空=无界）。
+        en, ax, why = trust.check_time_args(start_time, end_time, start_operator,
+                                            end_operator, time_axis)
+        # 该属性供调用方（search / search_rrf）取审计块；紧接调用后即读，
+        # 无跨调用竞态（库按实例串行使用）。
+        self._time_filter_stat = None
+        if not en:
+            if why:
+                raise ValueError(why)      # fail-closed：误用不静默降级
+            return out
+        qs, qe = trust.parse_time(start_time), trust.parse_time(end_time)
+        out, _dropped, _missing = trust.filter_by_time(
+            out, ax, qs, qe, start_operator, end_operator)
+        self._time_filter_stat = trust.time_filter_meta(
+            axis=ax,
+            mode="endpoint" if (start_operator or end_operator) else "overlap",
+            start=qs, end=qe, start_operator=start_operator,
+            end_operator=end_operator, dropped=_dropped,
+            axis_missing=_missing, applied=True)
         return out
 
     # ================= 资格判定（legacy 记忆豁免） =================
@@ -653,7 +681,9 @@ class MdCGOS(MdCG):
                context=None, min_results: int = 1, record: bool = True,
                include_neg: bool = True, judge: bool = True,
                roles=None, include_work: bool = False, pools=None,
-               session=None, branch=None, validity=None):
+               session=None, branch=None, validity=None,
+               start_time=None, end_time=None, start_operator=None,
+               end_operator=None, time_axis=None):
         """在父类语义之上加 role 过滤（默认剔除工具输出/命令/编辑）。
 
         返回 (results, meta)，与 MdCG.search 完全同构（T0–T3 阶梯 + 资格判定）。
@@ -666,9 +696,16 @@ class MdCGOS(MdCG):
             return [], {"tier": None, "reason": "empty_query", "scanned": 0}
         pool_cfg = pooling.resolve(pooling.from_env(pools))
         entries = self._candidates(layer=layer, roles=roles, include_work=include_work,
-                                   session=session, branch=branch, validity=validity)
+                                   session=session, branch=branch, validity=validity,
+                                   start_time=start_time, end_time=end_time,
+                                   start_operator=start_operator,
+                                   end_operator=end_operator, time_axis=time_axis)
+        _tf = getattr(self, "_time_filter_stat", None)
         if not entries:
-            return [], {"tier": None, "reason": "no_candidates", "scanned": 0}
+            _m = {"tier": None, "reason": "no_candidates", "scanned": 0}
+            if _tf:
+                _m["time_filter"] = _tf
+            return [], _m
 
         terms = expand_query_terms(q)
         # qb 与 _score 文档侧口径对齐（文档侧已是 normalize_en 小写化），
@@ -676,6 +713,13 @@ class MdCGOS(MdCG):
         # + 英→中语素 bigram 补充（与 mdcg.search/_lexical 打分口径同步）
         qb = bigrams(normalize_en(q)) | en_zh_bigrams(q)
         stat = {"scanned": 0, "query": q}
+        # 时间算子审计（阶段二 4.1）：候选层过滤在 `_candidates` 已完成，此处把
+        # 审计块交给父类 `_emit` 落进 meta —— 与 search_rrf 的 `stat["time_filter"]`
+        # 同构。缺此步则过滤**确实生效但审计不可见**：调用方无法区分「未启用过滤」
+        # 与「启用了、但候选全 fail-open 保留」，属静默（审计不可见即不可裁决）。
+        # 仅在启用时落键，保默认关时 meta 键集合不变。
+        if _tf:
+            stat["time_filter"] = _tf
         route_bucket = None
         if context is not None:
             ctx = context if isinstance(context, dict) else {}
@@ -1074,7 +1118,9 @@ class MdCGOS(MdCG):
                    path_weights=None, recall_only=None, fusion: str = "sum",
                    goal_text=None, judge_ranking: bool = False,
                    session=None, branch=None, validity=None,
-                   early_stop_threshold=None):
+                   early_stop_threshold=None,
+                   start_time=None, end_time=None, start_operator=None,
+                   end_operator=None, time_axis=None):
         """并行多路召回 + RRF 融合。返回 (results, meta)。
 
         每路各自排序 → Reciprocal Rank Fusion：
@@ -1107,14 +1153,21 @@ class MdCGOS(MdCG):
         validity: 时效过滤（显式启用，缺省不过滤）。**只排已过期**，未生效
             （valid_from 未到）保留——两者语义相反（scrub 纪律「valid_from 绝不
             并入 _EXPIRY_KEYS」）。详见 _candidates。
+        start_time/end_time/start_operator/end_operator/time_axis：时间算子
+            （阶段二 4.1，显式启用；语义与 fail-closed 规则见 _candidates）。
+            启用时**绕过热路径缓存**（缓存键不含时间参数，复用会串味）。
         """
         q = (query or "").strip()
         if not q:
             return [], {"tier": None, "reason": "empty_query", "paths": {}}
         # 热路径：query 结果缓存命中即返回（不改 RRF 核心）
+        # 时间算子**显式启用时绕开缓存**：缓存键不含时间参数，命中会返回
+        # 未按本次窗口过滤的结果（静默错答比慢更贵）。
+        _time_on = any(x is not None for x in (start_time, end_time,
+                                               start_operator, end_operator))
         from . import hotcache as _hc
         hc = _hc.get(self)
-        if hc is not None:
+        if hc is not None and not _time_on:
             cached = hc.get_query(q, k=k, layer=layer, session=session,
                                   branch=branch, validity=validity)
             if cached is not None:
@@ -1122,11 +1175,21 @@ class MdCGOS(MdCG):
                 _meta["cached"] = True
                 return _results, _meta
         entries = self._candidates(layer=layer, roles=roles, include_work=include_work,
-                                   session=session, branch=branch, validity=validity)
+                                   session=session, branch=branch, validity=validity,
+                                   start_time=start_time, end_time=end_time,
+                                   start_operator=start_operator,
+                                   end_operator=end_operator, time_axis=time_axis)
+        _tf = getattr(self, "_time_filter_stat", None)
         if not entries:
-            return [], {"tier": None, "reason": "no_candidates", "paths": {}}
+            _m = {"tier": None, "reason": "no_candidates", "paths": {}}
+            if _tf:
+                _m["time_filter"] = _tf
+            return [], _m
 
         stat = {"scanned": 0}
+        if _tf:
+            stat["time_filter"] = _tf
+        _tf_meta = {"time_filter": _tf} if _tf else {}
         ranked = {}          # path -> [(node, score)]
         fuzzy_source = None
         chain_prov = {}
@@ -1241,8 +1304,11 @@ class MdCGOS(MdCG):
             results.append((node, round(fs, 6), qual, prov.get(nid, [])))
         if record and results:
             self.record_access([r[0]["id"] for r in results], "RRF")
-        # 热路径：写 query 结果缓存
-        if hc is not None and results:
+        # 热路径：写 query 结果缓存 —— **同样受 `_time_on` 约束**。
+        # 缓存键不含时间参数，把被时间过滤的结果写进去，会让后续**默认查询**
+        # 命中那个子集（串味方向与「读」相反，但同样是静默错答：少了 4 条
+        # 却看不出原因）。绕行必须读+写双侧闭合。
+        if hc is not None and results and not _time_on:
             hc.put_query(q, results, {"tier": "RRF", "scanned": stat["scanned"],
                          "paths": per_path, "fused": len(results),
                          "judge_ranking": bool(judge and judge_ranking),
@@ -1250,7 +1316,7 @@ class MdCGOS(MdCG):
                          "early_stopped": early_stopped,
                          "expand_source": fuzzy_source,
                          "goal_used": goal_used,
-                         "provenance": prov}, k=k, layer=layer,
+                         "provenance": prov, **_tf_meta}, k=k, layer=layer,
                          session=session, branch=branch, validity=validity)
         return results, {"tier": "RRF", "scanned": stat["scanned"],
                          "paths": per_path, "fused": len(results),
@@ -1259,7 +1325,7 @@ class MdCGOS(MdCG):
                          "early_stopped": early_stopped,
                          "expand_source": fuzzy_source,
                          "goal_used": goal_used,
-                         "provenance": prov}
+                         "provenance": prov, **_tf_meta}
 
     # ================= 7. budget-driven pack =================
 
@@ -1270,7 +1336,9 @@ class MdCGOS(MdCG):
                paths=None, query_expand=None, fusion=None,
                goal_text=None, include_recent=False, recent_limit: int = 10,
                judge_ranking: bool = False, session=None, branch=None,
-               validity=None, max_item_tokens: int = DEFAULT_MAX_ITEM_TOKENS):
+               validity=None, max_item_tokens: int = DEFAULT_MAX_ITEM_TOKENS,
+               start_time=None, end_time=None, start_operator=None,
+               end_operator=None, time_axis=None):
         """按 token 预算装包：装到预算花完为止。
 
         装包策略（2026-09-14 调整）：
@@ -1290,6 +1358,9 @@ class MdCGOS(MdCG):
         保证当前任务的连续性；它不参与 RRF 正排，但计入 token 预算。
         返回 {pack: [...], tokens_used, budget, skipped: [...], recent: [...], meta}
         validity：时效过滤（显式启用，缺省不过滤）——只排已过期，未生效保留。
+        start_time/end_time/start_operator/end_operator/time_axis：时间算子
+        （显式启用）——按 time_axis 轴把候选收敛到查询时间窗内；轴未指定回落
+        effective；误用 fail-closed（ValueError）；节点缺字段按轴策略处置。
         """
         if use_rrf:
             kw = dict(k=k, layer=layer, context=context, roles=roles,
@@ -1307,12 +1378,21 @@ class MdCGOS(MdCG):
                 kw["branch"] = branch
             if validity:
                 kw["validity"] = validity
+            for _k, _v in (("start_time", start_time), ("end_time", end_time),
+                           ("start_operator", start_operator),
+                           ("end_operator", end_operator),
+                           ("time_axis", time_axis)):
+                if _v is not None:        # 时间算子透传（None = 未启用，不入参）
+                    kw[_k] = _v
             results, meta = self.search_rrf(query, **kw)
             items = [(r[0], r[1], r[2], r[3]) for r in results]
         else:
             res, meta = self.search(query, layer=layer, k=k, context=context,
                                     judge=judge, session=session, branch=branch,
-                                    validity=validity)
+                                    validity=validity,
+                                    start_time=start_time, end_time=end_time,
+                                    start_operator=start_operator,
+                                    end_operator=end_operator, time_axis=time_axis)
             items = [(r[0], r[1], r[2], []) for r in res]
 
         pack, skipped, used = [], [], 0
@@ -3424,11 +3504,16 @@ class MdCGSecure(MdCGOS):
         self.principal.require_admin("clear_recent")
         return super().clear_recent()
 
-# 生效条件：在 super()._candidates(layer=layer, roles=roles, include_work=include_work, session=session, branch=branch, validity=validity) 的结果上，只保留 self._readable(e) 为真的条目。
+# 生效条件：在 super()._candidates(layer=layer, roles=roles, include_work=include_work, session=session, branch=branch, validity=validity, start_time=start_time, end_time=end_time, start_operator=start_operator, end_operator=end_operator, time_axis=time_axis) 的结果上，只保留 self._readable(e) 为真的条目（时间算子在父类候选层**单点已过滤**，此处只叠加读可见性、不重复判一次——重复判会让 dropped 计数与 meta 脱钩）。
     def _candidates(self, layer=None, roles=None, include_work=False,
-                    session=None, branch=None, validity=None):
+                    session=None, branch=None, validity=None,
+                    start_time=None, end_time=None, start_operator=None,
+                    end_operator=None, time_axis=None):
         out = super()._candidates(layer=layer, roles=roles, include_work=include_work,
-                                  session=session, branch=branch, validity=validity)
+                                  session=session, branch=branch, validity=validity,
+                                  start_time=start_time, end_time=end_time,
+                                  start_operator=start_operator,
+                                  end_operator=end_operator, time_axis=time_axis)
         return [e for e in out if self._readable(e)]
 
 # 生效条件：在 super()._neg_coverage(terms) 的结果上，只保留 self._readable(e) 为真的条目。
@@ -3448,10 +3533,17 @@ class MdCGSecure(MdCGOS):
 
         时效过滤（validity）同属候选资格：图扩展会把过期节点重新带回结果，
         故必须在此与读可见性一并二次过滤，否则过期节点经扩散路径绕过 _candidates。
+        时间算子（阶段二 4.1）同理由此二次过滤——判据复用 `trust.filter_by_time`
+        的同一实现口径（`window_matches_node`），**不另写一套轴/算子判断**。
+        边界：本层计数不并入 `meta["time_filter"]`（该块以父类候选层为准），
+        二次过滤只做「不放进结果」的兜底，差额如实不记账。
         """
         res, meta = super().search_rrf(*a, **kw)
         validity = kw.get("validity")
         now = time.time() if validity else None
+        _en_t, _ax_t, _why_t = trust.check_time_args(
+            kw.get("start_time"), kw.get("end_time"), kw.get("start_operator"),
+            kw.get("end_operator"), kw.get("time_axis"))
         keep = []
         for r in res:
             e = self.index["nodes"].get(r[0]["id"], r[0])
@@ -3459,6 +3551,16 @@ class MdCGSecure(MdCGOS):
                 continue
             if validity and trust.is_expired(e, now=now):
                 continue
+            if _en_t:
+                _m, _miss = trust.window_matches_node(
+                    e, _ax_t, trust.parse_time(kw.get("start_time")),
+                    trust.parse_time(kw.get("end_time")),
+                    kw.get("start_operator"), kw.get("end_operator"))
+                if _miss:
+                    if _ax_t == "observed":
+                        continue          # 观察轴 fail-closed（与候选层同策略）
+                elif not _m:
+                    continue
             keep.append(r)
         return keep, meta
 

@@ -656,6 +656,14 @@ KERNEL_TOOLS = [
                                     "（未到点在 scrub 报 not_yet，仅提示不降权）"),
             valid_until=_p("string", "双时间轴**终点**（ISO8601）：此刻后不再成立"
                                      "（过期在 scrub 报 expired，weaken/demote）"),
+            start_time=_p("string", "时间算子：查询窗起点（ISO8601/时间戳）。启用后 "
+                                    "read 按 time_axis 轴把候选收敛到窗内"),
+            end_time=_p("string", "时间算子：查询窗终点（缺省该侧=无界）"),
+            start_operator=_p("string", "时间算子：起点比较 gt|gte|eq|lte|lt"
+                                        "（两端都不给算子=区间重叠语义）"),
+            end_operator=_p("string", "时间算子：终点比较 gt|gte|eq|lte|lt"),
+            time_axis=_p("string", "时间算子轴：effective（效力轴，缺省）|"
+                                   "observed（观察轴 temporal/time_window）"),
             layer=_p("string", "层：anchor|structural|knowledge|contextual|self"),
             tags=_p("array", "标签（cap:xxx 会作为 route 的建议能力名）"),
             importance=_p("number", "重要性 0-1"),
@@ -909,14 +917,17 @@ KERNEL_TOOLS = [
         "description": "语义时空图接口：精确得到信息的时间/空间关系。"
                        "op=relation：两节点时空关系（Allen 时间 6 态 + RCC 空间 7 态）；"
                        "op=timeline：按时间排序；op=anchors：落在时间窗/空间范围的节点；"
-                       "op=consistency：时空字段自洽性检查。",
+                       "op=consistency：时空字段自洽性检查。"
+                       "四个 op 均可用 time_axis 切换时间轴（缺省 observed）。",
         "inputSchema": _s("",
             op=_p("string", "relation|timeline|anchors|consistency", True),
             a=_p("string", "relation 的节点 a"), b=_p("string", "relation 的节点 b"),
             time_window=_p("array", "anchors 的时间窗 [t1,t2]"),
             bbox=_p("array", "anchors 的包围盒 [x1,y1,x2,y2]"),
             layer=_p("string", "限定层"), limit=_p("integer", "返回条数"),
-            desc=_p("boolean", "timeline 是否倒序（默认是）")),
+            desc=_p("boolean", "timeline 是否倒序（默认是）"),
+            time_axis=_p("string", "时间轴：observed（观察轴 temporal/time_window，"
+                                   "缺省）| effective（效力轴 effective_from/until）")),
     },
 ]
 
@@ -2010,6 +2021,13 @@ def _cg_dispatch(cg, a):
                 "note": "认知图只给知识与建议能力名，不执行；由调用方决定"}
 
     if op == "read":
+        # 时间算子（阶段二 4.1）：**原样透传**五个时间入参——本层不做校验也不填
+        # 默认值，合法性判定单点在库层 `trust.check_time_args`（默认轴 effective
+        # 亦由库层 `time_axis_of` 决定）。本层若自填默认值，两处口径就会分叉。
+        _tkw = {"start_time": a.get("start_time"), "end_time": a.get("end_time"),
+                "start_operator": a.get("start_operator"),
+                "end_operator": a.get("end_operator"),
+                "time_axis": a.get("time_axis")}
         if a.get("node_id"):
             return _node_view(cg.get(a["node_id"]),
                               offset=int(a.get("offset") or 0))
@@ -2021,12 +2039,12 @@ def _cg_dispatch(cg, a):
                              include_recent=bool(a.get("include_recent")),
                              recent_limit=int(a.get("limit") or 10),
                              session=a.get("session"),
-                             validity=a.get("validity"))
+                             validity=a.get("validity"), **_tkw)
         from . import refindex
         res, meta = cg.search(q, layer=a.get("layer"), k=int(a.get("k") or 20),
                               context=a.get("context"),
                               session=a.get("session"),
-                              validity=a.get("validity"))
+                              validity=a.get("validity"), **_tkw)
         return {"meta": meta, "results": [
             {"node": _node_view(n), "score": s, "state": q2.get("state"),
              "reason": q2.get("reason"), **refindex.ref_fields(n)}
@@ -2752,21 +2770,30 @@ def _whitebox_call(cg, a):
 
 # 生效条件：op=(a.get("op") or "").strip().lower()；op=="relation" 时返回 stg.relation(cg, a.get("a",""), a.get("b",""))；op=="timeline" 时返回 stg.timeline(cg, layer=a.get("layer"), limit=int(a.get("limit") or 50), desc=bool(a.get("desc", True)))；op=="anchors" 时返回 stg.anchors(cg, time_window=a.get("time_window"), bbox=a.get("bbox"), layer=a.get("layer"), limit=int(a.get("limit") or 50))；op=="consistency" 时返回 stg.consistency(cg, layer=a.get("layer"), limit=int(a.get("limit") or 50))；op 为空或其它的值抛 ValueError。
 def _stg_call(cg, a):
-    """语义时空图唯一入口。"""
+    """语义时空图唯一入口。
+
+    四个 op 均支持 `time_axis`：**缺省 `observed`**（与旧行为逐位一致；stg 的
+    时间语义历来是观察轴），`effective` 走效力轴端点比较。此处与 `cg(op=read)`
+    的透传策略**相反**——`cg` 侧缺省由库层定（不启用的时间算子），`stg` 侧轴
+    决定「排序/关系依据」必须**恒有值**，故在此填默认；非法轴仍由
+    `trust.time_axis_of` fail-closed 抛错（本层不预先白名单，避免两套枚举）。
+    """
     from . import stg
     op = (a.get("op") or "").strip().lower()
+    axis = a.get("time_axis") or "observed"
     if op == "relation":
-        return stg.relation(cg, a.get("a", ""), a.get("b", ""))
+        return stg.relation(cg, a.get("a", ""), a.get("b", ""), time_axis=axis)
     if op == "timeline":
         return stg.timeline(cg, layer=a.get("layer"),
                             limit=int(a.get("limit") or 50),
-                            desc=bool(a.get("desc", True)))
+                            desc=bool(a.get("desc", True)), time_axis=axis)
     if op == "anchors":
         return stg.anchors(cg, time_window=a.get("time_window"), bbox=a.get("bbox"),
-                           layer=a.get("layer"), limit=int(a.get("limit") or 50))
+                           layer=a.get("layer"), limit=int(a.get("limit") or 50),
+                           time_axis=axis)
     if op == "consistency":
         return stg.consistency(cg, layer=a.get("layer"),
-                               limit=int(a.get("limit") or 50))
+                               limit=int(a.get("limit") or 50), time_axis=axis)
     if not op:
         # fail-closed 且给出可操作提示：stg 的 op 四值签名区分度低于 cg（relation 需
         # a+b、timeline/anchors/consistency 皆以 layer+limit 为主），**不做签名推导**

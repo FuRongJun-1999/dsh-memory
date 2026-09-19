@@ -318,6 +318,230 @@ def time_window_msg(fm, now: float = None) -> str:
     return "时效内"
 
 
+# ---------------------------------------------------------------- 时间算子（阶段二 4.1）
+
+#: 时间轴（**封闭枚举**）。两条轴物理隔离、语义不可互换（同 `believed_at` 的隔离纪律）：
+#:   effective 效力轴——这条事实**何时开始/不再成立**（`effective_from/until` 及别名）
+#:   observed  观察轴——这条记忆**何时被观测/事件何时发生**（`temporal` / `time_window`）
+#: 不设**隐式**默认轴：入口在「启用时间算子但未指定轴」时回落 `effective`
+#: （与既有 `validity=` 语义连续），但轴本身永远由调用方显式决定。
+TIME_AXES = ("effective", "observed")
+
+#: 时间算子（**封闭枚举**，拒收未知名）：候选轴端点 与 查询端点 的比较关系。
+#: 缺省（不给 operator）= **区间重叠**语义，见 `window_match`。
+TIME_OPERATORS = ("gt", "gte", "eq", "lte", "lt")
+
+#: 观察轴字段名（与 `stg._interval` 同源口径，**不新增第二套解析**）。
+OBSERVED_TIME_FIELD = "temporal"
+OBSERVED_WINDOW_FIELD = "time_window"
+
+
+def time_axis_of(axis) -> str:
+    """轴名归一 → `"effective"` / `"observed"`；`None` → `"effective"`；
+    其余（含 `"believed"`）→ `ValueError`（**fail-closed，不静默降级**）。
+
+    与 `_stg_call`「不做签名推导——猜错会静默返回错误视图，比报错更贵」同风格：
+    轴写错时必须报错，因为静默按另一条轴过滤会产出**无法复算**的结果集。
+    """
+    if axis is None:
+        return "effective"
+    a = str(axis).strip().lower()
+    if a in TIME_AXES:
+        return a
+    raise ValueError(f"未知 time_axis {axis!r}（允许：{TIME_AXES}）")
+
+
+def time_window_of(fm, axis: str = "effective"):
+    """按轴取候选时间窗口 → `(start, end)`；不可判定 → `(None, None)`（不猜测）。
+
+    · `effective`：效力轴，走 `first_endpoint(FROM_ALIASES/UNTIL_ALIASES)`
+      （规范键优先、别名回落，与 `validity` **同源**）；
+      缺字段/不可解析 → 该侧 `None`（= 无界，与 `validity` 的「不误判」口径一致）。
+    · `observed`：观察轴，与 `stg._interval` **同源口径**——`temporal`（事件时刻）优先，
+      缺失才回退 `condition_space.time_window`（观测窗）；任一端不可解析 → `(None, None)`
+      （与 `_interval` 的「整体不可用」语义一致）。
+
+    `believed_at` **永不参与**（`BELIEVED_FIELD` 不出现于任何轴）。
+    """
+    if not isinstance(fm, dict):
+        return None, None
+    if time_axis_of(axis) == "observed":
+        t = fm.get(OBSERVED_TIME_FIELD)
+        if t is not None:
+            ts = parse_time(t)
+            if ts is not None:
+                return ts, ts
+        # 兼容两种载体形态：**fm**（`condition_space.time_window`）与**索引扁平快照**
+        # （`time_window` 平铺在 entry 上，见 `mdcg._scan_nodes`/`_stage`）。
+        # 只读嵌套会让「按 entry 过滤」的路径永不命中（同类坑：S2 时间门控，
+        # mdcg.py L639 已记「直接读 cs 会让门控永不生效」）。
+        cs = fm.get("condition_space") or {}
+        tw = fm.get(OBSERVED_WINDOW_FIELD)
+        if tw is None and isinstance(cs, dict):
+            tw = cs.get(OBSERVED_WINDOW_FIELD)
+        if isinstance(tw, (list, tuple)) and len(tw) == 2:
+            s, e = parse_time(tw[0]), parse_time(tw[1])
+            if s is None or e is None:
+                return None, None
+            return s, e
+        return None, None
+    start, _sk = first_endpoint(fm, FROM_ALIASES)
+    end, _ek = first_endpoint(fm, UNTIL_ALIASES)
+    return start, end
+
+
+def _op_ok(cand, q, op) -> bool:
+    """单个端点比较；任一端不可解析 → False（缺字段的处置归**轴策略**，此处不猜测）。"""
+    if cand is None or q is None:
+        return False
+    if op == "gt":
+        return cand > q
+    if op == "gte":
+        return cand >= q
+    if op == "eq":
+        return cand == q
+    if op == "lte":
+        return cand <= q
+    if op == "lt":
+        return cand < q
+    return False                      # 未知算子：入口已 fail-closed，此处保守拒
+
+
+def window_match(cand_start, cand_end, q_start=None, q_end=None,
+                 start_op: str = None, end_op: str = None) -> bool:
+    """候选窗口与查询窗口是否匹配（§1.2 B1/B2 的**唯一实现点**，纯函数）。
+
+    两种模式由「是否给 operator」**显式分叉**（不允许隐式混用——混用会产出
+    「无法复算」的过滤，违反白箱）：
+
+    · **重叠模式**（`start_op`/`end_op` 均为 `None`）：候选窗口与查询窗口有交集
+      即命中（记忆窗口是**区间**不是点）。查询端点缺省 = 该侧**无界**（不隐含 now）。
+    · **端点模式**（至少给一个 operator）：对**显式启用的侧**做 `op(cand端, q端)`；
+      一侧未给 operator 但**给了该侧查询端点**时，用 B1 缺省（起点 `gte` / 终点 `lte`）；
+      该侧查询端点也没有 → **不约束该侧**。
+
+    「未给 operator 且未给查询端点 → 不约束」是刻意的：若一律回落到 B1 缺省再比较，
+    `_op_ok(cand, None, op)` 恒伪，于是 `start_operator="gte" + start_time=T`
+    （单端算子，合法调用）会静默返回**空集**——把「只筛起点」误答成「没有匹配」。
+    端点模式下候选的该侧端点不可解析 → `False`（该侧无法比较，不猜）。
+
+    候选窗口两端皆不可解析 → `False`（该节点「无时间轴可判」）——是否因此剔除
+    由**轴的策略**决定（效力轴 fail-open / 观察轴 fail-closed，见候选过滤处）。
+    """
+    cs, ce = parse_time(cand_start), parse_time(cand_end)
+    if cs is None and ce is None:
+        return False
+    qs, qe = parse_time(q_start), parse_time(q_end)
+    if start_op is None and end_op is None:
+        if qs is not None and ce is not None and ce < qs:
+            return False
+        if qe is not None and cs is not None and cs > qe:
+            return False
+        return True
+    if start_op is not None or qs is not None:
+        if not _op_ok(cs, qs, start_op or "gte"):
+            return False
+    if end_op is not None or qe is not None:
+        if not _op_ok(ce, qe, end_op or "lte"):
+            return False
+    return True
+
+
+def check_time_args(start_time=None, end_time=None, start_operator=None,
+                    end_operator=None, time_axis=None):
+    """时间算子入参 fail-closed 校验 → `(enabled, axis, why)`。
+
+    **入口（`mdcg.search` / `entity_contexts`）与库层共用的唯一校验点**
+    （避免两处各写一套、口径漂移）。三则误用一律拒（`why` 非空即应抛
+    `ValueError`，不静默忽略——与 `_stg_call` 同风格）：
+
+      1. 只给 operator 而不给对应的 `start_time`/`end_time`；
+      2. `time_axis` 非 `{"effective","observed"}`（含 `"believed"`）；
+      3. `start_time > end_time`。
+
+    未启用（五参全 `None`）→ `(False, None, "")`（默认路径零变更）。
+    """
+    if time_axis is not None and str(time_axis).strip().lower() not in TIME_AXES:
+        return False, None, (f"未知 time_axis {time_axis!r}（允许：{TIME_AXES}）——"
+                             "轴必须显式且合法，静默按另一条轴过滤会产出无法复算的结果")
+    for op, val, nm in ((start_operator, start_time, "start_operator/start_time"),
+                        (end_operator, end_time, "end_operator/end_time")):
+        if op is None:
+            continue
+        if str(op).strip().lower() not in TIME_OPERATORS:
+            return False, None, (f"未知算子 {op!r}（允许：{TIME_OPERATORS}）")
+        if val is None:
+            return False, None, f"给了 {nm.split('/')[0]} 但缺 {nm.split('/')[1]}（不猜默认值）"
+    s, e = parse_time(start_time), parse_time(end_time)
+    if start_time is not None and s is None:
+        return False, None, f"start_time 不可解析：{start_time!r}"
+    if end_time is not None and e is None:
+        return False, None, f"end_time 不可解析：{end_time!r}"
+    if s is not None and e is not None and s > e:
+        return False, None, f"start_time({s}) > end_time({e})：空窗口，拒绝"
+    enabled = any(x is not None for x in (start_time, end_time,
+                                          start_operator, end_operator))
+    if not enabled:
+        return False, None, ""
+    return True, time_axis_of(time_axis), ""
+
+
+def window_matches_node(fm, axis, q_start, q_end, start_op=None, end_op=None):
+    """候选节点按轴取窗后做 `window_match` → `(matched, missing)`。
+
+    `missing=True` 表示该节点在**该轴上不可判定**（窗口两端皆 `None`）——
+    调用方据此执行轴策略：效力轴 fail-open（保留）、观察轴 fail-closed
+    （剔除并计入 `axis_missing`）。策略按**保证强度**定，不按「一致好看」定：
+    效力轴字段是可选声明，观察轴字段由写入侧保证存在。
+    """
+    cs, ce = time_window_of(fm, axis)
+    if cs is None and ce is None:
+        return False, True
+    return window_match(cs, ce, q_start, q_end, start_op, end_op), False
+
+
+def time_filter_meta(axis=None, mode="overlap", start=None, end=None,
+                     start_operator=None, end_operator=None, dropped=0,
+                     axis_missing=0, applied=False) -> dict:
+    """`meta["time_filter"]` 审计块（**五键齐备**，可复算）：
+
+    `dropped + 存活数 == 候选数` 由调用方保证；`axis_missing` 单独记账，
+    使「观察轴缺字段被剔除」的条数可查（静默放行会把数据异常藏起来）。
+    """
+    return {"axis": axis, "mode": mode, "start": start, "end": end,
+            "start_operator": start_operator, "end_operator": end_operator,
+            "dropped": int(dropped), "axis_missing": int(axis_missing),
+            "applied": bool(applied)}
+
+
+def filter_by_time(entries, axis, q_start, q_end, start_op=None, end_op=None):
+    """按轴过滤候选 → `(kept, dropped, axis_missing)`。**候选层唯一过滤点**。
+
+    轴策略按**字段保证强度**定（不按「行为一致好看」定）：
+      · `effective` 效力轴：`effective_from/until` 是**可选声明**（多数节点没有）
+        → 不可判定一律 fail-open（保留）——否则「没写时效 = 被过滤掉」，
+        会把沉默当否认；
+      · `observed` 观察轴：`temporal` / `time_window` 由**写入侧保证**存在
+        （add 缺省填观测窗）→ 不可判定一律 fail-closed（剔除并计入
+        `axis_missing`，使数据异常可查而非静默放行）。
+    """
+    kept, dropped, missing = [], 0, 0
+    for e in entries:
+        m, miss = window_matches_node(e, axis, q_start, q_end, start_op, end_op)
+        if miss:
+            if axis == "observed":
+                dropped += 1
+                missing += 1
+            else:
+                kept.append(e)
+            continue
+        if m:
+            kept.append(e)
+        else:
+            dropped += 1
+    return kept, dropped, missing
+
+
 # ---------------------------------------------------------------- 依赖声明
 
 def as_deps(value) -> list:
