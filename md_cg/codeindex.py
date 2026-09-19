@@ -31,6 +31,27 @@ MAX_DOC = 400
 LANG_COMPILER = "compiler"
 LANG_WEAK = "other"
 
+# --------------------------------------------------------------------------
+# 渲染契约代际（版本戳）
+# --------------------------------------------------------------------------
+# 生效条件：`render` 的**产物形态**发生不兼容变化时 +1（形态不变的重构不 +1）；
+# 由 refindex 写入 frontmatter.code_ref.render_version（节点侧），由 selfreport
+# 随常驻进程自报（进程侧），两侧同取本常量——**同源，无第二处硬编码**。
+#
+# 用途（第③道防线，防「旧契约静默覆盖重建成果」）：
+#   ① 节点侧：`scripts/mdcg_verify_render_meta.py` 据 code_ref.render_version 机械
+#      判定「节点由哪一代 render 产出」，不再只靠形态启发式（正文含元条件行）；
+#   ② 进程侧：`scripts/mdcg_stale_servers.py` 据自报值判定活进程代际，堵住
+#      「进程启动时间晚于源码 mtime 故 stale=False、却持旧 render」的盲区
+#      （AGENTS.md §5 运维注记的活体实证：旧契约把全量重建成果刷回 old_synth）。
+#
+# 代际史：
+#   1 = 旧契约（npm 0.4.8 及以前）：合成区产出 `# 生效条件：载体/位置：…`，
+#       索引元条件冒用 CCG 字段名（合成即冒充）。
+#   2 = 三分区契约（2026-09-19）：源码 CCG 区置首 → 合成 CCG 区（不产出生效
+#       条件行）→ 索引元信息区（`# 索引元条件：…` 非 CCG 字段名 + 位置行）。
+RENDER_VERSION = 2
+
 
 # --------------------------------------------------------------------------
 # Python：AST 提取（精确）
@@ -444,6 +465,7 @@ def index_dir(root, patterns=None, max_files=500, max_items=2000,
              # 与 truncated_reason 一起读，调用方才能核对「差多少」而不是只看到"被截断了"。
              "hit_files": 0, "indexed_items": 0}
 
+# 生效条件：无参闭包，只在本次扫库作用域内可调用；把 files / hit_files / indexed_items / skipped_suffixes / skipped_dirs 一次性落进 stats，三处 return 共用同一口径；
     def _snap():
         """把「截断相关」计数一次性落进 stats（三处 return 共用，避免各处口径漂移）。"""
         stats["files"] = files

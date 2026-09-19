@@ -1,7 +1,7 @@
 {
-  "_note": "模板（脱敏后随仓分发）：<REPO_ROOT> = 本仓检出目录，<MDCG_ROOT> = 认知图库根。运行前须把全部占位符替换为实际绝对路径。三个被调脚本均已参数化——mdcg_stale_servers.py 经 __file__ 推导仓根 + 读环境变量 MDCG_ROOT；_mdcg_lib_backup.py / _mdcg_reindex_code.py 走 --root/--repo 显式入参；mdcg_verify_render_meta.py 经 __file__ 推导仓根 + 读环境变量 MDCG_ROOT（缺失即 exit 2）。",
+  "_note": "模板（脱敏后随仓分发）：<REPO_ROOT> = 本仓检出目录，<MDCG_ROOT> = 认知图库根，<PID_A> = 须先复算再填入的常驻 MCP server PID（用 scripts/mdcg_stale_servers.py list 的输出挑选，禁复用历史 PID）。运行前须把全部占位符替换为实际绝对路径 / 实际 PID。三个被调脚本均已参数化——mdcg_stale_servers.py 经 __file__ 推导仓根 + 读环境变量 MDCG_ROOT；_mdcg_lib_backup.py / _mdcg_reindex_code.py 走 --root/--repo 显式入参；mdcg_verify_render_meta.py 经 __file__ 推导仓根 + 读环境变量 MDCG_ROOT（缺失即 exit 2）。**首步 restart_resident_server 为依据纪律「改 md_cg/*.py 后必须重启常驻 MCP server」而固化**：Python 进程启动即固化模块导入，不重启则其后续 index 会用旧代际 render 覆盖重建成果（2026-09-19 实证：常驻进程于版本戳落地后仍写出无 render_version 的节点）；它同时是 preflight_no_stale 能通过的**因果前提**——先处置污染源、再让守卫复算，顺序不可颠倒。",
   "model": "cmd",
-  "user_prompt": "md_cg+compiler 代码节点全量重建（前置污染源守卫 + 备份 + 双域全量重切 + 过期代清退 + 悬空清退 + 机械验收 + 稳定期复测）；验收判据 meta_indep == total 且 old_synth == 0 且 active_old_synth == 0",
+  "user_prompt": "md_cg+compiler 代码节点全量重建（常驻 server 重启 → 前置污染源守卫 → 备份 → 双域全量重切 → 过期代清退 → 悬空清退 → 机械验收 → 稳定期复测）；验收判据 meta_indep == total 且 old_synth == 0 且 active_old_synth == 0 且 versioned == total（code_ref.render_version >= codeindex.RENDER_VERSION：代际判据，取代纯形态启发式）",
   "cwd": "<REPO_ROOT>",
   "timeout_s": 1800,
   "timeout_step_s": 1800,
@@ -11,6 +11,15 @@
     "MDCG_ROOT": "<MDCG_ROOT>"
   },
   "commands": [
+    {
+      "label": "restart_resident_server",
+      "command": ["python", "-X", "utf8", "scripts/mdcg_stale_servers.py",
+                  "kill", "--pid", "<PID_A>"]
+    },
+    {
+      "label": "wait_reconnect_20s",
+      "command": ["python", "-X", "utf8", "-c", "import time; time.sleep(20)"]
+    },
     {
       "label": "preflight_no_stale",
       "command": ["python", "-X", "utf8", "scripts/mdcg_stale_servers.py",
@@ -58,7 +67,16 @@
     {
       "label": "verify_meta_indep_recheck",
       "command": ["python", "-X", "utf8", "scripts/mdcg_verify_render_meta.py"]
+    },
+    {
+      "label": "cogmap_rebuild",
+      "command": ["python", "-X", "utf8", "scripts/cogmap_sync.py", "build"]
+    },
+    {
+      "label": "cogmap_check",
+      "command": ["python", "-X", "utf8", "scripts/cogmap_sync.py", "check"]
     }
   ],
-  "expect_stdout_contains": ["\"ok\": true", "\"old_synth\": 0", "\"active_old_synth\": 0"]
+  "expect_stdout_contains": ["\"ok\": true", "\"old_synth\": 0",
+                             "\"active_old_synth\": 0", "\"render_version_dist\""]
 }

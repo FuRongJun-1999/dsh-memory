@@ -396,13 +396,17 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
     return ids, sens
 
 
-# 生效条件：把入参 root 原样写入返回 dict 的 'root'，path/name/kind/lineno/end/lang/hash 按 it.get 取值（缺省 None），precise 取 bool(it.get('precise', True))。
-def _code_ref(it: dict, root: str) -> dict:
+# 生效条件：把入参 root 原样写入返回 dict 的 'root'，path/name/kind/lineno/end/lang/hash 按 it.get 取值（缺省 None），precise 取 bool(it.get('precise', True))，render_version 取传入值（传入 None 时延迟 import codeindex 取 codeindex.RENDER_VERSION，保证与 render 契约**同源**、无第二处硬编码）。
+def _code_ref(it: dict, root: str, render_version=None) -> dict:
+    if render_version is None:            # 直接调用点的兜底：与 render 产物同源
+        from . import codeindex
+        render_version = codeindex.RENDER_VERSION
     return {
         "path": it.get("path"), "name": it.get("name"),
         "kind": it.get("kind"), "lineno": it.get("lineno"), "end": it.get("end"),
         "lang": it.get("lang"), "precise": bool(it.get("precise", True)),
         "hash": it.get("hash"), "root": root,
+        "render_version": render_version,
     }
 
 

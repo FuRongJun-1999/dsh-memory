@@ -1367,6 +1367,7 @@ def _proposal_extras(a, verdict=None):
     return {k: v for k, v in ex.items() if v not in (None, [], "", {})}
 
 
+# 生效条件：act 取 a.get("action") 转 str 去空白并 lower 后缺省 "status"，name 取 a.get("name") 或环境变量 MDCG_SUSTAIN_NAME 或 "md_cg"；status/info 只读诊断，自愈类 act 只回收派生物（索引重扫、临时分片、日志轮转、心跳戳），永不删除节点、不代签密钥；
 def _sustain_call(cg, a):
     """持续性自维持统一入口（常驻 / 心跳 / 自愈 / 会话续接）。
 
@@ -1726,6 +1727,7 @@ def _task_call(cg, a):
     return _t.list_tasks(cg, status=tstat or None, limit=a.get("limit"))
 
 
+# 生效条件：op 取 a.get("op") 转 str 去空白并 lower；缺失时按参数签名回推（含 content→write / query|node_id→read / intent→route；无签名可推时维持 read），op=="help" 在角色闸门之前直通 _help_call；其余 op 先经 cg.principal.require_op(op)（越权即 AccessDenied）再按 alias→内联名→cli 表分派；未识别 op 抛 ValueError；
 def _cg_dispatch(cg, a):
     """认知图唯一入口的 op 分发主体。"""
     op = (a.get("op") or "read").strip().lower()
@@ -2115,6 +2117,7 @@ def _cg_dispatch(cg, a):
     raise ValueError(f"cg 未知 op：{op}")
 
 
+# 生效条件：由 _cg_dispatch 在 op=="ccg" 时进入；action 取 a.get("action") 缺省 "compile"；compile 只产出候选（落 _ccgc_pending/ 待复核、不当场写库），link 才准入落库，attest/recalibrate 须编外验证方且 verifier != compiled_by（E041/E042/E043 机械把关）；
 def _ccg_call(cg, a):
     """CCG 六要素编译器（op=ccg）：对话记录 → 六要素候选 → **编外复核** → 落库。
 
@@ -2682,6 +2685,7 @@ def call_tool(cg, name, args):
         cg.principal = saved
 
 
+# 生效条件：name 为已注册工具名之一（cg / stg / mdcg_whitebox / mdcg_service_info / mdcg_remember 等）；未识别的 name 返回含 error 的响应字典而不抛异常，进程不因此中断；
 def _dispatch(cg, name, args):
     a = args or {}
     if name == "cg":
@@ -3139,6 +3143,28 @@ def main():
     except Exception as _exc:         # 对账故障不得影响服务可用性
         sys.stderr.write("[mdcg-mcp] 两段式对账失败（不阻塞启动）: %r\n"
                          % (_exc,))
+    # 进程自报（诊断设施，fail-safe）：把「md_cg 实际加载源 + render 契约代际」
+    # 落成 `<tempdir>/md_cg_servers/<pid>.json`，供 `scripts/mdcg_stale_servers.py`
+    # 机械判定**活进程代际**。根因（第4条取证）：原先只能比「进程启动时间 vs
+    # md_cg/*.py 最新 mtime」，该判据有活体盲区——npm 副本进程启动于 11:37~11:39
+    # 而源码 mtime 为 09:24，故 stale=False，却持插件包 0.4.8 的旧契约
+    # `codeindex.render`，把全量重建成果刷回 old_synth（AGENTS.md §5 运维注记）。
+    # 自报给的是**绝对事实**（进程自己报出实际加载源），不再依赖相对量推断。
+    # 失败不阻塞启动：自报是增益，不是服务前提，但必须上报（stderr），不静默。
+    try:
+        from . import selfreport
+        _sr = selfreport.report(tag="mcp_server")
+        if _sr:
+            sys.stderr.write(
+                "[mdcg-mcp] 自报: source=%s render_version=%s\n"
+                "[mdcg-mcp] 自报文件: %s\n"
+                % (_sr.get("source_dir"), _sr.get("render_version"),
+                   _sr.get("self_report_path")))
+        else:
+            sys.stderr.write("[mdcg-mcp] 自报写入失败（不阻塞启动；"
+                             "该进程的代际将无法被外部机械判定）\n")
+    except Exception as _exc:             # noqa: BLE001 —— 自报不得阻塞启动
+        sys.stderr.write("[mdcg-mcp] 自报异常（不阻塞启动）: %r\n" % (_exc,))
     _start_sustain(cg)
 
     for line in sys.stdin:
