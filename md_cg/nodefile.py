@@ -55,7 +55,7 @@ CCG_REQUIRED = CCG_MARKS
 # 六要素不是注释/描述，而是**接口契约**——每行在契约里有一个确定角色：
 #     功能名 = 签名 signature（可执行入口符号）
 #     生效条件 = 前置条件 precondition（由 condition_space 四槽合成，唯一入口）
-#     子功能 = 依赖 dependency
+#     子功能 = 内部子功能分解（自述）**兼** 依赖 dependency（跨节点）
 #     执行 = 调用 invocation
 #     验证方式 = 后置条件 postcondition + test
 #     不适用条件 = 拒绝域 rejection_domain
@@ -63,10 +63,22 @@ CCG_REQUIRED = CCG_MARKS
 # 的既有硬约束同源：缺前置条件的接口无法判定可否调用，故缺参即编译错误。
 # 本常量是术语的**唯一真源**；其余模块（如 ccgc.CONTRACT_ROLES）一律引用本处，
 # 禁止各自再定义一份，防「术语双写法」漂移。
+#
+# 「子功能」的**双语义**（收窄裁定 b · 使用者 2026-09-19）——这是本槽位的既成事实，
+# 不能只看本常量的 "dependency" 四字：理论真源（智能论 3.4 §6章.3 六要素表）把该行
+# 定义为「内部子功能分解（①②③）」= **对自身的描述**；本常量记其契约角色为
+# dependency = **寄生于他者**。同一槽位承载两种语义，**靠形态区分**（不是靠猜）：
+#   · 自然语言描述本单元内部构成 → **自述**，不构成依赖声明，无需 depends_on；
+#   · `@<节点 id>` 显式引用其它单元 → **跨节点依赖声明**，必须落 depends_on。
+# 判据真源 = `declares_dependency`（本模块）；闸门 = `ccgc._check_deps` /
+# `writepipe._gate_deps`（两闸共用同一判据，收窄一处即两闸同步）。
+# **不得再退回「值非哨兵即声明」**：CCG 编译产物六要素必含本行，退回即让每个节点
+# 落库后被 E050 永久锁死（test_ccgc V16f 实证），且与理论真源的自述口径直接冲突。
 CCG_CONTRACT_ROLES = {
     "功能名":     "签名 signature（可执行入口符号）",
     "生效条件":   "前置条件 precondition",
-    "子功能":     "依赖 dependency",
+    "子功能":     "内部子功能分解 self_decomposition ／ 依赖 dependency"
+                  "（双语义，以 @<节点 id> 显式引用为界）",
     "执行":       "调用 invocation",
     "验证方式":   "后置条件 postcondition + test",
     "不适用条件": "拒绝域 rejection_domain",
@@ -174,18 +186,57 @@ def ccg_field_value(content, field_name: str):
     return None
 
 
-# 生效条件：content 中「# 子功能：」行缺失 → False；行存在且其值为空或命中依赖哨兵（is_dep_sentinel）→ False；行存在且值非哨兵 → True；
-def declares_dependency(content) -> bool:
-    """「# 子功能：」是否构成**真实依赖声明**（行存在 ∧ 值非空 ∧ 非哨兵）。
+# ---- 「子功能」行中的**跨节点引用**：显式标记与提取 -------------------------------
+# 为什么需要它（收窄判据 · 使用者 2026-09-19 裁定 b）：「子功能」的契约角色是
+# dependency，但同一个槽里实际承载着两种语义完全不同的内容——
+#   ① **自述子功能**：本单元**内部**由哪些子步骤/子模块构成（如「按扩展名把文件
+#      路由到对应摄取器」）。它描述的是自身，不引用任何其它记忆单元。
+#   ② **跨节点依赖**：本单元的成立与否**寄生于另一个记忆单元**（如 `@code_xxx`）。
+#      只有它才是失效传播的入口，也只有它才需要落 `depends_on`。
+# 旧判据「值非哨兵即声明依赖」把①一并判成②：CCG 编译产物六要素必含「子功能」
+# 行，于是该节点一旦落库就被永久要求 `depends_on`——第二次 link 必被 E050 硬拒
+# （test_ccgc V16f 实证：合法内容被自己的闸门锁死）。故**收窄判据：只有显式引用
+# 形态才构成跨节点依赖声明**，自然语言自述不算（依赖不是必填元数据，不得默认要求）。
+#
+# 形态约定：`@` 紧跟节点 id（`[A-Za-z0-9_]` 起头，可含 `.`/`-`）；`@` 左侧不得是
+# 标识符字符——后半条排除 `user@host`（邮箱等）被误读为引用。中文自然语言里 `@`
+# 极罕见，故该标记本身就是「这是引用」的显式信号，**不依赖语义猜测**（与哨兵
+# 「只认完全相等」同一纪律：能机械判的绝不猜）。
+DEP_REF_MARK = "@"
+DEP_REF_RE = re.compile(r"(?<![A-Za-z0-9_])@([A-Za-z0-9_][A-Za-z0-9_.\-]*)")
 
-    这是 E050 硬拒的**前置判据真源**：只有真实声明，才要求 `depends_on` 给出可
-    解析目标。行缺失按「未声明」处理——依赖不是必填元数据；**只有「声称依赖却
-    不落字段」才是契约违规**（声称与落盘不一致，传播链会从源头断掉）。
+
+# 生效条件：value 为 None 时按空串处理 → 返回空列表；为任意值且 str 化后正则无命中 → 空列表；命中 → 按出现顺序返回去重后的 id 列表。
+def dep_refs(value) -> list:
+    """从「子功能」行的值中提取**显式跨节点引用**（`@<节点 id>`）→ 去重保序列表。
+
+    只做**形态提取**，不校验目标是否存在——「声称依赖」与「目标存在」是两件事，
+    混在一处会让「声称依赖一个并不存在的节点」被静默当成「没声明」（E051 永不触发）。
+    """
+    if value is None:
+        return []
+    out = []
+    for m in DEP_REF_RE.finditer(str(value)):
+        if m.group(1) not in out:
+            out.append(m.group(1))
+    return out
+
+
+# 生效条件：content 中「# 子功能：」行缺失 → False；行存在且其值为空或命中依赖哨兵（is_dep_sentinel）→ False；行存在且值含显式跨节点引用（dep_refs 非空）→ True；其余（自然语言自述子功能）→ False；
+def declares_dependency(content) -> bool:
+    """「# 子功能：」是否构成**跨节点依赖声明**（行存在 ∧ 值非哨兵 ∧ 含 `@<id>`）。
+
+    这是 E050 硬拒的**前置判据真源**：只有**显式声称**依赖某节点，才要求
+    `depends_on` 给出可解析目标。行缺失、哨兵、以及**自述子功能**（自然语言描述
+    本单元的内部构成）一律按「未声明」处理——依赖不是必填元数据，把自述当声明会
+    让每个 CCG 节点（六要素必含「子功能」行）永久被要求 depends_on，闸门反过来
+    锁死合法写入。**只有「声称依赖却不落字段」才是契约违规**（声称与落盘不一致，
+    被依赖单元变动时下游无处可传，传播链从源头断掉）。
     """
     val = ccg_field_value(content, "子功能")
-    if val is None:
+    if val is None or is_dep_sentinel(val):
         return False
-    return not is_dep_sentinel(val)
+    return bool(dep_refs(val))
 
 
 # 生效条件：content 为 None 或空串时按源码的 content or "" 回落空串计算，非空时按其原值编码，一律返回 sha256(utf-8) 十六进制摘要的前 12 位（content 的 frontmatter 不计入口径由调用方保证）。

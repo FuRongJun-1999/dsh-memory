@@ -13,7 +13,8 @@
   ⑦ 依赖反查索引 + 缓存失效
   ⑧ 一跳同步传播 mark_dependents（预演 / 落盘 / 幂等）
   ⑨ 多跳异步 propagate（BFS 可达 / 默认预演）
-  ⑩ 写入闸门 E050 / E051 / 哨兵豁免（真源 nodefile.declares_dependency）
+  ⑩ 写入闸门 E050 / E051 / 哨兵与自述豁免（真源 nodefile.declares_dependency；
+     收窄裁定 b：仅 `@<节点 id>` 显式引用算依赖声明，自然语言自述不算）
   ⑪ 输出协议 statushdr（四态符号 / 开关）
   ⑫ 巡检 patrol 只读 + catalog 自描述
 """
@@ -57,8 +58,13 @@ A, B, C, D = ("mem_1789810000001", "mem_1789810000002",
 
 
 def ccg(node, deps=None, **kw):
-    """构造一条 CCG 契约正文（六要素齐；子功能按 deps 给出）。"""
-    sub = ("依赖 " + "、".join(deps)) if deps else "无"
+    """构造一条 CCG 契约正文（六要素齐；子功能按 deps 给出，**显式 @ 引用形态**）。
+
+    注意：跨节点依赖的声明形态是 `@<节点 id>`（收窄裁定 b，2026-09-19）——
+    自然语言自述子功能不构成依赖声明，故此处必须带 `@`，否则本文件的闸门断言
+    测的就不是依赖链路了。
+    """
+    sub = ("依赖 " + "、".join("@" + d for d in deps)) if deps else "无"
     return ("# 功能名：%s\n# 生效条件：无条件\n# 子功能：%s\n# 执行：无\n"
             "# 验证方式：test\n# 不适用条件：无\n\n正文。" % (node, sub))
 
@@ -203,13 +209,30 @@ def main():
 
     # ---------------------------------------------------------------- ⑩ 写入闸门
     phase("⑩ 写入闸门")
-    ok(nodefile.declares_dependency(ccg("x", [A])), "真实声明判为 True")
+    ok(nodefile.declares_dependency(ccg("x", [A])), "显式 @ 引用判为 True")
     ok(not nodefile.declares_dependency(ccg("x")), "「无」哨兵判为 False")
     ok(not nodefile.declares_dependency("# 功能名：x\n\n正文"), "无该行判为 False")
     ok(not nodefile.declares_dependency("# 子功能：无（不依赖其他单元）"),
        "哨兵带括号说明仍为 False")
-    ok(nodefile.declares_dependency("# 子功能：无法确定依赖范围"),
+    # 收窄裁定 b（2026-09-19）：区分「自述子功能」与「跨节点依赖」——只有显式
+    # `@<节点 id>` 引用才构成依赖声明；自然语言自述不算。否则 CCG 编译产物（六要素
+    # 必含「子功能」行）落库后会被 E050 永久锁死（test_ccgc V16f 即该死锁的实证）。
+    ok(not nodefile.is_dep_sentinel("无法确定依赖范围"),
        "「无法确定」不得误判为哨兵")
+    ok(not nodefile.declares_dependency("# 子功能：无法确定依赖范围"),
+       "自然语言自述不算依赖声明（收窄 b）")
+    ok(not nodefile.declares_dependency(
+        "# 子功能：按扩展名把文件路由到对应摄取器"),
+       "CCG 编译产物形态的自述子功能不构成依赖声明（V16f 死锁根因）")
+    ok(not nodefile.declares_dependency("# 子功能：联系 user@example.com"),
+       "邮箱形态的 @ 不误判为引用（@ 左侧为标识符字符）")
+    ok(not nodefile.declares_dependency("# 子功能：@所有人 知悉"),
+       "中文 @ 不误判为引用（id 须以 [A-Za-z0-9_] 起头）")
+    eq(nodefile.dep_refs("依赖 @mem_a、@code_b 与 @mem_a（回指 @mem_a）"),
+       ["mem_a", "code_b"], "多引用去重保序提取")
+    eq(nodefile.dep_refs("@code_3552109b6163"), ["code_3552109b6163"],
+       "行首 @ 命中（左侧非标识符字符即可）")
+    eq(nodefile.dep_refs("无"), [], "哨兵值提取为空列表")
     g1 = writepipe._gate_deps({"cg": cg, "nid": "mem_x1",
                                "a": {"content": ccg("x", [A]),
                                      "depends_on": [A]}, "verdict": {}})
@@ -224,10 +247,14 @@ def main():
                                 "verdict": {}})
     eq((g2b or {}).get("error"), "E051", "逗号串逐项解析（含悬空即拒）")
     g3 = writepipe._gate_deps({"cg": cg, "nid": "mem_x3",
-                               "a": {"content": "# 功能名：x\n# 子功能：依赖某物\n"},
+                               "a": {"content": "# 功能名：x\n# 子功能：依赖 @mem_ghost\n"},
                                "verdict": {}})
-    eq((g3 or {}).get("error"), "E050", "声称依赖却无字段→E050 硬拒")
+    eq((g3 or {}).get("error"), "E050", "显式 @ 声明却无字段→E050 硬拒")
     ok((g3 or {}).get("committed") is False, "硬拒体 committed=False")
+    g3b = writepipe._gate_deps({"cg": cg, "nid": "mem_x3b",
+                                "a": {"content": "# 功能名：x\n# 子功能：依赖某物\n"},
+                                "verdict": {}})
+    ok(g3b is None, "自然语言自述子功能不触发闸门（收窄 b 的行为面）")
     g4 = writepipe._gate_deps({"cg": cg, "nid": "mem_x4",
                                "a": {"content": ccg("x", ["mem_ghost"]),
                                      "depends_on": ["mem_ghost"]}, "verdict": {}})

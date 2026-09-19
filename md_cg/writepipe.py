@@ -340,9 +340,15 @@ def _gate_gated(ctx):
     return out
 
 
-# 生效条件：ctx["a"]["content"] 含「# 子功能：」行且 depends_on 解析为空时返回 ok=False/error="E050" 的终态；depends_on 含库中不存在的 id 时返回 ok=False/error="E051" 的终态；其余（未声明子功能 / 声明且目标齐备）返回 None 放行；
+# 生效条件：ctx["a"]["content"] 的「# 子功能：」行含显式跨节点引用（`@<节点 id>`）且 depends_on 解析为空时返回 ok=False/error="E050" 的终态；depends_on 含库中不存在的 id 时返回 ok=False/error="E051" 的终态；其余（无该行 / 哨兵 / 自然语言自述 / 声明且目标齐备）返回 None 放行；
 def _gate_deps(ctx):
     """依赖声明闸（before 链：linkref 之后、audit 之前）：**硬拒条件缺失**。
+
+    「声明」的界定（收窄裁定 b，2026-09-19）：以 `@<节点 id>` 显式引用为界——
+    自然语言**自述子功能**（描述本单元**内部**构成）不构成依赖声明。原因：CCG
+    编译产物六要素必含「子功能」行，若沿用「非哨兵即声明」，每个 CCG 节点落库后
+    都会被自己的闸门永久要求 depends_on（E050 死锁，test_ccgc V16f 实证）。
+    依赖不是必填元数据；**只有显式声称依赖却不落字段**才是违规（声称与落盘不一致）。
 
     为何是硬拒而非告警：依赖是失效传播的**唯一入口**。声明缺失时，「上游变了
     下游要存疑」这条链从源头就不存在——它既不报错、也不留任何信号，缺陷以
@@ -366,11 +372,14 @@ def _gate_deps(ctx):
         return {"ok": False, "id": ctx["nid"], "committed": False,
                 "gate": "deps", "error": "E050",
                 "verdict": ctx.get("verdict"),
-                "hint": "依赖声明缺失（E050）：正文声明了「# 子功能：」，但 "
-                        "depends_on 未给出可解析目标。依赖必须是**可解析的字段**"
-                        "（形如 depends_on=[\"<被依赖节点 id>\"]），不能只是散文——"
-                        "否则被依赖单元变动时，下游无处可传。补齐后重试；"
-                        "本闸是契约闸门的正常行为，不是工具故障。"}
+                "hint": ("依赖声明缺失（E050）：正文以 " + nodefile.DEP_REF_MARK
+                         + "<节点 id> 显式声明了跨节点依赖（「# 子功能：」行），"
+                           "但 depends_on 未给出可解析目标。依赖必须是**可解析的字段**"
+                           "（形如 depends_on=[\"<被依赖节点 id>\"]），不能只是散文——"
+                           "否则被依赖单元变动时，下游无处可传。补齐后重试；"
+                           "若该行只是描述本单元内部构成（自述），去掉 "
+                         + nodefile.DEP_REF_MARK + " 引用或改填「无」即可。"
+                           "本闸是契约闸门的正常行为，不是工具故障。")}
     known = set((getattr(cg, "index", None) or {}).get("nodes") or {})
     missing = [d for d in deps if d not in known]
     if missing:
