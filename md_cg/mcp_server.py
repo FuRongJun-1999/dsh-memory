@@ -654,7 +654,7 @@ KERNEL_TOOLS = [
             offset=_p("integer", "read 的续读起始行（1 基；传上次返回的 next_offset）；"
                                  "edges 的分页偏移（排序后切片，默认 0）"),
             content=_p("string", "write 的内容（建议含 CCG 5 要素注释）"),
-            content_kind=_p("string", "write 的内容类型：code|image_desc|text|permission|work_done|work_wip|ccg_marks"),
+            content_kind=_p("string", "write 的内容类型：code|image_desc|text|permission|work_done|work_wip|ccg_marks|hyperedge"),
             depends_on=_p("array", "write/verify：本单元**依赖**的节点 id 列表（CCG「子功能」"
                                    "的落字段，单值/逗号串亦可）。被依赖单元被修改或被证伪时，"
                                    "本节点**同跳**标「存疑」（一跳同步；多跳走 maintain"
@@ -699,6 +699,11 @@ KERNEL_TOOLS = [
             non_applicable_conditions=_p("array", "不适用条件"),
             context=_p("object", "当前情境"),
             k=_p("integer", "返回条数（sustain pool_bench 亦用）"),
+            view=_p("string", "read/route 的角色化读取视图（第四阶段 6.1，缺省关）："
+                             "main（主代理：结论与修正历史）|"
+                             "verifier（验证端：判据面与环境陷阱）|"
+                             "receipt（回执审计：命令与预期输出）；"
+                             "非法值库层报错（fail-closed）"),
             budget_tokens=_p("integer", "read 的 token 预算"),
             evidence=_p("string", "verify 的证据"),
             verdict=_p("string", "verify 裁决：confirmed|weakened|falsified；"
@@ -2059,7 +2064,8 @@ def _cg_dispatch(cg, a):
     if op == "route":
         intent = a.get("intent") or a.get("query") or ""
         res, meta = cg.search(intent, k=int(a.get("k") or 10),
-                              context=a.get("context"), record=False)
+                              context=a.get("context"), record=False,
+                              view=a.get("view"))
         knowledge, caps = [], []
         for n, s, q in res:
             fm = n.get("frontmatter") or {}
@@ -2083,7 +2089,11 @@ def _cg_dispatch(cg, a):
         _tkw = {"start_time": a.get("start_time"), "end_time": a.get("end_time"),
                 "start_operator": a.get("start_operator"),
                 "end_operator": a.get("end_operator"),
-                "time_axis": a.get("time_axis")}
+                "time_axis": a.get("time_axis"),
+                # 角色化读取视图（第四阶段 6.1）：原样透传，合法性判定单点在
+                # roleviews.ROLE_VIEWS（非法 view 库层 ValueError），与时间算子
+                # 同一透传纪律——本层不做校验也不填默认值。
+                "view": a.get("view")}
         if a.get("node_id"):
             return _node_view(cg.get(a["node_id"]),
                               offset=int(a.get("offset") or 0))

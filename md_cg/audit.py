@@ -30,13 +30,14 @@ CONTENT_KINDS = {
     "work_done": "工作完成 → 工作项是否通过验收",
     "work_wip": "工作进行 → 是否已有完整成果 + 是否符合纪律",
     "ccg_marks": "CCG 六要素候选 → 编外验证方实测确认（生成方不得自证）",
+    "hyperedge": "跨端验证超边 → 回放重建比对（回执逐字段一致）",
 }
 
 # content_kind → 建议的 verification_basis
 # （见 nodefile.VERIFICATION_BASIS：compiler|test|measurement|formal_proof|data|textbook|public_kb|other）
 KIND_BASIS = {"code": "test", "image_desc": "measurement", "text": "other",
               "permission": "data", "work_done": "test", "work_wip": "other",
-              "ccg_marks": "test"}
+              "ccg_marks": "test", "hyperedge": "test"}
 
 VERIFIERS = {}
 

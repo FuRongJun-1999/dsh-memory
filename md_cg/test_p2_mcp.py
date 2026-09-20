@@ -268,7 +268,7 @@ def main():
                   info.get("surface") == "kernel"
                   and set(info.get("audit_kinds", {})) == {
                       "code", "image_desc", "text", "permission",
-                      "work_done", "work_wip", "ccg_marks"},
+                      "work_done", "work_wip", "ccg_marks", "hyperedge"},
                   str(list(info.get("audit_kinds", {})))[:120])
             check("cg info 自描述 CCG 契约角色（裁定 B）",
                   info.get("ccg_contract", {}).get("生效条件") == "前置条件 precondition"

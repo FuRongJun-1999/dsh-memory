@@ -26,7 +26,7 @@ import hashlib
 import threading
 
 from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
-               lifecycle, reach, trust)
+               lifecycle, reach, trust, roleviews)
 from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
                      read_jsonl, sweep_stale_temps)
 
@@ -786,6 +786,10 @@ class MdCG:
                         # 但索引重建时若不复制，os.roles 会全部退化为 (none)，
                         # 来源归因打分随之失效（实测 48 条全丢）。
                         "role": fm.get("role"),
+                        # content_kind 入快照：角色化读取视图（第四阶段 6.1）的
+                        # 候选资格维度须免读文件可判（与 role 同款理由）。
+                        # 纯增量键：批次 C 之前零消费方，view=None 零行为变更。
+                        "content_kind": fm.get("content_kind"),
                         "tags": fm.get("tags", []),
                         "bucket": parent if parent != layer else None,
                         "importance": fm.get("importance", 0.5),
@@ -1156,6 +1160,9 @@ class MdCG:
             "writer": fm.get("writer"),
             "session": fm.get("session"),
             "harness": fm.get("harness"),
+            # 角色化读取视图（第四阶段 6.1）：候选资格维度入快照（免读文件
+            # 可判，与 _scan_nodes 同口径）。
+            "content_kind": fm.get("content_kind"),
             # 记忆演化分支（④）：fork 副本带分支归属与溯源主支
             "branch_id": fm.get("branch_id"),
             "branched_from": fm.get("branched_from"),
@@ -1826,13 +1833,13 @@ class MdCG:
 
     # ---------- 检索（性能阶梯 + 资格判定）----------
 
-# 生效条件：query strip 后为空即返回 ([], {"tier": None, "reason": "empty_query", "scanned": 0})；非空时按 T0–T3 性能阶梯取候选（layer / session / branch / validity 为假值时对应维度不过滤），judge 为真时对每条结果附独立的四态资格判定；返回 (results, meta)；
+# 生效条件：query strip 后为空即返回 ([], {"tier": None, "reason": "empty_query", "scanned": 0})；非空时按 T0–T3 性能阶梯取候选（layer / session / branch / validity / view 为假值时对应维度不过滤），judge 为真时对每条结果附独立的四态资格判定；返回 (results, meta)；
     def search(self, query: str, layer: str = None, k: int = 20,
                context=None, min_results: int = 1, record: bool = True,
                include_neg: bool = True, judge: bool = True, pools=None,
                session=None, branch=None, validity=None,
                start_time=None, end_time=None, start_operator=None,
-               end_operator=None, time_axis=None):
+               end_operator=None, time_axis=None, view=None):
         """返回 (results, meta)。results = [(node_dict, score, qualification)]。
 
         meta 含 tier（性能层级）、scanned（读取节点数）、bucket（路由桶）、candidates。
@@ -1855,6 +1862,10 @@ class MdCG:
                `ValueError`（fail-closed 只针对**调用方误用**，不针对节点缺字段）。
                效力轴缺字段 fail-open（保留）、观察轴缺字段 fail-closed（剔除）。
                审计落 `meta["time_filter"]`，且**仅在启用时**落键（默认关零变更）。
+        view：角色化读取视图（第四阶段 6.1，显式启用；roleviews.py 规则表）——
+              main/verifier/receipt 三视图各自声明候选资格（content_kind/
+              layer/role 维度），view 非空时叠加资格谓词；非法视图
+              ValueError（fail-closed 只针对调用方误用）。
         """
         q = (query or "").strip()
         if not q:
@@ -1875,6 +1886,9 @@ class MdCG:
                    # 分支实验场：默认（branch=None）分支节点全部隐身；
                    # branch=<id> 时主支 + 本分支可见、其他分支仍隐身
                    and e.get("branch_id") in (None, branch)
+                   # 角色化读取视图（第四阶段 6.1）：view 非空时叠加资格谓词
+                   # （非法视图 ValueError——fail-closed 只针对调用方误用）
+                   and (view is None or roleviews.matches(e, view))
                    # 时效：只在显式启用时排除已过期（not_yet 保留）
                    and not (validity and trust.is_expired(e, now=now))]
 

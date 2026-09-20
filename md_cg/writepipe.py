@@ -171,11 +171,17 @@ def _gate_audit(ctx):
     a = ctx["a"]
     cg = ctx["cg"]
     from . import audit
+    payload = {"content": a.get("content", ""), "action": a.get("action"),
+               "sensitivity": a.get("sensitivity"),
+               "topic": a.get("query") or a.get("intent")}
+    if (a.get("content_kind") or "").strip() == "hyperedge":
+        # 超边验证器（回放比对）需要锚与结构键：fm 键平铺在 a 顶层，
+        # 经 hyperedge.audit_payload 装配三键载荷（缺锚由验证器 fail-closed）。
+        from . import hyperedge as _he
+        payload = _he.audit_payload(a)
     verdict = audit.audit(
         (a.get("content_kind") or "").strip(),
-        {"content": a.get("content", ""), "action": a.get("action"),
-         "sensitivity": a.get("sensitivity"),
-         "topic": a.get("query") or a.get("intent")},
+        payload,
         {"cg": cg, "principal": getattr(cg, "principal", None)})
     ctx["verdict"] = verdict
     st = verdict["state"]
@@ -433,6 +439,18 @@ def _after_trust(ctx, out):
         pass  # 入队失败不阻断写入
 
 
+# 生效条件：a 的 content_kind 非 hyperedge 即返回 {}，为 hyperedge 时延迟导入
+# hyperedge.EXTRA_FM_KEYS 收集 a 中非 None 的对应键返回（其余写入零键透传）；
+def _hyperedge_extra(a):
+    """hyperedge 写入的 fm 扩展键透传。计划决策 2：超边写入走 write 动词既有
+    审核链、不造新通道——链尾执行器是唯一落盘点，cg.add 经 **extra 落 fm，
+    故扩展键在此透传；落盘面丢字段 = 上游声明静默失效。延迟导入防循环依赖。"""
+    if (a.get("content_kind") or "").strip() != "hyperedge":
+        return {}
+    from . import hyperedge as _he
+    return {k: a[k] for k in _he.EXTRA_FM_KEYS if a.get(k) is not None}
+
+
 # 生效条件：由链尾以含 cg 与 a 的 ctx 调用即无条件执行 cg.add 落盘并返回 ok=True/committed=True，ctx["cvd"] 非 None 时附加 consistency 字段；
 def _executor(ctx):
     """链尾执行器（常驻不可卸载）：cg.add 直写落盘。
@@ -456,7 +474,8 @@ def _executor(ctx):
            # 透传而非丢弃——落盘面丢字段＝上游声明静默失效（比报错难发现）。
            depends_on=trust.as_deps(a.get("depends_on")),
            valid_from=a.get("valid_from"), valid_until=a.get("valid_until"),
-           verification_state=a.get("verification_state"))
+           verification_state=a.get("verification_state"),
+           **_hyperedge_extra(a))
     out = {"ok": True, "id": ctx["nid"], "committed": True,
            "verdict": ctx["verdict"]}
     if ctx.get("cvd") is not None:
