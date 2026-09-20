@@ -766,10 +766,18 @@ def _list_dir(real: str) -> dict:
             "entries": entries[:READ_DIR_MAX]}
 
 
-# 生效条件：当 path 可 utf-8 errors=replace 打开、offset>=1、limit>=1、max_chars>=1 时，逐行流式读取：从第 offset 行起收集至多 limit 行且累计字符 < max_chars；文件字节数 <= READ_FULL_BYTES 时继续数到 EOF 返回精确 lines_total，超过则提前停并将 lines_total 记 None；返回 (content, lines_total|None, lines_returned, truncated, 替换符个数)；
+# 生效条件：当 path 可 utf-8 errors=replace 打开、offset>=1、limit>=1、max_chars>=1 时，逐行流式读取：从第 offset 行起收集至多 limit 行且累计字符 <= max_chars（单行超限时**截断该行到上限内**）；文件字节数 <= READ_FULL_BYTES 时继续数到 EOF 返回精确 lines_total，超过则提前停并将 lines_total 记 None；返回 (content, lines_total|None, lines_returned, truncated, 替换符个数)；
 def _read_text_window(path: str, offset: int, limit: int,
                       max_chars: int, size: int) -> tuple:
-    """行窗读取：流式（大文件不进内存），行总数要么精确要么诚实记 None。"""
+    """行窗读取：流式（大文件不进内存），行总数要么精确要么诚实记 None。
+
+    字符上限**硬约束**（2026-09-20 v14 缺陷 A 修复）：单行本身超过
+    `max_chars` 时（minified JS / 单行大 JSON / 单行长行语料）截断该行到
+    上限内，而不是整行放行。旧实现在这种文件上把 `max_chars`（乃至
+    `READ_HARD_CHARS` 这个自称「硬上限、不可协商」的常量）**完全架空**——
+    实测 `max_chars=100` 回吐 5,000,000 字符、`limit=1` 亦然，足以撑爆
+    调用方（LLM 宿主）上下文。多行文件仍按整行收（行粒度软上限语义不变）。
+    """
     out, chars, n, total, exact = [], 0, 0, 0, True
     with open(path, encoding="utf-8", errors="replace") as f:
         for i, line in enumerate(f, 1):
@@ -777,6 +785,12 @@ def _read_text_window(path: str, offset: int, limit: int,
             if i < offset:
                 continue
             if n < limit and chars < max_chars:
+                room = max_chars - chars
+                if len(line) > room:        # 单行超限：截断，不整行放行
+                    out.append(line[:room])
+                    chars += room
+                    n += 1
+                    continue
                 out.append(line)
                 chars += len(line)
                 n += 1

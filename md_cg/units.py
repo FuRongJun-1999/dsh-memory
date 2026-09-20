@@ -14,7 +14,10 @@ crosscheck 同款 verdicts 通道回填）。理由：使用者的复核是昂�
 蜂巢契约（真源 hive/README.md + hive/hive_mcp/mcp_server.py；**复制契约不 import**，
 保持 md_cg 对 hive 零依赖，与 ccgc「同款语义就地实现防 import 环」惯例一致）：
     jobs 目录   = $HIVE_JOBS_DIR | <repo>/hive/jobs
-    serve 判活  = jobs/_serve.json 的 ts（毫秒）距今 < 5s        （同 _serve_alive）
+    serve 判活  = **三层**：jobs/_serve.json 的 ts（毫秒）距今 < FRESH_S(15s)
+                  ∧ pid 存活 ∧ 该 pid 是本程序
+                  （同 hive/serve_start.serve_alive；四路口径由
+                   hive/test_serve_entry.py 机械守卫）
     job 目录    = jobs/<job_id>/{spec.json,status.json,result.json,kill}
     job_id      = h<java_ms>_<uuid6>                             （同 _submit）
     result.json = {"ok":true,"content":...} | {"ok":false,"error":...}
@@ -45,7 +48,12 @@ SERVE_FILE, SPEC_FILE = "_serve.json", "spec.json"
 STATUS_FILE, RESULT_FILE, KILL_FILE = "status.json", "result.json", "kill"
 LOG_NAME = "_units.jsonl"
 TERMINAL_STATES = ("done", "error", "timeout", "killed")
-FRESH_S, DEFAULT_TIMEOUT_S, DEFAULT_POLL_S = 5.0, 120, 1.0
+#: serve 心跳新鲜窗口（秒）。**须与 hive/serve_start.FRESH_S 同值**——本模块
+#: 只持有「判活的第 4 处实现」（复制契约不 import hive），阈值/判据结构若与
+#: 权威漂移，会在通道选择面复现 v13 的「假存活」病类（v14 缺陷 E：
+#: 旧值 5.0 vs 权威 15，serve 崩溃后 ≤5s 窗口内判「存活」→ 选 hive 通道 →
+#: 提交的 job 永远无人处理）。守卫：hive/test_serve_entry.py。
+FRESH_S, DEFAULT_TIMEOUT_S, DEFAULT_POLL_S = 15.0, 120, 1.0
 #: 复核委派的 completion 预算。**必须对齐统一默认（文档：最大输出 200000）**——
 #: 该模型 reasoning 与正文**共享 completion 预算**，小预算会把正文吃光并静默返回空正文：
 #: 实测 2048 → reasoning 2048 / content 空；16384 → 时好时坏；200000 → 正常出裁决。
@@ -91,9 +99,72 @@ def model_name(explicit: str = "") -> str:
     return (explicit or os.environ.get(ENV_MODEL) or "").strip()
 
 
-# 生效条件：以 jobs_dir(jobs) 下的 SERVE_FILE 为心跳路径——该路径不被 isfile 命中时返回 exists/alive 均 False 的未启动 reason；命中但 open/json.load 抛 OSError 或 ValueError 时返回不可读 reason；解析成功后 age=time.time()-((hb.get("ts") or 0)/1000.0)，alive=age<float(fresh_s)，并回填 age_s/pid/raw 与过期或空的 reason。
+# 生效条件：pid 为 int 且大于 0 时（否则 False），os.name 为 "nt" 时返回 _tasklist_row(pid) 是否非 None，非 "nt" 时 os.kill(pid, 0) 不抛 OSError 返回 True、抛 OSError 返回 False。
+def pid_alive(pid) -> bool:
+    """该 pid **号**是否存在（Windows tasklist 精确列比对 / unix `kill -0`）。
+
+    只回答「这个号有没有进程」——**不足以判定「serve 还在跑」**（见
+    `pid_is_self_program`）。实现与 hive/serve_start.pid_alive 同口径。
+    """
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    if os.name == "nt":
+        return _tasklist_row(pid) is not None
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+# 生效条件：对传入 pid 执行 tasklist /FO CSV 后，在其 stdout 中遇到的第一个按 '","' 切分、列数≥2 且第 2 列 strip 再 strip('"') 后等于 str(pid) 的行即返回 [映像名, pid 字符串]，无此行或 subprocess.run 抛 OSError 时返回 None。
+def _tasklist_row(pid):
+    """Windows：查该 pid 的 tasklist 行 → [映像名, pid 字符串]；查不到返回 None。
+
+    按列精确比对，**不用子串包含**——子串会让 pid=441 被 4410 命中（假存活）。
+    """
+    try:
+        r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+                           capture_output=True, text=True, errors="replace")
+    except OSError:
+        return None
+    for line in (r.stdout or "").splitlines():
+        cols = line.split('","')
+        if len(cols) >= 2 and cols[1].strip().strip('"') == str(pid):
+            return [cols[0].strip().strip('"'), cols[1].strip().strip('"')]
+    return None
+
+
+# 生效条件：exe_path() 的 basename 小写非空且 pid 为 int 大于 0 时（否则 False），"nt" 下要求 _tasklist_row(pid) 非空且映像名小写等于该 basename，非 "nt" 下要求 /proc/<pid>/cmdline 首个 b"\x00" 前 token 的 basename 小写等于它（读取抛 OSError 则 False）。
+def pid_is_self_program(pid) -> bool:
+    """该 pid 是否**就是本程序**（同映像名）——pid 号会被无关进程复用。
+
+    与 hive/serve_start.pid_is_self_program 同口径（复制契约）。零依赖边界：
+    拿不到映像名返回 False（宁可放行启动，也不误报「已有 serve 在跑」）。
+    """
+    want = os.path.basename(exe_path()).lower()
+    if not want or not isinstance(pid, int) or pid <= 0:
+        return False
+    if os.name == "nt":
+        row = _tasklist_row(pid)
+        return bool(row) and row[0].lower() == want
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            first = f.read().split(b"\x00")[0]
+    except OSError:
+        return False
+    return os.path.basename(first.decode("utf-8", "replace")).lower() == want
+
+
+# 生效条件：以 jobs_dir(jobs) 下的 SERVE_FILE 为心跳路径——该路径不被 isfile 命中时返回 exists/alive 均 False 的未启动 reason；命中但 open/json.load 抛 OSError 或 ValueError 时返回不可读 reason；解析成功后按**三层判据**（age < fresh_s ∧ pid_alive(pid) ∧ pid_is_self_program(pid)）定 alive，回填 age_s/pid/raw 与逐层明细及失败原因。
 def serve_state(jobs: str = "", fresh_s: float = FRESH_S) -> dict:
-    """serve 判活：只认 _serve.json 心跳新鲜度（同 _serve_alive），不试端口/进程名。"""
+    """serve 判活：**三层**（心跳新鲜 ∧ pid 存活 ∧ 该 pid 是本程序）。
+
+    与 `hive/serve_start.serve_alive` 同口径（同值 FRESH_S=15s、同三层判据）。
+    v14 缺陷 E：旧实现只判 ts 新鲜度且阈值 5s——双漂移，serve 崩溃后
+    ≤5s 内判「存活」会让 `probe()` 选 hive 通道（提交的 job 永远无人处理），
+    这正是 v13「假存活」病类从守卫面搬到了**通道选择面**。
+    """
     jd = jobs_dir(jobs)
     p = os.path.join(jd, SERVE_FILE)
     out = {"jobs_dir": jd, "heartbeat": p, "exists": os.path.isfile(p),
@@ -108,10 +179,24 @@ def serve_state(jobs: str = "", fresh_s: float = FRESH_S) -> dict:
         out["reason"] = "心跳不可读：%s: %s" % (type(exc).__name__, exc)
         return out
     age = time.time() - ((hb.get("ts") or 0) / 1000.0)
-    out.update({"age_s": round(age, 3), "pid": hb.get("pid"), "raw": hb})
-    out["alive"] = age < float(fresh_s)
-    out["reason"] = "" if out["alive"] else "心跳过期 %.1fs（阈值 %ss）——serve 可能已退出" % (
-        age, fresh_s)
+    pid = hb.get("pid")
+    fresh_ok = age < float(fresh_s)
+    pid_ok = pid_alive(pid)
+    ident_ok = pid_is_self_program(pid)
+    out.update({"age_s": round(age, 3), "pid": pid, "raw": hb,
+                "fresh": bool(fresh_ok), "pid_alive": bool(pid_ok),
+                "pid_is_self_program": bool(ident_ok)})
+    out["alive"] = bool(fresh_ok and pid_ok and ident_ok)
+    if out["alive"]:
+        out["reason"] = ""
+    elif not fresh_ok:
+        out["reason"] = "心跳过期 %.1fs（阈值 %ss）——serve 可能已退出" % (age, fresh_s)
+    elif not pid_ok:
+        out["reason"] = "心跳新鲜但 pid=%s 已不存在——serve 已退出" % (pid,)
+    else:
+        out["reason"] = ("心跳新鲜且 pid=%s 存活，但该 pid 不属于本程序"
+                         "（非 %s）——pid 号被无关进程复用"
+                         % (pid, os.path.basename(exe_path())))
     return out
 
 

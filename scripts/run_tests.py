@@ -95,20 +95,34 @@ def _dep_db():
                  "（.gitignore 忽略，需本地生成）")
 
 
-# 生效条件：当模块级常量 _REPO 下 _md_cg_wisdom_graph 为目录时返回 None，不是目录（含不存在）时返回依赖缺失说明字符串；
+# 生效条件：当模块级常量 _REPO 下 _md_cg_wisdom_graph 为目录、且其下（递归）至少有一个 .md 文件时返回 None；目录缺失或为无 .md 的空壳目录时返回依赖缺失说明字符串；
 def _dep_mdroot():
     p = os.path.join(_REPO, "_md_cg_wisdom_graph")
-    return (None if os.path.isdir(p)
-            else "依赖 md 语料真源 _md_cg_wisdom_graph/（.gitignore 忽略，"
-                 "组 D 需本地真源）")
+    if not os.path.isdir(p):
+        return ("依赖 md 语料真源 _md_cg_wisdom_graph/（.gitignore 忽略，"
+                "组 D 需本地真源）")
+    for _dp, _dn, fs in os.walk(p):
+        if any(str(f).endswith(".md") for f in fs):
+            return None
+    # **空壳不算就绪**（2026-09-20 v14 缺陷 F）：兄弟测试一旦经
+    # `MdCGOS(root)`（内部 makedirs）走一遭，就在仓根留下空目录——只判
+    # `isdir` 会把「本该 SKIP」的目标变成 FAIL，且失败形态随机（取决于谁先跑）。
+    return ("依赖 md 语料真源 _md_cg_wisdom_graph/ 为**空壳**（目录在但无 .md）"
+            "——需本地生成；空壳多为兄弟测试残留，不算就绪")
+
+
+# 生效条件：_dep_db() 与 _dep_mdroot() 均返回 None 时返回 None，否则返回二者中首个非空说明（两依赖都需在位）；
+def _dep_db_and_mdroot():
+    """同时依赖白箱库与 md 语料的测试（如 P44 / P45 对拍）用组合探测。"""
+    return _dep_db() or _dep_mdroot()
 
 
 # 裸 clone 环境 SKIP 探测（2026-09-14 外部复核建议 #3）：
 # 依赖 gitignored 本地数据或特定平台的测试，依赖缺失时标 SKIP（附原因）
 # 不计入失败——避免裸 clone 用户第一眼看到虚假 FAIL（复核实测 83/87 根因）。
 _SKIPS = {
-    "md_cg.test_p44_md_whitebox": _dep_db,
-    "md_cg.test_md_access_parity": _dep_db,
+    "md_cg.test_p44_md_whitebox": _dep_db_and_mdroot,
+    "md_cg.test_md_access_parity": _dep_db_and_mdroot,
     "md_cg.test_wisdom_md_store": _dep_mdroot,
     "swarm.tests.test_swarm_fault": (
         lambda: None if os.name == "nt"

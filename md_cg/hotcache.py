@@ -8,12 +8,17 @@ frontmatter 读取也从磁盘降为内存命中。
 
 【设计】
   - 节点缓存：LRU dict，key=node_id → value=(frontmatter, body_excerpt)
-  - query 缓存：LRU dict，key=(query, k, layer, session, branch, validity, view)
-    → value=(results, meta)
-    validity 必须进键：同一 query 在「不过滤 / 只排已过期」两种口径下
-    结果不同，不入键会串口径（正确性缺陷，非优化项）。
-    view 同理：角色化读取视图（roleviews.py）改变候选资格，不入键
-    会跨视图串结果。
+  - query 缓存：LRU dict，key=(query, k, layer, session, branch, validity, view,
+    extra) → value=(results, meta)
+    **键必须覆盖全部影响结果的参数**（红线，v14 缺陷 C 的教训）：validity /
+    view 之外，`include_work` / `roles` / `paths` / `path_weights` /
+    `recall_only` / `fusion` / `judge` / `judge_ranking` / `goal_text` /
+    `context` / `early_stop_threshold` 同样改变候选资格与排序，经 `extra`
+    整体入键（`_KEYED_EXTRA` 为清单真源）。
+    不入键的后果不是「慢」而是**静默错答**：默认查询会返回工作角色节点
+    （资格泄漏）、`paths` 口径互相顶替等。
+  - 无法稳定规范化的参数（自定义可调用 `query_expand`，见 `_BYPASS_EXTRA`）：
+    **非默认值即绕行缓存**（读+写双侧），fail-closed——宁可不用缓存，不可串味。
   - 失效策略：写入时 invalidate 受影响节点 + query 全清（保守策略，
     因为 RRF 融合后一个节点的变动可能影响全局排序）
   - TTL：query 缓存 300s（5 分钟），节点缓存无 TTL（写入即失效）
@@ -36,6 +41,15 @@ MAX_NODES = 256
 MAX_QUERIES = 64
 #: query 缓存 TTL（秒）
 QUERY_TTL = 300.0
+
+#: 进键的「口径参数」清单（**单一真源**）：调用方（mdcos.search_rrf）按此
+#: 构造 extra。新增影响结果的检索参数必须同时登记到本清单——漏登即跨口径
+#: 串味（v14 缺陷 C：include_work/roles 致资格泄漏、paths 互相顶替）。
+_KEYED_EXTRA = ("include_work", "roles", "paths", "path_weights", "recall_only",
+                "fusion", "judge", "judge_ranking", "goal_text", "context",
+                "early_stop_threshold")
+#: 不可稳定规范化的参数（自定义可调用）：非默认即**绕行缓存**（fail-closed）。
+_BYPASS_EXTRA = ("query_expand",)
 
 
 class HotCache:
@@ -84,19 +98,36 @@ class HotCache:
     # ---------- query 缓存 ----------
 
     @staticmethod
+    def _canon(v):
+        """参数值 → 可哈希、稳定、跨调用一致的键片段（递归规范化容器）。"""
+        if v is None or isinstance(v, (bool, int, float, str, bytes)):
+            return v
+        if isinstance(v, (list, tuple)):
+            return tuple(HotCache._canon(x) for x in v)
+        if isinstance(v, (set, frozenset)):
+            return tuple(sorted((HotCache._canon(x) for x in v), key=repr))
+        if isinstance(v, dict):
+            return tuple(sorted((str(k), HotCache._canon(x))
+                                for k, x in v.items()))
+        # 其余（含自定义对象/可调用）：repr 含内存地址 → 每次不同 →
+        # 缓存永不命中（等价绕行），是**安全侧**失败（不串味）。
+        return ("repr", repr(v))
+
+    @staticmethod
     def _query_key(query, k, layer, session, branch, validity=None,
-                   view=None):
-        # validity / view 必须进键：同一 query 在「不过滤 / 排已过期」
-        # 或「不同角色视图」口径下结果不同，不入键会串结果（正确性缺陷，
-        # 非优化项）。
+                   view=None, extra=None):
+        # 键必须覆盖全部影响结果的参数（正确性缺陷，非优化项）：
+        # validity（不过滤/排已过期）、view（角色视图）、extra（口径参数，
+        # 见 _KEYED_EXTRA）任一不入键都会串结果。
         return (query, k, layer or None, session or None, branch or None,
-                bool(validity) or None, view or None)
+                bool(validity) or None, view or None,
+                HotCache._canon(extra) if extra else None)
 
     def get_query(self, query, k=20, layer=None, session=None, branch=None,
-                  validity=None, view=None):
+                  validity=None, view=None, extra=None):
         """返回 (results, meta) 或 None（未缓存/过期）。"""
         key = self._query_key(query, k, layer, session, branch, validity,
-                              view)
+                              view, extra)
         entry = self._queries.get(key)
         if entry is None:
             self._stats["query_misses"] += 1
@@ -111,10 +142,11 @@ class HotCache:
         return results, dict(meta)
 
     def put_query(self, query, results, meta, k=20, layer=None,
-                  session=None, branch=None, validity=None, view=None):
+                  session=None, branch=None, validity=None, view=None,
+                  extra=None):
         """写入/更新 query 缓存。"""
         key = self._query_key(query, k, layer, session, branch, validity,
-                              view)
+                              view, extra)
         self._queries[key] = (time.time(), list(results), dict(meta))
         self._queries.move_to_end(key)
         while len(self._queries) > self._max_queries:

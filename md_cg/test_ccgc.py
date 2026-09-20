@@ -338,6 +338,12 @@ def main():
         # ---------- V19/V20 端到端：假蜂巢 → 编外裁决 → 签章 → 落库 ----------
         jobs = os.path.join(tmp, "jobs")
         os.makedirs(jobs, exist_ok=True)
+        # 假 serve 是**本进程内的线程**，故「该 pid 是本程序」如实为真——把本程序
+        # 口径指向本进程映像名即可（v14 缺陷 E 修复后 units 判活含**身份层**：
+        # 旧写法心跳 pid=本进程却让 EXE 口径指向 hive.exe，身份层判假 → 通道不可用，
+        # 那不是被测缺陷而是测试自身要与新口径对齐）。
+        _old_exe = os.environ.get(units.ENV_EXE)
+        os.environ[units.ENV_EXE] = sys.executable
         with open(os.path.join(jobs, units.SERVE_FILE), "w", encoding="utf-8") as f:
             json.dump({"ts": int(time.time() * 1000), "pid": os.getpid()}, f)
         seen = {}
@@ -409,6 +415,10 @@ def main():
                 os.environ.pop(units.ENV_MODEL, None)
             else:
                 os.environ[units.ENV_MODEL] = _old_model
+            if _old_exe is None:
+                os.environ.pop(units.ENV_EXE, None)
+            else:
+                os.environ[units.ENV_EXE] = _old_exe
 
     finally:
         print()

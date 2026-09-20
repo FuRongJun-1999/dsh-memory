@@ -193,13 +193,16 @@ def _t3(root):
 
     # 缓存分键：两口径必须各自成键，否则第二次调用命中第一次的缓存即串口径
     hc = hotcache.get(cg)
-    check("④热缓存两口径键并存（validity 入键）",
-          hc.get_query(Q, k=20, validity=None) is not None
-          and hc.get_query(Q, k=20, validity=True) is not None, hc.stats())
     on2, meta2 = cg.search_rrf(Q, k=20, validity=True)
+    off2, meta_off = cg.search_rrf(Q, k=20)
     check("④缓存命中路径仍零 expired（meta.cached 可证命中）",
           "mem_old" not in _ids(on2) and meta2.get("cached") is True,
           "cached=%s ids=%s" % (meta2.get("cached"), _ids(on2)))
+    check("④两口径各自成键且互不顶替（默认口径仍见 expired 且命中自身缓存）",
+          "mem_old" in _ids(off2) and meta_off.get("cached") is True,
+          "off_cached=%s ids=%s" % (meta_off.get("cached"), _ids(off2)))
+    check("④缓存中两口径键并存（>=2 条）",
+          hc.stats()["query_cache_size"] >= 2, hc.stats())
 
     # ⑥ 图扩展：零词面交集节点只能经 edges 抵达 —— 前置证据 + 过滤断言
     check("⑥前置证据：不过滤时 ghost 经图扩展可达（零词面交集）",

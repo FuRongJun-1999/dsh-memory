@@ -1181,12 +1181,28 @@ class MdCGOS(MdCG):
         # 时间算子**显式启用时绕开缓存**：缓存键不含时间参数，命中会返回
         # 未按本次窗口过滤的结果（静默错答比慢更贵）。
         _time_on = any(x is not None for x in (start_time, end_time,
-                                               start_operator, end_operator))
+                                              start_operator, end_operator))
         from . import hotcache as _hc
         hc = _hc.get(self)
-        if hc is not None and not _time_on:
+        # 口径参数**整体入键**（v14 缺陷 C 修复）：include_work/roles 改变候选
+        # 资格、paths/fusion/judge_ranking/goal_text 等改变排序——不入键会让
+        # 默认查询命中工作角色口径的缓存（资格泄漏），方向与时间算子同属
+        # 「静默错答」。清单真源 = hotcache._KEYED_EXTRA。
+        _cache_extra = {
+            "include_work": bool(include_work), "roles": roles,
+            "paths": tuple(paths or ()), "path_weights": path_weights,
+            "recall_only": recall_only, "fusion": fusion,
+            "judge": bool(judge), "judge_ranking": bool(judge_ranking),
+            "goal_text": goal_text, "context": context,
+            "early_stop_threshold": early_stop_threshold,
+        }
+        # 不可稳定进键的参数（自定义可调用 query_expand）：非默认即**绕行**
+        # 缓存（读+写双侧闭合）——fail-closed，宁可不用缓存也不串味。
+        _bypass = query_expand is not None
+        if hc is not None and not _time_on and not _bypass:
             cached = hc.get_query(q, k=k, layer=layer, session=session,
-                                  branch=branch, validity=validity, view=view)
+                                  branch=branch, validity=validity, view=view,
+                                  extra=_cache_extra)
             if cached is not None:
                 _results, _meta = cached
                 _meta["cached"] = True
@@ -1326,7 +1342,7 @@ class MdCGOS(MdCG):
         # 缓存键不含时间参数，把被时间过滤的结果写进去，会让后续**默认查询**
         # 命中那个子集（串味方向与「读」相反，但同样是静默错答：少了 4 条
         # 却看不出原因）。绕行必须读+写双侧闭合。
-        if hc is not None and results and not _time_on:
+        if hc is not None and results and not _time_on and not _bypass:
             hc.put_query(q, results, {"tier": "RRF", "scanned": stat["scanned"],
                          "paths": per_path, "fused": len(results),
                          "judge_ranking": bool(judge and judge_ranking),
@@ -1336,7 +1352,7 @@ class MdCGOS(MdCG):
                          "goal_used": goal_used,
                          "provenance": prov, **_tf_meta}, k=k, layer=layer,
                          session=session, branch=branch, validity=validity,
-                         view=view)
+                         view=view, extra=_cache_extra)
         return results, {"tier": "RRF", "scanned": stat["scanned"],
                          "paths": per_path, "fused": len(results),
                          "judge_ranking": bool(judge and judge_ranking),

@@ -726,6 +726,14 @@ def propagate(cg, *, apply: bool = False, max_nodes: int = MAX_NODES_DEFAULT,
     BFS 从所有 `expired` / `rechecking` / 显式根源节点出发，把可达下游标
     `doubted`（**只降不升**：复核通过须由人显式 `set_state(verified)`）。
     默认 `apply=False` 只出报表；`max_nodes` 封顶防大库爆炸。
+
+    `doubted` 中间节点的语义（2026-09-20 v14 缺陷 B 修复）：**穿过，但不重复
+    标记**。已 doubted 说明它已被标记，无需再标（幂等）；但它**不是传播终点**
+    ——「地基动了」的波及范围必须继续往其下游走。旧实现把 doubted 直接
+    `continue`（当作终点），于是「先 `mark_dependents` 预演直接下游、再
+    `propagate` 正式传播」这一最常见序列会使多跳传播**整体失效**
+    （`reachable`/`updated` 全 0）且**无任何报错**。穿过的节点在
+    `passed_doubted` 中如实透出（可审计）。
     """
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     dep_map = dependents_index(cg)
@@ -735,7 +743,7 @@ def propagate(cg, *, apply: bool = False, max_nodes: int = MAX_NODES_DEFAULT,
         if st in ("expired", "rechecking"):
             roots.append(nid)
     roots.sort()
-    seen, waves = set(roots), []
+    seen, waves, passed = set(roots), [], set()
     frontier, depth = list(roots), 0
     while frontier and len(seen) < int(max_nodes):
         depth += 1
@@ -744,14 +752,15 @@ def propagate(cg, *, apply: bool = False, max_nodes: int = MAX_NODES_DEFAULT,
             for k in dep_map.get(nid, []):
                 if k in seen:
                     continue
-                if state_of(nodes.get(k) or {}) == "doubted":
-                    seen.add(k)
-                    continue
                 seen.add(k)
+                if state_of(nodes.get(k) or {}) == "doubted":
+                    passed.add(k)       # 穿过但不重复标记（不是终点）
                 nxt.append(k)
                 if len(seen) >= int(max_nodes):
                     break
         for k in nxt:
+            if k in passed:
+                continue                # 已 doubted：无需再标（幂等）
             waves.append({"node_id": k, "depth": depth,
                           "via": sorted(n for n in dep_map if k in dep_map[n]
                                         and n in seen)})
@@ -759,7 +768,8 @@ def propagate(cg, *, apply: bool = False, max_nodes: int = MAX_NODES_DEFAULT,
     if not apply:
         return {"ok": True, "dry_run": True, "roots": roots[:50],
                 "roots_count": len(roots), "reachable": len(waves),
-                "planned": waves[:50], "max_nodes": int(max_nodes),
+                "planned": waves[:50], "passed_doubted": sorted(passed)[:20],
+                "max_nodes": int(max_nodes),
                 "note": "预演：未改盘；只降不升（复核须显式）"}
     done, skipped = [], []
     for w in waves:
@@ -772,6 +782,7 @@ def propagate(cg, *, apply: bool = False, max_nodes: int = MAX_NODES_DEFAULT,
             skipped.append(f"{w['node_id']}({r.get('error')})")
     return {"ok": True, "dry_run": False, "roots": roots[:50],
             "roots_count": len(roots), "updated": done, "updated_count": len(done),
+            "passed_doubted": sorted(passed)[:20],
             "skipped": skipped[:20], "max_nodes": int(max_nodes)}
 
 

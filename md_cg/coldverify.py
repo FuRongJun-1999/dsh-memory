@@ -146,19 +146,33 @@ class ColdVerifyQueue:
                         "skipped": "unverified_no_action"}
             # 检查时效
             kind, _, _ = trust.validity(fm)
-            new_state = old_state
+            want, why = None, ""
             if kind == "expired" and old_state != "expired":
-                new_state = "expired"
-                trust.set_state(cg, nid, "expired",
-                                 reason="冷路径：时效过期",
-                                 actor="coldverify", **kw)
+                want, why = "expired", "冷路径：时效过期"
             elif kind == "not_yet":
-                new_state = "unverified"
-                trust.set_state(cg, nid, "unverified",
-                                reason="冷路径：尚未生效",
+                want, why = "unverified", "冷路径：尚未生效"
+            if want is None:
+                return {"node_id": nid, "action": action, "ok": True,
+                        "old_state": old_state, "new_state": old_state,
+                        "changed": False}
+            # 迁移结果**必须检查**（2026-09-20 v14 缺陷 D 修复）：`trust.set_state`
+            # 对非法迁移返回 ok=False（负路由不抛异常），旧实现丢弃返回值后一律
+            # 上报 `ok=True + new_state=<请求值>` —— 恰好在本队列最该说话的两条
+            # 迁移上（doubted→expired / verified→unverified，均为 TRANSITIONS
+            # 明令拒绝的跳级）**说了假话**，且 stats.errors 恒 0 把它盖住。
+            # trust 层做对了（拒绝非法迁移），队列层不得把它翻译成成功。
+            r = trust.set_state(cg, nid, want, reason=why,
                                 actor="coldverify", **kw)
+            if not r.get("ok"):
+                self._stats["errors"] += 1
+                return {"node_id": nid, "action": action, "ok": False,
+                        "old_state": old_state, "requested_state": want,
+                        "error": "transition_rejected:%s" % r.get("error"),
+                        "reason": r.get("reason") or "",
+                        "detail": "非法迁移被 trust.TRANSITIONS 拒绝，状态未变"}
             return {"node_id": nid, "action": action, "ok": True,
-                    "old_state": old_state, "new_state": new_state}
+                    "old_state": old_state, "new_state": want,
+                    "changed": bool(r.get("changed"))}
 
         elif action == "propagate_depth":
             # 多跳深度传播

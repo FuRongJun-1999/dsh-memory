@@ -443,6 +443,32 @@ check("G4 max_chars 截断（不把整文件灌进上下文）",
       _o["ok"] and _o["lines_returned"] == 1 and _o["truncated"] is True,
       str(_o)[:200])
 
+# v14 缺陷 A 回归（2026-09-20）：字符上限是**硬约束**——单行本身超过上限时
+# 必须截断该行，不得整行放行（旧实现 max_chars=100 会回吐 1,000,000 字符，
+# READ_HARD_CHARS 自称「硬上限」名实不符，足以撑爆宿主上下文）。
+# 独立目录：避免污染 G5 的 rw 目录条目计数。
+rwbig = tempfile.mkdtemp(prefix="hive_exec_readbig_")
+open(os.path.join(rwbig, "minified.js"), "w",
+     encoding="utf-8").write("y" * 1000000)
+_o = ex.tool_read_file({"path": "minified.js", "max_chars": 100}, workdir=rwbig)
+check("G4b 单行超长文件：max_chars 硬约束（不整行放行）",
+      _o["ok"] and len(_o["content"]) <= 100 and _o["truncated"] is True,
+      f"content_len={len(_o.get('content') or '')}")
+_o = ex.tool_read_file({"path": "minified.js", "limit": 1}, workdir=rwbig)
+check("G4c 单行超长文件：默认上限下亦不越界",
+      _o["ok"] and len(_o["content"]) <= ex.READ_MAX_CHARS,
+      f"content_len={len(_o.get('content') or '')}")
+_o = ex.tool_read_file({"path": "minified.js", "max_chars": 10 ** 9},
+                       workdir=rwbig)
+check("G4d max_chars 请求夹到 READ_HARD_CHARS 且真实生效",
+      _o["ok"] and len(_o["content"]) <= ex.READ_HARD_CHARS,
+      f"content_len={len(_o.get('content') or '')}")
+_o = ex.tool_read_file({"path": "lines.txt", "max_chars": 100}, workdir=rw)
+check("G4e 多行文件仍按整行收（行粒度软上限语义不变）",
+      _o["ok"] and _o["content"] == "".join(f"第{i}行\n" for i in range(1, 6)),
+      repr((_o.get("content") or "")[:40]))
+del _o
+
 _o = ex.tool_read_file({"path": "."}, workdir=rw)
 _names = {e["name"]: e for e in _o.get("entries") or []}
 check("G5 目录给清单（子目录优先、带类型与字节）",

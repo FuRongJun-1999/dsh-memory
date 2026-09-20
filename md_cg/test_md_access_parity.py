@@ -25,7 +25,7 @@ import tempfile
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))
 
-from .md_whitebox import DEFAULT_ROOT, build_db_from_md  # noqa: E402
+from .md_whitebox import DEFAULT_ROOT, build_db_from_md, corpus_gap  # noqa: E402
 
 # 平铺导入引导（对齐 whitebox_kb/__init__：md_access 需在 sys.path 注入后导入）
 _WB = os.path.join(_HERE, "whitebox_kb")
@@ -134,6 +134,13 @@ def _param_groups(arg_tpls, samples):
 
 def main():
     ok = True
+    # 依赖自辩（2026-09-20 v14 缺陷 F）：md 语料是 gitignored 本地数据面，
+    # 缺失/空壳时**本模块自己**打 SKIP 返回 0——不再依赖外部 runner 探测
+    # （旁路执行时 runner 不在场），也不再留下未捕获异常或空壳副作用。
+    _gap = corpus_gap(DEFAULT_ROOT)
+    if _gap:
+        print("SKIP test_md_access_parity：%s" % _gap)
+        return 0
     print("== [1] 重建派生库 + 建 MdConn ==")
     stats = build_db_from_md(force=True, verbose=True)
     md_conn = MdConn(DEFAULT_ROOT, layers=LAYERS)

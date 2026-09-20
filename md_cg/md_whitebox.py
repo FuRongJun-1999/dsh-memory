@@ -116,6 +116,31 @@ def default_db_path(root=DEFAULT_ROOT):
     return os.path.join(tempfile.gettempdir(), f"md_cg_native_{key}.db")
 
 
+# 生效条件：root 为目录且其下（递归）至少有一个 .md 文件时返回 None，目录缺失返回不存在说明，目录存在但无 .md 返回空壳说明；
+def corpus_gap(root=DEFAULT_ROOT):
+    """md 语料未就绪的原因（None = 就绪）；**判据单一真源**。
+
+    空壳不算就绪（2026-09-20 v14 缺陷 F）：`MdCGOS(root)` 会 `makedirs(root)`，
+    于是任何经 `build_db_from_md`/兄弟测试走一遭的调用都会留下
+    `_md_cg_wisdom_graph/` **空目录**——而 runner 的依赖探测与测试模块的
+    「组A/组D 是否执行」若只判 `isdir`，就会把空壳误判成「真源就绪」，
+    把本该 SKIP 的目标变成 FAIL（旁路执行一次即触发，非构造的极端场景）。
+    """
+    if not os.path.isdir(root):
+        return ("md 语料根不存在：%s（.gitignore 忽略，需本地生成）" % root)
+    for _dp, _dn, fs in os.walk(root):
+        if any(str(f).endswith(".md") for f in fs):
+            return None
+    return ("md 语料根为空壳（目录存在但无 .md 文件）：%s"
+            "——空壳不算就绪（多为兄弟测试创建的残留）" % root)
+
+
+# 生效条件：corpus_gap(root) 为 None 时返回 True，否则 False；
+def corpus_ready(root=DEFAULT_ROOT) -> bool:
+    """md 语料是否就绪（目录存在**且含 .md**）。"""
+    return corpus_gap(root) is None
+
+
 # 生效条件：db_path 能以只读 uri 连接并成功统计 nodes/edges 两表行数时返回 (int(n), int(e))，否则在任一步抛异常时返回 (0, 0)；
 def _counts(db_path):
     """(nodes, edges) 计数；不可读返回 (0, 0)。"""
@@ -211,12 +236,22 @@ def _restore(cg, con, verbose=False):
     return len(n_rows), len(e_rows)
 
 
-# 生效条件：db_path 为假值（None/空串）时回落 default_db_path(root)，当 not force 且 os.path.exists(db_path) 为真且 _counts 得 nodes>0 时直接返回 {reused: True}，否则删除该路径后以 MdCGOS(root) 与 SpacetimeMemoryEngine 经 _restore 重建并返回 {reused: False}，root 缺省 DEFAULT_ROOT；
+# 生效条件：corpus_gap(root) 非 None 即抛 FileNotFoundError（**不建空库、不建目录**）；db_path 为假值（None/空串）时回落 default_db_path(root)，当 not force 且 os.path.exists(db_path) 为真且 _counts 得 nodes>0 时直接返回 {reused: True}，否则删除该路径后以 MdCGOS(root) 与 SpacetimeMemoryEngine 经 _restore 重建并返回 {reused: False}，root 缺省 DEFAULT_ROOT；
 def build_db_from_md(root=DEFAULT_ROOT, db_path=None, force=False, verbose=True):
     """把 md 语料还原为白箱检索引擎可用的库（幂等：已存在且非空则复用）。
 
     返回 `{db, nodes, edges, reused, root}`。
+
+    **fail-closed**（2026-09-20 v14 缺陷 F 根因修复）：语料未就绪即抛
+    `FileNotFoundError`，**不建空库、也绝不建空壳目录**——旧实现直接
+    `MdCGOS(root)`（内部 `makedirs`），一次误调就在仓根留下
+    `_md_cg_wisdom_graph/` 空壳，把兄弟测试的依赖探测从 SKIP 变 FAIL。
     """
+    gap = corpus_gap(root)
+    if gap:
+        raise FileNotFoundError(
+            "md 语料真源未就绪：%s\n  生成：python -m md_cg.migrate_wisdom_graph "
+            "--db <sqlite 路径> --root %s" % (gap, root))
     from . import whitebox_kb  # noqa: F401 —— 触发平铺导入的 sys.path 引导
     from .mdcos import MdCGOS
     from aeis_core import SpacetimeMemoryEngine

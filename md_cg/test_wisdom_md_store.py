@@ -26,6 +26,7 @@ for _p in (_ROOT, _HERE, os.path.join(_HERE, "whitebox_kb"),
 from wisdom_book import (ConditionDex, DEFAULT_DB, DEFAULT_MD_ROOT,  # noqa: E402
                          BASE_ENTRIES, BASE_RELATIONS)
 from md_access import MdConn, read_conn  # noqa: E402
+from md_whitebox import corpus_ready  # noqa: E402
 from md_store import MdStore  # noqa: E402
 from aeis_core import ConditionSpace, MemoryLayer, STNode  # noqa: E402
 
@@ -44,8 +45,11 @@ def ok(cond, label):
 # ---------------------------------------------------------------------------
 
 def group_a(tmp):
-    if not (os.path.exists(DEFAULT_DB) and os.path.isdir(DEFAULT_MD_ROOT)):
-        print("组A SKIP：生产对拍数据不全（派生库或语料根缺失）")
+    # 语料就绪判据 = 「目录存在**且含 .md**」（2026-09-20 v14 缺陷 F）：空壳
+    # 目录（兄弟测试经 MdCGOS(root) 的 makedirs 留下）不算就绪，否则组A 会
+    # 以「md 语料行数 0 > 4000」的失败示人，而真实原因是真源根本不在位。
+    if not (os.path.exists(DEFAULT_DB) and corpus_ready(DEFAULT_MD_ROOT)):
+        print("组A SKIP：生产对拍数据不全（派生库缺失或语料根缺失/空壳）")
         return
     print("组A · 生产数据对拍（全量）")
     # sqlite 侧用副本隔离：search_content 的 increment_access 会落库，
@@ -258,7 +262,7 @@ def group_d(tmp):
     ok(not dex2._md_mode, "fresh=True → sqlite 形态（兼容 api.py 兜底）")
     dex2.close()
 
-    if os.path.isdir(DEFAULT_MD_ROOT):
+    if corpus_ready(DEFAULT_MD_ROOT):
         dex3 = ConditionDex(md_root=DEFAULT_MD_ROOT)
         try:
             conn = read_conn(dex3)           # duck：MdStore.conn → MdConn

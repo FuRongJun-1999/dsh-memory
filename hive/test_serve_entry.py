@@ -23,6 +23,13 @@
 `serve_start.serve_alive()` 是唯一实现、MCP 面复用不再自持一份；
 配置载体 local 优先、缺失退回**入户模板** config.local.example.json。
 本测试把上述口径固化为机械断言——任一漂移即红灯（脚本式，与仓内约定一致）。
+
+**守卫面覆盖（v14 补格）**：存活判据有**四处**实现/消费——rust `serve_running`、
+`serve_start.serve_alive`、`mcp_server._serve_alive`、`md_cg/units.serve_state`
+（复制契约不 import hive，保持 md_cg 对 hive 零依赖）。前三处由 ①/②b 覆盖，
+第 4 处（units）曾长期**在守卫之外**，并双漂移到「ts-only + 5s」——其后果
+是**通道选择面**的假存活（提交的 job 永远无人处理），即 v13 病类换了个位置
+复现。⑦ 节把 units 纳入守卫：常量同值 + 三层判据在位 + 同一份心跳两处实现同结论。
 """
 from __future__ import annotations
 
@@ -175,6 +182,50 @@ def main() -> int:
     finally:
         serve_start.EXE = real_exe
         shutil.rmtree(tmp, ignore_errors=True)
+
+    print("⑦ md_cg/units 通道选择面同口径（v14 缺陷 E：判活第 4 处实现）")
+    # 报告 v14：`md_cg/units.py` 自持一份 serve 判活口径（**ts-only + 5s**），
+    # 双漂移于权威三层 + 15s。后果不是「测试红」而是**通道选错**：serve 崩溃后
+    # ≤5s 窗口内判「存活」→ probe() 选 hive 通道 → 提交的 job 永远无人处理。
+    # 本节判据=「同一份心跳，两处实现同结论」——与 ①/②b 的常量/结构断言互补。
+    import md_cg.units as units
+    check("units.FRESH_S == serve_start.FRESH_S（单一常量源）",
+          float(units.FRESH_S) == float(serve_start.FRESH_S),
+          f"got {units.FRESH_S} vs {serve_start.FRESH_S}")
+    units_py = _read("md_cg/units.py")
+    check("units 有身份判据 pid_is_self_program",
+          "def pid_is_self_program" in units_py)
+    check("units.serve_state 三层判据在位（新鲜 ∧ pid 存活 ∧ pid 身份）",
+          "pid_alive(pid)" in units_py and "pid_is_self_program(pid)" in units_py,
+          "units 未调用三层判据函数")
+    check("units 契约注释不再自称『同 _serve_alive』",
+          "（同 _serve_alive）" not in units_py)
+    tmp2 = tempfile.mkdtemp(prefix="hive_entry_units_")
+    fake_exe = os.path.join(os.path.dirname(real_exe), "definitely_not_hive.exe")
+    serve_start.EXE = fake_exe
+    os.environ["HIVE_EXE"] = fake_exe          # units 侧经 env 注入同一「非本程序」
+    try:
+        cases = [("新鲜 + 本进程 + 非本程序映像", os.getpid(), 0),
+                 ("同类心跳 age=8s（旧 5s 阈值会判假）", os.getpid(), 8000),
+                 ("同类心跳 age=20s", os.getpid(), 20000),
+                 ("pid 不存在", 999999, 0),
+                 ("pid 不存在且陈旧", 999999, 60000)]
+        for label, pid, age in cases:
+            with open(os.path.join(tmp2, "_serve.json"), "w",
+                      encoding="utf-8") as f:
+                json.dump({"ts": time.time() * 1000 - age, "pid": pid,
+                           "workers": 1}, f)
+            a = bool(units.serve_state(tmp2)["alive"])
+            b = bool(serve_start.serve_alive(tmp2))
+            check(f"⑦ {label}：units={a} / serve_start={b}（须同结论）", a == b)
+        with open(os.path.join(tmp2, "_serve.json"), "w", encoding="utf-8") as f:
+            f.write("{ 坏 json")
+        check("⑦ 心跳损坏：units 亦不判活且不抛",
+              bool(units.serve_state(tmp2)["alive"]) is False)
+    finally:
+        serve_start.EXE = real_exe
+        os.environ.pop("HIVE_EXE", None)
+        shutil.rmtree(tmp2, ignore_errors=True)
 
     print()
     if FAILS:

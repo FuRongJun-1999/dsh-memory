@@ -189,12 +189,23 @@ def audit_payload(a):
             "content": a.get("content") or ""}
 
 
-# 生效条件：row 经 _norm_row 校验即返回 he_<sha1(六列值 \x1f join)[:10]>
-# （同一台账行恒同 id，重复迁移幂等）；
+# 生效条件：row 经 _norm_row 校验即返回 he_<sha1(逐列「len:val」拼接)[:10]>
+# （同一台账行恒同 id，重复迁移幂等；任意列内容不可伪造边界）；
 def node_id_for(row):
-    """幂等键：同一台账行重复迁移得到同一节点 id。"""
+    """幂等键：同一台账行重复迁移得到同一节点 id。
+
+    **无歧义规范化**（2026-09-20 v14 缺陷 G 修复）：逐列 `<len>:<val>` 前缀
+    拼接——长度前缀由本函数计算、不可被列内容伪造，故任意两列之间搬移含任意
+    字符的文本都得不同 canon。旧实现直接 `"\\x1f".join(...)`：`verify_id="a"`
+    + `commit="b\\x1fc"` 与 `verify_id="a\\x1fb"` + `commit="c"` 撞同一 id
+    （不是 SHA-1 碰撞，是规范化没做转义/长度前缀）。
+
+    id 口径变更说明：canon 输入形态改变 → id 取值随之改变。属 schema v0.1
+    内的破坏性调整（该 schema 明示允许）；实测库内 `he_` 节点为 0，无历史
+    迁移数据需兼容。
+    """
     r = _norm_row(row)
-    canon = "\x1f".join(r[c] for c in LEDGER_COLUMNS)
+    canon = "".join("%d:%s" % (len(r[c]), r[c]) for c in LEDGER_COLUMNS)
     return "he_" + hashlib.sha1(canon.encode("utf-8")).hexdigest()[:10]
 
 

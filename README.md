@@ -411,10 +411,15 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 ## 🛠️ 开发
 
 ```bash
-npm install
+npm install                          # NODE_ENV=production 时须加 --include=dev
 npm run build    # TypeScript 编译
 npm test         # 真实集成测试（spawn 本机灵枢，验证握手/往返/注册/卸载）
 ```
+
+> `NODE_ENV=production`（或 `--omit=dev`）会省略 devDependencies，`tsc`/`tsx` 不在位；
+> 此时 `prepare` **跳过构建并在 stdout 明示**（不再让 `npm install` 因 `tsc` 缺失而整体失败），
+> 需要构建请用 `npm install --include=dev`。另：`engines.node >=22.19` 之下运行会收到
+> EBADENGINE 警告（仅提示，不阻断）。
 
 测试不依赖 DSH 全组件——用最小 Cordis host（SystemPrompt + ToolRegistry + 插件）隔离不稳定面。
 

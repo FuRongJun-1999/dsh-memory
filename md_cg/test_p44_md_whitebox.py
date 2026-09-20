@@ -28,7 +28,7 @@ import tempfile
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
-from .md_whitebox import build_db_from_md  # noqa: E402
+from .md_whitebox import build_db_from_md, corpus_gap  # noqa: E402
 
 SOURCE_DB = os.path.join(_HERE, "whitebox_kb", "wisdom", "wisdom-book-cloud.db")
 
@@ -128,6 +128,19 @@ def _report(rows):
 
 def main():
     ok = True
+
+    # 依赖自辩（2026-09-20 v14 缺陷 F）：源库与 md 语料均为 gitignored 本地
+    # 数据面——缺失时本模块自己打 SKIP 返回 0。旧形态下缺库会以未捕获的
+    # `sqlite3.OperationalError: unable to open database file` traceback 示人，
+    # 与兄弟目标「自建库后断言失败」构成同一根因的第三副面孔。
+    if not os.path.exists(SOURCE_DB):
+        print("SKIP test_p44_md_whitebox：依赖源库 %s（.gitignore 忽略，"
+              "需本地生成）" % SOURCE_DB)
+        return 0
+    _gap = corpus_gap()
+    if _gap:
+        print("SKIP test_p44_md_whitebox：%s" % _gap)
+        return 0
 
     # ---- 1) 结构等价 ----
     # force：从 md 语料**重新**还原，保证 access_count 等可变字段与源库快照
