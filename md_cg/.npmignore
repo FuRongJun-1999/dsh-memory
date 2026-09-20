@@ -34,3 +34,30 @@ _index.json.lock
 _index_log/
 _refindex.json
 _index_log*
+# ─────────────────────────────────────────────────────────────────────────────
+# 发版门禁收口（PUBLISH-GATE-CLOSE-20260920）：私有数据面与含本机路径文件 —— 绝不入包
+#
+# 根因：package.json 的 files 白名单粒度到目录，而 npm 在存在 files 白名单时不读
+# .gitignore（本仓 2026-09-15 实证：根级 .npmignore 被整体忽略，仅白名单目录自身
+# 的 .npmignore 生效）。故 .gitignore 已忽略的白箱 KB 运行时数据与 md_cg/knowledge
+# 仍随白名单整体入包 —— 门禁 R2 命中 2449、R4 命中 2449（2026-09-20 实测）。
+# 本段规则与 .gitignore 对应条目同源，改 .gitignore 时须同步此处（第 6 条双副本）。
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 白箱 KB 运行时数据（SQLite / 嵌入 / 索引 / 审计 / 本地数据面）
+whitebox_kb/**/*.db
+whitebox_kb/**/*.db-shm
+whitebox_kb/**/*.db-wal
+whitebox_kb/**/*.npz
+whitebox_kb/**/neural_index.json
+whitebox_kb/knowledge/_ccg_dump.json
+whitebox_kb/knowledge/_index.json
+whitebox_kb/data/
+whitebox_kb/wisdom/audit_log/
+
+# 本地认知图数据（.gitignore 已整体忽略该目录：孤节点等本地记忆不入包）
+knowledge/
+
+# 含本机绝对路径的测试脚本（门禁 R3；本地路径常量由调用侧以 --root/env 传入）
+test_conformance.py
+test_mr_m1.py

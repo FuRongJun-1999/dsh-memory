@@ -1,0 +1,12 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 发版门禁收口（PUBLISH-GATE-CLOSE-20260920）：Python 字节码缓存 —— 绝不入包
+#
+# 同 md_cg/.npmignore / docs/.npmignore：npm 在白名单目录内读本文件、不读 .gitignore。
+# 实证（2026-09-20）：skills/skills/designer-perspective/scripts/ 下的 __pycache__/*.pyc
+# 随 files 白名单入包，命中门禁 R2（Python 缓存）与 R4（非追踪件）。
+# ─────────────────────────────────────────────────────────────────────────────
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
