@@ -15,7 +15,7 @@ import { exec, spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { pythonPathValue, repoRoot } from './datapath.js'
+import { pythonPathValue, runRoot } from './datapath.js'
 
 export interface MutualOptions {
   /** 心跳间隔（毫秒），默认 10min */
@@ -143,9 +143,9 @@ export async function ensureHarness(python = 'python',
         windowsHide: true,
         detached: true,
         stdio: 'ignore',
-        // issue #12 同类：锚定插件仓根 + PYTHONPATH，与 mdcg_client / token_store
-        // 同口径——不随宿主 cwd 漂移；harness 包不在仓内时注入不劣化（回落用户环境）。
-        cwd: repoRoot(),
+        // 同 mdcg_client：cwd 必须在包外（否则 pnpm 更新时 rmdir 包目录被 Windows
+        // 拒绝 → ERR_PNPM_EBUSY）；模块解析由 PYTHONPATH 保证，见 datapath.runRoot()。
+        cwd: runRoot(),
         env: { ...process.env, PYTHONPATH: pythonPathValue() },
       })
     } catch (e) {

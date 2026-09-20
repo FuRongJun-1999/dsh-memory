@@ -16,7 +16,8 @@
  *   分裂到 `AEIS/data/mdcg`，与插件仓 `data/` 变成互不可见的两处。
  *   锚定 `package.json` 所在目录后，默认值稳定且可预期。
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -65,6 +66,48 @@ function anchor(p: string): string {
 
 export function defaultDataRoot(): string {
   return join(repoRoot(), 'data')
+}
+
+export const ENV_CHILD_CWD = 'MDCG_CHILD_CWD'
+
+let cachedRunRoot: string | null = null
+
+/**
+ * 子进程的工作目录（**必须落在插件包目录之外**）。
+ *
+ * 为什么不能沿用 `repoRoot()`：Windows 不允许删除／改名「正被某进程当作 CWD」
+ * 的目录。DSH 的插件按 hoisted 布局安装在 `<profile>/node_modules/<pkg>`，
+ * 而 `pnpm` 每次更新该包都要先 `rmdir` 包目录 → 子进程一旦把包目录当 CWD，
+ * 更新必然 `ERR_PNPM_EBUSY: resource busy or locked`（含升级回滚一起失败，
+ * 应用内永远升不动这个插件）。注意落点也**不能**是 `<包>/data`——它仍在包内，
+ * 实测同样 `err=32`。
+ *
+ * 落点要求「稳定存在」：系统临时目录可能被清理，进程 CWD 消失会引出新的怪问题，
+ * 故默认取 DSH home 下的固定目录（`DSH_HOME` 由宿主注入）。
+ * 优先级：`MDCG_CHILD_CWD` → `$DSH_HOME/.dsh-memory/run` → 系统临时目录。
+ *
+ * 安全性：`python -m` 的模块解析由 `pythonPathValue()` 的 PYTHONPATH 独立保证，
+ * 不依赖 cwd；已实测 cwd=包目录 与 cwd=包外 时，MCP initialize 握手与
+ * tools/list 工具面（33 个工具）完全一致。
+ */
+export function runRoot(): string {
+  if (cachedRunRoot) return cachedRunRoot
+  const env = process.env[ENV_CHILD_CWD]
+  const base = env
+    ? resolve(env)
+    : process.env['DSH_HOME']
+      ? join(resolve(process.env['DSH_HOME'] as string), '.dsh-memory', 'run')
+      : join(tmpdir(), 'dsh-memory-run')
+  try {
+    mkdirSync(base, { recursive: true })
+    cachedRunRoot = base
+  } catch {
+    // 建不出来就退回系统临时目录（同样在包外），不让子进程因 cwd 缺失而启动失败
+    const fallback = join(tmpdir(), 'dsh-memory-run')
+    try { mkdirSync(fallback, { recursive: true }) } catch { /* 最终交给 spawn 报错 */ }
+    cachedRunRoot = fallback
+  }
+  return cachedRunRoot
 }
 
 /** 数据根（记忆/账本/运行态的父目录）。 */
