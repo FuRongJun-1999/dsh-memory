@@ -17,7 +17,7 @@
  *   锚定 `package.json` 所在目录后，默认值稳定且可预期。
  */
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -82,9 +82,15 @@ let cachedRunRoot: string | null = null
  * 应用内永远升不动这个插件）。注意落点也**不能**是 `<包>/data`——它仍在包内，
  * 实测同样 `err=32`。
  *
- * 落点要求「稳定存在」：系统临时目录可能被清理，进程 CWD 消失会引出新的怪问题，
- * 故默认取 DSH home 下的固定目录（`DSH_HOME` 由宿主注入）。
- * 优先级：`MDCG_CHILD_CWD` → `$DSH_HOME/.dsh-memory/run` → 系统临时目录。
+ * 落点要求「稳定存在」：进程 cwd 指向已消失的目录会引出新的怪问题，故按稳定度
+ * 排候选目录，取**第一个能建成**的：
+ *   1. `MDCG_CHILD_CWD`（显式覆盖）
+ *   2. `$DSH_HOME/.dsh-memory/run`
+ *   3. `~/.dsh/.dsh-memory/run` —— 家目录兜底：`DSH_HOME` **未必**由宿主注入
+ *      （本仓 `dsh/dsh-web-start.bat` 是自行 `set DSH_HOME=%USERPROFILE%\.dsh`），
+ *      而 `~/.dsh` 是本插件既有约定（`bridge.ts` 调试日志、`token_store` 密钥环同址）
+ *   4. 系统临时目录（可能被清理，故排最后）
+ * 全部建不成时不抛错，交给 spawn 报错——cwd 落点只是防呆，不该成为启动失败源。
  *
  * 安全性：`python -m` 的模块解析由 `pythonPathValue()` 的 PYTHONPATH 独立保证，
  * 不依赖 cwd；已实测 cwd=包目录 与 cwd=包外 时，MCP initialize 握手与
@@ -92,22 +98,25 @@ let cachedRunRoot: string | null = null
  */
 export function runRoot(): string {
   if (cachedRunRoot) return cachedRunRoot
-  const env = process.env[ENV_CHILD_CWD]
-  const base = env
-    ? resolve(env)
-    : process.env['DSH_HOME']
-      ? join(resolve(process.env['DSH_HOME'] as string), '.dsh-memory', 'run')
-      : join(tmpdir(), 'dsh-memory-run')
-  try {
-    mkdirSync(base, { recursive: true })
-    cachedRunRoot = base
-  } catch {
-    // 建不出来就退回系统临时目录（同样在包外），不让子进程因 cwd 缺失而启动失败
-    const fallback = join(tmpdir(), 'dsh-memory-run')
-    try { mkdirSync(fallback, { recursive: true }) } catch { /* 最终交给 spawn 报错 */ }
-    cachedRunRoot = fallback
+  const candidates: string[] = []
+  const override = process.env[ENV_CHILD_CWD]
+  if (override) candidates.push(resolve(override))
+  const dshHome = process.env['DSH_HOME']
+  if (dshHome) candidates.push(join(resolve(dshHome), '.dsh-memory', 'run'))
+  candidates.push(join(homedir(), '.dsh', '.dsh-memory', 'run'))
+  candidates.push(join(tmpdir(), 'dsh-memory-run'))
+  for (const dir of candidates) {
+    try {
+      mkdirSync(dir, { recursive: true })
+      cachedRunRoot = dir
+      return dir
+    } catch {
+      /* 该候选不可用（父目录只读等）→ 试下一个 */
+    }
   }
-  return cachedRunRoot
+  const last = candidates[candidates.length - 1] ?? tmpdir()
+  cachedRunRoot = last
+  return last
 }
 
 /** 数据根（记忆/账本/运行态的父目录）。 */
