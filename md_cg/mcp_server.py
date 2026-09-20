@@ -3329,6 +3329,24 @@ def main():
             "[mdcg-mcp] 请指向主认知图目录（如仓库内 md_cg/）。\n")
         return 2
     from .mdcos import MdCGSecure
+    # 数据面迁出插件包（issue #18 相邻问题）：旧版把运行时数据与路径配置写在包内
+    # `<pkg>/data`，pnpm 更新会连目录一起替换（实机实证 data/ 54 文件 → 0）。首启把
+    # 「旧位置仍有货」的数据**复制**到用户级数据根——node 侧插件启动时已做过一次，
+    # 这里是 python 独立使用（不经插件）时的同口径兜底。fail-safe：迁移只是增益，
+    # 任何失败都不阻塞启动，但不静默（走 stderr）。
+    try:
+        from .datapath import migrate_legacy_data as _migrate_legacy
+        _mig = _migrate_legacy()
+        if _mig.get("ran"):
+            sys.stderr.write(
+                "[mdcg-mcp] 数据面已迁出插件包（旧位置只复制未删除）：%s → %s"
+                "（%d 项）\n" % (_mig["from"], _mig["to"], _mig["copied"]))
+        elif _mig.get("failed"):
+            sys.stderr.write("[mdcg-mcp] 数据面迁移部分失败（不阻塞启动）：%s\n"
+                             % (_mig["failed"],))
+    except Exception as _mig_exc:       # 迁移故障不得影响服务可用性
+        sys.stderr.write("[mdcg-mcp] 数据面迁移检查失败（不阻塞启动）: %r\n"
+                         % (_mig_exc,))
     principal, err = _build_principal()
     if err:
         sys.stderr.write(

@@ -40,13 +40,15 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
   name: '@furongjun1999/dsh-memory'
   config:
     mdcg:               # 记忆唯一真源：认知图（md 文档）
-      root: 'data/mdcg'
+      # 留空 = 用户级默认位置 ~/.dsh/.dsh-memory/data/mdcg（**插件包之外**，更新不丢）；
+      # 换位置请填绝对路径——相对路径锚定插件仓根，写进包内会被 pnpm 更新连目录删掉。
+      root: ''
     dbPath: 'data/lingshu.db'   # 遗留：仅「身体」能力后端 / 角色数据目录推导用
     identity: '灵枢'
     tools: 'core'       # 'core' 两基元(默认) | 'brain' 完整认知面 | 'all'
 ```
 
-> ⚠️ **profile config override 依赖（2026-09-04 dsh 0.1.2 排查确认）**：插件包内自带的 `cordis.patch.yml` 只有裸 insert（id+name，无 config），完整 config 全靠 profile 层的 `cordis.patch.yml` override 补全（**mdcg**/dbPath/tools/env/lifecycle）。**换 profile、重装 profile 或升级插件时，必须确认该 override 仍在** `<profile>/cordis.patch.yml`——完整备份模板见 `dsh/cordis-patch-profile-web.example.yml`，丢失会导致插件以默认配置运行（**mdcg.root 落到 data/mdcg 致记忆真源错位**、dbPath 相对路径错位→角色数据读不到、`tools` 回落 `'core'` 只剩 `cg`/`stg` 两基元、lifecycle 不启动）。
+> ⚠️ **profile config override 依赖（2026-09-04 dsh 0.1.2 排查确认）**：插件包内自带的 `cordis.patch.yml` 只有裸 insert（id+name，无 config），完整 config 全靠 profile 层的 `cordis.patch.yml` override 补全（**mdcg**/dbPath/tools/env/lifecycle）。**换 profile、重装 profile 或升级插件时，必须确认该 override 仍在** `<profile>/cordis.patch.yml`——完整备份模板见 `dsh/cordis-patch-profile-web.example.yml`，丢失会导致插件以默认配置运行（**mdcg.root 回落到用户级默认位置 `~/.dsh/.dsh-memory/data/mdcg`——若既有记忆在别处，表现为「记忆不见了」**、dbPath 相对路径错位→角色数据读不到、`tools` 回落 `'core'` 只剩 `cg`/`stg` 两基元、lifecycle 不启动）。
 >
 > ⚠️ **安装方式**：插件必须通过 **`dsh plugin --profile <name> add`** 装进 profile（它会用 pnpm + `autoInstallPeers: false` 正确解析 peer 依赖）。
 > **不要**用 `npm install` 把插件装进 profile 的 `node_modules`——那会引入错误版本的 `@deepseek-ai` peer 包，导致插件加载失败 / 浏览器报错。
@@ -513,7 +515,8 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
   name: '@furongjun1999/dsh-memory'
   config:
     mdcg:                              # 记忆唯一真源：认知图（md 文档）
-      root: 'data/mdcg'                # MDCG_ROOT（相对 cwd；cwd 不稳定时用绝对路径）
+      root: ''                         # MDCG_ROOT；留空=用户级默认 ~/.dsh/.dsh-memory/data/mdcg
+                                       # （换位置填绝对路径；相对路径锚定插件仓根）
     env:                               # 写入凭据：默认【关闭】，由你决定是否打开
       # 不配 → 只读 guest：读 / 召回 / 时间线可用，自动记忆 / 转录 / 落图不落盘（启动会告警）
       #
@@ -553,7 +556,7 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 | `capability.args` | string[] | `[]` | 能力后端启动参数（如 `['-m', 'aeis.mcp.server']`）；enabled=true 但为空则跳过并告警 |
 | `dbPath` | string | `data/lingshu.db` | ⚠️ 遗留：角色数据目录 `roleDataDir` 由其父目录推导。**不存记忆**（记忆真源 = md_cg） |
 | `mdcg.enabled` | boolean | `true` | 启用认知图（md_cg）——**记忆唯一真源（md 文档）** |
-| `mdcg.root` | string | `data/mdcg` | 认知图根目录（`MDCG_ROOT`；相对路径按插件进程 cwd 解析）。记忆写在这里 |
+| `mdcg.root` | string | `''`（空=用户级 `~/.dsh/.dsh-memory/data/mdcg`） | 认知图根目录（`MDCG_ROOT`；相对路径锚定**插件仓根**）。记忆写在这里。**勿填包内路径**——pnpm 更新插件会整个替换包目录，包内数据随之删除 |
 | `mdcg.actor` | string | `dsh-memory` | 调用主体（`MDCG_ACTOR`）；私有内容按 (tenant, actor) 派生 DEK，须与迁移脚本 `--actor` 一致 |
 | `mdcg.tenant` | string | `default` | 租户（`MDCG_TENANT`），须与迁移脚本 `--tenant` 一致 |
 | `mdcg.clearance` | string | `private` | 调用方密级（`MDCG_CLEARANCE`）：只能读写 ≤ 该密级的节点 |
@@ -582,7 +585,7 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 - 插件注入的系统上下文（AGENTS.md、文件变更通知等 `kind: 'plugin'`）**不写入**，防止记忆噪音
 - **去重 / 遗忘由 md_cg 主动遗忘闸门负责**（`mdcg_remember(gated=true)` → `MdCG.remember_gated`）：三问 → 四态 ACCEPT 落盘 / MERGE 并入既有（= 去重强化，不新增节点）/ DROP 低熵 / DEFER 待定，四种结果都写 `_forgetting.jsonl` 可审计
 - **写入通道为何走 `mdcg_remember` 而非 `cg(op=write)`**：`cg(op=write)` 先过 `audit.audit(content_kind)` —— 未声明 `content_kind`（且未配置 `MDCG_POLICY_FILE`）时恒判 BLINDSPOT/DEFER，**只进审核队列、永不落盘**；即便声明了 `content_kind`，还要再过一致性检查与 `gated` 三问四态。**落盘的充要条件是最终判定 ACCEPT**（MERGE 并入既有、DROP/DEFER/REJECT 均不新增落盘点）。插件自动记忆选 `mdcg_remember(gated=true)`，即绕开 `cg(op=write)` 的 audit 前置门、直接进入三问四态。详见「本轮修复与验证 ②」
-- **记忆以 md 文档落盘**（`mdcg.root`，默认 `data/mdcg`）；⚠️ **写权限默认关闭**——不配凭据时以只读 guest 运行：读 / 召回 / 时间线照常，写入不落盘（插件启动会告警）。打开方式见配置表 `env.MDCG_TOKEN`
+- **记忆以 md 文档落盘**（`mdcg.root`，默认用户级 `~/.dsh/.dsh-memory/data/mdcg`；旧版包内 `data/mdcg` 由首启一次性**复制**接手，见 `src/lib/datapath.ts` 的 `migrateLegacyData()`）；⚠️ **写权限默认关闭**——不配凭据时以只读 guest 运行：读 / 召回 / 时间线照常，写入不落盘（插件启动会告警）。打开方式见配置表 `env.MDCG_TOKEN`
 - **敏感信息脱敏**（`memory.desensitize`）：写入前过滤 `sk-`密钥 / API key / 密码 / `Bearer`令牌 / 18位身份证 / 11位手机号（替换为 `[已过滤:类别]`）；纯凭据消息整条跳过，不落库
 - **自动召回注入**（`memory.autoRecall`）：每次模型请求组装 system prompt 时自动注入灵枢最近记忆（`system-prompt/assemble` 事件），记忆"自动可用"；召回失败静默不阻塞请求
   - **快照去重语义（改注入方式前必读）**：注入块落在 `assembly.contexts` 里，宿主会把它渲染成一段「运行时上下文快照」，并**按渲染后的整段文本去重**——文本与上一份已提交的快照相同则不提交任何东西，不同才在会话里 `append` 一条 `user/message`（append 语义，旧快照不会被替换或移除）。

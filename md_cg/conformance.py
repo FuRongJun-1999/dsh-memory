@@ -44,7 +44,8 @@ AUDIT_TAIL = 20000
 
 # 生效条件：无入参，datapath.mdcg_root() 返回真值时返回该值，导入或调用抛异常、或返回假值（如空串）时返回模块常量 DEFAULT_ROOT；
 def _default_root() -> str:
-    """根解析沿用本仓约定：env `MDCG_ROOT` > `data/paths.json` > 插件仓 `data/mdcg`。
+    """根解析沿用本仓约定：env `MDCG_ROOT` > `paths.json`（用户级，旧包内兼容读）
+    > 用户级状态根 `data/mdcg`。
 
     走 `datapath.mdcg_root()`（兜底纪律：与其它工具同源解析，不另立一套）。
     """
@@ -684,7 +685,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="python -m md_cg.conformance",
                                 description="数据健康不变量断言集（只读，零写入）")
     p.add_argument("--root", default=None,
-                   help="认知图根（默认 MDCG_ROOT > data/paths.json > 插件仓 data/mdcg）")
+                   help="认知图根（默认 MDCG_ROOT > paths.json > 用户级状态根 data/mdcg）")
     p.add_argument("--json", dest="json_out", default=None)
     p.add_argument("--baseline", default=None, help="基线报告 json（比对不劣化）")
     p.add_argument("--write-baseline", default=None, help="把本次指标写成新基线")

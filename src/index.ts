@@ -17,8 +17,10 @@
  *   name: '@furongjun1999/dsh-memory'
  *   config:
  *     mdcg:                              # 记忆真源：认知图（md 文档）
- *       # root = 记忆写入路径（用户可改）。缺省 = 插件仓自身 data/mdcg。
- *       # 覆盖优先级：env MDCG_ROOT > <插件仓>/data/paths.json > 本项 > 默认
+ *       # root = 记忆写入路径（用户可改）。缺省 = 用户级状态根 data/mdcg
+ *       #   （~/.dsh/.dsh-memory/data/mdcg；**不在插件包内**——包内数据会被
+ *       #    pnpm 更新连目录一起删掉，见 src/lib/datapath.ts 头注）
+ *       # 覆盖优先级：env MDCG_ROOT > <用户级状态根>/paths.json > 本项 > 默认
  *       # root: 'D:/somewhere/mdcg'        # 例：把记忆库放到别处
  *       actor: 'dsh-memory'
  *     env:                               # 写入凭据：默认【关闭】，由你决定是否打开
@@ -52,7 +54,7 @@ import { installMemoryHooks, type MemoryHooksOptions } from './hooks.js'
 // LIB 本地库：角色扮演网页 / 互维维护 / 白箱 LLM 适配器统一收在 src/lib/。
 import { installRoleplayWeb } from './lib/roleplay_web.js'
 import { MdcgClient } from './lib/mdcg_client.js'
-import { describeDataPaths, mdcgRoot } from './lib/datapath.js'
+import { describeDataPaths, migrateLegacyData, mdcgRoot, repoRoot } from './lib/datapath.js'
 // 写入凭据密钥环（首启引导）：显式配置 → ~/.mdcg/token → 首启自动签发。
 import { resolveToken, type TokenResolution } from './lib/token_store.js'
 
@@ -178,8 +180,9 @@ export const Config: z<Config> = z.object({
     .default({ enabled: false, heartbeatMs: 10 * 60 * 1000 }),
   /** 认知图（md_cg）：记忆唯一真源。
    *  root 为**记忆写入路径**（用户可改）。缺省空串 = 未指定，按优先级解析：
-   *    ① env MDCG_ROOT ② `<插件仓>/data/paths.json` 的 root
-   *    ③ 本项 ④ 默认 `<插件仓>/data/mdcg`
+   *    ① env MDCG_ROOT ② `<用户级状态根>/paths.json` 的 root
+   *    （旧 `<插件仓>/data/paths.json` 兼容读）
+   *    ③ 本项 ④ 默认 `<用户级状态根>/data/mdcg`
    *  相对路径一律相对**插件仓根**解析——历史教训：相对 cwd 的相对路径随
    *  宿主 cwd 漂移，cwd 落在别仓时记忆真源分裂成互不可见的两处。
    *  tenant/actor 决定私有内容加解密的身份：与 migrate_roleplay 的
@@ -255,15 +258,39 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       timeoutMs: config.toolCallTimeoutMs,
       maxRetryDelayMs: config.maxRetryDelayMs,
     })
+    // 数据面迁出插件包（issue #18 相邻问题）：旧版把运行时数据与路径配置写在包内
+    // `<pkg>/data`，pnpm 更新会连目录一起替换（实机实证：data/ 54 文件 → 0，
+    // 46 条记忆节点靠人工备份回填）。首启把「旧位置仍有货」的数据**复制**到用户级
+    // 数据根；必须在 mdcg.start() 之前——store 要在 Python 子进程接管前就位。
+    const migrated = migrateLegacyData()
+    if (migrated.ran) {
+      ctx.logger.info(
+        `dsh-memory: 数据面已迁出插件包（旧位置只复制未删除）：`
+        + `${migrated.from} → ${migrated.to}（${migrated.copied} 项`
+        + `${migrated.failed.length ? `，失败 ${migrated.failed.join(',')}` : ''}）`,
+      )
+    }
     mdcg.start()
     // 启动留痕：把「记忆真源在哪、由谁决定、路径是否存在」写进可审计日志，
     // 避免再次出现「以为在记忆、其实写到了别仓」的静默分裂（历史事故）。
     const dp = describeDataPaths(config.mdcg.root)
     ctx.logger.info(
       `dsh-memory: 记忆真源路径 = ${dp.mdcgRoot}（来源 ${dp.source}，`
-      + `dataRoot=${dp.dataRoot}，存在=${dp.mdcgRootExists ? '是' : '否（首次写入将创建）'}，`
+      + `状态根=${dp.stateRoot}，dataRoot=${dp.dataRoot}，`
+      + `存在=${dp.mdcgRootExists ? '是' : '否（首次写入将创建）'}，`
       + `用户可改：${dp.pathsFile}）`,
     )
+    // 包管理器装的插件 + 路径配置还在旧包内位置：pnpm 下次更新会把该文件连目录一起
+    // 删除，用户配置随之丢失（回落默认根 → 表现为「记忆不见了」）。只在真的会被删的
+    // 布局下提醒（开发用的 git clone 不含 node_modules 段 → 不打扰）。
+    const pnpmManaged = repoRoot().split(/[\\/]/).includes('node_modules')
+    if (pnpmManaged && String(dp.pathsFileSource) === 'legacy') {
+      ctx.logger.warn(
+        `dsh-memory: 路径配置仍在插件包内（${dp.pathsFile}）——pnpm 更新该包会连目录`
+        + `一起删除。请复制到 ${String(dp.stateRoot)}/paths.json 后重启`
+        + `（数据面已自动复制到 ${String(dp.dataRoot)}）。`,
+      )
+    }
     brainReady = await mdcg.waitReady()
     if (brainReady) {
       ctx.logger.info(`dsh-memory: 认知图已就绪（MDCG_ROOT=${resolvedRoot}）`)

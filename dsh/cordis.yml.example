@@ -3,13 +3,18 @@
 #
 # 说明：
 # - !!js process.env.X 语法在加载期求值，密钥不入库
-# - 记忆写入路径（下面 mdcg.root）默认锚定**插件仓自身** data/，与进程 cwd
-#   解耦——历史事故：cwd 落在别的仓时，相对路径会把记忆真源写偏。目录不存在
-#   会自动创建。想换位置有三种方式（优先级由高到低）：
+# - 记忆写入路径（下面 mdcg.root）默认落在**用户级状态根**（~/.dsh/.dsh-memory/data），
+#   与进程 cwd、**插件包目录**都解耦——历史事故①：cwd 落在别的仓时相对路径会把
+#   记忆真源写偏；事故②：默认曾锚定插件包内 data/，而 pnpm 更新包会整目录替换，
+#   包内数据每次更新成功即被删掉（详见 src/lib/datapath.ts 头注）。目录不存在会
+#   自动创建。想换位置有三种方式（优先级由高到低）：
 #     ① 环境变量 MDCG_DATA_ROOT（数据根）/ MDCG_ROOT（认知图根）
-#     ② 编辑 <插件仓>/data/paths.json 的 "data_root" / "root"
+#     ② 编辑 <用户级状态根>/paths.json 的 "data_root" / "root"
+#        （旧版包内 data/paths.json 仍兼容读，但会被下次 pnpm 更新删除）
 #     ③ 本文件的 mdcg.root（填绝对路径或相对插件仓的路径）
 #   查当前解析结果：python md_cg/datapath.py
+#   旧版数据迁移：包内 data/ 仍有内容时，插件首启会**复制**（不删除）到用户级根；
+#   也可手动执行 python md_cg/datapath.py --migrate-legacy
 
 - id: lingshu-memory
   name: '@furongjun1999/dsh-memory'
@@ -108,9 +113,10 @@
     mdcg:
       enabled: true
       # root = 记忆写入路径（用户可改）。留空 '' = 走解析优先级，默认落在
-      # **插件仓自身** data/mdcg（与 cwd 解耦）：
-      #   env MDCG_ROOT > data/paths.json 的 "root" > 本项 > 默认 <插件仓>/data/mdcg
-      # 想换位置：填绝对路径（如 'D:/lingshu/mdcg'），或改 data/paths.json。
+      # **用户级状态根** data/mdcg（与 cwd、插件包目录都解耦）：
+      #   env MDCG_ROOT > <用户级状态根>/paths.json 的 "root" > 本项
+      #   > 默认 ~/.dsh/.dsh-memory/data/mdcg
+      # 想换位置：填绝对路径（如 'D:/lingshu/mdcg'），或改 paths.json。
       root: ''
       actor: 'dsh-memory'        # MDCG_ACTOR：私有内容按 (tenant, actor) 派生 DEK
       tenant: 'default'          # MDCG_TENANT：须与迁移脚本 --tenant 一致

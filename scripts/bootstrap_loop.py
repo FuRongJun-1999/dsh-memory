@@ -7,8 +7,9 @@ v3 迁移（2026-09-10，三仓分离后）：
   - 路径：`WISDOM = ROOT/aeis/wisdom`（已随三仓分离删除）→
     `BRAIN/md_cg/whitebox_kb/wisdom`。
   - 数据根：不再硬编码 `ROOT/aeis/data/*`，统一走 `md_cg/datapath.py`
-    解析（env `MDCG_ROOT` > `data/paths.json` > 插件仓自身 `data/`）。
-    运行态落 `data/bootstrap/`。
+    解析（env `MDCG_ROOT` > `paths.json`（用户级，旧包内兼容读）> 用户级状态根
+    `data/`，即 `~/.dsh/.dsh-memory/data`——不再落插件包内，包内数据会被
+    pnpm 更新连目录删掉）。运行态落 `<数据根>/bootstrap/`。
 
 通道 A：路由缺口扫描 → triggers 补丁 → 验证 → 固化（零 LLM·确定性）
 通道 B：LLM 初稿（deepseek/glm）→ verifier 六层校验 → 测试 → 固化
@@ -35,7 +36,8 @@ sys.path.insert(0, WISDOM)
 sys.path.insert(0, HERE)
 sys.path.append(os.path.join(BRAIN, "md_cg"))      # 供顶层 import datapath
 
-# 数据根解析（记忆写入路径可配置·默认插件仓自身 data/）
+# 数据根解析（记忆写入路径可配置·默认用户级状态根 data/；解析器缺失时的
+# 兜底分支保留旧「仓内 data/」口径——那是本脚本自带的最后兜底，非解析默认）
 try:
     import datapath as _dp
 except Exception:                                   # 兜底：解析器缺失时不高挂

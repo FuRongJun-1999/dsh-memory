@@ -1,6 +1,6 @@
 # 让 AI Agent 拥有不可遗忘的记忆
 
-**灵枢（Lingshu）** —— 高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.4.8）
+**灵枢（Lingshu）** —— 高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.4.9）
 
 [![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![dsh.so security](https://www.dsh.so/badge/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7)  [![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)](https://github.com/deepseek-ai/deepseek-harness/releases) [![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)](#多-harness-接入按端分目录) [![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)](package.json) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -73,7 +73,11 @@ dsh plugin --profile web add .
   name: '@furongjun1999/dsh-memory'
   config:
     mdcg:
-      root: 'data/mdcg'      # 记忆唯一真源（md 认知图）
+      # 记忆唯一真源（md 认知图）。留空 = 用户级默认位置
+      # ~/.dsh/.dsh-memory/data/mdcg（更新插件不丢）；换位置请填**绝对路径**。
+      # 勿填包内相对路径（如 'data/mdcg'）——那会把记忆写进插件包目录，
+      # pnpm 更新该包时连目录一起删掉（详见 dsh/cordis.yml.example 头注）。
+      root: ''
     identity: '灵枢'
     tools: 'core'            # 'core'(默认, 仅 cg/stg) | 'brain' | 'all'
 ```
