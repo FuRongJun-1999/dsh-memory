@@ -101,6 +101,13 @@ llm-adapter-poc/
 /hive/plans/naming_gov/specs/
 # 蜂巢 serve 本地环境配置（引用系统变量/个人数据文件路径，不入公开仓）
 /hive/config.local.json
+# 蜂巢互验**迭代交割面**（hive/interop/iter-*）：每轮投放/认领的中间产物目录
+# （request / proposals / replay / 回执副本），随轮次线性增长——v14 报告 I：
+# 2159 文件 / 8.7MB 入库且未忽略，属「迭代中间产物进仓」。协议**真源**仍是
+# 顶层台账与索引（_receipts_ledger.tsv / _dispatch_ledger.tsv /
+# _offers_index.md / note-*.md），据其可从对应 commit 重放再生交割面，
+# 故迭代目录不入库、仅本地留存。
+/hive/interop/iter-*/
 
 # 实验工作区（docs/experiments）：实验脚本 / result_*.json / _store 数据目录
 # 均为本地实验产物，不入库（_store 含 _index.json 与 *.lock，可由同目录
