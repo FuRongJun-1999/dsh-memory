@@ -37,7 +37,7 @@
 
 import { delimiter } from 'node:path'
 import { LingshuBridge, type McpCallResult } from '../bridge.js'
-import { pythonPathValue, repoRoot } from './datapath.js'
+import { pythonPathValue, runRoot } from './datapath.js'
 
 /** md_cg 子进程与根目录配置。 */
 export interface MdcgOptions {
@@ -122,10 +122,11 @@ export class MdcgClient {
   readonly bridge: LingshuBridge
 
   constructor(opts: MdcgOptions) {
-    // issue #12：cwd 与 PYTHONPATH 双保险锚定插件仓根——cwd 是 `python -m`
-    // 解析随包包的主通道，PYTHONPATH 覆盖显式自定义 args 的场景。opts.env
-    // 显式提供 PYTHONPATH 时完全接管（其展开在最后：显式配置原样尊重）。
-    const cwd = opts.cwd ?? repoRoot()
+    // 子进程 cwd 必须落在插件包目录之外，否则 pnpm 更新本插件时
+    // rmdir 包目录会撞上 Windows 的「目录被当作 CWD」共享冲突 → ERR_PNPM_EBUSY。
+    // 模块解析不依赖 cwd：PYTHONPATH（pythonPathValue()）已锚定随包 md_cg；
+    // opts.env 显式提供 PYTHONPATH 时完全接管（其展开在最后）。详见 datapath.runRoot()。
+    const cwd = opts.cwd ?? runRoot()
     const env: Record<string, string> = {
       // ⚠️ 必须显式 utf-8：Windows 下 piped 子进程默认 gbk + surrogateescape，
       // Node 写出的 UTF-8 中文会被解成孤立代理字符（\udcXX），md_cg 在落盘 /

@@ -30,7 +30,7 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { pythonPathValue, repoRoot } from './datapath.js'
+import { pythonPathValue, runRoot } from './datapath.js'
 
 /** 凭据来源（用于启动日志与故障定位）。 */
 export type TokenSource =
@@ -113,10 +113,9 @@ function issueToken(python: string, role: string, actor: string, clearance: stri
         windowsHide: true,
         timeout: 15_000,
         // 与工作纪律第 15 条同源：显式 UTF-8 + PYTHONUTF8，规避 Windows GBK 解码异常。
-        // issue #12：cwd+PYTHONPATH 锚定插件仓根——否则 npm 包形态下宿主在仓外
-        // 启动时 `python -m md_cg.tokens` 找不到随包 md_cg，首启签发静默失败，
-        // md_cg 侧降级只读 guest（写入全不落盘且无报错）。
-        cwd: repoRoot(),
+        // 模块解析靠 PYTHONPATH 锚定随包 md_cg（不依赖 cwd）；cwd 取包外目录，
+        // 否则 pnpm 更新本插件时 rmdir 包目录必报 ERR_PNPM_EBUSY。见 datapath.runRoot()。
+        cwd: runRoot(),
         env: {
           ...process.env,
           PYTHONPATH: pythonPathValue(),
