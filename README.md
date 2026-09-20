@@ -54,7 +54,7 @@
 
 ## ⚡ 快速开始
 
-> **按宿主选择入口**：**DSH** → 下方三步 ｜ **CodeBuddy · ZCode · Codex CLI · Claude Code** → [多 harness 接入](#多-harness-接入按端分目录)（各端独立三步说明） ｜ **其它 MCP 宿主** → 直接挂载大脑 `python -m md_cg.mcp_server`（stdio MCP），再按需注入工作纪律
+> **按宿主选择入口**：**DSH** → 下方三步 ｜ **CodeBuddy · ZCode · Codex CLI · Claude Code** → [多 harness 接入](#多-harness-接入按端分目录)（各端独立三步说明） ｜ **其它 MCP 宿主** → 直接挂载大脑 `python -m md_cg.mcp_server`（Windows）/ `python3 -m md_cg.mcp_server`（Linux·macOS）（stdio MCP），再按需注入工作纪律
 
 ```bash
 # ① 克隆并构建插件本体
@@ -92,11 +92,11 @@ dsh plugin --profile web add .
 
 > 首次使用记忆库为空，召回返回空结果属正常现象；未配写入凭据时以只读 `guest` 运行（**读得到、写不进**），要真正落盘见[写入凭据](#-写入凭据让记忆真正落盘)。
 
-- **前置**：Node ≥ 22.19 · DSH 内核 ≥ 0.1.2-rc.1 · **大脑零安装**（`md_cg` 随包自带，无需 pip 装任何引擎）
+- **前置**：Node ≥ 22.19 · DSH 内核 ≥ 0.1.2-rc.1 · **大脑零安装**（`md_cg` 随包自带，无需 pip 装任何引擎）· **Python 解释器**（插件按平台自动选：Windows `python` / Linux·macOS `python3`；解释器名特殊时用 `MDCG_PYTHON` 覆盖）
 - **写权限默认关闭**：不配凭据即以只读 `guest` 运行（读 / 召回 / 时间线可用，写入不落盘）。要真正落盘见「写入凭据」
 - 完整配置项（30+ 项）· 自动记忆机制 · DSH 看门狗 → [README 详细版](docs/mdcg/README详细版_v0.4.10.md)
 - **非 DSH 宿主**（CodeBuddy / ZCode / Codex CLI / Claude Code）：走[多 harness 接入](#多-harness-接入按端分目录)，各端有独立三步接入说明
-- **装后验证**：重启 DSH 后对 Agent 说「列出你的记忆工具」应看到 `cg` / `stg`（`tools: 'all'` 时还有 `mdcg_*`）；大脑直连验证：`python -m md_cg.mcp_server`（stdio JSON-RPC）收到 initialize 应答即通，更多细节见 [README 详细版](docs/mdcg/README详细版_v0.4.10.md)
+- **装后验证**：重启 DSH 后对 Agent 说「列出你的记忆工具」应看到 `cg` / `stg`（`tools: 'all'` 时还有 `mdcg_*`）；大脑直连验证：`python -m md_cg.mcp_server`（Windows）/ `python3 -m md_cg.mcp_server`（Linux·macOS）（stdio JSON-RPC）收到 initialize 应答即通；**若工具始终不注册、日志刷「灵枢调用超时」**，先看桥探针 `~/.dsh/logs/lingshu-bridge-debug.log` 里的 `spawn … ENOENT`——那是第一因（解释器名与平台不匹配），「调用超时」只是次生现象。更多细节见 [README 详细版](docs/mdcg/README详细版_v0.4.10.md)
 
 ---
 
@@ -429,7 +429,7 @@ npm test         # 真实集成测试（spawn 本机灵枢，验证握手/往返
 
 ### Python 测试约定（必须 `python -m`）
 
-`md_cg/` 等包内测试普遍使用**包内相对导入**，必须以模块方式从**仓库根**运行；直接 `python md_cg/test_xxx.py` 会 ImportError（59/61 踩坑实测）。一键入口已固化该约定：
+`md_cg/` 等包内测试普遍使用**包内相对导入**，必须以模块方式从**仓库根**运行；直接 `python md_cg/test_xxx.py` 会 ImportError（59/61 踩坑实测）。一键入口已固化该约定（Linux·macOS 上把下面的 `python` 换成 `python3`——发行版默认无 `python`）：
 
 ```bash
 python scripts/run_tests.py                  # 全量（md_cg + compiler + swarm）

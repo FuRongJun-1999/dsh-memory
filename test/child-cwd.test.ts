@@ -31,6 +31,8 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MdcgClient } from '../src/lib/mdcg_client.js'
 import { repoRoot, runRoot } from '../src/lib/datapath.js'
+// issue #19：解释器按平台取（Windows python / 其它 python3）。
+import { defaultPython } from '../src/lib/python_path.js'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /** 与 md_cg/selfreport.py 的 SELF_REPORT_DIR 同口径（同用户跨端一致）。 */
@@ -96,7 +98,7 @@ test('issue #18 ②：MdcgClient 默认 cwd 拉起的子进程，自报 cwd 在�
   const dir = mkdtempSync(join(tmpdir(), 'lingshu-issue18-'))
   // 真实宿主形态：不传 cwd（旧行为 = repoRoot()，即被钉住的包目录）
   const client = new MdcgClient({
-    python: 'python',
+    python: defaultPython(),
     root: join(dir, 'mdcg'),
     env: { MDCG_LEGACY_ENV_AUTH: '1', MDCG_ACTOR: 'dsh-test' },
     timeoutMs: 15_000,

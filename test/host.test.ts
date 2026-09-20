@@ -19,6 +19,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 import * as plugin from '../src/index.js'
+// issue #19：解释器按平台取（Windows python / 其它 python3）。
+import { defaultPython } from '../src/lib/python_path.js'
 
 /** 本仓根目录：md_cg 随仓库自带，靠 PYTHONPATH 解析（无需 pip 安装）。 */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -39,7 +41,7 @@ async function mountHost(dataDir: string) {
       serverName: 'lingshu',
       dbPath: join(dataDir, 'legacy.db'),
       identity: 'dsh-host-test',
-      python: 'python',
+      python: defaultPython(),
       moduleArgs: ['-m', 'md_cg.mcp_server'],
       env: {
         PYTHONPATH: REPO_ROOT,

@@ -4,13 +4,14 @@
  * 同时验证正常工具仍可调用（回归）。
  */
 import { LingshuBridge } from '../src/bridge.ts'
+import { defaultPython } from '../src/lib/python_path.ts'
 import { join } from 'node:path'
 
 const MOCK = join(process.cwd(), 'test', 'mock_mcp.py')
 
 async function main(): Promise<void> {
   const bridge = new LingshuBridge({
-    python: 'python',
+    python: defaultPython(),
     args: [MOCK],
     env: {},
     cwd: process.cwd(),

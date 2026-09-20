@@ -12,7 +12,8 @@
 #     ② 编辑 <用户级状态根>/paths.json 的 "data_root" / "root"
 #        （旧版包内 data/paths.json 仍兼容读，但会被下次 pnpm 更新删除）
 #     ③ 本文件的 mdcg.root（填绝对路径或相对插件仓的路径）
-#   查当前解析结果：python md_cg/datapath.py
+#   查当前解析结果（解释器按平台：Windows python / Linux·macOS python3，下同）：
+#     python md_cg/datapath.py
 #   旧版数据迁移：包内 data/ 仍有内容时，插件首启会**复制**（不删除）到用户级根；
 #   也可手动执行 python md_cg/datapath.py --migrate-legacy
 
@@ -32,7 +33,13 @@
     identity: '灵枢'
 
     # Python 与启动参数（默认即可；md_cg 随插件自带，无需 pip 安装第三方包）
-    python: 'python'
+    # 解释器**无需配置**：默认按平台自动选——Windows → python，Linux/macOS → python3。
+    # 为什么不能照抄 'python'（issue #19）：Linux/macOS 发行版按 PEP 394 只提供
+    # python3（这是默认状态，不是环境损坏），写死 python 会让桥 spawn ENOENT，
+    # 重试 8 次后进终态——插件看起来装好了，但工具不注册、记忆永不落盘且不自愈。
+    # 解释器名特殊（如 python3.12）时：在此显式配置，或设环境变量 MDCG_PYTHON
+    # （优先级：config.python > env MDCG_PYTHON > 平台默认）。
+    # python: 'python'
     # 大脑进程：md_cg（主仓自带，不再依赖 pip aeis）
     moduleArgs: ['-m', 'md_cg.mcp_server']
 
@@ -49,7 +56,7 @@
     # 但转录 / 历史 / 翻译 / 落图始终可用（走大脑）。
     # capability:
     #   enabled: false
-    #   python: 'python'
+    #   python: ''              # 留空 = 跟随上面的 python（平台默认）
     #   args: ['-m', 'aeis.mcp.server']
 
     # 自动记忆（对话沉淀进灵枢）

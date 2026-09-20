@@ -54,6 +54,9 @@ import { installMemoryHooks, type MemoryHooksOptions } from './hooks.js'
 // LIB 本地库：角色扮演网页 / 互维维护 / 白箱 LLM 适配器统一收在 src/lib/。
 import { installRoleplayWeb } from './lib/roleplay_web.js'
 import { MdcgClient } from './lib/mdcg_client.js'
+// 解释器解析（issue #19）：默认值按平台取（Windows: python / 其它: python3），
+// 可用 env MDCG_PYTHON 覆盖；此前写死 'python' 使 Linux/macOS 首装即挂。
+import { defaultPython, selfCheckCommand } from './lib/python_path.js'
 import { describeDataPaths, migrateLegacyData, mdcgRoot, repoRoot } from './lib/datapath.js'
 // 写入凭据密钥环（首启引导）：显式配置 → ~/.mdcg/token → 首启自动签发。
 import { resolveToken, type TokenResolution } from './lib/token_store.js'
@@ -92,7 +95,9 @@ export const inject = ['tools']
 export interface Config {
   /** 工具命名空间前缀（默认 lingshu → lingshu_remember）。 */
   serverName: string
-  /** Python 可执行文件（或 md_cg-mcp console script）。 */
+  /** Python 可执行文件（或 md_cg-mcp console script）。
+   *  缺省 = 平台感知（issue #19）：Windows `python` / Linux·macOS `python3`，
+   *  可用 env `MDCG_PYTHON` 覆盖；显式配置本项优先级最高。 */
   python: string
   /** 传给 python 的参数（默认启动 md_cg MCP server）。 */
   moduleArgs: string[]
@@ -144,7 +149,10 @@ export interface Config {
 
 export const Config: z<Config> = z.object({
   serverName: z.string().default('lingshu'),
-  python: z.string().default('python'),
+  // issue #19：默认值按平台解析（Windows: python / 其它: python3；env MDCG_PYTHON 可覆盖）。
+  // 写死 'python' 时 Linux/macOS 首装即 spawn ENOENT（PEP 394 只有 python3），
+  // 且表现为「装好了但记忆永远为空」——最难定位的失效形态。
+  python: z.string().default(defaultPython()),
   moduleArgs: z.array(String).default(['-m', 'md_cg.mcp_server']),
   dbPath: z.string().default('data/lingshu.db'),
   identity: z.string().default('灵枢'),
@@ -327,7 +335,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   /** 大脑桥：工具面 + 互维 + 角色落图共用的唯一 md_cg 通道（mdcg 关闭时为 null）。 */
   const bridge = mdcg?.bridge ?? null
   if (!brainReady) {
-    const message = '灵枢大脑（md_cg）未就绪（检查 python 是否可用、md_cg 是否可导入：python -m md_cg.mcp_server）'
+    // issue #19：自检命令按当前解释器给出（Windows python / 其它 python3），
+    // 照抄报错里的命令在用户平台上必须真的可执行。
+    const message = `灵枢大脑（md_cg）未就绪（检查 ${config.python} 是否可用、md_cg 是否可导入：${selfCheckCommand(config.python)}）`
     if (config.failOnStartupError && config.mdcg.enabled) {
       // P1 修复（GPT 审查）：启动失败抛错前必须 dispose——此前 throw 在 try 之前，
       // 桥接对象泄漏 + 后台重试计时器继续跑

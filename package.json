@@ -76,9 +76,9 @@
     "typescript": "^5.5.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "test": "npm run build && node --import tsx --test \"test/*.test.ts\"",
-    "prepare": "node -e \"const fs=require('fs');const tsc='node_modules/typescript/bin/tsc';fs.existsSync(tsc)?require('child_process').execFileSync(process.execPath,[tsc,'-p','tsconfig.json'],{stdio:'inherit'}):console.log('[prepare] 跳过构建：typescript 未安装（NODE_ENV=production 或 --omit=dev 会省略 devDependencies）——需要构建请用 npm install --include=dev')\"",
+    "prepare": "node -e \"const fs=require('fs');const tsc='node_modules/typescript/bin/tsc';fs.existsSync(tsc)?(fs.rmSync('lib',{recursive:true,force:true}),require('child_process').execFileSync(process.execPath,[tsc,'-p','tsconfig.json'],{stdio:'inherit'})):console.log('[prepare] 跳过构建：typescript 未安装（NODE_ENV=production 或 --omit=dev 会省略 devDependencies）——需要构建请用 npm install --include=dev')\"",
     "prepublishOnly": "npm run build && npm test && python scripts/check_publish_artifact.py"
   },
   "repository": {

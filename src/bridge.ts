@@ -12,6 +12,9 @@ import { createInterface } from 'node:readline'
 import { mkdirSync, appendFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
+// issue #19：自检命令文案按平台给出（Windows python / 其它 python3）、
+// 并在 ENOENT 时把「解释器名不匹配」这一第一因直接写进日志。
+import { explainMissingPython, selfCheckCommand } from './lib/python_path.js'
 
 /**
  * 调试探针：记录桥生命周期到独立文件（绕过 DSH 日志系统，便于定位启动问题）。
@@ -203,6 +206,12 @@ export class LingshuBridge {
       // 进程无法启动（python 不存在等）——响亮失败
       if (!this.disposed) {
         console.error(`[lingshu-bridge] 灵枢进程启动失败: ${err.message}`)
+        // issue #19：ENOENT 的第一因通常不是「环境损坏」，而是解释器名与平台不匹配
+        // （Linux/macOS 按 PEP 394 只有 python3）。把成因与修法写进同一条日志——
+        // 原始日志把该缺陷伪装成「调用超时」，用户按超时方向排查只会白耗一轮。
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          console.error(`[lingshu-bridge] ${explainMissingPython(python)}`)
+        }
         probe(`spawn error: ${String(err)}`)
         this.readyState = 'failed'
         this.flushBootQueue(false)
@@ -230,8 +239,8 @@ export class LingshuBridge {
         this.unexpectedExits.push(Date.now())
         if (uptimeS >= 0 && uptimeS < 5) {
           console.error(
-            '[lingshu-bridge] 进程启动后 5 秒内即退出——请检查 python 可执行文件与 md_cg 依赖。' +
-            '自检 `python -m md_cg.mcp_server` 须在插件包根目录运行' +
+            `[lingshu-bridge] 进程启动后 5 秒内即退出——请检查 ${python} 可执行文件与 md_cg 依赖。` +
+            `自检 \`${selfCheckCommand(python)}\` 须在插件包根目录运行` +
             '（插件已自动锚定 cwd 与 PYTHONPATH，issue #12）。')
         } else if (this.unexpectedExits.length >= 3) {
           console.error(
@@ -292,7 +301,8 @@ export class LingshuBridge {
       this.flushBootQueue(false)
       console.error(
         `[lingshu-bridge] 连续启动失败 ${this.retries} 次，已停止自动重启（不再后台空转）。` +
-        '请检查 python 可执行文件与 md_cg 依赖；自检 `python -m md_cg.mcp_server` 须在插件包根目录运行' +
+        `请检查 ${this.options.python} 可执行文件与 md_cg 依赖；` +
+        `自检 \`${selfCheckCommand(this.options.python)}\` 须在插件包根目录运行` +
         '（插件已自动锚定 cwd 与 PYTHONPATH，issue #12），修复后在 DSH 中重新启用 dsh-memory 插件。')
       probe(`give up: ${this.retries} consecutive failures, entering failed terminal state`)
       return
@@ -322,7 +332,9 @@ export class LingshuBridge {
     if (this.gaveUp) {
       return Promise.reject(new Error(
         '灵枢进程不可用：连续启动失败已达上限，已停止重试。' +
-        '请检查 python 可执行文件与 md_cg 依赖（自检 `python -m md_cg.mcp_server` 须在插件包根目录运行），修复后重新启用 dsh-memory 插件。'))
+        `请检查 ${this.options.python} 可执行文件与 md_cg 依赖` +
+        `（自检 \`${selfCheckCommand(this.options.python)}\` 须在插件包根目录运行），` +
+        '修复后重新启用 dsh-memory 插件。'))
     }
     const id = this.nextId++
     const timeout = this.options.timeoutMs

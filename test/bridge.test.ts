@@ -15,6 +15,9 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { LingshuBridge } from '../src/bridge.js'
 import { MdcgClient } from '../src/lib/mdcg_client.js'
+// issue #19：测试也须按平台取解释器——写死 'python' 会让整套测试在
+// Linux/macOS（只有 python3）上全挂，把「缺陷」当成「测试环境问题」。
+import { defaultPython } from '../src/lib/python_path.js'
 
 /** 本仓根目录：md_cg 随仓库自带，靠 PYTHONPATH 解析（无需 pip 安装）。 */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -31,7 +34,7 @@ function safeCleanup(dir: string): void {
 /** 构造指向本仓 md_cg 的桥；surface 决定工具面（kernel=cg/stg，full=+细粒度）。 */
 function createBridge(root: string, surface: 'kernel' | 'full' = 'full'): LingshuBridge {
   return new LingshuBridge({
-    python: 'python',
+    python: defaultPython(),
     args: ['-m', 'md_cg.mcp_server'],
     env: {
       PYTHONPATH: REPO_ROOT,
@@ -73,7 +76,7 @@ test('issue #12 回归：宿主 cwd 在插件仓外且零路径参数，MdcgClie
   // cwd 注入 sys.path → `python -m md_cg.mcp_server` 必然 ModuleNotFoundError。
   process.chdir(tmpdir())
   const client = new MdcgClient({
-    python: 'python',
+    python: defaultPython(),
     root: join(dir, 'mdcg'),
     env: { MDCG_LEGACY_ENV_AUTH: '1', MDCG_ACTOR: 'dsh-test' },
     timeoutMs: 15_000,

@@ -9,6 +9,7 @@
 import { LingshuBridge } from '../src/bridge.ts'
 import { combineVerdict, safeTaskId, ensureHarness, type VerifyResult } from '../src/mutual.ts'
 import { isToolConcurrencySafe } from '../src/tools.ts'
+import { defaultPython } from '../src/lib/python_path.ts'
 import { join } from 'node:path'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -23,7 +24,7 @@ function check(name: string, ok: boolean, detail = ''): void {
 async function main(): Promise<void> {
   // ① signal 取消
   const bridge = new LingshuBridge({
-    python: 'python', args: [MOCK], env: {}, cwd: process.cwd(),
+    python: defaultPython(), args: [MOCK], env: {}, cwd: process.cwd(),
     timeoutMs: 5000, maxRetryDelayMs: 2000,
   })
   bridge.start()
