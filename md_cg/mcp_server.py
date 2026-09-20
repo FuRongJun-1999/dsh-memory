@@ -602,7 +602,7 @@ KERNEL_TOOLS = [
                        "一律 require_admin）；"
                        "op=insight：洞察（action=window|record|verify|list|report|"
                        "reconstruct|learn|outlook|catalog|fork|branch_rewrite|branch_search|"
-                       "branch_merge|branch_discard|branches；权限按 action 分档：只读放行、"
+                       "branch_merge|branch_discard|branches|tickets；权限按 action 分档：只读放行、"
                        "条件记账与分支写需 can_write、落库 apply 与分支弃置需 admin）；"
                        "op=ccg：CCG 六要素编译器（action=compile|review|attest|link|"
                        "recalibrate|units|catalog；入参统一在 ccg 对象里）。"
@@ -743,9 +743,13 @@ KERNEL_TOOLS = [
                                 "insight: window|record|verify|list|report|"
                                 "reconstruct|learn|outlook|catalog|"
                                 "fork|branch_rewrite|branch_search|"
-                                "branch_merge|branch_discard|branches；"
+                                "branch_merge|branch_discard|branches|"
+                                "tickets；"
                                 "分支六 act：node_ids/branch_id/note/content/"
-                                "reason 按 act 取用（rewrite 传 node_id+content）"),
+                                "reason 按 act 取用（rewrite 传 node_id+content）；"
+                                "tickets：盲区→四类消解票据任务卡"
+                                "（types=[research|prototype|grilling|task]，"
+                                "min_blindspot 资格线；apply=True 落库需 admin）"),
             pid=_p("string", "review decide 的提案 id"),
             decision=_p("string", "review 裁决：accept|reject|edit|merge"),
             edits=_p("object", "review edit 的覆盖字段（不可含 verify）"),
@@ -2697,15 +2701,16 @@ def _consolidate_call(cg, a):
 def _insight_call(cg, a):
     """洞察（P2）：window / record / verify / list / report / reconstruct / learn /
     outlook / catalog / fork / branch_rewrite / branch_search / branch_merge /
-    branch_discard / branches。
+    branch_discard / branches / tickets。
 
     权限**按 action 分档**（与 maintain 同构，比整 op 收窄更贴合语义）：
       · 只读（window / list / report / reconstruct 预演 / outlook / catalog /
-        branch_search / branches / fork 预演）→ 不额外拦截；
+        branch_search / branches / fork 预演 / tickets 预演）→ 不额外拦截；
       · 条件层记账（record / verify）与分支写操作（fork / branch_rewrite /
         branch_merge）→ 需 can_write；
-      · 落库（reconstruct apply / learn apply）与分支弃置（branch_discard，
-        改变库可见性）→ require_admin（discard 库层还有第二道闸）。
+      · 落库（reconstruct apply / learn apply / tickets apply 批量建卡）与
+        分支弃置（branch_discard，改变库可见性）→ require_admin
+        （discard 库层还有第二道闸）。
     这样 output 角色能读洞察但不能记；reflect 能重构与学习预演；批量落库须请示。
     """
     act = (a.get("action") or "outlook").strip().lower()
@@ -2718,8 +2723,9 @@ def _insight_call(cg, a):
     if principal is not None and act in ("fork", "branch_rewrite",
                                          "branch_merge") and not can_write:
         principal.require_admin(f"insight_{act}")     # 分支写 → 需写权
-    if principal is not None and act in ("reconstruct", "learn") and apply:
-        principal.require_admin(f"insight_{act}")
+    if principal is not None and act in ("reconstruct", "learn",
+                                         "tickets") and apply:
+        principal.require_admin(f"insight_{act}")     # 批量落库 → 需 admin
     if principal is not None and act == "branch_discard":
         principal.require_admin("branch_discard")     # 弃置：分发层+库层双闸
     return cg.insight(
@@ -2737,7 +2743,8 @@ def _insight_call(cg, a):
         reason=a.get("reason"),
         blindspot_id=a.get("blindspot_id"), horizon=a.get("horizon"),
         max_branches=a.get("max_branches"), recent_days=a.get("recent_days"),
-        sample_limit=a.get("sample_limit"), max_nodes=a.get("max_nodes"))
+        sample_limit=a.get("sample_limit"), max_nodes=a.get("max_nodes"),
+        types=a.get("types"), min_blindspot=a.get("min_blindspot"))
 
 
 # 生效条件：当 cg、a 传入时，按 a.get('action') or 'read'（空串/None 回退 'read'）分派：action=stat 返回 {'ok': True, 'action': 'stat', 'ledger': refindex.Ledger(cg.root).summary(), 'note': 'ref 索引水位（_refindex.json）：files/nodes 是已登记量；last_index.truncated=true 表示最近一次索引被截断。'}；action=check 返回 refindex.check_refs(cg, ledger=refindex.Ledger(cg.root), max_nodes=int(a.get('max_nodes') or refindex.MAX_CHECK)) 的结果并补 action='check' 与 note（max_nodes 假值回落 refindex.MAX_CHECK）；action 为 prune/prune_dangling 返回 refindex.prune_dangling(cg, only_roots=a.get('roots'), dry_run=bool(a.get('dry_run')), max_nodes=int(a.get('max_nodes') or refindex.MAX_CHECK)) 的结果并补 action='prune' 与 note（max_nodes 假值回落常量，dry_run 缺键为 False）；action 为 read/get 时 nid=(a.get('node_id') or '').strip()，若 nid 非空但 cg.get(nid) 为假返回 {'ok': False, 'error': '节点不存在：nid'}，ref 取 a.get('ref') 当且仅当它是 dict，否则若 node 非 None 用 refindex.ref_of(node)，若 ref 仍为假返回 {'ok': False, 'error': '该节点没有 code_ref/doc_ref（不是索引节点）'}，否则返回 refindex.read_ref(ref, root=a.get('root'), ref_kind=ref_kind) 的结果并设 out['node_id']=nid or None；其他 action 抛 ValueError；

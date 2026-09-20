@@ -2556,7 +2556,8 @@ class MdCGOS(MdCG):
     INSIGHT_ACTIONS = ("window", "record", "verify", "list", "report",
                        "reconstruct", "learn", "outlook", "catalog",
                        "fork", "branch_rewrite", "branch_search",
-                       "branch_merge", "branch_discard", "branches")
+                       "branch_merge", "branch_discard", "branches",
+                       "tickets")
 
 # 生效条件：act 取 str(action or "outlook") 去空白并 lower；只读分支 window/list/report/reconstruct/outlook/catalog，记账分支 record/verify（写 contextual 层），落库分支 learn(apply)/reconstruct(apply) 与六分支 act（fork/branch_rewrite/branch_search/branch_merge/branch_discard/branches）；落库与分支类由 _insight_call 的 require_admin 把守；
     def insight(self, action="outlook", **kw):
@@ -2642,6 +2643,18 @@ class MdCGOS(MdCG):
                                     limit=(kw.get("limit") or 3),
                                     window=(kw.get("window") or 200),
                                     actor=actor)
+        if act == "tickets":
+            # 盲区消解票据（阶段三 §5.4，opt-in）：盲区 → 四类任务卡
+            # （research/prototype/grilling/task）经 tasks.upsert 落库挂图。
+            # apply=True 属批量落库（MCP 分发层 require_admin 把守）。
+            from . import blindspot_tickets as _bt
+            types = kw.get("types")
+            return _bt.make_tickets(
+                self,
+                types=(list(types) if isinstance(types, (list, tuple)) else None),
+                limit=(kw.get("limit") or 10),
+                min_blindspot=(kw.get("min_blindspot") or 0),
+                apply=bool(kw.get("apply")), actor=actor)
         if act == "learn":
             lkw = {k: kw[k] for k in ("blindspot_id", "limit", "horizon",
                                       "max_branches") if kw.get(k) is not None}

@@ -1069,6 +1069,19 @@ class MdCG:
             fm.pop(_legacy, None)
             if _val not in (None, ""):
                 fm[_key] = _val
+        # 过期时刻冗余（2026-09-20 补全阶段一声明的设计：nodefile.EXPIRED_AT_FIELD
+        # 注释自书「由 effective_until 派生，供审计/对账免计算直读」，但派生逻辑
+        # 从未落地——scrub._EXPIRY_KEYS 读取侧已消费该键，写入侧缺失即恒空）。
+        # 冗余字段不独立存活：终点在则随终点落、终点失则剔除（防与终点漂移）。
+        _end = None
+        for _k in trust.UNTIL_ALIASES:
+            if fm.get(_k) not in (None, ""):
+                _end = fm.get(_k)
+                break
+        if _end is not None:
+            fm[trust.EXPIRED_FIELD] = _end
+        else:
+            fm.pop(trust.EXPIRED_FIELD, None)
         # 审计 / 血缘向字段（**不进索引白名单** → 索引快照里没有这些键）的统一回读
         # 来源：惰性读节点文件一次、多字段共用。照搬 prev_entry 会让已落盘字段在
         # 下次普通覆写时静默丢失（lifecycle_state / verification_state 两度踩的同一坑）。
