@@ -38,6 +38,7 @@ import render_discipline as R  # noqa: E402
 
 NODE_DIR = "structural"
 TAG_PREFIX = "discipline:"
+BAD_ROOT_PREFIX = "_md_cg_"
 DEFAULT_CARRIER = "本机三 harness（codebuddy / zcode / dsh）的会话上下文与灵枢认知图"
 
 _LINE_NAMES = ("功能名", "生效条件", "子功能", "执行", "验证方式", "不适用条件")
@@ -46,13 +47,29 @@ _CARRIER_RE = re.compile(r"载体/位置：(.*?)；时间：(.*?)；方法：", 
 
 # ---------------------------------------------------------------- 基础工具
 
-# 生效条件：当显式参数 explicit 为真值时以其为候选 root，为假值（None/空串）时回落到环境变量 MDCG_ROOT，二者均假值则返回 None；候选经 expanduser/normpath 后仅当 os.path.isdir 为真才返回该路径，否则返回 None。
+# 生效条件：当显式参数 explicit 为真值时以其为候选 root，为假值（None/空串）时回落到环境变量 MDCG_ROOT，二者均假值则返回 None；候选经 expanduser/normpath 后，若 abspath 的 basename 以小写 "_md_cg_" 开头则 raise SystemExit（工具链产物目录，禁止作认知图 root），当 os.path.isdir 为真才返回该路径，否则返回 None。
 def resolve_root(explicit=None):
-    """认知图 root：显式参数 > MDCG_ROOT 环境变量 > None（跳过）。"""
+    """认知图 root：显式参数 > MDCG_ROOT 环境变量 > None（跳过）。
+
+    `_md_cg_` 前缀守卫（2026-09-20 补，与 mcp_server 的同名守卫同口径）：该前缀目录是
+    md_cg 工具链的**导出/评测产物**（白箱语料 `_md_cg_wisdom_graph`、评测灌库
+    `_md_cg_eval_*` 等，只读或可再生语义），禁止作为认知图 root。历史缺陷实例（本轮）：
+    误传 `--cg-root _md_cg_wisdom_graph` → 投影节点被写进禁止目录，且因 `_new_node_fm`
+    nid 碰撞被静默覆盖。与「root 不可用则跳过」的区别：这是**误配**而非不可用——
+    静默跳过会让误配无声通过，故 fail-closed 抛出。
+    """
     root = explicit or os.environ.get("MDCG_ROOT")
     if not root:
         return None
     root = os.path.normpath(os.path.expanduser(root))
+    base = os.path.basename(os.path.abspath(root)).lower()
+    if base.startswith(BAD_ROOT_PREFIX):
+        raise SystemExit(
+            "[discipline_nodes] root 指向 md_cg 工具链产物目录（`%s` 前缀 = 导出/评测快照，"
+            "只读或可再生语义），禁止作为认知图 root：\n    %s\n"
+            "请指向主认知图目录（本机由 md_cg/datapath.py 的 mdcg_root() 解析："
+            "env MDCG_ROOT > paths.json > 用户级状态根 data/mdcg）。"
+            % (BAD_ROOT_PREFIX, root))
     return root if os.path.isdir(root) else None
 
 
@@ -232,13 +249,17 @@ def _write_node(path, fm, fm_order, body_lines):
         f.write(_fm_render(lines) + "\n".join(body_lines).rstrip() + "\n")
 
 
-# 生效条件：当 exp 含 nac、trigger、sha、no 等键时，以 now 计算 nid="mem_%d" % int(now*1000)，并返回该 nid 与按 exp 内容生成的固定 front matter 行列表。
+# 生效条件：当 exp 含 nac、trigger、sha、no 等键时，以 now 与 exp["no"] 计算 nid="mem_%d%03d" % (int(now*1000), exp["no"])，并返回该 nid 与按 exp 内容生成的固定 front matter 行列表。
 def _new_node_fm(exp, now):
     nac = json.dumps(exp["nac"], ensure_ascii=False)
     cs = json.dumps({"trigger": exp["trigger"], "harness": "codebuddy|zcode|dsh",
                      "source_sha": exp["sha"],
                      "time_window": [now, now + 3600]}, ensure_ascii=False)
-    nid = "mem_%d" % int(now * 1000)
+    # nid 必须**逐条唯一**：原实现 `"mem_%d" % int(now*1000)` 的 now 在 sync 循环外
+    # 只取一次，同批次「新建」的多条纪律因此共用同一 nid → 后写覆盖前写，
+    # 静默只留最后一条（2026-09-20 实测：18 条全进同一个 mem_*.md，17 条丢失）。
+    # 尾部 3 位编码条号，故同批次唯一、跨批次靠毫秒位区分。
+    nid = "mem_%d%03d" % (int(now * 1000), exp["no"])
     fm = [
         "access_count: 0",
         "condition_space: " + cs,

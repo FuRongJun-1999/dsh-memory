@@ -1,0 +1,24 @@
+name: workspace-index-check
+
+# 工作区索引陈化守卫（工作纪律第 18 条：查工作区文件先读 WORKSPACE_INDEX.md）。
+# 索引是「一次生成、长期复用」的定位面，手工件必然陈化（「手写行号必腐化」同构）——
+# 故它由 scripts/workspace_index.py 从 git 追踪面机械生成，本 workflow 守其漂移：
+# ①顶层目录集合 ②根级文件集合 ③职责文案与关键入口 ④正文（归一化后）逐字一致。
+# 计数与 HEAD 是生成时快照，显式不参与校验（见脚本 docstring 的口径说明）。
+#
+# 无 paths 过滤：追踪面任何增删都会让索引陈化，而本步是纯 stdlib + 一次 git ls-files，
+# 秒级无依赖——按 paths 收窄反而会漏掉「新增文件未重生成」这一主场景。
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 工作区索引与仓库一致（陈化即失败）
+        run: python scripts/workspace_index.py --check
