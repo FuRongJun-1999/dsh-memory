@@ -124,8 +124,11 @@ def _tasklist_row(pid):
     按列精确比对，**不用子串包含**——子串会让 pid=441 被 4410 命中（假存活）。
     """
     try:
+        # 显式 utf-8 + replace：只消费 ASCII 的 pid 列，但**不依赖 locale**——
+        # locale 口径与「后代写 UTF-8」不一致时读线程会崩（见 test_subproc_encoding.py）。
         r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
-                           capture_output=True, text=True, errors="replace")
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
     except OSError:
         return None
     for line in (r.stdout or "").splitlines():

@@ -78,7 +78,7 @@ for _ in range(2):
         ["powershell", "-NoProfile", "-Command",
          f"(Get-CimInstance Win32_Process -Filter \"ParentProcessId={p.pid}\" "
          f"| Where-Object {{ $_.CommandLine -like '*--serve*' }}).ProcessId"],
-        capture_output=True, text=True, timeout=30)
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     pids = [x.strip() for x in q.stdout.split() if x.strip().isdigit()]
     pids = [x for x in pids if x not in killed]
     if pids and p.poll() is None:

@@ -102,8 +102,12 @@ def _tasklist_row(pid):
     会让 pid=441 被 4410 命中（假存活）。
     """
     try:
+        # 显式 utf-8 + replace：只消费 ASCII 的 pid 列，但**不依赖 locale**——
+        # 否则子进程后代按 cp936 解 UTF-8 诊断时读线程会崩（2026-09-20 取证，
+        # 见 md_cg/test_subproc_encoding.py 头注）。
         r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
-                           capture_output=True, text=True, errors="replace")
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
     except OSError:
         return None
     for line in (r.stdout or "").splitlines():
@@ -189,7 +193,8 @@ def stop():
     try:
         if os.name == "nt":
             subprocess.run(["taskkill", "/PID", str(pid), "/F"],
-                           capture_output=True, text=True, check=True)
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", check=True)
         else:
             os.kill(pid, 15)
     except (subprocess.CalledProcessError, OSError) as e:

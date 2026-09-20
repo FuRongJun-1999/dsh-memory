@@ -156,7 +156,8 @@ def _repo_base() -> str:
     try:
         url = subprocess.run(
             ["git", "remote", "get-url", "origin"],
-            cwd=ROOT, capture_output=True, text=True, timeout=10,
+            cwd=ROOT, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=10,
         ).stdout.strip()
     except OSError as exc:
         raise SystemExit(f"cogmap_sync 需要 git 读取 origin 远程地址：{exc}") from exc

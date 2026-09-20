@@ -174,7 +174,8 @@ if has_cargo and os.path.isdir(rt_dir):
     tmp7 = tempfile.mkdtemp(prefix="clippy_")
     gen7 = generate_rust_project(old_src, tmp7)
     clip = subprocess.run(["cargo", "clippy", "--release"], cwd=gen7["project_dir"],
-                          capture_output=True, text=True, timeout=180)
+                          capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", timeout=180)
     warn_lines = [l for l in clip.stdout.splitlines() + clip.stderr.splitlines()
                   if l.startswith("warning")]
     check("clippy 零警告", clip.returncode == 0 and not warn_lines,
