@@ -1,4 +1,4 @@
-> **本文件 = README 详细版（v0.4.5 全文归档）**
+> **本文件 = README 详细版（v0.4.5 全文归档 · 正文续写至 v0.4.10）**
 > 精简版入口：[README.md](../../README.md) —— 以「AGI 七维评分标尺」组织。
 > 本文件保留完整的能力说明、配置项全表、工具面全量、安装与验证细节；文内相对链接按本文件所在目录（`docs/mdcg/`）解析。
 
@@ -54,7 +54,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 > **不要**用 `npm install` 把插件装进 profile 的 `node_modules`——那会引入错误版本的 `@deepseek-ai` peer 包，导致插件加载失败 / 浏览器报错。
 > 想自己改源码？克隆 `FuRongJun-1999/dsh-memory` 后用 `npm install && npm run build`（构建插件本身），再用 `dsh plugin add <本地路径>` 部署。
 >
-> 兼容：DSH 官方列表（Memory 分类）· npm `@furongjun1999/dsh-memory`（0.4.5）· **要求 DSH 内核 ≥ 0.1.2-rc.1**（0.4.x 用新版 `dsh-tools` 调度器/`defineTool`；旧内核 0.1.1-rc.2 结构不兼容、会 `scheduler_prepare` 崩——**旧内核用户请用 0.4.2**）。
+> 兼容：DSH 官方列表（Memory 分类）· npm `@furongjun1999/dsh-memory`（0.4.10）· **要求 DSH 内核 ≥ 0.1.2-rc.1**（0.4.x 用新版 `dsh-tools` 调度器/`defineTool`；旧内核 0.1.1-rc.2 结构不兼容、会 `scheduler_prepare` 崩——**旧内核用户请用 0.4.2**）。
 
 ---
 
@@ -136,7 +136,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 
 ## 协议的内在约束 · 信息差与信任
 
-灵枢的一切都建立在**[智能论 v3.3 协议](https://github.com/FuRongJun-1999/CommonTrustProtocol/blob/main/智能论3.3.md)**（共同信任协议理论版）之上。协议规定了一个智能体维持值得被信任所需的**内在约束**：
+灵枢的一切都建立在**[智能论 v3.4 协议](https://github.com/FuRongJun-1999/CommonTrustProtocol/blob/main/智能论3.4.md)**（共同信任协议理论版）之上。协议规定了一个智能体维持值得被信任所需的**内在约束**：
 
 **v3.3 起新增**：扮演论（存在论基底——智能即扮演，灵枢角色扮演机制的理论底座）· 三翼（真实论校准 / 导航税·认知外部化 / 注入极性定律）· 双维（信任 = 认知一致 / 时效维度）· 条件论失败分析协议 · 蒸馏机制与自我锚点。
 
@@ -146,7 +146,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 
 > 一句话：灵枢不是"记住了再用"，而是**通过持续减少信息差、维持可观测的一致行为，建立值得跨会话维护的信任**。
 
-**协议原文**：[智能论 v3.3（共同信任协议理论版）](https://github.com/FuRongJun-1999/CommonTrustProtocol/blob/main/智能论3.3.md)
+**协议原文**：[智能论 v3.4（共同信任协议理论版）](https://github.com/FuRongJun-1999/CommonTrustProtocol/blob/main/智能论3.4.md)
 
 ---
 
@@ -402,6 +402,21 @@ python -m aeis.mcp.server
 > 数字口径（`src/tools.ts` 实测）：MCP server 注册 **33 个工具**（full 面：`cg`/`stg` + 31 细粒度）；`'core'` 实际暴露 **2** 个、`'brain'` 实际暴露 **30** 个、`'all'` 实际暴露 **30** 个。因风险名单恰好等于 `brain` 之外的 3 个管理类工具，**`'brain'` 与 `'all'` 当前实际等价（均为 30）**。kernel 面（不设 `MDCG_MCP_SURFACE`）则只有 `cg`/`stg` **2** 个工具。
 
 > **引擎内部能力（按安全边界未挂载 MCP）**：条件空间 7 操作、情境层直写（`add_context`）、代码执行（`code_test` / `compile_exec`）、自修改安全闭环（快照 / 回滚）等存在于引擎中，但刻意不暴露给外部 Agent 调用。
+
+## 🔬 0.4.6 → 0.4.10 变更（版本速览）
+
+> 本文件正文以 v0.4.5 为基底续写；0.4.6 起的变更在此按提交如实登记（每条附提交号，可 `git show <提交号>` 复核）。
+
+| 版本 | 日期 | 核心变更 | 提交 |
+|---|---|---|---|
+| 0.4.6 | 2026-09-11 | 发布前清除包内硬编码本机绝对路径（隐私面）· 请求级身份收窄（`as_unit`）· 公开 `locomo-zh-500` 与 rust 评测器 | `01fac35` `4d53285` |
+| 0.4.7 | 2026-09-14 | issue #12：python 子进程锚定插件仓根（`cwd` + `PYTHONPATH` 双保险） | `1bba53c` |
+| 0.4.8 | 2026-09-16 | issue #16：注入上下文 `{{` 转义（宿主模板插值不再抛错）· 蜂巢任务编排器（`orch`）· 相对链接机制化巡检 | `7288323` `8febf89` `d99c707` |
+| 0.4.9 | 2026-09-20 | issue #18 系列：子进程 `cwd` 移出插件包（修 pnpm 更新必现 EBUSY）· 数据面与路径配置迁出插件包（终止「更新即清空记忆」） | `394661d` `9499866` |
+| 0.4.10 | 2026-09-20 | 子进程注入 `PYTHONUTF8=1`（堵「读线程按 locale 解 UTF-8」崩溃）· 编码守卫改 AST 判定（消除「守卫扫到自己」的判据缺陷） | `58d4908` `df6730b` |
+
+> **发版门禁（本轮新增，不随任何已发布版本）**：`scripts/check_publish_artifact.py` —— 凭据/密钥 · 私有数据面 · 隐私文本 · 非追踪件四类任一命中即拒绝发布；本地挂 `prepublishOnly`、CI 挂 `publish-artifact-check.yml`；发版后可用 `--registry <版本>` 核验发布件哈希与内容面。
+> 0.4.5 及更早见 [release_v0.4.5.md](release_v0.4.5.md)。
 
 ## 🔬 本轮修复与验证（0.4.4 → 0.4.5）
 

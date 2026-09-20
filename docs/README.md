@@ -23,7 +23,7 @@ docs/
 
 | 文档 | 内容 |
 |---|---|
-| [README 详细版](mdcg/README详细版_v0.4.5.md) | 完整能力说明 · 配置项全表 |
+| [README 详细版](mdcg/README详细版_v0.4.10.md) | 完整能力说明 · 配置项全表 |
 | [发布说明 v0.3.0](mdcg/release_v0.3.0.md) / [v0.4.5](mdcg/release_v0.4.5.md) | 各版变更 / 升级指引 |
 | [工具表 v0.3.0](mdcg/tool_table_v0.3.0.md) | MCP 工具清单 |
 | [功能调用映射表 v0.1](mdcg/功能调用映射表_v0.1.md) | 功能 → 源码行号（管线生成，勿手写行号） |

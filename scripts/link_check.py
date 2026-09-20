@@ -8,7 +8,7 @@
      `docs/mdcg/` 文档里被 GitHub/浏览器按**文档所在目录**解析 → 必断
      （已修：新增 `_rel_from_root` + `doc_dir` 形参）。
   ② 手写区无守卫：`cogmap_sync check` 只守 README 与功能调用映射表两文档的
-     标记段及其链接，其余文档（如 `docs/mdcg/README详细版_v0.4.5.md`、
+     标记段及其链接，其余文档（如 `docs/mdcg/README详细版_v0.4.10.md`、
      规划文档互链）零覆盖 → 文件下移一层后链接静默失效。
 
 本脚本补第 ② 类的通用守卫，并复用管线白名单（`cogmap_sync.FILE_LINK_ALLOWLIST`，

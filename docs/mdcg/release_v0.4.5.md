@@ -22,7 +22,7 @@
 - TypeScript：实验模块归入 `src/lib/`；新增 `src/lib/datapath.ts` 统一数据路径解析（消除相对 / 绝对路径错位），`src/lib/mdcg_client.ts` 为插件侧唯一显式入口；`src/tools.ts` / `src/hooks.ts` / `src/index.ts` 随 MCP 工具面一并调整。
 
 **文档与工程**
-- README 精简重写（以「AGI 七维评分标尺」组织），原文归档为 [README 详细版](README详细版_v0.4.5.md)。
+- README 精简重写（以「AGI 七维评分标尺」组织），原文归档为 [README 详细版](README详细版_v0.4.10.md)。
 - **移除 `docker/`**：该目录对外四个入口**全部不可用**——镜像自述「Docker Hub 待发布」故 `docker run` 必然失败、`npx @lingxu/dsh-memory` 包名错误（实际 `@furongjun1999/dsh-memory`）、`build.sh` 的 aeis 源码取自他仓路径；且主 README 与 CI 对 `docker/` **零引用**，v0.4.x 已从 python 引擎转向 npm 插件。需要时可用 git 历史取回。
 - `package-lock.json` 用当前 npm 重新生成，`npm ci` 可复现。
 - 工作纪律第 15 条：命令执行统一走 python / UTF-8（显式 encoding + `PYTHONUTF8=1`，规避 GBK）。

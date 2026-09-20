@@ -1,0 +1,58 @@
+name: publish-artifact-check
+
+# 发版门禁（产物面内容政策）：本地 `npm publish`（prepublishOnly）与 CI 共用同一判据脚本
+# scripts/check_publish_artifact.py。四类硬失败：R1 凭据/密钥 · R2 私有数据面（白箱 KB 运行时
+# 数据 / 实验区 / 孤节点 / 缓存）· R3 隐私文本（本机与沙箱路径）· R4 非追踪件（包内出现
+# gitignore 面即拦）。退出码 0 通过 / 1 有命中 / 2 环境错误——fail-closed，绝不静默放行。
+#
+# 背景（2026-09-20 取证）：0.4.9 / 0.4.10 发布件实测夹带非追踪件（docs/experiments 2434 件、
+# whitebox_kb 运行时数据、md_cg/knowledge/orphan）；本 workflow 把「发版前机械核验」从人工
+# 记忆变为门禁。已发布版本按使用者裁定不回溯处置，红着即拦下一次发布。
+on:
+  push:
+    paths:
+      - 'package.json'
+      - '.npmignore'
+      - '.gitignore'
+      - 'README.md'
+      - 'scripts/check_publish_artifact.py'
+      - '.github/workflows/publish-artifact-check.yml'
+      - 'lib/**'
+      - 'src/**'
+      - 'md_cg/**'
+      - 'skills/**'
+      - 'dsh/**'
+      - 'codebuddy/**'
+      - 'zcode/**'
+      - 'docs/**'
+  pull_request:
+    paths:
+      - 'package.json'
+      - '.npmignore'
+      - '.gitignore'
+      - 'README.md'
+      - 'scripts/check_publish_artifact.py'
+      - '.github/workflows/publish-artifact-check.yml'
+      - 'lib/**'
+      - 'src/**'
+      - 'md_cg/**'
+      - 'skills/**'
+      - 'dsh/**'
+      - 'codebuddy/**'
+      - 'zcode/**'
+      - 'docs/**'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # npm 由 runner 自带（node 预装）——`npm pack --dry-run` 不需要安装依赖
+      - name: 门禁脚本自检（内置断言：四类规则的正负例 + 不命中自身源码）
+        run: python scripts/check_publish_artifact.py --selftest
+      - name: 产物面政策检查（npm pack --dry-run 清单 × git ls-files 追踪集合）
+        run: python scripts/check_publish_artifact.py
