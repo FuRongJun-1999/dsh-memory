@@ -7,7 +7,9 @@
   ③ 证据不足：仅 1 次记录不冷却；有变化（carried→resolved）→ σ=1.0
   ④ 集成：proposals 端 σ 筛选拦截 → deferred 可审计；enforce_gain=False 放行
   ⑤ explore 留痕 outcomes 实现值（下轮 gain_gate 的裁决输入）
+     + meta_outcomes 并列留痕（D_meta 压力，不改 outcomes 值类型）
   ⑥ 预算豁免：bypass_gain=True 冷却中照常探索且留痕 bypass_gain
+  ⑦ D_meta 压力冷却：终态停滞且压力仍扩大 → 冷却过期也不放行（新分支）
 
 运行：python -m md_cg.test_gain_gate
 """
@@ -18,7 +20,7 @@ import shutil
 import tempfile
 import time
 
-from . import autonomy, metacognition
+from . import autonomy, d_meta, metacognition
 from .fsutil import append_jsonl
 from .mdcos import MdCGOS
 
@@ -49,6 +51,17 @@ def _hist(cg, bid, terminals, t0=None, step=5.0):
         append_jsonl(autonomy._explore_log_path(cg),
                      {"type": "explore", "t": t0 + i * step,
                       "actor": "test", "outcomes": {bid: tml}, "bids": [bid]})
+
+
+def _hist_meta(cg, bid, terminals, delta, t0=None, step=5.0):
+    """同 _hist，但并列留 D_meta 跨轮压力增量（新分支的裁决输入）。"""
+    t0 = time.time() - 10.0 if t0 is None else t0
+    for i, tml in enumerate(terminals):
+        append_jsonl(autonomy._explore_log_path(cg),
+                     {"type": "explore", "t": t0 + i * step,
+                      "actor": "test", "outcomes": {bid: tml}, "bids": [bid],
+                      "meta_outcomes": {"delta": {"unmodeled_growth": delta},
+                                        "proxy": autonomy.DMETA_PROXY}})
 
 
 def main():
@@ -130,6 +143,12 @@ def main():
                      "resolved") for t in rec["outcomes"].values()),
            "⑤b实现值为诚实五态（不编造）")
         ok(rec.get("bypass_gain") is False, "⑤c留痕 bypass_gain=False")
+        mo = rec.get("meta_outcomes") or {}
+        ok(set(mo.get("before") or {}) == set(d_meta.PROXY_KEYS)
+           and mo.get("proxy") == autonomy.DMETA_PROXY,
+           "⑤dexplore 留痕 meta_outcomes.before（D_meta 三代理，并列不改 outcomes）")
+        ok(all(isinstance(v, str) for v in rec["outcomes"].values()),
+           "⑤eoutcomes 值仍为终态字符串（dict 化会使 σ 静默恒 1.0，此处守卫）")
 
         # ---------- ⑥ 预算豁免 ----------
         cg6_root = os.path.join(tmp, "root6")
@@ -152,6 +171,33 @@ def main():
             rec6 = [__import__("json").loads(x) for x in f if x.strip()][-1]
         ok(rec6.get("bypass_gain") is True,
            "⑥b豁免留痕可审计（bypass_gain=True）")
+
+        # ---------- ⑦ D_meta 压力冷却（新分支） ----------
+        cg7_root = os.path.join(tmp, "root7")
+        os.makedirs(cg7_root, exist_ok=True)
+        cg7 = MdCGOS(cg7_root)
+        _hist_meta(cg7, bid, ["carried", "carried"], 0.2)
+        g7 = autonomy.gain_gate(cg7, bid, now=time.time() + 3600.0 + 60.0)
+        ok(g7["sigma"] == 0.0 and "UNDER_PRESSURE" in g7["reason"],
+           "⑦停滞 + 压力仍扩大 → 冷却过期也不放行（DEFER_EXHAUSTED_UNDER_PRESSURE）")
+        ok(g7.get("meta_rising") is True,
+           "⑦b新分支留痕 meta_rising=True（可审计，不静默冷却）")
+        ok(autonomy.gain_gate(cg7, bid, now=time.time())["sigma"] == 0.0,
+           "⑦c冷却内仍走既有分支（口径保持，不重复计算）")
+        cg8_root = os.path.join(tmp, "root8")
+        os.makedirs(cg8_root, exist_ok=True)
+        cg8 = MdCGOS(cg8_root)
+        _hist_meta(cg8, bid, ["carried", "carried"], 0.0)
+        ok(autonomy.gain_gate(cg8, bid,
+                              now=time.time() + 3600.0 + 60.0)["sigma"] == 1.0,
+           "⑦d压力未扩大（delta=0）→ 冷却过期照旧放行（只在上升时延长）")
+        cg9_root = os.path.join(tmp, "root9")
+        os.makedirs(cg9_root, exist_ok=True)
+        cg9 = MdCGOS(cg9_root)
+        _hist(cg9, bid, ["carried", "carried"])
+        ok(autonomy.gain_gate(cg9, bid,
+                              now=time.time() + 3600.0 + 60.0)["sigma"] == 1.0,
+           "⑦e缺 meta_outcomes 键 → 新分支不触发（旧留痕兼容）")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

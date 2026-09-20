@@ -58,8 +58,33 @@ W_BOUNDARY = 0.20
 W_VERIFICATION = 0.25
 W_BALANCE = 0.15
 
+# D_meta 第五维（opt-in，方案 §2.3）：默认 0 = 不参与 composite、不落键、
+# SORT_KEYS 不扩张（默认返回与四维时代逐字节一致，默认零变更纪律）。
+# 显式启用：PREDICTION_META_DIM=<权重>（>0 才生效）
+#           PREDICTION_META_PROXY=<代理名>（缺省 unmodeled_growth；**只取单一
+#           代理**——三代理加权合成违反智能论3.4 DEV-002a）
+# 纪律：导入期读一次环境变量，改值须重载模块；catalog().weights 同步扩张。
+try:
+    W_META = float(os.environ.get("PREDICTION_META_DIM", "0") or 0.0)
+except ValueError:          # 非法值按关闭处理：默认零变更优先，不炸导入
+    W_META = 0.0
+W_META = W_META if W_META > 0 else 0.0
+META_PROXY = os.environ.get("PREDICTION_META_PROXY", "unmodeled_growth")
+
 SORT_KEYS = ("composite", "trend", "verification", "boundary", "balance")
+if W_META > 0:              # 第五维开启时才扩张排序键（默认零变更）
+    SORT_KEYS = SORT_KEYS + ("meta_pressure",)
 LOG_FILE = "_prediction.jsonl"
+
+
+# 生效条件：不适用（无必需形参与分支），恒返回四维权重的自描述 dict；仅当 W_META>0（PREDICTION_META_DIM 显式启用第五维）时追加 meta_pressure 键；
+def _weights():
+    """自描述权重：默认四维逐字节不变，第五维 opt-in 时同步扩张。"""
+    w = {"trend": W_TREND, "boundary": W_BOUNDARY,
+         "verification": W_VERIFICATION, "balance": W_BALANCE}
+    if W_META > 0:
+        w["meta_pressure"] = W_META
+    return w
 
 # 锚点解析纪律（盲区 → 锚点）：推断脚手架与负记忆都不得充当锚点。
 #  - `gap_hint`（待补线索）与 `scene`（情景重构产物）是「推断得出的引子/回放」，
@@ -397,20 +422,30 @@ def channel_posterior(cg, channel=None, limit=HIT_HISTORY_MAX):
                          for ch, hits in sorted(hist.items())}}
 
 
-# 生效条件：传入 cg 与 route 时，trend 取 route 的 confidence、boundary 取 _boundary_consistency(cg, route['path'])、verification 缺省时取 hit_rate(cg)、balance 取 _branch_diversity(route)，并按模块级常量 W_TREND/W_BOUNDARY/W_VERIFICATION/W_BALANCE 加权返回 composite；
+# 生效条件：传入 cg 与 route 时，trend 取 route 的 confidence、boundary 取 _boundary_consistency(cg, route['path'])、verification 缺省时取 hit_rate(cg)、balance 取 _branch_diversity(route)，并按 W_TREND/W_BOUNDARY/W_VERIFICATION/W_BALANCE 加权返回 composite；仅当 W_META>0（PREDICTION_META_DIM 显式启用第五维）时才额外取 d_meta.pressure(d_meta.compute(cg), META_PROXY) 作第五维、落 meta_pressure 键、把 W_META*meta_pressure 计入 composite，关闭时返回键集合与 composite 逐字节不变；
 def score_route(cg, route, verification=None):
-    """D-004 T_pred 四维评分（verification 跨路线共享，来自命中率）。"""
+    """D-004 T_pred 四维评分 + **D_meta 第五维（opt-in）**。
+
+    `verification` 跨路线共享（来自命中率）。第五维 `meta_pressure` 取
+    **单一指定代理**（`PREDICTION_META_PROXY`，缺省 `unmodeled_growth`）——
+    **不做三代理加权合成**（智能论3.4 §2.7.0 DEV-002a）。默认权重 0：
+    不落键、不改 composite、SORT_KEYS 不扩张（默认零变更纪律）。
+    """
     trend = float(route.get("confidence") or 0.0)
     boundary = _boundary_consistency(cg, route.get("path") or [])
     ver = float(verification if verification is not None else hit_rate(cg))
     balance = _branch_diversity(route)
     composite = (W_TREND * trend + W_BOUNDARY * boundary
                  + W_VERIFICATION * ver + W_BALANCE * balance)
-    return {"trend": round(trend, 4), "boundary": boundary,
-            "verification": round(ver, 4), "balance": balance,
-            "composite": round(composite, 4),
-            "weights": {"trend": W_TREND, "boundary": W_BOUNDARY,
-                        "verification": W_VERIFICATION, "balance": W_BALANCE}}
+    out = {"trend": round(trend, 4), "boundary": boundary,
+           "verification": round(ver, 4), "balance": balance,
+           "composite": round(composite, 4), "weights": _weights()}
+    if W_META > 0:                     # 第五维 opt-in：默认不落键
+        from . import d_meta          # 惰性导入：叶子只读模块，防循环
+        mp = d_meta.pressure(d_meta.compute(cg), META_PROXY)
+        out["meta_pressure"] = mp
+        out["composite"] = round(composite + W_META * mp, 4)
+    return out
 
 
 # ---------------------------------------------------------------- 盲区驱动
@@ -1044,8 +1079,7 @@ def catalog():
             "P-T-73/74": "通道贝叶斯后验（Beta-Bernoulli，置信度≠可信度；"
                          "feedback channel 参数 + channel_posterior 查询）",
         },
-        "weights": {"trend": W_TREND, "boundary": W_BOUNDARY,
-                    "verification": W_VERIFICATION, "balance": W_BALANCE},
+        "weights": _weights(),            # 第五维 opt-in 时同步扩张（防文档漂移）
         "calibration": {"min_samples": MIN_SAMPLES,
                         "base_hit_rate": BASE_HIT_RATE,
                         "edge_boost": EDGE_BOOST,

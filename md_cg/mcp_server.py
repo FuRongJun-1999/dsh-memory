@@ -321,13 +321,16 @@ TOOLS = [
                        "情绪=信息差二阶变化 d²D/dt²（§十一）→ 轨迹面；"
                        "自信校准（期望正确率 vs 实际验证通过率，过度自信/过度保守）→ 校准面；"
                        "盲区地图（反复 BLINDSPOT 的查询邻域 + 未解问题，推论三）→ 盲区面；"
-                       "P_gap/P_trust + 情感 d²T/dt²（§十）→ 信任面。"
+                       "P_gap/P_trust + 情感 d²T/dt²（§十）→ 信任面；"
+                       "D_meta 边界压力向量（events_pressure / unmodeled_growth / "
+                       "boundary_violation_rate 各自 [0,1]，**不合成单值**，DEV-002a）"
+                       "→ 边界面。"
                        "action=report 完整报告（含确定性建议）/ trace / calibration / "
                        "blindspots / trust / self_check（回答前自检：该直接答还是先补条件）"
-                       " / history / catalog。只读留痕，不改事实层。",
+                       " / history / d_meta / catalog。只读留痕，不改事实层。",
         "inputSchema": _s("", action=_p("string", "report|trace|calibration|"
                                                 "blindspots|trust|self_check|"
-                                                "history|catalog"),
+                                                "history|d_meta|catalog"),
                           query=_p("string", "self_check 的待答查询"),
                           k=_p("integer", "self_check：相似历史条数"),
                           window=_p("integer", "轨迹/信任的滚动窗口"),
@@ -1190,7 +1193,7 @@ def _consistency_call(cg, a):
     raise ValueError(f"consistency 未知 action：{act}")
 
 
-# 生效条件：当 cg、a 传入时，按 a.get('action') or 'report'（空串/None 回退 'report'）分派，window=int(a.get('window') or 50)（a.get('window') 假值回落 50）：action=report 返回 cg.metacognition_report(window=window)；action=trace 返回 cg.metacognition_trace(window=window)；action=calibration 返回 cg.metacognition_calibration(max_scan=int(a.get('limit') or 2000))（a.get('limit') 假值回落 2000）；action=blindspots 返回 cg.metacognition_blindspots(limit=int(a.get('limit') or 20), window=window)（a.get('limit') 假值回落 20）；action=trust 返回 cg.metacognition_trust(window=window)；action=self_check 返回 cg.self_check(a.get('query') or a.get('text') or '', k=int(a.get('k') or 5))（query/text 假值回落 ''，k 假值回落 5）；action=history 返回 cg.metacognition_history(limit=int(a.get('limit') or 100))（a.get('limit') 假值回落 100）；action=catalog 返回 metacognition.catalog()；其他 action 抛 ValueError；
+# 生效条件：当 cg、a 传入时，按 a.get('action') or 'report'（空串/None 回退 'report'）分派，window=int(a.get('window') or 50)（a.get('window') 假值回落 50）：action=report 返回 cg.metacognition_report(window=window)；action=trace 返回 cg.metacognition_trace(window=window)；action=calibration 返回 cg.metacognition_calibration(max_scan=int(a.get('limit') or 2000))（a.get('limit') 假值回落 2000）；action=blindspots 返回 cg.metacognition_blindspots(limit=int(a.get('limit') or 20), window=window)（a.get('limit') 假值回落 20）；action=trust 返回 cg.metacognition_trust(window=window)；action=self_check 返回 cg.self_check(a.get('query') or a.get('text') or '', k=int(a.get('k') or 5))（query/text 假值回落 ''，k 假值回落 5）；action=history 返回 cg.metacognition_history(limit=int(a.get('limit') or 100))（a.get('limit') 假值回落 100）；action=catalog 返回 metacognition.catalog()；action=d_meta 返回 cg.metacognition_d_meta(window=window)（边界压力向量，三代理各自 [0,1]、不合成单值）；其他 action 抛 ValueError；
 def _metacognition_call(cg, a):
     """独立元认知统一入口（cg op=metacognition 与 mdcg_metacognition 共用）。
 
@@ -1220,6 +1223,8 @@ def _metacognition_call(cg, a):
     if act == "catalog":
         from . import metacognition
         return metacognition.catalog()
+    if act == "d_meta":                    # D_meta 观测面（只读，不合成单值）
+        return cg.metacognition_d_meta(window=window)
     raise ValueError(f"metacognition 未知 action：{act}")
 
 

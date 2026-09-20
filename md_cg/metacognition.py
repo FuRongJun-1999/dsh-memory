@@ -546,6 +546,22 @@ def summary(cg) -> dict:
     }
 
 
+# 生效条件：cg 必需、window 缺省 200；恒转调 d_meta.compute(cg, window=window) 并原样返回其 dict（三代理 + enabled/window/note），d_meta 导入或计算抛异常时返回 {"ok": False, "error": "类型名: 消息"}（不返回编造数值、不写任何状态）；
+def d_meta_face(cg, window: int = 200) -> dict:
+    """D_meta 观测面（边界压力向量）：三代理各自 [0,1]，**不合成单值**。
+
+    智能论3.4 §2.7.0 DEV-002/002a：`D_meta` ≠ `D_task`（不参与 `_compute_d`）；
+    三代理分别观测「进入系统但未被消化」的事件，不是「世界真实未发生的事件」。
+    独立性：只读留痕与索引，不写 confidence / 资格 / 召回打分；`MDCG_D_META=0`
+    时三值恒 0.0 且 note 声明已回退（显式回退留痕，不是缺键）。
+    """
+    try:
+        from . import d_meta
+        return d_meta.compute(cg, window=window)
+    except Exception as exc:                               # noqa: BLE001
+        return {"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)}
+
+
 # 生效条件：无入参且无分支，恒定返回含 module/role/theory/faces/constraints 及由模块常量 GAP_OVERCONFIDENT、GAP_UNDERCONFIDENT、BLINDSPOT_DENSE、D_LOW、MIN_SAMPLES 构成的 thresholds 的静态 dict；
 def catalog() -> dict:
     """自描述：元认知的观测面与独立性约束。"""
@@ -560,7 +576,7 @@ def catalog() -> dict:
             "trust": "P_trust / P_gap（§十）",
         },
         "faces": ["trace", "calibration", "blindspots", "trust", "report",
-                  "self_check"],
+                  "self_check", "d_meta"],
         "constraints": [
             "只读留痕与索引，不写 confidence / 资格 / 召回打分",
             "独立留痕 _metacognition.jsonl（append-only）",

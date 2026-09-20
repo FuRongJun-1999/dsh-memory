@@ -247,7 +247,30 @@ def _fingerprint(state):
 
 # ---------------------------------------------------------------- 聚合（九项）
 
-# 生效条件：对 required 形参 cg，返回预测校准 dict；samples==0 时 ok=False、hit_rate=None 且 note 提示无预测留痕；samples>0 且 th.get("reflect") 为真时 note 建议反思，否则 note 正常；ece 与 calibration 仅在 metacognition.calibration 返回 ok 为真时给出，否则为 None；
+# 生效条件：对 required 形参 cg，返回近 int(window)（缺省 20）条反思留痕里 d_meta.unmodeled_growth 的均值（仅收数值型、bool 不计），无可用留痕时回落 d_meta.pressure(d_meta.compute(cg))，d_meta 不可用或抛异常时返回 None；
+def _d_meta_trend(cg, window: int = 20):
+    """近 window 条反思留痕的 D_meta 边界压力均值（确定性函数，纯读）。
+
+    口径（智能论3.4 §2.7.0 DEV-002a）：只聚合已落盘的
+    `d_meta.unmodeled_growth`——**不合成三代理**、不参与 D_task。
+    留痕无该字段（旧记录/总闸关闭）时回落当前 `d_meta.compute` 的**单一
+    代理**值；两者皆不可用 → None（未知即未知，不编造）。
+    """
+    try:
+        from . import d_meta as _d_meta
+        vals = []
+        for r in metacognition._reflections(cg)[-int(window):]:
+            v = (r.get("d_meta") or {}).get("unmodeled_growth")
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                vals.append(float(v))
+        if vals:
+            return round(sum(vals) / len(vals), 4)
+        return _d_meta.pressure(_d_meta.compute(cg))
+    except Exception:                                      # noqa: BLE001
+        return None
+
+
+# 生效条件：对 required 形参 cg，返回预测校准 dict；samples==0 时 ok=False、hit_rate=None 且 note 提示无预测留痕；samples>0 且 th.get("reflect") 为真时 note 建议反思，否则 note 正常；ece 与 calibration 仅在 metacognition.calibration 返回 ok 为真时给出，否则为 None；d_meta_trend 恒由 _d_meta_trend(cg) 给出（近 20 条反思的 D_meta 单代理均值，不可用时为 None）；
 def _prediction_face(cg):
     """预测校准（第九项）：我预测得准吗、该不该反思？
 
@@ -255,6 +278,8 @@ def _prediction_face(cg):
       · `predict._hit_history` / `predict.dynamic_hit_threshold`
         ← `_prediction.jsonl`（predict_feedback 留痕）
       · `metacognition.calibration` ← evidence_log（verify 留痕）的 ECE
+      · `d_meta.compute` / 反思留痕的 `d_meta` ← 边界压力趋势（d_meta_trend，
+        **不合成三代理**、不参与 D_task：D_task 与 D_meta 对象不同）
 
     诚实边界：无预测留痕 → ok=False、hit_rate=None（未知即未知）；
     ECE 仅在 metacognition 有足够证据时给出，否则 None。绝不编造。
@@ -273,6 +298,7 @@ def _prediction_face(cg):
         cal = metacognition.calibration(cg)
     except Exception:                                      # noqa: BLE001
         cal = {}
+    meta_trend = _d_meta_trend(cg)
     if samples == 0:
         note = "无预测留痕：先 predict_feedback() 积累命中记录"
     elif th.get("reflect"):
@@ -289,6 +315,7 @@ def _prediction_face(cg):
         "reflect": bool(th.get("reflect")),
         "ece": cal.get("ece") if cal.get("ok") else None,
         "calibration": cal.get("verdict") if cal.get("ok") else None,
+        "d_meta_trend": meta_trend,
         "note": note,
     }
 
@@ -415,7 +442,7 @@ def _derive(cg, subject, window, importance, important_refs, dimensions,
 
 # ---------------------------------------------------------------- 写卡
 
-# 生效条件：对 required 形参 state，读取其 information_gap、trust、short_term、dimensions 等字段，渲染并返回末尾带换行的状态卡正文；span 为空时显示（无），角色为空时显示（无）；
+# 生效条件：对 required 形参 state，读取其 information_gap、trust、short_term、prediction、dimensions 等字段，渲染并返回末尾带换行的状态卡正文（含 D_meta 边界压力趋势一行：prediction.d_meta_trend 缺失时显示 None）；span 为空时显示（无），角色为空时显示（无）；
 def _render(state):
     """状态卡正文：人类可读，且与 frontmatter 字段一一对应。"""
     ig, tt = state["information_gap"], state["trust"]
@@ -449,6 +476,8 @@ def _render(state):
         f"；后验可信度={pd.get('beta_mean')}"
         f"（95%CI {pd.get('beta_ci95')}）"
         f"；ECE={pd.get('ece')}（{pd.get('calibration')}）",
+        f"# D_meta：边界压力趋势（unmodeled_growth 均值）={pd.get('d_meta_trend')}"
+        f"（三代理分别观测、不合成单值，不参与 D_task）",
         "# 索引：" + "；".join(
             f"{d}={','.join(dims.get(d) or []) or '-'}" for d in DIMENSIONS),
         "# 说明：本卡是薄自我——只登记当前值与指针；具体任务/人物/会话/"

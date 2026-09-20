@@ -7,6 +7,8 @@
      提案携带证据明细
   ③ 全链路：提案 → learn_blindspots 五态终判 → 留痕 _explore.jsonl
   ④ 幂等：重复 explore 终态一致、gap 回写不重复（gap_<sha1(bid)> 幂等）
+  ⑤ D_meta 排序加分：只进 sort_score 与证据，不改 score、不改资格
+     （零信号查询仍不提案；加分每轮一次、循环内复用）
 
 运行：python -m md_cg.test_autonomy
 """
@@ -103,6 +105,30 @@ def main():
                "④b gap 回写幂等（第二次 written=None，节点已存在）")
         else:
             ok(True, "④b本终态无回写动作，幂等性由判定确定性保证")
+
+        # ---------- ⑤ D_meta 排序加分（只影响排序，不改资格） ----------
+        root5 = os.path.join(tmp, "root5")
+        os.makedirs(root5, exist_ok=True)
+        cg5 = MdCGOS(root5)
+        for i in range(50):
+            append_jsonl(cg5.recent_log, {"i": i})
+        _sig(cg5, 1.0, "零信号查询", 0.0, {})
+        _sig(cg5, 2.0, "反应堆冷却方案", 0.9, {"BLINDSPOT": 2})
+        pr5 = autonomy.proposals(cg5, limit=3)
+        ps5 = pr5["proposals"]
+        ok(len(ps5) == 1 and pr5["n_signals"] == 2,
+           "⑤零信号查询仍不提案、n_signals 按原始信号计（加分不改资格）")
+        p0 = ps5[0]
+        ok(p0["score"] == round(autonomy.W_D2 * p0["d2_abs"]
+                                + autonomy.W_BLINDSPOT * p0["blindspot"]
+                                + autonomy.W_DEFER * p0["defer"], 4),
+           "⑤bscore 仍是纯 ΔD 定价（口径零变更）")
+        ok(p0["sort_score"] == round(p0["score"] + p0["d_meta_bonus"], 4)
+           and p0["d_meta_bonus"] == pr5["d_meta"]["bonus"],
+           "⑤c排序键 = ΔD + D_meta 加分（每轮一次、循环内复用）")
+        ok(p0["d_meta_bonus"] > 0 and "D_meta" in p0["reason"]
+           and "不合成" in p0["reason"],
+           "⑤d加分生效且 reason 追加证据并声明不合成（可审计）")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

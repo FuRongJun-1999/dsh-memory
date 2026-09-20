@@ -3065,6 +3065,11 @@ class MdCGOS(MdCG):
         """自描述：观测面 + 理论出处 + 独立性约束。"""
         return metacognition.catalog()
 
+# 生效条件：在已用 root 构造的实例上以 window（缺省 200）转调 metacognition.d_meta_face(self, window=window) 并返回其结果。
+    def metacognition_d_meta(self, window=200):
+        """D_meta 观测面：边界压力向量（三代理各自 [0,1]，不合成单值）。"""
+        return metacognition.d_meta_face(self, window=window)
+
     # ============ 自我状态层（薄自我 + 富索引）============
     # self 层只放状态卡（单例）+ 关系节点；九项自我信息只登记当前值与指针，
     # 具体任务/人物/会话/时间/信任的细节由认知图按五维索引连接（不搬运内容）。

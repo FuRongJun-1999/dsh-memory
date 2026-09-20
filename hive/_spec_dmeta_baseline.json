@@ -1,0 +1,25 @@
+{
+  "_note": "模板（脱敏后随仓分发）：<REPO_ROOT> = 本仓检出目录。本文件为 D_meta 工程化改动前的「三道门禁基线」留痕（全仓测试 + cogmap check + 纪律门禁），复用价值=任意改动前的基线三连（改动后同 spec 复跑即可逐项对照归因）；运行前须替换全部占位符。",
+  "model": "cmd",
+  "user_prompt": "维生面基线：D_meta 改动前的全仓测试 + 两道门禁（确定性执行，零 LLM）",
+  "cwd": "<REPO_ROOT>",
+  "timeout_s": 3600,
+  "reasoning_effort": "high",
+  "context_budget_tokens": 200000,
+  "fail_fast": false,
+  "timeout_step_s": 1800,
+  "commands": [
+    {
+      "command": ["python", "-X", "utf8", "scripts/run_tests.py", "--jobs", "4"],
+      "label": "full_test_suite_baseline"
+    },
+    {
+      "command": ["python", "-X", "utf8", "scripts/cogmap_sync.py", "check"],
+      "label": "cogmap_check_baseline"
+    },
+    {
+      "command": ["python", "-X", "utf8", "scripts/verify_discipline.py"],
+      "label": "discipline_check_baseline"
+    }
+  ]
+}

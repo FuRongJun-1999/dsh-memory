@@ -2570,7 +2570,7 @@ class MdCG:
 
     # ---------- 五大单元之四：反思 / 验证 / 输出 ----------
 
-# 生效条件：无条件计算 d_prev/_compute_d(query, results) 与 states（results 为假值时 states 为空列表）并尝试追加 reflection_log（OSError 静默吞掉），返回含 user_feedback 的反思 dict；
+# 生效条件：无条件计算 d_prev/_compute_d(query, results)、states（results 为假值时 states 为空列表）与 D_meta 边界压力向量（d_meta.compute(self, query, results)，MDCG_D_META 关闭时三代理恒 0.0），并在追加前取 reflection_log 末条的 d_meta 作前值（无前值时为 None）算出 d_meta_delta，随后尝试追加 reflection_log（OSError 静默吞掉），返回含 user_feedback、d_meta、d_meta_delta 的反思 dict；
     def reflect(self, query: str, results, user_feedback: str = None):
         """反思单元（白箱第 3 篇第 13 章）。
 
@@ -2578,14 +2578,26 @@ class MdCG:
         输出：反思记录（追加到 _reflection.jsonl）
 
         反思内容：
-        - 信息差 D(t,C) 增量
+        - 信息差 D(t,C) 增量（**D_task**：`_compute_d` 口径零变更）
         - 命中节点的资格态分布
         - 是否触发 BLINDSPOT（覆盖率不足）
         - 用户反馈时记录「预测与事实的偏差」→ 知识飞轮的入口
+
+        双 D 分离（智能论3.4 §2.7.0 DEV-002/002a）：**并列**落 `d_meta`
+        （边界压力向量，三代理各自 [0,1]、**不合成单值**）与 `d_meta_delta`
+        （与上一条反思的逐字段差，首条为 None）。D_meta **不参与**
+        `_compute_d`——D_task 与 D_meta 对象不同、数值不互换；此处只做结构性
+        投影落痕，供 predict / autonomy / self_state 三个上层消费。
+        `MDCG_D_META` 关闭时 `d_meta` 三代理恒 0.0 且 `d_meta_delta=None`
+        （显式回退留痕，不是缺键）。
         """
+        from . import d_meta as _d_meta        # 惰性导入：叶子只读模块，防循环
         d_prev = self._last_d()
         d_curr = self._compute_d(query, results)
         states = [r[2]["state"] for r in results] if results else []
+        meta = _d_meta.compute(self, query=query, results=results)
+        recs = self.last_d_records()
+        meta_prev = recs[-1].get("d_meta") if recs else None
         reflection = {
             "t": time.time(),
             "query": query,
@@ -2596,6 +2608,10 @@ class MdCG:
             "states": dict((s, states.count(s)) for s in set(states)),
             "n_results": len(results),
             "feedback": user_feedback,
+            "d_meta": {k: float(meta.get(k) or 0.0)
+                       for k in _d_meta.PROXY_KEYS},
+            "d_meta_delta": (_d_meta.diff(meta_prev, meta)
+                             if meta.get("enabled") else None),
         }
         try:
             append_jsonl(self.reflection_log, reflection)
