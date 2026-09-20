@@ -259,6 +259,31 @@ def parse_package_json(root: str):
         return None
 
 
+def extract_first_json_value(stdout: str):
+    """从混杂输出中提取首个可解析的 JSON 值。
+
+    npm 的生命周期脚本（prepare 等）会向 stdout 打印文本——例：
+    `[prepare] 跳过构建：typescript 未安装（NODE_ENV=production ...）`。
+    故不能以 `find("[")` 定位 JSON 起点：首个 `[` 可能正是该文本的一部分
+    （2026-09-20 CI 取证：本地装了 typescript 故 prepare 静默、CI 未装故打印，
+    导致 CI 恒 exit 2 而本地恒绿）。本函数先按行首 `[` 尝试，再退化遍历任意
+    `[` 位置，用 raw_decode 逐个试解析，取首个可解析的 JSON 值。
+    """
+    decoder = json.JSONDecoder()
+    candidates = [m.start() for m in re.finditer(r"(?m)^\[", stdout)]
+    candidates += [i for i, ch in enumerate(stdout) if ch == "["]
+    seen = set()
+    for idx in candidates:
+        if idx in seen:
+            continue
+        seen.add(idx)
+        try:
+            return decoder.raw_decode(stdout, idx)[0]
+        except ValueError:
+            continue
+    return None
+
+
 def run_npm_pack_dry_run(root: str):
     npm = "npm.cmd" if os.name == "nt" else "npm"
     print("  执行：%s pack --dry-run --json" % npm)
@@ -286,15 +311,10 @@ def run_npm_pack_dry_run(root: str):
         return None
 
     stdout = proc.stdout or ""
-    try:
-        start = stdout.find("[")
-        last = stdout.rfind("]")
-        if start < 0 or last < 0:
-            raise ValueError("未找到 JSON 数组")
-        data = json.loads(stdout[start:last + 1])
-    except Exception as exc:  # noqa: BLE001
-        print("  [环境错误] npm pack --dry-run JSON 解析失败：%s" % exc)
-        print((proc.stdout or "")[:1500])
+    data = extract_first_json_value(stdout)
+    if data is None:
+        print("  [环境错误] npm pack --dry-run JSON 解析失败：未找到可解析的 JSON 值")
+        print(stdout[:1500])
         return None
 
     data0 = data[0] if isinstance(data, list) and data else data
@@ -592,6 +612,15 @@ def selftest() -> bool:
     check(not f_h and len(f_n) == 1, "占位符令牌降级为 NOTE（不计 FAIL）")
     r_h, _ = scan_text_hits(real, R1_CONTENT_RULES, "x.md")
     check(len(r_h) == 1, "真形态令牌仍判 FAIL")
+
+    polluted = "[prepare] 跳过构建：typescript 未安装（NODE_ENV=production）\n[\n  {\"path\": \"a.js\"}\n]\n"
+    parsed = extract_first_json_value(polluted)
+    check(isinstance(parsed, list) and bool(parsed) and parsed[0].get("path") == "a.js",
+          "健壮解析：prepare 文本污染 stdout 时仍能提取清单")
+    clean = "[\n  {\"path\": \"b.js\"}\n]"
+    c_parsed = extract_first_json_value(clean)
+    check(isinstance(c_parsed, list) and c_parsed[0].get("path") == "b.js", "健壮解析：纯净 stdout")
+    check(extract_first_json_value("no json here") is None, "健壮解析：无 JSON 时返回 None")
 
     source_text = Path(__file__).read_text(encoding="utf-8")
     for label, rx in R3_RULES:
