@@ -47,9 +47,12 @@ export interface MdcgOptions {
   args?: string[]
   /** 认知图根目录（MDCG_ROOT）。 */
   root: string
-  /** Python 子进程工作目录，默认**插件仓根**（issue #12：Python 只把 cwd
-   *  注入 sys.path，宿主在插件仓外启动时 `python -m md_cg.mcp_server`
-   *  找不到随包 md_cg → 必然 ModuleNotFoundError → 静默降级只读 guest）。 */
+  /** Python 子进程工作目录，默认 `runRoot()`——**插件包目录之外**的稳定目录
+   *  （issue #18：Windows 不允许删除/改名「正被某进程当作 cwd」的目录，
+   *  cwd 落在包内会让 pnpm 更新本包必然 `ERR_PNPM_EBUSY` 且永不自愈）。
+   *  模块解析**不依赖 cwd**：`python -m` 靠 `PYTHONPATH`
+   *  （见 `pythonPathValue()`）解析随包 md_cg，issue #12 口径不变。
+   *  显式传入本项时完全尊重原值。 */
   cwd?: string
   /** 调用主体标识（MDCG_ACTOR）。私有内容按 (tenant, actor) 派生 DEK，
    *  故与迁移脚本 --actor 必须一致，否则读不到已迁移节点。 */

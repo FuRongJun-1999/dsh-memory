@@ -24,6 +24,14 @@ npm 副本内进程启动于 11:37~11:39，而源码 mtime 为 09:24 → `stale=
   unverified_foreign 无自报且 cwd 非本仓 → 污染源（保守：来源无法确认）
   unknown            无自报且 cwd 取不到 → 未知，不判污染（不误杀）
 
+判据② 与 issue #18 的交互（2026-09-20）：自插件 v0.4.9 起，随包子进程的 cwd 被
+刻意移到**插件包之外**（Windows 下 cwd 落在包内会让 pnpm 更新该包必然
+`ERR_PNPM_EBUSY` 且永不自愈，见 `src/lib/datapath.ts` 的 `runRoot()`）。故：
+①新版进程必带自报 → 判据①命中，cwd 不参与裁决；
+②`repo_direct` 分支现仅可能命中「无自报的旧包 + 恰好以本仓为 cwd」这一边缘组合；
+**不能再用 cwd 判断「进程加载的是哪个安装副本」**（新版一律为包外同一目录），
+副本归属以自报的 `source_dir` 为准。
+
 用法：
   python scripts/mdcg_stale_servers.py list                  # 只读列举（默认）
   python scripts/mdcg_stale_servers.py list --fail-on-stale   # 有污染源/陈旧则退出码 1（重建前置守卫）
