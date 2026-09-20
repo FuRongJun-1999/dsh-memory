@@ -59,7 +59,15 @@ class ColdVerifyQueue:
         self._load_persisted()
 
     def _load_persisted(self):
-        """从队列文件恢复未处理任务（崩溃恢复）。"""
+        """从队列文件恢复未处理任务（崩溃恢复）。
+
+        **加载路径与入口同白名单**（2026-09-20 v15-1 姊妹项）：`enqueue()` 用
+        `_VALID_ACTIONS` 拒收未知 action，加载路径此前却直接 append——队列文件里
+        出现任意字符串都会在 `drain` 时交给 `_process`，落到 `unknown_action`
+        分支（或执行任意已知分支）。「入口校验、加载不校验」是不对称的，而这里
+        的数据来自磁盘（可能被旧版本或手工编辑写坏）。故按同一白名单拒收并
+        计入 `skipped`，不静默放行。
+        """
         if not self._queue_path or not os.path.exists(self._queue_path):
             return
         try:
@@ -69,8 +77,12 @@ class ColdVerifyQueue:
                     if not line:
                         continue
                     task = json.loads(line)
-                    if not task.get("_done"):
-                        self._queue.append(task)
+                    if task.get("_done"):
+                        continue
+                    if task.get("action") not in _VALID_ACTIONS:
+                        self._stats["skipped"] += 1   # 拒收：非法 action 不入队
+                        continue
+                    self._queue.append(task)
         except Exception:                              # noqa: BLE001
             pass  # 崩溃恢复容错：文件损坏就不恢复
 
@@ -178,13 +190,28 @@ class ColdVerifyQueue:
             # 多跳深度传播
             r = trust.propagate(cg, apply=True, actor="coldverify",
                                 **kw)
-            return {"node_id": nid, "action": action, "ok": True,
+            # `ok` 由**内层结论**决定，不得硬编码（2026-09-20 v15-1 修复）：
+            # `trust.propagate` 有失败态（异常路径返回 `ok=False, degraded=True`），
+            # 旧写法一律上报 True。当前内层成功路径恒 ok=True，故本分支行为不变
+            # ——但判据应由内层决定，而不是由「当前恰好没失败」决定。
+            ok = bool(r.get("ok"))
+            if not ok:
+                self._stats["errors"] += 1
+            return {"node_id": nid, "action": action, "ok": ok,
                     "propagation": r}
 
         elif action == "patrol_check":
             # 巡检式检查
             rep = trust.patrol(cg, **kw)
-            return {"node_id": nid, "action": action, "ok": True,
+            # `ok` 由**内层结论**决定（2026-09-20 v15-1 修复，同 v14 缺陷 D 病类）：
+            # `trust.patrol` 的返回是 `{"ok": not dangling, ...}`——**有真实失败态**
+            # （存在悬空依赖即 ok=False）。旧写法 `{"ok": True, ...}` 把内层失败
+            # 翻译成成功、`stats.errors` 恒 0，正是「队列层替内层说假话」。D 只修了
+            # `reverify` 一支，本支与 `propagate_depth` 是同函数内的兄弟分支。
+            ok = bool(rep.get("ok"))
+            if not ok:
+                self._stats["errors"] += 1
+            return {"node_id": nid, "action": action, "ok": ok,
                     "patrol": rep}
 
         return {"node_id": nid, "action": action, "ok": False,

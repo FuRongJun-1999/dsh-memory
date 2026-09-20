@@ -266,12 +266,16 @@ def extract_first_json_value(stdout: str):
     `[prepare] 跳过构建：typescript 未安装（NODE_ENV=production ...）`。
     故不能以 `find("[")` 定位 JSON 起点：首个 `[` 可能正是该文本的一部分
     （2026-09-20 CI 取证：本地装了 typescript 故 prepare 静默、CI 未装故打印，
-    导致 CI 恒 exit 2 而本地恒绿）。本函数先按行首 `[` 尝试，再退化遍历任意
-    `[` 位置，用 raw_decode 逐个试解析，取首个可解析的 JSON 值。
+    导致 CI 恒 exit 2 而本地恒绿）。本函数先按行首起点尝试，再退化遍历任意
+    起点，用 raw_decode 逐个试解析，取首个可解析的 JSON 值。
+
+    起点候选覆盖**数组与对象两形态**（2026-09-20 v15-8）：旧实现只扫 `[`，
+    纯对象型 stdout（`{...}`）恒返回 None。`npm pack --json` 实际恒为数组，
+    该缺陷无实践影响——但「首个可解析的 JSON 值」这一契约不该只认一种形态。
     """
     decoder = json.JSONDecoder()
-    candidates = [m.start() for m in re.finditer(r"(?m)^\[", stdout)]
-    candidates += [i for i, ch in enumerate(stdout) if ch == "["]
+    candidates = [m.start() for m in re.finditer(r"(?m)^[\[{]", stdout)]
+    candidates += [i for i, ch in enumerate(stdout) if ch in "[{"]
     seen = set()
     for idx in candidates:
         if idx in seen:
@@ -621,6 +625,10 @@ def selftest() -> bool:
     c_parsed = extract_first_json_value(clean)
     check(isinstance(c_parsed, list) and c_parsed[0].get("path") == "b.js", "健壮解析：纯净 stdout")
     check(extract_first_json_value("no json here") is None, "健壮解析：无 JSON 时返回 None")
+    obj_polluted = "[prepare] 跳过构建\n{\"files\": [{\"path\": \"c.js\"}]}\n"
+    o_parsed = extract_first_json_value(obj_polluted)
+    check(isinstance(o_parsed, dict) and bool(o_parsed.get("files")),
+          "健壮解析：纯对象型 stdout 亦可提取（v15-8：候选起点含 {）")
 
     source_text = Path(__file__).read_text(encoding="utf-8")
     for label, rx in R3_RULES:

@@ -280,6 +280,15 @@ check("D12b 回喂消息保尾 + 非静默省略提示",
       and tool_msg["content"].count("B") > 1000
       and "tool_0_0.json" in tool_msg["content"],
       str(len(tool_msg["content"])))
+
+# v15-3：落盘面同样封顶（超长输出不得无上限写盘）
+huge = "C" * (ex.TOOL_DUMP_MAX_CHARS + 5000)
+_, huge_name = ex._shrink_tool_text(huge, tmp_job, "9_9")
+huge_spill = open(os.path.join(tmp_job, huge_name), encoding="utf-8").read()
+check("D12c 落盘受 TOOL_DUMP_MAX_CHARS 上限约束（截断并标注）",
+      bool(huge_name) and len(huge_spill) <= ex.TOOL_DUMP_MAX_CHARS + 200
+      and "落盘截断" in huge_spill,
+      "%s -> %d" % (huge_name, len(huge_spill)))
 check("D12c 进展卡逐轮留痕（tool/final 两类条目）",
       os.path.isfile(os.path.join(tmp_job, ex.PROGRESS_FILE)))
 _pe = [json.loads(x) for x in open(os.path.join(tmp_job, ex.PROGRESS_FILE),

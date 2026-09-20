@@ -22,7 +22,10 @@
 · 违例 = 文本模式却无 `encoding=` 实参；`**kwargs` 透传且**该调用确有管道**
   （`capture_output` 或 stdout/stderr=PIPE）而无 `encoding=` 报「不可判定」——口径无法
   确认即不合格，须显式声明；`os.popen` 直接违例（该 API 无法声明编码）。
-  注：输出落 DEVNULL/日志文件且无管道的 `Popen` **不判**——它根本不经过解码器。
+  注：DEVNULL/日志文件豁免**仅适用于 `**kwargs` 透传分支**（口径无法确认时的收敛：
+  有管道才判）；显式 `text=True` 时即使输出落 DEVNULL **仍判违例**——守卫的取向是
+  「口径无法确认即不合格」，宁可保守（2026-09-20 v15-7 口径澄清：头注原写「输出落
+  DEVNULL/日志文件且无管道的 Popen 不判」未限定分支，与实现不符）。
 > 之所以不用文本窗口：窗口会把**字符串字面量与文档样例**当调用（守卫曾因此自伤，
 > 把自身源码里的 `"os.popen("` 字串判为违例）——AST 只认语法意义上的调用，无此缺陷。
 
@@ -132,7 +135,8 @@ class _Scanner(ast.NodeVisitor):
                             % (self.rel, node.lineno, fname))
                 elif has_star and self._piped(kws):
                     # **kwargs 透传且确有管道：口径不可判定（可能被调用方注入 text=True）→ 不合格。
-                    # 输出落 DEVNULL/文件且无管道的调用不判——不经过解码器，无该缺陷面。
+                    # **kwargs 透传但无管道（输出落 DEVNULL/日志文件）不判——不经过解码器，无该缺陷面。
+                    # 注意豁免**只管这一支**：显式 text=True 即使落 DEVNULL 也走上一支判违例（v15-7）。
                     self.bad.append(
                         "%s:%d: subprocess.%s(..., **kwargs) 无法确认编码口径，"
                         "须显式声明 encoding=" % (self.rel, node.lineno, fname))

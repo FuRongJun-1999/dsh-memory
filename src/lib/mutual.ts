@@ -152,7 +152,18 @@ export async function ensureHarness(python = defaultPython(),
         // 同 mdcg_client：cwd 必须在包外（否则 pnpm 更新时 rmdir 包目录被 Windows
         // 拒绝 → ERR_PNPM_EBUSY）；模块解析由 PYTHONPATH 保证，见 datapath.runRoot()。
         cwd: runRoot(),
-        env: { ...process.env, PYTHONPATH: pythonPathValue() },
+        // 两条编码注入与 mdcg_client.mdcgChildEnv() 同口径（2026-09-20 v15-9）：
+        // 本站点此前只给 PYTHONPATH，是「唯一构造点」主张下**未表态**的 Python 站点
+        // （v15b 结构扫描：Python 目标 3 站点、走构造点 0 个、两条编码变量全缺 2 个）。
+        // 此处**不引** mdcgChildEnv()：它构造的是 md_cg 子进程环境（带 MDCG_ROOT /
+        // MDCG_MCP_SURFACE / MDCG_MCP_* 等，对 harness.guardian 无意义）；只对齐编码口径。
+        // 站点表态由 test/python-utf8-mode.test.ts ④（站点扫描）机械守护。
+        env: {
+          ...process.env,
+          PYTHONPATH: pythonPathValue(),
+          PYTHONUTF8: '1',
+          PYTHONIOENCODING: 'utf-8',
+        },
       })
     } catch (e) {
       log(opts, `守护失败：${String(e)}`)

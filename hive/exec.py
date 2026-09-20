@@ -356,6 +356,7 @@ VERIFICATION_BASIS_ALLOW = ("compiler", "test", "measurement", "formal_proof",
                             "data", "textbook", "public_kb", "other")
 TOOL_MSG_MAX_CHARS = 4000    # 工具结果回喂模型的单条截断（防上下文爆炸）
 TOOL_MSG_TAIL_CHARS = 1200   # 截断时保尾长度（Pi⑦③：错误/收尾信息在尾部）
+TOOL_DUMP_MAX_CHARS = 200000  # 工具结果**落盘**上限（2026-09-20 v15-3：磁盘面同样封顶）
 DEFAULT_MAX_TOOL_ROUNDS = 5
 
 # ------------------------------------------------- 读放开 · 写严格（2026-09-19 裁定）
@@ -766,7 +767,7 @@ def _list_dir(real: str) -> dict:
             "entries": entries[:READ_DIR_MAX]}
 
 
-# 生效条件：当 path 可 utf-8 errors=replace 打开、offset>=1、limit>=1、max_chars>=1 时，逐行流式读取：从第 offset 行起收集至多 limit 行且累计字符 <= max_chars（单行超限时**截断该行到上限内**）；文件字节数 <= READ_FULL_BYTES 时继续数到 EOF 返回精确 lines_total，超过则提前停并将 lines_total 记 None；返回 (content, lines_total|None, lines_returned, truncated, 替换符个数)；
+# 生效条件：当 path 可 utf-8 errors=replace 打开、offset>=1、limit>=1、max_chars>=1 时，逐行流式读取：从第 offset 行起收集至多 limit 行且累计字符 <= max_chars（触顶时**当前行截到剩余额度内**，单行与多行同口径、可能产出半行）；文件字节数 <= READ_FULL_BYTES 时继续数到 EOF 返回精确 lines_total，超过则提前停并将 lines_total 记 None；返回 (content, lines_total|None, lines_returned, truncated, 替换符个数)；
 def _read_text_window(path: str, offset: int, limit: int,
                       max_chars: int, size: int) -> tuple:
     """行窗读取：流式（大文件不进内存），行总数要么精确要么诚实记 None。
@@ -776,7 +777,13 @@ def _read_text_window(path: str, offset: int, limit: int,
     上限内，而不是整行放行。旧实现在这种文件上把 `max_chars`（乃至
     `READ_HARD_CHARS` 这个自称「硬上限、不可协商」的常量）**完全架空**——
     实测 `max_chars=100` 回吐 5,000,000 字符、`limit=1` 亦然，足以撑爆
-    调用方（LLM 宿主）上下文。多行文件仍按整行收（行粒度软上限语义不变）。
+    调用方（LLM 宿主）上下文。
+
+    **多行同样受该硬上限约束**（2026-09-20 v15-6 口径收敛）：累计触顶时
+    **当前行也被截到剩余额度内**，故可能产出**半行**（`max_chars=10` 读
+    `L1\\nL2\\nL3\\nL4` 得 `'L1\\nL2\\nL3\\nL'`，`lines_returned=4` 计的是
+    「部分行」）。旧 docstring 称「多行文件仍按整行收（行粒度软上限语义不变）」
+    **与实现不符**——此处按「保留硬上限行为、改文档」收敛（硬上限是安全侧）。
     """
     out, chars, n, total, exact = [], 0, 0, 0, True
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -968,7 +975,8 @@ def _empty_turn(msg: dict) -> bool:
 
 # 生效条件：当 text/job_dir/tag 传入时，若 len(text)<=TOOL_MSG_MAX_CHARS 返回 (text,'')；否则若 job_dir 为真且 os.path.isdir(job_dir) 为真，则尝试把 text 写入 job_dir/tool_{tag}.json，成功 name=该文件名，OSError 则 log 并把 name=''；最终返回 (text[:TOOL_MSG_MAX_CHARS-TOOL_MSG_TAIL_CHARS]+省略说明+text[-TOOL_MSG_TAIL_CHARS:], name)；
 def _shrink_tool_text(text: str, job_dir: str | None, tag: str) -> tuple:
-    """大输出全量落盘 + 回喂消息保尾（Pi⑦③，对齐 exec_cmd._dump_step/_render）。
+    """大输出落盘（受 TOOL_DUMP_MAX_CHARS 上限）+ 回喂消息保尾（Pi⑦③，对齐
+    exec_cmd._dump_step/_render）。
 
     小输出原样返回（历史行为逐位一致）。→ (喂给模型的文本, 落盘文件名或 "")
     """
@@ -977,9 +985,19 @@ def _shrink_tool_text(text: str, job_dir: str | None, tag: str) -> tuple:
     name = ""
     if job_dir and os.path.isdir(job_dir):
         name = f"tool_{tag}.json"
+        # 落盘面同样受字符上限约束（2026-09-20 v15-3 修复）：旧实现把原始输出
+        # **全量**写盘——回喂面已收紧而磁盘面无天花板（实测落盘 60226 bytes ≈
+        # 原始输出），单行 5MB 文件（minified JS / 单行大 JSON）会让 job 目录
+        # 持续堆积大文件。上限取 TOOL_DUMP_MAX_CHARS（远高于回喂的
+        # TOOL_MSG_MAX_CHARS，保留「回查完整输出」的价值），超出部分截断并标注。
+        payload = text
+        if len(payload) > TOOL_DUMP_MAX_CHARS:
+            payload = (payload[:TOOL_DUMP_MAX_CHARS]
+                       + f"\n…（落盘截断：原文 {len(text)} 字符，"
+                         f"落盘上限 {TOOL_DUMP_MAX_CHARS}）…\n")
         try:
             with open(os.path.join(job_dir, name), "w", encoding="utf-8") as f:
-                f.write(text)
+                f.write(payload)
         except OSError as e:
             log(job_dir, f"工具输出落盘失败: {e}")
             name = ""

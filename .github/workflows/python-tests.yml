@@ -1,0 +1,30 @@
+name: python-tests
+
+# Python 侧全量套件接入 CI（2026-09-20 v15-2 修复）。
+#
+# 为什么必须有：此前 6 个 workflow **无一**调用 `scripts/run_tests.py`，147 目标的
+# Python 套件完全在 CI 之外——于是 `md_cg/test_datapath_root`（一条只在 Windows 成立的
+# 断言）从入库那刻起就在 POSIX 上红着，而**没有任何流水线会拦下它**：
+# 「干净克隆上全绿」这一对外承诺因此长期不成立且无人可见。红基线看得见，才有自愈闭环。
+#
+# 刻意**不加 paths 过滤**：套件覆盖面横跨 md_cg/、hive/、compiler/、swarm/、scripts/，
+# 任何一处改动都可能让它变红；paths 白名单一旦漏项就会重现「改动不入门禁」的盲区
+# （20260915 cogmap-check 已有前例）。全量跑换「红基线必然可见」。
+#
+# CI 与部署侧的差异是**设计内**的：无真源数据面的目标由 `run_tests.py` 按依赖检查
+# SKIP（如实标记跳过理由，不是假绿）。
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Python 全量套件（scripts/run_tests.py）
+        run: python scripts/run_tests.py --jobs 4

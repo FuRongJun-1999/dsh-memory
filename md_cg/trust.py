@@ -734,6 +734,13 @@ def propagate(cg, *, apply: bool = False, max_nodes: int = MAX_NODES_DEFAULT,
     `propagate` 正式传播」这一最常见序列会使多跳传播**整体失效**
     （`reachable`/`updated` 全 0）且**无任何报错**。穿过的节点在
     `passed_doubted` 中如实透出（可审计）。
+
+    **`reachable` / `updated` 的口径**（2026-09-20 v15-4 澄清，勿读成「波及集
+    大小」）：两者计的是「本次**需要新标记**的节点数」——`apply=False` 时 =
+    计划标记数（`planned` 的长度），`apply=True` 时 = 实际标记成功数（`done` 的
+    长度）。**穿过的 `doubted` 中继不计入**（它早已被标记，本次幂等跳过）。故
+    「本次的完整波及集」= `reachable`（或 `updated`）+ `passed_doubted`，只读
+    前者会低估。`roots` 是传播起点（`expired`/`rechecking`），不属于波及集。
     """
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     dep_map = dependents_index(cg)

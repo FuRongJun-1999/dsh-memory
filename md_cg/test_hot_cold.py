@@ -166,6 +166,34 @@ def main():
     ok(q2.status()["queue_size"] >= 1, "崩溃恢复：队列文件恢复未处理任务")
     q2.clear()
 
+    # ------------------------------------------- ⑪ 回执由内层决定 + 加载白名单（v15-1）
+    phase("⑪ 冷队列回执诚实（ok 由内层决定）")
+    dang = "mem_dangling_v15"
+    cg.add(dang, ccg("悬空依赖者", ["mem_不存在"]), layer="knowledge",
+           depends_on=["mem_不存在"])
+    q3 = coldverify.ColdVerifyQueue(root=tmp)
+    q3.enqueue(dang, action="patrol_check")
+    reps = q3.drain(cg)
+    ok(reps[0]["patrol"]["ok"] is False, "内层 patrol 检出悬空（ok=False）")
+    ok(reps[0]["ok"] is False, "回执 ok 由内层决定，不硬编码 True（v15-1）")
+    ok(q3.status()["stats"]["errors"] >= 1, "悬空不得上报为成功：errors 计数")
+
+    q4 = coldverify.ColdVerifyQueue(root=tmp)
+    q4.enqueue(dang, action="propagate_depth")
+    rp = q4.drain(cg)
+    ok(rp[0]["ok"] is True, "propagate_depth 内层成功 → 回执 ok=True")
+    ok(isinstance(rp[0]["ok"], bool), "ok 是内层结论的布尔投影")
+
+    # 加载路径与入队同白名单（v15-1 姊妹项）：非法 action 拒收、合法 action 恢复
+    qpath = os.path.join(tmp, coldverify.QUEUE_FILE)
+    with open(qpath, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"node_id": "mem_bad", "action": "rm_rf"}) + "\n")
+        fh.write(json.dumps({"node_id": "mem_good", "action": "reverify"}) + "\n")
+    q5 = coldverify.ColdVerifyQueue(root=tmp)
+    ok(q5.status()["queue_size"] == 1, "加载路径只收合法 action（非法拒收）")
+    ok(q5.status()["stats"]["skipped"] >= 1, "非法 action 计入 skipped（可审计）")
+    q5.clear()
+
     # ---------------------------------------------------------------- 回归确认
     phase("回归确认")
     # 热缓存不影响非缓存查询结果正确性

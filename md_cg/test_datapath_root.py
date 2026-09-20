@@ -167,7 +167,18 @@ class DatapathRootTest(unittest.TestCase):
         with open(dp.legacy_paths_file(), encoding="utf-8") as fh:
             self.assertEqual(json.load(fh)["data_root"], "D:/old", "旧件只读，不被改写")
         self.assertEqual(dp.paths_file_source(), "user")
-        self.assertEqual(dp.mdcg_root(), os.path.abspath(os.path.join("E:/new", "mdcg")))
+        # 可移植断言（2026-09-20 v15-2 修复）：`E:/new` 在 Windows 上是**绝对**路径，
+        # 在 POSIX 上是**相对**路径（`os.path.isabs("E:/new")` 为 False）——datapath
+        # 据此走不同分支（绝对：直接 abspath；相对：拼 `plugin_root()`）。旧断言一律按
+        # 「绝对路径 + 进程 cwd」求值，于是**只在 Windows 成立**，POSIX 上必红
+        # （测试自身不可移植，非实现错）。此处用**与实现同一判据**复算期望值，两分支皆覆盖。
+        base = (os.path.abspath("E:/new") if os.path.isabs("E:/new")
+                else os.path.abspath(os.path.join(dp.plugin_root(), "E:/new")))
+        self.assertEqual(dp.mdcg_root(), os.path.join(base, "mdcg"))
+        # 与平台无关的同一判据（POSIX 与 Windows 皆成立，不依赖 isabs 分支走向）：
+        # 本次只写了 data_root 键（未写 root 键），故认知图根必落在 data_root/mdcg 下。
+        self.assertEqual(dp.mdcg_root(), os.path.join(dp.data_root(), "mdcg"),
+                         "mdcg_root 必须落在 data_root()/mdcg（跨平台同一断言）")
         self.assertTrue(os.path.isdir(legacy))          # 迁移职责不在 set_user_root
 
     # describe(): 留痕字段齐备（启动日志与心跳消费）
