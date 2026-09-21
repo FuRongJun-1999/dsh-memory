@@ -117,7 +117,9 @@ TOOLS = [
                           on_conflict=_p("string", "冲突处置：reject（默认，抛错）|defer（不写）|record（记录放行）"),
                           condition_space=_p("object", "条件空间"),
                           verification_basis=_p("string", "验证基底"),
-                          non_applicable_conditions=_p("array", "不适用条件")),
+                          non_applicable_conditions=_p("array", "不适用条件"),
+                          session=_p("string", "归属会话 id（frontmatter.session；"
+                                     "autoRecall 读取侧按同一 id 过滤，实现会话隔离）")),
                           },
     {
         "name": "mdcg_recall",
@@ -959,7 +961,9 @@ KERNEL_TOOLS = [
             layer=_p("string", "限定层"), limit=_p("integer", "返回条数"),
             desc=_p("boolean", "timeline 是否倒序（默认是）"),
             time_axis=_p("string", "时间轴：observed（观察轴 temporal/time_window，"
-                                   "缺省）| effective（效力轴 effective_from/until）")),
+                                   "缺省）| effective（效力轴 effective_from/until）"),
+            session=_p("string", "timeline 会话归属过滤（frontmatter.session；"
+                       "autoRecall 按此隔离会话；缺省不过滤）")),
     },
 ]
 
@@ -2860,7 +2864,8 @@ def _stg_call(cg, a):
     if op == "timeline":
         return stg.timeline(cg, layer=a.get("layer"),
                             limit=int(a.get("limit") or 50),
-                            desc=bool(a.get("desc", True)), time_axis=axis)
+                            desc=bool(a.get("desc", True)), time_axis=axis,
+                            session=a.get("session"))
     if op == "anchors":
         return stg.anchors(cg, time_window=a.get("time_window"), bbox=a.get("bbox"),
                            layer=a.get("layer"), limit=int(a.get("limit") or 50),
@@ -2948,7 +2953,8 @@ def _dispatch(cg, name, args):
                 consistency=bool(a.get("consistency", True)),
                 on_conflict=a.get("on_conflict") or "defer",
                 derived_from=_split_ids(a.get("derived_from")),
-                relation=a.get("relation"))
+                relation=a.get("relation"),
+                session=a.get("session"))
             res.setdefault("ok", res.get("verdict") == "ACCEPT")
             return res
         written = cg.add(nid, a.get("content", ""), layer=a.get("layer") or "knowledge",
@@ -2961,7 +2967,8 @@ def _dispatch(cg, name, args):
                          consistency=bool(a.get("consistency", True)),
                          on_conflict=a.get("on_conflict") or "reject",
                          derived_from=_split_ids(a.get("derived_from")),
-                         relation=a.get("relation"))
+                         relation=a.get("relation"),
+                         session=a.get("session"))
         if written is None:
             return {"ok": False, "id": nid, "verdict": "DEFER",
                     "reason": "节点间冲突检测未通过（on_conflict=defer）"}

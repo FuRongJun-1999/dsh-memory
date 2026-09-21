@@ -209,7 +209,11 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       try {
         // 异步取最近记忆节点（失败静默——不阻塞模型请求）
         if (graph.isReady()) {
-          const text = formatTimelineDecayed(await graph.timeline(recallLimit))
+          // 会话隔离（fix 跨对话串台）：只取本会话写入的记忆
+          // （frontmatter.session 过滤；写入侧 session/event 声明同一 id）。
+          // push 策略不动：仍每步 push，由宿主比对渲染快照去重（v0.4.8+ 契约）。
+          const sid = (_ctx as { agent?: { session?: { id?: string } } })?.agent?.session?.id ?? ''
+          const text = formatTimelineDecayed(await graph.timeline(recallLimit, sid ? { session: sid } : {}))
           if (text) {
             // 注入边界转义（issue #16）：宿主 system-prompt 对 context 文本做严格
             // `{{variable}}` 插值，裸 `{{` 会 throw → 该轮请求整体失败。记忆原文
@@ -226,7 +230,11 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
     })
   }
 
-  ctx.on('session/event', (_session, event: SessionEvent) => {
+  ctx.on('session/event', (session, event: SessionEvent) => {
+    // 会话隔离（fix 跨对话串台）：写入时声明归属会话（frontmatter.session），
+    // 读取侧 autoRecall 按同一 id 过滤。
+    const sid = session?.id
+    const sessionTag = sid ? { session: sid } : {}
     if (event.type === 'user/message' && opts.userMessage) {
       // 只记真实用户输入（kind='user'），跳过插件注入/系统上下文
       if (event.data.source?.kind !== 'user') {
@@ -240,7 +248,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       const safe = sanitize(text)  // 脱敏：纯凭据消息 → null → 跳过写入
       if (safe === null) return
       memorize('user', (g) => g.remember(safe, {
-        role: 'user', tags: ['dsh', 'user'], importance: opts.importance,
+        role: 'user', tags: ['dsh', 'user'], importance: opts.importance, ...sessionTag,
       }))
       // T4：用用户消息做一次语义召回——md_cg 的读取会记 access log（复用观测，
       // 供 importance / scrub 陈旧度使用），同时预热检索路径。
@@ -252,7 +260,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       const safe = sanitize(text)
       if (safe === null) return
       memorize('assistant', (g) => g.remember(safe, {
-        role: 'assistant', tags: ['dsh', 'assistant'], importance: opts.importance * 0.8,
+        role: 'assistant', tags: ['dsh', 'assistant'], importance: opts.importance * 0.8, ...sessionTag,
       }))
     } else if (event.type === 'tool/result' && opts.toolResult) {
       if (event.data.error) return
@@ -261,7 +269,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       const safe = sanitize(text)
       if (safe === null) return
       memorize('tool', (g) => g.remember(safe, {
-        role: 'tool-output', tags: ['dsh', 'tool'], importance: opts.importance * 0.6,
+        role: 'tool-output', tags: ['dsh', 'tool'], importance: opts.importance * 0.6, ...sessionTag,
       }))
     }
   })
