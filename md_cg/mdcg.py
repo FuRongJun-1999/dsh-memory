@@ -835,6 +835,9 @@ class MdCG:
                         # G8 派生溯源：frontmatter 声明入索引 → 悬空巡检零读文件
                         "derived_from": fm.get("derived_from") or [],
                         "derived_relation": fm.get("derived_relation"),
+                        # 会话隔离（fix 跨对话串台）：session 入索引快照，
+                        # search/timeline 的 session 过滤免读文件即可生效
+                        "session": fm.get("session"),
                     })
         # 索引序确定性：按 nid 排序返回。os.walk 的遍历序是**文件系统事实**
         # （NTFS 上常为字母序，但换 FS / 目录碎片化后不保证），若直接作为

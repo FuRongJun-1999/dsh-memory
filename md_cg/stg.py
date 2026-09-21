@@ -145,7 +145,8 @@ def _scan(cg, layer=None, max_scan=5000):
                   trust.EFFECTIVE_UNTIL_FIELD: e.get(trust.EFFECTIVE_UNTIL_FIELD),
                   trust.FROM_FIELD: e.get(trust.FROM_FIELD),
                   trust.UNTIL_FIELD: e.get(trust.UNTIL_FIELD),
-                  "condition_space": {"time_window": e.get("time_window")}}
+                  "condition_space": {"time_window": e.get("time_window")},
+                  "session": e.get("session")}
         else:
             fm, _content = cg._read(e)
             if fm is None:
@@ -213,10 +214,16 @@ def relation(cg, a_id, b_id, time_axis="observed"):
 
 # 生效条件：以 _scan(cg,layer=layer,max_scan=max_scan) 为范围，_interval(n["frontmatter"], time_axis) 为 None 的节点被跳过，其余按 (start,end) 以 reverse=bool(desc) 排序，返回 count=全部命中数、limit=传入 limit、items 为排序后前 limit 项（limit=0 时为空列表）且每项附 _preview(cg,id)（time_axis 缺省 observed，与旧行为逐位一致；非法轴抛 ValueError）。
 def timeline(cg, layer=None, limit=50, desc=True, max_scan=5000,
-             time_axis="observed"):
-    """按时间排序的节点列表。`time_axis` 决定排序依据的时间区间（见 `_interval`）。"""
+             time_axis="observed", session=None):
+    """按时间排序的节点列表。`time_axis` 决定排序依据的时间区间（见 `_interval`）。
+
+    session（fix 跨对话串台）：非空时只返回 frontmatter.session == session
+    的节点——autoRecall 注入按此只取本会话记忆；未声明 session 的历史节点
+    在过滤模式下不参与（宁缺勿串）。"""
     items = []
     for n in _scan(cg, layer=layer, max_scan=max_scan):
+        if session and n["frontmatter"].get("session") != session:
+            continue
         iv = _interval(n["frontmatter"], time_axis)
         if iv is None:
             continue
