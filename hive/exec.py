@@ -1127,6 +1127,15 @@ def run_with_tools(spec: dict, messages: list, job_id: str,
                      tool_rounds=rnd)
             return out
         if rnd >= max_rounds:  # 超轮次仍要求工具 → 强制终答
+            # 加固（2026-09-22 实测缺陷）：直接原样重发会让模型继续输出「工具调用
+            # 意图文本」（观测：DSML 原文漏进最终 content）。附加一条明确指令，
+            # 要求以纯文本收口；不再回灌工具结果。
+            messages.append({
+                "role": "user",
+                "content": ("[系统] 工具调用轮次已用尽，本轮起不再执行任何工具。"
+                            "请基于以上已获得的信息直接输出最终文本结论；"
+                            "不要再输出任何工具调用语法或调用意图。"),
+            })
             try:
                 data = _post_chat(build_body(spec, messages, tools=None),
                                   timeout)

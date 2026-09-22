@@ -495,6 +495,14 @@ def main() -> int:
     spec["tools"] = tools
     if not (spec.get("system_prompt") or "").strip():
         spec["system_prompt"] = ORCH_SYSTEM_PROMPT
+    # 编排任务的工具轮次下限（2026-09-22 实测缺陷）：exec.py 默认 5 轮对
+    # 「派 N 个子任务 + 逐轮 poll + 收口」天然不够——轮次耗尽触发 forced_final，
+    # 模型的「想调工具」意图文本被当最终结论交回（观测：DSML 原文漏进 content）。
+    # 下限按子任务容量线性给足；显式传值优先（setdefault 不覆盖）。
+    spec.setdefault(
+        "max_tool_rounds",
+        max(12, 4 + 2 * int(_CFG.get("max_subtasks") or DEFAULT_MAX_SUBTASKS)),
+    )
     try:
         with open(os.path.join(job_dir, "spec.json"), "w", encoding="utf-8") as f:
             json.dump(spec, f, ensure_ascii=False)

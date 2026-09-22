@@ -371,6 +371,9 @@ with open(os.path.join(_JD, "spec.json"), encoding="utf-8") as f:
     _spec2 = json.load(f)
 check("E2 spec 补全编排三工具（写回磁盘可审计）",
       set(orc.ORCH_TOOLS) <= set(_spec2["tools"]), str(_spec2.get("tools")))
+check("E2b 编排轮次下限补全（迭代项6，删 setdefault 必红）",
+      (_spec2.get("max_tool_rounds") or 0) >= 12,
+      str(_spec2.get("max_tool_rounds")))
 check("E3 缺省注入编排 system_prompt", "编排者" in _spec2.get("system_prompt", ""))
 check("E3b 写后回读纪律在系统提示词（M3.1，删除该行必红）",
       "写后回读" in _spec2.get("system_prompt", "")
