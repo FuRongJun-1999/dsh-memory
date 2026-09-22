@@ -142,8 +142,9 @@ def main() -> int:
     check("initialize 返回 serverInfo", si.get("name") == "hive-mcp")
     resp = m.call("tools/list", {}, rid=2)
     names = [t["name"] for t in resp["result"]["tools"]]
-    check("tools/list 四工具",
-          set(names) == {"hive_spawn", "hive_poll", "hive_kill", "hive_doctor"})
+    check("tools/list 五工具",
+          set(names) == {"hive_spawn", "hive_poll", "hive_kill",
+                         "hive_restart", "hive_doctor"})
     d = m.tool("hive_doctor", {}, rid=3)
     d_env = d.get("serve_env_source") or {}
     check("doctor 返回 env 检查（权威列 serve_env_source）",
@@ -220,6 +221,16 @@ def main() -> int:
     check("kill 写标志成功", k.get("ok") is True)
     killed, _ = wait_state(m, jid2, {"killed"}, 16, tries=100)
     check("任务达 killed 终态", killed and ran)
+
+    print("== 5. restart 通道（stop→start 原子序）==")
+    old_pid = (HM._heartbeat(jobs_dir) or {}).get("pid")
+    r = m.tool("hive_restart", {}, rid=40)
+    check("restart ok 且换新 pid",
+          r.get("ok") is True and r.get("new_pid")
+          and r.get("new_pid") != old_pid,
+          json.dumps(r, ensure_ascii=False)[:300])
+    d3 = m.tool("hive_doctor", {}, rid=41)
+    check("restart 后 serve 存活", d3.get("serve_alive") is True)
     m.close()
 
     print(f"\n结果: {PASS} pass / {FAIL} fail")

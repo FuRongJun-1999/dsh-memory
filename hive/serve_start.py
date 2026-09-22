@@ -5,6 +5,7 @@
 用法（Windows 实测形态，Python 3 标准库零第三方依赖）：
     python hive/serve_start.py            # 拉起 serve（已在跑则拒绝，防双实例）
     python hive/serve_start.py --stop     # 停止 serve（读心跳 pid）
+    python hive/serve_start.py --restart  # 重启 serve（stop→start 原子序；改配置/换执行器后使改动生效）
     python hive/serve_start.py --status   # 查看心跳与任务统计
 
 配置文件（默认与脚本同目录 config.local.json，--config 可指他处）：
@@ -253,6 +254,29 @@ def start(config_path):
     return {"ok": False, "error": f"serve 心跳未出现，日志尾部：{tail}"}
 
 
+# 生效条件：config_path 给定；先调 stop()（serve 未在跑时其 stopped=False 且如实 note，不算失败），stop() 返回 ok 为假（taskkill/kill 失败）即返回 ok:False 的 stage=stop 错误并附 stop 段；否则调 start(config_path)，其结果 dict 原样返回并附 restart 段（stopped=本次是否真的停了旧实例 / old_pid / note=stop 的说明）。
+def restart(config_path):
+    """重启 serve：stop（如在跑）→ start。改 config.local.json 或换执行器后用它使改动生效。
+
+    为什么存在：serve 级配置（env/执行器/worker 数）在启动时固化，改动必须重启
+    serve 才生效；此前唯一的重启方式是「--stop 再手动启动」两步人肉——步骤断档时
+    会出现「以为重启了、实际旧 serve 还带着旧配置在跑」。本函数把两步合成原子序：
+    stop 失败（杀不掉）则**绝不 start**（防双实例抢队列）；stop 报「未在运行」
+    （含陈旧心跳）不算失败，直接进入 start。
+    """
+    stop_res = stop()
+    if not stop_res.get("ok"):
+        return {"ok": False, "stage": "stop",
+                "error": stop_res.get("error") or "stop 失败", "stop": stop_res}
+    start_res = start(config_path)
+    start_res["restart"] = {
+        "stopped": stop_res.get("stopped", False),
+        "old_pid": stop_res.get("pid"),
+        "note": stop_res.get("note"),
+    }
+    return start_res
+
+
 # 生效条件：始终返回 {ok:True, alive, heartbeat, jobs_dir:JOBS}；hb 为真而 serve_alive() 为假时额外附 stale_heartbeat（pid、pid_alive(pid)、pid_is_self_program(pid)、以及按 hb.get("ts", 0) 缺失记 0 算出的 age_s）；alive 为真且 JOBS 路径存在时额外遍历其中各子目录的 status.json，把 json.load(f).get("state", "?")（缺 state 键记 "?"，抛 OSError/ValueError 的条目跳过）按值计数写入 job_states。
 def status():
     hb = heartbeat()
@@ -292,6 +316,8 @@ def main():
         i = args.index("--config")
         cfg = args[i + 1]
         args = args[:i] + args[i + 2:]
+    if "--restart" in args:
+        return emit(restart(cfg))
     if "--stop" in args:
         return emit(stop())
     if "--status" in args:

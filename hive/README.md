@@ -18,10 +18,13 @@
 [Issue](https://github.com/FuRongJun-1999/dsh-memory/issues) 并附 `hive doctor` 输出
 （serve 存活 / 任务状态统计 / env 检查），能显著缩短定位时间。
 
-## 迭代状态：**暂时停用**（2026-09-22 起）
+## 迭代状态：**实测迭代期**（2026-09-22 起）
 
-灵枢侧决定把蜂巢转为**迭代中的产品**，暂时退出常规派发通道（第 17 条的执行默认改回直跑，
-按第 17 条「蜂巢不可用…兜底须声明」处理）。原因：真实任务暴露的干扰项尚未清完。
+蜂巢于 2026-09-22 曾转「迭代中的产品」暂停常规派发；同日使用者裁定**进入实测迭代**：
+蜂巢不稳定，边实测边修——主代理（编排/裁决）+ 蜂巢 worker（子代理）协作迭代。
+**迭代纪律**：每批修改 = 一个 git 提交点，验证（测试/门禁/探针）绿才推进、红即 revert；
+每批留反思（偏差归因）与验证结论。工程真源：`D:\2_ai\蜂巢记忆架构设计.md`（M1–M7，
+P0 可开工）+ `docs/hive/蜂巢设计_理论对齐_v0.1.md`（理论锚点与裁决）。
 
 ### 迭代项 1（已修）：执行任务时弹终端
 
@@ -79,10 +82,11 @@ set HIVE_API_KEY=你的密钥
 # 配置文件：hive/config.local.json（已 gitignore；值支持 直值 | {"env":"系统变量名"} | {"file":"key文件路径"}）
 #   首次使用请复制入库模板 hive/config.local.example.json 改名后改值（模板本身不入 gitignore，随仓分发）
 # 推荐形态：HIVE_API_KEY 引系统变量（如 DEEPSEEK_API_KEY），HIVE_WEB_SEARCH_KEY 引 key 文件
-python serve_start.py            # 拉起（已在跑则拒绝）；--stop 停止；--status 查看心跳与任务统计
-# ⚠ 重启不要经蜂巢任务派发（会自毁）：任务由 serve 的 worker 执行，任务内做 --stop
-#   等于杀掉执行它的 serve 自身 → worker 随之死亡、任务中断、新 serve 未起且无 result 留痕。
-#   重启是 serve 生命周期之外的运维动作——就用上面这条 CLI。（本机实证 2026-09-22）
+python serve_start.py            # 拉起（已在跑则拒绝）；--stop 停止；--restart 重启；--status 查看心跳与任务统计
+# ⚠ 重启（含 --restart）必须由 **serve 进程树外**执行：主代理 CLI 直跑，或 MCP `hive_restart`
+#   工具（MCP 进程是宿主拉起的，独立于 serve 树，重启 serve 不会自杀）。
+#   经蜂巢任务派发跑 restart 仍会自毁：worker 属 serve 进程树，stop 杀 serve 即杀自己
+#   → 任务中断、新 serve 未必起、无 result 留痕。（本机实证 2026-09-22：pid 8596→24288）
 
 # 手动起 serve（**不读 config.local.json**，env 需自行带全；同一 jobs 目录至多一个 serve）
 # ⚠ 直起 hive.exe serve 而未显式设 HIVE_EXEC_PY 时，执行器回退 exec.py（llm_only）——
@@ -101,7 +105,7 @@ target\release\hive.exe doctor
 
 ### MCP 接入（推荐宿主直连）
 
-`hive/hive_mcp/mcp_server.py` 提供四工具（手写 stdio JSON-RPC，形态对齐
+`hive/hive_mcp/mcp_server.py` 提供五工具（手写 stdio JSON-RPC，形态对齐
 `md_cg/mcp_server.py`）：
 
 | 工具 | 用途 |
@@ -109,6 +113,7 @@ target\release\hive.exe doctor
 | `hive_spawn` | 提交 LLM 任务（**入参白名单** + spec 结构校验 fail fast），返回 job_id；确定性/编排任务走 CLI（见「确定性执行」「任务编排」） |
 | `hive_poll` | 无 id = 全部摘要（content 截 800 字）；带 id = 单查全文；`handoff_ready=true` = 子代理满上下文交回，待主代理裁决续跑 |
 | `hive_kill` | 写 kill 标志，worker ≤1s 内强杀 |
+| `hive_restart` | 重启 serve（stop→start 原子序，复用 `serve_start.restart`）：改 serve 级配置或 rust 重新 build 后使改动生效；stop 失败绝不 start（防双实例）。重启中断 claimed/running 任务，重启后由 recover_orphans 收尸 |
 | `hive_doctor` | serve 存活 / 任务状态统计 / env 检查 |
 
 首次 spawn 自动以 detached 方式拉起 serve（Windows

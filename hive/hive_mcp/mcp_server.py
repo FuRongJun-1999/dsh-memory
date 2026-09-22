@@ -9,7 +9,7 @@
     HIVE_JOBS_DIR=<jobs 目录> python -m hive.hive_mcp.mcp_server
 （hive/ 为 python 包：PYTHONPATH 指向 dsh-memory 仓根）
 
-工具面（4 个）：
+工具面（5 个）：
   hive_spawn   提交任务（model/user_prompt 必填）→ job_id 毫秒即返。可选：
                system_prompt/context_files/max_tokens/temperature/thinking/
                tools/max_tool_rounds/mdcg_root/web_search_backend。
@@ -20,6 +20,10 @@
   hive_poll    查状态：传 job_id 单查（含全文），不传=活跃任务摘要
                （content 截断 800 字防上下文爆炸，全文读 result_path）
   hive_kill    写 kill 标志（worker ≤1s 强杀）
+  hive_restart 重启 serve（stop→start 原子序，复用 serve_start.restart）：
+               改 serve 级配置（config.local.json）或 rust 重新 build 后使改动
+               生效；stop 失败绝不 start（防双实例）。重启中断 claimed/running
+               任务（重启后由 recover_orphans 收尸）。
   hive_doctor  serve 存活 / 任务状态统计 / 启动指引。env 分两列：
                serve_env_source（config.local.json=serve env 的真实来源，判资格
                看这列）与 mcp_process_env（仅诊断，勿用它判 serve 资格）
@@ -433,6 +437,40 @@ def _t_doctor(_a: dict) -> dict:
     }
 
 
+# 生效条件：_a 给定且内容未被使用；serve_start 可导入时先记 jobs 心跳旧 pid，再以 os.environ.setdefault 设 HIVE_JOBS_DIR 后调 serve_start.restart(CONFIG_LOCAL)（stdout 重定向防污染 JSON-RPC），返回 ok:False（附 stage/error）当 restart 返回 ok 为假或抛异常，否则返回 ok:True 含 old_pid/new_pid/workers/env_keys 与生效说明。
+def _t_restart(_a: dict) -> dict:
+    """重启 serve（stop→start 原子序）——**逻辑复用 serve_start.restart**（单一实现）。
+
+    修改后自主重启的通道：serve 级配置（config.local.json 的 env/执行器/worker 数）
+    启动时固化，改动须重启生效。MCP 进程独立于 serve 进程树，故本工具重启 serve
+    不会自杀（区别于任务内 `hive serve --stop`——那会随 worker 一起死）。
+    诚实边界：重启中断 claimed/running 任务，重启后由 serve 侧 recover_orphans 收尸
+    （claimed 重投 / running 标 error）；rust 面改动须先 cargo build --release。
+    """
+    jobs = _jobs_dir()
+    old_pid = (_heartbeat(jobs) or {}).get("pid")
+    try:
+        if HIVE_DIR not in sys.path:
+            sys.path.insert(0, HIVE_DIR)
+        import serve_start  # noqa: PLC0415 —— 同目录模块，延迟导入避开包名歧义
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"serve_start 不可导入（{type(e).__name__}）：{e}"}
+    os.environ.setdefault("HIVE_JOBS_DIR", jobs)  # serve_start 模块级常量在 import 时求值
+    try:
+        # serve_start 库层函数不打印，此处重定向双保险：MCP 的 stdout 是 JSON-RPC 通道
+        with contextlib.redirect_stdout(io.StringIO()):
+            r = serve_start.restart(CONFIG_LOCAL)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"重启异常（{type(e).__name__}）：{e}"}
+    if not r.get("ok"):
+        return {"ok": False, "stage": r.get("stage"),
+                "error": r.get("error") or "重启失败"}
+    return {"ok": True, "old_pid": old_pid, "new_pid": r.get("pid"),
+            "workers": r.get("workers"), "env_keys": r.get("env_keys"),
+            "note": ("serve 已重启（stop→start，逻辑复用 serve_start.restart）。"
+                     "python 面改动即时生效；rust 面改动须先 cargo build --release。")}
+
+
 # ---------------------------------------------------------------- JSON-RPC 面
 
 TOOLS = [
@@ -483,6 +521,11 @@ TOOLS = [
         },
     },
     {
+        "name": "hive_restart",
+        "description": "灵枢蜂巢：重启 serve（stop→start 原子序，复用 serve_start.restart）。改 serve 级配置（config.local.json 的 env/执行器/worker 数）或 rust 重新 build 后使改动生效；stop 失败绝不 start（防双实例）。诚实边界：重启中断 claimed/running 任务（重启后 recover_orphans 收尸）；rust 面改动须先 cargo build --release。",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "hive_doctor",
         "description": "灵枢蜂巢：健康检查——serve 存活/可执行文件/任务状态统计/启动指引。env 分两列：serve_env_source（config.local.json，判资格的权威列）与 mcp_process_env（仅诊断，勿用它判 serve 资格）。密钥只报存在性不回显。",
         "inputSchema": {"type": "object", "properties": {}},
@@ -493,6 +536,7 @@ _DISPATCH = {
     "hive_spawn": _t_spawn,
     "hive_poll": _t_poll,
     "hive_kill": _t_kill,
+    "hive_restart": _t_restart,
     "hive_doctor": _t_doctor,
 }
 
