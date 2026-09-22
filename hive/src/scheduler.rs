@@ -8,8 +8,10 @@
 //!   * 停机语义（drain）：`stop` 置位后主循环停投、关闭队列；worker 把
 //!     队列内已领任务跑完再退（最长一个 timeout_s）——不产孤儿，测试友好。
 //!
-//! 崩溃恢复：serve 启动时清理上次遗留——claimed 重投 pending（删锁），
-//! running 标 error（其孤儿执行器若仍存活，写出的 result.json 宿主仍可读）。
+//! 崩溃恢复：serve 启动时清理上次遗留——**产物说了算**（与 classify_exit 同判据，
+//! 单一实现 `classify_result`）：claimed/running 若已有 result.json 则按产物定终态
+//! done/error，不重跑；claimed 无产物删锁重投 pending；running 无产物诚实标 error
+//! （其孤儿执行器若仍存活，写出的 result.json 宿主仍可读）。
 
 use crate::exec;
 use crate::job;
@@ -120,38 +122,74 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
     0
 }
 
-/// 崩溃恢复：claimed 重投（删锁回 pending）；running 标 error。
+/// 崩溃恢复：**产物说了算**——claimed/running 先查 result.json（与 classify_exit
+/// 同一判据、同一实现）；有产物按产物定终态，无产物才走旧路径（claimed 重投 /
+/// running 标 error）。
+///
+/// 历史缺陷（2026-09-22 实锤，`D:\2_ai` C9/M1）：同一段代码两套判据——
+/// `classify_exit`（正常退出）信产物，`recover_orphans`（崩溃恢复）不信产物——
+/// serve 崩溃重启后，执行器已写完 result.json 的任务被重投重跑（claimed）或
+/// 误标「serve 中断」（running）。修复 = 判据前移，不是引入新机制。
 fn recover_orphans(cfg: &ServeCfg) {
     for id in job::list_jobs(&cfg.jobs) {
         let dir = job::job_dir(&cfg.jobs, &id);
         let Ok(st) = job::read_status(&dir) else { continue };
         let state = st.get("state").and_then(|v| v.as_str()).unwrap_or("");
         match state {
-            "claimed" => {
-                let _ = std::fs::remove_file(dir.join("claimed.lock"));
-                let _ = job::patch_status(
-                    &dir,
-                    vec![(
+            "claimed" => match classify_result(&dir) {
+                // 产物已产出 → 按产物定终态（删锁但绝不重投重跑）
+                Some((final_state, err)) => {
+                    let _ = std::fs::remove_file(dir.join("claimed.lock"));
+                    let mut fields = vec![(
                         "state".to_string(),
-                        crate::json::Json::Str("pending".into()),
-                    )],
-                );
-            }
-            "running" => {
-                let _ = job::patch_status(
-                    &dir,
-                    vec![
-                        (
+                        crate::json::Json::Str(final_state),
+                    )];
+                    if let Some(e) = err {
+                        fields.push(("error".to_string(), crate::json::Json::Str(e)));
+                    }
+                    let _ = job::patch_status(&dir, fields);
+                }
+                // 无产物 → 删锁回 pending 重投（原行为）
+                None => {
+                    let _ = std::fs::remove_file(dir.join("claimed.lock"));
+                    let _ = job::patch_status(
+                        &dir,
+                        vec![(
                             "state".to_string(),
-                            crate::json::Json::Str("error".into()),
-                        ),
-                        (
-                            "error".to_string(),
-                            crate::json::Json::Str("serve 中断：任务执行被重置".into()),
-                        ),
-                    ],
-                );
-            }
+                            crate::json::Json::Str("pending".into()),
+                        )],
+                    );
+                }
+            },
+            "running" => match classify_result(&dir) {
+                // 孤儿执行器可能已写出产物 → 按产物定终态（不误标 serve 中断）
+                Some((final_state, err)) => {
+                    let mut fields = vec![(
+                        "state".to_string(),
+                        crate::json::Json::Str(final_state),
+                    )];
+                    if let Some(e) = err {
+                        fields.push(("error".to_string(), crate::json::Json::Str(e)));
+                    }
+                    let _ = job::patch_status(&dir, fields);
+                }
+                // 无产物 → 诚实标 error（原行为）
+                None => {
+                    let _ = job::patch_status(
+                        &dir,
+                        vec![
+                            (
+                                "state".to_string(),
+                                crate::json::Json::Str("error".into()),
+                            ),
+                            (
+                                "error".to_string(),
+                                crate::json::Json::Str("serve 中断：任务执行被重置".into()),
+                            ),
+                        ],
+                    );
+                }
+            },
             _ => {}
         }
     }
@@ -281,33 +319,45 @@ fn run_job(cfg: &ServeCfg, id: &str) {
     let _ = job::patch_status(&dir, fields);
 }
 
+/// 产物判据（**唯一实现**）：读 result.json 定 (终态, error)。
+/// 返回 None = 无产物文件；Some((state, err)) = 产物说了算（error 字段区分成败）。
+/// `classify_exit`（正常退出）与 `recover_orphans`（崩溃恢复）共用——判据只此一处，
+/// 勿再分叉出第二套（C9 根因即两套判据并存）。
+fn classify_result(dir: &std::path::Path) -> Option<(String, Option<String>)> {
+    let result_path = dir.join("result.json");
+    if !result_path.is_file() {
+        return None;
+    }
+    match job::read_json(&result_path) {
+        Ok(r) => {
+            let err = r
+                .get("error")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            Some(match err {
+                Some(e) => ("error".into(), Some(e)),
+                None => ("done".into(), None),
+            })
+        }
+        Err(e) => Some((
+            "error".into(),
+            Some(format!("result.json 解析失败: {e}")),
+        )),
+    }
+}
+
 /// 子进程退出后的终态分类：以 result.json 为准（error 字段区分 API 错误）。
 fn classify_exit(
     dir: &std::path::Path,
     code: std::process::ExitStatus,
 ) -> (String, Option<String>) {
-    let result_path = dir.join("result.json");
-    if result_path.is_file() {
-        match job::read_json(&result_path) {
-            Ok(r) => {
-                let err = r
-                    .get("error")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                match err {
-                    Some(e) => ("error".into(), Some(e)),
-                    None => ("done".into(), None),
-                }
-            }
-            Err(e) => ("error".into(), Some(format!("result.json 解析失败: {e}"))),
-        }
-    } else if code.success() {
-        (
+    match classify_result(dir) {
+        Some(x) => x,
+        None if code.success() => (
             "error".into(),
             Some("执行器退出码 0 但未产出 result.json".into()),
-        )
-    } else {
-        ("error".into(), Some(format!("执行器异常退出: {code}")))
+        ),
+        None => ("error".into(), Some(format!("执行器异常退出: {code}"))),
     }
 }
 
@@ -447,6 +497,80 @@ with open(os.path.join(d, "result.json"), "w", encoding="utf-8") as f:
         h.join().unwrap();
         assert!(ran, "任务未进入 running");
         assert!(killed, "kill 标志未生效");
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// M1 恢复判据前移（能红 + 反向对照）：recover_orphans 与 classify_exit 共用
+    /// 产物判据——有 result.json 按产物定终态，无产物才走旧路径。
+    /// 反向对照：注释 classify_result 前移逻辑（回退旧判据）时，a/d 两断言必红。
+    #[test]
+    fn recover_by_artifact() {
+        let tmp = tmpjobs("recover");
+        let jobs = tmp.join("jobs");
+        let exec_py = write_fake_exec(&tmp);
+
+        // a: claimed + 产物（无 error）→ done（旧行为重投 pending——反向对照可红）
+        let a = submit(&jobs, "0", 60);
+        let da = job::job_dir(&jobs, &a);
+        fs::write(da.join("claimed.lock"), b"").unwrap();
+        fs::write(da.join("result.json"), r#"{"ok":true,"content":"x"}"#).unwrap();
+        let _ = job::patch_status(
+            &da,
+            vec![("state".to_string(), crate::json::Json::Str("claimed".into()))],
+        );
+
+        // b: claimed + 产物带 error → error（error 文本按产物透传）
+        let b = submit(&jobs, "0", 60);
+        let db = job::job_dir(&jobs, &b);
+        fs::write(db.join("claimed.lock"), b"").unwrap();
+        fs::write(db.join("result.json"), r#"{"ok":false,"error":"boom"}"#).unwrap();
+        let _ = job::patch_status(
+            &db,
+            vec![("state".to_string(), crate::json::Json::Str("claimed".into()))],
+        );
+
+        // c: claimed + 无产物 → pending 重投（原行为保留；锁须被删）
+        let c = submit(&jobs, "0", 60);
+        let dc = job::job_dir(&jobs, &c);
+        fs::write(dc.join("claimed.lock"), b"").unwrap();
+        let _ = job::patch_status(
+            &dc,
+            vec![("state".to_string(), crate::json::Json::Str("claimed".into()))],
+        );
+
+        // d: running + 产物（无 error）→ done（旧行为一律「serve 中断」error——反向对照可红）
+        let d = submit(&jobs, "0", 60);
+        let dd = job::job_dir(&jobs, &d);
+        fs::write(dd.join("result.json"), r#"{"ok":true,"content":"y"}"#).unwrap();
+        let _ = job::patch_status(
+            &dd,
+            vec![("state".to_string(), crate::json::Json::Str("running".into()))],
+        );
+
+        // e: running + 无产物 → error 且文本含「serve 中断」（原行为保留）
+        let e = submit(&jobs, "0", 60);
+        let de = job::job_dir(&jobs, &e);
+        let _ = job::patch_status(
+            &de,
+            vec![("state".to_string(), crate::json::Json::Str("running".into()))],
+        );
+
+        let cfg = ServeCfg::new(jobs.clone(), 1, exec_py);
+        recover_orphans(&cfg);
+
+        assert_eq!(read_state(&jobs, &a), "done", "claimed+产物应按产物定 done");
+        assert_eq!(read_state(&jobs, &b), "error", "claimed+错误产物应定 error");
+        let st_b = job::read_status(&db).unwrap();
+        assert_eq!(st_b.get("error").unwrap().as_str().unwrap(), "boom");
+        assert_eq!(read_state(&jobs, &c), "pending", "claimed+无产物应重投");
+        assert!(!dc.join("claimed.lock").exists(), "重投须删锁");
+        assert_eq!(read_state(&jobs, &d), "done", "running+产物应按产物定 done");
+        assert_eq!(read_state(&jobs, &e), "error", "running+无产物应标 error");
+        let st_e = job::read_status(&de).unwrap();
+        assert!(
+            st_e.get("error").unwrap().as_str().unwrap().contains("serve 中断"),
+            "running+无产物的 error 文本须含 serve 中断"
+        );
         let _ = fs::remove_dir_all(&tmp);
     }
 }
