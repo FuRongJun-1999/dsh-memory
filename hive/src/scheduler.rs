@@ -101,6 +101,27 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
             if state != "pending" {
                 continue;
             }
+            // 依赖门禁（I-1）：全依赖 done 才领取；失败传播不执行
+            match deps_gate(&cfg.jobs, &dir) {
+                Err(reason) => {
+                    let _ = job::patch_status(
+                        &dir,
+                        vec![
+                            (
+                                "state".to_string(),
+                                crate::json::Json::Str("error".into()),
+                            ),
+                            (
+                                "error".to_string(),
+                                crate::json::Json::Str(reason),
+                            ),
+                        ],
+                    );
+                    continue;
+                }
+                Ok(false) => continue, // 有依赖未终态 → 等待
+                Ok(true) => {}
+            }
             if !job::claim(&dir) {
                 continue; // 已被领取（原子锁失败）
             }
@@ -344,6 +365,46 @@ fn classify_result(dir: &std::path::Path) -> Option<(String, Option<String>)> {
             Some(format!("result.json 解析失败: {e}")),
         )),
     }
+}
+
+/// 依赖门禁（I-1，中观任务 DAG 第一格）：
+/// `Ok(true)` = 全依赖 done，可领取；`Ok(false)` = 有依赖未终态，等待；
+/// `Err(原因)` = 依赖不完整或失败传播，任务直接终态 error（不执行）。
+///
+/// 七不变量对照（dsh-omc，设计稿 docs/hive/蜂巢迭代_宏观与群体调度_v0.1.md）：
+/// 依赖完整 + 级联取消闭包在此落码；无环性由 job_id 时间序结构性保证
+/// （无法引用提交时尚不存在的任务），无需运行时环检测。
+fn deps_gate(jobs: &Path, dir: &Path) -> Result<bool, String> {
+    let spec_json = match job::read_json(&dir.join("spec.json")) {
+        Ok(v) => v,
+        Err(_) => return Ok(true), // spec 读不到 → 交给领取路径的坏 spec 处理
+    };
+    let deps = match spec_json.get("depends_on").map(|x| x.as_str_vec()) {
+        Some(d) if !d.is_empty() => d,
+        _ => return Ok(true), // 无依赖 → 直接可领
+    };
+    for dep in deps {
+        let ddir = jobs.join(&dep);
+        if !ddir.is_dir() {
+            return Err(format!("依赖不完整: {dep}（任务目录不存在）"));
+        }
+        let dst = job::read_status(&ddir)
+            .map(|s| {
+                s.get("state")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .unwrap_or_default();
+        match dst.as_str() {
+            "done" => continue,
+            "error" | "timeout" | "killed" => {
+                return Err(format!("依赖失败传播: {dep} 终态 {dst}，本任务不执行"));
+            }
+            _ => return Ok(false), // pending/claimed/running → 等待
+        }
+    }
+    Ok(true)
 }
 
 /// 子进程退出后的终态分类：以 result.json 为准（error 字段区分 API 错误）。
@@ -644,6 +705,100 @@ time.sleep(30)  # 长睡保持执行器存活，触发 kill 路径
         stop.store(true, Ordering::SeqCst);
         h.join().unwrap();
         assert!(gone, "kill_tree 后孙进程 {} 仍存活（进程树回收失败）", gpid);
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// I-1 依赖门禁（能红 + 反向对照）：①依赖未终态 → 停留 pending 不领取；
+    /// ②依赖 done → 正常执行；③依赖 error → 失败传播直接 error 不执行。
+    /// 反向对照：删 deps_gate 调用 → c 会被执行成 done（必红）。
+    #[test]
+    fn dependency_gate() {
+        let tmp = tmpjobs("deps");
+        let jobs = tmp.join("jobs");
+        let exec_py = write_fake_exec(&tmp);
+
+        let a = submit(&jobs, "0.2", 60); // 上游（sleep 0.2，给 b 留 pending 观察窗）
+        let b = submit(&jobs, "0", 60); // 依赖 a（spec 后补）
+        let c = submit(&jobs, "0", 60); // 依赖 d（spec 后补）
+        let d = submit(&jobs, "0", 60); // 上游失败者（spec 覆盖为非法 → 领取即 error）
+
+        // 后补 depends_on：直接覆盖 spec.json（手写 JSON；h 前缀合法，
+        // worker 侧 validate_lenient 可过；避开测试内 JSON 改写 API）
+        let db = job::job_dir(&jobs, &b);
+        fs::write(
+            db.join("spec.json"),
+            format!(
+                r#"{{"model":"fake","user_prompt":"0","timeout_s":60,"depends_on":["{a}"]}}"#
+            ),
+        )
+        .unwrap();
+        let dc = job::job_dir(&jobs, &c);
+        fs::write(
+            dc.join("spec.json"),
+            format!(
+                r#"{{"model":"fake","user_prompt":"0","timeout_s":60,"depends_on":["{d}"]}}"#
+            ),
+        )
+        .unwrap();
+        // d 的 spec 覆盖为非法值（temperature 超界）→ worker 领取即 error
+        let dd = job::job_dir(&jobs, &d);
+        fs::write(
+            dd.join("spec.json"),
+            r#"{"model":"fake","user_prompt":"0","timeout_s":60,"temperature":3.5}"#,
+        )
+        .unwrap();
+
+        // serve 启动后 200ms 观察窗：b 应停留 pending（a 未完成）——能红点①
+        let cfg = ServeCfg::new(jobs.clone(), 2, exec_py);
+        let stop = Arc::new(AtomicBool::new(false));
+        let h = {
+            let cfg = cfg.clone();
+            let stop = Arc::clone(&stop);
+            thread::spawn(move || serve(&cfg, stop))
+        };
+        // （观察窗弱断言：不做强时序断言，靠 c 的传播断言兜底）
+
+        // 等 a、b 完成（a done → 依赖满足 → b 领取执行）
+        let mut ab_done = false;
+        for _ in 0..300 {
+            if read_state(&jobs, &a) == "done" && read_state(&jobs, &b) == "done" {
+                ab_done = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        // 等 c 到终态（预期：d error → c 失败传播）
+        let mut c_state = String::new();
+        let mut c_err = String::new();
+        for _ in 0..300 {
+            let sc = job::read_status(&dc).unwrap();
+            c_state = sc
+                .get("state")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            c_err = sc
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if ["done", "error", "timeout", "killed"].contains(&c_state.as_str()) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        stop.store(true, Ordering::SeqCst);
+        h.join().unwrap();
+
+        assert!(ab_done, "a/b 应依次完成（依赖满足后领取）");
+        assert_eq!(
+            c_state, "error",
+            "依赖 error 时 c 应失败传播（反向对照：删 deps_gate 必红）"
+        );
+        assert!(
+            c_err.contains("依赖失败传播"),
+            "c 的 error 文本应含「依赖失败传播」: {c_err}"
+        );
         let _ = fs::remove_dir_all(&tmp);
     }
 

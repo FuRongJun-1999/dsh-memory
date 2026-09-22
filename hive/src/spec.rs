@@ -16,7 +16,9 @@
 //!   "temperature": 0.7,             // 可选，[0, 2]
 //!   "thinking": {"type": "enabled"},  // 可选：思考开关（DeepSeek V4.1 同形，type ∈ enabled|disabled）
 //!   "reasoning_effort": "high",     // 可选：思考强度 ∈ low|medium|high
-//!   "context_budget_tokens": 300000 // 可选：输入 token 预算（执行器保守估算，超限 fail fast）
+//!   "context_budget_tokens": 300000, // 可选：输入 token 预算（执行器保守估算，超限 fail fast）
+//!   "depends_on": ["h..."],          // 可选：上游任务列表——全 done 才领取，
+//!                                    //   任一 error/timeout/killed → 本任务 error（失败传播）
 //! }
 //! ```
 
@@ -39,6 +41,11 @@ pub struct Spec {
     pub reasoning_effort: Option<String>,
     /// 输入 token 预算上限（执行器侧保守估算校验，超限 fail fast 不白跑 API）
     pub context_budget_tokens: Option<u64>,
+    /// 依赖门禁（I-1，宏观调度第一格）：上游任务 job_id 列表——全部 done 才可领取；
+    /// 任一终态非 done（error/timeout/killed）→ 本任务直接 error（失败传播）。
+    /// 无环性结构性成立：job_id 含毫秒时间戳，提交时间序 = DAG 拓扑序，
+    /// 无法引用提交时尚不存在的任务（自引用亦不可能）。
+    pub depends_on: Vec<String>,
 }
 
 pub const DEFAULT_TIMEOUT_S: u64 = 300;
@@ -164,6 +171,18 @@ pub fn validate_lenient(v: &Json) -> Result<Spec, String> {
         Some(_) => return Err("context_budget_tokens 必须为正数".to_string()),
     };
 
+    let depends_on = v
+        .get("depends_on")
+        .map(|x| x.as_str_vec())
+        .unwrap_or_default();
+    for d in &depends_on {
+        if !d.starts_with('h') {
+            return Err(format!(
+                "depends_on 项非法: {d}（须为 h 开头的 job_id）"
+            ));
+        }
+    }
+
     Ok(Spec {
         model,
         system_prompt,
@@ -176,6 +195,7 @@ pub fn validate_lenient(v: &Json) -> Result<Spec, String> {
         thinking,
         reasoning_effort,
         context_budget_tokens,
+        depends_on,
     })
 }
 

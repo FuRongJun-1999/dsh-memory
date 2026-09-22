@@ -208,6 +208,23 @@ fn cmd_submit(args: &[String], jobs: PathBuf) -> i32 {
             return 1;
         }
     };
+    // 依赖完整检查（I-1）：depends_on 引用的任务必须已存在（提交侧 fail fast；
+    // 无环性由 job_id 时间序结构性保证，见 scheduler::deps_gate 注释）
+    let deps = v
+        .get("depends_on")
+        .map(|x| x.as_str_vec())
+        .unwrap_or_default();
+    for dep in &deps {
+        if !jobs.join(dep).is_dir() {
+            println!(
+                "{}",
+                err_json(format!(
+                    "依赖不完整: {dep}（任务不存在，先提交上游任务）"
+                ))
+            );
+            return 1;
+        }
+    }
     match job::init_job(&jobs, &v, sp.timeout_s) {
         Ok(id) => {
             println!(
