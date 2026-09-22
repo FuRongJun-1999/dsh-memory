@@ -116,6 +116,26 @@ def wait_state(m: Mcp, jid: str, states: set, rid: int, tries: int = 80):
     return False, view
 
 
+# 生效条件：jobs_dir 下 _serve.json 可解析且含正整数 pid 时对该 pid 执行 taskkill /F（结果不校验）；文件缺失/损坏/pid 非法时静默返回。
+def cleanup_serve(jobs_dir: str) -> None:
+    """停掉本测试拉起的隔离 serve——**测试卫生**。
+
+    不清理的后果（2026-09-22 实测缺陷）：残留 serve 一直锁着 target/release/hive.exe
+    （Windows 锁定运行中的可执行文件），后续 `cargo build --release` 报 os error 5
+    「拒绝访问」，且残留进程以假执行器空转。诚实边界：本清理只覆盖 main 正常路径
+    （两处 close 之后）；协议级异常（server 输出关闭）抛出时仍可能残留——那属于
+    smoke 自身失败的显性症状，可由 tasklist | findstr hive.exe 人工发现。
+    """
+    try:
+        with open(os.path.join(jobs_dir, "_serve.json"), encoding="utf-8") as f:
+            pid = (json.load(f) or {}).get("pid")
+    except (OSError, ValueError):
+        return
+    if isinstance(pid, int) and pid > 0:
+        subprocess.run(["taskkill", "/PID", str(pid), "/F"],
+                       capture_output=True, text=True, shell=False)
+
+
 def main() -> int:
     tmp = tempfile.mkdtemp(prefix="hive_smoke_")
     fake_py = os.path.join(tmp, "fake_exec.py")
@@ -192,7 +212,7 @@ def main() -> int:
           f"whitelist-only={sorted(set(HM.SPAWN_ALLOWED_KEYS) - props)}")
 
     if not os.path.isfile(EXE):
-        print(f"== 3/4. 跳过（未找到 {EXE}，先 cargo build --release）==")
+        print(f"== 3/4/5. 跳过（未找到 {EXE}，先 cargo build --release）==")
         m.close()
         return 1 if FAIL else 0
 
@@ -232,6 +252,7 @@ def main() -> int:
     d3 = m.tool("hive_doctor", {}, rid=41)
     check("restart 后 serve 存活", d3.get("serve_alive") is True)
     m.close()
+    cleanup_serve(jobs_dir)  # 测试卫生：停掉隔离 serve，不锁 EXE
 
     print(f"\n结果: {PASS} pass / {FAIL} fail")
     return 0 if FAIL == 0 else 1

@@ -6,6 +6,7 @@
     python hive/serve_start.py            # 拉起 serve（已在跑则拒绝，防双实例）
     python hive/serve_start.py --stop     # 停止 serve（读心跳 pid）
     python hive/serve_start.py --restart  # 重启 serve（stop→start 原子序；改配置/换执行器后使改动生效）
+    python hive/serve_start.py --rebuild  # 重编译并重启（stop→cargo build→start；rust 改动一条命令生效）
     python hive/serve_start.py --status   # 查看心跳与任务统计
 
 配置文件（默认与脚本同目录 config.local.json，--config 可指他处）：
@@ -277,6 +278,63 @@ def restart(config_path):
     return start_res
 
 
+# 生效条件：无必需形参；HIVE_CARGO 指向存在的文件时返回该值，否则 ~/.cargo/bin/cargo(.exe) 存在时返回它，再否则 shutil.which("cargo") 的结果（可能为 None）。
+def find_cargo():
+    """定位 cargo：HIVE_CARGO env > ~/.cargo/bin > PATH。
+
+    为什么不能只靠 PATH：serve 常由 detached/受限 env 的进程拉起，cargo 常不在
+    PATH（2026-09-22 实测：宿主终端 `where cargo` 都找不到，cargo 只在
+    ~/.cargo/bin）。找不到返回 None——调用方 fail-closed，不猜。
+    """
+    p = os.environ.get("HIVE_CARGO")
+    if p and os.path.isfile(p):
+        return p
+    name = "cargo.exe" if os.name == "nt" else "cargo"
+    home = os.path.join(os.path.expanduser("~"), ".cargo", "bin", name)
+    if os.path.isfile(home):
+        return home
+    from shutil import which
+    return which("cargo")
+
+
+# 生效条件：config_path 给定；先调 stop()（ok 为假即返回 stage=stop 错误），随后 find_cargo() 为 None 时返回 stage=build 错误（serve 保持停止态），cargo build --release（cwd=HIVE_DIR）返回码非 0 时返回 stage=build 错误并附 stderr/stderr 尾 800 字符（serve 保持停止态），成功则调 start(config_path) 并在结果 dict 附 rebuild 段（stopped/old_pid/cargo）。
+def rebuild(config_path):
+    """重编译并重启：stop → cargo build --release → start。rust 改动一条命令生效。
+
+    为什么 --restart 不够（2026-09-22 实测缺陷）：Windows 锁定运行中的可执行文件，
+    serve 在跑时 `cargo build --release` 报 os error 5（拒绝访问）写不进 hive.exe；
+    --restart 的 stop→start 中间插不进 build，等于「重启了个旧二进制」还以为改动了
+    生效。本函数把三步合成原子序，且 **build 失败保持停止态**（fail-closed：宁可
+    serve 停着，也不让旧二进制假活）——错误信息注明用 --restart 恢复。
+    """
+    stop_res = stop()
+    if not stop_res.get("ok"):
+        return {"ok": False, "stage": "stop",
+                "error": stop_res.get("error") or "stop 失败", "stop": stop_res}
+    cargo = find_cargo()
+    if not cargo:
+        return {"ok": False, "stage": "build",
+                "error": ("未找到 cargo（设 HIVE_CARGO 指向 cargo.exe，或安装 Rust 工具链）"
+                          "——serve 已停；修复后用 --restart 或 --rebuild 拉起"),
+                "stop": stop_res}
+    try:
+        r = subprocess.run([cargo, "build", "--release"], cwd=HIVE_DIR,
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+    except OSError as e:
+        return {"ok": False, "stage": "build",
+                "error": f"cargo 启动失败（serve 已停）：{e}", "stop": stop_res}
+    if r.returncode != 0:
+        tail = ((r.stderr or "") + (r.stdout or ""))[-800:]
+        return {"ok": False, "stage": "build",
+                "error": f"cargo build --release 失败（serve 已停；修复后 --restart 拉起）：\n{tail}",
+                "stop": stop_res}
+    start_res = start(config_path)
+    start_res["rebuild"] = {"stopped": stop_res.get("stopped", False),
+                            "old_pid": stop_res.get("pid"), "cargo": cargo}
+    return start_res
+
+
 # 生效条件：始终返回 {ok:True, alive, heartbeat, jobs_dir:JOBS}；hb 为真而 serve_alive() 为假时额外附 stale_heartbeat（pid、pid_alive(pid)、pid_is_self_program(pid)、以及按 hb.get("ts", 0) 缺失记 0 算出的 age_s）；alive 为真且 JOBS 路径存在时额外遍历其中各子目录的 status.json，把 json.load(f).get("state", "?")（缺 state 键记 "?"，抛 OSError/ValueError 的条目跳过）按值计数写入 job_states。
 def status():
     hb = heartbeat()
@@ -316,6 +374,8 @@ def main():
         i = args.index("--config")
         cfg = args[i + 1]
         args = args[:i] + args[i + 2:]
+    if "--rebuild" in args:
+        return emit(rebuild(cfg))
     if "--restart" in args:
         return emit(restart(cfg))
     if "--stop" in args:

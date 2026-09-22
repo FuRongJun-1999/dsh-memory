@@ -82,11 +82,15 @@ set HIVE_API_KEY=你的密钥
 # 配置文件：hive/config.local.json（已 gitignore；值支持 直值 | {"env":"系统变量名"} | {"file":"key文件路径"}）
 #   首次使用请复制入库模板 hive/config.local.example.json 改名后改值（模板本身不入 gitignore，随仓分发）
 # 推荐形态：HIVE_API_KEY 引系统变量（如 DEEPSEEK_API_KEY），HIVE_WEB_SEARCH_KEY 引 key 文件
-python serve_start.py            # 拉起（已在跑则拒绝）；--stop 停止；--restart 重启；--status 查看心跳与任务统计
-# ⚠ 重启（含 --restart）必须由 **serve 进程树外**执行：主代理 CLI 直跑，或 MCP `hive_restart`
-#   工具（MCP 进程是宿主拉起的，独立于 serve 树，重启 serve 不会自杀）。
+python serve_start.py            # 拉起（已在跑则拒绝）；--stop 停止；--restart 重启；--rebuild 重编译并重启；--status 查看心跳与任务统计
+# ⚠ 重启/重编译（含 --restart/--rebuild）必须由 **serve 进程树外**执行：主代理 CLI 直跑，
+#   或 MCP `hive_restart` 工具（MCP 进程是宿主拉起的，独立于 serve 树，重启 serve 不会自杀）。
 #   经蜂巢任务派发跑 restart 仍会自毁：worker 属 serve 进程树，stop 杀 serve 即杀自己
 #   → 任务中断、新 serve 未必起、无 result 留痕。（本机实证 2026-09-22：pid 8596→24288）
+# ⚠ rust 改动后用 --rebuild（stop→cargo build→start 原子序）：serve 在跑时 hive.exe 被
+#   Windows 锁定，直接 build 报 os error 5——--restart 中间插不进 build，会「重启了旧二进制」。
+#   --rebuild 在 build 失败时保持停止态（fail-closed：宁可停着，不让旧二进制假活）。
+#   cargo 定位顺序：HIVE_CARGO env > ~/.cargo/bin > PATH（PATH 常缺 cargo）。
 
 # 手动起 serve（**不读 config.local.json**，env 需自行带全；同一 jobs 目录至多一个 serve）
 # ⚠ 直起 hive.exe serve 而未显式设 HIVE_EXEC_PY 时，执行器回退 exec.py（llm_only）——
