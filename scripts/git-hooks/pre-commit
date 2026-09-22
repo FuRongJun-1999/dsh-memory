@@ -1,0 +1,25 @@
+#!/bin/sh
+# 认知图文档行号自动重挂（本地 pre-commit 钩子）
+#
+# 为什么钩子跑 build 而不是 check：
+#   行号锚只能由管线从真源 AST 现算，禁止手工书写（cogmap_sync.py 纪律）。
+#   实测（v17-1）：真源位移按区域是 +8/+9/+15/+18/+37/+56/+87，不是常数，
+#   手工施加位移必然翻车——那次 32/32 处统一偏 −1，把 CI 门禁踩红。
+#   故本地钩子做「自动修」（build 重挂），发布链（prepublishOnly）与 CI 做「报错拦」（check）。
+#
+# 安装（一次性，仓库级本地配置，不入库）：
+#   git config core.hooksPath scripts/git-hooks
+# 撤销：
+#   git config --unset core.hooksPath
+#
+# 行为：重挂后把两份投影文档一并 git add——行号是生成的，必须随本次提交走。
+set -e
+
+if command -v python >/dev/null 2>&1; then
+  PY=python
+else
+  PY=python3
+fi
+
+"$PY" scripts/cogmap_sync.py build
+git add README.md "docs/mdcg/功能调用映射表_v0.1.md"

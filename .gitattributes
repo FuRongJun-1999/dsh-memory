@@ -1,0 +1,7 @@
+# 换行归一（仓库级）
+#
+# 为什么需要：认知图行号 pre-commit 钩子（scripts/git-hooks/pre-commit）是 sh 脚本，
+# 必须为 LF——CRLF 会让 shebang 变成 `#!/bin/sh\r`，报 `\r: command not found` 而静默失效。
+# 本机 / 多数 Windows 环境 core.autocrlf=true，checkout 会把文本转成 CRLF，
+# 故须在此显式钉死该目录的行尾，否则钩子在 clone 后不可用。
+scripts/git-hooks/* text eol=lf

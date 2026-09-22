@@ -45,6 +45,7 @@ docs/
 | [源码级架构审计：GPT 批评对照 v1.0](mdcg/源码级架构审计_GPT批评对照_v1.0.md) | 外部审计取证 |
 | [护栏宪章 v2.0](mdcg/guardrail-charter.md) | 对外部智能体与人类的行为边界 |
 | [memory_score](mdcg/memory_score.html)（[png](mdcg/memory_score.png)） · [memory-assessment](mdcg/memory-assessment.html) · [教学教程](mdcg/lingshu_tutorial.html) | 评分 / 评估 / 教程 |
+| [发布门禁链 v0.1](mdcg/发布门禁链_v0.1.md) | 三层门禁（pre-commit 自动重挂 / prepublishOnly check / CI 兜底）与安装 |
 
 ## swarm/ · 蜂群运行时
 

@@ -93,6 +93,7 @@ ROOT_FILES = {
     "memory_score.md": "AGI 七维评分说明",
     "discussion-post.md": "对外讨论帖留档",
     ".gitignore": "忽略面（本地数据面 / 实验产物 / 构建产物）",
+    ".gitattributes": "换行归一（pre-commit 钩子等须 LF 的文件）",
 }
 
 # 定位提示（静态真源，参与逐字校验；只写跨目录的「去哪找」）
