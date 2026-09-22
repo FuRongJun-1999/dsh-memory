@@ -10,6 +10,8 @@
 - 绕开热路径缓存（**读+写双侧**）：缓存键不含时间参数，读侧失守会返回未过滤
   结果、写侧失守会把过滤结果覆盖进缓存让后续默认查询少结果，两者都是静默错答
 - stg 四 op 轴感知（observed 缺省逐位兼容 / effective 生效 / 非法轴 fail-closed）
+- 单位归一（issue #23）：`trust.epoch_seconds` 唯一实现点；毫秒存量不改盘即可参与
+  timeline 排序与 S2 时间门控（旧行为下 1.6e12 恒排最前、秒窗被误判不相交）
 - recall 透传
 
 语料 15 节点（同一正文 token「阿尔法」，保证都被召回，差异只在时间字段）：
@@ -126,6 +128,26 @@ def main():
                                    "effective") == (3, 9)
           and trust.time_window_of({}, "effective") == (None, None))
 
+    # 单位归一（issue #23）：唯一实现点 trust.epoch_seconds —— 秒过秒、毫秒 /1000、
+    # 全时窗哨兵与非数值不误判。阈值 1e11 的判别力全靠「哨兵与秒值都在阈下」这一条。
+    check("epoch_seconds：秒直通 / 毫秒归一 / 哨兵与非数值不误判",
+          trust.epoch_seconds(1700000000.0) == 1700000000.0
+          and trust.epoch_seconds(1700000000000) == 1700000000.0
+          and trust.epoch_seconds(1600003600000.0) == 1600003600.0
+          and trust.epoch_seconds(nodefile.FULL_TIME_WINDOW_MAX) == \
+          nodefile.FULL_TIME_WINDOW_MAX
+          and trust.epoch_seconds(None) is None
+          and trust.epoch_seconds("1700000000") is None,
+          str(trust._MS_EPOCH_THRESHOLD))
+
+    check("parse_time：数字与数字串两条路径都归一，且秒值直通不回退",
+          trust.parse_time(1700000000000) == 1700000000.0
+          and trust.parse_time("1700000000000") == 1700000000.0
+          and trust.parse_time(1700000000.0) == 1700000000.0
+          and trust.parse_time("1700000000") == 1700000000.0
+          and trust.parse_time(None) is None
+          and trust.parse_time("2020-01-01") is not None)
+
     _kept, _dr, _ms = trust.filter_by_time(
         [{"effective_from": 1, "effective_until": 2}, {}], "effective", 5, 9)
     _kept2, _dr2, _ms2 = trust.filter_by_time([{}], "observed", 5, 9)
@@ -230,6 +252,37 @@ def main():
           _raises(ValueError, lambda: stg.consistency(cg, time_axis="believed"))
           and _raises(ValueError, lambda: stg.relation(
               cg, "eff_a", "eff_b", time_axis="believed")))
+
+    # ========== 7b) 单位归一：毫秒存量不改盘即可正确排序（issue #23）==========
+    # 用**独立小库**取证，不动上面 15 节点语料（其计数断言是既有契约）。
+    # 复现旧版 sources 摄取出的存量节点形态：time_window 落 13 位毫秒。
+    ms_root = tempfile.mkdtemp(prefix="retr_s8_ms_")
+    ms_cg = MdCG(ms_root)
+    ms_cg.add("ms_old", TEXT, "knowledge",
+              condition_space={"time_window": [1600000000000, 1600003600000]})
+    ms_cg.add("sec_new", TEXT, "knowledge",
+              condition_space={"time_window": [1700000000, 1700003600]})
+    ms_cg.flush()
+    ms_cg.rebuild_index()
+    check("毫秒存量先决条件：索引快照确实落 13 位毫秒窗（否则本组断言退化为空转）",
+          ((ms_cg.index["nodes"].get("ms_old") or {}).get("time_window")
+           or [None])[0] == 1600000000000,
+          str((ms_cg.index["nodes"].get("ms_old") or {}).get("time_window")))
+    _msiv = stg._interval({"condition_space":
+                           {"time_window": [1600000000000, 1600003600000]}})
+    check("单位归一：_interval 与 trust.time_window_of 同口径（毫秒 /1000）",
+          _msiv == (1600000000.0, 1600003600.0), str(_msiv))
+    _mtl = stg.timeline(ms_cg, limit=10)
+    check("单位归一：毫秒存量不再顶到 timeline 头部（旧行为 1.6e12 恒排最前）",
+          [(i["id"], i["start"]) for i in _mtl["items"]] ==
+          [("sec_new", 1700000000.0), ("ms_old", 1600000000.0)],
+          str([(i["id"], i["start"]) for i in _mtl["items"]]))
+    from md_cg.mdcg import _cond_prefilter_pass
+    check("单位归一：S2 时间门控对毫秒节点不再误剔除（同根因）",
+          _cond_prefilter_pass({"time_window": [1600000000000, 1600003600000]},
+                               {"time_window": [1600000010, 1600000020]}) is True
+          and _cond_prefilter_pass({"time_window": [1600000000000, 1600003600000]},
+                                   {"time_window": [1700000000, 1700000020]}) is False)
 
     # ================= 8) 关→开→关 默认口径不变 =================
     # 置于 Secure 层操作**之前**：那些调用会记录访问（recall 无法关 record），

@@ -217,6 +217,27 @@ def main():
         check("jsonl 幂等：重摄取无新事件",
               j2.get("new_events") == 0, str(j2.get("new_events")))
 
+        # 单位纪律（issue #23）：摄取链 `t` 一律 **epoch 秒**——13 位毫秒在**源适配层**
+        # 经 trust.epoch_seconds 归一，绝不外溢进 `condition_space.time_window`
+        # （否则 stg(op=timeline) 的倒序头部会被摄取节点整片占满）。
+        _jts = [sources.JsonlSource(sess)._ts(o) for o in
+                ({"time": 1700000000000}, {"time": 1700000001},
+                 {"time": "2026-09-22T10:00:00"}, {})]
+        check("源适配层：JsonlSource 毫秒/秒/ISO/缺键四形态都落 epoch 秒",
+              _jts[0] == 1700000000.0 and _jts[1] == 1700000001.0
+              and 1e9 < _jts[2] < 1e10 and _jts[3] == 0.0,
+              str(_jts))
+        _devs = [e["t"] for e in sources.DSHSessionSource(sess).events()]
+        check("源适配层：DSH 13 位毫秒 time 归一为 epoch 秒",
+              bool(_devs) and all(1e9 < t < 1e10 for t in _devs), str(_devs))
+        _tw_flat = [x for e in cg.index["nodes"].values()
+                    if isinstance(e.get("time_window"), (list, tuple))
+                    for x in e["time_window"]]
+        check("端到端：摄取节点落库 time_window 无 13 位毫秒外溢（旧症状已消失）",
+              bool(_tw_flat)
+              and all(0 <= x < sources.trust._MS_EPOCH_THRESHOLD for x in _tw_flat),
+              str(sorted(set(_tw_flat))[:6]))
+
         d1 = call_tool(cg, "cg", {"op": "ingest", "action": "dir",
                                   "path": src_dir, "incremental": True,
                                   "sensitivity": "internal"})

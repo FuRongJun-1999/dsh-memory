@@ -469,7 +469,8 @@ TOOLS = [
     {
         "name": "mdcg_ingest",
         "description": "设备驱动：从会话文件增量摄取事件（自动 fix-pair 挖掘 + watermark 去重）。"
-                       "source=auto 时自动发现本机 DSH 会话。",
+                       "source=auto 时自动发现本机 DSH 会话，按**文件体积**降序选取"
+                       "（不是按最近活动）；选中的会话与候选明细见返回体 selection 字段。",
         "inputSchema": _s("", source=_p("string", "会话文件路径，或 'auto' 自动发现 DSH 会话"),
                           max_events=_p("integer", "单次最多摄取事件数"),
                           mine_fix_pairs=_p("boolean", "是否自动挖掘错误→修复对（默认是）"),
@@ -3153,17 +3154,36 @@ def _dispatch(cg, name, args):
         from .sources import DSHSessionSource, JsonlSource, Ingestor
         src_arg = (a.get("source") or "auto").strip()
         ing = Ingestor(cg)
+        picked, cands = None, []
         if src_arg == "auto":
-            files = DSHSessionSource.discover(limit=1)
-            if not files:
+            # `discover_detailed` 是排序的唯一真源；候选明细留在手里，
+            # 才能在返回体里回答「为什么选中它」（issue #23 附带建议）。
+            cands = DSHSessionSource.discover_detailed()
+            if not cands:
                 return {"error": "no_dsh_session_found"}
-            src = DSHSessionSource(files[0])
+            picked = cands[0]
+            src = DSHSessionSource(picked[0])
         else:
             src = _pick_source(src_arg)
-        return ing.ingest(src,
-                          mine_fix_pairs=bool(a.get("mine_fix_pairs", True)),
-                          max_events=a.get("max_events"),
-                          dry_run=bool(a.get("dry_run")))
+        res = ing.ingest(src,
+                         mine_fix_pairs=bool(a.get("mine_fix_pairs", True)),
+                         max_events=a.get("max_events"),
+                         dry_run=bool(a.get("dry_run")))
+        if picked is not None:
+            res["selection"] = {
+                "policy": "max_size",
+                "selected": picked[0],
+                "selected_size": picked[1],
+                "selected_mtime": picked[2],
+                "candidate_count": len(cands),
+                "candidates": [{"path": p, "size": s, "mtime": m}
+                               for p, s, m in cands[:5]],
+                "hint": ("auto 按会话**文件体积**降序选取（**不是**按最近活动），"
+                         "故可能选中很久以前的会话；如需指定会话请显式传 "
+                         "source=<会话文件路径>，或先看 selected_mtime / "
+                         "candidates[].mtime 判断新鲜度。"),
+            }
+        return res
 
     if name == "mdcg_watermarks":
         from .sources import Ingestor

@@ -211,21 +211,57 @@ def stamp(fm: dict, dst: str, reason: str = None, actor: str = None,
 
 # ---------------------------------------------------------------- 双时间轴
 
+#: 单位归一判据：epoch **秒**到公元 5138 年仍 < 1e11，而 epoch **毫秒**自 1973-03
+#: 起已 > 1e11 —— 量级差 3 个数量级，故「>= 1e11」判为毫秒。
+#: 受保护的既有值：全时窗哨兵 `9999999999.0`（nodefile.FULL_TIME_WINDOW_MAX）
+#: 与秒级 `created_at` 一律**不受影响**（test_trust 的「数字直通」断言同此）。
+_MS_EPOCH_THRESHOLD = 1e11
+
+
+def epoch_seconds(value):
+    """时间**数值** → epoch 秒（单位归一的**唯一实现点**）；非数值 → None。
+
+    为什么需要它（issue #23 根因）：图内规范单位是**秒**——`created_at`、
+    `mdcg._write` 的默认观测窗、全时窗哨兵、`parse_time` 全是秒；但摄取链
+    （`sources.DSHSessionSource` / `JsonlSource`）历史上产出**毫秒**。毫秒值一旦
+    进入 `condition_space.time_window`，`stg(op=timeline)` 的倒序排序被 1e3 倍放大
+    顶到最前，摄取节点**永久占据头部**（auto-recall 取到的「最新 N 条」全是它们）；
+    同一根因还让 S2 时间门控把秒节点的区间判成不相交而误剔除。
+
+    口径（不猜测）：数值 `>= _MS_EPOCH_THRESHOLD` → `/1000.0`；其余原样 float。
+    于是「已落库的历史毫秒数据」**无需改盘**即可参与排序与区间比较
+    （读取侧归一，零迁移）。
+
+    不适用条件：日期/日期时间**字符串**（走 `parse_time`）；`spatial.bbox` 等
+    非时间的数值；全时窗哨兵判定（`nodefile.is_full_time_window` 按「两侧极值
+    恰好覆盖」判，不做单位换算）。
+    """
+    if not isinstance(value, (int, float)):
+        return None
+    v = float(value)
+    return v / 1000.0 if v >= _MS_EPOCH_THRESHOLD else v
+
+
 def parse_time(value):
     """时间值 → epoch 秒；不可解析返回 None（**不猜测**）。
 
-    接受：数字（epoch 秒）/ 日期或日期时间字符串（ISO 8601，宽松：空格分隔、
-    `Z` 后缀、日期精度都容忍）。纯标准库实现。
+    接受：数字（epoch 秒；**毫秒自动归一**，见 `epoch_seconds`）/ 数字串
+    （同左）/ 日期或日期时间字符串（ISO 8601，宽松：空格分隔、`Z` 后缀、
+    日期精度都容忍）。纯标准库实现。
+
+    单位归一单点落在此处：它是全系统时间数值的**唯一读入口**
+    （时间算子 / `validity` / `provenance` 边 / 效力轴端点 / `stg._interval`），
+    故历史毫秒数据在**所有**读取面上一次生效，不再逐调用点打补丁。
     """
     if value is None or value == "":
         return None
     if isinstance(value, (int, float)):
-        return float(value)
+        return epoch_seconds(value)
     s = str(value).strip()
     if not s:
         return None
     try:
-        return float(s)
+        return epoch_seconds(float(s))
     except ValueError:
         pass
     t = s.replace("/", "-").replace("T", " ")

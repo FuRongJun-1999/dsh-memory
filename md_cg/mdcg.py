@@ -613,7 +613,7 @@ def _strip_empty_gate_fields(entry, enabled=None):
 
 # 生效条件：entry 与其 frontmatter 的 condition_space 取 cs（缺键/假值按 {}）；ctx 为假值或非 dict 时无条件返回 True；
 # ctx 与 cs 同时给出非空 observation_position 且 routing.normalize_domain 归一化后不同时返回 False；
-# ctx 与 cs 同时给出长度 2 的 time_window 且两区间不相交时返回 False（区间相交或任一侧缺值/不可转 float 一律返回 True）。
+# ctx 与 cs 同时给出长度 2 的 time_window 时两端经 trust.epoch_seconds 归一（毫秒自动 /1000）后比较，不相交返回 False（区间相交或任一侧缺值/不可转数值一律返回 True）。
 def _cond_prefilter_pass(entry, ctx) -> bool:
     """S2 条件空间前置门控：**不读正文**即可判定的硬槽（契约 §3 S2）。
 
@@ -640,11 +640,14 @@ def _cond_prefilter_pass(entry, ctx) -> bool:
     cw, nw = ctx.get("time_window"), (entry.get("time_window") or cs.get("time_window"))
     if (isinstance(cw, (list, tuple)) and len(cw) == 2
             and isinstance(nw, (list, tuple)) and len(nw) == 2):
-        try:
-            if float(cw[1]) < float(nw[0]) or float(nw[1]) < float(cw[0]):
-                return False
-        except (TypeError, ValueError):
-            return True
+        # 单位归一（唯一口径 trust.epoch_seconds）：历史毫秒节点的区间若不归一，
+        # 与秒级查询窗「必然不相交」→ 整片历史观测被误剔除（issue #23 同根因）。
+        c0, c1 = trust.epoch_seconds(cw[0]), trust.epoch_seconds(cw[1])
+        n0, n1 = trust.epoch_seconds(nw[0]), trust.epoch_seconds(nw[1])
+        if None in (c0, c1, n0, n1):
+            return True                  # 任一端不可转 → 信息不足，放行（宁多勿漏）
+        if c1 < n0 or n1 < c0:
+            return False
     return True
 
 

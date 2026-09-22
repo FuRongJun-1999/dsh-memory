@@ -3,7 +3,14 @@
 
 设计：
   Source（事件源）—— 把某种外部存储解析成统一事件流：
-      {"t": 毫秒时间戳, "seq": 序号, "role": ..., "text": ..., "session": ..., "cwd": ...}
+      {"t": epoch 秒, "seq": 序号, "role": ..., "text": ..., "session": ..., "cwd": ...}
+
+  ⚠ **单位纪律（issue #23）**：`t` 一律 **epoch 秒**，与图内 `created_at` /
+  `condition_space.time_window` / `trust.parse_time` 同口径。外部源里的 13 位毫秒
+  （DSH 的 `time` 字段、通用 JSONL 的毫秒戳）在**源适配层**经 `trust.epoch_seconds`
+  归一后即不外溢——否则 `condition_space.time_window` 会落毫秒，把
+  `stg(op=timeline)` 的倒序头部整片占满并顶掉 auto-recall。
+
   Ingestor（摄取器）—— 增量 watermark + 去重 + 写节点 + 自动 fix-pair 挖掘。
 
 内置源：
@@ -22,6 +29,7 @@ import json
 import os
 import time
 
+from . import trust
 from .security import DEFAULT_SENSITIVITY
 
 # 会话事件的默认落层与敏感度
@@ -71,14 +79,16 @@ class JsonlSource(Source):
     def key(self):
         return self.name
 
-# 生效条件：o.get(self.t_key) 为 int/float 时返回 float(v) 乘 1000（v<1e12）或乘 1（否则）；为字符串且 v[:19] 按 "%Y-%m-%dT%H:%M:%S" 解析成功时返回 mktime*1000，抛 ValueError 时返回 0.0；键缺失或其它类型返回 0.0。
+# 生效条件：o.get(self.t_key) 经 float 可转数值时返回 trust.epoch_seconds(该值)（秒值原样、13 位毫秒 /1000 归一到**秒**）；float 抛 TypeError/ValueError 且 v 为字符串时按 v[:19] 与 "%Y-%m-%dT%H:%M:%S" 解析，成功返回 mktime（**秒**）、抛 ValueError 返回 0.0；键缺失/None/其它不可转类型返回 0.0。
     def _ts(self, o):
         v = o.get(self.t_key)
-        if isinstance(v, (int, float)):
-            return float(v) * (1000.0 if v < 1e12 else 1.0)
+        try:
+            return trust.epoch_seconds(float(v)) or 0.0
+        except (TypeError, ValueError):
+            pass
         if isinstance(v, str):
             try:
-                return time.mktime(time.strptime(v[:19], "%Y-%m-%dT%H:%M:%S")) * 1000
+                return time.mktime(time.strptime(v[:19], "%Y-%m-%dT%H:%M:%S"))
             except ValueError:
                 return 0.0
         return 0.0
@@ -140,13 +150,33 @@ class DSHSessionSource(Source):
         return self.name
 
     @staticmethod
-# 生效条件：可选形参 root 为假值（None/空串）时改用默认目录 os.path.join(expanduser("~"),".dsh","sessions")，否则用传入 root；对 root 下递归 glob 到的 session.jsonl 与 session.jsonl.zstd 按 -os.path.getsize 降序排序（两处 glob 均无命中时为空列表），可选形参 limit 为假值（None/0）时返回全部 files，否则返回 files[:limit]。
-    def discover(root: str = None, limit: int = None):
+# 生效条件：可选形参 root 为假值（None/空串）时改用默认目录 os.path.join(expanduser("~"),".dsh","sessions")，否则用传入 root；对 root 下递归 glob 到的 session.jsonl 与 session.jsonl.zstd 逐条 os.stat（抛 OSError 的条目跳过），按 (-st_size, path) 升序键排序（两处 glob 均无命中时为空列表），可选形参 limit 为假值（None/0）时返回全部 rows，否则返回 rows[:limit]；每行为 (path, size, mtime) 三元组。
+    def discover_detailed(root: str = None, limit: int = None):
+        """候选会话 → `[(path, size, mtime), ...]`（**排序唯一真源**，`discover` 复用）。
+
+        排序：会话**文件体积**降序 → `path` 升序（确定性终键）。
+        **刻意不按最近活动排序**——这正是 `source='auto'` 可能选中很久以前会话的
+        原因；把 size/mtime 一并透出，让「为什么选它」在返回体里可辨
+        （issue #23 附带建议：先让依据可见，是否换策略另议）。
+        """
         root = root or os.path.join(os.path.expanduser("~"), ".dsh", "sessions")
         files = glob.glob(os.path.join(root, "**", "session.jsonl"), recursive=True)
         files += glob.glob(os.path.join(root, "**", "session.jsonl.zstd"), recursive=True)
-        files.sort(key=lambda p: (-os.path.getsize(p), p))
-        return files[:limit] if limit else files
+        rows = []
+        for p in files:
+            try:
+                st = os.stat(p)
+            except OSError:
+                continue          # 竞态删除：跳过而非整体失败
+            rows.append((p, st.st_size, st.st_mtime))
+        rows.sort(key=lambda r: (-r[1], r[0]))
+        return rows[:limit] if limit else rows
+
+    @staticmethod
+# 生效条件：可选形参 root/limit 原样转交 discover_detailed，返回其结果的 path 列（同为体积降序、同确定性终键），limit 为假值时返回全部。
+    def discover(root: str = None, limit: int = None):
+        """候选会话路径（体积降序）——`discover_detailed` 的路径投影。"""
+        return [p for p, _s, _m in DSHSessionSource.discover_detailed(root, limit)]
 
 # 生效条件：self.path 以 ".zstd" 结尾时经 _zstd_reader 逐行产出（其返回 None 时 raise RuntimeError），否则以 utf-8/errors=replace 打开 self.path 逐行产出。
     def _lines(self):
@@ -196,7 +226,8 @@ class DSHSessionSource(Source):
             if t == "session":
                 sess, cwd = o.get("id"), o.get("cwd")
                 continue
-            ev = {"t": float(o.get("time") or 0), "seq": o.get("seq"),
+            ev = {"t": trust.epoch_seconds(float(o.get("time") or 0)) or 0.0,
+                  "seq": o.get("seq"),
                   "session": sess, "cwd": cwd}
             if t == "user/message":
                 ev["role"], ev["text"] = "user", self._text_of(data.get("content"))
@@ -234,7 +265,10 @@ class Ingestor:
     """增量摄取：watermark + 去重 + 写节点 + 自动 fix-pair 挖掘。
 
     watermark 文件：<root>/_sources.json
-        {source_key: {"t": 最后时间戳(ms), "seq": 最后序号, "count": 已摄取条数}}
+        {source_key: {"t": 最后时间戳(epoch 秒), "seq": 最后序号, "count": 已摄取条数}}
+
+    存量水位兼容：**旧版写入的是毫秒**，读回时经 `trust.epoch_seconds` 归一到秒，
+    故升级后无需清 `_sources.json` 重建（否则 `ev["t"] < last_t` 恒真 → 新事件全被跳过）。
     """
 
 # 生效条件：传入带 root 的 cg 即成立，layer/sensitivity 默认 SESSION_LAYER/SESSION_SENSITIVITY 并原样存为属性，路径为 os.path.join(cg.root, "_sources.json")。
@@ -286,7 +320,10 @@ class Ingestor:
         """
         key = source.key()
         wm = self.watermark(key)
-        last_t, last_seq = float(wm.get("t") or 0), wm.get("seq")
+        # 水位单位归一：**存量水位是毫秒**（旧版 `_ts` 产出），不归一会让
+        # `ev["t"] < last_t` 恒真 → 升级后新事件被整片误判为「已处理」而跳过。
+        last_t, last_seq = trust.epoch_seconds(float(wm.get("t") or 0)) or 0.0, \
+            wm.get("seq")
         new_events, seen = [], set()
         for ev in source.events():
             if ev.get("t", 0) < last_t:

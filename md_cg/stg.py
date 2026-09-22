@@ -25,11 +25,11 @@ PLACEHOLDER_LOCKED = "[密文·预览已脱敏]"
 PLACEHOLDER_DENIED = "[无权限·预览已脱敏]"
 
 
-# 生效条件：time_axis 经 trust.time_axis_of 归一（None → observed，非法轴如 believed 抛 ValueError）；observed 轴下 fm 的 temporal 非 None 且 float(t) 可成功时返回 (float(t), float(t))，temporal 缺失/为 None/转换抛 TypeError 或 ValueError 时回退到 fm["condition_space"]（假值按 {} 处理）的 time_window，仅当其为长度 2 的 list/tuple 且两元素可 float 时返回 (float(tw[0]), float(tw[1]))，否则返回 None；effective 轴下取 trust.time_window_of(fm, "effective") 的两端点，两端均可解析才返回 (float(s), float(e))，任一端缺失或不可解析返回 None。
+# 生效条件：time_axis 经 trust.time_axis_of 归一（None → observed，非法轴如 believed 抛 ValueError）；随后**完全委托** trust.time_window_of(fm, 该轴) 取两端点，两端均可解析才返回 (float(s), float(e))，任一端缺失或不可解析返回 None。
 def _interval(fm, time_axis="observed"):
-    """节点时间区间；轴语义与 `trust.time_window_of` **同源**（唯一口径，不新写解析）。
+    """节点时间区间；**单一口径**——直接委托 `trust.time_window_of`，不新写解析。
 
-    · `observed`（默认，与旧行为**逐位一致**）：优先 `temporal`（事件时刻），
+    · `observed`（默认，合法秒值上与旧行为逐位一致）：优先 `temporal`（事件时刻），
       回退 `condition_space.time_window`（观测窗）。
       注意 add() 在调用方未给 time_window 时会以「写入时刻」自动填充；
       若把它当事件时间，两条不同时刻的节点会得到假的重叠关系，故 temporal 优先。
@@ -38,27 +38,17 @@ def _interval(fm, time_axis="observed"):
       区间语义要求**两端齐备**——单侧缺失/不可解析 → `None`（不可判定，
       不猜测边界：给半开区间补 `±inf` 会让 `time_relation` 报出假的 contains/during）。
 
+    **单位归一**单点落在 `trust.parse_time` → `trust.epoch_seconds`（issue #23）：
+    旧实现在观察轴分支自己写了一份 `float(tw[0])` 裸转、**绕开了归一**，于是历史
+    毫秒节点在这里拿到 1.7e12 的 `start`，把 timeline 头部占满并顶掉 auto-recall。
+    委托后两个轴共用同一份取值与归一实现，不会再出现「一个轴修了、另一个轴没修」。
+
     `believed_at` **永不参与任何轴**（同 `trust.BELIEVED_FIELD` 的隔离纪律）。
     """
-    if trust.time_axis_of(time_axis) == "effective":
-        s, e = trust.time_window_of(fm, "effective")
-        if s is None or e is None:
-            return None
-        return (float(s), float(e))
-    t = fm.get("temporal")
-    if t is not None:
-        try:
-            return (float(t), float(t))
-        except (TypeError, ValueError):
-            pass
-    cs = fm.get("condition_space") or {}
-    tw = cs.get("time_window")
-    if isinstance(tw, (list, tuple)) and len(tw) == 2:
-        try:
-            return (float(tw[0]), float(tw[1]))
-        except (TypeError, ValueError):
-            return None
-    return None
+    s, e = trust.time_window_of(fm, trust.time_axis_of(time_axis))
+    if s is None or e is None:
+        return None
+    return (float(s), float(e))
 
 
 # 生效条件：fm["spatial"]（假值按 {} 处理）为 dict 且其 bbox 是长度 4 的 list/tuple 且四元素可 float 时返回浮点四元组，spatial 非 dict、bbox 非长度 4 序列或元素转换抛 TypeError/ValueError 时返回 None。
@@ -278,13 +268,17 @@ def anchors(cg, time_window=None, bbox=None, layer=None, limit=50, max_scan=5000
             "items": hits[:limit]}
 
 
-# 生效条件：遍历 _scan(cg,layer=layer,max_scan=max_scan) 每条 frontmatter，bb 非 None 且不满足 bb[0]<=bb[2] and bb[1]<=bb[3] 记 invalid_bbox、iv（由 _interval(fm, time_axis) 取，time_axis 缺省 observed 与旧行为逐位一致、非法轴抛 ValueError）非 None 且 iv[0]>iv[1] 记 inverted_time_window、temporal 非 None 且 time_window 为长度 2 的 list/tuple 且 float 比较成功却不满足 tw[0]<=t<=tw[1] 记 temporal_outside_window（该检查恒按观察轴内部口径、不随 time_axis 漂移；转换抛 TypeError/ValueError 则忽略），返回 scanned 计数、issues 总数与 issues[:limit]（limit 默认 50）。
+# 生效条件：遍历 _scan(cg,layer=layer,max_scan=max_scan) 每条 frontmatter，bb 非 None 且不满足 bb[0]<=bb[2] and bb[1]<=bb[3] 记 invalid_bbox、iv（由 _interval(fm, time_axis) 取，time_axis 缺省 observed 与旧行为逐位一致、非法轴抛 ValueError）非 None 且 iv[0]>iv[1] 记 inverted_time_window、temporal 与 time_window 均经 trust.epoch_seconds 归一后可比且不满足 tw[0]<=t<=tw[1] 记 temporal_outside_window（该检查恒按观察轴内部口径、不随 time_axis 漂移；任一端不可转数值则忽略），返回 scanned 计数、issues 总数与 issues[:limit]（limit 默认 50）。
 def consistency(cg, layer=None, limit=50, max_scan=5000, time_axis="observed"):
     """时空字段自洽性检查：非法 bbox / 时间倒置 / 窗口与时刻冲突。
 
     `time_axis` 只决定「时间倒置」按哪条轴判；`temporal_outside_window`
     恒按**观察轴内部**口径（temporal 与 time_window 的关系）——那是该 issue 的
     定义本身，换轴会让它变成另一件事（不随参数漂移）。
+
+    两端比较前统一经 `trust.epoch_seconds` 归一：旧实现裸 `float` 比较，历史毫秒
+    节点的 `1.7e12` 与秒级 `temporal` 永不落入区间 → 该检查在真实库中**静默失效**
+    （issue #23 同根因）。返回体的 `temporal` / `time_window` 也随之为归一后的秒值。
     """
     issues = []
     scanned = 0
@@ -296,15 +290,13 @@ def consistency(cg, layer=None, limit=50, max_scan=5000, time_axis="observed"):
             issues.append({"id": n["id"], "issue": "invalid_bbox", "bbox": bb})
         if iv and iv[0] > iv[1]:
             issues.append({"id": n["id"], "issue": "inverted_time_window", "time": iv})
-        t = fm.get("temporal")
+        t = trust.epoch_seconds(fm.get("temporal"))
         cs = fm.get("condition_space") or {}
         tw = cs.get("time_window")
         if t is not None and isinstance(tw, (list, tuple)) and len(tw) == 2:
-            try:
-                if not (float(tw[0]) <= float(t) <= float(tw[1])):
-                    issues.append({"id": n["id"], "issue": "temporal_outside_window",
-                                   "temporal": t, "time_window": [tw[0], tw[1]]})
-            except (TypeError, ValueError):
-                pass
+            lo, hi = trust.epoch_seconds(tw[0]), trust.epoch_seconds(tw[1])
+            if lo is not None and hi is not None and not (lo <= t <= hi):
+                issues.append({"id": n["id"], "issue": "temporal_outside_window",
+                               "temporal": t, "time_window": [lo, hi]})
     return {"scanned": scanned, "issues": len(issues), "limit": limit,
             "items": issues[:limit]}
