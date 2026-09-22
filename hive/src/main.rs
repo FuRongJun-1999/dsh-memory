@@ -354,10 +354,11 @@ fn cmd_kill(args: &[String], jobs: PathBuf) -> i32 {
 /// 会让 pid=441 被 4410 命中（假存活）。
 #[cfg(target_os = "windows")]
 fn tasklist_row(pid: u32) -> Option<(String, String)> {
-    let out = std::process::Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
-        .output()
-        .ok()?;
+    let mut cmd = std::process::Command::new("tasklist");
+    cmd.args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"]);
+    // 同一「不弹终端」纪律：serve 自身无控制台，裸 spawn console 子程序会新建可见控制台
+    hive::exec::hide_window(&mut cmd);
+    let out = cmd.output().ok()?;
     let s = String::from_utf8_lossy(&out.stdout);
     for line in s.lines() {
         // CSV 形如 "hive.exe","1234","Console","1","12,345 K"

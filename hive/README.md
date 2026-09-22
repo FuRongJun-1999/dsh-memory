@@ -18,6 +18,26 @@
 [Issue](https://github.com/FuRongJun-1999/dsh-memory/issues) 并附 `hive doctor` 输出
 （serve 存活 / 任务状态统计 / env 检查），能显著缩短定位时间。
 
+## 迭代状态：**暂时停用**（2026-09-22 起）
+
+灵枢侧决定把蜂巢转为**迭代中的产品**，暂时退出常规派发通道（第 17 条的执行默认改回直跑，
+按第 17 条「蜂巢不可用…兜底须声明」处理）。原因：真实任务暴露的干扰项尚未清完。
+
+### 迭代项 1（已修）：执行任务时弹终端
+
+- **现象**：每经蜂巢跑一个任务就弹出一个终端窗口，打断使用者正在做的事。
+- **根因**：`serve` 由 `serve_start.py` 以 `DETACHED_PROCESS` 拉起（**自身无控制台**），
+  而它 spawn 的 `python.exe` / `tasklist.exe` 都是 console 子系统程序；Windows 在
+  「父进程无控制台 **且** 子进程未声明 `CREATE_NO_WINDOW` / `DETACHED_PROCESS`」时
+  会为子进程**新建一个可见的控制台窗口**。全仓仅两处裸 spawn
+  （`src/exec.rs::spawn_executor`、`src/main.rs::tasklist_row`），两处都缺该 flag。
+- **修复**：`src/exec.rs` 新增 `hide_window(&mut Command)`（Windows 设
+  `CREATE_NO_WINDOW = 0x0800_0000`，其余平台 no-op），两处 spawn 统一走它。
+- **验证**：`cargo test` 22/22（lib 17 + main 5）零回归；端到端探针跑在真实执行器链内，
+  报告 `HWND=0 VISIBLE=False`（探针：`test_console_window.py`，含复验命令）。
+- **诚实边界**：未做「修复前主动复现」（避免再次弹窗打扰使用者）；根因依据 = 使用者现场报告
+  + 源码取证（全仓仅此两处 spawn，均缺 flag）+ Windows 文档语义。
+
 ## 架构
 
 ```text
