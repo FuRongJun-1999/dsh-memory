@@ -790,6 +790,10 @@ class MdCG:
                         # 候选资格维度须免读文件可判（与 role 同款理由）。
                         # 纯增量键：批次 C 之前零消费方，view=None 零行为变更。
                         "content_kind": fm.get("content_kind"),
+                        # 会话归属入快照（P45 归因维度）：写入路径 _stage 早已带出
+                        # 该键，重建路径若漏掉，rebuild_index() 之后「按会话过滤」
+                        # 即静默全空——快照与 _stage 必须同口径（与 role 同款理由）。
+                        "session": fm.get("session"),
                         "tags": fm.get("tags", []),
                         "bucket": parent if parent != layer else None,
                         "importance": fm.get("importance", 0.5),
@@ -1882,7 +1886,9 @@ class MdCG:
         # 默认排除掉负记忆层的节点进入正排打分，仅作为「覆盖标记」用
         entries = [e for e in self.index["nodes"].values()
                    if (not layer or e["layer"] == layer)
-                   and (not session or e.get("session") == session)
+                   # '"*"' = 显式跨会话（读遍所有会话）；缺省 None 同义
+                   and (not session or session == "*"
+                        or e.get("session") == session)
                    # 分支实验场：默认（branch=None）分支节点全部隐身；
                    # branch=<id> 时主支 + 本分支可见、其他分支仍隐身
                    and e.get("branch_id") in (None, branch)

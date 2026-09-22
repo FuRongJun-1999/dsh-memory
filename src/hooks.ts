@@ -160,6 +160,20 @@ function formatTimelineDecayed(payload: unknown): string {
   return out.join('\n').slice(0, RECALL_MAX_CHARS)
 }
 
+/** 取宿主会话标识（只用于**归因/隔离**，不参与任何权限判断）。
+ *
+ *  动机：记忆写入必须带会话身份才能区分不同会话；读取默认只看本会话（防串台），
+ *  而「所有会话做了什么」用显式 session="*" 取。两侧都依赖这个标识。
+ *
+ *  字段名按 DSH 既有形态（`id` / `sessionId`）防御式读取，取不到就返回空串——
+ *  空串在上游一律等同「不分会话」（退回旧行为），故宿主改字段名最坏只是失去
+ *  隔离能力，不会注入错块、不会抛错。 */
+function sessionIdOf(raw: unknown): string {
+  const s = raw as { id?: unknown; sessionId?: unknown } | null | undefined
+  const v = s?.id ?? s?.sessionId
+  return typeof v === 'string' ? v.trim() : ''
+}
+
 /** 安装自动记忆钩子（effect 作用域内，随插件卸载自动移除）。
  *
  *  mdcg 为 null（config.mdcg.enabled=false）时自动记忆整体停用：记忆真源是
@@ -170,6 +184,9 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
     return
   }
   const graph = mdcg
+
+  /** 最近一次观测到的宿主会话标识（见 sessionIdOf；空串 = 未知/无会话）。 */
+  let lastSession = ''
 
   /** 记忆沉淀（fire-and-forget）。认知图未就绪则跳过并告警（不退回 AEIS）。 */
   const memorize = (label: string, run: (g: MdcgClient) => Promise<unknown>): void => {
@@ -209,7 +226,18 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       try {
         // 异步取最近记忆节点（失败静默——不阻塞模型请求）
         if (graph.isReady()) {
-          const text = formatTimelineDecayed(await graph.timeline(recallLimit))
+          // 会话隔离（P45）：自动召回只注入**本会话**的记忆，防多会话串台；
+          // 取不到会话标识则退回旧行为（不加过滤），不做半吊子猜测。
+          // ⚠️ 取值必须**每步稳定**：本块按 v0.4.8 契约每步都 push，内容一旦与上
+          // 一步不同宿主就 append 一份新快照——会话标识若中途才出现，会让「无过滤
+          // → 有过滤」翻转一次，白付两份快照。故优先取 ctx 上的会话（首步即在），
+          // 退回「最近一次 session/event 的会话」。
+          // 想读**所有**会话做了什么：别走自动召回（它会串台），显式调
+          // `stg(op=timeline, session="*")`，返回项带 session 归属。
+          const hostCtx = (_ctx as unknown) as { agent?: { session?: unknown } } | undefined
+          const sid = sessionIdOf(hostCtx?.agent?.session) || lastSession
+          const text = formatTimelineDecayed(
+            await graph.timeline(recallLimit, sid ? { session: sid } : {}))
           if (text) {
             // 注入边界转义（issue #16）：宿主 system-prompt 对 context 文本做严格
             // `{{variable}}` 插值，裸 `{{` 会 throw → 该轮请求整体失败。记忆原文
@@ -226,7 +254,12 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
     })
   }
 
-  ctx.on('session/event', (_session, event: SessionEvent) => {
+  ctx.on('session/event', (session, event: SessionEvent) => {
+    // 会话归属（P45）：记忆写入必须带会话身份，用来区分不同会话的记忆。
+    // 空串 = 宿主未给出会话标识 → 不声明，交给内核回落到进程身份（不编造）。
+    const sid = sessionIdOf(session)
+    if (sid) lastSession = sid
+    const sessionTag = sid ? { session: sid } : {}
     if (event.type === 'user/message' && opts.userMessage) {
       // 只记真实用户输入（kind='user'），跳过插件注入/系统上下文
       if (event.data.source?.kind !== 'user') {
@@ -241,6 +274,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       if (safe === null) return
       memorize('user', (g) => g.remember(safe, {
         role: 'user', tags: ['dsh', 'user'], importance: opts.importance,
+        ...sessionTag,
       }))
       // T4：用用户消息做一次语义召回——md_cg 的读取会记 access log（复用观测，
       // 供 importance / scrub 陈旧度使用），同时预热检索路径。
@@ -253,6 +287,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       if (safe === null) return
       memorize('assistant', (g) => g.remember(safe, {
         role: 'assistant', tags: ['dsh', 'assistant'], importance: opts.importance * 0.8,
+        ...sessionTag,
       }))
     } else if (event.type === 'tool/result' && opts.toolResult) {
       if (event.data.error) return
@@ -262,6 +297,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       if (safe === null) return
       memorize('tool', (g) => g.remember(safe, {
         role: 'tool-output', tags: ['dsh', 'tool'], importance: opts.importance * 0.6,
+        ...sessionTag,
       }))
     }
   })

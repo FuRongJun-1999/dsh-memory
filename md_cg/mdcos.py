@@ -608,7 +608,8 @@ class MdCGOS(MdCG):
         for e in self.index["nodes"].values():
             if e.get("layer") in ("rejected", "unresolved", "goals"):
                 continue  # 负记忆走覆盖标记；目标只做定向，都不进正排
-            if session and e.get("session") != session:
+            # '"*"' = 显式跨会话（读遍所有会话）；缺省 None 同义（见 stg.timeline）
+            if session and session != "*" and e.get("session") != session:
                 continue
             if e.get("branch_id") not in (None, branch):
                 continue
@@ -3603,6 +3604,7 @@ class MdCGSecure(MdCGOS):
         res, meta = super().search_rrf(*a, **kw)
         validity = kw.get("validity")
         view = kw.get("view")
+        session = kw.get("session")
         now = time.time() if validity else None
         _en_t, _ax_t, _why_t = trust.check_time_args(
             kw.get("start_time"), kw.get("end_time"), kw.get("start_operator"),
@@ -3611,6 +3613,11 @@ class MdCGSecure(MdCGOS):
         for r in res:
             e = self.index["nodes"].get(r[0]["id"], r[0])
             if not self._readable(e):
+                continue
+            # 会话归属同为候选资格：图扩展会把**别的会话**的节点顺着边带回来，
+            # 绕过 _candidates 的会话过滤 → 自动召回照样串台。故与 validity/view
+            # 一并在此兜底（"*" = 跨会话视图，不过滤）。
+            if session and session != "*" and e.get("session") != session:
                 continue
             if view is not None and not roleviews.matches(e, view):
                 continue

@@ -103,12 +103,20 @@ TOOLS = [
         "description": "写入一条记忆节点（md 认知图）。content 建议含 CCG 5 要素注释"
                        "（# 功能名/# 生效条件/# 子功能/# 执行/# 验证方式/# 不适用条件）。"
                        "gated=true 时先经主动遗忘闸门（三问→四态：ACCEPT/MERGE/DROP/DEFER），"
-                       "适用于写入情景层记忆时的筛选（未指定 layer 时默认 contextual）。",
+                       "适用于写入情景层记忆时的筛选（未指定 layer 时默认 contextual）。"
+                       "写入恒带会话身份（session）以区分不同会话的记忆；省略则归因到"
+                       "进程/环境身份。",
         "inputSchema": _s("", node_id=_p("string", "节点 id（省略则自动生成）"),
                           content=_p("string", "节点内容", True),
                           layer=_p("string", "层：anchor|structural|knowledge|contextual|self"),
                           role=_p("string", "角色：knowledge|user|assistant|tool-output|command|edit"
                                             "（兼作来源证据：user=外部惊奇，command/tool-output=内部确定性）"),
+                          session=_p("string", "本会话标识（归因维度，与授权无关）：单进程服务"
+                                              "多个会话时用它声明这条记忆属于哪个会话，以便按会话"
+                                              "隔离检索。DSH 形态会校验会话真实存在（不存在降级 "
+                                              "anonymous），非 DSH 形态原样采用；部署侧已设 "
+                                              "MDCG_SESSION/DSH_SESSION_ID 时本参数被忽略（环境权威，"
+                                              "客户端不得改写归属）"),
                           tags=_p("array", "标签"), importance=_p("number", "重要性 0-1"),
                           importance_hint=_p("number", "闸门的重要性提示（≥0.7 保护优先直接 ACCEPT）"),
                           gated=_p("boolean", "启用主动遗忘闸门（默认否；写情景层建议开）"),
@@ -948,7 +956,9 @@ KERNEL_TOOLS = [
         "name": "stg",
         "description": "语义时空图接口：精确得到信息的时间/空间关系。"
                        "op=relation：两节点时空关系（Allen 时间 6 态 + RCC 空间 7 态）；"
-                       "op=timeline：按时间排序；op=anchors：落在时间窗/空间范围的节点；"
+                       "op=timeline：按时间排序（可用 session 切本会话/跨会话视图，"
+                       "看「所有会话做了什么」传 session=\"*\"，返回项带会话归属）；"
+                       "op=anchors：落在时间窗/空间范围的节点；"
                        "op=consistency：时空字段自洽性检查。"
                        "四个 op 均可用 time_axis 切换时间轴（缺省 observed）。",
         "inputSchema": _s("",
@@ -957,6 +967,10 @@ KERNEL_TOOLS = [
             time_window=_p("array", "anchors 的时间窗 [t1,t2]"),
             bbox=_p("array", "anchors 的包围盒 [x1,y1,x2,y2]"),
             layer=_p("string", "限定层"), limit=_p("integer", "返回条数"),
+            session=_p("string", "timeline 的会话视图开关（归因维度，与授权无关）："
+                                 "省略 = 不过滤（读遍所有会话，向后兼容）；\"*\" = 显式"
+                                 "跨会话，与「忘了传参」区分开；其它值 = 只取该会话"
+                                 "（frontmatter.session 精确相等）"),
             desc=_p("boolean", "timeline 是否倒序（默认是）"),
             time_axis=_p("string", "时间轴：observed（观察轴 temporal/time_window，"
                                    "缺省）| effective（效力轴 effective_from/until）")),
@@ -2842,7 +2856,7 @@ def _whitebox_call(cg, a):
     return whitebox.dispatch(cg, a)
 
 
-# 生效条件：op=(a.get("op") or "").strip().lower()；op=="relation" 时返回 stg.relation(cg, a.get("a",""), a.get("b",""))；op=="timeline" 时返回 stg.timeline(cg, layer=a.get("layer"), limit=int(a.get("limit") or 50), desc=bool(a.get("desc", True)))；op=="anchors" 时返回 stg.anchors(cg, time_window=a.get("time_window"), bbox=a.get("bbox"), layer=a.get("layer"), limit=int(a.get("limit") or 50))；op=="consistency" 时返回 stg.consistency(cg, layer=a.get("layer"), limit=int(a.get("limit") or 50))；op 为空或其它的值抛 ValueError。
+# 生效条件：op=(a.get("op") or "").strip().lower()；op=="relation" 时返回 stg.relation(cg, a.get("a",""), a.get("b",""), time_axis=axis)；op=="timeline" 时返回 stg.timeline(cg, layer=a.get("layer"), limit=int(a.get("limit") or 50), desc=bool(a.get("desc", True)), time_axis=axis, session=a.get("session"))（session 缺省不过滤读遍所有会话，"*" = 显式跨会话，其它值 = 本会话视图）；op=="anchors" 时返回 stg.anchors(cg, time_window=a.get("time_window"), bbox=a.get("bbox"), layer=a.get("layer"), limit=int(a.get("limit") or 50))；op=="consistency" 时返回 stg.consistency(cg, layer=a.get("layer"), limit=int(a.get("limit") or 50))；op 为空或其它的值抛 ValueError。
 def _stg_call(cg, a):
     """语义时空图唯一入口。
 
@@ -2860,7 +2874,10 @@ def _stg_call(cg, a):
     if op == "timeline":
         return stg.timeline(cg, layer=a.get("layer"),
                             limit=int(a.get("limit") or 50),
-                            desc=bool(a.get("desc", True)), time_axis=axis)
+                            desc=bool(a.get("desc", True)), time_axis=axis,
+                            # 会话视图：缺省读遍所有会话，"*" = 显式跨会话，
+                            # 其它值 = 本会话视图（自动召回走这条防串台）
+                            session=a.get("session"))
     if op == "anchors":
         return stg.anchors(cg, time_window=a.get("time_window"), bbox=a.get("bbox"),
                            layer=a.get("layer"), limit=int(a.get("limit") or 50),
@@ -2881,37 +2898,56 @@ def _stg_call(cg, a):
 # 工具实现
 # --------------------------------------------------------------------------
 
-# 生效条件：a=args or {}，unit=(a.get("as_unit") or "").strip()；unit 为空或 cg.principal 为 None 时直接返回 _dispatch(cg,name,a)；否则先 narrowed_principal(cg.principal, unit)，TokenError 时返回 {"ok":False,"error":f"as_unit 非法：{e}"}，成功则暂存 cg.principal、置为 narrowed、try 返回 _dispatch、finally 还原。
+# 生效条件：a=args or {}，unit=(a.get("as_unit") or "").strip()，sess=_declared_session(a.get("session"))；cg.principal 为 None 或 unit 与 sess 皆为空时直接返回 _dispatch(cg,name,a)；否则先 narrowed_principal(cg.principal, unit)（TokenError 时返回 {"ok":False,"error":f"as_unit 非法：{e}"}），sess 非空时再以 copy 出的 Principal 覆盖 session，暂存 cg.principal/cg.session、置为作用域值、try 返回 _dispatch、finally 还原。
 def call_tool(cg, name, args):
-    """MCP tools/call 入口：按 `as_unit` 做**请求级身份收窄**（单进程多身份）。
+    """MCP tools/call 入口：按 `as_unit` 做**请求级身份收窄**（单进程多身份），
+    按 `session` 做**请求级会话归因**（单进程多会话）。
 
-    两个身份维度的职责分离（勿混）：
+    三个身份维度的职责分离（勿混）：
       · env 身份（MDCG_TOKEN）—— **谁装了这个大脑**，是权限上限，进程级恒定；
-      · `as_unit` —— 本次调用以哪个**单元**执行，请求级、可缺省。
+      · `as_unit` —— 本次调用以哪个**单元**执行，请求级、可缺省，参与授权；
+      · `session` —— 本次调用属于哪个**会话**，请求级、可缺省，**只影响归因**
+        （不参与任何 ops 裁决；来源优先级见 `_declared_session`）。
 
     收窄由 `tokens.narrowed_principal` 保证「只能变小不能变大」（求交 +
     can_admin 恒 False），故调用方即使伪造 `as_unit` 也无法提权——最坏等于
     不传（owner 全权）。这是本机制**不需要对 `as_unit` 额外鉴权**的根据。
+    `session` 同理不需要额外鉴权：它不参与任何 ops 裁决，最坏是贴错标签。
 
     `as_unit` 与 `unit` 字段**职责分离**：
       · `as_unit` —— 受限枚举（五单元），参与授权；未知值 fail-closed 报错；
       · `unit`    —— 自由文本，仅归因（进 _audit / _recent），不参与授权。
     """
     a = args or {}
-    unit = (a.get("as_unit") or "").strip()
-    if not unit or getattr(cg, "principal", None) is None:
+    p = getattr(cg, "principal", None)
+    if p is None:
         return _dispatch(cg, name, a)
-    from .tokens import TokenError, narrowed_principal
-    try:
-        narrowed = narrowed_principal(cg.principal, unit)
-    except TokenError as e:
-        return {"ok": False, "error": f"as_unit 非法：{e}"}
-    saved = cg.principal
-    cg.principal = narrowed          # 单线程 stdin 循环：无并发竞争
+    unit = (a.get("as_unit") or "").strip()
+    sess = _declared_session(a.get("session"))
+    scope = p
+    if unit:
+        from .tokens import TokenError, narrowed_principal
+        try:
+            scope = narrowed_principal(p, unit)
+        except TokenError as e:
+            return {"ok": False, "error": f"as_unit 非法：{e}"}
+    if sess:
+        import copy
+        scope = copy.copy(scope)     # 浅拷贝：会话只在本调用内生效，不污染共享 Principal
+        scope.session = sess
+    if scope is p:
+        return _dispatch(cg, name, a)
+    saved_p, saved_s = cg.principal, getattr(cg, "session", None)
+    had_s = hasattr(cg, "session")
+    cg.principal = scope             # 单线程 stdin 循环：无并发竞争
+    if had_s:
+        cg.session = scope.session
     try:
         return _dispatch(cg, name, a)
     finally:
-        cg.principal = saved
+        cg.principal = saved_p
+        if had_s:
+            cg.session = saved_s
 
 
 # 生效条件：name 为已注册工具名之一（cg / stg / mdcg_whitebox / mdcg_service_info / mdcg_remember 等）；未识别的 name 返回含 error 的响应字典而不抛异常，进程不因此中断；
@@ -3222,6 +3258,37 @@ def _normalize_session(raw):
     except OSError:
         return s                      # 目录不可读：不因环境差异丢失会话标记
     return "anonymous"
+
+
+# 生效条件：raw=str(raw or "").strip()；raw 为空或恰为 "*" 时返回 None（不构成归因声明）；部署侧 MDCG_SESSION 或 DSH_SESSION_ID 去空白后非空时返回 None（环境权威，请求声明被否决）；否则返回 _normalize_session(raw)。
+def _declared_session(raw):
+    """**请求级会话归属声明**（归因维度，与授权正交）。
+
+    「记忆写入必须带会话身份」是既定设计，但身份来源要分场景：
+
+      · 部署侧能把会话固定在**连接**上（每会话一条 MCP 连接，或进程 env 里给了
+        `MDCG_SESSION`）→ 环境即权威，请求里的声明一律忽略，客户端不得改写归属：
+        这正是 `MdCGSecure._attribution` 注释里「MCP 面不透传该入参——客户端不得
+        伪造归属」要守的纪律；
+      · 单进程多会话的载体（如 DSH web 一个 MCP 进程服务多个前端会话）没法把会话
+        写进进程 env，此时才允许调用方在请求里声明，**且必须过 `_normalize_session`
+        的防编造校验**（DSH 形态须真存在，否则降级 anonymous），不是照单全收。
+
+    优先级（高 → 低）：env（MDCG_SESSION / DSH_SESSION_ID）> 请求声明 > 进程身份。
+
+    与 `as_unit` 的分工：`as_unit` 收窄**授权**（求交，只能变小，见 `call_tool`）；
+    本项只改**归因**、不动任何 ops 裁决——即使声明被伪造，最坏后果是「记忆贴错
+    会话标签」，拿不到任何额外权限；而归因里的 `writer` 恒为令牌 actor，请求面
+    改不了「真正谁写的」。`"*"` 是**读取**侧的跨会话视图语法（见 `stg.timeline`），
+    不是会话名，故在此一律返回 None。
+    """
+    s = str(raw or "").strip()
+    if not s or s == "*":
+        return None
+    if (os.environ.get("MDCG_SESSION")
+            or os.environ.get("DSH_SESSION_ID") or "").strip():
+        return None                  # 环境已固定会话：客户端不得改写归属
+    return _normalize_session(s)
 
 
 # 生效条件：环境变量 MDCG_SESSION（优先）或 DSH_SESSION_ID 去空白后非空时把 p.session 设为 _normalize_session(raw)，MDCG_HARNESS 去空白后非空时把 p.harness 设为该值，MDCG_UNIT 去空白后非空时把 p.unit 设为该值，三者均为空串或未设置时 p 的对应字段保持原值；

@@ -141,6 +141,9 @@ def _scan(cg, layer=None, max_scan=5000):
             # 路径上永远「不可判定」（静默全空，比报错更难查）。旧索引快照无这些
             # 键时 `.get` 得 None → 不可判定，是本轴**如实降级**而非误判。
             fm = {"temporal": e.get("temporal"), "spatial": e.get("spatial"),
+                  # 会话归属必须一并从快照带出：timeline 的会话过滤与归属回带都
+                  # 走这条快照路径，缺键 → 本会话视图静默全空（比报错更难查）。
+                  "session": e.get("session"),
                   trust.EFFECTIVE_FROM_FIELD: e.get(trust.EFFECTIVE_FROM_FIELD),
                   trust.EFFECTIVE_UNTIL_FIELD: e.get(trust.EFFECTIVE_UNTIL_FIELD),
                   trust.FROM_FIELD: e.get(trust.FROM_FIELD),
@@ -211,21 +214,37 @@ def relation(cg, a_id, b_id, time_axis="observed"):
                      "space_known": ba is not None and bb is not None}}
 
 
-# 生效条件：以 _scan(cg,layer=layer,max_scan=max_scan) 为范围，_interval(n["frontmatter"], time_axis) 为 None 的节点被跳过，其余按 (start,end) 以 reverse=bool(desc) 排序，返回 count=全部命中数、limit=传入 limit、items 为排序后前 limit 项（limit=0 时为空列表）且每项附 _preview(cg,id)（time_axis 缺省 observed，与旧行为逐位一致；非法轴抛 ValueError）。
+# 生效条件：以 _scan(cg,layer=layer,max_scan=max_scan) 为范围，session 去空白后非空且不为 "*" 时仅保留 frontmatter.session 精确相等的节点，_interval(n["frontmatter"], time_axis) 为 None 的节点被跳过，其余按 (start,end) 以 reverse=bool(desc) 排序，返回 count=全部命中数、limit=传入 limit、session=生效的会话过滤值（跨会话时为 None）、items 为排序后前 limit 项（limit=0 时为空列表）且每项附 session 归属与 _preview(cg,id)（time_axis 缺省 observed，与旧行为逐位一致；非法轴抛 ValueError）。
 def timeline(cg, layer=None, limit=50, desc=True, max_scan=5000,
-             time_axis="observed"):
-    """按时间排序的节点列表。`time_axis` 决定排序依据的时间区间（见 `_interval`）。"""
+             time_axis="observed", session=None):
+    """按时间排序的节点列表。`time_axis` 决定排序依据的时间区间（见 `_interval`）。
+
+    `session` 是**视图开关**（P45 归因维度，与授权正交）：
+      · 缺省 None / 空串 → 不过滤：一次读遍所有会话（向后兼容，旧调用方多如此）；
+      · `"*"` → 同上语义，但把「我要看所有会话做了什么」写成**显式意图**，与
+        「忘了传参」区分开，审计里也看得出这是一次跨会话读取；
+      · 其它值 → 只取 `frontmatter.session` 精确相等的节点（本会话视图，
+        自动召回用它防串台）。
+    `items` 一并回带 `session`：跨会话视图下「这条是哪个会话做的」必须可辨，
+    否则「能读到所有会话做了什么」只剩内容、丢了归属。
+    """
+    sid = "" if session is None else str(session).strip()
+    cross = sid in ("", "*")            # 跨会话：显式 "*" 与缺省同义
     items = []
     for n in _scan(cg, layer=layer, max_scan=max_scan):
-        iv = _interval(n["frontmatter"], time_axis)
+        fm = n["frontmatter"] or {}
+        if not cross and fm.get("session") != sid:
+            continue
+        iv = _interval(fm, time_axis)
         if iv is None:
             continue
-        items.append((iv[0], iv[1], n["id"], n["layer"]))
+        items.append((iv[0], iv[1], n["id"], n["layer"], fm.get("session")))
     items.sort(key=lambda x: (x[0], x[1], x[2]), reverse=bool(desc))
     return {"count": len(items), "limit": limit,
+            "session": None if cross else sid,
             "items": [{"id": i, "layer": l, "start": s, "end": e,
-                       "preview": _preview(cg, i)}
-                      for s, e, i, l in items[:limit]]}
+                       "session": sn, "preview": _preview(cg, i)}
+                      for s, e, i, l, sn in items[:limit]]}
 
 
 # 生效条件：time_window 为长度 2 的 list/tuple 时 q_t=(float(time_window[0]),float(time_window[1]))（元素不可转 float 会直接抛异常，源码未捕获），bbox 为长度 4 的 list/tuple 时同理构造 q_b；q_t 与 q_b 均为 None 时返回 {"error":"need_time_window_or_bbox"}；否则扫描节点、每节点时间区间按 _interval(fm, time_axis) 取（time_axis 缺省 observed 与旧行为逐位一致，非法轴抛 ValueError），并要求时间关系在 during/contains/overlaps/equals、空间关系在 inside/contains/overlaps/equals（提供查询侧才检查），返回 hits[:limit]（limit=None 取全部，0/False 取空）；
