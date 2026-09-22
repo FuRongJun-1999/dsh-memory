@@ -146,6 +146,29 @@ def main():
         ok, why = denied(vcg.review_decide, "prop_x", "accept", reason="自证")
         check("验证单元无审核裁决权", ok, why[:70])
 
+        # ---------------- ②b orchestr 仲裁位（语义修正：链上收窄投影，非第二设计者） ----------------
+        print("\n[2b] orchestr 仲裁位（蜂巢编排者，3.9 仲裁实例投影）")
+        orc = tokens.derive(d["token"], "orchestr", actor="hive-orchestrator",
+                            label="蜂巢编排者", path=tf)
+        check("派生 orchestr 子令牌",
+              orc["ok"] and orc["parent"] == d["token_id"])
+        orcp = tokens.verify_token(orc["token"], path=tf)
+        check("orchestr 非第二设计者（can_admin=False）",
+              orcp.role == "orchestr" and orcp.can_admin is False)
+        ok, why = denied(orcp.require_admin, "forget")
+        check("orchestr 无存在级管理权（forget 拒）", ok, why[:70])
+        ocg = MdCGSecure(os.path.join(root, "cg"), principal=orcp, master_key=kek)
+        ok, why = denied(ocg.add, "n_k2", "越权写事实层", layer="knowledge")
+        check("orchestr 写 knowledge 层被拒", ok, why[:70])
+        check("orchestr 可写 contextual 层（收口归档职责内）",
+              bool(ocg.add("n_orch_ctx", "编排收口情境", layer="contextual")))
+        prop_pid = ocg.propose("orch_prop_1", "编排收口候选（contextual）",
+                               layer="contextual")
+        check("orchestr 可裁决 review 提案（裁决权=持 review op，闸门拆分生效）",
+              bool(ocg.review_decide(prop_pid, "accept")))
+        ok, why = denied(tokens.derive, orc["token"], "record", path=tf)
+        check("orchestr 不能继续派生（委派链封口）", ok, why[:70])
+
         ok, why = denied(tokens.derive, v["token"], "recorder", path=tf)
         check("子令牌不可再派生（委派链封口）", ok, why[:70])
         ok, why = denied(tokens.verify_token, d["token"][:-4] + "dead", path=tf)

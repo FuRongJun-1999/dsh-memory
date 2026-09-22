@@ -109,6 +109,18 @@ ROLE_SPECS = OrderedDict([
         "layers_allow": ["*"], "ops_allow": ["*"], "delegable": True,
         "forbidden": ["无（唯一可管理与可派生角色）"],
     }),
+    ("orchestr", {
+        "label": "仲裁实例（蜂巢编排者）", "unit": "仲裁实例", "effect": "裁",
+        "duty": "智能论 3.9 仲裁实例的令牌投影：拆解派发、裁决子代理冲突、收口归档；"
+                "存在级管理权（forget/protect/anchor 写）归设计者专属，本角色不可触碰",
+        "can_write": True, "can_admin": False, "clearance_cap": "internal",
+        "layers_allow": ["contextual", "unresolved", "rejected"],
+        "ops_allow": ["info", "route", "read", "write", "review", "recent",
+                     "consistency"],
+        "delegable": False,
+        "forbidden": ["anchor/self/goals/knowledge 层", "private/secret 密级",
+                      "forget/protect 等存在级管理操作", "继续派生子令牌"],
+    }),
     ("record", {
         "label": "记录单元", "unit": "记录单元", "effect": "全",
         "duty": "保存观测、过程、结果和误差；不得自证、不得改保护层",
@@ -222,7 +234,7 @@ DELEGABLE_ROLES = tuple(r for r, s in ROLE_SPECS.items() if s["delegable"])
 #      通过 —— `recent` 的 clear、`consistency` 的 auto_flywheel 写、`review` 的
 #      裁决（功能所求）。改本常量即改编排器权限：签发（CLI `orch`）与
 #      hive/orch.py 同引此处，防两处硬编码漂移。
-ORCH_ROLE = "designer"
+ORCH_ROLE = "orchestr"
 ORCH_OPS_ALLOW = ("route", "read", "write", "review", "recent", "consistency")
 ORCH_LAYERS_ALLOW = tuple(l for l in ALL_LAYERS if l not in CORE_LAYERS)
 

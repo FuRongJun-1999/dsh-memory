@@ -3648,9 +3648,13 @@ class MdCGSecure(MdCGOS):
         self.principal.require_admin("restore")
         return super().restore(node_id, force=force)
 
-# 生效条件：先 principal.require_admin("review_decide")，再把 *a/**kw 原样转给 super().review_decide。
+# 生效条件：先 principal.require_op("review")（语义修正 2026-09-22：裁决权从
+#   require_admin 拆出——编排者/仲裁位持 review op 即可裁决，存在级管理权
+#   （forget/protect/anchor 写）仍由 require_admin 把守、designer 专属；
+#   designer ops=["*"] 天然兼容），再把 *a/**kw 原样转给 super().review_decide；
+#   accept/edit 落节点时的层写仍由下游 require_layer_write 按裁决者可写层拦截。
     def review_decide(self, *a, **kw):
-        self.principal.require_admin("review_decide")
+        self.principal.require_op("review")
         return super().review_decide(*a, **kw)
 
 # 生效条件：先 principal.require_admin("evolution_rollback")，再转 super().evolution_rollback(entry_id, dry_run=dry_run, note=note)。
