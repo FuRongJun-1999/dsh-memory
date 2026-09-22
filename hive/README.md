@@ -47,6 +47,11 @@ rust 不可行，故 HTTPS 放执行器；执行器是可替换子进程——�
 # 构建（零第三方依赖，无 cargo install 之外的任何安装）
 cd hive && cargo build --release
 
+# ⚠ cargo 不在 PATH 时（Windows 常见：rustup 装完未重启终端 / 未加 PATH）用绝对路径：
+#   "%USERPROFILE%\.cargo\bin\cargo.exe" build --release --manifest-path hive/Cargo.toml
+#   CreateProcess 不自动补 .exe 后缀，故须写全 cargo.exe（只写 cargo 会 WinError 2）。
+#   本机实证：shutil.which('cargo') 为 None，但 ~/.cargo/bin 工具链完整（cargo/rustc/rustup 齐备）。
+
 # 配置密钥（执行器用）
 set HIVE_API_KEY=你的密钥
 
@@ -55,6 +60,9 @@ set HIVE_API_KEY=你的密钥
 #   首次使用请复制入库模板 hive/config.local.example.json 改名后改值（模板本身不入 gitignore，随仓分发）
 # 推荐形态：HIVE_API_KEY 引系统变量（如 DEEPSEEK_API_KEY），HIVE_WEB_SEARCH_KEY 引 key 文件
 python serve_start.py            # 拉起（已在跑则拒绝）；--stop 停止；--status 查看心跳与任务统计
+# ⚠ 重启不要经蜂巢任务派发（会自毁）：任务由 serve 的 worker 执行，任务内做 --stop
+#   等于杀掉执行它的 serve 自身 → worker 随之死亡、任务中断、新 serve 未起且无 result 留痕。
+#   重启是 serve 生命周期之外的运维动作——就用上面这条 CLI。（本机实证 2026-09-22）
 
 # 手动起 serve（**不读 config.local.json**，env 需自行带全；同一 jobs 目录至多一个 serve）
 # ⚠ 直起 hive.exe serve 而未显式设 HIVE_EXEC_PY 时，执行器回退 exec.py（llm_only）——
@@ -166,6 +174,7 @@ PYTHONPATH = "<本机 dsh-memory 仓库绝对路径>"
    `exec_cmd.py`，零 LLM）；MCP 面传入会被 fail fast 拒绝（不静默丢弃）。
    ⚠ **submit 只认 `--spec <file>` 或 stdin 的 `-`**：位置参数会被忽略并转而读**空 stdin**，
    表现为 exitCode 1 且**无任何输出**（易误判成 serve 故障，实为参数形态问题）。
+   ⚠ **未传 `workdir` 时，命令的 cwd 是 worker 侧的 job 目录**（`hive/jobs/<job_id>/`），**不是** submit 时的 shell cwd；`workdir` 既作 `context_files` 相对基准，也作命令执行 cwd。⇒ 命令里的脚本/数据一律用**绝对路径**，或显式传 `workdir`。（实测：用相对路径脚本会 `can't open file` → exit=2；命令回显的 `cwd` 字段可直接核对。）
 
 ### 任务上下文管理（谁负责哪一段）
 

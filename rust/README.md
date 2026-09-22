@@ -41,6 +41,7 @@ for h in hits {
 ```bash
 cargo build --release
 ./target/release/mdcg-eval --serve --root /path/to/memory-root
+# 无 Rust 工具链 / cargo 不在 PATH 时的等价做法见 §5「环境兜底」。
 ```
 
 进程存活 = 检索实例（模式参照 protocol-compiler 蜂群实例基座）。
@@ -70,6 +71,7 @@ def search(query, k=5):
 ## 3. 评测器形态
 
 ```bash
+# 需 Rust 工具链；构建兜底见 §5。
 cargo run --release -- --dataset lc          # LoCoMo T-REC 三组 + 负例组
 cargo run --release -- --n 2                 # 2 题快速冒烟
 cargo run --release -- --help                # 全参数
@@ -86,6 +88,19 @@ cargo run --release -- --help                # 全参数
 * 零第三方依赖（D-005）：评测机离线可构建。
 
 ## 5. 构建与测试
+
+### 环境兜底（无完整 Rust 环境时）
+
+本 crate **零第三方依赖**（D-005），但**仍需 Rust 工具链本身**（`cargo` + `rustc`）。
+
+| 情形 | 等价做法 |
+|---|---|
+| 已装 rustup，但 `cargo` 不在 PATH（Windows 常见：装完未重启终端） | 绝对路径："%USERPROFILE%\\.cargo\\bin\\cargo.exe" build --release（unix：`~/.cargo/bin/cargo`） |
+| **完全未装 Rust** | ① 装工具链 <https://rustup.rs>；或 ② **不构建**——`rust/` 是只读侧**可选加速内核**，Python 面 `md_cg`（`mdcos.search_rrf`）是等价检索本体（见 §4：文本/存储层与 Python `md_cg` 逐函数对齐），功能不缺失 |
+| PATH 混乱 / 想固定版本 | `rustup toolchain list`、`rustup default stable` |
+
+> 零第三方依赖 ≠ 零工具链：前者指不必联网拉 crate，后者指构建仍需 `cargo`。
+> 已有产物路径：`rust/target/release/mdcg-eval`（Windows 为 `.exe`）。
 
 ```bash
 cargo test      # 8 项：文本层 4 + 引擎 2（含多线程并发安全）+ serve 协议 2

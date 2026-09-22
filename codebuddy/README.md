@@ -34,7 +34,9 @@ dsh-memory 仓库所在目录**。此处须用可解析的绝对路径——Pyth
 [`../hive/README.md`](../hive/README.md) 的「各 harness 注册」。
 
 > 依赖 Rust 侧 `hive.exe` 与 `hive/config.local.json`（执行器密钥）。未构建时先
-> `cd hive && cargo build --release`；首次 `hive_spawn` 会自动以 detached 方式拉起 `serve`。
+> `cd hive && cargo build --release`；`cargo` 不在 PATH 时改用绝对路径
+> `"%USERPROFILE%\.cargo\bin\cargo.exe" build --release --manifest-path hive/Cargo.toml`；
+> 首次 `hive_spawn` 会自动以 detached 方式拉起 `serve`。
 > **确定性任务（跑命令 / 测试）不在 MCP 面**，走 CLI：
 > `hive/target/release/hive.exe submit --spec <spec.json>`。
 
