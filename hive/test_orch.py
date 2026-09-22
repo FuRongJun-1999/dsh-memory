@@ -372,6 +372,9 @@ with open(os.path.join(_JD, "spec.json"), encoding="utf-8") as f:
 check("E2 spec 补全编排三工具（写回磁盘可审计）",
       set(orc.ORCH_TOOLS) <= set(_spec2["tools"]), str(_spec2.get("tools")))
 check("E3 缺省注入编排 system_prompt", "编排者" in _spec2.get("system_prompt", ""))
+check("E3b 写后回读纪律在系统提示词（M3.1，删除该行必红）",
+      "写后回读" in _spec2.get("system_prompt", "")
+      and "不信返回的 written 计数" in _spec2.get("system_prompt", ""))
 check("E4 max_subtasks 从 spec.orchestrate 生效", orc._CFG["max_subtasks"] == 3,
       str(orc._CFG["max_subtasks"]))
 check("E5 已注册编排工具", set(orc.ORCH_TOOLS) <= set(orc._ex.all_schemas()))
