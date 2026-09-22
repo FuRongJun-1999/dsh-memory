@@ -8,7 +8,10 @@
 //!   * 入参：argv[1] = job 目录；
 //!   * 读 spec.json → 调 API → 写 result.json（成功与 API 错误都写，error 字段区分）；
 //!   * 详细日志写 job/log.txt；stdout/stderr 保持安静（不污染 serve 控制台）；
-//!   * 退出码：0 成功 / 2 规格错 / 3 API 错误。
+//!   * 退出码：0 成功 / 2 规格错 / 3 API 错误；
+//!   * **不得派生脱离生命周期的守护进程**：子进程须随执行器主进程退出
+//!     （Windows 下 kill/timeout 走 kill_tree 进程树回收；unix 只杀直接子进程，
+//!     孙进程存活即执行器违约）。
 
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -36,6 +39,39 @@ pub fn hide_window(cmd: &mut Command) {
 /// 非 Windows：无操作（unix 不存在「弹终端」这一形态）。
 #[cfg(not(target_os = "windows"))]
 pub fn hide_window(_cmd: &mut Command) {}
+
+/// 终止执行器子进程。Windows 用 taskkill /T /F 回收**进程树**（含孙进程），
+/// 其余平台只杀直接子进程（诚实边界：孙进程由执行器契约约束，见下）。
+///
+/// 为什么需要进程树回收（2026-09-22 实锤，`D:\2_ai` C10/M2）：`child.kill()` 在
+/// Windows = TerminateProcess，**只杀直接子进程**——执行器派生的孙进程
+/// （subprocess / 编译器 / 测试长睡进程）在 kill/timeout 后成为孤儿继续运行，
+/// 占用端口、文件句柄，表现为「任务已 killed 但还有进程在跑」。
+///
+/// 实现约束：
+///   * taskkill 是系统自带工具调用，**非 crate 依赖**（D-005 不破）；
+///   * taskkill 自身是 console 程序，serve 无控制台，**必须 hide_window**
+///     （否则每次强杀弹一个终端——迭代项 1 同族缺陷）；
+///   * taskkill 失败回落 `child.kill()`（宁可只杀直接子进程，也不什么都不做）。
+pub fn kill_tree(child: &mut Child) {
+    #[cfg(target_os = "windows")]
+    {
+        let pid = child.id();
+        let mut cmd = Command::new("taskkill");
+        cmd.args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        hide_window(&mut cmd);
+        if cmd.status().is_err() {
+            let _ = child.kill();
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = child.kill();
+    }
+}
 
 /// 拉起执行器子进程（stdio 全 null：执行器自己写 job/log.txt）。
 pub fn spawn_executor(exec_py: &Path, dir: &Path) -> std::io::Result<Child> {

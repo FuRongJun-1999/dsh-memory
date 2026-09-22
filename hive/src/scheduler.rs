@@ -282,13 +282,13 @@ fn run_job(cfg: &ServeCfg, id: &str) {
             }
             Ok(None) => {
                 if job::kill_requested(&dir) {
-                    let _ = child.kill();
+                    exec::kill_tree(&mut child); // 进程树回收（含孙进程），见 exec.rs
                     let _ = child.wait();
                     final_state = "killed".into();
                     break;
                 }
                 if t0.elapsed() >= timeout {
-                    let _ = child.kill();
+                    exec::kill_tree(&mut child); // 超时同样走进程树回收
                     let _ = child.wait();
                     final_state = "timeout".into();
                     break;
@@ -572,5 +572,96 @@ with open(os.path.join(d, "result.json"), "w", encoding="utf-8") as f:
             "running+无产物的 error 文本须含 serve 中断"
         );
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// M2 进程树回收（能红 + 反向对照）：执行器派生孙进程后长睡，kill 后孙进程
+    /// 必须被回收。反向对照：旧 `child.kill()` 路径（TerminateProcess 只杀直接
+    /// 子进程）下孙进程仍存活——本测试在旧路径必红。Windows 限定（taskkill）。
+    #[cfg(windows)]
+    #[test]
+    fn kill_tree_kills_grandchildren() {
+        const TREE_EXEC: &str = r#"
+import sys, json, os, time, subprocess
+d = sys.argv[1]
+with open(os.path.join(d, "spec.json"), encoding="utf-8") as f:
+    json.load(f)
+p = subprocess.Popen(
+    ["cmd", "/c", "timeout", "/t", "300", "/nobreak"],
+    creationflags=0x08000000,
+    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+with open(os.path.join(d, "grandchild.pid"), "w") as f:
+    f.write(str(p.pid))
+time.sleep(30)  # 长睡保持执行器存活，触发 kill 路径
+"#;
+        let tmp = tmpjobs("killtree");
+        let jobs = tmp.join("jobs");
+        let exec_py = tmp.join("fake_exec_tree.py");
+        fs::write(&exec_py, TREE_EXEC).unwrap();
+        let a = submit(&jobs, "30", 3600);
+        let cfg = ServeCfg::new(jobs.clone(), 1, exec_py);
+        let stop = Arc::new(AtomicBool::new(false));
+        let h = {
+            let cfg = cfg.clone();
+            let stop = Arc::clone(&stop);
+            thread::spawn(move || serve(&cfg, stop))
+        };
+
+        // 等执行器产出孙进程 pid
+        let gpath = job::job_dir(&jobs, &a).join("grandchild.pid");
+        let mut gpid: u32 = 0;
+        for _ in 0..100 {
+            if let Ok(s) = fs::read_to_string(&gpath) {
+                if let Ok(p) = s.trim().parse::<u32>() {
+                    gpid = p;
+                    break;
+                }
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        assert!(gpid > 0, "执行器未产出孙进程");
+
+        // kill 执行器
+        job::request_kill(&job::job_dir(&jobs, &a)).unwrap();
+        let mut killed = false;
+        for _ in 0..100 {
+            if read_state(&jobs, &a) == "killed" {
+                killed = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        assert!(killed, "kill 未生效");
+
+        // 孙进程须在 3s 内从进程表消失（旧 child.kill() 路径此处仍存活 → 必红）
+        let mut gone = false;
+        for _ in 0..30 {
+            if !win_pid_alive(gpid) {
+                gone = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        stop.store(true, Ordering::SeqCst);
+        h.join().unwrap();
+        assert!(gone, "kill_tree 后孙进程 {} 仍存活（进程树回收失败）", gpid);
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// Windows 进程表精确查询（CSV 列比对，防 pid 441 被 4410 命中——
+    /// 与 serve_start._tasklist_row 同口径）。
+    #[cfg(windows)]
+    fn win_pid_alive(pid: u32) -> bool {
+        let out = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {}", pid), "/NH", "/FO", "CSV"])
+            .output();
+        let Ok(o) = out else { return false };
+        let s = String::from_utf8_lossy(&o.stdout);
+        for line in s.lines() {
+            let cols: Vec<&str> = line.split("\",\"").collect();
+            if cols.len() >= 2 && cols[1].trim().trim_matches('"') == pid.to_string() {
+                return true;
+            }
+        }
+        false
     }
 }
