@@ -741,20 +741,27 @@ class MdCG:
         self.index = idx
         return idx
 
-# 生效条件：self._dirty 非空时才（必要时新建 ShardedLog）逐条 append、清空 _dirty 并关闭分片句柄；self._dirty 为空时立即返回、不写任何记录；
+# 生效条件：self._dirty 非空时才在 FileLock(index_path) 下（必要时新建 ShardedLog）逐条 append、清空 _dirty 并关闭分片句柄；self._dirty 为空时立即返回、不写任何记录；
     def flush(self):
         if not self._dirty:
             return
-        if self._log is None:
-            self._log = ShardedLog(self.index_log_dir)
-        for nid, e in self._dirty.items():
-            self._log.append({"id": nid, "e": e})
-        self._dirty = {}
-        # 写完立即关分片句柄：Windows 上「被本进程打开的文件」无法删除，
-        # 若持有句柄，rebuild_index 的 ShardedLog.clear 会静默失败，已并进
-        # 快照的旧记录被永久重放（旧条目反而覆盖新快照）。append 内部已
-        # 每次 flush，句柄无需常驻；下一次 append 会按需重开。
-        self._log.close()
+        # 世代/互斥防线（批次9，M3.3 落地）：append 必须与 compact/rebuild 的
+        # 「read 日志 → clear 分片」临界区互斥（同一把 index_path 锁）——
+        # 否则 B 实例的 append 落在 A 实例 read_all 之后、clear 之前时，
+        # 记录随分片被删，节点「在盘但索引不可见」（9·12 病灶：3 实例并发，
+        # apply 留痕 7590 vs 盘面 ~1036 的成因链之一）。锁内 append 后，
+        # 后续 clear 必然已包含本批记录。
+        with FileLock(self.index_path):
+            if self._log is None:
+                self._log = ShardedLog(self.index_log_dir)
+            for nid, e in self._dirty.items():
+                self._log.append({"id": nid, "e": e})
+            self._dirty = {}
+            # 写完立即关分片句柄：Windows 上「被本进程打开的文件」无法删除，
+            # 若持有句柄，rebuild_index 的 ShardedLog.clear 会静默失败，已并进
+            # 快照的旧记录被永久重放（旧条目反而覆盖新快照）。append 内部已
+            # 每次 flush，句柄无需常驻；下一次 append 会按需重开。
+            self._log.close()
 
 # 生效条件：随认知图对象生命周期结束调用、可重复；先 flush() 落未达 autoflush 阈值的脏索引（否则尾部写入虽在盘上但不可见），再关闭并置空日志句柄（句柄为假值时跳过关闭）；
     def close(self):
