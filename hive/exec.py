@@ -98,6 +98,31 @@ def write_result(job_dir: str, payload: dict) -> None:
         json.dump(payload, f, ensure_ascii=False)
 
 
+# 生效条件：root/cg/out 传入时，out 非 dict 或 ok/committed 非双真 → 原样返回（入队/负记忆/失败形态不经回读）；committed=true 时取 out["id"] 对应索引条目的 path 拼盘面路径，文件存在则 out 附 readback="ok" 原样返回，条目缺失或文件不存在 → 返回 ok=False、readback="missing"、「回读不一致」error（不冒充成功）；
+def _write_readback(root: str, cg, out: dict) -> dict:
+    """M3.1 工具层写后回读（2026-09-23 批次7）。
+
+    write 响应 committed=true = 声称节点已落盘——盘面必须真有对应文件。
+    设计依据：写后回读是 9·12（3 个 mdcg 实例并发回写，apply 留痕 7590
+    vs 盘面 ~1036）的检测手段；本函数把「模型按提示词自觉回读」升级为
+    「工具面结构拦截」——提示词纪律可被绕过，返回值门不可绕。
+    验证资格：回读只读盘，不改任何状态——它无资格改写，只有资格证伪。
+    """
+    if not (isinstance(out, dict) and out.get("ok") and out.get("committed")):
+        return out                 # DEFER 入队 / REJECT / 失败：无落盘声称，不拦
+    nid = out.get("id")
+    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    e = nodes.get(nid) if isinstance(nodes, dict) else None
+    fpath = os.path.join(root, e["path"]) if e and e.get("path") else None
+    if not fpath or not os.path.isfile(fpath):
+        return {"ok": False, "id": nid, "readback": "missing", "error": (
+            "回读不一致：write 声称已落盘（committed=true），但盘面无对应节点"
+            "文件——拒绝冒充成功（M3.1 工具层防线，9·12 多写者病灶；"
+            "请重试或上报，勿把本次当成功继续下游）")}
+    out["readback"] = "ok"
+    return out
+
+
 # 生效条件：当 job_dir 传入时，以 UTF-8 打开 job_dir/spec.json 并返回 json.load(f) 的结果；打开/解析异常向上传播；
 def read_spec(job_dir: str) -> dict:
     with open(os.path.join(job_dir, "spec.json"), encoding="utf-8") as f:
@@ -657,6 +682,11 @@ def tool_lingshu_cg(args: dict, job_id: str, mdcg_root: str = None) -> dict:
         cg = MdCGSecure(root, principal=principal)
         from md_cg.mcp_server import _cg_dispatch
         out = _cg_dispatch(cg, args)
+        # M3.1 工具层写后回读（批次7）：write 声称已落盘（committed=true）时，
+        # 盘面必须真有该节点文件——提示词级回读纪律（9136fa9）可被模型绕过，
+        # 结构拦截不依赖自觉（9·12 病灶：内存索引与盘面脱节，落盘率 ~14%）。
+        if (isinstance(out, dict) and str(args.get("op") or "") == "write"):
+            out = _write_readback(root, cg, out)
         return out if isinstance(out, dict) else {"ok": True, "data": out}
     except Exception as e:  # noqa: BLE001 —— 工具异常回喂模型自修，不终杀任务
         return {"ok": False, "error": f"{type(e).__name__}: {e}",

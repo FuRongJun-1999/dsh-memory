@@ -19,6 +19,9 @@
 //!   "context_budget_tokens": 300000, // 可选：输入 token 预算（执行器保守估算，超限 fail fast）
 //!   "depends_on": ["h..."],          // 可选：上游任务列表——全 done 才领取，
 //!                                    //   任一 error/timeout/killed → 本任务 error（失败传播）
+//!   "rerun_on_recover": true,        // 可选：崩溃恢复逃生门（缺省 false）——恢复时
+//!                                    //   不采信旧产物：result.json 更名
+//!                                    //   result.json.recovered-<ts> 留痕并强制重投
 //! }
 //! ```
 
@@ -46,6 +49,12 @@ pub struct Spec {
     /// 无环性结构性成立：job_id 含毫秒时间戳，提交时间序 = DAG 拓扑序，
     /// 无法引用提交时尚不存在的任务（自引用亦不可能）。
     pub depends_on: Vec<String>,
+    /// M1 逃生门（2026-09-23 批次7）：崩溃恢复时不采信旧产物——
+    /// serve 重启的 recover_orphans 见本标志为 true 时，把 result.json 更名为
+    /// `result.json.recovered-<ts>` 留痕并回 pending 强制新鲜重投。
+    /// 用途：产物可能产生于被污染/中断的执行上下文，提交方显式声明
+    /// 「宁可重跑也要新鲜结果」。缺省 false = 产物说了算（M1 主判据不变）。
+    pub rerun_on_recover: bool,
 }
 
 pub const DEFAULT_TIMEOUT_S: u64 = 300;
@@ -183,6 +192,11 @@ pub fn validate_lenient(v: &Json) -> Result<Spec, String> {
         }
     }
 
+    // 逃生门只认显式 true；缺失/null/false/非布尔一律 false（fail-safe 缺省，
+    // 不因写错类型拒绝整个 spec——重投语义宁缺勿滥）
+    let rerun_on_recover =
+        matches!(v.get("rerun_on_recover"), Some(Json::Bool(true)));
+
     Ok(Spec {
         model,
         system_prompt,
@@ -196,6 +210,7 @@ pub fn validate_lenient(v: &Json) -> Result<Spec, String> {
         reasoning_effort,
         context_budget_tokens,
         depends_on,
+        rerun_on_recover,
     })
 }
 
@@ -316,5 +331,26 @@ mod tests {
         .unwrap();
         assert!(validate(&v, &d).is_err());
         let _ = fs::remove_dir_all(&d);
+    }
+
+    /// M1 逃生门解析（批次7）：只认显式 true；缺省/否/null/错型一律 false。
+    #[test]
+    fn rerun_on_recover_parse() {
+        let s = validate(
+            &crate::json::parse(
+                r#"{"model":"m","user_prompt":"x","rerun_on_recover":true}"#,
+            )
+            .unwrap(),
+            Path::new("."),
+        )
+        .unwrap();
+        assert!(s.rerun_on_recover);
+        for bad in [r#"{"model":"m","user_prompt":"x"}"#,
+                    r#"{"model":"m","user_prompt":"x","rerun_on_recover":false}"#,
+                    r#"{"model":"m","user_prompt":"x","rerun_on_recover":null}"#,
+                    r#"{"model":"m","user_prompt":"x","rerun_on_recover":"yes"}"#] {
+            let s = validate(&crate::json::parse(bad).unwrap(), Path::new(".")).unwrap();
+            assert!(!s.rerun_on_recover, "非显式 true 必须回落 false: {bad}");
+        }
     }
 }

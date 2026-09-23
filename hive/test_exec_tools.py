@@ -104,6 +104,33 @@ check("B5 read 返回 results 结构",
       isinstance(res, list) and len(res) >= 1
       and "node" in res[0], str(out)[:200])
 
+# M3.1 工具层写后回读（批次7）：committed=true 必须盘面真有节点文件
+print("[B6] _write_readback（9·12 工具层防线）")
+from types import SimpleNamespace as _NS
+# B6: DEFER 入队形态（committed=false）→ 原样放行（无落盘声称，不拦）
+out = ex._write_readback(tmp, cg_t, {"ok": True, "id": "mem_whatever",
+                                     "committed": False})
+check("B6 committed=false 原样放行（入队非落盘）",
+      out.get("readback") is None and out.get("committed") is False, str(out)[:120])
+# B7: committed=true 但盘面无文件 → 回读不一致 error（能红：旧实现冒充成功）
+fake_cg = _NS(index={"nodes": {"mem_ghost": {
+    "path": "nodes/knowledge/mem_ghost.md"}}})
+out = ex._write_readback(tmp, fake_cg,
+                         {"ok": True, "id": "mem_ghost", "committed": True})
+check("B7 盘面无文件 → 回读不一致拒绝冒充成功",
+      out.get("ok") is False and out.get("readback") == "missing"
+      and "回读不一致" in out["error"], str(out)[:160])
+# B8: committed=true 且文件真在盘 → 放行并附 readback=ok
+cg_t.add("mem_readback_probe", "# 功能名：回读探针\n# 正文：真实落盘",
+         layer="knowledge")
+e = cg_t.index["nodes"]["mem_readback_probe"]
+check("B8a 探针文件真在盘（前置）",
+      os.path.isfile(os.path.join(tmp, e["path"])))
+out = ex._write_readback(tmp, cg_t, {"ok": True, "id": "mem_readback_probe",
+                                     "committed": True})
+check("B8 盘面有文件 → 放行附 readback=ok",
+      out.get("ok") is True and out.get("readback") == "ok", str(out)[:120])
+
 # ---------------------------------------------------------------- C web_search
 print("[C] web_search（假 urlopen，不触网）")
 

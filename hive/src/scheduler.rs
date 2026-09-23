@@ -158,17 +158,30 @@ fn recover_orphans(cfg: &ServeCfg) {
         let state = st.get("state").and_then(|v| v.as_str()).unwrap_or("");
         match state {
             "claimed" => match classify_result(&dir) {
-                // 产物已产出 → 按产物定终态（删锁但绝不重投重跑）
+                // 产物已产出 → 按产物定终态（删锁但绝不重投重跑）；
+                // 例外：spec 显式 rerun_on_recover → 旧产物更名留痕，强制重投（M1 逃生门）
                 Some((final_state, err)) => {
-                    let _ = std::fs::remove_file(dir.join("claimed.lock"));
-                    let mut fields = vec![(
-                        "state".to_string(),
-                        crate::json::Json::Str(final_state),
-                    )];
-                    if let Some(e) = err {
-                        fields.push(("error".to_string(), crate::json::Json::Str(e)));
+                    if spec_rerun_on_recover(&dir) {
+                        archive_stale_result(&dir);
+                        let _ = std::fs::remove_file(dir.join("claimed.lock"));
+                        let _ = job::patch_status(
+                            &dir,
+                            vec![(
+                                "state".to_string(),
+                                crate::json::Json::Str("pending".into()),
+                            )],
+                        );
+                    } else {
+                        let _ = std::fs::remove_file(dir.join("claimed.lock"));
+                        let mut fields = vec![(
+                            "state".to_string(),
+                            crate::json::Json::Str(final_state),
+                        )];
+                        if let Some(e) = err {
+                            fields.push(("error".to_string(), crate::json::Json::Str(e)));
+                        }
+                        let _ = job::patch_status(&dir, fields);
                     }
-                    let _ = job::patch_status(&dir, fields);
                 }
                 // 无产物 → 删锁回 pending 重投（原行为）
                 None => {
@@ -183,16 +196,28 @@ fn recover_orphans(cfg: &ServeCfg) {
                 }
             },
             "running" => match classify_result(&dir) {
-                // 孤儿执行器可能已写出产物 → 按产物定终态（不误标 serve 中断）
+                // 孤儿执行器可能已写出产物 → 按产物定终态（不误标 serve 中断）；
+                // 例外：spec 显式 rerun_on_recover → 旧产物更名留痕，回 pending 重投
                 Some((final_state, err)) => {
-                    let mut fields = vec![(
-                        "state".to_string(),
-                        crate::json::Json::Str(final_state),
-                    )];
-                    if let Some(e) = err {
-                        fields.push(("error".to_string(), crate::json::Json::Str(e)));
+                    if spec_rerun_on_recover(&dir) {
+                        archive_stale_result(&dir);
+                        let _ = job::patch_status(
+                            &dir,
+                            vec![(
+                                "state".to_string(),
+                                crate::json::Json::Str("pending".into()),
+                            )],
+                        );
+                    } else {
+                        let mut fields = vec![(
+                            "state".to_string(),
+                            crate::json::Json::Str(final_state),
+                        )];
+                        if let Some(e) = err {
+                            fields.push(("error".to_string(), crate::json::Json::Str(e)));
+                        }
+                        let _ = job::patch_status(&dir, fields);
                     }
-                    let _ = job::patch_status(&dir, fields);
                 }
                 // 无产物 → 诚实标 error（原行为）
                 None => {
@@ -365,6 +390,34 @@ fn classify_result(dir: &std::path::Path) -> Option<(String, Option<String>)> {
             Some(format!("result.json 解析失败: {e}")),
         )),
     }
+}
+
+/// M1 逃生门（批次7）：spec 显式 `"rerun_on_recover": true` 时，恢复不采信旧产物。
+/// 读取失败/字段缺失一律 false（fail-safe——逃生门宁缺勿滥，产物判据是缺省正道）。
+fn spec_rerun_on_recover(dir: &std::path::Path) -> bool {
+    job::read_json(&dir.join("spec.json"))
+        .ok()
+        .and_then(|s| {
+            s.get("rerun_on_recover").and_then(|v| match v {
+                crate::json::Json::Bool(b) => Some(*b),
+                _ => None,
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// 旧产物更名留痕：result.json → result.json.recovered-<unix_ts>。
+/// 更名失败不阻断重投（留痕尽力而为；重投本身是硬要求）。
+fn archive_stale_result(dir: &std::path::Path) {
+    let src = dir.join("result.json");
+    if !src.is_file() {
+        return;
+    }
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let _ = std::fs::rename(&src, dir.join(format!("result.json.recovered-{ts}")));
 }
 
 /// 依赖门禁（I-1，中观任务 DAG 第一格）：
@@ -631,6 +684,83 @@ with open(os.path.join(d, "result.json"), "w", encoding="utf-8") as f:
         assert!(
             st_e.get("error").unwrap().as_str().unwrap().contains("serve 中断"),
             "running+无产物的 error 文本须含 serve 中断"
+        );
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// M1 逃生门（批次7，能红 + 反向对照）：spec 显式 rerun_on_recover 时，
+    /// 恢复不采信旧产物——旧 result.json 更名 result.json.recovered-<ts> 留痕、
+    /// 强制回 pending 重投。反向对照：缺省（无该字段）必须维持产物判据
+    /// （done/error 不重投）——若有人把逃生门误做成无条件重投，b 必红。
+    #[test]
+    fn rerun_on_recover_escape_hatch() {
+        let tmp = tmpjobs("rerun");
+        let jobs = tmp.join("jobs");
+        let exec_py = write_fake_exec(&tmp);
+
+        // a: claimed + 产物 + spec 带 rerun_on_recover:true → pending 重投 + 旧产物留痕
+        let a = submit(&jobs, "0", 60);
+        let da = job::job_dir(&jobs, &a);
+        fs::write(
+            da.join("spec.json"),
+            r#"{"model":"fake","user_prompt":"0","rerun_on_recover":true}"#,
+        )
+        .unwrap();
+        fs::write(da.join("claimed.lock"), b"").unwrap();
+        fs::write(da.join("result.json"), r#"{"ok":true,"content":"stale"}"#).unwrap();
+        let _ = job::patch_status(
+            &da,
+            vec![("state".to_string(), crate::json::Json::Str("claimed".into()))],
+        );
+
+        // b（反向对照）: 同产物但 spec 不带该字段 → 维持产物判据 done
+        let b = submit(&jobs, "0", 60);
+        let db = job::job_dir(&jobs, &b);
+        fs::write(db.join("claimed.lock"), b"").unwrap();
+        fs::write(db.join("result.json"), r#"{"ok":true,"content":"fresh"}"#).unwrap();
+        let _ = job::patch_status(
+            &db,
+            vec![("state".to_string(), crate::json::Json::Str("claimed".into()))],
+        );
+
+        // c: running + 产物 + rerun_on_recover → pending + 留痕（逃生门覆盖两态）
+        let c = submit(&jobs, "0", 60);
+        let dc = job::job_dir(&jobs, &c);
+        fs::write(
+            dc.join("spec.json"),
+            r#"{"model":"fake","user_prompt":"0","rerun_on_recover":true}"#,
+        )
+        .unwrap();
+        fs::write(dc.join("result.json"), r#"{"ok":false,"error":"poisoned"}"#).unwrap();
+        let _ = job::patch_status(
+            &dc,
+            vec![("state".to_string(), crate::json::Json::Str("running".into()))],
+        );
+
+        let cfg = ServeCfg::new(jobs.clone(), 1, exec_py);
+        recover_orphans(&cfg);
+
+        assert_eq!(read_state(&jobs, &a), "pending", "逃生门应强制重投 claimed");
+        assert!(!da.join("claimed.lock").exists(), "重投须删锁");
+        assert!(!da.join("result.json").exists(), "旧产物须让位（不采信）");
+        let archived_a = fs::read_dir(&da)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().starts_with("result.json.recovered-"));
+        assert!(archived_a, "旧产物须以 recovered-<ts> 留痕");
+
+        assert_eq!(read_state(&jobs, &b), "done", "缺省必须维持产物判据（反向对照）");
+
+        assert_eq!(read_state(&jobs, &c), "pending", "逃生门应覆盖 running 态");
+        assert!(
+            fs::read_dir(&dc)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .any(|e| e
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("result.json.recovered-")),
+            "running 态旧产物同样须留痕"
         );
         let _ = fs::remove_dir_all(&tmp);
     }
