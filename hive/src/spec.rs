@@ -63,6 +63,8 @@ pub const MAX_TIMEOUT_S: u64 = 3600;
 
 impl Spec {
     /// context 路径解析基准：spec.workdir 优先，否则 `fallback`（调用方 cwd）。
+    /// 生效条件：workdir 显式给出 → 以其为基准；否则回退 fallback（调用方 cwd）
+    /// ——context 相对路径解析的唯一锚点决策点。
     pub fn base_dir(&self, fallback: &Path) -> PathBuf {
         self.workdir
             .as_ref()
@@ -71,6 +73,9 @@ impl Spec {
     }
 
     /// 校验 context 文件存在性（submit 侧 fail fast；执行器侧再兜底一次）。
+    /// 生效条件：全部 context_files 相对 base 均为已存在文件 → Ok()；
+    /// 任一缺失 → Err(路径)（submit 侧 fail fast，不让坏任务进队列；
+    /// 执行器侧再兜底一次）。
     pub fn check_context(&self, base: &Path) -> Result<(), String> {
         for f in &self.context_files {
             let p = base.join(f);
@@ -84,6 +89,8 @@ impl Spec {
 
 /// 从 JSON 解析并校验 spec。`base_dir`：context 相对路径的校验基准
 /// （spec.workdir 优先，否则调用方 cwd）。校验含 context 文件存在性。
+/// 生效条件：validate_lenient 通过且 context 文件存在性校验通过 → Ok(Spec)；
+/// 任一失败 → Err（submit 侧用：把错拦在进队列之前）。
 pub fn validate(v: &Json, base_dir: &Path) -> Result<Spec, String> {
     let s = validate_lenient(v)?;
     let base = s.base_dir(base_dir);
@@ -93,6 +100,11 @@ pub fn validate(v: &Json, base_dir: &Path) -> Result<Spec, String> {
 
 /// 宽松校验（不含 context 存在性检查）——worker 侧用：
 /// job 目录不是合法 base，context 已在 submit 侧 fail fast。
+/// 生效条件：v 为 JSON 对象且 model/user_prompt 非空、timeout_s/max_tokens/
+/// temperature/thinking.type/reasoning_effort 各字段（若出现）在白名单内 →
+/// Ok(Spec)（缺省字段回落默认：timeout 300、rerun_on_recover false 等）；
+/// 必填缺失或越界 → Err。宽松形态（不含 context 存在性检查）供 worker 侧用
+/// ——job 目录不是合法 base，context 已在 submit 侧校验过。
 pub fn validate_lenient(v: &Json) -> Result<Spec, String> {
     v.as_obj()
         .ok_or_else(|| "spec 必须是 JSON 对象".to_string())?;

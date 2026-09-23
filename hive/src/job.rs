@@ -24,7 +24,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 当前 Unix 毫秒。
+/// 生效条件：恒成立（时钟倒退时 unwrap_or(0) 诚实回落）——返回当前 Unix 毫秒。
+/// 全仓时间戳（job_id/心跳/日志 _t）的单点时钟源。
 pub fn now_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -32,12 +33,15 @@ pub fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
-/// 生成 job_id：`h<unix_ms>_<pid4>`（同毫秒冲突由 pid 区分；进程内串行提交足够）。
+/// 生效条件：每次调用生成新 id——`h<unix_ms>_<pid4>`，同毫秒冲突由 pid 区分，
+/// 进程内串行提交足够；h 前缀使 list_jobs 的名升序 = 提交时间升序（I-1 拓扑序
+/// 无环性的结构性根基，spec.rs depends_on 校验依赖此前缀）。
 pub fn new_job_id() -> String {
     let pid = std::process::id();
     format!("h{}_{:04x}", now_ms(), pid & 0xffff)
 }
 
+/// 生效条件：恒成立——jobs 根目录 + job_id 拼任务目录路径（目录协议的唯一拼装点）。
 pub fn job_dir(jobs: &Path, id: &str) -> PathBuf {
     jobs.join(id)
 }
@@ -49,6 +53,9 @@ pub fn job_dir(jobs: &Path, id: &str) -> PathBuf {
 /// 读到空文件导致 parse 失败。同目录 rename 在 POSIX 与 Windows
 ///（MoveFileEx + REPLACE_EXISTING）上均为原子替换，读者只见旧内容或新内容。
 /// tmp 名带 pid：多 serve 竞争写 `_serve.json` 时互不踩踏，rename 最后写者赢。
+/// 生效条件：写 JSON 文本（UTF-8）——tmp + fsync + rename 原子替换；并发读者
+/// 只见旧内容或新内容，绝不读空；多写者竞争时 rename 最后写者赢。
+/// 不适用条件：不保证跨进程写序（那由上层协议——status 单写者/日志锁——承载）。
 pub fn write_json(path: &Path, v: &Json) -> std::io::Result<()> {
     let data = v.to_json_string();
     let tmp = path.with_extension(format!("tmp{}", std::process::id()));
@@ -61,6 +68,8 @@ pub fn write_json(path: &Path, v: &Json) -> std::io::Result<()> {
 }
 
 /// 读 JSON 文本并解析（坏文件按错误返回，不静默吞）。
+/// 生效条件：文件存在且为合法 JSON → Ok(Json)；不存在/坏文件 → Err（含路径，
+/// 不静默吞——坏文件是事故信号不是默认值来源）。
 pub fn read_json(path: &Path) -> Result<Json, String> {
     let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     crate::json::parse(&text).map_err(|e| format!("{}: {e}", path.display()))
@@ -69,6 +78,9 @@ pub fn read_json(path: &Path) -> Result<Json, String> {
 /// 建任务目录并落 spec.json + 初始 status(pending)。
 /// 写序：spec.json 先行，status.json 后写 = 「任务就绪」信号，
 /// serve 只领取见到 status.json 且 state=pending 的任务。
+/// 生效条件：jobs 目录可写 → 建任务目录、先落 spec.json 再落 status(pending)
+/// （status.json 出现 = 任务就绪可领取的发布信号），返回 job_id；任一写失败
+/// → Err 且目录残留半成品（无害：serve 只领取见到 status=pending 的任务）。
 pub fn init_job(jobs: &Path, spec_json: &Json, timeout_s: u64) -> Result<String, String> {
     let id = new_job_id();
     let dir = job_dir(jobs, &id);
@@ -93,6 +105,8 @@ pub fn init_job(jobs: &Path, spec_json: &Json, timeout_s: u64) -> Result<String,
 }
 
 /// 原子领取：`claimed.lock` create_new 成功者独占。返回 false = 已被领取。
+/// 生效条件：claimed.lock 以 create_new 原子创建——成功 true = 本实例独占领取，
+/// false = 已被领取（多 serve 竞争只有一胜者，不损坏数据）。
 pub fn claim(dir: &Path) -> bool {
     fs::OpenOptions::new()
         .write(true)
@@ -102,11 +116,16 @@ pub fn claim(dir: &Path) -> bool {
 }
 
 /// 读 status.json；不存在按 pending 前态处理（理论上仅在竞态窗口）。
+/// 生效条件：status.json 存在且合法 → Ok(Json)；不存在 → Err（竞态窗口内
+/// 调用方按 pending 前态处理）；坏文件 → Err（事故信号不吞）。
 pub fn read_status(dir: &Path) -> Result<Json, String> {
     read_json(&dir.join("status.json"))
 }
 
 /// 更新 status.json 的若干字段（读-改-写，全量覆盖）。
+/// 生效条件：status.json 合法可读 → 读-改-写全量覆盖（write_json 原子替换），
+/// 字段存在则覆写、不存在则追加；不可读 → Err。单写者纪律：仅领取者/serve
+/// 写 status（并发安全要点，见模块头）。
 pub fn patch_status(dir: &Path, fields: Vec<(String, Json)>) -> Result<(), String> {
     let mut st = read_status(dir)?;
     if let Json::Obj(kv) = &mut st {
@@ -121,6 +140,9 @@ pub fn patch_status(dir: &Path, fields: Vec<(String, Json)>) -> Result<(), Strin
 }
 
 /// worker 心跳：刷新 heartbeat_ts / elapsed_s / state。
+/// 生效条件：worker 运行中周期调用——刷新 state/heartbeat_ts/elapsed_s
+/// （started_ms>0 时按 now-started 计，否则 0）；超时强杀的「失联判据」即
+/// heartbeat_ts 停更。写入失败 → Err 透传（worker 自行决定重试/退出）。
 pub fn heartbeat(dir: &Path, state: &str, started_ms: u128) -> Result<(), String> {
     let now = now_ms();
     let elapsed = if started_ms > 0 { (now - started_ms) as f64 / 1000.0 } else { 0.0 };
@@ -135,11 +157,14 @@ pub fn heartbeat(dir: &Path, state: &str, started_ms: u128) -> Result<(), String
 }
 
 /// kill 标志是否存在。
+/// 生效条件：恒成立——kill 标志文件存在即 true（任意宿主创建，跨语言 kill 通道）。
 pub fn kill_requested(dir: &Path) -> bool {
     dir.join("kill").exists()
 }
 
 /// 写 kill 标志（幂等）。
+/// 生效条件：幂等写 kill 标志文件（已存在不重复创建）；写失败 → Err。
+/// 不适用条件：不直接杀进程——真正回收由 worker 检测标志后的 kill 树路径执行。
 pub fn request_kill(dir: &Path) -> Result<(), String> {
     let p = dir.join("kill");
     if !p.exists() {
@@ -149,6 +174,8 @@ pub fn request_kill(dir: &Path) -> Result<(), String> {
 }
 
 /// 列出全部任务目录名（按名升序 = 时间升序）。
+/// 生效条件：恒成立——jobs 目录下 h 前缀子目录按名升序返回（名升序=提交
+/// 时间升序，job_id 含毫秒时间戳保证）；目录不可读 → 空列表。
 pub fn list_jobs(jobs: &Path) -> Vec<String> {
     let mut out = Vec::new();
     if let Ok(rd) = fs::read_dir(jobs) {
@@ -168,6 +195,8 @@ pub fn list_jobs(jobs: &Path) -> Vec<String> {
 /// `exec_py` / `exec_mode` 是**执行器资格的权威来源**（serve 启动时固化）：serve 的 env
 /// 对另一个进程不可反查，doctor 若拿自身 env 判资格必得错位结论。故由 serve 把自己
 /// 真实生效的执行器写进心跳——任何入口（CLI doctor / MCP doctor）读同一块即同口径。
+/// 生效条件：serve 主循环每拍调用——写 _serve.json（pid/ts/workers/exec_py/
+/// exec_mode，tmp+rename 原子）。互验身份字段需走 write_serve_heartbeat_ext。
 pub fn write_serve_heartbeat(
     jobs: &Path,
     workers: usize,
@@ -191,6 +220,9 @@ pub fn write_serve_heartbeat(
 /// progress 五字段由 serve 自报（env 固化 + 判据面 digest），**显式设置才落**——
 /// 消费者对缺失字段按「未知」处理，不伪造默认值（跨进程 env 不可反查，
 /// 心跳是唯一权威来源）。
+/// 生效条件：同 write_serve_heartbeat，另附互验五字段（instance/role/
+/// fingerprint/iter_id/progress）——**显式 Some 才落**，None 时字段缺失，
+/// 消费者按「未知」处理不伪造默认值（§7.2 兼容原则）。
 #[allow(clippy::too_many_arguments)]
 pub fn write_serve_heartbeat_ext(
     jobs: &Path,
@@ -225,6 +257,8 @@ pub fn write_serve_heartbeat_ext(
 }
 
 /// 读 serve 心跳（不存在 → None）。
+/// 生效条件：_serve.json 存在且合法 → Some(Json)；不存在/坏文件 → None
+/// （消费者按 no_heartbeat_or_legacy 口径如实标注，不伪造默认值）。
 pub fn read_serve_heartbeat(jobs: &Path) -> Option<Json> {
     read_json(&jobs.join("_serve.json")).ok()
 }

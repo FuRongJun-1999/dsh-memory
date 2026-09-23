@@ -54,6 +54,9 @@ pub struct ServeCfg {
 ///
 /// 诚实边界：这是启发式。确证形态的正路是提交一个带 `command` 的探针任务——
 /// result.content 以「确定性执行」开头即证明该 serve 兼跑确定性任务。
+/// 生效条件：给定 exec_py 路径，按**文件名**（非内容探测，宁可保守）返回执行器
+/// 形态——"exec_cmd" 词干 → "deterministic+llm"（多态转发器），其余 → "llm_only"。
+/// 诚实边界：启发式；确证的正路是提交 command 探针任务看 result.content。
 pub fn exec_mode_of(exec_py: &Path) -> String {
     let stem = exec_py
         .file_stem()
@@ -67,6 +70,10 @@ pub fn exec_mode_of(exec_py: &Path) -> String {
 }
 
 impl ServeCfg {
+    /// 生效条件：jobs/workers/exec_py 给定时构造 ServeCfg——workers clamp 1..64
+    ///（并发度上限防资源耗尽）、exec_mode 由 exec_mode_of 推得、poll_ms=400；
+    /// 互验身份四字段（instance/role/fingerprint/iter_id）置 None，须显式
+    /// with_interop_identity() 注入。
     pub fn new(jobs: PathBuf, workers: usize, exec_py: PathBuf) -> Self {
         let exec_mode = exec_mode_of(&exec_py);
         ServeCfg {
@@ -86,6 +93,10 @@ impl ServeCfg {
     /// 「缺省即旧行为」（单实例部署零变更，不伪造默认值）。
     /// fingerprint = 判据面组合指纹（python judgment_manifest.py --digest，
     /// 子进程一次性计算；失败 → None 诚实透出，不冒充）。
+    /// 生效条件：互验 env 三者全空（单实例部署）→ 原样返回 self（旧行为，
+    /// 不 spawn 不加字段）；任一非空 → 逐字段固化身份并算判据面指纹
+    /// （python judgment_manifest.py --digest，cwd=exe 上溯三级的 repo 根；
+    /// 子进程失败/输出空 → fingerprint 保持 None 诚实透出不伪造）。
     pub fn with_interop_identity(mut self) -> Self {
         let env = |k: &str| {
             std::env::var(k)
@@ -127,6 +138,16 @@ impl ServeCfg {
 }
 
 /// serve 主入口。阻塞直至 `stop` 置位且 worker drain 完毕。返回退出码。
+/// 生效条件（核心入口 · CCG 六要素）：
+///   功能名：蜂群并发调度主循环（serve）。
+///   生效条件：cfg（jobs/workers/exec_py/poll_ms [+互验身份]）与 stop 开关给定；
+///   同一 jobs 目录至多一个 serve（单实例守卫在 CLI 层）。
+///   子功能：崩溃恢复 / 心跳自报 / job 扫描领取 / worker 并发执行 / 终态落盘。
+///   执行：先 recover_orphans 清理上轮残局，随后每拍写 _serve.json 心跳、
+///   扫描 pending 任务按 workers 上限领取（claimed.lock 原子），stop 置位即停。
+///   验证方式：test——cargo e2e_done_and_heartbeat / kill_channel /
+///   judgment_surface（recover_by_artifact 等）+ 部署面 M6 实跑。
+///   不适用条件：不做任务内容语义处理（归执行器），不做跨 jobs 目录路由。
 pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
     std::fs::create_dir_all(&cfg.jobs).expect("建 jobs 目录失败");
     recover_orphans(cfg);
@@ -223,6 +244,10 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
 /// pub（批次8b 判据面重定义）：承重反向对照测试（recover_by_artifact /
 /// rerun_on_recover_escape_hatch）已迁至 hive/tests/judgment_surface.rs——
 /// 判据面（tests/）与候选面（src/）物理分离，候选弱化测试时 A3 必红。
+/// 生效条件：serve 启动时（每次）对 jobs 目录全体任务执行一次崩溃恢复。
+///   验证方式：test——cargo judgment_surface::recover_by_artifact（5 分支）+
+///   rerun_on_recover_escape_hatch（逃生门双态+反向对照）。
+///   不适用条件：不改变正常执行路径（classify_exit 主判据不分叉）。
 pub fn recover_orphans(cfg: &ServeCfg) {
     for id in job::list_jobs(&cfg.jobs) {
         let dir = job::job_dir(&cfg.jobs, &id);
@@ -314,6 +339,9 @@ pub fn recover_orphans(cfg: &ServeCfg) {
 }
 
 /// worker 执行单个任务：拉起执行器 → 1s 轮询（退出 / kill / 超时）→ 终态。
+/// 生效条件：serve 主循环领取到任务时调用（claimed 已原子持有）——拉起执行器
+/// 子进程（exec_py）、写 running 心跳、落 progress、终态经 classify_exit 按产物
+/// 定 done/error/timeout/killed；worker 生命周期全部由本函数承载。
 fn run_job(cfg: &ServeCfg, id: &str) {
     let dir = job::job_dir(&cfg.jobs, id);
 
@@ -441,6 +469,9 @@ fn run_job(cfg: &ServeCfg, id: &str) {
 /// 返回 None = 无产物文件；Some((state, err)) = 产物说了算（error 字段区分成败）。
 /// `classify_exit`（正常退出）与 `recover_orphans`（崩溃恢复）共用——判据只此一处，
 /// 勿再分叉出第二套（C9 根因即两套判据并存）。
+/// 生效条件：dir 下 result.json 存在且可解析 → Some((done|error, error 文本))；
+/// 不存在 → None（无产物）；解析失败 → Some(("error", 解析错误))。
+/// 判据唯一实现（classify_exit 与 recover_orphans 共用，勿分叉——C9 教训）。
 fn classify_result(dir: &std::path::Path) -> Option<(String, Option<String>)> {
     let result_path = dir.join("result.json");
     if !result_path.is_file() {
@@ -466,6 +497,9 @@ fn classify_result(dir: &std::path::Path) -> Option<(String, Option<String>)> {
 
 /// M1 逃生门（批次7）：spec 显式 `"rerun_on_recover": true` 时，恢复不采信旧产物。
 /// 读取失败/字段缺失一律 false（fail-safe——逃生门宁缺勿滥，产物判据是缺省正道）。
+/// 生效条件：dir/spec.json 可读且 rerun_on_recover 显式 true → true；
+/// 读取失败/字段缺失/null/false/非布尔一律 false（fail-safe——逃生门宁缺勿滥，
+/// 产物判据是缺省正道）。
 fn spec_rerun_on_recover(dir: &std::path::Path) -> bool {
     job::read_json(&dir.join("spec.json"))
         .ok()
@@ -480,6 +514,8 @@ fn spec_rerun_on_recover(dir: &std::path::Path) -> bool {
 
 /// 旧产物更名留痕：result.json → result.json.recovered-<unix_ts>。
 /// 更名失败不阻断重投（留痕尽力而为；重投本身是硬要求）。
+/// 生效条件：dir/result.json 存在时更名为 result.json.recovered-<unix_ts>；
+/// 不存在则无操作；rename 失败不阻断重投（留痕尽力而为，重投是硬要求）。
 fn archive_stale_result(dir: &std::path::Path) {
     let src = dir.join("result.json");
     if !src.is_file() {
@@ -499,6 +535,9 @@ fn archive_stale_result(dir: &std::path::Path) {
 /// 七不变量对照（dsh-omc，设计稿 docs/hive/蜂巢迭代_宏观与群体调度_v0.1.md）：
 /// 依赖完整 + 级联取消闭包在此落码；无环性由 job_id 时间序结构性保证
 /// （无法引用提交时尚不存在的任务），无需运行时环检测。
+/// 生效条件：任务的 depends_on 列表给定时裁决——全 done → Ok(true) 可领取；
+/// 任一终态非 done（pending 等待 / error·timeout·killed）→ Ok(false) 等待或
+/// Err(失败传播原因) 直接 error 不执行。I-1 依赖门禁唯一实现。
 fn deps_gate(jobs: &Path, dir: &Path) -> Result<bool, String> {
     let spec_json = match job::read_json(&dir.join("spec.json")) {
         Ok(v) => v,
@@ -533,6 +572,8 @@ fn deps_gate(jobs: &Path, dir: &Path) -> Result<bool, String> {
 }
 
 /// 子进程退出后的终态分类：以 result.json 为准（error 字段区分 API 错误）。
+/// 生效条件：执行器正常退出后调用——**产物说了算**（result.json 有则按产物定
+/// 终态，无则按退出码；与 recover_orphans 共用 classify_result，判据不分叉）。
 fn classify_exit(
     dir: &std::path::Path,
     code: std::process::ExitStatus,
