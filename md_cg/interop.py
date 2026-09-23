@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -129,3 +130,68 @@ def make_verdict(iter_id: str, verifier_instance: str, verifier_fingerprint: str
     }
     sanity_check_verdict(v)
     return v
+
+
+# ---------------------------------------------------------------- 批次11：时序原语
+
+def dispatch_verify_job(verifier_jobs_dir: str, iter_id: str,
+                        subject_fingerprint: str, timeout_s: int = 1800) -> dict:
+    """§7.4 步骤3（★非阻塞★）：把验证任务作为普通蜂巢 job 投到验证实例的
+    jobs 目录——文件协议即接口，写 spec.json 即完成投递，立即返回不等待
+    （进度靠验证实例心跳的 iter_id/progress 拉取，不阻塞轮询）。
+
+    subject_fingerprint 经 spec.env 传给验证执行器（主实例候选的判据面指纹，
+    A2 的比对输入）。
+    """
+    jobs = os.path.abspath(verifier_jobs_dir)
+    spec = {
+        "model": "cmd",
+        "user_prompt": f"互验执行 iter={iter_id}",
+        "command": [sys.executable,
+                    os.path.join(HERE, "hive", "verify_runner.py"), iter_id],
+        "timeout_s": max(5, min(3600, timeout_s)),
+        "env": {"SUBJECT_FP": subject_fingerprint, "ITER_ID": iter_id},
+    }
+    from .fsutil import ShardedLog  # noqa: F401  确认依赖在位
+    jd = os.path.join(jobs, f"h{int(time.time() * 1000)}_disp")
+    os.makedirs(jd, exist_ok=True)
+    with open(os.path.join(jd, "spec.json"), "w", encoding="utf-8") as f:
+        json.dump(spec, f, ensure_ascii=False)
+    with open(os.path.join(jd, "status.json"), "w", encoding="utf-8") as f:
+        json.dump({"state": "pending"}, f)
+    return {"ok": True, "dispatched": jd, "iter_id": iter_id,
+            "note": "非阻塞投递完成——进度靠验证实例心跳拉取，不轮询不等待"}
+
+
+def write_verdict_to_repo(verdict: dict, repo: str = HERE,
+                          do_commit: bool = False) -> dict:
+    """§7.3 留痕：verdict 写 hive/interop/<iter_id>/（受版本控制目录，
+    **不用** hive/jobs/——该目录 .gitignore 且含运行态）。
+
+    脱敏门禁在 make_verdict 已过；此处落盘前再过一次（纵深）。do_commit=True
+    时 git add+commit（**不自动 push**——推送由使用者/编排触发，§7.3 双清单
+    人工确认环节保留）。
+    """
+    sanity_check_verdict(verdict)
+    it = verdict.get("iter_id") or ""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", it):
+        raise ValueError(f"iter_id 非法（入库路径组成部分）: {it!r}")
+    out_dir = os.path.join(repo, "hive", "interop", it)
+    os.makedirs(out_dir, exist_ok=True)
+    fp = os.path.join(out_dir, "verdict.json")
+    with open(fp, "w", encoding="utf-8") as f:
+        json.dump(verdict, f, ensure_ascii=False, indent=2)
+    out = {"ok": True, "path": fp}
+    if do_commit:
+        import subprocess
+        r1 = subprocess.run(["git", "add", os.path.relpath(fp, repo)],
+                            cwd=repo, capture_output=True, text=True)
+        r2 = subprocess.run(
+            ["git", "commit", "-q", "-m",
+             f"interop(verifier): iter={it} verdict={verdict.get('verdict')} "
+             f"passed={verdict.get('passed')} failed={verdict.get('failed')}"],
+            cwd=repo, capture_output=True, text=True)
+        out["committed"] = r2.returncode == 0
+        if r2.returncode != 0:
+            out["commit_err"] = (r2.stderr or r1.stderr)[:200]
+    return out
