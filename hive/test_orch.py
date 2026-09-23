@@ -75,7 +75,8 @@ _danger = [o for o in ("forget", "identity", "protect", "delegate", "maintain",
 check("A3 危险 op 确在 ALL_OPS（防空洞断言）", len(_danger) >= 1, str(_danger))
 check("A4 危险 op 均不在编排器清单", not (set(_danger) & set(tk.ORCH_OPS_ALLOW)),
       str(set(_danger) & set(tk.ORCH_OPS_ALLOW)))
-check("A5 编排器角色可派生", tk.ORCH_ROLE in tk.DELEGABLE_ROLES)
+check("A5 编排器角色不可再派生（安全收紧：防令牌链蔓延，designer 独占派生权）",
+      tk.ORCH_ROLE not in tk.DELEGABLE_ROLES)
 check("A6 派生 ops/layers 与真源逐位一致",
       list(ORCH_DERIVE["ops_allow"]) == list(tk.ORCH_OPS_ALLOW)
       and list(ORCH_DERIVE["layers_allow"]) == list(tk.ORCH_LAYERS_ALLOW))
@@ -92,8 +93,8 @@ P = tk.verify_token(ORCH_TOK, path=STORE)
 check("A9 校验后身份 ops 收窄一致", list(P.ops_allow or []) == list(tk.ORCH_OPS_ALLOW))
 check("A10 校验后身份 layers 收窄一致",
       list(P.layers_allow or []) == list(tk.ORCH_LAYERS_ALLOW))
-check("A11 can_admin=True（裁决子代理冲突的前提，如实标注残余面）",
-      P.can_admin is True)
+check("A11 can_admin=False（review 裁决权归设计者；编排器冲突只留痕上报）",
+      P.can_admin is False)
 
 
 def _op_ok(principal, op):

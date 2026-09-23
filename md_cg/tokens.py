@@ -236,7 +236,9 @@ DELEGABLE_ROLES = tuple(r for r, s in ROLE_SPECS.items() if s["delegable"])
 #      hive/orch.py 同引此处，防两处硬编码漂移。
 ORCH_ROLE = "orchestr"
 ORCH_OPS_ALLOW = ("route", "read", "write", "review", "recent", "consistency")
-ORCH_LAYERS_ALLOW = tuple(l for l in ALL_LAYERS if l not in CORE_LAYERS)
+# layers 单一真源 = ROLE_SPECS[orchestr].layers_allow（安全收紧后 derive() 会与
+# role spec 求交，旧「ALL-CORE 六层」是死配置——传入即被收窄为三域，徒增漂移面）
+ORCH_LAYERS_ALLOW = tuple(ROLE_SPECS[ORCH_ROLE]["layers_allow"])
 
 
 # 生效条件：role 为假值（None/空串）时按 "" 处理，经 strip().lower() 得 r，r 命中 ROLE_ALIASES 键时返回别名，否则返回 r 本身。
