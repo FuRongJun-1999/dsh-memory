@@ -189,8 +189,17 @@ def main():
                 {k: r1[k] for k in ("new_events", "written")}, ensure_ascii=False))
             check("watermark 已记录", ing.watermark(dsrc.key()).get("seq") == 4,
                   json.dumps(ing.watermark(dsrc.key()), ensure_ascii=False))
-            check("自动 fix-pair 挖掘触发", "fix_pairs" in r1 and r1["fix_pairs"]["pairs"],
-                  json.dumps(r1.get("fix_pairs", {}).get("pairs"), ensure_ascii=False)[:100])
+            # 批次 6（6579b2e）起 mine_fix_pairs 默认 False（先落账后挖矿）——
+            # v18 外评测试债②：断言跟新纪律改双态（默认不挖 / 显式直调仍可用）
+            check("默认不自动挖掘（先落账后挖矿）", "fix_pairs" not in r1,
+                  json.dumps({k: r1.get(k) for k in ("written", "denied")}))
+            r1m = ing_cg.mine_fix_pairs(
+                [{"error": "ModuleNotFoundError: no 'zzz'",
+                  "fix": "pip install zzz"}])
+            check("显式直调挖掘仍可用（显式语义直写）",
+                  len(r1m.get("knowledge_ids") or []) == 1
+                  and r1m.get("pairs"),
+                  json.dumps(r1m.get("knowledge_ids"), ensure_ascii=False)[:100])
             r2 = ing.ingest(dsrc)
             check("重复摄取幂等（无新增）", r2["new_events"] == 0 and r2["written"] == 0,
                   json.dumps({k: r2[k] for k in ("new_events", "written")}))

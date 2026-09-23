@@ -127,9 +127,11 @@ def main() -> int:
     print("③ 执行器资格：serve 自报心跳（权威），两面同源读")
     check("job.rs 心跳写 exec_py", '"exec_py"' in job_rs)
     check("job.rs 心跳写 exec_mode", '"exec_mode"' in job_rs)
-    check("scheduler 心跳带 exec_py/exec_mode",
-          "write_serve_heartbeat(&cfg.jobs, cfg.workers, &cfg.exec_py, &cfg.exec_mode)"
-          in sched_rs)
+    # 批次 10（6658f0a）起心跳升级为 _ext 五参（+instance/role/fingerprint 身份三键）——
+    # 旧四参断言成陈旧断言（v18 外评测试债①：产品行为自洽，测试字符串没跟上）
+    check("scheduler 心跳带 exec_py/exec_mode（_ext 签名）",
+          "job::write_serve_heartbeat_ext(" in sched_rs
+          and "&cfg.exec_py," in sched_rs and "&cfg.exec_mode," in sched_rs)
     check("scheduler 有 exec_mode_of 判据", "pub fn exec_mode_of" in sched_rs)
     check("CLI doctor 采信 serve_heartbeat", '"serve_heartbeat"' in main_rs)
     check("MCP doctor 读心跳 exec_py", 'hb.get("exec_py")' in mcp_py)
@@ -226,6 +228,42 @@ def main() -> int:
         serve_start.EXE = real_exe
         os.environ.pop("HIVE_EXE", None)
         shutil.rmtree(tmp2, ignore_errors=True)
+
+    # ⑧ D-1 能红（v18 外评，2026-09-23）：config 里的 HIVE_JOBS_DIR 必须真正参与
+    # jobs 决策——patch Popen 捕获 `--jobs` 实参（不起真进程）。旧实现模块级
+    # JOBS 在 import 时固化并被显式 `--jobs` 钉死，config 键被静默丢弃
+    # （env_keys 自报含它、jobs_dir 却不变）：本测试在旧代码下必红。
+    print("⑧ D-1：config 的 HIVE_JOBS_DIR 参与 jobs 决策（延迟解析）")
+    tmp3 = tempfile.mkdtemp(prefix="hive_d1_")
+    try:
+        cfg_dir = os.path.join(tmp3, "alt_jobs")
+        cfg_path = os.path.join(tmp3, "config.local.json")
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump({"HIVE_JOBS_DIR": cfg_dir}, f)
+        captured = {}
+
+        def _fake_popen(cmd, **_kw):
+            captured["cmd"] = cmd
+            raise OSError("d1-sentinel")   # start 捕获 OSError → 返回拉起失败
+
+        real_popen, real_alive = serve_start.subprocess.Popen, serve_start.serve_alive
+        serve_start.subprocess.Popen = _fake_popen
+        serve_start.serve_alive = lambda *_a, **_k: False
+        try:
+            r = serve_start.start(cfg_path)
+        finally:
+            serve_start.subprocess.Popen = real_popen
+            serve_start.serve_alive = real_alive
+        jobs_used = None
+        if isinstance(captured.get("cmd"), list) and "--jobs" in captured["cmd"]:
+            jobs_used = captured["cmd"][captured["cmd"].index("--jobs") + 1]
+        check("⑧a start 把 --jobs 指向 config 指定目录（能红旧实现）",
+              jobs_used == cfg_dir,
+              f"used={jobs_used} want={cfg_dir} ret={str(r)[:90]}")
+        check("⑧b 决策点单一（_jobs_from 缺省回落模块级 JOBS）",
+              serve_start._jobs_from({}) == serve_start.JOBS)
+    finally:
+        shutil.rmtree(tmp3, ignore_errors=True)
 
     print()
     if FAILS:

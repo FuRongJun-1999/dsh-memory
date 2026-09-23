@@ -20,6 +20,12 @@
 环境变量覆盖（HIVE_CONFIG / HIVE_EXE / HIVE_JOBS_DIR），使同一套拉起逻辑同时服务
 「真实部署」与「隔离测试」两种形态。start()/stop()/status() 只返回 dict 不打印——
 stdio JSON-RPC 通道上多打一行即污染协议；打印只发生在 CLI 入口（emit）。
+唯一例外：start() 在 config/env 显式指定 HIVE_JOBS_DIR 时往 **stderr** 打一行提示
+（stdout 是协议通道，stderr 是诊断通道，两者不混流）。
+
+v18 外评 D-1 修复（2026-09-23）：jobs 不再只由模块级常量决定——start/restart/rebuild
+先 load_config，经 _jobs_from(合并环境) 延迟求值，config 里的 HIVE_JOBS_DIR 由此
+真正参与决策；此前该键被静默丢弃（env_keys 自报含它、jobs_dir 却不变，fail-silent）。
 """
 import json
 import os
@@ -35,6 +41,13 @@ EXE = os.environ.get("HIVE_EXE") or os.path.join(
 JOBS = os.environ.get("HIVE_JOBS_DIR") or os.path.join(HIVE_DIR, "jobs")
 SERVE_LOG = os.path.join(JOBS, "_serve.log")
 HEARTBEAT = os.path.join(JOBS, "_serve.json")
+
+
+# 生效条件：env_map 给定（dict 形，如 os.environ 或 config 合并环境）；其 "HIVE_JOBS_DIR" 为非空字符串时返回该值，否则回落模块级 JOBS。jobs 决策的**唯一入口**——start/restart 经此延迟求值（D-1 修复：config 键此前被模块级常量静默丢弃）。
+def _jobs_from(env_map):
+    """从给定环境映射解析 jobs 目录：显式值 > 模块级默认。"""
+    v = (env_map or {}).get("HIVE_JOBS_DIR")
+    return v if isinstance(v, str) and v.strip() else JOBS
 FRESH_S = 15  # 心跳新鲜窗口（serve 每拍 <1s 刷）。**须与 src/main.rs 的 FRESH_MS=15000 同值**——两面判「serve 是否在跑」必须同口径，否则同一个 serve 得两个结论
 
 
@@ -179,10 +192,10 @@ def serve_alive(jobs=None):
     return pid_alive(pid) and pid_is_self_program(pid)
 
 
-# 生效条件：heartbeat() 为假值时返回 {ok:True, stopped:False, note:"serve 未在运行"}；心跳为真而 serve_alive() 为假时按 not pid_alive(pid) 分别给出"该 pid 已不存在"或"该 pid 不属于本程序"的陈旧心跳 note 并返回 stopped:False；两者皆真时按 os.name 用 taskkill /PID … /F（check=True）或 os.kill(pid, 15)，抛 CalledProcessError/OSError 返回 {ok:False, error:"停止失败 pid=…"}，否则最多轮询 30 次×0.5s serve_alive（未转假也照常退出循环）后一律返回 {ok:True, stopped:True, pid}。
-def stop():
-    hb = heartbeat()
-    if not hb or not serve_alive():
+# 生效条件：jobs 缺省时按模块级 HEARTBEAT 判活；serve_alive(jobs) 为假时返回 ok:True 的 stopped:False（无心跳报「serve 未在运行」，有陈旧心跳如实说明 pid 与原因——「--stop 说没在跑 / 启动又被挡住」不可同时失效，v13 实测）；判活为真时按 os.name 用 taskkill /PID … /F（check=True）或 os.kill(pid, 15)，抛 CalledProcessError/OSError 返回 ok:False 的「停止失败 pid=…」，否则最多轮询 30 次×0.5s serve_alive(jobs)（未转假也照常退出循环）后一律返回 ok:True 的 stopped:True 并附 pid。
+def stop(jobs=None):
+    hb = heartbeat(jobs)
+    if not hb or not serve_alive(jobs):
         # 陈旧心跳要如实说明原因——否则「--stop 说没在跑 / 启动又被挡住」会成为
         # 两个同时失效的逃生口（v13 实测：守卫与 stop 判据不一致时正是如此）。
         if hb:
@@ -203,27 +216,35 @@ def stop():
         return {"ok": False, "error": f"停止失败 pid={pid}: {e}"}
     # 等心跳过期确认真停了
     for _ in range(30):
-        if not serve_alive():
+        if not serve_alive(jobs):
             break
         time.sleep(0.5)
     return {"ok": True, "stopped": True, "pid": pid}
 
 
-# 生效条件：serve_alive() 为真时返回 ok:False 的「已在运行（pid=hb.get('pid')）」；否则 load_config(config_path) 报错时原样返回该 error；配置通过则建 JOBS 目录、以合并环境 Popen([EXE, "serve", "--jobs", JOBS])，Popen 抛 OSError 返回「拉起失败」，否则最多 20 次 ×0.5s 轮询 serve_alive()，出现心跳即返回 ok:True（含 pid/workers/jobs_dir/env_keys/config=config_path），20 轮仍无则返回 SERVE_LOG 末尾 400 字符的「心跳未出现」。
+# 生效条件：serve_alive() 为真时返回 ok:False 的「已在运行（pid=hb.get('pid')）」；否则 load_config(config_path) 报错时原样返回该 error；配置通过则按合并环境延迟解析 jobs（config/env 的 HIVE_JOBS_DIR > 模块级默认，见 _jobs_from）并建目录、以合并环境 Popen([EXE, "serve", "--jobs", <延迟 jobs>])，Popen 抛 OSError 返回「拉起失败」，否则最多 20 次 ×0.5s 轮询 serve_alive(jobs)，出现心跳即返回 ok:True（含 pid/workers/jobs_dir=<实际生效目录>/env_keys/config=config_path），20 轮仍无则返回该目录日志末尾 400 字符的「心跳未出现」。
 def start(config_path):
     """拉起 serve（已在跑则拒绝）。返回 dict；调用方决定是否打印。"""
-    if serve_alive():
-        hb = heartbeat()
-        return {"ok": False, "error": f"serve 已在运行（pid={hb.get('pid')}），先 --stop 再启动"}
     env, err = load_config(config_path)
     if err:
         return {"ok": False, "error": err}
-    os.makedirs(JOBS, exist_ok=True)
     merged = {**os.environ, **env}
+    # D-1 修复（v18 外评，2026-09-23）：jobs 延迟到合并环境求值——config 里的
+    # HIVE_JOBS_DIR 由此真正参与决策。此前模块级 JOBS 在 import 时固化并被
+    # `--jobs` 显式钉死，config 键被静默丢弃（fail-silent，违背 fail-fast）。
+    # 「已在跑」检查同样按目标池判——config 换池时不能拿默认池的在跑状态挡人。
+    jobs = _jobs_from(merged)
+    if serve_alive(jobs):
+        hb = heartbeat(jobs)
+        return {"ok": False, "error": f"serve 已在运行（pid={hb.get('pid')}），先 --stop 再启动"}
+    if jobs != JOBS:
+        print(f"[serve_start] HIVE_JOBS_DIR 来自 config/env：{jobs}"
+              f"（模块级默认 {JOBS} 不生效）", file=sys.stderr)
+    os.makedirs(jobs, exist_ok=True)
     flags = 0
     if os.name == "nt":
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    logf = open(SERVE_LOG, "ab")
+    logf = open(os.path.join(jobs, "_serve.log"), "ab")
     try:
         # close_fds=True 必须显式指定（含 Windows）：detached 的 serve 是长命进程，
         # 若关掉 close_fds 关闭语义，它会继承调用进程的可继承句柄——包括 IDE/终端
@@ -231,7 +252,7 @@ def start(config_path):
         # （2026-09-16 实测：后台脚本挂死 26 分钟，根因即此处）。
         # Python 3.7+ 在 Windows 上 close_fds=True 仍能正确传递显式 std 句柄。
         subprocess.Popen(
-            [EXE, "serve", "--jobs", JOBS],
+            [EXE, "serve", "--jobs", jobs],
             stdout=logf, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
             env=merged, cwd=HIVE_DIR, creationflags=flags,
             start_new_session=(os.name != "nt"), close_fds=True)
@@ -239,23 +260,24 @@ def start(config_path):
         logf.close()
         return {"ok": False, "error": f"拉起失败（先 cargo build --release？）: {e}"}
     for _ in range(20):  # 等首个心跳
-        if serve_alive():
-            hb = heartbeat()
+        if serve_alive(jobs):
+            hb = heartbeat(jobs)
             return {"ok": True, "pid": hb.get("pid"), "workers": hb.get("workers"),
-                    "jobs_dir": JOBS,
+                    "jobs_dir": jobs,
                     "env_keys": sorted(env.keys()),
                     "config": config_path}
         time.sleep(0.5)
     tail = ""
     try:
-        with open(SERVE_LOG, "r", encoding="utf-8", errors="replace") as f:
+        with open(os.path.join(jobs, "_serve.log"), "r",
+                  encoding="utf-8", errors="replace") as f:
             tail = f.read()[-400:]
     except OSError:
         pass
     return {"ok": False, "error": f"serve 心跳未出现，日志尾部：{tail}"}
 
 
-# 生效条件：config_path 给定；先调 stop()（serve 未在跑时其 stopped=False 且如实 note，不算失败），stop() 返回 ok 为假（taskkill/kill 失败）即返回 ok:False 的 stage=stop 错误并附 stop 段；否则调 start(config_path)，其结果 dict 原样返回并附 restart 段（stopped=本次是否真的停了旧实例 / old_pid / note=stop 的说明）。
+# 生效条件：config_path 给定；先 load_config 并按合并环境经 _jobs_from 解析目标 jobs（config 的 HIVE_JOBS_DIR 参与，与 start 同口径），再调 stop(jobs)（serve 未在跑时其 stopped=False 且如实 note，不算失败），stop() 返回 ok 为假（taskkill/kill 失败）即返回 ok:False 的 stage=stop 错误并附 stop 段；否则调 start(config_path)，其结果 dict 原样返回并附 restart 段（stopped=本次是否真的停了旧实例 / old_pid / note=stop 的说明）。
 def restart(config_path):
     """重启 serve：stop（如在跑）→ start。改 config.local.json 或换执行器后用它使改动生效。
 
@@ -264,8 +286,15 @@ def restart(config_path):
     会出现「以为重启了、实际旧 serve 还带着旧配置在跑」。本函数把两步合成原子序：
     stop 失败（杀不掉）则**绝不 start**（防双实例抢队列）；stop 报「未在运行」
     （含陈旧心跳）不算失败，直接进入 start。
+
+    stop 的目标池按**新 config 解析出的 jobs**（与 start 同口径，D-1 修复）——
+    「实例」本就是 per-jobs 目录概念；旧实例若跑在别的池，不归本次重启管。
     """
-    stop_res = stop()
+    env, err = load_config(config_path)
+    if err:
+        return {"ok": False, "stage": "stop", "error": err}
+    jobs = _jobs_from({**os.environ, **(env or {})})
+    stop_res = stop(jobs)
     if not stop_res.get("ok"):
         return {"ok": False, "stage": "stop",
                 "error": stop_res.get("error") or "stop 失败", "stop": stop_res}
@@ -307,7 +336,10 @@ def rebuild(config_path):
     生效。本函数把三步合成原子序，且 **build 失败保持停止态**（fail-closed：宁可
     serve 停着，也不让旧二进制假活）——错误信息注明用 --restart 恢复。
     """
-    stop_res = stop()
+    env, err = load_config(config_path)
+    if err:
+        return {"ok": False, "stage": "stop", "error": err}
+    stop_res = stop(_jobs_from({**os.environ, **(env or {})}))
     if not stop_res.get("ok"):
         return {"ok": False, "stage": "stop",
                 "error": stop_res.get("error") or "stop 失败", "stop": stop_res}

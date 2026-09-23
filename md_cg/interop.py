@@ -185,12 +185,14 @@ def write_verdict_to_repo(verdict: dict, repo: str = HERE,
     if do_commit:
         import subprocess
         r1 = subprocess.run(["git", "add", os.path.relpath(fp, repo)],
-                            cwd=repo, capture_output=True, text=True)
+                            cwd=repo, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
         r2 = subprocess.run(
             ["git", "commit", "-q", "-m",
              f"interop(verifier): iter={it} verdict={verdict.get('verdict')} "
              f"passed={verdict.get('passed')} failed={verdict.get('failed')}"],
-            cwd=repo, capture_output=True, text=True)
+            cwd=repo, capture_output=True, text=True,
+            encoding="utf-8", errors="replace")
         out["committed"] = r2.returncode == 0
         if r2.returncode != 0:
             out["commit_err"] = (r2.stderr or r1.stderr)[:200]

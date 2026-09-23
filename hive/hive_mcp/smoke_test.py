@@ -132,8 +132,14 @@ def cleanup_serve(jobs_dir: str) -> None:
     except (OSError, ValueError):
         return
     if isinstance(pid, int) and pid > 0:
-        subprocess.run(["taskkill", "/PID", str(pid), "/F"],
-                       capture_output=True, text=True, shell=False)
+        # 平台分支照 serve_start.stop() 口径（v18 外评 D-2：硬编码 taskkill 在
+        # 非 Windows 收尾 FileNotFoundError——断言全绿却退出码 1 且残留 serve）
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"],
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", shell=False)
+        else:
+            os.kill(pid, 15)
 
 
 def main() -> int:
