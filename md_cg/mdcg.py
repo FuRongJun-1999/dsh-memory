@@ -1840,6 +1840,15 @@ class MdCG:
         except OSError:
             return None, None
 
+    def _doc_norm_bigrams(self, entry, c):
+        """文档侧归一化 bigram（`_score` 热点，批次 21 issue #31 钩子化）。
+
+        内容不变则派生物不变——readcache 启用时覆写为缓存版（随读缓存
+        一并常驻，Rust `load_docs` 预计算 stripped/db_len 同款理论）；
+        基类默认即算即弃，行为与改动前逐位一致。
+        """
+        return bigrams(normalize_en(c))
+
     # ---------- 资格判定（与性能 tier 正交）----------
 
     @staticmethod
@@ -2432,9 +2441,11 @@ class MdCG:
         _boost = layer_boosts() if _s4_on else None
         scored = []
         for e, fm, c in docs:
-            # 归一化 content 后取 bigram（与 query 侧 normalize_en 对称）
-            c_norm = normalize_en(c)
-            nb = bigrams(c_norm)
+            # 归一化 content 后取 bigram（与 query 侧 normalize_en 对称）；
+            # 走可覆写钩子（批次 21，issue #31）：内容不变则派生物不变——
+            # readcache 启用时覆写为缓存版（Rust load_docs 预计算同款），
+            # 基类默认即算即弃，行为与改动前逐位一致
+            nb = self._doc_norm_bigrams(e, c)
             sim = lexical_sim(qb, nb, mode)
             tag_bonus = 0.05 if any(str(t) in q or q in str(t)
                                     for t in (fm.get("tags") or [])) else 0.0

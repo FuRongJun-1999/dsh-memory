@@ -334,6 +334,13 @@ class MdCGOS(MdCG):
         if os.environ.get("MDCG_HOTCACHE") == "1":
             from . import hotcache as _hc
             _hc.attach(self)
+        # 检索读缓存挂载（issue #31 P2，批次 21）：MdStore 理论落地——节点
+        # 文件解析产物常驻（567 池实测 572 次 open/查询 → 缓存后 ~0），写失
+        # 效走 _dirty 代际哨兵（所有写路径必然标脏，无漏挂面）。默认关
+        # （MDCG_READ_CACHE=1 显式启用，零变更纪律）。
+        if os.environ.get("MDCG_READ_CACHE") == "1":
+            from . import readcache as _rc
+            _rc.install(self)
 
     # ================= 6. payload-free 审计 =================
 

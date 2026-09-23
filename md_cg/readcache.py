@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""灵枢 · 检索读缓存（批次 21，issue #31 P2）——MdStore 理论落地认知图检索。
+
+理论早已有之（使用者裁定 2026-09-23 指认）：智慧之书知识层的 `MdStore`
+（whitebox_kb/wisdom/md_store.py）把 md 语料**懒装载为内存图常驻**
+（`{id: STNode}` + 双向边索引），写方落盘后显式 `reload()` 丢弃快照——
+检索读面零磁盘 I/O。认知图检索面（`MdCGOS._read_many` → `_read`）此前
+每查询对每个候选 open+read+parse 一遍（567 池实测 572 次 open，~70-86%
+耗时，~230µs/节点线性退化）——「理论没有落地」。本模块即落地。
+
+与 `install_read_cache`（eval_common.py，benchmark 专用）的差异：
+  1. **写失效哨兵**：缓存条目携带 `len(cg._dirty)` 代际——所有写路径必然
+     标脏（flush 依赖 `_dirty`，add/_sync_edge_entry/负记忆化……无一例外），
+     dirty 代际变化即视为「有写入发生」，该 path 重读一次。对 path-only
+     无失效的朴素实现能红（外部报告实测的陈旧读场景）。
+     语义与 MdStore 的「写方落盘后 reload」同构，但**懒清**：检索高频写少，
+     写后首次检索全量重装一次即再稳定，不必写时同步清（写面零挂载点，
+     天然覆盖未来新增写路径——不会有「漏挂失效」型陈旧读）。
+  2. 缓存**解析产物** `(fm, content)`（benchmark 版只缓存原文，parse 仍逐次），
+     **并缓存文档侧检索派生物** `_doc_norm_bigrams`（归一化 bigram——批次 21
+     实测本机热点 88% 在此而非 I/O：内容不变则派生物不变，随读缓存常驻；
+     Rust `load_docs` 预计算 stripped/db_len 同款理论）；
+  3. 进程内一致性边界（与 MdStore 相同的诚实边界）：跨进程/外部直接改写
+     md 文件不保证可见——认知图的多进程形态（每智能体一进程）各持快照。
+
+开关：`MDCG_READ_CACHE=1` 显式启用（默认关，零变更纪律，与 #28 hotcache
+同款装配）；不设或非 "1" 时 `install` 不被调用，行为与改动前逐位一致。
+"""
+import os
+
+# 生效条件：无 required 形参，锚定环境变量名 MDCG_READ_CACHE；当 os.environ.get("MDCG_READ_CACHE") == "1" 时返回 True，否则返回 False。
+def enabled() -> bool:
+    """读缓存开关（默认关；=1 显式启用——零变更纪律）。"""
+    return os.environ.get("MDCG_READ_CACHE") == "1"
+
+
+# 生效条件：cg._read 可调用时以 (path → (dirty 代际, 解析产物)) 常驻字典包装之——命中条件为 path 存在且代际等于当前 len(cg._dirty)；cg._doc_norm_bigrams 亦存在时同款包装其派生物（_score 热点：文档侧归一化 bigram 只依赖 content，随读缓存一并常驻）；包装后 cg._read/_doc_norm_bigrams 为包装函数、cg._read_cache/_norm_bigrams_cache 为缓存字典；返回缓存字典。
+def install(cg):
+    """把 `cg._read`（与派生物钩子）包成脏代际校验的常驻缓存。"""
+    cache = {}
+    orig = cg._read
+
+    def _cached(entry):
+        p = entry["path"]
+        gen = len(cg._dirty)
+        hit = cache.get(p)
+        if hit is not None and hit[0] == gen:
+            return hit[1]
+        val = orig(entry)
+        cache[p] = (gen, val)
+        return val
+
+    cg._read = _cached
+    cg._read_cache = cache
+
+    nb_cache = {}
+    if hasattr(cg, "_doc_norm_bigrams"):
+        orig_nb = cg._doc_norm_bigrams
+
+        def _cached_nb(entry, c):
+            p = entry["path"]
+            gen = len(cg._dirty)
+            hit = nb_cache.get(p)
+            if hit is not None and hit[0] == gen:
+                return hit[1]
+            val = orig_nb(entry, c)
+            nb_cache[p] = (gen, val)
+            return val
+
+        cg._doc_norm_bigrams = _cached_nb
+        cg._norm_bigrams_cache = nb_cache
+    return cache
+
+
+# 生效条件：cg._read_cache 与 cg._norm_bigrams_cache 均清空（写侧显式兜底；哨兵之外的强制手段），返回清空的条目总数；无缓存时返回 0。
+def clear(cg) -> int:
+    """强制清空（外部批量改写文件后可手动调；正常写路径无需——哨兵自动失效）。"""
+    n = 0
+    for attr in ("_read_cache", "_norm_bigrams_cache"):
+        c = getattr(cg, attr, None)
+        if c:
+            n += len(c)
+            c.clear()
+    return n
