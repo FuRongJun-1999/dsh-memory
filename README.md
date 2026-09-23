@@ -379,6 +379,7 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 | [工作纪律·认知图条目 v1.1](docs/工作纪律_认知图条目_v1.1.json) | 自我约束的 18 条工作纪律（嵌套认知图条目 `work_discipline`） |
 | [六家记忆系统横评 v1.0](docs/eval/横评_六家100题中英双查_v1.0.md) | 100 题 · **中英双查** · 六家同口径对照；含判定单 / 条件层归因 / 诚实边界（题集 → [data/benchmarks/bench6-100-zh-en/](data/benchmarks/bench6-100-zh-en/README.md)） |
 | [端到端干扰池评测 v1.1](docs/eval/端到端干扰池评测_确定性裁决vsLLM_judge_v1.1.md) | **带干扰池端到端**：确定性裁决层 vs LLM-as-judge 正面对比（四族干扰×浓度梯度）· LoCoMo 上游 gold 端到端 QA **43.3%/40.0%** · 防火墙与 LLM 裁决对无标记干扰均无增益（REJECT 恒 0）· **统一归一层 A/B：CCG+RRF 形态 −11.7pp（批次 15 边界反馈）** |
+| [端到端 LoCoMo QA 同口径对照 v1.0](docs/eval/端到端LoCoMoQA同口径对照_v1.0.md) | **中文完整对话做记忆 · 自然问句做查询**（与 Mem0/Letta 论文同设定）：检索注入 QA **17.2%** / full-context 16.4% · 检索四组对照定因（自然问句诚实下界 hit@10 **40.2%** vs 派生题面 92.0%；改写/归一均实证排除）· lost-in-the-middle 实证 · **方向拍板：认知图概念桥接（不上向量）** |
 | [Rust 检索库](rust/README.md) | `mdcg_eval` 三形态：库内嵌大批量检索 / `--serve` 多智能体进程实例 / 公开数据集评测器（零依赖 · 与 Python 口径对齐，rank 对拍 harness 守卫） |
 | [蜂群多智能体](docs/swarm/蜂群多智能体_功能说明_v0.6.md) | `swarm/` 多进程蜂群执行层（2026-09-13 自 protocol-compiler 迁入，大脑核心内部能力）：.pbc 确定性实例 + Gossip/拓扑/水位信箱/WAL-HMAC/信任聚合/健康评分（Rust 纯 std 零依赖 · 159 断言回归全绿） |
 
