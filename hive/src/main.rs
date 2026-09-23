@@ -170,7 +170,7 @@ fn cmd_serve(args: &[String], jobs: PathBuf) -> i32 {
             exec_py.display()
         );
     }
-    let cfg = ServeCfg::new(jobs, workers, exec_py);
+    let cfg = ServeCfg::new(jobs, workers, exec_py).with_interop_identity();
     let stop = Arc::new(AtomicBool::new(false));
     // Ctrl+C 简易处理：不挂 handler（零依赖下跨平台信号处理受限），
     // 进程被终止时 claimed/running 由下次启动的 recover_orphans 清理。

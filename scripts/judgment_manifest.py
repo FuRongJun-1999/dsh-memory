@@ -52,8 +52,21 @@ def collect():
     return out
 
 
+def digest(manifest: dict) -> str:
+    """判据面组合指纹（批次10，A3/A2 的输入）：sha256("path:hash\n" 按清单序拼接)。
+
+    服务端（hive serve 心跳 fingerprint）与验证器共用同一算法——清单变更
+    （新增/删除/任一文件改动）必改 digest，缺一不可。
+    """
+    lines = "".join(f"{f['path']}:{f['sha256']}\n" for f in manifest["files"])
+    return hashlib.sha256(lines.encode("utf-8")).hexdigest()
+
+
 def main():
     manifest = collect()
+    if len(sys.argv) >= 2 and sys.argv[1] == "--digest":
+        print(digest(manifest))
+        return 0
     if len(sys.argv) >= 3 and sys.argv[1] == "--verify":
         frozen = json.load(open(sys.argv[2], encoding="utf-8"))
         cur = {f["path"]: f["sha256"] for f in manifest["files"]}

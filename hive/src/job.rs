@@ -174,7 +174,36 @@ pub fn write_serve_heartbeat(
     exec_py: &Path,
     exec_mode: &str,
 ) -> Result<(), String> {
-    let v = Json::Obj(vec![
+    write_serve_heartbeat_ext(
+        jobs,
+        workers,
+        exec_py,
+        exec_mode,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+}
+
+/// 写 serve 心跳（互验扩展，批次10 §7.2）：instance/role/fingerprint/iter_id/
+/// progress 五字段由 serve 自报（env 固化 + 判据面 digest），**显式设置才落**——
+/// 消费者对缺失字段按「未知」处理，不伪造默认值（跨进程 env 不可反查，
+/// 心跳是唯一权威来源）。
+#[allow(clippy::too_many_arguments)]
+pub fn write_serve_heartbeat_ext(
+    jobs: &Path,
+    workers: usize,
+    exec_py: &Path,
+    exec_mode: &str,
+    instance: Option<&str>,
+    role: Option<&str>,
+    fingerprint: Option<&str>,
+    iter_id: Option<&str>,
+    progress: Option<&str>,
+) -> Result<(), String> {
+    let mut v = vec![
         ("pid".to_string(), Json::Num(std::process::id() as f64)),
         ("ts".to_string(), Json::Num(now_ms() as f64)),
         ("workers".to_string(), Json::Num(workers as f64)),
@@ -183,8 +212,16 @@ pub fn write_serve_heartbeat(
             Json::Str(exec_py.to_string_lossy().to_string()),
         ),
         ("exec_mode".to_string(), Json::Str(exec_mode.to_string())),
-    ]);
-    write_json(&jobs.join("_serve.json"), &v).map_err(|e| e.to_string())
+    ];
+    let opt = |k: &str, x: Option<&str>| {
+        x.map(|s| (k.to_string(), Json::Str(s.to_string())))
+    };
+    v.extend(opt("instance", instance));
+    v.extend(opt("role", role));
+    v.extend(opt("fingerprint", fingerprint));
+    v.extend(opt("iter_id", iter_id));
+    v.extend(opt("progress", progress));
+    write_json(&jobs.join("_serve.json"), &Json::Obj(v)).map_err(|e| e.to_string())
 }
 
 /// 读 serve 心跳（不存在 → None）。

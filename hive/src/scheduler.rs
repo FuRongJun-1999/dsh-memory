@@ -34,6 +34,17 @@ pub struct ServeCfg {
     pub exec_mode: String,
     /// 主循环扫描间隔（毫秒）。
     pub poll_ms: u64,
+    /// 互验身份（批次10，§7.1）：env HIVE_INSTANCE 显式设置才落心跳；
+    /// None = 单实例部署旧行为（心跳无此字段，消费者按未知处理）。
+    pub instance: Option<String>,
+    /// 互验角色（§7.1）：env HIVE_ROLE（primary/verifier/arbiter）——决定该实例
+    /// 被允许做什么；同 instance，显式设置才落心跳。
+    pub role: Option<String>,
+    /// 判据面组合指纹（§7.6 细化的 A3 输入）：scripts/judgment_manifest.py
+    /// --digest 的输出，启动时算一次；计算失败 → None（诚实，不伪造）。
+    pub fingerprint: Option<String>,
+    /// 当前迭代 id（env HIVE_ITER_ID；空闲/未参与互验 → None）。
+    pub iter_id: Option<String>,
 }
 
 /// 执行器形态判据：**文件名**（非内容探测，宁可保守）。
@@ -64,7 +75,54 @@ impl ServeCfg {
             exec_py,
             exec_mode,
             poll_ms: 400,
+            instance: None,
+            role: None,
+            fingerprint: None,
+            iter_id: None,
         }
+    }
+
+    /// 互验身份注入（批次10，§7.1/§7.2）：env 显式设置才落心跳字段——
+    /// 「缺省即旧行为」（单实例部署零变更，不伪造默认值）。
+    /// fingerprint = 判据面组合指纹（python judgment_manifest.py --digest，
+    /// 子进程一次性计算；失败 → None 诚实透出，不冒充）。
+    pub fn with_interop_identity(mut self) -> Self {
+        let env = |k: &str| {
+            std::env::var(k)
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+        };
+        self.instance = env("HIVE_INSTANCE");
+        self.role = env("HIVE_ROLE");
+        self.iter_id = env("HIVE_ITER_ID");
+        // 互验 env 全空 = 单实例部署 → 整段跳过（含 fingerprint 子进程调用）——
+        // 「缺省即旧行为」：心跳不新增任何字段，也不为算指纹每次多 spawn 一个进程
+        if self.instance.is_none() && self.role.is_none() && self.iter_id.is_none()
+        {
+            return self;
+        }
+        // repo 根 = exe（hive/target/debug|release/hive.exe）上溯三级
+        let repo_root = std::env::current_exe().ok().and_then(|exe| {
+            let hive = exe.parent()?.parent()?.parent()?;
+            hive.parent().map(Path::to_path_buf)
+        });
+        if let Some(repo_root) = repo_root {
+            let out = std::process::Command::new("python")
+                .arg("scripts/judgment_manifest.py")
+                .arg("--digest")
+                .current_dir(&repo_root)
+                .output();
+            if let Ok(o) = out {
+                if o.status.success() {
+                    let d = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    if !d.is_empty() {
+                        self.fingerprint = Some(d);
+                    }
+                }
+            }
+        }
+        self
     }
 }
 
@@ -90,7 +148,17 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
 
     // 主循环：心跳 + 扫描领取
     while !stop.load(Ordering::SeqCst) {
-        let _ = job::write_serve_heartbeat(&cfg.jobs, cfg.workers, &cfg.exec_py, &cfg.exec_mode);
+        let _ = job::write_serve_heartbeat_ext(
+            &cfg.jobs,
+            cfg.workers,
+            &cfg.exec_py,
+            &cfg.exec_mode,
+            cfg.instance.as_deref(),
+            cfg.role.as_deref(),
+            cfg.fingerprint.as_deref(),
+            cfg.iter_id.as_deref(),
+            None, // progress：批次11 验证编排接线（跑套件时按阶段更新）
+        );
         for id in job::list_jobs(&cfg.jobs) {
             let dir = job::job_dir(&cfg.jobs, &id);
             let st = match job::read_status(&dir) {
