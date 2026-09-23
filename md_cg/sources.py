@@ -257,6 +257,135 @@ class DSHSessionSource(Source):
 
 
 # --------------------------------------------------------------------------
+# 蜂巢任务事件源（M6：hive/jobs → contextual，D:\2_ai 蜂巢记忆架构设计.md §5）
+# --------------------------------------------------------------------------
+
+class HiveJobsSource(Source):
+    """蜂巢任务事件源。
+
+    事件映射（设计稿 §5.3）：
+      start            → role=user，任务开始（task 摘要）
+      tool             → **跳过**（防流水账爆炸；tool_trace 已在 result 有摘要）
+      handoff          → role=assistant，续跑卡
+      error            → role=assistant，「任务失败(job=…)：…」（fix-pair 前件）
+      final            → role=assistant，content 头
+      result.json 终态 → **权威确认事件**（progress 可能因强杀缺失 final）：
+                          done → 「任务完成(job=…)」；error/timeout/killed → 「任务失败(job=…)」
+
+    排序：job_id 名升序 = 时间升序（job.rs 命名保证 h<unix_ms>_<pid>），
+    跨 job 全序成立；seq 由本源按枚举顺序递增（ingest 去重键 = (session, seq)）。
+    解析失败的行/条目计入 self.skipped，不终杀批次。
+    """
+
+    name = "hive_jobs"
+
+    def __init__(self, root: str):
+        self.root = os.path.abspath(root)
+        self.skipped = 0
+
+    def key(self):
+        """多仓/多池隔离：root 参与键（watermark 按源路径各自推进）。"""
+        return f"hive_jobs:{self.root}"
+
+    def _jobs(self):
+        try:
+            return sorted(d for d in os.listdir(self.root)
+                          if d.startswith("h")
+                          and os.path.isdir(os.path.join(self.root, d)))
+        except OSError:
+            return []
+
+    def _read_json(self, path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            self.skipped += 1
+            return None
+
+    def events(self):
+        seq = 0
+        for job_id in self._jobs():
+            jdir = os.path.join(self.root, job_id)
+            sess = f"hive:{job_id}"
+            spec = self._read_json(os.path.join(jdir, "spec.json")) or {}
+            task = str(spec.get("user_prompt") or "")[:200]
+
+            has_final = False
+            prog = os.path.join(jdir, "progress.jsonl")
+            if os.path.isfile(prog):
+                try:
+                    fh = open(prog, encoding="utf-8", errors="replace")
+                except OSError:
+                    fh = None
+                if fh is not None:
+                    with fh:
+                        for line in fh:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                o = json.loads(line)
+                            except ValueError:
+                                self.skipped += 1
+                                continue
+                            kind = o.get("kind")
+                            t = trust.epoch_seconds(float(o.get("ts") or 0)) or 0.0
+                            if kind == "start":
+                                seq += 1
+                                yield {"t": t, "seq": seq, "session": sess,
+                                       "role": "user",
+                                       "text": f"任务开始(job={job_id})：{task}"}
+                            elif kind == "handoff":
+                                seq += 1
+                                has_final = True
+                                yield {"t": t, "seq": seq, "session": sess,
+                                       "role": "assistant",
+                                       "text": f"续跑卡(job={job_id})："
+                                               f"{str(o.get('summary') or '')[:400]}"}
+                            elif kind == "error":
+                                seq += 1
+                                yield {"t": t, "seq": seq, "session": sess,
+                                       "role": "assistant",
+                                       "text": f"任务失败(job={job_id})："
+                                               f"{str(o.get('error') or '')[:300]}"}
+                            elif kind == "final":
+                                seq += 1
+                                has_final = True
+                                yield {"t": t, "seq": seq, "session": sess,
+                                       "role": "assistant",
+                                       "text": str(o.get("content_head") or "")[:400]}
+                            # tool / budget_stop / force_final / 其它 → 跳过
+                            # （§5.3：tool 仅聚合计数，防流水账爆炸）
+
+            # result.json 终态权威确认（progress 可能因强杀缺失 final）
+            res = self._read_json(os.path.join(jdir, "result.json")) or {}
+            state = "done" if res.get("ok") is True else \
+                ("error" if res.get("ok") is False else None)
+            if state is None:
+                continue
+            t = trust.epoch_seconds(float(res.get("finished_ts") or 0)) or 0.0
+            head = str(res.get("content") or "")[:300]
+            err = str(res.get("error") or "")[:300]
+            seq += 1
+            if state == "done":
+                # 前缀独立成行：content 的行首结构（命令行等）不被破坏，
+                # 保证 mine_fix_pairs 的 _FIX_RE 行首启发式仍能命中修复证据
+                yield {"t": t, "seq": seq, "session": sess, "role": "assistant",
+                       "text": f"任务完成(job={job_id})：\n{head}"}
+            else:
+                tag = "超时强杀" if st_err_is_timeout(err) else "失败"
+                yield {"t": t, "seq": seq, "session": sess, "role": "assistant",
+                       "text": f"任务{tag}(job={job_id})：{err or head}"
+                               + ("" if has_final else "（progress 缺 final，"
+                                                       "本条为 result 终态补位）")}
+
+
+def st_err_is_timeout(err: str) -> bool:
+    return "超时" in (err or "")
+
+
+# --------------------------------------------------------------------------
 # 摄取器
 # --------------------------------------------------------------------------
 
