@@ -27,6 +27,9 @@ from md_cg.interop import assert_a1, assert_a2, assert_a3, make_verdict
 from md_cg.mdcos import _sig  # noqa: F401  保持与库同源初始化
 
 
+# 生效条件：命令、超时秒数给定——正常结束返回 (exit_code, stdout, stderr)；
+# 超时 → (124, 部分输出, 超时说明)；启动失败 → (127, "", 错误说明)。
+# 验证方式：test——test_p39 冒烟链（2b/2c 计数解析依赖本函数输出）。
 def _run(cmd, timeout_s):
     t0 = time.time()
     try:
@@ -40,6 +43,9 @@ def _run(cmd, timeout_s):
         return 127, "", f"启动失败：{type(e).__name__}: {e}"
 
 
+# 生效条件：text 给定——宽松累加两类计数形态（cargo `N passed; M failed` 与
+# run_tests「通过 X / 失败 Y」），返回 (passed, failed)；无命中 → (0, 0)。
+# 不适用条件：不区分套件层级（冒烟与全量同口径累加）。
 def _parse_counts(text):
     """宽松解析套件计数（cargo 的 `N passed; M failed` 与 run_tests 的两种）。"""
     passed = failed = 0
@@ -53,6 +59,15 @@ def _parse_counts(text):
     return passed, failed
 
 
+# 生效条件（核心入口 · CCG 六要素）：
+#   功能名：互验执行器（§7.4 步骤 4）。
+#   生效条件：argv[1]=iter_id 且冻结凭证 hive/interop/<iter>/frozen.json 可读、
+#   HIVE_ROLE=verifier（否则 rc=3 角色守卫拒跑）、SUBJECT_FP 由派发方 spec.env 注入。
+#   子功能：A1/A2/A3 断言 → 全量套件（cargo+run_tests；--smoke 走内置探针）→
+#   make_verdict 脱敏 → verdict.json 落盘。
+#   执行：断言不成立 → valid=false 结论作废（不进合并），照常落盘留痕。
+#   验证方式：test——test_p39_verify_flow 9/0（--smoke 冒烟链）。
+#   不适用条件：不产出 pass/fail 以外的裁决（分歧仲裁属 arbitration.json 另一产物）。
 def main(argv):
     iter_id = argv[1] if len(argv) > 1 else ""
     role = (os.environ.get("HIVE_ROLE") or "").strip()

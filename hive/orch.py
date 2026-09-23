@@ -109,6 +109,8 @@ class OrcError(Exception):
 
 # --------------------------------------------------------------- 工具 schema
 
+# 生效条件：调用即返回 spawn_subtask 工具的 OpenAI function schema（声明
+# job/depends_on/model 等参数面——编排器派生子任务的白名单入口）。
 def _spawn_schema() -> dict:
     return {
         "type": "function",
@@ -142,6 +144,8 @@ def _spawn_schema() -> dict:
     }
 
 
+# 生效条件：调用即返回 poll_subtasks 工具的 OpenAI function schema（声明
+# 子任务 id 列表参数——编排者拉取子任务进度的观测面）。
 def _poll_schema() -> dict:
     return {
         "type": "function",
@@ -163,6 +167,8 @@ def _poll_schema() -> dict:
     }
 
 
+# 生效条件：调用即返回 read_full 工具的 OpenAI function schema（声明节点 id
+# 参数——子代理按需读 L2 细节层的最小充分出口）。
 def _read_full_schema() -> dict:
     return {
         "type": "function",
@@ -183,6 +189,8 @@ def _read_full_schema() -> dict:
     }
 
 
+# 生效条件：调用即返回 record_adjudication 工具的 OpenAI function schema——
+# 强制字段（kind/supersede/evidence 等）fail-closed 校验的声明面（M5 纠正链）。
 def _adjudication_schema() -> dict:
     """M5 纠正链侧车：裁决留痕工具（强制字段 fail-closed）。"""
     return {
@@ -505,7 +513,13 @@ def _record_adjudication(args: dict) -> dict:
 
 
 def orch_handler(name: str, args: dict, job_id: str) -> dict:
-    """编排工具的处理器（注册进 exec.register_tools）。"""
+    """编排工具的处理器（注册进 exec.register_tools）。
+
+    生效条件：name 为四个编排工具之一（spawn_subtask/poll_subtasks/
+    read_full/record_adjudication）时按名分派对应处理函数；未知工具名
+    → 上抛由执行器工具面统一报错。
+    验证方式：test——test_orch 85/0（含 M5 record_adjudication
+    fail-closed 字段校验与派生令牌身份链）。"""
     if name == "spawn_subtask":
         return _spawn(args)
     if name == "poll_subtasks":
