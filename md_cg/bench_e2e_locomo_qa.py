@@ -91,38 +91,56 @@ def translate_all(key, model_cfg, items, batch_n, sys_prompt, out_path,
           f" · engine={model_cfg['model']}@{model_cfg['base']}")
     jobs = list(enumerate(_batch(todo, batch_n)))
 
-    def work(item):
-        idx, job = item
-        cpath = os.path.join(T_CACHE, f"{key}_{idx:04d}.json")
-        if os.path.isfile(cpath):
-            return json.load(open(cpath, encoding="utf-8"))
-        mapping = {f"x{i}": k for i, (k, _t) in enumerate(job)}
-        user = "\n".join(f"x{i}. {t}" for i, (_k, t) in enumerate(job))
+    def call_one(items, mt):
+        # 行前缀从 x1 起（与系统提示示例 {"x1": …} 一致）：模型对 x0 起头
+        # 的批量会整体偏移成 x1 起，导致键错位解析失败（214 条顽固缺口的根因）
+        mapping = {f"x{i + 1}": k for i, (k, _t) in enumerate(items)}
+        user = "\n".join(f"x{i + 1}. {t}" for i, (_k, t) in enumerate(items))
         try:
             raw, _u, _d = llm_chat(
                 model_cfg["model"], model_cfg["base"], model_cfg["key"],
                 [{"role": "system", "content": sys_prompt},
                  {"role": "user", "content": user}],
-                timeout=model_cfg["timeout"], max_tokens=max_tokens,
+                timeout=model_cfg["timeout"], max_tokens=mt,
                 extra_payload=model_cfg.get("extra"))
-            s = re.sub(r"<think>.*?</think>", "", str(raw), flags=re.S)
-            obj = {}
-            _i, _j = s.find("{"), s.rfind("}")
-            if _i >= 0 and _j > _i:
-                try:
-                    obj = json.loads(s[_i:_j + 1])
-                except ValueError:
-                    obj = {}
-            res = {}
-            for tag, zh in obj.items():
-                if tag in mapping and isinstance(zh, str) and zh.strip():
-                    res[mapping[tag]] = zh.strip()
-            if len(res) == len(job):
-                json.dump(res, open(cpath, "w", encoding="utf-8"),
-                          ensure_ascii=False)
-            return res
         except Exception:                                   # noqa: BLE001
             return {}
+        s = re.sub(r"<think>.*?</think>", "", str(raw), flags=re.S)
+        obj = {}
+        _i, _j = s.find("{"), s.rfind("}")
+        if _i >= 0 and _j > _i:
+            try:
+                obj = json.loads(s[_i:_j + 1])
+            except ValueError:
+                obj = {}
+        res = {}
+        for tag, zh in obj.items():
+            if tag in mapping and isinstance(zh, str) and zh.strip():
+                res[mapping[tag]] = zh.strip()
+        return res
+
+    def work(item):
+        idx, job = item
+        # 缓存按**内容寻址**（分片键集 hash）：早前按 todo 重排 idx 命名，
+        # 续传轮 idx 语义漂移会命中**旧内容的分片**（返回已在 out 的旧键，
+        # n_ok 虚涨而总数停滞——180 条顽固缺口的第二重根因）。内容寻址
+        # 跨轮稳定，同内容分片天然命中、不同内容互不误撞。
+        chash = hashlib.md5(",".join(k for k, _ in job)
+                            .encode("utf-8")).hexdigest()[:12]
+        cpath = os.path.join(T_CACHE, f"{key}_{chash}.json")
+        if os.path.isfile(cpath):
+            return json.load(open(cpath, encoding="utf-8"))
+        res = call_one(job, max_tokens)
+        if len(res) < len(job):
+            # 分片级失败兜底：逐条重译（长 turn 挤爆批量输出导致 JSON 截断
+            # 的形态，单条请求给足生成空间即可收敛）
+            for one in job:
+                if one[0] not in res:
+                    res.update(call_one([one], 1000))
+        if len(res) == len(job):
+            json.dump(res, open(cpath, "w", encoding="utf-8"),
+                      ensure_ascii=False)
+        return res
 
     n_ok = 0
     with ThreadPoolExecutor(max_workers=model_cfg["workers"]) as ex:
