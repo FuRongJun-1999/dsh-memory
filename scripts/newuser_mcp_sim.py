@@ -20,6 +20,7 @@ import tempfile
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO)   # 部署侧直调（tokens.issue）与 server import 共用
 PASS, FAIL, FAILS = 0, 0, []
 
 
@@ -150,7 +151,6 @@ def main():
         check("N5a compile 产出候选", compiled_ok,
               json.dumps(c, ensure_ascii=False, default=str)[:200])
         # 部署侧动作：为编外验证方签发令牌（令牌签发不在 MCP 面——设计如此）
-        sys.path.insert(0, REPO)
         from md_cg import tokens
         tk = tokens.issue("verifier", actor="external-reviewer",
                           path=os.environ["MDCG_TOKEN_FILE"])["token"]
