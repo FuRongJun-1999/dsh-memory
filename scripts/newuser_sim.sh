@@ -45,9 +45,13 @@ npm pack >/tmp/pack.log 2>&1
 record "npm pack" $?
 TGZ=$(ls *.tgz 2>/dev/null | head -1)
 echo "    TGZ=$TGZ"
-tar tzf "$TGZ" | grep "md_cg/mcp_server.py" | head -2
-tar tzf "$TGZ" | grep -q "package/md_cg/mcp_server.py"
+tar tzf "$TGZ" >/tmp/manifest.txt   # 先落盘再 grep——pipefail 下 grep -q 提前退出会让 tar 吃 SIGPIPE 误判失败
+grep -q "package/md_cg/mcp_server.py" /tmp/manifest.txt
 record "发布件含大脑入口 md_cg/mcp_server.py" $?
+grep -q "package/md_cg/writepipe.py" /tmp/manifest.txt
+record "发布件含写管线 writepipe.py" $?
+grep -q "package/skills/" /tmp/manifest.txt
+record "发布件含 skills 分发件" $?
 
 echo "=== U4 大脑直连（README 装后验证形态）==="
 PYTHONUTF8=1 python3 -c "from md_cg.mdcos import MdCGSecure; print('md_cg 导入 OK')"
