@@ -32,12 +32,14 @@ frontmatter 读取也从磁盘降为内存命中。
 """
 from __future__ import annotations
 
+import os
 import time
 from collections import OrderedDict
 
-#: 节点缓存上限
+#: 节点缓存上限（env MDCG_HOTCACHE_MAX_NODES 可覆盖——公共评测池 locomo-zh-500
+#: 为 567 节点，缺省 256 会持续 LRU 淘汰，issue #28：容量应可配或自适应）
 MAX_NODES = 256
-#: query 缓存上限
+#: query 缓存上限（env MDCG_HOTCACHE_MAX_QUERIES 可覆盖）
 MAX_QUERIES = 64
 #: query 缓存 TTL（秒）
 QUERY_TTL = 300.0
@@ -191,10 +193,32 @@ def default_cache():
     return _DEFAULT
 
 
-def attach(cg):
-    """给 cg 实例挂热缓存（幂等：已挂则不重复）。"""
-    if not hasattr(cg, "_hotcache") or cg._hotcache is None:
-        cg._hotcache = HotCache()
+# 生效条件：cg 传入；已挂（_hotcache 非 None）时幂等返回现有实例；未挂时按 max_nodes/max_queries 显式值构造 HotCache，缺省回落 env MDCG_HOTCACHE_MAX_NODES / MDCG_HOTCACHE_MAX_QUERIES（非整数回落模块级默认），再回落模块级常量；返回挂载的 HotCache。
+def attach(cg, *, max_nodes: int = None, max_queries: int = None):
+    """给 cg 实例挂热缓存（幂等：已挂则不重复）。
+
+    容量解析优先级：显式入参 > env（MDCG_HOTCACHE_MAX_NODES /
+    MDCG_HOTCACHE_MAX_QUERIES）> 模块级常量（issue #28：容量可配，
+    大库须调大，否则 LRU 持续淘汰使热缓存形同虚设）。
+    """
+    if getattr(cg, "_hotcache", None) is not None:
+        return cg._hotcache
+
+    def _cap(explicit, env_key, default):
+        if explicit is not None:
+            return explicit
+        raw = os.environ.get(env_key, "").strip()
+        if raw:
+            try:
+                return int(raw)
+            except ValueError:
+                pass
+        return default
+
+    cg._hotcache = HotCache(
+        max_nodes=_cap(max_nodes, "MDCG_HOTCACHE_MAX_NODES", MAX_NODES),
+        max_queries=_cap(max_queries, "MDCG_HOTCACHE_MAX_QUERIES",
+                         MAX_QUERIES))
     return cg._hotcache
 
 

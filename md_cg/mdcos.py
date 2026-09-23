@@ -326,6 +326,14 @@ class MdCGOS(MdCG):
         os.makedirs(self.trash_dir, exist_ok=True)
         self._audit_writes = 0        # 进程内写入计数（轮转探测节流，稳态零 stat）
         self._audit_index = None      # 归档索引缓存（懒加载）
+        # 热缓存挂载（issue #28，2026-09-23）：读侧（search_rrf）与失效侧
+        # （writepipe）早已接好，唯独无人调 attach——生产恒 None，重复 query
+        # 无法命中。默认关（env 未设 → get(self) 恒 None，零变更纪律）；
+        # MDCG_HOTCACHE=1 显式启用，容量经 MDCG_HOTCACHE_MAX_NODES/MAX_QUERIES
+        # 可配（缺省 256 对 567 节点级库会持续 LRU 淘汰，大库请调大）。
+        if os.environ.get("MDCG_HOTCACHE") == "1":
+            from . import hotcache as _hc
+            _hc.attach(self)
 
     # ================= 6. payload-free 审计 =================
 
