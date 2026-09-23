@@ -19,7 +19,7 @@ except AttributeError:
     pass
 
 from .mdcos import MdCGOS
-from .sources import HiveJobsSource, Ingestor
+from .sources import HiveJobsSource, Ingestor, run as sources_run
 
 PASS, FAIL = 0, 0
 
@@ -147,6 +147,61 @@ def main():
         fp = cg.mine_fix_pairs(seq)
         check("5b 错误→修复对可被挖出（超时失败→重试通过）",
               len(fp.get("pairs") or []) >= 1, str(fp)[:200])
+
+        # ---- 6. MCP/CLI 暴露口（sources.run action=hive）+ 事件级密级（双态） ----
+        print("[6] 暴露口 sources.run(action=hive) + error 事件 private（双态）")
+        root2 = tempfile.mkdtemp(prefix="mdcg_m6b_")
+        try:
+            jobs2 = make_jobs(root2)
+            # 6a-6c：高 clearance（secret）调用方 → error 事件正常落 private
+            from .mdcos import MdCGSecure
+            from .security import Principal
+            cg_sec = MdCGSecure(root2, principal=Principal(
+                actor="t_secret", clearance="secret", can_write=True,
+                role="designer", auth_mode="test"))
+            rep_h = sources_run(cg_sec, action="hive", path=jobs2)
+            check("6a run(action=hive) 摄取成功（统一暴露口）",
+                  rep_h.get("written", 0) > 0 and rep_h.get("source", "").startswith(
+                      "hive_jobs:"), str(rep_h)[:150])
+            priv = inter = 0
+            for nid, e in (cg_sec.index.get("nodes") or {}).items():
+                if not str(nid).startswith("src_"):
+                    continue
+                fm = e or {}
+                if fm.get("sensitivity") == "private":
+                    priv += 1
+                elif fm.get("layer") == "contextual":
+                    inter += 1
+            check("6b error 事件节点=private（secret clearance 落盘成功）",
+                  priv >= 2, f"private={priv}")
+            check("6c 非 error 事件保持 internal",
+                  inter >= 3, f"internal={inter}")
+            # 6d-6e：internal clearance 调用方 → private 写入 AccessDenied，
+            # denied 明细可见（不静默丢失，误差归因原料可查可重放）
+            cg_int = MdCGSecure(tempfile.mkdtemp(prefix="mdcg_m6c_"))
+            rep_i = sources_run(cg_int, action="hive", path=jobs2)
+            check("6d internal clearance 写 private 被拒且明细可见",
+                  rep_i.get("denied", 0) >= 2
+                  and len(rep_i.get("denied_events") or []) == rep_i["denied"],
+                  str(rep_i.get("denied_events"))[:160])
+            # 6f：显式降级 error_sensitivity=internal → 全部落盘（显式权衡）
+            cg_low = MdCGSecure(tempfile.mkdtemp(prefix="mdcg_m6d_"))
+            rep_l = sources_run(cg_low, action="hive", path=jobs2,
+                                error_sensitivity="internal")
+            check("6f 显式降级 error_sensitivity=internal 全部落盘",
+                  rep_l.get("denied", 0) == 0 and rep_l.get("written", 0) > 0,
+                  str({k: rep_l.get(k) for k in ("written", "denied")}))
+            # fail-closed：无 path 无 env → 人话指引
+            os.environ.pop("MDCG_HIVE_JOBS", None)
+            rep_nc = sources_run(cg_low, action="hive")
+            check("6g 无 root 时 fail-closed 人话指引（不猜布局）",
+                  rep_nc.get("ok") is False and "MDCG_HIVE_JOBS" in rep_nc["error"])
+            # dry_run：只统计不写盘
+            rep_d = sources_run(cg_low, action="hive", path=jobs2, dry_run=True)
+            check("6h dry_run 预演不写盘",
+                  rep_d.get("dry_run") is True and rep_d.get("written", 1) == 0)
+        finally:
+            shutil.rmtree(root2, ignore_errors=True)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

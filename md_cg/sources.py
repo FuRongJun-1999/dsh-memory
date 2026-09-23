@@ -279,9 +279,13 @@ class HiveJobsSource(Source):
 
     name = "hive_jobs"
 
-    def __init__(self, root: str):
+    def __init__(self, root: str, error_sensitivity: str = "private"):
         self.root = os.path.abspath(root)
         self.skipped = 0
+        # §5.5「error:true 建议 private」——默认 private；调用方 clearance 不足时
+        # 可显式降级 error_sensitivity="internal"（显式权衡：接受失败细节入 internal，
+        # 换取误差归因原料不丢）。能否落盘由写入者 clearance 裁决（写隔离）。
+        self.error_sensitivity = error_sensitivity
 
     def key(self):
         """多仓/多池隔离：root 参与键（watermark 按源路径各自推进）。"""
@@ -345,10 +349,13 @@ class HiveJobsSource(Source):
                                                f"{str(o.get('summary') or '')[:400]}"}
                             elif kind == "error":
                                 seq += 1
-                                yield {"t": t, "seq": seq, "session": sess,
-                                       "role": "assistant",
-                                       "text": f"任务失败(job={job_id})："
-                                               f"{str(o.get('error') or '')[:300]}"}
+                                ev = {"t": t, "seq": seq, "session": sess,
+                                      "role": "assistant",
+                                      "text": f"任务失败(job={job_id})："
+                                              f"{str(o.get('error') or '')[:300]}"}
+                                if self.error_sensitivity:
+                                    ev["sensitivity"] = self.error_sensitivity
+                                yield ev
                             elif kind == "final":
                                 seq += 1
                                 has_final = True
@@ -375,10 +382,13 @@ class HiveJobsSource(Source):
                        "text": f"任务完成(job={job_id})：\n{head}"}
             else:
                 tag = "超时强杀" if st_err_is_timeout(err) else "失败"
-                yield {"t": t, "seq": seq, "session": sess, "role": "assistant",
-                       "text": f"任务{tag}(job={job_id})：{err or head}"
-                               + ("" if has_final else "（progress 缺 final，"
-                                                       "本条为 result 终态补位）")}
+                ev = {"t": t, "seq": seq, "session": sess, "role": "assistant",
+                      "text": f"任务{tag}(job={job_id})：{err or head}"
+                              + ("" if has_final else "（progress 缺 final，"
+                                                      "本条为 result 终态补位）")}
+                if self.error_sensitivity:
+                    ev["sensitivity"] = self.error_sensitivity
+                yield ev
 
 
 def st_err_is_timeout(err: str) -> bool:
@@ -454,6 +464,7 @@ class Ingestor:
         last_t, last_seq = trust.epoch_seconds(float(wm.get("t") or 0)) or 0.0, \
             wm.get("seq")
         new_events, seen = [], set()
+        denied_events = []               # 被拒事件明细（session/seq/原因）——可观测可重放
         for ev in source.events():
             if ev.get("t", 0) < last_t:
                 continue
@@ -484,7 +495,10 @@ class Ingestor:
                         f"{ev.get('text')}\n")
                 try:
                     self.cg.add(nid, body, layer=self.layer, role=ev.get("role"),
-                                tags=["session", key], sensitivity=self.sensitivity,
+                                tags=["session", key],
+                                # 事件级密级覆盖（M6 §5.5）：error 事件建议 private
+                                # （失败细节可能含路径/配置），缺省回落源级默认
+                                sensitivity=ev.get("sensitivity") or self.sensitivity,
                                 verification_basis="data",
                                 condition_space={"observation_position": key,
                                                  "observation_tool": "会话流",
@@ -492,6 +506,11 @@ class Ingestor:
                                                                  ev.get("t") or 0]})
                 except Exception as exc:   # noqa: BLE001 —— 权限/层错误不中断整批
                     denied += 1
+                    # 诚实化（M6）：denied 事件虽被水位跳过，但明细必须可见——
+                    # 静默丢失会吞掉误差归因闭环的原料（error 事件恰是原料）
+                    denied_events.append({
+                        "session": ev.get("session"), "seq": ev.get("seq"),
+                        "error": str(exc)[:150]})
                     self.last_error = f"{type(exc).__name__}: {exc}"
                     continue
                 ids.append(nid)
@@ -500,6 +519,8 @@ class Ingestor:
         result = {"source": key, "new_events": len(new_events), "written": written,
                   "denied": denied, "ids": ids, "dry_run": dry_run,
                   "sensitivity": self.sensitivity}
+        if denied_events:
+            result["denied_events"] = denied_events
         if denied and getattr(self, "last_error", None):
             result["last_error"] = self.last_error
             result["hint"] = ("会话内容默认 sensitivity=private；"
@@ -544,7 +565,7 @@ def _sig(text: str, n: int = 12) -> str:
 #   - 幂等：沿用 refindex.Ledger（size+mtime 水位）与 Ingestor watermark。
 #   - 预演：dry_run=True 只统计、不写入（对应计划「可预演」要求）。
 
-INGEST_ACTIONS = ("file", "dir", "jsonl", "stat")
+INGEST_ACTIONS = ("file", "dir", "jsonl", "stat", "hive")
 
 INGEST_REGISTRY = {
     # 会话流
@@ -746,4 +767,25 @@ def run(cg, action: str = "stat", **kw):
             return {"ok": False, "error": "jsonl 动作需要 path"}
         return d.ingest_jsonl(p, dry_run=bool(kw.get("dry_run")),
                               max_events=kw.get("max_events"))
+    if act == "hive":
+        # M6：蜂巢任务事件源（hive/jobs → contextual）。root 解析链：显式 path >
+        # env MDCG_HIVE_JOBS > 报错指引（fail-closed，不猜仓库布局）。
+        # §5.5 硬纪律：mine_fix_pairs=False（先落账后挖矿——自动挖掘产物直写
+        # knowledge 层违反双轨制，实测 0→2 污染）；默认密级 internal，
+        # error 事件由源层 per-event 覆写 private（失败细节可能含路径/配置）。
+        root = kw.get("path") or os.environ.get("MDCG_HIVE_JOBS")
+        if not root:
+            return {"ok": False, "error": (
+                "hive 动作需要 path（hive/jobs 目录），或设 env MDCG_HIVE_JOBS——"
+                "不猜测仓库布局（fail-closed）")}
+        src = HiveJobsSource(root, error_sensitivity=kw.get("error_sensitivity")
+                             if kw.get("error_sensitivity") is not None else "private")
+        rep = Ingestor(cg, layer=kw.get("layer") or "contextual",
+                       sensitivity=kw.get("sensitivity") or "internal"
+                       ).ingest(src, mine_fix_pairs=False,
+                                max_events=kw.get("max_events"),
+                                dry_run=bool(kw.get("dry_run")))
+        rep["source"] = src.key()
+        rep["skipped"] = src.skipped
+        return rep
     raise ValueError(f"未知 ingest action：{action!r}（允许 {INGEST_ACTIONS}）")
