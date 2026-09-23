@@ -90,11 +90,6 @@ test('issue #18 ①：runRoot() 是包外落点、绝对路径且目录存在', 
 })
 
 test('issue #18 ②：MdcgClient 默认 cwd 拉起的子进程，自报 cwd 在包外', async () => {
-  assert.ok(
-    existsSync(SELF_REPORT_DIR),
-    `自报目录不存在，无法核验子进程 cwd（md_cg/selfreport.py 未落盘？）：${SELF_REPORT_DIR}`,
-  )
-
   const dir = mkdtempSync(join(tmpdir(), 'lingshu-issue18-'))
   // 真实宿主形态：不传 cwd（旧行为 = repoRoot()，即被钉住的包目录）
   const client = new MdcgClient({
@@ -108,6 +103,15 @@ test('issue #18 ②：MdcgClient 默认 cwd 拉起的子进程，自报 cwd 在�
   try {
     const ok = await client.waitReady()
     assert.equal(ok, true, 'MdcgClient 默认形态应完成握手')
+
+    // 自报目录存在性断言必须在子进程拉起**之后**（批次 22 修正）：目录由
+    // md_cg server 启动时落盘（mcp_server.main → selfreport.report）——
+    // 原先写在 start() 之前，隐式依赖「机器上有历史常驻 md_cg」；干净环境
+    // （Linux 容器首跑）无历史目录必挂。握手完成 ⇒ 自报已落盘。
+    assert.ok(
+      existsSync(SELF_REPORT_DIR),
+      `握手完成但自报目录不存在（selfreport 落盘异常）：${SELF_REPORT_DIR}`,
+    )
 
     // 自报 ppid = 本测试进程 → 精确锁定本测试拉起的子进程（不受同机其它常驻进程干扰）
     const mine = readSelfReports().filter((r) => r['ppid'] === process.pid)

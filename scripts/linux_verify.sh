@@ -34,15 +34,22 @@ if [ "$MODE" = "full" ]; then
 fi
 
 echo "=== python 套件 ==="
+# 批次 22（issue #31 发版门禁）：补齐批次 14-22 新守卫——门控生产路径/
+# 读缓存/MdStore 预计算逐位对照/p43 回流守恒。依赖 gitignored 本地语料的
+# 套件（p44/md_access_parity）不入清单（容器内必缺，由 run_tests SKIP 面
+# 在有语料的机器覆盖）。
 for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_interop test_subproc_encoding \
-         test_p29_session_ingest_export test_p2 test_p2_mcp test_p3; do
+         test_p29_session_ingest_export test_p2 test_p2_mcp test_p3 \
+         test_p43_pooling test_retr_gates_prodpath \
+         test_readcache_prodpath test_mdstore_search_parity \
+         test_wisdom_md_store; do
   out=$(python3 -m "md_cg.$t" 2>&1 | tail -1); rc=$?
   record "md_cg.$t" $rc
   echo "    -> $out"
 done
 
-for t in hive/test_orch.py hive/test_exec_tools.py; do
+for t in hive/test_orch.py hive/test_exec_tools.py hive/test_serve_entry.py; do
   out=$(python3 "$t" 2>&1 | tail -1); rc=$?
   record "$t" $rc
   echo "    -> $out"
