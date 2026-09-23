@@ -718,25 +718,46 @@ def apply_retrieval_gates(entries, terms, big_domain, context, min_results):
             gates["s1b"] = {"keys": [], "reason": "disabled_by_topk"}
         else:
             _sizes = {}
+            _zh_alias = {}           # issue #33：桶 → 中文别名集（英文键的跨语言面）
             for _e in entries:
                 _b = _e.get("bucket")
                 if _b and _b != routing.ORPHAN:
                     _sizes[_b] = _sizes.get(_b, 0) + 1
+                    _al = _zh_alias.setdefault(_b, set())
+                    for _w in (_e.get("bucket_zh") or []):
+                        _al.add(str(_w))
             _best = {}
             for _b in _sizes:
                 _kk = routing.bucket_key_readable(_b)
                 if not _kk:
                     continue
+                # 比较面 = 可读键 ∪ 中文别名（别名只来自节点自身内容，零翻译依赖；
+                # 无别名的存量库行为与旧版逐位一致——别名集为空即旧口径）
+                _faces = [_kk] + sorted(_zh_alias.get(_b, ()))
                 _sim = 0.0
                 for _t in terms:
-                    _sv = routing.domain_similarity(_t, _kk)
-                    if _sv > _sim:
-                        _sim = _sv
+                    for _f in _faces:
+                        _sv = routing.domain_similarity(_t, _f)
+                        if _sv > _sim:
+                            _sim = _sv
                 if _sim >= _s1b_minsim:
                     _best[_b] = _sim
             if not _best:
-                gates["s1b"] = {"keys": [], "reason": "no_key_match",
-                               "in": len(entries), "buckets": len(_sizes)}
+                # 审计止血（issue #33 建议 3）：区分「真的无匹配」与「跨语言盲区」——
+                # query 带中文信号、而全部桶的比较面（键+别名）都无中文 → 前者是
+                # 语义不相关（正常回退），后者是修复盲区的运维可见形态。
+                _q_zh = any(routing._ZH_RE.search(str(_t)) for _t in terms)
+                _faces_all_zh = any(
+                    routing._ZH_RE.search(_f)
+                    for _b in _sizes
+                    for _f in ([routing.bucket_key_readable(_b)]
+                               + sorted(_zh_alias.get(_b, ()))))
+                gates["s1b"] = {
+                    "keys": [],
+                    "reason": ("cross_lang_no_match"
+                               if (_q_zh and _sizes and not _faces_all_zh)
+                               else "no_key_match"),
+                    "in": len(entries), "buckets": len(_sizes)}
             else:
                 _picked = sorted(_best.items(),
                                  key=lambda kv: (-kv[1], -_sizes[kv[0]],
@@ -925,6 +946,9 @@ class MdCG:
                         "session": fm.get("session"),
                         "tags": fm.get("tags", []),
                         "bucket": parent if parent != layer else None,
+                        # issue #33：中文别名入快照（fm 派生，与写入路径同口径）——
+                        # S1b 跨语言收敛免读文件可判。
+                        "bucket_zh": fm.get("bucket_zh") or None,
                         "importance": fm.get("importance", 0.5),
                         "created_at": fm.get("created_at", 0),
                         "verification_basis": fm.get("verification_basis"),
@@ -1075,9 +1099,15 @@ class MdCG:
                 pass
         bucket = None
         d = os.path.join(self.root, layer)
+        bucket_zh = []
         if layer in BUCKETED_LAYERS:
             bucket = routing.bucket_dir(routing.route_key(condition_space, tags))
             d = os.path.join(d, bucket)
+            # issue #33：英文桶键配中文别名（节点自身 tags/正文中文词，零翻译依赖），
+            # 供 S1b 跨语言收敛；键含中文或无别名时空。写进 fm 保证 _scan_nodes
+            # 重建后口径一致（索引派生原则，见 _stage 注释）。
+            bucket_zh = routing.bucket_zh_aliases(
+                routing.bucket_key_readable(bucket), tags, content)
         os.makedirs(d, exist_ok=True)
         path = os.path.join(d, f"{node_id}.md")
         created_at = extra.pop("created_at", time.time())
@@ -1100,6 +1130,8 @@ class MdCG:
             "evidence_count": 0, "positive_evidence": 0, "negative_evidence": 0,
         }
         fm.update(extra)
+        if bucket_zh:
+            fm["bucket_zh"] = bucket_zh
         # S1 大域先验：写入时固化「内容 → 大域」（契约 §3 S1）。
         # 为何在写入侧：检索侧要按域收敛，节点就必须带域；query 侧分类器已存在，
         # 缺的只是这一列节点元数据（审计偏差 4 的根因）。调用方可显式传入覆盖。
@@ -1273,6 +1305,7 @@ class MdCG:
         self._stage(node_id, _strip_empty_gate_fields({
             "path": os.path.relpath(path, self.root).replace("\\", "/"),
             "layer": layer, "tags": tags, "bucket": bucket,
+            "bucket_zh": bucket_zh or None,
             "importance": importance, "created_at": fm["created_at"],
             "verification_basis": verification_basis,
             "has_neg_conditions": nodefile.has_non_applicable(sealed),
@@ -1810,6 +1843,55 @@ class MdCG:
         # 写入与「只对账索引」两种情形都要落盘：索引持久化靠 _dirty → flush → _index_log 重放，
         # 只 _stage 不 flush 会在重启后丢掉标签（对账支路尤其容易漏）。
         if not dry_run and (st["written"] or st["index_synced"]):
+            self.flush()
+        return st
+
+# 生效条件：遍历 index["nodes"]（limit 截断）；bucket 缺失/orphan/键含中文或可读键为空时计 not_needed 跳过；索引已有 bucket_zh 计 already；get() 不可读计 unreadable；别名=routing.bucket_zh_aliases(可读键, tags, content)（fm 已有则沿用）为空计 not_needed；dry_run 只计 written 不落盘，否则写 fm.bucket_zh + _write_node + _stage(e)（不动 content/其它字段），最终有写入即 flush，返回统计 dict。
+    def backfill_bucket_zh(self, dry_run: bool = False, limit: int = None) -> dict:
+        """为英文桶键的存量节点补中文别名（issue #33；幂等、零翻译依赖）。
+
+        别名与写入侧同源（`routing.bucket_zh_aliases`：节点自身 tags ∪ 正文
+        中文域词）；只补 `fm.bucket_zh` 与索引快照，不动 content/条件空间；
+        加密库走 get() → _write_node() 重封装安全路径（同 backfill_big_domain）。
+        无中文面可用的节点跳过——其在 S1b 的 cross_lang_no_match 审计里可见。
+        """
+        st = {"seen": 0, "already": 0, "written": 0, "not_needed": 0,
+              "unreadable": 0, "dry_run": bool(dry_run)}
+        for nid, e in list((self.index.get("nodes") or {}).items()):
+            if limit and st["written"] >= limit:
+                break
+            st["seen"] += 1
+            b = e.get("bucket")
+            if not b or b == routing.ORPHAN:
+                st["not_needed"] += 1
+                continue
+            kk = routing.bucket_key_readable(b)
+            if not kk or routing._ZH_RE.search(kk):
+                st["not_needed"] += 1       # 中文键无跨语言问题
+                continue
+            if e.get("bucket_zh"):
+                st["already"] += 1
+                continue
+            got = self.get(nid)
+            if not got or got.get("content") is None:
+                st["unreadable"] += 1
+                continue
+            fm, content = got["frontmatter"], got["content"]
+            aliases = fm.get("bucket_zh") or routing.bucket_zh_aliases(
+                kk, fm.get("tags") or e.get("tags"), content)
+            if not aliases:
+                st["not_needed"] += 1       # 无中文面（cross_lang 审计兜底）
+                continue
+            if dry_run:
+                st["written"] += 1
+                continue
+            fm["bucket_zh"] = aliases
+            self._write_node(nid, os.path.join(self.root, e["path"]),
+                             fm, content)
+            e["bucket_zh"] = aliases
+            self._stage(nid, e)
+            st["written"] += 1
+        if not dry_run and st["written"]:
             self.flush()
         return st
 

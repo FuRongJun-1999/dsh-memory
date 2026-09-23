@@ -8,6 +8,8 @@
 - S1b 开：query 侧推断出候选桶 → 候选收敛（out < in）、**orphan/无桶恒留兜底**、不引入任何新节点
 - 命中不到任何桶 → no_key_match 且不收敛（回退）
 - topk / min_sim 可配（topk=0 关闭；min_sim=1.0 只认完全同名键）
+- issue #33：中文 query × 英文桶键经中文别名收敛（别名=节点自身 tags/正文中文词，
+  零翻译依赖）；索引重建后口径一致；无别名时审计给 cross_lang_no_match（≠no_key_match）
 - 幂等：重复检索 / 索引重建后同口径
 """
 import os
@@ -176,6 +178,71 @@ def main():
     g6 = (m6.get("gates") or {}).get("s1b") or {}
     check("min_sim=0.34：部分匹配（感知→感知系统 0.5）入选",
           g6.get("keys") == [b_sense], str(g6))
+
+    # ---- 6b) issue #33：中文 query × 英文桶键（守卫场景按触发条件设计：
+    #          既有用例全是同语言对，对跨语言天然免疫——这正是缺陷长期未被发现的根因）
+    root_x = tempfile.mkdtemp(prefix="retr_s1bx_")
+    cgx = MdCG(root_x)
+    cgx.add("sw1", "蜂群调度 依赖门禁 worker 领取", "knowledge",
+            tags=["domain:swarm-dispatch"])
+    cgx.add("tk1", "令牌校验 签发 载荷", "knowledge",
+            tags=["domain:token-verify"])
+    cgx.flush()
+    e_sw = cgx.index["nodes"]["sw1"]
+    check("英文桶键节点落中文别名（自身正文中文词，零翻译）",
+          "蜂群调度" in (e_sw.get("bucket_zh") or []),
+          str(e_sw.get("bucket_zh")))
+    check("中文桶键节点不带别名（无跨语言问题）",
+          not (cg.index["nodes"].get("s1") or {}).get("bucket_zh"))
+    rx, mx = cgx.search("蜂群调度 依赖", k=10, judge=False, record=False)
+    gx = (mx.get("gates") or {}).get("s1b") or {}
+    check("issue#33：中文 query × 英文桶键经别名收敛",
+          gx.get("keys") == [e_sw["bucket"]], str(gx))
+    check("issue#33：收敛后剔除异桶（token 桶不入围）",
+          "tk1" not in _ids(rx), str(_ids(rx)))
+    cgx.rebuild_index()
+    rx2, mx2 = cgx.search("蜂群调度 依赖", k=10, judge=False, record=False)
+    gx2 = (mx2.get("gates") or {}).get("s1b") or {}
+    check("issue#33：索引重建后别名口径一致（fm 派生）",
+          gx2.get("keys") == gx.get("keys"), str(gx2))
+    # 止血审计：英文键 + 无中文面（正文也无中文）→ cross_lang_no_match ≠ no_key_match
+    root_y = tempfile.mkdtemp(prefix="retr_s1by_")
+    cgy = MdCG(root_y)
+    cgy.add("p1", "pure english body nothing else", "knowledge",
+            tags=["domain:latin-only"])
+    cgy.flush()
+    gy = (cgy.search("蜂群调度", k=10, judge=False, record=False)[1]
+          .get("gates") or {}).get("s1b") or {}
+    check("issue#33 止血：跨语言无别名 → cross_lang_no_match",
+          gy.get("reason") == "cross_lang_no_match", str(gy))
+    gy3 = (cgy.search("zzz qqq", k=10, judge=False, record=False)[1]
+           .get("gates") or {}).get("s1b") or {}
+    check("issue#33：非跨语言无匹配仍是 no_key_match",
+          gy3.get("reason") == "no_key_match", str(gy3))
+    # backfill：模拟存量节点（抹掉 fm 与索引两侧别名）→ 回填恢复 → 收敛恢复
+    import os as _os
+    for _nid in ("sw1", "tk1"):          # 两桶别名都抹（cross_lang 判定看全局比较面）
+        _p = _os.path.join(cgx.root, cgx.index["nodes"][_nid]["path"])
+        _g = cgx.get(_nid)
+        _g["frontmatter"].pop("bucket_zh", None)
+        cgx._write_node(_nid, _p, _g["frontmatter"], _g["content"])
+        cgx.index["nodes"][_nid]["bucket_zh"] = None
+    _gy_pre = (cgx.search("蜂群调度 依赖", k=10, judge=False,
+                          record=False)[1].get("gates") or {}).get("s1b") or {}
+    check("抹掉别名后回到 cross_lang_no_match（存量形态复现）",
+          _gy_pre.get("reason") == "cross_lang_no_match", str(_gy_pre))
+    st_bf = cgx.backfill_bucket_zh()
+    check("backfill 恢复别名（幂等统计）",
+          st_bf.get("written") == 2
+          and "蜂群调度" in (cgx.index["nodes"]["sw1"].get("bucket_zh") or []),
+          str(st_bf))
+    gxb = (cgx.search("蜂群调度 依赖", k=10, judge=False,
+                      record=False)[1].get("gates") or {}).get("s1b") or {}
+    check("backfill 后中文 query 重新收敛英文桶",
+          gxb.get("keys") == [e_sw["bucket"]], str(gxb))
+    st_bf2 = cgx.backfill_bucket_zh()
+    check("backfill 幂等（二次全 already）",
+          st_bf2.get("written") == 0 and st_bf2.get("already") >= 2, str(st_bf2))
 
     # ---- 7) 幂等 ----
     _setenv(MDCG_BUCKET_TOPK="1", MDCG_BUCKET_MIN_SIM="0.34")

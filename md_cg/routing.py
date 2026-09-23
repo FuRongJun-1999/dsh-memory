@@ -355,6 +355,34 @@ def bucket_key_readable(bucket: str) -> str:
     return s
 
 
+# 中文词判定：至少含一个汉字
+_ZH_RE = re.compile(r"[\u4e00-\u9fff]")
+
+
+# 生效条件：key 缺失或含汉字时返回 []；否则从 tags（保序在前）与 text 域词（domain_terms）中收集含汉字、长度≥2 的词，去重取前 limit 个返回。
+def bucket_zh_aliases(key: str, tags, text, limit: int = 6) -> list:
+    """英文桶键的中文别名（issue #33：S1b 跨语言收敛盲区的修复面）。
+
+    机理：domain_similarity 的 bigram 兜底跨语言交集恒空——英文桶键 × 中文
+    query 恒 0.0 → S1b 恒 no_key_match（真实库 91.1% 中文节点恰是设计目标场景）。
+    别名**只取节点自身内容**（tags 中文词 ∪ 正文中文域词，tags 优先），零翻译
+    依赖——unify_query/en_zh_terms 桥接已被 #33 实测排除（字级直译语义毁）。
+    键本身含中文时无跨语言问题，返回 []。
+    """
+    if not key or _ZH_RE.search(str(key)):
+        return []
+    out, seen = [], set()
+    src = [str(t) for t in (tags or [])]
+    src += domain_terms(text or "", limit=200)
+    for w in src:
+        if len(w) >= 2 and _ZH_RE.search(w) and w not in seen:
+            seen.add(w)
+            out.append(w)
+            if len(out) >= limit:
+                break
+    return out
+
+
 # 生效条件：text 为假值或取不到任何域词时返回 None；否则返回 big_domain_classify(domain_terms(text))
 # 的结果（无有效域信号时亦为 None，调用方据此决定是否落域字段）。
 def classify_text(text, limit: int = 400):
