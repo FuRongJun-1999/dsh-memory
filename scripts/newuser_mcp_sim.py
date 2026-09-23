@@ -139,33 +139,34 @@ def main():
                   json.dumps(rv, ensure_ascii=False, default=str)[:160])
 
         print("== N5 ccgc 编译 → 令牌签发 → attest(verifier_token) → link ==")
-        c = m.tool("cg", {"op": "ccg", "action": "compile",
-                          "node_id": "ccg_newuser_probe",
-                          "dialog": "user: 帮我沉淀 newuser 探针结论\n"
-                                    "assistant: 生效条件：newuser 模拟；"
-                                    "结论：探针可用",
-                          "actor": "agent-Compiler"})
+        # 入参集中在 ccg 对象里（_ccg_call 的解包口径）
+        c = m.tool("cg", {"op": "ccg", "ccg": {
+            "action": "compile", "node_id": "ccg_newuser_probe",
+            "dialog": "user: 帮我沉淀 newuser 探针结论\n"
+                      "assistant: 生效条件：newuser 模拟；"
+                      "结论：探针可用",
+            "actor": "agent-Compiler"}})
         compiled_ok = (c.get("ok") is True
                        or bool(c.get("pending"))
-                       or c.get("compiled", {}).get("success") is True)
+                       or (c.get("compiled") or {}).get("success") is True)
         check("N5a compile 产出候选", compiled_ok,
               json.dumps(c, ensure_ascii=False, default=str)[:200])
         # 部署侧动作：为编外验证方签发令牌（令牌签发不在 MCP 面——设计如此）
         from md_cg import tokens
         tk = tokens.issue("verifier", actor="external-reviewer",
                           path=os.environ["MDCG_TOKEN_FILE"])["token"]
-        at = m.tool("cg", {"op": "ccg", "action": "attest",
-                           "node_id": "ccg_newuser_probe",
-                           "verdict": "ACCEPT",
-                           "compiled_by": "agent-Compiler",
-                           "verifier_token": tk})
+        at = m.tool("cg", {"op": "ccg", "ccg": {
+            "action": "attest", "node_id": "ccg_newuser_probe",
+            "verdict": "ACCEPT", "compiled_by": "agent-Compiler",
+            "verifier_token": tk}})
         atd = at.get("attest") or {}
         check("N5b 令牌签章通过（issue #27 凭据化身份）",
               at.get("ok") is True and atd.get("verifier_identity") == "token"
               and atd.get("verifier") == "external-reviewer",
               json.dumps(at, ensure_ascii=False, default=str)[:220])
-        lk = m.tool("cg", {"op": "ccg", "action": "link",
-                           "node_id": "ccg_newuser_probe", "apply": True})
+        lk = m.tool("cg", {"op": "ccg", "ccg": {
+            "action": "link", "node_id": "ccg_newuser_probe",
+            "apply": True}})
         check("N5c link 落库（written>0）",
               (lk.get("written") or 0) > 0,
               json.dumps(lk, ensure_ascii=False, default=str)[:160])
