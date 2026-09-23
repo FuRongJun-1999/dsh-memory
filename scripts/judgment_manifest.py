@@ -7,14 +7,23 @@
 判据面覆盖 → 弱化必红（zcode 外评 break#3 的结构性收口）。
 
 用法：
-  python scripts/judgment_manifest.py            # 输出 JSON（清单+sha256）
+  python scripts/judgment_manifest.py            # 输出 JSON（清单+sha256+分组计数）
+  python scripts/judgment_manifest.py --digest   # 仅输出组合指纹（纯值，A3 输入）
+  python scripts/judgment_manifest.py --check-coverage
+                                                 # 覆盖完备性守卫（issue #36）：
+                                                 # run_tests 实际执行的每个测试
+                                                 # 文件必须在判据面内，缺谁报谁
   python scripts/judgment_manifest.py --verify <冻结的manifest.json>
                                                  # 比对当前盘面与冻结值，输出 PASS/FAIL
 
-清单组成（§7.6 示例的机器可读定稿）：
-  hive/tests/**            集成测试（判据面主体，批次8b 起）
-  scripts/run_tests.py     全量测试入口
-  md_cg/test_*.py          Python 侧测试套件
+清单组成（§7.6 示例的机器可读定稿；issue #36 补齐「跑什么=冻结什么」同源）：
+  hive/tests/*.rs         Rust 侧承重断言（judgment_surface.rs）
+  hive/test_*.py          hive Python 测试套件（6 文件/88KB，#36 前漏冻）
+  scripts/run_tests.py    全量测试入口
+  scripts/test_*.py       scripts 侧测试（#36 前漏冻）
+  md_cg/test_*.py         Python 侧测试套件
+  compiler/tests/*.py     compiler 测试（#36 前漏冻）
+  swarm/tests/*.py        swarm 测试（#36 前漏冻）
 """
 import hashlib
 import json
@@ -25,31 +34,54 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PATTERNS = [
     ("hive/tests", "*.rs"),
+    ("hive", "test_*.py"),
     ("scripts", "run_tests.py"),
+    ("scripts", "test_*.py"),
     ("md_cg", "test_*.py"),
+    ("compiler/tests", "*.py"),
+    ("swarm/tests", "*.py"),
 ]
 
 
 def collect():
     files = []
+    groups = {}
     for sub, pat in PATTERNS:
         base = os.path.join(HERE, sub)
-        if not os.path.isdir(base):
-            continue
-        for name in sorted(os.listdir(base)):
-            full = os.path.join(base, name)
-            if not os.path.isfile(full):
-                continue
-            import fnmatch
-            if fnmatch.fnmatch(name, pat):
-                rel = os.path.relpath(full, HERE).replace("\\", "/")
-                files.append(rel)
+        n = 0
+        if os.path.isdir(base):
+            for name in sorted(os.listdir(base)):
+                full = os.path.join(base, name)
+                if not os.path.isfile(full):
+                    continue
+                import fnmatch
+                if fnmatch.fnmatch(name, pat):
+                    rel = os.path.relpath(full, HERE).replace("\\", "/")
+                    files.append(rel)
+                    n += 1
+        groups[f"{sub}/{pat}"] = n
     files.sort()
-    out = {"algorithm": "sha256", "files": []}
+    out = {"algorithm": "sha256", "groups": groups, "files": []}
     for rel in files:
         h = hashlib.sha256(open(os.path.join(HERE, rel), "rb").read()).hexdigest()
         out["files"].append({"path": rel, "sha256": h})
     return out
+
+
+def coverage_gap(manifest: dict) -> list:
+    """覆盖完备性守卫（issue #36）：「跑什么」⊆「冻结什么」。
+
+    执行清单的唯一真源是 run_tests._discovered_files（不允许这里再维护
+    一套 glob——两套清单各自维护必然漂移，正是 #36 的根因形态）。
+    返回缺失文件列表（空 = 覆盖完备）。
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "run_tests", os.path.join(HERE, "scripts", "run_tests.py"))
+    rt = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rt)
+    frozen = {f["path"] for f in manifest["files"]}
+    return sorted(set(rt._discovered_files()) - frozen)
 
 
 def digest(manifest: dict) -> str:
@@ -67,6 +99,15 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "--digest":
         print(digest(manifest))
         return 0
+    if len(sys.argv) >= 2 and sys.argv[1] == "--check-coverage":
+        gap = coverage_gap(manifest)
+        print(json.dumps({
+            "verdict": "PASS" if not gap else "FAIL",
+            "missing": gap,
+            "groups": manifest["groups"],
+            "file_count": len(manifest["files"]),
+        }, ensure_ascii=False, indent=2))
+        return 0 if not gap else 1
     if len(sys.argv) >= 3 and sys.argv[1] == "--verify":
         frozen = json.load(open(sys.argv[2], encoding="utf-8"))
         cur = {f["path"]: f["sha256"] for f in manifest["files"]}

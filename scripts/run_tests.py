@@ -33,37 +33,53 @@ import sys
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-# 生效条件：以模块级常量 _REPO 为根，glob 到 md_cg/test_*.py、compiler 与 swarm 下 tests/*.py（basename 以 "_" 开头者跳过）、scripts/test_*.py、hive/test_*.py 并按名排序，把每个文件名取 stem 后以 (组名, 显示名, argv 候选列表) 追加进 out 并最终返回 out（各组均无匹配文件时返回空列表）；
-def _discover():
-    """返回 [(组名, 显示名, argv)]；argv 为候选列表（依次尝试直到成功启动）。"""
-    import glob
+# 生效条件：以模块级常量 _REPO 为根，返回全量套件实际执行的测试文件路径列表（相对 _REPO 的正斜杠路径）——md_cg/test_*.py、compiler 与 swarm 下 tests/*.py（basename 以 "_" 开头者跳过）、scripts/test_*.py、hive/test_*.py，按组序拼接。
+def _discovered_files():
+    """全量套件实际执行的测试文件（判据面覆盖完备性核对的单一切面）。
 
-    out = []
-    for f in sorted(glob.glob(os.path.join(_REPO, "md_cg", "test_*.py"))):
-        stem = os.path.splitext(os.path.basename(f))[0]
-        out.append(("md_cg", f"md_cg.{stem}",
-                    [[sys.executable, "-X", "utf8", "-m", f"md_cg.{stem}"]]))
+    「跑什么」的唯一真源：judgment_manifest 的覆盖守卫从这里取执行清单，
+    与判据面清单比对——两套清单各自维护必然漂移（issue #36 的根因形态）。
+    """
+    import glob
+    files = []
+    files += sorted(glob.glob(os.path.join(_REPO, "md_cg", "test_*.py")))
     for pkg in ("compiler", "swarm"):
         for f in sorted(glob.glob(os.path.join(_REPO, pkg, "tests", "*.py"))):
             if os.path.basename(f).startswith("_"):
                 continue
-            stem = os.path.splitext(os.path.basename(f))[0]
+            files.append(f)
+    files += sorted(glob.glob(os.path.join(_REPO, "scripts", "test_*.py")))
+    files += sorted(glob.glob(os.path.join(_REPO, "hive", "test_*.py")))
+    return [os.path.relpath(f, _REPO).replace("\\", "/") for f in files]
+
+
+# 生效条件：基于 _discovered_files() 的文件列表按目录前缀分派命令形态（md_cg/ 与 hive/ 是包 -m 优先、compiler|swarm/tests/ 双候选、scripts/ 非包只直跑），返回 (组名, 显示名, argv 候选列表) 列表。
+def _discover():
+    """返回 [(组名, 显示名, argv)]；argv 为候选列表（依次尝试直到成功启动）。"""
+    out = []
+    for rel in _discovered_files():
+        f = os.path.join(_REPO, rel)
+        parts = rel.split("/")
+        stem = os.path.splitext(parts[-1])[0]
+        if rel.startswith("md_cg/"):
+            out.append(("md_cg", f"md_cg.{stem}",
+                        [[sys.executable, "-X", "utf8", "-m", f"md_cg.{stem}"]]))
+        elif rel.startswith(("compiler/", "swarm/")):
+            pkg = parts[0]
             out.append((pkg, f"{pkg}.tests.{stem}",
                         [[sys.executable, "-X", "utf8", "-m",
                           f"{pkg}.tests.{stem}"],
                          [sys.executable, "-X", "utf8", f]]))
-    # scripts/ 不是包（无 __init__.py）→ 只能直跑；脚本内自带 sys.path 注入
-    for f in sorted(glob.glob(os.path.join(_REPO, "scripts", "test_*.py"))):
-        stem = os.path.splitext(os.path.basename(f))[0]
-        out.append(("scripts", f"scripts.{stem}",
-                    [[sys.executable, "-X", "utf8", f]]))
-    # hive/ 是包（有 __init__.py，与 md_cg 同形）→ -m 优先；测试内用 importlib
-    # 直载 exec.py/wm.py，-m 下 __file__ 正常，故回退直跑同样可用。
-    for f in sorted(glob.glob(os.path.join(_REPO, "hive", "test_*.py"))):
-        stem = os.path.splitext(os.path.basename(f))[0]
-        out.append(("hive", f"hive.{stem}",
-                    [[sys.executable, "-X", "utf8", "-m", f"hive.{stem}"],
-                     [sys.executable, "-X", "utf8", f]]))
+        elif rel.startswith("scripts/"):
+            # scripts/ 不是包（无 __init__.py）→ 只能直跑；脚本内自带 sys.path 注入
+            out.append(("scripts", f"scripts.{stem}",
+                        [[sys.executable, "-X", "utf8", f]]))
+        else:
+            # hive/ 是包（有 __init__.py，与 md_cg 同形）→ -m 优先；测试内用
+            # importlib 直载 exec.py/wm.py，-m 下 __file__ 正常，直跑同样可用。
+            out.append(("hive", f"hive.{stem}",
+                        [[sys.executable, "-X", "utf8", "-m", f"hive.{stem}"],
+                         [sys.executable, "-X", "utf8", f]]))
     return out
 
 
