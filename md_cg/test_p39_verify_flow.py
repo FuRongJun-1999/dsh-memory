@@ -43,7 +43,7 @@ def main():
 
         # 派发原语：spec 落验证实例 jobs 目录（非阻塞）
         vjobs = os.path.join(tmp, "vjobs")
-        rep = dispatch_verify_job(vjobs, iter_id, subject_fingerprint="fp_main")
+        rep = dispatch_verify_job(vjobs, iter_id, subject_fingerprint="e" * 64)
         check("1b 派发写 spec+status 且非阻塞返回",
               rep.get("ok") is True
               and os.path.isfile(os.path.join(rep["dispatched"], "spec.json")))
@@ -52,7 +52,7 @@ def main():
         env = dict(os.environ)
         env.update({
             "HIVE_INSTANCE": "verifier", "HIVE_ROLE": "verifier",
-            "SUBJECT_FP": "fp_main", "ITER_ID": iter_id,
+            "SUBJECT_FP": "e" * 64, "ITER_ID": iter_id,
         })
         # freeze 的 digest 基于真判据面——runner 内 A3 用同一 digest，须一致：
         # runner 在本 repo 内跑，判据面未变 → A3 成立

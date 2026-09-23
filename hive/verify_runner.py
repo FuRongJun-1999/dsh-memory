@@ -23,7 +23,8 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, REPO)
-from md_cg.interop import assert_a1, assert_a2, assert_a3, make_verdict
+from md_cg.interop import (assert_a1, assert_a2, assert_a3, make_verdict,
+                           sanity_check_verdict, shape_check_verdict)
 from md_cg.mdcos import _sig  # noqa: F401  保持与库同源初始化
 
 
@@ -59,14 +60,31 @@ def _parse_counts(text):
     return passed, failed
 
 
+# 生效条件：a_ok（三断言布尔）、suite_ok（套件布尔）给定——按四象限返回
+# (verdict, valid, assertions_ok, failure_reason)：verdict="pass" 当且仅当两者皆真；
+# valid（issue #37 J1 改义）= 单一放行位，与 verdict 同义（断言 AND 套件）——
+# 旧语义「仅三断言」已废（套件全挂时 valid=true 的误读形态）；
+# assertions_ok 承接旧 valid 的断言面语义；failure_reason（J3）枚举失败成因。
+def _compose_semantics(a_ok: bool, suite_ok: bool):
+    """verdict 语义四象限（issue #37 J1/J3：让「为什么失败」成为结构化事实）。"""
+    verdict = "pass" if (a_ok and suite_ok) else "fail"
+    failure_reason = None
+    if not (a_ok and suite_ok):
+        failure_reason = ("both" if (not a_ok and not suite_ok)
+                          else ("assertions_failed" if not a_ok
+                                else "suite_failed"))
+    return verdict, (verdict == "pass"), a_ok, failure_reason
+
+
 # 生效条件（核心入口 · CCG 六要素）：
 #   功能名：互验执行器（§7.4 步骤 4）。
 #   生效条件：argv[1]=iter_id 且冻结凭证 hive/interop/<iter>/frozen.json 可读、
 #   HIVE_ROLE=verifier（否则 rc=3 角色守卫拒跑）、SUBJECT_FP 由派发方 spec.env 注入。
 #   子功能：A1/A2/A3 断言 → 全量套件（cargo+run_tests；--smoke 走内置探针）→
-#   make_verdict 脱敏 → verdict.json 落盘。
-#   执行：断言不成立 → valid=false 结论作废（不进合并），照常落盘留痕。
-#   验证方式：test——test_p39_verify_flow 9/0（--smoke 冒烟链）。
+#   make_verdict 脱敏 → verdict.json 落盘（sanity + shape 双门禁）。
+#   执行：verdict=pass 当且仅当断言 AND 套件皆过；valid=放行位（与 verdict 同义），
+#   assertions_ok=断言面，failure_reason 枚举失败成因（J1/J3）。
+#   验证方式：test——test_p39_verify_flow 9/0（--smoke）+ test_interop_judgment 守卫。
 #   不适用条件：不产出 pass/fail 以外的裁决（分歧仲裁属 arbitration.json 另一产物）。
 def main(argv):
     iter_id = argv[1] if len(argv) > 1 else ""
@@ -113,9 +131,11 @@ def main(argv):
     rc_cargo, out_c, _ = _run(cargo_cmd, timeout_s // 2)
     rc_py, out_p, _ = _run(py_cmd, timeout_s // 2)
     passed, failed = _parse_counts(out_c + out_p)
-    ok = rc_cargo == 0 and rc_py == 0 and failed == 0
+    suite_ok = rc_cargo == 0 and rc_py == 0 and failed == 0
+    a_ok = bool(a1["ok"] and a2["ok"] and a3["ok"])
 
-    verdict = "pass" if (ok and a1["ok"] and a2["ok"] and a3["ok"]) else "fail"
+    verdict, valid, assertions_ok, failure_reason = \
+        _compose_semantics(a_ok, suite_ok)
     v = make_verdict(
         iter_id=iter_id,
         verifier_instance=inst or "verifier",
@@ -125,18 +145,26 @@ def main(argv):
         suite_origin="verifier-worktree",
         frozen_at=str(frozen.get("frozen_at") or ""),
         verdict=verdict,
-        passed=passed, failed=failed + (0 if ok else 1),
+        passed=passed, failed=failed + (0 if suite_ok else 1),
         details=[a1, a2, a3,
                  {"cargo_exit": rc_cargo, "run_tests_exit": rc_py}],
     )
-    # 断言不成立 → 结论作废（不得进入合并）：照常落盘留痕，但 valid=false
-    v["valid"] = bool(a1["ok"] and a2["ok"] and a3["ok"])
+    # J1/J3：valid=单一放行位（断言 AND 套件）；断言面独立成 assertions_ok；
+    # failure_reason 让「为什么失败」结构化。写盘前过 sanity（脱敏黑名单）
+    # + shape（形状白名单）双门禁——新字段与 details 同受检。
+    v["valid"] = valid
+    v["assertions_ok"] = assertions_ok
+    v["failure_reason"] = failure_reason
+    sanity_check_verdict(v)
+    shape_check_verdict(v)
 
     out_fp = os.path.join(REPO, "hive", "interop", iter_id, "verdict.json")
     os.makedirs(os.path.dirname(out_fp), exist_ok=True)
     with open(out_fp, "w", encoding="utf-8") as f:
         json.dump(v, f, ensure_ascii=False, indent=2)
     print(json.dumps({"ok": True, "verdict": v["verdict"], "valid": v["valid"],
+                      "assertions_ok": v["assertions_ok"],
+                      "failure_reason": v["failure_reason"],
                       "path": out_fp, "passed": passed, "failed": failed},
                      ensure_ascii=False))
     return 0

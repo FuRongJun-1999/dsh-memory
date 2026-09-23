@@ -23,10 +23,24 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST = os.path.join(HERE, "scripts", "judgment_manifest.py")
 
 _FORBIDDEN_RES = [
-    (re.compile(r"[A-Za-z]:[\\\\/]", ), "本机绝对路径（盘符）"),
+    (re.compile(r"[A-Za-z]:[\\\\/]"), "本机绝对路径（盘符）"),
     (re.compile(r"/Users/|/home/"), "本机绝对路径（unix 家目录）"),
-    (re.compile(r"sk[-_][A-Za-z0-9]{8,}"), "疑似 API key"),
     (re.compile(r"https?://[^\s\"']*(api|key|token)", re.I), "API 端点/凭证 URL"),
+    (re.compile(r"sk[-_][A-Za-z0-9]{8,}"), "疑似 API key"),
+    # issue #37 J5 扩面（纵深防御的真实宽度对齐声明）：
+    (re.compile(r"\\\\[A-Za-z0-9_$.-]+\\"), "本机绝对路径（UNC）"),
+    (re.compile(r"/Volumes/"), "本机绝对路径（macOS 挂载）"),
+    (re.compile(r"(?:^|[\s\"'(=,])/(?:etc|usr|var|opt|root|tmp|private)/"),
+     "本机绝对路径（unix）"),
+    (re.compile(r"(?:^|[\s\"'(=,])~/"), "家目录缩写 ~"),
+    (re.compile(r"\$HOME"), "家目录变量"),
+    (re.compile(r"\b(?:ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}"
+                r"|github_pat_[A-Za-z0-9_]{20,}|AIza[A-Za-z0-9_-]{20,}"
+                r"|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,})"),
+     "公开密钥形态"),
+    (re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]{20,}"), "Bearer 凭证"),
+    (re.compile(r"\b(?:user_prompt|result\.content|spec_body|system_prompt)"
+                r"\b\s*[::=]", re.I), "prompt/content 文本形态"),
 ]
 _FORBIDDEN_KEYS = {"prompt", "content", "spec", "api_key", "base", "model",
                    "system_prompt", "user_prompt", "content_head"}
@@ -50,7 +64,13 @@ def freeze(iter_id: str, out_dir: str = None) -> dict:
     """第 0 步：记录本轮判据面冻结凭证（A3 的比对基准）。
 
     out_dir 缺省 = hive/interop/<iter_id>/；显式传入时视为最终目录（不拼 iter_id）。
+    注意（issue #37 J6）：verify_runner 固定读 repo 标准位置——显式 out_dir
+    冻结的凭证**不被 runner 识别**（仅适用于单测/离线留痕），此处显式警告。
     """
+    if out_dir is not None:
+        sys.stderr.write("[interop] 警告：显式 out_dir 的冻结凭证不被 "
+                         "verify_runner 识别（runner 固定读 hive/interop/"
+                         "<iter_id>/frozen.json）——仅适用于单测/离线留痕\n")
     manifest = json.loads(_manifest(""))
     credential = {
         "iter_id": iter_id,
@@ -83,10 +103,15 @@ def assert_a1(verifier_instance: str, subject_instance: str) -> dict:
 
 
 def assert_a2(verifier_fingerprint: str, subject_fingerprint: str) -> dict:
-    return {"assertion": "A2",
-            "ok": bool(verifier_fingerprint and subject_fingerprint
-                       and verifier_fingerprint != subject_fingerprint),
-            "verifier": verifier_fingerprint, "subject": subject_fingerprint}
+    """A2（辅助断言）：两实例指纹不同。**subject_fp 为派发方自报值，本断言不核验
+    其真伪**（issue #37 J2：复用 #27 的 self-reported 分层标注）——设计定稿
+    （§7.5）明示 A1/A2 起两进程即自动成立、不构成保证，防线在 A3（冻结值）。
+    """
+    ok = bool(verifier_fingerprint and subject_fingerprint
+              and verifier_fingerprint != subject_fingerprint)
+    return {"assertion": "A2", "ok": ok,
+            "verifier": verifier_fingerprint, "subject": subject_fingerprint,
+            "subject_fp_source": "self-reported"}
 
 
 def sanity_check_verdict(verdict: dict) -> None:
@@ -108,6 +133,40 @@ def sanity_check_verdict(verdict: dict) -> None:
                         f"{path}: 疑似 {why}（命中 {i} 号规则）")
 
     walk(verdict)
+
+
+# issue #37 J5：黑名单天然漏——补「字符集 + 形状」白名单校验（与本仓
+# 「能机械判的绝不猜」纪律同源）。verdict 的结构是固定契约，任何越权字段
+# 或坏形状（指纹非十六进制、计数非整数、枚举外值）在落盘前即拒。
+_ALLOWED_TOP = {"iter_id", "verifier_instance", "verifier_fingerprint",
+                "subject_instance", "subject_fingerprint", "suite_origin",
+                "frozen_at", "verdict", "passed", "failed", "details",
+                "valid", "assertions_ok", "failure_reason"}
+_SHAPE_FP = re.compile(r"[0-9a-f]{12,64}")
+
+
+def shape_check_verdict(verdict: dict) -> None:
+    """形状白名单：顶层字段集 ⊆ 契约集；指纹=12-64 位十六进制；枚举与计数
+    类型受检。与 sanity_check_verdict（脱敏黑名单）互补，构成双门禁。"""
+    extra = set(verdict) - _ALLOWED_TOP
+    if extra:
+        raise InteropSanityError(f"未知顶层字段（越权）: {sorted(extra)}")
+    for k in ("verifier_fingerprint", "subject_fingerprint"):
+        v = verdict.get(k)
+        if v and not _SHAPE_FP.fullmatch(str(v)):
+            raise InteropSanityError(
+                f"{k}: 非指纹形状（期望 12-64 位十六进制）: {str(v)[:24]!r}")
+    if verdict.get("verdict") not in ("pass", "fail"):
+        raise InteropSanityError(
+            f"verdict 非法枚举: {verdict.get('verdict')!r}")
+    if verdict.get("failure_reason") not in (
+            None, "suite_failed", "assertions_failed", "both"):
+        raise InteropSanityError(
+            f"failure_reason 非法枚举: {verdict.get('failure_reason')!r}")
+    for k in ("passed", "failed"):
+        v = verdict.get(k)
+        if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+            raise InteropSanityError(f"{k}: 非非负整数: {v!r}")
 
 
 def make_verdict(iter_id: str, verifier_instance: str, verifier_fingerprint: str,
@@ -168,11 +227,13 @@ def write_verdict_to_repo(verdict: dict, repo: str = HERE,
     """§7.3 留痕：verdict 写 hive/interop/<iter_id>/（受版本控制目录，
     **不用** hive/jobs/——该目录 .gitignore 且含运行态）。
 
-    脱敏门禁在 make_verdict 已过；此处落盘前再过一次（纵深）。do_commit=True
-    时 git add+commit（**不自动 push**——推送由使用者/编排触发，§7.3 双清单
+    脱敏门禁在 make_verdict 已过；此处落盘前再过一次（纵深）——issue #37 J5
+    后为 sanity（脱敏黑名单）+ shape（形状白名单）双门禁。do_commit=True 时
+    git add+commit（**不自动 push**——推送由使用者/编排触发，§7.3 双清单
     人工确认环节保留）。
     """
     sanity_check_verdict(verdict)
+    shape_check_verdict(verdict)
     it = verdict.get("iter_id") or ""
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", it):
         raise ValueError(f"iter_id 非法（入库路径组成部分）: {it!r}")
