@@ -16,7 +16,8 @@
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
-/// 默认解释器（env HIVE_PYTHON 可覆盖；否则 PATH 上的 python）。
+/// 生效条件：env HIVE_PYTHON 非空 → 取之；否则回落 PATH 上的 python——
+/// 解释器的唯一决策点（serve/runner 共用，不做各自的第二套决策）。
 pub fn python_bin() -> String {
     std::env::var("HIVE_PYTHON").unwrap_or_else(|_| "python".to_string())
 }
@@ -29,6 +30,8 @@ pub fn python_bin() -> String {
 /// `CREATE_NO_WINDOW` / `DETACHED_PROCESS`」时会为它**新建一个可见的控制台窗口**，
 /// 表现为「每执行一次任务就弹一个终端，打断使用者正在做的事」。
 /// `CREATE_NO_WINDOW`（0x0800_0000）= 仍在控制台子系统下运行，但不分配可见窗口。
+/// 生效条件：Windows 编译目标下对 Command 注入 CREATE_NO_WINDOW——
+/// serve 无控制台时防「每任务弹一窗」。
 #[cfg(target_os = "windows")]
 pub fn hide_window(cmd: &mut Command) {
     use std::os::windows::process::CommandExt;
@@ -53,6 +56,10 @@ pub fn hide_window(_cmd: &mut Command) {}
 ///   * taskkill 自身是 console 程序，serve 无控制台，**必须 hide_window**
 ///     （否则每次强杀弹一个终端——迭代项 1 同族缺陷）；
 ///   * taskkill 失败回落 `child.kill()`（宁可只杀直接子进程，也不什么都不做）。
+/// 生效条件：须终止执行器及其全部后代时调用——Windows taskkill /T /F（失败
+/// 回落 child.kill()，宁可只杀直接子进程也不放任）；unix child.kill()。
+/// 验证方式：test——judgment_surface::kill_tree_kills_grandchildren（孙进程
+/// 3s 内消失，旧路径必红）。
 pub fn kill_tree(child: &mut Child) {
     #[cfg(target_os = "windows")]
     {
@@ -74,6 +81,9 @@ pub fn kill_tree(child: &mut Child) {
 }
 
 /// 拉起执行器子进程（stdio 全 null：执行器自己写 job/log.txt）。
+/// 生效条件：exec_py/dir 给定且解释器可达 → spawn 子进程（argv=[python,
+/// exec_py, dir]，stdio 全 null——执行器自写 log.txt）返回 Child；解释器缺失
+/// → Err。调用方持 Child 句柄管生命周期（wait/kill_tree）。
 pub fn spawn_executor(exec_py: &Path, dir: &Path) -> std::io::Result<Child> {
     let mut cmd = Command::new(python_bin());
     cmd.arg(exec_py)

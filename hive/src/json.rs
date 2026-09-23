@@ -28,6 +28,7 @@ impl Json {
         }
     }
 
+    /// 生效条件：本值为 Str → Some(内容)；其他变体 → None（类型化取值不做强转）。
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Json::Str(s) => Some(s),
@@ -35,6 +36,7 @@ impl Json {
         }
     }
 
+    /// 生效条件：本值为 Num → Some(f64)；其他变体 → None。
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Json::Num(n) => Some(*n),
@@ -42,6 +44,7 @@ impl Json {
         }
     }
 
+    /// 生效条件：本值为 Arr → Some(元素切片)；其他变体 → None。
     pub fn as_arr(&self) -> Option<&[Json]> {
         match self {
             Json::Arr(a) => Some(a),
@@ -57,7 +60,9 @@ impl Json {
         }
     }
 
-    /// 字符串数组；非数组/非字符串项按 Python `str()` 兜底转文本。
+    /// 生效条件：本值为 Arr → 逐项转字符串（Str 原样、Num 走 fmt_num、Bool/
+    /// Null 按 Python 风格、其他序列化兜底）；非数组 → 单元素含原文本；Null → 空。
+    /// 不适用条件：不做类型校验（宽松取值，如 depends_on/as_str_vec 的容错读取）。
     pub fn as_str_vec(&self) -> Vec<String> {
         match self {
             Json::Arr(a) => a
@@ -77,6 +82,8 @@ impl Json {
 }
 
 /// 数字 → Python `str(float)` 近似（整数不带小数点，对齐 `str(t)` 的常见形态）。
+/// 生效条件：整数形态（fract==0 且 |n|<1e15）输出不带小数点，否则输出 f64
+/// 默认表示——对齐 Python `str(float)` 的常见形态（跨语言可读性）。
 pub fn fmt_num(n: f64) -> String {
     if n.fract() == 0.0 && n.abs() < 1e15 {
         format!("{}", n as i64)
@@ -88,6 +95,9 @@ pub fn fmt_num(n: f64) -> String {
 
 // ------------------------------------------------------------------ 解析
 
+/// 生效条件：input 为完整合法 JSON → Ok(Json)（重复键取最后、支持 \uXXXX
+/// 代理对、UTF-8 原样）；空输入/语法错/尾部多余内容 → Err(带偏移位置)。
+/// 不适用条件：不解析流式输入（全文一次性），不做数值精度裁剪。
 pub fn parse(input: &str) -> Result<Json, String> {
     let bytes = input.as_bytes();
     let mut p = Parser { b: bytes, i: 0 };
@@ -203,6 +213,9 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// 生效条件：当前位为开引号时消费字符串字面量 → Ok(String)——支持标准
+    /// 转义集与 \uXXXX（含代理对拼接，非法 surrogate → U+FFFD）、UTF-8 原样
+    /// 拷贝；未闭合/未知转义/坏 UTF-8 → Err。
     fn string(&mut self) -> Result<String, String> {
         self.i += 1; // 开引号
         let mut out = String::new();
@@ -264,6 +277,8 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// 生效条件：当前位置起 4 个十六进制字符 → Ok(u32)；不足 4 位/非十六进制
+    /// → Err。
     fn hex4(&mut self) -> Result<u32, String> {
         if self.i + 4 > self.b.len() {
             return Err("\\u 不足 4 位".into());
@@ -274,6 +289,8 @@ impl<'a> Parser<'a> {
         u32::from_str_radix(s, 16).map_err(|e| e.to_string())
     }
 
+    /// 生效条件：当前位置起为数字形态（数字/±/. /e/E 连续段）且可解析 f64 →
+    /// Ok(Json::Num)；空段或坏数字 → Err。
     fn number(&mut self) -> Result<Json, String> {
         let start = self.i;
         while let Some(c) = self.peek() {
@@ -296,6 +313,8 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// 生效条件：b 为 UTF-8 首字节 → 返回该字符总字节数（1-4）；按首字节高位模式
+/// 判定，调用方保证后续续字节由 from_utf8 兜底校验。
 fn utf8_len(b: u8) -> usize {
     if b < 0x80 {
         1
@@ -356,6 +375,8 @@ impl Json {
     }
 }
 
+/// 生效条件：字符串 → 标准 JSON 字符串字面量（转义 " \ \n \r \t \b \f 与
+/// <0x20 控制符为 \uXXXX；非 ASCII 原样保留=ensure_ascii=False 语义）。
 fn write_str(s: &str, out: &mut String) {
     out.push('"');
     for c in s.chars() {

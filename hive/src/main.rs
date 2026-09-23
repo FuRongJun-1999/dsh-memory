@@ -20,11 +20,13 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
+/// 生效条件（CLI 入口）：进程退出码 = run() 的返回——0 全部成功、1 用法/失败。
 fn main() {
     let code = run();
     std::process::exit(code);
 }
 
+/// 生效条件：错误消息 → `{"ok":false,"error":<msg>}` JSON 文本（CLI 错误统一形态）。
 fn err_json(e: impl std::fmt::Display) -> String {
     Json::Obj(vec![
         ("ok".to_string(), Json::Bool(false)),
@@ -33,6 +35,7 @@ fn err_json(e: impl std::fmt::Display) -> String {
     .to_json_string()
 }
 
+/// 生效条件：字段表 → `{"ok":true, ...fields}` JSON 文本（CLI 成功统一形态）。
 fn ok_json(fields: Vec<(&str, Json)>) -> String {
     let mut kv = vec![("ok".to_string(), Json::Bool(true))];
     for (k, v) in fields {
@@ -42,6 +45,8 @@ fn ok_json(fields: Vec<(&str, Json)>) -> String {
 }
 
 /// jobs 目录解析：env HIVE_JOBS_DIR → exe 锚定 hive/jobs → ./jobs。
+/// 生效条件：--jobs 显式 → 取之；否则 exe 锚定（exe 在 <hive>/target/{debug,
+/// release}/ 上溯至 <hive>/ → jobs）；再否则相对 "jobs"——三段回退链。
 fn default_jobs() -> PathBuf {
     if let Ok(d) = std::env::var("HIVE_JOBS_DIR") {
         if !d.trim().is_empty() {
@@ -60,6 +65,8 @@ fn default_jobs() -> PathBuf {
 }
 
 /// exec.py 路径：env HIVE_EXEC_PY → exe 锚定 hive/exec.py → ./exec.py。
+/// 生效条件：env HIVE_EXEC_PY 非空 → 取之；否则 exe 锚定 <hive>/exec.py；
+/// 再否则相对 "exec.py"——三段回退（serve 启动时的执行器路径决策点）。
 fn default_exec_py() -> PathBuf {
     if let Ok(p) = std::env::var("HIVE_EXEC_PY") {
         if !p.trim().is_empty() {
@@ -76,6 +83,7 @@ fn default_exec_py() -> PathBuf {
     PathBuf::from("exec.py")
 }
 
+/// 生效条件：args 中出现 `--flag` 且存在下一参数 → Some(下一参数)；否则 None。
 fn arg_of(args: &[String], flag: &str) -> Option<String> {
     args.iter()
         .position(|a| a == flag)
@@ -83,6 +91,8 @@ fn arg_of(args: &[String], flag: &str) -> Option<String> {
         .cloned()
 }
 
+/// 生效条件：子命令分派入口——serve/submit/poll/kill/doctor 五路；未知子命令
+/// → err_json 退出 1；jobs 根 = --jobs > exe 锚定 > 相对 "jobs" 三段回退。
 fn run() -> i32 {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else {
@@ -117,6 +127,8 @@ const FRESH_MS: f64 = 15_000.0;
 /// 第三层是 2026-09-17 第三方 v13 实测补上的：原判据只问「pid 号是否活着」，
 /// 无关进程（如 sleep）复用该 pid 号即让 serve 被「假存活」挡住拒绝启动。
 /// 三层缺一不可，且**三层都只说明「疑似在跑」，不构成授权**。
+/// 生效条件：_serve.json 的 pid 存活且经 pid_is_self_program 核验同映像 →
+/// Some(pid)；否则 None——单实例守卫的判据（pid 复用防护）。
 fn serve_running(jobs: &PathBuf) -> Option<u32> {
     let hb = job::read_serve_heartbeat(jobs)?;
     let ts = hb.get("ts").and_then(|x| x.as_f64()).unwrap_or(0.0);
@@ -129,6 +141,10 @@ fn serve_running(jobs: &PathBuf) -> Option<u32> {
         .filter(|p| pid_alive(*p) && pid_is_self_program(*p))
 }
 
+/// 生效条件：serve 子命令——workers（--workers/env HIVE_WORKERS/缺省 4）、
+/// 单实例守卫（serve_running 命中即拒绝，--force 可越）、执行器资格自检
+/// （HIVE_EXEC_PY 缺失显式告警 llm_only 回退）齐备后进入 scheduler::serve
+/// 阻塞主循环（退出码透传）。
 fn cmd_serve(args: &[String], jobs: PathBuf) -> i32 {
     let workers = arg_of(args, "--workers")
         .and_then(|w| w.parse::<usize>().ok())
@@ -177,6 +193,8 @@ fn cmd_serve(args: &[String], jobs: PathBuf) -> i32 {
     scheduler::serve(&cfg, stop)
 }
 
+/// 生效条件：--spec 文件或 stdin 给出 spec JSON → validate → init_job 落盘
+/// → 打印 job_id；spec 非法/依赖缺失 → err_json 退出 1（fail fast 在进队列前）。
 fn cmd_submit(args: &[String], jobs: PathBuf) -> i32 {
     let text = match arg_of(args, "--spec") {
         Some(f) => std::fs::read_to_string(&f).unwrap_or_else(|e| {
@@ -255,6 +273,9 @@ fn cmd_submit(args: &[String], jobs: PathBuf) -> i32 {
 /// poll 面看不见、无法裁决续跑。故此处透出交接四字段 + 派生 handoff_ready
 /// （need_continue==true 且 completed!=true，一眼可判；原始字段仍如实透传，
 /// 缺失=Null 以区分「旧执行器/未标」与「显式 false」）。
+/// 生效条件：result.json 存在 → 摘要视图（content_head 截断/usage/交接四字段
+/// +handoff_ready 派生）；不存在 → Json::Null；坏文件 → error 视图（如实透出
+/// 不静默）。
 fn result_summary(dir: &std::path::Path, head: usize) -> Json {
     let p = dir.join("result.json");
     if !p.is_file() {
@@ -296,6 +317,8 @@ fn result_summary(dir: &std::path::Path, head: usize) -> Json {
     }
 }
 
+/// 生效条件：job 存在 → status 全量 + result 摘要（head 截断）合体视图；
+/// status 不可读 → 含 error 的最小视图（poll 的单查/列表共用渲染单元）。
 fn one_job_view(jobs: &PathBuf, id: &str, head: usize) -> Json {
     let dir = job::job_dir(jobs, id);
     let mut view = match job::read_status(&dir) {
@@ -313,6 +336,8 @@ fn one_job_view(jobs: &PathBuf, id: &str, head: usize) -> Json {
     view
 }
 
+/// 生效条件：目标 job_id 给定 → 单查全量视图；缺省 → 列出全部任务摘要视图
+/// （head 截断防上下文爆炸）——拉取式观测面，不阻塞。
 fn cmd_poll(args: &[String], jobs: PathBuf) -> i32 {
     let target = args.get(1).filter(|a| !a.starts_with("--")).cloned();
     match target {
@@ -337,6 +362,8 @@ fn cmd_poll(args: &[String], jobs: PathBuf) -> i32 {
     0
 }
 
+/// 生效条件：目标 job_id 给定 → request_kill 写 kill 标志（幂等）并打印回执；
+/// 缺目标 → 用法错误退出 1。
 fn cmd_kill(args: &[String], jobs: PathBuf) -> i32 {
     let Some(id) = args.get(1).filter(|a| !a.starts_with("--")) else {
         println!("{}", err_json("用法: hive kill <job_id>"));
@@ -370,6 +397,8 @@ fn cmd_kill(args: &[String], jobs: PathBuf) -> i32 {
 /// 用 `/FO CSV` 后**按列精确比对**，不用子串包含——旧实现 `输出.contains(pid 字符串)`
 /// 会让 pid=441 被 4410 命中（假存活）。
 #[cfg(target_os = "windows")]
+/// 生效条件：Windows 下 tasklist /FI 查询 pid → Some((映像名, pid 列))（精确
+/// 列比对防 pid 441 被 4410 命中——假存活）；查询失败 → None。
 fn tasklist_row(pid: u32) -> Option<(String, String)> {
     let mut cmd = std::process::Command::new("tasklist");
     cmd.args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"]);
@@ -393,6 +422,8 @@ fn tasklist_row(pid: u32) -> Option<(String, String)> {
 /// PID **号**存活探测（Windows tasklist 精确列比对 / unix `kill -0`）。
 /// 零依赖下失败不致命——doctor 同时以心跳新鲜度为主判据。
 /// 注意：只回答「这个号有没有进程」，**不足以判定「serve 还在跑」**，见 `pid_is_self_program`。
+/// 生效条件：pid 在进程表中 → true；不存在/查询失败 → false（单实例判据的
+/// 第一道：pid 存活性）。
 fn pid_alive(pid: u32) -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -417,6 +448,8 @@ fn pid_alive(pid: u32) -> bool {
 ///
 /// 零依赖边界：拿不到映像名返回 false（宁可放行启动，也不误报「已有 serve 在跑」）
 /// ——存活与新鲜仍由另两层判据把守（三层全真才判活）。
+/// 生效条件：pid 对应进程映像名与本程序一致 → true——pid 号会被无关进程
+/// 复用，存活≠就是 serve（单实例守卫的第二道：映像核验）。
 fn pid_is_self_program(pid: u32) -> bool {
     let me = std::env::current_exe()
         .ok()
@@ -449,12 +482,18 @@ fn pid_is_self_program(pid: u32) -> bool {
 
 /// 无 serve 心跳时的执行器资格兜底：按本进程 env 推导，并**如实标注来源**
 /// （`doctor_env_or_default` ≠ serve 自报值——判资格时应优先看 `exec_source`）。
+/// 生效条件：HIVE_EXEC_PY 缺失时兜底执行器（exe 锚定 hive/exec.py，仅 LLM
+/// 委托），并按本进程 env 如实标注 exec_source（doctor_env_or_default ≠ serve
+/// 自报值——判资格应优先读心跳的 exec_source）。
 fn fallback_exec() -> (String, String, &'static str) {
     let p = default_exec_py();
     let mode = scheduler::exec_mode_of(&p);
     (p.to_string_lossy().to_string(), mode, "doctor_env_or_default")
 }
 
+/// 生效条件：零参数调用 → 输出 serve 存活性/任务状态分布/执行器资格三要素
+/// （exec_py/exec_mode/exec_source——读心跳不读自身 env，跨进程 env 不可反查
+/// 的既定口径）→ 诊断退出码。
 fn cmd_doctor(jobs: PathBuf) -> i32 {
     std::fs::create_dir_all(&jobs).ok();
     let now = job::now_ms();
