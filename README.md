@@ -16,7 +16,7 @@
 ## ✨ 核心亮点
 
 - **🧠 不失忆**——记忆一旦落盘即长期留存：写入须过三道闸门并以 `committed` 字段确认（**绝不假装成功**），遗忘只能由显式 `cg(op=forget)` 发起、不做静默淘汰；检索索引只是派生物、随时可重建——**原文即真源**（见[工具面](#-工具面)）
-- **⚡ 高性能**——Rust 检索内核（零第三方依赖）：库内嵌多线程大批量检索，`--serve` 进程实例支撑多智能体并发（语言无关）；中文检索 hit@1 99.0%，六家横评同口径登顶（见[六家横评](#-六家记忆系统横向对比)）
+- **⚡ 高性能**——Rust 检索内核（零第三方依赖）：库内嵌多线程大批量检索，`--serve` 进程实例支撑多智能体并发（语言无关）；中文检索 hit@1 99.0%，六家横评同口径登顶（见[六家横评](#-六家记忆系统横向对比)）。**0.5.0 检索强化**：认知图读缓存+文档派生物常驻· 检索门控（S1 域收敛/S1b 桶收敛/S2 条件硬槽）接进生产路径 · 任意语言 query 统一归一到标准中文集（atoms 词表）
 - **🛡️ 无幻觉**——记什么、取什么、能不能写入，全部由确定性规则裁决，不依赖 LLM 黑箱判断；条件层弱证据的检索干扰由四层证据防火墙白箱剔除（见[弱证据实证](#-弱证据会干扰检索三分离与证据防火墙实证)）；写没写成功看 `committed` 字段，绝不假装通过；全链路审计留痕、结果可复现
 - **🔌 多智能体适用**——同一份大脑（`md_cg/`）+ 同一份纪律，接入 DSH · CodeBuddy · ZCode · Codex CLI · Claude Code，任何 MCP 宿主可直接挂载（见[多 harness 接入](#多-harness-接入按端分目录)）
 - **😊 轻松使用**——三步接入，装完像往常一样对话即可；记忆本体是纯 md 文档，任何编辑器可直接打开审阅
@@ -32,10 +32,10 @@
 | 层 | 位置 | 系统功能 | 一句话定位 | 文档入口 |
 |---|---|---|---|---|
 | 🧠 **灵枢大脑** | [`md_cg/`](md_cg/) | **元认知** | 记忆系统本体：对话沉淀为 md 认知图，记什么 / 取什么 / 能否写入全由确定性规则裁决，四层证据防火墙白箱剔除弱证据干扰 | [README 详细版](docs/mdcg/README详细版_v0.4.10.md) |
-| ⚙️ **Rust 检索引擎** | [`rust/`](rust/) | 检索内核 | 只读侧检索核心：零第三方依赖三形态（库内嵌大批量 / `--serve` 多智能体进程实例 / 评测器），与 Python 口径逐位对齐 | [rust/README.md](rust/README.md) |
+| ⚙️ **Rust 检索引擎** | [`rust/`](rust/) | 检索内核 | 只读侧检索核心：零第三方依赖三形态（库内嵌大批量 / `--serve` 多智能体进程实例 / 评测器），与 Python 口径对齐由 rank 逐位对拍 harness 守卫（lexical 主因已收敛，graph/entity 尾差排期中） | [rust/README.md](rust/README.md) |
 | 🐝 **蜂群运行时** | [`swarm/`](swarm/) | **自维持** | 多进程蜂群执行层（靠轮次心跳存续）：.pbc 确定性实例 + Gossip 拓扑 / 水位信箱 / WAL-HMAC / 信任聚合 / 健康评分，实例管道断裂即同轮重建（Rust 纯 std 零依赖） | [功能说明 v0.6](docs/swarm/蜂群多智能体_功能说明_v0.6.md) |
 | 📜 **中文编译器** | [`compiler/`](compiler/) | **验证 · 审计** | 术数编译器：词法 → 语法 → 名实校验 → 白名单代码生成 → 验证终裁，五环确定性编译链 + 封闭指令集结构性沙箱 | `python -m compiler.cli`（模块内文档） |
-| ⬢ **蜂巢并发引擎** | [`hive/`](hive/) | **自我改进** | 蜂群多智能体并发调度：Rust 纯 std 零依赖 worker 池（原子领取 / 心跳 / 超时强杀 / kill / 崩溃恢复），文件协议即接口，LLM 调用委托零依赖 Python 执行器子进程，MCP 五工具接入（spawn / poll / kill / restart / doctor）—— **逐步稳定中** | [hive/README.md](hive/README.md) |
+| ⬢ **蜂巢并发引擎** | [`hive/`](hive/) | **自我改进** | 蜂群多智能体并发调度：Rust 纯 std 零依赖 worker 池（原子领取 / 心跳 / 超时强杀 / kill / 崩溃恢复），文件协议即接口，LLM 调用委托零依赖 Python 执行器子进程，MCP 五工具接入（spawn / poll / kill / restart / doctor）—— **0.5.0 起进入稳定形态**（9·12 多写者防线：flush 临界区互斥；I-1 依赖门禁：spec.depends_on 任务 DAG；真实负载反馈仍欢迎） | [hive/README.md](hive/README.md) |
 
 **系统功能 → 工程能力**（四类工程能力分别落在哪一层）：
 
@@ -48,7 +48,7 @@
 
 五件套共享同一套 18 条工作纪律与记忆闭环（见文末[工程纪律](#-工程纪律与设计者视角可选推荐)），接入方式互不牵动——只用记忆就只接大脑，不必理解蜂群与编译器。
 
-> **📣 蜂巢反馈邀请**：`hive/` 是五件套里最新的一层，目前处于**逐步稳定阶段**——调度生命周期已闭环（原子领取 / 心跳 / 超时强杀 / kill / 崩溃恢复）并通过回归验证，但并发与崩溃恢复这类路径只有在**真实任务、真实机器**上跑得足够多才会真正稳定，因此这一层会持续迭代。我们特别**欢迎下载试用后反馈**：拉起失败、任务卡住、心跳异常、平台差异、kill 不生效等失败路径，对我们比「跑通了」更有价值。请开 [Issue](https://github.com/FuRongJun-1999/dsh-memory/issues) 并附 `hive_doctor` 输出（serve 存活 / 任务统计 / env 检查）。
+> **📣 蜂巢反馈邀请**：`hive/` 是五件套里最新的一层，目前处于**稳定阶段**——调度生命周期已闭环（原子领取 / 心跳 / 超时强杀 / kill / 崩溃恢复）并通过回归验证，但并发与崩溃恢复这类路径只有在**真实任务、真实机器**上跑得足够多才会真正稳定，因此这一层会持续迭代。我们特别**欢迎下载试用后反馈**：拉起失败、任务卡住、心跳异常、平台差异、kill 不生效等失败路径，对我们比「跑通了」更有价值。请开 [Issue](https://github.com/FuRongJun-1999/dsh-memory/issues) 并附 `hive_doctor` 输出（serve 存活 / 任务统计 / env 检查）。
 
 ---
 
@@ -214,6 +214,8 @@ python test/locomo_jaccard_probe.py      # 主路线 Jaccard 口径拆解（J2_f
 |---|---|
 | 记忆写入 · 关系链接 · 结构关系 | `cg(op=write)` `cg(op=link)` `stg(op=relation)` |
 | 多路融合检索 · 条件路由 · 因果链 · 时间线 | `mdcg_recall` `mdcg_search` `cg(op=route)` `stg(op=timeline)` |
+| 会话隔离（写入带会话归属 · 读取只取本会话，防多会话串台） | `mdcg_remember(session=…)` `stg(op=timeline, session=…)`（`"*"` 显式跨会话） |
+| 检索性能开关（读缓存 · 热路径缓存 · 检索门控 · 统一归一） | env：`MDCG_READ_CACHE=1` `MDCG_HOTCACHE=1` `MDCG_RETRIEVAL_PIPELINE=1` `MDCG_UNIFY_QUERY`（默认开，=0 关） |
 | 事实时效过滤（`validity=true` 只排「已过期」，保留「未生效」） | `mdcg_recall` `mdcg_search` `cg(op=read)` |
 | 写入裁决 · 主动遗忘 · 冲突检测 · 反思 | `mdcg_remember` `cg(op=verify)` `cg(op=metacognition)` `mdcg_reflect` |
 | 重要性评分 · 预算装包 · 分层注入 · 记忆自净 | `cg(op=session)` `cg(op=scrub)` `cg(op=info)` |
@@ -363,8 +365,9 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 | 文档 | 内容 |
 |---|---|
 | **[docs/ 目录索引](docs/README.md)** | 六域快速索引（mdcg / swarm / hive / theory / eval / plans）· 新文档归域规则 |
+| **[Release v0.5.0](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.5.0)** | 本版变更：强化检索（读缓存+派生物常驻 / 智慧之书面预计算 / 统一归一 / 门控生产路径）× 稳定蜂巢并发调度（多写者防线 / 依赖门禁）· 12 个 issue 修复 |
 | [README 详细版](docs/mdcg/README详细版_v0.4.10.md) | 完整能力说明 · 配置项全表 · 安装与验证细节 |
-| [发布说明 v0.4.5](docs/mdcg/release_v0.4.5.md) | 本版变更 / 兼容性 / 升级指引 |
+| [发布说明 v0.4.5](docs/mdcg/release_v0.4.5.md) | 历史版本发布说明（兼容性 / 升级指引） |
 | [AGI 七维评分报告 v2.0](docs/eval/AGI七维评分报告_md_cg_v2.0.md) | 逐维得分依据 / 扣分项 / 实库证据 / 诚实边界 |
 | [第三方复评 · 统一评分 v7](docs/eval/第三方验证报告_灵枢_vs_dejavu_统一评分_v7.md) | 独立评估者七轮对照（灵枢 vs deja-vu）：八维加权 / 收敛轨迹 7.79→9.258 / 评审偏差声明 / 自身建议全撤回勘误 |
 | [第三方验证 · LoCoMo 独立复现](docs/eval/第三方验证报告_LoCoMo_灵枢_.md) | 独立实现评测全流程：自报数字逐位复现 / 归因拆解（中文摘要层 vs 英文归一化 81.0%）/ 静默错译样本 / 数据集区分度证伪检查（配图 `第三方验证报告_LoCoMo_灵枢_.png`） |
@@ -373,7 +376,7 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 | 教学四篇 | [白箱智能是什么？](docs/theory/白箱智能是什么？.md) · [智能的认知过程](docs/theory/智能的认知过程.md) · [智能的公理化基石](docs/theory/智能的公理化基石.md) · [信息差为什么必然存在](docs/theory/信息差为什么必然存在且自然扩大.md) |
 | [工作纪律·认知图条目 v1.1](docs/工作纪律_认知图条目_v1.1.json) | 自我约束的 18 条工作纪律（嵌套认知图条目 `work_discipline`） |
 | [六家记忆系统横评 v1.0](docs/eval/横评_六家100题中英双查_v1.0.md) | 100 题 · **中英双查** · 六家同口径对照；含判定单 / 条件层归因 / 诚实边界（题集 → [data/benchmarks/bench6-100-zh-en/](data/benchmarks/bench6-100-zh-en/README.md)） |
-| [Rust 检索库](rust/README.md) | `mdcg_eval` 三形态：库内嵌大批量检索 / `--serve` 多智能体进程实例 / 公开数据集评测器（零依赖 · 与 Python 口径逐位对齐） |
+| [Rust 检索库](rust/README.md) | `mdcg_eval` 三形态：库内嵌大批量检索 / `--serve` 多智能体进程实例 / 公开数据集评测器（零依赖 · 与 Python 口径对齐，rank 对拍 harness 守卫） |
 | [蜂群多智能体](docs/swarm/蜂群多智能体_功能说明_v0.6.md) | `swarm/` 多进程蜂群执行层（2026-09-13 自 protocol-compiler 迁入，大脑核心内部能力）：.pbc 确定性实例 + Gossip/拓扑/水位信箱/WAL-HMAC/信任聚合/健康评分（Rust 纯 std 零依赖 · 159 断言回归全绿） |
 
 ### 多 harness 接入（按端分目录）
@@ -438,6 +441,19 @@ python scripts/run_tests.py --jobs 1         # 串行（默认并发 4）
 ```
 
 单测等价写法：`python -m md_cg.test_p44_md_whitebox`（cwd=仓库根）。退出码 0/1 可直接接提交前门禁。
+
+### Linux 验证（Docker 容器双栈，0.5.0 起为发版门禁）
+
+```bash
+# 栈一：rust + python 全量（cargo test / python 18 套含全部守卫 / smoke 端到端）
+docker run --rm -v "$(pwd):/work" -w /work -e CARGO_TARGET_DIR=/tmp/target \
+  -e HIVE_PYTHON=python3 rust:bookworm bash scripts/linux_verify.sh full
+# 栈二：node 生态（发布件 TS 编译 + node test）
+docker run --rm -v "$(pwd):/work" -w /work node:22-bookworm bash -c \
+  "npm install --include=dev && npm run build && node --import tsx --test test/*.test.ts"
+```
+
+> 平台差异守卫由脚本清单覆盖（编码/locale/session 过滤/SIGTERM 收尾）；依赖 gitignored 本地语料的套件（p44 等）不入容器清单，由 `run_tests.py` 的 SKIP 面在有语料的机器覆盖。
 
 ---
 
