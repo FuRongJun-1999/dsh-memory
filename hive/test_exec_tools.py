@@ -77,7 +77,8 @@ check("B2 非法验证基底前置拦截", not out["ok"]
 # 写路径：DEFER 入审核队列（无验收器恒 DEFER 是设计行为）
 out = ex.tool_lingshu_cg(
     {"op": "write", "content": "# 功能名：工具面冒烟\n# 【内容】测试节点",
-     "content_kind": "work_done", "verification_basis": "test"},
+     "content_kind": "work_done", "verification_basis": "test",
+     "layer": "contextual"},   # M3.2：worker 直写限 contextual（缺省被拒）
     "job_t")
 check("B3 write 过闸 DEFER 入队（op 成功+committed=false）",
       out.get("ok") is True and out.get("committed") is False
@@ -551,6 +552,53 @@ check("H5 未知网关放行（不误伤自定义 base）",
       ex.model_base_mismatch("whatever-model", "https://my-gw.example/v1") is None)
 check("H6 空 model 放行（缺 model 由 rust 必填校验拦）",
       ex.model_base_mismatch("", "https://api.deepseek.com") is None)
+
+# ------------------------------------------------ I M3.2 写通道双轨制（worker 拦截）
+# 能红说明：删 tool_lingshu_cg 的 M3.2 拦截段（layer 限 contextual / on_conflict=record
+# 覆写 / 来源行注入）时 I1–I4 即红；编排身份放行由 I5 守卫（误拦收口写同红）。
+print("[I] M3.2 双轨制：worker 过程性直写约束（D3 裁决）")
+_captured = {}
+
+
+def _fake_dispatch(cg, args, **kw):
+    _captured.update(args)
+    return {"ok": True, "written": 1, "node_id": "n_test"}
+
+
+from md_cg import mcp_server as _msrv
+from unittest import mock as _mock
+
+with _mock.patch.object(_msrv, "_cg_dispatch", _fake_dispatch):
+    # I1 worker 写 knowledge → 拦（收口写归编排者）
+    out = ex.tool_lingshu_cg(
+        {"op": "write", "content": "x", "layer": "knowledge"}, "job_i1")
+    check("I1 worker 写 knowledge 被拒（双轨制）",
+          out["ok"] is False and "contextual" in out["error"], str(out)[:150])
+    # I2 worker 写 contextual → 放行 + on_conflict 覆写 record + 来源行注入
+    _captured.clear()
+    out = ex.tool_lingshu_cg(
+        {"op": "write", "content": "过程记录", "layer": "contextual"}, "job_i2")
+    check("I2 worker contextual 放行", out["ok"] is True, str(out)[:120])
+    check("I3 on_conflict 强制覆写 record",
+          _captured.get("on_conflict") == "record", str(_captured.get("on_conflict")))
+    check("I4 来源行自动注入（job + 父任务=none）",
+          "来源 job=job_i2" in str(_captured.get("content"))
+          and "父任务=none" in str(_captured.get("content")),
+          str(_captured.get("content"))[-80:])
+    # I5 编排身份（注册工厂）写 knowledge → 放行且不被覆写
+    ex.set_principal_factory(
+        lambda a, j: __import__("md_cg.security", fromlist=["Principal"])
+        .Principal(actor="hive-orch", clearance="secret", can_write=True,
+                   can_admin=False, role="orchestrator", auth_mode="hive-exec"))
+    _captured.clear()
+    out = ex.tool_lingshu_cg(
+        {"op": "write", "content": "收口结论", "layer": "knowledge"},
+        "job_i5")
+    check("I5 编排者收口写 knowledge 放行且不被覆写",
+          out["ok"] is True and _captured.get("layer") == "knowledge"
+          and "on_conflict" not in _captured,
+          f"{out!r}/{_captured.get('layer')}")
+    ex.set_principal_factory(None)
 
 print(f"\n结果：{PASS} 通过 / {FAIL} 失败")
 sys.exit(1 if FAIL else 0)

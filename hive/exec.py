@@ -530,6 +530,8 @@ TOOL_SCHEMAS = {
 _EXTRA_TOOLS: dict = {}          # name -> {"schema": dict, "handler": callable}
 _PRINCIPAL_FACTORY = None        # (args, job_id) -> Principal
 _TOOL_OPS_ALLOW = LINGSHU_OPS_ALLOW   # 工具侧前置白名单（注册身份时可同步收窄）
+_CUR_ORCH_JOB = ""               # 父编排任务 id（orch.py spawn 时写入 spec.orch_job；
+                                 # main() 读入——M3.2 来源行的「父任务」字段来源）
 
 
 # 生效条件：当 schemas 为真 dict 时，遍历其 items，将每个 name 经 str() 后以 {'schema': schema, 'handler': handler} 写入 _EXTRA_TOOLS，覆盖同名；schemas 为假值（None/空）时不注册任何工具；
@@ -601,6 +603,23 @@ def tool_lingshu_cg(args: dict, job_id: str, mdcg_root: str = None) -> dict:
         if vb is not None and vb not in VERIFICATION_BASIS_ALLOW:
             return {"ok": False, "error": f"verification_basis={vb!r} 非法（允许："
                     f"{', '.join(VERIFICATION_BASIS_ALLOW)}）；请修正后重试或省略该参数"}
+        # —— M3.2 写通道双轨制（D3 裁决，2026-09-23 批次3）——
+        # 仅拦 worker（无身份工厂=默认 recorder 过程性直写）；编排者（注册身份）
+        # 的收口写不受限（knowledge 归编排者，M3.1 写后回读已约束）。
+        if _PRINCIPAL_FACTORY is None:
+            layer = str(args.get("layer") or "").strip()
+            if layer != "contextual":
+                return {"ok": False, "error": (
+                    f"worker 直写仅限 layer=contextual（过程性直写，got {layer!r}）——"
+                    "knowledge 等收口写归编排者（双轨制 D3；过程结论由编排者收口固化）")}
+            # 冲突留痕不停工：worker 写固定 on_conflict=record（模型不传/传错均覆写）
+            args["on_conflict"] = "record"
+            # 修改依据来源行（D3）：content 未声明时自动注入，冲突可回溯到具体 job
+            content = str(args.get("content") or "")
+            if "来源 job=" not in content:
+                src = (f"\n# 生效条件：来源 job={job_id}；"
+                       f"父任务={_CUR_ORCH_JOB or 'none'}")
+                args["content"] = content + src
     root = (os.environ.get("MDCG_ROOT", "").strip() or (mdcg_root or "").strip())
     if not root:
         return {"ok": False, "error": "lingshu_cg 未配置：执行器 env 缺 MDCG_ROOT"
@@ -1228,6 +1247,8 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001 —— 顶层兜底必须写 result
         write_result(job_dir, {"ok": False, "error": f"spec 读取失败: {e}"})
         return EXIT_SPEC
+    global _CUR_ORCH_JOB
+    _CUR_ORCH_JOB = str(spec.get("orch_job") or "").strip()
 
     try:
         # model↔base 配对前置校验（标准 §1）：错配即刻 SPEC 错，不触网不烧调度

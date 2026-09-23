@@ -349,7 +349,10 @@ def _spawn(a: dict) -> dict:
         if not os.path.isfile(p):
             return {"ok": False, "error": f"context 文件不存在: {p}"}
     sub = {"model": model, "user_prompt": prompt, "tools": tools,
-           "workdir": os.getcwd()}
+           "workdir": os.getcwd(),
+           # M3.2 来源行「父任务」链路：子任务 spec 带父编排任务 id，
+           # exec.py main() 读入后由工具层注入 worker 直写来源行
+           "orch_job": _CFG.get("job_id") or ""}
     for k in ("system_prompt", "context_files", "max_tool_rounds", "web_search_backend",
               "mdcg_root", "max_tokens", "temperature", "thinking"):
         if a.get(k) not in (None, "", [], {}):
