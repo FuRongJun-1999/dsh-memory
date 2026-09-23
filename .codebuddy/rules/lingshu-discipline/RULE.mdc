@@ -1,3 +1,10 @@
+---
+description: Lingshu work discipline - injected at CodeBuddy session start via rules slot (alwaysApply)
+alwaysApply: true
+enabled: true
+provider:
+---
+
 # 工作纪律（工作纪律_认知图条目_v1.1）· 18 条
 
 > 本文件由 `scripts/render_discipline.py` 从真源

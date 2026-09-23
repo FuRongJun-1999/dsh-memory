@@ -354,6 +354,7 @@ _TEMPLATES = {
     "compact": "compact.txt.tmpl",
     "full": "full.md.tmpl",
     "skill": "skill.md.tmpl",  # SKILL.md 形态（YAML frontmatter + 纪律正文），供插件 skills/ 目录
+    "rules-mdc": "rules.mdc.tmpl",  # CodeBuddy .codebuddy/rules/ RULE.mdc 形态（rules 协议 frontmatter + full 正文）
 }
 
 

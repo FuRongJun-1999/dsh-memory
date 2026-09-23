@@ -437,7 +437,8 @@
      "apply": [
       "查找工作区文件",
       "需要了解工作区结构",
-      "跨目录检索定位"
+      "跨目录检索定位",
+      "长会话续接/上下文压缩后查找工作区文件"
      ]
     },
     "negative": {
@@ -448,7 +449,7 @@
      ]
     },
     "execution": {
-     "how": "定位工作区文件→先读 WORKSPACE_INDEX.md(仓根)→有则按表中职责/关键入口直接定位→无则先 python scripts/workspace_index.py --write 生成再读→守卫报陈化先重生成→不以重复全盘浏览代替; 新增顶层目录/根级文件须在脚本 DIR_ROLES/ROOT_FILES 登记后重生成"
+     "how": "定位工作区文件→先读 WORKSPACE_INDEX.md(仓根)→有则按表中职责/关键入口直接定位→无则先 python scripts/workspace_index.py --write 生成再读→守卫报陈化先重生成→不以重复全盘浏览代替; 新增顶层目录/根级文件须在脚本 DIR_ROLES/ROOT_FILES 登记后重生成; 上下文压缩/长会话续接后, 先 cg route『工作区索引』重建纪律视野(压缩会丢弃未留下执行痕迹的纪律, 只剩被声明过的条目——须主动召回)"
     },
     "response": {
      "direct": "按工作纪律第18条: 工作区索引优先——查工作区文件先读 WORKSPACE_INDEX.md(仓根, 管线生成); 无则先跑 scripts/workspace_index.py --write 生成再读, 不以重复全盘浏览代替。"

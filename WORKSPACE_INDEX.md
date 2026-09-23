@@ -5,7 +5,7 @@
 > **为什么有这一页**：查工作区文件前先读本页——按目录职责与关键入口定位，替代每次重复全盘浏览（**工作纪律第 18 条**）。
 > **数据源**：git 追踪面（`git ls-files`，NUL 分隔取原始路径）；gitignored 的语料 / 实验产物 / 构建产物不在其内。
 > **生成 / 守卫**：`python scripts/workspace_index.py --write` ｜ `--check`（CI：`.github/workflows/workspace-index-check.yml`）。
-> **快照**：HEAD `4e2a9fc` · 追踪 **1822** 件 · 生成于 2026-09-22 —— 计数与 HEAD 为生成时快照，**不参与守卫校验**；守卫校验的是：①顶层目录集合 ②根级文件集合 ③职责文案与关键入口 ④正文（归一化后）逐字一致。
+> **快照**：HEAD `2e9bfe8` · 追踪 **1828** 件 · 生成于 2026-09-23 —— 计数与 HEAD 为生成时快照，**不参与守卫校验**；守卫校验的是：①顶层目录集合 ②根级文件集合 ③职责文案与关键入口 ④正文（归一化后）逐字一致。
 
 ## 一、顶层目录
 
@@ -15,7 +15,7 @@
 | `rust/` | Rust 检索引擎——只读侧检索内核（零第三方依赖，库内嵌 / --serve / 评测器三形态） | 12 | `README.md` · `Cargo.toml` · `src/lib.rs` |
 | `swarm/` | 蜂群运行时——.pbc 确定性实例 + Gossip 拓扑 / 水位信箱 / WAL-HMAC / 信任聚合 | 29 | `swarm_cli.py` · `rust_swarm.py` |
 | `compiler/` | 中文（术数）编译器——词法→语法→名实校验→白名单代码生成→验证终裁 + 结构性沙箱 | 22 | `api.py` · `SEMANTICS.md` |
-| `hive/` | 蜂巢并发引擎——worker 池调度（原子领取/心跳/超时强杀/崩溃恢复），文件协议即接口 | 118 | `README.md` · `exec_cmd.py` · `exec.py` |
+| `hive/` | 蜂巢并发引擎——worker 池调度（原子领取/心跳/超时强杀/崩溃恢复），文件协议即接口 | 119 | `README.md` · `exec_cmd.py` · `exec.py` |
 | `skills/` | 灵枢自我认知技能包（管线生成的条件单元投影，随插件分发） | 704 | `README.md` · `plugin.json` |
 | `src/` | DSH 插件 TypeScript 源码（构建产物落 lib/） | 12 | `index.ts` · `tools.ts` · `bridge.ts` |
 | `dsh/` | DSH profile 配置样例与插件启停脚本 | 9 | `cordis.yml.example` · `dsh-web-start.bat` |
@@ -26,8 +26,9 @@
 | `scripts/` | 工程管线——纪律渲染/守卫、认知图同步、发布件与常驻进程体检 | 29 | `render_discipline.py` · `verify_discipline.py` · `cogmap_sync.py` |
 | `test/` | 跨包测试与独立评测脚本（宿主侧 TS 测试 + python 集成） | 23 | `mock_mcp.py` · `hive_exec_test.py` |
 | `data/` | 公开评测数据与裁决留痕 | 18 | `memory-bench-1000.jsonl` · `policy.json` |
-| `docs/` | 文档（按工程域分目录，索引见 docs/README.md） | 90 | `README.md` · `工作纪律_认知图条目_v1.1.json` |
+| `docs/` | 文档（按工程域分目录，索引见 docs/README.md） | 94 | `README.md` · `工作纪律_认知图条目_v1.1.json` |
 | `.github/` | CI 门禁（纪律/认知图/蜂巢/conformance/安装/发布件/python 测试） | 8 | `workflows` |
+| `.codebuddy/` | CodeBuddy 宿主规则注入面（RULE.mdc 渲染落点，纪律第 18 条压缩锚点所在，随仓库分发） | 1 | `rules` |
 | `.claude-plugin/` | Claude 插件市场清单（/plugin marketplace add 入口） | 1 | `marketplace.json` |
 | `.agents/` | Codex 插件市场清单（codex plugin marketplace add 入口） | 1 | `plugins` |
 

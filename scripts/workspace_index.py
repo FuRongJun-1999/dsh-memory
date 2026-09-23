@@ -77,6 +77,8 @@ DIR_ROLES = {
              ["README.md", "工作纪律_认知图条目_v1.1.json"]),
     ".github": ("CI 门禁（纪律/认知图/蜂巢/conformance/安装/发布件/python 测试）",
                 ["workflows"]),
+    ".codebuddy": ("CodeBuddy 宿主规则注入面（RULE.mdc 渲染落点，纪律第 18 条压缩锚点所在，随仓库分发）",
+                   ["rules"]),
     ".claude-plugin": ("Claude 插件市场清单（/plugin marketplace add 入口）",
                        ["marketplace.json"]),
     ".agents": ("Codex 插件市场清单（codex plugin marketplace add 入口）",

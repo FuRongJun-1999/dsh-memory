@@ -43,6 +43,7 @@ injection:
   # 属「声明」而非「实测」：宿主行为一旦与此声明不符，应改本段而不是改判据。
   slots:
     codebuddy-session: [CODEBUDDY.md, AGENTS.md]
+    codebuddy-rules: [RULE.mdc]
     zcode-session: [AGENTS.md]
     codex-session: [AGENTS.md]
     claude-session: [CLAUDE.md]
@@ -105,6 +106,23 @@ targets:
       CodeBuddy 会话起始全文注入。**根目录 CODEBUDDY.md 优先于 AGENTS.md**——
       本仓产物落 codebuddy/CODEBUDDY.md（不落根，避免屏蔽本地私有 AGENTS.md）；
       外部用户复制该文件到自身项目根即生效（见 codebuddy/README.md）。
+
+  # —— CodeBuddy 宿主规则注入面（2026-09-23 新增，issue #24 复盘断点修复）——
+  # 历史缺陷：本落点（.codebuddy/rules/RULE.mdc，宿主 alwaysApply 自动注入）曾不在
+  # 渲染矩阵内且被 .gitignore 整目录忽略 → 只存在本机、clone 后宿主无规则可注入——
+  # 「入口（WORKSPACE_INDEX + 第 18 条）都写好了，AI 却不知道它存在」的断点即此。
+  # 修法：rules-mdc 模板 + .gitignore 白名单 !/.codebuddy/rules/ 入库分发 + 本 target 纳管。
+  codebuddy-rules:
+    enabled: true
+    transport: file
+    slot: codebuddy-rules
+    path: .codebuddy/rules/lingshu-discipline/RULE.mdc
+    variant: rules-mdc
+    format: markdown
+    memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/restart/doctor)
+    note: >-
+      CodeBuddy 宿主 .codebuddy/rules/ 注入面（frontmatter alwaysApply: true，
+      会话起始自动注入；CODEBUDDY.md 四端件是分发样例，本件才是宿主实际加载位）。
 
   zcode:
     enabled: true
