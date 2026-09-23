@@ -243,6 +243,20 @@ def main():
         ok(len(PL.allocate(docs_idx, 4, pools=True)) == 4,
            "(7) 单池候选充足时额度被用满")
 
+        # ============================================== (7b) 部分占用回流守恒
+        # （批次 20，issue #30②：旧实现回流只加不扣——「部分占用」形态下
+        #   Σquota 超 total（14/10、27/20、40/30 实测），空池形态 (7) 踩不到；
+        #   taken 一直正确（转移语义数学等价），纯审计数字修复。能红旧实现）
+        print("\n(7b) 部分占用回流守恒（issue #30②：回流后 Σquota 恰等于 total）")
+        docs30 = [(f"d{i:02d}", {"id": f"d{i:02d}"}) for i in range(30)]
+        for _t in (10, 20, 30, 50):
+            _pk, _rep = PL.cut_report(docs30, _t, pools=PL.from_env(True),
+                                      backflow=True)
+            _sq = sum(_rep["quota"].values())
+            _want = min(_t, 30)   # 守恒式：候选充足=total；不足=候选总量
+            ok(_sq == _want, f"(7b) total={_t} 回流后 Σquota={_sq}=={ _want }"
+                             f"（taken={sum(_rep['taken'].values())}）")
+
         # ============================================== (8) 降权可复算
         print("\n(8) 硬约束二 · 降权显式可复算")
         # 降权断言与打分口径解耦：以关闭分池（权重恒 1.0）时同一条目的分数为 base，

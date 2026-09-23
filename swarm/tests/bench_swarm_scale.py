@@ -76,4 +76,6 @@ assert rep["events"] - R2 == total_events, "事件计数不符"
 
 ok = growth < 3.0 and thru > 500
 print(f"\n[{'✓' if ok else '✘'}] 扩展健康（摊薄增长<3×）且 吞吐>500 events/s")
+print("  ⚠ 性能阈值断言，负载敏感（issue #30①）：套件并行跑时自动跳过"
+      "（run_tests --jobs>1 → SKIP），单跑/串行全量才作数——失败先怀疑机器忙，非功能回归")
 sys.exit(0 if ok else 1)

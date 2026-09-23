@@ -188,11 +188,21 @@ def _bucketize(docs, total: int, cfg, key_of, backflow: bool):
         nid, entry = key_of(d) if key_of else d
         buckets[pool_of(nid, entry)].append(d)
     if backflow:
-        left = total - sum(min(len(buckets[p]), quota[p]) for p in POOL_ORDER)
+        # 回流 = 额度**转移**（批次 20，issue #30②）：先把各池额度削到实际
+        # 占用（min(len, quota)——用不满的部分交回总池），再按池序转给有
+        # 余量（len > quota）的池。守恒式：回流后 Σquota = min(total, 候选
+        # 总量)——候选充足时恰等于 total；候选不足（total>Σlen）时，超出
+        # 候选的额度无池可回流（转移必须有接受方），如实缩到候选总量。
+        # 旧实现只加不扣——left_init 全额追加而无对应扣减，Σquota 可超
+        # total（quota 是对外审计数字，失真；taken/picked 数学上与转移
+        # 语义一致，一直正确——纯数字修复，零取数行为变化）。
+        for p in POOL_ORDER:
+            quota[p] = min(len(buckets[p]), quota[p])
+        left = total - sum(quota.values())
         for p in POOL_ORDER:
             if left <= 0:
                 break
-            room = len(buckets[p]) - min(len(buckets[p]), quota[p])
+            room = len(buckets[p]) - quota[p]
             if room <= 0:
                 continue
             add = min(room, left)
@@ -225,8 +235,10 @@ def cut_report(docs, total: int, *, pools=None, key_of=None,
     """同 `take`，但回报**完整池账** → `(picked, report)`。
 
     `report = {enabled, total, quota, cands, taken, lost}`：`cands` 为各池
-    截断前候选数、`quota` 为计划额度（含回流）、`taken` 实取、`lost` 被挤掉
-    （`max(0, cands - taken)`）。关闭态返回 `{enabled: False}`——不伪造池账。
+    截断前候选数、`quota` 为计划额度（含回流；回流后 **Σquota =
+    min(total, 候选总量)**——候选充足恰等于 total，不足时如实缩到候选总量，
+    issue #30②）、`taken` 实取、`lost` 被挤掉（`max(0, cands - taken)`）。
+    关闭态返回 `{enabled: False}`——不伪造池账。
     """
     docs = list(docs or [])
     total = int(total)

@@ -129,6 +129,14 @@ _SKIPS = {
         else "Windows 专用（powershell/taskkill）"),
 }
 
+# 仅串行（批次 20，issue #30①）：负载敏感的性能阈值断言在并行争抢下会
+# 假红（bench_swarm_scale 的吞吐>500/摊薄<3× 在 --jobs 4 实测随机失败）
+# ——并行跑自动 SKIP（附原因），串行（--jobs 1）正常执行。性能基准照旧
+# 有跑（串行全量含它），只是不与其它测试抢 CPU。
+_SERIAL_ONLY = {
+    "swarm.tests.bench_swarm_scale",
+}
+
 
 # 生效条件：解析命令行（位置参数 group 为 nargs="*"、default=None，-k 默认 ""，--jobs 默认 4，--timeout 默认 900，--list 为 store_true）后，若 args.group 里有不在 ("md_cg","compiler","swarm","scripts","hive") 中的组名则 ap.error 报错退出（args.group 为 None 或空列表时该检查不触发）；groups 取 set(args.group) 或（其为假值时）全部五组；targets 由 _discover() 按 groups 过滤且 args.k 为假值或出现在显示名中；args.list 为真时打印组名与显示名及总数并返回 0；否则先按 _SKIPS 探测跳过有原因的目标，再以 max(1, args.jobs) 个线程跑 _run_one(name, a, args.timeout)，无失败打印汇总返回 0，有失败打印失败名单返回 1；
 def main():
@@ -160,6 +168,11 @@ def main():
     # SKIP 探测：依赖缺失/平台不符的测试不执行（外部复核建议 #3，裸 clone 友好）
     skipped, runnable = [], []
     for g, n, a in targets:
+        if n in _SERIAL_ONLY and max(1, args.jobs) > 1:
+            reason = "负载敏感（性能阈值断言），并行争抢会假红——仅串行执行"
+            skipped.append((n, reason))
+            print(f"SKIP  {n}  （{reason}）", flush=True)
+            continue
         probe = _SKIPS.get(n)
         reason = probe() if probe else None
         if reason:
