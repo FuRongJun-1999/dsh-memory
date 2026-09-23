@@ -226,7 +226,9 @@ def _gate_audit(ctx):
 def _gate_consistency(ctx):
     """冲突闸：节点间自动冲突检测（三级决策）。
 
-    不通过时按 on_conflict：reject=直接拒绝；defer=转入审核队列。
+    仅 REJECT（明确判为冲突）按 on_conflict 处置：reject=直接拒绝；
+    defer=转入审核队列。BLINDSPOT（无可比对节点，检测前提不存在）恒放行，
+    cvd 审计经链尾透出（issue #26：无法比对 ≠ 冲突，入队是死胡同）。
     """
     a = ctx["a"]
     cg = ctx["cg"]
@@ -243,8 +245,14 @@ def _gate_consistency(ctx):
         tags=a.get("tags"), exclude=ctx["nid"], auto_flywheel=True)
     ctx["cvd"] = cvd
     v = cvd.get("verdict")
-    blocked = ((v == "REJECT" and oc == "reject")
-               or (v in ("REJECT", "BLINDSPOT") and oc == "defer"))
+    # issue #26（2026-09-23）：BLINDSPOT ≠ REJECT——冲突闸的 BLINDSPOT 唯一出口
+    # 是 comparable==0（既有节点无一声明条件，含空库），语义是「检测前提不
+    # 存在」而非「已判定冲突」；defer 入队后裁决者面对同样空白（无可操作
+    # 下一步，死胡同）。故 BLINDSPOT 恒放行：cvd 经链尾 _executor 的
+    # consistency 字段如实透出（放行原因可观测）；REJECT（明确冲突）维持
+    # 原拦截语义。原先两者等同拦截 → 空库首次写入恒不落盘（README 推荐的
+    # content_kind=code 通路必失败——库越空越写不进）。
+    blocked = (v == "REJECT" and oc in ("reject", "defer"))
     if not blocked:
         return None
     if oc == "reject":
