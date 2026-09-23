@@ -58,7 +58,7 @@ CAND = {
     "不适用条件": ["边界条件缺失"],
 }
 CAND_JSON = json.dumps(CAND, ensure_ascii=False)
-REFLECT_MODEL = "deepseek-v4.1-flash-expires-on-0910"
+REFLECT_MODEL = "deepseek-flash"   # 与 ROLE_DEFAULT_MODEL 同步（v0.5 §1；限时旧 id 已下架）
 VERIFY_MODEL = "glm-5.3-flash"
 BASIS = BASIS_TEMPLATE.format(reflect=REFLECT_MODEL, verify=VERIFY_MODEL)
 
@@ -374,6 +374,59 @@ def main():
               rep3["written"] == 0 and rep3["skipped_present"] == 2, str(rep3))
     finally:
         shutil.rmtree(root, ignore_errors=True)
+
+    # ---------------- 13. issue #24 修复（max_tokens 解析链 + 响应面校验） --------
+    # 能红说明：回退 http_llm 硬编码 1200 / 删除 _extract_content 校验时，
+    # 本节断言即红（DEFAULT_MAX_TOKENS 被改小于 200000 同红）。
+    print("\n【13】issue #24：max_tokens 三级解析 + 假成功拦截")
+    from .consolidate import (DEFAULT_MAX_TOKENS, MAX_TOKENS_ENV, ROLE_DEFAULT_MODEL,
+                              _extract_content, resolve_max_tokens)
+    check("标准锁定：DEFAULT_MAX_TOKENS=200000（子代理配置标准 v0.5 §1）",
+          DEFAULT_MAX_TOKENS == 200000, str(DEFAULT_MAX_TOKENS))
+    check("标准锁定：reflect 默认模型=deepseek-flash（限时 id 已下架）",
+          ROLE_DEFAULT_MODEL[REFLECT_ROLE] == "deepseek-flash",
+          ROLE_DEFAULT_MODEL[REFLECT_ROLE])
+    check("解析链：显式参数优先",
+          resolve_max_tokens(4096) == 4096)
+    saved_env = os.environ.get(MAX_TOKENS_ENV)
+    try:
+        os.environ[MAX_TOKENS_ENV] = "16000"
+        check("解析链：env 次之",
+              resolve_max_tokens(None) == 16000)
+        os.environ[MAX_TOKENS_ENV] = "not-a-number"
+        check("解析链：非法 env 回落默认（不炸批处理）",
+              resolve_max_tokens(None) == DEFAULT_MAX_TOKENS)
+        os.environ[MAX_TOKENS_ENV] = "0"
+        check("解析链：非正 env 回落默认",
+              resolve_max_tokens(None) == DEFAULT_MAX_TOKENS)
+    finally:
+        if saved_env is None:
+            os.environ.pop(MAX_TOKENS_ENV, None)
+        else:
+            os.environ[MAX_TOKENS_ENV] = saved_env
+
+    def _bad(name, data, expect_frag):
+        try:
+            _extract_content(data, "m", 1234)
+            check(name, False, "未抛错")
+        except RuntimeError as e:
+            check(name, expect_frag in str(e) and "max_tokens=1234" in str(e),
+                  str(e)[:120])
+
+    _bad("坏形态1：choices 空", {"choices": []}, "无 choices")
+    _bad("坏形态2：预算截断",
+         {"choices": [{"finish_reason": "length",
+                       "message": {"content": ""}}],
+          "usage": {"completion_tokens": 1200}},
+         "预算耗尽")
+    _bad("坏形态3：空 content 假成功",
+         {"choices": [{"finish_reason": "stop", "message": {"content": ""}}],
+          "usage": {"completion_tokens": 1230}},
+         "假成功")
+    check("好形态：正常 content 放行",
+          _extract_content({"choices": [{"finish_reason": "stop",
+                                         "message": {"content": "ok"}}]},
+                           "m", 999) == "ok")
 
     print("\n" + "=" * 68)
     print(f"通过 {PASS} / 失败 {FAIL}")

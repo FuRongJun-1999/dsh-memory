@@ -39,12 +39,22 @@
     MdCGOS._path_semantic 做一致性回归，保证不漂移。
 
 双模型角色分工（用户配置，可用环境变量覆盖）：
-    反思单元 reflect → 默认 deepseek-v4.1-flash-expires-on-0910
-                       （IDE 显示名 DeepSeek-V4.1-Flash；限时模型，见常量注释）
+    反思单元 reflect → 默认 deepseek-flash（实测 2026-09-22 /models 仅
+                       deepseek-flash / deepseek-v4-pro；原默认
+                       deepseek-v4.1-flash-expires-on-0910 为限时模型已下架）
     验证单元 verify  → 默认 glm-5.3-flash    （IDE 显示名 GLM-5.3-flash）
     环境变量：MDCG_REFLECT_MODEL/BASE/KEY、MDCG_VERIFY_MODEL/BASE/KEY。
     注意 IDE 显示名 ≠ API 模型 id；`--check` 可零 token 探测各网关真实 id。
     两个模型分属不同厂商，避免同源模型的系统性偏见互相印证（交叉验证的本意）。
+
+max_tokens 口径（真源：docs/hive/子代理配置标准_v0.5.md §1，2026-09-23 修复 issue #24）：
+    思考模型的 reasoning_tokens **计入 max_tokens**（标准 §1 实测：8000 被思考
+    吃满 → content 空 → 假成功；指纹 = usage.completion_tokens≈reasoning_tokens）。
+    故默认 DEFAULT_MAX_TOKENS=200000（标准 §1「思考模型建议 200000」），
+    覆盖链：CLI --max-tokens > env MDCG_LLM_MAX_TOKENS > 常量默认。
+    响应面校验（标准 §1「回收时校验 content 非空而非只看 ok」）：finish_reason
+    == "length" 或 content 为空 → 明确 RuntimeError（带 max_tokens 与修复指引），
+    绝不静默落成 parse_failed（issue #24 的根因即此静默）。
 
     · 验证单元不可用（未配 key）时，默认 **不固化**（DEFER）——纪律 5「未经验证不固化」；
       确需单模型跑通可显式 --no-verify（provenance 记为 skipped）或 --self-verify
@@ -124,10 +134,18 @@ VERIFY_ROLE = "verify"         # 验证单元：否决候选（无产出权）
 ROLES = (REFLECT_ROLE, VERIFY_ROLE)
 
 # 推荐模型（真实 API id，经实际调用确认；可用 MDCG_<ROLE>_MODEL 覆盖）
-# 注意：reflect 的 id 带过期标记（expires-on-0910），属**限时模型**——过期后 /models
-# 列表会下架该 id，届时改用 deepseek-v4-flash 或用 MDCG_REFLECT_MODEL 覆盖。
-ROLE_DEFAULT_MODEL = {REFLECT_ROLE: "deepseek-v4.1-flash-expires-on-0910",
+# 历史：reflect 原默认 deepseek-v4.1-flash-expires-on-0910（限时模型，代码注释曾
+# 预告过期风险）——2026-09-22 实测 /models 仅返回 deepseek-flash 与 deepseek-v4-pro，
+# 限时 id 已下架（issue #24 附带发现）。现行默认 reflect=deepseek-flash（标准 §1
+# 子代理默认档）。
+ROLE_DEFAULT_MODEL = {REFLECT_ROLE: "deepseek-flash",
                       VERIFY_ROLE: "glm-5.3-flash"}
+
+# max_tokens 默认（真源：docs/hive/子代理配置标准_v0.5.md §1——思考模型建议 200000；
+# reasoning_tokens 计入 max_tokens，预算过小 = content 被思考吃光 = issue #24 根因）。
+# 覆盖链：CLI --max-tokens > env MDCG_LLM_MAX_TOKENS > 本常量。
+DEFAULT_MAX_TOKENS = 200000
+MAX_TOKENS_ENV = "MDCG_LLM_MAX_TOKENS"
 ROLE_DEFAULT_BASE = {REFLECT_ROLE: "https://api.deepseek.com",
                      VERIFY_ROLE: "https://open.bigmodel.cn/api/paas/v4"}
 _ROLE_ENV = {REFLECT_ROLE: ("MDCG_REFLECT_MODEL", "MDCG_REFLECT_BASE", "MDCG_REFLECT_KEY"),
@@ -199,12 +217,72 @@ def role_config(role: str, model: str = None, base: str = None,
     return model, base, key
 
 
-# 生效条件：给定 prompt 且 role 解析或通用兜底得到非空 key 时，向 base 的 /chat/completions 发 POST 并返回首个 choice 的 message.content；key 为空则抛 RuntimeError。
+# 生效条件：给定显式 max_tokens 与 env 值，按 显式参数 > env > DEFAULT_MAX_TOKENS 解析：显式为正整数直接返回；env 可解析且 >0 返回之；否则返回 DEFAULT_MAX_TOKENS；env 存在但非法或非正时忽略（回落默认，不炸批处理）。
+def resolve_max_tokens(explicit: int = None) -> int:
+    """max_tokens 三级解析：显式参数 > MDCG_LLM_MAX_TOKENS > DEFAULT_MAX_TOKENS。
+
+    为什么默认这么大（200000）：思考模型的 reasoning_tokens 计入 max_tokens
+    （标准 §1 实测），预算过小 = content 被思考吃光。max_tokens 是预算上限
+    而非计费量——取宽不取窄，实际用量计费不受影响。
+    """
+    if explicit is not None:
+        return max(1, int(explicit))
+    raw = (os.environ.get(MAX_TOKENS_ENV) or "").strip()
+    if raw:
+        try:
+            v = int(raw)
+            if v > 0:
+                return v
+        except ValueError:
+            pass                      # 非法 env 不炸批处理，回落默认
+    return DEFAULT_MAX_TOKENS
+
+
+# 生效条件：给定响应 data 与 model，choices 为空、message.content 为空/None、或 finish_reason=="length" 时抛 RuntimeError（含 max_tokens/finish_reason/usage 指纹与修复指引），否则返回 content 字符串。
+def _extract_content(data: dict, model: str, max_tokens: int) -> str:
+    """响应面校验（标准 §1：「回收时校验 content 非空而非只看 ok」）。
+
+    三种坏形态都不许静默落成 parse_failed（issue #24 根因）：
+    · choices 空 → 网关异常形态；
+    · content 空 → 假成功（指纹：usage.completion_tokens≈reasoning_tokens，
+      思考预算吃光 content——标准 §1 同病实测）；
+    · finish_reason=="length" → 预算耗尽被截断（截断的 JSON 必然解析失败）。
+    """
+    choices = data.get("choices") or []
+    if not choices:
+        raise RuntimeError(
+            f"LLM 响应无 choices（model={model}, max_tokens={max_tokens}）："
+            "网关异常形态，原样返回体前 300 字符："
+            f"{json.dumps(data, ensure_ascii=False)[:300]}")
+    msg = choices[0].get("message") or {}
+    finish = choices[0].get("finish_reason")
+    usage = data.get("usage") or {}
+    if finish == "length":
+        raise RuntimeError(
+            f"输出预算耗尽（finish_reason=length, model={model}, "
+            f"max_tokens={max_tokens}, completion_tokens={usage.get('completion_tokens')}）"
+            "——思考模型的 reasoning_tokens 计入 max_tokens（子代理配置标准 v0.5 §1）。"
+            f"修复：调大 --max-tokens 或 env {MAX_TOKENS_ENV}")
+    content = msg.get("content") or ""
+    if not content.strip():
+        raise RuntimeError(
+            f"LLM 返回空 content（model={model}, finish_reason={finish}, "
+            f"max_tokens={max_tokens}, "
+            f"completion_tokens={usage.get('completion_tokens')}）——"
+            "假成功指纹：completion_tokens≈reasoning_tokens 表示思考吃满预算；"
+            f"修复：调大 --max-tokens 或 env {MAX_TOKENS_ENV}")
+    return content
+
+
+# 生效条件：给定 prompt 且 role 解析或通用兜底得到非空 key 时，向 base 的 /chat/completions 发 POST，max_tokens 按 resolve_max_tokens 解析（显式 > env > 默认 200000），经 _extract_content 校验后返回 content；key 为空则抛 RuntimeError。
 def http_llm(prompt: str, model: str = None, base: str = None, key: str = None,
-             role: str = None, timeout: int = 120, max_tokens: int = 1200) -> str:
+             role: str = None, timeout: int = 120, max_tokens: int = None) -> str:
     """标准库 HTTP 调 LLM（OpenAI 兼容 /chat/completions）。零第三方依赖。
 
     role 给定时按该角色配置解析（reflect / verify），否则走通用配置。
+    max_tokens=None 走三级解析（显式 > MDCG_LLM_MAX_TOKENS > DEFAULT_MAX_TOKENS）；
+    历史 bug（issue #24）：曾硬编码 1200——思考模型 reasoning 吃光预算，
+    content 空串静默落成 parse_failed，离线固化 100% DEFER。
     """
     if role:
         model, base, key = role_config(role, model, base, key)
@@ -219,6 +297,7 @@ def http_llm(prompt: str, model: str = None, base: str = None, key: str = None,
         raise RuntimeError(
             f"未配置 {role or 'llm'} 的 API key"
             f"（{_ROLE_ENV[role][2] if role in _ROLE_ENV else 'MDCG_LLM_KEY'}）")
+    max_tokens = resolve_max_tokens(max_tokens)
     payload = json.dumps({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -234,7 +313,7 @@ def http_llm(prompt: str, model: str = None, base: str = None, key: str = None,
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")[:300]
         raise RuntimeError(f"HTTP {exc.code} model={model} base={base} :: {detail}") from None
-    return data["choices"][0]["message"]["content"]
+    return _extract_content(data, model, max_tokens)
 
 
 # 生效条件：给定 role，若 role_config 得到非空 key 则 GET base/models 并返回含 ok/model_available/models 的字典；无 key 或请求异常则返回 ok=False 及错误信息。
@@ -1371,6 +1450,10 @@ def _cli(argv=None) -> int:
                     help="只补「验证方式」（零 LLM 成本），不做四要素反思")
     ap.add_argument("--min-grounding", type=float, default=None,
                     help="统一 grounding 阈值（默认按字段 0.5 / 不适用条件 0.34）")
+    ap.add_argument("--max-tokens", type=int, default=None,
+                    help=f"LLM 输出预算（含思考模型 reasoning_tokens；默认 "
+                         f"{DEFAULT_MAX_TOKENS}，可 env {MAX_TOKENS_ENV} 覆盖；"
+                         "子代理配置标准 v0.5 §1）")
     ap.add_argument("--no-llm", action="store_true",
                     help="不调用 LLM，只做四要素完整性普查")
     ap.add_argument("--check", action="store_true",
@@ -1380,6 +1463,12 @@ def _cli(argv=None) -> int:
 
     r_model, _, r_key = role_config(REFLECT_ROLE, a.reflect_model)
     v_model, _, v_key = role_config(VERIFY_ROLE, a.verify_model)
+    if a.self_verify:
+        # 溯源修正（issue #24 附带②）：--self-verify 实际调用的是反思单元模型，
+        # verify.model 必须记实际值——此前记 ROLE_DEFAULT_MODEL[verify]（glm），
+        # 与真实调用不符，破坏可审计性。basis 声明同步改「同模型自验」，
+        # 不再冒充双模型交叉验证。
+        v_model = r_model
 
     if a.check:
         out = {"reflect": probe_models(REFLECT_ROLE),
@@ -1387,8 +1476,14 @@ def _cli(argv=None) -> int:
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return 0
 
-    basis = None if a.no_basis else (
-        a.verification_basis or BASIS_TEMPLATE.format(reflect=r_model, verify=v_model))
+    if a.no_basis:
+        basis = None
+    elif a.verification_basis:
+        basis = a.verification_basis
+    elif a.self_verify:
+        basis = f"同模型自验（reflect=verify={r_model}，非交叉验证，降级模式）"
+    else:
+        basis = BASIS_TEMPLATE.format(reflect=r_model, verify=v_model)
 
     if a.basis_only:
         rep = fill_verification_basis(a.root, basis, layer=a.layer, limit=a.limit,
@@ -1410,13 +1505,15 @@ def _cli(argv=None) -> int:
                   file=sys.stderr)
         else:
             reflect_fn = (lambda p: http_llm(p, role=REFLECT_ROLE,   # noqa: E731
-                                             model=a.reflect_model))
+                                             model=a.reflect_model,
+                                             max_tokens=a.max_tokens))
             if a.self_verify:
                 verify_fn = reflect_fn
             elif not a.no_verify:
                 if v_key:
                     verify_fn = (lambda p: http_llm(p, role=VERIFY_ROLE,  # noqa: E731
-                                                    model=a.verify_model))
+                                                    model=a.verify_model,
+                                                    max_tokens=a.max_tokens))
                 else:
                     print(f"[consolidate] 验证单元未配置 key"
                           f"（{_ROLE_ENV[VERIFY_ROLE][2]} / ZHIPU_API_KEY / GLM_API_KEY）"
