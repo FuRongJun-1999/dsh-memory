@@ -30,7 +30,7 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT
                    TIER_BUCKET_SCAN, TIER_GLOBAL_LIKE, TIER_GLOBAL_SCAN,
                    GLOBAL_CAP, expand_query_terms_weighted,
                    expand_query_terms_llm, en_zh_bigrams, semantic_on,
-                   cut_by_relevance)
+                   cut_by_relevance, apply_retrieval_gates)
 from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
                self_state, predict, evolution, weights, pooling,
@@ -741,6 +741,15 @@ class MdCGOS(MdCG):
             route_bucket = routing.bucket_dir(routing.route_key(ctx, ctx.get("tags")))
         big_domain = routing.big_domain_classify(terms)
         big_scores = routing.big_domain_score_breakdown(terms)
+        # S1/S1b/S2 收敛 + S4 审计——与 MdCG.search 共享同一实现（issue #25：
+        # 本覆写此前完全不含门控，生产路径（MdCGSecure → 本类）从未生效——
+        # 开关显式打开也不生效、gates 审计不出现、scanned 恒全表）。
+        # 收敛在 _read_many 之前 → scanned 真实下降；gates 非空才落键
+        # （默认关时 meta 键集合与改动前逐字节一致，零变更纪律）。
+        entries, gates = apply_retrieval_gates(
+            entries, terms, big_domain, context, min_results)
+        if gates:
+            stat["gates"] = gates
         neg_coverage = self._neg_coverage(terms) if include_neg else []
 
 # 生效条件：对 docs 调 self._score 后，若其中分数 >0 的条数达到（search 作用域内的）min_results 就返回 self._emit(scored, k, tier, stat, route_bucket, record, len(docs), ...)，否则返回 None。

@@ -651,6 +651,125 @@ def _cond_prefilter_pass(entry, ctx) -> bool:
     return True
 
 
+# 生效条件：entries/terms/big_domain/context/min_results 给定；MDCG_RETRIEVAL_PIPELINE 未设="1" 时 entries 原样返回且 gates 为空 dict（默认路径零变更）；总开关开启时按既有开关语义执行收敛——S1 域收敛（MDCG_GATE_S1_DOMAIN 未设=开；域内∪未标域兜底池，域内不足 min_results 回退不收敛）、S1b 桶收敛（MDCG_GATE_S1B_BUCKET 显式=1；topk/min_sim 参数化，命中不足回退并记 would_keep）、S2 条件空间硬槽（MDCG_GATE_S2_COND 未设=开；清空回退）、S4 层级激活审计（MDCG_GATE_S4_LAYER 显式=1；只构造 gates["s4"] 审计，加成本体在 _score）；返回 (收敛后 entries, gates 审计字典)；
+# apply_retrieval_gates(entries, terms, big_domain, context, min_results) -> tuple:
+def apply_retrieval_gates(entries, terms, big_domain, context, min_results):
+    """S1/S1b/S2 候选收敛 + S4 审计——**两份 search 的唯一实现**。
+
+    issue #25（2026-09-23）：此段逻辑原先只存在于 MdCG.search 内，而生产
+    调用链（mcp_server → MdCGSecure → MdCGOS）走的是 MdCGOS.search 覆写——
+    门控在 生产路径上从未生效，专项测试（test_retr_s*.py）全测非生产路径，
+    绿灯是假信号。修复 = 抽出本共享函数，两份 search 原地调用。
+
+    开关语义（契约 §3，保持不变）：
+      · 总开关 MDCG_RETRIEVAL_PIPELINE=1；未设 → 本函数是恒等变换；
+      · S1 / S2：未设=开，"=0" 显式关（先于 S1b 存在的默认项）；
+      · S1b / S4：必须显式 "=1"（会新增收敛/新层加成，非对称开关）；
+      · S3 spread / S7 postings：仍属 MdCG.search 的候选生成段（新 tier），
+        MdCGOS 路径的对应物是 reach——本函数不涉及。
+    召回安全不变量：任一收敛「命中不足 min_results / 清空」即回退不收敛；
+    orphan/未标域恒留兜底池。
+    """
+    gates = {}
+    if os.environ.get("MDCG_RETRIEVAL_PIPELINE") != "1":
+        return entries, gates
+    # S4 层级激活优先级审计（加成本体在 _score：layer_boosts() 由打分面消费，
+    # 该面两份 search 共享 → S4 加成在生产路径其实一直生效，缺的只是这份审计）
+    _s4 = (os.environ.get("MDCG_GATE_S4_LAYER") == "1")
+    if _s4 and entries:
+        _bo = layer_boosts()
+        _lc = {}
+        for _e in entries:
+            _l = str(_e.get("layer") or "")
+            _lc[_l] = _lc.get(_l, 0) + 1
+        gates["s4"] = {"boosts": _bo, "layers": _lc}
+    if os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0" and big_domain:
+        # 域内 ∪ 未标域（兜底池）：无域标签的历史节点绝不能因「域内够多」被丢
+        #（契约 §3 S1 不变量：ORPHAN/未标域必须可被召回）
+        same = [e for e in entries
+                if not e.get("big_domain") or e.get("big_domain") == big_domain]
+        # 召回安全：域内候选不足以支撑 min_results 时不收敛，留全量兜底
+        if len(same) >= max(1, min_results):
+            gates["s1"] = {"domain": big_domain, "in": len(same),
+                           "dropped": len(entries) - len(same)}
+            entries = same
+        else:
+            gates["s1"] = {"domain": big_domain, "in": len(same),
+                           "dropped": 0, "fallback": "insufficient"}
+    elif os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0":
+        gates["s1"] = {"domain": None, "reason": "no_domain_signal"}
+    # ---- S1b 细口径桶收敛（设计见 docs/hive/检索收敛实测与S1b设计_v0.1.md）----
+    # 为何：真实库 91.1% 节点有非 orphan 桶、期望扫描仅 2.1%（细口径），但 T0/T1 桶路
+    # 只在调用方传 context 时可用；普通 search(q) 无 context 就只能全扫。S1b 让 query 侧
+    # 自己推断候选桶（只用索引，不读文件），把这份收敛拿回来。
+    # 召回安全：orphan/无桶节点恒留兜底；命中不足 min_results 即回退（不改 entries）。
+    # 开关与参数就地定义：S1b 只依赖总开关 + MDCG_GATE_S1B_BUCKET。
+    _s1b = (os.environ.get("MDCG_GATE_S1B_BUCKET") == "1")
+    try:
+        _s1b_topk = int(os.environ.get("MDCG_BUCKET_TOPK", "3"))
+    except ValueError:
+        _s1b_topk = 3
+    try:
+        _s1b_minsim = min(1.0, max(0.0, float(os.environ.get("MDCG_BUCKET_MIN_SIM", "0.34"))))
+    except ValueError:
+        _s1b_minsim = 0.34
+    if _s1b and entries:
+        if _s1b_topk <= 0:
+            gates["s1b"] = {"keys": [], "reason": "disabled_by_topk"}
+        else:
+            _sizes = {}
+            for _e in entries:
+                _b = _e.get("bucket")
+                if _b and _b != routing.ORPHAN:
+                    _sizes[_b] = _sizes.get(_b, 0) + 1
+            _best = {}
+            for _b in _sizes:
+                _kk = routing.bucket_key_readable(_b)
+                if not _kk:
+                    continue
+                _sim = 0.0
+                for _t in terms:
+                    _sv = routing.domain_similarity(_t, _kk)
+                    if _sv > _sim:
+                        _sim = _sv
+                if _sim >= _s1b_minsim:
+                    _best[_b] = _sim
+            if not _best:
+                gates["s1b"] = {"keys": [], "reason": "no_key_match",
+                               "in": len(entries), "buckets": len(_sizes)}
+            else:
+                _picked = sorted(_best.items(),
+                                 key=lambda kv: (-kv[1], -_sizes[kv[0]],
+                                                 str(kv[0])))[:_s1b_topk]
+                _keep = {_b for _b, _ in _picked}
+                _kept = [e for e in entries
+                         if (e.get("bucket") in _keep)
+                         or not e.get("bucket")
+                         or e.get("bucket") == routing.ORPHAN]
+                gates["s1b"] = {"keys": [_b for _b, _ in _picked],
+                                "sims": [round(_v, 4) for _, _v in _picked],
+                                "in": len(entries), "out": len(_kept),
+                                "sizes": {_b: _sizes[_b] for _b, _ in _picked}}
+                if len(_kept) >= max(1, min_results):
+                    entries = _kept
+                else:
+                    # 回退：entries 保持不变 → 审计的 out 必须记「真实输出规模」，
+                    # 命中桶本可保留的数量另存 would_keep（独立复核 2026-09-19 指出口径误导）
+                    gates["s1b"]["would_keep"] = len(_kept)
+                    gates["s1b"]["out"] = len(entries)
+                    gates["s1b"]["fallback"] = "insufficient"
+    if os.environ.get("MDCG_GATE_S2_COND", "1") != "0" and isinstance(context, dict):
+        kept = [e for e in entries if _cond_prefilter_pass(e, context)]
+        gates["s2"] = {"in": len(entries), "out": len(kept),
+                       "dropped": len(entries) - len(kept)}
+        # 门控清空则回退（宁多勿漏）
+        if kept:
+            entries = kept
+        else:
+            gates["s2"]["fallback"] = "empty"
+    return entries, gates
+
+
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
 # 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
@@ -1947,27 +2066,20 @@ class MdCG:
         # 默认（MDCG_RETRIEVAL_PIPELINE 未设）全关 → 行为与改动前等价。
         big_domain = routing.big_domain_classify(terms)
         big_scores = routing.big_domain_score_breakdown(terms)
-        gates = {}
         # S3 子开关**必须显式 =1**（与 S1/S2 的「未设=开」不同，是有意的非对称）：
         # S3 会新增候选并引入新的 tier（TIER_SPREAD），在总开关开启时若默认随开，
         # 会让「启用 S1/S2」的用户静默多出一层结果——独立复核（2026-09-19）要求显式启用。
         # 参数：hops（默认 2）、decay（默认 0.5）、gain（默认 0.2）。
         _s3 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
                and os.environ.get("MDCG_GATE_S3_SPREAD") == "1")
-        # S4 层级激活优先级：同样必须显式 =1（新层加成会改变排序，属显式启用项）
-        _s4 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
-               and os.environ.get("MDCG_GATE_S4_LAYER") == "1")
         # S7 倒排候选层（只作候选生成器；召回与全表扫描一致）；见 md_cg/postings.py
         _s7 = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
                and os.environ.get("MDCG_GATE_S7_POSTINGS") == "1")
         _s7_narrowed = False
-        if _s4 and entries:
-            _bo = layer_boosts()
-            _lc = {}
-            for _e in entries:
-                _l = str(_e.get("layer") or "")
-                _lc[_l] = _lc.get(_l, 0) + 1
-            gates["s4"] = {"boosts": _bo, "layers": _lc}
+        # S1/S1b/S2 收敛 + S4 审计走共享函数（issue #25：原先内联于此，被
+        # MdCGOS.search 覆写悬空——生产路径从未生效；行为与内联版逐字节一致）
+        entries, gates = apply_retrieval_gates(
+            entries, terms, big_domain, context, min_results)
         try:
             _s3_hops = max(1, int(os.environ.get("MDCG_SPREAD_HOPS", "2")))
         except ValueError:
@@ -1980,91 +2092,6 @@ class MdCG:
             _s3_gain = min(1.0, max(0.0, float(os.environ.get("MDCG_SPREAD_GAIN", "0.2"))))
         except ValueError:
             _s3_gain = 0.2
-        if os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1" and entries:
-            if os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0" and big_domain:
-                # 域内 ∪ 未标域（兜底池）：无域标签的历史节点绝不能因「域内够多」被丢
-                #（契约 §3 S1 不变量：ORPHAN/未标域必须可被召回）
-                same = [e for e in entries
-                        if not e.get("big_domain") or e.get("big_domain") == big_domain]
-                # 召回安全：域内候选不足以支撑 min_results 时不收敛，留全量兜底
-                if len(same) >= max(1, min_results):
-                    gates["s1"] = {"domain": big_domain, "in": len(same),
-                                   "dropped": len(entries) - len(same)}
-                    entries = same
-                else:
-                    gates["s1"] = {"domain": big_domain, "in": len(same),
-                                   "dropped": 0, "fallback": "insufficient"}
-            elif os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0":
-                gates["s1"] = {"domain": None, "reason": "no_domain_signal"}
-            # ---- S1b 细口径桶收敛（设计见 docs/hive/检索收敛实测与S1b设计_v0.1.md）----
-            # 为何：真实库 91.1% 节点有非 orphan 桶、期望扫描仅 2.1%（细口径），但 T0/T1 桶路
-            # 只在调用方传 context 时可用；普通 search(q) 无 context 就只能全扫。S1b 让 query 侧
-            # 自己推断候选桶（只用索引，不读文件），把这份收敛拿回来。
-            # 召回安全：orphan/无桶节点恒留兜底；命中不足 min_results 即回退（不改 entries）。
-            # 开关与参数就地定义（位于“总开关块”内，不在 S4 块内）：S1b 只依赖总开关 + MDCG_GATE_S1B_BUCKET。
-            _s1b = (os.environ.get("MDCG_GATE_S1B_BUCKET") == "1")
-            try:
-                _s1b_topk = int(os.environ.get("MDCG_BUCKET_TOPK", "3"))
-            except ValueError:
-                _s1b_topk = 3
-            try:
-                _s1b_minsim = min(1.0, max(0.0, float(os.environ.get("MDCG_BUCKET_MIN_SIM", "0.34"))))
-            except ValueError:
-                _s1b_minsim = 0.34
-            if _s1b and entries:
-                if _s1b_topk <= 0:
-                    gates["s1b"] = {"keys": [], "reason": "disabled_by_topk"}
-                else:
-                    _sizes = {}
-                    for _e in entries:
-                        _b = _e.get("bucket")
-                        if _b and _b != routing.ORPHAN:
-                            _sizes[_b] = _sizes.get(_b, 0) + 1
-                    _best = {}
-                    for _b in _sizes:
-                        _kk = routing.bucket_key_readable(_b)
-                        if not _kk:
-                            continue
-                        _sim = 0.0
-                        for _t in terms:
-                            _sv = routing.domain_similarity(_t, _kk)
-                            if _sv > _sim:
-                                _sim = _sv
-                        if _sim >= _s1b_minsim:
-                            _best[_b] = _sim
-                    if not _best:
-                        gates["s1b"] = {"keys": [], "reason": "no_key_match",
-                                       "in": len(entries), "buckets": len(_sizes)}
-                    else:
-                        _picked = sorted(_best.items(),
-                                         key=lambda kv: (-kv[1], -_sizes[kv[0]],
-                                                         str(kv[0])))[:_s1b_topk]
-                        _keep = {_b for _b, _ in _picked}
-                        _kept = [e for e in entries
-                                 if (e.get("bucket") in _keep)
-                                 or not e.get("bucket")
-                                 or e.get("bucket") == routing.ORPHAN]
-                        gates["s1b"] = {"keys": [_b for _b, _ in _picked],
-                                        "sims": [round(_v, 4) for _, _v in _picked],
-                                        "in": len(entries), "out": len(_kept),
-                                        "sizes": {_b: _sizes[_b] for _b, _ in _picked}}
-                        if len(_kept) >= max(1, min_results):
-                            entries = _kept
-                        else:
-                            # 回退：entries 保持不变 → 审计的 out 必须记「真实输出规模」，
-                            # 命中桶本可保留的数量另存 would_keep（独立复核 2026-09-19 指出口径误导）
-                            gates["s1b"]["would_keep"] = len(_kept)
-                            gates["s1b"]["out"] = len(entries)
-                            gates["s1b"]["fallback"] = "insufficient"
-            if os.environ.get("MDCG_GATE_S2_COND", "1") != "0" and isinstance(context, dict):
-                kept = [e for e in entries if _cond_prefilter_pass(e, context)]
-                gates["s2"] = {"in": len(entries), "out": len(kept),
-                               "dropped": len(entries) - len(kept)}
-                # 门控清空则回退（宁多勿漏）
-                if kept:
-                    entries = kept
-                else:
-                    gates["s2"]["fallback"] = "empty"
         if not entries:
             _m = {"tier": None, "reason": "no_candidates", "scanned": 0}
             if gates:                      # 默认关时 gates 为空 → 不落键（口径与改动前一致）
