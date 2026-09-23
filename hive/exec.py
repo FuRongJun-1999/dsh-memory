@@ -455,6 +455,16 @@ LINGSHU_TOOL_SCHEMA = {
                     "type": "string",
                     "enum": list(VERIFICATION_BASIS_ALLOW),
                     "description": "op=write：验证基底，缺省由审核闸门判定"},
+                "valid_from": {
+                    "type": "string",
+                    "description": "op=write：双时间轴起点（ISO8601，如 2026-01-01）。"
+                                   "不填=现行为（写者声明，系统不代推导）；"
+                                   "收口类结论建议填当下"},
+                "valid_until": {
+                    "type": "string",
+                    "description": "op=write：双时间轴终点（ISO8601）。时效性结论"
+                                   "（版本号/配额/限时政策类）应填——过期后 validity"
+                                   " 过滤不再召回；长期知识不填"},
             },
             "required": ["op"],
         },

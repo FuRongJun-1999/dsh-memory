@@ -600,5 +600,26 @@ with _mock.patch.object(_msrv, "_cg_dispatch", _fake_dispatch):
           f"{out!r}/{_captured.get('layer')}")
     ex.set_principal_factory(None)
 
+# ------------------------------------------------ J M4 效力轴透传（schema + args）
+# 能红说明：删 LINGSHU_TOOL_SCHEMA 的 valid_from/valid_until 声明时 J1/J2 红；
+# tool_lingshu_cg 若改动 args 白名单过滤导致效力轴丢失时 J3 红。
+print("[J] M4 效力轴：schema 声明 + args 原样透传（不做自动推导）")
+_props = ex.LINGSHU_TOOL_SCHEMA["function"]["parameters"]["properties"]
+check("J1 schema 声明 valid_from/valid_until",
+      "valid_from" in _props and "valid_until" in _props)
+check("J2 声明含「不填=现行为」默认规则（不自动推导）",
+      "不填=现行为" in _props["valid_from"]["description"]
+      and "不填" in _props["valid_until"]["description"])
+_captured.clear()
+with _mock.patch.object(_msrv, "_cg_dispatch", _fake_dispatch):
+    out = ex.tool_lingshu_cg(
+        {"op": "write", "content": "时效结论", "layer": "contextual",
+         "valid_from": "2026-09-23", "valid_until": "2026-12-31"}, "job_j")
+    check("J3 效力轴参数原样透传库层（exec 层不吞不猜）",
+          out["ok"] is True
+          and _captured.get("valid_from") == "2026-09-23"
+          and _captured.get("valid_until") == "2026-12-31",
+          str(_captured)[:150])
+
 print(f"\n结果：{PASS} 通过 / {FAIL} 失败")
 sys.exit(1 if FAIL else 0)
