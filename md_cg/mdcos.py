@@ -1486,15 +1486,24 @@ class MdCGOS(MdCG):
 
     # ================= 1. Fix pairs 自动挖掘 =================
 
-# 生效条件：当 events 传入时，兼容显式 {error,fix} 对与含 text 的事件序列；后者在错误行长度 >= min_len 后向后 lookahead 条内寻找 _FIX_RE 命中的行配对并 break；去重后为每对 add 知识节点和 add_rejected，返回 pairs/rejected_ids/knowledge_ids；
-    def mine_fix_pairs(self, events, lookahead: int = 4, min_len: int = 6):
+# 生效条件：当 events 传入时，兼容显式 {error,fix} 对与含 text 的事件序列；后者在错误行长度 >= min_len 后向后 lookahead 条内寻找 _FIX_RE 命中的行配对并 break；去重后为每对产出修复知识（as_proposals 为假→add 直写 knowledge 层；为真→propose 入审核队列，判据指纹随提案落盘，knowledge_ids 为空、pids 收提案 id 并附 as_proposals=True）与 add_rejected 负记忆，返回 pairs/rejected_ids/knowledge_ids（提案模式另附 pids）；
+    def mine_fix_pairs(self, events, lookahead: int = 4, min_len: int = 6,
+                       as_proposals: bool = False):
         """从行为日志挖掘「错误 → 修复」对。
 
         events: [{"role": ..., "text": ...}] 或 [{"error":..., "fix":...}]（显式对）
         返回 {"pairs": [...], "rejected_ids": [...], "knowledge_ids": [...]}
 
+        as_proposals=False（默认，显式调用语义）：正记忆直写 knowledge 层——
+        调用方是有意图的显式动作（如 mdcg_mine_fix_pairs 工具直调）。
+        as_proposals=True（自动管线语义）：正记忆改走 propose 审核队列——
+        自动产物不经收口不入知识层（§5.5 系统纪律化，zcode 外评 break#2）；
+        判据指纹随提案落盘，复核者只能按原判据裁决不能放宽；payload_hash
+        幂等（重试与崩溃恢复无害）。负记忆一律直写 rejected 层（隔离层，
+        不存在 knowledge 污染问题）。
+
         产出：
-          · knowledge/<fix_xxx>.md —— 可路由的修复知识（CCG 5 要素）
+          · knowledge/<fix_xxx>.md 或审核队列提案 —— 可路由的修复知识（CCG 5 要素）
           · rejected/<rej_xxx>.md  —— 负记忆「此错误不必深挖根因」（防重复踩坑）
         """
         pairs = []
@@ -1529,7 +1538,7 @@ class MdCGOS(MdCG):
             seen.add(k)
             uniq.append((err, fix))
 
-        rej_ids, kno_ids = [], []
+        rej_ids, kno_ids, pids = [], [], []
         for err, fix in uniq:
             # 1) 可路由的修复知识
             kid = "fix_" + _sig(err + "\x00" + fix)
@@ -1541,17 +1550,31 @@ class MdCGOS(MdCG):
                 f"# 验证方式：行为日志（后续同类错误不再出现）\n"
                 f"# 不适用条件：与「{err[:30]}」不同的错误\n\n"
                 f"错误：{err}\n修复：{fix}\n")
-            self.add(kid, content, layer="knowledge", tags=["fix_pair"],
-                     verification_basis="data", importance=0.7)
-            kno_ids.append(kid)
+            if as_proposals:
+                # 自动管线：入审核队列（判据指纹随提案落盘，复核者不能放宽；
+                # payload_hash 幂等——同内容重试返回原 pid）
+                pid = self.propose(
+                    kid, content, layer="knowledge", tags=["fix_pair"],
+                    verify={"kind": "data",
+                            "assertions": ["error/fix 均非空且来自真实行为日志",
+                                           "与既有 fix_pair 知识不重复"]})
+                pids.append(pid)
+            else:
+                self.add(kid, content, layer="knowledge", tags=["fix_pair"],
+                         verification_basis="data", importance=0.7)
+                kno_ids.append(kid)
             # 2) 负记忆：这个错误不是死路（防止重复深挖）
             rid = self.add_rejected(
                 hypothesis=f"「{err[:60]}」需要深挖根因（无现成解法）",
                 reason=f"已有修复：{fix[:80]}",
                 verification_basis="data", tags=["fix_pair"])
             rej_ids.append(rid)
-        return {"pairs": [{"error": e, "fix": f} for e, f in uniq],
-                "rejected_ids": rej_ids, "knowledge_ids": kno_ids}
+        result = {"pairs": [{"error": e, "fix": f} for e, f in uniq],
+                  "rejected_ids": rej_ids, "knowledge_ids": kno_ids}
+        if as_proposals:
+            result["as_proposals"] = True
+            result["pids"] = pids
+        return result
 
     # ================= 4. 审核队列（inbox → decisions） =================
 

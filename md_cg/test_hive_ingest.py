@@ -202,6 +202,65 @@ def main():
                   rep_d.get("dry_run") is True and rep_d.get("written", 1) == 0)
         finally:
             shutil.rmtree(root2, ignore_errors=True)
+
+        # ---- 7. §5.5 系统纪律化（zcode 外评 break#2/P1）：默认不挖矿 + 产物入队 ----
+        print("[7] mine_fix_pairs 默认翻转 + 自动产物走 propose 队列")
+        root3 = tempfile.mkdtemp(prefix="mdcg_m7_")
+        try:
+            # 造一个含「错误→修复」对的 jsonl 会话文件
+            jl = os.path.join(root3, "sess.jsonl")
+            with open(jl, "w", encoding="utf-8") as f:
+                f.write(json.dumps({"role": "assistant",
+                                    "text": "执行失败：ModuleNotFoundError: no x"}) + "\n")
+                # 修复行必须是行首命令（_FIX_RE 行首启发式）
+                f.write(json.dumps({"role": "assistant",
+                                    "text": "执行修复：\npip install x"}) + "\n")
+            cg3 = MdCGOS(root3)
+            kn_before = sum(1 for e in (cg3.index.get("nodes") or {}).values()
+                            if (e or {}).get("layer") == "knowledge")
+            # 7a：不传 mine_fix_pairs（吃新默认 False）→ 不挖矿
+            rep_a = sources_run(cg3, action="jsonl", path=jl)
+            check("7a 默认不挖矿（file/jsonl 不再直写知识层——旧行为即红）",
+                  "fix_pairs" not in rep_a, str(rep_a.get("fix_pairs"))[:120])
+            kn_after = sum(1 for e in (cg3.index.get("nodes") or {}).values()
+                           if (e or {}).get("layer") == "knowledge")
+            check("7b 默认路径 knowledge 层零新增（污染反向对照）",
+                  kn_after == kn_before, f"{kn_before} -> {kn_after}")
+            # 7c：显式开启 → 自动产物走 propose 队列（不直写）
+            from .sources import JsonlSource
+            rep_c = Ingestor(cg3).ingest(JsonlSource(jl), mine_fix_pairs=True,
+                                         dry_run=True)
+            # dry_run 不挖矿；改真实写（换新 root 避免水位吃掉事件）
+            cg4 = MdCGOS(tempfile.mkdtemp(prefix="mdcg_m7b_"))
+            rep_c = Ingestor(cg4).ingest(JsonlSource(jl), mine_fix_pairs=True)
+            fp = rep_c.get("fix_pairs") or {}
+            check("7c 显式开启时自动产物走提案（as_proposals=True，pids 非空）",
+                  fp.get("as_proposals") is True and len(fp.get("pids") or []) >= 1
+                  and not fp.get("knowledge_ids"), str(fp)[:160])
+            kn_c = sum(1 for e in (cg4.index.get("nodes") or {}).values()
+                       if (e or {}).get("layer") == "knowledge")
+            check("7d 提案模式下 knowledge 层仍零新增（收口前不入层）",
+                  kn_c == 0, f"knowledge={kn_c}")
+            check("7e 提案入审核队列（review_list 可见）",
+                  len(cg4.review_list() or []) >= 1,
+                  str(cg4.review_list())[:120])
+            # 7f：显式工具语义直调（不带 as_proposals）→ 保持直写
+            r_tools = cg4.mine_fix_pairs([
+                {"error": "ModuleNotFoundError: no y", "fix": "pip install y"}])
+            check("7f 显式调用保持直写（knowledge_ids 非空）",
+                  len(r_tools.get("knowledge_ids") or []) == 1, str(r_tools)[:120])
+            # 7g：payload_hash 幂等——同内容再入队返回原 pid
+            r2 = cg4.mine_fix_pairs([
+                {"error": "ModuleNotFoundError: no x", "fix": "pip install x"}],
+                as_proposals=True)
+            r3 = cg4.mine_fix_pairs([
+                {"error": "ModuleNotFoundError: no x", "fix": "pip install x"}],
+                as_proposals=True)
+            check("7g 同内容重试幂等（返回原 pid 不重复入队）",
+                  r2["pids"] == r3["pids"] and len(r2["pids"]) >= 1,
+                  f"{r2['pids']} vs {r3['pids']}")
+        finally:
+            shutil.rmtree(root3, ignore_errors=True)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

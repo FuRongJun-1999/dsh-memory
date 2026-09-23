@@ -473,7 +473,9 @@ TOOLS = [
                        "（不是按最近活动）；选中的会话与候选明细见返回体 selection 字段。",
         "inputSchema": _s("", source=_p("string", "会话文件路径，或 'auto' 自动发现 DSH 会话"),
                           max_events=_p("integer", "单次最多摄取事件数"),
-                          mine_fix_pairs=_p("boolean", "是否自动挖掘错误→修复对（默认是）"),
+                          mine_fix_pairs=_p("boolean", "是否自动挖掘错误→修复对（默认否——"
+                                            "先落账后挖矿；显式开启时产物走 propose "
+                                            "审核队列，不直写知识层）"),
                           dry_run=_p("boolean", "只统计不写入")),
     },
     {
@@ -601,10 +603,10 @@ KERNEL_TOOLS = [
                        "compact 压摘要；hook 缺失时的库侧替代——载体负责「何时做」、库保证"
                        "「一次调用就够用」；note 与 compact(note=True) 需 can_write，recall 只读）；"
                        "op=ingest：文件摄取（action=file|dir|jsonl|stat|hive；写链需 can_write，"
-                       "支持 dry_run 预演与 incremental 增量去重、watermark 留痕；"
-                       "hive=蜂巢任务事件源——path=hive/jobs 目录或 env MDCG_HIVE_JOBS，"
-                       "只落 contextual，error 事件自动 private，"
-                       "先落账后挖矿 mine_fix_pairs 默认关）；"
+                           "支持 dry_run 预演与 incremental 增量去重、watermark 留痕；"
+                           "mine_fix_pairs 全入口默认关（先落账后挖矿，显式开启走 propose 队列）；"
+                           "hive=蜂巢任务事件源——path=hive/jobs 目录或 env MDCG_HIVE_JOBS，"
+                           "只落 contextual，error 事件自动 private）；"
                        "op=export：全库导出（action=graph|nodes|slice|stat；导出整库属管理"
                        "操作，一律 require_admin）；"
                        "op=maintain：记忆维护（action=stat|history|importance|longterm|"
@@ -3169,7 +3171,7 @@ def _dispatch(cg, name, args):
         else:
             src = _pick_source(src_arg)
         res = ing.ingest(src,
-                         mine_fix_pairs=bool(a.get("mine_fix_pairs", True)),
+                         mine_fix_pairs=bool(a.get("mine_fix_pairs", False)),
                          max_events=a.get("max_events"),
                          dry_run=bool(a.get("dry_run")))
         if picked is not None:
