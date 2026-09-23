@@ -29,8 +29,10 @@ pub const PATH_TAKE: usize = 50;
 /// `_like`：`any(t in body or t in tags for t in terms)`。
 #[inline]
 fn like(doc: &Doc, terms: &[String]) -> bool {
-    let body = doc.like_body();
-    let tags = doc.tags_joined.as_str();
+    // Python `_like`：body 与 tags 双边小写化后做包含判定（terms 已是
+    // normalize_en 产物，全小写/中文）
+    let body = doc.like_body().to_lowercase();
+    let tags = doc.tags_joined.to_lowercase();
     terms
         .iter()
         .any(|t| body.contains(t.as_str()) || (!tags.is_empty() && tags.contains(t.as_str())))
@@ -47,7 +49,12 @@ pub fn lexical(
     jaccard: bool,
 ) -> Vec<Hit> {
     let terms = expand_query_terms(query);
-    let qb = bigrams(query);
+    // issue #29：qb 必须与 Python 同口径 = bigrams(normalize_en(query))
+    // （en_zh_bigrams 受 MDCG_EN_ATOMS 控制，默认关 → 空集，此处豁免）。
+    // 原先用原始 query 取 bigram——英文查询与归一化文档侧交集错位、
+    // 混合查询的分数系统性偏移。
+    let qnorm = crate::text::normalize_en(query);
+    let qb = bigrams(&qnorm);
     let qbl = qb.len() as f64;
 
     // 预筛：命中数（hits）；同时记住候选全集下标以便回退
@@ -186,7 +193,9 @@ pub fn graph(
     out
 }
 
-/// 对齐 `sorted(scored, key=lambda x: (-score, -importance))`（稳定排序）。
+/// 对齐 `sorted(scored, key=lambda x: (-score, -importance, str(id)))`
+/// （`mdcos._lexical` 三键排序；issue #29：第三键 id 缺失会让分数并列时
+/// 路内顺序漂移 → RRF 名次连锁偏移）。
 pub fn sort_path(hits: &mut [Hit], docs: &[Option<Doc>]) {
     hits.sort_by(|a, b| {
         b.score
@@ -196,6 +205,11 @@ pub fn sort_path(hits: &mut [Hit], docs: &[Option<Doc>]) {
                 let ia = docs[a.idx].as_ref().map(|d| d.importance).unwrap_or(0.0);
                 let ib = docs[b.idx].as_ref().map(|d| d.importance).unwrap_or(0.0);
                 ib.partial_cmp(&ia).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| {
+                let ida = docs[a.idx].as_ref().map(|d| d.id.clone()).unwrap_or_default();
+                let idb = docs[b.idx].as_ref().map(|d| d.id.clone()).unwrap_or_default();
+                ida.cmp(&idb)
             })
     });
 }
@@ -265,8 +279,17 @@ pub fn fuse(
             acc.get(&d.id).map(|s| (di, *s))
         })
         .collect();
-    // 对齐 `sorted(rrf.items(), key=lambda kv: -kv[1])[:k]`（稳定）
-    fused.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    // 对齐 `sorted(rrf.items(), key=lambda kv: (-kv[1], kv[0]))[:k]`
+    // （mdcos.py:1300——id 兜底次键。issue #29 勘误：本注释原先只写
+    // `-kv[1]`，与 Python 实际实现不符；该兜底虽非本 issue 现象成因，
+    // 但注释与实现必须一致，避免下一个维护者按错注释实现）
+    fused.sort_by(|a, b| {
+        let ida = docs[a.0].as_ref().map(|d| d.id.clone()).unwrap_or_default();
+        let idb = docs[b.0].as_ref().map(|d| d.id.clone()).unwrap_or_default();
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| ida.cmp(&idb))
+    });
     fused.truncate(k);
     fused
 }

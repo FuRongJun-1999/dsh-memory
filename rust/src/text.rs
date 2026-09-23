@@ -30,10 +30,18 @@ pub fn is_split_char(c: char) -> bool {
     matches!(c, '、' | '，' | '。' | '；' | '：' | ',' | ';' | '.' | ':' | '/' | '\\' | '|')
 }
 
-/// `expand_query_terms`：整句 + 分词（≥2 字符）+ 同义词组展开，去重保序。
+/// `expand_query_terms`：归一化整句 + 分词（≥2 字符）+ 同义词组展开 +
+/// 中文 2-gram 召回扩展，去重保序。
+///
+/// issue #29 对齐修正（2026-09-23）：Python 版在分词**之前**先做
+/// `normalize_en(query)`（英文小写/停用词/时态归一，中文不动），并在尾部
+/// 追加 `cn_recall_grams`（连续中文 ≥4 切 2-gram 召回键，MDCG_CN_GRAMS=0
+/// 关）。此前 Rust 版缺这两段——同库同 query 的 terms 集合与 Python 不一致，
+/// LIKE 预筛候选与 lexical 打分连锁漂移（top-5 顺序 1/40 一致的根因之一）。
 pub fn expand_query_terms(query: &str) -> Vec<String> {
+    let query = normalize_en(query);
     let mut terms: Vec<String> = Vec::with_capacity(12);
-    terms.push(query.to_string());
+    terms.push(query.clone());
 
     for w in query.split(is_split_char) {
         let w = w.trim();
@@ -55,8 +63,190 @@ pub fn expand_query_terms(query: &str) -> Vec<String> {
         }
     }
 
+    // 构词法 v1：中文连续串 2-gram 召回扩展（只增召回，不改打分口径）
+    for g in cn_recall_grams(&query) {
+        if !terms.iter().any(|t| t == &g) {
+            terms.push(g);
+        }
+    }
+
+    // en_zh_terms（英→中语素，MDCG_EN_ATOMS=1 显式开启）：默认关闭 →
+    // 默认链路无此项，Rust 侧暂不移植（Python mdcg.py:257 默认返回 []）。
+
     // 对齐 `list(dict.fromkeys(terms))`：前面已逐处去重，此处保序即可。
     terms
+}
+
+/// 中文连续串 2-gram 召回扩展（对齐 `mdcg.cn_recall_grams`，min_run=4，
+/// cap=16，MDCG_CN_GRAMS=0 关闭；`CN_STOP_GRAMS` 纯语法组合剔除）。
+pub fn cn_recall_grams(query: &str) -> Vec<String> {
+    if std::env::var("MDCG_CN_GRAMS").as_deref() == Ok("0") {
+        return Vec::new();
+    }
+    fn is_zh(c: char) -> bool {
+        ('\u{4e00}'..='\u{9fff}').contains(&c)
+    }
+    let chars: Vec<char> = query.chars().collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if !is_zh(chars[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < chars.len() && is_zh(chars[i]) {
+            i += 1;
+        }
+        let run_len = i - start;
+        if run_len >= 4 {
+            for k in start..=(start + run_len - 2) {
+                let g: String = [chars[k], chars[k + 1]].iter().collect();
+                if CN_STOP_GRAMS.contains(&g.as_str()) || out.contains(&g) {
+                    continue;
+                }
+                out.push(g);
+                if out.len() >= 16 {
+                    return out;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// 中文高频功能 bigram（召回扩展时剔除：纯语法组合，召回价值低）。
+pub const CN_STOP_GRAMS: &[&str] = &[
+    "的了", "是一", "的在", "有个", "就是", "不是", "没有", "这个", "那个",
+    "我们", "你们", "可以", "一个", "的话", "来说", "关于", "对于", "还是",
+];
+
+/// 英文停用词（对齐 `mdcg.EN_STOPWORDS` frozenset）。
+pub const EN_STOPWORDS: &[&str] = &[
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "do", "does", "did", "have", "has", "had", "will", "would", "could",
+    "should", "may", "might", "of", "to", "in", "on", "at", "for", "with",
+    "by", "from", "up", "about", "into", "over", "after", "and", "or",
+    "but", "not", "no", "so", "if", "then", "than", "also", "very",
+    "what", "which", "who", "how", "why", "when", "where",
+    "this", "that", "these", "those", "it", "its", "as", "there",
+    "i", "me", "my", "we", "our", "you", "your", "he", "him", "his",
+    "she", "her", "they", "them", "their",
+];
+
+/// 不规则时态映射（对齐 `mdcg.EN_IRREGULAR`）。
+pub const EN_IRREGULAR: &[(&str, &str)] = &[
+    ("ate", "eat"), ("eaten", "eat"), ("went", "go"), ("gone", "go"),
+    ("saw", "see"), ("seen", "see"), ("wrote", "write"), ("written", "write"),
+    ("took", "take"), ("taken", "take"), ("made", "make"), ("ran", "run"),
+    ("bought", "buy"), ("brought", "bring"), ("thought", "think"),
+    ("taught", "teach"), ("caught", "catch"), ("sought", "seek"),
+    ("fought", "fight"), ("sold", "sell"), ("told", "tell"), ("felt", "feel"),
+    ("fell", "fall"), ("sent", "send"), ("spent", "spend"), ("built", "build"),
+    ("lost", "lose"), ("met", "meet"), ("paid", "pay"), ("led", "lead"),
+    ("won", "win"), ("sat", "sit"), ("stood", "stand"),
+    ("understood", "understand"), ("heard", "hear"),
+    ("spoke", "speak"), ("spoken", "speak"), ("broke", "break"),
+    ("broken", "break"),
+    ("chose", "choose"), ("chosen", "choose"), ("drew", "draw"),
+    ("drawn", "draw"),
+    ("drove", "drive"), ("driven", "drive"), ("grew", "grow"),
+    ("grown", "grow"),
+    ("knew", "know"), ("known", "know"), ("gave", "give"), ("given", "give"),
+    ("was", "be"), ("were", "be"), ("been", "be"), ("had", "have"),
+    ("has", "have"),
+    ("did", "do"), ("done", "do"), ("said", "say"), ("got", "get"),
+    ("left", "leave"), ("kept", "keep"), ("held", "hold"),
+    ("slept", "sleep"), ("swept", "sweep"), ("meant", "mean"),
+    ("dealt", "deal"), ("lent", "lend"), ("bent", "bend"),
+];
+
+/// 英文时态/复数归零（对齐 `mdcg.strip_tense_en`：宁可少剥不可误剥）。
+pub fn strip_tense_en(w: &str) -> String {
+    if let Some((_, v)) = EN_IRREGULAR.iter().find(|(k, _)| *k == w) {
+        return (*v).to_string();
+    }
+    // -ous 结尾 = 形容词不是复数（courageous/famous/various）
+    if w.ends_with("ous") || w.ends_with("us") || w.ends_with("is") {
+        return w.to_string();
+    }
+    if w.ends_with("ing") && w.len() > 5 {
+        return w[..w.len() - 3].to_string();
+    }
+    if w.ends_with("ed") && w.len() > 4 {
+        return w[..w.len() - 2].to_string();
+    }
+    if w.ends_with("ies") && w.len() > 4 {
+        return format!("{}y", &w[..w.len() - 3]);
+    }
+    // -es 只剥真复数（boxes→box, watches→watch），对齐 `(ch|sh|ss|x|z)o?es$`
+    if w.len() > 4
+        && [
+            "ches", "choes", "shes", "shoes", "sses", "xes", "xoes", "zes",
+            "zoes",
+        ]
+        .iter()
+        .any(|e| w.ends_with(e))
+    {
+        return w[..w.len() - 2].to_string();
+    }
+    // -s 剥离（motivates→motivate, pets→pet）
+    if w.ends_with('s') && !w.ends_with("ss") {
+        return w[..w.len() - 1].to_string();
+    }
+    w.to_string()
+}
+
+/// 英文归一化（对齐 `mdcg.normalize_en`）：小写 + 去停用词 + 去时态复数。
+/// 中文部分不动。
+///
+/// 三步（与 Python 逐行同构）：
+///   1. 清标点：非[中文 | 空白 | 字母 | 数字] → 空格；
+///   2. `[a-zA-Z]{2,}` 词段：小写化 → 停用词整词剔除 → 时态/复数归零
+///      （单字母段不处理，保留原样）；
+///   3. 空白压缩（Unicode 空白 → 单空格）并去首尾。
+pub fn normalize_en(text: &str) -> String {
+    let cleaned: String = text
+        .chars()
+        .map(|c| {
+            if ('\u{4e00}'..='\u{9fff}').contains(&c)
+                || c.is_whitespace()
+                || c.is_ascii_alphanumeric()
+            {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect();
+
+    let chars: Vec<char> = cleaned.chars().collect();
+    let mut out = String::with_capacity(chars.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i].is_ascii_alphabetic() {
+            let start = i;
+            while i < chars.len() && chars[i].is_ascii_alphabetic() {
+                i += 1;
+            }
+            if i - start >= 2 {
+                let w: String = chars[start..i]
+                    .iter()
+                    .collect::<String>()
+                    .to_lowercase();
+                if EN_STOPWORDS.contains(&w.as_str()) {
+                    continue; // 停用词整词剔除（两侧空格保留，后续压缩）
+                }
+                out.push_str(&strip_tense_en(&w));
+            } else {
+                out.push(chars[start]); // 单字母段：Python 正则不匹配，原样保留
+            }
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out.split_whitespace().collect::<Vec<&str>>().join(" ")
 }
 
 /// `bigrams(s)`：先抹掉所有空白，再取全部相邻二元组（去重）。
@@ -206,11 +396,12 @@ mod tests {
     #[test]
     fn terms_basic() {
         let t = expand_query_terms("What did Caroline buy?");
-        assert_eq!(t[0], "What did Caroline buy?");
-        assert!(t.contains(&"What".to_string()));
-        assert!(t.contains(&"Caroline".to_string()));
-        assert!(t.contains(&"buy?".to_string()), "`?` 不是分隔符");
-        assert!(t.contains(&"did".to_string()));
+        // issue #29 口径对齐：首项 = normalize_en 整句（Python :310 在分词前
+        // 先归一化——旧断言「首项=未归一原句」是悬空期行为，测试跟上）
+        assert_eq!(t[0], "caroline buy");
+        assert!(t.contains(&"caroline".to_string()));
+        assert!(t.contains(&"buy".to_string()));
+        assert!(!t.iter().any(|x| x == "What"), "停用词 What 已被归一化剔除");
     }
 
     #[test]
@@ -238,5 +429,46 @@ mod tests {
         assert_eq!(fm.get_str_vec("tags"), vec!["x", "y"]);
         assert_eq!(fm.get_f64("importance"), 0.5);
         assert_eq!(c, "正文\n");
+    }
+
+    /// issue #29 golden 对拍：期望值由 Python `md_cg.mdcg` 实测产出
+    /// （normalize_en / cn_recall_grams / expand_query_terms 前六项）。
+    /// 任何一侧口径改动都必须同步更新——这正是「逐位对齐」的守卫形态。
+    #[test]
+    fn golden_python_alignment() {
+        // 英文归一化：小写 + 停用词整词剔除 + 时态/复数归零（ate→eat）
+        assert_eq!(
+            normalize_en("The Cats were running quickly, and ate fish!"),
+            "cat runn quickly eat fish"
+        );
+        // 专有词保留原名 + 问号清为空格
+        assert_eq!(normalize_en("What did Caroline buy?"), "caroline buy");
+        // 中文不动 + 英文词保留（大小写归一）
+        assert_eq!(
+            normalize_en("灵枢的 hotcache 设计说明"),
+            "灵枢的 hotcache 设计说明"
+        );
+        // 时态/复数链：running→runn / pets→pet / dogs→dog /
+        // chased→chas（-ed 剥）/ balls→ball；The 剔除
+        assert_eq!(
+            normalize_en("Running pets! The dogs chased balls"),
+            "runn pet dog chas ball"
+        );
+
+        // 中文 2-gram 召回扩展（≥4 字连续中文 run，CN_STOP_GRAMS 剔除）
+        assert_eq!(
+            cn_recall_grams("慈善跑 心理健康 发声 意识 意义"),
+            vec!["心理".to_string(), "理健".to_string(), "健康".to_string()]
+        );
+        assert_eq!(
+            cn_recall_grams("灵枢的 hotcache 设计说明"),
+            vec!["设计".to_string(), "计说".to_string(), "说明".to_string()]
+        );
+        assert!(cn_recall_grams("Running pets! The dogs chased balls").is_empty());
+
+        // expand_query_terms 首项 = normalize_en 整句，分词跟上
+        let t = expand_query_terms("What did Caroline buy?");
+        assert_eq!(t.first().map(String::as_str), Some("caroline buy"));
+        assert!(t.contains(&"caroline".to_string()) && t.contains(&"buy".to_string()));
     }
 }

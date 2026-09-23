@@ -323,7 +323,11 @@ fn read_doc(root: &Path, e: &Entry) -> Option<Doc> {
     };
     let lit = crate::text::positive_body(&content);
     let lit = if lit == content { None } else { Some(lit) };
-    let stripped = crate::text::strip_ws(&content);
+    // issue #29 对齐（2026-09-23）：文档侧打分文本走 normalize_en（英文小写/
+    // 停用词/时态归一，中文不动）——Python `_score` 的 `nb =
+    // bigrams(normalize_en(c))`。原先只抹空白，含英文的文档 bigram 集合与
+    // Python 不同 → lexical 分数漂移 → RRF 连锁偏移（top-5 顺序 1/40 一致）。
+    let stripped = crate::text::strip_ws(&crate::text::normalize_en(&content));
     let tags_joined = tags.join(" ");
     let db_len = crate::text::bigrams(&stripped).len();
 
