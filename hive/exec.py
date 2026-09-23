@@ -395,6 +395,29 @@ _IMG_MAGIC = (
 class SpecError(Exception):
     """规格错（fail-closed）：由 main 以 EXIT_SPEC 收口，不静默降级。"""
 
+
+# 生效条件：给定 model 与 base，已知网关按前缀配对裁决——base 含 api.deepseek.com 须 model 以 deepseek 开头、base 含 bigmodel.cn 须 model 以 glm 开头，错配返回人话描述（含标准出处），未知网关（两者都不含）返回 None 放行；model 为空返回 None（缺 model 由 rust 侧必填校验拦截，不重复报）。
+def model_base_mismatch(model: str, base: str) -> str | None:
+    """model↔base 配对前置校验（子代理配置标准 v0.5 §1）。
+
+    为什么在执行器而非 API：错配在 API 侧 400（标准 §1 实测）——任务已经过
+    调度、claim、spawn 全链路才炸，白烧一次调度并产出一份 error 任务
+    （2026-09-23 归因：jobs/12 个 error 中 1 个即此，h1790085459807）。
+    左移到执行边界 fail-fast：提交即刻收到人话错误，不触网。
+    未知网关刻意放行：配对表只覆盖已知厂商 base，自定义网关不误伤。
+    """
+    m = (model or "").strip()
+    b = (base or "").lower()
+    if not m:
+        return None
+    if "api.deepseek.com" in b and not m.startswith("deepseek"):
+        return (f"deepseek base（{base}）不接受模型 {m}（须 deepseek-*）；"
+                "智谱模型请配 open.bigmodel.cn base（子代理配置标准 v0.5 §1）")
+    if "bigmodel.cn" in b and not m.startswith("glm"):
+        return (f"智谱 base（{base}）不接受模型 {m}（须 glm-*）；"
+                "deepseek 模型请配 api.deepseek.com base（子代理配置标准 v0.5 §1）")
+    return None
+
 LINGSHU_TOOL_SCHEMA = {
     "type": "function",
     "function": {
@@ -1207,6 +1230,15 @@ def main() -> int:
         return EXIT_SPEC
 
     try:
+        # model↔base 配对前置校验（标准 §1）：错配即刻 SPEC 错，不触网不烧调度
+        _mismatch = model_base_mismatch(
+            str(spec.get("model") or ""),
+            os.environ.get("HIVE_API_BASE", DEFAULT_API_BASE))
+        if _mismatch:
+            write_result(job_dir, {"ok": False, "error": f"model 与 HIVE_API_BASE 错配：{_mismatch}"})
+            log(job_dir, f"spec 错（模型错配）: {_mismatch}")
+            progress(job_dir, kind="error", error=_mismatch[:300], where="spec")
+            return EXIT_SPEC
         messages, ctx_meta = build_messages(spec, job_dir)
         base_tokens = ctx_meta.get("image_tokens", 0)
         budget = spec.get("context_budget_tokens")

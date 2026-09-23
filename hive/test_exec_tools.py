@@ -531,5 +531,26 @@ check("G14 execute_tool 透传 workdir 并正常分发",
 _o, _ = ex.execute_tool("nope", "{}", "job_r")
 check("G15 未知工具错误列出 read_file", "read_file" in _o["error"])
 
+# ------------------------------------------------ H model↔base 配对前置校验
+# 能红说明：删掉 model_base_mismatch 或 main() 的插桩调用时，H1–H5 语义即失去守卫；
+# 回归 2026-09-23 归因（jobs error 12 中 1 个 = glm 模型错配 deepseek base 烧到 API 才 400）。
+print("[H] model↔base 配对前置校验（子代理配置标准 v0.5 §1）")
+check("H1 deepseek base + glm 模型 → 错配",
+      ex.model_base_mismatch("glm-5.3-flash", "https://api.deepseek.com")
+      is not None and "deepseek base" in (ex.model_base_mismatch(
+          "glm-5.3-flash", "https://api.deepseek.com") or ""))
+check("H2 deepseek base + deepseek 模型 → 放行",
+      ex.model_base_mismatch("deepseek-flash", "https://api.deepseek.com") is None)
+check("H3 智谱 base + deepseek 模型 → 错配",
+      ex.model_base_mismatch("deepseek-flash",
+                             "https://open.bigmodel.cn/api/paas/v4") is not None)
+check("H4 智谱 base + glm 模型 → 放行",
+      ex.model_base_mismatch("glm-5.3-flash",
+                             "https://open.bigmodel.cn/api/paas/v4") is None)
+check("H5 未知网关放行（不误伤自定义 base）",
+      ex.model_base_mismatch("whatever-model", "https://my-gw.example/v1") is None)
+check("H6 空 model 放行（缺 model 由 rust 必填校验拦）",
+      ex.model_base_mismatch("", "https://api.deepseek.com") is None)
+
 print(f"\n结果：{PASS} 通过 / {FAIL} 失败")
 sys.exit(1 if FAIL else 0)
