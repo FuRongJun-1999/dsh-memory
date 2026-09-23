@@ -121,10 +121,16 @@ def _scan(cg, layer=None, max_scan=5000):
 
     索引为旧快照（无 temporal/spatial 键）时回退读文件，保证兼容；
     正文一律不在此加载——预览按需读，避免全库 IO。
+    授权单点（issue #35 会话隔离定稿）：cg 带 `_readable`（MdCGSecure）
+    时逐条过读可见性——密级 × 会话绑定档在此与 _candidates 同口径，
+    stg 各 op（timeline/relation/anchors）不得成为绕过路径。
     """
     out = []
+    _sec = getattr(cg, "_readable", None)
     for nid, e in list(cg.index["nodes"].items())[:max_scan]:
         if layer and e.get("layer") != layer:
+            continue
+        if _sec is not None and not _sec(e):
             continue
         if "temporal" in e or "spatial" in e:
             # 效力轴四键必须一并从快照带出：否则 `time_axis="effective"` 在快照

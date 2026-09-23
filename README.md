@@ -216,7 +216,7 @@ python test/locomo_jaccard_probe.py      # 主路线 Jaccard 口径拆解（J2_f
 |---|---|
 | 记忆写入 · 关系链接 · 结构关系 | `cg(op=write)` `cg(op=link)` `stg(op=relation)` |
 | 多路融合检索 · 条件路由 · 因果链 · 时间线 | `mdcg_recall` `mdcg_search` `cg(op=route)` `stg(op=timeline)` |
-| 会话隔离（写入带会话归属 · 读取只取本会话，防多会话串台） | `mdcg_remember(session=…)` `stg(op=timeline, session=…)`（`"*"` 显式跨会话） |
+| 会话隔离（分档可见：public/internal 跨会话共享 · private/secret 绑定归属会话 · 设计者豁免；写入带会话归属 · 租户物理根接线 fail-closed） | `mdcg_remember(session=…)` `stg(op=timeline, session=…)`；私档经 `sensitivity: private` 写入（详见 issue #35 设计定稿） |
 | 检索性能开关（读缓存 · 热路径缓存 · 检索门控 · 统一归一） | env：`MDCG_READ_CACHE=1` `MDCG_HOTCACHE=1` `MDCG_RETRIEVAL_PIPELINE=1` `MDCG_UNIFY_QUERY`（默认开，=0 关） |
 | 事实时效过滤（`validity=true` 只排「已过期」，保留「未生效」） | `mdcg_recall` `mdcg_search` `cg(op=read)` |
 | 写入裁决 · 主动遗忘 · 冲突检测 · 反思 | `mdcg_remember` `cg(op=verify)` `cg(op=metacognition)` `mdcg_reflect` |

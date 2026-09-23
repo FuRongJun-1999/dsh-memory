@@ -2942,17 +2942,17 @@ def call_tool(cg, name, args):
             scope = narrowed_principal(p, unit)
         except TokenError as e:
             return {"ok": False, "error": f"as_unit 非法：{e}"}
-    if sess:
-        import copy
-        scope = copy.copy(scope)     # 浅拷贝：会话只在本调用内生效，不污染共享 Principal
-        scope.session = sess
-    if scope is p:
+    # 请求级 session 只做**归因**（cg.session，写入归属/_attribution 取它），
+    # **不**改 principal.session——绑定档（private/secret）的读授权锚定连接级
+    # 身份（issue #35 会话隔离定稿：调用方自报的会话不得成为看他人 private
+    # 的授权；与上方「session 不参与任何 ops 裁决」的原设计意图一致）。
+    if scope is p and not sess:
         return _dispatch(cg, name, a)
     saved_p, saved_s = cg.principal, getattr(cg, "session", None)
     had_s = hasattr(cg, "session")
     cg.principal = scope             # 单线程 stdin 循环：无并发竞争
     if had_s:
-        cg.session = scope.session
+        cg.session = sess or scope.session
     try:
         return _dispatch(cg, name, a)
     finally:
@@ -3407,8 +3407,39 @@ def _attach_theory(p):
 
 
 # 生效条件：环境变量 MDCG_ROOT 非空且其 os.path.abspath 规范化后的 basename 小写不以 "_md_cg_" 开头、且 _build_principal() 返回的 err 为空时，构造 MdCGSecure(root, principal=principal, autoflush=1) 并对 sys.stdin 逐行 method 分派（initialize 回 protocolVersion=PROTOCOL_VERSION 与 SERVER_NAME/SERVER_VERSION，tools/list 回 tools_for_surface()，tools/call 经 call_tool 后回 content，shutdown 跳出循环），遍历结束后调用 sustain.stop_all() 与 cg.close() 并返回 0；MDCG_ROOT 为空或 basename 命中 "_md_cg_" 前缀返回 2，令牌校验失败返回 3；
+# 生效条件：env 缺省取 os.environ；返回 (root, err)——MDCG_TENANT 已登记（登记表路径可经 MDCG_TENANT_REGISTRY 覆盖，缺省 ~/.mdcg/_tenants.json）时 root=登记根，与显式 MDCG_ROOT 冲突返回 (None, 冲突说明)；未登记租户回落 MDCG_ROOT；两者皆空返回 (None, None)。
+def _resolve_root(env=None):
+    """租户 × 认知图根解析（issue #35 接线，独立函数供守卫测试）。
+
+    口径：MDCG_TENANT 已登记 → 登记根；与显式 MDCG_ROOT 不一致 → 冲突
+    （fail-closed，由调用方拒启）；未登记租户 → 维持 MDCG_ROOT（零变更）。
+    """
+    env = env if env is not None else os.environ
+    root = env.get("MDCG_ROOT")
+    tenant = env.get("MDCG_TENANT")
+    if tenant:
+        try:
+            from .security import TenantRegistry
+            reg = TenantRegistry(env.get("MDCG_TENANT_REGISTRY") or None)
+            t_root = reg.root_of(tenant)
+        except Exception:                                # noqa: BLE001
+            t_root = None
+        if t_root:
+            if root and os.path.abspath(root) != os.path.abspath(t_root):
+                return None, (f"MDCG_TENANT={tenant} 已登记根 {t_root}，"
+                              f"与显式 MDCG_ROOT={root} 不一致（fail-closed）")
+            root = t_root
+    return root, None
+
+
+# 生效条件：_resolve_root() 返回 err 非空时向 stderr 写冲突说明并返回 2；root 为空写缺少 MDCG_ROOT 并返回 2；root 的 basename 小写以 _md_cg_ 开头返回 2，令牌校验失败返回 3；其余构造 MdCGSecure 并进入 stdin 分派循环。
 def main():
-    root = os.environ.get("MDCG_ROOT")
+    root, _terr = _resolve_root()
+    if _terr:
+        sys.stderr.write(f"[mdcg-mcp] 租户根冲突：{_terr}。"
+                         "请二选一：清空 MDCG_ROOT 走租户登记根，或从登记表"
+                         "（~/.mdcg/_tenants.json）移除该租户。\n")
+        return 2
     if not root:
         sys.stderr.write("[mdcg-mcp] 缺少 MDCG_ROOT 环境变量\n")
         return 2

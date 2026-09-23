@@ -3571,7 +3571,18 @@ class MdCGSecure(MdCGOS):
     # ---------- 读：密级过滤 ----------
 
 # 生效条件：e 的 sensitivity 为假值时先 _read 回填为 fm 的 sensitivity or DEFAULT_SENSITIVITY，再以 self.principal.allows(sens) 的布尔结果为准。
-    def _readable(self, e) -> bool:
+    def _readable(self, e, session=None) -> bool:
+        """读可见性单点判定：clearance × sensitivity（密级）∧ 会话绑定（归属）。
+
+        会话绑定（issue #35 设计定稿 2026-09-23，使用者拍板）：
+          · public / internal = 跨会话共享档——任何通过 clearance 的会话可见；
+          · private / secret  = 会话绑定档——仅归属会话（frontmatter.session）
+            可见；can_admin（设计者，需整体判断）豁免。
+          · 绑定档无归属（存量节点）：fail-closed，仅设计者可见（宁可少读，
+            不可越权——与下方 sensitivity 回填同款纪律）。
+          · 查询侧 session 参数（含 "*"）不参与绑定档判定——身份不可自报；
+            共享档本就跨会话可见，故该参数在 Secure 层不再改变任何可见性。
+        """
         sens = e.get("sensitivity")
         if not sens:
             # 索引可能被「无密级上下文」的实例重建而丢掉该字段：按盘上真相回填，
@@ -3579,7 +3590,18 @@ class MdCGSecure(MdCGOS):
             fm, _c = self._read(e)
             sens = (fm or {}).get("sensitivity") or DEFAULT_SENSITIVITY
             e["sensitivity"] = sens
-        return self.principal.allows(sens)
+        if not self.principal.allows(sens):
+            return False
+        if _rank(sens) >= _rank("private"):
+            if self.principal.can_admin:
+                return True
+            # 绑定档判定**恒用 principal.session（服务端身份，不可伪造）**——
+            # 查询侧 session 参数（含 "*"）不构成豁免：调用方自报的会话不能
+            # 越过身份看别人的 private（与 _attribution「env 固定会话时请求
+            # 声明一律忽略」同款纪律）。
+            nsess = e.get("session")
+            return bool(nsess) and nsess == self.principal.session
+        return True
 
 # 生效条件：先以 limit=None 取 super().list_goals(status=status) 的全量，再只保留 index 中 _readable(e) 为真的目标，limit 为真值时返回 keep[:limit]、否则返回全部 keep。
     def list_goals(self, status=None, limit=None):
@@ -3604,6 +3626,13 @@ class MdCGSecure(MdCGOS):
                 continue
             if not self.principal.allows(m.get("sensitivity") or DEFAULT_SENSITIVITY):
                 continue
+            # 会话绑定档（private/secret）：近期事件同口径——仅归属会话，
+            # 设计者豁免（issue #35 设计定稿，与 _readable 一致）。
+            msens = m.get("sensitivity") or DEFAULT_SENSITIVITY
+            if (_rank(msens) >= _rank("private")
+                    and not self.principal.can_admin
+                    and m.get("session") != self.principal.session):
+                continue
             if crypto.is_encrypted(r.get("text")):
                 t = self._open_content("_recent", m, r["text"])
                 if t is None:
@@ -3618,18 +3647,18 @@ class MdCGSecure(MdCGOS):
         self.principal.require_admin("clear_recent")
         return super().clear_recent()
 
-# 生效条件：在 super()._candidates(layer=layer, roles=roles, include_work=include_work, session=session, branch=branch, validity=validity, start_time=start_time, end_time=end_time, start_operator=start_operator, end_operator=end_operator, time_axis=time_axis, view=view) 的结果上，只保留 self._readable(e) 为真的条目（时间算子在父类候选层**单点已过滤**，此处只叠加读可见性、不重复判一次——重复判会让 dropped 计数与 meta 脱钩）。
+# 生效条件：在 super()._candidates(layer=layer, roles=roles, include_work=include_work, session=None（会话判定上收本层：基类硬等值过滤会误剔共享档的他人节点）, branch=branch, ...) 的结果上，只保留 self._readable(e, session=session) 为真的条目（clearance × sensitivity ∧ 会话绑定，见 _readable；时间算子在父类候选层单点已过滤，此处只叠加读可见性）。
     def _candidates(self, layer=None, roles=None, include_work=False,
                     session=None, branch=None, validity=None,
                     start_time=None, end_time=None, start_operator=None,
                     end_operator=None, time_axis=None, view=None):
         out = super()._candidates(layer=layer, roles=roles, include_work=include_work,
-                                  session=session, branch=branch, validity=validity,
+                                  session=None, branch=branch, validity=validity,
                                   start_time=start_time, end_time=end_time,
                                   start_operator=start_operator,
                                   end_operator=end_operator, time_axis=time_axis,
                                   view=view)
-        return [e for e in out if self._readable(e)]
+        return [e for e in out if self._readable(e, session=session)]
 
 # 生效条件：在 super()._neg_coverage(terms) 的结果上，只保留 self._readable(e) 为真的条目。
     def _neg_coverage(self, terms):
@@ -3667,13 +3696,11 @@ class MdCGSecure(MdCGOS):
         keep = []
         for r in res:
             e = self.index["nodes"].get(r[0]["id"], r[0])
-            if not self._readable(e):
+            if not self._readable(e, session=session):
                 continue
-            # 会话归属同为候选资格：图扩展会把**别的会话**的节点顺着边带回来，
-            # 绕过 _candidates 的会话过滤 → 自动召回照样串台。故与 validity/view
-            # 一并在此兜底（"*" = 跨会话视图，不过滤）。
-            if session and session != "*" and e.get("session") != session:
-                continue
+            # 会话归属兜底已并入 _readable（session 传参）：共享档跨会话可见、
+            # 绑定档（private/secret）按归属会话判定（图扩展绕过 _candidates
+            # 的串台路径由它一并挡住，与 validity/view 同层兜底）。
             if view is not None and not roleviews.matches(e, view):
                 continue
             if validity and trust.is_expired(e, now=now):

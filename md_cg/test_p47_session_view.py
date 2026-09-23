@@ -84,9 +84,12 @@ def _restore(old):
             os.environ[k] = v
 
 
-def _p(actor, session):
-    return Principal(actor=actor, clearance=DEFAULT_SENSITIVITY,
-                     can_write=True, can_admin=True, role="designer",
+def _p(actor, session, clearance=None, can_admin=True):
+    # 会话隔离用例（D/E 段）需非 admin 身份（admin 对绑定档豁免）；
+    # 其余段维持原口径（designer + 默认密级 + admin）。
+    return Principal(actor=actor,
+                     clearance=clearance or DEFAULT_SENSITIVITY,
+                     can_write=True, can_admin=can_admin, role="designer",
                      session=session, harness="test-harness")
 
 
@@ -101,10 +104,16 @@ def _ids(tl):
 
 def _mk(root):
     """两个会话各写一条（带 temporal → timeline 可见）。"""
-    cga = MdCGSecure(root, principal=_p("alice", "sess_A"))
+    cga = MdCGSecure(root, principal=_p("alice", "sess_A",
+                                        clearance="private", can_admin=False))
     cga.add("n_a", "阿尔法 属于 会话A 的知识点", layer="knowledge", temporal=1000.0)
-    cgb = MdCGSecure(root, principal=_p("bob", "sess_B"))
+    cga.add("n_pa", "贝塔 会话A 的私有知识点", layer="knowledge",
+            sensitivity="private")
+    cgb = MdCGSecure(root, principal=_p("bob", "sess_B",
+                                        clearance="private", can_admin=False))
     cgb.add("n_b", "阿尔法 属于 会话B 的知识点", layer="knowledge", temporal=2000.0)
+    cgb.add("n_pb", "贝塔 会话B 的私有知识点", layer="knowledge",
+            sensitivity="private")
     return cgb
 
 
@@ -119,7 +128,8 @@ def test_ab(cgb):
 
     print("\n[B] timeline 会话视图三态")
     all_tl = stg.timeline(cgb, limit=100)
-    check("B1 缺省读遍所有会话", all_tl["count"] == 2, all_tl["count"])
+    check("B1 缺省读遍所有会话（可见面=共享档+本会话绑定档）",
+          all_tl["count"] == 3, all_tl["count"])
     check("B2 缺省返回体 session=None（跨会话视图）",
           all_tl["session"] is None, all_tl["session"])
     check("B3 items 逐条回带会话归属（看遍≠丢归属）",
@@ -135,11 +145,13 @@ def test_ab(cgb):
           and cross_tl["session"] is None, cross_tl["session"])
 
     a_tl = stg.timeline(cgb, limit=100, session="sess_A")
-    check("B6 具体值只取本会话", _ids(a_tl) == ["n_a"], _ids(a_tl))
+    check("B6 具体值只取本会话（他人 private 经授权面剔除）",
+          _ids(a_tl) == ["n_a"], _ids(a_tl))
     check("B7 返回体 session=生效值（非跨会话）",
           a_tl["session"] == "sess_A", a_tl["session"])
     b_tl = stg.timeline(cgb, limit=100, session="sess_B")
-    check("B8 另一会话只取它的节点", _ids(b_tl) == ["n_b"], _ids(b_tl))
+    check("B8 另一会话只取它的节点（含其绑定档）",
+          set(_ids(b_tl)) == {"n_b", "n_pb"}, _ids(b_tl))
 
     z_tl = stg.timeline(cgb, limit=100, session="sess_Z")
     check("B9 未知会话为空（不因缺省而放行）", z_tl["count"] == 0, z_tl["count"])
@@ -154,15 +166,27 @@ def test_c(cgb):
     a_tl = stg.timeline(cgb, limit=100, session="sess_A")
     check("C3 rebuild 后按会话过滤不静默全空", _ids(a_tl) == ["n_a"], _ids(a_tl))
     all_tl = stg.timeline(cgb, limit=100)
-    check("C4 rebuild 后跨会话仍读全", all_tl["count"] == 2, all_tl["count"])
+    check("C4 rebuild 后跨会话仍读全（可见面 3）",
+          all_tl["count"] == 3, all_tl["count"])
 
 
 def test_d(cgb):
-    print("\n[D] 候选层会话过滤（search / recall）")
+    print("\n[D] 候选层会话过滤（search / recall）——issue #35 定稿：分档判定")
+    # 视角=bob（sess_B）。共享档（internal 默认）跨会话可见：传不传 session
+    # 都能看到 alice 的共享节点；绑定档（private）按身份（principal.session）
+    # 判定，查询参数自报的会话不构成豁免。
     res, _ = cgb.search("阿尔法", session="sess_A", judge=False, record=False)
     ids = {_row(r).get("id") for r in res}
-    check("D1 search 本会话仅命中本会话节点",
-          "n_a" in ids and "n_b" not in ids, ids)
+    check("D1a 共享档（internal 默认）跨会话可见",
+          {"n_a", "n_b"} <= ids, ids)
+    res_p, _ = cgb.search("贝塔", judge=False, record=False)
+    pids = {_row(r).get("id") for r in res_p}
+    check("D1b 绑定档（private）仅归属会话（bob 只见自己的）",
+          "n_pb" in pids and "n_pa" not in pids, pids)
+    res_h, _ = cgb.search("贝塔", session="sess_A", judge=False, record=False)
+    hids = {_row(r).get("id") for r in res_h}
+    check("D1c 查询参数自报他人会话不越权（仍只见自己的 private）",
+          "n_pb" in hids and "n_pa" not in hids, hids)
 
     res_x, _ = cgb.search("阿尔法", session="*", judge=False, record=False)
     ids_x = {_row(r).get("id") for r in res_x}
@@ -174,8 +198,12 @@ def test_d(cgb):
 
     pack = cgb.recall("阿尔法", session="sess_A")
     hid = {_row(h).get("id") for h in (pack.get("pack") or [])}
-    check("D4 recall（RRF 主链）本会话仅命中本会话",
-          "n_a" in hid and "n_b" not in hid, hid)
+    check("D4a recall（RRF 主链）共享档跨会话",
+          {"n_a", "n_b"} <= hid, hid)
+    pack_p = cgb.recall("贝塔")
+    hid_p = {_row(h).get("id") for h in (pack_p.get("pack") or [])}
+    check("D4b recall 绑定档仅归属会话",
+          "n_pb" in hid_p and "n_pa" not in hid_p, hid_p)
 
     pack_x = cgb.recall("阿尔法", session="*")
     hid_x = {_row(h).get("id") for h in (pack_x.get("pack") or [])}
@@ -183,24 +211,29 @@ def test_d(cgb):
 
 
 def test_e(cgb):
-    print("\n[E] 图扩展二次过滤（跨会话串台守卫）")
-    # 图扩散会绕过 _candidates：这里直接把父类 RRF 结果替换成「两个会话各一条」，
-    # 验证 MdCGSecure.search_rrf 的二次过滤能按会话把别的会话节点剔掉。
+    print("\n[E] 图扩展二次过滤（跨会话串台守卫）——分档口径")
+    # 图扩散会绕过 _candidates：直接把父类 RRF 结果替换成「两共享 + 两绑定」，
+    # 验证 MdCGSecure.search_rrf 的二次过滤按档判定——视角 bob：共享档
+    # （n_a/n_b）互可见，绑定档仅自己的 n_pb 能回来；session 参数三态
+    # （他人会话 / "*" / 缺省）不影响绑定档结果（身份不可自报）。
     crafted = [({"id": "n_a"}, 1.0, None, None),
-               ({"id": "n_b"}, 0.9, None, None)]
+               ({"id": "n_b"}, 0.9, None, None),
+               ({"id": "n_pa"}, 0.8, None, None),
+               ({"id": "n_pb"}, 0.7, None, None)]
     orig = MdCGOS.search_rrf
     MdCGOS.search_rrf = lambda self, *a, **kw: (list(crafted), {"tier": "RRF"})
     try:
         kept, _ = cgb.search_rrf("q", session="sess_A")
         ids = [r[0]["id"] for r in kept]
-        check("E1 别的会话节点不得顺边回来", ids == ["n_a"], ids)
+        check("E1 绑定档按身份：他人 private 不得顺边回来（共享档保留）",
+              {"n_a", "n_b", "n_pb"} <= set(ids) and "n_pa" not in ids, ids)
         kept_x, _ = cgb.search_rrf("q", session="*")
-        check("E2 \"*\" 跨会话两条都在",
-              {r[0]["id"] for r in kept_x} == {"n_a", "n_b"},
+        check("E2 \"*\" 同口径（绑定档不受查询参数影响）",
+              {r[0]["id"] for r in kept_x} == {"n_a", "n_b", "n_pb"},
               [r[0]["id"] for r in kept_x])
         kept_all, _ = cgb.search_rrf("q")
-        check("E3 缺省不过滤（兼容）",
-              {r[0]["id"] for r in kept_all} == {"n_a", "n_b"},
+        check("E3 缺省同口径（兼容）",
+              {r[0]["id"] for r in kept_all} == {"n_a", "n_b", "n_pb"},
               [r[0]["id"] for r in kept_all])
     finally:
         MdCGOS.search_rrf = orig
@@ -251,10 +284,12 @@ def test_g(cgb):
 
     cross = ms.call_tool(cgb, "stg",
                          {"op": "timeline", "limit": 100, "session": "*"})
-    check("G4 MCP 面 \"*\" 跨会话读全", cross.get("count") == 2, cross.get("count"))
+    check("G4 MCP 面 \"*\" 跨会话读全（可见面 3）",
+          cross.get("count") == 3, cross.get("count"))
 
     default = ms.call_tool(cgb, "stg", {"op": "timeline", "limit": 100})
-    check("G5 缺省读全（兼容旧调用）", default.get("count") == 2, default.get("count"))
+    check("G5 缺省读全（兼容旧调用，可见面 3）",
+          default.get("count") == 3, default.get("count"))
 
 
 def main():
