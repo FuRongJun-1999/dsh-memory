@@ -374,15 +374,32 @@ class HiveJobsSource(Source):
                 ("error" if res.get("ok") is False else None)
             if state is None:
                 continue
-            t = trust.epoch_seconds(float(res.get("finished_ts") or 0)) or 0.0
+            t = trust.epoch_seconds(float(res.get("finished_ts") or 0))
+            if not t:
+                # 兜底（批次8 实测缺陷）：exec_cmd 旧版 result 无 finished_ts，
+                # t=0 会被水位整片过滤（确定性任务事件永远摄不进来）——
+                # 回落 result.json 的 mtime（产物诞生时间，同「产物说了算」族）
+                rpath = os.path.join(jdir, "result.json")
+                t = trust.epoch_seconds(os.path.getmtime(rpath)) if \
+                    os.path.isfile(rpath) else 0.0
+            t = t or 0.0
             head = str(res.get("content") or "")[:300]
             err = str(res.get("error") or "")[:300]
             seq += 1
             if state == "done":
                 # 前缀独立成行：content 的行首结构（命令行等）不被破坏，
                 # 保证 mine_fix_pairs 的 _FIX_RE 行首启发式仍能命中修复证据
+                text = f"任务完成(job={job_id})：\n{head}"
+                # 重放命令行（批次8）：cmd 任务（exec_cmd）的 result.steps 携带
+                # 原始 argv——附到事件正文，事件自身携带「做了什么」的可复放
+                # 信息，同时命令形态可被 _FIX_RE 行首启发式命中（fix-pair 原料）
+                steps = res.get("steps")
+                if isinstance(steps, list) and steps:
+                    argv = (steps[-1] or {}).get("command") or []
+                    if argv:
+                        text += "\n" + " ".join(str(a) for a in argv)
                 yield {"t": t, "seq": seq, "session": sess, "role": "assistant",
-                       "text": f"任务完成(job={job_id})：\n{head}"}
+                       "text": text}
             else:
                 tag = "超时强杀" if st_err_is_timeout(err) else "失败"
                 ev = {"t": t, "seq": seq, "session": sess, "role": "assistant",

@@ -83,6 +83,16 @@ def make_jobs(root: str):
     json.dump({"ok": True, "content": "普通完成", "finished_ts": t - 1},
               open(os.path.join(j3, "result.json"), "w", encoding="utf-8"),
               ensure_ascii=False)
+    # job4：无 finished_ts（批次8 实测缺陷——exec_cmd 旧版形态）→ mtime 兜底
+    j4 = os.path.join(jobs, "h1000000003000_ddd4")
+    os.makedirs(j4, exist_ok=True)
+    json.dump({"model": "cmd", "user_prompt": "legacy"}, open(
+        os.path.join(j4, "spec.json"), "w", encoding="utf-8"))
+    rp4 = os.path.join(j4, "result.json")
+    json.dump({"ok": True, "content": "旧版产物", "steps": [
+        {"command": ["python", "-c", "print('legacy-ok')"]}]},
+        open(rp4, "w", encoding="utf-8"), ensure_ascii=False)
+    os.utime(rp4, (t - 0.5, t - 0.5))     # mtime 锚定到事件时间线内
     return jobs
 
 
@@ -125,6 +135,9 @@ def main():
         rep = ing.ingest(src, mine_fix_pairs=False)
         check("3a 事件全部写入 contextual", rep["written"] == len(evs),
               f"written={rep['written']} evs={len(evs)}")
+        check("3a2 无 finished_ts 的 result 经 mtime 兜底摄入（批次8 缺陷修复）",
+              any("legacy-ok" in (x.get("text") or "") for x in evs),
+              str([x.get("text", "")[:60] for x in evs if "legacy" in x.get("text", "")]))
         k_after = len([n for n, e in (cg.index.get("nodes") or {}).items()
                        if (e or {}).get("layer") == "knowledge"])
         check("3b knowledge 层节点数不变（§5.5 反向对照）", k_before == k_after,

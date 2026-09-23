@@ -242,6 +242,7 @@ def run_cmd(job_dir: str) -> int:
         "content": _render(recs, elapsed, "；".join(notes)),
         "exit_code": 0 if not failed else (failed[0].get("exit_code") or 1),
         "duration_s": elapsed,
+        "finished_ts": time.time(),
         "steps": recs,
         "model": "cmd",
         "usage": {},
