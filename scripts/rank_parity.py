@@ -1,11 +1,21 @@
 # -*- coding: utf-8 -*-
-"""issue #29 端到端 rank 对拍：Python search_rrf vs Rust mdcg-eval --serve。
+"""issue #29 端到端 rank 对拍：Python search_rrf vs Rust mcdg-eval --serve。
 
-同一认知图（合成中英混合语料）上，两侧对同批 query 的 top-k 结果做
-**逐位比对**（非集合、非 hit@k——那两类守卫看不见路内排序漂移）。
+同一认知图上，两侧对同批 query 的 top-k 结果做**逐位比对**（非集合、
+非 hit@k——那两类守卫看不见路内排序漂移）。
+
+批次 15 升级：
+  - `--dataset scripts/retrieval_dataset.json`：**两侧读同一份数据集文件**
+    （语料+query 外置，共享数据集纪律）；缺省仍用内建合成语料（向后兼容）；
+  - Rust 侧 env `MDCG_EN_ZH_MAP` 自动指向仓库内 en_zh_map.json（统一归一
+    层词表，Python 导出物）——两侧同一词表、同一 `MDCG_UNIFY_QUERY` 开关；
+  - `--ab`：unify on/off 各跑一遍 Python 侧，按 query tag 汇总 top-1 命中
+    变化——统一归一层（统一翻译为中文→归一化到标准中文集→检索）的
+    **转正证据面**。
+
 用法：
-  先构建 rust 二进制：cargo build --release（rust/ 下）
-  再跑：python scripts/rank_parity.py --exe rust/target/release/mdcg-eval
+  cargo build --release（rust/ 下）
+  python scripts/rank_parity.py --exe rust/target/release/mdcg-eval --ab
 返回码 0 = 逐位一致。
 """
 import argparse
@@ -16,6 +26,8 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 QUERIES = [
     "慈善跑 心理健康 发声 意识 意义",
@@ -31,13 +43,20 @@ QUERIES = [
 ]
 
 
-def build_cogmap(root):
-    """合成中英混合语料（覆盖英文归一化与中文 2-gram 两条口径线）。"""
+def build_cogmap(root, dataset=None):
+    """建库：dataset 给定读数据集 nodes，否则用内建合成语料。"""
     from md_cg.mdcos import MdCGSecure
     from md_cg.security import Principal
     cg = MdCGSecure(os.path.join(root, "graph"), principal=Principal(
         actor="parity", clearance="secret", can_write=True,
         role="designer", auth_mode="test"))
+    if dataset:
+        for nd in dataset["nodes"]:
+            cg.add(nd["id"],
+                   f"# 功能名：{nd['title']}\n# 正文：{nd['body']}",
+                   layer=nd.get("layer") or "knowledge")
+        cg.flush()
+        return len(dataset["nodes"])
     zh = ["蜂群调度器按 workers 上限领取任务", "依赖门禁在领取前检查上游终态",
           "热缓存在构造时按开关挂载", "冲突闸对无法比对的场景放行并留审计",
           "自证拒绝要求验证方与编译方不同主体", "检索门控把候选先按域收敛",
@@ -84,6 +103,10 @@ def rust_topk(exe, root, queries, k=5):
     """返回 {query: [(id, score), ...]}。"""
     env = dict(os.environ)
     env.pop("MDCG_TOKEN", None)          # 对拍面与本测试无关，防部署 env 干扰
+    # 统一归一层：Rust 侧词表显式指到仓库内导出物（与 Python 同一份）；
+    # MDCG_UNIFY_QUERY 由调用进程 env 原样透传（A/B 两态由外层控制）
+    env.setdefault("MDCG_EN_ZH_MAP",
+                   os.path.join(_REPO, "md_cg", "semantic", "en_zh_map.json"))
     p = subprocess.Popen([exe, "--root", root, "--serve"],
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE, text=True,
@@ -120,29 +143,69 @@ def rust_topk(exe, root, queries, k=5):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--exe", default=os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "rust", "target", "release", "mdcg-eval.exe"
+        _REPO, "rust", "target", "release", "mdcg-eval.exe"
         if os.name == "nt" else "mdcg-eval"))
     ap.add_argument("--root", default=None, help="复用已建库（缺省新建临时库）")
+    ap.add_argument("--dataset", default=None,
+                    help="共享数据集 JSON（nodes+queries 两侧同源；缺省内建合成语料）")
+    ap.add_argument("--ab", action="store_true",
+                    help="统一归一层 A/B：unify on/off 各跑 Python 侧，"
+                         "按 tag 汇总 top-1 变化（转正证据）")
     args = ap.parse_args()
 
     if not os.path.isfile(args.exe):
         print(f"rust 二进制不存在：{args.exe}（先 cd rust && cargo build --release）")
         return 2
 
+    dataset = None
+    if args.dataset:
+        with open(args.dataset, encoding="utf-8") as f:
+            dataset = json.load(f)
+    queries = [x["q"] for x in dataset["queries"]] if dataset else QUERIES
+
+    # ---- A/B 转正证据（仅 Python 侧；Rust 侧对拍在当前开关态做）----
+    if args.ab and dataset:
+        import hashlib
+        tags = {x["q"]: x["tag"] for x in dataset["queries"]}
+        root_ab = tempfile.mkdtemp(prefix="mdcg_parity_ab_")
+        n = build_cogmap(root_ab, dataset)
+        hits = {}
+        for mode, env_on in (("unify=0", False), ("unify=1", True)):
+            if env_on:
+                os.environ.pop("MDCG_UNIFY_QUERY", None)
+            else:
+                os.environ["MDCG_UNIFY_QUERY"] = "0"
+            from md_cg import hotcache as _hc
+            _hc.get.cache_clear() if hasattr(_hc.get, "cache_clear") else None
+            top = python_topk(root_ab, queries)
+            for q, r in top.items():
+                hits.setdefault(q, {})[mode] = r[0][0] if r else None
+        os.environ.pop("MDCG_UNIFY_QUERY", None)
+        print(f"A/B（{n} 节点，top-1 变化）：")
+        changed = 0
+        for q in queries:
+            a0, a1 = hits[q]["unify=0"], hits[q]["unify=1"]
+            if a0 != a1:
+                changed += 1
+                print(f"  [{tags[q]}] {q}\n      off -> {a0}\n      on  -> {a1}")
+        print(f"top-1 变化 {changed}/{len(queries)}"
+              f"（跨语 tag 应由 off 的空转/错位变为 on 的正确命中）")
+        return 0
+
     if args.root:
         root = args.root
         n = sum(len(files) for _, _, files in os.walk(root))
     else:
         root = tempfile.mkdtemp(prefix="mdcg_parity_")
-        n = build_cogmap(root)
-    print(f"语料节点 ~{n} · queries={len(QUERIES)} · exe={args.exe}")
+        n = build_cogmap(root, dataset)
+    print(f"语料节点 ~{n} · queries={len(queries)} · exe={args.exe}"
+          f" · unify={os.environ.get('MDCG_UNIFY_QUERY', '1(默认开)')}")
 
-    py = python_topk(root, QUERIES)
-    rs = rust_topk(args.exe, os.path.join(root, "graph"), QUERIES)
+    py = python_topk(root, queries)
+    rs = rust_topk(args.exe, os.path.join(root, "graph"), queries)
 
     order_ok = set_ok = top1_ok = total = 0
-    for q in QUERIES:
+    for q in queries:
         a = py.get(q) or []
         b = rs.get(q) or []
         ids_a = [x[0] for x in a]

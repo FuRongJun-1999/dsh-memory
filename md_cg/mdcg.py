@@ -2001,6 +2001,11 @@ class MdCG:
               ValueError（fail-closed 只针对调用方误用）。
         """
         q = (query or "").strip()
+        # 批次 15 统一口径（unify.py）：任意语言 query → 标准原子序列
+        # （统一翻译为中文→归一化到标准中文集→检索）；纯中文原样、
+        # MDCG_UNIFY_QUERY=0 可关、失败静默原样
+        from .semantic.unify import unify_query
+        q = unify_query(q)
         if not q:
             return [], {"tier": None, "reason": "empty_query", "scanned": 0}
         pool_cfg = pooling.resolve(pooling.from_env(pools))

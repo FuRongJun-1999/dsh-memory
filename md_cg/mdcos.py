@@ -714,6 +714,10 @@ class MdCGOS(MdCG):
         详见 _candidates。
         """
         q = (query or "").strip()
+        # 批次 15 统一口径（unify.py）：任意语言 query → 标准原子序列；
+        # 与 MdCG.search/search_rrf 三入口同口径（MDCG_UNIFY_QUERY=0 可关）
+        from .semantic.unify import unify_query
+        q = unify_query(q)
         if not q:
             return [], {"tier": None, "reason": "empty_query", "scanned": 0}
         pool_cfg = pooling.resolve(pooling.from_env(pools))
@@ -1193,6 +1197,10 @@ class MdCGOS(MdCG):
             串结果）；候选层语义与 search 一致，详见 _candidates。
         """
         q = (query or "").strip()
+        # 批次 15 统一口径（unify.py）：任意语言 query → 标准原子序列；
+        # 归一后的 q 进热路径缓存键（归一确定 → 缓存不串味）
+        from .semantic.unify import unify_query
+        q = unify_query(q)
         if not q:
             return [], {"tier": None, "reason": "empty_query", "paths": {}}
         # 热路径：query 结果缓存命中即返回（不改 RRF 核心）

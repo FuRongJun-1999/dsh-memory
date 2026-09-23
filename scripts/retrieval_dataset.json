@@ -1,0 +1,51 @@
+{
+ "meta": {
+  "version": "b15",
+  "purpose": "批次 15 统一口径对拍数据集——Python search_rrf 与 rust/mcdg-eval 读同一份（issue #29 残留收敛 + 统一归一层 A/B 实证）",
+  "design": "30 节点中英混合 + 10 query（跨语/纯中/纯英三分）；英文 query 的中文命中只能靠统一归一层（beef→牛肉 跨语词法），故它同时是 MDCG_UNIFY_QUERY 转正证据面"
+ },
+ "nodes": [
+  {"id": "ds_zh_00", "layer": "knowledge", "title": "牛肉面记录", "body": "昨天中午在巷口吃了牛肉面，汤头浓郁，老板说牛肉是清晨从市场买的新鲜牛腱"},
+  {"id": "ds_zh_01", "layer": "knowledge", "title": "羊肉炉聚会", "body": "上周五同事聚餐点了羊肉炉，羊肉炖得很烂，大家喝了一点米酒驱寒"},
+  {"id": "ds_zh_02", "layer": "knowledge", "title": "灵枢热缓存设计", "body": "灵枢记忆库的热缓存在构造时按开关挂载，重复查询命中缓存后不再扫盘，热路径缓存键含口径参数"},
+  {"id": "ds_zh_03", "layer": "knowledge", "title": "蜂群调度器", "body": "蜂群调度器按 workers 上限领取任务，依赖门禁在领取前检查上游终态，冲突闸放行无法比对场景并留审计"},
+  {"id": "ds_zh_04", "layer": "knowledge", "title": "检索门控收敛", "body": "检索门控把候选先按域收敛再进打分，召回安全不变量要求命中不足即回退不收敛，orphan 节点恒留兜底池"},
+  {"id": "ds_zh_05", "layer": "knowledge", "title": "令牌验签", "body": "令牌验签失败必须拒绝启动，凭据面泄露要脱敏，审计记录存哈希不存明文载荷"},
+  {"id": "ds_zh_06", "layer": "knowledge", "title": "心脏复查", "body": "母亲约了周三上午的心脏复查，医生嘱咐复查前一天晚上十点后不要进食，带上上次的报告"},
+  {"id": "ds_zh_07", "layer": "knowledge", "title": "孩子学琴", "body": "孩子每周六下午学钢琴，老师布置了新的练习曲，要求每天练琴半小时再玩"},
+  {"id": "ds_zh_08", "layer": "knowledge", "title": "数据库迁移", "body": "数据库迁移采用双写方案，先历史回填再切读，备份策略是每日全量加每半小时增量"},
+  {"id": "ds_zh_09", "layer": "knowledge", "title": "评审纪律", "body": "评审人必须与编译人不同主体，自证拒绝要求验证方独立，判据指纹随提案落盘"},
+  {"id": "ds_zh_10", "layer": "knowledge", "title": "火锅周末", "body": "这周末想去吃火锅，上次那家麻辣锅底太辣，换一家清汤菌菇锅，顺便逛逛商场"},
+  {"id": "ds_zh_11", "layer": "knowledge", "title": "雨伞维修", "body": "门口的雨伞骨架断了，修伞师傅说周五能修好，取伞时记得带收据"},
+  {"id": "ds_zh_12", "layer": "knowledge", "title": "火车票", "body": "下月去北京的火车票开售了，买早上八点的高铁，靠窗的座位，回程买晚上的"},
+  {"id": "ds_zh_13", "layer": "knowledge", "title": "写侧闸门", "body": "写入闸门检查凭据与冲突，写通道双轨制区分人工与自动写入，落盘后失效查询缓存"},
+  {"id": "ds_zh_14", "layer": "knowledge", "title": "退休计划", "body": "父亲开始规划退休生活，想学摄影和钓鱼，还打算把老家的院子重新翻修"},
+  {"id": "ds_en_00", "layer": "knowledge", "title": "Compiler tests", "body": "The compiler generates candidates from dialog and writes regression tests for every fused path"},
+  {"id": "ds_en_01", "layer": "knowledge", "title": "Review independence", "body": "Reviewers must be independent from compilers, the verdict fingerprint is stored with each proposal"},
+  {"id": "ds_en_02", "layer": "knowledge", "title": "Hot cache", "body": "Hot cache speeds up repeated queries, the cache key includes all semantics changing parameters"},
+  {"id": "ds_en_03", "layer": "knowledge", "title": "Dependency gate", "body": "Dependency gate checks upstream final states before a worker claims the job"},
+  {"id": "ds_en_04", "layer": "knowledge", "title": "Token verification", "body": "Token verification is fail closed on any mismatch, credentials must be redacted in logs"},
+  {"id": "ds_en_05", "layer": "knowledge", "title": "Memory recall", "body": "Memory recall fuses four retrieval paths with reciprocal rank fusion, semantic atoms normalize every query"},
+  {"id": "ds_en_06", "layer": "knowledge", "title": "Heartbeat freshness", "body": "Heartbeat freshness guards single instance writes, stale heartbeat explains pid ownership honestly"},
+  {"id": "ds_en_07", "layer": "knowledge", "title": "Audit records", "body": "Audit records store hashes not payloads, every decision is reviewable with evidence pointers"},
+  {"id": "ds_en_08", "layer": "knowledge", "title": "Database migration", "body": "Database migration uses dual writes with backfill first, backup runs daily full plus incremental"},
+  {"id": "ds_en_09", "layer": "knowledge", "title": "Piano practice", "body": "The kid practices piano thirty minutes every day before playing, new piece assigned this saturday"},
+  {"id": "ds_en_10", "layer": "knowledge", "title": "Train tickets", "body": "High speed train tickets to the capital go on sale next month, buy the eight am window seat"},
+  {"id": "ds_en_11", "layer": "knowledge", "title": "Retirement plan", "body": "Father plans photography and fishing for retirement, renovating the old courtyard house"},
+  {"id": "ds_en_12", "layer": "knowledge", "title": "Cold verification", "body": "Cold verification enqueues after writes complete, replay requires the same fingerprint"},
+  {"id": "ds_en_13", "layer": "knowledge", "title": "Conflict gate", "body": "Conflict gate defers unmatched comparisons and records an audit entry, unmatched is honest"},
+  {"id": "ds_en_14", "layer": "knowledge", "title": "Umbrella repair", "body": "The broken umbrella frame will be fixed by friday, bring the receipt when picking it up"}
+ ],
+ "queries": [
+  {"q": "牛肉面 在哪吃的", "tag": "zh-direct"},
+  {"q": "蜂群调度 依赖门禁", "tag": "zh-direct"},
+  {"q": "热缓存 缓存键", "tag": "zh-direct"},
+  {"q": "令牌验签 失败", "tag": "zh-direct"},
+  {"q": "心脏复查 周三", "tag": "zh-life"},
+  {"q": "beef noodles lunch", "tag": "cross-lingual"},
+  {"q": "soul hub hot cache", "tag": "cross-lingual"},
+  {"q": "token verification fail closed", "tag": "en-direct"},
+  {"q": "database migration backup", "tag": "en-direct"},
+  {"q": "piano practice thirty minutes", "tag": "en-life"}
+ ]
+}

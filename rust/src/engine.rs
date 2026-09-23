@@ -75,6 +75,8 @@ pub struct SearchEngine {
     fusion_max: bool,
     jaccard: bool,
     graph_seeds_sorted: bool,
+    /// 批次 15 统一归一层（None = 词表不可得或开关关 → 原口径）。
+    atoms: Option<crate::atoms::Atoms>,
 }
 
 impl SearchEngine {
@@ -110,6 +112,8 @@ impl SearchEngine {
             fusion_max: cfg.fusion_max,
             jaccard: cfg.jaccard,
             graph_seeds_sorted: cfg.graph_seeds_sorted,
+            // 批次 15：统一归一层（env 探测词表；不可得 = None 原口径）
+            atoms: crate::atoms::Atoms::from_env(),
         })
     }
 
@@ -136,6 +140,16 @@ impl SearchEngine {
     pub fn search(&self, query: &str, k: usize) -> Vec<SearchHit> {
         let mut ranked: Vec<(&str, Vec<Hit>)> = Vec::new();
         let has = |p: &str| self.paths.iter().any(|x| x == p);
+        // 批次 15 统一口径：query → 标准原子序列（与 Python unify_query
+        // 同口径；词表不可得/开关关 → 原样，行为与改动前逐位一致）
+        let query_owned;
+        let query = match self.atoms.as_ref() {
+            Some(a) => {
+                query_owned = a.unify(query);
+                query_owned.as_str()
+            }
+            None => query,
+        };
 
         // 插入序对齐 search_rrf：lexical → bucket → entity → graph
         let lex_raw: Vec<Hit> = if has("lexical") {

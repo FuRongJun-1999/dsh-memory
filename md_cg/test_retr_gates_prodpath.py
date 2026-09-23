@@ -41,10 +41,15 @@ def check(name, cond, detail=""):
 
 
 def build_lib(root, n=30):
-    """小库：一半节点挂在 swarm-dispatch 桶（含查询词面），一半无关桶。"""
+    """小库：一半节点挂在中文桶键（含查询词面），一半无关桶。
+
+    桶键用中文（批次 15）：S1b 桶推理经 bucket_key_readable+domain_similarity，
+    英文桶键对中文 query 恒 no_key_match（跨语失效——真实缺陷已登记），
+    守卫锚定收敛机制本身，桶键与 query 同语言才可断言。
+    """
     cg = MdCGSecure(root)
     for i in range(n):
-        bucket = "swarm-dispatch" if i < n // 2 else "unrelated-cow"
+        bucket = "蜂群调度" if i < n // 2 else "无关奶牛"
         text = ("# 功能名：蜂群调度样本 %d\n# 正文：dispatch 调度内容样本 %d"
                 % (i, i)) if i < n // 2 else \
                ("# 功能名：无关样本 %d\n# 正文：cow 内容样本 %d" % (i, i))
@@ -64,7 +69,9 @@ def main():
     os.environ["MDCG_RETRIEVAL_PIPELINE"] = "1"
     os.environ["MDCG_GATE_S1B_BUCKET"] = "1"
     try:
-        r, meta = cg.search("dispatch")
+        # query 用中文核心词（批次 15 起 query 经统一归一层——英文词面会随
+        # 词表演进而变，守卫锚定检索行为本身不该锚定词表内容）
+        r, meta = cg.search("调度")
         gates = meta.get("gates") or {}
         check("P1a 生产类 gates 审计出现（旧代码 gates=None）",
               isinstance(gates, dict) and "s1b" in gates,
@@ -80,7 +87,7 @@ def main():
 
     print("== P2 默认路径零变更 ==")
     os.environ.pop("MDCG_RETRIEVAL_PIPELINE", None)
-    r, meta = cg.search("dispatch")
+    r, meta = cg.search("调度")
     check("P2 默认（总开关未设）meta 无 gates 键",
           "gates" not in meta, json.dumps(meta, ensure_ascii=False, default=str)[:160])
 
@@ -88,7 +95,7 @@ def main():
     base = MdCG(tempfile.mkdtemp(prefix="mdcg_gate_base_"))
     # 把同形状节点直接写进基类实例（经 add 共享落盘口径）
     for i in range(30):
-        bucket = "swarm-dispatch" if i < 15 else "unrelated-cow"
+        bucket = "蜂群调度" if i < 15 else "无关奶牛"
         text = ("# 功能名：蜂群调度样本 %d\n# 正文：dispatch 调度内容样本 %d"
                 % (i, i)) if i < 15 else \
                ("# 功能名：无关样本 %d\n# 正文：cow 内容样本 %d" % (i, i))
@@ -100,8 +107,8 @@ def main():
     os.environ["MDCG_RETRIEVAL_PIPELINE"] = "1"
     os.environ["MDCG_GATE_S1B_BUCKET"] = "1"
     try:
-        _, meta_os = cg.search("dispatch")
-        _, meta_cg = base.search("dispatch")
+        _, meta_os = cg.search("调度")
+        _, meta_cg = base.search("调度")
         g_os, g_cg = meta_os.get("gates") or {}, meta_cg.get("gates") or {}
         check("P3a MdCGOS 与 MdCG 的 s1b 审计键集合一致",
               bool(g_os) and set(g_os) == set(g_cg),

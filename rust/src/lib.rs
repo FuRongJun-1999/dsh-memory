@@ -13,6 +13,7 @@
 //!   2. **进程实例**：`mdcg-eval --serve`，stdin/stdout 逐行 JSON（见 `serve.rs`），
 //!      每智能体一进程，索引只读共享 OS 页缓存——多智能体并发的语言无关形态。
 
+pub mod atoms;
 pub mod engine;
 pub mod json;
 pub mod metrics;
