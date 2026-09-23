@@ -100,7 +100,7 @@ test('issue #18 ②：MdcgClient 默认 cwd 拉起的子进程，自报 cwd 在�
   const client = new MdcgClient({
     python: defaultPython(),
     root: join(dir, 'mdcg'),
-    env: { MDCG_LEGACY_ENV_AUTH: '1', MDCG_ACTOR: 'dsh-test' },
+    env: { MDCG_TOKEN: '', MDCG_LEGACY_ENV_AUTH: '1', MDCG_ACTOR: 'dsh-test' },
     timeoutMs: 15_000,
     maxRetryDelayMs: 5_000,
   })

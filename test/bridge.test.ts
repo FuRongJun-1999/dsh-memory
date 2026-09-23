@@ -43,6 +43,9 @@ function createBridge(root: string, surface: 'kernel' | 'full' = 'full'): Lingsh
       MDCG_MCP_SURFACE: surface,
       // 集成测试用 legacy 身份（recorder：可写 contextual/knowledge/structural），
       // 省去签发令牌；真实部署推荐 MDCG_TOKEN（见 dsh/cordis.yml.example）。
+      // 显式清空 MDCG_TOKEN：隔离宿主部署面的令牌 env（否则 _build_principal
+      // 走令牌优先路径，宿主令牌与本机令牌文件不匹配 → server 拒启动，测试全红）
+      MDCG_TOKEN: '',
       MDCG_LEGACY_ENV_AUTH: '1',
       MDCG_ACTOR: 'dsh-test',
       MDCG_TENANT: 'default',
@@ -78,7 +81,7 @@ test('issue #12 回归：宿主 cwd 在插件仓外且零路径参数，MdcgClie
   const client = new MdcgClient({
     python: defaultPython(),
     root: join(dir, 'mdcg'),
-    env: { MDCG_LEGACY_ENV_AUTH: '1', MDCG_ACTOR: 'dsh-test' },
+    env: { MDCG_TOKEN: '', MDCG_LEGACY_ENV_AUTH: '1', MDCG_ACTOR: 'dsh-test' },
     timeoutMs: 15_000,
     maxRetryDelayMs: 5_000,
   })
