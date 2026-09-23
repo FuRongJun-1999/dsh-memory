@@ -180,9 +180,11 @@ def main():
         lk = m.tool("cg", {"op": "ccg", "ccg": {
             "action": "link", "node_id": "ccg_newuser_probe",
             "apply": True}})
+        _lk = lk.get("link") or {}
         check("N5c link 落库（written>0）",
-              (lk.get("written") or 0) > 0,
-              json.dumps(lk, ensure_ascii=False, default=str)[:160])
+              (lk.get("written") or 0) > 0 or (_lk.get("written") or 0) > 0,
+              "errors=" + json.dumps(_lk.get("errors"),
+                                     ensure_ascii=False, default=str))
 
         print("== N6 会话收尾 ==")
         info = m.tool("cg", {"op": "info"})
