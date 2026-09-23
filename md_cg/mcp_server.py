@@ -2346,7 +2346,10 @@ def _ccg_call(cg, a):
     """CCG 六要素编译器（op=ccg）：对话记录 → 六要素候选 → **编外复核** → 落库。
 
     定位：**记忆可靠性闸**——不是又一个写入通道，而是写入前「条件是否成立」的检查。
-    裁定 A（LLM 不得自己验证自己）由 ccgc 的 E041 **机械执行**，不依赖 prompt 自觉。
+    裁定 A（LLM 不得自己验证自己）由 ccgc 的 E041 机械执行，不依赖 prompt 自觉。
+    阻断强度如实分层（issue #27）：身份归一比较拦截同源字符串变体；根本保障是
+    verifier_token 凭据（mdcg 令牌 HMAC 验签）——无令牌时签章标
+    verifier_identity="self-reported"，下游策略可据此识别可信级别。
 
     action（缺省 compile）：
         compile      对话记录 → 六要素候选（五环编译）；候选+签章槽落
@@ -2453,7 +2456,8 @@ def _ccg_call(cg, a):
             at = ccgc.attest(node_id, args.get("verdict") or ccgc.DEFER,
                              args.get("verifier") or "", compiled.actor or actor,
                              slot_corrections=args.get("slot_corrections"),
-                             evidence=args.get("evidence") or "", cg=cg)
+                             evidence=args.get("evidence") or "", cg=cg,
+                             verifier_token=str(args.get("verifier_token") or ""))
             out["attest"] = ccgc.asdict(at)
             out["pending"] = ccgc.save_pending(cg, compiled, at)
             out["hint"] = ("已签章（%s）；下一步 cg(op=ccg, action=link, "
@@ -2473,7 +2477,8 @@ def _ccg_call(cg, a):
                          str(o.get("verifier") or ""),
                          str(o.get("compiled_by") or compiled.actor or actor),
                          slot_corrections=o.get("slot_corrections"),
-                         evidence=str(o.get("evidence") or ""), cg=cg)
+                         evidence=str(o.get("evidence") or ""), cg=cg,
+                         verifier_token=str(o.get("verifier_token") or ""))
         return {"ok": bool(at.ok), "op": "ccg", "action": "attest",
                 "attest": ccgc.asdict(at),
                 "pending": ccgc.save_pending(cg, compiled, at),

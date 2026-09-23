@@ -13,7 +13,11 @@ LLM 若参与，只能经 `parser=` 注入（能力外置，与 compiler 的 llm
 且其产物**必须**过名实门（E010/E011）：每个写入值都必须是对话记录的**字面子串**，
 幻觉在编译期即被机械检出，不进「看起来合理」的灰区。
 签章字段在候选结构里**没有位置**：`verifier` 只能由 attest 显式给出，
-且 E041 机械拒绝 `verifier == 编译执行者`——结构级阻断，不依赖 prompt 自觉。
+且 E041 机械拒绝 `verifier == 编译执行者`。阻断强度**如实分层**（issue #27
+纠正）：①身份归一比较（大小写/空白/括号注记归一）拦截同源字符串变体；
+②根本保障是 `verifier_token` 凭据通路——验证方身份经 mdcg 令牌 HMAC 验签
+（与 narrowed_principal 同一信任源），不依赖自报诚实度；无令牌时结果标
+`verifier_identity="self-reported"`（诚实降级，可被下游策略识别）。
 
 对齐既有实现（零发明）：
     · 验证能力外置 / 缺能力恒不通过  → md_cg/audit.py（CONTENT_KINDS + register_verifier）
@@ -127,6 +131,10 @@ class AttestResult:
     evidence: str = ""
     error: str = ""
     token: str = ""                 # 签章令牌（留痕可查）
+    # issue #27：验证方身份来源——"token"（mdcg 令牌 HMAC 验签，不可伪造）
+    # 或 "self-reported"（调用方自报字符串：归一化比较拦截已知同源变体，
+    # 但根本保障需令牌通路）。审计与下游策略据此识别可信级别。
+    verifier_identity: str = "self-reported"
     slot_corrections: Dict[str, Any] = field(default_factory=dict)
     ts: float = 0.0
 
@@ -572,14 +580,37 @@ def compile_dialog(dialog: str, node_id: str, actor: str, *,
 # attest：认知图**外**的验证方签章（裁定 A 的落点）
 # =============================================================================
 
-# 生效条件：依次判 strip 后的 node_id 为空→E002；verifier 为空→E003；verifier==compiled_by→E041；state（verdict.strip()）不在模块级 STATES→非法裁决；state 非 ACCEPT→E042；全部通过才 res.ok=True；随后恒算 token=_sha(...)，仅当 ledger 为真且 _as_cg(cg) 非 None 时追加一条 ccgc_attest 审计 jsonl。
+# 生效条件：a/b 任一传入值归一化（strip→去尾部括号注记→去全部空白→casefold）后为空即返回 False；否则返回两归一化结果是否相等。归一口径：尾部括号注记（如 "agent-A(复核)"）视为修饰后缀剥离；中间空白全去（"agent A"=="agent-A" 变体不在此列——连字符不做等价，避免过度归一误合不同主体）；
+def _same_subject(a, b) -> bool:
+    """身份归一比较（issue #27，2026-09-23）。
+
+    原先三处 E041 判据是裸 `==`——`agent-A` vs `agent-a` / `AGENT-A` /
+    `agent-A(复核)` 全部绕过（外部报告实测 WRITTEN=6 落盘成功）。
+    归一化拦截**已知同源形态**；根本保障是 attest 的 verifier_token
+    凭据通路（身份经令牌 HMAC 验签，不依赖自报诚实度）。
+    """
+    def _norm(x):
+        x = str(x or "").strip()
+        x = re.sub(r"[（(][^（）()]*[)）]\s*$", "", x)   # 尾部括号注记
+        return re.sub(r"\s+", "", x).casefold()
+    a_n, b_n = _norm(a), _norm(b)
+    return bool(a_n) and a_n == b_n
+
+
+# 生效条件：verifier_token 非空时先经 tokens.verify_token 验签（失败→E041 前置错误 fail-closed），以令牌 actor 覆盖 res.verifier 并标 verifier_identity="token"，否则标 "self-reported"；随后依次判 strip 后的 node_id 为空→E002；verifier 为空→E003；_same_subject(verifier, compiled_by)→E041；state（verdict.strip()）不在模块级 STATES→非法裁决；state 非 ACCEPT→E042；全部通过才 res.ok=True；随后恒算 token=_sha(...)，仅当 ledger 为真且 _as_cg(cg) 非 None 时追加一条 ccgc_attest 审计 jsonl（含 verifier_identity）。
 def attest(node_id: str, verdict: str, verifier: str, compiled_by: str, *,
            slot_corrections: Optional[Dict[str, Any]] = None,
-           evidence: str = "", cg: Any = None, ledger: bool = True) -> AttestResult:
+           evidence: str = "", cg: Any = None, ledger: bool = True,
+           verifier_token: str = "") -> AttestResult:
     """验证方签章。**验证方必须是编译方之外的一方**（子代理 / 设计者 / 用户）。
 
-    E041 机械拒绝 `verifier == compiled_by`——LLM 不得自己验证自己。
-    这是结构性保证：不依赖 prompt 自觉，也不依赖验证方「愿意」自证。
+    E041 机械拒绝「验证方 == 编译执行者」——LLM 不得自己验证自己。
+    阻断强度如实分层（issue #27）：
+      · verifier_token 提供时：身份经 mdcg 令牌 HMAC 验签（不可伪造），
+        E041 比较令牌 principal.actor 与 compiled_by——结构性阻断；
+      · 未提供时：回退自报字符串 + 归一化比较（大小写/空白/括号注记
+        归一），拦截已知同源变体；verifier_identity="self-reported"
+        如实标注，下游策略可据此拒绝。
     DEFER 不构成签章（未定 = 未通过）。
     """
     res = AttestResult(node_id=str(node_id or "").strip(),
@@ -589,11 +620,34 @@ def attest(node_id: str, verdict: str, verifier: str, compiled_by: str, *,
                        evidence=str(evidence or ""),
                        slot_corrections=dict(slot_corrections or {}),
                        ts=time.time())
+    if str(verifier_token or "").strip():
+        try:
+            from . import tokens as _tokens
+            _p = _tokens.verify_token(str(verifier_token).strip())
+            res.verifier = str(getattr(_p, "actor", "") or "").strip()
+            res.verifier_identity = "token"
+        except Exception as exc:   # noqa: BLE001 —— fail-closed：验签失败即拒绝
+            res.error = ("E041 前置失败：verifier 令牌验证失败（"
+                         + type(exc).__name__ + "）——验证方身份必须可凭据化，"
+                         "伪造令牌与无令牌同样不予放行")
+            res.token = _sha("|".join([res.node_id, res.verifier, res.state,
+                                       str(res.ts), res.evidence]))
+            _cg = _as_cg(cg)
+            if ledger and _cg is not None:
+                _append_jsonl(_log_path(_cg), {
+                    "action": "ccgc_attest", "ts": res.ts, "node": res.node_id,
+                    "verifier": res.verifier, "compiled_by": res.compiled_by,
+                    "state": res.state, "ok": False, "token": res.token,
+                    "verifier_identity": res.verifier_identity,
+                    "evidence": res.evidence,
+                    "slot_corrections": res.slot_corrections,
+                    "error": res.error})
+            return res
     if not res.node_id:
         res.error = "E002 " + E_CODES["E002"]
     elif not res.verifier:
         res.error = "E003 缺少验证方标识（verifier）"
-    elif res.verifier == res.compiled_by:
+    elif _same_subject(res.verifier, res.compiled_by):
         res.error = "E041 " + E_CODES["E041"] + "（verifier=" + res.verifier + "）"
     elif res.state not in STATES:
         res.error = ("非法裁决：" + repr(res.state) + "（可选 " + ",".join(STATES) + "）")
@@ -610,6 +664,7 @@ def attest(node_id: str, verdict: str, verifier: str, compiled_by: str, *,
                 "action": "ccgc_attest", "ts": res.ts, "node": res.node_id,
                 "verifier": res.verifier, "compiled_by": res.compiled_by,
                 "state": res.state, "ok": res.ok, "token": res.token,
+                "verifier_identity": res.verifier_identity,
                 "evidence": res.evidence,
                 "slot_corrections": res.slot_corrections, "error": res.error})
     return res
@@ -671,8 +726,10 @@ def link(compiled: CompileResult, attestation: Optional[AttestResult], *,
     if attestation.node_id != node_id:
         out.errors.append("签章与产物目标不一致：" + attestation.node_id + " != " + node_id)
         return out
-    if attestation.verifier and attestation.verifier == (actor or compiled.actor):
-        out.errors.append("E041 " + E_CODES["E041"])
+    if attestation.verifier and _same_subject(attestation.verifier,
+                                              actor or compiled.actor):
+        out.errors.append("E041 " + E_CODES["E041"]
+                          + "（身份归一比较命中）")
         return out
     if not attestation.ok:
         out.errors.append("E042 " + E_CODES["E042"] +
@@ -759,8 +816,8 @@ def recalibrate(node_id: str, corrections: Dict[str, Any], verifier: str,
     if not out.node_id:
         out.errors.append("E002 " + E_CODES["E002"])
         return out
-    if verifier and verifier == compiled_by:
-        out.errors.append("E041 " + E_CODES["E041"])
+    if verifier and _same_subject(verifier, compiled_by):
+        out.errors.append("E041 " + E_CODES["E041"] + "（身份归一比较命中）")
         return out
     if not corrections:
         out.errors.append("E043 " + E_CODES["E043"] + "（未给出任何修正）")
