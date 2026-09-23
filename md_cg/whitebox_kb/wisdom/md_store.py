@@ -87,6 +87,7 @@ class MdStore:
         self._nodes = None     # {id: STNode}
         self._out = None       # {src_id: [STEdge]}
         self._in = None        # {dst_id: [STEdge]}
+        self._pre = None       # {id: (fold content, fold tags_json, 去空白 content)} 检索预计算
         self._access = {}      # {nid: count} 进程内使用频次（诚实边界见模块头）
 
     # ------------------------------------------------------------------
@@ -126,6 +127,18 @@ class MdStore:
             for kid in kids:
                 _link(parent, {"target": kid, "relation_type": "hierarchical"})
         self._nodes, self._out, self._in = nodes, out, inc
+        # 检索预计算（批次 22，issue #31 外评第一步「索引先行、算法不动」）：
+        # 每节点的 fold 串与去空白串只依赖内容——装载时算一次常驻，检索面
+        # 消掉每查询 × 全池的 translate/json.dumps 重复（实测占 77% 热点）。
+        # ①fc/ftj：预筛子串匹配面（_hit）；②nos：打分去空白串（bigram 面源）。
+        self._pre = {}
+        for nid, n in nodes.items():
+            c = n.content or ""
+            self._pre[nid] = (
+                _fold(c),
+                _fold(json.dumps(n.tags or [], ensure_ascii=False)),
+                "".join(c.split()),
+            )
 
     @staticmethod
     def _mk_edge(src, e):
@@ -152,6 +165,7 @@ class MdStore:
         """丢弃全部缓存——写入方（add_entry/add_relation）落盘后刷新快照。"""
         self._conn.reload()
         self._nodes = self._out = self._in = None
+        self._pre = None
 
     # ------------------------------------------------------------------
     # LayeredStore 读子集
@@ -195,11 +209,15 @@ class MdStore:
                     for l in layers}
             pool = [n for n in pool if n.layer.value in vals]
         terms = LayeredStore.expand_query_terms(q)
+        pre = self._pre
+        fterms = [_fold(t) for t in terms]
 
         def _hit(n):
-            c = _fold(n.content or "")
-            tj = _fold(json.dumps(n.tags or [], ensure_ascii=False))
-            return any(_fold(t) in c or _fold(t) in tj for t in terms)
+            # 预筛走装载期预计算串（fc/ftj）——与逐次 fold 语义逐位一致
+            # （批次 22：_fold(json.dumps(...)) 与 _fold(content) 只依赖
+            # 节点内容，内容不变则结果不变），消每查询全池 translate。
+            fc, ftj, _ = pre[n.id]
+            return any(ft in fc or ft in ftj for ft in fterms)
 
         rows = sorted((n for n in pool if _hit(n)),
                       key=lambda n: n.id)[:300]
@@ -208,8 +226,15 @@ class MdStore:
         qb = self._bigrams(q)
         scored = []
         for n in rows:
-            nb = self._bigrams(n.content)
-            sim = (len(qb & nb) / len(qb)) if qb else 0.0
+            # 打分面数学等价改写（批次 22）：|qb ∩ bigrams(nos)| ==
+            # Σ_{b∈qb} 1[b in nos]（b 为 2 字符，是去空白串的相邻对 ⟺
+            # 是其子串）——免建 2000-entry 集合，30 次 C 速子串判定搞定
+            _, _, nos = pre[n.id]
+            hits = 0
+            for b in qb:
+                if b in nos:
+                    hits += 1
+            sim = (hits / len(qb)) if qb else 0.0
             bonus = 0.05 if any(t in q or q in t for t in (n.tags or [])
                                 ) else 0.0
             scored.append((n, min(1.0, sim + bonus)))
