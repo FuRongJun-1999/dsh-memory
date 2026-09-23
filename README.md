@@ -35,7 +35,7 @@
 | ⚙️ **Rust 检索引擎** | [`rust/`](rust/) | 检索内核 | 只读侧检索核心：零第三方依赖三形态（库内嵌大批量 / `--serve` 多智能体进程实例 / 评测器），与 Python 口径逐位对齐 | [rust/README.md](rust/README.md) |
 | 🐝 **蜂群运行时** | [`swarm/`](swarm/) | **自维持** | 多进程蜂群执行层（靠轮次心跳存续）：.pbc 确定性实例 + Gossip 拓扑 / 水位信箱 / WAL-HMAC / 信任聚合 / 健康评分，实例管道断裂即同轮重建（Rust 纯 std 零依赖） | [功能说明 v0.6](docs/swarm/蜂群多智能体_功能说明_v0.6.md) |
 | 📜 **中文编译器** | [`compiler/`](compiler/) | **验证 · 审计** | 术数编译器：词法 → 语法 → 名实校验 → 白名单代码生成 → 验证终裁，五环确定性编译链 + 封闭指令集结构性沙箱 | `python -m compiler.cli`（模块内文档） |
-| ⬢ **蜂巢并发引擎** | [`hive/`](hive/) | **自我改进** | 蜂群多智能体并发调度：Rust 纯 std 零依赖 worker 池（原子领取 / 心跳 / 超时强杀 / kill / 崩溃恢复），文件协议即接口，LLM 调用委托零依赖 Python 执行器子进程，MCP 四工具接入 —— **逐步稳定中** | [hive/README.md](hive/README.md) |
+| ⬢ **蜂巢并发引擎** | [`hive/`](hive/) | **自我改进** | 蜂群多智能体并发调度：Rust 纯 std 零依赖 worker 池（原子领取 / 心跳 / 超时强杀 / kill / 崩溃恢复），文件协议即接口，LLM 调用委托零依赖 Python 执行器子进程，MCP 五工具接入（spawn / poll / kill / restart / doctor）—— **逐步稳定中** | [hive/README.md](hive/README.md) |
 
 **系统功能 → 工程能力**（四类工程能力分别落在哪一层）：
 
