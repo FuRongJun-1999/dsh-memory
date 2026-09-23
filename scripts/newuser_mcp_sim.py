@@ -37,9 +37,11 @@ def check(name, cond, detail=""):
 class Mcp:
     """stdio JSON-RPC 客户端（与 smoke_test 同款协议形态）。"""
 
-    def __init__(self, root):
+    def __init__(self, root, token):
         env = dict(os.environ, MDCG_ROOT=root, PYTHONUTF8="1",
-                   PYTHONPATH=REPO, MDCG_ACTOR="newuser")
+                   PYTHONPATH=REPO, MDCG_ACTOR="newuser",
+                   MDCG_TOKEN=token,
+                   MDCG_TOKEN_FILE=os.path.join(root, "tokens.json"))
         self.p = subprocess.Popen(
             [sys.executable, "-m", "md_cg.mcp_server"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -76,7 +78,15 @@ class Mcp:
 
 def main():
     root = tempfile.mkdtemp(prefix="newuser_cogmap_")
-    m = Mcp(root)
+    # 部署侧动作（README 签发指引）：新用户拿到写权限的最短路径 = 签发
+    # designer 令牌并经 MDCG_TOKEN 注入。无令牌 → guest 只读（fail-closed
+    # 设计行为，非缺陷）——本模拟走「已按文档配置」的用户。
+    from md_cg import tokens as _tokens
+    tok_file = os.path.join(root, "tokens.json")
+    tk_designer = _tokens.issue("designer", actor="newuser",
+                                path=tok_file)["token"]
+    os.environ["MDCG_TOKEN_FILE"] = tok_file   # N5 的 verifier 令牌同文件
+    m = Mcp(root, tk_designer)
     ok = True
     try:
         print("== N1 initialize + tools/list ==")
@@ -142,9 +152,8 @@ def main():
         # 部署侧动作：为编外验证方签发令牌（令牌签发不在 MCP 面——设计如此）
         sys.path.insert(0, REPO)
         from md_cg import tokens
-        tok_env = os.path.join(root, "tokens.json")
         tk = tokens.issue("verifier", actor="external-reviewer",
-                          path=tok_env)["token"]
+                          path=os.environ["MDCG_TOKEN_FILE"])["token"]
         at = m.tool("cg", {"op": "ccg", "action": "attest",
                            "node_id": "ccg_newuser_probe",
                            "verdict": "ACCEPT",
