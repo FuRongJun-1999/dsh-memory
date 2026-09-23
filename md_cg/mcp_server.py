@@ -3542,8 +3542,14 @@ def main():
                 _reply(rid, {"content": [{"type": "text", "text": _j(out)}],
                              "isError": False})
             except Exception as exc:      # noqa: BLE001 —— 工具错误以 MCP 结果返回
+                # issue #34：失败路径必须带「怎么办」——AccessDenied 的 hint
+                # （guest 配凭据 / 令牌补授权 / 过期重签）随结构化错误透出。
+                err = {"error": f"{type(exc).__name__}: {exc}"}
+                _hint = getattr(exc, "hint", None)
+                if _hint:
+                    err["hint"] = _hint
                 _reply(rid, {"content": [{"type": "text",
-                                          "text": _j({"error": f"{type(exc).__name__}: {exc}"})}],
+                                          "text": _j(err)}],
                              "isError": True})
         elif method == "shutdown":
             _reply(rid, {})

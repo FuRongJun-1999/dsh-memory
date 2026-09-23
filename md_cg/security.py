@@ -25,7 +25,16 @@ DEFAULT_SENSITIVITY = "internal"
 
 
 class AccessDenied(Exception):
-    """权限拒绝（读/写/管理）。"""
+    """权限拒绝（读/写/管理）。
+
+    hint（可选）：与本仓 70 处失败路径 hint 同口径的「为什么 + 怎么办」可操作
+    指引（issue #34：新用户首个错误无可操作指引——guest 只读写入被拒恰是
+    三步接入后必然撞上的第一条失败，不得只说「不行」不说「怎么办」）。
+    """
+
+    def __init__(self, msg: str, hint: str = None):
+        super().__init__(msg)
+        self.hint = hint
 
 
 # 生效条件：形参 level 为模块级常量 SENSITIVITY_ORDER 中的元素时返回其下标，否则抛 AccessDenied。
@@ -128,18 +137,40 @@ class Principal:
 
     # ---------- 强制校验（越权即 AccessDenied） ----------
 
-# 生效条件：无 required 形参或模块级常量前置，当 self.expired()（来自 __init__ 的 expires_at 与当前时间比较）为 True 时抛 AccessDenied，否则无操作返回 None。
+# 生效条件：无 required 形参或模块级常量前置，当 self.expired()（来自 __init__ 的 expires_at 与当前时间比较）为 True 时抛 AccessDenied（带重新签发 hint），否则无操作返回 None。
     def _require_live(self):
         if self.expired():
-            raise AccessDenied(f"actor={self.actor} 令牌已过期")
+            raise AccessDenied(
+                f"actor={self.actor} 令牌已过期",
+                hint="令牌过期不是故障：重新签发并更新 MDCG_TOKEN 后重启宿主"
+                     "（python -m md_cg.tokens issue …，README「写入凭据」一节）。")
 
-# 生效条件：先调用 self._require_live()（过期则抛 AccessDenied）；再要求 self.allows_op(op) 为 True，否则抛 AccessDenied。
+    # issue #34：op 拒绝按成因分指引——guest（无令牌只读访客）引导配凭据；
+    # 有令牌但白名单不含该 op 引导换角色/补授权。「不是故障」安抚语气与
+    # 本仓其它 70 处 hint 同口径。
+    _GUEST_OP_HINT = (
+        "当前为只读访客模式（未检测到写入凭据 MDCG_TOKEN）：读/召回/时间线可用，"
+        "写入与管理操作不落盘。这不是故障，配置凭据后即恢复。"
+        "要真正落盘请签发并配置写入凭据（README「写入凭据」一节）：\n"
+        "  python -m md_cg.tokens issue --role recorder --actor <名> "
+        "--clearance internal\n"
+        "  setx MDCG_TOKEN \"<token>\"   # 然后重启宿主（DSH/IDE）\n"
+        "最小权限可用 --role recorder；op 用法可查 cg(op=\"help\", query=\"write\")。")
+
+# 生效条件：先调用 self._require_live()（过期则抛 AccessDenied）；再要求 self.allows_op(op) 为 True，否则抛 AccessDenied（role=guest 带配凭据 hint，其它角色带补授权 hint）。
     def require_op(self, op: str):
         self._require_live()
         if not self.allows_op(op):
+            msg = (f"角色 {self.role} 无权执行 op={op}（作用域 "
+                   f"{list(self.ops_allow) if self.ops_allow is not None else '不限'}）")
+            if self.role == "guest":
+                raise AccessDenied(msg, hint=self._GUEST_OP_HINT)
             raise AccessDenied(
-                f"角色 {self.role} 无权执行 op={op}（作用域 "
-                f"{list(self.ops_allow) if self.ops_allow is not None else '不限'}）")
+                msg,
+                hint=f"当前令牌（actor={self.actor}，角色 {self.role}）的 ops "
+                     f"白名单不含 {op}，属正常闸门不是故障。可：①换用含该 op "
+                     f"的角色令牌；②由签发者以 --ops-allow 补授权后重新签发"
+                     f"（python -m md_cg.tokens issue …，README「写入凭据」一节）。")
 
 # 生效条件：依次要求 self._require_live() 未抛异常、self.theory_ok 为 True、self.can_write 为 True、self.allows(sensitivity) 为 True；任一不满足则抛 AccessDenied。
     def require_write(self, sensitivity: str):
@@ -149,7 +180,12 @@ class Principal:
                 "版本层校验未通过（theory_ok=False）：全部写操作被拒，"
                 "仅保留 theory 修复入口")
         if not self.can_write:
-            raise AccessDenied(f"actor={self.actor} 无写权限")
+            raise AccessDenied(
+                f"actor={self.actor} 无写权限",
+                hint=(self._GUEST_OP_HINT if self.role == "guest" else
+                      f"当前令牌（角色 {self.role}）未授予写权限（can_write="
+                      f"False），属正常闸门不是故障。请换用可写角色令牌或由"
+                      f"签发者重新签发（README「写入凭据」一节）。"))
         if not self.allows(sensitivity):
             raise AccessDenied(
                 f"写入敏感度 {sensitivity} 超出 clearance {self.clearance}")
