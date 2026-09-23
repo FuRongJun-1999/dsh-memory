@@ -416,5 +416,57 @@ with open(os.path.join(_JD2, "result.json"), encoding="utf-8") as f:
 check("E10 result 诚实记 orch_token_unavailable",
       _res2.get("error_code") == "orch_token_unavailable" and _res2.get("ok") is False)
 
+# ------------------------------------------------------- L M5 纠正链侧车 + 同源标记
+# 能红说明：删 _record_adjudication 的字段校验时 L1-L3 红；删 _spawn/_card 的
+# source_group 时 L4/L5 红；同源组键变化时 L6（同组断言）红。
+print("[L] M5 纠正链侧车 + 同源标记")
+_JD_M5 = tempfile.mkdtemp(prefix="orch_m5_")
+orc._CFG["job_id"] = "orch_m5_probe"
+orc._CFG["job_dir"] = _JD_M5
+orc._CFG["max_subtasks"] = 99   # E 段 main 遗留 3 上限会挡本段两次 spawn
+
+_l0 = orc.orch_handler("record_adjudication", {"kind": "supersede"}, "orch_m5_probe")
+check("L1 缺 subject/evidence/note 诚实拒",
+      _l0["ok"] is False and "subject" in _l0["error"], str(_l0)[:120])
+_l0b = orc.orch_handler("record_adjudication",
+                        {"kind": "replace", "subject": "s1",
+                         "evidence": ["s2"], "verdict_note": "n"}, "orch_m5_probe")
+check("L2 非法 kind 诚实拒", _l0b["ok"] is False and "kind" in _l0b["error"])
+_l1 = orc.orch_handler("record_adjudication", {
+    "kind": "supersede", "subject": "job_child_a",
+    "evidence": ["job_child_a", "job_child_b"],
+    "verdict_note": "乙的结论覆盖甲（甲缺边界核对）"}, "orch_m5_probe")
+check("L3 合法裁决落台账（job 目录内）",
+      _l1["ok"] is True and os.path.isfile(os.path.join(_JD_M5, orc._ADJ_FILE)))
+_rec = [json.loads(l) for l in open(os.path.join(_JD_M5, orc._ADJ_FILE),
+                                    encoding="utf-8")][-1]
+check("L4 台账字段完整（ts/kind/subject/evidence/note/session）",
+      _rec.get("kind") == "supersede" and _rec.get("subject") == "job_child_a"
+      and "job_child_b" in (_rec.get("evidence") or [])
+      and str(_rec.get("session", "")).startswith("hive_orch_"), str(_rec)[:160])
+
+_g = orc._source_group("deepseek-flash", ["a.txt", "b.txt"])
+check("L5 同源组键：同 model+同 context_files 同组",
+      _g == orc._source_group("deepseek-flash", ["b.txt", "a.txt"]))
+check("L6 同源组键：异 model 异组",
+      _g != orc._source_group("deepseek-v4-pro", ["a.txt", "b.txt"]))
+check("L7 同源组键：异 context_files 异组",
+      _g != orc._source_group("deepseek-flash", ["a.txt"]))
+_ctx_a = os.path.join(TMP, "ctx_a.txt")
+with open(_ctx_a, "w", encoding="utf-8") as f:
+    f.write("ctx\n")
+_sga = orc._spawn({"user_prompt": "同源甲", "tools": ["lingshu_cg"],
+                   "context_files": [_ctx_a]})
+_sgb = orc._spawn({"user_prompt": "同源乙", "tools": ["lingshu_cg"],
+                   "context_files": [_ctx_a]})
+_sg = [c for c in orc._CFG["children"]
+       if c["job_id"] in (_sga.get("job_id"), _sgb.get("job_id"))]
+check("L8 卡片带 source_group 且孪生同组",
+      len(_sg) == 2 and _sg[0].get("source_group")
+      and _sg[0]["source_group"] == _sg[1]["source_group"],
+      str(_sg)[:160])
+_card_sg = orc._card(_sga["job_id"]).get("source_group")
+check("L9 卡片可读出 source_group", _card_sg == _sg[0]["source_group"], str(_card_sg))
+
 print(f"\n=== orchestration tests: {PASS} passed, {FAIL} failed ===")
 sys.exit(1 if FAIL else 0)

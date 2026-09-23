@@ -45,6 +45,7 @@ fail-closed（本文件的硬纪律，不降级）
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -67,7 +68,16 @@ DEFAULT_MAX_SUBTASKS = 8        # 单 job 子任务上限（spec.orchestrate.max
 CHILDREN_FILE = "_children.json"
 TERMINAL_STATES = ("done", "error", "timeout", "killed")
 SUB_TOOLS_ALLOW = ("lingshu_cg", "web_search", "read_file")   # 子代理可用工具（编排工具不外传；read_file 只读）
-ORCH_TOOLS = ("spawn_subtask", "poll_subtasks", "read_full")
+ORCH_TOOLS = ("spawn_subtask", "poll_subtasks", "read_full", "record_adjudication")
+_ADJ_FILE = "_adjudication.jsonl"     # M5 纠正链侧车（job 目录内，随 job 留痕）
+_ADJ_KINDS = ("supersede", "reject", "confirm")
+
+
+# 生效条件：给定 model 与 context_files 列表，返回同源组键 = model + 排序后归一文件清单的 SHA1 前 8 位；同 context_files+同 model 的子任务同组（M5 同源标记，供纠正链裁决识别孪生来源）。
+def _source_group(model: str, context_files) -> str:
+    norm = "\x00".join(sorted(str(p) for p in (context_files or [])))
+    h = hashlib.sha1(f"{model}\x00{norm}".encode("utf-8")).hexdigest()[:8]
+    return f"sg_{h}"
 
 ORCH_SYSTEM_PROMPT = """你是蜂巢**编排者**（orchestrator），不是执行者。职责：
 1. 拆解：把任务切成可独立完成的子任务 → `spawn_subtask`（毫秒即返，**不要等**，继续拆下一个）
@@ -87,6 +97,9 @@ ORCH_SYSTEM_PROMPT = """你是蜂巢**编排者**（orchestrator），不是执�
   节点 id 回读，核对正文已真实落盘（**不信返回的 written 计数**——多实例下
   计数可能与盘面不一致）；不一致重试 1 次，再失败如实报 error，不静默
 - 冲突以**证据**裁决，不以多数票；证据不足就如实说「未定」，不要编造
+- 子任务结果间有纠正/否决/确认关系时，用 `record_adjudication` 留痕
+  （台账随本任务目录归档，跨任务可回溯）；同 source_group 的孪生结果
+  收口时要点名比对，不以「结果一致」代替核对
 - 子任务失败要如实汇报失败原因，不要用其它子任务的结果顶替"""
 
 
@@ -170,10 +183,44 @@ def _read_full_schema() -> dict:
     }
 
 
+def _adjudication_schema() -> dict:
+    """M5 纠正链侧车：裁决留痕工具（强制字段 fail-closed）。"""
+    return {
+        "type": "function",
+        "function": {
+            "name": "record_adjudication",
+            "description": (
+                "纠正链裁决留痕（M5）：对子任务结果间的纠正/否决/确认关系"
+                "落一份裁决台账（_adjudication.jsonl），供跨 job 配对回溯。"
+                "全部字段强制，缺一即拒（fail-closed）。裁决权边界："
+                "kind=confirm 仅确认无冲突；supersede/reject 需 evidence "
+                "给出被纠正方的 job_id 与依据。"),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string",
+                             "enum": list(_ADJ_KINDS),
+                             "description": "supersede=以新代旧 / reject=否决 / "
+                                            "confirm=确认无冲突"},
+                    "subject": {"type": "string",
+                                "description": "被裁决的子任务 job_id"},
+                    "evidence": {"type": "array", "items": {"type": "string"},
+                                 "description": "裁决依据的 job_id 列表"
+                                                "（含 subject 自身之外的证据源）"},
+                    "verdict_note": {"type": "string",
+                                     "description": "一句话裁决理由（不得为空）"},
+                },
+                "required": ["kind", "subject", "evidence", "verdict_note"],
+            },
+        },
+    }
+
+
 ORCH_SCHEMAS = {
     "spawn_subtask": _spawn_schema(),
     "poll_subtasks": _poll_schema(),
     "read_full": _read_full_schema(),
+    "record_adjudication": _adjudication_schema(),
 }
 
 
@@ -284,6 +331,11 @@ def _card(job_id: str, full: bool = False) -> dict:
         "error": st.get("error"),
         "result_path": os.path.join(job_dir, "result.json"),
     }
+    # M5 同源标记：卡片带 source_group（编排者收口时识别同源孪生结果）
+    for c in _CFG.get("children") or []:
+        if c.get("job_id") == job_id and c.get("source_group"):
+            card["source_group"] = c["source_group"]
+            break
     view = _hm._result_view(job_dir, head=None if full else CARD_CHARS)
     if not view:
         if card["state"] in TERMINAL_STATES:
@@ -369,6 +421,8 @@ def _spawn(a: dict) -> dict:
     _CFG["children"].append({
         "job_id": cid, "prompt_head": prompt[:160], "tools": tools,
         "model": model, "ts": time.time(),
+        # M5 同源标记：同 context_files+同 model 归同组（纠正链裁决识别孪生来源）
+        "source_group": _source_group(model, a.get("context_files")),
     })
     _save_children()
     _ex.progress(_CFG["job_dir"], kind="spawn_subtask", child=cid,
@@ -418,14 +472,48 @@ def _read_full(a: dict) -> dict:
 
 
 # 生效条件：按 name 分派，name=='spawn_subtask' 返回 _spawn(args)、'poll_subtasks' 返回 _poll(args)、'read_full' 返回 _read_full(args)，其余 name 返回 {'ok': False, 'error': ...}；job_id 形参在源码中未被使用。
+def _record_adjudication(args: dict) -> dict:
+    """M5 纠正链侧车：强制字段校验（fail-closed）→ 追加 _adjudication.jsonl。
+
+    台账随编排 job 目录留痕（会话后可审计可回放）；session=本编排 job id。
+    """
+    kind = str(args.get("kind") or "").strip()
+    subject = str(args.get("subject") or "").strip()
+    evidence = [str(x) for x in (args.get("evidence") or []) if str(x).strip()]
+    note = str(args.get("verdict_note") or "").strip()
+    if kind not in _ADJ_KINDS:
+        return {"ok": False, "error": f"kind 必须为 {_ADJ_KINDS} 之一，got {kind!r}"}
+    if not subject:
+        return {"ok": False, "error": "subject 必填（被裁决的子任务 job_id）"}
+    if not evidence:
+        return {"ok": False, "error": "evidence 必填且非空（裁决依据 job_id 列表）——"
+                                      "不以「多个结果一致」代替证据"}
+    if not note:
+        return {"ok": False, "error": "verdict_note 必填（一句话裁决理由）"}
+    rec = {"ts": time.time(), "kind": kind, "subject": subject,
+           "evidence": evidence, "verdict_note": note[:400],
+           "session": f"hive_orch_{_CFG.get('job_id') or 'unknown'}"}
+    path = os.path.join(_CFG.get("job_dir") or "", _ADJ_FILE)
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except OSError as e:
+        return {"ok": False, "error": f"裁决台账写入失败: {e}"}
+    _ex.progress(_CFG.get("job_dir"), **{**rec, "kind": "adjudication"})
+    return {"ok": True, "recorded": rec, "file": _ADJ_FILE,
+            "hint": "裁决已留痕；subject 结果按 kind 语义在收口结论中呈现"}
+
+
 def orch_handler(name: str, args: dict, job_id: str) -> dict:
-    """编排三工具的处理器（注册进 exec.register_tools）。"""
+    """编排工具的处理器（注册进 exec.register_tools）。"""
     if name == "spawn_subtask":
         return _spawn(args)
     if name == "poll_subtasks":
         return _poll(args)
     if name == "read_full":
         return _read_full(args)
+    if name == "record_adjudication":
+        return _record_adjudication(args)
     return {"ok": False, "error": f"未注册的编排工具 {name!r}"}
 
 
