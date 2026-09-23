@@ -44,6 +44,8 @@ echo "=== U3 npm pack 发布件 ==="
 npm pack >/tmp/pack.log 2>&1
 record "npm pack" $?
 TGZ=$(ls *.tgz 2>/dev/null | head -1)
+echo "    TGZ=$TGZ"
+tar tzf "$TGZ" | grep "md_cg/mcp_server.py" | head -2
 tar tzf "$TGZ" | grep -q "package/md_cg/mcp_server.py"
 record "发布件含大脑入口 md_cg/mcp_server.py" $?
 
