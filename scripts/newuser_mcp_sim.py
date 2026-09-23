@@ -142,7 +142,7 @@ def main():
         # ccg 流程要求目标节点**先存在**（compile_dialog 存在性校验，E002）——
         # 新用户正确顺序：先建节点占位，再用 ccg 把对话沉淀为六要素更新
         m.tool("cg", {"op": "write", "content_kind": "note",
-                      "layer": "knowledge", "id": "ccg_newuser_probe",
+                      "layer": "knowledge", "node_id": "ccg_newuser_probe",
                       "content": "# 功能名：newuser 探针（占位）\n# 正文：待编外复核沉淀"})
         # 入参集中在 ccg 对象里（_ccg_call 的解包口径）；四槽显式入参且文本值
         # 须为 dialog 字面子串（名实门 E010/E011）；time_window 须 [lo,hi] 数值对
