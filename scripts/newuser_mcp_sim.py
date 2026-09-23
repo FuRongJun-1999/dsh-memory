@@ -141,9 +141,9 @@ def main():
         print("== N5 ccgc 编译 → 令牌签发 → attest(verifier_token) → link ==")
         # ccg 流程要求目标节点**先存在**（compile_dialog 存在性校验，E002）——
         # 新用户正确顺序：先建节点占位，再用 ccg 把对话沉淀为六要素更新
-        _ph = m.tool("cg", {"op": "write", "content_kind": "note",
+        _ph = m.tool("cg", {"op": "write", "content_kind": "code",
                             "layer": "knowledge", "node_id": "ccg_newuser_probe",
-                            "content": "# 功能名：newuser 探针（占位）\n# 正文：待编外复核沉淀"})
+                            "content": "PLACEHOLDER = True  # 待编外复核沉淀\n"})
         check("N5pre 占位节点写入成功",
               _ph.get("committed") is True
               and _ph.get("id") == "ccg_newuser_probe",
