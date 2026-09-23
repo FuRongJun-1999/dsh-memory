@@ -139,13 +139,19 @@ def main():
                   json.dumps(rv, ensure_ascii=False, default=str)[:160])
 
         print("== N5 ccgc 编译 → 令牌签发 → attest(verifier_token) → link ==")
-        # 入参集中在 ccg 对象里（_ccg_call 的解包口径）
+        # 入参集中在 ccg 对象里（_ccg_call 的解包口径）；四槽显式入参且值须为
+        # dialog 字面子串（名实门 E010/E011——strict_spans 默认开）
+        _dlg = ("user: 沉淀 newuser 探针结论\n"
+                "assistant: 结论：探针可用。观察位置：newuser 模拟环境；"
+                "观察工具：mcp-probe；存在约束：仅在 newuser 模拟中成立；"
+                "时间窗：2026-09-23。")
         c = m.tool("cg", {"op": "ccg", "ccg": {
             "action": "compile", "node_id": "ccg_newuser_probe",
-            "dialog": "user: 帮我沉淀 newuser 探针结论\n"
-                      "assistant: 生效条件：newuser 模拟；"
-                      "结论：探针可用",
-            "actor": "agent-Compiler"}})
+            "dialog": _dlg, "actor": "agent-Compiler",
+            "slots": {"observation_position": "newuser 模拟环境",
+                      "observation_tool": "mcp-probe",
+                      "existence_constraint": "仅在 newuser 模拟中成立",
+                      "time_window": ["2026-09-23", "2026-09-23"]}}})
         compiled_ok = (c.get("ok") is True
                        or bool(c.get("pending"))
                        or (c.get("compiled") or {}).get("success") is True)
