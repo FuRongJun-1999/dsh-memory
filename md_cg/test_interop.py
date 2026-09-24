@@ -79,8 +79,10 @@ def main():
         print("[4] 冻结文件落盘形态（入库可复核）")
         fp = os.path.join(tmp, "interop", "frozen.json")
         data = json.load(open(fp, encoding="utf-8"))
-        check("4a 冻结文件只含结构化事实（iter_id/frozen_at/digest/files）",
-              set(data.keys()) == {"iter_id", "frozen_at", "digest", "files"},
+        check("4a 冻结文件只含结构化事实（iter_id/frozen_at/digest/files"
+              "/missing_patterns）",
+              set(data.keys()) == {"iter_id", "frozen_at", "digest", "files",
+                                   "missing_patterns"},
               str(sorted(data.keys())))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

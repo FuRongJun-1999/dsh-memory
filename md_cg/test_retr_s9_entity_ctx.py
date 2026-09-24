@@ -159,11 +159,17 @@ def main():
           str(au.get("actual")))
 
     # ================= 7) FUNC_DESC 覆盖守卫 =================
+    # cogmap_sync 是**源码树**门禁脚本（出货包 files 不含 scripts/）→ 安装态
+    # 如实 SKIP：缺件不是被测缺陷，也不虚报通过（2026-09-24 修复）。
     sync_path = os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "scripts", "cogmap_sync.py")
-    sync_src = open(sync_path, encoding="utf-8").read()
-    check("cogmap_sync.FUNC_DESC 登记 (\"cg\", \"edges\")（功能调用映射表覆盖门禁的前置）",
-          '("cg", "edges")' in sync_src)
+    if not os.path.isfile(sync_path):
+        print("  SKIP  cogmap_sync.FUNC_DESC 覆盖守卫（scripts/cogmap_sync.py "
+              "不在——源码树门禁脚本，出货包不含）")
+    else:
+        sync_src = open(sync_path, encoding="utf-8").read()
+        check("cogmap_sync.FUNC_DESC 登记 (\"cg\", \"edges\")（功能调用映射表覆盖门禁的前置）",
+              '("cg", "edges")' in sync_src)
 
     print("\ntest_retr_s9_entity_ctx: %d 通过 / %d 失败" % (passed, failed))
     return 0 if failed == 0 else 1

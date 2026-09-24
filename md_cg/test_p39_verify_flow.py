@@ -49,57 +49,70 @@ def main():
               and os.path.isfile(os.path.join(rep["dispatched"], "spec.json")))
 
         # runner 冒烟：env 注入轻量探针命令 + 身份/冻结/subject_fp
-        env = dict(os.environ)
-        env.update({
-            "HIVE_INSTANCE": "verifier", "HIVE_ROLE": "verifier",
-            "SUBJECT_FP": "e" * 64, "ITER_ID": iter_id,
-        })
-        # freeze 的 digest 基于真判据面——runner 内 A3 用同一 digest，须一致：
-        # runner 在本 repo 内跑，判据面未变 → A3 成立
-        r = subprocess.run([sys.executable, os.path.join(repo, "hive",
-                                                         "verify_runner.py"),
-                            iter_id, "--smoke"], env=env, capture_output=True,
-                           text=True, encoding="utf-8", errors="replace",
-                           cwd=tmp)  # cwd≠repo：验证 runner 以自身位置锚定
-        out = json.loads(r.stdout)
-        check("2a runner 产出 verdict（ok 结构）",
-              out.get("ok") is True and "valid" in out, r.stdout[:160])
-        vp = os.path.join(repo, "hive", "interop", iter_id, "verdict.json")
-        v = json.load(open(vp, encoding="utf-8"))
-        check("2b 三断言全过 → valid=true 且 verdict=pass",
-              v.get("valid") is True and v.get("verdict") == "pass",
-              str(v.get("details"))[:160])
-        check("2c 套件计数经宽松解析累加（3+4=7）",
-              v.get("passed") == 7, f"passed={v.get('passed')}")
+        # hive/ 是**源码树子系统**（出货包 files 不含它）→ 依赖 runner 的 2a~3c
+        # 如实 SKIP，并改为钉住缺件时的**新契约**（2026-09-24 修复）：
+        # 派发必须透出 warning，冻结凭证必须记录缺失判据面组。
+        hive_runner = os.path.join(repo, "hive", "verify_runner.py")
+        if not os.path.isfile(hive_runner):
+            check("2* 缺 hive runner 时派发透出 warning（不假装能跑）",
+                  bool(rep.get("warning")), str(rep.get("warning"))[:160])
+            _fr = json.load(open(os.path.join(repo, "hive", "interop", iter_id,
+                                              "frozen.json"), encoding="utf-8"))
+            check("4* 冻结凭证记录缺失判据面组（不静默少算）",
+                  isinstance(_fr.get("missing_patterns"), list)
+                  and bool(_fr["missing_patterns"]),
+                  str(_fr.get("missing_patterns")))
+            print("  SKIP  2a~3c（需要 hive/verify_runner.py，源码树子系统）")
+        else:
+            env = dict(os.environ)
+            env.update({
+                "HIVE_INSTANCE": "verifier", "HIVE_ROLE": "verifier",
+                "SUBJECT_FP": "e" * 64, "ITER_ID": iter_id,
+            })
+            # freeze 的 digest 基于真判据面——runner 内 A3 用同一 digest，须一致：
+            # runner 在本 repo 内跑，判据面未变 → A3 成立
+            r = subprocess.run([sys.executable, hive_runner,
+                                iter_id, "--smoke"], env=env, capture_output=True,
+                               text=True, encoding="utf-8", errors="replace",
+                               cwd=tmp)  # cwd≠repo：验证 runner 以自身位置锚定
+            out = json.loads(r.stdout)
+            check("2a runner 产出 verdict（ok 结构）",
+                  out.get("ok") is True and "valid" in out, r.stdout[:160])
+            vp = os.path.join(repo, "hive", "interop", iter_id, "verdict.json")
+            v = json.load(open(vp, encoding="utf-8"))
+            check("2b 三断言全过 → valid=true 且 verdict=pass",
+                  v.get("valid") is True and v.get("verdict") == "pass",
+                  str(v.get("details"))[:160])
+            check("2c 套件计数经宽松解析累加（3+4=7）",
+                  v.get("passed") == 7, f"passed={v.get('passed')}")
 
-        # 角色守卫：非 verifier 拒跑
-        env2 = dict(env)
-        env2["HIVE_ROLE"] = "primary"
-        r2 = subprocess.run([sys.executable, os.path.join(repo, "hive",
-                                                          "verify_runner.py"),
-                             iter_id], env=env2, capture_output=True,
-                            text=True, encoding="utf-8", errors="replace")
-        check("2d 角色守卫：primary 拒跑互验（§7.1）",
-              r2.returncode == 3 and "角色守卫" in r2.stdout,
-              f"rc={r2.returncode} out={r2.stdout[:120]} err={r2.stderr[:120]}")
+            # 角色守卫：非 verifier 拒跑
+            env2 = dict(env)
+            env2["HIVE_ROLE"] = "primary"
+            r2 = subprocess.run([sys.executable, hive_runner, iter_id],
+                                env=env2, capture_output=True,
+                                text=True, encoding="utf-8", errors="replace")
+            check("2d 角色守卫：primary 拒跑互验（§7.1）",
+                  r2.returncode == 3 and "角色守卫" in r2.stdout,
+                  f"rc={r2.returncode} out={r2.stdout[:120]} err={r2.stderr[:120]}")
 
-        # 脱敏纵深 + 入库（不 commit）
-        bad = dict(v)
-        bad["details"] = [{"leak": r"E:\private\node.log"}]
-        try:
-            sanity_check_verdict(bad)
-            check("3a 落盘前脱敏纵深拦截", False, "违规未拦")
-        except Exception:
-            check("3a 落盘前脱敏纵深拦截", True)
-        w = write_verdict_to_repo(v, repo=repo, do_commit=False)
-        check("3b verdict 入受版本控制目录（hive/interop/<iter>/）",
-              w.get("ok") is True
-              and "hive" in w["path"] and "interop" in w["path"], w.get("path"))
-        try:
-            write_verdict_to_repo({**v, "iter_id": "../evil"}, repo=repo)
-            check("3c iter_id 路径注入拒绝", False, "未抛")
-        except ValueError:
-            check("3c iter_id 路径注入拒绝", True)
+            # 脱敏纵深 + 入库（不 commit）
+            bad = dict(v)
+            bad["details"] = [{"leak": r"E:\private\node.log"}]
+            try:
+                sanity_check_verdict(bad)
+                check("3a 落盘前脱敏纵深拦截", False, "违规未拦")
+            except Exception:
+                check("3a 落盘前脱敏纵深拦截", True)
+            w = write_verdict_to_repo(v, repo=repo, do_commit=False)
+            check("3b verdict 入受版本控制目录（hive/interop/<iter>/）",
+                  w.get("ok") is True
+                  and "hive" in w["path"] and "interop" in w["path"], w.get("path"))
+            try:
+                write_verdict_to_repo({**v, "iter_id": "../evil"}, repo=repo)
+                check("3c iter_id 路径注入拒绝", False, "未抛")
+            except ValueError:
+                check("3c iter_id 路径注入拒绝", True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
         shutil.rmtree(os.path.join(repo, "hive", "interop", iter_id),

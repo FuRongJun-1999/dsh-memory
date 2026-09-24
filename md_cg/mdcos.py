@@ -1228,6 +1228,9 @@ class MdCGOS(MdCG):
             "judge": bool(judge), "judge_ranking": bool(judge_ranking),
             "goal_text": goal_text, "context": context,
             "early_stop_threshold": early_stop_threshold,
+            # 进程级开关也改口径（v14 只补了参数面）：MDCG_SEMANTIC /
+            # MDCG_EN_ATOMS / MDCG_UNIFY_QUERY 等不入键即跨口径命中（2026-09-24 修复）。
+            "env_switch": _hc.env_switch_key(),
         }
         # 不可稳定进键的参数（自定义可调用 query_expand）：非默认即**绕行**
         # 缓存（读+写双侧闭合）——fail-closed，宁可不用缓存也不串味。

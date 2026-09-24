@@ -49,9 +49,23 @@ QUERY_TTL = 300.0
 #: 串味（v14 缺陷 C：include_work/roles 致资格泄漏、paths 互相顶替）。
 _KEYED_EXTRA = ("include_work", "roles", "paths", "path_weights", "recall_only",
                 "fusion", "judge", "judge_ranking", "goal_text", "context",
-                "early_stop_threshold")
+                "early_stop_threshold",
+                # 进程级开关快照（见 env_switch_key）：参数面之外还有一类口径来自
+                # 环境变量（MDCG_SEMANTIC/MDCG_EN_ATOMS/MDCG_UNIFY_QUERY…），它们
+                # 同样改变候选资格与打分。v14 只补了参数面，故另立一键
+                # （2026-09-24 修复：同 query 下切开关会命中另一口径的缓存 → 静默错答）。
+                "env_switch")
 #: 不可稳定规范化的参数（自定义可调用）：非默认即**绕行缓存**（fail-closed）。
 _BYPASS_EXTRA = ("query_expand",)
+#: 影响检索结果的进程级开关（新增一个就登记一个——同 _KEYED_EXTRA 的纪律）。
+_ENV_SWITCHES = ("MDCG_SEMANTIC", "MDCG_EN_ATOMS", "MDCG_UNIFY_QUERY",
+                 "MDCG_RETRIEVAL_PIPELINE", "MDCG_S7_FRESHNESS")
+
+
+# 生效条件：无必需形参；返回 _ENV_SWITCHES 中每个变量名的 (名, 当前取值或 None) 元组（稳定、可哈希，随 query 缓存键一起参与比对）。
+def env_switch_key():
+    """当前进程级检索开关的快照（进 query 缓存键，防跨口径串味）。"""
+    return tuple((name, os.environ.get(name)) for name in _ENV_SWITCHES)
 
 
 class HotCache:

@@ -179,7 +179,10 @@ TOOLS = [
     },
     {
         "name": "mdcg_get",
-        "description": "按 id 读取一个记忆节点（frontmatter + content）。",
+        "description": "按 id 读取一个记忆节点（frontmatter + content）。"
+                       "id 不存在或密级不可读时返回 {ok:false, error:'not_found', "
+                       "readable_sensitivities, hint}（不再返回裸 null——"
+                       "调用方须能区分「没有」与「读不到」）。",
         "inputSchema": _s("", node_id=_p("string", "节点 id", True)),
     },
     {
@@ -1081,6 +1084,15 @@ def _trust_state(fm):
         from . import trust
         return trust.state_of(fm)
     except Exception:                                      # noqa: BLE001
+        return None
+
+
+# 生效条件：cg 具有 whoami() 且其返回 dict 含 readable_sensitivities 时返回该值；cg 无该方法或抛异常时返回 None（不编造、不抛）。
+def _readable_sensitivities(cg):
+    """当前身份可读密级（whoami 同源；取不到返回 None，不编造）。"""
+    try:
+        return (cg.whoami() or {}).get("readable_sensitivities")
+    except Exception:
         return None
 
 
@@ -2123,7 +2135,9 @@ def _cg_dispatch(cg, a):
             return _node_view(cg.get(a["node_id"]),
                               offset=int(a.get("offset") or 0))
         q = a.get("query") or a.get("intent") or ""
-        if a.get("budget_tokens"):
+        # 显式 0 也是「显式」（2026-09-24 修复）：旧写法 `if a.get("budget_tokens")`
+        # 把 0 当没传，静默换成 1200 —— 调用方以为「零预算」拿到的是满预算结果。
+        if a.get("budget_tokens") is not None:
             return cg.recall(q, budget_tokens=int(a["budget_tokens"]),
                              k=int(a.get("k") or 20), context=a.get("context"),
                              goal_text=a.get("goal"),
@@ -2542,7 +2556,9 @@ def _session_call(cg, a):
         return cg.session_recall(
             session=a.get("session"), limit=int(a.get("limit") or 5),
             recent_limit=int(a.get("recent_limit") or 10),
-            budget_tokens=int(a.get("budget_tokens") or 1200),
+            # `is not None`：显式 0 不再被吞成默认 1200（2026-09-24 修复）
+            budget_tokens=int(a["budget_tokens"])
+            if a.get("budget_tokens") is not None else 1200,
             include_state=bool(a.get("include_state", True)))
     if act == "compact":
         if a.get("note") and principal is not None \
@@ -3037,7 +3053,9 @@ def _dispatch(cg, name, args):
         # 直接引用 mdcos.DEFAULT_MAX_ITEM_TOKENS 会 NameError —— 故此处按需导入）。
         from .mdcos import DEFAULT_MAX_ITEM_TOKENS as _DEFAULT_MAX_ITEM
         return cg.recall(a.get("query", ""),
-                         budget_tokens=int(a.get("budget_tokens") or 1200),
+                         # `is not None`：显式 0 不再被吞成默认 1200（2026-09-24 修复）
+                         budget_tokens=int(a["budget_tokens"])
+                         if a.get("budget_tokens") is not None else 1200,
                          max_item_tokens=int(a["max_item_tokens"])
                          if a.get("max_item_tokens") is not None
                          else _DEFAULT_MAX_ITEM,
@@ -3066,8 +3084,15 @@ def _dispatch(cg, name, args):
                             for n, s, q in res]}
 
     if name == "mdcg_get":
-        return _node_view(cg.get(a.get("node_id", "")),
-                          offset=int(a.get("offset") or 0))
+        _nid = a.get("node_id", "")
+        node = cg.get(_nid)
+        if not node:
+            # 裸 null 让调用方无从区分「id 不存在」与「密级不可读」（2026-09-24 修复）
+            return {"ok": False, "error": "not_found", "node_id": _nid,
+                    "readable_sensitivities": _readable_sensitivities(cg),
+                    "hint": "id 不存在（或已被清退/证伪移入 rejected），"
+                            "或该节点密级高于当前身份可读——whoami 可查 clearance"}
+        return _node_view(node, offset=int(a.get("offset") or 0))
 
     if name == "mdcg_reflect":
         res, _ = cg.search(a.get("query", ""), k=int(a.get("k") or 10), record=False)
@@ -3364,6 +3389,17 @@ def _build_principal():
             p = verify_token(token, tenant=os.environ.get("MDCG_TENANT"))
         except TokenError as e:
             return None, f"令牌校验失败：{e}"
+        # 密级口径冲突必须开口（2026-09-24 修复）：令牌优先时 MDCG_CLEARANCE
+        # **完全不参与**（令牌里冻结的 clearance 说了算），而插件侧
+        # config.mdcg.clearance 默认 'private'——配置写 private、实际 internal
+        # 会让 private/secret 节点静默读不到（本机实测：readable=[public,internal]）。
+        _want = (os.environ.get("MDCG_CLEARANCE") or "").strip()
+        if _want and _want != (p.clearance or ""):
+            sys.stderr.write(
+                f"[mdcg-mcp] ⚠ 密级配置被令牌覆盖：MDCG_CLEARANCE={_want} 但令牌"
+                f" clearance={p.clearance}（令牌优先，实际可读密级以令牌为准）。"
+                f"要让配置生效：用 --clearance {_want} 重新签发令牌，"
+                f"或删除 MDCG_TOKEN 走 legacy/env 身份。\n")
         _apply_attribution(p)
         return _attach_theory(p), None
 
@@ -3475,6 +3511,15 @@ def main():
     except Exception as _mig_exc:       # 迁移故障不得影响服务可用性
         sys.stderr.write("[mdcg-mcp] 数据面迁移检查失败（不阻塞启动）: %r\n"
                          % (_mig_exc,))
+    # 两个根一并留痕（2026-09-24）：记忆真源与「身份/凭据根」**有意分离**
+    # （身份不随认知图迁移），但分居两处必须可见——历史事故多为「以为在一处」。
+    try:
+        from .datapath import aux_root as _aux_root
+        sys.stderr.write(
+            "[mdcg-mcp] 路径：记忆真源 root=%s · 身份/凭据根 aux=%s"
+            "（aux 可用 MDCG_AUX_ROOT 覆盖）\n" % (root, _aux_root()))
+    except Exception:                   # 仅日志：任何失败都不影响启动
+        pass
     principal, err = _build_principal()
     if err:
         sys.stderr.write(

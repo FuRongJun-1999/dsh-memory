@@ -206,19 +206,33 @@ def t_en_unified(tmp):
                verification_basis="data")
         cg.flush()
         ec.install_read_cache(cg)
+        # 本段只测**语义摘要路**：显式关掉统一归一层（MDCG_UNIFY_QUERY=0），
+        # 否则英文 query 会被归一成中文原子、经词法路命中 gold，语义路的增量
+        # 与它的负证都会被掩盖（2026-09-24 修复：旧写法把两个开关混在一起，
+        # 归一默认转正后该负证恒红）。
         os.environ["MDCG_SEMANTIC"] = "1"
+        os.environ["MDCG_UNIFY_QUERY"] = "0"
         res, _m = cg.search_rrf("Did you eat horse meat today?", k=5,
                                 paths=("lexical",), judge=False, record=False)
         ok(res and res[0][0]["id"] == "gold",
            "英文原题未命中统一真源 gold: %r" % [r[0]["id"] for r in res[:2]])
-        # 关闭语义路：英文原题对中文正文词法零交集，gold 不应凭空出现
+        # 关闭语义路：英文原题对中文正文词法零交集（且归一关），gold 不应凭空出现
         os.environ.pop("MDCG_SEMANTIC", None)
         res, _m = cg.search_rrf("Did you eat horse meat today?", k=5,
                                 paths=("lexical",), judge=False, record=False)
         top1 = res[0][0]["id"] if res else None
-        ok(top1 != "gold", "关闭语义路英文原题仍命中 gold（词法零交集被违反？）")
+        ok(top1 != "gold", "语义路与归一路全关：英文原题不命中 gold（词法零交集）")
+        # 归一层默认开启时的口径（2026-09-23 拍板转正）：同一 query 经归一即命中
+        os.environ["MDCG_UNIFY_QUERY"] = "1"
+        res_u, _mu = cg.search_rrf("Did you eat horse meat today?", k=5,
+                                   paths=("lexical",), judge=False, record=False)
+        ok(res_u and res_u[0][0]["id"] == "gold",
+           "归一层默认开（MDCG_UNIFY_QUERY=1）：英文原题归一后命中 gold: %r"
+           % [r[0]["id"] for r in res_u[:2]])
+        os.environ.pop("MDCG_UNIFY_QUERY", None)
     finally:
         os.environ.pop("MDCG_SEMANTIC", None)
+        os.environ.pop("MDCG_UNIFY_QUERY", None)
         cg.close()
 
 

@@ -66,12 +66,21 @@ def _st(cg, nid):
 
 
 def _load_run_tests():
-    """加载 scripts/run_tests.py（非包，按文件路径加载）。"""
-    p = os.path.join(_REPO, "scripts", "run_tests.py")
-    spec = importlib.util.spec_from_file_location("_v14_run_tests", p)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    """加载 run_tests.py（源码树 scripts/ 优先，其次包内 md_cg/run_tests.py）。
+
+    返回 None 表示两者都不在（安装态且未带源码树）→ 调用方如实 SKIP，
+    不虚报通过、也不把「缺件」记成缺陷（2026-09-24 修复）。
+    """
+    for rel in (os.path.join("scripts", "run_tests.py"),
+                os.path.join("md_cg", "run_tests.py")):
+        p = os.path.join(_REPO, rel)
+        if not os.path.isfile(p):
+            continue
+        spec = importlib.util.spec_from_file_location("_v14_run_tests", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    return None
 
 
 def _hb(jd, pid, age_ms):
@@ -267,8 +276,13 @@ def phase_d(tmp):
 # ------------------------------------------------------------------ E
 def phase_e(tmp):
     phase("E units 判活口径须与权威三层同口径")
-    import hive.serve_start as serve_start
-
+    # hive/ 是**源码树子系统**（出货包 files 不含它）→ 安装态如实 SKIP 整段，
+    # 不 FAIL（这条依赖是开发树边界，不是被测缺陷；2026-09-24 修复）。
+    try:
+        import hive.serve_start as serve_start
+    except ImportError:
+        print("  SKIP  E 段需要 hive/（源码树子系统，出货包不含）——跳过 E1~E8")
+        return
     ok(float(units.FRESH_S) == float(serve_start.FRESH_S),
        "E1 units.FRESH_S 与 serve_start.FRESH_S 同值（实得 %s vs %s）"
        % (units.FRESH_S, serve_start.FRESH_S))
@@ -333,18 +347,22 @@ def phase_f(tmp):
     ok(not os.path.exists(missing), "F4 fail-closed 不产生空壳目录副作用")
 
     rt = _load_run_tests()
-    old_repo = rt._REPO
-    try:
-        rt._REPO = tmp
-        sh = os.path.join(tmp, "_md_cg_wisdom_graph")
-        os.makedirs(sh)
-        ok(rt._dep_mdroot() is not None,
-           "F5 runner：空壳 _md_cg_wisdom_graph 不等于依赖就绪")
-        with open(os.path.join(sh, "n.md"), "w", encoding="utf-8") as f:
-            f.write("---\nid: x\n---\n")
-        ok(rt._dep_mdroot() is None, "F6 runner：含 md 时依赖就绪")
-    finally:
-        rt._REPO = old_repo
+    if rt is None:
+        print("  SKIP  F5/F6 需要 run_tests.py（scripts/ 或 md_cg/ 内）——"
+              "安装态未带源码树，跳过这两条")
+    else:
+        old_repo = rt._REPO
+        try:
+            rt._REPO = tmp
+            sh = os.path.join(tmp, "_md_cg_wisdom_graph")
+            os.makedirs(sh)
+            ok(rt._dep_mdroot() is not None,
+               "F5 runner：空壳 _md_cg_wisdom_graph 不等于依赖就绪")
+            with open(os.path.join(sh, "n.md"), "w", encoding="utf-8") as f:
+                f.write("---\nid: x\n---\n")
+            ok(rt._dep_mdroot() is None, "F6 runner：含 md 时依赖就绪")
+        finally:
+            rt._REPO = old_repo
 
     for rel in ("md_cg/test_md_access_parity.py",
                 "md_cg/test_p44_md_whitebox.py",

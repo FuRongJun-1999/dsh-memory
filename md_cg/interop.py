@@ -20,7 +20,10 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MANIFEST = os.path.join(HERE, "scripts", "judgment_manifest.py")
+# 判据面实现（2026-09-24 修复）：包内模块；出货包不含 scripts/，且 DSH 沙箱
+# 禁子进程管道，故**进程内**调用。MDCG_JUDGMENT_MANIFEST 可指向外部实现文件
+# （自定义判据面时用；按文件路径加载，需提供 collect()/digest()）。
+MANIFEST_ENV = "MDCG_JUDGMENT_MANIFEST"
 
 _FORBIDDEN_RES = [
     (re.compile(r"[A-Za-z]:[\\\\/]"), "本机绝对路径（盘符）"),
@@ -50,14 +53,56 @@ class InteropSanityError(ValueError):
     """verdict 脱敏门禁违规（入库即公开，违规内容不得落盘）。"""
 
 
+def _manifest_module():
+    """取判据面实现模块，优先级：
+
+      ① `MDCG_JUDGMENT_MANIFEST` 外部实现（自定义判据面）
+      ② **源码树的 `scripts/judgment_manifest.py`**——验证器侧（hive runner /
+         serve 心跳）用它算 digest，A3 要求两侧**同一份实现**；源码树在时
+         必须用它，否则两侧判据面构成一旦分叉，digest 必不相等（A3 全红）。
+      ③ 包内 `md_cg/judgment_manifest.py`——出货包不含 `scripts/`，
+         安装态回落此处（构成与 ② 同步维护）。
+    """
+    override = (os.environ.get(MANIFEST_ENV) or "").strip()
+    if override:
+        if not os.path.isfile(override):
+            raise RuntimeError(
+                f"{MANIFEST_ENV} 指向的文件不存在：{override}")
+        return _load_manifest_file(override)
+    src = os.path.join(HERE, "scripts", "judgment_manifest.py")
+    if os.path.isfile(src):
+        return _load_manifest_file(src)
+    from . import judgment_manifest as mod
+    return mod
+
+
+def _load_manifest_file(path):
+    """按路径加载判据面实现（需提供 collect()/digest()）。"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_mdcg_judgment_manifest_ext", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    for fn in ("collect", "digest"):
+        if not callable(getattr(mod, fn, None)):
+            raise RuntimeError(f"{path} 不是合法判据面实现（缺 {fn}()）")
+    return mod
+
+
 def _manifest(action: str):
-    import subprocess
-    import sys
-    r = subprocess.run([sys.executable, MANIFEST, action],
-                       capture_output=True, text=True, encoding="utf-8")
-    if r.returncode != 0:
-        raise RuntimeError(f"judgment_manifest {action} 失败: {r.stderr[:200]}")
-    return r.stdout.strip()
+    """判据面清单/指纹（进程内，无子进程）。
+
+    历史（2026-09-24 修复）：0.4.x 以 `subprocess.run([python, scripts/
+    judgment_manifest.py, ...])` 取清单——出货包不含 scripts/，安装态必抛
+    FileNotFoundError（判据面是运行时依赖，不是可选工具）；且 DSH 文件沙箱
+    禁止子进程管道（CreatePipe → WinError 5），该写法在受限宿主里连空库都跑不动。
+    现改为直接调用包内模块，语义（PATTERNS/排序/digest 算法）与原脚本逐字一致。
+    """
+    mod = _manifest_module()
+    manifest = mod.collect()
+    if action == "--digest":
+        return mod.digest(manifest)
+    return json.dumps(manifest, ensure_ascii=False)
 
 
 def freeze(iter_id: str, out_dir: str = None) -> dict:
@@ -77,6 +122,9 @@ def freeze(iter_id: str, out_dir: str = None) -> dict:
         "frozen_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "digest": _manifest("--digest"),
         "files": manifest["files"],
+        # 判据面是源码树概念：安装态（出货包）只有 md_cg/test_*.py 一组可得。
+        # 缺失组随凭证落盘 → A3 两侧布局不一致时可判因，而不是只见「指纹不符」。
+        "missing_patterns": manifest.get("missing_patterns") or [],
     }
     if out_dir is None:
         out_dir = os.path.join(HERE, "hive", "interop", iter_id)
@@ -203,11 +251,11 @@ def dispatch_verify_job(verifier_jobs_dir: str, iter_id: str,
     A2 的比对输入）。
     """
     jobs = os.path.abspath(verifier_jobs_dir)
+    runner = os.path.join(HERE, "hive", "verify_runner.py")
     spec = {
         "model": "cmd",
         "user_prompt": f"互验执行 iter={iter_id}",
-        "command": [sys.executable,
-                    os.path.join(HERE, "hive", "verify_runner.py"), iter_id],
+        "command": [sys.executable, runner, iter_id],
         "timeout_s": max(5, min(3600, timeout_s)),
         "env": {"SUBJECT_FP": subject_fingerprint, "ITER_ID": iter_id},
     }
@@ -218,8 +266,14 @@ def dispatch_verify_job(verifier_jobs_dir: str, iter_id: str,
         json.dump(spec, f, ensure_ascii=False)
     with open(os.path.join(jd, "status.json"), "w", encoding="utf-8") as f:
         json.dump({"state": "pending"}, f)
-    return {"ok": True, "dispatched": jd, "iter_id": iter_id,
-            "note": "非阻塞投递完成——进度靠验证实例心跳拉取，不轮询不等待"}
+    out = {"ok": True, "dispatched": jd, "iter_id": iter_id,
+           "note": "非阻塞投递完成——进度靠验证实例心跳拉取，不轮询不等待"}
+    # hive/ 是源码树子系统（出货包不含）：投递本身成功，但没有可执行 runner 时
+    # 消费端会静默失败 → 显式报警，不假装这一票能跑（2026-09-24 补齐）。
+    if not os.path.isfile(runner):
+        out["warning"] = (f"验证 runner 不存在：{runner}——投递已落盘，但本次"
+                          "验证不会被消费（hive/ 为源码树子系统，安装态需另行提供）")
+    return out
 
 
 def write_verdict_to_repo(verdict: dict, repo: str = HERE,

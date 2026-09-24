@@ -29,9 +29,10 @@ import sys
 import time
 
 from . import signer as _signer
+from .datapath import aux_root
 
 LINKS_FILE_ENV = "MDCG_LINKS_FILE"
-DEFAULT_DIR = os.path.join(os.path.expanduser("~"), ".mdcg")
+DEFAULT_DIR = aux_root()
 DEFAULT_LINKS_FILE = os.path.join(DEFAULT_DIR, "_links.json")
 SCHEMA = 1
 

@@ -389,6 +389,13 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 
 共享层（`md_cg/` 大脑 · `data/` · `docs/` · `scripts/`）在仓库根；**harness 专属配置按端归置**，下表列的只是各端**纪律注入方式**的差异（纪律如何进入上下文），大脑与记忆真源零改动：
 
+> ⚠ **出货面与源码树的分界**：npm 包的 `files` 只含 `lib/ src/ md_cg/ skills/ README.md dsh/ codebuddy/ zcode/ docs/`
+> —— `scripts/`、`hive/`、`swarm/`、`compiler/`、`rust/` 属**源码树**（发布门禁、蜂巢运行时、Rust 评测器），
+> 装出来的插件里**不存在**。因此运行期依赖一律不得指向它们：
+> 判据面清单走包内 `md_cg/judgment_manifest.py`（`md_cg/interop.py` 进程内调用）、
+> 裁决 CLI 走包内 `python -m md_cg.review_cli`、全量测试走包内 `python -m md_cg.run_tests`；
+> 依赖 `scripts/`/`hive/` 的**测试**在缺件时如实 SKIP（不 FAIL、不虚报通过）。
+
 | 目录 | harness | 接入文档 | 纪律注入方式 |
 |---|---|---|---|
 | [`dsh/`](dsh/README.md) | DeepSeek Harness | [dsh/README.md](dsh/README.md) | `~/.dsh/profiles/web/cordis.patch.yml` 的 `personaPrefix`（compact · 每轮） |
@@ -439,12 +446,26 @@ npm test         # 真实集成测试（spawn 本机灵枢，验证握手/往返
 `md_cg/` 等包内测试普遍使用**包内相对导入**，必须以模块方式从**仓库根**运行；直接 `python md_cg/test_xxx.py` 会 ImportError（59/61 踩坑实测）。一键入口已固化该约定（Linux·macOS 上把下面的 `python` 换成 `python3`——发行版默认无 `python`）：
 
 ```bash
-python scripts/run_tests.py                  # 全量（md_cg + compiler + swarm）
-python scripts/run_tests.py md_cg -k p44     # 按组 / 关键字过滤
-python scripts/run_tests.py --jobs 1         # 串行（默认并发 4）
+python -m md_cg.run_tests                    # 全量（md_cg + compiler + swarm，按存在性发现）
+python -m md_cg.run_tests md_cg -k p44       # 按组 / 关键字过滤
+python -m md_cg.run_tests --jobs 1           # 串行（默认并发 4）
+python scripts/run_tests.py                  # 源码树入口（等价；需 scripts/ 在）
 ```
 
+> **入口在包内**（`md_cg/run_tests.py`）：npm 出货面（`files`）不含 `scripts/`，
+> 所以「装出来的插件」里唯一可用的全量入口就是上面那条；`src/` 源码树里
+> `scripts/run_tests.py` 与 `npm run gate` 仍可用（发布门禁属源码树工具）。
+> 包的 runner 把子进程输出**重定向到文件**（不用管道）：受限宿主（如 DSH 文件
+> 沙箱）禁 CreatePipe，用 `capture_output` 的版本会把每个用例都变成
+> PermissionError 的假失败。
+
 单测等价写法：`python -m md_cg.test_p44_md_whitebox`（cwd=仓库根）。退出码 0/1 可直接接提交前门禁。
+
+> **两个跨语开关别混**：`MDCG_UNIFY_QUERY`（统一归一层，**默认开**，2026-09-23 口径转正：
+> 任意语言 query 先归一成标准中文原子序列→词法路即可命中中文节点）与
+> `MDCG_EN_ATOMS`（英→中召回词扩展，**默认关**）是彼此独立的开关；
+> `MDCG_SEMANTIC`（`fm.semantic` 语义摘要路）同样默认关。改其一请同步
+> `md_cg/test_en_pipeline.py` 与 `md_cg/test_semantic_canonical.py` 的双态断言。
 
 ### Linux 验证（Docker 容器双栈，0.5.0 起为发版门禁）
 

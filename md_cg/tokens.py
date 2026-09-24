@@ -34,11 +34,12 @@ import sys
 import time
 from collections import OrderedDict
 
+from .datapath import aux_root
 from .security import Principal, _rank
 
 TOKEN_ENV = "MDCG_TOKEN"
 TOKEN_FILE_ENV = "MDCG_TOKEN_FILE"
-DEFAULT_TOKEN_DIR = os.path.join(os.path.expanduser("~"), ".mdcg")
+DEFAULT_TOKEN_DIR = aux_root()
 DEFAULT_TOKEN_FILE = os.path.join(DEFAULT_TOKEN_DIR, "_tokens.json")
 PREFIX = "mdcg1"
 SCHEMA = 1

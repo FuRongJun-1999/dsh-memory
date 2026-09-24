@@ -30,7 +30,9 @@ R2 改造的验收（对照 docs/mdcg/认知图_索引与工程规范化_计划_
      （设 MDCG_ROOT 则跑，未设如实 SKIP 不虚报通过）。
 
 运行：python -m md_cg.test_p27_docindex
-     设 MDCG_ROOT=<认知图库根> 追加跑【12b】外部历史库逐字节回放抽样
+     设 MDCG_TEST_LIVE_ROOT=1 且 MDCG_ROOT=<认知图库根> 时才追加跑【12b】
+     外部历史库逐字节回放抽样（该段会以新身份打开外部库并 provision DEK，
+     故默认不跑：跑测试不该动生产库）
 """
 from __future__ import annotations
 
@@ -715,14 +717,21 @@ def main():
               f"{rp['ok']}+{rp['dangling']}+{rp['gone']}+{rp['unreadable']}"
               f" vs {rp['sampled']}")
 
-        # 历史抽样：真实认知图库（仓外数据面，历史卡最多）。以 MDCG_ROOT 显式声明；
-        # 裸 clone / CI 无此数据面 → 如实报 SKIP（不虚报通过、也不 FAIL）。
+        # 历史抽样：真实认知图库（仓外数据面，历史卡最多）。
+        # ⚠ 必须**显式 opt-in**（2026-09-24 修复）：DSH 把 MDCG_ROOT 导出到每个
+        # shell，而本段以新身份打开外部库——MdCGSecure 首次打开该身份即
+        # provision DEK（写 _keys.json / _crypto.jsonl，见 mdcos._init_crypto），
+        # 于是「跑一次测试」= 动生产库；且受限文件沙箱下该写会阻塞（实测本机
+        # 900s 超时、日志零字节）。故：MDCG_TEST_LIVE_ROOT=1 才跑。
+        # 语义澄清：这里只保证**查询语义只读**，不是「不写盘」。
+        _live_opt = os.environ.get("MDCG_TEST_LIVE_ROOT") == "1"
         ext_root = os.environ.get("MDCG_ROOT") or ""
-        if not (ext_root and os.path.isdir(ext_root)):
-            print("\n【12b】历史抽样：跳过（未设 MDCG_ROOT 或目录不存在）"
-                  "—— 本仓语料回放见【12】")
+        if not (_live_opt and ext_root and os.path.isdir(ext_root)):
+            print("\n【12b】历史抽样：跳过（需 MDCG_TEST_LIVE_ROOT=1 且 MDCG_ROOT "
+                  "指向真实库）—— 本仓语料回放见【12】")
         else:
-            print(f"\n【12b】历史抽样：外部认知图库 {ext_root}（只读身份）")
+            print(f"\n【12b】历史抽样：外部认知图库 {ext_root}"
+                  "（只读查询；首开新身份会 provision 本身份 DEK）")
             ext = MdCGSecure(ext_root, principal=Principal(
                 actor="p27-replay", clearance="secret", can_write=False,
                 can_admin=False, role="designer", auth_mode="local-cli"))

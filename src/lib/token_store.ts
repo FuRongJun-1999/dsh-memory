@@ -29,7 +29,7 @@
 import { spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { pythonPathValue, runRoot } from './datapath.js'
 
 /** 凭据来源（用于启动日志与故障定位）。 */
@@ -68,9 +68,19 @@ export interface ResolveTokenOptions {
   keyringPath?: string
 }
 
-/** 默认密钥环路径：与 md_cg 的 `~/.mdcg/` 约定同目录（`_tokens.json` 亦在此）。 */
+/** 辅助存储根（密钥/令牌/信任/理论/心跳）：与 md_cg 的 `datapath.aux_root()` 同口径。
+ *
+ *  默认 `~/.mdcg`（历史值，**逐字保留**——改默认会让存量密钥/令牌失联）；
+ *  `MDCG_AUX_ROOT` 可把它们整体搬走（沙箱/多用户/与记忆真源同处的场景）。
+ *  与 `config.mdcg.root`（记忆真源）有意分离：身份与信任不随认知图迁移。 */
+export function auxRoot(): string {
+  const env = (process.env.MDCG_AUX_ROOT ?? '').trim()
+  return env ? resolve(env) : join(homedir(), '.mdcg')
+}
+
+/** 默认密钥环路径：与 md_cg 的 `_tokens.json` 同目录（aux 根下，见 auxRoot()）。 */
 export function defaultKeyringPath(): string {
-  return join(homedir(), '.mdcg', 'token')
+  return join(auxRoot(), 'token')
 }
 
 /** 读取密钥环；不存在 / 不可读 / 空文件一律返回 undefined（不抛异常）。 */

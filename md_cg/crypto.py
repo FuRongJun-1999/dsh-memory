@@ -45,6 +45,8 @@ import secrets
 import struct
 import time
 
+from .datapath import aux_root
+
 # ---- 常量 ----------------------------------------------------------------
 
 ENVELOPE_VERSION = 1
@@ -62,7 +64,7 @@ ENCRYPTED_LEVELS = ("private", "secret")
 KEYS_FILE = "_keys.json"
 AUDIT_FILE = "_crypto.jsonl"
 MASTER_ENV = "MDCG_MASTER_KEY"
-MASTER_FILE = os.path.join(os.path.expanduser("~"), ".mdcg", "master.key")
+MASTER_FILE = os.path.join(aux_root(), "master.key")
 
 # scrypt 参数（交互式场景：N=2^14 / r=8 / p=1，约 16MB 内存）
 SCRYPT_N, SCRYPT_R, SCRYPT_P, SCRYPT_DKLEN = 2 ** 14, 8, 1, 32

@@ -192,8 +192,10 @@ def main():
         pid_e = ose.propose("n_cli", mk("CLI 裁决节点", "问 CLI",
                                         "review_cli 落盘的目标节点"))
         ose.close()
+        # 入口为**包内**模块（`python -m md_cg.review_cli`）：出货包不含 scripts/，
+        # 旧写法 `scripts/review_cli.py` 在安装态必 FileNotFoundError（2026-09-24 修复）。
         r = subprocess.run(
-            [sys.executable, os.path.join(REPO, "scripts", "review_cli.py"),
+            [sys.executable, "-m", "md_cg.review_cli",
              "accept", pid_e, "--root", root_e, "--reason", "端到端守卫测试"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             env=_child_env(), cwd=REPO)

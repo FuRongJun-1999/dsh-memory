@@ -57,6 +57,7 @@ import threading
 import time
 
 from . import crypto
+from .datapath import aux_root
 from .fsutil import append_jsonl, atomic_write, ends_mid_line
 from .mdcg import LAYERS
 
@@ -80,11 +81,11 @@ _POLL = 0.2                       # 循环轮询步长（常驻进程 CPU 可忽
 # 心跳
 # --------------------------------------------------------------------------
 
-# 生效条件：d 为真值时返回 d，d 为 None/空串时回落 MDCG_SUSTAIN_DIR，该环境变量也未设或为空串时返回 os.path.join(os.path.expanduser("~"), ".mdcg", "sustain")；
+# 生效条件：d 为真值时返回 d，d 为 None/空串时回落 MDCG_SUSTAIN_DIR，该环境变量也未设或为空串时返回 os.path.join(aux_root(), "sustain")（默认 ~/.mdcg/sustain，可经 MDCG_AUX_ROOT 改）；
 def net_dir(d: str = None) -> str:
-    """心跳戳目录：显式 → MDCG_SUSTAIN_DIR → ~/.mdcg/sustain（仓库外）。"""
+    """心跳戳目录：显式 → MDCG_SUSTAIN_DIR → aux_root()/sustain（仓库外）。"""
     return (d or os.environ.get("MDCG_SUSTAIN_DIR")
-            or os.path.join(os.path.expanduser("~"), ".mdcg", "sustain"))
+            or os.path.join(aux_root(), "sustain"))
 
 
 # 生效条件：给定必填 name，返回 net_dir(d) 下 heartbeat.<name>.stamp 的拼接路径。

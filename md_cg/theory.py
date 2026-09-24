@@ -28,9 +28,11 @@ import os
 import sys
 import time
 
+from .datapath import aux_root
+
 THEORY_ENV = "MDCG_THEORY"
 THEORY_FILE_ENV = "MDCG_THEORY_FILE"
-DEFAULT_THEORY_DIR = os.path.join(os.path.expanduser("~"), ".mdcg")
+DEFAULT_THEORY_DIR = aux_root()
 DEFAULT_THEORY_FILE = os.path.join(DEFAULT_THEORY_DIR, "theory.json")
 SCHEMA = 1
 
