@@ -2206,8 +2206,14 @@ class MdCG:
         # 把 rejected/unresolved 视作可参与召回的特殊「候选池」
         # ——命中它们的结果会改变 meta 的 covered_neg（被负记忆覆盖的查询）
         # 默认排除掉负记忆层的节点进入正排打分，仅作为「覆盖标记」用
-        entries = [e for e in self.index["nodes"].values()
-                   if (not layer or e["layer"] == layer)
+        # P2-2（批次 31）：单次遍历双收集——负记忆层引用与正排候选
+        # 同车收集，消除此前的第二遍全索引遍历。
+        neg_layer_entries = []
+        entries = []
+        for e in self.index["nodes"].values():
+            if include_neg and e["layer"] in ("rejected", "unresolved"):
+                neg_layer_entries.append(e)
+            if ((not layer or e["layer"] == layer)
                    # '"*"' = 显式跨会话（读遍所有会话）；缺省 None 同义
                    and (not session or session == "*"
                         or e.get("session") == session)
@@ -2218,7 +2224,8 @@ class MdCG:
                    # （非法视图 ValueError——fail-closed 只针对调用方误用）
                    and (view is None or roleviews.matches(e, view))
                    # 时效：只在显式启用时排除已过期（not_yet 保留）
-                   and not (validity and trust.is_expired(e, now=now))]
+                   and not (validity and trust.is_expired(e, now=now))):
+                entries.append(e)
 
         # 默认关：索引里可能残留门控字段（曾开启过 / 回填过）→ 返回前剥离，
         # 保证候选 entry 形状与「从未启用过本功能」逐字节一致（独立复核 2026-09-19）。
@@ -2228,6 +2235,13 @@ class MdCG:
                         for e in entries)):
             entries = [_strip_empty_gate_fields(dict(e), enabled=False)
                        for e in entries]
+            # P2-3（批次 31）：剥离结果回写索引——残留是一次性
+            # 污染，自愈一次后后续查询零残留零拷贝（旧写法
+            # 每次查询重复 O(n) 拷贝）。仅影响本进程索引快照。
+            _by_id = {e.get("id"): e for e in entries if e.get("id")}
+            for _nid, _e in list(self.index["nodes"].items()):
+                if _nid in _by_id:
+                    self.index["nodes"][_nid] = _by_id[_nid]
 
         # ---- 时间算子（阶段二 4.1）：候选**资格**过滤（在 S1/S2 收敛之前）----
         # 与 validity 各司其职、互不替代：
@@ -2294,8 +2308,10 @@ class MdCG:
         # 负记忆覆盖：查询词是否已被否决议过
         neg_coverage = []
         if include_neg:
-            for e in self.index["nodes"].values():
-                if e["layer"] in ("rejected", "unresolved"):
+            # P2-2：遍历第一轮同车收集的引用，不再全索引二遍
+            for e in neg_layer_entries:
+                if e["layer"] not in ("rejected", "unresolved"):
+                    continue
                     # _index 用 path 存，直接按 path 读盘（批次 24 P2-1：删除
                     # 原先的死调用 `got = self.get(...)`——结果从未使用却完成
                     # 一次完整读盘+解析+解密，每次检索对每个负记忆节点双倍 IO）
@@ -2322,8 +2338,11 @@ class MdCG:
         # 阶段 1 大域打分已在候选构建前算好（S1 门控要用）；此处不再重复计算。
 
 # 生效条件：docs 经 self._score(docs, q, qb, pool_cfg) 后分数 >0 的条数达到闭包阈值 min_results 时返回 self._emit(scored, k, tier, stat, route_bucket, record, len(docs), judge, context, neg_coverage, big_domain, big_scores, pool_cfg)（tier 原样透传）；未达阈值返回 None；
-        def try_stage(docs, tier):
-            scored = self._score(docs, q, qb, pool_cfg)
+        def try_stage(docs, tier, scored=None):
+            # P2-4（批次 31）：支持传入已打分结果（reach 分支复用，
+            # 免对同一批文档二次 _score）。
+            if scored is None:
+                scored = self._score(docs, q, qb, pool_cfg)
             valid = sum(1 for _, s in scored if s > 0)
             if valid >= min_results:
                 return self._emit(scored, k, tier, stat, route_bucket, record,
@@ -2370,11 +2389,17 @@ class MdCG:
             stat["cap"] = GLOBAL_CAP
             # 与 T2 **无条件**同序调用（不可按 cap 短路：cut_by_relevance 还会写
             # 池账 pool_taken/cands/lost，短路会让 meta.pools.taken 缺失 → test_p43(13) 红）
-            hits_r, _rep = cut_by_relevance(hits_r, self._score(hits_r, q, qb, pool_cfg),
+            # P2-4（批次 31）：打分结果经 pre_scored 传给 try_stage，
+            # 不再对同一 hits_r 二次 _score（报告 P2-4）。
+            scored_r = self._score(hits_r, q, qb, pool_cfg)
+            hits_r, _rep = cut_by_relevance(hits_r, scored_r,
                                             GLOBAL_CAP, pools=pool_cfg,
                                             key_of=pooling.doc_key, stat=stat)
             pooling.record_audit(stat, _rep)
-            out = try_stage(hits_r, TIER_GLOBAL_LIKE)
+            _smap = {pooling.doc_key(d): s for d, s in scored_r}
+            out = try_stage(hits_r, TIER_GLOBAL_LIKE,
+                            scored=[(d, _smap[pooling.doc_key(d)])
+                                    for d in hits_r])
             if out:
                 return out
             # 收敛阶段未产出结果 → 继续走下方全量 T2/T3；此时必须**改写 reach 审计**，

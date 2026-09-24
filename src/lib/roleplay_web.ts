@@ -519,6 +519,7 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
         }
         catch { /* 忽略 */ }
         const transcriptFile = (roleId, clientId) => join(transcriptsDir, `${roleId.replace(/[^\w.-]/g, '_')}__${clientId}.jsonl`);
+        const TRANSCRIPT_TAIL_MAX = 500;   // P2-9（批次 31）：返回最近 500 条
         const readTranscript = (roleId, clientId = 'shared') => {
             const f = transcriptFile(roleId, clientId);
             if (!existsSync(f))
@@ -532,7 +533,9 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                 }
                 catch { /* 跳过坏行 */ }
             }
-            return out;
+            // P2-9：无上限返回会让响应体随会话长度线性增长——只回最近尾部。
+            return out.length > TRANSCRIPT_TAIL_MAX
+                ? out.slice(out.length - TRANSCRIPT_TAIL_MAX) : out;
         };
         const appendTranscript = (roleId, entry, clientId = 'shared') => {
             try {
@@ -614,8 +617,12 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
             }
         };
         const writeTransSettings = (s) => {
+            // P2-10（批次 31）：tmp+rename 原子写（与 writeRoleMeta 同款）——
+            // 直接 writeFileSync 并发/中断会写坏 JSON，后续读静默丢配置。
             try {
-                writeFileSync(transSettingsFile, JSON.stringify(s, null, 2), 'utf8');
+                const tmp = transSettingsFile + '.tmp';
+                writeFileSync(tmp, JSON.stringify(s, null, 2), 'utf8');
+                renameSync(tmp, transSettingsFile);
             }
             catch { /* 忽略 */ }
         };
@@ -767,6 +774,9 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                         res.end(JSON.stringify({ ok: false, error: '非法角色 id（白名单 ^[A-Za-z0-9_.-]{1,64}$）' }));
                         return;
                     }
+                    // P2-11（批次 30 注记）：本读改写段为同步执行（中间无
+                    // await）——node 单 tick 内不会交错；若未来在此段引入
+                    // await，须先加写队列/文件锁（并发丢更新防线）。
                     const meta = readRoleMeta();
                     if (!meta[role])
                         meta[role] = { created_at: Date.now() / 1000 };

@@ -83,6 +83,7 @@ DEFAULT_API_BASE = "https://open.bigmodel.cn/api/paas/v4"
 # P2-17（批次 30）：响应体读取字节上限——异常/恶意网关返回超大响应
 # 不再能撑爆内存（resp.read(N) 最多读 N 字节，截断 JSON 会在解析层失败）。
 RESP_MAX_BYTES = 8 * 1024 * 1024
+CONTEXT_TEXT_MAX = 256 * 1024
 
 EXIT_OK, EXIT_SPEC, EXIT_API = 0, 2, 3
 
@@ -290,10 +291,15 @@ def _context_block(rel: str, path: str, job_dir: str, meta: dict) -> str:
     with open(path, "rb") as f:
         head = f.read(BINARY_SNIFF_BYTES)
     kind = sniff_kind(head)
-    if kind == "text":
-        with open(path, encoding="utf-8", errors="replace") as f:
-            return f'<context path="{rel}">\n{f.read()}\n</context>'
     size = os.path.getsize(path)
+    if kind == "text":
+        # P2-8（批次 31）：读入内存前查大小——超大文本截断到
+        # CONTEXT_TEXT_MAX（防 OOM；呈现量仍由预算机制收紧）。
+        with open(path, encoding="utf-8", errors="replace") as f:
+            content = f.read(CONTEXT_TEXT_MAX)
+        note = ("\n<!-- truncated: > CONTEXT_TEXT_MAX -->"
+                if size > CONTEXT_TEXT_MAX else "")
+        return f'<context path="{rel}">\n{content}{note}\n</context>'
     if kind.startswith("image:"):
         w, h = image_size(path)
         dim = f"{w}x{h}" if w and h else "尺寸未知"
@@ -917,10 +923,13 @@ def _int_arg(args: dict, key: str, default: int, hi: int) -> int:
 def _list_dir(real: str) -> dict:
     """目录清单（读放开的一半：先能发现，才谈读得到）。"""
     try:
-        names = os.listdir(real)
+        names_all = os.listdir(real)
     except OSError as e:
         return {"ok": False, "path": real, "kind": "dir",
                 "error": f"{type(e).__name__}: {e}"}
+    # P2-7（批次 31）：先截断再 stat——超大目录只 stat 返回的头部条目
+    # （total/truncated 仍按全量 listdir 计数，语义不变）。
+    names = names_all[:READ_DIR_MAX]
     entries = []
     for n in names:
         full = os.path.join(real, n)
@@ -932,8 +941,9 @@ def _list_dir(real: str) -> dict:
         entries.append({"name": n, "type": "dir" if is_dir else "file",
                         "bytes": size})
     entries.sort(key=lambda e: (e["type"] != "dir", e["name"].lower()))
-    return {"ok": True, "path": real, "kind": "dir", "total": len(entries),
-            "truncated": len(entries) > READ_DIR_MAX,
+    return {"ok": True, "path": real, "kind": "dir",
+            "total": len(names_all),
+            "truncated": len(names_all) > READ_DIR_MAX,
             "entries": entries[:READ_DIR_MAX]}
 
 
@@ -1273,12 +1283,18 @@ def run_with_tools(spec: dict, messages: list, job_id: str,
     trace, usage_total = [], {}
 
 # 生效条件：无入参，budget 为假值（None/0/空串）时立即返回 (0, "")；否则 total = base_tokens + 对 messages 中 content 为 str 的项累加 est_tokens(content or "")，仅当 total > int(budget) 时返回超预算文案、否则返回空串。
+    _est = {"seen": 0, "total": base_tokens}
+
     def _budget_check() -> tuple:
+        # P2-6（批次 31）：增量维护——messages 只增不减，每轮只对新追加的
+        # 消息计 token（旧写法每轮全量重算，O(轮数 × 累计字符) 平方级）。
         if not budget:
             return 0, ""
-        total = base_tokens + sum(est_tokens(m.get("content") or "")
-                                  for m in messages
-                                  if isinstance(m.get("content"), str))
+        for m in messages[_est["seen"]:]:
+            if isinstance(m.get("content"), str):
+                _est["total"] += est_tokens(m.get("content") or "")
+            _est["seen"] += 1
+        total = _est["total"]
         return total, (
             f"上下文超预算: 保守估算 {total} tokens > 预算 {int(budget)}"
             "（工具轮累积所致；请收窄任务或调大 context_budget_tokens）"

@@ -61,6 +61,12 @@ LOG = os.path.join(STATE, "bootstrap_log.jsonl")
 # 生效条件：evt 为 dict 时（含空 dict）先写入 evt["ts"]，再以 ensure_ascii=False 序列化追加一行到 LOG。
 def log_event(evt: dict) -> None:
     evt["ts"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    # P2-13: rotate LOG when > 10MB (batch 31)
+    try:
+        if os.path.getsize(LOG) > 10485760:
+            os.replace(LOG, LOG + ".rotated")
+    except OSError:
+        pass
     with open(LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(evt, ensure_ascii=False) + "\n")
 
@@ -169,8 +175,12 @@ def persist_triggers(patches):
         ind = m.group(2)
         trig_json = json.dumps(triggers, ensure_ascii=False)
         src = src[:m.end(1)] + ind + '    "triggers": ' + trig_json + ',\n' + src[m.end(1):]
-        with open(path, "w", encoding="utf-8") as f:
+        _tmp = path + ".tmp"
+        with open(_tmp, "w", encoding="utf-8") as f:
             f.write(src)
+        # P2-14: atomic replace - concurrent instances never see a
+        # half-written source file (batch 31).
+        os.replace(_tmp, path)
         changed += 1
     return changed
 
