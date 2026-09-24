@@ -71,6 +71,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 import traceback
@@ -674,7 +675,14 @@ def tool_lingshu_cg(args: dict, job_id: str, mdcg_root: str = None) -> dict:
                 return {"ok": False, "error": "身份工厂未返回 Principal"
                         "（令牌缺失/不可用/lint 未过）—— fail-closed 拒绝执行"}
         else:
-            principal = Principal(actor="hive-worker", clearance="secret",
+            # 读权限分级（批次 27，表述经使用者 2026-09-24 澄清修正）：子代理
+            # 默认密级 internal——可读 public/internal，拒读 private 与 secret。
+            # private 的体系语义是**错误处置标记**（错误相关/待排查内容限制向
+            # 平级扩散，非个人隐私）——worker 属平级消费方，对错误标记内容
+            # 限读正是该标记的目的；错误处置链路（设计者/上级节点/验证单元）
+            # 必读不受此限。编排器派生令牌（_PRINCIPAL_FACTORY）不受此默认
+            # 影响——身份由调用方给定。
+            principal = Principal(actor="hive-worker", clearance="internal",
                                   can_write=True, can_admin=False, role="recorder",
                                   auth_mode="hive-exec")
         if not getattr(principal, "session", None):
@@ -848,6 +856,48 @@ def _sensitive_read(real: str) -> str | None:
     return None
 
 
+# 读权限分级（批次 27）：PII 内容脱敏——read_file 的文本内容会随 tool 消息
+# 回喂 LLM，「跳过个人敏感信息不入明文」在**内容层**兜底（路径层由
+# _sensitive_read 把守）。正则模式集 v1（诚实面：正则脱敏是概率防线非
+# 密码学保证，新增类别在此扩展）。
+_PII_PATTERNS = (
+    # 私钥/证书块（整段吞掉，含头尾行）
+    ("私钥块", re.compile(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----.*?-----END [A-Z ]*"
+        r"PRIVATE KEY( BLOCK)?-----", re.S)),
+    # 通用 API key 样式（OpenAI sk- / GitHub ghp_·gho_ / AWS AKIA / Bearer）
+    ("API密钥", re.compile(
+        r"\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|"
+        r"AKIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._-]{20,})\b")),
+    # 身份证（18 位含校验位 X）——先于手机号（避免 17 位段被手机号误吃）
+    ("身份证号", re.compile(r"\b\d{6}(?:19|20)\d{2}"
+                           r"(?:0[1-9]|1[0-2])(?:[0-2]\d|3[01])\d{3}[\dXx]\b")),
+    # 手机号（大陆号段）
+    ("手机号", re.compile(r"\b1[3-9]\d{9}\b")),
+    # 邮箱
+    ("邮箱", re.compile(
+        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")),
+)
+
+
+# 生效条件：text 为任意字符串；依次以 _PII_PATTERNS 各模式 sub 为「[已脱敏:{类别}]」并返回处理后文本（无命中时原串返回；多类命中各自替换）。
+def _redact_pii(text: str) -> str:
+    for label, pat in _PII_PATTERNS:
+        text = pat.sub(f"[已脱敏:{label}]", text)
+    return text
+
+
+# 生效条件：job_dir 与 spec 给定时返回 worker 的 read_file 白名单根 tuple——job_dir（工作区，None/空跳过）+ spec.workdir（定制工作目录，与 HIVE 下文基准一致）+ spec.read_roots（额外定制目录列表/单串，支持 ~/ 展开），逐项 realpath 去重去空；全部为空时返回空 tuple（调用方据此拒读——worker 无根即无文件读权限）。
+def _worker_scope(job_dir: str | None, spec: dict) -> tuple:
+    roots = []
+    for p in [job_dir, spec.get("workdir")] + list(spec.get("read_roots") or []):
+        if isinstance(p, str) and p.strip():
+            r = os.path.realpath(os.path.expanduser(p.strip()))
+            if r not in roots:
+                roots.append(r)
+    return tuple(roots)
+
+
 # 生效条件：当 args[key] 可 int() 转换且 > 0 时返回 min(该值, hi)，转换失败（None/空/非数字）或 <= 0 时返回 default；
 def _int_arg(args: dict, key: str, default: int, hi: int) -> int:
     """容错读整数参数：非法值回落默认而非抛错（工具面不因参数脏而崩）。"""
@@ -926,17 +976,29 @@ def _read_text_window(path: str, offset: int, limit: int,
 
 
 # 生效条件：当 args 含非空 path 时，以 workdir（缺省 os.getcwd()）为相对基准求 realpath；HIVE_READ_ROOTS 非空且 real 不在任一根下返回 {'ok':False,error,roots}；_sensitive_read(real) 命中敏感凭据路径（P1-6 增量）返回 {'ok':False,error}；real 为目录走 _list_dir；非 isfile 返回 {'ok':False,'error':'路径不存在'}；否则读 BINARY_SNIFF_BYTES 头经 sniff_kind 分类：text 返回行窗正文与分页元数据（含 encoding/replacements，replacements>0 附存疑提示），image:* 另附 image_size 尺寸、binary 只给 bytes，二者 content=None；打开/取尺寸抛 OSError 时返回 {'ok':False,...} 诚实报错；
-def tool_read_file(args: dict, workdir: str = None) -> dict:
+def tool_read_file(args: dict, workdir: str = None,
+                   scope_roots=None) -> dict:
     """读本地文件（只读面）：文本给行窗、目录给清单、图像/二进制给元数据。
 
     读放开：默认无路径白名单（使用者裁定）；部署可用 HIVE_READ_ROOTS 收窄。
-    **无任何写参数、不落盘、不改状态**——执行器的写路径只有 lingshu_cg。
+    读权限分级（批次 27）：worker 子代理传 scope_roots（工作区+定制工作
+    目录，`_worker_scope` 构造）→ fail-closed 白名单；文本正文统一过
+    _redact_pii（个人敏感信息不入明文）。**无任何写参数、不落盘、不改
+    状态**——执行器的写路径只有 lingshu_cg。
     """
     p = str(args.get("path") or "").strip()
     if not p:
         return {"ok": False, "error": "path 必填（文件或目录）"}
     base = workdir or os.getcwd()
     real = os.path.realpath(p if os.path.isabs(p) else os.path.join(base, p))
+    # 读权限分级（批次 27）：scope_roots 非 None = worker 身份白名单
+    # （fail-closed：含空 tuple——无根即拒，不回落 cwd 放开）
+    if scope_roots is not None:
+        if not any(_under(real, r) for r in scope_roots):
+            return {"ok": False, "path": real,
+                    "error": "路径超出子代理读权限范围（工作区+定制工作"
+                             "目录），拒读（其他会话/越界内容不进上下文）",
+                    "scope_roots": list(scope_roots)}
     roots = read_roots()
     if roots and not any(_under(real, r) for r in roots):
         return {"ok": False, "path": real,
@@ -979,10 +1041,15 @@ def tool_read_file(args: dict, workdir: str = None) -> dict:
             real, offset, limit, mchars, size)
     except OSError as e:
         return {"ok": False, "path": real, "error": f"{type(e).__name__}: {e}"}
+    # 读权限分级（批次 27）：个人敏感信息不入明文——回喂 LLM 前内容层脱敏
+    # （设计者与子代理同防线；命中类别以 [已脱敏:*] 占位，可审计可复原计数）
+    redacted = _redact_pii(content)
     out = {"ok": True, "path": real, "kind": "text", "bytes": size,
            "offset": offset, "lines_returned": n, "lines_total": total,
            "truncated": truncated, "encoding": "utf-8(replace)",
-           "replacements": bad, "content": content}
+           "replacements": bad, "content": redacted}
+    if redacted != content:
+        out["pii_redacted"] = True
     if bad:
         out["note"] = (f"解码替换 {bad} 处（非 UTF-8 或二进制污染）——按替换处"
                        "标记存疑，勿据此断言原文。")
@@ -992,7 +1059,7 @@ def tool_read_file(args: dict, workdir: str = None) -> dict:
 # 生效条件：当 name/args_json/job_id 传入时，json.loads(args_json or '{}') 失败返回 ({'ok':False,'error':'工具参数不是合法 JSON: ...'}, '')；否则 name=='lingshu_cg' 调 tool_lingshu_cg(args,job_id,mdcg_root)，name=='web_search' 调 tool_web_search(args,backend_override=ws_backend)，name=='read_file' 调 tool_read_file(args,workdir)，name 在 _EXTRA_TOOLS 中调其 handler(name,args,job_id)，否则返回未知工具错误；随后对 out 设默认 ok='error' not in out，按 results/knowledge 长度生成 brief，返回 (out,brief)；
 def execute_tool(name: str, args_json: str, job_id: str,
                  mdcg_root: str = None, ws_backend: str = None,
-                 workdir: str = None) -> tuple:
+                 workdir: str = None, read_scope_roots=None) -> tuple:
     """执行一次工具调用，返回 (结果dict, trace简报)。未知工具诚实报错。"""
     try:
         args = json.loads(args_json or "{}")
@@ -1003,7 +1070,9 @@ def execute_tool(name: str, args_json: str, job_id: str,
     elif name == "web_search":
         out = tool_web_search(args, backend_override=ws_backend)
     elif name == "read_file":
-        out = tool_read_file(args, workdir=workdir)
+        # 读权限分级（批次 27）：read_scope_roots 非 None = worker 白名单
+        out = tool_read_file(args, workdir=workdir,
+                             scope_roots=read_scope_roots)
     elif name in _EXTRA_TOOLS:
         out = _EXTRA_TOOLS[name]["handler"](name, args, job_id)
     else:
@@ -1283,7 +1352,9 @@ def run_with_tools(spec: dict, messages: list, job_id: str,
                                       job_id,
                                       mdcg_root=spec.get("mdcg_root"),
                                       ws_backend=spec.get("web_search_backend"),
-                                      workdir=spec.get("workdir"))
+                                      workdir=spec.get("workdir"),
+                                      read_scope_roots=_worker_scope(
+                                          job_dir, spec))
             full = json.dumps(out, ensure_ascii=False)
             text, spill = _shrink_tool_text(full, job_dir,
                                             f"{rnd}_{len(trace)}")

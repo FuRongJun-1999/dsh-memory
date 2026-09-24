@@ -22,6 +22,16 @@ import uuid
 
 from .datapath import aux_root
 
+# 密级阶梯的体系语义（批次 27 表述正名，使用者 2026-09-24 澄清）：
+#   private ≠ 个人隐私保密，而是**错误处置标记**——工作区内容因错误相关、
+#   验证未过、待排查而被标记私有，目的是**限制向平级/下级扩散**（防止未
+#   证实或已知有误的内容被下游消费），不是对错误处置链路保密。
+#   可见性是**故意的冲突设计**：平级/下级限读，但错误处置链路必须可读——
+#   设计者（designer，secret 上限）、上级节点、验证单元（verify）三者
+#   必读。当前令牌矩阵中 record/reflect/verify/sustain/orchestr 的
+#   clearance_cap 均为 internal（forbidden 含 private）——验证单元读错误
+#   标记节点是本职却受限于 cap，属**已登记的分级缺口**（见安全审计实锚
+#   文档「读权限分级」节），未来专项：verify 面提 cap 或走设计者代查通道。
 SENSITIVITY_ORDER = ("public", "internal", "private", "secret")
 DEFAULT_SENSITIVITY = "internal"
 
