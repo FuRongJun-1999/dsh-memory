@@ -101,6 +101,7 @@ footer button:disabled { opacity:.5; cursor:wait; }
     <button onclick="showNewRole()">+ 新角色</button>
     <button onclick="openRoleDetail()">⚙ 详情</button>
     <button onclick="openTrans()">🌐 翻译</button>
+    <button onclick="setEditKey()" title="编辑密钥：服务端 ROLEPLAY_EDIT_KEY 的值（创建/保存角色与翻译需要；留空清除）">🔑</button>
   </div>
 </header>
 <main id="chat"><div class="hint">选择角色，开始对话。角色回应由灵枢角色扮演引擎生成（白箱优先，LLM 续答）。</div></main>
@@ -191,9 +192,27 @@ try {
     localStorage.setItem('lingshu_client_id', CLIENT_ID);
   }
 } catch (e) { /* localStorage 不可用（隐私模式）→ 空，服务端落 shared */ }
+// V22 修复（缺陷 src/lib/roleplay_web.ts:338）：编辑密钥携带途径——
+// 服务端写操作 fail-closed 要求 x-edit-key 头（P1-2），但此前页面既无输入
+// 密钥的途径、写 POST 又全用裸 headers → 全部编辑恒 403 不可用。现在
+// 🔑 按钮（setEditKey → prompt）把密钥存 localStorage，apiHeaders 统一注入。
+const EDIT_KEY_STORE = 'lingshu_edit_key';
+function editKey() {
+  try { return localStorage.getItem(EDIT_KEY_STORE) || ''; } catch (e) { return ''; }
+}
+function setEditKey() {
+  const k = prompt('编辑密钥（服务端环境变量 ROLEPLAY_EDIT_KEY 的值；留空清除）：', editKey());
+  if (k === null) return;                    // 取消不动
+  try {
+    if (k.trim()) localStorage.setItem(EDIT_KEY_STORE, k.trim());
+    else localStorage.removeItem(EDIT_KEY_STORE);
+  } catch (e) { /* localStorage 不可用 → 忽略 */ }
+}
 function apiHeaders(extra) {
   const h = { 'Content-Type': 'application/json' };
   if (CLIENT_ID) h['x-client-id'] = CLIENT_ID;
+  const ek = editKey();
+  if (ek) h['x-edit-key'] = ek;              // V22：写操作鉴权头（无则服务端 403）
   return Object.assign(h, extra || {});
 }
 // —— 内容分级：年龄门控 + NSFW 检测（法律与协议保护）——
@@ -334,11 +353,18 @@ async function saveRoleDetail() {
   const scenario = $('rd_scenario').value.trim();
   const first_mes = $('rd_first').value.trim();
   const nsfw = $('rd_nsfw_chk').checked;
-  // 基础 meta（name/scenario/first_mes + nsfw 标记）
-  await fetch('/roleplay/api/roles/' + encodeURIComponent(role) + '/meta', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, scenario, first_mes, nsfw }),
-  });
+  // V22 修复（缺陷 :338）：此前 meta POST ①裸 headers（无 x-edit-key → 恒 403）
+  // ②响应完全不检查（fetch 对 403 不 reject）→ 无条件「已保存」= 虚假成功
+  // （服务端 403 在写盘之前 return，数据从未落盘）。现在统一走 apiHeaders()
+  // 并逐段检查 ok：任一失败 alert 服务端原因并中止，绝不报「已保存」。
+  let m;
+  try {
+    m = await fetch('/roleplay/api/roles/' + encodeURIComponent(role) + '/meta', {
+      method: 'POST', headers: apiHeaders(),
+      body: JSON.stringify({ name, scenario, first_mes, nsfw }),
+    }).then(x => x.json());
+  } catch (e) { m = { ok: false, error: '网络错误：' + e }; }
+  if (!m || !m.ok) { alert((m && m.error) || '保存失败（角色信息）'); return; }
   // 当前页签的条目
   const items = [];
   document.querySelectorAll('#rd_items .rd-row').forEach(row => {
@@ -347,10 +373,14 @@ async function saveRoleDetail() {
     const tags = row.querySelector('.rd-tags').value.split(/[,，]/).map(s => s.trim()).filter(Boolean);
     if (content) items.push({ content, importance: imp, tags });
   });
-  const r = await fetch('/roleplay/api/roles/' + encodeURIComponent(role) + '/import', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ kind: rdKind, items }),
-  }).then(x => x.json());
+  let r;
+  try {
+    r = await fetch('/roleplay/api/roles/' + encodeURIComponent(role) + '/import', {
+      method: 'POST', headers: apiHeaders(),
+      body: JSON.stringify({ kind: rdKind, items }),
+    }).then(x => x.json());
+  } catch (e) { r = { ok: false, error: '网络错误：' + e }; }
+  if (!r || !r.ok) { alert((r && r.error) || '保存失败（' + rdKind + '）'); return; }
   addMsg('角色「' + role + '」已保存：' + name + ' · ' + rdKind + ' ' + items.length + ' 条' + (nsfw ? ' · NSFW' : ''), 'bot');
   closeRoleDetail();
   await refreshRoles();
@@ -395,21 +425,21 @@ async function saveTrans() {
   });
   const mode = (document.querySelector('input[name="tpmode"]:checked') || {}).value || 'input_only';
   const r = await fetch('/roleplay/api/translate', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: apiHeaders(),
     body: JSON.stringify({ role_id: role, pairs, mode }),
   }).then(x => x.json());
   if (r.ok) {
     transMode = r.mode;
     closeTrans();
     addMsg('翻译配置已保存：' + r.pairs.length + ' 组词对 · ' + (r.mode === 'bidirectional' ? '双向翻译' : '仅输入翻译'), 'bot');
-  } else alert(r.error || '保存失败');
+  } else alert((r.error || '保存失败') + (editKey() ? '' : '（可点右上角 🔑 输入编辑密钥）'));
 }
 async function createRole() {
   const body = { role_id: $('nr_id').value.trim(), name: $('nr_name').value.trim(), scenario: $('nr_scenario').value.trim(), first_mes: $('nr_first').value.trim() };
   if (!body.role_id) { alert('需要角色 ID'); return; }
-  const r = await fetch('/roleplay/api/roles', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(x => x.json());
+  const r = await fetch('/roleplay/api/roles', { method:'POST', headers: apiHeaders(), body: JSON.stringify(body) }).then(x => x.json());
   if (r.ok) { closeNewRole(); await refreshRoles(); addMsg('角色「' + (body.name || body.role_id) + '」已创建，可以开始对话了', 'bot'); }
-  else alert(r.error || '创建失败');
+  else alert((r.error || '创建失败') + (editKey() ? '' : '（可点右上角 🔑 输入编辑密钥）'));
 }
 var input = document.getElementById('input');
 var chat = document.getElementById('chat');

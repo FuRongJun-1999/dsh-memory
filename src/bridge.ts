@@ -159,8 +159,34 @@ export class LingshuBridge {
     return new Promise((resolve) => this.bootQueue.push(resolve))
   }
 
+  /**
+   * V23 修复（缺陷 :284）：清理上一个仍存活的子进程。
+   * 握手超时/启动失败重试时直接 spawn 新进程并覆盖 this.proc（:182），
+   * 旧进程若仍存活（卡死但不退出的服务端）既不 kill 也不关 stdin——
+   * 引用被覆盖后永远无人清理 = 僵尸进程泄漏（最多 MAX_RETRIES 个并存，
+   * dispose 也只收尾最后一个）。换代前统一回收：stdin EOF 优雅退出 + kill 兜底。
+   * 幂等：已退出（exitCode/signalCode 非 null）的进程跳过。
+   */
+  private killStaleProc(): void {
+    const old = this.proc
+    this.proc = null                    // 先摘引用：旧进程随后的 exit 事件走 stale 早退分支
+    if (!old || old.exitCode !== null || old.signalCode !== null) return
+    try {
+      old.stdin?.end()
+    } catch {
+      /* 已关闭则忽略 */
+    }
+    try {
+      old.kill()
+    } catch {
+      /* 已退出则忽略 */
+    }
+  }
+
   private spawnAndHandshake(): void {
     if (this.disposed) return
+    // V23：重试路径先回收上一个仍存活的子进程（防换代泄漏僵尸进程）
+    this.killStaleProc()
     this.procStartedAt = Date.now()
     const { python, args, env, cwd } = this.options
     const childEnv = { ...process.env, ...env }
@@ -220,6 +246,13 @@ export class LingshuBridge {
     })
 
     proc.on('exit', (code, signal) => {
+      // V23：被换代清理的旧进程退出（this.proc 已指向新一代或为 null）——
+      // 不动当前进程的 rl/pending/重试状态机，只留探针；否则旧 exit 会
+      // close 新进程的 readline、误拒新进程的挂起请求并多触发一轮重试。
+      if (proc !== this.proc) {
+        probe(`stale proc exit code=${code} signal=${signal}（换代已回收，不影响当前进程）`)
+        return
+      }
       // 探针：写独立文件记录退出（绕过 DSH 日志系统，便于定位）
       const uptimeS = this.procStartedAt
         ? Math.round((Date.now() - this.procStartedAt) / 1000)

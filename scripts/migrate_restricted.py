@@ -59,10 +59,27 @@ def main(argv=None):
             ok += 1
             continue
         full = cg.get(nid) or {}
+        fm_old = full.get("frontmatter") or {}
+        # V22 修复：add 是**全量重建 frontmatter**（mdcg.py add docstring
+        # 自认），只传 content/layer/sensitivity 会把存量 tags/condition_
+        # space/importance/confidence/edges/non_applicable_conditions/
+        # created_at/protected 等全部清空重置（数据丢失）。迁移只应改
+        # sensitivity——其余字段一律从旧 frontmatter 透传。排除键：
+        # · id/layer/sensitivity：本调用显式给值（sensitivity=重复传参即
+        #   TypeError）；
+        # · state/lifecycle_state/verification_state：add 覆写既有节点时
+        #   **默认继承**旧值（mdcg.py :1268/:1291），显式传相同值反而要走
+        #   迁移裁决，白担非法迁移风险；
+        # · bucket/bucket_zh：路由按 tags/condition_space 重算（与
+        #   _scan_nodes 重建口径一致）；
+        # · writer：语义=最后写入者（_attribution），迁移即刷新为迁移者。
+        passthrough = {k: v for k, v in fm_old.items()
+                       if k not in ("id", "layer", "sensitivity", "state",
+                                    "lifecycle_state", "verification_state",
+                                    "bucket", "bucket_zh", "writer")}
         cg.add(nid, full.get("content", ""),
-               layer=(full.get("frontmatter", {}).get("layer")
-                      or "knowledge"),
-               sensitivity="restricted", override=True)
+               layer=(fm_old.get("layer") or "knowledge"),
+               sensitivity="restricted", override=True, **passthrough)
         ok += 1
     print("%s: %d  跳过: %d" % ("迁移" if a.apply else "清单", ok, skipped))
     if not a.apply:

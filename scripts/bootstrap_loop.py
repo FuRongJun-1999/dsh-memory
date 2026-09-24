@@ -367,7 +367,10 @@ def run_channel_b(llm_generate=None, max_tasks=5):
             item["status"] = "failed"
             _rej = os.path.join(STATE, "channel_b_drafts", "rejected_log.json")
             os.makedirs(os.path.dirname(_rej), exist_ok=True)
-            _rej_list = ""
+            # V22 修复：必须是 []（对照 :319 沙箱拒绝分支）——空串形态在
+            # rejected_log.json 不存在时首次失败即 AttributeError 崩溃，
+            # 队列回写不执行 → 条目永久 pending，每轮重试再崩（死循环）。
+            _rej_list = []
             if os.path.exists(_rej):
                 with open(_rej, encoding="utf-8") as f:
                     _rej_list = json.load(f)
@@ -388,7 +391,7 @@ def run_channel_b(llm_generate=None, max_tasks=5):
     return stats
 
 
-# 生效条件：channel_b 为假值时只走通道 A——scan_route_gaps() 的 gaps 非空则取前 max_patches 个构建含 add_triggers 的补丁，apply_patch 为假或 verify_patch 为假计入 patches_failed、verify_patch 为真计入 patches_verified，persisted 非空才 persist_triggers(patches)；channel_b 为真值时额外 import llm_channel 并以 max_tasks=3 调 run_channel_b，其异常写入 result["channel_b"]["error"]；随后 log_event 并返回 result。
+# 生效条件：channel_b 为假值时只走通道 A——scan_route_gaps() 的 gaps 非空则取前 max_patches 个构建含 add_triggers 的补丁，apply_patch 为假或 verify_patch 为假计入 patches_failed、verify_patch 为真计入 patches_verified 并入 persisted，persisted 非空才 persist_triggers(persisted)（只固化验证通过者）；channel_b 为真值时额外 import llm_channel 并以 max_tasks=3 调 run_channel_b，其异常写入 result["channel_b"]["error"]；随后 log_event 并返回 result。
 def run_once(channel_b=False, max_patches=20):
     result = {"gaps": 0, "patches_applied": 0, "patches_verified": 0,
               "patches_failed": 0, "persisted_files": 0}
@@ -413,7 +416,10 @@ def run_once(channel_b=False, max_patches=20):
             else:
                 result["patches_failed"] += 1
         if persisted:
-            result["persisted_files"] = persist_triggers(patches)
+            # V22 修复：只固化**验证通过者**（persisted）——此前误传全量
+            # patches，verify_patch 失败的补丁也被写进 wisdom 源文件，
+            # 绕过「补丁→验证→固化」闸（docstring 声明的流程）。
+            result["persisted_files"] = persist_triggers(persisted)
 
     # ② 通道 B：LLM 初稿 → verifier → 固化
     if channel_b:
