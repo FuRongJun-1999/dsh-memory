@@ -30,6 +30,7 @@ import time
 
 from . import signer as _signer
 from .datapath import aux_root
+from .fsutil import publish
 
 LINKS_FILE_ENV = "MDCG_LINKS_FILE"
 DEFAULT_DIR = aux_root()
@@ -80,7 +81,7 @@ def load(path: str = None) -> dict:
     return {"schema": SCHEMA, "links": {}, "updated_at": None}
 
 
-# 生效条件：传入 data（dict）与可选 path 时，p=links_file(path)，以 `dict(data)` 浅拷贝并强制覆盖 schema=SCHEMA、updated_at=time.time()，写入 p+".tmp"（目录名为空时 makedirs(".")），chmod 0o600 的 OSError 被吞，`os.replace(tmp, p)` 后返回 p。
+# 生效条件：传入 data（dict）与可选 path 时，p=links_file(path)，以 `dict(data)` 浅拷贝并强制覆盖 schema=SCHEMA、updated_at=time.time()，写入 p+".tmp"（目录名为空时 makedirs(".")），chmod 0o600 的 OSError 被吞，`publish(tmp, p)`（带 Windows 短重试的 os.replace）后返回 p。
 def save(data: dict, path: str = None) -> str:
     p = links_file(path)
     os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
@@ -94,7 +95,7 @@ def save(data: dict, path: str = None) -> str:
         os.chmod(tmp, 0o600)
     except OSError:
         pass
-    os.replace(tmp, p)
+    publish(tmp, p)
     return p
 
 

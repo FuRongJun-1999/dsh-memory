@@ -1401,6 +1401,30 @@ class MdCG:
         # 私有内容封装（默认恒等；MdCGSecure 覆盖为 AEAD 加密）。
         # 索引派生同样基于落盘内容，保证与 _scan_nodes 重建结果一致。
         sealed = self._write_node(node_id, path, fm, content)
+        # 覆写且路由键变化时清理旧桶同 id 文件：不清理则磁盘留双文件，
+        # rebuild_index() 后索引取哪个取决于 os.walk 枚举序——新内容可能被
+        # 旧文件静默顶掉（违背「原文即真源」）。旧索引条目即旧路径唯一线索；
+        # 双闸防误删：必须在 root 内（P2-20 同口径）且不等于本次新路径
+        # （同桶覆写是同一文件，删了等于自毁）。先写新后删旧，顺序不可倒。
+        if prev_entry and prev_entry.get("path"):
+            try:
+                _old_real = os.path.realpath(
+                    os.path.join(self.root, prev_entry["path"]))
+                if _old_real != _real_node \
+                        and _old_real.startswith(_real_root + os.sep) \
+                        and os.path.isfile(_old_real):
+                    os.remove(_old_real)
+            except OSError:
+                pass  # 删除失败不阻断主写路径（残留双文件退回旧行为，可重建兜底）
+            # 旧桶计数递减（与 _unstage 同口径），否则 buckets 计数漂移；
+            # 仅在桶变化时做——同桶覆写的 _stage 自增是既有口径，不在此对账。
+            _ob = prev_entry.get("bucket")
+            if _ob and _ob != bucket:
+                _left = self.index["buckets"].get(_ob, 1) - 1
+                if _left > 0:
+                    self.index["buckets"][_ob] = _left
+                else:
+                    self.index["buckets"].pop(_ob, None)
         self._stage(node_id, _strip_empty_gate_fields({
             "path": os.path.relpath(path, self.root).replace("\\", "/"),
             "layer": layer, "tags": tags, "bucket": bucket,
@@ -2012,9 +2036,12 @@ class MdCG:
             return None                     # 有节点但无密钥 → 不可读即不存在
         return {"id": node_id, "frontmatter": fm, "content": content, "path": e["path"]}
 
-# 生效条件：打开 os.path.join(self.root, entry["path"]) 成功时返回 nodefile.loads 的 (fm, content)；抛 OSError 时返回 (None, None)（entry 的 "path" 按源码直接取键，无 .get 回落）；
+# 生效条件：经 _node_disk_path(entry) 定位（P2-20 越界抛 ValueError → 返回 (None, None)，不可读即不存在——索引被污染时不得绕过统一校验读 root 外文件，2026-09-25 缺陷 #4），打开成功时返回 nodefile.loads 的 (fm, content)；抛 OSError 时同样返回 (None, None)；
     def _read(self, entry):
-        p = os.path.join(self.root, entry["path"])
+        try:
+            p = self._node_disk_path(entry)
+        except ValueError:
+            return None, None
         try:
             with open(p, encoding="utf-8") as f:
                 return nodefile.loads(f.read())

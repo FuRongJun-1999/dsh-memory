@@ -4,12 +4,15 @@ codegen.py · 代码生成器
 生成的代码调用 protocol_runtime 模块
 """
 
+import json
+import keyword
 from typing import List, Optional, TextIO
 from .parser import (
     ASTNode, NodeType, ProgramNode, IdentifierNode, LiteralNode,
     InstructionStmtNode, ConditionStmtNode, ComparisonNode,
     AssignStmtNode, ShuyueNode, StepNode, WenyueNode, DayueNode,
-    BinaryExprNode
+    BinaryExprNode, LoopStmtNode, BlockNode, FuncDefNode,
+    ReturnStmtNode, CallExprNode
 )
 from .name_checker import NameChecker, SymbolKind
 from .lexer import TokenType
@@ -85,8 +88,11 @@ class CodeGenerator:
         self.errors: List[str] = []
         self.warnings: List[str] = []
         self._temp_counter: int = 0
-    
-# 生效条件：传入 ast 时，重置 output/indent_level/errors/warnings/_temp_counter，依次调用 _write_header、遍历 ast.statements 生成各语句、调用 _write_footer，最后返回 "\n".join(self.output)。
+        # N15 修复：标记源程序是否含术曰块（决定 footer 是否调
+        # protocol_procedure()——该函数仅由 _gen_shuyue 定义）
+        self._has_procedure: bool = False
+
+# 生效条件：传入 ast 时，重置 output/indent_level/errors/warnings/_temp_counter/_has_procedure，依次调用 _write_header、遍历 ast.statements 生成各语句、调用 _write_footer，最后返回 "\n".join(self.output)。
     def generate(self, ast: ProgramNode) -> str:
         """
         将 AST 翻译为 Python 代码
@@ -96,6 +102,7 @@ class CodeGenerator:
         self.errors = []
         self.warnings = []
         self._temp_counter = 0
+        self._has_procedure = False
         
         # 生成文件头
         self._write_header()
@@ -106,8 +113,10 @@ class CodeGenerator:
         
         # 生成文件尾
         self._write_footer()
-        
-        return "\n".join(self.output)
+
+        # 行元素已各自带换行（_writeln 恒以 \n 终结）——直接拼接。
+        # 旧 "\n".join 会与行尾 \n 叠出双空行。
+        return "".join(self.output)
     
     # ---- 文件头尾 ----
     
@@ -267,7 +276,9 @@ class CodeGenerator:
         self._writeln('')
     
     def _write_footer(self):
-        """生成文件尾"""
+        """生成文件尾（N15 修复：protocol_procedure() 仅在源程序含术曰块时
+        才调用——该函数由 _gen_shuyue 定义，无术曰的合法程序调用未定义名
+        必 NameError）"""
         self._writeln('')
         self._writeln('# ============================================================')
         self._writeln('# 协议执行入口')
@@ -275,17 +286,19 @@ class CodeGenerator:
         self._writeln('')
         self._writeln('if __name__ == "__main__":')
         self._writeln('    print("协议实例已启动")')
-        self._writeln('    # 执行协议逻辑')
-        self._writeln('    main()')
+        # 执行协议逻辑：只有 _gen_shuyue 生成过 def protocol_procedure()
+        # 才有可调用的名字——无术曰程序只保留 __main__ 守卫。
+        if self._has_procedure:
+            self._writeln('    protocol_procedure()')
     
     # ---- 语句生成 ----
     
-# 生效条件：stmt 为 None 直接返回；否则按 stmt.type 分派到 CONDITION_STMT/INSTRUCTION_STMT/ASSIGN_STMT/SHUYUE/STEP/WENYUE/DAYUE/LITERAL 分支，其他类型向 warnings 追加未处理警告。
+# 生效条件：stmt 为 None 直接返回；否则按 stmt.type 分派到 CONDITION_STMT/INSTRUCTION_STMT/ASSIGN_STMT/SHUYUE/STEP/WENYUE/DAYUE/LITERAL/LOOP_STMT/BLOCK/FUNC_DEF/RETURN_STMT/CALL_EXPR 分支，其他类型向 warnings 追加未处理警告。
     def _generate_statement(self, stmt: ASTNode):
         """根据语句类型分发"""
         if stmt is None:
             return
-        
+
         if stmt.type == NodeType.CONDITION_STMT:
             self._gen_condition(stmt)
         elif stmt.type == NodeType.INSTRUCTION_STMT:
@@ -303,42 +316,61 @@ class CodeGenerator:
         elif stmt.type == NodeType.LITERAL:
             # 字面量作为独立语句（如术曰中的文本步骤）
             self._writeln(f'# {stmt.value}')
+        elif stmt.type == NodeType.LOOP_STMT:
+            # N12 修复：循环/函数/返回/块/调用此前只 warning 不生成——
+            # 编译报成功但产物语义缺失。对齐 VM 路径（compiler.py）语义。
+            self._gen_loop(stmt)
+        elif stmt.type == NodeType.BLOCK:
+            self._gen_block(stmt)
+        elif stmt.type == NodeType.FUNC_DEF:
+            self._gen_func_def(stmt)
+        elif stmt.type == NodeType.RETURN_STMT:
+            self._gen_return(stmt)
+        elif stmt.type == NodeType.CALL_EXPR:
+            # 函数调用作为语句（结果丢弃，同 VM 路径 _stmt 的 CALL_EXPR 分支）
+            self._gen_call_stmt(stmt)
         else:
             self.warnings.append(f"L{stmt.line} 未处理的语句类型: {stmt.type.name}")
     
-# 生效条件：传入 stmt 时，输出 "if " + stmt.condition 表达式 + ":"，缩进递增后生成 stmt.then_body；当 stmt.else_body 为真值时再输出 "else:" 并缩进生成 stmt.else_body，之后缩进回退。
+# 生效条件：传入 stmt 时，输出 "if " + stmt.condition 表达式 + ":"，缩进递增后生成 stmt.then_body 并经 _ensure_block_body 兜底；当 stmt.else_body 为真值时再输出 "else:" 并缩进生成 stmt.else_body（同样兜底），之后缩进回退。
     def _gen_condition(self, stmt: ConditionStmtNode):
         """生成条件语句"""
         self._write(f"if ")
         self._gen_expression(stmt.condition)
-        self._writeln(":")
+        # 冒号必须经 _write 追加到当前行尾：_writeln 会**另起一行**写 ":"，
+        # 生成 `if 条件\n:` 两行——compile() 直接 expected ':'。
+        self._write(":\n")
         self.indent_level += 1
+        _body_start = len(self.output)
         self._generate_statement(stmt.then_body)
+        self._ensure_block_body(_body_start)
         self.indent_level -= 1
-        
+
         if stmt.else_body:
             self._writeln("else:")
             self.indent_level += 1
+            _body_start = len(self.output)
             self._generate_statement(stmt.else_body)
+            self._ensure_block_body(_body_start)
             self.indent_level -= 1
     
-# 生效条件：传入 stmt 时，按 stmt.instruction 从 INSTRUCTION_NAMES 取名称（缺键回落 "未知指令"）写注释；遍历 stmt.operands，将 IDENTIFIER 写成带双引号的 op.name、数字 LITERAL 写成 str(op.literal_value)、非数字 LITERAL 写成带双引号的 literal_value；再从 INSTRUCTION_MAP 按 stmt.instruction 取模板（缺键回落 "# 未知指令: {args}"），按模板含 "{args}"、args 非空、其他三种情况拼出 code，最后输出 `  →  {code}`。
+# 生效条件：传入 stmt 时，按 stmt.instruction 从 INSTRUCTION_NAMES 取名称（缺键回落 "未知指令"）；遍历 stmt.operands，将 IDENTIFIER 写成带双引号的 op.name、数字 LITERAL 写成 str(op.literal_value)、非数字 LITERAL 写成带双引号的 literal_value；再从 INSTRUCTION_MAP 按 stmt.instruction 取模板（缺键回落 "# 未知指令: {args}"），按模板含 "{args}"、args 非空、其他三种情况拼出 code，最后输出 `{code}  # {instr_name}`（代码在前、助记符作行内注释在后）。
     def _gen_instruction(self, stmt: InstructionStmtNode):
         """生成指令语句"""
         instr_name = INSTRUCTION_NAMES.get(stmt.instruction, "未知指令")
-        self._write(f"# {instr_name}")
-        
-        # 生成参数
+
+        # 生成参数（N11 修复：字符串内容经 json.dumps 转义——含 ASCII 引号/
+        # 反斜杠/控制符的字面量不再击穿引号边界，杜绝源码字符串注入）
         args = []
         for op in stmt.operands:
             if op.type == NodeType.IDENTIFIER:
-                args.append(f'"{op.name}"')
+                args.append(json.dumps(op.name, ensure_ascii=False))
             elif op.type == NodeType.LITERAL:
                 if op.literal_type == "number":
                     args.append(str(op.literal_value))
                 else:
-                    args.append(f'"{op.literal_value}"')
-        
+                    args.append(json.dumps(op.literal_value, ensure_ascii=False))
+
         template = INSTRUCTION_MAP.get(stmt.instruction, "# 未知指令: {args}")
         if "{args}" in template:
             code = template.format(args=", ".join(args))
@@ -346,30 +378,87 @@ class CodeGenerator:
             code = template + ", ".join(args)
         else:
             code = template
-        
-        self._writeln(f"  →  {code}")
+
+        # 单行「代码 + 行内注释」：旧实现先 _write 注释再 _writeln("  →  code")
+        # 独立成行——"→" 不是合法 Python 标记，任何含指令的产物都过不了
+        # compile()（100% 无效）。助记符降级为行内注释，代码成为真语句。
+        self._writeln(f"{code}  # {instr_name}")
     
-# 生效条件：传入 stmt 时，输出 stmt.target + " = " + stmt.value_node 表达式 + 换行。
+# 生效条件：传入 stmt 时，输出 stmt.target + " = " + stmt.value_node 表达式 + 换行符（_write("\n") 结束当前行，_writeln("") 只会追加空行、无法终结本行）。
     def _gen_assign(self, stmt: AssignStmtNode):
         """生成赋值语句"""
         self._write(f"{stmt.target} = ")
         self._gen_expression(stmt.value_node)
+        # _writeln("") 只追加空行、终结不了当前行（下一处 _write 会拼进
+        # 本行尾部）——用 _write("\n") 显式结束。
+        self._write("\n")
+
+# 生效条件：传入 stmt 时，输出 "while " + stmt.condition 表达式 + ":"，缩进递增后生成 stmt.body 并经 _ensure_block_body 兜底（body 为 None/纯注释时补 pass），之后缩进回退。
+    def _gen_loop(self, stmt: LoopStmtNode):
+        """生成循环语句（当…执行 → while，对齐 VM 路径「条件→JIF跳出→体→JUMP回条件」）"""
+        self._write("while ")
+        self._gen_expression(stmt.condition)
+        # 冒号与 _gen_condition 同理：经 _write 追加行尾，不另起一行
+        self._write(":\n")
+        self.indent_level += 1
+        _body_start = len(self.output)
+        self._generate_statement(stmt.body)
+        self._ensure_block_body(_body_start)
+        self.indent_level -= 1
+
+# 生效条件：传入 stmt 时，对 stmt.statements 中每个元素依次调用 _generate_statement（空块不产出任何行——由外层块的 _ensure_block_body 兜底）。
+    def _gen_block(self, stmt: BlockNode):
+        """生成语句块（多条顺序语句——循环体/条件体多语句支持）"""
+        for s in stmt.statements:
+            self._generate_statement(s)
+
+# 生效条件：传入 stmt 时，输出 "def 名(参数列表):"（名字与参数经 _py_name 校验），缩进递增后生成 stmt.body 并经 _ensure_block_body 兜底，缩进回退后输出空行。
+    def _gen_func_def(self, stmt: FuncDefNode):
+        """生成函数定义（定义 名（参数）：语句 → def，对齐 VM 路径函数体后置编译）"""
+        name = self._py_name(stmt.name, stmt.line)
+        params = [self._py_name(p, stmt.line) for p in stmt.params]
+        self._writeln(f"def {name}({', '.join(params)}):")
+        self.indent_level += 1
+        _body_start = len(self.output)
+        self._generate_statement(stmt.body)
+        self._ensure_block_body(_body_start)
+        self.indent_level -= 1
         self._writeln("")
+
+# 生效条件：传入 stmt 时，输出 "return"；stmt.value 非 None 时先输出空格再生成其表达式；行尾经 _write("\n") 终结。
+    def _gen_return(self, stmt: ReturnStmtNode):
+        """生成返回语句（返回 表达式 → return）"""
+        self._write("return")
+        if stmt.value is not None:
+            self._write(" ")
+            self._gen_expression(stmt.value)
+        self._write("\n")
+
+# 生效条件：传入 stmt 时，经 _gen_call_expr 生成调用表达式并以 _write("\n") 终结行（调用结果丢弃）。
+    def _gen_call_stmt(self, stmt: CallExprNode):
+        """函数调用作为语句（结果丢弃，对齐 VM 路径 CALL_EXPR 语句分支）"""
+        self._gen_call_expr(stmt)
+        self._write("\n")
     
-# 生效条件：传入 stmt 时，从 stmt.attributes.get("question","") 和 .get("answer","") 取问/答（缺键回落空串）并写注释，输出 "def protocol_procedure():"，缩进递增后遍历 stmt.steps 调用 _gen_step，然后缩进回退并输出空行。
+# 生效条件：传入 stmt 时，从 stmt.attributes.get("question","") 和 .get("answer","") 取问/答（缺键回落空串）并写注释，输出 "def protocol_procedure():"，缩进递增后遍历 stmt.steps 调用 _gen_step，再经 _ensure_block_body 兜底空函数体，然后缩进回退并输出空行。
     def _gen_shuyue(self, stmt: ShuyueNode):
         """生成术曰块"""
         question = stmt.attributes.get("question", "")
         answer = stmt.attributes.get("answer", "")
-        
+
         self._writeln(f"# ── 问曰：{question} ──")
         self._writeln(f"# ── 答曰：{answer} ──")
         self._writeln("def protocol_procedure():")
         self.indent_level += 1
-        
+        self._has_procedure = True  # N15：footer 据此决定是否生成调用
+
+        _body_start = len(self.output)
         for step in stmt.steps:
             self._gen_step(step)
-        
+        # steps 为空或全生成注释（问曰/答曰类）时 def 块无真语句，
+        # compile() 抛 expected an indented block——补 pass 占位。
+        self._ensure_block_body(_body_start)
+
         self.indent_level -= 1
         self._writeln("")
     
@@ -391,26 +480,36 @@ class CodeGenerator:
     
     # ---- 表达式生成 ----
     
-# 生效条件：expr 为 None 时写 "None"；否则按 expr.type 分派：IDENTIFIER 写 expr.name，LITERAL 数字写 str(expr.literal_value)、非数字写带双引号 literal_value，COMPARISON/BINARY_EXPR 分别生成比较/二元表达式，其他类型写 "# 未支持的表达式: {expr.type.name}"。
+# 生效条件：expr 为 None 时写 "None"；否则按 expr.type 分派：IDENTIFIER 写 expr.name，LITERAL 数字写 str(expr.literal_value)、非数字写 json.dumps 转义的 literal_value，COMPARISON/BINARY_EXPR/CALL_EXPR 分别生成比较/二元/调用表达式，其他类型向 errors 追加未支持错误并写 "None" 占位。
     def _gen_expression(self, expr: ASTNode):
         """生成表达式"""
         if expr is None:
             self._write("None")
             return
-        
+
         if expr.type == NodeType.IDENTIFIER:
             self._write(expr.name)
         elif expr.type == NodeType.LITERAL:
             if expr.literal_type == "number":
                 self._write(str(expr.literal_value))
             else:
-                self._write(f'"{expr.literal_value}"')
+                # N11 修复：与 _gen_instruction 同源——json.dumps 转义内插
+                self._write(json.dumps(expr.literal_value, ensure_ascii=False))
         elif expr.type == NodeType.COMPARISON:
             self._gen_comparison(expr)
         elif expr.type == NodeType.BINARY_EXPR:
             self._gen_binary(expr)
+        elif expr.type == NodeType.CALL_EXPR:
+            # N13 修复：此前未支持类型在此写 '#' 行内注释——落行中间使
+            # 语句残缺（如 `X = # 未支持…`），产物必然 SyntaxError。
+            # 调用改为直接 Python 调用（对齐 VM CALL 语义）。
+            self._gen_call_expr(expr)
         else:
-            self._write(f"# 未支持的表达式: {expr.type.name}")
+            # 其余未支持类型：不再写 '#' 注释（产物必坏），记 error 让
+            # 编译失败，None 占位保证已产出部分仍可 compile()。
+            self.errors.append(
+                f"L{expr.line} 未支持的表达式类型: {expr.type.name}")
+            self._write("None")
     
 # 生效条件：传入 expr 时，生成 expr.left，将 expr.op 经 COMPARISON_OP_MAP.get 映射（缺键回落 expr.op 本身），再生成 expr.right。
     def _gen_comparison(self, expr):
@@ -420,6 +519,17 @@ class CodeGenerator:
         self._write(f" {op} ")
         self._gen_expression(expr.right)
     
+# 生效条件：传入 expr 时，输出经 _py_name 校验的 expr.name + "("，args 中每个元素依次生成表达式（非首元素前补 ", "），最后输出 ")"。
+    def _gen_call_expr(self, expr: CallExprNode):
+        """生成函数调用表达式（名（参数） → 直接 Python 调用，对齐 VM CALL）"""
+        name = self._py_name(expr.name, expr.line)
+        self._write(f"{name}(")
+        for i, a in enumerate(expr.args):
+            if i:
+                self._write(", ")
+            self._gen_expression(a)
+        self._write(")")
+
 # 生效条件：传入 expr 时，生成 expr.left，输出 " {expr.operator} "，再生成 expr.right。
     def _gen_binary(self, expr):
         """生成二元表达式"""
@@ -428,13 +538,42 @@ class CodeGenerator:
         self._gen_expression(expr.right)
     
     # ---- 工具方法 ----
-    
+
+# 生效条件：传入 name 与 line 时，name 为合法 Python 标识符且非关键字则原样返回；否则向 errors 追加一条含原名字的错误并返回占位名 "_非法名字"（保证产物仍可 compile()）。
+    def _py_name(self, name: str, line: int) -> str:
+        """名字 → Python 标识符（函数名/参数名）
+
+        运算词函数名（定义 加（甲，乙））经 parser 归一为中文名——合法；
+        ASCII '+' 等作名（定义 +（甲，乙））不是合法 Python 标识符，
+        记 error 让编译失败，占位名保产物语法完整。"""
+        if not name.isidentifier() or keyword.iskeyword(name):
+            self.errors.append(
+                f"L{line} 名字 '{name}' 不是合法的 Python 标识符")
+            return "_非法名字"
+        return name
+
+# 生效条件：传入 start_idx 时，若 self.output[start_idx:] 中不存在任何非空且不以 "#" 开头的行（即块体只有注释/空行），则以当前缩进写一行 "pass"，否则不写任何内容。
+    def _ensure_block_body(self, start_idx: int):
+        """块体兜底：def/if 块只含注释行时 Python 视为空块，
+        compile() 抛 expected an indented block——补 pass 占位。"""
+        for line in self.output[start_idx:]:
+            s = line.strip()
+            if s and not s.startswith("#"):
+                return
+        self._writeln("pass")
+
     def _writeln(self, text: str = ""):
-        """写入一行（自动缩进）"""
+        """写入一行（自动缩进；行恒以 \\n 终结）
+
+        终结协议：_write 靠 output[-1].endswith("\\n") 判断「当前行是否
+        已写完」。旧行为追加的行不带 \\n——后续语句的 _write（如 "if "）
+        会拼进前一行尾部（`...create_path(...)  # 道if 条件:`），产物必坏。
+        writeln 行自成一体，必须自带终结标记。
+        """
         if text:
-            self.output.append("    " * self.indent_level + text)
+            self.output.append("    " * self.indent_level + text + "\n")
         else:
-            self.output.append("")
+            self.output.append("\n")
     
 # 生效条件：传入 text 时，若 self.output 非空且最后一项不以换行结尾，则把 text 追加到该最后一项末尾；否则以当前缩进前缀将 text 追加为新项。
     def _write(self, text: str):

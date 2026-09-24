@@ -35,6 +35,7 @@ import time
 from collections import OrderedDict
 
 from .datapath import aux_root
+from .fsutil import publish
 from .security import Principal, _rank
 
 TOKEN_ENV = "MDCG_TOKEN"
@@ -298,14 +299,14 @@ def _load(path: str = None) -> dict:
     return {"schema": SCHEMA, "tokens": {}}
 
 
-# 生效条件：以 data 为内容、p=token_file(path) 为目标，先对 os.path.dirname(p) or "." 做 makedirs(exist_ok=True)，写 p+".tmp" 后 os.replace 覆盖 p，再尝试 chmod 0600（仅吞 OSError）。
+# 生效条件：以 data 为内容、p=token_file(path) 为目标，先对 os.path.dirname(p) or "." 做 makedirs(exist_ok=True)，写 p+".tmp" 后 publish（带 Windows 短重试的 os.replace）覆盖 p，再尝试 chmod 0600（仅吞 OSError）。
 def _save(data: dict, path: str = None):
     p = token_file(path)
     os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
     tmp = p + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, p)
+    publish(tmp, p)
     try:
         os.chmod(p, 0o600)          # 令牌摘要文件不可被其他用户读
     except OSError:
@@ -553,7 +554,7 @@ def _csv_list(v):
     return [x.strip() for x in str(v).split(",") if x.strip()] or None
 
 
-# 生效条件：path 经 os.path.abspath 得 p，其 dirname 非空时 makedirs(exist_ok=True)，text 原样写入 p+".tmp" 后 os.replace 覆盖 p，再尝试 chmod 0600（仅吞 OSError）。
+# 生效条件：path 经 os.path.abspath 得 p，其 dirname 非空时 makedirs(exist_ok=True)，text 原样写入 p+".tmp" 后 publish（带 Windows 短重试的 os.replace）覆盖 p，再尝试 chmod 0600（仅吞 OSError）。
 def _write_secret(path: str, text: str) -> None:
     """把令牌明文写入文件（0600，原子替换）——供 HIVE_ORCH_TOKEN_FILE 读取。"""
     p = os.path.abspath(path)
@@ -563,7 +564,7 @@ def _write_secret(path: str, text: str) -> None:
     tmp = p + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(text)
-    os.replace(tmp, p)
+    publish(tmp, p)
     try:
         os.chmod(p, 0o600)
     except OSError:

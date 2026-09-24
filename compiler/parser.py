@@ -319,11 +319,14 @@ class Parser:
         TokenType.ROU, TokenType.PU, TokenType.ZHI, TokenType.ZHIZU,
     }
     
-# 生效条件：tokens 必传，errors 为 None 或空列表等假值时回落到新的 []，self.current_token 在 tokens 非空时取 tokens[0]、tokens 为空时取 None；
+# 生效条件：tokens 必传，errors 为 None 时回落到新的 []，errors 为列表（含空列表）时**原样引用共享**（解析期间 append 的语法错误对调用方可见），self.current_token 在 tokens 非空时取 tokens[0]、tokens 为空时取 None；
     def __init__(self, tokens: List[Token], errors: List[str] = None):
         self.tokens = tokens
         self.pos = 0
-        self.errors: List[str] = errors or []
+        # errors if errors is not None（而非 errors or []）：空列表是 falsy，
+        # or 会把它换成内部新列表——语法错误 append 进新列表，永远回不到
+        # 调用方手里（共享列表语义失效，见 parse_tokens 调用方 compiler.py）。
+        self.errors: List[str] = errors if errors is not None else []
         self.current_token = self.tokens[0] if tokens else None
     
 # 生效条件：无 required 形参，先建 ProgramNode，随后 while not self._is_at_end()：遇 NEWLINE/SEMICOLON/COMMA 即 continue，stmt 为真值时 program.add_statement(stmt)，为假值时 _advance()，循环结束返回 program；
@@ -335,6 +338,7 @@ class Parser:
             if self._match(TokenType.NEWLINE, TokenType.SEMICOLON, TokenType.COMMA):
                 continue
             
+            start_pos = self.pos
             stmt = self._parse_statement()
             if stmt:
                 program.add_statement(stmt)
@@ -345,7 +349,14 @@ class Parser:
                 #         print(f"    op{j}: {op.type.name} value={op.value!r}")
             else:
                 # print(f"  [parse] None at {self.current_token}")
-                self._advance()
+                # _parse_statement 返回 None 的分支（句号 PERIOD、无法识别的
+                # 语句开头、定义缺函数名）在返回前都已 _advance() 消费了当前
+                # token；此处再无条件推进一次会把句号/坏 token 之后的下一个
+                # token（往往是下一条语句的开头，如「道 A。德 B。」的「德」）
+                # 静默吞掉、且零错误记录。仅在确实未消费任何 token 时推进
+                # （防死循环兜底——现行各 None 分支均已推进，此兜底不触发）。
+                if self.pos == start_pos and self.current_token is not None:
+                    self._advance()
         
         return program
     
@@ -725,6 +736,10 @@ class Parser:
             TokenType.SHUYUE,    # 术曰 → 新语句
             TokenType.RUO,        # 若 → 条件语句
             TokenType.FOUZE,     # 否则 → 条件语句
+            TokenType.DANG,      # 当 → 循环语句
+            TokenType.ZHIXING,   # 执行 → 循环体开始
+            TokenType.DINGYI,    # 定义 → 函数定义
+            TokenType.FANHUI,    # 返回 → 返回语句
             TokenType.DAO,       # 道 → 指令（但不在操作数位置）
             TokenType.DE,        # 德 → 指令
             TokenType.ZIRAN,     # 自然 → 指令
@@ -1077,20 +1092,23 @@ class Parser:
 # 便捷函数
 # =============================================================================
 
-# 生效条件：传入 tokens 且 errors 为 None 或列表时，返回 Parser(tokens, errors or []).parse() 得到的 ProgramNode。
+# 生效条件：传入 tokens 且 errors 为 None 时回落新的 []，为列表（含空列表）时原样共享给 Parser（语法错误可回流），返回 Parser(...).parse() 得到的 ProgramNode。
 def parse_tokens(tokens: List[Token], errors: List[str] = None) -> ProgramNode:
     """便捷函数：将 Token 列表解析为 AST"""
-    parser = Parser(tokens, errors or [])
+    parser = Parser(tokens, errors if errors is not None else [])
     return parser.parse()
 
 
-# 生效条件：传入 source 字符串时，tokenize(source) 产出 tokens 与 lex_errors，再返回 (parse_tokens(tokens, []) 的 AST, lex_errors, 该 AST 的 errors 属性或 [])。
+# 生效条件：传入 source 字符串时，tokenize(source) 产出 tokens 与 lex_errors，parse_errors 作为共享列表传入 parse_tokens 收集语法错误，返回 (AST, lex_errors, parse_errors)。
 def parse_source(source: str) -> tuple:
     """便捷函数：从源代码直接解析为 AST"""
     from .lexer import tokenize
     tokens, lex_errors = tokenize(source)
-    ast = parse_tokens(tokens, [])
-    return ast, lex_errors, ast.errors if hasattr(ast, 'errors') else []
+    # 语法错误经共享列表回流（ProgramNode 无 errors 属性，旧写法
+    # ast.errors 恒 []——含语法错误的源码在这里永远报成功）。
+    parse_errors: List[str] = []
+    ast = parse_tokens(tokens, parse_errors)
+    return ast, lex_errors, parse_errors
 
 
 # =============================================================================

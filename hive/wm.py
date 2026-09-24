@@ -107,7 +107,7 @@ def cmd_init(wm: str) -> dict:
     return {"ok": True, "wm": wm, "branch": "main"}
 
 
-# 生效条件：job 下 result.json 非 os.path.isfile 时先返回凭证不足错误，result.json 可读但 result.get("ok") is not True 时返回带 verdict（str(result.get("error",""))[:200]）的错误，job 下 spec.json 非 os.path.isfile 时返回规格缺失错误；通过后 job_id 取 str(result.get("job_id") or os.path.basename(job))（result.job_id 为 None/空串时回落 basename(job)），branch 为真值时用 branch、假值时回落 f"task/{job_id}"，随后先 rmtree/makedirs(wm/jobs/<job_id>) 并拷 spec.json、result.json、log.txt 与 PROGRESS_FILE（两者各自 os.path.isfile 为真才拷、PROGRESS_FILE 缺失即 has_progress=False 不报错），artifacts 为真值时才按逗号切分（strip 后非空段）、相对名拼 job、任一源非 os.path.isfile 即返回 artifacts 缺失错误，全部存在才拷入 artifacts/ 并收集 basename，然后 checkout -B branch、add jobs、commit（model 取 result.get("model") 为假值回落 "?"，duration_s 为真值才附）、rev-parse --short HEAD、checkout main，返回 ok True 与 job_id/branch/commit/artifacts/progress/message。
+# 生效条件：job 下 result.json 非 os.path.isfile 时先返回凭证不足错误，result.json 可读但 result.get("ok") is not True 时返回带 verdict（str(result.get("error",""))[:200]）的错误，job 下 spec.json 非 os.path.isfile 时返回规格缺失错误；通过后 job_id 取 str(result.get("job_id") or os.path.basename(job))（result.job_id 为 None/空串时回落 basename(job)），job_id 含 / \ 或为 . .. 时返回非法 job_id 错误（路径段校验，防穿越删库），branch 为真值时用 branch、假值时回落 f"task/{job_id}"，随后先 rmtree/makedirs(wm/jobs/<job_id>) 并拷 spec.json、result.json、log.txt 与 PROGRESS_FILE（两者各自 os.path.isfile 为真才拷、PROGRESS_FILE 缺失即 has_progress=False 不报错），artifacts 为真值时才按逗号切分（strip 后非空段）、相对名拼 job、任一源非 os.path.isfile 即返回 artifacts 缺失错误，全部存在才拷入 artifacts/ 并收集 basename，然后 checkout -B branch、add jobs、commit（model 取 result.get("model") 为假值回落 "?"，duration_s 为真值才附）、rev-parse --short HEAD、checkout main，返回 ok True 与 job_id/branch/commit/artifacts/progress/message。
 def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
                  branch: str | None = None) -> dict:
     """凭证闸：result.ok=true 才许提交；白名单拷贝产物后 commit 到任务分支。
@@ -130,6 +130,10 @@ def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
         return {"ok": False, "error": f"{spec_path} 不存在（任务规格缺失，不可复现）"}
 
     job_id = str(result.get("job_id") or os.path.basename(job))
+    if job_id in (".", "..") or "/" in job_id or "\\" in job_id:
+        return {"ok": False, "error": (
+            f"非法 job_id {job_id!r}：须为单一路径段（含 / \\ .. 即拒，"
+            f"防穿越删库——result.json 产物不可信）")}
     branch = branch or f"task/{job_id}"
 
     # staging：白名单拷贝进 wm 仓（product = spec + result + log + artifacts）

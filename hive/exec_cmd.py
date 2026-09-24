@@ -13,7 +13,8 @@ result.json 的 error 字段），区别是**不调 LLM**——把 spec 里的�
   cwd                       工作目录（缺省 spec.workdir → job 目录）
   env                       {"K":"V"} 附加环境变量（覆盖继承值）
   fail_fast                 默认 true：任一步非 0 即停
-  timeout_step_s            单步超时（缺省 spec.timeout_s → 600）；rust 侧另有硬超时兜底
+  timeout_step_s            单步超时（缺省 600；**不继承 spec.timeout_s**——批次 23 D-5/v19
+                            两守卫解耦防同值撞车，rust 侧另有硬超时兜底）
   expect_files              ["路径"] 执行后断言存在（相对 cwd），缺失即 error
   expect_stdout_contains    ["子串"] 各步 stdout 合并文本须包含**全部**给定子串，缺一即 error
 订阅约定：model 写 "cmd"、user_prompt 写任务标签——仅为过 rust 侧必填校验，本执行器不调 API。

@@ -46,6 +46,19 @@ pub fn job_dir(jobs: &Path, id: &str) -> PathBuf {
     jobs.join(id)
 }
 
+/// job_id 结构合法性（防路径穿越）：`h` 开头 + 其余字符限于 ASCII 字母数字与
+/// 下划线——结构上排除 `/`、`\`、`..`、盘符 `:` 等一切可逃出 jobs 池的成分。
+/// 与 `new_job_id`（`h<unix_ms>_<pid4hex>`）及 list_jobs 的 `h` 前缀过滤同口径。
+/// 生效条件：id 匹配 `h[0-9A-Za-z_]*` → true；空串/非 h 开头/含路径成分
+/// → false——kill/poll/depends_on 等一切把**外部输入**的 job_id 拼进路径的
+/// 入口，必须先过此闸（2026-09-25 缺陷：`kill ..` 曾可在池外写 kill 文件、
+/// `poll ../victim` 曾可读池外任意目录的 result 全文）。
+pub fn valid_job_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.starts_with('h')
+        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 /// 覆盖写 JSON 文本（UTF-8）——tmp + fsync + rename 原子替换。
 ///
 /// 禁止直接 `File::create` 目标文件：它先把旧文件截断为 0 字节，并发读者
@@ -328,6 +341,34 @@ mod tests {
         request_kill(&dir).unwrap(); // 幂等
         assert!(kill_requested(&dir));
         let _ = fs::remove_dir_all(&jobs);
+    }
+
+    /// 路径穿越防线（2026-09-25 缺陷复现口径）：`..` / `../victim` / `h/../../x`
+    /// 等外部输入必须被拒——它们曾可经 job_dir 逃出 jobs 池写 kill 文件、读
+    /// 任意目录 result 全文。
+    #[test]
+    fn valid_job_id_rejects_traversal() {
+        // 合法形态：生成器产物 + 同构手写 id
+        assert!(valid_job_id("h1758000000000_1a2b"));
+        assert!(valid_job_id("h1_a"));
+        assert!(valid_job_id("h"));
+        // 穿越载体全拒：相对段 / 分隔符 / 盘符 / ADS / 绝对路径锚
+        for bad in [
+            "..",
+            "../victim",
+            "h/../../x",
+            "h/.",
+            "h\\..",
+            "h:x",
+            "/etc",
+            "h..",
+            "h.%.txt",
+            "",
+            "x123",
+            "h\t",
+        ] {
+            assert!(!valid_job_id(bad), "穿越载体必须被拒: {bad:?}");
+        }
     }
 
     #[test]

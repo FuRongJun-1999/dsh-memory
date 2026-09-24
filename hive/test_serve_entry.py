@@ -265,6 +265,38 @@ def main() -> int:
     finally:
         shutil.rmtree(tmp3, ignore_errors=True)
 
+    # ⑨ D-1 续（2026-09-25 缺陷）：--stop/--status 也须经 _jobs_from 吃进
+    # config 的 HIVE_JOBS_DIR——此前两条 CLI 生命周期路径用模块级 JOBS，
+    # config-only 设该键时 serve 跑在池 B、--stop 永远盯着池 A 报「未在运行」。
+    print("⑨ --stop/--status 目标池与 start 同口径（D-1 修复续）")
+    tmp4 = tempfile.mkdtemp(prefix="hive_d1b_")
+    try:
+        alt_dir = os.path.join(tmp4, "alt_jobs")
+        cfg_path = os.path.join(tmp4, "config.local.json")
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump({"HIVE_JOBS_DIR": alt_dir}, f)
+        check("⑨a _lifecycle_jobs 读到 config 的 HIVE_JOBS_DIR",
+              serve_start._lifecycle_jobs(cfg_path) == alt_dir,
+              f"got={serve_start._lifecycle_jobs(cfg_path)} want={alt_dir}")
+        check("⑨b config 缺失时降级不抛（回落 env/模块级默认）",
+              serve_start._lifecycle_jobs(
+                  os.path.join(tmp4, "nope.json")) == serve_start.JOBS)
+        # status(jobs) 以给定池为准（jobs_dir 如实透出实际生效目录）
+        os.makedirs(alt_dir, exist_ok=True)
+        with open(os.path.join(alt_dir, "_serve.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"ts": 1, "pid": 999999, "workers": 1}, f)
+        st = serve_start.status(alt_dir)
+        check("⑨c status(jobs) 盯指定池（jobs_dir/心跳均取自该池）",
+              st.get("jobs_dir") == alt_dir and st.get("heartbeat", {}).get("pid") == 999999,
+              f"jobs_dir={st.get('jobs_dir')}")
+        # main() 接线守卫（源断言）：--stop/--status 均经 _lifecycle_jobs
+        check("⑨d CLI main --stop/--status 经 _lifecycle_jobs（源接线）",
+              "stop(_lifecycle_jobs(cfg))" in ss_py
+              and "status(_lifecycle_jobs(cfg))" in ss_py)
+    finally:
+        shutil.rmtree(tmp4, ignore_errors=True)
+
     print()
     if FAILS:
         print(f"FAILED: {len(FAILS)} 项 → {', '.join(FAILS)}")

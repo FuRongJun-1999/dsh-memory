@@ -10,7 +10,7 @@ LLM 辞意辅助（llm_bridge）为外部可插拔面：经 CompileOptions.llm_b
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 from .lexer import tokenize, Token, TokenType
-from .parser import parse_tokens, ProgramNode
+from .parser import parse_tokens, ProgramNode, NodeType
 from .name_checker import NameChecker
 from .codegen import CodeGenerator
 
@@ -136,12 +136,14 @@ def compile_source(source: str, options: Optional[CompileOptions] = None) -> Com
         return result
     
     # ---- 第二步：语法分析 ----
-    parser = parse_tokens(tokens, [])
-    ast = parser
+    # Parser 把语法错误 append 进**调用方传入的共享列表**（ProgramNode
+    # 本身没有 errors 属性——旧写法 getattr(ast,'errors',[]) 恒 []，
+    # 含语法错误的源码在这里静默通过）。传入列表读取即可回流。
+    syntax_errors: List[str] = []
+    ast = parse_tokens(tokens, syntax_errors)
     result.ast = ast
-    
+
     # 获取语法错误
-    syntax_errors = getattr(ast, 'errors', []) if ast else []
     if syntax_errors:
         result.errors.extend(syntax_errors)
     
@@ -177,6 +179,9 @@ def compile_source(source: str, options: Optional[CompileOptions] = None) -> Com
     code = gen.generate(ast)
     result.code = code
     result.warnings.extend(gen.warnings)
+    # codegen 错误（如未支持的表达式类型、非法函数名）回流——
+    # 不支持的操作必须编译 fail，而非 success + 非法/残缺产物
+    result.errors.extend(gen.errors)
     
     # ---- 第六步：验证单元终裁 ----
     verdict = _verification_verdict(result, options)

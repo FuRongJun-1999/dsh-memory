@@ -34,6 +34,7 @@ import time
 from . import identity as _identity
 from . import signer as _signer
 from .datapath import aux_root
+from .fsutil import publish
 
 NODE_ID_ENV = "MDCG_NODE_ID"
 SWARM_DIR_ENV = "MDCG_SWARM_DIR"
@@ -486,7 +487,7 @@ def _write_json(path: str, obj) -> str:
         os.chmod(tmp, 0o600)
     except OSError:
         pass
-    os.replace(tmp, path)
+    publish(tmp, path)
     return path
 
 

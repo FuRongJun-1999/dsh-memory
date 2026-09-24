@@ -166,5 +166,37 @@ if shutil.which("cargo") and os.path.isdir(rt_dir):
 else:
     check("cargo 不可用 → 跳过独立形态蜂群（环境声明）", True)
 
+# ============ ⑤ run_swarm 错误契约（2026-09-25 缺陷） ============
+# 契约：失败一律返回 {ok: False, stage: ...} dict——超时（TimeoutExpired）与
+# exe 缺失（FileNotFoundError/OSError）此前直接穿透调用方，swarm_cli 整条
+# CLI traceback。本节以 30s 慢执行器 + timeout=1s 与不存在 exe 各验一条。
+print("=== ⑤ run_swarm 错误契约：超时/启动失败返回结构化 dict ===")
+tmp6 = tempfile.mkdtemp(prefix="swarm_err_")
+if os.name == "nt":
+    slow_exe = os.path.join(tmp6, "slow.bat")
+    with open(slow_exe, "w", encoding="utf-8") as f:
+        f.write("@ping -n 30 127.0.0.1 > nul\r\n")
+else:
+    slow_exe = os.path.join(tmp6, "slow.sh")
+    with open(slow_exe, "w", encoding="utf-8") as f:
+        f.write("#!/bin/sh\nsleep 30\n")
+    os.chmod(slow_exe, 0o755)
+try:
+    rt = run_swarm(tmp6, {"algo": "rust_swarm-0.1"}, wal_path="w_err.jsonl",
+                   timeout=1, exe=slow_exe)
+    check("超时 → {ok:False, stage:swarm}（不抛 TimeoutExpired）",
+          rt.get("ok") is False and rt.get("stage") == "swarm",
+          str(rt)[:150])
+    check("超时 dict 含可读 stderr（不吞现场）",
+          isinstance(rt.get("stderr"), str) and "超时" in rt["stderr"],
+          str(rt.get("stderr", ""))[:120])
+    rm = run_swarm(tmp6, {"algo": "rust_swarm-0.1"}, wal_path="w_err2.jsonl",
+                   exe=os.path.join(tmp6, "no_such_exe"))
+    check("exe 缺失 → {ok:False, stage:swarm}（不抛 OSError）",
+          rm.get("ok") is False and rm.get("stage") == "swarm",
+          str(rm)[:150])
+finally:
+    shutil.rmtree(tmp6, ignore_errors=True)
+
 print(f"\n{pass_n} passed, {fail_n} failed")
 sys.exit(1 if fail_n else 0)

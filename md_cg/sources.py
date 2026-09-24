@@ -30,6 +30,7 @@ import os
 import time
 
 from . import trust
+from .fsutil import publish
 from .security import DEFAULT_SENSITIVITY
 
 # 会话事件的默认落层与敏感度
@@ -452,12 +453,12 @@ class Ingestor:
                 pass
         return {"schema": 1, "sources": {}}
 
-# 生效条件：传入 d 时以 ensure_ascii=False/indent=1 写入 self.path+".tmp"，再 os.replace 覆盖 self.path。
+# 生效条件：传入 d 时以 ensure_ascii=False/indent=1 写入 self.path+".tmp"，再 publish（带 Windows 短重试的 os.replace）覆盖 self.path。
     def _save(self, d):
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False, indent=1)
-        os.replace(tmp, self.path)
+        publish(tmp, self.path)
 
 # 生效条件：key 命中 self._load()["sources"] 时返回其值，缺 key 时返回 {}（_load 结果缺 "sources" 键则抛 KeyError）。
     def watermark(self, key: str):

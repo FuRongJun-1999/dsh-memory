@@ -29,6 +29,7 @@ import sys
 import time
 
 from .datapath import aux_root
+from .fsutil import publish
 
 THEORY_ENV = "MDCG_THEORY"
 THEORY_FILE_ENV = "MDCG_THEORY_FILE"
@@ -97,14 +98,14 @@ def load(path: str = None):
     return d if isinstance(d, dict) else None
 
 
-# 生效条件：p=theory_file(path)，先 os.makedirs(os.path.dirname(p) or ".")，把 decl 以 ensure_ascii=False, indent=1 写入 p+".tmp" 再 os.replace 到 p，os.chmod(p, 0o600) 抛 OSError 时忽略，最终返回 p。
+# 生效条件：p=theory_file(path)，先 os.makedirs(os.path.dirname(p) or ".")，把 decl 以 ensure_ascii=False, indent=1 写入 p+".tmp" 再 publish（带 Windows 短重试的 os.replace）到 p，os.chmod(p, 0o600) 抛 OSError 时忽略，最终返回 p。
 def save(decl: dict, path: str = None) -> str:
     p = theory_file(path)
     os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
     tmp = p + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(decl, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, p)
+    publish(tmp, p)
     try:
         os.chmod(p, 0o600)
     except OSError:

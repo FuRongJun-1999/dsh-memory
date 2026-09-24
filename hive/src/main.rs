@@ -342,6 +342,16 @@ fn cmd_poll(args: &[String], jobs: PathBuf) -> i32 {
     let target = args.get(1).filter(|a| !a.starts_with("--")).cloned();
     match target {
         Some(id) => {
+            // 路径穿越防线（2026-09-25 缺陷）：外部 job_id 先过结构闸再拼路径——
+            // `poll ../victim` 曾因裸 join + is_dir 逃出 jobs 池，读回任意目录的
+            // status/result 全文（单查 head=usize::MAX/4，全文透出）。
+            if !job::valid_job_id(&id) {
+                println!(
+                    "{}",
+                    err_json(format!("job_id 非法: {id}（须为 h 开头且不含路径成分）"))
+                );
+                return 1;
+            }
             let v = one_job_view(&jobs, &id, usize::MAX / 4); // 单查给全量
             println!("{}", Json::Obj(vec![("ok".to_string(), Json::Bool(true)), ("job".to_string(), v)]).to_json_string());
         }
@@ -369,6 +379,16 @@ fn cmd_kill(args: &[String], jobs: PathBuf) -> i32 {
         println!("{}", err_json("用法: hive kill <job_id>"));
         return 1;
     };
+    // 路径穿越防线（2026-09-25 缺陷）：`kill ..` 曾可在 jobs 池外创建 kill 文件
+    // （is_dir 对 `..`/`../victim` 恒真，kill 文件名固定可投递到任意已存在目录）
+    // ——结构闸先行，存在性检查在后。
+    if !job::valid_job_id(id) {
+        println!(
+            "{}",
+            err_json(format!("job_id 非法: {id}（须为 h 开头且不含路径成分）"))
+        );
+        return 1;
+    }
     let dir = job::job_dir(&jobs, id);
     if !dir.is_dir() {
         println!("{}", err_json(format!("任务不存在: {id}")));

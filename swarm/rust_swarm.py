@@ -48,7 +48,7 @@ def make_swarm_config(instances: List[Dict], routes: Optional[List[Dict]] = None
     return cfg
 
 
-# 生效条件：先把 config 写入 project_dir/swarm.json，exe 为假值时回落 build_rust_exe(project_dir)，以 [exe, "swarm", "--config", cfg_path, "--wal", wal_full] 运行且 pbc_path 真值时追加 --pbc，returncode!=0 返回 stage=swarm，末行 JSON 解析失败返回 stage=parse，成功返回 {"ok": True, "report": report, "wal": wal_full}；
+# 生效条件：先把 config 写入 project_dir/swarm.json，exe 为假值时回落 build_rust_exe(project_dir)，以 [exe, "swarm", "--config", cfg_path, "--wal", wal_full] 运行且 pbc_path 真值时追加 --pbc，子进程超时（TimeoutExpired）或启动失败（OSError，exe 缺失）同样返回 stage=swarm 的失败 dict（不向调用方抛异常），returncode!=0 返回 stage=swarm，末行 JSON 解析失败返回 stage=parse，成功返回 {"ok": True, "report": report, "wal": wal_full}；
 def run_swarm(project_dir: str, config: Dict, wal_path: str = "events.jsonl",
               timeout: int = 120, pbc_path: Optional[str] = None,
               exe: Optional[str] = None) -> Dict:
@@ -75,9 +75,19 @@ def run_swarm(project_dir: str, config: Dict, wal_path: str = "events.jsonl",
         cmd += ["--pbc", pbc_path]
     # Rust 侧输出为 UTF-8（JSON 含中文符号名）——必须显式指定编码：
     # Windows 默认 GBK 解码会在多字节边界崩溃，导致 stdout 变为 None。
-    r = subprocess.run(cmd,
-                       capture_output=True, text=True, timeout=timeout,
-                       encoding="utf-8", errors="replace", cwd=project_dir)
+    # 超时/exe 缺失须按本函数错误契约返回 {ok: False, stage: ...} dict——
+    # 此前 TimeoutExpired/FileNotFoundError 直接穿透调用方（swarm_cli 整条
+    # CLI traceback 而非结构化错误，2026-09-25 缺陷）。
+    try:
+        r = subprocess.run(cmd,
+                           capture_output=True, text=True, timeout=timeout,
+                           encoding="utf-8", errors="replace", cwd=project_dir)
+    except subprocess.TimeoutExpired as e:
+        return {"ok": False, "stage": "swarm",
+                "stderr": f"swarm 子进程超时（>{timeout}s）被终止: {e}"}
+    except OSError as e:
+        return {"ok": False, "stage": "swarm",
+                "stderr": f"swarm 子进程启动失败（exe 缺失/不可执行？）: {e}"}
     if r.returncode != 0:
         return {"ok": False, "stage": "swarm", "stderr": r.stderr[-3000:]}
     try:
@@ -87,7 +97,7 @@ def run_swarm(project_dir: str, config: Dict, wal_path: str = "events.jsonl",
     return {"ok": True, "report": report, "wal": wal_full}
 
 
-# 生效条件：逐行读 wal_path，strip 后为空则跳过，否则以 rec["type"]/["from"]/["to"]/["round"]/["ts"] 与 rec.get("seq", 0) 及原始 payload 文本重算 HMAC 与 rec["hmac"] 比对，type=="__snapshot__" 只计入 snapshots 而其余计入 total/verified/bad，all_valid = bad==0 and snap_bad==0；
+# 生效条件：逐行读 wal_path，strip 后为空则跳过，否则以 rec["type"]/["from"]/["to"]/["round"]/["ts"] 与 rec.get("seq", 0) 及原始 payload 文本重算 HMAC 与 rec["hmac"] 比对，type=="__snapshot__" 只计入 snapshots 而其余计入 total/verified/bad，单行 json.loads/index/取键失败（畸形或被篡改）计入 bad 并 continue（验签器面对的正是被篡改的 WAL，不得自己先崩），all_valid = bad==0 and snap_bad==0；
 def verify_wal_signatures(wal_path: str, shared_secret: str) -> Dict:
     """WAL 逐条验签（Python hmac 独立实现——交叉验证 Rust 手写 SHA256）。
     签名串 v0.7.1：seq|type|from|to|round|ts|payload（与 Rust swarm.rs 约定
@@ -103,17 +113,24 @@ def verify_wal_signatures(wal_path: str, shared_secret: str) -> Dict:
             line = line.strip()
             if not line:
                 continue
-            rec = json.loads(line)
-            # payload 在 WAL 里是内嵌 JSON——签名时用原始文本切片保真；
-            # 行尾恰有一个 WAL 记录级闭括号需剥掉（payload 文本后面是行闭合 '}'）
-            raw = line[line.index('"payload":') + len('"payload":'):]
-            raw_payload = raw[:-1] if raw.endswith("}") else raw
-            msg = "%s|%s|%s|%s|%s|%s|%s" % (rec.get("seq", 0), rec["type"],
-                                            rec["from"], rec["to"],
-                                            rec["round"], rec["ts"], raw_payload)
-            expect = _hmac.new(shared_secret.encode(), msg.encode(),
-                               hashlib.sha256).hexdigest()
-            valid = _hmac.compare_digest(expect, rec["hmac"])
+            try:
+                rec = json.loads(line)
+                # payload 在 WAL 里是内嵌 JSON——签名时用原始文本切片保真；
+                # 行尾恰有一个 WAL 记录级闭括号需剥掉（payload 文本后面是行闭合 '}'）
+                raw = line[line.index('"payload":') + len('"payload":'):]
+                raw_payload = raw[:-1] if raw.endswith("}") else raw
+                msg = "%s|%s|%s|%s|%s|%s|%s" % (
+                    rec.get("seq", 0), rec["type"], rec["from"], rec["to"],
+                    rec["round"], rec["ts"], raw_payload)
+                expect = _hmac.new(shared_secret.encode(), msg.encode(),
+                                   hashlib.sha256).hexdigest()
+                valid = _hmac.compare_digest(expect, rec["hmac"])
+            except (ValueError, KeyError, TypeError):
+                # 畸形/被篡改行（非 JSON、缺 "payload":/必填键、hmac 非字符串）：
+                # 验签器恰是面对篡改的——坏行计入 bad（all_valid=False）而非
+                # 崩掉整轮验签（2026-09-25 缺陷 #2）
+                bad += 1
+                continue
             if rec.get("type") == "__snapshot__":
                 # 快照行：验签（防篡改）但单列统计，不混入事件口径
                 if valid:

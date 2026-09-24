@@ -169,8 +169,11 @@ pub fn validate_condition_space(
     }))
 }
 
-/// G4b 收件箱：轮次 → 目标实例 → 来源 → (载荷, 投递时全局 seq)
-type Inboxes = HashMap<u64, HashMap<String, HashMap<String, (String, u64)>>>;
+/// G4b 收件箱：轮次 → 目标实例 → 来源 → Vec<(载荷, 投递时全局 seq)>。
+/// 2026-09-25 修复 #2：来源的值由单条改列表——同轮同源多条路由不再
+/// 互相覆盖（旧单值 key 下第二条 insert 静默丢弃第一条载荷，而 WAL
+/// 两条事件均已 HMAC 签名落盘为「已投递」，审计留痕与实际投递不符）。
+type Inboxes = HashMap<u64, HashMap<String, HashMap<String, Vec<(String, u64)>>>>;
 
 /// G5 单实例单轮结果：Some(Ok)=终态+是否有收件箱+消费 seq；Some(Err)=重试仍败；
 /// None=死亡实例缺失轮
@@ -517,7 +520,10 @@ fn replay_wal(wal_path: &str, secret: &str) -> Result<WalReplay, String> {
                     .or_default()
                     .entry(ev.to_id.clone())
                     .or_default()
-                    .insert(ev.from_id.clone(), (raw_payload, rp.replayed_seq));
+                    .entry(ev.from_id.clone())
+                    .or_default()
+                    // 2026-09-25 修复 #2：push 追加——同轮同源多路由不覆盖
+                    .push((raw_payload, rp.replayed_seq));
             }
         }
         rp.max_event_seq = rp.max_event_seq.max(ev.seq);
@@ -574,7 +580,7 @@ impl InstanceProc {
     fn run_round(
         &mut self,
         round_no: u64,
-        inbox: &HashMap<String, String>,
+        inbox: &[(String, String)],
         env: Option<(&str, f64)>,
     ) -> Result<serde_json_like::Value, String> {
         let symbols_json = env
@@ -588,15 +594,15 @@ impl InstanceProc {
             symbols_parts.push(format!("\"初始符号\":{}", symbols_json));
         }
         if !inbox.is_empty() {
-            let msgs: Vec<String> = {
-                let mut keys: Vec<&String> = inbox.keys().collect();
-                keys.sort();
-                keys.iter()
-                    .map(|k| {
-                        format!("{{\"from\":\"{}\",\"payload\":{}}}", k, inbox[*k])
-                    })
-                    .collect()
-            };
+            // 2026-09-25 修复 #2：收件箱按 (来源,载荷) 平铺逐条注入——调用方
+            // 已按来源稳定排序（同源内保持全局事件序），同轮同源多条路由
+            // 逐条可见，不再只剩最后一条。
+            let msgs: Vec<String> = inbox
+                .iter()
+                .map(|(from, payload)| {
+                    format!("{{\"from\":\"{}\",\"payload\":{}}}", from, payload)
+                })
+                .collect();
             symbols_parts
                 .push(format!("\"收件箱\":[{}]", msgs.join(",")));
             symbols_parts.push(format!("\"已收消息数\":{}", inbox.len()));
@@ -756,22 +762,18 @@ pub fn run_swarm(
         let mut new_events: Vec<Event> = Vec::new();
         let mut error_instances: Vec<String> = Vec::new(); // G-R1：本轮 error 终态实例
         let mut primary_state_str: Option<String> = None; // G-R3：primary 终态归一基准
-        // G-R3：verifier 本轮改为重放 primary 输入（复算），自身收件箱顺延一轮不丢失
+        // G-R3：verifier 本轮重放 primary 输入（复算）。
+        // 2026-09-25 修复 #1：verifier 自身收件箱不再顺延——旧实现每轮把自身
+        // 收件箱搬进下一轮，下一轮又原样搬再下一轮，直至 rounds+1 随蜂群
+        // 结束消亡（消息从未投递、从未 ACK、水位永不推进；注释「顺延一轮
+        // 不丢失」与实现矛盾）。改为到达轮即消费记账：载荷不进复算执行
+        // 输入（混入会破坏逐位复算），但计入 ACK 与消费水位（见下方
+        // own_ack_seq_max）。
         let primary_inbox = if protocol_mode {
             round_inboxes.get(&primary_id).cloned().unwrap_or_default()
         } else {
             Default::default()
         };
-        if protocol_mode {
-            if let Some(own) = round_inboxes.get(&verifier_id) {
-                if !own.is_empty() {
-                    let slot = inboxes.entry(round + 1).or_default().entry(verifier_id.clone()).or_default();
-                    for (from, pv) in own {
-                        slot.insert(from.clone(), pv.clone());
-                    }
-                }
-            }
-        }
         // —— B2 超步（BSP compute 阶段）：轮内实例并行执行 ——
         // 安全性论证：收件箱只来自上一轮路由，轮内实例互不依赖；
         // 一实例一线程一管道（&mut 独占借用），无共享可变状态。
@@ -796,16 +798,39 @@ pub fn run_swarm(
                                 .cloned()
                                 .unwrap_or_default()
                         };
-                        let has_inbox = !inbox_raw.is_empty();
-                        let inbox: HashMap<String, String> = inbox_raw
-                            .iter()
-                            .map(|(k, (v, _))| (k.clone(), v.clone()))
-                            .collect();
+                        // 2026-09-25 修复 #2：收件箱平铺为 (来源,载荷) 序列——
+                        // 同轮同源多条路由逐条保留（旧实现以来源为单值 key，
+                        // 第二条 insert 覆盖第一条，载荷静默丢弃而 WAL 两条
+                        // 事件均已签名落盘）。按来源稳定排序（同源内保持全局
+                        // 事件序）；单路由场景与旧输出逐字节一致。
+                        let mut inbox: Vec<(String, String)> = Vec::new();
+                        for (from, items) in &inbox_raw {
+                            for (payload, _) in items {
+                                inbox.push((from.clone(), payload.clone()));
+                            }
+                        }
+                        inbox.sort_by(|a, b| a.0.cmp(&b.0));
+                        // 2026-09-25 修复 #1：verifier 自身收件箱到达轮即消费记账
+                        // （计入 ACK 与水位）；载荷不进上面的复算执行输入。
+                        let own_ack_seq_max = if is_verifier {
+                            round_inboxes
+                                .get(&verifier_id)
+                                .and_then(|m| {
+                                    m.values()
+                                        .flat_map(|items| items.iter().map(|(_, s)| *s))
+                                        .max()
+                                })
+                                .unwrap_or(0)
+                        } else {
+                            0
+                        };
+                        let has_inbox = !inbox.is_empty() || own_ack_seq_max > 0;
                         let max_seq = inbox_raw
                             .values()
-                            .map(|(_, s)| *s)
+                            .flat_map(|items| items.iter().map(|(_, s)| *s))
                             .max()
-                            .unwrap_or(0);
+                            .unwrap_or(0)
+                            .max(own_ack_seq_max);
                         // v0.7.1：verifier 以 primary 完整执行输入复算（replay envelope）。
                         // env 为 Copy（借用 primary 输入），闭外构造避免 move verifier_id。
                         let env = if is_verifier {
@@ -988,12 +1013,16 @@ pub fn run_swarm(
                         };
                         let mut ev = ev;
                         ev.hmac_hex = sign_event(&cfg.shared_secret, &ev);
-                        let slot = inboxes
+                        // 2026-09-25 修复 #2：push 追加而非 insert 覆盖——
+                        // 同轮同源第二条路由不再丢弃第一条载荷。
+                        inboxes
                             .entry(round + 1)
                             .or_default()
                             .entry(ev.to_id.clone())
-                            .or_default();
-                        slot.insert(p.spec.id.clone(), (payload.clone(), global_seq));
+                            .or_default()
+                            .entry(p.spec.id.clone())
+                            .or_default()
+                            .push((payload.clone(), global_seq));
                         if r.to_id == GOSSIP_TARGET {
                             *gossip_sent.entry(to_id).or_insert(0) += 1;
                         }

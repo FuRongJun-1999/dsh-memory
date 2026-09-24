@@ -38,6 +38,7 @@ import sys
 import time
 
 from .datapath import aux_root
+from .fsutil import publish
 
 SIGNER_ENV = "MDCG_SIGNER"
 SIGNER_MODULE_ENV = "MDCG_SIGNER_MODULE"
@@ -276,7 +277,7 @@ def load_key(path: str = None) -> bytes:
     return key
 
 
-# 生效条件：key 为 bytes 时原样写、否则 str(key).encode('utf-8')，写入 key_file_path(path) 同目录的临时文件后 os.replace 覆盖到该路径并返回它。
+# 生效条件：key 为 bytes 时原样写、否则 str(key).encode('utf-8')，写入 key_file_path(path) 同目录的临时文件后 publish（带 Windows 短重试的 os.replace）覆盖到该路径并返回它。
 def save_key(key: bytes, path: str = None) -> str:
     p = key_file_path(path)
     os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
@@ -287,7 +288,7 @@ def save_key(key: bytes, path: str = None) -> str:
         os.chmod(tmp, 0o600)
     except OSError:
         pass
-    os.replace(tmp, p)
+    publish(tmp, p)
     return p
 
 
@@ -353,7 +354,7 @@ def save_policies(data: dict, path: str = None) -> str:
         os.chmod(tmp, 0o600)
     except OSError:
         pass
-    os.replace(tmp, p)
+    publish(tmp, p)
     return p
 
 

@@ -48,7 +48,7 @@ import os
 import time
 
 from . import lifecycle, nodefile
-from .fsutil import append_jsonl, atomic_write, read_jsonl
+from .fsutil import append_jsonl, atomic_write, publish, read_jsonl
 from .mdcg import bigrams
 
 # ---------------------------------------------------------------- 判据常量
@@ -435,7 +435,7 @@ def longterm_assess(cg, apply=False, out=None, layer=None, keep=LONGTERM_KEEP,
                        "content_hash": e.get("content_hash")}
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
                 written += 1
-        os.replace(tmp, path)
+        publish(tmp, path)
         atomic_write(current_path(cg), json.dumps(
             {"snapshot_id": snapshot_id, "ts": time.time(), "path": rel,
              "total": total, "tiers": tiers, "by_layer": by_layer,

@@ -151,6 +151,9 @@ _SKIPS = {
 # 有跑（串行全量含它），只是不与其它测试抢 CPU。
 _SERIAL_ONLY = {
     "swarm.tests.bench_swarm_scale",
+    # 同形态（2026-09-25 全量实测）：加速比 > 2 宽松下限在 --jobs 4 争抢下
+    # 1.91× 假红（单跑 2.96×），与 bench_swarm_scale 同为负载敏感吞吐断言。
+    "swarm.tests.bench_swarm_parallel",
 }
 
 

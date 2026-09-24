@@ -548,6 +548,12 @@ fn deps_gate(jobs: &Path, dir: &Path) -> Result<bool, String> {
         _ => return Ok(true), // 无依赖 → 直接可领
     };
     for dep in deps {
+        // 路径穿越防线（2026-09-25 缺陷）：spec.json 是池内落盘文件，可被手工
+        // 改写（submit 侧校验不构成运行时保证），裸 join 会把 `h/../../x` 拼出
+        // jobs 池外去读任意目录的 status——先过结构闸。
+        if !job::valid_job_id(&dep) {
+            return Err(format!("依赖不完整: {dep}（非法 job_id，含路径成分）"));
+        }
         let ddir = jobs.join(&dep);
         if !ddir.is_dir() {
             return Err(format!("依赖不完整: {dep}（任务目录不存在）"));

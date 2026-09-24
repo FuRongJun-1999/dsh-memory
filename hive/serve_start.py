@@ -367,11 +367,26 @@ def rebuild(config_path):
     return start_res
 
 
-# 生效条件：始终返回 {ok:True, alive, heartbeat, jobs_dir:JOBS}；hb 为真而 serve_alive() 为假时额外附 stale_heartbeat（pid、pid_alive(pid)、pid_is_self_program(pid)、以及按 hb.get("ts", 0) 缺失记 0 算出的 age_s）；alive 为真且 JOBS 路径存在时额外遍历其中各子目录的 status.json，把 json.load(f).get("state", "?")（缺 state 键记 "?"，抛 OSError/ValueError 的条目跳过）按值计数写入 job_states。
-def status():
-    hb = heartbeat()
-    alive = serve_alive()
-    info = {"ok": True, "alive": alive, "heartbeat": hb, "jobs_dir": JOBS}
+# 生效条件：cfg 给定（配置文件路径）；load_config(cfg) 得 (env, err)，返回 _jobs_from({**os.environ, **(env or {})})——env 为 None（配置缺失/解析失败）时合并项为空、自然回落 env/模块级默认 JOBS，config 错误**不阻断**生命周期命令。
+def _lifecycle_jobs(cfg):
+    """--stop/--status 的目标池解析（D-1 修复续，2026-09-25）：与 start/restart/
+    rebuild 同口径经 _jobs_from 吃进 config 的 HIVE_JOBS_DIR。
+
+    此前两条 CLI 生命周期路径不经 config——config-only 设该键时 serve 跑在
+    池 B，`--stop` 盯着池 A 报「未在运行」停不掉真 serve、`--status` 永远
+    alive=false（fail-silent，正是 v13 要消灭的失效对残余）。config 加载失败
+    时降级为仅 env 决策（--stop 不能因 config 笔误而停不掉 serve——比
+    restart/rebuild 的 fail-fast 更宽容，因二者失败可重试而 stop 须尽力）。"""
+    env, _err = load_config(cfg)
+    return _jobs_from({**os.environ, **(env or {})})
+
+
+# 生效条件：jobs 给定时以其为池（None/空串回落模块级 JOBS），始终返回 {ok:True, alive, heartbeat, jobs_dir:<生效池>}；hb 为真而 serve_alive(jobs) 为假时额外附 stale_heartbeat（pid、pid_alive(pid)、pid_is_self_program(pid)、以及按 hb.get("ts", 0) 缺失记 0 算出的 age_s）；alive 为真且生效池路径存在时额外遍历其中各子目录的 status.json，把 json.load(f).get("state", "?")（缺 state 键记 "?"，抛 OSError/ValueError 的条目跳过）按值计数写入 job_states。
+def status(jobs=None):
+    jobs = jobs or JOBS
+    hb = heartbeat(jobs)
+    alive = serve_alive(jobs)
+    info = {"ok": True, "alive": alive, "heartbeat": hb, "jobs_dir": jobs}
     if hb and not alive:
         # 判死时给出三层判据明细——运维一眼看出是「心跳过期」还是「pid 假存活」，
         # 而不是只拿到一个 false 去猜。
@@ -382,10 +397,10 @@ def status():
             "pid_is_self_program": pid_is_self_program(pid),
             "age_s": round((time.time() * 1000 - hb.get("ts", 0)) / 1000.0, 1),
         }
-    if alive and os.path.exists(JOBS):
+    if alive and os.path.exists(jobs):
         states = {}
-        for jid in os.listdir(JOBS):
-            sp = os.path.join(JOBS, jid, "status.json")
+        for jid in os.listdir(jobs):
+            sp = os.path.join(jobs, jid, "status.json")
             if not os.path.isfile(sp):
                 continue
             try:
@@ -398,7 +413,7 @@ def status():
     return info
 
 
-# 生效条件：参数取自 sys.argv[1:]（"--config" 存在时取其紧随的一项作为 cfg，缺该项会在 args[i+1] 抛未捕获的 IndexError，否则用模块常量 DEFAULT_CONFIG）；处理后 args 仍含 "--stop" 时返回 emit(stop())，否则含 "--status" 时返回 emit(status())，两者都不含时返回 emit(start(cfg))。
+# 生效条件：参数取自 sys.argv[1:]（"--config" 存在时取其紧随的一项作为 cfg，缺该项会在 args[i+1] 抛未捕获的 IndexError，否则用模块常量 DEFAULT_CONFIG）；处理后 args 仍含 "--stop" 时返回 emit(stop(_lifecycle_jobs(cfg)))、含 "--status" 时返回 emit(status(_lifecycle_jobs(cfg)))（目标池与 start/restart/rebuild 同口径，D-1 修复续），两者都不含时返回 emit(start(cfg))。
 def main():
     args = sys.argv[1:]
     cfg = DEFAULT_CONFIG
@@ -411,9 +426,9 @@ def main():
     if "--restart" in args:
         return emit(restart(cfg))
     if "--stop" in args:
-        return emit(stop())
+        return emit(stop(_lifecycle_jobs(cfg)))
     if "--status" in args:
-        return emit(status())
+        return emit(status(_lifecycle_jobs(cfg)))
     return emit(start(cfg))
 
 

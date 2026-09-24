@@ -106,19 +106,20 @@ if r7["ok"]:
           f'计数={st7["symbols"].get("计数")} trust={st7["trust"]} halt={st7["halt"]}')
 
 # ⑧ 条件体内块（若则多语句）：若 计数 大于 0 则 德 0.1；德 0.1；止
+# 批次37 语义更正：本源码含真实语法错误（L4 步骤「2。」的 NUMBER 开头
+# parser 报「无法解析的语句开头」）——旧用例 11/11 通过依赖的是
+# compiler/parser.py「errors or []」吞错假成功（批次37 缺陷#5 已修），
+# 修复后含错源码必须如实报错。断言改为「编译失败且错误可见」；
+# 待步骤号语法支持补齐后可还原为执行断言（trust==0.2）。
 src8 = '''
 术曰：
 1。若 计数 大于 0，则 德 0.1；德 0.1；
 2。止。
 '''
 code8, r8 = compile_source(src8)
-if r8["ok"]:
-    vm8 = ConditionVM()
-    st8 = vm8.run(code8, symbols={'计数': 1})
-    check('⑧ 条件体内块（then 两条德 0.1×2=0.2）', st8["trust"] == 0.2,
-          f'trust={st8["trust"]}')
-else:
-    check('⑧ 条件体内块（then 两条德 0.1×2=0.2）', False, str(r8["errors"])[:40])
+check('⑧ 含语法错误源码如实报错（原用例依赖吞错假成功）',
+      (not r8["ok"]) and any("无法解析的语句开头" in e for e in r8["errors"]),
+      str(r8["errors"])[:60])
 
 print(f'\n=== 中文循环语法（当…执行）测试: {pass_n}/{pass_n + fail_n} 通过 ===')
 sys.exit(0 if fail_n == 0 else 1)

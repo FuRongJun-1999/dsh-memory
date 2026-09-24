@@ -23,6 +23,8 @@ import os
 import re
 import uuid
 
+from .fsutil import publish
+
 #: discard 的 branch_summary 必填标记（复用 NEG_MEMORY_MARKS 的必填防呆模式：
 #: 「假设 + 结果 + 教训」缺一不收——放弃分支必须留下可复用的教训）。
 BRANCH_MARKS = ("分支假设", "实验结果", "教训")
@@ -254,7 +256,7 @@ def discard(cg, branch_id, summary: str) -> dict:
         if path:
             src = os.path.join(cg.root, str(path).replace("/", os.sep))
             if os.path.exists(src):
-                os.replace(src, os.path.join(cold, os.path.basename(src)))
+                publish(src, os.path.join(cold, os.path.basename(src)))
                 moved += 1
         (cg.index.get("nodes") or {}).pop(nid, None)
     fl = getattr(cg, "flush", None)

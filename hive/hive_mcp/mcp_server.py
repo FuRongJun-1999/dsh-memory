@@ -97,6 +97,20 @@ def _exe_path() -> str:
     return os.path.join(REPO, "hive", "target", "release", name)
 
 
+# 生效条件：jid 为 str、以 "h" 开头且其余每字符均为 ASCII 字母/数字/下划线时返回 True，其余（含空串、`..`、`../victim`、`h/../../x`、非 str）一律 False——与 rust 侧 `job::valid_job_id` 同口径（跨语言靠注释约定对齐，勿自持第二判据）。
+def _valid_job_id(jid) -> bool:
+    """job_id 结构校验（防路径穿越，2026-09-25 缺陷）。
+
+    MCP 面 job_id 由客户端可控：`poll ../victim` 曾可读池外任意目录全文、
+    `kill ..` 曾可在池外写 kill 标志（os.path.join 裸拼 + isdir 恒真）。
+    一切把外部 job_id 拼进路径的入口（_t_poll/_t_kill）先过此闸。
+    """
+    if not isinstance(jid, str) or not jid.startswith("h"):
+        return False
+    return all(("a" <= c <= "z") or ("A" <= c <= "Z")
+               or ("0" <= c <= "9") or c == "_" for c in jid)
+
+
 # ---------------------------------------------------------------- serve 管理
 
 # 生效条件：jobs 给定；打开 jobs/_serve.json 并 json.load 成功且结果为真值时返回该 dict，json.load 结果为假值或抛 OSError/ValueError 时返回 {}。
@@ -339,11 +353,14 @@ def _t_spawn(a: dict) -> dict:
     }
 
 
-# 生效条件：a 给定；a.get("job_id") 为真时，jobs/<job_id> 非目录返回 ok: False 任务不存在，否则返回 {"ok": True, "job": st}（st 为 _read_status 结果，读不到时用 {"error": "status 不可读"}，并附 head=None 的全文 result）；job_id 缺失或为假值时遍历 jobs 下以 "h" 开头的目录，仅 state 属 pending/claimed/running，或 state 属 done/error/timeout/killed 且距今 (heartbeat_ts or created_ts or 0) 不足 3600_000 毫秒者入选，返回 ok/count/jobs。
+# 生效条件：a 给定；a.get("job_id") 为真时先过 _valid_job_id 结构闸（未过返回 ok: False 的 job_id 非法——防 `../victim` 路径穿越读池外全文，2026-09-25 缺陷），jobs/<job_id> 非目录返回 ok: False 任务不存在，否则返回 {"ok": True, "job": st}（st 为 _read_status 结果，读不到时用 {"error": "status 不可读"}，并附 head=None 的全文 result）；job_id 缺失或为假值时遍历 jobs 下以 "h" 开头的目录，仅 state 属 pending/claimed/running，或 state 属 done/error/timeout/killed 且距今 (heartbeat_ts or created_ts or 0) 不足 3600_000 毫秒者入选，返回 ok/count/jobs。
 def _t_poll(a: dict) -> dict:
     jobs = _jobs_dir()
     job_id = a.get("job_id")
     if job_id:
+        if not _valid_job_id(job_id):
+            return {"ok": False,
+                    "error": f"job_id 非法: {job_id}（须为 h 开头且不含路径成分）"}
         d = os.path.join(jobs, job_id)
         if not os.path.isdir(d):
             return {"ok": False, "error": f"任务不存在: {job_id}"}
@@ -371,10 +388,13 @@ def _t_poll(a: dict) -> dict:
     return {"ok": True, "count": len(items), "jobs": items}
 
 
-# 生效条件：a 给定；a.get("job_id") or "" 拼出的 jobs/<job_id> 非目录时返回 ok: False 任务不存在（job_id 为空串时 d 落到 jobs 本身，isdir 为真），否则在 kill 标志未存在时创建它并返回 ok: True 与 job_id/hint。
+# 生效条件：a 给定；job_id = a.get("job_id") or "" 先过 _valid_job_id 结构闸（未过返回 ok: False 的 job_id 非法——`..`/`../victim` 曾可在池外写 kill 标志、空串曾落到 jobs 本身，2026-09-25 缺陷），jobs/<job_id> 非目录时返回 ok: False 任务不存在，否则在 kill 标志未存在时创建它并返回 ok: True 与 job_id/hint。
 def _t_kill(a: dict) -> dict:
     jobs = _jobs_dir()
     job_id = a.get("job_id") or ""
+    if not _valid_job_id(job_id):
+        return {"ok": False,
+                "error": f"job_id 非法: {job_id}（须为 h 开头且不含路径成分）"}
     d = os.path.join(jobs, job_id)
     if not os.path.isdir(d):
         return {"ok": False, "error": f"任务不存在: {job_id}"}

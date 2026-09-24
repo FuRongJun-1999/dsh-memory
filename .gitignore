@@ -115,3 +115,8 @@ llm-adapter-poc/
 # 均为本地实验产物，不入库（_store 含 _index.json 与 *.lock，可由同目录
 # run_*.py 重跑再生；实验结论沉淀在 docs/ 的评测报告 md 中）
 docs/experiments/
+.env
+# ZCode 桌面端自动同步的本地忽略文件（工具维护，非仓库内容）；nul 为
+# Git Bash 下 `> nul` 重定向误建的意外产物，均不入库
+.zcodeignore
+nul

@@ -153,7 +153,8 @@ def _poll_schema() -> dict:
             "name": "poll_subtasks",
             "description": (
                 "查看子任务状态与卡片：默认只给 content_head 200 字 + tool_trace 摘要 + "
-                "result_path（细节用 read_full）。不传 job_ids = 本编排者派发的全部子任务。"),
+                "result_path（细节用 read_full）。不传 job_ids = 本编排者派发的全部子任务；"
+                "显式传 id 只允许本编排者派发的子任务（未知/越权 id 整体拒绝）。"),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -376,7 +377,7 @@ def _known_children() -> list:
 
 # -------------------------------------------------------------- 工具实现（三）
 
-# 生效条件：a 为 dict，在 len(_CFG['children']) < _CFG['max_subtasks']、a.get('user_prompt') 去空白后非空、a.get('model') 或 _CFG['model'] 去空白后非空、a.get('tools') 各项（缺省/空列表回落 list(SUB_TOOLS_ALLOW)，若 tools 为空也回落）均属 SUB_TOOLS_ALLOW、a.get('context_files') 每项对应路径 isfile 为真时，构造 sub 白名单键（仅当 a.get(k) not in (None, '', [], {}) 才写入 system_prompt/context_files/max_tool_rounds/web_search_backend/mdcg_root/max_tokens/temperature/thinking），timeout_s 取 int(a.get('timeout_s') or _hm.DEFAULT_TIMEOUT_S)，context_budget_tokens 取 int(a.get('context_budget_tokens') or _hm.DEFAULT_CONTEXT_BUDGET_TOKENS)，reasoning_effort 取 a.get('reasoning_effort') or _hm.DEFAULT_REASONING_EFFORT，提交后 append 到 _CFG['children']、_save_children()、_ex.progress(kind='spawn_subtask') 并返回 ok=True 及 defaults；上述前置失败则返回对应 {'ok': False, 'error': ...}。
+# 生效条件：a 为 dict，在 len(_CFG['children']) < _CFG['max_subtasks']、a.get('user_prompt') 去空白后非空、a.get('model') 或 _CFG['model'] 去空白后非空、a.get('tools') 各项（缺省/空列表回落 list(SUB_TOOLS_ALLOW)）均属 SUB_TOOLS_ALLOW、a.get('context_files') 每项对应路径 isfile 为真时，构造 sub 白名单键（仅当 a.get(k) not in (None, '', [], {}) 才写入 system_prompt/context_files/max_tool_rounds/web_search_backend/mdcg_root/max_tokens/temperature/thinking），timeout_s 取 int(a.get('timeout_s') or _hm.DEFAULT_TIMEOUT_S)，context_budget_tokens 取 int(a.get('context_budget_tokens') or _hm.DEFAULT_CONTEXT_BUDGET_TOKENS)，reasoning_effort 取 a.get('reasoning_effort') or _hm.DEFAULT_REASONING_EFFORT，提交后 append 到 _CFG['children']、_save_children()、_ex.progress(kind='spawn_subtask') 并返回 ok=True 及 defaults；上述前置失败则返回对应 {'ok': False, 'error': ...}。
 def _spawn(a: dict) -> dict:
     """派发子任务。
 
@@ -404,8 +405,6 @@ def _spawn(a: dict) -> dict:
     if bad:
         return {"ok": False, "error": f"子代理不可用工具 {bad}（只允许 "
                 f"{list(SUB_TOOLS_ALLOW)}；编排工具不外传防递归）"}
-    if not tools:
-        tools = list(SUB_TOOLS_ALLOW)
     for rel in a.get("context_files") or []:
         p = rel if os.path.isabs(rel) else os.path.join(os.getcwd(), rel)
         if not os.path.isfile(p):
@@ -442,12 +441,18 @@ def _spawn(a: dict) -> dict:
             "hint": "不要等；继续派发其它子任务，稍后用 poll_subtasks 收口"}
 
 
-# 生效条件：a 为 dict，a.get('job_ids') 转字符串后非空则用之，否则回落到 _known_children()；若 ids 仍空返回 {'ok': True, 'count': 0, 'children': [], 'hint': ...}，否则 full=bool(a.get('full')) 逐 id 调 _card，done 计 c.get('state') 在 TERMINAL_STATES 的卡片，返回 count/done/active/children。
+# 生效条件：a 为 dict，a.get('job_ids') 转字符串后非空则用之，否则回落到 _known_children()；若 ids 仍空返回 {'ok': True, 'count': 0, 'children': [], 'hint': ...}；任一 id 不属于 _known_children()（含 ../ 穿越形态）返回 {'ok': False, 'error': ...}（与 _read_full 同款 fail-closed），否则 full=bool(a.get('full')) 逐 id 调 _card，done 计 c.get('state') 在 TERMINAL_STATES 的卡片，返回 count/done/active/children。
 def _poll(a: dict) -> dict:
-    ids = [str(x) for x in (a.get("job_ids") or [])] or _known_children()
+    known = _known_children()
+    ids = [str(x) for x in (a.get("job_ids") or [])] or known
     if not ids:
         return {"ok": True, "count": 0, "children": [],
                 "hint": "尚未派发子任务（先 spawn_subtask）"}
+    bad = [i for i in ids if i not in known]
+    if bad:
+        return {"ok": False, "error": (
+            f"{bad} 含非本编排者派发的任务（越权读被拒）。"
+            f"已知子任务：{known or '（无）'}")}
     full = bool(a.get("full"))
     cards = [_card(i, full=full) for i in ids]
     done = [c for c in cards if c.get("state") in TERMINAL_STATES]

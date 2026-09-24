@@ -25,6 +25,8 @@ import json
 import os
 import time
 
+from .fsutil import publish
+
 SCHEMA = "mdcg-postings-2"
 
 
@@ -167,12 +169,12 @@ def load_meta(root: str) -> dict:
         return {}
 
 
-# 生效条件：无条件以 utf-8 原子写 path（tmp + os.replace），写入的字符串为 obj 的 JSON 序列化。
+# 生效条件：无条件以 utf-8 原子写 path（tmp + publish，即带 Windows 短重试的 os.replace），写入的字符串为 obj 的 JSON 序列化。
 def _atomic_json(path: str, obj, indent=None) -> None:
     tmp = path + ".tmp"
     with io.open(tmp, "w", encoding="utf-8", newline=chr(10)) as f:
         json.dump(obj, f, ensure_ascii=False, indent=indent, separators=None if indent else (",", ":"))
-    os.replace(tmp, path)
+    publish(tmp, path)
 
 
 # 生效条件：无条件读 root/_postings.json 并返回 dict（缺文件/解析失败返回 {}；内容非 dict 亦返回 {}）。

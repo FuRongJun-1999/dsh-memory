@@ -21,6 +21,7 @@ import time
 import uuid
 
 from .datapath import aux_root
+from .fsutil import publish
 
 # 密级阶梯的体系语义（批次 27 表述正名，使用者 2026-09-24 澄清）：
 #   private ≠ 个人隐私保密，而是**错误处置标记**——工作区内容因错误相关、
@@ -281,13 +282,13 @@ class TenantRegistry:
                 pass
         return {"schema": 1, "tenants": {}}
 
-# 生效条件：无 required 形参或模块级常量前置，将 self.data 以 JSON 写入 self.path + ".tmp"，随后 os.replace 到 self.path；目录名称为空时用 "." 创建。
+# 生效条件：无 required 形参或模块级常量前置，将 self.data 以 JSON 写入 self.path + ".tmp"，随后 publish（带 Windows 短重试的 os.replace）到 self.path；目录名称为空时用 "." 创建。
     def _save(self):
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(self.data, f, ensure_ascii=False, indent=1)
-        os.replace(tmp, self.path)
+        publish(tmp, self.path)
 
 # 生效条件：形参 clearance_cap 须为模块级常量 SENSITIVITY_ORDER 成员（否则 _rank 抛 AccessDenied）；形参 tenant/root 提供后写入 self.data["tenants"]（要求 self.data 含 "tenants" 键，否则 KeyError），_save 成功则返回新登记项。
     def register(self, tenant: str, root: str, clearance_cap: str = DEFAULT_SENSITIVITY,

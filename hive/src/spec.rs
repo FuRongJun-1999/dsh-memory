@@ -197,9 +197,12 @@ pub fn validate_lenient(v: &Json) -> Result<Spec, String> {
         .map(|x| x.as_str_vec())
         .unwrap_or_default();
     for d in &depends_on {
-        if !d.starts_with('h') {
+        // 结构闸（2026-09-25 缺陷）：旧检查只看 'h' 前缀，`h/../../x` 可过——
+        // 该值随后会被 submit 侧存在性检查与 scheduler::deps_gate 裸 join 进
+        // 路径（读池外目录 status）。须过 valid_job_id 全量结构校验。
+        if !crate::job::valid_job_id(d) {
             return Err(format!(
-                "depends_on 项非法: {d}（须为 h 开头的 job_id）"
+                "depends_on 项非法: {d}（须为 h 开头且不含路径成分的 job_id）"
             ));
         }
     }
@@ -326,6 +329,28 @@ mod tests {
         )
         .unwrap();
         assert!(validate(&v, Path::new(".")).is_err());
+    }
+
+    /// 路径穿越载体必须被拒（2026-09-25 缺陷）：旧检查只看 'h' 前缀，
+    /// `h/../../x` 可过校验后被 submit/deps_gate 裸 join 逃出 jobs 池。
+    #[test]
+    fn depends_on_traversal_rejected() {
+        for bad in [r#""h/../../x""#, r#""..""#, r#""../victim""#, r#""h\\..""#, r#""x1""#] {
+            let s = format!(r#"{{"model":"m","user_prompt":"x","depends_on":[{bad}]}}"#);
+            assert!(
+                validate(&crate::json::parse(&s).unwrap(), Path::new(".")).is_err(),
+                "穿越载体必须被拒: {bad}"
+            );
+        }
+        let ok = validate(
+            &crate::json::parse(
+                r#"{"model":"m","user_prompt":"x","depends_on":["h1758000000000_1a2b"]}"#,
+            )
+            .unwrap(),
+            Path::new("."),
+        )
+        .unwrap();
+        assert_eq!(ok.depends_on, vec!["h1758000000000_1a2b".to_string()]);
     }
 
     #[test]

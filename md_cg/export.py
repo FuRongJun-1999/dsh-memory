@@ -18,6 +18,8 @@ import json
 import os
 import time
 
+from .fsutil import publish
+
 SCHEMA = 1
 EXPORT_ACTIONS = ("graph", "nodes", "slice", "stat")
 
@@ -117,7 +119,7 @@ def _write_jsonl(cg, out_path: str, entries, include_content: bool = True):
             by_layer[lay] = by_layer.get(lay, 0) + 1
             if written % 500 == 0:
                 f.flush()              # 定期刷盘，控制缓冲区
-    os.replace(tmp, out_path)          # 流式 + 原子：要么完整、要么无
+    publish(tmp, out_path)             # 流式 + 原子：要么完整、要么无
     return {"ok": True, "out": out_path, "written": written,
             "skipped_unreadable": skipped, "by_layer": by_layer,
             "bytes": os.path.getsize(out_path),

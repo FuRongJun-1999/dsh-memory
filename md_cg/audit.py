@@ -346,7 +346,7 @@ def load_external_verifiers(modules=None, strict=False):
             if strict:
                 raise
             continue
-        sys.stderr.write("[mdcg-audit] 已加载外部验证器模块: %s\n" % name)
+        _sys.stderr.write("[mdcg-audit] 已加载外部验证器模块: %s\n" % name)
         fn = getattr(mod, "register", None)
         if callable(fn):
             try:

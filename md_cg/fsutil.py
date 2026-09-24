@@ -41,6 +41,18 @@ def _publish(tmp: str, path: str):
             time.sleep(_RENAME_WAIT)
 
 
+# 生效条件：行为与 _publish 完全一致（直接委派并返回其结果）——公开名，供包内
+# 各「tmp + os.replace」原子写点位统一改走带 Windows 短重试的实现。
+def publish(tmp: str, path: str):
+    """`os.replace` 的公开安全版：目标被 Defender/索引器短暂持锁时短重试。
+
+    2026-09-25 全量回归实测：裸 `os.replace` 在 Windows 上随机抛
+    `PermissionError: [WinError 5]`（retr_s7 的 _postings_meta.json 改名中招，
+    失败者随机分布）——md_cg 内原子写一律经本函数，不再各写各的裸 replace。
+    """
+    return _publish(tmp, path)
+
+
 # 生效条件：path 与 data 给定时取 path 所在目录 d 建目录，用 tempfile.mkstemp 在 d 内建临时文件按 encoding 写入 data，durable 为真才 flush+os.fsync（假值不 fsync），再经 _publish(tmp, path) 替换；任一步失败时 finally 里若 tmp 仍非 None 且 os.path.exists(tmp) 为真则 os.remove（OSError 忽略）。
 def atomic_write(path: str, data: str, encoding: str = "utf-8", durable: bool = False):
     """整文件替换。临时文件与目标同目录（保证同一文件系统，rename 才原子），

@@ -36,7 +36,7 @@ from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                self_state, predict, evolution, weights, pooling,
                writelimit, reach, trust, roleviews)
 from .fsutil import (FileLock, atomic_write, append_jsonl, read_jsonl,
-                     count_jsonl)
+                     count_jsonl, publish)
 from .security import (Principal, TenantRegistry, AccessDenied,
                        SENSITIVITY_ORDER, DEFAULT_SENSITIVITY, _rank)
 
@@ -457,7 +457,7 @@ class MdCGOS(MdCG):
             name = "_audit.%06d.jsonl" % self._next_shard_seq()
             dst = os.path.join(self.audit_archive, name)
             try:
-                os.replace(self.audit_log, dst)
+                publish(self.audit_log, dst)   # Windows 短重试：AV 短锁不误判抢输
             except OSError:
                 return None                    # 抢输（文件已被移走）→ 让位，不报错
             scale = self._audit_count_shard(dst, size)   # 分档：有界扫描 / 只读量级
@@ -2077,7 +2077,7 @@ class MdCGOS(MdCG):
         h = _sig(content or "", 16)
         dst = os.path.join(self.trash_dir, f"{node_id}.md")
         try:
-            os.replace(src, dst)
+            publish(src, dst)
         except OSError as exc:
             return {"ok": False, "error": str(exc)}
         append_jsonl(self.deletions_log, {"t": time.time(), "id": node_id,
@@ -2101,7 +2101,7 @@ class MdCGOS(MdCG):
     def is_tombstoned(self, node_id: str):
         return any(r.get("id") == node_id for r in read_jsonl(self.deletions_log))
 
-# 生效条件：当 node_id 传入时，若 deletions_log 中存在该 id 且 force=False 返回 tombstoned 拒绝；否则检查 trash_dir/{node_id}.md，os.path.exists 为 False 返回 not_in_trash；可打开则读取并 self.add(override=True...) 恢复、移除 trash 源、audit，返回 ok True/id/forced=bool(force)；
+# 生效条件：当 node_id 传入时，若 deletions_log 中存在该 id 且 force=False 返回 tombstoned 拒绝；否则检查 trash_dir/{node_id}.md，os.path.exists 为 False 返回 not_in_trash；可打开则读取并以 add(override=True) + trash frontmatter 元数据全量透传（显式形参逐项传，其余键经 **extra 回写；lifecycle_state 仅在 active→该态合法迁移时透传）恢复、移除 trash 源、audit，返回 ok True/id/forced=bool(force)；
     def restore(self, node_id: str, force: bool = False):
         """恢复：若在删除清单中且未 force → 拒绝（恢复时删除检查）。"""
         tomb = [r for r in read_jsonl(self.deletions_log) if r.get("id") == node_id]
@@ -2114,13 +2114,52 @@ class MdCGOS(MdCG):
         with open(src, encoding="utf-8") as f:
             fm, content = nodefile.loads(f.read())
         layer = fm.get("layer", "knowledge")
-        tags = fm.get("tags") or []
-        self.add(node_id, content, layer=layer, tags=tags, override=True,
-                 sensitivity=fm.get("sensitivity"),
+        # 恢复 = 原样放回：add 是**全量重建 fm**，只传个位数字段会把 edges/
+        # depends_on/验证态/生命周期/created_at/语义摘要/证据计数等元数据永久
+        # 抹掉（下方 os.remove 删 trash 源后不可再恢复）。故 add 显式形参对应
+        # 的键逐项透传；其余键（created_at/evidence_*/protected/temporal/
+        # derived_relation…）经 **extra 回写（fm.update 通道覆盖默认值）。
+        # _skip 必须覆盖 add 全部显式形参名——**extra 撞形参名直接 TypeError。
+        _skip = ("id", "layer", "tags", "condition_space", "importance",
+                 "confidence", "verification_basis", "edges",
+                 "non_applicable_conditions", "derived_from", "relation",
+                 "semantic", "depends_on", "valid_from", "valid_until",
+                 "effective_from", "effective_until", "believed_at",
+                 "verification_state", "override", "consistency",
+                 "on_conflict", "state", "sensitivity", "derived_relation",
+                 "content", "node_id")
+        _extra = {k: v for k, v in fm.items()
+                  if k not in _skip and v not in (None, "", [], {})}
+        # 生命周期状态走迁移裁决：restore 时节点已摘索引、按新节点（active）
+        # 起判，active→archived 跳级会被拒——不可迁移时不透传（落 active），
+        # 不让罕见 corner case 阻断恢复主流程。
+        from . import lifecycle as _lc
+        from . import provenance as _prov
+        _ls = fm.get(_lc.STATE_FIELD)
+        if _ls and _lc.can_transition("active", _ls):
+            _extra[_lc.STATE_FIELD] = _ls
+        # 验证态同样按新节点（unverified）起判：非法值透传会被 require_transition
+        # 直接拒掉，过滤为 None（落 unverified）保证恢复不被脏数据卡死。
+        _vs = fm.get("verification_state")
+        self.add(node_id, content, layer=layer, tags=fm.get("tags") or [],
+                 override=True, sensitivity=fm.get("sensitivity"),
                  condition_space=fm.get("condition_space"),
                  importance=fm.get("importance", 0.5),
                  confidence=fm.get("confidence", 0.6),
-                 verification_basis=fm.get("verification_basis"))
+                 verification_basis=fm.get("verification_basis"),
+                 edges=fm.get("edges"),
+                 non_applicable_conditions=fm.get("non_applicable_conditions"),
+                 semantic=fm.get("semantic"),
+                 depends_on=fm.get("depends_on"),
+                 valid_from=fm.get("valid_from"),
+                 valid_until=fm.get("valid_until"),
+                 effective_from=fm.get("effective_from"),
+                 effective_until=fm.get("effective_until"),
+                 believed_at=fm.get("believed_at"),
+                 verification_state=(_vs if _vs in trust.STATES else None),
+                 derived_from=fm.get("derived_from"),
+                 relation=fm.get("derived_relation") or _prov.DEFAULT_RELATION,
+                 **_extra)
         os.remove(src)
         self._audit("restore", node_id, forced=bool(force))
         return {"ok": True, "id": node_id, "forced": bool(force)}
@@ -3532,10 +3571,10 @@ class MdCGSecure(MdCGOS):
         self._index_sensitivity(nid, sens)
         return nid
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write(kw.get("layer") or "contextual", sens)，再转 super().propose(node_id, content, sensitivity=sens) 并返回其结果。
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write(kw.get("layer", "knowledge"), sens)（缺省与基类 MdCGOS.propose 的 layer="knowledge" 一致——此前误用 or "contextual" 导致校验层与落盘层错位：knowledge-only 身份被误拒 / contextual-only 身份入队成死提案，2026-09-25 缺陷 #5），再转 super().propose(node_id, content, sensitivity=sens) 并返回其结果。
     def propose(self, node_id: str, content: str, sensitivity: str = None, **kw):
         sens = sensitivity or DEFAULT_SENSITIVITY
-        self.principal.require_layer_write(kw.get("layer") or "contextual", sens)
+        self.principal.require_layer_write(kw.get("layer", "knowledge"), sens)
         return super().propose(node_id, content, sensitivity=sens, **kw)
 
 # 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 _rank(sens) 并 principal.require_layer_write("goals", sens)，再转 super().add_goal，最后按 gid 调 _index_sensitivity 并返回 gid。

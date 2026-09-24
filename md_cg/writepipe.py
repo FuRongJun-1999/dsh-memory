@@ -468,10 +468,14 @@ def _executor(ctx):
     """
     a = ctx["a"]
     cg = ctx["cg"]
+    # importance 显式 null（JSON null→None）时 get 的缺省值不生效，直接
+    # float(None) 抛 TypeError 崩主写路径——回退默认 0.5（与 add 缺省同口径）；
+    # 0 / 0.0 等合法 falsy 数值照传（_gate_gated :304 已是同款 None 判定）。
+    _imp = a.get("importance")
     cg.add(ctx["nid"], a.get("content", ""),
            layer=a.get("layer") or "knowledge",
            tags=a.get("tags"), condition_space=a.get("condition_space"),
-           importance=float(a.get("importance", 0.5)),
+           importance=0.5 if _imp is None else float(_imp),
            verification_basis=a.get("verification_basis")
            or (ctx.get("verdict") or {}).get("basis"),
            non_applicable_conditions=a.get("non_applicable_conditions"),

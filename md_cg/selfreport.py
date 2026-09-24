@@ -86,7 +86,7 @@ def info(tag: str = "") -> dict:
     }
 
 
-# 生效条件：tag 为任意字符串；成功时把 info(tag) 原子写入 <tempdir>/md_cg_servers/<pid>.json（先写 .tmp 再 os.replace），并追加 self_report_path 键后返回该字典；任何异常（目录不可建/不可写/序列化失败）一律吞掉并返回 None——自报故障绝不向上传播。
+# 生效条件：tag 为任意字符串；成功时把 info(tag) 原子写入 <tempdir>/md_cg_servers/<pid>.json（先写 .tmp 再经 fsutil.publish 改名，带 Windows 短重试），并追加 self_report_path 键后返回该字典；任何异常（目录不可建/不可写/序列化失败）一律吞掉并返回 None——自报故障绝不向上传播。
 def report(tag: str = "mcp_server"):
     """写自报文件（fail-safe：失败返回 None，不抛）。"""
     try:
@@ -96,7 +96,8 @@ def report(tag: str = "mcp_server"):
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(data, fh, ensure_ascii=False, indent=2)
-        os.replace(tmp, path)
+        from .fsutil import publish
+        publish(tmp, path)
         data["self_report_path"] = path
         return data
     except Exception:                     # noqa: BLE001

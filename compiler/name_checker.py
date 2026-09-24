@@ -489,7 +489,7 @@ class NameChecker:
 
     # ---- 语句分发 ----
 
-# 生效条件：stmt 为 None 时直接返回；否则按 stmt.type 分派——CONDITION_STMT→_check_condition、LOOP_STMT→_check_loop、BLOCK→对 statements 逐个递归、INSTRUCTION_STMT→_check_instruction、SHUYUE→_check_shuyue、STEP→_check_step、ASSIGN_STMT→_check_assign，WENYUE/DAYUE/LITERAL 及 IDENTIFIER 静默通过，其余类型向 warnings 追加"未处理的语句类型: {stmt.type.name}"。
+# 生效条件：stmt 为 None 时直接返回；否则按 stmt.type 分派——CONDITION_STMT→_check_condition、LOOP_STMT→_check_loop、BLOCK→对 statements 逐个递归、INSTRUCTION_STMT→_check_instruction、SHUYUE→_check_shuyue、STEP→_check_step、ASSIGN_STMT→_check_assign、FUNC_DEF→对 body（列表逐个/单节点一次）递归 _check_statement、RETURN_STMT→value 非空时 _check_expression、CALL_EXPR→_check_expression 后对 args 逐个 _check_expression，WENYUE/DAYUE/LITERAL 及 IDENTIFIER 静默通过，其余类型向 warnings 追加"未处理的语句类型: {stmt.type.name}"。
     def _check_statement(self, stmt: ASTNode):
         """根据语句类型分发检查"""
         if stmt is None:
@@ -510,6 +510,24 @@ class NameChecker:
             self._check_step(stmt)
         elif stmt.type == NodeType.ASSIGN_STMT:
             self._check_assign(stmt)
+        elif stmt.type == NodeType.FUNC_DEF:
+            # 函数定义：递归校验函数体——否则「止 情感权重 于 0.9」这类
+            # 指令包进函数体即绕过条件空间约束（顶层被拦、函数体零拦截，
+            # 2026-09-25 缺陷 #3）。body 可为语句列表或单节点（解析器两形态）。
+            if isinstance(stmt.body, list):
+                for s in stmt.body:
+                    self._check_statement(s)
+            elif stmt.body is not None:
+                self._check_statement(stmt.body)
+        elif stmt.type == NodeType.RETURN_STMT:
+            # 返回语句：返回值表达式同样过字面量/标识符校验
+            if stmt.value is not None:
+                self._check_expression(stmt.value)
+        elif stmt.type == NodeType.CALL_EXPR:
+            # 调用表达式作语句：函数名 + 实参逐个校验
+            self._check_expression(stmt)
+            for a in (getattr(stmt, 'args', None) or []):
+                self._check_expression(a)
         elif stmt.type == NodeType.WENYUE:
             # 问曰 作为注释，无需校验
             pass
