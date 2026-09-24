@@ -22,7 +22,9 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_interop_judgment test_identity_attribution test_branches \
          test_p32_backfill test_i32_hotcache_env_key test_conformance \
          test_p47_session_view test_security_audit test_security_audit_b26 \
-         test_p13_encryption; do
+         test_security_audit_v21 test_p13_encryption \
+         test_tasks test_reach test_transfer test_ccg_perturb \
+         test_blindspot_tickets test_en_pipeline test_semantic_canonical; do
   if python -m md_cg.$t >/dev/null 2>&1; then
     pass=$((pass+1))
   else
