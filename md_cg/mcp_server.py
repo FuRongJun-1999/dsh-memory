@@ -2036,6 +2036,10 @@ def _cg_dispatch(cg, a):
                 limit=int(a.get("limit") or a.get("k") or 100))
         if act in ("export", "evidence_export"):
             from . import evidence as _ev
+            from .security import check_path_root
+            # P1-4（批次 26）：证据包写/读路径根约束（报告点名的
+            # 「link export 不经 require_admin → 任意文件写」缺口）
+            check_path_root(a.get("out"), "MDCG_EXPORT_ROOT", "link/export")
             subs = a.get("subjects") or a.get("subject")
             if isinstance(subs, str):
                 subs = [subs]
@@ -2049,6 +2053,9 @@ def _cg_dispatch(cg, a):
             return res
         if act in ("import", "evidence_import"):
             from . import evidence as _ev
+            from .security import check_path_root
+            check_path_root(a.get("path") or a.get("pack"),
+                            "MDCG_EXPORT_ROOT", "link/import")
             src = a.get("path") or a.get("pack")
             if isinstance(src, str) and src.lstrip().startswith("{"):
                 src = json.loads(src)
@@ -2613,7 +2620,7 @@ def _skip_dirs_report(stats, limit=20):
     return out
 
 
-# 生效条件：act=(a.get("action") or "stat").strip().lower()；act 属 ("file","dir","jsonl") 且 principal 非 None 且其 can_write 为假时先 require_admin(f"ingest_{act}")，随后以 action=act 及各透传参数调 sources.run 并返回。
+# 生效条件：先经 check_path_root(a.get("path"), "MDCG_INGEST_ROOT", "ingest")（env 未设置或 path 空时放行，越界抛 PermissionError）；act=(a.get("action") or "stat").strip().lower()；act 属 ("file","dir","jsonl") 且 principal 非 None 且其 can_write 为假时先 require_admin(f"ingest_{act}")，随后以 action=act 及各透传参数调 sources.run 并返回。
 def _ingest_call(cg, a):
     """文件摄取分派（P0）：file / dir / jsonl / stat。
 
@@ -2621,7 +2628,11 @@ def _ingest_call(cg, a):
     支持 dry_run 预演（对应计划「可预演」要求）。
     """
     from . import sources
+    from .security import check_path_root
     act = (a.get("action") or "stat").strip().lower()
+    # P1-4（批次 26）：ingest 的 path 是模型可控输入——根白名单约束
+    # （MDCG_INGEST_ROOT 设置时越界即拒；未设置保持现状）
+    check_path_root(a.get("path"), "MDCG_INGEST_ROOT", "ingest")
     principal = getattr(cg, "principal", None)
     if act in ("file", "dir", "jsonl") and principal is not None \
             and not getattr(principal, "can_write", False):
@@ -2634,17 +2645,20 @@ def _ingest_call(cg, a):
         max_events=a.get("max_events"))
 
 
-# 生效条件：act=(a.get("action") or "stat").strip().lower()；principal 非 None 时一律先 require_admin(f"export_{act}")，随后以 include_content=True if a.get("include_content") is None else bool(a.get("include_content")) 等参数调 _ex.run 并返回。
+# 生效条件：先经 require_admin("export_{act}")（principal 非 None 时）与 check_path_root(a.get("out"), "MDCG_EXPORT_ROOT", "export")（env 未设置或 out 空时放行，越界抛 PermissionError）；act=(a.get("action") or "stat").strip().lower()；principal 非 None 时一律先 require_admin(f"export_{act}")，随后以 include_content=True if a.get("include_content") is None else bool(a.get("include_content")) 等参数调 _ex.run 并返回。
 def _export_call(cg, a):
     """全库导出（P0）：graph / nodes / slice / stat。
 
     导出整库属**管理操作** → 一律 require_admin（designer 专属）。
     """
     from . import export as _ex
+    from .security import check_path_root
     act = (a.get("action") or "stat").strip().lower()
     principal = getattr(cg, "principal", None)
     if principal is not None:
         principal.require_admin(f"export_{act}")
+    # P1-4（批次 26）：export 的 out 是写路径——根白名单约束
+    check_path_root(a.get("out"), "MDCG_EXPORT_ROOT", "export")
     inc = a.get("include_content")
     return _ex.run(
         cg, action=act, out=a.get("out"), ids=a.get("ids"),
@@ -2980,7 +2994,6 @@ def call_tool(cg, name, args):
             cg.session = saved_s
 
 
-# 生效条件：name 为已注册工具名之一（cg / stg / mdcg_whitebox / mdcg_service_info / mdcg_remember 等）；未识别的 name 返回含 error 的响应字典而不抛异常，进程不因此中断；
 # P1-1（批次 24，外部审查报告）：mdcg_* 工具的 op 要求映射——此前 require_op
 # 只在 _cg_dispatch（cg 工具）内生效，mdcg_* 分支直接落库层（只验
 # can_write/层/密级，不验 ops_allow）→「--ops-allow read」的只读令牌仍可经
@@ -3010,6 +3023,7 @@ _MDCG_OP_REQUIRE = {
 }
 
 
+# 生效条件：name 为已注册工具名之一（cg / stg / mdcg_whitebox / mdcg_service_info / mdcg_remember 等）；name 属 _MDCG_OP_REQUIRE 且 cg.principal 具 require_op 属性时先 require_op（越权抛 AccessDenied），principal 为 None 或无该方法时跳过；cg 走 _cg_call、stg 走 _stg_call、whitebox 走 _whitebox_call；未识别的 name 返回含 error 的响应字典而不抛异常，进程不因此中断；
 def _dispatch(cg, name, args):
     a = args or {}
     # P1-1：mdcg_* 面的角色作用域闸（与 cg 工具的 require_op 同一语义——
@@ -3227,6 +3241,12 @@ def _dispatch(cg, name, args):
     if name == "mdcg_ingest":
         from .sources import DSHSessionSource, JsonlSource, Ingestor
         src_arg = (a.get("source") or "auto").strip()
+        # P1-4（批次 26）：报告点名「mdcg_ingest 完全没有权限闸」——权限闸
+        # 已由批次 24 _MDCG_OP_REQUIRE（write）补上，此处补路径根约束；
+        # auto（自动发现 ~/.dsh/sessions）不经路径参数
+        from .security import check_path_root
+        if src_arg != "auto":
+            check_path_root(src_arg, "MDCG_INGEST_ROOT", "mdcg_ingest")
         ing = Ingestor(cg)
         picked, cands = None, []
         if src_arg == "auto":
@@ -3406,7 +3426,7 @@ def _apply_attribution(p):
         p.unit = unit
 
 
-# 生效条件：环境变量 MDCG_TOKEN 去空白后非空时经 verify_token(token, tenant=os.environ.get("MDCG_TENANT")) 构造——抛 TokenError 则返回 (None, f"令牌校验失败：{e}")，成功则返回 (_attach_theory(p), None)；否则 MDCG_LEGACY_ENV_AUTH 值为 "1"/"true"/"True" 时按 MDCG_CAN_ADMIN/MDCG_CAN_WRITE 落到 designer/recorder/output 角色的 legacy_env 身份，两者都不满足时构造 can_write=False、can_admin=False、auth_mode="anonymous" 的 guest 身份，后两条路径同样返回 (_attach_theory(p), None)；
+# 生效条件：环境变量 MDCG_TOKEN 去空白后非空时经 verify_token(token, tenant=os.environ.get("MDCG_TENANT")) 构造——抛 TokenError 则返回 (None, f"令牌校验失败：{e}")，成功则返回 (_attach_theory(p), None)；否则 MDCG_LEGACY_ENV_AUTH 值为 "1"/"true"/"True" 时按 MDCG_CAN_ADMIN/MDCG_CAN_WRITE 落角色（P1-5 批次 26：admin 需 MDCG_CAN_ADMIN 与 MDCG_LEGACY_ENV_ADMIN 同时为真，只设前者时降级 recorder 并写 stderr 提示），两者都不满足时构造 can_write=False、can_admin=False、auth_mode="anonymous" 的 guest 身份，后两条路径同样返回 (_attach_theory(p), None)；
 def _build_principal():
     """构造 Principal（令牌优先，fail-closed）。返回 (principal, error)。
 
@@ -3443,7 +3463,18 @@ def _build_principal():
         return _attach_theory(p), None
 
     if os.environ.get("MDCG_LEGACY_ENV_AUTH", "0") in ("1", "true", "True"):
-        can_admin = os.environ.get("MDCG_CAN_ADMIN", "0") in ("1", "true", "True")
+        # P1-5（批次 26，外部审查报告）：legacy env 直连身份不再能给 admin——
+        # 「环境变量可达即 designer/can_admin」= 配置即提权后门。保留兼容但
+        # admin 需**显式二次开关** MDCG_LEGACY_ENV_ADMIN=1；只设 MDCG_CAN_ADMIN
+        # 时降级 recorder 并 stderr 提示（不静默）。
+        _want_admin = os.environ.get("MDCG_CAN_ADMIN", "0") in ("1", "true", "True")
+        can_admin = _want_admin and os.environ.get(
+            "MDCG_LEGACY_ENV_ADMIN", "0") in ("1", "true", "True")
+        if _want_admin and not can_admin:
+            sys.stderr.write(
+                "[mdcg-mcp] ⚠ MDCG_CAN_ADMIN=1 在 legacy env 身份下已不生效："
+                "管理员需要二次开关 MDCG_LEGACY_ENV_ADMIN=1（P1-5 收紧，防 env "
+                "注入自授 admin）。当前降级为 recorder。\n")
         can_write = os.environ.get("MDCG_CAN_WRITE", "1") not in ("0", "false", "False")
         role = "designer" if can_admin else ("recorder" if can_write else "output")
         spec = role_spec(role)

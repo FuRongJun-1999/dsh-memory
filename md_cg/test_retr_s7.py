@@ -253,6 +253,14 @@ def main():
     # 改写已有节点（节点数不变 → 只可能是目录 mtime 变化）
     cg5.add("n1", "阿尔法 贝塔 伽马 追加", "knowledge")
     cg5.flush()
+    # mtime 粒度守卫（批次 26）：指纹用 st_mtime_ns，但同刻写入在负载波动下
+    # 可能落进同粒度（实测 43/0 与 41/2 交替——负载敏感 flaky，批次 20 同类）。
+    # 断言目标是「改写能被发现」机制而非文件系统粒度——显式前移 mtime 保证确定性。
+    _t = time.time_ns() + 60_000_000_000        # +60s
+    for _d, _ds, _fs in os.walk(os.path.join(root5, "knowledge")):
+        os.utime(_d, ns=(_t, _t))
+        for _f in _fs:
+            os.utime(os.path.join(_d, _f), ns=(_t, _t))
     _sr = postings.stale_reason(root5, cg5.index["nodes"])
     check("改写后：指纹判定过期（dir_touched）", _sr == "dir_touched", _sr)
     _setenv(MDCG_GATE_S7_POSTINGS=None)

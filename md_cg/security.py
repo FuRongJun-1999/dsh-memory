@@ -311,3 +311,31 @@ class TenantRegistry:
             want = cap
         return Principal(tenant=tenant, actor=actor or tenant, clearance=want,
                          can_write=can_write, can_admin=can_admin, session=session)
+
+
+# P1-4（批次 26，外部审查报告）：工具路径参数的根白名单——ingest/export/link
+# 的 path/out 是模型可控输入，原样透传 = 任意文件读（/etc/passwd 进图）与
+# 任意文件写（evidence export 的 out）。校验语义与 HIVE_READ_ROOTS 同构：
+# **env 未设置 = 放开**（默认部署零行为变更，与 2026-09-19 的读放开裁定
+# 精神一致）；**设置了 = realpath 落根内否则拒**（fail-closed），`..` 与
+# 绝对路径穿越在 realpath 归一后自然被涵盖。支持 os.pathsep 分隔多根。
+# 生效条件：env_var 环境变量去空白后为空、或 path 为 None/空串时直接返回（不约束）；否则取 realpath(expanduser(path))，与 env 值按 os.pathsep 切分的每个根做「相等或以根+os.sep 为前缀」判定，任一命中即返回；全部未命中抛 PermissionError（含 what/原 path/realpath/roots 的拒绝说明）。
+def check_path_root(path, env_var: str, what: str) -> None:
+    raw = (os.environ.get(env_var) or "").strip()
+    if not raw:
+        return                                   # 未配置 = 放开（部署开关）
+    if path is None or str(path).strip() == "":
+        return                                   # 无路径参数（如 stat/action）
+    roots = []
+    for p in raw.split(os.pathsep):
+        p = p.strip()
+        if p:
+            roots.append(os.path.realpath(os.path.expanduser(p)))
+    real = os.path.realpath(os.path.expanduser(str(path)))
+    for r in roots:
+        if real == r or real.startswith(r.rstrip(os.sep) + os.sep):
+            return
+    raise PermissionError(
+        f"{what} 路径超出 {env_var} 白名单，拒绝访问：{path} "
+        f"(realpath={real}, roots={roots})——路径类工具参数的根约束"
+        "（P1-4），部署用该环境变量声明可读写的根目录")

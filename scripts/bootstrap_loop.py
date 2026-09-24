@@ -182,6 +182,61 @@ def run_channel_b(llm_generate=None, max_tasks=5):
     """
     from verifier import Verifier
 
+# ---- P1-7（批次 26）：LLM 产出代码的 AST 沙箱 ------------------------------
+# 危险名 denylist（配合 __builtins__ 收窄双层防御）：
+#   执行/IO 面：eval exec compile open __import__ breakpoint input
+#   反射面：globals locals vars getattr setattr delattr（内省逃逸链入口）
+#   进程面：exit quit（干扰循环宿主）
+_GEN_BANNED_NAMES = frozenset({
+    "eval", "exec", "compile", "open", "__import__", "breakpoint", "input",
+    "globals", "locals", "vars", "getattr", "setattr", "delattr",
+    "exit", "quit", "memoryview", "super",
+})
+# 自举生成物的合法计算面（排序/查找/字符串处理足够）；len/range 等纯函数
+_GEN_SAFE_BUILTINS = {name: getattr(__import__("builtins"), name)
+                      for name in (
+                          "abs", "all", "any", "bool", "bytes", "chr", "dict",
+                          "divmod", "enumerate", "filter", "float", "frozenset",
+                          "hash", "hex", "int", "isinstance", "len", "list",
+                          "map", "max", "min", "oct", "ord", "pow", "range",
+                          "repr", "reversed", "round", "set", "slice", "sorted",
+                          "str", "sum", "tuple", "zip", "True", "False", "None",
+                          "ArithmeticError", "IndexError", "KeyError",
+                          "TypeError", "ValueError", "ZeroDivisionError")}
+
+
+# 生效条件：code 为 LLM 返回或 channel_b_queue.json 产出的 Python 源码文本；ast.parse 失败抛原语法异常，ast.walk 命中 Import/ImportFrom 节点、Name.id 属 _GEN_BANNED_NAMES、Attribute.attr 以下划线双端包夹或属 ("system","popen") 任一即抛 ValueError（不执行）；全部通过则以 {"__builtins__": _GEN_SAFE_BUILTINS} 为命名空间 exec 编译产物并返回该 ns（其中含源码定义的函数）。
+def _safe_exec_gen(code: str) -> dict:
+    """LLM 产出代码的受限 exec：AST denylist + 内建收窄（P1-7，批次 26）。
+
+    拒绝（ValueError，不执行）：
+      · import 面——Import / ImportFrom 节点（禁 os/subprocess 前置）；
+      · 危险内建名调用——_GEN_BANNED_NAMES（执行/IO/反射/进程面）；
+      · 反射逃逸链——dunder 属性访问（__class__/__globals__/__subclasses__…）
+        与 os.system/popen 类敏感属性；
+      · Lambda/推导式中的同名调用同样被 walk 覆盖（AST 全遍历）。
+    执行命名空间 `__builtins__` 收窄到纯计算内建——即使 denylist 漏项，
+    ns 里也没有 open/import 可拿。
+    """
+    import ast
+    tree = ast.parse(code)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            raise ValueError(f"沙箱拒绝 import（行 {getattr(node, 'lineno', '?')}）"
+                             "——自举产出应为纯函数，无需依赖")
+        if isinstance(node, ast.Name) and node.id in _GEN_BANNED_NAMES:
+            raise ValueError(f"沙箱拒绝受限名 {node.id}"
+                             f"（行 {getattr(node, 'lineno', '?')}）")
+        if isinstance(node, ast.Attribute):
+            if node.attr.startswith("__") or node.attr in ("system", "popen"):
+                raise ValueError(f"沙箱拒绝受限属性 .{node.attr}"
+                                 f"（行 {getattr(node, 'lineno', '?')}）"
+                                 "——反射逃逸链入口")
+    ns = {"__builtins__": _GEN_SAFE_BUILTINS}
+    exec(compile(code, "<gen>", "exec"), ns)   # noqa: S102——沙箱内（见上）
+    return ns
+
+
     queue_path = os.path.join(STATE, "channel_b_queue.json")
     out_path = os.path.join(STATE, "channel_b_verified_units.json")
     verified = json.load(open(out_path, encoding="utf-8")) if os.path.exists(out_path) else {}
@@ -223,9 +278,13 @@ def run_channel_b(llm_generate=None, max_tasks=5):
             continue
 
         # 物理验证：exec + cases
-        ns = {}
+        # P1-7（批次 26，外部审查报告）：code 来自 LLM 返回 / channel_b_queue.json
+        # （模型可控输入），直接 exec = 以循环进程身份执行任意 Python。改为
+        # AST 白名单沙箱（报告建议 2）：自举循环的合法产出 = 纯算术/逻辑
+        # 函数（排序/查找等算法题），不需要 import 与 IO——denylist 拒绝
+        # import 面、危险内建与反射逃逸链，命中即 ValueError 不执行。
         try:
-            exec(compile(code, "<gen>", "exec"), ns)
+            ns = _safe_exec_gen(code)
         except Exception:
             stats["failed"] += 1
             continue

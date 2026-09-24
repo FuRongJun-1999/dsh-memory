@@ -40,6 +40,9 @@ class McpClient:
         env["MDCG_ROOT"] = root
         env["MDCG_ACTOR"] = actor
         env["MDCG_CAN_ADMIN"] = "1"          # 测试默认带管理权限
+        # P1-5（批次 26）：legacy env 身份的 admin 需显式二次开关——本套
+        # 测 forget/restore/review_decide 等管理操作，属合法 admin 消费方
+        env["MDCG_LEGACY_ENV_ADMIN"] = "1"
         env["MDCG_LEGACY_ENV_AUTH"] = "1"    # 旧 env 直连身份（令牌方案前兼容）
         env["PYTHONIOENCODING"] = "utf-8"
         if extra_env:

@@ -815,6 +815,39 @@ def _under(path: str, root: str) -> bool:
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
+# P1-6 增量（批次 26，外部审查报告建议 3）：敏感凭据路径拒读——与「默认放开」
+# 的 2026-09-19 使用者裁定**不冲突**（增量黑名单，非改默认）：read_file 的内容
+# 会随 tool 消息发往 HIVE_API_BASE 外部网关，SSH 私钥 / 云凭据 / 浏览器
+# Cookie 库无论根约束如何都**不该**进上下文。匹配在斜杠归一后做（Windows
+# 反斜杠兼容）；目录段整段匹配（防 ~/.sshx 误伤）、文件名前缀/精确匹配。
+_SENSITIVE_DIR_SEGMENTS = (".ssh", ".aws", ".gcloud", ".azure", ".kube",
+                           ".gnupg", ".docker", ".netrc")
+_SENSITIVE_FILE_NAMES = ("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
+                         ".netrc", ".htpasswd", ".npmrc", ".pypirc",
+                         "credentials", "credentials.json",
+                         "cookies.sqlite", "cookies.sqlite-journal")
+
+
+# 生效条件：real 为 realpath 规范化后的绝对路径；归一斜杠小写后，任一父目录段属 _SENSITIVE_DIR_SEGMENTS、文件名精确命中 _SENSITIVE_FILE_NAMES 或以 credentials/access_tokens 前缀命中、或文件名以 .env 开头/以 .pem/.key/.p12/.pfx/.kdbx 结尾时返回原因说明串，否则返回 None。
+def _sensitive_read(real: str) -> str | None:
+    """命中敏感路径返回原因说明，安全路径返回 None。"""
+    norm = real.replace("\\", "/").lower()
+    name = norm.rsplit("/", 1)[-1]
+    segments = norm.split("/")
+    for seg in segments[:-1]:
+        if seg.lower() in _SENSITIVE_DIR_SEGMENTS:
+            return f"敏感凭据目录（{seg}/）"
+    for cand in _SENSITIVE_FILE_NAMES:
+        if name == cand or (cand == "credentials" and name.startswith(
+                ("credentials", "access_tokens"))):
+            return f"敏感凭据文件（{name}）"
+    # 密钥文件扩展与 dot-env 家族（.env / .env.local / prod.pem…）
+    if name.startswith(".env") or name.endswith(
+            (".pem", ".key", ".p12", ".pfx", ".kdbx")):
+        return f"密钥/环境凭据文件（{name}）"
+    return None
+
+
 # 生效条件：当 args[key] 可 int() 转换且 > 0 时返回 min(该值, hi)，转换失败（None/空/非数字）或 <= 0 时返回 default；
 def _int_arg(args: dict, key: str, default: int, hi: int) -> int:
     """容错读整数参数：非法值回落默认而非抛错（工具面不因参数脏而崩）。"""
@@ -892,7 +925,7 @@ def _read_text_window(path: str, offset: int, limit: int,
             bool(n >= limit or chars >= max_chars), content.count("\ufffd"))
 
 
-# 生效条件：当 args 含非空 path 时，以 workdir（缺省 os.getcwd()）为相对基准求 realpath；HIVE_READ_ROOTS 非空且 real 不在任一根下返回 {'ok':False,error,roots}；real 为目录走 _list_dir；非 isfile 返回 {'ok':False,'error':'路径不存在'}；否则读 BINARY_SNIFF_BYTES 头经 sniff_kind 分类：text 返回行窗正文与分页元数据（含 encoding/replacements，replacements>0 附存疑提示），image:* 另附 image_size 尺寸、binary 只给 bytes，二者 content=None；打开/取尺寸抛 OSError 时返回 {'ok':False,...} 诚实报错；
+# 生效条件：当 args 含非空 path 时，以 workdir（缺省 os.getcwd()）为相对基准求 realpath；HIVE_READ_ROOTS 非空且 real 不在任一根下返回 {'ok':False,error,roots}；_sensitive_read(real) 命中敏感凭据路径（P1-6 增量）返回 {'ok':False,error}；real 为目录走 _list_dir；非 isfile 返回 {'ok':False,'error':'路径不存在'}；否则读 BINARY_SNIFF_BYTES 头经 sniff_kind 分类：text 返回行窗正文与分页元数据（含 encoding/replacements，replacements>0 附存疑提示），image:* 另附 image_size 尺寸、binary 只给 bytes，二者 content=None；打开/取尺寸抛 OSError 时返回 {'ok':False,...} 诚实报错；
 def tool_read_file(args: dict, workdir: str = None) -> dict:
     """读本地文件（只读面）：文本给行窗、目录给清单、图像/二进制给元数据。
 
@@ -910,6 +943,13 @@ def tool_read_file(args: dict, workdir: str = None) -> dict:
                 "error": "路径超出 HIVE_READ_ROOTS 白名单，拒读（越界即拒，"
                          "不猜内容）",
                 "roots": list(roots)}
+    # P1-6 增量（批次 26）：敏感凭据路径拒读——不受根白名单配置影响
+    # （内容回喂外部 LLM 网关，凭据类文件无论部署配置都不进上下文）
+    why = _sensitive_read(real)
+    if why:
+        return {"ok": False, "path": real,
+                "error": f"敏感路径拒读：{why}——凭据类文件不进 LLM 上下文"
+                         "（P1-6 增量；如有合法需要请走部署管理员显式通道）"}
     if os.path.isdir(real):
         return _list_dir(real)
     if not os.path.isfile(real):

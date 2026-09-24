@@ -489,16 +489,21 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
             }
             return body;
         };
-        // ② 编辑鉴权：README 声称「编辑需 ROLEPLAY_EDIT_KEY」——此前代码未实现。
-        // 配置了 ROLEPLAY_EDIT_KEY 环境变量则写操作（meta/import/translate/创建角色）
-        // 必须带 x-edit-key 头；未配置时保持本地开发默认开放（README 已如实说明）。
+        // ② 编辑鉴权（P1-2，批次 26 外部审查报告）：fail-closed——未配置
+        // ROLEPLAY_EDIT_KEY 时**拒绝全部写操作**（旧语义「未配置=开放」是
+        // 本地开发便利，但网页面板是唯一对浏览器开放的面，默认无鉴权 =
+        // 任意来源可改写角色数据）。403 文案引导配置：设 ROLEPLAY_EDIT_KEY
+        // 并在请求带 x-edit-key 头即可恢复编辑。
         const EDIT_KEY = process.env.ROLEPLAY_EDIT_KEY || '';
         const requireEditKey = (req) => {
             if (!EDIT_KEY)
-                return true;
+                return false;                    // P1-2：未配置 = 拒绝（fail-closed）
             const h = (req.headers && req.headers['x-edit-key']) || '';
             return h === EDIT_KEY;
         };
+        const editKeyHint = () => EDIT_KEY
+            ? editKeyHint()
+            : '编辑未开放：服务端需配置环境变量 ROLEPLAY_EDIT_KEY，请求需带 x-edit-key 头（P1-2 fail-closed）';
         const roleDataDir = join(dirname(config.dbPath), 'roleplay_data');
         try {
             mkdirSync(join(roleDataDir, 'roleplay'), { recursive: true });
@@ -551,16 +556,28 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
         // 「角色字典」视角；写入保持原顶层结构（嵌套则写回 meta 内），读写一致——
         // 此前读兼容嵌套但写永远写根，保存成功但列表读旧值。
         const roleMetaFile = join(roleDataDir, 'roleplay', '_roles.json');
+        // P1-3（批次 26 外部审查报告）：角色 id 白名单——role 从 URL 提取后
+        // 直接作 meta 对象键，`__proto__` 键会劫持 Object.prototype（污染插件
+        // 与 DSH 宿主共享的同进程对象）。白名单字符集 + 显式拒绝危险键。
+        const _BAD_ROLE_IDS = new Set(['__proto__', 'constructor', 'prototype']);
+        const validRoleId = (role) => typeof role === 'string'
+            && /^[A-Za-z0-9_.-]{1,64}$/.test(role)
+            && !_BAD_ROLE_IDS.has(role);
+        // meta 字典统一 null 原型——即使存量文件已被写入危险键，
+        // meta['__proto__'] 也只是普通 own 属性，不再劫持原型链。
+        const toNullProto = (o) => (o && typeof o === 'object')
+            ? Object.assign(Object.create(null), o)
+            : o;
         const readRoleMeta = () => {
             try {
                 const raw = JSON.parse(readFileSync(roleMetaFile, 'utf8'));
                 if (raw && typeof raw === 'object'
                     && raw.meta && typeof raw.meta === 'object')
-                    return raw.meta;  // 嵌套格式 → meta 内角色字典
-                return raw;
+                    return toNullProto(raw.meta);  // 嵌套格式 → meta 内角色字典
+                return toNullProto(raw);
             }
             catch {
-                return {};
+                return Object.create(null);
             }
         };
         const writeRoleMeta = (flat) => {
@@ -606,6 +623,8 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
             return Array.isArray(t) ? t : [];
         };
         const setTranslations = (roleId, pairs) => {
+            if (!validRoleId(roleId))
+                return;                          // P1-3：非法角色 id 拒写（防原型污染）
             const meta = readRoleMeta();
             if (!meta[roleId])
                 meta[roleId] = { created_at: Date.now() / 1000, name: roleId };
@@ -668,7 +687,7 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     // P1 修复（GPT 审查）：写操作鉴权（ROLEPLAY_EDIT_KEY）+ 请求体大小限制
                     if (!requireEditKey(req)) {
                         res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
-                        res.end(JSON.stringify({ ok: false, error: '缺少编辑密钥（x-edit-key 头）' }));
+                        res.end(JSON.stringify({ ok: false, error: editKeyHint() }));
                         return;
                     }
                     let body;
@@ -726,7 +745,7 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     // P1 修复（GPT 审查）：写操作鉴权（ROLEPLAY_EDIT_KEY）+ 请求体大小限制
                     if (!requireEditKey(req)) {
                         res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
-                        res.end(JSON.stringify({ ok: false, error: '缺少编辑密钥（x-edit-key 头）' }));
+                        res.end(JSON.stringify({ ok: false, error: editKeyHint() }));
                         return;
                     }
                     let body;
@@ -740,6 +759,12 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     }
                     const p = JSON.parse(body);
                     const role = decodeURIComponent(url.pathname.split('/')[4]);
+                    if (!validRoleId(role)) {
+                        // P1-3：__proto__/constructor/prototype 及越界字符拒绝
+                        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: '非法角色 id（白名单 ^[A-Za-z0-9_.-]{1,64}$）' }));
+                        return;
+                    }
                     const meta = readRoleMeta();
                     if (!meta[role])
                         meta[role] = { created_at: Date.now() / 1000 };
@@ -823,7 +848,7 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     // P1 修复（GPT 审查）：写操作鉴权（ROLEPLAY_EDIT_KEY）+ 请求体大小限制
                     if (!requireEditKey(req)) {
                         res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
-                        res.end(JSON.stringify({ ok: false, error: '缺少编辑密钥（x-edit-key 头）' }));
+                        res.end(JSON.stringify({ ok: false, error: editKeyHint() }));
                         return;
                     }
                     let body;
@@ -859,7 +884,7 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     // P1 修复（GPT 审查）：写操作鉴权（ROLEPLAY_EDIT_KEY）+ 请求体大小限制
                     if (!requireEditKey(req)) {
                         res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
-                        res.end(JSON.stringify({ ok: false, error: '缺少编辑密钥（x-edit-key 头）' }));
+                        res.end(JSON.stringify({ ok: false, error: editKeyHint() }));
                         return;
                     }
                     let body;
