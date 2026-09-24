@@ -111,6 +111,47 @@ def v21_4_run_channel_b():
     res = m.run_channel_b(None, max_tasks=2)
     check("队列空场景返回 dict（非静默 None）", isinstance(res, dict),
           repr(res)[:80])
+    # V21 报告流程建议 2：全链路冒烟——队列→沙箱→verifier→落盘（此前
+    # 全仓无任何测试引用 run_channel_b，主体被掏空 6 个批次无人察觉）
+    import json as _json
+    smoke = tempfile.mkdtemp(prefix="v21_4_chain_")
+    m.STATE = smoke                          # 隔离状态目录
+    good = ("def冒烟排序" if False else
+            "def mao_yan_sort(arr):\n"
+            "    n = len(arr)\n"
+            "    for i in range(n):\n"
+            "        for j in range(0, n - i - 1):\n"
+            "            if arr[j] > arr[j + 1]:\n"
+            "                arr[j], arr[j + 1] = arr[j + 1], arr[j]\n"
+            "    return arr\n")
+    bad = ("def evil(x):\n"
+           "    import os\n"
+           "    return os.system('echo pwned')\n")   # 有 def——走沙箱拒路径
+    q = {"pending": [
+        {"task": "冒烟排序", "code": good,
+         "cases": [[[3, 1, 2], [1, 2, 3]]], "status": "new"},
+        {"task": "恶意样本", "code": bad,
+         "cases": [["x", "x"]], "status": "new"}]}
+    with open(os.path.join(smoke, "channel_b_queue.json"), "w",
+              encoding="utf-8") as f:
+        _json.dump(q, f, ensure_ascii=False)
+    res2 = m.run_channel_b(None, max_tasks=5)
+    check("全链路 stats：generated=2 passed=1 failed=1",
+          res2.get("generated") == 2 and res2.get("passed") == 1
+          and res2.get("failed") == 1, repr(res2))
+    out_p = os.path.join(smoke, "channel_b_verified_units.json")
+    vu = _json.load(open(out_p, encoding="utf-8")) if os.path.exists(out_p) else {}
+    check("verified_units 落盘含通过条目", "task:冒烟排序" in vu, repr(vu)[:80])
+    q2 = _json.load(open(os.path.join(smoke, "channel_b_queue.json"),
+                         encoding="utf-8"))
+    st = {t["task"]: t["status"] for t in q2["pending"]}
+    check("队列回写状态正确（verified/failed）",
+          st.get("冒烟排序") == "verified" and st.get("恶意样本") == "failed",
+          repr(st))
+    rej_p = os.path.join(smoke, "channel_b_drafts", "rejected_log.json")
+    rej = _json.load(open(rej_p, encoding="utf-8")) if os.path.exists(rej_p) else []
+    check("失败条目进 rejected_log", any(r.get("task") == "恶意样本"
+                                          for r in rej), repr(rej)[:80])
 
 
 def v21_5_p23_selfheal():

@@ -253,7 +253,10 @@ def run_channel_b(llm_generate=None, max_tasks=5):
 
     queue_path = os.path.join(STATE, "channel_b_queue.json")
     out_path = os.path.join(STATE, "channel_b_verified_units.json")
-    verified = ""
+    # 批次 35：初始化必须是 dict——空串形态在产物文件不存在时首次固化即
+    # TypeError（verified[key]=... 对 str 赋值）。此缺陷因 run_channel_b
+    # 长期无测试覆盖而潜伏（V21 报告流程建议 2 的全链路冒烟首跑即暴露）。
+    verified = {}
     if os.path.exists(out_path):
         with open(out_path, encoding="utf-8") as f:
             verified = json.load(f)
@@ -293,6 +296,9 @@ def run_channel_b(llm_generate=None, max_tasks=5):
         fname = fn_m.group(1) if fn_m else None
         if not fname:
             stats["failed"] += 1
+            # 批次 35：前置拒绝路径也必须标 failed——否则条目永久占位
+            # 反复重试（与 2026-08-28 卡队列缺陷同型；冒烟守卫暴露）
+            item["status"] = "failed"
             continue
 
         # 物理验证：exec + cases
@@ -305,9 +311,25 @@ def run_channel_b(llm_generate=None, max_tasks=5):
             ns = _safe_exec_gen(code)
         except Exception:
             stats["failed"] += 1
+            item["status"] = "failed"     # 批次 35：防卡队列（同上）
+            # 批次 35：沙箱拒绝（import 面/危险内建/反射逃逸）的产出单独
+            # 留痕——恶意/坏产出是最该进拒绝日志的类别（与 cases 未过同款）
+            _rej = os.path.join(STATE, "channel_b_drafts", "rejected_log.json")
+            os.makedirs(os.path.dirname(_rej), exist_ok=True)
+            _rej_list = []
+            if os.path.exists(_rej):
+                with open(_rej, encoding="utf-8") as f:
+                    _rej_list = json.load(f)
+            _rej_list.append({"task": task, "layer": "queue_sandbox",
+                              "why": "AST 沙箱拒绝（import 面/危险内建/"
+                                     "反射逃逸链）",
+                              "ts": time.strftime("%Y-%m-%d %H:%M")})
+            with open(_rej, "w", encoding="utf-8") as f:
+                json.dump(_rej_list, f, ensure_ascii=False, indent=1)
             continue
         if fname not in ns or not callable(ns[fname]):
             stats["failed"] += 1
+            item["status"] = "failed"     # 批次 35：防卡队列（同上）
             continue
         fn = ns[fname]
         all_pass = True
