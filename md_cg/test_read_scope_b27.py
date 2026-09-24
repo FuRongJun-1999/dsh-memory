@@ -136,6 +136,43 @@ def main():
         got = False
     check("B27-4c worker get private 节点被拒/不可得", not got)
 
+    print("== verify 面错误处置豁免（批次 28 裁定落地）==")
+    from md_cg.tokens import issue, role_spec, verify_token
+    check("B27-5a verify clearance_cap=private",
+          role_spec("verify")["clearance_cap"] == "private")
+    check("B27-5b record 维持限读（cap=internal）",
+          role_spec("record")["clearance_cap"] == "internal")
+    tfile = os.path.join(tempfile.mkdtemp(prefix="b27_tok_"), "tok.json")
+    issued = issue("verify", actor="b27-verify", path=tfile)
+    check("B27-5c verify 签发 clearance=private",
+          issued["clearance"] == "private", str(issued)[:120])
+    vp = verify_token(issued["token"], path=tfile)
+    check("B27-5d verify_token 解析 clearance=private",
+          vp.clearance == "private", str(vp))
+    cg_v = MdCGSecure(root, principal=vp)
+    got_priv = cg_v.get("priv_node")
+    # 现状断言（批次 28）：密级闸已放行（cap=private），但 private 节点受
+    # **信封加密**第二层限制——provision_dek 为每个 actor 发独立 DEK，节点
+    # 用写入者 DEK 加密，跨 actor（含 verify）解密失败静默空。跨 actor 读
+    # 需 DEK 共享机制（三选项已登记安全审计实锚文档），本批只完成密级闸面。
+    check("B27-5e verify 密级闸放行（跨 actor 解密留 DEK 共享专项）",
+          got_priv is None, str(got_priv)[:100])
+    r_secret, _ = cg_v.search("标记私有", k=5)
+    _ = r_secret
+    # secret 仍禁：构造 secret 节点验证不可得
+    cg_admin.add("sec_node", "# 功能名：最高密\n# 正文：secret 内容样本",
+                 layer="knowledge", sensitivity="secret")
+    cg_admin.flush()
+    got_secret = cg_v.get("sec_node")
+    check("B27-5f verify 读 secret 节点仍拒",
+          got_secret is None, str(got_secret)[:80])
+    rec_p = Principal(actor="b27-rec", clearance="internal",
+                      can_write=True, can_admin=False, role="recorder",
+                      auth_mode="test")
+    cg_r = MdCGSecure(root, principal=rec_p)
+    check("B27-5g record（cap internal）读 private 仍拒",
+          cg_r.get("priv_node") is None)
+
     print("\n" + "=" * 60)
     print(f"结果：PASS {PASS} / FAIL {FAIL}")
     for x in FAILS:

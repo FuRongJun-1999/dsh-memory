@@ -157,13 +157,18 @@ ROLE_SPECS = OrderedDict([
     ("verify", {
         "label": "验证单元", "unit": "验证单元", "effect": "稳",
         "duty": "判断规则、执行结果和结构是否有效；只写验证证据与负记忆",
-        "can_write": True, "can_admin": False, "clearance_cap": "internal",
+        # clearance_cap=private（批次 28，使用者裁定 2026-09-24）：private 是
+        # **错误处置标记**（错误相关/待排查内容限制平级扩散，非个人隐私），
+        # 验证单元读错误标记节点是本职——「错误处置链路（设计者/上级节点/
+        # 验证单元）必读」的豁免面；secret 仍禁。其余单元维持限读不变。
+        "can_write": True, "can_admin": False, "clearance_cap": "private",
         "layers_allow": ["rejected", "contextual"],
         "ops_allow": ["info", "route", "read", "write", "verify", "insight",
                       "status", "edges"],
         "delegable": False,
         "forbidden": ["knowledge/self/anchor 层（不得改被验证内容）",
-                      "private/secret 密级", "裁决与删除"],
+                      "secret 密级（private 为错误处置本职豁免，secret 仍禁）",
+                      "裁决与删除"],
     }),
     ("output", {
         "label": "输出单元", "unit": "输出单元", "effect": "通",
