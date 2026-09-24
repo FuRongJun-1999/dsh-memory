@@ -59,10 +59,11 @@ def _s(_desc, **props):
 
 
 # 生效条件：始终返回 {"type":t,"description":desc}，仅当 req 为真值时该字典额外含 "_req": True。
-def _p(t, desc, req=False):
+def _p(t, desc, req=False, **extra):
     d = {"type": t, "description": desc}
     if req:
         d["_req"] = True
+    d.update(extra)   # P2-22 前置（批次 24）：node_id 等可传 pattern/maxLength
     return d
 
 
@@ -106,7 +107,9 @@ TOOLS = [
                        "适用于写入情景层记忆时的筛选（未指定 layer 时默认 contextual）。"
                        "写入恒带会话身份（session）以区分不同会话的记忆；省略则归因到"
                        "进程/环境身份。",
-        "inputSchema": _s("", node_id=_p("string", "节点 id（省略则自动生成）"),
+        "inputSchema": _s("", node_id=_p("string", "节点 id（省略则自动生成）",
+                                         pattern="^[A-Za-z0-9_.@-]{1,128}$",
+                                         maxLength=128),
                           content=_p("string", "节点内容", True),
                           layer=_p("string", "层：anchor|structural|knowledge|contextual|self"),
                           role=_p("string", "角色：knowledge|user|assistant|tool-output|command|edit"
@@ -2978,8 +2981,44 @@ def call_tool(cg, name, args):
 
 
 # 生效条件：name 为已注册工具名之一（cg / stg / mdcg_whitebox / mdcg_service_info / mdcg_remember 等）；未识别的 name 返回含 error 的响应字典而不抛异常，进程不因此中断；
+# P1-1（批次 24，外部审查报告）：mdcg_* 工具的 op 要求映射——此前 require_op
+# 只在 _cg_dispatch（cg 工具）内生效，mdcg_* 分支直接落库层（只验
+# can_write/层/密级，不验 ops_allow）→「--ops-allow read」的只读令牌仍可经
+# mdcg_remember 写入，权限收窄形同虚设。映射用令牌签发域内的既有 op 词
+# （read/write/verify——tokens.ROLE_SPECS 全角色都含 read，写类角色含
+# write），ops_allow=None（不限）令牌零影响。
+_MDCG_OP_REQUIRE = {
+    # 写面
+    "mdcg_remember": "write", "mdcg_reflect": "write",
+    "mdcg_flywheel": "write", "mdcg_mine_fix_pairs": "write",
+    "mdcg_rejected": "write", "mdcg_unresolved": "write",
+    "mdcg_propose": "write", "mdcg_review_decide": "write",
+    "mdcg_forget": "write", "mdcg_restore": "write",
+    "mdcg_protect": "write", "mdcg_ingest": "write",
+    "mdcg_consistency": "write",
+    # 读面
+    "mdcg_recall": "read", "mdcg_search": "read", "mdcg_get": "read",
+    "mdcg_review_list": "read", "mdcg_review_records": "read",
+    "mdcg_forgetting_history": "read", "mdcg_identity": "read",
+    "mdcg_metacognition": "read", "mdcg_self_state": "read",
+    "mdcg_predict": "read", "mdcg_causal": "read",
+    "mdcg_evolution": "read", "mdcg_health": "read",
+    "mdcg_whoami": "read", "mdcg_watermarks": "read",
+    "mdcg_whitebox": "read",
+    # 裁决面（仅高权角色域含 verify）
+    "mdcg_verify": "verify",
+}
+
+
 def _dispatch(cg, name, args):
     a = args or {}
+    # P1-1：mdcg_* 面的角色作用域闸（与 cg 工具的 require_op 同一语义——
+    # ops_allow=None 令牌不受影响；受限令牌越权即 AccessDenied）
+    _need_op = _MDCG_OP_REQUIRE.get(name)
+    if _need_op:
+        _p = getattr(cg, "principal", None)
+        if _p is not None and hasattr(_p, "require_op"):
+            _p.require_op(_need_op)
     if name == "cg":
         return _cg_call(cg, a)
     if name == "stg":

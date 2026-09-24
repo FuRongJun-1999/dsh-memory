@@ -848,6 +848,14 @@ class _DirtyDict(dict):
         super().update(*a, **k)
 
 
+# P0-1（批次 24，外部审查报告）：node_id 白名单——id 拼进落盘路径，穿越
+# （..）与绝对路径一律拒绝。**不含冒号**：NTFS 上文件名中的 `:` 是备用数据
+# 流（ADS）分隔符（`a:b.md` 实际写 a 的 b.md 流，主文件名错位）——Windows
+# 目标平台硬约束。`@` 无路径语义且存量在用（mem_a@exp1 形态）。字符集覆盖
+# 存量 id：mem_<ts>/n00001/mde_<hash>/mem_a@exp1/uuid 片段等。
+_NODE_ID_RE = re.compile(r"^[A-Za-z0-9_.@-]{1,128}$")
+
+
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
 # 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
@@ -1119,6 +1127,16 @@ class MdCG:
         """
         if layer not in LAYERS:
             raise ValueError(f"未知层：{layer}（允许：{LAYERS}）")
+        # P0-1（批次 24，外部审查报告）：node_id 是模型可控输入，直接拼
+        # 文件路径——`..` 穿越出 root、Windows 绝对路径（C:/x）在
+        # os.path.join 下直接丢弃前缀 = 任意 .md 覆盖。白名单先行
+        # （报告建议 1），realpath 断言在落盘前兜底（报告建议 2）。
+        nid_s = str(node_id or "")
+        if not nid_s or len(nid_s) > 128 or ".." in nid_s \
+                or not _NODE_ID_RE.match(nid_s):
+            raise ValueError(
+                f"非法 node_id：{node_id!r}（须匹配 {_NODE_ID_RE.pattern} "
+                f"且不含 '..'——node_id 会拼进落盘路径，穿越/绝对路径一律拒绝）")
         if verification_basis is not None and verification_basis not in VERIFICATION_BASIS:
             raise ValueError(f"未知验证基底：{verification_basis}（允许：{VERIFICATION_BASIS}）")
         # 写保护：self/anchor 层、protected 标记、importance≥0.7 的**既有**节点
@@ -1167,6 +1185,16 @@ class MdCG:
                 routing.bucket_key_readable(bucket), tags, content)
         os.makedirs(d, exist_ok=True)
         path = os.path.join(d, f"{node_id}.md")
+        # P0-1 纵深（批次 24）：realpath 断言兜底——白名单已挡穿越/绝对
+        # 路径，此闸防未来 node_id 规则放松或 d 被污染（任何写入路径的
+        # 最后一道闸：落盘位置必须在 root 内）。
+        _real_node = os.path.realpath(path)
+        _real_root = os.path.realpath(self.root)
+        if _real_node != _real_root \
+                and not _real_node.startswith(_real_root + os.sep):
+            raise ValueError(
+                f"node_id 落盘路径越界（realpath={_real_node}，root={_real_root}）"
+                "——拒绝写入（P0-1 纵深闸）")
         created_at = extra.pop("created_at", time.time())
         # 条件论「观测时间」栏：写入时必须记录观测时间窗。
         # 调用方未提供 time_window 时，以写入时刻为锚、默认窗口 OBSERVATION_WINDOW_SEC。
@@ -2256,9 +2284,9 @@ class MdCG:
         if include_neg:
             for e in self.index["nodes"].values():
                 if e["layer"] in ("rejected", "unresolved"):
-                    got = self.get(e["path"].split("/")[-1][:-3])
-                    # 用 path 末段作为 id 反查（_index 用 path，get 用 id）
-                    # 上面写法是错的；改用直接路径读
+                    # _index 用 path 存，直接按 path 读盘（批次 24 P2-1：删除
+                    # 原先的死调用 `got = self.get(...)`——结果从未使用却完成
+                    # 一次完整读盘+解析+解密，每次检索对每个负记忆节点双倍 IO）
                     full_path = os.path.join(self.root, e["path"])
                     if not os.path.exists(full_path):
                         continue

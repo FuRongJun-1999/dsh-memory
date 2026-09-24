@@ -43,7 +43,9 @@ def worktree_of(commit):
         raise SystemExit("git archive 失败：" + r.stderr.decode("utf-8", "replace")[:200])
     tmp = tempfile.mkdtemp(prefix="criteria_")
     with tarfile.open(fileobj=io.BytesIO(r.stdout)) as tf:
-        tf.extractall(tmp)
+        # P1-8（批次 24，外部审查报告）：filter="data" 拒绝绝对路径/.. 穿越/
+        # 外部符号链接成员（Py3.12+ 官方过滤墙），堵归档解包越界写
+        tf.extractall(tmp, filter="data")
     return tmp
 
 
