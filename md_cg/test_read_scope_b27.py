@@ -138,17 +138,18 @@ def main():
 
     print("== verify 面错误处置豁免（批次 28 裁定落地）==")
     from md_cg.tokens import issue, role_spec, verify_token
-    check("B27-5a verify clearance_cap=private",
-          role_spec("verify")["clearance_cap"] == "private")
+    check("B27-5a verify clearance_cap=internal（分型后 cap 豁免取消，"
+          "restricted 走链路角色集）",
+          role_spec("verify")["clearance_cap"] == "internal")
     check("B27-5b record 维持限读（cap=internal）",
           role_spec("record")["clearance_cap"] == "internal")
     tfile = os.path.join(tempfile.mkdtemp(prefix="b27_tok_"), "tok.json")
     issued = issue("verify", actor="b27-verify", path=tfile)
-    check("B27-5c verify 签发 clearance=private",
-          issued["clearance"] == "private", str(issued)[:120])
+    check("B27-5c verify 签发 clearance=internal（分型取代 cap 豁免）",
+          issued["clearance"] == "internal", str(issued)[:120])
     vp = verify_token(issued["token"], path=tfile)
-    check("B27-5d verify_token 解析 clearance=private",
-          vp.clearance == "private", str(vp))
+    check("B27-5d verify_token 解析 clearance=internal",
+          vp.clearance == "internal", str(vp))
     cg_v = MdCGSecure(root, principal=vp)
     got_priv = cg_v.get("priv_node")
     # 现状断言（批次 28）：密级闸已放行（cap=private），但 private 节点受
@@ -172,6 +173,51 @@ def main():
     cg_r = MdCGSecure(root, principal=rec_p)
     check("B27-5g record（cap internal）读 private 仍拒",
           cg_r.get("priv_node") is None)
+
+    print("== 批次 28 分型：restricted 错误处置标记可见性矩阵 ==")
+    root_r = tempfile.mkdtemp(prefix="b27_res_")
+    cg_seed = MdCGSecure(root_r, principal=Principal(
+        actor="seed", clearance="secret", can_write=True, can_admin=True,
+        role="designer", auth_mode="test"))
+    cg_seed.add("err_node", "# 功能名：错误处置样本\n# 正文：错误相关内容 gamma",
+                layer="knowledge", sensitivity="restricted")
+    cg_seed.add("priv_node2", "# 功能名：隐私样本\n# 正文：隐私内容 delta",
+                layer="knowledge", sensitivity="private")
+    cg_seed.flush()
+
+    def reader(role, clearance, can_admin=False):
+        p = Principal(actor="r-" + role, clearance=clearance,
+                      can_write=False, can_admin=can_admin, role=role,
+                      auth_mode="test")
+        return MdCGSecure(root_r, principal=p)
+
+    got = reader("designer", "secret", can_admin=True).get("err_node")
+    check("B27-6a designer 读 restricted 可（处置链路）",
+          got is not None and "gamma" in (got.get("content") or ""))
+    got = reader("orchestr", "internal").get("err_node")
+    check("B27-6b orchestr（上级节点）读 restricted 可",
+          got is not None and "gamma" in (got.get("content") or ""))
+    got = reader("verify", "internal").get("err_node")
+    check("B27-6c verify 读 restricted 可（验证本职）",
+          got is not None and "gamma" in (got.get("content") or ""))
+    for role, cl in (("record", "internal"), ("output", "internal")):
+        got = reader(role, cl).get("err_node")
+        check("B27-6d " + role + "（平级/下游）读 restricted 拒", got is None)
+    got = reader("recorder", "internal").get("err_node")
+    check("B27-6e worker（recorder）读 restricted 拒", got is None)
+    guest_cg = MdCGSecure(root_r)
+    got = guest_cg.get("err_node")
+    check("B27-6f guest 读 restricted 拒", got is None)
+    import glob as _glob
+    _files = _glob.glob(os.path.join(root_r, "knowledge", "**",
+                                     "err_node.md"), recursive=True)
+    raw = open(_files[0], encoding="utf-8").read() if _files else ""
+    check("B27-6g restricted 落盘不加密（明文可读）", "gamma" in raw)
+    got = reader("verify", "internal").get("priv_node2")
+    check("B27-6h private 会话绑定语义不变（非归属拒）", got is None)
+    from md_cg.security import SENSITIVITY_ORDER as _SO
+    check("B27-6i 阶梯 public<internal<restricted<private<secret",
+          _SO == ("public", "internal", "restricted", "private", "secret"))
 
     print("\n" + "=" * 60)
     print(f"结果：PASS {PASS} / FAIL {FAIL}")

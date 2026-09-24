@@ -157,18 +157,19 @@ ROLE_SPECS = OrderedDict([
     ("verify", {
         "label": "验证单元", "unit": "验证单元", "effect": "稳",
         "duty": "判断规则、执行结果和结构是否有效；只写验证证据与负记忆",
-        # clearance_cap=private（批次 28，使用者裁定 2026-09-24）：private 是
-        # **错误处置标记**（错误相关/待排查内容限制平级扩散，非个人隐私），
-        # 验证单元读错误标记节点是本职——「错误处置链路（设计者/上级节点/
-        # 验证单元）必读」的豁免面；secret 仍禁。其余单元维持限读不变。
-        "can_write": True, "can_admin": False, "clearance_cap": "private",
+        # 批次 28 分型：verify 读错误标记节点走 restricted 链路角色集
+        # （security.can_read_restricted——restricted=错误处置标记，
+        # private 回归纯隐私/会话绑定语义），cap 维持 internal——
+        # 验证单元不读真隐私（private 加密档）。批次 28 初版的 cap=private
+        # 豁免被分型取代（同日裁定迭代）。
+        "can_write": True, "can_admin": False, "clearance_cap": "internal",
         "layers_allow": ["rejected", "contextual"],
         "ops_allow": ["info", "route", "read", "write", "verify", "insight",
                       "status", "edges"],
         "delegable": False,
         "forbidden": ["knowledge/self/anchor 层（不得改被验证内容）",
-                      "secret 密级（private 为错误处置本职豁免，secret 仍禁）",
-                      "裁决与删除"],
+                      "private/secret 密级（restricted 错误处置标记属本职，"
+                      "经链路角色集可见）", "裁决与删除"],
     }),
     ("output", {
         "label": "输出单元", "unit": "输出单元", "effect": "通",

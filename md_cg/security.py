@@ -32,7 +32,17 @@ from .datapath import aux_root
 #   clearance_cap 均为 internal（forbidden 含 private）——验证单元读错误
 #   标记节点是本职却受限于 cap，属**已登记的分级缺口**（见安全审计实锚
 #   文档「读权限分级」节），未来专项：verify 面提 cap 或走设计者代查通道。
-SENSITIVITY_ORDER = ("public", "internal", "private", "secret")
+# 密级阶梯的体系语义（批次 27 正名 / 批次 28 分型落地，使用者 2026-09-24）：
+#   **restricted = 错误处置标记（新增档）**——内容因错误相关、验证未过、
+#   待排查被标记，目的是限制向平级/下级扩散；可见性按**错误处置链路角色**
+#   判定（designer/orchestr/verify 必读，record/worker/output/guest 限读），
+#   不走纯密级 rank（链路角色与平级同为 internal，rank 无法区分）；
+#   **不加密**（不在 crypto.ENCRYPTED_LEVELS——链路要明文读）。
+#   private = 隐私/会话绑定档（语义不变：仅归属会话 + 设计者豁免可见，
+#   落盘加密）；secret = 最高密级。
+#   可见性的故意冲突设计就此消解：错误标记限扩散但处置链路必读，
+#   隐私内容写者私有——两种语义不再共用一个密级档。
+SENSITIVITY_ORDER = ("public", "internal", "restricted", "private", "secret")
 DEFAULT_SENSITIVITY = "internal"
 
 
@@ -349,3 +359,19 @@ def check_path_root(path, env_var: str, what: str) -> None:
         f"{what} 路径超出 {env_var} 白名单，拒绝访问：{path} "
         f"(realpath={real}, roots={roots})——路径类工具参数的根约束"
         "（P1-4），部署用该环境变量声明可读写的根目录")
+
+
+# 错误处置链路角色集（批次 28 分型）：restricted（错误处置标记）的可见性
+# 不走密级 rank——链路角色与平级同为 internal，rank 无法区分「处置者」与
+# 「扩散面」。designer=全局观测本职；orchestr=上级节点（拆解派发/裁决
+# 收口）；verify=验证本职（错误标记节点是验证的对象）。
+_RESTRICTED_READER_ROLES = ("designer", "orchestr", "verify")
+
+
+# 生效条件：p 为 Principal 或 None；p 为 None 返回 False；p.can_admin 为真（设计者）或 p.role 属 _RESTRICTED_READER_ROLES 时返回 True，否则返回 False。
+def can_read_restricted(p) -> bool:
+    if p is None:
+        return False
+    if getattr(p, "can_admin", False):
+        return True
+    return getattr(p, "role", "") in _RESTRICTED_READER_ROLES

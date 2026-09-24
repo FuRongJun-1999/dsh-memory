@@ -3593,6 +3593,14 @@ class MdCGSecure(MdCGOS):
             fm, _c = self._read(e)
             sens = (fm or {}).get("sensitivity") or DEFAULT_SENSITIVITY
             e["sensitivity"] = sens
+        # restricted = 错误处置标记（批次 28 分型，使用者裁定）：不走纯密级
+        # rank——密级底线 internal ∧ 错误处置链路角色（designer/orchestr/
+        # verify，或 can_admin）。平级（record/worker）与下游（output/guest）
+        # 限读，处置链路必读——故意的冲突设计在此消解。
+        if sens == "restricted":
+            from .security import can_read_restricted
+            return (self.principal.allows("internal")
+                    and can_read_restricted(self.principal))
         if not self.principal.allows(sens):
             return False
         if _rank(sens) >= _rank("private"):
