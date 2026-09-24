@@ -2312,19 +2312,23 @@ class MdCG:
             for e in neg_layer_entries:
                 if e["layer"] not in ("rejected", "unresolved"):
                     continue
-                    # _index 用 path 存，直接按 path 读盘（批次 24 P2-1：删除
-                    # 原先的死调用 `got = self.get(...)`——结果从未使用却完成
-                    # 一次完整读盘+解析+解密，每次检索对每个负记忆节点双倍 IO）
-                    full_path = self._node_disk_path(e)
-                    if not os.path.exists(full_path):
-                        continue
-                    try:
-                        with open(full_path, encoding="utf-8") as f:
-                            fm, content = nodefile.loads(f.read())
-                    except OSError:
-                        continue
-                    if any(t in content for t in terms):
-                        neg_coverage.append(e)
+                # _index 用 path 存，直接按 path 读盘（批次 24 P2-1：删除
+                # 原先的死调用 `got = self.get(...)`——结果从未使用却完成
+                # 一次完整读盘+解析+解密，每次检索对每个负记忆节点双倍 IO）。
+                # 批次 33 修复：P2-2 双收集重构时本段被整体缩进进 continue
+                # 之后（不可达死代码）——neg_coverage 恒空 → s5 负记忆抑制
+                # 全失效（test_retr_s5 8/17，Windows/Linux 同红；Docker Linux
+                # 验证暴露后主机复跑定案为既有回归，非平台差异）。
+                full_path = self._node_disk_path(e)
+                if not os.path.exists(full_path):
+                    continue
+                try:
+                    with open(full_path, encoding="utf-8") as f:
+                        fm, content = nodefile.loads(f.read())
+                except OSError:
+                    continue
+                if any(t in content for t in terms):
+                    neg_coverage.append(e)
 
         stat = {"scanned": 0, "query": q, "gates": gates}
         if _tf_audit:
