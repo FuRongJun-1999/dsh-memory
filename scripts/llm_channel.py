@@ -27,7 +27,8 @@ CONFIG_PATH = os.path.expanduser("~/.zcode/v2/config.json")
 def _load_key(provider_hint: str) -> tuple[str, str] | None:
     """从 ZCode config.json 读 (api_key, base_url)。"""
     try:
-        d = json.load(open(CONFIG_PATH, encoding="utf-8"))
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            d = json.load(f)
     except Exception:
         return None
     for name, p in d.get("provider", {}).items():

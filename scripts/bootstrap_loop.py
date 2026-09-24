@@ -157,7 +157,8 @@ def persist_triggers(patches):
         path = files.get(dom)
         if not path or not os.path.exists(path):
             continue
-        src = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as f:
+            src = f.read()
         pat_uid = re.compile(r'(\n(\s*)"' + re.escape(uid) + r'": \{\n)')
         m = pat_uid.search(src)
         if not m:
@@ -168,7 +169,8 @@ def persist_triggers(patches):
         ind = m.group(2)
         trig_json = json.dumps(triggers, ensure_ascii=False)
         src = src[:m.end(1)] + ind + '    "triggers": ' + trig_json + ',\n' + src[m.end(1):]
-        open(path, "w", encoding="utf-8").write(src)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(src)
         changed += 1
     return changed
 
@@ -239,12 +241,16 @@ def _safe_exec_gen(code: str) -> dict:
 
     queue_path = os.path.join(STATE, "channel_b_queue.json")
     out_path = os.path.join(STATE, "channel_b_verified_units.json")
-    verified = json.load(open(out_path, encoding="utf-8")) if os.path.exists(out_path) else {}
+    verified = ""
+    if os.path.exists(out_path):
+        with open(out_path, encoding="utf-8") as f:
+            verified = json.load(f)
     stats = {"generated": 0, "passed": 0, "failed": 0, "source": "queue"}
 
     queue = []
     if os.path.exists(queue_path):
-        qd = json.load(open(queue_path, encoding="utf-8"))
+        with open(queue_path, encoding="utf-8") as f:
+            qd = json.load(f)
         queue = [t for t in qd.get("pending", [])
                  if t.get("status") not in ("verified", "failed")]
 
@@ -327,22 +333,24 @@ def _safe_exec_gen(code: str) -> dict:
             item["status"] = "failed"
             _rej = os.path.join(STATE, "channel_b_drafts", "rejected_log.json")
             os.makedirs(os.path.dirname(_rej), exist_ok=True)
-            _rej_list = json.load(open(_rej, encoding="utf-8")) \
-                if os.path.exists(_rej) else []
+            _rej_list = ""
+            if os.path.exists(_rej):
+                with open(_rej, encoding="utf-8") as f:
+                    _rej_list = json.load(f)
             _rej_list.append({"task": task, "layer": "queue_verifier",
                               "why": "cases 物理验证未过",
                               "ts": time.strftime("%Y-%m-%d %H:%M")})
-            json.dump(_rej_list, open(_rej, "w", encoding="utf-8"),
-                      ensure_ascii=False, indent=1)
+            with open(_rej, "w", encoding="utf-8") as f:
+                json.dump(_rej_list, f, ensure_ascii=False, indent=1)
 
     if queue:
         qd = {"_comment": "自举产物队列（已完成项标记 verified）",
               "_instructions": "bootstrap_loop 自动消化",
               "pending": queue}
-        json.dump(qd, open(queue_path, "w", encoding="utf-8"),
-                  ensure_ascii=False, indent=1)
-    json.dump(verified, open(out_path, "w", encoding="utf-8"),
-              ensure_ascii=False, indent=1)
+        with open(queue_path, "w", encoding="utf-8") as f:
+            json.dump(qd, f, ensure_ascii=False, indent=1)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(verified, f, ensure_ascii=False, indent=1)
     return stats
 
 
@@ -401,7 +409,8 @@ def gap_watch() -> None:
                        "why": "verify_cache.json 未在数据根/插件仓/归档区找到",
                        "ts": time.strftime("%Y-%m-%d %H:%M:%S")})
             return
-        _d = json.load(open(vc, encoding="utf-8"))
+        with open(vc, encoding="utf-8") as f:
+            _d = json.load(f)
         _ent = _d.get("a866f668bd6f4a1c048e16f684df69bf")
         log_event({"round": "gap_watch", "pid": os.getpid(),
                    "src": vc,

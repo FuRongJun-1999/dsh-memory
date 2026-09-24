@@ -1076,6 +1076,18 @@ class MdCG:
         self._dirty.clear()       # 保住 _DirtyDict 钩子（批次 23 D-4）
         return idx
 
+    # P2-20（批次 30，外部审查报告）：索引中的 path 参与所有读/写落盘定位
+    # ——写穿越（P0-1 历史节点/索引污染）可经「读穿越」放大。单点校验：
+    # realpath 必须落在 root 内，越界抛 ValueError（宁可少读，不可越权）。
+    def _node_disk_path(self, e):
+        p = os.path.realpath(os.path.join(self.root, e.get("path") or ""))
+        rr = os.path.realpath(self.root)
+        if p != rr and not p.startswith(rr + os.sep):
+            raise ValueError(
+                f"节点路径越界（P2-20）：{e.get('path')!r} -> {p}"
+                "——拒绝读写")
+        return p
+
     # ---------- 写 ----------
 
 # 生效条件：node_id/content 必填；node_id 不匹配 _NODE_ID_RE（^[A-Za-z0-9_.@-]{1,128}$）或含 ".."、或落盘 realpath 越出 self.root 时抛 ValueError（P0-1 白名单+纵深闸）；layer 不在 LAYERS 内、或 verification_basis 非 None 且不在 VERIFICATION_BASIS 内时抛 ValueError；consistency 为真且 _cons.check 判 REJECT 时，on_conflict="reject" 抛 ConsistencyError、on_conflict="defer" 返回 None，verdict 为 BLINDSPOT 且 on_conflict="defer" 同样返回 None，其余情形完成写盘/入索引后返回 node_id。
@@ -1919,7 +1931,7 @@ class MdCG:
                 st["written"] += 1
                 continue
             fm["big_domain"] = dom
-            self._write_node(nid, os.path.join(self.root, e["path"]), fm, content)
+            self._write_node(nid, self._node_disk_path(e), fm, content)
             e["big_domain"] = dom
             # 必须走 _stage：索引持久化靠 _dirty → flush → _index_log 重放，
             # 只改内存 entry 会在重启后丢掉标签（S1 失效，且二次回填因 fm 已有标签而跳过）
@@ -1971,7 +1983,7 @@ class MdCG:
                 st["written"] += 1
                 continue
             fm["bucket_zh"] = aliases
-            self._write_node(nid, os.path.join(self.root, e["path"]),
+            self._write_node(nid, self._node_disk_path(e),
                              fm, content)
             e["bucket_zh"] = aliases
             self._stage(nid, e)
@@ -1987,7 +1999,7 @@ class MdCG:
         e = self.index["nodes"].get(node_id) or self._dirty.get(node_id)
         if not e:
             return None
-        p = os.path.join(self.root, e["path"])
+        p = self._node_disk_path(e)
         try:
             with open(p, encoding="utf-8") as f:
                 fm, content = nodefile.loads(f.read())
@@ -2287,7 +2299,7 @@ class MdCG:
                     # _index 用 path 存，直接按 path 读盘（批次 24 P2-1：删除
                     # 原先的死调用 `got = self.get(...)`——结果从未使用却完成
                     # 一次完整读盘+解析+解密，每次检索对每个负记忆节点双倍 IO）
-                    full_path = os.path.join(self.root, e["path"])
+                    full_path = self._node_disk_path(e)
                     if not os.path.exists(full_path):
                         continue
                     try:
@@ -3094,7 +3106,7 @@ class MdCG:
                 continue
             fm["access_count"] = int(fm.get("access_count") or 0) + c
             fm["last_access"] = max(float(fm.get("last_access") or 0), last.get(nid, 0))
-            self._write_node(nid, os.path.join(self.root, e["path"]), fm, content)
+            self._write_node(nid, self._node_disk_path(e), fm, content)
             n += 1
         with FileLock(self.access_log):
             atomic_write(self.access_log, "")
@@ -3111,7 +3123,7 @@ class MdCG:
         layer_stats = {}
         neg_stats = {}
         for e in self.index["nodes"].values():
-            full_path = os.path.join(self.root, e["path"])
+            full_path = self._node_disk_path(e)
             try:
                 with open(full_path, encoding="utf-8") as f:
                     fm, content = nodefile.loads(f.read())

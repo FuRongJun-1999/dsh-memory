@@ -79,6 +79,11 @@ import urllib.error
 import urllib.request
 
 DEFAULT_API_BASE = "https://open.bigmodel.cn/api/paas/v4"
+
+# P2-17（批次 30）：响应体读取字节上限——异常/恶意网关返回超大响应
+# 不再能撑爆内存（resp.read(N) 最多读 N 字节，截断 JSON 会在解析层失败）。
+RESP_MAX_BYTES = 8 * 1024 * 1024
+
 EXIT_OK, EXIT_SPEC, EXIT_API = 0, 2, 3
 
 
@@ -753,7 +758,7 @@ def _ws_zhipu(query: str, count: int, backend: str) -> dict:
                  "Authorization": f"Bearer {api_key}"},
         method="POST")
     with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+        data = json.loads(resp.read(RESP_MAX_BYTES).decode("utf-8"))
     items = []
     for r in (data.get("search_result") or [])[:count]:
         items.append({"title": (r.get("title") or "")[:200],
@@ -775,7 +780,7 @@ def _ws_duckduckgo(query: str, count: int, backend: str) -> dict:
            + urllib.request.quote(query))
     req = urllib.request.Request(url, headers={"User-Agent": _DDG_UA})
     with urllib.request.urlopen(req, timeout=30) as resp:
-        page = resp.read().decode("utf-8", errors="replace")
+        page = resp.read(RESP_MAX_BYTES).decode("utf-8", errors="replace")
     a_re = re.compile(
         r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>')
     snip_re = re.compile(
@@ -1108,7 +1113,7 @@ def build_body(spec: dict, messages: list, tools: list = None) -> dict:
     return body
 
 
-# 生效条件：当 body 与 timeout 传入时，api_key=os.environ.get('HIVE_API_KEY','')，若假值（未设或空串）抛 RuntimeError('HIVE_API_KEY 未设置...')；否则 api_base=os.environ.get('HIVE_API_BASE', DEFAULT_API_BASE).rstrip('/')，仅缺键时回落 DEFAULT_API_BASE，键存在空串不回落；POST {api_base}/chat/completions 并以 timeout 请求，返回 json.loads(resp.read().decode('utf-8'))；
+# 生效条件：当 body 与 timeout 传入时，api_key=os.environ.get('HIVE_API_KEY','')，若假值（未设或空串）抛 RuntimeError('HIVE_API_KEY 未设置...')；否则 api_base=os.environ.get('HIVE_API_BASE', DEFAULT_API_BASE).rstrip('/')，仅缺键时回落 DEFAULT_API_BASE，键存在空串不回落；POST {api_base}/chat/completions 并以 timeout 请求，返回 json.loads(resp.read(RESP_MAX_BYTES).decode('utf-8'))；
 def _post_chat(body: dict, timeout: float) -> dict:
     """裸 POST chat/completions，返回原始响应 dict。HTTP 异常向上传播。"""
     api_base = os.environ.get("HIVE_API_BASE", DEFAULT_API_BASE).rstrip("/")
@@ -1126,7 +1131,7 @@ def _post_chat(body: dict, timeout: float) -> dict:
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+        return json.loads(resp.read(RESP_MAX_BYTES).decode("utf-8"))
 
 
 # 生效条件：当 spec 与 messages 传入时，以 build_body(spec,messages) 与 float(spec.get('timeout_s') or 300) 调 _post_chat；返回 content=choices[0].message.content（choices 缺/空则 [{}]），usage=data.get('usage') or {}，model=data.get('model') or spec['model']；

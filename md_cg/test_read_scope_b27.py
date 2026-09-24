@@ -219,6 +219,53 @@ def main():
     check("B27-6i 阶梯 public<internal<restricted<private<secret",
           _SO == ("public", "internal", "restricted", "private", "secret"))
 
+    print("== 批次 30：安壮组回归断言（P2-15/16/17/18/19/20/24）==")
+    # P2-16：units 判活 timeout 存在
+    u = open(os.path.join(REPO, "md_cg", "units.py"), encoding="utf-8").read()
+    check("B30-1 units tasklist timeout=10",
+          "errors=\"replace\", timeout=10" in u)
+    # P2-17：exec 响应上限
+    hx_src = open(os.path.join(REPO, "hive", "exec.py"),
+                  encoding="utf-8").read()
+    check("B30-2 resp.read(RESP_MAX_BYTES) 全覆盖",
+          "RESP_MAX_BYTES" in hx_src
+          and "resp.read().decode" not in hx_src)
+    # P2-18：payload test_cmd 注入点移除
+    au = open(os.path.join(REPO, "md_cg", "audit.py"),
+              encoding="utf-8").read()
+    check("B30-3 audit test_cmd 只走 env",
+          'payload.get("test_cmd")' not in au
+          and 'os.environ.get("MDCG_CODE_TEST_CMD")' in au)
+    # P2-19：外部验证器模块名白名单 + 加载 stderr 可见
+    check("B30-4 verifier 模块名白名单",
+          "_RESTRICTED" not in au and "A-Za-z_" in au
+          and "已加载外部验证器模块" in au)
+    # P2-20：读路径根校验单点
+    mg = open(os.path.join(REPO, "md_cg", "mdcg.py"),
+              encoding="utf-8").read()
+    check("B30-5 _node_disk_path 单点 + 旧 join 清零",
+          "_node_disk_path" in mg
+          and 'os.path.join(self.root, e["path"])' not in mg)
+    # P2-24：watchdog creationflags 跨平台
+    bw = open(os.path.join(REPO, "scripts", "bootstrap_watchdog.py"),
+              encoding="utf-8").read()
+    check("B30-6 creationflags 笔误修正 + start_new_session",
+          "start_new_session=not _nt" in bw
+          and "creationflags=subprocess.DEVNULL" not in bw)
+    # P2-15：bootstrap_loop/llm_channel 无裸 open().read/dump
+    bl = open(os.path.join(REPO, "scripts", "bootstrap_loop.py"),
+              encoding="utf-8").read()
+    lc = open(os.path.join(REPO, "scripts", "llm_channel.py"),
+              encoding="utf-8").read()
+    check("B30-7 bootstrap_loop 无裸 json.load(open(",
+          "json.load(open(" not in bl)
+    check("B30-8 llm_channel 上下文管理器",
+          "json.load(open(" not in lc)
+    # 行为断言：_readable restricted 矩阵已在 B27-6 覆盖；此处补
+    # P2-17 行为（RESP_MAX_BYTES 常量值合理）
+    check("B30-9 RESP_MAX_BYTES=8MB",
+          "RESP_MAX_BYTES = 8 * 1024 * 1024" in hx_src)
+
     print("\n" + "=" * 60)
     print(f"结果：PASS {PASS} / FAIL {FAIL}")
     for x in FAILS:

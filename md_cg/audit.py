@@ -168,7 +168,9 @@ def _verify_code(payload, ctx):
         return _verdict(REJECT, "code", f"语法错误 L{exc.lineno}: {exc.msg}")
     n_def = sum(isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
                 for x in ast.walk(tree))
-    cmd = payload.get("test_cmd") or os.environ.get("MDCG_CODE_TEST_CMD")
+    # P2-18（批次 30，外部审查报告）：test_cmd 只允许服务端 env 配置——
+    # payload 是模型可控输入面，一旦接到工具参数顶层即为 RCE 注入点。
+    cmd = os.environ.get("MDCG_CODE_TEST_CMD")
     if not cmd:
         return _verdict(ACCEPT, "code",
                         f"AST 解析通过（{n_def} 个定义）；未配置 test_cmd，仅静态验证")
@@ -323,7 +325,15 @@ def load_external_verifiers(modules=None, strict=False):
     if spec is None:
         spec = os.environ.get(VERIFIER_MODULES_ENV) or ""
     names = [x.strip() for x in str(spec).split(",") if x.strip()]
+    # P2-19（批次 30）：模块名格式白名单——拒绝空串外的异常形态（路径分隔/
+    # 通配/扩展名等非 import 路径输入），加载动作本身写 stderr（可见性）。
+    import re as _re
+    _bad = [n for n in names if not _re.match(r"^[A-Za-z_][A-Za-z0-9_.]*$", n)]
     rep = {"loaded": [], "failed": [], "verifiers": {}}
+    for n in _bad:
+        names.remove(n)
+        rep["failed"].append({"module": n,
+                              "error": "模块名不符合 import 路径格式（P2-19 白名单）"})
     if not names:
         return rep
     this = _sys.modules[__name__]
@@ -336,6 +346,7 @@ def load_external_verifiers(modules=None, strict=False):
             if strict:
                 raise
             continue
+        sys.stderr.write("[mdcg-audit] 已加载外部验证器模块: %s\n" % name)
         fn = getattr(mod, "register", None)
         if callable(fn):
             try:

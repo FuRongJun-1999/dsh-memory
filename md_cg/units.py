@@ -126,10 +126,11 @@ def _tasklist_row(pid):
     try:
         # 显式 utf-8 + replace：只消费 ASCII 的 pid 列，但**不依赖 locale**——
         # locale 口径与「后代写 UTF-8」不一致时读线程会崩（见 test_subproc_encoding.py）。
+        # P2-16（批次 30）：timeout=10——tasklist 挂起曾永久阻塞判活路径。
         r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
                            capture_output=True, text=True,
-                           encoding="utf-8", errors="replace")
-    except OSError:
+                           encoding="utf-8", errors="replace", timeout=10)
+    except (OSError, subprocess.SubprocessError):
         return None
     for line in (r.stdout or "").splitlines():
         cols = line.split('","')

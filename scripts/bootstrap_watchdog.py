@@ -205,11 +205,17 @@ def restart(check_only: bool) -> dict:
     if check_only:
         return {"action": "would_restart", "cmd": cmd}
     try:
+        # P2-24（批次 30）：旧写法把 subprocess.DEVNULL(-3) 当 creationflags
+        # 传给 POSIX 分支（明显笔误，POSIX 上报错）——跨平台正确写法：
+        # Windows 用 DETACHED_PROCESS|CREATE_NO_WINDOW，POSIX 用
+        # start_new_session 脱离会话组。
+        _nt = os.name == "nt"
         proc = subprocess.Popen(
             cmd, cwd=BRAIN, env=env, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=subprocess.DEVNULL if os.name != "nt"
-            else (subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW))
+            creationflags=(subprocess.DETACHED_PROCESS
+                           | subprocess.CREATE_NO_WINDOW) if _nt else 0,
+            start_new_session=not _nt)
         # 等 6s 验证 loop_start 落地
         time.sleep(6)
         ts, last = last_log_ts()

@@ -476,7 +476,9 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
         // P1 修复（GPT 审查）：
         // ① 请求体大小限制（此前 for-await 无限累加，恶意请求可制造内存压力）
         const readBody = async (req, maxBytes = 1_000_000) => {
-            let body = '';
+            // P2-12（批次 30）：Buffer 收集后统一 utf-8 解码——旧写法
+            // body += chunk 在多字节字符跨 chunk 时产生替换符截断。
+            const chunks = [];
             let size = 0;
             for await (const chunk of req) {
                 size += chunk.length;
@@ -485,9 +487,9 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     err.status = 413;
                     throw err;
                 }
-                body += chunk;
+                chunks.push(chunk);
             }
-            return body;
+            return Buffer.concat(chunks).toString('utf8');
         };
         // ② 编辑鉴权（P1-2，批次 26 外部审查报告）：fail-closed——未配置
         // ROLEPLAY_EDIT_KEY 时**拒绝全部写操作**（旧语义「未配置=开放」是
@@ -794,6 +796,14 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     }
                     const p = JSON.parse(body);
                     const role = p.role_id || 'protocol-guide';
+                    // P2-23（批次 30）：chat 的 role_id 进 node_id 模板——
+                    // 纵深防御：与 /meta 同款白名单（当前模板前缀使穿越
+                    // 不可达，但模板改动即破——入口统一卡死）
+                    if (!validRoleId(role)) {
+                        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: '非法角色 id（白名单 ^[A-Za-z0-9_.-]{1,64}$）' }));
+                        return;
+                    }
                     // P1 完善（会话隔离）：按客户端实例隔离 session 与转录
                     const cid = clientIdOf(req);
                     // —— 服务端内容分级硬拦截（不依赖前端，法律与协议保护）——
