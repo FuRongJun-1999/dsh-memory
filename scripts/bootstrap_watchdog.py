@@ -166,24 +166,32 @@ def find_bootstrap_procs() -> list:
     \\r 干扰 PID 提取，一律 python re 提取（2026-08-31 教训固化）。
     """
     procs = []
+    errors = []
+    ps_cmd = (
+        "Get-CimInstance Win32_Process | "
+        "Where-Object Name -like '*python*' | "
+        "Select-Object ProcessId,CommandLine  | "
+        "ConvertTo-Csv -NoTypeInformation"
+    )
     try:
         out = subprocess.run(
-            ["wmic", "process", "where", "name like '%python%'",
-             "get", "processid,commandline", "/format:csv"],
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
             capture_output=True, text=True, timeout=30,
             encoding="utf-8", errors="replace")
-        import re
-        pat = re.compile(r"(\d+)\s*$")
-        for line in out.stdout.splitlines():
-            if "bootstrap_loop.py" not in line:
-                continue
-            m = pat.search(line.strip())
-            if m:
-                procs.append({"pid": m.group(1),
-                              "cmd": line.strip()[:200].replace("\r", "")})
-    except Exception:
-        pass
+        if out.returncode != 0:
+            errors.append("powershell rc=%s" % out.returncode)
+        import csv as _csv, io as _io
+        for row in _csv.reader(_io.StringIO(out.stdout)):
+            if len(row) >= 2 and "bootstrap_loop.py" in row[1]:
+                procs.append({"pid": row[0], "cmd": row[1][:200]})
+    except Exception as exc:
+        errors.append("%s: %s" % (type(exc).__name__, exc))
+    if procs:
+        return procs
+    if errors:
+        return None
     return procs
+
 
 
 # 生效条件：procs 为可迭代列表，逐项以 p["pid"] 执行 taskkill /F /PID（p 缺 "pid" 键或 taskkill 调用抛异常的项被 except 吞掉后继续下一项），procs 为空则不做任何动作并返回 None。
@@ -265,6 +273,13 @@ def main() -> int:
     # ① 内容级判据优先于新鲜度：新鲜但持续报错 → degraded，不报 alive
     if age <= stale_limit and deg >= DEGRADE_LIMIT:
         procs = find_bootstrap_procs()
+        if procs is None:
+            report.update({"status": "degraded",
+                           "proc_status": "probe_unknown",
+                           "detail": "探测失败（未知）——不 kill 不 restart（P2-14 fail-safe）"})
+            log_watch(report)
+            print(json.dumps(report, ensure_ascii=False))
+            return 2
         report.update({"status": "degraded", "proc_status":
                        "running" if procs else "not_running",
                        "procs": [{"pid": p["pid"]} for p in procs],
@@ -290,6 +305,13 @@ def main() -> int:
 
     # ③ 停转：查进程后恢复
     procs = find_bootstrap_procs()
+    if procs is None:
+        report.update({"status": "probe_unknown",
+                       "detail": "判活探测失败（未知）——本轮跳过 kill/restart，"
+                                 "防止 probe 失败被当成确认死亡而反复重启叠加进程（P2-14 根因）"})
+        log_watch(report)
+        print(json.dumps(report, ensure_ascii=False))
+        return 2
     report["procs"] = [{"pid": p["pid"]} for p in procs]
     if procs:
         report["proc_status"] = "stale_running"
