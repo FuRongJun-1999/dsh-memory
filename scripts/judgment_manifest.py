@@ -61,7 +61,11 @@ def collect():
                     n += 1
         groups[f"{sub}/{pat}"] = n
     files.sort()
-    out = {"algorithm": "sha256", "groups": groups, "files": []}
+    out = {"algorithm": "sha256", "groups": groups, "files": [],
+           # 零命中组（目录不存在、或目录在但空）：安装态/裸 clone 的判据面不完整，
+           # 必须随清单可见——否则「少算」会被当成「判据面完好」。
+           # （与包内 md_cg/judgment_manifest.py 同形；digest 只用 files，加键不改指纹。）
+           "missing_patterns": sorted(k for k, v in groups.items() if not v)}
     for rel in files:
         h = hashlib.sha256(open(os.path.join(HERE, rel), "rb").read()).hexdigest()
         out["files"].append({"path": rel, "sha256": h})

@@ -43,7 +43,11 @@ _RUST_KW = {"fn", "if", "for", "while", "match", "return", "let", "mut", "impl",
 
 
 def _calls_from(src, kws):
-    """调用提取：\b(\w+)\( 匹配 → 过滤关键字（轻量，允许误抓）"""
+    r"""调用提取：\b(\w+)\( 匹配 → 过滤关键字（轻量，允许误抓）
+
+    注意 docstring 用 r-prefix：`\w` 是**故意**的字面反斜杠+w（正则示意），
+    不加 raw 会被 Python 当非法转义并报 SyntaxWarning（2026-09-24 修）。
+    """
     calls = [m.group(1) for m in re.finditer(r"\b([A-Za-z_]\w*)\s*\(", src)]
     return sorted({c for c in calls if c not in kws})
 

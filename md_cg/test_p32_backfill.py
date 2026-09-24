@@ -252,7 +252,13 @@ def main():
             master_key=KEK)
         tl2 = stg.timeline(sec_pub, limit=100)
         pv2 = next((i["preview"] for i in tl2["items"] if i["id"] == "bf_lock"), None)
-        ok(pv2 == stg.PLACEHOLDER_DENIED, "⑧密级不足：预览为无权限占位符")
+        # issue #35 起：stg 各 op 与 _candidates 同口径——**不可读节点不进时间线**，
+        # 比「进列表再给占位符」更严：连 id 与存在性都不泄露。
+        ok(pv2 is None and all(i["id"] != "bf_lock" for i in tl2["items"]),
+           "⑧密级不足：节点不进时间线（不泄露存在性）")
+        # 纵深防御：候选层之外的调用面（直接取预览）仍给无权限占位符，不泄露正文
+        ok(stg._preview(sec_pub, "bf_lock") == stg.PLACEHOLDER_DENIED,
+           "⑧密级不足：_preview 给无权限占位符")
         sec_ok = MdCGSecure(root, principal=Principal(
             actor="p32", clearance="private", can_write=True, can_admin=True),
             master_key=KEK)

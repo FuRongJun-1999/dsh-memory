@@ -26,5 +26,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      # 套件里 scripts/test_injection_chain.py 经 verify_discipline → render_discipline
+      # 依赖 pyyaml（discipline-check job 已装，python-tests job 此前漏装 → 该用例
+      # 在这里恒红 `ModuleNotFoundError: No module named 'yaml'`，属依赖面不一致，
+      # 不是被测缺陷）。两个 job 的依赖面保持同款。
+      - name: 依赖（scripts/test_injection_chain 需要 pyyaml）
+        run: python -m pip install pyyaml
       - name: Python 全量套件（scripts/run_tests.py）
         run: python scripts/run_tests.py --jobs 4

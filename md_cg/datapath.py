@@ -44,6 +44,10 @@ import shutil
 ENV_DATA_ROOT = "MDCG_DATA_ROOT"
 ENV_MDCG_ROOT = "MDCG_ROOT"
 ENV_STATE_ROOT = "MDCG_STATE_ROOT"
+#: 辅助存储根（密钥/令牌/信任/理论/心跳）——与「记忆真源」**有意分离**：
+#: 身份与信任面不随认知图迁移（换库不该换身份），故默认仍是历史的 `~/.mdcg`。
+ENV_AUX_ROOT = "MDCG_AUX_ROOT"
+DEFAULT_AUX_DIRNAME = ".mdcg"
 
 
 # 生效条件：无入参，恒返回本文件 __file__ 绝对路径上溯两级得到的插件仓根目录。
@@ -218,6 +222,33 @@ def mdcg_root() -> str:
 def state_dir(*parts: str, create: bool = True) -> str:
     """运行态子目录（日志/队列/草稿…），默认挂在数据根下。"""
     p = os.path.join(data_root(), *parts) if parts else data_root()
+    if create:
+        os.makedirs(p, exist_ok=True)
+    return p
+
+
+# 生效条件：无入参；ENV_AUX_ROOT 为非空真值时返回其 expanduser+abspath，否则返回 ~/.mdcg 的拼接路径（历史默认，逐字不变）。
+def aux_root() -> str:
+    """辅助存储根（密钥/令牌/信任/理论/心跳）所在目录。
+
+    历史默认 `~/.mdcg`，**逐字保留**（改默认会让存量密钥/令牌失联：私有内容
+    会解不开、已签令牌会失效）。设 `MDCG_AUX_ROOT` 可把这些面整体搬到别处
+    ——沙箱/多用户/与记忆真源同处的场景需要它。
+
+    与 `mdcg_root()`（记忆真源）分离是**有意设计**：身份与信任不随认知图迁移。
+    代价是两者可能分居两处，故 `mdcg.mcp_server` 启动时把两者一起打日志
+    （不许静默分裂）；本函数即该分裂面的唯一解析入口。
+    """
+    env = (os.environ.get(ENV_AUX_ROOT) or "").strip()
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+    return os.path.join(os.path.expanduser("~"), DEFAULT_AUX_DIRNAME)
+
+
+# 生效条件：parts 非空时返回 aux_root() 与各 part 的 join，parts 为空时即 aux_root()；create 为真值时 makedirs(exist_ok=True)，create 为假值时只返回路径。
+def aux_path(*parts: str, create: bool = False) -> str:
+    """辅助存储根下的路径（可选建目录）。"""
+    p = os.path.join(aux_root(), *parts) if parts else aux_root()
     if create:
         os.makedirs(p, exist_ok=True)
     return p

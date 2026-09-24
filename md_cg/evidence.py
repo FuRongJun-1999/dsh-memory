@@ -33,12 +33,13 @@ import time
 
 from . import identity as _identity
 from . import signer as _signer
+from .datapath import aux_root
 
 NODE_ID_ENV = "MDCG_NODE_ID"
 SWARM_DIR_ENV = "MDCG_SWARM_DIR"
 ROOT_ENV = "MDCG_ROOT"
 
-DEFAULT_DIR = os.path.join(os.path.expanduser("~"), ".mdcg")
+DEFAULT_DIR = aux_root()
 DEFAULT_SWARM_DIR = os.path.join(DEFAULT_DIR, "swarm")
 
 SUBSYSTEM = "swarm"          # 子系统名：智能体可对它声明签名策略（D-4）

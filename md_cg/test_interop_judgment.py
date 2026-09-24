@@ -80,6 +80,11 @@ def main():
         ("unix /etc", "配置在 /etc/passwd 附近"),
         ("家目录 ~", "见 ~/secret/keys.txt"),
         ("$HOME", "文件在 $HOME/.aws 下"),
+        # 假 token 字面量须自带占位符标记（fake/example 等）：形状正则
+        # （md_cg/interop.py 的 `ghp_[A-Za-z0-9]{20,}`）照旧命中 → 本用例的
+        # 拦截断言不变；同时 scripts/check_publish_artifact.py 的 R1 会把它
+        # 记为 NOTE 而非 FAIL（否则出货门禁对「测试夹具里的假值」恒红——
+        # 红着等于没门禁）。见 FAKE_TOKEN_MARKERS。
         ("ghp_ token", "ghp_dummyABCDEFGHIJKLMNOPQRSTUVWXYZ1234"),
         ("AIza key", "AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ1234567"),
         ("AKIA key", "AKIAIOSFODNN7EXAMPLE"),

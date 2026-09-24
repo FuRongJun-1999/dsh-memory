@@ -13,6 +13,14 @@
   MDCG_EN_ATOMS=1 显式开启；纯中文 query 零触发；
   mdcos 四路 RRF 的 lexical 路同源复用 expand_query_terms，自动受益。
 
+⚠ 与**统一归一层**的关系（2026-09-24 澄清，曾造成本件红灯）：
+  `semantic/unify.py::unify_query` 是**另一个、且默认开启**的开关
+  （MDCG_UNIFY_QUERY，默认 "1"，2026-09-23 口径转正）：检索入口把任意语言的
+  query 先归一成标准中文原子序列——英文 query 因此在**词法路**上就能命中中文
+  节点（与 en_zh_terms 默认关并不矛盾：一个在 query 侧归一，一个在召回词扩展侧）。
+  故本件的「跨语词面零交集 ⇒ 召回必须归零」只在**两个开关都关**时成立；
+  默认态断言相应改为「命中」，两个态都钉住（改口径必红）。
+
 运行：python -m md_cg.test_en_pipeline
 """
 from __future__ import annotations
@@ -135,9 +143,21 @@ try:
     ids = [r[0].get("id") for r in res]
     del os.environ["MDCG_EN_ATOMS"]
     ok(len(res) >= 1 and ids[0] == "n_beef", "开启：英文 query top1 召回中文牛肉节点 %s" % ids)
-    res0, _m0 = cg.search("I ate beef yesterday", judge=False)   # 默认未设=关闭
+    # 默认（两个开关都不设）：**统一归一层**（MDCG_UNIFY_QUERY 默认 "1"）把英文
+    # query 归一成中文原子序列 → 词法路直达中文节点。这是 2026-09-23 使用者拍板的
+    # 口径转正（semantic/unify.py），与旧的「跨语词面零交集」契约相反：
+    # 旧断言已按新口径改写——默认态断言「命中」，unify=0 才断言「归零」。
+    res_u, _mu = cg.search("I ate beef yesterday", judge=False)
+    ids_u = [r[0].get("id") for r in res_u]
+    ok(len(res_u) >= 1 and ids_u[0] == "n_beef",
+       "默认（unify 开）：英文 query 经统一归一后 top1 命中中文节点 %s" % ids_u)
+    os.environ["MDCG_UNIFY_QUERY"] = "0"
+    try:
+        res0, _m0 = cg.search("I ate beef yesterday", judge=False)   # 关归一+EN_ATOMS 关
+    finally:
+        os.environ.pop("MDCG_UNIFY_QUERY", None)
     ok(not res0 or all(r[1] <= 0 for r in res0),
-       "默认关闭：词面零重叠召回归零（跨语断点复现）")
+       "unify=0 且 EN_ATOMS 关：词面零重叠召回归零（跨语断点复现）")
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 

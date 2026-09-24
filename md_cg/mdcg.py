@@ -248,6 +248,12 @@ def en_zh_terms(text: str) -> list:
         独立归一化原子+Jaccard 路（REPRODUCE.md 双语双路裁定，md_cg
         char-bigram 管线跑英文实测比独立方案差 25% vs 52%），本集成为
         opt-in 实验能力与 soul hub 序列化出口，不在默认链路生效；
+        ⚠ 注意与**统一归一层**的区别（2026-09-24 澄清）：`semantic/unify.py`
+        的 `unify_query` 是另一个开关且**默认开启**（MDCG_UNIFY_QUERY，
+        2026-09-23 口径转正），它在检索入口把英文 query 归一成中文原子——
+        于是默认态下英文 query 经**词法路**即可命中中文节点，而本函数
+        （召回词扩展侧）仍是默认关。两者不能互相推断，改动其一须核对
+        test_en_pipeline / test_semantic_canonical 的双态断言；
       - 仅当 query 含英文字母时触发，纯中文 query 零开销零变化；
       - 代词语素剔除（我/你/他…超泛词防污染），动词/名词单字语素保留
         （「吃/雨」在中文正文检索价值高，_score 终排兜底精度）；

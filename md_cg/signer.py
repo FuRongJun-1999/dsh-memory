@@ -37,12 +37,14 @@ import secrets
 import sys
 import time
 
+from .datapath import aux_root
+
 SIGNER_ENV = "MDCG_SIGNER"
 SIGNER_MODULE_ENV = "MDCG_SIGNER_MODULE"
 SIGNERS_FILE_ENV = "MDCG_SIGNERS_FILE"
 KEY_FILE_ENV = "MDCG_SIGNER_KEY_FILE"
 
-DEFAULT_DIR = os.path.join(os.path.expanduser("~"), ".mdcg")
+DEFAULT_DIR = aux_root()
 DEFAULT_SIGNERS_FILE = os.path.join(DEFAULT_DIR, "_signers.json")
 DEFAULT_KEY_FILE = os.path.join(DEFAULT_DIR, "_signer.key")
 

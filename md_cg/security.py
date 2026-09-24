@@ -20,6 +20,8 @@ import os
 import time
 import uuid
 
+from .datapath import aux_root
+
 SENSITIVITY_ORDER = ("public", "internal", "private", "secret")
 DEFAULT_SENSITIVITY = "internal"
 
@@ -232,7 +234,7 @@ class Principal:
                 f"write={self.can_write}, admin={self.can_admin})")
 
 
-# 生效条件：path 为 None 时落至 os.path.expanduser("~") 下的 .mdcg/_tenants.json，path 非 None（含空串）时按传入值使用，并在构造内以 self._load() 的返回填充 self.data。
+# 生效条件：path 为 None 时落至 datapath.aux_root()（默认 ~/.mdcg，可经 MDCG_AUX_ROOT 改）下的 _tenants.json，path 非 None（含空串）时按传入值使用，并在构造内以 self._load() 的返回填充 self.data。
 class TenantRegistry:
     """租户注册表：tenant → {root, clearance_cap, description}。
 
@@ -243,7 +245,7 @@ class TenantRegistry:
 # 生效条件：形参 path 为 None 时取 ~/.mdcg/_tenants.json，否则取 path；self.data 初始化为 _load() 结果（self.path 经 os.path.exists 为真且 JSON 解析为 dict 时取该 dict，否则回落 {"schema":1,"tenants":{}}）。
     def __init__(self, path: str = None):
         if path is None:
-            path = os.path.join(os.path.expanduser("~"), ".mdcg", "_tenants.json")
+            path = os.path.join(aux_root(), "_tenants.json")
         self.path = path
         self.data = self._load()
 

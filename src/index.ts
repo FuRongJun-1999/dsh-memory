@@ -59,7 +59,7 @@ import { MdcgClient } from './lib/mdcg_client.js'
 import { defaultPython, selfCheckCommand } from './lib/python_path.js'
 import { describeDataPaths, migrateLegacyData, mdcgRoot, repoRoot } from './lib/datapath.js'
 // 写入凭据密钥环（首启引导）：显式配置 → ~/.mdcg/token → 首启自动签发。
-import { resolveToken, type TokenResolution } from './lib/token_store.js'
+import { auxRoot, defaultKeyringPath, resolveToken, type TokenResolution } from './lib/token_store.js'
 
 /**
  * 调试探针：记录 apply 失败到独立文件（绕过 DSH 日志系统）。
@@ -287,6 +287,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       + `状态根=${dp.stateRoot}，dataRoot=${dp.dataRoot}，`
       + `存在=${dp.mdcgRootExists ? '是' : '否（首次写入将创建）'}，`
       + `用户可改：${dp.pathsFile}）`,
+    )
+    // 辅助根（密钥/令牌/信任/心跳）与记忆真源**有意分离**：身份不随认知图迁移。
+    // 但两者分居两处是历史事故的温床（「以为在同一处」），故一并留痕；
+    // 想合并/搬走：设 MDCG_AUX_ROOT（md_cg.datapath.aux_root() 同口径）。
+    ctx.logger.info(
+      `dsh-memory: 身份/凭据根（aux）= ${auxRoot()}`
+      + `（密钥环 ${cred?.keyringPath ?? defaultKeyringPath()}；`
+      + `与记忆真源分离，可用 MDCG_AUX_ROOT 覆盖）`,
     )
     // 包管理器装的插件 + 路径配置还在旧包内位置：pnpm 下次更新会把该文件连目录一起
     // 删除，用户配置随之丢失（回落默认根 → 表现为「记忆不见了」）。只在真的会被删的

@@ -234,13 +234,23 @@ def _run(tmp):
                     content="分支假设p 实验结果q 教训r")
     _check("insight act=branch_discard", r.get("ok") is True, repr(r))
 
-    # ---------- 6 session 过滤正交不回归 ----------
+    # ---------- 6 分支可见性 × 会话参数（正交，不回归） ----------
+    # issue #35 起：共享档（internal 默认）跨会话可见 ⇒ 查询侧 session 参数
+    # **不再改变可见性**（同口径见 test_p47_session_view 的 D1a/D2/D3）。本段要守
+    # 的是「分支过滤与 session 参数正交」：传别人的会话不得把默认隐身的**分支
+    # 副本**带回来；显式 branch= 才可见；主支节点两种情况都在。
     cg5 = _mk_cg(tmp)
     cg5.add("mem_s1", "会话一内容", layer="knowledge", verification_basis="test",
             consistency=False)
     branches.fork(cg5, ["mem_s1"], branch_id="sx")
-    res, meta = cg5.search("会话一内容", session="sess_zzz")
-    _check("session过滤与branch过滤正交", not res, repr(res))
+    ids_other = _hits(cg5, "会话一内容", session="sess_zzz")
+    _check("共享档跨会话可见：显式他人 session 不缩小可见性",
+           "mem_s1" in ids_other, repr(ids_other))
+    _check("分支副本默认隐身：传他人 session 也带不回来",
+           all("@sx" not in str(i) for i in ids_other), repr(ids_other))
+    ids_br = _hits(cg5, "会话一内容", branch="sx")
+    _check("显式 branch=sx 时分支副本可见（与 session 参数正交）",
+           any("@sx" in str(i) for i in ids_br), repr(ids_br))
     res, meta = cg5.search("会话一内容")
     _check("默认检索主支正常", bool(res), repr(meta))
 
