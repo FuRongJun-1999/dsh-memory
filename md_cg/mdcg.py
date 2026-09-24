@@ -848,12 +848,14 @@ class _DirtyDict(dict):
         super().update(*a, **k)
 
 
-# P0-1（批次 24，外部审查报告）：node_id 白名单——id 拼进落盘路径，穿越
-# （..）与绝对路径一律拒绝。**不含冒号**：NTFS 上文件名中的 `:` 是备用数据
-# 流（ADS）分隔符（`a:b.md` 实际写 a 的 b.md 流，主文件名错位）——Windows
-# 目标平台硬约束。`@` 无路径语义且存量在用（mem_a@exp1 形态）。字符集覆盖
-# 存量 id：mem_<ts>/n00001/mde_<hash>/mem_a@exp1/uuid 片段等。
-_NODE_ID_RE = re.compile(r"^[A-Za-z0-9_.@-]{1,128}$")
+# P0-1（批次 24）/ V21-3（批次 34，外部报告）：node_id 白名单——id 拼进落盘
+# 路径，穿越（..）与绝对路径/路径分隔符一律拒绝。**不含冒号**：NTFS 上文件名
+# 中的 `:` 是备用数据流（ADS）分隔符（`a:b.md` 实际写 a 的 b.md 流，主文件名
+# 错位）——Windows 目标平台硬约束。V21-3 放行**中文**（\u4e00-\u9fff）与**逗号**：
+# tasks.slugify 设计「不翻译、中文原样保留」（task_任务-名-一 形态）、
+# test_reach 用 comma,node——库自身命名链路必须自洽（V21 报告定案 5 官方红
+# 同源）。中文/逗号无路径语义，P0-1 防线（..禁令+realpath 纵深闸）不变。
+_NODE_ID_RE = re.compile(r"^[A-Za-z0-9_.@\u4e00-\u9fff,-]{1,128}$")
 
 
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
@@ -2233,15 +2235,12 @@ class MdCG:
         if (os.environ.get("MDCG_RETRIEVAL_PIPELINE") != "1" and entries
                 and any(("big_domain" in e) or ("observation_position" in e)
                         for e in entries)):
-            entries = [_strip_empty_gate_fields(dict(e), enabled=False)
-                       for e in entries]
-            # P2-3（批次 31）：剥离结果回写索引——残留是一次性
-            # 污染，自愈一次后后续查询零残留零拷贝（旧写法
-            # 每次查询重复 O(n) 拷贝）。仅影响本进程索引快照。
-            _by_id = {e.get("id"): e for e in entries if e.get("id")}
-            for _nid, _e in list(self.index["nodes"].items()):
-                if _nid in _by_id:
-                    self.index["nodes"][_nid] = _by_id[_nid]
+            # P2-3（批次 31）/ V21-5（批次 34，外部报告定案）：**就地剥离**——
+            # entries 里的 e 与 index["nodes"] 是同一对象，_strip_empty_gate_fields
+            # 内部 del 直接落在索引条目上，天然自愈。批次 31 原写法 dict(e) 拷贝
+            # 后按不存在的 "id" 键回写 = 永久 no-op（残留每查都在）。
+            for e in entries:
+                _strip_empty_gate_fields(e, enabled=False)
 
         # ---- 时间算子（阶段二 4.1）：候选**资格**过滤（在 S1/S2 收敛之前）----
         # 与 validity 各司其职、互不替代：
@@ -2400,9 +2399,12 @@ class MdCG:
                                             GLOBAL_CAP, pools=pool_cfg,
                                             key_of=pooling.doc_key, stat=stat)
             pooling.record_audit(stat, _rep)
-            _smap = {pooling.doc_key(d): s for d, s in scored_r}
+            # V21-6（批次 34，外部报告定案）：doc_key 返回 (node_id, entry)，
+            # 第二元是 dict 不可哈希——整键作字典键 = TypeError 死代码。
+            # 取 [0]（node_id）作键。
+            _smap = {pooling.doc_key(d)[0]: s for d, s in scored_r}
             out = try_stage(hits_r, TIER_GLOBAL_LIKE,
-                            scored=[(d, _smap[pooling.doc_key(d)])
+                            scored=[(d, _smap[pooling.doc_key(d)[0]])
                                     for d in hits_r])
             if out:
                 return out

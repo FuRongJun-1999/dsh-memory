@@ -326,8 +326,12 @@ def main():
                              and "observation_position" not in r[0])
                             for r in _r7),
           str([sorted(r[0].keys()) for r in _r7])[:160])
-    check("默认关：索引条目本身未被就地改写",
-          cg7.index["nodes"]["q1"].get("big_domain") == "工程")
+    # V21-5（批次 34）：就地剥离为定案正确语义——残留是一次性污染，自愈后
+    # 索引条目不再带门控键（批次 31 的「不改写」形态 = no-op 回写，被 V21
+    # 报告定案为缺陷；本断言随语义修正翻转）
+    check("默认关：索引条目门控键已就地剥离（V21-5 自愈）",
+          "big_domain" not in cg7.index["nodes"]["q1"]
+          and "observation_position" not in cg7.index["nodes"]["q1"])
     _restore(old)
 
     print("\ntest_retr_s1: %d 通过 / %d 失败" % (passed, failed))

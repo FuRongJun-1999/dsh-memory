@@ -186,14 +186,6 @@ def persist_triggers(patches):
 
 
 # ==================== 通道 B：LLM 初稿 → verifier → 固化 ====================
-def run_channel_b(llm_generate=None, max_tasks=5):
-    """通道 B v2：从队列文件读取初稿（由 GLM-5.3-Flash 在对话轮次中批量
-    产出到 channel_b_queue.json）→ verifier 校验 → 固化到 verified_units。
-
-    如果队列文件不存在或为空且 llm_generate 可用 → 调 LLM API 生成。
-    """
-    from verifier import Verifier
-
 # ---- P1-7（批次 26）：LLM 产出代码的 AST 沙箱 ------------------------------
 # 危险名 denylist（配合 __builtins__ 收窄双层防御）：
 #   执行/IO 面：eval exec compile open __import__ breakpoint input
@@ -247,6 +239,16 @@ def _safe_exec_gen(code: str) -> dict:
     ns = {"__builtins__": _GEN_SAFE_BUILTINS}
     exec(compile(code, "<gen>", "exec"), ns)   # noqa: S102——沙箱内（见上）
     return ns
+
+
+
+def run_channel_b(llm_generate=None, max_tasks=5):
+    """通道 B v2：从队列文件读取初稿（由 GLM-5.3-Flash 在对话轮次中批量
+    产出到 channel_b_queue.json）→ verifier 校验 → 固化到 verified_units。
+
+    如果队列文件不存在或为空且 llm_generate 可用 → 调 LLM API 生成。
+    """
+    from verifier import Verifier
 
 
     queue_path = os.path.join(STATE, "channel_b_queue.json")

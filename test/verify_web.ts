@@ -44,6 +44,12 @@ async function main(): Promise<void> {
   let importCalls = 0
   const ctx: any = {
     logger: { info: () => {}, warn: () => {} },
+    // V21-1 附带（批次 34，外部报告）：实现侧经 ctx.get('webServer') 取服务
+    // （Cordis 未声明 inject 的属性访问会抛，roleplay_web.ts:458）——mock 此前
+    // 只提供属性，get 返回 undefined → 挂载跳过 → handler 永不注册（测试空跑）。
+    get(key: string) {
+      return key === 'webServer' ? this.webServer : undefined
+    },
     webServer: {
       register(opts: any) { handler = opts.handler; return () => {} },
       tapIndex() { return () => {} },

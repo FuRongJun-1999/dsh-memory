@@ -108,7 +108,7 @@ TOOLS = [
                        "写入恒带会话身份（session）以区分不同会话的记忆；省略则归因到"
                        "进程/环境身份。",
         "inputSchema": _s("", node_id=_p("string", "节点 id（省略则自动生成）",
-                                         pattern="^[A-Za-z0-9_.@-]{1,128}$",
+                                         pattern="^[A-Za-z0-9_.@\u4e00-\u9fff,-]{1,128}$",
                                          maxLength=128),
                           content=_p("string", "节点内容", True),
                           layer=_p("string", "层：anchor|structural|knowledge|contextual|self"),

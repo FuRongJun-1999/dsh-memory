@@ -503,8 +503,11 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
             const h = (req.headers && req.headers['x-edit-key']) || '';
             return h === EDIT_KEY;
         };
+        // V21-1（批次 34，外部报告）：真分支此前误写自调用（无限递归 → 配了
+        // key 反而 500 且泄露内部异常文本）。两分支都是终止文案：已配置 =
+        // 「缺 x-edit-key 头」；未配置 = 「服务端需配置」引导。
         const editKeyHint = () => EDIT_KEY
-            ? editKeyHint()
+            ? '缺少编辑密钥（x-edit-key 头）'
             : '编辑未开放：服务端需配置环境变量 ROLEPLAY_EDIT_KEY，请求需带 x-edit-key 头（P1-2 fail-closed）';
         const roleDataDir = join(dirname(config.dbPath), 'roleplay_data');
         try {

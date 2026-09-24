@@ -706,6 +706,13 @@ def tool_lingshu_cg(args: dict, job_id: str, mdcg_root: str = None) -> dict:
         # 结构拦截不依赖自觉（9·12 病灶：内存索引与盘面脱节，落盘率 ~14%）。
         if (isinstance(out, dict) and str(args.get("op") or "") == "write"):
             out = _write_readback(root, cg, out)
+        # V21-7（批次 34，外部报告）：认知图是长期记忆主通道（回喂 LLM 频率
+        # 最高），返回体此前不过 PII 脱敏（_redact_pii 仅 read_file 单点）——
+        # op=read 的节点原文（含手机号等）直接进上下文。返回体递归脱敏：
+        # dict/list 逐层下探，字符串值统一过 _redact_pii（与 read_file 同防线，
+        # 兑现「设计者与子代理同防线」的既有注释承诺）。
+        if isinstance(out, dict):
+            out = _redact_deep(out)
         return out if isinstance(out, dict) else {"ok": True, "data": out}
     except Exception as e:  # noqa: BLE001 —— 工具异常回喂模型自修，不终杀任务
         return {"ok": False, "error": f"{type(e).__name__}: {e}",
@@ -847,7 +854,7 @@ _SENSITIVE_FILE_NAMES = ("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
                          "cookies.sqlite", "cookies.sqlite-journal")
 
 
-# 生效条件：real 为 realpath 规范化后的绝对路径；归一斜杠小写后，任一父目录段属 _SENSITIVE_DIR_SEGMENTS、文件名精确命中 _SENSITIVE_FILE_NAMES 或以 credentials/access_tokens 前缀命中、或文件名以 .env 开头/以 .pem/.key/.p12/.pfx/.kdbx 结尾时返回原因说明串，否则返回 None。
+# 生效条件：real 为 realpath 规范化后的绝对路径；归一斜杠小写后，任一父目录段属 _SENSITIVE_DIR_SEGMENTS、文件名精确命中 _SENSITIVE_FILE_NAMES、或命中 V21-8 族匹配（id_rsa/id_ed25519/id_ecdsa/id_dsa/service-account 前缀族、名字含 credential/creds、.env 后缀族——堵「改名/加后缀即免检」缺口，V21 报告 8 类实测样本全覆盖），或以 credentials/access_tokens 前缀命中、或文件名以 .env 开头/以 .pem/.key/.p12/.pfx/.kdbx 结尾时返回原因说明串，否则返回 None。
 def _sensitive_read(real: str) -> str | None:
     """命中敏感路径返回原因说明，安全路径返回 None。"""
     norm = real.replace("\\", "/").lower()
@@ -860,9 +867,18 @@ def _sensitive_read(real: str) -> str | None:
         if name == cand or (cand == "credentials" and name.startswith(
                 ("credentials", "access_tokens"))):
             return f"敏感凭据文件（{name}）"
-    # 密钥文件扩展与 dot-env 家族（.env / .env.local / prod.pem…）
+    # V21-8（批次 34，外部报告）：族匹配——精确名黑名单「改名/加后缀即免检」
+    # （id_rsa.bak / prod.env / creds.json / aws_credentials /
+    # service-account.json 等 8 类实测正文泄露）。目录段思路扩展到文件名：
+    # 私钥名前缀族 / 凭据词子串 / .env 后缀族。误伤可走部署管理员显式通道
+    # （拒读文案已注明）。
+    if name.startswith(("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
+                        "service-account")) or "credential" in name \
+            or "creds" in name:
+        return f"敏感凭据文件（{name}）"
+    # 密钥文件扩展与 dot-env 家族（.env / .env.local / prod.env / prod.pem…）
     if name.startswith(".env") or name.endswith(
-            (".pem", ".key", ".p12", ".pfx", ".kdbx")):
+            (".env", ".pem", ".key", ".p12", ".pfx", ".kdbx")):
         return f"密钥/环境凭据文件（{name}）"
     return None
 
@@ -896,6 +912,17 @@ def _redact_pii(text: str) -> str:
     for label, pat in _PII_PATTERNS:
         text = pat.sub(f"[已脱敏:{label}]", text)
     return text
+
+
+# 生效条件：o 为任意 JSON 形态（dict/list/str/标量）；dict 逐键、list 逐项递归下探，字符串值经 _redact_pii 替换后按原结构返回；非容器标量原样返回（V21-7：lingshu_cg 返回体的统一脱敏入口）。
+def _redact_deep(o):
+    if isinstance(o, str):
+        return _redact_pii(o)
+    if isinstance(o, dict):
+        return {k: _redact_deep(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_redact_deep(v) for v in o]
+    return o
 
 
 # 生效条件：job_dir 与 spec 给定时返回 worker 的 read_file 白名单根 tuple——job_dir（工作区，None/空跳过）+ spec.workdir（定制工作目录，与 HIVE 下文基准一致）+ spec.read_roots（额外定制目录列表/单串，支持 ~/ 展开），逐项 realpath 去重去空；全部为空时返回空 tuple（调用方据此拒读——worker 无根即无文件读权限）。

@@ -79,7 +79,7 @@
     "build": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "test": "npm run build && node --import tsx --test \"test/*.test.ts\"",
     "prepare": "node -e \"const fs=require('fs');const tsc='node_modules/typescript/bin/tsc';fs.existsSync(tsc)?(fs.rmSync('lib',{recursive:true,force:true}),require('child_process').execFileSync(process.execPath,[tsc,'-p','tsconfig.json'],{stdio:'inherit'})):console.log('[prepare] 跳过构建：typescript 未安装（NODE_ENV=production 或 --omit=dev 会省略 devDependencies）——需要构建请用 npm install --include=dev')\"",
-    "gate": "python scripts/check_publish_artifact.py && python scripts/cogmap_sync.py check && python scripts/link_check.py && python scripts/workspace_index.py --check && python scripts/verify_discipline.py --allow-missing",
+    "gate": "python scripts/check_unreachable.py && python scripts/check_publish_artifact.py && python scripts/cogmap_sync.py check && python scripts/link_check.py && python scripts/workspace_index.py --check && python scripts/verify_discipline.py --allow-missing",
     "prepublishOnly": "npm run build && npm test && npm run gate"
   },
   "repository": {

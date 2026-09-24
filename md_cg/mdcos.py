@@ -3588,10 +3588,16 @@ class MdCGSecure(MdCGOS):
         """
         sens = e.get("sensitivity")
         if not sens:
-            # 索引可能被「无密级上下文」的实例重建而丢掉该字段：按盘上真相回填，
-            # fail-closed（宁可少读，不可越权）。
+            # 索引可能被「无密级上下文」的实例重建而丢掉该字段：按盘上真相回填。
+            # V21-2（批次 34，外部报告）：`_read` 失败（返回 None 头）时**不得**
+            # 回落宽松默认——那会把受保护节点判成 internal 对平级可见
+            # （fail-open）。密级未知 = 按最高档 secret 处理（fail-closed：
+            # 宁可误禁，不可越权）。
             fm, _c = self._read(e)
-            sens = (fm or {}).get("sensitivity") or DEFAULT_SENSITIVITY
+            if fm is None:
+                sens = "secret"
+            else:
+                sens = fm.get("sensitivity") or DEFAULT_SENSITIVITY
             e["sensitivity"] = sens
         # restricted = 错误处置标记（批次 28 分型，使用者裁定）：不走纯密级
         # rank——密级底线 internal ∧ 错误处置链路角色（designer/orchestr/
