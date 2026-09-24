@@ -43,7 +43,11 @@ def install(cg):
 
     def _cached(entry):
         p = entry["path"]
-        gen = len(cg._dirty)
+        # D-4 修复（批次 23 / v20）：代际改读 _DirtyDict.write_gen（单调、
+        # 永不回退）——len(_dirty) 在 flush 清零后可被新写入凑回旧值，代际
+        # 巧合回退 → 陈旧读（v20_d4_repro stale=True 实测）。防御回落兼容
+        # 非 _DirtyDict 形态。
+        gen = getattr(cg._dirty, "write_gen", len(cg._dirty))
         hit = cache.get(p)
         if hit is not None and hit[0] == gen:
             return hit[1]
@@ -60,7 +64,7 @@ def install(cg):
 
         def _cached_nb(entry, c):
             p = entry["path"]
-            gen = len(cg._dirty)
+            gen = getattr(cg._dirty, "write_gen", len(cg._dirty))
             hit = nb_cache.get(p)
             if hit is not None and hit[0] == gen:
                 return hit[1]

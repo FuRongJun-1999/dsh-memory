@@ -791,6 +791,57 @@ def apply_retrieval_gates(entries, terms, big_domain, context, min_results):
     return entries, gates
 
 
+# 生效条件：无独立生效条件（模块级哨兵字典类）；任何变更操作（setitem/delitem/clear/pop/popitem/setdefault/update）都会使 write_gen 自增 1，读取 write_gen 不变更。
+class _DirtyDict(dict):
+    """写代际哨兵字典（批次 23，issue #31 D-4 / v20 报告）：任何变更使
+    `write_gen` **单调自增、永不回退**。
+
+    为什么不用 `len(self._dirty)` 作写代际：flush 后 `_dirty` 清零，新写入
+    会使长度**回到旧值**——代际巧合回退会让读缓存误命中陈旧内容（v20
+    `v20_d4_repro.py` stale=True 实测）。单调计数器下「任何写都使代际前进」，
+    读缓存的失效判定不再依赖长度巧合。
+
+    消费方纪律：flush/rebuild 清空必须走 `.clear()`（保住子类钩子），
+    **不得** `self._dirty = {}` 直接换新 dict——那会退化为普通 dict，
+    write_gen 恒 0、读缓存失效面随之失效。
+    """
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.write_gen = 0
+
+    def _bump(self):
+        self.write_gen += 1
+
+    def __setitem__(self, k, v):
+        self._bump()
+        super().__setitem__(k, v)
+
+    def __delitem__(self, k):
+        self._bump()
+        super().__delitem__(k)
+
+    def clear(self):
+        self._bump()
+        super().clear()
+
+    def pop(self, k, *d):
+        self._bump()
+        return super().pop(k, *d)
+
+    def popitem(self):
+        self._bump()
+        return super().popitem()
+
+    def setdefault(self, k, d=None):
+        self._bump()
+        return super().setdefault(k, d)
+
+    def update(self, *a, **k):
+        self._bump()
+        super().update(*a, **k)
+
+
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
 # 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
@@ -809,7 +860,7 @@ class MdCG:
         # 近期事件滚动窗口（白箱第 5 篇第 3 章「近期事件」）
         self.recent_log = os.path.join(self.root, "_recent.jsonl")
         self.autoflush = autoflush
-        self._dirty = {}
+        self._dirty = _DirtyDict()
         self._log = None
         self.index = self._load_index()
         sweep_stale_temps(self.root)
@@ -896,7 +947,7 @@ class MdCG:
                 self._log = ShardedLog(self.index_log_dir)
             for nid, e in self._dirty.items():
                 self._log.append({"id": nid, "e": e})
-            self._dirty = {}
+            self._dirty.clear()   # 保住 _DirtyDict 钩子（批次 23 D-4：不得换新 dict）
             # 写完立即关分片句柄：Windows 上「被本进程打开的文件」无法删除，
             # 若持有句柄，rebuild_index 的 ShardedLog.clear 会静默失败，已并进
             # 快照的旧记录被永久重放（旧条目反而覆盖新快照）。append 内部已
@@ -1008,7 +1059,7 @@ class MdCG:
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))
             ShardedLog.clear(self.index_log_dir)
         self.index = idx
-        self._dirty = {}
+        self._dirty.clear()       # 保住 _DirtyDict 钩子（批次 23 D-4）
         return idx
 
     # ---------- 写 ----------

@@ -99,14 +99,14 @@ def _dump_step(job_dir: str, idx: int, out: str, err: str, rec: dict) -> None:
             rec[f"{name}_truncated"] = True
 
 
-# 生效条件：argv 直接取 step["command"]（缺键即 KeyError）；cwd 取 step.get("cwd") or default_cwd 并在非绝对时转 abspath，timeout 按 step.get("timeout_step_s") or spec.get("timeout_step_s") or spec.get("timeout_s") or DEFAULT_STEP_TIMEOUT_S 回退；cwd 非目录即返回失败 rec 与 ""，否则以 shell=False 运行 subprocess.run，FileNotFoundError / TimeoutExpired（此路先 _dump_step 再返回 out）/ OSError 各返回失败 rec，正常结束记 ok=rc==0、exit_code=rc 并 _dump_step。
+# 生效条件：argv 直接取 step["command"]（缺键即 KeyError）；cwd 取 step.get("cwd") or default_cwd 并在非绝对时转 abspath，timeout 按 step.get("timeout_step_s") or spec.get("timeout_step_s") or DEFAULT_STEP_TIMEOUT_S 回退（**不继承 timeout_s**——批次 23 D-5/v19：step 守卫继承 job 总超时会与 scheduler 的 kill_tree 守卫同值撞车，终态随机 timeout/error；两守卫解耦后 step 级缺省 600s 远大于常规 job 超时，由 job 级兜底）；cwd 非目录即返回失败 rec 与 ""，否则以 shell=False 运行 subprocess.run，FileNotFoundError / TimeoutExpired（此路先 _dump_step 再返回 out）/ OSError 各返回失败 rec，正常结束记 ok=rc==0、exit_code=rc 并 _dump_step。
 def _run_step(step: dict, idx: int, job_dir: str, spec: dict, env: dict, default_cwd: str):
     argv = list(step["command"])
     cwd = step.get("cwd") or default_cwd
     cwd = cwd if os.path.isabs(cwd) else os.path.abspath(cwd)
     label = step.get("label") or f"step {idx}"
     timeout = step.get("timeout_step_s") or spec.get("timeout_step_s") or \
-        spec.get("timeout_s") or DEFAULT_STEP_TIMEOUT_S
+        DEFAULT_STEP_TIMEOUT_S
     t0 = time.time()
     rec = {"label": label, "command": argv, "cwd": cwd}
     if not os.path.isdir(cwd):

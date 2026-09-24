@@ -36,8 +36,21 @@ def check(name, cond, detail=""):
 def main():
     print("[1] 覆盖完备性（issue #36 主诉）：跑什么 ⊆ 冻结什么")
     m = jm.collect()
-    gap = jm.coverage_gap(m)
-    check("run_tests 实际执行清单全部在判据面内", not gap, gap[:8])
+    # v20 D-36-1 重构后签名：coverage_gap(discovered_files, patterns)——
+    # 域覆盖判定（不再吃现算 manifest，那会使差集恒空=守卫假牙）
+    rt_spec = importlib.util.spec_from_file_location(
+        "run_tests_rt", os.path.join(HERE, "scripts", "run_tests.py"))
+    rt = importlib.util.module_from_spec(rt_spec)
+    rt_spec.loader.exec_module(rt)
+    gap = jm.coverage_gap(rt._discovered_files())
+    check("run_tests 实际执行清单全部在判据面覆盖域内", not gap, gap[:8])
+    # 能红断言（v20 D-36-1 对照场景固化）：发现规则新增目录而 PATTERNS 未跟
+    # → 域外文件必须报出（旧「现算集合差」实现恒 PASS，此处必红）
+    gap2 = jm.coverage_gap(["md_cg/test_ok.py", "newdir/test_drift.py"])
+    check("域外文件（发现规则漂移）必报缺口", gap2 == ["newdir/test_drift.py"],
+          gap2)
+    check("域内文件正确地不报（collect 会收、digest 自动含）",
+          "md_cg/test_ok.py" not in gap2)
     groups = m.get("groups") or {}
     check("分组计数显式化（digest 构成可读）", bool(groups), groups)
     check("groups 计数总和 == files 数",

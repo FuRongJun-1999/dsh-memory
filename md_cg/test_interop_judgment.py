@@ -80,7 +80,7 @@ def main():
         ("unix /etc", "配置在 /etc/passwd 附近"),
         ("家目录 ~", "见 ~/secret/keys.txt"),
         ("$HOME", "文件在 $HOME/.aws 下"),
-        ("ghp_ token", "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234"),
+        ("ghp_ token", "ghp_dummyABCDEFGHIJKLMNOPQRSTUVWXYZ1234"),
         ("AIza key", "AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ1234567"),
         ("AKIA key", "AKIAIOSFODNN7EXAMPLE"),
         ("Bearer", "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig"),

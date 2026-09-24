@@ -68,20 +68,26 @@ def collect():
     return out
 
 
-def coverage_gap(manifest: dict) -> list:
-    """覆盖完备性守卫（issue #36）：「跑什么」⊆「冻结什么」。
+def coverage_gap(discovered_files, patterns=None) -> list:
+    """覆盖完备性守卫（issue #36；v20 D-36-1 重构）：「跑什么」⊆「冻结什么」。
 
-    执行清单的唯一真源是 run_tests._discovered_files（不允许这里再维护
-    一套 glob——两套清单各自维护必然漂移，正是 #36 的根因形态）。
-    返回缺失文件列表（空 = 覆盖完备）。
+    准确语义 = 每个 run_tests **会跑的文件**是否落在冻结 PATTERNS 的
+    **覆盖域**内——域外文件 collect 永不收它 → 不进判据指纹 → 漏冻。
+
+    v20 D-36-1 旧实现缺陷：frozen 用**现算清单**与 discovered 做集合差——
+    collect 的 PATTERNS 是发现规则的超集，差集结构上恒空（守卫永远 PASS，
+    对「发现规则与 PATTERNS 漂移」失效）。新实现直接对发现规则域判定：
+    run_tests 新增发现目录/模式而 PATTERNS 未跟 → 必报；域内新增文件
+    （collect 现算会收、digest 自动含它）正确地不报。
     """
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "run_tests", os.path.join(HERE, "scripts", "run_tests.py"))
-    rt = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(rt)
-    frozen = {f["path"] for f in manifest["files"]}
-    return sorted(set(rt._discovered_files()) - frozen)
+    import fnmatch
+    pats = patterns if patterns is not None else PATTERNS
+    gap = []
+    for rel in discovered_files:
+        rel = str(rel).replace("\\", "/")
+        if not any(fnmatch.fnmatch(rel, f"{sub}/{pat}") for sub, pat in pats):
+            gap.append(rel)
+    return sorted(gap)
 
 
 def digest(manifest: dict) -> str:
@@ -100,10 +106,18 @@ def main():
         print(digest(manifest))
         return 0
     if len(sys.argv) >= 2 and sys.argv[1] == "--check-coverage":
-        gap = coverage_gap(manifest)
+        # 「跑什么」真源现场加载（批次 23 D-36-1：不再把现算 manifest 喂给
+        # coverage_gap——旧接线差集恒空，守卫永远 PASS）
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "run_tests", os.path.join(HERE, "scripts", "run_tests.py"))
+        rt = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rt)
+        gap = coverage_gap(rt._discovered_files())
         print(json.dumps({
             "verdict": "PASS" if not gap else "FAIL",
             "missing": gap,
+            "coverage_domain": [f"{sub}/{pat}" for sub, pat in PATTERNS],
             "groups": manifest["groups"],
             "file_count": len(manifest["files"]),
         }, ensure_ascii=False, indent=2))

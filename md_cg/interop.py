@@ -172,8 +172,29 @@ def shape_check_verdict(verdict: dict) -> None:
 def make_verdict(iter_id: str, verifier_instance: str, verifier_fingerprint: str,
                  subject_instance: str, subject_fingerprint: str,
                  suite_origin: str, frozen_at: str, verdict: str,
-                 passed: int, failed: int, details=None) -> dict:
-    """§7.3 契约构造 + 脱敏门禁（违规即抛，绝不落盘）。"""
+                 passed: int, failed: int, details=None,
+                 suite_ok: bool = None) -> dict:
+    """§7.3 契约构造 + 脱敏门禁（违规即抛，绝不落盘）。
+
+    批次 23（v20 API 一致性）：产出**直接含门禁 `_REQUIRED` 全部字段**
+    （valid/assertions_ok/failure_reason，J1/J3 语义与
+    `verify_runner._compose_semantics` 同口径）——此前 make_verdict 不产
+    这三字段、只有 verify_runner 写盘前补齐，直连 make_verdict →
+    write_verdict_to_repo 会被门禁判 exit 3（形状非法）。suite_ok 可选：
+    调用方知道套件面成败时传入以精确 failure_reason；不传则按可推导部分
+    诚实标注（failed>0 → assertions_failed），不编造 suite 面。
+    """
+    valid = (verdict == "pass")
+    assertions_ok = (int(failed) == 0)
+    if valid and assertions_ok:
+        failure_reason = None
+    elif assertions_ok:
+        failure_reason = "suite_failed"
+    elif suite_ok is False:
+        failure_reason = "both"
+    else:
+        # failed>0：断言面确定败；suite 面未知（None）或已知真 → 枚举取断言面
+        failure_reason = "assertions_failed"
     v = {
         "iter_id": iter_id,
         "verifier_instance": verifier_instance,
@@ -183,6 +204,9 @@ def make_verdict(iter_id: str, verifier_instance: str, verifier_fingerprint: str
         "suite_origin": suite_origin,
         "frozen_at": frozen_at,
         "verdict": verdict,
+        "valid": valid,
+        "assertions_ok": assertions_ok,
+        "failure_reason": failure_reason,
         "passed": passed,
         "failed": failed,
         "details": details or [],

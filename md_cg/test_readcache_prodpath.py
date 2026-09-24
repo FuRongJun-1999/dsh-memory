@@ -136,6 +136,38 @@ def main():
         n = rc.clear(cg)
         check("P5 clear 返回清空条目数", n > 0, f"cleared={n}")
 
+        # P7 写代际单调（批次 23，issue #31 D-4 / v20 复现场景，能红 len 代际）
+        print("== P7 flush 后同量写入不回退（D-4 陈旧读）==")
+        cg.add("x_d4", "# 功能名：占位\n# 正文：原始内容AAA 星云", layer="knowledge")
+        cg.add("a_d4", "# 功能名：a\n# 正文：填充甲", layer="knowledge")
+        cg.add("b_d4", "# 功能名：b\n# 正文：填充乙", layer="knowledge")
+        cg.flush()
+        cg.add("c_d4", "# 功能名：c\n# 正文：填充丙", layer="knowledge")
+        cg.add("d_d4", "# 功能名：d\n# 正文：填充丁", layer="knowledge")
+        cg.search("原始内容AAA")                       # 装 x=OLD（此时 dirty len=2）
+        cg.add("x_d4", "# 功能名：占位\n# 正文：更新后内容BBB 星云",
+               layer="knowledge")                      # 覆写 x=NEW
+        cg.flush()                                     # dirty 清零（len 代际在此回退）
+        cg.add("e_d4", "# 功能名：e\n# 正文：填充戊", layer="knowledge")
+        cg.add("f_d4", "# 功能名：f\n# 正文：填充己", layer="knowledge")  # len 巧合回到 2
+        r_new, _ = cg.search("更新后内容BBB 星云")      # 写 NEW 后检索必须见 NEW
+        got = next((it[0].get("content") for it in r_new
+                    if it[0].get("id") == "x_d4"), None)
+        check("P7a flush 回退场景：检索新内容返回 NEW（len 代际实现必返 OLD）",
+              got is not None and "BBB" in got,
+              f"content={str(got)[:40]}")
+
+        # P7b 哨兵单调性直断：_DirtyDict 变更序列 write_gen 永不回退
+        d = __import__("md_cg.mdcg", fromlist=["_DirtyDict"])._DirtyDict()
+        gens = []
+        d["a"] = 1; gens.append(d.write_gen)
+        d["b"] = 2; gens.append(d.write_gen)
+        d.clear(); gens.append(d.write_gen)
+        d["c"] = 3; gens.append(d.write_gen)
+        check("P7b write_gen 单调不回退（clear 后再写仍前进）",
+              gens == sorted(gens) and len(set(gens)) == 4,
+              f"gens={gens}")
+
         # 还原
         os.environ.pop("MDCG_READ_CACHE", None)
     finally:
