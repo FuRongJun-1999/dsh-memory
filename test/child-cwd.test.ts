@@ -126,10 +126,17 @@ test('issue #18 ②：MdcgClient 默认 cwd 拉起的子进程，自报 cwd 在�
       assert.equal(typeof cwd, 'string', `自报应含 cwd（实际 ${JSON.stringify(cwd)}）`)
       assert.equal(typeof sourceDir, 'string', `自报应含 source_dir（实际 ${JSON.stringify(sourceDir)}）`)
       assert.ok(cwd, '自报 cwd 不应为空串')
-      // 自报加载源须为本仓 md_cg：证明这确实是随包子进程，而非环境里的其它 md_cg
+      // 自报加载源须为本仓 md_cg：证明这确实是随包子进程，而非环境里的其它 md_cg。
+      // Windows 路径比较大小写不敏感（子进程报的盘符大小写随调用链变化——
+      // `d:\` vs `D:\` 是同一路径；PR #38 引入本断言时对盘符大小写敏感，
+      // 在小写盘符工作副本上恒挂）。
+      const norm = (p: string): string => {
+        const r = resolve(p)
+        return process.platform === 'win32' ? r.toLowerCase() : r
+      }
       assert.equal(
-        resolve(sourceDir as string),
-        join(REPO_ROOT, 'md_cg'),
+        norm(sourceDir as string),
+        norm(join(REPO_ROOT, 'md_cg')),
         `自报加载源应为本仓 md_cg（实际 ${String(sourceDir)}）`,
       )
       assert.equal(
