@@ -296,7 +296,7 @@ def _node_to_text(node) -> str:
     return str(type(node).__name__)
 
 
-# 生效条件：result.errors 非空时返回 passed=False、reason=f"编译错误: {result.errors[0]}"、authority="VERIFICATION_UNIT"；errors 为空时返回 passed=True、reason="路径有效：结构一致且缩小信息差"、authority 同前、confidence=0.85（形参 options 在函数体内未被读取）。
+# 生效条件：result.errors 非空时返回 passed=False、reason=f"编译错误: {result.errors[0]}"、authority="VERIFICATION_UNIT"；errors 为空时先以 compile(result.code, "<协议产物>", "exec") 终验产物——SyntaxError/ValueError 时返回 passed=False、reason=f"产物不可编译: {异常类型}: {异常}"、authority 同前，通过时返回 passed=True、reason="路径有效：结构一致且缩小信息差"、authority 同前、confidence=0.85（形参 options 在函数体内未被读取）。
 def _verification_verdict(result: CompileResult, options: CompileOptions) -> Dict:
     """
     验证单元终裁
@@ -309,13 +309,28 @@ def _verification_verdict(result: CompileResult, options: CompileOptions) -> Dic
             "reason": f"编译错误: {result.errors[0]}",
             "authority": "VERIFICATION_UNIT",
         }
-    
+
+    # 产物终验（缺陷17+23：橡皮图章）——errors 为空不得直接盖章
+    # passed=True：产物必须可编译。修复前对产物可编译性零独立验证
+    # （全包无一处 compile(result.code)），漏记错误形态
+    # （'class = 5' → invalid syntax；顶层 return → 'return' outside
+    # function，缺陷16/N64 等）一律假成功。compile() 只查语法——
+    # 合法产物仅运行期 NameError 不受影响。
+    try:
+        compile(result.code, "<协议产物>", "exec")
+    except (SyntaxError, ValueError) as e:
+        return {
+            "passed": False,
+            "reason": f"产物不可编译: {type(e).__name__}: {e}",
+            "authority": "VERIFICATION_UNIT",
+        }
+
     # 检查信任值约束
     # （这里简化实现，完整版需要检查 AST 中的信任值操作）
-    
+
     # 检查条件空间合法性
     # （这里简化实现）
-    
+
     # 通过
     return {
         "passed": True,

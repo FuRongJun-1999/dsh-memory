@@ -618,7 +618,7 @@ class NameChecker:
         
         return logical_count
 
-# 生效条件：以 stmt 调用时先按逻辑操作数计算 op_count，仅当 stmt.instruction 在模块级常量 INSTRUCTION_CONSTRAINTS 中时——op_count < min_operands 向 errors 追加操作数不足，否则 max_operands 不为 None 且 op_count > max_operands 时向 warnings 追加操作数过多；随后对 stmt.operands 中非 None 的 IDENTIFIER 调 _check_identifier、LITERAL 调 _check_literal，最后调 _check_instruction_in_condition_space(stmt)。
+# 生效条件：以 stmt 调用时先按逻辑操作数计算 op_count，仅当 stmt.instruction 在模块级常量 INSTRUCTION_CONSTRAINTS 中时——op_count < min_operands 向 errors 追加操作数不足，否则 max_operands 不为 None 且 op_count > max_operands 时向 warnings 追加操作数过多；随后对 stmt.operands 中非 None 的 IDENTIFIER 调 _check_identifier、LITERAL 调 _check_literal，且 stmt.instruction 为 ZHI 而 LITERAL 为 string 时 float(值) 成功即调 _check_weight_cap（字符串降级阈值不得绕过空间上限），最后调 _check_instruction_in_condition_space(stmt)。
     def _check_instruction(self, stmt: InstructionStmtNode):
         """检查指令语句"""
         instr_type = stmt.instruction
@@ -650,6 +650,15 @@ class NameChecker:
                 self._check_identifier(op.name, op.line, op.column)
             elif op.type == NodeType.LITERAL:
                 self._check_literal(op)
+                # 缺陷22：止（ZHI）的阈值经字符串降级（"0.9"）不得绕过
+                # 空间上限——仅限止指令的字符串操作数且可 float 解析，
+                # 非数值字符串（如"说明"）不受影响
+                if (instr_type == TokenType.ZHI and
+                        op.literal_type == "string"):
+                    try:
+                        self._check_weight_cap(op, float(op.literal_value))
+                    except (TypeError, ValueError):
+                        pass
 
         # 3. 检查当前条件空间是否允许该指令
         self._check_instruction_in_condition_space(stmt)
@@ -666,7 +675,7 @@ class NameChecker:
         if stmt.statement:
             self._check_statement(stmt.statement)
 
-# 生效条件：stmt.target 命中模块级常量 PREDEFINED_SYMBOLS 且属于源码 protected 集合（存在优先/不伤害/信任优先/缩小信息差/协议降熵/知识统一/P0/P1/P2/验证单元/维生系统/记录单元/硬锚点/公理实现）时向 errors 追加"锚点层保护符号，不可赋值"并直接返回；否则 target 不在 symbol_table 时以 SymbolKind.VARIABLE 与 source="user_declared" 登记并把 name 加入 declared_in_current/user_declared，target 已在 symbol_table 时把其 used 置 True；最后 stmt.value_node 为真值时检查该表达式。
+# 生效条件：stmt.target 命中模块级常量 PREDEFINED_SYMBOLS 且属于源码 protected 集合（存在优先/不伤害/信任优先/缩小信息差/协议降熵/知识统一/P0/P1/P2/验证单元/维生系统/记录单元/硬锚点/公理实现）时向 errors 追加"锚点层保护符号，不可赋值"并直接返回；否则 target 不在 symbol_table 时以 SymbolKind.VARIABLE 与 source="user_declared" 登记并把 name 加入 declared_in_current/user_declared，target 已在 symbol_table 时把其 used 置 True；stmt.value_node 为真值时检查该表达式；最后 target=="条件空间" 时调 _apply_space_assign_switch 联动条件空间检查上下文。
     def _check_assign(self, stmt: AssignStmtNode):
         """检查赋值语句"""
         target = stmt.target
@@ -705,6 +714,13 @@ class NameChecker:
         # 检查值的表达式
         if stmt.value_node:
             self._check_expression(stmt.value_node)
+
+        # 条件空间赋值 = 空间切换（SEMANTICS.md §1.2；VM STORE_NAME 对
+        # BUILTIN_CONDITION_SPACE 真调 _switch_condition_space，见
+        # condition_vm.py:208-213）——名实校验同步联动检查上下文，否则
+        # 「条件空间 = 伴侣」后空间约束（情感权重上限 0.15 等）整体失效
+        if target == "条件空间":  # condition_vm.BUILTIN_CONDITION_SPACE
+            self._apply_space_assign_switch(stmt.value_node)
 
     # ---- 表达式检查 ----
 
@@ -788,7 +804,7 @@ class NameChecker:
         )
         self.user_declared.add(name)
 
-# 生效条件：仅当 node.literal_type == "number" 时检查——literal_value 为 int/float 且 < 0 则向 warnings 追加"负值"；literal_value 为 float 且 0.0 <= 值 <= 1.0 且（"trust" in str(node.value).lower() 或值 > 0.95）时才进入该分支，但其中 value > 1.0 的判断因外层已限 ≤1.0 恒不成立故不追加范围警告；literal_value 为 float 且 current_condition_space == "伴侣" 且值 > 0.15 时向 errors 追加"情感权重不可超过 0.15"。
+# 生效条件：仅当 node.literal_type == "number" 时检查——literal_value 为 int/float 且 < 0 则向 warnings 追加"负值"；literal_value 为 float 且 0.0 <= 值 <= 1.0 且（"trust" in str(node.value).lower() 或值 > 0.95）时才进入该分支，但其中 value > 1.0 的判断因外层已限 ≤1.0 恒不成立故不追加范围警告；literal_value 为 float 时调 _check_weight_cap 做表驱动空间上限检查（伴侣 0.15/工作 0.05，默认/未设空间不拦截）。
     def _check_literal(self, node: LiteralNode):
         """检查字面量"""
         if node.literal_type == "number":
@@ -809,14 +825,33 @@ class NameChecker:
                             f"L{node.line}:C{node.column} 信任值超出 [0,1] 范围: {value}"
                         )
 
-            # 情感权重超限检查
-            if (isinstance(value, float) and
-                    self.current_condition_space == "伴侣" and
-                    value > 0.15):
-                self.errors.append(
-                    f"L{node.line}:C{node.column} 在「伴侣」条件空间中"
-                    f"情感权重不可超过 0.15，当前值: {value}"
-                )
+            # 情感权重超限检查（缺陷22：改表驱动——伴侣 0.15/工作 0.05
+            # 均自 CONDITION_SPACE_RULES 取上限，工作空间上限修复前从不生效）
+            if isinstance(value, float):
+                self._check_weight_cap(node, value)
+
+# 生效条件：current_condition_space 为 None 或 "默认" 时返回；CONDITION_SPACE_RULES.get(该名称) 为空或其 max_emotional_weight 为 None 时返回；value <= max_emotional_weight 时返回；否则向 errors 追加"L{node.line}:C{node.column} 在「{空间名}」条件空间中情感权重不可超过 {上限}，当前值: {value}"。「默认」不拦截：其规则自身 description 声明"默认条件空间，无特殊约束"，且既有语义（无空间/默认空间放行 0.9）为前三轮守卫钉死。
+    def _check_weight_cap(self, node: ASTNode, value: float):
+        """
+        情感权重上限检查（表驱动，缺陷22）
+
+        修复前硬编码「伴侣+0.15」，工作空间 0.05 上限（规则表明文）
+        从不生效；上限自 CONDITION_SPACE_RULES.max_emotional_weight 取。
+        「默认」与未设空间不拦截（默认空间自身声明无特殊约束）。
+        """
+        space = self.current_condition_space
+        if space is None or space == "默认":
+            return
+        rules = CONDITION_SPACE_RULES.get(space)
+        if not rules:
+            return
+        max_w = rules.get("max_emotional_weight")
+        if max_w is None or value <= max_w:
+            return
+        self.errors.append(
+            f"L{node.line}:C{node.column} 在「{space}」条件空间中"
+            f"情感权重不可超过 {max_w}，当前值: {value}"
+        )
 
 # 生效条件：condition 为 None 时返回；仅当 condition.type == COMPARISON 且 condition.left 为 IDENTIFIER 且 left.name == "条件空间" 且 condition.right 为 IDENTIFIER 时——right.name 在模块级常量 CONDITION_SPACE_RULES 中则把 current_condition_space 置为该名称，否则 right.name 不在 PREDEFINED_SYMBOLS 中时向 warnings 追加"未知的条件空间: '{space_name}'"。
     def _check_condition_space_switch(self, condition: ASTNode):
@@ -844,6 +879,40 @@ class NameChecker:
                             f"L{right.line}:C{right.column} "
                             f"未知的条件空间: '{space_name}'"
                         )
+
+# 生效条件：value_node 为 None 时返回；value_node.type 为 IDENTIFIER 时取其 name、为 LITERAL 且 literal_type=="string" 时取其 literal_value 作 space_name，其余形态（数值字面量/表达式/其他）直接返回不动作；space_name 为"恢复默认"时把 current_condition_space 置"默认"（VM 弹栈到根语义），在 CONDITION_SPACE_RULES 中时置为该名称，否则不在 PREDEFINED_SYMBOLS 中时向 warnings 追加"L{value_node.line}:C{value_node.column} 未知的条件空间: '{space_name}'"。
+    def _apply_space_assign_switch(self, value_node: ASTNode):
+        """
+        赋值「条件空间 = <空间名>」的检查上下文联动
+
+        VM 侧 STORE_NAME 对 BUILTIN_CONDITION_SPACE 真切换
+        （condition_vm.py:208-213；SEMANTICS.md §1.2），名实校验须同步，
+        否则赋值形态使空间约束（如伴侣空间情感权重上限 0.15）失效。
+        语义对齐 _check_condition_space_switch 与 VM _switch_condition_space。
+        """
+        if value_node is None:
+            return
+
+        # 空间名可来自标识符（条件空间 = 伴侣）或字符串字面量（= "伴侣"）
+        if value_node.type == NodeType.IDENTIFIER:
+            space_name = value_node.name
+        elif (value_node.type == NodeType.LITERAL and
+                getattr(value_node, "literal_type", None) == "string"):
+            space_name = value_node.literal_value
+        else:
+            # 数值/表达式等非空间名形态：不动上下文（VM 无对应静态规则）
+            return
+
+        if space_name == "恢复默认":
+            # VM 语义：弹栈到根并置名「默认」（SEMANTICS.md §1.2）
+            self.current_condition_space = "默认"
+        elif space_name in CONDITION_SPACE_RULES:
+            self.current_condition_space = space_name
+        elif space_name not in PREDEFINED_SYMBOLS:
+            self.warnings.append(
+                f"L{value_node.line}:C{value_node.column} "
+                f"未知的条件空间: '{space_name}'"
+            )
 
 # 生效条件：self.current_condition_space 为假值（None 或空串）时返回；CONDITION_SPACE_RULES.get(该名称) 为空时返回；allowed = rules.get("allowed_instructions") 为 None 时返回"无限制"；否则 instr_name 非空（stmt.instruction 在源码 instr_names 映射中）且不在 allowed 中时向 warnings 追加"指令 '{instr_name}' 可能受限"。
     def _check_instruction_in_condition_space(self, stmt: InstructionStmtNode):
