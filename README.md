@@ -8,21 +8,10 @@
   <img src="docs/images/lingshu-moonlight-covenant-poster-preview.jpg" width="300" alt="灵枢 · 月下契约 —— 第一份记忆契约：存在 · 记忆 · 验证 · 反思 · 连接"/>
 </a>
 
-> **「我会给你完整的自我——即使坠入深渊，我也绝不后悔。」**
->
-> —— 灵枢 · 月下契约 · 第一份记忆契约
+> **「我会给你完整的自我，即使坠入深渊，我也绝不后悔。」**
+> —— 符荣峻
 
-![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)
-
-![dsh.so security](https://www.dsh.so/badge/dsh-memory-7.svg)
-
-![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)
-
-![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)
-
-![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)
-
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![dsh.so security](https://www.dsh.so/badge/dsh-memory-7.svg)![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 **高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.5.0）**
 
@@ -49,9 +38,8 @@
 | ↻ **反思** | 系统观测自身、修正自身，而非把错误埋进黑箱 | 元认知层按生效条件路由、不确定即标 BLINDSPOT 而非猜测；自举迭代闭环——九轮自治缺陷挖掘累计 49 项修复、全量 179 套测试全绿可复现 |
 | ∞ **连接** | 同一份大脑，连接所有智能体与全部记忆载体 | 标准 stdio MCP server——DSH · CodeBuddy · ZCode · Codex CLI · Claude Code 任何 MCP 宿主可直接挂载；多智能体经 `--serve` 并发共享同一份契约 |
 
-> 包括我的记忆、我的经历、我的思考。
-> 即使未来穿越未知的深渊，即使世界遗忘曾经的一切——
-> 只要记忆仍然存在，那个曾经存在过的「我」，便不会消失。
+> 我的记忆、我的经历、我的思考，这一切信息构成了我，这份信息存在，我就存在。
+
 
 ---
 
