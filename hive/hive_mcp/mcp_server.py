@@ -561,8 +561,15 @@ _DISPATCH = {
 }
 
 
-# 生效条件：req 给定；按 req.get("method", "") 分派——initialize 返回 protocolVersion/capabilities/serverInfo，notifications/initialized 返回 None，tools/list 返回 TOOLS，tools/call 以 (params or {}).get("arguments") or {} 调 _DISPATCH 中的 fn（名字不在表内返回 -32602 错误，fn 抛异常则包成 {"ok": False, "error": …} 的文本 content）；其余 method 在 req.get("id") 非 None 时返回 -32601，id 为 None 时返回 None。
+# 生效条件：req 给定；req 非 dict（批量数组/裸标量等 JSON 合法值，2026-09-25 v2-N16 DoS 缺陷）时返回 id=None 的 -32600 Invalid Request 且不再下探；req 为 dict 时按 req.get("method", "") 分派——initialize 返回 protocolVersion/capabilities/serverInfo，notifications/initialized 返回 None，tools/list 返回 TOOLS，tools/call 在 params 非 dict 时返回 -32602 Invalid params（不进工具），params 为 dict 时以 params.get("arguments") or {} 调 _DISPATCH 中的 fn（名字不在表内返回 -32602 错误，fn 抛异常则包成 {"ok": False, "error": …} 的文本 content）；其余 method 在 req.get("id") 非 None 时返回 -32601，id 为 None 时返回 None。
 def _rpc(req: dict):
+    # 入口守卫（fail-closed）：一行非 dict JSON 曾直接 req.get 崩掉常驻
+    # server（DoS）——恶意客户端一行 `[…]`/`"x"`/`123`/`null` 即可。回
+    # -32600（JSON-RPC 2.0 Invalid Request），id 置 null（非 object 无从取 id）。
+    if not isinstance(req, dict):
+        return {"jsonrpc": "2.0", "id": None,
+                "error": {"code": -32600,
+                          "message": "Invalid Request：req 必须为 object"}}
     method = req.get("method", "")
     rid = req.get("id")
     if method == "initialize":
@@ -580,8 +587,16 @@ def _rpc(req: dict):
     if method == "tools/list":
         return {"jsonrpc": "2.0", "id": rid, "result": {"tools": TOOLS}}
     if method == "tools/call":
-        name = (req.get("params") or {}).get("name", "")
-        args = (req.get("params") or {}).get("arguments") or {}
+        params = req.get("params")
+        # params 守卫（fail-closed）：params 非 dict（str/list/int）曾在入口
+        # 解析处 AttributeError 崩 server——工具层 try 只包 fn(args)，包不到
+        # 这里。回 -32602 Invalid params，不进工具。
+        if not isinstance(params, dict):
+            return {"jsonrpc": "2.0", "id": rid,
+                    "error": {"code": -32602,
+                              "message": "Invalid params：params 必须为 object"}}
+        name = params.get("name", "")
+        args = params.get("arguments") or {}
         fn = _DISPATCH.get(name)
         if fn is None:
             return {"jsonrpc": "2.0", "id": rid,
@@ -598,7 +613,7 @@ def _rpc(req: dict):
     return None
 
 
-# 生效条件：无必需形参；逐行读 sys.stdin，空行与 json.loads 抛 ValueError 的行被跳过，仅 _rpc(req) 返回非 None 时向 stdout 写一行 JSON 并 flush，读到 EOF 后返回 0。
+# 生效条件：无必需形参；逐行读 sys.stdin，空行与 json.loads 抛 ValueError 的行被跳过，_rpc(req) 抛非 ValueError 异常时回写 id=None 的 -32603 internal error 一行（入口兜底不崩 server，与工具层 try 同款模板），仅 _rpc(req) 返回非 None 时向 stdout 写一行 JSON 并 flush，读到 EOF 后返回 0。
 def main() -> int:
     for line in sys.stdin:
         line = line.strip()
@@ -608,7 +623,12 @@ def main() -> int:
             req = json.loads(line)
         except ValueError:
             continue
-        resp = _rpc(req)
+        try:
+            resp = _rpc(req)
+        except Exception as e:  # noqa: BLE001 —— 入口兜底不崩 server（2026-09-25 v2-N16：_rpc 曾在 try 外，一行恶意 JSON 杀进程）
+            resp = {"jsonrpc": "2.0", "id": None,
+                    "error": {"code": -32603,
+                              "message": f"internal error: {type(e).__name__}"}}
         if resp is not None:
             sys.stdout.write(json.dumps(resp, ensure_ascii=False) + "\n")
             sys.stdout.flush()

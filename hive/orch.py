@@ -377,7 +377,7 @@ def _known_children() -> list:
 
 # -------------------------------------------------------------- 工具实现（三）
 
-# 生效条件：a 为 dict，在 len(_CFG['children']) < _CFG['max_subtasks']、a.get('user_prompt') 去空白后非空、a.get('model') 或 _CFG['model'] 去空白后非空、a.get('tools') 各项（缺省/空列表回落 list(SUB_TOOLS_ALLOW)）均属 SUB_TOOLS_ALLOW、a.get('context_files') 每项对应路径 isfile 为真时，构造 sub 白名单键（仅当 a.get(k) not in (None, '', [], {}) 才写入 system_prompt/context_files/max_tool_rounds/web_search_backend/mdcg_root/max_tokens/temperature/thinking），timeout_s 取 int(a.get('timeout_s') or _hm.DEFAULT_TIMEOUT_S)，context_budget_tokens 取 int(a.get('context_budget_tokens') or _hm.DEFAULT_CONTEXT_BUDGET_TOKENS)，reasoning_effort 取 a.get('reasoning_effort') or _hm.DEFAULT_REASONING_EFFORT，提交后 append 到 _CFG['children']、_save_children()、_ex.progress(kind='spawn_subtask') 并返回 ok=True 及 defaults；上述前置失败则返回对应 {'ok': False, 'error': ...}。
+# 生效条件：a 为 dict，在 len(_CFG['children']) < _CFG['max_subtasks']、a.get('user_prompt') 去空白后非空、a.get('model') 或 _CFG['model'] 去空白后非空、a.get('tools') 各项（缺省/空列表回落 list(SUB_TOOLS_ALLOW)）均属 SUB_TOOLS_ALLOW、a.get('context_files') 每项对应路径 isfile 为真时，构造 sub 白名单键（仅当 a.get(k) not in (None, '', [], {}) 才写入 system_prompt/context_files/max_tool_rounds/web_search_backend/mdcg_root/max_tokens/temperature/thinking），timeout_s 取 _ex._int_arg(a,'timeout_s',_hm.DEFAULT_TIMEOUT_S,hi=sys.maxsize)、context_budget_tokens 取 _ex._int_arg(a,'context_budget_tokens',_hm.DEFAULT_CONTEXT_BUDGET_TOKENS,hi=sys.maxsize)（脏值/非正回落默认，不夹紧），reasoning_effort 取 a.get('reasoning_effort') or _hm.DEFAULT_REASONING_EFFORT，提交后 append 到 _CFG['children']、_save_children()、_ex.progress(kind='spawn_subtask') 并返回 ok=True 及 defaults；上述前置失败则返回对应 {'ok': False, 'error': ...}。
 def _spawn(a: dict) -> dict:
     """派发子任务。
 
@@ -418,11 +418,18 @@ def _spawn(a: dict) -> dict:
               "mdcg_root", "max_tokens", "temperature", "thinking"):
         if a.get(k) not in (None, "", [], {}):
             sub[k] = a[k]
-    # 统一子代理默认注入（与 MCP 面同源常量，显式传值优先）
-    sub["timeout_s"] = int(a.get("timeout_s") or _hm.DEFAULT_TIMEOUT_S)
+    # 统一子代理默认注入（与 MCP 面同源常量，显式传值优先）。
+    # 脏参容错（v2 N13，2026-09-25）：timeout_s/context_budget_tokens 是模型
+    # 可控参数，function calling 常见脏值 '600s'/'20k'/[600] 曾从裸 int() 抛
+    # ValueError/TypeError 逃出工具处理器 → exec.main 兜底以 EXIT_API 判死
+    # 整个编排 job（已派发子任务全部成孤儿）。接 exec._int_arg 模板：脏值/
+    # 非正回落默认；hi=sys.maxsize = 本面不引入新值域上限（上限属调度面语义）。
+    sub["timeout_s"] = _ex._int_arg(a, "timeout_s", _hm.DEFAULT_TIMEOUT_S,
+                                    hi=sys.maxsize)
     sub["reasoning_effort"] = a.get("reasoning_effort") or _hm.DEFAULT_REASONING_EFFORT
-    sub["context_budget_tokens"] = int(
-        a.get("context_budget_tokens") or _hm.DEFAULT_CONTEXT_BUDGET_TOKENS)
+    sub["context_budget_tokens"] = _ex._int_arg(
+        a, "context_budget_tokens", _hm.DEFAULT_CONTEXT_BUDGET_TOKENS,
+        hi=sys.maxsize)
     jobs = _hm._jobs_dir()
     cid = _hm._submit(jobs, sub)
     _CFG["children"].append({
@@ -460,7 +467,7 @@ def _poll(a: dict) -> dict:
             "active": len(cards) - len(done), "children": cards}
 
 
-# 生效条件：a 为 dict，a.get('job_id') 去空白后非空且 jid 属于 _known_children() 时，cap=int(a.get('max_chars') or FULL_MAX_CHARS)，读 _CFG['jobs']/jid/result.json；OSError 返回 {'ok': False, ...}，len(raw)>cap 时返回 truncated=True/head，否则返回 truncated=False/raw；job_id 缺失或越权返回 {'ok': False, ...}。
+# 生效条件：a 为 dict，a.get('job_id') 去空白后非空且 jid 属于 _known_children() 时，cap=_ex._int_arg(a,'max_chars',FULL_MAX_CHARS,hi=sys.maxsize)（脏值/非正回落默认），读 _CFG['jobs']/jid/result.json；OSError 返回 {'ok': False, ...}，len(raw)>cap 时返回 truncated=True/head，否则返回 truncated=False/raw；job_id 缺失或越权返回 {'ok': False, ...}。
 def _read_full(a: dict) -> dict:
     jid = (a.get("job_id") or "").strip()
     if not jid:
@@ -469,7 +476,10 @@ def _read_full(a: dict) -> dict:
         return {"ok": False, "error": (
             f"{jid} 不是本编排者派发的子任务（越权读被拒）。"
             f"已知子任务：{_known_children() or '（无）'}")}
-    cap = int(a.get("max_chars") or FULL_MAX_CHARS)
+    # 脏参/负数容错（v2 N13）：'2k' 等脏串曾抛 ValueError 逃出杀 job；
+    # 负数（如 -100）曾使 len(raw)>cap 恒真而 head=raw[:-100]——truncated=True
+    # 却返回 ~90% 全文（截断契约破坏）。_int_arg：脏值/非正一律回落默认。
+    cap = _ex._int_arg(a, "max_chars", FULL_MAX_CHARS, hi=sys.maxsize)
     path = os.path.join(_CFG["jobs"], jid, "result.json")
     try:
         with open(path, encoding="utf-8") as f:

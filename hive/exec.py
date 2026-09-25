@@ -949,10 +949,16 @@ def _redact_deep(o):
     return o
 
 
-# 生效条件：job_dir 与 spec 给定时返回 worker 的 read_file 白名单根 tuple——job_dir（工作区，None/空跳过）+ spec.workdir（定制工作目录，与 HIVE 下文基准一致）+ spec.read_roots（额外定制目录列表/单串，支持 ~/ 展开），逐项 realpath 去重去空；全部为空时返回空 tuple（调用方据此拒读——worker 无根即无文件读权限）。
+# 生效条件：job_dir 与 spec 给定时返回 worker 的 read_file 白名单根 tuple——job_dir（工作区，None/空跳过）+ spec.workdir（定制工作目录，与 HIVE 下文基准一致）+ spec.read_roots（额外定制目录列表或单串——单串先包一层 [s] 再归一，支持 ~/ 展开），逐项 realpath 去重去空；全部为空时返回空 tuple（调用方据此拒读——worker 无根即无文件读权限）。
 def _worker_scope(job_dir: str | None, spec: dict) -> tuple:
     roots = []
-    for p in [job_dir, spec.get("workdir")] + list(spec.get("read_roots") or []):
+    # 单串包一层（2026-09-25 缺陷修复）：list(s) 会逐字符切分——切出的
+    # 单字符 '\\' 经 realpath 归一为**当前盘根**混入 scope_roots，worker
+    # 读白名单被意外扩到全盘；且 docstring 声称的「单串」形态完全失效。
+    rr = spec.get("read_roots") or []
+    if isinstance(rr, str):
+        rr = [rr]
+    for p in [job_dir, spec.get("workdir")] + list(rr):
         if isinstance(p, str) and p.strip():
             r = os.path.realpath(os.path.expanduser(p.strip()))
             if r not in roots:
@@ -1122,7 +1128,7 @@ def tool_read_file(args: dict, workdir: str = None,
     return out
 
 
-# 生效条件：当 name/args_json/job_id 传入时，json.loads(args_json or '{}') 失败返回 ({'ok':False,'error':'工具参数不是合法 JSON: ...'}, '')；否则 name=='lingshu_cg' 调 tool_lingshu_cg(args,job_id,mdcg_root)，name=='web_search' 调 tool_web_search(args,backend_override=ws_backend)，name=='read_file' 调 tool_read_file(args,workdir)，name 在 _EXTRA_TOOLS 中调其 handler(name,args,job_id)，否则返回未知工具错误；随后对 out 设默认 ok='error' not in out，按 results/knowledge 长度生成 brief，返回 (out,brief)；
+# 生效条件：当 name/args_json/job_id 传入时，json.loads(args_json or '{}') 失败返回 ({'ok':False,'error':'工具参数不是合法 JSON: ...'}, '')；否则 name=='lingshu_cg' 调 tool_lingshu_cg(args,job_id,mdcg_root)，name=='web_search' 调 tool_web_search(args,backend_override=ws_backend)，name=='read_file' 调 tool_read_file(args,workdir)，name 在 _EXTRA_TOOLS 中调其 handler(name,args,job_id)（handler 抛异常则兜底 {'ok':False,'error':...} 不上抛），否则返回未知工具错误；随后对 out 设默认 ok='error' not in out，按 results/knowledge 长度生成 brief，返回 (out,brief)；
 def execute_tool(name: str, args_json: str, job_id: str,
                  mdcg_root: str = None, ws_backend: str = None,
                  workdir: str = None, read_scope_roots=None) -> tuple:
@@ -1140,7 +1146,15 @@ def execute_tool(name: str, args_json: str, job_id: str,
         out = tool_read_file(args, workdir=workdir,
                              scope_roots=read_scope_roots)
     elif name in _EXTRA_TOOLS:
-        out = _EXTRA_TOOLS[name]["handler"](name, args, job_id)
+        # 分派兜底（v2 N13，2026-09-25）：外部 handler（如编排面）抛异常曾
+        # 穿透 run_with_tools 调用点直达 main 兜底 except，以 EXIT_API 判死
+        # 整个 job。工具面契约是「返回 {'ok': False} 而非抛」——这里把契约
+        # 机械化：handler 违约回错误结果，不杀 job（与 mcp_server 工具层
+        # 兜底同款模板）。
+        try:
+            out = _EXTRA_TOOLS[name]["handler"](name, args, job_id)
+        except Exception as e:  # noqa: BLE001 —— 工具面兜底不杀 job
+            out = {"ok": False, "error": f"{type(e).__name__}: {e}"}
     else:
         out = {"ok": False,
                "error": f"未知工具 {name!r}（允许：{', '.join(all_schemas())}）"}
@@ -1195,14 +1209,19 @@ def _post_chat(body: dict, timeout: float) -> dict:
         return json.loads(resp.read(RESP_MAX_BYTES).decode("utf-8"))
 
 
-# 生效条件：当 spec 与 messages 传入时，以 build_body(spec,messages) 与 float(spec.get('timeout_s') or 300) 调 _post_chat；返回 content=choices[0].message.content（choices 缺/空则 [{}]），usage=data.get('usage') or {}，model=data.get('model') or spec['model']；
+# 生效条件：当 spec 与 messages 传入时，以 build_body(spec,messages) 与 float(spec.get('timeout_s') or 300) 调 _post_chat；返回的 message 为空助手轮（_empty_turn：content 与 tool_calls 双空——含 choices 缺/空、content 空串或 null）时返回 {'_error': '模型返回空助手轮…'}，否则返回 content=message.content or ''、usage=data.get('usage') or {}、model=data.get('model') or spec['model']；
 def call_llm(spec: dict, messages: list) -> dict:
     """单发调 chat/completions（无工具历史路径）；返回归一化 result。"""
     data = _post_chat(build_body(spec, messages),
                       float(spec.get("timeout_s") or 300))
-    content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
+    msg = _choice(data).get("message") or {}
+    # 空包不得冒充成功（v2 N7，2026-09-25）：网关 200 + 空/缺 choices、
+    # content="" 或 null（null 穿透 .get 默认值落 None）都是无效终答——
+    # 与工具轮内同款 _empty_turn 判据，回 _error 由 main 写失败 result。
+    if _empty_turn(msg):
+        return {"_error": "模型返回空助手轮（content 与 tool_calls 双空）"}
     return {
-        "content": content,
+        "content": msg.get("content") or "",
         "usage": data.get("usage") or {},
         "model": data.get("model") or spec["model"],
     }
@@ -1406,6 +1425,16 @@ def run_with_tools(spec: dict, messages: list, job_id: str,
                 return {"_error": _api_err_text(e), "tool_trace": trace}
             _acc_usage(usage_total, data.get("usage") or {})
             msg = _choice(data).get("message") or {}
+            # 空包不得冒充强制终答（v2 N7 同族第二缺口，2026-09-25）：轮内
+            # 有 _empty_turn 防护，本分支曾无——网关故障回空包时任务记
+            # forced_final=true + content="" 的假成功，流入下游合并/续跑链。
+            if _empty_turn(msg):
+                log(job_dir, "强制终答空助手轮 → 不冒充终答（v2 N7）")
+                progress(job_dir, kind="error", round=rnd,
+                         where="force_final",
+                         error="空助手轮（content 与 tool_calls 双空）")
+                return {"_error": "强制终答返回空助手轮（content 与 tool_calls 双空）",
+                        "tool_trace": trace}
             trace.append({"round": rnd, "tool": "_force_final",
                           "ok": True, "brief": "轮次上限，强制终答"})
             progress(job_dir, kind="force_final", round=rnd,
@@ -1458,7 +1487,7 @@ def _api_err_text(e: Exception) -> str:
     return f"{type(e).__name__}: {e}"
 
 
-# 生效条件：len(sys.argv) < 2 时打印 usage 并返回 EXIT_SPEC；否则 job_dir 取 sys.argv[1]，spec 读取异常、超 context_budget_tokens、SpecError 均返回 EXIT_SPEC，工具链 _error 或 urllib HTTPError 或其他异常返回 EXIT_API，成功（含无可见 tools 时走 call_llm）返回 EXIT_OK；
+# 生效条件：len(sys.argv) < 2 时打印 usage 并返回 EXIT_SPEC；否则 job_dir 取 sys.argv[1]，spec 读取异常、超 context_budget_tokens、SpecError 均返回 EXIT_SPEC，工具链或单发（含空助手轮）的 _error 或 urllib HTTPError 或其他异常返回 EXIT_API，成功（含无可见 tools 时走 call_llm 且非空助手轮）返回 EXIT_OK；
 def main() -> int:
     if len(sys.argv) < 2:
         print("usage: exec.py <job_dir>", file=sys.stderr)
@@ -1522,23 +1551,27 @@ def main() -> int:
         if tool_names:
             out = run_with_tools(spec, messages, job_id, job_dir=job_dir,
                                  base_tokens=base_tokens)
-            if "_error" in out:
-                write_result(
-                    job_dir,
-                    {
-                        "ok": False,
-                        "error": out["_error"],
-                        "tool_trace": out.get("tool_trace") or [],
-                        "finished_ts": time.time(),
-                        "duration_s": round(time.time() - t0, 2),
-                    },
-                )
-                log(job_dir, f"工具链失败: {out['_error'][:200]}")
-                progress(job_dir, kind="error", error=out["_error"][:300],
-                         where="tool_loop")
-                return EXIT_API
         else:
             out = call_llm(spec, messages)
+        if "_error" in out:
+            # 统一失败落盘（v2 N7，2026-09-25）：单发空包与工具链失败走同一
+            # _error 协议——都写 ok=false + EXIT_API；此前单发路无条件
+            # out.update(ok=True)，网关 200+空包曾记成功（content=""）。
+            write_result(
+                job_dir,
+                {
+                    "ok": False,
+                    "error": out["_error"],
+                    "tool_trace": out.get("tool_trace") or [],
+                    "finished_ts": time.time(),
+                    "duration_s": round(time.time() - t0, 2),
+                },
+            )
+            log(job_dir, f"{'工具链' if tool_names else '单发'}失败: "
+                         f"{out['_error'][:200]}")
+            progress(job_dir, kind="error", error=out["_error"][:300],
+                     where="tool_loop" if tool_names else "single_shot")
+            return EXIT_API
         out.update(
             {
                 "ok": True,

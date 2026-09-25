@@ -218,7 +218,7 @@ def _read_progress(path: str, limit: int) -> tuple[list[dict], int]:
         return _parse_progress(f, limit)
 
 
-# 生效条件：job 为真值且（wm 或 job_id 为真值）时返回 "二选一" 错误；仅 job 为真值（wm/job_id 均假值）时读 os.path.abspath(job)/PROGRESS_FILE，非 os.path.isfile 则返回 source="job" 的进展卡缺失错误；wm 与 job_id 均为真值（job 假值）时先试 wm/jobs/<job_id>/PROGRESS_FILE（os.path.isfile 为真即读，source="wm"），否则 git show task/<job_id>:jobs/<job_id>/PROGRESS_FILE，其 returncode != 0 返回 source="wm" 的缺失错误，成功则按 r.stdout.splitlines() 解析（source="wm_branch"）；job 假值且 wm/job_id 中任一为假值（含仅传 wm、仅传 job_id、全不传）走 else 返回 "需 --job JOB_DIR 或 --wm DIR --job-id ID"；limit 默认 50，limit > 0 取尾部 limit 条、limit <= 0 取全部，返回 ok True 与 source/path/ref/count/total/kinds（str(e.get("kind") or "?") 计数）及 entries 中倒序第一个 kind=="handoff" 的条目（无则为 None）。
+# 生效条件：job 为真值且（wm 或 job_id 为真值）时返回 "二选一" 错误；仅 job 为真值（wm/job_id 均假值）时读 os.path.abspath(job)/PROGRESS_FILE，非 os.path.isfile 则返回 source="job" 的进展卡缺失错误；wm 与 job_id 均为真值（job 假值）时先校验 job_id 为单一路径段（in (".","..") 或含 / \\ 即返回非法 job_id 错误，防穿越越权读——与 cmd_snapshot 同款），通过后先试 wm/jobs/<job_id>/PROGRESS_FILE（os.path.isfile 为真即读，source="wm"），否则 git show task/<job_id>:jobs/<job_id>/PROGRESS_FILE，其 returncode != 0 返回 source="wm" 的缺失错误，成功则按 r.stdout.splitlines() 解析（source="wm_branch"）；job 假值且 wm/job_id 中任一为假值（含仅传 wm、仅传 job_id、全不传）走 else 返回 "需 --job JOB_DIR 或 --wm DIR --job-id ID"；limit 默认 50，limit > 0 取尾部 limit 条、limit <= 0 取全部，返回 ok True 与 source/path/ref/count/total/kinds（str(e.get("kind") or "?") 计数）及 entries 中倒序第一个 kind=="handoff" 的条目（无则为 None）。
 def cmd_progress(job: str | None = None, wm: str | None = None,
                  job_id: str | None = None, limit: int = 50) -> dict:
     """读进展卡（换人续跑的交接面）。
@@ -249,6 +249,14 @@ def cmd_progress(job: str | None = None, wm: str | None = None,
         entries, total = _read_progress(path, limit)
         ref, source = path, "job"
     elif wm and job_id:
+        # 路径段校验（v8 N67，2026-09-25）：--job-id 拼进工作区路径
+        # （os.path.join）与 git ref（task/<id>:jobs/<id>/...）两处，
+        # `../../victim` 可越权读 wm 仓外任意 JSONL 并全文回显——
+        # 与 cmd_snapshot 同款四行模板（姊妹面防御一致）。
+        if job_id in (".", "..") or "/" in job_id or "\\" in job_id:
+            return {"ok": False, "error": (
+                f"非法 job_id {job_id!r}：须为单一路径段（含 / \\ .. 即拒，"
+                f"防穿越越权读——progress 面 job_id 不可信）")}
         wm = os.path.abspath(wm)
         path = os.path.join(wm, "jobs", job_id, PROGRESS_FILE)
         if os.path.isfile(path):
