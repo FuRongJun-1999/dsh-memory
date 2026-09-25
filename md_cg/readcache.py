@@ -24,22 +24,42 @@
   3. 进程内一致性边界（与 MdStore 相同的诚实边界）：跨进程/外部直接改写
      md 文件不保证可见——认知图的多进程形态（每智能体一进程）各持快照。
 
-开关：`MDCG_READ_CACHE=1` 显式启用（默认关，零变更纪律，与 #28 hotcache
-同款装配）；不设或非 "1" 时 `install` 不被调用，行为与改动前逐位一致。
+开关：默认**开**（issue #31 后续——生产检索入口 MdCGOS.search 默认态每查询
+全池 open+realpath+parse，3300 池实测中位 ~602ms/查询、O(n) 线性；读缓存
+早已实现却默认关，生产恒不装配，故默认翻转）；`MDCG_READ_CACHE=0` 显式
+关闭（opt-out 零变更退出阀——跨进程改写 md 文件须本进程立即可见的部署，
+或内存受限场景，可一关回到逐次读盘的旧行为）。
 """
 import os
 
-# 生效条件：无 required 形参，锚定环境变量名 MDCG_READ_CACHE；当 os.environ.get("MDCG_READ_CACHE") == "1" 时返回 True，否则返回 False。
+# 生效条件：无 required 形参，锚定环境变量名 MDCG_READ_CACHE；未设或值为 "1" 时返回 True（默认开，issue #31 生产 O(n) 全池扫描修复），显式设为其它值（含 "0"）时返回 False。
 def enabled() -> bool:
-    """读缓存开关（默认关；=1 显式启用——零变更纪律）。"""
-    return os.environ.get("MDCG_READ_CACHE") == "1"
+    """读缓存开关（默认开；=0 显式关闭——opt-out 退出阀）。"""
+    return os.environ.get("MDCG_READ_CACHE", "1") == "1"
 
 
-# 生效条件：cg._read 可调用时以 (path → (dirty 代际, 解析产物)) 常驻字典包装之——命中条件为 path 存在且代际等于当前 len(cg._dirty)；cg._doc_norm_bigrams 亦存在时同款包装其派生物（_score 热点：文档侧归一化 bigram 只依赖 content，随读缓存一并常驻）；包装后 cg._read/_doc_norm_bigrams 为包装函数、cg._read_cache/_norm_bigrams_cache 为缓存字典；返回缓存字典。
+# 生效条件：cg._read_uncached 属性存在时返回其以 entry 调用的结果（穿透读缓存的盘上真值直读），否则返回 cg._read(entry)（未装缓存时两者等价，零变更）。
+def direct_read(cg, entry):
+    """治理/写前重查专用直读——穿透读缓存，读盘上当前真值。
+
+    读缓存默认开（issue #31 后续）后 `cg._read` 是进程内快照；治理面的
+    「写前重查」「回滚比对」语义上要求盘上真值——预演与执行之间节点
+    可能被他人/外部进程改写（test_mr_m4 D12「被人改动→不覆盖」形态：
+    path-only 命中会让重查读到预演时装入的旧值，漏判 drift）。
+    """
+    fn = getattr(cg, "_read_uncached", None)
+    if fn is None:
+        return cg._read(entry)
+    return fn(entry)
+
+
+# 生效条件：cg._read 可调用时以 (path → (dirty 代际, 解析产物)) 常驻字典包装之——命中条件为 path 存在且代际等于当前 len(cg._dirty)；cg._doc_norm_bigrams 亦存在时同款包装其派生物（_score 热点：文档侧归一化 bigram 只依赖 content，随读缓存一并常驻）；包装后 cg._read/_doc_norm_bigrams 为包装函数、cg._read_cache/_norm_bigrams_cache 为缓存字典、cg._read_uncached 为未被包装的原始 _read（direct_read 的真源）；返回缓存字典。
 def install(cg):
     """把 `cg._read`（与派生物钩子）包成脏代际校验的常驻缓存。"""
     cache = {}
-    orig = cg._read
+    # 重复 install（如显式再调）不叠加包装层，_read_uncached 恒指真原始。
+    orig = getattr(cg, "_read_uncached", None) or cg._read
+    cg._read_uncached = orig
 
     def _cached(entry):
         p = entry["path"]

@@ -138,8 +138,20 @@ def main():
             "from md_cg.mdcg import _LIVE_CGS\n"
             "_LIVE_CGS.clear()\n")
         check("反证子进程正常退出", r.returncode == 0, (r.stderr or "")[:200])
-        check("反证：索引不可见（缺陷可复现，证明兜底是有效变量）",
-              not _visible(root_b, "n_nohook"))
+        # issue #33（close 自动落快照 + 盘面指纹校验）后，「无 flush 退出 →
+        # 索引不可见」的原缺陷被修得更彻底：节点文件已落盘、目录 mtime 已
+        # 变 → 新进程 _load_index 指纹校验失败 → 回退全库扫描 → 节点**仍
+        # 可见**（可见性由盘面兜底接管，原「不可见」反证前提失效）。
+        # atexit 兜底的有效变量改为「增量日志是否落账」：摘掉 atexit →
+        # 子进程无 flush → 增量日志零记录（若【①】的兜底是空转，这里会
+        # 出现记录）——反证组据此继续防测试空转。
+        check("反证：可见性由盘面指纹兜底接管（原缺陷不可复现=修复增强）",
+              _visible(root_b, "n_nohook"))
+        log_dir = os.path.join(root_b, "_index_log")
+        n_log = (sum(1 for fn in os.listdir(log_dir) if fn.endswith(".log"))
+                 if os.path.isdir(log_dir) else 0)
+        check("反证：增量日志零记录（atexit flush 是有效变量，防【①】空转）",
+              n_log == 0, f"log_files={n_log}")
 
         # ---------------- ③ 显式 close 对照（原有正路不回归） ----------------
         print("\n【③】显式收尾对照：close() 仍是正路")

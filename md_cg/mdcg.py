@@ -886,7 +886,7 @@ class MdCG:
 
     # ---------- 索引（派生物，可重建） ----------
 
-# 生效条件：os.path.exists(self.index_path) 为真、json.load 成功且其 "schema" 等于模块级 SCHEMA 时以该快照为基底，否则以 self._scan_nodes() 结果与空 buckets 新建；随后重放 ShardedLog.read_all(self.index_log_dir)：记录无 id 跳过、e 为 None 则 pop 该 nid（tombstone）、e 非 None 则覆盖，最终 buckets 由 _count_buckets 重算；
+# 生效条件：os.path.exists(self.index_path) 为真、json.load 成功且其 "schema" 等于模块级 SCHEMA、且其 "_fingerprint"（目录树 mtime 指纹）等于当前 self._dir_fingerprint() 时以该快照为基底；快照缺失/损坏/无指纹/指纹不符（盘面在快照写入后有增删——其它存活实例未 flush 的写入或外部改盘）均回退 self._scan_nodes() 全库扫描为基底；随后重放 ShardedLog.read_all(self.index_log_dir)：记录无 id 跳过、e 为 None 则 pop 该 nid（tombstone）、e 非 None 则覆盖，最终 buckets 由 _count_buckets 重算；
     def _load_index(self):
         idx = None
         if os.path.exists(self.index_path):
@@ -896,6 +896,17 @@ class MdCG:
                 if d.get("schema") == SCHEMA:
                     idx = d
             except (ValueError, OSError):
+                idx = None
+        if idx is not None:
+            # 指纹校验（issue #33）：快照只在「盘面与写入时一致」时可信。
+            # close 自动落盘常态化后，快照路径不再扫盘面——若不校验，
+            # 其它存活实例未 flush 的写入（文件已落盘、索引增量还在其
+            # _dirty）会从索引不可见。指纹不符 → 回退全库扫描（即原
+            # 「无快照」路径的兜底行为，成本不劣于改动前）。旧快照无
+            # _fingerprint 键 → 同样回退一次（迁移窗口），下次 close
+            # 落新快照后恢复快照路径。
+            fp = idx.get("_fingerprint")
+            if fp is None or fp != self._dir_fingerprint():
                 idx = None
         if idx is None:
             idx = {"schema": SCHEMA, "nodes": self._scan_nodes(), "buckets": {}}
@@ -912,6 +923,38 @@ class MdCG:
         idx["buckets"] = self._count_buckets(idx["nodes"])
         return idx
 
+# 生效条件：遍历 LAYERS 各层目录树（os.walk，不读文件内容），对每个可达目录记录其相对 root 的正斜杠路径到 os.stat().st_mtime_ns 的映射；stat 抛 OSError 的目录跳过；返回该映射。
+    def _dir_fingerprint(self):
+        """盘面目录树 mtime 指纹——检测「快照写入后盘面有增删」的廉价哨兵。
+
+        只 walk 目录 + 每目录一次 stat（不 open/不解析任何 .md），成本
+        与目录数成正比、与节点数无关（平铺库 ~LAYERS 次 stat）。目录
+        mtime 在直接子项增删时变化（NTFS 100ns / ext4 ns 粒度）。
+        边界：同目录**内容级**改写（不动文件名）不触发——合作写路径
+        （add/update）都同步走索引增量日志，不依赖本指纹；外部直改
+        文件内容属非合作写者协议（见 readcache 同款声明）。
+        """
+        fp = {}
+        for layer in LAYERS:
+            base = os.path.join(self.root, layer)
+            for dirpath, _dirs, _files in os.walk(base):
+                try:
+                    fp[os.path.relpath(dirpath, self.root).replace("\\", "/")] = \
+                        os.stat(dirpath).st_mtime_ns
+                except OSError:
+                    continue
+        return fp
+
+# 生效条件：遍历 LAYERS 各层目录树（os.walk，不读文件内容），统计文件名以 ".md" 结尾的文件总数并返回。
+    def _count_md_files(self):
+        """盘面 .md 文件计数（不 open/不解析）——compact 写快照前的账本对账。"""
+        n = 0
+        for layer in LAYERS:
+            base = os.path.join(self.root, layer)
+            for _dp, _dirs, files in os.walk(base):
+                n += sum(1 for fn in files if fn.endswith(".md"))
+        return n
+
     @staticmethod
 # 生效条件：nodes 须为带 values() 的映射且各元素支持 .get("bucket")；仅当 bucket 取值为真值时才计入返回计数，缺键或假值均跳过。
     def _count_buckets(nodes):
@@ -922,27 +965,53 @@ class MdCG:
                 buckets[b] = buckets.get(b, 0) + 1
         return buckets
 
-# 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析且 "schema" 等于 SCHEMA 时以该快照为基底，否则用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}} 作基底（不重扫目录），再对 index_log_dir 逐条重放（无 id 跳过、e 为 None 则 pop、否则覆盖），落盘并清空日志后替换 self.index 并返回 idx；
+# 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析且 "schema" 等于 SCHEMA 时以该快照为基底；快照不存在用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}}（不重扫目录）；快照损坏（ValueError/OSError）或 schema 不符时降级以 self._scan_nodes() 全库扫描结果为基底（宁重扫勿清池）；基底确定后对 index_log_dir 逐条重放（无 id 跳过、e 为 None 则 pop、否则覆盖），落盘并清空日志后替换 self.index 并返回 idx；
     def compact_index(self):
         with FileLock(self.index_path):
             idx = {"schema": SCHEMA, "nodes": {}, "buckets": {}}
+            scan_fallback = False
             if os.path.exists(self.index_path):
                 try:
                     with open(self.index_path, encoding="utf-8") as f:
                         d = json.load(f)
                     if d.get("schema") == SCHEMA:
                         idx = d
+                    else:
+                        scan_fallback = True      # schema 不符：视同损坏
                 except (ValueError, OSError):
-                    pass
-            for rec in ShardedLog.read_all(self.index_log_dir):
-                nid, e = rec.get("id"), rec.get("e")
-                if not nid:
-                    continue
-                if e is None:              # 删除记录（tombstone），见 _load_index
-                    idx["nodes"].pop(nid, None)
-                else:
-                    idx["nodes"][nid] = e
+                    scan_fallback = True          # 损坏：不得拿空骨架覆盖
+            if scan_fallback:
+                # 快照损坏/schema 不符 → 降级全库扫描重建基底（宁重扫勿清池）。
+                # close 自动 compact（issue #33）上生产路径后此防御必须：
+                # 空骨架 + 增量日志会写出丢失全部历史节点的快照，而
+                # _load_index 见快照即不扫目录——池子从此不可见。
+                idx = {"schema": SCHEMA, "nodes": self._scan_nodes(),
+                       "buckets": {}}
+
+            def _apply_log(nodes):
+                for rec in ShardedLog.read_all(self.index_log_dir):
+                    nid, e = rec.get("id"), rec.get("e")
+                    if not nid:
+                        continue
+                    if e is None:              # 删除记录（tombstone），见 _load_index
+                        nodes.pop(nid, None)
+                    else:
+                        nodes[nid] = e
+                return nodes
+
+            _apply_log(idx["nodes"])
+            if not scan_fallback and self._count_md_files() != len(idx["nodes"]):
+                # 计数对账（issue #33）：快照+日志账本与盘面不符——其它存活
+                # 实例未 flush 的写入（文件已落盘、索引增量还在其 _dirty）
+                # 或外部增删文件。宁重扫勿写缺账快照：缺账快照会被重开
+                # 路径的指纹校验放行，节点从此「在盘上但不可见」。
+                # 与 _load_index 的指纹兜底双保险：此处保快照**完整**，
+                # 指纹保快照**新鲜**。
+                idx = {"schema": SCHEMA,
+                       "nodes": _apply_log(self._scan_nodes()),
+                       "buckets": {}}
             idx["buckets"] = self._count_buckets(idx["nodes"])
+            idx["_fingerprint"] = self._dir_fingerprint()
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))
             ShardedLog.clear(self.index_log_dir)
         self.index = idx
@@ -970,16 +1039,110 @@ class MdCG:
             # 每次 flush，句柄无需常驻；下一次 append 会按需重开。
             self._log.close()
 
-# 生效条件：随认知图对象生命周期结束调用、可重复；先 flush() 落未达 autoflush 阈值的脏索引（否则尾部写入虽在盘上但不可见），再关闭并置空日志句柄（句柄为假值时跳过关闭）；
+# 生效条件：随认知图对象生命周期结束调用、可重复；先 flush() 落未达 autoflush 阈值的脏索引（否则尾部写入虽在盘上但不可见），随后自动落快照（issue #33：快照存在 → compact_index 增量并入并清日志；快照不存在且 index["nodes"] 非空 → rebuild_index 全量建快照；空库不写快照；OSError/ValueError 静默吞掉——失败时增量日志仍在、重开可重放，close 是兜底路径不该再抛），最后关闭并置空日志句柄（句柄为假值时跳过关闭）；
     def close(self):
         # 先落脏索引再关句柄：否则未达 autoflush 阈值的尾部写入会永久丢失，
         # 已有 _index.json 的根重开时不会重扫目录，节点将「在盘上但不可见」。
         self.flush()
+        # 自动落快照（issue #33）：原 close 只 flush——「add→close」的库
+        # 永远没有快照（compact_index 曾是唯一增量写快照点且生产零调用），
+        # 每次重开都 _scan_nodes 全库逐文件解析（1500 池实测 ~104ms/次）
+        # + 无条件重放全部增量日志（在扫描基底上纯冗余）。close 是一次性
+        # 脚本（review_cli 等）与 MCP server 退出的统一优雅收尾点：
+        # · 有快照 → compact（快照+日志=全量账本，增量并入+清日志）；
+        # · 无快照但有节点 → rebuild 全量建快照（历史节点可能无日志记录，
+        #   重放拼不出全量，必须扫一次盘面——本次一次，此后重开零扫描）；
+        # · 空库不写（不产生空快照文件，保持原行为）。
+        # 失败静默：与 atexit 兜底吞异常同风格；compact 失败时增量日志
+        # 仍在，重开照常重放，语义退回改动前而不会丢数据。
+        try:
+            if os.path.exists(self.index_path):
+                self.compact_index()
+            elif self.index["nodes"]:
+                self.rebuild_index()
+        except (OSError, ValueError):
+            pass
         if self._log:
             self._log.close()
             self._log = None
 
-# 生效条件：遍历模块级 LAYERS 各层目录下所有 .md 文件，读取抛 OSError 的跳过；nid 取 fm.get("id")，为假值时回落去掉 .md 的文件名；bucket 取父目录名、父目录等于层名时为 None；返回 nodes；
+# 生效条件：以节点文件绝对路径 p、其所在层目录名 layer、解析出的 fm 与 content 为入参，构造含 path（相对 root 正斜杠）/layer（fm 回落 layer）/role/content_kind/session/tags/bucket（父目录名，等于层名时 None）/bucket_zh/importance/created_at/verification_basis/has_neg_conditions/content_hash/temporal/spatial/time_window/lifecycle 与 trust 状态字段/branch_id/branched_from/evidence_count/big_domain/observation_position/subgraph/edges/protected/protection_reason/immutable/self_state/derived_from/derived_relation 各键的条目，经 _strip_empty_gate_fields 清洗后返回；
+    def _node_entry(self, p, layer, fm, content):
+        """单节点索引条目——_scan_nodes 与定向 upsert 共用的**唯一真源**。
+
+        issue #34：merge 裁决从 rebuild_index（O(N) 全库扫描）收尾改为
+        定向 upsert（O(1)）后，单文件条目构造必须与全量扫描**同源**，
+        否则 upsert 与 rebuild 两条路径的字段集漂移（重建前后索引形态
+        不一致）。提取本方法即为此——_scan_nodes 循环体与 merge 的
+        upsert 都调它，字段口径零漂移由构造保证。
+        """
+        rel = os.path.relpath(p, self.root).replace("\\", "/")
+        parent = os.path.basename(os.path.dirname(p))
+        return _strip_empty_gate_fields({
+            "path": rel, "layer": fm.get("layer", layer),
+            # role 必须回填：它写在节点 frontmatter 里（写入时 role or "user"），
+            # 但索引重建时若不复制，os.roles 会全部退化为 (none)，
+            # 来源归因打分随之失效（实测 48 条全丢）。
+            "role": fm.get("role"),
+            # content_kind 入快照：角色化读取视图（第四阶段 6.1）的
+            # 候选资格维度须免读文件可判（与 role 同款理由）。
+            # 纯增量键：批次 C 之前零消费方，view=None 零行为变更。
+            "content_kind": fm.get("content_kind"),
+            # 会话归属入快照（P45 归因维度）：写入路径 _stage 早已带出
+            # 该键，重建路径若漏掉，rebuild_index() 之后「按会话过滤」
+            # 即静默全空——快照与 _stage 必须同口径（与 role 同款理由）。
+            "session": fm.get("session"),
+            "tags": fm.get("tags", []),
+            "bucket": parent if parent != layer else None,
+            # issue #33：中文别名入快照（fm 派生，与写入路径同口径）——
+            # S1b 跨语言收敛免读文件可判。
+            "bucket_zh": fm.get("bucket_zh") or None,
+            "importance": fm.get("importance", 0.5),
+            "created_at": fm.get("created_at", 0),
+            "verification_basis": fm.get("verification_basis"),
+            "has_neg_conditions": nodefile.has_non_applicable(content),
+            # 内容指纹走 nodefile 的唯一实现（两段式对账依赖同一算法）
+            "content_hash": nodefile.content_hash(content),
+            # 时空字段入索引快照：STG 查询免读文件（大域/目录索引的延伸）
+            "temporal": fm.get("temporal"),
+            "spatial": fm.get("spatial"),
+            "time_window": (fm.get("condition_space") or {}).get("time_window"),
+            # 生命周期状态（② 显式状态机）：索引入快照 → 免读文件可查，
+            # 写入路径也因此无需读盘就能校验迁移合法性。重建口径与
+            # _stage 一致（旧库无该字段 → None → state_of 视为 active）。
+            lifecycle.STATE_FIELD: fm.get(lifecycle.STATE_FIELD),
+            # 可验证记忆单元（trust）：重建口径与 _stage 三件同源
+            # （验证态 / 依赖 / 双时间轴）——索引缺键即免读文件不可判。
+            trust.STATE_FIELD: fm.get(trust.STATE_FIELD),
+            trust.DEPS_FIELD: fm.get(trust.DEPS_FIELD),
+            trust.FROM_FIELD: fm.get(trust.FROM_FIELD),
+            trust.UNTIL_FIELD: fm.get(trust.UNTIL_FIELD),
+            # 规范时间轴键（2026-09-19 阶段一）：与 _stage 同口径，
+            # 重建索引后新旧口径一致（检索面 validity 须免读盘可判）。
+            trust.EFFECTIVE_FROM_FIELD: fm.get(trust.EFFECTIVE_FROM_FIELD),
+            trust.EFFECTIVE_UNTIL_FIELD: fm.get(trust.EFFECTIVE_UNTIL_FIELD),
+            # 记忆演化分支（④）：重建口径与 _stage 一致
+            "branch_id": fm.get("branch_id"),
+            "branched_from": fm.get("branched_from"),
+            "evidence_count": fm.get("evidence_count", 0),
+            # S1 大域先验：域标签入索引快照 → 候选收敛零读文件（与 add() 同口径）
+            "big_domain": fm.get("big_domain"),
+            # S2 条件门控所需的可判定硬槽（免读文件即可门控）
+            "observation_position": (fm.get("condition_space") or {}).get("observation_position"),
+            # 嵌套子图 / 关系边入索引快照：递归展开与链式遍历免读文件
+            "subgraph": fm.get("subgraph"),
+            "edges": fm.get("edges") or [],
+            "protected": fm.get("protected"),
+            "protection_reason": fm.get("protection_reason"),
+            "immutable": fm.get("immutable"),
+            # 自我状态卡标记：protect 据此豁免「不可覆盖」（仍不可遗忘）
+            "self_state": fm.get("self_state"),
+            # G8 派生溯源：frontmatter 声明入索引 → 悬空巡检零读文件
+            "derived_from": fm.get("derived_from") or [],
+            "derived_relation": fm.get("derived_relation"),
+                    })
+
+# 生效条件：遍历模块级 LAYERS 各层目录下所有 .md 文件，读取抛 OSError 的跳过；nid 取 fm.get("id")，为假值时回落去掉 .md 的文件名；条目经 self._node_entry(p, layer, fm, content) 构造；返回按 nid 排序的 nodes；
     def _scan_nodes(self):
         nodes = {}
         for layer in LAYERS:
@@ -995,83 +1158,20 @@ class MdCG:
                     except OSError:
                         continue
                     nid = fm.get("id") or fn[:-3]
-                    rel = os.path.relpath(p, self.root).replace("\\", "/")
-                    parent = os.path.basename(dirpath)
-                    nodes[nid] = _strip_empty_gate_fields({
-                        "path": rel, "layer": fm.get("layer", layer),
-                        # role 必须回填：它写在节点 frontmatter 里（写入时 role or "user"），
-                        # 但索引重建时若不复制，os.roles 会全部退化为 (none)，
-                        # 来源归因打分随之失效（实测 48 条全丢）。
-                        "role": fm.get("role"),
-                        # content_kind 入快照：角色化读取视图（第四阶段 6.1）的
-                        # 候选资格维度须免读文件可判（与 role 同款理由）。
-                        # 纯增量键：批次 C 之前零消费方，view=None 零行为变更。
-                        "content_kind": fm.get("content_kind"),
-                        # 会话归属入快照（P45 归因维度）：写入路径 _stage 早已带出
-                        # 该键，重建路径若漏掉，rebuild_index() 之后「按会话过滤」
-                        # 即静默全空——快照与 _stage 必须同口径（与 role 同款理由）。
-                        "session": fm.get("session"),
-                        "tags": fm.get("tags", []),
-                        "bucket": parent if parent != layer else None,
-                        # issue #33：中文别名入快照（fm 派生，与写入路径同口径）——
-                        # S1b 跨语言收敛免读文件可判。
-                        "bucket_zh": fm.get("bucket_zh") or None,
-                        "importance": fm.get("importance", 0.5),
-                        "created_at": fm.get("created_at", 0),
-                        "verification_basis": fm.get("verification_basis"),
-                        "has_neg_conditions": nodefile.has_non_applicable(content),
-                        # 内容指纹走 nodefile 的唯一实现（两段式对账依赖同一算法）
-                        "content_hash": nodefile.content_hash(content),
-                        # 时空字段入索引快照：STG 查询免读文件（大域/目录索引的延伸）
-                        "temporal": fm.get("temporal"),
-                        "spatial": fm.get("spatial"),
-                        "time_window": (fm.get("condition_space") or {}).get("time_window"),
-                        # 生命周期状态（② 显式状态机）：索引入快照 → 免读文件可查，
-                        # 写入路径也因此无需读盘就能校验迁移合法性。重建口径与
-                        # _stage 一致（旧库无该字段 → None → state_of 视为 active）。
-                        lifecycle.STATE_FIELD: fm.get(lifecycle.STATE_FIELD),
-                        # 可验证记忆单元（trust）：重建口径与 _stage 三件同源
-                        # （验证态 / 依赖 / 双时间轴）——索引缺键即免读文件不可判。
-                        trust.STATE_FIELD: fm.get(trust.STATE_FIELD),
-                        trust.DEPS_FIELD: fm.get(trust.DEPS_FIELD),
-                        trust.FROM_FIELD: fm.get(trust.FROM_FIELD),
-                        trust.UNTIL_FIELD: fm.get(trust.UNTIL_FIELD),
-                        # 规范时间轴键（2026-09-19 阶段一）：与 _stage 同口径，
-                        # 重建索引后新旧口径一致（检索面 validity 须免读盘可判）。
-                        trust.EFFECTIVE_FROM_FIELD: fm.get(trust.EFFECTIVE_FROM_FIELD),
-                        trust.EFFECTIVE_UNTIL_FIELD: fm.get(trust.EFFECTIVE_UNTIL_FIELD),
-                        # 记忆演化分支（④）：重建口径与 _stage 一致
-                        "branch_id": fm.get("branch_id"),
-                        "branched_from": fm.get("branched_from"),
-                        "evidence_count": fm.get("evidence_count", 0),
-                        # S1 大域先验：域标签入索引快照 → 候选收敛零读文件（与 add() 同口径）
-                        "big_domain": fm.get("big_domain"),
-                        # S2 条件门控所需的可判定硬槽（免读文件即可门控）
-                        "observation_position": (fm.get("condition_space") or {}).get("observation_position"),
-                        # 嵌套子图 / 关系边入索引快照：递归展开与链式遍历免读文件
-                        "subgraph": fm.get("subgraph"),
-                        "edges": fm.get("edges") or [],
-                        "protected": fm.get("protected"),
-                        "protection_reason": fm.get("protection_reason"),
-                        "immutable": fm.get("immutable"),
-                        # 自我状态卡标记：protect 据此豁免「不可覆盖」（仍不可遗忘）
-                        "self_state": fm.get("self_state"),
-                        # G8 派生溯源：frontmatter 声明入索引 → 悬空巡检零读文件
-                        "derived_from": fm.get("derived_from") or [],
-                        "derived_relation": fm.get("derived_relation"),
-                    })
+                    nodes[nid] = self._node_entry(p, layer, fm, content)
         # 索引序确定性：按 nid 排序返回。os.walk 的遍历序是**文件系统事实**
         # （NTFS 上常为字母序，但换 FS / 目录碎片化后不保证），若直接作为
         # index["nodes"] 的物理序，就会让「完全并列」的结果顺序依赖重建路径。
         # 排序后重建序恒定（增量路径另由 cut_by_relevance 的 nid 终键兜住）。
         return {k: nodes[k] for k in sorted(nodes)}
 
-# 生效条件：每次调用都以 self._scan_nodes() 的结果重建 nodes 与 buckets，在 FileLock 下 atomic_write 覆盖 index_path 并 ShardedLog.clear(index_log_dir)，随后替换 self.index、清空 _dirty 并返回 idx（无 .md 时也照样覆盖为空索引）；
+# 生效条件：每次调用都以 self._scan_nodes() 的结果重建 nodes 与 buckets 并附 _dir_fingerprint()，在 FileLock 下 atomic_write 覆盖 index_path 并 ShardedLog.clear(index_log_dir)，随后替换 self.index、清空 _dirty 并返回 idx（无 .md 时也照样覆盖为空索引）；
     def rebuild_index(self):
         nodes = self._scan_nodes()
         idx = {"schema": SCHEMA, "nodes": nodes,
                "buckets": self._count_buckets(nodes)}
         with FileLock(self.index_path):
+            idx["_fingerprint"] = self._dir_fingerprint()
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))
             ShardedLog.clear(self.index_log_dir)
         self.index = idx
@@ -1782,7 +1882,7 @@ class MdCG:
         """当前活跃目标（默认最多 5 条）——检索定向的默认来源。"""
         return self.list_goals(status="active", limit=limit)
 
-# 生效条件：status 不属于模块级 GOAL_STATUSES 时抛 ValueError；self.get(node_id) 取不到节点或其 frontmatter 的 layer 不等于 "goals" 时返回 None；否则写回 goal_status 与 status_changed_at 并返回 {"id": node_id, "status": status}；
+# 生效条件：status 不属于模块级 GOAL_STATUSES 时抛 ValueError；self.get(node_id) 取不到节点或其 frontmatter 的 layer 不等于 "goals" 时返回 None；否则写回 goal_status 与 status_changed_at，置 self._dirty[node_id]（读缓存代际失效，entry 取 index["nodes"] 现值或 {"path","layer":"goals"} 兜底）并返回 {"id": node_id, "status": status}；
     def set_goal_status(self, node_id: str, status: str):
         """目标状态机：active → done/dropped（可回退）。"""
         if status not in GOAL_STATUSES:
@@ -1795,6 +1895,12 @@ class MdCG:
         fm["status_changed_at"] = time.time()
         self._write_node(node_id, os.path.join(self.root, node["path"]),
                          fm, node["content"])
+        # 标脏（读缓存代际哨兵前提：写路径必须推进 write_gen——直写不标脏
+        # 会让同实例 _goal_entry/检索读到旧 goal_status，p7「done 退出
+        # active」陈旧形态）。不走 _stage：节点已在索引，_stage 会虚增
+        # bucket 计数；这里只推代际，entry 同值幂等。
+        self._dirty[node_id] = self.index["nodes"].get(node_id) \
+            or {"path": node["path"], "layer": "goals"}
         return {"id": node_id, "status": status}
 
 # 生效条件：goal 为真值（非 None/空串/0）时返回 str(goal)；goal 为假值时返回 self.active_goals(limit=limit) 中非空 goal 文本以空格拼接的字符串；

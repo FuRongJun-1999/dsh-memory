@@ -51,6 +51,7 @@ from . import crypto, nodefile, tokens
 from .consolidate import _has_ccg_line, _upsert_ccg_line
 from .fsutil import append_jsonl, read_jsonl
 from .mdcos import MdCGOS, _ccg_field
+from .readcache import direct_read
 
 # ---- 常量 ----------------------------------------------------------------
 
@@ -293,7 +294,7 @@ def _readable_guard(cg, e) -> bool:
 # 生效条件：仅当 cg 对 e 读出的 fm 非 None、content 未被 crypto.is_encrypted、e['layer'] 不在 SKIP_LAYERS 且 fm.get('tags') 无命中 SKIP_TAGS、ccg_completeness(content)['complete'] 为假时才继续——derive_fields（受 basis_text 影响）过滤掉 content 已有 CCG 行的可写字段为空时按 placeholder_out 是否非空返回 ('placeholder'/'unfillable', None)，非空时返回 ('', item)（item 的 id 取 nid、class 依 undeducible 是否为空取 'backfillable' 或 'partial'）；上述四个前置不满足时依次返回 ('unreadable'/'locked'/'derived'/'present', None)。
 def _classify(cg, e, nid, basis_text=None):
     """→ (skip_reason, item)；skip_reason 非空表示不参与回填。"""
-    fm, content = cg._read(e)
+    fm, content = direct_read(cg, e)
     if fm is None:
         return "unreadable", None
     if crypto.is_encrypted(content):
@@ -421,7 +422,7 @@ def apply(x, ids=None, entry_ids=None, layer=None, limit=None,
         if not e:
             rep["skipped_drift"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None or crypto.is_encrypted(content):
             rep["skipped_locked"] += 1
             continue
@@ -474,7 +475,7 @@ def apply(x, ids=None, entry_ids=None, layer=None, limit=None,
     return rep
 
 
-# 生效条件：x 经 _as_cg 定位后读留痕日志，仅对 action=='backfill' 且（batch 为假值则不过滤 batch，否则 rec['batch']==batch）、（entry_ids 为假值则不过滤，否则 rec['entry_id'] 属于该集合）、write_id 未出现在已完成 rollback 集合中、节点命中 cg.index['nodes'] 且 cg._read(e) 的 fm 可读、字段当前 _ccg_field(content, f) 等于留痕 after 的记录执行撤销写回（before 为 None 则删该 comment 键，否则还原原值），无字段可撤销只计 conflict 不写盘，reverted 非空时 rebuild_index，结果汇总进返回的 rep。
+# 生效条件：x 经 _as_cg 定位后读留痕日志，仅对 action=='backfill' 且（batch 为假值则不过滤 batch，否则 rec['batch']==batch）、（entry_ids 为假值则不过滤，否则 rec['entry_id'] 属于该集合）、write_id 未出现在已完成 rollback 集合中、节点命中 cg.index['nodes'] 且 direct_read(cg, e) 的 fm 可读、字段当前 _ccg_field(content, f) 等于留痕 after 的记录执行撤销写回（before 为 None 则删该 comment 键，否则还原原值），无字段可撤销只计 conflict 不写盘，reverted 非空时 rebuild_index，结果汇总进返回的 rep。
 def rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
     """按留痕反向应用：撤销本批次回填（当前值 ≠ 写入值时跳过，防覆盖）。"""
     cg = _as_cg(x)
@@ -500,7 +501,7 @@ def rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
         if not e:
             rep["missing"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None:
             rep["missing"] += 1
             continue
@@ -627,7 +628,7 @@ def cap_plan(x, layer=None, limit=None, ids=None, min_conf=0.5) -> dict:
         if not _readable_guard(cg, e):
             rep["skipped_denied"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None or crypto.is_encrypted(content):
             rep["skipped_locked"] += 1
             continue
@@ -671,7 +672,7 @@ def cap_apply(x, ids=None, entry_ids=None, layer=None, limit=None,
         if not e:
             rep["skipped_drift"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None or crypto.is_encrypted(content):
             rep["skipped_locked"] += 1
             continue
@@ -725,7 +726,7 @@ def cap_rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
         if not e:
             rep["missing"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None:
             rep["missing"] += 1
             continue
@@ -798,7 +799,7 @@ def exempt_plan(x, layer=None, limit=None, ids=None, require_ready=True,
         if not _readable_guard(cg, e):
             rep["skipped_denied"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None or crypto.is_encrypted(content):
             rep["skipped_locked"] += 1
             continue
@@ -859,7 +860,7 @@ def exempt_apply(x, ids=None, entry_ids=None, layer=None, limit=None,
         if not e:
             rep["skipped_drift"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None or crypto.is_encrypted(content):
             rep["skipped_locked"] += 1
             continue
@@ -917,7 +918,7 @@ def exempt_rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
         if not e:
             rep["missing"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None:
             rep["missing"] += 1
             continue
@@ -973,7 +974,7 @@ def conditions_pending(x, prefix=None, layer=None, limit=None) -> dict:
         if not _readable_guard(cg, e):
             rep["skipped_denied"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None or crypto.is_encrypted(content):
             rep["skipped_locked"] += 1
             continue
@@ -1059,7 +1060,7 @@ def fix_conditions_plan(x, prefix=None, limit=None) -> dict:
         if not _readable_guard(cg, e):
             rep["skipped_denied"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None or crypto.is_encrypted(content):
             rep["skipped_locked"] += 1
             continue
@@ -1116,7 +1117,7 @@ def fix_conditions_apply(x, ids=None, entry_ids=None, prefix=None, limit=None,
         if not e:
             rep["skipped_drift"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None or crypto.is_encrypted(content):
             rep["skipped_locked"] += 1
             continue
@@ -1206,7 +1207,7 @@ def fix_conditions_rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
         if not e:
             rep["missing"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None:
             rep["missing"] += 1
             continue
@@ -1260,7 +1261,7 @@ def verify_conditions(x, prefix=None, limit=None) -> dict:
             continue
         if e.get("layer") in INTERNAL_LAYERS:
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None or crypto.is_encrypted(content):
             continue
         rep["nodes_scanned"] += 1

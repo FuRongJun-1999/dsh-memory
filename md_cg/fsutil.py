@@ -224,6 +224,31 @@ def read_jsonl(path: str):
                 continue
 
 
+# 生效条件：os.path.exists(path) 为假时生成器直接结束不产出；否则以二进制只读打开并 seek 到 offset，对之后读到的每一行 bytes 先 decode("utf-8","replace") 再 strip，空行跳过，json.loads 成功则 yield 该对象，抛 ValueError 的行跳过，其余异常不捕获。
+def read_jsonl_tail(path: str, offset: int):
+    """从字节偏移 offset 起**增量**读 append-only jsonl（坏行容错与 read_jsonl 同）。
+
+    存在理由（issue #32）：propose 等高频对账每次全量重读 inbox/decisions
+    是 O(M+D)/条、批量 O(M²)；append-only 契约（写点全部经 append_jsonl，
+    无轮转/截断）下「上次扫描到的 size」必为行边界，从该偏移起只解析新增
+    字节即可。上一次写入中断在行中间（ends_mid_line 补 \\n 场景）时，残行
+    前半已在上一轮装载中被跳过、增量窗口读到的是补写的换行与新行——与
+    全量 read_jsonl 的容错结果一致。
+    """
+    if not os.path.exists(path):
+        return
+    with open(path, "rb") as f:
+        f.seek(offset)
+        for b in f:
+            line = b.decode("utf-8", "replace").strip()
+            if not line:
+                continue
+            try:
+                yield json.loads(line)
+            except ValueError:
+                continue
+
+
 _COUNT_CACHE = {}          # abspath -> (bytes_scanned, mtime_ns, lines)
 
 

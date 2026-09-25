@@ -51,6 +51,7 @@ from ..backfill import _as_cg, _entry_id, _readable_guard, _sha
 from ..fsutil import append_jsonl, read_jsonl
 from ..mdcos import ALL_ROLES, WORK_ROLES
 from .ruleset import _as_rules, _blank
+from ..readcache import direct_read
 
 #: 留痕文件名（与 `backfill._backfill.jsonl` 分立：治理动作须能独立审计）
 GOVERN_LOG = "_govern.jsonl"
@@ -198,12 +199,12 @@ def _candidate_role(e, fm, *, sources, role_map) -> tuple:
                               else REASON_NO_SOURCE)
 
 
-# 生效条件：按序判定——_readable_guard(cg, e) 为假返回 ("denied", None)；cg._read(e) 的 fm 为 None 返回 ("unreadable", None)；crypto.is_encrypted(content) 为真返回 ("locked", None)；fm.get("role") 非空白返回 ("present", None)；否则 _candidate_role(e, fm, sources=sources, role_map=role_map) 的 role 为假返回 ("unfillable", {id,layer,reason,writer})，role 为真返回 ("", {id,layer,role,source,basis,before,had_key,writer})。
+# 生效条件：按序判定——_readable_guard(cg, e) 为假返回 ("denied", None)；direct_read(cg, e) 的 fm 为 None 返回 ("unreadable", None)；crypto.is_encrypted(content) 为真返回 ("locked", None)；fm.get("role") 非空白返回 ("present", None)；否则 _candidate_role(e, fm, sources=sources, role_map=role_map) 的 role 为假返回 ("unfillable", {id,layer,reason,writer})，role 为真返回 ("", {id,layer,role,source,basis,before,had_key,writer})。
 def _classify(cg, e, nid, *, sources, role_map) -> tuple:
     """单条裁决 → `(skip_reason, item|gap)`；skip_reason 为空串表示可回填。"""
     if not _readable_guard(cg, e):
         return "denied", None
-    fm, content = cg._read(e)
+    fm, content = direct_read(cg, e)
     if fm is None:
         return "unreadable", None
     if crypto.is_encrypted(content):
@@ -344,7 +345,7 @@ def role_apply(x, ids=None, entry_ids=None, layer=None, limit=None,
         if not _readable_guard(cg, e):
             rep["skipped_denied"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None:
             rep["skipped_missing"] += 1
             continue
@@ -407,7 +408,7 @@ def role_rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
         if e is None:
             rep["missing"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)
         if fm is None or crypto.is_encrypted(content):
             rep["missing"] += 1
             continue

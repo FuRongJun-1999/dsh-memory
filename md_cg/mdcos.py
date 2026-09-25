@@ -36,7 +36,7 @@ from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                self_state, predict, evolution, weights, pooling,
                writelimit, reach, trust, roleviews)
 from .fsutil import (FileLock, atomic_write, append_jsonl, read_jsonl,
-                     count_jsonl, publish)
+                     read_jsonl_tail, count_jsonl, publish)
 from .security import (Principal, TenantRegistry, AccessDenied,
                        SENSITIVITY_ORDER, DEFAULT_SENSITIVITY, _rank)
 
@@ -326,6 +326,27 @@ class MdCGOS(MdCG):
         os.makedirs(self.trash_dir, exist_ok=True)
         self._audit_writes = 0        # 进程内写入计数（轮转探测节流，稳态零 stat）
         self._audit_index = None      # 归档索引缓存（懒加载）
+        # 审核队列增量对账缓存（issue #32）：inbox/decisions 均为 append-only
+        # （写点全在 strict 锁内经 append_jsonl，无轮转/截断），propose 的
+        # 幂等对账从「每条全量重读 O(M+D)」改为「stat 尾部增量」——跨进程
+        # append 由 stat 自动并入，无需显式失效。
+        self._inbox_idx = {}          # phash → [(pid, node_id)] 文件序
+        self._inbox_idx_size = -1     # 已并入的 inbox 字节偏移（扫描水位）
+        self._inbox_idx_mtime = -1
+        self._pid_st = {}             # pid → 最新裁决记录
+        self._pid_st_size = -1        # 已并入的 decisions 字节偏移
+        self._pid_st_mtime = -1
+        # review 治理面全记录增量缓存（issue #35）：review_stats/review_list/
+        # review_decide/_cascade_dedup/verify_review_record 单次调用内曾各自
+        # 全量重读同一 jsonl（inbox 2 遍 + decisions 1-4 遍）——改为 stat 尾部
+        # 增量的全记录缓存（与 _pid_status 同款对账），调用方内存线性扫。
+        # 注意：缓存列表为内部状态，调用方只读不得变更。
+        self._inbox_recs = []         # inbox 全记录（文件序）
+        self._inbox_recs_size = -1
+        self._inbox_recs_mtime = -1
+        self._dec_recs = []           # decisions 全记录（文件序）
+        self._dec_recs_size = -1
+        self._dec_recs_mtime = -1
         # 热缓存挂载（issue #28，2026-09-23）：读侧（search_rrf）与失效侧
         # （writepipe）早已接好，唯独无人调 attach——生产恒 None，重复 query
         # 无法命中。默认关（env 未设 → get(self) 恒 None，零变更纪律）；
@@ -336,10 +357,14 @@ class MdCGOS(MdCG):
             _hc.attach(self)
         # 检索读缓存挂载（issue #31 P2，批次 21）：MdStore 理论落地——节点
         # 文件解析产物常驻（567 池实测 572 次 open/查询 → 缓存后 ~0），写失
-        # 效走 _dirty 代际哨兵（所有写路径必然标脏，无漏挂面）。默认关
-        # （MDCG_READ_CACHE=1 显式启用，零变更纪律）。
-        if os.environ.get("MDCG_READ_CACHE") == "1":
-            from . import readcache as _rc
+        # 效走 _dirty 代际哨兵（所有写路径必然标脏，无漏挂面）。
+        # 默认**开**（issue #31 后续修复）：生产检索入口（本类 search →
+        # _read_many）默认态每查询全池 open+2×realpath+frontmatter 解析，
+        # 3300 池实测 ~602ms/查询、万级外推 ~2s+（O(n) 线性）；开关早已
+        # 存在但默认关 → 生产恒不装配。MDCG_READ_CACHE=0 显式关闭（opt-out
+        # 退出阀：跨进程改写须本进程立即可见 / 内存受限的部署回到旧行为）。
+        from . import readcache as _rc
+        if _rc.enabled():
             _rc.install(self)
 
     # ================= 6. payload-free 审计 =================
@@ -1634,17 +1659,18 @@ class MdCGOS(MdCG):
         """
         phash = _sig(content)
         with FileLock(self.inbox_log, strict=True):
+            # 增量对账（issue #32）：原实现每条全量 read_jsonl(inbox) +
+            # read_jsonl(decisions)（锁内 O(M+D)/条、批量 O(M²)，旧格式行
+            # 逐条重算 sha1）；改走 stat 尾部增量索引——文件序与覆盖语义
+            # 与原全量扫描逐位一致（同 phash 按文件序取，已裁决优先 break）。
+            ph_idx = self._inbox_phash_index()
             st = self._pid_status()
             dup = None
-            for r in read_jsonl(self.inbox_log):
-                # 存量记录无 payload_hash 字段 → 现算兼容（对账覆盖旧账）
-                rh = r.get("payload_hash") or _sig(r.get("content") or "")
-                if rh != phash:
-                    continue
-                s = st.get(r.get("pid")) or {}
-                dup = {"pid": r.get("pid"),
+            for pid, nid in ph_idx.get(phash, ()):
+                s = st.get(pid) or {}
+                dup = {"pid": pid,
                        "status": s.get("status") or "pending",
-                       "node_id": r.get("id")}
+                       "node_id": nid}
                 if dup["status"] in ("accepted", "rejected"):
                     break          # 已裁决的最有信息量，优先返回
             if dup:
@@ -1678,14 +1704,116 @@ class MdCGOS(MdCG):
                     "dup_of": None, "dup_status": None}
         return pid
 
-# 生效条件：当 self.decisions_log 可被 read_jsonl 读取时，仅 r.get("pid") 为真值的记录写入 st[r["pid"]]，后出现记录覆盖先出现记录，返回 pid → 最新一条裁决记录的字典；
+# 生效条件：stat decisions_log 失败（OSError）时把 _pid_st 置空 dict、两扫描键置 -1 并返回空 dict；size 与 mtime_ns 均与缓存键一致时直接返回 _pid_st（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移（外部非合作重写/回退）时经 read_jsonl 全量重建 _pid_st；否则经 read_jsonl_tail 从已扫描偏移起增量并入，逐条把 r.get("pid") 为真值的记录写入 _pid_st（后并入覆盖先并入）；最后把 size/mtime_ns 存回缓存键并返回 _pid_st。
     def _pid_status(self):
-        """pid → 最新一条裁决记录（多轮再审批时取最后一轮）。"""
-        st = {}
-        for r in read_jsonl(self.decisions_log):
+        """pid → 最新一条裁决记录（多轮再审批时取最后一轮）。
+
+        增量缓存（issue #32）：原实现每调用全量 read_jsonl(decisions_log)
+        （json.loads 逐条），propose 对账每条 O(D)、批量 O(M×D)。append-only
+        契约下改为 stat 尾部对账：size/mtime 未变零解析；size 增长只解析
+        新增字节；size 回退/首装全量重建兜底。mtime 单变 size 不变（touch
+        类）走增量窗口=0 行，结果不变。跨进程 append 由 stat 自动并入。
+        边界（与检索读缓存同款诚实声明）：外部**非 append 形态**重写文件
+        （同 size 改内容）不在合作写者协议内，不保证可见。
+        """
+        try:
+            sti = os.stat(self.decisions_log)
+            size, mtime = sti.st_size, sti.st_mtime_ns
+        except OSError:
+            self._pid_st, self._pid_st_size, self._pid_st_mtime = {}, -1, -1
+            return self._pid_st
+        if size == self._pid_st_size and mtime == self._pid_st_mtime:
+            return self._pid_st                    # 无新内容（零解析）
+        if self._pid_st_size < 0 or size < self._pid_st_size:
+            self._pid_st = {}
+            src = read_jsonl(self.decisions_log)
+        else:
+            src = read_jsonl_tail(self.decisions_log, self._pid_st_size)
+        for r in src:
             if r.get("pid"):
-                st[r["pid"]] = r
-        return st
+                self._pid_st[r["pid"]] = r
+        self._pid_st_size, self._pid_st_mtime = size, mtime
+        return self._pid_st
+
+# 生效条件：stat inbox_log 失败（OSError）时把 _inbox_idx 置空 dict、两扫描键置 -1 并返回空 dict；size 与 mtime_ns 均与缓存键一致时直接返回 _inbox_idx（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时经 read_jsonl 全量重建；否则经 read_jsonl_tail 增量并入，逐条以 r.get("payload_hash") 或（缺键时）_sig(r.get("content") or "") 为 ph 把 (r.get("pid"), r.get("id")) 追加进 _inbox_idx[ph]（文件序）；最后存回扫描键并返回 _inbox_idx。
+    def _inbox_phash_index(self):
+        """inbox 的 phash → [(pid, node_id)]（文件序）增量索引（propose 对账用）。
+
+        与 _pid_status 同款 stat 尾部对账（issue #32）。存量旧格式行
+        （无 payload_hash）在**并入时**现算一次 _sig（此后常驻，不再
+        每条 propose 重算——旧路径每条重算 M 次 sha1）。
+        """
+        try:
+            sti = os.stat(self.inbox_log)
+            size, mtime = sti.st_size, sti.st_mtime_ns
+        except OSError:
+            self._inbox_idx, self._inbox_idx_size, self._inbox_idx_mtime = \
+                {}, -1, -1
+            return self._inbox_idx
+        if size == self._inbox_idx_size and mtime == self._inbox_idx_mtime:
+            return self._inbox_idx                    # 无新内容（零解析）
+        if self._inbox_idx_size < 0 or size < self._inbox_idx_size:
+            self._inbox_idx = {}
+            src = read_jsonl(self.inbox_log)
+        else:
+            src = read_jsonl_tail(self.inbox_log, self._inbox_idx_size)
+        for r in src:
+            ph = r.get("payload_hash") or _sig(r.get("content") or "")
+            self._inbox_idx.setdefault(ph, []).append(
+                (r.get("pid"), r.get("id")))
+        self._inbox_idx_size, self._inbox_idx_mtime = size, mtime
+        return self._inbox_idx
+
+# 生效条件：stat inbox_log 失败（OSError）时把 _inbox_recs 置空列表、两扫描键置 -1 并返回它；size 与 mtime_ns 均与缓存键一致时直接返回 _inbox_recs（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时以 list(read_jsonl(...)) 全量重建；否则 _inbox_recs.extend(read_jsonl_tail(...)) 增量并入；最后存回扫描键并返回 _inbox_recs（内部缓存，调用方只读不得变更）。
+    def _inbox_records(self):
+        """inbox 全记录（文件序）增量缓存——review 治理面单次调用共用一次解析。
+
+        与 _pid_status 同款 stat 尾部对账（issue #35）：原 review_decide 线性
+        扫 inbox 找 pid、_cascade_dedup 再全量读一遍（2 遍/调用）；改走本
+        缓存后稳态零解析，调用方在内存列表上线性扫（万条 ~1ms 级，无 IO）。
+        """
+        try:
+            sti = os.stat(self.inbox_log)
+            size, mtime = sti.st_size, sti.st_mtime_ns
+        except OSError:
+            self._inbox_recs, self._inbox_recs_size, self._inbox_recs_mtime = \
+                [], -1, -1
+            return self._inbox_recs
+        if size == self._inbox_recs_size and mtime == self._inbox_recs_mtime:
+            return self._inbox_recs                    # 无新内容（零解析）
+        if self._inbox_recs_size < 0 or size < self._inbox_recs_size:
+            self._inbox_recs = list(read_jsonl(self.inbox_log))
+        else:
+            self._inbox_recs.extend(
+                read_jsonl_tail(self.inbox_log, self._inbox_recs_size))
+        self._inbox_recs_size, self._inbox_recs_mtime = size, mtime
+        return self._inbox_recs
+
+# 生效条件：stat decisions_log 失败（OSError）时把 _dec_recs 置空列表、两扫描键置 -1 并返回它；size 与 mtime_ns 均与缓存键一致时直接返回 _dec_recs（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时以 list(read_jsonl(...)) 全量重建；否则 _dec_recs.extend(read_jsonl_tail(...)) 增量并入；最后存回扫描键并返回 _dec_recs（内部缓存，调用方只读不得变更）。
+    def _decisions_records(self):
+        """decisions 全记录（文件序）增量缓存——review 治理面单次调用共用一次解析。
+
+        issue #35：原 review_stats 全量读 decisions 统计、verify_review_record
+        全量线性扫找单条 pid（每调用 1 遍整文件 json.loads）；改走本缓存后
+        稳态零解析，调用方内存线性扫。与 _pid_status（pid→最新）互补：
+        本缓存保全量记录（多轮裁决历史、by_decision 统计口径）。
+        """
+        try:
+            sti = os.stat(self.decisions_log)
+            size, mtime = sti.st_size, sti.st_mtime_ns
+        except OSError:
+            self._dec_recs, self._dec_recs_size, self._dec_recs_mtime = \
+                [], -1, -1
+            return self._dec_recs
+        if size == self._dec_recs_size and mtime == self._dec_recs_mtime:
+            return self._dec_recs                    # 无新内容（零解析）
+        if self._dec_recs_size < 0 or size < self._dec_recs_size:
+            self._dec_recs = list(read_jsonl(self.decisions_log))
+        else:
+            self._dec_recs.extend(
+                read_jsonl_tail(self.decisions_log, self._dec_recs_size))
+        self._dec_recs_size, self._dec_recs_mtime = size, mtime
+        return self._dec_recs
 
 # 生效条件：实例已构建（内部先读 _pid_status()）；返回其 status ∈ TERMINAL_DECISION_STATUS（accepted/rejected/noop）的 pid 集合，status=="needs_reapproval" 视为未关闭、不计入；
     def _closed_pids(self):
@@ -1698,7 +1826,9 @@ class MdCGOS(MdCG):
         """待审核候选（含被红队打回、待再审批的条目）。"""
         st = self._pid_status()
         out = []
-        for r in read_jsonl(self.inbox_log):
+        # issue #35：走全记录增量缓存（稳态零解析）——review_stats 链路单次
+        # 调用共用一次解析；rec=dict(r) 复制，不改内部缓存。
+        for r in self._inbox_records():
             s = st.get(r.get("pid")) or {}
             if s.get("status") in TERMINAL_DECISION_STATUS:
                 continue
@@ -1719,7 +1849,9 @@ class MdCGOS(MdCG):
         视图复用 review_list/_closed_pids，避免在此复制第二份终态判定逻辑。
         """
         by = {}
-        for r in read_jsonl(self.decisions_log):
+        # issue #35：走全记录增量缓存（稳态零解析）——原每次全量逐行
+        # json.loads，与 review_list/_closed_pids 链路重复解析同一文件。
+        for r in self._decisions_records():
             d = str(r.get("decision") or "").strip() or "unknown"
             by[d] = by.get(d, 0) + 1
         return {"records": sum(by.values()), "by_decision": by,
@@ -1848,7 +1980,9 @@ class MdCGOS(MdCG):
         closed = []
         with FileLock(self.decisions_log, strict=True):
             st = self._pid_status()
-            for r in read_jsonl(self.inbox_log):
+            # issue #35：走全记录增量缓存（稳态零解析）——原与 review_decide
+            # 开头的找 pid 扫描重复全量读同一 inbox（2 遍/调用）。
+            for r in self._inbox_records():
                 bpid = r.get("pid")
                 if not bpid or bpid == pid or bpid in st:
                     continue     # 自己 / 已有裁决记录（含 needs_reapproval）跳过
@@ -1899,7 +2033,9 @@ class MdCGOS(MdCG):
             return {"ok": False, "error": "node_not_found"}
         fm = node.get("frontmatter") or {}
         pid, rnd = fm.get("pid"), fm.get("round")
-        src = next((r for r in read_jsonl(self.decisions_log)
+        # issue #35：走全记录增量缓存后内存线性扫（稳态零解析）——原每次
+        # 全量逐行 json.loads 整份 decisions 只为找一条 pid+round。
+        src = next((r for r in self._decisions_records()
                     if r.get("pid") == pid
                     and int(r.get("round") or 0) == int(rnd or 0)), None)
         if not src:
@@ -1914,7 +2050,7 @@ class MdCGOS(MdCG):
                 "verify_hash": src.get("verify_hash"),
                 "source": "hippocampus/decisions.jsonl"}
 
-# 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'）后追加内容并 rebuild_index，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
+# 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'）后追加内容并定向索引 upsert（_node_entry 同源条目写入 index/_dirty）+flush，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
     def review_decide(self, pid: str, decision: str, edits: dict = None,
                       merge_into: str = None, reason: str = "",
                       redteam: dict = None, issues=None):
@@ -1939,7 +2075,9 @@ class MdCGOS(MdCG):
         """
         if decision not in DECISION_ACTIONS:
             raise ValueError(f"未知裁决：{decision}")
-        item = next((r for r in read_jsonl(self.inbox_log)
+        # issue #35：走全记录增量缓存后内存线性扫（稳态零解析）——原每次
+        # 全量逐行 json.loads 整份 inbox 只为找一条 pid。
+        item = next((r for r in self._inbox_records()
                      if r.get("pid") == pid), None)
         if not item:
             return {"ok": False, "error": "pid_not_found"}
@@ -2012,7 +2150,8 @@ class MdCGOS(MdCG):
             # 未达 autoflush(64) 阈值时进程退出即永久丢失——裁决进程（review_cli /
             # MCP op=review）通常只写 1~2 条，不 flush 则「节点在盘上但索引无条目」，
             # 其他进程与重载后的长驻进程都检索不到，只能靠某次全量 rebuild 偶然救回。
-            # merge 分支绕开 add 直写节点文件，故其收尾同为索引重建（同因不同法）。
+            # merge 分支同样直写节点文件，其收尾已改为同款定向 upsert+flush
+            # （issue #34，见 else 分支注释）。
             self.flush()
             result.update(ok=True, node_id=nid)
         else:  # merge
@@ -2031,7 +2170,24 @@ class MdCGOS(MdCG):
             fm["non_applicable_conditions"] = neg
             self._write_node(target, os.path.join(self.root, tgt["path"]),
                              fm, merged_content)
-            self.rebuild_index()
+            # 定向索引 upsert（issue #34）：merge 只改一个目标节点，原
+            # rebuild_index 收尾是 _scan_nodes 全库 O(N) 逐文件扫描
+            # （1500 池实测 ~97-247ms/次），与 accept/edit 的 add+flush
+            # O(1) 增量收尾不对称。改为：单文件条目重算（_node_entry 与
+            # _scan_nodes 同源唯一真源——字段集零漂移）+ 内存索引/增量
+            # 日志定向写入 + flush。不走 _stage：目标已在索引，_stage 会
+            # 虚增 bucket 计数；merge 不改 tags/目录，bucket 不变。
+            # _dirty 置数同时推进 readcache 代际（写盘后同实例不陈旧）。
+            try:
+                tp = os.path.join(self.root, tgt["path"])
+                with open(tp, encoding="utf-8") as f:
+                    fm2, c2 = nodefile.loads(f.read())
+                e2 = self._node_entry(tp, tgt["path"].split("/")[0], fm2, c2)
+                self.index["nodes"][target] = e2
+                self._dirty[target] = e2
+            except OSError:
+                pass    # 单文件重读失败（极罕见）：条目留旧值，下次 rebuild 对账
+            self.flush()
             result.update(ok=True, node_id=target)
 
         # status 映射统一出口：reject→"rejected"、noop→"noop"（同为终态，见

@@ -7,8 +7,9 @@
   - install_read_cache 6.53x（126→19.3 ms）但只用于 benchmark；
   - path-only 无失效的朴素实现在「写入后检索」场景**陈旧读**（旧内容命中）。
 
-本守卫五项：
-  P1 默认关零变更（env 未设 → 行为与改动前逐位一致）；
+本守卫七项：
+  P1 默认开（env 未设 → 构造即装）+ MDCG_READ_CACHE=0 opt-out 零变更退出阀
+     （issue #31 后续：默认关曾让生产入口每查询全池 open+parse）；
   P2 开启后检索结果与关闭态一致（缓存不改变结果，只改变速度）；
   P3 写后失效（能红 path-only 无失效实现）：写入新内容 → 检索必须命中
      新内容、不得命中旧内容——哨兵（_dirty 代际）失效的核心断言；
@@ -81,13 +82,28 @@ def main():
     os.environ.pop("MDCG_READ_CACHE", None)
     cg = build_lib(root)
     try:
-        # P1 默认关零变更
-        print("== P1 默认关（env 未设）零变更 ==")
-        check("P1a 未启用时无 _read_cache 属性", not hasattr(cg, "_read_cache"))
+        # P1 默认开 + opt-out 退出阀（issue #31 后续：默认关曾让生产检索入口
+        # 每查询全池 open+parse，3300 池实测 ~602ms/查询——默认翻转为本形态）
+        print("== P1 默认开（env 未设）+ MDCG_READ_CACHE=0 退出阀 ==")
+        check("P1a 默认（env 未设）构造即装读缓存", hasattr(cg, "_read_cache"))
         r0, _ = cg.search("蜂群调度")
         check("P1b 检索正常（基线）", len(r0) >= 1, f"results={len(r0)}")
+        os.environ["MDCG_READ_CACHE"] = "0"
+        try:
+            root_o = os.path.join(root, "optout")
+            os.makedirs(root_o, exist_ok=True)
+            cg_o = MdCGSecure(root_o, principal=Principal(
+                actor="rc", clearance="secret", can_write=True,
+                role="designer", auth_mode="test"))
+            check("P1c MDCG_READ_CACHE=0 → 未装缓存（opt-out 零变更退出阀）",
+                  not hasattr(cg_o, "_read_cache"))
+            r_o, _ = cg_o.search("占位")     # 关态检索照常（空结果非崩溃即证）
+            del cg_o
+        finally:
+            os.environ.pop("MDCG_READ_CACHE", None)
 
-        # P2/P3/P4 开启态
+        # P2/P3/P4 开启态（默认已装配；显式 =1 与默认等价，install 再包一层
+        # 同语义缓存——历史形态保留，断言面不变）
         print("== P2/P3/P4 MDCG_READ_CACHE=1 ==")
         os.environ["MDCG_READ_CACHE"] = "1"
         import importlib
