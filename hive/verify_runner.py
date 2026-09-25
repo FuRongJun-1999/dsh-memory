@@ -96,8 +96,9 @@ def _compose_semantics(a_ok: bool, suite_ok: bool):
 #   是独立防线）、SUBJECT_FP 由派发方 spec.env 注入。
 #   子功能：A1/A2/A3 断言 → 全量套件（cargo+run_tests；--smoke 走内置探针）→
 #   make_verdict 脱敏 → verdict.json 落盘（sanity + shape 双门禁）。
-#   执行：verdict=pass 当且仅当断言 AND 套件皆过；valid=放行位（与 verdict 同义），
-#   assertions_ok=断言面，failure_reason 枚举失败成因（J1/J3）。
+#   执行：verdict=pass 当且仅当断言 AND 套件皆过；套件面=双 rc=0 + failed=0
+#   + passed>0（N9 批次 49：空跑/零计数不得以 pass 写盘）；valid=放行位
+#   （与 verdict 同义），assertions_ok=断言面，failure_reason 枚举失败成因（J1/J3）。
 #   验证方式：test——test_p39_verify_flow 9/0（--smoke）+ test_interop_judgment 守卫。
 #   不适用条件：不产出 pass/fail 以外的裁决（分歧仲裁属 arbitration.json 另一产物）。
 def main(argv):
@@ -157,7 +158,12 @@ def main(argv):
     rc_cargo, out_c, _ = _run(cargo_cmd, timeout_s // 2)
     rc_py, out_p, _ = _run(py_cmd, timeout_s // 2)
     passed, failed = _parse_counts(out_c + out_p)
-    suite_ok = rc_cargo == 0 and rc_py == 0 and failed == 0
+    # N9（批次 49，2026-09-26）：补 passed > 0 门——rc=0 不等于「跑了」：输出
+    # 措辞漂移/套件静默退出 0 时 _parse_counts 得 (0,0)，旧判定空跑全绿以
+    # pass 写 verdict，绕过「未验证不写入」。passed>0 = 至少解析到一条真实
+    # 计数（--smoke 探针合计 7，不误伤）。
+    suite_ok = (rc_cargo == 0 and rc_py == 0 and failed == 0
+                and passed > 0)
     a_ok = bool(a1["ok"] and a2["ok"] and a3["ok"])
 
     verdict, valid, assertions_ok, failure_reason = \

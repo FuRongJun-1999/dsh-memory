@@ -192,7 +192,7 @@ def serve_alive(jobs=None):
     return pid_alive(pid) and pid_is_self_program(pid)
 
 
-# 生效条件：jobs 缺省时按模块级 HEARTBEAT 判活；serve_alive(jobs) 为假时返回 ok:True 的 stopped:False（无心跳报「serve 未在运行」，有陈旧心跳如实说明 pid 与原因——「--stop 说没在跑 / 启动又被挡住」不可同时失效，v13 实测）；判活为真时按 os.name 用 taskkill /PID … /F（check=True）或 os.kill(pid, 15)，抛 CalledProcessError/OSError 返回 ok:False 的「停止失败 pid=…」，否则最多轮询 30 次×0.5s serve_alive(jobs)（未转假也照常退出循环）后一律返回 ok:True 的 stopped:True 并附 pid。
+# 生效条件：jobs 缺省时按模块级 HEARTBEAT 判活；serve_alive(jobs) 为假时返回 ok:True 的 stopped:False（无心跳报「serve 未在运行」，有陈旧心跳如实说明 pid 与原因——「--stop 说没在跑 / 启动又被挡住」不可同时失效，v13 实测）；判活为真时按 os.name 用 taskkill /PID … /T /F（树杀，N92 批次 49——check=True）或 os.killpg(os.getpgid(pid), 15)（N92——serve 即进程组长，组杀覆盖 worker 树；unix 真实群杀行为 win 上不可动态验证，见 test_stop_tree_kill.py 诚实边界），抛 CalledProcessError/OSError 返回 ok:False 的「停止失败 pid=…」，否则最多轮询 30 次×0.5s serve_alive(jobs)（未转假也照常退出循环）后一律返回 ok:True 的 stopped:True 并附 pid。
 def stop(jobs=None):
     hb = heartbeat(jobs)
     if not hb or not serve_alive(jobs):
@@ -207,11 +207,20 @@ def stop(jobs=None):
     pid = hb.get("pid")
     try:
         if os.name == "nt":
-            subprocess.run(["taskkill", "/PID", str(pid), "/F"],
+            # N92（批次 49，2026-09-26）：/T 树杀——serve 的执行器 worker 是
+            # 它的子进程，只杀单 pid 会把整棵执行器树留成孤儿（持 serve 配置
+            # 凭据继续外呼、晚落 result 与新 serve recover_orphans 并发同
+            # job）。/T /F 形态与同仓 rust 先例一致（hive/src/exec.rs
+            # kill_tree，且其守卫 kill_tree_kills_grandchildren 同判据）。
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
                            capture_output=True, text=True,
                            encoding="utf-8", errors="replace", check=True)
         else:
-            os.kill(pid, 15)
+            # N92 unix 臂：serve 由 start() 以 start_new_session=True 拉起
+            # （见下方 start()），即会话/进程组长——killpg(getpgid(pid)) 覆盖
+            # serve 及其 worker 全组，与 nt /T 等价。getpgid 顺带兜住 pid 复用
+            # （按 pid 现查组而非沿用心跳里的旧号）。
+            os.killpg(os.getpgid(pid), 15)
     except (subprocess.CalledProcessError, OSError) as e:
         return {"ok": False, "error": f"停止失败 pid={pid}: {e}"}
     # 等心跳过期确认真停了

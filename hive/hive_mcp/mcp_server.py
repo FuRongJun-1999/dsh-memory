@@ -81,9 +81,30 @@ def _load_local_config():
     return (cfg or {}), err
 
 
-# 生效条件：无必需形参；HIVE_JOBS_DIR 为空串或未设时取 os.path.join(REPO, "hive", "jobs")，否则取该变量值，makedirs(exist_ok=True) 后返回该路径。
+# 生效条件：无必需形参；经 serve_start._jobs_from({**os.environ, **(load_config(CONFIG_LOCAL)[0] or {})}) 求值（N89 批次 49：与 serve_start.start :231/:236 同一决策函数同一合并语义——config.local.json 的 HIVE_JOBS_DIR 键与 serve 面同权生效；config 缺失/解析失败时 cfg={} 自然回落 env/模块默认，与 _lifecycle_jobs 的「stop 不因 config 笔误而停不掉」同宽容度；serve_start 不可导入时同路径回落），makedirs(exist_ok=True) 后返回该路径。
 def _jobs_dir() -> str:
-    d = os.environ.get("HIVE_JOBS_DIR") or os.path.join(REPO, "hive", "jobs")
+    """jobs 池**唯一决策口径** = serve_start._jobs_from(合并环境)（N89 修复）。
+
+    历史缺陷（v2 N17 首报，四轮维持）：本处只读 MCP 进程 env，serve 面以
+    {**os.environ, **config} 合并（config 键胜出）——config 设 HIVE_JOBS_DIR
+    且 MCP env 未设时，spawn ok=True 但任务落默认池永无人领取，观测面全绿
+    与实况相悖。现与 serve 同吃一份 config：spawn/poll/kill/doctor/restart
+    五面同走本函数，单点修复即全修（`_ensure_serve` :196 的 setdefault 是
+    env 层补写，config 键存在时本就不构成补救——现两层天然一致）。
+    """
+    try:
+        if HIVE_DIR not in sys.path:
+            sys.path.insert(0, HIVE_DIR)
+        import serve_start  # noqa: PLC0415 —— 同目录模块，延迟导入避开包名歧义
+    except Exception as e:  # noqa: BLE001
+        # serve_start 不可导入：退回旧 env/默认口径（fail-soft 不崩协议面）
+        sys.stderr.write(f"[mcp_server] serve_start 不可导入（{type(e).__name__}），"
+                         "HIVE_JOBS_DIR 按 env/默认解析\n")
+        d = os.environ.get("HIVE_JOBS_DIR") or os.path.join(REPO, "hive", "jobs")
+        os.makedirs(d, exist_ok=True)
+        return d
+    cfg, _err = _load_local_config()
+    d = serve_start._jobs_from({**os.environ, **(cfg or {})})
     os.makedirs(d, exist_ok=True)
     return d
 

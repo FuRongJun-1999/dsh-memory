@@ -941,10 +941,11 @@ _SENSITIVE_DIR_SEGMENTS = (".ssh", ".aws", ".gcloud", ".azure", ".kube",
 _SENSITIVE_FILE_NAMES = ("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
                          ".netrc", ".htpasswd", ".npmrc", ".pypirc",
                          "credentials", "credentials.json",
+                         "config.local.json",
                          "cookies.sqlite", "cookies.sqlite-journal")
 
 
-# 生效条件：real 为 realpath 规范化后的绝对路径；归一斜杠小写后，任一父目录段属 _SENSITIVE_DIR_SEGMENTS、文件名精确命中 _SENSITIVE_FILE_NAMES、或命中 V21-8 族匹配（id_rsa/id_ed25519/id_ecdsa/id_dsa/service-account 前缀族、名字含 credential/creds、.env 后缀族——堵「改名/加后缀即免检」缺口，V21 报告 8 类实测样本全覆盖），或以 credentials/access_tokens 前缀命中、或文件名以 .env 开头/以 .pem/.key/.p12/.pfx/.kdbx 结尾时返回原因说明串，否则返回 None。
+# 生效条件：real 为 realpath 规范化后的绝对路径；归一斜杠小写后，任一父目录段属 _SENSITIVE_DIR_SEGMENTS、文件名精确命中 _SENSITIVE_FILE_NAMES（含 config.local.json——N141，批次 49）、或命中 V21-8 族匹配（id_rsa/id_ed25519/id_ecdsa/id_dsa/service-account 前缀族、名字含 credential/creds、.env 后缀族——堵「改名/加后缀即免检」缺口，V21 报告 8 类实测样本全覆盖；.token 后缀族——N141 补部署令牌文件 orch.token/designer.token）、或以 credentials/access_tokens 前缀命中、或文件名以 .env 开头/以 .env/.pem/.key/.p12/.pfx/.kdbx/.token 结尾时返回原因说明串，否则返回 None。
 def _sensitive_read(real: str) -> str | None:
     """命中敏感路径返回原因说明，安全路径返回 None。"""
     norm = real.replace("\\", "/").lower()
@@ -967,8 +968,13 @@ def _sensitive_read(real: str) -> str | None:
             or "creds" in name:
         return f"敏感凭据文件（{name}）"
     # 密钥文件扩展与 dot-env 家族（.env / .env.local / prod.env / prod.pem…）
+    # N141（批次 49，2026-09-26）：后缀族补 .token——部署令牌文件
+    # （orch.token / designer.token，orch.py tokens 通道产物）此前放行；
+    # 同时精确名补 config.local.json（serve 部署配置，serve_start.py
+    # DEFAULT_CONFIG，api_key 所在）——子代理 read_file / 编排者
+    # context_files 一句话即可外发外部网关，两者是默认部署的最后一道闸。
     if name.startswith(".env") or name.endswith(
-            (".env", ".pem", ".key", ".p12", ".pfx", ".kdbx")):
+            (".env", ".pem", ".key", ".p12", ".pfx", ".kdbx", ".token")):
         return f"密钥/环境凭据文件（{name}）"
     return None
 
