@@ -187,6 +187,39 @@ def main():
     except InteropSanityError as e:
         check("含 self-reported 标注的完整产物过双门禁", False, str(e))
 
+    print("[8] _parse_counts 与 run_tests SUMMARY 实际形态契约（v6 N28）")
+    # 契约断裂实形：run_tests.py:216 打印 `===== SUMMARY N/M 通过，Z 跳过…`，
+    # 而 _parse_counts 旧第三正则只认 `通过 X / 失败 Y`（run_tests 从未打印）
+    # → python 侧计数恒 (0,0)，verdict.json passed/failed 系统性失真
+    # （判决靠 exit code 仍对，留痕假零）。
+    p188, f188 = vr._parse_counts(
+        "===== SUMMARY 188/189 通过，1 跳过（依赖缺失/平台不符） =====")
+    check("实跑 SUMMARY 形态可解析（188/189 → passed=188，非 0）",
+          p188 == 188, p188)
+    check("failed 由 runnable-passed 推出（→ 1，非 0）", f188 == 1, f188)
+    # 生产者现场取证：真跑 run_tests（scripts 组 -k 过滤到单测），SUMMARY
+    # 行必须能被消费端解析——两侧契约同一守卫钉死，任一侧漂移必红。
+    r = subprocess.run(
+        [sys.executable, "-X", "utf8",
+         os.path.join(HERE, "scripts", "run_tests.py"), "scripts",
+         "-k", "judgment"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=HERE, timeout=600)
+    summ = [ln for ln in (r.stdout or "").splitlines() if "SUMMARY" in ln]
+    check("run_tests 实跑产出 SUMMARY 行（生产者在场）", bool(summ),
+          (r.stdout or "")[-200:])
+    if summ:
+        pp, ff = vr._parse_counts(r.stdout)
+        check("消费端能解析生产端实跑输出（非 (0,0) 假读）",
+              (pp, ff) != (0, 0), (pp, ff, summ[-1]))
+    # cargo 形态不回归；跳过单列不计失败（裸 clone SKIP 面不虚增 failed）
+    pc, fc = vr._parse_counts("test result: ok. 3 passed; 1 failed; 0 ignored")
+    check("cargo 形态照旧（3 passed; 1 failed → (3,1)）", (pc, fc) == (3, 1),
+          (pc, fc))
+    ps, fs = vr._parse_counts("===== SUMMARY 187/187 通过，2 跳过（依赖缺失） =====")
+    check("跳过不计入 failed（187/187+2 跳过 → (187,0)）", (ps, fs) == (187, 0),
+          (ps, fs))
+
     print(f"\ninterop_judgment: {passed} 通过 / {failed} 失败")
     return 0 if not failed else 1
 

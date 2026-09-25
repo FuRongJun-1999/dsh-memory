@@ -287,6 +287,12 @@ def run_channel_b(llm_generate=None, max_tasks=5):
         cases = item.get("cases", [])
         # cases 格式：[[inp, exp], ...]——每个 case 是 [input, expected] 对
         if not code or not cases:
+            stats["failed"] += 1
+            # 与下方 fname 缺失分支同型（批次 35 先例）：缺 cases/code 的
+            # 坏条目不标 failed 则永久 pending，且占据 queue[:max_tasks]
+            # 处理窗口——max_tasks 个坏条目即令合法条目永不被处理
+            # （stats 恒 0 无报错的静默饥饿；queue 是模型可控输入）。
+            item["status"] = "failed"
             continue
         stats["generated"] += 1
 

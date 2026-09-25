@@ -45,7 +45,9 @@ def _run(cmd, timeout_s):
 
 
 # 生效条件：text 给定——宽松累加两类计数形态（cargo `N passed; M failed` 与
-# run_tests「通过 X / 失败 Y」），返回 (passed, failed)；无命中 → (0, 0)。
+# run_tests SUMMARY 实际形态 `===== SUMMARY N/M 通过，Z 跳过… =====`：
+# failed 不在行内，由 runnable-passed 推出；跳过单列（依赖缺失/平台不符）
+# 不计失败），返回 (passed, failed)；无命中 → (0, 0)。
 # 不适用条件：不区分套件层级（冒烟与全量同口径累加）。
 def _parse_counts(text):
     """宽松解析套件计数（cargo 的 `N passed; M failed` 与 run_tests 的两种）。"""
@@ -54,6 +56,13 @@ def _parse_counts(text):
         passed += int(m.group(1))
     for m in re.finditer(r"(\d+) failed", text):
         failed += int(m.group(1))
+    # run_tests.py 实际 SUMMARY 形态（v6 N28：此前只认从未打印过的
+    # `通过 X / 失败 Y`，python 侧计数恒 (0,0)，verdict.json 留痕失真）。
+    for m in re.finditer(
+            r"SUMMARY\s+(\d+)\s*/\s*(\d+)\s*通过[，,]\s*(\d+)\s*跳过", text):
+        p, total = int(m.group(1)), int(m.group(2))
+        passed += p
+        failed += max(0, total - p)
     for m in re.finditer(r"通过\s+(\d+)\s*/\s*失败\s+(\d+)", text):
         passed += int(m.group(1))
         failed += int(m.group(2))

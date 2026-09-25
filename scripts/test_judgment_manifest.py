@@ -93,6 +93,20 @@ def main():
     check("discover 数量 == discovered_files 数量",
           len(disc) == len(rt._discovered_files()))
 
+    print("[4] --verify 缺参 fail-closed（CI/钩子参数拼空不得假成功）")
+    # v6 N27：旧实现 `len(sys.argv) >= 3 and sys.argv[1] == "--verify"` 缺参时
+    # 条件不成立 → 静默回落打印全量清单并 exit 0——比对从未发生（假成功）。
+    import subprocess
+    p = subprocess.run(
+        [sys.executable, "-X", "utf8",
+         os.path.join(HERE, "scripts", "judgment_manifest.py"), "--verify"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=HERE)
+    check("--verify 缺参必须非零退出（不得静默回落 exit 0）", p.returncode != 0,
+          f"EXIT={p.returncode}")
+    check("--verify 缺参不得在 stdout 倾倒全量 manifest（比对从未发生）",
+          '"files"' not in (p.stdout or ""), (p.stdout or "")[:120])
+
     print(f"\njudgment_manifest 守卫: {passed} 通过 / {failed} 失败")
     return 0 if not failed else 1
 

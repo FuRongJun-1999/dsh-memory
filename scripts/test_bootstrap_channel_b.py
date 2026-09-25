@@ -90,6 +90,61 @@ def main():
         check("队列回写 status=failed（旧代码崩溃时回写未执行→永久 "
               "pending 死循环）",
               st.get("守卫加法") == "failed", repr(st))
+
+        # ---- 首条 continue 饥饿守卫：缺 cases/code 不标 status ----
+        # 病灶：run_channel_b 首条 `if not code or not cases: continue`
+        # 不给 item 标 status——坏条目（channel_b_queue.json 是模型可控
+        # 输入）永久 pending 且占据 queue[:max_tasks] 处理窗口：max_tasks
+        # 个坏条目即令合法条目永不被处理（stats 恒 0 无报错，静默饥饿）。
+        # 同型修复先例就在同函数 fname 缺失分支（标 failed 防永久占位）。
+        print("[3] 首条 continue 饥饿守卫（缺 cases/code 必须标 failed）")
+        smoke3 = tempfile.mkdtemp(prefix="v23_channel_b_starve_")
+        m.STATE = smoke3
+        try:
+            good_code = ("def good_add(a, b):\n"
+                         "    return a + b\n")
+            q3 = {"pending": [
+                {"task": "坏1", "code": "", "cases": [[[1, 1], 2]]},
+                {"task": "坏2", "code": good_code},
+                {"task": "坏3", "cases": [[[1, 1], 2]]},
+                {"task": "好1", "code": good_code, "cases": [[[3, 4], 7]],
+                 "status": "new"},
+            ]}
+            with open(os.path.join(smoke3, "channel_b_queue.json"), "w",
+                      encoding="utf-8") as f:
+                json.dump(q3, f, ensure_ascii=False)
+
+            r1 = m.run_channel_b(None, max_tasks=3)   # 3 坏条目占满窗口
+            check("轮1 坏条目计入 stats failed=3（旧代码恒 0 静默）",
+                  r1.get("failed") == 3 and r1.get("generated") == 0,
+                  repr(r1))
+            q3w = json.load(open(os.path.join(smoke3,
+                                              "channel_b_queue.json"),
+                                 encoding="utf-8"))
+            st3 = {t["task"]: t.get("status") for t in q3w.get("pending", [])}
+            check("轮1 队列回写坏条目 status=failed（旧代码无 status 键"
+                  "→永久 pending 占位）",
+                  all(st3.get(f"坏{i}") == "failed" for i in (1, 2, 3)),
+                  repr(st3))
+
+            r2 = m.run_channel_b(None, max_tasks=3)   # 窗口应已让给好条目
+            check("轮2 好条目进入处理窗口（饥饿消除：generated=1 passed=1；"
+                  "旧代码仍 {0,0,0} 好条目永不被处理）",
+                  r2.get("generated") == 1 and r2.get("passed") == 1,
+                  repr(r2))
+            q3f = json.load(open(os.path.join(smoke3,
+                                              "channel_b_queue.json"),
+                                 encoding="utf-8"))
+            stf = {t["task"]: t.get("status")
+                   for t in q3f.get("pending", [])}
+            check("轮2 好条目 status=verified 且固化入 verified_units",
+                  stf.get("好1") == "verified" and "task:好1" in json.load(
+                      open(os.path.join(smoke3,
+                                        "channel_b_verified_units.json"),
+                           encoding="utf-8")),
+                  repr(stf))
+        finally:
+            shutil.rmtree(smoke3, ignore_errors=True)
     finally:
         shutil.rmtree(smoke, ignore_errors=True)
     return finish()

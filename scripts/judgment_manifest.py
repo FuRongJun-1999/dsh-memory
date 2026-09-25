@@ -126,7 +126,12 @@ def main():
             "file_count": len(manifest["files"]),
         }, ensure_ascii=False, indent=2))
         return 0 if not gap else 1
-    if len(sys.argv) >= 3 and sys.argv[1] == "--verify":
+    if len(sys.argv) >= 2 and sys.argv[1] == "--verify":
+        # fail-closed（v6 N27）：缺参不得静默回落打印全量清单并 exit 0——
+        # 那是"比对从未发生"的假成功。与包内 md_cg/judgment_manifest.py 同形。
+        if len(sys.argv) < 3:
+            print("用法：--verify <冻结的manifest.json>", file=sys.stderr)
+            return 2
         frozen = json.load(open(sys.argv[2], encoding="utf-8"))
         cur = {f["path"]: f["sha256"] for f in manifest["files"]}
         froz = {f["path"]: f["sha256"] for f in frozen["files"]}
