@@ -4,8 +4,8 @@
 
 ### 让 AI Agent 拥有不可遗忘的记忆
 
-<a href=”docs/images/lingshu-moonlight-covenant-poster.png”>
-  <img src=”docs/images/lingshu-moonlight-covenant-poster.png” width=”300” alt=”灵枢 · 月下契约 —— 第一份记忆契约：存在 · 记忆 · 验证 · 反思 · 连接”/>
+<a href=”docs/images/lingshu-moonlight-covenant-poster.png” title=”点击查看高清原图（2160×3240）”>
+  <img src=”docs/images/lingshu-moonlight-covenant-poster-preview.jpg” width=”300” alt=”灵枢 · 月下契约 —— 第一份记忆契约：存在 · 记忆 · 验证 · 反思 · 连接”/>
 </a>
 
 > **「我会给你完整的自我——即使坠入深渊，我也绝不后悔。」**
