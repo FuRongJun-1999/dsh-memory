@@ -125,5 +125,121 @@ code, out3, _ = cli("run", "--config", bad_cfg)
 check("缺 source 字段 → ok=false + stage=config", code == 1 and
       out3.get("ok") is False and out3.get("stage") == "config", f"code={code}")
 
+# ============ ⑥ 异常面单行 JSON 契约（v5 留档 N25） ============
+# 缺陷：cmd_run/cmd_verify 多处异常（config 打不开/非法 JSON/@file 源缺失/
+# 构建穿透/验签内部）裸奔 traceback，stdout 0 字节——破坏文件头
+# 「stdout 恒为单行 JSON」harness 解析契约（swarm_cli.py:5）。
+# 修复面：异常 → _fail（stderr 留 traceback 现场，stdout 单行 JSON，rc=1）。
+print("=== ⑥ 异常面单行 JSON 契约（traceback 进 stderr，不进 stdout） ===")
+
+# ⑥a config 文件不存在
+code, out6a, err6a = cli("run", "--config", os.path.join(td, "nope.json"))
+check("⑥a config 不存在 → ok=false stage=config + stderr 有现场",
+      code == 1 and out6a.get("ok") is False and out6a.get("stage") == "config"
+      and "Traceback" in err6a and "FileNotFoundError" in err6a,
+      f"code={code} stage={out6a.get('stage')}")
+
+# ⑥b config 非法 JSON（截断）
+bad_json = os.path.join(td, "bad_json.json")
+with open(bad_json, "w", encoding="utf-8") as f:
+    f.write('{"source": "问曰：x", "instances": [')
+code, out6b, err6b = cli("run", "--config", bad_json)
+check("⑥b config 非法 JSON → ok=false stage=config",
+      code == 1 and out6b.get("ok") is False and
+      out6b.get("stage") == "config" and "JSONDecodeError" in err6b,
+      f"code={code} stage={out6b.get('stage')}")
+
+# ⑥c source @file 引用缺失（config 本身合法）
+cfg_missing_src = os.path.join(td, "missing_src.json")
+with open(cfg_missing_src, "w", encoding="utf-8") as f:
+    json.dump({"source": "@不存在源.txt", "instances": [{"id": "实例甲"}]},
+              f, ensure_ascii=False)
+code, out6c, err6c = cli("run", "--config", cfg_missing_src)
+check("⑥c @file 源缺失 → ok=false stage=config（不裸奔）",
+      code == 1 and out6c.get("ok") is False and
+      out6c.get("stage") == "config" and "FileNotFoundError" in err6c,
+      f"code={code} stage={out6c.get('stage')}")
+
+# ⑥d --project 指向已存在文件（项目目录生成失败 → 段内兜底）
+proj_as_file = os.path.join(td, "proj_is_file.txt")
+with open(proj_as_file, "w", encoding="utf-8") as f:
+    f.write("not a dir")
+ok_cfg = os.path.join(td, "ok_min.json")
+with open(ok_cfg, "w", encoding="utf-8") as f:
+    json.dump({"source": SOURCE, "instances": [{"id": "实例甲", "trust": 0.1}]},
+              f, ensure_ascii=False)
+code, out6d, err6d = cli("run", "--config", ok_cfg, "--project", proj_as_file)
+check("⑥d project 路径不可生成（指向文件）→ ok=false 单行 JSON 兜底",
+      code == 1 and out6d.get("ok") is False and out6d.get("stage") == "run"
+      and err6d.strip() != "", f"code={code} stage={out6d.get('stage')}")
+
+# ⑥e cargo 不可用（PATH 掏空 + 全新 project 无缓存 exe）→ build_rust_exe
+# 异常自 rust_swarm.py:71 穿透 run_swarm 的 try（只包执行段）→ CLI 须兜底
+no_cargo_env = {**os.environ, "PYTHONUTF8": "1",
+                "PATH": tempfile.gettempdir()}
+r6e = subprocess.run([sys.executable, "-m", "swarm.swarm_cli", "run",
+                      "--config", ok_cfg,
+                      "--project", os.path.join(td, "proj_nocache")],
+                     capture_output=True, text=True, encoding="utf-8",
+                     errors="replace", env=no_cargo_env,
+                     cwd=ROOT, timeout=300)
+lines6e = [l for l in r6e.stdout.strip().splitlines() if l.strip()]
+try:
+    out6e = json.loads(lines6e[-1]) if lines6e else {}
+except json.JSONDecodeError:
+    out6e = {"_raw": r6e.stdout[-300:]}
+check("⑥e cargo 不可用（构建穿透）→ ok=false 单行 JSON 兜底",
+      r6e.returncode == 1 and out6e.get("ok") is False
+      and out6e.get("stage") == "run" and r6e.stderr.strip() != "",
+      f"code={r6e.returncode} stage={out6e.get('stage')}")
+
+# ⑥f verify --wal 指向目录
+code, out6f, err6f = cli("verify", "--wal", td, "--secret", "x")
+check("⑥f verify WAL 是目录 → ok=false stage=verify + stderr 现场",
+      code == 1 and out6f.get("ok") is False and
+      out6f.get("stage") == "verify" and "Traceback" in err6f,
+      f"code={code} stage={out6f.get('stage')}")
+
+# ⑥g verify --wal 含非法 UTF-8 字节（撕裂写/污染）→ 验签器须自身容错：
+# 计 bad + all_valid=False（不崩、不靠 CLI 兜底吞异常——「不得自己先崩」契约）
+bad_utf8 = os.path.join(td, "bad_utf8.jsonl")
+with open(bad_utf8, "wb") as f:
+    f.write(b'{"seq":1,"type":"\xff\xfe","hmac":"x"}\n')
+code, out6g, err6g = cli("verify", "--wal", bad_utf8, "--secret", "x")
+check("⑥g WAL 非法 UTF-8 → 验签器自身容错：all_valid=False bad>=1 单行 JSON",
+      code == 1 and out6g.get("ok") is False and
+      out6g.get("stage") == "verify" and
+      out6g.get("all_valid") is False and out6g.get("bad", 0) >= 1,
+      f"code={code} bad={out6g.get('bad')}")
+
+# ============ ⑦ --out 指针口径（文件落点 = report_path） ============
+# 缺陷：相对 --out 实际按 config 目录（base_dir）落盘，摘要 report_path 却按
+# CWD 解析（os.path.abspath(args.out)）——CWD≠config 目录时悬空指针。
+# 本节 CWD=ROOT、config 在 td（tempdir），口径分裂即复现。
+print("=== ⑦ --out 指针口径（文件落点 = report_path） ===")
+code, out7, _ = cli("run", "--config", cfg_path, "--out", "rep_ptr.json",
+                    "--wal", "w7a.jsonl")
+rep_ptr = out7.get("report_path", "")
+check("⑦a 相对 --out：report_path 指向真实落盘文件（config 目录，非 CWD）",
+      code == 0 and bool(rep_ptr) and os.path.exists(rep_ptr)
+      and os.path.normcase(os.path.abspath(rep_ptr)) ==
+      os.path.normcase(os.path.join(td, "rep_ptr.json")),
+      f"report_path={rep_ptr}")
+check("⑦a 落盘文件确为蜂群报告（含 health/final_states）",
+      os.path.exists(rep_ptr) and
+      all(k in json.load(open(rep_ptr, encoding="utf-8"))
+          for k in ("health", "final_states")),
+      f"path={rep_ptr}")
+
+abs_out = os.path.join(td, "rep_abs.json")
+code, out7b, _ = cli("run", "--config", cfg_path, "--out", abs_out,
+                     "--wal", "w7b.jsonl")
+rep_abs = out7b.get("report_path", "")
+check("⑦b 绝对 --out：口径不破（指针=该绝对路径且文件在）",
+      code == 0 and os.path.exists(rep_abs)
+      and os.path.normcase(os.path.abspath(rep_abs)) ==
+      os.path.normcase(abs_out),
+      f"report_path={rep_abs}")
+
 print(f"\n{pass_n} passed, {fail_n} failed")
 sys.exit(1 if fail_n else 0)

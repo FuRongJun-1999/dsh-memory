@@ -6,6 +6,7 @@
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 
@@ -131,6 +132,61 @@ if rr4b["ok"]:
 else:
     check("不带卡：VM 符号缺失 → 运行失败（证明程序真依赖注入符号）",
           not rr4b["ok"], str(rr4b.get("stderr", ""))[-120:])
+
+# ============ ⑤ CLI 路径：config 声明的卡经 swarm_cli 透传（v5 留档 N24） ============
+# 缺陷：swarm_cli.py cmd_run 调 make_swarm_config 不传 condition_space——
+# config 声明的卡被 CLI 静默丢弃，负路由（四要素拒绝运行）与 VM 符号注入链
+# 整体失效：残缺卡经 CLI 放行 rc=0 无告警（直连 exe 则 exit 2 被拒）。
+print("=== ⑤ CLI 路径（config 卡 → 落盘 cfg → Rust 校验/报告） ===")
+
+
+def _cli(*argv):
+    """跑 CLI：stdout 末行须为单行 JSON（机器面契约本身即被测对象）。"""
+    r = subprocess.run([sys.executable, "-m", "swarm.swarm_cli", *argv],
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", env={**os.environ, "PYTHONUTF8": "1"},
+                       cwd=os.path.dirname(os.path.dirname(os.path.dirname(
+                           os.path.abspath(__file__)))), timeout=600)
+    lines = [l for l in r.stdout.strip().splitlines() if l.strip()]
+    try:
+        payload = json.loads(lines[-1]) if lines else {}
+    except json.JSONDecodeError:
+        payload = {"_raw": r.stdout[-300:]}
+    return r.returncode, payload
+
+
+cli_dir = tempfile.mkdtemp(prefix="swarm_cs_cli_")
+cli_cfg = os.path.join(cli_dir, "swarm.json")
+cli_report = os.path.join(cli_dir, "report.json")
+with open(cli_cfg, "w", encoding="utf-8") as f:
+    json.dump({"source": SOURCE, "instances": INST, "rounds": 1,
+               "shared_secret": SECRET, "condition_space": CS}, f,
+              ensure_ascii=False)
+code5, out5 = _cli("run", "--config", cli_cfg, "--out", cli_report,
+                   "--project", os.path.join(cli_dir, "proj_ok"))
+cfg_on_disk = json.load(open(os.path.join(cli_dir, "proj_ok", "swarm.json"),
+                             encoding="utf-8"))
+check("CLI：齐备卡落盘 cfg（project/swarm.json 含 condition_space 原卡）",
+      cfg_on_disk.get("condition_space") == CS,
+      str(cfg_on_disk.get("condition_space"))[:120])
+rep5 = json.load(open(cli_report, encoding="utf-8")) \
+    if os.path.exists(cli_report) else {}
+check("CLI：齐备卡运行后报告透出 space_id",
+      code5 == 0 and out5.get("ok") is True
+      and rep5.get("condition_space") == CS["space_id"],
+      f"code={code5} report.cs={rep5.get('condition_space')}")
+
+bad_cli_cfg = os.path.join(cli_dir, "bad.json")
+with open(bad_cli_cfg, "w", encoding="utf-8") as f:
+    json.dump({"source": SOURCE, "instances": INST, "rounds": 1,
+               "shared_secret": SECRET, "condition_space": bad_cs}, f,
+              ensure_ascii=False)
+code5b, out5b = _cli("run", "--config", bad_cli_cfg,
+                     "--project", os.path.join(cli_dir, "proj_bad"))
+check("CLI：残缺卡（缺 existence_constraint）拒绝运行，负路由不静默放行",
+      code5b != 0 and out5b.get("ok") is False and
+      out5b.get("stage") == "swarm",
+      f"code={code5b} stage={out5b.get('stage')}")
 
 print(f"\n{pass_n} passed, {fail_n} failed")
 sys.exit(1 if fail_n else 0)

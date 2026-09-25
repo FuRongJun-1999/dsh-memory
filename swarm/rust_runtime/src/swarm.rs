@@ -413,6 +413,9 @@ struct WalReplay {
     replayed_seq: u64,
     /// v0.7.1：重放中最大事件 seq（恢复后 event_seq 单调起点）
     max_event_seq: u64,
+    /// 是否读到了 WAL 文件（区分「首跑」与「有 WAL 但零提交」——后者是坏 WAL，
+    /// 2026-09-25 修复：审计留痕须归档而非清零）
+    had_wal_file: bool,
 }
 
 /// 重放 WAL 重建状态（对照 langgraph 恢复语义：重建后走正常循环，无特殊路径）。
@@ -447,11 +450,13 @@ fn replay_wal(wal_path: &str, secret: &str) -> Result<WalReplay, String> {
         kept_lines: Vec::new(),
         replayed_seq: 0,
         max_event_seq: 0,
+        had_wal_file: false,
     };
     let raw = match std::fs::read_to_string(wal_path) {
         Ok(r) => r,
         Err(_) => return Ok(rp), // 无 WAL = 首跑
     };
+    rp.had_wal_file = true;
     // 第一遍：提交点 = 最后一个通过 HMAC 验签的快照行。
     // v0.6.1 修复：旧逻辑在事件行处做「超前轮截断」，而快照行 round 恒为
     // completed+1 → 快照被误伤截断，completed 永远停在 1，≥2 轮重入恒触发
@@ -531,6 +536,86 @@ fn replay_wal(wal_path: &str, secret: &str) -> Result<WalReplay, String> {
         rp.kept_lines.push(line.to_string());
     }
     Ok(rp)
+}
+
+/// 恢复/首跑的 WAL 打开（B1 断点恢复）：
+/// - 恢复模式（completed 有值）：好行经「临时文件 + fsync + rename」原子换入
+///   （物理截断坏尾）→ append 续跑；
+/// - 零提交（completed 无值）：B1 全回滚语义不变——从轮 1 重跑，开空 WAL。
+///
+/// 2026-09-25 修复（缺陷：WAL 恢复重写非原子 + 零提交整文件清零）：
+/// 旧实现两分支均 File::create(O_TRUNC) 就地清零——① 恢复重写窗口内
+/// 崩溃/断电/write Err 会不可逆丢失全部已 sync_all 的提交前缀；② 无合法
+/// 快照（首行损坏/半行）时整文件清空重跑，单个坏行连带摧毁其后全部可独立
+/// 验签的事件行（事件独立 HMAC 签名，审计留痕不可再生）。现改为：重写走
+/// 临时文件原子替换（任何时点崩溃，wal_path 只有旧全量或新前缀，无半写
+/// 中间态，std::fs::rename 同卷原子覆盖）；零提交时原 WAL 归档留痕后新开
+/// 空文件，签名审计链可离线独立验签取证。
+fn open_wal_for_run(
+    wal_path: &str,
+    completed: Option<u64>,
+    kept_lines: &[String],
+    had_wal_file: bool,
+) -> Result<std::fs::File, String> {
+    if completed.is_some() {
+        // 恢复模式：好行原子换入（物理截断坏尾）→ append 续跑
+        rewrite_wal_atomic(wal_path, kept_lines)?;
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(wal_path)
+            .map_err(|e| format!("WAL 追加打开失败: {e}"))
+    } else {
+        // 零提交：坏 WAL 归档留痕（若有）→ 新开空 WAL 从轮 1 重跑
+        if had_wal_file {
+            archive_corrupt_wal(wal_path)?;
+        }
+        std::fs::File::create(wal_path).map_err(|e| format!("WAL 创建失败: {e}"))
+    }
+}
+
+/// 好行前缀原子换入在役 WAL：写 <wal>.tmp → flush → fsync → rename 覆盖。
+/// 中途任何失败：清理临时文件后报错，原 WAL 逐字节不动（无半写窗口）。
+fn rewrite_wal_atomic(wal_path: &str, kept_lines: &[String]) -> Result<(), String> {
+    let tmp_path = format!("{wal_path}.tmp");
+    let attempt = || -> Result<(), String> {
+        let mut f = std::fs::File::create(&tmp_path)
+            .map_err(|e| format!("WAL 临时文件创建失败: {e}"))?;
+        for line in kept_lines {
+            f.write_all(line.as_bytes())
+                .map_err(|e| format!("WAL 重写失败: {e}"))?;
+            f.write_all(b"\n").map_err(|e| format!("WAL 重写失败: {e}"))?;
+        }
+        f.flush().map_err(|e| format!("WAL flush 失败: {e}"))?;
+        f.sync_all().map_err(|e| format!("WAL sync 失败: {e}"))?;
+        drop(f); // Windows：rename 覆盖前须关句柄
+        std::fs::rename(&tmp_path, wal_path)
+            .map_err(|e| format!("WAL 原子替换失败: {e}"))
+    };
+    if let Err(e) = attempt() {
+        let _ = std::fs::remove_file(&tmp_path); // 失败清理，不留半成品 tmp
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// 零提交 WAL 归档（签名审计留痕不销毁）：rename 为 <wal>.corrupt-<毫秒时间戳>
+/// （同名冲突递增后缀；宁可报错也不覆盖已存在归档）。
+fn archive_corrupt_wal(wal_path: &str) -> Result<(), String> {
+    let base = now_ms();
+    for i in 0..1000u64 {
+        let suffix = if i == 0 {
+            base.to_string()
+        } else {
+            format!("{base}-{i}")
+        };
+        let archive = format!("{wal_path}.corrupt-{suffix}");
+        if std::path::Path::new(&archive).exists() {
+            continue;
+        }
+        return std::fs::rename(wal_path, &archive)
+            .map_err(|e| format!("WAL 归档失败（{archive}）: {e}"));
+    }
+    Err("WAL 归档失败：候选名耗尽".into())
 }
 
 struct InstanceProc {
@@ -732,24 +817,8 @@ pub fn run_swarm(
         ));
     }
 
-    let mut wal = if replay.completed.is_some() {
-        // 恢复模式：好行重写（物理截断坏尾）→ append 续跑
-        let mut f =
-            std::fs::File::create(wal_path).map_err(|e| format!("WAL 打开失败: {e}"))?;
-        for line in &replay.kept_lines {
-            f.write_all(line.as_bytes())
-                .map_err(|e| format!("WAL 重写失败: {e}"))?;
-            f.write_all(b"\n").map_err(|e| format!("WAL 重写失败: {e}"))?;
-        }
-        f.flush().map_err(|e| format!("WAL flush 失败: {e}"))?;
-        f.sync_all().map_err(|e| format!("WAL sync 失败: {e}"))?;
-        std::fs::OpenOptions::new()
-            .append(true)
-            .open(wal_path)
-            .map_err(|e| format!("WAL 追加打开失败: {e}"))?
-    } else {
-        std::fs::File::create(wal_path).map_err(|e| format!("WAL 创建失败: {e}"))?
-    };
+    let mut wal =
+        open_wal_for_run(wal_path, replay.completed, &replay.kept_lines, replay.had_wal_file)?;
 
     let mut procs: Vec<InstanceProc> = Vec::new();
     for spec in &specs_derived {
@@ -1445,4 +1514,203 @@ pub fn report_json(rep: &SwarmReport) -> String {
     }
     out.push_str("}}");
     out
+}
+
+#[cfg(test)]
+mod wal_recovery_tests {
+    //! 2026-09-25 守卫（缺陷：WAL 恢复重写非原子 + 零提交整文件清零）：
+    //! 密钥为随机生成哑密钥（毫秒时间戳+进程号拼接），绝不硬编码真实密钥。
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static DIR_SEQ: AtomicU64 = AtomicU64::new(0);
+
+    /// 随机哑密钥（每测试唯一；非真实 HMAC 密钥）
+    fn dummy_secret() -> String {
+        format!(
+            "guard-dummy-{}-{}-{}",
+            std::process::id(),
+            now_ms(),
+            DIR_SEQ.fetch_add(1, Ordering::Relaxed)
+        )
+    }
+
+    /// 互不冲突的临时目录（temp_dir + 进程号 + 毫秒时间戳 + 原子计数）
+    fn guard_dir(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "swarm_wal_guard_{tag}_{}_{}_{}",
+            std::process::id(),
+            now_ms(),
+            DIR_SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&d).expect("临时目录创建失败");
+        d
+    }
+
+    /// 构造与在线写入同格式的合法签名行（不带结尾换行）
+    fn signed_line(secret: &str, seq: u64, ev_type: &str, round: u64, payload: &str) -> String {
+        let ev = Event {
+            seq,
+            ts: now_ms(),
+            from_id: "协调器".into(),
+            to_id: "i1".into(),
+            event_type: ev_type.into(),
+            payload_json: payload.into(),
+            round_no: round,
+            level: 0,
+            hmac_hex: String::new(),
+        };
+        let hmac_hex = sign_event(secret, &ev);
+        format!(
+            "{{\"seq\":{seq},\"ts\":{},\"from\":\"协调器\",\"to\":\"i1\",\"type\":\"{}\",\"round\":{round},\"level\":0,\"hmac\":\"{hmac_hex}\",\"payload\":{payload}}}",
+            now_ms(), serde_json_like::escape(ev_type)
+        )
+    }
+
+    /// 快照行（from/to 均为协调器，与在线写入一致）
+    fn snapshot_line(secret: &str, seq: u64, round: u64) -> String {
+        let ev = Event {
+            seq,
+            ts: now_ms(),
+            from_id: "协调器".into(),
+            to_id: "协调器".into(),
+            event_type: SNAPSHOT_TYPE.into(),
+            payload_json: r#"{"trusts":{},"states":{}}"#.into(),
+            round_no: round,
+            level: 0,
+            hmac_hex: String::new(),
+        };
+        let hmac_hex = sign_event(secret, &ev);
+        format!(
+            "{{\"seq\":{seq},\"ts\":{},\"from\":\"协调器\",\"to\":\"协调器\",\"type\":\"{SNAPSHOT_TYPE}\",\"round\":{round},\"level\":0,\"hmac\":\"{hmac_hex}\",\"payload\":{}}}",
+            now_ms(), ev.payload_json
+        )
+    }
+
+    /// G1（防回退·红证）：恢复重写不得就地清零在役 WAL——重写路径必须经
+    /// 临时文件原子换入。注入故障：临时文件位置预置目录使创建失败（模拟
+    /// 重写窗口内崩溃/断电/写 Err），断言原 WAL 逐字节完好且函数报错。
+    #[test]
+    fn recovery_rewrite_failure_never_truncates_live_wal() {
+        let dir = guard_dir("g1");
+        let wal = dir.join("events.jsonl");
+        let wal_s = wal.to_str().unwrap();
+        let secret = dummy_secret();
+        let original = format!(
+            "{}\n{}\n{}\n",
+            snapshot_line(&secret, 1, 1),
+            signed_line(&secret, 2, "MSG", 1, r#"{"x":1}"#),
+            "{\"seq\":3,\"ts\":1,\"from\":\"BAD half line" // 崩溃残留坏尾
+        );
+        std::fs::write(&wal, &original).unwrap();
+        let replay = replay_wal(wal_s, &secret).unwrap();
+        assert!(replay.completed.is_some(), "守卫前提：快照行合法应可恢复");
+        // 堵死重写临时文件位置 —— 模拟重写窗口内故障
+        std::fs::create_dir(dir.join("events.jsonl.tmp")).unwrap();
+        let res = open_wal_for_run(wal_s, replay.completed, &replay.kept_lines, replay.had_wal_file);
+        assert!(res.is_err(), "重写窗口故障必须报错退出，不得静默半写");
+        let after = std::fs::read_to_string(&wal).unwrap();
+        assert_eq!(after, original, "重写失败时在役 WAL 必须逐字节完好（原子性）");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// G2（防回退·红证）：零提交（无合法快照）WAL 不得整文件清零——事件行
+    /// 独立 HMAC 签名，坏行之后可独立验签的审计留痕必须归档保留。
+    #[test]
+    fn corrupt_wal_archived_not_destroyed() {
+        let dir = guard_dir("g2");
+        let wal = dir.join("events.jsonl");
+        let wal_s = wal.to_str().unwrap();
+        let secret = dummy_secret();
+        // 首行损坏 → 提交点搜索首行即止（completed=None），其后行均可独立验签
+        let mut original = String::from("{\"seq\":CORRUPT first line\n");
+        original.push_str(&snapshot_line(&secret, 1, 1));
+        original.push('\n');
+        for i in 2..=4 {
+            original.push_str(&signed_line(&secret, i, "MSG", 1, r#"{"x":{i}}"#));
+            original.push('\n');
+        }
+        std::fs::write(&wal, &original).unwrap();
+        let replay = replay_wal(wal_s, &secret).unwrap();
+        assert!(replay.completed.is_none(), "守卫前提：首行坏 → 零提交");
+        assert!(replay.had_wal_file);
+        let f = open_wal_for_run(wal_s, replay.completed, &replay.kept_lines, replay.had_wal_file);
+        assert!(f.is_ok(), "零提交应正常开空 WAL 从轮 1 重跑");
+        drop(f.unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&wal).unwrap(),
+            "",
+            "新 WAL 应为空文件（B1 全回滚语义不变）"
+        );
+        let archives: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().starts_with("events.jsonl.corrupt-"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(archives.len(), 1, "坏 WAL 必须归档留痕（恰好一份）");
+        assert_eq!(
+            std::fs::read_to_string(&archives[0]).unwrap(),
+            original,
+            "归档必须逐字节保留原 WAL（含坏行后可独立验签的事件行）"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// G3（语义守卫）：恢复重写截断坏尾、保留好行前缀、无临时残留、可续写。
+    #[test]
+    fn recovery_rewrite_truncates_bad_tail_and_resumes() {
+        let dir = guard_dir("g3");
+        let wal = dir.join("events.jsonl");
+        let wal_s = wal.to_str().unwrap();
+        let secret = dummy_secret();
+        let content = format!(
+            "{}\n{}\n{}\n",
+            snapshot_line(&secret, 1, 1),
+            signed_line(&secret, 2, "MSG", 1, r#"{"x":1}"#),
+            "{\"seq\":3,\"ts\":1,\"from\":\"BAD half line"
+        );
+        std::fs::write(&wal, &content).unwrap();
+        let replay = replay_wal(wal_s, &secret).unwrap();
+        assert!(replay.completed.is_some());
+        let mut f =
+            open_wal_for_run(wal_s, replay.completed, &replay.kept_lines, replay.had_wal_file)
+                .unwrap();
+        let after = std::fs::read_to_string(&wal).unwrap();
+        assert_eq!(
+            after,
+            format!("{}\n", replay.kept_lines.join("\n")),
+            "重写后 = 好行前缀（坏尾物理截断）"
+        );
+        assert!(
+            !dir.join("events.jsonl.tmp").exists(),
+            "成功路径不得残留临时文件"
+        );
+        f.write_all(b"{\"seq\":99,\"resume\":true}\n").unwrap();
+        f.flush().unwrap();
+        let resumed = std::fs::read_to_string(&wal).unwrap();
+        assert!(resumed.ends_with("{\"seq\":99,\"resume\":true}\n"), "续跑可 append");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// G4（语义守卫）：无 WAL = 首跑——新建空文件，不触发归档。
+    #[test]
+    fn first_run_creates_empty_wal_without_archive() {
+        let dir = guard_dir("g4");
+        let wal = dir.join("events.jsonl");
+        let wal_s = wal.to_str().unwrap();
+        let replay = replay_wal(wal_s, &dummy_secret()).unwrap();
+        assert!(replay.completed.is_none());
+        assert!(!replay.had_wal_file);
+        let f = open_wal_for_run(wal_s, replay.completed, &replay.kept_lines, replay.had_wal_file);
+        assert!(f.is_ok());
+        drop(f.unwrap());
+        assert_eq!(std::fs::read_to_string(&wal).unwrap(), "");
+        let n = std::fs::read_dir(&dir).unwrap().count();
+        assert_eq!(n, 1, "目录内只有新 WAL，无归档无残留");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
