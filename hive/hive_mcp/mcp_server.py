@@ -240,29 +240,70 @@ def _submit(jobs: str, spec: dict) -> str:
     return job_id
 
 
-# 生效条件：jobs 与 job_id 给定；json.load(jobs/job_id/status.json) 成功时返回解析值本身，抛 OSError 或 ValueError 时返回 None。
+# 解析缓存（v7 留档「orch._poll 重复解析」修复，缺陷迭代第 14 轮）：
+# poll 是编排等待循环的高频重复动作（spawn 返回 hint 明示「继续轮询
+# poll_subtasks」），_poll→_card（与 MCP 面 _t_poll 同源走本模块两函数）
+# 此前每次轮询对全部子任务全量重读+json.load status.json 与 result.json
+# 全文——实测 8 子任务/210KB result 串行 7rep 中位 2.67ms/轮、content
+# 50K/200K/800K → 0.98/2.67/10.13ms 随产物大小近似线性、随轮询次数线性
+# 累积；对照同批 16 文件纯 os.stat 仅 0.233ms。按 (st_mtime_ns, st_size)
+# 签名短路未变更文件的重解析：文件未变复用已解析值，变更（worker 重写
+# status/result 必产生新 mtime）/删除按签名失配或 stat 失败重读——语义
+# 与逐次读盘逐位一致。有界防长驻累积：超上限整体清空（粗粒度，正确性
+# 不受影响，只多付一次冷启解析）。
+_PARSE_CACHE = {}          # path -> (mtime_ns, size, parsed)
+_PARSE_CACHE_MAX = 256
+
+
+# 生效条件：path 与 parse 给定；os.stat(path) 抛 OSError 时摘除该 path 的缓存项并原样执行 parse()（其异常语义由调用方处理），stat 成功且缓存命中（(st_mtime_ns, st_size) 与登记值相等）时返回登记解析值，否则执行 parse()、成功返回（不抛异常）后登记（含超上限先整体清空）并返回其值。
+def _cached_json(path, parse):
+    """(mtime_ns, size) 签名短路的一次性解析入口（未变更文件零重读）。"""
+    try:
+        st = os.stat(path)
+        sig = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        _PARSE_CACHE.pop(path, None)
+        return parse()
+    hit = _PARSE_CACHE.get(path)
+    if hit is not None and (hit[0], hit[1]) == sig:
+        return hit[2]
+    val = parse()
+    if len(_PARSE_CACHE) >= _PARSE_CACHE_MAX:
+        _PARSE_CACHE.clear()
+    _PARSE_CACHE[path] = (sig[0], sig[1], val)
+    return val
+
+
+# 生效条件：jobs 与 job_id 给定；jobs/job_id/status.json 的缓存解析成功时返回其浅拷贝（每次调用拿到可独立变更的新 dict——_t_poll 会往 st 上挂 result，不得污染缓存），解析抛 OSError 或 ValueError 时返回 None。
 def _read_status(jobs: str, job_id: str):
     p = os.path.join(jobs, job_id, "status.json")
     try:
-        with open(p, encoding="utf-8") as f:
-            return json.load(f)
+        st = _cached_json(p, lambda: _load_json_file(p))
     except (OSError, ValueError):
         return None
+    return dict(st) if isinstance(st, dict) else st
 
 
-# 生效条件：job_dir 与 head 给定；job_dir/result.json 未通过 os.path.isfile 时返回 None，json.load 抛 OSError/ValueError 时返回 {"error": "result.json 解析失败: …"}，否则返回该 dict：head 非 None（含 head=0）且 len(content) > head 时把 content 截成 content_head 并置 content_truncated，并统一加 result_path 与 handoff_ready（need_continue is True 且 completed 非 True）。
+def _load_json_file(p: str):
+    """open+json.load 原语（_cached_json 的 parse 回调；异常原样外抛）。"""
+    with open(p, encoding="utf-8") as f:
+        return json.load(f)
+
+
+# 生效条件：job_dir 与 head 给定；job_dir/result.json 未通过 os.path.isfile 时返回 None，缓存解析抛 OSError/ValueError 时返回 {"error": "result.json 解析失败: …"}，否则在该解析值（**浅拷贝**上派生——缓存基底不被下面截断/挂键变更）：head 非 None（含 head=0）且 len(content) > head 时把 content 截成 content_head 并置 content_truncated，并统一加 result_path 与 handoff_ready（need_continue is True 且 completed 非 True）。
 def _result_view(job_dir: str, head):
     p = os.path.join(job_dir, "result.json")
     if not os.path.isfile(p):
         return None
     try:
-        with open(p, encoding="utf-8") as f:
-            r = json.load(f)
+        r = _cached_json(p, lambda: _load_json_file(p))
     except (OSError, ValueError) as e:
         return {"error": f"result.json 解析失败: {e}"}
+    # 派生在浅拷贝上做，缓存基底保持原样；非 dict 形态（病态 result.json）
+    # 不拷贝——后续 r.get 抛 AttributeError 与旧逐次解析口径一致。
+    r = dict(r) if isinstance(r, dict) else r
     content = r.get("content") or ""
     if head is not None and len(content) > head:
-        r = dict(r)
         r["content_head"] = content[:head]
         r["content_truncated"] = True
         r.pop("content", None)

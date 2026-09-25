@@ -797,7 +797,7 @@ def apply_retrieval_gates(entries, terms, big_domain, context, min_results):
     return entries, gates
 
 
-# 生效条件：无独立生效条件（模块级哨兵字典类）；任何变更操作（setitem/delitem/clear/pop/popitem/setdefault/update）都会使 write_gen 自增 1，读取 write_gen 不变更。
+# 生效条件：无独立生效条件（模块级哨兵字典类）；任何变更操作（setitem/delitem/clear/pop/popitem/setdefault/update）都会使 write_gen 自增 1，读取 write_gen 不变更；setitem 的值为含非空 path 字符串的 dict 时把该 path 记入 path_gen（值为当时的 write_gen）且不动 broad_gen，值为其它形态（含 None tombstone）或经 delitem/pop/popitem/setdefault/update 变更时把 broad_gen 置为当时的 write_gen，clear() 缺省（flush 收尾）只使 write_gen 自增、不改写 path_gen/broad_gen，clear(broad=True)（rebuild_index 收尾）同时把 broad_gen 置为当时的 write_gen。
 class _DirtyDict(dict):
     """写代际哨兵字典（批次 23，issue #31 D-4 / v20 报告）：任何变更使
     `write_gen` **单调自增、永不回退**。
@@ -810,41 +810,90 @@ class _DirtyDict(dict):
     消费方纪律：flush/rebuild 清空必须走 `.clear()`（保住子类钩子），
     **不得** `self._dirty = {}` 直接换新 dict——那会退化为普通 dict，
     write_gen 恒 0、读缓存失效面随之失效。
+
+    脏集精确失效簿记（缺陷迭代第 14 轮，high：写读交替整池重装）：
+    全局单一 write_gen 作读缓存哨兵会让**任意一次单节点写使全部缓存条目
+    同时 miss**（10k 池写读交替实测 3rep 中位 1677.6ms vs 稳态 43.7ms，
+    38.4× 退化、线性于 N）。所有节点文件写路径在落盘后必以
+    `_dirty[nid] = entry`（entry 带 path）标脏——本类据此把失效粒度从
+    整代际细化到 path：`path_gen[path]` 记该 path 最近标脏时的 write_gen，
+    读缓存按「path 最近标脏代际 ≤ 缓存代际」判新鲜（见 readcache.install）。
+    tombstone（值 None，_unstage 删除记录）与其余无 path 可辨的变更形态
+    记 `broad_gen`（保守整池失效，与旧整代际口径等价的安全兜底）。
+    `clear()`（flush 收尾）**只推进 write_gen**：flush 只落索引
+    派生物（_index_log 分片/快照），不改节点文件——文件内容变更已在各
+    写路径 `_dirty[nid]=entry` 时按 path 精确失效；且生产写路径每次写后
+    `writepipe._commit_visibility→flush`（每次写必 clear），clear 若再整池
+    失效会让精确失效在生产写读交替负载下恒不生效。`clear(broad=True)`
+    （rebuild_index 收尾）额外推进 broad_gen 整池失效：rebuild 以盘面
+    扫描为准，ccgc/crosscheck/backfill 等「直写文件 + rebuild 收尾」的
+    写方不经 `_dirty` 标脏，其文件改写对读缓存的可见性靠这一兜底。
     """
 
     def __init__(self, *a, **k):
         super().__init__(*a, **k)
         self.write_gen = 0
+        self.path_gen = {}      # path → 该 path 最近一次标脏时的 write_gen
+        self.broad_gen = 0      # 最近一次无 path 可辨变更的 write_gen（整池兜底）
 
     def _bump(self):
         self.write_gen += 1
 
+    def _note(self, v):
+        """标脏登记：值带 path → 精确记路径代际；否则保守记整池代际。"""
+        p = v.get("path") if isinstance(v, dict) else None
+        if isinstance(p, str) and p:
+            self.path_gen[p] = self.write_gen
+        else:
+            self.broad_gen = self.write_gen
+
     def __setitem__(self, k, v):
         self._bump()
+        self._note(v)
         super().__setitem__(k, v)
 
     def __delitem__(self, k):
         self._bump()
+        self.broad_gen = self.write_gen
         super().__delitem__(k)
 
-    def clear(self):
+    def clear(self, broad: bool = False):
+        """清空脏集。
+
+        broad=False（flush 收尾）：只推进 write_gen，不整池失效——flush 只
+        落索引派生物（_index_log 分片），节点文件的内容变更已在各写路径
+        `_dirty[nid]=entry`（带 path）时按 path 精确失效；且生产写路径每次
+        写后 `writepipe._commit_visibility→flush`，整池失效会让精确失效在
+        生产写读交替负载下恒不生效。
+        broad=True（rebuild_index 收尾）：同时推进 broad_gen 整池失效——
+        rebuild 以**盘面扫描**为准重建索引，ccgc/crosscheck/backfill 等
+        「直写文件 + rebuild 收尾」的写方不经 `_dirty` 标脏，其文件改写对
+        读缓存的可见性全靠这一兜底（与 MdStore「写方落盘后显式 reload」
+        同构）。
+        """
         self._bump()
+        if broad:
+            self.broad_gen = self.write_gen
         super().clear()
 
     def pop(self, k, *d):
         self._bump()
+        self.broad_gen = self.write_gen
         return super().pop(k, *d)
 
     def popitem(self):
         self._bump()
+        self.broad_gen = self.write_gen
         return super().popitem()
 
     def setdefault(self, k, d=None):
         self._bump()
+        self.broad_gen = self.write_gen
         return super().setdefault(k, d)
 
     def update(self, *a, **k):
         self._bump()
+        self.broad_gen = self.write_gen
         super().update(*a, **k)
 
 
@@ -1175,7 +1224,11 @@ class MdCG:
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))
             ShardedLog.clear(self.index_log_dir)
         self.index = idx
-        self._dirty.clear()       # 保住 _DirtyDict 钩子（批次 23 D-4）
+        # broad=True：rebuild 以盘面扫描为准——ccgc/crosscheck/backfill 等
+        # 「直写文件 + rebuild 收尾」的写方不经 _dirty 标脏，其文件改写对
+        # 读缓存的可见性靠这一整池失效兜底（flush 的 clear 则不失效，见
+        # _DirtyDict.clear 文档串）。
+        self._dirty.clear(broad=True)  # 保住 _DirtyDict 钩子（批次 23 D-4）
         return idx
 
     # P2-20（批次 30，外部审查报告）：索引中的 path 参与所有读/写落盘定位
@@ -2534,10 +2587,17 @@ class MdCG:
             pooling.record_audit(stat, _rep)
             # V21-6（批次 34，外部报告定案）：doc_key 返回 (node_id, entry)，
             # 第二元是 dict 不可哈希——整键作字典键 = TypeError 死代码。
-            # 取 [0]（node_id）作键。
-            _smap = {pooling.doc_key(d)[0]: s for d, s in scored_r}
+            # 取 [0]（node_id）作键。缺陷迭代第 14 轮修（两处形态错误，
+            # MDCG_REACH=1 实测 KeyError: 1 崩，stash 取证 HEAD 原生在位）：
+            # ① scored 元素是 (card, score)，card 是 dict——对它调 doc_key
+            #   （形参须 (entry, fm, content) 三元组）= KeyError: 1；按
+            #   card["id"]（与 doc_key(doc)[0] 同源同值）建键表；
+            # ② 键表须存 (card, score) 原对再按 hits_r 序取回——自组
+            #   (doc, score) 对会让 _emit 排序键 x[0]["frontmatter"] 崩
+            #   （x[0] 须是 card dict）。
+            _smap = {c.get("id"): (c, s) for c, s in scored_r}
             out = try_stage(hits_r, TIER_GLOBAL_LIKE,
-                            scored=[(d, _smap[pooling.doc_key(d)[0]])
+                            scored=[_smap[pooling.doc_key(d)[0]]
                                     for d in hits_r])
             if out:
                 return out
@@ -2915,11 +2975,16 @@ class MdCG:
             out.append((r[0], r[1], qual))
         # 把被负记忆覆盖的查询也作为结果条目返回（首条），方便调用方感知
         for nc in neg_coverage[:3]:
-            full_path = os.path.join(self.root, nc["path"])
-            try:
-                with open(full_path, encoding="utf-8") as f:
-                    fm, content = nodefile.loads(f.read())
-            except OSError:
+            # v9 留档残余项修复（缺陷迭代第 14 轮）：改走 self._read——裸
+            # open+loads 不在读缓存包装面（install 只包 cg._read），每条命中
+            # 负层的查询恒 ≤3 次盘读（60+8 池实测 Q2 增量恰 3）；并入读缓存
+            # 后增量归零，负层主面 IO 早已同款覆盖（_neg_coverage → _read）。
+            # _read 同款 _node_disk_path 边界闸（P2-20：索引被污染时不得绕过
+            # 统一校验读 root 外文件）、OSError→(None,None) 与旧 continue 同义；
+            # 负层写路径（add/add_rejected→_stage 标脏带 path）在脏集精确
+            # 失效面内——覆写后尾部条目即时见新内容，不陈旧。
+            fm, content = self._read(nc)
+            if content is None:
                 continue
             entry = {"id": nc["path"], "frontmatter": fm,
                      "content": content, "path": nc["path"]}
