@@ -24,7 +24,8 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_p47_session_view test_security_audit test_security_audit_b26 \
          test_security_audit_v21 test_p13_encryption \
          test_tasks test_reach test_transfer test_ccg_perturb \
-         test_blindspot_tickets test_en_pipeline test_semantic_canonical; do
+         test_blindspot_tickets test_en_pipeline test_semantic_canonical \
+         test_p1x_ref_root; do
   if python -m md_cg.$t >/dev/null 2>&1; then
     pass=$((pass+1))
   else

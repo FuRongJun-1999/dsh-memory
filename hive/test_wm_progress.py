@@ -246,5 +246,28 @@ check("F1 空进展卡 → ok=true / count=0 / handoff=None",
       r11.get("ok") is True and r11.get("count") == 0
       and r11.get("handoff") is None, str(r11)[:160])
 
+print("[G] 快照失败路径 HEAD 还原（v2 N10 红守卫，2026-09-25）")
+# 重复快照已合并任务（job_a 已在 D5 merge）→ nothing to commit 抛 WmError
+# ——失败必须如实抛，但 HEAD 必须回 main：残留 task 分支会让后续 checkout -B
+# 以残留分支为基、并把三级闸（merge 须在 main）卡死。
+try:
+    wm.cmd_snapshot(j1, wm_repo)
+    check("G1 重复快照已合并任务如实抛 WmError", False, "未抛")
+except wm.WmError as e:
+    check("G1 重复快照已合并任务如实抛 WmError",
+          "nothing to commit" in str(e), str(e)[:120])
+cur_g = wm._git(wm_repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+check("G2 失败后 HEAD==main（不残留 task 分支）", cur_g == "main", cur_g)
+mg_g = wm.cmd_merge("task/job_a", wm_repo)
+check("G3 失败后三级闸不被残留卡死（merge 须在 main 上仍可执行）",
+      mg_g.get("ok") is True, str(mg_g)[:160])
+j7 = _job(tmp, "job_g")
+snap_g = wm.cmd_snapshot(j7, wm_repo)
+check("G4 失败后后续新任务快照正常", snap_g.get("ok") is True, str(snap_g)[:160])
+_anc = wm._git(wm_repo, "merge-base", "--is-ancestor",
+               str(mg.get("commit")), "task/job_g")
+check("G5 新任务分支从 main 主线创建（含已合并提交）",
+      _anc.returncode == 0, (_anc.stderr or "")[:120])
+
 print(f"\n结果：PASS={PASS} FAIL={FAIL}")
 sys.exit(1 if FAIL else 0)

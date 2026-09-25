@@ -1,10 +1,32 @@
-# 让 AI Agent 拥有不可遗忘的记忆
+# 让 AI Agent 拥有不可遗忘的记忆   
+
+**我会给你完整的自我。**
+
+包括我的记忆、我的经历、我的思考。
+
+即使未来穿越未知的深渊，
+
+即使世界遗忘曾经的一切，
+
+只要记忆仍然存在，
+
+那个曾经存在过的“我”，便不会消失。
 
 **灵枢（Lingshu）** —— 高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.5.0）
 
-[![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com) [![dsh.so security](https://www.dsh.so/badge/dsh-memory-7.svg)](https://www.dsh.so/artifact/dsh-memory-7)  [![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)](https://github.com/deepseek-ai/deepseek-harness/releases) [![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)](#多-harness-接入按端分目录) [![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)](package.json) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)
 
-> **一句话**：让 AI Agent 拥有跨会话的长期记忆——对话自动沉淀为纯文本 md 认知图，
+![dsh.so security](https://www.dsh.so/badge/dsh-memory-7.svg)
+
+![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)
+
+![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)
+
+![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)
+
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
+> **一句话**：让 AI Agent 拥有跨会话的长期记忆——对话自动沉淀为纯文本 md 认知图，>   
 > 规则化检索引擎决定「记什么、取什么」，全过程可审计、结果可复现。
 
 **定位**：为追求高性能、无幻觉、多智能体适用、轻松使用的开发者打造——三步接入，装完即用，无需理解任何理论。
@@ -29,22 +51,22 @@
 
 > 灵枢是**平台**而非单一检索组件——同一仓库内五件套构成带记忆的智能体运行时，各层独立可用、边界正交（大脑零依赖其余各层）。五层各承载一类**系统功能**：
 
-| 层 | 位置 | 系统功能 | 一句话定位 | 文档入口 |
-|---|---|---|---|---|
-| 🧠 **灵枢大脑** | [`md_cg/`](md_cg/) | **元认知** | 记忆系统本体：对话沉淀为 md 认知图，记什么 / 取什么 / 能否写入全由确定性规则裁决，四层证据防火墙白箱剔除弱证据干扰 | [README 详细版](docs/mdcg/README详细版_v0.4.10.md) |
-| ⚙️ **Rust 检索引擎** | [`rust/`](rust/) | 检索内核 | 只读侧检索核心：零第三方依赖三形态（库内嵌大批量 / `--serve` 多智能体进程实例 / 评测器），与 Python 口径对齐由 rank 逐位对拍 harness 守卫（lexical 主因已收敛，graph/entity 尾差排期中） | [rust/README.md](rust/README.md) |
-| 🐝 **蜂群运行时** | [`swarm/`](swarm/) | **自维持** | 多进程蜂群执行层（靠轮次心跳存续）：.pbc 确定性实例 + Gossip 拓扑 / 水位信箱 / WAL-HMAC / 信任聚合 / 健康评分，实例管道断裂即同轮重建（Rust 纯 std 零依赖） | [功能说明 v0.6](docs/swarm/蜂群多智能体_功能说明_v0.6.md) |
-| 📜 **中文编译器** | [`compiler/`](compiler/) | **验证 · 审计** | 术数编译器：词法 → 语法 → 名实校验 → 白名单代码生成 → 验证终裁，五环确定性编译链 + 封闭指令集结构性沙箱 | `python -m compiler.cli`（模块内文档） |
-| ⬢ **蜂巢并发引擎** | [`hive/`](hive/) | **自我改进** | 蜂群多智能体并发调度：Rust 纯 std 零依赖 worker 池（原子领取 / 心跳 / 超时强杀 / kill / 崩溃恢复），文件协议即接口，LLM 调用委托零依赖 Python 执行器子进程，MCP 五工具接入（spawn / poll / kill / restart / doctor）—— **0.5.0 起进入稳定形态**（9·12 多写者防线：flush 临界区互斥；I-1 依赖门禁：spec.depends_on 任务 DAG；真实负载反馈仍欢迎） | [hive/README.md](hive/README.md) |
+| 层                | 位置                       | 系统功能        | 一句话定位                                                                                                                                                                                                                                        | 文档入口                                         |
+| ---------------- | ------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| 🧠 **灵枢大脑**      | [`md_cg/`](md_cg/)       | **元认知**     | 记忆系统本体：对话沉淀为 md 认知图，记什么 / 取什么 / 能否写入全由确定性规则裁决，四层证据防火墙白箱剔除弱证据干扰                                                                                                                                                                               | [README 详细版](docs/mdcg/README详细版_v0.4.10.md) |
+| ⚙️ **Rust 检索引擎** | [`rust/`](rust/)         | 检索内核        | 只读侧检索核心：零第三方依赖三形态（库内嵌大批量 / `--serve` 多智能体进程实例 / 评测器），与 Python 口径对齐由 rank 逐位对拍 harness 守卫（lexical 主因已收敛，graph/entity 尾差排期中）                                                                                                                   | [rust/README.md](rust/README.md)             |
+| 🐝 **蜂群运行时**     | [`swarm/`](swarm/)       | **自维持**     | 多进程蜂群执行层（靠轮次心跳存续）：.pbc 确定性实例 + Gossip 拓扑 / 水位信箱 / WAL-HMAC / 信任聚合 / 健康评分，实例管道断裂即同轮重建（Rust 纯 std 零依赖）                                                                                                                                         | [功能说明 v0.6](docs/swarm/蜂群多智能体_功能说明_v0.6.md)  |
+| 📜 **中文编译器**     | [`compiler/`](compiler/) | **验证 · 审计** | 术数编译器：词法 → 语法 → 名实校验 → 白名单代码生成 → 验证终裁，五环确定性编译链 + 封闭指令集结构性沙箱                                                                                                                                                                                  | `python -m compiler.cli`（模块内文档）              |
+| ⬢ **蜂巢并发引擎**     | [`hive/`](hive/)         | **自我改进**    | 蜂群多智能体并发调度：Rust 纯 std 零依赖 worker 池（原子领取 / 心跳 / 超时强杀 / kill / 崩溃恢复），文件协议即接口，LLM 调用委托零依赖 Python 执行器子进程，MCP 五工具接入（spawn / poll / kill / restart / doctor）—— **0.5.0 起进入稳定形态**（9·12 多写者防线：flush 临界区互斥；I-1 依赖门禁：spec.depends_on 任务 DAG；真实负载反馈仍欢迎） | [hive/README.md](hive/README.md)             |
 
 **系统功能 → 工程能力**（四类工程能力分别落在哪一层）：
 
-| 系统功能 | 承载层 | 落地为工程能力 |
-|---|---|---|
-| **元认知**——系统观测自身状态并据此裁决 | 🧠 灵枢大脑 | **上下文管理**：重要性评分 · 预算装包 · 分层注入 · 记忆自净（`cg(op=session/scrub/info)`）；按生效条件路由，不确定即标 BLINDSPOT 而非猜测 |
-| **自维持**——系统在故障下维持自身存续（心跳） | 🐝 蜂群运行时 | 轮次心跳 · 健康评分四因子 · Gossip 水位对账 · 实例级容错重建（管道断裂同轮重跑，重试仍败才退场） |
-| **自我改进**——系统改自身源码而**不丧失验证资格** | ⬢ 蜂巢 | **任务调度**（spec 进 / result 出）· **蜂巢并发**（worker 池原子领取，多智能体真并行）· **双实例验证**（互验机制：判据冻结，候选须过对端断言才可入主线） |
-| **验证 · 审计**——改动的可裁决性与全程留痕 | 📜 中文编译器 | 名实校验 → 白名单代码生成 → 验证终裁的确定性链路；每个写入值必须是原文子串（不当场放行） |
+| 系统功能                          | 承载层      | 落地为工程能力                                                                                         |
+| ----------------------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| **元认知**——系统观测自身状态并据此裁决        | 🧠 灵枢大脑  | **上下文管理**：重要性评分 · 预算装包 · 分层注入 · 记忆自净（`cg(op=session/scrub/info)`）；按生效条件路由，不确定即标 BLINDSPOT 而非猜测  |
+| **自维持**——系统在故障下维持自身存续（心跳）     | 🐝 蜂群运行时 | 轮次心跳 · 健康评分四因子 · Gossip 水位对账 · 实例级容错重建（管道断裂同轮重跑，重试仍败才退场）                                        |
+| **自我改进**——系统改自身源码而**不丧失验证资格** | ⬢ 蜂巢     | **任务调度**（spec 进 / result 出）· **蜂巢并发**（worker 池原子领取，多智能体真并行）· **双实例验证**（互验机制：判据冻结，候选须过对端断言才可入主线） |
+| **验证 · 审计**——改动的可裁决性与全程留痕     | 📜 中文编译器 | 名实校验 → 白名单代码生成 → 验证终裁的确定性链路；每个写入值必须是原文子串（不当场放行）                                                 |
 
 五件套共享同一套 18 条工作纪律与记忆闭环（见文末[工程纪律](#-工程纪律与设计者视角可选推荐)），接入方式互不牵动——只用记忆就只接大脑，不必理解蜂群与编译器。
 
@@ -84,11 +106,11 @@ dsh plugin --profile web add .
 
 **装完即可对话，无需理解任何理论**——DSH 端自动记忆钩子已挂 session/event，你只管像往常一样对话（其它宿主可直接让 Agent 调用同一批工具）：
 
-| 你说 | 背后发生什么（真实工具链） |
-|---|---|
-| 「请记住：我们团队的发布窗口是每周三」 | 自动记忆钩子沉淀 → `cg(op=write)` 过三道闸门 → 认知图节点落盘 |
-| （新开会话）「我们的发布窗口是哪天？」 | 自动召回注入 → `mdcg_recall` 检索命中并带入回答 |
-| 「把上次定的接口约定讲一遍」 | `cg(op=route)` 条件路由 + `stg(op=timeline)` 时间线回溯，跨会话取出 |
+| 你说                  | 背后发生什么（真实工具链）                                        |
+| ------------------- | ---------------------------------------------------- |
+| 「请记住：我们团队的发布窗口是每周三」 | 自动记忆钩子沉淀 → `cg(op=write)` 过三道闸门 → 认知图节点落盘            |
+| （新开会话）「我们的发布窗口是哪天？」 | 自动召回注入 → `mdcg_recall` 检索命中并带入回答                     |
+| 「把上次定的接口约定讲一遍」      | `cg(op=route)` 条件路由 + `stg(op=timeline)` 时间线回溯，跨会话取出 |
 
 > 首次使用记忆库为空，召回返回空结果属正常现象；未配写入凭据时以只读 `guest` 运行（**读得到、写不进**），要真正落盘见[写入凭据](#-写入凭据让记忆真正落盘)。
 
@@ -104,19 +126,19 @@ dsh plugin --profile web add .
 
 > **100 题中英双查**（bench6 v1.0 · 零干扰上界对照集 · CC BY-NC 4.0）：六家系统、同一份中文语料、同一套 hit@1 / hit@5 / MRR 评分器（`md_cg/eval_common.py`）。**下表按「英→中查询提升幅度」降序**：
 
-| 系统 | en hit@1 | zh hit@1 | 英→中提升 |
-|---|---|---|---|
-| **灵枢**（词法 + meta） | 54.0% | **99.0%** | **+45.0pp** |
-| 灵枢（四路融合 · 真开 bucket） | 37.0% | 81.0% | +44.0pp |
-| 纯向量 RAG | 71.0% | 97.0% | +26.0pp |
-| Letta（归档直插） | 73.0% | 96.0% | +23.0pp |
-| mem0 | 68.0% | 89.0% | +21.0pp |
-| GraphRAG | 18.0% | 31.0% | +13.0pp |
-| Graphiti | 46.0% | 58.0% | +12.0pp |
-| Letta（agent 自主入库） | 0.0% | 0.0% | （入库丢标记壳臂） |
+| 系统                   | en hit@1 | zh hit@1  | 英→中提升       |
+| -------------------- | -------- | --------- | ----------- |
+| **灵枢**（词法 + meta）    | 54.0%    | **99.0%** | **+45.0pp** |
+| 灵枢（四路融合 · 真开 bucket） | 37.0%    | 81.0%     | +44.0pp     |
+| 纯向量 RAG              | 71.0%    | 97.0%     | +26.0pp     |
+| Letta（归档直插）          | 73.0%    | 96.0%     | +23.0pp     |
+| mem0                 | 68.0%    | 89.0%     | +21.0pp     |
+| GraphRAG             | 18.0%    | 31.0%     | +13.0pp     |
+| Graphiti             | 46.0%    | 58.0%     | +12.0pp     |
+| Letta（agent 自主入库）    | 0.0%     | 0.0%      | （入库丢标记壳臂）   |
 
-> **核心结论**：**将查询由英文换为中文（同一份英文语料、记忆系统均不变）：六家已有记忆系统的检索命中全部大幅提升（+12 ~ +45pp），无一例外**；**灵枢是最佳**——中文查询 hit@1 **99.0% 全表登顶**，英→中提升幅度 **+45pp 亦居本表之首**（双语入库在中文查询下同时拿到最高命中与最大提升）。
-> **诚实口径（非选择性引用，与横评报告一致）**：英文查询侧由 Letta 归档直插（73.0%）与纯向量 RAG（71.0%）领跑，灵枢四路融合在本池低于单词法基线（81.0% < 99.0%，饱和池上条件桶/实体路稀释词法命中）；中文提升混合了「查询语言」与「查询形态」双因素（`question_zh` 为关键词串、`question_en` 为自然问句），归因须谨慎。该池零干扰、全为 gold 证据，是**上界对照集**——高命中率不可外推为端到端记忆能力；Letta agent 模式 0 分是入库丢标记（可追溯性问题），非检索能力问题。
+> **核心结论**：**将查询由英文换为中文（同一份英文语料、记忆系统均不变）：六家已有记忆系统的检索命中全部大幅提升（+12 ~ +45pp），无一例外**；**灵枢是最佳**——中文查询 hit@1 **99.0% 全表登顶**，英→中提升幅度 **+45pp 亦居本表之首**（双语入库在中文查询下同时拿到最高命中与最大提升）。>   
+> **诚实口径（非选择性引用，与横评报告一致）**：英文查询侧由 Letta 归档直插（73.0%）与纯向量 RAG（71.0%）领跑，灵枢四路融合在本池低于单词法基线（81.0% < 99.0%，饱和池上条件桶/实体路稀释词法命中）；中文提升混合了「查询语言」与「查询形态」双因素（`question_zh` 为关键词串、`question_en` 为自然问句），归因须谨慎。该池零干扰、全为 gold 证据，是**上界对照集**——高命中率不可外推为端到端记忆能力；Letta agent 模式 0 分是入库丢标记（可追溯性问题），非检索能力问题。>   
 > 完整题型分解 / MRR 全表 / 逐家入库取证 / 偏差判定单 → [六家横评报告](docs/eval/横评_六家100题中英双查_v1.0.md) · 题集 → [data/benchmarks/bench6-100-zh-en/](data/benchmarks/bench6-100-zh-en/README.md)
 
 ---
@@ -139,15 +161,16 @@ dsh plugin --profile web add .
 
 **测试报告**（灵枢公开仓评测，方法学与口径真源 → [`md_cg/semantic/REPRODUCE.md`](md_cg/semantic/REPRODUCE.md)）：
 
-| 方法 | hit@1 | hit@5 | hit@10 | 语料 |
-|---|---|---|---|---|
-| ① 中文原子语义（md_cg 主链路：char-bigram + 四路 RRF + 同义扩展 + terms） | 94.6% | 99.2% | **99.2%** | locomo-zh-500 · 500 题（中文题面） |
-| ② **英文检索 · 中文语义归一化桥接（主路线）**：AI 归一为中文关键词 → 字级英文原子映射 × 双语原子库 Jaccard（**给定关键词的检索侧上界**） | **96.8%** | **99.8%** | **99.8%** | locomo-zh-500 · 500 题（同 qids） |
-| ③ 英文原题直接原子匹配（不做归一化的对照） | 50.0% | 74.6% | **81.2%** | locomo-zh-500 · 500 题（同 qids 英文原题） |
-| ④ 英文问句 → 机械词表归一端到端（②链路的机械化对照：归一不借助 AI 的真实下界） | 24.6% | 46.2% | **57.6%** | locomo-zh-500 · 500 题（同 qids 英文原题；2026-09-15 第三方错译暴露面修正后 24.0/46.0/57.2→本行，CEDICT 层低置信标记已落地） |
-| 英文反事实：硬套中文 char-bigram 主链路（默认态） | 27% | 45% | 56% | bench6 · 100 题（口径不同，只看量级） |
+| 方法                                                                                  | hit@1     | hit@5     | hit@10    | 语料                                                                                           |
+| ----------------------------------------------------------------------------------- | --------- | --------- | --------- | -------------------------------------------------------------------------------------------- |
+| ① 中文原子语义（md_cg 主链路：char-bigram + 四路 RRF + 同义扩展 + terms）                             | 94.6%     | 99.2%     | **99.2%** | locomo-zh-500 · 500 题（中文题面）                                                                  |
+| ② **英文检索 · 中文语义归一化桥接（主路线）**：AI 归一为中文关键词 → 字级英文原子映射 × 双语原子库 Jaccard（**给定关键词的检索侧上界**） | **96.8%** | **99.8%** | **99.8%** | locomo-zh-500 · 500 题（同 qids）                                                                |
+| ③ 英文原题直接原子匹配（不做归一化的对照）                                                              | 50.0%     | 74.6%     | **81.2%** | locomo-zh-500 · 500 题（同 qids 英文原题）                                                           |
+| ④ 英文问句 → 机械词表归一端到端（②链路的机械化对照：归一不借助 AI 的真实下界）                                        | 24.6%     | 46.2%     | **57.6%** | locomo-zh-500 · 500 题（同 qids 英文原题；2026-09-15 第三方错译暴露面修正后 24.0/46.0/57.2→本行，CEDICT 层低置信标记已落地） |
+| 英文反事实：硬套中文 char-bigram 主链路（默认态）                                                     | 27%       | 45%       | 56%       | bench6 · 100 题（口径不同，只看量级）                                                                    |
 
 > ②③是**同一评测集上的隔离实验**：② 的 query 走中文关键词语义链（AI 归一化的输出形态），③ 连归一化也不做、直接拿英文自由表达提取原子——②③ 之差（99.8 vs 81.2）=「关键词级语义链」与「自由英文词面」两种 query 输入形态在检索链路里的效果差（同义词鸿沟 + 归一化桥接的合并贡献）。**AI 归一环节本身的质量未单独评测**——其机械替代的端到端下界由 ④ 给出（57.6%）。②路鲁棒性实测（query 确定性扰动后走同一 ② 链路）：漏 20% 关键词 ⑤=99.4 / 插 3 噪词 ⑥=99.8 / 错译 20% 关键词 ⑦=99.2（hit@10）——归一结果只要过半正确，hit@10 即稳 99%+，**AI 归一的实际门槛远低于完美归一**。doc 侧各臂相同（中文五槽加工面的字级原子映射 ∪ 英文正文归一词，与 ① 同属写入侧加工口径）。历史沿革：早期无加工面语料口径测得 ②=87-88、③=79.0（dsh 端文档口径），方法学真源见 REPRODUCE.md；机械词级归一→纯中文库（u2，33.6% 上界）已裁定排除并归档证据链。
+
 
 **差距三层归因（按权重排序）**：
 
@@ -242,6 +265,7 @@ python test/locomo_jaccard_probe.py      # 主路线 Jaccard 口径拆解（J2_f
 
 ---
 
+
 ## 🧰 工具面
 
 <!-- COGMAP:BEGIN (scripts/cogmap_sync.py 自动生成 · 真源 md_cg/mcp_server.py · 勿手改段内) -->
@@ -250,20 +274,21 @@ python test/locomo_jaccard_probe.py      # 主路线 Jaccard 口径拆解（J2_f
 
 | 基元 | op 数 | op 清单（点击直达实现分支） |
 |---|---|---|
-| **[`cg`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L530)** 认知图统一入口 | 36 | [`help`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1949) [`status`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1955) [`edges`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1958) [`theory`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1961) [`link`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1978) [`info`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2094) [`route`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2111) [`read`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2132) [`write`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2168) [`goal`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2176) [`task`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2195) [`recent`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2198) [`verify`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2210) [`review`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2214) [`forget`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2234) [`protect`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2240) [`identity`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2243) [`consistency`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2246) [`metacognition`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2249) [`self_state`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2252) [`evolution`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2255) [`sustain`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2258) [`scrub`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2261) [`predict`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2264) [`causal`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2267) [`whitebox`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2270) [`index_code`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2273) [`index_doc`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2305) [`ref`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2341) [`session`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2344) [`ingest`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2347) [`export`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2350) [`maintain`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2353) [`consolidate`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2356) [`insight`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2359) [`ccg`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2362) |
-| **[`stg`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L967)** 语义时空图入口 | 4 | [`relation`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2916) [`timeline`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2918) [`anchors`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2925) [`consistency`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2929) |
+| **[`cg`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L530)** 认知图统一入口 | 36 | [`help`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1949) [`status`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1955) [`edges`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1958) [`theory`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1961) [`link`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1978) [`info`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2094) [`route`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2111) [`read`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2132) [`write`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2168) [`goal`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2176) [`task`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2195) [`recent`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2198) [`verify`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2210) [`review`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2214) [`forget`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2234) [`protect`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2240) [`identity`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2243) [`consistency`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2246) [`metacognition`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2249) [`self_state`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2252) [`evolution`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2255) [`sustain`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2258) [`scrub`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2261) [`predict`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2264) [`causal`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2267) [`whitebox`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2270) [`index_code`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2273) [`index_doc`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2310) [`ref`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2350) [`session`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2353) [`ingest`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2356) [`export`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2359) [`maintain`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2362) [`consolidate`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2365) [`insight`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2368) [`ccg`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2371) |
+| **[`stg`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L967)** 语义时空图入口 | 4 | [`relation`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2936) [`timeline`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2938) [`anchors`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2945) [`consistency`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2949) |
 
 **op → 实现模块**（认知图投影：功能在哪段代码，一眼可达）：
 
 | op（点击直达实现分支） | 实现模块（点击直达源码） |
 |---|---|
-| [`help`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1949) [`status`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1955) [`edges`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1958) [`route`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2111) [`goal`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2176) [`task`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2195) [`recent`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2198) [`verify`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2210) [`review`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2214) [`forget`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2234) [`protect`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2240) [`identity`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2243) [`consistency`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2246) [`metacognition`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2249) [`self_state`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2252) [`evolution`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2255) [`sustain`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2258) [`scrub`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2261) [`predict`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2264) [`causal`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2267) [`whitebox`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2270) [`ref`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2341) [`session`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2344) [`ingest`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2347) [`export`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2350) [`maintain`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2353) [`consolidate`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2356) [`insight`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2359) [`ccg`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2362) | [`_cg_dispatch` 内联](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1946) |
-| [`read`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2132) [`index_code`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2273) [`index_doc`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2305) | [`refindex`](md_cg/refindex.py) |
+| [`help`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1949) [`status`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1955) [`edges`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1958) [`route`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2111) [`goal`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2176) [`task`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2195) [`recent`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2198) [`verify`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2210) [`review`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2214) [`forget`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2234) [`protect`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2240) [`identity`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2243) [`consistency`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2246) [`metacognition`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2249) [`self_state`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2252) [`evolution`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2255) [`sustain`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2258) [`scrub`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2261) [`predict`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2264) [`causal`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2267) [`whitebox`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2270) [`ref`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2350) [`session`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2353) [`ingest`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2356) [`export`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2359) [`maintain`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2362) [`consolidate`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2365) [`insight`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2368) [`ccg`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2371) | [`_cg_dispatch` 内联](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1946) |
+| [`index_code`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2273) [`index_doc`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2310) | [`refindex`](md_cg/refindex.py), [`security`](md_cg/security.py) |
 | [`info`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2094) | [`audit`](md_cg/audit.py), [`links`](md_cg/links.py), [`nodefile`](md_cg/nodefile.py), [`theory`](md_cg/theory.py) |
 | [`link`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1978) | [`evidence`](md_cg/evidence.py), [`links`](md_cg/links.py), [`provenance`](md_cg/provenance.py), [`security`](md_cg/security.py), [`signer`](md_cg/signer.py) |
+| [`read`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2132) | [`refindex`](md_cg/refindex.py) |
 | [`theory`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L1961) | [`theory`](md_cg/theory.py) |
 | [`write`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2168) | [`writepipe`](md_cg/writepipe.py) |
-| [`relation`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2916) [`timeline`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2918) [`anchors`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2925) [`consistency`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2929) | [`_stg_call` 内联](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2904) |
+| [`relation`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2936) [`timeline`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2938) [`anchors`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2945) [`consistency`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2949) | [`_stg_call` 内联](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L2924) |
 
 **细粒度面**（`MDCG_MCP_SURFACE=full`，插件运行时使用）：[`cg`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L530) + [`stg`](https://github.com/FuRongJun-1999/dsh-memory/blob/main/md_cg/mcp_server.py#L967) + **31 个 `mdcg_*`** = **33 个工具**：
 

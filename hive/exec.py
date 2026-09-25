@@ -99,10 +99,34 @@ def log(job_dir: str, msg: str) -> None:
         sys.stderr.write(line)
 
 
-# 生效条件：当 job_dir 与 payload 传入时，以写模式打开 job_dir/result.json 并用 json.dump(payload, ensure_ascii=False) 写入；打开/序列化异常向上传播；
+# 生效条件：当 job_dir 与 payload 传入后无任何前置判断，直接用 UTF-8 打开 job_dir/result.json.tmp 写入 json.dump(payload, ensure_ascii=False)、flush+fsync，再 os.replace 到 job_dir/result.json；Windows 上 replace 撞读者瞬态句柄（open 不带 FILE_SHARE_DELETE → WinError 5）时按 10ms×递增重试至多 50 次（约 12.5s），仍失败才向外抛（此时 result.json 保持旧完整态，tmp 残留可辨）——v2 N6，2026-09-25，与 exec_cmd._write_result 同模板加 Windows 读者面适配；
 def write_result(job_dir: str, payload: dict) -> None:
-    with open(os.path.join(job_dir, "result.json"), "w", encoding="utf-8") as f:
+    """tmp + fsync + rename 原子替换（并发读者不读到截断空窗口）。
+
+    v2 N6：旧实现 open("w") 先截断再写——rust serve 超时/kill 强杀落在写入
+    窗口内即留半截文件，且**先毁旧完整结果**（重投第二次执行同路径）；读者
+    （rust 轮询 / hive_mcp._result_view / orch._card / wm snapshot）读到截断
+    JSON 会把成功任务读成 error 终态。原子替换保证 result.json 任意时刻
+    要么是旧完整态、要么是新完整态。
+
+    Windows 适配（exec_cmd 读者是 rust FILE_SHARE_DELETE 无此问题；本执行器
+    读者面含 Python open，replace 会撞瞬态句柄 WinError 5）：短睡重试，重试
+    耗尽才抛——失败时旧完整结果仍在位，优于截断（fail-safe）。
+    """
+    p = os.path.join(job_dir, "result.json")
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False)
+        f.flush()
+        os.fsync(f.fileno())
+    for attempt in range(50):
+        try:
+            os.replace(tmp, p)
+            return
+        except PermissionError:
+            if attempt == 49:
+                raise
+            time.sleep(0.01 * (attempt + 1))
 
 
 # 生效条件：root/cg/out 传入时，out 非 dict 或 ok/committed 非双真 → 原样返回（入队/负记忆/失败形态不经回读）；committed=true 时取 out["id"] 对应索引条目的 path 拼盘面路径，文件存在则 out 附 readback="ok" 原样返回，条目缺失或文件不存在 → 返回 ok=False、readback="missing"、「回读不一致」error（不冒充成功）；

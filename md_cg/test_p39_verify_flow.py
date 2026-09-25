@@ -96,6 +96,33 @@ def main():
                   r2.returncode == 3 and "角色守卫" in r2.stdout,
                   f"rc={r2.returncode} out={r2.stdout[:120]} err={r2.stderr[:120]}")
 
+            # iter_id 白名单（v2 N5/N11，2026-09-25）：CLI 直跑 + 自设
+            # HIVE_ROLE=verifier 骗过角色守卫（它只查 env 值）时，穿越形态
+            # 必须拒跑且不触盘——fail-closed 在任何路径拼接之前，与姊妹入口
+            # write_verdict_to_repo（interop.py:316）同模板统一防御。
+            probe = f"evil_probe_n5_{os.getpid()}"
+            evil_rel = os.path.join("..", "..", "..", probe)
+            # REPO/hive/interop/<evil_rel>/frozen.json 三级上跳 → REPO 父目录
+            tgt = os.path.join(os.path.dirname(repo), probe)
+            r3 = subprocess.run([sys.executable, hive_runner, evil_rel,
+                                 "--smoke"], env=env, capture_output=True,
+                                text=True, encoding="utf-8", errors="replace")
+            check("2e iter_id 穿越形态拒跑且不触盘（N5/N11）",
+                  r3.returncode == 2 and "iter_id 非法" in r3.stdout
+                  and not os.path.exists(tgt),
+                  f"rc={r3.returncode} out={r3.stdout[:120]} "
+                  f"tgt_exists={os.path.exists(tgt)}")
+            evil_abs = os.path.join(tempfile.gettempdir(),
+                                    f"evil_abs_n5_{os.getpid()}")
+            r4 = subprocess.run([sys.executable, hive_runner, evil_abs,
+                                 "--smoke"], env=env, capture_output=True,
+                                text=True, encoding="utf-8", errors="replace")
+            check("2f iter_id 绝对路径注入拒跑且不触盘",
+                  r4.returncode == 2 and "iter_id 非法" in r4.stdout
+                  and not os.path.exists(evil_abs),
+                  f"rc={r4.returncode} out={r4.stdout[:120]} "
+                  f"abs_exists={os.path.exists(evil_abs)}")
+
             # 脱敏纵深 + 入库（不 commit）
             bad = dict(v)
             bad["details"] = [{"leak": r"E:\private\node.log"}]

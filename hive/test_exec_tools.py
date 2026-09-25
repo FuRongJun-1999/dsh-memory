@@ -8,8 +8,10 @@
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
+import threading
 import urllib.error
 from unittest import mock
 
@@ -647,6 +649,51 @@ with _mock.patch.object(_msrv, "_cg_dispatch", _fake_dispatch):
           and _captured.get("valid_from") == "2026-09-23"
           and _captured.get("valid_until") == "2026-12-31",
           str(_captured)[:150])
+
+# ------------------------------------------------ K result.json 原子写（v2 N6）
+# 能红说明：write_result 若退回 open("w") 裸写（无 tmp+fsync+os.replace），
+# K2 并发压测必现撕裂/空窗（旧码线程形态实测 torn=22+empty=11）；rust serve
+# 超时/kill 强杀落在写入窗口即留半截文件且先毁旧完整结果。
+print("[K] write_result 原子性（tmp+fsync+replace，N6 红守卫 2026-09-25）")
+_k_tmp = tempfile.mkdtemp(prefix="hive_exec_n6_")
+try:
+    ex.write_result(_k_tmp, {"ok": True, "content": "k1"})
+    _k_raw = open(os.path.join(_k_tmp, "result.json"), encoding="utf-8").read()
+    check("K1 写后 result.json 完整且无 .tmp 残留",
+          json.loads(_k_raw).get("ok") is True
+          and not os.path.exists(os.path.join(_k_tmp, "result.json.tmp")),
+          _k_raw[:80])
+    _k_stop = False
+    _k_stat = {"torn": 0, "empty": 0, "ok": 0}
+
+    def _k_reader():
+        p_ = os.path.join(_k_tmp, "result.json")
+        while not _k_stop:
+            try:
+                raw = open(p_, "rb").read()
+                if not raw:
+                    _k_stat["empty"] += 1
+                else:
+                    json.loads(raw.decode("utf-8", "replace"))
+                    _k_stat["ok"] += 1
+            except json.JSONDecodeError:
+                _k_stat["torn"] += 1
+            except OSError:
+                pass
+
+    _k_rs = [threading.Thread(target=_k_reader) for _ in range(2)]
+    for _t in _k_rs:
+        _t.start()
+    for _i in range(20):
+        ex.write_result(_k_tmp, {"ok": True, "content": "x" * 1024 * 1024})
+    _k_stop = True
+    for _t in _k_rs:
+        _t.join()
+    check("K2 并发写读压测 0 撕裂（半截/空窗均不许出现）",
+          _k_stat["torn"] == 0 and _k_stat["empty"] == 0,
+          str(_k_stat))
+finally:
+    shutil.rmtree(_k_tmp, ignore_errors=True)
 
 print(f"\n结果：{PASS} 通过 / {FAIL} 失败")
 sys.exit(1 if FAIL else 0)

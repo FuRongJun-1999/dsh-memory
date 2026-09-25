@@ -78,8 +78,13 @@ def _compose_semantics(a_ok: bool, suite_ok: bool):
 
 # 生效条件（核心入口 · CCG 六要素）：
 #   功能名：互验执行器（§7.4 步骤 4）。
-#   生效条件：argv[1]=iter_id 且冻结凭证 hive/interop/<iter>/frozen.json 可读、
-#   HIVE_ROLE=verifier（否则 rc=3 角色守卫拒跑）、SUBJECT_FP 由派发方 spec.env 注入。
+#   生效条件：argv[1]=iter_id 且**过白名单**（[A-Za-z0-9_.-]{1,80}，与姊妹入口
+#   write_verdict_to_repo 同模板 md_cg/interop.py:316——CLI 直跑时 argv[1] 是
+#   半信任输入，`..\` 穿越/绝对路径形态可在拼路径时越出 hive/interop/ 读写；
+#   不过即 rc=2 拒跑，fail-closed 在任何路径拼接之前）、冻结凭证
+#   hive/interop/<iter>/frozen.json 可读、HIVE_ROLE=verifier（否则 rc=3 角色守卫
+#   拒跑——角色守卫只查 env 值，拦不住自设环境变量的 CLI 直跑，iter_id 白名单
+#   是独立防线）、SUBJECT_FP 由派发方 spec.env 注入。
 #   子功能：A1/A2/A3 断言 → 全量套件（cargo+run_tests；--smoke 走内置探针）→
 #   make_verdict 脱敏 → verdict.json 落盘（sanity + shape 双门禁）。
 #   执行：verdict=pass 当且仅当断言 AND 套件皆过；valid=放行位（与 verdict 同义），
@@ -88,6 +93,18 @@ def _compose_semantics(a_ok: bool, suite_ok: bool):
 #   不适用条件：不产出 pass/fail 以外的裁决（分歧仲裁属 arbitration.json 另一产物）。
 def main(argv):
     iter_id = argv[1] if len(argv) > 1 else ""
+
+    # iter_id 白名单（v2 N5/N11，2026-09-25）：CLI 直跑时 argv[1] 是半信任输入
+    # ——`..\` 穿越/绝对路径/含分隔符形态在 :frozen_fp/:out_fp 裸拼时可越出
+    # hive/interop/ 从仓库外读 frozen.json 并 makedirs+写 verdict.json。与姊妹
+    # 入口 write_verdict_to_repo（md_cg/interop.py:316）同模板统一防御；不过即
+    # 诚实留痕退出（rc=2），在任何路径拼接之前 fail-closed，不触盘。
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", iter_id):
+        print(json.dumps({"ok": False,
+                          "error": f"iter_id 非法（入库路径组成部分）: {iter_id!r}"},
+                         ensure_ascii=False))
+        return 2
+
     role = (os.environ.get("HIVE_ROLE") or "").strip()
     inst = (os.environ.get("HIVE_INSTANCE") or "").strip()
     subject_fp = (os.environ.get("SUBJECT_FP") or "").strip()

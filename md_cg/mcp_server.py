@@ -2272,7 +2272,12 @@ def _cg_dispatch(cg, a):
 
     if op == "index_code":
         from . import refindex
+        from .security import check_path_root
         root = a.get("path") or cg.root
+        # P1-X：path 是模型可控输入——索引会读取目录下全部
+        # 命中文件。根白名单与 ingest 的 P1-4 同语义：显式 path 越界即拒；
+        # 未传（回落服务器侧 cg.root）不校验，默认部署行为不变。
+        check_path_root(a.get("path"), "MDCG_INGEST_ROOT", "index_code")
         if not os.path.isdir(root):
             return {"ok": False, "error": f"目录不存在：{root}"}
         items, errors, stats = refindex.index_dir(
@@ -2304,7 +2309,11 @@ def _cg_dispatch(cg, a):
 
     if op == "index_doc":
         from . import refindex
+        from .security import check_path_root
         root = a.get("path") or cg.root
+        # P1-X：与 index_code 同族——path 模型可控，根白名单
+        # 越界即拒；未传（回落 cg.root）不校验，默认部署行为不变。
+        check_path_root(a.get("path"), "MDCG_INGEST_ROOT", "index_doc")
         if not os.path.isdir(root):
             return {"ok": False, "error": f"目录不存在：{root}"}
         layer = a.get("layer") or "knowledge"
@@ -2884,6 +2893,17 @@ def _ref_call(cg, a):
     if not ref:
         return {"ok": False,
                 "error": "该节点没有 code_ref/doc_ref（不是索引节点）"}
+    # P1-X（两份独立报告合并）：ref 回读是任意文件读原语——
+    # 自报 root、inline ref 自带的 root/path 均模型可控，probe_ref 直接
+    # os.path.join 后 open 全文回读（绝对 path 丢弃 root、'..' 上跳同漏）。
+    # 按最终将打开的完整路径过根白名单：env 未设置=放开（部署开关，与
+    # P1-4 的 ingest/export/link 同语义）；设置了=realpath 落根内否则拒
+    # （fail-closed），上跳与绝对路径在 realpath 归一后自然涵盖。
+    from .security import check_path_root
+    check_path_root(
+        os.path.join(a.get("root") or ref.get("root") or "",
+                     ref.get("path") or ""),
+        "MDCG_INGEST_ROOT", "ref")
     out = refindex.read_ref(ref, root=a.get("root"), ref_kind=ref_kind)
     out["node_id"] = nid or None
     return out
