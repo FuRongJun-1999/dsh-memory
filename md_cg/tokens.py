@@ -390,7 +390,7 @@ def issue(role: str, actor: str = None, clearance: str = None,
             "expires_at": rec["expires_at"], "token_file": token_file(path)}
 
 
-# 生效条件：token 先经 parse_token（格式非法即抛 TokenError），其后 _load(path) 的 tokens 中该 token_id 无记录、rec 的 role 与解析出的 role 不等、revoked_at 为真、hash 与 _hash(secret) 经 hmac.compare_digest 不等、expires_at 为真且小于当前时间中任一成立即抛 TokenError；否则返回 Principal，tenant=tenant or rec.get("tenant") or "default"、actor=rec.get("actor") or role、clearance=rec.get("clearance") or "internal"、can_write/can_admin 取对应 rec 值的 bool。
+# 生效条件：token 先经 parse_token（格式非法即抛 TokenError），其后 _load(path) 的 tokens 中该 token_id 无记录、rec 的 role 与解析出的 role 不等、revoked_at 为真、hash 与 _hash(secret) 经 hmac.compare_digest 不等、expires_at 为真且小于当前时间中任一成立即抛 TokenError；否则返回 Principal，tenant=tenant or rec.get("tenant") or "default"、actor=rec.get("actor") or role、clearance=rec.get("clearance") or "internal"、can_write/can_admin 取对应 rec 值的 bool；返回前 rec["tenant"] 与非空形参 tenant 去空白后不等时先向 stderr 写「租户绑定被入参覆盖」告警（仅告警零闸变，对照 _build_principal 的 MDCG_CLEARANCE 先例；租户强校验与 clearance_cap 夹紧接线另行 deferred）。
 def verify_token(token: str, tenant: str = None, path: str = None) -> Principal:
     """校验令牌 → Principal。任何异常都抛 TokenError（fail-closed）。"""
     role, token_id, secret = parse_token(token)
@@ -406,6 +406,20 @@ def verify_token(token: str, tenant: str = None, path: str = None) -> Principal:
     exp = rec.get("expires_at")
     if exp and time.time() > float(exp):
         raise TokenError("令牌已过期")
+    # 租户绑定被 env 覆盖必须开口（2026-09-25 止血，v8 N62/v9/第15轮三次
+    # 成立）：形参 tenant（MCP 侧来自 MDCG_TENANT）非空且与令牌记录
+    # rec["tenant"] 不同时，形参值静默顶替令牌租户——tenantA 签发的
+    # secret/designer 令牌在 MDCG_TENANT=tenantB 下以原权限对 tenantB 登记根
+    # 运行且零痕迹。对照 MDCG_CLEARANCE 先例（mcp_server._build_principal）：
+    # 只告警不改闸（租户绑定强校验 + clearance_cap 夹紧接线另行 deferred）。
+    _rec_tenant = str(rec.get("tenant") or "").strip()
+    _arg_tenant = str(tenant or "").strip()
+    if _arg_tenant and _rec_tenant and _arg_tenant != _rec_tenant:
+        sys.stderr.write(
+            f"[mdcg-tokens] ⚠ 租户绑定被入参覆盖：令牌按 {_rec_tenant} 签发，"
+            f"但入参 tenant={_arg_tenant}（MCP 侧来自 MDCG_TENANT）优先生效"
+            f"——令牌将以原 clearance/can_admin 对 {_arg_tenant} 运行。"
+            f"若非有意迁移，请校正 MDCG_TENANT 或为该租户重新签发令牌。\n")
     return Principal(
         tenant=tenant or rec.get("tenant") or "default",
         actor=rec.get("actor") or role,

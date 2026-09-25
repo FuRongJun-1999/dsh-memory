@@ -566,7 +566,7 @@ def merge_tools(spec: dict) -> tuple:
     return tools, added
 
 
-# 生效条件：len(sys.argv)<2 时输出 usage 并返回 EXIT_SPEC；否则 job_dir=normpath(sys.argv[1])、job_id=basename(job_dir)，read_spec 异常则写 result 返回 EXIT_SPEC，spec.orchestrate.max_subtasks 为真值时尝试 _CFG['max_subtasks']=max(1,int(...))（TypeError/ValueError 静默跳过），load_principal(job_id) 抛 OrcError 则写 result 返回 EXIT_SPEC，成功则 _CFG.update({job_id, job_dir, jobs=_hm._jobs_dir(), model=(spec.get('model') or '').strip(), children=_load_children()})、merge_tools 补 tools、缺 system_prompt 填 ORCH_SYSTEM_PROMPT、写回 spec、register_tools(ORCH_SCHEMAS, orch_handler)、set_principal_factory(...)、log/progress，最后返回 _ex.main() 并在 finally 调 _save_children()。
+# 生效条件：len(sys.argv)<2 时输出 usage 并返回 EXIT_SPEC；否则 job_dir=normpath(sys.argv[1])、job_id=basename(job_dir)，read_spec 异常则写 result 返回 EXIT_SPEC，spec.orchestrate.max_subtasks 为真值时尝试 _CFG['max_subtasks']=max(1,int(...))（TypeError/ValueError 静默跳过），load_principal(job_id) 抛 OrcError 则写 result 返回 EXIT_SPEC，成功则先 _CFG.update({job_id, job_dir, jobs=_hm._jobs_dir(), model=(spec.get('model') or '').strip()}) 再 _CFG.update({children: _load_children()})（v10 N87：children 装载必须后于 job_dir 就位——单字面量会在构造期以初态空 job_dir 求值 _load_children，恒读 CWD 相对 _children.json）、merge_tools 补 tools、缺 system_prompt 填 ORCH_SYSTEM_PROMPT、写回 spec、register_tools(ORCH_SCHEMAS, orch_handler)、set_principal_factory(...)、log/progress，最后返回 _ex.main() 并在 finally 调 _save_children()。
 def main() -> int:
     if len(sys.argv) < 2:
         sys.stderr.write("usage: orch.py <job_dir>\n")
@@ -604,13 +604,21 @@ def main() -> int:
         return EXIT_SPEC
 
     # —— ② 运行时配置（子任务清单持久化读回：换人续跑不重复派发）
+    # v10 N87（2026-09-25，复现成立）：children 的装载必须拆到 _CFG 的
+    # job_dir 就位**之后**——旧的单个 update 字面量里 "children":
+    # _load_children() 在**字典构造期**求值，此刻 _CFG["job_dir"] 仍为模块
+    # 初态空串，_children_path() 恒解析为 CWD 相对 "_children.json"（=serve
+    # 的 HIVE_DIR）：接管者恒视为无子任务全量重复派发（max_subtasks 从 0
+    # 重计可放行翻倍）；CWD 恰有他人/遗留 _children.json 时读进他人清单，
+    # poll/read_full 以本编排者身份读他人结果（越权读污染）。两阶段 update
+    # 是纯求值顺序调整，零语义变更。
     _CFG.update({
         "job_id": job_id,
         "job_dir": job_dir,
         "jobs": _hm._jobs_dir(),
         "model": (spec.get("model") or "").strip(),
-        "children": _load_children(),
     })
+    _CFG.update({"children": _load_children()})
 
     # —— ③ spec 补全并写回（exec.main 会重新读盘；补全留痕在 spec 里可审计）
     tools, added = merge_tools(spec)
