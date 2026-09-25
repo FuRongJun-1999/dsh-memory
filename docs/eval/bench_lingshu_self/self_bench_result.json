@@ -1,0 +1,404 @@
+[
+ {
+  "q": "hive 的 serve 怎么判断还活着？",
+  "golds": [
+   "mem_1789612355948"
+  ],
+  "nat": {
+   "pos": null,
+   "tier": "T2_global_like",
+   "top1": "mem_1789552857538",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": null,
+   "tier": "T2_global_like",
+   "top1": "mem_1789612140901",
+   "top1_is_gold": false,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "双实例互验怎么防止验证者作弊？",
+  "golds": [
+   "mem_1789602635975"
+  ],
+  "nat": {
+   "pos": 1,
+   "tier": "T2_global_like",
+   "top1": "mem_1789603603896",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T3_global_scan",
+   "top1": "mem_1789602635975",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "任务派发应该按什么原则分层决策？",
+  "golds": [
+   "mem_1789605410646"
+  ],
+  "nat": {
+   "pos": 0,
+   "tier": "T2_global_like",
+   "top1": "mem_1789605410646",
+   "top1_is_gold": true,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T3_global_scan",
+   "top1": "mem_1789605410646",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "蜂群健康评分的 integrity 因子是怎么算的？",
+  "golds": [
+   "swarm_v061_integrity_fix"
+  ],
+  "nat": {
+   "pos": 0,
+   "tier": "T3_global_scan",
+   "top1": "swarm_v061_integrity_fix",
+   "top1_is_gold": true,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T3_global_scan",
+   "top1": "swarm_v061_integrity_fix",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "全局截断 cap 会造成哪些检索可见性问题？",
+  "golds": [
+   "mem_1789511615088"
+  ],
+  "nat": {
+   "pos": 2,
+   "tier": "T3_global_scan",
+   "top1": "node_132deca4_1789537606255",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 1,
+   "tier": "T2_global_like",
+   "top1": "node_41abeae8_1789510901539",
+   "top1_is_gold": false,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "冷验证队列的回执什么情况下会报假成功？",
+  "golds": [
+   "mem_1789897251107"
+  ],
+  "nat": {
+   "pos": 2,
+   "tier": "T2_global_like",
+   "top1": "mem_1789722858540",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T3_global_scan",
+   "top1": "mem_1789897251107",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "英文语料用中文索引检索效果怎么样？",
+  "golds": [
+   "mem_1789132609619"
+  ],
+  "nat": {
+   "pos": null,
+   "tier": "T2_global_like",
+   "top1": "mem_1789354548231",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T2_global_like",
+   "top1": "mem_1789132609619",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "检索扩散 reach 功能默认是开的吗？",
+  "golds": [
+   "mem_1789795794376"
+  ],
+  "nat": {
+   "pos": null,
+   "tier": "T3_global_scan",
+   "top1": "code_3d03ed70458d",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T2_global_like",
+   "top1": "mem_1789795794376",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "记忆怎么按热度分层来加速检索？",
+  "golds": [
+   "mem_1789803443800"
+  ],
+  "nat": {
+   "pos": null,
+   "tier": "T2_global_like",
+   "top1": "mem_1789274628336",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 1,
+   "tier": "T2_global_like",
+   "top1": "code_0602d0907acc",
+   "top1_is_gold": false,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "LLM 批次修复第二轮还是不过怎么办？",
+  "golds": [
+   "mem_1789666192335"
+  ],
+  "nat": {
+   "pos": null,
+   "tier": "T2_global_like",
+   "top1": "mem_1789274628336",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 3,
+   "tier": "T2_global_like",
+   "top1": "mem_1789665204611",
+   "top1_is_gold": false,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "子任务上下文快满了怎么交接？",
+  "golds": [
+   "mem_1789548798424"
+  ],
+  "nat": {
+   "pos": 7,
+   "tier": "T2_global_like",
+   "top1": "mem_1789599787541",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T2_global_like",
+   "top1": "mem_1789548798424",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "记忆条目的过期和观测变旧怎么区分？",
+  "golds": [
+   "mem_1789539356385"
+  ],
+  "nat": {
+   "pos": null,
+   "tier": "T2_global_like",
+   "top1": "node_ef7bc1ee_1786918581699",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": null,
+   "tier": "T3_global_scan",
+   "top1": "mem_1789540113805",
+   "top1_is_gold": false,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "代码提交推送到公开仓库前要做什么检查？",
+  "golds": [
+   "mem_1789612355948"
+  ],
+  "nat": {
+   "pos": 9,
+   "tier": "T2_global_like",
+   "top1": "mem_1789806369843",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T2_global_like",
+   "top1": "mem_1789612355948",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "多个智能体共用一份权限时怎么区分是谁干的？",
+  "golds": [
+   "mem_1789122153945"
+  ],
+  "nat": {
+   "pos": null,
+   "tier": "T2_global_like",
+   "top1": "node_76728d45_1786918560368",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T2_global_like",
+   "top1": "mem_1789122153945",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "DSH 的会话 id 关机重启后会变吗？",
+  "golds": [
+   "mem_1789100285255"
+  ],
+  "nat": {
+   "pos": 0,
+   "tier": "T2_global_like",
+   "top1": "mem_1789100285255",
+   "top1_is_gold": true,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T2_global_like",
+   "top1": "mem_1789100285255",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "对话日志怎么自动挖出错误和修复的配对？",
+  "golds": [
+   "node_02fe882d_1788905562143",
+   "doc_4a3accff94d6"
+  ],
+  "nat": {
+   "pos": 3,
+   "tier": "T2_global_like",
+   "top1": "node_030c84b7_1786688525595",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 1,
+   "tier": "T2_global_like",
+   "top1": "code_4297379afe64",
+   "top1_is_gold": false,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "令牌放在系统环境变量里有什么安全风险？",
+  "golds": [
+   "mem_1789099723060"
+  ],
+  "nat": {
+   "pos": 0,
+   "tier": "T2_global_like",
+   "top1": "mem_1789099723060",
+   "top1_is_gold": true,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T2_global_like",
+   "top1": "mem_1789099723060",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "服务进程的随机会话 id 会带来什么问题？",
+  "golds": [
+   "mem_1789099936556"
+  ],
+  "nat": {
+   "pos": 3,
+   "tier": "T2_global_like",
+   "top1": "mem_1789100285255",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T2_global_like",
+   "top1": "mem_1789099936556",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "查询词完全命不中桶的时候检索会怎么走？",
+  "golds": [
+   "mem_1789511615088"
+  ],
+  "nat": {
+   "pos": null,
+   "tier": "T2_global_like",
+   "top1": "node_subject_4939401561_1787018087635",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T3_global_scan",
+   "top1": "mem_1789511615088",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ },
+ {
+  "q": "白箱知识库在进程里怎么被调用？",
+  "golds": [
+   "code_d98d1f5aa78e",
+   "doc_3942cfca7bdf"
+  ],
+  "nat": {
+   "pos": 1,
+   "tier": "T2_global_like",
+   "top1": "code_a53cb473e34f",
+   "top1_is_gold": false,
+   "n_res": 10
+  },
+  "kw": {
+   "pos": 0,
+   "tier": "T3_global_scan",
+   "top1": "code_d98d1f5aa78e",
+   "top1_is_gold": true,
+   "n_res": 10
+  }
+ }
+]
