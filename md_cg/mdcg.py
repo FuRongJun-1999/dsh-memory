@@ -3168,6 +3168,13 @@ class MdCG:
             e = self.index["nodes"].get(node_id)
             if e is not None:
                 e["evidence_count"] = fm["evidence_count"]
+                # 落盘必须对索引增量日志（_dirty→flush→_index_log 重放）与
+                # 读缓存代际可见：本分支写盘后若节点已在目标验证态，尾部
+                # set_verification 走 noop 提前返回（trust.py stamp），不会
+                # 经 _sync_index 标脏——不显式置 _dirty 会造成重开后索引
+                # evidence_count 与盘面漂移、同实例 _read 命中旧 frontmatter
+                #（口径同边域同步 _sync_edge_entry / goal 状态写回）。
+                self._dirty[node_id] = e
         # 验证态流转（可验证记忆单元）：外部证据裁决**就是**验证态迁移。
         #   confirmed → verified（首次转正；已在 verified 则幂等 no-op）
         #   weakened  → doubted（证据被削弱 ⇒ 存疑，待复核）

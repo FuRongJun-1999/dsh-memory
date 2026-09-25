@@ -65,6 +65,7 @@ import time
 from . import crypto, evolution
 from .fsutil import append_jsonl, read_jsonl
 from .mdcos import MdCGOS
+from .readcache import direct_read
 
 # ---- 常量 -----------------------------------------------------------------
 
@@ -293,7 +294,7 @@ def _vision_nodes(cg, layer=None, prefixes=VISION_PREFIXES, limit=None) -> list:
         nid = e.get("id") or os.path.basename(e.get("path") or "")[:-3]
         if not any(nid.startswith(p) for p in prefixes):
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)   # 收集读喂写面（plan→apply）：走盘上真值
         if fm is None:
             continue
         if crypto.is_encrypted(content):
@@ -492,7 +493,7 @@ def apply(x, ids=None, entry_ids=None, layer=None, prefixes=None,
         if not e:
             rep["skipped_drift"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)   # 写前重查走盘上真值（读缓存口径）
         if fm is None or crypto.is_encrypted(content):
             rep["skipped_locked"] += 1
             continue
@@ -576,7 +577,7 @@ def rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
         if not e:
             rep["missing"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)   # 回滚比对走盘上真值（读缓存口径）
         if fm is None:
             rep["missing"] += 1
             continue

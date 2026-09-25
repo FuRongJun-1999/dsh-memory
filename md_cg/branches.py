@@ -258,7 +258,21 @@ def discard(cg, branch_id, summary: str) -> dict:
             if os.path.exists(src):
                 publish(src, os.path.join(cold, os.path.basename(src)))
                 moved += 1
-        (cg.index.get("nodes") or {}).pop(nid, None)
+        # 摘索引必须**落盘**（写删除记录，forget 的口径——mdcos.py forget
+        # 注释明载同构坑）：只 pop 内存时，fork 阶段仍在 _dirty 的分支条目
+        # 会被下面的 flush 作为 upsert 持久化进 _index_log；close 的 compact
+        # 计数对账触发重扫后，_apply_log 把该 upsert 叠回干净扫描之上——
+        # 幽灵条目连同目录指纹固化进 _index.json 快照，重开永久复活。
+        # _unstage：pop 内存 + _dirty[nid]=None（tombstone）+ 立即 flush，
+        # 重放按序 pop 掉 fork upsert（含 fork 后曾显式 flush 的时序）。
+        unst = getattr(cg, "_unstage", None)
+        if unst is not None:
+            try:
+                unst(nid)
+            except Exception:                       # noqa: BLE001
+                (cg.index.get("nodes") or {}).pop(nid, None)
+        else:
+            (cg.index.get("nodes") or {}).pop(nid, None)
     fl = getattr(cg, "flush", None)
     if fl is not None:
         try:

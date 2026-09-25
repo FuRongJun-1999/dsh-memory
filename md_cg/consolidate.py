@@ -85,6 +85,7 @@ import urllib.request
 from . import crypto, evolution, nodefile, routing
 from .fsutil import append_jsonl
 from .mdcg import BUCKETED_LAYERS, bigrams, expand_query_terms_weighted
+from .readcache import direct_read
 from .mdcos import (MdCGOS, _ccg_field, _declared_conditions, _neg_hit, _sig,
                     _weighted_coverage)
 
@@ -675,7 +676,7 @@ def consolidate(root: str, layer: str = None, limit: int = None, apply: bool = F
         if limit is not None and rep["targeted"] >= limit:
             break
         nid = os.path.basename(e["path"])[:-3]
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)   # 写前重查走盘上真值（读缓存口径，见 readcache.direct_read）
         if fm is None:
             _bump("read_failed")
             continue
@@ -811,7 +812,7 @@ def fill_verification_basis(root: str, basis: str, layer: str = None,
     for e in entries:
         if limit is not None and rep["written"] >= limit:
             break
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)   # 写前重查走盘上真值（读缓存口径）
         if fm is None:
             continue
         if crypto.is_encrypted(content):
@@ -891,7 +892,7 @@ def promote_memories(root, source_layer="contextual", target_layer="knowledge",
     for e in entries:
         if limit is not None and rep["written"] >= int(limit):
             break
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)   # 写前重查走盘上真值（读缓存口径）
         if fm is None:
             continue
         if crypto.is_encrypted(content):
@@ -962,7 +963,7 @@ def rollback_promotion(root, node_ids=None, batch=None, actor="maintain") -> dic
         e = (cg.index.get("nodes") or {}).get(nid)
         if not e:
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)   # 回滚比对走盘上真值（读缓存口径）
         if fm is None or crypto.is_encrypted(content):
             continue
         back = rec.get("from") or "contextual"
@@ -1064,7 +1065,7 @@ def contextualize_prefixes(root, prefixes=None, node_ids=None,
         nid = _entry_id(e)
         if not _hit(e):
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)   # 写前重查走盘上真值（读缓存口径）
         if fm is None:
             continue
         if crypto.is_encrypted(content):
@@ -1122,7 +1123,7 @@ def rollback_contextualize(root, node_ids=None, batch=None, actor="maintain") ->
         e = (cg.index.get("nodes") or {}).get(nid)
         if not e:
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)   # 回滚比对走盘上真值（读缓存口径）
         if fm is None or crypto.is_encrypted(content):
             continue
         back = rec.get("from") or "knowledge"

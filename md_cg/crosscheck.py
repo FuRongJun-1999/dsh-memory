@@ -36,6 +36,7 @@ from .backfill import (BASIS_ENUM_DEFAULT, BASIS_TEXT, INTERNAL_LAYERS,
 from .consolidate import _has_ccg_line, _upsert_ccg_line
 from .fsutil import append_jsonl, read_jsonl
 from .mdcos import _ccg_field
+from .readcache import direct_read
 
 # ---- 常量 ----------------------------------------------------------------
 
@@ -341,7 +342,7 @@ def _scan(cg, layer=None, ids=None, prefix=None):
         if not _readable_guard(cg, e):
             yield {"status": "skip", "reason": "denied", "id": nid}
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)   # 扫描读喂写面：走盘上真值（读缓存口径）
         if fm is None:
             yield {"status": "skip", "reason": "unreadable", "id": nid}
             continue
@@ -783,7 +784,7 @@ def crosscheck(x, layer=None, limit=None, ids=None, reflect_fn=None,
         rep["targeted"] += 1
         nid = row["id"]
         e = cg.index["nodes"].get(nid)
-        fm, content = cg._read(e) if e else (None, None)
+        fm, content = direct_read(cg, e) if e else (None, None)   # 写前重查走盘上真值
         if fm is None or crypto.is_encrypted(content):
             rep["skipped_locked"] += 1
             continue
@@ -938,7 +939,7 @@ def rollback(x, batch=None, entry_ids=None, actor=None) -> dict:
         if not e:
             rep["skipped_drift"] += 1
             continue
-        fm, content = cg._read(e)
+        fm, content = direct_read(cg, e)   # 回滚比对走盘上真值（write_id 防护所验 fm 同源）
         if fm is None or crypto.is_encrypted(content):
             rep["skipped_drift"] += 1
             continue

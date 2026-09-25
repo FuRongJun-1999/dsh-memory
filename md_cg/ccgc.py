@@ -38,6 +38,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
 from . import nodefile
+from .readcache import direct_read
 
 # ---- 四态：复用 audit / judge_qualification 的裁决语汇（不新造状态机） ----
 ACCEPT, REJECT, DEFER, BLINDSPOT = "ACCEPT", "REJECT", "DEFER", "BLINDSPOT"
@@ -754,7 +755,7 @@ def link(compiled: CompileResult, attestation: Optional[AttestResult], *,
         return out
 
     from . import crypto
-    fm, content = _cg._read(entry)
+    fm, content = direct_read(_cg, entry)   # 写前重查走盘上真值（读缓存口径）
     if fm is None or crypto.is_encrypted(content):
         out.errors.append("E004 " + E_CODES["E004"])
         return out
@@ -838,7 +839,7 @@ def recalibrate(node_id: str, corrections: Dict[str, Any], verifier: str,
         return out
 
     from . import crypto
-    fm, content = _cg._read(entry)
+    fm, content = direct_read(_cg, entry)   # 写前重查走盘上真值（读缓存口径）
     if fm is None or crypto.is_encrypted(content):
         out.errors.append("E004 " + E_CODES["E004"])
         return out

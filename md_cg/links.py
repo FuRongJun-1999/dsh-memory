@@ -27,10 +27,11 @@ import json
 import os
 import sys
 import time
+from contextlib import contextmanager
 
 from . import signer as _signer
 from .datapath import aux_root
-from .fsutil import publish
+from .fsutil import FileLock, atomic_write
 
 LINKS_FILE_ENV = "MDCG_LINKS_FILE"
 DEFAULT_DIR = aux_root()
@@ -81,22 +82,40 @@ def load(path: str = None) -> dict:
     return {"schema": SCHEMA, "links": {}, "updated_at": None}
 
 
-# 生效条件：传入 data（dict）与可选 path 时，p=links_file(path)，以 `dict(data)` 浅拷贝并强制覆盖 schema=SCHEMA、updated_at=time.time()，写入 p+".tmp"（目录名为空时 makedirs(".")），chmod 0o600 的 OSError 被吞，`publish(tmp, p)`（带 Windows 短重试的 os.replace）后返回 p。
+# 生效条件：传入 data（dict）与可选 path 时，p=links_file(path)，以 `dict(data)` 浅拷贝并强制覆盖 schema=SCHEMA、updated_at=time.time()，经 fsutil.atomic_write（mkstemp 唯一临时名、同目录 rename 原子替换、失败清理临时文件）写入 p 后返回 p。
 def save(data: dict, path: str = None) -> str:
+    """整文件原子落盘（唯一临时名 + 带短重试的 rename）。
+
+    并发口径（竞态修复）：**调用方持锁**——连接层变更原语（handshake/
+    observe/promote/degrade/isolate/withdraw/decay_all）在 `_locked`
+    临界区内完成 load→mutate→save；本函数不再自建固定名 `p+".tmp"`
+    （两个写者共享同一临时文件：后者截断前者写了一半的内容，可产出
+    交织内容——fsutil 头部明载的已实名反模式），改走 fsutil.atomic_write
+    （mkstemp 唯一临时名；POSIX 下临时文件天然 0600，等价旧的 chmod 兜底）。
+    外部直接调 save 不持锁时，单次写自身仍是原子的（不会半截），但
+    读-改-写层面的丢更新由调用方自担。
+    """
     p = links_file(path)
-    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
     data = dict(data)
     data["schema"] = SCHEMA
     data["updated_at"] = time.time()
-    tmp = p + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=1, sort_keys=True)
-    try:
-        os.chmod(tmp, 0o600)
-    except OSError:
-        pass
-    publish(tmp, p)
+    atomic_write(p, json.dumps(data, ensure_ascii=False, indent=1,
+                               sort_keys=True))
     return p
+
+
+# 生效条件：以 links_file(path) 为锁目标构造 FileLock（锁文件为该路径 + ".lock"，超时/严格性沿用 FileLock 默认 10s/best-effort 放行）并进入其上下文，yield 后退出即释放锁。
+@contextmanager
+def _locked(path: str = None):
+    """连接文件读-改-写全程互斥（跨进程 OS 级锁，既有 FileLock 基建）。
+
+    连接层全部变更都是 load→改内存→save 的读-改-写：无锁时两写者各持
+    旧快照，后写者整文件覆盖前写者——丢一方信任更新（evidence_count/
+    状态/audit 全丢，且无异常静默丢失）。超时放行（best-effort）与全库
+    写路径口径一致：写被拒绝的代价大于一次极端竞态。
+    """
+    with FileLock(links_file(path)):
+        yield
 
 
 # 生效条件：传入 peer 时，对 f"{peer}|{time.time()}|{os.getpid()}" 做 utf-8 编码的 sha256，返回 "lk_" 拼接 `hexdigest()` 的前 12 个十六进制字符（peer 为 None 时按 "None" 参与哈希）。
@@ -310,8 +329,10 @@ def handshake(peer_node_id: str, *, peer_theory: dict = None,
                clause="层0 派生律（版本不符降级观察期）",
                reason=align.get("reason"))
 
-    data = load(path)
-    _commit(data, link["link_id"], link, path)
+    # 建档提交走连接级互斥（load→mutate→save 全程，防并发 handshake 丢档）
+    with _locked(path):
+        data = load(path)
+        _commit(data, link["link_id"], link, path)
     return {"ok": True, "link": link, "alignment": align,
             "signature": {"required": bool(ver.get("required")),
                           "ok": bool(ver.get("ok")) if ver.get("required") else None,
@@ -332,56 +353,60 @@ def observe(peer: str, *, evidence: str, positive: bool = True,
 
     · 正证据 `+UP_STEP`；负证据 `-DOWN_STEP`，跌破 `DEGRADE_BELOW` 自动降级；
     · 策略要求签名而验签失败 → 按 `on_verify_fail` 处置（宪章第七条）。
+
+    load→mutate→save 全程持连接级互斥锁（`_locked`）：观测是典型的
+    读-改-写，无锁时两写者各持旧快照互覆，丢一方 evidence_count/audit。
     """
-    data = load(path)
-    lid, link = _find(data, peer)
-    if not link:
-        raise LinkError(f"连接不存在：{peer}（需先 handshake）")
-    if link["status"] == "withdrawn":
-        raise LinkError(f"连接已退出：{peer}")
+    with _locked(path):
+        data = load(path)
+        lid, link = _find(data, peer)
+        if not link:
+            raise LinkError(f"连接不存在：{peer}（需先 handshake）")
+        if link["status"] == "withdrawn":
+            raise LinkError(f"连接已退出：{peer}")
 
-    payload = evidence_payload(link["peer_node_id"], evidence, positive)
-    ver = _signer.verify_for(subsystem or link.get("subsystem") or None, payload,
-                             peer_signature or "",
-                             ctx={"peer": link["peer_node_id"],
-                                  "action": "evidence"},
-                             action="evidence", path=signers_file)
-    if not ver.get("ok"):
-        on_fail = ver.get("on_fail") or "degrade"
-        if on_fail == "reject":
-            raise LinkError(
-                f"证据签名校验失败（策略={on_fail}）：{ver.get('reason')}")
-        _set_status(link, "isolated" if on_fail == "isolate" else "degraded",
-                    actor=actor, clause="宪章第七条", reason=ver.get("reason"))
+        payload = evidence_payload(link["peer_node_id"], evidence, positive)
+        ver = _signer.verify_for(subsystem or link.get("subsystem") or None,
+                                 payload, peer_signature or "",
+                                 ctx={"peer": link["peer_node_id"],
+                                      "action": "evidence"},
+                                 action="evidence", path=signers_file)
+        if not ver.get("ok"):
+            on_fail = ver.get("on_fail") or "degrade"
+            if on_fail == "reject":
+                raise LinkError(
+                    f"证据签名校验失败（策略={on_fail}）：{ver.get('reason')}")
+            _set_status(link, "isolated" if on_fail == "isolate" else "degraded",
+                        actor=actor, clause="宪章第七条", reason=ver.get("reason"))
+            _commit(data, lid, link, path)
+            return {"ok": False, "link": link, "on_fail": on_fail,
+                    "reason": ver.get("reason")}
+
+        delta = UP_STEP if positive else -DOWN_STEP
+        cap = float(link.get("p_trust_cap") or 0.0)
+        before = float(link.get("p_trust") or 0.0)
+        link["p_trust"] = round(max(0.0, min(cap, before + delta)), 6)
+        link["evidence_count"] = int(link.get("evidence_count") or 0) + 1
+        link["last_observed"] = time.time()
+        link["decay"] = 0.0
+        if ver.get("required"):
+            link.setdefault("signatures", {})["peer_evidence"] = {
+                "signer": ver.get("signer"), "signature": peer_signature or "",
+                "verified": True, "at": time.time()}
+
+        _audit(link, "observe", by=actor, clause="宪章第二十四条（留痕）",
+               evidence=str(evidence)[:200], positive=bool(positive),
+               delta=delta, p_trust=link["p_trust"])
+
+        # 反例击穿：不因历史高分豁免（宪章第七条）
+        if not positive and link["p_trust"] < DEGRADE_BELOW \
+                and link["status"] in IN_TRUST:
+            _set_status(link, "degraded", actor=actor,
+                        clause="宪章第七条（一次异常即降级）",
+                        reason=f"负证据使 P_trust={link['p_trust']} < {DEGRADE_BELOW}")
+
         _commit(data, lid, link, path)
-        return {"ok": False, "link": link, "on_fail": on_fail,
-                "reason": ver.get("reason")}
-
-    delta = UP_STEP if positive else -DOWN_STEP
-    cap = float(link.get("p_trust_cap") or 0.0)
-    before = float(link.get("p_trust") or 0.0)
-    link["p_trust"] = round(max(0.0, min(cap, before + delta)), 6)
-    link["evidence_count"] = int(link.get("evidence_count") or 0) + 1
-    link["last_observed"] = time.time()
-    link["decay"] = 0.0
-    if ver.get("required"):
-        link.setdefault("signatures", {})["peer_evidence"] = {
-            "signer": ver.get("signer"), "signature": peer_signature or "",
-            "verified": True, "at": time.time()}
-
-    _audit(link, "observe", by=actor, clause="宪章第二十四条（留痕）",
-           evidence=str(evidence)[:200], positive=bool(positive),
-           delta=delta, p_trust=link["p_trust"])
-
-    # 反例击穿：不因历史高分豁免（宪章第七条）
-    if not positive and link["p_trust"] < DEGRADE_BELOW \
-            and link["status"] in IN_TRUST:
-        _set_status(link, "degraded", actor=actor,
-                    clause="宪章第七条（一次异常即降级）",
-                    reason=f"负证据使 P_trust={link['p_trust']} < {DEGRADE_BELOW}")
-
-    _commit(data, lid, link, path)
-    return {"ok": True, "link": link, "delta": delta}
+        return {"ok": True, "link": link, "delta": delta}
 
 
 # --------------------------------------------------------------------------
@@ -405,32 +430,34 @@ def _set_status(link: dict, status: str, *, actor: str = "system",
 
 # 生效条件：传入 peer 与 status 时，先 load(path)/_find 定位（未命中抛 LinkError），再 `_set_status(link, status, actor=actor, reason=reason)` 并 `_commit(data, lid, link, path)`，返回 `{"ok": True, "link": link}`。
 def _transition(peer, status, *, reason=None, path=None, actor="system"):
-    data = load(path)
-    lid, link = _find(data, peer)
-    if not link:
-        raise LinkError(f"连接不存在：{peer}")
-    _set_status(link, status, actor=actor, reason=reason)
-    _commit(data, lid, link, path)
-    return {"ok": True, "link": link}
+    with _locked(path):                 # 状态迁移同属读-改-写，全程互斥
+        data = load(path)
+        lid, link = _find(data, peer)
+        if not link:
+            raise LinkError(f"连接不存在：{peer}")
+        _set_status(link, status, actor=actor, reason=reason)
+        _commit(data, lid, link, path)
+        return {"ok": True, "link": link}
 
 
 # 生效条件：连接存在且 link["status"]=="probation" 且 float(link.get("probation_until") or 0) - time.time() <= 0 时置 normal、promoted_at，提交并返回 {'ok': True, 'link'}；连接不存在、非 probation 或观察期未满均抛 LinkError。
 def promote(peer: str, *, path: str = None, actor: str = "system") -> dict:
     """观察期满且无异常 → normal。"""
-    data = load(path)
-    lid, link = _find(data, peer)
-    if not link:
-        raise LinkError(f"连接不存在：{peer}")
-    if link["status"] != "probation":
-        raise LinkError(f"仅 probation 可转正，当前 {link['status']}")
-    left = float(link.get("probation_until") or 0) - time.time()
-    if left > 0:
-        raise LinkError(f"观察期未满（剩余 {int(left)}s）")
-    _set_status(link, "normal", actor=actor,
-                clause="宪章第七条反面（观察期满无异常）")
-    link["promoted_at"] = time.time()
-    _commit(data, lid, link, path)
-    return {"ok": True, "link": link}
+    with _locked(path):                 # 读-改-写全程互斥
+        data = load(path)
+        lid, link = _find(data, peer)
+        if not link:
+            raise LinkError(f"连接不存在：{peer}")
+        if link["status"] != "probation":
+            raise LinkError(f"仅 probation 可转正，当前 {link['status']}")
+        left = float(link.get("probation_until") or 0) - time.time()
+        if left > 0:
+            raise LinkError(f"观察期未满（剩余 {int(left)}s）")
+        _set_status(link, "normal", actor=actor,
+                    clause="宪章第七条反面（观察期满无异常）")
+        link["promoted_at"] = time.time()
+        _commit(data, lid, link, path)
+        return {"ok": True, "link": link}
 
 
 # 生效条件：传入 peer 时无条件返回 `_transition(peer, "degraded", reason=reason, path=path, actor=actor)`，reason/path/actor 原样透传。
@@ -459,31 +486,35 @@ def withdraw(peer: str, *, reason: str = None, path: str = None,
 # 生效条件：now 为假值（None 或 0）时回落 time.time()；仅 status 属于 IN_TRUST 的链接参与，days=max(0, (now-last)/86400) 为 0 时跳过，否则按 DECAY_DAYS 算向 P_TRUST_INIT 回归后的 p_trust 与 decay，decay 绝对值 > 1e-9 才计入 changed 并 save，最终返回 {'ok': True, 'changed', 'count'}；
 def decay_all(*, path: str = None, now: float = None,
               actor: str = "system") -> dict:
-    data = load(path)
-    now = now or time.time()
-    changed = []
-    for lid, link in (data.get("links") or {}).items():
-        if link.get("status") not in IN_TRUST:
-            continue
-        last = link.get("last_observed") or link.get("created_at") or now
-        days = max(0.0, (now - float(last)) / 86400.0)
-        if days <= 0:
-            continue
-        factor = 0.5 ** (days / DECAY_DAYS)
-        before = float(link.get("p_trust") or 0.0)
-        cap = float(link.get("p_trust_cap") or 0.0)
-        after = max(0.0, min(cap, round(
-            P_TRUST_INIT + (before - P_TRUST_INIT) * factor, 6)))
-        link["decay"] = round(before - after, 6)
-        if abs(link["decay"]) > 1e-9:
-            link["p_trust"] = after
-            _audit(link, "decay", by=actor, clause="§3.2（无观测向初值回归）",
-                   days=round(days, 3), p_trust=after)
-            changed.append({"link_id": lid, "peer_node_id": link["peer_node_id"],
-                            "from": before, "to": after, "decay": link["decay"]})
-    if changed:
-        save(data, path)
-    return {"ok": True, "changed": changed, "count": len(changed)}
+    with _locked(path):                 # 批量衰减同属读-改-写，全程互斥
+        data = load(path)
+        now = now or time.time()
+        changed = []
+        for lid, link in (data.get("links") or {}).items():
+            if link.get("status") not in IN_TRUST:
+                continue
+            last = link.get("last_observed") or link.get("created_at") or now
+            days = max(0.0, (now - float(last)) / 86400.0)
+            if days <= 0:
+                continue
+            factor = 0.5 ** (days / DECAY_DAYS)
+            before = float(link.get("p_trust") or 0.0)
+            cap = float(link.get("p_trust_cap") or 0.0)
+            after = max(0.0, min(cap, round(
+                P_TRUST_INIT + (before - P_TRUST_INIT) * factor, 6)))
+            link["decay"] = round(before - after, 6)
+            if abs(link["decay"]) > 1e-9:
+                link["p_trust"] = after
+                _audit(link, "decay", by=actor,
+                       clause="§3.2（无观测向初值回归）",
+                       days=round(days, 3), p_trust=after)
+                changed.append({"link_id": lid,
+                                "peer_node_id": link["peer_node_id"],
+                                "from": before, "to": after,
+                                "decay": link["decay"]})
+        if changed:
+            save(data, path)
+        return {"ok": True, "changed": changed, "count": len(changed)}
 
 
 # --------------------------------------------------------------------------

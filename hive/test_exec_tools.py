@@ -664,7 +664,7 @@ try:
           and not os.path.exists(os.path.join(_k_tmp, "result.json.tmp")),
           _k_raw[:80])
     _k_stop = False
-    _k_stat = {"torn": 0, "empty": 0, "ok": 0}
+    _k_stat = {"torn": 0, "empty": 0, "ok": 0, "replace_starved": 0}
 
     def _k_reader():
         p_ = os.path.join(_k_tmp, "result.json")
@@ -681,16 +681,30 @@ try:
             except OSError:
                 pass
 
-    _k_rs = [threading.Thread(target=_k_reader) for _ in range(2)]
+    # daemon=True（2026-09-25 全量第 1 轮超时归因）：reader 非 daemon 时，
+    # 写循环若死于未捕获异常（见下 PermissionError），_k_stop 永不为 True，
+    # 两个紧循环 reader 让进程永不退出——回归表现为「超时（>900s）」而非
+    # FAIL，掩盖真实错误。daemon 化保证任何异常形态下进程都能退出。
+    _k_rs = [threading.Thread(target=_k_reader, daemon=True) for _ in range(2)]
     for _t in _k_rs:
         _t.start()
+    _k_writes = 0
     for _i in range(20):
-        ex.write_result(_k_tmp, {"ok": True, "content": "x" * 1024 * 1024})
+        try:
+            ex.write_result(_k_tmp, {"ok": True, "content": "x" * 1024 * 1024})
+            _k_writes += 1
+        except PermissionError:
+            # Windows 读者瞬态句柄可把 replace 的 50 次重试整个耗尽（--jobs 4
+            # 满载下实测连续多轮，每轮 12.75s 白等）：这是 write_result 的
+            # fail-safe 设计内形态（exec.py 注释：旧完整态保留、tmp 残留
+            # 可辨），**不是**撕裂/空窗——K2 守卫的是后者。记数不中断，
+            # 由下方「写成功 ≥1」断言兜底：全部饿死时 K2 无效，必须红。
+            _k_stat["replace_starved"] += 1
     _k_stop = True
     for _t in _k_rs:
         _t.join()
     check("K2 并发写读压测 0 撕裂（半截/空窗均不许出现）",
-          _k_stat["torn"] == 0 and _k_stat["empty"] == 0,
+          _k_stat["torn"] == 0 and _k_stat["empty"] == 0 and _k_writes >= 1,
           str(_k_stat))
 finally:
     shutil.rmtree(_k_tmp, ignore_errors=True)

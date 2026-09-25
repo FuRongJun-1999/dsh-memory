@@ -18,6 +18,9 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_p3 test_p43_pooling test_retr_gates_prodpath test_retr_s1 \
          test_retr_s1b test_retr_s3 test_retr_s4 test_retr_s5 test_retr_s6 \
          test_retr_s7 test_readcache_prodpath test_mdstore_search_parity \
+         test_govern_directread test_verify_dirty_reconcile \
+         test_branch_discard_tombstone test_tail_watermark_race \
+         test_links_concurrent_write \
          test_wisdom_md_store test_session_isolation test_access_hints \
          test_interop_judgment test_identity_attribution test_branches \
          test_p32_backfill test_i32_hotcache_env_key test_conformance \
