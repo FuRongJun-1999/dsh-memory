@@ -2114,10 +2114,11 @@ class MdCGOS(MdCG):
                 "verify_hash": src.get("verify_hash"),
                 "source": "hippocampus/decisions.jsonl"}
 
-# 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'）后追加内容并定向索引 upsert（_node_entry 同源条目写入 index/_dirty）+flush，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
+# 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'），且写入前经与 add 同款双闸（N131，2026-09-25：principal 在位先 require_layer_write(目标层, 目标敏感度)——与 MdCGSecure.add 同序同错型；再 protect.guard_write(override=override)——self/anchor 层、immutable 标记，拒绝抛 ProtectionError/AccessDenied 且提案留 pending 不落库）后追加内容并定向索引 upsert（_node_entry 同源条目写入 index/_dirty）+flush，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
     def review_decide(self, pid: str, decision: str, edits: dict = None,
                       merge_into: str = None, reason: str = "",
-                      redteam: dict = None, issues=None):
+                      redteam: dict = None, issues=None,
+                      override: bool = False):
         """审核裁决：accept / reject / edit / merge / noop。
 
         accept  → 按 inbox 原样写入
@@ -2223,6 +2224,22 @@ class MdCGOS(MdCG):
             tgt = self.get(target) if target else None
             if not tgt:
                 return {"ok": False, "error": "merge_target_not_found"}
+            # 写保护（N131，2026-09-25）：merge = 对目标节点的一次**覆写**
+            # （_write_node 追加正文），与 accept/edit 的 add 落点同受写保护——
+            # 此前直写绕过双闸，orchestr forbidden「anchor/self/goals/knowledge
+            # 层」被打穿。与 add 同序同错型：principal 层写闸在先（对照
+            # MdCGSecure.add），引擎级 guard_write 在后（对照基类 add :1311）；
+            # 闸必须在 _record_decision 之前抛出——审计节点写入本就在其
+            # try/except 内，闸放那里会被吞成 record_error 形同虚设。
+            _p = getattr(self, "principal", None)
+            if _p is not None and hasattr(_p, "require_layer_write"):
+                _e = (self.index.get("nodes") or {}).get(target) or {}
+                _p.require_layer_write(
+                    _e.get("layer") or tgt["frontmatter"].get("layer")
+                    or tgt["path"].split("/")[0],
+                    _e.get("sensitivity") or DEFAULT_SENSITIVITY)
+            protect.guard_write(self, target, override=override,
+                                actor=getattr(self, "actor", None))
             fm = dict(tgt["frontmatter"])
             merged_content = (tgt["content"].rstrip() + "\n\n" +
                               item["content"].strip() + "\n")
@@ -3811,6 +3828,16 @@ class MdCGSecure(MdCGOS):
         self.principal.require_layer_write("goals", DEFAULT_SENSITIVITY)
         return super().set_goal_status(node_id, status)
 
+# 生效条件：verdict（转 str 去空白 lower）为 "falsified" 且索引中存在 node_id 条目时，先取该条目 layer 与 sensitivity（缺省回落 DEFAULT_SENSITIVITY）调 principal.require_layer_write——falsified 删除 = 对原节点层的一次删除写（N130，2026-09-25：verify 角色 layers_allow 本就只含 rejected/contextual，不得改/删被验证内容所在层，tokens.py verify spec forbidden 显式列明），与 add/add_rejected 同一闸口；随后把 override 原样转 super().verify（受保护节点的 guard_forget 快照留痕在基类 falsified 分支内）。verdict 非 falsified 或索引无此节点时不加闸直接透传（not_found 语义由基类维持）。
+    def verify(self, node_id: str, evidence: str, verdict: str,
+               override: bool = False):
+        if str(verdict or "").strip().lower() == "falsified":
+            e = (self.index.get("nodes") or {}).get(node_id)
+            if e is not None:
+                self.principal.require_layer_write(
+                    e.get("layer"), e.get("sensitivity") or DEFAULT_SENSITIVITY)
+        return super().verify(node_id, evidence, verdict, override=override)
+
 # 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，经 _rank(sens) 与 principal.require_write(sens) 后把 m 基于 meta 复制并 setdefault tenant/session、harness 与 unit 为真值时补入，再强制 m["sensitivity"]=sens，text 经 _seal_content("_recent", text, sens) 后连 tags=tags 一起转 super().remember_event（window 为 None 时不传该参，否则带上 window）。
     def remember_event(self, role: str, text: str, tags=None, meta=None,
                        window=None, sensitivity: str = None):
@@ -3878,6 +3905,12 @@ class MdCGSecure(MdCGOS):
             nsess = e.get("session")
             return bool(nsess) and nsess == self.principal.session
         return True
+
+# 生效条件：nid 在 index["nodes"] 中有条目且 _readable(e) 为真时返回 True，否则（无条目/不可见）返回 False；作为 chain.adjacency 的读隔离谓词（cg._chain_visible）被消费——关系链面（causal_chain/explain_chain/causal_path/检索 chain 路 provenance 经 expand_from_seeds）由此单点隔离，不可见节点的出边、边条件文本与下游拓扑不再进入链展开；实例身份稳定（_readable 绑定档恒用 principal.session），与 adjacency 缓存无串台。
+    def _chain_visible(self, nid) -> bool:
+        """关系链可见性谓词（chain.adjacency 读隔离闸，2026-09-25）。"""
+        e = (self.index.get("nodes") or {}).get(nid)
+        return bool(e) and self._readable(e)
 
 # 生效条件：先以 limit=None 取 super().list_goals(status=status) 的全量，再只保留 index 中 _readable(e) 为真的目标，limit 为真值时返回 keep[:limit]、否则返回全部 keep。
     def list_goals(self, status=None, limit=None):

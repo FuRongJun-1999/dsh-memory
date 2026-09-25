@@ -3167,14 +3167,17 @@ class MdCG:
         return {"id": node_id, "from": from_layer, "to": to_layer,
                 "path": rel, "reason": reason}
 
-# 生效条件：verdict 不在 {confirmed,weakened,falsified} 时抛 ValueError；node_id 取不到节点返回 None；verdict=="falsified" 时以 content[:200] 为假设写入 rejected 层、删除原文件并 _unstage，返回 {"action":"falsified","new_id":None,"evidence_count":None,"demoted":None}；confirmed/weakened 时 confidence 分别 +0.05 / -0.15（夹到 [0,0.99] 并 round 2）、evidence_count 与 positive_evidence/negative_evidence 各 +1、追加 evidence_log，且仅当 weakened 后 confidence < DEMOTE_CONFIDENCE 且 layer=="knowledge" 时调 _move_layer 到 contextual 并 set_state("demoted")，否则 _write_node 回写并同步索引 evidence_count；
-    def verify(self, node_id: str, evidence: str, verdict: str):
+# 生效条件：verdict 不在 {confirmed,weakened,falsified} 时抛 ValueError；node_id 取不到节点返回 None；verdict=="falsified" 时先经 protect.guard_forget（受保护节点需显式 override=True——旧版本自动快照+留痕；拒绝抛 ProtectionError 且无任何副作用），通过后以 content[:200] 为假设写入 rejected 层、删除原文件并 _unstage，返回 {"action":"falsified","new_id":None,"evidence_count":None,"demoted":None}；confirmed/weakened 时 confidence 分别 +0.05 / -0.15（夹到 [0,0.99] 并 round 2）、evidence_count 与 positive_evidence/negative_evidence 各 +1、追加 evidence_log，且仅当 weakened 后 confidence < DEMOTE_CONFIDENCE 且 layer=="knowledge" 时调 _move_layer 到 contextual 并 set_state("demoted")，否则 _write_node 回写并同步索引 evidence_count；
+    def verify(self, node_id: str, evidence: str, verdict: str,
+               override: bool = False):
         """验证单元（白箱第 3 篇第 13 章）：对节点做一次外部验证裁决。
 
         verdict ∈ {"confirmed", "weakened", "falsified"}
         - confirmed：positive_evidence+1，confidence 上调 +0.05
         - weakened：negative_evidence+1，confidence 下调 -0.15（反例权重更大）
-        - falsified：节点移入 rejected/（幂等：相同 hypothesis 不重复）
+        - falsified：节点移入 rejected/（幂等：相同 hypothesis 不重复）；
+          受保护节点（self/anchor 层、protected 标记、importance≥0.7）
+          不可一键证伪删除——需显式 override=True（先快照+留痕）
 
         每次裁决累加 evidence_count（白箱第 5 篇第 4 章）。
         weakened 后 confidence 跌破 DEMOTE_CONFIDENCE 且原属 knowledge 层 →
@@ -3186,6 +3189,15 @@ class MdCG:
         if not node:
             return None
         if verdict == "falsified":
+            # 写保护（N130，2026-09-25）：证伪 = 对原节点的一次**硬删除**
+            # （os.remove，无快照、不进 trash），与 forget/降级同受「不可遗忘」
+            # 保护——self/anchor 层、protected 标记、importance≥0.7 不得被一次
+            # verify 调用一键删除。对照 forget 路径（mdcos.py forget）同一闸口：
+            # 受保护节点需显式 override=True（旧版本先快照进 _protected_history
+            # 并留痕 _protected_audit.jsonl），拒绝抛 ProtectionError、原节点
+            # 原样保留。守卫必须在 add_rejected 之前——拒绝路径零副作用。
+            protect.guard_forget(self, node_id, override=override,
+                                 actor=getattr(self, "actor", None))
             # 移入 rejected：负记忆化
             self.add_rejected(hypothesis=node["content"][:200],
                               reason=evidence,

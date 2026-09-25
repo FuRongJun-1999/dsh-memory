@@ -255,31 +255,38 @@ class Principal:
                 f"write={self.can_write}, admin={self.can_admin})")
 
 
-# 生效条件：path 为 None 时落至 datapath.aux_root()（默认 ~/.mdcg，可经 MDCG_AUX_ROOT 改）下的 _tenants.json，path 非 None（含空串）时按传入值使用，并在构造内以 self._load() 的返回填充 self.data。
+# 生效条件：path 为 None 时落至 datapath.aux_root()（默认 ~/.mdcg，可经 MDCG_AUX_ROOT 改）下的 _tenants.json，path 非 None（含空串）时按传入值使用，并在构造内以 self._load() 的返回填充 self.data、以 self.load_error 留存加载期损坏留痕（N124，2026-09-25：登记表损坏/不可读必须可被调用方感知，缺文件不算损坏）。
 class TenantRegistry:
     """租户注册表：tenant → {root, clearance_cap, description}。
 
     默认位置：<registry_dir>/_tenants.json（默认 ~/.mdcg/）。
     设计意图：私有租户的 root 指向仓库外目录，开源仓库里只放 public 租户的根。
+
+    load_error（N124，2026-09-25）：_load 遇「文件在但损坏/不可读」（JSON
+    解析失败、OSError、顶层非对象）时留存原因字符串，完好/缺文件为 None——
+    供 _resolve_root 等调用方把「静默回落空表」开口成 stderr 告警。
     """
 
-# 生效条件：形参 path 为 None 时取 ~/.mdcg/_tenants.json，否则取 path；self.data 初始化为 _load() 结果（self.path 经 os.path.exists 为真且 JSON 解析为 dict 时取该 dict，否则回落 {"schema":1,"tenants":{}}）。
+# 生效条件：形参 path 为 None 时取 ~/.mdcg/_tenants.json，否则取 path；self.load_error 置 None 后 self.data 初始化为 _load() 结果（self.path 经 os.path.exists 为真且 JSON 解析为 dict 时取该 dict，否则回落 {"schema":1,"tenants":{}}；文件在但解析失败/OSError/顶层非对象时先置 self.load_error 为原因串，缺文件不置）。
     def __init__(self, path: str = None):
         if path is None:
             path = os.path.join(aux_root(), "_tenants.json")
         self.path = path
+        self.load_error = None
         self.data = self._load()
 
-# 生效条件：当 self.path 经 os.path.exists 为真且内容可解析为 dict 时返回该 dict；否则（os.path.exists 为假、非 dict、JSON 解析失败或 OSError）返回 {"schema":1,"tenants":{}}。
+# 生效条件：先置 self.load_error=None；当 self.path 经 os.path.exists 为真且内容可解析为 dict 时返回该 dict；解析失败或 OSError 时置 self.load_error=f"{类型名}: {e}"、顶层 JSON 非对象时置 self.load_error="登记表 JSON 顶层不是对象"；否则（os.path.exists 为假）不留痕；各回落分支均返回 {"schema":1,"tenants":{}}。
     def _load(self):
+        self.load_error = None
         if os.path.exists(self.path):
             try:
                 with open(self.path, encoding="utf-8") as f:
                     d = json.load(f)
                 if isinstance(d, dict):
                     return d
-            except (ValueError, OSError):
-                pass
+                self.load_error = "登记表 JSON 顶层不是对象"
+            except (ValueError, OSError) as e:
+                self.load_error = f"{type(e).__name__}: {e}"
         return {"schema": 1, "tenants": {}}
 
 # 生效条件：无 required 形参或模块级常量前置，将 self.data 以 JSON 写入 self.path + ".tmp"，随后 publish（带 Windows 短重试的 os.replace）到 self.path；目录名称为空时用 "." 创建。

@@ -197,10 +197,13 @@ TOOLS = [
     {
         "name": "mdcg_verify",
         "description": "验证单元：对节点做外部裁决 confirmed/weakened/falsified"
-                       "（falsified 会移入 rejected/ 负记忆）。",
+                       "（falsified 会移入 rejected/ 负记忆；受保护节点"
+                       " self/anchor 层、protected 标记、importance≥0.7 不可"
+                       "一键证伪删除，需显式 override=true，旧版本自动快照+留痕）。",
         "inputSchema": _s("", node_id=_p("string", "节点 id", True),
                           evidence=_p("string", "证据", True),
-                          verdict=_p("string", "confirmed|weakened|falsified", True)),
+                          verdict=_p("string", "confirmed|weakened|falsified", True),
+                          override=_p("boolean", "受保护节点需显式 true 才可证伪删除")),
     },
     {
         "name": "mdcg_flywheel",
@@ -239,7 +242,9 @@ TOOLS = [
     },
     {
         "name": "mdcg_review_decide",
-        "description": "审核裁决：accept / reject / edit / merge / noop（merge 需 merge_into）。"
+        "description": "审核裁决：accept / reject / edit / merge / noop（merge 需 merge_into；"
+                       "merge 与 add 同受写保护——目标层须可写，self/anchor/immutable "
+                       "目标需显式 override=true）。"
                        "noop=已评估、判定不改变任何现有记忆：只留痕并关闭提案，"
                        "不落业务节点、不进负记忆（与 reject 的区别是语义而非路径）。"
                        "redteam.verdict=reject 不落库，转 needs_reapproval，"
@@ -249,7 +254,8 @@ TOOLS = [
                           edits=_p("object", "edit 时的覆盖字段"), merge_into=_p("string", "merge 目标节点 id"),
                           reason=_p("string", "裁决理由"),
                           redteam=_p("object", "红队裁决 {verdict:pass|reject, issues:[], round:n}"),
-                          issues=_p("array", "问题清单（打回理由）")),
+                          issues=_p("array", "问题清单（打回理由）"),
+                          override=_p("boolean", "merge 进受保护目标需显式 true")),
     },
     {
         "name": "mdcg_review_records",
@@ -2209,7 +2215,8 @@ def _cg_dispatch(cg, a):
 
     if op == "verify":
         return cg.verify(a.get("node_id", ""), a.get("evidence", ""),
-                         a.get("verdict", ""))
+                         a.get("verdict", ""),
+                         override=bool(a.get("override")))
 
     if op == "review":
         act = (a.get("action") or "list").strip().lower()
@@ -2229,7 +2236,8 @@ def _cg_dispatch(cg, a):
         return cg.review_decide(a.get("pid", ""), a.get("decision", ""),
                                 edits=a.get("edits"), merge_into=a.get("merge_into"),
                                 reason=a.get("reason", ""),
-                                redteam=a.get("redteam"), issues=a.get("issues"))
+                                redteam=a.get("redteam"), issues=a.get("issues"),
+                                override=bool(a.get("override")))
 
     if op == "forget":
         if (a.get("action") or "forget").strip().lower() == "restore":
@@ -3172,7 +3180,9 @@ def _dispatch(cg, name, args):
         return cg.reflect(a.get("query", ""), res, a.get("feedback"))
 
     if name == "mdcg_verify":
-        return cg.verify(a.get("node_id", ""), a.get("evidence", ""), a.get("verdict", ""))
+        return cg.verify(a.get("node_id", ""), a.get("evidence", ""),
+                         a.get("verdict", ""),
+                         override=bool(a.get("override")))
 
     if name == "mdcg_flywheel":
         return cg.flywheel_step(a.get("error_report") or {})
@@ -3210,7 +3220,8 @@ def _dispatch(cg, name, args):
         return cg.review_decide(a.get("pid", ""), a.get("decision", ""),
                                 edits=a.get("edits"), merge_into=a.get("merge_into"),
                                 reason=a.get("reason", ""),
-                                redteam=a.get("redteam"), issues=a.get("issues"))
+                                redteam=a.get("redteam"), issues=a.get("issues"),
+                                override=bool(a.get("override")))
 
     if name == "mdcg_review_records":
         nid = a.get("node_id")
@@ -3533,23 +3544,38 @@ def _attach_theory(p):
 
 
 # 生效条件：环境变量 MDCG_ROOT 非空且其 os.path.abspath 规范化后的 basename 小写不以 "_md_cg_" 开头、且 _build_principal() 返回的 err 为空时，构造 MdCGSecure(root, principal=principal, autoflush=1) 并对 sys.stdin 逐行 method 分派（initialize 回 protocolVersion=PROTOCOL_VERSION 与 SERVER_NAME/SERVER_VERSION，tools/list 回 tools_for_surface()，tools/call 经 call_tool 后回 content，shutdown 跳出循环），遍历结束后调用 sustain.stop_all() 与 cg.close() 并返回 0；MDCG_ROOT 为空或 basename 命中 "_md_cg_" 前缀返回 2，令牌校验失败返回 3；
-# 生效条件：env 缺省取 os.environ；返回 (root, err)——MDCG_TENANT 已登记（登记表路径可经 MDCG_TENANT_REGISTRY 覆盖，缺省 ~/.mdcg/_tenants.json）时 root=登记根，与显式 MDCG_ROOT 冲突返回 (None, 冲突说明)；未登记租户回落 MDCG_ROOT；两者皆空返回 (None, None)。
+# 生效条件：env 缺省取 os.environ；返回 (root, err)——MDCG_TENANT 已登记（登记表路径可经 MDCG_TENANT_REGISTRY 覆盖，缺省 ~/.mdcg/_tenants.json）时 root=登记根，与显式 MDCG_ROOT 冲突返回 (None, 冲突说明)；未登记租户回落 MDCG_ROOT；两者皆空返回 (None, None)；登记表损坏/不可读（TenantRegistry.load_error 留痕或读取抛异常，N124 2026-09-25）时向 stderr 写「登记根绑定失效回落 MDCG_ROOT」告警后按未登记同形回落（零闸变，只开口）。
 def _resolve_root(env=None):
     """租户 × 认知图根解析（issue #35 接线，独立函数供守卫测试）。
 
     口径：MDCG_TENANT 已登记 → 登记根；与显式 MDCG_ROOT 不一致 → 冲突
     （fail-closed，由调用方拒启）；未登记租户 → 维持 MDCG_ROOT（零变更）。
+    登记表损坏/不可读 → 同未登记回落，但必须开口（N124）：静默回落会让
+    租户根物理隔离绑定无声消失、写入落进公共根，且下方冲突 fail-closed
+    检测连带失效。
     """
     env = env if env is not None else os.environ
     root = env.get("MDCG_ROOT")
     tenant = env.get("MDCG_TENANT")
     if tenant:
+        t_root = None
+        reg_err = ""
         try:
             from .security import TenantRegistry
             reg = TenantRegistry(env.get("MDCG_TENANT_REGISTRY") or None)
             t_root = reg.root_of(tenant)
-        except Exception:                                # noqa: BLE001
+            reg_err = getattr(reg, "load_error", "") or ""
+        except Exception as e:                           # noqa: BLE001
+            reg_err = f"{type(e).__name__}: {e}"
             t_root = None
+        if reg_err:
+            # N124（2026-09-25 止血）：登记表损坏/不可读时隔离绑定无声消失，
+            # 对照 MDCG_CLEARANCE 覆盖告警同款口径——零闸变、只开口。
+            sys.stderr.write(
+                f"[mdcg-mcp] ⚠ 租户登记表损坏/不可读（{reg_err}）："
+                f"MDCG_TENANT={tenant} 的登记根绑定失效，本次回落 "
+                f"MDCG_ROOT={root or '(未设)'}；请修复登记表"
+                f"（MDCG_TENANT_REGISTRY，缺省 ~/.mdcg/_tenants.json）。\n")
         if t_root:
             if root and os.path.abspath(root) != os.path.abspath(t_root):
                 return None, (f"MDCG_TENANT={tenant} 已登记根 {t_root}，"
