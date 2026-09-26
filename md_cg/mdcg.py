@@ -2504,6 +2504,18 @@ class MdCG:
             ctx = context if isinstance(context, dict) else {}
             route_bucket = routing.bucket_dir(
                 routing.route_key(ctx, ctx.get("tags")))
+            # 「无域信号」等价于「没声明条件」：此时**不施加桶约束**。否则 route_key
+            # 回落的 orphan 会被当成一个真桶，下面 T0/T1 阶段只读该桶，并因
+            # valid >= min_results 在 TIER_BUCKET_SCAN 直接 return —— **全量阶梯
+            # 永不执行**，凡被标了 domain:（落在 cond_* 目录）的节点对这条查询
+            # 整片不可见。
+            # 实测（带 context 但不含 domain / observation_position）：置 None 前
+            # tier=T1_bucket_scan/scanned=10/目标召回丢失；置 None 后
+            # tier=T2_global_like/scanned=75/召回命中。
+            # 与 mdcos._path_bucket 的「无域信号弃权」（X1）同构，也贴合 test_p0
+            # 的「桶路由平均 recall@10 ≥ 0.9（加 context 不丢召回）」不变量。
+            if route_bucket == routing.ORPHAN:
+                route_bucket = None
 
         # 阶段 1 大域打分已在候选构建前算好（S1 门控要用）；此处不再重复计算。
 

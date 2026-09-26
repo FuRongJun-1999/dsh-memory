@@ -952,6 +952,16 @@ class MdCGOS(MdCG):
             return []
         ctx = context if isinstance(context, dict) else {}
         b = routing.bucket_dir(routing.route_key(ctx, ctx.get("tags")))
+        # 「无域信号」等价于「没声明条件」：条件桶路此时必须**弃权**，不能把
+        # route_key 回落的 orphan 当成一个真桶去硬过滤——否则凡是被标了 domain:
+        # （因而落在 cond_* 目录）的节点，对这条查询就整片不可见。
+        # 实测（带 context 但不含 domain / observation_position）：弃权前只扫
+        # orphan 桶 10 个节点、目标节点召回丢失（T1_bucket_scan/scanned=10）；
+        # 弃权后由词法/实体/图路正常召回（T2_global_like/scanned=75）。
+        # 与上面 context is None 的既有早返回同构，也贴合 test_p0 的
+        # 「桶路由平均 recall@10 ≥ 0.9（加 context 不丢召回）」不变量。
+        if b == routing.ORPHAN:
+            return []
         inb = [e for e in entries if e.get("bucket") == b]
         if not inb:
             return []
