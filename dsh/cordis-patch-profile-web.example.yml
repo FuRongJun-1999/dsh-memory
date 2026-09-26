@@ -97,3 +97,14 @@
     mutual:
       enabled: false
       heartbeatMs: 600000
+
+# ─── 会话归因补充说明（2026-09-26，DSH 日志索引 v2）──────────────────
+# 经 dsh_log_index.py 摄取的日志节点（id 前缀 dsh-log-）：
+#   · frontmatter.session = 派生标识 sha256(createdAt+首条用户消息)[:16]
+#     —— 16 位十六进制摘要而非 session-<uuid>。这是**刻意设计**（会话 uuid
+#     每次重启必换，不可作身份锚；内容寻址标识跨重启稳定），勿当 bug 报。
+#   · frontmatter.dsh_session_uuid 保留原始 uuid 供溯源。
+#   · sensitivity=internal（日志不加密，使用者裁定）→ 跨会话共享档，
+#     任何过密级校验的会话均可检索（跨会话回看是日志检索的用途）。
+#   · layer=knowledge → 不会进入 autoRecall 自动注入池（recall 默认
+#     contextual 层）——日志冷真源只对显式查询有效，这是预期行为。
