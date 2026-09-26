@@ -28,6 +28,13 @@ INVALID = ctypes.c_void_p(-1).value
 
 def main() -> int:
     case = harness.Case("FI-M02", "瞬态读失败固化为检索面永久消失")
+    if os.name != "nt":
+        # 置景手法平台受限：独占句柄用 ctypes.WinDLL（Windows 专属 API）；
+        # 缺口本体（N134 负缓存固化）跨平台，由 Windows 实测+读码覆盖。
+        # 非 Windows 产出 SKIP：维持登记 gap 基线（不崩、不伪装 pass）。
+        case.note("非 Windows 平台：无 WinDLL，独占句柄置景不可用——维持 gap 基线（Windows 实测为准）")
+        case.finish("gap", "gap")
+        return 0
     try:
         d = case.tmpdir("m02")
         mdcg_support.apply_env(d)

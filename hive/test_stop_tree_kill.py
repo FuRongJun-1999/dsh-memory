@@ -117,7 +117,8 @@ def _cleanup_tree(parent_pid: int, child_pid: int | None = None) -> None:
 # ------------------------------------------------------- [A] nt 实弹面（树杀）
 print("[A] 实弹（nt）：stop() 后哑父与哑子都必须死（旧代码子存活=孤儿）")
 parent = subprocess.Popen([sys.executable, PARENT_PY],
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                          start_new_session=(os.name != "nt"))
 child_pid = None
 try:
     for _ in range(50):  # ≤10s 等父进程报出子 pid
@@ -141,9 +142,19 @@ try:
         check("A1 stop ok 且 stopped=True",
               res.get("ok") is True and res.get("stopped") is True,
               f"got {json.dumps(res, ensure_ascii=False)[:200]}")
+        # TERM 异步投递（unix killpg）与 /F 同步强杀（win taskkill）语义差：
+        # 父进程死亡判定给与 A3 同款宽限轮询；判活必须用 parent.poll()——
+        # 哑父是本进程亲儿子，死后僵尸窗口内 os.kill(pid,0) 恒 True（Linux 实测），
+        # poll() 即 waitpid 收尸，rc=-15 即死于 SIGTERM，是唯一权威判据
+        parent_dead = False
+        for _ in range(10):
+            if parent.poll() is not None:
+                parent_dead = True
+                break
+            time.sleep(0.5)
         check("A2 父进程已死（单进程杀旧代码即满足）",
-              not ss.pid_alive(parent.pid),
-              f"parent pid={parent.pid} 仍存活")
+              parent_dead,
+              f"parent rc={parent.poll()} 在 stop 后宽限期内未退出")
         # 树杀判据：给子进程最多 5s 消失（/T 树杀异步收尾）
         child_dead = False
         for _ in range(10):

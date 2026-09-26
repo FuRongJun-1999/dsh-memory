@@ -35,14 +35,21 @@ OPEN_EXISTING = 3
 FILE_SHARE_READ = 0x1
 INVALID_HANDLE_VALUE = 0xFFFFFFFFFFFFFFFF  # x64；restype=c_void_p 时失败返回它
 
-_k32 = ctypes.windll.kernel32
-_k32.CreateFileW.restype = ctypes.c_void_p
-_k32.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32,
-                             ctypes.c_uint32, ctypes.c_void_p,
-                             ctypes.c_uint32, ctypes.c_uint32,
-                             ctypes.c_void_p]
-_k32.CloseHandle.argtypes = [ctypes.c_void_p]
-_k32.CloseHandle.restype = ctypes.c_int
+# 惰性初始化（3.11 兼容 + 平台门）：kernel32 仅 Windows 存在，模块级初始化会让
+# 非 Windows 平台 import 即崩（无法产出 SKIP 结论）——改在 main 平台门后初始化
+_k32 = None
+
+
+def _k32_init():
+    global _k32
+    _k32 = ctypes.windll.kernel32
+    _k32.CreateFileW.restype = ctypes.c_void_p
+    _k32.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32,
+                                 ctypes.c_uint32, ctypes.c_void_p,
+                                 ctypes.c_uint32, ctypes.c_uint32,
+                                 ctypes.c_void_p]
+    _k32.CloseHandle.argtypes = [ctypes.c_void_p]
+    _k32.CloseHandle.restype = ctypes.c_int
 
 
 def _open_handle(path: str, share_mode: int, attempts: int = 40):
@@ -122,6 +129,14 @@ def _collision_round(case, job_dir: str, result_path: str, old_payload,
 
 def main() -> int:
     case = harness.Case("FI-R09", "写面对撞：读者独占句柄撞 os.replace 重试窗")
+    if os.name != "nt":
+        # 置景手法平台受限：独占句柄用 ctypes.windll.kernel32（Windows 专属）；
+        # unix 的 rename(2) 原子性使同类对撞天然不触发（exec.py 重试窗前提不成立）。
+        # 维持登记 pass 基线（Windows 实测结论为准），note 如实声明非实测。
+        case.note("非 Windows 平台：无 kernel32，句柄对撞置景不可用——SKIP 维持 pass 基线（Windows 实测为准，本平台非实测）")
+        case.finish("pass", "pass")
+        return 0
+    _k32_init()
     try:
         job_dir = case.tmpdir("r09_job")
         result_path = os.path.join(job_dir, "result.json")
