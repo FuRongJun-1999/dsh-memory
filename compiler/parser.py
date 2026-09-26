@@ -708,7 +708,7 @@ class Parser:
                 return LiteralNode(text, "string")
             return None
     
-# 生效条件：无 required 形参，以当前 token 类型为 instr_type 并推进，随后循环至 _INST_STOP（PERIOD/COMMA/SEMICOLON/EOF 及各语句开头关键字）或 _is_at_end()：YU→推进后取 _parse_numeric_value 加入 operands、IDENTIFIER→_merge_identifiers 后加入、NUMBER→LiteralNode(float(value),"number")、STRING→LiteralNode(value,"string")、其他类型仅推进，返回 InstructionStmtNode(instr_type, operands, line=指令 token 行, column=指令 token 列)；
+# 生效条件：无 required 形参，以当前 token 类型为 instr_type 并推进，随后循环至 _INST_STOP（PERIOD/COMMA/SEMICOLON/EOF 及各语句开头关键字）或 _is_at_end()：YU/DENGYU→推进后取 _parse_numeric_value，非 None 加入 operands、为 None 时向 errors 追加"L{line}:C{col} 「于/等于」后期望数值，实际得到: '<后续 token 值或 EOF>'"、IDENTIFIER→_merge_identifiers 后加入、NUMBER→float(value) 成功加入 LiteralNode 数值、ValueError 时记"L{line}:C{col} 非法数值"入 errors 并丢弃该操作数、STRING→LiteralNode(value,"string")、其他类型仅推进，返回 InstructionStmtNode(instr_type, operands, line=指令 token 行, column=指令 token 列)；
     def _parse_instruction(self) -> Optional[ASTNode]:
         """
         解析指令语句 v2.0
@@ -758,12 +758,23 @@ class Parser:
             
             tok = self.current_token
             
-            if tok.type == TokenType.YU:
-                # "于" → 后面跟数值
+            if tok.type in (TokenType.YU, TokenType.DENGYU):
+                # "于/等于" → 后面跟数值（缺陷20 修复：等于与于同形——
+                # 修复前 DENGYU 走 else 被静默 _advance，词法定向断开产出
+                # 的 ID('1') 落成标识符操作数，「止情感权重等于1」的数值
+                # 失去 LITERAL 类型，空间上限对等于形态失效）
                 self._advance()
                 value = self._parse_numeric_value()
                 if value is not None:
                     operands.append(value)
+                else:
+                    # 缺陷22 修复：「于/等于」后期望数值——缺值（句读直接
+                    # 收尾）或非数值形态（字符串 "0.9" 等）修复前被静默
+                    # 丢弃，止的阈值操作数凭空消失，空间上限语义静默失效
+                    _got = self.current_token.value if self.current_token else "EOF"
+                    self.errors.append(
+                        f"L{tok.line}:C{tok.column} 「{tok.value}」后期望数值，"
+                        f"实际得到: '{_got}'")
                 continue
             
             elif tok.type == TokenType.IDENTIFIER:
@@ -772,7 +783,14 @@ class Parser:
                 operands.append(merged)
             
             elif tok.type == TokenType.NUMBER:
-                operands.append(LiteralNode(float(tok.value), "number", tok.line, tok.column))
+                try:
+                    operands.append(LiteralNode(float(tok.value), "number",
+                                                tok.line, tok.column))
+                except ValueError:
+                    # 词法错 NUMBER（如孤立'.'）作指令操作数——记语法错误，
+                    # 丢弃该操作数（修复前裸 float 崩溃）
+                    self.errors.append(
+                        f"L{tok.line}:C{tok.column} 非法数值: '{tok.value}'")
                 self._advance()
             
             elif tok.type == TokenType.STRING:
@@ -786,41 +804,56 @@ class Parser:
                                    line=instr_token.line,
                                    column=instr_token.column)
     
-# 生效条件：无 required 形参，以 current_token 的 value 为首段并推进，之后把行号相同且类型为 IDENTIFIER/NUMBER 的 token.value 依次拼入（源码只比较 line、未比较列号是否连续），返回 IdentifierNode(拼接名, 起始 line, 起始 col)；
+# 生效条件：无 required 形参，以 current_token 的 value 为首段并推进，之后把行号相同且类型为 IDENTIFIER 的 token.value 依次拼入（NUMBER 不并入——数值须保住 LITERAL 类型经 _check_literal 撞空间上限，修复前只比行号把 NUMBER 拼入标识符名，数值凭空消失），返回 IdentifierNode(拼接名, 起始 line, 起始 col)；
     def _merge_identifiers(self) -> ASTNode:
         """
-        合并从当前位置开始的紧密相连的 IDENTIFIER/NUMBER 序列
-        
+        合并从当前位置开始的紧密相连的 IDENTIFIER 序列
+
         例：ID(新) ID(信任) ID(路径) → IdentifierNode("新信任路径")
         例：ID(响应) ID(强度) → IdentifierNode("响应强度")
         例：ID(累积) ID(信任值) → IdentifierNode("累积信任值")
-        
-        判断标准：同一行、列号连续
+
+        判断标准：同一行（词法定向断开产出的连续片段）
+
+        NUMBER 不并入标识符名（缺陷20 修复）：修复前只比行号不比列号
+        连续，「止情感权重 0.9」的 NUMBER 被拼成 ID("情感权重0.9")，
+        数值彻底失去 LITERAL 类型 → 情感权重 0.15 上限对非「于」形态
+        整体失效。数值留在 token 流中由调用方按数值操作数处理。
         """
         start_tok = self.current_token
         parts = [start_tok.value]
         line = start_tok.line
         col = start_tok.column
         self._advance()
-        
+
         while (self.current_token and
                self.current_token.line == line and
-               self.current_token.type in (TokenType.IDENTIFIER, TokenType.NUMBER)):
+               self.current_token.type == TokenType.IDENTIFIER):
             parts.append(self.current_token.value)
             self._advance()
-        
+
         merged_name = "".join(parts)
         return IdentifierNode(merged_name, line, col)
     
-# 生效条件：无 required 形参，current_token 为 None 或类型为其他时返回 None；为 NUMBER 时返回 float 值 LiteralNode；为 IDENTIFIER 时若后随 PERIOD 再跟 NUMBER 则拼接为小数、后随 PERIOD 而后续非 NUMBER 则 float(prefix) 成功返回数值节点、ValueError 时返回 IdentifierNode、后随 NUMBER 则拼接转 float、其余后随返回 IdentifierNode。
+# 生效条件：无 required 形参，current_token 为 None 或类型为其他时返回 None；为 NUMBER 时 float(value) 成功返回数值 LiteralNode、ValueError 时向 errors 追加"L{line}:C{col} 非法数值"并推进返回 None；为 IDENTIFIER 时若后随 PERIOD 再跟 NUMBER 则拼接为小数（float 失败时记 errors 并返回 IdentifierNode(prefix)）、后随 PERIOD 而后续非 NUMBER 则 float(prefix) 成功返回数值节点、ValueError 时返回 IdentifierNode、后随 NUMBER 则拼接转 float（float 失败时记 errors 并返回 IdentifierNode(拼接名)）、其余后随返回 IdentifierNode。
     def _parse_numeric_value(self) -> Optional[ASTNode]:
         """解析数值（可能跨多个 token）"""
         if self.current_token is None:
             return None
         
         if self.current_token.type == TokenType.NUMBER:
-            val = float(self.current_token.value)
             line, col = self.current_token.line, self.current_token.column
+            num_text = self.current_token.value
+            try:
+                val = float(num_text)
+            except ValueError:
+                # 词法层 _read_number 失败仍发 NUMBER（如孤立'.'，伴词法错）——
+                # 无词法门禁的入口（compiler.compile_source 先 parse 后查错）
+                # 会带错进 parser，兜底防裸 float 崩溃
+                self.errors.append(
+                    f"L{line}:C{col} 非法数值: '{num_text}'")
+                self._advance()
+                return None
             self._advance()
             return LiteralNode(val, "number", line, col)
         
@@ -832,7 +865,16 @@ class Parser:
             if self.current_token and self.current_token.type == TokenType.PERIOD:
                 self._advance()
                 if self.current_token and self.current_token.type == TokenType.NUMBER:
-                    val = float(prefix + "." + self.current_token.value)
+                    num_text = self.current_token.value
+                    try:
+                        val = float(prefix + "." + num_text)
+                    except ValueError:
+                        # 「标识符。数字」拼不成数值（如'甲.5'）——同上，
+                        # 记语法错误并回落（PERIOD 已消费，照 :839-842 先例）
+                        self.errors.append(
+                            f"L{line}:C{col} 非法数值: '{prefix}.{num_text}'")
+                        self._advance()
+                        return IdentifierNode(prefix, line, col)
                     self._advance()
                     return LiteralNode(val, "number", line, col)
                 else:
@@ -841,7 +883,18 @@ class Parser:
                     except ValueError:
                         return IdentifierNode(prefix, line, col)
             elif self.current_token and self.current_token.type == TokenType.NUMBER:
-                val = float(prefix + self.current_token.value)
+                num_text = self.current_token.value
+                try:
+                    val = float(prefix + num_text)
+                except ValueError:
+                    # 标识符与数字拼不成数值（如「于 甲 5」→'甲5'）——
+                    # 照同函数 PERIOD-else 分支先例回落 IdentifierNode，
+                    # 并记语法错误（拼接分支对词法合法输入恒失败，
+                    # 修复前此处裸 float 使 ValueError 逃出编译主入口）
+                    self.errors.append(
+                        f"L{line}:C{col} 非法数值: '{prefix}{num_text}'")
+                    self._advance()
+                    return IdentifierNode(prefix + num_text, line, col)
                 self._advance()
                 return LiteralNode(val, "number", line, col)
             else:
@@ -982,9 +1035,16 @@ class Parser:
             return self._parse_binary_tail(
                 CallExprNode(name, args, line, col))
         elif self.current_token.type == TokenType.NUMBER:
-            node = LiteralNode(float(self.current_token.value), "number",
-                                self.current_token.line,
-                                self.current_token.column)
+            line_n, col_n = self.current_token.line, self.current_token.column
+            try:
+                num_val = float(self.current_token.value)
+            except ValueError:
+                # 词法错 NUMBER（如孤立'.'）作表达式首词——记语法错误，
+                # 以 0.0 占位保持 AST 完整（错误会在语法检查处终止编译）
+                self.errors.append(
+                    f"L{line_n}:C{col_n} 非法数值: '{self.current_token.value}'")
+                num_val = 0.0
+            node = LiteralNode(num_val, "number", line_n, col_n)
             self._advance()
             return self._parse_binary_tail(node)
         elif self.current_token.type == TokenType.STRING:

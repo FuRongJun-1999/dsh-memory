@@ -128,8 +128,80 @@ def main():
             os.environ.pop("MDCG_UNIFY_QUERY", None)
         check("K5b 与旁路（无缓存）重算结果一致",
               ids_plain == ids_off, f"cached={ids_off} plain={ids_plain}")
+
+        # ---- v9 N78：MDCG_CN_GRAMS 漏登（中文 2-gram 召回开关）----
+        # 病灶同构：mdcg.py cn_recall_grams 每调用读 env（="0" 即回退旧行为），
+        # 改变 expand_query_terms 召回词集，但 _ENV_SWITCHES 没登记它 →
+        # 翻转后同 query 命中另一口径缓存（cached=True + 旧口径召回结果）。
+        print("== K7~K10 MDCG_CN_GRAMS 入键（v9 N78）==")
+        check("K7 MDCG_CN_GRAMS 登记在 _ENV_SWITCHES（清单真源，新增一个登记一个）",
+              "MDCG_CN_GRAMS" in hotcache._ENV_SWITCHES,
+              str(hotcache._ENV_SWITCHES))
+        os.environ.pop("MDCG_CN_GRAMS", None)
+        bg = hotcache.env_switch_key()
+        os.environ["MDCG_CN_GRAMS"] = "0"
+        ag = hotcache.env_switch_key()
+        os.environ.pop("MDCG_CN_GRAMS", None)
+        check("K8 env_switch_key() 随 MDCG_CN_GRAMS 变化（未设=None 也进键）",
+              bg != ag, f"{bg} vs {ag}")
+
+        rootg = os.path.join(tmp, "cgrams")
+        rootg2 = os.path.join(tmp, "cgrams_plain")
+        for root in (rootg, rootg2):
+            cgx = _mk(root)
+            # gold 正文含「抑制/制剂」2-gram 但不含整句——grams 开=经 bigram
+            # 召回命中；grams 关=只剩整句召回词 → 词法零命中（口径差可观测）。
+            cgx.add("gold", "酪氨酸激酶抑制剂用于白血病靶向治疗，需遵医嘱。",
+                    layer="knowledge", verification_basis="data")
+            cgx.add("d1", "下午去市场买了马，价格比昨天便宜一些。",
+                    layer="knowledge", verification_basis="data")
+            cgx.flush()
+            cgx.close()
+
+        def _q_cn(cg):
+            res, meta = cg.search_rrf("抑制剂怎么选", k=5, paths=("lexical",),
+                                      judge=False, record=False)
+            return [r[0]["id"] for r in res], meta
+
+        os.environ["MDCG_HOTCACHE"] = "1"
+        os.environ["MDCG_UNIFY_QUERY"] = "0"
+        os.environ.pop("MDCG_CN_GRAMS", None)      # 缺省=grams 开
+        cg3 = _mk(rootg)
+        try:
+            ids_on, m_on = _q_cn(cg3)
+            check("K9a grams 开首查：gold 经 2-gram 召回命中且非缓存",
+                  "gold" in ids_on and m_on.get("cached") is not True,
+                  f"{ids_on} cached={m_on.get('cached')}")
+            os.environ["MDCG_CN_GRAMS"] = "0"       # 运行期翻转（关 grams）
+            ids_offg, m_offg = _q_cn(cg3)
+            check("K9b 翻转后不命中旧口径缓存（旧实现 cached=True 静默错答）",
+                  m_offg.get("cached") is not True,
+                  f"cached={m_offg.get('cached')} ids={ids_offg}")
+            check("K9c 翻转后结果与 grams 开不同（无跨口径串味）",
+                  ids_offg != ids_on, f"on={ids_on} / off={ids_offg}")
+            _ids3g, m3g = _q_cn(cg3)
+            check("K10 同口径重复查仍命中缓存（缓存未被打废）",
+                  m3g.get("cached") is True
+                  and _ids3g == ids_offg, json.dumps(m3g, default=str)[:160])
+        finally:
+            cg3.close()
+            os.environ.pop("MDCG_CN_GRAMS", None)
+
+        # 旁路对照：无缓存重算 grams=0 的结果必须与 K9c 一致
+        os.environ.pop("MDCG_HOTCACHE", None)
+        os.environ["MDCG_CN_GRAMS"] = "0"
+        cg4 = _mk(rootg2)
+        try:
+            ids_plain_g, _mg = _q_cn(cg4)
+        finally:
+            cg4.close()
+            os.environ.pop("MDCG_CN_GRAMS", None)
+            os.environ.pop("MDCG_UNIFY_QUERY", None)
+        check("K10b 与旁路（无缓存）重算结果一致",
+              ids_plain_g == ids_offg, f"cached={ids_offg} plain={ids_plain_g}")
     finally:
-        for k in ("MDCG_HOTCACHE", "MDCG_SEMANTIC", "MDCG_UNIFY_QUERY"):
+        for k in ("MDCG_HOTCACHE", "MDCG_SEMANTIC", "MDCG_UNIFY_QUERY",
+                  "MDCG_CN_GRAMS"):
             os.environ.pop(k, None)
         shutil.rmtree(tmp, ignore_errors=True)
 

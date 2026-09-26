@@ -8,8 +8,9 @@
 //!   - [`hmac`]  手写 SHA-256 / HMAC-SHA256（FIPS 180-4 / RFC 2104）
 //!
 //! 字节码来源见 [`load_program`]：显式路径优先，其次编译期嵌入。
-//! `embed` 特性开启时（默认）把 `../program.pbc` 编入二进制；
-//! 独立 / 库形态用 `--no-default-features` 关闭，改为运行期 `--pbc <文件>`。
+//! `embed` 特性开启时把 `../program.pbc` 编入二进制（生成项目形态——
+//! rust_codegen.py 拷贝模板时改写 Cargo.toml 默认开）；
+//! 独立 / 库形态（模板默认）不嵌入，改为运行期 `--pbc <文件>`。
 //!
 //! 独立构建与调用：
 //! ```text

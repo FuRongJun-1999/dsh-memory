@@ -814,15 +814,37 @@ class MdCGOS(MdCG):
             stat["gates"] = gates
         neg_coverage = self._neg_coverage(terms) if include_neg else []
 
-# 生效条件：对 docs 调 self._score 后，若其中分数 >0 的条数达到（search 作用域内的）min_results 就返回 self._emit(scored, k, tier, stat, route_bucket, record, len(docs), ...)，否则返回 None。
-        def try_stage(docs, tier):
-            scored = self._score(docs, q, qb, pool_cfg)
+# 生效条件：scored 为 None 时对 docs 调 self._score(docs, q, qb, pool_cfg)，非 None 时直接以之为打分结果；分数 >0 的条数达到（search 作用域内的）min_results 就返回 self._emit(scored, k, tier, stat, route_bucket, record, len(docs), ...)，否则返回 None。
+        def try_stage(docs, tier, scored=None):
+            # P2-4 回移（v7 N51 留档修复，缺陷迭代第 14 轮）：支持传入已打分
+            # 结果——此前 T2/T3 均为「打分截断后又对 picked 重打」（600 池实测
+            # _score 4 调 [0,0,600,500]=1100 文档，500/1100≈45% 冗余）。与基类
+            # try_stage（mdcg.py P2-4，批次 31）同模板；_score 在单次 search 内
+            # 是纯函数（docs/q/qb/pool_cfg 均不变），透传不改变任何分值与输出。
+            if scored is None:
+                scored = self._score(docs, q, qb, pool_cfg)
             valid = sum(1 for _, s in scored if s > 0)
             if valid >= min_results:
                 return self._emit(scored, k, tier, stat, route_bucket, record,
                                   len(docs), judge, context, neg_coverage,
                                   big_domain, big_scores, pool_cfg)
             return None
+
+        def _prescored(docs, scored_all):
+            """P2-4 透传形态：按 node_id 键表把 docs 映射回已打分的
+            (card, score) 原对（恰为 _score 对该 docs 的输出，picked 序）。
+
+            键口径：scored 元素是 (card, score)，card["id"] = fm.get("id")
+            or e["path"]，恰为 doc_key(doc)[0]（V21-6 取 [0] 作键同源）——
+            **不可**对 scored 元素调 pooling.doc_key（其形参是 (entry, fm,
+            content) 三元组；基类 reach 分支旧模板即此形态错误，MDCG_REACH=1
+            时 KeyError: 1，见 mdcg.py 同修）。**不可**自组 (doc, score) 对
+            （_emit 排序键读 x[0]["frontmatter"]，x[0] 须是 card dict）。
+            docs 必为 scored_all 的子序列（cut_by_relevance 只选不造），
+            键表必命中。
+            """
+            smap = {c.get("id"): (c, s) for c, s in scored_all}
+            return [smap[pooling.doc_key(d)[0]] for d in docs]
 
         if route_bucket:
             in_bucket = [e for e in entries if e.get("bucket") == route_bucket]
@@ -862,11 +884,15 @@ class MdCGOS(MdCG):
             stat["cap"] = GLOBAL_CAP
             # 与 T2 **无条件**同序调用（不可按 cap 短路：cut_by_relevance 还会写
             # 池账 pool_taken/cands/lost，短路会让 meta.pools.taken 缺失 → test_p43(13) 红）
-            hits_r, _rep = cut_by_relevance(hits_r, self._score(hits_r, q, qb, pool_cfg),
+            scored_r = self._score(hits_r, q, qb, pool_cfg)
+            hits_r, _rep = cut_by_relevance(hits_r, scored_r,
                                             GLOBAL_CAP, pools=pool_cfg,
                                             key_of=pooling.doc_key, stat=stat)
             pooling.record_audit(stat, _rep)
-            out = try_stage(hits_r, TIER_GLOBAL_LIKE)
+            # P2-4：打分结果经 scored 透传，不再对同一 hits_r 二次 _score
+            # （与基类 reach 分支同模板）。
+            out = try_stage(hits_r, TIER_GLOBAL_LIKE,
+                            scored=_prescored(hits_r, scored_r))
             if out:
                 return out
             # 收敛阶段未产出结果 → 继续走下方全量 T2/T3；此时必须**改写 reach 审计**，
@@ -887,22 +913,27 @@ class MdCGOS(MdCG):
                 or (semantic_on() and d[1].get("semantic"))]
         stat["pre_cap"] = len(hits)
         stat["cap"] = GLOBAL_CAP
-        hits, _rep = cut_by_relevance(hits, self._score(hits, q, qb, pool_cfg),
+        scored_h = self._score(hits, q, qb, pool_cfg)
+        hits, _rep = cut_by_relevance(hits, scored_h,
                                       GLOBAL_CAP, pools=pool_cfg,
                                       key_of=pooling.doc_key, stat=stat)
         pooling.record_audit(stat, _rep)
-        out = try_stage(hits, TIER_GLOBAL_LIKE)
+        # P2-4：截断打分结果透传，T2 腿不再对 hits 二次 _score。
+        out = try_stage(hits, TIER_GLOBAL_LIKE,
+                        scored=_prescored(hits, scored_h))
         if out:
             return out
 
         stat["pre_cap"] = len(docs_all)
         stat["cap"] = GLOBAL_CAP
-        picked, _rep = cut_by_relevance(docs_all,
-                                        self._score(docs_all, q, qb, pool_cfg),
+        scored_a = self._score(docs_all, q, qb, pool_cfg)
+        picked, _rep = cut_by_relevance(docs_all, scored_a,
                                         GLOBAL_CAP, pools=pool_cfg,
                                         key_of=pooling.doc_key, stat=stat)
         pooling.record_audit(stat, _rep)
-        scored = self._score(picked, q, qb, pool_cfg)
+        # P2-4：T3 不再对 picked 重打（600 池实测此腿冗余 500 文档/查询，
+        # GLOBAL_CAP=500 截断后 picked ⊆ docs_all，键表回填即得终榜打分）。
+        scored = _prescored(picked, scored_a)
         return self._emit(scored, k, TIER_GLOBAL_SCAN, stat, route_bucket,
                           record, len(picked), judge,
                           context, neg_coverage, big_domain, big_scores, pool_cfg)
@@ -992,7 +1023,7 @@ class MdCGOS(MdCG):
                              "content": c, "path": e["path"]}, 1.0))
         return out
 
-# 生效条件：当 seeds 非空时，仅取前 5 个种子，从每个种子节点的 frontmatter.edges 取 target（dict 取 target，否则 str(edge)），若 target 在 entries 映射中且不在 seed_ids 中则读取并追加分数 s*0.5；seeds 为空返回 []；depth 默认 1 但本段未使用；
+# 生效条件：当 seeds 非空时，仅取前 5 个种子，种子的 edges 取法为：其 id 在 entries 的 path 文件名映射（by_id）中时经 self._read(e_seed) 读 frontmatter（读缓存覆盖——get 裸 open 不在缓存包装面），不在映射中（fm.id≠文件名等形态）时回落 self.get(n["id"])（旧口径，冷路径）；从 edges 取 target（dict 取 target，否则 str(edge)），若 target 在 entries 映射中且不在 seed_ids 中则读取并追加分数 s*0.5；seeds 为空返回 []；depth 默认 1 但本段未使用；
     def _path_graph(self, query, entries, seeds, depth=1):
         """图扩展路径：从词法种子沿 edges 一跳扩展。"""
         if not seeds:
@@ -1004,10 +1035,24 @@ class MdCGOS(MdCG):
             by_id[nid] = e
         out = []
         for n, s in seeds[:5]:
-            node = self.get(n["id"])
-            if not node:
-                continue
-            for edge in (node["frontmatter"].get("edges") or []):
+            # 种子读改走 self._read（v9:92/v13 留档修复，缺陷迭代第 14 轮）：
+            # get 裸 open+nodefile.loads，不在 readcache.install 的包装面
+            #（只包 cg._read）——search_rrf 默认 paths 含 graph，每查询固定
+            # ≤5 次盘读（40 池实测 Q2 增量恰 5，graph 零产出也在边循环前
+            # 发生）；边目标（下方 self._read）早已同形。种子只要 frontmatter
+            # 的 edges（content 不解封不用），种子来自 lexical（entries/
+            # _candidates 派生，MdCGSecure._candidates 已过 _readable）——
+            # 绕过 get 的读隔离门无损失，图路扩展产物本由
+            # MdCGSecure.search_rrf 终态二次过滤兜底。by_id 不含（fm.id≠
+            # 文件名等形态）回落 get 保旧口径。
+            e_seed = by_id.get(n["id"])
+            if e_seed is not None:
+                fm_s, _c = self._read(e_seed)
+                edges = (fm_s or {}).get("edges") or []
+            else:
+                node = self.get(n["id"])
+                edges = ((node or {}).get("frontmatter") or {}).get("edges") or []
+            for edge in edges:
                 tid = edge.get("target") if isinstance(edge, dict) else str(edge)
                 if tid in by_id and tid not in seed_ids:
                     e = by_id[tid]
@@ -2097,10 +2142,11 @@ class MdCGOS(MdCG):
                 "verify_hash": src.get("verify_hash"),
                 "source": "hippocampus/decisions.jsonl"}
 
-# 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'）后追加内容并定向索引 upsert（_node_entry 同源条目写入 index/_dirty）+flush，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
+# 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'），且写入前经与 add 同款双闸（N131，2026-09-25：principal 在位先 require_layer_write(目标层, 目标敏感度)——与 MdCGSecure.add 同序同错型；再 protect.guard_write(override=override)——self/anchor 层、immutable 标记，拒绝抛 ProtectionError/AccessDenied 且提案留 pending 不落库）后追加内容并定向索引 upsert（_node_entry 同源条目写入 index/_dirty）+flush，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
     def review_decide(self, pid: str, decision: str, edits: dict = None,
                       merge_into: str = None, reason: str = "",
-                      redteam: dict = None, issues=None):
+                      redteam: dict = None, issues=None,
+                      override: bool = False):
         """审核裁决：accept / reject / edit / merge / noop。
 
         accept  → 按 inbox 原样写入
@@ -2206,6 +2252,22 @@ class MdCGOS(MdCG):
             tgt = self.get(target) if target else None
             if not tgt:
                 return {"ok": False, "error": "merge_target_not_found"}
+            # 写保护（N131，2026-09-25）：merge = 对目标节点的一次**覆写**
+            # （_write_node 追加正文），与 accept/edit 的 add 落点同受写保护——
+            # 此前直写绕过双闸，orchestr forbidden「anchor/self/goals/knowledge
+            # 层」被打穿。与 add 同序同错型：principal 层写闸在先（对照
+            # MdCGSecure.add），引擎级 guard_write 在后（对照基类 add :1311）；
+            # 闸必须在 _record_decision 之前抛出——审计节点写入本就在其
+            # try/except 内，闸放那里会被吞成 record_error 形同虚设。
+            _p = getattr(self, "principal", None)
+            if _p is not None and hasattr(_p, "require_layer_write"):
+                _e = (self.index.get("nodes") or {}).get(target) or {}
+                _p.require_layer_write(
+                    _e.get("layer") or tgt["frontmatter"].get("layer")
+                    or tgt["path"].split("/")[0],
+                    _e.get("sensitivity") or DEFAULT_SENSITIVITY)
+            protect.guard_write(self, target, override=override,
+                                actor=getattr(self, "actor", None))
             fm = dict(tgt["frontmatter"])
             merged_content = (tgt["content"].rstrip() + "\n\n" +
                               item["content"].strip() + "\n")
@@ -3794,6 +3856,16 @@ class MdCGSecure(MdCGOS):
         self.principal.require_layer_write("goals", DEFAULT_SENSITIVITY)
         return super().set_goal_status(node_id, status)
 
+# 生效条件：verdict（转 str 去空白 lower）为 "falsified" 且索引中存在 node_id 条目时，先取该条目 layer 与 sensitivity（缺省回落 DEFAULT_SENSITIVITY）调 principal.require_layer_write——falsified 删除 = 对原节点层的一次删除写（N130，2026-09-25：verify 角色 layers_allow 本就只含 rejected/contextual，不得改/删被验证内容所在层，tokens.py verify spec forbidden 显式列明），与 add/add_rejected 同一闸口；随后把 override 原样转 super().verify（受保护节点的 guard_forget 快照留痕在基类 falsified 分支内）。verdict 非 falsified 或索引无此节点时不加闸直接透传（not_found 语义由基类维持）。
+    def verify(self, node_id: str, evidence: str, verdict: str,
+               override: bool = False):
+        if str(verdict or "").strip().lower() == "falsified":
+            e = (self.index.get("nodes") or {}).get(node_id)
+            if e is not None:
+                self.principal.require_layer_write(
+                    e.get("layer"), e.get("sensitivity") or DEFAULT_SENSITIVITY)
+        return super().verify(node_id, evidence, verdict, override=override)
+
 # 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，经 _rank(sens) 与 principal.require_write(sens) 后把 m 基于 meta 复制并 setdefault tenant/session、harness 与 unit 为真值时补入，再强制 m["sensitivity"]=sens，text 经 _seal_content("_recent", text, sens) 后连 tags=tags 一起转 super().remember_event（window 为 None 时不传该参，否则带上 window）。
     def remember_event(self, role: str, text: str, tags=None, meta=None,
                        window=None, sensitivity: str = None):
@@ -3861,6 +3933,12 @@ class MdCGSecure(MdCGOS):
             nsess = e.get("session")
             return bool(nsess) and nsess == self.principal.session
         return True
+
+# 生效条件：nid 在 index["nodes"] 中有条目且 _readable(e) 为真时返回 True，否则（无条目/不可见）返回 False；作为 chain.adjacency 的读隔离谓词（cg._chain_visible）被消费——关系链面（causal_chain/explain_chain/causal_path/检索 chain 路 provenance 经 expand_from_seeds）由此单点隔离，不可见节点的出边、边条件文本与下游拓扑不再进入链展开；实例身份稳定（_readable 绑定档恒用 principal.session），与 adjacency 缓存无串台。
+    def _chain_visible(self, nid) -> bool:
+        """关系链可见性谓词（chain.adjacency 读隔离闸，2026-09-25）。"""
+        e = (self.index.get("nodes") or {}).get(nid)
+        return bool(e) and self._readable(e)
 
 # 生效条件：先以 limit=None 取 super().list_goals(status=status) 的全量，再只保留 index 中 _readable(e) 为真的目标，limit 为真值时返回 keep[:limit]、否则返回全部 keep。
     def list_goals(self, status=None, limit=None):

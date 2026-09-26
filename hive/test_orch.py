@@ -468,5 +468,115 @@ check("L8 卡片带 source_group 且孪生同组",
 _card_sg = orc._card(_sga["job_id"]).get("source_group")
 check("L9 卡片可读出 source_group", _card_sg == _sg[0]["source_group"], str(_card_sg))
 
+# --------------------------------- N N142/N88：children/spec 原子写（mkstemp 模板）
+# 能红说明：N2/N3/N4 在 replace 注入故障后目标仍=旧清单（旧码固定共享 tmp
+# _children.json.tmp+裸写+except OSError: pass 静默吞，双写者对撞撕裂/接管者
+# _load_children 回 [] 全量重复派发）；N5 缺 _atomic_write_json 模板、N6/N7
+# spec 补全写回仍裸 open("w")（N88：写中途毁任务契约→rust 重投读坏 spec）。
+print("[N] N142/N88：children/spec 原子写（mkstemp 唯一名+os.replace 模板）")
+from unittest import mock                              # noqa: E402
+import shutil                                          # noqa: E402
+
+JD_N = tempfile.mkdtemp(prefix="orch_n142_")
+orc._CFG["job_id"] = "orch_n142_probe"
+orc._CFG["job_dir"] = JD_N
+_children_a = [{"job_id": "h_n142_a", "user_prompt": "甲"}]
+_children_b = [{"job_id": "h_n142_b", "user_prompt": "乙"}]
+orc._CFG["children"] = _children_a
+_cf_n = os.path.join(JD_N, orc.CHILDREN_FILE)
+_real_replace = os.replace
+
+orc._save_children()
+check("N1 成功路径零 tmp 残留且目标完整（行为不变对照）",
+      os.path.isfile(_cf_n)
+      and json.load(open(_cf_n, encoding="utf-8"))["children"] == _children_a
+      and not [n for n in os.listdir(JD_N) if n.endswith(".tmp")])
+
+# N2 对撞自愈：replace 首撞 PermissionError（读者瞬态句柄）→ 重试落新清单
+orc._CFG["children"] = _children_b
+_n2 = {"n": 0}
+
+
+def _flaky_replace(src, dst):
+    _n2["n"] += 1
+    if _n2["n"] == 1:
+        raise PermissionError(5, "模拟读者瞬态句柄")
+    return _real_replace(src, dst)
+
+
+with mock.patch.object(orc.os, "replace", _flaky_replace), \
+        mock.patch.object(orc.time, "sleep", lambda *_a: None):
+    orc._save_children()
+check("N2 replace 首撞 PermissionError → 重试落新清单（旧码静默吞保旧值）",
+      json.load(open(_cf_n, encoding="utf-8"))["children"] == _children_b,
+      f"目标={json.load(open(_cf_n, encoding='utf-8'))['children']!r}")
+
+# N3 tmp 被瞬态消费（FileNotFoundError，旧共享名对撞形态）→ 重建重写自愈
+_n3 = {"n": 0}
+
+
+def _consume_replace(src, dst):
+    _n3["n"] += 1
+    if _n3["n"] == 1:
+        os.unlink(src)
+        raise FileNotFoundError(src)
+    return _real_replace(src, dst)
+
+
+with mock.patch.object(orc.os, "replace", _consume_replace), \
+        mock.patch.object(orc.time, "sleep", lambda *_a: None):
+    orc._save_children()
+check("N3 tmp 扑空 → 重建唯一名重写自愈（旧码吞掉保旧值）",
+      json.load(open(_cf_n, encoding="utf-8"))["children"] == _children_b)
+
+# N4 重试耗尽 → log 留痕不再静默（v8 N70 写侧残面收口），目标保旧完整态
+def _always_perm(src, dst):
+    raise PermissionError(5, "锁死")
+
+
+with mock.patch.object(orc.os, "replace", _always_perm), \
+        mock.patch.object(orc.time, "sleep", lambda *_a: None):
+    orc._save_children()
+_log_p = os.path.join(JD_N, "log.txt")
+_log_txt = open(_log_p, encoding="utf-8").read() if os.path.isfile(_log_p) else ""
+check("N4 重试耗尽 → log 留痕（旧码 except OSError: pass 无痕）",
+      "子任务清单落盘失败" in _log_txt, f"log={_log_txt[-120:]!r}")
+check("N4b 耗尽后目标仍=旧完整态（fail-safe，不撕裂）",
+      os.path.isfile(_cf_n)
+      and json.load(open(_cf_n, encoding="utf-8"))["children"] == _children_b)
+
+# N5 spec 档：写中途异常（磁盘满）不毁旧完整态（N88；直测模板函数）
+if hasattr(orc, "_atomic_write_json"):
+    _spec_p = os.path.join(JD_N, "spec.json")
+    with open(_spec_p, "w", encoding="utf-8") as f:
+        json.dump({"model": "m", "tools": ["lingshu_cg"]}, f)
+    _raised = False
+    try:
+        with mock.patch.object(orc.json, "dump",
+                               side_effect=OSError(28, "模拟磁盘满")):
+            orc._atomic_write_json(_spec_p, {"tools": ["lingshu_cg",
+                                                       "web_search"]})
+    except OSError:
+        _raised = True
+    check("N5a 写中途异常 → fail-fast 外抛（不吞）", _raised)
+    check("N5b 旧完整 spec 未被截断毁（旧码裸 open(w) 先截断即毁）",
+          json.load(open(_spec_p, encoding="utf-8")).get("tools")
+          == ["lingshu_cg"])
+else:
+    check("N5a orch 缺 _atomic_write_json 原子写模板", False, "N142 未修")
+
+# N6/N7 接线源断言：main 内 spec 补全写回不再裸 open("w")
+with open(os.path.join(_HERE, "orch.py"), encoding="utf-8") as f:
+    _ORCH_PY = f.read()
+check("N6 main spec 补全写回经 _atomic_write_json（N88 接线）",
+      '_atomic_write_json(os.path.join(job_dir, "spec.json"), spec)'
+      in _ORCH_PY)
+check("N7 裸 spec open(w) 写回已移除",
+      'open(os.path.join(job_dir, "spec.json"), "w"' not in _ORCH_PY)
+
+shutil.rmtree(JD_N, ignore_errors=True)
+shutil.rmtree(_JD_M5, ignore_errors=True)
+shutil.rmtree(TMP, ignore_errors=True)  # 测毕清理（此前历次运行临时区只增不清）
+
 print(f"\n=== orchestration tests: {PASS} passed, {FAIL} failed ===")
 sys.exit(1 if FAIL else 0)

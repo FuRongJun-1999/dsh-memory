@@ -111,6 +111,56 @@ import hashlib, hmac as hm
 expect = hm.new(SECRET.encode(), msg.encode(), hashlib.sha256).hexdigest()
 check("篡改 payload → 签名不匹配", expect != tampered["hmac"])
 
+# ============ ③b 验签器容错盲区：非法 UTF-8 行不得打崩验签器 ============
+# 缺陷：open(encoding=utf-8) + for line in f 的行级解码发生在 try 之外——
+# 撕裂写在多字节中文字符中间（torn-write 最真实形态）或任意非法字节序列
+# → UnicodeDecodeError 打崩验签器（违背「验签器面对的正是被篡改的 WAL，
+# 不得自己先崩」契约）。哑密钥合成 WAL：2 条合法签名行 + 1 条坏行 →
+# 期望坏行计 bad、好行照验、all_valid=False，全程不抛异常。
+print("=== ③b 验签器容错：非法 UTF-8 行（撕裂/污染） ===")
+import shutil as _shutil
+
+DUMMY_SEC = "哑密钥-验签容错守卫"
+
+
+def _mk_wal_line(seq, payload_text, typ="消息", frm="实例甲", to="实例乙",
+                 rnd=1, ts="2026-09-25T00:00:00"):
+    """合成一条与 Rust WAL 同构的合法签名行（payload 为行内最后字段）。"""
+    msg = "|".join([str(seq), typ, frm, to, str(rnd), ts, payload_text])
+    mac = hm.new(DUMMY_SEC.encode(), msg.encode(), hashlib.sha256).hexdigest()
+    return ('{"seq":%d,"type":"%s","from":"%s","to":"%s","round":%d,'
+            '"ts":"%s","hmac":"%s","payload":%s}'
+            % (seq, typ, frm, to, rnd, ts, mac, payload_text))
+
+
+def _verify_no_crash(wal_bytes, name):
+    tmp_w = tempfile.mkdtemp(prefix="swarm_vfc_")
+    p = os.path.join(tmp_w, "w.jsonl")
+    with open(p, "wb") as f:
+        f.write(wal_bytes)
+    try:
+        v = verify_wal_signatures(p, DUMMY_SEC)
+        check(name, isinstance(v, dict) and v.get("verified") == 2
+              and v.get("bad") == 1 and v.get("all_valid") is False,
+              str(v)[:150])
+    except UnicodeDecodeError as e:
+        check(name, False, f"验签器崩了: {e}")
+    finally:
+        _shutil.rmtree(tmp_w, ignore_errors=True)
+
+
+_g1 = _mk_wal_line(1, '"信任同步载荷"')
+_g2 = _mk_wal_line(2, '"第二事件载荷"')
+# 撕裂形态 a：尾行截在中文「荷」多字节中间（去掉 荷尾字节+闭引号+闭括号）
+_torn = _mk_wal_line(3, '"撕裂实测载荷"').encode("utf-8")[:-3]
+_verify_no_crash(_g1.encode() + b"\n" + _g2.encode() + b"\n" + _torn + b"\n",
+                 "③b-1 撕裂行（截在中文多字节中间）→ 计 bad 不崩验签器")
+# 污染形态 b：行内「污」(E6 B1 A1) 首字节换 0xFF → 非法字节序列
+_dirty = _mk_wal_line(3, '"污染实测载荷"').encode("utf-8").replace(
+    b"\xe6\xb1\xa1", b"\xff\xb1\xa1")
+_verify_no_crash(_g1.encode() + b"\n" + _g2.encode() + b"\n" + _dirty + b"\n",
+                 "③b-2 非法字节（0xFF）行 → 计 bad 不崩验签器")
+
 # ============ ④ 多轮状态语义:符号表不跨轮持久 ============
 print("=== ④ 每轮完整环境 ===")
 # 实例乙 round3 终态 trust 仍 =1.0（不是 1.0 累加到 1.7）→ 每轮从初始环境起算

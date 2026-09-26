@@ -31,6 +31,7 @@ import argparse
 import json
 import os
 import sys
+import traceback
 from typing import Dict, List
 
 from .rust_codegen import generate_rust_project
@@ -63,53 +64,76 @@ def _load_source(spec: str, base_dir: str) -> str:
 
 
 def cmd_run(args: argparse.Namespace) -> None:
-    with open(args.config, encoding="utf-8") as f:
-        cfg_in = json.load(f)
+    # 异常面兜底（v5 留档 N25）：任一异常须落成单行 JSON + rc=1（文件头
+    # 「stdout 恒为单行 JSON」契约），traceback 全文走 stderr（诚实失败不吞现场）。
+    # _emit/_fail 内 sys.exit 抛 SystemExit（BaseException），不被 except Exception
+    # 捕获——成功/结构化失败路径不受兜底影响。
+    try:
+        with open(args.config, encoding="utf-8") as f:
+            cfg_in = json.load(f)
+    except (OSError, ValueError):  # 打不开 / 非法 JSON / 非法 UTF-8
+        _fail("config", traceback.format_exc())
     if "source" not in cfg_in or "instances" not in cfg_in:
         _fail("config", "config 须含 source 与 instances 字段")
     base_dir = os.path.dirname(os.path.abspath(args.config))
-    source = _load_source(cfg_in["source"], base_dir)
+    try:
+        source = _load_source(cfg_in["source"], base_dir)
+    except OSError:  # @file 源缺失/不可读
+        _fail("config", traceback.format_exc())
     project = args.project or os.path.join(base_dir, "swarm_proj")
 
-    gen = generate_rust_project(source, project, strict=args.strict)
-    if not gen.get("ok"):
-        _emit({"ok": False, "stage": "compile", "result": gen.get("result")}, 1)
+    try:
+        gen = generate_rust_project(source, project, strict=args.strict)
+        if not gen.get("ok"):
+            _emit({"ok": False, "stage": "compile",
+                   "result": gen.get("result")}, 1)
 
-    cfg = make_swarm_config(cfg_in["instances"], cfg_in.get("routes"),
-                            rounds=cfg_in.get("rounds", 1),
-                            shared_secret=cfg_in.get("shared_secret", ""),
-                            topology=cfg_in.get("topology", ""))
-    rr = run_swarm(project, cfg, wal_path=args.wal, timeout=args.timeout)
-    if not rr.get("ok"):
-        _emit({"ok": False, "stage": rr.get("stage", "swarm"),
-               "stderr": rr.get("stderr", rr.get("stdout", ""))[-2000:]}, 1)
+        cfg = make_swarm_config(cfg_in["instances"], cfg_in.get("routes"),
+                                rounds=cfg_in.get("rounds", 1),
+                                shared_secret=cfg_in.get("shared_secret", ""),
+                                topology=cfg_in.get("topology", ""),
+                                condition_space=cfg_in.get("condition_space"))
+        rr = run_swarm(project, cfg, wal_path=args.wal, timeout=args.timeout)
+        if not rr.get("ok"):
+            _emit({"ok": False, "stage": rr.get("stage", "swarm"),
+                   "stderr": rr.get("stderr", rr.get("stdout", ""))[-2000:]}, 1)
 
-    report = rr["report"]
-    if args.out:
-        out_path = args.out if os.path.isabs(args.out) else \
-            os.path.join(base_dir, args.out)
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(report, f, ensure_ascii=False, indent=1)
-    # 摘要 = harness 关心字段的轻投影（全量在 report 文件 / rr["report"]）
-    health = report.get("health", {})
-    _emit({"ok": True, "stage": "run",
-           "report_path": os.path.abspath(args.out) if args.out else None,
-           "wal": rr["wal"], "project": os.path.abspath(project),
-           "rounds": report.get("rounds"), "instances": report.get("instances"),
-           "events": report.get("events"), "acks": report.get("acks"),
-           "gossip_consistent": report.get("gossip_consistent"),
-           "global_seq": report.get("global_seq"),
-           "trust": report.get("trust"),
-           "health_min_score": min((h["score"] for h in health.values()),
-                                   default=None),
-           "health": health}, 0)
+        report = rr["report"]
+        out_path = None
+        if args.out:
+            out_path = args.out if os.path.isabs(args.out) else \
+                os.path.join(base_dir, args.out)
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(report, f, ensure_ascii=False, indent=1)
+        # 摘要 = harness 关心字段的轻投影（全量在 report 文件 / rr["report"]）
+        # report_path 与实际落盘同口径（base_dir 拼接结果）——按 CWD 解析会因
+        # CWD≠config 目录产生悬空指针（v5 留档缺陷）
+        health = report.get("health", {})
+        _emit({"ok": True, "stage": "run",
+               "report_path": os.path.abspath(out_path) if out_path else None,
+               "wal": rr["wal"], "project": os.path.abspath(project),
+               "rounds": report.get("rounds"),
+               "instances": report.get("instances"),
+               "events": report.get("events"), "acks": report.get("acks"),
+               "gossip_consistent": report.get("gossip_consistent"),
+               "global_seq": report.get("global_seq"),
+               "trust": report.get("trust"),
+               "health_min_score": min((h["score"] for h in health.values()),
+                                       default=None),
+               "health": health}, 0)
+    except Exception:  # 编译/构建穿透（build_rust_exe 异常在 run_swarm try 外）/
+        # 蜂群调用 / 报告落盘等任一未预期异常 → 兜底契约
+        _fail("run", traceback.format_exc())
 
 
-# 生效条件：args.wal 路径不存在时 _fail("verify", ..., 2) 退出，否则用 verify_wal_signatures(args.wal, args.secret) 的结果：all_valid 为真时输出 ok=True 且 exit 0，为假时 ok=False 且 exit 1；
+# 生效条件：args.wal 路径不存在时 _fail("verify", ..., 2) 退出，否则用 verify_wal_signatures(args.wal, args.secret) 的结果：all_valid 为真时输出 ok=True 且 exit 0，为假时 ok=False 且 exit 1；验签过程抛异常（WAL 是目录/非法 UTF-8 读行崩溃等）时 _fail("verify", traceback 全文) exit 1——stdout 恒单行 JSON 契约不因异常面破洞；
 def cmd_verify(args: argparse.Namespace) -> None:
     if not os.path.exists(args.wal):
         _fail("verify", f"WAL 不存在: {args.wal}", 2)
-    v = verify_wal_signatures(args.wal, args.secret)
+    try:
+        v = verify_wal_signatures(args.wal, args.secret)
+    except Exception:
+        _fail("verify", traceback.format_exc())
     _emit({"ok": bool(v["all_valid"]), "stage": "verify", **v}, 0 if v["all_valid"] else 1)
 
 

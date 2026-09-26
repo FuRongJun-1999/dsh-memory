@@ -97,7 +97,7 @@ def run_swarm(project_dir: str, config: Dict, wal_path: str = "events.jsonl",
     return {"ok": True, "report": report, "wal": wal_full}
 
 
-# 生效条件：逐行读 wal_path，strip 后为空则跳过，否则以 rec["type"]/["from"]/["to"]/["round"]/["ts"] 与 rec.get("seq", 0) 及原始 payload 文本重算 HMAC 与 rec["hmac"] 比对，type=="__snapshot__" 只计入 snapshots 而其余计入 total/verified/bad，单行 json.loads/index/取键失败（畸形或被篡改）计入 bad 并 continue（验签器面对的正是被篡改的 WAL，不得自己先崩），all_valid = bad==0 and snap_bad==0；
+# 生效条件：逐行读 wal_path（errors=replace 容错解码——行级解码在循环体 try 之外，撕裂写在多字节中文字符中间/任意非法字节序列经替换为 U+FFFD 读入，后续 json 解析或 HMAC 比对必失败计 bad，验签器不因坏字节崩溃），strip 后为空则跳过，否则以 rec["type"]/["from"]/["to"]/["round"]/["ts"] 与 rec.get("seq", 0) 及原始 payload 文本重算 HMAC 与 rec["hmac"] 比对，type=="__snapshot__" 只计入 snapshots 而其余计入 total/verified/bad，单行 json.loads/index/取键失败（畸形或被篡改）计入 bad 并 continue（验签器面对的正是被篡改的 WAL，不得自己先崩），all_valid = bad==0 and snap_bad==0；
 def verify_wal_signatures(wal_path: str, shared_secret: str) -> Dict:
     """WAL 逐条验签（Python hmac 独立实现——交叉验证 Rust 手写 SHA256）。
     签名串 v0.7.1：seq|type|from|to|round|ts|payload（与 Rust swarm.rs 约定
@@ -108,7 +108,11 @@ def verify_wal_signatures(wal_path: str, shared_secret: str) -> Dict:
     返回值 snapshots={verified,bad}；all_valid = 事件行与快照行全部通过。"""
     ok = bad = 0
     snap_ok = snap_bad = 0
-    with open(wal_path, encoding="utf-8") as f:
+    # errors=replace：行级解码发生在循环体 try 之外——撕裂写（截在中文
+    # 多字节中间）/任意非法字节序列若 strict 解码会以 UnicodeDecodeError
+    # 打崩验签器（读行层违背「不得自己先崩」契约）。容错读入后该行
+    # json 解析或 HMAC 比对必失败 → 计 bad，all_valid=False（fail-closed）。
+    with open(wal_path, encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
             if not line:

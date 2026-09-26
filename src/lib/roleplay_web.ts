@@ -915,6 +915,15 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     }
                     const p = JSON.parse(body);
                     const role = p.role_id || 'protocol-guide';
+                    // P1-3 补卡（translate POST）：与 /meta、/chat 同款白名单——
+                    // 此前不校验即 setTranslations（内部白名单不匹配**静默 return**，
+                    // 中文 id 词对永不落盘）+ settings[role] 直接键赋值（'__proto__'
+                    // 走原型 setter 连 mode 都丢），却仍回 ok:true = 虚假成功。
+                    if (!validRoleId(role)) {
+                        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: '非法角色 id（白名单 ^[A-Za-z0-9_.-]{1,64}$）' }));
+                        return;
+                    }
                     const pairs = (Array.isArray(p.pairs) ? p.pairs : [])
                         .map((x) => ({ real: String(x.real || '').trim(), virtual: String(x.virtual || '').trim(), note: String(x.note || '').trim() }))
                         .filter((x) => x.real && x.virtual);

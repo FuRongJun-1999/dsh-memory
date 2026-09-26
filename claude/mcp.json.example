@@ -5,6 +5,7 @@
       "args": ["-m", "md_cg.mcp_server"],
       "env": {
         "PYTHONPATH": "REPLACE_WITH_ABSOLUTE_PATH_TO_dsh-memory",
+        "MDCG_ROOT": "REPLACE_WITH_ABSOLUTE_PATH_TO_MEMORY_ROOT",
         "MDCG_MCP_SURFACE": "kernel",
         "MDCG_ACTOR": "claude-code",
         "MDCG_TENANT": "default",

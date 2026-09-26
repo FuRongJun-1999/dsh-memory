@@ -22,7 +22,7 @@ ALGO = "rust_codegen-0.1"
 RUNTIME_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rust_runtime")
 
 
-# 生效条件：compile_source(source, strict=strict) 的 result["ok"] 为真时，在 abspath(out_dir) 下建 src/、写 program.pbc 与 build_meta.json 并返回 {"ok": True, "project_dir": out_dir, "pbc": ..., "instructions": len(code)}；result["ok"] 为假时返回 {"ok": False, "result": result, "algo": ALGO}；
+# 生效条件：compile_source(source, strict=strict) 的 result["ok"] 为真时，在 abspath(out_dir) 下建 src/、写 program.pbc 与 build_meta.json、把拷贝的 Cargo.toml 的 default 改写为 ["embed"]（模板默认关 embed——模板目录无 program.pbc，裸 cargo test 不失败；生成项目 program.pbc 在位，改写后编译期嵌入），返回 {"ok": True, "project_dir": out_dir, "pbc": ..., "instructions": len(code)}；result["ok"] 为假时返回 {"ok": False, "result": result, "algo": ALGO}；
 def generate_rust_project(source: str, out_dir: str, strict: bool = False) -> Dict:
     """中文源码 → Rust cargo 项目。返回 {ok, project_dir, pbc, result}。"""
     code, result = compile_source(source, strict=strict)
@@ -37,6 +37,15 @@ def generate_rust_project(source: str, out_dir: str, strict: bool = False) -> Di
     # ② 拷贝 runtime 模板（Cargo.toml + src/*.rs）
     for name in ("Cargo.toml",):
         shutil.copy2(os.path.join(RUNTIME_DIR, name), os.path.join(out_dir, name))
+    # ②' 生成项目形态：模板 default 关 embed（模板目录无 program.pbc），
+    #    此处 program.pbc 已写入 out_dir，改写为默认开 → cargo build --release 自包含
+    toml_path = os.path.join(out_dir, "Cargo.toml")
+    with open(toml_path, "r", encoding="utf-8") as f:
+        toml = f.read()
+    if toml.count("default = []") != 1:
+        raise RuntimeError("Cargo.toml 模板漂移：期望恰好一处 'default = []'")
+    with open(toml_path, "w", encoding="utf-8") as f:
+        f.write(toml.replace("default = []", 'default = ["embed"]', 1))
     for name in ("lib.rs", "main.rs", "vm.rs", "pbc.rs",
                  "hmac.rs", "serve.rs", "swarm.rs", "health.rs"):
         shutil.copy2(os.path.join(RUNTIME_DIR, "src", name),

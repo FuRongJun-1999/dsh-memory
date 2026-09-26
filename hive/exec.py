@@ -73,6 +73,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import time
 import traceback
 import urllib.error
@@ -99,7 +100,7 @@ def log(job_dir: str, msg: str) -> None:
         sys.stderr.write(line)
 
 
-# 生效条件：当 job_dir 与 payload 传入后无任何前置判断，直接用 UTF-8 打开 job_dir/result.json.tmp 写入 json.dump(payload, ensure_ascii=False)、flush+fsync，再 os.replace 到 job_dir/result.json；Windows 上 replace 撞读者瞬态句柄（open 不带 FILE_SHARE_DELETE → WinError 5）时按 10ms×递增重试至多 50 次（约 12.5s），仍失败才向外抛（此时 result.json 保持旧完整态，tmp 残留可辨）——v2 N6，2026-09-25，与 exec_cmd._write_result 同模板加 Windows 读者面适配；
+# 生效条件：当 job_dir 与 payload 传入后，先 tempfile.mkstemp(prefix="result.json.", suffix=".tmp", dir=job_dir) 建唯一临时文件并 UTF-8 写入 json.dump(payload, ensure_ascii=False)+flush+fsync，再 os.replace 到 job_dir/result.json；Windows 上 replace 撞读者瞬态句柄（WinError 5/PermissionError）时按 10ms×递增重试至多 50 次（约 12.5s）；replace 撞 FileNotFoundError（tmp 被瞬态消费/清理）时重建唯一名重写后重试；任一重试耗尽才向外抛；finally 里 best-effort 清理仍存在的 tmp；成功路径不残留任何 .tmp；
 def write_result(job_dir: str, payload: dict) -> None:
     """tmp + fsync + rename 原子替换（并发读者不读到截断空窗口）。
 
@@ -112,21 +113,71 @@ def write_result(job_dir: str, payload: dict) -> None:
     Windows 适配（exec_cmd 读者是 rust FILE_SHARE_DELETE 无此问题；本执行器
     读者面含 Python open，replace 会撞瞬态句柄 WinError 5）：短睡重试，重试
     耗尽才抛——失败时旧完整结果仍在位，优于截断（fail-safe）。
+
+    v10 N82 止血（2026-09-25，动态复现三次成立）：固定共享临时名
+    p + ".tmp" 在 rust 重投双执行者并发跑同一 job 时对撞——一者 replace
+    抢先消费共享 tmp，另一者 FileNotFoundError 外逃，main 顶层兜底再以
+    ok=false 覆写对撞写者的成功终态。mkstemp 唯一临时名（同目录保证 rename
+    原子性，随机后缀天然防共享名对撞；同 md_cg/fsutil.atomic_write 模板）；
+    FileNotFoundError 并入重试面（扑空时重建唯一名重写再试，不外逃）；
+    finally 清理残留 tmp（成功路径零残留，对齐 K1 口径）。
     """
     p = os.path.join(job_dir, "result.json")
-    tmp = p + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False)
-        f.flush()
-        os.fsync(f.fileno())
-    for attempt in range(50):
+
+    def _mk_and_dump():
+        fd, tmp = tempfile.mkstemp(prefix="result.json.", suffix=".tmp",
+                                   dir=job_dir)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        return tmp
+
+    tmp = _mk_and_dump()
+    try:
+        for attempt in range(50):
+            try:
+                os.replace(tmp, p)
+                return
+            except PermissionError:
+                if attempt == 49:
+                    raise
+                time.sleep(0.01 * (attempt + 1))
+            except FileNotFoundError:
+                # tmp 被瞬态消费/清理（对撞残留形态）：重建唯一名重写再试，
+                # 不让偶发扑空外逃成顶层兜底覆写（fail-closed 前的自愈面）。
+                if attempt == 49:
+                    raise
+                tmp = _mk_and_dump()
+    finally:
         try:
-            os.replace(tmp, p)
-            return
-        except PermissionError:
-            if attempt == 49:
-                raise
-            time.sleep(0.01 * (attempt + 1))
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+# 生效条件：当 job_dir 与 payload 传入时，先尝试读 job_dir/result.json——存在且可解析为 dict 且 ok 为 True（成功终态在位）时不动它，log(job_dir,...) 留痕「成功终态在位，兜底 error 改写被拒」并返回 False；文件缺失/不可解析/ok 非真时走 write_result 写入 payload 并返回 True；
+def write_error_result(job_dir: str, payload: dict) -> bool:
+    """main 兜底专用：error 终态不得覆写已成功终态（重投对撞保护，v10 N82）。
+
+    攻击形态（动态复现）：rust 对无产物 job 重投使两个执行者并发跑同一
+    job——落败者异常外逃进顶层 except，若照旧 write_result 会把对撞写者
+    已落地的成功终态改写成 error 终态（成功被记死，数据丢失面）。本守卫
+    在写 error 前回看现态：成功终态在位即拒写（log 诚实留痕）；error→
+    error 更新不受限。退出码语义不变（本进程照实返回失败码）。
+    """
+    p = os.path.join(job_dir, "result.json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            prev = json.load(f)
+    except (OSError, ValueError):
+        prev = None
+    if isinstance(prev, dict) and prev.get("ok") is True:
+        log(job_dir, "成功终态已在位，兜底 error 改写被拒（重投对撞保护，"
+                     "v10 N82）——本进程失败不影响已落地终态")
+        return False
+    write_result(job_dir, payload)
+    return True
 
 
 # 生效条件：root/cg/out 传入时，out 非 dict 或 ok/committed 非双真 → 原样返回（入队/负记忆/失败形态不经回读）；committed=true 时取 out["id"] 对应索引条目的 path 拼盘面路径，文件存在则 out 附 readback="ok" 原样返回，条目缺失或文件不存在 → 返回 ok=False、readback="missing"、「回读不一致」error（不冒充成功）；
@@ -309,9 +360,24 @@ def resolve_system_prompt(spec: dict, job_dir: str) -> tuple:
     return literal, ("literal" if literal else "none")
 
 
-# 生效条件：当传入 rel/path/job_dir/meta 且 path 可被 open("rb") 读取首 BINARY_SNIFF_BYTES 字节并用 sniff_kind 分类时，text 分支用 utf-8 errors=replace 读全文并返回文本 context；image: 前缀分支取 image_size(path) 的 w/h（w/h 均为真才显示尺寸并可能 oversize，否则显示“尺寸未知”且 width/height 用“?”），累加 meta["images"]/["image_tokens"]、向 meta["notes"] 追加并 log(job_dir,...)，返回带 w/h/oversize 的图像 context；其余分支累加 meta["binaries"]、log(job_dir,...) 并返回不读正文的二进制 context；
+# 生效条件：当传入 rel/path/job_dir/meta 时，先对 os.path.realpath(path) 调 _sensitive_read，命中敏感凭据（目录段/文件名/前缀族/.env 族/密钥扩展）则 meta["notes"] 追加并 log(job_dir,...)，返回 skipped="敏感凭据拒读" 标注块（不读正文、不拒整个 spawn）；未命中且 path 可被 open("rb") 读取首 BINARY_SNIFF_BYTES 字节并用 sniff_kind 分类时，text 分支用 utf-8 errors=replace 读全文并返回文本 context；image: 前缀分支取 image_size(path) 的 w/h（w/h 均为真才显示尺寸并可能 oversize，否则显示“尺寸未知”且 width/height 用“?”），累加 meta["images"]/["image_tokens"]、向 meta["notes"] 追加并 log(job_dir,...)，返回带 w/h/oversize 的图像 context；其余分支累加 meta["binaries"]、log(job_dir,...) 并返回不读正文的二进制 context；
 def _context_block(rel: str, path: str, job_dir: str, meta: dict) -> str:
     """单个 context 块：文本读全文；图像/二进制只登记（Pi⑦④）。"""
+    # P2-22 止血（v8 N69 / v10 / 2026-09-25 三次成立）：context_files 通道
+    # 原先零检查——read_file 的四道防线（scope 白名单 / HIVE_READ_ROOTS /
+    # _sensitive_read / PII 脱敏）在本通道不生效，编排者经 spawn 传
+    # context_files=[私钥/.env 路径] 即可让全文随 user 消息发往
+    # HIVE_API_BASE 外部网关。复用 tool_read_file 同款 _sensitive_read
+    # （realpath 规范化后匹配）：命中不拒整个 spawn（其余块照常拼装），
+    # 只把该文件替换为 skipped 标注块——诚实留痕可审计。
+    why = _sensitive_read(os.path.realpath(path))
+    if why:
+        note = f"context {rel} 敏感凭据拒读跳过（{why}）——全文不进 LLM 上下文"
+        meta["notes"].append(note)
+        log(job_dir, "上下文块 " + note)
+        return (f'<context path="{rel}" skipped="敏感凭据拒读">\n'
+                f"（{why}——凭据类文件不进 LLM 上下文，本块已跳过；"
+                "如有合法需要请走部署管理员显式通道。）\n</context>")
     with open(path, "rb") as f:
         head = f.read(BINARY_SNIFF_BYTES)
     kind = sniff_kind(head)
@@ -875,10 +941,11 @@ _SENSITIVE_DIR_SEGMENTS = (".ssh", ".aws", ".gcloud", ".azure", ".kube",
 _SENSITIVE_FILE_NAMES = ("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
                          ".netrc", ".htpasswd", ".npmrc", ".pypirc",
                          "credentials", "credentials.json",
+                         "config.local.json",
                          "cookies.sqlite", "cookies.sqlite-journal")
 
 
-# 生效条件：real 为 realpath 规范化后的绝对路径；归一斜杠小写后，任一父目录段属 _SENSITIVE_DIR_SEGMENTS、文件名精确命中 _SENSITIVE_FILE_NAMES、或命中 V21-8 族匹配（id_rsa/id_ed25519/id_ecdsa/id_dsa/service-account 前缀族、名字含 credential/creds、.env 后缀族——堵「改名/加后缀即免检」缺口，V21 报告 8 类实测样本全覆盖），或以 credentials/access_tokens 前缀命中、或文件名以 .env 开头/以 .pem/.key/.p12/.pfx/.kdbx 结尾时返回原因说明串，否则返回 None。
+# 生效条件：real 为 realpath 规范化后的绝对路径；归一斜杠小写后，任一父目录段属 _SENSITIVE_DIR_SEGMENTS、文件名精确命中 _SENSITIVE_FILE_NAMES（含 config.local.json——N141，批次 49）、或命中 V21-8 族匹配（id_rsa/id_ed25519/id_ecdsa/id_dsa/service-account 前缀族、名字含 credential/creds、.env 后缀族——堵「改名/加后缀即免检」缺口，V21 报告 8 类实测样本全覆盖；.token 后缀族——N141 补部署令牌文件 orch.token/designer.token）、或以 credentials/access_tokens 前缀命中、或文件名以 .env 开头/以 .env/.pem/.key/.p12/.pfx/.kdbx/.token 结尾时返回原因说明串，否则返回 None。
 def _sensitive_read(real: str) -> str | None:
     """命中敏感路径返回原因说明，安全路径返回 None。"""
     norm = real.replace("\\", "/").lower()
@@ -901,8 +968,13 @@ def _sensitive_read(real: str) -> str | None:
             or "creds" in name:
         return f"敏感凭据文件（{name}）"
     # 密钥文件扩展与 dot-env 家族（.env / .env.local / prod.env / prod.pem…）
+    # N141（批次 49，2026-09-26）：后缀族补 .token——部署令牌文件
+    # （orch.token / designer.token，orch.py tokens 通道产物）此前放行；
+    # 同时精确名补 config.local.json（serve 部署配置，serve_start.py
+    # DEFAULT_CONFIG，api_key 所在）——子代理 read_file / 编排者
+    # context_files 一句话即可外发外部网关，两者是默认部署的最后一道闸。
     if name.startswith(".env") or name.endswith(
-            (".env", ".pem", ".key", ".p12", ".pfx", ".kdbx")):
+            (".env", ".pem", ".key", ".p12", ".pfx", ".kdbx", ".token")):
         return f"密钥/环境凭据文件（{name}）"
     return None
 
@@ -1497,7 +1569,7 @@ def main() -> int:
     try:
         spec = read_spec(job_dir)
     except Exception as e:  # noqa: BLE001 —— 顶层兜底必须写 result
-        write_result(job_dir, {"ok": False, "error": f"spec 读取失败: {e}"})
+        write_error_result(job_dir, {"ok": False, "error": f"spec 读取失败: {e}"})
         return EXIT_SPEC
     global _CUR_ORCH_JOB
     _CUR_ORCH_JOB = str(spec.get("orch_job") or "").strip()
@@ -1508,7 +1580,7 @@ def main() -> int:
             str(spec.get("model") or ""),
             os.environ.get("HIVE_API_BASE", DEFAULT_API_BASE))
         if _mismatch:
-            write_result(job_dir, {"ok": False, "error": f"model 与 HIVE_API_BASE 错配：{_mismatch}"})
+            write_error_result(job_dir, {"ok": False, "error": f"model 与 HIVE_API_BASE 错配：{_mismatch}"})
             log(job_dir, f"spec 错（模型错配）: {_mismatch}")
             progress(job_dir, kind="error", error=_mismatch[:300], where="spec")
             return EXIT_SPEC
@@ -1523,7 +1595,7 @@ def main() -> int:
                     + (f"（含图像折算 {base_tokens}）" if base_tokens else "")
                     + "（估算偏高估；请分片任务或调大 context_budget_tokens）"
                 )
-                write_result(job_dir, {"ok": False, "error": msg})
+                write_error_result(job_dir, {"ok": False, "error": msg})
                 log(job_dir, f"超预算拦截 est={total} budget={budget}")
                 progress(job_dir, kind="budget_stop", est_tokens=total,
                          budget_tokens=int(budget), where="spec")
@@ -1557,7 +1629,7 @@ def main() -> int:
             # 统一失败落盘（v2 N7，2026-09-25）：单发空包与工具链失败走同一
             # _error 协议——都写 ok=false + EXIT_API；此前单发路无条件
             # out.update(ok=True)，网关 200+空包曾记成功（content=""）。
-            write_result(
+            write_error_result(
                 job_dir,
                 {
                     "ok": False,
@@ -1589,7 +1661,7 @@ def main() -> int:
             + (" 交回续跑(need_continue)" if out.get("need_continue") else ""))
         return EXIT_OK
     except SpecError as e:
-        write_result(
+        write_error_result(
             job_dir,
             {"ok": False, "error": str(e),
              "finished_ts": time.time(), "duration_s": round(time.time() - t0, 2)},
@@ -1602,7 +1674,7 @@ def main() -> int:
             detail = e.read().decode("utf-8", errors="replace")[:2000]
         except Exception:  # noqa: BLE001
             detail = ""
-        write_result(
+        write_error_result(
             job_dir,
             {
                 "ok": False,
@@ -1614,7 +1686,7 @@ def main() -> int:
         log(job_dir, f"API HTTP 错误 {e.code}")
         return EXIT_API
     except Exception as e:  # noqa: BLE001
-        write_result(
+        write_error_result(
             job_dir,
             {
                 "ok": False,

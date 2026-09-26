@@ -58,8 +58,11 @@ _KEYED_EXTRA = ("include_work", "roles", "paths", "path_weights", "recall_only",
 #: 不可稳定规范化的参数（自定义可调用）：非默认即**绕行缓存**（fail-closed）。
 _BYPASS_EXTRA = ("query_expand",)
 #: 影响检索结果的进程级开关（新增一个就登记一个——同 _KEYED_EXTRA 的纪律）。
+#: MDCG_CN_GRAMS（v9 N78）：mdcg.cn_recall_grams 每调用读 env（="0" 回退旧行为），
+#: 改变 expand_query_terms 召回词集——漏登即运行期翻转后同 query 命中另一口径缓存。
 _ENV_SWITCHES = ("MDCG_SEMANTIC", "MDCG_EN_ATOMS", "MDCG_UNIFY_QUERY",
-                 "MDCG_RETRIEVAL_PIPELINE", "MDCG_S7_FRESHNESS")
+                 "MDCG_RETRIEVAL_PIPELINE", "MDCG_S7_FRESHNESS",
+                 "MDCG_CN_GRAMS")
 
 
 # 生效条件：无必需形参；返回 _ENV_SWITCHES 中每个变量名的 (名, 当前取值或 None) 元组（稳定、可哈希，随 query 缓存键一起参与比对）。

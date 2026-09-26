@@ -81,9 +81,30 @@ def _load_local_config():
     return (cfg or {}), err
 
 
-# 生效条件：无必需形参；HIVE_JOBS_DIR 为空串或未设时取 os.path.join(REPO, "hive", "jobs")，否则取该变量值，makedirs(exist_ok=True) 后返回该路径。
+# 生效条件：无必需形参；经 serve_start._jobs_from({**os.environ, **(load_config(CONFIG_LOCAL)[0] or {})}) 求值（N89 批次 49：与 serve_start.start :231/:236 同一决策函数同一合并语义——config.local.json 的 HIVE_JOBS_DIR 键与 serve 面同权生效；config 缺失/解析失败时 cfg={} 自然回落 env/模块默认，与 _lifecycle_jobs 的「stop 不因 config 笔误而停不掉」同宽容度；serve_start 不可导入时同路径回落），makedirs(exist_ok=True) 后返回该路径。
 def _jobs_dir() -> str:
-    d = os.environ.get("HIVE_JOBS_DIR") or os.path.join(REPO, "hive", "jobs")
+    """jobs 池**唯一决策口径** = serve_start._jobs_from(合并环境)（N89 修复）。
+
+    历史缺陷（v2 N17 首报，四轮维持）：本处只读 MCP 进程 env，serve 面以
+    {**os.environ, **config} 合并（config 键胜出）——config 设 HIVE_JOBS_DIR
+    且 MCP env 未设时，spawn ok=True 但任务落默认池永无人领取，观测面全绿
+    与实况相悖。现与 serve 同吃一份 config：spawn/poll/kill/doctor/restart
+    五面同走本函数，单点修复即全修（`_ensure_serve` :196 的 setdefault 是
+    env 层补写，config 键存在时本就不构成补救——现两层天然一致）。
+    """
+    try:
+        if HIVE_DIR not in sys.path:
+            sys.path.insert(0, HIVE_DIR)
+        import serve_start  # noqa: PLC0415 —— 同目录模块，延迟导入避开包名歧义
+    except Exception as e:  # noqa: BLE001
+        # serve_start 不可导入：退回旧 env/默认口径（fail-soft 不崩协议面）
+        sys.stderr.write(f"[mcp_server] serve_start 不可导入（{type(e).__name__}），"
+                         "HIVE_JOBS_DIR 按 env/默认解析\n")
+        d = os.environ.get("HIVE_JOBS_DIR") or os.path.join(REPO, "hive", "jobs")
+        os.makedirs(d, exist_ok=True)
+        return d
+    cfg, _err = _load_local_config()
+    d = serve_start._jobs_from({**os.environ, **(cfg or {})})
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -240,29 +261,70 @@ def _submit(jobs: str, spec: dict) -> str:
     return job_id
 
 
-# 生效条件：jobs 与 job_id 给定；json.load(jobs/job_id/status.json) 成功时返回解析值本身，抛 OSError 或 ValueError 时返回 None。
+# 解析缓存（v7 留档「orch._poll 重复解析」修复，缺陷迭代第 14 轮）：
+# poll 是编排等待循环的高频重复动作（spawn 返回 hint 明示「继续轮询
+# poll_subtasks」），_poll→_card（与 MCP 面 _t_poll 同源走本模块两函数）
+# 此前每次轮询对全部子任务全量重读+json.load status.json 与 result.json
+# 全文——实测 8 子任务/210KB result 串行 7rep 中位 2.67ms/轮、content
+# 50K/200K/800K → 0.98/2.67/10.13ms 随产物大小近似线性、随轮询次数线性
+# 累积；对照同批 16 文件纯 os.stat 仅 0.233ms。按 (st_mtime_ns, st_size)
+# 签名短路未变更文件的重解析：文件未变复用已解析值，变更（worker 重写
+# status/result 必产生新 mtime）/删除按签名失配或 stat 失败重读——语义
+# 与逐次读盘逐位一致。有界防长驻累积：超上限整体清空（粗粒度，正确性
+# 不受影响，只多付一次冷启解析）。
+_PARSE_CACHE = {}          # path -> (mtime_ns, size, parsed)
+_PARSE_CACHE_MAX = 256
+
+
+# 生效条件：path 与 parse 给定；os.stat(path) 抛 OSError 时摘除该 path 的缓存项并原样执行 parse()（其异常语义由调用方处理），stat 成功且缓存命中（(st_mtime_ns, st_size) 与登记值相等）时返回登记解析值，否则执行 parse()、成功返回（不抛异常）后登记（含超上限先整体清空）并返回其值。
+def _cached_json(path, parse):
+    """(mtime_ns, size) 签名短路的一次性解析入口（未变更文件零重读）。"""
+    try:
+        st = os.stat(path)
+        sig = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        _PARSE_CACHE.pop(path, None)
+        return parse()
+    hit = _PARSE_CACHE.get(path)
+    if hit is not None and (hit[0], hit[1]) == sig:
+        return hit[2]
+    val = parse()
+    if len(_PARSE_CACHE) >= _PARSE_CACHE_MAX:
+        _PARSE_CACHE.clear()
+    _PARSE_CACHE[path] = (sig[0], sig[1], val)
+    return val
+
+
+# 生效条件：jobs 与 job_id 给定；jobs/job_id/status.json 的缓存解析成功时返回其浅拷贝（每次调用拿到可独立变更的新 dict——_t_poll 会往 st 上挂 result，不得污染缓存），解析抛 OSError 或 ValueError 时返回 None。
 def _read_status(jobs: str, job_id: str):
     p = os.path.join(jobs, job_id, "status.json")
     try:
-        with open(p, encoding="utf-8") as f:
-            return json.load(f)
+        st = _cached_json(p, lambda: _load_json_file(p))
     except (OSError, ValueError):
         return None
+    return dict(st) if isinstance(st, dict) else st
 
 
-# 生效条件：job_dir 与 head 给定；job_dir/result.json 未通过 os.path.isfile 时返回 None，json.load 抛 OSError/ValueError 时返回 {"error": "result.json 解析失败: …"}，否则返回该 dict：head 非 None（含 head=0）且 len(content) > head 时把 content 截成 content_head 并置 content_truncated，并统一加 result_path 与 handoff_ready（need_continue is True 且 completed 非 True）。
+def _load_json_file(p: str):
+    """open+json.load 原语（_cached_json 的 parse 回调；异常原样外抛）。"""
+    with open(p, encoding="utf-8") as f:
+        return json.load(f)
+
+
+# 生效条件：job_dir 与 head 给定；job_dir/result.json 未通过 os.path.isfile 时返回 None，缓存解析抛 OSError/ValueError 时返回 {"error": "result.json 解析失败: …"}，否则在该解析值（**浅拷贝**上派生——缓存基底不被下面截断/挂键变更）：head 非 None（含 head=0）且 len(content) > head 时把 content 截成 content_head 并置 content_truncated，并统一加 result_path 与 handoff_ready（need_continue is True 且 completed 非 True）。
 def _result_view(job_dir: str, head):
     p = os.path.join(job_dir, "result.json")
     if not os.path.isfile(p):
         return None
     try:
-        with open(p, encoding="utf-8") as f:
-            r = json.load(f)
+        r = _cached_json(p, lambda: _load_json_file(p))
     except (OSError, ValueError) as e:
         return {"error": f"result.json 解析失败: {e}"}
+    # 派生在浅拷贝上做，缓存基底保持原样；非 dict 形态（病态 result.json）
+    # 不拷贝——后续 r.get 抛 AttributeError 与旧逐次解析口径一致。
+    r = dict(r) if isinstance(r, dict) else r
     content = r.get("content") or ""
     if head is not None and len(content) > head:
-        r = dict(r)
         r["content_head"] = content[:head]
         r["content_truncated"] = True
         r.pop("content", None)
@@ -613,8 +675,31 @@ def _rpc(req: dict):
     return None
 
 
-# 生效条件：无必需形参；逐行读 sys.stdin，空行与 json.loads 抛 ValueError 的行被跳过，_rpc(req) 抛非 ValueError 异常时回写 id=None 的 -32603 internal error 一行（入口兜底不崩 server，与工具层 try 同款模板），仅 _rpc(req) 返回非 None 时向 stdout 写一行 JSON 并 flush，读到 EOF 后返回 0。
+# 生效条件：sys.stdin/stdout/stderr 三个流逐个 reconfigure(encoding="utf-8", errors="replace")，
+# 流不支持 reconfigure（AttributeError）或取值非法（ValueError）时静默跳过该流，无返回值。
+def _force_utf8_stdio():
+    """进程内强制 stdio 三流 = UTF-8（issue #39，与 md_cg/mcp_server.py 同族同修）。
+
+    MCP 协议是 UTF-8 JSON，但 Windows 控制台默认代码页（如 CP936/GBK）会让
+    stdio 管道跟随 locale——宿主按 UTF-8 发来的中文参数（model/user_prompt 等）
+    被按 GBK 解码：strict 下读侧直接 UnicodeDecodeError，surrogateescape 下
+    解出代理对（\\udcXX），main() 里 ``json.dumps(..., ensure_ascii=False)``
+    写 stdout 时按 UTF-8 编码即抛 ``UnicodeEncodeError: surrogates not
+    allowed``，整条请求失败。桥层 ``PYTHONUTF8=1``（src/lib/mdcg_client.ts）
+    只覆盖 DSH 桥路径，mcp.json 直连不经桥仍踩；进程内 reconfigure 是纵深
+    补位；``errors="replace"`` 保证坏字节最多丢字符、不炸整条请求。
+    必须在 main() 首行调用：早于一切 stderr 中文写与 stdin 读取。
+    """
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
+# 生效条件：_force_utf8_stdio() 先执行（stdio 三流强制 UTF-8，issue #39）；此后逐行读 sys.stdin，空行与 json.loads 抛 ValueError 的行被跳过，_rpc(req) 抛非 ValueError 异常时回写 id=None 的 -32603 internal error 一行（入口兜底不崩 server，与工具层 try 同款模板），仅 _rpc(req) 返回非 None 时向 stdout 写一行 JSON 并 flush，读到 EOF 后返回 0。
 def main() -> int:
+    _force_utf8_stdio()
     for line in sys.stdin:
         line = line.strip()
         if not line:

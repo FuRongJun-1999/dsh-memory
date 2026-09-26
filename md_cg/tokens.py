@@ -390,11 +390,12 @@ def issue(role: str, actor: str = None, clearance: str = None,
             "expires_at": rec["expires_at"], "token_file": token_file(path)}
 
 
-# 生效条件：token 先经 parse_token（格式非法即抛 TokenError），其后 _load(path) 的 tokens 中该 token_id 无记录、rec 的 role 与解析出的 role 不等、revoked_at 为真、hash 与 _hash(secret) 经 hmac.compare_digest 不等、expires_at 为真且小于当前时间中任一成立即抛 TokenError；否则返回 Principal，tenant=tenant or rec.get("tenant") or "default"、actor=rec.get("actor") or role、clearance=rec.get("clearance") or "internal"、can_write/can_admin 取对应 rec 值的 bool。
+# 生效条件：token 先经 parse_token（格式非法即抛 TokenError），其后 _load(path) 的 tokens 中该 token_id 无记录、rec 的 role 与解析出的 role 不等、revoked_at 为真、hash 与 _hash(secret) 经 hmac.compare_digest 不等、expires_at 为真且小于当前时间、或沿 parent 链上溯（seen 集合防环；链上父记录缺失时仅向 stderr 告警不阻断——吊销已由 revoke 级联物化，此处只补过期维度，文件写权不在令牌威胁模型内）任一祖先 expires_at 为真且小于当前时间中任一成立即抛 TokenError；否则返回 Principal，tenant=tenant or rec.get("tenant") or "default"、actor=rec.get("actor") or role、clearance=rec.get("clearance") or "internal"、can_write/can_admin 取对应 rec 值的 bool；返回前 rec["tenant"] 与非空形参 tenant 去空白后不等时先向 stderr 写「租户绑定被入参覆盖」告警（仅告警零闸变，对照 _build_principal 的 MDCG_CLEARANCE 先例；租户强校验与 clearance_cap 夹紧接线另行 deferred）。
 def verify_token(token: str, tenant: str = None, path: str = None) -> Principal:
     """校验令牌 → Principal。任何异常都抛 TokenError（fail-closed）。"""
     role, token_id, secret = parse_token(token)
-    rec = (_load(path).get("tokens") or {}).get(token_id)
+    tokens_map = _load(path).get("tokens") or {}
+    rec = tokens_map.get(token_id)
     if not rec:
         raise TokenError("令牌不存在（可能已吊销或来自其他令牌文件）")
     if rec.get("role") != role:
@@ -403,9 +404,46 @@ def verify_token(token: str, tenant: str = None, path: str = None) -> Principal:
         raise TokenError("令牌已吊销")
     if not hmac.compare_digest(str(rec.get("hash") or ""), _hash(secret)):
         raise TokenError("令牌密钥不匹配")
+    now = time.time()
     exp = rec.get("expires_at")
-    if exp and time.time() > float(exp):
+    if exp and now > float(exp):
         raise TokenError("令牌已过期")
+    # N123（2026-09-25 止血）：过期沿派生链传播——父令牌过期后，其派生子令牌
+    # 一并失效（与 revoke 级联 tokens.revoke 的语义对齐；存量库中修复前派生的
+    # 未夹紧子令牌由此兜底）。delegable=False 封口使链深常态为 2，开销可忽略。
+    pid, seen = rec.get("parent"), {token_id}
+    while pid:
+        if pid in seen:                     # 防环：损坏记录不得挂死校验
+            sys.stderr.write(
+                f"[mdcg-tokens] ⚠ 令牌 {token_id} 派生链存在环（parent={pid}），"
+                f"沿链过期校验在此截断，请修复令牌文件。\n")
+            break
+        seen.add(pid)
+        ancestor = tokens_map.get(pid)
+        if not ancestor:
+            sys.stderr.write(
+                f"[mdcg-tokens] ⚠ 令牌 {token_id} 的祖先 {pid} 记录缺失，"
+                f"该祖先的过期校验被跳过（吊销不受影响——revoke 已级联物化）。\n")
+            break
+        a_exp = ancestor.get("expires_at")
+        if a_exp and now > float(a_exp):
+            raise TokenError(
+                f"令牌已失效：派生链祖先 {pid} 已过期（过期沿派生链传播）")
+        pid = ancestor.get("parent")
+    # 租户绑定被 env 覆盖必须开口（2026-09-25 止血，v8 N62/v9/第15轮三次
+    # 成立）：形参 tenant（MCP 侧来自 MDCG_TENANT）非空且与令牌记录
+    # rec["tenant"] 不同时，形参值静默顶替令牌租户——tenantA 签发的
+    # secret/designer 令牌在 MDCG_TENANT=tenantB 下以原权限对 tenantB 登记根
+    # 运行且零痕迹。对照 MDCG_CLEARANCE 先例（mcp_server._build_principal）：
+    # 只告警不改闸（租户绑定强校验 + clearance_cap 夹紧接线另行 deferred）。
+    _rec_tenant = str(rec.get("tenant") or "").strip()
+    _arg_tenant = str(tenant or "").strip()
+    if _arg_tenant and _rec_tenant and _arg_tenant != _rec_tenant:
+        sys.stderr.write(
+            f"[mdcg-tokens] ⚠ 租户绑定被入参覆盖：令牌按 {_rec_tenant} 签发，"
+            f"但入参 tenant={_arg_tenant}（MCP 侧来自 MDCG_TENANT）优先生效"
+            f"——令牌将以原 clearance/can_admin 对 {_arg_tenant} 运行。"
+            f"若非有意迁移，请校正 MDCG_TENANT 或为该租户重新签发令牌。\n")
     return Principal(
         tenant=tenant or rec.get("tenant") or "default",
         actor=rec.get("actor") or role,
@@ -417,7 +455,7 @@ def verify_token(token: str, tenant: str = None, path: str = None) -> Principal:
         ops_allow=rec.get("ops_allow"), auth_mode="token")
 
 
-# 生效条件：parent_token 经 verify_token(parent_token, path=path) 成功且父记录 delegable 为真才继续，否则抛 TokenError；role 经 normalize_role+role_spec，clearance 为假值时取 spec["clearance_cap"] 再 _clamp_level，若仍高于 parent.clearance 则降为 parent.clearance 并向 clamped 追加 "clearance"；layers/ops 先与 spec 求交再与父记录求交；can_write/can_admin 取 spec 与父对应值的与；ttl 为真值时 expires_at=now+float(ttl)、为假值（None/0）时沿用父记录 expires_at；新记录 delegable 恒 False、parent/issued_by 为 parent.token_id，返回含明文 token 与 clamped 的字典。
+# 生效条件：parent_token 经 verify_token(parent_token, path=path) 成功且父记录 delegable 为真才继续，否则抛 TokenError；role 经 normalize_role+role_spec，clearance 为假值时取 spec["clearance_cap"] 再 _clamp_level，若仍高于 parent.clearance 则降为 parent.clearance 并向 clamped 追加 "clearance"；layers/ops 先与 spec 求交再与父记录求交；can_write/can_admin 取 spec 与父对应值的与；ttl 为真值时过期候选=now+float(ttl)、为假值（None/0）时沿用父记录 expires_at，候选与父记录 expires_at 均非空时取 min（N123：派生在时间维度同样只能收窄，父无界时取候选），被父夹紧时向 clamped 追加 "expires_at"；新记录 delegable 恒 False、parent/issued_by 为 parent.token_id，返回含明文 token 与 clamped 的字典。
 def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
            label: str = "", path: str = None, clearance: str = None,
            layers_allow=None, ops_allow=None):
@@ -440,15 +478,26 @@ def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
     ops = _narrow(_narrow(ops_allow, spec["ops_allow"]), prec.get("ops_allow"))
     can_write = bool(spec["can_write"]) and bool(parent.can_write)
     can_admin = bool(spec["can_admin"]) and bool(parent.can_admin)
-    token_id, secret = "tk_" + secrets.token_hex(6), secrets.token_urlsafe(32)
+    # N123（2026-09-25 止血）：「派生只能收窄」补上时间维度——子令牌有效期
+    # 不得超过父令牌（revoke 有级联，过期原先没有：父过期后子令牌仍以原密级
+    # 通过 verify_token，授权回收被长 TTL 子令牌旁路）。父无界（expires_at
+    # 为 None）时不夹紧，取请求值；子未指定 ttl 时沿用父界（含无界）。
     now = time.time()
+    pexp = prec.get("expires_at")
+    want_exp = (now + float(ttl)) if ttl else pexp
+    final_exp = want_exp
+    if want_exp is not None and pexp is not None \
+            and float(want_exp) > float(pexp):
+        final_exp = pexp
+        clamped.append("expires_at")
+    token_id, secret = "tk_" + secrets.token_hex(6), secrets.token_urlsafe(32)
     rec = {
         "role": role, "actor": actor or role, "tenant": parent.tenant,
         "clearance": final_clear, "can_write": can_write, "can_admin": can_admin,
         "layers_allow": layers, "ops_allow": ops,
         "delegable": False, "parent": parent.token_id,
         "issued_by": parent.token_id, "issued_at": now,
-        "expires_at": (now + float(ttl)) if ttl else prec.get("expires_at"),
+        "expires_at": final_exp,
         "revoked_at": None, "label": label, "hash": _hash(secret),
     }
     data["tokens"][token_id] = rec

@@ -123,7 +123,7 @@ def node_conditions(cg, nid):
     return pos
 
 
-# 生效条件：cg 已有 _chain_adj 且其 [0] 等于 bool(include_hierarchy) 时直接返回缓存的 [1]；否则以 cg.index["nodes"]（无 index 或无该键时视为无节点）逐节点收集 frontmatter.edges 中 edge_target 非空的出边，include_hierarchy 为真时再为 subgraph.nodes 各合成一条 relation_type="part_of"、confidence=1.0 的层级边，仅对有出边的 nid 建表，写回 cg._chain_adj=(bool(include_hierarchy), adj) 后返回 adj；
+# 生效条件：cg 已有 _chain_adj 且其 [0] 等于 bool(include_hierarchy)、[1] 等于可见性闸存在位时直接返回缓存的 [2]；否则以 cg.index["nodes"]（无 index 或无该键时视为无节点）逐节点收集 frontmatter.edges 中 edge_target 非空的出边，include_hierarchy 为真时再为 subgraph.nodes 各合成一条 relation_type="part_of"、confidence=1.0 的层级边，仅对有出边的 nid 建表，写回 cg._chain_adj=(bool(include_hierarchy), 闸存在位, adj) 后返回 adj；cg 提供 _chain_visible(nid) 谓词（读隔离，MdCGSecure 注入）时不可见 nid 的出边整体不入表、指向不可见目标的边（含层级合成边）截断——不可见节点 id、其边条件与下游拓扑对调用方不存在（walk/explain/causal_path/expand_from_seeds 全部消费者同闸）；
 def adjacency(cg, include_hierarchy=True):
     """出邻接表：nid → [(target_id, edge_dict)]。
 
@@ -131,28 +131,43 @@ def adjacency(cg, include_hierarchy=True):
       1. 节点 frontmatter.edges（关系边，含 relation_type）
       2. 节点 frontmatter.subgraph.nodes（层级边，合成 part_of）
     只读索引快照，不读文件正文；结果缓存在 `cg._chain_adj`。
+
+    读隔离（2026-09-25）：cg._chain_visible(nid) 谓词在位（MdCGSecure 注入，
+    = 索引有条目 ∧ _readable）时按其过滤——不可见节点不入表、指向不可见
+    目标的边截断；谓词缺席（基类）行为零变化。缓存键含闸存在位；闸语义
+    实例内稳定（_readable 绑定档判定恒用 principal.session，见 mdcos
+    _readable），同一实例不会跨身份串台。
     """
     cached = getattr(cg, "_chain_adj", None)
-    if cached is not None and cached[0] == bool(include_hierarchy):
-        return cached[1]
+    vis = getattr(cg, "_chain_visible", None)
+    vis_on = vis is not None
+    if (cached is not None and cached[0] == bool(include_hierarchy)
+            and cached[1] == vis_on):
+        return cached[2]
     from . import subgraph as _sg
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
     adj = {}
     for nid in nodes:
+        if vis is not None and not vis(nid):
+            continue          # 不可见节点：其出边与条件整体不可见（不解析 fm）
         fm = _sg._fm(cg, nid)
         out = []
         for e in (fm.get("edges") or []):
             tgt = edge_target(e)
             if tgt:
+                if vis is not None and not vis(tgt):
+                    continue  # 拓扑边界：指向不可见目标的边对调用方不存在
                 out.append((tgt, e if isinstance(e, dict) else {"target": tgt}))
         if include_hierarchy:
             for ch in _sg.declared(fm)["nodes"]:
+                if vis is not None and not vis(ch):
+                    continue
                 out.append((ch, {"target": ch, "relation_type": "part_of",
                                  "confidence": 1.0, "verified": 0}))
         if out:
             adj[nid] = out
     try:
-        cg._chain_adj = (bool(include_hierarchy), adj)
+        cg._chain_adj = (bool(include_hierarchy), vis_on, adj)
     except Exception:
         pass
     return adj

@@ -107,7 +107,7 @@ def cmd_init(wm: str) -> dict:
     return {"ok": True, "wm": wm, "branch": "main"}
 
 
-# 生效条件：job 下 result.json 非 os.path.isfile 时先返回凭证不足错误，result.json 可读但 result.get("ok") is not True 时返回带 verdict（str(result.get("error",""))[:200]）的错误，job 下 spec.json 非 os.path.isfile 时返回规格缺失错误；通过后 job_id 取 str(result.get("job_id") or os.path.basename(job))（result.job_id 为 None/空串时回落 basename(job)），job_id 含 / \ 或为 . .. 时返回非法 job_id 错误（路径段校验，防穿越删库），branch 为真值时用 branch、假值时回落 f"task/{job_id}"，随后先 rmtree/makedirs(wm/jobs/<job_id>) 并拷 spec.json、result.json、log.txt 与 PROGRESS_FILE（两者各自 os.path.isfile 为真才拷、PROGRESS_FILE 缺失即 has_progress=False 不报错），artifacts 为真值时才按逗号切分（strip 后非空段）、相对名拼 job、任一源非 os.path.isfile 即返回 artifacts 缺失错误，全部存在才拷入 artifacts/ 并收集 basename；然后 checkout -B branch、add jobs、commit（model 取 result.get("model") 为假值回落 "?"，duration_s 为真值才附）、rev-parse --short HEAD 四步包于 try/finally——finally 无条件 checkout main（v2 N10：提交链任一步抛 WmError 也不残留 HEAD 于 task 分支），checkout main 失败时若 try 内有正传播异常则抛消息合并且 from 原异常的 WmError、无则直接抛 WmError（均含 HEAD 可能残留提示），全部成功返回 ok True 与 job_id/branch/commit/artifacts/progress/message。
+# 生效条件：job 下 result.json 非 os.path.isfile 时先返回凭证不足错误，result.json 可读但 result.get("ok") is not True 时返回带 verdict（str(result.get("error",""))[:200]）的错误，job 下 spec.json 非 os.path.isfile 时返回规格缺失错误；通过后 job_id 取 str(result.get("job_id") or os.path.basename(job))（result.job_id 为 None/空串时回落 basename(job)），job_id 含 / \ 或为 . .. 时返回非法 job_id 错误（路径段校验，防穿越删库），branch 为真值时用 branch、假值时回落 f"task/{job_id}"，artifacts 为真值时先按逗号切分（strip 后非空段）、相对名拼 job 做存在性预检，任一源非 os.path.isfile 即在任何 staging 写入前返回 artifacts 缺失错误（v10 N83：不拷半份）；随后 rmtree/makedirs(wm/jobs/<job_id>) 并拷 spec.json、result.json、log.txt 与 PROGRESS_FILE（两者各自 os.path.isfile 为真才拷、PROGRESS_FILE 缺失即 has_progress=False 不报错）、拷 artifacts/ 并收集 basename；然后 checkout -B branch、add jobs、commit（model 取 result.get("model") 为假值回落 "?"，duration_s 为真值才附）、rev-parse --short HEAD 四步包于内层 try/finally——finally 无条件 checkout main（v2 N10：提交链任一步抛 WmError 也不残留 HEAD 于 task 分支），checkout main 失败时若 try 内有正传播异常则抛消息合并且 from 原异常的 WmError、无则直接抛 WmError（均含 HEAD 可能残留提示）；staging 拷贝起至提交链整体包于外层 try/except——任一步异常先 rmtree 清理已拷入的 wm/jobs/<job_id>/（不留绕闸残留）再原样重抛；全部成功返回 ok True 与 job_id/branch/commit/artifacts/progress/message。
 def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
                  branch: str | None = None) -> dict:
     """凭证闸：result.ok=true 才许提交；白名单拷贝产物后 commit 到任务分支。
@@ -137,57 +137,74 @@ def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
             f"防穿越删库——result.json 产物不可信）")}
     branch = branch or f"task/{job_id}"
 
-    # staging：白名单拷贝进 wm 仓（product = spec + result + log + artifacts）
-    dest = os.path.join(wm, "jobs", job_id)
-    if os.path.isdir(dest):
-        shutil.rmtree(dest)
-    os.makedirs(dest)
-    shutil.copy2(spec_path, os.path.join(dest, "spec.json"))
-    shutil.copy2(result_path, os.path.join(dest, "result.json"))
-    log_path = os.path.join(job, "log.txt")
-    if os.path.isfile(log_path):
-        shutil.copy2(log_path, os.path.join(dest, "log.txt"))
-    # 进展卡（v0.4 §5.3）：worker 写的交接面随快照入库，续跑/复盘才有据可依。
-    # 可选件——短任务（无工具轮次）不产生 progress，缺省不报错。
-    prog_path = os.path.join(job, PROGRESS_FILE)
-    has_progress = os.path.isfile(prog_path)
-    if has_progress:
-        shutil.copy2(prog_path, os.path.join(dest, PROGRESS_FILE))
-    art_names: list[str] = []
+    # artifacts 存在性预检（v10 N83 止血，2026-09-25）：校验先于任何 staging
+    # 写入。旧序（拷 spec/result/log 后才校验）在 artifacts 缺失早退时把
+    # jobs/<job_id>/ 残留留在工作区——后续任一正常快照的 `git add jobs`
+    # 全量扫入残留并随其 merge 进 main：失败任务产物绕过自己的凭证闸/
+    # 专属分支/三级闸合并审查直达 main（确定性触发，无需攻击者）。
+    art_srcs: list[str] = []
     if artifacts:
-        os.makedirs(os.path.join(dest, "artifacts"), exist_ok=True)
         for a in [x.strip() for x in artifacts.split(",") if x.strip()]:
             src = a if os.path.isabs(a) else os.path.join(job, a)
             if not os.path.isfile(src):
                 return {"ok": False, "error": f"artifacts 缺失: {src}"}
-            name = os.path.basename(src)
-            shutil.copy2(src, os.path.join(dest, "artifacts", name))
-            art_names.append(name)
+            art_srcs.append(src)
 
-    # 提交链（v2 N10，2026-09-25）：任一步失败（典型：重复快照已合并任务 →
-    # nothing to commit 退出码 1 → _git_ok 抛 WmError）也必须在 finally 里把
-    # HEAD 还原到 main——否则 HEAD 永久残留在 task/<job_id>，后续 snapshot 的
-    # checkout -B 会以残留分支为祖先，合并新任务即把旧任务产物静默带进 main
-    # （绕过旧任务分支自己的三级闸合并审查）。还原失败同样不吞：合并留痕
-    # 抛 WmError（正传播中的原异常经 from 链保留、消息并入）。
-    head = ""
+    dest = os.path.join(wm, "jobs", job_id)
     try:
-        _git_ok(wm, "checkout", "-B", branch)
-        _git_ok(wm, "add", "jobs")
-        model = result.get("model") or "?"
-        dur = result.get("duration_s")
-        msg = f"task {job_id} verdict=ok model={model}" + (f" duration_s={dur}" if dur else "")
-        _git_ok(wm, "commit", "-m", msg)
-        head = _git_ok(wm, "rev-parse", "--short", "HEAD").strip()
-    finally:
-        r = _git(wm, "checkout", "main")
-        if r.returncode != 0:
-            detail = (r.stderr or r.stdout).strip()[:200]
-            prev = sys.exc_info()[1]
-            if prev is not None:
-                raise WmError(f"{prev}；且快照后还原 main 失败（HEAD 可能残留于"
-                              f" {branch}）: {detail}") from prev
-            raise WmError(f"快照后还原 main 失败（HEAD 可能残留于 {branch}）: {detail}")
+        # staging：白名单拷贝进 wm 仓（product = spec + result + log + artifacts）
+        if os.path.isdir(dest):
+            shutil.rmtree(dest)
+        os.makedirs(dest)
+        shutil.copy2(spec_path, os.path.join(dest, "spec.json"))
+        shutil.copy2(result_path, os.path.join(dest, "result.json"))
+        log_path = os.path.join(job, "log.txt")
+        if os.path.isfile(log_path):
+            shutil.copy2(log_path, os.path.join(dest, "log.txt"))
+        # 进展卡（v0.4 §5.3）：worker 写的交接面随快照入库，续跑/复盘才有据可依。
+        # 可选件——短任务（无工具轮次）不产生 progress，缺省不报错。
+        prog_path = os.path.join(job, PROGRESS_FILE)
+        has_progress = os.path.isfile(prog_path)
+        if has_progress:
+            shutil.copy2(prog_path, os.path.join(dest, PROGRESS_FILE))
+        art_names: list[str] = []
+        if art_srcs:
+            os.makedirs(os.path.join(dest, "artifacts"), exist_ok=True)
+            for src in art_srcs:
+                name = os.path.basename(src)
+                shutil.copy2(src, os.path.join(dest, "artifacts", name))
+                art_names.append(name)
+
+        # 提交链（v2 N10，2026-09-25）：任一步失败（典型：重复快照已合并任务 →
+        # nothing to commit 退出码 1 → _git_ok 抛 WmError）也必须在 finally 里把
+        # HEAD 还原到 main——否则 HEAD 永久残留在 task/<job_id>，后续 snapshot 的
+        # checkout -B 会以残留分支为祖先，合并新任务即把旧任务产物静默带进 main
+        # （绕过旧任务分支自己的三级闸合并审查）。还原失败同样不吞：合并留痕
+        # 抛 WmError（正传播中的原异常经 from 链保留、消息并入）。
+        head = ""
+        try:
+            _git_ok(wm, "checkout", "-B", branch)
+            _git_ok(wm, "add", "jobs")
+            model = result.get("model") or "?"
+            dur = result.get("duration_s")
+            msg = f"task {job_id} verdict=ok model={model}" + (f" duration_s={dur}" if dur else "")
+            _git_ok(wm, "commit", "-m", msg)
+            head = _git_ok(wm, "rev-parse", "--short", "HEAD").strip()
+        finally:
+            r = _git(wm, "checkout", "main")
+            if r.returncode != 0:
+                detail = (r.stderr or r.stdout).strip()[:200]
+                prev = sys.exc_info()[1]
+                if prev is not None:
+                    raise WmError(f"{prev}；且快照后还原 main 失败（HEAD 可能残留于"
+                                  f" {branch}）: {detail}") from prev
+                raise WmError(f"快照后还原 main 失败（HEAD 可能残留于 {branch}）: {detail}")
+    except Exception:
+        # 失败清理（v10 N83）：本次快照未走完（拷贝 OSError / 提交链 WmError），
+        # 已拷入的 staging 撤销——不留任何绕闸残留（后续 `git add jobs`
+        # 扫不到），分支历史与 main 均不受本次失败影响。
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
     return {"ok": True, "job_id": job_id, "branch": branch, "commit": head,
             "artifacts": art_names, "progress": has_progress, "message": msg}
 

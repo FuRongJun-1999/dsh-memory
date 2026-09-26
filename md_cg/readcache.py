@@ -10,13 +10,18 @@
 耗时，~230µs/节点线性退化）——「理论没有落地」。本模块即落地。
 
 与 `install_read_cache`（eval_common.py，benchmark 专用）的差异：
-  1. **写失效哨兵**：缓存条目携带 `len(cg._dirty)` 代际——所有写路径必然
-     标脏（flush 依赖 `_dirty`，add/_sync_edge_entry/负记忆化……无一例外），
-     dirty 代际变化即视为「有写入发生」，该 path 重读一次。对 path-only
-     无失效的朴素实现能红（外部报告实测的陈旧读场景）。
+  1. **写失效哨兵（脏集精确失效，缺陷迭代第 14 轮）**：缓存条目携带
+     缓存时的 `write_gen`，新鲜度按 `_DirtyDict.path_gen[path]`（该 path
+     最近标脏代际）与 `broad_gen`（tombstone/无 path 可辨变更的整池兜底）
+     判定——**写谁失效谁**，单节点写不再使全部条目同时 miss（此前整池
+     共用一个全局代际，10k 池写读交替 38.4× 退化、线性于 N）。所有写路径
+     必然标脏（flush 依赖 `_dirty`，add/_sync_edge_entry/负记忆化……无一
+     例外），标脏即 `_dirty[nid]=entry`（带 path）——簿记在 _DirtyDict
+     钩子内自动完成，写面零挂载点，天然覆盖未来新增写路径（不会有
+     「漏挂失效」型陈旧读）。对 path-only 无失效的朴素实现能红（外部报告
+     实测的陈旧读场景）。
      语义与 MdStore 的「写方落盘后 reload」同构，但**懒清**：检索高频写少，
-     写后首次检索全量重装一次即再稳定，不必写时同步清（写面零挂载点，
-     天然覆盖未来新增写路径——不会有「漏挂失效」型陈旧读）。
+     写后首次检索只重装被写节点，不必写时同步清。
   2. 缓存**解析产物** `(fm, content)`（benchmark 版只缓存原文，parse 仍逐次），
      **并缓存文档侧检索派生物** `_doc_norm_bigrams`（归一化 bigram——批次 21
      实测本机热点 88% 在此而非 I/O：内容不变则派生物不变，随读缓存常驻；
@@ -53,23 +58,52 @@ def direct_read(cg, entry):
     return fn(entry)
 
 
-# 生效条件：cg._read 可调用时以 (path → (dirty 代际, 解析产物)) 常驻字典包装之——命中条件为 path 存在且代际等于当前 len(cg._dirty)；cg._doc_norm_bigrams 亦存在时同款包装其派生物（_score 热点：文档侧归一化 bigram 只依赖 content，随读缓存一并常驻）；包装后 cg._read/_doc_norm_bigrams 为包装函数、cg._read_cache/_norm_bigrams_cache 为缓存字典、cg._read_uncached 为未被包装的原始 _read（direct_read 的真源）；返回缓存字典。
+# 生效条件：cg._read 可调用时以 (path → (缓存时 write_gen, 解析产物)) 常驻字典包装之——_dirty 带 path_gen 簿记（_DirtyDict 形态）时命中条件为「该 path 最近标脏代际(path_gen)与 broad_gen 均 ≤ 缓存时 write_gen」（脏集精确失效：单节点写只失效该节点），否则回落整代际相等校验（旧口径，非 _DirtyDict 防御）；cg._doc_norm_bigrams 亦存在时同款包装其派生物（_score 热点：文档侧归一化 bigram 只依赖 content，随读缓存一并常驻）；包装后 cg._read/_doc_norm_bigrams 为包装函数、cg._read_cache/_norm_bigrams_cache 为缓存字典、cg._read_uncached 为未被包装的原始 _read（direct_read 的真源）；返回缓存字典。
 def install(cg):
-    """把 `cg._read`（与派生物钩子）包成脏代际校验的常驻缓存。"""
+    """把 `cg._read`（与派生物钩子）包成**脏集精确失效**的常驻缓存。
+
+    失效口径（缺陷迭代第 14 轮，high）：此前哨兵取全局单调 write_gen——
+    整池共用一个代际值，任意一次单节点写使**全部**条目同时 miss，下一条
+    查询全池重装（10k 池写读交替 3rep 中位 1677.6ms vs 稳态 43.7ms，
+    38.4× 退化、线性于 N；生产暴露面：mcp_server 读 op=read 与写 op=write
+    同一常驻实例）。`_DirtyDict` 现簿记 `path_gen`（path → 最近标脏时的
+    write_gen）与 `broad_gen`（无 path 可辨变更的整池兜底代际），本包装
+    据此按 path 判新鲜：**写谁失效谁**，其余条目原对象复用。写路径不必
+    再改一处（标脏即 `_dirty[nid]=entry` 带 path，簿记在 _DirtyDict 钩子
+    内自动完成）。
+    """
     cache = {}
     # 重复 install（如显式再调）不叠加包装层，_read_uncached 恒指真原始。
     orig = getattr(cg, "_read_uncached", None) or cg._read
     cg._read_uncached = orig
 
+    def _fresh(p, hit):
+        """hit=(缓存时 write_gen, val) 对 path p 是否仍新鲜（不陈旧）。"""
+        dirty = cg._dirty
+        pg = getattr(dirty, "path_gen", None)
+        if pg is None:
+            # D-4 修复（批次 23 / v20）：代际改读 _DirtyDict.write_gen（单调、
+            # 永不回退）——len(_dirty) 在 flush 清零后可被新写入凑回旧值，代际
+            # 巧合回退 → 陈旧读（v20_d4_repro stale=True 实测）。防御回落兼容
+            # 非 _DirtyDict 形态（整代际相等，旧口径）。
+            return hit[0] == getattr(dirty, "write_gen", len(dirty))
+        # 脏集精确失效（第 14 轮）：该 path 最近标脏代际 ≤ 缓存代际即新鲜
+        # ——单节点写只失效该节点；broad_gen（tombstone/无 path 可辨变更）
+        # 高于缓存代际时整池保守失效（与旧整代际口径等价的安全兜底）。
+        # flush 的 clear() 不推进 broad_gen：flush 只落索引派生物，节点
+        # 文件变更已在各写路径 _dirty[nid]=entry（带 path）时精确失效，
+        # 且生产写路径每次写后 flush（writepipe._commit_visibility）——
+        # 整池失效会让精确失效在生产恒不生效；rebuild_index 收尾走
+        # clear(broad=True) 推进 broad_gen（盘面重扫口径：直写文件 +
+        # rebuild 收尾的写方靠它对读缓存可见）。
+        return (pg.get(p, 0) <= hit[0]
+                and dirty.broad_gen <= hit[0])
+
     def _cached(entry):
         p = entry["path"]
-        # D-4 修复（批次 23 / v20）：代际改读 _DirtyDict.write_gen（单调、
-        # 永不回退）——len(_dirty) 在 flush 清零后可被新写入凑回旧值，代际
-        # 巧合回退 → 陈旧读（v20_d4_repro stale=True 实测）。防御回落兼容
-        # 非 _DirtyDict 形态。
         gen = getattr(cg._dirty, "write_gen", len(cg._dirty))
         hit = cache.get(p)
-        if hit is not None and hit[0] == gen:
+        if hit is not None and _fresh(p, hit):
             return hit[1]
         val = orig(entry)
         cache[p] = (gen, val)
@@ -86,7 +120,7 @@ def install(cg):
             p = entry["path"]
             gen = getattr(cg._dirty, "write_gen", len(cg._dirty))
             hit = nb_cache.get(p)
-            if hit is not None and hit[0] == gen:
+            if hit is not None and _fresh(p, hit):
                 return hit[1]
             val = orig_nb(entry, c)
             nb_cache[p] = (gen, val)

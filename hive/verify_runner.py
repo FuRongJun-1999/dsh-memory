@@ -45,7 +45,9 @@ def _run(cmd, timeout_s):
 
 
 # 生效条件：text 给定——宽松累加两类计数形态（cargo `N passed; M failed` 与
-# run_tests「通过 X / 失败 Y」），返回 (passed, failed)；无命中 → (0, 0)。
+# run_tests SUMMARY 实际形态 `===== SUMMARY N/M 通过，Z 跳过… =====`：
+# failed 不在行内，由 runnable-passed 推出；跳过单列（依赖缺失/平台不符）
+# 不计失败），返回 (passed, failed)；无命中 → (0, 0)。
 # 不适用条件：不区分套件层级（冒烟与全量同口径累加）。
 def _parse_counts(text):
     """宽松解析套件计数（cargo 的 `N passed; M failed` 与 run_tests 的两种）。"""
@@ -54,6 +56,13 @@ def _parse_counts(text):
         passed += int(m.group(1))
     for m in re.finditer(r"(\d+) failed", text):
         failed += int(m.group(1))
+    # run_tests.py 实际 SUMMARY 形态（v6 N28：此前只认从未打印过的
+    # `通过 X / 失败 Y`，python 侧计数恒 (0,0)，verdict.json 留痕失真）。
+    for m in re.finditer(
+            r"SUMMARY\s+(\d+)\s*/\s*(\d+)\s*通过[，,]\s*(\d+)\s*跳过", text):
+        p, total = int(m.group(1)), int(m.group(2))
+        passed += p
+        failed += max(0, total - p)
     for m in re.finditer(r"通过\s+(\d+)\s*/\s*失败\s+(\d+)", text):
         passed += int(m.group(1))
         failed += int(m.group(2))
@@ -87,8 +96,9 @@ def _compose_semantics(a_ok: bool, suite_ok: bool):
 #   是独立防线）、SUBJECT_FP 由派发方 spec.env 注入。
 #   子功能：A1/A2/A3 断言 → 全量套件（cargo+run_tests；--smoke 走内置探针）→
 #   make_verdict 脱敏 → verdict.json 落盘（sanity + shape 双门禁）。
-#   执行：verdict=pass 当且仅当断言 AND 套件皆过；valid=放行位（与 verdict 同义），
-#   assertions_ok=断言面，failure_reason 枚举失败成因（J1/J3）。
+#   执行：verdict=pass 当且仅当断言 AND 套件皆过；套件面=双 rc=0 + failed=0
+#   + passed>0（N9 批次 49：空跑/零计数不得以 pass 写盘）；valid=放行位
+#   （与 verdict 同义），assertions_ok=断言面，failure_reason 枚举失败成因（J1/J3）。
 #   验证方式：test——test_p39_verify_flow 9/0（--smoke）+ test_interop_judgment 守卫。
 #   不适用条件：不产出 pass/fail 以外的裁决（分歧仲裁属 arbitration.json 另一产物）。
 def main(argv):
@@ -148,7 +158,12 @@ def main(argv):
     rc_cargo, out_c, _ = _run(cargo_cmd, timeout_s // 2)
     rc_py, out_p, _ = _run(py_cmd, timeout_s // 2)
     passed, failed = _parse_counts(out_c + out_p)
-    suite_ok = rc_cargo == 0 and rc_py == 0 and failed == 0
+    # N9（批次 49，2026-09-26）：补 passed > 0 门——rc=0 不等于「跑了」：输出
+    # 措辞漂移/套件静默退出 0 时 _parse_counts 得 (0,0)，旧判定空跑全绿以
+    # pass 写 verdict，绕过「未验证不写入」。passed>0 = 至少解析到一条真实
+    # 计数（--smoke 探针合计 7，不误伤）。
+    suite_ok = (rc_cargo == 0 and rc_py == 0 and failed == 0
+                and passed > 0)
     a_ok = bool(a1["ok"] and a2["ok"] and a3["ok"])
 
     verdict, valid, assertions_ok, failure_reason = \

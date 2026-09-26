@@ -50,13 +50,32 @@ ENV_AUX_ROOT = "MDCG_AUX_ROOT"
 DEFAULT_AUX_DIRNAME = ".mdcg"
 
 
+# 生效条件：p 按仓库既有口径 expanduser+abspath 归一；平台为 Windows（os.name=="nt"）
+# 且归一结果以设备命名空间前缀（"\\\\.\\"）开头时抛 ValueError——保留设备名末段
+# （aux/con/nul/prn/com1-9/lpt1-9 等）会被 GetFullPathNameW 吞成设备路径
+# （例 D:\sandbox\aux → \\.\aux），目录语义静默丢失，密钥/令牌/数据覆盖键随之
+# 静默失联；非 Windows 平台该形态是合法目录名字面量，不判定。归一是纯字符串
+# 操作不触盘，路径无需存在即可复现。env_key 传覆盖键名（env 变量名或 paths.json
+# 键），仅用于错误消息定位误配来源；为空时消息以「该路径」指代。
+def _abs_host_path(p: str, env_key: str = "") -> str:
+    r = os.path.abspath(os.path.expanduser(p))
+    if os.name == "nt" and r.startswith("\\\\.\\"):
+        who = env_key or "该路径"
+        raise ValueError(
+            f"{who} 归一后解析为 Windows 设备命名空间路径 {r!r}：末段是 Windows "
+            "保留设备名（aux/con/nul/prn/com1-9/lpt1-9 等），GetFullPathNameW 会把"
+            "整个目录吞成设备路径，目录语义静默丢失（落在此处的密钥/令牌/数据会"
+            f"静默失联）；请把 {who} 改指向末段不含保留设备名的普通目录。")
+    return r
+
+
 # 生效条件：无入参，恒返回本文件 __file__ 绝对路径上溯两级得到的插件仓根目录。
 def plugin_root() -> str:
     """插件仓根目录（本文件位于 <root>/md_cg/datapath.py）。"""
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-# 生效条件：无入参；ENV_STATE_ROOT 环境变量为非空真值时返回其 abspath，为空串/未设时若 DSH_HOME 为非空真值则返回其 abspath 下 ".dsh-memory"，两者皆无则返回 ~/.dsh/.dsh-memory 的 abspath。
+# 生效条件：无入参；ENV_STATE_ROOT 环境变量为非空真值时经 _abs_host_path 归一返回（Windows 上归一为设备命名空间形态——保留设备名末段——时抛 ValueError），为空串/未设时若 DSH_HOME 为非空真值则返回其 abspath 下 ".dsh-memory"，两者皆无则返回 ~/.dsh/.dsh-memory 的 abspath。
 def state_root() -> str:
     """用户级状态根（**插件包目录之外**）：路径配置与默认数据根的落点。
 
@@ -65,7 +84,7 @@ def state_root() -> str:
     """
     env = os.environ.get(ENV_STATE_ROOT)
     if env:
-        return os.path.abspath(env)
+        return _abs_host_path(env, ENV_STATE_ROOT)
     dsh_home = os.environ.get("DSH_HOME")
     if dsh_home:
         return os.path.join(os.path.abspath(dsh_home), ".dsh-memory")
@@ -192,29 +211,33 @@ def migrate_legacy_data() -> dict:
     return out
 
 
-# 生效条件：无入参；ENV_DATA_ROOT 环境变量为非空真值时返回其 abspath，为空串/未设时若 paths.json 的 "data_root" 为真值则按其是否为绝对路径决定直接 abspath 还是拼 plugin_root() 后 abspath，该键缺失或为假值时回落 default_data_root()。
+# 生效条件：无入参；ENV_DATA_ROOT 环境变量为非空真值时经 _abs_host_path 归一返回（Windows 保留设备名末段抛 ValueError，下同），为空串/未设时若 paths.json 的 "data_root" 为真值则按其是否为绝对路径决定直接归一还是拼 plugin_root() 后归一，该键缺失或为假值时回落 default_data_root()。
 def data_root() -> str:
     """数据根（记忆/账本/运行态的父目录）。"""
     env = os.environ.get(ENV_DATA_ROOT)
     if env:
-        return os.path.abspath(env)
+        return _abs_host_path(env, ENV_DATA_ROOT)
     cfg = _user_paths().get("data_root")
     if cfg:
-        return os.path.abspath(cfg) if os.path.isabs(cfg) else \
-            os.path.abspath(os.path.join(plugin_root(), cfg))
+        return _abs_host_path(cfg, "paths.json 的 data_root") \
+            if os.path.isabs(cfg) else \
+            _abs_host_path(os.path.join(plugin_root(), cfg),
+                           "paths.json 的 data_root")
     return default_data_root()
 
 
-# 生效条件：无入参；ENV_MDCG_ROOT 环境变量为非空真值时返回其 abspath，为空串/未设时若 paths.json 的 "root" 为真值则按其是否为绝对路径决定直接 abspath 还是拼 plugin_root() 后 abspath，该键缺失或为假值时返回 data_root() 下 "mdcg" 的拼接路径。
+# 生效条件：无入参；ENV_MDCG_ROOT 环境变量为非空真值时经 _abs_host_path 归一返回（Windows 保留设备名末段抛 ValueError，下同），为空串/未设时若 paths.json 的 "root" 为真值则按其是否为绝对路径决定直接归一还是拼 plugin_root() 后归一，该键缺失或为假值时返回 data_root() 下 "mdcg" 的拼接路径。
 def mdcg_root() -> str:
     """认知图（记忆唯一真源）根目录。"""
     env = os.environ.get(ENV_MDCG_ROOT)
     if env:
-        return os.path.abspath(env)
+        return _abs_host_path(env, ENV_MDCG_ROOT)
     cfg = _user_paths().get("root")
     if cfg:
-        return os.path.abspath(cfg) if os.path.isabs(cfg) else \
-            os.path.abspath(os.path.join(plugin_root(), cfg))
+        return _abs_host_path(cfg, "paths.json 的 root") \
+            if os.path.isabs(cfg) else \
+            _abs_host_path(os.path.join(plugin_root(), cfg),
+                           "paths.json 的 root")
     return os.path.join(data_root(), "mdcg")
 
 
@@ -227,7 +250,7 @@ def state_dir(*parts: str, create: bool = True) -> str:
     return p
 
 
-# 生效条件：无入参；ENV_AUX_ROOT 为非空真值时返回其 expanduser+abspath，否则返回 ~/.mdcg 的拼接路径（历史默认，逐字不变）。
+# 生效条件：无入参；ENV_AUX_ROOT 为非空真值时经 _abs_host_path 归一返回（Windows 保留设备名末段抛 ValueError），否则返回 ~/.mdcg 的拼接路径（历史默认，逐字不变）。
 def aux_root() -> str:
     """辅助存储根（密钥/令牌/信任/理论/心跳）所在目录。
 
@@ -241,7 +264,7 @@ def aux_root() -> str:
     """
     env = (os.environ.get(ENV_AUX_ROOT) or "").strip()
     if env:
-        return os.path.abspath(os.path.expanduser(env))
+        return _abs_host_path(env, ENV_AUX_ROOT)
     return os.path.join(os.path.expanduser("~"), DEFAULT_AUX_DIRNAME)
 
 
@@ -356,11 +379,17 @@ if __name__ == "__main__":
                     help="把旧版包内 data/ 的数据面复制到用户级默认数据根"
                          "（只复制不删除；默认数据根被显式配置时不动作）")
     a = ap.parse_args()
-    if a.set_root:
-        print("written:", set_user_root(a.set_root, "data_root"))
-    if a.set_mdcg_root:
-        print("written:", set_user_root(a.set_mdcg_root, "root"))
-    if a.migrate_legacy:
-        print("migrate:", json.dumps(migrate_legacy_data(),
-                                     ensure_ascii=False))
-    print(json.dumps(describe(), ensure_ascii=False, indent=2))
+    # main 级入口承接受理：覆盖键末段为 Windows 保留设备名时 _abs_host_path 抛
+    # ValueError——CLI 面给一行清晰呈现（含原始消息），不留裸 traceback。
+    try:
+        if a.set_root:
+            print("written:", set_user_root(a.set_root, "data_root"))
+        if a.set_mdcg_root:
+            print("written:", set_user_root(a.set_mdcg_root, "root"))
+        if a.migrate_legacy:
+            print("migrate:", json.dumps(migrate_legacy_data(),
+                                         ensure_ascii=False))
+        print(json.dumps(describe(), ensure_ascii=False, indent=2))
+    except ValueError as ve:
+        sys.stderr.write(f"[datapath] {ve}\n拒绝输出：请先改正上述覆盖键/配置。\n")
+        sys.exit(2)
