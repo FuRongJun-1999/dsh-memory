@@ -1286,6 +1286,25 @@ class MdCG:
                     extra["semantic_oov"] = _oov
             except Exception:
                 pass
+        # 桶路由键必须在**选目录之前**补齐：`routing.route_key()` 只认 tags 里的
+        # `domain:` 前缀（其次才是 condition_space.observation_position），**不读
+        # big_domain**；而 bucket 与落盘目录在这一段就定死了（索引的 bucket 同样由
+        # 父目录名派生）。实测：把补标签放在 fm 构造之后（原 W1 的位置）会导致
+        # big_domain 与 domain: 标签都在、但文件仍写进 knowledge/orphan/。
+        # 只对分桶层补标签（BUCKETED_LAYERS=("knowledge",)），避免污染其它层的 tags。
+        if (layer in BUCKETED_LAYERS
+                and os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
+                and not any(str(t).startswith("domain:")
+                            for t in (tags or []))):
+            _bd_pre = extra.get("big_domain") or None
+            if not _bd_pre:
+                try:
+                    _bd_pre = routing.classify_text(content)
+                except Exception:
+                    _bd_pre = None
+            if _bd_pre:
+                tags = list(tags or [])
+                tags.append("domain:" + str(_bd_pre))
         bucket = None
         d = os.path.join(self.root, layer)
         bucket_zh = []
@@ -1344,6 +1363,21 @@ class MdCG:
                 _bd = None
             if _bd:
                 fm["big_domain"] = _bd
+        # CCG「不适用条件」写入口径：正文声明了 `# 不适用条件：` 而调用方没给列表时，
+        # 按 ccgc 的同一拆分口径（[；;]）结构化进 frontmatter。否则 has_non_applicable()
+        # （按正文文本判，health 的 neg_conditions_set 用它）与 non_applicable_conditions
+        # （judge_qualification 的 REJECT 路径用它）会长期脱钩——实测历史数据修好后
+        # 新写入节点立刻复现（1/73）。正文里字面 `…` 是写入期截断尾巴，按占位丢弃。
+        if not fm.get("non_applicable_conditions"):
+            _na_line = nodefile.ccg_field_value(content, "不适用条件")
+            if _na_line:
+                _na_vals = [s.strip() for s in re.split(r"[；;]", _na_line) if s.strip()]
+                _na_vals = [re.sub(r"[.．…\s，,；;、]+$", "", v).strip()
+                            for v in _na_vals]
+                _na_vals = [v for v in _na_vals
+                            if v and not nodefile.is_placeholder_text(v)]
+                if _na_vals:
+                    fm["non_applicable_conditions"] = _na_vals
         # 生命周期状态（② 显式状态机，真源 `lifecycle.py`）：add 是**全量重建
         # fm** 而非增量更新，故必须显式处理状态——否则已定型/已降权节点会被静默
         # 打回 active（与 ④ rewrite 必须重传 branch_id 同构的坑）。口径：

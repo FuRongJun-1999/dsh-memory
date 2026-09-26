@@ -605,10 +605,22 @@ class MdCGOS(MdCG):
         """在父类 add 之上：写入 role（frontmatter + 索引），默认 role=None（知识）。"""
         if role is not None:
             kw["role"] = role
+        # 会话归属必须落 frontmatter：本文件 session 过滤的文档即写「frontmatter.session，
+        # 写入时自动落盘」，但父类 add 的 fm 固定字典里没有该键、_stage 只把它放进索引 →
+        # 实际只有索引带归属，任何 rebuild_index() 都会抹掉（实测 73 节点里 56 个无
+        # frontmatter.session，而 _audit.jsonl 的 add 事件却 152/152 都记了 session：
+        # 写入口径与落盘口径脱钩）。与 role 同款：显式给就尊重，否则取 self.session
+        # （MdCGSecure 由 principal.session 注入，mcp_server 按请求切换 cg.session）。
+        _sess = kw.get("session") or getattr(self, "session", None)
+        if _sess and not kw.get("session"):
+            kw["session"] = _sess
         nid = super().add(node_id, content, layer=layer, **kw)
         e = self.index["nodes"].get(nid)
         if e is not None and role is not None:
             e["role"] = role
+        if e is not None and _sess:
+            e["session"] = _sess
+        if e is not None and (role is not None or _sess):
             self._dirty[nid] = e
         self._audit("add", nid, layer=layer, role=role,
                     payload_hash=_sig(content))

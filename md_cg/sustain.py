@@ -74,6 +74,7 @@ DEFAULT_WARN_FACTOR = 2.5         # 2.5× 心跳间隔 → 警告
 DEFAULT_DEAD_FACTOR = 3.5         # 3.5× → 失联
 DEFAULT_WORKING_FACTOR = 2.0      # 任务执行中阈值 ×2
 STALE_TEMP_AGE = 3600.0           # 临时文件超过 1h 视为陈旧
+ACCESS_LOG_COMPACT_LINES = 500    # 访问日志超过该行数即折叠（否则无上限增长）
 _POLL = 0.2                       # 循环轮询步长（常驻进程 CPU 可忽略）
 
 
@@ -491,9 +492,25 @@ def diagnose(cg, *, name: str = "md_cg", stale_temp_age: float = STALE_TEMP_AGE,
 
     shards = _index_log_shards(root)
     if shards:
-        issues.append({"code": "index_log_backlog", "severity": "info",
+        # severity 必须是 warning：_tick_heal 只在 rep["ok"] 为假（即存在 warning）时
+        # 才进 heal()，标 info 会让本问题永远进不了修复路径。
+        issues.append({"code": "index_log_backlog", "severity": "warning",
                        "detail": f"{len(shards)} 个索引增量分片未合并",
-                       "fix": "flush_index"})
+                       "fix": "compact_index"})
+
+    _acc_log = os.path.join(root, "_access.log")
+    _acc_lines = 0
+    try:
+        if os.path.exists(_acc_log):
+            with open(_acc_log, encoding="utf-8", errors="replace") as _af:
+                _acc_lines = sum(1 for _ in _af)
+    except OSError:
+        _acc_lines = 0
+    if _acc_lines > ACCESS_LOG_COMPACT_LINES:
+        issues.append({"code": "access_log_backlog", "severity": "warning",
+                       "detail": f"访问日志 {_acc_lines} 行未折叠进节点"
+                                 f"（> {ACCESS_LOG_COMPACT_LINES}）",
+                       "fix": "compact_access"})
 
     temps = _list_stale_temps(root, stale_temp_age)
     if temps:
@@ -646,6 +663,18 @@ def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
             lambda: _ri.rebuild(cg, ledger=_led))
     if "index_log_backlog" in codes:
         act("flush_index", "合并索引增量分片", cg.flush)
+
+# 生效条件：闭包内先 cg.flush()（把内存 _dirty 落进分片）再 cg.compact_index()
+# （读「_index.json 快照 + 分片」写回快照并清空分片）；顺序不可颠倒——compact_index
+# 以整体替换 self.index，未 flush 的内存条目会丢。
+    def _compact_index():
+        cg.flush()
+        return cg.compact_index()
+    if "index_log_backlog" in codes:
+        act("compact_index", "分片折叠进 _index.json（快照落盘）", _compact_index)
+    if "access_log_backlog" in codes:
+        act("compact_access", "折叠访问日志进 access_count / last_access",
+            cg.compact_access)
     if "stale_temps" in codes:
         paths = _list_stale_temps(root, stale_temp_age)
 

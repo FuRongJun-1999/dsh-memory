@@ -45,7 +45,7 @@ import os
 import random
 import time
 
-from . import forgetting, protect
+from . import forgetting, nodefile, protect
 from .fsutil import append_jsonl, read_jsonl
 from .mdcg import bigrams
 
@@ -450,7 +450,12 @@ def _kv_pairs(content) -> dict:
             if sep in line:
                 k, _, v = line.partition(sep)
                 k, v = k.strip(), v.strip()
-                if 2 <= len(k) <= 12 and v and k not in _SKIP_KEYS:
+                # CCG 六要素行（`# 功能名：` / `# 不适用条件：` …）是**逐节点声明**，
+                # 不是可跨节点比对的断言值。把「不适用条件」当键会让语义无关的节点
+                # 互为「同键不同值」矛盾（实测 12 抽样里 9 条 high 全是这类误报，
+                # 且 apply 会把好节点 weaken+demote 并跨层移动文件）。
+                if (2 <= len(k) <= 12 and v and k not in _SKIP_KEYS
+                        and not nodefile.is_ccg_mark(k)):
                     out.setdefault(k, v)
                 break
     return out
@@ -642,7 +647,12 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
         nid, kind = issue["node_id"], issue["kind"]
         if kinds and kind not in kinds:
             continue
-        if kind in ("duplicate", "unverified"):
+        # 只给建议的动作必须按 CONTAMINATION 的**声明**判定，不能靠 kind 白名单：
+        # `not_yet` 声明 fix=("hint",)，原实现只排除 duplicate/unverified，
+        # 于是它会落到 _weaken 分支（实测 min_severity="info" 时 confidence
+        # 0.6→0.45、negative_evidence 0→1），声明与实修不一致。
+        _declared = CONTAMINATION.get(kind, (None, ()))[1]
+        if kind in ("duplicate", "unverified") or _declared == ("hint",):
             n_hint += 1
             actions.append({"node_id": nid, "kind": kind, "action": "hint",
                             "detail": issue["detail"], "applied": False})
