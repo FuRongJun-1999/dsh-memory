@@ -223,3 +223,26 @@ extra_in_local=['session']
 - **只增不删**：所有临时库实验中既有节点零修改零删除；retire 为 forget 软删除（trash/ 留痕 + 删除清单 + 可 restore），非物理删除。
 - **撰写会话自查范围（诚实边界）**：本会话实跑项 = ①WORKSPACE_INDEX 定位与 v1.0 报告读档；②`scripts/dsh_log_index.py` 全文 773 行实读（双行号表逐处核对）；③gh api 机械 diff（remote 81 / local 82 / missing=[] / extra=['session']）；④`git show HEAD:scripts/dsh_log_index.py` 基线形态核对；⑤产品码引证逐处读码（docindex :13-14/:41/:42/:43/:127/:199/:266；mdcos :3913-3956/:3796-3807/:2345-2374/:3832-3839；crypto :62；mdcg :907）；⑥门禁三项（§四）；⑦`git status --porcelain`（仅 M scripts/dsh_log_index.py）；⑧隐私预扫描（见下）。红绿基线、临时库摄取、retire、四查询回查为【实现会话实测】记录，撰写会话未重跑（触私有会话根与私有数据，按隐私纪律不重复触达），文中逐处标注。
 - **隐私预扫描（【撰写会话实跑】，成稿后对本文件全文执行）**：盘符路径形态（字母+冒号+斜杠）0 条；工作区编码目录名字面 0 条；哑密钥字面 0 条；日志正文原文 0 条（扫描脚本与结果见返回记录，扫描完即删）。
+
+---
+
+## 附录：在役活库部署与有效性验证（2026-09-26，批次61 收尾）
+
+### 部署
+
+`--retire-private-legacy` 在役执行：旧 private 节点 **33 个软删除**（trash+留痕可恢复）+ internal 新节点 **169 个**重摄取（5 会话全量，含 default-workspace 空会话 0 节点）；密级分布复核 `{internal: 169}`——private 清零。
+
+### 有效性验证（新会话读者身份，模拟"后来想知道"的跨会话回看）
+
+| 验证项 | 结果 |
+|---|---|
+| 可见性闭环（gap③） | ✅ internal=跨会话共享档（`_readable` 语义：public/internal 共享、private/secret 绑定归属），新会话读者可见 169/169 |
+| 探针 `dsh_restart_recheck_20260926` | ✅ 可读（P1b-2 磁盘索引在库，待 DSH 端常驻进程重启/maintain reload 后从其读面亦可见） |
+| 精确词检索 | ✅ `SetNamedSecurityInfoW`（worker-exit 沙箱结论）→ **rank=1**；`DETACHED_PROCESS` → rank=42 进 top100 |
+| 自然语句泛查询 | ⚠️ "工作区目录/真实仓库在哪里"类自然语句 → top100 零 dsh-log（被 14k 大库手工节点稀释——短日志块打分劣势） |
+
+### 使用指引与遗留
+
+- **DSH 端使用建议**：日志回查用**精确词/独占专名查询**（错误码、路径、标识符——rank=1 级命中），自然语句查询在 14k 大库下召回被稀释；
+- **遗留（gap④ 排名调优）**：短文档加权/时间衰减加权/`dsh-log-` 前缀过滤检索参数——入池专项，属检索质量调优非可见性缺陷；
+- 本轮部署未触碰 DSH 探针与在役既有节点（retire 仅软删除 dsh-log- 前缀 private 节点）。
