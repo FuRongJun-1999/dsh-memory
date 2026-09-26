@@ -3584,8 +3584,32 @@ def _resolve_root(env=None):
     return root, None
 
 
-# 生效条件：_resolve_root() 返回 err 非空时向 stderr 写冲突说明并返回 2；root 为空写缺少 MDCG_ROOT 并返回 2；root 的 basename 小写以 _md_cg_ 开头返回 2，令牌校验失败返回 3；其余构造 MdCGSecure 并进入 stdin 分派循环。
+# 生效条件：sys.stdin/stdout/stderr 三个流逐个 reconfigure(encoding="utf-8", errors="replace")，
+# 流不支持 reconfigure（AttributeError，如被替换为非 TextIO 对象）或取值非法（ValueError）时静默跳过该流，无返回值。
+def _force_utf8_stdio():
+    """进程内强制 stdio 三流 = UTF-8（issue #39 纵深防线）。
+
+    MCP 协议是 UTF-8 JSON，但 Windows 控制台默认代码页（如 CP936/GBK）会让
+    stdio 管道跟随 locale——宿主按 UTF-8 发来的中文参数被按 GBK 解码：strict
+    下读侧直接 UnicodeDecodeError，surrogateescape 下解出代理对（\\udcXX），
+    ``_j()``（ensure_ascii=False）按 UTF-8 编码时即抛 ``UnicodeEncodeError:
+    surrogates not allowed``，整条请求失败（写英文正常，故用户难自查）。
+    桥层已在 ``src/lib/mdcg_client.ts`` 的 ``mdcgChildEnv()`` 注入
+    ``PYTHONUTF8=1``，但只覆盖 DSH 桥路径——Claude Code / code CLI 直接
+    mcp.json 接入不经桥，仍踩（issue #39）。进程内 reconfigure 是对桥层
+    防线的纵深补位；``errors="replace"`` 保证坏字节最多丢字符、不炸整条请求。
+    必须在 main() 首行调用：早于一切 stderr 中文写与 stdin 读取。
+    """
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
+# 生效条件：_force_utf8_stdio() 先执行（stdio 三流强制 UTF-8，issue #39）；此后 _resolve_root() 返回 err 非空时向 stderr 写冲突说明并返回 2；root 为空写缺少 MDCG_ROOT 并返回 2；root 的 basename 小写以 _md_cg_ 开头返回 2，令牌校验失败返回 3；其余构造 MdCGSecure 并进入 stdin 分派循环。
 def main():
+    _force_utf8_stdio()
     root, _terr = _resolve_root()
     if _terr:
         sys.stderr.write(f"[mdcg-mcp] 租户根冲突：{_terr}。"

@@ -675,8 +675,31 @@ def _rpc(req: dict):
     return None
 
 
-# 生效条件：无必需形参；逐行读 sys.stdin，空行与 json.loads 抛 ValueError 的行被跳过，_rpc(req) 抛非 ValueError 异常时回写 id=None 的 -32603 internal error 一行（入口兜底不崩 server，与工具层 try 同款模板），仅 _rpc(req) 返回非 None 时向 stdout 写一行 JSON 并 flush，读到 EOF 后返回 0。
+# 生效条件：sys.stdin/stdout/stderr 三个流逐个 reconfigure(encoding="utf-8", errors="replace")，
+# 流不支持 reconfigure（AttributeError）或取值非法（ValueError）时静默跳过该流，无返回值。
+def _force_utf8_stdio():
+    """进程内强制 stdio 三流 = UTF-8（issue #39，与 md_cg/mcp_server.py 同族同修）。
+
+    MCP 协议是 UTF-8 JSON，但 Windows 控制台默认代码页（如 CP936/GBK）会让
+    stdio 管道跟随 locale——宿主按 UTF-8 发来的中文参数（model/user_prompt 等）
+    被按 GBK 解码：strict 下读侧直接 UnicodeDecodeError，surrogateescape 下
+    解出代理对（\\udcXX），main() 里 ``json.dumps(..., ensure_ascii=False)``
+    写 stdout 时按 UTF-8 编码即抛 ``UnicodeEncodeError: surrogates not
+    allowed``，整条请求失败。桥层 ``PYTHONUTF8=1``（src/lib/mdcg_client.ts）
+    只覆盖 DSH 桥路径，mcp.json 直连不经桥仍踩；进程内 reconfigure 是纵深
+    补位；``errors="replace"`` 保证坏字节最多丢字符、不炸整条请求。
+    必须在 main() 首行调用：早于一切 stderr 中文写与 stdin 读取。
+    """
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
+# 生效条件：_force_utf8_stdio() 先执行（stdio 三流强制 UTF-8，issue #39）；此后逐行读 sys.stdin，空行与 json.loads 抛 ValueError 的行被跳过，_rpc(req) 抛非 ValueError 异常时回写 id=None 的 -32603 internal error 一行（入口兜底不崩 server，与工具层 try 同款模板），仅 _rpc(req) 返回非 None 时向 stdout 写一行 JSON 并 flush，读到 EOF 后返回 0。
 def main() -> int:
+    _force_utf8_stdio()
     for line in sys.stdin:
         line = line.strip()
         if not line:
