@@ -2686,10 +2686,10 @@ def _export_call(cg, a):
 
 # 生效条件：act=(a.get("action") or "stat").strip().lower()，apply=bool(a.get("apply"))，mode=str(a.get("mode") or "").strip().lower()；principal 非 None 时对 act=="rollback"、act in ("importance","separate") 且 apply、act=="longterm" 且 apply、act=="prefeed" 且 a.get("write") 真且无写权、act in ("backfill","cap","exempt") 且 apply、act in ("backfill_rollback","cap_rollback","exempt_rollback")、act=="vision_evidence" 且 apply、act=="vision_evidence_rollback"、act=="refine" 且 apply 分别 require_admin；随后 act=="longterm" 且 mode in ("list","ls","show","read") 时仅以 action/mode/limit/snapshot_id 调 cg.maintain，否则以全部参数调 cg.maintain。
 def _maintain_call(cg, a):
-    """记忆维护（P1）：importance / longterm / prefeed / separate / rollback / stat / propagate。
+    """记忆维护（P1）：importance / longterm / prefeed / separate / rollback / stat / propagate / reload。
 
     权限**按 action 分档**（比整 op 收窄更贴合语义）：
-      · 只读（stat / history / longterm mode=list|show）→ 不额外拦截；
+      · 只读（stat / history / longterm mode=list|show / reload 读面代际刷新）→ 不额外拦截；
       · 写入侧闸门（prefeed write=True）→ 需 can_write；
       · 批量改写（importance / separate / longterm 的 apply，以及 rollback 本身
         即反向写入、无 dry-run 语义）→ require_admin。

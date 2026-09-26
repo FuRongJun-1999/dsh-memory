@@ -764,6 +764,7 @@ class MdCGOS(MdCG):
         q = unify_query(q)
         if not q:
             return [], {"tier": None, "reason": "empty_query", "scanned": 0}
+        self._maybe_reload_index()      # P1b-2：读面代际感知（route/read/search 链）
         pool_cfg = pooling.resolve(pooling.from_env(pools))
         entries = self._candidates(layer=layer, roles=roles, include_work=include_work,
                                    session=session, branch=branch, validity=validity,
@@ -1308,6 +1309,10 @@ class MdCGOS(MdCG):
         q = unify_query(q)
         if not q:
             return [], {"tier": None, "reason": "empty_query", "paths": {}}
+        # P1b-2：读面代际感知——必须在热路径 query 缓存查询**之前**：旧索引
+        # 代里缓存的命中结果对新写入不可见（静默错答），重载成功时
+        # _maybe_reload_index 已顺带失效 hotcache/readcache。
+        self._maybe_reload_index()
         # 热路径：query 结果缓存命中即返回（不改 RRF 核心）
         # 时间算子**显式启用时绕开缓存**：缓存键不含时间参数，命中会返回
         # 未按本次窗口过滤的结果（静默错答比慢更贵）。
@@ -2682,7 +2687,7 @@ class MdCGOS(MdCG):
     #       召回热路径，只在显式调用时工作。
 
     MAINTAIN_ACTIONS = ("stat", "history", "importance", "longterm",
-                        "prefeed", "separate", "rollback",
+                        "prefeed", "separate", "rollback", "reload",
                         "backfill", "backfill_rollback", "backfill_history",
                         "cap", "cap_rollback", "cap_history",
                         "exempt", "exempt_rollback", "exempt_history",
@@ -2727,7 +2732,7 @@ class MdCGOS(MdCG):
                        "discard": "已丢弃（不写）", "defer": "留待复核（不写不并）"}.get(dec, "")
         return out
 
-# 生效条件：act 取 str(action or "stat") 去空白并 lower 后按分支分派（importance / longterm / prefeed / separate / stat 等）；未识别 act 走 stat 兜底；只读与写层 action 库层不鉴权，apply 类批量改写由 MCP 分发层 require_admin 把守；
+# 生效条件：act 取 str(action or "stat") 去空白并 lower 后按分支分派（reload / importance / longterm / prefeed / separate / stat 等，reload 只触发 _maybe_reload_index 并返回 {"reloaded": bool}）；未识别 act 走 stat 兜底；只读与写层 action 库层不鉴权，apply 类批量改写由 MCP 分发层 require_admin 把守；
     def maintain(self, action="stat", layer=None, limit=None, apply=False,
                  min_delta=None, max_rows=None, force=False, keep=None,
                  mode=None, snapshot_id=None, batch=None, entry_ids=None,
@@ -2738,8 +2743,15 @@ class MdCGOS(MdCG):
 
         只读 action（stat/history/longterm 预演）与写层 action（prefeed）不受
         管理权限约束；apply 类批量改写由 MCP 分发层 `require_admin` 把守。
+
+        reload（P1b-2，DSH 建议 2）：显式触发 _maybe_reload_index（签名变化
+        才真重载），返回 {"reloaded": bool} 供外部探活常驻进程的读面代际。
         """
         act = str(action or "stat").strip().lower()
+        if act == "reload":
+            # 探活/显式刷新：无副作用面（签名未变时是零开销 stat + False）。
+            return {"ok": True, "op": "maintain", "action": "reload",
+                    "reloaded": bool(self._maybe_reload_index())}
         if act == "importance":
             return weights.recalc(self, layer=layer, limit=limit, apply=apply,
                                   min_delta=(weights.APPLY_DELTA if min_delta is None

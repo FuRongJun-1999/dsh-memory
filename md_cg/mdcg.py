@@ -918,7 +918,7 @@ _NODE_ID_FORBIDDEN = frozenset({"None", "null"})
 
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
-# 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
+# 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引并以 _index_signature() 记录 _index.json 签名到 self._index_sig（跨进程读面代际感知的基线，P1b-2）、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
     def __init__(self, root: str, autoflush: int = 64):
         self.root = os.path.abspath(root)
         os.makedirs(self.root, exist_ok=True)
@@ -937,6 +937,13 @@ class MdCG:
         self._dirty = _DirtyDict()
         self._log = None
         self.index = self._load_index()
+        # P1b-2（2026-09-26，DSH 在役复验）：索引只在本行装载一次，此后
+        # read/get/search 全走内存态——其它进程（review_cli autoflush=1）
+        # 写盘对常驻进程不可见（探针 dsh_restart_recheck_20260926：写后
+        # _index.json 已含探针、同进程 read 仍 null）。记录装载时的文件
+        # 签名作为基线，读路径入口经 _maybe_reload_index 按签名变化增量
+        # 重载；无变化路径只有一次 stat（微秒级）。
+        self._index_sig = self._index_signature()
         sweep_stale_temps(self.root)
         # 进程退出兜底登记（见模块级 _LIVE_CGS）：一次性脚本漏收尾时索引仍能落盘。
         _LIVE_CGS.add(self)
@@ -981,6 +988,62 @@ class MdCG:
         idx["buckets"] = self._count_buckets(idx["nodes"])
         return idx
 
+# 生效条件：以 os.stat(self.index_path) 返回 (st_mtime_ns, st_size) 二元组；文件不存在或 stat 抛 OSError 时返回 None（stat 异常静默——签名探测绝不阻塞读）；
+    def _index_signature(self):
+        """_index.json 文件签名（P1b-2 跨进程读面代际的廉价哨兵）。
+
+        只 stat 一次（微秒级、无 open 无解析）；(mtime_ns, size) 二元组在
+        NTFS 100ns / ext4 ns 粒度下足以识别「他进程写快照」。None = 快照
+        不存在（空库或写方尚未 compact），与他进程首次落快照的 None→非 None
+        变化同样可判。
+        """
+        try:
+            st = os.stat(self.index_path)
+            return (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return None
+
+# 生效条件：stat 对比 _index_signature() 与 self._index_sig，相等（含双侧 None）即返回 False 不做任何事；不等则调 _load_index() 重载，OSError/ValueError 时静默放弃并返回 False（重载失败不阻塞读，沿用旧内存态）；成功后把 self._dirty 重放回新索引（None=tombstone pop、否则覆盖，与 _load_index 的日志重放同语义——本实例未 flush 的写入不得因重载从检索面消失）并重算 buckets，替换 self.index、刷新 self._index_sig、返回 True；
+    def _maybe_reload_index(self):
+        """读路径入口的索引代际感知（P1b-2）：签名变化才重载。
+
+        语义边界（读码定案）：
+        · flush() 只追加 _index_log 分片、不改 _index.json（见 flush 注释）
+          → 签名不变 → 自身写入/落账**永不**触发重载（无自重载循环）；
+        · compact_index / rebuild_index 写 _index.json 后已主动刷新签名，
+          同理不触发；
+        · 他进程只有写出新快照（compact/rebuild，典型在 close）才改变签名
+          → 此时重载并重放分片日志（_load_index 既有行为），写入可见；
+          仅追加日志、尚无新快照的存活写方不在本探测面内（显式触发可用
+          maintain action=reload，但日志记录只有在快照重写时才会并入）；
+        · 本实例 _dirty 未 flush 的条目在重载后**重放回内存索引**——
+          _stage 双写 index+_dirty 的「检索看得到未落盘写入」语义保持。
+        """
+        sig = self._index_signature()
+        if sig == self._index_sig:
+            return False
+        try:
+            idx = self._load_index()
+        except (OSError, ValueError):
+            return False                # 重载失败不阻塞读：沿用旧内存态
+        for nid, e in self._dirty.items():
+            if e is None:
+                idx["nodes"].pop(nid, None)
+            else:
+                idx["nodes"][nid] = e
+        idx["buckets"] = self._count_buckets(idx["nodes"])
+        self.index = idx
+        self._index_sig = sig
+        # 旧索引代里的派生缓存一并失效：query 结果缓存（hotcache，默认关）
+        # 缓存的是旧候选池上的结果；解析读缓存（readcache，默认开）按 path
+        # 缓存解析产物——他进程重写同 path 节点时旧产物陈旧。重载是稀疏
+        # 事件（签名变化才有），此处清缓存不构成热路径开销。
+        from . import hotcache as _hc
+        _hc.invalidate(self)
+        from . import readcache as _rc
+        _rc.clear(self)
+        return True
+
 # 生效条件：遍历 LAYERS 各层目录树（os.walk，不读文件内容），对每个可达目录记录其相对 root 的正斜杠路径到 os.stat().st_mtime_ns 的映射；stat 抛 OSError 的目录跳过；返回该映射。
     def _dir_fingerprint(self):
         """盘面目录树 mtime 指纹——检测「快照写入后盘面有增删」的廉价哨兵。
@@ -1023,7 +1086,7 @@ class MdCG:
                 buckets[b] = buckets.get(b, 0) + 1
         return buckets
 
-# 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析且 "schema" 等于 SCHEMA 时以该快照为基底；快照不存在用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}}（不重扫目录）；快照损坏（ValueError/OSError）或 schema 不符时降级以 self._scan_nodes() 全库扫描结果为基底（宁重扫勿清池）；基底确定后对 index_log_dir 逐条重放（无 id 跳过、e 为 None 则 pop、否则覆盖），落盘并清空日志后替换 self.index 并返回 idx；
+# 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析且 "schema" 等于 SCHEMA 时以该快照为基底；快照不存在用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}}（不重扫目录）；快照损坏（ValueError/OSError）或 schema 不符时降级以 self._scan_nodes() 全库扫描结果为基底（宁重扫勿清池）；基底确定后对 index_log_dir 逐条重放（无 id 跳过、e 为 None 则 pop、否则覆盖），落盘并清空日志后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）并返回 idx；
     def compact_index(self):
         with FileLock(self.index_path):
             idx = {"schema": SCHEMA, "nodes": {}, "buckets": {}}
@@ -1073,6 +1136,9 @@ class MdCG:
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))
             ShardedLog.clear(self.index_log_dir)
         self.index = idx
+        # P1b-2：自己写了快照 → 主动刷新签名，防止后续读路径把自己的
+        # compact 误判为「他进程写入」而做一次无谓重载（自写自载循环）。
+        self._index_sig = self._index_signature()
         return idx
 
 # 生效条件：self._dirty 非空时才在 FileLock(index_path) 下（必要时新建 ShardedLog）逐条 append、清空 _dirty 并关闭分片句柄；self._dirty 为空时立即返回、不写任何记录；
@@ -1229,7 +1295,7 @@ class MdCG:
         # 排序后重建序恒定（增量路径另由 cut_by_relevance 的 nid 终键兜住）。
         return {k: nodes[k] for k in sorted(nodes)}
 
-# 生效条件：每次调用都以 self._scan_nodes() 的结果重建 nodes 与 buckets 并附 _dir_fingerprint()，在 FileLock 下 atomic_write 覆盖 index_path 并 ShardedLog.clear(index_log_dir)，随后替换 self.index、清空 _dirty 并返回 idx（无 .md 时也照样覆盖为空索引）；
+# 生效条件：每次调用都以 self._scan_nodes() 的结果重建 nodes 与 buckets 并附 _dir_fingerprint()，在 FileLock 下 atomic_write 覆盖 index_path 并 ShardedLog.clear(index_log_dir)，随后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）、清空 _dirty 并返回 idx（无 .md 时也照样覆盖为空索引）；
     def rebuild_index(self):
         nodes = self._scan_nodes()
         idx = {"schema": SCHEMA, "nodes": nodes,
@@ -1239,6 +1305,8 @@ class MdCG:
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))
             ShardedLog.clear(self.index_log_dir)
         self.index = idx
+        # P1b-2：rebuild 同 compact——写完快照即刷新签名（自写不自载）。
+        self._index_sig = self._index_signature()
         # broad=True：rebuild 以盘面扫描为准——ccgc/crosscheck/backfill 等
         # 「直写文件 + rebuild 收尾」的写方不经 _dirty 标脏，其文件改写对
         # 读缓存的可见性靠这一整池失效兜底（flush 的 clear 则不失效，见
@@ -1983,6 +2051,7 @@ class MdCG:
 # 生效条件：遍历 self.index["nodes"] 中 layer=="goals" 的节点，_goal_entry 取不到者跳过；status 为假值时不过滤、否则仅保留 status 相等者；按 (-priority, -created_at) 降序，limit 为真值时截断 out[:limit]，否则返回全量；
     def list_goals(self, status=None, limit=None):
         """列出目标，按 (priority, created_at) 降序。status 过滤 active/done/dropped。"""
+        self._maybe_reload_index()      # P1b-2：读面代际感知（goal=list/active 链）
         out = []
         for nid, e in self.index["nodes"].items():
             if e.get("layer") != "goals":
@@ -2247,6 +2316,7 @@ class MdCG:
 
 # 生效条件：index["nodes"].get(node_id) 为假值时回落 self._dirty.get(node_id)，仍为假值返回 None；打开 root 下 e["path"] 抛 OSError 返回 None；_open_content 返回 None（无密钥/身份不符）返回 None；否则返回 {id, frontmatter, content, path}；
     def get(self, node_id: str):
+        self._maybe_reload_index()      # P1b-2：读面代际感知（他进程写快照后可见）
         e = self.index["nodes"].get(node_id) or self._dirty.get(node_id)
         if not e:
             return None
@@ -2450,6 +2520,7 @@ class MdCG:
         q = unify_query(q)
         if not q:
             return [], {"tier": None, "reason": "empty_query", "scanned": 0}
+        self._maybe_reload_index()      # P1b-2：读面代际感知（空查询早退后、读索引前）
         pool_cfg = pooling.resolve(pooling.from_env(pools))
         now = time.time() if validity else None      # 统一取一次 now，保判定口径一致
 
