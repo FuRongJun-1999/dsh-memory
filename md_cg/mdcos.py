@@ -795,6 +795,12 @@ class MdCGOS(MdCG):
         if context is not None:
             ctx = context if isinstance(context, dict) else {}
             route_bucket = routing.bucket_dir(routing.route_key(ctx, ctx.get("tags")))
+            # 与 MdCG.search 同一纪律（X2）：无域信号时不施加桶约束，否则 route_key
+            # 回落的 orphan 会被当成真桶，下面 T0/T1 阶段读到该桶并因 valid>=min_results
+            # 直接 return，**全量阶梯永不执行** —— 标了 domain: 的节点整片不可见。
+            # 本覆写才是生产路径（MdCGSecure → 本类）：缺此条则 MCP 端依旧丢召回。
+            if route_bucket == routing.ORPHAN:
+                route_bucket = None
         big_domain = routing.big_domain_classify(terms)
         big_scores = routing.big_domain_score_breakdown(terms)
         # S1/S1b/S2 收敛 + S4 审计——与 MdCG.search 共享同一实现（issue #25：
