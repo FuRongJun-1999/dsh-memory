@@ -116,10 +116,13 @@ class Case:
         ok = (self.fails == [])
         self.check("★verdict 判定成立", ok, "; ".join(self.fails)[:400])
         consistent = (verdict == expected)
-        print(f"CASE_RESULT {json.dumps({
+        # 载荷先算出来：f-string 的**表达式跨行**是 Python 3.12+（PEP 701）才允许的语法，
+        # 3.11 下会报 "unterminated string literal"（CI 七个工作流都 pin 3.11）。
+        payload = json.dumps({
             'case_id': self.case_id, 'verdict': verdict, 'expected': expected,
             'consistent': consistent, 'fails': self.fails, 'notes': self.notes,
-        }, ensure_ascii=False)}")
+        }, ensure_ascii=False)
+        print(f"CASE_RESULT {payload}")
         return 0 if consistent else 1
 
 
