@@ -13,7 +13,7 @@
 
 ![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.5.0）**
+**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.5.1）**
 
 </div>
 
@@ -412,6 +412,7 @@ AEIS 仅作可选「身体」能力后端（角色扮演生成），不再存记
 | 文档 | 内容 |
 |---|---|
 | **[docs/ 目录索引](docs/README.md)** | 六域快速索引（mdcg / swarm / hive / theory / eval / plans）· 新文档归域规则 |
+| **[Release v0.5.1](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.5.1)** | 本版变更：Windows 中文/编码与保留设备名修复（issue #39）· 结果完整性锚与 WAL seq 连续性（防伪造产物/防丢行乱序）· 启动对账 reconcile · 幂等提交 · 外部贡献 PR #40 十三处（health heal 闸门 / scrub 误报 / 写入侧落盘 / 桶路弃权）· 故障注入套件 18 用例入库 |
 | **[Release v0.5.0](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.5.0)** | 本版变更：强化检索（读缓存+派生物常驻 / 智慧之书面预计算 / 统一归一 / 门控生产路径）× 稳定蜂巢并发调度（多写者防线 / 依赖门禁）· 12 个 issue 修复 |
 | [README 详细版](docs/mdcg/README详细版_v0.4.10.md) | 完整能力说明 · 配置项全表 · 安装与验证细节 |
 | [发布说明 v0.4.5](docs/mdcg/release_v0.4.5.md) | 历史版本发布说明（兼容性 / 升级指引） |
