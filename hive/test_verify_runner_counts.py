@@ -104,9 +104,12 @@ def _run_main(results, iter_id="iter_n9_probe"):
 print("[A] _parse_counts 计数形态单元")
 check("A1 空串 → (0,0)（空跑计数前提）",
       vr._parse_counts("") == (0, 0), f"got {vr._parse_counts('')!r}")
+#: A2 的输入提前取出：**反斜杠不能出现在 f-string 的表达式里**（Python ≤3.11 是
+#: SyntaxError，3.12 才放宽）。CI 七个工作流都 pin 3.11，故此处必须留在 f-string 之外。
+_A2_IN = "3 passed\n4 passed"
 check("A2 smoke 探针形态 '3 passed'+'4 passed' → (7,0)（补门不误伤前提）",
-      vr._parse_counts("3 passed\n4 passed") == (7, 0),
-      f"got {vr._parse_counts('3 passed\n4 passed')!r}")
+      vr._parse_counts(_A2_IN) == (7, 0),
+      f"got {vr._parse_counts(_A2_IN)!r}")
 check("A3 cargo 形态 → (25,0)",
       vr._parse_counts("test result: ok. 25 passed; 0 failed") == (25, 0))
 check("A4 run_tests SUMMARY 形态 → (189,0)",

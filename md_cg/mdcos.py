@@ -605,10 +605,22 @@ class MdCGOS(MdCG):
         """在父类 add 之上：写入 role（frontmatter + 索引），默认 role=None（知识）。"""
         if role is not None:
             kw["role"] = role
+        # 会话归属必须落 frontmatter：本文件 session 过滤的文档即写「frontmatter.session，
+        # 写入时自动落盘」，但父类 add 的 fm 固定字典里没有该键、_stage 只把它放进索引 →
+        # 实际只有索引带归属，任何 rebuild_index() 都会抹掉（实测 73 节点里 56 个无
+        # frontmatter.session，而 _audit.jsonl 的 add 事件却 152/152 都记了 session：
+        # 写入口径与落盘口径脱钩）。与 role 同款：显式给就尊重，否则取 self.session
+        # （MdCGSecure 由 principal.session 注入，mcp_server 按请求切换 cg.session）。
+        _sess = kw.get("session") or getattr(self, "session", None)
+        if _sess and not kw.get("session"):
+            kw["session"] = _sess
         nid = super().add(node_id, content, layer=layer, **kw)
         e = self.index["nodes"].get(nid)
         if e is not None and role is not None:
             e["role"] = role
+        if e is not None and _sess:
+            e["session"] = _sess
+        if e is not None and (role is not None or _sess):
             self._dirty[nid] = e
         self._audit("add", nid, layer=layer, role=role,
                     payload_hash=_sig(content))
@@ -783,6 +795,12 @@ class MdCGOS(MdCG):
         if context is not None:
             ctx = context if isinstance(context, dict) else {}
             route_bucket = routing.bucket_dir(routing.route_key(ctx, ctx.get("tags")))
+            # 与 MdCG.search 同一纪律（X2）：无域信号时不施加桶约束，否则 route_key
+            # 回落的 orphan 会被当成真桶，下面 T0/T1 阶段读到该桶并因 valid>=min_results
+            # 直接 return，**全量阶梯永不执行** —— 标了 domain: 的节点整片不可见。
+            # 本覆写才是生产路径（MdCGSecure → 本类）：缺此条则 MCP 端依旧丢召回。
+            if route_bucket == routing.ORPHAN:
+                route_bucket = None
         big_domain = routing.big_domain_classify(terms)
         big_scores = routing.big_domain_score_breakdown(terms)
         # S1/S1b/S2 收敛 + S4 审计——与 MdCG.search 共享同一实现（issue #25：
@@ -971,6 +989,16 @@ class MdCGOS(MdCG):
             return []
         ctx = context if isinstance(context, dict) else {}
         b = routing.bucket_dir(routing.route_key(ctx, ctx.get("tags")))
+        # 「无域信号」等价于「没声明条件」：条件桶路此时必须**弃权**，不能把
+        # route_key 回落的 orphan 当成一个真桶去硬过滤——否则凡是被标了 domain:
+        # （因而落在 cond_* 目录）的节点，对这条查询就整片不可见。
+        # 实测（带 context 但不含 domain / observation_position）：弃权前只扫
+        # orphan 桶 10 个节点、目标节点召回丢失（T1_bucket_scan/scanned=10）；
+        # 弃权后由词法/实体/图路正常召回（T2_global_like/scanned=75）。
+        # 与上面 context is None 的既有早返回同构，也贴合 test_p0 的
+        # 「桶路由平均 recall@10 ≥ 0.9（加 context 不丢召回）」不变量。
+        if b == routing.ORPHAN:
+            return []
         inb = [e for e in entries if e.get("bucket") == b]
         if not inb:
             return []
