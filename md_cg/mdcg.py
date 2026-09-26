@@ -906,6 +906,15 @@ class _DirtyDict(dict):
 # 同源）。中文/逗号无路径语义，P0-1 防线（..禁令+realpath 纵深闸）不变。
 _NODE_ID_RE = re.compile(r"^[A-Za-z0-9_.@\u4e00-\u9fff,-]{1,128}$")
 
+# P3（2026-09-26，DSH 在役库实测 None.md 缺陷）：空语义值的**字符串化污染形态**
+# 整串禁写——批次 24 前 add 无校验，`f"{node_id}.md"` 直拼，`add(None)` 直落
+# `None.md`（旧版直接源头）；批次 24 白名单堵住 None 本体后，字符串 "None"
+# （Python `str(None)`）/"null"（TS `String(null)`）形状合法仍放行（临时库实弹
+# 复现：add("None") → knowledge/orphan/None.md，经 _scan_nodes 收录进检索与
+# route 候选参与打分）。只拒**整串精确等值**（大小写敏感），不扩子串——
+# "NoneBot_1"/"nullify_test" 等合法 id 不受影响。
+_NODE_ID_FORBIDDEN = frozenset({"None", "null"})
+
 
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
@@ -1251,7 +1260,7 @@ class MdCG:
 
     # ---------- 写 ----------
 
-# 生效条件：node_id/content 必填；node_id 不匹配 _NODE_ID_RE（^[A-Za-z0-9_.@-]{1,128}$）或含 ".."、或落盘 realpath 越出 self.root 时抛 ValueError（P0-1 白名单+纵深闸）；layer 不在 LAYERS 内、或 verification_basis 非 None 且不在 VERIFICATION_BASIS 内时抛 ValueError；consistency 为真且 _cons.check 判 REJECT 时，on_conflict="reject" 抛 ConsistencyError、on_conflict="defer" 返回 None，verdict 为 BLINDSPOT 且 on_conflict="defer" 同样返回 None，其余情形完成写盘/入索引后返回 node_id。
+# 生效条件：node_id/content 必填；node_id 不匹配 _NODE_ID_RE（^[A-Za-z0-9_.@-]{1,128}$）或含 ".."、或整串精确等值于 _NODE_ID_FORBIDDEN（"None"/"null"，空语义值字符串化污染形态，P3 None.md 缺陷禁写）、或落盘 realpath 越出 self.root 时抛 ValueError（P0-1 白名单+纵深闸）；layer 不在 LAYERS 内、或 verification_basis 非 None 且不在 VERIFICATION_BASIS 内时抛 ValueError；consistency 为真且 _cons.check 判 REJECT 时，on_conflict="reject" 抛 ConsistencyError、on_conflict="defer" 返回 None，verdict 为 BLINDSPOT 且 on_conflict="defer" 同样返回 None，其余情形完成写盘/入索引后返回 node_id。
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             tags=None, condition_space=None, importance: float = 0.5,
             confidence: float = 0.6, edges=None, verification_basis: str = None,
@@ -1310,6 +1319,11 @@ class MdCG:
             raise ValueError(
                 f"非法 node_id：{node_id!r}（须匹配 {_NODE_ID_RE.pattern} "
                 f"且不含 '..'——node_id 会拼进落盘路径，穿越/绝对路径一律拒绝）")
+        if nid_s in _NODE_ID_FORBIDDEN:
+            raise ValueError(
+                f"非法 node_id：{node_id!r}（空语义值的字符串化污染形态 "
+                f"{sorted(_NODE_ID_FORBIDDEN)} 禁写——会落盘成 None.md 参与检索"
+                f"（DSH 在役库实测缺陷 P3）；fail-closed，如为合法业务 id 请改名）")
         if verification_basis is not None and verification_basis not in VERIFICATION_BASIS:
             raise ValueError(f"未知验证基底：{verification_basis}（允许：{VERIFICATION_BASIS}）")
         # 写保护：self/anchor 层、protected 标记、importance≥0.7 的**既有**节点

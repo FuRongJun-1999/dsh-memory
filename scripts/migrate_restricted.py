@@ -38,9 +38,12 @@ def main(argv=None):
     from md_cg.mdcos import MdCGSecure
     from md_cg.security import Principal
 
+    # autoflush=1（P1b，2026-09-26，与 mcp_server.py:3695-3702 同款）：短命迁移
+    # 工具进程无显式 close，被 kill 时 atexit 兜底不执行，缺省 64 会让覆写停在
+    # 内存 _dirty、分片日志从未落——逐条落日志保任意退出形态跨进程可见。
     cg = MdCGSecure(a.root, principal=Principal(
         actor="migrate-restricted", clearance="secret", can_write=True,
-        can_admin=True, role="designer", auth_mode="test"))
+        can_admin=True, role="designer", auth_mode="test"), autoflush=1)
     targets = (a.ids.split(",") if a.ids
                else [nid for nid, e in cg.index["nodes"].items()
                      if e.get("sensitivity") == "private"])

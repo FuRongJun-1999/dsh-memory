@@ -2237,6 +2237,16 @@ class MdCGOS(MdCG):
             if item.get("verify"):
                 extra["verify"] = item["verify"]
                 extra["verify_hash"] = expect
+            # 归因保留（P1，2026-09-26，DSH 端在役实测：5 个裁决节点 writer 全被
+            # designer-cli 覆盖、会话 id 各自随机）：提案记录的 actor 是 propose
+            # 时库端快照的原始写入者身份（见 propose rec 的 "actor"/"session" 字段，
+            # 非裁决期客户端输入，不可伪造面）。accept/edit 落盘若不显式带上，
+            # _attribution 的 setdefault 会把 writer 缺省成裁决者——原始写入者
+            # 就此不可追溯。writer 保留原值（提案 extra 里已带 writer 的存量提案
+            # 不覆盖，向后兼容）；裁决者身份不丢失，改记 reviewer 字段。
+            if item.get("actor"):
+                extra.setdefault("writer", item["actor"])
+                extra.setdefault("reviewer", self.actor)
             nid = self.add(item["id"], content, layer=layer, tags=tags,
                            condition_space=item.get("condition_space"), **extra)
             # 索引增量收尾（2026-09-16 取证）：add 只把条目放进本进程内存 _dirty，

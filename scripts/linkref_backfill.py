@@ -192,7 +192,10 @@ def main():
         print("缺少 --root（或设 MDCG_ROOT）"); return 3
     p = Principal(tenant="default", actor="linkref_backfill", role="designer",
                   clearance=a.clearance, can_write=True, can_admin=True)
-    cg = MdCGSecure(a.root, principal=p)
+    # autoflush=1（P1b，2026-09-26，与 mcp_server.py:3695-3702 同款）：短命工具
+    # 进程无显式 close，被 kill 时 atexit 兜底不执行，缺省 64 会让写入停在内存
+    # _dirty、分片日志从未落——逐条落日志保任意退出形态跨进程可见。
+    cg = MdCGSecure(a.root, principal=p, autoflush=1)
 
     if a.inp:
         with open(a.inp, encoding="utf-8") as f:

@@ -506,7 +506,10 @@ def _open_cg(root: str = None):
                   clearance="private", can_write=True, can_admin=True,
                   role="designer", layers_allow=spec["layers_allow"],
                   ops_allow=spec["ops_allow"], auth_mode="legacy_env")
-    return MdCGSecure(r, principal=p)
+    # autoflush=1（P1b，2026-09-26，与 mcp_server.py:3695-3702 / review_cli._cg
+    # 同款）：短命工具进程被 kill 时 close/atexit 兜底不执行，缺省 64 会让
+    # 写入停在内存 _dirty、分片日志从未落——逐条落日志保任意退出形态跨进程可见。
+    return MdCGSecure(r, principal=p, autoflush=1)
 
 
 # 生效条件：当传入 obj 时，打印 json.dumps(obj, ensure_ascii=False, indent=1, default=str)。
