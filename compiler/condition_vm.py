@@ -7,6 +7,7 @@ condition_vm.py · 智能论字节码 VM（第六阶段 C1 · 原生编译地基
 零 Python 依赖运行时（VM 自足）——「完全使用智能论的分析方法和逻辑」的 VM 层。
 """
 
+import time
 from enum import IntEnum
 
 
@@ -78,6 +79,69 @@ class VMHalt(Exception):
         super().__init__(f"VM {kind}")
 
 
+class VMResourceError(Exception):
+    """VM 资源越界（N149 加固）：结构化错误——区别于 VMHalt（止/无为=语言控制流）
+    与 RecursionError（步数上限·既有契约）。
+    kind: "wall"（超出墙钟预算）| "mul_scale"（MUL 结果规模越界，申请未发生）
+          | "memory"（单步分配失败 MemoryError 转结构化）"""
+# 生效条件：kind 存入 self.kind，message 交 super().__init__。
+    def __init__(self, kind, message):
+        self.kind = kind
+        super().__init__(message)
+
+
+# =============================================================================
+# N149 资源加固参数（单步代价/分配上限）：上限为加固参数——合法编译产物
+# （信任算术：小浮点/小整数/短名串）远触不到；恶意 .pbc 的「防线内慢单步 /
+# 天文数字申请」面由此结构性拒绝（申请在发生前被拦，非事后回收）。
+# =============================================================================
+#: MUL 整数结果位数上限（操作数位数之和；65536 位 ≈ 2 万位十进制数）
+VM_MAX_INT_BITS = 1 << 16
+#: MUL 序列重复元素数上限（str/list/tuple × int；16,777,216 元素）
+VM_MAX_SEQ_REPEAT = 1 << 24
+#: run 墙钟预算默认秒数（传 None/0 关闭——宿主自担）
+VM_DEFAULT_WALL_SECONDS = 10.0
+
+
+# 生效条件：对 (a, b) 两个 int（含 bool）估 a.bit_length()+b.bit_length() 超 VM_MAX_INT_BITS、str/list/tuple × int 估 len(seq)*abs(int) 超 VM_MAX_SEQ_REPEAT 时抛 VMResourceError("mul_scale")（乘法申请不发生）；float 参与及其余组合不拦（结果有界或交由既有 TypeError）。
+def _check_mul_scale(a, b):
+    """N149：MUL 单步结果规模守卫——越界即拒（结构化错，乘法不执行）
+
+    只估规模不真乘：int 看操作数位数之和，序列×int 看元素数。
+    合法产物（信任算术/名称格式化）远触不到上限；恶意 .pbc 的
+    「一条 MUL 申请数 GiB」面在此结构性关闭。"""
+    if isinstance(a, int) and isinstance(b, int):
+        if a.bit_length() + b.bit_length() > VM_MAX_INT_BITS:
+            raise VMResourceError(
+                "mul_scale",
+                f"MUL 整数结果规模越界（{a.bit_length()}+{b.bit_length()} 位"
+                f" > 上限 {VM_MAX_INT_BITS} 位）——申请已被拒绝")
+    elif isinstance(a, str) and isinstance(b, int):
+        if len(a) * abs(b) > VM_MAX_SEQ_REPEAT:
+            raise VMResourceError(
+                "mul_scale",
+                f"MUL 字符串重复规模越界（len={len(a)}×{abs(b)}"
+                f" > 上限 {VM_MAX_SEQ_REPEAT} 元素）——申请已被拒绝")
+    elif isinstance(b, str) and isinstance(a, int):
+        if len(b) * abs(a) > VM_MAX_SEQ_REPEAT:
+            raise VMResourceError(
+                "mul_scale",
+                f"MUL 字符串重复规模越界（len={len(b)}×{abs(a)}"
+                f" > 上限 {VM_MAX_SEQ_REPEAT} 元素）——申请已被拒绝")
+    elif isinstance(a, (list, tuple)) and isinstance(b, int):
+        if len(a) * abs(b) > VM_MAX_SEQ_REPEAT:
+            raise VMResourceError(
+                "mul_scale",
+                f"MUL 序列重复规模越界（len={len(a)}×{abs(b)}"
+                f" > 上限 {VM_MAX_SEQ_REPEAT} 元素）——申请已被拒绝")
+    elif isinstance(b, (list, tuple)) and isinstance(a, int):
+        if len(b) * abs(a) > VM_MAX_SEQ_REPEAT:
+            raise VMResourceError(
+                "mul_scale",
+                f"MUL 序列重复规模越界（len={len(b)}×{abs(a)}"
+                f" > 上限 {VM_MAX_SEQ_REPEAT} 元素）——申请已被拒绝")
+
+
 class ConditionVM:
     """智能论字节码 VM：ip + 值栈 + 符号表 + 条件空间栈 + 信任值寄存器"""
 
@@ -108,32 +172,50 @@ class ConditionVM:
         self.trace = []                      # 执行轨迹（可解释性）
         self.call_stack = []                 # 调用栈帧 [(返回ip, 保存的符号表)]
 
-# 生效条件：code 自 ip=0 逐条执行至 ip 越界；steps 超过 max_steps（默认 100000）抛 RecursionError；catch_halt 为真（默认）时捕获 VMHalt 记 halt 并 break，为假时 VMHalt 直接上抛；trace 为假值时返回字典的 trace 字段为 None。
+# 生效条件：code 自 ip=0 逐条执行至 ip 越界；steps 超过 max_steps（默认 100000）抛 RecursionError；max_wall_seconds 为真值（默认 VM_DEFAULT_WALL_SECONDS=10.0）时起墙钟预算、单步开始前 time.monotonic() 超限即抛 VMResourceError("wall")，为假值（None/0）时关闭；单步分配失败（MemoryError）转抛 VMResourceError("memory")；MUL 结果规模越界在 _exec 内抛 VMResourceError("mul_scale")（申请不发生）；catch_halt 为真（默认）时捕获 VMHalt 记 halt 并 break，为假时 VMHalt 直接上抛；trace 为假值时返回字典的 trace 字段为 None。
     def run(self, code, trace=False, catch_halt=True, symbols=None,
-            trust=0.0, condition_stack=None, max_steps=100000):
+            trust=0.0, condition_stack=None, max_steps=100000,
+            max_wall_seconds=VM_DEFAULT_WALL_SECONDS):
         """执行字节码；code = [(op, arg), ...]
         symbols/trust/condition_stack：初始执行环境（C2 语义：符号表/信任/条件空间）
         catch_halt=True：止(ZHI)/无为(WUWEI) 作为正常控制流信号捕获，
         返回 {"halt": kind, ...}（VM 自足——停止/让出是语言语义非错误）
-        max_steps：步数上限防死循环（对齐白箱 VM-循环执行单元：超出报 error）"""
+        max_steps：步数上限防死循环（对齐白箱 VM-循环执行单元：超出报 RecursionError）
+        max_wall_seconds：墙钟预算防慢单步挂起（N149 加固：超出报 VMResourceError
+        "wall"；None/0 关闭）。步数不限单步代价——恶意 .pbc 的天文数字单步
+        （大数自乘/巨型序列重复）另由 _exec 的 MUL 规模守卫（"mul_scale"）与
+        MemoryError 结构化转换（"memory"）兜底；合法产物远触不到这些上限"""
         self.reset(symbols, trust, condition_stack)
         halt = None
         steps = 0
+        wall_deadline = (time.monotonic() + max_wall_seconds) \
+            if max_wall_seconds else None
         while self.ip < len(code):
             steps += 1
             if steps > max_steps:
                 raise RecursionError(f"循环未终止（超出步数上限 {max_steps}）")
+            if wall_deadline is not None and time.monotonic() > wall_deadline:
+                raise VMResourceError(
+                    "wall", f"执行超出墙钟预算 {max_wall_seconds}s"
+                            f"（ip={self.ip}，已执行 {steps} 步）")
             op, arg = code[self.ip]
             self.trace.append((self.ip, op, arg))
             self.ip += 1
-            if catch_halt:
-                try:
+            try:
+                if catch_halt:
+                    try:
+                        self._exec(op, arg)
+                    except VMHalt as h:
+                        halt = h.kind
+                        break
+                else:
                     self._exec(op, arg)
-                except VMHalt as h:
-                    halt = h.kind
-                    break
-            else:
-                self._exec(op, arg)
+            except MemoryError:
+                # N149：分配失败转结构化错（不再裸上抛）——保留原异常链供留痕
+                raise VMResourceError(
+                    "memory",
+                    f"内存申请被拒（ip={self.ip - 1} "
+                    f"op={getattr(op, 'name', op)}）——单步分配超限")
         return {"trust": round(self.trust_value, 3),
                 "symbols": dict(self.symbols),
                 "condition_space": list(self.condition_stack),
@@ -265,6 +347,7 @@ class ConditionVM:
             self.stack.append(a - b)
         elif op == Opcode.MUL:
             b, a = self.stack.pop(), self.stack.pop()
+            _check_mul_scale(a, b)   # N149：规模越界即拒（申请不发生）
             self.stack.append(a * b)
         elif op == Opcode.DIV:
             b, a = self.stack.pop(), self.stack.pop()

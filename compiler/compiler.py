@@ -250,13 +250,21 @@ class Compiler:
         self.pending.append((len(self.code) - 1, entry_lbl))
 
 
-# 生效条件：传入 source（可配默认 strict=True）后先 tokenize/parse，errors 非空即返回 (None,{ok:False,errors,warnings:[]})；否则执行 NameChecker.check，仅当 strict 为真且 name_errors 非空时返回 (None,{ok:False,errors:name_errors,warnings:name_warnings,name_errors:name_errors})，strict 为假值时不因此提前返回而继续编译；compiler.compile 抛 SyntaxError 时返回 (None,{ok:False,errors:[str(e)],warnings:[],name_errors:[str(e)]})，否则返回 (code,{ok:True,errors:[],warnings:compiler.warnings})。
+# 生效条件：传入 source（可配默认 strict=True）后先 tokenize/parse，errors 非空即返回 (None,{ok:False,errors,warnings:[]})（parse_tokens 抛 RecursionError——超长算术链/深嵌套触右递归深度上限——时转记结构化错误后同径返回，N102 不裸穿透）；否则执行 NameChecker.check，仅当 strict 为真且 name_errors 非空时返回 (None,{ok:False,errors:name_errors,warnings:name_warnings,name_errors:name_errors})，strict 为假值时不因此提前返回而继续编译；compiler.compile 抛 SyntaxError 时返回 (None,{ok:False,errors:[str(e)],warnings:[],name_errors:[str(e)]})，否则返回 (code,{ok:True,errors:[],warnings:compiler.warnings})。
 def compile_source(source, strict=True):
     """中文源码 → 字节码（含名实校验静态检查）
     返回 (code, result)：result = {ok, errors, warnings, name_errors}"""
     tokens, lex_errors = tokenize(source)
     errors = list(lex_errors or [])
-    ast = parse_tokens(tokens, errors)
+    try:
+        ast = parse_tokens(tokens, errors)
+    except RecursionError:
+        # N102：同 api 入口——超长算术链/深嵌套使 parser 右递归触发深度
+        # 上限，转结构化错误随 errors 返回（窄捕获不掩盖其他异常）
+        ast = None
+        errors.append(
+            "递归深度超限（RecursionError）：表达式/嵌套过深——"
+            "请拆短算术链或降低嵌套层级")
     if errors:
         return None, {"ok": False, "errors": errors, "warnings": []}
     # 名实校验（以名举实·静态检查——C2 智能论语义）

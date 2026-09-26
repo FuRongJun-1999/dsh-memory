@@ -96,7 +96,7 @@ class CompileResult:
 # 核心编译函数
 # =============================================================================
 
-# 生效条件：source 为协议源串；options 为 None 时回落 CompileOptions()；tokenize 产生 lex_errors 即提前返回，语法错误或 ast 为 None 即提前返回，名实校验有 name_errors 即提前返回；仅当 options.llm_assist 且 options.llm_bridge 同时为真值才调用 _llm_assist（异常只记入 warnings）；最终 result.success 取决于 errors 是否为空，verdict 的 reason/passed 参与追加错误。
+# 生效条件：source 为协议源串；options 为 None 时回落 CompileOptions()；tokenize 产生 lex_errors 即提前返回，语法错误或 ast 为 None 即提前返回（parse_tokens 抛 RecursionError——超长算术链/深嵌套触右递归深度上限——时转记结构化语法错误并以 ast=None 提前返回，N102 不裸穿透），名实校验有 name_errors 即提前返回；仅当 options.llm_assist 且 options.llm_bridge 同时为真值才调用 _llm_assist（异常只记入 warnings）；最终 result.success 取决于 errors 是否为空，verdict 的 reason/passed 参与追加错误。
 def compile_source(source: str, options: Optional[CompileOptions] = None) -> CompileResult:
     """
     核心编译函数 —— 所有入口的统一调用点
@@ -140,7 +140,17 @@ def compile_source(source: str, options: Optional[CompileOptions] = None) -> Com
     # 本身没有 errors 属性——旧写法 getattr(ast,'errors',[]) 恒 []，
     # 含语法错误的源码在这里静默通过）。传入列表读取即可回流。
     syntax_errors: List[str] = []
-    ast = parse_tokens(tokens, syntax_errors)
+    try:
+        ast = parse_tokens(tokens, syntax_errors)
+    except RecursionError:
+        # N102：超长算术链/深嵌套（约 500 运算符）使 parser 右递归
+        # （_parse_binary_tail→_parse_expression）触发解释器深度上限——
+        # 转结构化错误随正常错误流返回，不裸穿透编译主入口
+        # （窄捕获：只拦 RecursionError，不掩盖其他异常）
+        ast = None
+        syntax_errors.append(
+            "递归深度超限（RecursionError）：表达式/嵌套过深——"
+            "请拆短算术链或降低嵌套层级")
     result.ast = ast
 
     # 获取语法错误

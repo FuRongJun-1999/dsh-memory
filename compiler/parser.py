@@ -417,7 +417,7 @@ class Parser:
         self._advance()
         return None
     
-# 生效条件：无 required 形参，消费 SHUYUE 后以当前 token 的行列建 ShuyueNode，循环内先跳过分隔符（SEMICOLON/COMMA/COLON），当前 token 为 NUMBER 时取 int(float(value)) 为步骤号、可选跳过 PERIOD、解析步骤内容且内容为真值时 add_step(StepNode(...))，当前 token 非 NUMBER 即 break，最后返回 shuyue；
+# 生效条件：无 required 形参，消费 SHUYUE 后以当前 token 的行列建 ShuyueNode，循环内先跳过分隔符（SEMICOLON/COMMA/COLON），当前 token 为 NUMBER 时取 int(float(value)) 为步骤号（ValueError/OverflowError 时向 errors 记「L{line}:C{col} 非法数值」、消费该 token 并 continue，N148 修复）、可选跳过 PERIOD、解析步骤内容且内容为真值时 add_step(StepNode(...))，当前 token 非 NUMBER 即 break，最后返回 shuyue；
     def _parse_shuyue_block(self) -> Optional[ASTNode]:
         """
         解析术曰块（独立形式）：术曰：1。... 2。...
@@ -438,12 +438,29 @@ class Parser:
                 self._advance()
             
             if self.current_token and self.current_token.type == TokenType.NUMBER:
-                step_num = int(float(self.current_token.value))
+                # N148 修复（2026-09-26）：步骤号 int(float(value)) 裸调无防护
+                # —— ≥309 位数字字面量经词法 float() 得 inf（NUMBER 合法发出、
+                # 零词法错）后 int(inf) 抛 OverflowError；词法毒 token NUMBER('.')
+                # 抛 ValueError。compiler.compile_source 先 parse 后查词法错
+                # （compiler.py:259-260）、api 入口词法门禁拦不住零词法错的
+                # inf 形态，双异常均击穿 api/compiler 双官方编译主入口并沿
+                # CLI/pbc/analyzer/debugger 传导。对齐 F1 裸 float 族防护模式：
+                # 记结构化语法错误并消费该 token 继续，编译失败而非栈崩
+                # （合法输入路径逐位不变）。
+                _num_tok = self.current_token
+                try:
+                    step_num = int(float(_num_tok.value))
+                except (ValueError, OverflowError):
+                    self.errors.append(
+                        f"L{_num_tok.line}:C{_num_tok.column} "
+                        f"非法数值: '{_num_tok.value}'")
+                    self._advance()
+                    continue
                 self._advance()
-                
+
                 if self.current_token and self.current_token.type == TokenType.PERIOD:
                     self._advance()
-                
+
                 step_content = self._parse_step_content()
                 if step_content:
                     shuyue.add_step(StepNode(step_num, step_content,
@@ -451,10 +468,10 @@ class Parser:
                                             column=step_content.column))
             else:
                 break
-        
+
         return shuyue
-    
-# 生效条件：无 required 形参（self 除外）时，若 self.current_token 为 WENYUE 且后续 _consume 能依次消费 DAYUE、SHUYUE，则收集 question/answer，循环跳过分隔符后仅当 current_token 为 NUMBER 时取 int(float(value))、可选消费 PERIOD，且仅当 _parse_step_content() 返回真值才 shuyue.add_step(StepNode(...))，非 NUMBER 时 break，最后设 shuyue.attributes 的 question/answer 并返回 shuyue；
+
+# 生效条件：无 required 形参（self 除外）时，若 self.current_token 为 WENYUE 且后续 _consume 能依次消费 DAYUE、SHUYUE，则收集 question/answer，循环跳过分隔符后仅当 current_token 为 NUMBER 时取 int(float(value))（ValueError/OverflowError 时向 errors 记「L{line}:C{col} 非法数值」、消费该 token 并 continue，N148 修复）、可选消费 PERIOD，且仅当 _parse_step_content() 返回真值才 shuyue.add_step(StepNode(...))，非 NUMBER 时 break，最后设 shuyue.attributes 的 question/answer 并返回 shuyue；
     def _parse_wenyue_block(self) -> Optional[ASTNode]:
         """解析 问曰：... 答曰：... 术曰：... 结构"""
         # 问曰
@@ -483,12 +500,24 @@ class Parser:
                 self._advance()
             
             if self.current_token and self.current_token.type == TokenType.NUMBER:
-                step_num = int(float(self.current_token.value))
+                # N148 修复（2026-09-26）：同 _parse_shuyue_block——步骤号
+                # int(float(value)) 裸调对 ≥309 位字面量（int(inf)）抛
+                # OverflowError、对词法毒 NUMBER('.') 抛 ValueError，
+                # 击穿双编译主入口；记结构化语法错误并消费该 token 继续。
+                _num_tok = self.current_token
+                try:
+                    step_num = int(float(_num_tok.value))
+                except (ValueError, OverflowError):
+                    self.errors.append(
+                        f"L{_num_tok.line}:C{_num_tok.column} "
+                        f"非法数值: '{_num_tok.value}'")
+                    self._advance()
+                    continue
                 self._advance()
-                
+
                 if self.current_token and self.current_token.type == TokenType.PERIOD:
                     self._advance()
-                
+
                 step_content = self._parse_step_content()
                 if step_content:
                     shuyue.add_step(StepNode(step_num, step_content,
@@ -543,7 +572,7 @@ class Parser:
                                   column=self.current_token.column if self.current_token else 1)
             return None
     
-# 生效条件：无 required 形参，消费 RUO 后解析比较式并跳过标点消费 ZE，then_body 由 _parse_single_statement 取得，仅当再跳过标点后 current_token 为 FOUZE 时才推进并解析 else_body（否则 else_body=None），返回 ConditionStmtNode(condition, then_body, else_body, start_line, start_col)；
+# 生效条件：无 required 形参，消费 RUO 后解析比较式并跳过标点消费 ZE，then_body 由 _parse_statement_or_block 取得（N4 修复 2026-09-26：原 _parse_single_statement 使「若 X 则 A；B。」的 B 泄漏顶层恒执行；『。』终止/『；』续接与循环体同一语义），仅当再跳过标点后 current_token 为 FOUZE 时才推进并解析 else_body（同用 _parse_statement_or_block），返回 ConditionStmtNode(condition, then_body, else_body, start_line, start_col)；
     def _parse_condition(self) -> Optional[ASTNode]:
         """解析条件语句：若 [条件] 则 [操作] [否则 [操作]]"""
         start_line = self.current_token.line if self.current_token else 1
@@ -557,14 +586,20 @@ class Parser:
         
         self._consume(TokenType.ZE, "期望 '则'")
         
-        then_body = self._parse_single_statement()
-        
+        # N4 修复（2026-09-26）：then/else 体原用 _parse_single_statement
+        # 单语句解析，与循环体（_parse_statement_or_block，缺陷①修复后的
+        # 『。终止/；续接』语义）分叉——「若 X 则 A；B。」的 B 静默漂移为
+        # 顶层无条件执行，双入口假成功零诊断。改调 _parse_statement_or_block
+        # 对齐 SEMANTICS.md §2 既有契约（「循环体/条件体若要写多条语句，
+        # 用分号」）；单语句形态经 len==1 分支原样返回，既有输入不变。
+        then_body = self._parse_statement_or_block()
+
         else_body = None
         # 跳过 then 与 否则 之间的分隔符（逗号/分号等）
         self._skip_punctuation_before(TokenType.FOUZE)
         if self.current_token and self.current_token.type == TokenType.FOUZE:
             self._advance()
-            else_body = self._parse_single_statement()
+            else_body = self._parse_statement_or_block()
         
         return ConditionStmtNode(condition, then_body, else_body, start_line, start_col)
     
@@ -586,7 +621,7 @@ class Parser:
         
         return LoopStmtNode(condition, body, start_line, start_col)
     
-# 生效条件：无 required 形参，消费 DINGYI 后 current_token 不属于 (IDENTIFIER, OP_ADD, OP_SUB, OP_MUL, OP_DIV) 时向 errors 追加"定义后期望函数名"并返回 None；否则取函数名，遇 LPAREN 时括号内仅 IDENTIFIER 被收作 params（其余 token 只推进），可选跳过 COLON，body 取 _parse_single_statement()，返回 FuncDefNode(name, params, body, start_line, start_col)；
+# 生效条件：无 required 形参，消费 DINGYI 后 current_token 不属于 (IDENTIFIER, OP_ADD, OP_SUB, OP_MUL, OP_DIV) 时向 errors 追加"定义后期望函数名"并返回 None；否则取函数名，遇 LPAREN 时括号内仅 IDENTIFIER 被收作 params（其余 token 只推进），可选跳过 COLON，body 取 _parse_statement_or_block()（N4 修复 2026-09-26：原 _parse_single_statement 使「定义 f（）：A；B。」的 B 泄漏顶层；『。』终止/『；』续接与循环体同一语义），返回 FuncDefNode(name, params, body, start_line, start_col)；
     def _parse_func_def(self) -> Optional[ASTNode]:
         """解析函数定义：定义 名（参数1，参数2）：语句
         参数在（ ）内，逗号分隔；返回 FuncDefNode（body 可为块）"""
@@ -622,8 +657,11 @@ class Parser:
         if self.current_token and self.current_token.type == TokenType.COLON:
             self._advance()
         
-        body = self._parse_single_statement()
-        
+        # N4 修复（2026-09-26）：函数体原用 _parse_single_statement，体
+        # 内「；」续接的语句泄漏顶层恒执行（与循环体语义分叉）——改调
+        # _parse_statement_or_block 对齐；单语句经 len==1 分支原样返回。
+        body = self._parse_statement_or_block()
+
         return FuncDefNode(name, params, body, start_line, start_col)
     
 # 生效条件：无 required 形参，仅当 self.current_token 存在且其 type 属于 TokenType 的 {COMMA, PERIOD, SEMICOLON, COLON, QUESTION, EXCLAM} 之一时循环调用 self._advance；可变位置形参 target_types 在函数体内未被使用。
@@ -659,10 +697,18 @@ class Parser:
                 break
             # ；/，= 块内续接
             if tok and tok.type in (TokenType.SEMICOLON, TokenType.COMMA):
+                _sep_line = tok.line
                 self._advance()
                 # 分隔符后若是步骤号/术曰 → 块结束（九章算术步骤边界 1。…2。…）
                 if (self.current_token and
                         self.current_token.type in (TokenType.NUMBER, TokenType.SHUYUE)):
+                    break
+                # N4 配套（2026-09-26）：『；』只在本行续接——词法不产 NEWLINE
+                # token（仅推进行号），行界以分隔符与后随 token 的行号差判定；
+                # 行尾『；』不把下一行吞进块（如「定义 f（）：…；⏎结果 = …」
+                # 的后续顶层行），下一行语句归上一层作用域。
+                if (self.current_token and
+                        self.current_token.line != _sep_line):
                     break
                 continue
             break

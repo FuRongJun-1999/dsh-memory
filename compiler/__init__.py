@@ -39,7 +39,7 @@ from .parser import parse_tokens, ProgramNode
 from .name_checker import NameChecker
 
 # 字节码面（确定性封闭指令集）
-from .condition_vm import ConditionVM, Opcode
+from .condition_vm import ConditionVM, Opcode, VMResourceError
 from .compiler import compile_source as compile_to_bytecode
 from .pbc import (serialize, deserialize, compile_to_pbc,
                   save_pbc, load_pbc, run_pbc)
@@ -58,7 +58,7 @@ __all__ = [
     "parse_tokens", "ProgramNode",
     "NameChecker",
     # 字节码面
-    "ConditionVM", "Opcode",
+    "ConditionVM", "Opcode", "VMResourceError",
     "compile_to_bytecode",
     "serialize", "deserialize", "compile_to_pbc", "save_pbc", "load_pbc", "run_pbc",
     # Python 后端 + 统一管线

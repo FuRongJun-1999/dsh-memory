@@ -111,15 +111,38 @@ if r7["ok"]:
 # compiler/parser.py「errors or []」吞错假成功（批次37 缺陷#5 已修），
 # 修复后含错源码必须如实报错。断言改为「编译失败且错误可见」；
 # 待步骤号语法支持补齐后可还原为执行断言（trust==0.2）。
+# N4 修复（2026-09-26）即该注所待的语法补齐：then 体改
+# _parse_statement_or_block（『；』同局限接 + 步骤号边界），源码由
+# 「语法错误」转为合法解析——步骤 1 条件体两语句同受门控、步骤 2 止。
+# 按本注预言还原为执行断言：字节码两 DE 均在 JUMP_IF_FALSE/JUMP 之间
+# （门控），播种 计数=1 执行 trust==0.2；未播种时 VM 运行期 NameError
+# （名实不符，运行期名实校验如实生效）。
 src8 = '''
 术曰：
 1。若 计数 大于 0，则 德 0.1；德 0.1；
 2。止。
 '''
 code8, r8 = compile_source(src8)
-check('⑧ 含语法错误源码如实报错（原用例依赖吞错假成功）',
-      (not r8["ok"]) and any("无法解析的语句开头" in e for e in r8["errors"]),
-      str(r8["errors"])[:60])
+check('⑧ 条件体多语句合法编译（N4 后步骤号语法补齐）',
+      r8["ok"],
+      str(r8.get("errors", []))[:60])
+if r8["ok"]:
+    ops8 = [op.name for op, _ in code8]
+    _ji, _ju = (ops8.index("JUMP_IF_FALSE"), ops8.index("JUMP"))
+    check('⑧b 两处 德 均受条件门控（JUMP_IF_FALSE 与 JUMP 之间）',
+          ops8[_ji + 1:_ju] == ["DE", "DE"] and ops8[_ju + 1] == "ZHI",
+          str(ops8))
+    st8 = ConditionVM().run(code8, symbols={"计数": 1})
+    check('⑧c 执行断言还原：计数=1 → trust==0.2',
+          st8["trust"] == 0.2,
+          f'trust={st8["trust"]}')
+    try:
+        ConditionVM().run(code8)
+        _name_err = False
+    except NameError:
+        _name_err = True
+    check('⑧d 未声明 计数 时运行期 NameError（名实校验不缺席）',
+          _name_err, '')
 
 print(f'\n=== 中文循环语法（当…执行）测试: {pass_n}/{pass_n + fail_n} 通过 ===')
 sys.exit(0 if fail_n == 0 else 1)

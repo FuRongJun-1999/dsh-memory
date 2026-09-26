@@ -135,15 +135,19 @@ def compile_to_pbc(source, path, strict=False):
     return code, result
 
 
-# 生效条件：无守卫，先 load_pbc(path) 并把每条 op 名经 Opcode[name] 转成枚举（未知名抛 KeyError），再以传入的 symbols、trust（默认 0.0，0.0 不回落到别的值）、condition_stack 调用 ConditionVM().run 并返回其结果。
-def run_pbc(path, symbols=None, trust=0.0, condition_stack=None):
-    """.pbc 文件 → VM 执行（独立运行时入口）"""
-    from .condition_vm import ConditionVM, Opcode
+# 生效条件：先 load_pbc(path) 并把每条 op 名经 Opcode[name] 转成枚举（未知名抛 KeyError），再以传入的 symbols、trust（默认 0.0，0.0 不回落到别的值）、condition_stack、max_wall_seconds（默认 VM_DEFAULT_WALL_SECONDS=10.0，可传 None/0 关闭）调用 ConditionVM().run 并返回其结果；N149 资源加固自 run 生效（步数上限/MUL 规模守卫/墙钟预算/MemoryError 结构化——恶意 .pbc 得 VMResourceError 而非挂起或裸 MemoryError）。
+def run_pbc(path, symbols=None, trust=0.0, condition_stack=None,
+            max_wall_seconds=None):
+    """.pbc 文件 → VM 执行（独立运行时入口；N149：显式携带墙钟预算，
+    步数/MUL 规模/内存守卫在 ConditionVM.run 内置生效）"""
+    from .condition_vm import ConditionVM, Opcode, VM_DEFAULT_WALL_SECONDS
     code = load_pbc(path)
     # 字符串 op → Opcode 枚举（VM _exec 期望枚举）
     code = [(Opcode[name], arg) for name, arg in code]
     return ConditionVM().run(code, symbols=symbols, trust=trust,
-                             condition_stack=condition_stack)
+                             condition_stack=condition_stack,
+                             max_wall_seconds=VM_DEFAULT_WALL_SECONDS
+                             if max_wall_seconds is None else max_wall_seconds)
 
 
 if __name__ == "__main__":
