@@ -100,9 +100,15 @@ def log(job_dir: str, msg: str) -> None:
         sys.stderr.write(line)
 
 
-# 生效条件：当 job_dir 与 payload 传入后，先 tempfile.mkstemp(prefix="result.json.", suffix=".tmp", dir=job_dir) 建唯一临时文件并 UTF-8 写入 json.dump(payload, ensure_ascii=False)+flush+fsync，再 os.replace 到 job_dir/result.json；Windows 上 replace 撞读者瞬态句柄（WinError 5/PermissionError）时按 10ms×递增重试至多 50 次（约 12.5s）；replace 撞 FileNotFoundError（tmp 被瞬态消费/清理）时重建唯一名重写后重试；任一重试耗尽才向外抛；finally 里 best-effort 清理仍存在的 tmp；成功路径不残留任何 .tmp；
+# 生效条件：当 job_dir 与 payload 传入后，env HIVE_RESULT_ANCHOR 去空白非真时 payload["result_anchor"] = 该值（P11 批次53 执行器契约：serve 对锚预期任务注入此 env，执行器原样回写，值本身由 serve 侧 HMAC 校验——本处不做任何密码学运算）；随后 tempfile.mkstemp(prefix="result.json.", suffix=".tmp", dir=job_dir) 建唯一临时文件并 UTF-8 写入 json.dump(payload, ensure_ascii=False)+flush+fsync，再 os.replace 到 job_dir/result.json；Windows 上 replace 撞读者瞬态句柄（WinError 5/PermissionError）时按 10ms×递增重试至多 50 次（约 12.5s）；replace 撞 FileNotFoundError（tmp 被瞬态消费/清理）时重建唯一名重写后重试；任一重试耗尽才向外抛；finally 里 best-effort 清理仍存在的 tmp；成功路径不残留任何 .tmp；
 def write_result(job_dir: str, payload: dict) -> None:
     """tmp + fsync + rename 原子替换（并发读者不读到截断空窗口）。
+
+    P11 结果完整性锚回写（批次53）：serve 对锚预期任务（status 带 result_nonce）
+    经 env HIVE_RESULT_ANCHOR 注入预期锚；本执行器原样回写 payload.result_anchor，
+    终态判据面（rust classify_result）据此采信 done。env 缺省（旧格式任务/直跑）
+    时不写该字段——产物格式向后兼容。诚实边界：只透传不计算（锚的秘密性归
+    serve 侧密钥，执行器侧无法也不必复算）。
 
     v2 N6：旧实现 open("w") 先截断再写——rust serve 超时/kill 强杀落在写入
     窗口内即留半截文件，且**先毁旧完整结果**（重投第二次执行同路径）；读者
@@ -123,6 +129,11 @@ def write_result(job_dir: str, payload: dict) -> None:
     finally 清理残留 tmp（成功路径零残留，对齐 K1 口径）。
     """
     p = os.path.join(job_dir, "result.json")
+
+    # P11 锚回写（批次53）：env 注入即透传（见头注「诚实边界」）
+    _anchor = (os.environ.get("HIVE_RESULT_ANCHOR") or "").strip()
+    if _anchor:
+        payload["result_anchor"] = _anchor
 
     def _mk_and_dump():
         fd, tmp = tempfile.mkstemp(prefix="result.json.", suffix=".tmp",

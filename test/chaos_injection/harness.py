@@ -156,9 +156,22 @@ def write_spec(path: str, spec: dict) -> None:
         json.dump(spec, f, ensure_ascii=False)
 
 
-def hive_submit(jobs_dir: str, spec: dict):
+def _env_with(extra: dict | None = None) -> dict:
+    """宿主 env 叠加 extra：值为 None 的键表示**移除**（FI-R03 对照组须保证
+    三把锚密钥键宿主面确实不在场，防机器 env 差异引入不确定性）。"""
+    env = {**os.environ}
+    for k, v in (extra or {}).items():
+        if v is None:
+            env.pop(k, None)
+        else:
+            env[k] = v
+    return env
+
+
+def hive_submit(jobs_dir: str, spec: dict, env_extra: dict | None = None):
     """经真实 hive.exe submit 提交（fail-fast 面）。返回 (rc, stdout)。
-    spec 临时目录用完即清（不留残渣）。"""
+    env_extra 值非 None 叠加、为 None 移除（如 FI-R03 注入哑 HIVE_ORCH_TOKEN 走
+    锚预期提交面——批次53）。spec 临时目录用完即清（不留残渣）。"""
     spec_dir = tempfile.mkdtemp(prefix="chaos_fi_spec_")
     try:
         spec_path = os.path.join(spec_dir, "spec.json")
@@ -166,15 +179,20 @@ def hive_submit(jobs_dir: str, spec: dict):
         r = subprocess.run([HIVE_EXE, "submit", "--spec", spec_path,
                             "--jobs", jobs_dir],
                            capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=30, cwd=_REPO)
+                           errors="replace", timeout=30, cwd=_REPO,
+                           env=_env_with(env_extra))
         return r.returncode, r.stdout + r.stderr
     finally:
         shutil.rmtree(spec_dir, ignore_errors=True)
 
 
-def hive_spawn_serve(jobs_dir: str, workers: int = 1, force: bool = False):
-    """拉起真实 serve（--jobs 指临时池；env HIVE_EXEC_PY=exec_cmd.py）。"""
-    env = {**os.environ, "HIVE_EXEC_PY": EXEC_CMD_PY, "PYTHONUTF8": "1"}
+def hive_spawn_serve(jobs_dir: str, workers: int = 1, force: bool = False,
+                     env_extra: dict | None = None):
+    """拉起真实 serve（--jobs 指临时池；env HIVE_EXEC_PY=exec_cmd.py）。
+    env_extra 值非 None 叠加、为 None 移除（如 FI-R03 注入哑锚密钥启用 P11
+    判据——批次53）。"""
+    env = _env_with({"HIVE_EXEC_PY": EXEC_CMD_PY, "PYTHONUTF8": "1",
+                     **(env_extra or {})})
     args = [HIVE_EXE, "serve", "--jobs", jobs_dir, "--workers", str(workers)]
     if force:
         args.append("--force")

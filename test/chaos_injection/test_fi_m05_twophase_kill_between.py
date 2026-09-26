@@ -57,7 +57,7 @@ def main() -> int:
         child = subprocess.Popen(
             [sys.executable, "-X", "utf8", child_src],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=dict(os.environ),
-            text="utf-8", cwd=REPO)
+            encoding="utf-8", errors="replace", cwd=REPO)
         case.track_proc(child)
         line = child.stdout.readline().strip()
         case.check("注入执行：子进程完成 intent 持久化（INTENT-WRITTEN 信号在案）",

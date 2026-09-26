@@ -6,10 +6,17 @@
 //!   <job_id>/
 //!     spec.json               # 任务规格（submit 写；先写）
 //!     status.json             # 状态（submit 写初始 pending；status.json 出现 = 任务就绪可领取）
-//!     result.json             # 执行器产物（成功/API 错误均写，error 字段区分）
+//!     result.json             # 执行器产物（成功/API 错误均写，error 字段区分；
+//!                             #   锚预期任务须带 result_anchor 回写锚，见 scheduler）
 //!     kill                    # kill 标志（任意宿主创建；worker 检测到即强杀）
 //!     claimed.lock            # 领取原子锁（create_new 成功者独占该任务）
 //! ```
+//!
+//! P11 结果完整性锚（批次53）：提交面解析到锚密钥（keyres.rs）时，status.json
+//! 追加 `result_nonce`（init_job_with_anchor）= 该任务声明锚预期——serve 拉起执行器
+//! 时注入 HIVE_RESULT_ANCHOR（hmac.rs 公式），执行器回写 result.json
+//! `result_anchor`，classify_result 采信 done 前校验；无 nonce 的旧格式任务保持
+//! 旧判据（向后兼容）。
 //!
 //! 状态机：pending → claimed → running → done | error | timeout | killed
 //!
@@ -88,6 +95,27 @@ pub fn read_json(path: &Path) -> Result<Json, String> {
     crate::json::parse(&text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// 结果锚 nonce（P11，批次53）：提交时生成、落 status.json `result_nonce`，
+/// 与锚密钥（keyres.rs）共同参与结果完整性锚公式（hmac.rs::result_anchor_hex）。
+/// nonce 只求**任务内唯一**（防锚跨任务复用），秘密性归锚密钥——故非密码学熵：
+/// FNV-1a 混合 毫秒时钟 + pid + 进程内计数器 + 栈地址（ASLR）。
+/// 生效条件：恒成立——每次调用返回 16 hex 字符；同进程单调计数保证批量提交
+/// 互异，跨进程由 (时钟, pid, ASLR) 区分。
+pub fn new_result_nonce() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let c = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let addr = &c as *const u64 as u64;
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a offset basis
+    for x in [now_ms() as u64, std::process::id() as u64, c, addr] {
+        for b in x.to_le_bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    format!("{h:016x}")
+}
+
 /// 建任务目录并落 spec.json + 初始 status(pending)。
 /// 写序：spec.json 先行，status.json 后写 = 「任务就绪」信号，
 /// serve 只领取见到 status.json 且 state=pending 的任务。
@@ -95,12 +123,28 @@ pub fn read_json(path: &Path) -> Result<Json, String> {
 /// （status.json 出现 = 任务就绪可领取的发布信号），返回 job_id；任一写失败
 /// → Err 且目录残留半成品（无害：serve 只领取见到 status=pending 的任务）。
 pub fn init_job(jobs: &Path, spec_json: &Json, timeout_s: u64) -> Result<String, String> {
+    init_job_with_anchor(jobs, spec_json, timeout_s, None)
+}
+
+/// 锚感知建任务（P11，批次53）：nonce 给定（= 提交面解析到了锚密钥）时在
+/// status.json 追加 `result_nonce` 字段——该任务自此**声明锚预期**：终态判据面
+/// 在采信 done 前校验 result.json 的 result_anchor（scheduler::classify_result）；
+/// nonce 为 None = 旧格式任务（无锚预期），终态判据保持旧口径（向后兼容：
+/// 存量消费者/手搭现场零变更）。
+/// 生效条件：同 init_job；nonce=Some 时 status.json 多一个 `result_nonce`
+/// 字符串字段（16 hex），其余字段与写序完全一致。
+pub fn init_job_with_anchor(
+    jobs: &Path,
+    spec_json: &Json,
+    timeout_s: u64,
+    nonce: Option<&str>,
+) -> Result<String, String> {
     let id = new_job_id();
     let dir = job_dir(jobs, &id);
     fs::create_dir_all(&dir).map_err(|e| format!("建任务目录失败: {e}"))?;
     write_json(&dir.join("spec.json"), spec_json)
         .map_err(|e| format!("写 spec.json 失败: {e}"))?;
-    let status = Json::Obj(vec![
+    let mut status = vec![
         ("job_id".to_string(), Json::Str(id.clone())),
         ("state".to_string(), Json::Str("pending".to_string())),
         ("created_ts".to_string(), Json::Num(now_ms() as f64)),
@@ -111,8 +155,11 @@ pub fn init_job(jobs: &Path, spec_json: &Json, timeout_s: u64) -> Result<String,
         ("model".to_string(), Json::Null),
         ("pid".to_string(), Json::Null),
         ("error".to_string(), Json::Null),
-    ]);
-    write_json(&dir.join("status.json"), &status)
+    ];
+    if let Some(n) = nonce {
+        status.push(("result_nonce".to_string(), Json::Str(n.to_string())));
+    }
+    write_json(&dir.join("status.json"), &Json::Obj(status))
         .map_err(|e| format!("写 status.json 失败: {e}"))?;
     Ok(id)
 }
@@ -380,6 +427,31 @@ mod tests {
         let b = init_job(&jobs, &spec, 60).unwrap();
         let all = list_jobs(&jobs);
         assert_eq!(all, vec![a, b]);
+        let _ = fs::remove_dir_all(&jobs);
+    }
+
+    /// P11 结果锚（批次53）：nonce=Some 时 status 落 `result_nonce`；None 时
+    /// 与旧格式逐字段一致（向后兼容）；nonce 生成器批量唯一。
+    #[test]
+    fn init_job_with_anchor_metadata() {
+        let jobs = tmpdir("anchor");
+        let spec = parse(r#"{"model":"m","user_prompt":"x"}"#).unwrap();
+        // 旧格式：无 result_nonce 字段
+        let legacy = init_job(&jobs, &spec, 60).unwrap();
+        let st = read_status(&job_dir(&jobs, &legacy)).unwrap();
+        assert!(st.get("result_nonce").is_none(), "旧格式任务不得带锚字段");
+        // 锚格式：result_nonce 落盘且与提交值一致
+        let n1 = new_result_nonce();
+        let anchored = init_job_with_anchor(&jobs, &spec, 60, Some(&n1)).unwrap();
+        let st = read_status(&job_dir(&jobs, &anchored)).unwrap();
+        assert_eq!(st.get("result_nonce").unwrap().as_str().unwrap(), n1);
+        // nonce 唯一性：批量 1000 个互异、16 hex
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..1000 {
+            let n = new_result_nonce();
+            assert_eq!(n.len(), 16);
+            assert!(seen.insert(n), "nonce 批量内必须互异");
+        }
         let _ = fs::remove_dir_all(&jobs);
     }
 }

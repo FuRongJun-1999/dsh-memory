@@ -19,25 +19,32 @@ REGISTRY = {
     # S1 杀 serve：T0 崩溃类可观测→可恢复（recover_orphans 诚实标 error，A4）
     "FI-R02": {"expected_verdict": "pass", "gap_tag": None,
                "title": "杀 serve 后重启：recover_orphans 崩溃恢复"},
-    # T4/T12 静默改写：伪造 result.json ok=true 被采信（classify_result 只读盘面）
-    # → 判据面可被能写盘面的组件伪造 = P11 完整性锚待建面基线（无 v15-v17 留档
-    #   编号；与 verify_runner passed>0 门互不覆盖，读码在案）
-    "FI-R03": {"expected_verdict": "gap", "gap_tag": "NEW(P11-待建)",
-               "title": "伪造 result.json ok=true：终态判据被静默改写"},
+    # T4/T12 静默改写：伪造 result.json ok=true 被采信——批次53 修复：P11 完整性
+    # 锚落地（提交面 result_nonce + serve 注入 HIVE_RESULT_ANCHOR + classify_result
+    # 采信 done 前校验：缺失→needs_review / 失配→error；密钥取 hive 既有配置/
+    # 令牌面 env 链，无公开缺省——N143 教训；旧格式任务维持旧判据向后兼容；
+    # 与 M1 逃生门 rerun_on_recover 组合：可疑产物更名留痕重投）
+    "FI-R03": {"expected_verdict": "pass", "gap_tag": None,
+               "title": "伪造 result.json ok=true：P11 完整性锚拦截（批次53 修复）"},
     # P11 完整性锚：payload 单字节翻转必被端到端 HMAC 捕获且能定位行
     "FI-R04": {"expected_verdict": "pass", "gap_tag": None,
                "title": "WAL payload 字节翻转：HMAC 验签捕获与定位"},
-    # P11 覆盖篡改不覆盖遗漏：整行删除对单条 HMAC 验签器不可检 = 缺口基线
-    # （对应 v0.3 落地清单 P0-2 幂等键/seq 连续性判据、矩阵 T2/T7 幂等🟡格）
-    "FI-R05": {"expected_verdict": "gap", "gap_tag": "NEW(P0-2/seq连续性)",
-               "title": "WAL 整行删除：验签器丢失不可检"},
-    # swarm 半边同 R05（无次序判据，gap）；hive submit 侧依赖 fail-fast 有效拦截（红）
-    "FI-R06": {"expected_verdict": "gap", "gap_tag": "NEW(P0-2/seq连续性)",
-               "title": "WAL 行乱序不可检 + submit 依赖 fail-fast 拦截"},
-    # 领取面 claim=create_new 原子锁吸收重复投递（N 投递=1 执行）；次观测
-    # （提交面无 content-hash 幂等键）为 P0-2 已知基线记录，不计入本格 verdict
+    # P11 完整性锚（覆盖篡改）+ P0-2 seq 连续性判据（覆盖遗漏，批次53 修复
+    # 落地 verify_wal_signatures：首行基准步进，跳号/重复/乱序判 bad 并报
+    # continuity_breaks 明细{line,expected,actual,kind}；skip_continuity=True
+    # 显式放宽——v0.3 矩阵 T2/T7 幂等🟡→🟢结案）
+    "FI-R05": {"expected_verdict": "pass", "gap_tag": None,
+               "title": "WAL 整行删除：seq 连续性判据捕获丢失"},
+    # swarm 半边行乱序由 P0-2 seq 连续性判据捕获（批次53 修复，同 FI-R05）；
+    # hive submit 侧依赖 fail-fast 有效拦截（红）——两半均 pass 同格共存
+    "FI-R06": {"expected_verdict": "pass", "gap_tag": None,
+               "title": "WAL 行乱序被 seq 连续性判据捕获 + submit 依赖 fail-fast 拦截"},
+    # 领取面 claim=create_new 原子锁吸收重复投递（N 投递=1 执行）；提交面
+    # content-hash 幂等键已落地（批次53 修复：spec canonical json sha256 为
+    # 幂等键，同哈希活跃任务返回既有 job_id+deduplicated=true 不新建，终态
+    # 不拦重跑）——原 P0-2「提交面无幂等键」次观测结案，v0.3 矩阵 T2/T7 幂等🟢
     "FI-R07": {"expected_verdict": "pass", "gap_tag": None,
-               "title": "双 serve 竞争领取：claim 原子锁恰好一次"},
+               "title": "双 serve 竞争领取：claim 原子锁恰好一次 + 提交面幂等键"},
     # S8 平台默认值：DEFAULT_SECRET 公开常量可伪造合法签名 = N143（v17.md:85
     # 留档，owner=rust，密钥生命周期决策 deferred）
     "FI-R08": {"expected_verdict": "gap", "gap_tag": "N143",

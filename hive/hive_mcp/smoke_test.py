@@ -99,8 +99,13 @@ d = sys.argv[1]
 with open(os.path.join(d, "spec.json"), encoding="utf-8") as f:
     spec = json.load(f)
 time.sleep(float(spec.get("user_prompt") or 0))
+r = {"ok": True, "content": "fake-ok-content", "usage": {"total_tokens": 7}}
+# P11 批次53 执行器契约（与 exec.py/exec_cmd.py 同形）：serve 注入的预期锚原样回写
+anchor = os.environ.get("HIVE_RESULT_ANCHOR", "")
+if anchor:
+    r["result_anchor"] = anchor
 with open(os.path.join(d, "result.json"), "w", encoding="utf-8") as f:
-    json.dump({"ok": True, "content": "fake-ok-content", "usage": {"total_tokens": 7}}, f, ensure_ascii=False)
+    json.dump(r, f, ensure_ascii=False)
 """
 
 

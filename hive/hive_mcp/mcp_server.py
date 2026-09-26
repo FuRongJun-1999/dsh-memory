@@ -234,27 +234,74 @@ def _ensure_serve(jobs: str) -> dict:
 
 # ---------------------------------------------------------------- 工具实现
 
-# 生效条件：jobs 与 spec 给定且不做校验，即生成 h{毫秒时间戳}_{uuid4 前 6 位} 的 job_id，建 jobs/job_id 目录并写 spec.json 与 status.json（state=pending、timeout_s 取 spec.get("timeout_s", 300) 缺键回落 300、model 取 spec.get("model") 缺键为 None），返回 job_id。
+# ---------------------------------------------------------------- 工具实现
+
+# P11 结果完整性锚密钥链（批次53）：与 hive/src/keyres.rs 同一链、同一顺序——
+# 只取 hive 既有配置/令牌面（对照 config.local 既有键），不新发明密钥来源、
+# 不设公开缺省常量（N143 教训）。config.local.json 的解析值按 serve_start
+# 合并语义（{**os.environ, **config}）胜出进程 env，故先查 config 再查 env。
+_RESULT_KEY_KEYS = ("HIVE_ORCH_TOKEN", "HIVE_ORCH_TOKEN_FILE", "HIVE_API_KEY")
+
+
+# 生效条件：无必需形参——先 _load_local_config() 取 config 解析值（load_config 已完成 {"file":…} 读文件），三键按序首个非空字符串胜出；再查进程 env 同序（HIVE_ORCH_TOKEN_FILE 形态读文件全文 strip）；全缺 → None（提交面退回旧格式，不写 result_nonce——零配置部署行为不变）。
+def _result_anchor_key() -> str | None:
+    """结果完整性锚密钥（P11 批次53）：hive 既有配置/令牌面唯一解析点。
+
+    与 rust keyres::resolve_key_from_env 同链（submit 与 serve 两侧同口径，
+    勿再分叉第二套解析）；config 值胜出 env（serve_start 合并语义）。
+    """
+
+    def _env(k: str) -> str | None:
+        v = (os.environ.get(k) or "").strip()
+        return v or None
+
+    cfg, _err = _load_local_config()
+    for k in _RESULT_KEY_KEYS:
+        v = cfg.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    for k in _RESULT_KEY_KEYS:
+        v = _env(k)
+        if v:
+            return v
+    f = _env("HIVE_ORCH_TOKEN_FILE")
+    if f:
+        try:
+            with open(f, "r", encoding="utf-8") as fh:
+                s = fh.read().strip()
+            if s:
+                return s
+        except OSError:
+            pass
+    return None
+
+
+# 生效条件：jobs 与 spec 给定且不做校验，即生成 h{毫秒时间戳}_{uuid4 前 6 位} 的 job_id，建 jobs/job_id 目录并写 spec.json 与 status.json（state=pending、timeout_s 取 spec.get("timeout_s", 300) 缺键回落 300、model 取 spec.get("model") 缺键为 None）；P11 批次53：_result_anchor_key() 解析到密钥时 status 追加 result_nonce=uuid4 hex（任务自此声明锚预期，serve 侧 classify_result 采信 done 前校验 result_anchor），密钥缺失则不加该键（旧格式，行为零变更），返回 job_id。
 def _submit(jobs: str, spec: dict) -> str:
     job_id = f"h{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
     d = os.path.join(jobs, job_id)
     os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, "spec.json"), "w", encoding="utf-8") as f:
         json.dump(spec, f, ensure_ascii=False)
+    nonce = uuid.uuid4().hex if _result_anchor_key() is not None else None
+    status = {
+        "job_id": job_id,
+        "state": "pending",
+        "created_ts": int(time.time() * 1000),
+        "started_ts": None,
+        "heartbeat_ts": None,
+        "elapsed_s": 0.0,
+        "timeout_s": spec.get("timeout_s", 300),
+        "model": spec.get("model"),
+        "pid": None,
+        "error": None,
+    }
+    if nonce:
+        # 秘密性归锚密钥；nonce 只求任务内唯一（防锚跨任务复用）
+        status["result_nonce"] = nonce
     with open(os.path.join(d, "status.json"), "w", encoding="utf-8") as f:
         json.dump(
-            {
-                "job_id": job_id,
-                "state": "pending",
-                "created_ts": int(time.time() * 1000),
-                "started_ts": None,
-                "heartbeat_ts": None,
-                "elapsed_s": 0.0,
-                "timeout_s": spec.get("timeout_s", 300),
-                "model": spec.get("model"),
-                "pid": None,
-                "error": None,
-            },
+            status,
             f,
             ensure_ascii=False,
         )

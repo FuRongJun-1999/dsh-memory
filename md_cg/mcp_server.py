@@ -3723,6 +3723,17 @@ def main():
     except Exception as _exc:         # 对账故障不得影响服务可用性
         sys.stderr.write("[mdcg-mcp] 两段式对账失败（不阻塞启动）: %r\n"
                          % (_exc,))
+    # ③' 启动对账 reconcile v0（v0.3 T9 自稳定定理落地，落地清单 P0-3）：两段式
+    # 清账只覆盖「有意图无结果的写入」，这里补全量 diff——索引（派生态）vs 盘面
+    # 真源：多/缺索引条目与内容哈希漂移三类，以盘面为真源**增量**修复索引面；
+    # 真源自身损坏只告警留痕不自动改写（T9 边界：结构合法≠内容正确）。告警与
+    # 留痕由模块发声（diff 非空才输出，干净库零噪声）；MDCG_RECONCILE=0 关闭
+    # （缺省开，开关真源 reconcile.enabled）。失败不阻塞启动，与③同风格。
+    try:
+        cg.reconcile_state()
+    except Exception as _exc:         # 对账故障不得影响服务可用性
+        sys.stderr.write("[mdcg-mcp] 启动对账 v0 失败（不阻塞启动）: %r\n"
+                         % (_exc,))
     # 进程自报（诊断设施，fail-safe）：把「md_cg 实际加载源 + render 契约代际」
     # 落成 `<tempdir>/md_cg_servers/<pid>.json`，供 `scripts/mdcg_stale_servers.py`
     # 机械判定**活进程代际**。根因（第4条取证）：原先只能比「进程启动时间 vs

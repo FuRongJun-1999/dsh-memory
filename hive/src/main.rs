@@ -16,7 +16,7 @@ use hive::job;
 use hive::json::{parse, Json};
 use hive::scheduler::{self, ServeCfg};
 use hive::spec;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -186,15 +186,66 @@ fn cmd_serve(args: &[String], jobs: PathBuf) -> i32 {
             exec_py.display()
         );
     }
-    let cfg = ServeCfg::new(jobs, workers, exec_py).with_interop_identity();
+    // P11 结果完整性锚（批次53）：密钥取 hive 既有配置/令牌面（serve_start 已把
+    // config.local.json 注入本进程 env）。Some = 锚判据生效（stderr 显式声明，不静默）；
+    // None = 锚判据不启用（零配置部署行为不变——但锚预期任务将按 fail-closed 判
+    // needs_review，见 classify_result）。
+    let result_key = hive::keyres::resolve_key_from_env();
+    match &result_key {
+        Some(k) => eprintln!(
+            "[hive serve] 结果完整性锚：已启用（密钥来源=hive 既有配置/令牌面 env，\
+             {} 字符）",
+            k.chars().count()
+        ),
+        None => eprintln!(
+            "[hive serve] 结果完整性锚：未启用（HIVE_ORCH_TOKEN / \
+             HIVE_ORCH_TOKEN_FILE / HIVE_API_KEY 均缺）——锚预期任务将判 needs_review"
+        ),
+    }
+    let cfg = ServeCfg::new(jobs, workers, exec_py)
+        .with_result_key(result_key)
+        .with_interop_identity();
     let stop = Arc::new(AtomicBool::new(false));
     // Ctrl+C 简易处理：不挂 handler（零依赖下跨平台信号处理受限），
     // 进程被终止时 claimed/running 由下次启动的 recover_orphans 清理。
     scheduler::serve(&cfg, stop)
 }
 
+/// P0-2 幂等键扫描（批次53）：jobs 目录内 status.json 带 `content_hash` 且
+/// state ∈ {pending, claimed, running} 的最老任务 → Some(job_id)。
+/// 读失败/无 hash（旧格式任务）/终态（done|error|timeout|killed）→ 跳过——
+/// 终态不拦（重跑语义不变）、旧格式不参与去重（向后兼容）。
+/// 生效条件：hash 给定 → 按 list_jobs 名升序（=提交时间序）扫描返回首个
+/// 活跃同哈希任务；池空/全不匹配 → None。
+fn find_active_by_hash(jobs: &Path, hash: &str) -> Option<String> {
+    for id in job::list_jobs(jobs) {
+        let st = match job::read_status(&job::job_dir(jobs, &id)) {
+            Ok(s) => s,
+            Err(_) => continue, // 坏/缺 status：不参与去重（无害跳过）
+        };
+        let h = match st.get("content_hash").and_then(|x| x.as_str()) {
+            Some(h) => h,
+            None => continue,
+        };
+        let active = match st.get("state").and_then(|x| x.as_str()) {
+            Some(s) => matches!(s, "pending" | "claimed" | "running"),
+            None => false,
+        };
+        if h == hash && active {
+            return Some(id);
+        }
+    }
+    None
+}
+
 /// 生效条件：--spec 文件或 stdin 给出 spec JSON → validate → init_job 落盘
 /// → 打印 job_id；spec 非法/依赖缺失 → err_json 退出 1（fail fast 在进队列前）。
+/// 锚预期（P11 批次53）：提交面解析到锚密钥时附带 result_nonce（响应
+/// result_anchor=on），否则旧格式（result_anchor=off）——判据面差异显式透出。
+/// 幂等键（P0-2 批次53）：spec canonical json（json.rs::to_canonical_string，
+/// 键序/空白不敏感）的 sha256 为 content_hash——同哈希**活跃**任务存在时
+/// 返回既有 job_id + deduplicated=true 不新建（响应新增 deduplicated/
+/// content_hash 两字段）；终态任务不拦（重跑语义不变）。
 fn cmd_submit(args: &[String], jobs: PathBuf) -> i32 {
     let text = match arg_of(args, "--spec") {
         Some(f) => std::fs::read_to_string(&f).unwrap_or_else(|e| {
@@ -243,13 +294,54 @@ fn cmd_submit(args: &[String], jobs: PathBuf) -> i32 {
             return 1;
         }
     }
-    match job::init_job(&jobs, &v, sp.timeout_s) {
+    // P0-2 幂等键（批次53）：canonical json sha256 → 活跃同哈希任务去重。
+    // 置于依赖检查之后：幂等不豁免 spec 合法性（无效 spec 照旧 fail fast）。
+    let content_hash =
+        hive::hmac::hex32(&hive::hmac::sha256(v.to_canonical_string().as_bytes()));
+    if let Some(existing) = find_active_by_hash(&jobs, &content_hash) {
+        println!(
+            "{}",
+            ok_json(vec![
+                ("job_id", Json::Str(existing)),
+                ("deduplicated", Json::Bool(true)),
+                ("content_hash", Json::Str(content_hash)),
+                ("jobs_dir", Json::Str(jobs.to_string_lossy().to_string())),
+                (
+                    "hint",
+                    Json::Str("同内容活跃任务已在池（幂等去重不新建）；poll 查状态".into())
+                ),
+            ])
+        );
+        return 0;
+    }
+    // P11 结果完整性锚（批次53）：提交面解析到锚密钥（hive 既有配置/令牌面 env）
+    // 即生成 nonce 落 status.json——任务自此声明锚预期（serve 侧校验见
+    // scheduler::classify_result）。无密钥 = 旧格式提交（result_anchor=off，
+    // 存量判据零变更）。锚开关在提交响应显式透出，不静默降级。
+    let result_key = hive::keyres::resolve_key_from_env();
+    let nonce = result_key.as_ref().map(|_| job::new_result_nonce());
+    match job::init_job_with_anchor(&jobs, &v, sp.timeout_s, nonce.as_deref()) {
         Ok(id) => {
+            // 幂等键落盘（init 后 patch 补写：不动 init_job 单写者写序契约；
+            // 补写失败仅损去重能力不损任务本体——诚实取舍不回滚）。
+            let _ = job::patch_status(
+                &job::job_dir(&jobs, &id),
+                vec![(
+                    "content_hash".to_string(),
+                    Json::Str(content_hash.clone()),
+                )],
+            );
             println!(
                 "{}",
                 ok_json(vec![
                     ("job_id", Json::Str(id)),
+                    ("deduplicated", Json::Bool(false)),
+                    ("content_hash", Json::Str(content_hash)),
                     ("jobs_dir", Json::Str(jobs.to_string_lossy().to_string())),
+                    (
+                        "result_anchor",
+                        Json::Str(if nonce.is_some() { "on" } else { "off" }.into()),
+                    ),
                     (
                         "hint",
                         Json::Str("poll 查状态；done 后读 result.json".into())
@@ -679,6 +771,49 @@ mod tests {
         p.push(format!("hive_main_{}_{}_{}", tag, std::process::id(), ns));
         std::fs::create_dir_all(&p).expect("建临时目录");
         p
+    }
+
+    /// P0-2 幂等键（批次53）：活跃同哈希任务去重——命中/终态不拦/异哈希不拦。
+    #[test]
+    fn dedup_scan_active_only() {
+        let jobs = tmpdir("dedup");
+        let spec = parse(r#"{"model":"m","user_prompt":"x"}"#).unwrap();
+        let canon = spec.to_canonical_string();
+        let hash = hive::hmac::hex32(&hive::hmac::sha256(canon.as_bytes()));
+        // 空池：无命中
+        assert_eq!(find_active_by_hash(&jobs, &hash), None);
+        // 活跃任务（pending + content_hash）：命中
+        let id = job::init_job(&jobs, &spec, 60).unwrap();
+        job::patch_status(
+            &job::job_dir(&jobs, &id),
+            vec![("content_hash".to_string(), Json::Str(hash.clone()))],
+        )
+        .unwrap();
+        assert_eq!(find_active_by_hash(&jobs, &hash), Some(id.clone()));
+        // 终态（done）：不拦（重跑语义不变）
+        job::patch_status(
+            &job::job_dir(&jobs, &id),
+            vec![("state".to_string(), Json::Str("done".to_string()))],
+        )
+        .unwrap();
+        assert_eq!(find_active_by_hash(&jobs, &hash), None);
+        // 异哈希：不命中
+        let other = hive::hmac::hex32(&hive::hmac::sha256(b"other"));
+        assert_eq!(find_active_by_hash(&jobs, &other), None);
+        std::fs::remove_dir_all(&jobs).ok();
+    }
+
+    /// 幂等键规范化：键序不同的同内容 spec → 同一 content_hash。
+    #[test]
+    fn content_hash_canonical_insensitive() {
+        let a = parse(r#"{"model":"m","user_prompt":"x","timeout_s":60}"#).unwrap();
+        let b = parse(r#"{ "user_prompt" : "x" , "timeout_s":60,"model":"m" }"#).unwrap();
+        let ha = hive::hmac::hex32(&hive::hmac::sha256(a.to_canonical_string().as_bytes()));
+        let hb = hive::hmac::hex32(&hive::hmac::sha256(b.to_canonical_string().as_bytes()));
+        assert_eq!(ha, hb, "同内容异键序必须同哈希");
+        let c = parse(r#"{"model":"m","user_prompt":"不同内容","timeout_s":60}"#).unwrap();
+        let hc = hive::hmac::hex32(&hive::hmac::sha256(c.to_canonical_string().as_bytes()));
+        assert_ne!(ha, hc, "不同内容必须不同哈希");
     }
 
     /// 存活判据第三层（v13 新发现 A）：pid 号存活 ≠ serve 存活。
