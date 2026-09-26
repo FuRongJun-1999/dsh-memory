@@ -116,8 +116,14 @@ def _cleanup_tree(parent_pid: int, child_pid: int | None = None) -> None:
 
 # ------------------------------------------------------- [A] nt 实弹面（树杀）
 print("[A] 实弹（nt）：stop() 后哑父与哑子都必须死（旧代码子存活=孤儿）")
+# 哑父必须**自成会话/进程组组长**——这正是本文件 [C3] 为真实 start() 断言的前提
+# （`start_new_session=(os.name != "nt")`）。缺了它，哑父与**测试运行器同组**，而被测
+# unix 臂 stop() 就是 `os.killpg(os.getpgid(pid), 15)`：这一发 SIGTERM 会打给整个组，
+# 运行器（run_tests.py / CI 的 step shell）当场死——现象是 exit code 143、套件连汇总都
+# 打不出来，且"哪些用例已 PASS/FAIL"随调度时序漂移（本仓 CI 自 2026-09-26 起即此形态）。
 parent = subprocess.Popen([sys.executable, PARENT_PY],
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                          start_new_session=(os.name != "nt"))
 child_pid = None
 try:
     for _ in range(50):  # ≤10s 等父进程报出子 pid
@@ -141,6 +147,14 @@ try:
         check("A1 stop ok 且 stopped=True",
               res.get("ok") is True and res.get("stopped") is True,
               f"got {json.dumps(res, ensure_ascii=False)[:200]}")
+        # 父是本测试创建的，必须自己回收：POSIX 上 SIGTERM 后未 wait 的父是**僵尸**，
+        # 僵尸仍占 pid、`os.kill(pid, 0)` 判活为真 → A2 会假红。回收不影响 A3 的树杀判据
+        # （那查的是子进程，父死即被 init 收养）。nt 上进程终止即从 tasklist 消失，
+        # wait 只是同步回收句柄。
+        try:
+            parent.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
         check("A2 父进程已死（单进程杀旧代码即满足）",
               not ss.pid_alive(parent.pid),
               f"parent pid={parent.pid} 仍存活")
