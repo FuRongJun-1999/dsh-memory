@@ -3607,9 +3607,27 @@ def _force_utf8_stdio():
             pass
 
 
-# 生效条件：_force_utf8_stdio() 先执行（stdio 三流强制 UTF-8，issue #39）；此后 _resolve_root() 返回 err 非空时向 stderr 写冲突说明并返回 2；root 为空写缺少 MDCG_ROOT 并返回 2；root 的 basename 小写以 _md_cg_ 开头返回 2，令牌校验失败返回 3；其余构造 MdCGSecure 并进入 stdin 分派循环。
+# 生效条件：_force_utf8_stdio() 先执行（stdio 三流强制 UTF-8，issue #39）；随后对 mdcg_root()/aux_root() 各探一次，抛 ValueError（Windows 保留设备名末段被 GetFullPathNameW 吞成设备路径，datapath._abs_host_path 守卫）时向 stderr 写一行含原始消息的告警并返回 2；此后 _resolve_root() 返回 err 非空时向 stderr 写冲突说明并返回 2；root 为空写缺少 MDCG_ROOT 并返回 2；root 的 basename 小写以 _md_cg_ 开头返回 2，令牌校验失败返回 3；其余构造 MdCGSecure 并进入 stdin 分派循环。
 def main():
     _force_utf8_stdio()
+    # 启动早期承接受理（Windows 保留设备名守卫）：MDCG_ROOT/MDCG_AUX_ROOT/
+    # MDCG_DATA_ROOT 等覆盖值末段若是保留设备名（aux/con/nul/com1-9/lpt1-9…），
+    # ntpath.abspath 经 GetFullPathNameW 会把整个路径吞成设备命名空间形态
+    # （例 D:\sandbox\aux → \\.\aux），datapath._abs_host_path 即抛 ValueError。
+    # 此处先探一次 root/aux 解析，命中即拒绝启动（对照下方 `_md_cg_` 前缀守卫
+    # 先例「启动即拒绝，不带病运行」）——否则首个 aux 常量面（crypto/links/
+    # signer/theory/tokens/evidence 的模块级 aux_root()）会在下方 import 处
+    # 裸崩 traceback，密钥/令牌/信任面被指到不存在的设备路径。
+    try:
+        from .datapath import mdcg_root as _probe_root
+        from .datapath import aux_root as _probe_aux
+        _probe_root()
+        _probe_aux()
+    except ValueError as _ve:
+        sys.stderr.write(f"[mdcg-mcp] {_ve}\n"
+                         "[mdcg-mcp] 拒绝启动（fail-closed）：请把上述覆盖键"
+                         "改指向末段不含保留设备名的普通目录。\n")
+        return 2
     root, _terr = _resolve_root()
     if _terr:
         sys.stderr.write(f"[mdcg-mcp] 租户根冲突：{_terr}。"
