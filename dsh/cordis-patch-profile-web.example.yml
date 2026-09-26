@@ -44,6 +44,26 @@
     # 全部工具（含记忆/认知/白箱 wisdom_* 工具族），供 Agent 直接调用
     tools: all
     env:
+      # ── 会话 / 智能体 归因维度（2026-09-26 新增，可选项但推荐接线）──────────
+      # 三维身份：地点 = 会话所属工作区目录名（如 --D-4_ai--）；
+      #           智能体 = harness（dsh / codebuddy / zcode）；会话 = session-<uuid>。
+      # 为何要配：md_cg/mcp_server.py 的 _declared_session 规定「env 权威」——
+      #   ① 设了 MDCG_SESSION（或 DSH_SESSION_ID）→ 本 MCP 连接的会话归属被钉死，
+      #      调用方在请求里声明的 session 一律忽略（客户端不得伪造归属）；
+      #   ② 没设 → 单进程多会话的载体（DSH web 一个 MCP 进程服务多个前端会话）
+      #      虽允许请求面声明，但须过 _normalize_session 的防编造校验：DSH 形态
+      #      （session-<uuid4>）须真实存在于 MDCG_DSH_SESSIONS_ROOT/<workspace>/ 下，
+      #      否则降级 anonymous（记忆照样落盘，只是归属不可追溯）。
+      # 本机接线（2026-09-26 实测生效）：由启动脚本按工作区解析当前会话目录名后注入
+      #   DSH_HOME=D:\dsh-home
+      #   set MDCG_DSH_SESSIONS_ROOT=D:\dsh-home\sessions
+      #   set MDCG_HARNESS=dsh
+      #   set MDCG_UNIT=agent
+      #   set MDCG_SESSION=session-<当前会话 uuid>
+      # 参见 dsh/dsh-web-start.bat 与 <profile>/cordis.patch.yml 的 env 段。
+      MDCG_DSH_SESSIONS_ROOT: '<DSH_HOME>/sessions'
+      MDCG_HARNESS: 'dsh'
+      MDCG_UNIT: 'agent'
       BOCHA_API_KEY: !!js process.env.BOCHA_API_KEY
       AEIS_DESIGNER_KEY: !!js process.env.AEIS_DESIGNER_KEY
       # 角色扮演 LLM 续答密钥（插件桥 env 透传；优先从 .credentials.yaml 读取——
