@@ -95,12 +95,23 @@ def main():
         # ---- 1. 实弹红转绿核心：MDCG_AUX_ROOT 末段 aux → aux_root() 必须拒绝 ----
         print("[1] 实弹核心：MDCG_AUX_ROOT=<临时目录>\\aux（不存在，纯字符串）")
         raised, msg = _probe_reject(aux_root, ENV_AUX_ROOT, "aux", tmp)
-        check("1a aux_root() 抛 ValueError（红态：静默返回 \\\\.\\aux 不抛）",
-              raised, f"msg={msg[:160]!r}")
-        check("1b 消息含覆盖键名 MDCG_AUX_ROOT（定位误配来源）",
-              ENV_AUX_ROOT in msg, f"msg={msg[:160]!r}")
-        check("1c 消息含「保留设备名」字样（说清劫持机理）",
-              "保留设备名" in msg, f"msg={msg[:160]!r}")
+        if os.name == "nt":
+            check("1a aux_root() 抛 ValueError（红态：静默返回 \\\\.\\aux 不抛）",
+                  raised, f"msg={msg[:160]!r}")
+            check("1b 消息含覆盖键名 MDCG_AUX_ROOT（定位误配来源）",
+                  ENV_AUX_ROOT in msg, f"msg={msg[:160]!r}")
+            check("1c 消息含「保留设备名」字样（说清劫持机理）",
+                  "保留设备名" in msg, f"msg={msg[:160]!r}")
+        else:
+            # 与 [4] 同口径：平台门在 `_abs_host_path`（`os.name == "nt"`），POSIX 上
+            # `\\.\aux` 是合法目录名字面量，不判定 → 必须不抛且原样返回。
+            check("1a 非 Windows 不判定（\\\\.\\aux 是合法目录名字面量，原样返回不抛）",
+                  not raised, f"msg={msg[:160]!r}")
+            check("1b 非 Windows 不判定：不产生保留设备名拒因（消息为空）",
+                  msg == "", f"msg={msg[:160]!r}")
+            check("1c 非 Windows 不判定：aux_root() 原样返回该路径（未被吞成设备路径）",
+                  aux_root() == os.path.abspath(os.path.join(tmp, "aux")),
+                  f"aux_root()={aux_root()!r}")
 
         # ---- 2. 同族四面：state/data/mdcg 各 env 面同样拒绝 ----
         print("[2] 同族 env 面（MDCG_STATE_ROOT/MDCG_DATA_ROOT/MDCG_ROOT）")
@@ -108,10 +119,18 @@ def main():
                               (ENV_DATA_ROOT, data_root, "nul"),
                               (ENV_MDCG_ROOT, mdcg_root, "aux")):
             raised, msg = _probe_reject(fn, key, tail, tmp)
-            check(f"2·{key}: {fn.__name__}() 抛 ValueError 且消息含键名"
-                  "（env 直设命中第一分支，paths.json 零参与）",
-                  raised and key in msg,
-                  f"raised={raised} msg={msg[:160]!r}")
+            if os.name == "nt":
+                check(f"2·{key}: {fn.__name__}() 抛 ValueError 且消息含键名"
+                      "（env 直设命中第一分支，paths.json 零参与）",
+                      raised and key in msg,
+                      f"raised={raised} msg={msg[:160]!r}")
+            else:
+                # 与 [4] 同口径：平台门在 `_abs_host_path`，POSIX 不判定保留设备名。
+                check(f"2·{key}: 非 Windows 不判定（末段 {tail} 是合法目录名，"
+                      f"{fn.__name__}() 原样返回不抛）",
+                      not raised
+                      and fn() == os.path.abspath(os.path.join(tmp, tail)),
+                      f"raised={raised} msg={msg[:160]!r} got={fn()!r}")
 
         # ---- 3. 正常路径不误伤：无保留名末段 → abspath 原样返回 ----
         print("[3] 正常路径不误伤（临时子目录，末段无保留名）")
