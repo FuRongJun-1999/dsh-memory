@@ -365,9 +365,9 @@ fn cmd_submit(args: &[String], jobs: PathBuf) -> i32 {
 /// poll 面看不见、无法裁决续跑。故此处透出交接四字段 + 派生 handoff_ready
 /// （need_continue==true 且 completed!=true，一眼可判；原始字段仍如实透传，
 /// 缺失=Null 以区分「旧执行器/未标」与「显式 false」）。
-/// 生效条件：result.json 存在 → 摘要视图（content_head 截断/usage/交接四字段
-/// +handoff_ready 派生）；不存在 → Json::Null；坏文件 → error 视图（如实透出
-/// 不静默）。
+/// 生效条件：result.json 存在 → 摘要视图（ok 凭证 + content_head 截断/usage/
+/// 交接四字段 +handoff_ready 派生）；不存在 → Json::Null；坏文件 → error 视图
+/// （如实透出不静默）。
 fn result_summary(dir: &std::path::Path, head: usize) -> Json {
     let p = dir.join("result.json");
     if !p.is_file() {
@@ -382,6 +382,9 @@ fn result_summary(dir: &std::path::Path, head: usize) -> Json {
             let need = matches!(r.get("need_continue"), Some(Json::Bool(true)));
             let done = matches!(r.get("completed"), Some(Json::Bool(true)));
             Json::Obj(vec![
+                // ok 凭证位（R02，批次58）：观测面此前只透 content/usage，凭证
+                // 字段不可见——矛盾裁决（error 终态 × ok=true）无从在 poll 面成立。
+                ("ok".to_string(), g("ok")),
                 ("content_head".to_string(), Json::Str(cut)),
                 ("content_truncated".to_string(), Json::Bool(truncated)),
                 (
@@ -411,6 +414,12 @@ fn result_summary(dir: &std::path::Path, head: usize) -> Json {
 
 /// 生效条件：job 存在 → status 全量 + result 摘要（head 截断）合体视图；
 /// status 不可读 → 含 error 的最小视图（poll 的单查/列表共用渲染单元）。
+/// 矛盾裁决（R02，批次58）：status.state=error 终态与 result.ok=true 并存时
+/// 透出 conflict="late_result_after_error"——serve 被硬杀后 recover_orphans
+/// 按无产物标 error（scheduler.rs），error 落入 `match _ => {}` 永不回看，孤儿
+/// 执行器补写的 ok 产物遂与记账面矛盾固化。观测面不静默翻转 state、不静默吞
+/// result：两张脸同屏 + 矛盾位显式置起，裁决权交给消费面（wm.py 凭证闸拒放行/
+/// 主代理人工裁决）；其余状态组合不置位（done+ok 正常路径零扰动）。
 fn one_job_view(jobs: &PathBuf, id: &str, head: usize) -> Json {
     let dir = job::job_dir(jobs, id);
     let mut view = match job::read_status(&dir) {
@@ -423,7 +432,18 @@ fn one_job_view(jobs: &PathBuf, id: &str, head: usize) -> Json {
         }
     };
     if let Json::Obj(kv) = &mut view {
-        kv.push(("result".to_string(), result_summary(&dir, head)));
+        let summary = result_summary(&dir, head);
+        let state_error = matches!(
+            kv.iter().rev().find(|(k, _)| k == "state"),
+            Some((_, Json::Str(s))) if s == "error"
+        );
+        if state_error && matches!(summary.get("ok"), Some(Json::Bool(true))) {
+            kv.push((
+                "conflict".to_string(),
+                Json::Str("late_result_after_error".into()),
+            ));
+        }
+        kv.push(("result".to_string(), summary));
     }
     view
 }
@@ -920,5 +940,78 @@ mod tests {
         assert_eq!(result_summary(&empty, 100), Json::Null);
         std::fs::remove_dir_all(&d).ok();
         std::fs::remove_dir_all(&empty).ok();
+    }
+
+    /// R02 矛盾态守卫（批次58）：state=error 终态与孤儿执行器补写的
+    /// result.ok=true 同屏时，poll 合体面必须透出矛盾裁决字段——
+    /// 两张脸都如实保留（不静默翻转 state、不静默吞 result），由消费面
+    /// （wm.py 凭证闸/主代理）裁决，而非观测面替天做主。
+    #[test]
+    fn one_job_view_flags_late_result_after_error() {
+        let jobs = tmpdir("conflict");
+        let spec = parse(r#"{"model":"m","user_prompt":"x"}"#).unwrap();
+        let id = job::init_job(&jobs, &spec, 60).unwrap();
+        let dir = job::job_dir(&jobs, &id);
+        // 与 scheduler.rs recover_orphans 无产物分支逐字同字段：error 终态
+        job::patch_status(
+            &dir,
+            vec![
+                ("state".to_string(), Json::Str("error".into())),
+                (
+                    "error".to_string(),
+                    Json::Str("serve 中断：任务执行被重置".into()),
+                ),
+            ],
+        )
+        .unwrap();
+        // 孤儿执行器补写 ok=true 产物（attack 形态）
+        std::fs::write(
+            dir.join("result.json"),
+            r#"{"ok":true,"content":"孤儿补写","completed":true}"#,
+        )
+        .unwrap();
+        let v = one_job_view(&jobs, &id, 200);
+        assert_eq!(
+            v.get("conflict").and_then(|c| c.as_str()),
+            Some("late_result_after_error"),
+            "矛盾态必须透出 conflict 裁决字段"
+        );
+        // 不静默翻转：error 终态原样保留
+        assert_eq!(v.get("state"), Some(&Json::Str("error".into())));
+        // 不静默合体：补写产物原样透出（result.ok 可见，矛盾双方同屏可裁决）
+        assert_eq!(
+            v.get("result").and_then(|r| r.get("ok")),
+            Some(&Json::Bool(true))
+        );
+        std::fs::remove_dir_all(&jobs).ok();
+    }
+
+    /// R02 负例面（不误报）：done+ok / error+ok=false / error+无产物 均非矛盾态。
+    #[test]
+    fn one_job_view_no_conflict_without_contradiction() {
+        let jobs = tmpdir("noconflict");
+        let spec = parse(r#"{"model":"m","user_prompt":"x"}"#).unwrap();
+        // 负例①：done 终态 + ok=true（正常成功路径）
+        let id = job::init_job(&jobs, &spec, 60).unwrap();
+        let dir = job::job_dir(&jobs, &id);
+        job::patch_status(&dir, vec![("state".to_string(), Json::Str("done".into()))]).unwrap();
+        std::fs::write(
+            dir.join("result.json"),
+            r#"{"ok":true,"content":"正常成功"}"#,
+        )
+        .unwrap();
+        assert_eq!(one_job_view(&jobs, &id, 200).get("conflict"), None);
+        // 负例②：error 终态 + ok=false（凭证门本来就会拒，无矛盾）
+        let id2 = job::init_job(&jobs, &spec, 60).unwrap();
+        let dir2 = job::job_dir(&jobs, &id2);
+        job::patch_status(&dir2, vec![("state".to_string(), Json::Str("error".into()))]).unwrap();
+        std::fs::write(dir2.join("result.json"), r#"{"ok":false,"error":"x"}"#).unwrap();
+        assert_eq!(one_job_view(&jobs, &id2, 200).get("conflict"), None);
+        // 负例③：error 终态 + 无产物（recover_orphans 刚标完、孤儿还没写完）
+        let id3 = job::init_job(&jobs, &spec, 60).unwrap();
+        let dir3 = job::job_dir(&jobs, &id3);
+        job::patch_status(&dir3, vec![("state".to_string(), Json::Str("error".into()))]).unwrap();
+        assert_eq!(one_job_view(&jobs, &id3, 200).get("conflict"), None);
+        std::fs::remove_dir_all(&jobs).ok();
     }
 }

@@ -18,7 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from compiler.compiler import compile_source
 from compiler.condition_vm import ConditionVM, Opcode
 from compiler.pbc import compile_to_pbc, deserialize, load_pbc, run_pbc, serialize
-from swarm.rust_codegen import build_and_run, generate_rust_project
+from swarm.rust_codegen import (build_and_run, build_rust_exe,
+                                generate_rust_project)
 
 pass_n = fail_n = 0
 
@@ -229,6 +230,65 @@ if has_cargo and os.path.isdir(rt_dir):
         check("独立形态可执行产物存在", False, exe9)
 else:
     check("cargo 不可用 → 跳过独立形态（环境声明）", True)
+
+# ============ ⑩ build_rust_exe 新鲜度：换源重跑必须重建（N-high 2026-09-26） ============
+# 缺陷：exe 存在即短路返回——同 project 换源重跑时 generate 只覆写
+# program.pbc（embed 是编译期 include_bytes! 嵌 exe 的），旧 exe 照跑旧程序
+# 且全绿假成功；fresh build 返回值还可能是无后缀不存在路径（v5 N26①）。
+# 修复面：pbc 较新（mtime 严格大于，相等不触发）→ 强制 cargo 重建；构建后
+# 重探真实产物路径。配套：generate 同内容不覆写 pbc（幂等重入不假重建）。
+print("=== ⑩ build_rust_exe 新鲜度（换源重建/返回路径/重入短路） ===")
+
+SRC_A = "术曰：\n1。德 0.5；\n"
+SRC_B = "术曰：\n1。德 0.9；\n"
+
+
+def _e2e_trust(exe):
+    """直接运行嵌入形态 exe → 终态 trust（None=运行失败）。"""
+    r = subprocess.run([exe], capture_output=True, text=True, timeout=60,
+                       encoding="utf-8", errors="replace")
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    return json.loads(r.stdout.strip().splitlines()[-1]).get("trust")
+
+
+if has_cargo:
+    tmp10 = tempfile.mkdtemp(prefix="fresh_exe_")
+    proj10 = os.path.join(tmp10, "proj")
+    check("⑩0 A 源生成", generate_rust_project(SRC_A, proj10)["ok"])
+    p1 = build_rust_exe(proj10)
+    check("⑩a fresh build 返回真实产物路径（v5 N26① 无后缀面）",
+          os.path.exists(p1), p1)
+    t_a = _e2e_trust(p1)
+    check("⑩a' 首建 exe 语义 = A（trust=0.5，守卫前提）",
+          t_a is not None and abs(t_a - 0.5) < 1e-9, f"trust={t_a}")
+    # 换源重跑：pbc 覆写 + 确定性回拨 exe mtime 60s（陈旧形态不靠时钟粒度）
+    generate_rust_project(SRC_B, proj10)
+    exe10 = p1
+    m_old = os.path.getmtime(exe10)
+    os.utime(exe10, (m_old - 60, m_old - 60))
+    pbc10 = os.path.join(proj10, "program.pbc")
+    check("⑩0' 陈旧形态前置（pbc mtime > exe mtime）",
+          os.path.getmtime(pbc10) > os.path.getmtime(exe10))
+    p2 = build_rust_exe(proj10)
+    check("⑩b pbc 较新触发重建（exe mtime 前移，旧码 delta=0）",
+          os.path.exists(p2) and os.path.getmtime(p2) > m_old - 60 + 30,
+          f"delta={os.path.getmtime(p2) - (m_old - 60):.1f}s")
+    t10 = _e2e_trust(p2)
+    check("⑩c 重建后 exe 语义 = 新源 B（trust=0.9；旧码跑旧程序得 0.5）",
+          t10 is not None and abs(t10 - 0.9) < 1e-9, f"trust={t10}")
+    m_b = os.path.getmtime(p2)
+    p3 = build_rust_exe(proj10)
+    check("⑩d exe 新于 pbc 重入短路（不重建，mtime 不变）",
+          p3 == p2 and abs(os.path.getmtime(p3) - m_b) < 1e-6)
+    # 同内容不覆写：幂等重入（同源再次 generate）保 pbc mtime
+    m_pbc = os.path.getmtime(pbc10)
+    generate_rust_project(SRC_B, proj10)
+    check("⑩e 同源重跑 generate 不覆写 pbc（mtime 不变 → 连带不假重建）",
+          abs(os.path.getmtime(pbc10) - m_pbc) < 1e-6)
+    shutil.rmtree(tmp10, ignore_errors=True)
+else:
+    check("cargo 不可用 → 跳过 ⑩ 新鲜度验收（环境声明）", True)
 
 print(f"\n{pass_n} passed, {fail_n} failed")
 sys.exit(1 if fail_n else 0)

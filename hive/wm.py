@@ -5,6 +5,9 @@
 
 三级闸（写入 → 提交 → 合并，回退免费）：
   snapshot  commit 凭证 = result.json 终态 ok:true（第 5 条「未验证不写入」的任务级落码）
+            ＋矛盾态闸（R02 批次58）：status.state=error 终态与 ok=true 并存即拒
+            （late_result_after_error——serve 中断误标后孤儿执行器补写产物，
+            人工裁决前不入库）
   merge     主代理显式执行（两阶段审查机械化）；冲突诚实报错不自动解决
   revert    任意提交点免费回退（生成反向提交，历史不丢）
 
@@ -107,7 +110,7 @@ def cmd_init(wm: str) -> dict:
     return {"ok": True, "wm": wm, "branch": "main"}
 
 
-# 生效条件：job 下 result.json 非 os.path.isfile 时先返回凭证不足错误，result.json 可读但 result.get("ok") is not True 时返回带 verdict（str(result.get("error",""))[:200]）的错误，job 下 spec.json 非 os.path.isfile 时返回规格缺失错误；通过后 job_id 取 str(result.get("job_id") or os.path.basename(job))（result.job_id 为 None/空串时回落 basename(job)），job_id 含 / \ 或为 . .. 时返回非法 job_id 错误（路径段校验，防穿越删库），branch 为真值时用 branch、假值时回落 f"task/{job_id}"，artifacts 为真值时先按逗号切分（strip 后非空段）、相对名拼 job 做存在性预检，任一源非 os.path.isfile 即在任何 staging 写入前返回 artifacts 缺失错误（v10 N83：不拷半份）；随后 rmtree/makedirs(wm/jobs/<job_id>) 并拷 spec.json、result.json、log.txt 与 PROGRESS_FILE（两者各自 os.path.isfile 为真才拷、PROGRESS_FILE 缺失即 has_progress=False 不报错）、拷 artifacts/ 并收集 basename；然后 checkout -B branch、add jobs、commit（model 取 result.get("model") 为假值回落 "?"，duration_s 为真值才附）、rev-parse --short HEAD 四步包于内层 try/finally——finally 无条件 checkout main（v2 N10：提交链任一步抛 WmError 也不残留 HEAD 于 task 分支），checkout main 失败时若 try 内有正传播异常则抛消息合并且 from 原异常的 WmError、无则直接抛 WmError（均含 HEAD 可能残留提示）；staging 拷贝起至提交链整体包于外层 try/except——任一步异常先 rmtree 清理已拷入的 wm/jobs/<job_id>/（不留绕闸残留）再原样重抛；全部成功返回 ok True 与 job_id/branch/commit/artifacts/progress/message。
+# 生效条件：job 下 result.json 非 os.path.isfile 时先返回凭证不足错误，result.json 可读但 result.get("ok") is not True 时返回带 verdict（str(result.get("error",""))[:200]）的错误，job 下 status.json 存在但解析失败时返回 conflict=status_unreadable 的记账面不可读错误（fail-closed，事故信号不静默）、其 state=error 时返回 conflict=late_result_after_error 的矛盾态拒绝（R02：error 终态与 ok=true 并存，人工裁决前不放行），status.json 缺失按旧口径仅凭 ok 门放行（旧格式/手工目录零回归），job 下 spec.json 非 os.path.isfile 时返回规格缺失错误；通过后 job_id 取 str(result.get("job_id") or os.path.basename(job))（result.job_id 为 None/空串时回落 basename(job)），job_id 含 / \ 或为 . .. 时返回非法 job_id 错误（路径段校验，防穿越删库），branch 为真值时用 branch、假值时回落 f"task/{job_id}"，artifacts 为真值时先按逗号切分（strip 后非空段）、相对名拼 job 做存在性预检，任一源非 os.path.isfile 即在任何 staging 写入前返回 artifacts 缺失错误（v10 N83：不拷半份）；随后 rmtree/makedirs(wm/jobs/<job_id>) 并拷 spec.json、result.json、log.txt 与 PROGRESS_FILE（两者各自 os.path.isfile 为真才拷、PROGRESS_FILE 缺失即 has_progress=False 不报错）、拷 artifacts/ 并收集 basename；然后 checkout -B branch、add jobs、commit（model 取 result.get("model") 为假值回落 "?"，duration_s 为真值才附）、rev-parse --short HEAD 四步包于内层 try/finally——finally 无条件 checkout main（v2 N10：提交链任一步抛 WmError 也不残留 HEAD 于 task 分支），checkout main 失败时若 try 内有正传播异常则抛消息合并且 from 原异常的 WmError、无则直接抛 WmError（均含 HEAD 可能残留提示）；staging 拷贝起至提交链整体包于外层 try/except——任一步异常先 rmtree 清理已拷入的 wm/jobs/<job_id>/（不留绕闸残留）再原样重抛；全部成功返回 ok True 与 job_id/branch/commit/artifacts/progress/message。
 def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
                  branch: str | None = None) -> dict:
     """凭证闸：result.ok=true 才许提交；白名单拷贝产物后 commit 到任务分支。
@@ -127,6 +130,28 @@ def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
             "error": f"凭证不足: result.ok={result.get('ok')!r}（第 5 条：未验证不写入）",
             "verdict": str(result.get("error", ""))[:200],
         }
+    # 矛盾态闸（R02，批次58）：serve 被硬杀 → recover_orphans 按无产物标 error
+    # 终态（scheduler.rs，此后 match _ => {} 永不回看）→ 孤儿执行器补写
+    # ok=true 产物——记账面已判负、产物面自报成功，观测面（hive poll）以
+    # conflict=late_result_after_error 置位；凭证闸消费同一事实拒放行：
+    # 矛盾未人工裁决前，失败任务的产物不得借 ok 皮入库（第 5 条同源）。
+    status_path = os.path.join(job, "status.json")
+    if os.path.isfile(status_path):
+        try:
+            status = _read_json(status_path)
+        except (OSError, ValueError) as e:
+            return {"ok": False, "conflict": "status_unreadable",
+                    "error": f"记账面不可读: status.json 解析失败（{e}）——"
+                             f"事故信号不静默，须人工裁决后方可快照"}
+        if status.get("state") == "error":
+            return {
+                "ok": False,
+                "conflict": "late_result_after_error",
+                "error": "矛盾态拒绝: status.state=error 终态与 result.ok=true 并存"
+                         "（late_result_after_error——serve 中断误标后孤儿执行器"
+                         "补写产物），人工核实产物有效并改写记账终态后方可快照",
+                "verdict": str(status.get("error", ""))[:200],
+            }
     if not os.path.isfile(spec_path):
         return {"ok": False, "error": f"{spec_path} 不存在（任务规格缺失，不可复现）"}
 

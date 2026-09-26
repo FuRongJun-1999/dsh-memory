@@ -16,13 +16,13 @@ import sys
 from typing import Dict, Optional
 
 from compiler.compiler import compile_source
-from compiler.pbc import save_pbc
+from compiler.pbc import save_pbc, serialize
 
 ALGO = "rust_codegen-0.1"
 RUNTIME_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rust_runtime")
 
 
-# 生效条件：compile_source(source, strict=strict) 的 result["ok"] 为真时，在 abspath(out_dir) 下建 src/、写 program.pbc 与 build_meta.json、把拷贝的 Cargo.toml 的 default 改写为 ["embed"]（模板默认关 embed——模板目录无 program.pbc，裸 cargo test 不失败；生成项目 program.pbc 在位，改写后编译期嵌入），返回 {"ok": True, "project_dir": out_dir, "pbc": ..., "instructions": len(code)}；result["ok"] 为假时返回 {"ok": False, "result": result, "algo": ALGO}；
+# 生效条件：compile_source(source, strict=strict) 的 result["ok"] 为真时，在 abspath(out_dir) 下建 src/、写 program.pbc（内容与现存文件字节一致时不覆写——保 mtime 供 build_rust_exe 新鲜度判定，幂等重入不假重建）与 build_meta.json、把拷贝的 Cargo.toml 的 default 改写为 ["embed"]（模板默认关 embed——模板目录无 program.pbc，裸 cargo test 不失败；生成项目 program.pbc 在位，改写后编译期嵌入），返回 {"ok": True, "project_dir": out_dir, "pbc": ..., "instructions": len(code)}；result["ok"] 为假时返回 {"ok": False, "result": result, "algo": ALGO}；
 def generate_rust_project(source: str, out_dir: str, strict: bool = False) -> Dict:
     """中文源码 → Rust cargo 项目。返回 {ok, project_dir, pbc, result}。"""
     code, result = compile_source(source, strict=strict)
@@ -32,8 +32,14 @@ def generate_rust_project(source: str, out_dir: str, strict: bool = False) -> Di
     src_dir = os.path.join(out_dir, "src")
     os.makedirs(src_dir, exist_ok=True)
     # ① 字节码 → program.pbc（tag6 支持 CALL 签名）
+    # 内容一致时不覆写（保 pbc mtime）：build_rust_exe 以 pbc/exe mtime 判
+    # 新鲜度（N-high 2026-09-26），幂等重入（同源重跑，cmd_run 每次都调本
+    # 函数）若照写会无谓翻新 mtime → 触发假重建。
     pbc_path = os.path.join(out_dir, "program.pbc")
-    save_pbc(code, pbc_path)
+    pbc_bytes = serialize(code)
+    if not (os.path.exists(pbc_path)
+            and open(pbc_path, "rb").read() == pbc_bytes):
+        save_pbc(code, pbc_path)
     # ② 拷贝 runtime 模板（Cargo.toml + src/*.rs）
     for name in ("Cargo.toml",):
         shutil.copy2(os.path.join(RUNTIME_DIR, name), os.path.join(out_dir, name))
@@ -59,19 +65,39 @@ def generate_rust_project(source: str, out_dir: str, strict: bool = False) -> Di
             "instructions": len(code), "result": result, "algo": ALGO}
 
 
-# 生效条件：project_dir 下 target/release/protocol_vm.exe 不存在时改用同名 protocol_vm，二者皆不存在时以 cwd=project_dir、timeout=180 跑 cargo build --release，returncode!=0 抛 RuntimeError，否则返回 exe 路径；
+# 生效条件：定位 project_dir 下 target/release/protocol_vm(.exe)；exe 存在且 program.pbc 不比其新（mtime 相等不触发——同刻无害避免假重建）时短路直接返回；exe 缺失或 program.pbc 较新（换源重跑形态——embed 字节码是编译期 include_bytes! 嵌 exe 的，generate_rust_project 只覆写 pbc，旧 exe 照跑旧程序，N-high 2026-09-26）时以 cwd=project_dir、timeout=180 跑 cargo build --release（cargo 经 dep-info 感知 include_bytes! 依赖变化自动重建），returncode!=0 抛 RuntimeError；构建后重探真实产物路径（Windows 产出 .exe 后缀——v5 N26① 无后缀路径返回值同面修复），重探失败（构建成功却无产物）抛 RuntimeError，返回该路径；
 def build_rust_exe(project_dir: str) -> str:
-    """定位/触发构建 → protocol_vm 可执行文件路径。"""
+    """定位/触发构建 → protocol_vm 可执行文件路径（含 pbc 新鲜度重建）。"""
     project_dir = os.path.abspath(project_dir)
-    exe = os.path.join(project_dir, "target", "release", "protocol_vm.exe")
-    if not os.path.exists(exe):
-        exe = os.path.join(project_dir, "target", "release", "protocol_vm")
-    if not os.path.exists(exe):
+
+    def _probe() -> Optional[str]:
+        for name in ("protocol_vm.exe", "protocol_vm"):
+            cand = os.path.join(project_dir, "target", "release", name)
+            if os.path.exists(cand):
+                return cand
+        return None
+
+    exe = _probe()
+    pbc = os.path.join(project_dir, "program.pbc")
+    # N-high（2026-09-26）：exe 存在但 program.pbc 较新 = 嵌入字节码陈旧
+    # （同 project 换源重跑，generate 只覆写 pbc/build_meta.json）——不得
+    # 短路放行旧 exe（旧码实测换源后照跑旧程序 trust=0.5 且全绿假成功），
+    # 强制走 cargo（其 dep-info 覆盖 include_bytes! 依赖，感知 pbc 变化重建）。
+    if exe is not None and os.path.exists(pbc) \
+            and os.path.getmtime(pbc) > os.path.getmtime(exe):
+        exe = None
+    if exe is None:
         build = subprocess.run(["cargo", "build", "--release"], cwd=project_dir,
                                capture_output=True, text=True, timeout=180,
                                encoding="utf-8", errors="replace")
         if build.returncode != 0:
             raise RuntimeError("cargo build 失败: " + build.stderr[-2000:])
+        # 构建后重探真实产物（旧码直接返回探测变量，Windows fresh build 时
+        # 是无后缀不存在路径——v5 N26① 同面修复）
+        exe = _probe()
+        if exe is None:
+            raise RuntimeError(
+                "cargo build 成功但未找到产物 target/release/protocol_vm(.exe)")
     return exe
 
 

@@ -161,6 +161,45 @@ _dirty = _mk_wal_line(3, '"污染实测载荷"').encode("utf-8").replace(
 _verify_no_crash(_g1.encode() + b"\n" + _g2.encode() + b"\n" + _dirty + b"\n",
                  "③b-2 非法字节（0xFF）行 → 计 bad 不崩验签器")
 
+# ============ ③c 空串密钥拒绝（N143 · 2026-09-26 修复守卫） ============
+# 缺陷：verify_wal_signatures 对空串密钥无拒绝（fail-open）——任何能写 WAL
+# 的本机组件以空串自签伪造行，verify('',…) 照验全绿（旧码实测 verified=1
+# all_valid=True；CLI --secret "" 同绿 rc=0）。修复：入口空串/None 抛
+# ValueError（结构化错误，读 WAL 之前拒）；CLI 面同口径显式拒绝 rc=2
+# （test_swarm_cli.py ⑧）。run 侧缺省密钥语义属全量语义专项维持 deferred。
+print("=== ③c 空串密钥拒绝：fail-closed ===")
+
+_es_dir = tempfile.mkdtemp(prefix="swarm_es_")
+try:
+    # 以**空串密钥**自签伪造行（攻击形态本体：读过源码即知可用空串自签）
+    _msg = '1|消息|queen|w1|1|1758888800000|"空串自签伪造行"'
+    _mac = hm.new(b"", _msg.encode(), hashlib.sha256).hexdigest()
+    _es_wal = os.path.join(_es_dir, "w.jsonl")
+    with open(_es_wal, "wb") as _f:
+        _f.write(('{"seq":1,"ts":1758888800000,"from":"queen","to":"w1",'
+                  '"type":"消息","round":1,"level":0,"hmac":"%s",'
+                  '"payload":"空串自签伪造行"}\n' % _mac).encode("utf-8"))
+    try:
+        verify_wal_signatures(_es_wal, "")
+        check("③c-1 空串密钥 → 拒绝（抛 ValueError 密钥不得为空）",
+              False, "空串密钥未拒绝（fail-open）")
+    except ValueError as e:
+        check("③c-1 空串密钥 → 拒绝（抛 ValueError 密钥不得为空）",
+              "密钥不得为空" in str(e), str(e)[:120])
+    except Exception as e:  # 拒了但崩法不对（非 ValueError 结构化错误）也算红
+        check("③c-1 空串密钥 → 拒绝（抛 ValueError 密钥不得为空）",
+              False, "%s: %s" % (type(e).__name__, e))
+    try:
+        verify_wal_signatures(_es_wal, None)
+        check("③c-2 None 密钥同口径拒绝", False, "None 密钥未拒绝")
+    except ValueError:
+        check("③c-2 None 密钥同口径拒绝", True)
+    except Exception as e:
+        check("③c-2 None 密钥同口径拒绝",
+              False, "%s: %s" % (type(e).__name__, e))
+finally:
+    _shutil.rmtree(_es_dir, ignore_errors=True)
+
 # ============ ④ 多轮状态语义:符号表不跨轮持久 ============
 print("=== ④ 每轮完整环境 ===")
 # 实例乙 round3 终态 trust 仍 =1.0（不是 1.0 累加到 1.7）→ 每轮从初始环境起算

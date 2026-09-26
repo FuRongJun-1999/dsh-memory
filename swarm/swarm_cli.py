@@ -126,8 +126,12 @@ def cmd_run(args: argparse.Namespace) -> None:
         _fail("run", traceback.format_exc())
 
 
-# 生效条件：args.wal 路径不存在时 _fail("verify", ..., 2) 退出，否则用 verify_wal_signatures(args.wal, args.secret) 的结果：all_valid 为真时输出 ok=True 且 exit 0，为假时 ok=False 且 exit 1；验签过程抛异常（WAL 是目录/非法 UTF-8 读行崩溃等）时 _fail("verify", traceback 全文) exit 1——stdout 恒单行 JSON 契约不因异常面破洞；
+# 生效条件：args.secret 为空串时 _fail("verify", ..., 2) 显式拒绝（N143：空串密钥 fail-open 缺口——原样透传则伪造行自签 + verify --secret "" 全绿 rc=0；空串在透传给 verify_wal_signatures 之前即拒，库面同口径抛 ValueError）；args.wal 路径不存在时 _fail("verify", ..., 2) 退出，否则用 verify_wal_signatures(args.wal, args.secret) 的结果：all_valid 为真时输出 ok=True 且 exit 0，为假时 ok=False 且 exit 1；验签过程抛异常（WAL 是目录/非法 UTF-8 读行崩溃等）时 _fail("verify", traceback 全文) exit 1——stdout 恒单行 JSON 契约不因异常面破洞；
 def cmd_verify(args: argparse.Namespace) -> None:
+    # N143（2026-09-26）：空串密钥显式拒绝（rc=2 用法错口径，与 WAL 不存在
+    # 同码）——空串密钥下 HMAC 对持空串者零判别力，宁拒不绿。
+    if not args.secret:
+        _fail("verify", "验签密钥不得为空（--secret 空串拒绝——fail-closed，N143）", 2)
     if not os.path.exists(args.wal):
         _fail("verify", f"WAL 不存在: {args.wal}", 2)
     try:

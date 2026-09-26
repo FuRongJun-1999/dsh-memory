@@ -69,13 +69,18 @@ if rr["ok"]:
           str(rr["report"]["roles"]))
 
 # ============ ② centralized + mesh ============
+# N113（2026-09-26）：段内须有前置无条件 check——若运行失败（rr["ok"]=False，
+# 恰是拓扑推导回归最需守卫的场景），仅有的角色断言被 if 静默跳过、套件全绿
+# 放行（旧码注入实测②段零断言 exit 0）。对照 ①③④ 段前置 check 写法。
 print("=== ② centralized / mesh ===")
 rr = run_topo("centralized", "ce")
+check("centralized 运行", rr["ok"], str(rr.get("stderr", ""))[:150])
 if rr["ok"]:
     check("centralized：甲=coordinator 其余 worker",
           rr["report"]["roles"]["实例甲"] == "coordinator"
           and rr["report"]["roles"]["实例乙"] == "worker")
 rr = run_topo("mesh", "me")
+check("mesh 运行", rr["ok"], str(rr.get("stderr", ""))[:150])
 if rr["ok"]:
     check("mesh：全部 peer", set(rr["report"]["roles"].values()) == {"peer"})
 

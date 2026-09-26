@@ -241,5 +241,22 @@ check("⑦b 绝对 --out：口径不破（指针=该绝对路径且文件在）"
       os.path.normcase(abs_out),
       f"report_path={rep_abs}")
 
+# ============ ⑧ 空串密钥显式拒绝（N143 · 2026-09-26 修复守卫） ============
+# 缺陷：cmd_verify 把 args.secret 原样透传 verify_wal_signatures——空串照验
+# 全绿（空串自签伪造行 + verify --secret "" → rc=0 ok=true，fail-open；
+# config 忘写 shared_secret 时整条审计链即以空串签名）。
+# 修复：CLI 面空串显式拒绝 rc=2（用法错口径，与 WAL 不存在同码）；库面
+# verify_wal_signatures 入口同口径抛 ValueError（test_rust_swarm.py ③c）。
+# run 侧缺省密钥语义（cfg_in.get("shared_secret","")）属全量语义专项维持
+# deferred，不在本修复面。
+print("=== ⑧ 空串密钥显式拒绝（N143） ===")
+code, out8, err8 = cli("verify", "--wal", first_wal, "--secret", "")
+check("⑧a verify --secret 空串 → rc=2 + ok=false stage=verify（不透传验签）",
+      code == 2 and out8.get("ok") is False and out8.get("stage") == "verify",
+      f"code={code} {out8}")
+check("⑧b 拒绝信息明示密钥面（结构化单行 JSON，非 traceback 裸奔）",
+      "密钥" in (out8.get("error") or "") and err8.strip() != "",
+      str(out8.get("error"))[:120])
+
 print(f"\n{pass_n} passed, {fail_n} failed")
 sys.exit(1 if fail_n else 0)

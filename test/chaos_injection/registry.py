@@ -46,7 +46,9 @@ REGISTRY = {
     "FI-R07": {"expected_verdict": "pass", "gap_tag": None,
                "title": "双 serve 竞争领取：claim 原子锁恰好一次 + 提交面幂等键"},
     # S8 平台默认值：DEFAULT_SECRET 公开常量可伪造合法签名 = N143（v17.md:85
-    # 留档，owner=rust，密钥生命周期决策 deferred）
+    # 留档，owner=rust，密钥生命周期决策 deferred；2026-09-26 N143 最小修复
+    # 已闭合空串验签面——verify 入口空串抛 ValueError / CLI --secret "" rc=2，
+    # 公开常量伪造腿仍缺口，verdict 维持 gap）
     "FI-R08": {"expected_verdict": "gap", "gap_tag": "N143",
                "title": "公开缺省密钥伪造合法签名 WAL"},
     # P2 原子写：读者瞬态句柄对撞 os.replace → 重试窗内读者恒读完整态

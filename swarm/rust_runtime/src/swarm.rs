@@ -416,6 +416,18 @@ struct WalReplay {
     /// 是否读到了 WAL 文件（区分「首跑」与「有 WAL 但零提交」——后者是坏 WAL，
     /// 2026-09-25 修复：审计留痕须归档而非清零）
     had_wal_file: bool,
+    /// N109（v12 留档，批次58）：重放重建的实例消费水位——ACK 行 payload
+    /// {"round","seq"} 的 seq 即在线 had_inbox 水位推进的同源记账（消费到的
+    /// 最大全局 seq），取 per 实例最大值。同 WAL 重入/续跑据此播种，审计面
+    /// 不再从空表起（违背 rust_swarm.py「watermarks 单调递增」契约的根因）。
+    watermarks: HashMap<String, u64>,
+    /// N109（v12 留档，批次58）：重放重建的 gossip 投递计数——gossip 路由行
+    /// （(from,type) 命中 gossip 路由指纹、to 为具体目标）与在线 gossip_sent
+    /// 记账同源同口径（含 N111 已留档的发送侧语义：末轮未投递消息照常计数，
+    /// 重入幂等口径 = 与首跑报告一致）。歧义边界：同源同 type 同时配单播与
+    /// gossip 路由的病理配置下，单播行会计入目标 gossip 计数（WAL 行格式
+    /// 不区分两者，报文级甄别须协议扩展）。
+    gossip_sent: HashMap<String, usize>,
 }
 
 /// 重放 WAL 重建状态（对照 langgraph 恢复语义：重建后走正常循环，无特殊路径）。
@@ -439,7 +451,15 @@ fn parse_event_line(line: &str) -> Option<(Event, String)> {
     Some((ev, raw_payload))
 }
 
-fn replay_wal(wal_path: &str, secret: &str) -> Result<WalReplay, String> {
+/// 重放 WAL 重建状态（对照 langgraph 恢复语义：重建后走正常循环，无特殊路径）。
+/// 完整性守卫：任何行 parse 失败或验签失败 → 停在该行（截断点），其前的行可信。
+/// `gossip_fps`：gossip 路由指纹 (from_id, event_type) 集（调用方据 cfg.routes
+/// 的 to_id=GOSSIP_TARGET 路由计算）——重放侧据此把路由行归类为 gossip 投递。
+fn replay_wal(
+    wal_path: &str,
+    secret: &str,
+    gossip_fps: &HashSet<(String, String)>,
+) -> Result<WalReplay, String> {
     let mut rp = WalReplay {
         completed: None,
         events: Vec::new(),
@@ -451,6 +471,8 @@ fn replay_wal(wal_path: &str, secret: &str) -> Result<WalReplay, String> {
         replayed_seq: 0,
         max_event_seq: 0,
         had_wal_file: false,
+        watermarks: HashMap::new(),
+        gossip_sent: HashMap::new(),
     };
     let raw = match std::fs::read_to_string(wal_path) {
         Ok(r) => r,
@@ -516,6 +538,18 @@ fn replay_wal(wal_path: &str, secret: &str) -> Result<WalReplay, String> {
         } else {
             if ev.event_type == "ACK" {
                 rp.acks.insert(ev.hmac_hex.clone());
+                // N109（批次58）：ACK payload {"round","seq"} 的 seq = 实例消费
+                // 收件箱的水位（在线 had_inbox 推进的同源记账，:1045 写入面），
+                // 取 per 实例最大值——重入/续跑据此播种 watermarks 审计面。
+                if let Ok(p) = serde_json_like::parse(&raw_payload) {
+                    if let Some(s) = p.get("seq").and_then(|x| x.as_f64()) {
+                        let s = s as u64;
+                        let wm = rp.watermarks.entry(ev.from_id.clone()).or_insert(0);
+                        if s > *wm {
+                            *wm = s;
+                        }
+                    }
+                }
             } else if ev.to_id != "协调器" {
                 // 路由事件：round 产生 → round+1 收件箱（与在线写入语义一致）。
                 // G4b：重放计数保持 seq 全局单调（恢复后水位不断档）
@@ -529,6 +563,15 @@ fn replay_wal(wal_path: &str, secret: &str) -> Result<WalReplay, String> {
                     .or_default()
                     // 2026-09-25 修复 #2：push 追加——同轮同源多路由不覆盖
                     .push((raw_payload, rp.replayed_seq));
+                // N109（批次58）：gossip 投递计数重建——(from,type) 命中 gossip
+                // 路由指纹即 fan-out 投递行，与在线 gossip_sent 记账同源同口径
+                // （发送侧语义含 N111 已留档的末轮照常计数，重入口径=与首跑
+                // 报告一致；单播/gossip 同源同型病理配置的歧义见结构体注）。
+                if gossip_fps.contains(&(ev.from_id.clone(), ev.event_type.clone()))
+                    && ev.to_id != ev.from_id
+                {
+                    *rp.gossip_sent.entry(ev.to_id.clone()).or_insert(0) += 1;
+                }
             }
         }
         rp.max_event_seq = rp.max_event_seq.max(ev.seq);
@@ -756,9 +799,17 @@ pub fn run_swarm(
         spec.condition_space = cfg.condition_space.clone();
     }
 
+    // N109（批次58）：gossip 路由指纹 (from,type)——重放侧把路由行归类为
+    // gossip 投递的依据（to_id=GOSSIP_TARGET 的路由 fan-out 出的目标行）。
+    let gossip_fps: HashSet<(String, String)> = cfg
+        .routes
+        .iter()
+        .filter(|r| r.to_id == GOSSIP_TARGET)
+        .map(|r| (r.from_id.clone(), r.event_type.clone()))
+        .collect();
     // B1 断点恢复：先重放 WAL。有快照 → 从快照轮+1 续跑（append）；
     // 无快照 → 维持旧行为从轮 1 截断重跑；坏尾（半行/篡改）在重放处停住。
-    let replay = replay_wal(wal_path, &cfg.shared_secret)?;
+    let replay = replay_wal(wal_path, &cfg.shared_secret, &gossip_fps)?;
     let mut all_events: Vec<Event> = replay.events;
     let mut acks: HashSet<String> = replay.acks;
     let mut inboxes: Inboxes = replay.inboxes;
@@ -767,13 +818,17 @@ pub fn run_swarm(
     let start_round = replay.completed.map_or(1, |k| k + 1);
     // G3a：每实例轮次终态序列（在线窗口 = 本次执行的轮次），供健康评分
     let mut round_outcomes: HashMap<String, Vec<Option<bool>>> = HashMap::new();
-    // G3b：gossip 水位记账（实例 → 实收 gossip 消息数）
-    let mut gossip_sent: HashMap<String, usize> = HashMap::new();
+    // G3b：gossip 水位记账（实例 → 实收 gossip 消息数）——N109：从重放重建
+    // 播种，续跑只累加新会话段（旧实现从空表起，恢复前窗口丢失、全完成重入
+    // 整面归零）。
+    let mut gossip_sent: HashMap<String, usize> = replay.gossip_sent;
     // G4b：全局消息 seq（单调）与实例消费水位
     let mut global_seq: u64 = replay.replayed_seq;
     // v0.7.1：全局事件 seq（进签名串的事件身份；恢复从重放行取单调起点）
     let mut event_seq: u64 = replay.max_event_seq;
-    let mut watermarks: HashMap<String, u64> = HashMap::new();
+    // N109（批次58）：消费水位从重放重建播种（ACK payload seq 同源记账）——
+    // 在线窗口只增不减（:965 推进带 > 守卫），单调契约跨重入保持。
+    let mut watermarks: HashMap<String, u64> = replay.watermarks;
     // G5：死亡实例集合（重试仍失败 → 退场，蜂群继续）
     let mut dead: HashSet<String> = HashSet::new();
     // G-R1 反思触发器状态（§5.4 蜂群版触发条件的跨轮记账）
@@ -800,7 +855,10 @@ pub fn run_swarm(
 
     if replay.completed.is_some() && start_round > rounds {
         // 目标轮数已全部持久化完成：不重启实例直接聚合（恢复幂等口径）。
-        // 本会话无在线执行窗口 → round_outcomes 空 → health 为空对象。
+        // watermarks/gossip 由重放从 WAL 重建（N109，批次58：ACK payload seq /
+        // gossip 路由行），审计面与首跑一致不再归零；本会话无在线执行窗口 →
+        // round_outcomes 空 → health 维持空对象（在线窗口口径，逐轮终态质量
+        // 未持久化，参与性重建会伪造 success_rate——G5「不伪造终态」纪律）。
         return Ok(aggregate_report(
             cfg,
             specs_derived,
@@ -1603,7 +1661,7 @@ mod wal_recovery_tests {
             "{\"seq\":3,\"ts\":1,\"from\":\"BAD half line" // 崩溃残留坏尾
         );
         std::fs::write(&wal, &original).unwrap();
-        let replay = replay_wal(wal_s, &secret).unwrap();
+        let replay = replay_wal(wal_s, &secret, &HashSet::new()).unwrap();
         assert!(replay.completed.is_some(), "守卫前提：快照行合法应可恢复");
         // 堵死重写临时文件位置 —— 模拟重写窗口内故障
         std::fs::create_dir(dir.join("events.jsonl.tmp")).unwrap();
@@ -1631,7 +1689,7 @@ mod wal_recovery_tests {
             original.push('\n');
         }
         std::fs::write(&wal, &original).unwrap();
-        let replay = replay_wal(wal_s, &secret).unwrap();
+        let replay = replay_wal(wal_s, &secret, &HashSet::new()).unwrap();
         assert!(replay.completed.is_none(), "守卫前提：首行坏 → 零提交");
         assert!(replay.had_wal_file);
         let f = open_wal_for_run(wal_s, replay.completed, &replay.kept_lines, replay.had_wal_file);
@@ -1674,7 +1732,7 @@ mod wal_recovery_tests {
             "{\"seq\":3,\"ts\":1,\"from\":\"BAD half line"
         );
         std::fs::write(&wal, &content).unwrap();
-        let replay = replay_wal(wal_s, &secret).unwrap();
+        let replay = replay_wal(wal_s, &secret, &HashSet::new()).unwrap();
         assert!(replay.completed.is_some());
         let mut f =
             open_wal_for_run(wal_s, replay.completed, &replay.kept_lines, replay.had_wal_file)
@@ -1702,7 +1760,7 @@ mod wal_recovery_tests {
         let dir = guard_dir("g4");
         let wal = dir.join("events.jsonl");
         let wal_s = wal.to_str().unwrap();
-        let replay = replay_wal(wal_s, &dummy_secret()).unwrap();
+        let replay = replay_wal(wal_s, &dummy_secret(), &HashSet::new()).unwrap();
         assert!(replay.completed.is_none());
         assert!(!replay.had_wal_file);
         let f = open_wal_for_run(wal_s, replay.completed, &replay.kept_lines, replay.had_wal_file);
@@ -1711,6 +1769,200 @@ mod wal_recovery_tests {
         assert_eq!(std::fs::read_to_string(&wal).unwrap(), "");
         let n = std::fs::read_dir(&dir).unwrap().count();
         assert_eq!(n, 1, "目录内只有新 WAL，无归档无残留");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 任意 from/to/type 的合法签名事件行（在线写入同格式，不带结尾换行）。
+    /// ts 单次取样：签名串与行内 ts 必须同值（跨毫秒双取样会自签自不符）。
+    fn signed_line_ext(
+        secret: &str,
+        seq: u64,
+        from: &str,
+        to: &str,
+        ev_type: &str,
+        round: u64,
+        payload: &str,
+    ) -> String {
+        let ts = now_ms();
+        let ev = Event {
+            seq,
+            ts,
+            from_id: from.into(),
+            to_id: to.into(),
+            event_type: ev_type.into(),
+            payload_json: payload.into(),
+            round_no: round,
+            level: 0,
+            hmac_hex: String::new(),
+        };
+        let hmac_hex = sign_event(secret, &ev);
+        format!(
+            "{{\"seq\":{seq},\"ts\":{ts},\"from\":\"{}\",\"to\":\"{}\",\"type\":\"{}\",\"round\":{round},\"level\":0,\"hmac\":\"{hmac_hex}\",\"payload\":{payload}}}",
+            serde_json_like::escape(from),
+            serde_json_like::escape(to),
+            serde_json_like::escape(ev_type),
+        )
+    }
+
+    /// 带信任/终态负载的快照行（在线写入同格式；ts 单次取样同理）。
+    fn snapshot_line_ext(secret: &str, seq: u64, round: u64, payload: &str) -> String {
+        let ts = now_ms();
+        let ev = Event {
+            seq,
+            ts,
+            from_id: "协调器".into(),
+            to_id: "协调器".into(),
+            event_type: SNAPSHOT_TYPE.into(),
+            payload_json: payload.into(),
+            round_no: round,
+            level: 0,
+            hmac_hex: String::new(),
+        };
+        let hmac_hex = sign_event(secret, &ev);
+        format!(
+            "{{\"seq\":{seq},\"ts\":{ts},\"from\":\"协调器\",\"to\":\"协调器\",\"type\":\"{SNAPSHOT_TYPE}\",\"round\":{round},\"level\":0,\"hmac\":\"{hmac_hex}\",\"payload\":{payload}}}",
+        )
+    }
+
+    /// N109（v12 留档，批次58）红守卫：同 project+同 WAL 幂等重入（全完成早退
+    /// 聚合路径）审计面不得归零——WAL 已含 gossip 路由行与 ACK 行（payload
+    /// 自带 {"round","seq"} 即重建信息源），重入报告 watermarks/gossip 必须与
+    /// 首跑一致（acks/global_seq 本就保留，对照面）。早退 return 在实例 spawn
+    /// 之前（不触 exe），exe 传不存在路径即可纯进程内复现。
+    /// 注：health 面不在此断言——逐轮终态质量（ok/error）未持久化进 WAL，
+    /// 参与性重建会伪造 success_rate（G5「不伪造终态」纪律），health 维持
+    /// 在线窗口口径（:769 注），精确重建须快照负载扩展，另列。
+    #[test]
+    fn wal_reentry_keeps_watermark_and_gossip_faces() {
+        let dir = guard_dir("n109");
+        let wal = dir.join("events.jsonl");
+        let wal_s = wal.to_str().unwrap();
+        let secret = dummy_secret();
+        // 在线写入顺序（甲→乙 gossip，2 轮全部提交）：轮1路由+快照 → 轮2 ACK+路由+快照
+        // 事件 seq 全局单调：1路由 2快照 3ACK 4路由 5快照
+        let content = format!(
+            "{}\n{}\n{}\n{}\n{}\n",
+            signed_line_ext(&secret, 1, "甲", "乙", "gossip", 1, r#"{"t":1}"#),
+            snapshot_line_ext(
+                &secret,
+                2,
+                1,
+                r#"{"trusts":{"甲":0.9,"乙":0.9},"states":{"甲":{},"乙":{}}}"#,
+            ),
+            // ACK：乙在轮2消费轮1投递（payload seq=1 = 消费水位）
+            signed_line_ext(&secret, 3, "乙", "协调器", "ACK", 2, r#"{"round":2,"seq":1}"#),
+            signed_line_ext(&secret, 4, "甲", "乙", "gossip", 2, r#"{"t":1}"#),
+            snapshot_line_ext(
+                &secret,
+                5,
+                2,
+                r#"{"trusts":{"甲":0.9,"乙":0.9},"states":{"甲":{},"乙":{}}}"#,
+            ),
+        );
+        std::fs::write(&wal, &content).unwrap();
+
+        let cfg = SwarmConfig {
+            shared_secret: secret,
+            instances: vec![
+                InstanceSpec {
+                    id: "甲".into(),
+                    role: "peer".into(),
+                    trust: 0.9,
+                    symbols_json: "{}".into(),
+                    condition_space: None,
+                },
+                InstanceSpec {
+                    id: "乙".into(),
+                    role: "peer".into(),
+                    trust: 0.9,
+                    symbols_json: "{}".into(),
+                    condition_space: None,
+                },
+            ],
+            routes: vec![Route {
+                from_id: "甲".into(),
+                event_type: "gossip".into(),
+                to_id: GOSSIP_TARGET.into(),
+                payload_json: r#"{"t":1}"#.into(),
+                level: 0,
+            }],
+            topology: String::new(),
+            condition_space: None,
+        };
+        let rep = run_swarm("/nonexistent/stub_exe", &cfg, 2, wal_s, None)
+            .expect("全完成重入应早退聚合成功");
+        // 对照面（旧代码亦须过）：acks/global_seq 保留
+        assert_eq!(rep.acks.len(), 1, "重入 acks 面不得丢失");
+        assert_eq!(rep.global_seq, 2, "重入 global_seq 不得归零");
+        // 审计面（缺陷主体）：watermarks/gossip 与首跑一致，不归零
+        assert_eq!(
+            rep.watermarks.get("乙"),
+            Some(&1),
+            "重入 watermarks 须从 ACK payload 重建（乙消费水位=1），不得归零"
+        );
+        assert_eq!(
+            rep.gossip_received.get("乙"),
+            Some(&2),
+            "重入 gossip 须从 gossip 路由行重建（乙两轮各收 1 条），不得归零"
+        );
+        assert!(
+            rep.gossip_consistent,
+            "重建后对账基准恢复（单目标恒一致）"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// N109 重放级单测：replay_wal 直接断言两张重建表的精确值——
+    /// ①ACK payload seq → watermarks（per 实例最大值）；②gossip 指纹命中
+    /// 的路由行 → gossip_sent；③坏 ACK payload 不炸不误记；④无指纹不计数。
+    #[test]
+    fn replay_backfills_watermarks_and_gossip_exactly() {
+        let dir = guard_dir("n109r");
+        let wal = dir.join("events.jsonl");
+        let wal_s = wal.to_str().unwrap();
+        let secret = dummy_secret();
+        let content = format!(
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
+            // 甲→乙 gossip 投递（轮1）
+            signed_line_ext(&secret, 1, "甲", "乙", "gossip", 1, r#"{"t":1}"#),
+            // 甲→丙 单播（同源同型——指纹命中与否见下方双口径断言）
+            signed_line_ext(&secret, 2, "甲", "丙", "gossip", 1, r#"{"t":1}"#),
+            snapshot_line_ext(&secret, 3, 1, r#"{"trusts":{},"states":{}}"#),
+            // 乙 ACK 水位 1；随后乙再 ACK 水位 3（取最大）
+            signed_line_ext(&secret, 4, "乙", "协调器", "ACK", 2, r#"{"round":2,"seq":1}"#),
+            signed_line_ext(&secret, 5, "乙", "协调器", "ACK", 3, r#"{"round":3,"seq":3}"#),
+            // 坏 ACK payload（seq 非数）——不炸、不误记水位
+            signed_line_ext(&secret, 6, "丙", "协调器", "ACK", 3, r#"{"round":3,"seq":"x"}"#),
+            snapshot_line_ext(&secret, 7, 3, r#"{"trusts":{},"states":{}}"#),
+        );
+        std::fs::write(&wal, &content).unwrap();
+        // 指纹含甲的 gossip 路由：甲→乙 gossip 行计入乙；甲→丙 同源同型行
+        // 同口径计入丙——与在线 fan-out 记账对齐（病理重叠配置的歧义边界
+        // 见 WalReplay.gossip_sent 结构体注）。
+        let mut fps: HashSet<(String, String)> = HashSet::new();
+        fps.insert(("甲".to_string(), "gossip".to_string()));
+        let rp = replay_wal(wal_s, &secret, &fps).unwrap();
+        assert!(rp.completed.is_some(), "守卫前提：快照合法应可恢复");
+        assert_eq!(
+            rp.watermarks.get("乙"),
+            Some(&3),
+            "watermarks 取 ACK payload seq 的 per 实例最大值"
+        );
+        assert_eq!(rp.watermarks.get("丙"), None, "坏 payload seq 不得误记水位");
+        assert_eq!(
+            rp.gossip_sent.get("乙"),
+            Some(&1),
+            "指纹命中路由行计入 gossip 投递"
+        );
+        assert_eq!(
+            rp.gossip_sent.get("丙"),
+            Some(&1),
+            "同源同型行同口径计数（与在线 fan-out 记账一致）"
+        );
+        // 无指纹（非 gossip 拓扑）：路由行不产生 gossip 计数、水位不受影响
+        let rp0 = replay_wal(wal_s, &secret, &HashSet::new()).unwrap();
+        assert!(rp0.gossip_sent.is_empty(), "无指纹不得计数 gossip");
+        assert_eq!(rp0.watermarks.get("乙"), Some(&3), "水位重建与指纹无关");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

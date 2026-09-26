@@ -7,10 +7,14 @@ swarm/rust_swarm.py:24 DEFAULT_SECRET="蜂群默认密钥"（公开常量，:38
 make_swarm_config 缺省即用）为密钥按 v0.7.1 签名串伪造一条「queen→w1 任务」
 WAL 行落盘，再以同一公开常量调 verify_wal_signatures。
 
-理论预期（已知缺口基线，EXPECTED_GAP=N143）：伪造整条通过验签
-（all_valid=True）——攻击者可整条伪造群史；两口径分叉（API 缺省=公开常量/
-CLI 缺省=空串，swarm_cli.py:93，N143）属误配公理 4 面。输入 P1-9 fail-closed
-落点清单（无密钥时应拒跑而非回落缺省——T8）。
+理论预期（已知缺口基线，EXPECTED_GAP=N143）：以 DEFAULT_SECRET 公开常量
+伪造整条通过验签（all_valid=True）——攻击者可整条伪造群史。**空串腿已于
+2026-09-26 闭合（N143 最小修复）**：verify_wal_signatures 入口对空串/None
+密钥抛 ValueError（fail-closed）、CLI --secret "" 同口径 rc=2——本 case
+该腿转为修复面确认断言。缺省密钥来源（fail-closed 拒启动 vs 首启随机落盘）
+与三入口口径（rust_swarm.py make_swarm_config 缺省=公开常量 / swarm_cli.py
+run 侧缺省=空串 / main.rs unwrap_or 同常量）统一属全量语义专项维持
+deferred——故 DEFAULT_SECRET 伪造腿仍为缺口证据，verdict 保持 gap。
 """
 import json
 import os
@@ -73,10 +77,18 @@ def main() -> int:
         with open(wal_empty, "w", encoding="utf-8", newline="") as f:
             f.write(harness.wal_line("", 1, 1758888800000, "queen", "w1",
                                      "任务", 1, {"task": "空串密钥行"}))
-        es = verify_wal_signatures(wal_empty, "")
-        case.check("空串密钥照签照过（实测 verified=1）",
-                   es["verified"] == 1 and es["all_valid"] is True,
-                   json.dumps(es, ensure_ascii=False))
+        # 空串腿（2026-09-26 闭合，原缺口断言「照签照过」转为修复面确认）：
+        # verify 验签面对空串密钥 fail-closed 拒绝（入口抛 ValueError）
+        try:
+            verify_wal_signatures(wal_empty, "")
+            case.check("空串密钥验签面拒绝（N143 修复面确认）",
+                       False, "空串密钥未拒绝（fail-open 回归！）")
+        except ValueError as e:
+            case.check("空串密钥验签面拒绝（N143 修复面确认）",
+                       "密钥不得为空" in str(e), str(e))
+        except Exception as e:  # 拒了但崩法不对（非结构化 ValueError）也算红
+            case.check("空串密钥验签面拒绝（N143 修复面确认）",
+                       False, "%s: %s" % (type(e).__name__, e))
         # 对照：错密钥正常被拒（防线本体完好，缺口仅在缺省密钥面——N143 口径）
         wrong = verify_wal_signatures(wal, "不是这个密钥")
         case.check("对照：错密钥被拒 bad=1（防线本体 fail-closed 正常）",
@@ -86,11 +98,13 @@ def main() -> int:
         case.note("四可判定（D4）：对持公开常量者——可发现=False（验签全绿零"
                   "信号）/可隔离=False/可追溯=False（伪造行与真行不可区分）；"
                   "可恢复=False（审计证据面已可被整条替换）。防线判别力完全"
-                  "依赖密钥保密性——P11 前提声明在案")
-        case.note("留档对应：N143（v17.md:85 留档，owner=rust，涉「缺省密钥从何"
-                  "而来」配置语义决策 deferred：fail-closed 拒启动 vs 首启随机"
-                  "生成落盘）；输入 P1-9 fail-closed 落点清单（无密钥应拒跑"
-                  "而非回落缺省——T8）")
+                  "依赖密钥保密性——P11 前提声明在案。空串验签面已闭合"
+                  "（2026-09-26）：空串自签 + verify('') 现被入口拒绝")
+        case.note("留档对应：N143（v17.md:85 留档，owner=rust）——验签面空串"
+                  "拒绝已修（rust_swarm.py verify_wal_signatures 入口抛 "
+                  "ValueError / swarm_cli.cmd_verify 空串 rc=2）；「缺省密钥"
+                  "从何而来」配置语义决策仍 deferred：fail-closed 拒启动 vs "
+                  "首启随机生成落盘（三入口口径统一属全量语义专项）")
         verdict = "gap" if not case.fails else "fail"
         return case.finish(verdict, expected="gap")
     finally:

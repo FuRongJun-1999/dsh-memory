@@ -100,13 +100,16 @@ def run_swarm(project_dir: str, config: Dict, wal_path: str = "events.jsonl",
     return {"ok": True, "report": report, "wal": wal_full}
 
 
-# 生效条件：逐行读 wal_path（errors=replace 容错解码——行级解码在循环体 try 之外，撕裂写在多字节中文字符中间/任意非法字节序列经替换为 U+FFFD 读入，后续 json 解析或 HMAC 比对必失败计 bad，验签器不因坏字节崩溃），strip 后为空则跳过，否则以 rec["type"]/["from"]/["to"]/["round"]/["ts"] 与 rec.get("seq", 0) 及原始 payload 文本重算 HMAC 与 rec["hmac"] 比对，type=="__snapshot__" 只计入 snapshots 而其余计入 total/verified/bad，单行 json.loads/index/取键失败（畸形或被篡改）计入 bad 并 continue（验签器面对的正是被篡改的 WAL，不得自己先崩）；P0-2 seq 连续性判定（skip_continuity=False 缺省严格）：快照行与事件行共用同一 event_seq 链（Rust 侧 swarm.rs:1229 快照行同样 event_seq+=1），以首个可解析行的 seq 为基准步进期望 seq，后续行缺失（跳号）/重复/乱序且验签有效 → 该行判 bad（快照行计 snapshots.bad）并向 continuity_breaks 追加 {line,expected,actual,kind,row_type} 明细、链以实际 seq+1 重同步（一处偏离一行报，不级联）；验签无效的可解析行按「占位 +1」推进期望位而不以其 seq 重定链位（伪造 seq 不得牵动链）；空 WAL/单行 WAL 无后继行语义不变；skip_continuity=True 跳过整段判定（存量非连续历史如手动裁剪的显式放宽逃生门），all_valid = bad==0 and snap_bad==0；
+# 生效条件：shared_secret 为空串/None 时在入口抛 ValueError「WAL 验签密钥不得为空」（N143：空串密钥验签 fail-closed——空串可被任何读过源码者用于自签伪造行并通过验签，fail-open 缺口；读 WAL 之前即拒）；否则逐行读 wal_path（errors=replace 容错解码——行级解码在循环体 try 之外，撕裂写在多字节中文字符中间/任意非法字节序列经替换为 U+FFFD 读入，后续 json 解析或 HMAC 比对必失败计 bad，验签器不因坏字节崩溃），strip 后为空则跳过，否则以 rec["type"]/["from"]/["to"]/["round"]/["ts"] 与 rec.get("seq", 0) 及原始 payload 文本重算 HMAC 与 rec["hmac"] 比对，type=="__snapshot__" 只计入 snapshots 而其余计入 total/verified/bad，单行 json.loads/index/取键失败（畸形或被篡改）计入 bad 并 continue（验签器面对的正是被篡改的 WAL，不得自己先崩）；P0-2 seq 连续性判定（skip_continuity=False 缺省严格）：快照行与事件行共用同一 event_seq 链（Rust 侧 swarm.rs:1229 快照行同样 event_seq+=1），以首个可解析行的 seq 为基准步进期望 seq，后续行缺失（跳号）/重复/乱序且验签有效 → 该行判 bad（快照行计 snapshots.bad）并向 continuity_breaks 追加 {line,expected,actual,kind,row_type} 明细、链以实际 seq+1 重同步（一处偏离一行报，不级联）；验签无效的可解析行按「占位 +1」推进期望位而不以其 seq 重定链位（伪造 seq 不得牵动链）；空 WAL/单行 WAL 无后继行语义不变；skip_continuity=True 跳过整段判定（存量非连续历史如手动裁剪的显式放宽逃生门），all_valid = bad==0 and snap_bad==0；
 def verify_wal_signatures(wal_path: str, shared_secret: str,
                           skip_continuity: bool = False) -> Dict:
     """WAL 逐条验签（Python hmac 独立实现——交叉验证 Rust 手写 SHA256）。
     签名串 v0.7.1：seq|type|from|to|round|ts|payload（与 Rust swarm.rs 约定
     一致）——seq 入签后才是不可变事件身份/顺序证明。旧 WAL（签名串无 seq）
     不兼容，须重跑再生产物。
+    N143：空串/None 密钥在入口抛 ValueError（fail-closed）——密钥为空时
+    验签对自签伪造行零判别力，宁拒不绿。CLI --secret "" 同口径 rc=2
+    （swarm_cli.cmd_verify）。
     B1：轮末快照行（type=__snapshot__）同样验签（防篡改），但不计入事件 total。
     P0-2（批次53）：seq 连续性判据——单条 HMAC 锚完整性不锚存在性（v0.3
     矩阵 T2/T7），整行删除/行乱序对逐行独立验签不可检；本判据以首行 seq 为
@@ -116,6 +119,13 @@ def verify_wal_signatures(wal_path: str, shared_secret: str,
     纯逐行验签。
     口径契约：total/verified/bad 均为「事件行」口径；快照行验签统计单列于
     返回值 snapshots={verified,bad}；all_valid = 事件行与快照行全部通过。"""
+    # N143（2026-09-26）：空串密钥 fail-closed 前置拒绝——不读 WAL、不验签。
+    # 空串（CLI run 侧 cfg_in.get("shared_secret","") 缺省即空串）等于向任何
+    # 读过源码者开放自签伪造权：伪造行 + verify('') 全绿（旧码实测
+    # verified=1 all_valid=True）。结构化错误而非静默全绿。
+    if not shared_secret:
+        raise ValueError("WAL 验签密钥不得为空"
+                         "（空串/None 密钥拒绝——fail-closed，N143）")
     ok = bad = 0
     snap_ok = snap_bad = 0
     breaks: List[Dict] = []
