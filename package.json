@@ -93,5 +93,9 @@
     "bundle": {
       "patch": "./dsh/cordis.patch.yml"
     }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }
