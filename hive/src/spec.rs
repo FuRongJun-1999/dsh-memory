@@ -18,7 +18,7 @@
 //!   "reasoning_effort": "high",     // 可选：思考强度 ∈ low|medium|high
 //!   "context_budget_tokens": 300000, // 可选：输入 token 预算（执行器保守估算，超限 fail fast）
 //!   "depends_on": ["h..."],          // 可选：上游任务列表——全 done 才领取，
-//!                                    //   任一 error/timeout/killed → 本任务 error（失败传播）
+//!                                    //   任一 error/timeout/killed/needs_review → 本任务 error（失败传播）
 //!   "rerun_on_recover": true,        // 可选：崩溃恢复逃生门（缺省 false）——恢复时
 //!                                    //   不采信旧产物：result.json 更名
 //!                                    //   result.json.recovered-<ts> 留痕并强制重投
@@ -45,7 +45,7 @@ pub struct Spec {
     /// 输入 token 预算上限（执行器侧保守估算校验，超限 fail fast 不白跑 API）
     pub context_budget_tokens: Option<u64>,
     /// 依赖门禁（I-1，宏观调度第一格）：上游任务 job_id 列表——全部 done 才可领取；
-    /// 任一终态非 done（error/timeout/killed）→ 本任务直接 error（失败传播）。
+    /// 任一终态非 done（error/timeout/killed/needs_review）→ 本任务直接 error（失败传播）。
     /// 无环性结构性成立：job_id 含毫秒时间戳，提交时间序 = DAG 拓扑序，
     /// 无法引用提交时尚不存在的任务（自引用亦不可能）。
     pub depends_on: Vec<String>,

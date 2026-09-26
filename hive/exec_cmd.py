@@ -36,10 +36,13 @@ DEFAULT_STEP_TIMEOUT_S = 600
 EXIT_OK, EXIT_SPEC, EXIT_EXEC = 0, 2, 3
 
 
-# 生效条件：job_dir 与 obj 给出后无任何前置判断，直接用 UTF-8 打开 job_dir/result.json.tmp 写入 json.dump(obj, ensure_ascii=False)、flush+fsync，再 os.replace 到 job_dir/result.json（目录不可写等异常会向外抛）。
+# 生效条件：job_dir 与 obj 给出后，env HIVE_RESULT_ANCHOR 去空白非真时 obj["result_anchor"] = 该值（P11 批次53 执行器契约：serve 对锚预期任务注入此 env，执行器原样回写，值由 serve 侧 HMAC 校验——本处不做密码学运算；env 缺省不写字段，产物格式向后兼容）；随后直接用 UTF-8 打开 job_dir/result.json.tmp 写入 json.dump(obj, ensure_ascii=False)、flush+fsync，再 os.replace 到 job_dir/result.json（目录不可写等异常会向外抛）。
 def _write_result(job_dir: str, obj: dict) -> None:
     """tmp + fsync + rename 原子替换（并发读者不读到截断空窗口）。"""
     p = os.path.join(job_dir, "result.json")
+    _anchor = (os.environ.get("HIVE_RESULT_ANCHOR") or "").strip()
+    if _anchor:
+        obj["result_anchor"] = _anchor
     tmp = p + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False)

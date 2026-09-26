@@ -81,16 +81,27 @@ pub fn kill_tree(child: &mut Child) {
 }
 
 /// 拉起执行器子进程（stdio 全 null：执行器自己写 job/log.txt）。
+/// `anchor`（P11，批次53）：Some = 锚预期任务，注入 env `HIVE_RESULT_ANCHOR`
+/// （执行器契约：回写 result.json `result_anchor` 字段，值原样透传）；None =
+/// 旧格式任务，env 不含该键（执行器零感知，行为不变）。
 /// 生效条件：exec_py/dir 给定且解释器可达 → spawn 子进程（argv=[python,
-/// exec_py, dir]，stdio 全 null——执行器自写 log.txt）返回 Child；解释器缺失
-/// → Err。调用方持 Child 句柄管生命周期（wait/kill_tree）。
-pub fn spawn_executor(exec_py: &Path, dir: &Path) -> std::io::Result<Child> {
+/// exec_py, dir]，stdio 全 null——执行器自写 log.txt；anchor=Some 时 env 多
+/// HIVE_RESULT_ANCHOR）返回 Child；解释器缺失 → Err。调用方持 Child 句柄管
+/// 生命周期（wait/kill_tree）。
+pub fn spawn_executor(
+    exec_py: &Path,
+    dir: &Path,
+    anchor: Option<&str>,
+) -> std::io::Result<Child> {
     let mut cmd = Command::new(python_bin());
     cmd.arg(exec_py)
         .arg(dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    if let Some(a) = anchor {
+        cmd.env("HIVE_RESULT_ANCHOR", a);
+    }
     hide_window(&mut cmd);
     cmd.spawn()
 }

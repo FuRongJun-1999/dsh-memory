@@ -12,6 +12,12 @@
 //! 单一实现 `classify_result`）：claimed/running 若已有 result.json 则按产物定终态
 //! done/error，不重跑；claimed 无产物删锁重投 pending；running 无产物诚实标 error
 //! （其孤儿执行器若仍存活，写出的 result.json 宿主仍可读）。
+//!
+//! P11 结果完整性锚（批次53）：锚预期任务（status 带 result_nonce）的产物在采信
+//! done 前须过完整性锚校验——锚缺失 → needs_review（不自动采信）、锚不匹配 →
+//! error（拒绝采信）、通过 → done；旧格式任务（无 nonce）维持旧判据（向后兼容）。
+//! 密钥经 ServeCfg.result_key（生产入口 = keyres::resolve_key_from_env()，取
+//! hive 既有配置/令牌面；None = 锚判据不启用，行为与旧版一致）。
 
 use crate::exec;
 use crate::job;
@@ -45,6 +51,12 @@ pub struct ServeCfg {
     pub fingerprint: Option<String>,
     /// 当前迭代 id（env HIVE_ITER_ID；空闲/未参与互验 → None）。
     pub iter_id: Option<String>,
+    /// 结果完整性锚密钥（P11，批次53）：Some = 锚判据生效——拉起执行器时注入
+    /// HIVE_RESULT_ANCHOR（hmac.rs 公式），classify_result 采信 done 前校验
+    /// result_anchor；None = 锚判据不启用，终态判据保持旧口径（产物说了算）。
+    /// ServeCfg::new 恒 None（测试密闭，不读进程 env）；生产入口 cmd_serve 经
+    /// keyres::resolve_key_from_env() 注入；测试定向用 with_result_key()。
+    pub result_key: Option<String>,
 }
 
 /// 执行器形态判据：**文件名**（非内容探测，宁可保守）。
@@ -86,7 +98,17 @@ impl ServeCfg {
             role: None,
             fingerprint: None,
             iter_id: None,
+            result_key: None,
         }
+    }
+
+    /// 结果完整性锚密钥注入（P11，批次53）：生产入口 cmd_serve 传
+    /// keyres::resolve_key_from_env()；测试传 Some("...") 定向启用锚判据。
+    /// 生效条件：key 原样落 cfg.result_key——Some 启用锚判据（注入 env + 终态
+    /// 前校验），None 维持旧判据；不做任何 env 读取（密闭性归调用方）。
+    pub fn with_result_key(mut self, key: Option<String>) -> Self {
+        self.result_key = key;
+        self
     }
 
     /// 互验身份注入（批次10，§7.1/§7.2）：env 显式设置才落心跳字段——
@@ -254,7 +276,7 @@ pub fn recover_orphans(cfg: &ServeCfg) {
         let Ok(st) = job::read_status(&dir) else { continue };
         let state = st.get("state").and_then(|v| v.as_str()).unwrap_or("");
         match state {
-            "claimed" => match classify_result(&dir) {
+            "claimed" => match classify_result(&dir, cfg.result_key.as_deref()) {
                 // 产物已产出 → 按产物定终态（删锁但绝不重投重跑）；
                 // 例外：spec 显式 rerun_on_recover → 旧产物更名留痕，强制重投（M1 逃生门）
                 Some((final_state, err)) => {
@@ -292,7 +314,7 @@ pub fn recover_orphans(cfg: &ServeCfg) {
                     );
                 }
             },
-            "running" => match classify_result(&dir) {
+            "running" => match classify_result(&dir, cfg.result_key.as_deref()) {
                 // 孤儿执行器可能已写出产物 → 按产物定终态（不误标 serve 中断）；
                 // 例外：spec 显式 rerun_on_recover → 旧产物更名留痕，回 pending 重投
                 Some((final_state, err)) => {
@@ -390,7 +412,8 @@ fn run_job(cfg: &ServeCfg, id: &str) {
         ],
     );
 
-    let mut child = match exec::spawn_executor(&cfg.exec_py, &dir) {
+    let mut child = match exec::spawn_executor(&cfg.exec_py, &dir, spawn_anchor(&dir, cfg).as_deref())
+    {
         Ok(c) => c,
         Err(e) => {
             let _ = job::patch_status(
@@ -421,7 +444,7 @@ fn run_job(cfg: &ServeCfg, id: &str) {
         thread::sleep(tick);
         match child.try_wait() {
             Ok(Some(code)) => {
-                let (state, err) = classify_exit(&dir, code);
+                let (state, err) = classify_exit(&dir, code, cfg.result_key.as_deref());
                 final_state = state;
                 final_err = err;
                 break;
@@ -469,10 +492,23 @@ fn run_job(cfg: &ServeCfg, id: &str) {
 /// 返回 None = 无产物文件；Some((state, err)) = 产物说了算（error 字段区分成败）。
 /// `classify_exit`（正常退出）与 `recover_orphans`（崩溃恢复）共用——判据只此一处，
 /// 勿再分叉出第二套（C9 根因即两套判据并存）。
-/// 生效条件：dir 下 result.json 存在且可解析 → Some((done|error, error 文本))；
-/// 不存在 → None（无产物）；解析失败 → Some(("error", 解析错误))。
+///
+/// P11 完整性锚门（批次53）：无 error 字段（旧判据即 done）时先过锚校验——
+/// 任务 status.json 带 `result_nonce`（= 提交面声明锚预期）则 result.json 必须
+/// 携带与 HMAC 预期（hmac.rs 公式，密钥=key 参数）一致的 `result_anchor`：
+///   * 校验通过 → done（诚实执行器语义不变）；
+///   * 锚缺失（旧格式产物/伪造产物未带锚）→ needs_review（**不自动采信**，
+///     可疑处置：人工复核，或 spec 显式 rerun_on_recover 时经 recover_orphans
+///     重投）——注入实测 FI-R03 的伪造 ok=true 产物在此被拦；
+///   * serve 无密钥（key=None）无法校验 → needs_review（fail-closed：不可校验
+///     =不采信，不静默放行）；
+///   * 锚不匹配（伪锚/挪锚/提交后 spec 被改）→ error（拒绝采信，终态）。
+/// status.json 无 `result_nonce`（旧格式任务）→ 维持旧判据 done（向后兼容：
+/// 存量任务池、无密钥提交面零变更）。
+/// 生效条件：dir 下 result.json 存在且可解析 → Some((done|error|needs_review,
+/// error 文本))；不存在 → None（无产物）；解析失败 → Some(("error", 解析错误))。
 /// 判据唯一实现（classify_exit 与 recover_orphans 共用，勿分叉——C9 教训）。
-fn classify_result(dir: &std::path::Path) -> Option<(String, Option<String>)> {
+fn classify_result(dir: &std::path::Path, key: Option<&str>) -> Option<(String, Option<String>)> {
     let result_path = dir.join("result.json");
     if !result_path.is_file() {
         return None;
@@ -485,13 +521,93 @@ fn classify_result(dir: &std::path::Path) -> Option<(String, Option<String>)> {
                 .map(|s| s.to_string());
             Some(match err {
                 Some(e) => ("error".into(), Some(e)),
-                None => ("done".into(), None),
+                None => match verify_result_anchor(dir, &r, key) {
+                    AnchorVerdict::Pass => ("done".into(), None),
+                    AnchorVerdict::MissingAnchor => (
+                        "needs_review".into(),
+                        Some(
+                            "产物完整性锚缺失：result.json 无 result_anchor \
+                            （旧格式产物/伪造产物不自动采信，P11 批次53）——\
+                             需人工复核，或经 spec.rerun_on_recover 重投"
+                                .into(),
+                        ),
+                    ),
+                    AnchorVerdict::Unverifiable => (
+                        "needs_review".into(),
+                        Some(
+                            "产物完整性锚不可校验：本 serve 未配置锚密钥 \
+                            （HIVE_ORCH_TOKEN / HIVE_ORCH_TOKEN_FILE / HIVE_API_KEY \
+                             均缺，P11 批次53）——fail-closed 不自动采信，\
+                             请以 serve_start.py（config.local.json 注入密钥）重启 serve"
+                                .into(),
+                        ),
+                    ),
+                    AnchorVerdict::Mismatch => (
+                        "error".into(),
+                        Some(
+                            "完整性锚校验失败：result_anchor 与提交预期不匹配 \
+                            （伪锚/挪锚/提交后 spec 被改）——拒绝采信（P11 批次53）"
+                                .into(),
+                        ),
+                    ),
+                },
             })
         }
         Err(e) => Some((
             "error".into(),
             Some(format!("result.json 解析失败: {e}")),
         )),
+    }
+}
+
+/// 锚校验裁决（classify_result 内部；四态各对应一条终态处置）。
+enum AnchorVerdict {
+    /// 校验通过（或旧格式任务无锚预期 → 旧判据）→ done。
+    Pass,
+    /// 锚预期任务（status 有 result_nonce）但 result.json 无 result_anchor。
+    MissingAnchor,
+    /// 有锚可对但本 serve 无密钥，无法校验。
+    Unverifiable,
+    /// 锚不匹配（含 spec 不可读——校验输入残缺按失配拒绝，不冒险采信）。
+    Mismatch,
+}
+
+/// P11 锚校验唯一实现：nonce 缺失 = 旧格式任务 → Pass（向后兼容基线）；
+/// 否则 result_anchor 必须存在且与 HMAC(key, spec 字节, nonce) 恒时相等。
+/// 生效条件：dir 的 status.json/spec.json/result 视图与密钥给定 → 四态裁决；
+/// 判据细节见 classify_result 头注（承重反向对照在 tests/judgment_surface.rs）。
+fn verify_result_anchor(
+    dir: &std::path::Path,
+    result: &crate::json::Json,
+    key: Option<&str>,
+) -> AnchorVerdict {
+    let nonce = match job::read_status(dir)
+        .ok()
+        .and_then(|s| s.get("result_nonce").and_then(|v| v.as_str()).map(String::from))
+    {
+        Some(n) if !n.is_empty() => n,
+        // 旧格式任务（无锚预期）→ 旧判据（向后兼容：存量池零变更）
+        _ => return AnchorVerdict::Pass,
+    };
+    let echo = result
+        .get("result_anchor")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if echo.is_empty() {
+        return AnchorVerdict::MissingAnchor;
+    }
+    let Some(key) = key else {
+        return AnchorVerdict::Unverifiable;
+    };
+    let Ok(spec_bytes) = std::fs::read(dir.join("spec.json")) else {
+        return AnchorVerdict::Mismatch; // 校验输入残缺：按失配拒绝（fail-closed）
+    };
+    let expect = crate::hmac::result_anchor_hex(key, &spec_bytes, &nonce);
+    if crate::hmac::ct_eq(&echo, &expect) {
+        AnchorVerdict::Pass
+    } else {
+        AnchorVerdict::Mismatch
     }
 }
 
@@ -536,8 +652,8 @@ fn archive_stale_result(dir: &std::path::Path) {
 /// 依赖完整 + 级联取消闭包在此落码；无环性由 job_id 时间序结构性保证
 /// （无法引用提交时尚不存在的任务），无需运行时环检测。
 /// 生效条件：任务的 depends_on 列表给定时裁决——全 done → Ok(true) 可领取；
-/// 任一终态非 done（pending 等待 / error·timeout·killed）→ Ok(false) 等待或
-/// Err(失败传播原因) 直接 error 不执行。I-1 依赖门禁唯一实现。
+/// 任一终态非 done（pending 等待 / error·timeout·killed·needs_review）→
+/// Ok(false) 等待或 Err(失败传播原因) 直接 error 不执行。I-1 依赖门禁唯一实现。
 fn deps_gate(jobs: &Path, dir: &Path) -> Result<bool, String> {
     let spec_json = match job::read_json(&dir.join("spec.json")) {
         Ok(v) => v,
@@ -568,7 +684,9 @@ fn deps_gate(jobs: &Path, dir: &Path) -> Result<bool, String> {
             .unwrap_or_default();
         match dst.as_str() {
             "done" => continue,
-            "error" | "timeout" | "killed" => {
+            // needs_review（P11 批次53）同失败传播：锚不可信的上游产物不得作为
+            // 下游执行前提，也不能让下游永久等待（旧版会落进 `_ => Ok(false)` 悬置）
+            "error" | "timeout" | "killed" | "needs_review" => {
                 return Err(format!("依赖失败传播: {dep} 终态 {dst}，本任务不执行"));
             }
             _ => return Ok(false), // pending/claimed/running → 等待
@@ -579,12 +697,14 @@ fn deps_gate(jobs: &Path, dir: &Path) -> Result<bool, String> {
 
 /// 子进程退出后的终态分类：以 result.json 为准（error 字段区分 API 错误）。
 /// 生效条件：执行器正常退出后调用——**产物说了算**（result.json 有则按产物定
-/// 终态，无则按退出码；与 recover_orphans 共用 classify_result，判据不分叉）。
+/// 终态，无则按退出码；与 recover_orphans 共用 classify_result，判据不分叉；
+/// key 透传锚校验，见 classify_result P11 门）。
 fn classify_exit(
     dir: &std::path::Path,
     code: std::process::ExitStatus,
+    key: Option<&str>,
 ) -> (String, Option<String>) {
-    match classify_result(dir) {
+    match classify_result(dir, key) {
         Some(x) => x,
         None if code.success() => (
             "error".into(),
@@ -592,6 +712,24 @@ fn classify_exit(
         ),
         None => ("error".into(), Some(format!("执行器异常退出: {code}"))),
     }
+}
+
+/// P11 拉起期锚计算（批次53）：serve 持密钥且任务声明锚预期（status 有
+/// result_nonce）时，按 hmac.rs 公式对当前 spec.json 字节算锚，经 env
+/// HIVE_RESULT_ANCHOR 注入执行器（执行器契约：回写 result_anchor）。None =
+/// 旧格式任务或 serve 无密钥——env 不注入，执行器零感知。
+/// 生效条件：dir/cfg 给定 → Some(锚) 当且仅当 cfg.result_key 与 result_nonce
+/// 与可读 spec.json 三者齐备；任一缺 → None（与 verify_result_anchor 的
+/// nonce 缺失→旧判据口径闭环：提交不锚、执行不注、终态不校）。
+fn spawn_anchor(dir: &std::path::Path, cfg: &ServeCfg) -> Option<String> {
+    let key = cfg.result_key.as_deref()?;
+    let st = job::read_status(dir).ok()?;
+    let nonce = st.get("result_nonce")?.as_str()?;
+    if nonce.is_empty() {
+        return None;
+    }
+    let spec_bytes = std::fs::read(dir.join("spec.json")).ok()?;
+    Some(crate::hmac::result_anchor_hex(key, &spec_bytes, nonce))
 }
 
 #[cfg(test)]

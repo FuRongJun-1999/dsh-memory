@@ -394,3 +394,90 @@ fn write_str(s: &str, out: &mut String) {
     }
     out.push('"');
 }
+
+// ---------------------------------------------------------------- canonical
+
+impl Json {
+    /// P0-2 幂等键 canonical 形态（批次53）：递归键排序 + 紧凑分隔符 + 与
+    /// `to_json_string` 同一套字符串转义与数字格式（fmt_num）。同内容异键序/
+    /// 异空白/异尾换行的 spec → 同一串——提交面 content-hash 幂等键
+    /// （main.rs cmd_submit × hmac::sha256）的规范化前提。
+    /// 对象重复键取**最后一个**（与 `get`/Python dict 覆盖语义一致），
+    /// 不保留重复形态（否则 canonical 不唯一）。
+    pub fn to_canonical_string(&self) -> String {
+        let mut s = String::new();
+        self.write_canonical(&mut s);
+        s
+    }
+
+    fn write_canonical(&self, out: &mut String) {
+        match self {
+            Json::Obj(kv) => {
+                let mut sorted: Vec<&(String, Json)> = kv.iter().collect();
+                sorted.sort_by(|a, b| a.0.cmp(&b.0));
+                out.push('{');
+                let mut first = true;
+                let mut i = 0;
+                while i < sorted.len() {
+                    // 重复键取最后一个（排序后同键相邻；跳过组内除末项外全部）
+                    if i + 1 < sorted.len() && sorted[i + 1].0 == sorted[i].0 {
+                        i += 1;
+                        continue;
+                    }
+                    if !first {
+                        out.push(',');
+                    }
+                    first = false;
+                    write_str(&sorted[i].0, out);
+                    out.push(':');
+                    sorted[i].1.write_canonical(out);
+                    i += 1;
+                }
+                out.push('}');
+            }
+            Json::Arr(a) => {
+                out.push('[');
+                for (i, v) in a.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    v.write_canonical(out);
+                }
+                out.push(']');
+            }
+            other => other.write(out),
+        }
+    }
+}
+
+#[cfg(test)]
+mod canonical_tests {
+    use super::{parse, Json};
+
+    /// 键序/空白/尾换行差异 → canonical 同串（幂等键的规范化前提）。
+    #[test]
+    fn canonical_ignores_key_order_and_whitespace() {
+        let a = parse(r#"{"model":"m","user_prompt":"x","timeout_s":60}"#).unwrap();
+        let b = parse("{\n  \"timeout_s\" : 60,\n  \"user_prompt\" : \"x\",\n  \"model\" : \"m\"\n}\n").unwrap();
+        assert_eq!(a.to_canonical_string(), b.to_canonical_string());
+        assert_eq!(
+            a.to_canonical_string(),
+            r#"{"model":"m","timeout_s":60,"user_prompt":"x"}"#
+        );
+    }
+
+    /// 重复键取最后一个（对齐 get/Python dict）；嵌套结构与数组递归生效；
+    /// 数组元素序有意义（不排序）；值不同 → 串不同。
+    #[test]
+    fn canonical_dedupes_keys_and_recurses() {
+        let dup = parse(r#"{"a":1,"a":2,"n":{"b":true,"a":null},"arr":[{"z":1,"y":2}]}"#).unwrap();
+        assert_eq!(
+            dup.to_canonical_string(),
+            r#"{"a":2,"arr":[{"y":2,"z":1}],"n":{"a":null,"b":true}}"#
+        );
+        let arr_order = parse(r#"{"arr":[1,2]}"#).unwrap();
+        let arr_swap = parse(r#"{"arr":[2,1]}"#).unwrap();
+        assert_ne!(arr_order.to_canonical_string(), arr_swap.to_canonical_string());
+        assert_eq!(Json::Null.to_canonical_string(), "null");
+    }
+}

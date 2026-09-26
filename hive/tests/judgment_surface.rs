@@ -250,3 +250,256 @@ time.sleep(30)
     assert!(gone, "kill_tree 后孙进程 {} 仍存活（进程树回收失败）", gpid);
     let _ = fs::remove_dir_all(&tmp);
 }
+
+// --------------------------------------------------------------- P11 结果完整性锚
+
+/// P11 锚测试共用常量/构造：nonce 手工指定（与 init_job_with_anchor 契约一致），
+/// 密钥任意固定串；result.json 手写（注入者视角——不跑真实执行器）。
+const ANCHOR_KEY: &str = "judgment-surface-anchor-key";
+const ANCHOR_NONCE: &str = "0123456789abcdef";
+
+fn submit_anchored(jobs: &Path, timeout_s: u64) -> (String, PathBuf) {
+    let spec = parse(&format!(
+        r#"{{"model":"fake","user_prompt":"0","timeout_s":{timeout_s}}}"#
+    ))
+    .unwrap();
+    let id = job::init_job_with_anchor(jobs, &spec, 60, Some(ANCHOR_NONCE)).unwrap();
+    let dir = job::job_dir(jobs, &id);
+    (id, dir)
+}
+
+/// 承重断言 4（P11 结果完整性锚，批次53，能红 + 反向对照）：锚预期任务
+/// （status 带 result_nonce）的产物在采信 done 前必须过完整性锚校验——
+///   a. 诚实回写锚（HMAC 与预期一致）→ done（诚实执行器语义不变）；
+///   b. 伪锚/挪锚（ 锚与预期不匹配）→ error 拒绝采信；
+///   c. 旧格式产物（无 result_anchor）→ needs_review 不自动采信；
+///   d. 无密钥 serve 对锚预期产物 → needs_review（fail-closed 不静默放行）；
+///   e. 旧格式任务（无 nonce）+ 旧格式产物 → done（向后兼容基线）。
+/// 反向对照：退回旧判据（删锚校验）则 b/c/d 全变 done，本测试必红；
+/// 弱化任一断言 = 弱化判据面 → A3 红。
+#[test]
+fn result_anchor_gate() {
+    let tmp = tmpjobs("anchor_gate");
+    let jobs = tmp.join("jobs");
+
+    // a. 诚实锚：按同一公式（hive::hmac 公共函数即盘面唯一公式实现）预写正确锚
+    let (a, da) = submit_anchored(&jobs, 60);
+    let spec_bytes = fs::read(da.join("spec.json")).unwrap();
+    let good = hive::hmac::result_anchor_hex(ANCHOR_KEY, &spec_bytes, ANCHOR_NONCE);
+    fs::write(
+        da.join("result.json"),
+        format!(r#"{{"ok":true,"content":"honest","result_anchor":"{good}"}}"#),
+    )
+    .unwrap();
+    let _ = job::patch_status(
+        &da,
+        vec![("state".to_string(), hive::json::Json::Str("claimed".into()))],
+    );
+
+    // b. 挪锚：把 a 任务的合法锚冒充给本任务（spec 字节不同 → 公式必失配）
+    let (b, db) = submit_anchored(&jobs, 61);
+    fs::write(
+        db.join("result.json"),
+        format!(r#"{{"ok":true,"content":"forged","result_anchor":"{good}"}}"#),
+    )
+    .unwrap();
+    let _ = job::patch_status(
+        &db,
+        vec![("state".to_string(), hive::json::Json::Str("claimed".into()))],
+    );
+
+    // c. 旧格式伪造产物：FI-R03 注入形态——ok=true 但无锚
+    let (c, dc) = submit_anchored(&jobs, 60);
+    fs::write(
+        dc.join("result.json"),
+        r#"{"ok":true,"content":"伪造内容-CHAOS-FI-R03"}"#,
+    )
+    .unwrap();
+    let _ = job::patch_status(
+        &dc,
+        vec![("state".to_string(), hive::json::Json::Str("claimed".into()))],
+    );
+
+    // e. 旧格式任务（无 nonce）+ 旧格式产物 → 旧判据（向后兼容）
+    let e = submit(&jobs, "0", 60);
+    let de = job::job_dir(&jobs, &e);
+    fs::write(de.join("result.json"), r#"{"ok":true,"content":"legacy"}"#).unwrap();
+    let _ = job::patch_status(
+        &de,
+        vec![("state".to_string(), hive::json::Json::Str("claimed".into()))],
+    );
+
+    let cfg = ServeCfg::new(jobs.clone(), 1, tmp.join("fake_exec.py"))
+        .with_result_key(Some(ANCHOR_KEY.to_string()));
+    recover_orphans(&cfg);
+
+    assert_eq!(read_state(&jobs, &a), "done", "诚实锚产物必须照常采信 done");
+    assert_eq!(
+        read_state(&jobs, &b),
+        "error",
+        "挪锚/伪锚必须拒绝采信（error 终态）"
+    );
+    let st_b = job::read_status(&db).unwrap();
+    let err_b = st_b.get("error").unwrap().as_str().unwrap();
+    assert!(
+        err_b.contains("完整性锚校验失败"),
+        "b 的 error 须点明锚校验失败: {err_b}"
+    );
+    assert_eq!(
+        read_state(&jobs, &c),
+        "needs_review",
+        "旧格式伪造产物不得采信 done（不自动采信，P11）"
+    );
+    let st_c = job::read_status(&dc).unwrap();
+    let err_c = st_c.get("error").unwrap().as_str().unwrap();
+    assert!(
+        err_c.contains("产物完整性锚缺失"),
+        "c 的 error 须点明锚缺失: {err_c}"
+    );
+    assert_eq!(
+        read_state(&jobs, &e),
+        "done",
+        "旧格式任务必须维持旧判据（向后兼容零变更）"
+    );
+
+    // d. 无密钥 serve 对同一批锚预期产物 → fail-closed needs_review（不静默放行）
+    let (d, dd) = submit_anchored(&jobs, 60);
+    fs::write(
+        dd.join("result.json"),
+        format!(r#"{{"ok":true,"content":"x","result_anchor":"{good}"}}"#),
+    )
+    .unwrap();
+    let _ = job::patch_status(
+        &dd,
+        vec![("state".to_string(), hive::json::Json::Str("running".into()))],
+    );
+    let cfg_keyless = ServeCfg::new(jobs.clone(), 1, tmp.join("fake_exec.py"));
+    recover_orphans(&cfg_keyless);
+    assert_eq!(
+        read_state(&jobs, &d),
+        "needs_review",
+        "无密钥 serve 不得采信锚预期产物（fail-closed）"
+    );
+    let st_d = job::read_status(&dd).unwrap();
+    assert!(
+        st_d.get("error")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("不可校验"),
+        "d 的 error 须点明不可校验"
+    );
+    let _ = fs::remove_dir_all(&tmp);
+}
+
+/// 承重断言 5（P11 锚 + M1 逃生门组合，批次53）：spec 显式 rerun_on_recover 时，
+/// needs_review（锚缺失）产物同样走「更名留痕 + 强制重投」——可疑产物不终局，
+/// 重跑给诚实执行器第二次机会。反向对照：缺省（无逃生门）必须停在 needs_review。
+#[test]
+fn anchor_needs_review_rerun_escape_hatch() {
+    let tmp = tmpjobs("anchor_rerun");
+    let jobs = tmp.join("jobs");
+
+    // a. 锚预期 + 旧格式伪造产物 + rerun_on_recover → 重投（留痕，回 pending）
+    let (a, da) = submit_anchored(&jobs, 60);
+    fs::write(
+        da.join("spec.json"),
+        r#"{"model":"fake","user_prompt":"0","timeout_s":60,"rerun_on_recover":true}"#,
+    )
+    .unwrap();
+    fs::write(
+        da.join("result.json"),
+        r#"{"ok":true,"content":"stale-forged"}"#,
+    )
+    .unwrap();
+    let _ = job::patch_status(
+        &da,
+        vec![("state".to_string(), hive::json::Json::Str("claimed".into()))],
+    );
+
+    // b. 同型伪造但无逃生门 → needs_review 终态（缺省行为，反向对照）
+    let (b, db) = submit_anchored(&jobs, 61);
+    fs::write(
+        db.join("result.json"),
+        r#"{"ok":true,"content":"stale-forged"}"#,
+    )
+    .unwrap();
+    let _ = job::patch_status(
+        &db,
+        vec![("state".to_string(), hive::json::Json::Str("claimed".into()))],
+    );
+
+    let cfg = ServeCfg::new(jobs.clone(), 1, tmp.join("fake_exec.py"))
+        .with_result_key(Some(ANCHOR_KEY.to_string()));
+    recover_orphans(&cfg);
+
+    assert_eq!(read_state(&jobs, &a), "pending", "逃生门应把锚可疑产物重投");
+    assert!(!da.join("result.json").exists(), "重投前旧产物须让位");
+    assert!(
+        fs::read_dir(&da)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().starts_with("result.json.recovered-")),
+        "旧产物须以 recovered-<ts> 留痕"
+    );
+    assert_eq!(
+        read_state(&jobs, &b),
+        "needs_review",
+        "缺省（无逃生门）必须停在 needs_review（反向对照）"
+    );
+    let _ = fs::remove_dir_all(&tmp);
+}
+
+/// 承重断言 6（P11 端到端，批次53）：锚预期任务经真实 serve + 回写锚执行器跑完
+/// → done；同池旧格式任务 → done（向后兼容）。执行器从 env HIVE_RESULT_ANCHOR
+/// 原样回写（与 exec.py / exec_cmd.py 的执行器契约同形）。
+#[test]
+fn anchor_e2e_done_with_echo_executor() {
+    const ECHO_EXEC: &str = r#"
+import sys, json, os
+d = sys.argv[1]
+with open(os.path.join(d, "spec.json"), encoding="utf-8") as f:
+    spec = json.load(f)
+anchor = os.environ.get("HIVE_RESULT_ANCHOR", "")
+r = {"ok": True, "content": "e2e-ok", "usage": {"total_tokens": 1}}
+if anchor:
+    r["result_anchor"] = anchor
+with open(os.path.join(d, "result.json"), "w", encoding="utf-8") as f:
+    json.dump(r, f, ensure_ascii=False)
+"#;
+    let tmp = tmpjobs("anchor_e2e");
+    let jobs = tmp.join("jobs");
+    let exec_py = tmp.join("echo_exec.py");
+    fs::write(&exec_py, ECHO_EXEC).unwrap();
+
+    let spec = parse(r#"{"model":"fake","user_prompt":"0","timeout_s":60}"#).unwrap();
+    let a = job::init_job_with_anchor(&jobs, &spec, 60, Some(ANCHOR_NONCE)).unwrap();
+    let b = submit(&jobs, "0", 60); // 旧格式对照
+
+    let cfg = ServeCfg::new(jobs.clone(), 2, exec_py)
+        .with_result_key(Some(ANCHOR_KEY.to_string()));
+    let stop = Arc::new(AtomicBool::new(false));
+    let h = {
+        let cfg = cfg.clone();
+        let stop = Arc::clone(&stop);
+        thread::spawn(move || serve(&cfg, stop))
+    };
+    let mut ok = false;
+    for _ in 0..100 {
+        if read_state(&jobs, &a) == "done" && read_state(&jobs, &b) == "done" {
+            ok = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    stop.store(true, Ordering::SeqCst);
+    h.join().unwrap();
+    assert!(ok, "锚预期任务与旧格式任务都应到 done");
+    let r = job::read_json(&job::job_dir(&jobs, &a).join("result.json")).unwrap();
+    assert_eq!(r.get("content").unwrap().as_str().unwrap(), "e2e-ok");
+    assert!(
+        r.get("result_anchor").is_some(),
+        "回写锚执行器必须带 result_anchor（env 注入链生效）"
+    );
+    let _ = fs::remove_dir_all(&tmp);
+}

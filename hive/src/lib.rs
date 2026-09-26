@@ -18,8 +18,10 @@
 //! 语义按单实例设计）。
 
 pub mod exec;
+pub mod hmac;
 pub mod job;
 pub mod json;
+pub mod keyres;
 pub mod scheduler;
 pub mod spec;
 

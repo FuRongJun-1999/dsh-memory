@@ -1204,7 +1204,13 @@ class MdCG:
                     try:
                         with open(p, encoding="utf-8") as f:
                             fm, content = nodefile.loads(f.read())
-                    except OSError:
+                    except (OSError, UnicodeDecodeError):
+                        # UnicodeDecodeError（批次 53 补）：非 UTF-8 字节的损坏
+                        # 真源此前会炸穿整库装载/重建（init → _load_index →
+                        # 指纹失配回落 _scan_nodes → 一个坏文件全库打不开）。
+                        # 与 reconcile v0 的 T9 边界同口径：真源损坏只跳过，
+                        # 不猜测不放大——启动对账（reconcile_state）会对其
+                        # 告警留痕。
                         continue
                     nid = fm.get("id") or fn[:-3]
                     nodes[nid] = self._node_entry(p, layer, fm, content)
@@ -1684,6 +1690,18 @@ class MdCG:
         """未结清的写入意图（有 intent 无 outcome）——只读，不改账本。"""
         from . import twophase
         return twophase.pending(self, limit=limit)
+
+# 生效条件：每次调用都延迟导入 reconcile 并以原样 apply（含 False）转调 reconcile.reconcile_state(self, apply=apply) 并返回，自身不做参数回落；
+    def reconcile_state(self, apply: bool = True) -> dict:
+        """启动对账 reconcile v0（v0.3 T9 落地，落地清单 P0-3）：索引（派生
+        态）vs 盘面真源的三类 diff 对账（多/缺索引条目、内容哈希漂移）。
+
+        与 `reconcile_writes`（写账本清账）分工见 `md_cg/reconcile.py` 模块
+        文档串。`MDCG_RECONCILE=0` 关闭（缺省开，开关真源在 reconcile.enabled）；
+        `apply=False` 为 dry-run。真源自身损坏只告警留痕，不自动改写（T9 边界）。
+        """
+        from . import reconcile              # 延迟导入：与写路径解耦，避免模块环
+        return reconcile.reconcile_state(self, apply=apply)
 
     # ------------------------------------------------------------------
     # 边域窄原语（写路径收口：白箱工具写 md 真源的唯一正路）。
