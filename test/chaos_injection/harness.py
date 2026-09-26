@@ -116,7 +116,7 @@ class Case:
         ok = (self.fails == [])
         self.check("★verdict 判定成立", ok, "; ".join(self.fails)[:400])
         consistent = (verdict == expected)
-        # 3.11 兼容：不用 PEP 701 f-string 跨行嵌套（rust:bookworm 自带 3.11）
+        # 3.11 兼容：不用 PEP 701 f-string 跨行嵌套（rust:bookworm 自带 3.11；CI 七工作流均 pin 3.11）
         print("CASE_RESULT " + json.dumps({
             'case_id': self.case_id, 'verdict': verdict, 'expected': expected,
             'consistent': consistent, 'fails': self.fails, 'notes': self.notes,
