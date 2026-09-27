@@ -43,6 +43,7 @@ import json
 import os
 import secrets
 import struct
+import sys
 import time
 
 from .datapath import aux_root
@@ -259,19 +260,27 @@ def keys_path(root):
     return os.path.join(root, KEYS_FILE)
 
 
-# 生效条件：root 为入参；若 os.path.exists(keys_path(root)) 为假，返回 {"v": ENVELOPE_VERSION, "alg": ALG, "envelopes": {}}；否则尝试 json.load，若结果为 dict 且其 "envelopes" 为 dict 则返回该 dict；若 json 解析 ValueError 或 OSError 则返回同样的空结构。
+# 生效条件：root 为入参；keys_path(root) 不存在时返回 {"v": ENVELOPE_VERSION, "alg": ALG, "envelopes": {}}（缺文件=fresh install，零告警零标记）；否则尝试 json.load，结果为 dict 且 "envelopes" 为 dict 时原样返回；json 解析 ValueError、OSError、或顶层为 dict 但 "envelopes" 缺失/非 dict（版本漂移）时向 stderr 写「密钥库损坏/不可读」告警（N139，2026-09-27 第 5 轮：静默回落会让 provision_dek 据空表重签新 DEK 并经 _save_keys 整份覆盖写回，旧信封无痕抹除、旧密文永久不可解——告警必须开口）并返回带 load_error 标记的空结构；provision_dek 见 load_error 即 fail-closed 拒绝重签，unwrap_dek 照旧按无信封抛 LockedError（读面零闸变）。
 def _load_keys(root):
     p = keys_path(root)
     if not os.path.exists(p):
         return {"v": ENVELOPE_VERSION, "alg": ALG, "envelopes": {}}
+    err = None
     try:
         with open(p, "r", encoding="utf-8") as f:
             d = json.load(f)
         if isinstance(d, dict) and isinstance(d.get("envelopes"), dict):
             return d
-    except (ValueError, OSError):
-        pass
-    return {"v": ENVELOPE_VERSION, "alg": ALG, "envelopes": {}}
+        err = "顶层不是对象或 envelopes 非映射（版本漂移？）"
+    except (ValueError, OSError) as e:
+        err = f"{type(e).__name__}: {e}"
+    sys.stderr.write(
+        f"[mdcg-crypto] ⚠ 密钥库损坏/不可读（{err}）：{p}"
+        f"——按回落口径返回空结构并置损坏标记（load_error）；签发/重写在"
+        f"标记下拒绝（静默重签会无痕抹除旧信封，N139）。"
+        f"请修复或恢复该文件后重试。\n")
+    return {"v": ENVELOPE_VERSION, "alg": ALG, "envelopes": {},
+            "load_error": err}
 
 
 # 生效条件：root、data 为入参，将 data 经 json.dumps(data, ensure_ascii=False, indent=1) 后由 atomic_write 写入 keys_path(root)。
@@ -286,7 +295,7 @@ def _envelope_key(tenant, actor):
     return f"{tenant}|{actor}"
 
 
-# 生效条件：root、kek、tenant、actor、clearance="private"、rotate=False 为入参；若 kek 为假抛 LockedError；否则加载 keys，若 _envelope_key(tenant, actor) 已在 envelopes 中且 rotate 为假则返回 unwrap_dek(root, kek, tenant, actor, clearance)；否则生成新 DEK 与 nonce，用 aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor)) 包裹后写入 envelopes[k] 并保存，返回 dek。
+# 生效条件：root、kek、tenant、actor、clearance="private"、rotate=False 为入参；若 kek 为假抛 LockedError；否则加载 keys，keys 带 load_error 损坏标记时抛 LockedError（N139：损坏/漂移回落下静默重签会经 _save_keys 整份覆盖写回并无痕抹除旧信封——旧密文永久不可解）；若 _envelope_key(tenant, actor) 已在 envelopes 中且 rotate 为假则返回 unwrap_dek(root, kek, tenant, actor, clearance)；否则生成新 DEK 与 nonce，用 aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor)) 包裹后写入 envelopes[k] 并保存，返回 dek。
 def provision_dek(root, kek, tenant, actor, clearance="private", rotate=False):
     """为 (tenant, actor) 生成 / 取回 DEK，用 KEK 包裹后存入 `_keys.json`。
 
@@ -295,6 +304,12 @@ def provision_dek(root, kek, tenant, actor, clearance="private", rotate=False):
     if not kek:
         raise LockedError("无主密钥（KEK）：拒绝签发数据密钥")
     data = _load_keys(root)
+    if data.get("load_error"):
+        raise LockedError(
+            f"密钥库损坏/不可读（{data['load_error']}）：{keys_path(root)}"
+            f"——损坏标记下拒绝重签数据密钥（静默整份覆盖会无痕抹除旧信封，"
+            f"N139）。请修复或恢复 _keys.json 后重试；若有意重置，请先手工"
+            f"处理该文件（备份/移除）再重试。")
     data.setdefault("envelopes", {})
     k = _envelope_key(tenant, actor)
     if k in data["envelopes"] and not rotate:

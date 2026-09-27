@@ -33,7 +33,7 @@ import shutil
 import sys
 import tempfile
 
-from . import ccgc, consolidate, crosscheck, vision_evidence
+from . import ccgc, consolidate, crosscheck, tokens, vision_evidence
 from .mdcos import MdCGOS
 
 PASS = FAIL = 0
@@ -181,9 +181,21 @@ def g2_link(tmp):
     r = ccgc.compile_dialog(DIALOG, "gd_link", "agent:a1",
                             slots=SLOTS, marks=MARKS, cg=a)
     ok(r.success, "G2a 编译成功")
+    # N176 契约：落库准入须令牌验证方——哑令牌临时文件 + 临时 MDCG_TOKEN_FILE
+    # （attest→verify_token 走环境变量定位令牌库，绝不触真实令牌库）
+    tok_env = os.path.join(tmp, "g2_tokens.json")
+    _old_tf = os.environ.get(tokens.TOKEN_FILE_ENV)
+    os.environ[tokens.TOKEN_FILE_ENV] = tok_env
+    tk = tokens.issue("designer", actor="designer", path=tok_env)["token"]
     a_ok = ccgc.attest("gd_link", ccgc.ACCEPT, "designer", "agent:a1",
-                       evidence="守卫：候选与对话原文一致", cg=a)
-    ok(a_ok.ok, "G2b 编外验证方签章")
+                       evidence="守卫：候选与对话原文一致", cg=a,
+                       verifier_token=tk)
+    if _old_tf is None:
+        os.environ.pop(tokens.TOKEN_FILE_ENV, None)
+    else:
+        os.environ[tokens.TOKEN_FILE_ENV] = _old_tf
+    ok(a_ok.ok and a_ok.verifier_identity == "token", "G2b 编外验证方签章"
+       "（N176：令牌凭据，self-reported 不构成落库准入）")
     l = ccgc.link(r, a_ok, cg=a, apply=True)
     ok(l.ok and l.written == 6, "G2c link 写入六行")
     fm, _c = _disk(root, "gd_link")

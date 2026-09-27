@@ -23,7 +23,7 @@ import tempfile
 import threading
 import time
 
-from . import audit, backfill, ccgc, nodefile, units
+from . import audit, backfill, ccgc, nodefile, tokens, units
 from .mdcos import MdCGOS
 
 PASS = FAIL = 0
@@ -126,6 +126,13 @@ def _import_mcp():
 def main():
     global PASS, FAIL
     tmp = tempfile.mkdtemp(prefix="mdcg_ccgc_")
+    # N176 契约：落库准入须令牌验证方——本测试自备哑令牌环境（临时 MDCG_TOKEN_FILE）
+    _old_tf = os.environ.get(tokens.TOKEN_FILE_ENV)
+    os.environ[tokens.TOKEN_FILE_ENV] = os.path.join(tmp, "tokens.json")
+    tk_reviewer = tokens.issue("designer", actor="designer",
+                               path=os.environ[tokens.TOKEN_FILE_ENV])["token"]
+    tk_reviewer_ext = tokens.issue("verify", actor="external-reviewer",
+                                   path=os.environ[tokens.TOKEN_FILE_ENV])["token"]
     try:
         root = os.path.join(tmp, "root")
         os.makedirs(root, exist_ok=True)
@@ -192,8 +199,11 @@ def main():
         a_defer = ccgc.attest("tgt", ccgc.DEFER, "designer", "agent:a1", cg=cg)
         ok((not a_defer.ok) and "E042" in a_defer.error, "V7b DEFER 不构成签章")
         a_ok = ccgc.attest("tgt", ccgc.ACCEPT, "designer", "agent:a1",
-                           evidence="设计者核对原文一致", cg=cg)
+                           evidence="设计者核对原文一致", cg=cg,
+                           verifier_token=tk_reviewer)
         ok(a_ok.ok and bool(a_ok.token), "V7c 编外验证方 ACCEPT → 有效签章")
+        ok(a_ok.verifier_identity == "token", "V7d 令牌验证方 identity=token"
+           "（N176：self-reported 不再构成落库准入）")
 
         # ---------- V8 无章不写 ----------
         l0 = ccgc.link(r, None, cg=cg, apply=True)
@@ -396,6 +406,17 @@ def main():
             ok(c5["state"] == units.HIVE and c5["verdict"] == "ACCEPT" and c5["passed"] is True,
                "V20g review 取回裁决：ok/verdict/passed 三者分离")
             ok(bool((c5.get("attest") or {}).get("ok")), "V20h 拿到裁决即自动签章")
+            c5b = mcp._ccg_call(cg, {"ccg": {"action": "link", "node_id": "tgt",
+                                             "apply": True}})
+            ok((not c5b["ok"]) and "E052" in str((c5b.get("link") or {}).get("errors")),
+               "V20n 无令牌自报签章 → link 拒绝（N176 E052，不落 knowledge 层）")
+            c5c = mcp._ccg_call(cg, {"ccg": {"action": "attest", "node_id": "tgt",
+                                             "verdict": "ACCEPT",
+                                             "verifier": "external-reviewer",
+                                             "verifier_token": tk_reviewer_ext,
+                                             "evidence": "令牌验证方复核"}})
+            ok(c5c["ok"] and (c5c.get("attest") or {}).get("verifier_identity") == "token",
+               "V20o 令牌验证方重签章 → identity=token（挂回 pending 待落库）")
             c7 = mcp._ccg_call(cg, {"ccg": {"action": "review", "node_id": "tgt",
                                             "jobs": jobs, "blocking": False}})
             ok(c7["state"] == units.HIVE and c7["verdict"] is None and c7["passed"] is False,
@@ -421,6 +442,10 @@ def main():
                 os.environ[units.ENV_EXE] = _old_exe
 
     finally:
+        if _old_tf is None:
+            os.environ.pop(tokens.TOKEN_FILE_ENV, None)
+        else:
+            os.environ[tokens.TOKEN_FILE_ENV] = _old_tf
         print()
         print("ccgc: PASS=%d FAIL=%d" % (PASS, FAIL))
         if FAILS:

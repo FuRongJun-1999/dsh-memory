@@ -448,6 +448,126 @@ _lit, src_lit = ex.resolve_system_prompt({"system_prompt": "字面量"}, tmp_job
 check("F9 未声明 from 时行为逐位兼容（literal 标签）",
       _lit == "字面量" and src_lit == "literal")
 
+# N173（批次 65，2026-09-27）：第三出口封堵——resolve_system_prompt 原先裸
+# open 读 system_prompt_from 全文置 system 消息外发 HIVE_API_BASE，read_file
+# 的三道防线（HIVE_READ_ROOTS / _sensitive_read / PII 脱敏）一概不生效
+# （P2-22 只堵了 context_files 同族通道）。哑私钥+临时目录确定性复现：旧代码
+# 函数面返回原文且出站 body system 消息含原文；修复后 fail-closed。
+print("[F10] system_prompt_from 敏感闸（N173 第三出口）")
+n_ws = tempfile.mkdtemp(prefix="hive_exec_n173_")
+open(os.path.join(n_ws, "id_rsa"), "w", encoding="utf-8").write(
+    "-----BEGIN OPENSSH PRIVATE KEY-----\n"
+    "b3BlbnNzaC1rZXktdjEAAAAADUMMYNOTAREALKEY\n"
+    "-----END OPENSSH PRIVATE KEY-----\n")
+open(os.path.join(n_ws, "prod.env"), "w", encoding="utf-8").write(
+    "AWS_SECRET=dummy\n")
+open(os.path.join(n_ws, "prompt.md"), "w", encoding="utf-8").write("纪律真源 v1")
+open(os.path.join(n_ws, "leaky.md"), "w", encoding="utf-8").write(
+    "配置含 sk-dummy0123456789abcdef012345 请勿外传")
+
+try:
+    ex.resolve_system_prompt({"system_prompt_from": "id_rsa",
+                              "workdir": n_ws,
+                              "system_prompt": "旧提示词"}, tmp_job)
+    _sp1 = False
+except ex.SpecError:
+    _sp1 = True
+check("F10 哑私钥经 system_prompt_from 拒读（SpecError fail-closed，"
+      "不回落旧提示词）", _sp1)
+try:
+    ex.build_messages({"model": "m1", "workdir": n_ws, "user_prompt": "hi",
+                       "system_prompt_from": "id_rsa",
+                       "system_prompt": "旧提示词"}, tmp_job)
+    _sp2 = False
+except ex.SpecError:
+    _sp2 = True
+check("F10b build_messages 入口同样拦截（出站 body 组装前 fail-closed）", _sp2)
+try:
+    ex.resolve_system_prompt({"system_prompt_from": "prod.env",
+                              "workdir": n_ws}, tmp_job)
+    _sp3 = False
+except ex.SpecError:
+    _sp3 = True
+check("F10c .env 族扩展名同样拒读（V21-8 族匹配覆盖本通道）", _sp3)
+
+os.environ["HIVE_READ_ROOTS"] = n_ws
+n_far = tempfile.mkdtemp(prefix="hive_exec_n173_far_")
+open(os.path.join(n_far, "far.md"), "w", encoding="utf-8").write("域外提示词")
+try:
+    ex.resolve_system_prompt({"system_prompt_from":
+                              os.path.join(n_far, "far.md"),
+                              "workdir": n_ws}, tmp_job)
+    _sp4 = False
+except ex.SpecError:
+    _sp4 = True
+check("F10d HIVE_READ_ROOTS 收窄覆盖本通道（白名单外真源拒读）", _sp4)
+_s4, src4 = ex.resolve_system_prompt({"system_prompt_from": "prompt.md",
+                                      "workdir": n_ws}, tmp_job)
+check("F10e 白名单内真源不误伤（重建语义保持）",
+      _s4 == "纪律真源 v1" and src4 == "file:prompt.md", f"{_s4!r}/{src4}")
+os.environ.pop("HIVE_READ_ROOTS", None)
+
+_s5, src5 = ex.resolve_system_prompt({"system_prompt_from": "leaky.md",
+                                      "workdir": n_ws}, tmp_job)
+check("F10f 正文 PII 脱敏兜底（内容层与 read_file 同防线，原文不外发）",
+      "sk-dummy0123456789abcdef012345" not in _s5
+      and "[已脱敏:API密钥]" in _s5 and src5 == "file:leaky.md", _s5)
+
+# N174（批次 65，2026-09-27）：\b 是 Unicode 词边界而 CJK 属 \w——中文紧邻
+# （中文语料默认书写形态）处无边界即全文漏脱敏，read_file / _redact_deep
+# 同源失效。红证：四样本旧码原样漏出（ unchanged=True ）。修法：四类文本
+# 模式改显式 ASCII 边界 lookaround（负类刻意不含 )——) 非词字符，旧码对
+# 「张三(13800138000)」本命中，纳入负类即回退；新匹配集为旧集严格超集）。
+print("[F11] PII 边界 N174（中文紧邻脱敏）")
+_n174 = {"电话13800138000": "手机号", "身份证110101199003078515": "身份证号",
+         "邮箱zhangsan@example.com": "邮箱", "令牌sk-abcDEF1234567890ab": "API密钥"}
+for _s, _lab in _n174.items():
+    _out = ex._redact_pii(_s)
+    check(f"F11 中文紧邻{_lab}脱敏（不再原文外发）",
+          _s not in _out and f"[已脱敏:{_lab}]" in _out, _out)
+check("F11b 对照不回退（空格/ASCII/全角括号/半角括号紧邻旧码本命中）",
+      all(ex._redact_pii(s) != s for s in
+          ["电话 13800138000。", "call 13800138000 now",
+           "contact zhangsan@example.com today", "（110101199003078515）",
+           "张三(13800138000)"]))
+check("F11c ASCII 串内不半截吞（边界语义与旧码一致）",
+      ex._redact_pii("x13800138000y") == "x13800138000y"
+      and ex._redact_pii("AKIAIOSFODNN7EXAMPLEX") == "AKIAIOSFODNN7EXAMPLEX")
+check("F11d _redact_deep 同源修复（lingshu 返回体统一脱敏入口）",
+      "13800138000" not in str(ex._redact_deep({"note": "电话13800138000"})))
+n_ws = tempfile.mkdtemp(prefix="hive_exec_n174_")
+open(os.path.join(n_ws, "contact.md"), "w", encoding="utf-8").write(
+    "联系人 张三 电话13800138000 邮箱zhangsan@example.com")
+_rf = ex.tool_read_file({"path": "contact.md"}, workdir=n_ws)
+check("F11e read_file 中文紧邻不再漏（pii_redacted 如实标记）",
+      _rf["ok"] and "13800138000" not in (_rf.get("content") or "")
+      and _rf.get("pii_redacted") is True, str(_rf)[:160])
+
+# N175（批次 65，2026-09-27）：context_files 通道文本分支缺 PII 脱敏、整条
+# 通道缺 HIVE_READ_ROOTS 对照（P2-22 只补了 _sensitive_read）——搭 N174 同批
+# 补齐：越界 skip-block 不拒整个 spawn（诚实留痕可审计，语义对齐敏感凭据
+# 跳过先例）。
+print("[F12] context 通道补防线（N175 文本分支 PII + 白名单对照）")
+open(os.path.join(n_ws, "clean.md"), "w", encoding="utf-8").write("普通说明文字")
+_msgs, _meta = ex.build_messages({"workdir": n_ws, "user_prompt": "看",
+                                  "context_files": ["contact.md", "clean.md"]},
+                                 tmp_job)
+_u = [m for m in _msgs if m["role"] == "user"][0]["content"]
+check("F12 context 文本块 PII 脱敏（原漏形态不外发）",
+      "13800138000" not in _u and "[已脱敏:" in _u, _u[:160])
+check("F12b 无 PII 文本块逐字不变", "普通说明文字" in _u)
+os.environ["HIVE_READ_ROOTS"] = n_ws
+_n_far = tempfile.mkdtemp(prefix="hive_exec_n174_far_")
+open(os.path.join(_n_far, "far.md"), "w", encoding="utf-8").write(
+    "域外内容13800138000")
+_msgs2, _ = ex.build_messages({"workdir": n_ws, "user_prompt": "看",
+                               "context_files": [os.path.join(_n_far, "far.md")]},
+                              tmp_job)
+_u2 = [m for m in _msgs2 if m["role"] == "user"][0]["content"]
+check("F12c 白名单外 context 块拒读跳过（skip-block 不拒整个 spawn）",
+      "skipped" in _u2 and "13800138000" not in _u2, _u2[:200])
+os.environ.pop("HIVE_READ_ROOTS", None)
+
 # ---------------------------------------------------------------- G read_file
 print("[G] read_file 只读工具（读放开 / 写严格）")
 

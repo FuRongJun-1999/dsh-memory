@@ -344,7 +344,7 @@ def _webp_size(f) -> tuple:
     return None, None
 
 
-# 生效条件：当 spec 与 job_dir 传入时，若 spec['system_prompt_from'] 去空白非空，则以 ref 绝对路径或 spec['workdir'] or os.getcwd() 拼接路径读取，读取 OSError 抛 SpecError，成功返回 (text.strip(), 'file:'+ref) 并 log job_dir；否则返回 (spec['system_prompt'] or '' 去空白, 'literal' 若该文本非空否则 'none')；
+# 生效条件：当 spec 与 job_dir 传入时，若 spec['system_prompt_from'] 去空白非空，则以 ref 绝对路径或 spec['workdir'] or os.getcwd() 拼接路径求 realpath，先过 read_roots()（HIVE_READ_ROOTS 非空且 real 不在任一根下抛 SpecError），再过 _sensitive_read(real) 命中敏感凭据路径抛 SpecError（均 fail-closed 不回落旧提示词），随后 open 读取 OSError 抛 SpecError，正文过 _redact_pii（内容层兜底，脱敏生效时 log job_dir），成功返回 (redacted.strip(), 'file:'+ref) 并 log job_dir；否则返回 (spec['system_prompt'] or '' 去空白, 'literal' 若该文本非空否则 'none')；
 def resolve_system_prompt(spec: dict, job_dir: str) -> tuple:
     """系统提示词真源（Pi⑦⑥）：声明 system_prompt_from 则**每次执行重建**。
 
@@ -353,25 +353,53 @@ def resolve_system_prompt(spec: dict, job_dir: str) -> tuple:
     唯一偏差窗口是 rust 侧 claimed 重投（崩溃恢复）复用旧 spec——声明 from 后
     该窗口也走真源重建。缺文件 fail-closed（SpecError）：明确失败优于静默用旧
     提示词。→ (prompt, source 标签)
+
+    N173（批次 65，2026-09-27）：第三出口封堵——本通道原先裸 open 读全文置入
+    system 消息外发 HIVE_API_BASE，read_file 的三道防线（HIVE_READ_ROOTS /
+    _sensitive_read / PII 脱敏）一概不生效，spec 作者声明
+    system_prompt_from 指向 id_rsa/.env 即全文外泄。攻击面与 P2-22 的
+    context_files 通道同族，复用同款闸：realpath 规范化 → 白名单 → 黑名单
+    （命中即 SpecError fail-closed，不回落旧提示词），正文过 _redact_pii
+    内容层兜底（与 tool_read_file 同防线）。
     """
     ref = str(spec.get("system_prompt_from") or "").strip()
     if ref:
         path = ref if os.path.isabs(ref) else os.path.join(
             spec.get("workdir") or os.getcwd(), ref)
+        real = os.path.realpath(path)
+        # N173 闸一：部署读白名单（HIVE_READ_ROOTS 非空即收窄，与 read_file
+        # 同语义——未设置 = 放开，部署收窄面覆盖 system_prompt_from 通道）。
+        roots = read_roots()
+        if roots and not any(_under(real, r) for r in roots):
+            raise SpecError(
+                f"system_prompt_from 路径超出 HIVE_READ_ROOTS 白名单"
+                f"（fail-closed，不回落旧提示词）: {real}")
+        # N173 闸二：敏感凭据路径黑名单——真源全文会随首次请求外发外部网关，
+        # 凭据类文件无论部署配置都不进 LLM 上下文（与 read_file / context
+        # 通道同判据；命中即拒读，不回落 spec.system_prompt 旧字面量）。
+        why = _sensitive_read(real)
+        if why:
+            raise SpecError(
+                f"system_prompt_from 命中敏感凭据路径拒读（{why}；"
+                f"fail-closed，不回落旧提示词；如有合法需要请走部署管理员"
+                f"显式通道）: {real}")
         try:
-            with open(path, encoding="utf-8") as f:
+            with open(real, encoding="utf-8") as f:
                 text = f.read()
         except OSError as e:
             raise SpecError(
                 f"system_prompt_from 读取失败（fail-closed，不回落旧提示词）: "
-                f"{path}: {e}")
-        log(job_dir, f"系统提示词重建自 {path}（{len(text)} 字符）")
-        return text.strip(), f"file:{ref}"
+                f"{real}: {e}")
+        redacted = _redact_pii(text)
+        if redacted != text:
+            log(job_dir, "系统提示词 PII 脱敏（N173 内容层兜底，原文不外发）")
+        log(job_dir, f"系统提示词重建自 {real}（{len(text)} 字符）")
+        return redacted.strip(), f"file:{ref}"
     literal = (spec.get("system_prompt") or "").strip()
     return literal, ("literal" if literal else "none")
 
 
-# 生效条件：当传入 rel/path/job_dir/meta 时，先对 os.path.realpath(path) 调 _sensitive_read，命中敏感凭据（目录段/文件名/前缀族/.env 族/密钥扩展）则 meta["notes"] 追加并 log(job_dir,...)，返回 skipped="敏感凭据拒读" 标注块（不读正文、不拒整个 spawn）；未命中且 path 可被 open("rb") 读取首 BINARY_SNIFF_BYTES 字节并用 sniff_kind 分类时，text 分支用 utf-8 errors=replace 读全文并返回文本 context；image: 前缀分支取 image_size(path) 的 w/h（w/h 均为真才显示尺寸并可能 oversize，否则显示“尺寸未知”且 width/height 用“?”），累加 meta["images"]/["image_tokens"]、向 meta["notes"] 追加并 log(job_dir,...)，返回带 w/h/oversize 的图像 context；其余分支累加 meta["binaries"]、log(job_dir,...) 并返回不读正文的二进制 context；
+# 生效条件：当传入 rel/path/job_dir/meta 时，先对 os.path.realpath(path) 求 real：read_roots() 非空且 real 不在任一根下则 meta["notes"] 追加并 log(job_dir,...)，返回 skipped="读权限白名单拒读" 标注块（不读正文、不拒整个 spawn，N175 对照 read_file 同收窄面）；再对 real 调 _sensitive_read，命中敏感凭据（目录段/文件名/前缀族/.env 族/密钥扩展）则 meta["notes"] 追加并 log(job_dir,...)，返回 skipped="敏感凭据拒读" 标注块（不读正文、不拒整个 spawn）；未命中且 path 可被 open("rb") 读取首 BINARY_SNIFF_BYTES 字节并用 sniff_kind 分类时，text 分支用 utf-8 errors=replace 读全文并过 _redact_pii（N175/N174：中文紧邻 PII 同防线）后返回文本 context；image: 前缀分支取 image_size(path) 的 w/h（w/h 均为真才显示尺寸并可能 oversize，否则显示“尺寸未知”且 width/height 用“?”），累加 meta["images"]/["image_tokens"]、向 meta["notes"] 追加并 log(job_dir,...)，返回带 w/h/oversize 的图像 context；其余分支累加 meta["binaries"]、log(job_dir,...) 并返回不读正文的二进制 context；
 def _context_block(rel: str, path: str, job_dir: str, meta: dict) -> str:
     """单个 context 块：文本读全文；图像/二进制只登记（Pi⑦④）。"""
     # P2-22 止血（v8 N69 / v10 / 2026-09-25 三次成立）：context_files 通道
@@ -381,7 +409,19 @@ def _context_block(rel: str, path: str, job_dir: str, meta: dict) -> str:
     # HIVE_API_BASE 外部网关。复用 tool_read_file 同款 _sensitive_read
     # （realpath 规范化后匹配）：命中不拒整个 spawn（其余块照常拼装），
     # 只把该文件替换为 skipped 标注块——诚实留痕可审计。
-    why = _sensitive_read(os.path.realpath(path))
+    # N175（批次 65，2026-09-27）：补齐其余两道——HIVE_READ_ROOTS 白名单
+    # （部署收窄面对照 read_file，越界同样 skip-block 不拒整个 spawn）与
+    # text 分支 _redact_pii 内容层脱敏（N174 修复后中文紧邻形态同防线）。
+    real = os.path.realpath(path)
+    roots = read_roots()
+    if roots and not any(_under(real, r) for r in roots):
+        note = f"context {rel} 超出 HIVE_READ_ROOTS 白名单拒读跳过——全文不进 LLM 上下文"
+        meta["notes"].append(note)
+        log(job_dir, "上下文块 " + note)
+        return (f'<context path="{rel}" skipped="读权限白名单拒读">\n'
+                f"（部署读白名单不含该路径——本块已跳过，不猜内容；"
+                "如有合法需要请由部署管理员将其加入 HIVE_READ_ROOTS。）\n</context>")
+    why = _sensitive_read(real)
     if why:
         note = f"context {rel} 敏感凭据拒读跳过（{why}）——全文不进 LLM 上下文"
         meta["notes"].append(note)
@@ -398,6 +438,9 @@ def _context_block(rel: str, path: str, job_dir: str, meta: dict) -> str:
         # CONTEXT_TEXT_MAX（防 OOM；呈现量仍由预算机制收紧）。
         with open(path, encoding="utf-8", errors="replace") as f:
             content = f.read(CONTEXT_TEXT_MAX)
+        # N175（批次 65，2026-09-27）：本通道文本原先不过 PII 脱敏——中文
+        # 紧邻形态随 user 消息外发外部网关；对照 read_file 同防线补一行。
+        content = _redact_pii(content)
         note = ("\n<!-- truncated: > CONTEXT_TEXT_MAX -->"
                 if size > CONTEXT_TEXT_MAX else "")
         return f'<context path="{rel}">\n{content}{note}\n</context>'
@@ -994,6 +1037,11 @@ def _sensitive_read(real: str) -> str | None:
 # 回喂 LLM，「跳过个人敏感信息不入明文」在**内容层**兜底（路径层由
 # _sensitive_read 把守）。正则模式集 v1（诚实面：正则脱敏是概率防线非
 # 密码学保证，新增类别在此扩展）。
+# N174（批次 65，2026-09-27）：四类文本模式的 \b 改显式 ASCII 边界
+# lookaround——\b 是 Unicode 词边界而 CJK 属 \w，中文紧邻（中文语料默认
+# 书写形态）处无边界即全文漏脱敏（read_file / _redact_deep 同源失效）。
+# 负类刻意不含 )：) 非词字符，旧码对「张三(13800138000)」本命中，纳入负类
+# 即回退——新匹配集为旧集严格超集，零回退。
 _PII_PATTERNS = (
     # 私钥/证书块（整段吞掉，含头尾行）
     ("私钥块", re.compile(
@@ -1001,16 +1049,19 @@ _PII_PATTERNS = (
         r"PRIVATE KEY( BLOCK)?-----", re.S)),
     # 通用 API key 样式（OpenAI sk- / GitHub ghp_·gho_ / AWS AKIA / Bearer）
     ("API密钥", re.compile(
-        r"\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|"
-        r"AKIA[0-9A-Z]{16}|Bearer\s+[A-Za-z0-9._-]{20,})\b")),
+        r"(?<![0-9A-Za-z])(?:sk-[A-Za-z0-9_-]{16,}|"
+        r"gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|"
+        r"Bearer\s+[A-Za-z0-9._-]{20,})(?![0-9A-Za-z])")),
     # 身份证（18 位含校验位 X）——先于手机号（避免 17 位段被手机号误吃）
-    ("身份证号", re.compile(r"\b\d{6}(?:19|20)\d{2}"
-                           r"(?:0[1-9]|1[0-2])(?:[0-2]\d|3[01])\d{3}[\dXx]\b")),
+    ("身份证号", re.compile(r"(?<![0-9A-Za-z])\d{6}(?:19|20)\d{2}"
+                           r"(?:0[1-9]|1[0-2])(?:[0-2]\d|3[01])"
+                           r"\d{3}[\dXx](?![0-9A-Za-z])")),
     # 手机号（大陆号段）
-    ("手机号", re.compile(r"\b1[3-9]\d{9}\b")),
+    ("手机号", re.compile(r"(?<![0-9A-Za-z])1[3-9]\d{9}(?![0-9A-Za-z])")),
     # 邮箱
     ("邮箱", re.compile(
-        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")),
+        r"(?<![0-9A-Za-z])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+"
+        r"\.[A-Za-z]{2,}(?![0-9A-Za-z])")),
 )
 
 
