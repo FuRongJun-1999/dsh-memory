@@ -39,12 +39,22 @@ DSH 侧配置（cordis.yml / MCP client）：
 from __future__ import annotations
 
 import json
-import json
 import os
 import sys
 
+# SERVER_VERSION 从包根 package.json 动态读取（issue #42：硬编码 0.1.0 与发布
+# 版本脱节，握手自报假版本）；读不到（文件缺失/损坏/裁剪）回落保底值不阻塞启动。
+def _package_version() -> str:
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "package.json"), encoding="utf-8") as f:
+            return json.load(f).get("version") or "0.1.0"
+    except (OSError, ValueError):
+        return "0.1.0"
+
+
 SERVER_NAME = "mdcg-mcp"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = _package_version()
 PROTOCOL_VERSION = "2024-11-05"
 
 
