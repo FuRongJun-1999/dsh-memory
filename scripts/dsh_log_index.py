@@ -26,6 +26,12 @@
   全文}")[:16]——会话 uuid 每次重启必换（已实证）不可作身份锚；派生标识同
   会话重跑同值（稳定性断言在红绿守卫内）。节点 id 前缀
   `dsh-log-<派生标识>-<序号>`：同逻辑会话重跑幂等。
+  碰撞防线（N167）：主公式 basis 不含日志文件自身身份，缺 session 首行 /
+  同毫秒同首条 user / 退化日志可跨会话碰撞——摄取前核验既有节点归属
+  （frontmatter.dsh_log），非本会话即切兜底标识
+  sha256(f"{createdAt}|{首条 user}|{workspace}|{session_id}")[:16]
+  重编号摄取并 stderr 告警（derive_session_token_ext，正文不丢弃；
+  scripts/test_dsh_log_index_token.py 红绿守卫）。
 · 工具与报告**不打印日志正文原文**：stdout 只出统计与计数，无任何消息文本。
 · 既有 private 旧节点处置：v1/v2/v3 摄取的 private 版 dsh-log- 节点用
   `--retire-private-legacy` 软删除（forget：文件移 trash/ + 删除清单留痕 +
@@ -475,14 +481,47 @@ def derive_session_token(meta: dict, msgs: list) -> str:
     sha256(f"{createdAt毫秒}|{首条 user 消息全文}")[:16]——uuid 每次重启必换
     不可作身份锚；派生标识对同一日志文件逐字节稳定（同会话重跑同值）。
     无 user 消息的退化日志仍确定（basis 只含时间戳与分隔符）。
+
+    碰撞面（N167）：basis 不含日志文件自身身份，「缺 type=session 首行」
+    「同毫秒+同首条 user」「同为无 user 退化」等场景下**不同会话**会派生出
+    同一 token。防线不在本函数（主公式保持不动=既有节点幂等不迁移），在
+    ingest_transcript 的归属核验：碰撞即切 derive_session_token_ext 兜底
+    空间重编号摄取并 stderr 告警（scripts/test_dsh_log_index_token.py 守卫）。
     """
     first_user = next((m["text"] for m in msgs if m.get("role") == "user"), "")
     basis = f"{meta.get('created_at_ms')}|{first_user}"
     return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:16]
 
 
+def derive_session_token_ext(meta: dict, msgs: list, workspace: str,
+                             session_id: str) -> str:
+    """碰撞兜底标识：basis 追加日志文件路径身份（workspace|session_id）（N167）。
+
+    (workspace, session_id) 目录对唯一标识一个日志文件且跨重启稳定——
+    同文件重跑同值（兜底空间内幂等），不同文件恒不同（sha256 抗碰）。
+    """
+    first_user = next((m["text"] for m in msgs if m.get("role") == "user"), "")
+    basis = (f"{meta.get('created_at_ms')}|{first_user}"
+             f"|{workspace}|{session_id}")
+    return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:16]
+
+
+def _dsh_log_owner(cg, nid):
+    """既有 dsh-log- 节点的归属 (session, workspace)；读不出 → (None, None)。
+
+    经公开读面 cg.get（读隔离内：internal 共享档跨会话可见；private 旧版
+    无密钥/不可见时返回 None）。读不出归属按**非本会话**处置（fail-closed）：
+    宁可切兜底空间多入一份，不可静默吞掉本会话正文（N167 修的正是静默丢）。
+    """
+    g = cg.get(nid)
+    if not g:
+        return None, None
+    dl = (g.get("frontmatter") or {}).get("dsh_log") or {}
+    return dl.get("session"), dl.get("workspace")
+
+
 def ingest_transcript(cg, workspace: str, session_id: str, tdir: str,
-                      token: str) -> dict:
+                      token: str, ext_token: str = None) -> dict:
     """索引一个会话的转写目录并写入活库（已存在节点跳过，不覆写）。
 
     章节切分走 refindex.index_dir(kind="doc_ref")——与 mcp_server index_doc op
@@ -496,9 +535,31 @@ def ingest_transcript(cg, workspace: str, session_id: str, tdir: str,
         dsh_session_uuid 留痕；
       · 不写 doc_ref / 不登记 Ledger（理由见模块 docstring），
         溯源另记 frontmatter.dsh_log。
+
+    碰撞防线（N167）：摄取前核验主 token 下既有节点归属——任一节点存在但
+    frontmatter.dsh_log 不指向本会话（被**别的**会话占用：同毫秒同首条 /
+    缺 session 首行 / 退化日志的跨会话派生碰撞）即整体切 ext_token 兜底
+    空间重编号摄取，返回值带 collision 由调用方 stderr 告警。不再无条件
+    skip-existing（旧逻辑把碰撞第二会话的全部章节静默跳过=数据丢失）。
+    存在性判定走索引（与可见性/密钥无关——private 旧节点同样算占用），
+    归属核验走 _dsh_log_owner 的公开读面（读不出=非本会话，fail-closed）。
     """
     items, errors, stats = refindex.index_dir(
         tdir, kind="doc_ref", max_files=100, max_items=50000)
+    existing = cg.index.get("nodes") or {}
+    collision = None
+    if ext_token and ext_token != token:
+        for i in range(len(items)):
+            nid = f"dsh-log-{token}-{i:04d}"
+            if nid not in existing:
+                continue
+            o_sid, o_ws = _dsh_log_owner(cg, nid)
+            if o_sid == session_id and o_ws == workspace:
+                continue                        # 本会话既有节点：幂等重跑
+            collision = {"token": token, "token_ext": ext_token,
+                         "occupied_by": {"session": o_sid, "workspace": o_ws}}
+            token = ext_token                   # 整体切兜底空间重编号
+            break
     indexed, skipped_existing, sens_counts = [], 0, {}
     for i, it in enumerate(items):
         nid = f"dsh-log-{token}-{i:04d}"
@@ -527,7 +588,7 @@ def ingest_transcript(cg, workspace: str, session_id: str, tdir: str,
         indexed.append(nid)
     return {"items": len(items), "indexed": indexed,
             "skipped_existing": skipped_existing,
-            "sensitivity": sens_counts,
+            "sensitivity": sens_counts, "collision": collision,
             "extract_errors": errors[:5], "stats": stats}
 
 
@@ -623,7 +684,8 @@ def main(argv=None) -> int:
              "nodes_indexed": 0, "nodes_skipped_existing": 0,
              "chars": 0, "lines_skipped": 0,
              "audit": {t: 0 for t in AUDIT_EVENT_TYPES},
-             "unknown_lines": 0, "unknown_types": {}}
+             "unknown_lines": 0, "unknown_types": {},
+             "token_collisions": 0}
     per_session_unknown = []             # [(session_id, {type: count})] verbose 用
     session_tokens = {}                  # session_id -> 派生标识（稳定性审计）
     cg = None
@@ -631,6 +693,9 @@ def main(argv=None) -> int:
         for s in sessions:
             parsed = parse_session_log(s["log"])
             token = derive_session_token(parsed["meta"], parsed["msgs"])
+            ext_token = derive_session_token_ext(
+                parsed["meta"], parsed["msgs"], s["workspace"],
+                s["session_id"])
             session_tokens[s["session_id"]] = token
             md = render_transcript(s["workspace"], parsed)
             tdir = transcript_path(s["workspace"], s["session_id"])
@@ -703,12 +768,24 @@ def main(argv=None) -> int:
                 if not cs.get("unlocked"):
                     raise SystemExit(f"加密未解锁，拒绝写入私有内容：{cs}")
                 ing = ingest_transcript(cg, s["workspace"], s["session_id"],
-                                        tdir, token)
+                                        tdir, token, ext_token)
                 row["chapters"] = ing["items"]
                 row["nodes_indexed"] = len(ing["indexed"])
                 row["nodes_skipped_existing"] = ing["skipped_existing"]
                 row["sensitivity"] = ing["sensitivity"]
                 row["node_ids"] = ing["indexed"][:5]
+                if ing.get("collision"):
+                    row["token_collision"] = ing["collision"]
+                    row["session_token_main"] = token   # 主标识留痕（已让位）
+                    row["session_token"] = ext_token    # 生效标识=兜底空间
+                    total["token_collisions"] += 1
+                    c = ing["collision"]
+                    print(f"WARNING: 会话 {s['workspace']}/{s['session_id']}"
+                          f" 派生标识碰撞（主标识 {c['token']} 已被会话"
+                          f" {c['occupied_by']['workspace']}/"
+                          f"{c['occupied_by']['session']} 占用）——"
+                          f"切兜底标识 {c['token_ext']} 重编号摄取，"
+                          "正文不丢弃（N167 防线）", file=sys.stderr)
                 if ing["extract_errors"]:
                     row["extract_errors"] = ing["extract_errors"]
                 if ing["stats"].get("truncated"):

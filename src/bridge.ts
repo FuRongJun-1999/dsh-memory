@@ -208,6 +208,20 @@ export class LingshuBridge {
     this.proc = proc
     this.rl = createInterface({ input: proc.stdout!, crlfDelay: Infinity })
 
+    // N119（v13 留档 deferred → 本轮落地）：stdin 在途冲刷失败必须有人接住。
+    // writeRaw 的大消息（超管道缓冲）会滞留在 Node 写缓冲区背压，此刻子进程
+    // 恰好死亡（崩溃 / kill / 换代 end()），滞留数据冲刷即以 'error' 事件发射
+    // （实测形态 'write EPIPE' / 'write EOF'）——无监听时按 uncaughtException
+    // 上抛，直接打崩 DSH 宿主进程。下方 writeRaw 的 writable 守卫只挡调用瞬间，
+    // 挡不住在途冲刷失败；本监听 spawn 时挂一次即覆盖 writeRaw 全部写与
+    // dispose/killStaleProc 的 end()。吞错后无需额外状态迁移：子进程死亡由
+    // 既有 exit 分支收尾（rejectAll + 状态迁移 + 重试/冷却），stdin 写失败仅
+    // 留痕日志与探针。
+    proc.stdin?.on('error', (err: Error) => {
+      console.error(`[lingshu-bridge] stdin 写入失败（子进程可能已退出）: ${err.message}`)
+      probe(`stdin error: ${String(err)}`)
+    })
+
     proc.stderr?.on('data', (chunk: Buffer) => {
       // stderr 透传日志（灵枢把日志写在 stderr，避免污染协议流）
       const text = chunk.toString('utf8').trim()

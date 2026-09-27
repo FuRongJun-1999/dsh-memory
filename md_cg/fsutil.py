@@ -349,16 +349,40 @@ class ShardedLog:
             self._fh = None
 
     @staticmethod
-# 生效条件：directory 是目录时，按 sorted(os.listdir(directory)) 顺序对每个以 ".log" 结尾的文件调用 read_jsonl 汇总记录，再按每条记录 r.get("_t", 0)、r.get("_s", 0)（缺键取 0）排序后返回全部记录；directory 不是目录时直接返回 []。
+# 生效条件：directory 是目录时，按 sorted(os.listdir(directory)) 顺序对每个以 ".log" 结尾的文件读取汇总（单分片 PermissionError 时以 5ms×8 短重试等 Windows delete-pending 窗口过去、窗口后 FileNotFoundError 视为已被 compact 并入快照清走而跳过、重试耗尽照常 raise），再按每条记录 r.get("_t", 0)、r.get("_s", 0)（缺键取 0）排序后返回全部记录；directory 不是目录时直接返回 []。
     def read_all(directory: str):
-        """按全局写入顺序回放所有分片。"""
+        """按全局写入顺序回放所有分片。
+
+        N170（2026-09-27）：并发 compact 的 delete-pending 窗口容忍。他进程
+        close→compact_index 的 ShardedLog.clear（mdcg.py:1137，锁内「先并快照
+        再删分片」）与本读方的 listdir→open 交错时，Windows 上 open 命中
+        「已 remove、名未消」的 delete-pending 态 → PermissionError [Errno 13]
+        （test_review_conformance【9】4 decide worker 同根并发实测复现：
+        worker 在 MdCGOS.__init__ 崩溃、stdout 空，父进程 json.loads("")
+        二次崩成 JSONDecodeError）。短重试等窗口过去：窗口过后文件要么可读、
+        要么已真删。已真删（FileNotFoundError）跳过是**安全**的——clear 的
+        契约是分片记录先并入快照再删（mdcg.py:1136-1137 顺序），本读方的
+        快照基底的陈旧读界与既有「他进程未 flush 写入不可见」边界同格，
+        由 _index_signature 指纹机制在下次重载收敛；重试耗尽的 PermissionError
+        照常上抛，真权限问题不掩盖。
+        """
         if not os.path.isdir(directory):
             return []
         recs = []
         for fn in sorted(os.listdir(directory)):
             if not fn.endswith(".log"):
                 continue
-            recs.extend(read_jsonl(os.path.join(directory, fn)))
+            p = os.path.join(directory, fn)
+            for _attempt in range(8):
+                try:
+                    recs.extend(read_jsonl(p))
+                    break
+                except FileNotFoundError:
+                    break          # 已被 compact 清走（记录已并入快照）
+                except PermissionError:
+                    if _attempt == 7:
+                        raise
+                    time.sleep(0.005)
         recs.sort(key=lambda r: (r.get("_t", 0), r.get("_s", 0)))
         return recs
 

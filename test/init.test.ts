@@ -170,6 +170,43 @@ test('非交互环境缺参：报错而非挂死（错误信息点名缺失的 f
   }
 })
 
+test('N167 回归：根入口波浪线展开——--root 与交互手输的 ~/x、裸 ~ 均落到注入 home', async () => {
+  // 缺陷（N167）：src/init.ts 根入口 resolve(cwd, root) 不做波浪线展开，
+  // :264 自带示例形态「--root ~/.lingshu/memory」被解析为 <cwd>/~/.lingshu/memory
+  // ——记忆根落错位且随宿主 cwd 漂移分裂。修复口径与大脑侧
+  // md_cg/datapath.py:61 expanduser+abspath 一致（~ → home 前缀展开）。
+  const { dir, cleanup } = tmpCase()
+  try {
+    const fakeHome = join(dir, 'home')
+    const opts = { cwd: dir, output: new PassThrough(), home: fakeHome }
+
+    // ① 非交互 flag 形态（即 :264 示例逐字形态）：~/x → <home>/x，片段同值
+    const r1 = await runInit(
+      ['--end', 'claude', '--root', '~/.lingshu/memory', '--python', 'python3'], opts)
+    const expected1 = join(fakeHome, '.lingshu', 'memory')
+    assert.equal(r1.root, expected1, '--root ~/x 应展开为 <home>/x 而非 <cwd>/~/x')
+    assert.equal(r1.snippet.mcpServers.mdcg.env['MDCG_ROOT'], expected1,
+      '落盘片段 MDCG_ROOT 应为展开后的绝对路径（随 cwd 漂移即分裂）')
+
+    // ② 裸 ~ → home 本身
+    const r2 = await runInit(['--end', 'claude', '--root', '~', '--python', 'python3'], opts)
+    assert.equal(r2.root, fakeHome, '裸 ~ 应展开为 home 本身')
+
+    // ③ 交互手输 ~/ 形态同样展开（第二条独立入口，与 flag 汇于同一根处理点）
+    const input = new PassThrough()
+    const pending = runInit([], { ...opts, input, platform: 'linux' })
+    for (const line of ['2\n', '~/.lingshu/memory\n', '\n']) {
+      await tick()
+      input.write(line)
+    }
+    const r3 = await pending
+    assert.equal(r3.root, join(fakeHome, '.lingshu', 'memory'),
+      '交互手输 ~/x 应与 flag 形态同口径展开')
+  } finally {
+    cleanup()
+  }
+})
+
 test('缺省记忆根口径：<home>/.lingshu/memory（home 可注入，缺省 os.homedir()）', () => {
   // 纯函数断言：本机缺省形态只断言后缀结构，不写死盘符/用户名
   const p = join(homedir(), '.lingshu', 'memory')

@@ -186,11 +186,52 @@ def persist_triggers(patches):
 
 
 # ==================== 通道 B：LLM 初稿 → verifier → 固化 ====================
-# ---- P1-7（批次 26）：LLM 产出代码的 AST 沙箱 ------------------------------
+
+def _atomic_write_json(path: str, obj) -> None:
+    """状态 JSON 原子落盘（N169）：tmp + os.replace，对齐 persist_triggers
+    的 P2-14 原子款（:178-183）——写中被 taskkill /F（watchdog kill_procs）
+    强杀时，读者只见旧文件或新文件，绝不见半截截断态。
+    """
+    _tmp = path + ".tmp"
+    with open(_tmp, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=1)
+    os.replace(_tmp, path)
+
+
+def _load_json_state(path: str, default, what: str):
+    """通道 B 状态 JSON 读取（N169 自愈）：损坏即留痕重建，不再每轮同崩。
+
+    文件缺失 → 返回 default；解析/读取失败 → 损坏文件改名
+    `*.corrupt-<时间戳>` 留存现场（进度数据可人工找回）+ log_event 告警
+    （round=channel_b_state_corrupt，已注册 watchdog DEGRADED 清单），
+    返回 default 空状态重建——通道继续运行，不再 JSONDecodeError 永久死亡。
+    """
+    if not os.path.exists(path):
+        return default
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError) as e:
+        try:
+            os.replace(path, path + ".corrupt-"
+                       + time.strftime("%Y%m%d%H%M%S"))
+        except OSError:
+            pass
+        try:
+            log_event({"round": "channel_b_state_corrupt",
+                       "file": os.path.basename(path), "what": what,
+                       "error": str(e)[:120],
+                       "ts": time.strftime("%Y-%m-%d %H:%M:%S")})
+        except Exception:
+            pass
+        return default
+
+
 # 危险名 denylist（配合 __builtins__ 收窄双层防御）：
 #   执行/IO 面：eval exec compile open __import__ breakpoint input
 #   反射面：globals locals vars getattr setattr delattr（内省逃逸链入口）
 #   进程面：exit quit（干扰循环宿主）
+# ---- P1-7（批次 26）：LLM 产出代码的 AST 沙箱 ------------------------------
 _GEN_BANNED_NAMES = frozenset({
     "eval", "exec", "compile", "open", "__import__", "breakpoint", "input",
     "globals", "locals", "vars", "getattr", "setattr", "delattr",
@@ -256,16 +297,14 @@ def run_channel_b(llm_generate=None, max_tasks=5):
     # 批次 35：初始化必须是 dict——空串形态在产物文件不存在时首次固化即
     # TypeError（verified[key]=... 对 str 赋值）。此缺陷因 run_channel_b
     # 长期无测试覆盖而潜伏（V21 报告流程建议 2 的全链路冒烟首跑即暴露）。
-    verified = {}
-    if os.path.exists(out_path):
-        with open(out_path, encoding="utf-8") as f:
-            verified = json.load(f)
+    # N169：读取走 _load_json_state——状态文件损坏（写中被 taskkill /F
+    # 强杀截断）不再每轮裸 json.load 同崩，留痕重建后通道继续运行。
+    verified = _load_json_state(out_path, {}, "verified_units（已验证固化态）")
     stats = {"generated": 0, "passed": 0, "failed": 0, "source": "queue"}
 
     queue = []
-    if os.path.exists(queue_path):
-        with open(queue_path, encoding="utf-8") as f:
-            qd = json.load(f)
+    qd = _load_json_state(queue_path, None, "channel_b_queue（LLM 初稿队列）")
+    if qd:
         queue = [t for t in qd.get("pending", [])
                  if t.get("status") not in ("verified", "failed")]
 
@@ -322,16 +361,13 @@ def run_channel_b(llm_generate=None, max_tasks=5):
             # 留痕——恶意/坏产出是最该进拒绝日志的类别（与 cases 未过同款）
             _rej = os.path.join(STATE, "channel_b_drafts", "rejected_log.json")
             os.makedirs(os.path.dirname(_rej), exist_ok=True)
-            _rej_list = []
-            if os.path.exists(_rej):
-                with open(_rej, encoding="utf-8") as f:
-                    _rej_list = json.load(f)
+            _rej_list = _load_json_state(_rej, [],
+                                         "rejected_log（沙箱拒绝留痕）")
             _rej_list.append({"task": task, "layer": "queue_sandbox",
                               "why": "AST 沙箱拒绝（import 面/危险内建/"
                                      "反射逃逸链）",
                               "ts": time.strftime("%Y-%m-%d %H:%M")})
-            with open(_rej, "w", encoding="utf-8") as f:
-                json.dump(_rej_list, f, ensure_ascii=False, indent=1)
+            _atomic_write_json(_rej, _rej_list)
             continue
         if fname not in ns or not callable(ns[fname]):
             stats["failed"] += 1
@@ -376,24 +412,20 @@ def run_channel_b(llm_generate=None, max_tasks=5):
             # V22 修复：必须是 []（对照 :319 沙箱拒绝分支）——空串形态在
             # rejected_log.json 不存在时首次失败即 AttributeError 崩溃，
             # 队列回写不执行 → 条目永久 pending，每轮重试再崩（死循环）。
-            _rej_list = []
-            if os.path.exists(_rej):
-                with open(_rej, encoding="utf-8") as f:
-                    _rej_list = json.load(f)
+            # N169：读取走 _load_json_state（损坏留痕重建）、写入走原子款。
+            _rej_list = _load_json_state(_rej, [],
+                                         "rejected_log（验证失败留痕）")
             _rej_list.append({"task": task, "layer": "queue_verifier",
                               "why": "cases 物理验证未过",
                               "ts": time.strftime("%Y-%m-%d %H:%M")})
-            with open(_rej, "w", encoding="utf-8") as f:
-                json.dump(_rej_list, f, ensure_ascii=False, indent=1)
+            _atomic_write_json(_rej, _rej_list)
 
     if queue:
         qd = {"_comment": "自举产物队列（已完成项标记 verified）",
               "_instructions": "bootstrap_loop 自动消化",
               "pending": queue}
-        with open(queue_path, "w", encoding="utf-8") as f:
-            json.dump(qd, f, ensure_ascii=False, indent=1)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(verified, f, ensure_ascii=False, indent=1)
+        _atomic_write_json(queue_path, qd)       # N169：原子落盘
+    _atomic_write_json(out_path, verified)       # N169：原子落盘
     return stats
 
 
@@ -436,7 +468,12 @@ def run_once(channel_b=False, max_patches=20):
         except Exception as e:
             result["channel_b"] = {"error": str(e)[:80]}
 
-    log_event({"round": "bootstrap_v2", **result})
+    # N169：通道 B 异常轮记 channel_b_error（watchdog DEGRADED 清单）——
+    # 修前恒记 bootstrap_v2（HEALTHY 清单），通道 B 连续死亡时内容级判活
+    # 恒 alive 假绿，watchdog 永不介入。
+    round_name = "channel_b_error" if isinstance(result.get("channel_b"), dict) \
+        and result["channel_b"].get("error") else "bootstrap_v2"
+    log_event({"round": round_name, **result})
     return result
 
 

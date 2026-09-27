@@ -204,7 +204,14 @@ def main():
         pids = []
         for p in procs:
             out, _err = p.communicate(timeout=120)
-            pids.append(json.loads(out.strip()))
+            try:
+                pids.append(json.loads(out.strip()))
+            except ValueError:
+                # N170 诊断增强：worker 崩溃时 stdout 为空，裸 json.loads 只会
+                # 报 JSONDecodeError 盲盒——把 returncode/stderr 带出来定位。
+                raise AssertionError(
+                    "worker propose 输出非 JSON（rc=%s）stderr=%s"
+                    % (p.returncode, (_err or "")[-500:])) from None
         check("4 进程返回同一 pid", len(set(pids)) == 1, str(pids))
         inbox2 = os.path.join(root2, "hippocampus", "inbox.jsonl")
         with open(inbox2, encoding="utf-8") as f:
@@ -269,8 +276,19 @@ def main():
         outs = []
         for p in procs:
             out, _err = p.communicate(timeout=180)
+            if not out.strip():
+                # N170 诊断增强：空输出先亮 worker 现场（rc/stderr），不再
+                # 留给下方 json.loads 一个盲盒崩溃。
+                print("  [DIAG] decide worker rc=%s stderr=%s"
+                      % (p.returncode, (_err or "")[-500:]))
             outs.append(out.strip())
-        check("4 项裁决全部成功", all(json.loads(o).get("ok") for o in outs),
+        douts = []
+        for o in outs:
+            try:
+                douts.append(json.loads(o))
+            except ValueError:
+                douts.append({"ok": False})
+        check("4 项裁决全部成功", all(d.get("ok") for d in douts),
               str([o[:40] for o in outs]))
         drecs = cg3.decisions()
         check("decisions 读回恰好 4 条（无交错丢失）", len(drecs) == 4,

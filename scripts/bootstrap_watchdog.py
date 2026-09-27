@@ -60,8 +60,12 @@ GRACE = 120          # 额外缓冲秒
 DEGRADE_LIMIT = 3    # 连续错误轮次阈值
 
 # 健康/降级轮次分类（内容级判据的事实来源）
+# N169（2026-09-27）：channel_b_error=通道 B 异常轮（修前异常仍记 bootstrap_v2
+# 落 HEALTHY 假绿）；channel_b_state_corrupt=状态 JSON 损坏自愈告警——两者
+# 连续出现即通道 B 降级，纳入内容级判活。
 HEALTHY_ROUNDS = ("bootstrap_v2", "loop_start", "csre_rebuild")
-DEGRADED_ROUNDS = ("loop_error", "csre_rebuild_error")
+DEGRADED_ROUNDS = ("loop_error", "csre_rebuild_error",
+                   "channel_b_error", "channel_b_state_corrupt")
 
 
 # 生效条件：无入参；LINGSHU_PYTHON 环境变量为非空串且 os.path.isfile(env) 为真时返回该值，否则当 sys.executable 非空且其 basename 含 "python" 时返回 sys.executable，否则按 LOCALAPPDATA 拼出的 Programs\Python\Python3*\python.exe 与 [系统盘]:\Python3*\python.exe 两个 glob 取 reverse 排序后首命中返回，两个模式均无命中时返回 cur or "python"（cur 为空串则回落 "python"）。

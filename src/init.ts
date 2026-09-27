@@ -102,6 +102,19 @@ export function defaultMemoryRoot(home: string = homedir()): string {
   return join(home, '.lingshu', 'memory')
 }
 
+/**
+ * N167：根入口波浪线展开——`~` / `~/x`（含 `~\x`）前缀按 home 展开，缺省
+ * os.homedir()。与大脑侧 md_cg/datapath.py 的 expanduser+abspath 同口径：
+ * 帮助文案与 :264 自带示例都写着「--root ~/.lingshu/memory」，不展开就会把
+ * 记忆根解析成宿主 cwd 下的字面 ~ 目录——落错位且随 cwd 漂移分裂。
+ * 边界：`~user` 形态 Node 无便携语义（POSIX pwd 查询不可用），原样保留。
+ */
+function expandHomeTilde(p: string, home: string = homedir()): string {
+  if (p === '~') return home
+  if (p.startsWith('~/') || p.startsWith('~\\')) return join(home, p.slice(2))
+  return p
+}
+
 /** 生成的 mcp.json 片段（键序固定 → 序列化稳定 → 幂等）。 */
 export function buildSnippet(end: EndSpec, root: string, python: string): {
   mcpServers: { mdcg: { command: string, args: string[], env: Record<string, string> } }
@@ -288,7 +301,8 @@ export async function runInit(argv: string[], opts: InitOptions = {}): Promise<I
   }
 
   const endSpec = end as EndSpec
-  const rootAbs = resolve(cwd, root as string)
+  // N167：flag（--root）与交互手输两条入口在此汇合，展开一次即双路覆盖
+  const rootAbs = resolve(cwd, expandHomeTilde(root as string, opts.home))
   const pythonName = (python as string).trim()
   if (pythonName === '') throw new InitError('--python 不能为空串')
 

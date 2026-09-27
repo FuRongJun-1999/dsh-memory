@@ -20,6 +20,15 @@
  * ②消费 `md_cg/selfreport.py` 落的自报文件（`cwd` + `ppid` + `source_dir`），
  * 故只认「本测试进程拉起的那个子进程」，不受同机其它常驻 md_cg 干扰，
  * 也不依赖 Windows 专有的 PEB 读取。③在非 Windows 上诚实跳过而非假装通过。
+ *
+ * 「只认 ppid=本进程」还须叠加**时间窗**（ts ≥ 本测试 start 时刻）：自报目录
+ * 是全局共享、从不清理的（`<tempdir>/md_cg_servers/`，实测今日单日累积 60+ 条），
+ * 而多路写方持续落「cwd=仓根」的记录——`test/bridge.test.ts` 的 issue #12 形态
+ * （`cwd: REPO_ROOT`，刻意）与 `scripts/bootstrap_watchdog.py` 的体检拉起
+ * （`cwd=BRAIN`=仓根）——且 Windows pid 跨运行/跨小时复用（实测 ppid=25052 的
+ * 记录在同日 12:17 与 17:05 分属两代进程）。只按 ppid 过滤时，只要本运行器
+ * pid 撞上任何旧记录的 ppid，② 就把几小时前的仓根旧账读成「本测试的子进程」
+ * 而假失败；时间窗后仍只认本测试亲手拉起、刚完成握手的那个子进程，期望不变。
  */
 
 import { test } from 'node:test'
@@ -91,6 +100,10 @@ test('issue #18 ①：runRoot() 是包外落点、绝对路径且目录存在', 
 
 test('issue #18 ②：MdcgClient 默认 cwd 拉起的子进程，自报 cwd 在包外', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'lingshu-issue18-'))
+  // 时间窗起点（见文件头注）：只认 start() 之后落盘的自报——目录全局共享且
+  // pid 复用，ppid 单独不足以锁定「本测试的子进程」。留 1s 余量吸收取时钟毛刺
+  // （ts 由子进程 time.time() 以秒计）。
+  const t0Ms = Date.now()
   // 真实宿主形态：不传 cwd（旧行为 = repoRoot()，即被钉住的包目录）
   const client = new MdcgClient({
     python: defaultPython(),
@@ -113,11 +126,13 @@ test('issue #18 ②：MdcgClient 默认 cwd 拉起的子进程，自报 cwd 在�
       `握手完成但自报目录不存在（selfreport 落盘异常）：${SELF_REPORT_DIR}`,
     )
 
-    // 自报 ppid = 本测试进程 → 精确锁定本测试拉起的子进程（不受同机其它常驻进程干扰）
-    const mine = readSelfReports().filter((r) => r['ppid'] === process.pid)
+    // 自报 ppid = 本测试进程 且 ts ≥ start 时刻 → 精确锁定本测试拉起的子进程
+    // （ppid 单独不够：目录跨运行累积 + Windows pid 复用，见文件头注）
+    const mine = readSelfReports()
+      .filter((r) => r['ppid'] === process.pid && Number(r['ts']) * 1000 >= t0Ms - 1000)
     assert.ok(
       mine.length >= 1,
-      `应能读到本测试拉起的 md_cg 子进程自报（ppid=${process.pid}；`
+      `应能读到本测试拉起的 md_cg 子进程自报（ppid=${process.pid}，ts≥${new Date(t0Ms - 1000).toISOString()}；`
       + `目录 ${SELF_REPORT_DIR} 现有 ${readSelfReports().length} 条）`,
     )
     for (const rec of mine) {

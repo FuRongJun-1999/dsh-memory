@@ -203,21 +203,28 @@ def scan_r2_hits(paths):
 
 
 def scan_text_hits(text: str, rules, rel: str):
-    """→ (fail_hits, notes)。令牌类规则的命中若为占位符/假值标记则降级为 note，不静默丢弃。"""
+    """→ (fail_hits, notes)。令牌类规则的命中若为占位符/假值标记则降级为 note，不静默丢弃。
+
+    每规则遍历**全部**命中（finditer，N167 修）：TOKEN_* 规则任一命中为真
+    形态即判 FAIL 并停止该规则扫描——修前只取 rx.search 首配、首配占位符即
+    continue 跳过该规则余下文本，同文件「占位符令牌在前、真实凭据在后」时
+    真令牌整条逃逸 R1 内容面（门禁静默漏报）。全部命中均为占位符才降级
+    NOTE。规则判 FAIL 后不再收集其占位符命中（FAIL 已覆盖告警，note 仅是
+    占位符展示面）；非 TOKEN_* 规则无降级语义，任一命中即 FAIL（与修前等价）。
+    """
     hits = []
     notes = []
     for label, rx in rules:
-        m = rx.search(text)
-        if not m:
-            continue
-        snippet = m.group(0).replace("\r", "\\r").replace("\n", "\\n")
-        if len(snippet) > 80:
-            snippet = snippet[:80] + "..."
-        line = "文本命中 %s：%s 片段=%s" % (rel, label, snippet)
-        if label.startswith("TOKEN_") and _looks_placeholder(snippet):
-            notes.append(line)
-            continue
-        hits.append(line)
+        for m in rx.finditer(text):
+            snippet = m.group(0).replace("\r", "\\r").replace("\n", "\\n")
+            if len(snippet) > 80:
+                snippet = snippet[:80] + "..."
+            line = "文本命中 %s：%s 片段=%s" % (rel, label, snippet)
+            if not (label.startswith("TOKEN_")
+                    and _looks_placeholder(snippet)):
+                hits.append(line)
+                break                        # 该规则已坐实，不再扫描
+            notes.append(line)               # 占位符命中：显式列出（NOTE）
     return hits, notes
 
 
@@ -616,6 +623,12 @@ def selftest() -> bool:
     check(not f_h and len(f_n) == 1, "占位符令牌降级为 NOTE（不计 FAIL）")
     r_h, _ = scan_text_hits(real, R1_CONTENT_RULES, "x.md")
     check(len(r_h) == 1, "真形态令牌仍判 FAIL")
+
+    # N167：每规则遍历全部命中——同文件占位符令牌在前不得掩盖其后的真凭据
+    mixed = fake + "\n中间正文\n真凭据 " + real + "\n"
+    m_h, m_n = scan_text_hits(mixed, R1_CONTENT_RULES, "x.md")
+    check(len(m_h) == 1, "N167 占位符在前+真凭据在后 → 真令牌仍判 FAIL")
+    check(len(m_n) == 1, "N167 占位符命中仍显式 NOTE（不静默丢弃）")
 
     polluted = "[prepare] 跳过构建：typescript 未安装（NODE_ENV=production）\n[\n  {\"path\": \"a.js\"}\n]\n"
     parsed = extract_first_json_value(polluted)
