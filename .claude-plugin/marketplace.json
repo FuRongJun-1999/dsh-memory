@@ -9,7 +9,7 @@
       "name": "lingshu-memory",
       "source": "./claude/lingshu-memory",
       "description": "灵枢记忆：16 条工作纪律 skill + 长期记忆系统（mdcg MCP）接入",
-      "version": "0.1.0"
+      "version": "0.6.0"
     }
   ]
 }
