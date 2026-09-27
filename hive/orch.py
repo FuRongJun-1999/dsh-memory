@@ -421,7 +421,41 @@ def _known_children() -> list:
 
 # -------------------------------------------------------------- 工具实现（三）
 
-# 生效条件：a 为 dict，在 len(_CFG['children']) < _CFG['max_subtasks']、a.get('user_prompt') 去空白后非空、a.get('model') 或 _CFG['model'] 去空白后非空、a.get('tools') 各项（缺省/空列表回落 list(SUB_TOOLS_ALLOW)）均属 SUB_TOOLS_ALLOW、a.get('context_files') 每项对应路径 isfile 为真时，构造 sub 白名单键（仅当 a.get(k) not in (None, '', [], {}) 才写入 system_prompt/context_files/max_tool_rounds/web_search_backend/mdcg_root/max_tokens/temperature/thinking），timeout_s 取 _ex._int_arg(a,'timeout_s',_hm.DEFAULT_TIMEOUT_S,hi=sys.maxsize)、context_budget_tokens 取 _ex._int_arg(a,'context_budget_tokens',_hm.DEFAULT_CONTEXT_BUDGET_TOKENS,hi=sys.maxsize)（脏值/非正回落默认，不夹紧），reasoning_effort 取 a.get('reasoning_effort') or _hm.DEFAULT_REASONING_EFFORT，提交后 append 到 _CFG['children']、_save_children()、_ex.progress(kind='spawn_subtask') 并返回 ok=True 及 defaults；上述前置失败则返回对应 {'ok': False, 'error': ...}。
+# 生效条件：job_dir=None 为可选入参；① env 或 config 任一显式设 HIVE_JOBS_DIR（含 config 胜出合并语义）→ 返回 _hm._jobs_dir() 原样（N89 批次 49 一致语义不动）；② 两键皆空（或皆空串）且 job_dir（缺省取 _CFG['job_dir']）去空白非空时，返回 os.path.dirname(os.path.abspath(job_dir))——serve 以 `hive serve --jobs X` 显式钉池启动且未设键时，本编排器的 job_dir 必在真实池 X 之下，父目录即 serve 实际监听池（N145，2026-09-28 第 23 轮）；推导池不是目录（job_dir 未就位/伪造路径）时回落 ①，不引入新失败面。
+def _resolve_jobs_dir(job_dir: str | None = None) -> str:
+    """子任务池解析：显式键 > job_dir 父目录推导 > 默认池（N145）。
+
+    历史缺陷（历轮口径 N142，v17 重编 N145）：_spawn(:477) 与 main() 的
+    _CFG['jobs'](:662) 只经 _hm._jobs_dir() 吃 env+config（N89 修复面），
+    不含 job_dir 推导——rust spawn_executor（src/exec.rs:91-107）Command
+    继承 serve env 且仅注入 HIVE_RESULT_ANCHOR 不注入 HIVE_JOBS_DIR，
+    `hive serve --jobs X`（env/config 均无键）形态下回落 REPO/hive/jobs
+    默认池 ≠ X：spawn_subtask 把子任务提交进默认池，serve 在池 X 无人
+    领取，子任务永久饿死且 spawn 返回 ok=True（观测面全绿与实况相悖）。
+
+    诚实边界：独立编排（orch.py <任意目录> 直跑、无 serve）时父目录推导
+    指向该目录父级——此时本无「真实池」可言，推导值与旧默认值同为约定
+    面；生产面（serve spawn 的编排器）job_dir 恒为 <池>/<job_id>，推导
+    即真实池。设键形态（显式 env/config）不受本函数影响（N89 不动）。
+    """
+    env_set = bool((os.environ.get("HIVE_JOBS_DIR") or "").strip())
+    cfg_set = False
+    try:
+        cfg, _err = _hm._load_local_config()
+        cfg_set = bool(str((cfg or {}).get("HIVE_JOBS_DIR") or "").strip())
+    except Exception:  # noqa: BLE001 —— config 读不了按未设处理，回落口径不变
+        cfg_set = False
+    if env_set or cfg_set:
+        return _hm._jobs_dir()
+    jd = job_dir if job_dir is not None else (_CFG.get("job_dir") or "")
+    if str(jd).strip():
+        pool = os.path.dirname(os.path.abspath(str(jd)))
+        if os.path.isdir(pool):
+            return pool
+    return _hm._jobs_dir()
+
+
+# 生效条件：a 为 dict，在 len(_CFG['children']) < _CFG['max_subtasks']、a.get('user_prompt') 去空白后非空、a.get('model') 或 _CFG['model'] 去空白后非空、a.get('tools') 各项（缺省/空列表回落 list(SUB_TOOLS_ALLOW)）均属 SUB_TOOLS_ALLOW、a.get('context_files') 每项对应路径 isfile 为真时，构造 sub 白名单键（仅当 a.get(k) not in (None, '', [], {}) 才写入 system_prompt/context_files/max_tool_rounds/web_search_backend/mdcg_root/max_tokens/temperature/thinking），timeout_s 取 _ex._int_arg(a,'timeout_s',_hm.DEFAULT_TIMEOUT_S,hi=sys.maxsize)、context_budget_tokens 取 _ex._int_arg(a,'context_budget_tokens',_hm.DEFAULT_CONTEXT_BUDGET_TOKENS,hi=sys.maxsize)（脏值/非正回落默认，不夹紧），reasoning_effort 取 a.get('reasoning_effort') or _hm.DEFAULT_REASONING_EFFORT，池解析经 _resolve_jobs_dir()（N145：双键皆空时从 _CFG['job_dir'] 父目录推导真实池，设键时 N89 语义原样）提交后 append 到 _CFG['children']、_save_children()、_ex.progress(kind='spawn_subtask') 并返回 ok=True 及 defaults；上述前置失败则返回对应 {'ok': False, 'error': ...}。
 def _spawn(a: dict) -> dict:
     """派发子任务。
 
@@ -474,7 +508,7 @@ def _spawn(a: dict) -> dict:
     sub["context_budget_tokens"] = _ex._int_arg(
         a, "context_budget_tokens", _hm.DEFAULT_CONTEXT_BUDGET_TOKENS,
         hi=sys.maxsize)
-    jobs = _hm._jobs_dir()
+    jobs = _resolve_jobs_dir()
     cid = _hm._submit(jobs, sub)
     _CFG["children"].append({
         "job_id": cid, "prompt_head": prompt[:160], "tools": tools,
@@ -610,7 +644,7 @@ def merge_tools(spec: dict) -> tuple:
     return tools, added
 
 
-# 生效条件：len(sys.argv)<2 时输出 usage 并返回 EXIT_SPEC；否则 job_dir=normpath(sys.argv[1])、job_id=basename(job_dir)，read_spec 异常则写 result 返回 EXIT_SPEC，spec.orchestrate.max_subtasks 为真值时尝试 _CFG['max_subtasks']=max(1,int(...))（TypeError/ValueError 静默跳过），load_principal(job_id) 抛 OrcError 则写 result 返回 EXIT_SPEC，成功则先 _CFG.update({job_id, job_dir, jobs=_hm._jobs_dir(), model=(spec.get('model') or '').strip()}) 再 _CFG.update({children: _load_children()})（v10 N87：children 装载必须后于 job_dir 就位——单字面量会在构造期以初态空 job_dir 求值 _load_children，恒读 CWD 相对 _children.json）、merge_tools 补 tools、缺 system_prompt 填 ORCH_SYSTEM_PROMPT、写回 spec、register_tools(ORCH_SCHEMAS, orch_handler)、set_principal_factory(...)、log/progress，最后返回 _ex.main() 并在 finally 调 _save_children()。
+# 生效条件：len(sys.argv)<2 时输出 usage 并返回 EXIT_SPEC；否则 job_dir=normpath(sys.argv[1])、job_id=basename(job_dir)，read_spec 异常则写 result 返回 EXIT_SPEC，spec.orchestrate.max_subtasks 为真值时尝试 _CFG['max_subtasks']=max(1,int(...))（TypeError/ValueError 静默跳过），load_principal(job_id) 抛 OrcError 则写 result 返回 EXIT_SPEC，成功则先 _CFG.update({job_id, job_dir, jobs=_resolve_jobs_dir(job_dir)（N145：双键皆空时从 job_dir 父目录推导真实池，设键时 N89 语义原样；显式传局部 job_dir 防字面量构造期读旧值）, model=(spec.get('model') or '').strip()}) 再 _CFG.update({children: _load_children()})（v10 N87：children 装载必须后于 job_dir 就位——单字面量会在构造期以初态空 job_dir 求值 _load_children，恒读 CWD 相对 _children.json）、merge_tools 补 tools、缺 system_prompt 填 ORCH_SYSTEM_PROMPT、写回 spec、register_tools(ORCH_SCHEMAS, orch_handler)、set_principal_factory(...)、log/progress，最后返回 _ex.main() 并在 finally 调 _save_children()。
 def main() -> int:
     if len(sys.argv) < 2:
         sys.stderr.write("usage: orch.py <job_dir>\n")
@@ -659,7 +693,9 @@ def main() -> int:
     _CFG.update({
         "job_id": job_id,
         "job_dir": job_dir,
-        "jobs": _hm._jobs_dir(),
+        # N145：显式传本函数局部 job_dir——update 字面量在构造期求值，此刻
+        # _CFG['job_dir'] 尚为旧值（N87 同款求值顺序陷阱），不能靠函数内读。
+        "jobs": _resolve_jobs_dir(job_dir),
         "model": (spec.get("model") or "").strip(),
     })
     _CFG.update({"children": _load_children()})

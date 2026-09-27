@@ -29,6 +29,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 
 HEAD_CHARS = 4000
@@ -36,26 +37,71 @@ DEFAULT_STEP_TIMEOUT_S = 600
 EXIT_OK, EXIT_SPEC, EXIT_EXEC = 0, 2, 3
 
 
-# 生效条件：job_dir 与 obj 给出后，env HIVE_RESULT_ANCHOR 去空白非真时 obj["result_anchor"] = 该值（P11 批次53 执行器契约：serve 对锚预期任务注入此 env，执行器原样回写，值由 serve 侧 HMAC 校验——本处不做密码学运算；env 缺省不写字段，产物格式向后兼容）；随后直接用 UTF-8 打开 job_dir/result.json.tmp 写入 json.dump(obj, ensure_ascii=False)、flush+fsync，再 os.replace 到 job_dir/result.json（目录不可写等异常会向外抛）。
+# 生效条件：job_dir 与 obj 给出后，env HIVE_RESULT_ANCHOR 去空白非真时 obj["result_anchor"] = 该值（P11 批次53 执行器契约：serve 对锚预期任务注入此 env，执行器原样回写，值由 serve 侧 HMAC 校验——本处不做密码学运算；env 缺省不写字段，产物格式向后兼容）；随后 tempfile.mkstemp(prefix="result.json.", suffix=".tmp", dir=job_dir) 建唯一临时文件并 UTF-8 写入 json.dump(obj, ensure_ascii=False)+flush+fsync，再 os.replace 到 job_dir/result.json（N144，2026-09-28 第 23 轮：移植 exec.py v10 N82 两件套——固定共享名 p+".tmp" 在同 job 并发双执行者（rust 重投/N92 孤儿 recover 并存/双 serve 抢同池）下对撞，一者 replace 抢先消费共享 tmp、另一者 PermissionError/FileNotFoundError 外逃进 main 顶层兜底且兜底 _fail 复用同一坏路径可再抛；mkstemp 随机后缀天然防共享名对撞）；os.replace 撞 PermissionError（Windows 读者瞬态句柄 WinError 5/32）按 10ms×递增重试至多 50 次，撞 FileNotFoundError（tmp 被瞬态消费/清理）重建唯一名重写后重试，任一重试耗尽才向外抛（失败时旧完整结果仍在位，fail-safe）；finally 里 best-effort 清理仍存在的 tmp，成功路径零残留。
 def _write_result(job_dir: str, obj: dict) -> None:
     """tmp + fsync + rename 原子替换（并发读者不读到截断空窗口）。"""
     p = os.path.join(job_dir, "result.json")
     _anchor = (os.environ.get("HIVE_RESULT_ANCHOR") or "").strip()
     if _anchor:
         obj["result_anchor"] = _anchor
-    tmp = p + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, p)
+
+    def _mk_and_dump():
+        fd, tmp = tempfile.mkstemp(prefix="result.json.", suffix=".tmp",
+                                   dir=job_dir)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        return tmp
+
+    tmp = _mk_and_dump()
+    try:
+        for attempt in range(50):
+            try:
+                os.replace(tmp, p)
+                return
+            except PermissionError:
+                if attempt == 49:
+                    raise
+                time.sleep(0.01 * (attempt + 1))
+            except FileNotFoundError:
+                # tmp 被瞬态消费/清理（对撞残留形态）：重建唯一名重写再试，
+                # 不让偶发扑空外逃成顶层兜底覆写（fail-closed 前的自愈面）。
+                if attempt == 49:
+                    raise
+                tmp = _mk_and_dump()
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
-# 生效条件：以 job_dir 与 msg 构造 {"ok": False, "error": msg, "model": "cmd"} 并写 result.json，extra 为真值时 r.update(extra) 合并、假值（None/{}）时不合并，最后返回 code（未传则为模块常量 EXIT_SPEC）。
+# 生效条件：job_dir 与 msg 传入时写 job_dir/log.txt 一行带时间戳日志（观测面——open 失败降级 stderr，绝不打断任务，对齐 exec.py log 同族）。
+def _log(job_dir: str, msg: str) -> None:
+    line = f"[{time.strftime('%H:%M:%S')}] {msg}\n"
+    try:
+        with open(os.path.join(job_dir, "log.txt"), "a", encoding="utf-8") as f:
+            f.write(line)
+    except (OSError, TypeError):
+        sys.stderr.write(line)
+
+
+# 生效条件：以 job_dir 与 msg 构造 {"ok": False, "error": msg, "model": "cmd"}，extra 为真值时 r.update(extra) 合并、假值（None/{}）时不合并；写前回看 job_dir/result.json——存在且可解析为 dict 且 ok 为 True（成功终态在位，N144，2026-09-28 第 23 轮：移植 exec.py write_error_result 重投对撞保护）时不动它，_log 留痕「成功终态在位，兜底 error 改写被拒」并返回 code（退出码语义不变，本进程照实返回失败码）；文件缺失/不可解析/ok 非真时 _write_result 写入 r（error→error 更新不受限）并返回 code。
 def _fail(job_dir: str, msg: str, code: int = EXIT_SPEC, extra: dict | None = None) -> int:
     r: dict = {"ok": False, "error": msg, "model": "cmd"}
     if extra:
         r.update(extra)
+    p = os.path.join(job_dir, "result.json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            prev = json.load(f)
+    except (OSError, ValueError):
+        prev = None
+    if isinstance(prev, dict) and prev.get("ok") is True:
+        _log(job_dir, "成功终态已在位，兜底 error 改写被拒（重投对撞保护，"
+                      "N144）——本进程失败不影响已落地终态")
+        return code
     _write_result(job_dir, r)
     return code
 
@@ -257,7 +303,7 @@ def run_cmd(job_dir: str) -> int:
     return EXIT_OK if not failed else EXIT_EXEC
 
 
-# 生效条件：len(sys.argv) < 2 时打印用法返回 EXIT_SPEC，sys.argv[1] 非目录时打印提示返回 EXIT_SPEC，否则返回 run_cmd(sys.argv[1])，其中任何异常由 _fail(job_dir, ..., EXIT_EXEC) 兜底转为返回码。
+# 生效条件：len(sys.argv) < 2 时打印用法返回 EXIT_SPEC，sys.argv[1] 非目录时打印提示返回 EXIT_SPEC，否则返回 run_cmd(sys.argv[1])，其中任何异常由 _fail(job_dir, ..., EXIT_EXEC) 兜底转为返回码（N144：兜底写经 _fail 的成功终态回看保护——对撞写者已落地的成功终态不被覆写、共享 tmp 对撞不再二次外逃）。
 def main() -> int:
     if len(sys.argv) < 2:
         print("用法: python exec_cmd.py <job_dir>", file=sys.stderr)

@@ -40,9 +40,14 @@ mod tests {
     use super::*;
 
     /// env 链优先级：HIVE_ORCH_TOKEN 胜过 HIVE_API_KEY；全缺 → None。
-    /// 进程 env 竞争面：测试串行段内 set/remove，测毕恢复（Rust test 同进程共享 env）。
+    /// 进程 env 竞争面：测试串行段内 set/remove，测毕恢复（Rust test 同进程共享 env）；
+    /// 与 exec::env_secrets_tests 同锁串行（N185 守卫并行 set/remove 同批键，
+    /// 不互斥即竞态假红——实测 HIVE_ORCH_TOKEN_FILE 撞 remove_var 窗口）。
     #[test]
     fn env_chain_priority() {
+        let _lock = crate::exec::env_secrets_tests::ENV_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let (tok, api) = (
             std::env::var("HIVE_ORCH_TOKEN").ok(),
             std::env::var("HIVE_API_KEY").ok(),

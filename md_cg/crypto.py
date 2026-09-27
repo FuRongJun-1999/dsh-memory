@@ -47,6 +47,7 @@ import sys
 import time
 
 from .datapath import aux_root
+from .fsutil import FileLock
 
 # ---- 常量 ----------------------------------------------------------------
 
@@ -283,9 +284,19 @@ def _load_keys(root):
             "load_error": err}
 
 
-# 生效条件：root、data 为入参，将 data 经 json.dumps(data, ensure_ascii=False, indent=1) 后由 atomic_write 写入 keys_path(root)。
+# 生效条件：root、data 为入参；先调 _load_keys 读盘面写前对账（N184）：盘面带 load_error 时抛 LockedError（N139 同闸延申到写点——解析不了的密钥库不得被整份覆盖），随后把盘面已有而 data["envelopes"] 没有的信封逐键并入（陈旧快照整份写回不得无痕抹除并发新增的他身份信封；键同时存在时以本次写回为准，rotate 语义不受影响），最后 json.dumps(data, ensure_ascii=False, indent=1) 由 atomic_write 写入 keys_path(root)。调用方须已持有 keys_path(root) 的 FileLock（provision_dek 持锁调用）；对账合并是防线纵深，兜底任何未持锁的陈旧快照写者。
 def _save_keys(root, data):
     from .fsutil import atomic_write
+    disk = _load_keys(root)
+    if disk.get("load_error"):
+        raise LockedError(
+            f"密钥库损坏/不可读（{disk['load_error']}）：{keys_path(root)}"
+            f"——写前对账发现盘面不可解析，拒绝整份覆盖（解析不了的信封"
+            f"一概不能被写掉，N139/N184）。请先手工处理该文件。")
+    env = data.setdefault("envelopes", {})
+    for k, v in (disk.get("envelopes") or {}).items():
+        if k not in env:
+            env[k] = v
     atomic_write(keys_path(root),
                  json.dumps(data, ensure_ascii=False, indent=1))
 
@@ -295,7 +306,7 @@ def _envelope_key(tenant, actor):
     return f"{tenant}|{actor}"
 
 
-# 生效条件：root、kek、tenant、actor、clearance="private"、rotate=False 为入参；若 kek 为假抛 LockedError；否则加载 keys，keys 带 load_error 损坏标记时抛 LockedError（N139：损坏/漂移回落下静默重签会经 _save_keys 整份覆盖写回并无痕抹除旧信封——旧密文永久不可解）；若 _envelope_key(tenant, actor) 已在 envelopes 中且 rotate 为假则返回 unwrap_dek(root, kek, tenant, actor, clearance)；否则生成新 DEK 与 nonce，用 aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor)) 包裹后写入 envelopes[k] 并保存，返回 dek。
+# 生效条件：root、kek、tenant、actor、clearance="private"、rotate=False 为入参；若 kek 为假抛 LockedError；否则以 FileLock(keys_path(root), strict=True) 持跨进程写锁进入临界区（N184，2026-09-28 第 23 轮：读快照→签发→写回全程持锁，写者互斥——原子替换只防撕裂不防丢失更新，两写者按各自陈旧快照整份写回会无痕抹除对方信封；锁竞争超时经 TimeoutError 转 LockedError fail-closed，绝不无锁放行整份写回）；临界区内加载 keys，keys 带 load_error 损坏标记时抛 LockedError（N139：损坏/漂移回落下静默重签会经 _save_keys 整份覆盖写回并无痕抹除旧信封——旧密文永久不可解）；若 _envelope_key(tenant, actor) 已在 envelopes 中且 rotate 为假则返回 unwrap_dek(root, kek, tenant, actor, clearance)（临界区内互见 → 同身份并发 provision 幂等同 DEK）；否则生成新 DEK 与 nonce，用 aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor)) 包裹后写入 envelopes[k]，经 _save_keys 写前对账合并并发新增信封（N184 防线纵深）后保存，返回 dek。
 def provision_dek(root, kek, tenant, actor, clearance="private", rotate=False):
     """为 (tenant, actor) 生成 / 取回 DEK，用 KEK 包裹后存入 `_keys.json`。
 
@@ -303,30 +314,37 @@ def provision_dek(root, kek, tenant, actor, clearance="private", rotate=False):
     """
     if not kek:
         raise LockedError("无主密钥（KEK）：拒绝签发数据密钥")
-    data = _load_keys(root)
-    if data.get("load_error"):
+    try:
+        with FileLock(keys_path(root), timeout=10.0, strict=True):
+            data = _load_keys(root)
+            if data.get("load_error"):
+                raise LockedError(
+                    f"密钥库损坏/不可读（{data['load_error']}）：{keys_path(root)}"
+                    f"——损坏标记下拒绝重签数据密钥（静默整份覆盖会无痕抹除旧信封，"
+                    f"N139）。请修复或恢复 _keys.json 后重试；若有意重置，请先手工"
+                    f"处理该文件（备份/移除）再重试。")
+            data.setdefault("envelopes", {})
+            k = _envelope_key(tenant, actor)
+            if k in data["envelopes"] and not rotate:
+                return unwrap_dek(root, kek, tenant, actor, clearance)
+            dek = secrets.token_bytes(KEY_LEN)
+            nonce = secrets.token_bytes(NONCE_LEN)
+            ct, tag = aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor))
+            data["envelopes"][k] = {
+                "id_fp": identity_fingerprint(tenant, actor),
+                "clearance": clearance,
+                "nonce": _b64e(nonce), "ct": _b64e(ct + tag),
+                "created_at": time.time(),
+            }
+            data["v"] = ENVELOPE_VERSION
+            data["alg"] = ALG
+            _save_keys(root, data)
+            return dek
+    except TimeoutError as e:
         raise LockedError(
-            f"密钥库损坏/不可读（{data['load_error']}）：{keys_path(root)}"
-            f"——损坏标记下拒绝重签数据密钥（静默整份覆盖会无痕抹除旧信封，"
-            f"N139）。请修复或恢复 _keys.json 后重试；若有意重置，请先手工"
-            f"处理该文件（备份/移除）再重试。")
-    data.setdefault("envelopes", {})
-    k = _envelope_key(tenant, actor)
-    if k in data["envelopes"] and not rotate:
-        return unwrap_dek(root, kek, tenant, actor, clearance)
-    dek = secrets.token_bytes(KEY_LEN)
-    nonce = secrets.token_bytes(NONCE_LEN)
-    ct, tag = aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor))
-    data["envelopes"][k] = {
-        "id_fp": identity_fingerprint(tenant, actor),
-        "clearance": clearance,
-        "nonce": _b64e(nonce), "ct": _b64e(ct + tag),
-        "created_at": time.time(),
-    }
-    data["v"] = ENVELOPE_VERSION
-    data["alg"] = ALG
-    _save_keys(root, data)
-    return dek
+            f"密钥库写锁（{keys_path(root)}.lock）竞争超时：并发 provision "
+            f"未在限时内获得互斥——fail-closed 拒绝签发（无锁整份写回会无痕"
+            f"抹除他身份信封，N184）。请稍后重试。") from e
 
 
 # 生效条件：root、kek、tenant、actor、clearance=None 为入参；若 kek 为假抛 LockedError；否则取 _load_keys(root)["envelopes"] 中 _envelope_key(tenant, actor) 的信封，无则抛 LockedError；若 env["id_fp"] 不等于 identity_fingerprint(tenant, actor) 抛 LockedError；否则从 env["ct"] 解出 raw，按 TAG_LEN 切出 ct/tag，调 aead_decrypt；若 aead_decrypt 抛 CryptoError 则转抛 LockedError；clearance 形参默认 None 但源码未在条件中使用。

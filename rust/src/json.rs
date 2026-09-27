@@ -88,9 +88,11 @@ pub fn fmt_num(n: f64) -> String {
 
 // ------------------------------------------------------------------ 解析
 
+/// 生效条件：input 为完整合法 JSON → Ok(Json)；嵌套超过 `MAX_DEPTH`（N184，
+/// 与 hive/src/json.rs 同步）→ Err(带偏移位置)。
 pub fn parse(input: &str) -> Result<Json, String> {
     let bytes = input.as_bytes();
-    let mut p = Parser { b: bytes, i: 0 };
+    let mut p = Parser { b: bytes, i: 0, depth: 0 };
     p.skip_ws();
     let v = p.value()?;
     p.skip_ws();
@@ -100,9 +102,17 @@ pub fn parse(input: &str) -> Result<Json, String> {
     Ok(v)
 }
 
+/// 嵌套深度上限（N184）：递归下降 value↔object/array 互递归无界时，深嵌套
+/// 输入栈溢出 abort 整进程（Rust 栈溢出不可捕获）——语料/索引行是任意来源
+/// 文本，超限必须返回 Err 转为解析失败面。与 hive/src/json.rs 同源同步：
+/// 256（实测 debug 主线程栈边界 768~1024 层，取值留 ≥3× 余量）。
+const MAX_DEPTH: usize = 256;
+
 struct Parser<'a> {
     b: &'a [u8],
     i: usize,
+    /// 当前嵌套深度（value 互递归计数，N184）。
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -121,7 +131,12 @@ impl<'a> Parser<'a> {
     }
 
     fn value(&mut self) -> Result<Json, String> {
-        match self.peek() {
+        if self.depth >= MAX_DEPTH {
+            // N184：超限拒绝（Err 携带偏移），互递归在受限深度内终止。
+            return Err(format!("嵌套超深（>{MAX_DEPTH} 层）@{}", self.i));
+        }
+        self.depth += 1;
+        let out = match self.peek() {
             None => Err("空输入".into()),
             Some(b'{') => self.object(),
             Some(b'[') => self.array(),
@@ -130,7 +145,9 @@ impl<'a> Parser<'a> {
             Some(b'f') => self.lit("false", Json::Bool(false)),
             Some(b'n') => self.lit("null", Json::Null),
             Some(_) => self.number(),
-        }
+        };
+        self.depth -= 1;
+        out
     }
 
     fn lit(&mut self, word: &str, v: Json) -> Result<Json, String> {
@@ -372,4 +389,25 @@ fn write_str(s: &str, out: &mut String) {
         }
     }
     out.push('"');
+}
+
+#[cfg(test)]
+mod parse_tests {
+    use super::parse;
+
+    /// N184（与 hive/src/json.rs 同步）：深嵌套必须返回 Err（解析失败面）
+    /// 而非栈溢出 abort 整进程——语料/索引行是任意来源文本，坏行按跳过处理
+    /// 的前提是解析器自身不会崩。
+    #[test]
+    fn deep_nesting_beyond_limit_is_err_not_abort() {
+        let deep = "[".repeat(100_000);
+        assert!(parse(&deep).is_err());
+    }
+
+    /// N184 配套：上限内深嵌套正常解析（防线不得误伤合法深结构）。
+    #[test]
+    fn nesting_within_limit_parses() {
+        let ok = format!("{}{}", "[".repeat(64), "]".repeat(64));
+        assert!(parse(&ok).is_ok());
+    }
 }
