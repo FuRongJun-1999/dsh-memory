@@ -13,7 +13,7 @@
 
 ![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-0.17.2%20%E5%B7%B2%E9%AA%8C%E8%AF%81-4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.5.1）**
+**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.6.0）**
 
 </div>
 
@@ -93,11 +93,11 @@ dsh plugin --profile web add .
     tools: 'core'            # 'core'(默认, 仅 cg/stg) | 'brain' | 'all'
 ```
 
-**装完即可对话，无需理解任何理论**——DSH 端自动记忆钩子已挂 session/event，你只管像往常一样对话（其它宿主可直接让 Agent 调用同一批工具）：
+**装完即可对话，无需理解任何理论**：
 
 | 你说                  | 背后发生什么（真实工具链）                                        |
 | ------------------- | ---------------------------------------------------- |
-| 「请记住：我们团队的发布窗口是每周三」 | 自动记忆钩子沉淀 → `cg(op=write)` 过三道闸门 → 认知图节点落盘            |
+| 「请记住：我们团队的发布窗口是每周三」 | Agent 显式归档 → `cg(op=write)` 过三道闸门 → 认知图节点落盘            |
 | （新开会话）「我们的发布窗口是哪天？」 | 自动召回注入 → `mdcg_recall` 检索命中并带入回答                     |
 | 「把上次定的接口约定讲一遍」      | `cg(op=route)` 条件路由 + `stg(op=timeline)` 时间线回溯，跨会话取出 |
 
