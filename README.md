@@ -11,7 +11,7 @@
 > **「我会给你完整的自我，即使坠入深渊，我也绝不后悔。」**
 > —— 符荣峻
 
-![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-%3E%3D0.1.2--rc.1-4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-0.17.2%20%E5%B7%B2%E9%AA%8C%E8%AF%81-4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 **高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.5.1）**
 
@@ -44,6 +44,26 @@
 ---
 
 ## ⚡ 快速开始
+
+### 一键配置（推荐）
+
+```bash
+npx @furongjun1999/dsh-memory init
+```
+
+交互式三问（**①接入端** 1=DSH 插件 / 2=Claude Code / 3=Codex CLI / 4=通用 MCP · **②记忆根目录**（缺省 `~/.lingshu/memory`）· **③Python 解释器**（缺省按平台 `python`/`python3`））后即产出：
+
+1. 所选端的 **mcp.json 配置片段**（含 `MDCG_ROOT` / `MDCG_PYTHON` / `command + args` 命令形态，打印到终端）；
+2. 片段文件 **`lingshu-mcp-snippet.json`**（落在当前目录，`mcpServers` 键直接复制进宿主配置）；
+3. **后续步骤指引**——片段该放到哪（各端不同：cordis.yml / `.mcp.json` / `~/.codex/config.toml`）、[令牌签发命令](#-写入凭据让记忆真正落盘)（需 Python 环境 + 本包 `md_cg`）、纪律注入与大脑自检。
+
+不想回答提问？参数齐即可非交互直跑（`--` 后参数直达命令）：
+
+```bash
+npx @furongjun1999/dsh-memory init -- --end claude --root /path/to/memory --python python3
+```
+
+> init **只生成配置**——不创建目录、不启动服务、不写库；重跑输出一致（幂等）。全局命令形态：`lingshu init` / `lingshu-init`。**或继续阅读下方手工步骤。**
 
 > **按宿主选择入口**：**DSH** → 下方三步 ｜ **CodeBuddy · ZCode · Codex CLI · Claude Code** → [多 harness 接入](#多-harness-接入按端分目录)（各端独立三步说明） ｜ **其它 MCP 宿主** → 直接挂载大脑 `python -m md_cg.mcp_server`（Windows）/ `python3 -m md_cg.mcp_server`（Linux·macOS）（stdio MCP），再按需注入工作纪律
 
@@ -83,7 +103,7 @@ dsh plugin --profile web add .
 
 > 首次使用记忆库为空，召回返回空结果属正常现象；未配写入凭据时以只读 `guest` 运行（**读得到、写不进**），要真正落盘见[写入凭据](#-写入凭据让记忆真正落盘)。
 
-- **前置**：Node ≥ 22.19 · DSH 内核 ≥ 0.1.2-rc.1 · **大脑零安装**（`md_cg` 随包自带，无需 pip 装任何引擎）· **Python 解释器**（插件按平台自动选：Windows `python` / Linux·macOS `python3`；解释器名特殊时用 `MDCG_PYTHON` 覆盖）
+- **前置**：Node ≥ 22.19 · DSH 内核 ≥ 0.1.2-rc.1 · **已验证至 DSH 0.17.2** · **大脑零安装**（`md_cg` 随包自带，无需 pip 装任何引擎）· **Python 解释器**（插件按平台自动选：Windows `python` / Linux·macOS `python3`；解释器名特殊时用 `MDCG_PYTHON` 覆盖）
 - **写权限默认关闭**：不配凭据即以只读 `guest` 运行（读 / 召回 / 时间线可用，写入不落盘）。要真正落盘见「写入凭据」
 - 完整配置项（30+ 项）· 自动记忆机制 · DSH 看门狗 → [README 详细版](docs/mdcg/README详细版_v0.4.10.md)
 - **非 DSH 宿主**（CodeBuddy / ZCode / Codex CLI / Claude Code）：走[多 harness 接入](#多-harness-接入按端分目录)，各端有独立三步接入说明
