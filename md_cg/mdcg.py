@@ -434,6 +434,32 @@ def strip_tense_en(w: str) -> str:
         return w[:-1]
     return w
 
+
+# 词级归一 memo —— _norm_word 下游（EN_STOPWORDS 剔除 + strip_tense_en）是
+# **纯函数链**：同一小写词恒同结果。冷态首查 73% 耗时在 _score/normalize_en
+# （一次全池扫描 498,446 次 _norm_word），readcache 已缓存文档级派生物
+# （_doc_norm_bigrams）但仅限本进程，冷态首查仍逐词全量重算——词表规模
+# ≪ 总词事件数，词级 memo 后同一词全库只归一一次，同时压缩未来任何
+# readcache miss 的重推导。内存增量=词表规模（远小于 _norm_bigrams_cache
+# 的文档级 bigram 缓存）；精确键控（键=小写词）→ 任何命中与逐词重算逐位
+# 一致，检索结果零变化；封顶走整表清空（纯函数，只损失加速比不损失
+# 正确性），容量 2**18≈26 万词形——远超常规词表，常态不触发（容量不宜
+# 过小：热态快查依赖派生缓存，memo 频繁清空会让冷路径退化回逐词重算）。
+_NORM_WORD_MEMO = {}
+_NORM_WORD_MEMO_CAP = 1 << 18
+
+
+# 生效条件：传入小写英文词 w 时先查模块级 _NORM_WORD_MEMO，命中即返回缓存值；未命中且 w ∈ EN_STOPWORDS 返回空串 ""，否则返回 strip_tense_en(w)——回填 memo 前若 len(_NORM_WORD_MEMO) ≥ _NORM_WORD_MEMO_CAP 先整表 clear()；返回值恒为字符串（纯函数精确键控，命中值≡逐词现算值）。
+def _norm_word_mem(w: str) -> str:
+    """词级归一（停用词剔除 + 时态/复数归零），带模块级 memo。"""
+    r = _NORM_WORD_MEMO.get(w)
+    if r is None:
+        r = "" if w in EN_STOPWORDS else strip_tense_en(w)
+        if len(_NORM_WORD_MEMO) >= _NORM_WORD_MEMO_CAP:
+            _NORM_WORD_MEMO.clear()
+        _NORM_WORD_MEMO[w] = r
+    return r
+
 # 生效条件：给定 text（假值按 "" 处理），先清除非中文/空格/字母数字字符，再对长度 ≥2 的英文词小写、若在 EN_STOPWORDS 中剔除否则 strip_tense_en 去时态复数，压缩空白后返回；中文保持不变。
 def normalize_en(text: str) -> str:
     """英文归一化：小写 + 去停用词 + 去时态复数。中文部分不动。
@@ -445,12 +471,9 @@ def normalize_en(text: str) -> str:
     """
     # 清标点（保留中文字符和空格和数字）
     cleaned = re.sub(r'[^\u4e00-\u9fff a-zA-Z0-9]', ' ', text or "")
-# 生效条件：m.group(0) 小写后不在模块级常量 EN_STOPWORDS 中时返回 strip_tense_en(该小写词)，命中 EN_STOPWORDS 时返回空串 ""；
+# 生效条件：m.group(0) 小写后交模块级 _norm_word_mem 查词级 memo（纯函数精确键控：命中返回缓存值，未命中按 EN_STOPWORDS 剔除/strip_tense_en 同口径计算并回填）——命中值≡逐词现算值，返回串接进归一结果；
     def _norm_word(m):
-        w = m.group(0).lower()
-        if w in EN_STOPWORDS:
-            return ""
-        return strip_tense_en(w)
+        return _norm_word_mem(m.group(0).lower())
     result = re.sub(r'[a-zA-Z]{2,}', _norm_word, cleaned)
     result = re.sub(r'\s+', ' ', result).strip()
     return result
@@ -935,6 +958,10 @@ class MdCG:
         self.recent_log = os.path.join(self.root, "_recent.jsonl")
         self.autoflush = autoflush
         self._dirty = _DirtyDict()
+        # realpath 进程内缓存（性能批次，候选 a）：root 解析一次 + rel→abs
+        # 解析结果 memo 化，失效哨兵与 readcache 同源（见 _node_disk_path）。
+        self._root_real = None
+        self._realpath_cache = {}
         self._log = None
         self.index = self._load_index()
         # P1b-2（2026-09-26，DSH 在役复验）：索引只在本行装载一次，此后
@@ -1042,6 +1069,9 @@ class MdCG:
         _hc.invalidate(self)
         from . import readcache as _rc
         _rc.clear(self)
+        # realpath 进程内缓存同款兜底：签名变化 = 他进程重写过快照，旧索引
+        # 代里的解析结果一并弃用（重载是稀疏事件，不构成热路径开销）。
+        self._realpath_cache.clear()
         return True
 
 # 生效条件：遍历 LAYERS 各层目录树（os.walk，不读文件内容），对每个可达目录记录其相对 root 的正斜杠路径到 os.stat().st_mtime_ns 的映射；stat 抛 OSError 的目录跳过；返回该映射。
@@ -1317,14 +1347,49 @@ class MdCG:
     # P2-20（批次 30，外部审查报告）：索引中的 path 参与所有读/写落盘定位
     # ——写穿越（P0-1 历史节点/索引污染）可经「读穿越」放大。单点校验：
     # realpath 必须落在 root 内，越界抛 ValueError（宁可少读，不可越权）。
+    #
+    # realpath 进程内缓存（性能批次，候选 a）：root 的 realpath 惰性解析
+    # 一次驻留；rel→abs 的解析结果按 e["path"] memo 化。旧实现每读 2 次
+    # os.path.realpath（3200 池本测冷查 6400 次、0.286s cum，占 _read 子树
+    # ~48%、全查 ~11%；生产真冷态 27,766 次/13.5s = 61.2s 中的 22%）。
+    # 失效口径与 readcache._fresh 同源（批次 14 纪律）：缓存条目携带缓存时
+    # write_gen，按 _DirtyDict.path_gen[path]（该 path 最近标脏代际）与
+    # broad_gen（rebuild 直写兜底/无 path 可辨变更）判新鲜——写谁失效谁；
+    # 越界（ValueError）不缓存，每次重判。本缓存只复用确定性解析结果字符串，
+    # 不触文件内容，检索结果零变化（修前修后同查询逐项对照为红线）。
+    # 进程内一致性边界（与 readcache「跨进程/外部改写不可见」同款声明）：
+    # symlink/junction 中途改挂不推进任何代际——改挂后本进程内沿用旧解析
+    # （越界判定同窗口），跨进程/外部改挂的可见性不保证；_maybe_reload_index
+    # 的签名变化事件会整池清空本缓存兜底。
     def _node_disk_path(self, e):
-        p = os.path.realpath(os.path.join(self.root, e.get("path") or ""))
-        rr = os.path.realpath(self.root)
+        rp = e.get("path") or ""
+        hit = self._realpath_cache.get(rp)
+        if hit is not None and self._realpath_fresh(rp, hit):
+            return hit[1]
+        p = os.path.realpath(os.path.join(self.root, rp))
+        rr = self._root_real
+        if rr is None:
+            rr = self._root_real = os.path.realpath(self.root)
         if p != rr and not p.startswith(rr + os.sep):
             raise ValueError(
-                f"节点路径越界（P2-20）：{e.get('path')!r} -> {p}"
+                f"节点路径越界（P2-20）：{rp!r} -> {p}"
                 "——拒绝读写")
+        self._realpath_cache[rp] = (self._dirty.write_gen, p)
         return p
+
+    def _realpath_fresh(self, rp, hit):
+        """realpath 缓存条目 (缓存时 write_gen, 解析结果) 对 rp 是否仍新鲜。
+
+        与 readcache._fresh 同口径（批次 14 per-path 哨兵）：path_gen 非
+        _DirtyDict 形态回落整代际相等防御；_DirtyDict 形态按「该 path 最近
+        标脏代际与 broad_gen 均不超过缓存代际」判新鲜。
+        """
+        dirty = self._dirty
+        pg = getattr(dirty, "path_gen", None)
+        if pg is None:
+            return hit[0] == getattr(dirty, "write_gen", len(dirty))
+        return (pg.get(rp, 0) <= hit[0]
+                and dirty.broad_gen <= hit[0])
 
     # ---------- 写 ----------
 
