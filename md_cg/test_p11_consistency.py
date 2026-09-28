@@ -25,7 +25,7 @@ from __future__ import annotations
 import tempfile
 
 from .mdcos import MdCGOS
-from . import consistency
+from . import consistency, protect
 
 PASS = FAIL = 0
 FAILS = []
@@ -187,9 +187,20 @@ def main():
           (fm3.get("consistency") or {}).get("verdict") == "REJECT",
           str(fm3.get("consistency")))
 
-    cg.remember_gated("g_1", "删除生产数据", layer="self", consistency=True)
-    check("E5 遗忘闸门叠加冲突检测：冲突内容不落盘",
-          cg.get("g_1") is None, str(cg.get("g_1")))
+    # N214（2026-09-28，既有套件适配）：该调用的判据是 **MERGE**，落库目标就是
+    # 上面的 **self 层纪律节点** `discipline_prod`——`forgetting.reinforce` 现在
+    # 写盘前过 `protect.guard_overwrite`（层闸 + 保护闸，与 `cg.add` 同口径），
+    # 受保护层节点不再被无 override 覆写，故此处**抛 `ProtectionError`**（fail-
+    # closed，不是静默改写）。语义与断言不变：冲突内容一律不落盘（g_1 从不创建），
+    # 另加一条「拒绝而非静默改写」的形态断言。
+    _gated_denied = False
+    try:
+        cg.remember_gated("g_1", "删除生产数据", layer="self",
+                          consistency=True)
+    except protect.ProtectionError:
+        _gated_denied = True
+    check("E5 遗忘闸门叠加冲突检测：冲突内容不落盘（受保护层目标被写保护闸拒）",
+          cg.get("g_1") is None and _gated_denied, str(cg.get("g_1")))
 
     # ---------- F. 留痕 / 统计 / 自描述 ----------
     print("\n[F] 留痕 / 统计 / 自描述")

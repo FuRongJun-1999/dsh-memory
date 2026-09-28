@@ -28,6 +28,7 @@ import os
 import time
 
 from . import trust as _trust
+from . import security as _security
 from .fsutil import FileLock, append_jsonl, atomic_write, read_jsonl
 
 LEDGER_NAME = "_link.jsonl"
@@ -423,12 +424,19 @@ def _mode_of(start_operator, end_operator) -> str:
         else "overlap"
 
 
-# 生效条件：nid 不在 (cg.index or {}).get("nodes") or {} 的 dict 条目中（含 cg.index 缺失、条目非 dict）时返回 {'id': nid, 'present': False}；否则返回 {'id','present':True} 并附 EXPAND_FIELDS 中值非 None 的字段。
+# 生效条件：nid 不在 (cg.index or {}).get("nodes") or {} 的 dict 条目中（含 cg.index 缺失、条目非 dict）时返回 {'id': nid, 'present': False}；条目在但对本身份不可见（security.node_visible 为假）时同样返回 {'id': nid, 'present': False}（不附任何字段）；否则返回 {'id','present':True} 并附 EXPAND_FIELDS 中值非 None 的字段。
 def _node_digest(cg, nid) -> dict:
-    """端点摘要（只读索引快照，**零读节点文件**）；端点缺失 → `present=False`。"""
+    """端点摘要（只读索引快照，**零读节点文件**）；端点缺失/不可见 → `present=False`。
+
+    N226（2026-09-28）：此前直读 `cg.index` 无可见性判定 ⇒ 端点摘要（layer/
+    tags/importance/writer/session/temporal）把读闸拒绝节点的元数据照返回
+    （实测 guest 经 `cg(op="edges", expand_nodes=true)` 拿到私密节点摘要）。
+    同库同身份的 `stg.timeline`（stg.py:133/172）早已接线 `_readable`——本处
+    是漏网的旁路出口，改为同一个跨层单点（`security.node_visible`）。
+    """
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     e = nodes.get(nid)
-    if not isinstance(e, dict):
+    if not isinstance(e, dict) or not _security.node_visible(cg, nid):
         return {"id": nid, "present": False}
     d = {"id": nid, "present": True}
     for k in EXPAND_FIELDS:
@@ -494,6 +502,16 @@ def find_edges(cg, *, child=None, parent=None, relation=None, batch=None,
     q_e = _trust.parse_time(end_time) if enabled else None
 
     rows = all_edges(cg, path=path)
+    # N226（2026-09-28）：可见性前置过滤（在谓词过滤**之前**，故 `total` 与
+    # 审计不变式 `dropped + len(kept) == total` 的口径随之收敛为「本身份可见
+    # 候选数」，仍可复算）。判定用**两端都可见**才保留：边拓扑（child->parent
+    # + relation + t）本身就会泄露隐藏端点的 id 与关系（实测
+    # `aggregates.sample=['child_mark->priv_mark(derived_from)']` 即此形态），
+    # 「至少一端可见」不足以闭口；口径与 `linkref` 的目标白名单、
+    # `stg._scan` 同策略——可见集之外一律当不存在（不含半条边）。
+    rows = [e for e in rows
+            if _security.node_visible(cg, e.get("child"))
+            and _security.node_visible(cg, e.get("parent"))]
     cand = []
     for e in rows:
         if c_f and e.get("child") != c_f:

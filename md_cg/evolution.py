@@ -36,6 +36,7 @@ import time
 import uuid
 
 from .fsutil import FileLock, atomic_write
+from . import security as _security
 
 EVOLUTION_DIR = "_evolution"
 LEDGER_NAME = "ledger.md"
@@ -261,9 +262,24 @@ def record(cg, node_id=None, pattern="", missing="", action="", evidence="",
 # 查询
 # --------------------------------------------------------------------------
 
-# 生效条件：cg 给定时返回 _parse(read_ledger(cg)) 的列表——node_id 为真值则只留该节点记录、kind 为真值则只留该类型记录、newest_first 为真值则 reverse、limit 为真值时截断为前 int(limit) 条（limit 为 0/None 等假值时不截断）。
+# 生效条件：cg 给定时返回 _parse(read_ledger(cg)) 的列表，先按行所属 node_id 做读可见性过滤（security.node_visible 为假的行整条剔除）——node_id 为真值则只留该节点记录、kind 为真值则只留该类型记录、newest_first 为真值则 reverse、limit 为真值时截断为前 int(limit) 条（limit 为 0/None 等假值时不截断）。
 def entries(cg, limit=None, node_id=None, kind=None, newest_first=True):
+    """演化条目（**可见性单点在查询入口**，N227，2026-09-28）。
+
+    此前全函数零可见性判定：账本行含 node_id 与自由文本（改了什么、缺哪一维
+    条件），经 `mdcg_evolution(action=entries)`（工具面只要求 read，guest 可达）
+    与 `cg(op=info)` / `mdcg_health`（`health_os` → `evolution.summary` →
+    `entries(limit=5)`）读出被读闸拒绝节点的 id 与叙述——同身份
+    `cg(op=evolution)` 却要 op "evolution"。两件事同批收口：本函数逐行过
+    跨层单点 `security.node_visible`（行所属节点不可见/已删 → 整行不出，
+    设计者豁免），工具面 op 要求对齐规范出口（mcp_server 侧）。
+
+    如实标注的边界：本过滤按**行所属 node_id** 判定，行内自由文本若提到
+    另一个不可见节点（叙述性引用），不做机械脱敏——无法在自由文本上可靠
+    判定「提的是哪个节点」，属本轮残留（见报告）。
+    """
     recs = _parse(read_ledger(cg))
+    recs = [r for r in recs if _security.node_visible(cg, r.get("node_id"))]
     if node_id:
         recs = [r for r in recs if r.get("node_id") == node_id]
     if kind:

@@ -383,3 +383,49 @@ def can_read_restricted(p) -> bool:
     if getattr(p, "can_admin", False):
         return True
     return getattr(p, "role", "") in _RESTRICTED_READER_ROLES
+
+
+# --------------------------------------------------------------------------
+# 读可见性可选钩子（跨层唯一实现，批次 68）
+# --------------------------------------------------------------------------
+# 为什么放在本模块：可见性单点 `_readable` 定义在**子类** `MdCGSecure`
+# （mdcos.py:4028），而需要它的读数出口散在**下层/旁路模块**——trust（验证态
+# 台账/describe）、provenance（派生边端点摘要与拓扑）、evolution（演化账本
+# 自由文本）、forgetting（遗忘留痕 jsonl）。这些模块若 `from .mdcos import` 会
+# 成环（mdcos 反向导入它们），故单点放在两侧都依赖的 security.py：
+#   · `visible_to(cg, entry)`   —— 条目级判定（口径 = `_readable`）；
+#   · `node_visible(cg, node_id)` —— 节点 id 级判定（索引取条目 + 缺席处置）。
+# 口径与仓内既有三处可选钩子逐条一致：`mdcos._note_visible`（及本函数的
+# 委派）、`backfill._readable_guard`、`linkref._known_ids`、`stg._scan/_preview`
+# ——「无钩子（纯 MdCGOS，无身份/密级模型）= 不限制；有钩子 = 按判据；
+# 判据异常 = 不可见（fail-closed）；宁可少读，不可 fail-open 泄漏」。
+# 生效条件：cg 有可调用的 _readable 时返回 bool(判定结果)，判定抛异常返回 False；无该属性/不可调用（纯 MdCGOS）时返回 True。
+def visible_to(cg, entry) -> bool:
+    """条目级读可见性（cg 无 `_readable` 钩子时不设限）。"""
+    fn = getattr(cg, "_readable", None)
+    if not callable(fn):
+        return True
+    try:
+        return bool(fn(entry))
+    except Exception:                          # noqa: BLE001 —— 判据异常=不可见
+        return False
+
+
+# 生效条件：cg 无可调用 _readable 时返回 True；有钩子且索引条目为 dict 时返回 bool(visible_to(cg, 条目))（判定异常 False）；索引无该条目/条目非 dict 时返回 bool(principal.can_admin)（有身份模型但不可证可见→fail-closed，设计者不受限，否则删除后的治理留痕反被清空）。
+def node_visible(cg, node_id) -> bool:
+    """节点 id 级读可见性（索引取条目；**缺席 = 不可证可见 → fail-closed**）。
+
+    缺席的两种实情：① 节点从未存在/拼错 id；② 节点已被 forget（索引无条目）。
+    有身份模型时两者都不得被「当作可见」——否则 `_forgetting.jsonl` /
+    `trust` 台账 / 派生边摘要就成了「已删内容」的旁路读出（N205/N226/N229）。
+    例外只给 can_admin（设计者=全局观测与治理本职）：否则删除后的裁决留痕
+    对唯一需要它的人也不可见（与 `_readable` 的 can_admin 豁免同款）。
+    """
+    fn = getattr(cg, "_readable", None)
+    if not callable(fn):
+        return True                            # 无身份模型：无「越权」可言
+    e = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)
+    if isinstance(e, dict):
+        return visible_to(cg, e)
+    p = getattr(cg, "principal", None)
+    return bool(p is not None and getattr(p, "can_admin", False))

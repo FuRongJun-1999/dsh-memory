@@ -246,6 +246,17 @@ def _text_of(blocks) -> str:
     return "\n\n".join(p for p in parts if p.strip())
 
 
+def _as_dict(val) -> dict:
+    """非对象值一律归零 → {}（**形态判据单点**，N218）。
+
+    旧实现写的是 `o.get("data") or {}`：只兜住「缺失/假值」，兜不住「真值但非
+    对象」——`data=[1]` / `data="x"` / `data.message="x"` / `inserted[].source="x"`
+    都会在 `.get` 处抛 AttributeError。本函数把「非对象」与「缺失」两种形态收敛
+    为同一语义（按空对象处理），与既有 `or {}` 口径一致。
+    """
+    return val if isinstance(val, dict) else {}
+
+
 def parse_session_log(log_path: str) -> dict:
     """流式解析一个会话日志 → {meta, msgs, stats}。
 
@@ -253,6 +264,14 @@ def parse_session_log(log_path: str) -> dict:
     developer 正文，空正文不收）。
     stats：各行型计数 + 审计计数（audit）+ unknown 逐类型计数
     （unknown_types）——不含任何正文。
+
+    N218（2026-09-28）：非对象行按**同函数既有 fail-closed 纪律**记账后跳过——
+    旧实现 `json.loads` 只 catch ValueError（非 JSON），一行 `null`/`[]`/`123`/
+    `"x"` 解析合法却在 `o.get("type")` 抛 AttributeError 逃出 main（main 的 try
+    只有 finally、无 except）⇒ 整轮摄取中断：stdout 全空、无 TOTAL 汇总、其后
+    会话不再处理、stderr 只有栈无告警。次生腿=内层值非对象同型（`data=[1]` /
+    `data` 为字符串 / `data.message` 为字符串 / `inserted[].source` 为字符串），
+    故内层取值统一走 `_as_dict` 并计入 lines_bad_shape。
     """
     try:
         import zstandard                                   # noqa: F401
@@ -265,6 +284,7 @@ def parse_session_log(log_path: str) -> dict:
     seen_ids = set()                 # 消息 id 去重（spliced 与 user/message 同 id）
     cur_turn = 0
     st = {"lines_total": 0, "lines_known_other": 0, "lines_json_error": 0,
+          "lines_not_object": 0, "lines_bad_shape": 0,
           "user_dup_events": 0, "assistant_no_text": 0, "assistant_msgs": 0,
           "assistant_text_msgs": 0,
           "user_msgs": 0, "chars_user": 0, "chars_assistant": 0,
@@ -287,8 +307,20 @@ def parse_session_log(log_path: str) -> dict:
             except ValueError:
                 st["lines_json_error"] += 1
                 continue
+            if not isinstance(o, dict):
+                # N218 主腿：合法 JSON 但顶层非对象（null/[]/123/"x"/true）——
+                # 按既有 fail-closed 纪律记账后跳过，不中断整轮摄取
+                st["lines_not_object"] += 1
+                continue
             t = o.get("type")
-            d = o.get("data") or {}
+            if not isinstance(t, str):
+                # 形态非法：`type` 非字符串（list/dict 还不可哈希，`t in frozenset`
+                # 直接 TypeError）。与顶层非对象同族，记账跳过。
+                st["lines_bad_shape"] += 1
+                continue
+            if o.get("data") is not None and not isinstance(o.get("data"), dict):
+                st["lines_bad_shape"] += 1          # data 非对象：记账（按空对象处理）
+            d = _as_dict(o.get("data"))
             if t == "session":
                 meta = {"id": o.get("id"),
                         "created_at_ms": o.get("createdAt"),
@@ -312,10 +344,19 @@ def parse_session_log(log_path: str) -> dict:
                 st["chars_user"] += len(body)
                 msgs.append({"turn": cur_turn, "role": "user", "text": body})
             elif t == "agent/inbox/spliced":
-                for it in d.get("inserted") or []:
+                inserted = d.get("inserted")
+                if inserted is not None and not isinstance(inserted, list):
+                    st["lines_bad_shape"] += 1      # 非列表：形态非法，记账跳过
+                    continue
+                for it in inserted or []:
                     if not isinstance(it, dict):
+                        st["lines_bad_shape"] += 1  # 列表项非对象：记账跳过
                         continue
-                    if (it.get("source") or {}).get("kind") != "user":
+                    src = it.get("source")
+                    if src is not None and not isinstance(src, dict):
+                        st["lines_bad_shape"] += 1  # source 非对象：记账跳过
+                        continue
+                    if (src or {}).get("kind") != "user":
                         continue                  # 只收 source.kind=="user"
                     mid = it.get("id")
                     if mid and mid in seen_ids:
@@ -330,7 +371,9 @@ def parse_session_log(log_path: str) -> dict:
                     st["chars_user"] += len(body)
                     msgs.append({"turn": cur_turn, "role": "user", "text": body})
             elif t == "assistant/message":
-                m = d.get("message") or {}
+                if d.get("message") is not None and not isinstance(d.get("message"), dict):
+                    st["lines_bad_shape"] += 1      # message 非对象：记账（按空对象处理）
+                m = _as_dict(d.get("message"))     # N218：message 非对象按空对象处理
                 mid = m.get("id") or d.get("id")
                 if mid and mid in seen_ids:
                     st["user_dup_events"] += 1
@@ -353,7 +396,9 @@ def parse_session_log(log_path: str) -> dict:
                 # assistant/message 同形态（data.turn/step 归轮次）；回退
                 # data.content 对齐 dsh-TUI firstText 的两级取正文语义。
                 role = "system" if t == "system/message" else "developer"
-                m = d.get("message") or {}
+                if d.get("message") is not None and not isinstance(d.get("message"), dict):
+                    st["lines_bad_shape"] += 1      # message 非对象：记账（按空对象处理）
+                m = _as_dict(d.get("message"))     # N218：message 非对象按空对象处理
                 mid = m.get("id") or d.get("id")
                 if mid and mid in seen_ids:
                     st["user_dup_events"] += 1
@@ -683,6 +728,7 @@ def main(argv=None) -> int:
              "turns_context": 0,
              "nodes_indexed": 0, "nodes_skipped_existing": 0,
              "chars": 0, "lines_skipped": 0,
+             "lines_not_object": 0, "lines_bad_shape": 0,
              "audit": {t: 0 for t in AUDIT_EVENT_TYPES},
              "unknown_lines": 0, "unknown_types": {},
              "token_collisions": 0}
@@ -722,6 +768,8 @@ def main(argv=None) -> int:
                                "types": dict(st["unknown_types"])},
                    "skipped": {"known_other": st["lines_known_other"],
                                "json_error": st["lines_json_error"],
+                               "not_object": st["lines_not_object"],
+                               "bad_shape": st["lines_bad_shape"],
                                "assistant_no_text": st["assistant_no_text"],
                                "context_no_text": st["context_no_text"],
                                "dup_events": st["user_dup_events"]},
@@ -734,9 +782,13 @@ def main(argv=None) -> int:
                                + ctx_chars)
             total["lines_skipped"] += (st["lines_known_other"]
                                        + st["lines_json_error"]
+                                       + st["lines_not_object"]
+                                       + st["lines_bad_shape"]
                                        + st["assistant_no_text"]
                                        + st["context_no_text"]
                                        + st["user_dup_events"])
+            total["lines_not_object"] += st["lines_not_object"]
+            total["lines_bad_shape"] += st["lines_bad_shape"]
             for t, c in st["audit"].items():
                 total["audit"][t] += c
             total["unknown_lines"] += st["unknown_lines"]
@@ -843,6 +895,14 @@ def main(argv=None) -> int:
                 for t, c in sorted(utypes.items()):
                     print(f"unknown-type: {t} × {c}（会话 {sid}）",
                           file=sys.stderr)
+    # N218 同款 fail-closed 纪律：非对象/形态非法行已按 json_error 同族记账并跳过
+    # （不中断整轮摄取）——但仍须显式告警，绝不让日志损坏静默消失。
+    if total["lines_not_object"] or total["lines_bad_shape"]:
+        print(f"WARNING: 检出 {total['lines_not_object']} 行顶层非对象 JSON 与 "
+              f"{total['lines_bad_shape']} 行形态非法（type 非字符串 / data·"
+              "message·inserted 形态不符）——已按失败行记账并跳过，"
+              "未中断本轮摄取；请检查会话日志是否损坏或被截断",
+              file=sys.stderr)
     return 0
 
 

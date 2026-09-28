@@ -32,7 +32,7 @@ import os
 import re
 import time
 
-from . import lifecycle
+from . import lifecycle, protect
 from .fsutil import FileLock, atomic_write
 
 STATE_FILE = "_writelimit.json"
@@ -207,17 +207,29 @@ def record_accepted(cg, node_id, content, now=None) -> None:
         _save(cg, st)
 
 
-# 生效条件：cg.get(target) 为假值返回 {"ok": False, "error": "target_missing"}；否则以 content 空白归一后截 80 字追加 "【聚合 stamp】" 行、fm["merge_count"]=int(fm.get("merge_count") or 0)+1 后 _write_node 落盘（重要性不变），并返回 {"ok": True, "merge_count": 新值}。
-def converge_into(cg, target: str, content: str) -> dict:
+# 生效条件：cg.get(target) 为假值返回 {"ok": False, "error": "target_missing"}；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；通过后以 content 空白归一后截 80 字追加 "【聚合 stamp】" 行、fm["merge_count"]=int(fm.get("merge_count") or 0)+1 后 _write_node 落盘（重要性不变），并返回 {"ok": True, "merge_count": 新值}。
+def converge_into(cg, target: str, content: str, override=False, actor=None) -> dict:
     """同构聚合落库：正文追加一行【聚合】摘要，merge_count+1。
 
     importance **不变**——流水不该越聚越重要（与 forgetting.reinforce
     的 +0.05 相反）；原始内容截 80 字入行，全文仍在 recent log 可溯。
+
+    N215（2026-09-28，同族未接线写点）：本函数此前**裸调 `cg._write_node`**
+    追加既有节点正文，唯一入口 `mdcos.remember_gated` 的 CONVERGE 分支（:3336）
+    全程无 principal 层闸、无保护闸、无快照无审计。`writelimit.check` 的形参层
+    判据（:141）只看调用方声明的 layer、签名映射落的是 `node_id`——攻击链：
+    先以 `(node_id=<anchor 节点>, layer='contextual')` 预占位签名（该次 `add`
+    被保护闸拒，但 `sig→anchor id` 已落盘），再换正文重发 → CONVERGE →
+    **anchor 层不可篡改节点被无痕追加聚合行**（可反复追加、merge_count 递增）。
+    落盘前统一过 `protect.guard_overwrite`（单点）。
     """
     e = cg.get(target)
     if not e:
         return {"ok": False, "error": "target_missing"}
     fm = dict(e.get("frontmatter") or {})
+    protect.guard_overwrite(cg, target, layer=fm.get("layer"),
+                            sensitivity=fm.get("sensitivity"),
+                            override=override, actor=actor)
     body = " ".join((content or "").split())[:80]
     stamp = time.strftime("%m-%d %H:%M", time.localtime())
     fm["merge_count"] = int(fm.get("merge_count") or 0) + 1

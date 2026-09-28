@@ -196,7 +196,22 @@ def extract(source, path="", suffix=None):
                   if info[k]["small"] or heads[k]["level"] > MAX_LEVEL]
         merged = [m for m in merged if m]
         if merged:
-            summary = (summary + "；" + "；".join(merged))[:MAX_SUMMARY]
+            # N204（2026-09-28）：合并段必须**真的进得去**。此前先 `_summary(direct)`
+            # 按 MAX_SUMMARY 取满（父节直接正文 ≥200 字时已占满 200），再拼接整体
+            # 截断 ⇒ 被合并子节的文字一个字都留不下（实测 parent_len=440/200/199
+            # 均「子节独有文本进摘要=False」）。而合并的**唯一目的**就是让这些
+            # 小节的正文可检索——等于静默丢索引。改为**预算预分配**：合并段最多
+            # 占 MAX_SUMMARY 的一半，父段按「总预算 − 合并段实占 − 分隔符」取，
+            # 于是合并段无论父段多长都保证进得去（父段过长时让位，最后仍整体截到
+            # MAX_SUMMARY 上限）。
+            # 如实边界：单个被合并子节（≤80 字）恒进得去；合并段超预算时只保前
+            # min(len, MAX_SUMMARY//2) 字——200 字上限下这是不可避免的上界。
+            merged_text = "；".join(merged)
+            merged_budget = min(len(merged_text), MAX_SUMMARY // 2)
+            parent_budget = max(0, MAX_SUMMARY - merged_budget - 1)
+            summary = "；".join(
+                x for x in (_summary(info[i]["direct"], parent_budget),
+                            merged_text) if x)[:MAX_SUMMARY]
         if not summary:
             summary = "（该节无直接正文，见子节）"
         parent = _path_titles(heads, i)

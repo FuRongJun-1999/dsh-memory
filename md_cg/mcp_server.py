@@ -3064,15 +3064,36 @@ _MDCG_OP_REQUIRE = {
     "mdcg_consistency": "write",
     # 读面
     "mdcg_recall": "read", "mdcg_search": "read", "mdcg_get": "read",
-    "mdcg_review_list": "read", "mdcg_review_records": "read",
-    "mdcg_forgetting_history": "read", "mdcg_identity": "read",
+    "mdcg_review_records": "read",
+    "mdcg_identity": "read",
     "mdcg_metacognition": "read", "mdcg_self_state": "read",
     "mdcg_predict": "read", "mdcg_causal": "read",
-    "mdcg_evolution": "read", "mdcg_health": "read",
+    "mdcg_health": "read",
     "mdcg_whoami": "read", "mdcg_watermarks": "read",
     "mdcg_whitebox": "read",
-    # 裁决面（仅高权角色域含 verify）
+    # 治理/裁决面（仅高权角色域含 verify/review/protect/evolution）
     "mdcg_verify": "verify",
+    # N228（2026-09-28）：写保护面此前被映射到**粗粒度 write**，而 protect 在
+    # cg 面是 designer 专属 op（`cg(op="protect")` 前置 require_op("protect")）
+    # ⇒ 任何 can_write 角色可经工具面 action=snapshot 真落盘 _protected_history
+    # 且（修前）零审计，stats/check 亦回带保护面盘点。两条出口对齐到 protect。
+    "mdcg_protect": "protect",
+    # N227（2026-09-28）：演化账本是治理面（行含节点 id 与自由文本），此前映射
+    # read（guest 可达）而规范出口 `cg(op="evolution")` 要 op "evolution"。
+    "mdcg_evolution": "evolution",
+    # N229（2026-09-28）：遗忘留痕是同族治理台账（行内 actor/verdict/reason 属
+    # 他人写入裁决，行级可见性过滤闭不掉「可见节点上的他人裁决」这一维），而
+    # 规范出口 `cg(op="protect", action="forgetting")` 要 op "protect"。两条
+    # 出口对齐到 protect（库层 `cg.forgetting_history()` 仍按行过滤可用）。
+    "mdcg_forgetting_history": "protect",
+    # N201（2026-09-28）：审核队列属**裁决面**而非普通读面。此前映射 "read"，
+    # 而 read 是 tokens.ROLE_SPECS 全角色（含无令牌访客 guest）都持有的 op ⇒
+    # 细粒度工具 mdcg_review_list 对任何只读身份明文返回全部待审提案正文与
+    # actor/session 归属；同库规范出口 cg(op=review, action=list) 却要
+    # require_op("review")。两条出口口径对齐到 review（库层
+    # MdCGSecure.review_list 另有同款自证闸 + _readable 过滤，两层互不依赖，
+    # 任一层被绕过都仍拦得住）。
+    "mdcg_review_list": "review",
 }
 
 

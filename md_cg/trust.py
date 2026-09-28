@@ -41,6 +41,7 @@ import os
 import time
 
 from . import protect
+from . import security as _security
 from .fsutil import append_jsonl, read_jsonl
 from .security import AccessDenied
 
@@ -932,13 +933,24 @@ def backfill(cg, apply: bool = False, limit: int = 5000) -> dict:
 
 
 def describe(cg, node_id: str, now: float = None) -> dict:
-    """单节点验证态全貌（供 op=status / 状态头渲染）。只读、失败不抛。"""
+    """单节点验证态全貌（供 op=status / 状态头渲染）。只读、失败不抛。
+
+    N205（2026-09-28）：`cg.get` 被读闸拒后**不得**回落索引条目仍报 ok=True——
+    索引条目本身就是密级/会话/验证态元数据（layer/tags/session/verification_state），
+    回落等于把「不可读」当「可见」返回（实测：guest 对 private 节点 get→None，
+    而 status 仍回 ok=True + verification_state='verified' + depends_on +
+    状态头「✓ 已验证」）。口径改为与 get/search/recall 一致的「不可见即不存在」：
+    判定走跨层单点 `security.node_visible`（纯 MdCGOS 无身份模型 → 不受影响；
+    设计者 can_admin 豁免不变）。
+    """
     try:
         node = cg.get(node_id)
     except Exception:                                      # noqa: BLE001
         node = None
     e = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)
     if not node and not e:
+        return {"ok": False, "error": "node_not_found", "node_id": node_id}
+    if not node and not _security.node_visible(cg, node_id):
         return {"ok": False, "error": "node_not_found", "node_id": node_id}
     fm = (node or {}).get("frontmatter") or {}
     deps = as_deps(fm.get(DEPS_FIELD)) or as_deps((e or {}).get(DEPS_FIELD))
@@ -973,13 +985,23 @@ def summary(cg) -> dict:
 
 
 def load_ledger(cg, *, node_id: str = None, limit: int = None) -> list:
-    """读验证态台账（跳过坏行；可按节点过滤）。"""
+    """读验证态台账（跳过坏行；可按节点过滤）。
+
+    N205（2026-09-28）：行内 `reason` 含**明文证据串**（外部裁决理由），此前
+    只按 node_id 等值过滤、零可见性判定 ⇒ 任何持 read op 的身份（含无令牌
+    guest，`cg(op="status", action="ledger")` 在 guest 的 ops_allow 内）可读走
+    他人私密节点的裁决证据与验证态。口径与库读面统一：逐行按
+    `security.node_visible`（跨层单点）判定行所属节点对本身份是否可见，
+    不可见/不可证（已 forget、索引无条目）→ 该行整条不出；设计者豁免。
+    """
     path = os.path.join(cg.root, AUDIT_FILE)
     out = []
     for r in read_jsonl(path):
         if not isinstance(r, dict):
             continue
         if node_id and r.get("node_id") != node_id:
+            continue
+        if not _security.node_visible(cg, r.get("node_id")):
             continue
         out.append(r)
     return out[:int(limit)] if limit else out

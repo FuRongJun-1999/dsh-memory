@@ -47,6 +47,11 @@ AUTO_PROTECT_IMPORTANCE = 0.70
 HISTORY_DIR = "_protected_history"
 AUDIT_FILE = "_protected_audit.jsonl"
 
+# 索引条目里的**门控三键**（键集单点定义）：`_node_entry`（mdcg.py:1294-1298）与
+# `_stage`（mdcg.py:1848-1851）恒落这三键，值可为 None ⇒「键不存在」不是
+# 「未标记」的可靠判据（N213 同根，2026-09-28）。None = **索引未记录该标记**。
+_GATE_UNKNOWN_KEYS = ("protected", "immutable", "self_state")
+
 
 class ProtectionError(PermissionError):
     """受保护节点的写动作被拒绝。"""
@@ -54,14 +59,32 @@ class ProtectionError(PermissionError):
 
 # ---------------------------------------------------------------- 判定
 
-# 生效条件：对任意 cg、node_id 无条件返回 `(cg.index 或其假值时的 {})["nodes"]`（该键缺失或假值时为 `{}`）中以 node_id 为键的值，索引无此键时返回 None。
+# 生效条件：cg 具备可调用的 _maybe_reload_index 时先调一次（索引代际探活，异常静默）；随后对任意 cg、node_id 返回 `(cg.index 或其假值时的 {})["nodes"]`（该键缺失或假值时为 `{}`）中以 node_id 为键的值，索引无此键时返回 None。
 def _entry(cg, node_id):
+    """索引条目读取单点（判定前**代际探活**）。
+
+    N213 同根（2026-09-28）：保护面的全部判据（_fm / is_protected / is_immutable
+    / guard_write / guard_forget / guard_move / stats）都经由本函数直读**本进程
+    内存索引**，而写面只有 `MdCG.add`（mdcg.py:1508）接了探活——删除（forget）、
+    降级搬迁（_move_layer）、统计与角色视图等出口全都没有。他进程（serve 常驻、
+    autoflush=1 只 flush 不 close）新盖的 immutable/protected 在陈旧条目上不存在
+    → 判定「未标记」→ 受保护节点被静默覆写/删除/搬迁，无快照无审计。
+    探活放在这里 = 保护面一次接线、全部出口同闸（签名未变时只有一次 stat +
+    一次 listdir；重载是稀疏事件）。同理 `_resolve_target` 的探活在本函数外层
+    成了冗余的一次廉价检查，保留不动。
+    """
+    _reload = getattr(cg, "_maybe_reload_index", None)
+    if callable(_reload):
+        try:
+            _reload()
+        except Exception:                 # noqa: BLE001 —— 探活失败不得阻断判定本身
+            pass
     return ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)
 
 
-# 生效条件：cg 索引中无 node_id 条目时返回 None；有条目时先取 layer/importance（缺 importance 键回落 0.5）/protected/protection_reason/immutable/self_state，仅当条目缺 protected 或 immutable、或（缺 self_state 且条目 layer∈PROTECTED_LAYERS）时再经 cg.get(node_id) 用 frontmatter 覆盖这四个键（cg.get 抛异常或返回假值时保留索引值；layer 取 frontmatter.layer or 索引 layer，importance 缺键时回落索引 importance）。
+# 生效条件：cg 索引中无 node_id 条目时返回 None；有条目时先取 layer/importance（缺 importance 键回落 0.5）/protected/protection_reason/immutable/self_state，仅当条目缺 protected 或 immutable、或（缺 self_state 且条目 layer∈PROTECTED_LAYERS）、或（条目 layer∈PROTECTED_LAYERS 且 _GATE_UNKNOWN_KEYS 中任一键的值为 None）时再经 cg.get(node_id) 用 frontmatter 覆盖这四个键（cg.get 抛异常或返回假值时保留索引值；layer 取 frontmatter.layer or 索引 layer，importance 缺键时回落索引 importance）。
 def _fm(cg, node_id):
-    """取判定所需的 frontmatter 字段；索引快照缺 protected 时回退读文件。"""
+    """取判定所需的 frontmatter 字段；索引快照门控字段**未知**时回退读文件。"""
     e = _entry(cg, node_id)
     if e is None:
         return None
@@ -75,9 +98,23 @@ def _fm(cg, node_id):
     }
     # 回退读文件：索引快照缺字段时。self_state 只在受保护层（self/anchor）
     # 需要，回退代价被限制在少量节点上，不影响全量统计性能。
+    _layer = str(e.get("layer") or "")
     need_fallback = ("protected" not in e or "immutable" not in e
                      or ("self_state" not in e
-                         and str(e.get("layer") or "") in PROTECTED_LAYERS))
+                         and _layer in PROTECTED_LAYERS))
+    # N213 同根（2026-09-28）：`_node_entry`/`_stage` **恒落**这三键（值可为
+    # None）⇒ 上面的「缺键」判据在本仓所有构造点恒假、第四个析取子句不可达，
+    # `_fm` 100% 信任索引、**从不重读文件**；索引里的 None 被当「未标记」采信，
+    # 而「只改文件、不进索引写日志」的门控写点（`protect.mark` 一类）在陈旧
+    # 条目里正是 None → guard_write/guard_forget/guard_move 静默放行。
+    # 值为 None 即「索引未记录该标记」，唯一权威是文件——但读盘有代价，
+    # 只在**受保护层**（self/anchor，节点数极少；层保护本身已拦 不可覆盖/
+    # 不可遗忘，None 决定的是 self_state 豁免与层间搬迁的细粒度判定）无条件
+    # 回退；非受保护层由「门控写点必须进写日志」承担（`mark` 已随本批接线，
+    # `add(immutable=True)` 本就经 _stage），故不付全池读盘代价。
+    if not need_fallback and _layer in PROTECTED_LAYERS \
+            and any(e.get(_k) is None for _k in _GATE_UNKNOWN_KEYS):
+        need_fallback = True
     if need_fallback:
         try:
             node = cg.get(node_id)
@@ -149,9 +186,19 @@ def _audit(cg, action, node_id, reason, actor=None, snapshot=None):
     return rec
 
 
-# 生效条件：cg.get(node_id) 抛异常或返回假值时返回 None；否则在 cg.root/HISTORY_DIR/node_id 下以时间戳命名写入当前 frontmatter 与 content，_write_node 抛异常时返回 None，成功则返回相对 cg.root 且以 '/' 分隔的路径。
+# 生效条件：cg.get(node_id) 抛异常或返回假值时返回 None；否则在 cg.root/HISTORY_DIR/node_id 下以时间戳命名写入当前 frontmatter 与 content，_write_node 抛异常时返回 None，成功则追加一条 action="snapshot" 的审计（_audit，actor 取 cg.actor）并返回相对 cg.root 且以 '/' 分隔的路径。
 def snapshot(cg, node_id):
-    """把节点当前版本快照进 `_protected_history/<id>/<ts>.md`，返回相对路径。"""
+    """把节点当前版本快照进 `_protected_history/<id>/<ts>.md`，返回相对路径。
+
+    N228（2026-09-28）：本函数此前**全文零审计**——而它是**落盘写入**（写
+    `_protected_history/`，且这些快照是后续 override 快照链的基线）。经工具面
+    `mdcg_protect(action="snapshot")`（此前只要求粗粒度 write）任何 can_write
+    角色都能在自己可读的节点上制造未审计磁盘写入（实测 `_audit.jsonl` 条数
+    8→8 不变）。本批两条收口：① 工具面 op 要求对齐规范出口（protect 面在
+    `cg(op="protect")` 上级为 designer 专属）；② 快照成功即留痕（本函数内，
+    两条入口——工具面与 `guard_*` 的 `_allow`——都覆盖；`_allow` 路径会有
+    「snapshot + 具体守卫动作」两条审计，属如实记录而非重复计数）。
+    """
     try:
         node = cg.get(node_id)
     except Exception:
@@ -167,7 +214,10 @@ def snapshot(cg, node_id):
                        node.get("content") or "")
     except Exception:
         return None
-    return os.path.relpath(p, cg.root).replace("\\", "/")
+    rel = os.path.relpath(p, cg.root).replace("\\", "/")
+    _audit(cg, "snapshot", node_id, "显式快照（%s）" % rel,
+           actor=getattr(cg, "actor", None), snapshot=rel)
+    return rel
 
 
 # 生效条件：cg.root/HISTORY_DIR/node_id 不是目录时返回 []；是目录时返回该目录下以 .md 结尾（不递归）的文件按名称排序后的 `HISTORY_DIR/node_id/文件名` 列表，无匹配文件则列表为空。
@@ -304,7 +354,7 @@ def guard_overwrite(cg, node_id, layer=None, sensitivity=None,
     return guard_write(cg, node_id, layer=_layer, override=override, actor=actor)
 
 
-# 生效条件：cg.get(node_id) 抛异常或返回假值时返回 None；否则把 protected=True 与 protection_reason=reason 写入 cg.root 下 node["path"]（该键缺失即抛 KeyError）对应的 frontmatter 并保持原 content，随后门条目存在时同步其 protected/protection_reason，返回 {'node_id': node_id, 'protected': True, 'reason': reason}。
+# 生效条件：cg.get(node_id) 抛异常或返回假值时返回 None；否则把 protected=True 与 protection_reason=reason 写入 cg.root 下 node["path"]（该键缺失即抛 KeyError）对应的 frontmatter 并保持原 content，随后门条目存在时同步其 protected/protection_reason 并把该条目并入索引写日志（_dirty 标脏 + flush，失败静默），返回 {'node_id': node_id, 'protected': True, 'reason': reason}。
 def mark(cg, node_id, reason):
     """给节点打上 `protected=True` 标记（写回 frontmatter，不动 content）。"""
     try:
@@ -322,6 +372,21 @@ def mark(cg, node_id, reason):
     if e is not None:
         e["protected"] = True
         e["protection_reason"] = reason
+        # N213 同根（2026-09-28）：保护位是**门控字段**，只改内存条目 + 文件而
+        # 不进索引写日志 ⇒ 他进程（以及本进程 compact 前的重载）把该节点当
+        # 「未标记」→ guard_forget / guard_move 静默放行。与 add 同口径：
+        # `_dirty[nid] = e` 标脏（**不走 _stage**——它会重复累加该桶计数）
+        # 并 flush，使日志成为跨进程可见的代际载体。日志化失败不阻断打标本身
+        # （文件已改，下一次 compact/rebuild 的 _scan_nodes 会带上该标记）。
+        _dirty = getattr(cg, "_dirty", None)
+        if isinstance(_dirty, dict):
+            _dirty[node_id] = e
+            _flush = getattr(cg, "flush", None)
+            if callable(_flush):
+                try:
+                    _flush()
+                except Exception:         # noqa: BLE001 —— 落账失败不阻断打标
+                    pass
     return {"node_id": node_id, "protected": True, "reason": reason}
 
 

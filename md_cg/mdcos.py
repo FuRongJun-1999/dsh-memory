@@ -39,6 +39,7 @@ from .fsutil import (FileLock, atomic_write, append_jsonl, read_jsonl,
                      read_jsonl_tail, count_jsonl, publish)
 from .security import (Principal, TenantRegistry, AccessDenied,
                        SENSITIVITY_ORDER, DEFAULT_SENSITIVITY, _rank)
+from . import security as _security
 
 # ---- 常量 ----------------------------------------------------------------
 
@@ -304,30 +305,19 @@ DECISION_ACTIONS = (DECISION_ACCEPT, DECISION_REJECT, DECISION_EDIT,
 TERMINAL_DECISION_STATUS = ("accepted", "rejected", "noop")
 
 
-# 生效条件：cg 有可调用的 _readable（MdCGSecure 的可见性单点，mdcos.py:3938）时返回 bool(判定结果)，判定抛异常返回 False（fail-closed）；cg 无该属性（纯 MdCGOS：无身份/密级模型，其 get/search/_candidates 亦不设读闸）时返回 True。
+# 生效条件：cg 有可调用的 _readable（MdCGSecure 的可见性单点，mdcos.py:4028）时返回 bool(判定结果)，判定抛异常返回 False（fail-closed）；cg 无该属性（纯 MdCGOS：无身份/密级模型，其 get/search/_candidates 亦不设读闸）时返回 True。
 def _note_visible(cg, e) -> bool:
     """会话读数出口的可见性谓词（可选钩子口径，N202/N211，2026-09-28）。
 
-    为什么用可选钩子而不是直调 `cg._readable(e)`：可见性单点 `_readable` 定义在
-    **子类** `MdCGSecure`（mdcos.py:3938），而本模块的读数出口（`_session_notes`
-    与 `session_recall` ④ 段）在**基类** `MdCGOS` 上——直调会让纯 MdCGOS 实例
-    （低层图形/测试面，无读隔离模型）抛 AttributeError，整个 notes 段被上层
-    `except` 吞成 degraded（实测：md_cg/test_p29_session_ingest_export「recall
-    命中该会话要点」因此转红）。仓内同口径先例：`backfill._readable_guard`
-    （backfill.py:283-292）与 `linkref._known_ids`（linkref.py:130）同样是
-    「无钩子=不限制，有钩子=按判据，判据异常=不可见」——本函数与它们逐条一致。
+    批次 68（2026-09-28）起本函数**委派**给跨层唯一实现
+    `security.visible_to`（trust/provenance/evolution/forgetting 同批接线，
+    口径必须是同一个，不能各写一份）；本名保留为既有调用方的兼容入口。
 
     语义：**有身份模型一律按单点判据**（MdCGSecure 是服务面，MCP server 用它），
     无身份模型则无「越权」可言（该实例的 get 本就不设闸）。判据异常按不可见
     （fail-closed：宁可少读，不可 fail-open 泄漏）。
     """
-    fn = getattr(cg, "_readable", None)
-    if not callable(fn):
-        return True
-    try:
-        return bool(fn(e))
-    except Exception:                      # noqa: BLE001 —— 判据异常=不可见
-        return False
+    return _security.visible_to(cg, e)
 
 
 # 生效条件：以任意 root 构造时按其拼接 audit_log/hippocampus/trash 等路径并 makedirs 创建 hippocampus 与 trash_dir（exist_ok=True），autoflush 透传父类、actor 存入 self.actor；
@@ -1797,6 +1787,10 @@ class MdCGOS(MdCG):
                    "layer": layer, "tags": list(tags or []),
                    "condition_space": condition_space or {},
                    "payload_hash": phash,
+                   # N201（2026-09-28）：密级**落 rec 顶层**（与节点 frontmatter /
+                   # 索引条目同形状）——读侧判据（审核队列的读可见性过滤）免挖
+                   # extra；`extra` 内原键保留不动（存量读取方零变化）。
+                   "sensitivity": kw.get("sensitivity"),
                    "verify": verify or {}, "verify_hash": vhash,
                    "extra": kw, "actor": self.actor,
                    "session": getattr(self, "session", None)}
@@ -1943,6 +1937,19 @@ class MdCGOS(MdCG):
         """已被终态裁决关闭的 pid（needs_reapproval 仍视为打开）。"""
         return {pid for pid, r in self._pid_status().items()
                 if r.get("status") in TERMINAL_DECISION_STATUS}
+
+# 生效条件：默认等价 review_list()（基类不做密级/会话收窄）；隔离层（MdCGSecure）覆写为按读可见性过滤的计数面。
+    def _review_list_visible(self):
+        """内部计数面的待审视图（health_os 等）：默认=全量。
+
+        N201（2026-09-28）：与 review_list() 分开是**有意的**——review_list 是
+        「取正文」面（隔离层加了 op 闸：无 review op 即拒），而 health_os 是只读
+        体检面（`mdcg_health` 只要求 op=read），若体检面直接走 review_list 的
+        op 闸，record/reflect/output/sustain/guest 的 health 会被打成
+        AccessDenied（次生面：修读面反把体检面打死）。故内部计数走本方法：
+        隔离层在此按读可见性收窄（计数随身份，不泄露正文），但不设 op 闸。
+        """
+        return self.review_list()
 
 # 生效条件：在已用 root 构造的实例上遍历 self.inbox_log 记录，其 pid 在 _pid_status() 中 status ∈ TERMINAL_DECISION_STATUS 时跳过，其余复制该记录并写入 status=s.get("status") or "pending"、round=int(s.get("round") or 0)、issues=list(s.get("issues") or []) 后返回 out。
     def review_list(self):
@@ -2780,7 +2787,9 @@ class MdCGOS(MdCG):
                 condition_space=conditions,
                 actor=getattr(self, "actor", None))
         elif dec == "reinforce" and vd.get("duplicate_with"):
-            out["reinforced"] = forgetting.reinforce(self, vd["duplicate_with"])
+            out["reinforced"] = forgetting.reinforce(
+                self, vd["duplicate_with"],
+                actor=getattr(self, "actor", None))
         out["note"] = {"write": "已新增节点", "reinforce": "已并入既有节点（未新增）",
                        "discard": "已丢弃（不写）", "defer": "留待复核（不写不并）"}.get(dec, "")
         return out
@@ -3223,7 +3232,10 @@ class MdCGOS(MdCG):
         audit = self.audit_scale()
         h["os"] = {
             "roles": self._role_counts(),
-            "review_pending": len(self.review_list()),
+            # N201：位审计数走可见性计数面（_review_list_visible），不走
+            # review_list——后者带 op 闸（取正文面），体检面（op=read 即可达）
+            # 若走它会因缺 review op 直接 AccessDenied。
+            "review_pending": len(self._review_list_visible()),
             "review_records": len(self.review_records()),
             # 审计/墓碑面走 _log_scale（O(1) 量级读数）而非 list(read_jsonl(...))
             # 也不再全量流式数行：物化读让只读体检把整条通道拖死（实测 4.0 GB
@@ -3333,8 +3345,9 @@ class MdCGOS(MdCG):
                 tgt = lim["target"]
                 out = {"verdict": "MERGE", "node_id": node_id,
                        "merged_into": tgt, "gate": lim,
-                       "converged": writelimit.converge_into(self, tgt,
-                                                             content)}
+                       "converged": writelimit.converge_into(
+                           self, tgt, content, override=override,
+                           actor=self.actor)}
                 fv = "MERGE"
             elif lim["verdict"] == "DROP":
                 # 精确重复（与既有节点正文一致）：零新信息，交回旧闸门
@@ -3377,7 +3390,10 @@ class MdCGOS(MdCG):
         elif v == "MERGE":
             tgt = verdict["redundancy"]["with"]
             out["merged_into"] = tgt
-            out["reinforced"] = forgetting.reinforce(self, tgt) if tgt else None
+            out["reinforced"] = (forgetting.reinforce(self, tgt,
+                                                      override=override,
+                                                      actor=self.actor)
+                                 if tgt else None)
         # DROP / DEFER：不落库，只留痕
         forgetting.log(self, {"t": time.time(), "node_id": node_id,
                               "layer": layer, "verdict": v,
@@ -3822,11 +3838,29 @@ class MdCGSecure(MdCGOS):
                                  "actor": self.principal.actor})
         return sealed
 
-# 生效条件：content 为 None 或非加密时原样返回 content；加密但 self.dek 为假值时写 read_locked 审计并返回 None；crypto.open_node 抛 CryptoError 时写 open_failed 审计并返回 None，成功则返回明文。
+# 生效条件：content 为 None 或非加密时原样返回 content；加密时先用**本次读取所得的 frontmatter**（sensitivity/session）复核读可见性，不可见即写 read_denied 审计并返回 None；可见但 self.dek 为假值时写 read_locked 审计并返回 None；crypto.open_node 抛 CryptoError 时写 open_failed 审计并返回 None，成功则返回明文。
     def _open_content(self, node_id, fm, content):
-        """密文解封；无密钥 / 身份不符 → None（不可读），失败留审计。"""
+        """密文解封；无密钥 / 身份不符 / **读不可见** → None（不可读），失败留审计。"""
         if content is None or not crypto.is_encrypted(content):
             return content
+        # N213（2026-09-28）：绑定档（private/secret）正文只有加密后才可能落盘，
+        # 故所有解密出口都汇到本函数——把「读可见性」闸设在这里 = 一次接线覆盖
+        # 全部读面（get / search 的 _read_many 正文水合 / reach / recent_events）。
+        # 判据用**与正文同一次读取所得的 fm**（同源 ⇒ 无 TOCTOU、无额外 IO），
+        # 而不是任何内存索引条目：索引可能是上一代快照（陈旧条目说 internal、
+        # 盘上已是他进程写的 private/S2），据此放行会把密文解成明文返回。
+        # 与 _readable 同口径（clearance × sensitivity ∧ 会话绑定，设计者豁免）。
+        try:
+            _vis = self._readable({"sensitivity": (fm or {}).get("sensitivity"),
+                                   "session": (fm or {}).get("session")})
+        except Exception:                     # noqa: BLE001 —— 判据载体异常按不可读
+            _vis = False
+        if not _vis:
+            crypto.audit(self.root, {"op": "read_denied", "node_id": node_id,
+                                     "tenant": self.principal.tenant,
+                                     "actor": self.principal.actor,
+                                     "reason": "读隔离：密文不可见"})
+            return None
         if not self.dek:
             crypto.audit(self.root, {"op": "read_locked", "node_id": node_id,
                                      "tenant": self.principal.tenant,
@@ -4094,7 +4128,7 @@ class MdCGSecure(MdCGOS):
     def _neg_coverage(self, terms):
         return [e for e in super()._neg_coverage(terms) if self._readable(e)]
 
-# 生效条件：node_id 在 self.index["nodes"] 中存在且 self._readable(e) 为假时返回 None，否则转 super().get(node_id)；索引缺该条目时**先做代际探活重载再判可见性**（N196：索引缺条目 ≡ 本进程陈旧，不得据以跳过读隔离），重载后仍无条目才回落 super().get 的 not_found 语义。
+# 生效条件：node_id 在 self.index["nodes"] 中存在且 self._readable(e) 为假时返回 None，否则转 super().get(node_id)；索引缺该条目时**先做代际探活重载再判可见性**（N196：索引缺条目 ≡ 本进程陈旧，不得据以跳过读隔离），重载后仍无条目才回落 super().get 的 not_found 语义；super().get 返回真值节点后用**同一次读取所得的 frontmatter**（sensitivity/session）再判一次可见性，为假即返回 None（N213：命中陈旧条目的路径不得以旧快照当判据、以新盘面当正文）；
     def get(self, node_id: str):
         e = self.index["nodes"].get(node_id)
         if e is None:
@@ -4109,7 +4143,27 @@ class MdCGSecure(MdCGOS):
             e = self.index["nodes"].get(node_id)
         if e is not None and not self._readable(e):
             return None                     # 读隔离：不可见即不存在
-        return super().get(node_id)
+        node = super().get(node_id)
+        if node is None:
+            return None
+        # N213（2026-09-28）：命中陈旧条目的路径此前**零探活**——可见性判据取自
+        # 本进程索引条目（sensitivity/session 是上一代快照），正文却解密自**当前
+        # 盘上文件**：判据说 internal 且属本会话、盘面已是他进程写的 private/S2
+        # 时，密文照常以明文返回（AEAD 的 AAD 只绑 node_id/tenant/actor，session
+        # 是唯一隔离维度）。故返回前用**与正文同源的那次读取**所得的 frontmatter
+        # 复核一次：判据与正文同时同源，既杜绝错配也无 TOCTOU 窗口。
+        # 成本只在**放行**路径（一次 dict 取键 + 一次判定，无额外 IO）。
+        fm = node.get("frontmatter") or {}
+        _judge = {"path": node.get("path"),
+                  "sensitivity": fm.get("sensitivity"),
+                  "session": fm.get("session")}
+        try:
+            _vis = self._readable(_judge)
+        except Exception:                     # noqa: BLE001 —— 判据载体异常按不可见
+            _vis = False
+        if not _vis:
+            return None                     # 陈旧判据放行、盘上真值拒绝：以盘面为准
+        return node
 
 # 生效条件：把 *a/**kw 原样转给 super().search_rrf 后，仅保留其结果中每条以 self.index["nodes"].get(结果节点 id) 为索引（索引缺该 id 时用结果节点自身）经 self._readable 判为可见的条目，且 kw["validity"] 为真时该条目经 trust.is_expired 判为未过期者，kw["view"] 为真值时该条目经 roleviews.matches 判为满足视图资格（非法 view ValueError），再返回。
     def search_rrf(self, *a, **kw):
@@ -4169,6 +4223,44 @@ class MdCGSecure(MdCGOS):
     def restore(self, node_id: str, force: bool = False):
         self.principal.require_admin("restore")
         return super().restore(node_id, force=force)
+
+# 生效条件：先 principal.require_op("review")（与 review_decide 同款：审核队列是裁决面，不是普通读面），再转 _review_list_visible()。
+    def review_list(self):
+        """待审候选 + **读可见性过滤**（N201：提案面与节点正文面同口径）。
+
+        修复前：`MdCGOS.review_list` 全函数体零可见性闸，而细粒度工具
+        `mdcg_review_list` 只要求 op=read（`guest` 的 ops_allow 就含 read）⇒
+        任一无令牌访客读走 designer 以 `sensitivity='private'` 提交的候选正文
+        **明文**与 actor/session 归属；同库规范出口 `cg(op=review, action=list)`
+        却要 `require_op("review")` —— 两条出口口径矛盾（N201）。
+
+        本覆写把两件事收归单点：op 闸（库层自证，与 `review_decide` 同款——
+        分发层映射再收窄一次，两层都不依赖对方）+ 可见性判定（`_readable`，
+        与 `get`/`_candidates`/`search_rrf` 同一实现，不另写一套密级/会话口径）。
+        密级未知 = 索引未记录该档 ⇒ 按最高档 fail-closed（与 `_readable` 的
+        V21-2 纪律同款：宁可误禁，不可越权）；设计者（can_admin）豁免不变。
+
+        内部计数面（health_os）不走本方法，走 `_review_list_visible`——否则
+        只读身份（op=read）的体检面会被本闸打成 AccessDenied（见该方法注释）。
+        """
+        self.principal.require_op("review")
+        return self._review_list_visible()
+
+# 生效条件：逐条取 rec 顶层 sensitivity（N201 起写入侧落键）、缺键回退 rec.extra.sensitivity（存量提案）、仍缺按 "secret" fail-closed；以 _readable 判定（clearance × sensitivity ∧ 会话绑定，can_admin 豁免），判定抛异常按不可见；仅可见条目入结果（正文与 actor/session 归属同时不出）。
+    def _review_list_visible(self):
+        out = []
+        for rec in super().review_list():
+            sens = (rec.get("sensitivity")
+                    or (rec.get("extra") or {}).get("sensitivity")
+                    or "secret")            # 未知密级 fail-closed（最高档）
+            try:
+                vis = self._readable({"sensitivity": sens,
+                                      "session": rec.get("session")})
+            except Exception:               # noqa: BLE001 —— 判据不可判即不可见
+                vis = False
+            if vis:
+                out.append(rec)
+        return out
 
 # 生效条件：先 principal.require_op("review")（语义修正 2026-09-22：裁决权从
 #   require_admin 拆出——编排者/仲裁位持 review op 即可裁决，存在级管理权

@@ -12,7 +12,8 @@
 # 不适用条件：无 npm/git 的纯补丁校验；非 npm 包仓库；需验签而非内容面时。
 
 判据: R1 文件名/内容 token；R2 白箱 KB/实验区/缓存；R3 本机/沙箱路径；
-R4 包内非追踪件仅允许 lib/。
+R4 包内非追踪件仅允许 lib/；R5 清单条目不得越出 --root；R6 清单来源须为
+npm 自身产出（N216：生命周期脚本 stdout 不得冒充发布清单）。
 用法: 本地模式 python scripts/check_publish_artifact.py --root <repo_root>；
 registry 后置核验 python scripts/check_publish_artifact.py --registry <version>。
 不适用条件: 非 npm 发布物；工作区缺少 npm 或 git；无法访问 registry.npmjs.org。
@@ -148,6 +149,42 @@ def normalized_rel(path: str) -> str:
     return p.strip("/")
 
 
+def unsafe_rel_reason(rel: str):
+    """清单条目的**越根**判据：越出 --root 即返回原因，安全返回 None。
+
+    N216（2026-09-28）：「发布清单」由 `run_npm_pack_dry_run` 的 stdout 解析而来，
+    条目未经判据即被 `os.path.join(root, *rel.split("/"))` 拼接读取——诱饵清单列
+    `../<根外可读文件>` 时，R1/R3 共用的 `read_local_text_if_needed` 会读出 --root
+    之外的文件并把命中片段回显到 CI 日志（任意可读文件读取 + 内容外泄）。
+    npm 自身产出的清单恒为包内相对路径；出现 `..` / 绝对路径 / 盘符即非 npm 清单。
+    """
+    p = (rel or "").replace("\\", "/").strip()
+    if not p:
+        return "空路径"
+    if p.startswith("//"):
+        return "UNC 路径"
+    if p.startswith("/"):
+        return "绝对路径"
+    if len(p) >= 2 and p[1] == ":" and p[0].isalpha():
+        return "盘符路径"
+    if any(seg == ".." for seg in p.split("/")):
+        return "含 '..' 段（越出 --root）"
+    return None
+
+
+def _within_root(root: str, fp: str) -> bool:
+    """真实路径包含判定（**越根读的最后一道闸**，与清单判据互为兜底）。
+
+    用 realpath 解析后再比较（符号链接/junction/`..` 段都归一），根自身算包含。
+    """
+    try:
+        r = os.path.realpath(root)
+        t = os.path.realpath(fp)
+    except OSError:
+        return False
+    return t == r or t.startswith(r + os.sep)
+
+
 def is_text_path(rel: str) -> bool:
     return os.path.splitext(rel)[1].lower() in TEXT_EXTS
 
@@ -238,7 +275,11 @@ def read_local_text_if_needed(root: str, rel: str):
     ext = os.path.splitext(rel)[1].lower()
     if ext not in TEXT_EXTS:
         return None
+    if unsafe_rel_reason(rel):
+        return None                      # 越根条目一律不读（N216；R5 已记账判负）
     fp = os.path.join(root, *rel.split("/"))
+    if not _within_root(root, fp):
+        return None                      # 兜底：清单判据之外的第二道越根闸
     try:
         st = os.stat(fp)
     except OSError:
@@ -260,47 +301,109 @@ def parse_package_json(root: str):
         return None
     try:
         with open(fp, encoding="utf-8") as f:
-            return json.load(f)
+            pj = json.load(f)
     except Exception as exc:  # noqa: BLE001
         print("  [环境错误] package.json 解析失败：%s: %s" % (type(exc).__name__, exc))
         return None
+    # N217：合法 JSON 但顶层非对象（被写坏成 `[1,2,3]` / `"x"` / `null`）时，
+    # 旧实现把任意 JSON 值原样返回，调用方 `pj.get(...)` 抛 AttributeError 逃出
+    # main——退出码落到与本脚本自陈契约相反的一侧（读不通=2 实得 1）。
+    if not isinstance(pj, dict):
+        print("  [环境错误] package.json 顶层须为对象（实得 %s）——拒绝解析"
+              % type(pj).__name__)
+        return None
+    return pj
 
 
-def extract_first_json_value(stdout: str):
-    """从混杂输出中提取首个可解析的 JSON 值。
+def _is_pack_manifest_shape(val) -> bool:
+    """npm pack --json 的**基本清单形态**：数组（元素为含 files 列表的对象）或单对象。"""
+    if isinstance(val, list):
+        return bool(val) and all(
+            isinstance(it, dict) and isinstance(it.get("files"), list) for it in val)
+    if isinstance(val, dict):
+        return isinstance(val.get("files"), list)
+    return False
 
-    npm 的生命周期脚本（prepare 等）会向 stdout 打印文本——例：
-    `[prepare] 跳过构建：typescript 未安装（NODE_ENV=production ...）`。
-    故不能以 `find("[")` 定位 JSON 起点：首个 `[` 可能正是该文本的一部分
-    （2026-09-20 CI 取证：本地装了 typescript 故 prepare 静默、CI 未装故打印，
-    导致 CI 恒 exit 2 而本地恒绿）。本函数先按行首起点尝试，再退化遍历任意
-    起点，用 raw_decode 逐个试解析，取首个可解析的 JSON 值。
 
-    起点候选覆盖**数组与对象两形态**（2026-09-20 v15-8）：旧实现只扫 `[`，
-    纯对象型 stdout（`{...}`）恒返回 None。`npm pack --json` 实际恒为数组，
-    该缺陷无实践影响——但「首个可解析的 JSON 值」这一契约不该只认一种形态。
+def _is_full_pack_manifest_shape(val) -> bool:
+    """npm pack --json 的**全形态**：每项 files 逐条含 path(str)/size(int)/mode(int)。
+
+    npm 实产清单恒带 size/mode（2026-09-28 实测：本仓 1438 件逐条齐备），而
+    「生命周期脚本冒充清单」的最小诱饵通常只写 `{path}`——全形态优先即用于在
+    **多段候选**中挑出 npm 自身产出（N216）。
+    """
+    if not isinstance(val, list) or not val:
+        return False
+    for it in val:
+        if not isinstance(it, dict):
+            return False
+        files = it.get("files")
+        if not isinstance(files, list) or not files:
+            return False
+        for f in files:
+            if not (isinstance(f, dict) and isinstance(f.get("path"), str)
+                    and isinstance(f.get("size"), int)
+                    and isinstance(f.get("mode"), int)):
+                return False
+    return True
+
+
+def extract_pack_manifest(stdout: str):
+    """从 npm pack 的混杂 stdout 中取**真清单** → (manifest, meta)；取不到 → (None, meta)。
+
+    N216（2026-09-28，high）：npm 先跑生命周期脚本（prepack/prepare/postpack），其
+    stdout 排在 npm 自身清单**之前**；旧实现（`extract_first_json_value`）取「首个
+    可解析 JSON 值」，于是 `package.json` 的 `prepare` 只要打印一行
+    `[{"files":[{"path":"a.js"}]}]` 即可把门禁的扫描面整体换成伪造清单——R1 凭据 /
+    R2 私有数据 / R3 隐私文本 / R4 非追踪件四档只扫诱饵，真发布件里的凭据文件不再
+    被检查，门禁照样 VERDICT=PASS / exit 0（发版链路整体失守，且改 package.json 的
+    PR 即触发 CI：`.github/workflows/publish-artifact-check.yml:14/30`）。
+
+    契约（三层，任一不成立即 fail-closed 交调用方判负）：
+      · 候选枚举：对整个 stdout 逐段 `raw_decode` 全部可解析 JSON 值，不复用
+        「首个」语义（旧实现只认首个，正是被冒充的入口）；
+      · 形态优先：优先**全形态**候选（files 逐条含 path/size/mode），其次基本形态；
+      · 位置取末：同为全形态候选时取**最后一段**——npm 自身清单恒在生命周期脚本
+        stdout 之后（2026-09-28 实测：prepare 与 postpack 的输出均在其前）。
+
+    meta 回报候选数与选中位置，由调用方显式记账/告警（不静默）。
     """
     decoder = json.JSONDecoder()
-    candidates = [m.start() for m in re.finditer(r"(?m)^[\[{]", stdout)]
-    candidates += [i for i, ch in enumerate(stdout) if ch in "[{"]
-    seen = set()
-    for idx in candidates:
-        if idx in seen:
-            continue
-        seen.add(idx)
-        try:
-            return decoder.raw_decode(stdout, idx)[0]
-        except ValueError:
-            continue
-    return None
+    found = []
+    i, n = 0, len(stdout)
+    while i < n:
+        if stdout[i] in "[{":
+            try:
+                val, end = decoder.raw_decode(stdout, i)
+            except ValueError:
+                i += 1
+                continue
+            found.append((i, end, val))
+            i = max(end, i + 1)
+        else:
+            i += 1
+    manifest_candidates = [c for c in found if _is_pack_manifest_shape(c[2])]
+    full = [c for c in manifest_candidates if _is_full_pack_manifest_shape(c[2])]
+    picked = full[-1] if full else (manifest_candidates[-1]
+                                    if manifest_candidates else None)
+    meta = {"json_candidates": len(found),
+            "manifest_candidates": len(manifest_candidates),
+            "shape_rank": None, "picked_offset": None}
+    if picked is None:
+        return None, meta
+    meta["shape_rank"] = "full" if full else "shape"
+    meta["picked_offset"] = picked[0]
+    return picked[2], meta
 
 
-def run_npm_pack_dry_run(root: str):
+def _npm_pack_json(root: str, extra_args=()):
+    """执行一次 `npm pack --dry-run --json [extra]` → stdout / None（环境错误）。"""
     npm = "npm.cmd" if os.name == "nt" else "npm"
-    print("  执行：%s pack --dry-run --json" % npm)
+    argv = [npm, "pack", "--dry-run", "--json"] + list(extra_args)
+    print("  执行：%s" % " ".join(argv))
     try:
         proc = subprocess.run(
-            [npm, "pack", "--dry-run", "--json"],
+            argv,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -320,29 +423,88 @@ def run_npm_pack_dry_run(root: str):
         stderr = (proc.stderr or "")[:1500]
         print("  [环境错误] npm pack --dry-run 失败 rc=%s\n%s" % (proc.returncode, stderr))
         return None
+    return proc.stdout or ""
 
-    stdout = proc.stdout or ""
-    data = extract_first_json_value(stdout)
-    if data is None:
-        print("  [环境错误] npm pack --dry-run JSON 解析失败：未找到可解析的 JSON 值")
+
+def _manifest_paths(manifest):
+    """清单 → (安全条目列表, 越根条目列表)。越根条目**不**进入扫描面。"""
+    entries = manifest if isinstance(manifest, list) else [manifest]
+    paths, unsafe = [], []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        for item in (entry.get("files") or []):
+            if isinstance(item, dict):
+                raw = item.get("path")
+            else:
+                raw = item
+            if not isinstance(raw, str) or not raw:
+                continue
+            reason = unsafe_rel_reason(raw)
+            if reason:
+                unsafe.append("清单条目越出 --root：%r（%s）" % (raw[:120], reason))
+                continue
+            paths.append(normalized_rel(raw))
+    return sorted(set(paths)), unsafe
+
+
+def run_npm_pack_dry_run(root: str):
+    """→ {'paths','unsafe','trust','json_candidates','manifest_candidates'}；环境错误 → None。
+
+    发布清单**只认 npm 自身产出**：表达式解析后还要过两道独立判据，任一不成立即
+    记 trust 命中（门禁判负，不再「魔改清单照样绿」）：
+      1. 形态：必须识别到 npm 自身的**全形态**清单（见 extract_pack_manifest）；
+      2. 交叉核验：`--ignore-scripts` 的清单（无生命周期 stdout 污染，且脚本只能
+         **增**件）必须是所选清单的子集——诱饵为骗过 R1/R4 必然**漏列**真发布件
+         （例如 .env），漏列即被本判据坐实；脚本删件的异常形态同样落网。
+    """
+    stdout = _npm_pack_json(root)
+    if stdout is None:
+        return None
+    manifest, meta = extract_pack_manifest(stdout)
+    if manifest is None:
+        print("  [环境错误] npm pack --dry-run JSON 解析失败：未找到发布清单形态的 JSON 值")
         print(stdout[:1500])
         return None
 
-    data0 = data[0] if isinstance(data, list) and data else data
-    raw_files = data0.get("files") or []
-    paths = []
-    for item in raw_files:
-        if isinstance(item, dict):
-            path = item.get("path")
-        else:
-            path = str(item)
-        if path:
-            paths.append(normalized_rel(path))
-    paths = sorted(set(paths))
+    paths, unsafe = _manifest_paths(manifest)
+    trust = []
+    if meta["manifest_candidates"] > 1:
+        trust.append(
+            "stdout 含 %d 段清单形态 JSON（json 候选共 %d 段）——生命周期脚本"
+            "（prepare/prepack/postpack）向 stdout 打印了清单，疑似冒充发布清单；"
+            "已取 npm 自身产出（%s 形态·偏移 %d）"
+            % (meta["manifest_candidates"], meta["json_candidates"],
+               meta["shape_rank"], meta["picked_offset"]))
+    if meta["shape_rank"] != "full":
+        trust.append(
+            "未识别到 npm 自身产出的**全形态**清单（files 逐条含 path/size/mode）"
+            "——候选 %d 段、基本形态 %d 段，无法证明清单来自 npm（fail-closed）"
+            % (meta["json_candidates"], meta["manifest_candidates"]))
+
+    # 交叉核验：--ignore-scripts 清单 ⊆ 所选清单（脚本只能增件；诱饵必然漏列）
+    base_stdout = _npm_pack_json(root, ("--ignore-scripts",))
+    if base_stdout is None:
+        print("  [环境错误] 无法取得 --ignore-scripts 基线清单（清单可信性无法核验）")
+        return None
+    base_manifest, _base_meta = extract_pack_manifest(base_stdout)
+    if base_manifest is None:
+        print("  [环境错误] --ignore-scripts 基线清单解析失败（清单可信性无法核验）")
+        return None
+    base_paths, _base_unsafe = _manifest_paths(base_manifest)
+    missing = sorted(set(base_paths) - set(paths))
+    if missing:
+        trust.append(
+            "清单漏列 %d 件（--ignore-scripts 基线含而所选清单无，例：%s）——"
+            "脚本只能增件，漏列即清单不可信（疑似 stdout 冒充发布清单）"
+            % (len(missing), "、".join(missing[:5])))
+
     if not paths:
         print("  [环境错误] npm pack --dry-run 未返回任何文件")
         return None
-    return paths
+    return {"paths": paths, "unsafe": unsafe, "trust": trust,
+            "json_candidates": meta["json_candidates"],
+            "manifest_candidates": meta["manifest_candidates"]}
 
 
 def git_ls_files(root: str):
@@ -399,9 +561,10 @@ def local_mode(root: str, report: CheckReport) -> int:
 
     pkg_name = pj.get("name") or "未知包名"
     pkg_version = pj.get("version") or "未知版本"
-    paths = run_npm_pack_dry_run(root)
-    if paths is None:
+    manifest = run_npm_pack_dry_run(root)
+    if manifest is None:
         return 2
+    paths = manifest["paths"]
     print("  发布清单：%s@%s，文件数=%d" % (pkg_name, pkg_version, len(paths)))
 
     r1_file_hits = scan_r1_file_hits(paths)
@@ -440,6 +603,20 @@ def local_mode(root: str, report: CheckReport) -> int:
     allowed_count = len(untracked) - len(bad)
     r4_detail = "；非追踪=%d，允许=%d" % (len(untracked), allowed_count)
     report.rule("R4 非追踪件面", not bad, bad, detail=r4_detail)
+
+    # N216：清单来源与路径两条独立判据——四档内容规则只扫「清单里的件」，
+    # 清单本身被冒充/越根时四档全绿也不代表发布件干净（发版门禁的最后一道）。
+    report.rule(
+        "R5 清单路径安全",
+        not manifest["unsafe"],
+        manifest["unsafe"],
+        detail="；条目越出 --root 即拒（`..` / 绝对 / 盘符 / UNC）")
+    report.rule(
+        "R6 清单来源可信",
+        not manifest["trust"],
+        manifest["trust"],
+        detail="；json 候选=%d 清单候选=%d"
+               % (manifest["json_candidates"], manifest["manifest_candidates"]))
     return 0
 
 
@@ -462,6 +639,13 @@ def registry_mode(root: str, version: str, report: CheckReport) -> int:
     except Exception as exc:  # noqa: BLE001
         print("  [环境错误] 获取 packument 失败：%s: %s" % (type(exc).__name__, exc))
         return 2
+    # N217：私有镜像/被劫持 registry 返回顶层非对象 packument（`[]` / `"x"` / `0`）
+    # 时，旧实现直接 `.get` 抛 AttributeError 逃出 main——把「读不通」伪装成
+    # 「语义判负」（契约 2 实得 1）。
+    if not isinstance(pack, dict):
+        print("  [环境错误] packument 顶层须为对象（实得 %s）——拒绝解析"
+              % type(pack).__name__)
+        return 2
     pub_time = (pack.get("time") or {}).get(version, "未记录")
     print("  package=%s version=%s 发布时间=%s" % (pkg_name, version, pub_time))
 
@@ -469,6 +653,10 @@ def registry_mode(root: str, version: str, report: CheckReport) -> int:
         vdoc = http_get_json(version_url)
     except Exception as exc:  # noqa: BLE001
         print("  [环境错误] 获取版本端点失败：%s: %s" % (type(exc).__name__, exc))
+        return 2
+    if not isinstance(vdoc, dict):
+        print("  [环境错误] 版本端点顶层须为对象（实得 %s）——拒绝解析"
+              % type(vdoc).__name__)
         return 2
 
     dist = vdoc.get("dist") or {}
@@ -508,8 +696,16 @@ def registry_mode(root: str, version: str, report: CheckReport) -> int:
         with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tf:
             members = [m for m in tf.getmembers() if m.isfile()]
             rel_files = []
+            unsafe_members = []
             texts = {}
             for m in members:
+                reason = unsafe_rel_reason(m.name)
+                if reason:
+                    # 远端 tarball 带 `..` / 绝对路径条目（tar 路径穿越形态）：
+                    # 不进扫描面、不读内容，只记账（N216 同族：清单条目不得越根）
+                    unsafe_members.append("tarball 条目越根：%r（%s）"
+                                          % (m.name[:120], reason))
+                    continue
                 rel = normalized_rel(m.name)
                 rel_files.append(rel)
                 if is_text_path(rel) and (m.size or 0) <= TEXT_SIZE_LIMIT:
@@ -564,6 +760,11 @@ def registry_mode(root: str, version: str, report: CheckReport) -> int:
     report.rule("R3 隐私文本", not r3_hits, r3_hits)
 
     print("  [SKIP] R4 非追踪件面：--registry 模式跳过（工作区未必对应该版本提交）")
+    report.rule(
+        "R5 清单路径安全",
+        not unsafe_members,
+        unsafe_members,
+        detail="；tarball 条目越出包根即拒（`..` / 绝对 / 盘符 / UNC）")
     return 0
 
 
@@ -575,9 +776,10 @@ def selftest() -> bool:
     print("== 自检 ==")
     ok = True
 
-    def check(cond: bool, label: str):
+    def check(cond: bool, label: str, detail=""):
         nonlocal ok
-        print("  [%s] %s" % ("PASS" if cond else "FAIL", label))
+        print("  [%s] %s%s" % ("PASS" if cond else "FAIL", label,
+                               ("  " + str(detail)[:200]) if (detail and not cond) else ""))
         if not cond:
             ok = False
 
@@ -630,18 +832,54 @@ def selftest() -> bool:
     check(len(m_h) == 1, "N167 占位符在前+真凭据在后 → 真令牌仍判 FAIL")
     check(len(m_n) == 1, "N167 占位符命中仍显式 NOTE（不静默丢弃）")
 
-    polluted = "[prepare] 跳过构建：typescript 未安装（NODE_ENV=production）\n[\n  {\"path\": \"a.js\"}\n]\n"
-    parsed = extract_first_json_value(polluted)
-    check(isinstance(parsed, list) and bool(parsed) and parsed[0].get("path") == "a.js",
+    polluted = ("[prepare] 跳过构建：typescript 未安装（NODE_ENV=production）\n"
+                "[\n  {\"id\": \"x@1.0.0\", \"files\": [{\"path\": \"a.js\", \"size\": 3, \"mode\": 420}]}\n]\n")
+    parsed, meta = extract_pack_manifest(polluted)
+    check(isinstance(parsed, list) and bool(parsed) and parsed[0]["files"][0]["path"] == "a.js",
           "健壮解析：prepare 文本污染 stdout 时仍能提取清单")
-    clean = "[\n  {\"path\": \"b.js\"}\n]"
-    c_parsed = extract_first_json_value(clean)
-    check(isinstance(c_parsed, list) and c_parsed[0].get("path") == "b.js", "健壮解析：纯净 stdout")
-    check(extract_first_json_value("no json here") is None, "健壮解析：无 JSON 时返回 None")
+    check(meta["shape_rank"] == "full" and meta["manifest_candidates"] == 1,
+          "健壮解析：纯文本污染不产生额外清单候选（不误报冒充）")
+    clean = "[\n  {\"id\": \"b@1.0.0\", \"files\": [{\"path\": \"b.js\", \"size\": 1, \"mode\": 420}]}\n]"
+    c_parsed, c_meta = extract_pack_manifest(clean)
+    check(c_parsed is not None and c_parsed[0]["files"][0]["path"] == "b.js",
+          "健壮解析：纯净 stdout")
+    check(extract_pack_manifest("no json here")[0] is None, "健壮解析：无 JSON 时返回 None")
     obj_polluted = "[prepare] 跳过构建\n{\"files\": [{\"path\": \"c.js\"}]}\n"
-    o_parsed = extract_first_json_value(obj_polluted)
+    o_parsed, o_meta = extract_pack_manifest(obj_polluted)
     check(isinstance(o_parsed, dict) and bool(o_parsed.get("files")),
           "健壮解析：纯对象型 stdout 亦可提取（v15-8：候选起点含 {）")
+    check(o_meta["shape_rank"] == "shape",
+          "健壮解析：仅基本形态（无 path/size/mode）→ 记 shape 档（交 R6 判负）")
+
+    # N216 负例（本轮新补，修前缺失故缺陷长期在位）：prepare 先打印 **清单形态** JSON
+    # 诱饵（只列已追踪件以骗过 R4），npm 自身真清单在后——解析必须取真清单。
+    decoy = '[{"files":[{"path":"a.js"}]}]'
+    real_entry = ('{\n  "id": "p@1.0.0",\n  "name": "p",\n  "version": "1.0.0",\n'
+                  '  "filename": "p-1.0.0.tgz",\n  "files": [\n'
+                  '    {"path": ".env", "size": 37, "mode": 420},\n'
+                  '    {"path": "a.js", "size": 5, "mode": 420}\n'
+                  '  ],\n  "entryCount": 2\n}\n')
+    real_stdout = decoy + "\n" + "[\n" + real_entry + "]\n"
+    got, gmeta = extract_pack_manifest(real_stdout)
+    got_paths, got_unsafe = _manifest_paths(got)
+    check(got_paths == [".env", "a.js"],
+          "N216 负例：prepare 清单诱饵在前 → 仍取 npm 真清单（含 .env）", got_paths)
+    check(not got_unsafe, "N216 负例：真清单无越根条目")
+    check(gmeta["manifest_candidates"] == 2 and gmeta["shape_rank"] == "full",
+          "N216：诱饵被计为清单候选（R6 据此判负，不静默）", gmeta)
+
+    # N216 越根判据：清单条目不得越出 --root
+    check(unsafe_rel_reason("../x") is not None, "越根判据：'..' 段为不安全")
+    check(unsafe_rel_reason("..\\x") is not None, "越根判据：反斜杠形态亦归一判不安全")
+    check(unsafe_rel_reason("a/../../b.js") is not None, "越根判据：中段 '..' 为不安全")
+    check(unsafe_rel_reason("/etc/passwd") is not None, "越根判据：绝对路径为不安全")
+    check(unsafe_rel_reason("C:/Windows/x.txt") is not None, "越根判据：盘符路径为不安全")
+    check(unsafe_rel_reason("src/a.js") is None, "越根判据：包内相对路径放行")
+    esc_paths, esc_unsafe = _manifest_paths(
+        [{"files": [{"path": "../outside.md", "size": 1, "mode": 420},
+                    {"path": "a.js", "size": 1, "mode": 420}]}])
+    check(esc_paths == ["a.js"] and len(esc_unsafe) == 1,
+          "N216：越根条目不进扫描面且记账", (esc_paths, esc_unsafe))
 
     source_text = Path(__file__).read_text(encoding="utf-8")
     for label, rx in R3_RULES:

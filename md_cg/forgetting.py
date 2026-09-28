@@ -47,7 +47,8 @@ import math
 import os
 import time
 
-from . import lifecycle, nodefile
+from . import lifecycle, nodefile, protect
+from . import security as _security
 from .fsutil import append_jsonl, atomic_write, publish, read_jsonl
 from .mdcg import bigrams
 
@@ -243,12 +244,24 @@ def log(cg, rec):
     return rec
 
 
-# 生效条件：cg 与 node_id 必填，delta 默认 0.05；cg.get(node_id) 抛异常或返回假值时返回 None；imp 跨过 PROTECT_IMPORTANCE 即写 protected。
-def reinforce(cg, node_id, delta=0.05):
+# 生效条件：cg 与 node_id 必填，delta 默认 0.05；cg.get(node_id) 抛异常或返回假值时返回 None；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；imp 跨过 PROTECT_IMPORTANCE 即写 protected。
+def reinforce(cg, node_id, delta=0.05, override=False, actor=None):
     """MERGE 的落库动作：不新增节点，把「又一次见到」折算成既有节点的强化。
 
     重要性 +delta，merge_count +1；一旦跨过 0.7 自动打上保护标记
     （对齐「importance 提升（保护：不可遗忘…且受保护标记）」）。
+
+    N214（2026-09-28，同族未接线写点）：本函数此前**裸调 `cg._write_node`**
+    覆写既有节点，两个入口（`mdcos.remember_gated` 的 MERGE 分支 :3380、
+    `mdcos.maintain(action="prefeed", write=True)` 的 reinforce 分支 :2783）全程
+    无 principal 层闸、无保护闸、无快照无审计——同一身份对**同层**的 `add` 被
+    `AccessDenied`，而此路照样覆写（持 write 的 reflect 令牌以 `layer='self'`
+    发 `mdcg_remember(gated=true)`：`writelimit.check` 因形参层≠contextual 放行、
+    `assess` 按形参层比得重复度 1.0 → MERGE → 改写 self 层节点的
+    importance/merge_count 并自动打保护位）。落盘前统一过
+    `protect.guard_overwrite`（单点，对照 `MdCGSecure.add` 的层闸 + `MdCG.add`
+    的保护闸），`override=True` 时先快照进 `_protected_history` 并写
+    `_protected_audit.jsonl`。
     """
     try:
         node = cg.get(node_id)
@@ -257,6 +270,9 @@ def reinforce(cg, node_id, delta=0.05):
     if not node:
         return None
     fm = node.get("frontmatter") or {}
+    protect.guard_overwrite(cg, node_id, layer=fm.get("layer"),
+                            sensitivity=fm.get("sensitivity"),
+                            override=override, actor=actor)
     imp = min(1.0, float(fm.get("importance") or 0.5) + delta)
     fm["importance"] = imp
     fm["merge_count"] = int(fm.get("merge_count") or 0) + 1
@@ -285,9 +301,20 @@ def reinforce(cg, node_id, delta=0.05):
             "merge_count": fm["merge_count"], "protected": bool(fm.get("protected"))}
 
 
-# 生效条件：cg 必填，limit 默认 100；日志路径不存在时返回 []；否则返回 out[-limit:]，limit=0 时 -0 退化为 out[0:] 即全量。
+# 生效条件：cg 必填，limit 默认 100；日志路径不存在时返回 []；否则逐行 json.loads 后按行所属 node_id 做读可见性过滤（security.node_visible 为假的行整条剔除），再返回 out[-limit:]（limit=0 时 -0 退化为 out[0:] 即全量）。
 def history(cg, limit=100):
-    """读取遗忘留痕（最近 limit 条）。"""
+    """读取遗忘留痕（最近 limit 条，**按节点读可见性过滤**）。
+
+    N229（2026-09-28）：此前逐行 json.loads 原文返回（actor/verdict/reason/
+    importance/layer/duplicate_with…），零可见性、零归属过滤 ⇒ 任何持 read op
+    的身份（含无令牌 guest 经 `mdcg_forgetting_history`）读走全库他人的写入
+    闸留痕，并可借 `duplicate_with` 枚举 private 目标 id。口径与库读面统一：
+    逐行按 `security.node_visible`（跨层单点）判定行所属节点对本身份是否可见，
+    不可见/已删（索引无条目）→ 整条不出；设计者豁免（治理面本职）。
+
+    如实标注：行内 `duplicate_with` 指向的**另一**节点不做二次判定（那是
+    「去重目标」，与行所属节点不同源）——本轮按行所属节点收口，见报告残留。
+    """
     p = os.path.join(cg.root, LOG_FILE)
     if not os.path.exists(p):
         return []
@@ -298,9 +325,12 @@ def history(cg, limit=100):
                 line = line.strip()
                 if line:
                     try:
-                        out.append(__import__("json").loads(line))
+                        r = __import__("json").loads(line)
                     except Exception:
                         continue
+                    if not _security.node_visible(cg, (r or {}).get("node_id")):
+                        continue
+                    out.append(r)
     except Exception:
         return []
     return out[-limit:]

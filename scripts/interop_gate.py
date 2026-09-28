@@ -23,20 +23,34 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_REQUIRED = ("verdict", "valid", "assertions_ok", "failure_reason")
+_REQUIRED = ("verdict", "valid", "assertions_ok", "failure_reason",
+             "passed", "failed")
 
 
 def _load(path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         v = json.load(f)
+    # N217：顶层**类型闸**必须先于字段判定。旧实现直接 `k not in v`——对字符串
+    # 而言这是**子串成员测试**：一个含四个字段名的 JSON 字符串（`"verdict valid
+    # assertions_ok failure_reason"`）连 missing 闸都绕过，随后 `v.get(...)` 抛
+    # AttributeError 逃出 main（契约「形状非法=3」实得 1）。合法 JSON 但顶层非
+    # 对象（数组/标量/null）同型：一律判形状非法（3），拒绝解析而不是猜测。
+    if not isinstance(v, dict):
+        raise ValueError(
+            f"verdict 顶层须为对象（实得 {type(v).__name__}）——拒绝解析")
     missing = [k for k in _REQUIRED if k not in v]
     if missing:
         raise ValueError(f"缺契约字段: {missing}（旧版产物？重跑互验生成新版）")
     if not isinstance(v.get("valid"), bool) or not isinstance(
             v.get("assertions_ok"), bool):
         raise ValueError("valid/assertions_ok 须为布尔")
-    if not isinstance(v.get("passed"), int) or v["passed"] < 0:
-        raise ValueError("passed 须为非负整数")
+    # 计数口径与产出端 md_cg/interop.shape_check_verdict 一致（「非非负整数」即拒；
+    # bool 是 int 的子类，须显式排除），否则 verdict=pass 分支的 f-string 会因
+    # 缺键/坏形状抛 KeyError 逃出 main（形状非法=3 实得 1）。
+    for key in ("passed", "failed"):
+        val = v.get(key)
+        if not isinstance(val, int) or isinstance(val, bool) or val < 0:
+            raise ValueError(f"{key} 须为非负整数（实得 {val!r}）")
     return v
 
 

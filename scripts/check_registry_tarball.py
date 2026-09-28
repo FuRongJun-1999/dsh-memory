@@ -36,10 +36,20 @@ _TARBALL_RE = re.compile(r"^tarball:[ \t]*(\S+)[ \t]*$", re.M)
 _VERSION_RE = re.compile(r"(\d+\.\d+\.\d+)")
 
 
-# 生效条件：path 指向的文件按 UTF-8 可读且为含 "version" 键的 JSON 对象时返回该键的值（缺该键抛 KeyError，非 JSON 抛 ValueError，打不开抛 OSError，源码均未捕获）。
+# 生效条件：path 指向的文件按 UTF-8 可读且为含 "version" 键的 JSON 对象时返回该键的值；顶层非对象（合法 JSON 但为数组/标量）抛 ValueError，缺 "version" 键抛 KeyError，非 JSON 抛 ValueError，打不开抛 OSError——四者均由 check() 的 except 收敛为退出码 2（读不通）。
 def read_package_version(path):
+    """→ package.json 的 version 值。
+
+    N217（2026-09-28）：合法 JSON 但**顶层非对象**（被写坏成 `[1,2,3]` / `"x"` /
+    `null`）时，旧实现 `json.load(fh)["version"]` 抛 TypeError——不在 check() 的
+    `except (OSError, ValueError, KeyError)` 内，逃出 main 后退出码落到与本脚本
+    自陈契约相反的一侧（读不通=2 实得 1），把「读不通」伪装成「语义判负」。
+    """
     with open(path, "r", encoding="utf-8") as fh:
-        return json.load(fh)["version"]
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        raise ValueError("package.json 顶层须为对象（实得 %s）" % type(data).__name__)
+    return data["version"]
 
 
 # 生效条件：path 指向文件读出的全文经 _TARBALL_RE.search 命中时返回捕获组 1，无任何匹配时返回 None。

@@ -230,13 +230,22 @@ export class LingshuBridge {
 
     this.rl.on('line', (line: string) => {
       if (!line.trim()) return
-      let msg: Record<string, unknown>
+      // N219：parse 结果必须**校验类型**——JSON.parse 只挡「非 JSON」，
+      // 一行 `null`（崩溃残留 / 第三方写管道 / 新版打印）解析合法，随后读
+      // msg['id'] 即抛 TypeError；抛出点在事件回调内且无 try → 逃逸为进程级
+      // uncaughtException，宿主 DSH 进程整体死亡（每行都在监听、无需凭据）。
+      let parsed: unknown
       try {
-        msg = JSON.parse(line)
+        parsed = JSON.parse(line)
       } catch {
         console.error(`[lingshu-bridge] 非 JSON 输出: ${line.slice(0, 200)}`)
         return
       }
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        console.error(`[lingshu-bridge] 非对象 JSON 输出: ${line.slice(0, 200)}`)
+        return
+      }
+      const msg = parsed as Record<string, unknown>
       if (typeof msg['id'] === 'number') {
         this.settle(msg['id'] as number, msg)
       }

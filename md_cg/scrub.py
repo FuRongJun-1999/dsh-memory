@@ -715,8 +715,8 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
 # ④ 校准偏差
 # --------------------------------------------------------------------------
 
-# 生效条件：对 cg 中每个「layer 不在 SELF_LAYERS」且 evidence_count≥int(min_evidence)（min_evidence=0 时该比较恒假而不早退）的节点，若 protect.is_protected 为假或 override 为真，且 cg.get(nid) 未抛异常并返回真值节点，则取 fm.get("confidence", 0.6)（缺键才回落 0.6，键存在为 None/假值不回落）为 old，算出 round(max(0.0, min(0.99, old+float(offset))),4)，与 old 差<1e-9 时跳过，否则写 fm["confidence"] 与 fm["calibration"] 并调用 cg._write_node 成功时 adjusted+1（写回异常被吞掉不计数），返回 (adjusted, skipped)，其中 skipped 只累计「layer 属 SELF_LAYERS」或被 protect 拦下且非 override 的节点。
-def _apply_offset(cg, offset, *, override=False, min_evidence=1):
+# 生效条件：对 cg 中每个「layer 不在 SELF_LAYERS」且 evidence_count≥int(min_evidence)（min_evidence=0 时该比较恒假而不早退）的节点，若 protect.is_protected 为假或 override 为真，且 cg.get(nid) 未抛异常并返回真值节点，则先以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计，越权抛 AccessDenied 且整批中止），再取 fm.get("confidence", 0.6)（缺键才回落 0.6，键存在为 None/假值不回落）为 old，算出 round(max(0.0, min(0.99, old+float(offset))),4)，与 old 差<1e-9 时跳过，否则写 fm["confidence"] 与 fm["calibration"] 并调用 cg._write_node 成功时 adjusted+1（写回异常被吞掉不计数），返回 (adjusted, skipped)，其中 skipped 只累计「layer 属 SELF_LAYERS」或被 protect 拦下且非 override 的节点。
+def _apply_offset(cg, offset, *, override=False, min_evidence=1, actor=None):
     nodes = _nodes(cg)
     adjusted = skipped = 0
     for nid, e in nodes.items():
@@ -736,6 +736,20 @@ def _apply_offset(cg, offset, *, override=False, min_evidence=1):
         if not node:
             continue
         fm = node.get("frontmatter") or {}
+        # N222（2026-09-28，同族未接线写点）：本函数是 calibrate 落库动作，此前
+        # 直调 `cg._write_node` 改写**全库** `layer∉(self,anchor)` 且
+        # `evidence_count≥1` 节点的 confidence/calibration——不过 principal 层写
+        # 白名单、不过引擎级保护闸、`override` 形参直通（含 importance≥0.7 的
+        # 不可遗忘节点），无快照无审计。持 sustain 令牌（`tokens.py:190`
+        # `layers_allow=('self',)`）即可改 knowledge 层节点置信度（实测
+        # `n_adjusted=5`，0.8→0.95；`override=True` 再 +1）。落盘前统一过
+        # `protect.guard_overwrite`：层/敏感度取**节点 fm 真值**（不信索引缓存），
+        # 解析与层闸由 `protect.require_layer` 单点承担，越权即 AccessDenied
+        # 整批中止（fail-closed，不静默跳过——否则越权面被伪装成「无可校准节点」）；
+        # `override=True` 走同一闸的显式放行分支（快照 + `_protected_audit.jsonl`）。
+        protect.guard_overwrite(cg, nid, layer=fm.get("layer"),
+                                sensitivity=fm.get("sensitivity"),
+                                override=override, actor=actor)
         old = float(fm.get("confidence", 0.6))
         new = round(max(0.0, min(0.99, old + float(offset))), 4)
         if abs(new - old) < 1e-9:
@@ -777,7 +791,8 @@ def calibrate(cg, *, apply: bool = False, override: bool = False, actor=None,
     adjusted = skipped = 0
     if apply and abs(offset) > 1e-9:
         adjusted, skipped = _apply_offset(cg, offset, override=override,
-                                          min_evidence=min_evidence)
+                                          min_evidence=min_evidence,
+                                          actor=actor)
         _log(cg, "calibrate", ok=True, offset=offset, gap=gap,
              adjusted=adjusted, actor=actor)
     blind = 0

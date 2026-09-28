@@ -963,6 +963,10 @@ class MdCG:
         self._root_real = None
         self._realpath_cache = {}
         self._log = None
+        # N212（2026-09-28）：本进程分片日志的绝对路径——代际签名把它排除在外
+        # （自身写入已由 _stage 落进内存索引，计入签名会让每次自身 flush 都被
+        # 判成「他进程变化」→ 自身写入触发全量自重载）。flush() 里登记。
+        self._own_shard = None
         self.index = self._load_index()
         # P1b-2（2026-09-26，DSH 在役复验）：索引只在本行装载一次，此后
         # read/get/search 全走内存态——其它进程（review_cli autoflush=1）
@@ -1019,20 +1023,51 @@ class MdCG:
         idx["buckets"] = self._count_buckets(idx["nodes"])
         return idx
 
-# 生效条件：以 os.stat(self.index_path) 返回 (st_mtime_ns, st_size) 二元组；文件不存在或 stat 抛 OSError 时返回 None（stat 异常静默——签名探测绝不阻塞读）；
+# 生效条件：返回二元组（快照签名, 他进程分片签名元组）：快照签名为 os.stat(self.index_path) 的 (st_mtime_ns, st_size)，stat 抛 OSError 时 None；分片签名为 self.index_log_dir 下以 ".log" 结尾、绝对路径不等于 self._own_shard 的条目按文件名排序后的 (文件名, st_size, st_mtime_ns) 元组（目录不可列或单条目 stat 失败时跳过该条目）；
     def _index_signature(self):
-        """_index.json 文件签名（P1b-2 跨进程读面代际的廉价哨兵）。
+        """索引代际签名（P1b-2 跨进程读面代际的廉价哨兵）。
 
-        只 stat 一次（微秒级、无 open 无解析）；(mtime_ns, size) 二元组在
-        NTFS 100ns / ext4 ns 粒度下足以识别「他进程写快照」。None = 快照
-        不存在（空库或写方尚未 compact），与他进程首次落快照的 None→非 None
-        变化同样可判。
+        N212（2026-09-28）：原口径**只 stat `_index.json`**，而 `flush()` 只追加
+        `_index_log` 分片、从不重写快照 ⇒「长期存活、autoflush=1 只 flush 不
+        close」的写方（MCP serve 本身即此形态）签名恒不变，对常驻进程
+        **永久隐形**：写保护闸静默失效（N195 修复面回退）、存在性假阴性
+        （get→None/forget→not_found/override 无效）、文档承诺的逃逸口
+        `maintain action=reload` 恒 reloaded=false。故签名必须覆盖**分片日志**
+        （append-only ⇒ (size, mtime_ns) 单调可判）。
+
+        `self._own_shard` 排除在签名外：本进程分片的记录写入时已随 `_stage`
+        落进内存索引，若计入则每次自身 flush 都把签名推成新代际 → 下一次读面
+        探活白重载一次（自身写入触发自重载，N195 守卫⑤的性能不变量）。排除
+        按**绝对路径精确比对**：不能按 pid 前缀推断（同进程多实例共用 pid，
+        那样会把兄弟实例的分片一并排除，漏掉「同进程他实例只 flush」的代际）。
+
+        快照仍只 stat 一次（微秒级、无 open 无解析）；None = 快照不存在（空库或
+        写方尚未 compact），与他进程首次落快照的 None→非 None 变化同样可判。
         """
         try:
             st = os.stat(self.index_path)
-            return (st.st_mtime_ns, st.st_size)
+            snap = (st.st_mtime_ns, st.st_size)
         except OSError:
-            return None
+            snap = None                # stat 异常静默——签名探测绝不阻塞读
+        own = getattr(self, "_own_shard", None)
+        own_abs = os.path.abspath(own) if own else None
+        try:
+            names = sorted(os.listdir(self.index_log_dir))
+        except OSError:
+            names = []
+        parts = []
+        for fn in names:
+            if not fn.endswith(".log"):
+                continue
+            p = os.path.join(self.index_log_dir, fn)
+            if own_abs and os.path.abspath(p) == own_abs:
+                continue               # 本进程分片：记录已在内存索引里
+            try:
+                s = os.stat(p)
+            except OSError:
+                continue               # 已被 compact 清走（delete-pending）：不构成代际
+            parts.append((fn, s.st_size, s.st_mtime_ns))
+        return (snap, tuple(parts))
 
 # 生效条件：stat 对比 _index_signature() 与 self._index_sig，相等（含双侧 None）即返回 False 不做任何事；不等则调 _load_index() 重载，OSError/ValueError 时静默放弃并返回 False（重载失败不阻塞读，沿用旧内存态）；成功后把 self._dirty 重放回新索引（None=tombstone pop、否则覆盖，与 _load_index 的日志重放同语义——本实例未 flush 的写入不得因重载从检索面消失）并重算 buckets，替换 self.index、刷新 self._index_sig、返回 True；
     def _maybe_reload_index(self):
@@ -1040,14 +1075,15 @@ class MdCG:
 
         语义边界（读码定案）：
         · flush() 只追加 _index_log 分片、不改 _index.json（见 flush 注释）
-          → 签名不变 → 自身写入/落账**永不**触发重载（无自重载循环）；
+          → 快照签名不变、且**本进程分片**被 _index_signature 排除
+          → 自身写入/落账永不触发重载（无自重载循环）；**他进程**分片变化
+          （只 flush 未 close 的存活写方，N212）则**构成代际变化**——这正是
+          「autoflush=1 只 flush 不 close」的 MCP serve 写方此前的隐形面；
         · compact_index / rebuild_index 写 _index.json 后已主动刷新签名，
           同理不触发；
-        · 他进程只有写出新快照（compact/rebuild，典型在 close）才改变签名
-          → 此时重载并重放分片日志（_load_index 既有行为），写入可见；
-          仅追加日志、尚无新快照的存活写方不在本探测面内（显式触发可用
-          maintain action=reload，但日志记录只有在快照重写时才会并入）；
-        · 本实例 _dirty 未 flush 的条目在重载后**重放回内存索引**——
+        · 他进程写出新快照（compact/rebuild，典型在 close）或新分片记录
+          （flush）都改变签名 → 此时重载并重放分片日志（_load_index 既有行为），
+          写入可见；本实例 _dirty 未 flush 的条目在重载后**重放回内存索引**——
           _stage 双写 index+_dirty 的「检索看得到未落盘写入」语义保持。
         """
         sig = self._index_signature()
@@ -1076,6 +1112,15 @@ class MdCG:
         # realpath 进程内缓存同款兜底：签名变化 = 他进程重写过快照，旧索引
         # 代里的解析结果一并弃用（重载是稀疏事件，不构成热路径开销）。
         self._realpath_cache.clear()
+        # N224（2026-09-28）：chain / subgraph / trust 三个**派生拓扑缓存**同款
+        # 失效。此前只有本地写路径（_stage 尾部三连 invalidate_cache）清它们，
+        # 重载路径不清 ⇒ 重载后邻接表仍留着「已不可见节点」的 id、边条件与下游
+        # 拓扑（walk/explain/causal_path/expand_from_seeds 因此绕过读隔离），
+        # 且新快照的节点/边在下次本地写之前**永不进拓扑**（他进程写方只 flush
+        # 时，本地可能长时间不写）。三者与写路径同源同序，不另造第二份口径。
+        subgraph.invalidate_cache(self)
+        chain.invalidate_cache(self)
+        trust.invalidate_cache(self)
         return True
 
 # 生效条件：遍历 LAYERS 各层目录树（os.walk，不读文件内容），对每个可达目录记录其相对 root 的正斜杠路径到 os.stat().st_mtime_ns 的映射；stat 抛 OSError 的目录跳过；返回该映射。
@@ -1189,6 +1234,10 @@ class MdCG:
         with FileLock(self.index_path):
             if self._log is None:
                 self._log = ShardedLog(self.index_log_dir)
+            # N212：登记本进程分片（代际签名排除用）——必须在 append 之前落定，
+            # 否则「分片文件已存在但 _own_shard 未登记」的窗口里，本进程自己的
+            # 追加会被自家探活当成他进程变化（多线程下白重载一次）。
+            self._own_shard = self._log.path
             for nid, e in self._dirty.items():
                 self._log.append({"id": nid, "e": e})
             self._dirty.clear()   # 保住 _DirtyDict 钩子（批次 23 D-4：不得换新 dict）
@@ -1638,6 +1687,26 @@ class MdCG:
         # 取旧状态优先读**索引快照**（免读盘）；索引缺该键（升级前的旧库）才回读
         # 节点文件兜底——不兜底会把存量 converged/demoted 节点误判成 active。
         prev_entry = (self.index.get("nodes") or {}).get(node_id)
+        # N221（2026-09-28，同族未接线写点）：覆写既有节点时**层位完全由形参
+        # `layer` 决定**（上方 :1560/:1571 由它派生落盘目录与文件名），而层闸
+        # 校验的又是同一形参（`MdCGSecure.add` :3889）——传「自己可写的层」即可
+        # 覆写并**顶替他人层**既有节点：新文件落自己层、旧层同 id 文件被下方
+        # :1794-1801 `os.remove` 清掉、索引改指新路径。语义等同 `_move_layer`
+        # 搬迁（= 源层一次删除写 + 目标层一次新增写），却绕过 N209 的源/目标双
+        # `protect.require_layer` 与 `guard_move`：无降级审计、原内容被删。
+        # 故「既有节点跨层覆写」必须与 `_move_layer` 同口径——**源层**过 principal
+        # 层写闸（对真源层，不是调用方声明的目标层），再过引擎级搬迁保护闸
+        # （受保护节点降级出保护层需显式 override=True）。目标层闸已由
+        # `MdCGSecure.add` 用同一形参（即真目标层）把守，不重复第二份口径。
+        # 次序对齐 N131/N209：principal 层闸在先、保护闸在后。
+        if prev_entry is not None:
+            _prev_layer = str(prev_entry.get("layer") or "")
+            if _prev_layer and _prev_layer != layer:
+                protect.require_layer(self, node_id, layer=_prev_layer,
+                                      sensitivity=prev_entry.get("sensitivity"),
+                                      actor=extra.get("actor"))
+                protect.guard_move(self, node_id, layer, override=override,
+                                   actor=extra.get("actor"))
         prev_state = lifecycle.state_of(prev_entry)
         if prev_entry and lifecycle.STATE_FIELD not in prev_entry:
             prev_state = lifecycle.state_of(
