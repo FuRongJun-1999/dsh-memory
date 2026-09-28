@@ -73,7 +73,9 @@ function extractText(blocks: ContentBlock[]): string {
  * 命中 → 替换为 [已过滤:类别]（保留对话主体）；过滤后只剩占位符/空白 → 整条跳过。
  * 纯内容过滤，不涉及身份认证——开源场景下的隐私保护。
  */
-const SENSITIVE_PATTERNS: Array<{ re: RegExp; label: string }> = [
+// 导出供守卫使用（test/token_redact_parity.test.ts 需要按「交换序」复跑同一条链，
+// 以证明顺序不再是安全性质）；对外仍属内部实现，不承诺稳定 ABI。
+export const SENSITIVE_PATTERNS: Array<{ re: RegExp; label: string }> = [
   { re: /sk-[A-Za-z0-9_-]{8,}/g, label: 'API密钥' },
   { re: /\b(?:api[_-]?key|apikey|access[_-]?token)\b\s*[:=]\s*[^\s,，。;；]+/gi, label: 'API密钥' },
   { re: /\b(?:password|passwd|pwd)\b\s*[:=]\s*[^\s,，。;；]+/gi, label: '密码' },
@@ -88,10 +90,24 @@ const SENSITIVE_PATTERNS: Array<{ re: RegExp; label: string }> = [
   // 顺序要点：**完整令牌在前**。四段形态为 `mdcg1.<role>.<token_id>.<secret>`
   // （md_cg/tokens.py:make_token），若先匹配裸 token_id，secret 段会留成明文
   // （实测：`…designer.[已过滤:id].SECRET…`），故整条令牌必须整段吃掉。
-  { re: /\bmdcg1\.[A-Za-z]+\.[A-Za-z0-9_]+\.[A-Za-z0-9_-]{16,}/g, label: '令牌' },
+  //
+  // 2026-09-28 加固（PR#46 合并当批）：**去 `\b` 词边界、role/secret 字符类放宽、
+  // secret 下限 16→8**——原式有三处「整条规则失配 ⇒ id 规则独吃 id、secret 留明文」
+  // 的触发面（实测复现）：① 前导为词字符（`k_mdcg1.…`、`a mdcg1.…` 紧邻字母数字下划线
+  // 时 `\b` 失效）；② role 含非字母（如 `sub-agent1`——`parse_token` 只要求非空，
+  // 不校验字符集）；③ secret 短于 16 字符（`make_token` 不校验长度）。三者都让整条规则
+  // 失配，而裸 id 规则照旧命中 ⇒ secret 明文落库（与顺序错配同一形态）。放宽后与禁表
+  // 第 11 条 `mdcg1\.[A-Za-z0-9._\-]{20,}`（本就无 `\b`）同口径。
+  { re: /mdcg1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_]+\.[A-Za-z0-9_-]{8,}/g, label: '令牌' },
   // 裸令牌 id（`tk_` + 12 位 hex，1.15e14 空间不可猜——由 tokens.py 的
   // `secrets.token_hex(6)` 生成；id 本身即凭据，与禁表 `\btk_[0-9a-f]{8,}\b` 同形）。
-  { re: /\btk_[0-9a-f]{8,}\b/g, label: '令牌id' },
+  //
+  // 加固：**把尾随的 `.secret` 段一并吃掉**（`(?:\.[A-Za-z0-9_-]{4,})?`）。不变量＝
+  // 「id 规则绝不能只吃 id、把 secret 留给下一条规则或留给用户」——顺序正确时那条尾巴
+  // 由整条规则先吃；顺序被改、或整条规则因任何理由失配时，id 规则自己带上尾巴，
+  // **顺序从此不再是安全性质**（防御纵深，由 test/token_redact_parity.test.ts ④ 钉住）。
+  // 下限取 4 是为了不吃掉 `tk_…py` / `tk_…md` 这类短文件名尾巴。
+  { re: /\btk_[0-9a-f]{8,}(?:\.[A-Za-z0-9_-]{4,})?/g, label: '令牌id' },
 ]
 
 /** 脱敏：替换敏感片段；返回 null 表示整条都是敏感内容（应跳过写入）。 */
