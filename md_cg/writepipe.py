@@ -219,10 +219,15 @@ def _gate_audit(ctx):
     if st == audit.REJECT:
         # 先脱敏再截断：命中禁表的凭据不得随负记忆落盘（issue #43）；
         # 截断在后，避免凭据跨 200 字边界被截成不再匹配模式的残片而漏过。
+        # tags 与正文**同口径脱敏**（PR#44 复核补）：正文命中而 tags 夹带凭据时，
+        # 原先 tags 原样进负记忆——凭据照样落盘，只是换了个字段。
+        tags = a.get("tags")
+        if isinstance(tags, (list, tuple)):
+            tags = [audit.redact_forbidden(t) if isinstance(t, str) else t for t in tags]
         rid = cg.add_rejected(audit.redact_forbidden(a.get("content") or "")[:200],
                               verdict["evidence"],
                               verification_basis=verdict.get("basis") or "test",
-                              tags=a.get("tags"))
+                              tags=tags)
         return {"ok": False, "id": rid, "committed": False,
                 "moved_to": "rejected", "verdict": verdict,
                 "hint": _reject_hint(verdict)}

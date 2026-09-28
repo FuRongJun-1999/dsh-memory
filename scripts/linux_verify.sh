@@ -43,7 +43,7 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_p29_session_ingest_export test_p2 test_p2_mcp test_p3 \
          test_p43_pooling test_retr_gates_prodpath \
          test_readcache_prodpath test_mdstore_search_parity \
-         test_ccg_form_parity test_wisdom_md_store; do
+         test_rejected_redact test_rejected_credential_forms test_ccg_form_parity test_wisdom_md_store; do
   out=$(python3 -m "md_cg.$t" 2>&1 | tail -1); rc=$?
   record "md_cg.$t" $rc
   echo "    -> $out"

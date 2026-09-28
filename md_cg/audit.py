@@ -133,7 +133,7 @@ def _rule_check(text, rules, kind="text"):
     return ACCEPT, f"通过 {len(forbidden)} 条禁止 + {len(required)} 条必需规则", None
 
 
-# 生效条件：rules 为 None 时回落 load_rulebook()；对 rules['forbidden'] 去空后的每条模式按下标 i（从 1 起）把 text 中的全部命中替换为「[已过滤:禁表#i]」（非法正则跳过、不抛错），返回替换后的文本；无 forbidden 规则时原样返回 text。
+# 生效条件：rules 为 None 时回落 load_rulebook()；对 rules["forbidden"] 去空后的每条模式求出全部命中跨度，按跨度合并（重叠/相邻者合并、占位符取其中**最先声明**那条规则的序号）后整段替换为「[已过滤:禁表#i]」，返回替换后的文本；非法正则跳过不抛错；无命中时原样返回 text。
 def redact_forbidden(text, rules=None):
     """把命中禁止规则的片段替换成占位符——负记忆（rejected）落盘前用。
 
@@ -141,15 +141,42 @@ def redact_forbidden(text, rules=None):
     片段正是**不该入库的东西**（凭据形态），原样写进 rejected 层等于拦截
     之后又把凭据存了一遍（issue #43）。占位符只带禁表序号，不带原文，也
     不带原文哈希；否决原因（evidence）里已有命中的模式，可审计。
+
+    为什么按**跨度合并**而不是逐条 `re.sub` 串行替换（2026-09-28 PR#44 复核
+    实测的反例）：串行替换时先命中的窄规则会先把文字换成占位符，宽规则随后
+    就再也匹配不上那段被替换过的文字——全形态令牌 `mdcg1.<role>.<id>.<secret>`
+    里 id 段先被 `\\btk_...` 掩掉，宽规则 `mdcg1\\....` 便无法命中，
+    **密钥段原样留在负记忆里**（拦截了 id、漏了真正的凭据）。跨度合并与规则
+    书写顺序无关：任一规则命中的字符一律被掩，重叠部分并为一段。
     """
     if rules is None:
         rules = load_rulebook()
-    for i, pat in enumerate([r for r in (rules.get("forbidden") or []) if r], 1):
+    pats = [r for r in (rules.get("forbidden") or []) if r]
+    spans = []          # (起, 止, 规则序号) —— 序号为去空后 1 起的下标（占位符标签）
+    for i, pat in enumerate(pats, 1):
         try:
-            text = re.sub(pat, f"[已过滤:禁表#{i}]", text)
+            for m in re.finditer(pat, text):
+                if m.end() > m.start():     # 零宽命中不掩（掩了等于插字符）
+                    spans.append((m.start(), m.end(), i))
         except re.error:
-            continue
-    return text
+            continue                        # 非法正则跳过，不因一条坏规则废掉整次脱敏
+    if not spans:
+        return text
+    spans.sort()
+    merged = []         # 重叠或相接的跨度并成一段，标签取最先声明的那条规则
+    for st, en, i in spans:
+        if merged and st <= merged[-1][1]:
+            pst, pen, pi = merged[-1]
+            merged[-1] = (pst, en if en > pen else pen, pi if pi < i else i)
+        else:
+            merged.append((st, en, i))
+    out, last = [], 0
+    for st, en, i in merged:
+        out.append(text[last:st])
+        out.append("[已过滤:禁表#%d]" % i)
+        last = en
+    out.append(text[last:])
+    return "".join(out)
 
 
 # ---------- 内建验证器 ----------
