@@ -186,20 +186,22 @@ fn cmd_serve(args: &[String], jobs: PathBuf) -> i32 {
             exec_py.display()
         );
     }
-    // P11 结果完整性锚（批次53）：密钥取 hive 既有配置/令牌面（serve_start 已把
-    // config.local.json 注入本进程 env）。Some = 锚判据生效（stderr 显式声明，不静默）；
-    // None = 锚判据不启用（零配置部署行为不变——但锚预期任务将按 fail-closed 判
-    // needs_review，见 classify_result）。
+    // P11 结果完整性锚（批次53；N190 链收窄）：密钥取 hive 既有**身份/令牌面**
+    // （serve_start 已把 config.local.json 注入本进程 env）。Some = 锚判据生效
+    // （stderr 显式声明，不静默）；None = 锚判据不启用（零配置部署行为不变——
+    // 但锚预期任务将按 fail-closed 判 needs_review，见 classify_result）。
+    // N190：HIVE_API_KEY（模型密钥）不再是本链兜底环，提示只列身份两环。
     let result_key = hive::keyres::resolve_key_from_env();
     match &result_key {
         Some(k) => eprintln!(
-            "[hive serve] 结果完整性锚：已启用（密钥来源=hive 既有配置/令牌面 env，\
+            "[hive serve] 结果完整性锚：已启用（密钥来源=hive 身份/令牌面 env，\
              {} 字符）",
             k.chars().count()
         ),
         None => eprintln!(
-            "[hive serve] 结果完整性锚：未启用（HIVE_ORCH_TOKEN / \
-             HIVE_ORCH_TOKEN_FILE / HIVE_API_KEY 均缺）——锚预期任务将判 needs_review"
+            "[hive serve] 结果完整性锚：未启用（身份链 HIVE_ORCH_TOKEN / \
+             HIVE_ORCH_TOKEN_FILE 均缺；HIVE_API_KEY 是模型密钥、N190 起不作锚链兜底）\
+             ——锚预期任务将判 needs_review"
         ),
     }
     let cfg = ServeCfg::new(jobs, workers, exec_py)

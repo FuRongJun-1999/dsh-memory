@@ -103,14 +103,22 @@ cd hive && cargo build --release
 #   CreateProcess 不自动补 .exe 后缀，故须写全 cargo.exe（只写 cargo 会 WinError 2）。
 #   本机实证：shutil.which('cargo') 为 None，但 ~/.cargo/bin 工具链完整（cargo/rustc/rustup 齐备）。
 
-# 配置密钥（执行器用）
-set HIVE_API_KEY=你的密钥
+# 配置密钥（三角色分离，见「密钥三角色」节的对照表）
+# ① 模型（网关）密钥 = 普通配置，serve 启动时并入 env 并**默认继承给执行器**（LLM 任务靠它）
+set HIVE_API_KEY=你的模型密钥
+# ② 身份令牌 / 锚密钥（独立、**不进执行器**）——只跑编排任务才需要；spec.orchestrate 真值任务条件重注
+#    set HIVE_ORCH_TOKEN_FILE=<orch.token 路径>
+# ③ 子代理覆盖（**可选**）——子任务要用另一套模型凭据时才设，缺省继承上面的主密钥
+#    set HIVE_SUBAGENT_API_KEY=子代理密钥        &  set HIVE_SUBAGENT_API_BASE=子代理 base
+# 本部署不跑 LLM（只跑确定性任务）时显式声明，免被启动前置校验拦下：set HIVE_LLM_DISABLED=1
 
 # 起 serve——**唯一推荐正路**：serve_start.py 读本地配置注入 env（key 不落命令行历史）
 # 配置文件：hive/config.local.json（已 gitignore；值支持 直值 | {"env":"系统变量名"} | {"file":"key文件路径"}）
 #   首次使用请复制入库模板 hive/config.local.example.json 改名后改值（模板本身不入 gitignore，随仓分发）
 # 推荐形态：HIVE_API_KEY 引系统变量（如 DEEPSEEK_API_KEY），HIVE_WEB_SEARCH_KEY 引 key 文件
-python serve_start.py            # 拉起（已在跑则拒绝）；--stop 停止；--restart 重启；--rebuild 重编译并重启；--status 查看心跳与任务统计
+# 启动前只读核对三角色来源与掩码值（绝不出明文）：python serve_start.py --show-config
+# 缺模型密钥且未声明 HIVE_LLM_DISABLED 时启动前置校验会拒绝拉起并点名该配哪个键（不静默起一个必报错的 serve）
+python serve_start.py            # 拉起（已在跑则拒绝）；--stop 停止；--restart 重启；--rebuild 重编译并重启；--status 查看心跳与任务统计（附配置摘要）；--show-config 只读查看三角色配置摘要
 # ⚠ 重启/重编译（含 --restart/--rebuild）必须由 **serve 进程树外**执行：主代理 CLI 直跑，
 #   或 MCP `hive_restart` 工具（MCP 进程是宿主拉起的，独立于 serve 树，重启 serve 不会自杀）。
 #   经蜂巢任务派发跑 restart 仍会自毁：worker 属 serve 进程树，stop 杀 serve 即杀自己
@@ -163,10 +171,13 @@ env 在启动时固化，子进程无法反查——故 `hive_doctor` 从**serve
 
 **两条拉起路径的 env 口径并不相同**（此为实测缺陷，勿混同）：
 
-- `python hive/serve_start.py` / MCP 首次 spawn → 读 `config.local.json` 注入 ⇒ 与配置一致；
+- `python hive/serve_start.py` / MCP 首次 spawn → 读 `config.local.json` 注入 ⇒ 与配置一致
+  （且启动前有前置校验：无可用模型密钥且未声明 `HIVE_LLM_DISABLED` 真值即拒绝拉起）；
 - 裸 `hive.exe serve` → **不读任何配置**，只认进程 env ⇒ `HIVE_EXEC_PY` 等常缺失，
   执行器回退 `exec.py`（llm_only），确定性执行不可用（serve 启动时 stderr 会告警；
-  `HIVE_API_KEY` 同样拿不到，LLM 任务报「HIVE_API_KEY 未设置」）。
+  模型密钥 `HIVE_API_KEY` 也只在 shell 里显式设过才在——**这条路径没有 serve_start 的前置
+  校验**，缺键不是拒绝启动而是每个 LLM 任务各自报「模型密钥未设置」类错误，错误里点名该
+  配哪个 env 键）。
 
 判定「当前 serve 能不能跑确定性任务」的唯一可靠办法：看 doctor 的 `exec_mode`
 （`exec_source=serve_heartbeat` 时即 serve 自报值），或直接提交一个带 `command` 的探针任务。
@@ -264,10 +275,12 @@ PYTHONPATH = "<本机 dsh-memory 仓库绝对路径>"
 | `mdcg_root` | 否 | lingshu_cg 的认知图根兜底（env `MDCG_ROOT` 优先）；如任务级隔离用临时图 |
 | `web_search_backend` | 否 | web_search 后端兜底（env `HIVE_WEB_SEARCH` 优先）：`zhipu` / `duckduckgo` |
 | `orchestrate` | 否 | 编排形态：真值（`true` 或 `{"max_subtasks": N}`）→ 由 `orch.py` 接管（见「任务编排」）。多态转发须 `HIVE_EXEC_PY` 指向 `exec_cmd.py`；子任务上限默认 8 |
+| `use_subagent_llm` | 否 | **布尔开关**（只开关、不含值）：真值 = 本次任务的模型密钥/base 走「子代理覆盖」——env `HIVE_SUBAGENT_API_KEY`（base 走 env `HIVE_SUBAGENT_API_BASE`，其缺省回落 `HIVE_API_BASE`）；缺省/假值 = 主配置（env `HIVE_API_KEY` / `HIVE_API_BASE`）。**密钥与地址一律只从 serve env 读**，写进 spec 也不生效（结构上无凭据外发面）；开关真值但子代理 env 为空时安全回落主键（子代理密钥缺失时 base 一并回落主配置——半套配置等于跨网关错配）。`orch.py` 派发子任务时按 serve env 自动写入 |
 
 **面差异（先看清再传参）**：上表是 **spec.json 字段表**（CLI `hive submit` 的全集）。
-MCP 面的 `hive_spawn` **只接受其中 15 键**——除 `workdir`（本面强制取 MCP 进程 cwd）与
-`orchestrate` 外的全部，`command` / `commands` 亦不在其列。这四个键**只走 CLI**（见下节）；
+MCP 面的 `hive_spawn` **只接受其中 15 键**——除 `workdir`（本面强制取 MCP 进程 cwd）、
+`orchestrate` 与 `use_subagent_llm`（执行器侧配置开关，由编排面或 CLI 写）外的全部，
+`command` / `commands` 亦不在其列。这五个键**只走 CLI**（见下节）；
 MCP 面传入会被**显式拒绝**（fail fast 并指路 CLI），不再静默丢弃——静默丢弃的后果是
 「以为在跑确定性任务、实际走了 LLM 路径烧 token」。白名单与 `hive_spawn` 的 schema
 同集，由 `hive/hive_mcp/smoke_test.py` 断言守卫。
@@ -340,8 +353,11 @@ API 错误收敛为 `ok:false` 但已发生的 trace 保留。
 | `read_file` | 读本地文件/目录（**只读**：不落盘、不改状态）。目录给清单（子目录优先，超 `READ_DIR_MAX=300` 截断）；文本给行窗分页（`offset`/`limit`/`max_chars`，默认 2000 行 / 60000 字符，窗口满标 `truncated`，大文件行总数记 `null` 不假装精确）；图像只给类型+尺寸、二进制只给类型+字节数（`content=null`，不猜内容）；非 UTF-8 按替换处计数并在 `note` 标存疑。相对路径基准 = `workdir`（缺省进程 cwd）；`HIVE_READ_ROOTS` 非空时越界即拒读（错误里带回 `roots`）。 |
 
 退出码 0 成功 / 2 规格错 / 3 API 错误。rust 侧以 result.json 的 error 字段定终态
-（done / error），执行器崩溃由超时兜底。env：`HIVE_API_KEY`（必填，缺失即 fail）、
-`HIVE_API_BASE`（默认 `https://open.bigmodel.cn/api/paas/v4`）。
+（done / error），执行器崩溃由超时兜底。env：模型密钥是**普通配置**，随 serve env 默认
+继承给执行器——`HIVE_API_KEY`（模型网关密钥，缺即 fail 且错误里点名该配哪个键）、
+`HIVE_API_BASE`（默认 `https://open.bigmodel.cn/api/paas/v4`）；spec 开关
+`use_subagent_llm` 真值时改读 `HIVE_SUBAGENT_API_KEY` 与 `HIVE_SUBAGENT_API_BASE`
+（后者缺省回落 `HIVE_API_BASE`）。**身份令牌 / 锚密钥不在本 env 里**（见「密钥三角色」）。
 
 ## 满上下文换人续跑（handoff）
 
@@ -497,24 +513,66 @@ set HIVE_EXEC_PY=<仓>\hive\exec_cmd.py               :: 多态转发：按 spec
 
 子任务跑在同一个 serve 的 worker 池里——编排者只负责派发与收口，不参与执行。
 
+**身份令牌的到达面（重要）**：上面注入的令牌是 **serve 级 env**，但 serve 派发任务时
+**默认把身份两键从子进程 env 里剥掉**——普通 LLM / 确定性任务的执行器拿不到令牌（它接触
+不可信 LLM 内容最多，持令牌即可自签合法结果锚 / 以编排者身份落库）。唯一例外是
+`spec.orchestrate` 真值任务：执行器 = `orch.py` 编排器，靠令牌派生收窄身份，故 serve 对
+这类任务**条件重注** `HIVE_ORCH_TOKEN` / `HIVE_ORCH_TOKEN_FILE`。推论：serve env 里没有身份
+令牌时，编排任务会在 `orch.py` 的 `load_principal` 处 **fail-closed**（写
+`error_code=orch_token_unavailable` 并退出，不降级为默认身份）；而普通 LLM / 确定性任务
+不受影响。锚密钥链同源两键（见「环境变量」），两键皆缺 = 锚判据不启用（`--show-config`
+会给提示）。
+
+**子任务换模型凭据（可选）**：子代理要与主配置不同的模型密钥/base 时，往 serve env 加
+`HIVE_SUBAGENT_API_KEY`（+ 可选的 `HIVE_SUBAGENT_API_BASE`，缺省回落 `HIVE_API_BASE`）。
+`orch.py` 派发子任务时只往子 spec 写布尔开关 `use_subagent_llm`——**密钥值与地址不进 spec**，
+只从 serve env 读（防凭据随 spec 外发）。不设这两键 = 子任务继承主配置，行为与从前一致。
+
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `HIVE_API_KEY` | 无 | 执行器必填；缺失任务即 error |
-| `HIVE_API_BASE` | GLM 开放平台 | OpenAI 兼容 base url（LLM 通道） |
+| `HIVE_API_KEY` | 无 | **模型（网关）密钥**——普通配置，serve 启动时并入 env 并**默认继承给执行器**（LLM 任务靠它调 `chat/completions`）。与 `HIVE_API_BASE` 配对（见「spec 字段」的模型名配对）。缺失时：经 `serve_start.py` 拉起 → 启动前置校验拒绝并点名该配哪个键（除非声明 `HIVE_LLM_DISABLED`）；裸 `hive.exe serve` → 任务级报未设置。**不再作锚密钥兜底**（锚链只认下面两个身份键） |
+| `HIVE_API_BASE` | GLM 开放平台 | OpenAI 兼容 base url（LLM 通道）；与 `HIVE_API_KEY` 同属普通配置，同样继承给执行器。未设 = 回落 `https://open.bigmodel.cn/api/paas/v4`；子代理面可用 `HIVE_SUBAGENT_API_BASE` 覆盖 |
 | `HIVE_JOBS_DIR` | `<exe>/../../jobs` | 任务根目录（**同一 jobs 目录至多一个 serve**：CLI 与 MCP 均有单实例守卫，判活为三层——心跳新鲜 + pid 存活 + pid 身份；守卫认为在跑时会拦启动，确认无 serve 在跑（如心跳残留）请加 `--force`） |
 | `HIVE_EXEC_PY` | `<exe>/../../exec.py` | 执行器路径（serve 级，**启动时固化并写入心跳**）。指向 `hive/exec_cmd.py` 可让同一 serve 兼跑确定性任务与编排任务（多态转发）；**未设时回退默认 `exec.py`（llm_only）——确定性执行不可用**：serve 启动时 stderr 告警、doctor 的 `exec_mode` 显示 `llm_only` |
-| `HIVE_ORCH_TOKEN` | 无 | 编排器派生令牌明文（`python -m md_cg.tokens orch` 签发）；与下行二选一，**缺失即 fail-closed 拒绝启动**（不降级为默认身份） |
-| `HIVE_ORCH_TOKEN_FILE` | 无 | 同上，令牌文件路径（避免明文进环境变量 / 命令行历史） |
+| `HIVE_ORCH_TOKEN` | 无 | **身份令牌**：编排器派生令牌明文（`python -m md_cg.tokens orch` 签发）；与下行二选一，**缺失时编排任务 fail-closed**（`orch.py` 不降级为默认身份）。**不进执行器 env**——serve 派发时默认剥离，唯一例外是 `spec.orchestrate` 真值任务条件重注（另兼任锚密钥链首环，见下行） |
+| `HIVE_ORCH_TOKEN_FILE` | 无 | 同上，令牌文件路径（避免明文进环境变量 / 命令行历史）。**同一个键兼任结果完整性锚密钥链一环**：锚密钥解析（Rust `hive/src/keyres.rs`，与 MCP 提交面 `hive/hive_mcp/mcp_server.py::_result_anchor_key` 声明同链）按 `HIVE_ORCH_TOKEN` → `HIVE_ORCH_TOKEN_FILE` 取首个非空；**两键皆缺 = 锚判据整体不启用**（行为=旧产物判据，安全方向降级；`--show-config` / `--status` 会给出提示） |
+| `HIVE_SUBAGENT_API_KEY` | 无 | **可选**子代理覆盖：非空时 `orch.py` 派发的子任务带 `use_subagent_llm=true`，其模型密钥取本键；不设或为空 = 子任务继承 `HIVE_API_KEY`（安全回落，不炸也不缺）。密钥值只从 serve env 读，**不进 spec** |
+| `HIVE_SUBAGENT_API_BASE` | 回落 `HIVE_API_BASE` | **可选**子代理 base（仅 `use_subagent_llm` 真值时生效）。子代理密钥缺失时本键一并回落主配置——避免「子代理 base + 主密钥」的半套配置跨网关错配 |
+| `HIVE_LLM_DISABLED` | 无 | 显式声明**本部署不跑 LLM**（真值 = 去空白后非空且小写不在 `{"0","false","no"}`）——只跑确定性任务（`exec_cmd.py`）的部署用它放行 `serve_start.py` 的「无可用模型密钥」前置校验；声明后启动结果里回带提示 |
 | `HIVE_WORKERS` | 4 | worker 池大小 |
 | `HIVE_PYTHON` | `python` | 执行器解释器 |
 | `MDCG_ROOT` | 无 | lingshu_cg 认知图根（serve 级；任务级可用 `spec.mdcg_root` 兜底） |
 | `MDCG_HOME` | 执行器父目录 | md_cg 包所在仓根（同仓分发零配置） |
 | `HIVE_WEB_SEARCH` | `zhipu` | 搜索后端：`zhipu` / `duckduckgo` |
 | `HIVE_WEB_SEARCH_BASE` | 智谱官方 `/api/paas/v4` | zhipu 搜索端点 base（与 `HIVE_API_BASE` 解耦） |
-| `HIVE_WEB_SEARCH_KEY` | 回落 `HIVE_API_KEY` | 搜索密钥（key 与 LLM base 不配对时独立设置） |
+| `HIVE_WEB_SEARCH_KEY` | 回落 `HIVE_API_KEY` | 搜索密钥（key 与 LLM base 不配对时独立设置）。**回落语义不变**：搜索面与模型面共用一个键源，与子代理覆盖无关 |
 | `HIVE_READ_ROOTS` | 无（= 读放开） | `read_file` 可读根白名单（`os.pathsep` 切分，支持多根，逐项 `expanduser+realpath`）。**未设置或全空 = 读放开**（缺省全路径开放）；设为至少一个真实目录即收窄，越界即拒读；只影响 `read_file`，不影响 `lingshu_cg`（认知图用自己的 root） |
+
+### 密钥三角色（谁进执行器、谁是锚）
+
+| 角色 | 键 | 到达执行器 env？ | 说明 |
+|---|---|---|---|
+| 模型（网关）密钥 | `HIVE_API_KEY` / `HIVE_API_BASE` | **是**（默认继承） | 普通配置：执行器调模型所必需，故随 serve env 继承 |
+| 子代理覆盖 | `HIVE_SUBAGENT_API_KEY` / `HIVE_SUBAGENT_API_BASE` | 是（同上） | **可选**：只切换子任务用哪套模型凭据；spec 仅承载布尔开关 |
+| 身份令牌 / 锚密钥 | `HIVE_ORCH_TOKEN` / `HIVE_ORCH_TOKEN_FILE` | **否** | 身份面凭据：serve 派发时默认剥离，仅 `spec.orchestrate` 真值任务条件重注。执行器是接触不可信 LLM 内容最多的进程，env 继承会把身份令牌扩散给它及其任意孙进程（拿到即可对任意任务自签合法结果锚、或以编排者身份落库） |
+
+一条命令看全（只读，不改运行态）：
+
+```cmd
+python serve_start.py --show-config    :: 逐键：来源（直值 / env:名字 / file:路径）· 掩码值 · 角色 · 是否到达执行器 + problems + 结论
+python serve_start.py --status         :: 心跳与任务统计 + 同一份配置摘要
+```
+
+掩码是**单点函数**：只给「前缀少量 + 长度 + sha256 前 8 位指纹」，**绝不输出完整值**
+（`--show-config` 的口径就是「能核对面、看不到秘密」）。它读 `config.local.json` 与进程 env
+的**合并面**（config 胜出 env，与 serve 实际启动 env 同口径）。
+
+**启动前置校验**（`serve_start.start`，语义与 `--restart` / `--rebuild` 共用）：合并环境
+无可用模型密钥（`HIVE_API_KEY` 空/缺）**且**未声明 `HIVE_LLM_DISABLED` 真值 → 返回
+`ok:false` 的明确错误并点名该配哪个键（或声明 `HIVE_LLM_DISABLED`）——不静默拉起一个所有
+LLM 任务都要报错的 serve。声明 `HIVE_LLM_DISABLED` 后放行，结果里回带提示。
 
 ## 验证
 
@@ -537,6 +595,13 @@ set HIVE_EXEC_PY=<仓>\hive\exec_cmd.py               :: 多态转发：按 spec
 - `python hive/test_orch.py`：74 项全绿（编排器——权限收窄面 / 三工具护栏与结构性防递归 /
   卡片截断与按需拉取 / `exec.py` 两个扩展口默认零变更 / `exec_cmd.py` 转发档 /
   `main()` 装配与令牌缺失 fail-closed）。
+- `python hive/test_llm_key_resolution.py`：22 项全绿（模型密钥解析守卫——无密钥时错误可诊断且
+  零明文 / 只有主键时用主键 / `use_subagent_llm` 真值且有子代理键时用子代理配置 / 开关真值但
+  子代理键缺时安全回落主键 / 子代理 base 覆盖与回落 / 工具路同源 / `orch._spawn` 只把布尔开关
+  写进子 spec（无键值、无 env 名、无地址）/ 诊断与产物文案零明文）。
+- `python hive/test_serve_show_config.py`：全绿（运维展示面守卫——掩码零明文 / 角色与
+  执行器可达性判定 / 三来源形态如实 / 缺模型密钥时 `start` 返回 `ok:false` 且可诊断 /
+  声明 `HIVE_LLM_DISABLED` 后放行并回带提示 / 既有 stop·restart·单实例守卫语义未动）。
 - `python scripts/run_tests.py hive`：蜂巢组整体回归入口。
 - 端到端四路径实测（2026-09-16，真 serve）：确定性成功 → `done`；命令 exit≠0 → `error`
   （error=失败步标签）；断言未命中 → `error`（error=`输出未命中预期子串：…`）；

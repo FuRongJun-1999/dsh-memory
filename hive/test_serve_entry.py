@@ -40,6 +40,7 @@ import shutil
 import sys
 import tempfile
 import time
+from unittest import mock
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO not in sys.path:
@@ -249,8 +250,16 @@ def main() -> int:
         real_popen, real_alive = serve_start.subprocess.Popen, serve_start.serve_alive
         serve_start.subprocess.Popen = _fake_popen
         serve_start.serve_alive = lambda *_a, **_k: False
+        # C5（批次69）环境装配补齐——**不是改断言**：start() 新增启动前置校验
+        # （合并环境无可用模型密钥且未声明 HIVE_LLM_DISABLED → 拒绝拉起，
+        # hive/serve_start.py::start 的 _model_key_precheck 段）。本用例的被测面是
+        # 「config 的 HIVE_JOBS_DIR 参与 jobs 决策」，故须提供一份通过校验的模型
+        # 密钥；用**哑值**（非真凭据，且与任何真实令牌库无关）。断言文本、期望值、
+        # 判据一字未动（下方 ⑧a 仍只校验 Popen 收到 --jobs=<config 指定目录>）。
         try:
-            r = serve_start.start(cfg_path)
+            with mock.patch.dict(os.environ,
+                                 {"HIVE_API_KEY": "DUMMY-KEY-c5-precheck-not-a-credential"}):
+                r = serve_start.start(cfg_path)
         finally:
             serve_start.subprocess.Popen = real_popen
             serve_start.serve_alive = real_alive

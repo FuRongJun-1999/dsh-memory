@@ -15,8 +15,16 @@
     退出码 0 成功 / 2 规格错 / 3 API 错误
 
 API：OpenAI 兼容 chat/completions（GLM 同形）。
-env：HIVE_API_KEY（必填，缺失即 fail）、
+模型密钥与 base 的取值口只有一个（model_endpoint），且**只取自 serve 侧 env**：
+spec 只提供布尔开关 use_subagent_llm，绝不携带密钥或地址——spec 会落盘流转
+（jobs/<id>/spec.json、log/progress、编排链读取方），一旦允许它带值，写 spec 者
+即可让执行器把任意凭据发往任意地址（凭据外发面）。开关只决定「用哪一份 env」。
+env：HIVE_API_KEY（主模型密钥，缺失即 fail）、
      HIVE_API_BASE（默认 https://open.bigmodel.cn/api/paas/v4）、
+     HIVE_SUBAGENT_API_KEY（子代理覆盖密钥：spec.use_subagent_llm 为真时优先，
+       缺失安全回落 HIVE_API_KEY）、
+     HIVE_SUBAGENT_API_BASE（子代理覆盖 base，缺省回落 HIVE_API_BASE；
+       子代理密钥缺失时 base 一并回落主配置——半套配置是跨网关错配）、
      MDCG_ROOT（lingshu_cg 工具的认知图根；缺省该工具返回配置缺失错误）、
      MDCG_HOME（md_cg 包所在仓根；缺省=执行器父目录，同仓分发零配置）、
      HIVE_WEB_SEARCH（web_search 后端：zhipu[默认] | duckduckgo）、
@@ -80,6 +88,75 @@ import urllib.error
 import urllib.request
 
 DEFAULT_API_BASE = "https://open.bigmodel.cn/api/paas/v4"
+
+# ------------------------------------------------------------- 模型端点解析（C3）
+# 模型密钥与 base 的**唯一**取值口：值只取自 serve 侧 env，spec 只提供布尔开关
+# （USE_SUBAGENT_LLM_KEY）。为什么把 spec 限死在布尔：spec 会落盘（spec.json）、
+# 进 log/progress、被编排链与读取方看见；一旦允许携带值，写 spec 者就能让执行器
+# 把任意凭据发往任意地址。开关只决定「用哪一份 env 配置」——凭据外发面为零。
+#   主配置       HIVE_API_KEY（缺失即 fail，可诊断）／HIVE_API_BASE → DEFAULT_API_BASE
+#   子代理覆盖   HIVE_SUBAGENT_API_KEY / HIVE_SUBAGENT_API_BASE（缺省回落主配置）
+USE_SUBAGENT_LLM_KEY = "use_subagent_llm"
+
+# 当前 job 的开关值：exec 是「一进程 = 一个 job」，spec 在 LLM 入口读一次即冻结
+# （同 _CUR_ORCH_JOB 的既有形态）。密钥/base 不进此缓存——每次调用现取 env，
+# 部署侧改 env 即时生效。
+_USE_SUBAGENT_LLM = False
+
+
+# 生效条件：spec 为 dict 或 None，对 spec.get("use_subagent_llm") 做真值判定后返回布尔——该键取到任何形态都只当布尔用，绝不从其中取值。
+def _llm_switch(spec: dict | None) -> bool:
+    """spec → 布尔开关（C3 唯一转换点；spec 只被当成布尔）。"""
+    return bool((spec or {}).get(USE_SUBAGENT_LLM_KEY))
+
+
+# 生效条件：use_subagent 为真且 env HIVE_SUBAGENT_API_KEY 去空白非空时返回 (该值, HIVE_SUBAGENT_API_BASE 去空白非空否则 HIVE_API_BASE 缺键回落 DEFAULT_API_BASE，再去尾斜杠)；否则返回 (env HIVE_API_KEY 去空白, HIVE_API_BASE 缺键回落 DEFAULT_API_BASE，再去尾斜杠)——开关为真但子代理密钥缺失时整组回落主配置。
+def _endpoint_parts(use_subagent: bool) -> tuple:
+    """(api_key, api_base)——密钥与 base 同源解析，杜绝两处口径漂移。"""
+    main_base = os.environ.get("HIVE_API_BASE", DEFAULT_API_BASE)
+    if use_subagent:
+        sub_key = os.environ.get("HIVE_SUBAGENT_API_KEY", "").strip()
+        if sub_key:
+            return sub_key, (
+                os.environ.get("HIVE_SUBAGENT_API_BASE", "").strip() or main_base
+            ).rstrip("/")
+        # 半套覆盖（开关为真、子代理密钥缺失）比缺省更危险：主密钥 + 子代理网关
+        # = 跨网关错配。整组回落主配置——不炸 job、不半套。
+    return os.environ.get("HIVE_API_KEY", "").strip(), main_base.rstrip("/")
+
+
+# 生效条件：use_subagent 为真返回点名 spec.use_subagent_llm / HIVE_SUBAGENT_API_KEY / 回落键 HIVE_API_KEY 与 serve 侧 env 出处的文案，否则返回点名 HIVE_API_KEY 与 serve 侧 env 出处的文案；两文案都不含任何键值。
+def _missing_key_msg(use_subagent: bool) -> str:
+    """缺密钥的错误文案：点名该配哪个 env（可诊断），永不回显键值。"""
+    if use_subagent:
+        return ("子代理模型密钥未设置：spec.use_subagent_llm 为真时应由 serve 侧 "
+                "env 提供 HIVE_SUBAGENT_API_KEY，回落键 HIVE_API_KEY 也未设置"
+                "（密钥只允许来自 serve 的 env，不随 spec 传递）")
+    return ("HIVE_API_KEY 未设置（执行器环境缺模型密钥：应由 serve 侧 env 提供 "
+            "HIVE_API_KEY；密钥只允许来自 serve 的 env，不随 spec 传递）")
+
+
+# 生效条件：spec（dict 或 None）传入，返回 _endpoint_parts(_llm_switch(spec))[1]——只解析 base 不校验密钥（main 的 model↔base 配对闸用它，使错配判定与实际 POST 目标同一口径）。
+def model_base(spec: dict | None = None) -> str:
+    """当前生效的 chat/completions base（不校验密钥，供闸门复用）。"""
+    return _endpoint_parts(_llm_switch(spec))[1]
+
+
+# 生效条件：use_subagent 传入时取 _endpoint_parts(use_subagent)，key 为空串则抛 RuntimeError(_missing_key_msg(use_subagent))，否则返回该 (key, base)；
+def model_endpoint(use_subagent: bool = False) -> tuple:
+    """(api_key, api_base)——模型端点唯一取值口（值只来自 env，缺则 fail）。"""
+    key, base = _endpoint_parts(use_subagent)
+    if not key:
+        raise RuntimeError(_missing_key_msg(use_subagent))
+    return key, base
+
+
+# 生效条件：spec（dict 或 None）传入后把模块态 _USE_SUBAGENT_LLM 置为 _llm_switch(spec)，返回 None。
+def _bind_llm_spec(spec: dict | None) -> None:
+    """绑定当前 job 的端点开关（call_llm / run_with_tools 入口各调一次）。"""
+    global _USE_SUBAGENT_LLM
+    _USE_SUBAGENT_LLM = _llm_switch(spec)
+
 
 # P2-17（批次 30）：响应体读取字节上限——异常/恶意网关返回超大响应
 # 不再能撑爆内存（resp.read(N) 最多读 N 字节，截断 JSON 会在解析层失败）。
@@ -900,6 +977,8 @@ def _ws_zhipu(query: str, count: int, backend: str) -> dict:
     # 端点与 LLM base 解耦（实测教训：HIVE_API_BASE 常指向 LLM 中转网关，
     # 只代理 chat/completions——锚上去 web_search 必 404）。搜索端点独立：
     # HIVE_WEB_SEARCH_BASE 缺省智谱官方；key 缺省回落执行器密钥。
+    # C3 有意不改本回落链（HIVE_WEB_SEARCH_KEY → HIVE_API_KEY）：搜索密钥与模型
+    # 端点解耦，子代理覆盖开关不参与——否则搜索面凭据会跟着模型开关漂移。
     api_base = (os.environ.get("HIVE_WEB_SEARCH_BASE", "").strip()
                 or ZHIPU_SEARCH_BASE).rstrip("/")
     api_key = (os.environ.get("HIVE_WEB_SEARCH_KEY", "").strip()
@@ -1322,13 +1401,15 @@ def build_body(spec: dict, messages: list, tools: list = None) -> dict:
     return body
 
 
-# 生效条件：当 body 与 timeout 传入时，api_key=os.environ.get('HIVE_API_KEY','')，若假值（未设或空串）抛 RuntimeError('HIVE_API_KEY 未设置...')；否则 api_base=os.environ.get('HIVE_API_BASE', DEFAULT_API_BASE).rstrip('/')，仅缺键时回落 DEFAULT_API_BASE，键存在空串不回落；POST {api_base}/chat/completions 并以 timeout 请求，返回 json.loads(resp.read(RESP_MAX_BYTES).decode('utf-8'))；
+# 生效条件：当 body 与 timeout 传入时，api_key/api_base 取 model_endpoint(_USE_SUBAGENT_LLM)（值只来自 env：主 HIVE_API_KEY / HIVE_API_BASE → DEFAULT_API_BASE；开关为真且有 HIVE_SUBAGENT_API_KEY 时取 HIVE_SUBAGENT_API_KEY / HIVE_SUBAGENT_API_BASE），密钥缺失抛 RuntimeError(可诊断文案、不含键值)；否则 POST {api_base}/chat/completions 并以 timeout 请求，返回 json.loads(resp.read(RESP_MAX_BYTES).decode('utf-8'))；
 def _post_chat(body: dict, timeout: float) -> dict:
-    """裸 POST chat/completions，返回原始响应 dict。HTTP 异常向上传播。"""
-    api_base = os.environ.get("HIVE_API_BASE", DEFAULT_API_BASE).rstrip("/")
-    api_key = os.environ.get("HIVE_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("HIVE_API_KEY 未设置（执行器环境缺密钥）")
+    """裸 POST chat/completions，返回原始响应 dict。HTTP 异常向上传播。
+
+    签名保持 (body, timeout)：既有测试以**定参桩**（lambda body, t）mock 本
+    函数，加参数会连带破坏桩调用面（mock 面即接口面）。端点开关经模块态
+    _USE_SUBAGENT_LLM 传入（见「模型端点解析」段），密钥/base 每次现取 env。
+    """
+    api_key, api_base = model_endpoint(_USE_SUBAGENT_LLM)
     url = f"{api_base}/chat/completions"
     req = urllib.request.Request(
         url,
@@ -1343,9 +1424,10 @@ def _post_chat(body: dict, timeout: float) -> dict:
         return json.loads(resp.read(RESP_MAX_BYTES).decode("utf-8"))
 
 
-# 生效条件：当 spec 与 messages 传入时，以 build_body(spec,messages) 与 float(spec.get('timeout_s') or 300) 调 _post_chat；返回的 message 为空助手轮（_empty_turn：content 与 tool_calls 双空——含 choices 缺/空、content 空串或 null）时返回 {'_error': '模型返回空助手轮…'}，否则返回 content=message.content or ''、usage=data.get('usage') or {}、model=data.get('model') or spec['model']；
+# 生效条件：当 spec 与 messages 传入时，先 _bind_llm_spec(spec) 绑定模型端点开关（C3），再以 build_body(spec,messages) 与 float(spec.get('timeout_s') or 300) 调 _post_chat；返回的 message 为空助手轮（_empty_turn：content 与 tool_calls 双空——含 choices 缺/空、content 空串或 null）时返回 {'_error': '模型返回空助手轮…'}，否则返回 content=message.content or ''、usage=data.get('usage') or {}、model=data.get('model') or spec['model']；
 def call_llm(spec: dict, messages: list) -> dict:
     """单发调 chat/completions（无工具历史路径）；返回归一化 result。"""
+    _bind_llm_spec(spec)
     data = _post_chat(build_body(spec, messages),
                       float(spec.get("timeout_s") or 300))
     msg = _choice(data).get("message") or {}
@@ -1464,7 +1546,7 @@ def _handoff(spec: dict, job_dir: str | None, trace: list, usage: dict, rnd: int
     }
 
 
-# 生效条件：spec/messages/job_id 给定即进入 while rnd <= max_rounds（max_rounds=max(1, int(spec.get("max_tool_rounds") or DEFAULT_MAX_TOOL_ROUNDS))，budget 取 spec.get("context_budget_tokens")）：超预算且 spec.get("context_strict") 为真返回 {"_error": over, "tool_trace": trace}、否则转 _handoff；API 异常或空助手轮返回 {"_error", "tool_trace"}；模型无 tool_calls 返回 content/usage/model/tool_trace；rnd >= max_rounds 仍要求工具则去掉 tools 强制终答（forced_final=True）。
+# 生效条件：spec/messages/job_id 给定即先 _bind_llm_spec(spec) 绑定模型端点开关（C3），再进入 while rnd <= max_rounds（max_rounds=max(1, int(spec.get("max_tool_rounds") or DEFAULT_MAX_TOOL_ROUNDS))，budget 取 spec.get("context_budget_tokens")）：超预算且 spec.get("context_strict") 为真返回 {"_error": over, "tool_trace": trace}、否则转 _handoff；API 异常或空助手轮返回 {"_error", "tool_trace"}；模型无 tool_calls 返回 content/usage/model/tool_trace；rnd >= max_rounds 仍要求工具则去掉 tools 强制终答（forced_final=True）。
 def run_with_tools(spec: dict, messages: list, job_id: str,
                    job_dir: str | None = None, base_tokens: int = 0) -> dict:
     """agent loop：模型回 tool_calls → 执行 → tool 消息回喂 → 循环至终答。
@@ -1476,7 +1558,11 @@ def run_with_tools(spec: dict, messages: list, job_id: str,
 
     上下文档位：base_tokens=图像等非文本块折算（Pi⑦④）+ messages 文本估算；
     超预算默认交回续跑（见 _handoff），spec.context_strict=true 保持旧 fail fast。
+
+    模型端点开关（C3）：入口先 _bind_llm_spec(spec)——本函数内两处 _post_chat
+    与单发路 call_llm 同源解析，工具路与单发路不会用上不同配置。
     """
+    _bind_llm_spec(spec)
     _vis = all_schemas()
     names = [t for t in (spec.get("tools") or []) if t in _vis]
     schemas = [_vis[t] for t in names]
@@ -1637,12 +1723,14 @@ def main() -> int:
     _CUR_ORCH_JOB = str(spec.get("orch_job") or "").strip()
 
     try:
-        # model↔base 配对前置校验（标准 §1）：错配即刻 SPEC 错，不触网不烧调度
+        # model↔base 配对前置校验（标准 §1）：错配即刻 SPEC 错，不触网不烧调度。
+        # base 取**生效值**（model_base：开关为真且有子代理覆盖时即子代理 base）——
+        # 与实际 POST 目标同口径，避免闸门放行一个实际会跨网关错配的请求。
         _mismatch = model_base_mismatch(
             str(spec.get("model") or ""),
-            os.environ.get("HIVE_API_BASE", DEFAULT_API_BASE))
+            model_base(spec))
         if _mismatch:
-            write_error_result(job_dir, {"ok": False, "error": f"model 与 HIVE_API_BASE 错配：{_mismatch}"})
+            write_error_result(job_dir, {"ok": False, "error": f"model 与模型 base 错配：{_mismatch}"})
             log(job_dir, f"spec 错（模型错配）: {_mismatch}")
             progress(job_dir, kind="error", error=_mismatch[:300], where="spec")
             return EXIT_SPEC

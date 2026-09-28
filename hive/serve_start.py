@@ -7,7 +7,8 @@
     python hive/serve_start.py --stop     # 停止 serve（读心跳 pid）
     python hive/serve_start.py --restart  # 重启 serve（stop→start 原子序；改配置/换执行器后使改动生效）
     python hive/serve_start.py --rebuild  # 重编译并重启（stop→cargo build→start；rust 改动一条命令生效）
-    python hive/serve_start.py --status   # 查看心跳与任务统计
+    python hive/serve_start.py --status   # 查看心跳与任务统计（附同一份配置摘要）
+    python hive/serve_start.py --show-config  # 只读核对三角色密钥：来源·掩码值·角色·是否到达执行器 + problems + 结论
 
 配置文件（默认与脚本同目录 config.local.json，--config 可指他处）：
     JSON 对象，键=环境变量名，值支持三形态：
@@ -26,7 +27,16 @@ stdio JSON-RPC 通道上多打一行即污染协议；打印只发生在 CLI 入
 v18 外评 D-1 修复（2026-09-23）：jobs 不再只由模块级常量决定——start/restart/rebuild
 先 load_config，经 _jobs_from(合并环境) 延迟求值，config 里的 HIVE_JOBS_DIR 由此
 真正参与决策；此前该键被静默丢弃（env_keys 自报含它、jobs_dir 却不变，fail-silent）。
+
+批次69（C5）运维展示面：新增只读动作 `--show-config` 与 `start()` 启动前置校验。
+三角色密钥（模型密钥 / 身份锚 / 身份令牌）此前只以文字散落在 README 与 config 模板里，
+运维无从回答三个问题——「这个键的值从哪来（直值？哪个 env？哪个文件？）」「serve 起来
+后执行器拿不拿得到它」「配置少哪一环会让 LLM 任务全灭」。--show-config 把三者做成逐行
+可读事实，掩码走 `mask_secret` 单点函数（**绝不输出完整值**）；start() 在无可用模型密钥
+且未声明 HIVE_LLM_DISABLED 真值时拒绝拉起（env 在启动时固化，残缺 serve 一旦上岗，
+该池每个 LLM 任务都只在任务级 result.json 里报错）。
 """
+import hashlib
 import json
 import os
 import subprocess
@@ -49,6 +59,204 @@ def _jobs_from(env_map):
     v = (env_map or {}).get("HIVE_JOBS_DIR")
     return v if isinstance(v, str) and v.strip() else JOBS
 FRESH_S = 15  # 心跳新鲜窗口（serve 每拍 <1s 刷）。**须与 src/main.rs 的 FRESH_MS=15000 同值**——两面判「serve 是否在跑」必须同口径，否则同一个 serve 得两个结论
+
+# ---- 配置展示面（C5，批次69）------------------------------------------------
+# 三角色密钥表（README「密钥三角色」同源）：角色决定「到达执行器与否」，而到达面
+# 由 hive/src/exec.rs::ORCH_SECRET_ENV_KEYS 的**身份面**剥离判据决定（N185 立闸，
+# N190 收窄到身份两键）——两处表分叉即展示面与实况分叉，改一边须同时改另一边。
+MODEL_KEY = "HIVE_API_KEY"        # 模型（网关）密钥：普通配置，随 serve env 默认继承给执行器
+IDENTITY_KEYS = ("HIVE_ORCH_TOKEN", "HIVE_ORCH_TOKEN_FILE")   # 身份面：默认剥离，仅 orchestrate 任务条件重注
+SUBAGENT_KEYS = ("HIVE_SUBAGENT_API_KEY", "HIVE_SUBAGENT_API_BASE")  # 可选子代理覆盖
+LLM_DISABLED_KEY = "HIVE_LLM_DISABLED"   # 显式声明「本部署不跑 LLM」
+_ORCH_ONLY_NOTE = "仅 spec.orchestrate 任务条件重注"
+# 角色表：只登记有明确角色的键；未登记者一律「其他」（展示面不替未定义键猜角色）。
+_ROLES = {
+    MODEL_KEY: "模型密钥",
+    "HIVE_ORCH_TOKEN": "身份令牌",
+    "HIVE_ORCH_TOKEN_FILE": "身份锚",
+    "HIVE_SUBAGENT_API_KEY": "子代理覆盖",
+    "HIVE_SUBAGENT_API_BASE": "子代理覆盖",
+}
+# 无条件逐键展示的键（即使未设置也要出现——缺哪一环是展示面要回答的问题本身）。
+_ALWAYS_SHOWN = (MODEL_KEY, LLM_DISABLED_KEY) + IDENTITY_KEYS + SUBAGENT_KEYS
+# 已知配置面：既不在 config 也未在进程 env 出现的这些键（除 _ALWAYS_SHOWN）不逐条列出，
+# 免得展示面被一堆「未设置」淹没；出现即列。
+_WATCH_KEYS = _ALWAYS_SHOWN + ("HIVE_API_BASE", "HIVE_WEB_SEARCH_KEY",
+                               "HIVE_WEB_SEARCH_BASE", "HIVE_EXEC_PY", "HIVE_JOBS_DIR")
+
+
+# 生效条件：v 为 None 或空串返回空串；否则返回「至多 2 字符前缀（仅当长度 > 4）+ 长度 +
+# sha256 前 8 位指纹」的掩码串。任何输入都不返回其完整内容。
+def mask_secret(v):
+    """单点掩码函数：`前缀少量 + 长度 + sha256 前 8 位指纹`，**绝不输出完整值**。
+
+    全仓唯一的密钥展示出口——凡需要「让人肉眼核对面」的地方都调这里，不得各自
+    拼字符串（某处漏掩就等于明文进了终端/日志/JSON-RPC 通道）。前缀只取 2 字符且
+    仅当长度 > 4：短值取 0 字符，杜绝「掩码即明文」（3 字符的密钥加前缀就露全了）。
+    长度与指纹让人能判断「是不是我期望的那把 key（改了没有）」，同时不泄值。
+    """
+    s = "" if v is None else str(v)
+    if not s:
+        return ""
+    head = s[:2] if len(s) > 4 else ""
+    fp = hashlib.sha256(s.encode("utf-8")).hexdigest()[:8]
+    return f"{head}***len={len(s)}/sha256:{fp}"
+
+
+# 生效条件：k 为 str 时返回 _ROLES 中登记的角色，未登记返回 "其他"；k 非 str 时同样返回 "其他"。
+def role_of(k):
+    """该 env 键的角色（模型密钥 / 身份锚 / 身份令牌 / 子代理覆盖 / 其他）。"""
+    return _ROLES.get(k, "其他")
+
+
+# 生效条件：k 为身份两键之一（HIVE_ORCH_TOKEN / HIVE_ORCH_TOKEN_FILE）返回 False；其余一律 True。
+def reaches_executor(k):
+    """该 env 键是否默认到达执行器 env（= exec.rs 的剥离面判据）。
+
+    身份两键 False：serve 派发时**默认剥离**（执行器持之即可对任意任务自签合法锚、
+    以 serve 身份认领 principal），唯一例外是 spec.orchestrate 真值任务条件重注。
+    其余键 True：模型密钥 / 子代理覆盖 / base / 其他普通配置随 serve env 继承。
+    """
+    return k not in IDENTITY_KEYS
+
+
+# 生效条件：v 为 str 返回「直值」；为含 "env" 键的 dict 返回 "env:<名字>"；为含 "file" 键的
+# dict 返回 "file:<路径>"；其余（含非法形态）返回 "非法形态（须 str / {env:名} / {file:路径}）"。
+def _source_of(v):
+    """config 取值的来源描述（三形态）：直值 / env:名字 / file:路径。"""
+    if isinstance(v, str):
+        return "直值"
+    if isinstance(v, dict):
+        if "env" in v:
+            return f"env:{v['env']}"
+        if "file" in v:
+            return f"file:{v['file']}"
+    return "非法形态（须 str / {env:名} / {file:路径}）"
+
+
+# 生效条件：path 存在且内容可 json.load 为 dict 时返回 (该 dict, None)；不存在 / 打不开 /
+# 非 JSON / 根非对象时返回 (None, 可诊断错误串)。只读，不抛异常（展示面须能如实报出坏配置）。
+def _raw_config(path):
+    """读配置原文（展示面用）：与 load_config 同路径，但**不 fail fast**——坏配置如实报错。"""
+    if not os.path.exists(path):
+        return None, f"配置文件不存在：{path}"
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except (OSError, ValueError) as e:
+        return None, f"配置文件解析失败：{e}"
+    if not isinstance(raw, dict):
+        return None, "配置根不是 JSON 对象（键=环境变量名，值=三形态取值）"
+    return raw, None
+
+
+# 生效条件：env_map 为 dict（或 None）时，其 MODEL_KEY 为去空白非空的 str 返回 True，缺键/空串/非 str 返回 False。
+def model_key_ready(env_map):
+    """合并环境里模型密钥是否可用（非空字符串）。判据唯一点，start/展示面共用。"""
+    v = (env_map or {}).get(MODEL_KEY)
+    return isinstance(v, str) and bool(v.strip())
+
+
+# 生效条件：env_map 为 dict（或 None）时，其 LLM_DISABLED_KEY 为 str、去空白后非空、且小写不在
+# {"0","false","no"} 三值中时返回 True；缺键/其他类型/空串/假值串返回 False。
+def llm_disabled(env_map):
+    """HIVE_LLM_DISABLED 真值判定：去空白后非空且 lower 不在 {"0","false","no"}。
+
+    口径沿用仓内既有先例（md_cg/writelimit.py:54-58 读 MDCG_WRITELIMIT：
+    `str(v).strip().lower() not in ("0","false","no")`；md_cg/statushdr.py:45 同族，
+    多认一个 "off"）——不自创第二套布尔真值语法。本键另加「非空」要求：空串/纯空白
+    是「没声明」而不是「声明为假」，两者对门槛同效（都不放行），但语义要能区分。
+    """
+    v = (env_map or {}).get(LLM_DISABLED_KEY)
+    if not isinstance(v, str):
+        return False
+    s = v.strip()
+    return bool(s) and s.lower() not in ("0", "false", "no")
+
+
+# 生效条件：model_key_ready(env_map) 为真返回 None；否则返回点明「该配哪个键 / 该声明哪个逃生键」的问题文案。
+def _model_key_problem(env_map):
+    """缺模型密钥的问题文案（None = 就绪）。start 前置校验与 --show-config 的 problems **同一判据、同一文案**。"""
+    if model_key_ready(env_map):
+        return None
+    return (f"无可用模型密钥：{MODEL_KEY} 空/未设置（合并环境 = config.local.json 覆盖进程 env）"
+            f"——该 serve 的每个 LLM 任务都会在 exec.py 入口报「{MODEL_KEY} 未设置」。"
+            f"请配置它（如 {{\"{MODEL_KEY}\": {{\"env\": \"DEEPSEEK_API_KEY\"}}}}，或引一个 key 文件），"
+            f"或声明 {LLM_DISABLED_KEY}=1（真值）表明本部署只跑确定性任务")
+
+
+# 生效条件：config_path 缺省用模块常量 DEFAULT_CONFIG；始终返回 dict——{ok, config, keys, problems,
+# llm_disabled, conclusion}，其中 keys 为逐键 {key, source, masked, role, reaches_executor}（值空时
+# 多带 empty=True 与 note），ok=False 当且仅当「配置不可用」或「无可用模型密钥且未声明 HIVE_LLM_DISABLED」。
+def show_config(config_path=None):
+    """只读配置展示：逐键 来源 · 掩码值 · 角色 · 是否到达执行器 + problems + 结论。
+
+    为什么存在（C5）：三角色密钥的配置正确性此前只能靠人读 README + 猜 env 来源；
+    配错的表现是「任务全失败」而非「配置少一键」。本函数把合并面（config 覆盖进程 env，
+    与 start() 传给 serve 的 env 同口径）逐键摊开，且**只读**——不改 env、不落盘、
+    不拉起/探测任何进程。掩码走 mask_secret 单点函数：能核对面，看不到秘密。
+
+    **只读面不拒答**：配置坏 / 缺模型密钥时它照样返回完整 JSON（`ok` 的语义是
+    「这份配置能拉起 serve 吗」而非「这次读取成功吗」，故缺密钥时 ok=False 而
+    keys/problems/结论 一个不少）——缺密钥的运维恰恰靠它看诊断，不能连读面一起
+    拒掉；`--show-config` 也**不触发** start() 的启动前置校验（无进程被拉起）。
+    """
+    cfg = config_path or DEFAULT_CONFIG
+    raw, cfg_err = _raw_config(cfg)
+    raw = raw or {}
+    problems: list = []
+    if cfg_err:
+        problems.append(cfg_err)
+    cfg_env, bad_keys = {}, []
+    for k, v in raw.items():
+        if k.startswith("_"):
+            continue
+        val = resolve(v)
+        if val is None:
+            bad_keys.append(k)
+            problems.append(f"配置项解析失败：{k}（来源 {_source_of(v)} 未设或文件不可读）"
+                            f"——strict 口径（load_config）会因它拒绝拉起")
+        else:
+            cfg_env[k] = val
+    merged = {**os.environ, **cfg_env}
+    keys = sorted(set(cfg_env) | set(bad_keys) | set(_ALWAYS_SHOWN)
+                  | {k for k in _WATCH_KEYS if k in os.environ})
+    entries = []
+    for k in keys:
+        in_cfg = k in raw and not k.startswith("_")
+        e = {"key": k,
+             "source": _source_of(raw[k]) if in_cfg else f"env:{k}（进程环境）",
+             "role": role_of(k),
+             "reaches_executor": reaches_executor(k)}
+        val = cfg_env.get(k, "") if in_cfg else (os.environ.get(k) or "")
+        e["masked"] = mask_secret(val)
+        if not val:
+            e["empty"] = True
+            e["note"] = ("未设置/空值；" + _ORCH_ONLY_NOTE) if k in IDENTITY_KEYS else "未设置/空值"
+        elif k in IDENTITY_KEYS:
+            e["note"] = _ORCH_ONLY_NOTE
+        entries.append(e)
+    mk_problem = _model_key_problem(merged)
+    if mk_problem:
+        problems.append(mk_problem)
+    if not any((merged.get(k) or "").strip() for k in IDENTITY_KEYS):
+        problems.append("身份面未配置：HIVE_ORCH_TOKEN / HIVE_ORCH_TOKEN_FILE 均空"
+                        "——锚判据整体不启用（安全方向降级，行为=旧产物判据，见 keyres.rs 头注）"
+                        "；编排任务会在 orch.py load_principal 处 fail-closed")
+    disabled = llm_disabled(merged)
+    if cfg_err:
+        conclusion = "不可拉起：配置文件不可用（见 problems）"
+    elif bad_keys:
+        conclusion = "不可拉起：配置项解析失败（fail fast，见 problems）"
+    elif mk_problem and not disabled:
+        conclusion = f"不可拉起：无可用模型密钥（配 {MODEL_KEY}，或声明 {LLM_DISABLED_KEY}）"
+    elif disabled:
+        conclusion = f"可拉起（模型面已声明关闭：{LLM_DISABLED_KEY} 真值）——仅确定性任务可用"
+    else:
+        conclusion = "可拉起（模型密钥就绪）"
+    return {"ok": not (cfg_err or bad_keys or (bool(mk_problem) and not disabled)),
+            "config": cfg, "keys": entries, "problems": problems,
+            "llm_disabled": disabled, "conclusion": conclusion}
 
 
 # 生效条件：obj 为 dict（非 dict 时 obj.get 会抛 AttributeError）时打印其 ensure_ascii=False 的 JSON，并返回 0 当 obj.get("ok") 为真值，否则返回 1（ok 缺失或为 0/""/None/[] 等假值同样返回 1）。
@@ -231,13 +439,23 @@ def stop(jobs=None):
     return {"ok": True, "stopped": True, "pid": pid}
 
 
-# 生效条件：serve_alive() 为真时返回 ok:False 的「已在运行（pid=hb.get('pid')）」；否则 load_config(config_path) 报错时原样返回该 error；配置通过则按合并环境延迟解析 jobs（config/env 的 HIVE_JOBS_DIR > 模块级默认，见 _jobs_from）并建目录、以合并环境 Popen([EXE, "serve", "--jobs", <延迟 jobs>])，Popen 抛 OSError 返回「拉起失败」，否则最多 20 次 ×0.5s 轮询 serve_alive(jobs)，出现心跳即返回 ok:True（含 pid/workers/jobs_dir=<实际生效目录>/env_keys/config=config_path），20 轮仍无则返回该目录日志末尾 400 字符的「心跳未出现」。
+# 生效条件：load_config(config_path) 报错时原样返回该 error；配置通过则先 C5 启动前置校验——model_key_ready(合并环境) 为假且 llm_disabled(合并环境) 为假时返回 ok:False 的「启动前置校验未通过——<缺模型密钥文案>」；校验通过后再判 serve_alive() 为真时返回 ok:False 的「已在运行（pid=hb.get('pid')）」；否则按合并环境延迟解析 jobs（config/env 的 HIVE_JOBS_DIR > 模块级默认，见 _jobs_from）并建目录、以合并环境 Popen([EXE, "serve", "--jobs", <延迟 jobs>])，Popen 抛 OSError 返回「拉起失败」，否则最多 20 次 ×0.5s 轮询 serve_alive(jobs)，出现心跳即返回 ok:True（含 pid/workers/jobs_dir=<实际生效目录>/env_keys/config=config_path；HIVE_LLM_DISABLED 真值时多带 llm_disabled=True 与 note），20 轮仍无则返回该目录日志末尾 400 字符的「心跳未出现」。
 def start(config_path):
     """拉起 serve（已在跑则拒绝）。返回 dict；调用方决定是否打印。"""
     env, err = load_config(config_path)
     if err:
         return {"ok": False, "error": err}
     merged = {**os.environ, **env}
+    # C5 启动前置校验（批次69）：无可用模型密钥且未声明 HIVE_LLM_DISABLED 真值 → 拒绝
+    # 拉起。为什么必须前置：serve 的 env 在启动时固化（子进程无法反查），残缺 serve 一旦
+    # 上岗，该池**每个** LLM 任务都只在任务级 result.json 里报「HIVE_API_KEY 未设置」——
+    # 运维看到的是「任务全失败」而不是「配置缺一键」。判据/文案单点 = _model_key_problem
+    # （--show-config 的 problems 同源，两处不复制）。逃生门：声明 HIVE_LLM_DISABLED
+    # 真值（只跑确定性任务的部署）→ 放行，且在结果里回带提示。
+    problem = _model_key_problem(merged)
+    llm_off = llm_disabled(merged)
+    if problem and not llm_off:
+        return {"ok": False, "error": f"启动前置校验未通过——{problem}"}
     # D-1 修复（v18 外评，2026-09-23）：jobs 延迟到合并环境求值——config 里的
     # HIVE_JOBS_DIR 由此真正参与决策。此前模块级 JOBS 在 import 时固化并被
     # `--jobs` 显式钉死，config 键被静默丢弃（fail-silent，违背 fail-fast）。
@@ -271,10 +489,17 @@ def start(config_path):
     for _ in range(20):  # 等首个心跳
         if serve_alive(jobs):
             hb = heartbeat(jobs)
-            return {"ok": True, "pid": hb.get("pid"), "workers": hb.get("workers"),
-                    "jobs_dir": jobs,
-                    "env_keys": sorted(env.keys()),
-                    "config": config_path}
+            res = {"ok": True, "pid": hb.get("pid"), "workers": hb.get("workers"),
+                   "jobs_dir": jobs,
+                   "env_keys": sorted(env.keys()),
+                   "config": config_path}
+            if llm_off:
+                # C5：声明了「本部署不跑 LLM」的放行要**可见**——否则下一个运维看到
+                # LLM 任务全失败时，不知道这是声明的后果而非配置事故。
+                res["llm_disabled"] = True
+                res["note"] = (f"{LLM_DISABLED_KEY} 已声明：模型面关闭——本 serve 只跑确定性"
+                               f"任务；要跑 LLM 请配置 {MODEL_KEY} 并去掉该键后 --restart")
+            return res
         time.sleep(0.5)
     tail = ""
     try:
@@ -422,7 +647,7 @@ def status(jobs=None):
     return info
 
 
-# 生效条件：参数取自 sys.argv[1:]（"--config" 存在时取其紧随的一项作为 cfg，缺该项会在 args[i+1] 抛未捕获的 IndexError，否则用模块常量 DEFAULT_CONFIG）；处理后 args 仍含 "--stop" 时返回 emit(stop(_lifecycle_jobs(cfg)))、含 "--status" 时返回 emit(status(_lifecycle_jobs(cfg)))（目标池与 start/restart/rebuild 同口径，D-1 修复续），两者都不含时返回 emit(start(cfg))。
+# 生效条件：参数取自 sys.argv[1:]（"--config" 存在时取其紧随的一项作为 cfg，缺该项会在 args[i+1] 抛未捕获的 IndexError，否则用模块常量 DEFAULT_CONFIG）；处理后 args 仍含 "--show-config" 时返回 emit(show_config(cfg))（只读，不探测进程、不改运行态）、含 "--stop" 时返回 emit(stop(_lifecycle_jobs(cfg)))、含 "--status" 时返回 emit(status(_lifecycle_jobs(cfg))) 并在其结果 dict 上附 config_summary=show_config(cfg)（同一份摘要走同一函数，判据不复制；目标池与 start/restart/rebuild 同口径，D-1 修复续），其余情形返回 emit(start(cfg))。
 def main():
     args = sys.argv[1:]
     cfg = DEFAULT_CONFIG
@@ -430,6 +655,8 @@ def main():
         i = args.index("--config")
         cfg = args[i + 1]
         args = args[:i] + args[i + 2:]
+    if "--show-config" in args:
+        return emit(show_config(cfg))
     if "--rebuild" in args:
         return emit(rebuild(cfg))
     if "--restart" in args:
@@ -437,7 +664,10 @@ def main():
     if "--stop" in args:
         return emit(stop(_lifecycle_jobs(cfg)))
     if "--status" in args:
-        return emit(status(_lifecycle_jobs(cfg)))
+        st = status(_lifecycle_jobs(cfg))
+        # C5：--status 附同一份配置摘要（复用 show_config，不另立判据/文案）
+        st["config_summary"] = show_config(cfg)
+        return emit(st)
     return emit(start(cfg))
 
 

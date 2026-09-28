@@ -262,19 +262,35 @@ def _ensure_serve(jobs: str) -> dict:
 
 # ---------------------------------------------------------------- 工具实现
 
-# P11 结果完整性锚密钥链（批次53）：与 hive/src/keyres.rs 同一链、同一顺序——
-# 只取 hive 既有配置/令牌面（对照 config.local 既有键），不新发明密钥来源、
-# 不设公开缺省常量（N143 教训）。config.local.json 的解析值按 serve_start
-# 合并语义（{**os.environ, **config}）胜出进程 env，故先查 config 再查 env。
-_RESULT_KEY_KEYS = ("HIVE_ORCH_TOKEN", "HIVE_ORCH_TOKEN_FILE", "HIVE_API_KEY")
+# P11 结果完整性锚密钥链（批次53；N190 键集收窄）：与 hive/src/keyres.rs 同一链、
+# 同一顺序——`HIVE_ORCH_TOKEN`（令牌明文直值）→ `HIVE_ORCH_TOKEN_FILE`（**路径**，
+# 读全文 strip）→ None。只取 hive 身份/令牌面（对照 config.local 既有键），不新发明
+# 密钥来源、不设公开缺省常量（N143 教训）。N190：`HIVE_API_KEY` 不再兜底——它是模型
+# （网关）密钥、属普通配置（exec.py 调 LLM 必需，serve 派发时默认继承给执行器），
+# 把它当锚密钥 = 每个部署到模型密钥的面都自动成为锚签发面，且「谁有权签锚」退化成
+# 「谁能调模型」（服务端 hive/src/keyres.rs 头注同口径）。config.local.json 的解析值
+# 按 serve_start 合并语义（{**os.environ, **config}）胜出进程 env，故先查 config 再查
+# env（读序未动）。
+_RESULT_KEY_KEYS = ("HIVE_ORCH_TOKEN", "HIVE_ORCH_TOKEN_FILE")
+# env 直值环的键：**值本身即密钥**的键。`HIVE_ORCH_TOKEN_FILE` 的值是**路径**（同
+# Rust keyres.rs:43-50），故不入本环——由下方文件环读全文 strip（N190 同源链同步：
+# 旧实现把路径串本身当密钥直接返回，文件环成不可达死代码，与 serve 侧「读文件、
+# 不可读/空白即 None」判据分叉）。
+_ENV_DIRECT_KEYS = ("HIVE_ORCH_TOKEN",)
 
 
-# 生效条件：无必需形参——先 _load_local_config() 取 config 解析值（load_config 已完成 {"file":…} 读文件），三键按序首个非空字符串胜出；再查进程 env 同序（HIVE_ORCH_TOKEN_FILE 形态读文件全文 strip）；全缺 → None（提交面退回旧格式，不写 result_nonce——零配置部署行为不变）。
+# 生效条件：无必需形参——先 _load_local_config() 取 config 解析值（load_config 已完成 {"file":…} 读文件），两键按序首个非空字符串胜出；再查进程 env 直值环同序（值本身即密钥）；再取 env HIVE_ORCH_TOKEN_FILE 读文件全文 strip（不可读/空白视同该环缺失，不回落路径串本身）；全缺 → None（提交面退回旧格式，不写 result_nonce——零配置部署行为不变）。
 def _result_anchor_key() -> str | None:
-    """结果完整性锚密钥（P11 批次53）：hive 既有配置/令牌面唯一解析点。
+    """结果完整性锚密钥（P11 批次53；N190 收窄为身份两环）：hive 身份/令牌面唯一解析点。
 
     与 rust keyres::resolve_key_from_env 同链（submit 与 serve 两侧同口径，
     勿再分叉第二套解析）；config 值胜出 env（serve_start 合并语义）。
+    （N190：模型密钥不再兜底）
+
+    诚实边界（如实点名，本批未动）：config 形态的 `HIVE_ORCH_TOKEN_FILE` 按**直值**
+    采信（部署实况该键写路径串）——判据面只问「锚是否启用」（`_submit` 的
+    `is not None` 判据），与 serve 侧读文件后的非空判定同结论；仅当该路径不可读时
+    两面分叉。env 形态已按 Rust 语义读文件（守卫 C 组冻结两侧）。
     """
 
     def _env(k: str) -> str | None:
@@ -286,7 +302,7 @@ def _result_anchor_key() -> str | None:
         v = cfg.get(k)
         if isinstance(v, str) and v.strip():
             return v.strip()
-    for k in _RESULT_KEY_KEYS:
+    for k in _ENV_DIRECT_KEYS:
         v = _env(k)
         if v:
             return v

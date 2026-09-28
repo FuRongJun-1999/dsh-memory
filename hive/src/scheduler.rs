@@ -575,9 +575,10 @@ fn classify_result(dir: &std::path::Path, key: Option<&str>) -> Option<(String, 
                         "needs_review".into(),
                         Some(
                             "产物完整性锚不可校验：本 serve 未配置锚密钥 \
-                            （HIVE_ORCH_TOKEN / HIVE_ORCH_TOKEN_FILE / HIVE_API_KEY \
-                             均缺，P11 批次53）——fail-closed 不自动采信，\
-                             请以 serve_start.py（config.local.json 注入密钥）重启 serve"
+                            （身份链 HIVE_ORCH_TOKEN / HIVE_ORCH_TOKEN_FILE 均缺；\
+                             HIVE_API_KEY 是模型密钥、N190 起不作锚链兜底，P11 批次53）\
+                             ——fail-closed 不自动采信，\
+                             请以 serve_start.py（config.local.json 注入身份密钥）重启 serve"
                                 .into(),
                         ),
                     ),

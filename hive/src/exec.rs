@@ -80,10 +80,22 @@ pub fn kill_tree(child: &mut Child) {
     }
 }
 
-/// 锚密钥链 env 键（与 keyres.rs::resolve_key_from_env 解析链同源）：serve 进程
-/// 持有，spawn 执行器子进程时**默认全部剥离**（N185，批次65）。
-const ORCH_SECRET_ENV_KEYS: [&str; 3] =
-    ["HIVE_ORCH_TOKEN", "HIVE_ORCH_TOKEN_FILE", "HIVE_API_KEY"];
+/// **身份面** env 键（= keyres.rs::resolve_key_from_env 身份链，即锚密钥链两环）：
+/// serve 进程持有，spawn 执行器子进程时**默认全部剥离**（N185 批次65 立闸，
+/// N190 收窄到身份面）。
+///
+/// 剥离判据是**身份**，不是「键名里带不带 API/TOKEN」（N190，本批）：
+///   * 在表内 = 身份令牌/锚密钥——执行器持之即可对任意任务自签合法锚
+///     （keyres.rs 不可伪造性对最暴露进程失效），或以 serve 身份认领 principal；
+///   * 不在表内 = 普通配置，随 serve env 默认继承给执行器。
+///
+/// 为什么 `HIVE_API_KEY` **不在**此表：它是**模型（网关）密钥**，属普通配置，
+/// 执行器侧本来就通过 env 读它（hive/exec.py 的 `_post_chat`：`api_key =
+/// os.environ.get("HIVE_API_KEY", "")`，缺即 RuntimeError；hive/orch.py 派发的
+/// 子任务 spec 亦不写密钥、由子执行器继承同一 env）——剥离它只会让执行器拿不到
+/// 模型密钥而报错，与身份面无关。
+/// 故它既不剥离、也不需条件重注（两种任务形态一致地在执行器 env 中）。
+const ORCH_SECRET_ENV_KEYS: [&str; 2] = ["HIVE_ORCH_TOKEN", "HIVE_ORCH_TOKEN_FILE"];
 
 /// spec.orchestrate 的 Python 真值（对齐 exec_cmd.py:177 `spec.get("orchestrate")`）：
 /// 非空 Obj/Arr/Str、Bool(true)、Num(≠0) 为真；Null/空容器/空串为假。
@@ -107,14 +119,17 @@ fn spec_orchestrate(dir: &Path) -> bool {
 /// `anchor`（P11，批次53）：Some = 锚预期任务，注入 env `HIVE_RESULT_ANCHOR`
 /// （执行器契约：回写 result.json `result_anchor` 字段，值原样透传）；None =
 /// 旧格式任务，env 不含该键（执行器零感知，行为不变）。
-/// N185（批次65）env 卫生：serve 侧锚密钥链三键（`ORCH_SECRET_ENV_KEYS`）**默认
-/// 剥离**——exec.py:110-111 书面契约「锚的秘密性归 serve 侧密钥，执行器侧无法
-/// 也不必复算」；执行器是接触不可信 LLM 内容最多、最可能被注入的进程，env 继承
-/// 会把 serve 密钥扩散给执行器及其派生的任意孙进程，拿到密钥即可对任意任务自签
-/// 合法锚（keyres.rs:10-11 不可伪造性对最暴露进程失效）。唯一例外：spec.orchestrate
-/// 真值任务（执行器=orch.py 编排器）按身份面条件重注 HIVE_ORCH_TOKEN/
-/// HIVE_ORCH_TOKEN_FILE（orch.py load_principal fail-closed 必需）；HIVE_API_KEY
-/// 永不重注（编排器不调 LLM API）。
+/// N185（批次65）/N190 收窄 env 卫生：serve 侧**身份面**两键
+/// （`ORCH_SECRET_ENV_KEYS` = 令牌 + 令牌文件，即 keyres.rs 锚密钥链正式两环）
+/// **默认剥离**——exec.py:110-111 书面契约「锚的秘密性归 serve 侧密钥，执行器侧
+/// 无法也不必复算」；执行器是接触不可信 LLM 内容最多、最可能被注入的进程，env
+/// 继承会把身份令牌/锚密钥扩散给执行器及其派生的任意孙进程，拿到密钥即可对任意
+/// 任务自签合法锚（keyres.rs 头注「不设公开缺省常量密钥」段：不可伪造性对最暴露
+/// 进程失效）、并以 serve 身份认领 principal。唯一例外：spec.orchestrate 真值任务（执行器=orch.py 编排器）按
+/// 身份面条件重注该两键（orch.py load_principal fail-closed 必需）。
+/// `HIVE_API_KEY` **不在剥离面**（N190）：它是模型（网关）密钥、属普通配置，
+/// exec.py 调 LLM 必需——随 serve env 默认继承到达执行器（两种任务形态一致），
+/// 既不剥离也不再需要「条件重注」这条规则。
 /// 生效条件：exec_py/dir 给定且解释器可达 → spawn 子进程（argv=[python,
 /// exec_py, dir]，stdio 全 null——执行器自写 log.txt；anchor=Some 时 env 多
 /// HIVE_RESULT_ANCHOR）返回 Child；解释器缺失 → Err。调用方持 Child 句柄管
@@ -130,12 +145,16 @@ pub fn spawn_executor(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    // N185：先剥离锚密钥链（serve env 不随子进程扩散），后按身份面条件重注。
+    // N185/N190：先剥离**身份面**两键（serve 身份令牌/锚密钥不随子进程扩散），
+    // 后按 spec.orchestrate 条件重注同一份身份键表；模型密钥（HIVE_API_KEY）
+    // 不在剥离面，随 env 默认继承到达执行器（exec.py 调 LLM 必需）。
     for k in ORCH_SECRET_ENV_KEYS {
         cmd.env_remove(k);
     }
     if spec_orchestrate(dir) {
-        for k in ["HIVE_ORCH_TOKEN", "HIVE_ORCH_TOKEN_FILE"] {
+        // 重注面 = 剥离面（同一常量，勿另立第二份身份键清单——两处清单分叉
+        // 即「剥离了却不重注」或「重注了不该重注的」同族缺陷）。
+        for k in ORCH_SECRET_ENV_KEYS {
             if let Ok(v) = std::env::var(k) {
                 if !v.trim().is_empty() {
                     cmd.env(k, v);
@@ -199,6 +218,8 @@ pub(crate) mod env_secrets_tests {
 
     /// 进程 env 恢复守卫（同 keyres::tests 模式：Rust test 同进程共享 env，
     /// set/remove 串行段内完成，测毕恢复原值；哑值独特以降低并行假撞）。
+    /// 三键全设哑值：身份两键用于断言「被剥离 / orchestrate 重注」，
+    /// `HIVE_API_KEY` 用于断言「模型密钥不被剥离、照旧到达执行器」（N190）。
     struct EnvGuard(Vec<(&'static str, Option<String>)>);
     impl EnvGuard {
         fn set_dummy() -> EnvGuard {
@@ -228,13 +249,17 @@ pub(crate) mod env_secrets_tests {
         d
     }
 
-    /// N185：serve 侧锚密钥链 env（keyres.rs 解析链三键）不得随 spawn_executor
-    /// 继承扩散给执行器子进程——exec.py:110-111 书面契约「锚的秘密性归 serve
-    /// 侧密钥，执行器侧无法也不必复算」；执行器接触不可信 LLM 内容最多，拿到
-    /// 密钥即可对任意任务自签合法锚。普通任务（无 orchestrate）：三键全剥离，
-    /// HIVE_RESULT_ANCHOR 注入不受影响。
+    /// N185（批次65）/N190（本批，契约同步改口径）：serve 侧**身份面** env
+    /// （exec.rs::ORCH_SECRET_ENV_KEYS 两键，= keyres.rs 身份/锚密钥链两环）不得随
+    /// spawn_executor 继承扩散给执行器子进程——exec.py:110-111 书面契约「锚的
+    /// 秘密性归 serve 侧密钥，执行器侧无法也不必复算」；执行器接触不可信 LLM 内容
+    /// 最多，拿到身份令牌/锚密钥即可对任意任务自签合法锚。
+    /// 普通任务（无 orchestrate）：身份两键剥离，HIVE_RESULT_ANCHOR 注入不受影响。
+    /// N190 口径变更（本条第二段的旧断言「三键全不在」已按契约同步）：
+    /// `HIVE_API_KEY` 是**模型（网关）密钥、普通配置**，不在剥离面——
+    /// 普通任务下必须照旧到达执行器（exec.py 靠它调 LLM）。
     #[test]
-    fn env_secrets_stripped_from_plain_executor() {
+    fn identity_secrets_stripped_from_plain_executor() {
         let _lock = env_lock();
         let _g = EnvGuard::set_dummy();
         let dir = temp_dir("plain");
@@ -254,17 +279,23 @@ pub(crate) mod env_secrets_tests {
         let dump = read_dump(&dir);
         assert!(env_of(&dump, "HIVE_ORCH_TOKEN").is_none(), "HIVE_ORCH_TOKEN 泄漏到执行器: {dump:?}");
         assert!(env_of(&dump, "HIVE_ORCH_TOKEN_FILE").is_none(), "HIVE_ORCH_TOKEN_FILE 泄漏: {dump:?}");
-        assert!(env_of(&dump, "HIVE_API_KEY").is_none(), "HIVE_API_KEY 泄漏: {dump:?}");
+        assert_eq!(
+            env_of(&dump, "HIVE_API_KEY"),
+            Some(r#""DUMMY-N185-APIKEY""#),
+            "模型密钥未到达执行器（N190：HIVE_API_KEY 不在剥离面）: {dump:?}"
+        );
         assert_eq!(env_of(&dump, "HIVE_RESULT_ANCHOR"), Some(r#""DUMMY-N185-ANCHOR""#));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// N185 口径固定：orchestrate 真值任务（spec.orchestrate → orch.py）需要
+    /// N190 口径固定：orchestrate 真值任务（spec.orchestrate → orch.py）需要
     /// 身份令牌认领 principal（orch.py load_principal fail-closed）——serve
-    /// 按 spec.orchestrate 条件重注 HIVE_ORCH_TOKEN/HIVE_ORCH_TOKEN_FILE，
-    /// 但 HIVE_API_KEY（编排器不调 LLM API）永不注入。
+    /// 按 spec.orchestrate 条件重注**身份两键**（重注面 = 剥离面，同一常量）；
+    /// 同时 `HIVE_API_KEY` 与普通任务一致地到达（不在剥离面，无需重注）——
+    /// 「编排器不得持模型密钥」在 N190 已作废：编排器派发的子任务是普通任务，
+    /// 其子执行器继承同一 env 调 LLM，剥离主键只会打断编排。
     #[test]
-    fn orchestrate_executor_gets_identity_token_not_api_key() {
+    fn orchestrate_executor_gets_identity_token_and_model_key() {
         let _lock = env_lock();
         let _g = EnvGuard::set_dummy();
         let dir = temp_dir("orch");
@@ -291,7 +322,11 @@ pub(crate) mod env_secrets_tests {
             env_of(&dump, "HIVE_ORCH_TOKEN_FILE"),
             Some(r#""DUMMY-N185-NOT-A-FILE""#),
         );
-        assert!(env_of(&dump, "HIVE_API_KEY").is_none(), "HIVE_API_KEY 不得进编排器: {dump:?}");
+        assert_eq!(
+            env_of(&dump, "HIVE_API_KEY"),
+            Some(r#""DUMMY-N185-APIKEY""#),
+            "模型密钥未到达编排器（N190：不在剥离面，继承即达）: {dump:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

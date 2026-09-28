@@ -455,7 +455,7 @@ def _resolve_jobs_dir(job_dir: str | None = None) -> str:
     return _hm._jobs_dir()
 
 
-# 生效条件：a 为 dict，在 len(_CFG['children']) < _CFG['max_subtasks']、a.get('user_prompt') 去空白后非空、a.get('model') 或 _CFG['model'] 去空白后非空、a.get('tools') 各项（缺省/空列表回落 list(SUB_TOOLS_ALLOW)）均属 SUB_TOOLS_ALLOW、a.get('context_files') 每项对应路径 isfile 为真时，构造 sub 白名单键（仅当 a.get(k) not in (None, '', [], {}) 才写入 system_prompt/context_files/max_tool_rounds/web_search_backend/mdcg_root/max_tokens/temperature/thinking），timeout_s 取 _ex._int_arg(a,'timeout_s',_hm.DEFAULT_TIMEOUT_S,hi=sys.maxsize)、context_budget_tokens 取 _ex._int_arg(a,'context_budget_tokens',_hm.DEFAULT_CONTEXT_BUDGET_TOKENS,hi=sys.maxsize)（脏值/非正回落默认，不夹紧），reasoning_effort 取 a.get('reasoning_effort') or _hm.DEFAULT_REASONING_EFFORT，池解析经 _resolve_jobs_dir()（N145：双键皆空时从 _CFG['job_dir'] 父目录推导真实池，设键时 N89 语义原样）提交后 append 到 _CFG['children']、_save_children()、_ex.progress(kind='spawn_subtask') 并返回 ok=True 及 defaults；上述前置失败则返回对应 {'ok': False, 'error': ...}。
+# 生效条件：a 为 dict，在 len(_CFG['children']) < _CFG['max_subtasks']、a.get('user_prompt') 去空白后非空、a.get('model') 或 _CFG['model'] 去空白后非空、a.get('tools') 各项（缺省/空列表回落 list(SUB_TOOLS_ALLOW)）均属 SUB_TOOLS_ALLOW、a.get('context_files') 每项对应路径 isfile 为真时，构造 sub 白名单键（仅当 a.get(k) not in (None, '', [], {}) 才写入 system_prompt/context_files/max_tool_rounds/web_search_backend/mdcg_root/max_tokens/temperature/thinking），timeout_s 取 _ex._int_arg(a,'timeout_s',_hm.DEFAULT_TIMEOUT_S,hi=sys.maxsize)、context_budget_tokens 取 _ex._int_arg(a,'context_budget_tokens',_hm.DEFAULT_CONTEXT_BUDGET_TOKENS,hi=sys.maxsize)（脏值/非正回落默认，不夹紧），reasoning_effort 取 a.get('reasoning_effort') or _hm.DEFAULT_REASONING_EFFORT，pool 解析经 _resolve_jobs_dir()（N145：双键皆空时从 _CFG['job_dir'] 父目录推导真实池，设键时 N89 语义原样）、env HIVE_SUBAGENT_API_KEY 去空白非空时 sub 加布尔键 use_subagent_llm=True（C4：只写布尔，不写值/不写 env 名/不写地址；为假时该键不出现）提交后 append 到 _CFG['children']、_save_children()、_ex.progress(kind='spawn_subtask') 并返回 ok=True 及 defaults；上述前置失败则返回对应 {'ok': False, 'error': ...}。
 def _spawn(a: dict) -> dict:
     """派发子任务。
 
@@ -508,6 +508,13 @@ def _spawn(a: dict) -> dict:
     sub["context_budget_tokens"] = _ex._int_arg(
         a, "context_budget_tokens", _hm.DEFAULT_CONTEXT_BUDGET_TOKENS,
         hi=sys.maxsize)
+    # C4（批次69）：子代理模型端点开关——**只写布尔**。是否用
+    # HIVE_SUBAGENT_API_KEY 覆盖由子任务执行器按**自己的 env** 解析；密钥/base
+    # 的值绝不进 spec（spec 落盘、进 result/log、被读取方与编排链看见 → 写 spec
+    # 者即可让执行器把任意凭据发往任意地址）。编排者 env 没有该键时**不写**该键
+    # （子任务继承主配置，与历史行为逐位一致）。
+    if (os.environ.get("HIVE_SUBAGENT_API_KEY") or "").strip():
+        sub["use_subagent_llm"] = True
     jobs = _resolve_jobs_dir()
     cid = _hm._submit(jobs, sub)
     _CFG["children"].append({
