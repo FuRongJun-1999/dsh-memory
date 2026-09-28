@@ -157,7 +157,8 @@ VERB_SPECS = {
             },
         },
         "semantics": "写动词多形态：committed=已落盘；未 committed 时 moved_to/gate 说明去向，"
-                     "hint 说明「闸门正常行为、不是工具故障、重试同样结果」",
+                     "hint 说明下一步（闸门正常行为、不是工具故障；政策违规类 REJECT「重试同样结果」，"
+                     "缺必需要素类 REJECT 给出完整缺失清单与「补齐后重写」指引）",
     },
     "supersede": {
         "status": "reserved",

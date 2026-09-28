@@ -165,7 +165,36 @@ class WritePipeline:
 # 默认链（原 mcp_server._cg_dispatch op=="write" 分支，行为逐字节搬运）
 # --------------------------------------------------------------------------
 
-# 生效条件：ctx["a"] 经 audit.audit 得出的 state 为 ACCEPT 时返 None 放行，为 REJECT 时经 cg.add_rejected 返回 ok=False/moved_to="rejected"，其余 state 经 cg.propose 返回 moved_to="review_queue"（pr 带 dedup 时再附 dedup/dup_of/dup_status 并改写 hint）；
+# 生效条件：verdict 的 detail.missing 非空（或 evidence 以「缺少必需要素」起首）时返回「可修正的缺要素」文案（含缺失清单与补齐指引，不含「重试同样结果」式劝退表述）；其余 REJECT（禁止规则命中＝政策违规）返回「重试同样结果」原文案。
+def _reject_hint(verdict):
+    """审核 REJECT 的 hint 分型（**单点生成处**）。
+
+    为什么收敛在此：write 的 REJECT 出口只有本文件的 `_gate_audit` 一处
+    （链尾 `_executor` 只管落盘成功；其余闸门的 hint 各有自己的语义），
+    故分型逻辑集中在此函数，`_gate_audit` 只做调用——避免「同一语义两处
+    文案」随改动各自漂移。
+
+    两类 REJECT 对调用方的**可操作性**不同，文案必须分型（否则把可修正的
+    缺要素误导成重试无用）：
+      · 缺必需要素（成文格式不全）→ 内容可补，补完重写即落盘；
+      · 命中禁止规则（内容政策违规）→ 内容本身不该入库，原样再发无意义。
+    """
+    detail = verdict.get("detail") or {}
+    missing = [str(x) for x in (detail.get("missing") or [])]
+    ev = str(verdict.get("evidence") or "")
+    if missing or ev.startswith("缺少必需要素"):
+        listed = "、".join(missing) if missing else ev
+        return ("写入被拒（REJECT）：缺少必需要素——%s。"
+                "这是**可修正**的拒收：按 CCG 六要素（功能名／生效条件／子功能／"
+                "执行／验证方式／不适用条件，各占一行、以「# 要素名：」起首）"
+                "补齐后重写即可，本条未入库；该次内容已记入负记忆（rejected），"
+                "补全后重写为新条目。" % listed)
+    return ("这是审核闸门的正常行为：内容未过内容政策审核（REJECT），"
+            "已记入负记忆——不是工具故障，重试同样结果；"
+            "拒绝依据见 verdict.evidence")
+
+
+# 生效条件：ctx["a"] 经 audit.audit 得出的 state 为 ACCEPT 时返 None 放行，为 REJECT 时经 cg.add_rejected 返回 ok=False/moved_to="rejected"（hint 由 _reject_hint 按「可修正的缺要素 / 政策违规」分型生成），其余 state 经 cg.propose 返回 moved_to="review_queue"（pr 带 dedup 时再附 dedup/dup_of/dup_status 并改写 hint）；
 def _gate_audit(ctx):
     """校验闸：audit.audit 四态。ACCEPT 放行；REJECT 负记忆；其余入审核队列。"""
     a = ctx["a"]
@@ -193,9 +222,7 @@ def _gate_audit(ctx):
                               tags=a.get("tags"))
         return {"ok": False, "id": rid, "committed": False,
                 "moved_to": "rejected", "verdict": verdict,
-                "hint": "这是审核闸门的正常行为：内容未过内容政策审核（REJECT），"
-                        "已记入负记忆——不是工具故障，重试同样结果；"
-                        "拒绝依据见 verdict.evidence"}
+                "hint": _reject_hint(verdict)}
     from .mcp_server import _proposal_extras
     pr = cg.propose(ctx["nid"], a.get("content", ""), info=True,
                     layer=a.get("layer") or "knowledge",

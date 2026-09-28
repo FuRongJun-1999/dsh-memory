@@ -708,7 +708,10 @@ KERNEL_TOOLS = [
             offset=_p("integer", "read 的续读起始行（1 基；传上次返回的 next_offset）；"
                                  "edges 的分页偏移（排序后切片，默认 0）"),
             content=_p("string", "write 的内容（建议含 CCG 5 要素注释）"),
-            content_kind=_p("string", "write 的内容类型：code|image_desc|text|permission|work_done|work_wip|ccg_marks|hyperedge"),
+            content_kind=_p("string", "write 的内容类型：code|image_desc|text|permission|work_done|work_wip|ccg_marks|hyperedge。"
+                                      "text 类需带 CCG 六要素（功能名／生效条件／子功能／执行／验证方式／不适用条件，各占一行、"
+                                      "以「# 要素名：」起首）；缺失会被写入闸门拒绝，返回体如实列出缺失清单（verdict.detail.missing）——"
+                                      "补全后重写即可，无需原样再发。要求由规则库（MDCG_POLICY_FILE 指向的 policy 的 required/required_kinds）定义"),
             depends_on=_p("array", "write/verify：本单元**依赖**的节点 id 列表（CCG「子功能」"
                                    "的落字段，单值/逗号串亦可）。被依赖单元被修改或被证伪时，"
                                    "本节点**同跳**标「存疑」（一跳同步；多跳走 maintain"

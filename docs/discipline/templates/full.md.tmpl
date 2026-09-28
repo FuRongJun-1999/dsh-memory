@@ -45,7 +45,7 @@
 
 三条调用铁律：
 1. **`op` 必填**——漏传会触发参数签名推导兜底（返回标记 `op_derived: true`），复杂任务中也必须显式传，防静默执行错误意图。
-2. **返回 `moved_to: "review_queue"` / `verdict: DEFER/REJECT` 时不要重试**——这是校验闸门的正常行为（返回自带 `hint` 说明），重试同样结果；落盘须由设计者权限（can_admin）经 `op=review` 裁决（decision=accept/reject/edit/merge/noop，本机工具：`python scripts/review_cli.py list`），agent 端无裁决权是设计（写入者不得自裁自决），转告使用者即可。
+2. **返回 `moved_to: "review_queue"` / `verdict: DEFER` 时不要重试**——这是校验闸门的正常行为（返回自带 `hint` 说明下一步）；落盘须由设计者权限（can_admin）经 `op=review` 裁决（decision=accept/reject/edit/merge/noop，本机工具：`python scripts/review_cli.py list`），agent 端无裁决权是设计（写入者不得自裁自决），转告使用者即可。**`verdict: REJECT` 分两类，处置相反**：① 命中禁止规则（内容政策违规）→ 内容本身不该入库，重试同样结果；② 缺必需要素（`text` 类缺 CCG 六要素）→ **可修正**，按 `verdict.evidence` / `verdict.detail.missing` 给出的**完整缺失清单**补齐六要素后**重写**即落盘（本条未入库、已记入负记忆）——不要把它当「闸门故障」或「重试无用」。
 3. `stg` 同理经 `op` 分发（`timeline` / `relation` / `anchors` 等）。
 
 ## 收尾强制流程（任务完成时不可跳过）

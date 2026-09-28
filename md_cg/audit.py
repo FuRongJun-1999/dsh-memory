@@ -74,38 +74,73 @@ def load_rulebook(path=None):
     return rules if isinstance(rules, dict) else {}
 
 
-# 生效条件：当 rules 的 forbidden 与 required 去空后非全空时，逐条对 text 做 re.search（非法正则跳过），无禁止命中且必需项全部命中才返回 ACCEPT，否则 REJECT；两类都为空时返回 DEFER。
-def _rule_check(text, rules):
-    """规则为空 → DEFER（无规则不能假装合规）。"""
+# 生效条件：kind 属于 rules 的 required_kinds（该键缺失或去空后为空列表时视为全部 kind）时才检查 required；forbidden 对所有 kind 恒检查。两类去空后全空即返回 DEFER；有任一 forbidden 命中即返回 REJECT 与「命中禁止规则：<模式>」（非法正则跳过）；required 适用且存在缺失项即返回 REJECT 与「缺少必需要素：<展示名、连接>（补齐后重写即可，本条未入库）」并附 detail={"missing": [...], "missing_patterns": [...]}（两数组按下标一一对应）；全部通过即 ACCEPT（required 为空时措辞如实说明未配置必需规则，required 非空但被 kind 跳过时如实说明不适用于该 kind）。返回三元组 (state, evidence, detail)。
+def _rule_check(text, rules, kind="text"):
+    """规则为空 → DEFER（无规则不能假装合规）。
+
+    两类规则的生效面**不对称**：forbidden 是内容政策（机密外泄形态），对所有
+    content_kind 恒生效；required 是**成文格式**要求（CCG 六要素），只对
+    `required_kinds` 收窄内的 kind 生效——该键缺失或为空即「全部 kind」，
+    与改动前（required 对所有 kind 生效）行为一致，向后兼容。
+
+    缺失项**全列不截断**（原实现只列前 3 个，写入方拿不到完整补齐清单）；
+    展示名优先取 required_labels 的同下标中文名（policy 侧展示件，缺失或与
+    去空后的 required 长度不一致即整体回落正则串）——labels 畸形不得抛错，
+    也不得改变判定，它只影响证据文本。
+
+    边界（如实）：required 非空但被 kind 跳过、且 forbidden 为空时判 ACCEPT，
+    证据里点明「不适用于该 kind」——「规则不适用于此类内容」与「未配置规则」
+    是两件事（后者才 DEFER）。若部署方要求某 kind 也恒判 DEFER，应收窄
+    required_kinds（去掉该 kind）而不是靠本函数猜。
+    """
     forbidden = [r for r in (rules.get("forbidden") or []) if r]
     required = [r for r in (rules.get("required") or []) if r]
     if not forbidden and not required:
-        return DEFER, "未配置合规/纪律规则（MDCG_POLICY_FILE），无法判定"
+        return DEFER, "未配置合规/纪律规则（MDCG_POLICY_FILE），无法判定", None
     for pat in forbidden:
         try:
             if re.search(pat, text):
-                return REJECT, f"命中禁止规则：{pat}"
+                return REJECT, f"命中禁止规则：{pat}", None
         except re.error:
             continue
-    missing = []
-    for pat in required:
-        try:
-            if not re.search(pat, text):
-                missing.append(pat)
-        except re.error:
-            continue
-    if missing:
-        return REJECT, f"缺少必需要素：{missing[:3]}"
-    return ACCEPT, f"通过 {len(forbidden)} 条禁止 + {len(required)} 条必需规则"
+    kinds = [str(k) for k in (rules.get("required_kinds") or []) if str(k)]
+    req_active = bool(required) and (not kinds or str(kind) in kinds)
+    if req_active:
+        labels = rules.get("required_labels")
+        labels = list(labels) if isinstance(labels, list) else []
+        if len(labels) != len(required):
+            labels = []                      # 长度不匹配 → 整体回落正则串
+        missing, missing_patterns = [], []
+        for i, pat in enumerate(required):
+            try:
+                if not re.search(pat, text):
+                    missing_patterns.append(pat)
+                    missing.append(str(labels[i]) if labels else pat)
+            except re.error:
+                continue
+        if missing_patterns:
+            return (REJECT,
+                    "缺少必需要素：%s（补齐后重写即可，本条未入库）"
+                    % "、".join(missing),
+                    {"missing": missing, "missing_patterns": missing_patterns})
+    if not required:
+        return (ACCEPT,
+                f"通过 {len(forbidden)} 条禁止规则（未配置必需规则）", None)
+    if not req_active:
+        return (ACCEPT,
+                f"通过 {len(forbidden)} 条禁止规则"
+                f"（{len(required)} 条必需规则不适用于 content_kind={kind}）", None)
+    return ACCEPT, f"通过 {len(forbidden)} 条禁止 + {len(required)} 条必需规则", None
 
 
 # ---------- 内建验证器 ----------
 
-# 生效条件：以 payload['content']（为假值则回落 payload['text']，再为假值取空串）作为文本，用 ctx['rules']（为假值则回落 load_rulebook()）做规则检查，返回 _verdict(检查状态, 'text', 证据)。
+# 生效条件：以 payload['content']（为假值则回落 payload['text']，再为假值取空串）作为文本，用 ctx['rules']（为假值则回落 load_rulebook()）按 kind='text' 做规则检查，返回 _verdict(检查状态, 'text', 证据, 规则检查给出的 detail)；缺要素 REJECT 时 detail 形如 {"missing": [中文名...], "missing_patterns": [正则...]}（其余状态为 None）。
 def _verify_text(payload, ctx):
     text = str(payload.get("content") or payload.get("text") or "")
-    state, ev = _rule_check(text, ctx.get("rules") or load_rulebook())
-    return _verdict(state, "text", ev)
+    state, ev, detail = _rule_check(text, ctx.get("rules") or load_rulebook(),
+                                    "text")
+    return _verdict(state, "text", ev, detail)
 
 
 # 生效条件：ctx['principal'] 缺失或为 None 时恒 DEFER；否则按 payload['action']（为假值取空串）是否属于 admin/forget/restore/review_decide 分别取 p.can_admin 或 p.can_write，且 p 具 allows 方法而 payload['sensitivity'] 为真值时再叠加 p.allows(sensitivity)，按最终 ok 返回 ACCEPT/REJECT。
@@ -126,12 +161,13 @@ def _verify_permission(payload, ctx):
                     f"can_admin={getattr(p, 'can_admin', None)}")
 
 
-# 生效条件：payload['content']（为假值取空串）经 ctx['rules']（为假值回落 load_rulebook()）检查后，state==REJECT 即 REJECT；否则 ctx['cg'] 非 None 且 payload['topic']（为假值回落 payload['query']，再为假值取空串）非空且 cg.search 结果含 ACCEPT 状态节点时 DEFER（查询抛异常则跳过该路）；再 state==DEFER 时 DEFER，否则 ACCEPT。
+# 生效条件：payload['content']（为假值取空串）经 ctx['rules']（为假值回落 load_rulebook()）按 kind='work_wip' 检查后，state==REJECT 即 REJECT（证据前缀「纪律不合规：」，缺要素时把规则检查的 detail 一并透传）；否则 ctx['cg'] 非 None 且 payload['topic']（为假值回落 payload['query']，再为假值取空串）非空且 cg.search 结果含 ACCEPT 状态节点时 DEFER（查询抛异常则跳过该路）；再 state==DEFER 时 DEFER，否则 ACCEPT。
 def _verify_work_wip(payload, ctx):
     text = str(payload.get("content") or "")
-    state, ev = _rule_check(text, ctx.get("rules") or load_rulebook())
+    state, ev, detail = _rule_check(text, ctx.get("rules") or load_rulebook(),
+                                    "work_wip")
     if state == REJECT:
-        return _verdict(REJECT, "work_wip", f"纪律不合规：{ev}")
+        return _verdict(REJECT, "work_wip", f"纪律不合规：{ev}", detail)
     cg = ctx.get("cg")
     topic = str(payload.get("topic") or payload.get("query") or "")
     if cg is not None and topic:
