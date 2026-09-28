@@ -38,7 +38,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
-from . import nodefile
+from . import nodefile, protect
 from .readcache import direct_read
 
 # ---- 四态：复用 audit / judge_qualification 的裁决语汇（不新造状态机） ----
@@ -73,6 +73,9 @@ E_CODES = {
     "E052": ("无凭据签章：验证方身份未经 mdcg 令牌验签（verifier_identity="
              "self-reported）——自报名不构成编外复核凭据，落库须令牌验证方"
              "（verifier_token）签章"),
+    # N208：换行注入——ccg 行值是单行契约，换行会拆出伪造的独立正文行
+    "E022": ("值含换行：ccg 行值/四槽值必须是单行——换行会注入伪造的独立"
+             "正文行（`ccg_field_value` 取首个命中行，正文读面即被顶替）"),
 }
 
 # ---- 候选来源标识（写进留痕，可溯源到「谁说的」） ----
@@ -185,12 +188,27 @@ def _has_ccg_line(content: str, field_name: str) -> bool:
     return ("# " + field_name + "：") in text or ("# " + field_name + ":") in text
 
 
-# 生效条件：在 `(content or "").split("\n")` 中命中首个 strip 后以 "#" 开头、含 field_name、且去 "#" 后按全角或半角冒号切出的名字等于 field_name 的行→替换为 "# field_name：value" 并返回；否则若有行 strip 后以 "# 功能名" 开头→在该行后插入新行并返回；否则返回 `"# field_name：value\n" + (content or "")`。
+# 生效条件：v 为假值时按 "" 计；返回 str(v) 中是否含换行（"\n"/"\r"）——ccg 行值必须是单行，换行会把值拆成伪造的独立正文行。
+def _has_line_break(v) -> bool:
+    s = str(v or "")
+    return ("\n" in s) or ("\r" in s)
+
+
+# 生效条件：在 `(content or "").split("\n")` 中命中首个 strip 后以 "#" 开头、含 field_name、且去 "#" 后按全角或半角冒号切出的名字等于 field_name 的行→替换为 "# field_name：value" 并返回；否则若有行 strip 后以 "# 功能名" 开头→在该行后插入新行并返回；否则返回 `"# field_name：value\n" + (content or "")`；value 含换行时抛 ValueError（fail-closed：换行会把值拆成伪造的独立正文行，正文读面 ccg_field_value 取首个命中行 ⇒ 被顶替）。
 def _upsert_ccg_line(content: str, field_name: str, value: str) -> str:
     """写入/替换 `# <字段>：<值>`，优先插在「# 功能名」之后。
 
     与 consolidate._upsert_ccg_line 同款语义（就近实现，避免 import 环）。
+    唯一加严：**值必须是单行**（N208，2026-09-28）——此前 `value` 原样拼进
+    `"# " + field_name + "：" + value`，含 `\\n` 的值即可注入一行独立的
+    `# <任意字段>：<任意值>`：`ccg_field_value` 取首个命中行，正文读面据此
+    被顶替（伪造「功能名/生效条件」而调用方以为自己只改了四槽）。
     """
+    if _has_line_break(value):
+        raise ValueError(
+            "ccg 行值含换行：%r——值必须是单行（换行会注入伪造的独立正文行，"
+            "正文读面按首个命中行取值即被顶替）。N208 fail-closed 拒写。"
+            % (str(value)[:80],))
     lines = (content or "").split("\n")
     for i, ln in enumerate(lines):
         s = ln.strip()
@@ -487,6 +505,10 @@ def compile_dialog(dialog: str, node_id: str, actor: str, *,
             if nodefile.is_placeholder_text(value):
                 res.err("E021", "槽 " + key + " 空值或待填充占位：" + repr(value))
                 continue
+            # N208：槽值是单行契约——换行会在合成出的生效条件行里拆出伪造行
+            if _has_line_break(value):
+                res.err("E022", "槽 " + key + " 值含换行：" + repr(value)[:60])
+                continue
             if not exempt and not _value_grounded(src, value):
                 res.err("E011", "槽 " + key + " 值非原文子串：" + repr(value))
                 res.ungrounded.append({"field": "condition_space." + key,
@@ -519,6 +541,10 @@ def compile_dialog(dialog: str, node_id: str, actor: str, *,
         value, span, basis, _synthetic = _field(cand_marks[field_name])
         if nodefile.is_placeholder_text(value):
             res.err("E021", "要素 " + field_name + " 空值或待填充占位：" + repr(value))
+            continue
+        # N208：要素行同样是单行契约（link 会把它拼成 `# <要素>：<值>` 一行）
+        if _has_line_break(value):
+            res.err("E022", "要素 " + field_name + " 值含换行：" + repr(value)[:60])
             continue
         if not exempt:
             if not _value_grounded(src, value):
@@ -801,6 +827,14 @@ def link(compiled: CompileResult, attestation: Optional[AttestResult], *,
     if compiled.lines.get("生效条件"):
         comment["生效条件"] = compiled.lines["生效条件"]
 
+    # N208（2026-09-28）：本面是**既有节点的覆写**（正文六行 + condition_space +
+    # state_attributes），原先直调 `_write_node` 零闸：与同层 `add` 待遇相反
+    # （层白名单不含该层的身份照样改得动），self/anchor/immutable 节点被无痕
+    # 覆写（无快照、无审计）。统一走 protect.guard_overwrite（层闸 + 保护闸，
+    # 与 N131 merge 面同序同错型）。
+    protect.guard_overwrite(_cg, node_id, layer=fm.get("layer"),
+                            sensitivity=fm.get("sensitivity"),
+                            actor=actor or compiled.actor)
     _cg._write_node(node_id, os.path.join(_cg.root, entry["path"]), fm,
                     new_content, durable=True)
     _append_jsonl(_log_path(_cg), {
@@ -847,6 +881,14 @@ def recalibrate(node_id: str, corrections: Dict[str, Any], verifier: str,
     if bad:
         out.errors.append("E043 " + E_CODES["E043"] + "（非法键 " + ",".join(bad) + "）")
         return out
+    # N208（2026-09-28）：四槽值是**单行契约**——换行会在合成出的
+    # `# 生效条件：…` 行里拆出一行伪造的独立正文行（`_upsert_ccg_line` 已拒，
+    # 这里在更早的入口给出结构化 E022，不留半改状态）。dry-run 同样拒：
+    # 「预演能过、apply 才炸」的口径分裂比早拒更坏。
+    lb = [k for k, v in corrections.items() if _has_line_break(v)]
+    if lb:
+        out.errors.append("E022 " + E_CODES["E022"] + "（槽 " + ",".join(lb) + "）")
+        return out
 
     _cg = _as_cg(cg)
     if _cg is None:
@@ -877,6 +919,11 @@ def recalibrate(node_id: str, corrections: Dict[str, Any], verifier: str,
 
     new_content = _upsert_ccg_line(content, "生效条件", new_text)
     fm["condition_space"] = new_cs
+    # N208（2026-09-28）：与 link 同款——本面也是**既有节点的覆写**，原先直调
+    # `_write_node` 零闸（层白名单不含该层的身份照样改得动 self/anchor 层与
+    # immutable 节点，且无快照无审计）。统一走 protect.guard_overwrite。
+    protect.guard_overwrite(_cg, out.node_id, layer=fm.get("layer"),
+                            sensitivity=fm.get("sensitivity"), actor=verifier)
     _cg._write_node(out.node_id, os.path.join(_cg.root, entry["path"]), fm,
                     new_content, durable=True)
     _append_jsonl(_log_path(_cg), {

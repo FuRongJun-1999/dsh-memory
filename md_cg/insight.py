@@ -29,6 +29,7 @@ import math
 import os
 import time
 
+from . import protect
 from .fsutil import append_jsonl
 
 INSIGHT_LOG = "_insight.jsonl"
@@ -294,6 +295,14 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
     else:
         tg.append(TAG_FALSIFIED)
     fm["tags"] = tg
+    # N197（2026-09-28）：本面是**既有节点的覆写**——原先直调 `cg._write_node`，
+    # 既无 `principal.require_layer_write` 亦无 `protect.guard_write`，与同一身份
+    # 对同层 `add` 的待遇相反（add 被 AccessDenied，这里照样落盘）：越层腿
+    # （sustain layers=('self',) verify 他人的 contextual 事件）+ 保护腿
+    # （self/anchor/immutable 节点被无痕覆写、无快照无审计）都由这一处补闸收口。
+    # 层与敏感度取**本节点已读到的 frontmatter 真值**（不靠索引缺字段时的回落）。
+    protect.guard_overwrite(cg, node_id, layer=fm.get("layer"),
+                            sensitivity=fm.get("sensitivity"), actor=actor)
     cg._write_node(node_id, os.path.join(cg.root, node["path"]), fm,
                    node.get("content") or "")
     ent = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)

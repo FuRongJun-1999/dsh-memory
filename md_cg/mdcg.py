@@ -3382,7 +3382,7 @@ class MdCG:
                      if r[1] > 0 and r[2]["state"] == STATE_ACCEPT)
         return max(0.0, 1.0 - accept / len(results))
 
-# 生效条件：to_layer 不属于模块级 LAYERS 时抛 ValueError；self.get(node_id) 取不到节点或当前层（fm.layer 或路径首段）等于 to_layer 时返回 None；否则调 protect.guard_move 后写入 demotion 审计、搬文件到目标层并按新层 _stage、重算 buckets，返回 {id, from, to, path, reason}；
+# 生效条件：to_layer 不属于模块级 LAYERS 时抛 ValueError；self.get(node_id) 取不到节点或当前层（fm.layer 或路径首段）等于 to_layer 时返回 None；否则先对**源层与目标层**各调 protect.require_layer（N209：principal 层写闸，越权抛 AccessDenied），再调 protect.guard_move 后写入 demotion 审计、搬文件到目标层并按新层 _stage、重算 buckets，返回 {id, from, to, path, reason}；
     def _move_layer(self, node_id: str, to_layer: str, reason: str = ""):
         """把节点搬到另一层（可信度降级用），同步索引与 demotion 审计字段。"""
         if to_layer not in LAYERS:
@@ -3395,6 +3395,15 @@ class MdCG:
         if from_layer == to_layer:
             return None
         # 写保护：受保护节点（self/anchor/标记/高重要性）不得被降级移出保护层
+        # N209（同族未接线写面）：搬迁 = 对**源层**的一次删除写 + 对**目标层**的
+        # 一次新增写，两层都要过 principal 层写闸——此前只过保护闸 guard_move，
+        # 持 verify/sustain 令牌者（layers_allow 各为 rejected/contextual 与 self）
+        # 可把 knowledge 层节点搬出层（实测 sustain 经 _move_layer 成功搬入
+        # contextual）。次序对齐 N131/N209：principal 层闸在先、引擎保护闸在后。
+        protect.require_layer(self, node_id, layer=from_layer,
+                              sensitivity=fm.get("sensitivity"))
+        protect.require_layer(self, node_id, layer=to_layer,
+                              sensitivity=fm.get("sensitivity"))
         protect.guard_move(self, node_id, to_layer)
         fm["layer"] = to_layer
         fm["demotion"] = {"t": time.time(), "from": from_layer,

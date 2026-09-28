@@ -40,6 +40,7 @@ import time
 
 from . import nodefile
 from .fsutil import append_jsonl, atomic_write
+from .security import DEFAULT_SENSITIVITY
 
 PROTECTED_LAYERS = ("self", "anchor")
 AUTO_PROTECT_IMPORTANCE = 0.70
@@ -229,6 +230,78 @@ def guard_move(cg, node_id, to_layer, override=False, actor=None):
         return _allow(cg, node_id, why, "override_move", override, actor)
     raise ProtectionError(
         f"节点 {node_id} 受写保护（{why}）；降级移出保护层需显式 override=True")
+
+
+# 生效条件：cg 具备可调用的 _maybe_reload_index 时先调一次；层取形参 layer、索引条目 layer、节点 frontmatter layer 中首个真值（皆假值回落 "knowledge"，与 require_layer_write 缺省同口径）；敏感度取形参 sensitivity、索引条目 sensitivity、节点 frontmatter sensitivity 中首个真值（皆假值回落 security.DEFAULT_SENSITIVITY）；返回 (层, 敏感度) 二元组。
+def _resolve_target(cg, node_id, layer=None, sensitivity=None):
+    """既有节点写面的「层 / 敏感度」解析**单点**（不设第二份口径）。
+
+    索引代际探活（N195 同族）：写面直读本进程内存索引，他进程刚写入/搬迁的节点
+    在本进程索引中不存在、或层位陈旧 → 解析出的层不是真层，层闸会**静默失效**
+    （「越权改 knowledge」被当成「同层正当写」放行）。故进入判定前先探活一次
+    （签名未变时只有一次 stat）。
+    """
+    _reload = getattr(cg, "_maybe_reload_index", None)
+    if callable(_reload):
+        _reload()
+    e = _entry(cg, node_id) or {}
+    _layer = layer or e.get("layer")
+    _sens = sensitivity or e.get("sensitivity")
+    if not _layer or not _sens:
+        try:
+            node = cg.get(node_id)
+        except Exception:                     # noqa: BLE001 —— 读面失败不阻断判据本身
+            node = None
+        if node:
+            f = node.get("frontmatter") or {}
+            _layer = _layer or f.get("layer")
+            _sens = _sens or f.get("sensitivity")
+    return _layer or "knowledge", _sens or DEFAULT_SENSITIVITY
+
+
+# 生效条件：经 _resolve_target 解析出节点真层与敏感度后，cg.principal 非 None 且具备 require_layer_write 时调 principal.require_layer_write(layer, sensitivity)（越权抛 AccessDenied），返回解析出的层；cg 无 principal（裸 MdCG）时不做任何判定。
+def require_layer(cg, node_id, layer=None, sensitivity=None, actor=None):
+    """既有节点写面的 **principal 层闸**单点（不含引擎级保护闸）。
+
+    N209（2026-09-28，同族未接线的相邻写面入口）：「只有 `falsified` 一态接了
+    层闸」之外的三条写面全程只认管理位/保护位、**不认层白名单**——
+    `MdCGSecure.verify` 的 confirmed/weakened 分支直写被验证节点本体
+    （`md_cg/mdcg.py:3502`）、`trust.set_state`（验证态唯一推进入口 ⇒ 依赖者
+    `mark_dependents` 与 `set_verification` 两条写路，`md_cg/trust.py:697-698`）、
+    `MdCG._move_layer`（降级搬迁 = 源层一次删除写 + 目标层一次新增写，
+    `md_cg/mdcg.py:3405`）。后果：持 verify 令牌（`layers_allow` 仅
+    rejected/contextual、forbidden 明列「knowledge/self/anchor 层」）即可改写
+    knowledge 层节点本体、把 self 层依赖者置 doubted、把 knowledge 节点搬出层。
+    层闸口径与 `MdCGSecure.add`/`add_rejected` 一致（`md_cg/mdcos.py:3889`/`:3898`）。
+    """
+    _layer, _sens = _resolve_target(cg, node_id, layer=layer,
+                                    sensitivity=sensitivity)
+    p = getattr(cg, "principal", None)
+    if p is not None and hasattr(p, "require_layer_write"):
+        p.require_layer_write(_layer, _sens)
+    return _layer
+
+
+# 生效条件：先经 require_layer(cg, node_id, layer, sensitivity) 做 principal 层闸（越权抛 AccessDenied），再委托 guard_write(cg, node_id, layer=解析层, override=override, actor=actor) 并返回其结果。
+def guard_overwrite(cg, node_id, layer=None, sensitivity=None,
+                    override=False, actor=None):
+    """既有节点**覆写**前的统一双闸：principal 层写权限 + 引擎级写保护。
+
+    N197/N208（2026-09-28）：「同一身份对**同层**的 `add` 已被
+    `require_layer_write` 拒绝，但直调 `cg._write_node` 的写面照样落盘」——
+    层闸被同一库的两条出口口径不一致地绕开。与 N131（review 队列 merge 面）
+    同序同错型：principal 层写闸在先（对照 `MdCGSecure.add` :3889），引擎级
+    `guard_write` 在后（对照 `MdCG.add` :1509）。任何覆写**既有节点**的写面都
+    必须先过这里，否则 self/anchor 层与 immutable 节点被无痕覆写：不抛错、不落
+    `_protected_history` 快照、不写 `_protected_audit.jsonl`。
+
+    索引代际探活（N195 同族）：写面直读本进程内存索引，他进程刚置的保护位在本
+    进程索引中不存在 → `is_immutable` 的 `_entry` 得 None → 判 False，两道闸
+    会**同时静默失效**。故进入判定前先探活一次（签名未变时只有一次 stat）；
+    解析与层闸由 `require_layer` 同一单点承担。
+    """
+    _layer = require_layer(cg, node_id, layer=layer, sensitivity=sensitivity)
+    return guard_write(cg, node_id, layer=_layer, override=override, actor=actor)
 
 
 # 生效条件：cg.get(node_id) 抛异常或返回假值时返回 None；否则把 protected=True 与 protection_reason=reason 写入 cg.root 下 node["path"]（该键缺失即抛 KeyError）对应的 frontmatter 并保持原 content，随后门条目存在时同步其 protected/protection_reason，返回 {'node_id': node_id, 'protected': True, 'reason': reason}。

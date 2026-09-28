@@ -40,7 +40,9 @@ from __future__ import annotations
 import os
 import time
 
+from . import protect
 from .fsutil import append_jsonl, read_jsonl
+from .security import AccessDenied
 
 #: 验证态全集。语义：
 #:   unverified  未验证（默认；存量缺字段即视为它）
@@ -674,19 +676,39 @@ def _sync_index(cg, node_id, fm) -> None:
         flush()
 
 
+# 生效条件：cg.get(node_id) 为假值（节点不存在）时返回 {"ok": False, "error": "node_not_found", "node_id": node_id}；否则先过层写闸 protect.require_layer(cg, node_id, layer=fm.layer, sensitivity=fm.sensitivity)（N209：越权身份抛 AccessDenied → 转成 {"ok": False, "error": "layer_denied", "changed": False} 负路由，记 set_state_denied 台账，**不写盘**），再经 stamp 裁决：code 为 noop 或非法迁移时返回 ok=False 或 changed=False 不写盘，成功时把 fm 经 cg._write_node 落盘、_sync_index 同步验证态快照、_record 追加台账，fm 含 depends_on 时再 invalidate_cache，返回 {node_id, from, to, code, ok, changed, reason, at}。
 def set_state(cg, node_id: str, dst: str, reason: str = None, actor: str = None,
               evidence: str = None, method: str = None, trigger: str = None,
               override: bool = False) -> dict:
     """推进一个节点的验证态（**唯一推进入口**）。
 
     非法迁移不走异常而是返回 `{"ok": False, "error": <code>, ...}`（负路由）。
-    幂等迁移返回 `changed=False` 且不写盘。
+    幂等迁移返回 `changed=False` 且不写盘。**写盘前另过 principal 层写闸**
+    （N209：无权写该层 → `error="layer_denied"` 负路由，零写盘 + 台账留痕）。
     """
     node = cg.get(node_id)
     if not node:
         return {"ok": False, "error": "node_not_found", "node_id": node_id}
     fm = dict(node.get("frontmatter") or {})
     src = state_of(fm)
+    # N209（同族未接线的相邻写面）：验证态推进 = 对节点本体 frontmatter 的一次
+    # **覆写**（`cg._write_node` 全量重写 fm + 正文），与 add / 覆写写面同一层闸。
+    # 此前该路径零层闸（MdCGSecure 对 set_state/set_verification/mark_dependents
+    # 无任何覆盖）⇒ 持 verify 令牌者经 verify→mark_dependents → 把**任意层**
+    # 依赖者（实测 self 层）置 doubted。拒绝走**负路由**而非 raise：本函数契约是
+    # 「非法迁移不抛异常（ok=False + 机器码）」，且 mark_dependents 契约是
+    # 「永不抛、不阻断本次裁决」——但**绝不写盘**，并把拒绝记进 `_trust.jsonl`
+    #（不静默：与 `mark_dependents_degraded` 同一「留痕降级」口径）。
+    try:
+        protect.require_layer(cg, node_id, layer=fm.get("layer"),
+                              sensitivity=fm.get("sensitivity"))
+    except AccessDenied as exc:
+        _record(cg, {"t": time.time(), "action": "set_state_denied",
+                     "node_id": node_id, "from": src, "to": dst,
+                     "error": f"{type(exc).__name__}: {exc}",
+                     "actor": actor, "trigger": trigger})
+        return {"node_id": node_id, "from": src, "to": dst, "ok": False,
+                "error": "layer_denied", "reason": str(exc), "changed": False}
     ok, code, why = stamp(fm, dst, reason=reason, actor=actor, evidence=evidence,
                           method=method, trigger=trigger, override=override)
     base = {"node_id": node_id, "from": src, "to": dst, "code": code}

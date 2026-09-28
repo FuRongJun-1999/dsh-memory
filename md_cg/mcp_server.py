@@ -3632,7 +3632,85 @@ def _force_utf8_stdio():
             pass
 
 
-# 生效条件：_force_utf8_stdio() 先执行（stdio 三流强制 UTF-8，issue #39）；随后对 mdcg_root()/aux_root() 各探一次，抛 ValueError（Windows 保留设备名末段被 GetFullPathNameW 吞成设备路径，datapath._abs_host_path 守卫）时向 stderr 写一行含原始消息的告警并返回 2；此后 _resolve_root() 返回 err 非空时向 stderr 写冲突说明并返回 2；root 为空写缺少 MDCG_ROOT 并返回 2；root 的 basename 小写以 _md_cg_ 开头返回 2，令牌校验失败返回 3；其余构造 MdCGSecure 并进入 stdin 分派循环。
+# 生效条件：msg 为 json.loads 的产物（任意 JSON 值，可为非对象）；非 dict 时回 id=null 的 -32600 Invalid Request 并返回 False（不抛、不退出）；msg 为 dict 时按 msg.get("method") 分派——initialize 回 protocolVersion/capabilities/serverInfo，notifications/initialized 无响应，tools/list 回 tools_for_surface()，tools/call 在 params 非 dict 时回 -32602 Invalid params 且**不进工具**、params 为 dict 或缺省时经 call_tool 回 content，shutdown 回空结果并返回 True（调用方据此跳出读循环）；其余 method 在 id 非 None 时回 -32601；分派体任何异常都回带 id 的 -32603 并返回 False（fail-closed：单行请求不得杀 server）。
+def _serve_line(cg, msg) -> bool:
+    """处理一行已解析的 JSON-RPC 消息；返回 True 表示请求进程下线（shutdown）。
+
+    入口**类型闸**（N206，2026-09-28 legacy）：此前这条分派链直接写在 main() 的
+    for 循环体里，紧跟 ``json.loads`` 就裸调 ``msg.get(...)``，tools/call 分支又
+    裸调 ``params.get("name")``——而 ``json.loads`` 的产物**不必是对象**：
+    ``[]`` / ``123`` / ``null`` / ``"x"`` / 批量数组都是合法 JSON。任何能写该
+    server stdin 的一方（MCP 宿主 / 被注入的宿主插件 / stdio 管道交错写入者）
+    发一行即得未捕获 ``AttributeError: 'list' object has no attribute 'get'``
+    逃出 main()，整个 stdio 进程退出（实测 rc=1、stdout 只到崩溃前那条）：
+    工具面 tools/list 永无应答，崩溃期间记忆面（含写入）全不可用，且零凭据可达。
+    工具层 try 只包 ``call_tool``，包不到入口解析——这是**入口面**的缺口。
+
+    同族已在位：``hive/hive_mcp/mcp_server.py`` 的 ``_rpc``（-32600/-32602 双闸）
+    + main 入口兜底（2026-09-25 v2-N16 DoS），md_cg 是漏网面。此处按**同一口径**
+    补齐：非对象 → id=null 的 -32600；tools/call 的 params 非 dict → -32602 且
+    不进工具；整体兜底 -32603。fail-closed 的语义是「坏行被拒且进程继续服务」，
+    不是「坏行杀进程」。
+    """
+    if not isinstance(msg, dict):
+        # 非对象无从取 id → 按 JSON-RPC 2.0 回 id=null 的 Invalid Request。
+        _reply(None, error={"code": -32600,
+                            "message": "Invalid Request：请求体必须为 JSON 对象"
+                                       "（收到 %s）" % type(msg).__name__})
+        return False
+    rid = msg.get("id")
+    method = msg.get("method")
+    try:
+        if method == "initialize":
+            _reply(rid, {"protocolVersion": PROTOCOL_VERSION,
+                         "capabilities": {"tools": {}},
+                         "serverInfo": {"name": SERVER_NAME,
+                                        "version": SERVER_VERSION}})
+        elif method in ("notifications/initialized", "initialized"):
+            pass                          # 通知，无响应
+        elif method == "tools/list":
+            _reply(rid, {"tools": tools_for_surface()})
+        elif method == "tools/call":
+            params = msg.get("params")
+            # params 类型闸：非 dict（[1,2] / "x" / 7）时下方 params.get 抛
+            # AttributeError——工具层 try 包不到这里，回 -32602 不进工具。
+            # params 缺省/None 维持原语义（`or {}`，落工具层「未知工具」错误）。
+            if params is not None and not isinstance(params, dict):
+                _reply(rid, error={"code": -32602,
+                                   "message": "Invalid params：params 必须为 "
+                                              "object（收到 %s）"
+                                              % type(params).__name__})
+                return False
+            params = params or {}
+            name = params.get("name")
+            args = params.get("arguments") or {}
+            try:
+                out = call_tool(cg, name, args)
+                _reply(rid, {"content": [{"type": "text", "text": _j(out)}],
+                             "isError": False})
+            except Exception as exc:      # noqa: BLE001 —— 工具错误以 MCP 结果返回
+                # issue #34：失败路径必须带「怎么办」——AccessDenied 的 hint
+                # （guest 配凭据 / 令牌补授权 / 过期重签）随结构化错误透出。
+                err = {"error": f"{type(exc).__name__}: {exc}"}
+                _hint = getattr(exc, "hint", None)
+                if _hint:
+                    err["hint"] = _hint
+                _reply(rid, {"content": [{"type": "text",
+                                          "text": _j(err)}],
+                             "isError": True})
+        elif method == "shutdown":
+            _reply(rid, {})
+            return True
+        elif rid is not None:
+            _reply(rid, error={"code": -32601, "message": f"method not found: {method}"})
+    except Exception as exc:              # noqa: BLE001 —— 入口兜底不崩 server
+        sys.stderr.write("[mdcg-mcp] 主循环兜底（继续服务）: %r\n" % (exc,))
+        _reply(rid, error={"code": -32603,
+                           "message": f"internal error: {type(exc).__name__}"})
+    return False
+
+
+# 生效条件：_force_utf8_stdio() 先执行（stdio 三流强制 UTF-8，issue #39）；随后对 mdcg_root()/aux_root() 各探一次，抛 ValueError（Windows 保留设备名末段被 GetFullPathNameW 吞成设备路径，datapath._abs_host_path 守卫）时向 stderr 写一行含原始消息的告警并返回 2；此后 _resolve_root() 返回 err 非空时向 stderr 写冲突说明并返回 2；root 为空写缺少 MDCG_ROOT 并返回 2；root 的 basename 小写以 _md_cg_ 开头返回 2，令牌校验失败返回 3；其余构造 MdCGSecure 并进入 stdin 分派循环——每行经 _serve_line 处理（非对象 JSON 回 -32600 且不崩、tools/call 的非 dict params 回 -32602、分派体异常回 -32603，单行请求不得杀 server），_serve_line 返回 True（shutdown）或 stdin EOF 后脱离循环，随后 sustain.stop_all() 与 cg.close() 并返回 0。
 def main():
     _force_utf8_stdio()
     # 启动早期承接受理（Windows 保留设备名守卫）：MDCG_ROOT/MDCG_AUX_ROOT/
@@ -3791,41 +3869,22 @@ def main():
             msg = json.loads(line)
         except ValueError:
             continue
-        method = msg.get("method")
-        rid = msg.get("id")
-
-        if method == "initialize":
-            _reply(rid, {"protocolVersion": PROTOCOL_VERSION,
-                         "capabilities": {"tools": {}},
-                         "serverInfo": {"name": SERVER_NAME,
-                                        "version": SERVER_VERSION}})
-        elif method in ("notifications/initialized", "initialized"):
-            continue                      # 通知，无响应
-        elif method == "tools/list":
-            _reply(rid, {"tools": tools_for_surface()})
-        elif method == "tools/call":
-            params = msg.get("params") or {}
-            name = params.get("name")
-            args = params.get("arguments") or {}
+        # N206：msg 非 dict（`[]`/`123`/`null`/`"x"`/批量数组都是合法 JSON）
+        # 由 _serve_line 的入口类型闸拦下（-32600，不崩）；此处再兜一层——
+        # 兜底件本身失败（stdout 已断等）也只少一条应答，不带走整个 server。
+        try:
+            stop = _serve_line(cg, msg)
+        except Exception as exc:          # noqa: BLE001 —— 入口兜底不崩 server
+            sys.stderr.write("[mdcg-mcp] 主循环兜底（继续服务）: %r\n" % (exc,))
             try:
-                out = call_tool(cg, name, args)
-                _reply(rid, {"content": [{"type": "text", "text": _j(out)}],
-                             "isError": False})
-            except Exception as exc:      # noqa: BLE001 —— 工具错误以 MCP 结果返回
-                # issue #34：失败路径必须带「怎么办」——AccessDenied 的 hint
-                # （guest 配凭据 / 令牌补授权 / 过期重签）随结构化错误透出。
-                err = {"error": f"{type(exc).__name__}: {exc}"}
-                _hint = getattr(exc, "hint", None)
-                if _hint:
-                    err["hint"] = _hint
-                _reply(rid, {"content": [{"type": "text",
-                                          "text": _j(err)}],
-                             "isError": True})
-        elif method == "shutdown":
-            _reply(rid, {})
+                _reply(msg.get("id") if isinstance(msg, dict) else None,
+                       error={"code": -32603,
+                              "message": f"internal error: {type(exc).__name__}"})
+            except Exception:             # noqa: BLE001 —— 回写失败不再叠加异常
+                pass
+            continue
+        if stop:                          # shutdown：跳出读循环，正常下线
             break
-        elif rid is not None:
-            _reply(rid, error={"code": -32601, "message": f"method not found: {method}"})
 
     try:                                  # 正常下线：清戳，对端看到的是 stopped
         from . import sustain

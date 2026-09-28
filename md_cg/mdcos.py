@@ -304,6 +304,32 @@ DECISION_ACTIONS = (DECISION_ACCEPT, DECISION_REJECT, DECISION_EDIT,
 TERMINAL_DECISION_STATUS = ("accepted", "rejected", "noop")
 
 
+# 生效条件：cg 有可调用的 _readable（MdCGSecure 的可见性单点，mdcos.py:3938）时返回 bool(判定结果)，判定抛异常返回 False（fail-closed）；cg 无该属性（纯 MdCGOS：无身份/密级模型，其 get/search/_candidates 亦不设读闸）时返回 True。
+def _note_visible(cg, e) -> bool:
+    """会话读数出口的可见性谓词（可选钩子口径，N202/N211，2026-09-28）。
+
+    为什么用可选钩子而不是直调 `cg._readable(e)`：可见性单点 `_readable` 定义在
+    **子类** `MdCGSecure`（mdcos.py:3938），而本模块的读数出口（`_session_notes`
+    与 `session_recall` ④ 段）在**基类** `MdCGOS` 上——直调会让纯 MdCGOS 实例
+    （低层图形/测试面，无读隔离模型）抛 AttributeError，整个 notes 段被上层
+    `except` 吞成 degraded（实测：md_cg/test_p29_session_ingest_export「recall
+    命中该会话要点」因此转红）。仓内同口径先例：`backfill._readable_guard`
+    （backfill.py:283-292）与 `linkref._known_ids`（linkref.py:130）同样是
+    「无钩子=不限制，有钩子=按判据，判据异常=不可见」——本函数与它们逐条一致。
+
+    语义：**有身份模型一律按单点判据**（MdCGSecure 是服务面，MCP server 用它），
+    无身份模型则无「越权」可言（该实例的 get 本就不设闸）。判据异常按不可见
+    （fail-closed：宁可少读，不可 fail-open 泄漏）。
+    """
+    fn = getattr(cg, "_readable", None)
+    if not callable(fn):
+        return True
+    try:
+        return bool(fn(e))
+    except Exception:                      # noqa: BLE001 —— 判据异常=不可见
+        return False
+
+
 # 生效条件：以任意 root 构造时按其拼接 audit_log/hippocampus/trash 等路径并 makedirs 创建 hippocampus 与 trash_dir（exist_ok=True），autoflush 透传父类、actor 存入 self.actor；
 class MdCGOS(MdCG):
     """MdCG + 记忆 OS 七项能力。"""
@@ -2518,9 +2544,9 @@ class MdCGOS(MdCG):
         return {"ok": True, "id": nid, "session": session, "layer": layer,
                 "basis": basis, "tokens": est_tokens(content)}
 
-# 生效条件：当 session 传入且为真时仅保留 tags 含 f"session:{session}" 的项；保留 tags 含 SESSION_TAG 或任一以 "session:" 开头的索引节点，_read 的 content 为 None 则跳过；按 created_at 降序后返回前 max(1, int(limit or 5)) 条，limit 为假值（含 0/None）按 5 处理；
+# 生效条件：当 session 传入且为真时仅保留 tags 含 f"session:{session}" 的项；保留 tags 含 SESSION_TAG 或任一以 "session:" 开头的索引节点，且该索引条目经可见性单点 _readable 判为可见，_read 的 content 为 None 则跳过；按 created_at 降序后返回前 max(1, int(limit or 5)) 条，limit 为假值（含 0/None）按 5 处理；
     def _session_notes(self, session=None, limit=5):
-        """按时间倒序取会话要点（索引过滤 + 惰性回读摘要）。只读，不写盘。"""
+        """按时间倒序取会话要点（索引过滤 + 可见性闸 + 惰性回读摘要）。只读，不写盘。"""
         out = []
         for nid, e in (self.index.get("nodes") or {}).items():
             tags = list(e.get("tags") or [])
@@ -2529,9 +2555,24 @@ class MdCGOS(MdCG):
                 continue
             if session and f"session:{session}" not in tags:
                 continue
+            # N202（2026-09-28，legacy）：可见性单点接线——本条此前**只**按 tag
+            # 过滤就回读正文，而 `content is None` 只在**文件缺失/读失败**时成立
+            # （_read 见 mdcg.py:2445-2454）：restricted 档按设计不加密、盘上明文
+            # （test_read_scope_b27.py:215），故「身份不可读」永远不会走下面那条
+            # continue。于是 restricted 会话要点正文经 session_recall（① 段）与
+            # 工具面 `cg(op=session,action=recall)` 明文回给处置链路之外的身份
+            # （record/reflect/output/sustain 的 ops_allow 含 session），而同一节点
+            # 经 get/search 已被 _readable 正确拒绝——同一库两条出口口径矛盾。
+            # 此处接同一个 _readable（判据：clearance × sensitivity ∧ 会话绑定，
+            # restricted 走处置链路角色集），与 get/search/list_goals 同源，
+            # 两侧口径**必然一致**；fail-closed：不可见即视为不存在。
+            # 取用走 `_note_visible`（可选钩子）而非直调 self._readable：单点定义
+            # 在子类 MdCGSecure 上，直调会让纯 MdCGOS 实例整段降级（见该函数注）。
+            if not _note_visible(self, e):
+                continue               # 不可见（密级/会话绑定/处置链路）→ 视为不存在
             fm, content = self._read(e)
             if content is None:
-                continue               # 不可读（无密钥 / 身份不符）→ 视为不存在
+                continue               # 读盘失败（文件缺失/不可解析）→ 视为不存在
             out.append({
                 "id": nid, "session": (fm or {}).get("session") or "",
                 "created_at": float(e.get("created_at") or 0),
@@ -2603,6 +2644,13 @@ class MdCGOS(MdCG):
             for nid, e in (self.index.get("nodes") or {}).items():
                 if e.get("layer") != "unresolved":
                     continue
+                # N211（2026-09-28，本族第二出口，原树内并号 N209 按 v24 裁定改判）：与 ① 会话要点同根——此处也
+                # 是「只按 layer 过滤 → 回读正文 → 抽出 `# 问题：`」的直读出口，
+                # 无 _readable。实测：restricted 档未解问题的正文经 session_recall
+                # 明文回给处置链路之外的身份（record 等 ops_allow 含 session 者），
+                # 而同一节点 get/search 已正确拒绝。接同一判据（可选钩子口径）。
+                if not _note_visible(self, e):
+                    continue           # 不可见（密级/会话绑定/处置链路）→ 视为不存在
                 _fm, content = self._read(e)
                 if content is None:
                     continue
@@ -3883,21 +3931,32 @@ class MdCGSecure(MdCGOS):
         self.principal.require_layer_write("goals", DEFAULT_SENSITIVITY)
         return super().set_goal_status(node_id, status)
 
-# 生效条件：verdict（转 str 去空白 lower）为 "falsified" 时**先做索引代际探活重载**（N196：索引缺条目 ≡ 本进程陈旧，不得据以跳过层写闸），随后若索引中存在 node_id 条目则取该条目 layer 与 sensitivity（缺省回落 DEFAULT_SENSITIVITY）调 principal.require_layer_write——falsified 删除 = 对原节点层的一次删除写（N130，2026-09-25：verify 角色 layers_allow 本就只含 rejected/contextual，不得改/删被验证内容所在层，tokens.py verify spec forbidden 显式列明），与 add/add_rejected 同一闸口；随后把 override 原样转 super().verify（受保护节点的 guard_forget 快照留痕在基类 falsified 分支内）。verdict 非 falsified 不加闸直接透传；falsified 而重载后索引仍无此节点时不加闸（not_found 语义由基类维持）。
+# 生效条件：verdict（转 str 去空白 lower）属于 {"confirmed","weakened","falsified"} 三态**任一**时**先做索引代际探活重载**（N196：索引缺条目 ≡ 本进程陈旧，不得据以跳过层写闸），随后自索引条目（含 _dirty 未刷条目，口径同 MdCG.get）取该条目 layer 与 sensitivity（缺省回落 DEFAULT_SENSITIVITY）调 protect.require_layer→principal.require_layer_write（N209：三态全覆盖——confirmed/weakened 同样重写被验证节点本体 frontmatter，verify 角色 layers_allow 本就只含 rejected/contextual，tokens.py verify spec forbidden 显式列明「不得改被验证内容」），与 add/add_rejected 同一闸口；随后把 override 原样转 super().verify（受保护节点的 guard_forget 快照留痕在基类 falsified 分支内）。verdict 非法（如空串）时不加闸直接把原值转 super().verify（ValueError 语义由基类维持）；目标节点在重载后索引中仍无条目时同样不加闸（not_found 语义由基类维持，且基类 get 取不到即不写盘）。
     def verify(self, node_id: str, evidence: str, verdict: str,
                override: bool = False):
-        if str(verdict or "").strip().lower() == "falsified":
+        v = str(verdict or "").strip().lower()
+        if v in ("confirmed", "weakened", "falsified"):
             # N196（2026-09-28）：此前直读本进程内存索引且「缺条目 = 放行」——
             # 他进程刚写入并 compact 的节点在本进程索引中不存在时，N130 的
             # 层写闸被整段跳过：verifier（layers_allow=rejected/contextual）
             # 可 falsified 删掉 knowledge 层节点（实测：陈旧索引下删除成功且
             # 盘上原文消失；先重载则 AccessDenied、原文保留）。先探活重载，
             # 「真不存在」与「本进程陈旧」两态才可区分。
+            #
+            # N209（2026-09-28，同族次生缺口）：闸此前只落在 falsified 一态，
+            # confirmed/weakened 分支**零闸**——同一 verifier 令牌可借
+            # `mdcg.verify` 的 confirmed/weakened 分支直写被验证节点本体
+            # （confidence/evidence_count/positive|negative_evidence/evidence_log）、
+            # 连续 weakened 再把 knowledge 节点降级迁出到 contextual，且经
+            # mark_dependents 把任意层依赖者置 doubted。三态同为「对被验证
+            # 内容的写」，同一闸口一起接上。
             self._maybe_reload_index()
-            e = (self.index.get("nodes") or {}).get(node_id)
-            if e is not None:
-                self.principal.require_layer_write(
-                    e.get("layer"), e.get("sensitivity") or DEFAULT_SENSITIVITY)
+            e = ((self.index.get("nodes") or {}).get(node_id)
+                 or (getattr(self, "_dirty", None) or {}).get(node_id))
+            if e:
+                protect.require_layer(
+                    self, node_id, layer=e.get("layer"),
+                    sensitivity=e.get("sensitivity"))
         return super().verify(node_id, evidence, verdict, override=override)
 
 # 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，经 _rank(sens) 与 principal.require_write(sens) 后把 m 基于 meta 复制并 setdefault tenant/session、harness 与 unit 为真值时补入，再强制 m["sensitivity"]=sens，text 经 _seal_content("_recent", text, sens) 后连 tags=tags 一起转 super().remember_event（window 为 None 时不传该参，否则带上 window）。
