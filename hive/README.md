@@ -542,7 +542,7 @@ set HIVE_EXEC_PY=<仓>\hive\exec_cmd.py               :: 多态转发：按 spec
 | `HIVE_SUBAGENT_API_BASE` | 回落 `HIVE_API_BASE` | **可选**子代理 base（仅 `use_subagent_llm` 真值时生效）。子代理密钥缺失时本键一并回落主配置——避免「子代理 base + 主密钥」的半套配置跨网关错配 |
 | `HIVE_LLM_DISABLED` | 无 | 显式声明**本部署不跑 LLM**（真值 = 去空白后非空且小写不在 `{"0","false","no"}`）——只跑确定性任务（`exec_cmd.py`）的部署用它放行 `serve_start.py` 的「无可用模型密钥」前置校验；声明后启动结果里回带提示 |
 | `HIVE_WORKERS` | 4 | worker 池大小 |
-| `HIVE_PYTHON` | `python` | 执行器解释器 |
+| `HIVE_PYTHON` | 探测：`python3` 优先、无则 `python` | 执行器解释器（**显式设置压倒探测**）。缺省不是写死名字而是**试跑探测**首个可运行者——名字在 PATH 上不等于能跑（Windows 的 `python3.exe` 常是 Store 别名桩，实测退出码 49）；两候选均不可跑时取首候选名，让拉起失败可见。本键是解释器**唯一决策点**，`scheduler.rs` 的指纹计算亦经此（防第二套决策） |
 | `MDCG_ROOT` | 无 | lingshu_cg 认知图根（serve 级；任务级可用 `spec.mdcg_root` 兜底） |
 | `MDCG_HOME` | 执行器父目录 | md_cg 包所在仓根（同仓分发零配置） |
 | `HIVE_WEB_SEARCH` | `zhipu` | 搜索后端：`zhipu` / `duckduckgo` |

@@ -539,12 +539,13 @@ python scripts/run_tests.py                  # 源码树入口（等价；需 sc
 ```bash
 # 栈一：rust + python 全量（cargo test / python 18 套含全部守卫 / smoke 端到端）
 docker run --rm -v "$(pwd):/work" -w /work -e CARGO_TARGET_DIR=/tmp/target \
-  -e HIVE_PYTHON=python3 rust:bookworm bash scripts/linux_verify.sh full
+  rust:bookworm bash scripts/linux_verify.sh full
 # 栈二：node 生态（发布件 TS 编译 + node test）
 docker run --rm -v "$(pwd):/work" -w /work node:22-bookworm bash -c \
   "npm install --include=dev && npm run build && node --import tsx --test test/*.test.ts"
 ```
 
+> 执行器解释器由 `hive/src/exec.rs` 试跑探测（`python3` 优先、`python` 兜底），故上面两条**照抄即可**、无需再传 `HIVE_PYTHON`；要指定别的解释器才显式设它（显式压倒探测）。Git Bash/MSYS 下须先 `export MSYS_NO_PATHCONV=1`，否则 `/work` 被重写成 `C:/Program Files/Git/work`。
 > 平台差异守卫由脚本清单覆盖（编码/locale/session 过滤/SIGTERM 收尾）；依赖 gitignored 本地语料的套件（p44 等）不入容器清单，由 `run_tests.py` 的 SKIP 面在有语料的机器覆盖。
 
 ---

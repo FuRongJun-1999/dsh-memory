@@ -15,11 +15,57 @@
 
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::OnceLock;
 
-/// 生效条件：env HIVE_PYTHON 非空 → 取之；否则回落 PATH 上的 python——
-/// 解释器的唯一决策点（serve/runner 共用，不做各自的第二套决策）。
+/// 解释器候选序列（顺序即契约）：POSIX 惯例名优先、Windows 惯例名兜底。
+///
+/// 为什么不能只判「名字在不在 PATH 上」（2026-09-28 根因取证）：Windows 的
+/// `python3.exe` 常是 Microsoft Store 的**应用执行别名桩**——名字在 PATH 上、
+/// 执行却退出 49（本机 `python3 -c "import sys"` 实测 exit=49，而 `python` 正常）。
+/// 只判存在性会挑中一个跑不起来的桩，故候选须**试跑通过**才算可用（probe_runs）。
+pub const PYTHON_CANDIDATES: [&str; 2] = ["python3", "python"];
+
+/// 生效条件：env `HIVE_PYTHON` 去空白后非空 → 原样取之且**不探测**（显式压倒探测）；
+/// 否则按 PYTHON_CANDIDATES 顺序探测首个可运行者；全不可跑时返回首候选名
+/// （错误信息里指向符号名本身，而不是无声取一个不存在的解释器）。
+pub fn resolve_python_bin(explicit: &str, probe: &dyn Fn(&str) -> bool) -> String {
+    let e = explicit.trim();
+    if !e.is_empty() {
+        return e.to_string();
+    }
+    for cand in PYTHON_CANDIDATES {
+        if probe(cand) {
+            return cand.to_string();
+        }
+    }
+    PYTHON_CANDIDATES[0].to_string()
+}
+
+/// 试跑判据：`<cand> -c ""` 退出码 0 才算可用。探测进程同样是 console 子系统
+/// 程序，serve 无控制台时须 hide_window，否则每次探测闪一个新窗口。
+fn probe_runs(cand: &str) -> bool {
+    let mut c = Command::new(cand);
+    c.arg("-c").arg("").stdout(Stdio::null()).stderr(Stdio::null());
+    hide_window(&mut c);
+    matches!(c.status(), Ok(s) if s.success())
+}
+
+/// 探测结果按进程缓存（PATH 在进程生命周期内不变；不缓存则每次拉起多付一次探测）。
+/// 显式值不走缓存，仍每次读 env——测试与运行期改 env 都即时生效。
+static PROBED_PYTHON: OnceLock<String> = OnceLock::new();
+
+/// 生效条件：env HIVE_PYTHON 去空白后非空 → 取之；否则取进程内探测出的候选
+/// （python3 优先、python 兜底，见 resolve_python_bin）——解释器的**唯一决策点**
+/// （serve/runner 共用，不做各自的第二套决策：scheduler.rs 亦须经此，见
+/// python_bin_tests::no_second_python_decision_point_in_scheduler）。
 pub fn python_bin() -> String {
-    std::env::var("HIVE_PYTHON").unwrap_or_else(|_| "python".to_string())
+    let explicit = std::env::var("HIVE_PYTHON").unwrap_or_default();
+    if !explicit.trim().is_empty() {
+        return explicit.trim().to_string();
+    }
+    PROBED_PYTHON
+        .get_or_init(|| resolve_python_bin("", &probe_runs))
+        .clone()
 }
 
 /// Windows：抑制子进程弹出新的控制台窗口（其余平台为 no-op）。
@@ -167,6 +213,110 @@ pub fn spawn_executor(
     }
     hide_window(&mut cmd);
     cmd.spawn()
+}
+
+#[cfg(test)]
+mod python_bin_tests {
+    use super::{probe_runs, resolve_python_bin, PYTHON_CANDIDATES};
+    use std::cell::RefCell;
+
+    /// 候选序本身是契约：POSIX 惯例名优先、Windows 惯例名兜底。
+    /// 顺序写反（python 优先）等于把本缺陷重新引入。
+    #[test]
+    fn candidates_are_python3_first() {
+        assert_eq!(PYTHON_CANDIDATES[0], "python3");
+        assert_eq!(PYTHON_CANDIDATES[1], "python");
+    }
+
+    /// 探测「首个可运行者」：python3 不可跑时必须继续问 python，
+    /// 且问询顺序可观测（不是只凭返回值反推）。
+    #[test]
+    fn probe_stops_at_first_runnable_in_order() {
+        let asked = RefCell::new(Vec::new());
+        let probe = |c: &str| {
+            asked.borrow_mut().push(c.to_string());
+            c == "python"
+        };
+        assert_eq!(resolve_python_bin("", &probe), "python");
+        assert_eq!(*asked.borrow(), vec!["python3".to_string(), "python".to_string()]);
+    }
+
+    /// 首个候选可跑即收手——多余探测让每次拉起多付一个进程启动。
+    #[test]
+    fn probe_short_circuits_on_first_hit() {
+        let asked = RefCell::new(Vec::new());
+        let probe = |c: &str| {
+            asked.borrow_mut().push(c.to_string());
+            c == "python3"
+        };
+        assert_eq!(resolve_python_bin("", &probe), "python3");
+        assert_eq!(*asked.borrow(), vec!["python3".to_string()]);
+    }
+
+    /// 显式设置压倒一切且**不探测**：用户指定的解释器即使探测不过也照用——
+    /// 探测失败就静默换一个，等于把使用者的选择悄悄改掉，比照旧报错更坏。
+    #[test]
+    fn explicit_wins_and_never_probes() {
+        let asked = RefCell::new(Vec::new());
+        let probe = |c: &str| {
+            asked.borrow_mut().push(c.to_string());
+            false
+        };
+        assert_eq!(
+            resolve_python_bin("/opt/venv/bin/python3", &probe),
+            "/opt/venv/bin/python3"
+        );
+        assert!(asked.borrow().is_empty(), "显式路径不得触发探测");
+    }
+
+    /// 空白串按「未设置」处理——与 doc 的「非空 → 取之」一致。旧实现
+    /// （unwrap_or_else）会把空串当值返回，spawn 时以 ENOENT 收场且难以归因。
+    #[test]
+    fn blank_explicit_is_unset() {
+        let asked = RefCell::new(Vec::new());
+        let probe = |c: &str| {
+            asked.borrow_mut().push(c.to_string());
+            c == "python"
+        };
+        assert_eq!(resolve_python_bin("   ", &probe), "python");
+        assert!(!asked.borrow().is_empty(), "空白值应回落探测");
+    }
+
+    /// 两候选都不可跑时返回首候选（python3）：失败信息里指向的应是符号名本身，
+    /// 而不是无声取一个不存在的解释器。
+    #[test]
+    fn no_candidate_runs_falls_back_to_first_name() {
+        assert_eq!(resolve_python_bin("", &|_| false), "python3");
+    }
+
+    /// 端到端不变量：未设 HIVE_PYTHON 时 `python_bin()` 必须给出**真能跑**的解释器。
+    /// 两候选都不可跑的环境跳过——那时正确行为是拉起失败且可见。
+    #[test]
+    fn resolved_binary_is_runnable_when_any_candidate_is() {
+        if !PYTHON_CANDIDATES.iter().any(|c| probe_runs(c)) {
+            return;
+        }
+        let picked = resolve_python_bin("", &probe_runs);
+        assert!(probe_runs(&picked), "选中的解释器 {} 不可运行", picked);
+    }
+
+    /// 防腐蚀：解释器决策**单点在 exec.rs**——scheduler.rs 再写一次
+    /// `Command::new("python")` 即第二套决策（本缺陷原形态）。源码自省，
+    /// 判别力用合成正例自证，避免守卫退化成恒绿的空检查。
+    #[test]
+    fn no_second_python_decision_point_in_scheduler() {
+        fn has_hardcoded_python(src: &str) -> bool {
+            src.contains("Command::new(\"python\")") || src.contains("Command::new('python')")
+        }
+        assert!(has_hardcoded_python(r#"std::process::Command::new("python")"#));
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/scheduler.rs"))
+            .expect("读 scheduler.rs");
+        assert!(
+            !has_hardcoded_python(&src),
+            "scheduler.rs 出现硬编码 python 决策点——应改用 crate::exec::python_bin()"
+        );
+        assert!(src.contains("python_bin()"), "scheduler.rs 应经 python_bin() 取解释器");
+    }
 }
 
 #[cfg(test)]

@@ -145,7 +145,9 @@ impl ServeCfg {
             hive.parent().map(Path::to_path_buf)
         });
         if let Some(repo_root) = repo_root {
-            let out = std::process::Command::new("python")
+            // 解释器走 exec::python_bin() 单点决策：此处原硬编码 "python"，
+            // 是 Linux 上（无 python 别名）指纹静默缺失的第二套决策点。
+            let out = std::process::Command::new(crate::exec::python_bin())
                 .arg("scripts/judgment_manifest.py")
                 .arg("--digest")
                 .current_dir(&repo_root)
