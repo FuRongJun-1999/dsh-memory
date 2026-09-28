@@ -82,6 +82,16 @@ const SENSITIVE_PATTERNS: Array<{ re: RegExp; label: string }> = [
   { re: /密码\s*[:：是]\s*[A-Za-z0-9_@#$%^&*!.-]{4,}/g, label: '密码' },
   { re: /\b\d{17}[\dXx]\b/g, label: '身份证号' },
   { re: /\b1[3-9]\d{9}\b/g, label: '手机号' },
+  // 本项目自有令牌（issue #45）：批次71 已把形态加进**写入闸门**的禁表，但自动
+  // 记忆走的是 mdcg_remember(gated=true)、**不过 audit**，此处是这条路上唯一的
+  // 防线——此前不认自家令牌，用户粘一次即明文落进共用记忆库。
+  // 顺序要点：**完整令牌在前**。四段形态为 `mdcg1.<role>.<token_id>.<secret>`
+  // （md_cg/tokens.py:make_token），若先匹配裸 token_id，secret 段会留成明文
+  // （实测：`…designer.[已过滤:id].SECRET…`），故整条令牌必须整段吃掉。
+  { re: /\bmdcg1\.[A-Za-z]+\.[A-Za-z0-9_]+\.[A-Za-z0-9_-]{16,}/g, label: '令牌' },
+  // 裸令牌 id（`tk_` + 12 位 hex，1.15e14 空间不可猜——由 tokens.py 的
+  // `secrets.token_hex(6)` 生成；id 本身即凭据，与禁表 `\btk_[0-9a-f]{8,}\b` 同形）。
+  { re: /\btk_[0-9a-f]{8,}\b/g, label: '令牌id' },
 ]
 
 /** 脱敏：替换敏感片段；返回 null 表示整条都是敏感内容（应跳过写入）。 */
