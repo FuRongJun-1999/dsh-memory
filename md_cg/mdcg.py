@@ -515,6 +515,64 @@ def lexical_sim(qb: set, nb: set, mode: str = None) -> float:
     return inter / len(qb)
 
 
+# 负条件判据的词长下限（批次76）：空白切词会把中文句子里夹的裸标识符切成独立词、
+# 把长句切成单字符碎片（的/与/3）——后者不构成「本节点不适用于这类问句」的理由。
+NEG_MIN_TERM = 2
+
+
+# 生效条件：neg_conditions 为字符串列表（假值按空列表）；逐条按空白切词、丢弃长度 < NEG_MIN_TERM 的词与已入选的重复词；词出现在 scene_text 中，且（own_topic_text 去全部空白后为空，或该词去全部空白后不是 own_topic_text 去空白文本的子串）才计入；返回按首次出现顺序排列的命中词列表，无命中返回空列表。
+def neg_condition_hits(neg_conditions, scene_text, own_topic_text="") -> list:
+    """负条件（不适用条件）命中判据——**检索面唯一的负判据单点**。
+
+    判据（批次76 收口，取代 `any(w in scene for w in n.split())`）：
+
+      ① **整条命中**：条目去全部空白后作为子串出现在情境（去空白）里 → 命中。
+         声明本身写的就是「这类问句」，故整条出现即无歧义。
+      ② **全词命中**：条目的**每个**词（长度 ≥ `NEG_MIN_TERM`）都出现在情境里
+         → 命中。多词条目是条件短语，「词面齐全」才算问到点上；单个通用词
+         （`CI`/`DSH`/`AEIS`/`state`）不足以否决一个节点。
+      ③ 长度下限 `NEG_MIN_TERM = 2`：单字符碎片（的/与/3）不是拒绝理由。
+      ④ **自主题豁免**：命中内容出现在节点自己声明的主题面（功能名 + 生效条件，
+         见 `MdCG._self_topic_text`）里则不计——它不是「不适用」，而是「本节点
+         讲的就是它」。
+
+    为什么不能沿用「任一词命中」（三处过粗，各有实测支撑）：
+      · **主题词变扳机**：空白切词把中文句里夹的裸标识符切成独立词，于是
+        `CCG`/`state`/`tags`/`python3` 这类**主题词本身**在**本节点自己的主题
+        问句**上就命中，节点把自己判成不适用（实测三条归档各自的 rank 1 问句
+        state 全为 REJECT，批次75 先用措辞侧改写止血，根因在此）。
+      · **单个通用词整片否决**：存量实测 `DSH`（16 条节点）、`MCP`（12 条）、
+        `CI`、`AEIS`、`Actions` 等出现在条目的作用域旁注里，任何含该词的问句
+        都会把这些节点打成不适用——而它们与本节点主题无关，只是**边界说明里
+        提到的词**。
+      · **与写入期口径分叉**：`consistency.check` 的 L1-a 正把「负条件命中自身
+        生效条件/正文」当**自相矛盾**拒绝；检索面若比写入面更严，写进去的节点
+        在自己的主题上检索不到。
+
+    灵敏度**保持不变**（假阴性同样有害）：声明为「问这类问句」的条目照旧否决
+    ——`test_neg_condition_hits.py` 有正向对照断言钉住（`问ZXQ7`/`刚才在干什么`/
+    `问完全无关主题` 三条语料口径 + 自造多词条目），防「一律不拒」的退化解。
+    """
+    scene = scene_text or ""
+    scene_norm = re.sub(r"\s+", "", scene)
+    own = re.sub(r"\s+", "", own_topic_text or "")
+    hits = []
+    for n in (neg_conditions or []):
+        item = re.sub(r"\s+", "", str(n))
+        if not item:
+            continue
+        if len(item) >= NEG_MIN_TERM and item in scene_norm:
+            if not (own and item in own):
+                hits.append(str(n))
+            continue
+        words = [w for w in str(n).split() if len(w) >= NEG_MIN_TERM]
+        if words and all(w in scene for w in words):
+            if own and any(w in own for w in words):
+                continue
+            hits.append(str(n))
+    return hits
+
+
 # 生效条件：当 `query` 为字符串时，返回含整句、≥2 字符分词及命中 `SYNONYM_GROUPS_WEIGHTED` 组加权项（同名取最大权重）的字典；空串返回 `{}`。
 def expand_query_terms_weighted(query: str) -> dict:
     """分级版查询扩展：返回 {词: 隶属度}，隶属度 ∈ (0, 1]。
@@ -2536,22 +2594,48 @@ class MdCG:
     @staticmethod
 # 生效条件：content 为假值时按空串扫描并返回 ""；仅当某行去空白后以 "#" 开头、包含 name，且按全角或半角冒号切出的 head 去空白后等于 name 时返回该值，否则返回 ""。
     def _ccg_line(content: str, name: str) -> str:
-        """取 CCG 正文 `# <name>：` 行的值。
+        """取 CCG 正文 `# <name>` 行的值（无该行 → 空串）。
 
-        与 mdcos._ccg_field 同源实现——父类不得反向 import mdcos，
-        故在此落同款确定性扫描（无正则回溯风险）。
+        **委托 `nodefile.ccg_field_value`**（批次76 收口）。此前这里是一份手抄
+        副本，自称「与 mdcos._ccg_field 同源」；批次73 把 mdcos 那份改成委托
+        单点后，本份**没跟上**，于是口径分叉重现——它仍是「必须有冒号」的旧
+        语义：无冒号形态（`# 生效条件` + 下一行值）取回空串，而单点取得到值。
+        实测影响面 93 条节点（旧副本空、单点非空；反向 0 条）——这 93 条的正
+        条件确认被整段跳过，未确认也判 ACCEPT。副本的注释写着「同源」，行为却
+        不同源，正是本仓反复出现的缺陷族：**单点必须靠委托而非注释来保证**。
+
+        返回 `""`（而非 None）以保持本方法原有的假值语义，调用点（正条件确认）
+        判的就是「取值是否为空」。
         """
-        for line in (content or "").splitlines():
-            s = line.strip()
-            if not s.startswith("#") or name not in s:
-                continue
-            body = s.lstrip("#").strip()
-            for sep in ("：", ":"):
-                if sep in body:
-                    head, _, val = body.partition(sep)
-                    if head.strip() == name:
-                        return val.strip()
-        return ""
+        return nodefile.ccg_field_value(content, name) or ""
+
+    @staticmethod
+# 生效条件：content 的 `# 功能名` 与 `# 生效条件` 两行取值按非空过滤后以「；」拼接返回；两者皆空时回落 frontmatter 的 state_attributes.comment.生效条件（字符串或列表）；仍无则返回空串。
+    def _self_topic_text(fm: dict, content: str) -> str:
+        """节点**自己声明的主题面**（功能名 + 生效条件）——负条件豁免的比对面。
+
+        为什么取这两栏（批次76）：功能名 = 这条在讲什么，生效条件 = 在什么条件下
+        讲；「不适用条件」的语义是「本节点不适用于这类问句」，故它与此二者的词面
+        重合处是**主题**而非**拒绝域**（判据见 `neg_condition_hits`）。
+
+        为什么不取「子功能」：那是依赖清单，常列与本节点主题无关的名字（被依赖方
+        的名字出现在这里），一概豁免会把真正的拒绝域也吃掉。
+
+        comment 回落只为**迁移节点**——它们没有正文 CCG 行，条件只存在
+        `state_attributes.comment` 里（`backfill`/`ccgc` 两侧都往那儿写一份）。
+        """
+        parts = [x for x in (MdCG._ccg_line(content or "", "功能名"),
+                             MdCG._ccg_line(content or "", "生效条件"))
+                 if (x or "").strip()]
+        if not parts:
+            c = ((fm or {}).get("state_attributes") or {}).get("comment")
+            if isinstance(c, dict):
+                v = c.get("生效条件")
+                if isinstance(v, (list, tuple, set)):
+                    parts = [str(x) for x in v if str(x).strip()]
+                elif v:
+                    parts = [str(v)]
+        return "；".join(parts)
 
     @staticmethod
 # 生效条件：cond_text 为假值时按空串返回空列表；仅当按槽分隔与槽内分隔切出的短语长度≥2、非纯数字且不含时间维哨兵短语时进入返回列表，重复短语只保留首次。
@@ -2616,9 +2700,12 @@ class MdCG:
             scene.update(context)
         scene_str = json.dumps(scene, ensure_ascii=False)
 
-        # 2) REJECT：不适用条件命中（需条件对比，简化版用关键词命中）
+        # 2) REJECT：不适用条件命中——判据单点在 `neg_condition_hits`（词长下限
+        #    + 自主题豁免；原 `any(w in scene for w in n.split())` 会把本节点
+        #    自己的主题词当拒绝理由，见该函数说明）。
         neg = fm.get("non_applicable_conditions") or []
-        neg_hit = [n for n in neg if any(w in scene_str for w in n.split())]
+        neg_hit = neg_condition_hits(neg, scene_str,
+                                     MdCG._self_topic_text(fm, content))
         if neg_hit:
             return {"state": STATE_REJECT,
                     "reason": f"不适用条件命中：{neg_hit[:3]}"}
