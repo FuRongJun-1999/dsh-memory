@@ -158,18 +158,13 @@ def _weighted_coverage(tw: dict, text: str) -> float:
 
 # 生效条件：content 中某行以 "#" 开头、含 name、且以 "：" 或 ":" partition 出的 head.strip() 恰等于 name 时返回该行 val.strip()（首个命中即返回）；无此行使返回空串 ''，content 为 None/空按空串处理。
 def _ccg_field(content: str, name: str) -> str:
-    """取 CCG 正文中 `# <name>：` 那一行的值（确定性扫描，无正则回溯风险）。"""
-    for line in (content or "").splitlines():
-        s = line.strip()
-        if not s.startswith("#") or name not in s:
-            continue
-        body = s.lstrip("#").strip()
-        for sep in ("：", ":"):
-            if sep in body:
-                head, _, val = body.partition(sep)
-                if head.strip() == name:
-                    return val.strip()
-    return ""
+    """取 CCG 正文中 `# <name>` 那一行的值（确定性扫描，无正则回溯风险）。
+
+    委托 `nodefile.ccg_field_value`（判据与取值单点，2026-09-28 收口径）：
+    冒号可有可无——无冒号形态取标题后首个非空非标题行。返回契约保持 `str`
+    （缺行仍回落空串），不动既有调用面。
+    """
+    return nodefile.ccg_field_value(content, name) or ""
 
 
 # 生效条件：当 fm 为 dict 且 content 为字符串时，返回从 CCG 正文、state_attributes.comment 与 non_applicable_conditions 三处合并去重后的 (生效条件列表, 不适用条件列表)。

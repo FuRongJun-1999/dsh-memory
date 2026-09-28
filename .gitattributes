@@ -5,3 +5,11 @@
 # 本机 / 多数 Windows 环境 core.autocrlf=true，checkout 会把文本转成 CRLF，
 # 故须在此显式钉死该目录的行尾，否则钩子在 clone 后不可用。
 scripts/git-hooks/* text eol=lf
+
+# 同理：仓库内所有 sh 脚本都必须 LF——它们要么在 Linux 容器里跑
+# （scripts/linux_verify.sh / verify_linux.sh / verify_linux_node.sh，
+# 由 README 的发版门禁命令直接挂载工作树执行），要么是宿主侧脚本。
+# 2026-09-28 实证：一次编辑器改写把 linux_verify.sh 变成 CRLF，容器内立刻
+# `set: -^M: invalid option` + `syntax error near unexpected token '$'\r''`，
+# 整条 Linux 验证腿在第一步就退出——而本机（autocrlf=true）看不出来。
+*.sh text eol=lf

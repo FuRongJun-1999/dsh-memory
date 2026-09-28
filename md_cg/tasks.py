@@ -49,6 +49,8 @@ from __future__ import annotations
 import re
 import time
 
+from . import nodefile
+
 TASK_STATUSES = ("active", "blocked", "done", "dropped")
 
 #: 状态中文投影（只用于正文可读性，机械判据始终用英文值）
@@ -115,16 +117,13 @@ def _today() -> str:
     return time.strftime("%Y-%m-%d %H:%M")
 
 
-# 生效条件：content（`content or ""` 后 splitlines）中有某行 strip 后以 `# ` + field + `：` 开头时，返回该行该前缀之后的去空白内容；content 为假值或无此匹配行时返回 ""。
+# 生效条件：委托 nodefile.ccg_field_value——content 含 `# field` 标题行时返回其值（冒号形态取行内值，无冒号取标题后首个非空非标题行）；content 为假值或无该行时返回 ""。
 def _field_line(content: str, field: str) -> str:
-    """从正文抽 `# <字段>：` 行的值（与 `mdcos._ccg_field` 同源口径，
-    本模块不反向 import mdcos，避免包内循环依赖）。"""
-    pre = "# " + field + "："
-    for line in (content or "").splitlines():
-        s = line.strip()
-        if s.startswith(pre):
-            return s[len(pre):].strip()
-    return ""
+    """从正文抽 `# <字段>` 行的值——委托 `nodefile.ccg_field_value`（判据与
+    取值单点，2026-09-28 收口径；此前是本仓第三份同源实现）。返回契约保持
+    `str`（缺行回落空串）。本模块不 import mdcos（避免包内循环依赖），
+    nodefile 只依赖标准库，无环。"""
+    return nodefile.ccg_field_value(content, field) or ""
 
 
 # 生效条件：(content or "") 的行中 strip 后以 "## " 开头者成为节名 s[3:].strip() 并切换当前节，其余行累入当前节，返回各节内容以 "\n" join 后 strip 的字典；无任何标题行时仅返回 {"__body__": 全篇 strip}；content 为 None/空串时返回 {"__body__": ""}。

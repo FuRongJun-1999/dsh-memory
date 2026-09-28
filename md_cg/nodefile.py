@@ -199,22 +199,35 @@ def is_dep_sentinel(value) -> bool:
     return False
 
 
-# 生效条件：content 中不存在名字等于 field_name 的 `# 字段：` 行 → 返回 None；存在 → 返回首个命中行首个冒号之后的 strip 结果（可为空串）；
+# 生效条件：content 中不存在形如 `# <field_name>` 的标题行 → 返回 None；存在 → 返回该行的值（行内冒号之后的 strip 结果；无冒号则取标题后首个非空非标题行），可为空串；
 def ccg_field_value(content, field_name: str):
-    """读取 `# <字段>：<值>` 的值（首个命中行；全/半角冒号兼容）。无该行 → None。
+    """读取 `# <字段>` 的值（首个命中行；全/半角冒号兼容）。无该行 → None。
 
-    与 `ccgc._upsert_ccg_line` 的解析口径一致（去 `#`→按冒号切名字→名字相等即
-    命中）——即**写入口径与读入口径共用同一条行语义**，避免「写进去读不出」。
+    两种书写形态（**冒号可有可无**，2026-09-28 放宽——此前无冒号形态被读成
+    「行在、值为空」，与判据 `ccg_mark_present` 的「行在即已声明」自相矛盾）：
+      * `# 生效条件：<值>` → 取行内值；
+      * `# 生效条件` + 换行 + `<值>` → 取标题后**首个非空、非标题行**。
+    标题后紧跟另一个标题时返回空串——不得把下一个要素的正文吞成本字段的值。
+
+    判据单点在 `ccg_mark_present`；`mdcos._ccg_field` 与 `tasks._field_line`
+    均委托本函数，避免「判齐了却读不出」的第二套口径。
     """
-    for ln in (content or "").split("\n"):
-        s = ln.strip()
-        if not s.startswith("#"):
+    lines = (content or "").split("\n")
+    for i, ln in enumerate(lines):
+        rest = _ccg_heading_rest(ln, field_name)
+        if rest is None:
             continue
-        if s.lstrip("#").strip().split("：")[0].split(":")[0].strip() != field_name:
-            continue
-        for p in ("# " + field_name + "：", "# " + field_name + ":"):
-            if p in ln:
-                return ln.split(p, 1)[1].strip()
+        for sep in ("：", ":"):
+            if rest.startswith(sep):
+                return rest[len(sep):].strip()
+        if rest.strip():
+            # 前缀式标题（如 `# 功能名（备注）`）：余文即值
+            return rest.strip()
+        for nxt in lines[i + 1:]:
+            t = nxt.strip()
+            if not t:
+                continue
+            return "" if t.startswith("#") else t
         return ""
     return None
 
@@ -324,7 +337,56 @@ def loads(text: str):
     return fm, content
 
 
-# 生效条件：content 中出现 "# {mark}：" 或 "# {mark}:"（中/英文冒号）即把该 mark 计入 present 与 required_present；complete 为 required_present 覆盖全部 CCG_REQUIRED、all_present 为 present 覆盖全部 CCG_MARKS，ratio = len(required_present)/len(CCG_REQUIRED)，四键连同两个清单一起返回。
+# 生效条件：value 的 str 形态含 "\n" 或 "\r" 时返回 True，否则 False。
+def ccg_value_has_break(value) -> bool:
+    """CCG 行值是否含换行——含换行即可注入一行伪造的独立正文行。
+
+    正文读面按**首个命中行**取值，被注入的伪造行一旦排在前头就把真值顶替掉；
+    故写入面必须 fail-closed 拒（N208，2026-09-28）。判据单点在此：
+    `ccgc._has_line_break` 与 `consolidate._upsert_ccg_line` 同源，
+    避免「一处拒、另一处照收」——副本漏加固即是把注入面留开。
+    """
+    v = str(value if value is not None else "")
+    return ("\n" in v) or ("\r" in v)
+
+
+# 生效条件：line 匹配 `^#\s*<mark>`（与写入闸门 data/policy.json 的必需正则同一语义）时返回 mark 之后的余文，否则返回 None；行内置下划线均不参与判定。
+def _ccg_heading_rest(line: str, mark: str):
+    """`# <mark>…` 标题行的**行语义单点**：命中返回 mark 之后的余文，否则 None。
+
+    正则与写入闸门 `data/policy.json` 的 `(?m)^#\\s*<mark>` **逐字对齐**——
+    两侧判定必须同一条行语义，否则又长出一处口径分叉（本函数即为此而立）。
+    由此确定的边界（都是**故意**与闸门一致的宽松/严格，不是疏漏）：
+      * `# 生效条件`、`#生效条件`、`# 生效条件：v`、`# 生效条件 v` → 命中；
+      * `## 生效条件`、`  # 生效条件`（缩进）→ **不**命中（闸门同样不认二级标题/缩进标题）。
+    """
+    m = re.match(r"^#\s*" + re.escape(mark), line or "")
+    if not m:
+        return None
+    return (line or "")[m.end():]
+
+
+# 生效条件：content 中存在 `# <mark>` 标题行（判据=_ccg_heading_rest 非 None；与写入闸门同一正则语义，冒号可有可无）时返回 True，否则 False。
+def ccg_mark_present(content: str, mark: str) -> bool:
+    """六要素「已声明」的**唯一判据**（2026-09-28 收单点）：`# <mark>` 标题行在
+
+    —— 冒号可有可无。判据与写入闸门 `data/policy.json` 的必需正则
+    `(?m)^#\\s*<mark>` **同一语义**（标题前缀即算声明）：闸门放行的正文，
+    检索面不得再判它「要素不全」。
+
+    为什么必须收成一个函数（本判据的由来，是一次真实的口径分叉）：写入闸门
+    不要求冒号，而检索面 `ccg_completeness` 原先要求冒号 —— 同一条正文被写入
+    判 ACCEPT、被检索路由判 BLINDSPOT「CCG 要素不全」；存量实测含六要素的节点
+    中 88 件处于该状态（归档看着写成了，检索面当它没声明）。收单点后复扫
+    12043 件，闸门与检索面结论不一致 = 0。
+    """
+    for ln in (content or "").split("\n"):
+        if _ccg_heading_rest(ln, mark) is not None:
+            return True
+    return False
+
+
+# 生效条件：content 中出现 "# {mark}：" 或 "# {mark}:"（中/英文冒号）或仅 "# {mark}" 标题行即把该 mark 计入 present 与 required_present；complete 为 required_present 覆盖全部 CCG_REQUIRED、all_present 为 present 覆盖全部 CCG_MARKS，ratio = len(required_present)/len(CCG_REQUIRED)，四键连同两个清单一起返回。
 def ccg_completeness(content: str) -> dict:
     """CCG 要素齐全度——白箱可审计性的量化指标。
 
@@ -332,10 +394,12 @@ def ccg_completeness(content: str) -> dict:
     合成（`condition_space_text`）。缺声明 = 缺证据，只能补写或判 BLINDSPOT，
     不能被「常用条件默认省略」静默掩盖。故 CCG_REQUIRED == CCG_MARKS，
     `complete` 与 `all_present` 同源；保留两个键只为不动既有调用面。
+
+    判据本身**不看标点**（冒号可有可无）——形态归形态、齐不齐归齐不齐：
+    判据单点是 `ccg_mark_present`，与写入闸门同一语义。
     """
-    all_present = [m for m in CCG_MARKS if f"# {m}：" in content or f"# {m}:" in content]
-    required_present = [m for m in CCG_REQUIRED
-                        if f"# {m}：" in content or f"# {m}:" in content]
+    all_present = [m for m in CCG_MARKS if ccg_mark_present(content, m)]
+    required_present = [m for m in CCG_REQUIRED if ccg_mark_present(content, m)]
     return {
         "present": all_present,
         "required_present": required_present,

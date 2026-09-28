@@ -182,16 +182,15 @@ def _as_cg(x):
     return MdCGOS(x)
 
 
-# 生效条件：content 为字符串（None 视作空串）时，若其中含 "# " + field_name + "：" 或 "# " + field_name + ":" 则返回 True，否则 False。
+# 生效条件：委托 nodefile.ccg_mark_present——content 中含标题行 "# " + field_name（冒号可有可无）则返回 True，否则 False。
 def _has_ccg_line(content: str, field_name: str) -> bool:
-    text = content or ""
-    return ("# " + field_name + "：") in text or ("# " + field_name + ":") in text
+    # 判据单点在 nodefile（2026-09-28 收口径）：冒号可有可无，与写入闸门同一语义。
+    return nodefile.ccg_mark_present(content, field_name)
 
 
-# 生效条件：v 为假值时按 "" 计；返回 str(v) 中是否含换行（"\n"/"\r"）——ccg 行值必须是单行，换行会把值拆成伪造的独立正文行。
+# 生效条件：委托 nodefile.ccg_value_has_break——v 的 str 形态含换行（"\n"/"\r"）则返回 True，否则 False。ccg 行值必须单行，换行会拆出伪造的独立正文行。
 def _has_line_break(v) -> bool:
-    s = str(v or "")
-    return ("\n" in s) or ("\r" in s)
+    return nodefile.ccg_value_has_break(v)
 
 
 # 生效条件：在 `(content or "").split("\n")` 中命中首个 strip 后以 "#" 开头、含 field_name、且去 "#" 后按全角或半角冒号切出的名字等于 field_name 的行→替换为 "# field_name：value" 并返回；否则若有行 strip 后以 "# 功能名" 开头→在该行后插入新行并返回；否则返回 `"# field_name：value\n" + (content or "")`；value 含换行时抛 ValueError（fail-closed：换行会把值拆成伪造的独立正文行，正文读面 ccg_field_value 取首个命中行 ⇒ 被顶替）。

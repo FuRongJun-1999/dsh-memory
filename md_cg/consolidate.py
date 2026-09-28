@@ -530,9 +530,10 @@ def replay_check(pos_terms, neg_terms, body: str) -> dict:
 
 # ---- 写盘（固化）---------------------------------------------------------
 
-# 生效条件：给定 content 与 field，当 content 含 "# field：" 或 "# field:" 时返回 True，否则 False。
+# 生效条件：委托 nodefile.ccg_mark_present——content 含 "# field" 标题行（冒号可有可无）则返回 True，否则 False。
 def _has_ccg_line(content: str, field: str) -> bool:
-    return f"# {field}：" in (content or "") or f"# {field}:" in (content or "")
+    # 判据单点在 nodefile（2026-09-28 收口径）：冒号可有可无，与写入闸门同一语义。
+    return nodefile.ccg_mark_present(content, field)
 
 
 # 生效条件：给定 fm 与 content，对每个 CCG_FIELDS，若 frontmatter.comment 值非空或正文含对应 CCG 行则记入，返回已有字段字典。
@@ -551,7 +552,17 @@ def existing_fields(fm: dict, content: str) -> dict:
 
 # 生效条件：给定 content、field、value，若已有 "# field：" 行则替换并返回新正文；否则插在 "# 功能名" 之后，若无则该行前置。
 def _upsert_ccg_line(content: str, field: str, value: str) -> str:
-    """在正文里写入/替换 `# <字段>：<值>`，优先插在「# 功能名」之后。"""
+    """在正文里写入/替换 `# <字段>：<值>`，优先插在「# 功能名」之后。
+
+    **值必须单行**（N208，2026-09-28）：本函数此前只有 `ccgc` 那份副本做了
+    加固而自身漏掉——而本副本被 `backfill` 与 `crosscheck` 共用，等于注入面
+    在这两条路径上仍然开着。判据委托 `nodefile.ccg_value_has_break`（单点）。
+    """
+    if nodefile.ccg_value_has_break(value):
+        raise ValueError(
+            "ccg 行值含换行：%r——值必须是单行（换行会注入伪造的独立正文行，"
+            "正文读面按首个命中行取值即被顶替）。N208 fail-closed 拒写。"
+            % (str(value)[:80],))
     lines = (content or "").split("\n")
     for i, ln in enumerate(lines):
         s = ln.strip()
