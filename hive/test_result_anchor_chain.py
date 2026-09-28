@@ -11,23 +11,29 @@
   `resolve_key_from_env()` 为 None → 不注入 `HIVE_RESULT_ANCHOR`、锚校验面不启用
   ⇒ 提交侧在签发、校验侧已无密钥（`hive/src/keyres.rs:24-26` 书面点名的正是这个副本）。
 
-本文件把「同链」做成机械断言（18 项）：
+本文件把「同链」做成机械断言（22 项）：
   [A] 只配模型密钥（config 形态 / env 形态）→ `_result_anchor_key()` 为 None，
       `_submit` 落盘 **不含** `result_nonce`（旧格式 = 锚判据不启用）；
-  [B] 配身份令牌 `HIVE_ORCH_TOKEN`（env / config）→ 取之，且 `_submit` 写 nonce；
-  [C] 只配 `HIVE_ORCH_TOKEN_FILE`：env 形态按 Rust 语义**读文件全文 strip** 并写 nonce；
+  [B] 配身份令牌 `HIVE_ORCH_TOKEN`（env / config）→ 取之**并折 ASCII 小写**，且 `_submit` 写 nonce；
+  [C] 只配 `HIVE_ORCH_TOKEN_FILE`：env 形态按 Rust 语义**读文件全文 strip（同折小写）**并写 nonce；
       config `{"file": path}` 形态同样取文件内容；config **直值路径**形态（部署实况）
       冻结为「非 None = 锚启用」（判据面只问启用与否，见 `_result_anchor_key` 诚实边界段）；
   [E] 键集结构：`_RESULT_KEY_KEYS` 与 Rust `resolve_key_from_env` 的两环**同名同序**
       （从 `hive/src/keyres.rs` 现场解析，不是抄一份常量），且不含 `HIVE_API_KEY`；
+  [F] 小写读取（2026-09-28 使用者裁定）：锚面三环（env / config / 文件）折 ASCII 小写，
+      **同时**冻结身份面 `hive/orch.py::_read_token` **不折**——那里的值要与令牌库逐字节
+      比对，而 secret 是 base64url 必含大写（`md_cg/tokens.py::parse_token` 明写 secret
+      不受「只认小写」限制），折小写即毁令牌。两面有意不同，勿「统一」（F4 钉死）；
   [H] 文案口径：键集段与 `_result_anchor_key` docstring 不再有「三键」，且保留
       「与 rust keyres::resolve_key_from_env 同链」并标注 N190 收窄。
 
-红基线（不靠推理，用 git HEAD 版覆盖临时副本）：
+红基线（不靠推理，用**定点变异**取：锚面折小写关掉 ⇒ 只剩「不折小写」的旧行为）：
     python -X utf8 -m hive.test_result_anchor_chain --head-baseline
-该模式把 `git show HEAD:hive/hive_mcp/mcp_server.py` 的字节写进临时假仓后跑**同一套**
-check，并断言「红项集合 == 预期的 11 项分叉」（HEAD 仍是三键链，故 A/C1/E/H 组必红）；
-绿态默认模式要求红项为零。
+该模式把工作区 `hive/hive_mcp/mcp_server.py` 源码做**该一处定点变异**（`_ascii_lower`
+退化为恒等）后写进临时假仓跑**同一套** check，并断言「红项集合 == 预期的大小写分叉集
+（B1/B3/C1/C3/F1/F2/F3）」。为什么不用 `git show HEAD:` 当基线：**基线源与 HEAD 耦合
+会在提交那一刻自动失效**（提交后 HEAD 就是新实现，红项恒为零，自检静默变成空转——
+本仓批次80 已因此踩坑一次），且锚点漂移即 fail-closed 退出（见 `_baseline_source_bytes`）。
 
 实验纪律：全程**哑值 + 系统临时目录**；mcp_server 与其依赖的 serve_start 复制进临时
 「假仓」后装载（真仓 `hive_mcp/__pycache__` 不被写入、真 jobs 池/真 config.local.json/
@@ -41,7 +47,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 
@@ -69,8 +74,20 @@ TOKEN_FILE_DUMMY = "JWHZQXMVKBTGRDLSNFPC"
 _SCRUB = ("HIVE_CONFIG", "HIVE_JOBS_DIR", "HIVE_ORCH_TOKEN", TOKEN_FILE_KEY,
           "HIVE_API_KEY")
 
-# HEAD（三键链）下**应当**为红的项：A/C1/E/H 组分叉项，其余 6 项两态皆绿。
-EXPECTED_RED = ("A1", "A2", "A3", "A4", "C1", "E1", "E2", "E3", "H1", "H2", "H3")
+# 定点变异基线（--head-baseline）下**应当**为红的项：只关掉「锚面折小写」会命中这几项
+# （身份面 F4 不折，两态皆绿；A/E/H 组是 N190 链结构，两态皆绿——本表只代表**本次**改动的
+# 判别力，不是「HEAD 全是红」那种与提交时刻耦合的旧口径）。
+EXPECTED_RED = ("B1", "B3", "C1", "C3", "F1", "F2", "F3")
+
+# 定点变异表：模块 → [(标签, 锚点原文, 变异后)]。锚点必须唯一，漂移即 fail-closed 退出
+# （实现改了却没同步本表 ⇒ 红基线失效，宁愿报错也不要静默空转）。
+_BASELINE_FILES = {"mcp": "hive/hive_mcp/mcp_server.py"}
+_BASELINE_MUTATIONS = {
+    "mcp": (("锚面不折小写", """def _ascii_lower(s: str) -> str:
+    return s.translate(_ASCII_LOWER)""",
+             """def _ascii_lower(s: str) -> str:
+    return s"""),),
+}
 
 
 class _EnvScrub:
@@ -232,10 +249,11 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
                              "HIVE_API_KEY": MODEL_DUMMY}, a4)
         add("A4", ok, d)
 
-        # ---------------- [B] 身份令牌直值环（env / config）
+        # ---------------- [B] 身份令牌直值环（env / config；值一律折 ASCII 小写）
         def b1(mod):
             k = mod._result_anchor_key()
-            return k == TOKEN_DUMMY, f"key={k!r}"
+            return (k == TOKEN_DUMMY.lower() and k != TOKEN_DUMMY,
+                    f"key={k!r}（大写输入须读出小写形态）")
         ok, d = probe("B1", {"HIVE_CONFIG": cfg_absent,
                              "HIVE_ORCH_TOKEN": TOKEN_DUMMY}, b1)
         add("B1", ok, d)
@@ -252,15 +270,15 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
 
         def b3(mod):
             k = mod._result_anchor_key()
-            return k == TOKEN_DUMMY, f"key={k!r}"
+            return k == TOKEN_DUMMY.lower(), f"key={k!r}（config 直值环同折）"
         ok, d = probe("B3", {"HIVE_CONFIG": cfg_tok}, b3)
         add("B3", ok, d)
 
         # ---------------- [C] 令牌文件环
         def c1(mod):
             k = mod._result_anchor_key()
-            return (k == TOKEN_FILE_DUMMY,
-                    f"key={k!r}（env 形态须读文件全文 strip；旧码返回路径串→红）")
+            return (k == TOKEN_FILE_DUMMY.lower(),
+                    f"key={k!r}（env 形态须读文件全文 strip 并折小写；旧码返回路径串→红）")
         ok, d = probe("C1", {"HIVE_CONFIG": cfg_absent,
                              TOKEN_FILE_KEY: tok_path}, c1)
         add("C1", ok, d)
@@ -276,7 +294,8 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
 
         def c3(mod):
             k = mod._result_anchor_key()
-            return k == TOKEN_FILE_DUMMY, f"key={k!r}（config {{\"file\":…}} 形态）"
+            return k == TOKEN_FILE_DUMMY.lower(), \
+                f"key={k!r}（config {{\"file\":…}} 形态，同折小写）"
         ok, d = probe("C3", {"HIVE_CONFIG": cfg_tokfile_ref}, c3)
         add("C3", ok, d)
 
@@ -288,6 +307,41 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
                     "（config 直值路径形态：判据面只问『锚是否启用』）")
         ok, d = probe("C4", {"HIVE_CONFIG": cfg_tokfile_raw}, c4)
         add("C4", ok, d)
+
+        # ---------------- [F] 小写读取（2026-09-28 使用者裁定）：锚面折、身份面不折
+        def f1(mod):
+            k = mod._result_anchor_key()
+            return (k == TOKEN_DUMMY.lower() and k != TOKEN_DUMMY,
+                    f"key={k!r}（env 直值环：大写输入读出小写形态）")
+        ok, d = probe("F1", {"HIVE_CONFIG": cfg_absent,
+                             "HIVE_ORCH_TOKEN": TOKEN_DUMMY}, f1)
+        add("F1", ok, d)
+
+        def f2(mod):
+            k = mod._result_anchor_key()
+            return (k == TOKEN_FILE_DUMMY.lower() and k != TOKEN_FILE_DUMMY,
+                    f"key={k!r}（令牌文件环：文件内大写同样读出小写）")
+        ok, d = probe("F2", {"HIVE_CONFIG": cfg_absent,
+                             TOKEN_FILE_KEY: tok_path}, f2)
+        add("F2", ok, d)
+
+        def f3(mod):
+            k = mod._result_anchor_key()
+            return (k == TOKEN_DUMMY.lower() and k != TOKEN_DUMMY,
+                    f"key={k!r}（config 环：折小写不因来源而分叉）")
+        ok, d = probe("F3", {"HIVE_CONFIG": cfg_tok}, f3)
+        add("F3", ok, d)
+
+        def f4(mod):
+            from hive import orch  # 真仓身份面（只读；值不落任何持久面）
+            got = orch._read_token()
+            return got == TOKEN_DUMMY, (
+                f"身份面 _read_token()={got!r}——须**原样保留大小写**（不折）："
+                "secret 是 base64url 必含大写，折小写即毁令牌；"
+                "锚面折、身份面不折是**有意**差异，勿「统一」")
+        ok, d = probe("F4", {"HIVE_CONFIG": cfg_absent,
+                             "HIVE_ORCH_TOKEN": TOKEN_DUMMY}, f4)
+        add("F4", ok, d)
 
         # ---------------- [E] 键集结构 = Rust 两环同链同序
         def e1(mod):
@@ -332,25 +386,39 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
     return out
 
 
-def _head_source_bytes() -> bytes:
-    r = subprocess.run(["git", "show", f"HEAD:{MCP_REL}"], cwd=_REPO,
-                       capture_output=True)
-    if r.returncode != 0:
-        raise SystemExit(f"git show HEAD:{MCP_REL} 失败："
-                         f"{r.stderr.decode('utf-8', 'replace')[:200]}")
-    return r.stdout
+def _baseline_source_bytes() -> bytes:
+    """基线源＝工作区源码 × 定点变异表（模块名 → 字节）。锚点漂移即 fail-closed。
+
+    与 HEAD 解耦的理由见文件头「红基线」段：基线绑 HEAD 会在提交那一刻静默失效。
+    """
+    name = "mcp"
+    path = os.path.join(_REPO, _BASELINE_FILES[name])
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    for label, anchor, old in _BASELINE_MUTATIONS.get(name, ()):
+        n = src.count(anchor)
+        if n != 1:
+            raise SystemExit(
+                f"ANCHOR-{'MISS' if n == 0 else 'AMBIGUOUS'} [{name}/{label}]："
+                f"变异锚点在 {_BASELINE_FILES[name]} 中出现 {n} 次（须唯一）——"
+                f"实现改了却没同步 _BASELINE_MUTATIONS，红基线失效（fail-closed）。"
+                f"锚点首行：{anchor.splitlines()[0][:80]}")
+        src = src.replace(anchor, old)
+    return src.encode("utf-8")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="结果完整性锚密钥链同源守卫（N190）")
     ap.add_argument("--head-baseline", action="store_true",
-                    help="用 git HEAD 版 mcp_server.py 覆盖临时副本取红基线"
-                         "（断言红项集合 == 预期分叉集）")
+                    help="取红基线：工作区 mcp_server.py 做**定点变异**（关掉锚面折小写）"
+                         "后写进临时假仓跑同一套 check，断言红项集合 == 大小写分叉集"
+                         "（不用 git HEAD 当基线——基线绑 HEAD 提交即失效）")
     args = ap.parse_args()
 
     if args.head_baseline:
-        src_bytes = _head_source_bytes()
-        print(f"[红基线] 源 = git HEAD:{MCP_REL}（写入临时假仓，不覆盖工作区文件）")
+        src_bytes = _baseline_source_bytes()
+        print(f"[红基线] 源 = 工作区 {MCP_REL} × 定点变异（关掉 `_ascii_lower` 折小写）"
+              f"（写入临时假仓，不覆盖工作区文件）")
     else:
         src_bytes = open(os.path.join(_HERE, "hive_mcp", "mcp_server.py"),
                          "rb").read()
@@ -366,7 +434,7 @@ def main() -> int:
           f"（红项：{', '.join(reds) if reds else '无'}）")
     if args.head_baseline:
         if tuple(reds) == EXPECTED_RED:
-            print("红基线符合预期：HEAD 三键链在与 Rust 两环同链面共 11 项分叉"
+            print("红基线符合预期：关掉锚面折小写后恰好命中大小写分叉集"
                   f"（{'、'.join(EXPECTED_RED)}）")
             return 0
         print("红基线与预期不符——预期红项：" + "、".join(EXPECTED_RED))
@@ -374,7 +442,8 @@ def main() -> int:
     if reds:
         print("FAILED：" + "、".join(reds))
         return 1
-    print("ALL OK：锚密钥链两侧同键同序，模型密钥不再作锚")
+    print("ALL OK：锚密钥链两侧同键同序同归一（锚面折小写 / 身份面不折），"
+          "模型密钥不再作锚")
     return 0
 
 

@@ -323,6 +323,15 @@ def _save_children() -> None:
 # ------------------------------------------------------------- 身份（Q3 落地）
 
 # 生效条件：无入参，环境变量 HIVE_ORCH_TOKEN 去空白后非空则返回该值；否则读 HIVE_ORCH_TOKEN_FILE 去空白后非空才尝试打开并返回文件内容 strip 值，path 为空串则返回 ''，打开 OSError 抛 OrcError。
+#
+# 身份面**不折小写**（2026-09-28 使用者裁定「HIVE_ORCH_TOKEN 使用小写读取」的边界）：
+# 同一环境变量的**锚面**读取点（`hive/src/keyres.rs::resolve_key_from_env`、
+# `hive/hive_mcp/mcp_server.py::_result_anchor_key`）折 ASCII 小写——那里的值只作 HMAC
+# 密钥，无逐字节对照物，折小写不误判；本函数的值**要与令牌库比对**（load_principal →
+# verify_token → md_cg/tokens.parse_token），而 secret 是 `secrets.token_urlsafe` 产的
+# base64url **必含大写**（parse_token 明写 secret 不受「只认小写」限制）——在此折小写
+# 即把合法令牌改成查不到的形态（令牌全废）。故两面有意不同，勿「统一」。
+# 守卫：hive/test_result_anchor_chain.py 的 [F] 组把两侧一并钉死（F1–F3 折、F4 不折）。
 def _read_token() -> str:
     tok = (os.environ.get("HIVE_ORCH_TOKEN") or "").strip()
     if tok:

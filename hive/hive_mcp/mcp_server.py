@@ -278,14 +278,30 @@ _RESULT_KEY_KEYS = ("HIVE_ORCH_TOKEN", "HIVE_ORCH_TOKEN_FILE")
 # 不可读/空白即 None」判据分叉）。
 _ENV_DIRECT_KEYS = ("HIVE_ORCH_TOKEN",)
 
+# 小写读取（2026-09-28 使用者裁定，与 rust keyres.rs 同口径）：`HIVE_ORCH_TOKEN` 系
+# 值**读取即折小写**——写面（md_cg.tokens 签发）产小写、读面折小写 ⇒ 大小写不再是
+# 第二语义。只折 ASCII `A-Z`；**不用 str.lower()**（它对 Unicode 段的结论与 Rust
+# `to_ascii_lowercase()` 不同，会把跨语言同源链折出分叉）。
+# 诚实边界：①锚密钥＝折小写后的值 ⇒ 锚面大小写不敏感；对含大写的存量令牌折小写会
+# 改变锚密钥 ⇒ submit 面与 serve 面必须同一构建，否则判伪锚。②本归一**只作用于锚面**
+# （值仅作 HMAC 密钥，无逐字节对照物）；身份面 `hive/orch.py::_read_token` **不折**——
+# 那里的值要与令牌库比对，而 secret 是 base64url 必含大写（`md_cg/tokens.py::parse_token`），
+# 折小写即毁令牌。
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+                             "abcdefghijklmnopqrstuvwxyz")
 
-# 生效条件：无必需形参——先 _load_local_config() 取 config 解析值（load_config 已完成 {"file":…} 读文件），两键按序首个非空字符串胜出；再查进程 env 直值环同序（值本身即密钥）；再取 env HIVE_ORCH_TOKEN_FILE 读文件全文 strip（不可读/空白视同该环缺失，不回落路径串本身）；全缺 → None（提交面退回旧格式，不写 result_nonce——零配置部署行为不变）。
+
+def _ascii_lower(s: str) -> str:
+    return s.translate(_ASCII_LOWER)
+
+
+# 生效条件：无必需形参——先 _load_local_config() 取 config 解析值（load_config 已完成 {"file":…} 读文件），两键按序首个非空字符串胜出（折 ASCII 小写）；再查进程 env 直值环同序（值本身即密钥，同折）；再取 env HIVE_ORCH_TOKEN_FILE 读文件全文 strip 后折小写（不可读/空白视同该环缺失，不回落路径串本身）；全缺 → None（提交面退回旧格式，不写 result_nonce——零配置部署行为不变）。
 def _result_anchor_key() -> str | None:
     """结果完整性锚密钥（P11 批次53；N190 收窄为身份两环）：hive 身份/令牌面唯一解析点。
 
-    与 rust keyres::resolve_key_from_env 同链（submit 与 serve 两侧同口径，
+    与 rust keyres::resolve_key_from_env 同链同序同归一（submit 与 serve 两侧同口径，
     勿再分叉第二套解析）；config 值胜出 env（serve_start 合并语义）。
-    （N190：模型密钥不再兜底）
+    （N190：模型密钥不再兜底；2026-09-28：三环统一折 ASCII 小写——见 `_ascii_lower` 头注）
 
     诚实边界（如实点名，本批未动）：config 形态的 `HIVE_ORCH_TOKEN_FILE` 按**直值**
     采信（部署实况该键写路径串）——判据面只问「锚是否启用」（`_submit` 的
@@ -295,13 +311,13 @@ def _result_anchor_key() -> str | None:
 
     def _env(k: str) -> str | None:
         v = (os.environ.get(k) or "").strip()
-        return v or None
+        return _ascii_lower(v) or None
 
     cfg, _err = _load_local_config()
     for k in _RESULT_KEY_KEYS:
         v = cfg.get(k)
         if isinstance(v, str) and v.strip():
-            return v.strip()
+            return _ascii_lower(v.strip())
     for k in _ENV_DIRECT_KEYS:
         v = _env(k)
         if v:
@@ -310,7 +326,7 @@ def _result_anchor_key() -> str | None:
     if f:
         try:
             with open(f, "r", encoding="utf-8") as fh:
-                s = fh.read().strip()
+                s = _ascii_lower(fh.read().strip())
             if s:
                 return s
         except OSError:

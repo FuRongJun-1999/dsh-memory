@@ -50,7 +50,8 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
   echo "    -> $out"
 done
 
-for t in hive/test_orch.py hive/test_exec_tools.py hive/test_serve_entry.py; do
+for t in hive/test_orch.py hive/test_exec_tools.py hive/test_serve_entry.py \
+         hive/test_result_anchor_chain.py; do
   out=$(python3 "$t" 2>&1 | tail -1); rc=$?
   record "$t" $rc
   echo "    -> $out"
@@ -66,6 +67,14 @@ for spec in "test_neg_condition_hits --head-baseline" \
   set -- $spec
   out=$(python3 -m "md_cg.$1" "$2" 2>&1 | tail -1); rc=$?
   record "md_cg.$1 $2" $rc
+  echo "    -> $out"
+done
+# hive 面自证（批次81 并入）：锚面折小写 / 身份面不折的两侧口径由 [F] 组钉死，
+# 变异（关掉折小写）须恰好命中 7 项，否则红基线失效即报红
+for spec in "hive.test_result_anchor_chain --head-baseline"; do
+  set -- $spec
+  out=$(python3 -m "$1" "$2" 2>&1 | tail -1); rc=$?
+  record "$1 $2" $rc
   echo "    -> $out"
 done
 

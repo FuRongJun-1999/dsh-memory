@@ -24,9 +24,21 @@
 //! 同链副本（勿分叉）：Python 侧 MCP 面 `hive/hive_mcp/mcp_server.py::_result_anchor_key`
 //! 按注释声明「与 keyres.rs 同链同序」——本文件改链时该处必须同步，否则 submit 面
 //! 与 serve 面对「锚密钥」判据分叉（口径分叉即判据分叉）。
+//!
+//! 小写读取（2026-09-28 使用者裁定）：`HIVE_ORCH_TOKEN` 系值**读取即折小写**——
+//! 写面（`md_cg.tokens` 签发）产小写、读面折小写 ⇒ 大小写不再构成第二语义。
+//! 只折 ASCII `A-Z`（`to_ascii_lowercase`，与 Python 侧 `_ascii_lower` 逐位同口径；
+//! 非 ASCII 段一律不动——`str::to_lowercase` 与 Python `str.lower()` 对 Unicode
+//! 结论不同，会造出跨语言分叉）。
+//!
+//! 诚实边界（点名不掩）：①锚密钥＝折小写后的值 ⇒ 锚面**大小写不敏感**；对**含大写
+//! 的存量令牌**折小写会改变锚密钥 ⇒ 混跑窗口内 submit 面与 serve 面必须是同一构建，
+//! 否则判「伪锚」。②本归一**只作用于锚面**（值仅作 HMAC 密钥，无对照物）；
+//! 身份面 `hive/orch.py::_read_token` **不折**——那里的值要与令牌库逐字节比对，
+//! 而 secret 是 base64url（必含大写，见 `md_cg/tokens.py::parse_token`），折小写即毁令牌。
 
-/// 生效条件：进程 env 给定——`HIVE_ORCH_TOKEN` 非空 → 取之；否则
-/// `HIVE_ORCH_TOKEN_FILE` 指向可读文件 → 取全文 strip 非空者；否则 None
+/// 生效条件：进程 env 给定——`HIVE_ORCH_TOKEN` 非空（trim + ASCII 折小写）→ 取之；否则
+/// `HIVE_ORCH_TOKEN_FILE` 指向可读文件 → 取全文 strip + 折小写后非空者；否则 None
 /// （N190：`HIVE_API_KEY` 不再兜底——它属模型密钥/普通配置，不是身份面）。
 /// 锚密钥唯一解析点（submit 与 serve 共用，勿在调用方各自第二套解析——
 /// 口径分叉即判据分叉）。
@@ -34,7 +46,7 @@ pub fn resolve_key_from_env() -> Option<String> {
     let env = |k: &str| {
         std::env::var(k)
             .ok()
-            .map(|v| v.trim().to_string())
+            .map(|v| v.trim().to_ascii_lowercase())
             .filter(|v| !v.is_empty())
     };
     if let Some(t) = env("HIVE_ORCH_TOKEN") {
@@ -42,7 +54,7 @@ pub fn resolve_key_from_env() -> Option<String> {
     }
     if let Some(f) = env("HIVE_ORCH_TOKEN_FILE") {
         if let Ok(s) = std::fs::read_to_string(&f) {
-            let s = s.trim().to_string();
+            let s = s.trim().to_ascii_lowercase();
             if !s.is_empty() {
                 return Some(s);
             }
@@ -105,6 +117,16 @@ mod tests {
         std::fs::write(&tokfile, "   \n").unwrap();
         std::env::set_var("HIVE_ORCH_TOKEN_FILE", tokfile.to_str().unwrap());
         assert_eq!(resolve_key_from_env(), None);
+
+        // 6) 小写读取（2026-09-28 使用者裁定）：两环取值一律折 ASCII 大写 → 小写；
+        //    非 ASCII 段不动（与 Python 侧 `_ascii_lower` 逐位同口径）
+        std::env::set_var("HIVE_ORCH_TOKEN", "  TOK-UP-Per  ");
+        assert_eq!(resolve_key_from_env().as_deref(), Some("tok-up-per"));
+        std::env::remove_var("HIVE_ORCH_TOKEN");
+        std::fs::write(&tokfile, "  TOK-FILE-UP  \n").unwrap();
+        std::env::set_var("HIVE_ORCH_TOKEN_FILE", tokfile.to_str().unwrap());
+        assert_eq!(resolve_key_from_env().as_deref(), Some("tok-file-up"));
+        std::env::remove_var("HIVE_ORCH_TOKEN_FILE");
 
         // 恢复现场
         let _ = std::fs::remove_file(&tokfile);
