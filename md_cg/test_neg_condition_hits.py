@@ -2,7 +2,8 @@
 """负条件（不适用条件）命中判据的守卫（批次76，2026-09-28）。
 
 运行：python -X utf8 -m md_cg.test_neg_condition_hits        # 正常跑
-      python -X utf8 -m md_cg.test_neg_condition_hits --head-baseline  # 判别力自证
+      python -X utf8 -m md_cg.test_neg_condition_hits --head-baseline    # 头基线自证
+      python -X utf8 -m md_cg.test_neg_condition_hits --branch-baseline  # 分支判别力自证
 
 背景（为什么另立一套）：改动前判据是
 `neg_hit = [n for n in neg if any(w in scene for w in n.split())]`
@@ -19,8 +20,11 @@
 
 本套断言分七组：
   G1 整条命中（单词语料条目，「问ZXQ7」/「刚才在干什么」/「问完全无关主题」）
-  G2 全词命中（多词条目须词面齐全；缺一词即放行）
-  G3 词长下限（单字符碎片不否决）
+  G2 全词命中（多词条目须词面齐全；缺一词即放行；末四例 G2d-G2g 专打**两档分支
+     各自的判别力**——整条档用「词皆单字符」隔断全词档、全词档用「词非连续」隔断
+     整条档，删掉任一分支对应断言即转红）
+  G3 词长下限（单字符碎片不否决；G3c/G3d 专打下限自身的判别力——把
+     `NEG_MIN_TERM` 改成 1 必须转红，两条路径各一）
   G4 自主题豁免（命中内容在 own_topic 里 → 放行；不在 → 照旧否决）
   G5 病理复现（三条归档的**旧措辞**：旧判据命中、新判据放行——正对照是同一
      条目在把 own_topic 换成别人的主题后**仍**否决）
@@ -31,10 +35,17 @@
 **红基线自证（--head-baseline）**：把 `neg_condition_hits` 临时替换回旧的
 「任一词命中」实现，G1/G4/G5/G7 必须转红（G2 的「缺一词即放行」在旧判据下也
 会失败，因为旧判据任一词命中即拒）。若红基线不红，说明断言没有判别力。
+
+**分支判别力自证（--branch-baseline）**：逐条删掉判据的五个分支（整条命中／
+全词命中／自主题豁免两条／词长下限），套件每删一个都必须转红；某分支删掉后
+仍全绿 = 该分支的断言空转。此模式即独立复核 2026-09-28 那条指摘的机械化
+（当时「整条命中档」删掉后 31 条断言全绿）。变异锚点写死在
+`_BRANCH_MUTATIONS`，实现改动致锚点漂移会报 ANCHOR-MISS 并判 FAIL。
 """
 from __future__ import annotations
 
 import json
+import io
 import os
 import re
 import sys
@@ -87,6 +98,18 @@ def g2():
        "G2b 作用域旁注里的单个通用词（DSH）不否决")
     ok(not neg_condition_hits(['非 GitHub Actions 环境'], _scene('GitHub Actions 怎么配'), ''),
        "G2c 旁注词不作为拒绝理由（「非 X 环境」条目对「X 怎么配」放行）")
+    # G2d-G2g：**两档分支各自的判别力**（独立复核 2026-09-28 指出：此前 31 条断言没有
+    # 一条能把「有整条分支」与「无整条分支」分开——删掉整条分支测试仍全绿）。
+    #   整条档：词全为单字符时全词档因词长下限无法命中，命中只能由整条档解释；
+    #   全词档：条目词在问句里**非连续**出现时整条档无法命中，命中只能由全词档解释。
+    ok(bool(neg_condition_hits(['抓 取 管 线'], _scene('抓取管线的做法'), '')),
+       "G2d 整条档判别力：词皆单字符（全词档因词长下限失能）时仍命中")
+    ok(not neg_condition_hits(['抓 取 管 线'], _scene('管线'), ''),
+       "G2e 整条档反向：不构成整条且全词档失能 → 放行")
+    ok(bool(neg_condition_hits(['其它 机器'], _scene('机器 其它'), '')),
+       "G2f 全词档判别力：条目词非连续出现（整条档无法命中）时仍命中")
+    ok(not neg_condition_hits(['其它 机器'], _scene('其它'), ''),
+       "G2g 全词档反向：只中一词 → 放行")
 
 
 # ---------------------------------------------------------------- G3 词长下限
@@ -97,6 +120,12 @@ def g3():
        "G3a 单字符碎片不否决")
     ok(not neg_condition_hits([''], _scene('任意问句'), ''),
        "G3b 空条目不产生命中")
+    # G3c/G3d：**词长下限本身也要有判别力**——把 `NEG_MIN_TERM` 改成 1 时，
+    # 03-28 的变异核验显示 35 条断言零转红（与「整条档」同类的空转缺陷）。
+    ok(not neg_condition_hits(['抓'], _scene('抓取管线的做法'), ''),
+       "G3c 整条档也受下限约束：单字符条目（去空白后 <2）不否决")
+    ok(bool(neg_condition_hits(['其它 机器 与'], _scene('机器 其它'), '')),
+       "G3d 全词档下限语义：单字符词（与）不参与「词面齐全」，缺它也算齐全")
 
 
 # ---------------------------------------------------------------- G4 自主题豁免
@@ -117,6 +146,16 @@ def g4():
                                '问的是写入闸门的判据'),
            ),
        "G4d 正对照：同一条目，own_topic 换成不相干主题 → 仍否决")
+    # G4e/G4f：**全词档上的豁免**（`--branch-baseline` 揪出的第四条空转断言——
+    # 删掉全词档豁免分支，37 条断言原样全绿）。G4e 与 G4f 只有 own_topic 不同，
+    # G2f 则是同一 neg+scene 在 own_topic 为空时的正对照（三者互锁）。
+    ok(not neg_condition_hits(['其它 机器'], _scene('机器 其它'),
+                              '关于机器的检索判据'),
+       "G4e 自主题豁免-全词档：命中的词属于节点自身主题面 → 放行")
+    ok(bool(neg_condition_hits(['其它 机器'], _scene('机器 其它'),
+                               '关于写入闸门的判据'),
+           ),
+       "G4f 正对照：同一条目同一问句，own_topic 换成不相干主题 → 仍否决")
 
 
 # ---------------------------------------------------------------- G5 病理复现
@@ -211,7 +250,66 @@ def g7():
        "G7a 语料式否定节点仍 REJECT（state=%s）" % q2["state"], q2)
 
 
+def _run_groups() -> int:
+    """跑全部七组断言，返回失败数（静默模式下调用，供变异核验复用）。"""
+    _PASS.clear(); _FAIL.clear()
+    for g in (g1, g2, g3, g4, g5, g6, g7):
+        g()
+    return len(_FAIL)
+
+
+# 分支变异表（`--branch-baseline` 用）：逐个删掉判据的一个分支，套件**必须转红**。
+# 独立复核 2026-09-28 的原始指摘正是这条——「整条命中档」当初 31 条断言删掉它仍全绿，
+# 即断言对该分支无判别力。判别力不能靠一次性人工核验，须做成机械模式。
+_BRANCH_MUTATIONS = (
+    ("整条命中档", "if len(item) >= NEG_MIN_TERM and item in scene_norm:", "if False:"),
+    ("全词命中档", "words = [w for w in str(n).split() if len(w) >= NEG_MIN_TERM]", "words = []"),
+    ("自主题豁免-整条", "if not (own and item in own):", "if True:"),
+    ("自主题豁免-全词", "if own and any(w in own for w in words):", "if False:"),
+    ("词长下限", "NEG_MIN_TERM", "1"),
+)
+
+
+def _branch_baseline() -> int:
+    """逐分支变异核验：删掉任一分支后套件若全绿，则该分支断言为空转（缺判别力）。"""
+    import contextlib
+    import inspect
+    src = inspect.getsource(M.neg_condition_hits)
+    live = M.neg_condition_hits
+    print("!! 分支变异模式：逐个删掉判据分支，套件应当转红\n")
+    bad = []
+    with contextlib.redirect_stdout(io.StringIO()):
+        clean_fail = _run_groups()
+    print("  未变异基线：失败=%d" % clean_fail)
+    if clean_fail:
+        bad.append("未变异基线即失败")
+    for name, old, new in _BRANCH_MUTATIONS:
+        if old not in src:
+            print("  ANCHOR-MISS %s —— 变异锚点漂移（实现改了却没同步本表）" % name)
+            bad.append(name)
+            continue
+        ns = {"re": re, "NEG_MIN_TERM": M.NEG_MIN_TERM}
+        exec(compile(src.replace(old, new), "branch_mut.py", "exec"), ns)
+        M.neg_condition_hits = ns["neg_condition_hits"]
+        globals()["neg_condition_hits"] = ns["neg_condition_hits"]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                fails = _run_groups()
+        finally:
+            M.neg_condition_hits = live
+            globals()["neg_condition_hits"] = live
+        verdict = "红（有判别力）" if fails else "**仍全绿 = 该分支断言空转**"
+        print("  删「%s」→ 失败=%d  %s" % (name, fails, verdict))
+        if not fails:
+            bad.append(name)
+    print("\n分支判别力：%s" % ("PASS（每个分支都有断言把它钉死）" if not bad
+                               else "FAIL —— " + "、".join(bad)))
+    return 0 if not bad else 1
+
+
 def main() -> int:
+    if "--branch-baseline" in sys.argv:
+        return _branch_baseline()
     base = "--head-baseline" in sys.argv
     if base:
         print("!! 红基线模式：neg_condition_hits 临时替换回旧实现，断言应当转红")

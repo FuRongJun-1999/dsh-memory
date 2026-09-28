@@ -56,6 +56,18 @@ for t in hive/test_orch.py hive/test_exec_tools.py hive/test_serve_entry.py; do
   echo "    -> $out"
 done
 
+echo "=== 断言判别力自证（退出码 0 = 变异后如预期转红）==="
+# 自证型守卫的「变异必须转红」模式并进验证入口：判别力靠人工核验一次会陈化，
+# 前车之鉴是批次76 的「整条命中档」删掉后 31 条断言原样全绿（独立复核 2026-09-28）。
+for spec in "test_neg_condition_hits --head-baseline" \
+            "test_neg_condition_hits --branch-baseline" \
+            "test_policy_required_ccg --head-baseline"; do
+  set -- $spec
+  out=$(python3 -m "md_cg.$1" "$2" 2>&1 | tail -1); rc=$?
+  record "md_cg.$1 $2" $rc
+  echo "    -> $out"
+done
+
 if [ "$MODE" = "full" ]; then
   echo "=== smoke（D-2 Linux 口径：SIGTERM 收尾）==="
   HIVE_EXE="$CARGO_TARGET_DIR/release/hive" python3 -m hive.hive_mcp.smoke_test 2>&1 | tail -3
