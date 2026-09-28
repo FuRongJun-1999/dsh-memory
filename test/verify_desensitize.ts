@@ -43,5 +43,28 @@ check('③ 正常内容不误伤', r8 === '用户喜欢猫，上次聊了冒泡�
 const r9 = desensitize('密码是 123456，另外我们下周发布新版本')
 check('④ 混合内容：敏感替换+主体保留', r9 !== null && r9.includes('[已过滤:密码]') && r9.includes('下周发布新版本'), r9 ?? 'null')
 
+// ⑤ 本项目自有令牌（issue #45）：此前完全不认，粘一次即明文落库
+const TOK_ID = 'tk_0123456789abcdef'
+const TOK_FULL = `mdcg1.designer.${TOK_ID}.WPK16Yq2xR9tLmN0pQrS5uVwX8yZaB3cD4eF6gH7i`
+
+const r10 = desensitize(`用令牌 ${TOK_ID} 调用发布接口`)
+check('⑤a 裸令牌 id 被过滤', r10 !== null && !r10.includes(TOK_ID) && r10.includes('[已过滤:令牌id]'), r10 ?? 'null')
+
+const r11 = desensitize(`设为 MDCG_TOKEN=${TOK_FULL} 再重启`)
+check('⑤b 完整令牌整段吃掉（secret 不留明文）',
+  r11 !== null && !r11.includes('WPK16Y') && !r11.includes(TOK_ID) && r11.includes('[已过滤:令牌]'), r11 ?? 'null')
+
+const r12 = desensitize(TOK_FULL)
+check('⑤c 纯令牌消息 → null（跳过写入）', r12 === null, r12 ?? 'null')
+
+// ⑤d 顺序回归：完整令牌必须先于裸 id 匹配，否则 secret 段会留成明文
+const r13 = desensitize(`令牌 ${TOK_FULL} 请妥善保管`)
+check('⑤d 顺序：完整令牌在前（无 secret 残片）',
+  r13 !== null && !r13.includes('WPK16Y') && !r13.includes('.tk_'), r13 ?? 'null')
+
+// ⑤e 不误伤：`tk_` 前缀、`mdcg1.` 前缀的普通内容
+const r14 = desensitize('令牌很重要，tk_ 是前缀，mdcg1.designer 是角色')
+check('⑤e 前缀不误伤', r14 !== null && r14.includes('tk_ 是前缀') && r14.includes('mdcg1.designer'), r14 ?? 'null')
+
 console.log(`\n脱敏验证: ${pass}/${pass + fail} 通过`)
 process.exit(fail > 0 ? 1 : 0)
