@@ -364,12 +364,12 @@
     },
     "negative": {
      "reject": [
-      "IDE 内置工具直调",
+      "IDE内置工具直调(判据=本次调用是否产出非UTF-8字节流；不起进程的内置工具(Read/Write/Edit/Grep/Glob/WebFetch)与纯MSYS工具(grep/ls/sed)归入本豁免；拉起shell且执行原生Windows程序者(taskkill/wmic/npm.cmd/cargo/where)不属本豁免，仍须python包装或对输出显式解码；2026-09-28使用者裁定)",
       "无跨进程的纯内存计算"
      ]
     },
     "execution": {
-     "how": "构造 argv 列表→subprocess.run(capture_output=True, text=True, encoding='utf-8', errors='replace')→env 带 PYTHONUTF8=1→shell=False"
+     "how": "构造 argv 列表→subprocess.run(capture_output=True, text=True, encoding='utf-8', errors='replace')→env 带 PYTHONUTF8=1→shell=False；边界判据=本次调用是否产出非UTF-8字节流(纯MSYS工具与不起进程的内置工具豁免；原生Windows程序不豁免，须python包装或显式解码)"
     },
     "response": {
      "direct": "按工作纪律第15条: 命令执行统一走python——argv列表+显式UTF-8+PYTHONUTF8=1, 不经Windows shell, 规避GBK解码异常。"

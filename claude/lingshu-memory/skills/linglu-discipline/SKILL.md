@@ -95,8 +95,8 @@ description: 灵枢工作纪律与记忆操作规程。会话开始或任何任�
    声明：按工作纪律第14条: 内容政策合规——对外公开产物必须过「内容政策+隐私」双清单，过滤在生成阶段做；已发布发现违规要删条+重写git历史+通知平台清缓存。
 15. 命令执行统一走python
    触发：执行命令｜运行测试/脚本｜跨进程读写文本
-   动作：构造 argv 列表→subprocess.run(capture_output=True, text=True, encoding='utf-8', errors='replace')→env 带 PYTHONUTF8=1→shell=False
-   不适用：IDE 内置工具直调｜无跨进程的纯内存计算
+   动作：构造 argv 列表→subprocess.run(capture_output=True, text=True, encoding='utf-8', errors='replace')→env 带 PYTHONUTF8=1→shell=False；边界判据=本次调用是否产出非UTF-8字节流(纯MSYS工具与不起进程的内置工具豁免；原生Windows程序不豁免，须python包装或显式解码)
+   不适用：IDE内置工具直调(判据=本次调用是否产出非UTF-8字节流；不起进程的内置工具(Read/Write/Edit/Grep/Glob/WebFetch)与纯MSYS工具(grep/ls/sed)归入本豁免；拉起shell且执行原生Windows程序者(taskkill/wmic/npm.cmd/cargo/where)不属本豁免，仍须python包装或对输出显式解码；2026-09-28使用者裁定)｜无跨进程的纯内存计算
    声明：按工作纪律第15条: 命令执行统一走python——argv列表+显式UTF-8+PYTHONUTF8=1, 不经Windows shell, 规避GBK解码异常。
 16. 任务收尾归档(记忆闭环)
    触发：任务执行完成｜修改落地后｜交付后
@@ -117,4 +117,4 @@ description: 灵枢工作纪律与记忆操作规程。会话开始或任何任�
 【使用须知】
 - 「触发」命中即执行对应「动作」，并在回复中输出该条「声明」原文。
 - 逐条的完整「不适用」边界见真源 JSON 对应节点的 negative.reject；此处仅列关键项。
-- 本段为自动生成（真源指纹 SHA256 前16位：c335a2e60b4e0536），请勿手改；改真源后重跑 scripts/render_discipline.py。
+- 本段为自动生成（真源指纹 SHA256 前16位：8bc52efa5330684b），请勿手改；改真源后重跑 scripts/render_discipline.py。
