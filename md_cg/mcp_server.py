@@ -2940,7 +2940,26 @@ def _ref_call(cg, a):
         os.path.join(a.get("root") or ref.get("root") or "",
                      ref.get("path") or ""),
         "MDCG_INGEST_ROOT", "ref")
-    out = refindex.read_ref(ref, root=a.get("root"), ref_kind=ref_kind)
+    from . import logref
+    if node is not None and isinstance(ref.get("src"), dict) and ref["src"]:
+        # P2：检索命中 → 区间回读。**区间文本仍由 refindex.read_ref 取**（logref.
+        # read_index_node 内部就是它，本分支不另写读取与哈希）；相对此前的差别只有一
+        # 点：日志节点的 root 一律取 **ref 自带的转写根**（path 是相对根写死的，用调用
+        # 方自报的 root 拼会读到别的文件——上面那道 check_path_root 也按同一路径判）。
+        # 另带 span 状态机与再生指路：stale ⇒ 重跑落库、不自动覆写；dangling ⇒ 转写被
+        # 清理，指路离线 `--repair 1`（服务态零写临时目录）。
+        out = logref.read_index_node(node, with_src=bool(a.get("with_src")))
+    else:
+        out = refindex.read_ref(ref, root=a.get("root"), ref_kind=ref_kind)
+        # 真源身份层（zstd 日志本体）按 with_src 显式开——默认关，因为每条命中都
+        # 整读一遍大 zstd 是不可接受的代价；返回带 src_verified:false 明示「本次
+        # 未看真源」。probe_src 内部挂的是与上面**同一条** MDCG_INGEST_ROOT 闸。
+        # 部署前提（评审⑦）：MDCG_INGEST_ROOT 一旦按安全审计建议设置，转写根
+        # （%TEMP%/dsh-log-transcripts）也会被该闸拒 ⇒ 日志节点回读恒 PermissionError
+        # （fail-closed 拒读，不静默降级）。加固部署须把 transcript_root 一并写进
+        # MDCG_INGEST_ROOT（支持 os.pathsep 多根）。
+        if a.get("with_src"):
+            out["src"] = logref.probe_src(ref)
     out["node_id"] = nid or None
     return out
 

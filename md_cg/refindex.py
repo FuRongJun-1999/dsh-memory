@@ -348,13 +348,19 @@ def _domain_of(it: dict) -> str:
     return path.split("/")[0] or "orphan"
 
 
-# 生效条件：kind == 'code_ref' 时按 codeindex.node_id/render 写入 cg（tags 含 'code'、code_ref=_code_ref(it, root)），kind == 'doc_ref' 时按 docindex 写入（tags 含 'doc'、doc_ref=_doc_ref(it, root)、密级取自 docindex.sensitivity_for(it['path'], sensitivity)），其他 kind 抛 ValueError，返回 (ids, sens)。
+# 生效条件：kind == 'code_ref' 时按 codeindex.node_id/render 写入 cg（tags 含 'code'、code_ref=_code_ref(it, root)），kind == 'doc_ref' 时按 docindex 写入（tags 含 'doc'、doc_ref=_doc_ref(it, root, src_of(it))、密级取自 docindex.sensitivity_for(it['path'], sensitivity)），其他 kind 抛 ValueError，返回 (ids, sens)。
 def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
-              layer_of=None):
+              layer_of=None, src_of=None, extra_of=None):
     """把索引条目写进认知图（code / doc 的落盘细节收在这里，唯一实现）。
 
     - `layer=None` → 默认 `knowledge`（与代码节点同层，保证进默认召回）。
     - `layer_of(nid)` 可逐节点覆盖 layer（heal 重建时保留原层）。
+    - `src_of(it)` 为真时把返回值写进 `doc_ref["src"]`（真源身份层，见
+      `_doc_ref`）——不传时产物**逐字节不变**。
+    - `extra_of(it)` 返回 `{"tags": [...], "attrs": {...}}`：追加标签与
+      frontmatter 键（日志索引的 `dsh-log/logsrc/regenerable/ws:` 与
+      `session/workspace/dsh_session_uuid` 走这里，免得在 `logref` 里
+      复制一遍 doc 分支而与本函数漂移）。与既有 `layer_of` 同款逐条钩子。
     - doc 节点：密级走 `docindex.sensitivity_for`（只可能更严）；返回密级分布。
     - `condition_space` 走 `codeindex/docindex.condition_space`，与正文的
       `# 生效条件：` 行**同源**——改造前此处只写 `observation_position` 单槽，
@@ -380,15 +386,17 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
             level = it.get("level")
             s, _basis = docindex.sensitivity_for(it.get("path") or "", sensitivity)
             sens[s] = sens.get(s, 0) + 1
+            extra = (extra_of(it) or {}) if extra_of else {}
             cg.add(
                 nid, docindex.render(it),
                 layer=(layer_of(nid) if layer_of else None) or layer or "knowledge",
                 tags=["doc", "doc:md", f"level:{level}",
-                      "domain:" + _domain_of(it)],
+                      "domain:" + _domain_of(it)] + list(extra.get("tags") or []),
                 condition_space=docindex.condition_space(it),
                 verification_basis="data",
                 sensitivity=s,
-                doc_ref=_doc_ref(it, root),
+                doc_ref=_doc_ref(it, root, src_of(it) if src_of else None),
+                **(extra.get("attrs") or {}),
             )
         else:
             raise ValueError(f"未知 ref kind：{kind!r}")
@@ -410,15 +418,20 @@ def _code_ref(it: dict, root: str, render_version=None) -> dict:
     }
 
 
-# 生效条件：把入参 root 原样写入返回 dict 的 'root'，path/heading/heading_path/level/lineno/end/anchor/hash/lang 按 it.get 取值（缺省 None），precise 取 bool(it.get('precise', True))。
-def _doc_ref(it: dict, root: str) -> dict:
-    return {
+# 生效条件：把入参 root 原样写入返回 dict 的 'root'，path/heading/heading_path/level/lineno/end/anchor/hash/lang 按 it.get 取值（缺省 None），precise 取 bool(it.get('precise', True))；src 为真值时并入 'src' 键，假值（含 None/{}/""）时该键**不出现**（默认路径产物逐字不变——read_ref/probe_ref/check_refs/Ledger 都不认这个键）。
+def _doc_ref(it: dict, root: str, src: dict = None) -> dict:
+    ref = {
         "path": it.get("path"), "heading": it.get("heading"),
         "heading_path": it.get("heading_path"), "level": it.get("level"),
         "lineno": it.get("lineno"), "end": it.get("end"),
         "anchor": it.get("anchor"), "hash": it.get("hash"), "lang": it.get("lang"),
         "precise": bool(it.get("precise", True)), "root": root,
     }
+    if src:
+        # 真源身份层（日志一路）：区间落在转写上，身份落在 zstd 日志上。
+        # 只增不删：既有 11 键语义不动，回读侧（refindex.read_ref）对它无感。
+        ref["src"] = src
+    return ref
 
 
 # --------------------------------------------------------------------------
@@ -727,6 +740,13 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
     出口——已删脚本、被搬走的文档留下的残留节点一次清掉，而不是逐条手工
     `forget`。判定与巡检共用 `probe_ref` 的唯一实现，口径不会打架。
 
+    **可再生节点不列入**（计数 `regenerable_skipped` 透出）：判据两条取并——
+    标签含 `regenerable`，**或** ref 带真源身份层（`doc_ref.src.file_hash`）。
+    日志索引的转写落在系统临时目录、被清理后回读必然 dangling，而这类节点
+    **可再生**（真源仍在，重跑落库即恢复）——把它们软删会让再生无从下手。
+    第二条判据是必要的：标签会随 heal/rebuild 的重放面缺席（只重放 layer 与
+    src）而消失，只认标签等于让这条保护在重建后静默失效。
+
     另清**幽灵条目**（ghosts）：索引有条目、节点文件却不存在。它们是历史
     「删除只摘内存索引、不落盘」的遗留——`cg.get` 取不回 → 悬空清退够不着它，
     而 `check_refs` 走 ledger 会一直报 → dangling 永不归零。判据只用唯一真源
@@ -746,9 +766,16 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
     # 同 prune_orphans：ref 只在节点 frontmatter 里，索引条目里没有，
     # 必须 cg.get 取回节点再 ref_of（否则恒空、静默不删）。
     todo = []
+    regenerable_skipped = []
     for nid, e in nodes.items():
         tags = (e or {}).get("tags") or []
         if not any(t in ("code", "doc") for t in tags):
+            continue
+        if "regenerable" in tags:
+            # 可再生节点（转写落 %TEMP%、被系统清理后回读必然 dangling）**不进清退
+            # 计划**：软删它们与「可再生」的前提直接冲突——P2 的再生路径正是靠
+            # 这些节点找回真源。计数透出，不静默。
+            regenerable_skipped.append(nid)
             continue
         try:
             node = cg.get(nid)
@@ -758,6 +785,13 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
             continue
         _k, ref = ref_of(node)
         if not ref or not ref.get("root"):
+            continue
+        if isinstance(ref.get("src"), dict) and ref["src"].get("file_hash"):
+            # 第二判据（**不依赖标签存活**）：ref 带真源身份层（`doc_ref.src`）即
+            # 「真源仍在 + 有文件哈希」⇒ 转写可再生。标签可能被 heal/rebuild 的
+            # 重放面丢掉（它只重放 layer 与 src，见 rebuild docstring），只认标签
+            # 会让「可再生」这个安全属性在重建后静默消失。
+            regenerable_skipped.append(nid)
             continue
         if only_roots and not any(_same_root(ref.get("root"), r) for r in only_roots):
             continue
@@ -777,7 +811,9 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
     base = {"scanned": len(nodes), "candidates": len(plan),
             "ghosts": len(ghost_plan),
             "dry_run": bool(dry_run), "truncated": truncated,
-            "max_nodes": max_nodes}
+            "max_nodes": max_nodes,
+            # 被排除的可再生节点数（原本会因转写被清理而列入 dangling）——不静默
+            "regenerable_skipped": len(regenerable_skipped)}
     if dry_run:
         return {**base, "ok": True, "count": len(plan), "pruned": sorted(plan)[:50],
                 "ghost_pruned": ghost_plan[:50],
@@ -786,7 +822,9 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
     dropped = _drop_ghosts(cg, ghost_plan)
     return {**base, "ok": True, "count": len(done), "pruned": done[:50],
             "ghost_pruned": dropped[:50],
-            "skipped_protected": blocked[:20], "reason": why}
+            "skipped_protected": blocked[:20],
+            "regenerable_skipped_ids": sorted(regenerable_skipped)[:20],
+            "reason": why}
 
 
 # 生效条件：cg 节点按 ref['root'] 与 kind 分组后逐组以 index_dir(incremental=False, ledger=ledger) 重切、再以 add_items(layer_of=原 layer) 重建，返回 {'ok','roots','groups','indexed','errors','truncated'}；only_roots 非 None 时只处理其中列出的 root。
@@ -796,6 +834,14 @@ def rebuild(cg, *, ledger: "Ledger" = None, only_roots=None, max_files: int = 50
 
     只重跑出了问题的 root（`only_roots`），逐节点**保留原 layer**；
     doc 密级用默认策略重算（默认只可能更严，不会放松）。
+    `src_of` 逐条从**既有节点的 doc_ref** 取回 `src`（与 `layer_of` 同构）：
+    否则重切转写 root 时 `doc_ref.src` 会静默消失＝真源身份层丢失。
+
+    **如实边界**：本函数只重放 `layer` 与 `src`，**不重放 `extra_of` 派生面**
+    （附加 tags / 附加 frontmatter 键）。日志索引节点（`dsh-log/logsrc/
+    regenerable` + `session/workspace/dsh_session_uuid`）因此不能靠 heal 重建，
+    要走专用入口 `scripts/_mdcg_reindex_dshlogs.py --repair 1`——该边界写在
+    返回值的 `note` 里，不静默。
     """
     nodes = (getattr(cg, "index", {}) or {}).get("nodes") or {}
     groups = {}
@@ -820,10 +866,33 @@ def rebuild(cg, *, ledger: "Ledger" = None, only_roots=None, max_files: int = 50
             items, errors, stats = index_dir(
                 root, kind=kind, max_files=max_files, max_items=max_items,
                 incremental=False, ledger=ledger)
+            kept_src = []                             # 本次真的取回 src 的节点
+
+            def _src_of(it, _cg=cg, _kind=kind, _hit=kept_src):   # noqa: E306
+                nid = node_id_of(it, _kind)
+                try:
+                    node = _cg.get(nid)
+                except Exception:
+                    return None
+                if not node:
+                    return None
+                _k, ref = ref_of(node)
+                s = (ref or {}).get("src") or None
+                if s:
+                    _hit.append(nid)
+                return s
+
             ids, _sens = add_items(
                 cg, items, kind=kind, root=root,
-                layer_of=lambda nid: (nodes.get(nid) or {}).get("layer"))
+                layer_of=lambda nid: (nodes.get(nid) or {}).get("layer"),
+                src_of=_src_of)
             out["indexed"] += len(ids)
+            if kept_src:
+                # extra_of 派生面不重放（见 docstring）：命中 src 承载节点即如实提示
+                out["note"] = ("只重放 layer 与 doc_ref.src（%d 个）——extra_of "
+                               "派生面（附加 tags/frontmatter 键）不由 heal 重建；"
+                               "日志索引节点请走 scripts/_mdcg_reindex_dshlogs.py"
+                               " --repair 1" % len(kept_src))
             out["errors"].extend(errors)
             out["truncated"] = out["truncated"] or bool(stats.get("truncated"))
         except Exception as exc:                      # 自愈不抛

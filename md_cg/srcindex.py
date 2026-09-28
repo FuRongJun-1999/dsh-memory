@@ -261,6 +261,87 @@ def read_unit(unit: dict, *, with_hash: bool = True) -> dict:
                      % (kind, "/".join(UNITS))}
 
 
+# ==========================================================================
+# 日志真源适配器（P1）：DSH 会话日志 → 真源身份 + 区间表
+#
+# 日志这一路与普通文件的差别只有一处（v0.3 §9 裁定①）：**真源是 zstd JSONL，
+# 可读区间却落在确定性转写上**。所以适配器把两件事分开交付——
+#   · 真源身份（`session_src_id`）：日志本体的 7 键 + 会话身份 4 键；
+#   · 区间表（`log_units`）：span 取自转写（docindex 切分），src 指向日志本体。
+# 二者都只是**把既有单点拼起来**：身份仍由 `src_id` 定、区间仍由 `docindex.extract`
+# 切、哈希仍由 `region_hash` 算。本模块不写任何状态、不 import scripts。
+# ==========================================================================
+
+#: `srcindex.session_src_id` 认的 path_mode——见函数 docstring 的暴露面说明
+SRC_PATH_MODES = ("abs", "rel", "hash")
+
+
+# 生效条件：log_path 为可 stat 的常规文件；path_mode 属 SRC_PATH_MODES（否则抛 ValueError）；
+# 返回 src_id 的 7 键 + {kind, session_uuid, workspace, sensitivity} 4 键，共 11 键。
+def session_src_id(log_path: str, *, session_uuid: str = None,
+                   workspace: str = None, sensitivity: str = "internal",
+                   path_mode: str = "abs", base: str = None) -> dict:
+    """DSH 会话日志的真源身份：`src_id` 7 键 + 会话身份 4 键（只做加法）。
+
+    `file_hash` 是 staleness 的**唯一**判据（P0 裁定），故任何降级都不得动它。
+
+    `path_mode` 是**暴露面降级开关**：src 含真源绝对路径 + 会话 uuid，而节点是
+    internal 档（跨会话共享可见，dsh_log_index.py:16-21 的共享档语义）⇒ 任何能读
+    该节点的会话都拿到本机日志绝对路径与会话 uuid。三档语义：
+      · `abs`（缺省）——绝对路径，探测能力完整；
+      · `rel`——相对 `base`（缺省取日志自身目录）且 **`dir` 一并置空**：留下绝对
+        目录等于把 rel 刚省下的又落回库里；
+      · `hash`——**path 置空**。
+    rel 与 hash 两档都不支持探测（`logref.probe_src` 返回 unresolved，属「明确
+    不探测」而非静默通过——不猜、不假装能核）；探测能力完整只有 `abs`。
+    """
+    sid = src_id(log_path)
+    ap = sid["path"]
+    if path_mode == "rel":
+        b = os.path.abspath(base) if base else os.path.dirname(ap)
+        sid["path"] = os.path.relpath(ap, b).replace("\\", "/")
+        sid["dir"] = ""
+    elif path_mode == "hash":
+        sid["path"] = ""
+        sid["dir"] = ""
+    elif path_mode != "abs":
+        raise ValueError("未知 path_mode=%r（支持 %s）"
+                         % (path_mode, "/".join(SRC_PATH_MODES)))
+    return {**sid, "kind": "dsh_session_log", "session_uuid": session_uuid,
+            "workspace": workspace, "sensitivity": sensitivity}
+
+
+# 生效条件：transcript_path 为可读 md、src 为日志真源身份（session_src_id 的产物）；
+# 返回按 docindex 章节切分的区间表，每条 {src, span(unit=line), span_hash, text_view,
+# reader, item}；`item` 是**落库口径**的原始条目（path 已按入参 path 定）。
+def log_units(transcript_path: str, src: dict, *, path: str = None) -> list[dict]:
+    """日志真源的区间表：span 落在**确定性转写**上，src 指向 zstd 日志本体。
+
+    `path` 是 docindex 的寻址键面（`path#heading_path` 里的 path，须与最终写进
+    `doc_ref.path` 的值同源），缺省回落转写的 basename——**缺省只用于单会话、
+    单转写根的临时场景**：多工作区同 sid 时会撞 id（见 `md_cg/test_logref.py`
+    的 path 口径守卫）。
+    """
+    from . import docindex          # 局部 import：与 units() 同款，避免模块级循环依赖
+    text = io.open(transcript_path, encoding="utf-8").read()
+    p = path or os.path.basename(transcript_path)
+    out = []
+    for it in docindex.extract(text, path=p):
+        lineno = int(it.get("lineno") or 1)
+        end = int(it.get("end") or lineno)
+        out.append({
+            "src": src,
+            "span": {"unit": "line", "start": lineno, "end": end,
+                     "anchor": it.get("anchor"), "level": it.get("level"),
+                     "heading_path": it.get("heading_path")},
+            "span_hash": it.get("hash") or region_hash(text, lineno, end),
+            "text_view": "%s ｜ %s" % (src.get("name") or "", it.get("heading") or ""),
+            "reader": {"kind": "line"},
+            "item": it,
+        })
+    return out
+
+
 # 生效条件：无（诊断用）；返回本模块对「通用层/细化层」的能力自陈，供文档与守卫比对。
 def capability() -> dict:
     return {"units": list(UNITS),

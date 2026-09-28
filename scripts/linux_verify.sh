@@ -44,7 +44,8 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_p43_pooling test_retr_gates_prodpath \
          test_readcache_prodpath test_mdstore_search_parity \
          test_rejected_redact test_rejected_credential_forms test_ccg_form_parity test_wisdom_md_store \
-         test_neg_condition_hits test_token_lowercase_form test_srcindex; do
+         test_neg_condition_hits test_token_lowercase_form test_srcindex \
+         test_logref; do
   out=$(python3 -m "md_cg.$t" 2>&1 | tail -1); rc=$?
   record "md_cg.$t" $rc
   echo "    -> $out"
@@ -60,10 +61,15 @@ done
 echo "=== 断言判别力自证（退出码 0 = 变异后如预期转红）==="
 # 自证型守卫的「变异必须转红」模式并进验证入口：判别力靠人工核验一次会陈化，
 # 前车之鉴是批次76 的「整条命中档」删掉后 31 条断言原样全绿（独立复核 2026-09-28）。
+# N203 面（批次85 并入）：定点变异把落库判据改回「id 撞即跳」，须**恰好**命中 13 项
+# （多一项少一项都报红）；锚点漂移＝退出码 2（fail-closed，不静默失效）。
+# 注：缺 zstandard 时本守卫自判 SKIP 退出 0（对齐 run_tests 裸 clone 不假红口径）——
+# 容器有 zstandard 时才真正跑出判别力，缺依赖时与其它日志面守卫同样静默跳过。
 for spec in "test_neg_condition_hits --head-baseline" \
             "test_neg_condition_hits --branch-baseline" \
             "test_policy_required_ccg --head-baseline" \
-            "test_token_lowercase_form --head-baseline"; do
+            "test_token_lowercase_form --head-baseline" \
+            "test_logref --head-baseline"; do
   set -- $spec
   out=$(python3 -m "md_cg.$1" "$2" 2>&1 | tail -1); rc=$?
   record "md_cg.$1 $2" $rc
