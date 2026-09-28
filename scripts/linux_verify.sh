@@ -45,7 +45,7 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_readcache_prodpath test_mdstore_search_parity \
          test_rejected_redact test_rejected_credential_forms test_ccg_form_parity test_wisdom_md_store \
          test_neg_condition_hits test_token_lowercase_form test_srcindex \
-         test_logref; do
+         test_logref test_p28_refcheck; do
   out=$(python3 -m "md_cg.$t" 2>&1 | tail -1); rc=$?
   record "md_cg.$t" $rc
   echo "    -> $out"
@@ -65,11 +65,19 @@ echo "=== 断言判别力自证（退出码 0 = 变异后如预期转红）==="
 # （多一项少一项都报红）；锚点漂移＝退出码 2（fail-closed，不静默失效）。
 # 注：缺 zstandard 时本守卫自判 SKIP 退出 0（对齐 run_tests 裸 clone 不假红口径）——
 # 容器有 zstandard 时才真正跑出判别力，缺依赖时与其它日志面守卫同样静默跳过。
+# P28 面（批次86 并入）：定点变异把 ref 巡检的快路径探测数据改回「水位条目」，
+# 须**恰好**命中 3 项（A1 漏报 / B1 误报 / C1 篡改静默）；锚点漂移同样退出码 2。
+# 同批次的【13】口径钉子（id 位置化 / 幂等判据由区间哈希承担 + 文档措辞·指纹·行级
+# 引用同源）与【14】常驻循环止血（repeat_guard）两段**钉的是别的语义**，在该变异下
+# 仍绿——故不入红项表（「恰好」二字靠这一点成立）；它们各自的判别力由就地定点探针
+# 实测（改 node_id 成内容寻址 ⇒ F1/F2 红；改 §3.1 措辞 ⇒ F6 红；挪文档行级引用
+# ⇒ F7 红；去掉 repeat_guard ⇒ G1/G3 红）。
 for spec in "test_neg_condition_hits --head-baseline" \
             "test_neg_condition_hits --branch-baseline" \
             "test_policy_required_ccg --head-baseline" \
             "test_token_lowercase_form --head-baseline" \
-            "test_logref --head-baseline"; do
+            "test_logref --head-baseline" \
+            "test_p28_refcheck --head-baseline"; do
   set -- $spec
   out=$(python3 -m "md_cg.$1" "$2" 2>&1 | tail -1); rc=$?
   record "md_cg.$1 $2" $rc

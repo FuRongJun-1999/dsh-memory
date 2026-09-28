@@ -25,6 +25,18 @@
   「回读说没漂、巡检说有漂」。与 `region_hash` 的教训同源：区间哈希只允许一份实现，
   这里连「怎么判定 ok / stale / dangling」也只允许一份。
 
+**分工：节点判漂移，水位只判跳过**
+  漂移 / 悬空**只由节点自身 frontmatter ref 判**（`probe_ref` / `read_ref` 的唯一实现）；
+  水位（`_refindex.json`）**不进 probe**——它只判「这个节点能不能跳过、不读源」。
+  跳过的充分条件是三条同时成立：①节点 ref 与水位条目
+  `(hash, lineno, end, path, root)` **五项全等**；②源文件 size/mtime 未变；
+  ③该 node_id 本轮尚未判过（跨大域撞 id 时同一 id 会被多条水位条目列出，只判一次）。
+  五项里含 `path` / `root` 是必要的：不含时跨域撞 id 在稳态不可见（节点 ref 指向另一域
+  而水位条目取自本域），且不一致会重复报红（同一 node_id 两条 stale）。
+  不一致本身**不改判定**（不进 `ok`、不产生新红行），只记 `ledger_mismatch` 归因行，
+  用两侧 root 分辨两类成因：roots 相同＝`watermark_behind`（写序断裂 / 旧水位）、
+  roots 不同＝`collision_multi_root`（id 不含 root 的跨域撞 id 归属）。
+
 零第三方依赖。
 """
 from __future__ import annotations
@@ -240,14 +252,21 @@ class Ledger:
             files.pop(k, None)
         return len(dead)
 
-# 生效条件：当 kind、root、files、indexed、truncated 传入时，self.load()["last_index"] 被设为含 ts=_now()、kind、root、files、indexed、truncated=bool(truncated)、truncated_reason=reason or "" 的字典；reason 为假值（默认 ""/None）时 truncated_reason 回落 ""；
+# 生效条件：当 kind、root、files、indexed、truncated 传入时，self.load()["last_index"] 被设为含 ts=_now()、kind、root、files、indexed、truncated=bool(truncated)、truncated_reason=reason or ""、empty_scan=bool(empty_scan) 的字典；reason 为假值（默认 ""/None）时 truncated_reason 回落 ""；
     def note_index(self, *, kind: str, root: str, files: int, indexed: int,
-                   truncated: bool, reason: str = "") -> None:
-        """记「最近一次索引」结果——截断在这里留痕，供 diagnose 看见。"""
+                   truncated: bool, reason: str = "",
+                   empty_scan: bool = False) -> None:
+        """记「最近一次索引」结果——截断与空扫都在这里留痕，供 diagnose 看见。
+
+        `empty_scan=True` ⇒ 这一次**一个文件都没走过**（目录空/全被排除/全读不回）：
+        `files` 如实记 0，且这一次不做对账（见 `index_dir`），两个面因此对齐——
+        水位条目不被剪空，而 `last_index.files=0` 也不假装扫过。
+        """
         self.load()["last_index"] = {
             "ts": _now(), "kind": kind, "root": root, "files": files,
             "indexed": indexed, "truncated": bool(truncated),
             "truncated_reason": reason or "",
+            "empty_scan": bool(empty_scan),
         }
 
 # 生效条件：无参数调用即生效，取 self.load() 结果把 updated_at 置为 _now()，再以 atomic_write 把 json.dumps(..., ensure_ascii=False, indent=1, sort_keys=True) 写入 self.path，无返回值。
@@ -281,15 +300,26 @@ class Ledger:
 # 统一 index_dir：调度 + 水位 + 落盘（供 op=index_code / op=index_doc / heal 共用）
 # --------------------------------------------------------------------------
 
-# 生效条件：root 为源大域根、kind 为 'code_ref'/'doc_ref' 时经 _mod(kind) 调度底层 index_dir 并返回 (items, errors, stats)；ledger 非空时逐文件 record，incremental 为真时跳过 ledger.is_fresh 为真的文件，且 stats 未截断时执行 reconcile。
+# 生效条件：root 为源大域根、kind 为 'code_ref'/'doc_ref' 时经 _mod(kind) 调度底层 index_dir 并返回 (items, errors, stats)；ledger 非空时逐文件 record，incremental 为真时跳过 ledger.is_fresh 为真的文件，stats 未截断且 seen 非空时执行 reconcile，commit 为假时不 save（由调用方在节点写成功后 save）。
 def index_dir(root: str, *, kind: str, patterns=None, max_files: int = 500,
               max_items: int = 2000, incremental: bool = False,
-              ledger: "Ledger" = None, skip_dirs=None):
+              ledger: "Ledger" = None, skip_dirs=None, commit: bool = True):
     """按 kind 调度 codeindex / docindex 的全量（或增量）索引。
 
     incremental=True 且给了 ledger 时：未变文件跳过（`skipped_unchanged`）。
     返回 (items, errors, stats)，与底层 index_dir 的返回一致（多一个
-    `skipped_unchanged`）。
+    `skipped_unchanged`；给了 ledger 时另加 `empty_scan`）。
+
+    **零信息纪律（对账）**：`seen` 为空＝这次一个文件都没走过（目录空 / 全被排除 /
+    全读不回），此时「没见到」不等于「源已消失」——**不对账**。否则一次空扫就能把
+    该域的水位整片剪空（实测：目录仍在而零文件，prune 删 0、reconcile 删 2）。
+    `prune` 照旧执行：它的判据是「root 是否还是目录」，与本次扫到几个文件无关
+    （实测「目录仍在零文件」时 prune 删 0）。
+
+    **写序（`commit`）**：`commit=False` 时照做 prune / reconcile / note_index，
+    但不落盘——由调用方在**节点写成功之后**再 `ledger.save()`。这样进程在两步之间
+    被杀，残留方向是「节点新 + 水位旧」（下次增量重切该文件），而不是「水位新 +
+    节点旧」（节点被判成已索引、漂移静默）。
 
     `skip_dirs` 透传给底层：**追加**排除、只增不减（内置 `.git`/`.venv`/
     `node_modules` 等不可被关闭），见 `codeindex.skip_matcher`。实际排掉了哪些目录
@@ -321,14 +351,21 @@ def index_dir(root: str, *, kind: str, patterns=None, max_files: int = 500,
         fresh=fresh, on_file=on_file, skip_dirs=skip_dirs,
     )
     if ledger is not None:
+        # 空扫透出（stats 与 last_index 两面同值）：这不是「源全没了」，而是
+        # 「这一轮什么都没走到」——两个面都如实记，别互相打架。
+        stats["empty_scan"] = not seen
         ledger.prune()
-        if not stats.get("truncated"):
-            # 没扫完就不能对账：截断时「没见到」不等于「源已消失」。
+        if seen and not stats.get("truncated"):
+            # 对账的两个前提：①**这次真的走过文件**（空扫 ⇒ 「没见到」不代表
+            # 「源已消失」，否则一次空扫就把水位剪空）；②没被截断（没扫完 ≠
+            # 剩下的都消失了）。
             ledger.reconcile(root, kind, seen)
         ledger.note_index(kind=kind, root=root, files=stats.get("files", 0),
                           indexed=len(items), truncated=bool(stats.get("truncated")),
-                          reason=stats.get("truncated_reason") or "")
-        ledger.save()
+                          reason=stats.get("truncated_reason") or "",
+                          empty_scan=stats["empty_scan"])
+        if commit:
+            ledger.save()
     return items, errors, stats
 
 
@@ -499,14 +536,68 @@ def read_ref(ref: dict, *, root: str = None, ref_kind: str = "ref") -> dict:
     }
 
 
-# 生效条件：cg 的 index['nodes'] 非空时汇总 stale/dangling/unresolved/errors 并返回 ok =（无 stale 且无 dangling）；only_tagged 为真时只探测 tags 含 'code'/'doc' 的节点，ledger 非空时先走 (size, mtime) 快路径。
+# 生效条件：n 为水位条目内的节点记录（id/lineno/end/hash）、e 为文件条目、rel/src_root 为源相对路径与源大域、unchanged 为源 size/mtime 未变时，按 cg.get(nid) 的 frontmatter ref 判该 node_id 的快路径结论并返回 {'node_id','kind','covered','probe','mismatch'}——取不回节点或节点无 ref 时 covered=False/probe=None（落回退路径、不记 mismatch）；五项全等且 unchanged 时 probe=None（跳过不读源）；否则 probe 为待探测 ref；不一致时 mismatch 带两侧 root/hash 与 kind_of_gap。
+def _fast_path_verdict(cg, n: dict, e: dict, rel: str, src_root: str,
+                       unchanged: bool) -> dict:
+    """单条水位记录 → 该 node_id 的快路径结论（**唯一实现**，也是定点变异锚点）。
+
+    探测数据**只**取节点自身 frontmatter ref（`ref_of(cg.get(nid))`）——水位条目
+    一律不进 probe，它只判「能不能跳过」。跳过的充分条件＝五项全等 + 源 size/mtime
+    未变 + 本轮未被判过（去重由调用方在 `covered` 上做，见 `check_refs`）。
+
+    `cg.get` 抛错 / 取空 / 节点无 ref 时**不认领也不记 mismatch**：那类节点落回
+    回退路径（同一份 `cg.get` + `ref_of` 口径），不新增行类。代价如实记：它们仍算
+    未覆盖、留在 todo 里，而 `truncated` 只看 todo 长度——大量读不回的节点可能把
+    `truncated` 推成 True，那是覆盖缺口被说出来了，不是被判成漂移。
+    """
+    nid = n.get("id")
+    out = {"node_id": nid, "kind": "", "covered": False, "probe": None,
+           "mismatch": None}
+    try:
+        node = cg.get(nid)
+    except Exception:                    # 读不回 ≠ 漂移：交回退路径同口径处理
+        return out
+    kind, ref = ref_of(node)
+    if not ref:
+        return out
+    out["kind"] = kind
+    out["covered"] = True
+    agree = (_norm_rel(ref.get("path")) == _norm_rel(rel)
+             and ref.get("lineno") == n.get("lineno")
+             and ref.get("end") == n.get("end")
+             and ref.get("hash") == n.get("hash")
+             and _same_root(ref.get("root"), src_root))
+    if not agree:
+        out["mismatch"] = {
+            "node_id": nid, "path": rel, "kind": kind,
+            "watermark_root": e.get("root") or src_root,
+            "node_root": ref.get("root"),
+            "watermark_hash": n.get("hash"), "node_hash": ref.get("hash"),
+            "kind_of_gap": ("watermark_behind"
+                            if _same_root(ref.get("root"), src_root)
+                            else "collision_multi_root"),
+        }
+    if agree and unchanged:
+        return out                       # 跳过：不读源
+    out["probe"] = {**ref, "path": ref.get("path") or rel,
+                    "root": ref.get("root") or src_root}
+    return out
+
+
+# 生效条件：cg 的 index['nodes'] 非空时汇总 stale/dangling/unresolved/errors/ledger_mismatch 并返回 ok =（无 stale 且无 dangling）；only_tagged 为真时只探测 tags 含 'code'/'doc' 的节点，ledger 非空时先经 _fast_path_verdict 走 (size, mtime) 快路径。
 def check_refs(cg, *, ledger: "Ledger" = None, max_nodes: int = MAX_CHECK,
                only_tagged: bool = True) -> dict:
     """漂移 / 悬空巡检（只读、不抛）。
 
-    优先走 ledger 的 (size, mtime) 快路径：未变文件**不读盘**直接判 ok；
-    变了的文件读一次、按记录区间重算哈希判 stale。
-    ledger 覆盖不到的节点（早期索引 / 未开增量）再回退逐节点探测。
+    **分工：节点判漂移，水位只判跳过。** 探测数据只取**节点自身 frontmatter ref**
+    （`ref_of(cg.get(nid))`）——ledger 条目一律不进 probe；它只用来判「这个节点能不能
+    跳过、不读源」。跳过的充分条件（三条同时成立）：①节点 ref 与水位条目
+    `(hash, lineno, end, path, root)` **五项全等**；②源文件 size/mtime 未变；
+    ③该 node_id 本轮尚未判过（去重）。五项含 `path` / `root` 是必要的：不含时跨域
+    撞 id 在稳态不可见，且 node/水位不一致会重复报红。
+    不一致本身不改判定（不进 `ok`、不产生新红行），只记 `ledger_mismatch` 归因行
+    （带两侧 root：roots 相同＝写序断裂 / 旧水位，不同＝跨域撞 id）。
+    水位覆盖不到的节点（早期索引 / 未开增量 / `cg.get` 读不回）再回退逐节点探测。
 
     `only_tagged=True`（默认）只探测带 `code` / `doc` 标签的节点——ref 只由
     `index_code` / `index_doc` 产生，两者都会打这两个标签；这样巡检不必为每条
@@ -514,6 +605,7 @@ def check_refs(cg, *, ledger: "Ledger" = None, max_nodes: int = MAX_CHECK,
     """
     nodes = (getattr(cg, "index", {}) or {}).get("nodes") or {}
     stale, dangling, unresolved, errors = [], [], [], []
+    mismatch = []
     covered = set()
 
 # 生效条件：当 nid、ref、kind、rel 传入时，p = probe_ref(ref) 后按 p["status"] 分派：为 "dangling" 时把含 node_id/ref_kind/path/lineno/end/error 的 row 加入 dangling，为 "stale" 时补 hash_expected/hash 加入 stale，为 "unresolved" 时加入 unresolved，为 "error" 时加入 errors；其他状态不加入；
@@ -533,14 +625,14 @@ def check_refs(cg, *, ledger: "Ledger" = None, max_nodes: int = MAX_CHECK,
         elif p["status"] == "error":
             errors.append(row)
 
-    # 快路径：ledger 记录的文件（键 = 源文件绝对路径，天然跨大域不撞名）
+    # 快路径：ledger 记录的文件（键 = 源文件绝对路径，天然跨大域不撞名）。
+    # 判据与探测数据收在 `_fast_path_verdict`（唯一实现，也是红基线的定点变异锚点）。
     if ledger is not None:
         for key, e in sorted((ledger.load().get("files") or {}).items()):
             rec_nodes = [n for n in (e.get("nodes") or [])
                          if n.get("id") in nodes]
             if not rec_nodes:
                 continue
-            covered.update(n.get("id") for n in rec_nodes)
             rel = e.get("path") or ""
             # 必须用**每个源文件自己的 root**（索引时的源大域），不能用 ledger.root：
             # 后者是认知图根，拿它拼路径会指向不存在的位置、把一切都误判成 dangling。
@@ -551,11 +643,23 @@ def check_refs(cg, *, ledger: "Ledger" = None, max_nodes: int = MAX_CHECK,
                              and abs(float(e.get("mtime") or 0.0) - st.st_mtime) < 1e-6)
             except OSError:
                 unchanged = False
-            if not unchanged:
-                kind = e.get("kind") or kind_of_path(rel)
-                for n in rec_nodes:
-                    _probe_one(n.get("id"), {**n, "path": rel, "root": src_root},
-                               kind, rel)
+            for n in rec_nodes:
+                nid = n.get("id")
+                if nid in covered:
+                    # ①同一 node_id 只判一次：跨大域撞 id 时两条水位条目列同一 id，
+                    # 不去重就会把同一处漂移按「水位条目数」重复报（实测两域源都改：
+                    # 不去重 4 行 / dup=2，去重后 2 行 / dup=0——夹具每文件 2 节点）。
+                    continue
+                v = _fast_path_verdict(cg, n, e, rel, src_root, unchanged)
+                if v["mismatch"]:
+                    mismatch.append(v["mismatch"])
+                if not v["covered"]:
+                    # ②读不回节点 / 节点无 ref：不认领、不记 mismatch，落回退路径
+                    continue
+                covered.add(nid)
+                if v["probe"] is not None:
+                    _probe_one(nid, v["probe"],
+                               v["kind"] or e.get("kind") or kind_of_path(rel), rel)
 
     # 回退：ledger 未覆盖的索引节点
 # 生效条件：当 nid 传入时，若 only_tagged 为假值立即返回 True；否则取 (nodes.get(nid) or {}).get("tags") or []，仅当其中存在 "code" 或 "doc" 返回 True，否则返回 False；
@@ -591,6 +695,10 @@ def check_refs(cg, *, ledger: "Ledger" = None, max_nodes: int = MAX_CHECK,
         "ledger_files": len((ledger.load().get("files") or {})) if ledger else 0,
         "stale": stale, "dangling": dangling,
         "unresolved": unresolved, "errors": errors,
+        # 水位与节点不一致的**归因行**（带两侧 root）：不进 ok、不产生新红行，
+        # 但也不是静默——写序断裂 / 跨域撞 id 在这里可见（只增键，语义不动）。
+        "ledger_mismatch": mismatch[:20],
+        "ledger_mismatch_count": len(mismatch),
         "truncated": truncated, "max_nodes": max_nodes,
     }
 
@@ -827,7 +935,7 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
             "reason": why}
 
 
-# 生效条件：cg 节点按 ref['root'] 与 kind 分组后逐组以 index_dir(incremental=False, ledger=ledger) 重切、再以 add_items(layer_of=原 layer) 重建，返回 {'ok','roots','groups','indexed','errors','truncated'}；only_roots 非 None 时只处理其中列出的 root。
+# 生效条件：cg 节点按 ref['root'] 与 kind 分组后逐组以 index_dir(incremental=False, ledger=ledger) 重切、再以 add_items(layer_of=原 layer) 重建，返回 {'ok','roots','groups','indexed','errors','truncated','roots_missing','rebuilt'}；root 已不是目录的组不调 index_dir（记 roots_missing 并置 ok=False）；本次 0 文件（stats.empty_scan）或 files 为 0 的组同样置 ok=False 并记错误；only_roots 非 None 时只处理其中列出的 root。
 def rebuild(cg, *, ledger: "Ledger" = None, only_roots=None, max_files: int = 500,
             max_items: int = 2000) -> dict:
     """按 ref 记录的 root 重建索引（sustain.heal 的修复动作）。
@@ -836,6 +944,16 @@ def rebuild(cg, *, ledger: "Ledger" = None, only_roots=None, max_files: int = 50
     doc 密级用默认策略重算（默认只可能更严，不会放松）。
     `src_of` 逐条从**既有节点的 doc_ref** 取回 `src`（与 `layer_of` 同构）：
     否则重切转写 root 时 `doc_ref.src` 会静默消失＝真源身份层丢失。
+
+    **悬空 root 不重建（H1b）**：root 已不是目录的组**不调 `index_dir`**——重切只会
+    扫到 0 个文件，而 `index_dir` 的 prune / reconcile 会把该域水位剪空（实测：
+    见 `index_dir` 的零信息纪律；这是「水位被写成空」的唯一入口，op 面在
+    `mcp_server` 侧已先按 isdir 拒）。该组记入 `roots_missing` 并置 `ok=False`
+    ——没修好就说没修好，悬空仍需人工处置（`op=ref action=prune`）。
+
+    **逐组如实回报（H2）**：`rebuilt` 逐组记 (root/kind/files/indexed/empty_scan/
+    truncated)；空扫组（`stats.empty_scan` 或 0 文件）置 `ok=False` 并 append 一条
+    errors。截断仍逐组传播到 `out["truncated"]`，异常路径仍置 `ok=False`。
 
     **如实边界**：本函数只重放 `layer` 与 `src`，**不重放 `extra_of` 派生面**
     （附加 tags / 附加 frontmatter 键）。日志索引节点（`dsh-log/logsrc/
@@ -860,12 +978,34 @@ def rebuild(cg, *, ledger: "Ledger" = None, only_roots=None, max_files: int = 50
         groups[(r, kind)] += 1
 
     out = {"ok": True, "roots": sorted({r for r, _ in groups}),
-           "groups": len(groups), "indexed": 0, "errors": [], "truncated": False}
+           "groups": len(groups), "indexed": 0, "errors": [], "truncated": False,
+           "roots_missing": [], "rebuilt": []}
     for (root, kind) in sorted(groups):
+        if not os.path.isdir(root):
+            # H1b：悬空域（源大域已搬走/删除）**不进 index_dir**——它对不上任何文件，
+            # 而 index_dir 会把该域水位剪空（[C2] 实测）。这里如实记、置 ok=False。
+            out["roots_missing"].append(root)
+            out["ok"] = False
+            out["errors"].append(
+                f"{root} [{kind}]：root 已不是目录，未重建（悬空需人工处置）")
+            continue
         try:
             items, errors, stats = index_dir(
                 root, kind=kind, max_files=max_files, max_items=max_items,
                 incremental=False, ledger=ledger)
+            empty = stats.get("empty_scan")
+            if empty is None:                         # 无 ledger 时退一步：0 文件即空扫
+                empty = not stats.get("files")
+            out["rebuilt"].append({
+                "root": root, "kind": kind, "files": stats.get("files"),
+                "indexed": len(items), "empty_scan": bool(empty),
+                "truncated": bool(stats.get("truncated"))})
+            if empty:
+                # H2：这一组什么都没扫到 ⇒ 没修好，不许报成修好。
+                out["ok"] = False
+                out["errors"].append(
+                    f"{root} [{kind}]：本次 0 个文件被扫到（empty_scan），"
+                    f"该域水位未对账、索引未重建")
             kept_src = []                             # 本次真的取回 src 的节点
 
             def _src_of(it, _cg=cg, _kind=kind, _hit=kept_src):   # noqa: E306

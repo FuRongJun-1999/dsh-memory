@@ -626,11 +626,14 @@ class FileDispatcher:
 
     # ---- stat：看水位与支持面 ----
 
-# 生效条件：from . import refindex 与 refindex.Ledger(self.cg.root).stat() 均不抛异常时返回该 stat 结果，抛任何异常时返回 {}。
+# 生效条件：from . import refindex 与 refindex.Ledger(self.cg.root).summary() 均不抛异常时返回该 summary 结果，抛任何异常时返回 {}。
     def _ledger_stat(self):
+        # `Ledger` 只有 `summary()`、**没有** `stat()`：此前写 `.stat()` 撞
+        # AttributeError 被下面的 except 吞成 `{}`，于是 `ingest stat` 的水位面
+        # 永远是空且无人知晓（唯一实现面是 `refindex.Ledger.summary`）。
         try:
             from . import refindex
-            return refindex.Ledger(self.cg.root).stat()
+            return refindex.Ledger(self.cg.root).summary()
         except Exception:                                  # noqa: BLE001
             return {}
 
@@ -702,7 +705,7 @@ class FileDispatcher:
                 "counts": counts,
                 "note": "预演：仅统计各链文件数，未做任何写入"}
 
-# 生效条件：root 非目录时返回 ok=False 的「目录不存在」；dry_run 为真时返回 _dry_dir(root)；否则对 doc_ref/code_ref 两链各以 patterns/max_files/max_items/incremental/ledger 调 refindex.index_dir 与 add_items，并把 root 下 **/*.jsonl 前 max_files 个逐个 ingest_jsonl 后返回 out。
+# 生效条件：root 非目录时返回 ok=False 的「目录不存在」；dry_run 为真时返回 _dry_dir(root)；否则对 doc_ref/code_ref 两链各以 patterns/max_files/max_items/incremental/ledger 调 refindex.index_dir(commit=False) 与 add_items 后 ledger.save()，并把 root 下 **/*.jsonl 前 max_files 个逐个 ingest_jsonl 后返回 out。
     def ingest_dir(self, root, layer=None, sensitivity=None, patterns=None,
                    max_files=500, max_items=2000, incremental=False,
                    dry_run=False):
@@ -716,13 +719,18 @@ class FileDispatcher:
         for ref_kind, key in (("doc_ref", "doc"), ("code_ref", "code")):
             items, errors, stats = refindex.index_dir(
                 root, kind=ref_kind, patterns=patterns, max_files=max_files,
-                max_items=max_items, incremental=incremental, ledger=ledger)
+                max_items=max_items, incremental=incremental, ledger=ledger,
+                commit=False)
             ids, sens = refindex.add_items(self.cg, items, kind=ref_kind,
                                            root=root, layer=layer,
                                            sensitivity=sensitivity)
+            # 写序（同 op=index_code/index_doc）：节点先落盘，水位随后——
+            # 中途被杀只会留下「节点新 + 水位旧」，下次增量重切，不会静默漏漂移。
+            ledger.save()
             out["chains"][key] = {
                 "indexed": len(ids), "errors": len(errors),
                 "files": stats.get("files"), "truncated": stats.get("truncated"),
+                "empty_scan": stats.get("empty_scan"),
                 "skipped_unchanged": stats.get("skipped_unchanged", 0),
                 "skipped_suffixes": stats.get("skipped_suffixes", []),
                 "sensitivity": sens}

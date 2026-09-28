@@ -2316,15 +2316,22 @@ def _cg_dispatch(cg, a):
         check_path_root(a.get("path"), "MDCG_INGEST_ROOT", "index_code")
         if not os.path.isdir(root):
             return {"ok": False, "error": f"目录不存在：{root}"}
+        # 写序（commit=False → add_items 成功后再 save）：水位是**派生物的水位**，
+        # 必须落在「节点已写成功」之后。否则进程在两步之间被杀，会留下
+        # 「水位新 + 节点旧」——下次巡检按水位判「未变、可跳过」，漂移静默漏报。
+        # 反过来（节点新 + 水位旧）只会让下次增量重切该文件，是安全方向。
+        # add/覆写是同步 atomic_write（mdcg.py:1915→2429-2436），故先后真的成立。
+        led = refindex.Ledger(cg.root)
         items, errors, stats = refindex.index_dir(
             root, kind="code_ref", patterns=a.get("patterns"),
             max_files=int(a.get("max_files") or 500),
             max_items=int(a.get("max_items") or 2000),
             incremental=bool(a.get("incremental")),
             skip_dirs=a.get("skip_dirs"),
-            ledger=refindex.Ledger(cg.root))
+            ledger=led, commit=False)
         ids, _sens = refindex.add_items(cg, items, kind="code_ref", root=root,
                                         layer=a.get("layer"))
+        led.save()                       # 节点已落盘 → 水位随后（两步之间被杀即安全方向）
         note = ("只索引注释/接口（AST 已校验），未存完整代码；"
                 "正文用 frontmatter.code_ref + op=ref 指回源文件。"
                 "skipped_suffixes 是扫到但**没有提取器**的后缀，用于审计覆盖缺口")
@@ -2355,15 +2362,18 @@ def _cg_dispatch(cg, a):
         layer = a.get("layer") or "knowledge"
         # 显式改密级时必须全量重切（增量会跳过未变文件、覆盖不生效）。
         incremental = bool(a.get("incremental")) and not a.get("sensitivity")
+        # 写序同 op=index_code：commit=False → 节点写成功后 led.save()。
+        led = refindex.Ledger(cg.root)
         items, errors, stats = refindex.index_dir(
             root, kind="doc_ref", patterns=a.get("patterns"),
             max_files=int(a.get("max_files") or 500),
             max_items=int(a.get("max_items") or 2000),
             incremental=incremental, skip_dirs=a.get("skip_dirs"),
-            ledger=refindex.Ledger(cg.root))
+            ledger=led, commit=False)
         ids, sens_counts = refindex.add_items(
             cg, items, kind="doc_ref", root=root, layer=layer,
             sensitivity=a.get("sensitivity"))
+        led.save()
         note = ("只索引章节（level<=3）的标题与摘要，未存全文；正文用 "
                 "frontmatter.doc_ref + op=ref 回读。layer 与密级按计划 §1.3-3 "
                 "显式声明（默认 knowledge / internal，路径命中私有提示降为 "
@@ -2899,9 +2909,10 @@ def _ref_call(cg, a):
             cg, ledger=refindex.Ledger(cg.root),
             max_nodes=int(a.get("max_nodes") or refindex.MAX_CHECK))
         res["action"] = "check"
-        res["note"] = ("stale=源已改动（区间哈希不匹配）、dangling=源文件已删除。"
-                       "巡检只读、不改源文件；修复：op=index_code / op=index_doc 重建，"
-                       "或 op=sustain action=heal。")
+        res["note"] = ("stale=源已改动（区间哈希不匹配）→ 重跑 op=index_code / "
+                       "op=index_doc 重建；dangling=源已删除 → 走 op=ref action=prune "
+                       "（软删，可 restore）或恢复真源后重建。巡检只读、不改源文件；"
+                       "op=sustain action=heal 只对 stale 自动重建（悬空需人工处置）。")
         return res
     if action in ("prune", "prune_dangling"):
         res = refindex.prune_dangling(

@@ -545,7 +545,11 @@ def diagnose(cg, *, name: str = "md_cg", stale_temp_age: float = STALE_TEMP_AGE,
         issues.append({"code": "ref_dangling", "severity": "warning",
                        "detail": f"{len(refs['dangling'])} 个 ref 悬空（源文件已删除）",
                        "sample": [r.get("path") for r in refs["dangling"][:5]],
-                       "fix": "rebuild_refs"})
+                       # 悬空**没有**自动动作：源已不在，重切只能扫到 0 个文件
+                       # （refindex.rebuild 的 roots_missing 侧已拦住「水位被写空」），
+                       # 处置走 op=ref action=prune 或恢复真源后重建 ⇒ 不承诺够不着的
+                       # 动作（fix 只被展示面消费，改它是口径修正而非行为开关）。
+                       "fix": None})
     if refs.get("truncated"):
         issues.append({"code": "ref_check_truncated", "severity": "info",
                        "detail": f"ref 巡检只覆盖前 {refs['max_nodes']} 个节点，结果不完整",
@@ -626,40 +630,146 @@ def _audit(root: str, op: str, action: str, detail: str = ""):
                   "detail": str(detail)[:200], "pid": os.getpid()})
 
 
-# 生效条件：按 diagnose(cg, name=name, stale_temp_age=stale_temp_age) 的 issues code 集合分派——命中 index_drift/index_orphan 重建索引、ref_stale/ref_dangling 按 ref 重建源索引、index_log_backlog 合并索引分片、stale_temps 清理陈旧临时文件、half_line_logs 修补半截日志；ccg_backlog 仅 allow_evolve=True 且 reflect_fn 非 None 时才 consolidate（否则记 needs_llm），importance_drift 仅 allow_evolve=True 时才重算重要性（否则记 evolve_disabled）；dry_run=True 时各动作只记入 actions 不落盘，返回含 after["ok"]、dry_run、actions、before/after 的 stats 与 t 的 dict；
+# --------------------------------------------------------------------------
+# 同因不重试（自愈的失败记忆）
+#
+# 为什么需要：自愈没有记忆——每 tick 都 diagnose → heal。当病灶**超出预算**时
+# （例：ref_stale 的根因是 rebuild 被 max_files=500 / max_items=2000 截断，
+# 永远重写不到"坏"的那几个节点、截断还跳过对账），每 tick 都会重跑同一次注定
+# 失败的 rebuild、重刷同一批行与审计。记忆 + 退避是唯一有界的止法。
+#
+# 边界（刻意保守）：①只影响**同一信号的重复失败**——首次失败永远真跑、永远如实
+# 上报，绝不把「失败」变成「不报」；②信号变化、或上次结果不坏（ok/truncated 都
+# 好）⇒ 立刻放行重试；③记忆进程内、重启即清（只影响退避节奏，不影响正确性）；
+# ④默认只在常驻循环里启用（`repeat_guard=True`），手动 op=sustain action=heal
+# 不受影响（手动即显式要求试一次）。
+# --------------------------------------------------------------------------
+
+_HEAL_MEMO: dict = {}          # (root, code) → {signal, bad, streak, ts}
+HEAL_BACKOFF_MAX = 3600.0      # 退避上限 1h
+
+
+# 生效条件：res 非 dict 时返回 False，否则返回 res.get('ok') is False 或 bool(res.get('truncated'))——即「跑完了但没修好/没修完」；
+def _bad_result(res) -> bool:
+    """动作结果是否「跑完了但没修好」（ok=False 或 truncated）。"""
+    if not isinstance(res, dict):
+        return False
+    return res.get("ok") is False or bool(res.get("truncated"))
+
+
+# 生效条件：按 (root, code) 查 _HEAL_MEMO，存在且 signal 与上次相同、上次 bad 且距上次尝试 < min(HEAL_BACKOFF_MAX, interval*2^(streak-1)) 时返回 (True, {'streak','wait_s','age_s','reason'})（不改记忆），否则返回 (False, {})；
+def _repeat_skip(root: str, code: str, signal: str,
+                 interval: float) -> tuple:
+    """同因失败不重试：返回 (skip, info)。`interval` 是调用方的巡检间隔（退避基准）。
+
+    等待时长只由**失败的尝试次数**（streak）决定：每次「真的又试了一次仍失败」
+    才翻倍；窗口内被拦下的那些 tick 只报同一个窗口，不把等待继续推大——
+    否则一次失败就会在几个 tick 内冲到 1h 上限，退避与「试了几次」脱钩。
+    """
+    st = _HEAL_MEMO.get((root, code)) or {}
+    if not st or st.get("signal") != signal or not st.get("bad"):
+        return False, {}
+    streak = int(st.get("streak") or 0)
+    wait = min(HEAL_BACKOFF_MAX, max(0.0, float(interval)) * (2 ** max(0, streak - 1)))
+    age = time.time() - float(st.get("ts") or 0.0)
+    if age < wait:
+        return True, {"streak": streak, "wait_s": round(wait, 1),
+                      "age_s": round(age, 1), "reason": "repeat_failure"}
+    return False, {}
+
+
+# 生效条件：按 (root, code) 记下本次的 signal 与结果是否坏；同信号连续失败时 streak 累加、坏结果首次记 1、好结果清零，ts 记当前时间；
+def _repeat_remember(root: str, code: str, signal: str, bad: bool) -> None:
+    st = _HEAL_MEMO.get((root, code)) or {}
+    same = st.get("signal") == signal
+    if bad:
+        streak = int(st.get("streak") or 0) + 1 if same else 1
+    else:
+        streak = 0
+    _HEAL_MEMO[(root, code)] = {"signal": signal, "bad": bool(bad),
+                                "streak": streak, "ts": time.time()}
+
+
+# 生效条件：按 diagnose(cg, name=name, stale_temp_age=stale_temp_age) 的 issues code 集合分派——命中 index_drift/index_orphan 重建索引、**ref_stale** 按 ref 重建源索引（ref_dangling 不触发）、index_log_backlog 合并索引分片、stale_temps 清理陈旧临时文件、half_line_logs 修补半截日志；ccg_backlog 仅 allow_evolve=True 且 reflect_fn 非 None 时才 consolidate（否则记 needs_llm），importance_drift 仅 allow_evolve=True 时才重算重要性（否则记 evolve_disabled）；dry_run=True 时各动作只记入 actions 不落盘，返回含 after["ok"]、dry_run、actions、before/after 的 stats 与 t 的 dict；repeat_guard 为真时同一信号且上次未修好的动作记 {'applied': False, 'reason': 'repeat_failure'} 并按 heal_interval*2^n 退避（上限 1h）；
 def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
          stale_temp_age: float = STALE_TEMP_AGE,
-         allow_evolve: bool = False, reflect_fn=None, verify_fn=None) -> dict:
+         allow_evolve: bool = False, reflect_fn=None, verify_fn=None,
+         heal_interval: float = DEFAULT_HEAL_INTERVAL,
+         repeat_guard: bool = False) -> dict:
     """按诊断结果修复派生物。dry_run=True 时只列动作、不落盘。
 
     演化类动作（G7）默认**不动**，须显式 `allow_evolve=True` 才放行，且只放行
     **确定性**动作（重要性重算，有 rollback）；依赖 LLM 的固化永不自动跑。
+
+    `repeat_guard=True`（常驻循环用）开启「同因不重试」：诊断信号与上次全同、
+    且上次结果未修好（`ok=False` 或 `truncated`）时不再执行，记
+    `{'applied': False, 'reason': 'repeat_failure', 'streak': n}` 并按
+    `heal_interval × 2^n` 退避（上限 1h，进程内记忆、重启即清）。首次失败永远
+    真跑并如实上报；手动调用默认不开启（手动即显式要求试一次）。
     """
     before = diagnose(cg, name=name, stale_temp_age=stale_temp_age)
     codes = {i["code"] for i in before["issues"]}
     root = cg.root
     actions = []
 
-# 生效条件：闭包 dry_run 为真时向 actions 追加 {"code": code, "detail": detail, "applied": False} 并返回；否则调用 fn()，成功追加 applied=True/ok=True，抛异常时追加 applied=True/ok=False 与 error，最后执行 _audit(root, "heal", code, detail)；
+    def _signal(code: str) -> str:
+        """该 code 的**诊断事实签名**（detail + sample）：同因＝信号不变。"""
+        for i in before["issues"]:
+            if i["code"] == code:
+                return "%s|%s" % (i.get("detail"), i.get("sample"))
+        return ""
+
+# 生效条件：闭包 dry_run 为真时向 actions 追加 {"code": code, "detail": detail, "applied": False} 并返回；repeat_guard 为真且 _repeat_skip 判为重复失败时追加 applied=False/reason=repeat_failure/streak/wait_s 并返回；否则调用 fn() 取回值 res，res 为 dict 且 ok 为 False（或 truncated）时记 ok=False 并附 result 摘要，抛异常时追加 applied=True/ok=False 与 error，最后执行 _audit(root, "heal", code, detail) 并 _repeat_remember；
     def act(code: str, detail: str, fn):
         if dry_run:
             actions.append({"code": code, "detail": detail, "applied": False})
             return
+        if repeat_guard:
+            skip, info = _repeat_skip(root, code, _signal(code), heal_interval)
+            if skip:
+                # 不是「不报」：把「同一病灶上次就没修好」如实记进动作与审计。
+                actions.append({"code": code, "detail": detail, "applied": False,
+                                "ok": False, **info})
+                _audit(root, "heal", code,
+                       "%s → repeat_failure（第 %s 次，退避 %ss）"
+                       % (detail, info.get("streak"), info.get("wait_s")))
+                return
+        res = None
         try:
-            fn()
-            actions.append({"code": code, "detail": detail,
-                            "applied": True, "ok": True})
+            res = fn()
         except Exception as e:                       # 自愈失败不能拖垮进程
             actions.append({"code": code, "detail": detail, "applied": True,
                             "ok": False, "error": f"{type(e).__name__}: {e}"})
+        else:
+            # `fn()` 跑完 ≠ 修好：返回 dict 且 ok is False（或 truncated）时
+            # 如实记 ok=False——「重建失败」绝不能被记成 ok=True。
+            bad = _bad_result(res)
+            row = {"code": code, "detail": detail, "applied": True, "ok": not bad}
+            if isinstance(res, dict):
+                brief = {k: res[k] for k in ("ok", "indexed", "files", "truncated",
+                                             "roots_missing", "errors")
+                         if k in res}
+                if isinstance(brief.get("errors"), list):
+                    brief["errors"] = brief["errors"][:1]
+                if brief:
+                    row["result"] = brief
+                    detail = "%s → %s" % (detail, brief)
+            actions.append(row)
+        if repeat_guard:
+            _repeat_remember(root, code, _signal(code),
+                             bool(actions[-1].get("ok") is False))
         _audit(root, "heal", code, detail)
 
     if "index_drift" in codes or "index_orphan" in codes:
         act("rebuild_index", "重建索引（漂移 / 孤儿）", cg.rebuild_index)
-    if "ref_stale" in codes or "ref_dangling" in codes:
+    if "ref_stale" in codes:
+        # 只对 ref_stale 自动重建。ref_dangling（源已删/已搬）重切只会 0 文件、
+        # 治不好 dangling（rebuild 的 roots_missing 侧已拦「水位被写空」），出口是
+        # op=ref action=prune / 恢复真源后重建 —— 不在这里触发。
+        # 止血点必须在本行：heal 按 code 分派（fix 字段无任何调度器消费）。
         from . import refindex as _ri
         _led = _ri.Ledger(root)
-        act("rebuild_refs", "按 ref 重建源索引（修复漂移；悬空需人工处置）",
+        act("rebuild_refs", "按 ref 重建源索引（修复 ref_stale）",
             lambda: _ri.rebuild(cg, ledger=_led))
     if "index_log_backlog" in codes:
         act("flush_index", "合并索引增量分片", cg.flush)
@@ -1039,11 +1149,19 @@ class SustainLoop:
                               "issues": [i["code"] for i in rep["issues"]]}
         if not (self.auto_heal and not rep["ok"]):
             return
-        res = heal(self.cg, name=self.name)
+        # 常驻循环才开 repeat_guard（同因不重试 + 退避）：手动 op=sustain action=heal
+        # 不受影响；heal_interval 用作退避基准。
+        res = heal(self.cg, name=self.name,
+                   heal_interval=self.heal_interval, repeat_guard=True)
         if res["actions"]:
             with self._lock:
-                self.heals.append({"t": res["t"],
-                                   "actions": [a["code"] for a in res["actions"]]})
+                self.heals.append({
+                    "t": res["t"],
+                    "actions": [a["code"] for a in res["actions"]],
+                    # 没修好的（含重复失败被拦下的）单列，免得「动作跑了」被读成
+                    # 「修好了」——审计行同口径。
+                    "failed": [a["code"] for a in res["actions"]
+                               if a.get("ok") is False]})
                 self.heals = self.heals[-20:]
 
     # ---- 状态 ----
