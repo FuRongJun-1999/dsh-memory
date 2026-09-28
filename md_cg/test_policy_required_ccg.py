@@ -30,12 +30,21 @@
   G9 accept 旁路（红线）：临时库 propose 一条缺六要素正文后 review_decide(accept)
      仍能落盘——历史待审条目的 accept 不因本次改动收紧
 
-红基线（不靠推理，用 git HEAD 版覆盖临时副本）：
+红基线（不靠推理，对**当前工作区源码**做定点变异取红基线）：
     python -X utf8 md_cg/test_policy_required_ccg.py --head-baseline
-该模式把 `git show HEAD:md_cg/audit.py` 与 `HEAD:md_cg/writepipe.py` 的字节装进临时假包
-（其余依赖由转发层指向真仓模块），跑**同一套** check 并断言「红项集合 == 预期红项」。
+该模式读工作区 `md_cg/audit.py` 与 `md_cg/writepipe.py` 的源码，按 `_BASELINE_MUTATIONS`
+逐处改回**改动前行为**（required 不收窄 / 缺失清单用正则串且截断前 3 且无 detail /
+hint 不分型），装进临时假包（其余依赖由转发层指向真仓模块），跑**同一套** check 并断言
+「红项集合 == 预期红项」。锚点漂移即报 ANCHOR-MISS 并 fail-closed（不静默放过）。
 G1/G5b/G6/G7/G9 项在两态皆绿（改动前这些行为本就成立，规格也要求它们不变）；
 G8e（整链 default_pipeline 与最小装配同结果）只在绿态跑——假包无法整链装配。
+
+为什么不再用 `git show HEAD:` 做基线源（2026-09-28 修，缺陷实证）：HEAD 只在改动**尚未
+提交**时才是「改动前」。本守卫自己的改动一提交（批次70 `fa634fe5`），HEAD 里的
+audit.py/writepipe.py 就变成实现本身——红项恒为空、预期红项永远对不上；而这条自证已被
+并进 `scripts/linux_verify.sh` 的判别力清单（批次77），容器腿一跑就红。改为定点变异后，
+基线源与 git 历史／浅克隆彻底解耦，判别力长期有效（同批次 `test_neg_condition_hits` 的
+`_BRANCH_MUTATIONS` 与 `test_token_lowercase_form` 的 `_old_parse_token` 是同一做法）。
 
 实验纪律：全程**临时目录**（tempfile 建临时图 root 与临时 policy），`MDCG_POLICY_FILE`
 只指向临时 policy，绝不写真实库、绝不改真实 `data/policy.json`；哑值一律非真凭据。
@@ -48,7 +57,6 @@ import importlib
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
 
@@ -67,11 +75,34 @@ REQ_PATTERNS = tuple(r"(?m)^#\s*%s" % m for m in SIX)
 FORBIDDEN = r"FORBIDDEN_TOKEN_[A-Z]{3}"
 FORBIDDEN_HIT = "FORBIDDEN_TOKEN_XYZ"
 
-# HEAD（required 对所有 kind 生效、缺项截断前 3、无 detail、hint 单文案）下应为红的项
+# 改动前行为（required 对所有 kind 生效、缺项截断前 3 且无 detail、hint 单文案）下应为红的项
 EXPECTED_RED = ("G2b", "G2c", "G2d", "G3b", "G3c", "G4a", "G4b", "G4c",
                 "G5a", "G8b", "G8c")
 
-_HEAD_FILES = {"audit": "md_cg/audit.py", "writepipe": "md_cg/writepipe.py"}
+_BASELINE_FILES = {"audit": "md_cg/audit.py", "writepipe": "md_cg/writepipe.py"}
+
+# 定点变异表（基线源＝工作区源码 + 本表；**不取 git HEAD**，见 docstring 末段的缺陷实证）：
+# 每条 (标签, 现实现锚点, 改回后的旧行为)。锚点缺失 → ANCHOR-MISS → fail-closed 退出。
+_BASELINE_MUTATIONS = {
+    "audit": (
+        ("required 收窄",
+         "req_active = bool(required) and (not kinds or str(kind) in kinds)",
+         "req_active = bool(required)"),
+        ("缺失清单形态",
+         '            return (REJECT,\n'
+         '                    "缺少必需要素：%s（补齐后重写即可，本条未入库）"\n'
+         '                    % "、".join(missing),\n'
+         '                    {"missing": missing, "missing_patterns": missing_patterns})',
+         '            return (REJECT,\n'
+         '                    "缺少必需要素：%s" % "、".join(missing_patterns[:3]),\n'
+         '                    None)'),
+    ),
+    "writepipe": (
+        ("hint 分型",
+         'if missing or ev.startswith("缺少必需要素"):',
+         "if False:"),
+    ),
+}
 _SHIMS = ("twophase", "trust", "linkref", "mcp_server")
 _SHIM_TPL = ("import md_cg.%s as _m\n"
              "globals().update({k: v for k, v in vars(_m).items()\n"
@@ -150,13 +181,26 @@ def _fake_pkg(tmp, blobs):
     return root
 
 
-def _git_show(rel):
-    r = subprocess.run(["git", "show", "HEAD:" + rel], cwd=_REPO,
-                       capture_output=True)
-    if r.returncode != 0:
-        raise SystemExit("git show HEAD:%s 失败：%s"
-                         % (rel, r.stderr.decode("utf-8", "replace")[:200]))
-    return r.stdout
+def _baseline_sources():
+    """基线源＝工作区源码 × 定点变异表（模块名 → 字节）。锚点漂移即 fail-closed。"""
+    out = {}
+    for name, rel in _BASELINE_FILES.items():
+        path = os.path.join(_REPO, rel)
+        with open(path, encoding="utf-8") as f:
+            src = f.read()
+        for label, anchor, old in _BASELINE_MUTATIONS.get(name, ()):
+            if anchor not in src:
+                raise SystemExit(
+                    "ANCHOR-MISS [%s/%s]：变异锚点在 %s 中不存在——实现改了却没同步"
+                    "本表，红基线失效（fail-closed）。锚点首行：%s"
+                    % (name, label, rel, anchor.split("\n")[0][:80]))
+            if src.count(anchor) != 1:
+                raise SystemExit(
+                    "ANCHOR-AMBIGUOUS [%s/%s]：锚点在 %s 中出现 %d 次（须唯一）"
+                    % (name, label, rel, src.count(anchor)))
+            src = src.replace(anchor, old)
+        out[name] = src.encode("utf-8")
+    return out
 
 
 def run_checks(tmp, audit_mod, wp_mod, full_face=False):
@@ -282,17 +326,20 @@ def run_checks(tmp, audit_mod, wp_mod, full_face=False):
 def main():
     ap = argparse.ArgumentParser(description="写入闸门必需要素（CCG 六要素）守卫")
     ap.add_argument("--head-baseline", action="store_true",
-                    help="用 git HEAD 版 audit.py / writepipe.py 装配临时假包取红基线"
-                         "（断言红项集合 == 预期红项）")
+                    help="取红基线：对工作区 audit.py / writepipe.py 做定点变异（改回改动前"
+                         "行为）后装配临时假包并断言红项集合 == 预期红项（参数名沿用历史名，"
+                         "源不再是 git HEAD）")
     args = ap.parse_args()
 
     tmp = tempfile.mkdtemp(prefix="ccg_required_")
     saved = os.environ.pop("MDCG_POLICY_FILE", None)
     try:
         if args.head_baseline:
-            _fake_pkg(tmp, {n: _git_show(p) for n, p in _HEAD_FILES.items()})
-            print("[红基线] 源 = git HEAD:md_cg/audit.py + HEAD:md_cg/writepipe.py"
-                  "（写入临时假包，不覆盖工作区文件）")
+            _fake_pkg(tmp, _baseline_sources())
+            print("[红基线] 源 = 工作区 md_cg/audit.py + md_cg/writepipe.py 经定点变异"
+                  "（%d 处：%s；写入临时假包，不覆盖工作区文件）"
+                  % (sum(len(v) for v in _BASELINE_MUTATIONS.values()),
+                     "、".join(lb for v in _BASELINE_MUTATIONS.values() for lb, _, _ in v)))
             audit_mod = importlib.import_module("mdcg_head.audit")
             wp_mod = importlib.import_module("mdcg_head.writepipe")
             results = run_checks(tmp, audit_mod, wp_mod, full_face=False)
@@ -316,7 +363,7 @@ def main():
           % (len(results) - len(reds), len(reds), ", ".join(reds) or "无"))
     if args.head_baseline:
         if tuple(reds) == EXPECTED_RED:
-            print("红基线符合预期：HEAD 侧缺要素清单不可读/被截断、required 未收窄、"
+            print("红基线符合预期：变异态下缺要素清单不可读/被截断、required 未收窄、"
                   "hint 无补齐指引，共 %d 项分叉（%s）"
                   % (len(EXPECTED_RED), "、".join(EXPECTED_RED)))
             return 0

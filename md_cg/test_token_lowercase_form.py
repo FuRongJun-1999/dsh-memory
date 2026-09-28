@@ -21,10 +21,14 @@ token_id——检测面漏过的形态照样能通过校验，两面的松紧就
   G6 生成面自证（**推论前提**：`issue` 只产小写 role/token_id ⇒ 大写形态没有合法来源）
   G7 口径面（识别面**仍然**宽：禁表两条原样存在、hooks.ts 的 role 段仍 `[A-Za-z]+`；
      受理面已窄。二者关系＝「识别面宽、受理面窄」，不是「两面都收紧」）
+  G8 三面口径（2026-09-28 使用者补裁「大写也转小写识别，以后写统一小写，现有的大写
+     内容就不动了」）：入参面宽容（role_spec/as_unit 的大写照旧归一，收窄只减不增）、
+     令牌面从严（同为大写 role 的令牌字符串仍被拒——两面**有意**不同）、
+     存量不迁移（test_p46 C2 那条存量断言必须还在）、写面统一小写（issue 产出恒小写）
 
 **红基线自证（--head-baseline）**：把 `parse_token` 临时换回改动前的实现
-（`return role.lower(), token_id, secret`），G2/G3/G5 必须转红。若红基线不红，
-说明这几条断言没有判别力（删掉新分支也照样全绿）。
+（`return role.lower(), token_id, secret`），G2/G3/G5/G8d 必须转红（实测 11 红）。若红
+基线不红，说明这几条断言没有判别力（删掉新分支也照样全绿）。
 """
 from __future__ import annotations
 
@@ -241,10 +245,44 @@ def g7_detection_face():
     ok(hit, "G7h 识别面漏（大写 hex）⇔ 受理面拒：不存在「检测漏 + 受理收」的缝隙")
 
 
+def g8_three_faces():
+    """三面口径（2026-09-28 使用者补裁）：入参面宽容、令牌面从严、写面统一小写。
+
+    裁定原文：「已有测试把大写归一当预期行为。大写也转小写识别，以后写统一小写，
+    现有的大写内容就不动了。」故本组**同时**钉住三件事——G8a/G8b 是「不要顺手收紧入参面」
+    （收紧会打断存量语义与 `test_p46_unit_scope.py` 的 C2），G8c 是「令牌面照旧拒」
+    （批次79 的裁定不被本组软化），G8e 是「存量断言不许被删」。
+    """
+    print("\n[G8] 三面口径：入参面宽容 / 令牌面从严 / 写面统一小写")
+    spec = tokens.role_spec("RECORD")                      # 大写 role 名照常解析
+    ok(spec.get("clearance_cap") is not None or isinstance(spec, dict),
+       "G8a 入参面宽容：role_spec('RECORD') 照常解析（大写经 strip+lower+别名归一）")
+    ok(tokens.normalize_role("RECORD") == "record"
+       and tokens.normalize_role(" ReCorder ") == "record",
+       "G8b 入参面宽容：'RECORD' / ' ReCorder ' 均归一为 record（别名 + 空白一并归一）")
+    from .security import Principal as _P
+    owner = _P(role="designer", actor="t", can_write=True, can_admin=True, clearance="secret")
+    narrowed = tokens.narrowed_principal(owner, "RECORD")
+    ok(narrowed.unit == "record" and narrowed.can_admin is False and owner.can_admin is True,
+       "G8c 大写 as_unit 只减不增：unit=record、can_admin 恒 False（无提权面）")
+    hit, err = _rejects(_tok("RECORD", "tk_" + HEX_ID), want="小写")
+    ok(hit, "G8d 令牌面从严（对照）：同为大写 role 的**令牌字符串**被拒——两面有意不同",
+       err)
+    src = io.open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                               "md_cg", "test_p46_unit_scope.py"), encoding="utf-8").read()
+    ok("大小写归一（RECORD -> record）" in src,
+       "G8e 存量不迁移：test_p46_unit_scope.py 的 C2 存量断言仍在（口径的既有凭据未被改掉）")
+    tok = tokens.issue("designer", path=os.path.join(tempfile.mkdtemp(prefix="mdcg_cap_"),
+                                                     "_tokens.json"))["token"]
+    parts = tok.split(".")
+    ok(parts[1] == parts[1].lower() and parts[2] == parts[2].lower(),
+       "G8f 写面统一小写：issue 新签发的 role/token_id 段恒小写（以后写一律小写）")
+
+
 def _run_groups() -> int:
     _PASS.clear(); _FAIL.clear()
     for g in (g1_allow, g2_id_uppercase, g3_role_uppercase, g4_prefix, g5_end_to_end,
-              g6_issuer, g7_detection_face):
+              g6_issuer, g7_detection_face, g8_three_faces):
         g()
     return len(_FAIL)
 
@@ -255,11 +293,11 @@ def main() -> int:
     base = "--head-baseline" in sys.argv
     if base:
         print("!! 红基线模式：parse_token 临时替换回改动前实现（role.lower()、不查 token_id 形态）")
-        print("   期望 G2/G3/G5 转红\n")
+        print("   期望 G2/G3/G5/G8d 转红\n")
         tokens.parse_token = _old_parse_token
         globals()["tokens"] = tokens
     groups = (g1_allow, g2_id_uppercase, g3_role_uppercase, g4_prefix, g5_end_to_end,
-              g6_issuer, g7_detection_face)
+              g6_issuer, g7_detection_face, g8_three_faces)
     for g in groups:
         g()
     if base:

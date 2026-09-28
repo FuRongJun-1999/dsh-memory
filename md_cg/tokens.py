@@ -250,6 +250,14 @@ ORCH_OPS_ALLOW = ("route", "read", "write", "review", "recent", "consistency")
 ORCH_LAYERS_ALLOW = tuple(ROLE_SPECS[ORCH_ROLE]["layers_allow"])
 
 
+# 三面口径（2026-09-28 使用者裁定，勿把其中的差异当疏漏「统一」掉）：
+#   · **入参面（本函数）＝识别宽容**：角色/单元名入参（role=、as_unit=）允许大写，
+#     strip + lower + 别名归一后照常受理——存量大写写法不动，存量断言
+#     `test_p46_unit_scope.py::test_c_failclosed` 的「C2 大小写归一（RECORD -> record）」
+#     就是这条口径的凭据；收窄只减不增（narrowed_principal 恒 can_admin=False），无提权面。
+#   · **令牌字符串面＝凭据从严**：parse_token 对 role/token_id 含大写即拒（见该函数注释）
+#     ——凭据形态本身是安全边界，允许变形等于给伪造串留门。
+#   · **写面统一小写**：新产出（issue 签发的令牌、文档与示例）一律小写形态。
 # 生效条件：role 为假值（None/空串）时按 "" 处理，经 strip().lower() 得 r，r 命中 ROLE_ALIASES 键时返回别名，否则返回 r 本身。
 def normalize_role(role: str) -> str:
     r = (role or "").strip().lower()
@@ -430,6 +438,8 @@ def parse_token(token: str):
     # secrets.token_hex(6)）只产小写 role/token_id，大写形态没有任何合法来源，故一律视为
     # 伪造或手抄变形，不再静默小写化后放行。（旧实现返回 role.lower() 恰是「受理面比识别面
     # 更宽」的反例：大写十六进制 id 在 hooks.ts 的 `[0-9a-f]` 检测面上漏过、却被受理面接受。）
+    # 与 normalize_role 的分工见该函数上方「三面口径」——入参面容忍大写是解析友好，令牌面
+    # 拒大写是凭据从严，两处**有意**不同。
     if role != role.lower() or token_id != token_id.lower():
         raise TokenError("令牌形态非法：role/token_id 只认小写，含大写即拒（不做小写化归一）")
     return role, token_id, secret
