@@ -231,9 +231,10 @@ def _gate_audit(ctx):
     out = {"ok": True, "id": ctx["nid"], "pid": pr["pid"], "committed": False,
            "moved_to": "review_queue", "verdict": verdict,
            "hint": "这是校验闸门的正常行为（verdict=%s）：内容未达 ACCEPT，"
-                   "已入审核队列——不需要重试；落盘须由设计者权限（can_admin）"
-                   "对提案 pid 裁决（agent 端无裁决权是设计），转告使用者："
-                   "python -m md_cg.review_cli list 后 accept/reject，"
+                   "已入审核队列——不需要重试；落盘须经裁决（can_admin 权限）"
+                   "——agent 可在经蜂群或验证端复核后自行裁决，例外须转使用者"
+                   "（智能论这类重要协议真源 / 对外发送信息数据 / 可能泄露·病毒·"
+                   "恶意操纵）：python -m md_cg.review_cli list 后 accept/reject，"
                    "或 cg(op=review, pid=<pid>, decision=accept|reject|"
                    "edit|merge, reason=<理由>)" % verdict.get("state")}
     if pr.get("dedup"):
@@ -242,8 +243,8 @@ def _gate_audit(ctx):
         out["dup_status"] = pr.get("dup_status")
         out["hint"] = (
             "同内容提案已存在（pid=%s，状态=%s，幂等去重），"
-            "本次未重复入队——无需重试；落盘须由设计者权限（can_admin）"
-            "对该 pid 裁决：python -m md_cg.review_cli list 后 accept/reject，"
+            "本次未重复入队——无需重试；落盘须经裁决（can_admin 权限）："
+            "python -m md_cg.review_cli list 后 accept/reject，"
             "或 cg(op=review, pid=<pid>, decision=accept|reject|edit|merge, "
             "reason=<理由>)" % (pr["pid"], pr.get("dup_status") or "pending"))
     return out
@@ -298,7 +299,9 @@ def _gate_consistency(ctx):
            "hint": "这是冲突闸门的正常行为：本次写入与既有条件/纪律冲突"
                    "（on_conflict=defer），已转入审核队列待裁决——"
                    "不是工具故障，重试同样结果；"
-                   "落盘须由设计者权限（can_admin）裁决，转告使用者："
+                   "落盘须经裁决（can_admin 权限）——agent 可在经蜂群或验证端"
+                   "复核后自行裁决，例外须转使用者（智能论这类重要协议真源 / "
+                   "对外发送信息数据 / 可能泄露·病毒·恶意操纵）："
                    "python -m md_cg.review_cli list 后 accept/reject，"
                    "或 cg(op=review, pid=<pid>, decision=accept|reject|"
                    "edit|merge, reason=<理由>)"}
@@ -308,7 +311,7 @@ def _gate_consistency(ctx):
         out["hint"] = (
             "同内容提案已存在于审核队列（pid=%s，幂等去重），"
             "本次未重复入队——无需重试；"
-            "落盘须由设计者权限（can_admin）对该 pid 裁决："
+            "落盘须经裁决（can_admin 权限）："
             "python -m md_cg.review_cli list 后 accept/reject，"
             "或 cg(op=review, pid=<pid>, decision=accept|reject|"
             "edit|merge, reason=<理由>)" % pr["pid"])
