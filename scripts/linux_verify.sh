@@ -44,7 +44,7 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_p43_pooling test_retr_gates_prodpath \
          test_readcache_prodpath test_mdstore_search_parity \
          test_rejected_redact test_rejected_credential_forms test_ccg_form_parity test_wisdom_md_store \
-         test_neg_condition_hits; do
+         test_neg_condition_hits test_token_lowercase_form; do
   out=$(python3 -m "md_cg.$t" 2>&1 | tail -1); rc=$?
   record "md_cg.$t" $rc
   echo "    -> $out"
@@ -61,7 +61,8 @@ echo "=== 断言判别力自证（退出码 0 = 变异后如预期转红）==="
 # 前车之鉴是批次76 的「整条命中档」删掉后 31 条断言原样全绿（独立复核 2026-09-28）。
 for spec in "test_neg_condition_hits --head-baseline" \
             "test_neg_condition_hits --branch-baseline" \
-            "test_policy_required_ccg --head-baseline"; do
+            "test_policy_required_ccg --head-baseline" \
+            "test_token_lowercase_form --head-baseline"; do
   set -- $spec
   out=$(python3 -m "md_cg.$1" "$2" 2>&1 | tail -1); rc=$?
   record "md_cg.$1 $2" $rc

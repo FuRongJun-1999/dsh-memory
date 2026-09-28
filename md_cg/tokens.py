@@ -417,7 +417,7 @@ def make_token(role: str, token_id: str, secret: str) -> str:
     return f"{PREFIX}.{role}.{token_id}.{secret}"
 
 
-# 生效条件：token 为假值时按 "" 处理，split(".") 后长度不为 4 或 parts[0] != PREFIX 即抛 TokenError；长度与前缀合规后 role/token_id/secret 任一为空再抛 TokenError；否则返回 (role.lower(), token_id, secret)。
+# 生效条件：token 为假值时按 "" 处理，split(".") 后长度不为 4 或 parts[0] != PREFIX 即抛 TokenError（前缀只认小写，故 `MDCG1.*` 在这一步就已拒）；role/token_id 含大写即抛 TokenError（**只认小写**，2026-09-28 使用者裁定：不再把小写化当归一，变形一律拒收），secret 不受此限（`secrets.token_urlsafe` 产 base64url、必含大写）；长度与前缀合规后 role/token_id/secret 任一为空再抛 TokenError；否则返回 (role, token_id, secret)。
 def parse_token(token: str):
     parts = (token or "").strip().split(".")
     if len(parts) != 4 or parts[0] != PREFIX:
@@ -425,7 +425,14 @@ def parse_token(token: str):
     _, role, token_id, secret = parts
     if not role or not token_id or not secret:
         raise TokenError("令牌字段缺失")
-    return role.lower(), token_id, secret
+    # 识别面宽、受理面窄：检测表（policy.forbidden / hooks.SENSITIVE_PATTERNS）认全形态
+    # 是为了「拦得住」，此处只认小写是为了「说得准」——签发面（issue 经 normalize_role +
+    # secrets.token_hex(6)）只产小写 role/token_id，大写形态没有任何合法来源，故一律视为
+    # 伪造或手抄变形，不再静默小写化后放行。（旧实现返回 role.lower() 恰是「受理面比识别面
+    # 更宽」的反例：大写十六进制 id 在 hooks.ts 的 `[0-9a-f]` 检测面上漏过、却被受理面接受。）
+    if role != role.lower() or token_id != token_id.lower():
+        raise TokenError("令牌形态非法：role/token_id 只认小写，含大写即拒（不做小写化归一）")
+    return role, token_id, secret
 
 
 # --------------------------------------------------------------------------
