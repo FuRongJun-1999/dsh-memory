@@ -108,9 +108,10 @@ def _run(root):
     check("add(\"nullify_test\") 正常", ok2 == "nullify_test")
 
     print("[4] 既有语义不回退：None 本体 / falsy 仍结构化拒绝（P0-1）")
-    # 注：add(123) 是既有合法行为（"123" 匹配白名单），不入守卫——非字符串
-    # 原值入索引快照属相邻缺陷（_scan_nodes/_load_index 混型键 sorted 崩），
-    # 超出本守卫目标，取证记录于修复报告。
+    # 注（2026-09-28 更新）：这条相邻缺陷（非字符串 node_id 以原值入索引键）
+    # 已在 legacy P3 轮次修复——写面 add 对非 str node_id fail-closed 拒写 +
+    # 派生面 _scan_nodes/日志重放键归一为 str，守卫见
+    # md_cg/test_legacy_p3_node_id_type.py；此处 falsy 三形态的拒绝语义不变。
     for bad in (None, "", 0):
         try:
             cg.add(bad, "非法形态内容")

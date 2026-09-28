@@ -273,6 +273,44 @@ def _job_id() -> str:
     return "h%d_%s" % (int(time.time() * 1000), uuid.uuid4().hex[:6])
 
 
+# 生效条件：jid 为 str、长度 1..128、strip() 前后无差异（首尾无空白）、首尾字符都不是 "."（拒 "."/".."/"..." 与 Win32 会剥尾点的 "abc." 形态）、且每个字符都属 ASCII 白名单 [A-Za-z0-9_.-]（deny-by-default：`/` `\` `:` NUL 与一切宽字符/控制字符天然被拒）时返回 True，否则 False。
+def _valid_job_id(jid) -> bool:
+    """job_id 结构闸（N178，2026-09-28）：**只允许单个路径分量**的 id。
+
+    同族家法：`hive/hive_mcp/mcp_server.py:133-143`、`hive/src/job.rs:63-67`。
+    差异（有意的）：本闸**不**要求 "h" 前缀——`md_cg/test_units_poll.py:47/53/57`
+    的 "j_empty"/"j_good"/"j_fail" 是既有对外契约（本模块 poll 面向任意宿主
+    派发器写出的 job 目录），前缀收紧会误杀；此处只保留「不含路径成分」的
+    **结构**判据，判别力等价：相对父段（".."、"../victim"）、分隔符（"a/b"、
+    r"a\\b"）、盘符相对/ADS（"C:x"、"h:x"）、NUL、首尾空白、纯点/尾点形态
+    （"."、"..."、"x."，Win32 会剥尾点使其与 "x" 同指）全拒。
+    非 str 一律拒（**不** str() 归一：与 legacy P3 同纪律，未校验的强制转换
+    会把对象形态洗成合法路径成分）。
+    """
+    if not isinstance(jid, str) or not jid or len(jid) > 128:
+        return False
+    if jid != jid.strip():
+        return False
+    if jid[0] == "." or jid[-1] == ".":
+        return False
+    for c in jid:
+        if not (("a" <= c <= "z") or ("A" <= c <= "Z") or ("0" <= c <= "9")
+                or c in "_.-"):
+            return False
+    return True
+
+
+# 生效条件：无入参，返回 job_id 非法的结构化拒绝 dict（ok=False、state="invalid_job_id"、terminal=False、job_dir/content/status 均为 None、error 含非法 id 与本闸口径），字段集与 poll 的返回同构。
+def _bad_job_id(job_id, *, where: str) -> dict:
+    """非法 job_id 的统一拒答（poll/wait/submit 同构，便于调用方机械判别）。"""
+    return {"job_id": job_id, "job_dir": None, "state": "invalid_job_id",
+            "terminal": False, "ok": False, "content": None, "status": None,
+            "error": ("job_id 非法：%r（%s）——job_id 须为**单个路径分量**："
+                      "ASCII 字母/数字/_/-/.，首尾非点，不含 / \\ : 与 NUL"
+                      "（N178：拒 ../victim 型越池读 result.json、"
+                      "拒任意目录建目录写 spec.json）" % (job_id, where))}
+
+
 # 生效条件：cg.root 与 cg.cg.root 都取不到真值时不写、直接返回 None；取到 root 时向 root/LOG_NAME 追加一行 rec（副本，setdefault ts）的 JSON，写入抛 OSError 时被吞掉静默返回 None。
 def _log(cg, rec: dict) -> None:
     """留痕 _units.jsonl（对齐 _crosscheck.jsonl / _backfill.jsonl 纪律）。"""
@@ -288,7 +326,7 @@ def _log(cg, rec: dict) -> None:
         pass
 
 
-# 生效条件：role 不在 ROLES 时返回 ok=False 的未知角色 error；否则 model_name(model) 为空时返回 ok=False 的未配置复核模型；否则 str(prompt or "").strip() 为空时返回 ok=False 的 prompt 为空；否则在 jobs_dir(jobs)/_job_id() 下写 spec.json 与 status.json（context_files 为真、temperature 非 None、extra 为真时才并入 spec），OSError 时返回 ok=False 的写入失败，全部成功返回 ok=True 与 job_id/job_dir/spec/model。
+# 生效条件：role 不在 ROLES 时返回 ok=False 的未知角色 error；否则 model_name(model) 为空时返回 ok=False 的未配置复核模型；否则 str(prompt or "").strip() 为空时返回 ok=False 的 prompt 为空；否则落盘前先过 _valid_job_id 结构闸（未过返回 ok=False 的 job_id 非法，**不建目录不写文件**——N178：job_id 来源一旦不是 _job_id()，join 后就是「任意目录 + 生成名」的建目录/写文件原语）；闸过则在 jobs_dir(jobs)/job_id 下写 spec.json 与 status.json（context_files 为真、temperature 非 None、extra 为真时才并入 spec），OSError 时返回 ok=False 的写入失败，全部成功返回 ok=True 与 job_id/job_dir/spec/model。
 def submit(*, prompt: str, role: str = REFLECT, model: str = "", system_prompt: str = "",
            context_files=None, timeout_s: int = DEFAULT_TIMEOUT_S,
            max_tokens: int = DEFAULT_MAX_TOKENS, temperature=None, jobs: str = "",
@@ -302,6 +340,10 @@ def submit(*, prompt: str, role: str = REFLECT, model: str = "", system_prompt: 
     if not str(prompt or "").strip():
         return {"ok": False, "error": "prompt 为空"}
     jd, job_id = jobs_dir(jobs), _job_id()
+    # N178（2026-09-28）：**落盘前**过闸——makedirs 之后再过就等于已经建了目录。
+    if not _valid_job_id(job_id):
+        return {"ok": False, "job_dir": None, "job_id": job_id,
+                "error": _bad_job_id(job_id, where="submit 落点")["error"]}
     d = os.path.join(jd, job_id)
     spec = {"model": mdl, "user_prompt": str(prompt), "system_prompt": str(system_prompt or ""),
             "timeout_s": int(timeout_s), "max_tokens": int(max_tokens),
@@ -330,10 +372,14 @@ def submit(*, prompt: str, role: str = REFLECT, model: str = "", system_prompt: 
             "unit_role": role, "model": mdl}
 
 
-# 生效条件：jobs_dir(jobs)/str(job_id or "") 不是目录时返回 state=missing、terminal=False 的目录不存在 error；是目录时读 STATUS_FILE（读失败则 status 置 None）并用其 state 覆盖 state/terminal（state 属 TERMINAL_STATES 才 terminal=True）；RESULT_FILE 被 isfile 命中则 terminal=True、state=st or "done"，解析抛 OSError/ValueError 时提前返回该 error；解析为 dict 时取 ok/content/error/usage/model，且 ok 为真而 content 去空白为空时把 ok 改 False 并写空正文 error，解析为非 dict 时 ok=True 且 content 为原值。
+# 生效条件：job_id 先过 _valid_job_id 结构闸（未过返回 state="invalid_job_id" 的结构化拒绝，**不触盘**——N178：修前 "../victim" 会被 join 成池外目录并读出其 result.json 全文）；闸过时 jobs_dir(jobs)/job_id 不是目录返回 state=missing、terminal=False 的目录不存在 error；是目录时读 STATUS_FILE（读失败则 status 置 None）并用其 state 覆盖 state/terminal（state 属 TERMINAL_STATES 才 terminal=True）；RESULT_FILE 被 isfile 命中则 terminal=True、state=st or "done"，解析抛 OSError/ValueError 时提前返回该 error；解析为 dict 时取 ok/content/error/usage/model，且 ok 为真而 content 去空白为空时把 ok 改 False 并写空正文 error，解析为非 dict 时 ok=True 且 content 为原值。
 def poll(job_id: str, jobs: str = "") -> dict:
     """读 job 终态视图：**以 result.json 出现为终态主判据**，status.json 仅作辅助。"""
-    d = os.path.join(jobs_dir(jobs), str(job_id or ""))
+    # N178（2026-09-28）：调用方给的 job_id 是路径成分，**先过闸再 join**。
+    # 修前此处无闸，且 `str(job_id or "")` 还会把非 str 洗成合法成分。
+    if not _valid_job_id(job_id):
+        return _bad_job_id(job_id, where="poll 池路径成分")
+    d = os.path.join(jobs_dir(jobs), job_id)
     out = {"job_id": job_id, "job_dir": d, "state": "missing", "terminal": False,
            "ok": False, "content": None, "error": None, "status": None}
     if not os.path.isdir(d):
@@ -377,10 +423,13 @@ def poll(job_id: str, jobs: str = "") -> dict:
     return out
 
 
-# 生效条件：循环 poll(job_id, jobs)，结果 terminal 为真即补 waited_s 后返回；否则 time.time()-t0 >= float(timeout_s) 时返回 terminal=False、timeout=True 与超时 error；两者皆不满足则 sleep(float(poll_s)) 后重试（timeout_s=0 时首次 poll 非终态即超时返回）。
+# 生效条件：job_id 未过 _valid_job_id 结构闸时**立即**返回 poll 的同一拒绝结构（N178：否则非法 id 会空转满 timeout_s 才超时返回——拒绝不该以等待为代价）；闸过时循环 poll(job_id, jobs)，结果 terminal 为真即补 waited_s 后返回；否则 time.time()-t0 >= float(timeout_s) 时返回 terminal=False、timeout=True 与超时 error；两者皆不满足则 sleep(float(poll_s)) 后重试（timeout_s=0 时首次 poll 非终态即超时返回）。
 def wait(job_id: str, *, jobs: str = "", timeout_s: float = DEFAULT_TIMEOUT_S,
          poll_s: float = DEFAULT_POLL_S) -> dict:
     """阻塞等终态；超时如实返回（不假装成功、不强杀 job）。"""
+    if not _valid_job_id(job_id):
+        # N178（2026-09-28）：fail-fast——复用 poll 的拒绝结构，绝不进轮询。
+        return poll(job_id, jobs)
     t0 = time.time()
     while True:
         cur = poll(job_id, jobs)

@@ -2348,6 +2348,11 @@ class MdCGOS(MdCG):
         写保护：受保护节点（self/anchor 层、protected 标记、importance≥0.7）
         不可遗忘——需显式 override=True，且旧版本先快照、动作全程留痕。
         """
+        # N195（2026-09-28）：删除面与写面同源，先做索引代际感知。此前直读
+        # 本进程内存索引——他进程刚写入的 anchor/self 节点在本进程索引中
+        # 不存在 → 直接走 not_found 静默返回（既不删、也不拦），保护闸与
+        # 删除可见性双双失效。签名未变时只有一次 stat（微秒级）。
+        self._maybe_reload_index()
         e = self.index["nodes"].get(node_id)
         if not e:
             return {"ok": False, "error": "not_found"}
@@ -3878,10 +3883,17 @@ class MdCGSecure(MdCGOS):
         self.principal.require_layer_write("goals", DEFAULT_SENSITIVITY)
         return super().set_goal_status(node_id, status)
 
-# 生效条件：verdict（转 str 去空白 lower）为 "falsified" 且索引中存在 node_id 条目时，先取该条目 layer 与 sensitivity（缺省回落 DEFAULT_SENSITIVITY）调 principal.require_layer_write——falsified 删除 = 对原节点层的一次删除写（N130，2026-09-25：verify 角色 layers_allow 本就只含 rejected/contextual，不得改/删被验证内容所在层，tokens.py verify spec forbidden 显式列明），与 add/add_rejected 同一闸口；随后把 override 原样转 super().verify（受保护节点的 guard_forget 快照留痕在基类 falsified 分支内）。verdict 非 falsified 或索引无此节点时不加闸直接透传（not_found 语义由基类维持）。
+# 生效条件：verdict（转 str 去空白 lower）为 "falsified" 时**先做索引代际探活重载**（N196：索引缺条目 ≡ 本进程陈旧，不得据以跳过层写闸），随后若索引中存在 node_id 条目则取该条目 layer 与 sensitivity（缺省回落 DEFAULT_SENSITIVITY）调 principal.require_layer_write——falsified 删除 = 对原节点层的一次删除写（N130，2026-09-25：verify 角色 layers_allow 本就只含 rejected/contextual，不得改/删被验证内容所在层，tokens.py verify spec forbidden 显式列明），与 add/add_rejected 同一闸口；随后把 override 原样转 super().verify（受保护节点的 guard_forget 快照留痕在基类 falsified 分支内）。verdict 非 falsified 不加闸直接透传；falsified 而重载后索引仍无此节点时不加闸（not_found 语义由基类维持）。
     def verify(self, node_id: str, evidence: str, verdict: str,
                override: bool = False):
         if str(verdict or "").strip().lower() == "falsified":
+            # N196（2026-09-28）：此前直读本进程内存索引且「缺条目 = 放行」——
+            # 他进程刚写入并 compact 的节点在本进程索引中不存在时，N130 的
+            # 层写闸被整段跳过：verifier（layers_allow=rejected/contextual）
+            # 可 falsified 删掉 knowledge 层节点（实测：陈旧索引下删除成功且
+            # 盘上原文消失；先重载则 AccessDenied、原文保留）。先探活重载，
+            # 「真不存在」与「本进程陈旧」两态才可区分。
+            self._maybe_reload_index()
             e = (self.index.get("nodes") or {}).get(node_id)
             if e is not None:
                 self.principal.require_layer_write(
@@ -4023,9 +4035,19 @@ class MdCGSecure(MdCGOS):
     def _neg_coverage(self, terms):
         return [e for e in super()._neg_coverage(terms) if self._readable(e)]
 
-# 生效条件：node_id 在 self.index["nodes"] 中存在且 self._readable(e) 为假时返回 None，否则转 super().get(node_id)。
+# 生效条件：node_id 在 self.index["nodes"] 中存在且 self._readable(e) 为假时返回 None，否则转 super().get(node_id)；索引缺该条目时**先做代际探活重载再判可见性**（N196：索引缺条目 ≡ 本进程陈旧，不得据以跳过读隔离），重载后仍无条目才回落 super().get 的 not_found 语义。
     def get(self, node_id: str):
         e = self.index["nodes"].get(node_id)
+        if e is None:
+            # N196（2026-09-28）：索引缺条目**不**等于「节点不存在」——本进程
+            # 可能只是代际陈旧（他进程刚写入并 compact）。直接跳过 _readable
+            # 会让读隔离整段失效：跨会话 private / 超密级节点在首次 get 被
+            # 放行（实测：同 actor 异 session 的 private 节点在第一读被解出，
+            # 第二次读才归 None，因为那时条目已随重载进入索引）。先探活重载
+            # 再判可见性；真不存在时 e 仍为 None，super().get 照旧返回 None。
+            # 成本只在**未命中**路径（一次 stat），命中路径零变化。
+            self._maybe_reload_index()
+            e = self.index["nodes"].get(node_id)
         if e is not None and not self._readable(e):
             return None                     # 读隔离：不可见即不存在
         return super().get(node_id)

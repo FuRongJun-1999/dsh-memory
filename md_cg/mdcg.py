@@ -1006,6 +1006,10 @@ class MdCG:
             nid, e = rec.get("id"), rec.get("e")
             if not nid:
                 continue
+            # legacy P3（自愈腿）：分片日志里的非字符串 id（旧版本 _stage 落下的
+            # `{"id": 123}`）同样归一到 str，否则 int 键进索引后任何 sorted 消费面
+            # （_scan_nodes / evidence / reach / trust）都会混型 TypeError。
+            nid = str(nid)
             if e is None:
                 # 删除记录（tombstone）：删除必须能重放，否则已删节点会在下次
                 # 启动时从旧记录里复活成**幽灵条目**（索引有条目、文件不存在）。
@@ -1144,6 +1148,7 @@ class MdCG:
                     nid, e = rec.get("id"), rec.get("e")
                     if not nid:
                         continue
+                    nid = str(nid)         # legacy P3 自愈腿：同 _load_index（键归一）
                     if e is None:              # 删除记录（tombstone），见 _load_index
                         nodes.pop(nid, None)
                     else:
@@ -1318,6 +1323,13 @@ class MdCG:
                         # 告警留痕。
                         continue
                     nid = fm.get("id") or fn[:-3]
+                    # legacy P3（自愈腿）：索引是**派生物**，键一律归一为 str
+                    # ——存量毒文件（旧版本 add(123) 写出 / 外部编辑器落下的
+                    # `id: 123`）与新机复制还原的库由此可自愈；不归一则
+                    # 下面 sorted(nodes) 混型即 TypeError「整库永久打不开」。
+                    # 写面（add）对非字符串 node_id 已 fail-closed 拒写，此处
+                    # 只兜盘面既有脏数据——拒写与自愈各司其职。
+                    nid = str(nid)
                     nodes[nid] = self._node_entry(p, layer, fm, content)
         # 索引序确定性：按 nid 排序返回。os.walk 的遍历序是**文件系统事实**
         # （NTFS 上常为字母序，但换 FS / 目录碎片化后不保证），若直接作为
@@ -1446,6 +1458,26 @@ class MdCG:
         # 文件路径——`..` 穿越出 root、Windows 绝对路径（C:/x）在
         # os.path.join 下直接丢弃前缀 = 任意 .md 覆盖。白名单先行
         # （报告建议 1），realpath 断言在落盘前兜底（报告建议 2）。
+        #
+        # legacy P3（docs/eval/DSH端缺陷专项_v1.0.md:106/:204/:249 第 4 条，
+        # 2026-09-28 首修）：node_id **必须是字符串**。此前只校验
+        # `str(node_id or "")`，而索引键（_stage）、frontmatter `id`、分片日志
+        # `{"id": …}` 仍写**原对象**：`add(123)` 落 frontmatter `id: 123`
+        # （YAML int）——此后任何一次全量重扫（_scan_nodes 的 sorted(nodes)）
+        # 都在「int 键 vs 其它节点的 str 键」上抛 TypeError，崩点在 __init__
+        # （_load_index→_scan_nodes，早于启动对账 reconcile_state）⇒ 整库
+        # **永久打不开**（本会话第一手：add(123) 后 close() 即 TypeError:
+        # '<' not supported between 'str' and 'float'；毒文件+缺快照重开
+        # 整库打不开）。与既有 add(None)/add("")/add(0) 拒绝同族——那三个也是
+        # 非字符串，只是被 `or ""` 顺带挡下；`bool` 亦拒（True 是 int 子类，
+        # `str(True)="True"` 会匹配白名单，同样造混型键）。fail-closed。
+        if not isinstance(node_id, str):
+            raise ValueError(
+                f"非法 node_id 类型：{node_id!r}（{type(node_id).__name__}）"
+                f"——node_id 必须是字符串：非字符串被 str() 用于白名单校验与"
+                f"落盘路径，而索引键/frontmatter id 仍是原对象，会造出混型"
+                f"索引键使整库重扫 TypeError 打不开（legacy P3）。如为合法"
+                f"业务 id 请传字符串形态（如 \"{node_id}\"）。")
         nid_s = str(node_id or "")
         if not nid_s or len(nid_s) > 128 or ".." in nid_s \
                 or not _NODE_ID_RE.match(nid_s):
@@ -1461,6 +1493,19 @@ class MdCG:
             raise ValueError(f"未知验证基底：{verification_basis}（允许：{VERIFICATION_BASIS}）")
         # 写保护：self/anchor 层、protected 标记、importance≥0.7 的**既有**节点
         # 不可被任意覆写；覆盖需 override=True（旧版本自动快照 + 审计留痕）。
+        # N195（2026-09-28，多进程共享库形态）：写路径同样必须做代际感知——
+        # `_maybe_reload_index` 此前只在读面接线（get/search/list_goals），写面
+        # 直读本进程内存索引。他进程（serve 常驻外的 review_cli / hive worker /
+        # 脚本写方）刚写入并 compact 的 self·anchor 节点在本进程索引中**不存在**
+        # → `protect.guard_write` 的 is_immutable 走 `_entry` 得 None → 判 False
+        # → 「不可覆盖」闸静默失效：不抛 ProtectionError、不落
+        # `_protected_history` 快照、不写 `_protected_audit.jsonl`，旧正文被
+        # 无痕覆写且不可恢复。同一次重载同时修正下方 prev_entry（改动前 :1595，
+        # 现 :1607）的继承面——他进程已置 converged 的节点被覆写后不再静默打回
+        # active。
+        # 签名未变时只有一次 stat（微秒级）；自身未 flush 的写入由
+        # `_maybe_reload_index` 的 _dirty 重放保住（与读路径同款语义）。
+        self._maybe_reload_index()
         protect.guard_write(self, node_id, layer=layer, override=override,
                             actor=extra.get("actor"))
         # 节点间自动冲突检测（智能论 §十一 情绪二阶 / 条件论「反题」/ :273 递归约束）

@@ -12,6 +12,10 @@
 //! 单一实现 `classify_result`）：claimed/running 若已有 result.json 则按产物定终态
 //! done/error，不重跑；claimed 无产物删锁重投 pending；running 无产物诚实标 error
 //! （其孤儿执行器若仍存活，写出的 result.json 宿主仍可读）。
+//! N191（残留领取态）：state=pending 却带 claimed.lock（claim 与 patch_status
+//! ("claimed") 之间被 kill -9/断电，或状态瞬时不可写）同样按产物判据处置——
+//! 有产物定终态、无产物删锁重投；主循环侧状态改写失败即回滚领取锁（不吞错、
+//! 不投递），双侧共同保证「锁在手 ⇔ state 已 claimed」，任务无 TTL 悬置归零。
 //!
 //! P11 结果完整性锚（批次53）：锚预期任务（status 带 result_nonce）的产物在采信
 //! done 前须过完整性锚校验——锚缺失 → needs_review（不自动采信）、锚不匹配 →
@@ -167,6 +171,8 @@ impl ServeCfg {
 ///   子功能：崩溃恢复 / 心跳自报 / job 扫描领取 / worker 并发执行 / 终态落盘。
 ///   执行：先 recover_orphans 清理上轮残局，随后每拍写 _serve.json 心跳、
 ///   扫描 pending 任务按 workers 上限领取（claimed.lock 原子），stop 置位即停。
+///   N191：领取后状态改写（patch_status("claimed")）失败即回滚领取锁并不投递
+///   （不吞错），保证「锁在手 ⇔ state 已 claimed」不变量成立。
 ///   验证方式：test——cargo e2e_done_and_heartbeat / kill_channel /
 ///   judgment_surface（recover_by_artifact 等）+ 部署面 M6 实跑。
 ///   不适用条件：不做任务内容语义处理（归执行器），不做跨 jobs 目录路由。
@@ -236,10 +242,21 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
             if !job::claim(&dir) {
                 continue; // 已被领取（原子锁失败）
             }
-            let _ = job::patch_status(
+            // N191：状态改写**不得吞错**。旧版 `let _ = patch_status(...)` 后照旧投递：
+            // status.json 瞬时不可写（Windows 文件锁/盘满）时，任务会在「状态从未被
+            // 记录」的情形下被执行，且锁永不释放——本拍回滚领取锁（删 lock）并
+            // continue：状态未改则**不投递**（投递即让 pending 态任务被执行、且与
+            // 恢复判据失配），下一拍重试；确认状态落盘才投递，保证「领取锁在手
+            // ⇔ state 已 claimed」不变量成立，恢复面只需面对合法组合态。
+            if job::patch_status(
                 &dir,
                 vec![("state".to_string(), crate::json::Json::Str("claimed".into()))],
-            );
+            )
+            .is_err()
+            {
+                let _ = std::fs::remove_file(dir.join("claimed.lock"));
+                continue;
+            }
             if tx.send(id).is_err() {
                 break; // worker 池已全部退出
             }
@@ -263,20 +280,39 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
 /// serve 崩溃重启后，执行器已写完 result.json 的任务被重投重跑（claimed）或
 /// 误标「serve 中断」（running）。修复 = 判据前移，不是引入新机制。
 ///
+/// N191：**残留领取态**（state=pending 却带 claimed.lock，见 match 前分支）与
+/// claimed 态同判据同处置——旧版此组合态无分支（落 `_ => {}`），任务永久卡死。
+///
 /// pub（批次8b 判据面重定义）：承重反向对照测试（recover_by_artifact /
 /// rerun_on_recover_escape_hatch）已迁至 hive/tests/judgment_surface.rs——
 /// 判据面（tests/）与候选面（src/）物理分离，候选弱化测试时 A3 必红。
 /// 生效条件：serve 启动时（每次）对 jobs 目录全体任务执行一次崩溃恢复。
 ///   验证方式：test——cargo judgment_surface::recover_by_artifact（5 分支）+
-///   rerun_on_recover_escape_hatch（逃生门双态+反向对照）。
-///   不适用条件：不改变正常执行路径（classify_exit 主判据不分叉）。
+///   rerun_on_recover_escape_hatch（逃生门双态+反向对照）+
+///   pending_with_residual_claim_recovers（N191 残留领取态三断言）；
+///   盘面注入：judgment_surface::claim_rollback_on_status_write_failure
+///   （status.json 置只读 → patch_status 恒 Err，实测 WinError 5）。
+///   不适用条件：不改变正常执行路径（classify_exit 主判据不分叉）；不做跨 serve
+///   协调（单实例守卫在 CLI 层，恢复期假定无活 serve）。
 pub fn recover_orphans(cfg: &ServeCfg) {
     for id in job::list_jobs(&cfg.jobs) {
         let dir = job::job_dir(&cfg.jobs, &id);
         let Ok(st) = job::read_status(&dir) else { continue };
         let state = st.get("state").and_then(|v| v.as_str()).unwrap_or("");
-        match state {
-            "claimed" => match classify_result(&dir, cfg.result_key.as_deref()) {
+        // N191（次轮首补候选）：**领取已发生、状态未改写**的窗口残留——state 仍
+        // pending 却带 claimed.lock（claim() 与 patch_status("claimed") 之间被
+        // kill -9/断电，或 status.json 瞬时不可写致 patch_status 出错）。旧版只
+        // match claimed/running，此组合态落 `_ => {}`：主循环每拍 claim() 必失败
+        // 即 continue → 任务**永久卡 pending**（无 TTL 的悬置），其下游经
+        // deps_gate 对非 done 依赖恒 Ok(false) 连带悬置。
+        // 处置与 claimed 态**同一判据、同一实现**（产物说了算，classify_result
+        // 单点，勿分叉）：有产物按产物定终态（绝不重跑——防双写副作用），无产物
+        // 删锁重投（状态本就 pending，删锁即恢复可领取）。恢复期不存在活 serve
+        // （单实例守卫，见 serve 头注），故 pending+锁必为残留而非在飞领取。
+        let residual_claim =
+            state == "claimed" || (state == "pending" && dir.join("claimed.lock").is_file());
+        if residual_claim {
+            match classify_result(&dir, cfg.result_key.as_deref()) {
                 // 产物已产出 → 按产物定终态（删锁但绝不重投重跑）；
                 // 例外：spec 显式 rerun_on_recover → 旧产物更名留痕，强制重投（M1 逃生门）
                 Some((final_state, err)) => {
@@ -313,7 +349,10 @@ pub fn recover_orphans(cfg: &ServeCfg) {
                         )],
                     );
                 }
-            },
+            }
+            continue;
+        }
+        match state {
             "running" => match classify_result(&dir, cfg.result_key.as_deref()) {
                 // 孤儿执行器可能已写出产物 → 按产物定终态（不误标 serve 中断）；
                 // 例外：spec 显式 rerun_on_recover → 旧产物更名留痕，回 pending 重投

@@ -45,13 +45,28 @@ import uuid
 
 # SERVER_VERSION 从包根 package.json 动态读取（issue #42 同族：硬编码与发布
 # 版本脱节）；读不到回落 "0.1.0" 保底不阻塞启动。
+# v21-R1（2026-09-28）：**回落必须覆盖全形态**——修前只捉 (OSError, ValueError)
+# 却无条件 `.get("version")`，顶层是合法 JSON 但非对象（`[1,2]`/`"0.9.9"`/`123`/
+# `null`/`true`）时 AttributeError 逃出 except，而本句在**模块级**立即求值 ⇒
+# `python -m hive.hive_mcp.mcp_server` 连 initialize 都发不出就退出（服务起不来）；
+# `{"version": 123}` 不抛但把 int 塞进握手 serverInfo.version（协议要字符串）。
+# 同族已修：md_cg/mcp_server.py。
 def _package_version() -> str:
+    """读包根 package.json 的 version；**任何**形态异常都回落 "0.1.0"。
+
+    生效条件：文件可读、json.load 得 dict、且 doc["version"] 为 strip() 后非空
+    的 str 时返回该值；文件缺失 / OSError / JSON 非法 / 顶层非对象 / version
+    缺失·非字符串·空白串时一律回落 "0.1.0"（TypeError、AttributeError 一并兜底，
+    绝不把异常抛给 import 期）。
+    """
     try:
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         with open(os.path.join(root, "package.json"), encoding="utf-8") as f:
-            return json.load(f).get("version") or "0.1.0"
-    except (OSError, ValueError):
+            doc = json.load(f)
+        ver = doc.get("version") if isinstance(doc, dict) else None
+    except (OSError, ValueError, TypeError, AttributeError):
         return "0.1.0"
+    return ver if isinstance(ver, str) and ver.strip() else "0.1.0"
 
 
 SERVER_NAME = "hive-mcp"

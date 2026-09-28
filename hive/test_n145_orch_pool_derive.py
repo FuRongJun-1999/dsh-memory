@@ -75,8 +75,8 @@ def _resolve(env_overrides, job_dir, tmp):
     env.update(env_overrides)
     env["PYTHONUTF8"] = "1"
     p = subprocess.run([sys.executable, "-X", "utf8", child, HERE, job_dir],
-                       capture_output=True, text=True, env=env,
-                       cwd=tmp, timeout=120)
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", env=env, cwd=tmp, timeout=120)
     out = (p.stdout or "").strip().splitlines()
     resolved = None
     for line in out:

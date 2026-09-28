@@ -284,24 +284,61 @@ def token_file(path: str = None) -> str:
     return path or os.environ.get(TOKEN_FILE_ENV) or DEFAULT_TOKEN_FILE
 
 
-# 生效条件：p=token_file(path) 的 os.path.exists(p) 为真且 json.load 得到 dict 时，setdefault("tokens", {}) 后返回该 dict；路径不存在、解析结果非 dict 或抛 OSError/ValueError 时返回 {"schema": SCHEMA, "tokens": {}}。
+# 生效条件：p 不存在时返回 ({"schema": SCHEMA, "tokens": {}}, None)；否则 json.load 结果为 dict 且其 "tokens"（缺键先 setdefault 为 {}）是映射时返回 (该 dict, None)；解析抛 OSError/ValueError、顶层非 dict、或 "tokens" 非映射时返回 (空骨架, 损坏描述字符串)。
+def _load_raw(p: str):
+    """(令牌库快照, 损坏描述)——「可解析性」判据的**唯一**生产者。
+
+    N198：此前 `_load` 只有「解析失败 → 回落空表」这一半，没有「解析失败」
+    这个判据本身，于是写面无法区分「空库」与「损坏库」，一路「读空表 →
+    改 → 整份写回」把盘上全部令牌记录无痕抹除（同型 crypto/_keys.json 的
+    N139 已 fail-closed）。写面（`_save`）按下述 err 拒写，读面（`_load`）
+    仍按原口径回落空表——两态由此可区分。
+    """
+    if not os.path.exists(p):
+        return {"schema": SCHEMA, "tokens": {}}, None
+    try:
+        with open(p, encoding="utf-8") as f:
+            d = json.load(f)
+        if isinstance(d, dict):
+            t = d.setdefault("tokens", {})
+            if isinstance(t, dict):
+                return d, None
+            return ({"schema": SCHEMA, "tokens": {}},
+                    "顶层 tokens 不是映射（版本漂移？）")
+        return ({"schema": SCHEMA, "tokens": {}},
+                "顶层不是对象（版本漂移？）")
+    except (OSError, ValueError) as e:
+        return {"schema": SCHEMA, "tokens": {}}, f"{type(e).__name__}: {e}"
+
+
+# 生效条件：p=token_file(path)。_load_raw(p) 无损坏描述时原样返回其快照；有损坏描述（不可解析/顶层非对象/tokens 非映射）时向 stderr 写「令牌库损坏/不可读」告警（N198，2026-09-28：静默回落会让 issue/derive/revoke 据空表整份写回，既有令牌记录被无痕抹除、旧令牌一律验签失败，使用者只见「令牌不存在」——告警必须开口）并返回带 load_error 标记的空结构；_save 见 load_error 即拒绝写回。
 def _load(path: str = None) -> dict:
     p = token_file(path)
-    if os.path.exists(p):
-        try:
-            with open(p, encoding="utf-8") as f:
-                d = json.load(f)
-            if isinstance(d, dict):
-                d.setdefault("tokens", {})
-                return d
-        except (OSError, ValueError):
-            pass
-    return {"schema": SCHEMA, "tokens": {}}
+    data, err = _load_raw(p)
+    if err is None:
+        return data
+    sys.stderr.write(
+        f"[mdcg-tokens] ⚠ 令牌库损坏/不可读（{err}）：{p}"
+        f"——按回落口径返回空表并置损坏标记（load_error）；签发/派生/吊销在"
+        f"标记下拒绝写回（静默写回会把空表覆盖落盘、无痕抹除全部既有令牌"
+        f"记录，N198）。请修复或恢复该文件后重试。\n")
+    return {"schema": SCHEMA, "tokens": {}, "load_error": err}
 
 
-# 生效条件：以 data 为内容、p=token_file(path) 为目标，先对 os.path.dirname(p) or "." 做 makedirs(exist_ok=True)，写 p+".tmp" 后 publish（带 Windows 短重试的 os.replace）覆盖 p，再尝试 chmod 0600（仅吞 OSError）。
+# 生效条件：p=token_file(path)，先以 _load_raw(p) 做写前对账——盘面有损坏描述、或本次 data 带 load_error 标记（载入时损坏而写前被人为修复的窗口）时抛 TokenError 拒绝整份写回；否则对 os.path.dirname(p) or "." 做 makedirs(exist_ok=True)，写 p+".tmp" 后 publish（带 Windows 短重试的 os.replace）覆盖 p，再尝试 chmod 0600（仅吞 OSError）。
 def _save(data: dict, path: str = None):
     p = token_file(path)
+    # N198 写前对账（镜像 crypto._save_keys 的 N139/N184 口径）：issue/derive/
+    # revoke 三条写路径共用本单点，闸在这里等于三面同时收口——解析不出来的
+    # 既有记录一概不能被写掉（旧令牌一旦被抹除即永久失效，且原实现零告警）。
+    _disk, err = _load_raw(p)
+    if err is None and data.get("load_error"):
+        err = data["load_error"]
+    if err is not None:
+        raise TokenError(
+            f"令牌库损坏/不可读（{err}）：{p}"
+            f"——拒绝整份写回（静默写回会无痕抹除全部既有令牌记录，N198）。"
+            f"请先手工处理该文件（备份/修复/移除）再重试。")
     os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
     tmp = p + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
