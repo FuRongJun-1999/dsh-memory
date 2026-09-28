@@ -24,6 +24,7 @@ rollout 载荷（`~/.zcode/cli/rollout/model-io-*.jsonl`，每次请求一条，
 from __future__ import annotations
 
 import argparse
+import datetime
 import glob
 import io
 import json
@@ -66,12 +67,38 @@ def load_rollouts(session: str | None):
 
 
 def started_ms(d) -> int | None:
-    """取该条载荷的会话起点（毫秒）；startedAt 在本机是字符串形，故宽松提取数字。"""
+    """取该条载荷的会话起点（毫秒）。
+
+    形态分派（2026-09-28 修缺陷）：本机宿主写的 `startedAt` 是 **ISO8601 字符串**
+    （如 `'2026-09-28T14:45:46.169Z'`），而早期实现用 `re.search(r"\\d{10,}")` 从串里
+    抠数字——ISO 串最长的连续数字只有 3–4 位 ⇒ 恒失配 ⇒ `earliest` 恒 None ⇒
+    「不可裁」分支（`earliest < mtime`）**永不可达**：在「该件创建前就已开始的会话」里
+    会给出假阴性「未注入」并打印一句从未核验过的断言。实测 416/416 条均为 ISO 形、
+    旧逻辑命中 0 条（定点验证：ISO 样本→None，epoch 形样本→正确毫秒）。
+    故：纯数字（epoch 秒/毫秒按位数判档）→ 直取；ISO8601（含 Z / 偏移 / 无时区）→
+    `fromisoformat`（无时区者按本机时区解释）；其余 → None（不可裁，不猜）。
+    """
     ts = d.get("startedAt")
-    if isinstance(ts, str):
-        m = re.search(r"\d{10,}", ts)
-        ts = int(m.group(0)) if m else None
-    return ts if isinstance(ts, int) else None
+    if isinstance(ts, bool):  # bool 是 int 子类，先挡掉
+        return None
+    if isinstance(ts, (int, float)):
+        v = int(ts)
+        return v * 1000 if v < 10_000_000_000 else v
+    if not isinstance(ts, str):
+        return None
+    s = ts.strip()
+    if not s:
+        return None
+    if re.fullmatch(r"\d{10,}", s):
+        v = int(s)
+        return v * 1000 if v < 10_000_000_000 else v
+    try:
+        dt = datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.astimezone()
+    return int(dt.timestamp() * 1000)
 
 
 def main() -> int:
@@ -94,54 +121,79 @@ def main() -> int:
 
     ctrl_ok = 0
     s_user = s_other = 0
-    earliest = None
     lines = 0
+    per_file = []          # [(名字, 条目, 对照, user 命中, 其它命中, 起点 ms)]
     for path in files:
+        f_ctrl = f_user = f_other = f_lines = 0
+        f_start = None
         with io.open(path, encoding="utf-8", errors="replace") as f:
             for line in f:
                 lines += 1
+                f_lines += 1
                 try:
                     d = json.loads(line)
                 except Exception:  # noqa: BLE001
                     continue
                 ts = started_ms(d)
-                if ts and (earliest is None or ts < earliest):
-                    earliest = ts
+                if ts and (f_start is None or ts < f_start):
+                    f_start = ts
                 for m in ((d.get("request") or {}).get("messages")) or []:
                     c = m.get("content")
                     txt = c if isinstance(c, str) else json.dumps(c, ensure_ascii=False)
                     is_user = m.get("role") == "user"
                     if "Memory Index" in txt and is_user:
                         ctrl_ok += 1
+                        f_ctrl += 1
                     for s in sents:
                         if s in txt:
                             if is_user:
                                 s_user += 1
+                                f_user += 1
                             else:
                                 s_other += 1
+                                f_other += 1
                             break
+        per_file.append((os.path.basename(path), f_lines, f_ctrl, f_user, f_other, f_start))
 
     mtime = int(os.path.getmtime(USER_FILE) * 1000)
     print("载荷文件 = %d 个，条目 = %d" % (len(files), lines))
+    print("本件 mtime = %s（判据基准：起点晚于它才算可裁）"
+          % time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime / 1000)))
     print("对照（MEMORY 索引，user 角色命中）= %d  -> %s"
           % (ctrl_ok, "有效" if ctrl_ok else "取样失效"))
     print("本件哨兵：user 角色命中 = %d，其它角色 = %d（其它角色 = agent 自读自产，非注入）"
           % (s_user, s_other))
-    print("本件 mtime = %s | 会话最早起点 = %s"
-          % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime / 1000)),
-             time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(earliest / 1000)) if earliest else "?"))
+    print("--- 逐会话裁决（不可裁也逐条打印，避免「一个早会话压掉其余决定性证据」）---")
+    verdicts = []
+    for name, n, f_ctrl, f_user, f_other, f_start in per_file:
+        if f_user:
+            v = "已注入"
+        elif not f_ctrl:
+            v = "不可裁（该会话对照未命中，取样不成立）"
+        elif f_start is None:
+            v = "不可裁（该会话无可用起点时间）"
+        elif f_start < mtime:
+            v = "不可裁（起点早于本件 mtime——注入面若为会话起始一次性构建，本就不含它）"
+        else:
+            v = "未注入（起点晚于 mtime 且对照有效）"
+        verdicts.append(v)
+        print("  %-46s 条目=%-4d 对照=%-3d user=%-3d 其它=%-3d 起点=%s → %s"
+              % (name[:46], n, f_ctrl, f_user, f_other,
+                 time.strftime("%m-%d %H:%M:%S", time.localtime(f_start / 1000)) if f_start else "?",
+                 v))
 
-    if not ctrl_ok:
-        print("退出 2：对照未命中——本次取样不成立，结论不可采信（勿据此判「未注入」）")
-        return 2
-    if s_user:
-        print("退出 0：已注入（用户级件进了 user 角色注入面）")
+    if any(v == "已注入" for v in verdicts):
+        print("退出 0：已注入（至少一个会话的 user 角色注入面含本件）")
         return 0
-    if earliest and earliest < mtime:
-        print("退出 2：未注入**不可裁**——会话起点早于本件 mtime，若注入面为会话起始一次性构建，"
-              "本会话本就不该含它。请开新会话后重跑本命令。")
+    if not ctrl_ok:
+        print("退出 2：全部会话对照未命中——本次取样不成立，结论不可采信（勿据此判「未注入」）")
         return 2
-    print("退出 1：未注入——会话起点晚于本件 mtime 且对照有效，仍无 user 角色命中")
+    if any(v.startswith("未注入") for v in verdicts):
+        print("退出 1：未注入——至少一个「起点晚于 mtime 且对照有效」的会话里零 user 命中")
+        return 1
+    print("退出 2：不可裁——无任何会话满足可裁条件（起点均早于本件 mtime）。请开新会话后重跑。")
+    return 2
+
     return 1
 
 
