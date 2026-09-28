@@ -180,6 +180,38 @@ def check(target, src, repo, allow_missing):
         res["ok"] = bool(allow_missing)
         return res
 
+    # 指针型产物（target.pointer 为真，2026-09-28 登记 zcode-user）：本件**不含条款正文**
+    # （只指向纪律本体文件 + 执行公约摘要）⇒ 字段级 strict 比对在此物理上不适用（会报满屏
+    # 「缺失」而掩盖真问题）。判据换成三条**等同强度**的检查：
+    #   ①指向面：须给出纪律本体的仓内路径（zcode/AGENTS.md）——路径写错/删掉即硬失败；
+    #   ②陈化面：内嵌真源指纹须等于当前真源指纹——改真源未更新指针即硬失败（与渲染产物同判据）；
+    #   ③工具名随端：复用既有 check_tool_alignment（同一判据函数，不另立一套）。
+    # 为什么不是「render:false 就不查」：无守卫的手工件必然漂移（20260916 codebuddy-local 实例
+    # 的教训），指针件同样需要一个机械守卫，只是判据面不同。
+    if target.get("pointer"):
+        body_ptr = norm(text)
+        # 单据单一事实源：指向的纪律本体路径由矩阵声明（pointer_body），不在判据里写死
+        tgt_body = target.get("pointer_body") or "zcode/AGENTS.md"
+        ptr_ok = tgt_body in body_ptr
+        m_ptr = re.search(r"前16位[）：:]*\s*([0-9a-f]{16})", text)
+        res["artifact_sha"] = m_ptr.group(1) if m_ptr else None
+        res["source_sha"] = R.source_sha(repo)
+        res["stale"] = bool(m_ptr) and res["artifact_sha"] != res["source_sha"]
+        res["toolname"] = check_tool_alignment(text, target)
+        res["pointer_checks"] = {"body_path": ptr_ok,
+                                 "fingerprint": res["artifact_sha"],
+                                 "source": res["source_sha"]}
+        if not ptr_ok:
+            res["missing"].append({"no": 0, "field": "指向", "key": "pointer_target",
+                                   "id": "-", "text": "指针未指向 " + tgt_body})
+        if not m_ptr:
+            res["missing"].append({"no": 0, "field": "指纹", "key": "pointer_sha",
+                                   "id": "-",
+                                   "text": "指针未内嵌真源指纹（形如「前16位）：<16 hex>」）"
+                                           "——无指纹即无法判陈化"})
+        res["ok"] = (not res["missing"] and not res["toolname"] and not res["stale"])
+        return res
+
     # 字段级判据：默认 strict；target 的 verify_fields 可把某字段降为 advisory
     # （降级只对「清单/摘要形态的手工件」成立，且差异仍全量打印——不静默）。
     vf = target.get("verify_fields") or {}

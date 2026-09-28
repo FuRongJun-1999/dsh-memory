@@ -45,6 +45,11 @@ injection:
     codebuddy-session: [CODEBUDDY.md, AGENTS.md]
     codebuddy-rules: [RULE.mdc]
     zcode-session: [AGENTS.md]
+    # 用户级槽位（2026-09-28 登记）：ZCode 除「工作区级 <repo>/AGENTS.md」外还读**用户级**
+    # ~/.zcode/AGENTS.md（对所有工作目录生效）。该件落在仓外用户目录，**不参与本仓祖先链
+    # 发现**（链终点不在它上面，probe 命中只报告不判失败）；但与 zcode-session 同槽同名，
+    # 故在此显式声明，供发现面报告「同一启动目录下并存的竞争件」。
+    zcode-user-session: [AGENTS.md]
     codex-session: [AGENTS.md]
     claude-session: [CLAUDE.md]
     plugin-skill: [SKILL.md]
@@ -136,6 +141,32 @@ targets:
     note: >-
       ZCode 读项目根 AGENTS.md。本仓产物落 zcode/AGENTS.md（不落根，避免与
       CodeBuddy 的 CODEBUDDY.md 及本地 AGENTS.md 冲突）；复制到项目根生效。
+
+  # —— 用户级注入件（仓外：用户目录）：**指针形态**，只校验不渲染 ——
+  # 为什么 render: false：本件是「指针」而非纪律本体——正文只有「当工作目录是本仓时先读
+  # <repo>/zcode/AGENTS.md 取纪律本体」+ 执行公约摘要，**不含任何条款正文** ⇒ 不可能与
+  # 真源漂移；若用 full/compact 模板渲染，会把整份纪律正文复制进**用户全局**注入面
+  # （对非本仓的其它项目也生效），且每次改真源都要重渲染用户目录文件——得不偿失。
+  # 为什么仍给判据：`pointer: true` 触发判据侧的三条指针检查（指向面 / 陈化面 / 工具名随端），
+  # 见 verify_discipline.check——无守卫的手工件必然漂移（20260916 codebuddy-local 实例）。
+  zcode-user:
+    enabled: true
+    render: false
+    pointer: true
+    # 指针须指向的纪律本体（相对仓库根）——判据侧按此值查「指向面」，故路径只有这一处声明
+    pointer_body: zcode/AGENTS.md
+    transport: file
+    slot: zcode-user-session
+    path: ~/.zcode/AGENTS.md
+    format: markdown
+    preserve: true
+    memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
+    note: >-
+      ZCode 的**用户级**指令件（对所有工作目录生效；工作区级见 zcode target 的
+      zcode/AGENTS.md）。存在理由：本仓纪律产物落在**子目录** zcode/，而 ZCode 的
+      工作区级发现面只查 <repo>/AGENTS.md ⇒ 子目录件永不进注入面；用户级指针把
+      「会话起始（含压缩续接后）先读 <repo>/zcode/AGENTS.md」钉在每轮都在的位置。
+      注入验收见本条 note 的后续记录与 docs/discipline 的验收协议。
 
   codex:
     enabled: true
