@@ -133,6 +133,25 @@ def _rule_check(text, rules, kind="text"):
     return ACCEPT, f"通过 {len(forbidden)} 条禁止 + {len(required)} 条必需规则", None
 
 
+# 生效条件：rules 为 None 时回落 load_rulebook()；对 rules['forbidden'] 去空后的每条模式按下标 i（从 1 起）把 text 中的全部命中替换为「[已过滤:禁表#i]」（非法正则跳过、不抛错），返回替换后的文本；无 forbidden 规则时原样返回 text。
+def redact_forbidden(text, rules=None):
+    """把命中禁止规则的片段替换成占位符——负记忆（rejected）落盘前用。
+
+    REJECT 的内容仍记入负记忆（「这条被拒过」本身有价值），但命中禁表的
+    片段正是**不该入库的东西**（凭据形态），原样写进 rejected 层等于拦截
+    之后又把凭据存了一遍（issue #43）。占位符只带禁表序号，不带原文，也
+    不带原文哈希；否决原因（evidence）里已有命中的模式，可审计。
+    """
+    if rules is None:
+        rules = load_rulebook()
+    for i, pat in enumerate([r for r in (rules.get("forbidden") or []) if r], 1):
+        try:
+            text = re.sub(pat, f"[已过滤:禁表#{i}]", text)
+        except re.error:
+            continue
+    return text
+
+
 # ---------- 内建验证器 ----------
 
 # 生效条件：以 payload['content']（为假值则回落 payload['text']，再为假值取空串）作为文本，用 ctx['rules']（为假值则回落 load_rulebook()）按 kind='text' 做规则检查，返回 _verdict(检查状态, 'text', 证据, 规则检查给出的 detail)；缺要素 REJECT 时 detail 形如 {"missing": [中文名...], "missing_patterns": [正则...]}（其余状态为 None）。

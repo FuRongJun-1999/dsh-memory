@@ -194,7 +194,7 @@ def _reject_hint(verdict):
             "拒绝依据见 verdict.evidence")
 
 
-# 生效条件：ctx["a"] 经 audit.audit 得出的 state 为 ACCEPT 时返 None 放行，为 REJECT 时经 cg.add_rejected 返回 ok=False/moved_to="rejected"（hint 由 _reject_hint 按「可修正的缺要素 / 政策违规」分型生成），其余 state 经 cg.propose 返回 moved_to="review_queue"（pr 带 dedup 时再附 dedup/dup_of/dup_status 并改写 hint）；
+# 生效条件：ctx["a"] 经 audit.audit 得出的 state 为 ACCEPT 时返 None 放行，为 REJECT 时经 cg.add_rejected（正文先经 audit.redact_forbidden 把禁表命中替换为占位符、再截前 200 字）返回 ok=False/moved_to="rejected"（hint 由 _reject_hint 按「可修正的缺要素 / 政策违规」分型生成），其余 state 经 cg.propose 返回 moved_to="review_queue"（pr 带 dedup 时再附 dedup/dup_of/dup_status 并改写 hint）；
 def _gate_audit(ctx):
     """校验闸：audit.audit 四态。ACCEPT 放行；REJECT 负记忆；其余入审核队列。"""
     a = ctx["a"]
@@ -217,7 +217,10 @@ def _gate_audit(ctx):
     if st == audit.ACCEPT:
         return None
     if st == audit.REJECT:
-        rid = cg.add_rejected((a.get("content") or "")[:200], verdict["evidence"],
+        # 先脱敏再截断：命中禁表的凭据不得随负记忆落盘（issue #43）；
+        # 截断在后，避免凭据跨 200 字边界被截成不再匹配模式的残片而漏过。
+        rid = cg.add_rejected(audit.redact_forbidden(a.get("content") or "")[:200],
+                              verdict["evidence"],
                               verification_basis=verdict.get("basis") or "test",
                               tags=a.get("tags"))
         return {"ok": False, "id": rid, "committed": False,
