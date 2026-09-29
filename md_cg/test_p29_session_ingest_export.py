@@ -230,12 +230,12 @@ def main():
         _devs = [e["t"] for e in sources.DSHSessionSource(sess).events()]
         check("源适配层：DSH 13 位毫秒 time 归一为 epoch 秒",
               bool(_devs) and all(1e9 < t < 1e10 for t in _devs), str(_devs))
-        _tw_flat = [x for e in cg.index["nodes"].values()
+        _tw_flat = [x for e in list(cg.index["nodes"].values())
                     if isinstance(e.get("time_window"), (list, tuple))
                     for x in e["time_window"]]
         check("端到端：摄取节点落库 time_window 无 13 位毫秒外溢（旧症状已消失）",
               bool(_tw_flat)
-              and all(0 <= x < sources.trust._MS_EPOCH_THRESHOLD for x in _tw_flat),
+              and all(0 <= x < sources.trust._MS_EPOCH_THRESHOLD for x in list(_tw_flat)),
               str(sorted(set(_tw_flat))[:6]))
 
         d1 = call_tool(cg, "cg", {"op": "ingest", "action": "dir",

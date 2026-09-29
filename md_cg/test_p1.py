@@ -157,13 +157,13 @@ def main():
     queries = ["能量守恒", "二分查找", "细胞呼吸", "贝塞尔不等式", "牛顿第二定律",
                "光合作用", "事务隔离", "内力与截面法", "熵增", "机会成本"]
     contents = {nid: (cg.get(nid) or {}).get("content", "")
-                for nid, e in cg.index["nodes"].items() if e["layer"] == "knowledge"}
+                for nid, e in list(cg.index["nodes"].items()) if e["layer"] == "knowledge"}
     t1 = t5 = 0
     n = 0
     blindspots = []
     print(f"  {'query':<14}{'真值集':>7}{'召回':>6}{'Top-1':>7}")
     for q in queries:
-        gold = [nid for nid, c in contents.items() if q in c]
+        gold = [nid for nid, c in list(contents.items()) if q in c]
         if not gold:
             blindspots.append(q)
             continue
@@ -251,10 +251,10 @@ def main():
     check("weakened → confidence 下调", post2 < pre2, f"{pre2} → {post2}")
     # falsified：add_rejected 按内容 hash 幂等，故断言「存在负记忆条目」而非计数增量
     cg.verify("p1_verify", "发现反例：条件不成立", "falsified")
-    neg_ids = [e.get("path") for e in cg.index["nodes"].values()
+    neg_ids = [e.get("path") for e in list(cg.index["nodes"].values())
                if e["layer"] == "rejected"]
     neg_hit = False
-    for p in neg_ids:
+    for p in list(neg_ids):
         full_p = os.path.join(ROOT, p)
         try:
             with open(full_p, encoding="utf-8") as f:
@@ -273,7 +273,7 @@ def main():
     # 「knowledge 层恰好 = 语料 + 本测试显式写入」就必须被显式守住——
     # 有残留节点会在这里打红，而不是被 rmtree 静默掩盖。
     explicit_knowledge = ("p1_ok", "p1_accept", "p1_defer", "p1_spot", "p1_reject")
-    n_know = sum(1 for e in cg.index["nodes"].values() if e["layer"] == "knowledge")
+    n_know = sum(1 for e in list(cg.index["nodes"].values()) if e["layer"] == "knowledge")
     check("重跑 ≡ 首跑：knowledge 层节点数不多不少（无残留污染）",
           n_know == corpus.EXPECTED_NODES + len(explicit_knowledge),
           f"{n_know} == {corpus.EXPECTED_NODES} + {len(explicit_knowledge)}")

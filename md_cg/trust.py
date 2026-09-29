@@ -638,7 +638,7 @@ def dependents_index(cg, refresh: bool = False) -> dict:
             return cached
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     idx = {}
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         for p in as_deps((e or {}).get(DEPS_FIELD)):
             idx.setdefault(p, []).append(nid)
     for k in idx:
@@ -804,7 +804,7 @@ def propagate(cg, *, apply: bool = False, max_nodes: int = MAX_NODES_DEFAULT,
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     dep_map = dependents_index(cg)
     roots = []
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         st = (e or {}).get(STATE_FIELD)
         if st in ("expired", "rechecking"):
             roots.append(nid)

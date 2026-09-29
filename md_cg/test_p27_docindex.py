@@ -410,9 +410,9 @@ def main():
         # ===================================================== ⑧ 幂等
         print("\n【8】幂等（重跑 ≡ 首跑）")
         first = index_doc(cg, fx)
-        n1 = sum(1 for e in cg.index["nodes"].values() if e["layer"] == "knowledge")
+        n1 = sum(1 for e in list(cg.index["nodes"].values()) if e["layer"] == "knowledge")
         second = index_doc(cg, fx)
-        n2 = sum(1 for e in cg.index["nodes"].values() if e["layer"] == "knowledge")
+        n2 = sum(1 for e in list(cg.index["nodes"].values()) if e["layer"] == "knowledge")
         check("重跑节点数不变（按 id 原子覆盖，不清目录）", n1 == n2, f"{n1} vs {n2}")
         check("重跑 id 集合稳定（幂等）",
               set(first["ids"]) == set(second["ids"]), str(first["ids"]))

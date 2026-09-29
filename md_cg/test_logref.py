@@ -213,7 +213,7 @@ TOOL_ARGS = {"actor": "n203-p1", "tenant": "default"}
 def entries_of(cg, tag: str = "logsrc") -> dict:
     """库中带 tag 的**索引条目**（元数据快照，不经读隔离）——private 档节点在
     「非本会话」身份下 `cg.get` 读不回（会话绑定），故需要元数据面时走这里。"""
-    return {nid: (e or {}) for nid, e in (cg.index.get("nodes") or {}).items()
+    return {nid: (e or {}) for nid, e in list((cg.index.get("nodes") or {}).items())
             if tag in ((e or {}).get("tags") or [])}
 
 

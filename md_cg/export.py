@@ -175,7 +175,7 @@ def export_stat(cg):
     by_layer, by_basis, by_tag = {}, {}, {}
     protected = with_neg = 0
     t_min, t_max = None, None
-    for _nid, e in nodes.items():
+    for _nid, e in list(nodes.items()):
         lay = e.get("layer") or "?"
         by_layer[lay] = by_layer.get(lay, 0) + 1
         b = e.get("verification_basis") or "(未声明)"

@@ -355,7 +355,7 @@ def _relation_counts(cg, subject):
     slug = _slug(subject)
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
     out = inn = 0
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         tags = set(e.get("tags") or [])
         if TAG_RELATION not in tags and not nid.startswith(RELATION_PREFIX):
             continue
@@ -656,7 +656,7 @@ def relations(cg, subject=None, direction="both"):
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
     slug = _slug(subject) if subject else None
     out = []
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         tags = set(e.get("tags") or [])
         if TAG_RELATION not in tags and not nid.startswith(RELATION_PREFIX):
             continue
@@ -692,7 +692,7 @@ def index(cg, dim, value, limit=50, with_content=False):
                 "allowed": list(DIMENSIONS)}
     tag = dim_tag(d, value)
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
-    hits = [(nid, e) for nid, e in nodes.items()
+    hits = [(nid, e) for nid, e in list(nodes.items())
             if tag in (e.get("tags") or [])]
     hits.sort(key=lambda kv: (-float(kv[1].get("importance") or 0),
                               -float(kv[1].get("created_at") or 0),
@@ -740,7 +740,7 @@ def audit(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW):
 
     # 1 单例：同 subject 的状态卡只能有一张
     slug = _slug(subject)
-    cards = [n for n, e in nodes.items()
+    cards = [n for n, e in list(nodes.items())
              if TAG_STATE in (e.get("tags") or [])
              and f"state_subject:{slug}" in (e.get("tags") or [])]
     if len(cards) > 1:
@@ -878,7 +878,7 @@ def audit(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW):
             continue
         for v in (vals or []):
             tag = dim_tag(d, v)
-            holders = [n for n, e in nodes.items()
+            holders = [n for n, e in list(nodes.items())
                        if tag in (e.get("tags") or [])]
             if not holders:
                 issues.append(_issue("dimension_orphan", "warn",

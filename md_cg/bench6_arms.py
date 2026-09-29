@@ -177,7 +177,7 @@ class LingshuAdapter(Adapter):
         """桶健康度自检（routing.bucket_health）：取证条件路由是否有区分力。"""
         from md_cg import routing
         counts = {}
-        for e in self.cg.index["nodes"].values():
+        for e in list(self.cg.index["nodes"].values()):
             b = e.get("bucket") or "<none>"
             counts[b] = counts.get(b, 0) + 1
         return routing.bucket_health(counts)

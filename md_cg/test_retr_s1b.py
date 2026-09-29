@@ -83,7 +83,7 @@ def main():
 
     root = tempfile.mkdtemp(prefix="retr_s1b_")
     cg = _build(root)
-    b_sense = [e.get("bucket") for e in cg.index["nodes"].values()
+    b_sense = [e.get("bucket") for e in list(cg.index["nodes"].values())
                if e.get("path", "").endswith("s1.md")][0]
     check("写入侧确实落了桶", bool(b_sense) and b_sense != "orphan", str(b_sense))
 
@@ -142,7 +142,7 @@ def main():
     cgi.add("a1", "感知系统 记忆", "knowledge", tags=["domain:感知系统"])
     cgi.add("b1", "图数据库 邻接", "knowledge", tags=["domain:图数据库"])
     cgi.flush()
-    bi = [e.get("bucket") for e in cgi.index["nodes"].values()
+    bi = [e.get("bucket") for e in list(cgi.index["nodes"].values())
           if e.get("path", "").endswith("a1.md")][0]
     # 对照组必须用**同一个 min_results**（否则比的是两次不同检索，不是回退等价）
     _setenv(MDCG_GATE_S1B_BUCKET=None)

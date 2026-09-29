@@ -86,7 +86,7 @@ def main():
 # 生效条件：给定 q 时遍历 cg.index["nodes"] 逐个读取 ROOT/e["path"]，内容含 q 子串（q 为空串时任何可读内容都命中）即收集其 path，读取抛 OSError 的条目被跳过，返回 hits 列表。
     def brute_force(q):
         hits = []
-        for e in cg.index["nodes"].values():
+        for e in list(cg.index["nodes"].values()):
             try:
                 with open(os.path.join(ROOT, e["path"]), encoding="utf-8") as f:
                     if q in f.read():

@@ -6,6 +6,8 @@
 //! hive poll    [JOB_ID] [--jobs DIR]               # 查状态（无 id = 全部摘要）
 //! hive kill    JOB_ID [--jobs DIR]                 # 写 kill 标志（worker 检测强杀）
 //! hive doctor  [--jobs DIR]                        # serve 存活 / 任务统计 / 环境检查
+//! hive doctor  [--jobs DIR] --quarantine           # 坏 status 隔离（移入 _quarantine/）
+//! hive doctor  [--jobs DIR] --unquarantine         # 隔离件原路退回（可回退）
 //! ```
 //!
 //! 默认 jobs 目录：`HIVE_JOBS_DIR` env → `<exe>/../../../jobs`（即 `hive/jobs`）→ `./jobs`。
@@ -93,6 +95,7 @@ fn arg_of(args: &[String], flag: &str) -> Option<String> {
 
 /// 生效条件：子命令分派入口——serve/submit/poll/kill/doctor 五路；未知子命令
 /// → err_json 退出 1；jobs 根 = --jobs > exe 锚定 > 相对 "jobs" 三段回退。
+/// doctor 的 --quarantine/--unquarantine 在本函数内转交（同一 jobs 根口径）。
 fn run() -> i32 {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else {
@@ -108,7 +111,7 @@ fn run() -> i32 {
         "submit" => cmd_submit(&args, jobs),
         "poll" => cmd_poll(&args, jobs),
         "kill" => cmd_kill(&args, jobs),
-        "doctor" => cmd_doctor(jobs),
+        "doctor" => cmd_doctor(&args, jobs),
         other => {
             println!("{}", err_json(format!("未知子命令 {other}")));
             1
@@ -415,7 +418,11 @@ fn result_summary(dir: &std::path::Path, head: usize) -> Json {
 }
 
 /// 生效条件：job 存在 → status 全量 + result 摘要（head 截断）合体视图；
-/// status 不可读 → 含 error 的最小视图（poll 的单查/列表共用渲染单元）。
+/// status 不可读 → 含错误的最小视图（poll 的单查/列表共用渲染单元）。
+/// H-3：该最小视图**区分两种不可读**——status.json 存在但不可解析 → 视图带
+/// `state="corrupt"`（事故信号，旧版只给 `error` 无 state，消费面看不出是坏
+/// 还是没写）；文件不存在 → 带 `state="no_status"`（提交竞态窗口）。两者都不是
+/// 一个裸 error：坏 status 不再静默。
 /// 矛盾裁决（R02，批次58）：status.state=error 终态与 result.ok=true 并存时
 /// 透出 conflict="late_result_after_error"——serve 被硬杀后 recover_orphans
 /// 按无产物标 error（scheduler.rs），error 落入 `match _ => {}` 永不回看，孤儿
@@ -424,12 +431,27 @@ fn result_summary(dir: &std::path::Path, head: usize) -> Json {
 /// 主代理人工裁决）；其余状态组合不置位（done+ok 正常路径零扰动）。
 fn one_job_view(jobs: &PathBuf, id: &str, head: usize) -> Json {
     let dir = job::job_dir(jobs, id);
-    let mut view = match job::read_status(&dir) {
-        Ok(st) => st,
-        Err(e) => {
+    let mut view = match job::read_status_classified(&dir) {
+        job::StatusRead::Ok(st) => st,
+        job::StatusRead::Corrupt(e) => {
             return Json::Obj(vec![
                 ("job_id".to_string(), Json::Str(id.to_string())),
+                ("state".to_string(), Json::Str("corrupt".into())),
                 ("error".to_string(), Json::Str(e)),
+                (
+                    "marker".to_string(),
+                    Json::Bool(job::corrupt_mark_path(&dir).is_file()),
+                ),
+            ])
+        }
+        job::StatusRead::Absent => {
+            return Json::Obj(vec![
+                ("job_id".to_string(), Json::Str(id.to_string())),
+                ("state".to_string(), Json::Str("no_status".into())),
+                (
+                    "error".to_string(),
+                    Json::Str(format!("{}: status.json 尚未出现", dir.display())),
+                ),
             ])
         }
     };
@@ -625,10 +647,21 @@ fn fallback_exec() -> (String, String, &'static str) {
     (p.to_string_lossy().to_string(), mode, "doctor_env_or_default")
 }
 
-/// 生效条件：零参数调用 → 输出 serve 存活性/任务状态分布/执行器资格三要素
-/// （exec_py/exec_mode/exec_source——读心跳不读自身 env，跨进程 env 不可反查
-/// 的既定口径）→ 诊断退出码。
-fn cmd_doctor(jobs: PathBuf) -> i32 {
+/// 生效条件：`hive doctor [--jobs DIR] [--quarantine|--unquarantine]`——零参数形
+/// 输出 serve 存活性/任务状态分布/执行器资格三要素（exec_py/exec_mode/
+/// exec_source——读心跳不读自身 env，跨进程 env 不可反查的既定口径）→ 诊断退出码；
+/// `--quarantine`/`--unquarantine` 转 cmd_quarantine / cmd_unquarantine（写盘，
+/// 见各自头注）。
+/// H-3：status 分类走 `job::read_status_classified` 三态——不可解析单列
+/// `corrupt` 类别并附 `corrupt_jobs` 明细（job_id/error/marker），**不再被压进
+/// unknown 里静默**；文件未出现（提交竞态窗口）另列 `no_status`，与事故分开。
+fn cmd_doctor(args: &[String], jobs: PathBuf) -> i32 {
+    if args.iter().any(|a| a == "--quarantine") {
+        return cmd_quarantine(jobs);
+    }
+    if args.iter().any(|a| a == "--unquarantine") {
+        return cmd_unquarantine(jobs);
+    }
     std::fs::create_dir_all(&jobs).ok();
     let now = job::now_ms();
     // 执行器资格：**优先采信 serve 自报（心跳），无心跳才回退本进程 env 推导**。
@@ -693,12 +726,33 @@ fn cmd_doctor(jobs: PathBuf) -> i32 {
     };
 
     let mut counts: Vec<(String, u64)> = Vec::new();
+    let mut corrupt_jobs: Vec<Json> = Vec::new();
     for id in job::list_jobs(&jobs) {
-        let st = job::read_status(&job::job_dir(&jobs, &id));
-        let state = st
-            .ok()
-            .and_then(|s| s.get("state").and_then(|v| v.as_str()).map(|x| x.to_string()))
-            .unwrap_or_else(|| "unknown".into());
+        let dir = job::job_dir(&jobs, &id);
+        // H-3：三态读分开报——Ok 取 state（合法 JSON 无 state 键 → unknown，
+        // 与旧口径一致）；Corrupt 单列 corrupt 类别 + 明细；Absent（文件还没
+        // 出现 = 提交竞态窗口）另列 no_status。旧版把后两者一起压成 unknown，
+        // 事故与正常时序在统计面上不可分（H-3 的「静默」就发生在这一步）。
+        let state = match job::read_status_classified(&dir) {
+            job::StatusRead::Ok(st) => st
+                .get("state")
+                .and_then(|v| v.as_str())
+                .map(|x| x.to_string())
+                .unwrap_or_else(|| "unknown".into()),
+            job::StatusRead::Absent => "no_status".into(),
+            job::StatusRead::Corrupt(e) => {
+                corrupt_jobs.push(Json::Obj(vec![
+                    ("job_id".to_string(), Json::Str(id.clone())),
+                    ("error".to_string(), Json::Str(e)),
+                    // 标记文件是否在场（serve 连续 N 拍才落，见 CORRUPT_MARK_TICKS）
+                    (
+                        "marker".to_string(),
+                        Json::Bool(job::corrupt_mark_path(&dir).is_file()),
+                    ),
+                ]));
+                "corrupt".into()
+            }
+        };
         match counts.iter_mut().find(|(k, _)| *k == state) {
             Some((_, c)) => *c += 1,
             None => counts.push((state, 1)),
@@ -713,6 +767,12 @@ fn cmd_doctor(jobs: PathBuf) -> i32 {
             ])
         })
         .collect();
+    // 隔离保留区（H-3）：已移出池的任务如实列出——它们不在 task_states 里
+    // （list_jobs 只收 h 前缀目录），不列出来就成了另一种静默。
+    let quarantined: Vec<Json> = job::quarantined_jobs(&jobs)
+        .into_iter()
+        .map(|id| Json::Str(id))
+        .collect();
 
     println!(
         "{}",
@@ -721,6 +781,29 @@ fn cmd_doctor(jobs: PathBuf) -> i32 {
             ("serve", serve_info),
             ("jobs_dir", Json::Str(jobs.to_string_lossy().to_string())),
             ("task_states", Json::Arr(counts_json)),
+            // H-3 观测面：坏 status 明细（独立类别，不再是 task_states 里的一个
+            // unknown）+ 已隔离件清单；两者都在场时诊断者一眼可判
+            // 「坏了几台 / 是哪几台 / 错在哪 / 标记落没落 / 隔离了谁」。
+            ("corrupt_jobs", Json::Arr(corrupt_jobs)),
+            (
+                "quarantine_dir",
+                Json::Str(
+                    jobs.join(job::QUARANTINE_DIR)
+                        .to_string_lossy()
+                        .to_string(),
+                ),
+            ),
+            ("quarantined", Json::Arr(quarantined)),
+            (
+                "corrupt_note",
+                Json::Str(
+                    "corrupt=status.json 存在但不可解析（事故信号，不自动终态化——\
+                     那会把坏文件静默吞掉）；处置=`hive doctor --quarantine` 移出池\
+                     （可 `--unquarantine` 退回），坏字节原样保留供诊断。\
+                     no_status=任务目录在但 status.json 尚未出现（提交竞态窗口，正常时序）。"
+                        .into(),
+                ),
+            ),
             // 执行器资格（判「本 serve 能否跑确定性任务」看这三项，**不看**下面的 env）
             ("exec_py", Json::Str(exec_py_eff)),
             ("exec_mode", Json::Str(exec_mode_eff)),
@@ -775,6 +858,156 @@ fn cmd_doctor(jobs: PathBuf) -> i32 {
         ])
     );
     0
+}
+
+/// 坏 status **显式隔离**（H-3）：把当下 `status.json` 不可解析的任务目录整体
+/// rename 进 `<jobs>/_quarantine/`。
+///
+/// 为什么是搬家而不是改写：status.json 是**任务本体**，坏成什么样都照原样留着
+/// ——它既是诊断证据，也是人工修复的输入；隔离只改「它在不在领取面」这一个事实
+/// （`list_jobs` 只收 `h` 前缀目录，`_quarantine` 收不到），同卷 rename 原子，
+/// 任务目录内逐字节不动。**不做自动终态化**（那等于把坏文件静默吞掉）。
+/// 生效条件：jobs 给定 → 对 `scheduler::scan_corrupt`（只读判据，唯一定义见
+/// scheduler.rs）的每一项同卷 rename 到保留区；保留区按需建；目标已存在 → 该项
+/// 记 error 跳过（fail-closed：绝不覆盖既有保留件）；健康任务一律不碰。
+/// 返回 ok/quarantined（含 job_id/error/到哪去了）/errors/count；无坏项 →
+/// count 0 且退出 0（幂等：重复执行不报错）。errors 非空 → 退出 1（部分失败要
+/// 显式红，不静默吞）。
+/// 不适用条件：不删任何文件（隔离=搬家不是销毁，`--unquarantine` 可原路退回）；
+/// 不改写 status.json/spec.json/result.json 任一本体。
+fn cmd_quarantine(jobs: PathBuf) -> i32 {
+    let corrupt = scheduler::scan_corrupt(&jobs);
+    let qroot = jobs.join(job::QUARANTINE_DIR);
+    let mut moved: Vec<Json> = Vec::new();
+    let mut errors: Vec<Json> = Vec::new();
+    if !corrupt.is_empty() {
+        if let Err(e) = std::fs::create_dir_all(&qroot) {
+            println!(
+                "{}",
+                err_json(format!("建隔离区失败 {}: {e}", qroot.display()))
+            );
+            return 1;
+        }
+    }
+    for (id, reason) in &corrupt {
+        let from = job::job_dir(&jobs, id);
+        let to = qroot.join(id);
+        if to.exists() {
+            errors.push(Json::Obj(vec![
+                ("job_id".to_string(), Json::Str(id.clone())),
+                (
+                    "error".to_string(),
+                    Json::Str(format!("隔离区已有同名件，不覆盖: {}", to.display())),
+                ),
+            ]));
+            continue;
+        }
+        match std::fs::rename(&from, &to) {
+            Ok(()) => moved.push(Json::Obj(vec![
+                ("job_id".to_string(), Json::Str(id.clone())),
+                ("reason".to_string(), Json::Str(reason.clone())),
+                (
+                    "quarantined_at".to_string(),
+                    Json::Str(to.to_string_lossy().to_string()),
+                ),
+            ])),
+            Err(e) => errors.push(Json::Obj(vec![
+                ("job_id".to_string(), Json::Str(id.clone())),
+                ("error".to_string(), Json::Str(format!("rename 失败: {e}"))),
+            ])),
+        }
+    }
+    let n = moved.len();
+    println!(
+        "{}",
+        ok_json(vec![
+            ("jobs_dir", Json::Str(jobs.to_string_lossy().to_string())),
+            (
+                "quarantine_dir",
+                Json::Str(qroot.to_string_lossy().to_string()),
+            ),
+            ("count", Json::Num(n as f64)),
+            ("quarantined", Json::Arr(moved)),
+            ("errors", Json::Arr(errors.clone())),
+            (
+                "note",
+                Json::Str(
+                    "只搬「status.json 不可解析」的任务（健康任务一律不碰），\
+                     任务目录逐字节未改；`hive doctor --unquarantine` 原路退回。"
+                        .into(),
+                ),
+            ),
+        ])
+    );
+    if errors.is_empty() {
+        0
+    } else {
+        1
+    }
+}
+
+/// 隔离件**原路退回**（H-3 可回退面）：`<jobs>/_quarantine/<id>` → `<jobs>/<id>`。
+/// 生效条件：jobs 给定 → 对 `job::quarantined_jobs` 的每一项同卷 rename 回池；
+/// 池内已有同 id → 该项记 error 跳过（fail-closed 不覆盖在役任务）；无隔离件 →
+/// count 0 且退出 0（幂等）。errors 非空 → 退出 1。
+/// 不适用条件：不改写任务内容——退回后 status.json 仍是当初那个坏字节串，
+/// 「修好它」归人工（隔离只负责让它退出/回到领取面）。
+fn cmd_unquarantine(jobs: PathBuf) -> i32 {
+    let qroot = jobs.join(job::QUARANTINE_DIR);
+    let mut restored: Vec<Json> = Vec::new();
+    let mut errors: Vec<Json> = Vec::new();
+    for id in job::quarantined_jobs(&jobs) {
+        // 结构闸：隔离件名来自 read_dir（不可能含分隔符），仍显式过一道防漂移
+        if !job::valid_job_id(&id) {
+            errors.push(Json::Obj(vec![
+                ("job_id".to_string(), Json::Str(id.clone())),
+                ("error".to_string(), Json::Str("非法 job_id，拒绝退回".into())),
+            ]));
+            continue;
+        }
+        let from = qroot.join(&id);
+        let to = job::job_dir(&jobs, &id);
+        if to.exists() {
+            errors.push(Json::Obj(vec![
+                ("job_id".to_string(), Json::Str(id.clone())),
+                (
+                    "error".to_string(),
+                    Json::Str(format!("池内已有同 id，不覆盖: {}", to.display())),
+                ),
+            ]));
+            continue;
+        }
+        match std::fs::rename(&from, &to) {
+            Ok(()) => restored.push(Json::Str(id.clone())),
+            Err(e) => errors.push(Json::Obj(vec![
+                ("job_id".to_string(), Json::Str(id.clone())),
+                ("error".to_string(), Json::Str(format!("rename 失败: {e}"))),
+            ])),
+        }
+    }
+    let n = restored.len();
+    println!(
+        "{}",
+        ok_json(vec![
+            ("jobs_dir", Json::Str(jobs.to_string_lossy().to_string())),
+            ("count", Json::Num(n as f64)),
+            ("restored", Json::Arr(restored)),
+            ("errors", Json::Arr(errors.clone())),
+            (
+                "note",
+                Json::Str(
+                    "隔离件原路退回池内（仍是 pending/坏态原样）；\
+                     若 status.json 仍不可解析，serve 会再次计数并落标记。"
+                        .into(),
+                ),
+            ),
+        ])
+    );
+    if errors.is_empty() {
+        0
+    } else {
+        1
+    }
 }
 
 // ------------------------------------------------------------------ 单元测试

@@ -156,7 +156,7 @@ def reconcile_state(cg, apply: bool = True) -> dict:
     kept_unreadable = []                    # 条目在、真源暂不可读——保留只告警
 
     # ①③ 以索引为基准走一遍：多索引条目 + 内容漂移
-    for nid, entry in index_nodes.items():
+    for nid, entry in list(index_nodes.items()):
         if nid not in by_nid:
             ep = entry.get("path") or ""
             if ep in problem_paths:

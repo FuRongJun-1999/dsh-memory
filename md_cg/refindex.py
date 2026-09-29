@@ -669,7 +669,7 @@ def check_refs(cg, *, ledger: "Ledger" = None, max_nodes: int = MAX_CHECK,
         tags = (nodes.get(nid) or {}).get("tags") or []
         return any(t in ("code", "doc") for t in tags)
 
-    todo = [nid for nid in nodes if nid not in covered and _candidate(nid)]
+    todo = [nid for nid in list(nodes) if nid not in covered and _candidate(nid)]
     truncated = len(todo) > max_nodes
     checked = 0
     for nid in todo[:max_nodes]:
@@ -812,7 +812,7 @@ def prune_orphans(cg, *, kind: str, root: str, items, dry_run: bool = False,
     # 免得为全库每条记忆都读一次盘。
     tag = "doc" if kind == "doc_ref" else "code"
     plan = []
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         if tag not in ((e or {}).get("tags") or []):
             continue
         try:
@@ -875,7 +875,7 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
     # 必须 cg.get 取回节点再 ref_of（否则恒空、静默不删）。
     todo = []
     regenerable_skipped = []
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         tags = (e or {}).get("tags") or []
         if not any(t in ("code", "doc") for t in tags):
             continue
@@ -963,7 +963,7 @@ def rebuild(cg, *, ledger: "Ledger" = None, only_roots=None, max_files: int = 50
     """
     nodes = (getattr(cg, "index", {}) or {}).get("nodes") or {}
     groups = {}
-    for nid in nodes:
+    for nid in list(nodes):
         try:
             node = cg.get(nid)
         except Exception:

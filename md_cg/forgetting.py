@@ -435,7 +435,7 @@ def longterm_assess(cg, apply=False, out=None, layer=None, keep=LONGTERM_KEEP,
     `current.json` 指针。幂等：断面内容相同则跳过重写（除非 force=True）。
     """
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
-    ids = sorted(nid for nid, e in nodes.items()
+    ids = sorted(nid for nid, e in list(nodes.items())
                  if not layer or e.get("layer") == layer)
     if max_rows:
         ids = ids[:int(max_rows)]

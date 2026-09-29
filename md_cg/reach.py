@@ -207,7 +207,7 @@ class ReachIndex:
 # 生效条件：当 cg 的 index 提供 nodes 时，对每个 path 非空、cg._read 返回内容非 None 且 cg._open_content 亦返回非 None 的节点写入 hashes/post（fm.semantic 为真时并入 sem），并只把两端均已入 hashes 的 edges 建成 adj，随后按原始 content_hash 是否齐全设置 hash_complete 并返回 self。
     def build(self, cg):
         nodes = cg.index.get("nodes") or {}
-        id2path = {k: (v.get("path") or "") for k, v in nodes.items()}
+        id2path = {k: (v.get("path") or "") for k, v in list(nodes.items())}
         hashes, post, adj, sem = {}, {}, {}, []
         for k in sorted(nodes):
             e = nodes[k]
@@ -229,7 +229,7 @@ class ReachIndex:
                 sem.append(p)                 # MDCG_SEMANTIC=1 时该节点无条件入池 → 必须进收敛集
             for b in _doc_tokens(c, (fm or {}).get("tags")):
                 post.setdefault(b, []).append(p)
-        for k, e in nodes.items():
+        for k, e in list(nodes.items()):
             p = e.get("path")
             if not p or p not in hashes:
                 continue
@@ -247,7 +247,7 @@ class ReachIndex:
         # 覆盖完整性必须看**原始 content_hash**（hashes 里存的是 _node_key，
         # 含分隔符恒为真 → 曾使 hash_complete 恒判 True，r10 复核取证）
         self.hash_complete = all(bool(v.get("content_hash"))
-                                 for v in nodes.values() if v.get("path"))
+                                 for v in list(nodes.values()) if v.get("path"))
         self.built_at = time.time()
         return self
 
@@ -357,7 +357,7 @@ def _hash_complete(cg) -> bool:
     # 口径与 build() 的覆盖集合一致：只按有 path 的条目判定（无 path 的条目 build 不收录，
     # 不应因此禁用缓存复用——r12 复核指出旧写法会让稳态每次全库重建）
     nodes = cg.index.get("nodes") or {}
-    return all(bool(v.get("content_hash")) for v in nodes.values() if v.get("path"))
+    return all(bool(v.get("content_hash")) for v in list(nodes.values()) if v.get("path"))
 
 
 # 生效条件：磁盘缓存 hashes 与库内节点 path/content_hash 一一对应（数量相同且逐条相等）时返回 True，否则返回 False（触发重建）。

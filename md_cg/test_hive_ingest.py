@@ -126,7 +126,7 @@ def main():
 
         # ---- 3. ingest：层归属（§5.5）+ 产出 ----
         print("[3] ingest 层归属（只落 contextual，knowledge 零污染）")
-        k_before = len([n for n, e in (cg.index.get("nodes") or {}).items()
+        k_before = len([n for n, e in list((cg.index.get("nodes") or {}).items())
                         if (e or {}).get("layer") == "knowledge"])
         ing = Ingestor(cg, layer="contextual", sensitivity="internal")
         # §5.5 硬纪律（与 M3.2 双轨制同构）：ingest 自动 mine_fix_pairs 会把
@@ -138,7 +138,7 @@ def main():
         check("3a2 无 finished_ts 的 result 经 mtime 兜底摄入（批次8 缺陷修复）",
               any("legacy-ok" in (x.get("text") or "") for x in evs),
               str([x.get("text", "")[:60] for x in evs if "legacy" in x.get("text", "")]))
-        k_after = len([n for n, e in (cg.index.get("nodes") or {}).items()
+        k_after = len([n for n, e in list((cg.index.get("nodes") or {}).items())
                        if (e or {}).get("layer") == "knowledge"])
         check("3b knowledge 层节点数不变（§5.5 反向对照）", k_before == k_after,
               f"{k_before}→{k_after}")
@@ -177,7 +177,7 @@ def main():
                   rep_h.get("written", 0) > 0 and rep_h.get("source", "").startswith(
                       "hive_jobs:"), str(rep_h)[:150])
             priv = inter = 0
-            for nid, e in (cg_sec.index.get("nodes") or {}).items():
+            for nid, e in list((cg_sec.index.get("nodes") or {}).items()):
                 if not str(nid).startswith("src_"):
                     continue
                 fm = e or {}
@@ -229,13 +229,13 @@ def main():
                 f.write(json.dumps({"role": "assistant",
                                     "text": "执行修复：\npip install x"}) + "\n")
             cg3 = MdCGOS(root3)
-            kn_before = sum(1 for e in (cg3.index.get("nodes") or {}).values()
+            kn_before = sum(1 for e in list((cg3.index.get("nodes") or {}).values())
                             if (e or {}).get("layer") == "knowledge")
             # 7a：不传 mine_fix_pairs（吃新默认 False）→ 不挖矿
             rep_a = sources_run(cg3, action="jsonl", path=jl)
             check("7a 默认不挖矿（file/jsonl 不再直写知识层——旧行为即红）",
                   "fix_pairs" not in rep_a, str(rep_a.get("fix_pairs"))[:120])
-            kn_after = sum(1 for e in (cg3.index.get("nodes") or {}).values()
+            kn_after = sum(1 for e in list((cg3.index.get("nodes") or {}).values())
                            if (e or {}).get("layer") == "knowledge")
             check("7b 默认路径 knowledge 层零新增（污染反向对照）",
                   kn_after == kn_before, f"{kn_before} -> {kn_after}")
@@ -250,7 +250,7 @@ def main():
             check("7c 显式开启时自动产物走提案（as_proposals=True，pids 非空）",
                   fp.get("as_proposals") is True and len(fp.get("pids") or []) >= 1
                   and not fp.get("knowledge_ids"), str(fp)[:160])
-            kn_c = sum(1 for e in (cg4.index.get("nodes") or {}).values()
+            kn_c = sum(1 for e in list((cg4.index.get("nodes") or {}).values())
                        if (e or {}).get("layer") == "knowledge")
             check("7d 提案模式下 knowledge 层仍零新增（收口前不入层）",
                   kn_c == 0, f"knowledge={kn_c}")

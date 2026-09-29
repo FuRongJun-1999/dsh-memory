@@ -109,7 +109,7 @@ def _base_shape(tmp):
     r = cg.verify("n_plain", "普通节点反例", "falsified")
     ok(r.get("action") == "falsified", "G1a 普通 knowledge 节点 falsified 照常放行")
     ok(not _exists(cg, "n_plain"), "G1b 原 knowledge 节点按负记忆化移除（语义不变）")
-    neg = [e for e in (cg.index.get("nodes") or {}).values()
+    neg = [e for e in list((cg.index.get("nodes") or {}).values())
            if e.get("layer") == "rejected"]
     ok(len(neg) == 1, "G1c rejected 层出现负记忆条目（语义不变）")
 

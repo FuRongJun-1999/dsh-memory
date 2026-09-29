@@ -405,8 +405,8 @@ def basis_trust(basis):
 def coverage_index(cg) -> dict:
     """入度表：nid → 被多少节点指向（覆盖度，O(N) 免读文件）。"""
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
-    indeg = {nid: 0 for nid in nodes}
-    for nid, e in nodes.items():
+    indeg = {nid: 0 for nid in list(nodes)}
+    for nid, e in list(nodes.items()):
         for t in _targets(e):
             if t in indeg and t != nid:
                 indeg[t] += 1
@@ -422,7 +422,7 @@ def redundancy_map(cg, layer=None) -> dict:
     """
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     seen, out = {}, {}
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         if layer and e.get("layer") != layer:
             continue
         h = e.get("content_hash") or ""
@@ -480,7 +480,7 @@ def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     indeg = coverage_index(cg)
     red = redundancy_map(cg, layer=layer)
-    ids = [nid for nid, e in nodes.items()
+    ids = [nid for nid, e in list(nodes.items())
            if not layer or e.get("layer") == layer]
     ids.sort()
     if limit:

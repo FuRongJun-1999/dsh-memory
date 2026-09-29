@@ -155,7 +155,7 @@ def main():
                              layer="knowledge", auto_flywheel=True)
     check("D1 冲突自动投递飞轮并返回 unresolved_id",
           bool(r.get("unresolved_id")), str(r.get("unresolved_id")))
-    un = [n for n, e in (cg.index.get("nodes") or {}).items()
+    un = [n for n, e in list((cg.index.get("nodes") or {}).items())
           if e.get("layer") == "unresolved"]
     check("D2 飞轮落 unresolved 条目", len(un) >= 1, str(un[:3]))
 

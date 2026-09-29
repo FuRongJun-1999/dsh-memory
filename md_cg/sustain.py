@@ -394,7 +394,11 @@ def _locked_nodes(cg) -> int:
     if st.get("unlocked"):
         return 0
     nodes = (getattr(cg, "index", {}) or {}).get("nodes") or {}
-    return sum(1 for e in nodes.values()
+    # H-4 止血：取用前先取快照——`nodes` 是**共享可变面**（前台 add/flush 会改
+    # 同一 dict），裸迭代撞上并发写即 RuntimeError('dictionary changed size
+    # during iteration')（N138，FI-M04）。list() 拷贝在 C 层一次完成（迭代期间
+    # 不释放 GIL），故快照自身原子；判据与结果逐位不变（只换取用方式）。
+    return sum(1 for e in list(nodes.values())
                if (e.get("sensitivity") or "") in crypto.ENCRYPTED_LEVELS)
 
 
@@ -419,7 +423,8 @@ def _ccg_backlog(nodes: dict, top: int) -> dict:
     """
     n = no_basis = no_neg = 0
     sample = []
-    for nid, e in nodes.items():
+    # H-4 止血：快照迭代（同 `_locked_nodes` 注释；N138 裸迭代崩溃面）。
+    for nid, e in list(nodes.items()):
         mb = not e.get("verification_basis")
         mn = not e.get("has_neg_conditions")
         no_basis += 1 if mb else 0
@@ -446,7 +451,9 @@ def evolution_candidates(cg, *, layer: str = None, top: int = 8,
     """
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     if layer:
-        nodes = {k: v for k, v in nodes.items() if v.get("layer") == layer}
+        # H-4 止血：快照迭代（N138 裸迭代崩溃面）——过滤结果另建新 dict，
+        # 与旧式字典推导逐项同序同值。
+        nodes = {k: v for k, v in list(nodes.items()) if v.get("layer") == layer}
     from . import weights
     md = weights.APPLY_DELTA if min_delta is None else float(min_delta)
     imp = weights.recalc(cg, layer=layer, apply=False, min_delta=md,
@@ -482,7 +489,13 @@ def diagnose(cg, *, name: str = "md_cg", stale_temp_age: float = STALE_TEMP_AGE,
         issues.append({"code": "index_drift", "severity": "warning",
                        "detail": f"索引 {len(nodes)} ≠ 磁盘 {disk}",
                        "fix": "rebuild_index"})
-    orphans = [nid for nid, e in nodes.items()
+    # H-4 止血：快照迭代（N138：前台 add/flush 与后台巡检共用一个 MdCG 实例，
+    # 索引 dict 是共享可变面；裸 items() 撞并发写即 RuntimeError）。
+    # 面**不止本文件**：本函数默认参数还会经 evolution_candidates → weights.recalc
+    # → weights.coverage_index，且下面无条件调 refindex.check_refs——那些站点同样
+    # 作用于这个共享 dict，必须一并取快照（否则只切在这里等于没止血；见
+    # md_cg/test_h4_sustain_snapshot.py 的全域扫描器与目标级判据）。
+    orphans = [nid for nid, e in list(nodes.items())
                if e.get("path")
                and not os.path.exists(os.path.join(root, e["path"]))]
     if orphans:

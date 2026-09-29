@@ -386,9 +386,9 @@ def main():
 
         # ===================================================== ⑪ 幂等 + 不清空
         print("\n【11】幂等（重跑 ≡ 首跑）与 reset_root 不删目录")
-        n1 = sum(1 for e in cg.index["nodes"].values() if e["layer"] == "knowledge")
+        n1 = sum(1 for e in list(cg.index["nodes"].values()) if e["layer"] == "knowledge")
         index_read(cg, code_dir)
-        n2 = sum(1 for e in cg.index["nodes"].values() if e["layer"] == "knowledge")
+        n2 = sum(1 for e in list(cg.index["nodes"].values()) if e["layer"] == "knowledge")
         check("重跑 index_code：knowledge 节点数不变（原子覆盖）",
               n1 == n2, f"{n1} == {n2}")
         check("代码节点数 == 直接抽取条目数",

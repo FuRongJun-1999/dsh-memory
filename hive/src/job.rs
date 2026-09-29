@@ -3,14 +3,24 @@
 //! ```text
 //! jobs/
 //!   _serve.json               # serve 心跳 {pid, ts, workers}（主循环每拍写）
+//!   _quarantine/              # 坏 status 隔离保留区（H-3；doctor --quarantine 移入）
+//!     <job_id>/               #   整体 rename 移入（任务目录原样，逐字节不动）
 //!   <job_id>/
 //!     spec.json               # 任务规格（submit 写；先写）
 //!     status.json             # 状态（submit 写初始 pending；status.json 出现 = 任务就绪可领取）
+//!     status.corrupt.json     # 坏 status 标记（H-3；serve 持续 N 拍解析失败后落。
+//!                             #   **旁证，不是任务本体**——status.json 坏也照原样留着）
 //!     result.json             # 执行器产物（成功/API 错误均写，error 字段区分；
 //!                             #   锚预期任务须带 result_anchor 回写锚，见 scheduler）
 //!     kill                    # kill 标志（任意宿主创建；worker 检测到即强杀）
 //!     claimed.lock            # 领取原子锁（create_new 成功者独占该任务）
 //! ```
+//!
+//! H-3（坏 status 不再静默）：`status.json` 不可解析时**既不改写它、也不当成
+//! 半成品无限等待**——serve 周期扫描计数、达阈值落 `status.corrupt.json` 标记、
+//! doctor 归 `corrupt` 独立类别、`doctor --quarantine` 可整体移入 `_quarantine/`
+//! 退出领取面（可 --unquarantine 原路退回）。**自动终态化不做**：那会让坏文件被
+//! 静默吞掉，正是本缺陷的反面；坏 status 的处置权留给显式隔离与人工。
 //!
 //! P11 结果完整性锚（批次53）：提交面解析到锚密钥（keyres.rs）时，status.json
 //! 追加 `result_nonce`（init_job_with_anchor）= 该任务声明锚预期——serve 拉起执行器
@@ -180,6 +190,119 @@ pub fn claim(dir: &Path) -> bool {
 /// 调用方按 pending 前态处理）；坏文件 → Err（事故信号不吞）。
 pub fn read_status(dir: &Path) -> Result<Json, String> {
     read_json(&dir.join("status.json"))
+}
+
+// ---------------------------------------------------- H-3 坏 status（可观测且可处置）
+
+/// status.json 读取**三态**（H-3）。
+///
+/// 旧 `read_status` 把「文件不在」与「文件在但坏」都归 Err，调用方无从分辨
+/// 「提交竞态窗口（正常时序，下拍就好）」与「status 损坏（事故，永不自愈）」，
+/// 于是只能一律当半成品无限等待——这正是 H-3 的病灶（任务既不被领取也不被
+/// 清理，只在 doctor 里变成一个 unknown）。
+/// 生效条件：dir/status.json 存在且可解析 → `Ok(Json)`；**不存在** → `Absent`
+/// （提交竞态窗口/手工删，调用方按「未就绪」下拍再看）；存在但读/解析失败 →
+/// `Corrupt(原因)`——**必须与 Absent 区别对待**：Corrupt 是可观测、可标记、
+/// 可隔离的事故信号，Absent 是正常时序。判据唯一实现（serve 主循环 /
+/// recover_orphans / doctor 三处共用，勿各自 try/catch 出第二套口径）。
+/// 不适用条件：不判断 state 取值合法性（那是 state 语义面的事，与本判据无关）。
+pub enum StatusRead {
+    Ok(Json),
+    Absent,
+    Corrupt(String),
+}
+
+/// 生效条件：dir 给定 → 按 StatusRead 三态分类（存在性先判，再解析）；
+/// 文件不存在一律 Absent（与解析失败的 Corrupt 不混淆）。
+pub fn read_status_classified(dir: &Path) -> StatusRead {
+    let p = dir.join("status.json");
+    if !p.is_file() {
+        return StatusRead::Absent;
+    }
+    match read_json(&p) {
+        Ok(v) => StatusRead::Ok(v),
+        Err(e) => StatusRead::Corrupt(e),
+    }
+}
+
+/// 坏 status 标记文件名（H-3）。
+///
+/// **旁证，不是任务本体**：status.json 即便不可解析也照原样留着（既是诊断证据，
+/// 也是人工修复的输入）——标记只是「这台任务当前坏着」的独立落点，任何路径都
+/// **不得**改写成 status.json 自己（覆盖任务本体 = 把事故静默吞掉）。
+pub const CORRUPT_MARK: &str = "status.corrupt.json";
+
+/// 坏 status 隔离保留区目录名（H-3）：池内子目录，`list_jobs` 只收 `h` 前缀
+/// 目录，故移入者自动退出领取面/统计面（=「移出池」），但同卷同根——rename
+/// 原子、任务目录逐字节不动、可原路退回（`doctor --unquarantine`）。
+pub const QUARANTINE_DIR: &str = "_quarantine";
+
+/// 生效条件：恒成立——坏 status 标记文件的路径（dir/status.corrupt.json）。
+pub fn corrupt_mark_path(dir: &Path) -> PathBuf {
+    dir.join(CORRUPT_MARK)
+}
+
+/// 生效条件：标记文件存在且合法 → Some(Json)；不存在/坏文件 → None
+/// （消费者按「无标记」处理，不伪造默认值）。
+pub fn read_corrupt_mark(dir: &Path) -> Option<Json> {
+    read_json(&corrupt_mark_path(dir)).ok()
+}
+
+/// 生效条件：标记文件存在则删除，返回是否真的删了（幂等：无标记 → false
+/// 不报错）——status 恢复可解析时撤销标记，信号跟随现实而非陈化。
+pub fn clear_corrupt_mark(dir: &Path) -> bool {
+    fs::remove_file(corrupt_mark_path(dir)).is_ok()
+}
+
+/// 落坏 status 标记（H-3）：**只写 status.corrupt.json，绝不碰 status.json**。
+/// 生效条件：dir 可写且 job_id/ticks/threshold/first_ts/err 给定 → 写标记文件
+/// （tmp+rename 原子，write_json 同款）；写失败 → Err 透传（serve 侧 `let _`，
+/// 标记尽力而为：盘满/只读时 serve 的 stderr 告警与 doctor 归类仍在，不静默）。
+/// 不适用条件：不改写/不改名 status.json（任务本体不受任何影响）。
+pub fn write_corrupt_mark(
+    dir: &Path,
+    job_id: &str,
+    ticks: u64,
+    threshold: u64,
+    first_ts: u128,
+    err: &str,
+) -> Result<(), String> {
+    let v = Json::Obj(vec![
+        ("job_id".to_string(), Json::Str(job_id.to_string())),
+        ("kind".to_string(), Json::Str("status_unparseable".to_string())),
+        ("detected_ts".to_string(), Json::Num(now_ms() as f64)),
+        ("first_ts".to_string(), Json::Num(first_ts as f64)),
+        ("ticks".to_string(), Json::Num(ticks as f64)),
+        ("threshold".to_string(), Json::Num(threshold as f64)),
+        ("last_error".to_string(), Json::Str(err.to_string())),
+        (
+            "note".to_string(),
+            Json::Str(
+                "status.json 不可解析（≥threshold 拍）：任务不被领取、不被改写；\
+                 处置=doctor 归类 corrupt 后 doctor --quarantine 移出池（可 --unquarantine 退回）。\
+                 本标记为独立旁证文件，status.json 本体逐字节未动。"
+                    .to_string(),
+            ),
+        ),
+    ]);
+    write_json(&corrupt_mark_path(dir), &v).map_err(|e| e.to_string())
+}
+
+/// 隔离保留区中的任务名（H-3）：jobs/_quarantine 下 h 前缀目录，名升序。
+/// 生效条件：jobs 给定 → 返回保留区内的任务目录名（目录不存在 → 空列表）；
+/// 这些任务已退出领取面（list_jobs 不收），doctor 据此如实报「已隔离」。
+pub fn quarantined_jobs(jobs: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(rd) = fs::read_dir(jobs.join(QUARANTINE_DIR)) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with('h') && e.path().is_dir() {
+                out.push(name);
+            }
+        }
+    }
+    out.sort();
+    out
 }
 
 /// 更新 status.json 的若干字段（读-改-写，全量覆盖）。

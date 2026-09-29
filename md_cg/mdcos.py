@@ -668,7 +668,7 @@ class MdCGOS(MdCG):
         """
         now = time.time() if validity else None
         out = []
-        for e in self.index["nodes"].values():
+        for e in list(self.index["nodes"].values()):
             if e.get("layer") in ("rejected", "unresolved", "goals"):
                 continue  # 负记忆走覆盖标记；目标只做定向，都不进正排
             # '"*"' = 显式跨会话（读遍所有会话）；缺省 None 同义（见 stg.timeline）
@@ -741,7 +741,7 @@ class MdCGOS(MdCG):
     def _neg_coverage(self, terms):
         """负记忆覆盖：查询词是否已被 rejected/unresolved 覆盖。"""
         out = []
-        for e in self.index["nodes"].values():
+        for e in list(self.index["nodes"].values()):
             if e.get("layer") not in ("rejected", "unresolved"):
                 continue
             fm, content = self._read(e)
@@ -1312,6 +1312,14 @@ class MdCGOS(MdCG):
         view：角色化读取视图（第四阶段 6.1，显式启用，缺省 None 零变更）。
             view **进热路径缓存键**（不同视图候选资格不同，不入键会跨视图
             串结果）；候选层语义与 search 一致，详见 _candidates。
+        门控（S1 域收敛 / S1b 桶收敛 / S2 条件硬槽 / S4 层级审计，契约
+            docs/hive/检索路径与认知结构契约_v0.1.md §3）：总开关
+            `MDCG_RETRIEVAL_PIPELINE=1` 时本入口与 `MdCGOS.search` /
+            `MdCG.search` **共用同一实现** `apply_retrieval_gates`——候选面在
+            四路候选生成之前收敛，`meta["gates"]` 与 `search` 逐位相同。
+            默认（总开关未设）该函数是恒等变换且 **不落 gates 键**（零变更）。
+            S3 spread / S7 postings 属 `search` 的候选生成段（新 tier），
+            本入口的对应物是 reach——不在本函数内。
         """
         q = (query or "").strip()
         # 批次 15 统一口径（unify.py）：任意语言 query → 标准原子序列；
@@ -1370,10 +1378,27 @@ class MdCGOS(MdCG):
                 _m["time_filter"] = _tf
             return [], _m
 
+        # S1/S1b/S2 收敛 + S4 审计——**与 MdCGOS.search / MdCG.search 同一实现**
+        # （C-8：本入口此前整段不含门控——gates 键不出现、scanned 恒全表；同一
+        # 开关下两条生产读路径的候选面分裂：`cg(op=read, query)` 经 search 收敛，
+        # `mdcg_recall`（budget_tokens 分支 → 本函数）不收敛。收敛点在
+        # `_candidates` 之后、四路候选生成之前，与 MdCGOS.search 插入点同构——
+        # lexical/bucket/entity/graph/chain 各路均以 entries 为候选投影面
+        # （_path_chain 的 allowed={id(e)}、_path_graph 的 by_id 都取自 entries），
+        # 故收敛对整条融合链一致生效，不存在「部分路收敛、部分路不收敛」）。
+        # min_results 传 1：本函数无 min_results 形参，与 MdCGOS.search 的缺省
+        # 一致（任一收敛命中不足即回退不收敛，召回安全不变量不变）。
+        # gates 非空才落键：默认关时 meta 键集合与改动前逐字节一致（零变更纪律）。
+        terms = expand_query_terms(q)
+        big_domain = routing.big_domain_classify(terms)
+        entries, gates = apply_retrieval_gates(
+            entries, terms, big_domain, context, 1)
+
         stat = {"scanned": 0}
         if _tf:
             stat["time_filter"] = _tf
         _tf_meta = {"time_filter": _tf} if _tf else {}
+        _gates_meta = {"gates": gates} if gates else {}
         ranked = {}          # path -> [(node, score)]
         fuzzy_source = None
         chain_prov = {}
@@ -1500,7 +1525,8 @@ class MdCGOS(MdCG):
                          "early_stopped": early_stopped,
                          "expand_source": fuzzy_source,
                          "goal_used": goal_used,
-                         "provenance": prov, **_tf_meta}, k=k, layer=layer,
+                         "provenance": prov, **_tf_meta,
+                         **_gates_meta}, k=k, layer=layer,
                          session=session, branch=branch, validity=validity,
                          view=view, extra=_cache_extra)
         return results, {"tier": "RRF", "scanned": stat["scanned"],
@@ -1510,7 +1536,8 @@ class MdCGOS(MdCG):
                          "early_stopped": early_stopped,
                          "expand_source": fuzzy_source,
                          "goal_used": goal_used,
-                         "provenance": prov, **_tf_meta}
+                         "provenance": prov, **_tf_meta,
+                         **_gates_meta}
 
     # ================= 7. budget-driven pack =================
 
@@ -2133,7 +2160,7 @@ class MdCGOS(MdCG):
     def review_records(self, pid: str = None):
         """列出裁决记录节点（self 层 / audit 标签），供外部来源审计。"""
         out = []
-        for nid, e in self.index["nodes"].items():
+        for nid, e in list(self.index["nodes"].items()):
             if e.get("layer") != "self":
                 continue
             tags = e.get("tags") or []
@@ -2550,7 +2577,7 @@ class MdCGOS(MdCG):
     def _session_notes(self, session=None, limit=5):
         """按时间倒序取会话要点（索引过滤 + 可见性闸 + 惰性回读摘要）。只读，不写盘。"""
         out = []
-        for nid, e in (self.index.get("nodes") or {}).items():
+        for nid, e in list((self.index.get("nodes") or {}).items()):
             tags = list(e.get("tags") or [])
             if self.SESSION_TAG not in tags and not any(
                     str(t).startswith("session:") for t in tags):
@@ -2643,7 +2670,7 @@ class MdCGOS(MdCG):
             pack["degraded"].append("recent")
         # ④ 未解问题（驱动主动补全）
         try:
-            for nid, e in (self.index.get("nodes") or {}).items():
+            for nid, e in list((self.index.get("nodes") or {}).items()):
                 if e.get("layer") != "unresolved":
                     continue
                 # N211（2026-09-28，本族第二出口，原树内并号 N209 按 v24 裁定改判）：与 ① 会话要点同根——此处也
@@ -2951,7 +2978,7 @@ class MdCGOS(MdCG):
         if act == "stat":
             nodes = self.index.get("nodes") or {}
             by_layer, imp_sum, protected, missing_basis = {}, 0.0, 0, 0
-            for e in nodes.values():
+            for e in list(nodes.values()):
                 lay = e.get("layer") or "?"
                 by_layer[lay] = by_layer.get(lay, 0) + 1
                 imp_sum += float(e.get("importance", 0.0) or 0.0)
@@ -3272,7 +3299,7 @@ class MdCGOS(MdCG):
 # 生效条件：无前置；遍历 self.index["nodes"] 按 e.get("role") 或 "(none)" 计数，返回 role → 计数 dict（不过滤、不排序）；
     def _role_counts(self):
         c = {}
-        for e in self.index["nodes"].values():
+        for e in list(self.index["nodes"].values()):
             r = e.get("role") or "(none)"
             c[r] = c.get(r, 0) + 1
         return c
@@ -4171,6 +4198,11 @@ class MdCGSecure(MdCGOS):
         fail-closed 直接抛出（与候选层同口径，不会静默放行）。
         时间算子（阶段二 4.1）同理由此二次过滤——判据复用 `trust.filter_by_time`
         的同一实现口径（`window_matches_node`），**不另写一套轴/算子判断**。
+        门控（S1/S1b/S2/S4）：**不是本层的职责**——父类 `MdCGOS.search_rrf` 与
+        `search` 共用同一 `apply_retrieval_gates`（C-8），候选面在四路候选生成
+        之前即收敛，`meta["gates"]` 原样透传（本层不复制、不改写）。本层只做
+        「不可见 / 过期 / 视图不合」的终态剔除，与门控正交（门控=候选面收敛，
+        本层=资格兜底），**不得被当作门控的替代**。
         边界：本层计数不并入 `meta["time_filter"]`（该块以父类候选层为准），
         二次过滤只做「不放进结果」的兜底，差额如实不记账。
         """
@@ -4280,7 +4312,7 @@ class MdCGSecure(MdCGOS):
         out = {"principal": p.as_dict(), "root": self.root,
                "readable_sensitivities": [s for s in SENSITIVITY_ORDER
                                           if p.allows(s)],
-               "nodes_visible": sum(1 for e in self.index["nodes"].values()
+               "nodes_visible": sum(1 for e in list(self.index["nodes"].values())
                                     if self._readable(e)),
                "nodes_total": len(self.index["nodes"]),
                "encryption": self.crypto_status()}
@@ -4322,7 +4354,7 @@ class MdCGSecure(MdCGOS):
 # 生效条件：对 self.index["nodes"] 遍历生效——按每条 e 的 sensitivity（假值回落 DEFAULT_SENSITIVITY）累计计数并返回该字典。
     def _sensitivity_counts(self):
         c = {}
-        for e in self.index["nodes"].values():
+        for e in list(self.index["nodes"].values()):
             s = e.get("sensitivity") or DEFAULT_SENSITIVITY
             c[s] = c.get(s, 0) + 1
         return c

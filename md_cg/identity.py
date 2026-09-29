@@ -277,7 +277,7 @@ def infer_position(cg, subject_id):
     tag = f"subject:{subject_id}"
     nodes = cg.index.get("nodes") or {}
     votes, n = {}, 0
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         tg = set(e.get("tags") or [])
         if tag not in tg or (tg & {TAG_ANCHOR, TAG_TRAIT}):
             continue
@@ -313,7 +313,7 @@ def profile(cg, subject_id):
     tag = f"subject:{subject_id}"
     nodes = cg.index.get("nodes") or {}
     anchors, traits = [], []
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         tg = set(e.get("tags") or [])
         if tag not in tg:
             continue
@@ -342,7 +342,7 @@ def positions(cg, limit=0):
     """所有主体的位置效应分布（OS 视角：谁在记录/反思/验证/输出/维生）。"""
     nodes = cg.index.get("nodes") or {}
     counts = {}
-    for _nid_, e in nodes.items():
+    for _nid_, e in list(nodes.items()):
         for t in (e.get("tags") or []):
             if isinstance(t, str) and t.startswith("subject:"):
                 sid = t[len("subject:"):]

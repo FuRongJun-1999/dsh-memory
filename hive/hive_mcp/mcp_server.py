@@ -418,6 +418,13 @@ def _submit(jobs: str, spec: dict) -> str:
 _PARSE_CACHE = {}          # path -> (mtime_ns, size, parsed)
 _PARSE_CACHE_MAX = 256
 
+# H-3（坏 status 观测面）：与 rust 侧 job.rs 的同名常量逐字一致——
+#   CORRUPT_MARK = serve 连续 N 拍解析失败后落的**旁证**标记（绝不改写 status.json 本体）；
+#   QUARANTINE_DIR = doctor --quarantine 移入的池内保留区（list_jobs 只收 h 前缀目录，
+#   故移入者自动退出领取面/统计面）。两处不一致 = 两个口径（本仓明令避免）。
+CORRUPT_MARK = "status.corrupt.json"
+QUARANTINE_DIR = "_quarantine"
+
 
 # 生效条件：path 与 parse 给定；os.stat(path) 抛 OSError 时摘除该 path 的缓存项并原样执行 parse()（其异常语义由调用方处理），stat 成功且缓存命中（(st_mtime_ns, st_size) 与登记值相等）时返回登记解析值，否则执行 parse()、成功返回（不抛异常）后登记（含超上限先整体清空）并返回其值。
 def _cached_json(path, parse):
@@ -446,6 +453,32 @@ def _read_status(jobs: str, job_id: str):
     except (OSError, ValueError):
         return None
     return dict(st) if isinstance(st, dict) else st
+
+
+# 生效条件：jobs 与 job_id 给定；status.json 不存在 → ("absent", None)（提交竞态窗口的正常
+# 时序），存在且解析成功 → ("ok", st)，存在但解析失败 → ("corrupt", 原因文本)（事故信号）。
+# H-3：与 rust `job::read_status_classified` 三态同口径——**必须把「不在」与「坏」分开**，
+# 旧版把两者都压成读不到（None），doctor 里就只剩一个 unknown，事故与正常时序不可分。
+def _status_class(jobs: str, job_id: str):
+    p = os.path.join(jobs, job_id, "status.json")
+    if not os.path.isfile(p):
+        return ("absent", None)
+    st = _read_status(jobs, job_id)
+    if st is None:
+        return ("corrupt", f"{p}: status.json 不可解析")
+    return ("ok", st)
+
+
+# 生效条件：jobs 给定——返回隔离保留区（jobs/_quarantine）内的任务名（h 前缀目录，
+# 名升序）；目录不存在/不可读 → 空列表。与 rust `job::quarantined_jobs` 同口径。
+def _quarantined_jobs(jobs: str):
+    root = os.path.join(jobs, QUARANTINE_DIR)
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return []
+    return sorted(n for n in names
+                  if n.startswith("h") and os.path.isdir(os.path.join(root, n)))
 
 
 def _load_json_file(p: str):
@@ -621,18 +654,34 @@ def _t_kill(a: dict) -> dict:
     return {"ok": True, "job_id": job_id, "hint": "worker 检测到 kill 标志后强杀（≤1s）"}
 
 
-# 生效条件：_a 给定且内容未被使用；遍历 jobs 下以 "h" 开头的目录按 (status or {}).get("state") or "unknown" 计数并读 _heartbeat(jobs) 后返回单个 ok: True 字典，其中 serve_alive=_serve_alive(jobs)、exe_found=os.path.isfile(_exe_path())、exec_source 依 hb.get("exec_py") 真值取 "serve_heartbeat" 否则 "no_heartbeat_or_legacy"。
+# 生效条件：_a 给定且内容未被使用；遍历 jobs 下以 "h" 开头的目录按三态分类（_status_class，H-3）计数——
+# ok 取 (status or {}).get("state") or "unknown"、absent 计 "no_status"（提交竞态窗口）、corrupt 计独立类别
+# "corrupt" 并进 corrupt_jobs 明细（job_id/error/marker）；再读 _heartbeat(jobs) 与隔离保留区（quarantined）
+# 后返回单个 ok: True 字典，其中 serve_alive=_serve_alive(jobs)、exe_found=os.path.isfile(_exe_path())、
+# exec_source 依 hb.get("exec_py") 真值取 "serve_heartbeat" 否则 "no_heartbeat_or_legacy"。
 def _t_doctor(_a: dict) -> dict:
     jobs = _jobs_dir()
     exe = _exe_path()
     cfg, cfg_err = _load_local_config()
     states = {}
+    corrupt_jobs = []
     for jid in sorted(
         n for n in os.listdir(jobs)
         if n.startswith("h") and os.path.isdir(os.path.join(jobs, n))
     ):
-        st = _read_status(jobs, jid)
-        s = (st or {}).get("state") or "unknown"
+        kind, st = _status_class(jobs, jid)
+        if kind == "ok":
+            s = (st or {}).get("state") or "unknown"
+        elif kind == "corrupt":
+            # H-3：坏 status 单列独立类别 + 明细（不再被压进 unknown 里静默）
+            s = "corrupt"
+            corrupt_jobs.append({
+                "job_id": jid,
+                "error": st,
+                "marker": os.path.isfile(os.path.join(jobs, jid, CORRUPT_MARK)),
+            })
+        else:
+            s = "no_status"
         states[s] = states.get(s, 0) + 1
     hb = _heartbeat(jobs)
     return {
@@ -642,6 +691,14 @@ def _t_doctor(_a: dict) -> dict:
         "exe_path": exe,
         "jobs_dir": jobs,
         "task_states": states,
+        # H-3 观测面（与 CLI `hive doctor` 同口径）：坏 status 明细 + 已隔离件清单
+        "corrupt_jobs": corrupt_jobs,
+        "quarantine_dir": os.path.join(jobs, QUARANTINE_DIR),
+        "quarantined": _quarantined_jobs(jobs),
+        "corrupt_note": ("corrupt=status.json 存在但不可解析（事故信号，不自动终态化——"
+                         "那会把坏文件静默吞掉）；处置=`hive doctor --quarantine` 移出池"
+                         "（可 `--unquarantine` 退回），坏字节原样保留供诊断。"
+                         "no_status=任务目录在但 status.json 尚未出现（提交竞态窗口，正常时序）。"),
         # 执行器资格（**优先采信 serve 自报的心跳**，与 CLI doctor 同口径）
         "exec_py": hb.get("exec_py"),
         "exec_mode": hb.get("exec_mode"),

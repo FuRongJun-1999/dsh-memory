@@ -79,7 +79,7 @@ def _append(cg, rec):
 def _events(cg):
     """全部洞见事件节点 id（按 index 层标签粗筛，避免全量读盘）。"""
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
-    return [nid for nid, e in nodes.items()
+    return [nid for nid, e in list(nodes.items())
             if TAG_EVENT in ((e or {}).get("tags") or [])]
 
 
@@ -438,7 +438,7 @@ def outlook(cg, window_days=None, sample_limit=8, recent_days=7, now=None):
     imps, protected, no_neg, recent = [], 0, 0, 0
     lo_recent = now - float(recent_days) * 86400.0
     hi_imp_unprotected = []
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         e = e or {}
         layers[_layer_of(e)] = layers.get(_layer_of(e), 0) + 1
         b = str(e.get("verification_basis") or "unset")

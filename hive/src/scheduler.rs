@@ -1,12 +1,23 @@
 //! 并发调度核心：领取 → worker 池执行 → 心跳 / 超时强杀 / kill → 终态。
 //!
 //! 零依赖并发模型（纯 std）：
-//!   * 主循环（serve 线程）：扫描 pending 任务 → `claimed.lock` 原子领取 →
-//!     投递 mpsc 队列；每拍写 serve 心跳（`_serve.json`）；
+//!   * 主循环（serve 线程）：扫描 pending 任务 → 占在飞名额（H-7，满员即本拍
+//!     不再领取）→ `claimed.lock` 原子领取 → 投递 mpsc 队列；每拍写 serve 心跳
+//!     （`_serve.json`）；
 //!   * worker 池（`HIVE_WORKERS` 线程）：从共享队列领任务 → 拉起执行器
 //!     子进程 → 1s 轮询（子进程退出 / kill 标志 / 超时）→ 写心跳与终态；
 //!   * 停机语义（drain）：`stop` 置位后主循环停投、关闭队列；worker 把
 //!     队列内已领任务跑完再退（最长一个 timeout_s）——不产孤儿，测试友好。
+//!
+//! H-7 领取上界（本轮）：**领取与投递解耦为有界在飞名额**（`InFlight`，容量 =
+//! workers）。旧版主循环一拍把**全部** pending 任务 claim 进无界 mpsc 队列——
+//! 上界 ceil(N/workers)×timeout_s 并不成立（实测 workers=1 时 3 条 pending 同拍
+//! 全部转 claimed，只有 1 条能真跑），且 claimed 态无 pid/心跳，池外观察者分不出
+//! 「在跑」与「排在队里干等」，kill 对未开跑者也看不到。现在领取点前先占一个在飞
+//! 名额、满员即结束本拍扫描：不变量 = **任一时刻处于 claimed/running 的任务数
+//! ≤ workers**（领取锁在手必然名额在手），超额任务老实留在 pending（可被 kill/
+//! 隔离/改判据，仍是一等公民），worker 完成后释放名额下一拍继续领——吞吐不变、
+//! 队列深度有界。
 //!
 //! 崩溃恢复：serve 启动时清理上次遗留——**产物说了算**（与 classify_exit 同判据，
 //! 单一实现 `classify_result`）：claimed/running 若已有 result.json 则按产物定终态
@@ -17,11 +28,20 @@
 //! 有产物定终态、无产物删锁重投；主循环侧状态改写失败即回滚领取锁（不吞错、
 //! 不投递），双侧共同保证「锁在手 ⇔ state 已 claimed」，任务无 TTL 悬置归零。
 //!
+//! H-3 坏 status（本轮）：status.json 不可解析**不再被当成半成品无限等待**。
+//! 判据走 `job::read_status_classified` 三态（Ok / Absent / Corrupt）：Absent 是
+//! 提交竞态窗口（下拍再看），Corrupt 是事故——serve 启动时 stderr 告警、每拍
+//! 计数，连续 `CORRUPT_MARK_TICKS` 拍仍不可解析则落**独立标记文件**
+//! `status.corrupt.json`（**绝不改写 status.json 本体**），doctor 归 `corrupt`
+//! 独立类别，`doctor --quarantine` 可整体移出池（可 --unquarantine 退回）。
+//! **不做自动终态化**：那等于把坏文件静默吞掉，正是本缺陷的反面。
+//!
 //! P11 结果完整性锚（批次53）：锚预期任务（status 带 result_nonce）的产物在采信
 //! done 前须过完整性锚校验——锚缺失 → needs_review（不自动采信）、锚不匹配 →
 //! error（拒绝采信）、通过 → done；旧格式任务（无 nonce）维持旧判据（向后兼容）。
 //! 密钥经 ServeCfg.result_key（生产入口 = keyres::resolve_key_from_env()，取
 //! hive 既有配置/令牌面；None = 锚判据不启用，行为与旧版一致）。
+
 
 use crate::exec;
 use crate::job;
@@ -165,37 +185,125 @@ impl ServeCfg {
     }
 }
 
+/// 坏 status 标记阈值（H-3，单位=主循环拍）。
+///
+/// 连续这么多拍读 status.json 都不可解析 → 落 `job::CORRUPT_MARK` 标记文件。
+/// 取 10 拍（poll_ms=400 ⇒ 约 4s）：短于「提交写入窗口」（write_json 是
+/// tmp+fsync+rename 原子替换，正常写入不会让读者看到半成品），又长于任何
+/// 瞬时抖动的量级——「持续不可解析」才落标记，不为一次抖动留痕。
+/// 生效条件：serve 主循环每拍对 Corrupt 类任务计数，达本值（且标记不在场或
+/// 错误文本已变）时写标记；status 恢复可解析即撤销标记。doctor 侧不依赖本
+/// 值（它按「当下是否可解析」即时归类，与阈值解耦——阈值只决定标记何时落）。
+pub const CORRUPT_MARK_TICKS: u64 = 10;
+
+/// H-7 在飞名额：领取点的**有界闸**（容量 = workers）。
+///
+/// 主循环在 `claim()` **之前**先占一个名额，满员即本拍**不再领取**（扫描继续，
+/// 好让观测面——H-3 坏 status 计数/告警——不被容量闸截断）；worker 跑完一个任务
+/// 释放一个。不变量：任一时刻处于 claimed/running 的任务数
+/// ≤ workers——旧版一拍把全部 pending claim 进无界 mpsc 队列（上界不成立），
+/// 且 claimed 态无 pid/心跳，池外无法分辨「在跑」与「在队里干等」。
+/// 纯 std（原子 CAS，无锁无中毒），容量在构造时固定、恒 > 0（ServeCfg 已 clamp）。
+/// 生效条件：cap ≥ 1 给定 → try_acquire 在占用数 < cap 时占一个并返回 true，
+/// 满员返回 false（**调用方不得再 claim**）；release 归还一个（幂等次数由
+/// 调用方保证：acquire 成功者恰好 release 一次）。
+/// 不适用条件：不做排队/阻塞——满员即放弃本拍（下拍自然重试），不引入等待语义。
+struct InFlight {
+    n: std::sync::atomic::AtomicUsize,
+    cap: usize,
+}
+
+impl InFlight {
+    fn new(cap: usize) -> Self {
+        InFlight {
+            n: std::sync::atomic::AtomicUsize::new(0),
+            cap: cap.max(1),
+        }
+    }
+
+    /// 生效条件：占用数 < cap → CAS 占位并返回 true；满员 → false（不修改计数）。
+    fn try_acquire(&self) -> bool {
+        let mut cur = self.n.load(Ordering::SeqCst);
+        loop {
+            if cur >= self.cap {
+                return false;
+            }
+            match self.n.compare_exchange(
+                cur,
+                cur + 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => return true,
+                Err(x) => cur = x,
+            }
+        }
+    }
+
+    /// 生效条件：归还一个名额（仅由 try_acquire 成功者调用，且恰好一次）。
+    fn release(&self) {
+        self.n.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    /// 生效条件：恒成立——当前在飞占用数（诊断/测试可判定面，不参与判据）。
+    #[allow(dead_code)]
+    fn in_flight(&self) -> usize {
+        self.n.load(Ordering::SeqCst)
+    }
+}
+
 /// serve 主入口。阻塞直至 `stop` 置位且 worker drain 完毕。返回退出码。
 /// 生效条件（核心入口 · CCG 六要素）：
 ///   功能名：蜂群并发调度主循环（serve）。
 ///   生效条件：cfg（jobs/workers/exec_py/poll_ms [+互验身份]）与 stop 开关给定；
 ///   同一 jobs 目录至多一个 serve（单实例守卫在 CLI 层）。
-///   子功能：崩溃恢复 / 心跳自报 / job 扫描领取 / worker 并发执行 / 终态落盘。
-///   执行：先 recover_orphans 清理上轮残局，随后每拍写 _serve.json 心跳、
-///   扫描 pending 任务按 workers 上限领取（claimed.lock 原子），stop 置位即停。
-///   N191：领取后状态改写（patch_status("claimed")）失败即回滚领取锁并不投递
-///   （不吞错），保证「锁在手 ⇔ state 已 claimed」不变量成立。
+///   子功能：崩溃恢复 / 心跳自报 / job 扫描领取（H-7 有界在飞名额）/ worker
+///   并发执行 / 终态落盘 / H-3 坏 status 观测与标记。
+///   执行：先 recover_orphans 清理上轮残局（坏 status 在此告警），随后每拍写
+///   _serve.json 心跳、扫描 pending 任务——**先占在飞名额（满员即结束本拍）
+///   再 claim**，坏 status 计数达 CORRUPT_MARK_TICKS 落标记文件（改写状态类
+///   操作一律不碰 status.json 本体）；stop 置位即停。
+///   N191：领取后状态改写（patch_status("claimed")）失败即回滚领取锁并**归还
+///   名额**（不吞错、不投递），保证「锁在手 ⇔ state 已 claimed」不变量成立。
+///   H-7：不变量 = claimed/running 数 ≤ workers（名额先于 claim 占用，任何
+///   失败路径都归还）；超额任务留在 pending，drain 吞吐不变。
 ///   验证方式：test——cargo e2e_done_and_heartbeat / kill_channel /
-///   judgment_surface（recover_by_artifact 等）+ 部署面 M6 实跑。
-///   不适用条件：不做任务内容语义处理（归执行器），不做跨 jobs 目录路由。
+///   judgment_surface（recover_by_artifact 等）+ hive/test_h3_h7_scheduler.py
+///   （坏 status 三态 / 标记 / 逐字节不改写 / quarantine / 上界实测）+ M6 实跑。
+///   不适用条件：不做任务内容语义处理（归执行器），不做跨 jobs 目录路由；
+///   坏 status **不做自动终态化**（那会把坏文件静默吞掉，见模块头 H-3）。
 pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
     std::fs::create_dir_all(&cfg.jobs).expect("建 jobs 目录失败");
     recover_orphans(cfg);
 
+    let inflight = Arc::new(InFlight::new(cfg.workers));
     let (tx, rx) = mpsc::channel::<String>();
     let rx = Arc::new(Mutex::new(rx));
     let mut handles = Vec::new();
     for _ in 0..cfg.workers {
         let rx = Arc::clone(&rx);
         let cfg = cfg.clone();
+        let inflight = Arc::clone(&inflight);
         handles.push(thread::spawn(move || loop {
             let id = { rx.lock().expect("worker 锁中毒").recv() };
             match id {
-                Ok(id) => run_job(&cfg, &id),
+                Ok(id) => {
+                    run_job(&cfg, &id);
+                    // H-7：任务终结（任何终态）即归还在飞名额——下一拍主循环
+                    // 才可再领一条；名额不归还则队列永久变浅（自锁）。
+                    inflight.release();
+                }
                 Err(_) => break, // 队列关闭且已清空 → worker 退出
             }
         }));
     }
+
+    // H-3：坏 status 的跨拍计数与告警去重（键 = job_id）。
+    //   * corrupt_ticks[id] = (首拍时刻 ms, 连续坏读拍数)——读好即删（信号跟随现实）；
+    //   * warned[id] = 本段连续性内是否已告警过（避免每拍刷屏）。
+    let mut corrupt_ticks: std::collections::HashMap<String, (u128, u64)> =
+        std::collections::HashMap::new();
+    let mut warned_corrupt: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // 主循环：心跳 + 扫描领取
     while !stop.load(Ordering::SeqCst) {
@@ -210,11 +318,67 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
             cfg.iter_id.as_deref(),
             None, // progress：批次11 验证编排接线（跑套件时按阶段更新）
         );
+        // H-7 名额用尽标记：本拍不再领取（改由 continue 跳过领取段），但扫描
+        // **继续**——H-3 坏 status 的计数/告警不受名额闸截断（观测面与容量面解耦，
+        // 池满时坏任务照样被计数；反之亦然）。
+        let mut at_capacity = false;
         for id in job::list_jobs(&cfg.jobs) {
             let dir = job::job_dir(&cfg.jobs, &id);
-            let st = match job::read_status(&dir) {
-                Ok(s) => s,
-                Err(_) => continue, // 正在写入的半成品 → 下拍再看
+            // H-3：三态读——Absent（提交竞态窗口）与 Corrupt（事故）分道。
+            let st = match job::read_status_classified(&dir) {
+                job::StatusRead::Ok(s) => {
+                    // 读好即清零并撤销标记（坏→好的回退：信号跟随现实，
+                    // 不留一枚会陈化的旧标记去误导下一班人）
+                    if corrupt_ticks.remove(&id).is_some() {
+                        warned_corrupt.remove(&id);
+                        let _ = job::clear_corrupt_mark(&dir);
+                    }
+                    s
+                }
+                // 文件还没出现 = 正常时序（submit 先写 spec 后写 status），下拍再看
+                job::StatusRead::Absent => continue,
+                job::StatusRead::Corrupt(e) => {
+                    let (first_ts, ticks) = {
+                        let slot = corrupt_ticks
+                            .entry(id.clone())
+                            .or_insert((job::now_ms(), 0));
+                        slot.1 += 1;
+                        (slot.0, slot.1)
+                    };
+                    if warned_corrupt.insert(id.clone()) {
+                        eprintln!(
+                            "[hive serve] 告警：任务 {id} 的 status.json 不可解析（{e}）\
+                             ——按坏 status 处置：不领取、不改写任务本体；连续 \
+                             {CORRUPT_MARK_TICKS} 拍（约 {}s）仍不可解析则落标记文件 {}，\
+                             可由 `hive doctor --quarantine` 隔离",
+                            CORRUPT_MARK_TICKS * cfg.poll_ms / 1000,
+                            job::CORRUPT_MARK
+                        );
+                    }
+                    if ticks >= CORRUPT_MARK_TICKS {
+                        // 标记只在「不在场」或「错误文本已变」时写（不逐拍刷盘）：
+                        // 既保证标记在场，又不在坏盘上做无谓写放大。
+                        let stale = job::read_corrupt_mark(&dir)
+                            .and_then(|m| {
+                                m.get("last_error")
+                                    .and_then(|x| x.as_str())
+                                    .map(String::from)
+                            })
+                            .as_deref()
+                            != Some(e.as_str());
+                        if !job::corrupt_mark_path(&dir).is_file() || stale {
+                            let _ = job::write_corrupt_mark(
+                                &dir,
+                                &id,
+                                ticks,
+                                CORRUPT_MARK_TICKS,
+                                first_ts,
+                                &e,
+                            );
+                        }
+                    }
+                    continue; // 坏 status：既不领取也不改写（诊断证据留在盘上）
+                }
             };
             let state = st.get("state").and_then(|v| v.as_str()).unwrap_or("");
             if state != "pending" {
@@ -241,7 +405,19 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
                 Ok(false) => continue, // 有依赖未终态 → 等待
                 Ok(true) => {}
             }
+            // H-7 有界闸：**先占名额再 claim**。满员即本拍不再领取（at_capacity
+            // 置位，后续任务走同一 continue 路径），但扫描继续——名额闸只关领取，
+            // 不关观测（见循环头注）。顺序不可颠倒：claim 后再发现没空位，就得
+            // 回滚一个已落盘的领取锁（多余的状态写入窗口），而「名额在手才 claim」
+            // 是「锁在手 ⇔ 名额在手」的结构保证。
+            if !at_capacity && !inflight.try_acquire() {
+                at_capacity = true;
+            }
+            if at_capacity {
+                continue; // 本拍名额已满：留给下一拍（任务仍是 pending，可被 kill/隔离）
+            }
             if !job::claim(&dir) {
+                inflight.release();
                 continue; // 已被领取（原子锁失败）
             }
             // N191：状态改写**不得吞错**。旧版 `let _ = patch_status(...)` 后照旧投递：
@@ -257,9 +433,11 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
             .is_err()
             {
                 let _ = std::fs::remove_file(dir.join("claimed.lock"));
+                inflight.release();
                 continue;
             }
             if tx.send(id).is_err() {
+                inflight.release();
                 break; // worker 池已全部退出
             }
         }
@@ -271,6 +449,27 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
         let _ = h.join();
     }
     0
+}
+
+/// 坏 status 扫描（H-3 判据唯一实现）：返回 `(job_id, 原因)` 列表（名升序）。
+///
+/// 判据= `job::read_status_classified` 的 `Corrupt` 态——**只算「文件在但不可
+/// 解析」，不算文件缺失**（缺失是提交竞态窗口的正常时序，报成事故=狼来了）。
+/// 三处共用：recover_orphans（启动告警）、CLI `hive doctor`（corrupt 归类）、
+/// 以及任何需要「池里坏了几台」的观测面——勿各自 try/catch 出第二套口径。
+/// 生效条件：jobs 给定 → 逐个任务目录分类，返回全部 Corrupt 项；池空/无坏
+/// → 空列表；目录不可读按空列表（list_jobs 的既有权衡）。
+/// 不适用条件：不做任何写盘处置（标记落盘归 serve 主循环的跨拍计数，隔离归
+/// doctor --quarantine）——本函数是**只读判据**。
+pub fn scan_corrupt(jobs: &Path) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for id in job::list_jobs(jobs) {
+        let dir = job::job_dir(jobs, &id);
+        if let job::StatusRead::Corrupt(e) = job::read_status_classified(&dir) {
+            out.push((id, e));
+        }
+    }
+    out
 }
 
 /// 崩溃恢复：**产物说了算**——claimed/running 先查 result.json（与 classify_exit
@@ -289,17 +488,48 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
 /// rerun_on_recover_escape_hatch）已迁至 hive/tests/judgment_surface.rs——
 /// 判据面（tests/）与候选面（src/）物理分离，候选弱化测试时 A3 必红。
 /// 生效条件：serve 启动时（每次）对 jobs 目录全体任务执行一次崩溃恢复。
+///   H-3：status.json 不可解析（StatusRead::Corrupt）时**不做任何恢复处置**
+///   （不删锁、不改写——诊断证据留在盘上），但**逐个统计并在启动日志告警**：
+///   坏 status 在启动这一刻就不再静默。周期扫描的计数/标记归 serve 主循环
+///   （阈值语义见 CORRUPT_MARK_TICKS）。
 ///   验证方式：test——cargo judgment_surface::recover_by_artifact（5 分支）+
 ///   rerun_on_recover_escape_hatch（逃生门双态+反向对照）+
 ///   pending_with_residual_claim_recovers（N191 残留领取态三断言）；
 ///   盘面注入：judgment_surface::claim_rollback_on_status_write_failure
-///   （status.json 置只读 → patch_status 恒 Err，实测 WinError 5）。
+///   （status.json 置只读 → patch_status 恒 Err，实测 WinError 5）；
+///   H-3：hive/test_h3_h7_scheduler.py（A/C 组——启动告警 + doctor 归类）。
 ///   不适用条件：不改变正常执行路径（classify_exit 主判据不分叉）；不做跨 serve
-///   协调（单实例守卫在 CLI 层，恢复期假定无活 serve）。
+///   协调（单实例守卫在 CLI 层，恢复期假定无活 serve）；**不自动终态化坏 status**
+///   （自动终态化 = 把坏文件静默吞掉，正是本缺陷的反面）。
 pub fn recover_orphans(cfg: &ServeCfg) {
+    // H-3 启动告警：坏 status 点名（截断到前若干条，防超大池刷屏）。
+    let corrupt = scan_corrupt(&cfg.jobs);
+    if !corrupt.is_empty() {
+        let head: Vec<String> = corrupt
+            .iter()
+            .take(5)
+            .map(|(id, e)| format!("{id}（{e}）"))
+            .collect();
+        eprintln!(
+            "[hive serve] 告警：启动扫描发现 {} 个任务的 status.json 不可解析：{}{}\
+             ——按坏 status 处置：不被领取、不被改写（不做自动终态化）；\
+             连续 {} 拍仍不可解析将落标记文件 {}，可由 `hive doctor --quarantine` 隔离",
+            corrupt.len(),
+            head.join("；"),
+            if corrupt.len() > 5 { "；…" } else { "" },
+            CORRUPT_MARK_TICKS,
+            job::CORRUPT_MARK
+        );
+    }
     for id in job::list_jobs(&cfg.jobs) {
         let dir = job::job_dir(&cfg.jobs, &id);
-        let Ok(st) = job::read_status(&dir) else { continue };
+        let st = match job::read_status_classified(&dir) {
+            job::StatusRead::Ok(st) => st,
+            // H-3：坏 status 无恢复处置（见头注「不适用条件」）——启动告警已在上方
+            job::StatusRead::Corrupt(_) => continue,
+            // 文件还没出现：正常时序（submit 先写 spec 后写 status），非事故
+            job::StatusRead::Absent => continue,
+        };
         let state = st.get("state").and_then(|v| v.as_str()).unwrap_or("");
         // N191（次轮首补候选）：**领取已发生、状态未改写**的窗口残留——state 仍
         // pending 却带 claimed.lock（claim() 与 patch_status("claimed") 之间被
@@ -401,6 +631,103 @@ pub fn recover_orphans(cfg: &ServeCfg) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// H-4 止血（本轮）：拉起执行器的**有界**退避重试
+//
+// 缺陷（H-4b）：`exec::spawn_executor` 失败（解释器不可用 / 拉进程被环境瞬态
+// 挡住）直接落 error 终态、无退避重试——一次瞬时抖动即把任务判死。
+//
+// 边界（只做止血，不做根治）：
+//   * **有界**：尝试次数与单次等待都封顶（`SPAWN_MAX_ATTEMPTS` /
+//     `SPAWN_BACKOFF_MAX_MS`）——无界重试会让 worker 永久占坑，把一个坏解释器
+//     放大成整池停摆；
+//   * **不静默**：尝试次数与**最后试的解释器**写进终态（`spawn_attempts` /
+//     `spawn_interpreter` 字段 + error 文案），超限仍落 error 并保留最后一次失败
+//     原因（不吞错、不冒充成功）；只留一句裸 OS 错误时「找的是哪个解释器」不可见；
+//   * **零回归**：首次即成功时行为逐位不变（不多睡一拍、不多写字段）。
+//
+// 不做（属设计级，须单独立项）：拉起失败的分类治理（可重试/不可重试的判据
+// 面）、worker 池自愈、把 spawn 失败降级为「任务重投 pending」。
+// ---------------------------------------------------------------------------
+
+/// 最多尝试次数（含首次）。3 次足以吸收毫秒级环境瞬态，又不至于让 worker 长占。
+pub const SPAWN_MAX_ATTEMPTS: u32 = 3;
+/// 退避基准：第 1 次失败后等待 `SPAWN_BACKOFF_BASE_MS`，第 n 次后为 base×2^(n-1)。
+pub const SPAWN_BACKOFF_BASE_MS: u64 = 200;
+/// 单次退避上限（防指数放大把 worker 卡死）。
+pub const SPAWN_BACKOFF_MAX_MS: u64 = 2000;
+
+/// 第 `failed` 次失败（1 起）后的等待时长：base × 2^(failed-1)，封顶 MAX。
+/// 生效条件：failed ≥ 1 → 返回 200ms / 400ms / …（≤ 2s）；不适用条件：无。
+fn spawn_backoff(failed: u32) -> Duration {
+    let shift = failed.saturating_sub(1).min(16);
+    let ms = SPAWN_BACKOFF_BASE_MS.saturating_mul(1u64 << shift);
+    Duration::from_millis(ms.min(SPAWN_BACKOFF_MAX_MS))
+}
+
+/// 有界退避重试：至多 `attempts` 次调用 `op`，每次失败后（末次除外）按
+/// `spawn_backoff` 等待。返回 `Ok((值, 尝试次数))` / `Err((最后一次错误, 尝试次数))`。
+///
+/// `sleep` 由调用方注入（生产传 `thread::sleep`）：测试可换成记录器，免真等，
+/// 也让「重试几次、每次等多久」成为可断言面而不是读码推断。
+/// 生效条件：attempts ≥ 1（小于 1 按 1 处理）→ 至少调用 op 一次；
+/// 不适用条件：不吞错（最后一次错误原样带出）、不无界重试（次数硬上界）。
+fn retry_spawn<T, E, F, S>(
+    attempts: u32,
+    mut op: F,
+    mut sleep: S,
+) -> Result<(T, u32), (E, u32)>
+where
+    F: FnMut() -> Result<T, E>,
+    S: FnMut(Duration),
+{
+    let n = attempts.max(1);
+    let mut last: Option<E> = None;
+    for i in 1..=n {
+        match op() {
+            Ok(v) => return Ok((v, i)),
+            Err(e) => {
+                last = Some(e);
+                if i < n {
+                    sleep(spawn_backoff(i));
+                }
+            }
+        }
+    }
+    // n ≥ 1 且走到此处必有一次失败；expect 只是防御（不 panic 拖垮 worker）
+    Err((last.expect("attempts>=1 时循环必有失败"), n))
+}
+
+/// 拉起失败终态：state=error + 原因（含已尝试次数与**最后试的解释器**——
+/// 重试不静默，且「试了哪个解释器」是排障第一问）+ 尝试次数字段。
+/// 解释器取 `exec::python_bin()`（解释器决策的唯一入口，见 exec.rs 该函数注释）；
+/// 文案里如实带上，避免只留一句裸 OS 错误（`program not found` 看不出找的是谁）。
+/// 生效条件：退避重试全部失败时调用；不适用条件：不改写已有成功终态由上层保证
+/// （本函数只在 run_job 的 running 段内调用，此时尚无产物）。
+fn mark_spawn_failed(dir: &Path, attempts: u32, err: &std::io::Error) {
+    let interp = exec::python_bin();
+    let _ = job::patch_status(
+        dir,
+        vec![
+            ("state".to_string(), crate::json::Json::Str("error".into())),
+            (
+                "error".to_string(),
+                crate::json::Json::Str(format!(
+                    "拉起执行器失败（解释器 {interp}，已尝试 {attempts} 次）: {err}"
+                )),
+            ),
+            (
+                "spawn_attempts".to_string(),
+                crate::json::Json::Num(attempts as f64),
+            ),
+            (
+                "spawn_interpreter".to_string(),
+                crate::json::Json::Str(interp),
+            ),
+        ],
+    );
+}
+
 /// worker 执行单个任务：拉起执行器 → 1s 轮询（退出 / kill / 超时）→ 终态。
 /// 生效条件：serve 主循环领取到任务时调用（claimed 已原子持有）——拉起执行器
 /// 子进程（exec_py）、写 running 心跳、落 progress、终态经 classify_exit 按产物
@@ -453,20 +780,17 @@ fn run_job(cfg: &ServeCfg, id: &str) {
         ],
     );
 
-    let mut child = match exec::spawn_executor(&cfg.exec_py, &dir, spawn_anchor(&dir, cfg).as_deref())
-    {
-        Ok(c) => c,
-        Err(e) => {
-            let _ = job::patch_status(
-                &dir,
-                vec![
-                    ("state".to_string(), crate::json::Json::Str("error".into())),
-                    (
-                        "error".to_string(),
-                        crate::json::Json::Str(format!("拉起执行器失败: {e}")),
-                    ),
-                ],
-            );
+    // H-4 止血：拉起执行器改为**有界退避重试**（次数/间隔有界，超限仍落 error
+    // 并保留最后一次原因）。首次即成功时与旧路径逐位等价（retry_spawn 立刻
+    // 返回 Ok(_, 1)，一次多余等待都没有）。
+    let (mut child, _spawn_attempts) = match retry_spawn(
+        SPAWN_MAX_ATTEMPTS,
+        || exec::spawn_executor(&cfg.exec_py, &dir, spawn_anchor(&dir, cfg).as_deref()),
+        thread::sleep,
+    ) {
+        Ok(v) => v,
+        Err((e, attempts)) => {
+            mark_spawn_failed(&dir, attempts, &e);
             return;
         }
     };
@@ -1007,4 +1331,216 @@ with open(os.path.join(d, "result.json"), "w", encoding="utf-8") as f:
         let _ = fs::remove_dir_all(&tmp);
     }
 
+    // ---- H-4 止血：拉起执行器的有界退避重试（判据 = retry_spawn 的可断言面）----
+
+    /// 退避表有界且单调不减：base×2^(n-1)，封顶 SPAWN_BACKOFF_MAX_MS。
+    #[test]
+    fn spawn_backoff_is_bounded_and_monotonic() {
+        assert_eq!(spawn_backoff(1), Duration::from_millis(SPAWN_BACKOFF_BASE_MS));
+        assert_eq!(spawn_backoff(2), Duration::from_millis(SPAWN_BACKOFF_BASE_MS * 2));
+        let mut prev = Duration::ZERO;
+        for n in 1..=64u32 {
+            let d = spawn_backoff(n);
+            assert!(d >= prev, "退避必须单调不减：n={n} {d:?} < {prev:?}");
+            assert!(
+                d <= Duration::from_millis(SPAWN_BACKOFF_MAX_MS),
+                "退避必须封顶：n={n} → {d:?}"
+            );
+            prev = d;
+        }
+        assert_eq!(
+            spawn_backoff(64),
+            Duration::from_millis(SPAWN_BACKOFF_MAX_MS),
+            "大 n 必须落在上限（指数不放大到卡死 worker）"
+        );
+    }
+
+    /// 瞬时失败后成功：尝试次数 = 失败数 + 1，且只等「已失败次数」次。
+    #[test]
+    fn retry_spawn_recovers_after_transient_failures() {
+        let mut calls = 0u32;
+        let mut slept: Vec<Duration> = Vec::new();
+        let r = retry_spawn(
+            SPAWN_MAX_ATTEMPTS,
+            || {
+                calls += 1;
+                if calls < 3 {
+                    Err(format!("瞬态失败#{calls}"))
+                } else {
+                    Ok("spawned")
+                }
+            },
+            |d| slept.push(d),
+        );
+        assert_eq!(r, Ok(("spawned", 3)), "第 3 次成功 → (值, 3)");
+        assert_eq!(calls, 3);
+        assert_eq!(
+            slept,
+            vec![spawn_backoff(1), spawn_backoff(2)],
+            "只等「已失败次数」次，末次成功后不再等"
+        );
+    }
+
+    /// 一直失败：尝试次数**有界**（= SPAWN_MAX_ATTEMPTS）、末次错误原样带出、
+    /// 等待次数 = 尝试次数 - 1，且单次等待封顶。
+    #[test]
+    fn retry_spawn_exhausts_bounded_and_keeps_last_error() {
+        let mut calls = 0u32;
+        let mut slept: Vec<Duration> = Vec::new();
+        let r: Result<((), u32), (String, u32)> = retry_spawn(
+            SPAWN_MAX_ATTEMPTS,
+            || {
+                calls += 1;
+                Err(format!("失败#{calls}"))
+            },
+            |d| slept.push(d),
+        );
+        assert_eq!(r, Err(("失败#3".to_string(), SPAWN_MAX_ATTEMPTS)));
+        assert_eq!(calls, SPAWN_MAX_ATTEMPTS, "调用次数必须恰好等于硬上界");
+        assert_eq!(slept.len(), (SPAWN_MAX_ATTEMPTS - 1) as usize);
+        assert!(slept.iter().all(|d| *d <= Duration::from_millis(SPAWN_BACKOFF_MAX_MS)));
+    }
+
+    /// 反向对照（判据不空转）：把重试面关掉（attempts=1，即修复前「一次即判死」
+    /// 的形态），本轮判据所依赖的谓词必须**转假**——证明上面两条断言真的能区分
+    /// 「有退避重试」与「无退避重试」，而不是恒真。
+    #[test]
+    fn retry_spawn_reverse_control_single_attempt_is_red() {
+        let mut calls = 0u32;
+        let r: Result<((), u32), (String, u32)> = retry_spawn(
+            1,
+            || {
+                calls += 1;
+                Err("失败".to_string())
+            },
+            |_| {},
+        );
+        assert_eq!(r, Err(("失败".to_string(), 1)));
+        assert_eq!(calls, 1);
+        // 判据谓词（修复形态要求「≥2 次尝试」）在反向对照下必须为假
+        let fixed_form = matches!(r, Err((_, n)) if n == SPAWN_MAX_ATTEMPTS && calls >= 2);
+        assert!(!fixed_form, "反向对照下判据必须转假（否则判据恒真=空转）");
+    }
+
+    /// 终态落盘：超限仍落 error，且原因里带**已尝试次数**、**最后试的解释器**与
+    /// 最后一次失败原因（可观测、不静默），并落 spawn_attempts / spawn_interpreter
+    /// 字段——「试了哪个解释器」是排障第一问，只留裸 OS 错误看不出找的是谁。
+    #[test]
+    fn mark_spawn_failed_lands_error_with_reason() {
+        let jobs = tmpjobs("spawnfail_mark");
+        let a = submit(&jobs, "0", 60);
+        let dir = job::job_dir(&jobs, &a);
+        let err = std::io::Error::new(std::io::ErrorKind::NotFound, "解释器不存在");
+        mark_spawn_failed(&dir, SPAWN_MAX_ATTEMPTS, &err);
+        let st = job::read_status(&dir).unwrap();
+        assert_eq!(st.get("state").and_then(|v| v.as_str()), Some("error"));
+        let text = st.get("error").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(
+            text.contains("拉起执行器失败") && text.contains("已尝试 3 次"),
+            "error 文案须含尝试次数: {text}"
+        );
+        assert!(text.contains("解释器不存在"), "末次原因须保留: {text}");
+        let interp = exec::python_bin();
+        assert!(
+            text.contains(&interp),
+            "error 文案须点名最后试的解释器（{interp}）: {text}"
+        );
+        assert_eq!(
+            st.get("spawn_attempts").and_then(|v| v.as_f64()),
+            Some(3.0),
+            "尝试次数须成为可观测字段"
+        );
+        assert_eq!(
+            st.get("spawn_interpreter").and_then(|v| v.as_str()),
+            Some(interp.as_str()),
+            "最后试的解释器须成为可观测字段"
+        );
+        let _ = fs::remove_dir_all(&jobs);
+    }
+
+    // ---- H-4 止血端到端：真实拉起失败（重执行自进程隔离 env）----
+
+    const H4_CHILD_ENV: &str = "H4_SPAWN_FAIL_E2E_CHILD";
+
+    /// 真实拉起失败（`HIVE_PYTHON` 指向不存在的解释器）→ serve 在有界重试后落
+    /// **error 终态**，原因带已尝试次数与最后一次失败原因，status 带
+    /// `spawn_attempts` —— 既不静默判死（有退避重试），也不无限重试（有上界）。
+    ///
+    /// **为什么用「重执行本测试二进制做子进程」**：`HIVE_PYTHON` 是**进程级**
+    /// env，`exec::python_bin()` 每次现读它；而本测试二进制里 e2e_done_and_heartbeat /
+    /// timeout_kills / kill_channel / dependency_gate 等用例**并行**跑，都要拉真
+    /// python——在同一进程里改 env 是必竞态假红（Rust 单测共享进程 env，仓内
+    /// exec.rs::env_secrets_tests 的 ENV_TEST_LOCK 注释已记同款教训，但那把锁
+    /// 只有 env 类用例去持，拉进程的用例不持）。子进程 = 独立 env 空间，父进程
+    /// env 一字不改 ⇒ 零竞态。也**不落 hive/tests/**：那里是判据面
+    /// （judgment_manifest 的文件集合指纹），本批是候选面止血，不扩判据面集合。
+    #[test]
+    fn spawn_failure_lands_error_with_reason_after_bounded_retries() {
+        if std::env::var(H4_CHILD_ENV).is_err() {
+            // 父进程：只负责把「哑解释器」注入子进程并复跑本测试（不改自身 env）
+            let me = std::env::current_exe().expect("取当前测试二进制路径");
+            let out = std::process::Command::new(me)
+                .args([
+                    "spawn_failure_lands_error_with_reason_after_bounded_retries",
+                    "--nocapture",
+                ])
+                .env(H4_CHILD_ENV, "1")
+                .env("HIVE_PYTHON", "h4-no-such-python-interpreter")
+                .output()
+                .expect("重执行测试二进制");
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(
+                out.status.success(),
+                "子进程（真实拉起失败端到端）未通过：\n{stdout}\n{stderr}"
+            );
+            return;
+        }
+
+        // 子进程：HIVE_PYTHON 已是哑值（解释器不存在 → Command::spawn 必 Err）
+        assert_eq!(
+            std::env::var("HIVE_PYTHON").unwrap_or_default(),
+            "h4-no-such-python-interpreter"
+        );
+        let jobs = tmpjobs("spawnfail_e2e");
+        // 「执行器脚本不存在」不是本测试的注入点（那会 spawn 成功、走
+        // classify_exit）——注入点是**解释器本身拉不起来**。
+        let a = submit(&jobs, "0", 60);
+        let cfg = ServeCfg::new(jobs.clone(), 1, jobs.join("no_such_exec.py"));
+        let stop = Arc::new(AtomicBool::new(false));
+        let h = {
+            let cfg = cfg.clone();
+            let stop = Arc::clone(&stop);
+            thread::spawn(move || serve(&cfg, stop))
+        };
+        let mut got: Option<crate::json::Json> = None;
+        for _ in 0..100 {
+            let s = job::read_status(&job::job_dir(&jobs, &a)).unwrap();
+            if s.get("state").and_then(|v| v.as_str()) == Some("error") {
+                got = Some(s);
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        stop.store(true, Ordering::SeqCst);
+        h.join().unwrap();
+        let st = got.expect("拉起失败应在有界重试后落 error 终态（不得挂住）");
+        let text = st.get("error").and_then(|v| v.as_str()).unwrap_or("");
+        assert!(text.contains("拉起执行器失败"), "须保留拉起失败原因: {text}");
+        assert!(
+            text.contains("h4-no-such-python-interpreter"),
+            "error 文案须点名**最后试的解释器**（注入的哑解释器）: {text}"
+        );
+        assert_eq!(
+            st.get("spawn_interpreter").and_then(|v| v.as_str()),
+            Some("h4-no-such-python-interpreter"),
+            "spawn_interpreter 字段须如实记下最后试的解释器: {text}"
+        );
+        assert_eq!(
+            st.get("spawn_attempts").and_then(|v| v.as_f64()),
+            Some(SPAWN_MAX_ATTEMPTS as f64),
+            "尝试次数须有界（= SPAWN_MAX_ATTEMPTS，既不 1 次判死也不无界）: {text}"
+        );
+        let _ = fs::remove_dir_all(&jobs);
+    }
 }

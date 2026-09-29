@@ -323,7 +323,7 @@ def main():
 
         def _neg_n():
             """负记忆条目数（rejected 层）——NOOP 不得增加它。"""
-            return sum(1 for e in cg5.index["nodes"].values()
+            return sum(1 for e in list(cg5.index["nodes"].values())
                        if (e.get("layer") or "") == "rejected")
 
         nb = _neg_n()

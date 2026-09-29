@@ -360,7 +360,7 @@ def separation_pairs(cg, layer=None, ids=None, max_nodes=SEP_MAX_NODES,
     """
     from . import consistency
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
-    pool = [nid for nid, e in nodes.items()
+    pool = [nid for nid, e in list(nodes.items())
             if (not layer or e.get("layer") == layer)]
     if ids:
         want = {str(x) for x in ids}
@@ -622,7 +622,7 @@ def reconstruct_scene(cg, clues=None, ids=None, conditions=None, layer=None,
         if t in nodes and t not in want_ids:
             want_ids.append(t)
 
-    pool = [nid for nid, e in nodes.items()
+    pool = [nid for nid, e in list(nodes.items())
             if (not layer or (e or {}).get("layer") == layer)]
     truncated = len(pool) > int(max_nodes)
     pool.sort()

@@ -1354,7 +1354,7 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
         require_conditions = True
 
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
-    pool = [nid for nid, e in nodes.items()
+    pool = [nid for nid, e in list(nodes.items())
             if (not source_layer or (e or {}).get("layer") == source_layer)
             and not (e or {}).get("protected")
             and not (set(INDUCE_SKIP_TAGS) & set((e or {}).get("tags") or []))]

@@ -243,7 +243,7 @@ def index_edges(cg, *, prefix: str = None) -> list:
     """从**索引快照**恢复派生边（零读文件）——台账丢失/未重建时的只读兜底。"""
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     out = []
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         if prefix and not str(nid).startswith(prefix):
             continue
         rel = coerce_relation((e or {}).get(FM_REL_FIELD))

@@ -11,6 +11,12 @@
               "tool_trace": [...],                       # 仅 spec.tools 时存在
               "finished_ts": ..., "duration_s": ...}
              {"ok": false, "error": "...", ...}
+           H-4 补充键（**仅在有 LLM 重试时出现**，零重试不写此键 ⇒ 产物逐位不变）：
+             "llm_retries": {"attempts": n, "retries": m,
+                             "last_outcome": "ok|recovered|failed",
+                             "events": [{"attempt","kind","status",
+                                         "retry_after_s","wait_s"}, ...]}
+             —— 重试不静默：限流/网关抖动被退避重试吸收这件事，必须留在产物里。
            log.txt —— 详细日志（stdout/stderr 保持安静，不污染 serve 控制台）
     退出码 0 成功 / 2 规格错 / 3 API 错误
 
@@ -79,6 +85,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import sys
 import tempfile
@@ -211,6 +218,13 @@ def write_result(job_dir: str, payload: dict) -> None:
     _anchor = (os.environ.get("HIVE_RESULT_ANCHOR") or "").strip()
     if _anchor:
         payload["result_anchor"] = _anchor
+
+    # H-4 止血可观测面：**有重试才写账**（重试不静默——LLM 侧的重试计数与最终
+    # 结果进 result.json 的唯一落点；零重试 → 不写该键，无故障路径产物逐位不变）。
+    # 放 write_result 而不是各调用点：main 有 8 个落盘出口，单点注入才不会有漏。
+    _retries = llm_retry_report()
+    if _retries:
+        payload["llm_retries"] = _retries
 
     def _mk_and_dump():
         fd, tmp = tempfile.mkstemp(prefix="result.json.", suffix=".tmp",
@@ -1401,27 +1415,185 @@ def build_body(spec: dict, messages: list, tools: list = None) -> dict:
     return body
 
 
-# 生效条件：当 body 与 timeout 传入时，api_key/api_base 取 model_endpoint(_USE_SUBAGENT_LLM)（值只来自 env：主 HIVE_API_KEY / HIVE_API_BASE → DEFAULT_API_BASE；开关为真且有 HIVE_SUBAGENT_API_KEY 时取 HIVE_SUBAGENT_API_KEY / HIVE_SUBAGENT_API_BASE），密钥缺失抛 RuntimeError(可诊断文案、不含键值)；否则 POST {api_base}/chat/completions 并以 timeout 请求，返回 json.loads(resp.read(RESP_MAX_BYTES).decode('utf-8'))；
+# ---------------------------------------------------------------- LLM 重试（H-4 止血）
+# 缺陷（H-4c）：`_post_chat` 单发 urlopen，对 429/5xx **不重试**——网关一次
+# 瞬时抖动（限流 / 网关 5xx / 连接瞬断）就把任务判死（main 顶层落 EXIT_API +
+# ok=false），而这类抖动的正确处置是稍后重来。
+#
+# 边界（只做止血，不做根治）：
+#   * **有界**：尝试次数与单次等待都封顶（RETRY_MAX_ATTEMPTS / RETRY_BACKOFF_MAX
+#     / RETRY_AFTER_MAX）——重试预算不能吃掉整个 job 的 timeout；
+#   * **不静默**：每次重试记进模块级账（`_LLM_RETRY`），有重试时随 result.json
+#     的 `llm_retries` 出栈（零重试不写该键 ⇒ 无故障路径产物逐位不变）；
+#   * **非可重试错误一次都不重试**：4xx 语义类（401/403/404/422 等）重试不会
+#     改变结果，只会白烧配额与时间；
+#   * **签名不变**：仍是 `(body, timeout)`（mock 面即接口面，见 docstring）。
+#
+# 不做（属设计级，须单独立项）：模型端点故障转移 / 多网关轮询、请求级去重、
+# job 级超时预算分配、把重试决策上移到调度层。
+
+#: 总尝试次数（含首次）。
+RETRY_MAX_ATTEMPTS = 3
+#: 第 1 次失败后的退避基准（秒）；第 n 次为 base×2^(n-1)。
+RETRY_BACKOFF_BASE = 0.5
+#: 单次退避上限（秒）——指数不放大到卡死 job。
+RETRY_BACKOFF_MAX = 8.0
+#: 尊重 Retry-After 的上限（秒）——网关让等 600s 也不照单全收（否则等于挂死）。
+RETRY_AFTER_MAX = 30.0
+#: 账本事件条数上限（有界样本：重试账不许无限长）。
+RETRY_EVENTS_MAX = 20
+
+#: 可重试 HTTP 状态码：语义即「稍后再来」。5xx 另行按区间判（见 _retryable_http）。
+RETRYABLE_HTTP_STATUS = frozenset({408, 425, 429})
+
+#: 单次等待的唯一出口（测试接缝：守卫替换成记录器以免真等；生产恒 = time.sleep）。
+_RETRY_SLEEP = time.sleep
+
+#: 重试账（模块态；exec 一进程一 job，故进程内即 job 内）。
+_LLM_RETRY = {"attempts": 0, "retries": 0, "events": [], "last_outcome": None}
+
+
+# 生效条件：调用即把账本清回初值（attempts=0/retries=0/events=[]/last_outcome=None），无返回值；exec 一进程一 job 时正常无需调用，供守卫与进程内多 job 复用方使用。
+def reset_llm_retry_state() -> None:
+    """清空重试账（守卫 / 进程内多 job 复用方使用）。"""
+    _LLM_RETRY["attempts"] = 0
+    _LLM_RETRY["retries"] = 0
+    _LLM_RETRY["events"] = []
+    _LLM_RETRY["last_outcome"] = None
+
+
+# 生效条件：账本 retries 为 0 时返回 None（零重试＝无故障路径，产物不得多出任何键）；否则返回 {"attempts", "retries", "last_outcome", "events"} 的浅拷贝（events 为逐条 dict 拷贝，调用方改动不回写账本）。
+def llm_retry_report():
+    """重试报告：零重试 → None（产物逐位不变），有重试 → 可落盘账。"""
+    if not _LLM_RETRY["retries"]:
+        return None
+    return {
+        "attempts": _LLM_RETRY["attempts"],
+        "retries": _LLM_RETRY["retries"],
+        "last_outcome": _LLM_RETRY["last_outcome"],
+        "events": [dict(e) for e in _LLM_RETRY["events"]],
+    }
+
+
+# 生效条件：code 属 RETRYABLE_HTTP_STATUS（408/425/429）或落在 500–599 区间时返回 True，其余（含 4xx 语义类）返回 False；
+def _retryable_http(code: int) -> bool:
+    """HTTP 状态是否可重试：只放行「稍后再来」类与全部 5xx。"""
+    return code in RETRYABLE_HTTP_STATUS or 500 <= code <= 599
+
+
+# 生效条件：e 为 urllib HTTPError 时按 _retryable_http(e.code) 判定；为 URLError（含 HTTPError 之外的网络层瞬时：连接重置/读超时/DNS 瞬断）时 True；为 TimeoutError/ConnectionError 时 True；其余（缺密钥 RuntimeError、响应体解析 ValueError、编程错误等确定性错误）一律 False；
+def _retryable_exc(e: BaseException) -> bool:
+    """异常是否属「瞬时、重试有意义」一类。"""
+    if isinstance(e, urllib.error.HTTPError):
+        return _retryable_http(int(e.code or 0))
+    if isinstance(e, urllib.error.URLError):
+        return True
+    return isinstance(e, (TimeoutError, ConnectionError))
+
+
+# 生效条件：headers 为映射且含可解析的 Retry-After（数字秒或 HTTP-date）时返回其秒数（负值归 0），缺失/不可解析/头对象形态不合约时返回 None；
+def _parse_retry_after(headers):
+    """解析 Retry-After：数字秒（常见）或 HTTP-date；不可解析 → None。"""
+    if not headers:
+        return None
+    try:
+        raw = (headers.get("Retry-After") or "").strip()
+    except Exception:                     # noqa: BLE001 —— 头对象非映射：当没有
+        return None
+    if not raw:
+        return None
+    try:
+        v = float(raw)
+        return v if v >= 0 else None
+    except ValueError:
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+        import datetime as _dt
+        dt = parsedate_to_datetime(raw)
+        if dt is None:
+            return None
+        now = _dt.datetime.now(dt.tzinfo) if dt.tzinfo else _dt.datetime.now()
+        return max(0.0, (dt - now).total_seconds())
+    except Exception:                     # noqa: BLE001 —— 解析失败即「没这个头」
+        return None
+
+
+# 生效条件：attempt≥1 时返回 (等待秒数, retry_after 原值或 None)——退避 = min(base×2^(attempt-1), BACKOFF_MAX) 上取 [delay/2, delay) 的 jitter，再与 min(Retry-After, RETRY_AFTER_MAX) 取大，整体封顶 RETRY_AFTER_MAX；
+def _retry_wait(attempt: int, headers) -> tuple:
+    """第 attempt 次（1 起）失败后的等待：(秒, 头里的 Retry-After 原值或 None)。
+
+    jitter 取半开区间 [delay/2, delay)：多 job 同时被限流时不齐步重试（惊群）。
+    Retry-After 取大（尊重网关排期）但封顶——否则一个让等 600s 的头等于挂死 job。
+    """
+    delay = min(RETRY_BACKOFF_BASE * (2 ** (attempt - 1)), RETRY_BACKOFF_MAX)
+    wait = random.uniform(delay / 2.0, delay)
+    ra = _parse_retry_after(headers)
+    if ra is not None:
+        wait = max(wait, min(ra, RETRY_AFTER_MAX))
+    return min(wait, RETRY_AFTER_MAX), ra
+
+
+# 生效条件：把一次重试记进账本——retries 自增、events 未满 RETRY_EVENTS_MAX 时追加 {attempt, kind, status, retry_after_s, wait_s}（满了只计数不再追加，样本有界），无返回值；
+def _record_retry(attempt: int, e: BaseException, wait_s: float, ra) -> None:
+    """记一次重试（可观测面：重试不静默——有重试必然出现在 result.json）。"""
+    _LLM_RETRY["retries"] += 1
+    if len(_LLM_RETRY["events"]) < RETRY_EVENTS_MAX:
+        is_http = isinstance(e, urllib.error.HTTPError)
+        _LLM_RETRY["events"].append({
+            "attempt": attempt,
+            "kind": "http" if is_http else type(e).__name__,
+            "status": int(e.code) if is_http else None,
+            "retry_after_s": ra,
+            "wait_s": round(float(wait_s), 3),
+        })
+
+
+# 生效条件：当 body 与 timeout 传入时，api_key/api_base 取 model_endpoint(_USE_SUBAGENT_LLM)（值只来自 env：主 HIVE_API_KEY / HIVE_API_BASE → DEFAULT_API_BASE；开关为真且有 HIVE_SUBAGENT_API_KEY 时取 HIVE_SUBAGENT_API_KEY / HIVE_SUBAGENT_API_BASE），密钥缺失抛 RuntimeError(可诊断文案、不含键值)；否则最多 RETRY_MAX_ATTEMPTS 次 POST {api_base}/chat/completions——可重试失败（429/408/425/5xx/网络瞬时）按指数退避+jitter 与 Retry-After 等待后重试，不可重试失败（4xx 语义类等）与末次失败原样抛出；成功返回 json.loads(resp.read(RESP_MAX_BYTES).decode('utf-8'))；
 def _post_chat(body: dict, timeout: float) -> dict:
     """裸 POST chat/completions，返回原始响应 dict。HTTP 异常向上传播。
 
     签名保持 (body, timeout)：既有测试以**定参桩**（lambda body, t）mock 本
     函数，加参数会连带破坏桩调用面（mock 面即接口面）。端点开关经模块态
     _USE_SUBAGENT_LLM 传入（见「模型端点解析」段），密钥/base 每次现取 env。
+
+    H-4 止血：可重试失败按**有界指数退避 + jitter** 重试（见上方常量块），
+    尊重 Retry-After；非可重试错误一次即抛；每次重试记进 `_LLM_RETRY`（有重试
+    时随 result.json 的 llm_retries 出栈）。零重试路径与历史行为逐位一致。
     """
     api_key, api_base = model_endpoint(_USE_SUBAGENT_LLM)
     url = f"{api_base}/chat/completions"
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read(RESP_MAX_BYTES).decode("utf-8"))
+    payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    last: BaseException | None = None
+    for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            method="POST",
+        )
+        _LLM_RETRY["attempts"] += 1
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read(RESP_MAX_BYTES).decode("utf-8"))
+        except Exception as e:                 # noqa: BLE001 —— 先分类再决定重试
+            if attempt >= RETRY_MAX_ATTEMPTS or not _retryable_exc(e):
+                # 不可重试或已用尽：原样抛出（不吞错、不冒充成功），但把
+                # 「最终结果」写进账（有重试时 result.json 才看得见这一段）。
+                _LLM_RETRY["last_outcome"] = "failed"
+                raise
+            wait, ra = _retry_wait(attempt, getattr(e, "headers", None))
+            _record_retry(attempt, e, wait, ra)
+            last = e
+            _RETRY_SLEEP(wait)
+            continue
+        _LLM_RETRY["last_outcome"] = "recovered" if attempt > 1 else "ok"
+        return data
+    # 循环内要么 return 要么 raise，此处不可达；保留兜底（不静默返回 None）
+    raise last if last is not None else RuntimeError("_post_chat 重试循环异常退出")
 
 
 # 生效条件：当 spec 与 messages 传入时，先 _bind_llm_spec(spec) 绑定模型端点开关（C3），再以 build_body(spec,messages) 与 float(spec.get('timeout_s') or 300) 调 _post_chat；返回的 message 为空助手轮（_empty_turn：content 与 tool_calls 双空——含 choices 缺/空、content 空串或 null）时返回 {'_error': '模型返回空助手轮…'}，否则返回 content=message.content or ''、usage=data.get('usage') or {}、model=data.get('model') or spec['model']；

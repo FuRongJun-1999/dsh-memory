@@ -76,7 +76,7 @@ verify_runner 差额——注释真源=批次 4-11 认知图机制记忆，递�
    │  hive_spawn / hive submit（spec.json）
    ▼
 hive serve（rust 纯 std，常驻）
-   │  主循环扫描 jobs/ → claimed.lock 原子领取 → mpsc worker 池并发
+   │  主循环扫描 jobs/ → 占在飞名额（≤ workers，H-7）→ claimed.lock 原子领取 → worker 池并发
    │  1s 轮询：退出 / kill 标志 / 超时 → child.kill()
    ▼
 执行器（可替换子进程，serve 级配置 HIVE_EXEC_PY）
@@ -141,6 +141,10 @@ echo {"model":"deepseek-flash","user_prompt":"总结这份文档","context_files
 target\release\hive.exe poll
 target\release\hive.exe kill <job_id>
 target\release\hive.exe doctor
+# 坏 status 的显式处置（H-3）：归类 → 隔离 → 可回退；status.json 本体逐字节不被动。
+target\release\hive.exe doctor                # task_states 出 corrupt 类别 + corrupt_jobs 明细（不再压进 unknown）
+target\release\hive.exe doctor --quarantine   # 把「当下 status.json 不可解析」的任务整体移入 jobs/_quarantine/
+target\release\hive.exe doctor --unquarantine # 隔离件原路退回池内（可回退）
 ```
 
 ### MCP 接入（推荐宿主直连）
@@ -154,7 +158,7 @@ target\release\hive.exe doctor
 | `hive_poll` | 无 id = 全部摘要（content 截 800 字）；带 id = 单查全文；`handoff_ready=true` = 子代理满上下文交回，待主代理裁决续跑 |
 | `hive_kill` | 写 kill 标志，worker ≤1s 内强杀 |
 | `hive_restart` | 重启 serve（stop→start 原子序，复用 `serve_start.restart`）：改 serve 级配置或 rust 重新 build 后使改动生效；stop 失败绝不 start（防双实例）。重启中断 claimed/running 任务，重启后由 recover_orphans 收尸 |
-| `hive_doctor` | serve 存活 / 任务状态统计 / env 检查 |
+| `hive_doctor` | serve 存活 / 任务状态统计 / env 检查（status 三态分类：`corrupt`=不可解析单列类别 + `corrupt_jobs` 明细；`no_status`=提交竞态窗口；`quarantined`=已隔离件清单） |
 
 首次 spawn 自动以 detached 方式拉起 serve（Windows
 `DETACHED_PROCESS|CREATE_NO_WINDOW`）。**执行器是 serve 级配置**：
@@ -296,6 +300,12 @@ pending → claimed → running → done | error | timeout | killed
 
 - **原子领取**：worker 以 `create_new` 写 `claimed.lock`，多 serve / 多 worker 竞争
   只有一个成功，无需外层锁。
+- **领取上界（H-7）**：主循环**先占在飞名额再 claim**（名额容量 = `HIVE_WORKERS`），
+  满员即本拍不再领取——不变量：任一时刻处于 `claimed`/`running` 的任务数 **≤ workers**。
+  旧版一拍把池内全部 pending 都 claim 进无界 mpsc 队列，池外只能看到一片 `claimed`
+  却分不出「在跑」与「排在队里干等」（且 claimed 态无 pid/心跳，kill 也够不着）；
+  现在超额任务老实留在 `pending`（一等公民：可 kill、可隔离、可改判据），worker 完成后
+  释放名额下一拍继续领——drain 吞吐不变，队列深度有界。
 - **心跳**：worker 周期性刷新 `status.json` 的 heartbeat；serve 侧 `_serve.json`
   心跳供 doctor 判活——**三层判据缺一不可**：心跳新鲜（`FRESH_MS`）**且** pid 存活
   **且** 该 pid 确实是本程序（同映像名）。第三层是 2026-09-17 补的：pid 号会被无关
@@ -305,15 +315,26 @@ pending → claimed → running → done | error | timeout | killed
 - **kill 通道**：`kill` 标志文件，worker 1s 轮询粒度检测后强杀（诚实边界：非即时信号）。
 - **崩溃恢复**：serve 重启时 `recover_orphans`——`claimed` 重新投递、`running` 标
   `error`（结果未知，绝不假装 done）。
+- **坏 status（H-3）**：`status.json` 不可解析**不再被当成半成品无限等待**。serve 启动
+  即 stderr 点名告警，周期扫描按拍计数，连续 10 拍（约 4s）仍不可解析则落**独立标记**
+  `status.corrupt.json`（**绝不改写 `status.json` 本体**——那是任务本体，坏字节原样留着
+  当诊断证据）；`hive doctor` 把它算作独立类别 `corrupt` 并附 `corrupt_jobs` 明细；
+  `hive doctor --quarantine` 可把该任务整体移出池（`jobs/_quarantine/`，可
+  `--unquarantine` 原路退回）。**不做自动终态化**：那等于把坏文件静默吞掉，正是本
+  缺陷的反面；终局处置权留给显式隔离与人工。
 
 ## 文件协议（接口即目录）
 
 ```text
 jobs/
   _serve.json                 # serve 心跳（pid/ts/workers/exec_py/exec_mode）
+  _quarantine/                # 坏 status 隔离保留区（H-3；doctor --quarantine 移入，
+                              #   非 h 前缀故对领取面/统计面不可见；可 --unquarantine 退回）
   <job_id>/
     spec.json                 # 任务规格（submit 时写入）
     status.json               # 状态（先写 status 后写 spec = 就绪信号）
+    status.corrupt.json       # 坏 status 标记（H-3；serve 连续 N 拍解析失败后落的**旁证**，
+                              #   不是任务本体——status.json 坏也照原样留着）
     result.json               # 结果（error 字段区分成败；终态判据）
     claimed.lock              # 原子领取锁（create_new）
     kill                      # kill 标志（存在即请求强杀）

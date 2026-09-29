@@ -395,7 +395,7 @@ def stats(cg):
     """保护面盘点：不可遗忘数 / 不可覆盖数 / 分层分布 / 自动保护命中数。"""
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
     by_layer, ids, auto, immutable = {}, [], 0, []
-    for nid in nodes:
+    for nid in list(nodes):
         prot, why = is_protected(cg, nid)
         if prot:
             ids.append(nid)

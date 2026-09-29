@@ -296,7 +296,7 @@ def session_src_state(cg, *, tag: str = "logsrc") -> dict:
     """
     nodes = (getattr(cg, "index", {}) or {}).get("nodes") or {}
     out = {}
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         if tag not in ((e or {}).get("tags") or []):
             continue
         try:

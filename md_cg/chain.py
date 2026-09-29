@@ -147,7 +147,7 @@ def adjacency(cg, include_hierarchy=True):
     from . import subgraph as _sg
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
     adj = {}
-    for nid in nodes:
+    for nid in list(nodes):
         if vis is not None and not vis(nid):
             continue          # 不可见节点：其出边与条件整体不可见（不解析 fm）
         fm = _sg._fm(cg, nid)

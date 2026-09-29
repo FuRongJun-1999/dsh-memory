@@ -160,7 +160,7 @@ class KnowledgePointSplitter:
         existing = set()
         if self.cg is not None:
             pref = f"card:{card_id[:16]}"
-            for nid, e in self.cg.index["nodes"].items():
+            for nid, e in list(self.cg.index["nodes"].items()):
                 if pref not in (e.get("tags") or []):
                     continue
                 try:

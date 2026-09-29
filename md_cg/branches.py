@@ -62,7 +62,7 @@ def _audit(cg, op: str, **meta) -> None:
 # 生效条件：调用 _iter_branch_nodes(cg, branch_id) 时，返回 cg.index 的 "nodes" 字典（假值则视为空字典）中所有 v.get("branch_id") 等于 str(branch_id or "").strip().lower() 的 (k, v) 列表。
 def _iter_branch_nodes(cg, branch_id: str):
     bid = str(branch_id or "").strip().lower()
-    return [(k, v) for k, v in (cg.index.get("nodes") or {}).items()
+    return [(k, v) for k, v in list((cg.index.get("nodes") or {}).items())
             if v.get("branch_id") == bid]
 
 
@@ -288,7 +288,7 @@ def discard(cg, branch_id, summary: str) -> dict:
 def list_branches(cg) -> dict:
     """按 branch_id 聚合现存分支（节点清单 + 溯源主支）。"""
     groups = {}
-    for nid, e in (cg.index.get("nodes") or {}).items():
+    for nid, e in list((cg.index.get("nodes") or {}).items()):
         bid = e.get("branch_id")
         if not bid:
             continue

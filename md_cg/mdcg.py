@@ -741,12 +741,20 @@ def _cond_prefilter_pass(entry, ctx) -> bool:
 # 生效条件：entries/terms/big_domain/context/min_results 给定；MDCG_RETRIEVAL_PIPELINE 未设="1" 时 entries 原样返回且 gates 为空 dict（默认路径零变更）；总开关开启时按既有开关语义执行收敛——S1 域收敛（MDCG_GATE_S1_DOMAIN 未设=开；域内∪未标域兜底池，域内不足 min_results 回退不收敛）、S1b 桶收敛（MDCG_GATE_S1B_BUCKET 显式=1；topk/min_sim 参数化，命中不足回退并记 would_keep）、S2 条件空间硬槽（MDCG_GATE_S2_COND 未设=开；清空回退）、S4 层级激活审计（MDCG_GATE_S4_LAYER 显式=1；只构造 gates["s4"] 审计，加成本体在 _score）；返回 (收敛后 entries, gates 审计字典)；
 # apply_retrieval_gates(entries, terms, big_domain, context, min_results) -> tuple:
 def apply_retrieval_gates(entries, terms, big_domain, context, min_results):
-    """S1/S1b/S2 候选收敛 + S4 审计——**两份 search 的唯一实现**。
+    """S1/S1b/S2 候选收敛 + S4 审计——**全部读路径的唯一实现**。
 
     issue #25（2026-09-23）：此段逻辑原先只存在于 MdCG.search 内，而生产
     调用链（mcp_server → MdCGSecure → MdCGOS）走的是 MdCGOS.search 覆写——
     门控在 生产路径上从未生效，专项测试（test_retr_s*.py）全测非生产路径，
     绿灯是假信号。修复 = 抽出本共享函数，两份 search 原地调用。
+
+    C-8（2026-09-29）：**第三个入口 `MdCGOS.search_rrf`（→ MdCGSecure.search_rrf，
+    即 `mdcg_recall` / `cg(op=read, budget_tokens=…)` 的生产读路径）同样漏接**——
+    同一开关下 search 收敛、search_rrf 恒全表（C-8 复现库实测：30 节点，
+    S1 开后 search scanned=15 / search_rrf scanned=30），两条生产读路径的候选面
+    分裂。处置同 issue #25：`search_rrf` 原地调用本函数
+    （插入点与 MdCGOS.search 同构：`_candidates` 之后、候选生成之前），
+    **不写第三份实现**。守卫：md_cg/test_c8_search_rrf_gates.py（逐路断言）。
 
     开关语义（契约 §3，保持不变）：
       · 总开关 MDCG_RETRIEVAL_PIPELINE=1；未设 → 本函数是恒等变换；
@@ -761,7 +769,8 @@ def apply_retrieval_gates(entries, terms, big_domain, context, min_results):
     if os.environ.get("MDCG_RETRIEVAL_PIPELINE") != "1":
         return entries, gates
     # S4 层级激活优先级审计（加成本体在 _score：layer_boosts() 由打分面消费，
-    # 该面两份 search 共享 → S4 加成在生产路径其实一直生效，缺的只是这份审计）
+    # 该面各读入口共享（search / search_rrf 都过 _score）→ S4 加成在生产路径
+    # 其实一直生效，缺的只是这份审计）
     _s4 = (os.environ.get("MDCG_GATE_S4_LAYER") == "1")
     if _s4 and entries:
         _bo = layer_boosts()
@@ -1256,7 +1265,7 @@ class MdCG:
 # 生效条件：nodes 须为带 values() 的映射且各元素支持 .get("bucket")；仅当 bucket 取值为真值时才计入返回计数，缺键或假值均跳过。
     def _count_buckets(nodes):
         buckets = {}
-        for e in nodes.values():
+        for e in list(nodes.values()):
             b = e.get("bucket")
             if b:
                 buckets[b] = buckets.get(b, 0) + 1
@@ -2327,7 +2336,7 @@ class MdCG:
         """列出目标，按 (priority, created_at) 降序。status 过滤 active/done/dropped。"""
         self._maybe_reload_index()      # P1b-2：读面代际感知（goal=list/active 链）
         out = []
-        for nid, e in self.index["nodes"].items():
+        for nid, e in list(self.index["nodes"].items()):
             if e.get("layer") != "goals":
                 continue
             g = self._goal_entry(nid)
@@ -2868,7 +2877,7 @@ class MdCG:
         # 同车收集，消除此前的第二遍全索引遍历。
         neg_layer_entries = []
         entries = []
-        for e in self.index["nodes"].values():
+        for e in list(self.index["nodes"].values()):
             if include_neg and e["layer"] in ("rejected", "unresolved"):
                 neg_layer_entries.append(e)
             if ((not layer or e["layer"] == layer)
@@ -3861,7 +3870,7 @@ class MdCG:
         # 5 要素完整度（全节点扫一遍，可能慢但只在 health() 调用）
         layer_stats = {}
         neg_stats = {}
-        for e in self.index["nodes"].values():
+        for e in list(self.index["nodes"].values()):
             full_path = self._node_disk_path(e)
             try:
                 with open(full_path, encoding="utf-8") as f:

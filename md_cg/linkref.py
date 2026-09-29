@@ -131,7 +131,7 @@ def known_ids(cg):
     if not callable(guard):
         return set(nodes)               # 非安全库（MdCG）无读隔离概念
     out = set()
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         try:
             if guard(e):
                 out.add(nid)

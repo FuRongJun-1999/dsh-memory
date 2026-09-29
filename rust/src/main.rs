@@ -10,8 +10,9 @@
 //! **逐项对齐**：
 //!   * 候选集 `_candidates`：跳 rejected/unresolved/goals，排除 WORK_ROLES
 //!   * 四路 lexical/bucket/entity/graph + `RRF_K=60` + 每路取 50
-//!   * 打分 `sim = |qb ∩ db| / |qb ∪ db|`（缺省 jaccard，与 Python
-//!     mdcg.SCORE_MODE 缺省一致）+ tag_bonus(≤1.0)；
+//!   * 打分 `sim = |qb ∩ db| / |qb ∪ db|`（**Rust 侧**缺省 `jaccard`；注意它与
+//!     Python 侧产品缺省 `legacy`（`md_cg/mdcg.py:SCORE_MODE`）**不一致**——
+//!     两侧缺省本就不同，R-7 订正，详见下方 `Cfg.jaccard` 处注释）+ tag_bonus(≤1.0)；
 //!     `--score legacy` 切回 `|qb ∩ db| / |qb|`（只归一化查询侧，旧基线）
 //!   * 指标 rank(1-based) / hit@1 / hit@k / MRR / 拒答线 = 正例 hit@1 题 Top-1 分 p10
 //!
@@ -96,7 +97,13 @@ fn parse_args() -> Cfg {
         out_dir,
         tag: "rust".into(),
         dump: None,
-        jaccard: true, // 缺省 jaccard（长度自惩罚），与 Python SCORE_MODE 缺省一致
+        // 缺省 jaccard（长度自惩罚）。**注意：与 Python 缺省不一致**——Python 侧产品
+        // 缺省是 legacy（md_cg/mdcg.py:SCORE_MODE，|qb∩db|/|qb|），两侧缺省本就不同
+        // （此处原注「与 Python 缺省一致」，与事实相反，2026-09-29 R-7 订正）。
+        // CH-1 起 rank_parity 对拍两侧各自**显式钉住**口径（Python 走
+        // md_cg/eval_common.py::use_jaccard()，Rust 走 argv --score 并回读 serve
+        // info.score），故对拍读数不依赖本缺省值；本值只决定「不传 --score 时怎么打分」。
+        jaccard: true, // 缺省 jaccard
         lib: None,
         qfile: None,
         // R-3：缺省 sorted（对齐 Python `_lexical` 的相关度降序返回序）

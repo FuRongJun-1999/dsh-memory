@@ -4,18 +4,30 @@
 判据：T1 观测者同罪（后台线程与前台请求互为不可靠观测者）+ v0.1 §5.3 约束
 （共享可变面加锁或消息化，禁口头豁免）+ D5 合法态（带锁语义下终态心跳计数
 与调用数一致）。留档：N138（docs/eval/缺陷挖掘_自主迭代_v16.md:90——裸迭代
-RuntimeError 崩溃面，v16 复现②已实测触发；本格为该留档缺口的持续基线）。
+RuntimeError 崩溃面，v16 复现②已实测触发；本格原为该留档缺口的持续基线）。
+
+**2026-09-29（H-4 批次，v2 扩面）缺口止血 → 登记改 pass**：**全 md_cg 域**的
+共享 `index['nodes']` 迭代点在取用前先取快照（`list(nodes.items())` /
+`list(nodes.values())` / `list(nodes)`），并发写不再触发
+`RuntimeError: dictionary changed size during iteration`；判据与结果逐位不变
+（只换取用方式），`_lock` 覆盖范围**未扩**（实例级读写锁 / 写路径消息化 /
+线程模型重构属设计级，本批刻意不做）。此后本格作**回归守卫**：迭代点退回裸迭代
+→ 读码断言与动态捕获同时转红 → 套件亮红。
+
+**为什么本格从「只扫 sustain.py」扩到跨模块**：默认 `diagnose()`（check_evolution
+默认开）的路径不止 sustain——经 `evolution_candidates → weights.recalc →
+weights.coverage_index`，且无条件调 `refindex.check_refs`，全部作用于**同一个**
+共享 nodes dict；v1 只把止血面切在 sustain.py 时，独立复核在同一注入下让现实现与
+回缺陷副本**同崩于 `weights.py:409`**（判 BLINDSPOT）。故本格的回扫面与
+`md_cg/test_h4_sustain_snapshot.py`（全 md_cg 域 AST 扫描器 + 目标级判据 +
+定点变异自证）同步扩面。
+
 注入：临时 MDCG_SUSTAIN_DIR，SustainLoop.start() 后线程 A 高频 beat()、线程 B
 高频 diagnose/heal 同一 cg 实例、前台连续 add×N 同 root，跑 ~4s 后 stop() 比对。
 
-读码核验（本套件设计基线）：sustain.py:844 _lock 已在位但只覆盖记账清单
-（:940/:983/:1002/:1015 四处 with self._lock），diagnose 的裸迭代面
-（sustain.py:484 nodes.items()）无锁——N138 崩溃面结构性仍在。动态复现属
-时序敏感（两轮预演均在 ~1s 内捕获 RuntimeError），套件以读码断言为确定性
-基线、动态捕获为加分证据（未捕获降级为 NOTE，不虚判绿）。
-
-理论预期（EXPECTED_GAP，登记 gap）：裸迭代面无锁＝缺口仍在；beat 计数零丢失、
-JSONL 零撕裂（写入面原子性由 P2 吸收，与缺口正交）。
+读码核验（本套件设计基线）：sustain.py 的 `_lock` 仍只覆盖记账清单
+（tidys/evolves/scrubs/heals 四处 `with self._lock:`）——这是**刻意不扩**的
+并发契约边界（H-4 契约「不改 _lock 覆盖范围」）；巡检侧的共享索引读改走快照。
 """
 import json
 import os
@@ -40,15 +52,36 @@ def main() -> int:
         # ═══ 读码断言（确定性基线）═══
         src = harness.src("md_cg/sustain.py")
         lock_sites = src.count("with self._lock:")
-        case.check("读码：_lock 在位但仅覆盖 4 处记账清单（tidys/evolves/scrubs/"
-                   "heals——sustain.py:940/:983/:1002/:1015）",
+        case.check("读码：_lock 覆盖范围未扩（仍恰 4 处记账清单——tidys/evolves/"
+                   "scrubs/heals；契约「不改 _lock 覆盖范围」）",
                    lock_sites == 4, f"with self._lock 出现 {lock_sites} 次")
         diag = src.split("def diagnose", 1)[1].split("\ndef heal", 1)[0]
-        case.check("读码：diagnose 的 nodes.items() 裸迭代无锁（sustain.py:484）"
-                   "——T1 共享可变面违反点结构性在位",
-                   "nodes.items()" in diag and "with self._lock" not in diag,
-                   f"diagnose 函数体含裸迭代={('nodes.items()' in diag)}，"
-                   f"含锁={('with self._lock' in diag)}")
+        case.check("读码：diagnose 的 nodes 迭代点已取快照（N138 崩溃面止血——"
+                   "取用前 list(nodes.items())）",
+                   "list(nodes.items())" in diag
+                   and "\n        for nid, e in nodes.items()" not in diag,
+                   "diagnose 函数体须含 list(nodes.items()) 且不含裸迭代")
+        case.check("读码：sustain 全域无裸 nodes 迭代（items()/values() 前必是"
+                   "list(/tuple(/sorted(）",
+                   _bare_iterations(src) == [], f"裸迭代点={_bare_iterations(src)}")
+        # 跨模块面（H-4 v2）：默认 `diagnose()` 的路径不止 sustain——经
+        # evolution_candidates → weights.recalc → coverage_index，且无条件调
+        # refindex.check_refs，全部作用于**同一个**共享 nodes dict。这两条断言
+        # 把本格的回扫面补到跨模块（全 md_cg 域扫描器与目标级判据在
+        # md_cg/test_h4_sustain_snapshot.py：38 项正向 + 12 处定点变异自证）。
+        wsrc = harness.src("md_cg/weights.py")
+        case.check("读码（跨模块）：weights 全域无裸 nodes 迭代，且三站点已快照",
+                   _bare_iterations(wsrc) == []
+                   and "for nid, e in list(nodes.items()):" in wsrc
+                   and "indeg = {nid: 0 for nid in list(nodes)}" in wsrc
+                   and "ids = [nid for nid, e in list(nodes.items())" in wsrc,
+                   f"裸迭代点={_bare_iterations(wsrc)}")
+        rsrc = harness.src("md_cg/refindex.py")
+        case.check("读码（跨模块）：refindex 键迭代已取快照（check_refs / rebuild）",
+                   "todo = [nid for nid in list(nodes)" in rsrc
+                   and "for nid in list(nodes):" in rsrc
+                   and "for nid in nodes:" not in rsrc,
+                   "check_refs:672 与 rebuild:966 两处键迭代须取快照")
 
         # ═══ 动态注入 ═══
         cg = MdCGSecure(os.path.join(d, "m04root"),
@@ -156,30 +189,46 @@ def main() -> int:
                                     torn.append(f"{fn}:{ln}")
         case.check("P2：账本 JSONL 零撕裂行", not torn, f"torn={torn or '无'}")
 
+        # 绿场（动态）：止血后**并发对撞零 RuntimeError**——这是本格从
+        # EXPECTED_GAP 转 pass 的承重判据（退回裸迭代必转红）。
         crash = [x for x in errors if x[1] == "RuntimeError"
                  and "dictionary changed size" in (x[2] or "")]
-        if crash:
-            case.check("红场（动态）：裸迭代 RuntimeError('dictionary changed "
-                       "size during iteration') 当场捕获（N138 崩溃面实测复现）",
-                       any("sustain.py" in (x[3] or "") and "diagnose" in
-                           (x[3] or "") for x in crash),
-                       crash[0][3][:300] if crash else "")
-        else:
-            case.note("动态捕获未命中（时序未命中，非防线生效）——缺口基线由读码"
-                      "断言①②支撑（裸迭代无锁结构性在位），N138 动态实测证据见 "
-                      "v16.md:90 复现②与本套件两轮预演（均 ~1s 内捕获）")
+        case.check("绿场（动态）：并发对撞下零裸迭代 RuntimeError"
+                   "（N138 崩溃面已止血）",
+                   not crash,
+                   f"捕获到裸迭代崩溃：{crash[:1]}")
+        case.check("绿场（动态）：并发窗口内无任何线程异常（含 loop.stop）",
+                   not errors, f"errors={errors[:2]}")
 
         # 四可（D4）
-        case.check("四可：可发现=是（RuntimeError 异常打印/线程死亡，但无状态"
-                   "告警）/可隔离=是（add 路径不受累，崩溃定位于 diagnose 迭代）"
-                   "/可恢复=是（瞬态异常，无持久损伤，JSONL 零撕裂）/可追溯=是"
-                   "（traceback 直指 sustain.py:484）",
+        case.check("四可：可发现=是（读码判据 + 动态异常捕获，异常不再被静默）"
+                   "/可隔离=是（add 路径不受累，迭代点已快照）"
+                   "/可恢复=是（瞬态异常，无持久损伤，JSONL 零撕裂）"
+                   "/可追溯=是（快照站点由 md_cg/test_h4_sustain_snapshot.py 定点"
+                   "变异锁定，崩溃栈直指裸迭代点）",
                    True,
-                   "证据=读码①② + 计数守恒 + 零撕裂 + 捕获栈定位")
-        verdict = "gap" if not case.fails else "fail"
-        return case.finish(verdict, expected="gap")
+                   "证据=读码①②③ + 零异常 + 计数守恒 + 零撕裂 + 定点变异自证")
+        verdict = "fail" if case.fails else "pass"
+        return case.finish(verdict, expected="pass")
     finally:
         case.cleanup()
+
+
+def _bare_iterations(src: str) -> list:
+    """`nodes.items()/values()` 前不是取快照调用（list(/tuple(/sorted(）的迭代点。"""
+    bad = []
+    for lineno, line in enumerate(src.splitlines(), 1):
+        if line.strip().startswith("#"):
+            continue
+        for tgt in ("nodes.items()", "nodes.values()", "nodes.keys()"):
+            idx = line.find(tgt)
+            while idx >= 0:
+                head = line[max(0, idx - 6):idx]
+                if not head.endswith(("list(", "tuple(", "sorted(")):
+                    bad.append((lineno, line.strip()))
+                    break
+                idx = line.find(tgt, idx + len(tgt))
+    return bad
 
 
 if __name__ == "__main__":

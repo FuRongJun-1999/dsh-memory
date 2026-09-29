@@ -431,7 +431,7 @@ def check(cg, content, layer=None, condition_space=None,
     # ---- L1-b 与既有节点的条件级比对（反题） ----
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
     seeds = []
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         if exclude and nid == exclude:
             continue
         if layer and e.get("layer") != layer:

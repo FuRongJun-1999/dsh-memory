@@ -136,7 +136,7 @@ def _pool(cg, prefix) -> tuple:
     """抽检池：id 以 prefix 开头、非受保护节点（与 induce 的池口径一致）。"""
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     ids, protected = [], 0
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):
         if not str(nid).startswith(prefix):
             continue
         if (e or {}).get("protected"):

@@ -104,7 +104,7 @@ def _open_raises(root):
 
 
 def _keys_all_str(cg):
-    return all(isinstance(k, str) for k in (cg.index.get("nodes") or {}))
+    return all(isinstance(k, str) for k in (list(cg.index.get("nodes") or {})))
 
 
 class _Mcp:

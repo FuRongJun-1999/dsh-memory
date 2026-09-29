@@ -293,7 +293,7 @@ def main():
         lz = ccgc.link_pending(cg, "tgt", apply=True, actor="agent:a1")
         ok(lz.ok and lz.written == 6, "V16f 读回原件+签章 → 落库成功")
         ok(not os.path.isfile(sv["path"]), "V16g 落库成功即清 pending（暂存非存档）")
-        ok(not any(ccgc.PENDING_DIR in str(k) for k in (cg.index.get("nodes") or {})),
+        ok(not any(ccgc.PENDING_DIR in str(k) for k in (list(cg.index.get("nodes") or {}))),
            "V16h pending 不进索引（冷区对检索隐身）")
 
         # ---------- V17 闸门：只认编外裁决，绝不假装通过 ----------
