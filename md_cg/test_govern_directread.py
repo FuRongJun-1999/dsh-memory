@@ -320,7 +320,8 @@ def _g89_root(tmp):
     a = MdCGOS(root)
     a.add("gd_pro",
           "# 功能名：待提升节点\n# 生效条件：问提升\n# 子功能：说明提升\n"
-          "# 执行：按热度\n# 不适用条件：问无关\n",
+          "# 执行：按热度\n# 验证方式：编译器/静态检查通过\n"
+          "# 不适用条件：问无关\n",
           layer="contextual", merge_count=2)
     a.flush()
     return root

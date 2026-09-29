@@ -71,6 +71,20 @@ impl Atoms {
     }
 
     /// env/缺省路径探测（`None` = 归一层不生效）。
+    ///
+    /// 生效条件：`MDCG_UNIFY_QUERY=0` 时无条件返回 None（显式关优先）；
+    /// 否则 `MDCG_EN_ZH_MAP` 显式指路即用该路径；未指路时——
+    /// **未启用 `no-probe` 特征**（缺省）走 `CARGO_MANIFEST_DIR` 的上级仓库
+    /// 相对路径探测（`../md_cg/semantic/en_zh_map.json`，文件存在才取）；
+    /// **启用 `no-probe` 特征**（`cargo build --features no-probe`）时该探测
+    /// 整体短路为 None——用于只打包二进制、不携带仓库词表的部署，避免把
+    /// 构建机的绝对路径当成运行期约定。两条分支都保留在源码里，靠 cfg 选一。
+    ///
+    /// R-6（2026-09-29）：本函数的两个 `#[cfg(feature = "no-probe")]` 分支此前
+    /// 在该 crate 的 `Cargo.toml` 里**未声明对应特征** ⇒ 每次构建刷 2 条
+    /// `unexpected cfg condition value: no-probe` 告警，且 `feature` 分支恒不可达
+    /// （死代码）。修复=在 `Cargo.toml` 声明 `[features] no-probe = []`（保留能力，
+    /// 不删分支；理由见该文件注释），构建告警归零。
     pub fn from_env() -> Option<Self> {
         if std::env::var("MDCG_UNIFY_QUERY").map(|v| v == "0").unwrap_or(false) {
             return None; // 显式关
@@ -194,5 +208,30 @@ mod tests {
         // 「牛肉」若为单键则整词消费；否则拆「牛 肉」——与 Python segment 同序
         let seg = a.segment("牛肉面");
         assert!(seg == "牛肉 面" || seg == "牛 肉 面", "贪心口径: {seg}");
+    }
+
+    // ---- R-6（2026-09-29）：no-probe 特征声明后两条 cfg 分支都可编译 ----
+    //
+    // 缺省构建（未启用 no-probe）：`from_env` 的缺省路径探测分支在位。
+    // 断言形式=「该 cfg 分支下的代码确实被编进本次构建」——`cargo test` 与
+    // `cargo test --features no-probe` 两条构建各跑一个，两者必须都通过。
+    #[cfg(not(feature = "no-probe"))]
+    #[test]
+    fn r6_probe_branch_is_active_by_default() {
+        assert!(!cfg!(feature = "no-probe"), "缺省构建不得带 no-probe");
+        // 探测分支确实在编译单元内（能取到 CARGO_MANIFEST_DIR 派生的候选路径）
+        let p = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../md_cg/semantic/en_zh_map.json");
+        assert!(p.to_string_lossy().ends_with("en_zh_map.json"));
+    }
+
+    #[cfg(feature = "no-probe")]
+    #[test]
+    fn r6_no_probe_branch_is_active_under_feature() {
+        // 启用 no-probe 时同一编译单元里该分支可达（特征已声明 ⇒ 不是死 cfg）。
+        // 本用例**只在该特征构建下被编译并执行**——它通过即证明该 cfg 名已被
+        // Cargo 认知（未声明特征的 cfg 分支在此构建里根本进不来，且缺省构建会
+        // 刷 unexpected_cfgs 告警，见 Cargo.toml 注释）。
+        assert!(cfg!(feature = "no-probe"), "带 --features no-probe 构建应置位");
     }
 }

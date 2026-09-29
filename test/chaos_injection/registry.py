@@ -66,9 +66,13 @@ REGISTRY = {
     "FI-M02": {"expected_verdict": "gap", "gap_tag": "N134",
                "title": "瞬态读失败固化为检索面永久消失"},
     # S2 写面漏标脏（N133，v16.md:85）——reinforce 写盘成功仅改内存 entry，
-    # 默认开读缓存把旧 fm 永久判新鲜；修复先例 mdcg.py:3242 在案
-    "FI-M03": {"expected_verdict": "gap", "gap_tag": "N133",
-               "title": "reinforce 写盘成功检索面读旧值"},
+    # 默认开读缓存把旧 fm 永久判新鲜；修复先例 mdcg.py:3242 在案。
+    # **2026-09-29（opt-batch1 C-1）缺口结案 → 登记改 pass**：同族三处写点
+    # （forgetting.reinforce / insight.verify / scrub._apply_offset）统一补
+    # `cg._dirty[node_id] = entry`，本格由 EXPECTED_GAP 转 pass，此后作
+    # 回归守卫（标脏失效即转 gap → 套件亮红）。
+    "FI-M03": {"expected_verdict": "pass", "gap_tag": None,
+               "title": "reinforce 写盘成功检索面同批可见（C-1 修复后转 pass）"},
     # S3 并发对撞（N138，v16.md:90）——_lock 仅覆盖 4 处记账清单，diagnose
     # 裸迭代共享面（sustain.py:484）无锁；读码断言为确定性基线，动态捕获
     # RuntimeError 为时序敏感加分证据（未命中降级 NOTE 不虚判绿）

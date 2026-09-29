@@ -244,12 +244,17 @@ def log(cg, rec):
     return rec
 
 
-# 生效条件：cg 与 node_id 必填，delta 默认 0.05；cg.get(node_id) 抛异常或返回假值时返回 None；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；imp 跨过 PROTECT_IMPORTANCE 即写 protected。
+# 生效条件：cg 与 node_id 必填，delta 默认 0.05；cg.get(node_id) 抛异常或返回假值时返回 None；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；imp 跨过 PROTECT_IMPORTANCE 即写 protected；写盘后同步内存索引条目并**标脏**（cg._dirty[node_id]=e，推进读缓存代际与索引增量日志）。
 def reinforce(cg, node_id, delta=0.05, override=False, actor=None):
     """MERGE 的落库动作：不新增节点，把「又一次见到」折算成既有节点的强化。
 
     重要性 +delta，merge_count +1；一旦跨过 0.7 自动打上保护标记
     （对齐「importance 提升（保护：不可遗忘…且受保护标记）」）。
+
+    C-1（2026-09-29）：写盘后**标脏**（`cg._dirty[node_id] = e`，对照
+    `md_cg/mdcg.py` 的 update_tags / verify 直写分支先例）——不标脏时
+    `_dirty.path_gen` 不推进，默认开（`MDCG_READ_CACHE=1`）的读缓存会把写盘前
+    旧 fm 判新鲜，同进程「reinforce 后读」永久拿到旧 importance（FI-M03 实测）。
 
     N214（2026-09-28，同族未接线写点）：本函数此前**裸调 `cg._write_node`**
     覆写既有节点，两个入口（`mdcos.remember_gated` 的 MERGE 分支 :3380、
@@ -297,6 +302,18 @@ def reinforce(cg, node_id, delta=0.05, override=False, actor=None):
         if fm.get("protected"):
             e["protected"] = True
             e["protection_reason"] = fm["protection_reason"]
+        # 标脏（N133 修复，对照先例 mdcg.py 的 update_tags / verify 直写分支
+        # `self._dirty[node_id] = e`）：只改内存 entry 时 path_gen 不推进，
+        # 读缓存（默认开，MDCG_READ_CACHE=1）按 `_fresh` 把写盘前的旧 fm 判
+        # 为新鲜——同进程「写后读」永久拿到旧 importance（FI-M03 实测）。
+        # 标脏同时让本写进 `_dirty → flush → _index_log` 重放（重启后索引
+        # 与盘面不再漂移）。**不把标脏下沉进 `_write_node`**：该函数另有
+        # 「只对账索引、不落盘」的调用方（backfill 对账支路等），下沉会让
+        # 它们凭空产生一次写入代际与自重载；此处按既有 48 处显式标脏同款
+        # 补，口径与 `_sync_edge_entry` 一致。
+        _dirty = getattr(cg, "_dirty", None)
+        if isinstance(_dirty, dict):
+            _dirty[node_id] = e
     return {"node_id": node_id, "importance": imp,
             "merge_count": fm["merge_count"], "protected": bool(fm.get("protected"))}
 

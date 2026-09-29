@@ -6,11 +6,19 @@
 _v16.md:85——md_cg/forgetting.py:274-283 reinforce 直调 _write_node 后仅改内存
 entry 不标 _dirty；对照修复先例 md_cg/mdcg.py:3242 verify 路径显式补
 _dirty[node_id]=e）。
+
+**2026-09-29 修复复测（opt-batch1 C-1）：本格由 EXPECTED_GAP 转 pass。**
+修复=同族三处写点（`forgetting.reinforce` / `insight.verify` /
+`scrub._apply_offset`）在 `cg._write_node` 后统一补
+`cg._dirty[node_id] = entry`（对照先例同款），使读缓存的 `path_gen` 推进 ⇒
+`_fresh` 判旧快照过期 ⇒ 同进程「写后读」拿到盘上真值。registry 登记同步由
+gap 改写为 pass（缺口结案留痕）。
+
 注入：临时 root 装 readcache（默认开）→ add(n_fi, importance=0.5) → search 装
 缓存 → forgetting.reinforce(cg,'n_fi',delta=0.3)（返回 0.8）→ 再 search 同 query。
 
-理论预期（EXPECTED_GAP，登记 gap）：再 search 仍返回 0.5，直读盘上为 0.8——
-同进程写后读永久陈旧（path_gen/broad_gen 均不推进，缓存把写盘前旧值判新鲜）。
+理论预期（修复后）：再 search **返回 0.8**——写面与读面同批可见（T4/T12 防线
+在位）；若判据回退，本格转 gap 并由 run_all 按登记不一致亮红。
 """
 import os
 import sys
@@ -21,7 +29,7 @@ import mdcg_support   # noqa: E402
 
 
 def main() -> int:
-    case = harness.Case("FI-M03", "reinforce 写盘成功检索面读旧值")
+    case = harness.Case("FI-M03", "reinforce 写盘成功检索面同批可见（修复复测）")
     try:
         d = case.tmpdir("m03")
         mdcg_support.apply_env(d)
@@ -31,7 +39,7 @@ def main() -> int:
         from md_cg.mdcos import MdCGSecure
 
         case.check("读码：对照修复先例在位（mdcg.py verify 路径写盘后显式补 "
-                   "_dirty[node_id]=e——证明漏标脏危害与修复方向在案）",
+                   "_dirty[node_id]=e——本格修复即照此补齐三处写点）",
                    "self._dirty[node_id] = e" in harness.src("md_cg/mdcg.py"),
                    "md_cg/mdcg.py:3242")
 
@@ -58,38 +66,43 @@ def main() -> int:
                        r is not None and r.get("importance") == 0.8,
                        f"reinforce={r}")
 
+            case.check("绿场①（修复点）：写盘后已标脏（cg._dirty 含该节点 ⇒ "
+                       "path_gen 推进，读缓存精确失效）",
+                       "n_fi" in cg._dirty, f"dirty={list(cg._dirty)}")
+
             imp_after = top_imp(cg.search(q))
-            case.check("红场①：写后同 query 检索面仍返回 0.5（静默改写，零告警）",
-                       imp_after == 0.5, f"search importance={imp_after}")
+            case.check("绿场②（端到端）：写后同 query 检索面返回 0.8——写面与"
+                       "读面同批一致（修复前此处恒返回 0.5，静默改写零告警）",
+                       imp_after == 0.8, f"search importance={imp_after}")
 
             g = cg.get("n_fi")
             e = cg.index["nodes"]["n_fi"]
             with open(cg._node_disk_path(e), encoding="utf-8") as f:
                 fm_disk, _c = nodefile.loads(f.read())
             cache_val = cg._read_cache.get(e["path"])
-            case.check("红场②：盘面与直读均为 0.8——写盘成功，仅检索面陈旧"
-                       "（get 能读新值 / search 永远搜不到新值型撕裂）",
+            case.check("绿场③（物证）：盘面 / get / 读缓存**三者同为 0.8**——"
+                       "缓存条目已随标脏重装，不再冻结写盘前旧 fm",
                        fm_disk.get("importance") == 0.8
-                       and (g or {}).get("frontmatter", {}).get("importance") == 0.8,
-                       f"disk={fm_disk.get('importance')} get={g['frontmatter']['importance']}")
-            case.check("红场③：缓存条目冻结写盘前旧 fm（importance=0.5）——"
-                       "_fresh 判恒真的物证",
-                       cache_val is not None
-                       and cache_val[1][0].get("importance") == 0.5,
-                       f"cache fm.importance={cache_val[1][0].get('importance') if cache_val else None}")
-            case.check("恢复面在位（可恢复=是）：readcache.clear 后检索面见 0.8",
+                       and (g or {}).get("frontmatter", {}).get("importance") == 0.8
+                       and cache_val is not None
+                       and cache_val[1][0].get("importance") == 0.8,
+                       f"disk={fm_disk.get('importance')} "
+                       f"get={g['frontmatter']['importance']} "
+                       f"cache={cache_val[1][0].get('importance') if cache_val else None}")
+
+            case.check("对照面：readcache.clear 后检索面同样为 0.8（标脏失效与"
+                       "强制清空两条路同结论——修复不是靠清缓存掩盖）",
                        readcache.clear(cg) >= 1 and top_imp(cg.search(q)) == 0.8,
                        f"cleared 后 search importance={top_imp(cg.search(q))}")
 
             # 四可（D4）
-            case.check("四可：可发现=否（零告警，仅跨面对账可发现，T4）/可隔离="
-                       "是（仅被写节点 path 陈旧）/可恢复=是（clear/再写盘标脏/"
-                       "重启；修复方向=N133 对照先例补 _dirty）/可追溯=是（盘面 "
-                       "0.8 vs 缓存 0.5 可对账，无持久日志）",
+            case.check("四可：可发现=是（标脏即索引增量日志与读缓存代际双可见）/可隔离="
+                       "是（失效粒度按 path，只失效被写节点）/可恢复=是（clear/重启）"
+                       "/可追溯=是（_dirty→flush→_index_log 重放，跨进程可对账）",
                        True,
-                       "证据=红场①-③ + clear 恢复 + mdcg.py:3242 先例")
-            verdict = "gap" if not case.fails else "fail"
-            return case.finish(verdict, expected="gap")
+                       "证据=绿场①-③ + clear 对照 + mdcg.py:3242 先例")
+            verdict = "gap" if case.fails else "pass"
+            return case.finish(verdict, expected="pass")
         finally:
             cg.close()
     finally:

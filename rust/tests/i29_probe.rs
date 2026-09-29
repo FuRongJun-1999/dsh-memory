@@ -7,11 +7,17 @@ fn doc(id: &str, body: &str) -> Option<Doc> {
     let content = format!("---\nid: \"{id}\"\nimportance: 0.5\n---\n# 功能名：zh 样本\n# 正文：{body} 样本\n");
     let stripped = mdcg_eval_text_norm(&content);
     let db_len = mdcg_eval_text_bigrams(&stripped).len();
+    // R-2（2026-09-29）：`like_body_lower` / `tags_joined_lower` 建库期预存——
+    // 手工构造 Doc 的探针同样要按 `store::read_doc` 的同款口径填（此处
+    // lit=None ⇒ like_body() 回落 content）。
+    let like_body_lower = content.to_lowercase();
     Some(Doc {
         id: id.to_string(),
         importance: 0.5,
         tags: vec![],
         tags_joined: String::new(),
+        like_body_lower,
+        tags_joined_lower: String::new(),
         content,
         stripped,
         db_len,

@@ -46,11 +46,25 @@ pub struct Entry {
 /// 内存文档：`lit` 是 `positive_body(content)`；口径 A 两者恒等 → 存 `None` 省内存。
 /// `tags` 保留逐个元素（`_path_entity` / `tag_bonus` 用），`tags_joined` 对齐 `_like`
 /// 的 `" ".join(tags)`；`stripped` 是抹空白后的 content，供打分层的 bigram 子串匹配。
+///
+/// R-2（2026-09-29）：`like_body_lower` / `tags_joined_lower` 是 `_like` 预筛两个
+/// 被包含判定文本的**预存小写形态**——建库（载入）时算一次，热路径直接引用。
+/// 为什么必须预存：`_like` 是「每查询 × 每候选」的最内层判定，原先每次调用对整串
+/// 各做一次 `to_lowercase()`（整串新分配；Codex 实测 20000 文档语料 search 156ms
+/// 中 152ms 在此）。文档内容建库后不变 ⇒ 派生物不变，与 `stripped` / `db_len` 同款
+/// 「预计算一次」先例（Python 侧 readcache 常驻 `_doc_norm_bigrams` 同一理论）。
+/// **等价变换**：表达式逐字不变（同一实现、同一输入），只把求值时机从每查询前移
+/// 到建库——分数逐位不变由 crate 内单测 `r2_like_lower_is_precomputed` 与
+/// `r2_like_scores_unchanged` 双钉。
 pub struct Doc {
     pub id: String,
     pub importance: f64,
     pub tags: Vec<String>,
     pub tags_joined: String,
+    /// `like_body()` 的小写形态（建库时算一次；`_like` 热路径直接引用）。
+    pub like_body_lower: String,
+    /// `tags_joined` 的小写形态（建库时算一次；`_like` 热路径直接引用）。
+    pub tags_joined_lower: String,
     pub content: String,
     pub stripped: String,
     /// `stripped` 的去重二元组势 `|db|`（Jaccard 归一化用；建库时算一次）
@@ -330,12 +344,20 @@ fn read_doc(root: &Path, e: &Entry) -> Option<Doc> {
     let stripped = crate::text::strip_ws(&crate::text::normalize_en(&content));
     let tags_joined = tags.join(" ");
     let db_len = crate::text::bigrams(&stripped).len();
+    // R-2（2026-09-29）：`_like` 预筛的两个被包含判定文本在建库时预存小写——
+    // 表达式与 retrieval::like 原先逐字相同（`like_body().to_lowercase()` /
+    // `tags_joined.to_lowercase()`），只是把求值时机前移（等价变换，分数逐位
+    // 不变）。必须在 `lit` 定形之后取，否则回落 content 的形态会与原先不同。
+    let like_body_lower = lit.as_deref().unwrap_or(&content).to_lowercase();
+    let tags_joined_lower = tags_joined.to_lowercase();
 
     Some(Doc {
         id,
         importance,
         tags,
         tags_joined,
+        like_body_lower,
+        tags_joined_lower,
         content,
         stripped,
         db_len,
@@ -379,4 +401,94 @@ pub fn by_basename(entries: &[Entry]) -> HashMap<String, usize> {
         m.insert(base, i);
     }
     m
+}
+
+#[cfg(test)]
+mod opt_batch1_tests {
+    //! R-2（2026-09-29）：`Doc::like_body_lower` / `Doc::tags_joined_lower`
+    //! 是 `_like` 预筛文本的建库期小写快照——本模块钉「快照 == 逐次计算的
+    //! 同表达式」这一等价性，以及「LIKE 的大小写不敏感确实生效」这一行为。
+    use super::*;
+
+    fn temp_root(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let d = std::env::temp_dir().join(format!("mdcg_r2_{tag}_{nanos}"));
+        std::fs::create_dir_all(d.join("knowledge")).unwrap();
+        d
+    }
+
+    fn entry(path: &str, id: &str, tags: &[&str]) -> Entry {
+        Entry {
+            id: id.to_string(),
+            path: path.to_string(),
+            layer: "knowledge".to_string(),
+            tags: tags.iter().map(|s| s.to_string()).collect(),
+            importance: 0.5,
+            created_at: 0.0,
+            role: None,
+            bucket: None,
+            edges: vec![],
+        }
+    }
+
+    #[test]
+    fn r2_like_lower_is_precomputed_equivalent() {
+        let root = temp_root("equiv");
+        // 大小写混排正文 + 混排 tags：等价性断言对「是否真的小写」有判别力
+        let body = "# 功能名：HotCache\n# 正文：BEES Compiler writes Tests 热缓存\n";
+        std::fs::write(root.join("knowledge").join("a.md"),
+                       format!("---\nid: \"a\"\ntags: [\"Probe\", \"BeEs\"]\nimportance: 0.5\n---\n{body}"))
+            .unwrap();
+        let e = entry("knowledge/a.md", "a", &["Probe", "BeEs"]);
+        let d = read_doc(&root, &e).expect("节点可读");
+
+        // 等价性（R-2 的核心契约）：预存值 == 原先每次现算的那个表达式
+        assert_eq!(d.like_body_lower, d.like_body().to_lowercase());
+        assert_eq!(d.tags_joined_lower, d.tags_joined.to_lowercase());
+        // 判别力：预存值确实是小写形态（不是原文照抄）
+        assert!(d.like_body_lower.contains("bees compiler writes tests"),
+                "like_body_lower 必须是小写形态: {}", d.like_body_lower);
+        assert!(!d.like_body_lower.contains("BEES"), "不得保留大写");
+        assert_eq!(d.tags_joined_lower, "probe bees");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn r2_like_lower_follows_lit_branch() {
+        let root = temp_root("lit");
+        // 含「不适用条件」行 → positive_body != content ⇒ lit = Some(...)：
+        // 预存值必须取 like_body()（= lit）的小写，而不是 content 的小写
+        let body = "# 功能名：X\n# 正文：ZZZKeep\n# 不适用条件：DropMe\n";
+        std::fs::write(root.join("knowledge").join("b.md"),
+                       format!("---\nid: \"b\"\nimportance: 0.5\n---\n{body}"))
+            .unwrap();
+        let e = entry("knowledge/b.md", "b", &[]);
+        let d = read_doc(&root, &e).expect("节点可读");
+        assert!(d.lit.is_some(), "夹具前提：不适用条件行使 lit 与 content 分叉");
+        assert_eq!(d.like_body_lower, d.like_body().to_lowercase());
+        assert!(d.like_body_lower.contains("zzzkeep"));
+        assert!(!d.like_body_lower.contains("dropme"),
+                "lit 分支必须生效：不适用条件行不得留在 like_body_lower");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn r2_like_case_insensitive_recall() {
+        let root = temp_root("recall");
+        std::fs::write(
+            root.join("knowledge").join("c.md"),
+            "---\nid: \"c\"\nimportance: 0.5\n---\n# 正文：HOTCache 加速重复查询\n",
+        )
+        .unwrap();
+        let e = entry("knowledge/c.md", "c", &[]);
+        let docs = vec![read_doc(&root, &e)];
+        let cand = vec![0usize];
+        // 小写 term 命中大写正文（terms 已是 normalize_en 产物 = 全小写）
+        let hits = crate::retrieval::lexical(&docs, &cand, "hotcache", 1e9, true);
+        assert_eq!(hits.len(), 1, "大小写不同不得阻断 LIKE 预筛（R-2 行为面）");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

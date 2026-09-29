@@ -715,7 +715,7 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
 # ④ 校准偏差
 # --------------------------------------------------------------------------
 
-# 生效条件：对 cg 中每个「layer 不在 SELF_LAYERS」且 evidence_count≥int(min_evidence)（min_evidence=0 时该比较恒假而不早退）的节点，若 protect.is_protected 为假或 override 为真，且 cg.get(nid) 未抛异常并返回真值节点，则先以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计，越权抛 AccessDenied 且整批中止），再取 fm.get("confidence", 0.6)（缺键才回落 0.6，键存在为 None/假值不回落）为 old，算出 round(max(0.0, min(0.99, old+float(offset))),4)，与 old 差<1e-9 时跳过，否则写 fm["confidence"] 与 fm["calibration"] 并调用 cg._write_node 成功时 adjusted+1（写回异常被吞掉不计数），返回 (adjusted, skipped)，其中 skipped 只累计「layer 属 SELF_LAYERS」或被 protect 拦下且非 override 的节点。
+# 生效条件：对 cg 中每个「layer 不在 SELF_LAYERS」且 evidence_count≥int(min_evidence)（min_evidence=0 时该比较恒假而不早退）的节点，若 protect.is_protected 为假或 override 为真，且 cg.get(nid) 未抛异常并返回真值节点，则先以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计，越权抛 AccessDenied 且整批中止），再取 fm.get("confidence", 0.6)（缺键才回落 0.6，键存在为 None/假值不回落）为 old，算出 round(max(0.0, min(0.99, old+float(offset))),4)，与 old 差<1e-9 时跳过，否则写 fm["confidence"] 与 fm["calibration"] 并调用 cg._write_node，成功后置 cg._dirty[nid]=e（**标脏**：推进读缓存代际与索引增量日志）并 adjusted+1（写回异常被吞掉不计数），返回 (adjusted, skipped)，其中 skipped 只累计「layer 属 SELF_LAYERS」或被 protect 拦下且非 override 的节点。
 def _apply_offset(cg, offset, *, override=False, min_evidence=1, actor=None):
     nodes = _nodes(cg)
     adjusted = skipped = 0
@@ -760,6 +760,18 @@ def _apply_offset(cg, offset, *, override=False, min_evidence=1, actor=None):
         try:
             cg._write_node(nid, os.path.join(cg.root, e["path"]), fm,
                            node.get("content") or "")
+            # 标脏（N133 修复，对照先例 md_cg/mdcg.py 的 update_tags / verify
+            # 直写分支 `self._dirty[node_id] = e`）：本函数原先写盘后**完全不
+            # 碰索引**（条目字段集不含 confidence，无需同步），但正因如此
+            # path_gen 不推进 ⇒ 读缓存（默认开）把写盘前的旧 fm 判新鲜——
+            # 同进程「calibrate 后读」拿旧 confidence（其余两处同族写点
+            # forgetting.reinforce / insight.verify 同批补标脏）。标脏同时
+            # 让本写进 `_dirty → flush → _index_log` 重放。**不下沉进
+            # `_write_node`**：该口另有「只对账索引不落盘」的调用方，下沉会
+            # 凭空产生写入代际与自重载。
+            _dirty = getattr(cg, "_dirty", None)
+            if isinstance(_dirty, dict):
+                _dirty[nid] = e
             adjusted += 1
         except Exception:                                 # noqa: BLE001
             pass

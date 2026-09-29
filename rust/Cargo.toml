@@ -7,6 +7,18 @@ description = "灵枢记忆系统 · Rust 检索库（大批量四路 RRF + serv
 # 零第三方依赖：与 md_cg 的 D-005 约束一致，且无需联网取 crate。
 [dependencies]
 
+# R-6（2026-09-29）：`no-probe` 此前只在 `src/atoms.rs` 的两处 `#[cfg(...)]`
+# 上被引用而**未在此声明** ⇒ 每次构建刷 `unexpected_cfgs` 告警，且
+# `#[cfg(feature = "no-probe")]` 分支恒不可达（死代码）。
+# 选择「声明特征」而非「删两处分支」的理由：两分支是**刻意保留**的能力开关
+# （`Atoms::from_env` 的缺省路径探测读 `CARGO_MANIFEST_DIR` 相对路径，在只打包
+# 二进制、不携带仓库 `md_cg/semantic/en_zh_map.json` 的部署里不成立；关闭后
+# 归一层静默不生效，env `MDCG_EN_ZH_MAP` 显式指路仍可用）——删掉就永久失去
+# 「无探测构建」这一形态，声明则零成本地让该分支可编译可达。
+# 空特征（`= []`）：不引入任何依赖与新代码路径，仅注册 cfg 名。
+[features]
+no-probe = []
+
 [lib]
 name = "mdcg_eval"
 path = "src/lib.rs"

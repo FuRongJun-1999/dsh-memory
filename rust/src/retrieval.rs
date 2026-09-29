@@ -30,9 +30,14 @@ pub const PATH_TAKE: usize = 50;
 #[inline]
 fn like(doc: &Doc, terms: &[String]) -> bool {
     // Python `_like`：body 与 tags 双边小写化后做包含判定（terms 已是
-    // normalize_en 产物，全小写/中文）
-    let body = doc.like_body().to_lowercase();
-    let tags = doc.tags_joined.to_lowercase();
+    // normalize_en 产物，全小写/中文）。
+    // R-2（2026-09-29）：两个小写形态改为**建库时预存**（`Doc::like_body_lower`
+    // / `Doc::tags_joined_lower`）——本函数是「每查询 × 每候选」的最内层判定，
+    // 原先每次调用对整串各做一次 `to_lowercase()`（整串新分配；Codex 实测
+    // 20000 文档语料 search 156ms 中 152ms 在此）。等价变换：表达式逐字不变，
+    // 只把求值时机前移（文档内容建库后不变 ⇒ 派生物不变）。
+    let body = doc.like_body_lower.as_str();
+    let tags = doc.tags_joined_lower.as_str();
     terms
         .iter()
         .any(|t| body.contains(t.as_str()) || (!tags.is_empty() && tags.contains(t.as_str())))

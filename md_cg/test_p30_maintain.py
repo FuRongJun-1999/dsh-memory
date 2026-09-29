@@ -39,11 +39,13 @@ SEP_B = ("# 功能名：连接池选择\n# 生效条件：多租户在线服务\
          "# 不适用条件：嵌入式设备\n")
 PROMO_HOT = ("# 功能名：重试退避策略\n# 生效条件：网络抖动且请求幂等\n"
              "# 子功能：在瞬时故障下限制重试次数\n# 执行：指数退避重试至多三次\n"
+             "# 验证方式：编译器/静态检查通过\n"
              "# 不适用条件：非幂等写操作\n")
 PROMO_COLD = ("# 功能名：日志轮转策略\n# 生效条件：磁盘占用超过阈值\n"
               "# 子功能：按大小切分历史日志\n# 执行：达到上限即滚动归档\n"
+              "# 验证方式：编译器/静态检查通过\n"
               "# 不适用条件：只读挂载卷\n")
-# 反复命中但四要素不全（缺「不适用条件」）
+# 反复命中但六要素不全（缺「不适用条件」+「验证方式」）
 PROMO_BAD = ("# 功能名：缓存穿透保护\n# 生效条件：高频查询未命中\n"
              "# 子功能：用空值占位挡住穿透\n# 执行：写空对象并设短 TTL\n")
 NOVEL = ("# 观察：本机固定使用 Windows 与 cmd\n# 生效条件：本机开发环境\n"
@@ -242,7 +244,7 @@ def main():
         r1 = call_tool(cg, "cg", {"op": "consolidate", "action": "promote"})
         check("dry-run 未写盘", r1.get("dry_run") and r1.get("written") == 0)
         check("命中热节点", r1.get("targeted", 0) >= 1, f"targeted={r1.get('targeted')}")
-        check("剔除四要素不全", r1.get("skipped_incomplete", 0) >= 1)
+        check("剔除六要素不全", r1.get("skipped_incomplete", 0) >= 1)
         check("剔除不热节点", r1.get("skipped_not_hot", 0) >= 1)
         r2 = call_tool(cg, "cg", {"op": "consolidate", "action": "promote",
                                   "apply": True})

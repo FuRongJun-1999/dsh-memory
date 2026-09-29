@@ -233,7 +233,7 @@ def _normalize_evidence(evidence=None, v_types=None):
     return out
 
 
-# 生效条件：_read_event(cg,node_id) 取不到事件节点、或 verdict 经 str(verdict or "").strip().lower() 后非空且不是 verified/falsified 时抛 ValueError；verdict 为 None 或空白时按 v3 → v2 → v1 条数 ≥ V1_MIN_EVIDENCE 的顺序定 verified，有证据但不达门槛或无证据则保持 STATE_PENDING 并附 reason；显式 verdict 直接采信，verified 分支重要度保底 IMPORTANCE_FLOOR 并置保护位，falsified 分支打 TAG_FALSIFIED。
+# 生效条件：_read_event(cg,node_id) 取不到事件节点、或 verdict 经 str(verdict or "").strip().lower() 后非空且不是 verified/falsified 时抛 ValueError；verdict 为 None 或空白时按 v3 → v2 → v1 条数 ≥ V1_MIN_EVIDENCE 的顺序定 verified，有证据但不达门槛或无证据则保持 STATE_PENDING 并附 reason；显式 verdict 直接采信，verified 分支重要度保底 IMPORTANCE_FLOOR 并置保护位，falsified 分支打 TAG_FALSIFIED；裁决分支落盘前经 protect.guard_overwrite（层闸 + 保护闸），写盘后同步内存索引条目并**标脏**（cg._dirty[node_id]=ent，推进读缓存代际与索引增量日志）。
 def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
            actor=None, note=""):
     """用 V1/V2/V3 外部证据裁决洞见事件。
@@ -244,6 +244,9 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
       · V1 可检索/被引用 需 **≥ V1_MIN_EVIDENCE 条** 才成立；
       · 其余（无证据 / V1 不足）→ **保持 pending 并给出原因**，不判定。
     verified 后：重要度保底 0.9（``IMPORTANCE_FLOOR``）并置保护位。
+    裁决分支落盘前过 ``protect.guard_overwrite``（层闸 + 保护闸），写盘后同步
+    内存索引条目并**标脏**（``cg._dirty[node_id]``，C-1）——否则读缓存默认开时
+    同进程「verify 后读」拿旧 insight_state/tags/importance。
     """
     node = _read_event(cg, node_id)
     if not node:
@@ -310,6 +313,15 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
         ent["importance"] = fm.get("importance")
         ent["tags"] = list(tg)
         ent["insight_state"] = final
+        # 标脏（N133 修复，对照先例 md_cg/mdcg.py 的 update_tags / verify 直写
+        # 分支 `self._dirty[node_id] = e`）：只改内存 entry 时读缓存（默认开）
+        # 的 path_gen 不推进 ⇒ `_fresh` 继续判旧 fm 新鲜，同进程「verify 后读」
+        # 拿到旧 insight_state/tags/importance；标脏同时让本写进
+        # `_dirty → flush → _index_log` 重放。**不下沉进 `_write_node`**（该口
+        # 另有「只对账索引不落盘」的调用方，下沉会凭空产生写入代际与自重载）。
+        _dirty = getattr(cg, "_dirty", None)
+        if isinstance(_dirty, dict):
+            _dirty[node_id] = ent
     _append(cg, {"action": "verify", "node_id": node_id, "state": final,
                  "decided": True, "reason": reason or "显式裁决",
                  "evidence": ev, "importance": fm.get("importance"),

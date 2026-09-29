@@ -20,7 +20,7 @@
 
 // 模块统一由 lib target（mdcg_eval）供给：单一编译源，避免 bin/lib 双编译
 // 产生两个不同身份的同名类型（E0308）。评测逻辑与库共享同一份实现。
-use mdcg_eval::{json, metrics, retrieval, serve, store};
+use mdcg_eval::{json, metrics, serve, store};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -28,8 +28,7 @@ use std::time::Instant;
 
 use json::Json;
 use metrics::{Row, Summary};
-use mdcg_eval::engine::{EngineConfig, SearchEngine};
-use retrieval::Hit;
+use mdcg_eval::engine::{search_ranked, EngineConfig, SearchEngine, SearchParams};
 use store::{Entry, Order};
 
 // ---------------------------------------------------------------- 配置
@@ -50,9 +49,18 @@ struct Cfg {
     jaccard: bool,
     lib: Option<PathBuf>,
     qfile: Option<PathBuf>,
-    /// `--graph-seeds sorted`：按 `_path_graph` 文档语义先排序再取 top-5 种子。
-    /// 缺省 false = 现状（传未排序词法输出），保持与 Python `search_rrf` 逐位对齐。
+    /// `--graph-seeds sorted|raw`：graph 路种子取法。
+    ///
+    /// R-3（2026-09-29）：**缺省由 raw 改为 sorted**。Python `mdcos._lexical`
+    /// 的返回序恒为相关度降序 ⇒ `_path_graph` 的 `seeds[:5]` 是相关度前 5；
+    /// 原先的 raw 缺省让评测链路取「候选枚举序前 5」，与 Python 不同源。
+    /// `raw` 仅作隔离「种子口径」与「边结构质量」的排查阀保留。
     graph_seeds_sorted: bool,
+    /// query 统一归一层（R-1，2026-09-29）：`None` = 词表不可得或
+    /// `MDCG_UNIFY_QUERY=0` → 无归一口径。**评测链路与库/serve 链路共用同一
+    /// 实例语义**——此前评测链路完全不过归一层（`main.rs::search` 直用原始
+    /// query），同 query 同语料两条路 top-1 不同。
+    atoms: Option<mdcg_eval::atoms::Atoms>,
     /// `--serve`：进入进程实例模式（stdin/stdout 逐行 JSON），不跑评测。
     serve: bool,
 }
@@ -91,7 +99,10 @@ fn parse_args() -> Cfg {
         jaccard: true, // 缺省 jaccard（长度自惩罚），与 Python SCORE_MODE 缺省一致
         lib: None,
         qfile: None,
-        graph_seeds_sorted: false,
+        // R-3：缺省 sorted（对齐 Python `_lexical` 的相关度降序返回序）
+        graph_seeds_sorted: true,
+        // R-1：归一层实例一次性载入（env `MDCG_EN_ZH_MAP` / `MDCG_UNIFY_QUERY`）
+        atoms: mdcg_eval::atoms::Atoms::from_env(),
         serve: false,
     };
 
@@ -144,7 +155,9 @@ fn parse_args() -> Cfg {
             "--lib" => cfg.lib = Some(PathBuf::from(take(&mut i))),
             "--qfile" => cfg.qfile = Some(PathBuf::from(take(&mut i))),
             "--graph-seeds" => {
-                cfg.graph_seeds_sorted = take(&mut i).eq_ignore_ascii_case("sorted")
+                // R-3：`sorted`（缺省）= 过 retrieval::sort_path 三键；
+                // `raw` = 旧口径（直接取候选枚举序前 5），仅作排查阀。
+                cfg.graph_seeds_sorted = !take(&mut i).eq_ignore_ascii_case("raw")
             }
             "--serve" => cfg.serve = true,
             "--help" | "-h" => {
@@ -264,10 +277,15 @@ const POS_GROUPS: [&str; 3] = ["precise", "temporal", "interference"];
 
 // ---------------------------------------------------------------- 检索
 
-fn has_path(cfg: &Cfg, p: &str) -> bool {
-    cfg.paths.iter().any(|x| x == p)
-}
-
+/// 评测链路的检索入口——**只做参数搬运**，编排单点在
+/// `engine::search_ranked`（R-1，2026-09-29）。
+///
+/// 修复前本函数是编排的**第二份实现**，且漏了两处与库/serve 链路不一致的口径：
+///   1. 不做 query 统一归一（`engine` 侧 `atoms.unify`）⇒ 同 query 同语料
+///      top-1 不同，违反 `rust/README.md` 与 `lib.rs` 自书的「两边一致」；
+///   2. graph 种子按**只比 score** 排序（并列时路内顺序漂移），而 Python
+///      `_lexical` 的返回序是**三键**（-score/-importance/id）相关度降序。
+/// 两处一并由 `search_ranked` 收口：本函数不再自带任何判据。
 fn search(
     docs: &[Option<store::Doc>],
     entries: &[Entry],
@@ -275,49 +293,21 @@ fn search(
     query: &str,
     cfg: &Cfg,
 ) -> Vec<(usize, f64)> {
-    let mut ranked: Vec<(&str, Vec<Hit>)> = Vec::new();
-
-    // 插入序对齐 search_rrf：lexical → bucket → entity → graph
-    let lex_raw: Vec<Hit> = if has_path(cfg, "lexical") {
-        let h = retrieval::lexical(docs, cand, query, 1e9, cfg.jaccard); // unlock_global_cap
-        ranked.push(("lexical", h.clone()));
-        h
-    } else {
-        Vec::new()
-    };
-    if has_path(cfg, "bucket") {
-        // 评测链路不传 context（run_query 未传）→ 恒空
-        ranked.push(("bucket", retrieval::bucket(entries, cand, false)));
-    }
-    if has_path(cfg, "entity") {
-        ranked.push(("entity", retrieval::entity(docs, cand, query)));
-    }
-    if has_path(cfg, "graph") {
-        // Python 传的是**未排序**的词法输出（ranked.get("lexical")），
-        // `_path_graph` 内部取 seeds[:5]；口径 A 下 edges 恒空 → 此路恒空。
-        // ⚠ 种子口径耦合：`_lexical` 仅在 LIKE 命中 > GLOBAL_CAP(500) 时才排序，
-        // 故候选 ≤500 时 seeds[:5] 退化为**索引枚举序前 5 条**（与查询相关性脱钩）。
-        // `--graph-seeds sorted` 改为按 `_path_graph` 文档语义（「已排序种子」）
-        // 先排序再取种，用于隔离「种子口径缺陷」与「边结构质量」两类失配。
-        let seeds: Vec<Hit> = if cfg.graph_seeds_sorted {
-            let mut v = lex_raw.clone();
-            v.sort_by(|a, b| {
-                b.score
-                    .partial_cmp(&a.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            v
-        } else {
-            lex_raw.clone()
-        };
-        ranked.push(("graph", retrieval::graph(docs, entries, cand, &seeds)));
-    }
-
-    let mut fused = retrieval::fuse(&ranked, docs, cfg.k, &cfg.weights, cfg.fusion_max);
-    for (_, s) in fused.iter_mut() {
-        *s = (*s * 1e6).round() / 1e6; // 对齐 round(s, 6)
-    }
-    fused
+    search_ranked(
+        docs,
+        entries,
+        cand,
+        query,
+        cfg.k,
+        cfg.atoms.as_ref(),
+        &SearchParams {
+            paths: &cfg.paths,
+            weights: &cfg.weights,
+            fusion_max: cfg.fusion_max,
+            jaccard: cfg.jaccard,
+            graph_seeds_sorted: cfg.graph_seeds_sorted,
+        },
+    )
 }
 
 fn eval_group(
@@ -842,5 +832,142 @@ fn main() {
             &[("合计", total)],
             cfg.k,
         );
+    }
+}
+
+#[cfg(test)]
+mod opt_batch1_tests {
+    //! R-1（2026-09-29）：评测链路（`main.rs::search`）必须与库/serve 链路
+    //! 走**同一份编排**且**同一份 query 归一口径**。
+    //!
+    //! 修复前 `main.rs::search` 是编排的第二份实现且完全不过统一归一层
+    //! （直用原始 query）——同 query 同语料两条路 top-1 不同，违反
+    //! `rust/README.md` / `lib.rs` 自书的「两边一致」。本用例钉住**行为面**：
+    //! 英文 query 打中文语料，评测链路必须在归一层生效时命中中文节点。
+    use super::*;
+
+    fn tmp_root(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let d = std::env::temp_dir().join(format!("mdcg_eval_bin_{tag}_{nanos}"));
+        std::fs::create_dir_all(d.join("knowledge")).unwrap();
+        d
+    }
+
+    /// 与 `parse_args` 同构的最小 Cfg（只给检索相关字段有意义的值）。
+    fn test_cfg(atoms: Option<mdcg_eval::atoms::Atoms>) -> Cfg {
+        let root = tmp_root("cfg");
+        Cfg {
+            root: root.clone(),
+            dataset: "lc".into(),
+            k: 5,
+            threads: 1,
+            order: Order::Scan,
+            paths: vec![
+                "lexical".into(),
+                "bucket".into(),
+                "entity".into(),
+                "graph".into(),
+            ],
+            fusion_max: false,
+            weights: std::collections::HashMap::new(),
+            n: 0,
+            out_dir: root,
+            tag: "test".into(),
+            dump: None,
+            jaccard: true,
+            lib: None,
+            qfile: None,
+            graph_seeds_sorted: true,
+            atoms,
+            serve: false,
+        }
+    }
+
+    /// 语料：`beef`（中文正文「牛肉」）与 `tall`（无关但 importance 更高）。
+    /// 无归一层时英文 query 的 LIKE 预筛全空 → 走 LIKE 兜底池（只按
+    /// importance 定序）⇒ `tall` 反超；有归一层时命中 `beef`。
+    fn unify_lib() -> PathBuf {
+        let root = tmp_root("unifylib");
+        std::fs::write(
+            root.join("_index.json"),
+            r#"{"nodes":{
+                "beef":{"path":"knowledge/beef.md","layer":"knowledge","tags":[],"importance":0.3,"edges":[]},
+                "tall":{"path":"knowledge/tall.md","layer":"knowledge","tags":[],"importance":0.9,"edges":[]}
+            }}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("knowledge").join("beef.md"),
+            "---\nid: \"beef\"\nimportance: 0.3\n---\n# 正文：牛肉 烹饪 方法 zzcook\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("knowledge").join("tall.md"),
+            "---\nid: \"tall\"\nimportance: 0.9\n---\n# 正文：无关 节点 zzcook\n",
+        )
+        .unwrap();
+        root
+    }
+
+    fn top1(ranked: &[(usize, f64)], entries: &[Entry]) -> String {
+        assert!(!ranked.is_empty(), "结果非空");
+        entries[ranked[0].0].id.clone()
+    }
+
+    #[test]
+    fn r1_eval_path_applies_query_unifier() {
+        let root = unify_lib();
+        let entries = store::load_index(&root, Order::Scan).unwrap();
+        let cand = store::candidates(&entries);
+        let docs = store::load_docs(&root, &entries, 1);
+        let map = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../md_cg/semantic/en_zh_map.json");
+        let atoms = mdcg_eval::atoms::Atoms::load(&map).expect("仓库内 en_zh_map.json 可载入");
+
+        // 测评链路口径（R-1 修复后：atoms 在位 ⇒ query 先归一）
+        let cfg_on = test_cfg(Some(atoms));
+        let on = search(&docs, &entries, &cand, "I eat beef yesterday", &cfg_on);
+        assert_eq!(top1(&on, &entries), "beef",
+                   "评测链路必须过统一归一层（英文 query 命中中文「牛肉」节点）");
+
+        // 无归一层（旧评测链路口径，`MDCG_UNIFY_QUERY=0` / 词表不可得）
+        let cfg_off = test_cfg(None);
+        let off = search(&docs, &entries, &cand, "I eat beef yesterday", &cfg_off);
+        assert_ne!(top1(&off, &entries), "beef",
+                   "无归一层时英文 query 与中文正文无词面交集（旧口径失配形态）");
+
+        // 两条路的共同来源：`search` 只是 `search_ranked` 的参数搬运——
+        // 同一参数直调必须逐位一致（单实现，R-1）
+        let direct = search_ranked(
+            &docs, &entries, &cand, "I eat beef yesterday", cfg_on.k,
+            cfg_on.atoms.as_ref(),
+            &SearchParams {
+                paths: &cfg_on.paths,
+                weights: &cfg_on.weights,
+                fusion_max: cfg_on.fusion_max,
+                jaccard: cfg_on.jaccard,
+                graph_seeds_sorted: cfg_on.graph_seeds_sorted,
+            },
+        );
+        assert_eq!(on.len(), direct.len());
+        for (a, b) in on.iter().zip(direct.iter()) {
+            assert_eq!(a.0, b.0, "同序同位");
+            assert_eq!(a.1, b.1, "同分");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&cfg_on.root);
+    }
+
+    #[test]
+    fn r1_graph_seeds_default_is_sorted() {
+        // R-3 的 CLI 缺省面：不改 --graph-seeds 时 cfg.graph_seeds_sorted 必须为真
+        // （构造 `parse_args` 会读 std::env::args，故这里只钉缺省值本身；
+        //  缺省字面量与 `--graph-seeds raw` 的反向解析在 parse_args 内）
+        let cfg = test_cfg(None);
+        assert!(cfg.graph_seeds_sorted, "缺省 sorted");
+        assert!(cfg.atoms.is_none(), "测试夹具显式传 None");
     }
 }
