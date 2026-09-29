@@ -97,7 +97,7 @@ description: 灵枢工作纪律与记忆操作规程。会话开始或任何任�
    触发：执行命令｜运行测试/脚本｜跨进程读写文本
    动作：构造 argv 列表→subprocess.run(capture_output=True, text=True, encoding='utf-8', errors='replace')→env 带 PYTHONUTF8=1→shell=False；边界判据=本次调用是否产出非UTF-8字节流(纯MSYS工具与不起进程的内置工具豁免；原生Windows程序不豁免，须python包装或显式解码)
    不适用：IDE内置工具直调(判据=本次调用是否产出非UTF-8字节流；不起进程的内置工具(Read/Write/Edit/Grep/Glob/WebFetch)与纯MSYS工具(grep/ls/sed)归入本豁免；拉起shell且执行原生Windows程序者(taskkill/wmic/npm.cmd/cargo/where)不属本豁免，仍须python包装或对输出显式解码；2026-09-28使用者裁定)｜无跨进程的纯内存计算
-   声明：按工作纪律第15条: 命令执行统一走python——argv列表+显式UTF-8+PYTHONUTF8=1, 不经Windows shell, 规避GBK解码异常。
+   声明：按工作纪律第15条: 命令执行统一走python——argv列表+显式UTF-8+PYTHONUTF8=1, 不经Windows shell, 规避GBK解码异常。 另: 全仓文本与路径/文件名一律UTF-8(中文可进路径), 不做控制台兼容(取用走python, 控制台乱码属显示层)。
 16. 任务收尾归档(记忆闭环)
    触发：任务执行完成｜修改落地后｜交付后
    动作：任务收尾→提炼核心修改(内容/原因/位置/验证结论四要素, 不写中间过程/试错/调试/重复确认)→按 CCG 六要素成文(# 功能名/# 生效条件/# 子功能/# 执行/# 验证方式/# 不适用条件 六行缺一不可, 与正文四要素并置)→写入灵枢记忆(认知图/MCP memory)——text 类缺要素即被写入闸门拒(REJECT, 当场返回缺失清单, 不是重试无用), 按清单补齐后重写即可→读回确认(写入后发起一次读取查询确认写入成功且可检索)→标注关联条目+更新 subgraph/depends_on
@@ -117,4 +117,4 @@ description: 灵枢工作纪律与记忆操作规程。会话开始或任何任�
 【使用须知】
 - 「触发」命中即执行对应「动作」，并在回复中输出该条「声明」原文。
 - 逐条的完整「不适用」边界见真源 JSON 对应节点的 negative.reject；此处仅列关键项。
-- 本段为自动生成（真源指纹 SHA256 前16位：8bc52efa5330684b），请勿手改；改真源后重跑 scripts/render_discipline.py。
+- 本段为自动生成（真源指纹 SHA256 前16位：e1e9112a409894aa），请勿手改；改真源后重跑 scripts/render_discipline.py。
