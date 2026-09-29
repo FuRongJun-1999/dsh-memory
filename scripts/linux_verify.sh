@@ -77,6 +77,14 @@ echo "=== 断言判别力自证（退出码 0 = 变异后如预期转红）==="
 # （B 组）；去掉分片日志坏行过滤 ⇒ 恰好 15 项（C 组 10 + D 组 5）。端到端面走独立
 # 子进程，内存变异不跨进程，故由守卫经 PYTHONPATH 上的 sitecustomize 注入同一处
 # 变异并以 stderr 标记自证（标记缺失即 D 组判红）。锚点漂移同样退出码 2。
+# N225 补强批（2026-09-29）：原 E 组五条「源文本在场」断言（整组换空组仍 PASS，
+# 零判别力）已整组删除，改由行为断言并按「一组一判据」重排——八处定点变异各自
+# 恰好命中：装载面类型闸 ⇒ 25（A20+D5）；compact 面类型闸 ⇒ 16（B）；分片日志非
+# 对象行过滤 ⇒ 14（C9+D5，C 组原 10 项中的「重放面 tombstone 语义」归 G 组）；
+# 载荷坏型闸（e 非 dict 且非 None 跳过）⇒ 6（E）；载荷闸口径过宽（把 e is None 的
+# tombstone 也当坏载荷）⇒ 2（G）；排序键归一（坏型槽记 0）⇒ 5（F）；tombstone 重放
+# （e is None ⇒ pop）⇒ 2（G，与上条从过窄/过宽两侧钉同一口径）；read_jsonl 原样
+# 产出 ⇒ 2（H）。锚点漂移同样退出码 2。
 for spec in "test_neg_condition_hits --head-baseline" \
             "test_neg_condition_hits --branch-baseline" \
             "test_policy_required_ccg --head-baseline" \

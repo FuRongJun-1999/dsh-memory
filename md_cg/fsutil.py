@@ -273,8 +273,22 @@ _COUNT_CACHE = {}          # abspath -> (bytes_scanned, mtime_ns, lines)
 # 存在」不可区分，索引静默少几条，运维与守卫都看不见。故此处是跳过面的
 # 唯一记账点：模块级累计计数 + 有界样本 + stderr 汇总告警（每条分片一行，
 # 不逐行刷屏）。
-NONOBJECT_ROW_SKIPS = 0        # 累计跳过的非对象行数（进程内）
-NONOBJECT_ROW_SAMPLES = []     # 最近跳过的 (分片路径, 行号, JSON 类型名)
+#
+# N225 补强（2026-09-29，深度 2 同族面）：同一记账面再收两类**dict 行内**的坏型
+# （N225 v1.0 报告 §0「已知缺口」点名的深度 2 复发面，此前不在任何断言面内）：
+#   ① 载荷坏型：分片记录 `e` 非 dict 且非 None——判据在重放面（mdcg 的两条重放
+#      路径同一实现），经 note_bad_payload_rows 记账；
+#   ② 排序键坏型：`_t` / `_s` 非数值（或 NaN）——read_all 的排序键健壮化与记账
+#      必须同时发生，经 note_bad_sortkey_rows 记账。
+# 三类**合计**进 NONOBJECT_ROW_SKIPS（这就是「同一记账面」的字面口径），各子面
+# 另留独立计数与样本，运维据此区分「行根本不是对象」/「行是对象而载荷坏了」/
+# 「行的排序键坏了」——三者排查方向不同。kind 名：非对象行 / 载荷坏型 / 排序键坏型。
+NONOBJECT_ROW_SKIPS = 0        # 累计跳过的坏记录行数（三类合计，进程内）
+NONOBJECT_ROW_SAMPLES = []     # 非对象行样本：(分片路径, 行号, JSON 类型名)
+BAD_PAYLOAD_ROW_SKIPS = 0      # 载荷坏型子面：(e 非 dict 且非 None) 条数
+BAD_PAYLOAD_ROW_SAMPLES = []   # 载荷坏型样本：(来源标签, 记录 id, 载荷类型名)
+BAD_SORTKEY_ROW_SKIPS = 0      # 排序键坏型子面：(_t/_s 非数值或 NaN) 条数
+BAD_SORTKEY_ROW_SAMPLES = []   # 排序键坏型样本：(分片路径, 行号, (t 类型名, s 类型名))
 _NONOBJECT_SAMPLE_CAP = 32     # 样本上限：记账要有界，不随坏行线性涨
 
 
@@ -299,18 +313,95 @@ def note_nonobject_rows(skips):
            type(value).__name__, NONOBJECT_ROW_SKIPS))
 
 
-# 生效条件：无入参，返回二元组 (累计跳过条数, 样本元组副本)——样本元素为 (分片路径, 行号, JSON 类型名)，副本只读，调用方改动不影响记账面。
+# 生效条件：无入参，返回二元组 (累计坏行条数, 非对象行样本元组副本)——累计数为三类合计（非对象行 + 载荷坏型 + 排序键坏型），样本元素为 (分片路径, 行号, JSON 类型名) 且只含非对象行一类，副本只读、调用方改动不影响记账面。
 def nonobject_row_stats():
-    """读非对象行记账（只读）：(累计条数, 样本元组)。"""
+    """读坏行记账合计（只读）：(累计条数, 非对象行样本元组)。
+
+    累计数是**同一记账面**的合计（三类 kind 都计入）；按 kind 的分项见
+    bad_payload_row_stats / bad_sortkey_row_stats。
+    """
     return NONOBJECT_ROW_SKIPS, tuple(NONOBJECT_ROW_SAMPLES)
 
 
-# 生效条件：无入参，把累计条数置 0 并清空样本列表（原地清空，不换对象）；守卫与运维建立观测基线时用，生产读路径不调用。
+# 生效条件：skips 为 (来源标签, 记录 id, 载荷值) 三元组序列且非空时，把 len(skips) 同时累加进 NONOBJECT_ROW_SKIPS（同一记账面）与 BAD_PAYLOAD_ROW_SKIPS（子面），按 _NONOBJECT_SAMPLE_CAP 上限补 BAD_PAYLOAD_ROW_SAMPLES（元素为 (来源标签, str(记录 id), 载荷类型名)），并向 sys.stderr 写一行载荷坏型汇总告警（含来源基名、本次条数、首条 id 与类型名、进程内累计条数）；skips 为空序列或假值时立即返回——不写输出、不动任何计数。
+def note_bad_payload_rows(skips):
+    """登记一批被跳过的**载荷坏型**记录（`e` 非 dict 且非 None）+ stderr 告警。
+
+    与 note_nonobject_rows 同一个记账面（合计进 NONOBJECT_ROW_SKIPS），但样本
+    与告警文案分开：运维据此区分「行本身不是对象」与「行是对象而载荷坏了」。
+    记录**不落进索引**由调用方（重放路径）负责，本函数只记账。计数只在这里加，
+    调用方不得另立计数器（`_count_buckets` 那条下游不做类型检查，正是靠这里
+    把坏载荷挡在 `nodes` 之外）。
+    """
+    if not skips:
+        return
+    global NONOBJECT_ROW_SKIPS, BAD_PAYLOAD_ROW_SKIPS
+    NONOBJECT_ROW_SKIPS += len(skips)
+    BAD_PAYLOAD_ROW_SKIPS += len(skips)
+    for item in skips:
+        if len(BAD_PAYLOAD_ROW_SAMPLES) >= _NONOBJECT_SAMPLE_CAP:
+            break
+        BAD_PAYLOAD_ROW_SAMPLES.append((item[0], str(item[1]),
+                                        type(item[2]).__name__))
+    source, nid, value = skips[0]
+    sys.stderr.write(
+        "[fsutil] 分片重放跳过 %d 条载荷坏型记录（e 非 dict 且非 None，来源 %s，"
+        "首条 id=%s 载荷类型=%s）——坏载荷不进索引节点；本次后进程内累计 %d 条"
+        "（含非对象行）。排查方向：该分片被按别的协议写入，或载荷被外部改写。\n"
+        % (len(skips), os.path.basename(str(source)), nid,
+           type(value).__name__, NONOBJECT_ROW_SKIPS))
+
+
+# 生效条件：无入参，返回二元组 (载荷坏型累计条数, 样本元组副本)——样本元素为 (来源标签, 记录 id, 载荷类型名)，副本只读、调用方改动不影响记账面。
+def bad_payload_row_stats():
+    """读载荷坏型子面（只读）：(累计条数, 样本元组)。"""
+    return BAD_PAYLOAD_ROW_SKIPS, tuple(BAD_PAYLOAD_ROW_SAMPLES)
+
+
+# 生效条件：skips 为 (分片路径, 行号, (t 值, s 值)) 三元组序列且非空时，把 len(skips) 同时累加进 NONOBJECT_ROW_SKIPS（同一记账面）与 BAD_SORTKEY_ROW_SKIPS（子面），按 _NONOBJECT_SAMPLE_CAP 上限补 BAD_SORTKEY_ROW_SAMPLES（元素为 (分片路径, 行号, (t 类型名, s 类型名))），并向 sys.stderr 写一行排序键坏型汇总告警（含分片基名、本次条数、首条行号与两个类型名、进程内累计条数）；skips 为空序列或假值时立即返回——不写输出、不动任何计数。
+def note_bad_sortkey_rows(skips):
+    """登记一批**排序键坏型**记录（`_t` / `_s` 非数值或 NaN）+ stderr 告警。
+
+    与 note_nonobject_rows 同一记账面。**记录本身不丢**（仍是 dict，照常回放，
+    只在排序键上按「缺键取 0」的既有口径归一）——故本函数只记账、不改记录：
+    丢掉一条合法 dict 记录是比重排它更糟的事。
+    """
+    if not skips:
+        return
+    global NONOBJECT_ROW_SKIPS, BAD_SORTKEY_ROW_SKIPS
+    NONOBJECT_ROW_SKIPS += len(skips)
+    BAD_SORTKEY_ROW_SKIPS += len(skips)
+    for item in skips:
+        if len(BAD_SORTKEY_ROW_SAMPLES) >= _NONOBJECT_SAMPLE_CAP:
+            break
+        raw = item[2]
+        BAD_SORTKEY_ROW_SAMPLES.append(
+            (item[0], item[1], (type(raw[0]).__name__, type(raw[1]).__name__)))
+    path, lineno, raw = skips[0]
+    sys.stderr.write(
+        "[fsutil] ShardedLog.read_all 排序键坏型 %d 条（分片 %s，首条 行%d "
+        "_t=%s _s=%s）——坏型槽记 0 参与排序（记录不丢）；本次后进程内累计 %d 条"
+        "（含非对象行）。排查方向：该分片被非本协议写入方污染。\n"
+        % (len(skips), os.path.basename(path), lineno,
+           type(raw[0]).__name__, type(raw[1]).__name__, NONOBJECT_ROW_SKIPS))
+
+
+# 生效条件：无入参，返回二元组 (排序键坏型累计条数, 样本元组副本)——样本元素为 (分片路径, 行号, (t 类型名, s 类型名))，副本只读、调用方改动不影响记账面。
+def bad_sortkey_row_stats():
+    """读排序键坏型子面（只读）：(累计条数, 样本元组)。"""
+    return BAD_SORTKEY_ROW_SKIPS, tuple(BAD_SORTKEY_ROW_SAMPLES)
+
+
+# 生效条件：无入参，把三类累计条数（NONOBJECT_ROW_SKIPS / BAD_PAYLOAD_ROW_SKIPS / BAD_SORTKEY_ROW_SKIPS）全置 0 并把三个样本列表原地清空（del [:]，不换对象）；守卫与运维建立观测基线时用，生产读路径不调用。
 def reset_nonobject_row_stats():
-    """清空非对象行记账（守卫 / 运维的观测基线用）。"""
-    global NONOBJECT_ROW_SKIPS
+    """清空整个坏行记账面（含两类子面；守卫 / 运维的观测基线用）。"""
+    global NONOBJECT_ROW_SKIPS, BAD_PAYLOAD_ROW_SKIPS, BAD_SORTKEY_ROW_SKIPS
     NONOBJECT_ROW_SKIPS = 0
+    BAD_PAYLOAD_ROW_SKIPS = 0
+    BAD_SORTKEY_ROW_SKIPS = 0
     del NONOBJECT_ROW_SAMPLES[:]
+    del BAD_PAYLOAD_ROW_SAMPLES[:]
+    del BAD_SORTKEY_ROW_SAMPLES[:]
 
 
 # 生效条件：os.stat(os.path.abspath(path or "")) 抛 OSError 时返回 0；缓存命中且已扫字节数与 mtime_ns 均与 stat 一致时直接返回缓存计数；若缓存已扫字节 < 当前 size 且 mtime_ns 不同则从该偏移起按 chunk 分块累计 b"\n" 个数并加上缓存值；读文件抛 OSError 时返回 total or 0（已累计值为假则返回 0）。
@@ -399,7 +490,7 @@ class ShardedLog:
             self._fh = None
 
     @staticmethod
-# 生效条件：directory 是目录时，按 sorted(os.listdir(directory)) 顺序对每个以 ".log" 结尾的文件读取汇总（单分片 PermissionError 时以 5ms×8 短重试等 Windows delete-pending 窗口过去、窗口后 FileNotFoundError 视为已被 compact 并入快照清走而跳过、重试耗尽照常 raise），逐行只收 dict 记录——非对象行（null/[]/123/"abc" 等合法 JSON）跳过并经 note_nonobject_rows 记账 + stderr 告警（不得静默），再按每条记录 r.get("_t", 0)、r.get("_s", 0)（缺键取 0）排序后返回全部记录；directory 不是目录时直接返回 []。
+# 生效条件：directory 是目录时，按 sorted(os.listdir(directory)) 顺序对每个以 ".log" 结尾的文件读取汇总（单分片 PermissionError 时以 5ms×8 短重试等 Windows delete-pending 窗口过去、窗口后 FileNotFoundError 视为已被 compact 并入快照清走而跳过、重试耗尽照常 raise），逐行只收 dict 记录——非对象行（null/[]/123/"abc" 等合法 JSON）跳过并经 note_nonobject_rows 记账 + stderr 告警（不得静默）；随后按排序键 (_norm(r.get("_t", 0)), _norm(r.get("_s", 0))) 排序，其中 _norm 只把「数值（int/float，含 bool）且非 NaN」原样透传、其余槽（str/list/dict/None/NaN）一律记 0——坏型槽经 note_bad_sortkey_rows 记账 + stderr 告警（不得静默），记录本身不丢；合法记录（_t/_s 均数值，缺键按默认值 0）的排序键逐位等于旧键 (r.get("_t", 0), r.get("_s", 0))，故其相对次序与改前逐位一致；directory 不是目录时直接返回 []。
     def read_all(directory: str):
         """按全局写入顺序回放所有分片。
 
@@ -423,9 +514,27 @@ class ShardedLog:
         进记账面（note_nonobject_rows → 模块级计数 + 样本 + stderr 告警）。
         分流必须在本层做——`read_jsonl` 的通用契约（其它消费面）不在本次
         范围，不得改。整片读成功才记账：半途重试不重复计数。
+
+        N225 补强（2026-09-29，**排序键健壮化**）：行是 dict 不等于键可排序
+        ——`_t` / `_s` 被外部写成 `"abc"` / `[]` / `null` 时，旧键
+        `(r.get("_t", 0), r.get("_s", 0))` 在 sort 里抛 TypeError
+        （`'<' not supported between instances of 'str' and 'float'`），
+        而 except 面只有 ValueError/OSError ⇒ 与 N225 原始缺陷同一条断链，
+        只是深度 2（N225 v1.0 报告 §0 已点名的缺口）。现按**单槽归一**处理：
+        数值（int/float，含 bool）原样，其余槽记 0——与「缺键取 0」同一口径，
+        不新造第二套默认值。归一化真的发生时（归一结果 ≠ 原值对）进
+        note_bad_sortkey_rows 记账（**容忍 ≠ 静默**，记录不丢）。
+        次序不变性：合法记录的排序键逐位等于旧键 ⇒ 同一稳定排序算法在同一
+        输入序列上产出同一次序，故相对次序与改前逐位一致（守卫 F2 用真实
+        分片记录与旧键 oracle 逐条对照）。
         """
         if not os.path.isdir(directory):
             return []
+
+        # 生效条件：v 为 int/float（含 bool）且 v == v（非 NaN）时原样返回 v，其余取值（str/list/dict/None/NaN）一律返回 0——排序键单槽归一，NaN 必须排除（`nan == nan` 为假、与任何数比较恒假：它不抛但让次序不确定）。
+        def _norm(v):
+            return v if (isinstance(v, (int, float)) and v == v) else 0
+
         recs = []
         for fn in sorted(os.listdir(directory)):
             if not fn.endswith(".log"):
@@ -433,14 +542,18 @@ class ShardedLog:
             p = os.path.join(directory, fn)
             for _attempt in range(8):
                 try:
-                    batch, skips = [], []
+                    batch, skips, badkeys = [], [], []
                     for lineno, rec in enumerate(read_jsonl(p), 1):
-                        if isinstance(rec, dict):
-                            batch.append(rec)
-                        else:
+                        if not isinstance(rec, dict):
                             skips.append((p, lineno, rec))
+                            continue
+                        batch.append(rec)
+                        raw = (rec.get("_t", 0), rec.get("_s", 0))
+                        if (_norm(raw[0]), _norm(raw[1])) != raw:
+                            badkeys.append((p, lineno, raw))
                     recs.extend(batch)
                     note_nonobject_rows(skips)
+                    note_bad_sortkey_rows(badkeys)
                     break
                 except FileNotFoundError:
                     break          # 已被 compact 清走（记录已并入快照）
@@ -448,7 +561,7 @@ class ShardedLog:
                     if _attempt == 7:
                         raise
                     time.sleep(0.005)
-        recs.sort(key=lambda r: (r.get("_t", 0), r.get("_s", 0)))
+        recs.sort(key=lambda r: (_norm(r.get("_t", 0)), _norm(r.get("_s", 0))))
         return recs
 
     @staticmethod

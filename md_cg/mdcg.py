@@ -28,7 +28,7 @@ import threading
 from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
                lifecycle, reach, trust, roleviews)
 from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
-                     read_jsonl, sweep_stale_temps)
+                     read_jsonl, sweep_stale_temps, note_bad_payload_rows)
 
 # 五层 + 两类负记忆 + 目标槽（白箱记忆七件套工程化：事实/规则→knowledge；
 # 假设→contextual；失败/未解→独立目录；目标→goals）。
@@ -1040,7 +1040,7 @@ class MdCG:
 
     # ---------- 索引（派生物，可重建） ----------
 
-# 生效条件：os.path.exists(self.index_path) 为真、json.load 成功、解析结果为 dict（顶层非对象=null/[]/123/"abc" 视同损坏）且其 "schema" 等于模块级 SCHEMA、且其 "_fingerprint"（目录树 mtime 指纹）等于当前 self._dir_fingerprint() 时以该快照为基底；快照缺失/损坏/顶层非对象/无指纹/指纹不符（盘面在快照写入后有增删——其它存活实例未 flush 的写入或外部改盘）均回退 self._scan_nodes() 全库扫描为基底；随后重放 ShardedLog.read_all(self.index_log_dir)：记录无 id 跳过、e 为 None 则 pop 该 nid（tombstone）、e 非 None 则覆盖，最终 buckets 由 _count_buckets 重算；
+# 生效条件：os.path.exists(self.index_path) 为真、json.load 成功、解析结果为 dict（顶层非对象=null/[]/123/"abc" 视同损坏）且其 "schema" 等于模块级 SCHEMA、且其 "_fingerprint"（目录树 mtime 指纹）等于当前 self._dir_fingerprint() 时以该快照为基底；快照缺失/损坏/顶层非对象/无指纹/指纹不符（盘面在快照写入后有增删——其它存活实例未 flush 的写入或外部改盘）均回退 self._scan_nodes() 全库扫描为基底；随后经 self._apply_log 重放分片日志（N225 补强：与 compact 面**同一实现**——无 id 跳过、e 为 None 则 pop 该 nid（tombstone）、e 非 dict 且非 None 则跳过并记账、其余覆盖），最终 buckets 由 _count_buckets 重算；
     def _load_index(self):
         idx = None
         if os.path.exists(self.index_path):
@@ -1071,6 +1071,34 @@ class MdCG:
                 idx = None
         if idx is None:
             idx = {"schema": SCHEMA, "nodes": self._scan_nodes(), "buckets": {}}
+        self._apply_log(idx["nodes"])
+        idx["buckets"] = self._count_buckets(idx["nodes"])
+        return idx
+
+# 生效条件：nodes 为可 pop / 可赋值的映射（dict 或 _DirtyDict）时，对 ShardedLog.read_all(self.index_log_dir) 的每条记录逐条重放——无 id（假值）跳过；有 id 时 str 归一（legacy P3 自愈腿：旧版本 _stage 落下的 {"id": 123} 不得让 int 键进索引）；e 为 None（tombstone）⇒ nodes.pop(nid, None)，语义一字不改；e 非 dict 且非 None（"[]"/123/"abc" 等合法 JSON 载荷）⇒ **跳过**并经 fsutil.note_bad_payload_rows 记账 + stderr 告警（容忍 ≠ 静默，且不得让非 dict 载荷进 nodes——下游 _count_buckets 对元素裸调 .get，不做类型检查）；其余（dict 载荷）⇒ nodes[nid] = e 覆盖；函数返回传入的 nodes。
+    def _apply_log(self, nodes):
+        """分片日志重放——**装载面与 compact 面共用的唯一实现**（N225 补强）。
+
+        此前 `_load_index` 与 `compact_index` 各写一份同源循环，口径靠人眼
+        对齐（「同口径」只是一句约定）；本次收成一处：同一判据只写一份，
+        改一处即两处生效——契约②的字面要求即「两处同口径」，单实现是最强的
+        同口径。
+
+        N225 补强（2026-09-29，**载荷坏型收口**）：行是 dict 不等于载荷可用。
+        `e` 非 dict 且非 None（`[]` / `123` / `"abc"`）时旧写法直接
+        `nodes[nid] = e`，`_count_buckets` 对元素裸调 `.get("bucket")` ⇒
+        AttributeError（N225 v1.0 报告 §0 点名的深度 2 缺口）。现按**与
+        tombstone 并列的一条判据**收口：坏载荷跳过 + 记账（同一记账面：
+        `fsutil.BAD_PAYLOAD_ROW_SKIPS` 与合计 `NONOBJECT_ROW_SKIPS`），
+        **不新增第三套判据**——`_count_buckets` 不加 isinstance 闸，防在上游
+        （即本函数）。`e is None` 的删除语义一字不改：tombstone 仍 pop，
+        只有「非 None 且非 dict」才当坏记录。
+
+        边界（诚实声明）：本函数只管**分片日志重放**这一条上游。`_maybe_reload_index`
+        重放的是本实例 `self._dirty`——内容全部由 `_stage` 写入（dict 或 None），
+        不在本次范围；外部写坏的 `_index.json` 已在装载/compact 的类型闸收口。
+        """
+        skips = []
         for rec in ShardedLog.read_all(self.index_log_dir):
             nid, e = rec.get("id"), rec.get("e")
             if not nid:
@@ -1079,14 +1107,18 @@ class MdCG:
             # `{"id": 123}`）同样归一到 str，否则 int 键进索引后任何 sorted 消费面
             # （_scan_nodes / evidence / reach / trust）都会混型 TypeError。
             nid = str(nid)
+            if e is not None and not isinstance(e, dict):
+                # 载荷坏型：视同坏记录跳过（不静默——note_bad_payload_rows 记账）
+                skips.append((self.index_log_dir, nid, e))
+                continue
             if e is None:
                 # 删除记录（tombstone）：删除必须能重放，否则已删节点会在下次
                 # 启动时从旧记录里复活成**幽灵条目**（索引有条目、文件不存在）。
-                idx["nodes"].pop(nid, None)
+                nodes.pop(nid, None)
             else:
-                idx["nodes"][nid] = e
-        idx["buckets"] = self._count_buckets(idx["nodes"])
-        return idx
+                nodes[nid] = e
+        note_bad_payload_rows(skips)
+        return nodes
 
 # 生效条件：返回二元组（快照签名, 他进程分片签名元组）：快照签名为 os.stat(self.index_path) 的 (st_mtime_ns, st_size)，stat 抛 OSError 时 None；分片签名为 self.index_log_dir 下以 ".log" 结尾、绝对路径不等于 self._own_shard 的条目按文件名排序后的 (文件名, st_size, st_mtime_ns) 元组（目录不可列或单条目 stat 失败时跳过该条目）；
     def _index_signature(self):
@@ -1230,7 +1262,7 @@ class MdCG:
                 buckets[b] = buckets.get(b, 0) + 1
         return buckets
 
-# 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析、解析结果为 dict（顶层非对象视同损坏）且 "schema" 等于 SCHEMA 时以该快照为基底；快照不存在用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}}（不重扫目录）；快照损坏（ValueError/OSError）、顶层非对象或 schema 不符时降级以 self._scan_nodes() 全库扫描结果为基底（宁重扫勿清池）；基底确定后对 index_log_dir 逐条重放（无 id 跳过、e 为 None 则 pop、否则覆盖），落盘并清空日志后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）并返回 idx；
+# 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析、解析结果为 dict（顶层非对象视同损坏）且 "schema" 等于 SCHEMA 时以该快照为基底；快照不存在用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}}（不重扫目录）；快照损坏（ValueError/OSError）、顶层非对象或 schema 不符时降级以 self._scan_nodes() 全库扫描结果为基底（宁重扫勿清池）；基底确定后经 self._apply_log 对 index_log_dir 逐条重放（N225 补强：与 _load_index **同一实现**——无 id 跳过、e 为 None 则 pop、e 非 dict 且非 None 则跳过并记账、其余覆盖；对账触发重扫后同一实现叠回干净扫描之上），落盘并清空日志后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）并返回 idx；
     def compact_index(self):
         with FileLock(self.index_path):
             idx = {"schema": SCHEMA, "nodes": {}, "buckets": {}}
@@ -1261,19 +1293,9 @@ class MdCG:
                 idx = {"schema": SCHEMA, "nodes": self._scan_nodes(),
                        "buckets": {}}
 
-            def _apply_log(nodes):
-                for rec in ShardedLog.read_all(self.index_log_dir):
-                    nid, e = rec.get("id"), rec.get("e")
-                    if not nid:
-                        continue
-                    nid = str(nid)         # legacy P3 自愈腿：同 _load_index（键归一）
-                    if e is None:              # 删除记录（tombstone），见 _load_index
-                        nodes.pop(nid, None)
-                    else:
-                        nodes[nid] = e
-                return nodes
-
-            _apply_log(idx["nodes"])
+            # N225 补强（2026-09-29）：重放改为 self._apply_log——与 _load_index
+            # **同一实现**（此处原有的一份同源循环删除，口径不可能再漂开）。
+            self._apply_log(idx["nodes"])
             if not scan_fallback and self._count_md_files() != len(idx["nodes"]):
                 # 计数对账（issue #33）：快照+日志账本与盘面不符——其它存活
                 # 实例未 flush 的写入（文件已落盘、索引增量还在其 _dirty）
@@ -1282,7 +1304,7 @@ class MdCG:
                 # 与 _load_index 的指纹兜底双保险：此处保快照**完整**，
                 # 指纹保快照**新鲜**。
                 idx = {"schema": SCHEMA,
-                       "nodes": _apply_log(self._scan_nodes()),
+                       "nodes": self._apply_log(self._scan_nodes()),
                        "buckets": {}}
             idx["buckets"] = self._count_buckets(idx["nodes"])
             idx["_fingerprint"] = self._dir_fingerprint()
