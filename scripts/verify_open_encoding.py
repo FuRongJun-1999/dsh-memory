@@ -55,6 +55,20 @@ import tempfile
 _HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(_HERE)
 
+# ---------------------------------------------------------------- 入口自保证 UTF-8
+# 约束（工作纪律第 15 条）：本调用必须在**任何文件/库 I/O 之前**——utf8_boot.ensure_utf8
+# 在解释器未开 UTF-8 模式时以相同 argv 重启自身（-X utf8）。**本守卫自身也必须先保证**：
+# 它的诊断行含 `✔`/`✘`，未开模式时这些字符以 cp936 编码直接 `UnicodeEncodeError` 崩掉，
+# 而退出码 1 与「扫描到违例」同码 ⇒ 裁决现场的红灯信号被污染（本仓自检项 §6.3 / Q7 记录
+# 的正是这一形态）。仓库根入 sys.path 的形态照 scripts/run_tests.py 的最小写法（助手在仓根）。
+# 被 import（本模块非 __main__）时助手只置子进程继承面、绝不重启/退出——F6：静默重启
+# 会吞掉调用方输入。
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+from utf8_boot import ensure_utf8  # noqa: E402
+
+ensure_utf8(__file__)
+
 #: 扫描面：三项全扫（含 test_/bench_ 面——测试夹具同样会被非桥路径拉起）
 SCAN_DIRS = ("md_cg", "hive", "scripts")
 
