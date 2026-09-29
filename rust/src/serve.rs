@@ -6,10 +6,19 @@
 //!
 //! 协议（一行一请求，一行一响应）：
 //!   请求  `{"op":"search","query":"...","k":5}`  → 命中列表
-//!         `{"op":"info"}`                        → 引擎元信息
+//!         `{"op":"info"}`                        → 引擎元信息（含 `score` = 本实例
+//!                                                   **实际生效**的词法打分口径）
 //!         `{"op":"ping"}`                        → 存活探测
 //!         文本行 `quit` 或 EOF                   → 实例退出
 //!   响应  `{"ok":true,...}` / `{"ok":false,"error":"..."}`
+//!
+//! CH-1（2026-09-29 · 对拍口径接线）：`info.score` 是**回读面**——调用方（
+//! `scripts/rank_parity.py`）不再假设「我传了 `--score jaccard` 就等于进程按
+//! jaccard 打分」，而是问进程自己。两侧缺省值本就不同（Rust 缺省 jaccard；
+//! Python `md_cg.mdcg.SCORE_MODE` 缺省 legacy），故对拍方必须两侧显式钉住并
+//! 回读对照，否则就是拿两套词法公式静默对拍。
+//!
+//! 本面**只报不改**：口径仍由 `--score`（缺省 jaccard，向后兼容）决定。
 
 use std::io::{BufRead, Write};
 use std::time::Instant;
@@ -61,6 +70,11 @@ fn handle(engine: &SearchEngine, line: &str) -> String {
             (
                 "paths".to_string(),
                 Json::Arr(engine.paths().iter().map(|p| Json::Str(p.clone())).collect()),
+            ),
+            // CH-1：词法打分口径**自报**（回读面；标签映射单点在 engine::score_label）
+            (
+                "score".to_string(),
+                Json::Str(crate::engine::score_label(engine.jaccard()).to_string()),
             ),
         ])
         .to_json_string(),
@@ -115,6 +129,10 @@ mod tests {
     use crate::engine::EngineConfig;
 
     fn mini_engine() -> SearchEngine {
+        mini_engine_with(&EngineConfig::default())
+    }
+
+    fn mini_engine_with(cfg: &EngineConfig) -> SearchEngine {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -131,7 +149,30 @@ mod tests {
             "---\nid: \"mem_a\"\ntags: [\"评测\"]\nimportance: 0.6\n---\n评测复现数据集。\n",
         )
         .unwrap();
-        SearchEngine::open(&root, &EngineConfig::default()).unwrap()
+        SearchEngine::open(&root, cfg).unwrap()
+    }
+
+    /// CH-1：`info` 必须**自报**实际生效的词法口径——对拍方的回读面。
+    /// 缺字段即「静默对拍」可复现（调用方只能假设），故这里钉住两态各一断言。
+    #[test]
+    fn info_reports_effective_score_mode() {
+        let dflt = mini_engine(); // EngineConfig::default() → jaccard: true
+        let v = crate::json::parse(&handle(&dflt, r#"{"op":"info"}"#)).unwrap();
+        assert_eq!(
+            v.get("score").and_then(|x| x.as_str()),
+            Some("jaccard"),
+            "缺省实例必须自报 jaccard（缺此字段 = 对拍方无法回读口径）"
+        );
+
+        let mut cfg = EngineConfig::default();
+        cfg.jaccard = false;
+        let legacy = mini_engine_with(&cfg);
+        let v2 = crate::json::parse(&handle(&legacy, r#"{"op":"info"}"#)).unwrap();
+        assert_eq!(
+            v2.get("score").and_then(|x| x.as_str()),
+            Some("legacy"),
+            "--score legacy 实例必须自报 legacy（回读面不得恒报缺省）"
+        );
     }
 
     #[test]

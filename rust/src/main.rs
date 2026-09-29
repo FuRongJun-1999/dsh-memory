@@ -176,12 +176,11 @@ fn parse_args() -> Cfg {
 
 /// 当前词法口径标签——输出标题必须跟随 `--score`（缺省 jaccard），
 /// 否则切 legacy 时标题仍写 jaccard，读数会被误导。
+///
+/// CH-1（2026-09-29）：标签映射收单点到 `engine::score_label`（`serve info.score`
+/// 与启动 stderr 取同一份），本函数只做 `Cfg` → bool 的取用。
 fn score_label(cfg: &Cfg) -> &'static str {
-    if cfg.jaccard {
-        "jaccard"
-    } else {
-        "legacy"
-    }
+    mdcg_eval::engine::score_label(cfg.jaccard)
 }
 
 fn print_help() {
@@ -202,8 +201,12 @@ fn print_help() {
   --root DIR            工作区根（默认 cargo 清单上级目录）
   --tag NAME            结果文件名后缀（默认 rust）
   --dump FILE           逐题明细（qid/qtype/rank/top-k id）追加写入，供诊断
-  --score MODE          词法打分：jaccard（默认，|qb∩db|/|qb∪db|，长度自惩罚）
+  --score MODE          词法打分：jaccard（**本进程缺省**，|qb∩db|/|qb∪db|，长度自惩罚）
                         | legacy（|qb∩db|/|qb|，只归一化查询侧，长文档占优）
+                        `--serve` 亦接受本参数；被拉起进程的实际口径可经 info 请求
+                        的 score 字段回读（CH-1）。
+                        注意 Python 侧缺省是 legacy（md_cg/mdcg.py:SCORE_MODE），
+                        两侧缺省不同 ⇒ 对拍必须两侧显式钉同一值。
   --lib DIR             显式指定评测库（覆盖数据集默认；zh_mad 消融臂逐个指定）
   --qfile FILE          显式指定题库 jsonl（覆盖数据集默认）
   --help                显示本帮助"
@@ -770,10 +773,13 @@ fn main() {
             }
         };
         eprintln!(
-            "[serve] 就绪 docs={} 候选={} 路 [{}] root={}",
+            "[serve] 就绪 docs={} 候选={} 路 [{}] score={} root={}",
             engine.doc_count(),
             engine.candidate_count(),
             engine.paths().join(","),
+            // CH-1：启动行自报实际口径（与 info.score 同源单点）——对拍方与
+            // 运维都能从进程自己嘴里读到「我按哪套词法公式打分」。
+            mdcg_eval::engine::score_label(engine.jaccard()),
             cfg.root.display()
         );
         std::process::exit(serve::run(engine));

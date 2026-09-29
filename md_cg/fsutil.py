@@ -404,6 +404,89 @@ def reset_nonobject_row_stats():
     del BAD_SORTKEY_ROW_SAMPLES[:]
 
 
+# ---------- C-3（FI-M02 / N134，2026-09-29）：读失败的**瞬时/终态单点判别**与记账 ----------
+#
+# 缺陷（N134，docs/eval/缺陷挖掘_自主迭代_v16.md:86）：`MdCG._read` 把 OSError
+# （含**瞬态**失败：独占句柄 / 资源剥夺）与「文件不存在 / 越界」一律归成
+# `(None, None)`，readcache 又把任何返回值——包括 `(None, None)`——一律当正常值
+# 写入缓存 ⇒ 一次瞬态 OS 失败被固化成「该节点从检索面永久消失，直到进程重启或
+# 该 path 再写盘」（cache 条目字面 `(gen, (None, None))`）；而 `cg.get` 直读不走
+# 缓存照常可读 ⇒「get 能读、search 搜不到」撕裂（P1 fail-closed 缺席 + T4 静默损伤）。
+#
+# 修法要点：**判别只此一处**——读路径在唯一捕获 OSError 的点上调用本函数拿到
+# 「瞬时 / 终态」标签，缓存层按标签决定接纳与否，**不再自行回看异常类型**
+# （否则就是判据的第二份副本；本仓 N133 与 `_ccg_line` 的教训都是「副本自称同源」）。
+#   · 终态（READ_FAIL_ABSENT）：`FileNotFoundError`——`atomic_write` 是
+#     tmp + os.replace（见 `_publish`：读者只可能看到旧值或新值，不会看到
+#     「写一半的缺文件」），故 ENOENT 是**真缺**，可照旧入缓存（不构成重读风暴）。
+#     越界（`_node_disk_path` 抛 ValueError）与「有节点但无密钥」同属终态，
+#     且不经本函数——两条既有语义逐位不变。
+#   · 瞬时（READ_FAIL_TRANSIENT）：其余 OSError——Windows 上独占句柄
+#     （WinError 32 共享冲突）、权限剥夺、同名目录顶位、磁盘瞬时故障。
+#     **判据方向是 fail-closed 的**：判不准（非 FileNotFoundError 的一切）
+#     一律归「瞬时」——宁可多读一次，不可把可读节点判死。
+#
+# ③「不得静默」：与 N225 三类坏行记账同风格——模块级累计计数 + 有界样本 +
+# stderr 汇总告警；计数面经 `transient_read_stats()` 可被守卫/运维读取。
+READ_FAIL_ABSENT = "absent"          # 终态：真缺 / 越界 / 无密钥 → 可入缓存
+READ_FAIL_TRANSIENT = "transient"    # 瞬时：可重试 → **不得**以「新鲜」身份固化
+
+TRANSIENT_READ_FAILURES = 0          # 累计瞬时读失败次数（进程内）
+TRANSIENT_READ_SAMPLES = []          # 样本：(节点 path, 异常类型名, errno)
+_TRANSIENT_READ_SAMPLE_CAP = 32      # 样本上限：记账要有界，不随失败次数线性涨
+# stderr 告警上限：热路径（全池检索每查询逐条读）防刷屏；**计数面恒完整**，
+# 上限只压告警行数，不减信息可观测性（守卫读的是计数与样本，不是 stderr）。
+_TRANSIENT_READ_WARN_CAP = 32
+
+
+# 生效条件：exc 为读节点文件时捕获的异常对象；是 FileNotFoundError（含其子类）返回 READ_FAIL_ABSENT（终态：真缺，可入缓存），否则返回 READ_FAIL_TRANSIENT（瞬时：可重试，不得入缓存）；非 OSError 入参同样按瞬时返回（判不准即保守，绝不判死节点）。
+def classify_read_failure(exc) -> str:
+    """**单点**判别：读失败是瞬时的还是终态的（唯一真源，缓存层不得再猜一遍）。
+
+    调用面恒为读路径捕获 OSError 的那一处（`MdCG._note_read_oserror`）。
+    """
+    if isinstance(exc, FileNotFoundError):
+        return READ_FAIL_ABSENT
+    return READ_FAIL_TRANSIENT
+
+
+# 生效条件：path 为节点文件路径（任意值，str() 后取基名入样本）、exc 为捕获到的异常；无条件把 TRANSIENT_READ_FAILURES 累加 1、按 _TRANSIENT_READ_SAMPLE_CAP 上限补样本，并在累计次数不超过 _TRANSIENT_READ_WARN_CAP 时向 sys.stderr 写一行汇总告警；返回是否写了告警行（bool）。
+def note_transient_read_failure(path, exc) -> bool:
+    """登记一次**瞬时读失败** + stderr 告警（C-3 可观测面，N225 同风格）。
+
+    只记账，**不改任何调用方的控制流**——读不到仍是读不到，只是不再静默。
+    """
+    global TRANSIENT_READ_FAILURES
+    TRANSIENT_READ_FAILURES += 1
+    if len(TRANSIENT_READ_SAMPLES) < _TRANSIENT_READ_SAMPLE_CAP:
+        TRANSIENT_READ_SAMPLES.append(
+            (str(path), type(exc).__name__, getattr(exc, "errno", None)))
+    if TRANSIENT_READ_FAILURES > _TRANSIENT_READ_WARN_CAP:
+        return False
+    sys.stderr.write(
+        "[fsutil] 节点读失败（瞬时，可重试）%s：%s errno=%s——本次不计入检索面，"
+        "且**不当作「不存在」固化**（C-3：负结果不入读缓存）；进程内累计 %d 次。"
+        "排查方向：独占句柄（Windows 共享冲突）/ 权限剥夺 / 同名目录顶位 / "
+        "磁盘瞬时故障。\n"
+        % (os.path.basename(str(path)), type(exc).__name__,
+           getattr(exc, "errno", None), TRANSIENT_READ_FAILURES))
+    return True
+
+
+# 生效条件：无入参，返回二元组 (累计瞬时读失败次数, 样本元组副本)——样本元素为 (节点 path, 异常类型名, errno)，副本只读、调用方改动不影响记账面。
+def transient_read_stats():
+    """读瞬时读失败记账（只读）：(累计次数, 样本元组)。"""
+    return TRANSIENT_READ_FAILURES, tuple(TRANSIENT_READ_SAMPLES)
+
+
+# 生效条件：无入参，把 TRANSIENT_READ_FAILURES 置 0 并原地清空 TRANSIENT_READ_SAMPLES（del [:]，不换对象）；守卫/运维建立观测基线时用，生产读路径不调用。
+def reset_transient_read_stats():
+    """清空瞬时读失败记账面（守卫 / 运维的观测基线用）。"""
+    global TRANSIENT_READ_FAILURES
+    TRANSIENT_READ_FAILURES = 0
+    del TRANSIENT_READ_SAMPLES[:]
+
+
 # 生效条件：os.stat(os.path.abspath(path or "")) 抛 OSError 时返回 0；缓存命中且已扫字节数与 mtime_ns 均与 stat 一致时直接返回缓存计数；若缓存已扫字节 < 当前 size 且 mtime_ns 不同则从该偏移起按 chunk 分块累计 b"\n" 个数并加上缓存值；读文件抛 OSError 时返回 total or 0（已累计值为假则返回 0）。
 def count_jsonl(path: str, chunk: int = 1 << 20) -> int:
     """数 append-only 日志的行数——**流式计数、不物化**（内存 O(1)）。

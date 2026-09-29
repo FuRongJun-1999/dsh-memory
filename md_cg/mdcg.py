@@ -26,7 +26,7 @@ import hashlib
 import threading
 
 from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
-               lifecycle, reach, trust, roleviews)
+               lifecycle, reach, trust, roleviews, fsutil)
 from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
                      read_jsonl, sweep_stale_temps, note_bad_payload_rows)
 
@@ -2588,7 +2588,7 @@ class MdCG:
 
     # ---------- 读 ----------
 
-# 生效条件：index["nodes"].get(node_id) 为假值时回落 self._dirty.get(node_id)，仍为假值返回 None；打开 root 下 e["path"] 抛 OSError 返回 None；_open_content 返回 None（无密钥/身份不符）返回 None；否则返回 {id, frontmatter, content, path}；
+# 生效条件：index["nodes"].get(node_id) 为假值时回落 self._dirty.get(node_id)，仍为假值返回 None；打开 root 下 e["path"] 抛 FileNotFoundError（终态真缺）或 _open_content 返回 None（无密钥/身份不符）时返回 None；抛其余 OSError（瞬时读失败，C-3）同样返回 None，但先经 _note_read_oserror 记账（不得静默）；否则返回 {id, frontmatter, content, path}；
     def get(self, node_id: str):
         self._maybe_reload_index()      # P1b-2：读面代际感知（他进程写快照后可见）
         e = self.index["nodes"].get(node_id) or self._dirty.get(node_id)
@@ -2598,24 +2598,54 @@ class MdCG:
         try:
             with open(p, encoding="utf-8") as f:
                 fm, content = nodefile.loads(f.read())
-        except OSError:
+        except OSError as exc:
+            # C-3（FI-M02 / N134）：瞬时读失败**不得静默**——记账（真缺不记）。
+            # 返回值语义不变（None = 不可读），本方法不入任何缓存，本处无负缓存
+            # 固化面；「get 能读、search 搜不到」的撕裂靠读缓存侧修（readcache）。
+            self._note_read_oserror(p, exc)
             return None
         content = self._open_content(node_id, fm, content)
         if content is None:
             return None                     # 有节点但无密钥 → 不可读即不存在
         return {"id": node_id, "frontmatter": fm, "content": content, "path": e["path"]}
 
-# 生效条件：经 _node_disk_path(entry) 定位（P2-20 越界抛 ValueError → 返回 (None, None)，不可读即不存在——索引被污染时不得绕过统一校验读 root 外文件，2026-09-25 缺陷 #4），打开成功时返回 nodefile.loads 的 (fm, content)；抛 OSError 时同样返回 (None, None)；
-    def _read(self, entry):
+# 生效条件：path 为节点盘上路径、exc 为读该文件时捕获的异常；仅当 fsutil.classify_read_failure(exc) 判为瞬时（非 FileNotFoundError）时调 fsutil.note_transient_read_failure 记账并返回 True，终态（真缺）不记账返回 False；本方法不改任何控制流（读不到仍是读不到）。
+    @staticmethod
+    def _note_read_oserror(path, exc) -> bool:
+        """C-3 记账口——**单点判别函数的唯一调用面**（`fsutil.classify_read_failure`）。
+
+        读路径上所有 `except OSError` 都必须经此转一次，判据才只有一份
+        （本仓反复出现的缺陷族：同类判据各写一份、注释自称同源）。
+        """
+        if fsutil.classify_read_failure(exc) == fsutil.READ_FAIL_TRANSIENT:
+            fsutil.note_transient_read_failure(path, exc)
+            return True
+        return False
+
+# 生效条件：经 _node_disk_path(entry) 定位（P2-20 越界抛 ValueError → 返回三态中的终态 (None, None, None)，不可读即不存在——索引被污染时不得绕过统一校验读 root 外文件，2026-09-25 缺陷 #4）；打开成功时返回 (fm, content, None)；抛 FileNotFoundError（终态真缺）同样返回 (None, None, None)（既有语义逐位不变）；抛其余 OSError（瞬时读失败）先记账再返回 (None, None, fsutil.READ_FAIL_TRANSIENT)——第三个元素是读失败标签的唯一来源，缓存层据此拒绝接纳（C-3），自身不重新判别；
+    def _read_status(self, entry):
+        """读节点文件的三态单点（C-3 / FI-M02 / N134）。
+
+        `(fm, content, fail)`：fail 为 None＝成功或**终态**缺失（真缺/越界，
+        可照旧入读缓存），fsutil.READ_FAIL_TRANSIENT＝**瞬时读失败**（可重试，
+        不得以「新鲜」身份固化）。判别落在 `_note_read_oserror` 一处，
+        `readcache` 只消费标签、不看异常类型。
+        """
         try:
             p = self._node_disk_path(entry)
         except ValueError:
-            return None, None
+            return None, None, None
         try:
             with open(p, encoding="utf-8") as f:
-                return nodefile.loads(f.read())
-        except OSError:
-            return None, None
+                return nodefile.loads(f.read()) + (None,)
+        except OSError as exc:
+            if self._note_read_oserror(p, exc):
+                return None, None, fsutil.READ_FAIL_TRANSIENT
+            return None, None, None
+
+# 生效条件：等价于 _read_status(entry) 的前两项（成功 → (fm, content)；终态缺失或瞬时读失败 → (None, None)）；返回形状与语义同 C-3 修复前**逐位一致**，包内全部既有调用点（_read_many / _goal_entry / _neg_coverage / 派生物 / 治理面）不受三态面影响；
+    def _read(self, entry):
+        return self._read_status(entry)[:2]
 
     def _doc_norm_bigrams(self, entry, c):
         """文档侧归一化 bigram（`_score` 热点，批次 21 issue #31 钩子化）。

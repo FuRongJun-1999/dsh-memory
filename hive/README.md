@@ -150,7 +150,7 @@ target\release\hive.exe doctor
 
 | 工具 | 用途 |
 |---|---|
-| `hive_spawn` | 提交 LLM 任务（**入参白名单** + spec 结构校验 fail fast），返回 job_id；确定性/编排任务走 CLI（见「确定性执行」「任务编排」） |
+| `hive_spawn` | 提交 LLM 任务（**入参白名单** + spec 结构校验 fail fast），返回 job_id；支持 `depends_on`（依赖门禁：写入前过格式 + 存在性两道闸，与 CLI 同判据，见「spec 字段」）；确定性/编排任务走 CLI（见「确定性执行」「任务编排」） |
 | `hive_poll` | 无 id = 全部摘要（content 截 800 字）；带 id = 单查全文；`handoff_ready=true` = 子代理满上下文交回，待主代理裁决续跑 |
 | `hive_kill` | 写 kill 标志，worker ≤1s 内强杀 |
 | `hive_restart` | 重启 serve（stop→start 原子序，复用 `serve_start.restart`）：改 serve 级配置或 rust 重新 build 后使改动生效；stop 失败绝不 start（防双实例）。重启中断 claimed/running 任务，重启后由 recover_orphans 收尸 |
@@ -274,11 +274,12 @@ PYTHONPATH = "<本机 dsh-memory 仓库绝对路径>"
 | `max_tool_rounds` | 否 | 工具轮上限，默认 5；达到后强制终答（不带 tools 再发一次） |
 | `mdcg_root` | 否 | lingshu_cg 的认知图根兜底（env `MDCG_ROOT` 优先）；如任务级隔离用临时图 |
 | `web_search_backend` | 否 | web_search 后端兜底（env `HIVE_WEB_SEARCH` 优先）：`zhipu` / `duckduckgo` |
+| `depends_on` | 否 | **依赖门禁（I-1）**：上游任务 job_id 列表——全 `done` 才被领取；任一上游终态非 `done`（`error`/`timeout`/`killed`/`needs_review`）→ 本任务直接 `error`（失败传播）。提交侧两道闸：**格式**（`h` 开头且不含路径成分，`spec.rs` 走 `job::valid_job_id`）与**存在性**（`jobs/<dep>` 必须是目录，`main.rs`）。调度侧判据在 `scheduler.rs::deps_gate`。三维都支持：CLI `hive submit`、MCP `hive_spawn`（写入 spec 前同两闸，不过闸 fail-closed 拒绝）、`orch.py::spawn_subtask`（透传 + 同闸）。无环性由 job_id 时间序结构性保证（引用不到提交时尚不存在的任务） |
 | `orchestrate` | 否 | 编排形态：真值（`true` 或 `{"max_subtasks": N}`）→ 由 `orch.py` 接管（见「任务编排」）。多态转发须 `HIVE_EXEC_PY` 指向 `exec_cmd.py`；子任务上限默认 8 |
 | `use_subagent_llm` | 否 | **布尔开关**（只开关、不含值）：真值 = 本次任务的模型密钥/base 走「子代理覆盖」——env `HIVE_SUBAGENT_API_KEY`（base 走 env `HIVE_SUBAGENT_API_BASE`，其缺省回落 `HIVE_API_BASE`）；缺省/假值 = 主配置（env `HIVE_API_KEY` / `HIVE_API_BASE`）。**密钥与地址一律只从 serve env 读**，写进 spec 也不生效（结构上无凭据外发面）；开关真值但子代理 env 为空时安全回落主键（子代理密钥缺失时 base 一并回落主配置——半套配置等于跨网关错配）。`orch.py` 派发子任务时按 serve env 自动写入 |
 
 **面差异（先看清再传参）**：上表是 **spec.json 字段表**（CLI `hive submit` 的全集）。
-MCP 面的 `hive_spawn` **只接受其中 15 键**——除 `workdir`（本面强制取 MCP 进程 cwd）、
+MCP 面的 `hive_spawn` **只接受其中 16 键**——除 `workdir`（本面强制取 MCP 进程 cwd）、
 `orchestrate` 与 `use_subagent_llm`（执行器侧配置开关，由编排面或 CLI 写）外的全部，
 `command` / `commands` 亦不在其列。这五个键**只走 CLI**（见下节）；
 MCP 面传入会被**显式拒绝**（fail fast 并指路 CLI），不再静默丢弃——静默丢弃的后果是
@@ -457,7 +458,7 @@ spec 带 `command` / `commands` → 跑命令；不带 → 转发给同目录 `e
 
 | 工具 | 说明 |
 |---|---|
-| `spawn_subtask` | 派发子任务（**毫秒即返，不阻塞**）。子任务 prompt 必须自足——子代理看不到编排者上下文，也不能再派发 |
+| `spawn_subtask` | 派发子任务（**毫秒即返，不阻塞**）。子任务 prompt 必须自足——子代理看不到编排者上下文，也不能再派发。可选 `depends_on`（上游子任务 job_id 列表，透传 + 同两道闸：全 `done` 才被领取，不过闸即拒） |
 | `poll_subtasks` | 看进度与卡片；不传 `job_ids` = 本编排者派发的全部 |
 | `read_full` | 按需拉取**本编排者派发的**子任务的 `result.json` 全文（默认上限 20000 字符，超出给头 + 指针） |
 

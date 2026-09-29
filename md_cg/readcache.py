@@ -28,6 +28,15 @@
      Rust `load_docs` 预计算 stripped/db_len 同款理论）；
   3. 进程内一致性边界（与 MdStore 相同的诚实边界）：跨进程/外部直接改写
      md 文件不保证可见——认知图的多进程形态（每智能体一进程）各持快照。
+  4. **读失败不固化（C-3 / FI-M02 / N134，2026-09-29）**：只接纳「成功」与
+     「终态真缺（FileNotFoundError）」两种读结果，**瞬时读失败（独占句柄/
+     资源剥夺…）一律不入缓存**——修前任何返回值含 `(None, None)` 都被当正常
+     值固化且 `_fresh` 恒真，一次瞬态失败即「节点从检索面永久消失」（cache
+     条目字面 `(gen,(None,None))`），而 `cg.get` 直读照常可读 ⇒「get 能读、
+     search 搜不到」撕裂。判别是读路径的**单点**（`MdCG._read_status` 第三
+     元素，判据函数 `fsutil.classify_read_failure`），本层不看异常类型、不猜
+     一遍；失败侧另有模块级计数+有界样本记账（`fsutil.transient_read_stats`），
+     不再静默。**为什么不是「带失败标记 + TTL 入缓存」见 `install` 文档串。**
 
 开关：默认**开**（issue #31 后续——生产检索入口 MdCGOS.search 默认态每查询
 全池 open+realpath+parse，3300 池实测中位 ~602ms/查询、O(n) 线性；读缓存
@@ -58,7 +67,7 @@ def direct_read(cg, entry):
     return fn(entry)
 
 
-# 生效条件：cg._read 可调用时以 (path → (缓存时 write_gen, 解析产物)) 常驻字典包装之——_dirty 带 path_gen 簿记（_DirtyDict 形态）时命中条件为「该 path 最近标脏代际(path_gen)与 broad_gen 均 ≤ 缓存时 write_gen」（脏集精确失效：单节点写只失效该节点），否则回落整代际相等校验（旧口径，非 _DirtyDict 防御）；cg._doc_norm_bigrams 亦存在时同款包装其派生物（_score 热点：文档侧归一化 bigram 只依赖 content，随读缓存一并常驻）；包装后 cg._read/_doc_norm_bigrams 为包装函数、cg._read_cache/_norm_bigrams_cache 为缓存字典、cg._read_uncached 为未被包装的原始 _read（direct_read 的真源）；返回缓存字典。
+# 生效条件：cg 提供 _read_status（MdCG/MdCGSecure 恒有）时按其**三态标签**包装：第三元素为 None（成功 / 终态真缺）者照脏集精确失效口径入缓存，第三元素非 None（瞬时读失败，fsutil.READ_FAIL_TRANSIENT）者**一律不入缓存**（C-3：不得把可重试的读失败以「新鲜」身份固化）；cg 无 _read_status（非 MdCG 载体）时回落包装 cg._read，且空结果一律不接纳（无判别面时的保守侧：宁可重读，不可固化可能是瞬时的缺失）；cg._doc_norm_bigrams 存在时同款包装其派生物（_score 热点：文档侧归一化 bigram 只依赖 content，随读缓存一并常驻）；包装后 cg._read 与 cg._doc_norm_bigrams 走缓存、cg._read_cache/_norm_bigrams_cache 为缓存字典、cg._read_uncached 为**穿透缓存的原始二态 _read**（direct_read 的真源，返回形状与 install 前逐位一致）；返回缓存字典。
 def install(cg):
     """把 `cg._read`（与派生物钩子）包成**脏集精确失效**的常驻缓存。
 
@@ -71,11 +80,28 @@ def install(cg):
     据此按 path 判新鲜：**写谁失效谁**，其余条目原对象复用。写路径不必
     再改一处（标脏即 `_dirty[nid]=entry` 带 path，簿记在 _DirtyDict 钩子
     内自动完成）。
+
+    接纳口径（C-3 / FI-M02 / N134，2026-09-29）：缓存只接纳**成功**与
+    **终态真缺**两种读结果；**瞬时读失败不入缓存**。修前任何返回值（含
+    `(None, None)`）一律入缓存，且该 path 无写事件时 `_fresh` 判定恒真 ⇒
+    一次独占句柄/资源剥夺就被固化成「节点从检索面永久消失直到重启或再写盘」
+    （cache 条目字面 `(gen, (None, None))`），而 `cg.get` 直读照常可读 ⇒
+    「get 能读、search 搜不到」撕裂。判据是读路径给的**标签**（`_read_status`
+    第三元素），本层**不重新判别异常类型**（单点，见 fsutil.classify_read_failure）。
+
+    为什么是「不入缓存」而不是「带失败标记入缓存 + 失效条件」：失败标记要
+    生效必须引入时间窗（TTL / 单调钟代际），而本层的失效判据只有 `_fresh`
+    一维（write_gen 脏集）；给失败另开一维就是**第二份失效判据**，且 TTL 窗内
+    该节点仍处「get 能读、search 搜不到」的撕裂态（只是有界）——与本缺陷要
+    消灭的现象同型，仅缩窗。不入缓存则窗口为零：**释放即命中**（FI-M02 实测）。
+    代价侧不存在「每次查询都重试」的性能悬崖：
+      · 只有**失败的那几个 path** 每查询多一次 `open`（O(1)/path），成功节点
+        仍在缓存里（O(1)），不是整池重读——量级退化的最坏情形是「全池都读
+        不出来」，那正是修前（缓存恒关面）的既有开销，也不比它更差；
+      · 真缺（FileNotFoundError）仍照旧入缓存 ⇒ 缺文件的节点**不会**每查询重试；
+      · 失败可观测（fsutil.transient_read_stats 计数+样本），不再静默。
     """
     cache = {}
-    # 重复 install（如显式再调）不叠加包装层，_read_uncached 恒指真原始。
-    orig = getattr(cg, "_read_uncached", None) or cg._read
-    cg._read_uncached = orig
 
     def _fresh(p, hit):
         """hit=(缓存时 write_gen, val) 对 path p 是否仍新鲜（不陈旧）。"""
@@ -99,17 +125,52 @@ def install(cg):
         return (pg.get(p, 0) <= hit[0]
                 and dirty.broad_gen <= hit[0])
 
-    def _cached(entry):
-        p = entry["path"]
-        gen = getattr(cg._dirty, "write_gen", len(cg._dirty))
-        hit = cache.get(p)
-        if hit is not None and _fresh(p, hit):
-            return hit[1]
-        val = orig(entry)
-        cache[p] = (gen, val)
-        return val
+    status_fn = getattr(cg, "_read_status", None)
+    if status_fn is not None:
+        # 三态面（C-3）：_read_status 是唯一判别点，本层只按标签决定接纳与否。
+        # 重复 install（如显式再调）不叠加：_read_status_uncached 恒指真原始。
+        orig_status = (getattr(cg, "_read_status_uncached", None)
+                       or status_fn)
+        cg._read_status_uncached = orig_status
+        if getattr(cg, "_read_uncached", None) is None:
+            # 穿透缓存的原始二态读（direct_read 真源）：形状同 install 前。
+            cg._read_uncached = (lambda entry: orig_status(entry)[:2])
 
-    cg._read = _cached
+        def _cached_status(entry):
+            p = entry["path"]
+            gen = getattr(cg._dirty, "write_gen", len(cg._dirty))
+            hit = cache.get(p)
+            if hit is not None and _fresh(p, hit):
+                # 存储面恒为二态（成功/终态）；命中时补回「非失败」标签。
+                return hit[1] + (None,)
+            val = orig_status(entry)
+            if val[2] is not None:
+                # C-3：瞬时读失败**不入缓存**（本次即返回，下次查询重试该 path）。
+                return val
+            cache[p] = (gen, (val[0], val[1]))
+            return val
+
+        cg._read_status = _cached_status
+    else:
+        # 无判别面的载体（非 MdCG）：保守侧——空结果一律不接纳。
+        orig_read = getattr(cg, "_read_uncached", None) or cg._read
+        cg._read_uncached = orig_read
+
+        def _cached(entry):
+            p = entry["path"]
+            gen = getattr(cg._dirty, "write_gen", len(cg._dirty))
+            hit = cache.get(p)
+            if hit is not None and _fresh(p, hit):
+                return hit[1]
+            val = orig_read(entry)
+            if not val or val[0] is None or val[1] is None:
+                # 无三态面可判时不得固化空结果（可能是瞬时的缺失）。
+                return val
+            cache[p] = (gen, val)
+            return val
+
+        cg._read = _cached
+
     cg._read_cache = cache
 
     nb_cache = {}

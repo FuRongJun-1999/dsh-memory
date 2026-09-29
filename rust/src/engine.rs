@@ -57,6 +57,19 @@ impl Default for EngineConfig {
     }
 }
 
+/// 词法口径的**唯一标签映射**（`serve` info 面 / 启动 stderr / 评测输出标题共用）。
+///
+/// CH-1（2026-09-29）：标签此前只在 `main.rs::score_label` 有一份，`serve` 面
+/// 没有——对拍方无法回读被拉起进程的实际口径。收成单点后，任何新增出口
+/// （`serve info.score`、`[serve] 就绪` 行、结果标题）都取同一映射。
+pub fn score_label(jaccard: bool) -> &'static str {
+    if jaccard {
+        "jaccard"
+    } else {
+        "legacy"
+    }
+}
+
 /// 单条检索结果。
 #[derive(Debug, Clone)]
 pub struct SearchHit {
@@ -145,6 +158,16 @@ impl SearchEngine {
     /// 参与融合的路名。
     pub fn paths(&self) -> &[String] {
         &self.paths
+    }
+
+    /// 本实例**实际生效**的词法打分口径（`true` = jaccard / `false` = legacy）。
+    ///
+    /// CH-1（2026-09-29）：存在的唯一理由是让调用方**回读**口径而不是假设——
+    /// `serve` 的 `info` 面据此自报，`scripts/rank_parity.py` 两侧对照即用它。
+    /// 此前该 harness 两侧各自吃缺省（Python 缺省 legacy、Rust 缺省 jaccard），
+    /// 长期在拿两套词法公式静默对拍（实测逐位 7/10）。
+    pub fn jaccard(&self) -> bool {
+        self.jaccard
     }
 
     /// 四路 RRF 检索，返回 top-`k`（编排与评测 CLI 一致）。

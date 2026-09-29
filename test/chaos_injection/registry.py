@@ -61,10 +61,18 @@ REGISTRY = {
     # §2.9 承重面（预防性建模，无缺陷池编号），单调锚/外部时间锚属待建面输入
     "FI-M01": {"expected_verdict": "gap", "gap_tag": "v0.1§2.9承重面(A2单调锚待建)",
                "title": "时钟回拨：TTL 壁钟唯一时基被洗白"},
-    # S1 瞬态读失败被固化入检索缓存（N134，v16.md:86）——一次 OSError 固化为
-    # 「节点从检索面消失」，get 能读/search 搜不到撕裂；P1 fail-closed 缺席
-    "FI-M02": {"expected_verdict": "gap", "gap_tag": "N134",
-               "title": "瞬态读失败固化为检索面永久消失"},
+    # S1 瞬态读失败（N134，v16.md:86）——readcache 曾把 (None,None) 负结果当
+    # 正常值固化，一次独占句柄即「节点从检索面消失」，get 能读/search 搜不到
+    # 撕裂；P1 fail-closed 与 T4 静默损伤双缺口。
+    # **2026-09-29（C-3 批次）缺口结案 → 登记改 pass**：读路径拆出三态单点
+    # `MdCG._read_status`（第三元素 = 失败标签，判别函数
+    # `fsutil.classify_read_failure`：仅 FileNotFoundError 判终态「真缺」），
+    # readcache.install 据此**只接纳成功与终态真缺**、瞬时读失败不入缓存，
+    # 并把失败记进模块级计数+有界样本（fsutil.transient_read_stats，不再静默）。
+    # 本格由 EXPECTED_GAP 转 pass，此后作回归守卫（判据关掉即转 gap → 套件亮红；
+    # 定点变异自证见 md_cg/test_c3_transient_read_negative.py）。
+    "FI-M02": {"expected_verdict": "pass", "gap_tag": None,
+               "title": "瞬态读失败不固化检索面（C-3 修复后转 pass）"},
     # S2 写面漏标脏（N133，v16.md:85）——reinforce 写盘成功仅改内存 entry，
     # 默认开读缓存把旧 fm 永久判新鲜；修复先例 mdcg.py:3242 在案。
     # **2026-09-29（opt-batch1 C-1）缺口结案 → 登记改 pass**：同族三处写点

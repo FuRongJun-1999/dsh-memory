@@ -12,7 +12,11 @@
 工具面（5 个）：
   hive_spawn   提交任务（model/user_prompt 必填）→ job_id 毫秒即返。可选：
                system_prompt/context_files/max_tokens/temperature/thinking/
-               tools/max_tool_rounds/mdcg_root/web_search_backend。
+               tools/max_tool_rounds/mdcg_root/web_search_backend/depends_on。
+               depends_on（H-6）= 上游 job_id 列表，全 done 才被领取（失败传播见
+               scheduler::deps_gate）；本面在写入 spec 前过与 CLI 同判据的两道闸
+               （格式 = h 开头且不含路径成分；存在性 = jobs/<dep> 是目录），
+               不满足即 fail-closed 拒绝（不静默忽略、不降级为「无依赖」）。
                **统一子代理默认**（缺省即注入）：reasoning_effort=high、
                context_budget_tokens=200000、timeout_s=600。模型名须与
                HIVE_API_BASE 配对（deepseek base→deepseek-flash/deepseek-v4-pro；
@@ -150,12 +154,46 @@ def _valid_job_id(jid) -> bool:
 
     MCP 面 job_id 由客户端可控：`poll ../victim` 曾可读池外任意目录全文、
     `kill ..` 曾可在池外写 kill 标志（os.path.join 裸拼 + isdir 恒真）。
-    一切把外部 job_id 拼进路径的入口（_t_poll/_t_kill）先过此闸。
+    一切把外部 job_id 拼进路径的入口（_t_poll/_t_kill/_dep_gate）先过此闸。
     """
     if not isinstance(jid, str) or not jid.startswith("h"):
         return False
     return all(("a" <= c <= "z") or ("A" <= c <= "Z")
                or ("0" <= c <= "9") or c == "_" for c in jid)
+
+
+# 生效条件：deps 为 None（调用方未传该参数）→ 返回 None（「缺省不写」，不校验不计入）；
+# deps 非 list → 返回类型原因串；list 内任一项未过 _valid_job_id 结构闸 → 返回格式原因串；
+# 任一项在 jobs 下非目录 → 返回存在性原因串；全部通过 → None。调用方拿到非 None 即
+# fail-closed（拒提交、不写 spec、不拉 serve），绝不静默忽略或降级为「无依赖」。
+# 不适用条件：不做 DAG 环检测——无环性由 job_id 含毫秒时间戳结构性保证（提交时间序 =
+# 拓扑序，引用不到提交时尚不存在的任务），见 hive/src/spec.rs:49 头注。
+def _dep_gate(jobs: str, deps) -> str | None:
+    """依赖门禁（H-6）：与 CLI 同判据的两道闸——**格式**（job_id 结构）与
+    **存在性**（`jobs/<dep>` 是目录）。
+
+    为什么判据必须是这一份（不得分叉第二套）：CLI 侧同两闸的落点 =
+    `hive/src/spec.rs:203`（格式，走 `job::valid_job_id`）+ `hive/src/main.rs:289`
+    （存在性，`jobs.join(dep).is_dir()`）；调度侧 `hive/src/scheduler.rs::deps_gate`
+    读的就是 spec.json 的 `depends_on`。MCP 面此前既不收也不写该键（H-6 缺陷：
+    只有 CLI `hive submit` 能用依赖门禁），程序化接入（含 orch 派生）无从使用。
+    格式判据复用 `_valid_job_id`（与 rust `job::valid_job_id` 同口径的唯一实现），
+    存在性判据与 CLI 同为「是目录」（同名**文件**不算）；文案亦与两侧逐字对齐
+    （守卫 `hive/test_h6_mcp_depends_on.py` 的 D 组用同一批 id 两侧对照逐项钉住）。
+    """
+    if deps is None:
+        return None
+    if not isinstance(deps, list):
+        # 比 CLI 更严的一处（有意、已声明）：CLI 侧 as_str_vec 对裸字符串按单元素
+        # 列表宽松采信；本工具面 schema 声明的是 array，静默强转等于接受非法入参。
+        return (f"depends_on 必须是字符串列表（job_id 数组），got "
+                f"{type(deps).__name__}: {deps!r}——不静默强转/不降级为「无依赖」")
+    for d in deps:
+        if not _valid_job_id(d):
+            return f"depends_on 项非法: {d}（须为 h 开头且不含路径成分的 job_id）"
+        if not os.path.isdir(os.path.join(jobs, d)):
+            return f"依赖不完整: {d}（任务不存在，先提交上游任务）"
+    return None
 
 
 # ---------------------------------------------------------------- serve 管理
@@ -447,15 +485,17 @@ def _result_view(job_dir: str, head):
 # 宿主照 hive/README.md「spec 字段」表传 command / commands / orchestrate / workdir 时——
 # 前三个只属 CLI/spec 层（exec_cmd.py / orch.py），workdir 由本面强制取进程 cwd——四者皆被
 # 静默丢弃，表现为「以为在跑确定性任务、实际走了 LLM 路径烧 token」。故显式拒绝并指路 CLI。
+# depends_on（H-6）在列：它是**调度语义**键（deps_gate 读 spec.json），本面收下并过
+# 格式+存在性两闸后原样写入 spec；闸不过即拒（见 _dep_gate / _t_spawn）。
 SPAWN_ALLOWED_KEYS = frozenset({
     "model", "user_prompt", "system_prompt", "context_files", "timeout_s",
     "reasoning_effort", "context_budget_tokens", "context_strict", "thinking",
     "tools", "max_tool_rounds", "mdcg_root", "web_search_backend",
-    "max_tokens", "temperature",
+    "max_tokens", "temperature", "depends_on",
 })
 
 
-# 生效条件：a 给定；当 a 含 SPAWN_ALLOWED_KEYS 之外的键、a.get("model") 去空白后为空、a.get("user_prompt") 去空白后为空、或 a.get("context_files") 中任一项（相对项按 os.getcwd() 拼接）未通过 isfile 时返回 ok: False 与对应 error，否则组装 spec（timeout_s/context_budget_tokens 以 int(x or 默认) 把 0/空值/缺键回落默认，workdir 固定为 os.getcwd()）并返回 ok: True 含 job_id/jobs_dir/serve。
+# 生效条件：a 给定；当 a 含 SPAWN_ALLOWED_KEYS 之外的键、a.get("model") 去空白后为空、a.get("user_prompt") 去空白后为空、a.get("context_files") 中任一项（相对项按 os.getcwd() 拼接）未通过 isfile 时返回 ok: False 与对应 error；**依赖门禁（H-6）**：a.get("depends_on") 非 None 时经 _dep_gate(jobs, ...) 过两道闸（格式=job_id 结构，与 rust job::valid_job_id 同判据；存在性=jobs/<dep> 是目录，与 CLI 同口径），任一不过返回 ok: False 与可读 error（**不写 spec、不拉 serve、不降级为「无依赖」**）；全过（或未传）则组装 spec（timeout_s/context_budget_tokens 以 int(x or 默认) 把 0/空值/缺键回落默认，workdir 固定为 os.getcwd()，depends_on 非 None 时原样写入列表）并返回 ok: True 含 job_id/jobs_dir/serve。
 def _t_spawn(a: dict) -> dict:
     unknown = sorted(k for k in a if k not in SPAWN_ALLOWED_KEYS)
     if unknown:
@@ -476,6 +516,12 @@ def _t_spawn(a: dict) -> dict:
         path = rel if os.path.isabs(rel) else os.path.join(os.getcwd(), rel)
         if not os.path.isfile(path):
             return {"ok": False, "error": f"context 文件不存在: {path}"}
+    # 依赖门禁（H-6）：**写 spec 之前**过与 CLI 同判据的两道闸（格式 + 存在性，
+    # 单点实现 = _dep_gate）。位置在 _ensure_serve 之前——坏 spec 不拉起 serve、
+    # 不落盘，也绝不静默降级为「无依赖」（那会让下游任务在依赖未 done 时被领取）。
+    dep_err = _dep_gate(jobs, a.get("depends_on"))
+    if dep_err:
+        return {"ok": False, "error": dep_err}
     ensure = _ensure_serve(jobs)
     spec = {"model": a["model"].strip(), "user_prompt": a["user_prompt"]}
     if a.get("system_prompt"):
@@ -504,6 +550,10 @@ def _t_spawn(a: dict) -> dict:
         spec["mdcg_root"] = a["mdcg_root"]
     if a.get("web_search_backend"):
         spec["web_search_backend"] = a["web_search_backend"]
+    if a.get("depends_on") is not None:
+        # 依赖门禁已在前面过闸（此处只写）；原样写入、保序、不裁剪——
+        # 显式 `[]` = 提交方声明「无依赖」，同样落键（不是静默省略）。
+        spec["depends_on"] = list(a["depends_on"])
     spec["workdir"] = os.getcwd()
     job_id = _submit(jobs, spec)
     return {
@@ -663,7 +713,7 @@ def _t_restart(_a: dict) -> dict:
 TOOLS = [
     {
         "name": "hive_spawn",
-        "description": "灵枢蜂巢：提交 LLM 任务到并发队列（毫秒级返回 job_id，后台执行不阻塞）。统一子代理默认：reasoning_effort=high / context_budget_tokens=200000 / timeout_s=600。**只接受下方 properties 列出的 15 个参数**：白名单外的键（如 command / commands / orchestrate / workdir）会被显式拒绝——确定性执行（跑命令/测试/回归）与编排请改走 CLI（hive submit + hive/exec_cmd.py / orch.py）。",
+        "description": "灵枢蜂巢：提交 LLM 任务到并发队列（毫秒级返回 job_id，后台执行不阻塞）。统一子代理默认：reasoning_effort=high / context_budget_tokens=200000 / timeout_s=600。**只接受下方 properties 列出的 16 个参数**：白名单外的键（如 command / commands / orchestrate / workdir）会被显式拒绝——确定性执行（跑命令/测试/回归）与编排请改走 CLI（hive submit + hive/exec_cmd.py / orch.py）。",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -686,6 +736,15 @@ TOOLS = [
                 "web_search_backend": {"type": "string", "description": "web_search 后端（可选）"},
                 "max_tokens": {"type": "number", "description": "可选"},
                 "temperature": {"type": "number", "description": "可选，[0,2]"},
+                "depends_on": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": ("上游任务 job_id 列表（可选）：全 done 才被领取，"
+                                    "任一上游 error/timeout/killed/needs_review → 本任务"
+                                    "直接 error（失败传播）。每个 id 须为 h 开头且不含"
+                                    "路径成分，且 jobs/<id> 目录必须已存在——不过闸即"
+                                    "拒绝提交（不静默忽略、不降级为「无依赖」）。"),
+                },
             },
             "required": ["model", "user_prompt"],
         },

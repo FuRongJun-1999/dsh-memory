@@ -138,6 +138,15 @@ def _spawn_schema() -> dict:
                     "timeout_s": {"type": "integer", "description": "缺省 600"},
                     "context_budget_tokens": {"type": "integer", "description": "缺省 200000"},
                     "reasoning_effort": {"type": "string", "description": "缺省 high"},
+                    "depends_on": {
+                        "type": "array", "items": {"type": "string"},
+                        "description": (
+                            "上游子任务 job_id 列表（可选；H-6 依赖门禁）：全部 done "
+                            "才被领取，任一上游 error/timeout/killed/needs_review → "
+                            "本子任务直接 error（失败传播）。id 形如 poll_subtasks "
+                            "返回的 job_id（h 开头），且该任务必须已提交存在——"
+                            "不过闸即拒（不静默忽略、不降级为「无依赖」）。"
+                            "缺省 = 无依赖（立即并发跑）。")},
                 },
                 "required": ["user_prompt"],
             },
@@ -464,7 +473,7 @@ def _resolve_jobs_dir(job_dir: str | None = None) -> str:
     return _hm._jobs_dir()
 
 
-# 生效条件：a 为 dict，在 len(_CFG['children']) < _CFG['max_subtasks']、a.get('user_prompt') 去空白后非空、a.get('model') 或 _CFG['model'] 去空白后非空、a.get('tools') 各项（缺省/空列表回落 list(SUB_TOOLS_ALLOW)）均属 SUB_TOOLS_ALLOW、a.get('context_files') 每项对应路径 isfile 为真时，构造 sub 白名单键（仅当 a.get(k) not in (None, '', [], {}) 才写入 system_prompt/context_files/max_tool_rounds/web_search_backend/mdcg_root/max_tokens/temperature/thinking），timeout_s 取 _ex._int_arg(a,'timeout_s',_hm.DEFAULT_TIMEOUT_S,hi=sys.maxsize)、context_budget_tokens 取 _ex._int_arg(a,'context_budget_tokens',_hm.DEFAULT_CONTEXT_BUDGET_TOKENS,hi=sys.maxsize)（脏值/非正回落默认，不夹紧），reasoning_effort 取 a.get('reasoning_effort') or _hm.DEFAULT_REASONING_EFFORT，pool 解析经 _resolve_jobs_dir()（N145：双键皆空时从 _CFG['job_dir'] 父目录推导真实池，设键时 N89 语义原样）、env HIVE_SUBAGENT_API_KEY 去空白非空时 sub 加布尔键 use_subagent_llm=True（C4：只写布尔，不写值/不写 env 名/不写地址；为假时该键不出现）提交后 append 到 _CFG['children']、_save_children()、_ex.progress(kind='spawn_subtask') 并返回 ok=True 及 defaults；上述前置失败则返回对应 {'ok': False, 'error': ...}。
+# 生效条件：a 为 dict，当 a.get('depends_on') 非 None 时先过 pool 解析后的 _hm._dep_gate（H-6：格式 = h 开头且不含路径成分的 job_id，与 rust job::valid_job_id 同判据；存在性 = pool/<dep> 是目录，与 CLI `hive submit` 同口径）——不过闸即返回 {'ok': False, 'error': ...}（**不写子 spec、不静默丢弃、不降级为「无依赖」**）；随后在 len(_CFG['children']) < _CFG['max_subtasks']、a.get('user_prompt') 去空白后非空、a.get('model') 或 _CFG['model'] 去空白后非空、a.get('tools') 各项（缺省/空列表回落 list(SUB_TOOLS_ALLOW)）均属 SUB_TOOLS_ALLOW、a.get('context_files') 每项对应路径 isfile 为真时，构造 sub 白名单键（仅当 a.get(k) not in (None, '', [], {}) 才写入 system_prompt/context_files/max_tool_rounds/web_search_backend/mdcg_root/max_tokens/temperature/thinking/depends_on），timeout_s 取 _ex._int_arg(a,'timeout_s',_hm.DEFAULT_TIMEOUT_S,hi=sys.maxsize)、context_budget_tokens 取 _ex._int_arg(a,'context_budget_tokens',_hm.DEFAULT_CONTEXT_BUDGET_TOKENS,hi=sys.maxsize)（脏值/非正回落默认，不夹紧），reasoning_effort 取 a.get('reasoning_effort') or _hm.DEFAULT_REASONING_EFFORT，pool 解析经 _resolve_jobs_dir()（N145：双键皆空时从 _CFG['job_dir'] 父目录推导真实池，设键时 N89 语义原样）、env HIVE_SUBAGENT_API_KEY 去空白非空时 sub 加布尔键 use_subagent_llm=True（C4：只写布尔，不写值/不写 env 名/不写地址；为假时该键不出现）提交后 append 到 _CFG['children']、_save_children()、_ex.progress(kind='spawn_subtask') 并返回 ok=True 及 defaults；上述前置失败则返回对应 {'ok': False, 'error': ...}。
 def _spawn(a: dict) -> dict:
     """派发子任务。
 
@@ -472,6 +481,8 @@ def _spawn(a: dict) -> dict:
       · tools 只允许 SUB_TOOLS_ALLOW 的子集 —— 编排工具不外传，子代理无法再编排
       · 子 spec 由**白名单键**构造，`orchestrate` 不可能出现 → 结构上防无限递归
       · 子任务数达上限即诚实报错（不静默丢弃、不静默排队）
+      · depends_on（H-6）透传但先过 `_hm._dep_gate` 两道闸（格式 + 存在性，与 CLI
+        同判据）：不过闸即回 ok=False，**不写子 spec、不降级为「无依赖」**
     提交走 _hm._submit（与 MCP 面**同一份** job 契约，避免第二份实现漂移）；
     但**不**走 _hm._t_spawn —— 它内含 _ensure_serve，而编排者本身就跑在 serve 的
     worker 里，serve 必然存活，无需（也不应从 worker 内）尝试拉起第二个 serve。
@@ -501,8 +512,11 @@ def _spawn(a: dict) -> dict:
            # M3.2 来源行「父任务」链路：子任务 spec 带父编排任务 id，
            # exec.py main() 读入后由工具层注入 worker 直写来源行
            "orch_job": _CFG.get("job_id") or ""}
+    # 白名单透传键（H-6 补 depends_on：子任务依赖门禁的透传面——编排者把上游
+    # 子任务 job_id（如 poll_subtasks 看到的 id）填进来，子任务即受调度侧
+    # deps_gate 约束（全 done 才领取）。显式传值优先、缺省不写。）
     for k in ("system_prompt", "context_files", "max_tool_rounds", "web_search_backend",
-              "mdcg_root", "max_tokens", "temperature", "thinking"):
+              "mdcg_root", "max_tokens", "temperature", "thinking", "depends_on"):
         if a.get(k) not in (None, "", [], {}):
             sub[k] = a[k]
     # 统一子代理默认注入（与 MCP 面同源常量，显式传值优先）。
@@ -525,6 +539,16 @@ def _spawn(a: dict) -> dict:
     if (os.environ.get("HIVE_SUBAGENT_API_KEY") or "").strip():
         sub["use_subagent_llm"] = True
     jobs = _resolve_jobs_dir()
+    # 依赖门禁（H-6）：子任务 depends_on 由**模型可控**的 function calling 参数而来，
+    # 故与 MCP 面同闸同判据——_hm._dep_gate（格式 = h 开头且不含路径成分的 job_id，
+    # 与 rust job::valid_job_id 同口径；存在性 = pool/<dep> 是目录，与 CLI
+    # `hive submit` 同口径）。不过闸即 fail-closed 回 {'ok': False, ...}：不写子
+    # spec、不静默丢弃、不降级为「无依赖」（静默丢弃 = 模型以为串好了 DAG、实际
+    # 子任务无依赖并发跑，正是本仓第 4 条禁止的静默错执行；判据实现只此一份，
+    # 勿在此另立第二套）。
+    dep_err = _hm._dep_gate(jobs, a.get("depends_on"))
+    if dep_err:
+        return {"ok": False, "error": dep_err}
     cid = _hm._submit(jobs, sub)
     _CFG["children"].append({
         "job_id": cid, "prompt_head": prompt[:160], "tools": tools,
