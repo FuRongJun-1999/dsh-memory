@@ -263,6 +263,56 @@ def read_jsonl_tail(path: str, offset: int):
 _COUNT_CACHE = {}          # abspath -> (bytes_scanned, mtime_ns, lines)
 
 
+# ---------- N225（2026-09-29）：非对象记录行的可观测记账 ----------
+#
+# 分片日志的读面必须**容忍**非对象行（`null` / `[]` / `123` / `"abc"` 都是
+# 合法 JSON，`read_jsonl` 按「JSON 合法性」收行 ⇒ 它们会进调用方的记录
+# 列表），否则排序键 `r.get("_t", 0)` 抛 AttributeError，索引装载 / compact
+# 整链断裂（实测：MdCG 构造失败、常驻服务起不来）。但**容忍 ≠ 静默**：
+# 跳过必须留下机器可读的痕迹——否则「日志里混进了坏行」与「记录本就不
+# 存在」不可区分，索引静默少几条，运维与守卫都看不见。故此处是跳过面的
+# 唯一记账点：模块级累计计数 + 有界样本 + stderr 汇总告警（每条分片一行，
+# 不逐行刷屏）。
+NONOBJECT_ROW_SKIPS = 0        # 累计跳过的非对象行数（进程内）
+NONOBJECT_ROW_SAMPLES = []     # 最近跳过的 (分片路径, 行号, JSON 类型名)
+_NONOBJECT_SAMPLE_CAP = 32     # 样本上限：记账要有界，不随坏行线性涨
+
+
+# 生效条件：skips 为 (分片路径, 行号, 值) 三元组序列且非空时，把条数累加进 NONOBJECT_ROW_SKIPS、按 _NONOBJECT_SAMPLE_CAP 上限补样本，并向 sys.stderr 写一行汇总告警（含分片名、本次条数、首条行号与类型名、累计条数）；skips 为空序列或假值时立即返回、不写任何输出。
+def note_nonobject_rows(skips):
+    """登记一批被跳过的非对象记录行 + stderr 告警（N225 可观测面）。"""
+    if not skips:
+        return
+    global NONOBJECT_ROW_SKIPS
+    NONOBJECT_ROW_SKIPS += len(skips)
+    for item in skips:
+        if len(NONOBJECT_ROW_SAMPLES) >= _NONOBJECT_SAMPLE_CAP:
+            break
+        NONOBJECT_ROW_SAMPLES.append((item[0], item[1],
+                                      type(item[2]).__name__))
+    path, lineno, value = skips[0]
+    sys.stderr.write(
+        "[fsutil] ShardedLog.read_all 跳过 %d 条非对象记录行（分片 %s，"
+        "首条 行%d 类型=%s）——坏行不进索引重放；本次后进程内累计 %d 条。"
+        "排查方向：该分片被非本协议写入方污染，或发生过截断 / 粘连。\n"
+        % (len(skips), os.path.basename(path), lineno,
+           type(value).__name__, NONOBJECT_ROW_SKIPS))
+
+
+# 生效条件：无入参，返回二元组 (累计跳过条数, 样本元组副本)——样本元素为 (分片路径, 行号, JSON 类型名)，副本只读，调用方改动不影响记账面。
+def nonobject_row_stats():
+    """读非对象行记账（只读）：(累计条数, 样本元组)。"""
+    return NONOBJECT_ROW_SKIPS, tuple(NONOBJECT_ROW_SAMPLES)
+
+
+# 生效条件：无入参，把累计条数置 0 并清空样本列表（原地清空，不换对象）；守卫与运维建立观测基线时用，生产读路径不调用。
+def reset_nonobject_row_stats():
+    """清空非对象行记账（守卫 / 运维的观测基线用）。"""
+    global NONOBJECT_ROW_SKIPS
+    NONOBJECT_ROW_SKIPS = 0
+    del NONOBJECT_ROW_SAMPLES[:]
+
+
 # 生效条件：os.stat(os.path.abspath(path or "")) 抛 OSError 时返回 0；缓存命中且已扫字节数与 mtime_ns 均与 stat 一致时直接返回缓存计数；若缓存已扫字节 < 当前 size 且 mtime_ns 不同则从该偏移起按 chunk 分块累计 b"\n" 个数并加上缓存值；读文件抛 OSError 时返回 total or 0（已累计值为假则返回 0）。
 def count_jsonl(path: str, chunk: int = 1 << 20) -> int:
     """数 append-only 日志的行数——**流式计数、不物化**（内存 O(1)）。
@@ -349,7 +399,7 @@ class ShardedLog:
             self._fh = None
 
     @staticmethod
-# 生效条件：directory 是目录时，按 sorted(os.listdir(directory)) 顺序对每个以 ".log" 结尾的文件读取汇总（单分片 PermissionError 时以 5ms×8 短重试等 Windows delete-pending 窗口过去、窗口后 FileNotFoundError 视为已被 compact 并入快照清走而跳过、重试耗尽照常 raise），再按每条记录 r.get("_t", 0)、r.get("_s", 0)（缺键取 0）排序后返回全部记录；directory 不是目录时直接返回 []。
+# 生效条件：directory 是目录时，按 sorted(os.listdir(directory)) 顺序对每个以 ".log" 结尾的文件读取汇总（单分片 PermissionError 时以 5ms×8 短重试等 Windows delete-pending 窗口过去、窗口后 FileNotFoundError 视为已被 compact 并入快照清走而跳过、重试耗尽照常 raise），逐行只收 dict 记录——非对象行（null/[]/123/"abc" 等合法 JSON）跳过并经 note_nonobject_rows 记账 + stderr 告警（不得静默），再按每条记录 r.get("_t", 0)、r.get("_s", 0)（缺键取 0）排序后返回全部记录；directory 不是目录时直接返回 []。
     def read_all(directory: str):
         """按全局写入顺序回放所有分片。
 
@@ -365,6 +415,14 @@ class ShardedLog:
         快照基底的陈旧读界与既有「他进程未 flush 写入不可见」边界同格，
         由 _index_signature 指纹机制在下次重载收敛；重试耗尽的 PermissionError
         照常上抛，真权限问题不掩盖。
+
+        N225（2026-09-29）：**非对象行容忍 + 可观测**。`read_jsonl` 按 JSON
+        合法性收行，`null` / `[]` / `123` / `"abc"` 都会原样产出；直接进
+        `recs` 会让下面的 `r.get("_t", 0)` 抛 AttributeError（实测：MdCG
+        构造 + compact_index 双崩）。此处逐行分流：dict 进回放列表，非对象行
+        进记账面（note_nonobject_rows → 模块级计数 + 样本 + stderr 告警）。
+        分流必须在本层做——`read_jsonl` 的通用契约（其它消费面）不在本次
+        范围，不得改。整片读成功才记账：半途重试不重复计数。
         """
         if not os.path.isdir(directory):
             return []
@@ -375,7 +433,14 @@ class ShardedLog:
             p = os.path.join(directory, fn)
             for _attempt in range(8):
                 try:
-                    recs.extend(read_jsonl(p))
+                    batch, skips = [], []
+                    for lineno, rec in enumerate(read_jsonl(p), 1):
+                        if isinstance(rec, dict):
+                            batch.append(rec)
+                        else:
+                            skips.append((p, lineno, rec))
+                    recs.extend(batch)
+                    note_nonobject_rows(skips)
                     break
                 except FileNotFoundError:
                     break          # 已被 compact 清走（记录已并入快照）

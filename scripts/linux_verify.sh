@@ -45,7 +45,7 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_readcache_prodpath test_mdstore_search_parity \
          test_rejected_redact test_rejected_credential_forms test_ccg_form_parity test_wisdom_md_store \
          test_neg_condition_hits test_token_lowercase_form test_srcindex \
-         test_logref test_p28_refcheck; do
+         test_logref test_p28_refcheck test_n225_nonobject_load; do
   out=$(python3 -m "md_cg.$t" 2>&1 | tail -1); rc=$?
   record "md_cg.$t" $rc
   echo "    -> $out"
@@ -72,12 +72,18 @@ echo "=== 断言判别力自证（退出码 0 = 变异后如预期转红）==="
 # 仍绿——故不入红项表（「恰好」二字靠这一点成立）；它们各自的判别力由就地定点探针
 # 实测（改 node_id 成内容寻址 ⇒ F1/F2 红；改 §3.1 措辞 ⇒ F6 红；挪文档行级引用
 # ⇒ F7 红；去掉 repeat_guard ⇒ G1/G3 红）。
+# N225 面（批次87 并入）：三处定点变异——关掉装载面类型闸（_load_index 非对象视同
+# 损坏）⇒ 恰好 25 项（A 组 20 + 端到端 D 组 5）；关掉 compact 面类型闸 ⇒ 恰好 16 项
+# （B 组）；去掉分片日志坏行过滤 ⇒ 恰好 15 项（C 组 10 + D 组 5）。端到端面走独立
+# 子进程，内存变异不跨进程，故由守卫经 PYTHONPATH 上的 sitecustomize 注入同一处
+# 变异并以 stderr 标记自证（标记缺失即 D 组判红）。锚点漂移同样退出码 2。
 for spec in "test_neg_condition_hits --head-baseline" \
             "test_neg_condition_hits --branch-baseline" \
             "test_policy_required_ccg --head-baseline" \
             "test_token_lowercase_form --head-baseline" \
             "test_logref --head-baseline" \
-            "test_p28_refcheck --head-baseline"; do
+            "test_p28_refcheck --head-baseline" \
+            "test_n225_nonobject_load --branch-baseline"; do
   set -- $spec
   out=$(python3 -m "md_cg.$1" "$2" 2>&1 | tail -1); rc=$?
   record "md_cg.$1 $2" $rc

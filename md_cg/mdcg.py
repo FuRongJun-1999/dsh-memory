@@ -1040,14 +1040,21 @@ class MdCG:
 
     # ---------- 索引（派生物，可重建） ----------
 
-# 生效条件：os.path.exists(self.index_path) 为真、json.load 成功且其 "schema" 等于模块级 SCHEMA、且其 "_fingerprint"（目录树 mtime 指纹）等于当前 self._dir_fingerprint() 时以该快照为基底；快照缺失/损坏/无指纹/指纹不符（盘面在快照写入后有增删——其它存活实例未 flush 的写入或外部改盘）均回退 self._scan_nodes() 全库扫描为基底；随后重放 ShardedLog.read_all(self.index_log_dir)：记录无 id 跳过、e 为 None 则 pop 该 nid（tombstone）、e 非 None 则覆盖，最终 buckets 由 _count_buckets 重算；
+# 生效条件：os.path.exists(self.index_path) 为真、json.load 成功、解析结果为 dict（顶层非对象=null/[]/123/"abc" 视同损坏）且其 "schema" 等于模块级 SCHEMA、且其 "_fingerprint"（目录树 mtime 指纹）等于当前 self._dir_fingerprint() 时以该快照为基底；快照缺失/损坏/顶层非对象/无指纹/指纹不符（盘面在快照写入后有增删——其它存活实例未 flush 的写入或外部改盘）均回退 self._scan_nodes() 全库扫描为基底；随后重放 ShardedLog.read_all(self.index_log_dir)：记录无 id 跳过、e 为 None 则 pop 该 nid（tombstone）、e 非 None 则覆盖，最终 buckets 由 _count_buckets 重算；
     def _load_index(self):
         idx = None
         if os.path.exists(self.index_path):
             try:
                 with open(self.index_path, encoding="utf-8") as f:
                     d = json.load(f)
-                if d.get("schema") == SCHEMA:
+                # N225（2026-09-29）：顶层非对象与 ValueError/OSError **同一降级
+                # 口径**——`null` / `[]` / `123` / `"abc"` 都是合法 JSON，却不是
+                # 快照；原写法裸调 `d.get("schema")` 让 AttributeError 逃出 except
+                # 元组（它只收 ValueError/OSError）⇒ 整个 MdCG 构造失败：常驻
+                # 服务起不来、一次性脚本全崩，而盘上 .md 真源完好无损（丢的只是
+                # 派生索引这一条腿）。视同损坏 ⇒ idx 保持 None ⇒ 落到下面**既有**
+                # 的「回退全库扫描」路径（不新增第三套判据）。
+                if isinstance(d, dict) and d.get("schema") == SCHEMA:
                     idx = d
             except (ValueError, OSError):
                 idx = None
@@ -1223,7 +1230,7 @@ class MdCG:
                 buckets[b] = buckets.get(b, 0) + 1
         return buckets
 
-# 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析且 "schema" 等于 SCHEMA 时以该快照为基底；快照不存在用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}}（不重扫目录）；快照损坏（ValueError/OSError）或 schema 不符时降级以 self._scan_nodes() 全库扫描结果为基底（宁重扫勿清池）；基底确定后对 index_log_dir 逐条重放（无 id 跳过、e 为 None 则 pop、否则覆盖），落盘并清空日志后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）并返回 idx；
+# 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析、解析结果为 dict（顶层非对象视同损坏）且 "schema" 等于 SCHEMA 时以该快照为基底；快照不存在用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}}（不重扫目录）；快照损坏（ValueError/OSError）、顶层非对象或 schema 不符时降级以 self._scan_nodes() 全库扫描结果为基底（宁重扫勿清池）；基底确定后对 index_log_dir 逐条重放（无 id 跳过、e 为 None 则 pop、否则覆盖），落盘并清空日志后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）并返回 idx；
     def compact_index(self):
         with FileLock(self.index_path):
             idx = {"schema": SCHEMA, "nodes": {}, "buckets": {}}
@@ -1232,7 +1239,15 @@ class MdCG:
                 try:
                     with open(self.index_path, encoding="utf-8") as f:
                         d = json.load(f)
-                    if d.get("schema") == SCHEMA:
+                    if not isinstance(d, dict):
+                        # N225（2026-09-29）：顶层非对象（合法 JSON 但非对象）
+                        # 与下面两条**同一口径**——视同损坏，走 scan_fallback
+                        # 全库扫描（宁重扫勿清池）。不这样收口，裸调 d.get 的
+                        # AttributeError 会逃出 except 元组，compact 整体失败：
+                        # close 自动 compact 的路径上，快照被外部写坏一次，
+                        # 收尾就再也落不成快照。
+                        scan_fallback = True
+                    elif d.get("schema") == SCHEMA:
                         idx = d
                     else:
                         scan_fallback = True      # schema 不符：视同损坏
