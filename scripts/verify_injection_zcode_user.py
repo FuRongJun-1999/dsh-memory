@@ -194,8 +194,6 @@ def main() -> int:
     print("退出 2：不可裁——无任何会话满足可裁条件（起点均早于本件 mtime）。请开新会话后重跑。")
     return 2
 
-    return 1
-
 
 if __name__ == "__main__":
     sys.exit(main())
