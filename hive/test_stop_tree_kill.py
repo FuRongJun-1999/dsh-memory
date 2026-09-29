@@ -124,7 +124,7 @@ try:
     for _ in range(50):  # ≤10s 等父进程报出子 pid
         cp = os.path.join(TMP, "childpid.txt")
         if os.path.isfile(cp):
-            with open(cp) as f:
+            with open(cp, encoding="utf-8") as f:
                 child_pid = int(f.read().strip())
             break
         if parent.poll() is not None:

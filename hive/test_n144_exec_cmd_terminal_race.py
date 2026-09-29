@@ -68,7 +68,8 @@ def main():
         # ---------- T1 共享 tmp 被持握（确定性红） ----------
         print("== T1 共享 tmp 被对撞者持握 → _write_result 不得外逃 ==")
         d1 = _jd(tmp, "t1")
-        hold = open(os.path.join(d1, "result.json.tmp"), "w")  # 对撞者持握共享 tmp
+        hold = open(os.path.join(d1, "result.json.tmp"), "w",
+                    encoding="utf-8")  # 对撞者持握共享 tmp
         esc = None
         try:
             exec_cmd._write_result(d1, {"ok": True, "note": "writer"})
@@ -113,7 +114,7 @@ def main():
         # ---------- T1c main 兜底二次抛出（确定性红） ----------
         print("== T1c main 兜底二次抛出：兜底 _fail 不得再外逃 ==")
         d3 = _jd(tmp, "t1c")
-        hold3 = open(os.path.join(d3, "result.json.tmp"), "w")
+        hold3 = open(os.path.join(d3, "result.json.tmp"), "w", encoding="utf-8")
         real_run = exec_cmd.run_cmd
         exec_cmd.run_cmd = lambda jd: (_ for _ in ()).throw(
             RuntimeError("注入内部异常"))

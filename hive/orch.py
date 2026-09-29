@@ -52,6 +52,23 @@ import sys
 import tempfile
 import time
 
+# ---------------------------------------------------------------- 入口自保证 UTF-8
+# 约束（工作纪律第 15 条）：本调用必须在**任何文件/库 I/O 之前**——utf8_boot.ensure_utf8
+# 在解释器未开 UTF-8 模式时以相同 argv 重启自身（-X utf8），早于它的任何 open/stdio
+# 读写都走 locale 编码（Windows 中文机 = cp936：裸 open 抛 UnicodeDecodeError、中文写
+# 落 GBK 字节）。本文件下方 `import exec` 会拉起执行器（读 spec 前必须先有保证），故本行
+# 必须早于它。仓库根入 sys.path 的形态照 hive/exec.py::_md_cg_import 的最小写法
+# （助手在仓根，不是 md_cg 包目录）。
+# 被 import（本模块非 __main__）时助手只置子进程继承面、绝不重启/退出——F6：静默重启
+# 会吞掉调用方输入。
+_UTF8_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _UTF8_ROOT not in sys.path:
+    sys.path.insert(0, _UTF8_ROOT)
+from utf8_boot import ensure_utf8  # noqa: E402
+
+ensure_utf8(__file__)
+
+
 HIVE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HIVE_DIR)
 if HIVE_DIR not in sys.path:

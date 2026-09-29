@@ -19,7 +19,7 @@ def worker(m):
             if not lk.acquired:
                 print("LOCK_TIMEOUT", file=sys.stderr)
             try:
-                with open(TARGET) as f:
+                with open(TARGET, encoding="utf-8") as f:
                     v = int(f.read().strip() or 0)
             except (OSError, ValueError):
                 v = 0
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     ps = [subprocess.Popen([sys.executable, os.path.abspath(__file__), "--worker", str(M)])
           for _ in range(N)]
     [p.wait() for p in ps]
-    with open(TARGET) as f:
+    with open(TARGET, encoding="utf-8") as f:
         got = int(f.read().strip())
     print(f"期望 {N*M}，实际 {got} → {'互斥正常' if got == N*M else '★锁失效，丢了 %d 次' % (N*M-got)}")
     os.remove(TARGET)

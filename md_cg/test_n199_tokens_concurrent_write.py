@@ -154,7 +154,7 @@ def _race_issue(path, procs=PROCS, per=PER_PROC, timeout=180):
         cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, encoding="utf-8", errors="replace") for _ in range(procs)]
     time.sleep(0.35)                    # 让所有子进程起来等 barrier
-    open(barrier, "w").close()          # 对齐放行
+    open(barrier, "w", encoding="utf-8").close()   # 对齐放行
     rows, errs = [], []
     for p in ps:
         try:

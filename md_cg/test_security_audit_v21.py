@@ -224,11 +224,11 @@ def v21_8_sensitive_family():
              "service-account.json"]
     for fn in leaks:
         p = os.path.join(base, fn)
-        open(p, "w").close()
+        open(p, "w", encoding="utf-8").close()
         check(f"  拒读：{fn}", m._sensitive_read(p) is not None)
     for fn in ("notes.md", "readme.md", "data.json"):
         p = os.path.join(base, fn)
-        open(p, "w").close()
+        open(p, "w", encoding="utf-8").close()
         check(f"  不误伤：{fn}", m._sensitive_read(p) is None)
 
 

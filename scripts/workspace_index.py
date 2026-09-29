@@ -96,6 +96,8 @@ ROOT_FILES = {
     "discussion-post.md": "对外讨论帖留档",
     ".gitignore": "忽略面（本地数据面 / 实验产物 / 构建产物）",
     ".gitattributes": "换行归一（pre-commit 钩子等须 LF 的文件）",
+    "utf8_boot.py": "入口自保证 UTF-8 的单点助手（纯 stdlib、零 md_cg 依赖；"
+                    "七个进程入口在任何 I/O 之前调用）",
 }
 
 # 定位提示（静态真源，参与逐字校验；只写跨目录的「去哪找」）
