@@ -296,9 +296,19 @@ def _spawn_in(jobs: str, args: dict) -> dict:
         return _hm._t_spawn(args)
 
 
+# id 契约 v2（B8）：`_t_spawn` 的四槽（身份/任务/单元必填、编号由 Rust 分配器给）
+# 是**必填**面。本守卫判的是 depends_on 两道闸与 id 的拒收面，故在夹具层固定注入
+# 三槽（槽值不进任何断言），使分类面与 id 契约解耦——缺槽会让 `_t_spawn` 在四槽
+# 校验处即返回「缺四槽入参」，D 组整体退化成 other。四槽自身的必填面由
+# hive/test_id_contract_v2.py 的 A/B 组专门钉死（本夹具不覆盖调用方的显式传值）。
+_SLOTS = {"identity": "h6守卫", "task": "对照", "unit": "验证单元"}
+
+
 # 生效条件：jobs 与 args 给定——_spawn_in 的**不抛**包装：异常（含隔离面失守）归成
 # {'ok': False, 'error': 'raise:<类型>: <消息>'}，使断言计数稳定（红一条而非崩一组）。
+# 调用方显式给了同名槽则以调用方为准（`{**_SLOTS, **args}` 的右侧胜出）。
 def _spawn_safe(jobs: str, args: dict) -> dict:
+    args = {**_SLOTS, **args}
     try:
         return _spawn_in(jobs, args)
     except Exception as exc:              # noqa: BLE001 —— 隔离失守/变异态都按红
@@ -608,13 +618,23 @@ def _parity_pool():
 # 生效条件：jobs/tmp 与 depends_on 裸值给定——写 spec 并跑 `hive.exe submit
 # --jobs <池>`，把 stdout JSON 归成四类之一：ok=true→"accept"；error 含「项非法」→
 # "fmt_reject"；含「依赖不完整」→"exist_reject"；其余/解析失败→"other:…"。
+#
+# id 契约 v2（B8）：`hive submit` 的四槽（身份/任务/单元必填、编号由分配器给）是
+# **必填**面——本对照的判据是 depends_on 的两道闸，故按 B8 的 env 兜底口径把三槽
+# 固定注入（HIVE_JOB_IDENTITY/HIVE_JOB_TASK/HIVE_JOB_UNIT），使分类面与 id 契约解耦
+# （槽值不进任何断言；缺 env 会让 submit 以「缺四槽入参」退出，D 组整体退化成 other）。
+_SLOT_ENV = {"HIVE_JOB_IDENTITY": "h6守卫", "HIVE_JOB_TASK": "对照",
+             "HIVE_JOB_UNIT": "验证单元", "PYTHONUTF8": "1"}
+
+
 def _rust_class(jobs: str, tmp: str, deps) -> str:
     p = _write_spec(os.path.join(tmp, "spec"), {
         "model": "guard-model", "user_prompt": "h6 parity", "timeout_s": 60,
         "depends_on": deps})
     r = subprocess.run([HIVE_EXE, "submit", "--spec", p, "--jobs", jobs],
                        capture_output=True, text=True, encoding="utf-8",
-                       errors="replace", timeout=60, cwd=_REPO)
+                       errors="replace", timeout=60, cwd=_REPO,
+                       env={**os.environ, **_SLOT_ENV})
     try:
         doc = json.loads((r.stdout or "").strip())
     except ValueError:
@@ -700,9 +720,13 @@ def _orch_spawn_inner(jobs: str, args: dict, box: dict):
     job_dir = os.path.join(jobs, "h_orch_guard")
     os.makedirs(job_dir, exist_ok=True)
     _orch._CFG.update({"job_id": "h_orch_guard", "job_dir": job_dir, "jobs": jobs,
-                       "model": "guard-model", "children": []})
+                       "model": "guard-model", "children": [],
+                       # id 契约 v2（B8）：编排者三槽（`_spawn` 透传给子任务）
+                       "slots": {"identity": "h6守卫", "task": "对照",
+                                 "unit": "验证单元"}})
 
-    def _fake_submit(j, sub):
+    # 签名与 _hm._submit 对齐（id 契约 v2 · B8：`_submit` 增三槽形参）
+    def _fake_submit(j, sub, identity=None, task=None, unit=None):
         box["sub"] = dict(sub)
         return "h_orch_child_1"
 

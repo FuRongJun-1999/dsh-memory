@@ -164,6 +164,23 @@ def _spawn_schema() -> dict:
                             "返回的 job_id（h 开头），且该任务必须已提交存在——"
                             "不过闸即拒（不静默忽略、不降级为「无依赖」）。"
                             "缺省 = 无依赖（立即并发跑）。")},
+                    "identity": {
+                        "type": "string",
+                        "description": ("id 契约 v2 身份槽（可选，缺省继承编排者自身 "
+                                        "spec 的同名槽）：落进子任务 id = "
+                                        "h_<身份>_<任务>_<单元>_<编号>；只收 Unicode "
+                                        "字母/数字且须已是 NFC 稳定形态。")},
+                    "task": {
+                        "type": "string",
+                        "description": ("id 契约 v2 任务槽（可选，缺省继承编排者自身 "
+                                        "spec 的同名槽）：工作流/迭代名。")},
+                    "unit": {
+                        "type": "string",
+                        "description": ("id 契约 v2 单元槽（可选，缺省继承编排者自身 "
+                                        "spec 的同名槽）：蜂巢五单元**闭集**——记录单元 / "
+                                        "反思单元 / 验证单元 / 输出单元 / 维生系统"
+                                        "（英文键 record/reflect/verify/output/sustain "
+                                        "亦可）。子任务按职能归单元时显式指定。")},
                 },
                 "required": ["user_prompt"],
             },
@@ -269,7 +286,16 @@ _CFG = {
     "model": "",
     "max_subtasks": DEFAULT_MAX_SUBTASKS,
     "children": [],
+    # id 契约 v2（B8）：编排者自身的四槽之三（身份/任务/单元）——由 main() 从
+    # 本编排者 spec 的同名键读入，供 `_spawn` **透传**给子任务（唯一实现是
+    # Rust 侧分配器：子任务 id = `h_<身份>_<任务>_<单元>_<编号>`）。
+    # 空 = spec 未带槽：`_spawn` **显式报错**，绝不兜底造 id（B8）。
+    "slots": {},
 }
+
+# id 契约 v2（B8）：`spawn_subtask` 的四槽之三——编排者可在单次派发里显式指定
+# （如把某个子任务定向到「验证单元」），缺省继承编排者自身 spec 的同名槽。
+SLOT_KEYS = ("identity", "task", "unit")
 
 
 # 生效条件：无入参，模块级常量 CHILDREN_FILE 与 _CFG['job_dir'] 可用时返回 os.path.join(_CFG['job_dir'], CHILDREN_FILE)。
@@ -490,7 +516,7 @@ def _resolve_jobs_dir(job_dir: str | None = None) -> str:
     return _hm._jobs_dir()
 
 
-# 生效条件：a 为 dict，当 a.get('depends_on') 非 None 时先过 pool 解析后的 _hm._dep_gate（H-6：格式 = h 开头且不含路径成分的 job_id，与 rust job::valid_job_id 同判据；存在性 = pool/<dep> 是目录，与 CLI `hive submit` 同口径）——不过闸即返回 {'ok': False, 'error': ...}（**不写子 spec、不静默丢弃、不降级为「无依赖」**）；随后在 len(_CFG['children']) < _CFG['max_subtasks']、a.get('user_prompt') 去空白后非空、a.get('model') 或 _CFG['model'] 去空白后非空、a.get('tools') 各项（缺省/空列表回落 list(SUB_TOOLS_ALLOW)）均属 SUB_TOOLS_ALLOW、a.get('context_files') 每项对应路径 isfile 为真时，构造 sub 白名单键（仅当 a.get(k) not in (None, '', [], {}) 才写入 system_prompt/context_files/max_tool_rounds/web_search_backend/mdcg_root/max_tokens/temperature/thinking/depends_on），timeout_s 取 _ex._int_arg(a,'timeout_s',_hm.DEFAULT_TIMEOUT_S,hi=sys.maxsize)、context_budget_tokens 取 _ex._int_arg(a,'context_budget_tokens',_hm.DEFAULT_CONTEXT_BUDGET_TOKENS,hi=sys.maxsize)（脏值/非正回落默认，不夹紧），reasoning_effort 取 a.get('reasoning_effort') or _hm.DEFAULT_REASONING_EFFORT，pool 解析经 _resolve_jobs_dir()（N145：双键皆空时从 _CFG['job_dir'] 父目录推导真实池，设键时 N89 语义原样）、env HIVE_SUBAGENT_API_KEY 去空白非空时 sub 加布尔键 use_subagent_llm=True（C4：只写布尔，不写值/不写 env 名/不写地址；为假时该键不出现）提交后 append 到 _CFG['children']、_save_children()、_ex.progress(kind='spawn_subtask') 并返回 ok=True 及 defaults；上述前置失败则返回对应 {'ok': False, 'error': ...}。
+# 生效条件：a 为 dict，当 a.get('depends_on') 非 None 时先过 pool 解析后的 _hm._dep_gate（H-6：格式 = h 开头且不含路径成分的 job_id，与 rust job::valid_job_id 同判据；存在性 = pool/<dep> 是目录，与 CLI `hive submit` 同口径）——不过闸即返回 {'ok': False, 'error': ...}（**不写子 spec、不静默丢弃、不降级为「无依赖」**）；随后在 len(_CFG['children']) < _CFG['max_subtasks']、a.get('user_prompt') 去空白后非空、a.get('model') 或 _CFG['model'] 去空白后非空、a.get('tools') 各项（缺省/空列表回落 list(SUB_TOOLS_ALLOW)）均属 SUB_TOOLS_ALLOW、a.get('context_files') 每项对应路径 isfile 为真、**四槽之三 identity/task/unit 齐备**（显式传值优先，缺省继承 _CFG['slots']——即本编排者 spec 的同名键；两处都缺即 {'ok': False, 'error': '缺四槽入参…'}，绝不兜底造 id）时，构造 sub 白名单键（仅当 a.get(k) not in (None, '', [], {}) 才写入 system_prompt/context_files/max_tool_rounds/web_search_backend/mdcg_root/max_tokens/temperature/thinking/depends_on），timeout_s 取 _ex._int_arg(a,'timeout_s',_hm.DEFAULT_TIMEOUT_S,hi=sys.maxsize)、context_budget_tokens 取 _ex._int_arg(a,'context_budget_tokens',_hm.DEFAULT_CONTEXT_BUDGET_TOKENS,hi=sys.maxsize)（脏值/非正回落默认，不夹紧），reasoning_effort 取 a.get('reasoning_effort') or _hm.DEFAULT_REASONING_EFFORT，pool 解析经 _resolve_jobs_dir()（N145：双键皆空时从 _CFG['job_dir'] 父目录推导真实池，设键时 N89 语义原样）、env HIVE_SUBAGENT_API_KEY 去空白非空时 sub 加布尔键 use_subagent_llm=True（C4：只写布尔，不写值/不写 env 名/不写地址；为假时该键不出现）提交（_hm._submit：内部调 Rust 侧 `hive alloc-id` 分配 id，本面不自造；SubmitError → {'ok': False, 'error': …}）后 append 到 _CFG['children']、_save_children()、_ex.progress(kind='spawn_subtask') 并返回 ok=True 及 defaults；上述前置失败则返回对应 {'ok': False, 'error': ...}。
 def _spawn(a: dict) -> dict:
     """派发子任务。
 
@@ -500,6 +526,8 @@ def _spawn(a: dict) -> dict:
       · 子任务数达上限即诚实报错（不静默丢弃、不静默排队）
       · depends_on（H-6）透传但先过 `_hm._dep_gate` 两道闸（格式 + 存在性，与 CLI
         同判据）：不过闸即回 ok=False，**不写子 spec、不降级为「无依赖」**
+      · 四槽（B8）必填：显式传值优先、缺省继承编排者 spec 的同名槽、两处都缺即
+        诚实报错——**不兜底造 id**（id 的唯一来源 = Rust 侧分配器）
     提交走 _hm._submit（与 MCP 面**同一份** job 契约，避免第二份实现漂移）；
     但**不**走 _hm._t_spawn —— 它内含 _ensure_serve，而编排者本身就跑在 serve 的
     worker 里，serve 必然存活，无需（也不应从 worker 内）尝试拉起第二个 serve。
@@ -524,6 +552,23 @@ def _spawn(a: dict) -> dict:
         p = rel if os.path.isabs(rel) else os.path.join(os.getcwd(), rel)
         if not os.path.isfile(p):
             return {"ok": False, "error": f"context 文件不存在: {p}"}
+    # 四槽（id 契约 v2 · B8）：显式传值优先，缺省继承编排者自身 spec 的同名槽
+    # （`_CFG["slots"]`，由 main() 从本编排者 spec 读入）；**两处都缺即 fail-closed
+    # 报错**——绝不兜底造 id（旧 `h{毫秒}_{uuid6}` 已退场：它会绕过 Rust 侧分配器的
+    # 独占创建与五单元闭集，正是 H-1 那半边缺陷的形状）。
+    slots = {k: str(a.get(k) or _CFG["slots"].get(k) or "").strip()
+             for k in SLOT_KEYS}
+    missing = [k for k, v in slots.items() if not v]
+    if missing:
+        return {"ok": False, "error": (
+            f"缺四槽入参——四槽 = 身份/任务/单元/编号，其中 identity / task / unit "
+            f"**必填**（编号由分配器独占创建给出），不许兜底造 id。缺："
+            f"{'、'.join(missing)}。来源二选一：① 本工具的 identity/task/unit 参数"
+            f"（显式传值）；② 编排者自身 spec 的同名键 identity/task/unit"
+            f"（当前 spec 值：{_CFG['slots'] or '（未带）'}）。"
+            "可照抄示例：spawn_subtask(user_prompt=…, identity=\"zcode端\", "
+            "task=\"灵枢迭代\", unit=\"反思单元\")——单元槽取蜂巢五单元闭集"
+            "（记录单元/反思单元/验证单元/输出单元/维生系统）。")}
     sub = {"model": model, "user_prompt": prompt, "tools": tools,
            "workdir": os.getcwd(),
            # M3.2 来源行「父任务」链路：子任务 spec 带父编排任务 id，
@@ -566,7 +611,13 @@ def _spawn(a: dict) -> dict:
     dep_err = _hm._dep_gate(jobs, a.get("depends_on"))
     if dep_err:
         return {"ok": False, "error": dep_err}
-    cid = _hm._submit(jobs, sub)
+    try:
+        # 分配 id 的唯一通道（B7/B8）：`_hm._submit` 内部调 Rust 侧
+        # `hive alloc-id`——编排面**不自造 id**（§五 裁决 3：分配器唯一实现在
+        # Rust 侧）；HIVE_EXE 不可用/槽非法/号位用尽 → 显式 ok:False（不静默降级）。
+        cid = _hm._submit(jobs, sub, slots["identity"], slots["task"], slots["unit"])
+    except _hm.SubmitError as e:
+        return {"ok": False, "error": str(e)}
     _CFG["children"].append({
         "job_id": cid, "prompt_head": prompt[:160], "tools": tools,
         "model": model, "ts": time.time(),
@@ -754,6 +805,10 @@ def main() -> int:
         # _CFG['job_dir'] 尚为旧值（N87 同款求值顺序陷阱），不能靠函数内读。
         "jobs": _resolve_jobs_dir(job_dir),
         "model": (spec.get("model") or "").strip(),
+        # id 契约 v2（B8）：编排者自身的四槽之三从**本编排者 spec 的同名键**读入
+        # （spec 带则透传，缺则 `_spawn` 显式报错）——不推导、不从 job_id 反解
+        # （反解是「静默推导」，B1 明令禁止），更不自造 id。
+        "slots": {k: str(spec.get(k) or "").strip() for k in SLOT_KEYS},
     })
     _CFG.update({"children": _load_children()})
 

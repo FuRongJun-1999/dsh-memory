@@ -46,8 +46,10 @@ pub struct Spec {
     pub context_budget_tokens: Option<u64>,
     /// 依赖门禁（I-1，宏观调度第一格）：上游任务 job_id 列表——全部 done 才可领取；
     /// 任一终态非 done（error/timeout/killed/needs_review）→ 本任务直接 error（失败传播）。
-    /// 无环性结构性成立：job_id 含毫秒时间戳，提交时间序 = DAG 拓扑序，
-    /// 无法引用提交时尚不存在的任务（自引用亦不可能）。
+    /// 无环性由**存在性闸**结构性成立：提交时只能引用**已存在**的任务目录
+    /// （`main.rs` 的 depends_on 存在性检查 + MCP 侧 `_dep_gate`），引用不到提交时
+    /// 尚不存在的任务（自引用亦不可能）——**不是**由 id 的时间序保证：旧形态 id
+    /// 恰好带毫秒时间戳，新形态语义四槽 id 不再有此性质，故论证不得依赖它。
     pub depends_on: Vec<String>,
     /// M1 逃生门（2026-09-23 批次7）：崩溃恢复时不采信旧产物——
     /// serve 重启的 recover_orphans 见本标志为 true 时，把 result.json 更名为

@@ -36,7 +36,9 @@ fn submit(jobs: &PathBuf, sleep_s: &str, timeout_s: u64) -> String {
         r#"{{"model":"fake","user_prompt":"{sleep_s}","timeout_s":{timeout_s}}}"#
     ))
     .unwrap();
-    job::init_job(jobs, &spec, timeout_s).unwrap()
+    // 四槽写序单点（B7/B8）：id 由分配器独占创建给出，不再自造
+    job::init_job_with_slots(jobs, "单测端", "id契约", "记录单元", &spec, timeout_s, None)
+        .unwrap()
 }
 
 fn read_state(jobs: &Path, id: &str) -> String {
@@ -253,7 +255,7 @@ time.sleep(30)
 
 // --------------------------------------------------------------- P11 结果完整性锚
 
-/// P11 锚测试共用常量/构造：nonce 手工指定（与 init_job_with_anchor 契约一致），
+/// P11 锚测试共用常量/构造：nonce 手工指定（与 init_job_with_slots 契约一致），
 /// 密钥任意固定串；result.json 手写（注入者视角——不跑真实执行器）。
 const ANCHOR_KEY: &str = "judgment-surface-anchor-key";
 const ANCHOR_NONCE: &str = "0123456789abcdef";
@@ -263,7 +265,16 @@ fn submit_anchored(jobs: &Path, timeout_s: u64) -> (String, PathBuf) {
         r#"{{"model":"fake","user_prompt":"0","timeout_s":{timeout_s}}}"#
     ))
     .unwrap();
-    let id = job::init_job_with_anchor(jobs, &spec, 60, Some(ANCHOR_NONCE)).unwrap();
+    let id = job::init_job_with_slots(
+        jobs,
+        "单测端",
+        "id契约",
+        "记录单元",
+        &spec,
+        60,
+        Some(ANCHOR_NONCE),
+    )
+    .unwrap();
     let dir = job::job_dir(jobs, &id);
     (id, dir)
 }
@@ -634,7 +645,16 @@ with open(os.path.join(d, "result.json"), "w", encoding="utf-8") as f:
     fs::write(&exec_py, ECHO_EXEC).unwrap();
 
     let spec = parse(r#"{"model":"fake","user_prompt":"0","timeout_s":60}"#).unwrap();
-    let a = job::init_job_with_anchor(&jobs, &spec, 60, Some(ANCHOR_NONCE)).unwrap();
+    let a = job::init_job_with_slots(
+        &jobs,
+        "单测端",
+        "id契约",
+        "记录单元",
+        &spec,
+        60,
+        Some(ANCHOR_NONCE),
+    )
+    .unwrap();
     let b = submit(&jobs, "0", 60); // 旧格式对照
 
     let cfg = ServeCfg::new(jobs.clone(), 2, exec_py)

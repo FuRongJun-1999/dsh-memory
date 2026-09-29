@@ -237,13 +237,27 @@ def _last_json(text: str):
     return None
 
 
+# id 契约 v2（B8）：`hive submit` 的四槽**必填**（身份/任务/单元显式声明，编号由 Rust
+# 分配器独占创建给出）——缺任一 CLI 即显式报错退出（不许静默推导/空串兜底）。
+# 评审流水线作为**提交方**在此声明自己的三槽（这不是「推导」：是本提交者的固定身份）；
+# 调用方 env 里已显式给定的同名键优先（B8 的 env 兜底口径），故部署侧可覆盖。
+_SUBMIT_SLOT_ENV = {
+    "HIVE_JOB_IDENTITY": "灵枢评审",
+    "HIVE_JOB_TASK": "记忆评审M2",
+    "HIVE_JOB_UNIT": "验证单元",
+}
+
+
 # 生效条件：exe/jobs_dir/spec 给定，创建 jobs_dir 并在临时目录写 spec.json 后执行 [exe,"submit","--spec",sp,"--jobs",jobs_dir]；returncode 非 0 返回 ok False + error，否则 _last_json(p.stdout) 为假（含 None/空 dict）返回 ok False「submit 输出非 JSON」，否则 d.setdefault("ok", True) 后返回 d；
 def submit(exe: str, jobs_dir: str, spec: dict, *, timeout=120) -> dict:
     """投递单包 spec → {"ok":True,"job_id":...}；失败返回 ok=False + error。"""
     os.makedirs(jobs_dir, exist_ok=True)
+    slots = {k: v for k, v in _SUBMIT_SLOT_ENV.items()
+             if not (os.environ.get(k) or "").strip()}
     with tempfile.TemporaryDirectory(prefix="mrev_spec_") as td:
         sp = _dump_json(os.path.join(td, "spec.json"), spec)
-        p = _run([exe, "submit", "--spec", sp, "--jobs", jobs_dir], timeout=timeout)
+        p = _run([exe, "submit", "--spec", sp, "--jobs", jobs_dir],
+                 timeout=timeout, env=slots)
     if p.returncode != 0:
         return {"ok": False, "returncode": p.returncode,
                 "error": (p.stderr or p.stdout or "").strip()[:800]}

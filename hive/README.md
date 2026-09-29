@@ -135,7 +135,16 @@ python serve_start.py            # 拉起（已在跑则拒绝）；--stop 停�
 target\release\hive.exe serve   # 已有 serve 在跑会被拒绝；--force 可强起（迁机 / 心跳残留时用）
 
 # 提交任务（stdin JSON）——模型名须与 HIVE_API_BASE 配对（见 spec 字段表）
-echo {"model":"deepseek-flash","user_prompt":"总结这份文档","context_files":["README.md"]} | target\release\hive.exe submit -
+# ⚠ id 契约 v2（四槽必填）：--identity / --task / --unit 缺任一即**显式报错**退出 1
+#   （不许静默推导；编号槽由分配器给出，无需入参）。单元槽取**蜂巢五单元闭集**：
+#   记录单元 / 反思单元 / 验证单元 / 输出单元 / 维生系统
+#   （英文键 record/reflect/verify/output/sustain 亦可，落 id 一律中文名）。
+#   env 兜底：HIVE_JOB_IDENTITY / HIVE_JOB_TASK / HIVE_JOB_UNIT。
+#   落盘 id 形态：h_<身份>_<任务>_<单元>_<编号>（编号 4 位定宽；用满 9999 显式报错，不加宽不回绕）。
+echo {"model":"deepseek-flash","user_prompt":"总结这份文档","context_files":["README.md"]} | target\release\hive.exe submit - --identity zcode端 --task 灵枢迭代 --unit 反思单元
+
+# 只取 id（不写 spec/status）：**分配即创建目录**（独占创建即分配），打印 {"ok":true,"job_id":…,"dir":…}
+target\release\hive.exe alloc-id --identity zcode端 --task 灵枢迭代 --unit 反思单元
 
 # 查状态 / 强杀 / 体检
 target\release\hive.exe poll
@@ -154,7 +163,7 @@ target\release\hive.exe doctor --unquarantine # 隔离件原路退回池内（�
 
 | 工具 | 用途 |
 |---|---|
-| `hive_spawn` | 提交 LLM 任务（**入参白名单** + spec 结构校验 fail fast），返回 job_id；支持 `depends_on`（依赖门禁：写入前过格式 + 存在性两道闸，与 CLI 同判据，见「spec 字段」）；确定性/编排任务走 CLI（见「确定性执行」「任务编排」） |
+| `hive_spawn` | 提交 LLM 任务（**入参白名单** + spec 结构校验 fail fast），返回 job_id；**id 契约 v2：`identity` / `task` / `unit` 三参数必填**（id = `h_<身份>_<任务>_<单元>_<编号>`，编号由 Rust 侧分配器独占创建给出；单元槽取蜂巢五单元闭集）；支持 `depends_on`（依赖门禁：写入前过格式 + 存在性两道闸，与 CLI 同判据，见「spec 字段」）；确定性/编排任务走 CLI（见「确定性执行」「任务编排」） |
 | `hive_poll` | 无 id = 全部摘要（content 截 800 字）；带 id = 单查全文；`handoff_ready=true` = 子代理满上下文交回，待主代理裁决续跑 |
 | `hive_kill` | 写 kill 标志，worker ≤1s 内强杀 |
 | `hive_restart` | 重启 serve（stop→start 原子序，复用 `serve_start.restart`）：改 serve 级配置或 rust 重新 build 后使改动生效；stop 失败绝不 start（防双实例）。重启中断 claimed/running 任务，重启后由 recover_orphans 收尸 |
@@ -278,19 +287,56 @@ PYTHONPATH = "<本机 dsh-memory 仓库绝对路径>"
 | `max_tool_rounds` | 否 | 工具轮上限，默认 5；达到后强制终答（不带 tools 再发一次） |
 | `mdcg_root` | 否 | lingshu_cg 的认知图根兜底（env `MDCG_ROOT` 优先）；如任务级隔离用临时图 |
 | `web_search_backend` | 否 | web_search 后端兜底（env `HIVE_WEB_SEARCH` 优先）：`zhipu` / `duckduckgo` |
-| `depends_on` | 否 | **依赖门禁（I-1）**：上游任务 job_id 列表——全 `done` 才被领取；任一上游终态非 `done`（`error`/`timeout`/`killed`/`needs_review`）→ 本任务直接 `error`（失败传播）。提交侧两道闸：**格式**（`h` 开头且不含路径成分，`spec.rs` 走 `job::valid_job_id`）与**存在性**（`jobs/<dep>` 必须是目录，`main.rs`）。调度侧判据在 `scheduler.rs::deps_gate`。三维都支持：CLI `hive submit`、MCP `hive_spawn`（写入 spec 前同两闸，不过闸 fail-closed 拒绝）、`orch.py::spawn_subtask`（透传 + 同闸）。无环性由 job_id 时间序结构性保证（引用不到提交时尚不存在的任务） |
+| `depends_on` | 否 | **依赖门禁（I-1）**：上游任务 job_id 列表——全 `done` 才被领取；任一上游终态非 `done`（`error`/`timeout`/`killed`/`needs_review`）→ 本任务直接 `error`（失败传播）。提交侧两道闸：**格式**（`h` 开头且不含路径成分，`spec.rs` 走 `job::valid_job_id`）与**存在性**（`jobs/<dep>` 必须是目录，`main.rs`）。调度侧判据在 `scheduler.rs::deps_gate`。三维都支持：CLI `hive submit`、MCP `hive_spawn`（写入 spec 前同两闸，不过闸 fail-closed 拒绝）、`orch.py::spawn_subtask`（透传 + 同闸）。无环性由**存在性闸**结构性保证：提交时只能引用**已存在**的任务目录（引用不到提交时尚不存在的任务，自引用亦不可能）——**不是**由 id 的时间序保证（旧形态 id 恰好也带时间戳，契约 v2 的语义四槽 id 不再有此性质，故论证不得依赖它） |
 | `orchestrate` | 否 | 编排形态：真值（`true` 或 `{"max_subtasks": N}`）→ 由 `orch.py` 接管（见「任务编排」）。多态转发须 `HIVE_EXEC_PY` 指向 `exec_cmd.py`；子任务上限默认 8 |
 | `use_subagent_llm` | 否 | **布尔开关**（只开关、不含值）：真值 = 本次任务的模型密钥/base 走「子代理覆盖」——env `HIVE_SUBAGENT_API_KEY`（base 走 env `HIVE_SUBAGENT_API_BASE`，其缺省回落 `HIVE_API_BASE`）；缺省/假值 = 主配置（env `HIVE_API_KEY` / `HIVE_API_BASE`）。**密钥与地址一律只从 serve env 读**，写进 spec 也不生效（结构上无凭据外发面）；开关真值但子代理 env 为空时安全回落主键（子代理密钥缺失时 base 一并回落主配置——半套配置等于跨网关错配）。`orch.py` 派发子任务时按 serve env 自动写入 |
 
 **面差异（先看清再传参）**：上表是 **spec.json 字段表**（CLI `hive submit` 的全集）。
-MCP 面的 `hive_spawn` **只接受其中 16 键**——除 `workdir`（本面强制取 MCP 进程 cwd）、
+MCP 面的 `hive_spawn` **只接受其中 19 键**（含 id 契约 v2 的三槽参数 `identity`/`task`/`unit`——
+它们是**提交面参数**、不落 spec；见下方「任务标识（id 契约 v2）」）——除 `workdir`（本面强制取 MCP 进程 cwd）、
 `orchestrate` 与 `use_subagent_llm`（执行器侧配置开关，由编排面或 CLI 写）外的全部，
 `command` / `commands` 亦不在其列。这五个键**只走 CLI**（见下节）；
 MCP 面传入会被**显式拒绝**（fail fast 并指路 CLI），不再静默丢弃——静默丢弃的后果是
 「以为在跑确定性任务、实际走了 LLM 路径烧 token」。白名单与 `hive_spawn` 的 schema
 同集，由 `hive/hive_mcp/smoke_test.py` 断言守卫。
 
+### 任务标识（id 契约 v2）
+
+真源：[全中文编码与蜂巢任务标识契约 v2.0](../docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md)。
+形态 `h_<身份>_<任务>_<单元>_<编号>`（例 `h_zcode端_灵枢迭代_反思单元_0001`）：
+
+| 槽 | 必填 | 来源 | 说明 |
+|---|---|---|---|
+| 身份 | **是** | 提交面显式声明 | `--identity` / env `HIVE_JOB_IDENTITY` / MCP `identity`；不许静默推导 |
+| 任务 | **是** | 同上 | `--task` / `HIVE_JOB_TASK` / MCP `task` |
+| 单元 | **是** | 同上 | `--unit` / `HIVE_JOB_UNIT` / MCP `unit`；取五单元**闭集**（词表有既有真源 `md_cg/identity.py::POSITIONS`，守卫同源断言钉死） |
+| 编号 | 分配得出 | Rust 侧分配器 | 该 (身份,任务,单元) 前缀下的序号，**4 位定宽**；**独占创建即分配**（`fs::create_dir`，AlreadyExists 才 +1 重试）⇒ 碰撞结构上不可能；用满 9999 **显式报错**（不加宽、不回绕） |
+
+- **分配器唯一实现在 Rust 侧**（`hive/src/job.rs::alloc_job_id`）：CLI `hive alloc-id` 暴露它，
+  MCP / 编排面**调它取 id**，不自持第二份（旧 `h{毫秒}_{uuid6}` 形态已退场；
+  `HIVE_EXE` 不可用即显式报错，不静默降级）。
+- **编排面透传**：`orch.py::spawn_subtask` 的三槽「显式传值 > 编排者 spec 的同名键
+  `identity`/`task`/`unit`」；两处都缺即**显式报错**（不兜底造 id）。故要让子任务按职能
+  归单元，可在编排者 spec 里带上这三键，或在 `spawn_subtask` 里逐次显式指定。
+- **字符集闸**（与 MCP 面孪生同判）：允许 Unicode 字母/数字 + `_`；拒收路径成分
+  （`/` `\` `:`、单独的 `.`/`..`）、首尾空白、尾点、控制/零宽/双向控制字符、
+  Windows 保留设备名（含 `CON.txt` 形态），以及**非 NFC 稳定**形态
+  （会归一化改写者一律拒收并给 NFC 形态建议，**不做静默归一化**）。
+  跨语言逐例同判由 `hive/id_contract_corpus_v2.txt` 的对照语料钉死。
+- **存量零迁移**：旧形态 `h<13位毫秒>_<4位hex>`（含 `h1_a`、裸 `h`）**仍然合法**、
+  仍被 `list_jobs` 收、仍可 poll/kill。
+- **排序口径**：id 不再含时间 ⇒ 一切「按时间序」的语义（FIFO 领取 / 最老者去重 /
+  汇总遍历）走 `status.created_ts` 真值单点（Rust `job::list_jobs_by_created`、
+  Python `_list_jobs_by_created`）；`list_jobs` 本身仍是名升序（存量调用点依赖）。
+- 守卫：`hive/test_id_contract_v2.py`（四槽必填两路实跑 / 分配 / 字符集闸两侧同判 /
+  三入口拒收 / 五单元同源 / 排序真值 / 存量共存 / 定点变异自证）。
+
 spec 在 submit 时做存在性校验（context 文件必须已存在，fail fast 防任务白跑）。
+
+> **注（id 契约 v2）**：`identity` / `task` / `unit` **不是 spec 字段**——它们是**提交面参数**
+> （CLI 旗标或 env、MCP 入参），只喂给 id 分配器，**不写进 spec.json**。唯一的例外读法是
+> 编排面：`orch.py` 从**编排者 spec 的同名键**读它们作为子任务三槽的缺省（「spec 带则透传，
+> 缺则报错」），故编排者 spec 里带上这三键即可让 `spawn_subtask` 免传（详见「任务标识」节）。
 
 ## 任务生命周期与崩溃恢复
 

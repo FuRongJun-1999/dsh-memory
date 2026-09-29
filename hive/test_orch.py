@@ -139,7 +139,12 @@ JOB_DIR = os.path.join(TMP, "orchjob")
 os.makedirs(JOB_DIR, exist_ok=True)
 os.environ["HIVE_JOBS_DIR"] = JOBS
 orc._CFG.update({"job_id": "orchjob", "job_dir": JOB_DIR, "jobs": JOBS,
-                 "model": "m_test", "max_subtasks": 2, "children": []})
+                 "model": "m_test", "max_subtasks": 2, "children": [],
+                 # id 契约 v2（B8）：编排者的四槽之三（身份/任务/单元）——子任务
+                 # 提交走**真实** _hm._submit ⇒ 经 Rust 侧 `hive alloc-id` 分配 id，
+                 # 故槽值必须齐备且单元 ∈ 五单元闭集（否则 alloc-id 显式报错）。
+                 "slots": {"identity": "hive单测", "task": "id契约",
+                           "unit": "记录单元"}})
 
 _t, _added = orc.merge_tools({})
 check("B1 缺省 tools 注入 lingshu_cg + web_search + read_file",
@@ -357,8 +362,11 @@ def _run_main(job_dir):
 
 
 _JD = tempfile.mkdtemp(prefix="orch_job_")
+# id 契约 v2（B8）：编排者 spec 带三槽（身份/任务/单元）——`orch.main()` 从**同名键**
+# 读入 `_CFG['slots']` 供 `_spawn` 透传给子任务（spec 带则透传、缺则报错）。
 with open(os.path.join(_JD, "spec.json"), "w", encoding="utf-8") as f:
     json.dump({"model": "m_orch", "user_prompt": "编排：拆三份",
+               "identity": "hive单测", "task": "编排装配", "unit": "输出单元",
                "orchestrate": {"max_subtasks": 3}}, f, ensure_ascii=False)
 os.environ["HIVE_ORCH_TOKEN"] = ORCH_TOK
 orc._ex.main = _stub_main
@@ -381,6 +389,10 @@ check("E3b 写后回读纪律在系统提示词（M3.1，删除该行必红）",
       and "不信返回的 written 计数" in _spec2.get("system_prompt", ""))
 check("E4 max_subtasks 从 spec.orchestrate 生效", orc._CFG["max_subtasks"] == 3,
       str(orc._CFG["max_subtasks"]))
+check("E4b 编排者三槽从 spec 同名键读入（id 契约 v2 · B8 透传面）",
+      orc._CFG["slots"] == {"identity": "hive单测", "task": "编排装配",
+                            "unit": "输出单元"},
+      str(orc._CFG["slots"]))
 check("E5 已注册编排工具", set(orc.ORCH_TOOLS) <= set(orc._ex.all_schemas()))
 check("E6 身份工厂已装", orc._ex._PRINCIPAL_FACTORY is not None)
 check("E7 工具层白名单同步收窄",
@@ -424,6 +436,10 @@ _JD_M5 = tempfile.mkdtemp(prefix="orch_m5_")
 orc._CFG["job_id"] = "orch_m5_probe"
 orc._CFG["job_dir"] = _JD_M5
 orc._CFG["max_subtasks"] = 99   # E 段 main 遗留 3 上限会挡本段两次 spawn
+# E 段 main() 已把 `_CFG['slots']` 覆写成该 spec 的同名键（本段 _JD_M5 无 spec），
+# 故此处显式重置：本段要验的是同源标记与子 spec 提交（真实 _hm._submit），槽值齐备。
+orc._CFG["slots"] = {"identity": "hive单测", "task": "m5纠正链",
+                     "unit": "反思单元"}
 
 _l0 = orc.orch_handler("record_adjudication", {"kind": "supersede"}, "orch_m5_probe")
 check("L1 缺 subject/evidence/note 诚实拒",

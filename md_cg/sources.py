@@ -273,8 +273,17 @@ class HiveJobsSource(Source):
       result.json 终态 → **权威确认事件**（progress 可能因强杀缺失 final）：
                           done → 「任务完成(job=…)」；error/timeout/killed → 「任务失败(job=…)」
 
-    排序：job_id 名升序 = 时间升序（job.rs 命名保证 h<unix_ms>_<pid>），
-    跨 job 全序成立；seq 由本源按枚举顺序递增（ingest 去重键 = (session, seq)）。
+    排序：**job_id 名升序**（`sorted(listdir)`，确定性），**不是**时间序——
+    契约 v2（`docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md` §四.5）起 id 改为
+    语义四槽 `h_<身份>_<任务>_<单元>_<编号>`，名序不再等于提交时序：旧形态
+    `h<unix_ms>_<pid>` 才是「名序 = 时间序」的**巧合代理**。据实订正（C2：本仓
+    禁止把代理当结构保证）——本源的时序由来源行自带的 ts 承载，排序只求
+    **跨 job 全序且确定**（seq 由本源按枚举顺序递增，ingest 去重键 = (session, seq)，
+    名序的确定性保证该键跨轮稳定）。
+    诚实边界（**已发现、未在本批动码**）：本源的 `_jobs()` 若需要**真时间序**，
+    应改走与 Rust 侧同判据的 created_ts 真值（`hive/src/job.rs::list_jobs_by_created`
+    的语义，Python 侧对应 `mcp_server._list_jobs_by_created`）——契约 §四.5 的消费者
+    清单未列本源，且改动牵动 md_cg 摄入链语义与其守卫，故留待单独裁决，不静默改。
     解析失败的行/条目计入 self.skipped，不终杀批次。
     """
 

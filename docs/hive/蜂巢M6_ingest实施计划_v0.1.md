@@ -16,7 +16,7 @@
 
 ### T1 HiveJobsSource（sources.py 注册蜂巢事件源）
 
-- **依据**：§5.1 事件源注册表（source_id=hive_jobs；progress.jsonl 五类条目 + result.json 终态权威确认；job_id 名升序=时间序）。
+- **依据**：§5.1 事件源注册表（source_id=hive_jobs；progress.jsonl 五类条目 + result.json 终态权威确认；job_id 名升序=时间序）。〔2026-09-30 订正（C2）：末句「名升序=时间序」在 id 契约 v2 下**失实**——新形态 `h_<身份>_<任务>_<单元>_<编号>` 不含时间，名序 = 提交时序只是旧形态 `h<毫秒>_<hex>` 的巧合代理（`hive/src/job.rs::list_jobs` 头注已同改）。本源的 `_jobs()` 实按名升序枚举、**代码未改**（去重键 `(session, seq)` 仍确定），docstring 已据实订正；若要真时间序须改走 `created_ts` 真值。见 `docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md` §五.1「C 论证订正」行与 §五.2 第 2 条〕
 - **条件**：复用 `Source` 基类协议（events() → {t, seq, role, text, session, cwd}，t=epoch 秒）；session=`hive:<job_id>`（ingest 去重键）。
 - **错后**：progress 解析失败跳过该行并计入 skipped（不终杀批次）；result.json 缺失任务按 progress 现状处理（不伪造终态）。
 - **裁决**：ACCEPT。

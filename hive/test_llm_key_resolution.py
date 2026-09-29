@@ -295,13 +295,18 @@ try:
     os.makedirs(_ORC_JOB)
     os.makedirs(_ORC_POOL)
     orc._CFG.update({"job_id": "orchjob", "job_dir": _ORC_JOB,
-                     "jobs": _ORC_POOL, "model": "mock-model", "children": []})
+                     "jobs": _ORC_POOL, "model": "mock-model", "children": [],
+                     # id 契约 v2（B8）：编排者三槽（`_spawn` 透传给子任务；
+                     # 本组只验 C4 的布尔开关面，槽值不进任何断言）。
+                     "slots": {"identity": "hive单测", "task": "密钥解析",
+                               "unit": "记录单元"}})
 
     def _spawn_with(**env_kw):
         orc._CFG["children"] = []
         got: list = []
 
-        def _fake_submit(jobs, sub):  # noqa: ARG001 —— 桩：只捕获子 spec
+        # 桩：只捕获子 spec（签名与 _hm._submit 对齐：jobs/spec/三槽）
+        def _fake_submit(jobs, sub, identity=None, task=None, unit=None):
             got.append(dict(sub))
             return "hfake"
 

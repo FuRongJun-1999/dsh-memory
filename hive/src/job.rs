@@ -23,7 +23,7 @@
 //! 静默吞掉，正是本缺陷的反面；坏 status 的处置权留给显式隔离与人工。
 //!
 //! P11 结果完整性锚（批次53）：提交面解析到锚密钥（keyres.rs）时，status.json
-//! 追加 `result_nonce`（init_job_with_anchor）= 该任务声明锚预期——serve 拉起执行器
+//! 追加 `result_nonce`（init_job_with_slots）= 该任务声明锚预期——serve 拉起执行器
 //! 时注入 HIVE_RESULT_ANCHOR（hmac.rs 公式），执行器回写 result.json
 //! `result_anchor`，classify_result 采信 done 前校验；无 nonce 的旧格式任务保持
 //! 旧判据（向后兼容）。
@@ -42,7 +42,9 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 生效条件：恒成立（时钟倒退时 unwrap_or(0) 诚实回落）——返回当前 Unix 毫秒。
-/// 全仓时间戳（job_id/心跳/日志 _t）的单点时钟源。
+/// 全仓时间戳（status.created_ts/心跳/日志 _t）的单点时钟源。
+/// **已退出 id 生成**（B7：id 归语义四槽，时间只在 created_ts 里）——排序口径走
+/// [`list_jobs_by_created`]，勿退回「名序 = 时间序」的代理。
 pub fn now_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -50,30 +52,320 @@ pub fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
-/// 生效条件：每次调用生成新 id——`h<unix_ms>_<pid4>`，同毫秒冲突由 pid 区分，
-/// 进程内串行提交足够；h 前缀使 list_jobs 的名升序 = 提交时间升序（I-1 拓扑序
-/// 无环性的结构性根基，spec.rs depends_on 校验依赖此前缀）。
-pub fn new_job_id() -> String {
-    let pid = std::process::id();
-    format!("h{}_{:04x}", now_ms(), pid & 0xffff)
-}
-
 /// 生效条件：恒成立——jobs 根目录 + job_id 拼任务目录路径（目录协议的唯一拼装点）。
 pub fn job_dir(jobs: &Path, id: &str) -> PathBuf {
     jobs.join(id)
 }
 
-/// job_id 结构合法性（防路径穿越）：`h` 开头 + 其余字符限于 ASCII 字母数字与
-/// 下划线——结构上排除 `/`、`\`、`..`、盘符 `:` 等一切可逃出 jobs 池的成分。
-/// 与 `new_job_id`（`h<unix_ms>_<pid4hex>`）及 list_jobs 的 `h` 前缀过滤同口径。
-/// 生效条件：id 匹配 `h[0-9A-Za-z_]*` → true；空串/非 h 开头/含路径成分
-/// → false——kill/poll/depends_on 等一切把**外部输入**的 job_id 拼进路径的
-/// 入口，必须先过此闸（2026-09-25 缺陷：`kill ..` 曾可在池外写 kill 文件、
-/// `poll ../victim` 曾可读池外任意目录的 result 全文）。
+// ============================================================ id 契约 v2（B1..B7）
+//
+// 契约真源：docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md §四.4/§四.5/§四.7。
+// **本文件是判据单点**（§五 裁决 3：分配器唯一实现 = Rust 侧；MCP/编排面调用它，
+// 不自持第二份）。跨语言一致性（python 孪生闸 `mcp_server._valid_job_id` 与
+// `_dep_gate`）靠 `hive/id_contract_corpus_v2.txt` 的对照语料逐例钉死——两侧对任何
+// 一例判不同即红。
+//
+// id 形态：`h_<身份>_<任务>_<单元>_<编号>`，例 `h_zcode端_灵枢迭代_反思单元_0001`。
+// 四槽全必填（不许静默推导）；编号 4 位定宽十进制、溢出显式报错；`h` 前缀保留、
+// 存量零迁移（旧形态 `h<13位毫秒>_<4位hex>` 必须仍通过、仍被 list_jobs 收）。
+//
+// 无环性（I-1）**不由 id 保证**（C1 订正）：本文件此处原有一句失实论证——`new_job_id`
+// 的 doc 曾写「h 前缀使 list_jobs 的名升序 = 提交时间升序（I-1 拓扑序无环性的**结构性
+// 根基**，spec.rs depends_on 校验依赖此前缀）」。该函数已按 B7 退场，该论证亦随契约 v2
+// 失实：新形态 id 不含时间 ⇒ 名序不再携带时序（名序 = 时序只是旧形态 `h<毫秒>_<hex>`
+// 的巧合代理），论证不得依赖它。真实机制 = **存在性闸**——提交时只能引用**已存在**的
+// 任务目录（`main.rs` 提交侧的 `depends_on` 存在性检查 + MCP 侧 `_dep_gate`），运行期
+// 再由 `scheduler.rs::deps_gate` 复核目录存在，故引用不到提交时尚不存在的任务、
+// 自引用亦不可能，无需运行时环检测。
+
+// ------------------------------------------------ B5：NFC 稳定性判据（零依赖闭集）
+
+/// 归一化会改写的有限区块闭集（左闭右闭）：(起, 止, 依据)。
+///
+/// 为什么是「拒收」而不是「静默归一化」：`hive/Cargo.toml` 的 `[dependencies]` 是空段
+/// （零依赖 D-005），手写完整 NFC 不可行；而**拒收比静默归一化更严**，且两侧判据
+/// 可用同一张表逐字对齐、可证同判（B5 的裁决）。
+///
+/// 表由两类区块构成，缺一不可：
+///   ① 真 NFC/NFD 会改写的区块（canonical：Hangul Jamo、Letterlike 单例分解、
+///      上下标、数字形式、带圈形、兼容表意）——同形异义与不可见注入的现实载体；
+///   ② 契约点名的兼容/表现形区块（NFKC 形：连字 ﬁ、全角、字母表现形）。
+/// 删表任一行 / 改窄任一区间 ⇒ 对应形态重新变「合法」，两条拒绝面同时失守。
+/// 判据 = [`nfc_stable_alnum`]（字符级近似：`is_alphanumeric() && !本表命中`）。
+pub const NFC_REWRITE_BLOCKS: &[(u32, u32, &str)] = &[
+    (0x00AA, 0x00AA, "序数指示符 ª（兼容分解 a a）"),
+    (0x00B2, 0x00B9, "上标 ¹²³ 邻域（兼容分解为数字；´µ¶·¸ 非字母数字本就拒）"),
+    (0x00BA, 0x00BA, "序数指示符 º（兼容分解 o）"),
+    (0x0132, 0x0133, "连字 IJ/ij（兼容分解 I+J）"),
+    (0x01C4, 0x01CC, "DŽ 系列连字（兼容分解 D+Ž）"),
+    (0x01F1, 0x01F3, "DŽ 连字（兼容分解 D+Ž）"),
+    (0x1100, 0x11FF, "Hangul Jamo（NFD 分解为 L/V/T；组合即改写）"),
+    (0x2070, 0x209F, "上标/下标（兼容分解为数字/字母）"),
+    (0x2100, 0x214F, "Letterlike（含 U+2126 Ω / U+212A K / U+212B Å 单例分解）"),
+    (0x2150, 0x218F, "数字形式 Ⅰ ⅱ ½（兼容分解为 ASCII）"),
+    (0x2460, 0x24FF, "带圈字母数字 ① Ⓐ"),
+    (0x3130, 0x318F, "Hangul 兼容 Jamo"),
+    (0x3200, 0x33FF, "带圈/括号 CJK 与单位 ㈱ ㌀"),
+    (0xF900, 0xFAFF, "CJK 兼容表意（U+FA10 等；兼容分解到统一表意）"),
+    (0xFB00, 0xFB4F, "字母表现形（连字 ﬁﬂ 与希伯来表现形）"),
+    (0xFE30, 0xFE4F, "CJK 兼容形式"),
+    (0xFE50, 0xFE6F, "小写变体形式"),
+    (0xFF00, 0xFFEF, "半角/全角"),
+    (0x1D400, 0x1D7FF, "数学字母数字 𝐀 𝟙"),
+    (0x2F800, 0x2FA1F, "CJK 兼容表意补充"),
+];
+
+/// 生效条件：c 的码点落在 [`NFC_REWRITE_BLOCKS`] 任一区块内 → true
+/// （= 「归一化会改写它」，不可信任的 NFC 形）。
+pub fn nfc_rewritable(c: char) -> bool {
+    let u = c as u32;
+    NFC_REWRITE_BLOCKS.iter().any(|(a, b, _)| u >= *a && u <= *b)
+}
+
+/// NFC 稳定字符判据（B5 单点）：Unicode 字母/数字 **且** 不落在会改写的区块内。
+/// 生效条件：c 为「已归一化、可安全进 id」的字符 → true。
+/// 不适用条件：不做真正 NFC 计算（零依赖下不可行）——本判据是**保守近似**：
+/// 它可能拒收少数本就 NFC 稳定的字符（严于必需），但绝不放过会改写的形态。
+pub fn nfc_stable_alnum(c: char) -> bool {
+    c.is_alphanumeric() && !nfc_rewritable(c)
+}
+
+/// 零宽与不可见注入载体（B4 拒收项）：U+200B..U+200F、U+2060、U+FEFF。
+pub fn is_zero_width(c: char) -> bool {
+    matches!(c, '\u{200B}'..='\u{200F}' | '\u{2060}' | '\u{FEFF}')
+}
+
+/// 双向控制字符（B4 拒收项）：U+202A..U+202E、U+2066..U+2069。
+pub fn is_bidi_control(c: char) -> bool {
+    matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+/// Windows 保留设备名（B4 拒收项；本仓 v0.5.1 刚修过这一类，勿回退）：
+/// CON/PRN/AUX/NUL + COM1..9 + LPT1..9。Win32 对**单个路径分量**做设备名解析且
+/// **忽略扩展名**（`CON.txt` 与 `CON` 同指设备），故比对的是「首个 `.` 之前」部分。
+pub const RESERVED_DEVICE_NAMES: &[&str] = &[
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+    "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+/// 生效条件：s 的「首个 `.` 之前」部分（Win32 解析设备名时用的 basename）与任一
+/// 保留设备名**ASCII 大小写不敏感**相等 → true（含 `CON.txt` 这类带扩展名形态）。
+pub fn is_reserved_device_name(s: &str) -> bool {
+    let base = s.split('.').next().unwrap_or(s);
+    RESERVED_DEVICE_NAMES.iter().any(|d| base.eq_ignore_ascii_case(d))
+}
+
+/// job_id 结构合法性（B4 字符集闸 + 防路径穿越；**全仓唯一判据**）。
+///
+/// 放宽（B4）：由「ASCII 字母数字 + `_`」放宽为「Unicode 字母/数字 + `_` + `.`」，
+/// 使新形态中文 id 与旧形态 id **同时**满足；旧形态 `h<13位毫秒>_<4位hex>` 仍通过
+/// （存量零迁移）。`h` 前缀与非空要求保留（§四.7：去掉它要牵动一大片，收益为零）。
+/// `.` 的口径：**非尾点、非单独**才收——由 B4 拒收项「单独的 `.` 与 `..`」「尾点」
+/// 的存在反推（若 `.` 全拒则这三条无从谈起）；`-` 不在白名单，拒（B4 白名单 =
+/// 字母/数字 + `_` + 上述 `.` 口径）。
+/// 拒收逐条在本函数内显式判，不靠上游：
+///   * `/` `\` `:`（路径分隔/盘符/ADS；2026-09-25 缺陷载体：`kill ..` 池外写、
+///     `poll ../victim` 池外读任意目录 result 全文）；
+///   * 单独的 `.` 与 `..`、尾点（Win32 静默剥尾点 ⇒ 两个不同 id 落同一目录）；
+///   * 控制字符（含 NUL）、零宽、双向控制；
+///   * 首尾空白；
+///   * Windows 保留设备名（含带扩展名形态）——整 id 与按 `_` 分段的**任一段**；
+///   * B5 的「非 NFC 稳定」字符（[`nfc_stable_alnum`]）。
+/// 生效条件：id 满足上述全部 → true；否则 false——kill/poll/depends_on 等一切把
+/// **外部输入**的 job_id 拼进路径的入口，必须先过此闸。
 pub fn valid_job_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.starts_with('h')
-        && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    if id.is_empty() || !id.starts_with('h') {
+        return false;
+    }
+    if id.trim() != id {
+        return false; // 首尾空白
+    }
+    if id.ends_with('.') {
+        return false; // 尾点
+    }
+    if id == "." || id == ".." {
+        return false; // 相对段（h 前缀下已不可达；显式保留判据，防前缀规则漂移）
+    }
+    for c in id.chars() {
+        if c.is_control() || c == '/' || c == '\\' || c == ':' {
+            return false;
+        }
+        if is_zero_width(c) || is_bidi_control(c) {
+            return false;
+        }
+        if c == '_' || c == '.' {
+            continue;
+        }
+        if !nfc_stable_alnum(c) {
+            return false;
+        }
+    }
+    if is_reserved_device_name(id) {
+        return false;
+    }
+    // 段级设备名：id 的任一段都可能被宿主用作目录名（契约 §四.4「目录可作它的
+    // 父段」），而 Win32 的设备名解析是**按分量**做的——故任一段命中即拒。
+    if id.split('_').any(is_reserved_device_name) {
+        return false;
+    }
+    true
+}
+
+/// 四槽之一的结构校验（B8 提交面；id 拼装前的唯一槽闸）。
+///
+/// 槽取值 = 语义标签（身份/任务/单元），落进 id 就是路径分量的一段，故判据与
+/// [`valid_job_id`] 同族：**每字符必须 NFC 稳定字母/数字**——这意味着槽内不含 `_`
+/// （它是槽分隔符，含它就无法切回四槽）、不含 `.`/路径分隔符/控制与零宽字符；
+/// 另外不得是 Windows 保留设备名（`CON`/`NUL`/`COM1`…，含大小写变体）。
+/// 生效条件：slot=槽名（身份/任务/单元）、value 合法 → Ok(())；否则 Err，错误文本
+/// 含槽名与取值（可直读、可照抄）。
+pub fn valid_slot(slot: &str, value: &str) -> Result<(), String> {
+    if value.is_empty() || value.trim() != value {
+        return Err(format!(
+            "{slot}槽为空（或含首尾空白）——四槽全必填，不许静默推导"
+        ));
+    }
+    for c in value.chars() {
+        if c == '_' {
+            return Err(format!(
+                "{slot}槽非法: {value:?}——槽取值不得含 `_`（它是 id 的槽分隔符，含它就切不回四槽）"
+            ));
+        }
+        if !nfc_stable_alnum(c) {
+            return Err(format!(
+                "{slot}槽非法: {value:?}——槽取值须为 Unicode 字母/数字（不含路径分隔符、点、\
+                 控制/零宽字符，且不得是归一化会改写的形态）"
+            ));
+        }
+    }
+    if is_reserved_device_name(value) {
+        return Err(format!(
+            "{slot}槽非法: {value:?}——Windows 保留设备名（CON/PRN/AUX/NUL/COM1..9/LPT1..9，\
+             含 CON.txt 这类带扩展名形态）"
+        ));
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------ B2：五单元闭集（真源同源）
+
+/// 蜂巢五单元闭集（B2）：(英文键, 落 id 的中文名)，顺序 = 真源 `md_cg/identity.py`
+/// 的 `POSITIONS` 声明顺序（= `POSITION_ORDER`）。
+///
+/// 真源唯一：本表与 `identity.POSITIONS` 的同源由单测
+/// [`tests::units_match_identity_positions`] 机械钉死（任一侧增删即红）。
+/// **副代理不是第六单元**（副代理是融合位 𝓕 本身，五单元是它的功能分解）⇒ 恰 5 项。
+pub const UNITS: &[(&str, &str)] = &[
+    ("record", "记录单元"),
+    ("reflect", "反思单元"),
+    ("verify", "验证单元"),
+    ("output", "输出单元"),
+    ("sustain", "维生系统"),
+];
+
+/// 单元槽受理面（B2）：**英文键或中文名两种写法都收**，落 id 一律中文名。
+/// 生效条件：unit 命中闭集任一写法 → Some(中文名)；否则 None（调用方 fail-closed）。
+pub fn unit_canonical(unit: &str) -> Option<&'static str> {
+    UNITS.iter()
+        .find(|(en, zh)| *en == unit || *zh == unit)
+        .map(|(_, zh)| *zh)
+}
+
+/// 五单元词表串（错误文本与守卫用）：形状 `record=记录单元 / reflect=反思单元 / …`。
+pub fn unit_inventory() -> String {
+    UNITS.iter()
+        .map(|(en, zh)| format!("{en}={zh}"))
+        .collect::<Vec<_>>()
+        .join(" / ")
+}
+
+// -------------------------------------------- B1/B3：独占创建即分配的 id 分配器
+
+/// 编号上限：每单元 9999（B3 裁定：4 位定宽，溢出**显式报错**，不静默加宽）。
+pub const MAX_UNIT_SEQ: u32 = 9999;
+/// 编号定宽（十进制 4 位，B1）。
+pub const SEQ_WIDTH: usize = 4;
+
+/// 同前缀已有编号最大值 + 1（**仅起点提示**）。分配成败一律以 `fs::create_dir`
+/// 为准（B3）——本函数只影响「从几号开始试」，不影响正确性。
+/// 生效条件：jobs 可读 → 同前缀目录中 4 位十进制尾段的最大值 +1；无同前缀件/目录
+/// 不可读/尾段形态不符 → 1（不 panic、不伪造默认值）。
+fn next_seq_hint(jobs: &Path, prefix: &str) -> u32 {
+    let mut max = 0u32;
+    if let Ok(rd) = fs::read_dir(jobs) {
+        for e in rd.flatten() {
+            if !e.path().is_dir() {
+                continue;
+            }
+            let name = e.file_name().to_string_lossy().to_string();
+            if let Some(tail) = name.strip_prefix(prefix) {
+                if tail.len() == SEQ_WIDTH && tail.chars().all(|c| c.is_ascii_digit()) {
+                    if let Ok(n) = tail.parse::<u32>() {
+                        if n > max {
+                            max = n;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    max.saturating_add(1)
+}
+
+/// 分配 job_id（B1/B3/B7）：`h_<身份>_<任务>_<单元>_<编号>`。
+///
+/// 算法 = **独占创建即分配**：对 `jobs/<id>` 执行 `fs::create_dir`，成功即分配；
+/// `AlreadyExists` **才算碰撞** ⇒ 编号 +1 重试（起点 = 同前缀已有编号最大值+1）。
+/// 性质：碰撞**结构上不可能**（不再依赖「毫秒恰好不同 ∧ pid 恰好不同」——
+/// H-1 的碰撞那半因此被消解而非修补）；编号定宽 4 位，越界显式报错（不加宽/不回绕）。
+/// 生效条件：jobs 可建、三槽合法、单元 ∈ 五单元闭集、号位未满 → Ok(id)
+/// （**目录已创建** = 分配已完成；调用方随后写 spec/status）；任一不满足 → Err
+/// （含前缀/槽名/上限等可直读原因，绝不静默降级）。
+/// 不适用条件：不写 spec.json/status.json（写序归 [`init_job_with_slots`]）；
+/// 不改动任何既有任务目录。
+pub fn alloc_job_id(
+    jobs: &Path,
+    identity: &str,
+    task: &str,
+    unit: &str,
+) -> Result<String, String> {
+    valid_slot("身份", identity)?;
+    valid_slot("任务", task)?;
+    let unit_zh = unit_canonical(unit).ok_or_else(|| {
+        format!(
+            "单元槽非法: {unit:?}——单元槽取蜂巢五单元**闭集**（英文键或中文名二选一）：{}",
+            unit_inventory()
+        )
+    })?;
+    fs::create_dir_all(jobs)
+        .map_err(|e| format!("建 jobs 目录失败 {}: {e}", jobs.display()))?;
+    let prefix = format!("h_{identity}_{task}_{unit_zh}_");
+    let width = SEQ_WIDTH;
+    let mut last_collision = String::new();
+    for n in next_seq_hint(jobs, &prefix)..=MAX_UNIT_SEQ {
+        let id = format!("{prefix}{n:0width$}");
+        match fs::create_dir(job_dir(jobs, &id)) {
+            Ok(()) => return Ok(id),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                last_collision = id;
+            }
+            Err(e) => {
+                return Err(format!(
+                    "建任务目录失败 {}: {e}",
+                    job_dir(jobs, &id).display()
+                ));
+            }
+        }
+    }
+    Err(format!(
+        "编号用尽: 前缀 {prefix} 已无可用编号（每单元上限 {MAX_UNIT_SEQ}，4 位定宽不自动加宽\
+         {tail}）——请换任务槽或另起单元",
+        tail = if last_collision.is_empty() {
+            String::new()
+        } else {
+            format!("；末次碰撞 {last_collision}")
+        }
+    ))
 }
 
 /// 覆盖写 JSON 文本（UTF-8）——tmp + fsync + rename 原子替换。
@@ -126,32 +418,30 @@ pub fn new_result_nonce() -> String {
     format!("{h:016x}")
 }
 
-/// 建任务目录并落 spec.json + 初始 status(pending)。
+/// 四槽建任务（B7/B8 的**写序单点**）：先 [`alloc_job_id`] 独占分配 id（任务目录
+/// 即由它创建）→ 落 spec.json → 再落初始 status(pending)。
 /// 写序：spec.json 先行，status.json 后写 = 「任务就绪」信号，
 /// serve 只领取见到 status.json 且 state=pending 的任务。
-/// 生效条件：jobs 目录可写 → 建任务目录、先落 spec.json 再落 status(pending)
-/// （status.json 出现 = 任务就绪可领取的发布信号），返回 job_id；任一写失败
-/// → Err 且目录残留半成品（无害：serve 只领取见到 status=pending 的任务）。
-pub fn init_job(jobs: &Path, spec_json: &Json, timeout_s: u64) -> Result<String, String> {
-    init_job_with_anchor(jobs, spec_json, timeout_s, None)
-}
-
-/// 锚感知建任务（P11，批次53）：nonce 给定（= 提交面解析到了锚密钥）时在
-/// status.json 追加 `result_nonce` 字段——该任务自此**声明锚预期**：终态判据面
-/// 在采信 done 前校验 result.json 的 result_anchor（scheduler::classify_result）；
-/// nonce 为 None = 旧格式任务（无锚预期），终态判据保持旧口径（向后兼容：
-/// 存量消费者/手搭现场零变更）。
-/// 生效条件：同 init_job；nonce=Some 时 status.json 多一个 `result_nonce`
-/// 字符串字段（16 hex），其余字段与写序完全一致。
-pub fn init_job_with_anchor(
+/// 锚感知（P11，批次53）：nonce 给定（= 提交面解析到了锚密钥）时在 status.json 追加
+/// `result_nonce` 字段——该任务自此**声明锚预期**：终态判据面在采信 done 前校验
+/// result.json 的 result_anchor（scheduler::classify_result）；nonce 为 None =
+/// 旧格式任务（无锚预期），终态判据保持旧口径（向后兼容：存量消费者零变更）。
+/// 生效条件：三槽合法（[`valid_slot`]）、单元 ∈ 五单元闭集、号位未满、jobs 可写 →
+/// 返回 job_id；分配失败/任一写失败 → Err 且目录残留半成品（无害：serve 只领取
+/// 见到 status.json 且 state=pending 的任务）。
+/// 不适用条件：不再自造 id（B7：`new_job_id` 退场，id 一律由分配器独占创建得出）。
+#[allow(clippy::too_many_arguments)]
+pub fn init_job_with_slots(
     jobs: &Path,
+    identity: &str,
+    task: &str,
+    unit: &str,
     spec_json: &Json,
     timeout_s: u64,
     nonce: Option<&str>,
 ) -> Result<String, String> {
-    let id = new_job_id();
+    let id = alloc_job_id(jobs, identity, task, unit)?;
     let dir = job_dir(jobs, &id);
-    fs::create_dir_all(&dir).map_err(|e| format!("建任务目录失败: {e}"))?;
     write_json(&dir.join("spec.json"), spec_json)
         .map_err(|e| format!("写 spec.json 失败: {e}"))?;
     let mut status = vec![
@@ -356,9 +646,16 @@ pub fn request_kill(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// 列出全部任务目录名（按名升序 = 时间升序）。
-/// 生效条件：恒成立——jobs 目录下 h 前缀子目录按名升序返回（名升序=提交
-/// 时间升序，job_id 含毫秒时间戳保证）；目录不可读 → 空列表。
+/// 列出全部任务目录名（按名升序；**不再是**时间升序——C2 订正）。
+/// 生效条件：恒成立——jobs 目录下 h 前缀子目录按名升序返回；目录不可读 → 空列表。
+/// 该顺序**不是**时序保证：名序 = 提交时序只对旧形态 id（`h<毫秒>_<hex>`）成立，
+/// id 契约 v2 起 id 不含时间（B7），故不得再以「job_id 含毫秒时间戳」为由把名序读作时序。
+///
+/// 边界：本函数是**名升序**，也是存量调用点依赖的现状口径（A4：不得改成按
+/// created_ts 排）。「名升序 = 时间升序」只对旧形态 id（`h<毫秒>_<hex>`）成立；
+/// 需要**真值时间序**（新形态 id 下名序不再带时间序）的唯一单点 =
+/// [`list_jobs_by_created`]，逐位相等的旧形态保序见其单测
+/// `list_jobs_by_created_preserves_legacy_order`。
 pub fn list_jobs(jobs: &Path) -> Vec<String> {
     let mut out = Vec::new();
     if let Ok(rd) = fs::read_dir(jobs) {
@@ -371,6 +668,46 @@ pub fn list_jobs(jobs: &Path) -> Vec<String> {
     }
     out.sort();
     out
+}
+
+/// 读 `dir/status.json` 的 `created_ts` 真值（Unix 毫秒）。
+///
+/// 缺失 / 非数 / 负值 / status.json 不存在或不可解析 → `i64::MIN`（=「无时间」哨兵，
+/// 排最前）。**读失败不 panic、不伪造默认值、结果确定**：任何异常输入都归到同一个
+/// 可预期的哨兵值，绝不因单个坏任务让整体排序不确定。**只读**——本函数（及其调用方
+/// `list_jobs_by_created`）不新建/不修改任何文件。
+/// 生效条件：dir 给定 → 返回 i64（`i64::MIN` 表示无有效 created_ts）；
+/// 不适用条件：不做状态判读、不做存在性检查（那是 read_status_classified 的事）。
+fn created_ts_of(dir: &Path) -> i64 {
+    let st = match read_status(dir) {
+        Ok(v) => v,
+        Err(_) => return i64::MIN,
+    };
+    match st.get("created_ts").and_then(|x| x.as_f64()) {
+        Some(n) if n.is_finite() && n >= 0.0 => n as i64,
+        _ => i64::MIN,
+    }
+}
+
+/// 列出全部任务目录名，按 **created_ts 真值升序**（次键 id 字典序）。
+///
+/// 与 `list_jobs` 的关系：**成员集合同一口径**（都走 list_jobs 的 h 前缀目录过滤 +
+/// 同一 `job_dir` 拼装），只有排序键不同——故存量池零迁移（旧形态 id 照样被收）。
+/// 排序读的是每个任务 `status.json` 的 `created_ts`，不是目录名：旧形态
+/// `h<毫秒>_<hex>` 下两者一致（保序，见单测），新契约 id 下名序不再带时间序，故
+/// 一切「按时间序」的语义（FIFO 领取 / 最老者去重 / 汇总遍历）必须走本单点。
+/// 缺 created_ts（缺失/非数/负值/读失败）→ `i64::MIN` 排最前，同哨兵值内按 id
+/// 字典序（与 `list_jobs` 的名序同口径）——总序确定，且与目录枚举次序无关。
+/// 生效条件：jobs 给定 → 返回 created_ts 升序、次键 id 字典序的任务目录名；
+/// 池空/目录不可读 → 空列表。**只读**：绝不新建/修改任何文件。
+/// 不适用条件：不改写 `list_jobs` 本身（A4：存量调用点依赖它的名序现状）。
+pub fn list_jobs_by_created(jobs: &Path) -> Vec<String> {
+    let mut keyed: Vec<(i64, String)> = list_jobs(jobs)
+        .into_iter()
+        .map(|id| (created_ts_of(&job_dir(jobs, &id)), id))
+        .collect();
+    keyed.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    keyed.into_iter().map(|(_, id)| id).collect()
 }
 
 /// 写 serve 心跳。
@@ -461,11 +798,17 @@ mod tests {
         d
     }
 
+    /// 单测夹具：四槽建任务（与 CLI/MCP 走**同一条**写序单点；槽值固定，编号自增）。
+    fn mkjob(jobs: &Path, spec: &Json, timeout_s: u64) -> String {
+        init_job_with_slots(jobs, "单测端", "id契约", "记录单元", spec, timeout_s, None).unwrap()
+    }
+
     #[test]
     fn init_and_claim_once() {
         let jobs = tmpdir("claim");
         let spec = parse(r#"{"model":"m","user_prompt":"x"}"#).unwrap();
-        let id = init_job(&jobs, &spec, 300).unwrap();
+        let id = mkjob(&jobs, &spec, 300);
+        assert!(id.starts_with("h_单测端_id契约_记录单元_"), "四槽形态: {id}");
         let dir = job_dir(&jobs, &id);
         assert!(dir.join("spec.json").is_file());
         let st = read_status(&dir).unwrap();
@@ -480,7 +823,7 @@ mod tests {
     fn status_patch_and_heartbeat() {
         let jobs = tmpdir("patch");
         let spec = parse(r#"{"model":"m","user_prompt":"x"}"#).unwrap();
-        let id = init_job(&jobs, &spec, 60).unwrap();
+        let id = mkjob(&jobs, &spec, 60);
         let dir = job_dir(&jobs, &id);
         patch_status(
             &dir,
@@ -504,7 +847,7 @@ mod tests {
     fn kill_flag_idempotent() {
         let jobs = tmpdir("kill");
         let spec = parse(r#"{"model":"m","user_prompt":"x"}"#).unwrap();
-        let id = init_job(&jobs, &spec, 60).unwrap();
+        let id = mkjob(&jobs, &spec, 60);
         let dir = job_dir(&jobs, &id);
         assert!(!kill_requested(&dir));
         request_kill(&dir).unwrap();
@@ -513,31 +856,196 @@ mod tests {
         let _ = fs::remove_dir_all(&jobs);
     }
 
-    /// 路径穿越防线（2026-09-25 缺陷复现口径）：`..` / `../victim` / `h/../../x`
-    /// 等外部输入必须被拒——它们曾可经 job_dir 逃出 jobs 池写 kill 文件、读
-    /// 任意目录 result 全文。
+    /// B4/B9 字符集闸（合法/非法两侧；含 2026-09-25 缺陷的穿越载体）。
+    ///
+    /// 合法侧：新契约四槽中文 id（契约示例与边界形态）+ 旧形态 `h<毫秒>_<hex>`
+    /// （存量零迁移：旧 id 必须仍然合法）→ 必须**通过**。
+    /// 非法侧：路径成分、首尾空白与尾点、控制字符（含 NUL）、零宽/双向控制、
+    /// Windows 保留设备名（含带扩展名形态）、白名单外字符、非 NFC 稳定形态
+    /// → 必须**拒绝**（它们曾可经 job_dir 逃出 jobs 池写 kill 文件、读任意目录
+    /// result 全文）。
     #[test]
-    fn valid_job_id_rejects_traversal() {
-        // 合法形态：生成器产物 + 同构手写 id
-        assert!(valid_job_id("h1758000000000_1a2b"));
-        assert!(valid_job_id("h1_a"));
-        assert!(valid_job_id("h"));
-        // 穿越载体全拒：相对段 / 分隔符 / 盘符 / ADS / 绝对路径锚
-        for bad in [
-            "..",
-            "../victim",
-            "h/../../x",
-            "h/.",
-            "h\\..",
-            "h:x",
-            "/etc",
-            "h..",
-            "h.%.txt",
-            "",
-            "x123",
-            "h\t",
+    fn valid_job_id_charset_gate() {
+        for ok in [
+            "h_zcode端_灵枢迭代_反思单元_0001", // 契约示例
+            "h_端_任务_记录单元_9999",           // 编号上界形态
+            "h_端_任务_维生系统_0001",           // 五单元第五项落 id
+            // 编号形态 0：本实现**收**（字符集闸不判编号数值——旧形态 id 无该槽，
+            // 按形态判编号会把存量 id 一并误杀；分配器自 0001 起，永不产出 0000）
+            "h_端_任务_反思单元_0000",
+            "h_123_456_输出单元_0007",
+            "h1758000000000_1a2b", // 旧形态（13 位毫秒 + 4 位 hex）
+            "h1_a",                // 旧判例短形
+            "h",                   // 仅 h 前缀（旧判例保留）
+            "h_a.b",               // `.` 非尾点、非单独 → 收（B4 拒收项反推）
         ] {
-            assert!(!valid_job_id(bad), "穿越载体必须被拒: {bad:?}");
+            assert!(valid_job_id(ok), "合法 id 被拒: {ok:?}");
+        }
+        for bad in [
+            "", "..", "../victim", "h/../../x", "h/.", "h\\..", "h:x", "/etc", "x123",
+            "h.%.txt", // 白名单外字符 `%`
+            "h..", "h.", "h ", "h\t",
+            "h\x01", "h\x7f", "h\x00NUL",           // 控制字符（含 NUL）
+            "h\u{200B}", "h\u{202E}", "h\u{FEFF}",  // 零宽 / 双向控制
+            "h\u{0301}", "h\u{41}\u{301}",          // 组合标记（NFD 形复合）
+            "h\u{00AA}", "h\u{2070}", "h\u{2160}", "h\u{FF11}", "h\u{1100}",
+            "h\u{FA10}", "h\u{FB01}",               // 会改写的区块（B5 闭集）
+            "h_CON_任务_记录单元_0001",              // 段落设备名
+            "h_CON.txt_任务_记录单元_0001",          // 带扩展名形态
+            "h_端_aux_记录单元_0001",                // 小写 aux（大小写不敏感）
+            "h_端_任务_COM1_0001",                   // COM1 段
+            "h_端-1_任务_记录单元_0001",             // `-` 不在白名单
+        ] {
+            assert!(!valid_job_id(bad), "非法 id 被收: {bad:?}");
+        }
+    }
+
+    /// B5：NFC 会改写区块闭集必须覆盖契约点名的 11 个最低区块——删表/改窄即红。
+    #[test]
+    fn nfc_blocks_cover_contract_forms() {
+        for (cp, tag) in [
+            (0x1100u32, "Hangul Jamo"),
+            (0x3130, "Hangul 兼容 Jamo"),
+            (0xF900, "CJK 兼容表意"),
+            (0xFE30, "CJK 兼容形式"),
+            (0xFE50, "小写变体形式"),
+            (0xFF00, "半角全角"),
+            (0x2460, "带圈字母数字"),
+            (0x3200, "带圈/括号 CJK 与单位"),
+            (0x2100, "Letterlike"),
+            (0x1D400, "数学字母数字"),
+            (0x2F800, "CJK 兼容表意补充"),
+        ] {
+            let c = char::from_u32(cp).unwrap();
+            assert!(nfc_rewritable(c), "闭集未覆盖契约区块代表点 {cp:#06x}（{tag}）");
+            assert!(!nfc_stable_alnum(c), "会改写区块的代表点被判稳定 {cp:#06x}（{tag}）");
+        }
+        // 区间两端都命中（防「只写了一半」的漂移）
+        for (lo, hi) in [(0x1100u32, 0x11FFu32), (0x1D400, 0x1D7FF), (0x2F800, 0x2FA1F)] {
+            assert!(nfc_rewritable(char::from_u32(lo).unwrap()), "{lo:#06x}");
+            assert!(nfc_rewritable(char::from_u32(hi).unwrap()), "{hi:#06x}");
+        }
+        // 不误伤：常规中文与 ASCII 字母数字必须判稳定
+        for c in ['灵', '枢', '迭', '代', 'A', 'z', '0', '9'] {
+            assert!(nfc_stable_alnum(c), "常规字符被误判为会改写: {c:?}");
+        }
+    }
+
+    /// B2 同源断言：五单元词表与真源 `md_cg/identity.py` 的 `POSITIONS` 逐项一致
+    /// （英文键、落 id 的中文名、声明顺序三者都钉）——任一侧增删/改名/换序即红。
+    /// 形态照 `md_cg/test_p21_tokens.py:218` 的「与 identity.POSITIONS 同源校验」。
+    #[test]
+    fn units_match_identity_positions() {
+        let p = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("md_cg")
+            .join("identity.py");
+        let text = fs::read_to_string(&p)
+            .unwrap_or_else(|e| panic!("读真源 md_cg/identity.py 失败 {}: {e}", p.display()));
+        let start = text.find("POSITIONS = {").expect("真源缺 `POSITIONS = {`");
+        let block = &text[start..];
+        let end = block.find("\n}").expect("真源 POSITIONS 块未闭合");
+        let mut keys: Vec<String> = Vec::new();
+        let mut units: Vec<String> = Vec::new();
+        for line in block[..end].lines() {
+            let t = line.trim();
+            if t.starts_with('"') && t.contains("\": {") {
+                keys.push(t.trim_start_matches('"').split('"').next().unwrap_or("").to_string());
+            }
+            if let Some(i) = t.find("\"unit\":") {
+                let rest = t[i + "\"unit\":".len()..].trim_start().trim_start_matches('"');
+                units.push(rest.split('"').next().unwrap_or("").to_string());
+            }
+        }
+        let want_keys: Vec<String> = UNITS.iter().map(|(en, _)| en.to_string()).collect();
+        let want_units: Vec<String> = UNITS.iter().map(|(_, zh)| zh.to_string()).collect();
+        assert_eq!(keys, want_keys, "五单元英文键与顺序必须与 identity.POSITIONS 逐项一致");
+        assert_eq!(units, want_units, "落 id 的中文名必须与 identity.POSITIONS 逐项一致");
+    }
+
+    /// B6 跨语言对照语料解码：`<verdict>\t<utf8-hex>\t<说明>`（两列以上备注可为空）。
+    fn corpus_cases() -> Vec<(String, String, String)> {
+        let raw = include_str!("../id_contract_corpus_v2.txt");
+        let mut out = Vec::new();
+        for (i, line) in raw.lines().enumerate() {
+            let line = line.trim_end_matches('\r');
+            if line.trim().is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let cols: Vec<&str> = line.splitn(3, '\t').collect();
+            assert_eq!(cols.len(), 3, "语料第 {} 行须三列（verdict/hex/说明）: {line:?}", i + 1);
+            let bytes = hex_decode(cols[1])
+                .unwrap_or_else(|e| panic!("语料第 {} 行 hex 解码失败: {e}", i + 1));
+            let s = String::from_utf8(bytes)
+                .unwrap_or_else(|e| panic!("语料第 {} 行不是合法 UTF-8: {e}", i + 1));
+            out.push((cols[0].to_string(), s, cols[2].to_string()));
+        }
+        out
+    }
+
+    fn hex_decode(s: &str) -> Result<Vec<u8>, String> {
+        if s.len() % 2 != 0 {
+            return Err("hex 长度为奇数".to_string());
+        }
+        let b = s.as_bytes();
+        let mut out = Vec::with_capacity(b.len() / 2);
+        for pair in b.chunks(2) {
+            let hi = (pair[0] as char).to_digit(16).ok_or("非 hex 字符")?;
+            let lo = (pair[1] as char).to_digit(16).ok_or("非 hex 字符")?;
+            out.push((hi * 16 + lo) as u8);
+        }
+        Ok(out)
+    }
+
+    /// B6：跨语言对照语料**逐例同判**（Rust 侧判据 = [`valid_job_id`]）。
+    /// 语料是两侧（rust 闸 / python 孪生闸）共用的唯一副本——任何一例判反即红。
+    /// 纪律：**不许改语料迁就实现**（改语料 = 改判据面，须先改判据再同步语料并留痕）。
+    #[test]
+    fn id_contract_corpus_verdicts() {
+        let cases = corpus_cases();
+        assert!(cases.len() >= 18, "语料至少 18 例（B6），实得 {}", cases.len());
+        let (mut accepts, mut rejects) = (0, 0);
+        for (want, id, note) in &cases {
+            let expect = match want.as_str() {
+                "accept" => {
+                    accepts += 1;
+                    true
+                }
+                "reject" => {
+                    rejects += 1;
+                    false
+                }
+                other => panic!("语料 verdict 只能是 accept/reject，实得 {other:?}（{note}）"),
+            };
+            assert_eq!(valid_job_id(id), expect, "语料例不符: want={want} id={id:?}（{note}）");
+        }
+        assert!(accepts >= 5 && rejects >= 5, "语料两侧都须非退化: accept={accepts} reject={rejects}");
+    }
+
+    /// B6/B9：语料必须含契约点名的关键样本（合法四槽中文 id、存量旧形态、
+    /// 争议字符、路径与不可见注入载体）——防语料被悄悄裁成「无争议的少数例」。
+    #[test]
+    fn id_contract_corpus_covers_contract_samples() {
+        let cases = corpus_cases();
+        let has = |id: &str, want: &str| {
+            cases.iter().any(|(v, s, _)| v == want && s == id)
+        };
+        for id in [
+            "h_zcode端_灵枢迭代_反思单元_0001",
+            "h_端_任务_记录单元_9999",
+            "h1758000000000_1a2b",
+            "h1_a",
+            "h",
+        ] {
+            assert!(has(id, "accept"), "合法样本缺失/判反: {id:?}");
+        }
+        for id in [
+            "", "..", "../victim", "h/../../x", "h/.", "h\\..", "h:x", "/etc", "h..", "h ",
+            "h\t", "h\u{200B}", "h\u{202E}", "h\u{0301}", "h\u{41}\u{301}", "h\u{FA10}",
+            "h\u{FF11}", "h\u{2160}", "h\u{00AA}", "h\u{2070}", "h\u{1100}", "h\u{FB01}",
+            "h_CON_任务_记录单元_0001", "h_CON.txt_任务_记录单元_0001",
+        ] {
+            assert!(has(id, "reject"), "拒收样本缺失/判反: {id:?}");
         }
     }
 
@@ -545,27 +1053,284 @@ mod tests {
     fn list_jobs_sorted() {
         let jobs = tmpdir("list");
         let spec = parse(r#"{"model":"m","user_prompt":"x"}"#).unwrap();
-        let a = init_job(&jobs, &spec, 60).unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(5));
-        let b = init_job(&jobs, &spec, 60).unwrap();
+        let a = mkjob(&jobs, &spec, 60);
+        let b = mkjob(&jobs, &spec, 60);
         let all = list_jobs(&jobs);
         assert_eq!(all, vec![a, b]);
+        let _ = fs::remove_dir_all(&jobs);
+    }
+
+    // ------------------------------------------------------ B1/B3 分配器（独占创建即分配）
+
+    /// B3：连续分配不碰撞、编号 4 位定宽、**分配即创建目录**（独占创建即分配）。
+    #[test]
+    fn alloc_job_id_increments_without_collision() {
+        let jobs = tmpdir("alloc_seq");
+        let a = alloc_job_id(&jobs, "测试端", "编号", "反思单元").unwrap();
+        let b = alloc_job_id(&jobs, "测试端", "编号", "反思单元").unwrap();
+        let c = alloc_job_id(&jobs, "测试端", "编号", "反思单元").unwrap();
+        assert_eq!(a, "h_测试端_编号_反思单元_0001");
+        assert_eq!(b, "h_测试端_编号_反思单元_0002");
+        assert_eq!(c, "h_测试端_编号_反思单元_0003");
+        for id in [&a, &b, &c] {
+            assert!(job_dir(&jobs, id).is_dir(), "分配必须已创建目录: {id}");
+            let tail: String = id.chars().rev().take(SEQ_WIDTH).collect::<Vec<_>>()
+                .into_iter().rev().collect();
+            assert_eq!(tail.len(), SEQ_WIDTH);
+            assert!(tail.chars().all(|c| c.is_ascii_digit()), "编号须 4 位十进制: {id}");
+        }
+        let _ = fs::remove_dir_all(&jobs);
+    }
+
+    /// B3：起点 = 同前缀已有编号最大值 + 1（提示；成败仍以 create_dir 为准），
+    /// 不同前缀各自计数互不影响。
+    #[test]
+    fn alloc_job_id_starts_after_existing_max() {
+        let jobs = tmpdir("alloc_max");
+        for n in ["0001", "0002", "0007"] {
+            fs::create_dir_all(job_dir(&jobs, &format!("h_端_任务_记录单元_{n}"))).unwrap();
+        }
+        fs::create_dir_all(job_dir(&jobs, "h_端_任务_输出单元_0003")).unwrap();
+        assert_eq!(
+            alloc_job_id(&jobs, "端", "任务", "记录单元").unwrap(),
+            "h_端_任务_记录单元_0008"
+        );
+        assert_eq!(
+            alloc_job_id(&jobs, "端", "任务", "输出单元").unwrap(),
+            "h_端_任务_输出单元_0004"
+        );
+        let _ = fs::remove_dir_all(&jobs);
+    }
+
+    /// B3：号位用满 9999 → **显式报错**（错误文本含前缀与「每单元上限 9999」），
+    /// 不加宽、**不回绕**（回绕到 0001 会静默复用已发布的 id）。
+    #[test]
+    fn alloc_job_id_reports_exhaustion() {
+        let jobs = tmpdir("alloc_full");
+        fs::create_dir_all(job_dir(&jobs, "h_端_任务_记录单元_9999")).unwrap();
+        let e = alloc_job_id(&jobs, "端", "任务", "记录单元").unwrap_err();
+        assert!(e.contains("h_端_任务_记录单元_"), "错误须含前缀: {e}");
+        assert!(e.contains("每单元上限 9999"), "错误须含「每单元上限 9999」: {e}");
+        assert!(!job_dir(&jobs, "h_端_任务_记录单元_10000").exists(), "不得加宽为 5 位");
+        assert!(!job_dir(&jobs, "h_端_任务_记录单元_0001").exists(), "不得回绕到 0001");
+        // 9998 在场 → 9999 仍可用；9999 也在场 → 碰撞分支 + 越界分支同时走到
+        let jobs2 = tmpdir("alloc_last");
+        fs::create_dir_all(job_dir(&jobs2, "h_端_任务_记录单元_9998")).unwrap();
+        assert_eq!(
+            alloc_job_id(&jobs2, "端", "任务", "记录单元").unwrap(),
+            "h_端_任务_记录单元_9999"
+        );
+        let e2 = alloc_job_id(&jobs2, "端", "任务", "记录单元").unwrap_err();
+        assert!(e2.contains("编号用尽") && e2.contains("9999"), "{e2}");
+        let _ = fs::remove_dir_all(&jobs);
+        let _ = fs::remove_dir_all(&jobs2);
+    }
+
+    /// B3：**AlreadyExists 才算碰撞**——同前缀下非 4 位十进制尾段的外来目录既不
+    /// 参与起点计算、也不占号位（分配照常从空号位取）。
+    #[test]
+    fn alloc_job_id_ignores_foreign_dirs() {
+        let jobs = tmpdir("alloc_foreign");
+        fs::create_dir_all(job_dir(&jobs, "h_端_任务_记录单元_x")).unwrap();
+        fs::create_dir_all(job_dir(&jobs, "h_端_任务_记录单元_00010")).unwrap(); // 5 位：不参与
+        assert_eq!(
+            alloc_job_id(&jobs, "端", "任务", "记录单元").unwrap(),
+            "h_端_任务_记录单元_0001"
+        );
+        let _ = fs::remove_dir_all(&jobs);
+    }
+
+    /// B2：单元槽收英文键与中文名两种写法，**落 id 一律中文名**；非闭集值显式报错
+    /// 且错误文本列全五单元（词表恰 5 项：副代理不是第六单元）。
+    #[test]
+    fn alloc_job_id_accepts_both_unit_spellings() {
+        let jobs = tmpdir("alloc_unit");
+        assert_eq!(
+            alloc_job_id(&jobs, "测试端", "单元槽", "reflect").unwrap(),
+            "h_测试端_单元槽_反思单元_0001"
+        );
+        assert_eq!(
+            alloc_job_id(&jobs, "测试端", "单元槽", "反思单元").unwrap(),
+            "h_测试端_单元槽_反思单元_0002"
+        );
+        let e = alloc_job_id(&jobs, "测试端", "单元槽", "第六单元").unwrap_err();
+        assert!(e.contains("单元槽非法"), "{e}");
+        for (en, zh) in UNITS {
+            assert!(e.contains(*en) && e.contains(*zh), "错误须列全五单元: {e}");
+        }
+        assert_eq!(UNITS.len(), 5, "副代理不是第六单元——词表恰 5");
+        assert_eq!(unit_canonical("sustain"), Some("维生系统"));
+        assert_eq!(unit_canonical("维生系统"), Some("维生系统"));
+        assert_eq!(unit_canonical("第六单元"), None);
+        let _ = fs::remove_dir_all(&jobs);
+    }
+
+    /// B8 槽闸：空/首尾空白/含 `_`（槽分隔符）/含 `.`/路径成分/保留设备名/
+    /// 非 NFC 稳定 → 拒；中文与 ASCII 字母数字 → 收。
+    #[test]
+    fn valid_slot_rejects_unusable_values() {
+        for ok in ["zcode端", "灵枢迭代", "记录单元", "a1", "端123"] {
+            assert!(valid_slot("身份", ok).is_ok(), "合法槽值被拒: {ok:?}");
+        }
+        for bad in [
+            "", " ", " 端", "端 ", "a_b", "a.b", "端/1", "端\\1", "h:x", "端:1", "CON",
+            "con", "NUL.txt", "COM1", "lpt9", "aux", "单元\u{200B}", "\u{00AA}", "\u{FF11}",
+        ] {
+            assert!(valid_slot("任务", bad).is_err(), "非法槽值被收: {bad:?}");
+        }
+    }
+
+    /// B1/B7：inset 写序单点 —— `init_job_with_slots` 落 spec.json 先、status.json
+    /// 后（status 出现 = 就绪信号），且 id 由分配器给出（四槽形态、编号 4 位）。
+    #[test]
+    fn init_job_with_slots_writes_spec_then_status() {
+        let jobs = tmpdir("slots_init");
+        let spec = parse(r#"{"model":"m","user_prompt":"x"}"#).unwrap();
+        let id = init_job_with_slots(&jobs, "测试端", "写序", "验证单元", &spec, 30, None).unwrap();
+        assert_eq!(id, "h_测试端_写序_验证单元_0001");
+        let dir = job_dir(&jobs, &id);
+        assert!(dir.join("spec.json").is_file() && dir.join("status.json").is_file());
+        let st = read_status(&dir).unwrap();
+        assert_eq!(st.get("state").unwrap().as_str().unwrap(), "pending");
+        assert_eq!(st.get("job_id").unwrap().as_str().unwrap(), id);
+        assert_eq!(st.get("timeout_s").unwrap().as_f64().unwrap(), 30.0);
+        assert!(st.get("result_nonce").is_none(), "无锚密钥 = 旧格式（不带 nonce）");
+        let _ = fs::remove_dir_all(&jobs);
+    }
+
+
+    /// 手搭一台任务目录（A3 专用）：直接落 status.json，绕开 `init_job_with_slots`
+    /// 的分配器（id 手工指定），以便显式指定 created_ts（`None` = 不写该字段）。
+    fn make_job(jobs: &Path, id: &str, created: Option<i64>) {
+        let dir = job_dir(jobs, id);
+        fs::create_dir_all(&dir).unwrap();
+        let mut kv = vec![("job_id".to_string(), Json::Str(id.to_string()))];
+        if let Some(ts) = created {
+            kv.push(("created_ts".to_string(), Json::Num(ts as f64)));
+        }
+        write_json(&dir.join("status.json"), &Json::Obj(kv)).unwrap();
+    }
+
+    /// A3 保序证明（旧形态）：N 个旧形态 id（名序 == created_ts 序）→
+    /// `list_jobs_by_created` 的顺序与 `list_jobs` **逐位相同**（存量零迁移的可证面）。
+    /// 旧形态 = `h<13 位毫秒>_<4 位 hex>`（B4 存量样本），created_ts 与 id 内毫秒同值。
+    #[test]
+    fn list_jobs_by_created_preserves_legacy_order() {
+        let jobs = tmpdir("order_legacy");
+        let ids = [
+            "h1700000000000_1a2b",
+            "h1700000000001_1a2b",
+            "h1700000000002_00ff",
+            "h1700000000003_a000",
+            "h1700000000004_ffff",
+        ];
+        for (i, id) in ids.iter().enumerate() {
+            make_job(&jobs, id, Some(1_700_000_000_000 + i as i64));
+        }
+        let by_name = list_jobs(&jobs);
+        let by_created = list_jobs_by_created(&jobs);
+        assert_eq!(by_name.len(), ids.len());
+        // 逐位相同（保序）：旧形态下两者不可区分
+        assert_eq!(by_created, by_name, "旧形态必须保序（名序 == created_ts 序）");
+        assert_eq!(by_created, ids.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        let _ = fs::remove_dir_all(&jobs);
+    }
+
+    /// A3 按真值证明（与上例相反）：created_ts 与名序**相反** → 新单点按 created_ts 排，
+    /// 与 `list_jobs` 的名序不同（证明它读的是真值而非名序）。
+    #[test]
+    fn list_jobs_by_created_sorts_by_truth_not_name() {
+        let jobs = tmpdir("order_truth");
+        // 名序：...0000 < ...0001 < ...0002；created_ts：300 / 200 / 100（完全相反）
+        make_job(&jobs, "h1700000000000_1a2b", Some(300));
+        make_job(&jobs, "h1700000000001_1a2b", Some(200));
+        make_job(&jobs, "h1700000000002_1a2b", Some(100));
+        let by_name = list_jobs(&jobs);
+        let by_created = list_jobs_by_created(&jobs);
+        assert_eq!(
+            by_name,
+            vec![
+                "h1700000000000_1a2b".to_string(),
+                "h1700000000001_1a2b".to_string(),
+                "h1700000000002_1a2b".to_string(),
+            ],
+            "list_jobs 必须仍是名升序（A4：不得改成按 created_ts）"
+        );
+        assert_eq!(
+            by_created,
+            vec![
+                "h1700000000002_1a2b".to_string(), // created_ts=100 最老
+                "h1700000000001_1a2b".to_string(), // 200
+                "h1700000000000_1a2b".to_string(), // 300
+            ],
+            "新单点必须按 created_ts 升序（与名序相反）"
+        );
+        assert_ne!(by_created, by_name, "两组样本必须能区分两种口径");
+        let _ = fs::remove_dir_all(&jobs);
+    }
+
+    /// A3 退化输入：created_ts 缺失 / 非数 / 负值 / status.json 不存在 → 一律 `i64::MIN`
+    /// （排最前），同哨兵值内按 id 字典序；读失败不 panic，重复调用结果确定。
+    #[test]
+    fn list_jobs_by_created_handles_missing_and_bad_ts() {
+        let jobs = tmpdir("order_bad");
+        make_job(&jobs, "h9000000000000_a", None); // 缺字段
+        make_job(&jobs, "h9000000000000_b", Some(-5)); // 负值
+        {
+            // 非数（字符串形态 created_ts）
+            let d = job_dir(&jobs, "h9000000000000_c");
+            fs::create_dir_all(&d).unwrap();
+            write_json(
+                &d.join("status.json"),
+                &Json::Obj(vec![("created_ts".to_string(), Json::Str("x".into()))]),
+            )
+            .unwrap();
+        }
+        // status.json 根本不存在（读失败，不得 panic）
+        fs::create_dir_all(job_dir(&jobs, "h9000000000000_d")).unwrap();
+        // 正常值：必须排在这些「无时间」任务之后
+        make_job(&jobs, "h0000000000001_0", Some(10));
+        // 坏 JSON（读失败，按缺失处理）
+        {
+            let d = job_dir(&jobs, "h9000000000000_e");
+            fs::create_dir_all(&d).unwrap();
+            fs::write(d.join("status.json"), b"{ not json").unwrap();
+        }
+        let got = list_jobs_by_created(&jobs);
+        assert_eq!(
+            got,
+            vec![
+                // 五个 i64::MIN（id 字典序次键），最后是唯一有真值的一台
+                "h9000000000000_a".to_string(),
+                "h9000000000000_b".to_string(),
+                "h9000000000000_c".to_string(),
+                "h9000000000000_d".to_string(),
+                "h9000000000000_e".to_string(),
+                "h0000000000001_0".to_string(),
+            ],
+        );
+        // 确定性：与目录枚举次序无关，重复调用逐位相同
+        for _ in 0..3 {
+            assert_eq!(list_jobs_by_created(&jobs), got);
+        }
         let _ = fs::remove_dir_all(&jobs);
     }
 
     /// P11 结果锚（批次53）：nonce=Some 时 status 落 `result_nonce`；None 时
     /// 与旧格式逐字段一致（向后兼容）；nonce 生成器批量唯一。
     #[test]
-    fn init_job_with_anchor_metadata() {
+    fn init_job_with_slots_anchor_metadata() {
         let jobs = tmpdir("anchor");
         let spec = parse(r#"{"model":"m","user_prompt":"x"}"#).unwrap();
         // 旧格式：无 result_nonce 字段
-        let legacy = init_job(&jobs, &spec, 60).unwrap();
+        let legacy = mkjob(&jobs, &spec, 60);
         let st = read_status(&job_dir(&jobs, &legacy)).unwrap();
         assert!(st.get("result_nonce").is_none(), "旧格式任务不得带锚字段");
         // 锚格式：result_nonce 落盘且与提交值一致
         let n1 = new_result_nonce();
-        let anchored = init_job_with_anchor(&jobs, &spec, 60, Some(&n1)).unwrap();
+        let anchored =
+            init_job_with_slots(&jobs, "单测端", "id契约", "记录单元", &spec, 60, Some(&n1))
+                .unwrap();
         let st = read_status(&job_dir(&jobs, &anchored)).unwrap();
         assert_eq!(st.get("result_nonce").unwrap().as_str().unwrap(), n1);
         // nonce 唯一性：批量 1000 个互异、16 hex

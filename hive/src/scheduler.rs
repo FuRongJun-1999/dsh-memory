@@ -321,8 +321,10 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
         // H-7 名额用尽标记：本拍不再领取（改由 continue 跳过领取段），但扫描
         // **继续**——H-3 坏 status 的计数/告警不受名额闸截断（观测面与容量面解耦，
         // 池满时坏任务照样被计数；反之亦然）。
+        // 领取顺序 = created_ts 升序（`job::list_jobs_by_created` 真值单点）= FIFO：
+        // 旧形态 id 下与名升序逐位相同（保序），新契约 id 名序不再带时间序故必须读真值。
         let mut at_capacity = false;
-        for id in job::list_jobs(&cfg.jobs) {
+        for id in job::list_jobs_by_created(&cfg.jobs) {
             let dir = job::job_dir(&cfg.jobs, &id);
             // H-3：三态读——Absent（提交竞态窗口）与 Corrupt（事故）分道。
             let st = match job::read_status_classified(&dir) {
@@ -451,19 +453,19 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
     0
 }
 
-/// 坏 status 扫描（H-3 判据唯一实现）：返回 `(job_id, 原因)` 列表（名升序）。
+/// 坏 status 扫描（H-3 判据唯一实现）：返回 `(job_id, 原因)` 列表（created_ts 升序）。
 ///
 /// 判据= `job::read_status_classified` 的 `Corrupt` 态——**只算「文件在但不可
 /// 解析」，不算文件缺失**（缺失是提交竞态窗口的正常时序，报成事故=狼来了）。
 /// 三处共用：recover_orphans（启动告警）、CLI `hive doctor`（corrupt 归类）、
 /// 以及任何需要「池里坏了几台」的观测面——勿各自 try/catch 出第二套口径。
-/// 生效条件：jobs 给定 → 逐个任务目录分类，返回全部 Corrupt 项；池空/无坏
-/// → 空列表；目录不可读按空列表（list_jobs 的既有权衡）。
+/// 生效条件：jobs 给定 → 逐个任务目录分类（created_ts 升序），返回全部 Corrupt 项；
+/// 池空/无坏 → 空列表；目录不可读按空列表（list_jobs 的既有权衡）。
 /// 不适用条件：不做任何写盘处置（标记落盘归 serve 主循环的跨拍计数，隔离归
 /// doctor --quarantine）——本函数是**只读判据**。
 pub fn scan_corrupt(jobs: &Path) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for id in job::list_jobs(jobs) {
+    for id in job::list_jobs_by_created(jobs) {
         let dir = job::job_dir(jobs, &id);
         if let job::StatusRead::Corrupt(e) = job::read_status_classified(&dir) {
             out.push((id, e));
@@ -521,7 +523,7 @@ pub fn recover_orphans(cfg: &ServeCfg) {
             job::CORRUPT_MARK
         );
     }
-    for id in job::list_jobs(&cfg.jobs) {
+    for id in job::list_jobs_by_created(&cfg.jobs) {
         let dir = job::job_dir(&cfg.jobs, &id);
         let st = match job::read_status_classified(&dir) {
             job::StatusRead::Ok(st) => st,
@@ -1015,8 +1017,10 @@ fn archive_stale_result(dir: &std::path::Path) {
 /// `Err(原因)` = 依赖不完整或失败传播，任务直接终态 error（不执行）。
 ///
 /// 七不变量对照（dsh-omc，设计稿 docs/hive/蜂巢迭代_宏观与群体调度_v0.1.md）：
-/// 依赖完整 + 级联取消闭包在此落码；无环性由 job_id 时间序结构性保证
-/// （无法引用提交时尚不存在的任务），无需运行时环检测。
+/// 依赖完整 + 级联取消闭包在此落码；无环性由**存在性闸**结构性保证——提交时只能
+/// 引用**已存在**的任务目录（`main.rs` 的 depends_on 存在性检查 + MCP 侧 `_dep_gate`
+/// + 本函数的运行期 deps_gate），引用不到提交时尚不存在的任务，故无需运行时环检测。
+/// （旧形态 id 恰好也带时间序，新形态语义四槽 id 不再有此性质 ⇒ 论证不得依赖时间序。）
 /// 生效条件：任务的 depends_on 列表给定时裁决——全 done → Ok(true) 可领取；
 /// 任一终态非 done（pending 等待 / error·timeout·killed·needs_review）→
 /// Ok(false) 等待或 Err(失败传播原因) 直接 error 不执行。I-1 依赖门禁唯一实现。
@@ -1134,7 +1138,9 @@ with open(os.path.join(d, "result.json"), "w", encoding="utf-8") as f:
             r#"{{"model":"fake","user_prompt":"{sleep_s}","timeout_s":{timeout_s}}}"#
         ))
         .unwrap();
-        job::init_job(jobs, &spec, timeout_s).unwrap()
+        // 四槽写序单点（B7/B8）：id 由分配器独占创建给出，不再自造
+        job::init_job_with_slots(jobs, "单测端", "id契约", "记录单元", &spec, timeout_s, None)
+            .unwrap()
     }
 
     fn read_state(jobs: &PathBuf, id: &str) -> String {

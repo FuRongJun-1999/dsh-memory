@@ -152,6 +152,9 @@ FORBIDDEN_IMPORTS = frozenset(("md_cg", "hive", "scripts", "compiler", "swarm"))
 
 #: 中文探针（UTF-8 字节按 GBK 严格解码必非法 ⇒ 组帧若走 locale 编码必现形）
 PROBE_ZH = "中文标题：编码守卫"
+#: 探针用的中文**相对** context 路径（必不存在）：`_t_spawn` 的 context 存在性闸会把
+#: 它逐字节回显进 error ⇒ 一次调用同时证明「中文入参已被受理」与「中文出参编码正确」。
+PROBE_ZH_CTX = "探针_中文上下文_无此文件.md"
 NO_REEXEC_ENV = "LINGSHU_UTF8_NO_REEXEC"
 FAILFAST_EXIT = 2
 #: 解释器启动计数上限（熔断；正向预期为 1~2，故 6 不误伤）
@@ -381,7 +384,14 @@ def _hive_extra(tmp: str) -> dict:
 
 # ---------------------------------------------------------------- 判据 ①：端到端组帧
 
-# 生效条件：root 为被判仓面、tmp 为临时面；清空两个 env 且不带 -X utf8 起 hive stdio MCP，喂 initialize/tools-list/中文 hive_spawn 三行，返回 (是否通过, 说明)——断言 rc=0、逐行 JSON、握手 serverInfo=hive-mcp、中文 spawn 返回 ok+job_id。
+# 生效条件：root 为被判仓面、tmp 为临时面；清空两个 env 且不带 -X utf8 起 hive stdio MCP，喂 initialize/tools-list/中文 hive_spawn 三行，返回 (是否通过, 说明)——断言 rc=0、逐行 JSON、握手 serverInfo=hive-mcp、中文 spawn **逐字节往返**（ok=False 且原因里回显请求中的中文路径，且错误不是「缺四槽」）。
+#
+# id 契约 v2（B8）下的探针口径调整（**已声明**，非静默放宽）：`_submit` 不再自造 id，
+# 改调 Rust 侧 `hive alloc-id`；本守卫的隔离设计把 `HIVE_EXE` 钉在**不存在的路径**
+# （`_hive_extra`：绝不拉起真 serve），故「spawn ok+job_id」这条成功路径在本面
+# **结构性不可达**。改判的仍是同一件事——中文能否原样穿过 stdio 双程：请求带中文
+# 四槽 + 一个不存在的中文相对 context 路径，断言响应 ok=False、原因里**回显该中文
+# 路径**（逐字节相等）⇒ 中文入参已被受理（过了四槽闸与 JSON 解码）且中文出参编码正确。
 def check_e2e_hive(root: str, tmp: str, fusedir: str) -> tuple[bool, str]:
     jobs = os.path.join(tmp, "hivejobs")
     os.makedirs(jobs, exist_ok=True)
@@ -391,7 +401,9 @@ def check_e2e_hive(root: str, tmp: str, fusedir: str) -> tuple[bool, str]:
         _rpc(None, "notifications/initialized"),
         _rpc(2, "tools/list", {}),
         _rpc(3, "tools/call", {"name": "hive_spawn", "arguments": {
-            "model": "probe-model", "user_prompt": PROBE_ZH}}),
+            "model": "probe-model", "user_prompt": PROBE_ZH,
+            "identity": "探针端", "task": "编码守卫", "unit": "验证单元",
+            "context_files": [PROBE_ZH_CTX]}}),
     ]
     rc, out, err = _talk([sys.executable, "-m", "hive.hive_mcp.mcp_server"],
                          env, lines, root)
@@ -404,14 +416,16 @@ def check_e2e_hive(root: str, tmp: str, fusedir: str) -> tuple[bool, str]:
             == "hive-mcp"):
         return False, "initialize 握手异常：rc=%d objs=%s" % (rc, str(objs)[:200])
     sp = _payload(_find(objs, 3) or {})
-    if not (sp.get("ok") is True and sp.get("job_id")):
-        return False, "中文 hive_spawn 未回 ok+job_id：%s" % str(sp)[:200]
+    serr = sp.get("error") or ""
+    if not (sp.get("ok") is False and PROBE_ZH_CTX in serr and "四槽" not in serr):
+        return False, ("中文 hive_spawn 未逐字节往返（期望 ok=False 且原因回显中文"
+                       " context 路径 %r）：%s" % (PROBE_ZH_CTX, str(sp)[:200]))
     if rc != 0:
         return False, "进程未正常下线 rc=%d stderr=%r" % (rc, err[-200:])
     if "UnicodeEncodeError" in err.decode("utf-8", "replace"):
         return False, "stderr 出现 UnicodeEncodeError"
-    return True, "rc=0 帧数=%d 中文入参往返成功（job_id=%s）" % (
-        len(objs), sp.get("job_id"))
+    return True, "rc=0 帧数=%d 中文入参逐字节往返成功（原因回显 %s）" % (
+        len(objs), PROBE_ZH_CTX)
 
 
 # 生效条件：root 为被判仓面、tmp 为临时面；清空两个 env 且不带 -X utf8 起 md_cg stdio MCP，喂 initialize + 中文 cg write，返回 (是否通过, 说明)——断言 rc=0、逐行 JSON、serverInfo=mdcg-mcp、中文 write 回 ok/moved_to、无 UnicodeEncodeError。

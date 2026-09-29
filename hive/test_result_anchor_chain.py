@@ -72,7 +72,16 @@ TOKEN_FILE_DUMMY = "JWHZQXMVKBTGRDLSNFPC"
 # 判据面环境键：每条 check 前一律剥掉再按需设值——本机真实 env（若配了真 token/key）
 # 不得泄漏进判据，否则同一份代码在本机与 CI 得两个结论。
 _SCRUB = ("HIVE_CONFIG", "HIVE_JOBS_DIR", "HIVE_ORCH_TOKEN", TOKEN_FILE_KEY,
-          "HIVE_API_KEY")
+          "HIVE_API_KEY", "HIVE_EXE")
+
+#: 真 hive 二进制（id 契约 v2 · B8：`_submit` 改调 Rust 侧 `alloc-id` 分配 id，
+#: 不再自造——故本守卫的提交面探针需要**真 exe**）。判据：本守卫判的是锚链
+#: （nonce 决策），与分配无关；沙箱仓里没有 build 产物，故显式把 `HIVE_EXE`
+#: 指向工作区二进制（`_EnvScrub` 会连同它一起钢净后显式设值——**只此一处**，
+#: 不靠开发机 env 里恰好有它）。本守卫**不调** `_t_spawn` ⇒ 不会拉起任何 serve。
+_REAL_EXE = os.path.join(_REPO, "hive", "target", "release",
+                         "hive.exe" if os.name == "nt" else "hive")
+_EXE_ENV = {"HIVE_EXE": _REAL_EXE}
 
 # 定点变异基线（--head-baseline）下**应当**为红的项：只关掉「锚面折小写」会命中这几项
 # （身份面 F4 不折，两态皆绿；A/E/H 组是 N190 链结构，两态皆绿——本表只代表**本次**改动的
@@ -153,8 +162,13 @@ def _mk_config(tmp: str, name: str, obj: dict) -> str:
 
 
 def _submit_status(mod, jobs: str, spec: dict) -> dict:
-    """走真实提交路径 `_submit`（含 `result_nonce` 决策）并回读落盘 status.json。"""
-    jid = mod._submit(jobs, spec)
+    """走真实提交路径 `_submit`（含 `result_nonce` 决策）并回读落盘 status.json。
+
+    id 契约 v2（B8）：`_submit` 增四槽之三（identity/task/unit，编号由 Rust 侧
+    `hive alloc-id` 给）——本组判的是锚链（nonce 决策），故固定注入槽值使面解耦。
+    前置：`HIVE_EXE` 指向已 build 的 hive 二进制（分配器唯一实现在 Rust 侧）。
+    """
+    jid = mod._submit(jobs, spec, "hive单测", "锚链", "验证单元")
     with open(os.path.join(jobs, jid, "status.json"), encoding="utf-8") as f:
         return json.load(f)
 
@@ -167,9 +181,14 @@ def _rust_chain() -> tuple:
 
 
 def _anchor_region(src: str) -> str:
-    """锚链段文本：`P11 结果完整性锚密钥链` 注释 → `_submit` 之前（键集+函数本体）。"""
+    """锚链段文本：`P11 结果完整性锚密钥链` 注释 → `_submit` 之前（键集+函数本体）。
+
+    末锚点用 `def _submit(` 而非某条注释（id 契约 v2 · B8 把 `_submit` 的生效条件
+    注释整段改写并新增 `_alloc_job_id`/`SubmitError`，注释字面量会随语义务改而漂移）；
+    `def _submit(` 在本文件内唯一，且语义上正是「锚链段到此为止」。
+    """
     return src[src.index("P11 结果完整性锚密钥链"):
-               src.index("# 生效条件：jobs 与 spec 给定")]
+               src.index("def _submit(")]
 
 
 def _docstring_of(src: str, fname: str) -> str:
@@ -225,27 +244,27 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
         def a1(mod):
             k = mod._result_anchor_key()
             return k is None, f"key={k!r}（模型密钥不得再作锚）"
-        ok, d = probe("A1", {"HIVE_CONFIG": cfg_model}, a1)
+        ok, d = probe("A1", {**_EXE_ENV, "HIVE_CONFIG": cfg_model}, a1)
         add("A1", ok, d)
 
         def a2(mod):
             st = _submit_status(mod, jobs_for("A2"), SPEC)
             return ("result_nonce" not in st and st.get("state") == "pending"
                     and st.get("job_id"), f"status 键={sorted(st)}")
-        ok, d = probe("A2", {"HIVE_CONFIG": cfg_model}, a2)
+        ok, d = probe("A2", {**_EXE_ENV, "HIVE_CONFIG": cfg_model}, a2)
         add("A2", ok, d)
 
         def a3(mod):
             k = mod._result_anchor_key()
             return k is None, f"key={k!r}（env 形态同判）"
-        ok, d = probe("A3", {"HIVE_CONFIG": cfg_absent,
+        ok, d = probe("A3", {**_EXE_ENV, "HIVE_CONFIG": cfg_absent,
                              "HIVE_API_KEY": MODEL_DUMMY}, a3)
         add("A3", ok, d)
 
         def a4(mod):
             st = _submit_status(mod, jobs_for("A4"), SPEC)
             return "result_nonce" not in st, f"status 键={sorted(st)}"
-        ok, d = probe("A4", {"HIVE_CONFIG": cfg_absent,
+        ok, d = probe("A4", {**_EXE_ENV, "HIVE_CONFIG": cfg_absent,
                              "HIVE_API_KEY": MODEL_DUMMY}, a4)
         add("A4", ok, d)
 
@@ -254,7 +273,7 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
             k = mod._result_anchor_key()
             return (k == TOKEN_DUMMY.lower() and k != TOKEN_DUMMY,
                     f"key={k!r}（大写输入须读出小写形态）")
-        ok, d = probe("B1", {"HIVE_CONFIG": cfg_absent,
+        ok, d = probe("B1", {**_EXE_ENV, "HIVE_CONFIG": cfg_absent,
                              "HIVE_ORCH_TOKEN": TOKEN_DUMMY}, b1)
         add("B1", ok, d)
 
@@ -264,14 +283,14 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
             return (isinstance(n, str) and len(n) == 32
                     and re.fullmatch(r"[0-9a-f]{32}", n) is not None
                     and n != TOKEN_DUMMY), f"nonce={n!r}"
-        ok, d = probe("B2", {"HIVE_CONFIG": cfg_absent,
+        ok, d = probe("B2", {**_EXE_ENV, "HIVE_CONFIG": cfg_absent,
                              "HIVE_ORCH_TOKEN": TOKEN_DUMMY}, b2)
         add("B2", ok, d)
 
         def b3(mod):
             k = mod._result_anchor_key()
             return k == TOKEN_DUMMY.lower(), f"key={k!r}（config 直值环同折）"
-        ok, d = probe("B3", {"HIVE_CONFIG": cfg_tok}, b3)
+        ok, d = probe("B3", {**_EXE_ENV, "HIVE_CONFIG": cfg_tok}, b3)
         add("B3", ok, d)
 
         # ---------------- [C] 令牌文件环
@@ -279,7 +298,7 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
             k = mod._result_anchor_key()
             return (k == TOKEN_FILE_DUMMY.lower(),
                     f"key={k!r}（env 形态须读文件全文 strip 并折小写；旧码返回路径串→红）")
-        ok, d = probe("C1", {"HIVE_CONFIG": cfg_absent,
+        ok, d = probe("C1", {**_EXE_ENV, "HIVE_CONFIG": cfg_absent,
                              TOKEN_FILE_KEY: tok_path}, c1)
         add("C1", ok, d)
 
@@ -288,7 +307,7 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
             n = st.get("result_nonce")
             return (isinstance(n, str) and len(n) == 32,
                     f"nonce={n!r} status 键={sorted(st)}")
-        ok, d = probe("C2", {"HIVE_CONFIG": cfg_absent,
+        ok, d = probe("C2", {**_EXE_ENV, "HIVE_CONFIG": cfg_absent,
                              TOKEN_FILE_KEY: tok_path}, c2)
         add("C2", ok, d)
 
@@ -296,7 +315,7 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
             k = mod._result_anchor_key()
             return k == TOKEN_FILE_DUMMY.lower(), \
                 f"key={k!r}（config {{\"file\":…}} 形态，同折小写）"
-        ok, d = probe("C3", {"HIVE_CONFIG": cfg_tokfile_ref}, c3)
+        ok, d = probe("C3", {**_EXE_ENV, "HIVE_CONFIG": cfg_tokfile_ref}, c3)
         add("C3", ok, d)
 
         def c4(mod):
@@ -305,7 +324,7 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
             return (k is not None and isinstance(st.get("result_nonce"), str),
                     f"key non-None={k is not None} nonce={st.get('result_nonce')!r}"
                     "（config 直值路径形态：判据面只问『锚是否启用』）")
-        ok, d = probe("C4", {"HIVE_CONFIG": cfg_tokfile_raw}, c4)
+        ok, d = probe("C4", {**_EXE_ENV, "HIVE_CONFIG": cfg_tokfile_raw}, c4)
         add("C4", ok, d)
 
         # ---------------- [F] 小写读取（2026-09-28 使用者裁定）：锚面折、身份面不折
@@ -313,7 +332,7 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
             k = mod._result_anchor_key()
             return (k == TOKEN_DUMMY.lower() and k != TOKEN_DUMMY,
                     f"key={k!r}（env 直值环：大写输入读出小写形态）")
-        ok, d = probe("F1", {"HIVE_CONFIG": cfg_absent,
+        ok, d = probe("F1", {**_EXE_ENV, "HIVE_CONFIG": cfg_absent,
                              "HIVE_ORCH_TOKEN": TOKEN_DUMMY}, f1)
         add("F1", ok, d)
 
@@ -321,7 +340,7 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
             k = mod._result_anchor_key()
             return (k == TOKEN_FILE_DUMMY.lower() and k != TOKEN_FILE_DUMMY,
                     f"key={k!r}（令牌文件环：文件内大写同样读出小写）")
-        ok, d = probe("F2", {"HIVE_CONFIG": cfg_absent,
+        ok, d = probe("F2", {**_EXE_ENV, "HIVE_CONFIG": cfg_absent,
                              TOKEN_FILE_KEY: tok_path}, f2)
         add("F2", ok, d)
 
@@ -329,7 +348,7 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
             k = mod._result_anchor_key()
             return (k == TOKEN_DUMMY.lower() and k != TOKEN_DUMMY,
                     f"key={k!r}（config 环：折小写不因来源而分叉）")
-        ok, d = probe("F3", {"HIVE_CONFIG": cfg_tok}, f3)
+        ok, d = probe("F3", {**_EXE_ENV, "HIVE_CONFIG": cfg_tok}, f3)
         add("F3", ok, d)
 
         def f4(mod):
@@ -339,7 +358,7 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
                 f"身份面 _read_token()={got!r}——须**原样保留大小写**（不折）："
                 "secret 是 base64url 必含大写，折小写即毁令牌；"
                 "锚面折、身份面不折是**有意**差异，勿「统一」")
-        ok, d = probe("F4", {"HIVE_CONFIG": cfg_absent,
+        ok, d = probe("F4", {**_EXE_ENV, "HIVE_CONFIG": cfg_absent,
                              "HIVE_ORCH_TOKEN": TOKEN_DUMMY}, f4)
         add("F4", ok, d)
 
@@ -348,20 +367,20 @@ def run_checks(source_bytes: bytes) -> list[tuple[str, bool, str]]:
             got = tuple(mod._RESULT_KEY_KEYS)
             want = _rust_chain()
             return got == want, f"python={got} rust={want}"
-        ok, d = probe("E1", {"HIVE_CONFIG": cfg_absent}, e1)
+        ok, d = probe("E1", {**_EXE_ENV, "HIVE_CONFIG": cfg_absent}, e1)
         add("E1", ok, d)
 
         def e2(mod):
             return "HIVE_API_KEY" not in mod._RESULT_KEY_KEYS, \
                 f"keys={tuple(mod._RESULT_KEY_KEYS)}"
-        ok, d = probe("E2", {"HIVE_CONFIG": cfg_absent}, e2)
+        ok, d = probe("E2", {**_EXE_ENV, "HIVE_CONFIG": cfg_absent}, e2)
         add("E2", ok, d)
 
         def e3(mod):
             direct = tuple(getattr(mod, "_ENV_DIRECT_KEYS", ()))
             ok_ = direct == ("HIVE_ORCH_TOKEN",) and TOKEN_FILE_KEY not in direct
             return ok_, f"_ENV_DIRECT_KEYS={direct}（文件环键不得入 env 直值环）"
-        ok, d = probe("E3", {"HIVE_CONFIG": cfg_absent}, e3)
+        ok, d = probe("E3", {**_EXE_ENV, "HIVE_CONFIG": cfg_absent}, e3)
         add("E3", ok, d)
 
         # ---------------- [H] 文案口径（键集段 + docstring）

@@ -109,6 +109,13 @@ with open(os.path.join(d, "result.json"), "w", encoding="utf-8") as f:
 """
 
 
+# id 契约 v2（B8）：四槽之三（身份/任务/单元）**必填**——提交面每一次 hive_spawn
+# 都要带齐；编号槽由 Rust 侧 `hive alloc-id` 独占创建给出（本面不自造 id）。
+# 合法的四槽中文样本见下方 2 段的 job_id 形态断言（B9：断言须同步到新契约）。
+SLOTS = {"identity": "smoke端", "task": "端到端", "unit": "验证单元"}
+JOB_ID_PREFIX = "h_smoke端_端到端_验证单元_"
+
+
 # 生效条件：以 tries（默认 80）为轮数逐轮按 jid 调用 hive_poll 取 view，轮内 st 为 (view.get("job") or {}).get("state") 且 st in states 时返回 (True, view)，否则睡 0.1s 再试，耗尽 tries 轮后返回 (False, view)（tries<=0 时不轮询，view 仍为 {}）。
 def wait_state(m: Mcp, jid: str, states: set, rid: int, tries: int = 80):
     view = {}
@@ -185,15 +192,27 @@ def main() -> int:
     print("== 2. spawn 结构校验 ==")
     bad = m.tool("hive_spawn", {"model": "x"}, rid=4)
     check("缺 user_prompt 被拒", bad.get("ok") is False)
+    # id 契约 v2（B8）：四槽之三必填——缺任一即显式拒绝（不静默推导、不自造 id）。
+    noslot = m.tool("hive_spawn", {"model": "fake", "user_prompt": "0.1"}, rid=7)
+    check("缺四槽被拒（identity/task/unit 必填）",
+          noslot.get("ok") is False and "四槽" in (noslot.get("error") or ""),
+          json.dumps(noslot, ensure_ascii=False)[:200])
     bad2 = m.tool("hive_spawn",
-                  {"model": "x", "user_prompt": "y", "context_files": ["no_such.txt"]},
+                  {"model": "x", "user_prompt": "y", "context_files": ["no_such.txt"],
+                   **SLOTS},
                   rid=5)
     check("context 不存在被拒", bad2.get("ok") is False)
     good = m.tool("hive_spawn",
-                  {"model": "fake", "user_prompt": "0.3", "timeout_s": 60},
+                  {"model": "fake", "user_prompt": "0.3", "timeout_s": 60, **SLOTS},
                   rid=6)
-    check("合法 spawn 返回 job_id",
-          good.get("ok") is True and (good.get("job_id") or "").startswith("h"))
+    # B9：断言同步到 id 契约 v2——合法样本是**四槽中文 id**
+    # `h_<身份>_<任务>_<单元>_<编号>`，编号 4 位定宽（不再是裸 startswith("h")）。
+    jid_good = good.get("job_id") or ""
+    tail = jid_good[len(JOB_ID_PREFIX):] if jid_good.startswith(JOB_ID_PREFIX) else ""
+    check("合法 spawn 返回四槽中文 job_id（编号 4 位定宽）",
+          good.get("ok") is True and jid_good.startswith(JOB_ID_PREFIX)
+          and len(tail) == 4 and tail.isascii() and tail.isdigit(),
+          json.dumps(good, ensure_ascii=False)[:200])
     st_path = os.path.join(jobs_dir, good["job_id"], "status.json")
     check("job 目录 status 落盘", os.path.isfile(st_path))
 
@@ -202,7 +221,8 @@ def main() -> int:
                                     ("commands", ["echo hi"]),
                                     ("orchestrate", True),
                                     ("workdir", "/tmp"))):
-        r = m.tool("hive_spawn", {"model": "fake", "user_prompt": "0.1", key: val},
+        r = m.tool("hive_spawn",
+                   {"model": "fake", "user_prompt": "0.1", key: val, **SLOTS},
                    rid=20 + i)
         check(f"{key} 被显式拒绝（不再静默丢弃）",
               r.get("ok") is False and key in (r.get("error") or ""),
@@ -213,7 +233,7 @@ def main() -> int:
                      "tools": ["lingshu_cg"], "max_tool_rounds": 2,
                      "mdcg_root": jobs_dir, "web_search_backend": "duckduckgo",
                      "temperature": 0.2, "max_tokens": 128,
-                     "thinking": {"type": "enabled"}}, rid=30)
+                     "thinking": {"type": "enabled"}, **SLOTS}, rid=30)
     check("白名单内参数零回归（合法 spawn 不受新校验影响）",
           inside.get("ok") is True, json.dumps(inside, ensure_ascii=False)[:200])
     props = set(HM.TOOLS[0]["inputSchema"]["properties"])
@@ -229,7 +249,8 @@ def main() -> int:
 
     print("== 3. 端到端：serve 自动拉起 → done ==")
     g = m.tool("hive_spawn",
-               {"model": "fake", "user_prompt": "0.3", "timeout_s": 60}, rid=10)
+               {"model": "fake", "user_prompt": "0.3", "timeout_s": 60, **SLOTS},
+               rid=10)
     jid = g["job_id"]
     ok, view = wait_state(m, jid, {"done"}, 11)
     check("端到端 done", ok, json.dumps(view, ensure_ascii=False)[:300])
@@ -245,7 +266,8 @@ def main() -> int:
 
     print("== 4. kill 通道 ==")
     g2 = m.tool("hive_spawn",
-                {"model": "fake", "user_prompt": "30", "timeout_s": 3600}, rid=13)
+                {"model": "fake", "user_prompt": "30", "timeout_s": 3600, **SLOTS},
+                rid=13)
     jid2 = g2["job_id"]
     ran, _ = wait_state(m, jid2, {"running"}, 14, tries=50)
     k = m.tool("hive_kill", {"job_id": jid2}, rid=15)

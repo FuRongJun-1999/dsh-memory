@@ -6,7 +6,9 @@
 submit 1 条 exec_cmd 任务（命令体向池外哨兵文件追加计数——执行痕迹的确定性
 观测面），同时拉起两个真实 hive serve（第二个 --force 越过单实例守卫，
 HIVE_EXEC_PY=exec_cmd.py）竞争领取；任务终态后再留 0.5s 重复执行窗。
-判据面：hive/src/job.rs claim=create_new 原子锁、new_job_id、
+判据面：hive/src/job.rs claim=create_new 原子锁、alloc_job_id 的
+create_dir 独占创建（id 契约 v2 起：`new_job_id` 已退场——同毫秒/同 pid 的
+碰撞面随之**消解**，不再需要「毫秒恰好不同 ∧ pid 恰好不同」这一前提）、
 scheduler.rs claim 失败即静默跳过。
 
 主观测（回归守卫，pass）：恰好一个 done、单份 result.json、哨兵计数=1

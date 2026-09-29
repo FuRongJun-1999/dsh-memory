@@ -50,6 +50,9 @@ except AttributeError:
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LIVE_FLOOR = 2          # 实弹断言下限（md_cg 面 ≥1 + hive 面 ≥1）
 PROBE = "中文标题：编码守卫"   # UTF-8 字节按 GBK strict 解码必非法（红态机制，见头注）
+#: 探针用的中文**相对** context 路径（必不存在）：`_t_spawn` 的 context 存在性闸会把
+#: 它逐字节回显进 error ⇒ 一次调用同时证明「中文入参已被受理」与「中文出参编码正确」。
+PROBE_CTX = "探针_中文上下文_无此文件.md"
 
 PASS, FAIL, LIVE = 0, 0, 0
 
@@ -207,6 +210,12 @@ def main():
               rc == 0, f"rc={rc} err_tail={err[-200:]!r}", live=True)
 
         # ---- 2. hive 面实弹：同族 server 同款代码页 ----
+        # id 契约 v2（B8）下的口径调整（**已声明**，非静默放宽）：`_submit` 不再自造 id，
+        # 改调 Rust 侧 `hive alloc-id`；本守卫的 `_hive_env` 把 `HIVE_EXE` 钉在**不存在的
+        # 路径**（绝不拉起真 serve），故「ok=true+job_id」这条成功路径在本面**结构性不可
+        # 达**。改判的仍是同一件事——中文能否原样穿过 stdio 双程：请求带中文四槽 + 一个
+        # 不存在的中文相对 context 路径，断言 ok=False 且原因**回显该中文路径**（逐字节
+        # 相等），且错误不是「缺四槽」⇒ 中文入参已过 JSON 解码与四槽闸。
         print("[2] hive stdio 实弹（同款 PYTHONIOENCODING=gbk:strict）")
         rc2, out2, err2 = _talk(
             [sys.executable, "-m", "hive.hive_mcp.mcp_server"],
@@ -214,7 +223,9 @@ def main():
                 _rpc(1, "initialize", {}),
                 _rpc(None, "notifications/initialized"),
                 _rpc(3, "tools/call", {"name": "hive_spawn", "arguments": {
-                    "model": "probe-model", "user_prompt": PROBE}}),
+                    "model": "probe-model", "user_prompt": PROBE,
+                    "identity": "探针端", "task": "编码守卫", "unit": "验证单元",
+                    "context_files": [PROBE_CTX]}}),
             ])
         resps2 = _resp_lines(out2)
         init2 = _find_resp(resps2, 1)
@@ -230,21 +241,25 @@ def main():
                 payload = json.loads(
                     (sp.get("result") or {}).get("content", [{}])[0].get(
                         "text", "{}"))
-                sp_ok = payload.get("ok") is True and bool(payload.get("job_id"))
+                serr = payload.get("error") or ""
+                sp_ok = (payload.get("ok") is False and PROBE_CTX in serr
+                         and "四槽" not in serr)
             except (ValueError, AttributeError, IndexError):
                 sp_ok = False
-        check("2b 中文 hive_spawn 返回 ok=true+job_id（探针 exe 不存在，绝不拉真 serve）",
+        check("2b 中文 hive_spawn 逐字节往返（ok=false 且原因回显中文 context 路径；"
+              "探针 exe 不存在，绝不拉真 serve）",
               sp_ok, f"resp={str(sp)[:200]}", live=True)
         check("2c hive 面无 UnicodeEncodeError",
               "UnicodeEncodeError" not in out2
               and "UnicodeEncodeError" not in err2,
               f"err_tail={err2[-160:]!r}", live=True)
-        # 探针诚实边界：任务必须落在守卫自己的临时池，真实 jobs 池零触碰
+        # 探针诚实边界（id 契约 v2 下重述）：本探针的拒面发生在**分配之前**（context
+        # 存在性闸），故守卫自己的临时池应零任务残留——在役池自然零触碰。
         jobs_dir = os.path.join(tmp, "hivejobs")
         probe_jobs = [n for n in (os.listdir(jobs_dir) if os.path.isdir(jobs_dir)
                                   else []) if n.startswith("h")]
-        check("2d 任务落在临时 jobs 池（隔离面自证）",
-              len(probe_jobs) == 1 if sp_ok else len(probe_jobs) == 0,
+        check("2d 拒面未落任何任务目录（临时池零残留 ⇒ 隔离面自证）",
+              len(probe_jobs) == 0,
               f"probe_jobs={probe_jobs}")
 
         # ---- 3. 源断言：两 server 的 main() 首段强制 UTF-8 ----

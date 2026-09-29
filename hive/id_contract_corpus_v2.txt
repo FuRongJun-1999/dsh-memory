@@ -1,0 +1,78 @@
+# 蜂巢任务标识契约 v2 · id 闸跨语言对照语料（B6）
+#
+# 用途：把 rust 侧唯一判据 `hive/src/job.rs::valid_job_id` 与 python 侧孪生闸
+# (`hive/hive_mcp/mcp_server.py::_valid_job_id` / `_dep_gate`) 的判定**逐例钉死**：
+# 两侧必须对每一例同判（accept/reject），任何分歧即红。**不许改语料迁就实现**
+# （改语料 = 改判据面：先改判据、两侧同步、留痕，再改语料）。
+#
+# 格式（三列，TAB 分隔；以 `#` 开头或空行忽略）：
+#   <verdict>	<utf8-hex>	<说明>
+#   verdict ∈ accept | reject
+#   utf8-hex = id 的 UTF-8 字节的十六进制（小写、无分隔）——用 hex 而非裸字符，
+#             是因为零宽/双向控制/组合标记这些不可见样本在编辑与 diff 中极易被悄悄
+#             改坏（hex 与字面量一对一，可机械比对；本文件生成时用码点构造，不经
+#             字符串转义，杜绝 `ᵀ0` 这类「4 位截断」陷阱）。
+# python 解码一行：bytes.fromhex(hex).decode("utf-8")
+#
+# 本实现的两处口径（语料里各有一例，两侧必须同判）：
+#   * `h_a.b` = accept：`.` 非尾点、非单独即收（由 B4 拒收项的存在反推）；
+#   * `h_端_任务_反思单元_0000` = accept：字符集闸不判编号数值——旧形态 id 根本没有
+#     编号槽，按形态判编号会误杀存量；分配器自 0001 起，永不产出 0000。
+# 拒收清单（B4）：路径成分（`/` `\` `:`、单独 `.`/`..`）、首尾空白、尾点、控制字符
+# （含 NUL）、零宽（U+200B..U+200F/U+2060/U+FEFF）、双向控制（U+202A..U+202E/
+# U+2066..U+2069）、Windows 保留设备名（含 CON.txt 形态，整 id 与按 `_` 分段的任一段）、
+# 以及 B5 的「非 NFC 稳定」字符（会改写的区块闭集见 `job.rs::NFC_REWRITE_BLOCKS`）。
+accept	685f7a636f6465e7abaf5fe781b5e69ea2e8bfade4bba35fe58f8de6809de58d95e585835f30303031	契约示例：四槽中文 id（身份/任务/单元/编号）
+accept	685fe7abaf5fe4bbbbe58aa15fe8aeb0e5bd95e58d95e585835f39393939	编号上界形态（4 位定宽的上限）
+accept	685fe7abaf5fe4bbbbe58aa15fe7bbb4e7949fe7b3bbe7bb9f5f30303031	五单元第五项（维生系统）落 id
+accept	685fe7abaf5fe4bbbbe58aa15fe58f8de6809de58d95e585835f30303030	编号形态 0——本实现【收】（字符集闸不判编号数值：旧形态 id 无编号槽，按形态判会误杀存量；分配器自 0001 起永不产出 0000）
+accept	685f3132335f3435365fe8be93e587bae58d95e585835f30303037	槽位全数字形态（字母数字面）
+accept	685f612e62	`.` 非尾点、非单独——本实现【收】（由 B4 拒收项「单独的 . 与 ..」「尾点」的存在反推）
+accept	68c381	已合成形 U+00C1（NFC 形）——收；与之相对 U+0041+U+0301 拒
+accept	68313735383030303030303030305f31613262	旧形态（13 位毫秒 + 4 位 hex）——存量零迁移：必须仍合法
+accept	68315f61	旧判例短形
+accept	68	仅 h 前缀（旧判例保留）
+reject		空串
+reject	2e2e	相对父段
+reject	2e2e2f76696374696d	路径穿越（2026-09-25 缺陷：曾可读池外任意目录 result 全文）
+reject	682f2e2e2f2e2e2f78	h 前缀 + 路径穿越
+reject	682f2e	目录自身（`.` 段）
+reject	685c2e2e	反斜杠穿越
+reject	683a78	盘符 / ADS
+reject	2f657463	绝对路径锚
+reject	682e2e	尾点（且含 .. 形态）
+reject	682e	尾点最小形态（Win32 会静默剥尾点 ⇒ 与 h 同指）
+reject	6820	尾空白（Win32 会静默剥 ⇒ 与其他 id 同指）
+reject	6809	控制字符（TAB）
+reject	6801	控制字符（C0）
+reject	687f	控制字符（DEL）
+reject	68004e554c	控制字符（NUL 字节）
+reject	68e2808b	零宽空格 U+200B（不可见注入）
+reject	68e2808e	零宽 U+200E（LRM）
+reject	68e281a0	零宽 U+2060（word joiner）
+reject	68efbbbf	零宽 U+FEFF（BOM/零宽不连字）
+reject	68e280ae	双向控制 U+202E（RLO）
+reject	68e281a6	双向控制 U+2066（LRI）
+reject	68cc81	组合标记 U+0301（NFD 形；非 NFC）
+reject	6841cc81	NFD 形复合：A + U+0301（NFC 会改写为 U+00C1）
+reject	68c2aa	序数指示符 U+00AA（争议字符：兼容分解 a a）
+reject	68e281b0	上标零 U+2070（争议字符：兼容分解 0）
+reject	68e285a0	罗马数字一 U+2160（争议字符：兼容分解 I）
+reject	68efbc91	全角一 U+FF11（争议字符：半角全角区块）
+reject	68e18480	Hangul Jamo U+1100（NFD 分解为 L/V/T）
+reject	68efa890	兼容表意 U+FA10（CJK 兼容表意区块）
+reject	68efac81	连字 ﬁ U+FB01（字母表现形区块）
+reject	68e284a6	欧姆符号 U+2126（Letterlike 单例分解为 Ω）
+reject	68e291a0	带圈一 U+2460（带圈字母数字区块）
+reject	68e38880	括号 CJK U+3200（带圈/括号 CJK 与单位区块）
+reject	68f09d9080	数学粗体 A U+1D400（数学字母数字区块）
+reject	68f0afa080	CJK 兼容表意补充 U+2F800
+reject	68efb8b0	CJK 兼容形式 U+FE30
+reject	68efb990	小写变体形式 U+FE50
+reject	68e384b0	Hangul 兼容 Jamo U+3130
+reject	685fe7abaf2d315fe4bbbbe58aa15fe8aeb0e5bd95e58d95e585835f30303031	`-` 不在 B4 白名单（白名单 = 字母/数字 + `_` + 非尾点非单独的 `.`）
+reject	685f434f4e5fe4bbbbe58aa15fe8aeb0e5bd95e58d95e585835f30303031	段落命中 Windows 保留设备名 CON
+reject	685f434f4e2e7478745fe4bbbbe58aa15fe8aeb0e5bd95e58d95e585835f30303031	带扩展名形态 CON.txt（Win32 设备名解析忽略扩展名）
+reject	685fe7abaf5f6175785fe8aeb0e5bd95e58d95e585835f30303031	小写 aux（保留设备名比对大小写不敏感）
+reject	685fe7abaf5fe4bbbbe58aa15f434f4d315f30303031	COM1 段
+reject	685fe7abaf5fe4bbbbe58aa15f4c5054395f30303031	LPT9 段

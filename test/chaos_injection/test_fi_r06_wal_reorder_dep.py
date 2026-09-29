@@ -9,17 +9,21 @@
      seq!=期望 → 判 bad 并在 continuity_breaks 报明细（期望 seq/实际 seq）
      → 预期 bad>=1 且 all_valid=False（回归守卫，pass）。
   ② hive 半边：hive.exe submit 一条 depends_on=["h_notexist_0000"] 的 spec 到
-     临时 jobs——hive/src/main.rs:231-245 提交侧依赖完整 fail-fast → 预期 rc=1
+     临时 jobs——hive/src/main.rs 提交侧依赖完整 fail-fast → 预期 rc=1
      「依赖不完整: …（任务不存在，先提交上游任务）」且 jobs 目录未建任务
-     （结构性防御有效：job_id 时间序+提交侧 fail-fast 使「引用未来任务」
-     不可能成环，scheduler.rs:535-537 deps_gate 注释在案）。
+     （结构性防御有效= **存在性闸**：提交时只能引用已存在的任务目录 ⇒「引用未来
+     任务」不可能成环；scheduler.rs::deps_gate 头注在案。**不是**由 id 的时间序
+     保证——契约 v2 C1 已订正该失实论证：旧形态 id 恰好带时间序，新形态语义四槽
+     id 不再有此性质）。
 
-判据：T2（乱序在失效集内）+ A2 逻辑时序（墙钟仅展示，次序靠 job_id 时间序
+判据：T2（乱序在失效集内）+ A2 逻辑时序（墙钟仅展示，DAG 无环性靠**存在性闸**
 结构性保证）。case verdict 取 pass（swarm 半边批次53 修复转绿 + hive 半边
 拦截有效，两半均 pass 面断言同格共存）。
 
 历史基线（批次52 实测，已结案）：修复前 swarm 半边行序交换 all_valid=True
 （乱序不可检），登记 NEW(P0-2/seq连续性)，本批次随 P0-2 落地转绿。
+批次59（id 契约 v2）：②的注释断言随 C1 订正改为「存在性闸」措辞——旧断言钉的是
+失实论证（job_id 时间序），新形态 id 下已不成立，故断言与实现同步收口。
 """
 import json
 import os
@@ -79,9 +83,11 @@ def main() -> int:
         left = [n for n in os.listdir(jobs) if n.startswith("h")]
         case.check("②jobs 目录未建任务（拒绝发生在进队列前）", left == [],
                    f"残留={left}")
-        case.check("②无环性结构性在位（scheduler.rs deps_gate 注释：时间序）",
-                   "无环性由 job_id 时间序结构性保证"
-                   in harness.src("hive/src/scheduler.rs"),
+        case.check("②无环性论证=存在性闸（非时间序；id 契约 v2 C1 订正）",
+                   "无环性由**存在性闸**结构性保证"
+                   in harness.src("hive/src/scheduler.rs")
+                   and "无环性由 job_id 时间序结构性保证"
+                   not in harness.src("hive/src/scheduler.rs"),
                    "引用未来任务不可能成环")
 
         case.note("四可判定（swarm 半边，D4）：乱序可发现=True（bad>=1 + "

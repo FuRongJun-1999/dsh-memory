@@ -77,13 +77,19 @@ print("[A] _spawn 脏参数（哑捕获桩，不触文件机械/serve）")
 SUBMITTED: list = []
 
 
-def _fake_submit(jobs, sub):
+def _fake_submit(jobs, sub, identity=None, task=None, unit=None):
+    # 签名与 _hm._submit 对齐（id 契约 v2 · B8：分配 id 唯一的通道是
+    # Rust 侧 alloc-id，故 _submit 增三槽形参）；本桩只捕获子 spec。
     SUBMITTED.append(dict(sub))
     return "hfake%d" % len(SUBMITTED)
 
 
 orc._CFG.update({"job_id": "orchjob", "job_dir": JOB_DIR, "jobs": JOBS,
-                 "model": "mock-model", "children": []})
+                 "model": "mock-model", "children": [],
+                 # id 契约 v2（B8）：编排者三槽（透传给子任务；本组只验脏参回落，
+                 # 槽值不进断言）。
+                 "slots": {"identity": "hive单测", "task": "脏参",
+                           "unit": "记录单元"}})
 
 _spawn_cases = [
     ("A1 timeout_s='600s'（脏串）", {"timeout_s": "600s"},

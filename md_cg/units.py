@@ -19,7 +19,9 @@ crosscheck 同款 verdicts 通道回填）。理由：使用者的复核是昂�
                   （同 hive/serve_start.serve_alive；四路口径由
                    hive/test_serve_entry.py 机械守卫）
     job 目录    = jobs/<job_id>/{spec.json,status.json,result.json,kill}
-    job_id      = h<java_ms>_<uuid6>                             （同 _submit）
+    job_id      = 本模块自造旧形态 h<java_ms>_<uuid6>（`_job_id`，**不是** `_submit` 同款）；
+                  hive 提交面自 id 契约 v2（B8）起为四槽 h_<身份>_<任务>_<单元>_<编号>，由
+                  Rust 侧 `hive alloc-id` 分配——两形态都过 job.rs::valid_job_id（存量零迁移）
     result.json = {"ok":true,"content":...} | {"ok":false,"error":...}
     终态        = done | error | timeout | killed
     拉起 serve  = <repo>/hive/target/release/hive serve --jobs <jobs>（detached）
@@ -269,7 +271,17 @@ def plan(jobs: str = "", model: str = "", fresh_s: float = FRESH_S,
 
 # 生效条件：无入参，恒返回 "h"+int(time.time()*1000)+"_"+uuid.uuid4().hex 前 6 位组成的字符串。
 def _job_id() -> str:
-    """同 _submit：serve 侧按 'h' 前缀识别任务目录。"""
+    """本地 id 生成（旧形态 `h<毫秒>_<uuid 前 6 位>`）：serve 侧按 'h' 前缀识别任务目录。
+
+    诚实边界（id 契约 v2 · C2 同类措辞订正）：**本函数已不是 `_submit` 的同款实现**
+    ——`hive/hive_mcp/mcp_server.py::_submit` 自 B8 起调 Rust 侧 `hive alloc-id` 分配
+    `h_<身份>_<任务>_<单元>_<编号>`，**不再自造 id**；本模块是 md_cg 的复核派发面，
+    **不在 B8 点名的改动面**（契约只列 CLI / MCP 提交面 / orch 透传），故保留旧形态。
+    旧形态 id 在新契约下**仍然合法**（存量零迁移：`job.rs::valid_job_id` 收），故此处
+    不闯闸、不破坏 serve 领取；但它绕过了分配器的独占创建与五单元闭集 ⇒ 与「分配器
+    唯一实现在 Rust 侧」（契约 §五 裁决 3）不齐，宜单独裁决（牵动 md_cg 派发/等待链
+    语义与其守卫 `md_cg/test_units_poll.py`，不在本批「只论证订正」的范围内）。
+    """
     return "h%d_%s" % (int(time.time() * 1000), uuid.uuid4().hex[:6])
 
 

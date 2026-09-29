@@ -169,6 +169,14 @@ def _env_with(extra: dict | None = None) -> dict:
     return env
 
 
+# id 契约 v2（B8）：`hive submit` 的四槽（身份/任务/单元必填，编号由分配器给）是
+# **必填**面。注入用例的判据面不涉及 id 形态，故按 B8 的 env 兜底口径固定注入三槽
+# （env_extra 可覆盖/置 None 移除，语义不变）。缺它则 submit 以「缺四槽入参」退出，
+# 用例会在提交面整体变红（那是接口变更的噪声，不是被测缺陷）。
+_SLOT_ENV = {"HIVE_JOB_IDENTITY": "chaos守卫", "HIVE_JOB_TASK": "故障注入",
+             "HIVE_JOB_UNIT": "验证单元"}
+
+
 def hive_submit(jobs_dir: str, spec: dict, env_extra: dict | None = None):
     """经真实 hive.exe submit 提交（fail-fast 面）。返回 (rc, stdout)。
     env_extra 值非 None 叠加、为 None 移除（如 FI-R03 注入哑 HIVE_ORCH_TOKEN 走
@@ -181,7 +189,7 @@ def hive_submit(jobs_dir: str, spec: dict, env_extra: dict | None = None):
                             "--jobs", jobs_dir],
                            capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=30, cwd=_REPO,
-                           env=_env_with(env_extra))
+                           env=_env_with({**_SLOT_ENV, **(env_extra or {})}))
         return r.returncode, r.stdout + r.stderr
     finally:
         shutil.rmtree(spec_dir, ignore_errors=True)
