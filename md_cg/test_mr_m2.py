@@ -26,6 +26,7 @@ import sys
 import tempfile
 import time
 
+from . import audit
 from . import conformance as CF
 from . import crosscheck as CC
 from . import mdcos
@@ -347,16 +348,27 @@ def phase_c(tmp):
     ok(r3.get("ok") and r3.get("skipped") and not r3.get("committed"),
        "C10 无有效意见 → skipped 不落库（零噪声）")
 
-    # C4b 合规规则库缺失 → 合规闸 DEFER → 转审核队列（诚实降级，不假装落库）
+    # C4b 策略不可用 → 写入 fail-closed（不落盘、不入审核队列）。
+    # 迁移（issue #43，2026-09-29）：原断言为「无规则库 → DEFER → 转审核队列」。
+    # 该口径正是本 issue 的病态出口——DEFER 走 propose，意见正文（可能含凭据）
+    # 明文落 hippocampus/inbox.jsonl 且不脱敏（脱敏只在 REJECT 分支）。使用者
+    # 裁定方向②③：策略不可用时必须**在提案入队之前** fail-closed。故按语义
+    # 更新本断言：同一场景下 moved_to=policy_unavailable 且 committed=False。
+    # 触发条件也随之明确：env 未设 **且** 包内默认不可得（否则回落包内策略，
+    # 不属「不可用」）——故临时把包内默认路径指向不存在的文件。
     _saved = os.environ.pop("MDCG_POLICY_FILE", None)
+    _saved_dfl = audit.default_policy_path
+    audit.default_policy_path = lambda: os.path.join(root, "_no_such_policy.json")
     try:
         r3b = PL.apply_opinions(cg, pkg, _ops(), reviewer="w", applier="a",
                                 node_id="mr_opinion_nopolicy")
-        ok(not r3b.get("committed") and r3b.get("moved_to") == "review_queue"
+        ok(not r3b.get("committed")
+           and r3b.get("moved_to") == "policy_unavailable"
            and r3b.get("deferred") is True,
-           "C4b 无规则库 → 转审核队列而非落盘（moved_to=%s deferred=%s）"
+           "C4b 策略不可用 → fail-closed 不落盘不入队（moved_to=%s deferred=%s）"
            % (r3b.get("moved_to"), r3b.get("deferred")))
     finally:
+        audit.default_policy_path = _saved_dfl
         if _saved is not None:
             os.environ["MDCG_POLICY_FILE"] = _saved
 

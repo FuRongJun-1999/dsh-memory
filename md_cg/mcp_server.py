@@ -2138,6 +2138,15 @@ def _cg_dispatch(cg, a):
                   "ccg_contract": dict(nodefile.CCG_CONTRACT_ROLES)})
         # 能力外置可观测：本进程实际注入了哪些外部验证器（含失败原因）
         h["external_verifiers"] = audit.load_external_verifiers()
+        # 写入策略来源（issue #43 契约④）：与启动 stderr / --show-config 同一
+        # 单点 policy_report()——工具面也能回答「我的策略从哪来、可不可用」。
+        # 诊断面**不得把整个 op=info 拖崩**（-32603）：策略自描述自身的异常在此
+        # 收口成不可用形状（与 policy_report 内部兜底同一形状，见
+        # audit.unavailable_report），info 的其余字段照常返回。
+        try:
+            h["write_policy"] = audit.policy_report()
+        except Exception as _pe:                  # noqa: BLE001
+            h["write_policy"] = audit.unavailable_report(_pe)
         h["theory"] = _th.check()
         h["links"] = _lk.ls()
         return h
@@ -3764,9 +3773,54 @@ def _serve_line(cg, msg) -> bool:
     return False
 
 
-# 生效条件：_force_utf8_stdio() 先执行（stdio 三流强制 UTF-8，issue #39）；随后对 mdcg_root()/aux_root() 各探一次，抛 ValueError（Windows 保留设备名末段被 GetFullPathNameW 吞成设备路径，datapath._abs_host_path 守卫）时向 stderr 写一行含原始消息的告警并返回 2；此后 _resolve_root() 返回 err 非空时向 stderr 写冲突说明并返回 2；root 为空写缺少 MDCG_ROOT 并返回 2；root 的 basename 小写以 _md_cg_ 开头返回 2，令牌校验失败返回 3；其余构造 MdCGSecure 并进入 stdin 分派循环——每行经 _serve_line 处理（非对象 JSON 回 -32600 且不崩、tools/call 的非 dict params 回 -32602、分派体异常回 -32603，单行请求不得杀 server），_serve_line 返回 True（shutdown）或 stdin EOF 后脱离循环，随后 sustain.stop_all() 与 cg.close() 并返回 0。
+# 生效条件：rep 为 audit.policy_report() 的返回值（或同形 dict）且 rep["available"] 为假时，返回含「⚠ 写入策略不可用」「code=」「写入将 fail-closed」与 hint 的单行文本（以 "\n" 结尾）；available 为真时返回含「写入策略：来源=」「path=」「forbidden=」「required=」的单行文本（以 "\n" 结尾）；rep 为假值或缺键时按空值渲染，恒不抛异常。
+def _policy_stderr_note(rep) -> str:
+    """启动 stderr 的策略来源单行（issue #43 契约④）——内容**单点**。
+
+    为什么单列成函数：守卫要对「启动面报出来源」做定点变异（改成空串即应转红），
+    把渲染收在一处，变异锚点才稳定、也不会与 main() 的大函数纠缠。
+    """
+    rep = rep or {}
+    err = rep.get("error") or {}
+    if not rep.get("available"):
+        return ("[mdcg-mcp] ⚠ 写入策略不可用（来源=%s code=%s）：%s；"
+                "写入将 fail-closed（不落盘、不入审核队列）。%s\n"
+                % (rep.get("source"), err.get("code"), err.get("reason"),
+                   err.get("hint") or ""))
+    return ("[mdcg-mcp] 写入策略：来源=%s path=%s（forbidden=%s required=%s）\n"
+            % (rep.get("source"), rep.get("path"),
+               rep.get("forbidden"), rep.get("required")))
+
+
+# 生效条件：以 audit.resolve_rulebook() 解析策略来源后，把单行 JSON（server/version/policy{source,path,available,forbidden,required,error}）写到 stdout 并返回 0；**恒返回 0**——不可用时 available=false 且 error 非空（含策略自描述自身抛异常的兜底形状），不判是否可用（诊断面不是失败，与 hive serve_start 的 --show-config 同语义）；不解析 root、不建 cg、不落盘、不拉起任何进程。
+def _show_config() -> int:
+    """只读配置诊断面（`python -m md_cg.mcp_server --show-config`）。
+
+    issue #43 契约④：策略来源必须在**可查询面**可见——env(MDCG_POLICY_FILE) /
+    包内默认 / 不可用。读取面与写入闸门读同一个 `audit.resolve_rulebook()`，
+    不另建判据（两套判据必然漂移）。
+
+    为什么**恒退出 0**（issue #43 键类型面补强）：本命令就是用来诊断「策略出
+    什么问题」的，策略畸形（键类型面）时它若自己 rc=1 且 stdout 空，运维手上
+    就只剩一个「看起来像崩了」的诊断器——与「不可用时 available=false」的契约
+    直接相反。故策略自描述的异常在此收口成同形状的不可用自描述；进程退出码
+    只表达「诊断面自身是否跑完」。
+    """
+    from . import audit
+    try:
+        pol = audit.policy_report()
+    except Exception as exc:                      # noqa: BLE001 —— 恒退出 0
+        pol = audit.unavailable_report(exc)
+    doc = {"server": SERVER_NAME, "version": SERVER_VERSION, "policy": pol}
+    sys.stdout.write(json.dumps(doc, ensure_ascii=False) + "\n")
+    return 0
+
+
+# 生效条件：_force_utf8_stdio() 先执行（stdio 三流强制 UTF-8，issue #39）；argv 含 --show-config 时改走只读诊断面 _show_config() 并原样返回其退出码（不解析 root、不起服务）；随后对 mdcg_root()/aux_root() 各探一次，抛 ValueError（Windows 保留设备名末段被 GetFullPathNameW 吞成设备路径，datapath._abs_host_path 守卫）时向 stderr 写一行含原始消息的告警并返回 2；此后 _resolve_root() 返回 err 非空时向 stderr 写冲突说明并返回 2；root 为空写缺少 MDCG_ROOT 并返回 2；root 的 basename 小写以 _md_cg_ 开头返回 2，令牌校验失败返回 3；其余构造 MdCGSecure 并进入 stdin 分派循环——每行经 _serve_line 处理（非对象 JSON 回 -32600 且不崩、tools/call 的非 dict params 回 -32602、分派体异常回 -32603，单行请求不得杀 server），_serve_line 返回 True（shutdown）或 stdin EOF 后脱离循环，随后 sustain.stop_all() 与 cg.close() 并返回 0。
 def main():
     _force_utf8_stdio()
+    if "--show-config" in sys.argv:
+        return _show_config()
     # 启动早期承接受理（Windows 保留设备名守卫）：MDCG_ROOT/MDCG_AUX_ROOT/
     # MDCG_DATA_ROOT 等覆盖值末段若是保留设备名（aux/con/nul/com1-9/lpt1-9…），
     # ntpath.abspath 经 GetFullPathNameW 会把整个路径吞成设备命名空间形态
@@ -3862,6 +3916,18 @@ def main():
     # 通常位于私有运行时仓。加载失败不阻塞启动——失败原因写进 stderr 与
     # service_info，未注入的 content_kind 恒判 DEFER（诚实，不假装通过）。
     from . import audit as _audit
+    # 写入策略来源（issue #43 契约④）：策略不可见时用户只看得到「text 写入进
+    # 审核队列」这一症状，看不到第一因（策略从哪来 / 有没有）。故启动即报来源；
+    # 不可用时写明后续写入会 fail-closed，而不是让写入在暗处降级。
+    # 诊断面**不得让 server 退出**（issue #43 键类型面补强，N225 教训）：这一行
+    # 在 main() 的任何 try 之外，启动期崩＝记忆面整体不可用——策略畸形恰好是
+    # 最需要被看见的处境，不是拒绝启动的理由。策略自描述自身的异常在此收口
+    # （形状闸是第一道防线，本条是第二道），启动继续，写入侧另有 fail-closed。
+    try:
+        sys.stderr.write(_policy_stderr_note(_audit.policy_report()))
+    except Exception as _pol_exc:                 # noqa: BLE001
+        sys.stderr.write("[mdcg-mcp] ⚠ 策略自描述失败（不阻塞启动）：%r\n"
+                         % (_pol_exc,))
     _verifiers = _audit.load_external_verifiers()
     if _verifiers.get("loaded") or _verifiers.get("failed"):
         sys.stderr.write("[mdcg-mcp] 外部验证器: loaded=%s failed=%s\n"

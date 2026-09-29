@@ -257,7 +257,18 @@ def main():
 
         # 11. 基元暴露面（kernel）：默认只暴露 cg / stg 两个认知基元
         print("\n【11】基元暴露面（kernel 默认）")
-        kc = McpClient(root, actor="kernel", extra_env={"MDCG_MCP_SURFACE": "kernel"})
+        # 迁移（issue #43，2026-09-29）：未设 MDCG_POLICY_FILE 时不再等于「无规则
+        # 可判」——修后回落到**包内默认** data/policy.json，下方「未验证的写入」
+        # 因此由 DEFER 变 REJECT。本断言考的是 **review_queue 通路**（非 ACCEPT/
+        # REJECT 出口）仍可达且不落盘，与策略来源无关，故显式给一份**空规则库**
+        # 保持原口径；「默认安装的真实行为（REJECT）」由
+        # md_cg/test_issue43_default_policy.py 钉住。
+        _empty_pol = os.path.join(root, "policy_empty.json")
+        with open(_empty_pol, "w", encoding="utf-8") as f:
+            json.dump({"forbidden": [], "required": []}, f)
+        kc = McpClient(root, actor="kernel",
+                       extra_env={"MDCG_MCP_SURFACE": "kernel",
+                                  "MDCG_POLICY_FILE": _empty_pol})
         try:
             kc.send("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
                                    "clientInfo": {"name": "k", "version": "0"}})

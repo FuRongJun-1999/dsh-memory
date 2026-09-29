@@ -45,8 +45,9 @@ def _mk_cg(tmp, role="designer"):
     return MdCGSecure(root, principal=p)
 
 
-def _policy(tmp, required=("PASSED",), forbidden=("FORBIDDEN_WORD",)):
-    path = os.path.join(tmp, "policy.json")
+def _policy(tmp, required=("PASSED",), forbidden=("FORBIDDEN_WORD",),
+            name="policy.json"):
+    path = os.path.join(tmp, name)
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"forbidden": list(forbidden),
                    "required": list(required)}, f)
@@ -93,8 +94,13 @@ def _run(tmp):
     _check("REJECT负记忆", out.get("moved_to") == "rejected"
            and out.get("committed") is False, repr(out))
 
-    # DEFER（无规则文件 → 无法判定 → 入审核队列）+ 幂等去重联动
-    os.environ.pop("MDCG_POLICY_FILE", None)
+    # DEFER（空规则库 → 无法判定 → 入审核队列）+ 幂等去重联动
+    # 迁移（issue #43，2026-09-29）：修前「未设 env」= 空规则 → DEFER；修后未设
+    # 会回落到包内默认 data/policy.json，本用例内容无六要素 → 变 REJECT。此处
+    # 考的是 **DEFER 出口 + 幂等去重联动**（与策略来源无关），故显式给一份空
+    # 规则库复现原口径——断言一字不改。
+    os.environ["MDCG_POLICY_FILE"] = _policy(tmp, required=(), forbidden=(),
+                                             name="policy_empty.json")
     a = {"content_kind": "text", "content": "无规则可判的内容",
          "layer": "knowledge"}
     out1 = pipe.execute(cg, dict(a))

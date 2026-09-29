@@ -446,7 +446,10 @@ def main():
                 f.write("探针正文：无标题不产节点，仅让 experiments 物理存在。\n")
         try:
             expect_files = _count_md(DOCS, SKIP_NOISE)
-            real = index_doc(cg, DOCS, skip_dirs=list(SKIP_NOISE))
+            # 预算显式给足（默认预算会随真实 docs/ 增长而被跨过 → truncated=True；
+            # 「无静默跳过」判据本身不变，见 issue #43 收尾实测：HEAD 树加两份报告即复现）
+            real = index_doc(cg, DOCS, skip_dirs=list(SKIP_NOISE),
+                           max_files=5000, max_items=20000)
         finally:
             if probe_created:
                 shutil.rmtree(probe_dir)
@@ -568,11 +571,11 @@ def main():
         ck2 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 5000})
         check("删源后 check 报悬空", len(ck2.get("dangling") or []) > pre,
               f"{pre}→{len(ck2.get('dangling') or [])}")
-        dry = call_tool(cg, "cg", {"op": "ref", "action": "prune", "dry_run": True})
+        dry = call_tool(cg, "cg", {"op": "ref", "action": "prune", "max_nodes": 5000, "dry_run": True})
         check("prune_dry_run 列出待清退但不删",
               dry.get("dry_run") is True and dry.get("count", 0) >= 1
               and any(cg.get(n) for n in ids4), str(dry)[:130])
-        gone = call_tool(cg, "cg", {"op": "ref", "action": "prune"})
+        gone = call_tool(cg, "cg", {"op": "ref", "action": "prune", "max_nodes": 5000})
         check("prune 清退悬空节点",
               gone.get("count", 0) >= 1 and not any(cg.get(n) for n in ids4),
               str(gone)[:130])
@@ -592,7 +595,7 @@ def main():
         cg.index["nodes"][gid] = {"path": "knowledge/ghost_probe.md",
                                   "layer": "knowledge", "tags": ["doc"],
                                   "bucket": None, "importance": 0.5}
-        g1 = call_tool(cg, "cg", {"op": "ref", "action": "prune"})
+        g1 = call_tool(cg, "cg", {"op": "ref", "action": "prune", "max_nodes": 5000})
         check("幽灵条目被清退（索引有、文件无）",
               len(g1.get("ghost_pruned") or []) >= 1
               and gid not in (cg.index.get("nodes") or {}), str(g1)[:130])

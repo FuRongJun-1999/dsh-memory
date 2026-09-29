@@ -194,12 +194,27 @@ def _reject_hint(verdict):
             "拒绝依据见 verdict.evidence")
 
 
-# 生效条件：ctx["a"] 经 audit.audit 得出的 state 为 ACCEPT 时返 None 放行，为 REJECT 时经 cg.add_rejected（正文先经 audit.redact_forbidden 把禁表命中替换为占位符、再截前 200 字）返回 ok=False/moved_to="rejected"（hint 由 _reject_hint 按「可修正的缺要素 / 政策违规」分型生成），其余 state 经 cg.propose 返回 moved_to="review_queue"（pr 带 dedup 时再附 dedup/dup_of/dup_status 并改写 hint）；
+# 生效条件：先经 audit.resolve_rulebook() 判策略可用性——不可用（env 显式坏路径 / env 未设且包内默认也拿不到）即返回 ok=False/moved_to="policy_unavailable" 与结构化 error（含 code/reason/hint），**不进 audit、不 propose、不落任何节点**；可用则把规则经 ctx["rules"] 下传（含 forbidden=0 且 required=0 的空规则，空规则仍走 _rule_check 的 DEFER 分支），其后 ctx["a"] 经 audit.audit 得出的 state 为 ACCEPT 时返 None 放行，为 REJECT 时经 cg.add_rejected（正文先经 audit.redact_forbidden 把禁表命中替换为占位符、再截前 200 字）返回 ok=False/moved_to="rejected"（hint 由 _reject_hint 按「可修正的缺要素 / 政策违规」分型生成），其余 state 经 cg.propose 返回 moved_to="review_queue"（pr 带 dedup 时再附 dedup/dup_of/dup_status 并改写 hint）；
 def _gate_audit(ctx):
-    """校验闸：audit.audit 四态。ACCEPT 放行；REJECT 负记忆；其余入审核队列。"""
+    """校验闸：先判策略可用性（fail-closed），再按 audit.audit 四态分派。
+
+    策略面（issue #43 问题 1 修复）：修前 env 未设 → load_rulebook 返回空规则
+    → text 恒 DEFER → 落到本函数的**非 ACCEPT/REJECT 出口**（cg.propose），
+    正文（含凭据）明文入 hippocampus/inbox.jsonl 且不经脱敏（脱敏只在 REJECT
+    分支）。故策略不可用时在**提案入队之前**返回结构化错误：moved_to=
+    "policy_unavailable"，响应体只带错误码/原因/hint，**不含正文**。
+    """
     a = ctx["a"]
     cg = ctx["cg"]
     from . import audit
+    rules, source, perr = audit.resolve_rulebook()
+    ctx["policy"] = {"source": source}
+    if perr is not None:
+        return {"ok": False, "id": ctx["nid"], "committed": False,
+                "moved_to": "policy_unavailable",
+                "policy": {"source": source}, "error": perr,
+                "hint": "写入被拒（fail-closed）：策略不可用——%s。%s"
+                        % (perr["reason"], perr["hint"])}
     payload = {"content": a.get("content", ""), "action": a.get("action"),
                "sensitivity": a.get("sensitivity"),
                "topic": a.get("query") or a.get("intent")}
@@ -211,7 +226,10 @@ def _gate_audit(ctx):
     verdict = audit.audit(
         (a.get("content_kind") or "").strip(),
         payload,
-        {"cg": cg, "principal": getattr(cg, "principal", None)})
+        {"cg": cg, "principal": getattr(cg, "principal", None),
+         # 规则来源已在闸门单点解析（含包内默认回落），下传给验证器——
+         # 验证器仍保留 `ctx.get("rules") or load_rulebook()` 的兜底。
+         "rules": rules})
     ctx["verdict"] = verdict
     st = verdict["state"]
     if st == audit.ACCEPT:

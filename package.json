@@ -20,6 +20,7 @@
     "lib",
     "src",
     "md_cg",
+    "data/policy.json",
     "skills",
     "README.md",
     "dsh",
