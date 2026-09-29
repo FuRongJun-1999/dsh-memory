@@ -534,6 +534,17 @@ python scripts/run_tests.py                  # 源码树入口（等价；需 sc
 > `MDCG_SEMANTIC`（`fm.semantic` 语义摘要路）同样默认关。改其一请同步
 > `md_cg/test_en_pipeline.py` 与 `md_cg/test_semantic_canonical.py` 的双态断言。
 
+### 编码约定（全 UTF-8 · 命令统一走 python）
+
+**本仓所有文本一律 UTF-8（无 BOM）**——源码、配置、文档、数据、测试夹具，以及**路径与文件名**（含蜂巢任务标识）同此一律。中文可以直接出现在路径里：这不是建议，是约定。
+
+> **给 AI / 接入方的显式声明**：这里是 UTF-8。请把本仓的一切取用走 **python**（`python -X utf8 …`，等价于 `PYTHONUTF8=1`），**不要拿控制台/终端当取用通道**。Windows 控制台按**代码页**去解释收到的字节，会把中文渲染成乱码（实测：`控制台试验` 在代码页 936 的窗口里显示成 `鎺у埗鍙拌瘯楠`）——**那是显示层的问题，不是数据层的问题**，字一个都没丢。我们**不做控制台兼容**：一切读写与判定按 UTF-8 字节，正确性不挂在任何人的代码页设置上。
+
+- **入口自保证**：Python 入口在最早处检查 `sys.flags.utf8_mode`，未开则置 `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` 并重启自身；不可重启时 fail-fast（不静默降级）。
+- **显式优于缺省**：新增代码里 `open()` / `read_text()` 一律显式 `encoding="utf-8"`，不吃 locale 缺省（中文 Windows 上的缺省是 cp936，裸 `open()` 会按它读写）。
+- **归一化**：路径与标识归一到 **NFC** 后落盘与比较。
+- **平台面**由容器双栈门禁的编码 / locale 守卫覆盖（见下一节）。
+
 ### Linux 验证（Docker 容器双栈，0.5.0 起为发版门禁）
 
 ```bash
