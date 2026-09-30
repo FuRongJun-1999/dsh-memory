@@ -1627,16 +1627,19 @@ def _sustain_call(cg, a):
                                 or sustain.DEFAULT_BEAT_INTERVAL),
             heal_interval=float(a.get("heal_interval")
                                 or sustain.DEFAULT_HEAL_INTERVAL),
-            auto_heal=bool(a.get("auto_heal", True)),
+            # 四档 auto_* 一律经 sustain 的**单一真源读取器**（P0-2）——此处
+            # 不得再写缺省字面量：op 路径原 `auto_tidy` 缺省 False 与 env 路径
+            # 的 True 相反，同 (root,name) 走两条入口语义不一致。显式入参仍优先。
+            auto_heal=sustain.auto_from_args("auto_heal", a),
             scrub_interval=float(a.get("scrub_interval")
                                  or sustain.DEFAULT_SCRUB_INTERVAL),
-            auto_scrub=bool(a.get("auto_scrub", False)),
+            auto_scrub=sustain.auto_from_args("auto_scrub", a),
             evolve_interval=float(a.get("evolve_interval")
                                   or sustain.DEFAULT_EVOLVE_INTERVAL),
-            auto_evolve=bool(a.get("auto_evolve", False)),
+            auto_evolve=sustain.auto_from_args("auto_evolve", a),
             tidy_interval=float(a.get("tidy_interval")
                                 or sustain.DEFAULT_TIDY_INTERVAL),
-            auto_tidy=bool(a.get("auto_tidy", False)))
+            auto_tidy=sustain.auto_from_args("auto_tidy", a))
         return {"loop": lp.start().status()}
     if act in ("stop", "down"):
         lp = sustain.get_loop(cg, name)
@@ -3578,22 +3581,20 @@ def _start_sustain(cg):
                             or sustain.DEFAULT_BEAT_INTERVAL),
         heal_interval=float(os.environ.get("MDCG_SUSTAIN_HEAL")
                             or sustain.DEFAULT_HEAL_INTERVAL),
-        auto_heal=os.environ.get("MDCG_SUSTAIN_AUTOHEAL", "1")
-        not in ("0", "false", "False"),
+        # 四档 auto_* 一律经 sustain 的**单一真源读取器**（P0-2）：缺省值只在
+        # `sustain.AUTO_DEFAULTS` 定义一处，此处不得再写字面量（含 env 键名——
+        # 键名真源是 `sustain.AUTO_ENVS`）。整理巡检缺省开：确定性动作、
+        # 永不删除节点（可逆可审计）；opt-out `MDCG_AUTO_TIDY=0`。
+        auto_heal=sustain.auto_from_env("auto_heal"),
         scrub_interval=float(os.environ.get("MDCG_SCRUB_INTERVAL")
                              or sustain.DEFAULT_SCRUB_INTERVAL),
-        auto_scrub=os.environ.get("MDCG_AUTO_SCRUB", "0")
-        not in ("0", "false", "False"),
+        auto_scrub=sustain.auto_from_env("auto_scrub"),
         evolve_interval=float(os.environ.get("MDCG_EVOLVE_INTERVAL")
                               or sustain.DEFAULT_EVOLVE_INTERVAL),
-        auto_evolve=os.environ.get("MDCG_AUTO_EVOLVE", "0")
-        not in ("0", "false", "False"),
+        auto_evolve=sustain.auto_from_env("auto_evolve"),
         tidy_interval=float(os.environ.get("MDCG_TIDY_INTERVAL")
                             or sustain.DEFAULT_TIDY_INTERVAL),
-        # 整理巡检（contextual 同构组聚合+成员降权）默认开：确定性动作、
-        # 永不删除节点（可逆可审计）；MDCG_AUTO_TIDY=0 关闭
-        auto_tidy=os.environ.get("MDCG_AUTO_TIDY", "1")
-        not in ("0", "false", "False"))
+        auto_tidy=sustain.auto_from_env("auto_tidy"))
     lp.start()
     return lp
 

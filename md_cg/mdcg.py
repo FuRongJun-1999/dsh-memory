@@ -607,6 +607,112 @@ def neg_condition_hits(neg_conditions, scene_text, own_topic_text="") -> list:
     return hits
 
 
+# ---- 拒绝域双语义：`boundary_hit`（§5.2，P0-4）-----------------------------
+# 背景（v0.4 §5.2）：同一个字段 `non_applicable_conditions` 上会挂**两条**语义——
+#   ① 负条件判据：命中当前情境 ⇒ 资格 REJECT（`judge_qualification` 的第 2 段，
+#      走单点 `neg_condition_hits`）；
+#   ② 正面检索键：问「什么条件下不适用」时，该节点应当**被召回、被展示**，
+#      标记 `boundary_hit`——这正是 §5.1 给「不适用条件」定的索引角色（拒绝域词）。
+# 两条语义必须**可分**：否则默认链路上会出现自否定（用户问边界，节点因边界被否）。
+# 记忆里那条返工教训（检索面 REJECT 46→0）即此类失真的先例。
+
+#: 拒绝域命中的**展示标记**（§5.2：可召回、可展示；与资格 REJECT 分开呈现）。
+BOUNDARY_MARKER = "boundary_hit"
+
+#: 「把不适用条件当检索键」的问句意图标记——§5.1 检索用法列的原话即
+#: 「什么条件下不适用」；其余为同义形态（中文检索面的问句变体）。
+BOUNDARY_QUERY_MARKERS = ("不适用条件", "不适用", "什么条件下不适用",
+                          "什么情况下不适用", "何时不适用", "边界条件", "拒绝域")
+
+
+# 生效条件：query 为字符串（假值按空串）时，逐个取 BOUNDARY_QUERY_MARKERS 判断是否为子串，任一命中即返回 True，全部不命中返回 False；只做字面可判的**意图识别**，不做分词/语义推断。
+def is_boundary_query(query: str) -> bool:
+    """查询是否在问该节点的**拒绝域本身**（§5.1「不适用条件 → 拒绝域词」）。
+
+    这是双语义的分界：是 ⇒ 命中属**边界命中**（可召回可展示，不得因此 REJECT）；
+    否 ⇒ 命中仍是资格面的负条件（照旧 REJECT，灵敏度不变）。
+    """
+    q = str(query or "")
+    return any(m in q for m in BOUNDARY_QUERY_MARKERS)
+
+
+# 生效条件：node_dict 为 {frontmatter, content}（缺键按空处理）且 query 为字符串时，以 frontmatter.non_applicable_conditions 为拒绝域词面、以 json({"query":query, **context}) 为情境（与 judge_qualification 同一情境口径）、以 MdCG._self_topic_text(fm, content) 为自主题面，调单点 neg_condition_hits 取命中；返回 {"hit": bool, "terms": [命中原样条目（按首次出现序）], "marker": "boundary_hit" 或 None, "reason": str, "scene": str}。
+def boundary_hit(node_dict, query, context=None) -> dict:
+    """把「不适用条件」当**正面检索键**命中该节点的判据（**不产生 REJECT**）。
+
+    与资格判定的负条件腿**共用同一个单点**（`neg_condition_hits`）——两条语义
+    共享判据实现，只在**归类**上分开：本函数只回答「查询是否落在该节点的拒绝域上、
+    可否召回展示」，一律不动 qualification。
+
+    返回形状（P2 直接调用）::
+
+        {"hit": bool,            # 是否边界命中（可召回、可展示）
+         "terms": [str, ...],    # 命中的不适用条件条目（原样、按首次出现序）
+         "marker": str | None,   # 命中即 BOUNDARY_MARKER（"boundary_hit"），否则 None
+         "reason": str,          # 人类可读依据
+         "scene": str}           # 本判据用的情境串（与 judge_qualification 同口径）
+    """
+    fm = (node_dict or {}).get("frontmatter") or {}
+    content = (node_dict or {}).get("content") or ""
+    scene = {"query": query or ""}
+    if isinstance(context, dict):
+        scene.update(context)
+    scene_str = json.dumps(scene, ensure_ascii=False)
+    terms = fm.get("non_applicable_conditions") or []
+    hit = neg_condition_hits(terms, scene_str, MdCG._self_topic_text(fm, content))
+    return {"hit": bool(hit), "terms": hit,
+            "marker": BOUNDARY_MARKER if hit else None,
+            "reason": (("边界命中：查询落在该节点的拒绝域（不适用条件）上，"
+                        "可召回可展示；不影响其正例资格") if hit
+                       else "未落在该节点的拒绝域上"),
+            "scene": scene_str}
+
+
+# 生效条件：text 为字符串（假值按空串）、terms 为可迭代条目表时，逐条把其原样字面量与「去空白后的字符间容忍任意空白」形态从 text 中替换为空格；返回替换后的字符串（terms 为空即原样返回）。
+def strip_boundary_terms(text: str, terms) -> str:
+    """从查询串里摘掉命中的拒绝域条目（只用于**边界问句**的资格判定）。
+
+    为什么摘：用户问的就是「这些条件下不适用」——把这些词面留在资格判定的情境里，
+    等于让节点因为「被问到自己的拒绝域」而 REJECT（自否定）。摘掉后资格判定问的
+    是**除边界词面之外的**情境，命中的是用户的真实处境。
+    """
+    out = str(text or "")
+    for t in (terms or []):
+        s = str(t)
+        if not s:
+            continue
+        if s in out:
+            out = out.replace(s, " ")
+        ns = re.sub(r"\s+", "", s)
+        if ns and ns != s:                     # 条目内含空白 → 容忍任意空白形态
+            out = re.sub(r"\s*".join(re.escape(ch) for ch in ns), " ", out)
+    return out
+
+
+# 生效条件：records 为 judge_with_boundary 返回体或 None 的可迭代时，逐条累加其 qualification.state（归一后属 accept/reject/defer/blindspot 者）、boundary.hit 与 recallable，返回 {"total","accept","reject","defer","blindspot","boundary_hit","recallable","self_negation"}——self_negation 为「边界问句下既边界命中又被资格 REJECT」的条数（**应为 0**：非 0 即双语义串味、自否定残留）。
+def tally_boundary(records) -> dict:
+    """把逐条判定汇总成**分开计数**的读数（P2 检索面出数用）。"""
+    out = {"total": 0, "accept": 0, "reject": 0, "defer": 0, "blindspot": 0,
+           "boundary_hit": 0, "recallable": 0, "self_negation": 0}
+    for r in (records or []):
+        if not isinstance(r, dict):
+            continue
+        out["total"] += 1
+        qual = r.get("qualification") or {}
+        st = str(qual.get("state") or "").strip().lower()
+        if st in ("accept", "reject", "defer", "blindspot"):
+            out[st] += 1
+        bh = bool((r.get("boundary") or {}).get("hit"))
+        if bh:
+            out["boundary_hit"] += 1
+        if r.get("recallable"):
+            out["recallable"] += 1
+        # 自否定 = 边界问句（判据已摘词面重跑）却仍 REJECT——应为 0
+        if qual.get("boundary_suppressed") and st == "reject":
+            out["self_negation"] += 1
+    return out
+
+
 # 生效条件：当 `query` 为字符串时，返回含整句、≥2 字符分词及命中 `SYNONYM_GROUPS_WEIGHTED` 组加权项（同名取最大权重）的字典；空串返回 `{}`。
 def expand_query_terms_weighted(query: str) -> dict:
     """分级版查询扩展：返回 {词: 隶属度}，隶属度 ∈ (0, 1]。
@@ -959,6 +1065,12 @@ class _DirtyDict(dict):
         self.write_gen = 0
         self.path_gen = {}      # path → 该 path 最近一次标脏时的 write_gen
         self.broad_gen = 0      # 最近一次无 path 可辨变更的 write_gen（整池兜底）
+        # N230（2026-10-01）：**落盘逐字见证**——nid → 标脏那一刻节点文件的
+        # (st_mtime_ns, st_size)。`MdCG.__init__` 负责注入 `root`（本类不反查
+        # 宿主，免得与 MdCG 的构造顺序耦合）。语义与用法见
+        # `MdCG._dirty_entry_superseded`。
+        self.root = None
+        self.staged_stat = {}
 
     def _bump(self):
         self.write_gen += 1
@@ -971,13 +1083,36 @@ class _DirtyDict(dict):
         else:
             self.broad_gen = self.write_gen
 
+    # 生效条件：k 为节点 id、v 为 entry；恒 pop 该 k 的旧见证，随后仅当 v 为含非空 path 字符串的 dict 且 self.root 为真、且 os.stat(root/path) 成功时记入 self.staged_stat[k]=(st_mtime_ns, st_size)；其余情形（None tombstone / 无 path / stat 失败 / 无 root）不登记——不登记即「证不出陈旧」，重放按旧口径放行。
+    def _note_witness(self, k, v):
+        """落盘逐字见证的登记（N230）。
+
+        为什么记 (mtime_ns, size)：`_maybe_reload_index` 需要判「本实例这条
+        未 flush 的写入，是不是已经被他进程后来写下的**更新**记录盖过」。节点
+        文件是唯一真源——标脏时它长什么样，重放时再 stat 一次，不一样就说明
+        盘面已被别人改过（改写内容必然改 mtime_ns；NTFS 粒度 100ns）。
+        stat 失败与无 path 一律不登记：**证不出陈旧就不当陈旧**——「本实例未
+        落盘写入不因重载从检索面消失」是既有不变量，宁可漏挡也不误杀。
+        """
+        self.staged_stat.pop(k, None)
+        p = v.get("path") if isinstance(v, dict) else None
+        if not (isinstance(p, str) and p and self.root):
+            return
+        try:
+            st = os.stat(os.path.join(self.root, p))
+        except OSError:
+            return
+        self.staged_stat[k] = (st.st_mtime_ns, st.st_size)
+
     def __setitem__(self, k, v):
         self._bump()
         self._note(v)
+        self._note_witness(k, v)
         super().__setitem__(k, v)
 
     def __delitem__(self, k):
         self._bump()
+        self.staged_stat.pop(k, None)
         self.broad_gen = self.write_gen
         super().__delitem__(k)
 
@@ -998,26 +1133,31 @@ class _DirtyDict(dict):
         self._bump()
         if broad:
             self.broad_gen = self.write_gen
+        self.staged_stat.clear()
         super().clear()
 
     def pop(self, k, *d):
         self._bump()
+        self.staged_stat.pop(k, None)
         self.broad_gen = self.write_gen
         return super().pop(k, *d)
 
     def popitem(self):
         self._bump()
         self.broad_gen = self.write_gen
+        self.staged_stat.clear()      # 摘哪条不确定，保守清空（下一轮按「无见证」放行）
         return super().popitem()
 
     def setdefault(self, k, d=None):
         self._bump()
         self.broad_gen = self.write_gen
+        self.staged_stat.pop(k, None)
         return super().setdefault(k, d)
 
     def update(self, *a, **k):
         self._bump()
         self.broad_gen = self.write_gen
+        self.staged_stat.clear()
         super().update(*a, **k)
 
 
@@ -1176,6 +1316,11 @@ class MdCG:
         self.recent_log = os.path.join(self.root, "_recent.jsonl")
         self.autoflush = autoflush
         self._dirty = _DirtyDict()
+        # N230：把数据根交给脏集——标脏时按 entry["path"] 落「逐字见证」
+        # （见 _DirtyDict._note_witness / MdCG._dirty_entry_superseded）。
+        self._dirty.root = self.root
+        # 最近一次重载里被判定「已被盘面更新盖过」而未重放的条数（只作可观测读数）
+        self._dirty_replay_superseded = 0
         # realpath 进程内缓存（性能批次，候选 a）：root 解析一次 + rel→abs
         # 解析结果 memo 化，失效哨兵与 readcache 同源（见 _node_disk_path）。
         self._root_real = None
@@ -1326,7 +1471,37 @@ class MdCG:
             parts.append((fn, s.st_size, s.st_mtime_ns))
         return (snap, tuple(parts))
 
-# 生效条件：stat 对比 _index_signature() 与 self._index_sig，相等（含双侧 None）即返回 False 不做任何事；不等则调 _load_index() 重载，OSError/ValueError 时静默放弃并返回 False（重载失败不阻塞读，沿用旧内存态）；成功后把 self._dirty 重放回新索引（None=tombstone pop、否则覆盖，与 _load_index 的日志重放同语义——本实例未 flush 的写入不得因重载从检索面消失）并重算 buckets，替换 self.index、刷新 self._index_sig、返回 True；
+# 生效条件：self._dirty.staged_stat 中无该 nid 的见证、或 self._dirty[nid] 非含非空 path 的 dict 时返回 False；有见证时对 root/path 再 stat 一次——OSError（文件已不在，标脏时在）返回 True，成功则返回 (st_mtime_ns, st_size) 与见证不等的布尔（不等即 True）。
+    def _dirty_entry_superseded(self, nid) -> bool:
+        """本实例 `_dirty[nid]` 是否**已被盘面更新盖过**（N230：旧不得盖新）。
+
+        判据是**节点文件的逐字见证**：标脏那一刻记下 `(st_mtime_ns, st_size)`，
+        重放前再 stat 一次；不相等 ⇒ 盘面已被他进程改写过 ⇒ 本实例这条是旧的，
+        重放必须放行盘面（`_maybe_reload_index` 据此跳过本条）。
+
+        三条边界（都是有意的）：
+        · **证不出陈旧就不当陈旧**：无见证（无 path / stat 失败 / `_dirty` 未挂
+          root）返回 False ⇒ 照旧重放——「本实例未落盘写入不因重载从检索面消失」
+          这条既有不变量优先于本缺陷的覆盖面。
+        · **tombstone（`None`）不走本判据**：`_unstage` 立即 flush（删除不延迟到
+          autoflush 阈值），故 tombstone 实际上极少跨重载存活；其语义一字不改。
+        · **同内容改写**：他进程用同样的字节重写（size 同）时 mtime_ns 仍会变，
+          故仍判陈旧——放行的盘面条目与本条同义，结果无差。
+        """
+        st = self._dirty.staged_stat.get(nid)
+        if st is None:
+            return False
+        e = self._dirty.get(nid)
+        p = e.get("path") if isinstance(e, dict) else None
+        if not p:
+            return False
+        try:
+            cur = os.stat(os.path.join(self.root, p))
+        except OSError:
+            return True                # 标脏时文件在、现在不在 ⇒ 盘面确已变
+        return (cur.st_mtime_ns, cur.st_size) != st
+
+# 生效条件：stat 对比 _index_signature() 与 self._index_sig，相等（含双侧 None）即返回 False 不做任何事；不等则调 _load_index() 重载，OSError/ValueError 时静默放弃并返回 False（重载失败不阻塞读，沿用旧内存态）；成功后把 self._dirty 重放回新索引（None=tombstone pop、否则覆盖，与 _load_index 的日志重放同语义——本实例未 flush 的写入不得因重载从检索面消失；N230：见证失配者判为陈旧，**跳过重放**并计入 self._dirty_replay_superseded）并重算 buckets，替换 self.index、刷新 self._index_sig、返回 True；
     def _maybe_reload_index(self):
         """读路径入口的索引代际感知（P1b-2）：签名变化才重载。
 
@@ -1342,6 +1517,14 @@ class MdCG:
           （flush）都改变签名 → 此时重载并重放分片日志（_load_index 既有行为），
           写入可见；本实例 _dirty 未 flush 的条目在重载后**重放回内存索引**——
           _stage 双写 index+_dirty 的「检索看得到未落盘写入」语义保持。
+
+        N230（2026-10-01，**旧盖新**）：原实现无条件 `idx["nodes"][nid] = e`——
+        本实例标脏后**他进程重写过同一节点**时，重载取回的是更新记录，随即被
+        本地这条更旧的盖了回去（实测：盘面与新建读者实例都是 NEW，本实例索引
+        仍停在 OLD，`content_hash` 与盘面撕裂）。现按「**逐字见证**」判陈旧：
+        `_dirty_entry_superseded` 为真即**放行盘面**（跳过本条重放），并在
+        `self._dirty_replay_superseded` 留下条数读数。见证拿不到的条目照旧重放
+        ——「本实例未落盘写入不因重载从检索侧消失」这条不变量一并保留。
         """
         sig = self._index_signature()
         if sig == self._index_sig:
@@ -1350,11 +1533,21 @@ class MdCG:
             idx = self._load_index()
         except (OSError, ValueError):
             return False                # 重载失败不阻塞读：沿用旧内存态
+        superseded = 0
         for nid, e in self._dirty.items():
             if e is None:
                 idx["nodes"].pop(nid, None)
-            else:
-                idx["nodes"][nid] = e
+                continue
+            # N230（2026-10-01）：**新记录必须能盖住旧记录，旧不得盖新**。
+            # 重载后的 idx 来自快照（指纹校验过盘面）或全库扫描，两者都反映
+            # **当前盘面**；本实例这条 `_dirty` 若在标脏后盘面已被改过（逐字
+            # 见证失配），它就是旧的——放行盘面，不得盖回去。见证拿不到时
+            # 照旧重放（见 _note_witness 的「证不出陈旧就不当陈旧」）。
+            if self._dirty_entry_superseded(nid):
+                superseded += 1
+                continue
+            idx["nodes"][nid] = e
+        self._dirty_replay_superseded = superseded
         idx["buckets"] = self._count_buckets(idx["nodes"])
         self.index = idx
         self._index_sig = sig
@@ -3032,6 +3225,57 @@ class MdCG:
         elif not has_scene:
             acc = "无情境可比（未做正条件确认）+ " + acc
         return {"state": STATE_ACCEPT, "reason": acc}
+
+    # 生效条件：node_dict 为 {frontmatter, content}（缺键按空处理）、query 为字符串、context 为 dict 或 None；无条件先算边界命中（boundary_hit），再算资格判定——边界命中**且** query 为边界问句（is_boundary_query）时，资格判定改以「摘掉命中拒绝域条目后的 query」重跑（并在返回体的 qualification 上标 boundary_suppressed=True），其余情形资格判定原样跑 judge_qualification(node_dict, query, context)；返回 {"qualification","boundary","counts","recallable","reason"}——counts 内 reject 与 boundary_hit **分开计数**，recallable 为「可召回可展示」（边界命中恒真；无边界命中时 = 资格态不是 REJECT）。
+    @staticmethod
+    def judge_with_boundary(node_dict, query: str, context=None) -> dict:
+        """资格判定 + 拒绝域命中——**分开计数、分开呈现**（§5.2 / P0-4）。
+
+        返回形状（P2 的检索面直接消费）::
+
+            {"qualification": {"state": ..., "reason": ...},
+             "boundary":      {"hit": bool, "terms": [...],
+                               "marker": "boundary_hit" | None, "reason": str},
+             "counts":        {"accept":0|1, "reject":0|1, "defer":0|1,
+                               "blindspot":0|1, "boundary_hit":0|1},
+             "recallable":    bool,     # 与既有候选过滤同口径：state 不属
+                                        # (REJECT, BLINDSPOT) 即可召回
+             "reason":        str}
+
+        **不变量（本判据的核心）**：`boundary.hit` 为真**不构成**资格否定——
+        边界问句下资格判定摘掉命中词面再跑，故「问该节点的拒绝域」不会把该节点
+        打回 REJECT（自否定）；非边界问句下资格判定**原样**跑 `judge_qualification`，
+        负条件的灵敏度一字不变（情境里真的命中拒绝域 ⇒ 照旧 REJECT）。
+
+        本轮**不接检索面**（接线在 P2）：本函数与 `boundary_hit` 无生产调用方。
+        """
+        node_dict = node_dict or {}
+        bh = boundary_hit(node_dict, query, context)
+        bq = is_boundary_query(query)
+        if bh["hit"] and bq:
+            qual = dict(MdCG.judge_qualification(
+                node_dict, strip_boundary_terms(query, bh["terms"]), context))
+            qual["boundary_suppressed"] = True
+        else:
+            qual = dict(MdCG.judge_qualification(node_dict, query, context))
+            qual["boundary_suppressed"] = False
+        st = str(qual.get("state") or "")
+        counts = {"accept": int(st == STATE_ACCEPT),
+                  "reject": int(st == STATE_REJECT),
+                  "defer": int(st == STATE_DEFER),
+                  "blindspot": int(st == STATE_BLINDSPOT),
+                  "boundary_hit": int(bool(bh["hit"]))}
+        # 可召回与**既有候选过滤同口径**（mdcos 的 `st in (REJECT, BLINDSPOT)`
+        # 即剔除）：这两态不进候选，其余（ACCEPT/DEFER）可召回。
+        recallable = st not in (STATE_REJECT, STATE_BLINDSPOT)
+        return {"qualification": {"state": qual.get("state"),
+                                  "reason": qual.get("reason"),
+                                  "boundary_suppressed": qual["boundary_suppressed"]},
+                "boundary": {"hit": bh["hit"], "terms": bh["terms"],
+                             "marker": bh["marker"], "reason": bh["reason"]},
+                "counts": counts, "recallable": recallable,
+                "reason": ("边界命中（%s）+ 资格 %s" % (bh["marker"], st)
+                           if bh["hit"] else "无边界命中 + 资格 %s" % st)}
 
     # ---------- 检索（性能阶梯 + 资格判定）----------
 

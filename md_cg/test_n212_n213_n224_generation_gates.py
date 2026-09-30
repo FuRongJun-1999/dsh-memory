@@ -362,11 +362,14 @@ def main():
     check("3c 阳性对照：共享档（internal/S1）仍在候选中（闸未误伤）",
           _ctrl is not None and any(e is _ctrl for e in _cands),
           "cand=%d" % len(_cands), live=True)
-    # ③d 第三序面（本批首手实测：本条同时钉住 _open_content 的解密出口闸）：
-    # 本进程**未 flush** 的陈旧条目在重载时被 _dirty 重放盖过盘上更新条目
-    # ⇒ 判据说 internal/S1、盘面已是 private/S2 ⇒ search 的正文水合把密文解成
-    # 明文返回（实测修复前 A.search 返回该节点且 content = 私密档明文）。
-    print("\n【③d】陈旧 _dirty 条目遮蔽他进程更新条目时的正文水合")
+    # ③d 第三序面（本批首手实测：本条同时钉住 _open_content 的解密出口闸）。
+    # **N230（2026-10-01，P0-3）改判**：本组原 setup 断言「A 内存条目仍是本地未
+    # 落盘版本（`_dirty` 重放遮蔽盘上真值）」，即把**旧盖新**当既定行为钉住。
+    # N230 修复后该遮蔽不再发生——重载取回的是他进程写下的更新条目，本实例这条
+    # 陈旧 `_dirty` 被逐字见证判为陈旧、**跳过重放**（新记录必须能盖住旧记录）。
+    # 故 setup 断言改为「收敛到盘面真值（private/S2）」；下游两条（`get` 同闸拒绝、
+    # 正文水合不泄明文）语义不变，且在新语义下更强：索引侧密级也已是 private。
+    print("\n【③d】他进程更新条目必须盖过本实例陈旧 _dirty 条目（N230）")
     a6 = _reflect(R6, "S1")
     a6.add("n213_d", INTERNAL_BODY, layer="contextual")        # 故意不 flush
     b6 = _reflect(R6, "S2")
@@ -375,9 +378,12 @@ def main():
     b6.flush()
     a6._maybe_reload_index()
     _e6 = a6.index["nodes"].get("n213_d") or {}
-    check("3d setup：A 内存条目仍是本地未落盘版本（_dirty 重放遮蔽盘上真值）",
-          _e6.get("sensitivity") == "internal" and _e6.get("session") == "S1",
-          "sens=%r sess=%r" % (_e6.get("sensitivity"), _e6.get("session")))
+    check("3d setup：A 重载后条目**收敛到盘面真值**（N230：旧不得盖新）",
+          _e6.get("sensitivity") == "private" and _e6.get("session") == "S2"
+          and a6._dirty_replay_superseded >= 1,
+          "sens=%r sess=%r superseded=%r"
+          % (_e6.get("sensitivity"), _e6.get("session"),
+             getattr(a6, "_dirty_replay_superseded", None)))
     check("3d A.get 同闸拒绝",
           a6.get("n213_d") is None,
           repr((a6.get("n213_d") or {}).get("content") or "")[:50], live=True)

@@ -70,12 +70,70 @@ DEFAULT_HEAL_INTERVAL = 300.0     # 自愈巡检 5min
 DEFAULT_SCRUB_INTERVAL = 3600.0   # 记忆自净（抽查/去污染/校准）1h
 DEFAULT_EVOLVE_INTERVAL = 7200.0  # 演化巡检（固化/重要性候选盘点）2h；只读
 DEFAULT_TIDY_INTERVAL = 21600.0   # 整理巡检（contextual 同构组聚合）6h
+
+# ---- 四档 `auto_*` 缺省的**单一真源**（P0-2，2026-10-01）--------------------
+# 为什么要有这张表：同一组缺省此前在**三处**各写一份——op 路径
+# （mcp_server.py 的 `_sustain_call` start 分支）、env 路径（`_start_sustain`）
+# 与 `SustainLoop.__init__` 形参。三份必然漂移，且已经漂了：`auto_tidy` 在
+# op 路径是 `False`、在 env 路径是 `"1"`（True）——同一个 `(root,name)` 走哪条
+# 入口得到相反的整理语义，是**对外可见的缺省不一致**。
+# 纪律：改缺省只改这里；调用点只许经 `auto_default` / `auto_from_env` /
+# `auto_from_args` 读取，**不得再写第二处字面量**（守卫 test_auto_defaults.py 钉死）。
+#
+# ⚠ 本轮**对外可见的缺省变更**（P0-2 裁决值 = 开）：`auto_tidy` 由 op 路径原
+# 字面量 `False` 收敛为 `True`，取 env 路径（生产路径：常驻 serve 自启）既有值
+# ——该动作确定性、永不删除节点、可逆可审计（见 `_tick_tidy` 说明），op 路径的
+# `False` 是唯一错位项。**opt-out：`MDCG_AUTO_TIDY=0`（env 路径）／显式传
+# `auto_tidy=false`（op 路径——显式入参仍优先于本表）。**
+AUTO_DEFAULTS = {"auto_heal": True, "auto_scrub": False,
+                 "auto_evolve": False, "auto_tidy": True}
+#: 各 `auto_*` 的 env 覆盖键（env 路径入口照此读；即各档的 opt-out 名）。
+AUTO_ENVS = {"auto_heal": "MDCG_SUSTAIN_AUTOHEAL",
+             "auto_scrub": "MDCG_AUTO_SCRUB",
+             "auto_evolve": "MDCG_AUTO_EVOLVE",
+             "auto_tidy": "MDCG_AUTO_TIDY"}
+#: 关断字面量——与两入口既有口径逐字一致的三写法（`0` / `false` / `False`）。
+AUTO_OFF_VALUES = ("0", "false", "False")
+
 DEFAULT_WARN_FACTOR = 2.5         # 2.5× 心跳间隔 → 警告
 DEFAULT_DEAD_FACTOR = 3.5         # 3.5× → 失联
 DEFAULT_WORKING_FACTOR = 2.0      # 任务执行中阈值 ×2
 STALE_TEMP_AGE = 3600.0           # 临时文件超过 1h 视为陈旧
 ACCESS_LOG_COMPACT_LINES = 500    # 访问日志超过该行数即折叠（否则无上限增长）
 _POLL = 0.2                       # 循环轮询步长（常驻进程 CPU 可忽略）
+
+
+# 生效条件：name 为 AUTO_DEFAULTS 的键时返回该档缺省的 bool（真源表取值，无副作用）；键不存在时抛 KeyError（不做静默回落——拼错档名即为编程错误）。
+def auto_default(name: str) -> bool:
+    """`auto_*` 缺省的真源读取（无环境、无入参）。"""
+    return bool(AUTO_DEFAULTS[name])
+
+
+# 生效条件：name 为 AUTO_DEFAULTS 的键时，从 environ（缺省 os.environ）按 AUTO_ENVS[name] 取名取值，缺键时回落「真源缺省对应的字面量」（真值→"1"、假值→"0"）；取值经 str() 后不属于 AUTO_OFF_VALUES 即为真。返回 bool。
+def auto_from_env(name: str, environ=None) -> bool:
+    """env 路径（常驻 serve 自启）的 `auto_*` 读取器。
+
+    与改动前的逐处字面量**同义**：`os.environ.get(<键>, <默认>) not in
+    ("0", "false", "False")`——默认字面量由真源表推出，不再各写一份。
+    """
+    env = os.environ if environ is None else environ
+    return str(env.get(AUTO_ENVS[name],
+                       "1" if AUTO_DEFAULTS[name] else "0")) not in AUTO_OFF_VALUES
+
+
+# 生效条件：args 为 dict 且含 name 键时返回 bool(args[name])（显式传 None 亦为 False——与改动前 `bool(a.get(name, <默认>))` 逐字同义）；args 非 dict 或缺该键时回落 auto_default(name)。
+def auto_from_args(name: str, args, environ=None) -> bool:
+    """op 路径（工具面 `sustain action=start`）的 `auto_*` 读取器。
+
+    判据是**键在不在**而不是值真假：`{"auto_tidy": False}` 与
+    `{"auto_tidy": None}` 都按「显式给了」处理（前者关、后者按 bool(None)=False
+    关），缺键才回落真源缺省——与改动前 `a.get(name, default)` 的语义一字不差。
+    `environ` 仅为签名对齐 `auto_from_env`（op 路径不读 env；保留位以免调用点
+    两边形参不一致）。
+    """
+    if isinstance(args, dict) and name in args:
+        return bool(args[name])
+    return auto_default(name)
 
 
 # --------------------------------------------------------------------------
@@ -944,7 +1002,7 @@ def watermarks(cg) -> dict:
 # 常驻循环
 # --------------------------------------------------------------------------
 
-# 生效条件：传入 cg 即构造实例并把 self.cg 指向它，name/beat_interval/heal_interval/auto_heal/scrub_interval/auto_scrub/evolve_interval/auto_evolve/tidy_interval/auto_tidy 用各默认值（DEFAULT_* 与 False/True）经 float()/bool() 落为 self 属性，ledger 为假值（默认 None）时回落 SessionLedger(cg.root)，d 经 net_dir(d) 赋值，其余运行态字段初始化为 False/None/空列表/空 Event/Lock
+# 生效条件：传入 cg 即构造实例并把 self.cg 指向它，name/beat_interval/heal_interval/auto_heal/scrub_interval/auto_scrub/evolve_interval/auto_evolve/tidy_interval/auto_tidy 用各默认值（DEFAULT_* 与 AUTO_DEFAULTS 真源表）经 float()/bool() 落为 self 属性，ledger 为假值（默认 None）时回落 SessionLedger(cg.root)，d 经 net_dir(d) 赋值，其余运行态字段初始化为 False/None/空列表/空 Event/Lock
 class SustainLoop:
     """常驻自维持循环：后台线程周期心跳 + 周期巡检 + 必要时自愈。
 
@@ -952,18 +1010,21 @@ class SustainLoop:
     让对端立刻看到「正常下线」而不是「失联」。
     """
 
-# 生效条件：传入 cg 时按 name 与各 DEFAULT_* 默认值初始化——self.d=net_dir(d)（d 假值时回落 MDCG_SUSTAIN_DIR/~/ .mdcg/sustain）、self.ledger=ledger or SessionLedger(cg.root)（ledger 假值时新建），beat/heal/scrub/evolve/tidy 间隔 float() 化、auto_heal/auto_scrub/auto_evolve/auto_tidy bool() 化后存为实例属性；
+# 生效条件：传入 cg 时按 name 与各 DEFAULT_* / AUTO_DEFAULTS 真源表默认值初始化——self.d=net_dir(d)（d 假值时回落 MDCG_SUSTAIN_DIR/~/ .mdcg/sustain）、self.ledger=ledger or SessionLedger(cg.root)（ledger 假值时新建），beat/heal/scrub/evolve/tidy 间隔 float() 化、auto_heal/auto_scrub/auto_evolve/auto_tidy bool() 化后存为实例属性；
     def __init__(self, cg, name: str = "md_cg", *,
                  beat_interval: float = DEFAULT_BEAT_INTERVAL,
                  heal_interval: float = DEFAULT_HEAL_INTERVAL,
-                 auto_heal: bool = True, d: str = None,
+                 # 四档 `auto_*` 缺省取自**单一真源**（P0-2）：本形参默认值与
+                 # 两个入口读取的是同一张表，`SustainLoop(cg)` 与
+                 # `sustain action=start` / `_start_sustain` 三面同值。
+                 auto_heal: bool = AUTO_DEFAULTS["auto_heal"], d: str = None,
                  ledger: SessionLedger = None,
                  scrub_interval: float = DEFAULT_SCRUB_INTERVAL,
-                 auto_scrub: bool = False,
+                 auto_scrub: bool = AUTO_DEFAULTS["auto_scrub"],
                  evolve_interval: float = DEFAULT_EVOLVE_INTERVAL,
-                 auto_evolve: bool = False,
+                 auto_evolve: bool = AUTO_DEFAULTS["auto_evolve"],
                  tidy_interval: float = DEFAULT_TIDY_INTERVAL,
-                 auto_tidy: bool = False):
+                 auto_tidy: bool = AUTO_DEFAULTS["auto_tidy"]):
         self.cg = cg
         self.name = name
         self.beat_interval = float(beat_interval)
@@ -1073,11 +1134,12 @@ class SustainLoop:
                 next_tidy = now + self.tidy_interval
             self._stop.wait(_POLL)
 
-# 生效条件：以 apply=self.auto_tidy 调 writelimit.tidy_contextual(self.cg, actor="sustain_tidy")，把 t/scanned/groups/members/applied_count/auto_tidy 记入 self.last_tidy 与 tidys（仅保留最近 20 条），随后调 _tick_conformance()；auto_tidy=False（默认）时只盘点不落盘；
+# 生效条件：以 apply=self.auto_tidy 调 writelimit.tidy_contextual(self.cg, actor="sustain_tidy")，把 t/scanned/groups/members/applied_count/auto_tidy 记入 self.last_tidy 与 tidys（仅保留最近 20 条），随后调 _tick_conformance()；auto_tidy 为假时只盘点不落盘；
     def _tick_tidy(self):
         """整理巡检（contextual 流水治理·读侧）：同构组聚合 + 成员降权。
 
-        确定性动作、永不删节点；`auto_tidy=False`（默认）只盘点不落盘。
+        确定性动作、永不删节点；`auto_tidy` 为假时只盘点不落盘。缺省值取自
+        模块级真源 `AUTO_DEFAULTS`（P0-2；缺省为 True，opt-out 见该表注释）。
         治理对象：单日批次流水（「批次247收官记忆」×163 那类同模板写入）
         —— 写入侧限流（writelimit.check）拦增量，本巡检收敛存量。
         """
