@@ -39,10 +39,19 @@ _ATOMS_ZH = None
 ZH_LO, ZH_HI = "\u4e00", "\u9fff"
 
 
-# 生效条件：单参 ch 为长度 1 的 str 时返回 ZH_LO <= ch <= ZH_HI（CJK 基本区）的布尔值；ch 为空串或长度 >1 时按 str 字典序比较（无中文语义，调用方只传单字符）。
+# 生效条件：单参 ch 为长度恰为 1 的 str 时返回 ZH_LO <= ch <= ZH_HI（CJK 基本区）；长度 != 1（空串/多字符串）一律返回 False（2026-09-30 清理批次把边界收紧为「长度恰为 1」——此前只在 ch 为空串时为假，多字符串按字典序比较可能被误判为真）。
 def is_zh_char(ch):
-    """中文段判据（单点）：CJK 统一表意文字基本区 U+4E00–U+9FFF。"""
-    return ZH_LO <= ch <= ZH_HI
+    """中文段判据（单点）：CJK 统一表意文字基本区 U+4E00–U+9FFF。
+
+    边界约定（2026-09-30 清理批次乙2）：**仅长度恰为 1 的串可为真**——
+    空串与长度 >1 的串一律 False。此前只有空串为假（链式比较
+    `ZH_LO <= ch` 对空串即假），而多字符串按字典序比较：`is_zh_char("中文")`
+    判真（首字符在区间即真）＝判据外溢。两侧调用点清点结果：本函数只有
+    `unify.py::_runs` 与 `test_unify_scope.py::zh_runs` 两处消费，均逐字符
+    传入 ⇒ 本收紧对存量行为零变更；Rust 侧 `text.rs::is_zh` 收 `char`，
+    天然无空/多字符二态，边界语义两侧一致（docstring 已互指）。
+    """
+    return len(ch) == 1 and ZH_LO <= ch <= ZH_HI
 
 
 # 生效条件：模块级常量 `_ATOMS_ZH` 为 None 时按 `__file__` 所在目录的 atoms.json 取 `data.get("atoms", [])` 各项 `zh` 建集合并缓存，非 None 时直接返回 `_ATOMS_ZH`。

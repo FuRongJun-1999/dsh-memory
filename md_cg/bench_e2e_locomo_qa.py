@@ -25,8 +25,13 @@
   python -X utf8 -m md_cg.bench_e2e_locomo_qa --translate   # 翻译 5882 turn + 500 问句
   python -X utf8 -m md_cg.bench_e2e_locomo_qa               # 全量 500 题 × 2 臂
   python -X utf8 -m md_cg.bench_e2e_locomo_qa --quick       # 冒烟 3 题（须先完成翻译）
-环境：DEEPSEEK_API_KEY；建议 MDCG_UNIFY_QUERY=0（中文问句含英文名时批次15归一有
-形态缺陷，见 docs/eval/端到端干扰池评测_v1.1 §4）。
+环境：DEEPSEEK_API_KEY；归一层**缺省开启即可**——批次15 归一曾把中文问句的中文段
+逐字切开（中文问句含英文名时的形态缺陷，见 docs/eval/端到端干扰池评测_v1.1 §4），
+该缺陷已由 2026-09-30 作用域收窄（批次 26：只译英文内容、中文段原样）修掉：
+locomo-zh-500 定点实测 旧口径 lexical hit@1 94.4% / lexical,fuzzy 87.2% →
+收窄后 95.8% / 96.6%（口径真源 docs/hive/检索算法口径对照_v0.1.md）。
+`MDCG_UNIFY_QUERY=0` 保留为**对照口径**（归一层全关，实测 96.4% / 97.2%），
+不是缺省建议值。
 """
 from __future__ import annotations
 

@@ -101,11 +101,29 @@ for c in FX:
 for t in ("领养 LGBTQ 群体 支持 包容", "领养 机构 LGBTQ 群体 支持 包容"):
     ok(unify_query(t) == t, "中夹英原型例：中文段逐字保留、英文片段原样：%r" % t)
 
-# ---- 6 · 结构判据：混合 query 的中文段逐字保留（不切分、不送 segment）----
+# ---- 6 · 结构判据（对**实现产物**断言）：混合 query 的中文段逐字保留 ----
+# 2026-09-30 清理批次（甲2）修假守卫：本节此前比的是 fixture 的**期望值**
+# （`run in c["out"]`——拿期望比期望），对实现零约束力：做「中文段也送
+# segment」变异时本节 0 项红。现改为直接调 `unify_query` 并对**产物**断言：
+# 中文段必须在产物里逐字出现，且其逐字切开形（`" ".join(run)`）不得出现。
+# 单字中文段（如「年」）的切开形与其本身同形，故切开判据只在 len(run) > 1
+# 时施加（否则是恒假的伪红）。
 for c in FX:
+    got = unify_query(c["in"])
     for run in zh_runs(c["in"]):
-        ok(run in c["out"],
-           "中文段被切开/改写 [%s] 段=%r out=%r" % (c["name"], run, c["out"]))
+        ok(run in got,
+           "中文段未逐字保留（被改写）[%s] in=%r 段=%r got=%r"
+           % (c["name"], c["in"], run, got))
+        if len(run) > 1:
+            ok(" ".join(run) not in got,
+               "中文段被逐字切开（送了 segment）[%s] in=%r 段=%r got=%r"
+               % (c["name"], c["in"], run, got))
+# 原型例（任务口径原句）同样对产物断言：中文段逐字保留、英文片段不动
+for t in ("领养 LGBTQ 群体", "AI 记忆 系统", "自我接纳", "蜂群调度 依赖门禁"):
+    got = unify_query(t)
+    for run in zh_runs(t):
+        ok(run in got and " ".join(run) not in got,
+           "原型例中文段逐字保留 [%r] 段=%r got=%r" % (t, run, got))
 ok(zh_runs("领养 LGBTQ 群体") == ["领养", "群体"], "中文段抽取判据自检")
 
 # ---- 7 · 空白折叠为单空格（段内/段间）----
@@ -121,6 +139,28 @@ try:
     ok(unify_query(src) == src, "链路抛异常 → 原样返回")
 finally:
     _cn.query_atoms = _saved
+
+# ---- 9 · 中文判据边界（2026-09-30 清理批次乙2）：仅长度恰为 1 的串可为真 ----
+# 事实读数（本机实测，见清理批次回执）：留池条目 ⑥ 记「`is_zh_char("")` 返回
+# True」——**实测不成立**：`ZH_LO <= ch <= ZH_HI` 是链式比较，对空串即假，
+# 收紧前 `is_zh_char("")` 已返回 False。真实外溢面是**多字符串**——
+# 收紧前 `is_zh_char("中文")` 判真（首字符在区间即真）。两处消费点
+# （unify._runs / 本文件 zh_runs）均逐字符传入，故本收紧对存量行为零变更，
+# 只把判据面（长度恰为 1）钉死。
+ok(is_zh_char("") is False, "空串不是中文（判据面外）")
+ok(is_zh_char("中文") is False, "多字符串为假（首字符在区间亦然）")
+ok(is_zh_char("中a") is False, "多字符串为假（汉字+ASCII 混合）")
+ok(is_zh_char("中") is True, "单汉字为真")
+ok(is_zh_char("\u4e00") is True, "区间下界单汉字为真")
+ok(is_zh_char("\u9fff") is True, "区间上界单汉字为真")
+ok(is_zh_char("\u4dff") is False, "区间下界外单字符为假（U+4DFF）")
+ok(is_zh_char("\ua000") is False, "区间上界外单字符为假（U+A000）")
+ok(is_zh_char("a") is False, "单 ASCII 字母为假")
+# 两侧边界语义一致性：Rust `text::is_zh` 收 char，天然无空/多字符二态；
+# 本侧判据收紧后，「长度 != 1 一律 False」与「按 char 判区间」等价
+# （见 rust/src/text.rs::is_zh docstring 的边界约定段）。
+for ch in ("\u4e00", "\u9fff"):
+    ok(is_zh_char(ch) and len(ch) == 1, "单字符区间内 → 真（与 Rust is_zh 等价）%r" % ch)
 
 if BAD:
     print("[test_unify_scope] FAILED %d/%d 断言：" % (len(BAD), N))

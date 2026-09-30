@@ -150,8 +150,10 @@ impl Atoms {
     /// 非中文段」切分——**中文段逐字保留、绝不送 segment**（2026-09-30 使用者
     /// 裁定收窄作用域：只对英文内容做翻译归一，中文内容原样不动），含 ASCII
     /// 字母的非中文段走 en 归一→查表→segment，不含 ASCII 字母的非中文段
-    /// （数字/标点）折空白后原样保留。各段按原顺序单空格 join；产物为空则
-    /// 回退原串。
+    /// （数字/标点）折空白后原样保留。各段按原顺序单空格 join；**归一产物为空
+    /// （折空白后）则回退原入参本身（不 trim）**——与 Python `unify_query` 的
+    /// `return text` 逐位同语义（乙1：此前误为 `query.trim()`，两侧对含首尾
+    /// 空白的空产物入参不一致；fixture「空产物回退」例钉两侧逐位相同）。
     ///
     /// 中文判据单点 = `crate::text::is_zh`（U+4E00–U+9FFF），与 Python
     /// `md_cg/semantic/canonical.py::is_zh_char` 同判据；逐位对拍 fixture =
@@ -185,7 +187,10 @@ impl Atoms {
             .collect::<Vec<String>>()
             .join(" ");
         if joined.trim().is_empty() {
-            query.trim().to_string()
+            // 回退原入参（不 trim）——对齐 Python `unify_query` 尾行 `return text`
+            // （text 为未 strip 的原入参）。取 `query` 而非 `query.trim()` 是
+            // 2026-09-30 清理批次乙1 的定点修正。
+            query.to_string()
         } else {
             joined
         }

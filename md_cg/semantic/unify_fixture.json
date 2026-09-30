@@ -1,6 +1,6 @@
 {
-  "_note": "统一归一层（unify_query / Atoms::unify）作用域收窄（2026-09-30 使用者裁定：只对英文内容做翻译归一，中文内容原样不动）的逐位对拍 fixture。两侧同源钉死：Python 守卫 md_cg/test_unify_scope.py 与 Rust 单测 rust/src/atoms.rs::tests::unify_mixed_fixture_matches_python 都读本文件（Rust 侧 include_str! 编译期嵌入）。任一侧实现漂移即红。",
-  "_caveat": "非中文段一律用「两侧处理同构」的形态：全小写英文词（或命中 en_zh_map 的形）。首字母大写的**未登录**词（AI/LGBTQ）与「查表命中的大写专名」（Paris）两侧存在**既有**非对称（Python 保留原大小写 / 专名双原子，Rust 一律 lower 化），非本次收窄引入，故不入本 fixture。",
+  "_note": "统一归一层（unify_query / Atoms::unify）作用域收窄（2026-09-30 使用者裁定：只对英文内容做翻译归一，中文内容原样不动）的逐位对拍 fixture。两侧同源钉死：Python 守卫 md_cg/test_unify_scope.py 与 Rust 单测 rust/src/atoms.rs::tests::unify_mixed_fixture_matches_python 都读本文件（Rust 侧 include_str! 编译期嵌入）。任一侧实现漂移即红。含「空产物回退」例（入参含首尾空白且归一产物为空 → 两侧逐位回退**原入参本身**，2026-09-30 清理批次乙1 钉住；Python 侧语义为 unify_query 尾行 `return text`）。",
+  "_caveat": "非中文段一律用「两侧处理同构」的形态：全小写英文词（或命中 en_zh_map 的形）。两侧**既有非对称**共三条（非 2026-09-30 收窄引入，亦非本清理批次引入——HEAD 对照实测同分歧），故不入本 fixture：①未登录大写英文词——Python 保留原 case（`领养 LGBTQ 群体`→原样、`AI 记忆 系统`→原样），Rust 经 normalize_en 一律 lower（→`领养 lgbtq 群体`/`ai 记忆 系统`）；②命中词表的专名——Python 双原子保留原词+译词（`Paris 报告`→`Paris 巴 黎 报告`），Rust 只出译词（→`巴 黎 报告`）；③字母与数字同段——Python 丢数字（`beef 2024 报告`→`牛肉 报告`），Rust 保数字（→`牛肉 2024 报告`）。**真源 = `docs/hive/检索算法口径对照_v0.1.md` 正文「两侧既有非对称」表**（含两侧原始读数、fixture 为何避开、以及「统一到哪一侧」的待裁定项）；本文件只钉两侧同构形态。",
   "cases": [
     {"name": "纯英·跨语归一冒烟", "in": "I eat beef yesterday", "out": "我 吃 牛肉 昨天"},
     {"name": "纯英·单动词时态还原", "in": "wrote", "out": "写"},
@@ -12,6 +12,7 @@
     {"name": "中夹英·未登录英文片段+中文段逐字保留", "in": "领养 xyzzy 群体", "out": "领养 xyzzy 群体"},
     {"name": "英夹中·英文译中文段原样", "in": "beef 牛肉", "out": "牛肉 牛肉"},
     {"name": "前后空白·折叠", "in": "  beef 报告  ", "out": "牛肉 报告"},
+    {"name": "空产物回退·原样返回原入参（不 trim）", "in": "  the is  ", "out": "  the is  "},
     {"name": "多空格·折叠为单空格", "in": "beef   报告", "out": "牛肉 报告"},
     {"name": "数字·非英文段原样", "in": "2024 报告", "out": "2024 报告"},
     {"name": "数字+中文+英文混合", "in": "2024 年 beef 报告", "out": "2024 年 牛肉 报告"},

@@ -38,6 +38,11 @@ pub fn is_split_char(c: char) -> bool {
 /// 分段（收窄后中文段不再送 segment）。本函数提出前 `cn_recall_grams` 内含
 /// 一份同区间的局部 `fn is_zh`、`normalize_en` 内含一份同区间内联判定——
 /// 本次收口为一处。
+///
+/// 边界约定（2026-09-30 清理批次乙2）：Python 侧 `is_zh_char` 收 str，故须
+/// 显式声明「仅长度恰为 1 的串为真（空串/多字符串一律 False）」；本函数收
+/// `char`，天然不存在空/多字符二态，两侧判据在此边界上语义一致——改判据
+/// 两侧须同步，否则 rank_parity 漂移。
 #[inline]
 pub fn is_zh(c: char) -> bool {
     ('\u{4e00}'..='\u{9fff}').contains(&c)

@@ -3068,9 +3068,10 @@ class MdCG:
               ValueError（fail-closed 只针对调用方误用）。
         """
         q = (query or "").strip()
-        # 批次 15 统一口径（unify.py）：任意语言 query → 标准原子序列
-        # （统一翻译为中文→归一化到标准中文集→检索）；纯中文原样、
-        # MDCG_UNIFY_QUERY=0 可关、失败静默原样
+        # 批次 15 统一口径（unify.py，2026-09-30 收窄作用域）：只译**英文内容**
+        # → 标准原子序列，中文段逐字原样（不再整条归一）；纯中文/无 ASCII 字母
+        # 原样、MDCG_UNIFY_QUERY=0 可关、失败静默原样。口径真源见
+        # docs/hive/检索算法口径对照_v0.1.md
         from .semantic.unify import unify_query
         q = unify_query(q)
         if not q:
