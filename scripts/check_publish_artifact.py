@@ -396,10 +396,22 @@ def extract_pack_manifest(stdout: str):
     return picked[2], meta
 
 
+# 生效条件：无入参，恒返回一个字符串——Windows 返回 "npm.cmd"（npm 在 Windows 上的可执行入口），其它平台返回 "npm"；不判存在性、不触盘。
+def resolve_npm() -> str:
+    """npm 可执行入口的**解析单点**（全仓唯一，供本门禁与 check_publish_smoke 共用）。
+
+    为什么必须是单点：Windows 上 `npm` 实际由 `npm.cmd` 承载，直接写 "npm" 会
+    落到无扩展名搜索；而 `cmd /c npm ...` 形态在本仓 Bash 里会打印 cmd 横幅且
+    **假绿**（rc=0——2026-09-30 实测取证），故命令一律按 argv 列表直呼本函数
+    返回的名字。第二个调用方（出货面冒烟腿）必须复用此处，不再写第二套方言
+    ——两套方言必然随平台差异漂移。
+    """
+    return "npm.cmd" if os.name == "nt" else "npm"
+
+
 def _npm_pack_json(root: str, extra_args=()):
     """执行一次 `npm pack --dry-run --json [extra]` → stdout / None（环境错误）。"""
-    npm = "npm.cmd" if os.name == "nt" else "npm"
-    argv = [npm, "pack", "--dry-run", "--json"] + list(extra_args)
+    argv = [resolve_npm(), "pack", "--dry-run", "--json"] + list(extra_args)
     print("  执行：%s" % " ".join(argv))
     try:
         proc = subprocess.run(
