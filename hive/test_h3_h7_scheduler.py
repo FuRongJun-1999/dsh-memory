@@ -207,10 +207,13 @@ def _cleanup_persist():
 
 # --------------------------------------------------------------- 编译面（临时副本）
 
-# 生效条件：无入参——首次调用时把 hive/Cargo.toml(+Cargo.lock) + hive/src 复制进
-# 系统临时目录的独立 crate 副本，返回 (crate_dir, target_dir, exe_path, log)。
+# 生效条件：无入参——首次调用时把 hive/Cargo.toml(+Cargo.lock) + hive/src/**id_charset_blocks.txt**
+# 复制进系统临时目录的独立 crate 副本，返回 (crate_dir, target_dir, exe_path, log)。
 # 复制而非就地编译：在役 serve 持有 hive/target/release/hive.exe（写不进去），
 # 且变异轮改的是副本、工作区源码只读。
+# 区块表数据必须一并搬（2026-09-30 裁定 ①-(c)）：`job.rs` 以
+# `include_str!("../id_charset_blocks.txt")` **编译期嵌入**该表，副本缺它 = 编译失败
+# （实测：漏搬时本守卫 27 条断言全体退化为「编译未产出可执行件」）。
 def _build_env():
     if _BUILD["exe"]:
         return _BUILD
@@ -223,6 +226,8 @@ def _build_env():
     if os.path.isfile(lock):
         shutil.copy2(lock, os.path.join(crate, "Cargo.lock"))
     shutil.copytree(os.path.join(_HERE, "src"), os.path.join(crate, "src"))
+    shutil.copy2(os.path.join(_HERE, "id_charset_blocks.txt"),
+                 os.path.join(crate, "id_charset_blocks.txt"))
     _BUILD["dir"] = crate
     _BUILD["target"] = os.path.join(root, "target")
     _BUILD["exe"] = os.path.join(

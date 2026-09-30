@@ -12,10 +12,18 @@
      `HIVE_EXE` 不可用 → 显式 `SubmitError`，不静默降级）；orch 面四槽透传。
   B  编号分配：连续分配不碰撞、编号 4 位定宽、编号用满 9999 → 显式报错（占位目录
      构造，**不真跑满 9999 次扫描**）、不加宽不回绕。
-  C  字符集闸（B4/B5）：合法/非法两侧 + 拒收**原因级**可读性 + B6 语料**两侧逐例
-     同判** + NFC 改写区块表与 Rust 逐区间同源 + Other_Alphabetic 补齐闭集**实测
-     重导**（表陈化即红）+ 方向完备性（Python 收 ⟹ Rust 收，**全码点**批量证明）
-     + 残余分叉的定性、计量与方向。
+  C  字符集闸（B5′）：唯一真源**区块表** `hive/id_charset_blocks.txt`（三处读者共读；
+      判据**不查任何 Unicode 属性库** ⇒ 两侧版本差结构性不可能）+ 合法/非法两侧 +
+      拒收**原因级**可读性 + 拒收项**逐条显式断言**（零宽/双向控制/控制字符/路径成分/
+      尾点/首尾空白/设备名）+ B6 语料**两侧逐例同判**（live oracle = 真 `hive.exe`）+
+      **判据 ≡ 表**（c13 三条断言）：① Rust 侧全码点遍历（承载于 `job.rs` 单测
+      `charset_predicate_equals_blocks_table` / `job_id_and_slot_gates_use_table_membership`，
+      本守卫核验其在位与形态）；② Python 侧全码点遍历（本守卫 C8b/C8b2 实跑）；
+      ③ 由 ①② 合起来得到**两侧接受集逐码点相同**（C8c，结构性而非逐例对齐）。
+      另按 c1/c2「三处读者共读同一份数据」补第三处读者（`md_cg/units.py`）的
+      「判据 ≡ 表」全码点遍历（C8e）与三处同源取证（C8f）——故本组的三条断言
+      实际覆盖**三处读者**（Rust / MCP / md_cg）。
+      **全码点遍历只出现在测试内**：生产判据是 O(区间数) 的二分/线性查表，无任何全表扫描。
   D  拼路径三入口（kill/poll/depends_on）：非法 id（`..`/`../victim`/`/etc`/`h:x`/
      零宽/尾点/NUL 设备名）在**三条入口**均被拒——Rust CLI 用**真实退出码**，
      MCP 用 `_valid_job_id`/`_dep_gate`/`_t_kill`/`_t_poll` 的返回值。
@@ -24,13 +32,19 @@
   F  `list_jobs_by_created` 的**保序**（旧形态名序==created_ts 序）与**按真值**
      （created_ts 与名序相反时仍按 created_ts 排）+ 哨兵/确定性/只读 + 与 exe 同序。
   G  存量共存：旧形态 id 仍合法、仍被 list_jobs 收、仍可 poll/kill。
-  H  定点变异自证（`--branch-baseline`，退出码 0/1/2）。
-  I  红基线（`--head-baseline`：临时物化 HEAD 字节跑同一批判据谓词，**绝不覆盖工作区**）。
+  H  定点变异自证（`--branch-baseline`，退出码 0/1/2）：逐处把**判据面本身**改坏
+      （源码级关判据分支、**数据面**把区块表删一段/多塞一段、让某侧解析失败改
+      fail-open、让 `md_cg` 面回到 ASCII 白名单、临时 crate 副本里把表文件删一段、
+      关掉一条显式拒收），断言红项集与退出码**逐项实测后写死**（不猜），
+      并以 1 处**假阳性对照**（与判据无关的改名）证明本守卫不误报。
+  I  红基线（`--head-baseline`：把**锚点字节**临时物化后跑判据谓词，**绝不覆盖工作区**；
+      谓词**按条自带批次锚点**——每条在「引入它的批次的前一个提交」上必红、在工作区上必绿；
+      显式给 `REF` 则统一用该 ref）。
 
 用法：
   python -X utf8 -m hive.test_id_contract_v2                  # 绿态（默认）
   python -X utf8 -m hive.test_id_contract_v2 --branch-baseline  # 定点变异自证
-  python -X utf8 -m hive.test_id_contract_v2 --head-baseline    # 红基线（HEAD 字节）
+  python -X utf8 -m hive.test_id_contract_v2 --head-baseline [REF]  # 红基线（REF 字节，缺省 HEAD）
 退出码：0 = 全绿 / 1 = 有失败 / 2 = 变异锚点漂移（ANCHOR-MISS，fail-closed）。
 
 隔离纪律：一切提交/分配只落在**本进程自建的临时池**（`HIVE_JOBS_DIR` + `_jobs_dir`
@@ -41,10 +55,10 @@
 已知边界（如实声明，不静默）：
   · NUL 字节进不了 argv ⇒ 该语料例的 live exe 对照不适用（Rust 单测已覆盖），
     Python 判定仍断言。
-  · 「Rust 收 / Python 拒」存在一个**方向安全**的残余类：Python 的 `unicodedata`
-    比 Rust 工具链旧，Python 判「未分配(Cn)」而 Rust 已赋值的字母 ⇒ Python 更严。
-    C9 逐轮**实测并钉住**该残余的定性（只许出现在 Cn 上）与方向（不许出现
-    「Python 收而 Rust 拒」）。
+  · **不再有「Rust 收 / Python 拒」的版本差残余**（2026-09-30 裁定 ①-(c)）：判据换成
+    同一份区块表后，两侧接受集由**同一份数据**决定，「判据 ≡ 表」两处全码点遍历
+    合起来即零分歧——旧口径（`unicodedata` vs Rust 工具链的属性表版本差、Cn 残余
+    声明、逐码点喂真 exe 的重导入口）**整段退休**。
 """
 from __future__ import annotations
 
@@ -91,6 +105,10 @@ for _p in (_REPO, _HERE):
 
 from hive import orch as _orch                                 # noqa: E402
 from hive.hive_mcp import mcp_server as _hm                    # noqa: E402
+#: 第三处读者（c1/c2「三处读者共读同一份数据」）：`md_cg/units.py` 面。测试侧 import 不破
+#: 零依赖家法（家法约束的是 **md_cg 不依赖 hive**，反向无约束；同形的先例 = 本仓
+#: `hive/test_mdcg_units_charset_parity.py` 亦以 hive 侧守卫覆盖 md_cg 面）。
+from md_cg import units as _units                              # noqa: E402
 
 #: **冻结引用**：`_iso` 会把 `_hm._jobs_dir` 换成校验桩，若桩内再调 `_hm._jobs_dir()`
 #: 就会无限递归（本守卫首版实测踩到）。判据必须走冻结引用——这也让「变异轮里 exec
@@ -115,7 +133,8 @@ SLOT_ZH_PREFIX = "h_zcode端_灵枢迭代_反思单元_"
 #: 拒收原因级标记（D1(3) 的「错误显式」面：每条拒收项都要能在原因里被认出）
 REASON_MARK = {
     "尾点": "尾点",
-    "零宽": "零宽/双向控制",
+    "零宽": "零宽",
+    "双向控制": "双向控制",
     "设备名": "保留设备名",
     "NFC": "NFC",
     "路径": "路径成分",
@@ -244,53 +263,6 @@ def _rust_verdict(jid: str):
     if not isinstance(doc, dict):
         return None
     return "accept" if doc.get("ok") else "reject"
-
-
-#: 分歧候选类目（B5 的 `is_alphanumeric` 两侧差只可能落在这几类；实测得到的两类
-#: 载体是 Mn/Mc/So，其余类目**每轮实测零命中**——放进来是为了让「零命中」本身可证）。
-#: `Co`（私用区 13.7 万码点）不入候选：Rust 的 Alphabetic 不含它（C7c 抽样核证）。
-_CAND_CATS = frozenset(("Mn", "Mc", "Me", "So", "Sk", "Sm", "Po", "Pc", "Cf",
-                        "No", "Nd", "Nl", "Sc", "Zs", "Ps", "Pe", "Pi", "Pf",
-                        "Pd", "Zl", "Zp"))
-
-
-def _probe_one(cp: int):
-    return cp, (_rust_verdict("h" + chr(cp)) == "accept")
-
-
-def _rust_accept_batch(chars: list):
-    """批量问 exe「这些单字符整体是否合法」。
-
-    Rust 判据逐字符独立，且载荷只含字母数字/闭集成员（不含 `_`/`.`/空白/控制），
-    故「整串合法」⟺「每个字符都合法」——设备名分段、尾点、首尾空白三条结构判据
-    不可能被批量串触发。用于**完备**证明「Python 收 ⟹ Rust 收」：
-    ~14 万个 Python 收的字符只需数百次 exe 调用（二分定位反例）。
-    """
-    return _rust_verdict("h" + "".join(chars)) == "accept"
-
-
-#: 批量法单块载荷长度（Windows CreateProcess 命令行上限 ~32K 字符，留足余量）
-_BATCH_CHARS = 128
-
-
-def _scan_unaccepted(chars: list) -> list:
-    """返回 chars 中**未被 Rust 接受**的子集（批量 + 二分；完备而非抽样）。"""
-    bad = []
-    stack = [list(chars[i:i + _BATCH_CHARS])
-             for i in range(0, len(chars), _BATCH_CHARS)]
-    while stack:
-        blk = stack.pop()
-        if not blk:
-            continue
-        if _rust_accept_batch(blk):
-            continue                      # exe 不可用/整块都收 → 无反例
-        if len(blk) == 1:
-            bad.append(blk[0])
-        else:
-            m = len(blk) // 2
-            stack.append(blk[:m])
-            stack.append(blk[m:])
-    return bad
 
 
 # --------------------------------------------------------------- 池夹具
@@ -494,10 +466,17 @@ def g_a():
           and os.path.isfile(os.path.join(jobs_m, gjid, "spec.json"))
           and os.path.isfile(os.path.join(jobs_m, gjid, "status.json")),
           json.dumps(good, ensure_ascii=False)[:200])
-    with open(os.path.join(jobs_m, gjid, "spec.json"), encoding="utf-8") as f:
-        spec_back = json.load(f)
-    check("A7b·四槽不入 spec.json（与 rust init_job_with_slots 同写序/同口径）",
-          not ({"identity", "task", "unit"} & set(spec_back)), str(sorted(spec_back)))
+    # 「读回」必须能容忍**上游分配/落盘失败**（变异轮里判据被改坏时正是这种态）：
+    # 文件不在 ⇒ A7b 判红而不是把整个守卫打断（守卫的产出是**红项集**，不是 traceback）。
+    spec_path = os.path.join(jobs_m, gjid, "spec.json")
+    spec_back = None
+    if os.path.isfile(spec_path):
+        with open(spec_path, encoding="utf-8") as f:
+            spec_back = json.load(f)
+    check("A7b·四槽不入 spec.json（文件须已落盘；与 rust init_job_with_slots 同写序/同口径）",
+          isinstance(spec_back, dict)
+          and not ({"identity", "task", "unit"} & set(spec_back)),
+          "spec=%r" % (spec_back,))
     check("A7c·返回体透出实际生效的三槽（调用方可见，不静默）",
           (good.get("slots") or {}) == SLOT_OK, str(good.get("slots")))
 
@@ -724,20 +703,27 @@ def _corpus():
     return out
 
 
-def _rust_blocks():
-    """从 Rust **真源**现场解析 `NFC_REWRITE_BLOCKS`（不抄一份常量，逐区间同源比对）。"""
-    with open(os.path.join(_REPO, JOB_RS_REL), encoding="utf-8") as f:
-        src = f.read()
-    body = src.split("pub const NFC_REWRITE_BLOCKS", 1)[1].split("];", 1)[0]
-    return [(int(a, 16), int(b, 16)) for a, b in
-            re.findall(r"\(0x([0-9A-Fa-f]+),\s*0x([0-9A-Fa-f]+)", body)]
-
-
 def _rust_units():
     with open(os.path.join(_REPO, JOB_RS_REL), encoding="utf-8") as f:
         src = f.read()
     body = src.split("pub const UNITS", 1)[1].split("];", 1)[0]
     return re.findall(r'\("(\w+)",\s*"([^"]+)"\)', body)
+
+
+def _src_of(rel: str) -> str:
+    """读仓内文本文件（唯一配方：显式 UTF-8；判据面只看字面量，不做任何解析推断）。"""
+    with open(os.path.join(_REPO, rel), encoding="utf-8") as f:
+        return f.read()
+
+
+#: 「全码点遍历」的三种写法（c13：**只许出现在测试内**——生产热路径上判据是 O(区间数)
+#: 的查表，全表扫描会把每次 id 校验变成 110 万次比较）。
+_FULL_SWEEP_FORMS = ("0..=0x10FFFF", "0..0x110000", "range(0x110000)")
+
+
+def _full_sweep_hits(text: str) -> int:
+    """数 text 里的全码点遍历写法（用于「生产面无、测试面有」的双向断言）。"""
+    return sum(text.count(f) for f in _FULL_SWEEP_FORMS)
 
 
 def _identity_positions():
@@ -798,7 +784,8 @@ REASON_CASES = (
     ("h..", REASON_MARK["尾点"]),
     ("h\u200b", REASON_MARK["零宽"]),
     ("h\u2060", REASON_MARK["零宽"]),
-    ("h\u202e", REASON_MARK["零宽"]),
+    ("h\u202e", REASON_MARK["双向控制"]),
+    ("h\u2066", REASON_MARK["双向控制"]),
     ("h_CON_任务_记录单元_0001", REASON_MARK["设备名"]),
     ("h_CON.txt_任务_记录单元_0001", REASON_MARK["设备名"]),
     ("h_端_任务_LPT9_0001", REASON_MARK["设备名"]),
@@ -809,10 +796,40 @@ REASON_CASES = (
 )
 
 
+#: 真 exe 判定辅助（live 经验面；`h`+c 单字符是否收，NUL 等 argv 不可载者 None）。
+def _probe_verdict(cp: int):
+    return cp, _rust_verdict("h" + chr(cp))
+
+
+#: 换面「放宽」的正向证据（见 §四.8 残点①/②）：表内 Lu/Ll/Lt/Lm/Lo/Nd 且 NFC 稳定、
+#: 而旧属性机制以「兼容分解」为由拒之的 14 个码点（Ĳ/ĳ、Ǆ..ǌ、Ǳ..ǳ）。三处读者都应
+#: **收**它们——第三处读者若退回 ASCII 白名单即在此判红（c13 的第三处读者面）。
+_WIDENED_CODEPOINTS = ([0x0132, 0x0133] + list(range(0x01C4, 0x01CD))
+                       + list(range(0x01F1, 0x01F4)))
+
+
+#: 表文件的**独立解析**（只读数据、不复用被测实现的函数对象——判据与数据分开核）。
+def _table_blocks():
+    with open(os.path.join(_REPO, "hive", "id_charset_blocks.txt"), encoding="utf-8") as f:
+        raw = f.read()
+    out = []
+    for i, line in enumerate(raw.splitlines(), 1):
+        body = line.split("#", 1)[0].strip()
+        if not body:
+            continue
+        parts = body.split("-")
+        if len(parts) != 2:
+            raise SystemExit("表第 %d 行不是 LO-HI 形态：%r" % (i, line))
+        out.append((int(parts[0], 16), int(parts[1], 16)))
+    if not out:
+        raise SystemExit("表解析出空区间集（fail-closed 前提失守）")
+    return out
+
+
 def g_c():
-    begin("C", "字符集闸 B4/B5 + B6 语料两侧同判 + 区块表同源 + 方向完备")
-    check("C0 前置：hive 二进制在盘", _missing_exe() is None,
-          "未找到 %s" % (_missing_exe() or ""))
+    begin("C", "字符集闸 B5′：唯一真源区块表 + 判据 ≡ 表（两侧零分歧）+ 语料两侧同判")
+    check("C0 前置：hive 二进制在盘（live oracle = 由工作区源码编译的 exe）",
+          _missing_exe() is None, "未找到 %s" % (_missing_exe() or ""))
 
     for jid in OK_IDS:
         py, ru = _hm._valid_job_id(jid), _rust_verdict(jid)
@@ -853,99 +870,180 @@ def g_c():
     check("C5·语料两侧都非退化（accept/reject 都有真实样本）",
           n_acc >= 5 and n_rej >= 5, "accept=%d reject=%d" % (n_acc, n_rej))
 
-    # ---- NFC 改写区块表：与 Rust **逐区间**同源
-    rust_blocks = _rust_blocks()
-    check("C6·NFC 改写区块表与 Rust 逐区间一致（%d 区间，缺一即红）" % len(rust_blocks),
-          list(_hm.NFC_REWRITE_BLOCKS) == rust_blocks,
-          "py=%d rust=%d 缺=%s" % (len(_hm.NFC_REWRITE_BLOCKS), len(rust_blocks),
-                                  [b for b in rust_blocks
-                                   if b not in _hm.NFC_REWRITE_BLOCKS][:3]))
-    check("C6b·契约点名的 11 个最低区块在表内（代表点判「会改写」）",
-          all(any(lo <= cp <= hi for lo, hi in _hm.NFC_REWRITE_BLOCKS)
-              for cp in (0x1100, 0x3130, 0xF900, 0xFE30, 0xFE50, 0xFF00,
-                         0x2460, 0x3200, 0x2100, 0x1D400, 0x2F800))
-          and len(_hm.NFC_REWRITE_BLOCKS) >= 11)
-    check("C6c·不误伤：常规中文与 ASCII 字母数字判稳定",
-          all(_hm._nfc_stable_alnum(c) for c in "灵枢迭代Az09zcode端"))
+    # ---- 唯一真源（c1/c2）：表文件 → 三处读者共读的**同一份数据**
+    blocks = _table_blocks()
+    check("C6a·表非退化且已归并到最小（区间升序 ∧ 两两不相邻 ∧ 互不相交）",
+          len(blocks) >= 30 and all(a1 <= b1 < a2 <= b2 and b1 + 1 < a2
+                                    for (a1, b1), (a2, b2) in zip(blocks, blocks[1:])),
+          "%d 条区间" % len(blocks))
+    check("C6b·mcp_server 导入期读表成功且与本地独立解析**逐区间一致**",
+          _hm.ID_CHARSET_ERROR is None and tuple(blocks) == tuple(_hm.ID_CHARSET_BLOCKS),
+          "err=%r py=%d 独立=%d" % (_hm.ID_CHARSET_ERROR, len(_hm.ID_CHARSET_BLOCKS),
+                                    len(blocks)))
+    check("C6c·表缺失/坏表 ⇒ 判据 fail-closed（空表对一切字符 False）",
+          all(_hm._charset_member_in((), c) is False
+              for c in ("A", "z", "0", "灵", "\u0132", "\u0301")),
+          "fail-closed 失守")
+    bad_tables = ("", "# 只有注释\n", "00\n", "0050-0040\n", "0030-0039\n003A-0045\n",
+                  "0050-0060\n0030-0039\n")
+    raised = []
+    for t in bad_tables:
+        try:
+            _hm._parse_charset_blocks(t)
+            raised.append(t)
+        except ValueError:
+            pass
+    check("C6d·解析器对坏表一律 ValueError（空/坏行/逆序/未归并/乱序；绝不静默跳过）",
+          raised == [], "未拒：%r" % (raised[:2],))
+    check("C6e·c5 机械断言：表内**每一个**码点 NFC 稳定（本地 unicodedata 全表重算）",
+          all(unicodedata.normalize("NFC", chr(cp)) == chr(cp)
+              for lo, hi in blocks for cp in range(lo, hi + 1)),
+          "存在 NFC 不稳定码点")
+    check("C6f·不误伤：常规中英文与 ASCII 字母数字判收（含四位编号与旧形态面）",
+          all(_hm._id_charset_member(c) for c in "灵枢迭代Az09zcode端"))
 
-    lv = _missing_exe()
-    if lv is not None:
-        check("C7·分区闭集实测重导（前置：exe 在盘）", False, "未找到 %s" % lv)
-        check("C8·方向完备（前置：exe 在盘）", False, "未找到 %s" % lv)
-        check("C9·残余分叉定性（前置：exe 在盘）", False, "未找到 %s" % lv)
-        return
-
-    # ---- Other_Alphabetic 补齐闭集：**实测重导**（表陈化即红）
-    cand = [cp for cp in range(0x110000)
-            if not (0xD800 <= cp <= 0xDFFF)
-            and unicodedata.category(chr(cp)) in _CAND_CATS
-            and not chr(cp).isalnum()]
-    with ThreadPoolExecutor(max_workers=16) as ex:
-        res = list(ex.map(_probe_one, cand, chunksize=64))
-    got = sorted(cp for cp, ok in res if ok and cp != 0x5F)
-    want = sorted(cp for lo, hi in _hm.OTHER_ALPHABETIC_BLOCKS
-                  for cp in range(lo, hi + 1))
-    check("C7·Other_Alphabetic 补齐闭集 == 真 exe 实测重导（%d 码点 / %d 候选）"
-          % (len(want), len(cand)), got == want,
-          "实测 %d / 表内 %d 差集=%s" % (len(got), len(want),
-                                        sorted(set(want) ^ set(got))[:5]))
-    check("C7b·表确有效用（该码点 Python `isalnum()` 判假、Rust 判真 ⇒ 无表必分叉）",
-          len(want) > 0 and not chr(want[0]).isalnum()
-          and _hm._rust_alphanumeric(chr(want[0]))
-          and _hm._valid_job_id("h" + chr(want[0])) is True
-          and _rust_verdict("h" + chr(want[0])) == "accept")
-    co_sample = [0xE000, 0xE100, 0xF0000, 0xF0100, 0x100000, 0x10FFFD]
-    check("C7c·私用区(Co)抽样：Rust 一律拒（故 Co 不入候选类目是安全的）",
-          all(_rust_verdict("h" + chr(cp)) == "reject" for cp in co_sample),
-          str([hex(cp) for cp in co_sample
-               if _rust_verdict("h" + chr(cp)) != "reject"]))
-
-    # ---- 方向完备：Python 收 ⟹ Rust 收（全码点，批量 + 二分，非抽样）
-    # 预筛 = 与实现**同一份定义**（字母数字 ∪ 补齐闭集）的 O(1) 判据，逐个再由
-    # `_valid_job_id` 本体裁决（预筛只省算力，不放宽判据——C7 已把该定义钉在 exe 上）。
-    tbl = set()
-    for lo, hi in _hm.OTHER_ALPHABETIC_BLOCKS:
-        tbl.update(range(lo, hi + 1))
-    acc_chars = []
+    # ---- c13 三条断言：Rust ≡ 表 / Python ≡ 表 / 二者合起来 ⇒ 两侧**零分歧**
+    with open(os.path.join(_REPO, JOB_RS_REL), encoding="utf-8") as f:
+        job_rs = f.read()
+    check("C8a·Rust 侧判据 ≡ 表（全码点遍历承载于 job.rs 单测，本守卫核验其在位）",
+          "fn charset_predicate_equals_blocks_table()" in job_rs
+          and "fn job_id_and_slot_gates_use_table_membership()" in job_rs
+          and "0..=0x10FFFF" in job_rs,
+          "job.rs 缺「判据 ≡ 表」单测")
+    check("C8a2·Rust 侧**不再查任何 Unicode 属性库**（无属性方法调用、无旧改写表定义）",
+          ".is_alphanumeric()" not in job_rs and ".is_alphabetic()" not in job_rs
+          and ".is_numeric()" not in job_rs
+          and "pub const NFC_REWRITE_BLOCKS" not in job_rs
+          and "fn nfc_rewritable" not in job_rs
+          and "fn nfc_stable_alnum" not in job_rs,
+          "job.rs 仍查属性库")
+    tset = set()
+    for lo, hi in blocks:
+        tset.update(range(lo, hi + 1))
+    mism = []
+    for cp in range(0x110000):
+        if 0xD800 <= cp <= 0xDFFF:        # 代理区不是合法码点（结构上不可达）
+            continue
+        if _hm._id_charset_member(chr(cp)) != (cp in tset):
+            mism.append(cp)
+    check("C8b·Python 侧判据 ≡ 表（**全码点遍历** 0..0x10FFFF：_id_charset_member ≡ 表并集）",
+          mism == [], "%d 个码点不符，例：%s" % (len(mism), [hex(c) for c in mism[:5]]))
+    mism2 = []
     for cp in range(0x110000):
         if 0xD800 <= cp <= 0xDFFF:
             continue
         c = chr(cp)
-        if c in "_.":
-            continue                      # 结构分支（不走字符类判据），单独断言
-        if not (c.isalnum() or cp in tbl):
-            continue
-        if _hm._valid_job_id("h" + c):
-            acc_chars.append(c)
-    bad = _scan_unaccepted(acc_chars)
-    check("C8·方向完备：Python 收的**每一个**字符 Rust 都收（全码点，非抽样）",
-          bad == [], "Python 收 %d 字符，其中 Rust 拒 %d 个：%s"
-          % (len(acc_chars), len(bad), [hex(ord(c)) for c in bad[:5]]))
-    check("C8b·`_` 与 `.` 由结构分支处理且两侧同判",
-          _hm._valid_job_id("h_a.b") and _hm._valid_job_id("h1_a")
-          and not _hm._valid_job_id("h.") and not _hm._valid_job_id("h..")
-          and _rust_verdict("h_a.b") == "accept"
-          and _rust_verdict("h.") == "reject")
+        if _hm._valid_job_id("h" + c) != ((cp in tset) or c == "_"):
+            mism2.append(cp)
+    check("C8b2·id 闸用的**字符判据** ≡ 表（全码点；`_` 是结构字符，单独计入）",
+          mism2 == [], "%d 个码点不符，例：%s" % (len(mism2), [hex(c) for c in mism2[:5]]))
+    check("C8c·跨语言零分歧：C8a ∧ C8b ⇒ 两侧接受集逐码点相同（结构性，非逐例对齐）",
+          mism == [] and "fn charset_predicate_equals_blocks_table()" in job_rs,
+          "两侧等价链断")
+    check("C8d·`_` 与 `.` 由**结构分支**处理（有意不在表内，两侧口径一致）",
+          not _hm._id_charset_member("_") and not _hm._id_charset_member(".")
+          and _hm._valid_job_id("h_a.b") is True and _hm._valid_job_id("h_a") is True
+          and _hm._valid_job_id("h.") is False and _hm._valid_job_id("h..") is False,
+          "结构字符口径漂移")
 
-    # ---- 残余分叉：定性（只许在 Python 判未分配的码点上）+ 方向（不许 Python 更松）
-    stride = [cp for cp in range(1, 0x110000, 509)
-              if not (0xD800 <= cp <= 0xDFFF)]
+    # ---- 第三处读者（c1/c2「三处读者共读同一份数据」）：md_cg 面的**字符类判据**同样 ≡
+    # 同一张表。`md_cg/units.py::_valid_job_id` 另有**有意放宽**（不要求 h 前缀、允许 `-`，
+    # 见 `hive/test_mdcg_units_charset_parity.py` 与 §四.8 残点②），故此处只断言**字符类
+    # 判据**这一层（`_charset_member`）——它必须与另外两处逐码点相同。
+    mism3 = []
+    for cp in range(0x110000):
+        if 0xD800 <= cp <= 0xDFFF:       # 代理区不是合法码点（结构上不可达）
+            continue
+        if _units._charset_member(chr(cp)) != (cp in tset):
+            mism3.append(cp)
+    check("C8e·md_cg 面（**第三处读者**）判据 ≡ **同一张表**（全码点遍历；读数据不 import hive）",
+          mism3 == [], "%d 个码点不符，例：%s" % (len(mism3), [hex(c) for c in mism3[:5]]))
+    check("C8f·三处读者**同源取证**：rel 路径字面量一致 ∧ 各自读到的表段数逐值相同 ∧ 两侧读表无错",
+          _hm.ID_CHARSET_BLOCKS_REL == "hive/id_charset_blocks.txt"
+          and _units._CHARSET_BLOCKS_REL == _hm.ID_CHARSET_BLOCKS_REL
+          and 'include_str!("../id_charset_blocks.txt")' in job_rs
+          and len(_hm.ID_CHARSET_BLOCKS) == len(blocks)
+          and len(_units.CHARSET_BLOCKS) == len(blocks)
+          and _hm.ID_CHARSET_ERROR is None and _units.CHARSET_BLOCKS_ERROR is None,
+          "rel=%r/%r 段数 独立=%d mcp=%d md_cg=%d err=%r/%r"
+          % (_hm.ID_CHARSET_BLOCKS_REL, _units._CHARSET_BLOCKS_REL, len(blocks),
+             len(_hm.ID_CHARSET_BLOCKS), len(_units.CHARSET_BLOCKS),
+             _hm.ID_CHARSET_ERROR, _units.CHARSET_BLOCKS_ERROR))
+    check("C8g·Rust 侧 fail-closed 判据在位（表坏 ⇒ 判据 false；由 cargo gate 内的单测实跑钉死）",
+          "fn charset_gate_fails_closed_on_bad_table" in job_rs
+          and "Err(_) => false" in job_rs,
+          "job.rs 缺 fail-closed 单测或 Err 分支形态（Rust 侧判据不得 fail-open）")
+    check("C8h·第三处读者**同表同拒**：换面放宽的 14 码点被收 ∧ 零宽/双向控制/控制字符/"
+          "路径成分/尾点/设备名仍拒（放宽不得把静默风险带回来，c9）",
+          all(_units._valid_job_id("h_%s_任务_记录单元_0001" % chr(cp)) is True
+              for cp in _WIDENED_CODEPOINTS)
+          and all(_units._valid_job_id(x) is False for x in (
+              "h_端_任务_记录单元_0001\u200b", "h_端\u202e_任务_记录单元_0001",
+              "h_端_任务_记录单元_0001\x00", "h_端/任务_记录单元_0001", "h.",
+              "h_CON_任务_记录单元_0001", "h_端_任务_COM1_0001", " x")),
+          "md_cg 面的放宽面/拒收面与 hive 两侧不一致")
+    # c13 的规模纪律：**全码点遍历只许出现在测试内**——生产热路径上的判据是 O(区间数)
+    # 查表；「生产面无命中 ∧ 测试面必有命中」两边都断，防止「把遍历搬进生产」或
+    # 「测试其实没遍历」这两种退化。
+    guard_src = _src_of("hive/test_id_contract_v2.py")
+    check("C8i·全码点遍历**只在测试内**（三处生产面 0 命中；job.rs 单测与本守卫各有命中）",
+          _full_sweep_hits(job_rs.split("mod tests {", 1)[0]) == 0
+          and _full_sweep_hits(_src_of(MCP_REL)) == 0
+          and _full_sweep_hits(_src_of("md_cg/units.py")) == 0
+          and _full_sweep_hits(job_rs) >= 2
+          and _full_sweep_hits(guard_src) >= 3,
+          "生产面 job.rs=%d / mcp=%d / md_cg=%d；测试面 job.rs=%d 本守卫=%d"
+          % (_full_sweep_hits(job_rs.split("mod tests {", 1)[0]),
+             _full_sweep_hits(_src_of(MCP_REL)), _full_sweep_hits(_src_of("md_cg/units.py")),
+             _full_sweep_hits(job_rs), _full_sweep_hits(guard_src)))
+
+    # ---- c7：拒收项**逐条显式断言**（不靠「白名单外所以默认被拒」）
+    # 探测形态一律取**串中位置**（"hA<c>A"）：首尾位置的空白/点会被更早的结构分支拦住，
+    # 落在串中才能证明是「逐字符拒收分支」本身在起作用（原因文本也随分支不同）。
+    def _mid(c):
+        return "hA" + c + "A"
+
+    zw = [chr(cp) for cp in list(range(0x200B, 0x2010)) + [0x2060, 0xFEFF]]
+    bidi = [chr(cp) for cp in list(range(0x202A, 0x202F)) + list(range(0x2066, 0x206A))]
+    ctrl = [chr(cp) for cp in list(range(0x00, 0x20)) + [0x7F, 0x80, 0x85, 0x9F]]
+    check("C9a·零宽（U+200B..200F/U+2060/U+FEFF）**逐码点**显式拒，原因走专有分支",
+          all(not _hm._id_charset_member(c) and _hm._valid_job_id(_mid(c)) is False
+              and "零宽" in (_hm._job_id_reject_reason(_mid(c)) or "")
+              for c in zw), "某零宽形态被收/原因走了表外兜底")
+    check("C9b·双向控制（U+202A..202E/U+2066..2069）**逐码点**显式拒，原因走专有分支",
+          all(not _hm._id_charset_member(c) and _hm._valid_job_id(_mid(c)) is False
+              and "双向控制" in (_hm._job_id_reject_reason(_mid(c)) or "")
+              for c in bidi), "某双向控制形态被收/原因走了表外兜底")
+    check("C9c·控制字符（C0/DEL/C1，含 NUL）**逐码点**显式拒（原因含「控制字符」）",
+          all(not _hm._id_charset_member(c) and _hm._valid_job_id(_mid(c)) is False
+              and "控制字符" in (_hm._job_id_reject_reason(_mid(c)) or "")
+              for c in ctrl),
+          "某控制字符被收/原因走了表外兜底")
+    check("C9d·路径成分 `/` `\\` `:` 显式拒（原因含「路径成分」）",
+          all("路径成分" in (_hm._job_id_reject_reason("h" + c) or "") for c in "/\\:"),
+          "路径成分原因不显式")
+    check("C9e·单独的 `.`/`..`、尾点、首尾空白、保留设备名（含 CON.txt 与分段）仍拒",
+          all(_hm._valid_job_id(x) is False for x in
+              (".", "..", "h.", "h..", "h ", "h\t", " h", "h\u00a0", "h\u3000",
+               "h_CON_任务_记录单元_0001", "h_CON.txt_任务_记录单元_0001",
+               "h_端_aux_记录单元_0001", "h_端_任务_COM1_0001")),
+          "某拒收形态被收")
+
+    # ---- live 经验面：表**边界**逐点问真 exe（lo-1/lo/hi/hi+1），与表判据同判
+    probes = sorted({cp for lo, hi in blocks for cp in (lo - 1, lo, hi, hi + 1)
+                     if 0 < cp <= 0x10FFFF and not (0xD800 <= cp <= 0xDFFF)})
     with ThreadPoolExecutor(max_workers=16) as ex:
-        res2 = list(ex.map(_probe_one, stride, chunksize=64))
-    worse = [cp for cp, ok in res2 if ok and not _hm._valid_job_id("h" + chr(cp))]
-    perm = [cp for cp, ok in res2 if not ok and _hm._valid_job_id("h" + chr(cp))]
-    check("C9·方向断言：抽样内无「Python 收而 Rust 拒」（安全方向不许破）",
-          perm == [], "越权面=%s" % [hex(cp) for cp in perm[:5]])
-    non_cn = [cp for cp in worse if unicodedata.category(chr(cp)) != "Cn"]
-    check("C9b·残余（Rust 收 / Python 拒）**只**出现在 Python 判未分配(Cn) 的码点上"
-          "（= Unicode 版本差，非语义分歧）", non_cn == [],
-          "非 Cn 残余=%s（Python unicodedata %s vs rust 工具链）"
-          % ([hex(cp) for cp in non_cn[:5]], unicodedata.unidata_version))
-    print("      · 计量声明：抽样 %d 点，残余 %d 个（全 Python-Cn；方向=Python 更严）"
-          % (len(res2), len(worse)))
-    print("      · 全量实测留档（2026-09-30，`--cn-sweep` 可重导）：Python 判 Cn 的"
-          "825345 码点中，Rust 收而 Python 拒 **9713 个（56 区间）** = Unicode 15.1/16"
-          " 新增字母；方向仅令本面更严，越权面为零")
+        res = list(ex.map(_probe_verdict, probes, chunksize=4))
+    bad = [cp for cp, verd in res
+           if verd is not None and (verd == "accept") != (cp in tset)]
+    check("C10·表边界抽样（%d 点）真 exe 与表同判（经验面；活二进制 = 工作区源码）"
+          % len(probes), bad == [], "%d 点不符：%s" % (len(bad), [hex(c) for c in bad[:5]]))
+    co_sample = [0xE000, 0xE100, 0xF0000, 0xF0100, 0x100000, 0x10FFFD]
+    check("C10b·私用区(Co)与表外文种抽样：两侧同拒（表外即拒，非属性推断）",
+          all(cp not in tset and _hm._valid_job_id("h" + chr(cp)) is False
+              and _rust_verdict("h" + chr(cp)) in (None, "reject") for cp in co_sample),
+          str([hex(cp) for cp in co_sample
+               if _hm._valid_job_id("h" + chr(cp)) or cp in tset]))
 
 
 # ================================================================== D 组
@@ -1214,46 +1312,22 @@ def g_g():
 # ================================================================== H 组
 # 定点变异自证（--branch-baseline）。
 
-#: 变异表：`(标签, 面, 函数名, 原串, 新串, 期望红项集 {组: 条数})`。
-#: `expect` 为 None = **未标定**（首轮照实打印实测红项集与退出码，由实测值写死——
-#: 不猜）。Rust 面的 `old/new` 走 `_RUST_SWAP`（源码在 `_BUILD` 的临时副本上改）。
-_MUTATIONS = (
-    ("MCP 四槽必填（_t_spawn 的缺槽校验）",
-     "mcp", "_t_spawn",
-     "    missing = [k for k, v in slots.items() if not v]",
-     "    missing = []",
-     {"A": 5}),
-    ("MCP 尾点拒收（_job_id_reject_reason）",
-     "mcp", "_job_id_reject_reason",
-     '    if jid.endswith("."):',
-     "    if False:",
-     {"C": 8, "D": 4}),
-    ("MCP 零宽拒收（_is_zero_width）",
-     "mcp", "_is_zero_width",
-     '    return "\\u200b" <= c <= "\\u200f" or c in ("\\u2060", "\\ufeff")',
-     "    return False",
-     {"C": 2}),
-    ("MCP 保留设备名拒收（_is_reserved_device_name）",
-     "mcp", "_is_reserved_device_name",
-     '    base = s.split(".")[0].translate(_ASCII_UPPER)\n'
-     "    return base in RESERVED_DEVICE_NAMES",
-     "    return False",
-     {"C": 15, "D": 8}),
-    ("MCP created_ts 排序退回 id 字典序（_list_jobs_by_created）",
-     "mcp", "_list_jobs_by_created",
-     "    return sorted(names, key=lambda n: (_created_ts_of(jobs, n), n))",
-     "    return sorted(names)",
-     {"F": 5}),
-    ("Rust 编号溢出改静默加宽（job.rs::alloc_job_id 用尽分支）",
-     "rust", "alloc_job_id", None, None,
-     {"B": 2}),
-)
 
-#: 假阳性对照：与判据无关的改名必须**全绿**（退出码 0）。
-_FALSE_POSITIVE = ("mcp", "_job_id_reject_reason",
-                   '    if jid in (".", ".."):\n        return "job_id 是相对路径段"',
-                   '    _idv2_unused_probe = None\n'
-                   '    if jid in (".", ".."):\n        return "job_id 是相对路径段"')
+def _drop_block(lo: int, hi: int):
+    """数据面变换：把区间 `(lo, hi)` 从读者拿到的表里**删掉**（表的唯一真源被改坏的一面）。"""
+    def _t(blocks):
+        return tuple(b for b in blocks if b != (lo, hi))
+    _t.__doc__ = "删掉 %04X-%04X" % (lo, hi)
+    return _t
+
+
+def _add_block(lo: int, hi: int):
+    """数据面变换：把**不该收**的区间 `(lo, hi)` 塞进读者拿到的表（放宽的一面）。"""
+    def _t(blocks):
+        return tuple(list(blocks) + [(lo, hi)])
+    _t.__doc__ = "塞进 %04X-%04X" % (lo, hi)
+    return _t
+
 
 #: Rust 面变异：**用尽分支静默加宽为 5 位**（破坏「4 位定宽」前提并落盘 10000 号目录）
 #: ——正是契约点名要防的形态（首版变异锚在循环体内，而 `next_seq_hint` 返回 10000 时
@@ -1272,7 +1346,97 @@ _RUST_SWAP = (
     '4 位定宽不自动加宽\\\n',
 )
 
-_HOLDERS = {"mcp": _hm, "orch": _orch}
+
+#: 变异表（统一形态）：`(标签, 面, 载荷, 期望)`。
+#:   面 `"fn"`   ：载荷 `(模块键, 函数名, 原串, 新串)`——源码级替换后 exec 回**活模块**；
+#:   面 `"attr"` ：载荷 `(模块键, 属性名, 变换函数)`——**数据面**（区块表本身）：
+#:                 改读者拿到的表（内存副本），工作区的数据文件一字不动；
+#:   面 `"rust"` ：载荷 `(副本内相对路径, 原串, 新串, 只跑哪几组)`——`_BUILD` 的**临时
+#:                 crate 副本**上改源码**或改数据文件**（工作区只读），重编译后喂 `HIVE_EXE`。
+#: 期望 `(退出码, {组: 红项数})`——**逐项实测后写死**（不猜；实测命令 =
+#: `python -X utf8 -m hive.test_id_contract_v2 --branch-baseline`，2026-09-30 本机实测，
+#: 12 处变异各自的红项集/退出码 + 假阳性对照 rc=0/红项=0 见下）。红项数口径 = 该组内转红
+#: 的断言条数（`check()` 不中断组，故可精确计数）；退出码 = 该行变异下整支守卫的真实退出码。
+_MUTATIONS = (
+    ("MCP 四槽必填（_t_spawn 的缺槽校验）",
+     "fn", ("mcp", "_t_spawn",
+            "    missing = [k for k, v in slots.items() if not v]",
+            "    missing = []"),
+     (1, {"A": 5})),
+    ("MCP 尾点拒收（_job_id_reject_reason）",
+     "fn", ("mcp", "_job_id_reject_reason",
+            '    if jid.endswith("."):',
+            "    if False:"),
+     (1, {"C": 10, "D": 4})),
+    ("MCP 零宽拒收（_is_zero_width）",
+     "fn", ("mcp", "_is_zero_width",
+            '    return "\\u200b" <= c <= "\\u200f" or c in ("\\u2060", "\\ufeff")',
+            "    return False"),
+     (1, {"C": 3})),
+    ("MCP 保留设备名拒收（_is_reserved_device_name）",
+     "fn", ("mcp", "_is_reserved_device_name",
+            '    base = s.split(".")[0].translate(_ASCII_UPPER)\n'
+            "    return base in RESERVED_DEVICE_NAMES",
+            "    return False"),
+     (1, {"C": 16, "D": 8})),
+    ("MCP created_ts 排序退回 id 字典序（_list_jobs_by_created）",
+     "fn", ("mcp", "_list_jobs_by_created",
+            "    return sorted(names, key=lambda n: (_created_ts_of(jobs, n), n))",
+            "    return sorted(names)"),
+     (1, {"F": 5})),
+    ("数据面：区块表**删掉一段**（Python 面读者拿到的表少 CJK 统一表意 4E00-9FFF）",
+     "attr", ("mcp", "ID_CHARSET_BLOCKS", _drop_block(0x4E00, 0x9FFF)),
+     (1, {"A": 3, "C": 20, "D": 1})),
+    ("数据面：区块表**多塞一段不该收的区间**（Python 面读者拿到 CJK 兼容表意 F900-FAFF）",
+     "attr", ("mcp", "ID_CHARSET_BLOCKS", _add_block(0xF900, 0xFAFF)),
+     (1, {"C": 9})),
+    ("数据面：区块表**删掉一段**（md_cg 面读者，第三处读者）",
+     "attr", ("mdcg", "CHARSET_BLOCKS", _drop_block(0x4E00, 0x9FFF)),
+     (1, {"C": 3})),
+    ("MCP 判据 **fail-open**（表缺失/空表 ⇒ 放行一切字符，不再 fail-closed）",
+     "fn", ("mcp", "_charset_member_in",
+            "    u = ord(c)\n    return any(lo <= u <= hi for lo, hi in blocks)",
+            "    if not blocks:\n        return True\n"
+            "    u = ord(c)\n    return any(lo <= u <= hi for lo, hi in blocks)"),
+     (1, {"C": 1})),
+    ("md_cg 面**退回 ASCII 白名单**（换面作废，第三处读者不再读表）",
+     "fn", ("mdcg", "_charset_member",
+            "    u = ord(c)\n    return any(lo <= u <= hi for lo, hi in CHARSET_BLOCKS)",
+            '    return c.isascii() and c.isalnum()'),
+     (1, {"C": 2})),
+    ("Rust 编号溢出改静默加宽（job.rs::alloc_job_id 用尽分支）",
+     "rust", ("src/job.rs", _RUST_SWAP[0], _RUST_SWAP[1], ("B",)),
+     (1, {"B": 2})),
+    ("数据面：**临时 crate 副本**的表文件删掉一段（4E00-9FFF）——Rust 侧 `include_str!` "
+     "嵌入的表与工作区数据分叉（真 exe 与 Python 面不同判）",
+     "rust", ("id_charset_blocks.txt", "\n4E00-9FFF\n", "\n", ("C",)),
+     (1, {"C": 12})),
+)
+
+#: 假阳性对照：与判据无关的改名必须**全绿**（退出码 0）。
+_FALSE_POSITIVE = ("mcp", "_job_id_reject_reason",
+                   '    if jid in (".", ".."):\n        return "job_id 是相对路径段"',
+                   '    _idv2_unused_probe = None\n'
+                   '    if jid in (".", ".."):\n        return "job_id 是相对路径段"')
+
+_HOLDERS = {"mcp": _hm, "orch": _orch, "mdcg": _units}
+
+
+def _drop_block(lo: int, hi: int):
+    """数据面变换：把区间 `(lo, hi)` 从读者拿到的表里**删掉**（表的唯一真源被改坏的一面）。"""
+    def _t(blocks):
+        return tuple(b for b in blocks if b != (lo, hi))
+    _t.__doc__ = "删掉 %04X-%04X" % (lo, hi)
+    return _t
+
+
+def _add_block(lo: int, hi: int):
+    """数据面变换：把**不该收**的区间 `(lo, hi)` 塞进读者拿到的表（放宽的一面）。"""
+    def _t(blocks):
+        return tuple(list(blocks) + [(lo, hi)])
+    _t.__doc__ = "塞进 %04X-%04X" % (lo, hi)
+    return _t
+
 
 
 def _func_src(which: str, func_name: str):
@@ -1307,7 +1471,11 @@ _BUILD: dict = {}
 
 
 def _build_env():
-    """把 hive crate 复制进临时目录（**工作区源码只读**：变异改的是副本）。"""
+    """把 hive crate 复制进临时目录（**工作区源码只读**：变异改的是副本）。
+
+    区块表数据**一并搬**（2026-09-30 裁定 ①-(c)）：`job.rs` 以
+    `include_str!("../id_charset_blocks.txt")` 编译期嵌入该表，副本缺它 = 编译失败。
+    """
     if _BUILD.get("exe"):
         return _BUILD
     root = tempfile.mkdtemp(prefix="idv2_build_")
@@ -1319,6 +1487,8 @@ def _build_env():
     if os.path.isfile(lock):
         shutil.copy2(lock, os.path.join(crate, "Cargo.lock"))
     shutil.copytree(os.path.join(_HERE, "src"), os.path.join(crate, "src"))
+    shutil.copy2(os.path.join(_HERE, "id_charset_blocks.txt"),
+                 os.path.join(crate, "id_charset_blocks.txt"))
     _BUILD.update({"dir": crate, "target": os.path.join(root, "target"),
                    "exe": os.path.join(root, "target", "release",
                                        "hive.exe" if os.name == "nt" else "hive")})
@@ -1364,35 +1534,25 @@ def _patch_rust(rel_path: str, anchor: str, new: str):
     return _restore
 
 
-def _cn_sweep() -> int:
-    """重导「Python 判未分配(Cn) 而 Rust 收」的残余集（声明值的可复现入口）。
+def _patch_attr(which: str, attr: str, transform):
+    """**数据面**变异：把读者拿到的数据（区块表）在**内存副本**上改掉。
 
-    实测耗时 ≈44 分钟（24 线程 × 825345 个码点）——**故不入常规守卫**：常规轮只做
-    C9（残余的定性与方向，抽样）。本入口供 Unicode 版本升级后重新计量与留档。
+    为什么数据面要单独一个面：本批判据的**唯一真源就是这份数据**——「表删一段 / 多塞一段」
+    改的不是代码逻辑而是判据数据，源码级替换（[`_patch_fn`]）够不着它。改的是**模块属性**
+    （内存副本），工作区的数据文件一字不动；还原 = 写回原值（属性不存在 ⇒ 返回 None，
+    调用方按锚点漂移处置，fail-closed 不静默）。
     """
-    print("!! Cn 残余重导：Python %s × 真 hive.exe\n" % unicodedata.unidata_version)
-    if _missing_exe() is not None:
-        print("  未找到 %s" % _missing_exe())
-        return 1
-    cand = [cp for cp in range(0x110000)
-            if not (0xD800 <= cp <= 0xDFFF)
-            and unicodedata.category(chr(cp)) == "Cn"]
-    with ThreadPoolExecutor(max_workers=24) as ex:
-        res = list(ex.map(_probe_one, cand, chunksize=256))
-    extra = sorted(cp for cp, ok in res if ok)
-    rngs = []
-    for cp in extra:
-        if rngs and cp == rngs[-1][1] + 1:
-            rngs[-1][1] = cp
-        else:
-            rngs.append([cp, cp])
-    print("  Python 判 Cn 的码点数 = %d" % len(cand))
-    print("  Rust 收而 Python 判未分配 = %d（%d 个区间）" % (len(extra), len(rngs)))
-    for a, b in rngs[:8]:
-        print("    (0x%04X, 0x%04X)" % (a, b))
-    if len(rngs) > 8:
-        print("    …（共 %d 个区间）" % len(rngs))
-    return 0
+    mod = _HOLDERS[which]
+    try:
+        orig = mod.__dict__[attr]
+    except KeyError:
+        return None
+
+    def _restore():
+        mod.__dict__[attr] = orig
+
+    mod.__dict__[attr] = transform(orig)
+    return _restore
 
 
 def _run_groups(only=None):
@@ -1408,27 +1568,30 @@ def _run_groups(only=None):
 
 
 def _branch_baseline() -> int:
-    print("!! 定点变异模式：逐处关掉判据，守卫应当转红且**恰好**命中预期组/项数\n")
+    print("!! 定点变异模式：逐处把判据面本身改坏（含**数据面**的表），守卫应当转红且"
+          "**恰好**命中已实测写死的红项集\n")
     with contextlib.redirect_stdout(io.StringIO()):
         clean_fail, _clean = _run_groups()
     _cleanup()
-    print("  未变异基线：失败=%d" % clean_fail)
+    print("  未变异基线：失败=%d，退出码=%d" % (clean_fail, 1 if clean_fail else 0))
     if clean_fail:
         print("  基线即失败 → 定点变异自证无意义（先修基线）")
         _cleanup_persist()
         return 1
     bad = []
-    for label, which, fname, old, new, expect in _MUTATIONS:
-        if which == "rust":
+    for label, face, payload, expect in _MUTATIONS:
+        if face == "rust":
+            rel, old, new, only = payload
             _build_env()
             ok, log = _cargo_build()
             if not ok:
                 print("  编译失败 %s：%s" % (label, log[-300:]))
                 _cleanup_persist()
                 return 2
-            restore = _patch_rust("src/job.rs", _RUST_SWAP[0], _RUST_SWAP[1])
+            restore = _patch_rust(rel, old, new)
             if restore is None:
-                print("  ANCHOR-MISS %s —— 变异锚点漂移（实现改了却没同步本表）" % label)
+                print("  ANCHOR-MISS %s —— 变异锚点漂移（实现/数据改了却没同步本表；"
+                      "副本内 %s）" % (label, rel))
                 _cleanup_persist()
                 return 2
             os.environ["HIVE_EXE"] = _BUILD["exe"]
@@ -1438,16 +1601,19 @@ def _branch_baseline() -> int:
                     print("  变异体编译失败 %s：%s" % (label, log2[-300:]))
                     return 2
                 with contextlib.redirect_stdout(io.StringIO()):
-                    got_fail, got_groups = _run_groups(only=("B",))
+                    got_fail, got_groups = _run_groups(only=only)
             finally:
                 restore()
                 os.environ.pop("HIVE_EXE", None)
                 _cleanup()
         else:
-            restore = _patch_fn(which, fname, old, new)
+            if face == "fn":
+                restore = _patch_fn(*payload)
+            else:                          # "attr"：数据面（区块表内存副本）
+                restore = _patch_attr(*payload)
             if restore is None:
                 print("  ANCHOR-MISS %s —— 变异锚点漂移（实现改了却没同步本表；"
-                      "基线源=%s.%s）" % (label, which, fname))
+                      "基线源=%s.%s）" % (label, payload[0], payload[1]))
                 _cleanup_persist()
                 return 2
             try:
@@ -1456,19 +1622,21 @@ def _branch_baseline() -> int:
             finally:
                 restore()
                 _cleanup()
+        got_rc = 1 if got_fail else 0
         hit = {g: n for g, n in got_groups.items() if n}
         if expect is None:
-            print("  [未标定] 关掉「%s」→ 红项=%d，退出码=1，命中组=%s"
-                  % (label, got_fail, dict(sorted(hit.items()))))
+            print("  [未标定] 改坏「%s」→ 红项=%d，退出码=%d，命中组=%s"
+                  % (label, got_fail, got_rc, dict(sorted(hit.items()))))
             continue
-        if hit == expect and got_fail == sum(expect.values()):
-            print("  关掉「%s」→ 红项=%d，退出码=1，命中组=%s（恰好命中预期）"
-                  % (label, got_fail, dict(sorted(hit.items()))))
+        want_rc, want_hit = expect
+        if hit == want_hit and got_fail == sum(want_hit.values()) and got_rc == want_rc:
+            print("  改坏「%s」→ 红项=%d，退出码=%d，命中组=%s（恰好命中预期）"
+                  % (label, got_fail, got_rc, dict(sorted(hit.items()))))
         else:
-            print("  关掉「%s」→ 红项=%d，命中组=%s  期望=%s  "
-                  "**红基线失效（判别力面不符）**"
-                  % (label, got_fail, dict(sorted(hit.items())),
-                     dict(sorted(expect.items()))))
+            print("  改坏「%s」→ 红项=%d，退出码=%d，命中组=%s  期望 红项=%d/退出码=%d/"
+                  "组=%s  **红基线失效（判别力面不符）**"
+                  % (label, got_fail, got_rc, dict(sorted(hit.items())),
+                     sum(want_hit.values()), want_rc, dict(sorted(want_hit.items()))))
             bad.append(label)
 
     restore = _patch_fn(*_FALSE_POSITIVE)
@@ -1494,10 +1662,21 @@ def _branch_baseline() -> int:
     return 0 if not bad else 1
 
 
-# --------------------------------------------------------------- 红基线（HEAD 字节）
+# --------------------------------------------------------------- 红基线（批次锚点字节）
 
-#: 红基线判据谓词：在 **HEAD 字节**上与在工作区上应得**相反**结论的谓词
-#: （(名称, 在 HEAD 上是否应为「该断言会红」的谓词)——每条都对应守卫里的一条断言）。
+#: 红基线判据谓词：`(名称, 谓词(模块) -> bool, 该谓词的批次锚点 ref)`。谓词**在它的锚点上
+#: 必为红**（= 该断言在引入它的批次之前必然失败 ⇒ 守卫对这项真有判别力），在**工作区上必为绿**。
+#:
+#: **批次锚点纪律（2026-09-30 实测留痕，本轮修正）**：每条谓词的锚点 = 「**引入该断言的批次
+#: 的前一个提交**」，故本表**按条自带锚点**（`--head-baseline` 不带 ref 时逐条用各自的锚点；
+#: 带 ref 则统一用该 ref，供人工查更早/更晚的形态）。上一版把锚点写成「统一 HEAD」，
+#: 于是**上一批（id 契约 v2）已落地**后，它的 A/F 类谓词在现 HEAD 上全绿、整支红基线
+#: 恒报「判别力面不成立」（实测 6 条不符）——那是**锚点漂移**而非判别力缺失：谓词本身没坏，
+#: 是查错了提交。修正后同一支命令在**每条谓词各自的锚点**上全红、在工作区上全绿。
+_ANCHOR_ID_V2 = "15fb2bcd"   # 本批（①-(c) 区块白名单）的改动前状态 = id 契约 v2 落地点
+_ANCHOR_PRE_ID_V2 = "08c21cd0"   # id 契约 v2 之前的提交（该批 A/F 类谓词的锚点）
+
+
 def _head_predicates(mod) -> list:
     def _has(fn, needle):
         try:
@@ -1511,38 +1690,53 @@ def _head_predicates(mod) -> list:
             props = set(((t.get("inputSchema") or {}).get("properties") or {}).keys())
     src_submit = _has("_submit", "uuid.uuid4().hex[:6]")
     return [
-        ("A1/A6 四槽名与「四槽」文案在 _t_spawn 内", _has("_t_spawn", "四槽")),
+        # ---- 本批（①-(c) 区块白名单）引入的断言：锚点 = 现 HEAD（改动前状态）----
+        ("C1 判据 ≡ 表（区分点 U+0132 Ĳ：表内收，旧属性机制拒）",
+         bool(getattr(mod, "_valid_job_id", lambda x: False)("h\u0132")),
+         _ANCHOR_ID_V2),
+        ("C2b 拒收原因指向区块白名单（旧文案是「只收 Unicode 字母/数字」）",
+         "区块白名单" in (getattr(mod, "_job_id_reject_reason",
+                                  lambda x: "")("h\u0301") or ""),
+         _ANCHOR_ID_V2),
+        ("C6 区块表数据 `ID_CHARSET_BLOCKS` 在位（旧口径无表）",
+         hasattr(mod, "ID_CHARSET_BLOCKS"),
+         _ANCHOR_ID_V2),
+        ("C7 旧属性表机制已退休 ∧ 新区块表判据在位（合取；旧实现两处必缺一）",
+         not hasattr(mod, "NFC_REWRITE_BLOCKS")
+         and not hasattr(mod, "OTHER_ALPHABETIC_BLOCKS")
+         and hasattr(mod, "ID_CHARSET_BLOCKS"),
+         _ANCHOR_ID_V2),
+        # ---- 上一批（id 契约 v2）引入的断言：锚点 = 该批之前的提交 ----
+        ("A1/A6 四槽名与「四槽」文案在 _t_spawn 内", _has("_t_spawn", "四槽"),
+         _ANCHOR_PRE_ID_V2),
         ("A5 schema 收 identity/task/unit",
-         {"identity", "task", "unit"} <= props),
+         {"identity", "task", "unit"} <= props,
+         _ANCHOR_PRE_ID_V2),
         ("A8b `_submit` 签名带三槽",
-         _has("_submit", "identity: str, task: str, unit: str")),
-        ("A8 自造 id 已退场（HEAD 应为 present=红）", not src_submit),
-        ("C1 中文四槽 id 过闸（HEAD 的 ASCII 白名单应拒）",
-         bool(getattr(mod, "_valid_job_id", lambda x: False)(
-             "h_zcode端_灵枢迭代_反思单元_0001"))),
-        ("C2b 拒收原因级出口 `_job_id_reject_reason` 在位",
-         hasattr(mod, "_job_id_reject_reason")),
-        ("C6 区块表常量 `NFC_REWRITE_BLOCKS` 在位",
-         hasattr(mod, "NFC_REWRITE_BLOCKS")),
-        ("C7 补齐闭集 `OTHER_ALPHABETIC_BLOCKS` 在位",
-         hasattr(mod, "OTHER_ALPHABETIC_BLOCKS")),
+         _has("_submit", "identity: str, task: str, unit: str"),
+         _ANCHOR_PRE_ID_V2),
+        ("A8 自造 id 已退场（锚点上应为 present=红）", not src_submit,
+         _ANCHOR_PRE_ID_V2),
         ("F5 排序单点 `_list_jobs_by_created` 在位",
-         hasattr(mod, "_list_jobs_by_created")),
-        ("A4/B7 `alloc-id` 通道（MCP 面不再自造 id）", _has("_alloc_job_id", "alloc-id")),
+         hasattr(mod, "_list_jobs_by_created"),
+         _ANCHOR_PRE_ID_V2),
+        ("A4/B7 `alloc-id` 通道（MCP 面不再自造 id）", _has("_alloc_job_id", "alloc-id"),
+         _ANCHOR_PRE_ID_V2),
     ]
 
 
-def _head_baseline() -> int:
-    """红基线：把 **HEAD 字节**物化到临时树（绝不覆盖工作区）后加载，跑同一批
-    判据谓词，断言它们在 HEAD 上**全部为红**（= 本守卫在旧实现上必红，
-    判别力面真实而非空洞）。"""
-    print("!! 红基线：源 = HEAD 字节（临时物化，工作区不动）\n")
-    b = _head_bytes(MCP_REL)
-    b_rs = _head_bytes(JOB_RS_REL)
+def _load_ref_module(ref: str):
+    """把 `ref` 的 `hive/hive_mcp/mcp_server.py` 字节物化到临时树后加载（工作区不动）。
+
+    生效条件：两个对照件（`mcp_server.py` 与 `job.rs`）在该 ref 上都可读且模块装得起来
+    → 返回 `(模块, 说明)`；任一步不成立 → `(None, 原因)`——调用方按「红基线不可得」处置，
+    **绝不伪造结论**。
+    """
+    b = _head_bytes(MCP_REL, ref)
+    b_rs = _head_bytes(JOB_RS_REL, ref)
     if not b or not b_rs:
-        print("  HEAD:%s / HEAD:%s 不可读（或非 git 仓）——红基线不可得，不伪造结论"
-              % (MCP_REL, JOB_RS_REL))
-        return 1
+        return None, ("%s:%s / %s:%s 不可读（或非 git 仓）——红基线不可得，不伪造结论"
+                      % (ref, MCP_REL, ref, JOB_RS_REL))
     root = _mkroot("head")
     d = os.path.join(root, "hive", "hive_mcp")
     os.makedirs(d, exist_ok=True)
@@ -1551,43 +1745,63 @@ def _head_baseline() -> int:
         f.write(b)
     with open(os.path.join(_REPO, MCP_REL), encoding="utf-8") as f:
         cur = f.read()
-    print("  HEAD:%s = %d 字节（工作区 %d 字节）" % (MCP_REL, len(b), len(cur.encode())))
-    spec = importlib.util.spec_from_file_location("idv2_head_mcp", p)
+    spec = importlib.util.spec_from_file_location("idv2_head_mcp_%s" % ref, p)
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["idv2_head_mcp"] = mod
+    sys.modules["idv2_head_mcp_%s" % ref] = mod
     try:
         spec.loader.exec_module(mod)
     except Exception as e:                # noqa: BLE001
-        print("  HEAD 版 mcp_server.py 装不起来：%s: %s" % (type(e).__name__, e))
-        return 1
-    preds = _head_predicates(mod)
+        return None, ("%s 版 mcp_server.py 装不起来：%s: %s" % (ref, type(e).__name__, e))
+    return mod, ("%s:%s = %d 字节（工作区 %d 字节）"
+                 % (ref, MCP_REL, len(b), len(cur.encode())))
+
+
+def _head_baseline(ref: str | None = None) -> int:
+    """红基线：把锚点的 **mcp_server.py 字节**物化到临时树（绝不覆盖工作区）后加载，
+    逐条跑判据谓词，断言每条在**它自己的批次锚点**上为**红**（= 本守卫在旧实现上必红，
+    判别力面真实而非空洞）、在**工作区上为绿**（否则是空转的红基线）。
+
+    `ref` 缺省 `None` = 逐条用 [`_head_predicates`] 里登记的**每条的锚点**（推荐）；
+    显式给 `ref` 则全部用它（供人工查更早/更晚的形态，如 `--head-baseline HEAD~3`）。
+    """
+    print("!! 红基线：逐条谓词在**各自的批次锚点**字节上必红、在工作区上必绿"
+          "（临时物化，工作区不动）\n" if ref is None
+          else "!! 红基线：源 = %s 字节（统一锚点，临时物化，工作区不动）\n" % ref)
+    preds = _head_predicates(_hm)                 # 同一条谓词在**工作区**上的取值
+    work = {name: (val is True) for name, val, _a in preds}
+    groups: dict = {}
+    for name, _val, anchor in preds:
+        groups.setdefault(anchor, []).append(name)
 
     _GROUPS.clear()
-    _CUR[0] = "HEAD"
-    _GROUPS.setdefault("HEAD", {"n": 0, "fail": 0, "reds": []})
-    for name, green_on_head in preds:
-        # 断言「该谓词在 HEAD 上为**红**」（= 守卫的对应断言在旧实现上必失败）
-        check("红基线·%s（HEAD 上必红）" % name, not green_on_head,
-              "该谓词在 HEAD 上恰为绿 ⇒ 本守卫对这项无判别力")
-    # 反向：同一批谓词在工作区上**必须为绿**（否则是空转的红基线）
-    _CUR[0] = "WORK"
-    _GROUPS.setdefault("WORK", {"n": 0, "fail": 0, "reds": []})
-    wpreds = _head_predicates(_hm)
-    for (name, _g), (_n2, g2) in zip(preds, wpreds):
-        check("对照·工作区上该谓词为绿：%s" % name, g2 is True,
-              "工作区上仍为红 ⇒ 绿态基线本身没成立")
+    n_pred = 0
+    for anchor, names in groups.items():
+        use = ref or anchor
+        mod, msg = _load_ref_module(use)
+        print("  " + msg)
+        if mod is None:
+            return 1
+        got = {nm: val for nm, val, _a in _head_predicates(mod)}
+        for nm in names:
+            n_pred += 1
+            _CUR[0] = "ANCHOR@%s" % use
+            check("红基线·%s（%s 上必红）" % (nm, use), got.get(nm) is not True,
+                  "该谓词在 %s 上恰为绿 ⇒ 本守卫对这项无判别力" % use)
+            _CUR[0] = "WORK"
+            check("对照·工作区上该谓词为绿：%s" % nm, work[nm] is True,
+                  "工作区上仍为红 ⇒ 绿态基线本身没成立")
     n_fail = sum(v["fail"] for v in _GROUPS.values())
     if n_fail:
         print("\n红基线结论：判别力面不成立（%d 条不符）\n" % n_fail)
         return 1
-    print("\n红基线结论：%d 条判据谓词在 HEAD（契约前）上**全部为红**、在工作区上"
-          "**全部为绿** ⇒ 本守卫的判别力面真实（非空洞）\n" % len(preds))
+    print("\n红基线结论：%d 条判据谓词在**各自的批次锚点**上**全部为红**、在工作区上"
+          "**全部为绿** ⇒ 本守卫的判别力面真实（非空洞）\n" % n_pred)
     return 0
 
 
-def _head_bytes(rel: str):
+def _head_bytes(rel: str, ref: str = "HEAD"):
     try:
-        r = subprocess.run(["git", "show", "HEAD:%s" % rel], cwd=_REPO,
+        r = subprocess.run(["git", "show", "%s:%s" % (ref, rel)], cwd=_REPO,
                            capture_output=True)
     except OSError:
         return None
@@ -1601,19 +1815,17 @@ def main() -> int:
         description="蜂巢任务标识契约 v2 守卫（Python 侧判据面 + 跨语言同判）")
     ap.add_argument("--branch-baseline", action="store_true",
                     help="定点变异自证（每处关掉一个判据，红项须恰好命中预期组/项数）")
-    ap.add_argument("--head-baseline", action="store_true",
-                    help="红基线：临时物化 HEAD 字节跑同一批判据谓词（绝不覆盖工作区）")
-    ap.add_argument("--cn-sweep", action="store_true",
-                    help="重导「Python 判未分配(Cn) 而 Rust 收」的残余集（≈44 分钟，"
-                         "供 Unicode 版本升级后重新计量）")
+    ap.add_argument("--head-baseline", nargs="?", const="", default=None,
+                    metavar="REF",
+                    help="红基线：把锚点字节临时物化（绝不覆盖工作区）后跑判据谓词，"
+                         "断言每条在它**自己的批次锚点**上必红、在工作区上必绿；"
+                         "给 REF 则统一用该 ref（缺省 = 逐条用各自登记的锚点）")
     args = ap.parse_args()
     try:
-        if args.cn_sweep:
-            return _cn_sweep()
         if args.branch_baseline:
             return _branch_baseline()
-        if args.head_baseline:
-            return _head_baseline()
+        if args.head_baseline is not None:
+            return _head_baseline(args.head_baseline or None)
         total, per = _run_groups()
         print("\n---- 分组 ----")
         for g in sorted(per):

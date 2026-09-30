@@ -39,6 +39,7 @@ use crate::json::Json;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 生效条件：恒成立（时钟倒退时 unwrap_or(0) 诚实回落）——返回当前 Unix 毫秒。
@@ -78,56 +79,112 @@ pub fn job_dir(jobs: &Path, id: &str) -> PathBuf {
 // 再由 `scheduler.rs::deps_gate` 复核目录存在，故引用不到提交时尚不存在的任务、
 // 自引用亦不可能，无需运行时环检测。
 
-// ------------------------------------------------ B5：NFC 稳定性判据（零依赖闭集）
+// ------------------------------------------------ B5′：字符白名单（区块表 · 唯一真源）
 
-/// 归一化会改写的有限区块闭集（左闭右闭）：(起, 止, 依据)。
+/// 区块表数据文件（c1）：`hive/id_charset_blocks.txt`——三处读者（本文件、
+/// `hive_mcp/mcp_server.py`、`md_cg/units.py`）**共读的唯一真源**，任何一处都不得
+/// 再手写/内嵌区间常量（2026-09-30 使用者裁定 ①-(c)：判据从「Unicode 属性判定」
+/// 换成「区块白名单」）。
 ///
-/// 为什么是「拒收」而不是「静默归一化」：`hive/Cargo.toml` 的 `[dependencies]` 是空段
-/// （零依赖 D-005），手写完整 NFC 不可行；而**拒收比静默归一化更严**，且两侧判据
-/// 可用同一张表逐字对齐、可证同判（B5 的裁决）。
+/// 嵌入方式（c2）：`include_str!` **编译期嵌入**——文件缺失 = **编译失败**（比任何运行期
+/// 检查都早）；首次使用时惰性解析成静态区间表（[`id_charset_blocks`]，纯 std、无第三方
+/// crate，零依赖 D-005 不破）。
 ///
-/// 表由两类区块构成，缺一不可：
-///   ① 真 NFC/NFD 会改写的区块（canonical：Hangul Jamo、Letterlike 单例分解、
-///      上下标、数字形式、带圈形、兼容表意）——同形异义与不可见注入的现实载体；
-///   ② 契约点名的兼容/表现形区块（NFKC 形：连字 ﬁ、全角、字母表现形）。
-/// 删表任一行 / 改窄任一区间 ⇒ 对应形态重新变「合法」，两条拒绝面同时失守。
-/// 判据 = [`nfc_stable_alnum`]（字符级近似：`is_alphanumeric() && !本表命中`）。
-pub const NFC_REWRITE_BLOCKS: &[(u32, u32, &str)] = &[
-    (0x00AA, 0x00AA, "序数指示符 ª（兼容分解 a a）"),
-    (0x00B2, 0x00B9, "上标 ¹²³ 邻域（兼容分解为数字；´µ¶·¸ 非字母数字本就拒）"),
-    (0x00BA, 0x00BA, "序数指示符 º（兼容分解 o）"),
-    (0x0132, 0x0133, "连字 IJ/ij（兼容分解 I+J）"),
-    (0x01C4, 0x01CC, "DŽ 系列连字（兼容分解 D+Ž）"),
-    (0x01F1, 0x01F3, "DŽ 连字（兼容分解 D+Ž）"),
-    (0x1100, 0x11FF, "Hangul Jamo（NFD 分解为 L/V/T；组合即改写）"),
-    (0x2070, 0x209F, "上标/下标（兼容分解为数字/字母）"),
-    (0x2100, 0x214F, "Letterlike（含 U+2126 Ω / U+212A K / U+212B Å 单例分解）"),
-    (0x2150, 0x218F, "数字形式 Ⅰ ⅱ ½（兼容分解为 ASCII）"),
-    (0x2460, 0x24FF, "带圈字母数字 ① Ⓐ"),
-    (0x3130, 0x318F, "Hangul 兼容 Jamo"),
-    (0x3200, 0x33FF, "带圈/括号 CJK 与单位 ㈱ ㌀"),
-    (0xF900, 0xFAFF, "CJK 兼容表意（U+FA10 等；兼容分解到统一表意）"),
-    (0xFB00, 0xFB4F, "字母表现形（连字 ﬁﬂ 与希伯来表现形）"),
-    (0xFE30, 0xFE4F, "CJK 兼容形式"),
-    (0xFE50, 0xFE6F, "小写变体形式"),
-    (0xFF00, 0xFFEF, "半角/全角"),
-    (0x1D400, 0x1D7FF, "数学字母数字 𝐀 𝟙"),
-    (0x2F800, 0x2FA1F, "CJK 兼容表意补充"),
-];
+/// 为什么换面：旧判据（`is_alphanumeric() && !会改写区块命中`，本批退休）依赖**运行时的
+/// Unicode 属性表**——Python `unicodedata` 与 Rust 工具链各随自己的版本演化，全码点意义
+/// 上不可能同判（实测 Python 侧余 9713 个 Cn 残余码点只能声明方向安全）。新区块表下判据
+/// **不查任何 Unicode 属性库**，两侧只读同一份数据 ⇒ 版本差**结构性不可能**。
+pub const ID_CHARSET_BLOCKS_TEXT: &str = include_str!("../id_charset_blocks.txt");
 
-/// 生效条件：c 的码点落在 [`NFC_REWRITE_BLOCKS`] 任一区块内 → true
-/// （= 「归一化会改写它」，不可信任的 NFC 形）。
-pub fn nfc_rewritable(c: char) -> bool {
-    let u = c as u32;
-    NFC_REWRITE_BLOCKS.iter().any(|(a, b, _)| u >= *a && u <= *b)
+/// 惰性解析结果：首次使用解析一次（`Err` 同样缓存——fail-closed 后不反复重试）。
+static ID_CHARSET_BLOCKS: OnceLock<Result<Vec<(u32, u32)>, String>> = OnceLock::new();
+
+/// 区块表解析（**唯一配方**，与 py / md_cg 两处读者同此一条）：每行取 `#` 之前部分后
+/// `trim`；空行跳过；余下 `split('-')` 两段 `u32::from_str_radix(x, 16)`。
+///
+/// 生效条件：全表形态正确、区间升序且**已归并到最小**、总区间数非空 → `Ok(区间表)`。
+/// 不适用条件：不做任何 Unicode 属性/版本判断——本函数只认识「十六进制区间」字面量。
+/// 任一行不合形态 / 越界 / 相邻相交乱序 / 空表 → `Err(原因)`——**fail-closed**：
+/// 绝不静默跳过坏行（跳过的表会变成一张更宽或更窄的表，两侧随即不同判）。
+/// 行尾 `\r` 由 `trim` 吸收（本机 `core.autocrlf=true`，checkout 可能给整表 CRLF）。
+fn parse_id_charset_blocks(text: &str) -> Result<Vec<(u32, u32)>, String> {
+    let mut out: Vec<(u32, u32)> = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let body = line.split('#').next().unwrap_or("").trim();
+        if body.is_empty() {
+            continue;
+        }
+        let mut parts = body.split('-');
+        let (lo, hi) = match (parts.next(), parts.next(), parts.next()) {
+            (Some(a), Some(b), None) => (a.trim(), b.trim()),
+            _ => return Err(format!("区块表第 {} 行不是 LO-HI 形态: {line:?}", i + 1)),
+        };
+        let lo = u32::from_str_radix(lo, 16)
+            .map_err(|e| format!("区块表第 {} 行起段非十六进制: {e}", i + 1))?;
+        let hi = u32::from_str_radix(hi, 16)
+            .map_err(|e| format!("区块表第 {} 行止段非十六进制: {e}", i + 1))?;
+        if lo > hi || hi > char::MAX as u32 {
+            return Err(format!("区块表第 {} 行区间非法: {lo:#X}-{hi:#X}", i + 1));
+        }
+        // 已归并到最小：升序 ∧ 不相邻 ∧ 不相交（手改成重叠/乱序即在此停手）。
+        if let Some(&(_, prev_hi)) = out.last() {
+            if lo <= prev_hi + 1 {
+                return Err(format!(
+                    "区块表第 {} 行未归并到最小（与前区间相邻/相交/乱序）: {lo:#X}-{hi:#X}",
+                    i + 1
+                ));
+            }
+        }
+        out.push((lo, hi));
+    }
+    if out.is_empty() {
+        return Err("区块表解析出空区间集（fail-closed：空表绝不放行）".to_string());
+    }
+    Ok(out)
 }
 
-/// NFC 稳定字符判据（B5 单点）：Unicode 字母/数字 **且** 不落在会改写的区块内。
-/// 生效条件：c 为「已归一化、可安全进 id」的字符 → true。
-/// 不适用条件：不做真正 NFC 计算（零依赖下不可行）——本判据是**保守近似**：
-/// 它可能拒收少数本就 NFC 稳定的字符（严于必需），但绝不放过会改写的形态。
-pub fn nfc_stable_alnum(c: char) -> bool {
-    c.is_alphanumeric() && !nfc_rewritable(c)
+/// 生效条件：表可解析且非空 → `Ok(区间表)`（升序、已归并到最小）；否则 `Err(原因)`。
+/// 判据读者**必须**在 `Err` 时 fail-closed（见 [`id_charset_member`]），不得退回任何
+/// Unicode 属性判定兜底。
+pub fn id_charset_blocks() -> Result<&'static [(u32, u32)], &'static str> {
+    match ID_CHARSET_BLOCKS.get_or_init(|| parse_id_charset_blocks(ID_CHARSET_BLOCKS_TEXT)) {
+        Ok(v) => Ok(v.as_slice()),
+        Err(e) => Err(e.as_str()),
+    }
+}
+
+/// 生效条件：表为 `Ok` 且 c 的码点 ∈ 其区间并集 → true；表为 `Err` → **一律 false**
+/// （fail-closed：表缺失/坏行/空表 ⇒ 绝不放行任何字符）。
+/// 单列成函数是为了让「Err ⇒ false」这条 fail-closed 判据可被守卫直接断言
+/// （[`tests::charset_gate_fails_closed_on_bad_table`]）。
+fn charset_member_in(blocks: &Result<Vec<(u32, u32)>, String>, c: char) -> bool {
+    match blocks {
+        Ok(v) => {
+            let u = c as u32;
+            v.iter().any(|(lo, hi)| u >= *lo && u <= *hi)
+        }
+        Err(_) => false,
+    }
+}
+
+/// 字符类判据（B5′ · **全仓唯一字符集判据**）：c 是否落在区块表的区间并集内。
+///
+/// **不查任何 Unicode 属性库**（不用 `char::is_alphanumeric`，也不做 NFC 计算）⇒
+/// 两侧读者（Rust 工具链 vs Python `unicodedata`）的属性表版本差**结构性不可能**：
+/// 接受集只由这一份数据文件决定，逐码点相同（守卫全码点遍历断言，见
+/// [`tests::charset_predicate_equals_blocks_table`]）。
+/// **NFC 保证方式**（c5）：表本身由脚本按「类目 ∈ {Lu,Ll,Lt,Lm,Lo,Nd} ∧ 单字符 NFC 稳定」
+/// 生成（生成器与守卫各全表重算一遍）⇒ 本判据不必做真 NFC 计算，收下的 id 也保证已是
+/// NFC 形态（**拒收而非静默归一化**，零依赖 D-005 下不必手写完整 NFC）。
+///
+/// 不适用条件：`_`(U+005F) 与 `.`(U+002E) **不在本表内**，由 [`valid_job_id`] 的
+/// **结构分支**处理（槽分隔符 / 非尾点非单独的点）⇒ 本判据是「字符类」判据，不含这两个
+/// 结构字符；`err` 侧不做任何兜底放行。
+pub fn id_charset_member(c: char) -> bool {
+    charset_member_in(
+        ID_CHARSET_BLOCKS.get_or_init(|| parse_id_charset_blocks(ID_CHARSET_BLOCKS_TEXT)),
+        c,
+    )
 }
 
 /// 零宽与不可见注入载体（B4 拒收项）：U+200B..U+200F、U+2060、U+FEFF。
@@ -157,20 +214,24 @@ pub fn is_reserved_device_name(s: &str) -> bool {
 
 /// job_id 结构合法性（B4 字符集闸 + 防路径穿越；**全仓唯一判据**）。
 ///
-/// 放宽（B4）：由「ASCII 字母数字 + `_`」放宽为「Unicode 字母/数字 + `_` + `.`」，
-/// 使新形态中文 id 与旧形态 id **同时**满足；旧形态 `h<13位毫秒>_<4位hex>` 仍通过
-/// （存量零迁移）。`h` 前缀与非空要求保留（§四.7：去掉它要牵动一大片，收益为零）。
-/// `.` 的口径：**非尾点、非单独**才收——由 B4 拒收项「单独的 `.` 与 `..`」「尾点」
-/// 的存在反推（若 `.` 全拒则这三条无从谈起）；`-` 不在白名单，拒（B4 白名单 =
-/// 字母/数字 + `_` + 上述 `.` 口径）。
-/// 拒收逐条在本函数内显式判，不靠上游：
+/// 字符集判据（B4；2026-09-30 换面）：白名单 = **区块表区间并集**（[`id_charset_member`]，
+/// 唯一真源 `hive/id_charset_blocks.txt`）**加两个结构字符** `_`（槽分隔符）与 `.`（非尾点、
+/// 非单独才收）——由「ASCII 字母数字 + `_`」放宽后，新形态中文 id 与旧形态 id **同时**满足；
+/// 旧形态 `h<13位毫秒>_<4位hex>` 仍通过（存量零迁移）。`h` 前缀与非空要求保留（§四.7：
+/// 去掉它要牵动一大片，收益为零）。
+/// **判据不查任何 Unicode 属性库**（不再用 `char::is_alphanumeric`）⇒ 与 Python 侧的
+/// 属性表版本差**结构性不可能**；NFC 保证由表本身承载（表内每码点已由生成器筛过 NFC 稳定，
+/// c3/c5）——`-` 与其他形态一律拒（不在表内、且不是结构字符）。
+/// 拒收逐条在本函数内显式判，不靠上游、也不靠「表里没有所以顺带拒」：
 ///   * `/` `\` `:`（路径分隔/盘符/ADS；2026-09-25 缺陷载体：`kill ..` 池外写、
 ///     `poll ../victim` 池外读任意目录 result 全文）；
 ///   * 单独的 `.` 与 `..`、尾点（Win32 静默剥尾点 ⇒ 两个不同 id 落同一目录）；
 ///   * 控制字符（含 NUL）、零宽、双向控制；
 ///   * 首尾空白；
 ///   * Windows 保留设备名（含带扩展名形态）——整 id 与按 `_` 分段的**任一段**；
-///   * B5 的「非 NFC 稳定」字符（[`nfc_stable_alnum`]）。
+///   * 区块白名单（[`id_charset_member`]）之外的一切字符——含旧机制点名的「会归一化改写」
+///     形态（兼容/带圈/上下标/数学字母数字/全角半角/兼容表意/组合标记…），它们都在候选
+///     区块之外，见 `hive/id_charset_blocks.txt` 的「有意不收」段。
 /// 生效条件：id 满足上述全部 → true；否则 false——kill/poll/depends_on 等一切把
 /// **外部输入**的 job_id 拼进路径的入口，必须先过此闸。
 pub fn valid_job_id(id: &str) -> bool {
@@ -196,7 +257,7 @@ pub fn valid_job_id(id: &str) -> bool {
         if c == '_' || c == '.' {
             continue;
         }
-        if !nfc_stable_alnum(c) {
+        if !id_charset_member(c) {
             return false;
         }
     }
@@ -214,9 +275,14 @@ pub fn valid_job_id(id: &str) -> bool {
 /// 四槽之一的结构校验（B8 提交面；id 拼装前的唯一槽闸）。
 ///
 /// 槽取值 = 语义标签（身份/任务/单元），落进 id 就是路径分量的一段，故判据与
-/// [`valid_job_id`] 同族：**每字符必须 NFC 稳定字母/数字**——这意味着槽内不含 `_`
+/// [`valid_job_id`] 同族：**每字符必须落在区块白名单内**（[`id_charset_member`]，唯一真源
+/// `hive/id_charset_blocks.txt`；不查任何 Unicode 属性库）——这意味着槽内不含 `_`
 /// （它是槽分隔符，含它就无法切回四槽）、不含 `.`/路径分隔符/控制与零宽字符；
 /// 另外不得是 Windows 保留设备名（`CON`/`NUL`/`COM1`…，含大小写变体）。
+/// **显式拒收集合**（c7/c9：白名单外是「默认被拒」，但结构面必须逐条显式断言——
+/// 防将来有人放宽某个区块时把它们带进来）：`_` / 路径成分 `/` `\` `:` / `.` /
+/// 控制字符 / 零宽（U+200B..200F、U+2060、U+FEFF）/ 双向控制（U+202A..202E、U+2066..2069）。
+/// 这些断言与白名单**同向**（它们本就不在表内）⇒ 判据面不变、拒绝面更显式。
 /// 生效条件：slot=槽名（身份/任务/单元）、value 合法 → Ok(())；否则 Err，错误文本
 /// 含槽名与取值（可直读、可照抄）。
 pub fn valid_slot(slot: &str, value: &str) -> Result<(), String> {
@@ -231,10 +297,29 @@ pub fn valid_slot(slot: &str, value: &str) -> Result<(), String> {
                 "{slot}槽非法: {value:?}——槽取值不得含 `_`（它是 id 的槽分隔符，含它就切不回四槽）"
             ));
         }
-        if !nfc_stable_alnum(c) {
+        // c7/c9 显式拒收（白名单外是默认被拒，但结构面必须逐条显式断言，不靠「表里没有」）：
+        if c.is_control() {
             return Err(format!(
-                "{slot}槽非法: {value:?}——槽取值须为 Unicode 字母/数字（不含路径分隔符、点、\
-                 控制/零宽字符，且不得是归一化会改写的形态）"
+                "{slot}槽非法: {value:?}——含控制字符 U+{:04X}",
+                c as u32
+            ));
+        }
+        if is_zero_width(c) || is_bidi_control(c) {
+            return Err(format!(
+                "{slot}槽非法: {value:?}——含零宽/双向控制字符 U+{:04X}",
+                c as u32
+            ));
+        }
+        if c == '/' || c == '\\' || c == ':' || c == '.' {
+            return Err(format!(
+                "{slot}槽非法: {value:?}——含路径成分或点（`/` `\\` `:` `.`；槽取值是 id 的路径分量段）"
+            ));
+        }
+        if !id_charset_member(c) {
+            return Err(format!(
+                "{slot}槽非法: {value:?}——槽取值须为区块白名单内的字母/数字（判据 = \
+                 `hive/id_charset_blocks.txt` 的区间并集，不查 Unicode 属性库；表外形态一律拒，\
+                 含会归一化改写的形态）"
             ));
         }
     }
@@ -861,9 +946,9 @@ mod tests {
     /// 合法侧：新契约四槽中文 id（契约示例与边界形态）+ 旧形态 `h<毫秒>_<hex>`
     /// （存量零迁移：旧 id 必须仍然合法）→ 必须**通过**。
     /// 非法侧：路径成分、首尾空白与尾点、控制字符（含 NUL）、零宽/双向控制、
-    /// Windows 保留设备名（含带扩展名形态）、白名单外字符、非 NFC 稳定形态
-    /// → 必须**拒绝**（它们曾可经 job_dir 逃出 jobs 池写 kill 文件、读任意目录
-    /// result 全文）。
+    /// Windows 保留设备名（含带扩展名形态）、**区块白名单外**字符（含一切会归一化
+    /// 改写的形态）→ 必须**拒绝**（它们曾可经 job_dir 逃出 jobs 池写 kill 文件、
+    /// 读任意目录 result 全文）。
     #[test]
     fn valid_job_id_charset_gate() {
         for ok in [
@@ -888,8 +973,10 @@ mod tests {
             "h\x01", "h\x7f", "h\x00NUL",           // 控制字符（含 NUL）
             "h\u{200B}", "h\u{202E}", "h\u{FEFF}",  // 零宽 / 双向控制
             "h\u{0301}", "h\u{41}\u{301}",          // 组合标记（NFD 形复合）
+            // 区块白名单外（候选区块未收）：兼容分解/上下标/数字形式/全角/谚文 Jamo/
+            // 兼容表意/连字——旧机制下靠 NFC_REWRITE_BLOCKS 拒，本批靠「不在表内」拒。
             "h\u{00AA}", "h\u{2070}", "h\u{2160}", "h\u{FF11}", "h\u{1100}",
-            "h\u{FA10}", "h\u{FB01}",               // 会改写的区块（B5 闭集）
+            "h\u{FA10}", "h\u{FB01}",
             "h_CON_任务_记录单元_0001",              // 段落设备名
             "h_CON.txt_任务_记录单元_0001",          // 带扩展名形态
             "h_端_aux_记录单元_0001",                // 小写 aux（大小写不敏感）
@@ -900,9 +987,12 @@ mod tests {
         }
     }
 
-    /// B5：NFC 会改写区块闭集必须覆盖契约点名的 11 个最低区块——删表/改窄即红。
+    /// B5′（改造自旧的 NFC 闭集守卫）：契约点名的 11 个「有意不收」区块**不得**被白名单
+    /// 收进来——旧机制下它们是 `nfc_rewritable` 闭集，本批该闭集退休，同一条拒绝面改由
+    /// 「候选区块之外」承载（见 `hive/id_charset_blocks.txt` 的「有意不收」段）。
+    /// 区块表被放宽 / 候选清单被增补即红。
     #[test]
-    fn nfc_blocks_cover_contract_forms() {
+    fn charset_blocks_exclude_contract_forms() {
         for (cp, tag) in [
             (0x1100u32, "Hangul Jamo"),
             (0x3130, "Hangul 兼容 Jamo"),
@@ -917,18 +1007,162 @@ mod tests {
             (0x2F800, "CJK 兼容表意补充"),
         ] {
             let c = char::from_u32(cp).unwrap();
-            assert!(nfc_rewritable(c), "闭集未覆盖契约区块代表点 {cp:#06x}（{tag}）");
-            assert!(!nfc_stable_alnum(c), "会改写区块的代表点被判稳定 {cp:#06x}（{tag}）");
+            assert!(!id_charset_member(c), "有意不收的区块代表点被判收 {cp:#06x}（{tag}）");
+            assert!(
+                !valid_job_id(&format!("h{c}")),
+                "有意不收的区块代表点经 id 闸被收 {cp:#06x}（{tag}）"
+            );
         }
-        // 区间两端都命中（防「只写了一半」的漂移）
+        // 区间两端（防「只写了一半」的漂移）
         for (lo, hi) in [(0x1100u32, 0x11FFu32), (0x1D400, 0x1D7FF), (0x2F800, 0x2FA1F)] {
-            assert!(nfc_rewritable(char::from_u32(lo).unwrap()), "{lo:#06x}");
-            assert!(nfc_rewritable(char::from_u32(hi).unwrap()), "{hi:#06x}");
+            for cp in [lo, hi] {
+                assert!(!id_charset_member(char::from_u32(cp).unwrap()), "{cp:#06x}");
+            }
         }
-        // 不误伤：常规中文与 ASCII 字母数字必须判稳定
+        // 不误伤：常规中文与 ASCII 字母数字必须判收
         for c in ['灵', '枢', '迭', '代', 'A', 'z', '0', '9'] {
-            assert!(nfc_stable_alnum(c), "常规字符被误判为会改写: {c:?}");
+            assert!(id_charset_member(c), "常规字符被误判为白名单外: {c:?}");
         }
+    }
+
+    /// c7：拒收项**逐条显式断言**——「白名单外所以默认被拒」不算数（防将来放宽某个区块时
+    /// 把零宽/双向控制/控制字符/路径成分带进来）。每条都同时过 **id 闸**与**槽闸**：两处
+    /// 判据同源（[`id_charset_member`]），拒绝面必须一致。
+    #[test]
+    fn charset_gate_rejects_contract_list_explicitly() {
+        let mut suspects: Vec<char> = Vec::new();
+        suspects.extend('\u{200B}'..='\u{200F}'); // 零宽（c7 逐码点）
+        suspects.push('\u{2060}');
+        suspects.push('\u{FEFF}');
+        suspects.extend('\u{202A}'..='\u{202E}'); // 双向控制（c7 逐码点）
+        suspects.extend('\u{2066}'..='\u{2069}');
+        suspects.extend('\u{0000}'..='\u{001F}'); // C0 控制
+        suspects.push('\u{007F}'); // DEL
+        suspects.push('\u{0085}'); // C1 控制
+        suspects.extend(['/', '\\', ':', '.']); // 路径成分与点
+        suspects.extend(['\u{00A0}', '\u{3000}']); // 空白（首尾空白面）
+        for c in suspects {
+            let s = c.to_string();
+            assert!(!id_charset_member(c), "拒收项落在白名单内: U+{:04X}", c as u32);
+            assert!(!valid_job_id(&format!("h{c}")), "id 闸放过拒收项: U+{:04X}", c as u32);
+            assert!(valid_slot("任务", &s).is_err(), "槽闸放过拒收项: U+{:04X}", c as u32);
+        }
+        // `_` 是**结构字符**（槽分隔符）：槽闸拒、id 闸收——两侧有意不同，显式钉住。
+        assert!(!id_charset_member('_'));
+        assert!(valid_job_id("h_"), "`_` 是 id 的结构字符，须收");
+        assert!(valid_slot("任务", "_").is_err());
+        // 单独的 `.` 与 `..`、尾点：字符串级形态（不在单字符面内）
+        for bad in [".", "..", "h.", "h..", "h/.", "../victim", "h/../../x", "h\\..", "h:x"] {
+            assert!(!valid_job_id(bad), "拒收形态被收: {bad:?}");
+        }
+        // 首尾空白（整串面）
+        for bad in ["h ", "h\t", " h", "h\u{00A0}", "h\u{3000}"] {
+            assert!(!valid_job_id(bad), "首尾空白被收: {bad:?}");
+        }
+        // Windows 保留设备名：**逐名**（大小写不敏感 / 带扩展名 / 按 `_` 分段任一段）
+        for name in RESERVED_DEVICE_NAMES {
+            let lower = name.to_ascii_lowercase();
+            for form in [
+                format!("h_{name}_任务_记录单元_0001"),
+                format!("h_{name}.txt_任务_记录单元_0001"),
+                format!("h_任务_{name}_记录单元_0001"),
+                format!("h_任务_记录单元_{lower}"),
+                format!("h_{lower}.txt_任务_记录单元_0001"),
+            ] {
+                assert!(!valid_job_id(&form), "保留设备名形态被收: {form:?}");
+            }
+            assert!(valid_slot("任务", name).is_err(), "槽闸放过保留设备名: {name}");
+        }
+    }
+
+    /// c13：**字符类判据 ≡ 表**（全码点遍历 `0..=0x10FFFF`；纯内存区间查表，秒级）。
+    /// 不再靠「喂真 hive.exe 逐码点」（那是 44 分钟路径）——接受集与表的区间并集逐码点
+    /// 相同正是本批的结构性判据（两侧各自「≡ 表」合起来即两侧零分歧）。
+    /// 范围说明：代理区 U+D800..DFFF 不是 `char`（`char::from_u32` 返回 None），
+    /// 结构上不可达，故跳过而非断言。
+    #[test]
+    fn charset_predicate_equals_blocks_table() {
+        let blocks = id_charset_blocks().expect("嵌入的区块表必须可解析且非空（fail-closed）");
+        assert!(blocks.len() >= 30, "区块表区间数非退化，实得 {}", blocks.len());
+        // 表已归并到最小（与生成器 `_is_minimal` 同判据：升序 ∧ 不相邻 ∧ 不相交）
+        for w in blocks.windows(2) {
+            let (a1, b1) = w[0];
+            let (a2, b2) = w[1];
+            assert!(a1 <= b1 && b1 + 1 < a2 && a2 <= b2, "未归并到最小: {a1:#X}-{b1:#X} / {a2:#X}-{b2:#X}");
+        }
+        let mut hit: u64 = 0;
+        for cp in 0..=0x10FFFFu32 {
+            let Some(c) = char::from_u32(cp) else { continue };
+            let want = blocks.iter().any(|(lo, hi)| cp >= *lo && cp <= *hi);
+            assert_eq!(id_charset_member(c), want, "接受集与表不符: U+{cp:04X}");
+            if want {
+                hit += 1;
+            }
+        }
+        assert!(hit > 100_000, "接受集非退化（表覆盖 {hit} 个码点）");
+    }
+
+    /// c13：`valid_job_id` 与 `valid_slot` **用的字符判据** ≡ 表（全码点遍历）。
+    /// `_` 与 `.` 是两个**结构字符**（不在表内、由结构分支处理，见 [`id_charset_member`]
+    /// 的不适用条件）：`h_` 收、`h.` 拒（尾点）——故 id 侧的等价式把 `_` 单列，
+    /// 槽侧则连 `_` 一起必须在表外即拒（两处口径一致且都有意为之）。
+    #[test]
+    fn job_id_and_slot_gates_use_table_membership() {
+        assert!(id_charset_blocks().is_ok(), "区块表必须可解析");
+        for cp in 0..=0x10FFFFu32 {
+            let Some(c) = char::from_u32(cp) else { continue };
+            let member = id_charset_member(c);
+            assert_eq!(
+                valid_job_id(&format!("h{c}")),
+                member || c == '_',
+                "id 闸字符判据 ≠ 表: U+{cp:04X}"
+            );
+            assert_eq!(
+                valid_slot("任务", &c.to_string()).is_ok(),
+                member,
+                "槽闸字符判据 ≠ 表: U+{cp:04X}"
+            );
+        }
+    }
+
+    /// c2 fail-closed：表坏（缺/坏行/空）⇒ 判据**一律 false**，绝不退回属性判定兜底。
+    #[test]
+    fn charset_gate_fails_closed_on_bad_table() {
+        // 解析器侧：空文本、坏行、越界、未归并到最小 → Err（绝不静默跳过）
+        for bad in ["", "# 只有注释\n", "00\n", "ZZ-40\n", "0050-0040\n", "0030-0039\r\n-1\n"] {
+            assert!(parse_id_charset_blocks(bad).is_err(), "坏表须 Err: {bad:?}");
+        }
+        assert!(parse_id_charset_blocks("0050-0040").is_err(), "逆序须 Err");
+        assert!(parse_id_charset_blocks("0030-0039\n003A-0045").is_err(), "相邻须 Err（未归并）");
+        assert!(parse_id_charset_blocks("0050-0060\n0030-0039").is_err(), "乱序须 Err");
+        assert!(parse_id_charset_blocks("0030-0039\n0040-0045").is_ok(), "留空隙的表须 Ok");
+        // 判据侧：Err / 空集 ⇒ false（fail-closed 的两个面都钉住）
+        let err: Result<Vec<(u32, u32)>, String> = Err("表缺失".to_string());
+        let empty: Result<Vec<(u32, u32)>, String> = Ok(Vec::new());
+        for blocks in [&err, &empty] {
+            for c in ['A', 'z', '0', '灵'] {
+                assert!(!charset_member_in(blocks, c), "fail-closed 失守: {c:?}");
+            }
+        }
+        // 表在位时同一入口仍放行（防「一律 false」被写成无条件拒绝）
+        let ok = id_charset_blocks().expect("表可解析");
+        let ok_owned: Result<Vec<(u32, u32)>, String> = Ok(ok.to_vec());
+        assert!(charset_member_in(&ok_owned, '灵'));
+    }
+
+    /// c14：守卫自身的 UTF-8 自保证（照 `scripts/run_tests.py` 的最小形态）。
+    /// Rust 侧没有 Python 那种 stdout 编解码失败模式（`println!` 直写字节），故最小形态 =
+    /// 对**嵌入的表文本**做往返断言：无 BOM、中文表头逐字往返、CRLF 形态解析出同一张表。
+    /// （编码非法 = `include_str!` 编译失败——比运行期断言更早，见 [`ID_CHARSET_BLOCKS_TEXT`]。）
+    #[test]
+    fn charset_blocks_text_is_utf8_without_bom() {
+        let t = ID_CHARSET_BLOCKS_TEXT;
+        assert!(!t.starts_with('\u{FEFF}'), "表文件带了 BOM");
+        assert!(t.starts_with("# 蜂巢 job_id 字符白名单"), "表头中文未逐字往返");
+        assert!(t.contains("唯一真源"), "表头缺「唯一真源」标记");
+        let lf = parse_id_charset_blocks(t).expect("LF 表须可解析");
+        let crlf = parse_id_charset_blocks(&t.replace('\n', "\r\n")).expect("CRLF 表须可解析");
+        assert_eq!(lf, crlf, "CRLF 形态须解析出同一张表（autocrlf checkout 不改变接受集）");
     }
 
     /// B2 同源断言：五单元词表与真源 `md_cg/identity.py` 的 `POSITIONS` 逐项一致
@@ -1166,7 +1400,7 @@ mod tests {
     }
 
     /// B8 槽闸：空/首尾空白/含 `_`（槽分隔符）/含 `.`/路径成分/保留设备名/
-    /// 非 NFC 稳定 → 拒；中文与 ASCII 字母数字 → 收。
+    /// **区块白名单外**（含旧机制点名的会改写形态与零宽）→ 拒；中文与 ASCII 字母数字 → 收。
     #[test]
     fn valid_slot_rejects_unusable_values() {
         for ok in ["zcode端", "灵枢迭代", "记录单元", "a1", "端123"] {
@@ -1175,6 +1409,7 @@ mod tests {
         for bad in [
             "", " ", " 端", "端 ", "a_b", "a.b", "端/1", "端\\1", "h:x", "端:1", "CON",
             "con", "NUL.txt", "COM1", "lpt9", "aux", "单元\u{200B}", "\u{00AA}", "\u{FF11}",
+            "端\u{0301}", "端\u{202E}", "端\u{3000}",
         ] {
             assert!(valid_slot("任务", bad).is_err(), "非法槽值被收: {bad:?}");
         }

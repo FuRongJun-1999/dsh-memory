@@ -626,7 +626,8 @@ fn cmd_poll(args: &[String], jobs: PathBuf) -> i32 {
                 println!(
                     "{}",
                     err_json(format!(
-                        "job_id 非法: {id}（须为 h 开头的单个路径分量：Unicode 字母/数字与 `_`，\
+                        "job_id 非法: {id}（须为 h 开头的单个路径分量：区块白名单\
+                 （hive/id_charset_blocks.txt）内的字母/数字与 `_`，\
                          非尾点 `.`；不含 / \\ : 与控制/零宽/双向字符，且不得是保留设备名）"
                     ))
                 );
@@ -667,7 +668,8 @@ fn cmd_kill(args: &[String], jobs: PathBuf) -> i32 {
         println!(
             "{}",
             err_json(format!(
-                "job_id 非法: {id}（须为 h 开头的单个路径分量：Unicode 字母/数字与 `_`，\
+                "job_id 非法: {id}（须为 h 开头的单个路径分量：区块白名单\
+                 （hive/id_charset_blocks.txt）内的字母/数字与 `_`，\
                  非尾点 `.`；不含 / \\ : 与控制/零宽/双向字符，且不得是保留设备名）"
             ))
         );

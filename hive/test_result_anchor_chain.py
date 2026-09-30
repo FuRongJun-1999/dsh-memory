@@ -133,6 +133,10 @@ def _fake_repo(tmp: str, source_bytes: bytes) -> str:
       路径全部落在临时面内（真仓 `hive_mcp/__pycache__` 不被本守卫写入）。
       `serve_start.py` **逐字节复制**自真仓：同一解析函数（`load_config`/`resolve`），
       不是第二套实现。
+    `hive/id_charset_blocks.txt` **也要复制**（2026-09-30 裁定 ①-(c)）：判据实现
+    `mcp_server.py` 在**导入期**读这张唯一真源表（相对 REPO 解析），假仓缺它 ⇒ 判据
+    fail-closed（对一切字符返回 false）⇒ 一切合法 id 都被判「非法」（实测本组 5 条
+    断言因此转红）。复制的是数据文件本体，与真仓同一份。
     """
     root = os.path.join(tmp, "repo")
     pkg = os.path.join(root, "hive", "hive_mcp")
@@ -141,6 +145,8 @@ def _fake_repo(tmp: str, source_bytes: bytes) -> str:
         f.write(source_bytes)
     shutil.copyfile(os.path.join(_HERE, "serve_start.py"),
                     os.path.join(root, "hive", "serve_start.py"))
+    shutil.copyfile(os.path.join(_HERE, "id_charset_blocks.txt"),
+                    os.path.join(root, "hive", "id_charset_blocks.txt"))
     return root
 
 

@@ -22,6 +22,12 @@ crosscheck 同款 verdicts 通道回填）。理由：使用者的复核是昂�
     job_id      = 本模块自造旧形态 h<java_ms>_<uuid6>（`_job_id`，**不是** `_submit` 同款）；
                   hive 提交面自 id 契约 v2（B8）起为四槽 h_<身份>_<任务>_<单元>_<编号>，由
                   Rust 侧 `hive alloc-id` 分配——两形态都过 job.rs::valid_job_id（存量零迁移）
+    id 字符判据 = **区块白名单**：唯一真源 hive/id_charset_blocks.txt 的区间并集
+                  （[`_valid_job_id`]；本模块**读这份数据文件**、不 import hive，
+                  与 job.rs / mcp_server.py 三处共读同一份 ⇒ 不查任何 Unicode 属性库，
+                  两侧版本差结构性不可能）。本闸**有意保留**两处放宽（既有对外契约）：
+                  不要求 h 前缀、允许 `-`；拒收面（零宽/双向控制/控制字符/路径成分/尾点/
+                  首尾空白/Windows 保留设备名）逐条显式断，不靠「白名单外顺带拒」。
     result.json = {"ok":true,"content":...} | {"ok":false,"error":...}
     终态        = done | error | timeout | killed
     拉起 serve  = <repo>/hive/target/release/hive serve --jobs <jobs>（detached）
@@ -285,19 +291,120 @@ def _job_id() -> str:
     return "h%d_%s" % (int(time.time() * 1000), uuid.uuid4().hex[:6])
 
 
-# 生效条件：jid 为 str、长度 1..128、strip() 前后无差异（首尾无空白）、首尾字符都不是 "."（拒 "."/".."/"..." 与 Win32 会剥尾点的 "abc." 形态）、且每个字符都属 ASCII 白名单 [A-Za-z0-9_.-]（deny-by-default：`/` `\` `:` NUL 与一切宽字符/控制字符天然被拒）时返回 True，否则 False。
-def _valid_job_id(jid) -> bool:
-    """job_id 结构闸（N178，2026-09-28）：**只允许单个路径分量**的 id。
+# ------------------------------------------------ id 字符判据（区块白名单 · 唯一真源）
 
-    同族家法：`hive/hive_mcp/mcp_server.py:133-143`、`hive/src/job.rs:63-67`。
-    差异（有意的）：本闸**不**要求 "h" 前缀——`md_cg/test_units_poll.py:47/53/57`
-    的 "j_empty"/"j_good"/"j_fail" 是既有对外契约（本模块 poll 面向任意宿主
-    派发器写出的 job 目录），前缀收紧会误杀；此处只保留「不含路径成分」的
-    **结构**判据，判别力等价：相对父段（".."、"../victim"）、分隔符（"a/b"、
-    r"a\\b"）、盘符相对/ADS（"C:x"、"h:x"）、NUL、首尾空白、纯点/尾点形态
-    （"."、"..."、"x."，Win32 会剥尾点使其与 "x" 同指）全拒。
-    非 str 一律拒（**不** str() 归一：与 legacy P3 同纪律，未校验的强制转换
-    会把对象形态洗成合法路径成分）。
+#: 区块表数据文件（**唯一真源**，与 `hive/src/job.rs` / `hive/hive_mcp/mcp_server.py`
+#: **共读同一份数据**；本模块**读数据文件**而不是 import hive ⇒ 不破零依赖家法）。
+_CHARSET_BLOCKS_REL = "hive/id_charset_blocks.txt"
+_MAX_CP = 0x10FFFF
+
+
+# 生效条件：text 为表文件全文时返回区间列表 [(起, 止)]——**唯一解析配方**（与 Rust
+# `job.rs::parse_id_charset_blocks`、`mcp_server._parse_charset_blocks` 同一条，不许各写
+# 一套）：每行取 `#` 之前部分后 strip；空行跳过；余下 split('-') 两段 int(x, 16)。
+# 任一行不合形态 / 越界 / 逆序 / 未归并到最小 / 空表 → 抛 ValueError（fail-closed：
+# 绝不静默跳过坏行——跳过一行的表是另一张表，三处读者随即不同判）。
+def _parse_charset_blocks(text: str) -> list:
+    """区块表解析（唯一配方）。"""
+    out: list = []
+    for lineno, line in enumerate(text.split("\n"), 1):
+        body = line.split("#", 1)[0].strip()
+        if not body:
+            continue
+        parts = body.split("-")
+        if len(parts) != 2:
+            raise ValueError("区块表第 %d 行不是 LO-HI 形态：%r" % (lineno, line))
+        lo, hi = int(parts[0], 16), int(parts[1], 16)
+        if not (0 <= lo <= hi <= _MAX_CP):
+            raise ValueError("区块表第 %d 行区间非法：%r" % (lineno, line))
+        if out and lo <= out[-1][1] + 1:
+            raise ValueError("区块表第 %d 行未归并到最小（相邻/相交/乱序）：%r"
+                             % (lineno, line))
+        out.append((lo, hi))
+    if not out:
+        raise ValueError("区块表解析出空区间集（fail-closed：空表绝不放行）")
+    return out
+
+
+# 生效条件：无入参，返回 (区间表, 错误说明)——文件可读且解析通过 → (tuple 区间表, None)；
+# 表缺失 / 不可读 / 解析失败 → ((), 原因)。后两者让判据 fail-closed（对一切字符 False）。
+def _load_charset_blocks() -> tuple:
+    """**模块导入时读一次**（不做每调用 I/O）；路径基准 = 本文件上溯两级（= 仓根）。"""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "hive", "id_charset_blocks.txt")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        return (), "%s 不可读：%s" % (_CHARSET_BLOCKS_REL, exc)
+    try:
+        return tuple(_parse_charset_blocks(text)), None
+    except ValueError as exc:
+        return (), "%s 解析失败：%s" % (_CHARSET_BLOCKS_REL, exc)
+
+
+#: 判据数据（模块导入时求值一次）：区间表 + 读取/解析错误（错误非 None ⇒ 判据一律 False）。
+CHARSET_BLOCKS, CHARSET_BLOCKS_ERROR = _load_charset_blocks()
+
+
+# 生效条件：c 为单字符且其码点落在区间表内 → True；表缺失 / 坏行 / 空表 → False
+# （fail-closed：绝不放行）。
+def _charset_member(c: str) -> bool:
+    u = ord(c)
+    return any(lo <= u <= hi for lo, hi in CHARSET_BLOCKS)
+
+
+# Windows 保留设备名（B4 拒收项；与 `job.rs::RESERVED_DEVICE_NAMES`、
+# `mcp_server.RESERVED_DEVICE_NAMES` 逐项同集——md_cg 只复制这 22 个常量，**还是读数据
+# 而不是 import hive**）。Win32 对**单个路径分量**做设备名解析且**忽略扩展名**
+# （`CON.txt` 与 `CON` 同指设备），故比对的是「首个 `.` 之前」部分；比对**ASCII 大小写
+# 不敏感**（不用 str.upper()：它的 Unicode 折叠面比 Rust 的 eq_ignore_ascii_case 宽，
+# 会让两侧分叉）。
+RESERVED_DEVICE_NAMES = (
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6",
+    "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",
+    "LPT7", "LPT8", "LPT9",
+)
+_ASCII_UPPER = str.maketrans("abcdefghijklmnopqrstuvwxyz",
+                             "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+
+# 生效条件：s 的「首个 `.` 之前」部分与任一保留设备名 **ASCII 大小写不敏感**相等 → True
+# （含 `CON.txt` 这类带扩展名形态）——与 rust `job::is_reserved_device_name` 同判。
+def _is_reserved_device_name(s: str) -> bool:
+    base = s.split(".")[0].translate(_ASCII_UPPER)
+    return base in RESERVED_DEVICE_NAMES
+
+
+# 生效条件：jid 为 str、长度 1..128、strip() 前后无差异（首尾无空白）、首尾字符都不是
+# "."（拒 "."/".."/"..." 与 Win32 会剥尾点的 "abc." 形态）、逐字符过显式拒收集合后落在
+# **区块白名单**（[`_charset_member`]，唯一真源 `hive/id_charset_blocks.txt`，与 hive 两侧
+# 共读同一份数据）或属结构字符 `_` `-` `.`，且整 id 与其按 `_` 分段的任一段都不是
+# Windows 保留设备名时返回 True，否则 False。
+def _valid_job_id(jid) -> bool:
+    r"""job_id 结构闸（N178，2026-09-28；2026-09-30 字符集判据换面为**区块白名单**）。
+
+    同族家法：`hive/hive_mcp/mcp_server.py::_valid_job_id`、
+    `hive/src/job.rs::valid_job_id`（三处**共读同一份区块表**，不是三套常量）。
+    本闸**保留**的既有放宽（都是既有对外契约，**不得**为「同口径」收紧）：
+      · **不要求 "h" 前缀**——`md_cg/test_units_poll.py` 的 "j_empty"/"j_good"/
+        "j_fail" 是本模块对外契约（poll 面向任意宿主派发器写出的 job 目录），前缀
+        收紧会误杀；
+      · 允许 `-`（hive 侧拒它：不在区块表内、也不是它的结构字符）；
+      · 长度上限 128、首尾无空白、首尾非点（拒 "."/".."/"..." 与 "x." 尾点形态）
+        一并保留。
+    非 str 一律拒（**不** str() 归一：与 legacy P3 同纪律，未校验的强制转换会把对象
+    形态洗成合法路径成分）。
+    字符类判据 = **区块白名单**（与 hive 两侧同源）——白名单外的一切字符一律拒。
+    放宽带来的静默风险**逐条显式挡住**（c9：「isalpha」类判据下 Cf/Cc 天然不入，但
+    **不能靠这个**）：零宽 U+200B..U+200F/U+2060/U+FEFF、双向控制
+    U+202A..U+202E/U+2066..U+2069、控制字符（C0/DEL/C1）**逐条显式判**；`/` `\` `:`
+    与 NUL 同样显式拒（路径成分：相对父段 "../outside"、分隔符、盘符/ADS、绝对路径
+    会被 os.path.join 吸附）；Windows 保留设备名（CON/PRN/AUX/NUL/COM1..9/LPT1..9，
+    含 `CON.txt` 带扩展名形态与 ASCII 大小写变体）**整 id 与按 `_` 分段的任一段**逐名
+    显式拒——旧 ASCII 白名单下 `CON` 这类全字母 id 是**放行**的，故这是本闸换面时
+    **收紧**的那一面（与 hive 两侧同集同判，语料 80-84 行逐例钉死）。
+    表缺失 / 坏表 ⇒ 判据一律 False（fail-closed，绝不放行）。
     """
     if not isinstance(jid, str) or not jid or len(jid) > 128:
         return False
@@ -306,9 +413,24 @@ def _valid_job_id(jid) -> bool:
     if jid[0] == "." or jid[-1] == ".":
         return False
     for c in jid:
-        if not (("a" <= c <= "z") or ("A" <= c <= "Z") or ("0" <= c <= "9")
-                or c in "_.-"):
+        u = ord(c)
+        if u <= 0x1F or 0x7F <= u <= 0x9F or c in "/\\:":
+            return False      # 控制字符（C0/DEL/C1，含 NUL）与路径成分（显式判，c9）
+        if "\u200b" <= c <= "\u200f" or c in ("\u2060", "\ufeff"):
+            return False      # 零宽/不可见注入载体（显式判，c9）
+        if "\u202a" <= c <= "\u202e" or "\u2066" <= c <= "\u2069":
+            return False      # 双向控制（显式判，c9）
+        if c in "_.-":
+            continue          # 结构字符：槽分隔符 / 点（首尾点已在上方拒）/ 既有放宽的 `-`
+        if not _charset_member(c):
             return False
+    # Windows 保留设备名（显式判，c7/c9）：整 id（首个 `.` 之前部分，Win32 忽略扩展名）
+    # 与按 `_` 分段的**任一段**（Win32 的设备名解析是按路径分量做的）——与
+    # `job.rs::valid_job_id` / `mcp_server._job_id_reject_reason` 同集同判。
+    if _is_reserved_device_name(jid):
+        return False
+    if any(_is_reserved_device_name(seg) for seg in jid.split("_")):
+        return False
     return True
 
 
@@ -317,8 +439,11 @@ def _bad_job_id(job_id, *, where: str) -> dict:
     """非法 job_id 的统一拒答（poll/wait/submit 同构，便于调用方机械判别）。"""
     return {"job_id": job_id, "job_dir": None, "state": "invalid_job_id",
             "terminal": False, "ok": False, "content": None, "status": None,
-            "error": ("job_id 非法：%r（%s）——job_id 须为**单个路径分量**："
-                      "ASCII 字母/数字/_/-/.，首尾非点，不含 / \\ : 与 NUL"
+            "error": ("job_id 非法：%r（%s）——job_id 须为**单个路径分量**：区块白名单"
+                      "（hive/id_charset_blocks.txt）内的字母/数字，或结构字符 `_` `-` `.`；"
+                      "首尾非点，不含 / \\ : 与控制/零宽/双向控制字符/NUL，"
+                      "且整 id 与按 `_` 分段的任一段都不得是 Windows 保留设备名"
+                      "（CON/PRN/AUX/NUL/COM1..9/LPT1..9，含 CON.txt 形态）"
                       "（N178：拒 ../victim 型越池读 result.json、"
                       "拒任意目录建目录写 spec.json）" % (job_id, where))}
 

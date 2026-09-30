@@ -318,10 +318,17 @@ MCP 面传入会被**显式拒绝**（fail fast 并指路 CLI），不再静默�
 - **编排面透传**：`orch.py::spawn_subtask` 的三槽「显式传值 > 编排者 spec 的同名键
   `identity`/`task`/`unit`」；两处都缺即**显式报错**（不兜底造 id）。故要让子任务按职能
   归单元，可在编排者 spec 里带上这三键，或在 `spawn_subtask` 里逐次显式指定。
-- **字符集闸**（与 MCP 面孪生同判）：允许 Unicode 字母/数字 + `_`；拒收路径成分
-  （`/` `\` `:`、单独的 `.`/`..`）、首尾空白、尾点、控制/零宽/双向控制字符、
-  Windows 保留设备名（含 `CON.txt` 形态），以及**非 NFC 稳定**形态
-  （会归一化改写者一律拒收并给 NFC 形态建议，**不做静默归一化**）。
+- **字符集闸**（与 MCP 面**共读同一份数据**，不是两套常量）：白名单 = `hive/id_charset_blocks.txt`
+  的**区间并集**（Rust 侧 `include_str!` 编译期嵌入 + 首次使用惰性解析，纯 std；表由
+  `scripts/gen_id_charset_blocks.py` 生成、可重跑、`--check` 判陈化），另收两个**结构字符**
+  `_`（槽分隔符）与 `.`（非尾点、非单独）；拒收路径成分（`/` `\` `:`、单独的 `.`/`..`）、
+  首尾空白、尾点、控制/零宽/双向控制字符、Windows 保留设备名（含 `CON.txt` 形态），
+  以及**白名单外的一切字符**——含会归一化改写的形态（CJK 兼容表意 / 全角 / 带圈 /
+  数学字母 / 组合标记等）：**不做静默归一化**，收下即说明已是 NFC 形态（表内每码点
+  都由生成器筛过 NFC 稳定）。
+  **判据不查任何 Unicode 属性库**（不用 `is_alphanumeric`，也不做 NFC 计算）⇒ 与 Python
+  面的属性表版本差**结构性不可能**；表缺失 / 解析出空区间集 ⇒ 判据一律 false
+  （**fail-closed**，绝不放行）。
   跨语言逐例同判由 `hive/id_contract_corpus_v2.txt` 的对照语料钉死。
 - **存量零迁移**：旧形态 `h<13位毫秒>_<4位hex>`（含 `h1_a`、裸 `h`）**仍然合法**、
   仍被 `list_jobs` 收、仍可 poll/kill。
@@ -329,7 +336,13 @@ MCP 面传入会被**显式拒绝**（fail fast 并指路 CLI），不再静默�
   汇总遍历）走 `status.created_ts` 真值单点（Rust `job::list_jobs_by_created`、
   Python `_list_jobs_by_created`）；`list_jobs` 本身仍是名升序（存量调用点依赖）。
 - 守卫：`hive/test_id_contract_v2.py`（四槽必填两路实跑 / 分配 / 字符集闸两侧同判 /
-  三入口拒收 / 五单元同源 / 排序真值 / 存量共存 / 定点变异自证）。
+  三入口拒收 / 五单元同源 / 排序真值 / 存量共存 / 定点变异自证）。字符集闸的**零分歧**
+  面由三条断言承载：Rust 侧「判据 ≡ 表」全码点遍历（`job.rs` 单测）、Python 侧同一遍历，
+  二者合起来即两侧接受集逐码点相同；**第三处读者**（`md_cg/units.py`）的同一遍历与
+  「同表同拒」由本守卫 C8e/C8f/C8h 另钉（深层 md_cg 面见
+  `hive/test_mdcg_units_charset_parity.py`）。`--branch-baseline` 定点变异自证含 12 处
+  变异（数据面表删/加区间、解析失败改 fail-open、md_cg 退回 ASCII 白名单、临时 crate
+  副本表文件删段等）+ 1 处假阳性对照，红项集与退出码逐项实测写死。
 
 spec 在 submit 时做存在性校验（context 文件必须已存在，fail fast 防任务白跑）。
 

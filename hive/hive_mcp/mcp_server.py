@@ -50,7 +50,6 @@ import os
 import subprocess
 import sys
 import time
-import unicodedata
 import uuid
 
 # ---------------------------------------------------------------- 入口自保证 UTF-8
@@ -172,7 +171,7 @@ def _exe_path() -> str:
     return os.path.join(REPO, "hive", "target", "release", name)
 
 
-# ==================================================== id 契约 v2 孪生闸（B4/B5）
+# ==================================================== id 契约 v2 孪生闸（B4/B5′）
 #
 # 判据真源 = `hive/src/job.rs::valid_job_id`（Rust 侧是单点，契约 §五 裁决 3）。
 # 本段是它在 python 面的**孪生**——两侧对任何一例必须**同判**，逐例证据 =
@@ -182,123 +181,101 @@ def _exe_path() -> str:
 #
 # 结构逐条对齐 Rust（顺序都一致，顺序会改变错误文本）：
 #   ① h 前缀与非空；② 首尾空白；③ 尾点；④ 单独的 `.`/`..`；
-#   ⑤ 逐字符：控制/路径成分 → 零宽/双向控制 → `_`/`.` 直通 → NFC 稳定字母数字；
+#   ⑤ 逐字符：控制/路径成分 → 零宽/双向控制 → `_`/`.` 直通 → 区块白名单成员；
 #   ⑥ 整 id 的 Windows 保留设备名；⑦ 按 `_` 分段的保留设备名（Win32 按分量解析）。
 #
-# 字符类判据按 Rust 的**两层**实现（B5）：`char::is_alphanumeric() && !会改写的区块`。
-# 第一层 `_rust_alphanumeric` 之所以不直接用 `str.isalnum()`：两者**实测不同判**
-#   ① Python `isalpha()` 只含 Lu/Ll/Lt/Lm/Lo，Rust `is_alphabetic()` 还含
-#      Unicode `Other_Alphabetic`（大量 Mn/Mc 组合形与少量 So）⇒ 实测 1405 个码点
-#      「Rust 收而 Python 拒」；
-#   ② 反向（Python 收而 Rust 拒）不存在：Python 的 alpha/numeric 类目是 Rust
-#      `is_alphabetic`/`is_numeric` 的真子集——**已完备证明**（守卫 C8：把全部
-#      ~14 万个 Python 收的单字符批量喂给真 hive.exe，批量+二分定位反例，非抽样）。
-#   故下表 `OTHER_ALPHABETIC_BLOCKS` 是**实测导出**的补齐闭集，把①抹平。
+# 字符类判据（B5′；2026-09-30 使用者裁定 ①-(c) 换面）：**唯一真源 =
+# `hive/id_charset_blocks.txt` 的区间并集**——本模块**导入时读一次**（c2：不做每调用
+# I/O），与 Rust `job.rs`（`include_str!` 编译期嵌入 + 首次使用惰性解析，纯 std）和
+# `md_cg/units.py`（同样读这份文件；读数据不是 import）**共读同一份数据**。判据
+# **不查任何 Unicode 属性库**（不用 `str.isalnum()`，也不做 NFC 计算）⇒ 与 Rust 工具链
+# 的属性表版本差**结构性不可能**：全码点同判是结构性的（同一份数据），不是逐例对齐
+# 出来的。
 #
-# 残余（**已实测、已声明、方向安全**，不是假设）：两侧的 Unicode 表各自演化，
-# Python 判「未分配(Cn)」而 Rust 工具链已赋值的**字母**会出现「Python 拒 / Rust 收」。
-# 实测（2026-09-30，Python `unicodedata` 15.0.0 × 本机 rust 工具链）：Cn 码点
-# 825345 个中，Rust 收而 Python 判未分配的 **9713 个（56 个区间）**，如
-# U+088F / U+1C89..U+1C8A（Todhri）/ U+2EBF0..U+2EE5D（CJK 扩展 I）——即
-# 「Unicode 15.1/16 新增的字母」。该方向**只让本面更严**（Python 永不更松，越权面
-# 为零），且不落任何表（嵌一张随 Unicode 版本陈化的表，收益为零而带来静默陈化风险；
-# Python 解释器升级即自动收敛）。重导方法：对 `unicodedata.category(c)=="Cn"` 的
-# 全部码点逐个问 `hive.exe poll "h"+c` 的 ok 字段（实测耗时 ≈44 分钟，
-# 24 线程；故不入常规守卫，改为**声明 + 守卫 C9 逐轮实测该残余的定性/方向**）。
+# 为什么旧的属性表机制**整段退休**（`OTHER_ALPHABETIC_BLOCKS` 补齐闭集、
+# `NFC_REWRITE_BLOCKS` 排除表、Cn 残余声明）：它们三者的存在理由**只有一个**——两侧
+# 各查自己的 Unicode 属性表（Rust 工具链 vs Python `unicodedata`），版本不同 ⇒
+# `isalphanumeric` 必然分叉，于是要用「实测导出的补齐表」抹平、用「方向安全的残余声明」
+# 兜住补不上的一部分。新区块表下判据只读**一份数据**：无属性表可陈化、无差可补、无残余
+# 可声明（旧机制点名的「会归一化改写」形态现在由「不在表内」承载，且依据是**区块选择
+# 裁决**而非属性推断）。**不许新旧两套并存**。
+#
+# NFC 保证方式（c5）：表本身由 `scripts/gen_id_charset_blocks.py` 按「类目 ∈
+# {Lu,Ll,Lt,Lm,Lo,Nd} ∧ 单字符 NFC 稳定」生成（生成器与陈化守卫各全表重算一遍）⇒ 判据
+# 不必做真 NFC 计算，收下的 id 也保证已是 **NFC 形态**（**拒收而非静默归一化**）。
+#
+# fail-closed（c2）：表缺失 / 不可读 / 任一行不合形态 / 解析出空区间集 ⇒ 判据**一律返回
+# false**（绝不放行），且**绝不退回任何 Unicode 属性判定兜底**。
 
-# Unicode `Other_Alphabetic` 补齐闭集（左闭右闭，**实测导出**，不是抄来的区间）：
-# 导出方法 = 对「`str.isalnum()` 为假且类目 ∈ {Mn, Mc, Me, So, Sk, Sm, Po, Pc, Cf,
-# No, Nd, Nl, Sc, Zs}」的全部 11045 个码点，逐个以**真 hive.exe 的判据**（
-# `hive.exe poll` 的 ok 字段）问一遍，取「Rust 收而 Python 拒」者（1405 个，剔除
-# `_` U+005F——它由结构分支直通）。结果按类别：Mn 904 / Mc 423 / So 78；
-# 其余候选类别零命中 ⇒ 分歧集**恰好**落在 Mn/Mc/So 三类。
-# 为什么不能只靠 `str.isalnum()`：那会让 `h\u0345`（U+0345 组合形希腊下标的
-# 字母面）在两侧分叉——Rust 收、Python 拒（本仓「双胞胎闸必须同判」是硬要求）。
-# 陈化纪律：本表随 Unicode 版本走。Rust 工具链或 Python 的 unicodedata 升级后
-# 须重导；守卫 `hive/test_id_contract_v2.py` 的 C 组用真 hive.exe **重跑同一导出
-# 算法**并与本表逐位比对，表陈化即红（不是靠注释约定）。
-OTHER_ALPHABETIC_BLOCKS = (
-    (0x0345, 0x0345), (0x0363, 0x036F), (0x05B0, 0x05BD), (0x05BF, 0x05BF), (0x05C1, 0x05C2),
-    (0x05C4, 0x05C5), (0x05C7, 0x05C7), (0x0610, 0x061A), (0x064B, 0x0657), (0x0659, 0x065F),
-    (0x0670, 0x0670), (0x06D6, 0x06DC), (0x06E1, 0x06E4), (0x06E7, 0x06E8), (0x06ED, 0x06ED),
-    (0x0711, 0x0711), (0x0730, 0x073F), (0x07A6, 0x07B0), (0x0816, 0x0817), (0x081B, 0x0823),
-    (0x0825, 0x0827), (0x0829, 0x082C), (0x08D4, 0x08DF), (0x08E3, 0x08E9), (0x08F0, 0x0903),
-    (0x093A, 0x093B), (0x093E, 0x094C), (0x094E, 0x094F), (0x0955, 0x0957), (0x0962, 0x0963),
-    (0x0981, 0x0983), (0x09BE, 0x09C4), (0x09C7, 0x09C8), (0x09CB, 0x09CC), (0x09D7, 0x09D7),
-    (0x09E2, 0x09E3), (0x0A01, 0x0A03), (0x0A3E, 0x0A42), (0x0A47, 0x0A48), (0x0A4B, 0x0A4C),
-    (0x0A51, 0x0A51), (0x0A70, 0x0A71), (0x0A75, 0x0A75), (0x0A81, 0x0A83), (0x0ABE, 0x0AC5),
-    (0x0AC7, 0x0AC9), (0x0ACB, 0x0ACC), (0x0AE2, 0x0AE3), (0x0AFA, 0x0AFC), (0x0B01, 0x0B03),
-    (0x0B3E, 0x0B44), (0x0B47, 0x0B48), (0x0B4B, 0x0B4C), (0x0B56, 0x0B57), (0x0B62, 0x0B63),
-    (0x0B82, 0x0B82), (0x0BBE, 0x0BC2), (0x0BC6, 0x0BC8), (0x0BCA, 0x0BCC), (0x0BD7, 0x0BD7),
-    (0x0C00, 0x0C04), (0x0C3E, 0x0C44), (0x0C46, 0x0C48), (0x0C4A, 0x0C4C), (0x0C55, 0x0C56),
-    (0x0C62, 0x0C63), (0x0C81, 0x0C83), (0x0CBE, 0x0CC4), (0x0CC6, 0x0CC8), (0x0CCA, 0x0CCC),
-    (0x0CD5, 0x0CD6), (0x0CE2, 0x0CE3), (0x0CF3, 0x0CF3), (0x0D00, 0x0D03), (0x0D3E, 0x0D44),
-    (0x0D46, 0x0D48), (0x0D4A, 0x0D4C), (0x0D57, 0x0D57), (0x0D62, 0x0D63), (0x0D81, 0x0D83),
-    (0x0DCF, 0x0DD4), (0x0DD6, 0x0DD6), (0x0DD8, 0x0DDF), (0x0DF2, 0x0DF3), (0x0E31, 0x0E31),
-    (0x0E34, 0x0E3A), (0x0E4D, 0x0E4D), (0x0EB1, 0x0EB1), (0x0EB4, 0x0EB9), (0x0EBB, 0x0EBC),
-    (0x0ECD, 0x0ECD), (0x0F71, 0x0F83), (0x0F8D, 0x0F97), (0x0F99, 0x0FBC), (0x102B, 0x1036),
-    (0x1038, 0x1038), (0x103B, 0x103E), (0x1056, 0x1059), (0x105E, 0x1060), (0x1062, 0x1064),
-    (0x1067, 0x106D), (0x1071, 0x1074), (0x1082, 0x108D), (0x108F, 0x108F), (0x109A, 0x109D),
-    (0x1712, 0x1713), (0x1732, 0x1733), (0x1752, 0x1753), (0x1772, 0x1773), (0x17B6, 0x17C8),
-    (0x1885, 0x1886), (0x18A9, 0x18A9), (0x1920, 0x192B), (0x1930, 0x1938), (0x1A17, 0x1A1B),
-    (0x1A55, 0x1A5E), (0x1A61, 0x1A74), (0x1ABF, 0x1AC0), (0x1ACC, 0x1ACE), (0x1B00, 0x1B04),
-    (0x1B35, 0x1B43), (0x1B80, 0x1B82), (0x1BA1, 0x1BA9), (0x1BAC, 0x1BAD), (0x1BE7, 0x1BF1),
-    (0x1C24, 0x1C36), (0x1DD3, 0x1DF4), (0x2DE0, 0x2DFF), (0xA674, 0xA67B), (0xA69E, 0xA69F),
-    (0xA802, 0xA802), (0xA80B, 0xA80B), (0xA823, 0xA827), (0xA880, 0xA881), (0xA8B4, 0xA8C3),
-    (0xA8C5, 0xA8C5), (0xA8FF, 0xA8FF), (0xA926, 0xA92A), (0xA947, 0xA952), (0xA980, 0xA983),
-    (0xA9B4, 0xA9BF), (0xA9E5, 0xA9E5), (0xAA29, 0xAA36), (0xAA43, 0xAA43), (0xAA4C, 0xAA4D),
-    (0xAA7B, 0xAA7D), (0xAAB0, 0xAAB0), (0xAAB2, 0xAAB4), (0xAAB7, 0xAAB8), (0xAABE, 0xAABE),
-    (0xAAEB, 0xAAEF), (0xAAF5, 0xAAF5), (0xABE3, 0xABEA), (0x10376, 0x1037A),
-    (0x10A01, 0x10A03), (0x10A05, 0x10A06), (0x10A0C, 0x10A0F), (0x10D24, 0x10D27),
-    (0x10EAB, 0x10EAC), (0x11000, 0x11002), (0x11038, 0x11045), (0x11073, 0x11074),
-    (0x11080, 0x11082), (0x110B0, 0x110B8), (0x110C2, 0x110C2), (0x11100, 0x11102),
-    (0x11127, 0x11132), (0x11145, 0x11146), (0x11180, 0x11182), (0x111B3, 0x111BF),
-    (0x111CE, 0x111CF), (0x1122C, 0x11234), (0x11237, 0x11237), (0x1123E, 0x1123E),
-    (0x11241, 0x11241), (0x112DF, 0x112E8), (0x11300, 0x11303), (0x1133E, 0x11344),
-    (0x11347, 0x11348), (0x1134B, 0x1134C), (0x11357, 0x11357), (0x11362, 0x11363),
-    (0x11435, 0x11441), (0x11443, 0x11445), (0x114B0, 0x114C1), (0x115AF, 0x115B5),
-    (0x115B8, 0x115BE), (0x115DC, 0x115DD), (0x11630, 0x1163E), (0x11640, 0x11640),
-    (0x116AB, 0x116B5), (0x1171D, 0x1172A), (0x1182C, 0x11838), (0x11930, 0x11935),
-    (0x11937, 0x11938), (0x1193B, 0x1193C), (0x11940, 0x11940), (0x11942, 0x11942),
-    (0x119D1, 0x119D7), (0x119DA, 0x119DF), (0x119E4, 0x119E4), (0x11A01, 0x11A0A),
-    (0x11A35, 0x11A39), (0x11A3B, 0x11A3E), (0x11A51, 0x11A5B), (0x11A8A, 0x11A97),
-    (0x11C2F, 0x11C36), (0x11C38, 0x11C3E), (0x11C92, 0x11CA7), (0x11CA9, 0x11CB6),
-    (0x11D31, 0x11D36), (0x11D3A, 0x11D3A), (0x11D3C, 0x11D3D), (0x11D3F, 0x11D41),
-    (0x11D43, 0x11D43), (0x11D47, 0x11D47), (0x11D8A, 0x11D8E), (0x11D90, 0x11D91),
-    (0x11D93, 0x11D96), (0x11EF3, 0x11EF6), (0x11F00, 0x11F01), (0x11F03, 0x11F03),
-    (0x11F34, 0x11F3A), (0x11F3E, 0x11F40), (0x16F4F, 0x16F4F), (0x16F51, 0x16F87),
-    (0x16F8F, 0x16F92), (0x16FF0, 0x16FF1), (0x1BC9E, 0x1BC9E), (0x1E000, 0x1E006),
-    (0x1E008, 0x1E018), (0x1E01B, 0x1E021), (0x1E023, 0x1E024), (0x1E026, 0x1E02A),
-    (0x1E08F, 0x1E08F), (0x1E947, 0x1E947), (0x1F130, 0x1F149), (0x1F150, 0x1F169),
-    (0x1F170, 0x1F189),
-)
+#: 区块表数据文件（c1 的**唯一真源**）——三处读者（本模块、`hive/src/job.rs`、
+#: `md_cg/units.py`）共读同一份数据，任何一处都不得再手写/内嵌区间常量。
+ID_CHARSET_BLOCKS_REL = "hive/id_charset_blocks.txt"
+_MAX_CP = 0x10FFFF
 
-# NFC/NFD/NFKC 会改写的有限区块闭集（左闭右闭）——**逐区间对齐**
-# `hive/src/job.rs::NFC_REWRITE_BLOCKS`（删表任一行 / 改窄任一区间 ⇒ 对应形态
-# 在两侧重新变「合法」，拒绝面同时失守；守卫 B 组按内容逐区间比对两张表）。
-# 分区依据见 Rust 侧头注（①真 canonical 改写区块 ②契约点名的兼容/表现形区块）。
-NFC_REWRITE_BLOCKS = (
-    (0x00AA, 0x00AA),           # 序数指示符 ª（兼容分解 a a）
-    (0x00B2, 0x00B9),           # 上标 ¹²³ 邻域（含 U+00B5 µ 单例分解为 μ）
-    (0x00BA, 0x00BA),           # 序数指示符 º（兼容分解 o）
-    (0x0132, 0x0133),           # 连字 IJ/ij
-    (0x01C4, 0x01CC),           # DŽ 系列连字
-    (0x01F1, 0x01F3),           # DŽ 连字
-    (0x1100, 0x11FF),           # Hangul Jamo（NFD 分解为 L/V/T；组合即改写）
-    (0x2070, 0x209F),           # 上标/下标（兼容分解为数字/字母）
-    (0x2100, 0x214F),           # Letterlike（含 U+2126 Ω / U+212A K / U+212B Å 单例分解）
-    (0x2150, 0x218F),           # 数字形式 Ⅰ ⅱ ½（兼容分解为 ASCII）
-    (0x2460, 0x24FF),           # 带圈字母数字 ① Ⓐ
-    (0x3130, 0x318F),           # Hangul 兼容 Jamo
-    (0x3200, 0x33FF),           # 带圈/括号 CJK 与单位 ㈱ ㌀
-    (0xF900, 0xFAFF),           # CJK 兼容表意（U+FA10 等）
-    (0xFB00, 0xFB4F),           # 字母表现形（连字 ﬁﬂ 与希伯来表现形）
-    (0xFE30, 0xFE4F),           # CJK 兼容形式
-    (0xFE50, 0xFE6F),           # 小写变体形式
-    (0xFF00, 0xFFEF),           # 半角/全角
-    (0x1D400, 0x1D7FF),         # 数学字母数字 𝐀 𝟙
-    (0x2F800, 0x2FA1F),         # CJK 兼容表意补充
-)
+
+# 生效条件：text 为表文件全文时返回区间列表 [(起, 止)]——按**唯一解析配方**：每行取
+# `#` 之前部分后 strip；空行跳过；余下 split('-') 两段 int(x, 16) = (lo, hi)。
+# 任一行不合形态 / 越界 / 逆序 / 相邻相交乱序 / 空表 → 抛 ValueError——fail-closed：
+# **绝不静默跳过坏行**（跳掉一行的表是另一张表，两侧随即不同判）。
+def _parse_charset_blocks(text: str) -> list:
+    """区块表解析（**唯一配方**；与 Rust `job.rs::parse_id_charset_blocks` 同一条）。"""
+    out: list = []
+    for lineno, line in enumerate(text.split("\n"), 1):
+        body = line.split("#", 1)[0].strip()
+        if not body:
+            continue
+        parts = body.split("-")
+        if len(parts) != 2:
+            raise ValueError("区块表第 %d 行不是 LO-HI 形态：%r" % (lineno, line))
+        lo, hi = int(parts[0], 16), int(parts[1], 16)
+        if not (0 <= lo <= hi <= _MAX_CP):
+            raise ValueError("区块表第 %d 行区间非法：%r" % (lineno, line))
+        if out and lo <= out[-1][1] + 1:
+            raise ValueError("区块表第 %d 行未归并到最小（相邻/相交/乱序）：%r"
+                             % (lineno, line))
+        out.append((lo, hi))
+    if not out:
+        raise ValueError("区块表解析出空区间集（fail-closed：空表绝不放行）")
+    return out
+
+
+# 生效条件：无入参，返回 (区间表, 错误说明)——文件可读且解析通过 → (tuple 区间表, None)；
+# 表缺失/不可读 → ((), 原因)；解析失败 → ((), 原因)；后两者都让判据 fail-closed。
+def _load_charset_blocks() -> tuple:
+    """读**数据文件**一次（c2：导入期求值；不是 import hive 的任何模块/代码）。"""
+    path = os.path.join(REPO, "hive", "id_charset_blocks.txt")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        return (), "%s 不可读：%s" % (ID_CHARSET_BLOCKS_REL, exc)
+    try:
+        return tuple(_parse_charset_blocks(text)), None
+    except ValueError as exc:
+        return (), "%s 解析失败：%s" % (ID_CHARSET_BLOCKS_REL, exc)
+
+
+#: 判据数据（**模块导入时求值一次**；c2：不做每调用 I/O）：区间表 + 读取/解析错误。
+#: 错误非 None ⇒ [`_id_charset_member`] 对一切字符返回 False（fail-closed）。
+ID_CHARSET_BLOCKS, ID_CHARSET_ERROR = _load_charset_blocks()
+
+
+# 生效条件：blocks 为区间列表且 c 为单字符、其码点落在任一区间内 → True；否则 False
+# （blocks 为空 ⇔ 表缺失/坏行/空表 ⇒ **一律 False**——这条 fail-closed 由守卫直接断言）。
+def _charset_member_in(blocks, c: str) -> bool:
+    u = ord(c)
+    return any(lo <= u <= hi for lo, hi in blocks)
+
+
+# 生效条件：c 为单字符且落在区块表区间并集内 → True；表缺失/坏表 → False。
+# **不查任何 Unicode 属性库**（不用 `isalnum`、不做 NFC 计算）⇒ 接受集只由这一份数据
+# 决定，与 Rust 侧逐码点相同（守卫 `hive/test_id_contract_v2.py` 的 C 组全码点遍历断言）。
+# 不适用条件：`_`(U+005F) 与 `.`(U+002E) **不在表内**，由 [`_job_id_reject_reason`] 的
+# **结构分支**处理（槽分隔符 / 非尾点非单点的点）⇒ 本判据是「字符类」判据，不含这两个
+# 结构字符。
+def _id_charset_member(c: str) -> bool:
+    return _charset_member_in(ID_CHARSET_BLOCKS, c)
+
 
 # Windows 保留设备名（B4 拒收项；与 `job.rs::RESERVED_DEVICE_NAMES` 逐项同集）。
 # Win32 对**单个路径分量**做设备名解析且**忽略扩展名**（`CON.txt` 与 `CON` 同指
@@ -312,36 +289,6 @@ RESERVED_DEVICE_NAMES = (
 )
 _ASCII_UPPER = str.maketrans("abcdefghijklmnopqrstuvwxyz",
                              "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-
-
-# 生效条件：c 为单字符且码点落在 NFC_REWRITE_BLOCKS 任一区块内 → True
-# （= 「归一化会改写它」，不可信任的 NFC 形）——与 rust `job::nfc_rewritable` 同判。
-def _nfc_rewritable(c: str) -> bool:
-    u = ord(c)
-    return any(lo <= u <= hi for lo, hi in NFC_REWRITE_BLOCKS)
-
-
-# 生效条件：c 为 Unicode `Other_Alphabetic` 补集成员 → True。**只为补齐
-# `str.isalnum()` 与 Rust `char::is_alphabetic()` 的实测差**（见上表头注）。
-def _is_other_alphabetic(c: str) -> bool:
-    u = ord(c)
-    return any(lo <= u <= hi for lo, hi in OTHER_ALPHABETIC_BLOCKS)
-
-
-# 生效条件：c 为 Rust `char::is_alphanumeric()` 会判真的字符 → True
-# （= Python `isalnum()` ∪ 实测补齐闭集）。不适用条件：不做真正的 Unicode 属性
-# 计算（零依赖约束下不可行）——本判据是**逐例实测对齐后的等价实现**。
-def _rust_alphanumeric(c: str) -> bool:
-    return c.isalnum() or _is_other_alphabetic(c)
-
-
-# 生效条件：c 为「已归一化、可安全进 id」的字符 → True（= B5 单点判据，与 rust
-# `job::nfc_stable_alnum` 同判：字母数字 **且** 不落在会改写的区块内）。
-# 不适用条件：不做归一化（**明确不做静默归一化**，B5 的实现级收窄：拒收比静默
-# 归一化更严且两侧可证同判）；也不做真正的 NFC 计算——本判据按与 Rust 同口径的
-# 有限区块闭集做保守判定。
-def _nfc_stable_alnum(c: str) -> bool:
-    return _rust_alphanumeric(c) and not _nfc_rewritable(c)
 
 
 # 生效条件：c 为零宽/不可见注入载体（U+200B..U+200F、U+2060、U+FEFF）→ True。
@@ -378,21 +325,30 @@ def _job_id_reject_reason(jid) -> str | None:
     if jid in (".", ".."):
         return "job_id 是相对路径段"
     for c in jid:
-        if unicodedata.category(c) == "Cc" or c in "/\\:":
+        u = ord(c)
+        # c7/c9：以下拒收项**逐条显式判**——不许靠「不在白名单里所以默认被拒」兜
+        # （防将来有人放宽某个区块时把它们一并带进来）。控制字符 = Cc（C0 U+0000..
+        # U+001F / DEL U+007F / C1 U+0080..U+009F），这里写成显式区间而不查
+        # `unicodedata.category`：判据不查任何 Unicode 属性库（与 rust `is_control` 同集）。
+        if u <= 0x1F or 0x7F <= u <= 0x9F or c in "/\\:":
             return (f"job_id 含路径成分/控制字符 {c!r}"
                     f"（`/` `\\` `:` 是 2026-09-25 池外读写缺陷的载体）")
-        if _is_zero_width(c) or _is_bidi_control(c):
-            return (f"job_id 含零宽/双向控制字符 U+{ord(c):04X}"
+        if _is_zero_width(c):
+            return (f"job_id 含零宽字符 U+{u:04X}"
                     "（不可见注入载体：同形异义、显示与字节不一致）")
+        if _is_bidi_control(c):
+            return (f"job_id 含双向控制字符 U+{u:04X}"
+                    "（不可见注入载体：显示顺序与字节顺序不一致）")
         if c == "_" or c == ".":
             continue
-        if not _nfc_stable_alnum(c):
-            return (f"job_id 含非法字符 U+{ord(c):04X}"
-                    f"（{unicodedata.name(c, '?')}）：只收 Unicode 字母/数字与 `_`"
-                    "（`.` 非尾点、非单独才收）；且须已是 **NFC 稳定**形态——"
-                    "会归一化改写的形态（CJK 兼容表意 / 全角 / 带圈字母数字 / 数学字母 / "
-                    "组合标记 / Hangul Jamo 等）一律拒收，**不做静默归一化**："
-                    "请改用其 NFC 等价形态（如把 ﬁ 写成 fi、把组合序列写成预合成字符）后重提")
+        if not _id_charset_member(c):
+            return (f"job_id 含非法字符 U+{u:04X}：只收**区块白名单**"
+                    "（`hive/id_charset_blocks.txt`，三处读者共读的唯一真源）内的字母/数字"
+                    "与 `_`（`.` 非尾点、非单独才收）；表外的一切形态一律拒收——含会归一化"
+                    "改写的形态（CJK 兼容表意 / 全角 / 带圈字母数字 / 数学字母 / 组合标记 / "
+                    "Hangul Jamo 等）与候选区块之外的其它文种。**不做静默归一化**：表内形态"
+                    "即已 **NFC 稳定**（表由生成器按「类目 ∧ 单字符 NFC 稳定」筛选而来），"
+                    "故请改用表内的等价形态（如把 ﬁ 写成 fi、把组合序列写成预合成字符）后重提")
     if _is_reserved_device_name(jid):
         return ("job_id 命中 Windows 保留设备名"
                 "（CON/PRN/AUX/NUL/COM1..9/LPT1..9，含 CON.txt 这类带扩展名形态）")
@@ -411,9 +367,12 @@ def _valid_job_id(jid) -> bool:
     MCP 面 job_id 由客户端可控：`poll ../victim` 曾可读池外任意目录全文、
     `kill ..` 曾可在池外写 kill 标志（os.path.join 裸拼 + isdir 恒真）。
     一切把外部 job_id 拼进路径的入口（_t_poll/_t_kill/_dep_gate）先过此闸。
-    契约 v2 放宽为「Unicode 字母/数字 + `_`」并新增拒收（路径成分/首尾空白/尾点/
-    控制字符/零宽/双向控制/Windows 保留设备名/非 NFC 稳定形态），使中文四槽 id
-    与存量旧形态 `h<13位毫秒>_<4位hex>` **同时**合法（存量零迁移）。
+    契约 v2 的字符集闸 = **区块白名单**（`hive/id_charset_blocks.txt` 的区间并集，
+    唯一真源三处共读；**不查任何 Unicode 属性库** ⇒ 与 Rust 侧的属性表版本差结构性
+    不可能），另收两个结构字符 `_`（槽分隔符）与 `.`（非尾点、非单独）；拒收 =
+    路径成分/首尾空白/尾点/控制字符/零宽/双向控制/Windows 保留设备名/表外的一切字符
+    （含会归一化改写的形态）。使中文四槽 id 与存量旧形态 `h<13位毫秒>_<4位hex>`
+    **同时**合法（存量零迁移）。
     """
     return _job_id_reject_reason(jid) is None
 
@@ -1197,9 +1156,10 @@ TOOLS = [
                     "type": "string",
                     "description": ("身份槽（**必填**，id 契约 v2 四槽之一）：提交者/端别，"
                                     "如 zcode端。落进 job_id = h_<身份>_<任务>_<单元>_<编号>；"
-                                    "只收 Unicode 字母/数字（不含 `_` `.` 与路径成分），"
-                                    "且须已是 NFC 稳定形态（**不做静默归一化**，"
-                                    "非 NFC 形态直接拒收）。不许省略、不许推导。"),
+                                    "只收**区块白名单**（hive/id_charset_blocks.txt）内的"
+                                    "字母/数字（不含 `_` `.` 与路径成分），表内形态即已 "
+                                    "NFC 稳定（**不做静默归一化**，表外形态直接拒收）。"
+                                    "不许省略、不许推导。"),
                 },
                 "task": {
                     "type": "string",
