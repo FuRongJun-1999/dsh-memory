@@ -360,7 +360,7 @@ python test/locomo_jaccard_probe.py      # 主路线 Jaccard 口径拆解（J2_f
 | 记忆写入 · 关系链接 · 结构关系 | `cg(op=write)` `cg(op=link)` `stg(op=relation)` |
 | 多路融合检索 · 条件路由 · 因果链 · 时间线 | `mdcg_recall` `mdcg_search` `cg(op=route)` `stg(op=timeline)` |
 | 会话隔离（分档可见：public/internal 跨会话共享 · private/secret 绑定归属会话 · 设计者豁免；写入带会话归属 · 租户物理根接线 fail-closed） | `mdcg_remember(session=…)` `stg(op=timeline, session=…)`；私档经 `sensitivity: private` 写入（详见 issue #35 设计定稿） |
-| 检索性能开关（读缓存 · 热路径缓存 · 检索门控 · 统一归一——只翻译英文内容、中文原样） | env：`MDCG_READ_CACHE` `MDCG_HOTCACHE` `MDCG_RETRIEVAL_PIPELINE` `MDCG_UNIFY_QUERY`（读缓存/统一归一默认开，=0 关；热缓存/门控默认关，=1 开） |
+| 检索性能开关（读缓存 · 热路径缓存 · 检索门控 · 统一归一——只翻译英文内容、中文原样） | env：`MDCG_READ_CACHE` `MDCG_HOTCACHE` `MDCG_RETRIEVAL_PIPELINE` `MDCG_UNIFY_QUERY`（读缓存默认开，=0 关；统一归一默认关，=1 开；热缓存/门控默认关，=1 开） |
 | 事实时效过滤（`validity=true` 只排「已过期」，保留「未生效」） | `mdcg_recall` `mdcg_search` `cg(op=read)` |
 | 写入裁决 · 主动遗忘 · 冲突检测 · 反思 | `mdcg_remember` `cg(op=verify)` `cg(op=metacognition)` `mdcg_reflect` |
 | 重要性评分 · 预算装包 · 分层注入 · 记忆自净 | `cg(op=session)` `cg(op=scrub)` `cg(op=info)` |
@@ -552,13 +552,17 @@ python scripts/run_tests.py                  # 源码树入口（等价；需 sc
 
 单测等价写法：`python -m md_cg.test_p44_md_whitebox`（cwd=仓库根）。退出码 0/1 可直接接提交前门禁。
 
-> **两个跨语开关别混**：`MDCG_UNIFY_QUERY`（统一归一层，**默认开**，2026-09-23 口径转正：
-> 任意语言 query 先归一成标准中文原子序列→词法路即可命中中文节点；**2026-09-30 收窄作用域：
-> 只对英文内容做翻译归一——中文段逐字保留、绝不送 segment**，中夹英 query 的中文关键词串
-> 不再被逐字切开）与 `MDCG_EN_ATOMS`（英→中召回词扩展，**默认关**）是彼此独立的开关；
+> **两个跨语开关别混**：`MDCG_UNIFY_QUERY`（统一归一层，**默认关**——2026-09-30 使用者
+> 裁定由「默认开」翻为「**未设即关、显式 `=1` 才开**」：本层本职是让英文 query 命中中文
+> 节点，对中文检索池是纯开销，locomo-zh-500 公开题池实测缺省关态 lexical hit@1 96.4% /
+> lexical+fuzzy 97.2%，开态 95.8% / 96.6%；显式开启时任意语言 query 先归一成标准中文
+> 原子序列→词法路即可命中中文节点；**2026-09-30 收窄作用域：只对英文内容做翻译归一——
+> 中文段逐字保留、绝不送 segment**，中夹英 query 的中文关键词串不再被逐字切开）与
+> `MDCG_EN_ATOMS`（英→中召回词扩展，**默认关**）是彼此独立的开关；
 > `MDCG_SEMANTIC`（`fm.semantic` 语义摘要路）同样默认关。改其一请同步
 > `md_cg/test_en_pipeline.py` 与 `md_cg/test_semantic_canonical.py` 的双态断言；
-> 改归一层作用域另须跑 `md_cg/test_unify_scope.py`（与 Rust 侧同源 fixture
+> 改归一层**缺省/三态**须跑 `md_cg/test_unify_default_off.py`（两侧三态一致 + 定点变异
+> 自证），改其**作用域**另须跑 `md_cg/test_unify_scope.py`（与 Rust 侧同源 fixture
 > `md_cg/semantic/unify_fixture.json`，见 `docs/hive/检索算法口径对照_v0.1.md`）。
 
 ### 编码约定（全 UTF-8 · 命令统一走 python）

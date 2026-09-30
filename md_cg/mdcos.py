@@ -848,7 +848,7 @@ class MdCGOS(MdCG):
         q = (query or "").strip()
         # 批次 15 统一口径（unify.py，2026-09-30 收窄作用域）：只译**英文内容**
         # → 标准原子序列，中文段逐字原样（不再整条归一）；与
-        # MdCG.search/search_rrf 三入口同口径（MDCG_UNIFY_QUERY=0 可关）
+        # MdCG.search/search_rrf 三入口同口径（归一层缺省关，显式 =1 才开）
         from .semantic.unify import unify_query
         q = unify_query(q)
         if not q:

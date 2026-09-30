@@ -13,13 +13,14 @@
   MDCG_EN_ATOMS=1 显式开启；纯中文 query 零触发；
   mdcos 四路 RRF 的 lexical 路同源复用 expand_query_terms，自动受益。
 
-⚠ 与**统一归一层**的关系（2026-09-24 澄清，曾造成本件红灯）：
-  `semantic/unify.py::unify_query` 是**另一个、且默认开启**的开关
-  （MDCG_UNIFY_QUERY，默认 "1"，2026-09-23 口径转正）：检索入口把任意语言的
-  query 先归一成标准中文原子序列——英文 query 因此在**词法路**上就能命中中文
-  节点（与 en_zh_terms 默认关并不矛盾：一个在 query 侧归一，一个在召回词扩展侧）。
-  故本件的「跨语词面零交集 ⇒ 召回必须归零」只在**两个开关都关**时成立；
-  默认态断言相应改为「命中」，两个态都钉住（改口径必红）。
+⚠ 与**统一归一层**的关系（2026-09-24 澄清，曾造成本件红灯；2026-09-30 缺省翻关）：
+  `semantic/unify.py::unify_query` 是**另一个**开关，缺省**关**（MDCG_UNIFY_QUERY，
+  2026-09-30 使用者裁定由「默认 "1"」翻为「未设即关、显式 "1" 才开」）：显式开启时
+  检索入口把任意语言的 query 先归一成标准中文原子序列——英文 query 因此在**词法路**
+  上就能命中中文节点（与 en_zh_terms 默认关并不矛盾：一个在 query 侧归一，一个在召回
+  词扩展侧）。故「跨语词面零交集 ⇒ 召回必须归零」在**缺省态**（两个开关都不设）与
+  「两个开关都关」两种形态下都成立；命中只在显式 `MDCG_UNIFY_QUERY=1` 时断言。
+  三态都钉住（改口径必红）。
 
 运行：python -m md_cg.test_en_pipeline
 """
@@ -143,14 +144,22 @@ try:
     ids = [r[0].get("id") for r in res]
     del os.environ["MDCG_EN_ATOMS"]
     ok(len(res) >= 1 and ids[0] == "n_beef", "开启：英文 query top1 召回中文牛肉节点 %s" % ids)
-    # 默认（两个开关都不设）：**统一归一层**（MDCG_UNIFY_QUERY 默认 "1"）把英文
-    # query 归一成中文原子序列 → 词法路直达中文节点。这是 2026-09-23 使用者拍板的
-    # 口径转正（semantic/unify.py），与旧的「跨语词面零交集」契约相反：
-    # 旧断言已按新口径改写——默认态断言「命中」，unify=0 才断言「归零」。
+    # 2026-09-30 使用者裁定：统一归一层缺省由开翻为关（semantic/unify.py）。
+    # 故「两个开关都不设」= **两个都关** → 词面零交集，召回必须归零；
+    # 命中只在**显式** MDCG_UNIFY_QUERY=1 时才成立（英文对照路要用）。
+    # （旧断言「缺省态命中」对应的是 2026-09-23 的「默认开」口径，已随缺省翻转改写。）
     res_u, _mu = cg.search("I ate beef yesterday", judge=False)
     ids_u = [r[0].get("id") for r in res_u]
-    ok(len(res_u) >= 1 and ids_u[0] == "n_beef",
-       "默认（unify 开）：英文 query 经统一归一后 top1 命中中文节点 %s" % ids_u)
+    ok(not res_u or all(r[1] <= 0 for r in res_u),
+       "缺省（unify 缺省关 + EN_ATOMS 关）：词面零重叠召回归零 %s" % ids_u)
+    os.environ["MDCG_UNIFY_QUERY"] = "1"
+    try:
+        res1, _m1 = cg.search("I ate beef yesterday", judge=False)
+        ids1 = [r[0].get("id") for r in res1]
+    finally:
+        os.environ.pop("MDCG_UNIFY_QUERY", None)
+    ok(len(res1) >= 1 and ids1[0] == "n_beef",
+       "显式 unify=1：英文 query 经统一归一后 top1 命中中文节点 %s" % ids1)
     os.environ["MDCG_UNIFY_QUERY"] = "0"
     try:
         res0, _m0 = cg.search("I ate beef yesterday", judge=False)   # 关归一+EN_ATOMS 关

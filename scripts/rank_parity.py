@@ -219,7 +219,7 @@ def rust_open(exe, root, score=SCORE_MODE):
     env = dict(os.environ)
     env.pop("MDCG_TOKEN", None)          # 对拍面与本测试无关，防部署 env 干扰
     # 统一归一层：Rust 侧词表显式指到仓库内导出物（与 Python 同一份）；
-    # MDCG_UNIFY_QUERY 由调用进程 env 原样透传（A/B 两态由外层控制）
+    # MDCG_UNIFY_QUERY 由调用进程 env 原样透传（三态由外层控制；缺省 = 未设 = 关）
     env.setdefault("MDCG_EN_ZH_MAP",
                    os.path.join(_REPO, "md_cg", "semantic", "en_zh_map.json"))
     p = subprocess.Popen([exe, "--root", root, "--serve", "--score", score],
@@ -298,7 +298,10 @@ def main():
         hits = {}
         for mode, env_on in (("unify=0", False), ("unify=1", True)):
             if env_on:
-                os.environ.pop("MDCG_UNIFY_QUERY", None)
+                # 2026-09-30 缺省翻关后：**未设 = 关**，故「开」这一臂必须显式设 1
+                # （此前靠 pop 吃「默认开」——翻缺省后 pop 会让两臂都成关态、
+                #  A/B 恒零差异，属翻缺省连带的静默失效）。
+                os.environ["MDCG_UNIFY_QUERY"] = "1"
             else:
                 os.environ["MDCG_UNIFY_QUERY"] = "0"
             from md_cg import hotcache as _hc
@@ -356,7 +359,7 @@ def main():
         return 3
 
     print(f"语料节点 ~{n} · queries={len(queries)} · exe={args.exe}"
-          f" · unify={os.environ.get('MDCG_UNIFY_QUERY', '1(默认开)')}"
+          f" · unify={os.environ.get('MDCG_UNIFY_QUERY', '0(默认关)')}"
           f" · score={py_mode}=rust {rs_mode}（两侧显式钉住）")
 
     py = python_topk(root, queries)

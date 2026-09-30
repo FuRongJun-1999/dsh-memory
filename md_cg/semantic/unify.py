@@ -21,9 +21,20 @@ eval_common jaccard + GLOBAL_CAP 解除、k=5）：旧口径「query 含任一 A
 lexical,fuzzy = 87.2%；只译英文片段 lexical = 95.8% / lexical,fuzzy = 96.6%；
 归一层全关 lexical = 96.4% / lexical,fuzzy = 97.2%。
 
-开关：MDCG_UNIFY_QUERY 默认 "1"（2026-09-23 使用者拍板口径转正）；
-"=0" 显式关回退。两侧同步：rust/mcdg-eval 读同一 env + 同一份
-en_zh_map.json（scripts/rank_parity.py --dataset 对拍在两侧同开关态进行）。
+开关：MDCG_UNIFY_QUERY **默认关**（2026-09-30 使用者裁定，缺省由 "1" 翻为 "0"）。
+定因：本层本职是让**英文** query 命中中文节点，对中文检索池是**纯开销**——
+locomo-zh-500 公开题池（池 567 / 题 500）缺省关态 lexical hit@1 96.4% /
+lexical+fuzzy 97.2%，开态 95.8% / 96.6%（各跑两遍逐位相同）。
+
+三态判据（两侧同语义，唯一开态 = 显式 "1"）：
+
+    MDCG_UNIFY_QUERY      Python unify_on()   Rust Atoms::from_env()
+    未设                   False               None（不载入）
+    "0"                    False               None（不载入）
+    "1"                    True                Some(Atoms)（载入）
+
+显式 "1" 仍能开回（英文对照路要用）；两侧同源 en_zh_map.json
+（scripts/rank_parity.py --dataset 对拍在两侧同开关态进行）。
 
 归一失败（semantic 模块缺失等）静默原样返回——与 en_zh_terms 同降级
 风格，不阻断检索主链路。
@@ -37,10 +48,10 @@ import re
 
 from .canonical import is_zh_char
 
-# 生效条件：无 required 形参，锚定环境变量名 MDCG_UNIFY_QUERY；当 os.environ.get("MDCG_UNIFY_QUERY", "1") == "1" 时返回 True，否则返回 False。
+# 生效条件：无 required 形参，锚定环境变量名 MDCG_UNIFY_QUERY；**未设**时取缺省 "0"（2026-09-30 使用者裁定：缺省关），当 os.environ.get("MDCG_UNIFY_QUERY", "0") == "1" 时返回 True，其余（未设 / "0" / 任何非 "1" 取值）返回 False。
 def unify_on() -> bool:
-    """统一归一层开关（默认开=口径定案转正；=0 显式关回退）。"""
-    return os.environ.get("MDCG_UNIFY_QUERY", "1") == "1"
+    """统一归一层开关（**默认关**；显式 =1 才开，=0/未设一律关）。"""
+    return os.environ.get("MDCG_UNIFY_QUERY", "0") == "1"
 
 
 # 生效条件：单参 text 为任意字符串（空串返回空列表），按 canonical.is_zh_char 逐字符判中文段，相邻同判据字符归并为一个连续段，返回 [(是否中文段, 段文本), ...] 的保序列表。
@@ -61,7 +72,7 @@ def _runs(text):
     return out
 
 
-# 生效条件：text 为 None/空串、或开关 MDCG_UNIFY_QUERY 取值不为 "1"、或 strip 后不含 [A-Za-z] 时，原样返回 text（未 strip 的入参）；否则按中文段（canonical.is_zh_char）切分——中文段与不含 ASCII 字母的非中文段逐字保留、含 ASCII 字母的非中文段经 canonical.query_atoms 归一——各段折空白后按原顺序单空格 join；归一产物为空（trim 后）或抛异常时原样返回 text。
+# 生效条件：text 为 None/空串、或开关 MDCG_UNIFY_QUERY 取值不为 "1"（含**未设**——缺省 "0"，2026-09-30 起关）、或 strip 后不含 [A-Za-z] 时，原样返回 text（未 strip 的入参）；否则按中文段（canonical.is_zh_char）切分——中文段与不含 ASCII 字母的非中文段逐字保留、含 ASCII 字母的非中文段经 canonical.query_atoms 归一——各段折空白后按原顺序单空格 join；归一产物为空（trim 后）或抛异常时原样返回 text。
 def unify_query(text):
     """检索入口统一归一：只译英文内容，中文段逐字原样。"""
     t = (text or "").strip()

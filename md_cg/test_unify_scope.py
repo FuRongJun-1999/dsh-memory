@@ -6,6 +6,10 @@
 旧口径「含任一 ASCII 字母即整条归一」把中夹英 query 的中文部分逐字切开
 （「自我接纳」→「自 我 接 纳」），本件钉住收窄后的语义。
 
+**开关前提**：归一层缺省**关**（2026-09-30 使用者裁定，唯一开态 = 显式
+`MDCG_UNIFY_QUERY=1`）；本件第 1 节钉三态，其后各节一律**显式开**下跑。
+缺省态的三态与两侧一致性守卫见 `md_cg/test_unify_default_off.py`。
+
 两侧同源：期望值取自 `md_cg/semantic/unify_fixture.json`——Rust 侧
 `rust/src/atoms.rs::tests::unify_mixed_fixture_matches_python` 用 include_str!
 嵌入**同一份**文件；任一侧漂移即红（两侧逐位相同）。
@@ -52,8 +56,12 @@ def zh_runs(text):
     return out
 
 
-# ---- 1 · 开关语义不变（默认开；=0 一律原样）----
-ok(unify_on() is True, "MDCG_UNIFY_QUERY 默认开（口径转正）")
+# ---- 1 · 开关三态（2026-09-30 使用者裁定：缺省由开翻为关；唯一开态 = 显式 "1"）----
+# 本件测的是**作用域收窄**语义，故从本节之后各节必须在**显式开**（=1）下跑：
+# 缺省已关（未设即关），若不显式开，下面 3~8 节全会退化成恒真（对实现零约束力）。
+# 缺省三态守卫另立一件：md_cg/test_unify_default_off.py（两件分工不同，勿互推）。
+ok(unify_on() is False,
+   "MDCG_UNIFY_QUERY 未设即关（缺省关，2026-09-30 翻）")
 os.environ["MDCG_UNIFY_QUERY"] = "0"
 try:
     ok(unify_on() is False, "=0 显式关")
@@ -62,6 +70,8 @@ try:
         ok(unify_query(t) == t, "开关关：一律原样返回 %r" % t)
 finally:
     os.environ.pop("MDCG_UNIFY_QUERY", None)
+os.environ["MDCG_UNIFY_QUERY"] = "1"
+ok(unify_on() is True, "=1 显式开（英文对照路要用）——本件余下各节的运行前提")
 
 # ---- 2 · 空/None/无 ASCII 字母：原样返回（未 strip 的入参）----
 ok(unify_query(None) is None, "None 原样")
@@ -161,6 +171,8 @@ ok(is_zh_char("a") is False, "单 ASCII 字母为假")
 # （见 rust/src/text.rs::is_zh docstring 的边界约定段）。
 for ch in ("\u4e00", "\u9fff"):
     ok(is_zh_char(ch) and len(ch) == 1, "单字符区间内 → 真（与 Rust is_zh 等价）%r" % ch)
+
+os.environ.pop("MDCG_UNIFY_QUERY", None)   # 归还进程环境（本件全程已显式开完）
 
 if BAD:
     print("[test_unify_scope] FAILED %d/%d 断言：" % (len(BAD), N))

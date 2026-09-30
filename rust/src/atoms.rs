@@ -26,7 +26,21 @@
 //!
 //! 载入：env `MDCG_EN_ZH_MAP` 指向 en_zh_map.json（缺省探测仓库相对路径
 //! `md_cg/semantic/en_zh_map.json`）；两处都没有 → None（归一层静默不
-//! 生效，与 Python 失败降级同风格）。开关 `MDCG_UNIFY_QUERY=0` 显式关。
+//! 生效，与 Python 失败降级同风格）。
+//!
+//! 开关三态（2026-09-30 使用者裁定：**缺省由「未设=开」翻为「未设=关」**，
+//! 与 Python `semantic/unify.py::unify_on` 的 `== "1"` 逐位同语义）：
+//!
+//! | MDCG_UNIFY_QUERY | 本函数 | Python `unify_on()` |
+//! |---|---|---|
+//! | 未设 | `None`（不载入） | `False` |
+//! | `"0"` | `None`（不载入） | `False` |
+//! | `"1"` | `Some(Atoms)`（载入） | `True` |
+//!
+//! 定因：本层本职是让**英文** query 命中中文节点，对中文检索池是**纯开销**
+//! ——locomo-zh-500 公开题池（池 567 / 题 500）缺省关态 lexical hit@1 96.4% /
+//! lexical+fuzzy 97.2%，开态 95.8% / 96.6%（各跑两遍逐位相同）。显式 `=1`
+//! 仍能开回（英文对照路要用）。
 
 use crate::json::Json;
 use crate::text::normalize_en;
@@ -81,7 +95,9 @@ impl Atoms {
 
     /// env/缺省路径探测（`None` = 归一层不生效）。
     ///
-    /// 生效条件：`MDCG_UNIFY_QUERY=0` 时无条件返回 None（显式关优先）；
+    /// 生效条件：`MDCG_UNIFY_QUERY` **未设或取值不为 "1"** 时无条件返回 None
+    /// （缺省关，2026-09-30 使用者裁定；唯一开态 = 显式 "1"，与 Python
+    /// `unify_on()` 的 `== "1"` 逐位同语义——未设 / "0" / 其它取值一律关）；
     /// 否则 `MDCG_EN_ZH_MAP` 显式指路即用该路径；未指路时——
     /// **未启用 `no-probe` 特征**（缺省）走 `CARGO_MANIFEST_DIR` 的上级仓库
     /// 相对路径探测（`../md_cg/semantic/en_zh_map.json`，文件存在才取）；
@@ -95,8 +111,12 @@ impl Atoms {
     /// （死代码）。修复=在 `Cargo.toml` 声明 `[features] no-probe = []`（保留能力，
     /// 不删分支；理由见该文件注释），构建告警归零。
     pub fn from_env() -> Option<Self> {
-        if std::env::var("MDCG_UNIFY_QUERY").map(|v| v == "0").unwrap_or(false) {
-            return None; // 显式关
+        // 三态判据（2026-09-30 使用者裁定：缺省由「未设=开」翻为「未设=关」）：
+        // 唯一开态 = 显式 `MDCG_UNIFY_QUERY=1`；未设 / `"0"` / 其它取值一律
+        // 不载入。与 Python `md_cg/semantic/unify.py::unify_on`（`== "1"`）
+        // 逐位同语义——两侧对「未设 / "0" / "1"」三态判定必须一致。
+        if std::env::var("MDCG_UNIFY_QUERY").as_deref() != Ok("1") {
+            return None; // 未设（缺省关）/ 显式 "0" / 非 "1"：归一层不生效
         }
         let p = std::env::var("MDCG_EN_ZH_MAP").ok().map(PathBuf::from).or_else(|| {
             // 缺省：CARGO_MANIFEST_DIR 的上级仓库相对路径（评测器与仓库同仓场景）

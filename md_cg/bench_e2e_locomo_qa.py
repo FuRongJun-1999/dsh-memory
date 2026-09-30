@@ -25,13 +25,14 @@
   python -X utf8 -m md_cg.bench_e2e_locomo_qa --translate   # 翻译 5882 turn + 500 问句
   python -X utf8 -m md_cg.bench_e2e_locomo_qa               # 全量 500 题 × 2 臂
   python -X utf8 -m md_cg.bench_e2e_locomo_qa --quick       # 冒烟 3 题（须先完成翻译）
-环境：DEEPSEEK_API_KEY；归一层**缺省开启即可**——批次15 归一曾把中文问句的中文段
+环境：DEEPSEEK_API_KEY；归一层**缺省关**（2026-09-30 使用者裁定：本层本职是让英文
+query 命中中文节点，对中文检索池是纯开销）——批次15 归一曾把中文问句的中文段
 逐字切开（中文问句含英文名时的形态缺陷，见 docs/eval/端到端干扰池评测_v1.1 §4），
 该缺陷已由 2026-09-30 作用域收窄（批次 26：只译英文内容、中文段原样）修掉：
 locomo-zh-500 定点实测 旧口径 lexical hit@1 94.4% / lexical,fuzzy 87.2% →
-收窄后 95.8% / 96.6%（口径真源 docs/hive/检索算法口径对照_v0.1.md）。
-`MDCG_UNIFY_QUERY=0` 保留为**对照口径**（归一层全关，实测 96.4% / 97.2%），
-不是缺省建议值。
+收窄后 95.8% / 96.6%；而缺省关态为 96.4% / 97.2%（本脚本缺省即此态）。
+`MDCG_UNIFY_QUERY=1` 保留为**英文对照口径**（归一层显式开，95.8% / 96.6%），
+不再是缺省值（口径真源 docs/hive/检索算法口径对照_v0.1.md）。
 """
 from __future__ import annotations
 
@@ -276,7 +277,8 @@ def main(argv=None):
     cfg = {"model": a.model, "base": a.base_url, "key": key,
            "timeout": a.timeout, "workers": a.workers}
     print(f"[locomo_qa] 归一层开关 MDCG_UNIFY_QUERY="
-          f"{os.environ.get('MDCG_UNIFY_QUERY', '1')}（建议 0，见模块头注）")
+          f"{os.environ.get('MDCG_UNIFY_QUERY', '0')}（缺省关；=1 为英文对照口径，"
+          f"见模块头注）")
 
     ids, txts = load_corpus()
     answers = json.load(open(ANSWERS, encoding="utf-8"))
@@ -358,7 +360,7 @@ def main(argv=None):
     errs = sum(1 for r in rows if r.get("error"))
     print(f"判分失败 {errs} 行\n")
     summary = {"meta": {"model": a.model, "n_q": len(qs), "k": a.k,
-                        "unify": os.environ.get("MDCG_UNIFY_QUERY", "1")}}
+                        "unify": os.environ.get("MDCG_UNIFY_QUERY", "0")}}
     for arm in ("retrieval", "full_context"):
         summary[arm] = report([r for r in rows if r["arm"] == arm], arm)
     out = os.path.join(a.data_root, "results",

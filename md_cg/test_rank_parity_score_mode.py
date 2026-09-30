@@ -9,6 +9,12 @@
     MDCG_UNIFY_QUERY=0     6/10    9/10   6/10    1
     Python 侧切 jaccard   10/10   10/10  10/10    0
 
+上表是 CH-1 修复**前**的实测留档；其中「缺省（修前）」一行当时 = 归一层**默认开**。
+2026-09-30 归一层缺省翻关后，本守卫的**缺省态**断言实测**不变**（G1/G1b：缺省态
+即 10/10 · 10/10 · 10/10、rc=0；`--dataset` 口径缺省态亦由 8/10 变为 10/10，见
+`docs/hive/检索算法口径对照_v0.1.md` §五.2）——翻缺省动的是归一层开关，不是本
+harness 的打分口径接线，故本件期望读数无需改动。
+
 两侧**产品缺省本就不同**（Python `md_cg/mdcg.py:SCORE_MODE` 缺省 `legacy`；
 Rust `Cfg.jaccard` / `EngineConfig::default().jaccard` 缺省 `true`=jaccard），
 而修前的 harness 两侧都不钉口径 ⇒ 长期拿两套词法公式互相比较，三条 DIFF 全是
