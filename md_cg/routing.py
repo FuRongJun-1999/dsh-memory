@@ -269,27 +269,54 @@ def domain_similarity(a: str, b: str) -> float:
     return len(ga & gb) / len(ga | gb)
 
 
-# 生效条件：counts 各值之和为 0（含空 dict 与全 0 计数）时返回 {'ok': True, 'reason': 'empty', 'buckets': 0}；否则在最大桶占比 >30%、桶数 >1 且单例桶占比 >50%、期望扫描 >30% 中命中的项写入 problems，返回含 ok(=problems 为空)、buckets、nodes、max_bucket_share、singleton_ratio、expected_scan、problems 的 dict。
-def bucket_health(counts: dict) -> dict:
+# 生效条件：counts 各值之和为 0（含空 dict 与全 0 计数）时——total_nodes 为假值（缺省 None 或 <=0）返回 {'ok': True, 'reason': 'empty', 'buckets': 0}（与加 total_nodes 参数之前逐位一致），total_nodes > 0 返回 {'ok': False, 'reason': 'empty_buckets', 'buckets': 0, 'nodes': total_nodes, 'problems': [...]}；否则在「桶数 >1 且最大桶占比 >30%」、「桶数 >1 且单例桶占比 >50%」、「桶数 ==1（单桶，条件路由不可用）」、桶数 >1 时「期望扫描 >30%」中命中的项写入 problems，返回含 ok(=problems 为空)、buckets、nodes、max_bucket_share、singleton_ratio、expected_scan、problems 的 dict。
+def bucket_health(counts: dict, total_nodes: int = None) -> dict:
     """分区健康度自检。分桶键一旦退化（巨桶或碎片化），条件路由就是纸面收益，
     必须在写入侧就能发现，而不是等召回变差才回头查。
 
     counts: {bucket_dir: node_count}
+    total_nodes: 调用方（`MdCG.health`）持有的**库内节点总数**，唯一用途是把
+      「真空库（无节点、无桶）」与「有节点但分桶表为空（分区信息缺失）」分开。
+      **缺省 None ⇒ 不做该比对**：空 counts 的返回与加本参数之前逐位一致，
+      故既有调用方（test_p0 / bench_axis_domain / bench6_arms，只传 counts）
+      行为一字不变——M3③ 的向后兼容面。
+
+    单桶（nb == 1）是「从未分区」而不是「分区退化」：巨桶判据（top/n == 1.0）与
+    期望扫描判据（同样恒 1.0）在 nb==1 时必触发且互为同一事实，此前把这类库报成
+    「巨桶 / 分区失效」是假话（M3①②）。现只给一条如实读数——条件路由本就不可用；
+    ok 仍为 False（单桶库的一次查询确实是全量扫描，判据未放宽）。
     """
     n = sum(counts.values())
-    if not n:
-        return {"ok": True, "reason": "empty", "buckets": 0}
     nb = len(counts)
+    if not n:
+        # 库里有节点却零个桶 ⇒ 分桶表与节点面不一致（分区信息缺失），
+        # 不能报 ok=True 冒充健康（M3③）。total_nodes 缺省时不作此判断。
+        if total_nodes and total_nodes > 0:
+            return {
+                "ok": False,
+                "reason": "empty_buckets",
+                "buckets": 0,
+                "nodes": int(total_nodes),
+                "problems": [f"分桶表为空但库内有 {int(total_nodes)} 个节点："
+                             "分区信息缺失，条件路由不可用（非真空库）"],
+            }
+        return {"ok": True, "reason": "empty", "buckets": 0}
     top = max(counts.values())
     singles = sum(1 for v in counts.values() if v == 1)
     # 期望扫描占比：随机取一节点的情境去路由，命中桶的期望大小占全库比例
     expected_scan = sum(v * v for v in counts.values()) / n / n
     problems = []
-    if top / n > 0.30:
+    if nb > 1 and top / n > 0.30:
         problems.append(f"巨桶：最大桶占 {top / n:.1%}（>30% 视为分区失效）")
     if nb > 1 and singles / nb > 0.50:
         problems.append(f"碎片化：单例桶占 {singles / nb:.1%}（>50% 说明键含实例级字段）")
-    if expected_scan > 0.30:
+    if nb == 1:
+        # 巨桶/期望扫描两条在 nb==1 时只是同一事实的两种写法，合并为一条如实读数。
+        # expected_scan 的**数值**仍在返回 dict 里（下游读的是数：test_p0 :92、
+        # bench_axis_domain :159），只有文案不再把「未分区」说成「巨桶退化」。
+        problems.append(f"单桶：全库仅 1 个分桶（{n} 个节点同桶），"
+                        "条件路由本就不可用（从未分区，非分区退化）")
+    elif expected_scan > 0.30:
         problems.append(f"路由无效：期望扫描 {expected_scan:.1%}（接近全量）")
     return {
         "ok": not problems,

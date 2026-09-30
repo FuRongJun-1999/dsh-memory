@@ -354,15 +354,24 @@ def guard_overwrite(cg, node_id, layer=None, sensitivity=None,
     return guard_write(cg, node_id, layer=_layer, override=override, actor=actor)
 
 
-# 生效条件：cg.get(node_id) 抛异常或返回假值时返回 None；否则把 protected=True 与 protection_reason=reason 写入 cg.root 下 node["path"]（该键缺失即抛 KeyError）对应的 frontmatter 并保持原 content，随后门条目存在时同步其 protected/protection_reason 并把该条目并入索引写日志（_dirty 标脏 + flush，失败静默），返回 {'node_id': node_id, 'protected': True, 'reason': reason}。
+# 生效条件：cg.get(node_id) 抛异常或返回假值时返回 {'ok': False, 'error': 'node_not_found', 'node_id': node_id}（负路由，形态对齐 trust.set_state:692）；否则把 protected=True 与 protection_reason=reason 写入 cg.root 下 node["path"]（该键缺失即抛 KeyError）对应的 frontmatter 并保持原 content，随后门条目存在时同步其 protected/protection_reason 并把该条目并入索引写日志（_dirty 标脏 + flush，失败静默），返回 {'node_id': node_id, 'protected': True, 'reason': reason}。
 def mark(cg, node_id, reason):
-    """给节点打上 `protected=True` 标记（写回 frontmatter，不动 content）。"""
+    """给节点打上 `protected=True` 标记（写回 frontmatter，不动 content）。
+
+    节点不存在时返回**负路由** `{"ok": False, "error": "node_not_found",
+    "node_id": node_id}`（与 `trust.set_state` 的不存在分支逐键同形），
+    不再裸返回 None（H9④ 前）：None 与「成功」在调用方眼里都非 dict，
+    `mcp_server._protect_call` 直接把它序列化成 `null` 回给 MCP 客户端
+    ——不存在的 node_id 被读成「打标成功」，而 `_write_node` 从未发生。
+    调用方分流：失败看 `r.get("ok") is False` / `"error" in r`，
+    成功路径的返回键**不变**（node_id / protected / reason，无 ok 键）。
+    """
     try:
         node = cg.get(node_id)
     except Exception:
         node = None
     if not node:
-        return None
+        return {"ok": False, "error": "node_not_found", "node_id": node_id}
     fm = node.get("frontmatter") or {}
     fm["protected"] = True
     fm["protection_reason"] = reason

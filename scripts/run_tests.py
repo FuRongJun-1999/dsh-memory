@@ -170,6 +170,13 @@ _SERIAL_ONLY = {
     # 同形态（2026-09-25 全量实测）：加速比 > 2 宽松下限在 --jobs 4 争抢下
     # 1.91× 假红（单跑 2.96×），与 bench_swarm_scale 同为负载敏感吞吐断言。
     "swarm.tests.bench_swarm_parallel",
+    # 注（2026-09-30）：scripts.test_judgment_manifest **不**入本集合——它曾在并行下
+    # 不安全（弱化实验就地改写被追踪文件 hive/test_exec_tools.py），但收口走**结构面**
+    # （实验改在临时副本上做、守卫对仓内文件全程只读，见
+    # scripts/test_judgment_manifest.py 节 [2] 与 _materialize）。理由：本集合是调度侧
+    # **跳过**，加入即把 #36 覆盖守卫整条移出默认跑法（--jobs 4）的执行集——「守卫不再
+    # 运行」比偶发红更贵；且跳过符只作用于本层 run_tests，挡不住嵌套套件
+    # （md_cg/test_interop_judgment.py:202 内层 run_tests）与手跑并发的第二实例。
 }
 
 

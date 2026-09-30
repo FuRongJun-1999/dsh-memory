@@ -32,8 +32,11 @@
     L1 反思    ：一次条件级冲突检测（自否定 / 纪律违反 / 条件互斥）→ 四态
     L2 递归反思：L1 未决 → 沿关系链递归找「区分条件」；受深度/节点数/循环/增益门槛约束
 
-冲突自动触发飞轮：verdict ∈ {REJECT, DEFER, BLINDSPOT} 且 auto_flywheel →
+冲突自动触发飞轮：verdict == REJECT（**真冲突**）且 auto_flywheel →
     `cg.flywheel_step({query, expected_state:"ACCEPT", actual_state:verdict, missing})`
+    （H11⑥ 2026-09-30：DEFER/BLINDSPOT 不再自动建单——DEFER 是「待确认」、
+    BLINDSPOT 是「检测前提不存在（无可比对节点，空库上恒成立）」，二者都不是
+    已判定的冲突；把待确认写成待办工单只是把误判固化。判定本身仍如实返回。）
 
 留痕 `_consistency.jsonl`（append-only）：每条判定可审计「为什么冲突 / 为什么放行」。
 
@@ -83,6 +86,12 @@ EMO_APPROACH = 0.30  # 冲突强度 ≤ 此值 → approaching
 DISCIPLINE_TAGS = ("discipline", "纪律", "work_discipline", "rule", "规则", "戒律")
 
 VERDICTS = ("ACCEPT", "REJECT", "DEFER", "BLINDSPOT")
+
+#: 自动建单（飞轮）**唯一**的触发态——只有真冲突才落 unresolved（H11⑥，2026-09-30）。
+#: 改前是 ("REJECT","DEFER","BLINDSPOT")：DEFER=「条件互斥/部分覆盖、待确认」、
+#: BLINDSPOT=「无节点可比对（检测前提不存在）」——都不是「已判定的冲突」。
+#: 单点：`check()` 与 `catalog()` 都读本元组。
+FLYWHEEL_TRIGGERS = ("REJECT",)
 
 
 # 生效条件：以 verdict 与 reason 构造异常（消息 `[{verdict}] {reason}`），conflicts 传假值（None/空容器等，源码 `conflicts or []`）时 self.conflicts 为 []，传真值时原样保留；
@@ -417,7 +426,7 @@ def _recursive_reflect(cg, seeds, tw_pos, tw_neg, max_depth=MAX_DEPTH,
 # 主入口：三级决策
 # --------------------------------------------------------------------------
 
-# 生效条件：以 cg.index.nodes 为既有节点、content（假值按 ""）经 _new_terms 得 pos/neg 并算 tw_pos/tw_neg，按循环中 hard（自否定或纪律命中）→ divergences（同条件槽且 concl < CONCLUSION_SAME）→ strength ≥ CLASH_HIGH → strength ≥ CLASH_LOW → comparable==0 且 (pos or neg) → 否则 ACCEPT 的顺序定 verdict；DEFER 且 int(depth)>0 且 emo["bias"] != "approaching" 时调 _recursive_reflect 补 recursion，auto_flywheel 且 verdict∈{REJECT,DEFER,BLINDSPOT} 时加 unresolved_id，最后 log 并返回 rec；
+# 生效条件：以 cg.index.nodes 为既有节点、content（假值按 ""）经 _new_terms 得 pos/neg 并算 tw_pos/tw_neg（non_applicable_conditions 入参先按 mdcos._is_null_condition 剔除空值语义哨兵——⑧ 漏斗单点），按循环中 hard（自否定或纪律命中）→ divergences（同条件槽且 concl < CONCLUSION_SAME）→ strength ≥ CLASH_HIGH → strength ≥ CLASH_LOW → comparable==0 且 (pos or neg) → 否则 ACCEPT 的顺序定 verdict；DEFER 且 int(depth)>0 且 emo["bias"] != "approaching" 时调 _recursive_reflect 补 recursion，auto_flywheel 且 verdict == REJECT 时加 unresolved_id，最后 log 并返回 rec；
 def check(cg, content, layer=None, condition_space=None,
           non_applicable_conditions=None, tags=None, exclude=None,
           limit=MAX_SCAN, depth=MAX_DEPTH, auto_flywheel=False,
@@ -433,9 +442,24 @@ def check(cg, content, layer=None, condition_space=None,
       REJECT    硬冲突：自否定 / 违反纪律
       DEFER     条件互斥但可能可分辨（交给 L2 递归或飞轮）
       BLINDSPOT 有条件声明，但既有节点全无声明 → 无法建立比对路径（不假装确定）
+
+    non_applicable_conditions（⑧ 2026-09-30）：入参里的**空值语义哨兵**
+    （`["无"]` / `["（无）"]` / `[""]`…）在本函数的入口统一剔除——判据复用
+    `mdcos._is_null_condition`（仓内唯一哨兵表，**不新造第二张词表**）。
+    为何修在漏斗而不是各调用点：本函数是全部入口（`MdCG.add` 直连
+    `consistency.check`、`MdCGOS.check_consistency`、写链 `writepipe`）的
+    公共汇聚点，只改一处即可同口径；此前 mdcos 侧已在 `_ccg_field` 与
+    `check_consistency` 两处收口，而 `mdcg.add` 的直连绕过了它们——实测
+    `consistency.check(..., non_applicable_conditions=["无"])` 仍判
+    DEFER/strength=1.0 并建工单，同一内容不传该列表则 ACCEPT/0.0/无工单。
     """
     _ccg_field, _declared, _neg_hit, _cov = _prims()
     content = content or ""
+    # ⑧：哨兵剔除单点（延迟导入，避免 consistency ← mdcos 的模块级循环依赖）。
+    if non_applicable_conditions:
+        from .mdcos import _is_null_condition
+        non_applicable_conditions = [x for x in non_applicable_conditions
+                                     if not _is_null_condition(x)]
     pos, neg = _new_terms(content, condition_space, non_applicable_conditions)
     tw_pos = expand_query_terms_weighted(" ".join(pos)) if pos else {}
     tw_neg = expand_query_terms_weighted(" ".join(neg)) if neg else {}
@@ -611,7 +635,13 @@ def check(cg, content, layer=None, condition_space=None,
            "actor": getattr(cg, "actor", "unknown")}
 
     # ---- 冲突自动触发飞轮（误差 → 补条件 → 结构更新） ----
-    if auto_flywheel and verdict in ("REJECT", "DEFER", "BLINDSPOT"):
+    # H11⑥（2026-09-30）：**只对真冲突（REJECT）建单**。改前是
+    # verdict ∈ {REJECT, DEFER, BLINDSPOT} 全建——DEFER 是「条件互斥/部分覆盖、
+    # 待确认」，BLINDSPOT 是「既有节点全无声明 ⇒ 检测前提不存在」（空库上恒
+    # 成立），两者都不是「已判定的冲突」；自动落 unresolved 等于把待确认与
+    # 无法比对写成待办工单，污染裁决队列（实测：哨兵形态误判出的 DEFER 直接
+    # 固化成工单 unr_9af4803381）。判定本身照旧返回，缺的只是「自动建单」。
+    if auto_flywheel and verdict in FLYWHEEL_TRIGGERS:
         rec["unresolved_id"] = _fire_flywheel(cg, query or content, verdict,
                                               reason, missing, allc)
     log(cg, rec)
@@ -760,7 +790,15 @@ def catalog():
         },
         "auto_flywheel": {
             "theory": "知识飞轮：误差 → 补条件 → 结构更新（智能论 :725）",
-            "triggers_on": ["REJECT", "DEFER", "BLINDSPOT"],
+            # H11⑥（2026-09-30）：建单只限**真冲突**（REJECT）。DEFER 是
+            # 「条件互斥/部分覆盖、待确认」，BLINDSPOT 是「检测前提不存在
+            # （无节点可与比对）」——两者都不是「已判定冲突」，自动落 unresolved
+            # 会把待确认项与无法比对项写成待办工单（且 BLINDSPOT 在空库上恒成立，
+            # 即每写第一条内容就建一张工单）。可复核的现场：本轮
+            # `consistency.check(..., non_applicable_conditions=["无"])` 实测
+            # DEFER/strength=1.0 → 建单 unr_9af4803381，而同一内容不传该列表
+            # 则 ACCEPT/0.0/无单——自动建单把「误判」直接固化成了待办。
+            "triggers_on": list(FLYWHEEL_TRIGGERS),
         },
         "discipline_detection": {"tags": list(DISCIPLINE_TAGS),
                                  "id_prefixes": ["discipline_", "work_discipline"]},

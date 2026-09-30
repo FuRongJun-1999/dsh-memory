@@ -9,7 +9,8 @@
 - 相邻抑制：与 rejected 节点有边相连（文本不重叠）的正候选同样被抑制
 - 无关候选不被抑制；λ 可配（0=不抑制，1=压到 0 且不低于 0）
 - 阈值真的在过滤：部分重叠候选在 thr=0.6 下不抑制、thr=0.4 下被抑制
-- 负记忆条目在 S5 开时不再与正候选同权（1.0 → 1-λ）
+- 负覆盖条目不参与分数竞争：分数恒哨兵 0.0（负性走独立字段），S5 的 λ 只作用于
+  正候选——H10① 2026-09-30（改前该条目被赋 1.0，高过任何真实候选）
 - 无负记忆命中时不落 s5 审计；幂等（重复检索 / 索引重建）
 """
 import os
@@ -61,6 +62,12 @@ def _scores(results):
     return {r[0]["id"]: round(float(r[1]), 6) for r in results}
 
 
+def _neg_card(results):
+    """结果里的负覆盖条目卡（判据：独立字段 negative_coverage）。"""
+    return next((r[0] for r in results
+                 if r[0].get("negative_coverage")), None)
+
+
 def _build(root):
     cg = MdCG(root)
     # 三个正候选都含查询词（都会成为 T2 命中），差别只在「与负记忆的关系」：
@@ -90,8 +97,13 @@ def main():
     base = _scores(r_off)
     check("默认关：meta 不含 gates 键", "gates" not in m_off,
           str(sorted(m_off.keys())))
-    check("默认关：负记忆条目与正候选同权（1.0）",
-          base.get("rejected/h_rej.md") == 1.0, str(base))
+    check("默认关：负覆盖条目分数＝哨兵 0.0（不再冒充 1.0 候选，且不高过任何"
+          "正候选；负性走独立字段 negative_coverage）",
+          base.get("rejected/h_rej.md") == 0.0
+          and (_neg_card(r_off) or {}).get("negative_coverage") is True
+          and max(v for k, v in base.items()
+                  if k != "rejected/h_rej.md") >= base["rejected/h_rej.md"],
+          str(base))
 
     # ---- 2) 子开关未设（总开关开、S1/S2 显式关）→ S5 不生效 ----
     _setenv(MDCG_RETRIEVAL_PIPELINE="1", MDCG_GATE_S5_NEG=None,
@@ -122,8 +134,9 @@ def main():
           sc5.get("pos_clean") == base.get("pos_clean")
           and "pos_clean" not in _sup,
           "%s vs %s  sup=%s" % (sc5.get("pos_clean"), base.get("pos_clean"), sorted(_sup)))
-    check("负记忆条目不再同权（1.0 → 0.5）",
-          sc5.get("rejected/h_rej.md") == 0.5, str(sc5.get("rejected/h_rej.md")))
+    check("负覆盖条目不再参与分数竞争（S5 只降正候选；条目恒哨兵 0.0）",
+          sc5.get("rejected/h_rej.md") == 0.0,
+          str(sc5.get("rejected/h_rej.md")))
 
     # ---- 4) λ 可配：0=不抑制；1=压到 0 且 ≥0 ----
     _setenv(MDCG_NEG_LAMBDA="0")
@@ -159,8 +172,8 @@ def main():
     r4, m4 = cg.search(QUERY, k=10, judge=False, record=False)
     sc4 = _scores(r4)
     g4 = (m4.get("gates") or {}).get("s5") or {}
-    check("λ=0.25：负记忆条目 0.75 且审计记 0.25",
-          sc4.get("rejected/h_rej.md") == 0.75 and g4.get("lambda") == 0.25,
+    check("λ=0.25：审计记 0.25、负覆盖条目仍非分数（哨兵 0.0，不随 λ 变）",
+          sc4.get("rejected/h_rej.md") == 0.0 and g4.get("lambda") == 0.25,
           "%s %s" % (sc4.get("rejected/h_rej.md"), g4))
 
     # ---- 6) 无负记忆命中：不落 s5 审计 ----

@@ -1150,6 +1150,25 @@ def _readable_sensitivities(cg):
         return None
 
 
+# 生效条件：a 的 key 存在且值 is not None 时返回 int(a[key])（显式 0/负数是显式
+# 请求，原样透传由库层判定），键缺失或值为 None 时返回 default；a 恒为 args dict。
+def _int_arg(a, key, default):
+    """int 入参的统一取用口径：**「显式 0 也是显式」**（2026-09-30）。
+
+    与 budget_tokens 的先例同口径（见 read 分支 `a["budget_tokens"] if
+    a.get("budget_tokens") is not None else 1200`）：旧写法 `int(a.get(k) or N)`
+    把显式 0（以及 -1）当「没传」，静默换成默认 N —— 调用方以为「要 0 条」，
+    拿到的却是 N 条，且返回形似正常。
+
+    **不自造报错**：k<=0 的语义（空结果 / 报错）判定单点在库层。实测
+    `cg.search(q, k=0)` / `cg.recall(q, budget_tokens=..., k=0)` 均返回空结果
+    且不抛（见 test_read_face_input_gates.py 的 M1 断言），故本层只判
+    「透传 vs 回落默认」，与 budget_tokens 保持同一判据面。
+    """
+    v = a.get(key)
+    return int(v) if v is not None else default
+
+
 def _node_view(node, offset: int = 0):
     if not node:
         return None
@@ -1588,7 +1607,7 @@ def _sustain_call(cg, a):
         qs = a.get("queries")
         if isinstance(qs, str):
             qs = [x for x in qs.replace("\n", ",").split(",") if x.strip()]
-        return _pl.measure(cg, qs, k=int(a.get("k") or 20),
+        return _pl.measure(cg, qs, k=_int_arg(a, "k", 20),
                            pools=(a.get("pools") if a.get("pools") is not None
                                   else True),
                            n_queries=int(a.get("limit") or 50))
@@ -1598,7 +1617,7 @@ def _sustain_call(cg, a):
         qs = a.get("queries")
         if isinstance(qs, str):
             qs = [x for x in qs.replace("\n", ",").split(",") if x.strip()]
-        return _pl.compare(cg, qs, k=int(a.get("k") or 20),
+        return _pl.compare(cg, qs, k=_int_arg(a, "k", 20),
                            pools=a.get("pools"),
                            n_queries=int(a.get("limit") or 50))
     if act in ("start", "up"):
@@ -1776,9 +1795,37 @@ def _action_sig(a, op):
     return None, None
 
 
-# 生效条件：op0=(a.get("op") or "").strip().lower()，op0 为空时按 a.get("content")→"write"、a.get("query") 或 a.get("node_id")→"read"、a.get("intent")→"route"、都无→"read" 推导 op；act0=(args.get("action") or "").strip().lower()，act0 为空时用 _action_sig(args, op) 推导且推导出时写回 args["action"]；args["op"]=op 后调 _cg_dispatch，返回 dict 且 op0 为空时补 out["op"]、out["op_derived"]=True 与 hint，act0 为空且 (act_derived 或 op in _ACTION_DEFAULT) 时 setdefault("action", eff)、out["action_derived"]=True 并按是否有 act_derived 写 hint_action。
+# 生效条件：op0=(a.get("op") or "").strip().lower()，op0 为空时按 a.get("content")→"write"、a.get("query") 或 a.get("node_id")→"read"、a.get("intent")→"route"、都无→"read" 推导 op；act0=(args.get("action") or "").strip().lower()，act0 为空时用 _action_sig(args, op) 推导且推导出时写回 args["action"]；另恒定计算 act_source（explicit|sig|default|none）；args["op"]=op 后调 _cg_dispatch，返回 dict 且 op0 为空时补 out["op"]、out["op_derived"]=True 与 hint，**无条件** setdefault out["action_source"]=act_source，act0 为空且 (act_derived 或 op in _ACTION_DEFAULT) 时 setdefault("action", eff)、out["action_derived"]=True 并按是否有 act_derived 写 hint_action。
 def _cg_call(cg, a):
-    """认知图唯一入口（外层：op/action 缺省推导兜底 + 推导透出；主体见 _cg_dispatch）。"""
+    """认知图唯一入口（外层：op/action 缺省推导兜底 + 推导透出；主体见 `_cg_dispatch`）。
+
+    **action 来源契约（2026-09-30，调用方不必猜）**：返回 dict 里
+    `action_source` **恒定在场**（旧行为只在「推导过」时给 `action_derived`，
+    显式传 action 时返回里无任何痕迹——调用方无法判断这个 action 是自己传的
+    还是系统替它挑的）。四态取值：
+
+      · ``"explicit"`` —— 本次显式传了非空 action（真值判断只在「取 action 与否」
+        上用；判据本身用 `.strip()` 后非空，False/0 不是合法 action 字面量）。
+        此时 `action_derived` **不出现**（保持旧契约：只标记「推导发生过」）。
+      · ``"sig"`` —— 未传 action，且参数签名唯一指向某 action（表 `_ACTION_SIGS`）：
+        按签名执行，附 `action_derived=True` + `hint_action`（点名依据键）。
+      · ``"default"`` —— 未传 action 且无签名：按**默认动作表**执行，同样
+        `action_derived=True` + `hint_action`（点名走的是哪条默认）。
+      · ``"none"`` —— 未传 action、无签名、该 op 也无默认：本层不填 action，
+        交库层自行决定（此时 `action_derived` 亦不出现）。
+
+    默认动作表（op → 缺省 action；真源=本模块常量 `_ACTION_DEFAULT`，逐项与各
+    分支的 `a.get("action") or "<默认>"` 由 test_action_derive.py 双向守卫；
+    本表照表渲染，由 test_read_face_input_gates.py 断言与常量逐项一致）：
+
+      causal→path · ccg→compile · consolidate→promote · consistency→check ·
+      evolution→summary · export→stat · forget→forget · goal→list ·
+      identity→profile · ingest→stat · insight→outlook · link→ls ·
+      maintain→stat · metacognition→report · predict→routes · protect→stats ·
+      recent→list · ref→read · review→list · scrub→sweep ·
+      self_state→snapshot · session→recall · sustain→status · task→list ·
+      theory→check · whitebox→ping
+    """
     op0 = (a.get("op") or "").strip().lower()
     op = op0
     if not op:
@@ -1799,9 +1846,15 @@ def _cg_call(cg, a):
         act_derived, act_sig = _action_sig(args, op)
         if act_derived:
             args["action"] = act_derived     # 按签名补 action：避免写意图被默认吞掉
+    act_source = ("explicit" if act0 else
+                  "sig" if act_derived else
+                  "default" if op in _ACTION_DEFAULT else "none")
     args["op"] = op
     out = _cg_dispatch(cg, args)
     if isinstance(out, dict):
+        # 「推导发生过」恒定在场：无论走默认、走推导还是显式传，都透出
+        # action_source（setdefault 不覆盖 op 自有的同名字段）。
+        out.setdefault("action_source", act_source)
         if not op0:
             out["op"] = op
             out["op_derived"] = True
@@ -2201,22 +2254,41 @@ def _cg_dispatch(cg, a):
                 # roleviews.ROLE_VIEWS（非法 view 库层 ValueError），与时间算子
                 # 同一透传纪律——本层不做校验也不填默认值。
                 "view": a.get("view")}
-        if a.get("node_id"):
-            return _node_view(cg.get(a["node_id"]),
-                              offset=int(a.get("offset") or 0))
+        # 输入类型闸（2026-09-30）：`node_id` 非 str 时旧行为静默失真——哈希可算的
+        # 非 str（int/float/bool）cg.get() 取不到 → `_node_view(None)` → **裸 null**；
+        # 不可哈希的（list/dict）更会 TypeError 逃出 MCP 面。调用方无从区分
+        # 「id 不存在」与「类型错」。故本层只对**类型错**补结构化 error
+        # `node_id_not_str`（附 got_type；对齐 trust.py:692 的 `node_not_found`
+        # 负路由一族；写面的同族闸见 mdcg.py:1776 的「非法 node_id 类型」ValueError
+        # ——写面 fail-closed 抛异常，读面取负路由）。
+        #
+        # **「节点不存在」有意保持 null**：`md_cg/protocol.py` 的 read 形态表已登记
+        # `node_missing.returns_null = True`（note："不是错误对象——客户端须先判空
+        # 再解析"），反向证据 test_protocol A11/B8/B10 钉住该形态；改它须连带改协议
+        # 真源与那三条断言（不在本次指派文件内）。两态可区分性因此为：类型错 =
+        # `{"ok": False, "error": "node_id_not_str", ...}`，不存在 = `null`。
+        # 判据用 `is not None`（显式 "" 也是显式：旧写法会把它当没传而静默转检索）。
+        if a.get("node_id") is not None:
+            _nid = a["node_id"]
+            if not isinstance(_nid, str):
+                return {"ok": False, "error": "node_id_not_str",
+                        "node_id": _nid, "got_type": type(_nid).__name__,
+                        "hint": "node_id 必须是字符串 id；要按关键词检索请改用 "
+                                "query（本层不再把类型错静默降级为检索）"}
+            return _node_view(cg.get(_nid), offset=int(a.get("offset") or 0))
         q = a.get("query") or a.get("intent") or ""
         # 显式 0 也是「显式」（2026-09-24 修复）：旧写法 `if a.get("budget_tokens")`
         # 把 0 当没传，静默换成 1200 —— 调用方以为「零预算」拿到的是满预算结果。
         if a.get("budget_tokens") is not None:
             return cg.recall(q, budget_tokens=int(a["budget_tokens"]),
-                             k=int(a.get("k") or 20), context=a.get("context"),
+                             k=_int_arg(a, "k", 20), context=a.get("context"),
                              goal_text=a.get("goal"),
                              include_recent=bool(a.get("include_recent")),
                              recent_limit=int(a.get("limit") or 10),
                              session=a.get("session"),
                              validity=a.get("validity"), **_tkw)
         from . import refindex
-        res, meta = cg.search(q, layer=a.get("layer"), k=int(a.get("k") or 20),
+        res, meta = cg.search(q, layer=a.get("layer"), k=_int_arg(a, "k", 20),
                               context=a.get("context"),
                               session=a.get("session"),
                               validity=a.get("validity"), **_tkw)
@@ -3255,7 +3327,7 @@ def _dispatch(cg, name, args):
                          max_item_tokens=int(a["max_item_tokens"])
                          if a.get("max_item_tokens") is not None
                          else _DEFAULT_MAX_ITEM,
-                         k=int(a.get("k") or 20), context=a.get("context"),
+                         k=_int_arg(a, "k", 20), context=a.get("context"),
                          include_work=bool(a.get("include_work")),
                          paths=paths, fusion=fusion,
                          goal_text=a.get("goal"),
@@ -3268,7 +3340,7 @@ def _dispatch(cg, name, args):
     if name == "mdcg_search":
         from . import refindex
         res, meta = cg.search(a.get("query", ""), layer=a.get("layer"),
-                              k=int(a.get("k") or 20), context=a.get("context"),
+                              k=_int_arg(a, "k", 20), context=a.get("context"),
                               roles=tuple(a["roles"]) if a.get("roles") else None,
                               include_work=bool(a.get("include_work")),
                               pools=a.get("pools"),

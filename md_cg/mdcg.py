@@ -39,6 +39,11 @@ LAYERS = ("anchor", "structural", "knowledge", "contextual", "self",
           "rejected", "unresolved", "goals")
 # 有条件分区的层：knowledge 是主检索层；负记忆/目标目录按自己的 MARKS 走，不路由
 BUCKETED_LAYERS = ("knowledge",)
+#: **不进正排打分**的层（⑦）：负记忆（rejected/unresolved）只作「覆盖标记」，
+#: 目标槽（goals）只做定向偏置——三者进正排会让同一负节点在同一次结果里
+#: 出现两次（正候选 + 覆盖尾），且互不相容的语义混进同一排序。
+#: 口径与生产路径 `MdCGOS._candidates`（mdcos.py:748-749）一致。
+NEG_ROUTE_LAYERS = ("rejected", "unresolved", "goals")
 
 # ---- S4 层级激活优先级（契约 §3 S4）----
 # 认知优先级：anchor/self（自我与锚点）先激活，其次 structural，再次 knowledge/contextual。
@@ -87,6 +92,32 @@ DEFAULT_RECENT_WINDOW = 200
 
 # 全量回退的读取上限，对齐 sqlite 版 `ORDER BY importance DESC, created_at DESC LIMIT 500`
 GLOBAL_CAP = 500
+
+# ---- 负覆盖提示条目（结果尾部）的语义值（H10①②，2026-09-30）----
+# 这些条目**不是候选答案**，而是「这条查询已被负记忆（rejected/unresolved）
+# 覆盖」的提示。改前它们被赋 1.0——高于任何真实候选的分数，任何按 score 排序
+# 或按 score 取首位的下游（MCP 三处结果面 route/read/search、外部调用方、
+# reflect 的 D 计算）都会把「负记忆提示」顶成最高分答案。现改为：
+#   · 分数位＝ NEG_COVERAGE_SCORE（哨兵值，不参与正排排序语义）；
+#   · 负性由**独立字段**承载（card["negative_coverage"] / qual["negative_coverage"]，
+#     机器可判，不靠分数位反推）；
+#   · 条数**计入 k 预算**（见 `_emit`），故 `len(results)` 恒 ≤ k。
+NEG_COVERAGE_SCORE = 0.0
+#: 尾部负覆盖提示条数上限（改前硬编码 3；现与 k 预算共同决定实取条数）
+NEG_COVERAGE_MAX = 3
+
+
+# 生效条件：card 为 dict 且 card["negative_coverage"] 为真值时返回 True，否则 False（非 dict 一律 False）。
+def _is_neg_coverage(card) -> bool:
+    """「该结果条目是负覆盖提示、不是候选答案」的判据单点（H10①③）。
+
+    为什么需要独立字段：改前靠「分数 == 1.0」间接表达负性——既与真实候选的
+    1.0 撞车，又把「不是答案」这件事编码成一个**看起来最好**的分数。现在
+    负性只在`negative_coverage` 键上表达，分数位保留一个哨兵值；`_compute_d`
+    的分母口径、调用方过滤、审计都读这一个判据，不再各自解释分数。
+    """
+    return bool(isinstance(card, dict) and card.get("negative_coverage"))
+
 
 # ---------- 索引持久化 · 进程退出兜底（2026-09-16 取证） ----------
 # 脏索引（`_dirty`）靠调用方显式 flush()/close() 落分片日志。一次性脚本/CLI
@@ -2382,26 +2413,77 @@ class MdCG:
                         tags=tags, verification_basis=verification_basis,
                         importance=0.0, **extra)  # importance=0：不被检索优先
 
-# 生效条件：nid（"unr_"+sha1(question) 前 10 位）已在 self.index["nodes"] 中时直接返回；否则拼接 question、known_clues（假值渲染「（暂无）」）、context 非空才追加「现场」行、goal（假值渲染「（未设定）」）与 verification_basis 后 add(layer="unresolved", importance=0.3)；
+    @staticmethod
+# 生效条件：身份文本 = topic 真值优先、否则 question；文本先以 " ".join(split()) 折叠空白，再过 tasks.slugify；返回 slug（身份为空时返回 ""）。
+    def _ticket_slug(question, topic=None) -> str:
+        """工单身份判据：**语义 slug**（同 slug 即同工单）——H11⑦（2026-09-30）。
+
+        规范化对象＝身份文本（`topic` 优先，缺省整段 question）。flywheel_step
+        传的 topic 是「主题｜实际态」，即问题里**不随措辞变**的那一段：模板措辞、
+        reason、missing、现场数值都不进身份，故「措辞不同的同一问题」不再重复建单。
+
+        归一＝折叠任意连续空白为单空格 + 仓内既有 `tasks.slugify`（路径分隔符与
+        非法字符折叠为 `-`，**不翻译、不去停用词**）——与 `tasks.py:19`「身份判据
+        ＝语义命名 slug（刻意不用内容哈希）」同哲学，也复用同一实现（单点）。
+        """
+        from . import tasks as _tasks          # 延迟导入：tasks 只依赖 nodefile
+        raw = " ".join(str(topic or question or "").split())
+        return _tasks.slugify(raw)
+
+# 生效条件：nid（"unr_"+slug，slug 空时回落 "unr_"+sha1(question) 前 10 位）已在 self.index["nodes"] 中时——以同一模板重新渲染正文，与盘面不一致时经 _refresh_unresolved 就地覆写正文（fm/id/created_at/归属原样保留）后返回 nid；否则拼接 question、known_clues（假值渲染「（暂无）」）、context 非空才追加「现场」行、goal（假值渲染「（未设定）」）与 verification_basis 后 add(layer="unresolved", importance=0.3)；
     def add_unresolved(self, question: str, known_clues: str = "",
                        goal: str = "", verification_basis: str = "data",
-                       tags=None, context: str = "", **extra) -> str:
+                       tags=None, context: str = "", topic: str = None,
+                       **extra) -> str:
         """第 5 篇 L5：未解问题清单——驱动主动探索。
 
         context：结构化「现场」（如「同条件两条不同取值 vs mem_A」）。
         缺此字段时「32 / 64 哪个对」这类缺口在裁决时看不到原始对照。
+        topic：**身份文本**——决定「是不是同一张工单」的那一段（缺省＝整段
+               question）。身份＝slugify(topic)，同 slug 即同工单（⑦）。
         """
-        nid = f"unr_{hashlib.sha1(question.encode()).hexdigest()[:10]}"
-        if nid in self.index["nodes"]:
+        def _render():
+            return (f"# 问题：{question}\n"
+                    f"# 已知线索：{known_clues or '（暂无）'}\n"
+                    + (f"# 现场：{context}\n" if context else "")
+                    + f"# 目标：{goal or '（未设定）'}\n"
+                    f"# 验证：{verification_basis}\n")
+
+        _slug = self._ticket_slug(question, topic)
+        nid = (f"unr_{_slug}" if _slug else
+               f"unr_{hashlib.sha1((question or '').encode()).hexdigest()[:10]}")
+        entry = self.index["nodes"].get(nid)
+        if entry is not None:
+            # 同 id ＝ 同一张工单（**不新建、不改 id/去重机制**）。改前此处直接
+            # return —— 于是「# 现场：」永久冻结在首次建单时写下的数值上：对方
+            # 节点被覆写、同题再次检出（现场数值已变）也不更新（⑤）。
+            # 现改为：按同一模板重渲染，**只覆写正文**（fm = 建单事实，不动）。
+            self._refresh_unresolved(nid, entry, _render())
             return nid
-        content = (f"# 问题：{question}\n"
-                   f"# 已知线索：{known_clues or '（暂无）'}\n"
-                   + (f"# 现场：{context}\n" if context else "")
-                   + f"# 目标：{goal or '（未设定）'}\n"
-                   f"# 验证：{verification_basis}\n")
-        return self.add(nid, content, layer="unresolved",
+        return self.add(nid, _render(), layer="unresolved",
                         tags=tags, verification_basis=verification_basis,
                         importance=0.3, **extra)
+
+# 生效条件：entry 为索引条目且 self._read(entry) 取回 fm 为真值——新正文与盘面正文逐字相同时零写入返回 False；不同则以 _write_node 就地覆写（fm 原样）并按 _node_entry 重建索引条目后返回 True；fm 取不回时返回 False 且不写。
+    def _refresh_unresolved(self, node_id: str, entry: dict, content: str) -> bool:
+        """就地刷新既有 unresolved 工单的正文（⑤）——不重建工单、不改 id。
+
+        只改**正文**不动 fm：id、created_at、归属（writer/session）、
+        verification_basis 都是「建单事实」，刷新现场不得篡改；改的是同一模板
+        渲染出的「# 现场：」（以及线索/目标行）——它们描述的是**最近一次检测**
+        的对照，对方节点被覆写后就该更新。同输入零写入（幂等，不制造脏写盘）。
+        """
+        fm, old = self._read(entry)
+        if fm is None:
+            return False
+        if (old or "") == content:
+            return False
+        path = os.path.join(self.root, entry["path"])
+        sealed = self._write_node(node_id, path, fm, content)
+        self._stage(node_id, self._node_entry(
+            path, entry.get("layer") or fm.get("layer") or "unresolved",
+            fm, sealed))
+        return True
 
     # ---------- 目标槽（白箱第 5 篇第 3 章「目标」）----------
 
@@ -3003,14 +3085,22 @@ class MdCG:
         qb = bigrams(normalize_en(q)) | en_zh_bigrams(q)
         # 把 rejected/unresolved 视作可参与召回的特殊「候选池」
         # ——命中它们的结果会改变 meta 的 covered_neg（被负记忆覆盖的查询）
-        # 默认排除掉负记忆层的节点进入正排打分，仅作为「覆盖标记」用
+        # 负记忆层与目标槽（goals）**不进正排打分**，只作「覆盖标记」用。
+        # ⑦（2026-09-30）：本句此前**只是注释**——循环里只收了负层引用却没有
+        # `continue`，于是同一个负节点在同一次结果里出现两次：一次作正排候选
+        # （id = 节点 id，无层前缀）、一次作负覆盖尾（id = 带层前缀的路径），
+        # 调用方按 id 去重必失败；且负记忆被当正候选打分/排序。
+        # 生产路径 `MdCGOS._candidates`（mdcos.py:748-749）早已排除三者的做法
+        # 是真源口径，这里与之对齐（基类不得靠「反正生产路径会过滤」放过）。
         # P2-2（批次 31）：单次遍历双收集——负记忆层引用与正排候选
         # 同车收集，消除此前的第二遍全索引遍历。
         neg_layer_entries = []
         entries = []
         for e in list(self.index["nodes"].values()):
-            if include_neg and e["layer"] in ("rejected", "unresolved"):
-                neg_layer_entries.append(e)
+            if e.get("layer") in NEG_ROUTE_LAYERS:
+                if include_neg and e["layer"] in ("rejected", "unresolved"):
+                    neg_layer_entries.append(e)
+                continue
             if ((not layer or e["layer"] == layer)
                    # '"*"' = 显式跨会话（读遍所有会话）；缺省 None 同义
                    and (not session or session == "*"
@@ -3489,7 +3579,64 @@ class MdCG:
         return scored
 
 
-# 生效条件：scored 按 (-分数, -importance) 排序后取前 k 条逐条判定——judge 为真值时调 judge_qualification(r[0], stat["query"] 或 "", context)，否则 qual={"state":None,"reason":"judge_disabled"}；再把 neg_coverage 前 3 条以 id=其 path 追加到 out 末尾（该项 layer=="rejected"→STATE_REJECT，否则 STATE_DEFER，读文件抛 OSError 则跳过）；record 为真且 results 非空时调 record_access；pool_plan 以 pooling.plan(stat["cap"] 或模块级 GLOBAL_CAP, pools) 生成，stat["pool_taken"] 为真时并入 taken/cands/lost；返回 (out, 含 tier/scanned/bucket/candidates/pre_cap/cap/cut_order/pools/big_domain 的审计 dict)；
+# 生效条件：恒返回 max(0, int(k) - int(n_tail))——负覆盖提示条数计入 k 预算后，主结果实取的条数；
+    @staticmethod
+    def _primary_slots(k, n_tail) -> int:
+        """主结果条数＝ k − 负覆盖提示占用的位子（H10②）。
+
+        「尾巴是否计入 k」这一个口径在**此一处**裁决：`_emit` 只从这里取预算，
+        故 `len(results) = n_tail + (k - n_tail) ≤ k` 由构造保证。改前（等价于
+        恒返回 int(k)）尾巴在 k 之外，结果数可到 k+min(3,|覆盖|)。
+        """
+        return max(0, int(k) - int(n_tail))
+
+
+# 生效条件：k<=0 或 neg_coverage 为空 → 返回 []；否则自 neg_coverage 起逐条 self._read（content 为 None 跳过，_read 已含 _node_disk_path 边界闸与 OSError→(None,None) 语义），每命中一条产出 (card, NEG_COVERAGE_SCORE, qual) 且最多取 min(NEG_COVERAGE_MAX, k) 条；card 带 negative_coverage/neg_layer/node_id 三个独立字段；qual.state 为 rejected 层→STATE_REJECT、否则 STATE_DEFER；
+    def _neg_tail(self, neg_coverage, k):
+        """负覆盖提示条目（结果尾部）的**单点构造**（H10①②④）。
+
+        与真实候选的区别在**字段**上而不在分数上：
+          · `negative_coverage=True`（`_is_neg_coverage` 的判据单点）——机器可判；
+          · `neg_layer`＝rejected/unresolved（提示来自哪一层）；
+          · `node_id`＝节点**真 id**（落盘路径在 `id`/`path` 上，既有消费者
+            `md_cg/test_emit_negtail_cache.py`（E0b/E2a/E5）按 `id` 认路盘路径，
+            故 `id` 语义一字不动，真 id 走这个**新增**字段——纯增量键）；
+          · 分数＝`NEG_COVERAGE_SCORE` 哨兵值（不是「得分 1.0 的答案」）。
+        条数＝min(NEG_COVERAGE_MAX, k)：**计入 k 预算**，与 `_emit` 的主结果
+        `scored[:k - len(tail)]` 配对，保证 `len(results) ≤ k`。
+        """
+        slots = max(0, int(k))
+        if slots <= 0 or not neg_coverage:
+            return []
+        out = []
+        for nc in neg_coverage[:NEG_COVERAGE_MAX]:
+            # v9 留档残余项修复（缺陷迭代第 14 轮）：改走 self._read——裸
+            # open+loads 不在读缓存包装面（install 只包 cg._read），每条命中
+            # 负层的查询恒 ≤3 次盘读（60+8 池实测 Q2 增量恰 3）；并入读缓存
+            # 后增量归零，负层主面 IO 早已同款覆盖（_neg_coverage → _read）。
+            # _read 同款 _node_disk_path 边界闸（P2-20：索引被污染时不得绕过
+            # 统一校验读 root 外文件）、OSError→(None,None) 与旧 continue 同义；
+            # 负层写路径（add/add_rejected→_stage 标脏带 path）在脏集精确
+            # 失效面内——覆写后尾部条目即时见新内容，不陈旧。
+            fm, content = self._read(nc)
+            if content is None:
+                continue
+            out.append(({"id": nc["path"], "frontmatter": fm,
+                         "content": content, "path": nc["path"],
+                         "negative_coverage": True,
+                         "neg_layer": nc["layer"],
+                         "node_id": fm.get("id") or nc["path"]},
+                        NEG_COVERAGE_SCORE,
+                        {"state": (STATE_REJECT if nc["layer"] == "rejected"
+                                   else STATE_DEFER),
+                         "reason": f"查询已被{nc['layer']}层覆盖：见 {nc['path']}",
+                         "negative_coverage": True}))
+            if len(out) >= slots:
+                break
+        return out
+
+
+# 生效条件：scored 按 (-分数, -importance) 排序，负覆盖提示条数 = len(_neg_tail(neg_coverage, k)) 先占 k 预算，主结果取 scored[:max(0,k-提示数)] 后逐条判定（judge 为真值时调 judge_qualification(r[0], stat["query"] 或 "", context)，否则 qual={"state":None,"reason":"judge_disabled"}），再把提示条目 extend 到 out 末尾；record 为真且主结果非空时调 record_access；pool_plan 以 pooling.plan(stat["cap"] 或模块级 GLOBAL_CAP, pools) 生成，stat["pool_taken"] 为真时并入 taken/cands/lost；返回 (out, 含 tier/scanned/bucket/candidates/pre_cap/cap/cut_order/pools/covered_neg/big_domain 的审计 dict)；
     def _emit(self, scored, k, tier, stat, bucket, record, candidates,
               judge, context, neg_coverage, big_domain=None, big_scores=None,
               pools=None):
@@ -3553,7 +3700,17 @@ class MdCG:
         scored.sort(key=lambda x: (-x[1],
                                    -float(x[0]["frontmatter"].get("importance") or 0),
                                    str(x[0].get("id") or "")))
-        results = scored[:k]
+        # ---- 负覆盖提示条目（H10①②④）：先建尾条目，再按 k 预算切主结果 ----
+        # 三条诚实化口径（改前是「结果尾追加最多 3 条 + 分数恒 1.0 + 注释说首条」）：
+        #   ① 分数＝NEG_COVERAGE_SCORE（哨兵），负性走独立字段 negative_coverage
+        #      ——改前 1.0 高过任何真实候选，任何按 score 排序/取首位的下游都会把
+        #      负记忆提示当成最高分答案（MCP route/read/search 三处 result 面直接
+        #      把 score 透给调用方）；
+        #   ② **计入 k 预算**：主结果让位给提示条数，故 len(results) 恒 ≤ k，
+        #      不再出现 k+3 的超发（改前 k=3 → 5、k=5 → 7，与 k 无关）；
+        #   ④ 位置如实为**尾部**（旧注释「（首条）」与代码相反，一并删除）。
+        _neg_tail = self._neg_tail(neg_coverage, k)
+        results = scored[:self._primary_slots(k, len(_neg_tail))]
         # ---- S6 一致性交叉验证（契约 §3 S6；flag 控、默认关）----
         # 只读复用 crosscheck 的「赛道 × 来源执照」判定：对 top-k 逐个给出赛道、声明依据是否被
         # 该赛道许可、以及断言条数。**不进主排序**（scored/out 的次序一律不动），只落审计摘要。
@@ -3595,25 +3752,9 @@ class MdCG:
             else:
                 qual = {"state": None, "reason": "judge_disabled"}
             out.append((r[0], r[1], qual))
-        # 把被负记忆覆盖的查询也作为结果条目返回（首条），方便调用方感知
-        for nc in neg_coverage[:3]:
-            # v9 留档残余项修复（缺陷迭代第 14 轮）：改走 self._read——裸
-            # open+loads 不在读缓存包装面（install 只包 cg._read），每条命中
-            # 负层的查询恒 ≤3 次盘读（60+8 池实测 Q2 增量恰 3）；并入读缓存
-            # 后增量归零，负层主面 IO 早已同款覆盖（_neg_coverage → _read）。
-            # _read 同款 _node_disk_path 边界闸（P2-20：索引被污染时不得绕过
-            # 统一校验读 root 外文件）、OSError→(None,None) 与旧 continue 同义；
-            # 负层写路径（add/add_rejected→_stage 标脏带 path）在脏集精确
-            # 失效面内——覆写后尾部条目即时见新内容，不陈旧。
-            fm, content = self._read(nc)
-            if content is None:
-                continue
-            entry = {"id": nc["path"], "frontmatter": fm,
-                     "content": content, "path": nc["path"]}
-            qual = {"state": STATE_REJECT if nc["layer"] == "rejected" else STATE_DEFER,
-                    "reason": f"查询已被{nc['layer']}层覆盖：见 {nc['path']}"}
-            # S5 开时：负记忆条目不再与正候选同权（契约 §3 S5）
-            out.append((entry, (max(0.0, 1.0 - _s5_lam) if _s5 else 1.0), qual))
+        # 负覆盖提示条目**追加在尾部**（不是首条——旧注释「（首条）」与代码相反）：
+        # 它们在 `_neg_tail` 里已按 k 预算建好（①分数哨兵 ②计入 k ④位置=尾）。
+        out.extend(_neg_tail)
         if record and results:
             self.record_access([r[0]["id"] for r in results], tier)
         pool_plan = pooling.plan(stat.get("cap") or GLOBAL_CAP, pools)
@@ -3651,6 +3792,19 @@ class MdCG:
         # 分阶段审计仅在门控真的产生信息时落键（默认关闭 → meta 与改动前逐字节一致；契约 §5.3）
         if stat.get("gates"):
             meta["gates"] = stat["gates"]
+        # 负覆盖尾审计（H10①②）：仅在**确有提示条目入榜**时落键（无覆盖的路径
+        # meta 键集合与改动前逐字节一致）。下游可据此把「提示」与「答案」分区：
+        # 尾条目的负性判据是 card/qual 的 `negative_coverage`，本块是同一事实的
+        # 汇总读数（含 k 预算的分配：主结果让出了几个位子）。
+        if _neg_tail:
+            meta["neg_coverage_tail"] = [
+                {"id": r[0].get("id"), "node_id": r[0].get("node_id"),
+                 "layer": r[0].get("neg_layer"), "state": r[2].get("state"),
+                 "reason": r[2].get("reason"), "score": r[1]}
+                for r in _neg_tail]
+            meta["k_budget"] = {"k": max(0, int(k)),
+                                "primary": len(results),
+                                "neg_tail": len(_neg_tail)}
         # 时间算子审计（阶段二 4.1）：同规则——只在时间算子真的启用时落键，
         # 未启用则 meta 键集合与改动前逐字节一致（默认关零变更纪律）。
         if stat.get("time_filter"):
@@ -3735,15 +3889,25 @@ class MdCG:
 
         简化模型：本次查询的「有效命中」= score>0 且 state=ACCEPT 的比例。
 
+        分母口径（H10③，2026-09-30）：**只数真实候选**。负覆盖提示条目
+        （`negative_coverage`，见 `_is_neg_coverage`）永远不可能是 STATE_ACCEPT，
+        把它们算进 len(results) 是做假——同一批正排候选，多两条提示就会让
+        D 从 0.0 变成 0.4（实测 accept=1：仅正排 D=0.666667，含 2 条尾巴
+        D=0.8），信息差被**虚高**。正排候选为空（结果全是提示）时按「完全
+        空白」如实返回 1.0，不拿提示条数充数。
+
         口径声明（智能论3.4 §2.7.0 DEV-002a）：本值是 D_task 的
         「检索-资格链路工程化身」——对象同一、数值不与 wisdom 四分量
         D_norm（验证链路化身）直接互换。
         """
         if not results:
             return 1.0
-        accept = sum(1 for r in results
+        cands = [r for r in results if not _is_neg_coverage(r[0])]
+        if not cands:
+            return 1.0
+        accept = sum(1 for r in cands
                      if r[1] > 0 and r[2]["state"] == STATE_ACCEPT)
-        return max(0.0, 1.0 - accept / len(results))
+        return max(0.0, 1.0 - accept / len(cands))
 
 # 生效条件：to_layer 不属于模块级 LAYERS 时抛 ValueError；self.get(node_id) 取不到节点或当前层（fm.layer 或路径首段）等于 to_layer 时返回 None；否则先对**源层与目标层**各调 protect.require_layer（N209：principal 层写闸，越权抛 AccessDenied），再调 protect.guard_move 后写入 demotion 审计、搬文件到目标层并按新层 _stage、重算 buckets，返回 {id, from, to, path, reason}；
     def _move_layer(self, node_id: str, to_layer: str, reason: str = ""):
@@ -3923,7 +4087,9 @@ class MdCG:
         3. 触发 reflect 记录这次飞轮输入
         """
         try_data = json.loads(error_report) if isinstance(error_report, str) else error_report
-        question = (f"为何 {try_data.get('query','?')} 出现 {try_data.get('actual_state','?')}"
+        _q = try_data.get('query', '?')
+        _st = try_data.get('actual_state', '?')
+        question = (f"为何 {_q} 出现 {_st}"
                     f" 而期望 {try_data.get('expected_state','?')}？")
         clues = try_data.get("missing", "")
         # detail：判定器的结构化缺口（[{type, with, same_condition, ...}]）。
@@ -3946,7 +4112,10 @@ class MdCG:
                     parts.append("%s vs %s" % (d.get("type"), d.get("with")))
         nid = self.add_unresolved(question=question, known_clues=clues,
                                   goal="结构精化：补缺失条件分支（或裁决取值）",
-                                  context=" | ".join(parts))
+                                  context=" | ".join(parts),
+                                  # ⑦ 身份文本：只取「主题｜实际态」——问题模板措辞、
+                                  # reason、missing、现场数值一变就不再是新工单。
+                                  topic=f"{_q}|{_st}")
         return {"unresolved_id": nid, "question": question}
 
     # ---------- 访问计数：append-only，检索路径不写节点文件 ----------
@@ -3996,7 +4165,17 @@ class MdCG:
 # 生效条件：无条件以 index.get("buckets", {}) 生成分桶健康度并记 total_nodes，再遍历 index["nodes"] 逐条读文件（抛 OSError 跳过），按 layer 统计 total/ccg_complete/verification_basis_set/neg_conditions_set，另统计 rejected 与 unresolved 层数量，返回 h；
     def health(self):
         """扩充：分桶健康度 + 5 要素完整度 + 验证基底覆盖率 + 负记忆密度。"""
-        h = routing.bucket_health(self.index.get("buckets", {}))
+        # M3（2026-09-30）：把**节点总数**一起传进去——否则「有节点但分桶表为空」
+        # 与「真空库（无节点）」在 counts 上完全同形（都是 {}），分桶健康度只能
+        # 报 ok=True/reason=empty 冒充健康；单桶库也会被判成「巨桶：最大桶占
+        # 100%」。传参契约（与 routing.bucket_health 同口径，routing.py:273）：
+        #   bucket_health(counts: {bucket_dir: node_count}, total_nodes: int|None)
+        #   · total_nodes 缺省 None ⇒ 不做空库比对（既有调用方零变更）；
+        #   · n==0 且 total_nodes>0 ⇒ ok=False / reason="empty_buckets"（分区信息
+        #     缺失，不是真空库）；
+        #   · total_nodes 只用于「空 counts」这一支，不参与其余判据。
+        h = routing.bucket_health(self.index.get("buckets", {}),
+                                  total_nodes=len(self.index["nodes"]))
         h["total_nodes"] = len(self.index["nodes"])
         # 5 要素完整度（全节点扫一遍，可能慢但只在 health() 调用）
         layer_stats = {}

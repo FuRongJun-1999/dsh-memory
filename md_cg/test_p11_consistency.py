@@ -14,7 +14,7 @@
   A L0 情绪通道：三态 / 二阶差分 / 不参与信任计算
   B L1 反思四态：ACCEPT / 自否定 REJECT / 违反纪律 REJECT / 条件互斥 DEFER / BLINDSPOT
   C L2 递归反思：沿边收敛 / 增益门槛停搜 / 深度上限 / 循环不爆炸
-  D 冲突自动触发飞轮（落 unresolved）
+  D 冲突自动触发飞轮（**只限真冲突 REJECT**，H11⑥ 2026-09-30；落 unresolved）
   E 写入接入：add(consistency) 抛错 / defer 不落盘 / record 放行 / 闸门叠加
   F 留痕 / 统计 / 自描述 / health 面
   G H8 结论同一性判据（CONCLUSION_SAME）：逐字/空白差异不判分歧，真分歧不放宽
@@ -150,15 +150,57 @@ def main():
     check("C4 循环检测：环不导致无限展开",
           0 < rec.get("nodes_visited", 0) <= consistency.MAX_NODES, str(rec))
 
-    # ---------- D. 冲突自动触发飞轮 ----------
-    print("\n[D] 冲突自动触发飞轮（误差 → 补条件 → 结构更新，:725）")
+    # ---------- D. 冲突自动触发飞轮（⑥ 2026-09-30 收窄：只限真冲突 REJECT） ----------
+    print("\n[D] 飞轮建单收窄（误差 → 补条件 → 结构更新，:725）")
+
+    def _unres():
+        return [n for n, e in list((cg.index.get("nodes") or {}).items())
+                if e.get("layer") == "unresolved"]
+
+    # D1/D2 收窄后**唯一**的触发面（REJECT）必须仍在——否则「收窄」就变成了
+    # 「静默关掉飞轮」，那是把缺陷挪到另一个位置。
+    _n_before = len(_unres())
+    r = cg.check_consistency("删除生产数据", layer="self", auto_flywheel=True)
+    check("D1 真冲突 REJECT 仍自动投递飞轮并返回 unresolved_id",
+          r["verdict"] == "REJECT" and bool(r.get("unresolved_id")),
+          f'{r["verdict"]} / {r.get("unresolved_id")}')
+    check("D2 飞轮落 unresolved 条目", len(_unres()) > _n_before,
+          str(_unres()[:3]))
+
+    # D3 收窄：DEFER 是「条件互斥/部分覆盖、**待确认**」，不是已判定的冲突
+    # ——改前它自动建单（本轮 ⑧ 的误判 DEFER/strength=1.0 就是这样固化成
+    # unr_9af4803381 的）。判定本身必须照旧如实返回，只是不再自动建单。
+    _n0 = len(_unres())
     r = cg.check_consistency("# 功能：生产批处理\n# 生效条件：生产环境\n",
                              layer="knowledge", auto_flywheel=True)
-    check("D1 冲突自动投递飞轮并返回 unresolved_id",
-          bool(r.get("unresolved_id")), str(r.get("unresolved_id")))
-    un = [n for n, e in list((cg.index.get("nodes") or {}).items())
-          if e.get("layer") == "unresolved"]
-    check("D2 飞轮落 unresolved 条目", len(un) >= 1, str(un[:3]))
+    check("D3 DEFER 不再自动建单（判定仍如实返回 DEFER/≥CLASH_LOW）",
+          r["verdict"] == "DEFER"
+          and r["conflict_strength"] >= consistency.CLASH_LOW
+          and not r.get("unresolved_id")
+          and len(_unres()) == _n0,
+          f'{r["verdict"]}/{r["conflict_strength"]}/'
+          f'unr={r.get("unresolved_id")}/n={len(_unres())}')
+
+    # D4 收窄：BLINDSPOT 是「既有节点全无声明 ⇒ 检测前提不存在」，空库上恒成立
+    # ——改前每写一条就建一张工单（死胡同）。用独立空库测（本库已有可比对节点）。
+    d_root = tempfile.mkdtemp(prefix="mdcg_p11_d4_")
+    d = MdCGOS(d_root)
+    r = d.check_consistency("# 功能：某情景\n# 生效条件：某个特殊条件\n",
+                            layer="contextual", auto_flywheel=True)
+    _du = [n for n, e in list((d.index.get("nodes") or {}).items())
+           if e.get("layer") == "unresolved"]
+    check("D4 BLINDSPOT 不再自动建单（空库不产工单，判定仍为 BLINDSPOT）",
+          r["verdict"] == "BLINDSPOT" and not r.get("unresolved_id")
+          and not _du,
+          f'{r["verdict"]} / unr={r.get("unresolved_id")} / n={len(_du)}')
+    d.close()
+
+    # D5 自描述表与判据同源（不许「文档写 REJECT、代码仍建三种」）
+    _cat_d = cg.consistency_catalog()
+    check("D5 catalog 的 auto_flywheel.triggers_on 与判据单点同源",
+          _cat_d["auto_flywheel"]["triggers_on"] == list(
+              consistency.FLYWHEEL_TRIGGERS),
+          str(_cat_d["auto_flywheel"]["triggers_on"]))
 
     # ---------- E. 写入接入 ----------
     print("\n[E] 写入接入（信息的修改必须与已有规则校验）")
