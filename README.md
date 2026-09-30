@@ -13,7 +13,7 @@
 
 ![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-0.17.2%20%E5%B7%B2%E9%AA%8C%E8%AF%81-4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.6.0）**
+**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.6.1）**
 
 </div>
 
@@ -433,6 +433,8 @@ AEIS 仅作可选「身体」能力后端（角色扮演生成），不再存记
 | 文档 | 内容 |
 |---|---|
 | **[docs/ 目录索引](docs/README.md)** | 六域快速索引（mdcg / swarm / hive / theory / eval / plans）· 新文档归域规则 |
+| **[Release v0.6.1](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.6.1)** | 本版变更：外部测试报告逐条核验后的四批修复——① 写面静默失败族（自动 id 加熵与撞车有界重生成 / 声明密级透传且落盘不一致即 fail-closed / 索引分片目录删除后自愈）· ② 合并吞正文与冲突误判（MERGE 与熵 DROP 两分支都保新正文 / 仅空白差异不再误判同一条件分歧 / CCG 哨兵空值不再触发假冲突）· ③ 召回面诚实性（负覆盖条目不再以满分冒充答案且不溢出 k / 一致性飞轮只对真冲突建单 / 显式 k=0 不再被当缺省 / 仅 1 个桶的库不说「分区正常」/ 类型错的参数与裸 null 出口收成结构化错误）· ④ 插件面（全角凭据形态纳入脱敏 / 注入记忆加不可信边界声明 / 子代理委派不写成本人记忆 / 召回与时间线读写两侧会话口径同尺）。九项探针先取证后改码，每处修复配定点变异自证 |
+| **[Release v0.6.0](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.6.0)** | 本版变更：init 一键配置命令（交互三问 → 四端 mcp.json 片段 + 指引）· bin 入口 · README 声明 DSH 0.17.2 已验证 · 检索强化（读缓存 / 智慧书预计算 / 统一归一 / 门控生产路径）· 蜂巢稳定形态与并发防线 · 会话隔离 |
 | **[Release v0.5.1](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.5.1)** | 本版变更：Windows 中文/编码与保留设备名修复（issue #39）· 结果完整性锚与 WAL seq 连续性（防伪造产物/防丢行乱序）· 启动对账 reconcile · 幂等提交 · 外部贡献 PR #40 十三处（health heal 闸门 / scrub 误报 / 写入侧落盘 / 桶路弃权）· 故障注入套件 18 用例入库 |
 | **[Release v0.5.0](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.5.0)** | 本版变更：强化检索（读缓存+派生物常驻 / 智慧之书面预计算 / 统一归一 / 门控生产路径）× 稳定蜂巢并发调度（多写者防线 / 依赖门禁）· 12 个 issue 修复 |
 | [README 详细版](docs/mdcg/README详细版_v0.4.10.md) | 完整能力说明 · 配置项全表 · 安装与验证细节 |

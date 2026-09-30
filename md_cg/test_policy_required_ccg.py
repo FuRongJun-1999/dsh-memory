@@ -53,6 +53,7 @@ audit.py/writepipe.py 就变成实现本身——红项恒为空、预期红项�
 from __future__ import annotations
 
 import argparse
+import ast
 import importlib
 import json
 import os
@@ -103,10 +104,49 @@ _BASELINE_MUTATIONS = {
          "if False:"),
     ),
 }
-_SHIMS = ("twophase", "trust", "linkref", "mcp_server")
+# 假包里转发到真仓 md_cg.<name> 的模块。**必须覆盖基线源出现的全部相对 import**
+# （含函数内延迟导入）——缺登记即 SHIM-MISS fail-closed，不许靠「那条路径没跑到」侥幸绿着。
+_SHIMS = ("twophase", "trust", "linkref", "mcp_server", "mdcg", "forgetting",
+          "units", "coldverify", "hotcache", "hyperedge", "nodefile")
 _SHIM_TPL = ("import md_cg.%s as _m\n"
              "globals().update({k: v for k, v in vars(_m).items()\n"
              "                 if not k.startswith('__')})\n")
+
+
+def _relative_import_names(src):
+    """AST 抽取相对 import 的顶层模块名：`from . import a, b` 与 `from .x import y` 两形态。"""
+    names = set()
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.ImportFrom) and (node.level or 0) > 0:
+            if node.module:
+                names.add(node.module.split(".")[0])
+            else:
+                for alias in node.names:
+                    names.add(alias.name.split(".")[0])
+    return names
+
+
+def _check_shim_coverage(blobs):
+    """fail-closed：基线源里出现的每个相对 import，必须要么是本体（blobs），要么已登记 _SHIMS。
+
+    为什么必须有这条（2026-09-30 血案）：`md_cg/writepipe.py` 新增了函数内
+    `from .mdcg import …` / `from . import forgetting` 两处委托，而 `_SHIMS` 没跟上 ⇒
+    假包 `mdcg_head` 缺模块 ⇒ 调用期抛 `ModuleNotFoundError` ⇒ 被 `_try` 收成
+    `err`、`got` 退化为 `{}` ⇒ `hint=""` ⇒ G8b 的 `"重试同样结果" not in ""` **恒真**，
+    于是「守卫坏了」表现为「多出两个红项 + 一个假绿」，而不是一声明确的报错。
+    本判据把该缺口提前到装配期，实现再长出新依赖时必须显式登记，否则整腿 fail-closed。
+    """
+    missing = []
+    for name, data in blobs.items():
+        for mod in sorted(_relative_import_names(data.decode("utf-8"))):
+            if mod not in blobs and mod not in _SHIMS:
+                missing.append("%s -> .%s" % (name, mod))
+    if missing:
+        raise SystemExit(
+            "SHIM-MISS：基线源引用了未登记的相对模块，假包会缺模块（调用期抛 "
+            "ModuleNotFoundError，断言会退化成假绿）——请把下列名字加入 _SHIMS"
+            "（真仓模块）或 _BASELINE_FILES（被变异本体）：" + "；".join(missing))
+
 
 _seq = [0]
 
@@ -293,7 +333,10 @@ def run_checks(tmp, audit_mod, wp_mod, full_face=False):
         and got.get("committed") is False and got.get("moved_to") == "rejected",
         err or json.dumps(got, ensure_ascii=False, default=str)[:180])
     hint = str(got.get("hint") or "")
-    add("G8b", "重试同样结果" not in hint, hint)
+    # 必须带 `err is None and hint`：调用抛异常时 got 退化为 {} ⇒ hint="" ⇒
+    # `"重试同样结果" not in ""` 恒真，本项会**假绿**（2026-09-30 实测发生过一次）。
+    add("G8b", err is None and bool(hint) and "重试同样结果" not in hint,
+        err or hint)
     add("G8c", all(m in hint for m in three) and "补齐后重写" in hint, hint)
     got2, err2 = _try(lambda: _write_face(
         wp_mod, cg, {"content": "正文 " + FORBIDDEN_HIT, "content_kind": "text",
@@ -335,7 +378,9 @@ def main():
     saved = os.environ.pop("MDCG_POLICY_FILE", None)
     try:
         if args.head_baseline:
-            _fake_pkg(tmp, _baseline_sources())
+            blobs = _baseline_sources()
+            _check_shim_coverage(blobs)
+            _fake_pkg(tmp, blobs)
             print("[红基线] 源 = 工作区 md_cg/audit.py + md_cg/writepipe.py 经定点变异"
                   "（%d 处：%s；写入临时假包，不覆盖工作区文件）"
                   % (sum(len(v) for v in _BASELINE_MUTATIONS.values()),
