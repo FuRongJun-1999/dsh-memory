@@ -156,15 +156,73 @@ def _weighted_coverage(tw: dict, text: str) -> float:
 # 条件空间重合率是《激活引擎》cond_match 已被认证的度量。
 # ---------------------------------------------------------------------------
 
-# 生效条件：content 中某行以 "#" 开头、含 name、且以 "：" 或 ":" partition 出的 head.strip() 恰等于 name 时返回该行 val.strip()（首个命中即返回）；无此行使返回空串 ''，content 为 None/空按空串处理。
+# 条件字段：只有这两个走「空值语义哨兵化」（见 _ccg_field 的收口范围说明）
+_COND_FIELDS = ("生效条件", "不适用条件")
+
+
+# 生效条件：value 为 None 或 str(value).strip() 去掉首尾空白与尾部句读（。.．,，;；、）后为空、或命中 nodefile.is_dep_sentinel、或整体被成对括号包裹（剥壳后）命中该哨兵表时返回 True，其余返回 False（不做语义猜测）。
+def _is_null_condition(value) -> bool:
+    """条件槽的「空值语义」判据（⑤ 单点）：该值是否只表示「没有这个条件」。
+
+    委托 `nodefile.is_dep_sentinel`（仓内既有的「无值」哨兵表与判据单点，
+    nodefile.py:180/:184——`无依赖/无/不适用/不需要/none/n/a/na/-/—` 及
+    「哨兵 + 括号说明」形态），**不新造第二份哨兵表**（两份表必然漂移，与
+    CCG 术语单点纪律同源）。本席只补三处等价形态，都属空值语义而非新词面：
+      · 尾部句读：`无。` / `无.` → 去尾后命中哨兵表；
+      · 整体括号包裹：`（无）` / `(无)` / `【无】` → 剥壳后命中哨兵表
+        （`_md_cg_p0` 语料的 `non_applicable_conditions: ["（无）"]` 即此形态）；
+      · `None` / 空串 / 纯空白 → 空值本身。
+    反向守卫（防误判真实陈述）：`无法确定` / `无缓存场景` / `无持久化介质`
+    这类**不**命中（哨兵表只认完全相等或「哨兵+括号说明」），故真条件一字
+    不动——本判据不做任何语义猜测。
+    """
+    s = "" if value is None else str(value).strip()
+    s = s.rstrip("。.．,，;；、 \t")
+    if not s:
+        return True
+    # 大小写折叠只在本判据内做（`is_dep_sentinel` 按自身契约要求完全相等）：
+    # `None` / `none` / `N/A` 同属空值语义，仍复用**同一张**哨兵表，不新造词表。
+    def _hit(x):
+        return nodefile.is_dep_sentinel(x) or nodefile.is_dep_sentinel(x.lower())
+    if _hit(s):
+        return True
+    for lp, rp in (("（", "）"), ("(", ")"), ("【", "】"), ("[", "]"),
+                   ("〈", "〉"), ("《", "》")):
+        if s.startswith(lp) and s.endswith(rp) and len(s) > len(lp) + len(rp):
+            if _hit(s[len(lp):-len(rp)].strip()):
+                return True
+    return False
+
+
+# 生效条件：name 属 _COND_FIELDS 且该行值命中 _is_null_condition（空值语义哨兵）时返回空串（= 未声明该条件）；否则委托 nodefile.ccg_field_value（判据与取值单点）返回行值（缺行回落空串，非条件字段的取值面一字不动）。
 def _ccg_field(content: str, name: str) -> str:
     """取 CCG 正文中 `# <name>` 那一行的值（确定性扫描，无正则回溯风险）。
 
     委托 `nodefile.ccg_field_value`（判据与取值单点，2026-09-28 收口径）：
     冒号可有可无——无冒号形态取标题后首个非空非标题行。返回契约保持 `str`
     （缺行仍回落空串），不动既有调用面。
+
+    ⑤ 空值语义哨兵（2026-09-30，探针 P-5 挖出的报告外真缺陷）：**条件字段**
+    的哨兵值（见 `_is_null_condition`）一律归零为空串——「不适用条件：无」是
+    「没有负条件」的填充，不是一条真实条件。此前它被原样当成负条件词：单字词
+    「无」是既有生效条件「…；约束：无」的子串 ⇒ `_weighted_coverage` 恒 1.0
+    ≥ CLASH_HIGH(0.6) ⇒ **任意两个带该哨兵的节点无条件判 condition_clash**，
+    连逐字相同的节点也判 DEFER 并建工单（探针实测 conflict_strength=1.0）。
+    不许调阈值绕过：判据落在**取值**这一步（空值语义 vs 真实词面），阈值一字
+    未动。
+
+    收口范围（硬约束「单点优先，第二处委托调用」）：本函数是条件取值的唯一
+    读点——`_declared_conditions`（既有节点侧）与 `consistency._new_terms`
+    （新节点侧，经 `consistency._prims` :100 取用本函数）**都**从这里取条件行，
+    故一处收口即两函数同步；`_new_terms` 所在的 consistency.py 不在本席改动面
+    内，靠委托生效，不另写第二份判据。**只对 `_COND_FIELDS` 生效**：功能名/
+    执行/子功能等非条件字段取值面一字不动（backfill/crosscheck/consolidate
+    的条件改写与 `_slot_text` 的结论槽比对均不受影响）。
     """
-    return nodefile.ccg_field_value(content, name) or ""
+    val = nodefile.ccg_field_value(content, name) or ""
+    if name in _COND_FIELDS and val and _is_null_condition(val):
+        return ""
+    return val
 
 
 # 生效条件：当 fm 为 dict 且 content 为字符串时，返回从 CCG 正文、state_attributes.comment 与 non_applicable_conditions 三处合并去重后的 (生效条件列表, 不适用条件列表)。
@@ -172,16 +230,21 @@ def _declared_conditions(fm: dict, content: str):
     """节点声明的条件证据 → (生效条件列表, 不适用条件列表)。
 
     三处来源合并去重（保序）：
-      1. CCG 正文 `# 生效条件：` / `# 不适用条件：`
+      1. CCG 正文 `# 生效条件：` / `# 不适用条件：`（哨兵已在 `_ccg_field` 归零）
       2. frontmatter.state_attributes.comment.生效条件 / .不适用条件（迁移语料形态）
       3. frontmatter.non_applicable_conditions
+
+    ⑤（2026-09-30）：三处一律经 `_push` 过 `_is_null_condition`——fm 里的
+    `non_applicable_conditions: ["无"]`（写入面 `mdcg.add` :1898 会把 CCG
+    哨兵行结构化进 fm）与 comment 里的迁移形态同属空值语义，不得当真实条件
+    参与比对（否则单字词「无」命中既有「约束：无」→ 无条件 condition_clash）。
     """
     pos, neg = [], []
 
-# 生效条件：当 bucket 与 val 传入且 str(val).strip() 得到的 s 非空、s 尚不在 bucket 中时，将 s 追加到 bucket；s 为空或已存在时不追加；
+# 生效条件：当 bucket 与 val 传入且 str(val).strip() 得到的 s 非空、未命中 _is_null_condition（空值语义哨兵）、且 s 尚不在 bucket 中时，将 s 追加到 bucket；s 为空/哨兵值/已存在时不追加；
     def _push(bucket, val):
         s = str(val).strip()
-        if s and s not in bucket:
+        if s and not _is_null_condition(s) and s not in bucket:
             bucket.append(s)
 
     _push(pos, _ccg_field(content, "生效条件"))
@@ -258,6 +321,19 @@ def _slot_overlap(tw: dict, cs: dict, q_domain=None, ctx_tw=None) -> float:
         parts.append((1.0, _window_overlap(win, ctx_tw)))
     den = sum(w for w, _ in parts)
     return (sum(w * v for w, v in parts) / den) if den else 0.0
+
+
+# 生效条件：cg 提供时，kw 为映射且 kw["session"] 真值则返回该值；否则返回 getattr(cg, "session", None)（MdCGSecure 由 principal.session 注入）；两者皆假值时返回 None。
+def _writer_session(cg, kw=None):
+    """写入方会话归属（H3 归属并列用）：显式声明优先，其次实例归属。
+
+    与读面既有口径同源（`:3624` 的 `session or getattr(self, "session", None)`），
+    不新造第二套取值口径。`MdCGSecure.__init__` 把 `principal.session` 注入
+    `self.session`（经 mcp_server 的 `_normalize_session` 归一），故会话归属
+    在写入侧可得——合并时把它并列落进目标 fm，召回侧即可识别「被哪些会话
+    确认过」（跨会话合并的处置选择依据见 `forgetting.note_source`）。
+    """
+    return (kw or {}).get("session") or getattr(cg, "session", None)
 
 
 # 生效条件：verify 为真值时返回 (norm, _sig(norm)) 二元组，norm 为 json.dumps(verify, sort_keys=True, ensure_ascii=False, separators=(",",":"), default=str)；verify 为假值（None/空）时返回 ('', '')。
@@ -2809,9 +2885,12 @@ class MdCGOS(MdCG):
                 condition_space=conditions,
                 actor=getattr(self, "actor", None))
         elif dec == "reinforce" and vd.get("duplicate_with"):
+            # B3（2026-09-30）：同族未接线写点——此处与 remember_gated 的 MERGE
+            # 分支同病（手上握着 content 却不往下传 → 新正文丢失）。同款传
+            # content + session；落库动作仍是 forgetting.reinforce（单点）。
             out["reinforced"] = forgetting.reinforce(
-                self, vd["duplicate_with"],
-                actor=getattr(self, "actor", None))
+                self, vd["duplicate_with"], actor=getattr(self, "actor", None),
+                content=content, session=_writer_session(self))
         out["note"] = {"write": "已新增节点", "reinforce": "已并入既有节点（未新增）",
                        "discard": "已丢弃（不写）", "defer": "留待复核（不写不并）"}.get(dec, "")
         return out
@@ -3332,7 +3411,7 @@ class MdCGOS(MdCG):
 
     # ---- 主动遗忘（写入侧三问闸门）+ 写保护盘点 ----
 
-# 生效条件：kw 中 gated 为假值时旁路直接 ACCEPT 写入并返回 bypass；否则 writelimit.check 非 None 时按 CONVERGE→MERGE 并经 converge_into 并入 target、DROP/DEFER 只记 forgetting 日志，无限流拦截时按 forgetting.assess 的四态处理（ACCEPT 走 add，ConsistencyError 或 written 为 None 转 DEFER；MERGE 走 reinforce；DROP/DEFER 不落库只留痕）。
+# 生效条件：kw 中 gated 为假值时旁路直接 ACCEPT 写入并返回 bypass；否则 writelimit.check 非 None 时按 CONVERGE→MERGE 并经 converge_into（带 session 归属）并入 target、DROP/DEFER 只记 forgetting 日志，无限流拦截时按 forgetting.assess 的四态处理（ACCEPT 走 add；MERGE 走 reinforce（带 content 与 session，返回体带 content_sink 去向）；DROP 经 forgetting.record_drop 落去向留痕并带 dropped 去向单；DEFER 不落库只留痕）。
     def remember_gated(self, node_id, content, layer="contextual", **kw):
         """写入情景层记忆前的**主动遗忘闸门**：三问 → 四态。
 
@@ -3343,6 +3422,14 @@ class MdCGOS(MdCG):
         ACCEPT 写入 / MERGE 并入既有（不新增，强化既有节点）/
         DROP 丢弃（低熵噪音）/ DEFER 待定（不写）。
         四种结果都写进 `_forgetting.jsonl`，可审计。
+
+        B3（2026-09-30）：MERGE 分支此前**不把 content 往下传**（`reinforce`
+        也没有该槽）——近重复的第二次写入，其新正文 100% 丢弃，只有既有节点
+        被强化；现传 content + session，新正文按目标缺的行追加为聚合行落盘，
+        返回体带 `content_sink`（写进哪个节点/哪一行）；DROP 分支（内部确定性
+        来源，`assess` :214 先于 MERGE）把新正文全文与去向记进 `_forgetting.jsonl`
+        并返回 `dropped` 去向单（trace_id/sha1/检索入口）。两条分支都有处置。
+        H3：合并时把写入方会话归属并列落目标 fm（`fm.merge_sources`）。
         """
         role = kw.get("role")
         vb = kw.get("verification_basis")
@@ -3351,6 +3438,15 @@ class MdCGOS(MdCG):
         override = kw.pop("override", False)
         do_consistency = kw.pop("consistency", False)
         on_conflict = kw.pop("on_conflict", "defer")
+        # ⑤ 空值语义哨兵（2026-09-30）：入参里的 `non_applicable_conditions`
+        # 若只含哨兵（`["无"]` / `["（无）"]`…），按未声明处理——它会被
+        # `mdcg.add` 原样并进新节点的负条件，单字词「无」命中既有「约束：无」
+        # 即得覆盖率 1.0 → 无条件 condition_clash。判据复用单点
+        # `_is_null_condition`，不另写一份。
+        if "non_applicable_conditions" in kw:
+            kw["non_applicable_conditions"] = [
+                x for x in (kw.get("non_applicable_conditions") or [])
+                if not _is_null_condition(x)]
         if not gated:
             return {"verdict": "ACCEPT", "bypass": True, "gate": None,
                     "node_id": node_id,
@@ -3369,7 +3465,7 @@ class MdCGOS(MdCG):
                        "merged_into": tgt, "gate": lim,
                        "converged": writelimit.converge_into(
                            self, tgt, content, override=override,
-                           actor=self.actor)}
+                           actor=self.actor, session=_writer_session(self, kw))}
                 fv = "MERGE"
             elif lim["verdict"] == "DROP":
                 # 精确重复（与既有节点正文一致）：零新信息，交回旧闸门
@@ -3412,17 +3508,37 @@ class MdCGOS(MdCG):
         elif v == "MERGE":
             tgt = verdict["redundancy"]["with"]
             out["merged_into"] = tgt
-            out["reinforced"] = (forgetting.reinforce(self, tgt,
-                                                      override=override,
-                                                      actor=self.actor)
-                                 if tgt else None)
-        # DROP / DEFER：不落库，只留痕
-        forgetting.log(self, {"t": time.time(), "node_id": node_id,
-                              "layer": layer, "verdict": v,
-                              "reason": verdict["reason"],
-                              "importance": verdict["importance"],
-                              "entropy": verdict["entropy"],
-                              "actor": self.actor})
+            # B3 ②（2026-09-30）：把**新正文**与写入方归属一并传下去。此前只传
+            # tgt——调用方手上正握着 content 与 node_id 却不往下传，reinforce 写回
+            # 既有正文，新值 100% 丢弃（探针实测：近重复第二次写入的关键值全库
+            # 0 命中、目标正文逐字节未变）。返回体带 content_sink（新正文去向：
+            # 写进哪个节点/哪一行）+ source（归属），调用方不必猜。
+            out["reinforced"] = (forgetting.reinforce(
+                self, tgt, override=override, actor=self.actor,
+                content=content, session=_writer_session(self, kw))
+                if tgt else None)
+        elif v == "DROP":
+            # B3 ④（2026-09-30）：内部确定性来源的近重复（`assess` 的 :214
+            # 分支：kind==internal_deterministic 且 dup≥DUP_DROP=0.60）在
+            # if/elif 链中**先于** MERGE 命中，连既有节点都不强化——新正文
+            # 原先零去向（只在日志留一句「低熵噪音，不编码」）。处置：**不**
+            # 追加进目标正文（保持该分支「例行输出不污染既有记忆」的既有
+            # 语义），改为把新正文全文与去向目标落进 `_forgetting.jsonl`，
+            # 并在返回体给可检索句柄（单点：forgetting.record_drop）。
+            tgt = verdict["redundancy"]["with"]
+            out["dropped"] = forgetting.record_drop(
+                self, content, node_id=node_id, target=tgt, verdict=verdict,
+                layer=layer, sensitivity=kw.get("sensitivity"),
+                session=_writer_session(self, kw), actor=self.actor)
+        # DROP 的去向留痕已由 record_drop 单点落盘（含全文/trace_id），此处只补
+        # ACCEPT/MERGE/DEFER 的裁决留痕，避免同一次裁决出现两行。
+        if v != "DROP":
+            forgetting.log(self, {"t": time.time(), "node_id": node_id,
+                                  "layer": layer, "verdict": v,
+                                  "reason": verdict["reason"],
+                                  "importance": verdict["importance"],
+                                  "entropy": verdict["entropy"],
+                                  "actor": self.actor})
         return out
 
 # 生效条件：当 limit 传入时，以 limit（默认 100）调用 forgetting.history 并返回其结果；本函数不改变参数；
@@ -3474,7 +3590,7 @@ class MdCGOS(MdCG):
 
     # ---- 节点间自动冲突检测（三级决策：情绪 → 反思 → 递归反思）----
 
-# 生效条件：当 content 传入时，以 layer/condition_space/non_applicable_conditions/tags/exclude/limit/depth/auto_flywheel 的传入值或默认值（limit=consistency.MAX_SCAN、depth=consistency.MAX_DEPTH、auto_flywheel=False）调用 consistency.check 并返回其结果；
+# 生效条件：当 content 传入时，先对 non_applicable_conditions 逐项过 _is_null_condition（空值语义哨兵剔除，⑤），再以 layer/condition_space/剔除后的列表/tags/exclude/limit/depth/auto_flywheel 的传入值或默认值（limit=consistency.MAX_SCAN、depth=consistency.MAX_DEPTH、auto_flywheel=False）调用 consistency.check 并返回其结果；
     def check_consistency(self, content, layer=None, condition_space=None,
                           non_applicable_conditions=None, tags=None,
                           exclude=None, limit=consistency.MAX_SCAN,
@@ -3483,10 +3599,20 @@ class MdCGOS(MdCG):
 
         对齐《智能的公理化基石》§十一（情绪=信息差二阶变化，独立不参与信任）、
         条件论「反题」（预测与事实冲突）、:273（递归受深度/节点/循环/增益门槛约束）。
+
+        ⑤（2026-09-30）：入参里的空值语义哨兵（`["无"]` / `["（无）"]` / `[""]`…）
+        在此剔除——`consistency._new_terms` 把该列表原样并进新节点的负条件
+        （consistency.py:204），单字词「无」命中既有「…；约束：无」即得
+        `_weighted_coverage` 1.0 → 无条件 condition_clash（连逐字相同也判 DEFER）。
+        修点在**来源**（谁把哨兵当条件送出），不动 consistency 侧的比对判据与
+        阈值；`_new_terms` 所在的 consistency.py 不在本席改动面内，靠上游收口
+        + `_ccg_field`（正文行一侧）的委托收口共同生效。
         """
         return consistency.check(
             self, content, layer=layer, condition_space=condition_space,
-            non_applicable_conditions=non_applicable_conditions, tags=tags,
+            non_applicable_conditions=[x for x in (non_applicable_conditions or [])
+                                       if not _is_null_condition(x)],
+            tags=tags,
             exclude=exclude, limit=limit, depth=depth,
             auto_flywheel=auto_flywheel)
 

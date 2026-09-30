@@ -17,6 +17,7 @@
   D 冲突自动触发飞轮（落 unresolved）
   E 写入接入：add(consistency) 抛错 / defer 不落盘 / record 放行 / 闸门叠加
   F 留痕 / 统计 / 自描述 / health 面
+  G H8 结论同一性判据（CONCLUSION_SAME）：逐字/空白差异不判分歧，真分歧不放宽
 
 运行：python -m md_cg.test_p11_consistency
 """
@@ -225,6 +226,101 @@ def main():
     check("F6 health 报告 consistency 面",
           "consistency" in hh.get("os", {}),
           str(hh.get("os", {}).get("consistency"))[:90])
+
+    # ---------- G. H8：结论同一性判据（CONCLUSION_SAME） ----------
+    # 为什么单独立段：改前`CONCLUSION_SAME`这条判据**零测试覆盖**（编排侧全仓搜过，
+    # 无任何断言触及）。而它是 L1-c（same_condition_divergence）唯一的分流门——
+    # 门被误触就凭空多出「同条件分歧」工单，门被放宽就把真分歧吞掉。
+    # 本段三件事一起钉死：
+    #   ① 逐字重复 1.0 与**纯空白差异**（\r\n↔\n / 缩进（半角·全角）/ 空行 /
+    #      行尾空格 / 词内插空白 / 词间多空格）一律**不判分歧**；
+    #   ② 标定注释里的「同槽不同值」「同值异措辞」两类**仍判分歧**（不许放宽）；
+    #   ③ 阈值常量本身仍是 0.95（防「为了让守卫变绿而调参」）。
+    print("\n[G] H8 结论同一性判据（CONCLUSION_SAME）：逐字/空白差异不判分歧")
+    g_root = tempfile.mkdtemp(prefix="mdcg_p11_h8_")
+    g = MdCGOS(g_root)
+    h = ("# 功能名：网关心跳端口与重连参数\n"
+         "# 子功能：端口取值与退避次数\n"
+         "# 生效条件：网关在线且心跳已启用\n")
+    body = ("服务端心跳端口：9090。客户端使用长连接轮询，超时时间为 30 秒。\n"
+            "故障处置：连接断开后由客户端指数退避重连，最多重试 5 次。")
+    g.add("h8_old", h + "\n" + body + "\n", layer="knowledge",
+          verification_basis="test", importance=0.5)
+
+    def _concl(content, **kw):
+        """(verdict, 同条件分歧条目列表, conclusion_overlap 或 None)。"""
+        r = g.check_consistency(content, layer="knowledge", depth=0, **kw)
+        d = [c for c in r["conflicts"]
+             if c.get("type") == "same_condition_divergence"]
+        return r, d, (d[0]["conclusion_overlap"] if d else None)
+
+    check("G0 空白归一化契约：连续空白折叠为单空格，全角空格同归一",
+          consistency._norm_ws("  甲\r\n乙\t\u3000丙  ") == "甲 乙 丙",
+          repr(consistency._norm_ws("  甲\r\n乙\t\u3000丙  ")))
+    check("G0b 去空白契约：去掉全部空白（含全角空格/换行/制表）",
+          consistency._nows(" 甲\t乙\u3000丙 \n") == "甲乙丙",
+          repr(consistency._nows(" 甲\t乙\u3000丙 \n")))
+    check("G0c 判据未放宽：CONCLUSION_SAME 仍为标定值 0.95",
+          consistency.CONCLUSION_SAME == 0.95,
+          str(consistency.CONCLUSION_SAME))
+
+    r, d, _c = _concl(h + "\n" + body + "\n")
+    check("G1 标定①逐字重复（标定 concl=1.0）→ 不判分歧、ACCEPT、无工单缺口",
+          not d and r["verdict"] == "ACCEPT" and r["conflict_strength"] == 0.0,
+          f'{r["verdict"]}/{r["conflict_strength"]}/{len(d)}')
+
+    # H8 现场 8 变体：正文逐字相同，只是空白不同（原样送检会在 0.95 门下假红）
+    _h8_variants = [
+        ("尾部多换行", h + "\n" + body + "\n\n"),
+        ("行首缩进(半角)",
+         h + "\n" + "\n".join("  " + x for x in body.split("\n")) + "\n"),
+        ("行首缩进(全角)",
+         h + "\n" + "\n".join("\u3000" + x for x in body.split("\n")) + "\n"),
+        ("插空行", h + "\n" + body.replace("\n", "\n\n") + "\n"),
+        ("行尾空格",
+         h + "\n" + "\n".join(x + " " for x in body.split("\n")) + "\n"),
+        ("词内插空白",
+         h + "\n" + body.replace("指数退避重连", "指数 退避重连") + "\n"),
+        ("词间多空格",
+         h + "\n" + body.replace("超时时间为 30 秒", "超时时间为   30   秒")
+         + "\n"),
+        ("组合(缩进+尾换行+行尾空格)",
+         h + "\n" + "\n".join("  " + x + "  " for x in body.split("\n"))
+         + "\n\n"),
+    ]
+    for i, (vname, vcontent) in enumerate(_h8_variants, 1):
+        r, d, _c = _concl(vcontent)
+        check(f"H8-A{i} 空白差异「{vname}」不得判成分歧（须 ACCEPT / 0 分歧）",
+              not d and r["verdict"] == "ACCEPT"
+              and r["conflict_strength"] == 0.0,
+              f'{r["verdict"]}/{len(d)}/{r["conflict_strength"]}')
+
+    # 空白差异不得触发飞轮建单（判成 DEFER 就会各建一张 unresolved 工单）
+    r, _d, _c = _concl(h + "\n" + body.replace("\n", "\n\n") + "\n",
+                       auto_flywheel=True)
+    check("H8-B 空白差异不建 unresolved 工单（飞轮不误触）",
+          not r.get("unresolved_id") and r["verdict"] == "ACCEPT",
+          str(r.get("unresolved_id")))
+
+    # 反向：真分歧两类**必须仍判分歧**（否则就是靠放宽判据变绿）
+    r, d, c = _concl("# 功能名：网关心跳端口与重连参数\n"
+                     "# 子功能：端口取值与退避次数\n"
+                     "# 生效条件：网关在线且心跳已启用\n\n"
+                     "服务端心跳端口：8080。客户端使用长连接轮询，超时时间为 60 秒。\n"
+                     "故障处置：连接断开后由客户端指数退避重连，最多重试 9 次。\n")
+    check("G2 标定②同槽不同值仍判分歧（实测 concl=0.6928 < 0.95）",
+          bool(d) and r["verdict"] == "DEFER" and 0.55 <= c < 0.95,
+          f'{r["verdict"]}/{c}/{len(d)}')
+
+    r, d, c = _concl("# 功能名：网关心跳端口与重连参数\n"
+                     "# 子功能：端口取值与退避次数\n"
+                     "# 生效条件：网关在线且心跳已启用\n\n"
+                     "心跳所用服务端端口为 9090；客户端以长连接方式轮询，"
+                     "超时设定 30 秒。\n"
+                     "断开后的处理：客户端按指数退避重新连接，尝试上限 5 次。\n")
+    check("G3 标定③同值异措辞仍判分歧（实测 concl=0.3385 < 0.95）",
+          bool(d) and r["verdict"] == "DEFER" and 0.2 <= c < 0.8,
+          f'{r["verdict"]}/{c}/{len(d)}')
 
     print(f"\n==== P11 结果：{PASS} 通过 / {FAIL} 失败 ====")
     if FAILS:

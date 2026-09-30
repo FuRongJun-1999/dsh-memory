@@ -207,12 +207,21 @@ def record_accepted(cg, node_id, content, now=None) -> None:
         _save(cg, st)
 
 
-# 生效条件：cg.get(target) 为假值返回 {"ok": False, "error": "target_missing"}；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；通过后以 content 空白归一后截 80 字追加 "【聚合 stamp】" 行、fm["merge_count"]=int(fm.get("merge_count") or 0)+1 后 _write_node 落盘（重要性不变），并返回 {"ok": True, "merge_count": 新值}。
-def converge_into(cg, target: str, content: str, override=False, actor=None) -> dict:
+# 生效条件：cg.get(target) 为假值返回 {"ok": False, "error": "target_missing"}；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；通过后按 forgetting.aggregate_line（单点）把新正文里目标还没有的行追加为聚合行、fm["merge_count"]=int(fm.get("merge_count") or 0)+1 后 _write_node 落盘（重要性不变），并把 session/actor 归属并列记进 fm（forgetting.note_source）；返回 {"ok": True, "merge_count": 新值, "content_sink": 去向, "source": 归属}。
+def converge_into(cg, target: str, content: str, override=False, actor=None,
+                  session=None) -> dict:
     """同构聚合落库：正文追加一行【聚合】摘要，merge_count+1。
 
     importance **不变**——流水不该越聚越重要（与 forgetting.reinforce
-    的 +0.05 相反）；原始内容截 80 字入行，全文仍在 recent log 可溯。
+    的 +0.05 相反）。
+
+    B3（2026-09-30）：追加内容改由 `forgetting.aggregate_line`（**单点**）
+    生成——原口径 `" ".join(content.split())[:80]` 会把落在 80 字外的新值
+    整体丢掉（P-3 实测：端口 9090 变体在库中 0 次落盘），与「新正文不许被
+    静默丢弃」同病；现改为「目标正文还没有的行」逐行追加、不截断，纯重复
+    零追加。**不变**的部分：目标节点不变、merge_count+1、importance 不动、
+    层闸/保护闸仍在写盘之前。
+    H3：`session` 槽把新写入方归属并列落 fm（`forgetting.note_source`）。
 
     N215（2026-09-28，同族未接线写点）：本函数此前**裸调 `cg._write_node`**
     追加既有节点正文，唯一入口 `mdcos.remember_gated` 的 CONVERGE 分支（:3336）
@@ -230,19 +239,32 @@ def converge_into(cg, target: str, content: str, override=False, actor=None) -> 
     protect.guard_overwrite(cg, target, layer=fm.get("layer"),
                             sensitivity=fm.get("sensitivity"),
                             override=override, actor=actor)
-    body = " ".join((content or "").split())[:80]
-    stamp = time.strftime("%m-%d %H:%M", time.localtime())
+    # 延迟导入：forgetting 是聚合行/归属的单点实现（writelimit 不反向被它依赖，
+    # 无环）；放函数内避免模块导入期把 md_cg.forgetting 的依赖面（mdcg/bigrams）
+    # 拉进本模块的加载链。
+    from . import forgetting
+    new_body, line, line_no = forgetting.aggregate_line(e.get("content"), content)
     fm["merge_count"] = int(fm.get("merge_count") or 0) + 1
     fm["last_merge_at"] = time.time()
+    source = forgetting.note_source(fm, session=session, actor=actor)
     cg._write_node(target, os.path.join(cg.root, e["path"]), fm,
-                   (e.get("content") or "") + f"\n- 【聚合 {stamp}】{body}",
+                   new_body if new_body is not None else (e.get("content") or ""),
                    durable=True)
     entry = cg.index["nodes"].get(target)
     if entry is not None:
         entry.update({"merge_count": fm["merge_count"],
                       "last_merge_at": fm["last_merge_at"]})
+        if fm.get("merge_sources"):
+            entry["merge_sources"] = fm["merge_sources"]
         cg._dirty[target] = entry
-    return {"ok": True, "merge_count": fm["merge_count"]}
+    return {"ok": True, "merge_count": fm["merge_count"],
+            "content_sink": {
+                "node_id": target,
+                "action": "appended" if line else "already_covered",
+                "line": line, "line_no": line_no,
+                "chars": len(new_body if new_body is not None
+                             else (e.get("content") or ""))},
+            "source": source}
 
 
 # ---------- 读侧：已落盘同构组的周期整理（sustain 巡检入口）----------

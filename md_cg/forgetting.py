@@ -48,6 +48,7 @@ import os
 import time
 
 from . import lifecycle, nodefile, protect
+from . import crypto
 from . import security as _security
 from .fsutil import append_jsonl, atomic_write, publish, read_jsonl
 from .mdcg import bigrams
@@ -77,6 +78,10 @@ INTERNAL_ROLES = ("command", "tool-output", "edit", "system")
 DETERMINISTIC_BASIS = ("data", "measurement", "compiler", "test", "formal_proof")
 
 LOG_FILE = "_forgetting.jsonl"
+
+# 合并面「新正文去向」/「归属并列」的常量（B3 / H3，2026-09-30）
+MERGE_SOURCES_KEEP = 20         # fm.merge_sources 只保留最近 N 条「新写入方归属」
+AGG_MARK = "聚合"               # 聚合行标记（与 writelimit.converge_into 同款）
 
 
 # ---------------------------------------------------------------- 三问
@@ -244,12 +249,134 @@ def log(cg, rec):
     return rec
 
 
-# 生效条件：cg 与 node_id 必填，delta 默认 0.05；cg.get(node_id) 抛异常或返回假值时返回 None；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；imp 跨过 PROTECT_IMPORTANCE 即写 protected；写盘后同步内存索引条目并**标脏**（cg._dirty[node_id]=e，推进读缓存代际与索引增量日志）。
-def reinforce(cg, node_id, delta=0.05, override=False, actor=None):
+# 生效条件：body 与 content 必传（None 按空串）；把 content 逐行空白归一去重、剔除已出现在 body 中的行；delta 为空（零新增信息）时返回 (None, None, None)，否则返回 (追加后的正文, 追加行, 行号)。
+def aggregate_line(body, content, stamp=None):
+    """MERGE 聚合行（**单点**）：新正文里「目标正文还没有的」行 → 追加一行。
+
+    B3（2026-09-30）根因：近重复合并（`forgetting.reinforce`，MERGE）与同构
+    聚合（`writelimit.converge_into`，CONVERGE）都只改 frontmatter
+    （importance/merge_count），新正文**逐字节丢弃**——「近重复但关键值不同」
+    的第二次写入在库里 0 命中（探针实测：新值 9595 全库 0 命中、节点未落盘）。
+    本函数是「新正文怎么进目标正文」的**唯一实现点**：两处落库动作共用，
+    第二处委托调用（硬约束：单点优先），不各自再写一份追加口径。
+
+    与 `converge_into` 旧口径（`" ".join(content.split())[:80]`）的两点差别，
+    均为**收窄信息损失**而非放宽判据：
+      · 不截断——旧口径把新值丢在 80 字外即整体丢失（P-3 实测：端口 9090
+        变体在库中 0 次落盘），而「新值必须在库里可检索」正是本修的目标；
+      · 只追加 delta——旧口径无条件追加，逐字重复的再写也会让目标正文无限
+        增长。按「归一化行是否已出现在目标正文（含已追加的聚合行）中」判，
+        纯重复零追加（不增长），带新信息的变体各追加一次（新值原样落盘，
+        可被 read/search 命中）。**幂等性靠子串判据**：聚合行自带
+        `- 【聚合 …】` 前缀，故比对用的是「归一化后的整段目标正文」而非
+        逐行集合——否则第二次同文再写会因前缀差异重复追加。
+    """
+    have = " ".join((body or "").split())
+    delta, seen = [], set()
+    for l in (content or "").splitlines():
+        s = " ".join(l.split())
+        if not s or s in seen or s in have:
+            continue
+        seen.add(s)
+        delta.append(s)
+    if not delta:
+        return None, None, None
+    stamp = stamp or time.strftime("%m-%d %H:%M", time.localtime())
+    line = f"- 【{AGG_MARK} {stamp}】" + "；".join(delta)
+    new_body = ((body or "") + "\n" if body else "") + line
+    return new_body, line, len(new_body.splitlines())
+
+
+# 生效条件：session 与 actor 均为假值（None/空串等）时返回 None 且不改 fm；否则把 {"session","actor","t"} 追加进 fm["merge_sources"]（只保留最近 MERGE_SOURCES_KEEP 条）并返回该条。
+def note_source(fm, session=None, actor=None, t=None):
+    """H3 归属并列（**单点**）：把「新写入方」的归属记进目标 frontmatter。
+
+    跨会话合并的处置选择与依据（探针读数：合并判定完全不看会话——`redundancy`
+    按同层全量比、`writelimit.check` 的键是 `f"{layer}:{role}"`，两处都无会话维；
+    实测 B 会话的近重复被并入 A 会话节点，B 的内容与归属双双消失）：
+      · **不动合并判定**（不按会话切分）。依据：同一事实在另一会话再次出现
+        仍是「又一次见到」= 确认信号，正是冗余闸门的既有语义；按会话切分会让
+        同一事实在每个会话各长一个节点，与「噪声丢掉、骨架留下」的目的相悖。
+      · **把双方归属并列落 fm**：目标自己的 `fm.session` 原样保留，新写入方
+        记进 `fm.merge_sources`（保序、有界）。召回侧据此可识别「这条记忆被
+        哪些会话/主体确认过」——当前会话的新内容不再无名无姓地消失。
+    """
+    if not session and not actor:
+        return None
+    src = {"session": None if session is None else str(session),
+           "actor": None if actor is None else str(actor),
+           "t": float(t if t is not None else time.time())}
+    rows = list(fm.get("merge_sources") or [])
+    rows.append(src)
+    fm["merge_sources"] = rows[-MERGE_SOURCES_KEEP:]
+    return src
+
+
+# 生效条件：cg 与 node_id 必传，content 为本次被丢弃的正文，target 为近重复目标，verdict 为 forgetting.assess 的判据字典；恒写一条 verdict=="DROP" 的留痕并返回「去向单」（含 trace_id / 全文或摘要 / 检索入口）；密级属 crypto.ENCRYPTED_LEVELS 时 dropped_content 为 None 且 content_redacted 为 True（明文不落留痕）。
+def record_drop(cg, content, node_id, target=None, verdict=None, layer=None,
+                sensitivity=None, session=None, actor=None):
+    """DROP 去向留痕（**单点**，B3-④）：被丢的新正文「去哪了」。
+
+    为什么需要它：`assess` 的 `:214` 分支（internal_deterministic 且
+    dup≥DUP_DROP，0.60）**先于** MERGE 分支命中，于是「近重复但关键值不同」的
+    确定性内部写入走 DROP，连既有节点都不强化——新正文只在日志里留一个
+    「低熵噪音，不编码」，正文本身零去向（探针实测：全库 0 命中）。
+
+    处置：**不追加进目标正文**（该分支的既有语义是「例行输出不该污染既有
+    记忆」，不能靠追加把它变相强化成 MERGE），改为把新正文**全文**与去向目标
+    一并落进 `_forgetting.jsonl`，返回单给出可检索的句柄（trace_id / 文件 /
+    sha1）。密级为加密级时不落明文（与写面 `mdcg._check_sensitivity_landing`
+    的「加密级却明文落盘」fail-closed 同口径）——只留摘要与长度，返回单显式
+    声明这一处取舍，不假装全文可检索。
+    """
+    flat = " ".join((content or "").split())
+    digest = hashlib.sha1(flat.encode("utf-8")).hexdigest()[:12] if flat else ""
+    enc = bool(flat) and str(sensitivity or "").strip().lower() \
+        in crypto.ENCRYPTED_LEVELS
+    t = time.time()
+    trace_id = f"drop-{node_id}-{int(t * 1000)}"
+    log(cg, {"t": t, "node_id": node_id, "layer": layer, "verdict": "DROP",
+             "reason": (verdict or {}).get("reason", ""),
+             "importance": (verdict or {}).get("importance"),
+             "entropy": (verdict or {}).get("entropy"),
+             "duplicate_with": target, "actor": actor, "session": session,
+             "trace_id": trace_id, "content_sha1": digest,
+             "content_chars": len(flat),
+             "dropped_content": None if enc else (flat or None),
+             "content_redacted": enc})
+    sink = {"verdict": "DROP", "duplicate_with": target, "trace_id": trace_id,
+            "kept_in": LOG_FILE,
+            "retrieval": (f"{LOG_FILE} 内 trace_id={trace_id}"
+                          f"（forgetting_history 读回；节点未落盘，"
+                          f"按 N229 读可见性过滤仅治理面可见）"),
+            "content_sha1": digest, "content_chars": len(flat),
+            "content_kept": bool(flat) and not enc}
+    if enc:
+        sink["redacted_reason"] = ("密级为加密级：明文不入留痕（与写面"
+                                   "「加密级却明文落盘」fail-closed 同口径）")
+    return sink
+
+
+# 生效条件：cg 与 node_id 必填，delta 默认 0.05，content 默认 None（不传即与改动前逐位一致：只改 frontmatter、正文原样写回）；cg.get(node_id) 抛异常或返回假值时返回 None；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；imp 跨过 PROTECT_IMPORTANCE 即写 protected；content 非 None 时按 forgetting.aggregate_line 把「目标正文没有的」行追加为聚合行（零新增信息则不追加），session/actor 非空时按 forgetting.note_source 并列记归属；写盘后同步内存索引条目并**标脏**（cg._dirty[node_id]=e，推进读缓存代际与索引增量日志）；返回体带 content_sink（新正文去向：节点/行/行号）与 source（归属）。
+def reinforce(cg, node_id, delta=0.05, override=False, actor=None,
+              content=None, session=None):
     """MERGE 的落库动作：不新增节点，把「又一次见到」折算成既有节点的强化。
 
     重要性 +delta，merge_count +1；一旦跨过 0.7 自动打上保护标记
     （对齐「importance 提升（保护：不可遗忘…且受保护标记）」）。
+
+    B3（2026-09-30）：本函数此前**没有 content 槽**——MERGE 时新正文 100%
+    丢弃（写回的是 `node.get("content")`，即既有正文），调用方手上正握着
+    新正文却无处可传。现加 `content=None`（**缺省行为与改动前逐位一致**：
+    不传即正文原样写回，既有调用零破坏）；MERGE 时按 `aggregate_line`
+    （单点，与 `writelimit.converge_into` 共用）把新正文里目标还没有的行
+    追加为聚合行，`merge_count` 口径不变。注意**不动 importance 之外的既有
+    语义**：聚合行是「又一次见到 + 新值留痕」，不是新增节点、不改层、不改
+    密级、不绕保护闸（`guard_overwrite` 仍在本函数内、写盘之前，见 :278）。
+
+    H3（2026-09-30）：`session` 槽把「新写入方归属」并列记进目标
+    frontmatter（`note_source`，单点）——跨会话合并时目标自己的
+    `fm.session` 保留，新写入方记进 `fm.merge_sources`。
 
     C-1（2026-09-29）：写盘后**标脏**（`cg._dirty[node_id] = e`，对照
     `md_cg/mdcg.py` 的 update_tags / verify 直写分支先例）——不标脏时
@@ -258,8 +385,8 @@ def reinforce(cg, node_id, delta=0.05, override=False, actor=None):
 
     N214（2026-09-28，同族未接线写点）：本函数此前**裸调 `cg._write_node`**
     覆写既有节点，两个入口（`mdcos.remember_gated` 的 MERGE 分支 :3380、
-    `mdcos.maintain(action="prefeed", write=True)` 的 reinforce 分支 :2783）全程
-    无 principal 层闸、无保护闸、无快照无审计——同一身份对**同层**的 `add` 被
+    `mdcos.maintain(action="prefeed", write=True)` 的 reinforce 分支 :2783）
+    全程无 principal 层闸、无保护闸、无快照无审计——同一身份对**同层**的 `add` 被
     `AccessDenied`，而此路照样覆写（持 write 的 reflect 令牌以 `layer='self'`
     发 `mdcg_remember(gated=true)`：`writelimit.check` 因形参层≠contextual 放行、
     `assess` 按形参层比得重复度 1.0 → MERGE → 改写 self 层节点的
@@ -292,8 +419,16 @@ def reinforce(cg, node_id, delta=0.05, override=False, actor=None):
     # 幂等 no-op（不写字段、不留痕）。protected 只豁免**降级**，回升不受限。
     lifecycle.stamp(fm, "active", reason="MERGE 重复强化（回升）",
                     actor="forgetting:reinforce")
+    # B3：新正文去向（content 缺省 None → new_body 为 None → 正文原样写回，
+    # 与改动前逐位一致）。聚合行只补「目标还没有的」行，纯重复零追加。
+    new_body, line, line_no = (None, None, None)
+    if content is not None:
+        new_body, line, line_no = aggregate_line(node.get("content"), content)
+    # H3：归属并列（新写入方 → fm.merge_sources；目标自己的 fm.session 不动）
+    source = note_source(fm, session=session, actor=actor)
     cg._write_node(node_id, os.path.join(cg.root, node["path"]),
-                   fm, node.get("content") or "")
+                   fm, new_body if new_body is not None
+                   else (node.get("content") or ""))
     e = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)
     if e is not None:
         e["importance"] = imp
@@ -302,6 +437,15 @@ def reinforce(cg, node_id, delta=0.05, override=False, actor=None):
         if fm.get("protected"):
             e["protected"] = True
             e["protection_reason"] = fm["protection_reason"]
+        # H3 索引镜像（2026-09-30）：merge_sources 同款镜像（对照组
+        # `writelimit.converge_into` :257-258 的 `entry["merge_sources"]`）。
+        # 此前本段只同步 importance / lifecycle state / protected，盘面 fm 已
+        # 有新写入方归属而同进程索引条目读到 None，直到索引重载——与
+        # 「写盘后标脏、同进程读到新值」的既有纪律（C-1 / N133 同族，见下方
+        # 标脏注释）不一致：CONVERGE 落点（converge_into）与 MERGE 落点
+        # （reinforce）的读面行为必须同口径。
+        if fm.get("merge_sources"):
+            e["merge_sources"] = fm["merge_sources"]
         # 标脏（N133 修复，对照先例 mdcg.py 的 update_tags / verify 直写分支
         # `self._dirty[node_id] = e`）：只改内存 entry 时 path_gen 不推进，
         # 读缓存（默认开，MDCG_READ_CACHE=1）按 `_fresh` 把写盘前的旧 fm 判
@@ -315,7 +459,17 @@ def reinforce(cg, node_id, delta=0.05, override=False, actor=None):
         if isinstance(_dirty, dict):
             _dirty[node_id] = e
     return {"node_id": node_id, "importance": imp,
-            "merge_count": fm["merge_count"], "protected": bool(fm.get("protected"))}
+            "merge_count": fm["merge_count"], "protected": bool(fm.get("protected")),
+            # 新正文去向（②）：写进了哪个节点/哪一行——调用方不必猜。
+            "content_sink": {
+                "node_id": node_id,
+                "action": ("appended" if line else
+                           ("already_covered" if content is not None
+                            else "not_provided")),
+                "line": line, "line_no": line_no,
+                "chars": len(new_body if new_body is not None
+                             else (node.get("content") or ""))},
+            "source": source}
 
 
 # 生效条件：cg 必填，limit 默认 100；日志路径不存在时返回 []；否则逐行 json.loads 后按行所属 node_id 做读可见性过滤（security.node_visible 为假的行整条剔除），再返回 out[-limit:]（limit=0 时 -0 退化为 out[0:] 即全量）。

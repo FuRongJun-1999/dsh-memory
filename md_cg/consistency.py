@@ -70,6 +70,10 @@ SAME_COND_HIGH = 0.75   # 同侧条件重合 → 判定「同一条件空间」
 # 实测结论槽（子功能）：同槽 1.0 / 同主语异属性 0.14 / 异主题 0.0 → 0.6 可分
 SLOT_HIGH = 0.6         # 结论槽（功能名/子功能）重合 → 判定「同一件事」
 # 实测：逐字重复 1.0 / 同槽不同值 0.61 / 同值异措辞 0.74 → 0.95 只排除逐字重复
+# H8（2026-09-30）：两侧先过同一套空白归一化（`_norm_ws`）再比；且去空白后逐字
+# 相同者直接短路为「重复」。阈值本身**不动**——纯空白差异（探针实测未归一化时
+# 0.9145~0.9436）曾把「同条件·同槽」压到 0.95 以下造成假冲突，修法是消除口径
+# 不对称，不是放宽 0.95（放宽到 0.9436 以下才能救，会一并吞掉真分歧）。
 CONCLUSION_SAME = 0.95  # 正文几乎逐字相同 → 属「重复」（该合并），不算冲突
 
 EMO_AVOID = 0.70     # 冲突强度 ≥ 此值 → avoiding
@@ -243,6 +247,37 @@ def _body_text(content):
     return "\n".join(out)
 
 
+# 生效条件：text 假值时按空串处理，返回把任意连续空白（半角/全角空格、\t、\r、\n）折叠为单个半角空格并去掉首尾空白后的字符串；纯空白文本返回空串 "";
+def _norm_ws(text):
+    """空白归一化（仓内既有惯用法 `" ".join(x.split())`，见 writelimit.py:233
+    与 tool_face.py:136）——结论比对**两侧必须同一套**。
+
+    为什么需要（H8）：结论文本是被 `expand_query_terms_weighted` 当作**一个整段
+    加权词**（`mdcg.py` 整句 `put(q, 1.0)`）+ 若干分词来比对的，而 `_term_degree`
+    对「非整段命中」只给子串回退分 `0.5·L/n`。两侧若只差空白（`\r\n`↔`\n`、尾部
+    多换行、行首缩进（半角/全角）、插空行、行尾空格、词间多空格），整段词就只能
+    拿到部分分，`conclusion_overlap` 掉到 0.95 以下 → 被误判成「同条件·同槽·取值
+    不同」（假冲突 + 假 unresolved 工单）。两侧先经同一归一化，纯空白差异不再进入
+    结论比对。
+    """
+    return " ".join((text or "").split())
+
+
+# 生效条件：text 假值时按空串处理，返回去掉全部空白字符（半角/全角空格、\t、\r、\n 等 str.split() 认可的空白）后的字符串；纯空白文本返回空串 "";
+def _nows(text):
+    """去掉**全部**空白——只用于「两侧差异是不是只在空白」的相等短路判定。
+
+    与 `_norm_ws` 的分工：`" ".join(x.split())` 只折叠空白，**词内插空白**
+    （「指数退避重连」↔「指数 退避重连」）归一化后仍非逐字相同（探针实测该情形
+    归一化覆盖率 0.9388 < 0.95，仍会判分歧）；去掉空白才判得出「差异只在空白」。
+
+    安全性：它只用于**相等**判定（相等 ⇒ 必判重复），不参与覆盖率计算，故不会
+    放宽「同槽不同值 / 同值异措辞」这两类真分歧——它们的差异不是空白，去空白后
+    仍不相等，照旧走 `conclusion_overlap < CONCLUSION_SAME` 的判据。
+    """
+    return "".join((text or "").split())
+
+
 # 生效条件：content 给出时（假值按空串）解析 CCG 的 `# 功能名` 与 `# 子功能` 字段并返回两者；
 def _slot_text(content):
     """结论槽：CCG 声明的 `# 功能名` / `# 子功能`（结构字段，非正文词面）。
@@ -407,8 +442,11 @@ def check(cg, content, layer=None, condition_space=None,
     # 结论文本词权（结论比对专用）：**去 CCG 声明行**。模板行（`# 功能名` /
     # `# 子功能` 等）在两条节点间逐字相同，若混入会稀释结论覆盖率——实测
     # 逐字重复仅 0.32、同槽不同值 0.61，与异属性（0.62）不可分。去模板才可判。
-    tw_content = (expand_query_terms_weighted(_body_text(content))
-                  if content else {})
+    # H8：**两侧还要同一套空白归一化**（`_norm_ws`）——见 `_norm_ws` 说明；
+    # `n_body_tight` 是去全部空白的形态，只供 L1-c 的相等短路用。
+    n_body = _body_text(content)
+    tw_content = expand_query_terms_weighted(_norm_ws(n_body)) if n_body else {}
+    n_body_tight = _nows(n_body)
     # 结论槽（CCG 结构字段）——「是否同一件事」的代理，见 _slot_text 说明
     n_fn, n_sb = _slot_text(content)
 
@@ -478,8 +516,17 @@ def check(cg, content, layer=None, condition_space=None,
                 _cov(expand_query_terms_weighted(n_sb), e_sb)
                 if (n_sb and e_sb) else 0.0)
             if slot >= SLOT_HIGH:
-                # 同口径比对（正文↔正文）；tw_content 已去模板行，见上文
-                concl = _cov(tw_content, _body_text(body)) if tw_content else 0.0
+                # 同口径比对（正文↔正文）：tw_content 已去模板行 + 两侧同一套
+                # 空白归一化（H8），见上文与 `_norm_ws` / `_nows` 说明。
+                e_body = _body_text(body)
+                if n_body_tight == _nows(e_body):
+                    # 差异只在空白（\r\n↔\n / 缩进 / 空行 / 行尾空格 / 词内插空白）
+                    # ⇒ 归一化后逐字相同，必判**重复**（该合并），不判分歧。
+                    # 这不是放宽真分歧判据：取值真不同者去空白后仍不相等。
+                    concl = 1.0
+                else:
+                    concl = (_cov(tw_content, _norm_ws(e_body))
+                             if tw_content else 0.0)
                 if concl < CONCLUSION_SAME:
                     divergences.append({
                         "type": "same_condition_divergence", "with": nid,
@@ -694,6 +741,9 @@ def catalog():
                     "same_condition_divergence": "同侧比对（新正↔旧正 / 新负↔旧负）"
                                                  "＋ CCG 结论槽 = 同条件空间内的取值分歧（矛盾）",
                 },
+                "conclusion_normalization": "结论比对两侧同一套空白归一化"
+                                            "（' '.join(x.split())）+ 去空白后逐字"
+                                            "相同 ⇒ 必判重复（H8）",
                 "verdicts": list(VERDICTS),
                 "thresholds": {"high": CLASH_HIGH, "low": CLASH_LOW,
                                "same_condition": SAME_COND_HIGH, "slot": SLOT_HIGH,
