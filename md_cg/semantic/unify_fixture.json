@@ -1,0 +1,24 @@
+{
+  "_note": "统一归一层（unify_query / Atoms::unify）作用域收窄（2026-09-30 使用者裁定：只对英文内容做翻译归一，中文内容原样不动）的逐位对拍 fixture。两侧同源钉死：Python 守卫 md_cg/test_unify_scope.py 与 Rust 单测 rust/src/atoms.rs::tests::unify_mixed_fixture_matches_python 都读本文件（Rust 侧 include_str! 编译期嵌入）。任一侧实现漂移即红。",
+  "_caveat": "非中文段一律用「两侧处理同构」的形态：全小写英文词（或命中 en_zh_map 的形）。首字母大写的**未登录**词（AI/LGBTQ）与「查表命中的大写专名」（Paris）两侧存在**既有**非对称（Python 保留原大小写 / 专名双原子，Rust 一律 lower 化），非本次收窄引入，故不入本 fixture。",
+  "cases": [
+    {"name": "纯英·跨语归一冒烟", "in": "I eat beef yesterday", "out": "我 吃 牛肉 昨天"},
+    {"name": "纯英·单动词时态还原", "in": "wrote", "out": "写"},
+    {"name": "纯英·多词", "in": "compiler tests", "out": "编 辑 家 测 试"},
+    {"name": "纯中·复合词不切", "in": "自我接纳", "out": "自我接纳"},
+    {"name": "纯中·旧口径会切开的两字三字词", "in": "慈善跑", "out": "慈善跑"},
+    {"name": "纯中·带空格", "in": "蜂群调度 依赖门禁", "out": "蜂群调度 依赖门禁"},
+    {"name": "中夹英·英文在首", "in": "beef 报告", "out": "牛肉 报告"},
+    {"name": "中夹英·未登录英文片段+中文段逐字保留", "in": "领养 xyzzy 群体", "out": "领养 xyzzy 群体"},
+    {"name": "英夹中·英文译中文段原样", "in": "beef 牛肉", "out": "牛肉 牛肉"},
+    {"name": "前后空白·折叠", "in": "  beef 报告  ", "out": "牛肉 报告"},
+    {"name": "多空格·折叠为单空格", "in": "beef   报告", "out": "牛肉 报告"},
+    {"name": "数字·非英文段原样", "in": "2024 报告", "out": "2024 报告"},
+    {"name": "数字+中文+英文混合", "in": "2024 年 beef 报告", "out": "2024 年 牛肉 报告"},
+    {"name": "半角标点·非英文段原样", "in": "beef 阅读,写作", "out": "牛肉 阅读 , 写作"},
+    {"name": "全角标点·非英文段原样", "in": "报告。很好 beef", "out": "报告 。 很好 牛肉"},
+    {"name": "未登录词·unknown_keep", "in": "xyzzy 报告", "out": "xyzzy 报告"},
+    {"name": "单字母词 I", "in": "I 支持", "out": "我 支持"},
+    {"name": "英中粘连·无空格混合", "in": "beef报告", "out": "牛肉 报告"}
+  ]
+}

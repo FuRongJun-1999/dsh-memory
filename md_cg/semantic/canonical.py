@@ -31,6 +31,19 @@ from . import zh_en_atoms
 WIN = 6          # 组合共现窗口（token 距离，探针实证口径）
 _ATOMS_ZH = None
 
+# 中文段判据（单点，2026-09-30 检索归一层作用域收窄时立）：
+# 中文 = CJK 统一表意文字基本区 U+4E00–U+9FFF。与 en_normalizer 分词字符类
+# `[A-Za-z\u4e00-\u9fff]` 的中文区间同区间；rust/src/text.rs::is_zh 是同判据的
+# Rust 侧单点（两侧归一层共用同一判据；改动须两侧同步，否则 rank_parity 漂移）。
+# 消费方：unify.py::unify_query（中文段逐字保留）、rust/src/atoms.rs::Atoms::unify。
+ZH_LO, ZH_HI = "\u4e00", "\u9fff"
+
+
+# 生效条件：单参 ch 为长度 1 的 str 时返回 ZH_LO <= ch <= ZH_HI（CJK 基本区）的布尔值；ch 为空串或长度 >1 时按 str 字典序比较（无中文语义，调用方只传单字符）。
+def is_zh_char(ch):
+    """中文段判据（单点）：CJK 统一表意文字基本区 U+4E00–U+9FFF。"""
+    return ZH_LO <= ch <= ZH_HI
+
 
 # 生效条件：模块级常量 `_ATOMS_ZH` 为 None 时按 `__file__` 所在目录的 atoms.json 取 `data.get("atoms", [])` 各项 `zh` 建集合并缓存，非 None 时直接返回 `_ATOMS_ZH`。
 def atoms_zh():

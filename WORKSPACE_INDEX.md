@@ -5,13 +5,13 @@
 > **为什么有这一页**：查工作区文件前先读本页——按目录职责与关键入口定位，替代每次重复全盘浏览（**工作纪律第 18 条**）。
 > **数据源**：git 追踪面（`git ls-files`，NUL 分隔取原始路径）；gitignored 的语料 / 实验产物 / 构建产物不在其内。
 > **生成 / 守卫**：`python scripts/workspace_index.py --write` ｜ `--check`（CI：`.github/workflows/workspace-index-check.yml`）。
-> **快照**：HEAD `71463a09` · 追踪 **2107** 件 · 生成于 2026-09-30 —— 计数与 HEAD 为生成时快照，**不参与守卫校验**；守卫校验的是：①顶层目录集合 ②根级文件集合 ③职责文案与关键入口 ④正文（归一化后）逐字一致。
+> **快照**：HEAD `f5d4ead7` · 追踪 **2109** 件 · 生成于 2026-09-30 —— 计数与 HEAD 为生成时快照，**不参与守卫校验**；守卫校验的是：①顶层目录集合 ②根级文件集合 ③职责文案与关键入口 ④正文（归一化后）逐字一致。
 
 ## 一、顶层目录
 
 | 目录 | 职责 | 追踪件数 | 关键入口 |
 |---|---|---|---|
-| `md_cg/` | 灵枢大脑——记忆系统本体（纯 md 认知图 + 确定性裁决），即标准 stdio MCP server | 829 | `mcp_server.py` · `mdcg.py` · `mdcos.py` |
+| `md_cg/` | 灵枢大脑——记忆系统本体（纯 md 认知图 + 确定性裁决），即标准 stdio MCP server | 831 | `mcp_server.py` · `mdcg.py` · `mdcos.py` |
 | `rust/` | Rust 检索引擎——只读侧检索内核（零第三方依赖，库内嵌 / --serve / 评测器三形态） | 15 | `README.md` · `Cargo.toml` · `src/lib.rs` |
 | `swarm/` | 蜂群运行时——.pbc 确定性实例 + Gossip 拓扑 / 水位信箱 / WAL-HMAC / 信任聚合 | 30 | `swarm_cli.py` · `rust_swarm.py` |
 | `compiler/` | 中文（术数）编译器——词法→语法→名实校验→白名单代码生成→验证终裁 + 结构性沙箱 | 32 | `api.py` · `SEMANTICS.md` |

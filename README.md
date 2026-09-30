@@ -202,7 +202,7 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 ## ✨ 核心亮点
 
 - **🧠 不失忆**——记忆一旦落盘即长期留存：写入须过三道闸门并以 `committed` 字段确认（**绝不假装成功**），遗忘只能由显式 `cg(op=forget)` 发起、不做静默淘汰；检索索引只是派生物、随时可重建——**原文即真源**（见[工具面](#-工具面)）
-- **⚡ 高性能**——Rust 检索内核（零第三方依赖）：库内嵌多线程大批量检索，`--serve` 进程实例支撑多智能体并发（语言无关）；中文检索 hit@1 99.0%，六家横评同口径登顶（见[六家横评](#-六家记忆系统横向对比)）。**0.5.0 检索强化**：认知图读缓存+文档派生物常驻· 检索门控（S1 域收敛/S1b 桶收敛/S2 条件硬槽）接进生产路径 · 任意语言 query 统一归一到标准中文集（atoms 词表）
+- **⚡ 高性能**——Rust 检索内核（零第三方依赖）：库内嵌多线程大批量检索，`--serve` 进程实例支撑多智能体并发（语言无关）；中文检索 hit@1 99.0%，六家横评同口径登顶（见[六家横评](#-六家记忆系统横向对比)）。**0.5.0 检索强化**：认知图读缓存+文档派生物常驻· 检索门控（S1 域收敛/S1b 桶收敛/S2 条件硬槽）接进生产路径 · 任意语言 query 统一归一到标准中文集（atoms 词表）——**只翻译英文内容、中文原样不动**（中夹英 query 的中文关键词串不被逐字切开）
 - **🛡️ 无幻觉**——记什么、取什么、能不能写入，全部由确定性规则裁决，不依赖 LLM 黑箱判断；条件层弱证据的检索干扰由四层证据防火墙白箱剔除（见[弱证据实证](#-弱证据会干扰检索三分离与证据防火墙实证)）；写没写成功看 `committed` 字段，绝不假装通过；全链路审计留痕、结果可复现
 - **🔌 多智能体适用**——同一份大脑（`md_cg/`）+ 同一份纪律，接入 DSH · CodeBuddy · ZCode · Codex CLI · Claude Code，任何 MCP 宿主可直接挂载（见[多 harness 接入](#多-harness-接入按端分目录)）
 - **😊 轻松使用**——三步接入，装完像往常一样对话即可；记忆本体是纯 md 文档，任何编辑器可直接打开审阅
@@ -360,7 +360,7 @@ python test/locomo_jaccard_probe.py      # 主路线 Jaccard 口径拆解（J2_f
 | 记忆写入 · 关系链接 · 结构关系 | `cg(op=write)` `cg(op=link)` `stg(op=relation)` |
 | 多路融合检索 · 条件路由 · 因果链 · 时间线 | `mdcg_recall` `mdcg_search` `cg(op=route)` `stg(op=timeline)` |
 | 会话隔离（分档可见：public/internal 跨会话共享 · private/secret 绑定归属会话 · 设计者豁免；写入带会话归属 · 租户物理根接线 fail-closed） | `mdcg_remember(session=…)` `stg(op=timeline, session=…)`；私档经 `sensitivity: private` 写入（详见 issue #35 设计定稿） |
-| 检索性能开关（读缓存 · 热路径缓存 · 检索门控 · 统一归一） | env：`MDCG_READ_CACHE` `MDCG_HOTCACHE` `MDCG_RETRIEVAL_PIPELINE` `MDCG_UNIFY_QUERY`（读缓存/统一归一默认开，=0 关；热缓存/门控默认关，=1 开） |
+| 检索性能开关（读缓存 · 热路径缓存 · 检索门控 · 统一归一——只翻译英文内容、中文原样） | env：`MDCG_READ_CACHE` `MDCG_HOTCACHE` `MDCG_RETRIEVAL_PIPELINE` `MDCG_UNIFY_QUERY`（读缓存/统一归一默认开，=0 关；热缓存/门控默认关，=1 开） |
 | 事实时效过滤（`validity=true` 只排「已过期」，保留「未生效」） | `mdcg_recall` `mdcg_search` `cg(op=read)` |
 | 写入裁决 · 主动遗忘 · 冲突检测 · 反思 | `mdcg_remember` `cg(op=verify)` `cg(op=metacognition)` `mdcg_reflect` |
 | 重要性评分 · 预算装包 · 分层注入 · 记忆自净 | `cg(op=session)` `cg(op=scrub)` `cg(op=info)` |
@@ -553,10 +553,13 @@ python scripts/run_tests.py                  # 源码树入口（等价；需 sc
 单测等价写法：`python -m md_cg.test_p44_md_whitebox`（cwd=仓库根）。退出码 0/1 可直接接提交前门禁。
 
 > **两个跨语开关别混**：`MDCG_UNIFY_QUERY`（统一归一层，**默认开**，2026-09-23 口径转正：
-> 任意语言 query 先归一成标准中文原子序列→词法路即可命中中文节点）与
-> `MDCG_EN_ATOMS`（英→中召回词扩展，**默认关**）是彼此独立的开关；
+> 任意语言 query 先归一成标准中文原子序列→词法路即可命中中文节点；**2026-09-30 收窄作用域：
+> 只对英文内容做翻译归一——中文段逐字保留、绝不送 segment**，中夹英 query 的中文关键词串
+> 不再被逐字切开）与 `MDCG_EN_ATOMS`（英→中召回词扩展，**默认关**）是彼此独立的开关；
 > `MDCG_SEMANTIC`（`fm.semantic` 语义摘要路）同样默认关。改其一请同步
-> `md_cg/test_en_pipeline.py` 与 `md_cg/test_semantic_canonical.py` 的双态断言。
+> `md_cg/test_en_pipeline.py` 与 `md_cg/test_semantic_canonical.py` 的双态断言；
+> 改归一层作用域另须跑 `md_cg/test_unify_scope.py`（与 Rust 侧同源 fixture
+> `md_cg/semantic/unify_fixture.json`，见 `docs/hive/检索算法口径对照_v0.1.md`）。
 
 ### 编码约定（全 UTF-8 · 命令统一走 python）
 

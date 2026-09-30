@@ -3,6 +3,13 @@
 //! 使用者口径定案（2026-09-23）：**统一翻译为中文 → 归一化到标准中文集 →
 //! 检索**。任何语言 query 先归一为标准原子序列（空格 join）再进检索各路。
 //!
+//! **作用域收窄（2026-09-30 使用者裁定）**：只对**英文内容**做翻译归一，
+//! 中文内容原样不动——query 先按中文段/非中文段切开，中文段逐字保留、
+//! 绝不送 `segment`；只有非中文段里的英文进归一链路。旧口径「含任一 ASCII
+//! 字母即整条归一」会把中夹英 query 的中文部分逐字切开（「自我接纳」→
+//! 「自 我 接 纳」），实测 locomo-zh-500 公开题池 500 题词法 hit@1
+//! 94.4%→95.8%（lexical,fuzzy 87.2%→96.6%）。
+//!
 //! 词表真源单侧化：en→zh 映射与 segment 键集由 Python 侧导出
 //! （`md_cg/semantic/export_en_zh_map.py` → `en_zh_map.json`，28478 词 +
 //! 204 标准原子），本模块**只查表不维护词典**——杜绝双词表版本漂移。
@@ -13,6 +20,8 @@
 //!   - segment = 贪心最长匹配（键长降序，未命中单字符保留），对齐
 //!     `zh_en_atoms.segment`；
 //!   - 无字母 query 原样返回（纯中文经 bigrams 去空白后与原文等价）；
+//!   - 分段判据单点 = `crate::text::is_zh`（CJK 基本区 U+4E00–U+9FFF，与
+//!     Python `canonical.is_zh_char` 同判据）：中文段逐字保留、不送 segment；
 //!   - 未登录词原样保留（unknown_keep，词表边界非错误）。
 //!
 //! 载入：env `MDCG_EN_ZH_MAP` 指向 en_zh_map.json（缺省探测仓库相对路径
@@ -137,13 +146,60 @@ impl Atoms {
         out.join(" ")
     }
 
-    /// 统一归一（对齐 `unify_query`）：无字母原样；否则 en 归一→查表→
-    /// 中文段 segment。输出空格 join 的标准原子/保留词序列。
+    /// 统一归一（对齐 `unify_query`）：无 ASCII 字母原样；否则按「中文段 /
+    /// 非中文段」切分——**中文段逐字保留、绝不送 segment**（2026-09-30 使用者
+    /// 裁定收窄作用域：只对英文内容做翻译归一，中文内容原样不动），含 ASCII
+    /// 字母的非中文段走 en 归一→查表→segment，不含 ASCII 字母的非中文段
+    /// （数字/标点）折空白后原样保留。各段按原顺序单空格 join；产物为空则
+    /// 回退原串。
+    ///
+    /// 中文判据单点 = `crate::text::is_zh`（U+4E00–U+9FFF），与 Python
+    /// `md_cg/semantic/canonical.py::is_zh_char` 同判据；逐位对拍 fixture =
+    /// `md_cg/semantic/unify_fixture.json`（Python 守卫 `md_cg/test_unify_scope.py`
+    /// 与下方 `unify_mixed_fixture_matches_python` 单测钉同一份期望值）。
     pub fn unify(&self, query: &str) -> String {
         if !query.chars().any(|c| c.is_ascii_alphabetic()) {
             return query.to_string();
         }
-        let base = normalize_en(query); // 小写+停用词+strip_tense+中文保留
+        let mut parts: Vec<String> = Vec::new();
+        let mut cur: Option<bool> = None; // 当前段是否中文段；None = 尚无段
+        let mut buf = String::new();
+        for c in query.chars() {
+            let z = crate::text::is_zh(c);
+            if let Some(prev) = cur {
+                if prev != z {
+                    parts.push(self.unify_run(&buf));
+                    buf.clear();
+                }
+            }
+            cur = Some(z);
+            buf.push(c);
+        }
+        if !buf.is_empty() {
+            parts.push(self.unify_run(&buf));
+        }
+        let joined = parts
+            .iter()
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .collect::<Vec<String>>()
+            .join(" ");
+        if joined.trim().is_empty() {
+            query.trim().to_string()
+        } else {
+            joined
+        }
+    }
+
+    /// 段内归一：**不含 ASCII 字母的段**（中文段 / 数字 / 标点）折空白后原样；
+    /// 含 ASCII 字母的段走既有链路（`normalize_en` → `en2zh` 查表 → `segment`），
+    /// 返回空格 join 的原子/保留词序列。中文段不在此分支（已由 `unify` 切走），
+    /// 故中文段结构性不可能经过 `segment`。
+    fn unify_run(&self, run: &str) -> String {
+        if !run.chars().any(|c| c.is_ascii_alphabetic()) {
+            return run.split_whitespace().collect::<Vec<&str>>().join(" ");
+        }
+        let base = normalize_en(run); // 小写+停用词+strip_tense+中文保留
         let mut out: Vec<String> = Vec::new();
         for word in base.split_whitespace() {
             // 单字母词（I）经 normalize_en 原样保留大写——查表一律 lower
@@ -155,8 +211,9 @@ impl Atoms {
                     continue;
                 }
             }
-            // 未登录词原样（unknown_keep）；中文段（normalize_en 已保留）
-            // 含非 ASCII → 走 segment 归一到标准原子
+            // 未登录词原样（unknown_keep）；非 ASCII 词走 segment——中文段
+            // 已被 `unify` 切走，此处只剩全角标点/其它文种（非中文段走既有
+            // 链路，保留原分支语义）
             if word.chars().any(|c| !c.is_ascii()) {
                 let seg = self.segment(word);
                 if !seg.is_empty() {
@@ -166,12 +223,7 @@ impl Atoms {
             }
             out.push(word.to_string());
         }
-        let joined = out.join(" ");
-        if joined.trim().is_empty() {
-            query.trim().to_string()
-        } else {
-            joined
-        }
+        out.join(" ")
     }
 }
 
@@ -208,6 +260,35 @@ mod tests {
         // 「牛肉」若为单键则整词消费；否则拆「牛 肉」——与 Python segment 同序
         let seg = a.segment("牛肉面");
         assert!(seg == "牛肉 面" || seg == "牛 肉 面", "贪心口径: {seg}");
+    }
+
+    /// 混合 query 逐位对拍 fixture（作用域收窄，2026-09-30）：**与 Python 守卫
+    /// `md_cg/test_unify_scope.py` 同源**——两侧都取自 `md_cg/semantic/unify_fixture.json`
+    /// （本测试经 include_str! 编译期嵌入同一份文件，Python 侧运行时读它），
+    /// 期望值逐位相同。两处定点变异在此必红：①作用域改回「整条归一」
+    /// （纯中/中夹英的中文段被切开）；②中文段也送 segment。
+    #[test]
+    fn unify_mixed_fixture_matches_python() {
+        let a = atoms();
+        let raw = include_str!("../../md_cg/semantic/unify_fixture.json");
+        let j = crate::json::parse(raw).expect("unify_fixture.json 可解析");
+        let cases = j
+            .get("cases")
+            .and_then(Json::as_arr)
+            .expect("unify_fixture.json 含 cases 数组");
+        assert!(cases.len() >= 12, "fixture 用例数须 >= 12：{}", cases.len());
+        // 收集式断言（非首条即 panic）：定点变异后「红了几例」可直接数出
+        let mut bad: Vec<String> = Vec::new();
+        for c in cases {
+            let name = c.get("name").and_then(Json::as_str).unwrap_or("?");
+            let inp = c.get("in").and_then(Json::as_str).unwrap_or("");
+            let want = c.get("out").and_then(Json::as_str).unwrap_or("");
+            let got = a.unify(inp);
+            if got != want {
+                bad.push(format!("{name}: in={inp:?} got={got:?} want={want:?}"));
+            }
+        }
+        assert!(bad.is_empty(), "fixture 逐位不符 {} 例: {bad:?}", bad.len());
     }
 
     // ---- R-6（2026-09-29）：no-probe 特征声明后两条 cfg 分支都可编译 ----

@@ -30,6 +30,19 @@ pub fn is_split_char(c: char) -> bool {
     matches!(c, '、' | '，' | '。' | '；' | '：' | ',' | ';' | '.' | ':' | '/' | '\\' | '|')
 }
 
+/// 中文判据（单点，2026-09-30 检索归一层作用域收窄时提出为模块级函数）：
+/// 中文 = CJK 统一表意文字基本区 U+4E00–U+9FFF。与 Python
+/// `md_cg/semantic/canonical.py::is_zh_char` 同一判据（两侧归一层共用；改动
+/// 须两侧同步，否则 rank_parity 漂移）。三处消费方：`normalize_en` 清洗保
+/// 中文、`cn_recall_grams` 中文连续串切分、`atoms.rs::Atoms::unify` 中文段
+/// 分段（收窄后中文段不再送 segment）。本函数提出前 `cn_recall_grams` 内含
+/// 一份同区间的局部 `fn is_zh`、`normalize_en` 内含一份同区间内联判定——
+/// 本次收口为一处。
+#[inline]
+pub fn is_zh(c: char) -> bool {
+    ('\u{4e00}'..='\u{9fff}').contains(&c)
+}
+
 /// `expand_query_terms`：归一化整句 + 分词（≥2 字符）+ 同义词组展开 +
 /// 中文 2-gram 召回扩展，去重保序。
 ///
@@ -82,9 +95,6 @@ pub fn expand_query_terms(query: &str) -> Vec<String> {
 pub fn cn_recall_grams(query: &str) -> Vec<String> {
     if std::env::var("MDCG_CN_GRAMS").as_deref() == Ok("0") {
         return Vec::new();
-    }
-    fn is_zh(c: char) -> bool {
-        ('\u{4e00}'..='\u{9fff}').contains(&c)
     }
     let chars: Vec<char> = query.chars().collect();
     let mut out: Vec<String> = Vec::new();
@@ -209,10 +219,7 @@ pub fn normalize_en(text: &str) -> String {
     let cleaned: String = text
         .chars()
         .map(|c| {
-            if ('\u{4e00}'..='\u{9fff}').contains(&c)
-                || c.is_whitespace()
-                || c.is_ascii_alphanumeric()
-            {
+            if is_zh(c) || c.is_whitespace() || c.is_ascii_alphanumeric() {
                 c
             } else {
                 ' '
