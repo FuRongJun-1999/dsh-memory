@@ -598,6 +598,12 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 
 - `user/message`（仅 `source.kind === 'user'` 的真实用户消息）→ `MdcgClient.remember()`（`mdcg_remember(gated=true)`，importance 0.6，落层 contextual，tags `dsh`）
 - 插件注入的系统上下文（AGENTS.md、文件变更通知等 `kind: 'plugin'`）**不写入**，防止记忆噪音
+- **来源判定：子代理委派不写成本人记忆**（H1，2026-09-30）——两条判据，**都是「字段在场且取值匹配才拦」**：
+  - **会话级**（`SessionHeader`）：`origin === 'subagent'` 或 `delegationDepth > 0` ⇒ 该**子会话整条**的自动记忆都拦掉（不写、也不发起语义召回）。拦点取在会话事件回调的**最前面**，因此子代理会话也不会刷掉 `lastSession`（否则顶层会话的自动召回会拿子代理的会话去读）。
+  - **消息级**（`MessageSourceMap`）：`source.form === 'relay'`（DSH 类型面注释原文「A message another agent addressed to this one」）⇒ 该条不写，判据先于既有的 `kind !== 'user'`（不把委派判定押在 `source.kind` 单点上——若委派指令以子会话首轮提示形态进入，其 `source.kind` 就是 `'user'`，与真人输入不可分，只有会话级判据能拦）。
+  - **默认行为（显式声明）**：判据命中时**默认拦**（委派指令不是用户的长期记忆）；**字段缺失时默认放行**（不做半吊子猜测，宁可多记，不可因宿主字段缺失而静默丢真人记忆）——`header` 缺失 / 非对象、`delegationDepth` 不是数字或 ≤0、`origin` 是别的值、`source` 无 `form`，一律不拦且不报错。字段来源只在 DSH 类型面成立：`@deepseek-ai/dsh-session` 的 `types.d.ts`（`origin` / `delegationDepth`）与 `@deepseek-ai/dsh-llm` 的 `message.d.ts`（`ContextForm` 的 `'relay'`）。
+  - ⚠️ **未验证项（如实标注，勿读成「已验证委派会被拦住」）**：本机未装 DSH harness，**真实宿主是否真给子代理子会话写 `origin` / `delegationDepth`**、**委派消息是否真带 `form: 'relay'`** 这两点**只在类型面成立、未在真实会话事件上观测过**。守卫证明的是「判据在场即拦、缺失即不拦」这一可机械判定的性质（`test/h1-source-filter.test.ts`），不是真实委派行为已被观测。
+  - **已知仍可能漏的形态**（不扩大判据范围，如实记录）：若宿主既不写 `origin` / `delegationDepth`、也不给委派消息标 `form: 'relay'`，而委派指令以子会话**首轮用户提示**进入，则该条在消息面上与真人输入不可分、会话面上也没有信号 ⇒ **当前判据拦不住**（只能等宿主补齐字段）。
 - **去重 / 遗忘由 md_cg 主动遗忘闸门负责**（`mdcg_remember(gated=true)` → `MdCG.remember_gated`）：三问 → 四态 ACCEPT 落盘 / MERGE 并入既有（= 去重强化，不新增节点）/ DROP 低熵 / DEFER 待定，四种结果都写 `_forgetting.jsonl` 可审计
 - **写入通道为何走 `mdcg_remember` 而非 `cg(op=write)`**：`cg(op=write)` 先过 `audit.audit(content_kind)` —— 未声明 `content_kind`（且未配置 `MDCG_POLICY_FILE`）时恒判 BLINDSPOT/DEFER，**只进审核队列、永不落盘**；即便声明了 `content_kind`，还要再过一致性检查与 `gated` 三问四态。**落盘的充要条件是最终判定 ACCEPT**（MERGE 并入既有、DROP/DEFER/REJECT 均不新增落盘点）。插件自动记忆选 `mdcg_remember(gated=true)`，即绕开 `cg(op=write)` 的 audit 前置门、直接进入三问四态。详见「本轮修复与验证 ②」
 - **记忆以 md 文档落盘**（`mdcg.root`，默认用户级 `~/.dsh/.dsh-memory/data/mdcg`；旧版包内 `data/mdcg` 由首启一次性**复制**接手，见 `src/lib/datapath.ts` 的 `migrateLegacyData()`）；⚠️ **写权限默认关闭**——不配凭据时以只读 guest 运行：读 / 召回 / 时间线照常，写入不落盘（插件启动会告警）。打开方式见配置表 `env.MDCG_TOKEN`
@@ -606,6 +612,12 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
   - **快照去重语义（改注入方式前必读）**：注入块落在 `assembly.contexts` 里，宿主会把它渲染成一段「运行时上下文快照」，并**按渲染后的整段文本去重**——文本与上一份已提交的快照相同则不提交任何东西，不同才在会话里 `append` 一条 `user/message`（append 语义，旧快照不会被替换或移除）。
   - 因此本插件**每步都照旧 push**，内容没变也不跳过：跳过会让渲染文本在「有块 / 无块」之间跳变，反而每步各追加一份（实测 ~250 tok/份），长会话里每请求 `inject` 会随步数线性涨到 30k+ tok。
   - 压缩归档后的自愈交给宿主：宿主检测到上一份快照已被替换掉（`retained` 置空）时会重新投影当前快照，注入块自然跟着回来——不需要插件自己数步数做强制刷新。
+  - **读侧会话过滤值与写侧同尺**（H2，2026-09-30）：自动召回传给 `stg(op=timeline, session=…)` 的会话值，会先过**与写侧同一个** `_normalize_session`（单点消费：`md_cg/stg.py::_view_session`，真源仍是 `md_cg/mcp_server.py::_normalize_session`，**不重写实现**）——写侧落盘时已把 DSH 形态的会话 id 归一（`session-<uuid4>` 在会话根下**不存在**时落 `anonymous`；根不可读则 fail-soft 保原值），读侧若拿**未归一的原值**做等值比较，就会出现「同一条记忆写进去查不出」（实测 `stg(op=timeline, session=<原值>)` 恒 `count=0`，换 `session='anonymous'` 才命中）。修复只作用于「具体会话值」这一态：缺省 / `""` / `"*"` 三态语义逐位不变（跨会话视图），返回体的 `session` 回带**归一后**的生效值。守卫与端到端断言：`md_cg/test_h2_session_view_norm.py`（`python -m md_cg.test_h2_session_view_norm`）。
+  - ⚠️ **不属于本项的错位面**：`cg` 侧读路径（`search` / `recall` / `cg(op=read)`）的请求 `session` 走身份判定（issue #35 定稿「身份不可自报」，`MdCGSecure._candidates` 传 `session=None`），**不经** `_view_session`——两者不是同一个过滤，不得互相「对齐」（对齐即等于开一条按请求 session 读 private 的越权通道）。
+  - ⚠️ **残余边界（如实标注）**：部署侧用 `MDCG_SESSION` / `DSH_SESSION_ID` 把会话固定在进程 env 时，**写侧归属由 env 决定**、请求声明被否决（既有「来源优先级」语义，见 `_declared_session`），此时插件若仍拿宿主会话 id 去读本会话视图，归一后是 `anonymous` 而落盘是 env 值 ⇒ 该形态下仍读不到本会话写入；此类部署的本会话视图应传 env 会话 id（或不传，走跨会话视图）。这一条是既有「来源优先级」语义的推论，**不在本次修复范围**。
+  - **插件侧两处会话槽收口**（H2③，2026-09-30）：
+    - 宿主**未给会话标识**时，写入不再是「留空」——留空会让 md_cg 的 `Principal.__init__` 生成**进程级随机** `sess_*` 兜底桶（`md_cg/security.py:117`）：一个进程内所有无标识会话共用一桶、跨进程对不上、审计上不可辨认。改为**显式 `unassigned`** 常量：跨进程一致、可辨认、可审计，且不是伪造的宿主会话 id（非 DSH 形态，`_normalize_session` 原样采用）。要读这个桶：`stg(op=timeline, session="unassigned")`。
+    - T4 的语义召回**显式带会话槽**：调用形态由 `recall(q, 3)` 改为等价的 `read(q, {k: 3, session})`（同一条 MCP 出口 `cg(op=read)`，见 `src/lib/mdcg_client.ts` 的 recall → read）。此前不传 session，靠服务端「cg 读路径丢弃请求 session」侥幸不串台；一旦读侧归一化在召回链路上生效，不传就等价于**跨会话（全库）召回**。带上它不构成越权：cg 读路径的 session 是归因/视图维度，不参与任何授权（issue #35 定稿）。守卫：`test/h1-source-filter.test.ts` 的 E1/E2 与 `test/session-attribution.test.ts` ①②。
 
 ## 🛟 DSH 看门狗（scripts/）
 

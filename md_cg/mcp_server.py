@@ -3281,7 +3281,22 @@ def _dispatch(cg, name, args):
                 relation=a.get("relation"))
             res.setdefault("ok", res.get("verdict") == "ACCEPT")
             return res
-        written = cg.add(nid, a.get("content", ""), layer=a.get("layer") or "knowledge",
+        # ⑥（P-9b）：直写**不去重**是文档化现状（writelimit.py 模块头注 :9-12：
+        # 限流/同构聚合只作用 contextual 层，knowledge 等手动纪律写入不受限）
+        # ——本分支**不改落盘行为、不改 verdict**，只在返回体给出「同内容已存在」
+        # 的提示（dup_of/dup_ratio）与「本次是覆写」的读数（overwrite_of/
+        # overwrite_ratio），由调用方决定是否处理。判据复用主动遗忘闸门的**同一
+        # 实现**（forgetting.redundancy / prior_node / self_coverage），不另写
+        # 一份重复度算法；两个读数都必须在 `cg.add` **之前**取（add 之后索引里
+        # 必有 nid，覆写判据恒真、覆盖度恒 1.0）。
+        from . import forgetting as _forgetting
+        _layer = a.get("layer") or "knowledge"
+        _content = a.get("content", "")
+        _prior = _forgetting.prior_node(cg, nid)
+        _prior_cov = (_forgetting.self_coverage(cg, _prior, _content)
+                      if _prior is not None else None)
+        _dup = _forgetting.redundancy(cg, _content, layer=_layer, exclude=nid)
+        written = cg.add(nid, _content, layer=_layer,
                          # B2：同上——落盘面丢字段＝上游声明静默失效。
                          sensitivity=a.get("sensitivity"),
                          role=a.get("role"), tags=a.get("tags"),
@@ -3297,7 +3312,21 @@ def _dispatch(cg, name, args):
         if written is None:
             return {"ok": False, "id": nid, "verdict": "DEFER",
                     "reason": "节点间冲突检测未通过（on_conflict=defer）"}
-        return {"ok": True, "id": nid}
+        out = {"ok": True, "id": nid}
+        if _prior is not None:
+            out["overwrite_of"] = _prior
+            out["overwrite_ratio"] = _prior_cov
+        if _dup["with"] and _dup["max"] >= _forgetting.DUP_MERGE:
+            out["dup_of"] = _dup["with"]
+            out["dup_ratio"] = round(_dup["max"], 4)
+            out["dup_compared"] = _dup["compared"]
+            out["dup_hint"] = (
+                "同内容已存在于 %s（覆盖度 %.2f≥%.2f）；本路径是直写"
+                "（gated=false：knowledge 层手动纪律写入不受限流/去重约束，"
+                "见 writelimit.py 模块头注），正文已按原样落盘为新节点——"
+                "如需并入既有节点请显式处理"
+                % (_dup["with"], _dup["max"], _forgetting.DUP_MERGE))
+        return out
 
     if name == "mdcg_recall":
         use_fuzzy = bool(a.get("fuzzy"))

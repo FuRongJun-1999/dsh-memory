@@ -132,6 +132,48 @@ def payload(content):
     return "".join(out)
 
 
+# 生效条件：node_id 为真值且 cg.index 的 nodes 中已有该 id 时返回该 id（本次写入是覆写既有同 id 节点）；node_id 为空、cg 无 index 或取 index 抛异常、id 不在索引中时返回 None。
+def prior_node(cg, node_id):
+    """本次写入是否为**覆写既有同 id 节点**——返回既有 id 或 None（存在性判据单点）。
+
+    P-9b(a) 根因（探针实测）：同 id 覆写时 `redundancy(exclude=node_id)` 自排除
+    （「不与自身比正文」本身正确），但该层若只此一个节点 ⇒ `compared=0`、
+    `duplicate_with=None`、`duplicate_ratio=0.0`——裁决里「覆写」与「全新写入」
+    **完全不可区分**（审计面全 null，静默洞）。存在性判据收敛在此一处：`assess`
+    的 entropy 标注与直写路径的返回体共用，不各写一份。
+
+    边界（如实）：判据读 `cg.index`，与 `redundancy` 同一数据面（同代际假设）；
+    index 陈旧时最坏是漏标一次覆写提示，不影响任何落盘行为。
+    """
+    if not node_id:
+        return None
+    try:
+        nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    except Exception:
+        return None
+    return node_id if node_id in nodes else None
+
+
+# 生效条件：node_id 为真值且 cg.get(node_id) 返回真值时返回覆盖度（_coverage(bigrams(payload(content)), bigrams(payload(既有正文)))，1.0＝逐字同构的重写）；node_id 为空、节点取不到、既有正文为空时返回 None。
+def self_coverage(cg, node_id, content):
+    """「本次正文 vs 同 id 既有正文」的覆盖度（1.0 = 内容等同的重写）。
+
+    与 `redundancy` 共用同一套骨架（payload/bigrams/_coverage），不另写一份
+    重复度算法；差别只在比较对象是**自己**（故不适用 exclude）。用途：同 id
+    覆写时回答「这次是空写还是真改了」（P-9b(a) 提示的主体信息）。
+    """
+    try:
+        node = cg.get(node_id)
+    except Exception:
+        node = None
+    if not node:
+        return None
+    body = bigrams(payload(node.get("content") or ""))
+    if not body:
+        return None
+    return round(_coverage(bigrams(payload(content)), body), 4)
+
+
 # 生效条件：content 经 payload/bigrams 得空集合时直接返回零值 best（max=0.0、with=None、compared=0）；否则遍历 cg.index 的 nodes，跳过 nid==exclude，layer 为真值时只比较 str(layer 字段 or "")==layer 的节点，cg.get(nid) 抛异常/返回假值、或该节点 content 的 bigrams 为空则跳过，每计入一个节点后若 n>=limit 立即 break（故 limit 为 0 或负数时只比较首项即停），返回覆盖度最大者 best（无覆盖度提升时不更新 with/jaccard，compared 为实际计入数）。
 def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE):
     """Q1 重复？——新内容被既有同层节点覆盖的最大比例。"""
@@ -194,15 +236,39 @@ def importance_score(hint, novelty, kind, content):
     return {"score": round(max(0.0, min(1.0, s)), 4), "from": "heuristic"}
 
 
-# 生效条件：以 source_kind(role,verification_basis) 的 kind 与 redundancy(cg,content,layer=layer,exclude=node_id) 的 red["max"] 为输入，按 if/elif 顺序取首个命中分支——imp["score"]≥PROTECT_IMPORTANCE→"ACCEPT"；否则 kind=="internal_deterministic" 且 red["max"]≥DUP_DROP→"DROP"；否则 red["max"]≥DUP_MERGE→"MERGE"；否则 red["max"]≥DUP_DROP 且 imp["score"]<IMPORTANCE_MIN→"DEFER"；否则 imp["score"]≥IMPORTANCE_MIN→"ACCEPT"；否则 novelty≥NOVELTY_MIN→"ACCEPT"；否则→"DEFER"。
+# 生效条件：以 source_kind(role,verification_basis) 的 kind 与 redundancy(cg,content,layer=layer,exclude=node_id) 的 red["max"] 为输入，按 if/elif 顺序取首个命中分支——imp["score"]≥PROTECT_IMPORTANCE→"ACCEPT"；否则 kind=="internal_deterministic" 且 red["max"]≥DUP_DROP→"DROP"；否则 red["max"]≥DUP_MERGE→"MERGE"；否则 red["max"]≥DUP_DROP 且 imp["score"]<IMPORTANCE_MIN→"DEFER"；否则 imp["score"]≥IMPORTANCE_MIN→"ACCEPT"；否则 novelty≥NOVELTY_MIN→"ACCEPT"；否则→"DEFER"。返回体附带 P-9b 可见性字段：entropy.overwrite_of / entropy.overwrite_ratio（同 id 覆写时非 null）、dedup_skipped（**仅 PROTECT 分支**非 null，标注「因保护优先未走去重」+ 去重判据读数）——两者都不改 verdict、不改落盘行为。
 def assess(cg, content, layer="contextual", role=None, verification_basis=None,
            importance_hint=None, node_id=None):
-    """三问 → 四态裁决。返回完整判据（可审计，不只给结论）。"""
+    """三问 → 四态裁决。返回完整判据（可审计，不只给结论）。
+
+    P-9b（2026-09-30）：本函数此前有两处**静默洞**（探针实测），都只补可见性、
+    不动裁决语义：
+      (a) 同 id 覆写：`redundancy(exclude=node_id)` 自排除 ⇒ 该层只此一节点时
+          compared=0、dup 字段全 null，「覆写」与「全新写入」不可区分。处置：
+          entropy 增 `overwrite_of`（既有 id）+ `overwrite_ratio`（新正文对既有
+          正文的覆盖度，1.0=空写）——判据单点在 `prior_node`/`self_coverage`。
+      (b) importance≥PROTECT_IMPORTANCE 的保护优先分支**排在冗余判定之前** ⇒
+          高重要度的近重复内容直接 ACCEPT，绕过 MERGE/DROP 而审计面只剩一句
+          「触发不可遗忘保护」。处置：该分支返回 `dedup_skipped`
+          （reason=protect_importance + duplicate_with/duplicate_ratio/compared +
+          overwrite_of），并在 reason 文案里显式写出「因保护优先未走去重」。
+          **为何不把 PROTECT 挪到冗余判定之后**（依据）：① 该分支语义是「不可
+          遗忘保护」（PROTECT_IMPORTANCE 与 writelimit.py 模块头注 :9-12 的
+          「importance_hint≥0.7 保护优先」是跨模块同一口径，且 writelimit 是
+          文档化设计不许动）；挪位后高重要度内容会被 DROP（内部确定性来源）或
+          MERGE 并入低重要度节点，**削弱的正是保护本身**，且造成两模块对同一
+          阈值的语义分叉；② DROP 分支的伤害（重要内容被丢弃）不可逆，MERGE 会把
+          关键正文并入他节点、检索归属漂移——风险高于收益；③ 缺陷本体是「绕过
+          去重而不可见」而非「保护存在」，标注即可消除静默且零回归面
+          （test_p9_forget_protect.py 的「importance_hint≥0.7→ACCEPT」逐字不变）。
+    """
     kind = source_kind(role, verification_basis)
     red = redundancy(cg, content, layer=layer, exclude=node_id)
     novelty = round(1.0 - red["max"], 4)
     bits = round(self_information(red["max"]), 4)
     imp = importance_score(importance_hint, novelty, kind, content)
+    # P-9b(a)：同 id 覆写的存在性/覆盖度（不与自身比的 redundancy 之外的另一读法）
+    prior = prior_node(cg, node_id)
     entropy = {
         "source_kind": kind,
         "novelty": novelty,
@@ -211,11 +277,38 @@ def assess(cg, content, layer="contextual", role=None, verification_basis=None,
         "duplicate_with": red["with"],
         "duplicate_ratio": round(red["max"], 4),
         "compared": red["compared"],
+        # 非 null = 本次是覆写既有同 id 节点（原先此处无法与全新写入区分）
+        "overwrite_of": prior,
+        "overwrite_ratio": (self_coverage(cg, prior, content)
+                            if prior is not None else None),
     }
 
+    dedup_skipped = None
     if imp["score"] >= PROTECT_IMPORTANCE:
+        # P-9b(b)：保护优先分支先于冗余判定——近重复/覆写时不静默，给出去重读数
+        due = []
+        if prior is not None:
+            due.append("覆写既有同 id 节点 %s（正文覆盖度 %s）"
+                       % (prior, "—" if entropy["overwrite_ratio"] is None
+                          else "%.2f" % entropy["overwrite_ratio"]))
+        if red["with"] and red["max"] >= DUP_MERGE:
+            due.append("与 %s 重复度 %.2f≥%.2f（够 MERGE 阈值）"
+                       % (red["with"], red["max"], DUP_MERGE))
         verdict, why = "ACCEPT", (f"重要度 {imp['score']:.2f}≥{PROTECT_IMPORTANCE}"
                                  f"（触发不可遗忘保护）")
+        dedup_skipped = {
+            "reason": "protect_importance",
+            "detail": ("保护优先分支排在冗余判定之前：本次未走 MERGE/DROP"
+                       + ("（" + "；".join(due) + "）" if due else
+                          "（重复度 %.2f<%.2f 且非覆写，无近重复）"
+                          % (red["max"], DUP_MERGE))),
+            "duplicate_with": red["with"] if red["max"] >= DUP_MERGE else None,
+            "duplicate_ratio": round(red["max"], 4),
+            "compared": red["compared"],
+            "overwrite_of": prior,
+        }
+        if due:
+            why += "；⚠ 因保护优先未走去重（" + "；".join(due) + "）"
     elif kind == "internal_deterministic" and red["max"] >= DUP_DROP:
         verdict, why = "DROP", (f"确定性内部产生且冗余 {red['max']:.2f}≥{DUP_DROP}"
                                f"（低熵噪音，不编码）")
@@ -234,7 +327,9 @@ def assess(cg, content, layer="contextual", role=None, verification_basis=None,
         verdict, why = "DEFER", "重要度与新信息均不足判据（待定）"
 
     return {"verdict": verdict, "reason": why, "redundancy": red,
-            "importance": imp, "entropy": entropy}
+            "importance": imp, "entropy": entropy,
+            # P-9b(b) 可见性字段：仅 PROTECT 分支非 null（其余分支本来就去重/裁决）
+            "dedup_skipped": dedup_skipped}
 
 
 # ---------------------------------------------------------------- 落库动作

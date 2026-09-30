@@ -520,7 +520,7 @@ def _hyperedge_extra(a):
     return {k: a[k] for k in _he.EXTRA_FM_KEYS if a.get(k) is not None}
 
 
-# 生效条件：由链尾以含 cg 与 a 的 ctx 调用即无条件执行 cg.add 落盘（a.get("sensitivity") 一并透传——落盘面丢字段＝上游声明静默失效，B2）并返回 ok=True/committed=True，ctx["cvd"] 非 None 时附加 consistency 字段；
+# 生效条件：由链尾以含 cg 与 a 的 ctx 调用即无条件执行 cg.add 落盘（a.get("sensitivity") 一并透传——落盘面丢字段＝上游声明静默失效，B2）并返回 ok=True/committed=True，ctx["cvd"] 非 None 时附加 consistency 字段；落盘前另取「同内容已存在」与「覆写既有同 id 节点」两个读数（P-9b ⑥），命中即在返回体附 dup_of/dup_ratio/dup_compared/dup_hint 与 overwrite_of/overwrite_ratio——**只加提示，不改落盘行为、不改 verdict**；
 def _executor(ctx):
     """链尾执行器（常驻不可卸载）：cg.add 直写落盘。
 
@@ -533,7 +533,23 @@ def _executor(ctx):
     # float(None) 抛 TypeError 崩主写路径——回退默认 0.5（与 add 缺省同口径）；
     # 0 / 0.0 等合法 falsy 数值照传（_gate_gated :304 已是同款 None 判定）。
     _imp = a.get("importance")
-    cg.add(ctx["nid"], a.get("content", ""),
+    # ⑥（P-9b）：本执行器是**直写落盘点**之一（另一处 = mcp_server 的
+    # mdcg_remember 非 gated 分支）。直写不去重是文档化现状（writelimit.py
+    # 模块头注 :9-12：限流/同构聚合只作用 contextual 层，knowledge 等手动纪律
+    # 写入不受限）——故**不改落盘行为、不改 verdict**，只在返回体补
+    # 「同内容已存在」（dup_of/dup_ratio）与「本次是覆写」（overwrite_of/
+    # overwrite_ratio）两个读数。判据复用 forgetting 的同一实现
+    # （redundancy/prior_node/self_coverage）；两个读数都必须在 cg.add **之前**
+    # 取（add 后索引必有 nid：覆写判据恒真、覆盖度恒 1.0）。
+    from . import forgetting as _forgetting
+    _content = a.get("content", "")
+    _prior = _forgetting.prior_node(cg, ctx["nid"])
+    _prior_cov = (_forgetting.self_coverage(cg, _prior, _content)
+                  if _prior is not None else None)
+    _dup = _forgetting.redundancy(cg, _content,
+                                  layer=a.get("layer") or "knowledge",
+                                  exclude=ctx["nid"])
+    cg.add(ctx["nid"], _content,
            # B2（2026-09-30）：密级透传。此前本实参表**缺 sensitivity**，而
            # 同文件 _gate_audit 的 payload（:219）带着它交给审核闸——两面口径
            # 分叉：审核闸按调用方声明的密级判，落盘闸按 DEFAULT_SENSITIVITY
@@ -560,6 +576,19 @@ def _executor(ctx):
            "verdict": ctx["verdict"]}
     if ctx.get("cvd") is not None:
         out["consistency"] = ctx["cvd"]
+    # ⑥：直写提示（不改落盘行为、不改 verdict；见本函数开头注释）
+    if _prior is not None:
+        out["overwrite_of"] = _prior
+        out["overwrite_ratio"] = _prior_cov
+    if _dup["with"] and _dup["max"] >= _forgetting.DUP_MERGE:
+        out["dup_of"] = _dup["with"]
+        out["dup_ratio"] = round(_dup["max"], 4)
+        out["dup_compared"] = _dup["compared"]
+        out["dup_hint"] = (
+            "同内容已存在于 %s（覆盖度 %.2f≥%.2f）；本路径是直写（gated=false："
+            "knowledge 层手动纪律写入不受限流/去重约束，见 writelimit.py 模块头注），"
+            "正文已按原样落盘——如需并入既有节点请显式处理"
+            % (_dup["with"], _dup["max"], _forgetting.DUP_MERGE))
     return out
 
 

@@ -210,7 +210,49 @@ def relation(cg, a_id, b_id, time_axis="observed"):
                      "space_known": ba is not None and bb is not None}}
 
 
-# 生效条件：以 _scan(cg,layer=layer,max_scan=max_scan) 为范围，session 去空白后非空且不为 "*" 时仅保留 frontmatter.session 精确相等的节点，_interval(n["frontmatter"], time_axis) 为 None 的节点被跳过，其余按 (start,end) 以 reverse=bool(desc) 排序，返回 count=全部命中数、limit=传入 limit、session=生效的会话过滤值（跨会话时为 None）、items 为排序后前 limit 项（limit=0 时为空列表）且每项附 session 归属与 _preview(cg,id)（time_axis 缺省 observed，与旧行为逐位一致；非法轴抛 ValueError）。
+# 生效条件：session 为 None 或 str(session).strip() 为空串时返回 ""（跨会话视图的内部表示，与旧实现 `"" if session is None else str(session).strip()` 逐位一致）；去空白后恰为 "*" 时返回 "*"；否则延迟导入 mcp_server._normalize_session 并返回其归一结果；该导入抛任何异常（ImportError 等）时返回去空白原值（fail-soft 退回旧行为）。
+def _view_session(session):
+    """读侧会话视图值 → 过滤值：**与写侧同一把尺**（H2，2026-09-30）。
+
+    动机（端到端实测，见 `md_cg/test_h2_session_view_norm.py`）：写侧落盘值 =
+    `_normalize_session(请求声明值)`（`MdCGSecure._attribution` 取 `cg.session`，
+    而 `cg.session` 由 `call_tool` → `_declared_session` 归一），读侧若拿
+    **未归一的原值**做等值比较，同一条记忆就「写进去查不出」——DSH 形态的
+    会话 id 在会话根下不存在时，写侧落 `anonymous`、读侧按 `session-…`
+    精确匹配 ⇒ `count=0`。
+
+    由此本函数**只归一「具体会话值」这一态**，三态语义逐位不变：
+      · None / 空串 → 跨会话（缺省不过滤，向后兼容）；
+      · `"*"`       → 跨会话（显式意图；`"*"` 不是会话名，**不归一**）；
+      · 其它值      → 过 `_normalize_session`（本会话视图与写侧同尺）。
+
+    真源只有一份（`mcp_server._normalize_session`），此处**消费而不重写**：
+    写侧读侧各写一份校验必然造出第三种不等值。延迟导入的副作用为零——正常
+    形态下 stg 本就被 mcp_server 调用（模块早已加载）；`stg` 被独立使用时导入
+    失败即 fail-soft 返回原值（退回旧行为，不报错、不改变既有语义）。
+
+    不适用条件：`cg` 侧读路径（search/recall/`cg(op=read)`）的请求 `session`
+    走 `MdCGSecure._candidates` 的**身份判定**（issue #35 定稿：身份不可自报），
+    不经本函数——那不是视图过滤，两处不得互相「对齐」。
+
+    返回值口径：None 与空串一律映射为 `""`（旧实现 `"" if session is None
+    else str(session).strip()` 的内部表示，跨会话分支判据 `sid in ("", "*")`
+    依赖它——返回 None 会让 `cross` 判假、把缺省视图变成「只看 session 为
+    空的节点」，是一处会静默清空整块自动召回的坑）。
+    """
+    if session is None:
+        return ""
+    s = str(session).strip()
+    if s in ("", "*"):
+        return s
+    try:
+        from .mcp_server import _normalize_session
+    except Exception:                          # noqa: BLE001  fail-soft：保旧行为
+        return s
+    return _normalize_session(s)
+
+
+# 生效条件：以 _scan(cg,layer=layer,max_scan=max_scan) 为范围，session 经 _view_session 归一后（None/空/"*"=跨会话不过滤，其它值=归一后的具体会话）非跨会话时仅保留 frontmatter.session 精确相等的节点，_interval(n["frontmatter"], time_axis) 为 None 的节点被跳过，其余按 (start,end) 以 reverse=bool(desc) 排序，返回 count=全部命中数、limit=传入 limit、session=生效的会话过滤值（跨会话时为 None）、items 为排序后前 limit 项（limit=0 时为空列表）且每项附 session 归属与 _preview(cg,id)（time_axis 缺省 observed，与旧行为逐位一致；非法轴抛 ValueError）。
 def timeline(cg, layer=None, limit=50, desc=True, max_scan=5000,
              time_axis="observed", session=None):
     """按时间排序的节点列表。`time_axis` 决定排序依据的时间区间（见 `_interval`）。
@@ -220,11 +262,13 @@ def timeline(cg, layer=None, limit=50, desc=True, max_scan=5000,
       · `"*"` → 同上语义，但把「我要看所有会话做了什么」写成**显式意图**，与
         「忘了传参」区分开，审计里也看得出这是一次跨会话读取；
       · 其它值 → 只取 `frontmatter.session` 精确相等的节点（本会话视图，
-        自动召回用它防串台）。
+        自动召回用它防串台）。**该值先过 `_view_session` 归一**（H2）——
+        写侧落盘时已过 `_normalize_session`，读侧不过同一把尺就会出现
+        「写进去查不出」；返回体 `session` 回带的是**归一后**的生效值。
     `items` 一并回带 `session`：跨会话视图下「这条是哪个会话做的」必须可辨，
     否则「能读到所有会话做了什么」只剩内容、丢了归属。
     """
-    sid = "" if session is None else str(session).strip()
+    sid = _view_session(session)
     cross = sid in ("", "*")            # 跨会话：显式 "*" 与缺省同义
     items = []
     for n in _scan(cg, layer=layer, max_scan=max_scan):
