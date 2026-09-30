@@ -30,7 +30,7 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT
                    TIER_BUCKET_SCAN, TIER_GLOBAL_LIKE, TIER_GLOBAL_SCAN,
                    GLOBAL_CAP, expand_query_terms_weighted,
                    expand_query_terms_llm, en_zh_bigrams, semantic_on,
-                   cut_by_relevance, apply_retrieval_gates)
+                   cut_by_relevance, apply_retrieval_gates, NEG_ROUTE_LAYERS)
 from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
                self_state, predict, evolution, weights, pooling,
@@ -745,8 +745,9 @@ class MdCGOS(MdCG):
         now = time.time() if validity else None
         out = []
         for e in list(self.index["nodes"].values()):
-            if e.get("layer") in ("rejected", "unresolved", "goals"):
+            if e.get("layer") in NEG_ROUTE_LAYERS:
                 continue  # 负记忆走覆盖标记；目标只做定向，都不进正排
+                          # （真源 mdcg.NEG_ROUTE_LAYERS，本处直接导入，不留第二份字面量）
             # '"*"' = 显式跨会话（读遍所有会话）；缺省 None 同义（见 stg.timeline）
             if session and session != "*" and e.get("session") != session:
                 continue

@@ -124,6 +124,28 @@ check("A16 语法错误返回空列表且不抛异常",
 check("A17 dispatch_ops 与 audit 同源（同一次提取口径）",
       P.dispatch_ops()["ops"] == _a["actual"], P.dispatch_ops()["ops"])
 
+# ---- A18~A20 扩展能力面契约登记（2026-09-30）：wrapper 恒定键 + protect 负路由 ----
+# 这两条不属五动词形状表，但同为 protocol.py 的真源声明——故用**源码级同源守卫**
+# 钉住实现（照 A14 的教训：声明与实现各写一份就会漂移，宁可少断言不可假绿灯）。
+_here = os.path.dirname(os.path.abspath(__file__))
+_msrc = open(os.path.join(_here, "mcp_server.py"), encoding="utf-8").read()
+_psrc = open(os.path.join(_here, "protect.py"), encoding="utf-8").read()
+check("A18 action_source 四态登记与 mcp_server 实现同源（M4 wrapper 恒定键）",
+      P.ACTION_SOURCE_KEY == "action_source"
+      and tuple(P.ACTION_SOURCE_VALUES) == ("explicit", "sig", "default", "none")
+      and all(('"%s"' % v) in _msrc for v in P.ACTION_SOURCE_VALUES)
+      and ('setdefault("%s", act_source)' % P.ACTION_SOURCE_KEY) in _msrc,
+      "登记=%r 取值=%r" % (P.ACTION_SOURCE_KEY, P.ACTION_SOURCE_VALUES))
+check("A19 protect.mark 负路由形态登记与 protect.py 实现同源（H9）",
+      P.PROTECT_MARK_NEG_ROUTE_ERROR == "node_not_found"
+      and P.PROTECT_MARK_NEG_ROUTE.get("ok") is False
+      and '{"ok": False, "error": "node_not_found", "node_id": node_id}' in _psrc,
+      "登记=%r" % (P.PROTECT_MARK_NEG_ROUTE,))
+check("A20 audit 透出两条扩展面登记（客户端不必读源码）",
+      _a.get("action_source", {}).get("key") == P.ACTION_SOURCE_KEY
+      and _a.get("protect_neg_route", {}).get("error") == "node_not_found",
+      str({k: _a.get(k) for k in ("action_source", "protect_neg_route")}))
+
 # ==================== B. 动态：进程内真调形状 ====================
 print("-- B 进程内真调形状 --")
 _root = tempfile.mkdtemp(prefix="mdcg_proto_")

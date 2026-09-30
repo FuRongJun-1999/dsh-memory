@@ -12,6 +12,15 @@ M1 · `k` 的「显式 0 也是显式」
     六处全部**委托**该助手的单点实现。库层是「k<=0 意味什么」的唯一判据真源
     （实测 cg.search/recall 对 0/-1 均返空且不抛），故本层只判透传 vs 回落。
 
+    **同日补强（k 族同族残余 8 处）**：self_check(5) / scrub.sample(k→n→
+    DEFAULT_SAMPLE) / scrub.associate(30) / scrub.sweep(k→n→DEFAULT_SAMPLE) /
+    scrub.history(100) / task.find(k→limit→5) / route(10) / mdcg_reflect(10)
+    原也是 `int(a.get("k") or N)`（含 k→n / k→limit 链式）。收口口径同上单点；
+    链式站点写成 `_int_arg(a, "k", _int_arg(a, "n", D))`——**逐级都不吞显式 0**。
+    其中 task.find（库层 `max(int(k or 5), 1)`）与 scrub.history（库层
+    `records[-int(limit):]`，0 即「取全部」）在库层另有 0 的语义、端到端不可观察，
+    故改断**本层透传给库层的原值**（打桩捕获，见 M1-D13/D14）。
+
 M2 · read 的 node_id 类型闸
     非 str 的 node_id：哈希可算者（int/float/bool）cg.get() 取不到 →
     `_node_view(None)` → **裸 null**；不可哈希者（list/dict）TypeError 逃出。
@@ -101,6 +110,29 @@ check("M1-B2 六处全部委托 _int_arg 单点（一处实现，六处调用）
 check("M1-B3 单点实现唯一（_int_arg 只定义一次）",
       len(re.findall(r"^def _int_arg\(", _SRC, re.M)) == 1,
       len(re.findall(r"^def _int_arg\(", _SRC, re.M)))
+# ---- k 族**全量**收口（2026-09-30 补强）：除 read 面六处外的其余 8 处站点 ----
+# 旧写法在链式上还有 `int(a.get("k") or a.get("n") or N)` / `... or a.get("limit") or N`
+# 两种形态，故用「`int(a.get(` 后紧跟 k 键 + or」的全族正则，避免只清直连形态。
+_k_family_old = re.findall(r'int\(a\.get\("k"\)\s*or', _SRC)
+check("M1-B4 k 族旧写法全量清零（含 k→n / k→limit 链式）",
+      len(_k_family_old) == 0, "残留 %d 处" % len(_k_family_old))
+_K_SITES = (
+    ("metacognition.self_check", r'k=_int_arg\(a, "k", 5\)\)'),
+    ("scrub.sample",
+     r'cg, _int_arg\(a, "k", _int_arg\(a, "n", scrub\.DEFAULT_SAMPLE\)\),'),
+    ("scrub.associate", r'limit=_int_arg\(a, "k", 30\),'),
+    ("scrub.sweep",
+     r'cg, n=_int_arg\(a, "k", _int_arg\(a, "n", scrub\.DEFAULT_SAMPLE\)\),'),
+    ("scrub.history", r'return scrub\.history\(cg, limit=_int_arg\(a, "k", 100\)\)'),
+    ("task.find", r'cg, name, k=_int_arg\(a, "k", _int_arg\(a, "limit", 5\)\)\)'),
+    ("op.route", r'res, meta = cg\.search\(intent, k=_int_arg\(a, "k", 10\),'),
+    ("mdcg_reflect",
+     r'res, _ = cg\.search\(a\.get\("query", ""\), k=_int_arg\(a, "k", 10\),'),
+)
+_site_off = [(n, len(re.findall(p, _SRC)))
+             for n, p in _K_SITES if len(re.findall(p, _SRC)) != 1]
+check("M1-B5 k 族 8 处站点逐一委托 _int_arg 单点（各恰 1 处）",
+      not _site_off, _site_off)
 
 
 # ==================== M2-A / M4-B. 源码级：文档与常量同源 ====================
@@ -160,6 +192,75 @@ try:
     # 库层是「k<=0」判据真源：不抛、返空（修法不自行报错的依据）
     check("M1-C9 库层 cg.search(k=0) 不抛且返空（本层不自造报错的依据）",
           cg.search("红按钮", k=0)[0] == [], cg.search("红按钮", k=0)[0])
+
+    # ---- M1-D. 端到端：k 族**其余 8 处**站点（同日补强，不再只覆盖 read 面） ----
+    # 判据面与 M1-C 同：本层只判「显式 0 透传 vs 缺省回落」，**0 在库层的含义由库层
+    # 定**——故逐站点断「显式 0 与缺省可区分」，不假定 0 一律等于「0 条」。
+    rf0 = M._dispatch(cg, "mdcg_reflect", {"query": "红按钮", "k": 0})
+    check("M1-D1 mdcg_reflect k=0 → n_results=0（修前回落 10 条）",
+          rf0.get("n_results") == 0, str(rf0.get("n_results")))
+    rfd = M._dispatch(cg, "mdcg_reflect", {"query": "红按钮"})
+    check("M1-D2 mdcg_reflect 缺省 k → 有结果（回落未被改坏）",
+          (rfd.get("n_results") or 0) > 0, str(rfd.get("n_results")))
+    rt0 = M._cg_dispatch(cg, {"op": "route", "intent": "红按钮", "k": 0})
+    check("M1-D3 route k=0 → knowledge 空（修前回落 10 条）",
+          rt0.get("knowledge") == [], len(rt0.get("knowledge") or []))
+    rtd = M._cg_dispatch(cg, {"op": "route", "intent": "红按钮"})
+    check("M1-D4 route 缺省 k → 有结果（回落未被改坏）",
+          len(rtd.get("knowledge") or []) > 0, len(rtd.get("knowledge") or []))
+    sm0 = M._scrub_call(cg, {"op": "scrub", "action": "sample", "k": 0})
+    check("M1-D5 scrub.sample k=0 → n=0（修前回落 DEFAULT_SAMPLE）",
+          sm0.get("n") == 0, str(sm0.get("n")))
+    smd = M._scrub_call(cg, {"op": "scrub", "action": "sample"})
+    check("M1-D6 scrub.sample 缺省 → 有样本（回落未被改坏）",
+          (smd.get("n") or 0) > 0, str(smd.get("n")))
+    as0 = M._scrub_call(cg, {"op": "scrub", "action": "associate",
+                             "node_id": "n1", "k": 0})
+    check("M1-D7 scrub.associate k=0 → 联想 0 条（limit 修前回落 30）",
+          as0.get("n") == 0, str(as0.get("n")))
+    asd = M._scrub_call(cg, {"op": "scrub", "action": "associate",
+                             "node_id": "n1"})
+    check("M1-D8 scrub.associate 缺省 → 有联想（回落未被改坏）",
+          (asd.get("n") or 0) > 0, str(asd.get("n")))
+    sw0 = M._scrub_call(cg, {"op": "scrub", "action": "sweep", "k": 0})
+    check("M1-D9 scrub.sweep k=0 → 抽样 0 条（修前回落 DEFAULT_SAMPLE）",
+          (sw0.get("sample") or {}).get("n") == 0,
+          str((sw0.get("sample") or {}).get("n")))
+    swd = M._scrub_call(cg, {"op": "scrub", "action": "sweep"})
+    check("M1-D10 scrub.sweep 缺省 → 有抽样（回落未被改坏）",
+          ((swd.get("sample") or {}).get("n") or 0) > 0,
+          str((swd.get("sample") or {}).get("n")))
+    # self_check：k 决定「吃几条相似历史」——上面两次 mdcg_reflect 已写入反思记录
+    sc0 = M._metacognition_call(cg, {"op": "metacognition", "action": "self_check",
+                                     "query": "红按钮", "k": 0})
+    check("M1-D11 self_check k=0 → prior_attempts=0（修前回落 5 条历史）",
+          sc0.get("prior_attempts") == 0, str(sc0.get("prior_attempts")))
+    scd = M._metacognition_call(cg, {"op": "metacognition", "action": "self_check",
+                                     "query": "红按钮"})
+    check("M1-D12 self_check 缺省 → 吃到历史（回落未被改坏）",
+          (scd.get("prior_attempts") or 0) > 0, str(scd.get("prior_attempts")))
+    # task.find 与 scrub.history 两处：**库层对 k 另有语义**（`max(int(k or 5), 1)`
+    # 下限 1；`records[-int(limit):]` 下 limit=0 即「取全部」），端到端不可观察 ——
+    # 故改断**本层透传的原值**（打桩捕获库层入参，finally 恢复，零残留）。
+    from md_cg import scrub as _s_mod, tasks as _t_mod
+    _seen = {}
+    _orig_fs, _orig_sh = _t_mod.find_similar, _s_mod.history
+    try:
+        _t_mod.find_similar = lambda cg_, name, k=5: (
+            _seen.setdefault("task_find", []).append(k) or {"ok": True})
+        _s_mod.history = lambda cg_, limit=100: (
+            _seen.setdefault("scrub_history", []).append(limit)
+            or {"n": 0, "records": []})
+        M._task_call(cg, {"op": "task", "action": "find", "name": "红", "k": 0})
+        M._task_call(cg, {"op": "task", "action": "find", "name": "红"})
+        M._scrub_call(cg, {"op": "scrub", "action": "history", "k": 0})
+        M._scrub_call(cg, {"op": "scrub", "action": "history"})
+    finally:
+        _t_mod.find_similar, _s_mod.history = _orig_fs, _orig_sh
+    check("M1-D13 task.find 显式 k=0 原样透传库层（缺省才回落 5）",
+          _seen.get("task_find") == [0, 5], _seen.get("task_find"))
+    check("M1-D14 scrub.history 显式 k=0 原样透传库层（缺省才回落 100）",
+          _seen.get("scrub_history") == [0, 100], _seen.get("scrub_history"))
 
     # ---- M2-B. 端到端：node_id 两态可区分、无裸 null、无 TypeError ----
     ok1 = M._cg_call(cg, {"op": "read", "node_id": "n1"})

@@ -6,7 +6,9 @@
 #           `search` 候选收集/`add_unresolved`/`_refresh_unresolved`/`_ticket_slug`/
 #           `health`·`flywheel_step`、md_cg/consistency.py 的 `check`（哨兵漏斗 +
 #           `FLYWHEEL_TRIGGERS`）、md_cg/routing.py 的 `bucket_health(counts,
-#           total_nodes)` 同口径时成立；沙箱条件：所有库根一律 tempfile.mkdtemp，
+#           total_nodes)`、md_cg/mdcos.py 的 `_candidates` 负层过滤（真源导入
+#           `NEG_ROUTE_LAYERS`，不留同值副本——C6/C7）同口径时成立；
+#           沙箱条件：所有库根一律 tempfile.mkdtemp，
 #           绝不触在役库/在役服务。
 # 子功能：
 #   A 负覆盖尾诚实化：①分数＝哨兵 0.0 + 负性走独立字段（不再冒充 1.0 候选）
@@ -14,6 +16,7 @@
 #     `node_id` 字段（`id` 仍是落盘路径——既有消费者口径一字不动）
 #   B `_compute_d` 分母只数真实候选（提示条目不进分母，D 不再被虚高）
 #   C 基类与生产路径同口径：负记忆/目标槽不进正排，同一负节点不再双列
+#     （负层元组真源单点：mdcos 直接导入 mdcg.NEG_ROUTE_LAYERS，不留同值副本）
 #   D 飞轮只对真冲突 REJECT 建单；DEFER/BLINDSPOT 不再自动建单（判定照旧返回）
 #   E CCG 哨兵「不适用条件：无」的直连入口形态（consistency.check / cg.add）与
 #     mdcos 入口同口径，且真负条件仍判冲突（防放宽）
@@ -31,6 +34,7 @@
 #           FixReport 的 gaps）；负覆盖条目在 MCP 结果面的呈现（`_node_view` 只透
 #           id/path/frontmatter/content）不在本文件面内，属调用方渲染层。
 import hashlib
+import inspect
 import os
 import re
 import shutil
@@ -269,6 +273,15 @@ def group_c():
     check("C5 include_neg=False → 负节点完全不出现（改前仍作正候选出现一次）",
           [r[0].get("id") for r in res_off] == ["mem_0"],
           str([r[0].get("id") for r in res_off]))
+    # ---- 真源单点（2026-09-30 补强）：生产路径不留同值字面量副本 ----
+    # mdcos._candidates 旧写作裸元组 ("rejected","unresolved","goals")——与 mdcg 的
+    # NEG_ROUTE_LAYERS 同值异构：改一处漏一处，正是 C 组「同口径」要防的漂移。
+    check("C6 生产路径（mdcos）不留负层元组字面量副本",
+          '("rejected", "unresolved", "goals")' not in inspect.getsource(mdcos),
+          "mdcos.py 仍有字面量副本")
+    check("C7 MdCGOS 与基类共用同一常量对象（导入非同值重写）",
+          mdcos.NEG_ROUTE_LAYERS is _mdcg.NEG_ROUTE_LAYERS,
+          "%r vs %r" % (mdcos.NEG_ROUTE_LAYERS, _mdcg.NEG_ROUTE_LAYERS))
     b.close()
     osr.close()
     return b

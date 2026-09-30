@@ -1298,7 +1298,7 @@ def _consistency_call(cg, a):
     raise ValueError(f"consistency 未知 action：{act}")
 
 
-# 生效条件：当 cg、a 传入时，按 a.get('action') or 'report'（空串/None 回退 'report'）分派，window=int(a.get('window') or 50)（a.get('window') 假值回落 50）：action=report 返回 cg.metacognition_report(window=window)；action=trace 返回 cg.metacognition_trace(window=window)；action=calibration 返回 cg.metacognition_calibration(max_scan=int(a.get('limit') or 2000))（a.get('limit') 假值回落 2000）；action=blindspots 返回 cg.metacognition_blindspots(limit=int(a.get('limit') or 20), window=window)（a.get('limit') 假值回落 20）；action=trust 返回 cg.metacognition_trust(window=window)；action=self_check 返回 cg.self_check(a.get('query') or a.get('text') or '', k=int(a.get('k') or 5))（query/text 假值回落 ''，k 假值回落 5）；action=history 返回 cg.metacognition_history(limit=int(a.get('limit') or 100))（a.get('limit') 假值回落 100）；action=catalog 返回 metacognition.catalog()；action=d_meta 返回 cg.metacognition_d_meta(window=window)（边界压力向量，三代理各自 [0,1]、不合成单值）；其他 action 抛 ValueError；
+# 生效条件：当 cg、a 传入时，按 a.get('action') or 'report'（空串/None 回退 'report'）分派，window=int(a.get('window') or 50)（a.get('window') 假值回落 50）：action=report 返回 cg.metacognition_report(window=window)；action=trace 返回 cg.metacognition_trace(window=window)；action=calibration 返回 cg.metacognition_calibration(max_scan=int(a.get('limit') or 2000))（a.get('limit') 假值回落 2000）；action=blindspots 返回 cg.metacognition_blindspots(limit=int(a.get('limit') or 20), window=window)（a.get('limit') 假值回落 20）；action=trust 返回 cg.metacognition_trust(window=window)；action=self_check 返回 cg.self_check(a.get('query') or a.get('text') or '', k=_int_arg(a, 'k', 5))（query/text 假值回落 ''，k 显式原样透传、缺省回落 5）；action=history 返回 cg.metacognition_history(limit=int(a.get('limit') or 100))（a.get('limit') 假值回落 100）；action=catalog 返回 metacognition.catalog()；action=d_meta 返回 cg.metacognition_d_meta(window=window)（边界压力向量，三代理各自 [0,1]、不合成单值）；其他 action 抛 ValueError；
 def _metacognition_call(cg, a):
     """独立元认知统一入口（cg op=metacognition 与 mdcg_metacognition 共用）。
 
@@ -1322,7 +1322,7 @@ def _metacognition_call(cg, a):
         return cg.metacognition_trust(window=window)
     if act == "self_check":
         return cg.self_check(a.get("query") or a.get("text") or "",
-                             k=int(a.get("k") or 5))
+                             k=_int_arg(a, "k", 5))
     if act == "history":
         return cg.metacognition_history(limit=int(a.get("limit") or 100))
     if act == "catalog":
@@ -1669,7 +1669,7 @@ def _sustain_call(cg, a):
     raise ValueError(f"sustain 未知 action：{act}")
 
 
-# 生效条件：当 cg、a 传入时，按 a.get('action') or 'sweep'（空串/None 回退 'sweep'）分派，ids/kinds 若为字符串则按逗号或空白拆成列表，node_id=a.get('node_id') or a.get('node')，target=ids or ([node_id] if node_id else None)（ids 假值回落 node_id 列表或 None）：action 为 sample/spot_check 返回 scrub.sample(cg, int(a.get('k') or a.get('n') or scrub.DEFAULT_SAMPLE), strategy=a.get('strategy') or 'stratified', seed=a.get('seed'))（k/n 假值链回落 scrub.DEFAULT_SAMPLE）；action 为 associate/related 时若 node_id 假值抛 ValueError，否则返回 scrub.associate(cg, node_id, hops=int(a.get('hops') or scrub.DEFAULT_HOPS), limit=int(a.get('k') or 30), lexical=bool(a.get('lexical', True)))（hops 假值回落常量，k 假值回落 30，lexical 缺键为 True）；action 为 audit/check 返回 scrub.audit(cg, target, hops=int(a.get('hops') or 1), min_severity=a.get('min_severity') or 'info')；action 为 decontaminate/repair 返回 scrub.decontaminate(cg, target, kinds=kinds, dry_run=bool(a.get('dry_run', True)), min_severity=a.get('min_severity') or 'medium', hops=int(a.get('hops') or 1), actor=a.get('actor'), override=bool(a.get('override')))；action 为 calibrate/calibration 返回 scrub.calibrate(cg, apply=bool(a.get('apply')), override=bool(a.get('override')), actor=a.get('actor'))；action 为 sweep/run 返回 scrub.sweep(cg, n=int(a.get('k') or a.get('n') or scrub.DEFAULT_SAMPLE), seed=a.get('seed'), dry_run=bool(a.get('dry_run', True)), hops=int(a.get('hops') or scrub.DEFAULT_HOPS), strategy=a.get('strategy') or 'stratified', apply_calibration=bool(a.get('apply')), actor=a.get('actor'))；action 为 history/log 返回 scrub.history(cg, limit=int(a.get('k') or 100))（k 假值回落 100）；action=summary 返回 scrub.summary(cg)；action=catalog 返回 scrub.catalog()；其他 action 抛 ValueError；
+# 生效条件：当 cg、a 传入时，按 a.get('action') or 'sweep'（空串/None 回退 'sweep'）分派，ids/kinds 若为字符串则按逗号或空白拆成列表，node_id=a.get('node_id') or a.get('node')，target=ids or ([node_id] if node_id else None)（ids 假值回落 node_id 列表或 None）：action 为 sample/spot_check 返回 scrub.sample(cg, _int_arg(a, 'k', _int_arg(a, 'n', scrub.DEFAULT_SAMPLE)), strategy=a.get('strategy') or 'stratified', seed=a.get('seed'))（k/n 显式原样透传、缺省链回落 scrub.DEFAULT_SAMPLE）；action 为 associate/related 时若 node_id 假值抛 ValueError，否则返回 scrub.associate(cg, node_id, hops=int(a.get('hops') or scrub.DEFAULT_HOPS), limit=_int_arg(a, 'k', 30), lexical=bool(a.get('lexical', True)))（hops 假值回落常量，k 显式原样透传、缺省回落 30，lexical 缺键为 True）；action 为 audit/check 返回 scrub.audit(cg, target, hops=int(a.get('hops') or 1), min_severity=a.get('min_severity') or 'info')；action 为 decontaminate/repair 返回 scrub.decontaminate(cg, target, kinds=kinds, dry_run=bool(a.get('dry_run', True)), min_severity=a.get('min_severity') or 'medium', hops=int(a.get('hops') or 1), actor=a.get('actor'), override=bool(a.get('override')))；action 为 calibrate/calibration 返回 scrub.calibrate(cg, apply=bool(a.get('apply')), override=bool(a.get('override')), actor=a.get('actor'))；action 为 sweep/run 返回 scrub.sweep(cg, n=_int_arg(a, 'k', _int_arg(a, 'n', scrub.DEFAULT_SAMPLE)), seed=a.get('seed'), dry_run=bool(a.get('dry_run', True)), hops=int(a.get('hops') or scrub.DEFAULT_HOPS), strategy=a.get('strategy') or 'stratified', apply_calibration=bool(a.get('apply')), actor=a.get('actor'))；action 为 history/log 返回 scrub.history(cg, limit=_int_arg(a, 'k', 100))（k 显式原样透传、缺省回落 100）；action=summary 返回 scrub.summary(cg)；action=catalog 返回 scrub.catalog()；其他 action 抛 ValueError；
 def _scrub_call(cg, a):
     """记忆自净统一入口（抽查 / 联想 / 去污染 / 校准偏差）。
 
@@ -1689,14 +1689,14 @@ def _scrub_call(cg, a):
 
     if act in ("sample", "spot_check"):
         return scrub.sample(
-            cg, int(a.get("k") or a.get("n") or scrub.DEFAULT_SAMPLE),
+            cg, _int_arg(a, "k", _int_arg(a, "n", scrub.DEFAULT_SAMPLE)),
             strategy=a.get("strategy") or "stratified", seed=a.get("seed"))
     if act in ("associate", "related"):
         if not node_id:
             raise ValueError("scrub associate 需要 node_id")
         return scrub.associate(cg, node_id,
                                hops=int(a.get("hops") or scrub.DEFAULT_HOPS),
-                               limit=int(a.get("k") or 30),
+                               limit=_int_arg(a, "k", 30),
                                lexical=bool(a.get("lexical", True)))
     if act in ("audit", "check"):
         return scrub.audit(cg, target, hops=int(a.get("hops") or 1),
@@ -1713,13 +1713,13 @@ def _scrub_call(cg, a):
                                actor=a.get("actor"))
     if act in ("sweep", "run"):
         return scrub.sweep(
-            cg, n=int(a.get("k") or a.get("n") or scrub.DEFAULT_SAMPLE),
+            cg, n=_int_arg(a, "k", _int_arg(a, "n", scrub.DEFAULT_SAMPLE)),
             seed=a.get("seed"), dry_run=bool(a.get("dry_run", True)),
             hops=int(a.get("hops") or scrub.DEFAULT_HOPS),
             strategy=a.get("strategy") or "stratified",
             apply_calibration=bool(a.get("apply")), actor=a.get("actor"))
     if act in ("history", "log"):
-        return scrub.history(cg, limit=int(a.get("k") or 100))
+        return scrub.history(cg, limit=_int_arg(a, "k", 100))
     if act == "summary":
         return scrub.summary(cg)
     if act == "catalog":
@@ -1981,7 +1981,7 @@ def _help_call(cg, a):
                      limit=int(a.get("limit") or a.get("k") or 40))
 
 
-# 生效条件：当 cg、a 传入时，act=(a.get('action') or '').strip().lower()（空串/None 得空串），若 act 空则 act=_action_sig(a, 'task')[0] or 'list'，name=a.get('name') or a.get('task_name') or a.get('task') or ''，nid=a.get('node_id') or a.get('task_id') or ''，tstat=a.get('task_status') or a.get('new_status') or ''（各假值链回落 ''）：act 为 open/add/upsert 时 importance 取 a.get('importance')，非 None 则 float、转换失败置 None，返回 _t.upsert(cg, name or nid, plan=a.get('plan'), status=tstat or None, result=a.get('result'), condition=a.get('condition'), goal=a.get('goal_text') or a.get('goal'), acceptance=a.get('acceptance'), boundary=a.get('boundary'), change=a.get('change'), note=a.get('note'), tags=a.get('tags'), importance=imp, actor=a.get('actor'))；act 为 status/set_status 时若 tstat 假值返回 {'ok': False, 'error': '缺 task_status', 'hint': '可选 active|blocked|done|dropped；迁 done 必须同时给 result'}，否则返回 _t.set_status(cg, nid or name, tstat, result=a.get('result'), note=a.get('note'), actor=a.get('actor'))；act=plan_add 返回 _t.plan_add(cg, nid or name, a.get('change') or a.get('text'), actor=a.get('actor'))；act=get 返回 _t.get_task(cg, nid or name)；act=find 返回 _t.find_similar(cg, name, k=int(a.get('k') or a.get('limit') or 5))（k/limit 假值链回落 5）；act=session 返回 _t.session_tasks(cg, active_limit=int(a.get('active_limit') or 5), done_limit=int(a.get('done_limit') or 5))（各假值回落 5）；act 非 list 时返回 {'ok': False, 'error': '未知 task action：%r' % act, 'hint': '可选 open|status|plan_add|get|list|find|session'}；act=list 返回 _t.list_tasks(cg, status=tstat or None, limit=a.get('limit'))；
+# 生效条件：当 cg、a 传入时，act=(a.get('action') or '').strip().lower()（空串/None 得空串），若 act 空则 act=_action_sig(a, 'task')[0] or 'list'，name=a.get('name') or a.get('task_name') or a.get('task') or ''，nid=a.get('node_id') or a.get('task_id') or ''，tstat=a.get('task_status') or a.get('new_status') or ''（各假值链回落 ''）：act 为 open/add/upsert 时 importance 取 a.get('importance')，非 None 则 float、转换失败置 None，返回 _t.upsert(cg, name or nid, plan=a.get('plan'), status=tstat or None, result=a.get('result'), condition=a.get('condition'), goal=a.get('goal_text') or a.get('goal'), acceptance=a.get('acceptance'), boundary=a.get('boundary'), change=a.get('change'), note=a.get('note'), tags=a.get('tags'), importance=imp, actor=a.get('actor'))；act 为 status/set_status 时若 tstat 假值返回 {'ok': False, 'error': '缺 task_status', 'hint': '可选 active|blocked|done|dropped；迁 done 必须同时给 result'}，否则返回 _t.set_status(cg, nid or name, tstat, result=a.get('result'), note=a.get('note'), actor=a.get('actor'))；act=plan_add 返回 _t.plan_add(cg, nid or name, a.get('change') or a.get('text'), actor=a.get('actor'))；act=get 返回 _t.get_task(cg, nid or name)；act=find 返回 _t.find_similar(cg, name, k=_int_arg(a, 'k', _int_arg(a, 'limit', 5)))（k/limit 显式原样透传、缺省链回落 5）；act=session 返回 _t.session_tasks(cg, active_limit=int(a.get('active_limit') or 5), done_limit=int(a.get('done_limit') or 5))（各假值回落 5）；act 非 list 时返回 {'ok': False, 'error': '未知 task action：%r' % act, 'hint': '可选 open|status|plan_add|get|list|find|session'}；act=list 返回 _t.list_tasks(cg, status=tstat or None, limit=a.get('limit'))；
 def _task_call(cg, a):
     """结构层任务实体（op=task）——跨会话的工程台账。
 
@@ -2033,7 +2033,8 @@ def _task_call(cg, a):
         return _t.get_task(cg, nid or name)
 
     if act == "find":
-        return _t.find_similar(cg, name, k=int(a.get("k") or a.get("limit") or 5))
+        return _t.find_similar(
+            cg, name, k=_int_arg(a, "k", _int_arg(a, "limit", 5)))
 
     if act == "session":
         return _t.session_tasks(cg, active_limit=int(a.get("active_limit") or 5),
@@ -2223,7 +2224,7 @@ def _cg_dispatch(cg, a):
 
     if op == "route":
         intent = a.get("intent") or a.get("query") or ""
-        res, meta = cg.search(intent, k=int(a.get("k") or 10),
+        res, meta = cg.search(intent, k=_int_arg(a, "k", 10),
                               context=a.get("context"), record=False,
                               view=a.get("view"))
         knowledge, caps = [], []
@@ -3363,7 +3364,8 @@ def _dispatch(cg, name, args):
         return _node_view(node, offset=int(a.get("offset") or 0))
 
     if name == "mdcg_reflect":
-        res, _ = cg.search(a.get("query", ""), k=int(a.get("k") or 10), record=False)
+        res, _ = cg.search(a.get("query", ""), k=_int_arg(a, "k", 10),
+                           record=False)
         return cg.reflect(a.get("query", ""), res, a.get("feedback"))
 
     if name == "mdcg_verify":

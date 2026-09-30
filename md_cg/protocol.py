@@ -11,6 +11,13 @@
 
 范围（先行收窄）：route / read / write / supersede / forget 五动词。
 
+**扩展能力面的契约登记**（不并入五动词形状表，但同为本文件真源，2026-09-30）：
+① `ACTION_SOURCE_KEY / ACTION_SOURCE_VALUES`——wrapper 级恒定键 `action_source`
+（M4，四态 explicit/sig/default/none，任何 op 的 dict 返回恒在场）；
+② `PROTECT_MARK_NEG_ROUTE`——`protect.mark` 的负路由 error 形态（H9）。
+两者由 `audit()` 的 `action_source` / `protect_neg_route` 段透出，并由 `test_protocol`
+的**同源源码守卫**钉住 mcp_server / protect 的实现（防「声明了没做」）。
+
 **协议面 ≠ MCP 面全量**（2026-09-19 实测）：`_cg_dispatch` 现有 35 个 op 分支，
 其中 30 个（ccg / review / protect / verify / whitebox …）属**扩展能力面**——它们是能力，
 不是协议违例。把「协议覆盖范围」当成「MCP 面全量」会让协议每加一个 op 就永久红灯，
@@ -69,6 +76,31 @@ DERIVE_EXTRA_KEYS = ("op", "op_derived", "hint")
 #: 校验裁决（verdict）的字段集——写路径闸门短路时随返回透出（实测）。
 #: state 取值 = ACCEPT / REJECT / DEFER / BLINDSPOT（四态资格裁决）。
 VERDICT_FIELDS = ("state", "kind", "basis", "evidence", "detail")
+
+#: M4（2026-09-30）· **wrapper 级恒定键**：**任何 op** 的 dict 返回都带此键
+#: （`_cg_call` 追加，实测 mcp_server.py:1849-1857 的 act_source 三元表达式 +
+#: 其后 `out.setdefault("action_source", act_source)`）。
+#: 取值四态（顺序即优先级）：explicit（调用方显式传了 action）> sig（漏传 action
+#: 但按参数签名推导出）> default（该 op 在默认动作表里有条目，走了默认）>
+#: none（该 op 无默认动作，不编造）。协议语义：客户端据此可判断本次 action 是
+#: **自己传的**还是**系统挑的**——旧行为只在「推导过」时透出 action_derived，
+#: 显式传 action 时返回里没有任何痕迹。
+#: 与 DERIVE_EXTRA_KEYS 的边界：那是「推导发生过才追加」（显式态下不出现），
+#: 本键**恒在场**；两套标记并存互补，见 test_read_face_input_gates 的 M4-C 组。
+ACTION_SOURCE_KEY = "action_source"
+ACTION_SOURCE_VALUES = ("explicit", "sig", "default", "none")
+
+#: H9（2026-09-30）· protect.mark 的**负路由形态**（实测 protect.py:374）。
+#: 目标不存在时该分支返回此 dict——不是裸 None：旧行为裸返 None 被
+#: `_protect_call` 序列化成 `null` 回客户端，「id 不存在」被读成「打标成功」，
+#: 而 `_write_node` 从未发生。与 read 的 `node_missing` 同为「缺失 ≠ 成功」，
+#: 但**形态不同、须分别处理**：read 返 `null`（returns_null=True），
+#: protect 返结构化 error（ok=False + error + node_id）。
+#: 调用方分流：失败看 `r.get("ok") is False` 或 `"error" in r`；成功路径的返回键
+#: **不变**（node_id / protected / reason，**无 ok 键**——不可用 `ok` 判成功）。
+PROTECT_MARK_NEG_ROUTE = {"ok": False, "error": "node_not_found",
+                          "node_id": "<目标 id>"}
+PROTECT_MARK_NEG_ROUTE_ERROR = "node_not_found"
 
 VERB_SPECS = {
     "route": {
@@ -319,7 +351,13 @@ def audit(module: str = None, func: str = None) -> dict:
             "reserved": reserved, "actual": actual, "has_impl": has_impl,
             "missing_impl": missing_impl, "extension_ops": extension_ops,
             "reserved_leaked": reserved_leaked, "shape_errors": shape_errors,
-            "derive": list(OP_DERIVE), "errors": errors, "ok": not errors}
+            "derive": list(OP_DERIVE), "errors": errors, "ok": not errors,
+            # 扩展能力面的两条契约登记（2026-09-30）：wrapper 级恒定键 +
+            # protect.mark 负路由形态——都不属五动词形状表，故不并入 VERB_SPECS。
+            "action_source": {"key": ACTION_SOURCE_KEY,
+                              "values": list(ACTION_SOURCE_VALUES)},
+            "protect_neg_route": {"error": PROTECT_MARK_NEG_ROUTE_ERROR,
+                                  "shape": dict(PROTECT_MARK_NEG_ROUTE)}}
 
 
 # 生效条件：verb 为 VERBS 成员时返回其 VERB_SPECS 规格 dict，非成员（含 None/空串）抛 KeyError；
