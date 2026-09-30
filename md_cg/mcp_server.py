@@ -2220,6 +2220,21 @@ def _cg_dispatch(cg, a):
             h["write_policy"] = audit.unavailable_report(_pe)
         h["theory"] = _th.check()
         h["links"] = _lk.ls()
+        # 代校验（纯增量，2026-09-30）：长驻进程可被问「你现在这一代是不是盘面那一代」。
+        # 根因（第4条取证）：升级后长驻进程仍持有启动代模块，与升级后惰性导入的新代
+        # 模块跨代混用（实测 cg 写入 ImportError: cannot import name 'mint_auto_id'
+        # from 'md_cg.mdcg'，而盘面正常）——盘面无从自证，须由进程自报。
+        # 落点＝generation.report()（单点）：code_generation / disk_generation /
+        # stale_on_disk / restart_required / hint。**纯增量**：既有键名、键值、
+        # 嵌套结构一字不动（本行只追加五个新键，键名与既有键无冲突）。
+        # 失败不得把 op=info 拖崩（同为诊断面契约）：异常在此收口成不可用形状。
+        from . import generation as _gen
+        try:
+            h.update(_gen.report())
+        except Exception as _ge:            # noqa: BLE001
+            h.update({"code_generation": None, "disk_generation": None,
+                      "stale_on_disk": None, "restart_required": None,
+                      "hint": "代校验不可用：%s: %s" % (type(_ge).__name__, _ge)})
         return h
 
     if op == "route":
@@ -4109,6 +4124,32 @@ def main():
                              "该进程的代际将无法被外部机械判定）\n")
     except Exception as _exc:             # noqa: BLE001 —— 自报不得阻塞启动
         sys.stderr.write("[mdcg-mcp] 自报异常（不阻塞启动）: %r\n" % (_exc,))
+    # 代校验（generation 单点，2026-09-30）：stdio 服务**真正开始服务之前**，把盘面
+    # 上所有「函数内延迟导入」在本进程的模块面上试解析一遍（导入目标模块 → getattr
+    # 取名字）。根因（第4条取证）：长驻进程只在模块首次导入时读盘，而 md_cg 内有
+    # 大量写在函数里的延迟导入（AST 实测 328 处，相当一部分是为避开循环导入）——
+    # 升级后旧代已载入模块与新代惰性模块跨代混用，实测表现为 cg 写入返回
+    # `ImportError: cannot import name 'mint_auto_id' from 'md_cg.mdcg'` 而盘面完全
+    # 正常（该延迟导入要到运行期才炸，且报错点离根因很远）。此处提前到启动期显式
+    # 判一次：**名字缺失即拒绝启动**（fail-closed，消息自带「请重启常驻 MCP 进程」
+    # 指引）；外部可选模块缺失（不在盘面的可选降级面，如 whitebox_kb/aeis_core 的
+    # 惰性身体面）非致命，但计数如实上报，不静默。
+    # 调用点必须在**函数体内**：这些延迟导入里相当一部分是为避开循环导入才写在函数
+    # 里的，本校验若放到模块顶层会把避环结构重新咬回来（同族守卫
+    # md_cg/test_generation_guard.py 有 AST 断言钉死这一点）。
+    try:
+        from . import generation as _gen
+        _dep = _gen.verify_delegations()
+    except Exception as _dep_exc:        # noqa: BLE001 —— 未通过即拒绝服务，不带病运行
+        sys.stderr.write("[mdcg-mcp] 代校验未通过（拒绝启动，fail-closed）：%s\n%s\n"
+                         % (type(_dep_exc).__name__, _dep_exc))
+        return 4
+    sys.stderr.write(
+        "[mdcg-mcp] 代校验：延迟导入 %d 项 / 目标模块 %d 个 / 已解析 %d 项 / "
+        "可选缺失 %d 项 · 代 %s\n"
+        % (_dep.get("delegations"), _dep.get("target_modules"),
+           _dep.get("resolved"), len(_dep.get("unavailable") or []),
+           _gen.STARTUP_FINGERPRINT[:12]))
     _start_sustain(cg)
 
     for line in sys.stdin:
