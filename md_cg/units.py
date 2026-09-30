@@ -380,7 +380,8 @@ def _is_reserved_device_name(s: str) -> bool:
 # "."（拒 "."/".."/"..." 与 Win32 会剥尾点的 "abc." 形态）、逐字符过显式拒收集合后落在
 # **区块白名单**（[`_charset_member`]，唯一真源 `hive/id_charset_blocks.txt`，与 hive 两侧
 # 共读同一份数据）或属结构字符 `_` `-` `.`，且整 id 与其按 `_` 分段的任一段都不是
-# Windows 保留设备名时返回 True，否则 False。
+# Windows 保留设备名、且按 `_` 分段的**任一段都不等于** `.` 或 `..`（c7 段级）时返回 True，
+# 否则 False。
 def _valid_job_id(jid) -> bool:
     r"""job_id 结构闸（N178，2026-09-28；2026-09-30 字符集判据换面为**区块白名单**）。
 
@@ -405,6 +406,9 @@ def _valid_job_id(jid) -> bool:
     显式拒——旧 ASCII 白名单下 `CON` 这类全字母 id 是**放行**的，故这是本闸换面时
     **收紧**的那一面（与 hive 两侧同集同判，语料 80-84 行逐例钉死）。
     表缺失 / 坏表 ⇒ 判据一律 False（fail-closed，绝不放行）。
+    本闸本批**新增收紧**（c7，2026-09-30）：按 `_` 分段的**任一段**等于 `.` 或 `..` 即拒
+    ——整串口径下 `h_.._x` / `h_a_.._b` 是被收的；段级是面向重构的纵深加固（段可能被当
+    父目录段用），与 hive 两侧同判。范围只加这一条：空段（`h__x`）等形态不动。
     """
     if not isinstance(jid, str) or not jid or len(jid) > 128:
         return False
@@ -430,6 +434,14 @@ def _valid_job_id(jid) -> bool:
     if _is_reserved_device_name(jid):
         return False
     if any(_is_reserved_device_name(seg) for seg in jid.split("_")):
+        return False
+    # 「. / ..」的**段级**判据（c7，2026-09-30 加固）：按 `_` 分段，任一段等于 `.` 或 `..`
+    # 即拒——与 `job.rs::valid_job_id` / `mcp_server._job_id_reject_reason` **三处同判**。
+    # 段级而非整串（本面原有的「首尾非点」只挡整串与尾点形态）：id 的段可能被宿主当
+    # **目录名**或**父目录段**用（契约 §四.4「目录可作它的父段」）。现场定性：`h_.._x` /
+    # `h_a_.._b` 这类「含 `..` 段但不以点结尾」的 id 拼出的路径停在池内、不构成穿越 ⇒
+    # 面向重构的纵深加固。范围**只加这一条**：不拒空段（`h__x`）等未被裁定的形态。
+    if any(seg in (".", "..") for seg in jid.split("_")):
         return False
     return True
 

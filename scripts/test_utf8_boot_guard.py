@@ -9,6 +9,17 @@ UTF-8 模式」这一真实现场下的行为。修前正确性挂在「环境�
   ① E2E-HIVE / E2E-MDCG —— **端到端组帧**：清空 `PYTHONUTF8`/`PYTHONIOENCODING`
      且不带 `-X utf8` 的子进程里启动 stdio MCP 入口，喂含中文的 JSON-RPC 请求行，
      断言拿到正确响应、且 stdout **逐行皆为合法 JSON**（组帧未被重启打断）。
+     hive 面**两趟**（契约 c4/c5/c6）：
+       · `E2E-HIVE-OK`（**成功趟**）：`HIVE_EXE` 指向**真实 release 二进制**、
+         `HIVE_JOBS_DIR` 指向守卫**自己的临时池** ⇒ 断言 `ok=true`、`job_id` 为
+         四槽中文形态 `h_…_…_…_NNNN`、任务目录落在临时池内、中文逐字节往返、
+         **未拉起 serve**（`serve.started is False`）。二进制缺失（未构建的新检出）
+         ⇒ 本趟**显式 SKIP 并打印期望路径**，**不计入通过数**（三态
+         ok/红/skip，见 `Skipped`）。
+       · `E2E-HIVE`（**失败趟**，原口径**保留**）：探针 exe 缺席 ⇒ 断言 `ok=false`
+         且原因**回显中文 context 路径**（逐字节相等）。两趟缺一不可。
+       · `E2E-PASSES`：**两趟齐备的自我锚**（AST 读**被判根**的守卫源码：两趟的注册项
+         与成功趟的断言骨架必须在位）——删掉成功趟即转红（定点变异 S1 实测）。
   ② ONCE —— **只重启一次**：以「解释器启动计数」证明进程数不增长、不递归。
   ③ FAILFAST —— 显式退出通道（`LINGSHU_UTF8_NO_REEXEC`）非 0 退出且含可执行指引，
      并且**确未重启**（计数为 1）。
@@ -27,6 +38,8 @@ UTF-8 模式」这一真实现场下的行为。修前正确性挂在「环境�
      的拓扑下跑同一条 stdio 组帧 E2E，助手**漏传任一条流**都必须让组帧转红。
   ⑩ MUTATIONS —— 定点变异自证：每个判据都有定点变异把它打红，且**恰好**命中预期项集
      与预期退出码（另含一个「无关改动必须全绿」的假阳性对照）。
+  ⑪ 三态汇总 —— 判据结果分 `ok` / `红` / **`skip`**（抛出 `Skipped`）：skip 逐条打印
+     理由（含期望路径），**不计入通过数**；存在 skip 时汇总另打 ⚠ 行（不得静默判绿）。
 
 ⑨ 的拓扑为什么不是「宿主 PIPE 直连」（本机 2026-09-29 实测，**这是本条判据的设计依据**）：
   把宿主侧也做成 `Popen(..., stdin=PIPE, stdout=PIPE, stderr=PIPE)` 时，助手即使**漏传**
@@ -52,6 +65,8 @@ hive jobs 池全部指向临时目录，身份走既有 `MDCG_LEGACY_ENV_AUTH` �
 「临时物化的仓面」上做，**绝不改动工作树**。
 
 退出码：0 = 全绿；1 = 存在违例（判据红 / 顺序漂移）；2 = ANCHOR-MISS。
+（显式 SKIP **不改变退出码**——未构建的新检出上「跑不了」既不是违例也不是通过；
+它的存在由逐条 `[skip]` 行 ＋ 汇总计数 ＋ ⚠ 行显式暴露，见 ⑪。）
 
 用法：
   python scripts/test_utf8_boot_guard.py                 # 全量（含定点变异自证）
@@ -63,6 +78,7 @@ import argparse
 import ast
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -155,6 +171,37 @@ PROBE_ZH = "中文标题：编码守卫"
 #: 探针用的中文**相对** context 路径（必不存在）：`_t_spawn` 的 context 存在性闸会把
 #: 它逐字节回显进 error ⇒ 一次调用同时证明「中文入参已被受理」与「中文出参编码正确」。
 PROBE_ZH_CTX = "探针_中文上下文_无此文件.md"
+
+# ---------------------------------------------------------------- 成功趟（c4/c5）探针面
+#: 成功趟的四槽（前三槽；第四槽「编号」由 Rust 侧分配器给出）与**存在**的中文 context
+#: 文件——后者是逐字节往返的**第二载体**（它随 spec.json 落盘，再从盘上读回来比对）。
+PROBE_SLOTS = {"identity": "探针端", "task": "编码守卫", "unit": "验证单元"}
+PROBE_CTX_OK_NAME = "探针_中文上下文_存在.md"
+PROBE_CTX_OK_BODY = "中文内容：上下文逐字节往返探针\n"
+#: 成功趟期望的 job_id 前缀（四槽前三段，逐字节）与「形如 h_…_…_…_NNNN」的形态判据
+PROBE_ID_PREFIX = "h_探针端_编码守卫_验证单元_"
+PROBE_ID_RE = re.compile(r"^h_[^_]+_[^_]+_[^_]+_\d{4}$")
+#: hive 二进制相对路径（成功趟用真二进制；见 `_hive_bin` 的三级查找）
+HIVE_BIN_REL = ("hive", "target", "release",
+                "hive.exe" if os.name == "nt" else "hive")
+#: 本守卫自身的仓内相对路径（`E2E-PASSES` 自我锚读**被判根**的这一份源码）
+GUARD_REL = "scripts/test_utf8_boot_guard.py"
+#: 成功趟**断言骨架**锚（c4 的硬要求：ok=true / job_id 四槽形态 / 目录落临时池 /
+#: 未拉 serve / 中文落盘往返）。查法：AST 取 `check_e2e_hive_ok` 的源码语段再查子串
+#: ——**只在该语段里查**，故这些字面量写在本常量处不会自我指涉（若整文件查子串，删掉
+#: 成功趟后锚点仍由本常量自身满足 ⇒ 假绿）。
+SUCCESS_BODY_TOKENS = (
+    'sp.get("ok") is True',
+    "PROBE_ID_RE.match(jid)",
+    "落在守卫自己的临时池",
+    'get("started") is False',
+    'spec.get("context_files") != [ctx]',
+)
+#: `E2E-PASSES` 同时钉住的函数名（两趟各一；删掉任一趟即转红）
+PASS_FUNCS = ("check_e2e_hive_fail", "check_e2e_hive_ok")
+#: `E2E-PASSES` 同时钉住的注册 id（`_CHECKS` 里的两项）
+PASS_IDS = ("E2E-HIVE", "E2E-HIVE-OK")
+
 NO_REEXEC_ENV = "LINGSHU_UTF8_NO_REEXEC"
 FAILFAST_EXIT = 2
 #: 解释器启动计数上限（熔断；正向预期为 1~2，故 6 不误伤）
@@ -184,6 +231,16 @@ _MATERIALIZE_SKIP = ("docs/", "skills/", "node_modules/", "hive/target/",
 
 class AnchorMiss(Exception):
     """锚点漂移（退出码 2）。"""
+
+
+class Skipped(Exception):
+    """判据**显式跳过**（三态里的第三态：非通过、非违例）。
+
+    为什么需要第三态（c6）：成功趟要用**真实 release 二进制**——未构建的新检出上它
+    不存在，此时「跑不了」既不是通过也不是违例（判绿 = 静默撒谎；判红 = 拿没构建的
+    环境当缺陷）。故跳过必须**显式**：携带理由（**含期望路径**）逐条打印、计入汇总的
+    SKIP 计数、**绝不计入通过数**、并在汇总处另打 ⚠ 行。
+    """
 
 
 # ---------------------------------------------------------------- 子进程工具
@@ -374,7 +431,12 @@ def _mdcg_extra(tmp: str) -> dict:
 
 # 生效条件：tmp 给出时返回 hive 隔离 env 覆盖（jobs 池指向 tmp；HIVE_CONFIG/HIVE_EXE 指向不存在的路径 ⇒ _ensure_serve 在 isfile 即返回，绝不拉起真 serve）。
 def _hive_extra(tmp: str) -> dict:
-    """hive 侧隔离面（探针 exe 不存在 ⇒ 绝不触真实在役 serve）。"""
+    """hive 侧隔离面（探针 exe 不存在 ⇒ 绝不触真实在役 serve）。
+
+    **两趟共用**：失败趟要的就是这条「exe 缺席」面；成功趟另把 HIVE_EXE 覆盖成真实
+    二进制（见 `check_e2e_hive_ok`），但 `HIVE_CONFIG` 保持缺席——那才是「真 exe 也
+    拉不起 serve」的那道闸（`serve_start.start` 在 `load_config` 即返回）。
+    """
     return {
         "HIVE_JOBS_DIR": os.path.join(tmp, "hivejobs"),
         "HIVE_CONFIG": os.path.join(tmp, "absent_config.json"),
@@ -382,17 +444,55 @@ def _hive_extra(tmp: str) -> dict:
     }
 
 
+# 生效条件：root 给出时返回成功趟要用的**真实** hive 二进制路径（三级查找，绝不猜、绝不构建）：① env HIVE_EXE（需 isfile）② 被判根 <root>/hive/target/release/hive[.exe] ③ 本仓 <ROOT>/hive/target/release/hive[.exe]；三级都不在时仍返回第②级路径（期望路径，供 SKIP 理由原样打印）。
+def _hive_bin(root: str) -> str:
+    """成功趟用的真实 hive 二进制。
+
+    为什么要第③级：`--mutations` 的定点变异跑在**临时物化副本**上（`_MATERIALIZE_SKIP`
+    跳过 `hive/target/`，副本里没有构建产物）。此时用本仓已构建的二进制是**有意为之**：
+    被判面是 python 入口（`hive/hive_mcp/mcp_server.py`——副本里那份才是被变异的那份）
+    与 stdio 组帧，二进制只充当**真实分配器**（`alloc-id` 不启动 serve，见
+    `check_e2e_hive_ok` 的安全前提）。故三级查找不会把「变异是否生效」掩盖掉。
+    """
+    env = os.environ.get("HIVE_EXE")
+    if env and os.path.isfile(env):
+        return env
+    cand = os.path.join(root, *HIVE_BIN_REL)
+    if os.path.isfile(cand):
+        return cand
+    repo_cand = os.path.join(ROOT, *HIVE_BIN_REL)
+    if os.path.isfile(repo_cand):
+        return repo_cand
+    return cand
+
+
+# 生效条件：root 给出时返回 `<root>/hive/jobs` 的目录项排序清单（不存在/不可读 ⇒ None）——**只读**，用于 c5「在役池零触碰」的前后比对。
+def _pool_listing(root: str):
+    """在役池清单快照（只读）。"""
+    try:
+        return sorted(os.listdir(os.path.join(root, "hive", "jobs")))
+    except OSError:
+        return None
+
+
+# 生效条件：path/parent 给出时返回 path 是否落在 parent（含 parent 自身）之下（绝对路径比对）。
+def _under(path: str, parent: str) -> bool:
+    """path 是否在 parent 之下——临时池自证用（c5）。"""
+    p, q = os.path.abspath(path), os.path.abspath(parent)
+    return p == q or p.startswith(q.rstrip("\\/") + os.sep)
+
+
 # ---------------------------------------------------------------- 判据 ①：端到端组帧
 
 # 生效条件：root 为被判仓面、tmp 为临时面；清空两个 env 且不带 -X utf8 起 hive stdio MCP，喂 initialize/tools-list/中文 hive_spawn 三行，返回 (是否通过, 说明)——断言 rc=0、逐行 JSON、握手 serverInfo=hive-mcp、中文 spawn **逐字节往返**（ok=False 且原因里回显请求中的中文路径，且错误不是「缺四槽」）。
 #
-# id 契约 v2（B8）下的探针口径调整（**已声明**，非静默放宽）：`_submit` 不再自造 id，
-# 改调 Rust 侧 `hive alloc-id`；本守卫的隔离设计把 `HIVE_EXE` 钉在**不存在的路径**
-# （`_hive_extra`：绝不拉起真 serve），故「spawn ok+job_id」这条成功路径在本面
-# **结构性不可达**。改判的仍是同一件事——中文能否原样穿过 stdio 双程：请求带中文
-# 四槽 + 一个不存在的中文相对 context 路径，断言响应 ok=False、原因里**回显该中文
-# 路径**（逐字节相等）⇒ 中文入参已被受理（过了四槽闸与 JSON 解码）且中文出参编码正确。
-def check_e2e_hive(root: str, tmp: str, fusedir: str) -> tuple[bool, str]:
+# **失败趟**（原口径，c4 要求**保留**；成功趟见 check_e2e_hive_ok）：
+# id 契约 v2（B8）下 `_submit` 不再自造 id、改调 Rust 侧 `hive alloc-id`；本趟把
+# `HIVE_EXE` 钉在**不存在的路径**（`_hive_extra`），故这一趟判的是**失败路径**：
+# 请求带中文四槽 + 一个不存在的中文相对 context 路径 ⇒ 断言 ok=False、原因里**回显
+# 该中文路径**（逐字节相等）⇒ 中文入参已被受理（过了四槽闸与 JSON 解码）且中文出参
+# 编码正确。它**不能**替代成功趟（成功趟才覆盖「alloc-id 真跑通 + job_id 四槽形态」）。
+def check_e2e_hive_fail(root: str, tmp: str, fusedir: str) -> tuple[bool, str]:
     jobs = os.path.join(tmp, "hivejobs")
     os.makedirs(jobs, exist_ok=True)
     env = _env_clean(root, fusedir, _hive_extra(tmp))
@@ -426,6 +526,146 @@ def check_e2e_hive(root: str, tmp: str, fusedir: str) -> tuple[bool, str]:
         return False, "stderr 出现 UnicodeEncodeError"
     return True, "rc=0 帧数=%d 中文入参逐字节往返成功（原因回显 %s）" % (
         len(objs), PROBE_ZH_CTX)
+
+
+# 生效条件：root 为被判仓面、tmp 为临时面；`HIVE_EXE` 指向真实 release 二进制、`HIVE_JOBS_DIR` 指向守卫自己的临时池，清空两个 env 且不带 -X utf8 起 hive stdio MCP，喂 initialize + 中文四槽 hive_spawn（带一个**存在**的中文 context 文件），返回 (是否通过, 说明)；二进制缺失抛 Skipped（显式跳过、含期望路径、不计入通过数）；断言 rc=0、逐行 JSON、握手 hive-mcp、ok=true、job_id 为四槽中文形态、任务目录在临时池内、未拉起 serve、中文逐字节往返（响应 slots 与 spec.json）。
+#
+# 为什么真 exe 不会拉起在役 serve（**安全前提，必须写在码上**）：
+#   ① 本趟走 `hive_spawn` → `_submit` → `_alloc_job_id` → `HIVE_EXE alloc-id`；alloc-id
+#      是**纯分配**通道（Rust `job::alloc_job_id` 只 `fs::create_dir` 落池 + 回显 id），
+#      **不读也不启动任何 serve**；
+#   ② `HIVE_CONFIG` 仍钉在**不存在**的路径（`_hive_extra`）⇒ `_ensure_serve` 的拉起
+#      分支即使被走到，也在 `serve_start.start()` 的 `load_config` 即返回
+#      {"ok": False, "error": "配置文件不存在…"}（hive/serve_start.py:462-464），
+#      `Popen([EXE, "serve", …])` 那一步**不执行**；
+#   ③ 本判据另断言响应 `serve.started is False`——把「没拉 serve」变成**断言**而非承诺。
+#
+# 为什么必须**显式**跳过而不是判绿/判红（c6）：未构建的新检出上没有二进制——判绿是
+# 撒谎（成功路径根本没验），判红是把「没构建」当缺陷。故抛 Skipped：逐条打印理由
+# （含期望路径）、计入 SKIP 计数、不计入通过数、汇总另打 ⚠ 行。
+def check_e2e_hive_ok(root: str, tmp: str, fusedir: str) -> tuple[bool, str]:
+    binexe = _hive_bin(root)
+    if not os.path.isfile(binexe):
+        raise Skipped(
+            "成功趟未执行：hive 二进制缺失，期望路径 %s（未构建的新检出 ⇒ 先在 hive/ 下 "
+            "`cargo build --release`，或用环境变量 HIVE_EXE 指向可用二进制）"
+            "——跳过**不计入通过数**（失败趟 E2E-HIVE 已照旧执行并通过）" % binexe)
+    jobs = os.path.join(tmp, "hivejobs")
+    os.makedirs(jobs, exist_ok=True)
+    ctx = os.path.join(tmp, PROBE_CTX_OK_NAME)
+    with open(ctx, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(PROBE_CTX_OK_BODY)
+    extra = dict(_hive_extra(tmp))
+    extra["HIVE_EXE"] = binexe                  # 真二进制：只作 alloc-id 的载体，见上方安全前提
+    env = _env_clean(root, fusedir, extra)
+    before = _pool_listing(root)                # 在役池快照（只读；c5 的前后比对基线）
+    lines = [
+        _rpc(1, "initialize", {}),
+        _rpc(None, "notifications/initialized"),
+        _rpc(2, "tools/list", {}),
+        _rpc(3, "tools/call", {"name": "hive_spawn", "arguments": {
+            "model": "probe-model", "user_prompt": PROBE_ZH,
+            "identity": PROBE_SLOTS["identity"], "task": PROBE_SLOTS["task"],
+            "unit": PROBE_SLOTS["unit"], "context_files": [ctx]}}),
+    ]
+    rc, out, err = _talk([sys.executable, "-m", "hive.hive_mcp.mcp_server"],
+                         env, lines, root)
+    objs, why = _frames(out)
+    if objs is None:
+        return False, "rc=%d 组帧非法：%s stderr=%r" % (rc, why, err[-200:])
+    init = _find(objs, 1)
+    if not (isinstance(init, dict)
+            and ((init.get("result") or {}).get("serverInfo") or {}).get("name")
+            == "hive-mcp"):
+        return False, "initialize 握手异常：rc=%d objs=%s" % (rc, str(objs)[:200])
+    sp = _payload(_find(objs, 3) or {})
+    jid = sp.get("job_id") or ""
+    jdir = os.path.join(jobs, jid) if jid else ""
+    bad = []
+    if not (sp.get("ok") is True):
+        bad.append("ok 非 true（分配未跑通；失败路径那趟的判据不得顶替成功趟）：%s"
+                   % str(sp)[:220])
+    if not (jid and PROBE_ID_RE.match(jid) and jid.startswith(PROBE_ID_PREFIX)):
+        bad.append("job_id 非四槽中文形态 h_…_…_…_NNNN（期望前缀 %r）：%r"
+                   % (PROBE_ID_PREFIX, jid))
+    if not (jid and os.path.isdir(jdir)
+            and os.path.dirname(os.path.abspath(jdir)) == os.path.abspath(jobs)
+            and _under(jdir, tmp)
+            and not _under(jdir, os.path.join(root, "hive", "jobs"))):
+        bad.append("任务目录落在守卫自己的临时池（c5 自证）不成立："
+                   "jid=%r jdir=%r tmp=%r" % (jid, jdir, tmp))
+    if os.path.abspath(sp.get("jobs_dir") or "") != os.path.abspath(jobs):
+        bad.append("响应 jobs_dir 未回显临时池：%r" % (sp.get("jobs_dir"),))
+    if sp.get("slots") != PROBE_SLOTS:
+        bad.append("四槽未逐字节回显（期望 %r）：%r" % (PROBE_SLOTS, sp.get("slots")))
+    if (sp.get("serve") or {}).get("started") is False:
+        pass
+    else:
+        bad.append("serve.started 非 False（真 exe 下**不得**拉起 serve）：%r"
+                   % (sp.get("serve"),))
+    spec = None
+    if jid:
+        try:
+            with open(os.path.join(jdir, "spec.json"), encoding="utf-8") as fh:
+                spec = json.load(fh)
+        except (OSError, ValueError) as e:
+            bad.append("spec.json 不可读（%s）：%s" % (os.path.join(jdir, "spec.json"), e))
+    if isinstance(spec, dict):
+        if spec.get("user_prompt") != PROBE_ZH:
+            bad.append("spec.user_prompt 中文未逐字节往返：%r" % (spec.get("user_prompt"),))
+        if spec.get("context_files") != [ctx]:
+            bad.append("spec.context_files 中文路径未逐字节往返：%r"
+                       % (spec.get("context_files"),))
+    if _pool_listing(root) != before:
+        bad.append("在役池清单发生变化（c5 违规）：%r → %r"
+                   % (before, _pool_listing(root)))
+    if rc != 0:
+        bad.append("进程未正常下线 rc=%d stderr=%r" % (rc, err[-200:]))
+    if "UnicodeEncodeError" in err.decode("utf-8", "replace"):
+        bad.append("stderr 出现 UnicodeEncodeError")
+    if bad:
+        return False, "；".join(bad)[:600]
+    return True, ("rc=0 帧数=%d job_id=%s（真 exe=%s）任务目录落临时池 %s、"
+                  "serve.started=False、中文逐字节往返（slots+spec.json）"
+                  % (len(objs), jid, os.path.basename(binexe), jobs))
+
+
+# 生效条件：root 为被判仓面；读 `<root>/scripts/test_utf8_boot_guard.py` 的 AST——`_CHECKS` 的注册 id 集合含 E2E-HIVE 与 E2E-HIVE-OK、模块定义了 PASS_FUNCS 两个函数、且 check_e2e_hive_ok 的**源码语段**里齐备 SUCCESS_BODY_TOKENS；全过返回 (True, 说明)，缺任一返回 (False, 缺失清单)。
+#
+# 为什么要有这条（d1 ④）：两条趟都是**判据**，而「把成功趟悄悄删掉」在本守卫里曾经是
+# 无法察觉的（删掉判据 ⇒ 它就不再产生红项）。本判据把「两趟还在不在」变成一条可红的
+# 事实，读的是**被判根的那份源码**（定点变异在临时物化副本上改同一路径 ⇒ 变异可生效）。
+# 查法用 AST 取 `check_e2e_hive_ok` 的源码语段再查子串——**不在整文件查子串**：锚点
+# 字面量本身写在 SUCCESS_BODY_TOKENS 常量里，整文件查会被常量自身满足（自我指涉假绿）。
+def check_e2e_hive_passes(root: str, _tmp: str, _fusedir: str) -> tuple[bool, str]:
+    ap = os.path.join(root, GUARD_REL.replace("/", os.sep))
+    if not os.path.isfile(ap):
+        return False, "自我锚读不到本守卫源码：%s（判据面不可达 ⇒ fail-closed）" % ap
+    try:
+        with open(ap, encoding="utf-8", errors="replace") as fh:
+            src = fh.read()
+        tree = ast.parse(src, filename=GUARD_REL)
+    except (OSError, SyntaxError) as e:
+        return False, "本守卫源码不可读/不可解析（%s）：%s: %s" % (ap, type(e).__name__, e)
+    funcs = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    ids = set()
+    for n in ast.walk(tree):
+        if (isinstance(n, ast.Assign)
+                and any(getattr(t, "id", None) == "_CHECKS" for t in n.targets)):
+            for el in getattr(n.value, "elts", []):
+                if (isinstance(el, ast.Tuple) and el.elts
+                        and isinstance(el.elts[0], ast.Constant)):
+                    ids.add(el.elts[0].value)
+    miss = ["注册项 %s" % i for i in PASS_IDS if i not in ids]
+    miss += ["函数 %s()" % f for f in PASS_FUNCS if f not in funcs]
+    if "check_e2e_hive_ok" in funcs:
+        body = ast.get_source_segment(src, funcs["check_e2e_hive_ok"]) or ""
+        miss += ["成功趟断言骨架 %r" % t for t in SUCCESS_BODY_TOKENS if t not in body]
+    if miss:
+        return False, "两趟不齐备（缺 %s）——判据面已漂移或成功趟被删" % "、".join(miss)
+    return True, ("注册项 %s 与函数 %s 齐备；成功趟断言骨架 %d 项全在（源码：%s）"
+                  % (sorted(ids & set(PASS_IDS)), list(PASS_FUNCS),
+                     len(SUCCESS_BODY_TOKENS), GUARD_REL))
 
 
 # 生效条件：root 为被判仓面、tmp 为临时面；清空两个 env 且不带 -X utf8 起 md_cg stdio MCP，喂 initialize + 中文 cg write，返回 (是否通过, 说明)——断言 rc=0、逐行 JSON、serverInfo=mdcg-mcp、中文 write 回 ok/moved_to、无 UnicodeEncodeError。
@@ -874,7 +1114,12 @@ def check_streams(root: str, tmp: str, fusedir: str) -> tuple[bool, str]:
 # ---------------------------------------------------------------- 判据登记表
 
 _CHECKS = (
-    ("E2E-HIVE", "① stdio MCP 端到端组帧（hive，清空 env 无 -X utf8）", check_e2e_hive),
+    ("E2E-HIVE-OK", "① 成功路径（真 exe + 临时池）：ok=true + job_id 四槽中文形态（c4/c5）",
+     check_e2e_hive_ok),
+    ("E2E-HIVE", "① stdio MCP 端到端组帧（hive 失败路径：探针 exe 缺席 + 中文逐字节往返）",
+     check_e2e_hive_fail),
+    ("E2E-PASSES", "① 两趟齐备自我锚（成功趟/失败趟的注册与断言骨架都在被判根源码里）",
+     check_e2e_hive_passes),
     ("E2E-MDCG", "① stdio MCP 端到端组帧（md_cg，清空 env 无 -X utf8）", check_e2e_mdcg),
     ("ONCE", "② 只重启一次（解释器启动计数恰好 2）", check_once),
     ("FAILFAST", "③ LINGSHU_UTF8_NO_REEXEC ⇒ 非 0 退出 + 可执行指引 + 未重启", check_failfast),
@@ -888,7 +1133,7 @@ _CHECKS = (
 )
 
 
-# 生效条件：root/tmp/fusedir 与 skip 集合给出时逐个执行 _CHECKS（跳过 skip），AnchorMiss 记为该判据红且置锚命标记；返回 (结果字典 id→(ok,说明), 是否存在锚命)。
+# 生效条件：root/tmp/fusedir 与 skip 集合给出时逐个执行 _CHECKS（跳过 skip），Skipped 记为该判据「skip」（保留理由）、AnchorMiss 记为该判据红且置锚命标记；返回 (结果字典 id→(状态,说明), 是否存在锚命)——状态 ∈ {"ok","red","skip"}，skip **不算通过也不算违例**。
 def _run_checks(root: str, tmp: str, fusedir: str,
                 skip: tuple = ()) -> tuple[dict, bool]:
     res, miss = {}, False
@@ -897,17 +1142,20 @@ def _run_checks(root: str, tmp: str, fusedir: str,
             continue
         try:
             ok, detail = fn(root, tmp, fusedir)
+            state = "ok" if ok else "red"
+        except Skipped as e:
+            state, detail = "skip", str(e)
         except AnchorMiss as e:
-            ok, detail, miss = False, "ANCHOR-MISS：%s" % e, True
+            state, detail, miss = "red", "ANCHOR-MISS：%s" % e, True
         except Exception as e:                            # noqa: BLE001
-            ok, detail = False, "判据自身异常 %s：%s" % (type(e).__name__, e)
-        res[cid] = (ok, detail)
+            state, detail = "red", "判据自身异常 %s：%s" % (type(e).__name__, e)
+        res[cid] = (state, detail)
     return res, miss
 
 
-# 生效条件：结果字典给出时返回退出码——任一项红且存在锚命 ⇒ 2；任一项红 ⇒ 1；否则 0。
+# 生效条件：结果字典给出时返回退出码——任一项红且存在锚命 ⇒ 2；任一项红 ⇒ 1；否则 0（skip 不影响退出码：跳过不是违例，但它的存在由汇总的 ⚠ 行与计数显式暴露，绝不静默）。
 def _exit_of(res: dict, miss: bool) -> int:
-    if any(not ok for ok, _d in res.values()):
+    if any(state == "red" for state, _d in res.values()):
         return 2 if miss else 1
     return 0
 
@@ -1038,9 +1286,99 @@ def _mut_import_gate_off(srcs: dict) -> dict:
     return srcs
 
 
+# ------------------------------------------------- ④ 成功趟（c4/c5/c6）的三处定点变异
+
+# 生效条件：srcs 给出时把**成功趟**从本守卫里删掉（`_CHECKS` 注册项改 id + 函数名退场 = 修前的单趟形态），返回新 srcs。
+def _mut_success_pass_dropped(srcs: dict) -> dict:
+    """④：「成功趟被删掉」——注册 id 与函数名同时退场，两趟退回单趟。
+
+    为什么改这两处而不是整段删代码：改完仍是**语法合法**的源码（`E2E-PASSES` 的
+    AST 解析不会先炸），红项才归因于「两趟不齐备」这一条判据本身，而不是文件读不来。
+
+    为什么两个 needle 都用**拼接**写（`'("E2E-HIVE-' + 'OK",'`）：本函数自己就在被判
+    源码里（守卫读的是本位件），字面量写成整串会让它在本文件里**出现两次** ⇒
+    `_sub` 的「恰好一次」判据直接报漂移；与本文件 `SUCCESS_BODY_TOKENS` 的自我指涉
+    防法同源（那里靠「只查函数语段」，这里靠「不写出整串」）。
+    """
+    rel = GUARD_REL
+    srcs[rel] = _sub(srcs[rel], '("E2E-HIVE-' + 'OK",',
+                     '("E2E-HIVE-OK-RETIRED",', "S1-注册项")
+    srcs[rel] = _sub(srcs[rel], "def check_e2e_hive_" + "ok(",
+                     "def _dropped_check_e2e_hive_ok(", "S1-函数名")
+    return srcs
+
+
+# 生效条件：srcs 给出时让生产面 `_alloc_job_id` 在分配之前直接抛错（成功路径结构性不可达），返回新 srcs。
+def _mut_alloc_blocked(srcs: dict) -> dict:
+    """④：生产面**成功路径**被切断——成功趟必须转红（证明它不是空判据）。
+
+    `_alloc_job_id` 是 python 面唯一的分配入口（`_submit` 调它）；在它开头抛
+    SubmitError 即「真 exe 在盘也没用」的形态。锚点选 `if not os.path.isfile(exe)` 的
+    **下一行**（`raise SubmitError(`）：`_ensure_serve` 里也有一对同形的
+    `exe = _exe_path()` / `if not os.path.isfile(exe):`，不分行到下一句就会撞上
+    「恰好一次」判据（本变异第一次实测即因此报漂移，见头注实测记录）。失败趟不受影响：
+    它的探针带一个**不存在**的中文 context 路径，`_t_spawn` 的 context 存在性闸在
+    `_submit` **之前**就返回 ok=False（故失败趟仍绿——两趟的判别力彼此独立，正是分两趟
+    的意义）。
+    """
+    rel = "hive/hive_mcp/mcp_server.py"
+    srcs[rel] = _sub(srcs[rel],
+                     "    if not os.path.isfile(exe):\n        raise SubmitError(\n",
+                     '    raise SubmitError("定点变异：分配通道被切断")\n'
+                     "    if not os.path.isfile(exe):\n        raise SubmitError(\n",
+                     "S2")
+    return srcs
+
+
+# 生效条件：srcs 给出时在 `hive/hive_mcp/mcp_server.py` 里做**与判据无关的改名**（模级函数 `_exe_path` 全量改名，判据一字不动），返回新 srcs——假阳性对照（必须全绿）。
+def _mut_green_control_mcp(srcs: dict) -> dict:
+    """假阳性对照（④ 的判据面所在文件）：无关改名必须**全绿**（本守卫不误报）。"""
+    rel = "hive/hive_mcp/mcp_server.py"
+    n = srcs[rel].count("_exe_path")
+    if n < 2:
+        raise AnchorMiss("变异注入点漂移（S3）：_exe_path 出现 %d 次" % n)
+    srcs[rel] = srcs[rel].replace("_exe_path", "_hive_exe_path")
+    return srcs
+
+
+# 生效条件：srcs 给出时让 `_t_spawn` 的 context 闸**不再回显**请求里的路径（失败趟的证据被抹掉），返回新 srcs。
+def _mut_ctx_echo_gone(srcs: dict) -> dict:
+    """失败趟的判别力：`ok=false` 的**证据**是原因里逐字节回显的中文路径。
+
+    生产面不再回显 ⇒ 失败趟必须转红（否则「中文出参逐字节正确」这条在本面就没有
+    可证伪的载体）。这条同时补上评审报告点名的缺口（`docs/eval/编码面前置_入口自保证
+    UTF8与文本open守卫_v1.0.md` §七-Q3：`E2E-HIVE` 在原变异表里**无任何单点变异能打红**
+    ——补法即此处：单点改生产面的证据回显）。成功趟不受影响（它给的 context 文件存在，
+    该闸不触发）——两趟判别力独立，正是分两趟的意义。
+    """
+    rel = "hive/hive_mcp/mcp_server.py"
+    srcs[rel] = _sub(srcs[rel],
+                     '            return {"ok": False, "error": f"context 文件不存在: {path}"}\n',
+                     '            return {"ok": False, "error": "context 文件不存在"}\n',
+                     "S4")
+    return srcs
+
+
 #: 定点变异表：id / 说明 / 变异函数 / 预期红项集 / 预期退出码
 #:   预期红项集是**实测钉死**的事实（不是愿望）：每项都实跑过、读下红项与退出码后写死；
 #:   实现或判据任何一侧漂移都会让「恰好命中」不成立 ⇒ ANCHOR-MISS。
+#:
+#: ④ 新增四处（S1–S4）的**实测读数**（2026-09-30 本机，命令
+#: `python -X utf8 scripts/test_utf8_boot_guard.py`，rc=0、**30/30**
+#: = 正向 13/13 + 定点变异 17/17；耗时 27.6s）：
+#:   S1 删掉成功趟（注册 id 改 id + 函数名退场）→ 红项恰 {E2E-PASSES}、退出码 1；
+#:   S2 生产面 `_alloc_job_id` 在分配前抛错 → 红项恰 {E2E-HIVE-OK}、退出码 1
+#:      （证明成功趟**不是空判据**：生产面成功路径一断它必红）；
+#:   S3 假阳性对照（`_exe_path` 全量改名、判据一字不动）→ 红项 ∅、退出码 0；
+#:   S4 失败趟的证据被抹掉（context 闸不再回显路径）→ 红项恰 {E2E-HIVE}、退出码 1
+#:      （补上评审报告 §七-Q3 点名的缺口：原表里没有任何单点变异能打红 E2E-HIVE）。
+#:   二进制缺席时的 SKIP 路径另实测于**临时物化副本**（副本无 `hive/target`）：rc=0、
+#:   `[skip] E2E-HIVE-OK`（打印期望路径）、失败趟仍绿、S2 记入跳过清单、汇总
+#:   `28/30 通过（正向 12/13 + 定点变异 16/17）；显式 SKIP 2 项（不计入通过数）` ＋ ⚠ 行
+#:   （脚本 `<TEMP>/guardA_skip.py`，非仓内件）。
+#:   留痕（不得静默改判据）：S1/S2 的第一版曾因**注入点撞车**报漂移——S1 的 needle
+#:   整串写在变异函数里（本文件即被判源码）⇒ 出现 2 次；S2 的锚点与 `_ensure_serve`
+#:   同形 ⇒ 也 2 次。修法见两个变异函数的 docstring（拼接法 + 锚到下一句）。
 _MUTATIONS = (
     ("M1-no-m-form", "重启 argv 丢掉 -m 模块语义（直跑文件）",
      _mut_m_form_off, frozenset({"E2E-MDCG"}), 1),
@@ -1069,6 +1407,16 @@ _MUTATIONS = (
      _mut_guide_no_m, frozenset({"GUIDE"}), 1),
     ("M13-import-gate-off", "被 import 也重启（F6 前的静默重启行为）",
      _mut_import_gate_off, frozenset({"IMPORT"}), 1),
+    # ---- ④ 成功趟（c4/c5/c6）的三处：删趟 / 生产面切断 / 无关改名假阳性 ----
+    ("S1-success-pass-dropped", "成功趟被删掉（注册 id 与函数名退场 ⇒ 两趟退回单趟）",
+     _mut_success_pass_dropped, frozenset({"E2E-PASSES"}), 1),
+    ("S2-alloc-path-cut", "生产面 `_alloc_job_id` 在分配前抛错（真 exe 在手也分配不出去）",
+     _mut_alloc_blocked, frozenset({"E2E-HIVE-OK"}), 1),
+    ("S3-green-control-mcp", "无关改名（hive_mcp/mcp_server.py 的 `_exe_path` 全量改名，"
+                             "判据一字不动）——假阳性对照：必须全绿",
+     _mut_green_control_mcp, frozenset(), 0),
+    ("S4-ctx-echo-gone", "失败趟的证据被抹掉（context 闸不再回显请求里的中文路径）",
+     _mut_ctx_echo_gone, frozenset({"E2E-HIVE"}), 1),
 )
 
 
@@ -1108,19 +1456,28 @@ def _materialize(src_root: str, dst: str) -> int:
     return n
 
 
-# 生效条件：sandbox/fusedir 与变异表给出时，逐个变异「注入 → 跑全量判据（不含 ⑦ 自身）→ 还原」，断言红项集与退出码**恰好**等于预期；返回 (失败清单, 报告行)；注入点漂移或结果不符即进失败清单（外层按 ANCHOR-MISS 处置）。
-def run_mutations(sandbox: str, fusedir: str) -> tuple[list, list]:
+# 生效条件：sandbox/fusedir 与变异表给出时，逐个变异「注入 → 跑全量判据（不含 ⑦ 自身）→ 还原」，断言红项集与退出码**恰好**等于预期；返回 (失败清单, 报告行, 跳过清单)；注入点漂移或结果不符即进失败清单（外层按 ANCHOR-MISS 处置）；预期红项含 E2E-HIVE-OK 而二进制不在盘时该变异记入跳过清单（成功趟未执行 ⇒ 该变异无法判定，**不得**算通过也不算失败）。
+def run_mutations(sandbox: str, fusedir: str) -> tuple[list, list, list]:
     miss: list = []
     rep: list = []
+    skipped_mut: list = []
     cache_dir = tempfile.mkdtemp(prefix="utf8guard_mut_")
     try:
         for mid, desc, fn, want_red, want_exit in _MUTATIONS:
             orig = {}
-            files = [HELPER_REL] + [rel for rel, _r in ENTRIES]
+            # 注意：GUARD_REL 也在内——成功趟的定点变异改的正是**本守卫自己的源码**
+            # （`E2E-PASSES` 读被判根的那一份），不进这份清单就还原不了，会污染后续变异。
+            files = [HELPER_REL, GUARD_REL] + [rel for rel, _r in ENTRIES]
             for rel in files:
                 ap = os.path.join(sandbox, rel.replace("/", os.sep))
                 with open(ap, encoding="utf-8", errors="replace") as fh:
                     orig[rel] = fh.read()
+            if "E2E-HIVE-OK" in want_red and not os.path.isfile(_hive_bin(sandbox)):
+                skipped_mut.append(
+                    "%s（%s）：预期红项含 E2E-HIVE-OK，但 hive 二进制不在盘"
+                    "（期望 %s）⇒ 成功趟未执行，本变异无法判定——**不计通过也不算失败**"
+                    % (mid, desc, _hive_bin(sandbox)))
+                continue
             touched = False
             try:
                 srcs = dict(orig)
@@ -1136,7 +1493,7 @@ def run_mutations(sandbox: str, fusedir: str) -> tuple[list, list]:
                 tmp = tempfile.mkdtemp(prefix="utf8guard_case_", dir=cache_dir)
                 res, amiss = _run_checks(sandbox, tmp, fusedir,
                                          skip=("MUTATIONS",))
-                got_red = frozenset(cid for cid, (ok, _d) in res.items() if not ok)
+                got_red = frozenset(cid for cid, (st, _d) in res.items() if st == "red")
                 got_exit = _exit_of(res, amiss)
                 if got_red != want_red or got_exit != want_exit:
                     miss.append(
@@ -1144,7 +1501,7 @@ def run_mutations(sandbox: str, fusedir: str) -> tuple[list, list]:
                         "明细 %s" % (mid, desc, sorted(want_red), want_exit,
                                      sorted(got_red), got_exit,
                                      {k: v[1][:120] for k, v in res.items()
-                                      if not v[0]}))
+                                      if v[0] != "ok"}))
                 else:
                     rep.append("%s（%s）：红项 %s / 退出码 %d —— 与预期恰好一致"
                                % (mid, desc, sorted(got_red) or "∅", got_exit))
@@ -1157,7 +1514,7 @@ def run_mutations(sandbox: str, fusedir: str) -> tuple[list, list]:
                         fh.write(src)
     finally:
         shutil.rmtree(cache_dir, ignore_errors=True)
-    return miss, rep
+    return miss, rep, skipped_mut
 
 
 # ---------------------------------------------------------------- 主流程
@@ -1190,25 +1547,33 @@ def main(argv: list | None = None) -> int:
               % ("；宿主默认 UTF-8 模式 ⇒ 追加 PYTHONUTF8=0 强制构造「未开」态"
                  if _host_utf8_default() else ""))
         res, amiss = _run_checks(ROOT, work, fusedir, skip=("MUTATIONS",))
-        npass = sum(1 for ok, _d in res.values() if ok)
+        npass = sum(1 for st, _d in res.values() if st == "ok")
+        nskip = sum(1 for st, _d in res.values() if st == "skip")
         for cid, desc, _fn in _CHECKS:
             if cid not in res:
                 continue
-            ok, detail = res[cid]
-            print("  [%s] %-10s %s" % ("ok" if ok else "红", cid, desc))
+            state, detail = res[cid]
+            if state == "skip":
+                print("  [skip] %-10s %s（**未计入通过数**）" % (cid, desc))
+                print("        %s" % detail)
+                continue
+            print("  [%s] %-10s %s" % ("ok" if state == "ok" else "红", cid, desc))
             if detail:
                 print("        %s" % detail)
 
         mut_miss: list = []
         mut_rep: list = []
+        mut_skip: list = []
         if not args.no_mutations:
             sandbox = os.path.join(tmp, "sandbox")
             os.makedirs(sandbox, exist_ok=True)
             copied = _materialize(ROOT, sandbox)
             print("\n⑦ 定点变异自证（临时物化仓面 %d 文件，绝不改工作树）" % copied)
-            mut_miss, mut_rep = run_mutations(sandbox, fusedir)
+            mut_miss, mut_rep, mut_skip = run_mutations(sandbox, fusedir)
             for line in mut_rep:
                 print("  [ok] %s" % line)
+            for line in mut_skip:
+                print("  [skip] %s" % line)
             for line in mut_miss:
                 print("  [红] %s" % line)
 
@@ -1216,21 +1581,27 @@ def main(argv: list | None = None) -> int:
         print("\n残留自报文件清理：%d 件（%s）" % (cleaned, selfdir))
 
         total = len(res) + len(_MUTATIONS if not args.no_mutations else ())
-        ok_count = npass + (len(_MUTATIONS) - len(mut_miss)
-                            if not args.no_mutations else 0)
-        print("===== SUMMARY %d/%d 通过（正向 %d/%d + 定点变异 %d/%d）"
+        ok_count = npass + (len(mut_rep) if not args.no_mutations else 0)
+        nskip_total = nskip + len(mut_skip)
+        print("===== SUMMARY %d/%d 通过（正向 %d/%d + 定点变异 %d/%d）%s"
               % (ok_count, total, npass, len(res),
-                 len(_MUTATIONS) - len(mut_miss) if not args.no_mutations else 0,
-                 len(_MUTATIONS) if not args.no_mutations else 0))
+                 len(mut_rep) if not args.no_mutations else 0,
+                 len(_MUTATIONS) if not args.no_mutations else 0,
+                 "" if not nskip_total else
+                 "；显式 SKIP %d 项（**不计入通过数**）" % nskip_total))
 
         if mut_miss:
             print("✖ ANCHOR-MISS（定点变异未按预期命中，判据面已脱钩）")
             return 2
-        if any(not ok for ok, _d in res.values()):
+        if any(st == "red" for st, _d in res.values()):
             print("✖ 存在违例")
             return _exit_of(res, amiss)
-        print("✔ 全绿：入口自保证 UTF-8 的 %d 条判据成立，定点变异恰好命中预期项数"
-              % len(_CHECKS))
+        if nskip_total:
+            print("⚠ 无违例，但有 %d 项**显式 SKIP**（未计入通过数，逐项理由见上）——"
+                  "本守卫不因 SKIP 判绿，也不把「没跑成」冒充成「跑过了」" % nskip_total)
+        print("✔ 无违例：入口自保证 UTF-8 的 %d 条判据成立（正向 %d ok / %d skip），"
+              "定点变异恰好命中预期项数（%d 处，另 %d 处按上列理由跳过）"
+              % (len(_CHECKS), npass, nskip, len(mut_rep), len(mut_skip)))
         return 0
 
 

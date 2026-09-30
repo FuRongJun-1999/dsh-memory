@@ -10,8 +10,11 @@
      MCP（真实 stdio JSON-RPC 子进程 + 进程内 `_t_spawn`）**两路实跑**；另钉
      `_submit` 不再自造 id（旧 `f"h{毫秒}_{uuid6}"` 已退场，改调 `alloc-id`；
      `HIVE_EXE` 不可用 → 显式 `SubmitError`，不静默降级）；orch 面四槽透传。
-  B  编号分配：连续分配不碰撞、编号 4 位定宽、编号用满 9999 → 显式报错（占位目录
-     构造，**不真跑满 9999 次扫描**）、不加宽不回绕。
+  B  编号分配：连续分配不碰撞、编号 4 位定宽、**搜索在号位间回绕**（池内只存
+     `…_9999`、起点越过上限时，仍分到空闲的 `…_0001`——不白扔 9998 个号位）、
+     **只有 9999 个号位全部被占用才显式报错，且文案如实**（真构造 9999 个号位；
+     本机实测建目录 0.84s、扫描 0.19s）、**编号值不回绕**（不加宽成 5 位、
+     不溢出成 `0001` 复用已发布的 id）。
   C  字符集闸（B5′）：唯一真源**区块表** `hive/id_charset_blocks.txt`（三处读者共读；
       判据**不查任何 Unicode 属性库** ⇒ 两侧版本差结构性不可能）+ 合法/非法两侧 +
       拒收**原因级**可读性 + 拒收项**逐条显式断言**（零宽/双向控制/控制字符/路径成分/
@@ -36,7 +39,8 @@
       （源码级关判据分支、**数据面**把区块表删一段/多塞一段、让某侧解析失败改
       fail-open、让 `md_cg` 面回到 ASCII 白名单、临时 crate 副本里把表文件删一段、
       关掉一条显式拒收），断言红项集与退出码**逐项实测后写死**（不猜），
-      并以 1 处**假阳性对照**（与判据无关的改名）证明本守卫不误报。
+      并以 2 处**假阳性对照**（每条落在其判据所在的面：python 面 / Rust 面各一处无关
+      改名，含 ③ 所在的 `job.rs`）证明本守卫不误报。
   I  红基线（`--head-baseline`：把**锚点字节**临时物化后跑判据谓词，**绝不覆盖工作区**；
       谓词**按条自带批次锚点**——每条在「引入它的批次的前一个提交」上必红、在工作区上必绿；
       显式给 `REF` 则统一用该 ref）。
@@ -624,10 +628,11 @@ def _orch_spawn(jobs: str, args: dict, slots: dict):
 
 
 # ================================================================== B 组
-# 编号分配：独占创建即分配、4 位定宽、用满 9999 显式报错（占位目录构造）。
+# 编号分配：独占创建即分配、4 位定宽、搜索在号位间回绕、9999 个号位全被占用才报错
+# （c2 起**真构造 9999 个号位**：本机实测建目录 0.84s、扫描 0.19s，代价可接受）。
 
 def g_b():
-    begin("B", "编号分配（B3：独占创建即分配 / 定宽 4 位 / 用满显式报错）")
+    begin("B", "编号分配（B3：独占创建即分配 / 定宽 4 位 / 号位间回绕 / 全部占用才报错）")
     check("B0 前置：hive 二进制在盘", _missing_exe() is None,
           "未找到 %s" % (_missing_exe() or ""))
     root = _mkroot("b")
@@ -635,30 +640,70 @@ def g_b():
     os.makedirs(jobs, exist_ok=True)
 
     ids = []
+    docs = []
     for _ in range(3):
         rc, out, _e = _cli(["alloc-id", "--identity", "编号端", "--task", "连续",
                             "--unit", "reflect"], jobs=jobs)
-        ids.append((_json_of(out) or {}).get("job_id"))
+        docs.append(_json_of(out) or {})
+        ids.append(docs[-1].get("job_id"))
     check("B1·连续分配不碰撞且自 0001 起（英文键 unit 落中文名）",
           ids == ["h_编号端_连续_反思单元_0001", "h_编号端_连续_反思单元_0002",
                   "h_编号端_连续_反思单元_0003"], str(ids))
     check("B2·编号 4 位定宽十进制 + 分配即创建目录（独占创建即分配）",
           all(len(i.split("_")[-1]) == 4 and i.split("_")[-1].isdigit()
               and os.path.isdir(os.path.join(jobs, i)) for i in ids), str(ids))
+    check("B2b·分配只落在本守卫的临时池（exe 回显 jobs_dir == 临时池，自证不碰在役池）",
+          all(os.path.abspath(d.get("jobs_dir") or "?") == os.path.abspath(jobs)
+              for d in docs), str([d.get("jobs_dir") for d in docs]))
 
-    jobs2 = os.path.join(root, "jobs_full")
-    os.makedirs(os.path.join(jobs2, "h_端_任务_记录单元_9999"), exist_ok=True)
+    # ---- c1：搜索在号位间回绕（起点越过上限时继续用低位号位，而不是白扔 9998 个位）
+    jobs_wrap = os.path.join(root, "jobs_wrap")
+    os.makedirs(os.path.join(jobs_wrap, "h_端_任务_记录单元_9999"), exist_ok=True)
     rc, out, _e = _cli(["alloc-id", "--identity", "端", "--task", "任务",
-                        "--unit", "记录单元"], jobs=jobs2)
+                        "--unit", "记录单元"], jobs=jobs_wrap)
+    doc = _json_of(out) or {}
+    check("B3·回绕生效：池内只存 …_9999（起点 = 10000 越上限）→ 分到空闲的 …_0001",
+          rc == 0 and doc.get("ok") is True
+          and doc.get("job_id") == "h_端_任务_记录单元_0001"
+          and os.path.isdir(os.path.join(jobs_wrap, "h_端_任务_记录单元_0001")),
+          "rc=%s doc=%s" % (rc, json.dumps(doc, ensure_ascii=False)[:160]))
+    rc, out, _e = _cli(["alloc-id", "--identity", "端", "--task", "任务",
+                        "--unit", "记录单元"], jobs=jobs_wrap)
+    doc = _json_of(out) or {}
+    check("B3b·回绕段不重复试号（9999 + 0001 在场 → 落到 0002，既不复用 0001 也不报用尽）",
+          rc == 0 and doc.get("job_id") == "h_端_任务_记录单元_0002",
+          "rc=%s doc=%s" % (rc, json.dumps(doc, ensure_ascii=False)[:160]))
+
+    # ---- c2：真把 9999 个号位**全部**占满才报错，且文案如实（本机实测 0.84s / 0.19s）
+    jobs_full = os.path.join(root, "jobs_full")
+    os.makedirs(jobs_full, exist_ok=True)
+    for n in range(1, 10000):
+        os.makedirs(os.path.join(jobs_full, "h_端_任务_记录单元_%04d" % n),
+                    exist_ok=True)
+    before = sorted(os.listdir(jobs_full))
+    rc, out, _e = _cli(["alloc-id", "--identity", "端", "--task", "任务",
+                        "--unit", "记录单元"], jobs=jobs_full)
     doc = _json_of(out) or {}
     err = doc.get("error") or ""
-    check("B3·编号用满 9999 → 退出 1 且错误含前缀与「每单元上限 9999」",
-          rc == 1 and doc.get("ok") is False and "h_端_任务_记录单元_" in err
-          and "每单元上限 9999" in err, "rc=%s err=%r" % (rc, err[:160]))
-    check("B4·溢出不得静默加宽（无 10000 目录）也不得回绕（无 0001 目录）",
-          not os.path.exists(os.path.join(jobs2, "h_端_任务_记录单元_10000"))
-          and not os.path.exists(os.path.join(jobs2, "h_端_任务_记录单元_0001")),
-          str(sorted(os.listdir(jobs2))))
+    check("B4·9999 个号位**全部**被占用才报错：退出 1 且文案含「9999 个号位已全部被占用」",
+          rc == 1 and doc.get("ok") is False
+          and "9999 个号位已全部被占用" in err
+          and "h_端_任务_记录单元_" in err, "rc=%s err=%r" % (rc, err[:200]))
+    check("B4b·文案不含旧措辞「已无可用编号」（它会被读成「前面也满了」，与池内事实不符）",
+          "已无可用编号" not in err, "err=%r" % err[:200])
+    check("B4c·用尽不得静默加宽（不得出现 5 位 10000 目录）",
+          not os.path.exists(os.path.join(jobs_full, "h_端_任务_记录单元_10000")),
+          str(sorted(os.listdir(jobs_full))[-3:]))
+    check("B4d·用尽不得就地复用/新落目录：池内清单不变 且 末次碰撞 = …_9999（全序扫过）",
+          sorted(os.listdir(jobs_full)) == before
+          and "末次碰撞 h_端_任务_记录单元_9999" in err,
+          "err=%r 新件=%s" % (err[-90:],
+                              sorted(set(os.listdir(jobs_full)) - set(before))[:3]))
+    check("B4e·用尽失败不留残迹：池内仍恰 9999 个号位目录",
+          len([n for n in os.listdir(jobs_full)
+               if len(n.rsplit("_", 1)[-1]) == 4]) == 9999,
+          str(len(os.listdir(jobs_full))))
+
     jobs3 = os.path.join(root, "jobs_last")
     os.makedirs(os.path.join(jobs3, "h_端_任务_记录单元_9998"), exist_ok=True)
     rc, out, _e = _cli(["alloc-id", "--identity", "端", "--task", "任务",
@@ -667,6 +712,12 @@ def g_b():
     check("B5·9998 在场时 9999 仍可分配（上界形态 + 定宽守恒）",
           rc == 0 and doc.get("job_id") == "h_端_任务_记录单元_9999",
           json.dumps(doc, ensure_ascii=False)[:160])
+    rc, out, _e = _cli(["alloc-id", "--identity", "端", "--task", "任务",
+                        "--unit", "记录单元"], jobs=jobs3)
+    doc = _json_of(out) or {}
+    check("B5b·9998+9999 在场（起点越界）→ 回绕到 0001，而**不是**报用尽",
+          rc == 0 and doc.get("job_id") == "h_端_任务_记录单元_0001",
+          "rc=%s doc=%s" % (rc, json.dumps(doc, ensure_ascii=False)[:160]))
     jobs4 = os.path.join(root, "jobs_foreign")
     os.makedirs(os.path.join(jobs4, "h_端_任务_记录单元_x"), exist_ok=True)
     os.makedirs(os.path.join(jobs4, "h_端_任务_记录单元_00010"), exist_ok=True)
@@ -681,6 +732,25 @@ def g_b():
     check("B7·MCP/编排面不自持分配器（无 os.mkdir 自增实现，只调 alloc-id）",
           "os.mkdir" not in src and "MAX_UNIT_SEQ" not in src
           and '"alloc-id"' in src)
+
+    # ---- 判据面源码钉点（c1/c2/c3：单点判据 + 两个「回绕」不得混读）
+    with open(os.path.join(_REPO, JOB_RS_REL), encoding="utf-8") as f:
+        jsrc = f.read()
+    check("B8·生产默认上限恒为 9999（B4 的「真用尽」用例依赖该默认值，故在守卫里钉死）",
+          "pub const MAX_UNIT_SEQ: u32 = 9999;" in jsrc, "job.rs 未见该常量声明")
+    check("B8b·docstring/注释并列写清两个「回绕」（编号值不回绕 ∧ 搜索在号位间回绕）",
+          "编号值不回绕" in jsrc and "搜索在号位间回绕" in jsrc,
+          "「编号值不回绕」=%s「搜索在号位间回绕」=%s"
+          % ("编号值不回绕" in jsrc, "搜索在号位间回绕" in jsrc))
+    check("B8c·搜索序单点 = seq_candidates（先 hint..=MAX、再回绕 1..hint，两区间不重叠）",
+          "fn seq_candidates(hint: u32)" in jsrc
+          and "(hint..=MAX_UNIT_SEQ).chain(1..wrap_hi)" in jsrc
+          and "let wrap_hi = hint.min(MAX_UNIT_SEQ + 1);" in jsrc,
+          "搜索序实现面与契约不符")
+    check("B8d·源码面：新文案在位（「个号位已全部被占用」）且旧文案形态（「已无可用编号（」）已退场"
+          "（注释里解释旧措辞为何被换掉不算违例，故只钉会进错误文本的那个形态）",
+          "个号位已全部被占用" in jsrc and "末次碰撞" in jsrc
+          and "已无可用编号（" not in jsrc, "job.rs 文案面与契约不符")
 
 
 # ================================================================== C 组
@@ -1332,16 +1402,32 @@ def _add_block(lo: int, hi: int):
 #: Rust 面变异：**用尽分支静默加宽为 5 位**（破坏「4 位定宽」前提并落盘 10000 号目录）
 #: ——正是契约点名要防的形态（首版变异锚在循环体内，而 `next_seq_hint` 返回 10000 时
 #: `10000..=9999` 是**空区间**⇒ 变异体不可达、红项=0；实测发现后改为锚在用尽分支本身）。
+#: 锚点随 c2 文案改写同步（锚的是**会进错误文本的那个形态**，不是措辞本身）。
 _RUST_SWAP = (
     '    Err(format!(\n'
-    '        "编号用尽: 前缀 {prefix} 已无可用编号（每单元上限 {MAX_UNIT_SEQ}，'
-    '4 位定宽不自动加宽\\\n',
+    '        "编号用尽: 前缀 {prefix} 的 {MAX_UNIT_SEQ} 个号位已全部被占用'
+    '（4 位定宽、不自动加宽）\\\n',
     '    let _ = &last_collision;\n'
     '    let wide = format!("{prefix}{}", MAX_UNIT_SEQ + 1);\n'
     '    if fs::create_dir(job_dir(jobs, &wide)).is_ok() {\n'
     '        return Ok(wide);\n'
     '    }\n'
     '    Err(format!(\n'
+    '        "编号用尽: 前缀 {prefix} 的 {MAX_UNIT_SEQ} 个号位已全部被占用'
+    '（4 位定宽、不自动加宽）\\\n',
+)
+
+#: Rust 面变异（③/c1）：**回绕区间退场**——搜索序退回「起点..=上限」单区间（= 修前形态）。
+#: 这条钉的正是 ③ 的根因：起点越过上限时单区间为空 ⇒ 报用尽，而 `0001..9998` 实际空闲。
+_RUST_NOWRAP = (
+    "    for n in seq_candidates(next_seq_hint(jobs, &prefix)) {",
+    "    for n in next_seq_hint(jobs, &prefix)..=MAX_UNIT_SEQ {",
+)
+
+#: Rust 面变异（③/c2）：**用尽文案退回旧措辞**（「已无可用编号」会被读成「前面也满了」）。
+_RUST_OLD_TEXT = (
+    '        "编号用尽: 前缀 {prefix} 的 {MAX_UNIT_SEQ} 个号位已全部被占用'
+    '（4 位定宽、不自动加宽）\\\n',
     '        "编号用尽: 前缀 {prefix} 已无可用编号（每单元上限 {MAX_UNIT_SEQ}，'
     '4 位定宽不自动加宽\\\n',
 )
@@ -1355,8 +1441,11 @@ _RUST_SWAP = (
 #:                 crate 副本**上改源码**或改数据文件**（工作区只读），重编译后喂 `HIVE_EXE`。
 #: 期望 `(退出码, {组: 红项数})`——**逐项实测后写死**（不猜；实测命令 =
 #: `python -X utf8 -m hive.test_id_contract_v2 --branch-baseline`，2026-09-30 本机实测，
-#: 12 处变异各自的红项集/退出码 + 假阳性对照 rc=0/红项=0 见下）。红项数口径 = 该组内转红
+#: 14 处变异各自的红项集/退出码 + 2 处假阳性对照（python 面 / Rust 面）rc=0/红项=0 见下）。红项数口径 = 该组内转红
 #: 的断言条数（`check()` 不中断组，故可精确计数）；退出码 = 该行变异下整支守卫的真实退出码。
+#: ③（c1/c2）的三处变异（回绕退场 / 静默加宽 / 文案回退）**只跑 B 组**（判别力落在 B3/B4
+#: 一族断言上）；另注：B8* 是**工作区源码面**钉点，rust 面变异改的是临时 crate 副本，
+#: 故 B8* 在变异轮恒绿——③ 的行为面判别由 B3/B4 一族（喂真 exe）承担。
 _MUTATIONS = (
     ("MCP 四槽必填（_t_spawn 的缺槽校验）",
      "fn", ("mcp", "_t_spawn",
@@ -1406,18 +1495,52 @@ _MUTATIONS = (
      (1, {"C": 2})),
     ("Rust 编号溢出改静默加宽（job.rs::alloc_job_id 用尽分支）",
      "rust", ("src/job.rs", _RUST_SWAP[0], _RUST_SWAP[1], ("B",)),
-     (1, {"B": 2})),
+     (1, {"B": 3})),
     ("数据面：**临时 crate 副本**的表文件删掉一段（4E00-9FFF）——Rust 侧 `include_str!` "
      "嵌入的表与工作区数据分叉（真 exe 与 Python 面不同判）",
      "rust", ("id_charset_blocks.txt", "\n4E00-9FFF\n", "\n", ("C",)),
      (1, {"C": 12})),
+    # ---- ③ 编号分配（c1/c2）的三处定点变异：回绕退场 / 静默加宽 / 文案回退 ----
+    ("③ 回绕区间退场：搜索序退回「起点..=上限」单区间（= 修前形态）——只存 …_9999 时"
+     "起点越界 ⇒ 空区间 ⇒ 报用尽，而 0001..9998 实际空闲（B3/B3b/B4d/B5b 四处转红）",
+     "rust", ("src/job.rs", _RUST_NOWRAP[0], _RUST_NOWRAP[1], ("B",)),
+     (1, {"B": 4})),
+    ("③ 用尽文案退回旧措辞（「已无可用编号」会被读成「前面也满了」，与池内事实不符）",
+     "rust", ("src/job.rs", _RUST_OLD_TEXT[0], _RUST_OLD_TEXT[1], ("B",)),
+     (1, {"B": 2})),
 )
 
-#: 假阳性对照：与判据无关的改名必须**全绿**（退出码 0）。
-_FALSE_POSITIVE = ("mcp", "_job_id_reject_reason",
-                   '    if jid in (".", ".."):\n        return "job_id 是相对路径段"',
-                   '    _idv2_unused_probe = None\n'
-                   '    if jid in (".", ".."):\n        return "job_id 是相对路径段"')
+#: Rust 面假阳性对照（③ 的判据面在 `job.rs`，故对照也落在同一文件上）：把
+#: `write_json` 的**局部变量改名**（与编号分配毫无关系，判据一字不动）。
+_FP_RUST = (
+    '    let tmp = path.with_extension(format!("tmp{}", std::process::id()));\n'
+    '    {\n'
+    '        let mut f = fs::File::create(&tmp)?;\n'
+    '        f.write_all(data.as_bytes())?;\n'
+    '        f.sync_all()?;\n'
+    '    }\n'
+    '    fs::rename(&tmp, path)\n',
+    '    let tmp_file = path.with_extension(format!("tmp{}", std::process::id()));\n'
+    '    {\n'
+    '        let mut f = fs::File::create(&tmp_file)?;\n'
+    '        f.write_all(data.as_bytes())?;\n'
+    '        f.sync_all()?;\n'
+    '    }\n'
+    '    fs::rename(&tmp_file, path)\n',
+)
+
+#: 假阳性对照（**两条**，各落在其判据所在的面）：与判据无关的改名必须**全绿**
+#: （退出码 0）。`"fn"` 面只动内存里的活模块；`"rust"` 面在临时 crate 副本上改源码
+#: 并重编译（工作区只读），`only=None` ⇒ **全组**都要绿。
+_FALSE_POSITIVES = (
+    ("python 面：`_job_id_reject_reason` 内插入无关赋值",
+     "fn", ("mcp", "_job_id_reject_reason",
+            '    if jid in (".", ".."):\n        return "job_id 是相对路径段"',
+            '    _idv2_unused_probe = None\n'
+            '    if jid in (".", ".."):\n        return "job_id 是相对路径段"', None)),
+    ("Rust 面（③ 的判据文件）：`job.rs::write_json` 内局部变量改名，判据一字不动",
+     "rust", ("src/job.rs", _FP_RUST[0], _FP_RUST[1], None)),
+)
 
 _HOLDERS = {"mcp": _hm, "orch": _orch, "mdcg": _units}
 
@@ -1639,23 +1762,50 @@ def _branch_baseline() -> int:
                      sum(want_hit.values()), want_rc, dict(sorted(want_hit.items()))))
             bad.append(label)
 
-    restore = _patch_fn(*_FALSE_POSITIVE)
-    if restore is None:
-        print("  ANCHOR-MISS 假阳性对照锚点漂移")
-        _cleanup_persist()
-        return 2
-    try:
-        with contextlib.redirect_stdout(io.StringIO()):
-            fp_fail, fp_groups = _run_groups()
-    finally:
-        restore()
-        _cleanup()
-    if fp_fail == 0:
-        print("  假阳性对照「无关改名」→ 红项=0，退出码=0 —— 本守卫不误报")
-    else:
-        print("  假阳性对照「无关改名」→ 红项=%d，命中组=%s  **误报**"
-              % (fp_fail, {g: n for g, n in fp_groups.items() if n}))
-        bad.append("假阳性对照")
+    for fp_label, fp_face, fp_payload in _FALSE_POSITIVES:
+        if fp_face == "rust":
+            rel, old, new, only = fp_payload
+            _build_env()
+            ok, log = _cargo_build()
+            if not ok:
+                print("  假阳性对照编译失败 %s：%s" % (fp_label, log[-300:]))
+                _cleanup_persist()
+                return 2
+            fp_restore = _patch_rust(rel, old, new)
+            if fp_restore is None:
+                print("  ANCHOR-MISS 假阳性对照锚点漂移（%s）" % fp_label)
+                _cleanup_persist()
+                return 2
+            os.environ["HIVE_EXE"] = _BUILD["exe"]
+            try:
+                ok2, log2 = _cargo_build()
+                if not ok2:
+                    print("  假阳性对照编译失败 %s：%s" % (fp_label, log2[-300:]))
+                    return 2
+                with contextlib.redirect_stdout(io.StringIO()):
+                    fp_fail, fp_groups = _run_groups(only=only)
+            finally:
+                fp_restore()
+                os.environ.pop("HIVE_EXE", None)
+                _cleanup()
+        else:
+            fp_restore = _patch_fn(*fp_payload[:4])
+            if fp_restore is None:
+                print("  ANCHOR-MISS 假阳性对照锚点漂移（%s）" % fp_label)
+                _cleanup_persist()
+                return 2
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    fp_fail, fp_groups = _run_groups()
+            finally:
+                fp_restore()
+                _cleanup()
+        if fp_fail == 0:
+            print("  假阳性对照「%s」→ 红项=0，退出码=0 —— 本守卫不误报" % fp_label)
+        else:
+            print("  假阳性对照「%s」→ 红项=%d，命中组=%s  **误报**"
+                  % (fp_label, fp_fail, {g: n for g, n in fp_groups.items() if n}))
+            bad.append("假阳性对照(%s)" % fp_label)
     print("\n定点变异自证：%s" % ("PASS（每处判据都有断言把它钉死，且无关改动不误报）"
                                   if not bad else "FAIL —— " + "、".join(bad)))
     _cleanup_persist()

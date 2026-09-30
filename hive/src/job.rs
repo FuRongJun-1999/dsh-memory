@@ -225,7 +225,9 @@ pub fn is_reserved_device_name(s: &str) -> bool {
 /// 拒收逐条在本函数内显式判，不靠上游、也不靠「表里没有所以顺带拒」：
 ///   * `/` `\` `:`（路径分隔/盘符/ADS；2026-09-25 缺陷载体：`kill ..` 池外写、
 ///     `poll ../victim` 池外读任意目录 result 全文）；
-///   * 单独的 `.` 与 `..`、尾点（Win32 静默剥尾点 ⇒ 两个不同 id 落同一目录）；
+///   * 单独的 `.` 与 `..`（**整串**等于）、**按 `_` 分段的任一段**等于 `.`/`..`
+///     （c7 段级：目录可作父段，成 5 段形态 ⇒ 段级 `..` 是真实载体）、尾点
+///     （Win32 静默剥尾点 ⇒ 两个不同 id 落同一目录）；
 ///   * 控制字符（含 NUL）、零宽、双向控制；
 ///   * 首尾空白；
 ///   * Windows 保留设备名（含带扩展名形态）——整 id 与按 `_` 分段的**任一段**；
@@ -246,6 +248,16 @@ pub fn valid_job_id(id: &str) -> bool {
     }
     if id == "." || id == ".." {
         return false; // 相对段（h 前缀下已不可达；显式保留判据，防前缀规则漂移）
+    }
+    // 「. / ..」的**段级**判据（c7，2026-09-30 加固）：按 `_` 分段，**任一段**等于
+    // `.` 或 `..` 即拒。为什么是段级：id 的每一段都可能被宿主当作**目录名**或**父目录段**
+    // 用（契约 §四.4「任务槽：目录可作它的父段」，即 5 段形态），段级 `..` 因此是真实载体。
+    // 现场定性（如实）：现状整串口径收下 `h_.._x` / `h_a_.._b` 这类「含 `..` 段但不以点
+    // 结尾」的 id，其拼出的路径**停在池内**、不构成穿越 ⇒ 本次是**面向重构的纵深加固**，
+    // 不是现实缺陷的修补。范围**只加这一条**：不拒空段（`h__x`）等其它形态——那是未被
+    // 裁定的行为收紧，不许顺手做。
+    if id.split('_').any(|seg| seg == "." || seg == "..") {
+        return false;
     }
     for c in id.chars() {
         if c.is_control() || c == '/' || c == '\\' || c == ':' {
@@ -373,6 +385,9 @@ pub const SEQ_WIDTH: usize = 4;
 
 /// 同前缀已有编号最大值 + 1（**仅起点提示**）。分配成败一律以 `fs::create_dir`
 /// 为准（B3）——本函数只影响「从几号开始试」，不影响正确性。
+/// 返回值 ∈ `1..=MAX_UNIT_SEQ + 1`；取到 `MAX_UNIT_SEQ + 1`（= 10000）只说明「最高号位
+/// `…_9999` 已被占用」，**不是用尽结论**——起点越过上限时由 [`seq_candidates`] 回绕到
+/// 低位段继续（同样 4 位定宽），用尽与否一律由 create_dir 的碰撞面说话。
 /// 生效条件：jobs 可读 → 同前缀目录中 4 位十进制尾段的最大值 +1；无同前缀件/目录
 /// 不可读/尾段形态不符 → 1（不 panic、不伪造默认值）。
 fn next_seq_hint(jobs: &Path, prefix: &str) -> u32 {
@@ -397,13 +412,46 @@ fn next_seq_hint(jobs: &Path, prefix: &str) -> u32 {
     max.saturating_add(1)
 }
 
+/// 号位搜索序（B3/c1）：**先在号位间回绕地搜**——先 `hint..=MAX_UNIT_SEQ`，
+/// 再回绕到 `1..hint`。
+///
+/// 两个区间**互不重叠**，并集恰是 `1..=MAX_UNIT_SEQ` 的全部 9999 个号位 ⇒
+/// **每个号位至多被尝试一次**（不重复试号、不 panic、不死循环）。`hint` 越过上限时
+/// 第一段为空（`10000..=9999`）；`hint == 1` 时第二段为空（`1..1`）——**空区间就是空
+/// 迭代**，行为确定。回绕段上界夹到 `MAX_UNIT_SEQ + 1`，故 `hint` 再大也不会让搜索序
+/// 产出 5 位号位（4 位定宽的前提只由搜索序的**值域**保证，与起点取值无关）。
+///
+/// **两个「回绕」必须分清**（c1/c2，两个读法不能混）：
+///   · **编号值不回绕**——分配出的编号**绝不**溢出成 `0001` 去复用已发布的 id；
+///     9999 个号位全被占用时一律**显式报错**、不自动加宽（B3 裁定）。
+///   · **搜索在号位间回绕**——只是「试号的**顺序**」绕一圈，好把 9999 个号位**用尽**；
+///     `hint` 仅作起点提示，分配成败**一律以 `fs::create_dir` 的碰撞面为准**。
+fn seq_candidates(hint: u32) -> impl Iterator<Item = u32> {
+    // 回绕段 = 1..=(hint-1)，上界夹到 10000 使号位恒 ≤ 9999（定宽 4 位）。
+    let wrap_hi = hint.min(MAX_UNIT_SEQ + 1);
+    (hint..=MAX_UNIT_SEQ).chain(1..wrap_hi)
+}
+
 /// 分配 job_id（B1/B3/B7）：`h_<身份>_<任务>_<单元>_<编号>`。
 ///
 /// 算法 = **独占创建即分配**：对 `jobs/<id>` 执行 `fs::create_dir`，成功即分配；
-/// `AlreadyExists` **才算碰撞** ⇒ 编号 +1 重试（起点 = 同前缀已有编号最大值+1）。
+/// `AlreadyExists` **才算碰撞** ⇒ 取搜索序里的下一个号位重试。搜索序见
+/// [`seq_candidates`]：先 `hint..=MAX_UNIT_SEQ`、再**回绕** `1..hint`（起点
+/// `hint` = [`next_seq_hint`] 的「同前缀已有编号最大值 +1」，**只是起点提示**，
+/// 不参与成败判定）。非 `AlreadyExists` 的建目录错误**当场返回 Err**，绝不吞。
 /// 性质：碰撞**结构上不可能**（不再依赖「毫秒恰好不同 ∧ pid 恰好不同」——
-/// H-1 的碰撞那半因此被消解而非修补）；编号定宽 4 位，越界显式报错（不加宽/不回绕）。
-/// 生效条件：jobs 可建、三槽合法、单元 ∈ 五单元闭集、号位未满 → Ok(id)
+/// H-1 的碰撞那半因此被消解而非修补）。
+///
+/// **两个「回绕」必须分清**（c1/c2 点名的读法陷阱）：
+///   · **编号值不回绕**：分配出的编号恒为 4 位定宽 `0001..=9999`——用尽即**显式报错**，
+///     既不加宽成 5 位，也**不溢出回绕成 `0001`** 去复用已发布的 id；
+///   · **搜索在号位间回绕**：只绕「试号顺序」（起点之后的低位段），目的是把 9999 个号位
+///     **全部用尽**——故池内只存 `…_9999` 时（起点 = 10000 > 上限）仍能分配到空闲的
+///     `…_0001`，而不是白扔 9998 个号位。
+/// 上述「用尽」是**可证事实**而非猜测：循环跑完 = 搜索序（并集 `1..=9999`）中每个号位
+/// 的 create_dir 都返回了 `AlreadyExists`，其余错误已在上文当场 Err ⇒ 报错文案与池内事实
+/// 必然相符。
+/// 生效条件：jobs 可建、三槽合法、单元 ∈ 五单元闭集、**号位未满** → Ok(id)
 /// （**目录已创建** = 分配已完成；调用方随后写 spec/status）；任一不满足 → Err
 /// （含前缀/槽名/上限等可直读原因，绝不静默降级）。
 /// 不适用条件：不写 spec.json/status.json（写序归 [`init_job_with_slots`]）；
@@ -427,7 +475,8 @@ pub fn alloc_job_id(
     let prefix = format!("h_{identity}_{task}_{unit_zh}_");
     let width = SEQ_WIDTH;
     let mut last_collision = String::new();
-    for n in next_seq_hint(jobs, &prefix)..=MAX_UNIT_SEQ {
+    // 搜索在号位间回绕：起点只是提示，循环覆盖全部 9999 个号位（每个至多试一次）。
+    for n in seq_candidates(next_seq_hint(jobs, &prefix)) {
         let id = format!("{prefix}{n:0width$}");
         match fs::create_dir(job_dir(jobs, &id)) {
             Ok(()) => return Ok(id),
@@ -442,9 +491,12 @@ pub fn alloc_job_id(
             }
         }
     }
+    // 走到这里 = 1..=9999 的每个号位都返回了 AlreadyExists（非碰撞错误已当场 Err）
+    // ⇒ 「全部被占用」是按事实说话，不是猜测（旧的「已无可用编号」会被读成
+    // 「前面也满了」，而当时 0001..9998 实际可能全空闲）。
     Err(format!(
-        "编号用尽: 前缀 {prefix} 已无可用编号（每单元上限 {MAX_UNIT_SEQ}，4 位定宽不自动加宽\
-         {tail}）——请换任务槽或另起单元",
+        "编号用尽: 前缀 {prefix} 的 {MAX_UNIT_SEQ} 个号位已全部被占用（4 位定宽、不自动加宽）\
+         ——请换任务槽或另起单元{tail}",
         tail = if last_collision.is_empty() {
             String::new()
         } else {
@@ -1336,26 +1388,93 @@ mod tests {
         let _ = fs::remove_dir_all(&jobs);
     }
 
-    /// B3：号位用满 9999 → **显式报错**（错误文本含前缀与「每单元上限 9999」），
-    /// 不加宽、**不回绕**（回绕到 0001 会静默复用已发布的 id）。
+    /// c1/c3：**搜索在号位间回绕**——池内只存 `…_9999` 时起点 = 10000（越过上限），
+    /// 第一段 `10000..=9999` 为空、接回绕段 ⇒ 分到空闲的 `…_0001`（白扔 9998 个号位
+    /// 的旧行为就此消解）。**编号值不回绕**：分出的 `0001` 是本前缀当时空闲的号位，
+    /// 不是复用已发布 id——目录即分配凭证，与「用尽即报错」不冲突。
     #[test]
-    fn alloc_job_id_reports_exhaustion() {
-        let jobs = tmpdir("alloc_full");
+    fn alloc_job_id_wraps_over_slots_past_the_hint() {
+        let jobs = tmpdir("alloc_wrap");
         fs::create_dir_all(job_dir(&jobs, "h_端_任务_记录单元_9999")).unwrap();
+        assert_eq!(
+            alloc_job_id(&jobs, "端", "任务", "记录单元").unwrap(),
+            "h_端_任务_记录单元_0001"
+        );
+        // 回绕段的起点随分配前移：下一次起点 = 0002（**不重复试** 已占的 0001）
+        assert_eq!(
+            alloc_job_id(&jobs, "端", "任务", "记录单元").unwrap(),
+            "h_端_任务_记录单元_0002"
+        );
+        // hint 落在回绕区间内（9999 + 0001 在场 → 起点 10000）也不重复试号：落到 0002
+        let jobs2 = tmpdir("alloc_wrap_hole");
+        for n in ["0001", "9999"] {
+            fs::create_dir_all(job_dir(&jobs2, &format!("h_端_任务_记录单元_{n}"))).unwrap();
+        }
+        assert_eq!(
+            alloc_job_id(&jobs2, "端", "任务", "记录单元").unwrap(),
+            "h_端_任务_记录单元_0002"
+        );
+        let _ = fs::remove_dir_all(&jobs);
+        let _ = fs::remove_dir_all(&jobs2);
+    }
+
+    /// c3：搜索序 = 「先 `hint..=MAX`，再回绕 `1..hint`」，两区间**互不重叠**、
+    /// 并集恰为 `1..=MAX_UNIT_SEQ`（每个号位至多试一次）；`hint` 取端点/越界值都不
+    /// panic、不死循环；越界起点也不产出 5 位号位（4 位定宽前提不被搜索序破坏）。
+    #[test]
+    fn seq_candidates_wraps_without_overlap() {
+        use std::collections::BTreeSet;
+        let all: BTreeSet<u32> = (1..=MAX_UNIT_SEQ).collect();
+        for hint in [1u32, 2, 3, 5000, MAX_UNIT_SEQ - 1, MAX_UNIT_SEQ, MAX_UNIT_SEQ + 1] {
+            let seq: Vec<u32> = seq_candidates(hint).collect();
+            assert_eq!(seq.len() as u32, MAX_UNIT_SEQ, "hint={hint} 须恰覆盖全部号位");
+            let set: BTreeSet<u32> = seq.iter().copied().collect();
+            assert_eq!(set.len(), seq.len(), "hint={hint} 区间重叠 ⇒ 重复试号");
+            assert_eq!(set, all, "hint={hint} 并集须是 1..=9999");
+            if hint <= MAX_UNIT_SEQ {
+                assert_eq!(seq[0], hint, "hint={hint} 须自起点提示起搜");
+            } else {
+                assert_eq!(seq[0], 1, "hint={hint} 越界时须直接从回绕段起搜");
+            }
+            // 末位 = 回绕段上界；`hint == 1` 时回绕段为空（`1..1`）⇒ 末位 = 首段上界。
+            let want_last = if hint <= 1 { MAX_UNIT_SEQ } else { hint - 1 };
+            assert_eq!(seq[seq.len() - 1], want_last, "hint={hint} 末位不符");
+        }
+        // 防御面：起点远越界（生产上 next_seq_hint ≤ 10000，见其文档）也只出 4 位号位
+        let seq: Vec<u32> = seq_candidates(MAX_UNIT_SEQ + 7).collect();
+        assert!(seq.iter().all(|n| all.contains(n)), "搜索序不得产出 5 位号位");
+    }
+
+    /// c2：**只有 9999 个号位全部被占用才报错，且文案如实**（真建满 9999 个号位——
+    /// 本机实测建目录 0.84s、扫描 0.19s，代价可接受）。文案须含「全部被占用」，
+    /// **不得**含会被读成「前面也满了」的旧措辞「已无可用编号」；不加宽为 5 位、
+    /// 不把已占号位就地复用、保留可直读的「末次碰撞」。
+    #[test]
+    fn alloc_job_id_reports_exhaustion_only_when_all_slots_taken() {
+        let jobs = tmpdir("alloc_full");
+        for n in 1..=MAX_UNIT_SEQ {
+            fs::create_dir_all(job_dir(&jobs, &format!("h_端_任务_记录单元_{n:04}")))
+                .unwrap();
+        }
+        assert_eq!(MAX_UNIT_SEQ, 9999, "生产默认上限恒为 9999（B3 裁定，钉死）");
         let e = alloc_job_id(&jobs, "端", "任务", "记录单元").unwrap_err();
+        assert!(e.contains("全部被占用"), "文案须如实说「全部被占用」: {e}");
+        assert!(!e.contains("已无可用编号"), "旧措辞会被读成「前面也满了」: {e}");
+        assert!(e.contains(&format!("{MAX_UNIT_SEQ} 个号位")), "文案须含号位数: {e}");
         assert!(e.contains("h_端_任务_记录单元_"), "错误须含前缀: {e}");
-        assert!(e.contains("每单元上限 9999"), "错误须含「每单元上限 9999」: {e}");
+        assert!(e.contains("末次碰撞"), "须保留可直读的末次碰撞: {e}");
         assert!(!job_dir(&jobs, "h_端_任务_记录单元_10000").exists(), "不得加宽为 5 位");
-        assert!(!job_dir(&jobs, "h_端_任务_记录单元_0001").exists(), "不得回绕到 0001");
-        // 9998 在场 → 9999 仍可用；9999 也在场 → 碰撞分支 + 越界分支同时走到
+        // 上界形态：9998 在场 → 9999 仍可分配；9999 也在场 → 起点越界 ⇒ 回绕找空号位
         let jobs2 = tmpdir("alloc_last");
         fs::create_dir_all(job_dir(&jobs2, "h_端_任务_记录单元_9998")).unwrap();
         assert_eq!(
             alloc_job_id(&jobs2, "端", "任务", "记录单元").unwrap(),
             "h_端_任务_记录单元_9999"
         );
-        let e2 = alloc_job_id(&jobs2, "端", "任务", "记录单元").unwrap_err();
-        assert!(e2.contains("编号用尽") && e2.contains("9999"), "{e2}");
+        assert_eq!(
+            alloc_job_id(&jobs2, "端", "任务", "记录单元").unwrap(),
+            "h_端_任务_记录单元_0001"
+        );
         let _ = fs::remove_dir_all(&jobs);
         let _ = fs::remove_dir_all(&jobs2);
     }
