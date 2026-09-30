@@ -3182,13 +3182,21 @@ def _dispatch(cg, name, args):
                 "principal": getattr(cg, "principal", None) and cg.principal.as_dict()}
 
     if name == "mdcg_remember":
-        nid = a.get("node_id") or ("mem_" + str(int(__import__("time").time() * 1000)))
+        # B1（2026-09-30）：自动 id 委托**唯一铸造点**（mdcg.mint_auto_id：
+        # 毫秒位 + 6 位 hex 随机段 + 「已存在则换随机段重生成」的有界存在性闸）。
+        # 原先此处与 writepipe.execute 各写一份裸毫秒形态，同毫秒自动写入
+        # 铸出同一 id → add 的 upsert 语义静默顶替（返回 committed 却 0 命中）。
+        from .mdcg import mint_auto_id
+        nid = a.get("node_id") or mint_auto_id(cg)
         hint = a.get("importance_hint")
         if hint is None and a.get("importance") is not None:
             hint = float(a["importance"])
         if a.get("gated"):
             res = cg.remember_gated(
                 nid, a.get("content", ""), layer=a.get("layer") or "contextual",
+                # B2（2026-09-30）：密级透传（本分支是落盘路径：remember_gated
+                # → add；此前两分支都不传，声明 private 在此静默降级 internal）。
+                sensitivity=a.get("sensitivity"),
                 role=a.get("role"), tags=a.get("tags"),
                 condition_space=a.get("condition_space"),
                 verification_basis=a.get("verification_basis"),
@@ -3201,6 +3209,8 @@ def _dispatch(cg, name, args):
             res.setdefault("ok", res.get("verdict") == "ACCEPT")
             return res
         written = cg.add(nid, a.get("content", ""), layer=a.get("layer") or "knowledge",
+                         # B2：同上——落盘面丢字段＝上游声明静默失效。
+                         sensitivity=a.get("sensitivity"),
                          role=a.get("role"), tags=a.get("tags"),
                          condition_space=a.get("condition_space"),
                          importance=float(a.get("importance", 0.5)),

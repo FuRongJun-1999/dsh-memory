@@ -38,8 +38,6 @@ write 的六道闸（audit 校验 / consistency 冲突 / review 审核 / gated �
 覆盖不经本链的写入路径）。根因取证见 `_commit_visibility` 文档串。
 """
 
-import time
-
 from . import twophase, trust
 
 __all__ = ["WritePipeline", "default_pipeline"]
@@ -120,7 +118,7 @@ class WritePipeline:
 
     # ---------- 执行 ----------
 
-# 生效条件：传入 cg 与 a（a 为假值如 None 时按 {} 处理，nid 取 a.get("node_id") 或其假值回落 "mem_"+毫秒时间戳），任一 before 钩子返回非 None 即记 halted_by 并经 _commit_visibility 短路返回该响应，全部放行则记 twophase 意图后跑 _executor（其抛 BaseException 时记 STATUS_ERROR 并原样重抛）再顺序跑 after 链、_commit_visibility 并返回落盘 out；
+# 生效条件：传入 cg 与 a（a 为假值如 None 时按 {} 处理，nid 取 a.get("node_id") 或其假值回落 mdcg.mint_auto_id(cg)——自动 id 的**唯一铸造点**，含毫秒位+6 位 hex 随机段与「已存在则换随机段重生成」的有界存在性闸），任一 before 钩子返回非 None 即记 halted_by 并经 _commit_visibility 短路返回该响应，全部放行则记 twophase 意图后跑 _executor（其抛 BaseException 时记 STATUS_ERROR 并原样重抛）再顺序跑 after 链、_commit_visibility 并返回落盘 out；
     def execute(self, cg, a):
         """写入请求入口：跑 before 链 → 链尾执行器 → after 链。
 
@@ -128,9 +126,13 @@ class WritePipeline:
         形态逐字节一致）；链尾执行器产生落盘响应，after 链只观测不改写。
         """
         a = a or {}
+        # B1（2026-09-30）：自动 id 的铸造**只有一份实现**（mdcg.mint_auto_id）
+        # ——原先此处 `"mem_" + 毫秒` 与 mcp_server 的 mdcg_remember 分支各写一份，
+        # 同毫秒自动写入铸出同一 id，被 add 的 upsert 语义静默顶替（无失败信号）。
+        # 本处只委托，不复制判据。
+        from .mdcg import mint_auto_id
         ctx = {"cg": cg, "a": a,
-               "nid": a.get("node_id")
-               or ("mem_" + str(int(time.time() * 1000))),
+               "nid": a.get("node_id") or mint_auto_id(cg),
                "verdict": None, "cvd": None}
         for name, fn in self._before:
             out = fn(ctx)
@@ -344,7 +346,7 @@ def _gate_consistency(ctx):
     return out
 
 
-# 生效条件：ctx["a"] 的 gated 为假值时返 None 放行；为真值时按 cg.remember_gated 返回的 verdict 落两段式账，且仅 verdict 为 ACCEPT 时 ok/committed 为 True，verdict 为 MERGE 时记 committed 并置 moved_to="merged_into:"+merged_into，verdict 为 DROP/DEFER 时记 aborted 且 moved_to 为其小写值；
+# 生效条件：ctx["a"] 的 gated 为假值时返 None 放行；为真值时按 cg.remember_gated（a.get("sensitivity") 一并透传——同一漏传族，B2）返回的 verdict 落两段式账，且仅 verdict 为 ACCEPT 时 ok/committed 为 True，verdict 为 MERGE 时记 committed 并置 moved_to="merged_into:"+merged_into，verdict 为 DROP/DEFER 时记 aborted 且 moved_to 为其小写值；
 def _gate_gated(ctx):
     """主动遗忘闸（gated=true 时启用）：writelimit 限流 + forgetting 三问四态。
 
@@ -366,6 +368,9 @@ def _gate_gated(ctx):
                          actor="writepipe:gated")
     res = cg.remember_gated(
         ctx["nid"], a.get("content", ""), layer=a.get("layer") or "contextual",
+        # B2（2026-09-30）：同一漏传族——gated 分支也是**落盘路径**
+        # （remember_gated → add），不透传则声明 private 在此静默降级 internal。
+        sensitivity=a.get("sensitivity"),
         role=a.get("role"), tags=a.get("tags"),
         condition_space=a.get("condition_space"),
         verification_basis=(a.get("verification_basis")
@@ -515,7 +520,7 @@ def _hyperedge_extra(a):
     return {k: a[k] for k in _he.EXTRA_FM_KEYS if a.get(k) is not None}
 
 
-# 生效条件：由链尾以含 cg 与 a 的 ctx 调用即无条件执行 cg.add 落盘并返回 ok=True/committed=True，ctx["cvd"] 非 None 时附加 consistency 字段；
+# 生效条件：由链尾以含 cg 与 a 的 ctx 调用即无条件执行 cg.add 落盘（a.get("sensitivity") 一并透传——落盘面丢字段＝上游声明静默失效，B2）并返回 ok=True/committed=True，ctx["cvd"] 非 None 时附加 consistency 字段；
 def _executor(ctx):
     """链尾执行器（常驻不可卸载）：cg.add 直写落盘。
 
@@ -529,6 +534,13 @@ def _executor(ctx):
     # 0 / 0.0 等合法 falsy 数值照传（_gate_gated :304 已是同款 None 判定）。
     _imp = a.get("importance")
     cg.add(ctx["nid"], a.get("content", ""),
+           # B2（2026-09-30）：密级透传。此前本实参表**缺 sensitivity**，而
+           # 同文件 _gate_audit 的 payload（:219）带着它交给审核闸——两面口径
+           # 分叉：审核闸按调用方声明的密级判，落盘闸按 DEFAULT_SENSITIVITY
+           # 回落 internal，声明 private 的正文以明文 + fm internal 落盘
+           # （纯漏传，非设计取舍）。透传即修好，**不得**在此自行 _seal_content
+           # （会绕过 fm 与 _write_node 的单一密封点）。
+           sensitivity=a.get("sensitivity"),
            layer=a.get("layer") or "knowledge",
            tags=a.get("tags"), condition_space=a.get("condition_space"),
            importance=0.5 if _imp is None else float(_imp),

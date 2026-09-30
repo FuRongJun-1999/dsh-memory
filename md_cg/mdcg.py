@@ -23,6 +23,7 @@ import time
 import atexit
 import weakref
 import hashlib
+import secrets
 import threading
 
 from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
@@ -1006,6 +1007,123 @@ _NODE_ID_RE = re.compile(r"^[A-Za-z0-9_.@\u4e00-\u9fff,-]{1,128}$")
 _NODE_ID_FORBIDDEN = frozenset({"None", "null"})
 
 
+# --------------------------------------------------------------------------
+# 自动节点 id 的**唯一铸造点**（B1，2026-09-30）
+# --------------------------------------------------------------------------
+# 根因（第 4 条取证，探针一手读数）：writepipe 与 mcp_server 曾**各自**回落
+# `"mem_" + 毫秒时间戳`，同毫秒内两笔自动写入铸出同一 id → `add` 的 upsert
+# 语义把后者静默顶替前者（返回 committed=true、无任何失败信号，正文全库
+# 0 命中；5 进程×10 条实测 50 笔里 10~11 笔如此）。故唯一性必须来自铸造面：
+#   ① 加熵：`mem_<毫秒>_<6位十六进制随机>`——同毫秒碰撞概率 ~1/16.7M；
+#   ② 存在性闸：落盘前先查库（索引 + `get`），已占用则换随机段重生成；
+#   ③ 有界重试：`AUTO_ID_ATTEMPTS` 次仍撞 → fail-closed 抛错（绝不静默顶替）。
+# 加熵与存在性闸**必须成对**：只加熵则「静默顶替」语义仍在（只是概率低），
+# 只加存在性闸则并发下频繁重试。
+# 形态兼容两面既有判据：`_NODE_ID_RE`（本文件）与 `linkref.ID_SHAPE` 的字符
+# 类都含下划线，且下划线**不产生新的分段边界**（链引用抽取 `ID_RE` 的
+# lookaround 尾字符类含 `_`，整串被当一个 id）——故分隔符只能是 `_`，
+# 用 `-` 会被 `ID_RE` 截成另一个 id（如 mem_123-abc → mem_123）。
+AUTO_ID_ATTEMPTS = 5          # 自动 id 存在性重生成上限（超出 fail-closed）
+AUTO_ID_RAND_HEX = 6          # 随机段位数（十六进制字符数）
+
+
+# 生效条件：cg 为假值（None）时恒返回 False；否则 nid 命中 cg.index["nodes"] 或 cg.get(nid) 取到真值时返回 True；cg.get 抛异常时返回 True（判据不可用按「已占用」处理——换个 id 再试，绝不静默顶替）。
+def _auto_id_taken(cg, nid):
+    """自动 id 的存在性判据（**单点**，仅 `mint_auto_id` 调用）。
+
+    双道：内存索引（跨进程代际由 `_maybe_reload_index` 保证，`get` 亦会触发）
+    + `get` 实读。只查索引会漏掉索引缺条目而盘上有的幽灵；只查 `get` 会漏掉
+    「有节点但本进程无密钥 → `get` 返回 None」的 private 节点。
+    """
+    idx = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    if nid in idx:
+        return True
+    try:
+        return bool(cg.get(nid))
+    except Exception:                                    # noqa: BLE001
+        return True   # 判据不可用 ≠ 未占用（fail-closed：换一个再试）
+
+
+# 生效条件：prefix 与毫秒位（now_ms 缺省取当前时间）就绪时，循环至多 attempts 次铸 nid="<prefix><毫秒>_<hex 随机段>"；cg 为假值时首次即返回（不查存在性，熵是该场景唯一唯一性来源）；cg 非假值且 _auto_id_taken 判未占用即返回；attempts 次全占用时抛 RuntimeError（fail-closed，绝不回落裸毫秒形）；任何返回值必过 _NODE_ID_RE 且不含 ".."（不符即 RuntimeError）。
+def mint_auto_id(cg=None, prefix="mem_", attempts=AUTO_ID_ATTEMPTS,
+                 now_ms=None):
+    """自动节点 id 的**唯一铸造点**——调用方一律委托此处，禁各写一份。
+
+    单点理由：`mem_<毫秒>` 型 id 的碰撞是**静默顶替**（upsert 语义），两处
+    各写一份就各漏一次；把加熵 + 存在性闸 + 有界重试收在一处，第二处只能委托。
+    """
+    ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+    tries = max(1, int(attempts))
+    rand_len = max(1, int(AUTO_ID_RAND_HEX))
+    for _ in range(tries):
+        _rand = secrets.token_hex((rand_len + 1) // 2)[:rand_len]
+        nid = "%s%d_%s" % (prefix, ms, _rand)
+        # 形态自检复用 _NODE_ID_RE（同一真源，不是第二份判据）：铸造面自证
+        # 「铸出的 id 必可落盘」，否则当场 fail-closed，不留到 add 里报错。
+        if not _NODE_ID_RE.match(nid) or ".." in nid:
+            raise RuntimeError("自动 id 形态非法（内部错误）：%r" % nid)
+        if cg is None or not _auto_id_taken(cg, nid):
+            return nid
+    raise RuntimeError(
+        "自动 id 连续 %d 次撞上既有节点（毫秒位=%d，随机段 %d 位 hex）——"
+        "fail-closed 拒绝落盘：绝不静默顶替既有节点（B1）。"
+        "请稍后重试，或显式传 node_id（显式 id 保留「同 id 即改写」语义）。"
+        % (tries, ms, rand_len))
+
+
+# --------------------------------------------------------------------------
+# 密级落盘一致性闸（B2）——模块级单点，`MdCG._write_node` 是唯一调用面
+# --------------------------------------------------------------------------
+
+# 生效条件：declared（调用方声明密级，None=未声明）、fm_sensitivity（本次落盘 frontmatter 的密级）、sealed（本次将落盘的正文）三者就绪时——若 declared 非空且与 fm_sensitivity 归一后不相等则抛 ValueError（文案点名声明值与落盘值）；否则仅当 has_sealer 为真（本实例覆写了 `_seal_content`＝具备密封能力）且 (declared or fm_sensitivity) 属 crypto.ENCRYPTED_LEVELS 而 crypto.is_encrypted(sealed) 为假时抛 ValueError（加密级密级对应明文落盘）；两者皆过返回 None，无副作用、不写盘。
+def _check_sensitivity_landing(node_id, fm_sensitivity, declared, sealed,
+                               has_sealer=True):
+    """密级落盘一致性闸（B2，**单点**：只此一处判，全部写盘点经 `_write_node`）。
+
+    判据（任一命中即 fail-closed；本函数在 `atomic_write` **之前**，故为
+    「拒绝落盘」而非事后补救）：
+      ① 声明值 ≠ 落盘值：`declared` 非空而落盘 fm 的 sensitivity 与之不同
+         ⇒ 上游声明在落盘面被改写/丢弃（writepipe / mcp_server 漏传
+         sensitivity 的族类）。
+      ② 加密级密级却明文落盘（**仅当本实例具备密封能力**）：`declared or
+         fm_sensitivity` ∈ `crypto.ENCRYPTED_LEVELS` 而
+         `not crypto.is_encrypted(sealed)` ⇒ 密封点被绕过/失效。
+    为什么 fail-closed 而非静默回落：静默回落把「声明 private」变成「落
+    internal 明文」——与归档裁定 mem_1790266240812「密级未知按 secret
+    fail-closed」同向；`_seal_content` 在 dek 缺失时 raise LockedError 是同款
+    既有先例（绝不降级为明文）。
+
+    边界（如实）：
+      · 判据 ② 的 `has_sealer` 前置是**必需的**，不是宽松：无密封能力的实例
+        （基类 `MdCG` / `MdCGOS`：`_seal_content` 恒等）落 `private` 明文是
+        **既有语义**——fm 如实记 private、读面按密级隔离，不存在「声明被静默
+        改写」；把闸扩到这类实例会打红三条既有回归（docindex 的私有目录文档、
+        identity_attribution 的 legacy 无密钥私有条目、hive_ingest 的
+        `MdCGOS` 事件流），那是把「无加密能力的库」误判成「降级」。
+      · 本闸只判「声明 ↔ 落盘」两面的一致性，**不**自行加密、不自行写 fm
+        ——那会绕过 `_write_node` 的单一密封点（同族坑：get 解密后明文回写
+        破坏加密）。
+    """
+    from . import crypto
+    fm_sens = str(fm_sensitivity).strip() if fm_sensitivity else None
+    decl = str(declared).strip() if declared else None
+    if decl is not None and fm_sens != decl:
+        raise ValueError(
+            "密级落盘不一致（fail-closed）：声明值=%r，落盘 frontmatter "
+            "sensitivity=%r（node_id=%r）——上游声明的密级在落盘面被静默"
+            "改写/丢弃；请检查写面是否透传 sensitivity（B2：落盘面丢字段＝"
+            "上游声明静默失效）。本次**未写盘**。" % (decl, fm_sens, node_id))
+    eff = decl or fm_sens
+    if has_sealer and eff in crypto.ENCRYPTED_LEVELS \
+            and not crypto.is_encrypted(sealed):
+        raise ValueError(
+            "加密级密级对应明文落盘（fail-closed）：声明/落盘密级=%r，但本次"
+            "将落盘的正文不是密文（node_id=%r）——库层密封未生效；无密钥应"
+            "抛 LockedError，绝不以明文落盘（B2）。本次**未写盘**。"
+            % (eff, node_id))
+    return None
+
+
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
 # 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引并以 _index_signature() 记录 _index.json 签名到 self._index_sig（跨进程读面代际感知的基线，P1b-2）、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
@@ -1732,6 +1850,11 @@ class MdCG:
             raise ValueError(
                 f"node_id 落盘路径越界（realpath={_real_node}，root={_real_root}）"
                 "——拒绝写入（P0-1 纵深闸）")
+        # B2（2026-09-30）：调用方**原始声明**的密级（未声明=None）与归一后的
+        # 落盘值必须分离传递——否则「声明 private 而落 internal」无从判别
+        # （`MdCGSecure.add` 的 `sensitivity or DEFAULT_SENSITIVITY` 把两者
+        # 归一成同一个值，闸便看不见差异）。本键只是判据载体，**不落 fm**。
+        _declared_sens = extra.pop("declared_sensitivity", None)
         created_at = extra.pop("created_at", time.time())
         # 条件论「观测时间」栏：写入时必须记录观测时间窗。
         # 调用方未提供 time_window 时，以写入时刻为锚、默认窗口 OBSERVATION_WINDOW_SEC。
@@ -1958,7 +2081,8 @@ class MdCG:
                                        f"≥{protect.AUTO_PROTECT_IMPORTANCE}")
         # 私有内容封装（默认恒等；MdCGSecure 覆盖为 AEAD 加密）。
         # 索引派生同样基于落盘内容，保证与 _scan_nodes 重建结果一致。
-        sealed = self._write_node(node_id, path, fm, content)
+        sealed = self._write_node(node_id, path, fm, content,
+                                  declared_sensitivity=_declared_sens)
         # 覆写且路由键变化时清理旧桶同 id 文件：不清理则磁盘留双文件，
         # rebuild_index() 后索引取哪个取决于 os.walk 枚举序——新内容可能被
         # 旧文件静默顶掉（违背「原文即真源」）。旧索引条目即旧路径唯一线索；
@@ -2472,12 +2596,19 @@ class MdCG:
         """读取后的正文解封钩子。返回 None 表示不可读（无密钥 / 身份不符）。"""
         return content
 
-# 生效条件：无条件以 fm.get("sensitivity") 调 _seal_content 封装后执行 atomic_write(path, nodefile.dumps(fm, sealed), durable=durable) 并返回 sealed，durable 原样透传、无校验；
+# 生效条件：无条件以 fm.get("sensitivity") 调 _seal_content 封装、再以 _check_sensitivity_landing 校验密级一致性（声明≠落盘恒判；「加密级却明文」仅在本实例覆写了密封钩子时判——不一致即抛 ValueError，写盘不发生）、通过后执行 atomic_write(path, nodefile.dumps(fm, sealed), durable=durable) 并返回 sealed，durable 与 declared_sensitivity 原样透传、无校验。
     def _write_node(self, node_id: str, path: str, fm: dict, content: str,
-                    durable: bool = False):
+                    durable: bool = False, declared_sensitivity: str = None):
         """统一节点写盘口：先封装再原子写。**所有写盘点都应走这里**，
         否则 `get()` 解密后的明文会被直接回写（破坏加密）。"""
         sealed = self._seal_content(node_id, content, fm.get("sensitivity"))
+        # B2 密级一致性闸：位置在 atomic_write **之前**——判据单点在此，
+        # 全部写盘点（add / backfill / rewrite / move_layer）自动覆盖。
+        # `has_sealer`＝本实例是否覆写了密封钩子（鸭子判据，不 import 子类，
+        # 免循环依赖）：无密封能力的实例落 private 明文是既有语义，判据② 不适用。
+        _check_sensitivity_landing(
+            node_id, fm.get("sensitivity"), declared_sensitivity, sealed,
+            has_sealer=(type(self)._seal_content is not MdCG._seal_content))
         atomic_write(path, nodefile.dumps(fm, sealed), durable=durable)
         return sealed
 

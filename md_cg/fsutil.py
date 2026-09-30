@@ -538,7 +538,157 @@ def count_jsonl(path: str, chunk: int = 1 << 20) -> int:
     return total
 
 
-# 生效条件：directory 经 abspath 后作为分片目录并 makedirs(exist_ok=True)，实例分片文件名由 os.getpid() 与 uuid.uuid4().hex[:8] 拼成 "{pid}-{hex8}.log"，append 时各写者只写自己这一分片，从而不共享写入点。
+# ---------- B4（2026-09-30）：分片目录缺失自愈（容忍 ≠ 静默；失败结构化） ----------
+#
+# 病灶：`ShardedLog` 只在 `__init__` 里建目录，`append` 首次 `open(self.path, "a")`
+# 前不复查。**长驻进程**（生产形态 `MdCGSecure(root, principal, autoflush=1)`——
+# `MdCG.flush` 每批写完全部 `close()` 分片句柄，故下次 append 必经重开）持有过
+# `ShardedLog` 实例之后目录被删（外部清理脚本 / 误删 / 备份还原），此后每次
+# append 都在 open 处抛 `FileNotFoundError [Errno 2]`，**且永不恢复**：目录三次
+# 都不重建、`close()` 抛同异常、`_index.json` 从未落成，而正文 .md 已在盘上
+# （`MdCG.add` → `_write_node` 先写盘）——索引静默落后于盘面。不自愈的必要条件
+# 是「本进程已持有 ShardedLog 实例」：`MdCG.flush` 只在该属性为 None 时建实例
+# （`mdcg.py` 内 `ShardedLog(...)` 构造点全仓唯一），全新短命进程做同一操作时
+# `__init__` 的 makedirs 生效、目录会被重建
+# （2026-09-30 沙箱实测两侧，见 `test_b4_shard_dir_selfheal.py` 头注）。
+#
+# 收口口径（本块是**唯一**实现；第二处调用点一律委托 `ensure_shard_dir`）：
+#   ① 判据 = 「分片目录不存在就重建」——`isdir` 快路径 → `makedirs(exist_ok=True)`
+#      → 失败抛结构化错误；`__init__`（首建）与 `append`（打开前）都走它。
+#   ② **容忍 ≠ 静默**（本仓 N225 已确立的判据）：重建必须可观测——模块级累计
+#      计数 + 有界样本 + stderr 汇总告警（与 `note_nonobject_rows` 同一风格：
+#      计数只在这里加，调用方不得另立计数器）。**首建不记账**（`where="init"`：
+#      建库时目录本就不存在，那是正常路径，不是「被删后自愈」的病态事件——
+#      计入会让计数面变成噪声、真事件被淹没）。
+#   ③ 重建**失败**（父只读 / 权限不足 / 有文件占着该路径）：抛 `ShardDirError`
+#      —— 可机读 `code` + 可操作 `hint`，不让裸 `FileNotFoundError` 冒到 MCP
+#      出口（出口只渲染 `f"{type(exc).__name__}: {exc}"` + `getattr(exc,
+#      "hint")`，裸异常在那里既无 code 也无 hint）。失败**同样记账 + 告警**：
+#      异常可能被上层兜底吞掉（`MdCG.close` 的 `except (OSError, ValueError)`），
+#      痕迹不得只存在于异常里。
+#   ④ `read_all` 既有语义**一字不改**：directory 不是目录 → 返回 `[]`（那是读面
+#      的降级契约，与本块写面自愈无关）。
+SHARD_DIR_REBUILDS = 0          # 累计「目录缺失→重建成功」次数（进程内）
+SHARD_DIR_REBUILD_SAMPLES = []  # 重建样本：(目录绝对路径, 调用点标签)
+SHARD_DIR_HEAL_FAILURES = 0     # 累计「目录缺失且重建失败」次数（进程内）
+SHARD_DIR_HEAL_FAILURE_SAMPLES = []   # 失败样本：(目录绝对路径, 调用点, 异常类型名)
+_SHARD_DIR_SAMPLE_CAP = 8       # 样本上限：记账有界，不随事件线性涨
+
+# 结构化失败的稳定 code（进 message 首字段 ⇒ MCP 出口的 error 串里可机读；
+# 出口不改形状，与 AccessDenied 的 hint 同口径只透 `hint`）。
+SHARD_DIR_ERR_CODE = "E_SHARD_DIR_UNREBUILDABLE"
+
+
+# 生效条件：msg 为必填字符串（经 super().__init__ 原样成为 str(e)），code / hint / path 任选（缺省 None）；构造出的是 OSError 子类实例，三者分别存入 self.code / self.hint / self.path，不校验取值、不读盘、不抛异常。
+class ShardDirError(OSError):
+    """分片目录缺失且无法重建——结构化失败（可机读 code + 可操作 hint）。
+
+    为什么继承 `OSError`（而不是 RuntimeError）：既有调用面按 `except OSError`
+    收敛 I/O 失败（`MdCG.close` 的兜底、各处 `except (OSError, ValueError)`），
+    换基类会让这些既有的降级/兜底面行为漂移；本类要补的是**信息**（code /
+    hint），不是新的异常族。`.hint` 与 `security.AccessDenied` 同口径——MCP
+    出口的 `getattr(exc, "hint")` 会把它渲染进工具错误结果。
+    """
+
+# 生效条件：msg 为必填字符串（经 super().__init__ 原样成为 str(e)），code / hint / path 任选（缺省 None）；随后把三者分别存入 self.code / self.hint / self.path，不校验取值、不读盘。
+    def __init__(self, msg: str, code: str = None, hint: str = None,
+                 path: str = None):
+        super().__init__(msg)
+        self.code = code
+        self.hint = hint
+        self.path = path
+
+
+# 生效条件：where 非 "init" 时把 SHARD_DIR_REBUILDS 累加 1、按 _SHARD_DIR_SAMPLE_CAP 上限补 (目录绝对路径, where) 样本，并向 sys.stderr 写一行含目录名/调用点/累计次数与排查方向的重建告警；where == "init" 时立即返回（首建是正常路径，不记账不告警）；stderr 写失败被吞掉（告警面不得反向破坏写路径），计数与样本不受影响。
+def note_shard_dir_rebuild(directory, where: str = "append"):
+    """登记一次分片目录重建（成功）+ stderr 告警（B4 可观测面）。"""
+    if where == "init":
+        return
+    global SHARD_DIR_REBUILDS
+    SHARD_DIR_REBUILDS += 1
+    if len(SHARD_DIR_REBUILD_SAMPLES) < _SHARD_DIR_SAMPLE_CAP:
+        SHARD_DIR_REBUILD_SAMPLES.append((os.path.abspath(directory), where))
+    try:
+        sys.stderr.write(
+            "[fsutil] ShardedLog 分片目录缺失，已重建（目录 %s，调用点 %s）——"
+            "本进程持有的分片实例不自愈；本次后进程内累计重建 %d 次。"
+            "排查方向：库根 _index_log/ 被外部清理/还原删掉，或库根被换过；"
+            "正文 .md 未受影响，索引缺口由重放/全库扫描补齐。\n"
+            % (os.path.basename(os.path.abspath(directory)), where,
+               SHARD_DIR_REBUILDS))
+    except Exception:                     # noqa: BLE001 —— 告警面不反向破坏写路径
+        pass
+
+
+# 生效条件：无条件把 SHARD_DIR_HEAL_FAILURES 累加 1、按 _SHARD_DIR_SAMPLE_CAP 上限补 (目录绝对路径, where, 异常类型名) 样本，并向 sys.stderr 写一行含失败原因类型与 hint 指向的告警；exc 为 None 时原因类型按 "NoneType" 渲染；stderr 写失败被吞掉（计数与样本不受影响），本函数不抛异常（真正的失败由调用方抛 ShardDirError）。
+def note_shard_dir_heal_failure(directory, where, exc=None):
+    """登记一次「目录缺失且重建失败」+ stderr 告警（B4 可观测面）。"""
+    global SHARD_DIR_HEAL_FAILURES
+    SHARD_DIR_HEAL_FAILURES += 1
+    if len(SHARD_DIR_HEAL_FAILURE_SAMPLES) < _SHARD_DIR_SAMPLE_CAP:
+        SHARD_DIR_HEAL_FAILURE_SAMPLES.append(
+            (os.path.abspath(directory), where,
+             type(exc).__name__ if exc is not None else "NoneType"))
+    try:
+        sys.stderr.write(
+            "[fsutil] ShardedLog 分片目录缺失且**重建失败**（目录 %s，调用点 %s，"
+            "原因 %s: %s）——抛 %s(code=%s)，不降级为裸 FileNotFoundError；"
+            "本次后进程内累计失败 %d 次。\n"
+            % (os.path.basename(os.path.abspath(directory)), where,
+               type(exc).__name__ if exc is not None else "NoneType", exc,
+               ShardDirError.__name__, SHARD_DIR_ERR_CODE,
+               SHARD_DIR_HEAL_FAILURES))
+    except Exception:                     # noqa: BLE001 —— 告警面不反向破坏写路径
+        pass
+
+
+# 生效条件：无入参，返回四元组 (重建累计次数, 重建样本元组, 失败累计次数, 失败样本元组)——样本元素分别为 (目录绝对路径, 调用点标签) 与 (目录绝对路径, 调用点标签, 异常类型名)；元组为副本，调用方改动不影响记账面。
+def shard_dir_stats():
+    """读分片目录自愈记账（只读）：(重建数, 重建样本, 失败数, 失败样本)。"""
+    return (SHARD_DIR_REBUILDS, tuple(SHARD_DIR_REBUILD_SAMPLES),
+            SHARD_DIR_HEAL_FAILURES, tuple(SHARD_DIR_HEAL_FAILURE_SAMPLES))
+
+
+# 生效条件：无入参、无返回值；把 SHARD_DIR_REBUILDS / SHARD_DIR_HEAL_FAILURES 归零并清空两个样本列表（守卫与运维读面前的重置点），只动本进程计数面、不触盘面。
+def reset_shard_dir_stats():
+    """清零分片目录自愈记账（守卫/运维用；只影响本进程计数面）。"""
+    global SHARD_DIR_REBUILDS, SHARD_DIR_HEAL_FAILURES
+    SHARD_DIR_REBUILDS = 0
+    SHARD_DIR_HEAL_FAILURES = 0
+    del SHARD_DIR_REBUILD_SAMPLES[:]
+    del SHARD_DIR_HEAL_FAILURE_SAMPLES[:]
+
+
+# 生效条件：directory 为分片目录路径时，os.path.isdir(directory) 为真立即返回 False（零动作、零记账）；为假则 os.makedirs(directory, exist_ok=True)——成功时经 note_shard_dir_rebuild 按 where 记账（"init" 不记）+ stderr 告警并返回 True；makedirs 抛 OSError（权限不足 / 有文件占着该路径 / 路径不可达）时先 note_shard_dir_heal_failure 记账 + 告警，再抛 ShardDirError（code=SHARD_DIR_ERR_CODE、message 首字段为 [code]、hint 含目录与三步处置、path=directory），cause 链（raise ... from）保留原异常；本函数是分片目录存在性的唯一实现点。
+def ensure_shard_dir(directory: str, where: str = "append") -> bool:
+    """`ShardedLog` 分片目录的**唯一**存在性保证点（B4）。
+
+    返回 True 表示本次**建了目录**（缺失→重建），False 表示目录本来就在。
+    where 只影响记账口径（"init" = `ShardedLog.__init__` 首建，正常路径不记；
+    "append" = 打开分片前的病态自愈面，记账 + 告警）。
+    """
+    if os.path.isdir(directory):
+        return False
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except OSError as exc:
+        note_shard_dir_heal_failure(directory, where, exc)
+        raise ShardDirError(
+            "[%s] 分片目录不存在且重建失败：%s（底层 %s: %s）"
+            % (SHARD_DIR_ERR_CODE, directory, type(exc).__name__, exc),
+            code=SHARD_DIR_ERR_CODE,
+            hint=("分片目录 %s 不存在且无法重建（父目录不可写 / 权限不足 / 有文件"
+                  "占着该路径）。处置：①确认库根可写（Windows：去掉只读属性或"
+                  "改用有写权限的账号；POSIX：chmod/所有权）；②查是否有进程或"
+                  "杀毒软件把该目录删掉或占住；③索引日志是派生面——正文 .md 未"
+                  "受影响，修好权限后重开进程即可由重放 / 全库扫描恢复索引，"
+                  "无需重写节点。" % directory),
+            path=directory) from exc
+    note_shard_dir_rebuild(directory, where)
+    return True
+
+
+# 生效条件：directory 经 abspath 存入 self.dir 后经 ensure_shard_dir(self.dir, "init") 保证目录存在（首建不记账；失败抛 ShardDirError 而非裸 OSError），实例分片文件名由 os.getpid() 与 uuid.uuid4().hex[:8] 拼成 "{pid}-{hex8}.log"，append 时各写者只写自己这一分片，从而不共享写入点。
 class ShardedLog:
     """每写者独占一个分片的 append-only 日志——不能丢记录时用它。
 
@@ -547,20 +697,31 @@ class ShardedLog:
     代价是读取要合并 N 个分片，靠记录里的单调序号 (t, seq) 恢复全局写入顺序。
     """
 
-# 生效条件：directory 经 abspath 存入 self.dir 并 makedirs(exist_ok=True)，self.path 为 self.dir 下 "{os.getpid()}-{uuid.uuid4().hex[:8]}.log"，并置 self._seq = 0、self._fh = None。
+# 生效条件：directory 经 abspath 存入 self.dir 并经 ensure_shard_dir(self.dir, "init") 保证存在（唯一实现点；首建不记账，失败抛 ShardDirError），self.path 为 self.dir 下 "{os.getpid()}-{uuid.uuid4().hex[:8]}.log"，并置 self._seq = 0、self._fh = None。
     def __init__(self, directory: str):
         self.dir = os.path.abspath(directory)
-        os.makedirs(self.dir, exist_ok=True)
+        # B4：建目录单点收口到 ensure_shard_dir（不再各写各的 makedirs）——
+        # where="init" 是首建（正常路径，不记账）；重建失败的记账 + 告警与
+        # 结构化错误由该单点负责（原来这里是裸 OSError 直冒调用方）。
+        ensure_shard_dir(self.dir, "init")
         self.path = os.path.join(
             self.dir, f"{os.getpid()}-{uuid.uuid4().hex[:8]}.log")
         self._seq = 0
         self._fh = None
 
-# 生效条件：self._seq 先自增 1，record 被 dict(record, _t=time.time(), _s=self._seq) 复制；self._fh 为 None 时以 "a"、encoding="utf-8"、newline="\n" 打开 self.path，随后写入 json.dumps(ensure_ascii=False, separators=(",", ":")) + "\n" 并 flush。
+# 生效条件：self._seq 先自增 1，record 被 dict(record, _t=time.time(), _s=self._seq) 复制；self._fh 为 None 时先经 ensure_shard_dir(self.dir, "append") 复查并（缺失即）重建分片目录——重建成功记账 + stderr 告警、失败抛 ShardDirError——再以 "a"、encoding="utf-8"、newline="\n" 打开 self.path（路径照常，不换分片名），随后写入 json.dumps(ensure_ascii=False, separators=(",", ":")) + "\n" 并 flush。
     def append(self, record: dict):
         self._seq += 1
         record = dict(record, _t=time.time(), _s=self._seq)
         if self._fh is None:
+            # B4（2026-09-30）：**每次重开分片前**复查目录。病灶：目录在进程
+            # 存活期间被删后，原实现在这里 `open` 抛 FileNotFoundError 且此后
+            # 永不恢复（实测三连抛、目录三次都不重建、close 抛同异常）。缺失
+            # 即重建，路径照常仍是 self.path（同一分片名，只补回目录这一层）。
+            # 边界（诚实声明）：本条只在**句柄为 None 的重开点**复查——已持有
+            # 打开句柄期间目录被删不在本守卫面内（Windows 上被打开的文件无法
+            # 删除，生产写点 `MdCG.flush` 每批写完即 close ⇒ 必经此重开点）。
+            ensure_shard_dir(self.dir, "append")
             self._fh = open(self.path, "a", encoding="utf-8", newline="\n")
         self._fh.write(json.dumps(record, ensure_ascii=False,
                                   separators=(",", ":")) + "\n")

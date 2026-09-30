@@ -44,11 +44,11 @@ import argparse
 import json
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from md_cg import linkref                       # noqa: E402
+from md_cg.mdcg import mint_auto_id             # noqa: E402
 from md_cg.mdcos import MdCGSecure              # noqa: E402
 from md_cg.security import DEFAULT_SENSITIVITY, Principal    # noqa: E402
 
@@ -117,7 +117,7 @@ def scan(cg, verbose=True):
     return cands, stats
 
 
-# 生效条件：传入 cg、cands、stats、out_path 即用 stats["nodes_with_gap"]、stats["pairs"]、stats["nodes_total"] 与 out_path or "(未落盘)" 组装提案文本，调用 cg.propose(node_id="mem_%d" % int(time.time()*1000)、layer="contextual"、tags 含 linkref/backfill/edge-proposal、linkref_batch 取自 stats 与 out_path) 并返回 pid，无其他返回分支。
+# 生效条件：传入 cg、cands、stats、out_path 即用 stats["nodes_with_gap"]、stats["pairs"]、stats["nodes_total"] 与 out_path or "(未落盘)" 组装提案文本，调用 cg.propose(node_id=mint_auto_id(cg)、layer="contextual"、tags 含 linkref/backfill/edge-proposal、linkref_batch 取自 stats 与 out_path) 并返回 pid，无其他返回分支。
 def do_propose(cg, cands, stats, out_path):
     content = (
         "【linkref 存量回填提案】扫描到 %d 个源节点存在「正文已引用他节点、"
@@ -130,7 +130,12 @@ def do_propose(cg, cands, stats, out_path):
         "落边经 append_edge 幂等，边类型 reference、verified=False。"
         % (stats["nodes_with_gap"], stats["pairs"], stats["nodes_total"],
            out_path or "(未落盘)"))
-    pid = cg.propose(node_id="mem_%d" % int(time.time() * 1000),
+    # B1（2026-09-30）：提案 node_id 一律委托主路径的**唯一铸造点**
+    # （md_cg.mdcg.mint_auto_id）——原先此处是 `mem_` + 毫秒的裸形，与
+    # writepipe / mcp_server 的同族现场同根因：同毫秒两次 --propose 铸出同一
+    # node_id，提案落点被静默顶替。委托后自动获得加熵 + 存在性重生成 +
+    # 有界 fail-closed，不再各写一份判据。
+    pid = cg.propose(node_id=mint_auto_id(cg),
                      content=content, layer="contextual",
                      tags=["linkref", "backfill", "edge-proposal"],
                      linkref_batch={"count": stats["pairs"],

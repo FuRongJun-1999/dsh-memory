@@ -3937,14 +3937,19 @@ class MdCGSecure(MdCGOS):
 
     # ---------- 写：权限校验 ----------
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 _rank(sens) 并 principal.require_layer_write(layer, sens)，再 _attribution(kw) 后转 super().add，最后按下发的 nid 调 _index_sensitivity 并返回 nid。
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 _rank(sens) 并 principal.require_layer_write(layer, sens)，再 _attribution(kw) 后转 super().add（并把**原始声明** sensitivity 以 declared_sensitivity 键并传，供库层落盘闸判「声明↔落盘」一致性；未声明时为 None），最后按下发的 nid 调 _index_sensitivity 并返回 nid。
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
         _rank(sens)
         self.principal.require_layer_write(layer, sens)
         self._attribution(kw)
-        nid = super().add(node_id, content, layer=layer, sensitivity=sens, **kw)
+        # B2（2026-09-30）：`sens` 是归一后的落盘值，`sensitivity` 才是调用方
+        # 的**原始声明**（None=未声明）。两者必须分别下传——库层 `_write_node`
+        # 的密级闸据此判「声明 private 而落 internal」这类静默降级；把归一值
+        # 当声明传会让闸永远看不出差异（它比的就是同一个值）。
+        nid = super().add(node_id, content, layer=layer, sensitivity=sens,
+                          declared_sensitivity=sensitivity, **kw)
         self._index_sensitivity(nid, sens)
         return nid
 
