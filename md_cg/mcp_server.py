@@ -180,7 +180,9 @@ TOOLS = [
                        "「跳过超大、继续试更小的」在预算紧张时淘汰最有价值的详实条目。"
                        "会话开始或重要工作前调用。可选启用第 5 路模糊召回（分级隶属度）"
                        "与第 6 路条件语义路（条件结构驱动），并注入调用方 LLM 的查询"
-                       "扩展词（索引侧始终白箱）。",
+                       "扩展词（索引侧始终白箱）。缺省另含第 7 路因果路（沿 edges 多跳）"
+                       "与第 8 路时间路（时间邻近度）——按裁定「全进默认检索」缺省开，"
+                       "可用 causal=false / temporal=false 单独关。",
         "inputSchema": _s("", query=_p("string", "描述当前任务的查询", True),
                           budget_tokens=_p("integer", "token 预算（默认 1200）"),
                           max_item_tokens=_p("integer", "单条上限（默认 250）；超限条目截断纳入。"
@@ -203,12 +205,22 @@ TOOLS = [
                           goal=_p("string", "当前目标（第 5 篇第 3 章）：启用 goal 路给召回定向；"
                                             "省略则自动取活跃目标"),
                           goal_path=_p("boolean", "启用目标定向路（默认否；给 goal 即自动启用）"),
+                          causal=_p("boolean", "因果路（P3，设计稿 §6.2）：以词法/实体命中"
+                                               "为种子沿 edges 多跳扩散，**缺省开**（全进默认"
+                                               "检索）；传 false 单独关本路。无 edges 的库上"
+                                               "自然为空"),
+                          temporal=_p("boolean", "时间路（P3，设计稿 §6.3）：按时间邻近度"
+                                                "排序的排名项，核走 time_core.cred_factor；"
+                                                "**缺省开**；传 false 单独关本路。无时间算子/"
+                                                "区间时恒空"),
                           include_recent=_p("boolean", "是否附「近期事件」窗口（默认否）"),
                           recent_limit=_p("integer", "近期事件条数（默认 10）"),
                           fusion=_p("string", "融合模式：sum（经典 RRF，奖励多路共识）"
                                               "| max（取各路最高贡献，不奖励共识）。"
                                               "fuzzy=true 时缺省 max——实测 sum 会低估"
-                                              "「只有模糊路捞到」的目标，self@1 −10.1%")),
+                                              "「只有模糊路捞到」的目标，self@1 −10.1%；"
+                                              "因果路（causal，缺省开）同为单路独有召回型，"
+                                              "故一并缺省 max")),
     },
     {
         "name": "mdcg_search",
@@ -3359,7 +3371,16 @@ def _dispatch(cg, name, args):
         use_fuzzy = bool(a.get("fuzzy"))
         use_semantic = bool(a.get("semantic"))
         use_goal = bool(a.get("goal_path") or a.get("goal"))
-        if use_fuzzy or use_semantic or use_goal:
+        # P3（裁定 9「全进默认检索」）：因果路（chain）/ 时间路（temporal）**进缺省集**，
+        # 但**每路可单独关**——显式传 causal=false / temporal=false 即从本次调用剔除。
+        # 未显式传（None）= 缺省进路；与既有 fuzzy/semantic/goal 的「显式启用」语义相反，
+        # 这是刻意的非对称：这两路在无 edges / 无时间参数的库上自然为空，缺省开不产噪声。
+        use_causal = a.get("causal")
+        use_temporal = a.get("temporal")
+        use_causal = True if use_causal is None else bool(use_causal)
+        use_temporal = True if use_temporal is None else bool(use_temporal)
+        if (use_fuzzy or use_semantic or use_goal
+                or not use_causal or not use_temporal):
             paths = ["lexical", "bucket", "entity", "graph"]
             if use_fuzzy:
                 paths.append("fuzzy")
@@ -3367,13 +3388,20 @@ def _dispatch(cg, name, args):
                 paths.append("semantic")
             if use_goal:
                 paths.append("goal")
+            if use_causal:
+                paths.append("chain")
+            if use_temporal:
+                paths.append("temporal")
             paths = tuple(paths)
         else:
-            paths = None
+            paths = None          # 缺省六路（mdcos.search_rrf 的缺省集）
         # fuzzy 路缺省用 max 融合：实测（memory-bench-1000，870 查询）sum 会把
         # self@1 拉低 10.1%，因为求和奖励「多路共识」、低估「模糊路独有」的目标。
         # semantic 路同理：条件结构命中常是「独有召回」，故一并缺省 max。
-        fusion = a.get("fusion") or ("max" if (use_fuzzy or use_semantic or use_goal) else None)
+        # P3：因果路按设计稿 §6.2「融合口径」同为**单路独有召回型**，照抄本条先例
+        # 形态（同一表达式内追加条件，不另起第二套判据）。
+        fusion = a.get("fusion") or (
+            "max" if (use_fuzzy or use_semantic or use_goal or use_causal) else None)
         # 默认单条上限从 mdcos 取（该模块只在 main() 里惰性导入，模块级没有名字，
         # 直接引用 mdcos.DEFAULT_MAX_ITEM_TOKENS 会 NameError —— 故此处按需导入）。
         from .mdcos import DEFAULT_MAX_ITEM_TOKENS as _DEFAULT_MAX_ITEM

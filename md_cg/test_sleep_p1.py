@@ -258,8 +258,14 @@ def g1():
     ok(S.in_window("01:00-05:00", "03:00") is True
        and S.in_window("01:00-05:00", "06:00") is False,
        "G1g 非跨午夜窗口照常判定")
-    ok(S.in_window("乱写", "12:00") is True,
-       "G1h 非法形态回落全时段（不误判为「在窗外」而静默停摆）")
+    # 裁定⑰（2026-10-01）：非法形态**回落缺省窗**（不再是全时段 fail-open）
+    ok(S.in_window("乱写", "12:00") is False and S.in_window("乱写", "03:00") is True,
+       "G1h 非法形态回落缺省窗 23:00-07:00（12:00 窗外 / 03:00 窗内）")
+    ok(S.in_window("23:00-99:99", "12:00") is False
+       and S.in_window("23:00-99:99", "03:00") is True,
+       "G1h2 打错字窗口（越界时分）同样回落缺省窗——不再白天也迭代")
+    ok(S.parse_window("乱写") == S.parse_window("23:00-07:00"),
+       "G1h3 非法形态解析结果 == 缺省窗（单一真源 SLEEP_ENV_DEFAULTS['window']）")
     ok(S.in_window("00:00-00:00", "12:00") is True,
        "G1i 同起止 = 全天恒真")
     # 真时间戳形态（_tick_sleep 走的是无参 localtime）

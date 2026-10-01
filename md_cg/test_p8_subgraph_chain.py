@@ -179,7 +179,20 @@ def main():
         for items in (dmeta.get("provenance") or {}).values():
             for p in items:
                 dpaths.add(p.get("path"))
-        check("默认检索路不含 chain（不改变既有基线）", "chain" not in dpaths, str(sorted(dpaths)))
+        # P3-causal（2026-10-01）：chain 路按裁定 9「全进默认检索」**进缺省集**
+        # ——本条断言随口径反转（原断言「默认检索路不含 chain」是 P3 之前的基线，
+        # 逐字留档于此）。反转后仍可判的两件事：①缺省调用确实走到 chain 路；
+        # ②显式不含 chain 时该路不出现（分路开关保留）。
+        check("默认检索路**含** chain（P3：进缺省集；原断言为「不含」）",
+              "chain" in dpaths, str(sorted(dpaths)))
+        _xr, xmeta = cg.search_rrf(
+            "数据库在运行", k=8,
+            paths=("lexical", "bucket", "entity", "graph"))
+        xpaths = {p.get("path")
+                  for items in (xmeta.get("provenance") or {}).values()
+                  for p in items}
+        check("显式不含 chain 时该路不出现（分路开关保留）",
+              "chain" not in xpaths, str(sorted(xpaths)))
 
         check("公开 API：subgraph_expand/flatten/validate/roots",
               all(hasattr(cg, n) for n in ("subgraph_expand", "subgraph_flatten",

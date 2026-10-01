@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import time
@@ -63,6 +64,37 @@ DEFAULT_BUDGET = 1200  # recall 默认 token 预算
 # recall 单条上限：超预算的条目按此截断纳入（而非丢弃），避免"逆向淘汰"。
 # 0 = 关闭截断，回到"超大一律跳过"的旧行为。
 DEFAULT_MAX_ITEM_TOKENS = 250
+
+# ---- P3-temporal：时间路的核与口径（设计稿 §6.3，裁定 12）-------------------
+# 核**必须**来自唯一权威 `md_cg/whitebox_kb/aeis_core/time_core.py::cred_factor`
+# （该模块 docstring 逐字点名 `exp(-t/τ)` 为 bug）；本模块**不写任何指数核**。
+#: γ（衰减率）可配 env —— 与 `MDCG_SPREAD_DECAY` 同款：缺失/非法即回落缺省。
+TEMPORAL_GAMMA_ENV = "MDCG_TEMPORAL_GAMMA"
+#: 半衰期真源 = `links.DECAY_DAYS`（30 天，`md_cg/links.py:53`）——不复制字面量，
+#: 由 `temporal_gamma()` 现取；此处只写明「γ 缺省 = ln2 / 半衰期」这一换算。
+#: 单位口径（**最易错处**）：γ 是「每天」的速率，故 Δt 必须**以天为单位**喂入。
+TEMPORAL_DT_UNIT = "day"
+#: 分数下限（floor）：`cred_factor(gamma, dt, floor, 1.0)` 的 floor。
+#: 取值理由：0.5**10 ≈ 9.77e-4 < 1e-3 —— 30 天半衰期下 300 天（10 个半衰期）
+#: 之后衰减已落到 1e-3 以下，继续区分无信息量；floor=1e-3 让**老节点/缺
+#: created_at 的节点**仍带非零分进入本路，而不是被乘成 0 后不可召回
+#:（读数见 `md_cg/test_time_core_lint.py` 的 G4 floor 组）。
+TEMPORAL_SCORE_FLOOR = 0.001
+
+
+# 生效条件：environ（缺省 os.environ）里 TEMPORAL_GAMMA_ENV 为真值且 float() 可解析且 > 0 时返回该值；缺失/空串/不可解析/非正数一律回落 `math.log(2)/links.DECAY_DAYS`（缺省半衰期 30 天）。
+def temporal_gamma(environ=None) -> float:
+    """时间邻近度衰减率 γ（**每天**）的唯一读取点。"""
+    raw = (environ or os.environ).get(TEMPORAL_GAMMA_ENV)
+    if raw:
+        try:
+            g = float(raw)
+        except (TypeError, ValueError):
+            g = 0.0
+        if g > 0:
+            return g
+    from .links import DECAY_DAYS      # 半衰期唯一真源（links.py:53，30 天）
+    return math.log(2.0) / float(DECAY_DAYS)
 
 
 # 生效条件：text 为假值（None/空串）时返回 0，否则按「CJK 0.6/字 + 其余 /4」计算并返回 int(cjk*0.6 + other/4) + 1。
@@ -1159,7 +1191,8 @@ class MdCGOS(MdCG):
 # 生效条件：当 seeds 非空且 seed_map 非空时，用 relation_types 或 CHAIN_TYPES_DEFAULT、max_depth 或 MAX_DEPTH_DEFAULT、decay 调用 chain.expand_from_seeds，仅保留 best 中仍存在于 entries（按 id(e)）的节点，读取成功者加入 scored 并按分数降序返回 (scored, prov)；seeds/seed_map/best 为空返回 ([], {})；
     def _path_chain(self, query, entries, seeds, context=None,
                     relation_types=None, max_depth=None, decay=0.9):
-        """关系链路径：沿 causal/sequential/applies_to 边**多跳**扩散。
+        """关系链路径（= 设计稿 §6.2 的**因果路**）：沿 causal/sequential/
+        applies_to 边**多跳**扩散。
 
         理论依据：`causal` = 条件依赖因果（A 是 B 成立的条件），
         `dex_chain` 沿 causal 边正向展开、每步标注条件，**链 = 条件序列**。
@@ -1170,6 +1203,13 @@ class MdCGOS(MdCG):
         与既有 `_path_graph` 的区别：graph 只走 1 跳且权重硬编码 0.5；
         本路按边类型权重（causal .85 / sequential .60 …）、逐跳乘边置信度、
         默认 5 跳、visited 剪枝——「检索使用关系链」的落地。
+
+        **边类型集可配（P3-causal）**：relation_types 缺省不再写死
+        `CHAIN_TYPES_DEFAULT`，而走 `chain.chain_types_from_env()`（env
+        `MDCG_CHAIN_TYPES`，缺省仍 = `CHAIN_TYPES_DEFAULT`）。动因：叙事/
+        文档语料（按章切出的 doc_ref 库）里**没有 causal 边**，只有
+        `reference` 与父章节结构边 `part_of`——写死即本路在这类库上恒空。
+        未登记进 `EDGE_WEIGHTS` 的形态被读取点剔除（不静默走未知边）。
 
         返回 (scored, prov)；prov[nid] 带该节点**最强链**的节点序列与条件序列，
         使「为什么召回它」可审计。
@@ -1183,7 +1223,8 @@ class MdCGOS(MdCG):
                 seed_map[nid] = float(s)
         if not seed_map:
             return [], {}
-        rels = tuple(relation_types) if relation_types else chain.CHAIN_TYPES_DEFAULT
+        rels = (tuple(relation_types) if relation_types
+                else chain.chain_types_from_env())
         depth = chain.MAX_DEPTH_DEFAULT if max_depth is None else max_depth
         best = chain.expand_from_seeds(self, seed_map, relation_types=rels,
                                        max_depth=depth, decay=decay)
@@ -1209,6 +1250,65 @@ class MdCGOS(MdCG):
                             "depth": info["depth"]}
         scored.sort(key=lambda x: (-x[1], str(x[0].get("id") or "")))
         return scored, prov
+
+    def _path_temporal(self, entries, q_start, q_end, start_op, end_op,
+                       now=None):
+        """时间路（P3-temporal，设计稿 §6.3）：按**时间邻近度**排序的排名项。
+
+        口径（§〇.3-12 已裁，逐条钉在此处）：
+
+        * **核走唯一权威**：`time_core.cred_factor(gamma, dt, floor, 1.0)`
+          ——本模块**不写任何指数核**（`exp(-t/τ)`、`×(1-factor)`、EMA 保持率
+          均是 time_core docstring 点名的 bug 形态）。
+        * **γ 缺省 = ln2 / 30 天**（半衰期 30 天，与 `links.py:53` 同刻度），
+          env `MDCG_TEMPORAL_GAMMA` 可覆盖；唯一读取点 `temporal_gamma()`。
+        * **Δt 取 `created_at`**（写入时刻，主链必有）。
+        * **单位必须显式是「天」**：γ 是「每天」的速率，Δt 先除以 86400 再喂
+          ——喂秒会让衰减快 86400 倍（守卫 `test_time_core_lint.py` G3 组有该反证）。
+        * **加 floor**（`TEMPORAL_SCORE_FLOOR`）：老节点/缺 `created_at` 的节点
+          不被乘成 0 而永不可召回。
+        * **不做多跳扩散**：时间天然「1 跳」，本路是**排名项**（与 S4 层级加成
+          同类），不是扩散路。
+        * **种子不来自词法命中**：时间类问句常词面零重叠，故种子取
+          **时间算子/区间命中集**——`entries`（已过 S1/S2 门控 ∧ 已过
+          `trust.filter_by_time` 的索引标量过滤），**不 `_scan` 全库**、
+          不读正文即可算分（`created_at` 在索引快照里）。
+
+        ⚠ **理论边界标注**：理论原文 `exp(-γ·t)`（`docs/theory/智能论3.4.md:2122-2125`
+        DEV-005）说的是 **confidence 衰减**；把它用于「时间邻近度」是**工程口径
+        的类比迁移**，不是理论原话——同一核形状、不同语义（新近度权重）。
+        """
+        if not any(x is not None for x in (q_start, q_end, start_op, end_op)):
+            return []          # 无时间算子/区间 → 本路不启用（默认查询零变更）
+        from .whitebox_kb.aeis_core import time_core as _tc   # 懒导入（唯一权威）
+        gamma = temporal_gamma()
+        ref = q_end if q_end is not None else q_start
+        if ref is None:
+            ref = now if now is not None else time.time()
+        out = []
+        for e in entries:
+            try:
+                created = float(e.get("created_at") or 0.0)
+            except (TypeError, ValueError):
+                created = 0.0
+            if created <= 0:
+                # 写入时刻缺失：不猜测时刻，判「距参照无穷远」——floor 兜住
+                #（仍可召回，不因缺字段整条消失）。
+                dt_days = float("inf")
+            else:
+                # **单位=天**：86400 秒/天，显式换算（γ 是每天速率）
+                dt_days = abs(created - float(ref)) / 86400.0
+            score = _tc.cred_factor(gamma, dt_days, TEMPORAL_SCORE_FLOOR, 1.0)
+            fm, c = self._read(e)
+            if c is None:
+                continue
+            c = self._open_content(fm.get("id"), fm, c)
+            if c is None:
+                continue
+            out.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
+                         "content": c, "path": e["path"]}, round(score, 6)))
+        out.sort(key=lambda x: (-x[1], str(x[0].get("id") or "")))
+        return out
 
 # 生效条件：以 expand or expand_query_terms_weighted 作扩展函数并对 query 调用（结果为假值按 {} 处理），从其中 pop "__source__"（缺键为 "whitebox"）得 source，tw 为空返回 ([], source)，否则对 entries 中存在 _weighted_coverage>0 的条目按 0.6·cov+0.3·aff+0.1·ctx_aff（context 非 None 时以 route_key(ctx, ctx.get("tags")) 得 ctx_domain，context 非 dict 时用 {}）打分，返回 (out, source)。
     def _path_fuzzy(self, query, entries, context=None, expand=None):
@@ -1344,7 +1444,9 @@ class MdCGOS(MdCG):
 # 生效条件：query 去空白为空→empty_query、候选为空→no_candidates；否则按 paths 各路召回后融合（fusion=="max" 取各路最大贡献、否则求和），recall_only 中的路只以 0 分补池不参与打分，judge 与 judge_ranking 同时为真时对 fused 前 max(k*2,10) 条做资格裁决（REJECT/BLINDSPOT 剔除、DEFER 降权 0.5），否则直接取 fused 前 k；validity 真值时候选层剔除已过期节点，且 query 缓存按 validity 分键不串口径。
     def search_rrf(self, query: str, k: int = 20, layer: str = None,
                    context=None, roles=None, include_work: bool = False,
-                   judge: bool = True, paths=("lexical", "bucket", "entity", "graph"),
+                   judge: bool = True,
+                   paths=("lexical", "bucket", "entity", "graph", "chain",
+                          "temporal"),
                    record: bool = True, query_expand=None,
                    path_weights=None, recall_only=None, fusion: str = "sum",
                    goal_text=None, judge_ranking: bool = False,
@@ -1359,14 +1461,24 @@ class MdCGOS(MdCG):
         多路共同确认的记忆排在单路命中之前（对齐 noema 的 Fusion Recall）。
         meta 含 per_path（各路的候选数与来源），可审计。
 
-        paths: 基线四路（词法/条件桶/实体/图扩展）+ 两条**显式启用**的增量路：
+        paths: 基线四路（词法/条件桶/实体/图扩展）+ 增量路：
             "fuzzy"    词表驱动（同义词组分级隶属度 + 大域 IDF）
             "semantic" 条件结构驱动（CCG 生效条件 + condition_space 四槽；
                        不适用条件被整词命中即从本路剔除——条件级负路由）
             "goal"     目标定向（第 5 篇第 3 章）：以活跃目标文本（或显式
                        goal_text）扩展查询，给「与当前目标相关」的记忆加权；
                        无活跃目标时本路为空，等价于未启用。
-            缺省 ("lexical","bucket","entity","graph")，既有行为完全不变。
+            "chain"    **因果路**（P3-causal，设计稿 §6.2）：以词法/实体命中为
+                       种子沿 edges 多跳扩散（复用 `md_cg/chain.py`：14 类边权、
+                       MAX_DEPTH 5、decay 0.9），不走全表。
+            "temporal" **时间路**（P3-temporal，设计稿 §6.3）：按时间邻近度排序
+                       的**排名项**，核走 `time_core.cred_factor`；无时间算子/
+                       区间时恒空。
+            缺省 = ("lexical","bucket","entity","graph","chain","temporal")
+            —— 后两路按裁定 9「全进默认检索」进缺省集；**每路可单独关**：
+            显式传不含该路的 paths 即关（既有调用方口径一字不变）。
+            两条新路在**无 edges / 无时间参数**的库上自然为空（零多算），
+            故纯词法查询的返回与改动前一致。
         path_weights: {路名: 权重}；缺省全部 1.0 → 与既有等权 RRF 完全一致。
             用于压低**同质路**的贡献：等权融合下，两路对同一批候选给出不一致
             排序时，RRF 会双重奖励「两路都靠前」的干扰项，把强路的 top-1 挤掉。
@@ -1376,6 +1488,8 @@ class MdCGOS(MdCG):
             sum 奖励「多路共识」，但会系统性低估**单路独有**候选：当强路漏掉目标、
             弱路捞到时，目标的单路贡献必然低于任何「两路都有排名」的干扰项。
             max 只认「最好的一次排名」，不奖励共识，适合「任一路捞到即可」的召回。
+            因果路是**单路独有召回型**，MCP 面（`mdcg_recall`）按其缺省 max
+            （先例 `mcp_server.py` 的 fuzzy/semantic/goal 同款表达式）。
         judge_ranking: 白箱终排（证据防火墙，显式启用）。融合排序只产生候选
             （语义负责「不要漏」），资格裁决决定最终优先级（白箱负责「不要错」）：
             REJECT / BLINDSPOT 剔除，DEFER 降权 ×0.5，ACCEPT 保位。候选池取
@@ -1481,6 +1595,13 @@ class MdCGOS(MdCG):
         ranked = {}          # path -> [(node, score)]
         fuzzy_source = None
         chain_prov = {}
+        # P3-temporal：时间路的参照窗（与 `_candidates` 同一真源 `trust.check_time_args`
+        # /`trust.parse_time`；未启用时留 None → 本路恒空，默认查询零变更）。
+        # 只读索引标量（created_at 在索引快照里），不 `_scan` 全库、不读正文。
+        _t_en, _t_ax, _t_why = trust.check_time_args(
+            start_time, end_time, start_operator, end_operator, time_axis)
+        _t_qs, _t_qe = ((trust.parse_time(start_time), trust.parse_time(end_time))
+                        if _t_en else (None, None))
         if "lexical" in paths:
             ranked["lexical"] = self._lexical(q, entries, stat)
         if "bucket" in paths:
@@ -1492,6 +1613,12 @@ class MdCGOS(MdCG):
         if "chain" in paths:
             seeds = (ranked.get("lexical") or []) + (ranked.get("entity") or [])
             ranked["chain"], chain_prov = self._path_chain(q, entries, seeds, context)
+        if "temporal" in paths:
+            # P3-temporal：时间路（排名项）。时间算子/区间未启用时恒空——默认
+            # 查询（无时间参数）零变更；启用时种子取「已过 S1/S2 门控 ∧ 已过
+            # 时间算子过滤」的 entries（索引标量直读，不 _scan 全库）。
+            ranked["temporal"] = self._path_temporal(
+                entries, _t_qs, _t_qe, start_operator, end_operator)
         if "fuzzy" in paths:
             ranked["fuzzy"], fuzzy_source = self._path_fuzzy(
                 q, entries, context, expand=query_expand)
@@ -1640,11 +1767,12 @@ class MdCGOS(MdCG):
         动机：旧策略是「跳过超大、继续试更小的」——预算紧张时形成**逆向淘汰**，
         越有价值的详实条目越容易被排除（实测 budget=1500 时 16 条被刷、只装 2 条）。
 
-        paths/query_expand 缺省时行为与既有完全一致（默认四路、纯白箱扩展）；
-        显式传 paths 才启用新路，例如
+        paths/query_expand 缺省时行为 = 既有四路 ＋ P3 两条图检索路（chain/temporal，
+        按裁定 9 进缺省集；无 edges / 无时间参数时自然为空）；
+        显式传 paths 才启用第 5/6 路，例如
             ("lexical","bucket","entity","graph","fuzzy")            词表驱动
             ("lexical","bucket","entity","graph","semantic")         条件结构驱动
-            (… 七路全开 )                                             三者叠加
+            (… 八路全开 )                                             叠加
         include_recent=True 时，把近期事件窗口（第 5 篇第 3 章）附在包后，
         保证当前任务的连续性；它不参与 RRF 正排，但计入 token 预算。
         返回 {pack: [...], tokens_used, budget, skipped: [...], recent: [...], meta}

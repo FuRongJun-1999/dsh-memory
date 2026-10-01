@@ -60,9 +60,12 @@ _BYPASS_EXTRA = ("query_expand",)
 #: 影响检索结果的进程级开关（新增一个就登记一个——同 _KEYED_EXTRA 的纪律）。
 #: MDCG_CN_GRAMS（v9 N78）：mdcg.cn_recall_grams 每调用读 env（="0" 回退旧行为），
 #: 改变 expand_query_terms 召回词集——漏登即运行期翻转后同 query 命中另一口径缓存。
+#: MDCG_CHAIN_TYPES / MDCG_TEMPORAL_GAMMA（P3 图检索路，2026-10-01）：前者改「因果路
+#: 沿哪些边类型扩散」（改候选集合），后者改「时间路的衰减率」（改路内名次）——两者都
+#: 直接改变融合结果，同属「漏登即跨口径串味」的一类。
 _ENV_SWITCHES = ("MDCG_SEMANTIC", "MDCG_EN_ATOMS", "MDCG_UNIFY_QUERY",
                  "MDCG_RETRIEVAL_PIPELINE", "MDCG_S7_FRESHNESS",
-                 "MDCG_CN_GRAMS")
+                 "MDCG_CN_GRAMS", "MDCG_CHAIN_TYPES", "MDCG_TEMPORAL_GAMMA")
 
 
 # 生效条件：无必需形参；返回 _ENV_SWITCHES 中每个变量名的 (名, 当前取值或 None) 元组（稳定、可哈希，随 query 缓存键一起参与比对）。

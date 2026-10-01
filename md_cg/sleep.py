@@ -674,17 +674,28 @@ def _hhmm(s) -> int:
     return h * 60 + m
 
 
-# 生效条件：spec 去空白后为空或不含 "-" 或两侧非合法 HH:MM 时返回 None（= 全时段）；否则返回 (起始分钟, 结束分钟)。
+# 生效条件：spec 去空白后为空时返回 None（= 全时段，唯一显式入口）；否则要求恰含一个 "-" 且两侧均为合法 HH:MM（时分界内）才返回 (起始分钟, 结束分钟)；形态非法（无 "-" / 多段 / 非数字 / 越界）时回落**缺省窗** `SLEEP_ENV_DEFAULTS["window"]` 解析出的分钟对——**不回落全时段**。
 def parse_window(spec):
-    """窗口解析：留空 / 非法 → None（`in_window` 视 None 为全时段）。"""
+    """窗口解析：**留空 → None（全时段，唯一显式入口）**；**非法形态 → 回落缺省窗**。
+
+    裁定⑰（2026-10-01，前沿小修）：此前「留空」与「非法形态」被合并成 None（=
+    全时段），即**用户把 `MDCG_SLEEP_WINDOW` 打错字**（实测 `in_window("乱写",
+    "12:00") is True`，如 `23:00-99:99`）会让睡眠周期在**白天也迭代**——fail-open。
+    现按同表既有惯例分流（`sleep_interval`「非法/非正回落 3600」、
+    `sleep_merge_mode`「越界回落 auto」同款）：**非法 → 回落缺省窗**，
+    宁可退回保守时段，也不把「打错字」当成「允许全天迭代」。
+    """
     s = str(spec or "").strip()
-    if not s or "-" not in s:
-        return None
-    a, b = s.split("-", 1)
-    try:
-        return (_hhmm(a), _hhmm(b))
-    except (TypeError, ValueError):
-        return None
+    if not s:
+        return None                      # 留空 = 全时段（唯一显式入口）
+    parts = s.split("-")
+    if len(parts) == 2:
+        try:
+            return (_hhmm(parts[0]), _hhmm(parts[1]))
+        except (TypeError, ValueError):
+            pass
+    a, _sep, b = str(SLEEP_ENV_DEFAULTS["window"]).partition("-")
+    return (_hhmm(a), _hhmm(b))          # 非法形态 → 缺省窗（单一真源，不写第二处字面量）
 
 
 # 生效条件：now 为 None 时取 time.localtime()；为 str 时按 HH:MM 解析；为 int/float 时按该时间戳 localtime()；为对象时取 tm_hour/tm_min（time.struct_time）或 hour/minute（datetime.time）；返回当日分钟数。
@@ -707,9 +718,9 @@ def _minute_of(now=None) -> int:
     return int(hh) * 60 + int(mm or 0)
 
 
-# 生效条件：spec 解析为 None（留空/非法）时恒返回 True（全时段）；起止相同亦返回 True；否则取 _minute_of(now) 后——起 < 止 时判 [起, 止)，起 > 止（跨午夜）时判 t>=起 或 t<止。
+# 生效条件：spec 解析为 None（留空）时恒返回 True（全时段）；起止相同亦返回 True；否则取 _minute_of(now) 后——起 < 止 时判 [起, 止)，起 > 止（跨午夜）时判 t>=起 或 t<止。
 def in_window(spec, now=None) -> bool:
-    """窗口判定：**支持跨午夜**（23:00-07:00 在 23:30 / 03:00 在窗内、12:00 在窗外）；留空 = 全时段恒真。"""
+    """窗口判定：**支持跨午夜**（23:00-07:00 在 23:30 / 03:00 在窗内、12:00 在窗外）；留空 = 全时段恒真；**非法形态回落缺省窗**（裁定⑰）。"""
     w = parse_window(spec)
     if w is None:
         return True

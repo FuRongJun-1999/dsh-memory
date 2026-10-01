@@ -24,6 +24,8 @@
 """
 from __future__ import annotations
 
+import os
+
 # 边类型 → 传播权重 base（AEIS《激活引擎 v0.1》第 14 行）
 EDGE_WEIGHTS = {
     "causal": 0.85,
@@ -52,9 +54,33 @@ CAUSAL_TYPES = ("causal",)
 # 否则 causal 链会被「提到过」这类无向弱关联稀释（模式分离）。
 CHAIN_TYPES_DEFAULT = ("causal", "sequential", "applies_to")
 
+#: 边类型集可配（P3-causal，2026-10-01）：逗号分隔，大小写不敏感。
+#: 动因（设计稿 §6.2 / 交接单）——**叙事/文档语料里没有 causal 边**：按章切出来
+#: 的 doc_ref 库里只有 `reference`（弱权重 0.5，上方注释明写刻意不入默认集）与
+#: 父章节结构边（`part_of`）。边类型集若写死，因果路在这类库上**恒空**，等于
+#: 没接。故做成 env 可配，缺省仍是 `CHAIN_TYPES_DEFAULT`（缺省行为一字不变）。
+#: 约束（不得违反）：本处**只从既有 `EDGE_WEIGHTS` 里挑子集**——不新造边类型、
+#: 不写第二份权重表；未登记的形态一律剔除（剔除即回落缺省，而不是按
+#: `DEFAULT_EDGE_WEIGHT` 静默走一条没人登记过的边）。
+CHAIN_TYPES_ENV = "MDCG_CHAIN_TYPES"
+
 MAX_DEPTH_DEFAULT = 5
 MAX_DEPTH_HARD = 64
 MAX_NODES_DEFAULT = 500
+
+
+# 生效条件：environ（缺省 os.environ）里 CHAIN_TYPES_ENV 为真值时按逗号切分、逐项 strip().lower()、只保留 EDGE_WEIGHTS 里登记过的形态；结果为空（未设 / 全是不认识的名字 / 只有空项）时回落 CHAIN_TYPES_DEFAULT。返回小写元组（顺序 = env 声明序）。
+def chain_types_from_env(environ=None):
+    """关系链边类型集的**唯一读取点**（检索 chain 路与显式调用方共用）。
+
+    形态与 `MDCG_SPREAD_DECAY` 同款：env 缺失 / 非法 → 回落缺省，不抛异常。
+    """
+    raw = (environ or os.environ).get(CHAIN_TYPES_ENV)
+    if not raw:
+        return CHAIN_TYPES_DEFAULT
+    kept = tuple(t for t in (str(x).strip().lower() for x in str(raw).split(","))
+                 if t in EDGE_WEIGHTS)
+    return kept or CHAIN_TYPES_DEFAULT
 
 
 # 生效条件：edge 为 dict 时按 relation_type→relation→type 顺序取首个真值、非 dict 时 rel 记为 None，两者统一返回 str(rel or "").strip().lower()——键缺失或全为假值时得空串。

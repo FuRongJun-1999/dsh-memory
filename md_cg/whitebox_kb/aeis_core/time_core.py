@@ -7,6 +7,10 @@
 衰减率 γ 按对象配置；任何在本模块之外出现的衰减核实现
 （exp(-t/τ)、×(1-factor)、EMA 保持率）都是 bug——
 由 tools/time_core_lint.py 按 E5 口径机械化审计。
+（P3 落地：该审计器此前全仓不存在，现落在 **`md_cg/test_time_core_lint.py`**
+——`python -X utf8 -m md_cg.test_time_core_lint` 审计全仓四形态 + 登记表 +
+`links.py` 同族半衰期的等价性断言，并自带 `--mutate` 定点变异自证。
+**不新开顶层 `tools/` 目录**：那会改 `WORKSPACE_INDEX.md` 的结构面。）
 规范依据：docs/概念钉死批_GPT四点评审_v0.1.md 钉死 3。
 """
 import math

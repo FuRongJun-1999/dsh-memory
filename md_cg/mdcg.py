@@ -3634,8 +3634,14 @@ class MdCG:
         hits = [d for d in docs_all if self._like(d[2], d[1], terms)
                 or (semantic_on() and d[1].get("semantic"))]
         # ---- S3 图扩散激活（契约 §3 S3；flag 控，默认关）----
-        # 为何：edges 一直只被写入、检索从不使用（审计偏差 1）。这里从词法命中节点沿
-        # edges 双向扩散，把「关联但词面不重叠」的记忆作为独立一层候选（TIER_SPREAD）。
+        # 为何：审计偏差 1 曾成立——「edges 一直只被写入、检索从不使用」。**该偏差
+        # 已消除（P3-causal，2026-10-01）**：检索侧现有两条路读 edges——①
+        # `search_rrf` 的 `chain` 路（因果路，复用 md_cg/chain.py，按裁定 9 进
+        # 缺省集）；② 本层 S3 扩散（`search` 的候选生成段，flag 控、默认关，产物
+        # 是独立 tier TIER_SPREAD）。两者定位不同：chain 是「路内排名项」，
+        # 本层是「新增候选层」（契约 §4.1 的「有意保留的差异」同款划界）。
+        # 本层从词法命中节点沿 edges 双向扩散，把「关联但词面不重叠」的记忆作为
+        # 独立一层候选（TIER_SPREAD）。
         # 约束：扩散只走索引里的 edges（不读文件）；**不得引入未通过 S1/S2 门控**的节点；
         # 命中不足时自然落回原 T2/T3 路径（无召回损失）。
         if _s3 and hits:
@@ -4191,6 +4197,14 @@ class MdCG:
                 and os.path.exists(old_full)):
             os.remove(old_full)
         rel = os.path.relpath(new_path, self.root).replace("\\", "/")
+        # N137（2026-10-01）：本条 _stage 条目此前缺 edges / subgraph / 双时间轴
+        # （trust.FROM/UNTIL/EFFECTIVE_FROM/EFFECTIVE_UNTIL）四组键——搬迁 =
+        # 「删除源层条目 + 写入目标层条目」，缺键即让目标层条目**静默退化**：
+        # ① 新检索路（P3-causal 的 chain 路走 index 的 edges 建邻接、P3-temporal
+        #    走索引标量）搬迁后对它即不可达（节点还在，边/时刻没了）；
+        # ② trust.validity 的时效过滤免读盘判定失效（valid_from/until 不在快照）。
+        # 写入口 `_node_entry`（_scan_nodes / rebuild 共用）与 `add()` 的 _stage
+        # 条目都带这些键——本条与之对齐，杜绝「重建后有、搬迁后没有」的形态漂移。
         self._stage(node_id, _strip_empty_gate_fields({
             "path": rel, "layer": to_layer, "tags": fm.get("tags", []),
             "bucket": None, "importance": fm.get("importance", 0.5),
@@ -4204,6 +4218,16 @@ class MdCG:
             "big_domain": fm.get("big_domain"),
             "observation_position": (fm.get("condition_space") or {}).get("observation_position"),
             "evidence_count": fm.get("evidence_count", 0),
+            # N137：边域与嵌套子图（chain 路 / 递归展开的免读盘来源）
+            "edges": fm.get("edges") or [],
+            "subgraph": fm.get("subgraph"),
+            # N137：双时间轴（trust.validity 的免读盘判定面，与 add/_node_entry 同口径）
+            trust.STATE_FIELD: fm.get(trust.STATE_FIELD),
+            trust.DEPS_FIELD: fm.get(trust.DEPS_FIELD),
+            trust.FROM_FIELD: fm.get(trust.FROM_FIELD),
+            trust.UNTIL_FIELD: fm.get(trust.UNTIL_FIELD),
+            trust.EFFECTIVE_FROM_FIELD: fm.get(trust.EFFECTIVE_FROM_FIELD),
+            trust.EFFECTIVE_UNTIL_FIELD: fm.get(trust.EFFECTIVE_UNTIL_FIELD),
         }))
         self.index["buckets"] = self._count_buckets(self.index["nodes"])
         return {"id": node_id, "from": from_layer, "to": to_layer,
