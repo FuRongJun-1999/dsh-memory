@@ -1024,7 +1024,17 @@ class SustainLoop:
                  evolve_interval: float = DEFAULT_EVOLVE_INTERVAL,
                  auto_evolve: bool = AUTO_DEFAULTS["auto_evolve"],
                  tidy_interval: float = DEFAULT_TIDY_INTERVAL,
-                 auto_tidy: bool = AUTO_DEFAULTS["auto_tidy"]):
+                 auto_tidy: bool = AUTO_DEFAULTS["auto_tidy"],
+                 # 第六档：睡眠周期（§三 九步 / §4.7）。四个缺省一律取自
+                 # `md_cg/sleep.py` 的 **env 表单一真源**（SLEEP_ENV_DEFAULTS +
+                 # sleep_env 族读取器）——本处**不写第二份缺省字面量**；两个
+                 # 入口（`_start_sustain` / op 路径）同样只经那些读取器。
+                 sleep_interval: float = None,
+                 auto_sleep: bool = None,
+                 sleep_merge: str = None,
+                 sleep_window: str = None,
+                 sleep_scrub_apply: bool = None):
+        from . import sleep as _sleep
         self.cg = cg
         self.name = name
         self.beat_interval = float(beat_interval)
@@ -1038,6 +1048,22 @@ class SustainLoop:
         self.auto_evolve = bool(auto_evolve)
         self.tidy_interval = float(tidy_interval)
         self.auto_tidy = bool(auto_tidy)
+        # 第六档睡眠周期：值全来自 sleep 模块的真源读取器（缺省见 §4.7 表）。
+        self.sleep_interval = float(_sleep.sleep_interval()
+                                    if sleep_interval is None
+                                    else sleep_interval)
+        self.auto_sleep = bool(_sleep.sleep_enabled() if auto_sleep is None
+                               else auto_sleep)
+        self.sleep_merge = (_sleep.sleep_merge_mode() if sleep_merge is None
+                            else str(sleep_merge))
+        self.sleep_window = (_sleep.sleep_window() if sleep_window is None
+                             else str(sleep_window))
+        self.sleep_scrub_apply = bool(_sleep.sleep_scrub_apply()
+                                      if sleep_scrub_apply is None
+                                      else sleep_scrub_apply)
+        self.last_sleep = None
+        self.sleeps = []
+        self.sleep_round = 0
         self.task_running = False
         self.beats = 0
         self.last_beat = None
@@ -1093,13 +1119,14 @@ class SustainLoop:
         clear_stamp(self.name, self.d)
         return self
 
-# 生效条件：self._stop 未置位期间轮询，按 beat_interval/heal_interval/scrub_interval/evolve_interval/tidy_interval 到期分别执行 beat 与 _tick_heal/_tick_scrub/_tick_evolve/_tick_tidy，各 tick 抛出的异常被吞掉不中断循环，末尾以 _stop.wait(_POLL) 休眠；
+# 生效条件：self._stop 未置位期间轮询，按 beat_interval/heal_interval/scrub_interval/evolve_interval/tidy_interval/**sleep_interval（第六档）** 到期分别执行 beat 与 _tick_heal/_tick_scrub/_tick_evolve/_tick_tidy/_tick_sleep，各 tick 抛出的异常被吞掉不中断循环，末尾以 _stop.wait(_POLL) 休眠；
     def _run(self):
         next_beat = time.time() + self.beat_interval
         next_heal = time.time() + self.heal_interval
         next_scrub = time.time() + self.scrub_interval
         next_evolve = time.time() + self.evolve_interval
         next_tidy = time.time() + self.tidy_interval
+        next_sleep = time.time() + self.sleep_interval
         while not self._stop.is_set():
             now = time.time()
             if now >= next_beat:
@@ -1132,6 +1159,12 @@ class SustainLoop:
                 except Exception:
                     pass                       # 整理巡检失败不中断常驻
                 next_tidy = now + self.tidy_interval
+            if now >= next_sleep:
+                try:
+                    self._tick_sleep()
+                except Exception:
+                    pass                       # 睡眠周期失败不中断常驻
+                next_sleep = now + self.sleep_interval
             self._stop.wait(_POLL)
 
 # 生效条件：以 apply=self.auto_tidy 调 writelimit.tidy_contextual(self.cg, actor="sustain_tidy")，把 t/scanned/groups/members/applied_count/auto_tidy 记入 self.last_tidy 与 tidys（仅保留最近 20 条），随后调 _tick_conformance()；auto_tidy 为假时只盘点不落盘；
@@ -1170,6 +1203,41 @@ class SustainLoop:
         except Exception as e:                              # noqa: BLE001
             self.last_conformance = {"ok": False, "verdict": "BLINDSPOT",
                                      "error": f"{type(e).__name__}: {e}"}
+
+# 生效条件：self.sleep_round 自增 1 后以 enabled=self.auto_sleep / merge_mode=self.sleep_merge / scrub_apply=self.sleep_scrub_apply / window=self.sleep_window / round_index=self.sleep_round 调 sleep.run_cycle(self.cg)，把 t/batch/round/candidates/merged/skipped/conflicts/九步名与其 skipped 明细/auto_sleep/merge_mode 记入 last_sleep 与 sleeps（保留最近 20 条）；auto_sleep 为假时 run_cycle 只记账不迭代；
+    def _tick_sleep(self):
+        """睡眠周期（第六档 tick）：§3.1 九步显式化 + §4.4 副本迭代与周期合并。
+
+        **只在副本上迭代**（物化 → 影子迭代 → 对账四闸 → 语义重放 + git 合并），
+        主库真源面在非合并阶段逐字节不变。四个开关全取 `md_cg/sleep.py` 的 §4.7
+        env 表真源：`MDCG_SLEEP`（总开关，缺省开）、`MDCG_SLEEP_MERGE`（缺省
+        auto＝自动走四阶段，冲突仍挂起）、`MDCG_SLEEP_WINDOW`（缺省 23:00-07:00，
+        **窗口外只记账不迭代**）、`MDCG_SLEEP_SCRUB_APPLY`（缺省 **关**——第④步
+        缺省只在副本上盘点、不落盘）。
+
+        ⑤权重刷新与衰减 / ⑥索引重建两步本轮是**显式 no-op 占位**（台账里标
+        `skipped: "未接线"`），故本轮**不动检索读数**。
+        """
+        from . import sleep as _sleep
+        self.sleep_round += 1
+        r = _sleep.run_cycle(self.cg, enabled=self.auto_sleep,
+                             merge_mode=self.sleep_merge,
+                             scrub_apply=self.sleep_scrub_apply,
+                             window=self.sleep_window,
+                             round_index=self.sleep_round)
+        steps = list(r.get("steps") or [])
+        rec = {"t": r.get("t"), "batch": r.get("batch"), "round": r.get("round"),
+               "candidates": r.get("candidates"),
+               "merged": r.get("merged"), "skipped": r.get("skipped"),
+               "conflicts": r.get("conflicts"),
+               "steps": [s.get("step") for s in steps],
+               "steps_skipped": ["%s:%s" % (s.get("step"), s.get("skipped"))
+                                 for s in steps if s.get("skipped")],
+               "auto_sleep": self.auto_sleep, "merge_mode": self.sleep_merge}
+        self.last_sleep = rec
+        with self._lock:
+            self.sleeps.append(rec)
+            self.sleeps = self.sleeps[-20:]
 
 # 生效条件：恒以 evolution_candidates(self.cg) 只读盘点并记入 last_evolve 与 evolves（保留最近 20 条）；仅当 self.auto_evolve 为真且 ev["importance_drift"]["n"] 为真时才额外执行 weights.recalc(self.cg, apply=True, actor="sustain_evolve")，其异常写入 rec["applied"]；
     def _tick_evolve(self):
@@ -1268,6 +1336,13 @@ class SustainLoop:
                 "evolves": self.evolves[-5:],
                 "last_tidy": self.last_tidy,
                 "tidys": self.tidys[-5:],
+                "sleep_interval": self.sleep_interval,
+                "auto_sleep": self.auto_sleep,
+                "sleep_merge": self.sleep_merge,
+                "sleep_window": self.sleep_window,
+                "sleep_scrub_apply": self.sleep_scrub_apply,
+                "last_sleep": self.last_sleep,
+                "sleeps": self.sleeps[-5:],
                 "last_conformance": self.last_conformance,
                 "peers": peers(self.d),
                 "sessions": self.ledger.summary()}

@@ -33,7 +33,8 @@ sustain 的后台巡检线程与请求线程**共享同一个 MdCG 实例与同�
      G4b 真线程 · 默认 switchinterval；G4c 真线程 · 1e-6（放大窗口）。
   ③ 判定结果逐位不变（独立 oracle 对照，不靠推理）—— G3（现实现 vs 全域
      「回缺陷副本」的 30+ 条只读路径输出逐字节相同）+ G3b（**手算** oracle）
-  ④ 记账面 `_lock` 覆盖范围**未扩**（本批不改并发契约）—— G0
+  ④ 记账面 `_lock` 覆盖范围（P1 起：五处 = tidys/evolves/scrubs/heals/
+     **sleeps**，第六档睡眠周期新增 `sleeps` 一项）—— G0
 
 运行：
     python -X utf8 -m md_cg.test_h4_sustain_snapshot                  # 正向
@@ -700,12 +701,21 @@ def _build_fixture(tag: str, n: int = 3):
 # ═══════════════════════════════════════════════ 断言组
 
 def g0():
-    """记账面未扩：`with self._lock:` 仍恰 4 处（本批不改并发契约）。"""
+    """记账面：第六档睡眠周期新增 `sleeps` ⇒ `with self._lock:` 由 4 处变
+    **5 处**（P1，2026-10-01：`_tick_sleep` 与既有五档同款记账）。判据仍钉死
+    「每处记账面都真的在锁内」——新增那处不得是没锁的共享可变面。"""
     with open(os.path.join(_REPO, _RELPATH), encoding="utf-8") as f:
         src = f.read()
     n = src.count("with self._lock:")
-    ok(n == 4, "G0 记账面未扩：`with self._lock:` 仍恰 4 处（tidys/evolves/"
-               "scrubs/heals）", f"实测 {n} 处")
+    ok(n == 5, "G0 记账面：`with self._lock:` 恰 5 处（tidys/evolves/scrubs/"
+               "heals/**sleeps**）", f"实测 {n} 处")
+    for face in ("self.tidys.append", "self.evolves.append",
+                 "self.scrubs.append", "self.heals.append",
+                 "self.sleeps.append"):
+        m = re.search(r"with self\._lock:\n(?:[ \t]+.*\n)*?[ \t]+%s"
+                      % re.escape(face), src)
+        ok(m is not None,
+           "G0a 记账面 %s 在 `with self._lock:` 内（受锁保护）" % face)
 
 
 def _override_for(relpath_hint: str = None):

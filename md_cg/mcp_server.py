@@ -1567,6 +1567,7 @@ def _sustain_call(cg, a):
     路线图「常驻服务：会话/心跳/自愈」。原则：诊断只读；自愈只碰派生物
     （索引/临时文件/日志边界），永不删节点；缺密钥属于权限事实，只报告不修。
     """
+    from . import sleep as _sleep
     from . import sustain
     act = (a.get("action") or "status").strip().lower()
     name = a.get("name") or os.environ.get("MDCG_SUSTAIN_NAME") or "md_cg"
@@ -1639,7 +1640,15 @@ def _sustain_call(cg, a):
             auto_evolve=sustain.auto_from_args("auto_evolve", a),
             tidy_interval=float(a.get("tidy_interval")
                                 or sustain.DEFAULT_TIDY_INTERVAL),
-            auto_tidy=sustain.auto_from_args("auto_tidy", a))
+            auto_tidy=sustain.auto_from_args("auto_tidy", a),
+            # 第六档睡眠周期（§4.7）：五个值一律经 `md_cg/sleep.py` 的**单一真源
+            # 读取器**（此处不得再写缺省字面量，也不得再写 env 键名字面量——
+            # 键名真源是 `sleep.SLEEP_ENV_KEYS`）。与 env 路径逐字同一组调用。
+            sleep_interval=_sleep.sleep_interval(),
+            auto_sleep=_sleep.sleep_enabled(),
+            sleep_merge=_sleep.sleep_merge_mode(),
+            sleep_window=_sleep.sleep_window(),
+            sleep_scrub_apply=_sleep.sleep_scrub_apply())
         return {"loop": lp.start().status()}
     if act in ("stop", "down"):
         lp = sustain.get_loop(cg, name)
@@ -3573,6 +3582,7 @@ def _start_sustain(cg):
     """启动常驻自维持循环（MDCG_SUSTAIN=0 关闭；间隔可用环境变量调）。"""
     if os.environ.get("MDCG_SUSTAIN", "1") in ("0", "false", "False"):
         return None
+    from . import sleep as _sleep
     from . import sustain
     name = os.environ.get("MDCG_SUSTAIN_NAME") or "md_cg"
     lp = sustain.ensure_loop(
@@ -3594,7 +3604,15 @@ def _start_sustain(cg):
         auto_evolve=sustain.auto_from_env("auto_evolve"),
         tidy_interval=float(os.environ.get("MDCG_TIDY_INTERVAL")
                             or sustain.DEFAULT_TIDY_INTERVAL),
-        auto_tidy=sustain.auto_from_env("auto_tidy"))
+        auto_tidy=sustain.auto_from_env("auto_tidy"),
+        # 第六档睡眠周期（§4.7）：五个值一律经 `md_cg/sleep.py` 的**单一真源
+        # 读取器**——键名真源是 `sleep.SLEEP_ENV_KEYS`、缺省真源是
+        # `sleep.SLEEP_ENV_DEFAULTS`，本处（与 op 路径）都不得再写字面量。
+        sleep_interval=_sleep.sleep_interval(),
+        auto_sleep=_sleep.sleep_enabled(),
+        sleep_merge=_sleep.sleep_merge_mode(),
+        sleep_window=_sleep.sleep_window(),
+        sleep_scrub_apply=_sleep.sleep_scrub_apply())
     lp.start()
     return lp
 
