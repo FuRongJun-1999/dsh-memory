@@ -6,7 +6,7 @@
   B 同构聚合：第 2+ 条并入既有（merge_count+1，不新增节点）
   C 频率限制：窗口内超量 DEFER；其他 role 不受影响
   D 保护优先：hint≥0.7 不限流
-  E 层豁免：knowledge 不聚合不限流
+  E 层豁免：knowledge 不聚合不限流（限流器未介入；半重复交遗忘闸门判 DEFER）
   F env 关闭：MDCG_WRITELIMIT=0 放行
   G 留痕：_forgetting.jsonl 有 limiter 记录
   H tidy：已落盘同构组聚合 + 成员降权 + 永不删除
@@ -122,9 +122,26 @@ check("D1 hint≥0.7 跳过限流（不聚合）",
 writelimit._save(cg, {"sigs": {}, "rate": {}})   # 清状态隔离本节
 r_k1 = _write("wl_k1", "知识条目甲乙丙丁1号", layer="knowledge")
 r_k2 = _write("wl_k2", "知识条目甲乙丙丁2号", layer="knowledge")
-check("E1 knowledge 不聚合不限流",
-      r_k1["verdict"] == "ACCEPT" and r_k2["verdict"] == "ACCEPT",
+# E1 判据按标题所指重编码（issue50-b）：层豁免的本体是**限流器未介入**，
+# 而限流器介入的判据是 gate 里带 `limiter` 键（与 G 节 `rec.get("limiter")`
+# 同口径）。原先编码用「r_k2 判 ACCEPT」代理该语义——那是**旧遗忘闸门裁决**的
+# 副产物（半重复被重要度拦成 ACCEPT），不是层豁免的证据，issue50-a 判半重复
+# 为 DEFER 后必然转红。改判据不改意图。
+check("E1 knowledge 层豁免：限流器未介入（两条写入的 gate 均无 limiter 键）",
+      r_k1["verdict"] == "ACCEPT"
+      and "limiter" not in (r_k1.get("gate") or {})
+      and "limiter" not in (r_k2.get("gate") or {}),
       f"{r_k1.get('gate')}/{r_k2.get('gate')}")
+# E2 钉住新行为（issue50-a 落地后的既成事实）：knowledge 层半重复（两条载荷仅
+# 尾字不同，实测 dup=0.7778）由**遗忘闸门**判 DEFER——判据带 redundancy 读数
+# 且无 limiter 键，与限流 DEFER 可区分。
+check("E2 knowledge 层半重复交遗忘闸门判 DEFER（dup=0.7778）",
+      r_k2["verdict"] == "DEFER"
+      and "redundancy" in (r_k2.get("gate") or {})
+      and "limiter" not in (r_k2.get("gate") or {})
+      and round(float((r_k2.get("gate") or {})
+                      .get("redundancy", {}).get("max") or 0), 4) == 0.7778,
+      f"{r_k2.get('gate')}")
 
 # ---------------------------------------------------------------- F env 关闭
 
@@ -158,12 +175,15 @@ check("G1 限流留痕 _forgetting.jsonl",
 # ---------------------------------------------------------------- H tidy
 
 writelimit._save(cg, {"sigs": {}, "rate": {}})
-os.environ["MDCG_WRITELIMIT"] = "0"      # 绕过写入限流，直造存量同构组
-try:
-    for i in range(5):
-        _write(f"wl_t{i}", f"巡检批次{i}收官记忆")
-finally:
-    os.environ.pop("MDCG_WRITELIMIT", None)
+# 夹具口径（issue50-b，2026-10-01）：本节的目的是「**直造存量同构组**」，让 tidy 有已落盘
+# 的存量可聚合（tidy_contextual 按 template_signature(content) 扫索引分组，不依赖限流签名表）。
+# 原夹具用 MDCG_WRITELIMIT=0 绕限流——那只绕过 writelimit；issue50-a 之后**遗忘闸门**在半重复
+# （dup∈[0.60,0.85)）处先拦，5 条只落 1 条（实测 nodes=1、tidy dry groups=0），H1/H3/H4 因此
+# 转红。改用 gated=False 直写：它与本节注释的意图「直造存量」逐字相符，且比绕限流更直白——
+# tidy 的作用面本就是**已落盘的存量组**（历史遗留与绕闸写入），写入前的拦截归遗忘闸门。
+# **H 节四条断言一字未动**（改的是夹具造法，不是判据）。
+for i in range(5):
+    _write(f"wl_t{i}", f"巡检批次{i}收官记忆", gated=False)
 dry = writelimit.tidy_contextual(cg, apply=False)
 check("H1 dry-run 盘出同构组", dry["groups"] >= 1
       and dry["members"] >= 4, str(dry["groups"]))

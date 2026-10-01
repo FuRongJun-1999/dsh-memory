@@ -2544,6 +2544,11 @@ class MdCGOS(MdCG):
         elif decision == "reject":
             result["ok"] = True
         elif decision in ("accept", "edit"):
+            # issue50-c F1 对口（2026-10-01，本分支**零行为改动**）：accept 早就是
+            # 「队列记录 → 节点 fm」的映射通道（`rec.tags` / `rec.condition_space`
+            # / `**extra`，下方 :2553/:2573）。`remember_gated` 的 DEFER 出口把调用方
+            # 声明的 meta 随入队一并落进这三槽之后，DEFER→accept 与直接 ACCEPT 的
+            # 节点 fm 即等价——映射不需要新增第二套实现，本分支职责与判据不变。
             content = item["content"]
             tags = list(item.get("tags") or [])
             layer = item.get("layer") or "knowledge"
@@ -3593,7 +3598,7 @@ class MdCGOS(MdCG):
 
     # ---- 主动遗忘（写入侧三问闸门）+ 写保护盘点 ----
 
-# 生效条件：kw 中 gated 为假值时旁路直接 ACCEPT 写入并返回 bypass；否则 writelimit.check 非 None 时按 CONVERGE→MERGE 并经 converge_into（带 session 归属）并入 target、DROP/DEFER 只记 forgetting 日志，无限流拦截时按 forgetting.assess 的四态处理（ACCEPT 走 add；MERGE 走 reinforce（带 content 与 session，返回体带 content_sink 去向）；DROP 经 forgetting.record_drop 落去向留痕并带 dropped 去向单；DEFER 不落库只留痕）。
+# 生效条件：kw 中 gated 为假值时旁路直接 ACCEPT 写入并返回 bypass；否则 writelimit.check 非 None 时按 CONVERGE→MERGE 并经 converge_into（带 session 归属）并入 target、DROP/DEFER 只记 forgetting 日志，无限流拦截时按 forgetting.assess 的四态处理（ACCEPT 走 add；MERGE 走 reinforce（带 content 与 session，返回体带 content_sink 去向）；DROP 经 forgetting.record_drop 落去向留痕并带 dropped 去向单；DEFER 不落盘、经既有入队单点 self.propose 把**正文 + 声明 meta（**kw）+「为何待定」**送进审核队列（返回体带 proposed=pid；node_id 非字符串时兜底成内容派生 id 并写 proposed_id_fallback），并照旧只记 forgetting 留痕）。
     def remember_gated(self, node_id, content, layer="contextual", **kw):
         """写入情景层记忆前的**主动遗忘闸门**：三问 → 四态。
 
@@ -3604,6 +3609,34 @@ class MdCGOS(MdCG):
         ACCEPT 写入 / MERGE 并入既有（不新增，强化既有节点）/
         DROP 丢弃（低熵噪音）/ DEFER 待定（不写）。
         四种结果都写进 `_forgetting.jsonl`，可审计。
+
+        issue50-b（2026-10-01）：DEFER 此前**只留一行痕**——不落盘、无收件箱。
+        issue50-a 把半重复判 DEFER 后，这条出口的语义（「待定**复核**」）与
+        实际（静默不记）分叉：噪声缺陷会换成「不落盘且无收件箱」缺陷。故
+        DEFER 出口接线**既有入队单点** `self.propose`（与审计/策略闸
+        `writepipe._gate_audit`、一致性闸 `_gate_consistency` 同一条链、同一
+        payload_hash 幂等对账）：正文随提案进审核队列，裁决 accept 即落盘；
+        「为何待定」写进提案记录的 `extra.defer_reason`（propose 的既有任意槽，
+        不新增队列字段/队列类型）。
+
+        issue50-c F1（2026-10-01，扩面修）：入队**只带 content/layer/sensitivity**，
+        调用方声明的其余 meta 全丢——accept 只能从队列记录取值，故「同一声明」下
+        DEFER→accept 落盘的节点比直接 ACCEPT 少 tags/condition_space/
+        verification_basis/non_applicable_conditions/derived_from/relation/role
+        （实测 tags=[] 而对面有值、derived_from 缺失、bucket_zh 因 tags 空而不生成）。
+        处置：入队时把本闸收到的 meta 一并落进队列记录（`**kw` → `self.propose`，
+        口径与直接 ACCEPT 的 `add(**kw)` 同源），accept 分支既有的
+        `tags=/condition_space=/**extra` 映射即把它写回节点 fm——**两条路径元数据
+        等价**，且 review_decide 无需改动。
+
+        issue50-c F2（2026-10-01）：`node_id=None` 时 propose 造 pid 的
+        `node_id + str(…)` 抛 TypeError；按仓内既有形态（`forgetting._prefeed_id`）
+        兜底成内容派生 id，不崩且非静默（返回体 `proposed_id_fallback`）。
+
+        接线只覆盖**本闸自己**的 DEFER——
+        writelimit 限流 DEFER 在上方已 return（其语义是「先别写」，原文在
+        recent 时间线，不是内容待定），gated=False 旁路与 ACCEPT 后因
+        on_conflict=defer 降级的 DEFER（`out["conflict"]`）都不在此列。
 
         B3（2026-09-30）：MERGE 分支此前**不把 content 往下传**（`reinforce`
         也没有该槽）——近重复的第二次写入，其新正文 100% 丢弃，只有既有节点
@@ -3712,6 +3745,56 @@ class MdCGOS(MdCG):
                 self, content, node_id=node_id, target=tgt, verdict=verdict,
                 layer=layer, sensitivity=kw.get("sensitivity"),
                 session=_writer_session(self, kw), actor=self.actor)
+        elif v == "DEFER":
+            # issue50-b（2026-10-01）：遗忘闸门的 DEFER 此前只写一行
+            # `_forgetting.jsonl` 留痕——**不落盘且无收件箱**（对比 DROP 分支
+            # 有 `forgetting.record_drop` 留全文 + trace_id）。第①条（issue50-a）
+            # 把半重复从「落成近似重复节点」改成 DEFER 之后，这条出口就会把
+            # 噪声缺陷换成「静默不记」缺陷。处置：接线**既有入队单点**
+            # `self.propose`——与审计/策略闸（`writepipe._gate_audit`）、一致性闸
+            # （`_gate_consistency`）**同一条入队链**（不新增第二套入队实现），
+            # 复用其 payload_hash 幂等对账（同内容重复写入不长第二条）。
+            # 只覆盖**本闸自己的** DEFER——writelimit 限流 DEFER 在上方已 return
+            # （语义是「先别写」，原文在 recent 时间线，不是内容待定）；
+            # gated=False 旁路与 ACCEPT 后 on_conflict=defer 的降级 DEFER 都不走
+            # 本分支（后者发生在 `if v == "ACCEPT"` 内，v 就地改写）。
+            # 「为何待定」写进提案的既有任意槽 extra（不新增队列字段/队列类型，
+            # 见 propose 的 `**kw → extra`）；密级随 sensitivity 一并透传，避免
+            # 声明 private 在此静默降级 internal（B2 同一漏传族）。
+            #
+            # issue50-c F1（2026-10-01，扩面修）：此前入队只带 content/layer/
+            # sensitivity，**调用方声明的其余 meta 全丢**（tags/condition_space/
+            # verification_basis/non_applicable_conditions/derived_from/relation/
+            # role…）。accept 只能从队列记录取值，于是「同一声明」下
+            # DEFER→accept 落盘的节点比「直接 ACCEPT」少掉这些键（实测 tags=[]
+            # 而对面有值、derived_from 缺失、role 缺失、bucket_zh 因 tags 空而
+            # 不生成）——同一份声明的两条落地路径元数据不等价。处置：把本闸收到
+            # 的那组 meta **随入队一并落进队列记录**（`**kw` 交给 `self.propose`：
+            # 其形参 `tags`/`condition_space`/`sensitivity`/`verify` 落 rec 专属槽，
+            # 其余键落 `extra`——与直接 ACCEPT 走 `add(**kw)` 的口径同源，不新增
+            # 队列字段/队列类型）；accept 分支早已把 `rec.tags`/`rec.condition_space`
+            # /`**extra` 映射回 `add`（mdcos.py:2573），故无需改 review_decide。
+            #
+            # issue50-c F2（2026-10-01）：`node_id=None` 时上文 `**kw` 透传依旧，
+            # 但 propose 造 pid 用 `node_id + str(time.time()) + …`——None + str
+            # 抛 TypeError。本闸的 ACCEPT/MERGE/DROP 三个出口都会经 `add` 对
+            # 非字符串 node_id 抛 ValueError（fail-closed 既有行为），唯独 DEFER
+            # 出口的入队单点会以 TypeError 崩出。处置：按仓内既有形态兜底成
+            # **内容派生 id**（`forgetting._prefeed_id` 同款——forgetting.py:879
+            # 对「无 id 候选」即用 `pre_<sha1[:12]>`，同一语义的单点复用），
+            # 使「DEFER 有收件箱」在缺 id 时同样成立、不崩；兜底事实写进返回体
+            # `proposed_id_fallback`（非静默——调用方可判、可检索），**不进
+            # forgetting 留痕行**（该行形状由 issue50-b 冻结）。
+            _why = "遗忘闸门：" + str(verdict.get("reason") or "待定复核")
+            _dup_with = (verdict.get("redundancy") or {}).get("with")
+            if _dup_with:
+                _why += "（重复对象 %s）" % _dup_with
+            _nid = node_id if isinstance(node_id, str) and node_id else \
+                forgetting._prefeed_id(content)
+            out["proposed"] = self.propose(
+                _nid, content, layer=layer, **kw, defer_reason=_why)
+            if _nid != node_id:
+                out["proposed_id_fallback"] = _nid
         # DROP 的去向留痕已由 record_drop 单点落盘（含全文/trace_id），此处只补
         # ACCEPT/MERGE/DEFER 的裁决留痕，避免同一次裁决出现两行。
         if v != "DROP":

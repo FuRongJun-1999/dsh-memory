@@ -33,7 +33,7 @@
                                         噪音，不该去强化既有记忆（否则例行日志
                                         会把普通记忆刷成高重要性）
     3) 冗余 ≥0.85             → MERGE ← 外部/未知来源的重复 = 又一次确认，强化
-    4) 半重复 且 不重要       → DEFER
+    4) 半重复 且 未触发保护   → DEFER ← 与重要度无关：半重复是「变更确认」的输入端
     5) 重要度 ≥0.30           → ACCEPT
     6) 新信息 ≥0.15           → ACCEPT
     7) 其余                   → DEFER
@@ -236,7 +236,7 @@ def importance_score(hint, novelty, kind, content):
     return {"score": round(max(0.0, min(1.0, s)), 4), "from": "heuristic"}
 
 
-# 生效条件：以 source_kind(role,verification_basis) 的 kind 与 redundancy(cg,content,layer=layer,exclude=node_id) 的 red["max"] 为输入，按 if/elif 顺序取首个命中分支——imp["score"]≥PROTECT_IMPORTANCE→"ACCEPT"；否则 kind=="internal_deterministic" 且 red["max"]≥DUP_DROP→"DROP"；否则 red["max"]≥DUP_MERGE→"MERGE"；否则 red["max"]≥DUP_DROP 且 imp["score"]<IMPORTANCE_MIN→"DEFER"；否则 imp["score"]≥IMPORTANCE_MIN→"ACCEPT"；否则 novelty≥NOVELTY_MIN→"ACCEPT"；否则→"DEFER"。返回体附带 P-9b 可见性字段：entropy.overwrite_of / entropy.overwrite_ratio（同 id 覆写时非 null）、dedup_skipped（**仅 PROTECT 分支**非 null，标注「因保护优先未走去重」+ 去重判据读数）——两者都不改 verdict、不改落盘行为。
+# 生效条件：以 source_kind(role,verification_basis) 的 kind 与 redundancy(cg,content,layer=layer,exclude=node_id) 的 red["max"] 为输入，按 if/elif 顺序取首个命中分支——imp["score"]≥PROTECT_IMPORTANCE→"ACCEPT"；否则 kind=="internal_deterministic" 且 red["max"]≥DUP_DROP→"DROP"；否则 red["max"]≥DUP_MERGE→"MERGE"；否则 red["max"]≥DUP_DROP→"DEFER"（**与 imp 无关**）；否则 imp["score"]≥IMPORTANCE_MIN→"ACCEPT"；否则 novelty≥NOVELTY_MIN→"ACCEPT"；否则→"DEFER"。返回体附带 P-9b 可见性字段：entropy.overwrite_of / entropy.overwrite_ratio（同 id 覆写时非 null）、dedup_skipped（**仅 PROTECT 分支**非 null，标注「因保护优先未走去重」+ 去重判据读数）——两者都不改 verdict、不改落盘行为。
 def assess(cg, content, layer="contextual", role=None, verification_basis=None,
            importance_hint=None, node_id=None):
     """三问 → 四态裁决。返回完整判据（可审计，不只给结论）。
@@ -261,6 +261,17 @@ def assess(cg, content, layer="contextual", role=None, verification_basis=None,
           关键正文并入他节点、检索归属漂移——风险高于收益；③ 缺陷本体是「绕过
           去重而不可见」而非「保护存在」，标注即可消除静默且零回归面
           （test_p9_forget_protect.py 的「importance_hint≥0.7→ACCEPT」逐字不变）。
+
+    issue50-a（2026-10-01）：分支 ④「半重复 → DEFER」此前写作
+    `red["max"] >= DUP_DROP and imp["score"] < IMPORTANCE_MIN`，**结构性不可达**：
+    用户角色属外部惊奇来源（`SOURCE_WEIGHT["external_surprising"]=1.00`），启发式
+    重要度 = 0.5·novelty + 0.3·1.00 + 0.2·lf ⇒ 基线恰为 0.30 = IMPORTANCE_MIN，
+    且比较用 `>=`；插件侧还显式传 `hint=0.6`（同样 ≥0.30）。实测：重复度 0.7324 /
+    0.7606 的半重复内容一律走分支 ⑤ 判 ACCEPT，`_forgetting.jsonl` 的 DEFER 计数为
+    0（在役库 215 条留痕：ACCEPT 201 / MERGE 14）——本应是「变更确认」输入端的
+    那条回路从不产生输入。处置：**删去 `and imp["score"] < IMPORTANCE_MIN`**，
+    半重复（且未触发保护）一律 DEFER，与重要度解耦。分支顺序与其余六条分支的
+    判据/文案均不变，保护优先（①）仍最先，故保护面零回归。
     """
     kind = source_kind(role, verification_basis)
     red = redundancy(cg, content, layer=layer, exclude=node_id)
@@ -315,9 +326,9 @@ def assess(cg, content, layer="contextual", role=None, verification_basis=None,
     elif red["max"] >= DUP_MERGE:
         verdict, why = "MERGE", (f"重复度 {red['max']:.2f}≥{DUP_MERGE}"
                                 f"（并入 {red['with']}，强化既有）")
-    elif red["max"] >= DUP_DROP and imp["score"] < IMPORTANCE_MIN:
+    elif red["max"] >= DUP_DROP:
         verdict, why = "DEFER", (f"半重复 {red['max']:.2f}∈[{DUP_DROP},{DUP_MERGE})"
-                                f" 且重要度 {imp['score']:.2f}<{IMPORTANCE_MIN}"
+                                f" 且未触发不可遗忘保护"
                                 f"（待定复核）")
     elif imp["score"] >= IMPORTANCE_MIN:
         verdict, why = "ACCEPT", f"重要度 {imp['score']:.2f}≥{IMPORTANCE_MIN}"

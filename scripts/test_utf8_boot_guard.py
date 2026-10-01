@@ -466,11 +466,20 @@ def _hive_bin(root: str) -> str:
     return cand
 
 
-# 生效条件：root 给出时返回 `<root>/hive/jobs` 的目录项排序清单（不存在/不可读 ⇒ None）——**只读**，用于 c5「在役池零触碰」的前后比对。
+# 生效条件：root 给出时返回 `<root>/hive/jobs` 的目录项排序清单（不存在/不可读 ⇒ None）——**只读**，用于 c5「在役池零触碰」的前后比对；清单**排除在役 serve 的心跳产物**（`_serve*`：`_serve.json` / `_serve.log` / `_serve.tmp<pid>`——在役 serve 约 20s 一次原子改写心跳、改写瞬间伴生 .tmp，与被判面的行为无关）。
 def _pool_listing(root: str):
-    """在役池清单快照（只读）。"""
+    """在役池清单快照（只读）。
+
+    排除 `_serve*`（归因实验 2026-10-01：在役 serve 的心跳每 ~20s 改写一次
+    `_serve.json`——mtime 逐次精准 +20s——改写瞬间伴生 `_serve.tmp<pid>`；
+    落在 c5 前后快照窗口内会被误判为「本趟写了在役池」，实测套件并行下
+    命中率 ≈ 窗口/20s、最小复现 3 轮红 1）。c5 的意图是「本趟不得往在役池
+    写**作业目录**」，心跳不是被判面的产物；排除后其余任何新增（含意外
+    文件）仍判违规——口径只收窄这一族，判据强度不变。
+    """
     try:
-        return sorted(os.listdir(os.path.join(root, "hive", "jobs")))
+        return sorted(n for n in os.listdir(os.path.join(root, "hive", "jobs"))
+                      if not n.startswith("_serve"))
     except OSError:
         return None
 
