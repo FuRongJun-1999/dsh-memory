@@ -43,6 +43,7 @@ docs/
 | [护栏宪章 v2.0](mdcg/guardrail-charter.md) | 对外部智能体与人类的行为边界 |
 | [memory_score](mdcg/memory_score.html)（[png](mdcg/memory_score.png)） · [memory-assessment](mdcg/memory-assessment.html) · [教学教程](mdcg/lingshu_tutorial.html) | 评分 / 评估 / 教程 |
 | [发布门禁链 v0.1](mdcg/发布门禁链_v0.1.md) | 三层门禁（pre-commit 自动重挂 / prepublishOnly check / CI 兜底）与安装 |
+| [睡眠周期 · 运维前提与维护指南 v1.0](mdcg/睡眠周期_运维前提与维护指南_v1.0.md) | 睡眠周期的 git 前提 / 版本库位置 / 维护动作（看历史·看改动·只给 revert 的回退·冲突挂起）/ 开关与自动边界 |
 | [D_meta 工程化方案 v0.2](mdcg/D_meta_工程化方案_v0.2.md) | D_task / D_meta 分离的工程化方案 |
 | [代码评审与条件化注释 · 契约 v0.1](mdcg/代码评审与条件化注释_契约_v0.1.md) | 评审与条件化注释契约 |
 | [全库代码评审与条件化注释 · 计划 v0.1](mdcg/全库代码评审与条件化注释_计划_v0.1.md) | 全库评审执行计划 |
