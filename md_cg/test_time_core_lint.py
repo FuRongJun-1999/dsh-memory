@@ -17,31 +17,43 @@
 
 ## 审计口径（E5 · 四形态）
 
-| 形态 | 判据（正则，作用在 **AST 代码段** 上——注释与 docstring 天然不入面） |
+| 形态 | 判据（正则；Python 作用在 **AST 代码段** 上——注释与 docstring 天然不入面；Rust 逐行、跳过注解行） |
 |---|---|
-| `exp_kernel`      | `exp(-…`（自写指数衰减核） |
+| `exp_kernel`      | `exp(-…`（自写指数衰减核）**与点调用形态 `.exp(…)` / `.exp()`**（Rust `f64::exp`、其它语言的方法调用） |
 | `pow_half_life`   | `** (… days / DAYS / half_life …)`（幂式半衰期） |
 | `one_minus_factor`| `1 - factor`（离散保持率） |
 | `ema_retain`      | `… * retain` / `retain * …`（EMA 保持率） |
 
-**登记制**（E5 要求「显式登记 + 等价性断言」，不是无限豁免）：
+**登记制**（E5 要求「显式登记 + 等价性断言」，不是无限豁免）：`REGISTRY` 的键是
+`(文件, 形态)`、值是 **(该文件内被接受的源码行元组, 理由)** ——同一文件同一形态可
+登记多行，但**每一行都必须在源码里逐字命中**（否则判「登记陈化」红）。
 
 * `md_cg/whitebox_kb/aeis_core/time_core.py` = 核权威本体，整文件豁免；
 * `md_cg/links.py:500` `factor = 0.5 ** (days / DECAY_DAYS)` = **同族半衰期写法**
   ——显式登记在 `REGISTRY`，并由本守卫 G2 **逐点等价性断言**证明
   `0.5**(d/DECAY_DAYS) == cred_factor(ln2/DECAY_DAYS, d)`；
-  **刻意不动它的数值行为**（P_trust 读数零位移，G2e 给读数）。
+  **刻意不动它的数值行为**（P_trust 读数零位移，G2c 给读数）。
+* `rust/src/freshness.rs:128` 与 `:139` `((-γ·Δt).exp()).max(floor).min(SCORE_CEIL)`
+  = **Rust 读侧的指数核**（`:139` 在其 `#[cfg(test)]` 半衰期断言里）——Rust 无法
+  调 Python，故「登记 + 等价证」是唯一合规路径：G11 从 **Rust 源码**解析常量与核
+  表达式，在若干 Δt 点上**逐点求值**并与
+  `time_core.cred_factor(γ, Δt, floor, ceil)` 对拍（**不只断言「常量同值」**）；
+  G11e 把抽出的表达式在内存里扰动一次作**非空转反证**。
 
-未登记的形态一律**红**（审计器非空转，G1d 用注入核证明可拦性）。
+未登记的形态一律**红**（审计器非空转，G1d 用注入核证明可拦性——含独立复核抓到的
+点调用形态 `.exp()`，那正是本守卫此前的盲区：正则只认 `exp(` 后紧跟 `-`，
+`.exp()` 这种 Rust 写法一条都抓不到，G1c「零命中」于是靠盲区通过）。
 
 ## 守卫分组
 
-G0 隔离与基线自证 · G1 E5 审计（含可拦性）· G2 links 同族等价性 + P_trust 零位移 ·
+G0 隔离与基线自证 · G1 E5 审计（含可拦性 + 对真实 Rust 核字面形态的定点证据 G1f）·
+G2 links 同族等价性 + P_trust 零位移 ·
 G3 **单位断言**（秒/天两喂法必须不同且天制正确）· G4 floor（含 300 天读数）·
 G5 γ 缺省与可配 · G6 时间路接线（行为：路径分 = 天制 cred_factor）·
 G7 **因果路两配置读数**（默认集 0 → 显式含 reference/part_of >0）+
 S3 契约不变量 · G8 缺省与分路开关（mdcos 缺省集 + mcp_server 调用点）·
-G9 N137 搬迁后边集合逐项相等 · G10 双侧同改披露面（键定义一致 + Rust 缺省路集差异）。
+G9 N137 搬迁后边集合逐项相等 · G10 双侧同改披露面（键定义一致 + Rust 缺省路集差异）·
+G11 **Rust 侧指数核登记**（常量单源 + 核表达式从源码抽出逐点等价 + 非空转反证）。
 
 运行：
     python -X utf8 -m md_cg.test_time_core_lint
@@ -91,9 +103,18 @@ _SKIP_DIRS = {".git", "__pycache__", "node_modules", "target", "lib",
               "build", "dist", ".venv", ".mypy_cache", ".zcode"}
 
 #: 四形态（E5）：名 → (正则, 人类可读说明)
+#:
+#: `exp_kernel` 的两条分支缺一不可：
+#:   ① `(?:math\.)?\bexp\s*\(\s*-` —— 原有的「调用式」形态（`exp(-…`、`math.exp(-…`）；
+#:   ② `\.exp\s*\(` —— **点调用**形态（Rust `((-γ·Δt).exp())`、其它语言的方法调用）。
+#: ② 是补的盲区：原正则只认 `exp(` 之后紧跟 `-`，而 Rust 写 `.exp()`（括号内为空，
+#: 负号在**括号外**）——`rust/src/freshness.rs` 的两处指数核因此一条都抓不到，
+#: G1c 的「零命中」是靠盲区通过的（G1d 现在把点调用形态一并注入作可拦性读数）。
+#: 放宽后**仍要求**①②的命中落进 `REGISTRY` 逐字登记，故不是「放水」而是「入面」。
 PATTERNS = (
-    ("exp_kernel", re.compile(r"(?:math\.)?\bexp\s*\(\s*-"),
-     "本模块外的指数衰减核 exp(-…)"),
+    ("exp_kernel",
+     re.compile(r"(?:math\.)?\bexp\s*\(\s*-|\.exp\s*\("),
+     "本模块外的指数衰减核 exp(-…)（调用式）／.exp(…) / .exp()（点调用）"),
     ("pow_half_life",
      re.compile(r"\*\*\s*\([^)]*\b(?:days|DAYS|half_life|halflife|HALF_LIFE)\b"),
      "幂式半衰期 0.5 ** (Δt/D)"),
@@ -103,15 +124,30 @@ PATTERNS = (
      "EMA 保持率 x·retain"),
 )
 
-#: **登记表**：合法出现的同族写法（rel, 形态）→ (源码行原文, 理由)。
-#: 登记项必须在源码里**逐字命中**（否则判「登记陈化」红）——登记表不得空转。
+#: **登记表**：合法出现的同族写法 (文件, 形态) → (该文件内被接受的**源码行元组**, 理由)。
+#: 键里的文件同一形态可登记**多行**（一个文件内可能有多处同族实现，如 Rust 侧的
+#: 生产核 + 其 `#[cfg(test)]` 半衰期断言）；每一行都必须在源码里**逐字命中**
+#: （否则判「登记陈化」红）——登记表不得空转。
 REGISTRY = {
     ("md_cg/links.py", "pow_half_life"): (
-        "0.5 ** (days / DECAY_DAYS)",
+        ("0.5 ** (days / DECAY_DAYS)",),
         "同族半衰期（半衰期 30 天 = links.DECAY_DAYS）：与 "
         "cred_factor(ln2/DECAY_DAYS, d) 数值等价（G2 逐点断言）；"
         "**数值行为刻意不变**（P_trust 读数零位移）。"),
+    ("rust/src/freshness.rs", "exp_kernel"): (
+        ("let decay = ((-gamma() * dt_days).exp()).max(floor).min(SCORE_CEIL);",
+         "let f = ((-g * DECAY_DAYS).exp()).max(SCORE_FLOOR).min(SCORE_CEIL);"),
+        "Rust 读侧的指数核（`factor()` 的乘子本体 + 其 `#[cfg(test)]` 里的半衰期"
+        "断言）——Rust 无法调 Python，故按 E5 的「登记 + 等价证」路径：G11 从 "
+        "**Rust 源码**解析常量与核表达式，在若干 Δt 点上逐点求值并与 "
+        "cred_factor(γ, Δt, floor, ceil) 对拍（G11d），反证见 G11e。"),
 }
+
+
+def _reg_lines():
+    """登记表登记的**源码行总数**（G1b 的判据面：每一行都要逐字命中）。"""
+    return sum(len(lines) for lines, _why in REGISTRY.values())
+
 
 
 def _iter_files(root):
@@ -192,13 +228,13 @@ def audit(root=None, extra=None):
         hits = _py_hits(rel, text) if rel.endswith(".py") else _rs_hits(rel, text)
         for rel2, ln, code, pat in hits:
             reg = REGISTRY.get((rel2, pat))
-            if reg is not None and code == reg[0]:
+            if reg is not None and code in reg[0]:
                 n_reg += 1
                 continue
             findings.append((rel2, ln, code, pat,
                              bool(reg is not None)))
-    # 登记陈化：登记表里的行必须在源码里逐字命中
-    for (rel, pat), (want, _why) in REGISTRY.items():
+    # 登记陈化：登记表里的**每一行**都必须在源码里逐字命中
+    for (rel, pat), (want_lines, _why) in REGISTRY.items():
         p = os.path.join(root, rel)
         try:
             with open(p, encoding="utf-8") as f:
@@ -206,9 +242,10 @@ def audit(root=None, extra=None):
         except OSError:
             findings.append((rel, 0, "<文件缺失>", pat, True))
             continue
-        if want not in src:
-            findings.append((rel, 0, "<登记陈化：源码里找不到该行> " + want,
-                             pat, True))
+        for want in want_lines:
+            if want not in src:
+                findings.append((rel, 0, "<登记陈化：源码里找不到该行> " + want,
+                                 pat, True))
     return findings, {"files": n_files, "registered": n_reg}
 
 
@@ -260,10 +297,12 @@ def g1():
     ok(stats["files"] >= 100,
        "G1a 审计面非空（%d 个 .py/.rs 入面）——防「扫描面为空 = 假绿」"
        % stats["files"], stats)
-    ok(stats["registered"] == len(REGISTRY),
-       "G1b 登记表逐条在源码里命中（%d 条）" % stats["registered"], stats)
+    ok(stats["registered"] == _reg_lines(),
+       "G1b 登记表登记的行**逐行**在源码里命中（%d 行）" % stats["registered"],
+       stats)
     ok(findings == [],
-       "G1c 未登记的衰减核实现 **零命中**（findings=%d）" % len(findings),
+       "G1c 未登记的衰减核实现 **零命中**（findings=%d）——注意：这条只在 G1d/G1d'"
+       " 两条可拦性读数也在位时才算数（否则可能靠扫描盲区通过）" % len(findings),
        findings[:5])
     # 可拦性：注入两种形态，审计器必须抓到（否则是空转）
     inj_py = ("import math\n\n\ndef f(g, dt, days, factor, retain):\n"
@@ -277,9 +316,35 @@ def g1():
     ok({"exp_kernel", "pow_half_life", "ema_retain",
         "one_minus_factor"} <= got,
        "G1d 可拦性：注入四形态全部被抓（%s）" % sorted(got), sorted(got))
+    # 可拦性·点调用形态（**独立复核抓到的盲区本体**）：Rust 写 `.exp()`（括号内为空），
+    # 原正则 `exp(` 后必须紧跟 `-` ⇒ 一条都抓不到。这里直接注入该形态的 .rs 文件。
+    inj_rs = ("fn f(g: f64, dt: f64) -> f64 {\n"
+              "    ((-g * dt).exp()).max(0.0)\n"
+              "}\n")
+    f3, _s3 = audit(extra={"rust/src/_injected_probe.rs": inj_rs})
+    ok(any(x[0] == "rust/src/_injected_probe.rs" and x[3] == "exp_kernel"
+           for x in f3),
+       "G1d' 可拦性·点调用形态：注入 `((-g * dt).exp())` 必被抓（%s）"
+       % [x[3] for x in f3], [x[3] for x in f3])
     # 核权威本体豁免：time_core.py 自己必须**不**进 findings
     ok(all(not x[0].endswith("aeis_core/time_core.py") for x in f2),
        "G1e 核权威本体豁免（注入不改写其豁免面）")
+    # 定点证据（正则不再靠盲区）：不做全仓扫描，直接把 **`rust/src/freshness.rs`
+    # 里真实出现**的两条核字面形态（生产核 `((-gamma() * dt_days).exp())` + 其
+    # `#[cfg(test)]` 半衰期行 `((-g * DECAY_DAYS).exp())`）喂给 `exp_kernel` 判据，
+    # **必须命中**；同时原「调用式」形态（`math.exp(-`、`exp(-`）**仍须命中**
+    # ——两者缺一即说明新正则要么过窄（回盲区）要么过宽（放水）。
+    _rx_exp = {n: r for n, r, _d in PATTERNS}["exp_kernel"]
+    _rf = _rel_text("rust/src/freshness.rs")
+    _pin = [l.strip() for l in _rf.split("\n") if ".exp()" in l]
+    _pin += ["math.exp(-g * dt)", "exp(-g * dt)"]
+    ok(len(_pin) >= 4 and any("((-gamma() * dt_days).exp())" in s for s in _pin)
+       and any("((-g * DECAY_DAYS).exp())" in s for s in _pin)
+       and all(_rx_exp.search(s) for s in _pin),
+       "G1f 定点证据：exp_kernel 对 freshness.rs 的**两条真实字面形态**"
+       "（生产核 .exp() 点调用 + 测试行）与原 `math.exp(-`／`exp(-` 形态**全部命中**"
+       "（%d 条：%s）——正则放宽后既不漏点调用、也没丢掉原形态"
+       % (len(_pin), [s[:52] for s in _pin]))
 
 
 # ---------------------------------------------------------------- G2
@@ -537,6 +602,20 @@ def g8():
     m = _rel_text("md_cg/mcp_server.py")
     ok("or use_causal" in m and "use_temporal" in m,
        "G8d 融合口径照抄先例形态（同一表达式内追加 use_causal 条件）")
+    # G8d' **代码面**复核（为什么需要）：G8d 是纯文本断言，注释与 docstring 一样能
+    # 把它顶绿——P4 把融合口径收进 `recall_fusion_default` 后，其 docstring 里就有
+    # `or use_causal` 字样，于是「只删代码里的 `or use_causal`」能全身而退
+    # （P3-M7 变异实测：删了代码里的那截，G8d 照绿、红项=0）。故按 **AST** 判：
+    # 产出 "max" 的那个条件表达式（IfExp.test）里必须含 use_causal。
+    # （注意不能退化成「任一 BoolOp 含四路」——:3401/:3424 两处 BoolOp 也含这四个
+    #  名字，那样 M7 变异照样漏网，实测如此。）
+    max_conds = [(n.lineno, (ast.get_source_segment(m, n.test) or "").replace("\n", " "))
+                 for n in ast.walk(ast.parse(m))
+                 if isinstance(n, ast.IfExp) and isinstance(n.body, ast.Constant)
+                 and n.body.value == "max"]
+    ok(bool(max_conds) and all("use_causal" in c for _l, c in max_conds),
+       "G8d' 「max」融合口径的**条件表达式**（AST 代码面）含 use_causal——"
+       "注释/docstring 顶不了绿", max_conds)
     ok('paths.append("chain")' in m and 'paths.append("temporal")' in m,
        "G8e 调用点显式列出两条新路（与 mdcos 缺省集同改，两侧不分裂）")
 
@@ -597,6 +676,114 @@ def g10():
        "——本批**未**在 Rust 侧实现 chain/temporal，两侧缺省集不同")
 
 
+# ---------------------------------------------------------------- G11
+
+#: Rust 常量声明（`pub const X: f64 = …;`）——G11 只吃**源码**，不吃硬编码。
+_RS_CONST_RE = re.compile(r"pub const (\w+): f64 = ([0-9.eE+\-]+);")
+#: Rust 指数核表达式（`factor()` 里的乘子本体）——形状固定：
+#: `let decay = ((-(e)).exp()).max(floor).min(CEIL);`
+_RS_KERNEL_RE = re.compile(
+    r"let decay = \(\(-(?P<exp>.+?)\)\.exp\(\)\)"
+    r"\.max\((?P<floor>[\w:]+)\)\.min\((?P<ceil>[\w:]+)\);")
+
+
+def _rust_consts(src):
+    """Rust 源码的 `pub const X: f64 = …;` → {名字: 值}。"""
+    return {m.group(1): float(m.group(2)) for m in _RS_CONST_RE.finditer(src)}
+
+
+def _rust_decay_value(src, consts, gamma_val, dt_days):
+    """把 Rust 的核表达式**从源码抽出来、在 Python 里求值**（Rust 调不了 Python）。
+
+    这与 `md_cg/links.py` 的 G2 是同一路径的两侧：那边是「同族写法 ↔ cred_factor
+    逐点等价」，这边是「另一门语言的实现 ↔ cred_factor 逐点等价」——Rust 无法被
+    Python 调用，故 `REGISTRY` 登记 + 本函数的逐点对拍就是 E5 允许的唯一合规路径。
+
+    表达式里的标识符（常量名、`gamma()`、`dt_days`、局部 `floor`）全部按 `consts`
+    代入后，只允许 `[0-9eE.+-*/() ]` 字符集再受限求值。**形状不认识 → 返回 None**
+    （判红，不静默跳过）。返回 `min(ceil, max(floor, exp(-e)))`——逐字对应 Rust 的
+    `((-(e)).exp()).max(floor).min(CEIL)`。
+    """
+    m = _RS_KERNEL_RE.search(src)
+    if m is None:
+        return None
+    syms = {"gamma()": gamma_val, "dt_days": dt_days,
+            "floor": consts.get("SCORE_FLOOR")}
+    for k, v in consts.items():
+        syms.setdefault(k, v)
+    sub = m.group("exp")
+    for k in sorted(syms, key=len, reverse=True):
+        if syms[k] is None:
+            return None
+        sub = re.sub(re.escape(k), lambda _m, v=float(syms[k]): repr(v), sub)
+    if not re.fullmatch(r"[0-9eE.+\-*/() ]+", sub):
+        return None
+    val = math.exp(-eval(sub, {"__builtins__": {}}, {}))
+    lo, hi = syms.get(m.group("floor")), syms.get(m.group("ceil"))
+    if lo is None or hi is None:
+        return None
+    return min(hi, max(lo, val))
+
+
+def g11():
+    print("== G11 Rust 侧指数核登记：常量单源 + 公式逐点等价（Rust 调不了 Python）==")
+    rs = _rel_text("rust/src/freshness.rs")
+    c = _rust_consts(rs)
+    ok(c.get("DECAY_DAYS") is not None
+       and c["DECAY_DAYS"] == float(links.DECAY_DAYS),
+       "G11a Rust DECAY_DAYS=%r ≡ links.DECAY_DAYS=%r（γ 的半衰期刻度单源，"
+       "Rust 侧无 links 模块故此处是唯一取值点）"
+       % (c.get("DECAY_DAYS"), float(links.DECAY_DAYS)))
+    ok(c.get("SCORE_FLOOR") == TEMPORAL_SCORE_FLOOR,
+       "G11a' Rust SCORE_FLOOR=%r ≡ mdcos.TEMPORAL_SCORE_FLOOR=%r（floor 同值，"
+       "与 P3-temporal 同源理由）" % (c.get("SCORE_FLOOR"), TEMPORAL_SCORE_FLOOR))
+    ok(c.get("SCORE_CEIL") == 1.0 and c.get("SECONDS_PER_DAY") == 86400.0,
+       "G11a'' Rust SCORE_CEIL=%r / SECONDS_PER_DAY=%r（ceil=1.0；Δt 的秒→天"
+       "换算常量）" % (c.get("SCORE_CEIL"), c.get("SECONDS_PER_DAY")))
+    # 缺省 γ 的**公式**（不是常量同值）：Rust 写 LN_2 / DECAY_DAYS，Python 写
+    # ln2 / links.DECAY_DAYS —— 两式在 G11a 的常量单源之上数值必须一致。
+    ok("std::f64::consts::LN_2 / DECAY_DAYS" in rs
+       and abs(math.log(2.0) / c["DECAY_DAYS"] - temporal_gamma()) < 1e-15,
+       "G11b Rust 缺省 γ 式 LN_2/DECAY_DAYS = Python temporal_gamma() = %.9f"
+       % temporal_gamma())
+    # 登记面：本文件的核行必须**在册**（摘掉登记 → 本条与 G1c 一起转红）
+    reg = REGISTRY.get(("rust/src/freshness.rs", "exp_kernel"))
+    ok(reg is not None and len(reg[0]) == 2
+       and all(line in rs for line in reg[0]),
+       "G11c rust/src/freshness.rs 的 2 行核实现已登记进 REGISTRY（exp_kernel）"
+       "——摘掉登记即红（--mutate 的 P4-M9 就是这条）", reg)
+    # 逐点等价：核表达式**从 Rust 源码抽出**后求值 vs cred_factor
+    g_rs = math.log(2.0) / c["DECAY_DAYS"]
+    g_py = temporal_gamma()
+    pts = (0.0, 1.0, 7.0, 14.0, 30.0, 90.0, 300.0, 3650.0)
+    rows, bad = [], []
+    for d in pts:
+        v_rs = _rust_decay_value(rs, c, g_rs, d)
+        v_py = TC.cred_factor(g_py, d, TEMPORAL_SCORE_FLOOR, 1.0)
+        rows.append((d, v_rs, v_py))
+        if v_rs is None or abs(v_rs - v_py) > 1e-12:
+            bad.append((d, v_rs, v_py))
+    ok(not bad,
+       "G11d Rust 核表达式（**从源码抽出**）== cred_factor(γ, Δt, floor, ceil) 逐点"
+       "（%d 点；Δt=300 天 → %.6f = floor，Δt=30 天 → %.6f = 半衰期）"
+       % (len(pts), rows[6][2], rows[4][2]), bad)
+    ok(rows[4][1] == 0.5 and abs(rows[1][1] - 0.5 ** (1.0 / 30.0)) < 1e-12,
+       "G11d' 抽样读数：Rust 求得 Δt=30 天 → %.6f（半衰期）、Δt=1 天 → %.9f"
+       % (rows[4][1], rows[1][1]))
+    # 非空转**反证**：把抽出的表达式在内存里扰动（指数项 ×2）→ 逐点等式必须立刻
+    # 大面积不成立。为什么不是 8/8：Δt=0 处两式同为 1.0，Δt≥300 天处两式都被 floor
+    # 夹到 0.001 —— 这些点是「夹紧巧合」，不是等价性的证据面。
+    broken = rs.replace("(-gamma() * dt_days).exp()",
+                        "(-gamma() * dt_days * 2.0).exp()", 1)
+    diff = [d for d in pts
+            if abs(_rust_decay_value(broken, c, g_rs, d)
+                   - TC.cred_factor(g_py, d, TEMPORAL_SCORE_FLOOR, 1.0)) > 1e-12]
+    ok(len(diff) >= 5,
+       "G11e 反证（非空转）：核表达式扰动 ×2 后 %d/%d 点不再相等（其余被 floor/Δt=0"
+       " 夹紧巧合）——证明 G11d 真的在读 Rust 源码，不是自说自话" % (len(diff), len(pts)),
+       diff)
+
+
 # ---------------------------------------------------------------- 运行
 def _rel_text(rel):
     if rel in _SRC:
@@ -605,7 +792,7 @@ def _rel_text(rel):
         return f.read()
 
 
-_GROUPS = (g0, g1, g2, g3, g4, g5, g6, g7, g8, g9, g10)
+_GROUPS = (g0, g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11)
 
 
 def _run_groups():
@@ -646,12 +833,23 @@ _MUTATIONS = (
      "                   paths=(\"lexical\", \"bucket\", \"entity\", \"graph\"),\n", 2),
     ("P3-M7 融合口径脱钩：mcp_server 不再把因果路纳入 max 缺省",
      "md_cg/mcp_server.py",
-     "            \"max\" if (use_fuzzy or use_semantic or use_goal or use_causal) else None)\n",
-     "            \"max\" if (use_fuzzy or use_semantic or use_goal) else None)\n", 1),
+     "    return (\"max\" if (use_fuzzy or use_semantic or use_goal or use_causal)\n",
+     "    return (\"max\" if (use_fuzzy or use_semantic or use_goal)\n", 1),
     ("P3-M8 links 数值行为被改：半衰期写法换成自写指数核",
      "md_cg/links.py",
      "            factor = 0.5 ** (days / DECAY_DAYS)\n",
      "            factor = math.exp(-days / DECAY_DAYS)\n", 2),
+    ("P4-M9 E5 登记表摘除 Rust 侧：rust/src/freshness.rs 的指数核不再被登记"
+     "（审计器必须转红——证明 G1c 不是靠扫描盲区通过）",
+     "md_cg/test_time_core_lint.py",
+     '    ("rust/src/freshness.rs", "exp_kernel"): (\n',
+     '    ("rust/__NOT_REGISTERED__.rs", "exp_kernel"): (\n', 1),
+    ("P4-M10 Rust 核公式被改坏：指数项多乘一个 2（登记陈化 + 未登记命中 + G11 数值"
+     "不等，三处同时红）",
+     "rust/src/freshness.rs",
+     "    let decay = ((-gamma() * dt_days).exp()).max(floor).min(SCORE_CEIL);\n",
+     "    let decay = ((-gamma() * dt_days * 2.0).exp()).max(floor)"
+     ".min(SCORE_CEIL);\n", 1),
 )
 
 _MUT_FILES = tuple(sorted({m[1] for m in _MUTATIONS}))

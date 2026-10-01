@@ -31,7 +31,9 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT
                    TIER_BUCKET_SCAN, TIER_GLOBAL_LIKE, TIER_GLOBAL_SCAN,
                    GLOBAL_CAP, expand_query_terms_weighted,
                    expand_query_terms_llm, en_zh_bigrams, semantic_on,
-                   cut_by_relevance, apply_retrieval_gates, NEG_ROUTE_LAYERS)
+                   cut_by_relevance, apply_retrieval_gates, NEG_ROUTE_LAYERS,
+                   # P2-3（§5.4）：六要素后两行索引键的召回判据单点（mdcg 侧）
+                   index_key_hits, boundary_mark)
 from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
                self_state, predict, evolution, weights, pooling,
@@ -973,7 +975,9 @@ class MdCGOS(MdCG):
             if in_bucket:
                 docs = self._read_many(in_bucket, stat)
                 # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
-                hits = [d for d in docs if self._like(d[2], d[1], terms)
+                hits = [d for d in docs
+                        if self._like(d[2], d[1], terms,
+                                      index_key_hits(d[0], terms, q))
                         or (semantic_on() and d[1].get("semantic"))]
                 out = try_stage(hits, TIER_BUCKET_LIKE)
                 if out:
@@ -999,7 +1003,8 @@ class MdCGOS(MdCG):
             docs_r = self._read_many(reach_entries, stat)
             _dif = set(_rstat.get("reach_diffused_paths") or ())
             hits_r = [d for d in docs_r
-                      if self._like(d[2], d[1], terms)
+                      if self._like(d[2], d[1], terms,
+                                    index_key_hits(d[0], terms, q))
                       or (semantic_on() and d[1].get("semantic"))
                       or d[0].get("path") in _dif]     # 图扩散补召回：无词面命中也放行进打分
             stat["pre_cap"] = len(hits_r)     # 与 T2 同序：截断**前**的候选数
@@ -1031,7 +1036,9 @@ class MdCGOS(MdCG):
         # 截断依据=相关度（同 MdCG.search：cap 值不变，改的是拿什么排序）
         docs_all = self._read_many(entries, stat)
         # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
-        hits = [d for d in docs_all if self._like(d[2], d[1], terms)
+        hits = [d for d in docs_all
+                if self._like(d[2], d[1], terms,
+                              index_key_hits(d[0], terms, q))
                 or (semantic_on() and d[1].get("semantic"))]
         stat["pre_cap"] = len(hits)
         stat["cap"] = GLOBAL_CAP
@@ -1079,7 +1086,9 @@ class MdCGOS(MdCG):
         docs = self._read_many(entries, stat)
         # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池——
         # 语义摘要=检索面（设想核心），否则摘要层只在 LIKE 全空时生效
-        hits = [d for d in docs if self._like(d[2], d[1], terms)
+        hits = [d for d in docs
+                if self._like(d[2], d[1], terms,
+                              index_key_hits(d[0], terms, query))
                 or (semantic_on() and d[1].get("semantic"))]
         if not hits:
             # 兜底池（LIKE 全空 = 无相关度信号）：截断依据=importance/created_at
@@ -1470,7 +1479,11 @@ class MdCGOS(MdCG):
                        无活跃目标时本路为空，等价于未启用。
             "chain"    **因果路**（P3-causal，设计稿 §6.2）：以词法/实体命中为
                        种子沿 edges 多跳扩散（复用 `md_cg/chain.py`：14 类边权、
-                       MAX_DEPTH 5、decay 0.9），不走全表。
+                       MAX_DEPTH 5、decay 0.9）。**代价口径（P3 遗留 ⑥ 如实
+                       降级，2026-10-01）：不读正文，但邻接构建为 O(N) 索引
+                       条目级**（`chain.adjacency` 遍历全部索引节点；冷建代价
+                       读数见 `scripts/p2p4_probe.py` R7）——原表述「不走全表」
+                       与实测不符，已改正。
             "temporal" **时间路**（P3-temporal，设计稿 §6.3）：按时间邻近度排序
                        的**排名项**，核走 `time_core.cred_factor`；无时间算子/
                        区间时恒空。
@@ -1711,12 +1724,50 @@ class MdCGOS(MdCG):
             fused = fused_all[:k]
 
         results = []
+        # P2-2（§5.2）：默认召回路径上的**拒绝域双语义**——与 `MdCG._emit` 同款
+        # 接线（同一个判据函数 `MdCG.judge_with_boundary`，此处不另写一份）：
+        # 边界命中 ⇒ 卡片带 `boundary_hit` 标记（可召回可展示）；资格不受影响；
+        # 边界命中数与资格 REJECT 数**分开计数**（boundary_counts）。
+        boundary_counts = {"hit": 0, "terms": 0,
+                           "counts": {"accept": 0, "reject": 0, "defer": 0,
+                                      "blindspot": 0}}
         for nid, fs in fused:
             node, s = node_by_id[nid]
-            qual = (quals.get(nid)
-                    or (self.judge_qualification(node, q, context) if judge
-                        else {"state": None, "reason": "judge_disabled"}))
+            if quals.get(nid):
+                # judge_ranking（白箱终排）已算过资格 → 不重复判定，边界标记
+                # 单独取（同一个 P0-4 判据函数 `MdCG.boundary_hit`）
+                qual = quals[nid]
+                _b = boundary_mark(node, q, context)
+                _c = {"accept": 0, "reject": 0, "defer": 0, "blindspot": 0}
+                _st = str(qual.get("state") or "").lower()
+                if _st in _c:
+                    _c[_st] = 1
+                if _b.get("hit"):
+                    boundary_counts["hit"] += 1
+                    boundary_counts["terms"] += len(_b.get("terms") or [])
+                    node["boundary_hit"] = True
+                    node["boundary_marker"] = _b.get("marker")
+                    node["boundary_terms"] = list(_b.get("terms") or [])
+                for _k in _c:
+                    boundary_counts["counts"][_k] += _c[_k]
+            elif judge:
+                _jw = MdCG.judge_with_boundary(node, q, context)
+                qual = dict(_jw["qualification"])
+                _b = boundary_mark(node, q, context)
+                if _b.get("hit"):
+                    boundary_counts["hit"] += 1
+                    boundary_counts["terms"] += len(_b.get("terms") or [])
+                    node["boundary_hit"] = True
+                    node["boundary_marker"] = _b.get("marker")
+                    node["boundary_terms"] = list(_b.get("terms") or [])
+                for _k in ("accept", "reject", "defer", "blindspot"):
+                    boundary_counts["counts"][_k] += int(
+                        (_jw.get("counts") or {}).get(_k) or 0)
+            else:
+                qual = {"state": None, "reason": "judge_disabled"}
             results.append((node, round(fs, 6), qual, prov.get(nid, [])))
+        _bnd_meta = ({"boundary": boundary_counts}
+                     if boundary_counts["hit"] else {})
         if record and results:
             self.record_access([r[0]["id"] for r in results], "RRF")
         # 热路径：写 query 结果缓存 —— **同样受 `_time_on` 约束**。
@@ -1732,7 +1783,7 @@ class MdCGOS(MdCG):
                          "expand_source": fuzzy_source,
                          "goal_used": goal_used,
                          "provenance": prov, **_tf_meta,
-                         **_gates_meta}, k=k, layer=layer,
+                         **_gates_meta, **_bnd_meta}, k=k, layer=layer,
                          session=session, branch=branch, validity=validity,
                          view=view, extra=_cache_extra)
         return results, {"tier": "RRF", "scanned": stat["scanned"],
@@ -1743,7 +1794,7 @@ class MdCGOS(MdCG):
                          "expand_source": fuzzy_source,
                          "goal_used": goal_used,
                          "provenance": prov, **_tf_meta,
-                         **_gates_meta}
+                         **_gates_meta, **_bnd_meta}
 
     # ================= 7. budget-driven pack =================
 

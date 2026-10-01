@@ -40,6 +40,13 @@ pub struct Entry {
     /// 同上：对齐 `_stage` 的 bucket（bucket 路需 context，评测不传 → 恒空）
     #[allow(dead_code)]
     pub bucket: Option<String>,
+    /// P4-2①（设计稿 §7.2 卡点一）：访问计数与最后访问时刻——与 Python
+    /// `_node_entry` / `add()` 的 `_stage` 条目同款入索引条目，
+    /// 供刷新乘子**不读盘**取数。
+    #[allow(dead_code)]
+    pub access_count: f64,
+    #[allow(dead_code)]
+    pub last_access: f64,
     pub edges: Vec<String>,
 }
 
@@ -71,6 +78,13 @@ pub struct Doc {
     pub db_len: usize,
     pub lit: Option<String>,
     pub edges: Vec<String>,
+    /// P4（设计稿 §七）：刷新/衰减乘子的取数面——与 Python `_score` 的乘子
+    /// 同源同义（`created_at` / `access_count` / `last_access` / `protected`）。
+    /// `importance` 已在结构里（乘子的 rehearsal/degrade 门槛要用）。
+    pub created_at: f64,
+    pub access_count: f64,
+    pub last_access: f64,
+    pub protected: bool,
 }
 
 impl Doc {
@@ -114,6 +128,8 @@ fn entry_from_json(id: &str, e: &Json) -> Entry {
         created_at: e.get("created_at").and_then(|v| v.as_f64()).unwrap_or(0.0),
         role: e.get("role").and_then(|v| v.as_str()).map(|s| s.to_string()),
         bucket: e.get("bucket").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        access_count: e.get("access_count").and_then(|v| v.as_f64()).unwrap_or(0.0),
+        last_access: e.get("last_access").and_then(|v| v.as_f64()).unwrap_or(0.0),
         edges: extract_edges(e.get("edges")),
     }
 }
@@ -350,6 +366,24 @@ fn read_doc(root: &Path, e: &Entry) -> Option<Doc> {
     // 不变）。必须在 `lit` 定形之后取，否则回落 content 的形态会与原先不同。
     let like_body_lower = lit.as_deref().unwrap_or(&content).to_lowercase();
     let tags_joined_lower = tags_joined.to_lowercase();
+    // P4：刷新/衰减乘子的四个取数键（frontmatter 优先、条目回落——与 Python
+    // `freshness.entry_weight(entry, fm=...)` 的取数优先级一致）。
+    let created_at = {
+        let v = fm.get_f64("created_at");
+        if v != 0.0 { v } else { e.created_at }
+    };
+    let access_count = {
+        let v = fm.get_f64("access_count");
+        if v != 0.0 { v } else { e.access_count }
+    };
+    let last_access = {
+        let v = fm.get_f64("last_access");
+        if v != 0.0 { v } else { e.last_access }
+    };
+    let protected = matches!(
+        fm.get_json("protected"),
+        Some(crate::json::Json::Bool(true))
+    );
 
     Some(Doc {
         id,
@@ -363,6 +397,10 @@ fn read_doc(root: &Path, e: &Entry) -> Option<Doc> {
         db_len,
         lit,
         edges,
+        created_at,
+        access_count,
+        last_access,
+        protected,
     })
 }
 
@@ -430,6 +468,8 @@ mod opt_batch1_tests {
             created_at: 0.0,
             role: None,
             bucket: None,
+            access_count: 0.0,
+            last_access: 0.0,
             edges: vec![],
         }
     }

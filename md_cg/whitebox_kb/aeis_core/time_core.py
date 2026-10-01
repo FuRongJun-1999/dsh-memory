@@ -8,8 +8,12 @@
 （exp(-t/τ)、×(1-factor)、EMA 保持率）都是 bug——
 由 tools/time_core_lint.py 按 E5 口径机械化审计。
 （P3 落地：该审计器此前全仓不存在，现落在 **`md_cg/test_time_core_lint.py`**
-——`python -X utf8 -m md_cg.test_time_core_lint` 审计全仓四形态 + 登记表 +
-`links.py` 同族半衰期的等价性断言，并自带 `--mutate` 定点变异自证。
+——`python -X utf8 -m md_cg.test_time_core_lint` 审计全仓四形态，指数核的
+**调用式 `exp(-…` 与点调用 `.exp(…)/.exp()`（Rust 写法）两种形态都入面**；
+另带登记表 + 等价性断言：`links.py` 同族半衰期（G2），以及 **Rust 读侧
+`rust/src/freshness.rs` 的指数核**（G11——从 Rust 源码抽常量与核表达式逐 Δt
+点与 `cred_factor` 对拍，因 Rust 无法被 Python 调用）。自带 `--mutate` 定点
+变异自证，其中 P4-M9 就是「把该 Rust 登记摘掉必须转红」那条。
 **不新开顶层 `tools/` 目录**：那会改 `WORKSPACE_INDEX.md` 的结构面。）
 规范依据：docs/概念钉死批_GPT四点评审_v0.1.md 钉死 3。
 """

@@ -27,7 +27,7 @@ import secrets
 import threading
 
 from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
-               lifecycle, reach, trust, roleviews, fsutil)
+               lifecycle, reach, trust, roleviews, fsutil, freshness)
 from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
                      read_jsonl, sweep_stale_temps, note_bad_payload_rows)
 
@@ -623,6 +623,127 @@ BOUNDARY_MARKER = "boundary_hit"
 #: 「什么条件下不适用」；其余为同义形态（中文检索面的问句变体）。
 BOUNDARY_QUERY_MARKERS = ("不适用条件", "不适用", "什么条件下不适用",
                           "什么情况下不适用", "何时不适用", "边界条件", "拒绝域")
+
+#: 「把验证方式当检索键」的问句意图标记——§5.1 检索用法列的原话即
+#: 「是怎么验证的 / 用什么方法证明的」（P2-1 新增的第 5 行「后置条件词」）。
+POSTCONDITION_QUERY_MARKERS = ("验证方式", "怎么验证", "如何验证", "怎样验证",
+                               "怎么证明", "如何证明", "用什么方法证明",
+                               "验证手段", "怎么被验证", "有无验证")
+
+
+# 生效条件：query 为字符串（假值按空串）时，逐个取 POSTCONDITION_QUERY_MARKERS 判断是否为子串，任一命中即返回 True，全部不命中返回 False；只做字面可判的**意图识别**，不做分词/语义推断。
+def is_postcondition_query(query: str) -> bool:
+    """查询是否在问节点的**验证方式本身**（§5.1「验证方式 → 后置条件词」）。
+
+    与 `is_boundary_query` 同款形态（同一处 marker 表的兄弟判据，不另起机制）：
+    命中即按「验证手段」检索——召回那些**声明了验证方式**的节点。
+    """
+    q = str(query or "")
+    return any(m in q for m in POSTCONDITION_QUERY_MARKERS)
+
+
+# 生效条件：fm 与 content 任意（缺键按空处理）时，取 CCG `# 不适用条件：` 行（走 nodefile.ccg_element_terms 的取值+切分单点）与 fm.non_applicable_conditions 逐条经 nodefile.element_terms_from_text 切分后的词项，按「CCG 行在前、fm 列表在后」的顺序去重，返回保序词项列表。
+def rejection_index_terms(fm, content) -> list:
+    """「不适用条件」的**索引键**词项——**与资格判据同字段**（§5.2 双语义前提）。
+
+    两处来源合并（保序去重），都从严归一为词项：
+      ① CCG 正文行 `# 不适用条件：`（`nodefile.ccg_field_value` 取值单点）；
+      ② `frontmatter.non_applicable_conditions`——**资格 REJECT 判据
+         （`judge_qualification`）与 `boundary_hit` 读的就是这个字段**。
+    两条语义共用同一份词项，才可能在「同一字段上可分」（否则索引键与拒绝域
+    判据各读一处，检索面的边界命中与资格面的 REJECT 会对不上）。
+
+    ⚠ 本键**只用于召回/展示**（拒绝域词）：它进索引条目后由 `_like` 侧消费，
+    不参与 `judge_qualification` 的否决路径——否决路径仍读 frontmatter 原列表，
+    经 `neg_condition_hits` 单点判定，灵敏度一字不动。
+    """
+    out, seen = [], set()
+    line_terms = nodefile.ccg_element_terms(content, nodefile.REJECTION_FIELD)
+    fm_terms = nodefile.element_terms_from_text(
+        "；".join(str(x) for x in ((fm or {}).get("non_applicable_conditions") or [])))
+    for t in list(line_terms) + list(fm_terms):
+        if t and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+# 生效条件：entry 为索引条目（六要素后两行的索引键在其中）、terms 为查询词项列表（可为空）、query 为字符串时，按「postcondition_terms 被任一查询词项命中」或「验证方式问句（is_postcondition_query）且该节点声明了验证方式」判 post，按「边界问句（is_boundary_query）且该节点声明了拒绝域」判 reject，返回 {"hit": post 或 reject 的布尔, "post": bool, "reject": bool, "why": [命中的判据名]}；
+def index_key_hits(entry, terms, query) -> dict:
+    """六要素后两行索引键的**召回判据单点**（§5.4 全进默认检索 / §5.2 双语义）。
+
+    两条键的**不对称**是刻意的，也正是 §5.2 要求的「同一字段、两条语义可分」：
+
+      · **验证方式 → 后置条件词**：`postcondition_terms` 作为**正面**召回键
+        （节点自己声明「是怎么验证的」），既可以由查询词项命中（如查询含
+        `compiler`，节点 `# 验证方式：compiler test`），也可以由**验证方式问句**
+        （`is_postcondition_query`：§5.1 的「是怎么验证的 / 用什么方法证明的」）
+        召回「声明了验证方式」的节点；
+      · **不适用条件 → 拒绝域词**：**只在边界问句上**放开召回——普通问句下
+        拒绝域仍**不作召回键**（`nodefile.positive_body` 的既有立场：反例命中
+        只应由资格判定 REJECT，把它当召回键会「恰好在它不该适用的地方召回它」，
+        属实质性错误）。边界问句（`is_boundary_query`：§5.1 的「什么条件下不适用」）
+        问的就是边界本身，此时召回「声明了拒绝域」的节点正是设计要的行为，
+        且该回收面按 §5.2 标记 `boundary_hit`、与资格 REJECT **分开计数**。
+
+    取数一律来自**索引条目**（免读文件）；键缺失（旧库未重建）时判 False，
+    即行为退回改动前（零破坏）。
+    """
+    e = entry or {}
+    hits = {"hit": False, "post": False, "reject": False, "why": []}
+    q = str(query or "")
+    post = e.get(nodefile.POSTCONDITION_TERMS_KEY) or []
+    if post:
+        if any(t in " ".join(post) for t in (terms or [])):
+            hits["post"] = True
+            hits["why"].append("postcondition_terms:term")
+        elif is_postcondition_query(q):
+            hits["post"] = True
+            hits["why"].append("postcondition_terms:declared")
+    rej = e.get(nodefile.REJECTION_TERMS_KEY) or []
+    if rej and is_boundary_query(q):
+        hits["reject"] = True
+        hits["why"].append("rejection_terms:declared")
+    hits["hit"] = bool(hits["post"] or hits["reject"])
+    return hits
+
+
+# 生效条件：node_dict 为 {frontmatter, content}（缺键按空处理）、query 为字符串、context 为 dict 或 None 时，先取 nodefile 的拒绝域词项（ccg_element_terms 走 CCG 行解析单点 + frontmatter.non_applicable_conditions）与 P0-4 的 boundary_hit 判据；二者任一命中即 hit=True，返回 {"hit": bool, "terms": [命中原样条目], "marker": "boundary_hit" 或 None, "why": [命中来源名], "reason": str}；
+def boundary_mark(node_dict, query, context=None) -> dict:
+    """**边界命中标记的唯一单点**（§5.2 检索面的展示判据）。
+
+    两条来源，判据全部复用既有单点（不另写第二份）：
+
+      ① **情境落在拒绝域**：`boundary_hit`（P0-4 已落）——查询/情境命中该节点的
+         `non_applicable_conditions`（走 `neg_condition_hits` 单点）；
+      ② **边界问句 ∧ 该节点声明了拒绝域**：`is_boundary_query(query)` 为真且
+         `rejection_index_terms` 非空——这正是 §5.1 第 6 行的检索用法
+         「什么条件下不适用」：用户问的就是边界，回的就是「它声明了什么边界」。
+         ②的取数与**索引键**同源（`rejection_index_terms`），故索引侧与展示侧
+         不会各说各话。
+
+    `marker` 恒为 `BOUNDARY_MARKER`（"boundary_hit"）——它是**展示标记**，
+    与资格判定的 REJECT **分开呈现、分开计数**（§5.2）。
+    """
+    bh = boundary_hit(node_dict, query, context)
+    fm = (node_dict or {}).get("frontmatter") or {}
+    content = (node_dict or {}).get("content") or ""
+    why, terms = [], []
+    if bh.get("hit"):
+        why.append("scene_in_rejection_domain")
+        terms.extend(bh.get("terms") or [])
+    if is_boundary_query(query):
+        rej = rejection_index_terms(fm, content)
+        if rej:
+            why.append("boundary_query_and_declared")
+            for t in rej:
+                if t not in terms:
+                    terms.append(t)
+    hit = bool(why)
+    return {"hit": hit, "terms": terms,
+            "marker": BOUNDARY_MARKER if hit else None, "why": why,
+            "reason": ("边界命中（%s）：可召回可展示；不影响其正例资格"
+                       % "、".join(why) if hit else "未落在边界面上")}
 
 
 # 生效条件：query 为字符串（假值按空串）时，逐个取 BOUNDARY_QUERY_MARKERS 判断是否为子串，任一命中即返回 True，全部不命中返回 False；只做字面可判的**意图识别**，不做分词/语义推断。
@@ -1757,6 +1878,20 @@ class MdCG:
             "created_at": fm.get("created_at", 0),
             "verification_basis": fm.get("verification_basis"),
             "has_neg_conditions": nodefile.has_non_applicable(content),
+            # ── P2-1（§5.1 六要素 6 行）：后两行的**索引键**入快照 ──────────
+            # 验证方式 → 后置条件词；不适用条件 → 拒绝域词。与既有
+            # `time_window`/`observation_position` 同为**免读文件可判的扁指标量**
+            # （同款理由：检索期不读盘；§5.4「全进默认检索」的取数面即此）。
+            # 取值一律走 `nodefile` 的 CCG 行解析单点（检索面不另写正则）。
+            nodefile.POSTCONDITION_TERMS_KEY:
+                nodefile.ccg_element_terms(content, nodefile.POSTCONDITION_FIELD),
+            nodefile.REJECTION_TERMS_KEY: rejection_index_terms(fm, content),
+            # ── P4-2①（§7.2 卡点一）：访问计数入快照 ────────────────────────
+            # `access_count`/`last_access` 此前只记账（`_access.log` → 折叠落
+            # frontmatter），检索想用只能读盘（违反「检索不写少读」）——故与
+            # 上面两行同款：免读文件的扁指标量，供 `_score` 的刷新乘子取数。
+            "access_count": fm.get("access_count", 0),
+            "last_access": fm.get("last_access", 0),
             # 内容指纹走 nodefile 的唯一实现（两段式对账依赖同一算法）
             "content_hash": nodefile.content_hash(content),
             # 时空字段入索引快照：STG 查询免读文件（大域/目录索引的延伸）
@@ -2340,6 +2475,15 @@ class MdCG:
             "importance": importance, "created_at": fm["created_at"],
             "verification_basis": verification_basis,
             "has_neg_conditions": nodefile.has_non_applicable(sealed),
+            # P2-1 / P4-2①：与 `_node_entry`（重建路径）**同口径**——写路径的
+            # 定向 upsert 若漏这两组键，就得等下一次全量重建才补上（N137 同款
+            # 「重建后有、写入后没有」的形态漂移）。
+            nodefile.POSTCONDITION_TERMS_KEY:
+                nodefile.ccg_element_terms(sealed, nodefile.POSTCONDITION_FIELD),
+            nodefile.REJECTION_TERMS_KEY:
+                rejection_index_terms(fm, sealed),
+            "access_count": fm.get("access_count", 0),
+            "last_access": fm.get("last_access", 0),
             "content_hash": hashlib.sha256(sealed.encode("utf-8")).hexdigest()[:12],
             "temporal": fm.get("temporal"),
             "spatial": fm.get("spatial"),
@@ -3247,7 +3391,17 @@ class MdCG:
         打回 REJECT（自否定）；非边界问句下资格判定**原样**跑 `judge_qualification`，
         负条件的灵敏度一字不变（情境里真的命中拒绝域 ⇒ 照旧 REJECT）。
 
-        本轮**不接检索面**（接线在 P2）：本函数与 `boundary_hit` 无生产调用方。
+        **已接线（P2-2，2026-10-01）**：本函数与 `boundary_hit` 都**有生产调用方**——
+
+          · `MdCG._emit`（`md_cg/mdcg.py:4181`）＝默认打分收口，结果卡带
+            `boundary_hit` 标记 + `stat["boundary"]["counts"]` 分开计数；
+          · `MdCos.search_rrf`（`md_cg/mdcos.py:1754`）＝默认召回路径，同款标记与
+            `boundary_counts`。
+
+        两处都调**同一个** `judge_with_boundary`（边界标记一律经同族的
+        `boundary_mark` 取，其体内复用 P0-4 的 `boundary_hit`）——**单点复用、
+        不另写第二份判据**；接线是否在位由 `md_cg/test_boundary_hit.py` 的 B5 组
+        断言钉死（该组在 P2-2 已把 P0-4 的「本轮零接线」断言改判为接线断言）。
         """
         node_dict = node_dict or {}
         bh = boundary_hit(node_dict, query, context)
@@ -3504,7 +3658,9 @@ class MdCG:
             if in_bucket:
                 docs = self._read_many(in_bucket, stat)
                 # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
-                hits = [d for d in docs if self._like(d[2], d[1], terms)
+                hits = [d for d in docs
+                        if self._like(d[2], d[1], terms,
+                                      index_key_hits(d[0], terms, q))
                         or (semantic_on() and d[1].get("semantic"))]
                 out = try_stage(hits, TIER_BUCKET_LIKE)
                 if out:
@@ -3530,7 +3686,8 @@ class MdCG:
             docs_r = self._read_many(reach_entries, stat)
             _dif = set(_rstat.get("reach_diffused_paths") or ())
             hits_r = [d for d in docs_r
-                      if self._like(d[2], d[1], terms)
+                      if self._like(d[2], d[1], terms,
+                                    index_key_hits(d[0], terms, q))
                       or (semantic_on() and d[1].get("semantic"))
                       or d[0].get("path") in _dif]     # 图扩散补召回：无词面命中也放行进打分
             stat["pre_cap"] = len(hits_r)     # 与 T2 同序：截断**前**的候选数
@@ -3631,7 +3788,9 @@ class MdCG:
         _s7_scan0 = stat["scanned"]        # S7 窄化前的扫描基线（供 T3 兜底还原口径）
         docs_all = self._read_many(entries, stat)
         # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
-        hits = [d for d in docs_all if self._like(d[2], d[1], terms)
+        hits = [d for d in docs_all
+                if self._like(d[2], d[1], terms,
+                              index_key_hits(d[0], terms, q))
                 or (semantic_on() and d[1].get("semantic"))]
         # ---- S3 图扩散激活（契约 §3 S3；flag 控，默认关）----
         # 为何：审计偏差 1 曾成立——「edges 一直只被写入、检索从不使用」。**该偏差
@@ -3776,10 +3935,19 @@ class MdCG:
         return docs
 
     @staticmethod
-# 生效条件：terms 为空时返回 False；否则任一 t 在 positive_body(content) 的小写串中出现，或该 t 的小写形式出现在 fm 的 tags（tags 取自 fm.get("tags") or []，缺键或假值按空列表拼接）小写串中即返回 True。
-    def _like(content, fm, terms):
+# 生效条件：terms 为空时返回 False；否则任一 t 在 positive_body(content) 的小写串中出现，或该 t 的小写形式出现在 fm 的 tags（tags 取自 fm.get("tags") or []，缺键或假值按空列表拼接）小写串中，或 index_keys 为真值（六要素后两行的索引键命中，见 index_key_hits）即返回 True。
+    def _like(content, fm, terms, index_keys=None):
         # 负条件行（`# 不适用条件：`）是反例声明，不作召回键：命中它只应由
         # judge_qualification 走 REJECT，不能把节点召回。tags 仍参与匹配。
+        #
+        # P2-3（§5.4「六要素 6 行全进默认检索」）：**后两行**（验证方式 /
+        # 不适用条件）的**索引键**（`postcondition_terms`/`rejection_terms`，
+        # 已在索引条目里）在此参与召回。`positive_body` 的立场**不变**——
+        # 拒绝域仍不作普通问句的召回键（`index_key_hits` 只在**边界问句**上
+        # 放开拒绝域召回；见函数说明）。index_keys 为 None（旧调用方）时
+        # 行为与改动前逐位一致。
+        if index_keys and index_keys.get("hit"):
+            return True
         tags = " ".join(str(t) for t in (fm.get("tags") or []))
         body = nodefile.positive_body(content)
         # 双边小写化：英文大小写统一（中文无大小写不受影响）
@@ -3825,6 +3993,15 @@ class MdCG:
             if pools:                       # §七 降权：乘数只来自显式权重表（可复算）
                 raw = max(0.0, min(1.0, raw * pooling.weight_of(
                     fm.get("id") or e["path"], e, pools)))
+            # ── P4（§7.1/§7.2）：刷新与衰减乘子——**与上一行同一个乘子位** ──
+            # 形态（已裁）：score ← score × cred_factor(γ, Δt) × refresh(ac, la)。
+            # 「不新开乘子链」= 就在这里乘，不另起一条对最终 RRF 分做后处理的链。
+            # 取数全来自**索引条目** `e`（`_node_entry` 已落 created_at /
+            # access_count / last_access），检索期**不读盘**（§7.2 卡点一）。
+            # 核走唯一权威 time_core，γ 走 P3 已落的唯一读取点（见 freshness 模块头）。
+            # 开关 `MDCG_FRESHNESS`（缺省开）=0 时乘子恒 1.0（与改动前逐位一致）。
+            if freshness.enabled():
+                raw = raw * freshness.entry_weight(e, fm=fm)[0]
             if _boost:                      # S4：层级加成（最后一步；上限仍夹在 1.0）
                 raw = min(1.0, raw + _boost.get(str(fm.get("layer") or ""), 0.0))
             scored.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
@@ -3996,15 +4173,42 @@ class MdCG:
                 stat.setdefault("gates", {})["s6"] = {
                     "checked": len(_rows6), "by_track": _track6,
                     "flagged": _flagged6, "rows": _rows6}
-        # 资格判定（与性能正交）
+        # 资格判定（与性能正交）——**P2-2（§5.2）在此接线**：
+        # 走 `MdCG.judge_with_boundary`（P0-4 已落的判据函数，**复用不另写一份**）：
+        #   · 边界命中（拒绝域）→ 结果卡带 `boundary_hit` 标记（可召回、可展示）；
+        #   · 该节点的**正例资格不受影响**：边界问句下资格判定先摘掉命中词面再跑，
+        #     故「问它什么时候不适用」不会把它自己打成 REJECT（自否定）；
+        #   · **分开计数、分开呈现**：`boundary_hit` 与资格 REJECT 各计各的
+        #     （stat["boundary"]["counts"]，不混成一个数）。
+        # 非边界问句下 judge_with_boundary 内部原样调 judge_qualification，
+        # 故默认口径的 state 与改动前逐位一致（负条件灵敏度一字不动）。
         out = []
+        _bnd = {"hit": 0, "terms": 0,
+                "counts": {"accept": 0, "reject": 0, "defer": 0,
+                           "blindspot": 0}}
         for r in results:
             if judge:
-                qual = self.judge_qualification(r[0], stat.get("query") or "",
-                                                context)
+                _jw = MdCG.judge_with_boundary(r[0], stat.get("query") or "",
+                                               context)
+                qual = dict(_jw["qualification"])
+                _b = boundary_mark(r[0], stat.get("query") or "", context)
+                if _b.get("hit"):
+                    _bnd["hit"] += 1
+                    _bnd["terms"] += len(_b.get("terms") or [])
+                    # 拒绝域命中走**独立字段**展示（不写进 qualification，
+                    # 否则下游按 state 判定的地方会把它读成资格结论）
+                    r[0]["boundary_hit"] = True
+                    r[0]["boundary_marker"] = _b.get("marker")
+                    r[0]["boundary_terms"] = list(_b.get("terms") or [])
+                for _k in ("accept", "reject", "defer", "blindspot"):
+                    _bnd["counts"][_k] += int(
+                        (_jw.get("counts") or {}).get(_k) or 0)
             else:
                 qual = {"state": None, "reason": "judge_disabled"}
             out.append((r[0], r[1], qual))
+        # 边界读数只在**确有边界命中**时落键（与 S1/S2/S5「产生信息才落键」同规则）
+        if _bnd["hit"]:
+            stat["boundary"] = _bnd
         # 负覆盖提示条目**追加在尾部**（不是首条——旧注释「（首条）」与代码相反）：
         # 它们在 `_neg_tail` 里已按 k 预算建好（①分数哨兵 ②计入 k ④位置=尾）。
         out.extend(_neg_tail)
@@ -4045,6 +4249,10 @@ class MdCG:
         # 分阶段审计仅在门控真的产生信息时落键（默认关闭 → meta 与改动前逐字节一致；契约 §5.3）
         if stat.get("gates"):
             meta["gates"] = stat["gates"]
+        # P2-2（§5.2）：拒绝域命中的**独立读数**（与资格 REJECT 分开计数）——
+        # 只在确有边界命中时落键（无边界命中的路径 meta 键集合与改动前一致）。
+        if stat.get("boundary"):
+            meta["boundary"] = stat["boundary"]
         # 负覆盖尾审计（H10①②）：仅在**确有提示条目入榜**时落键（无覆盖的路径
         # meta 键集合与改动前逐字节一致）。下游可据此把「提示」与「答案」分区：
         # 尾条目的负性判据是 card/qual 的 `negative_coverage`，本块是同一事实的
@@ -4211,6 +4419,14 @@ class MdCG:
             "created_at": fm.get("created_at", 0),
             "verification_basis": fm.get("verification_basis"),
             "has_neg_conditions": nodefile.has_non_applicable(node["content"]),
+            # P2-1 / P4-2①（与 `_node_entry` / `add()` 同口径；N137 的教训：
+            # 搬迁条目缺键 = 新检索路对搬迁后的节点静默不可达）
+            nodefile.POSTCONDITION_TERMS_KEY: nodefile.ccg_element_terms(
+                node["content"], nodefile.POSTCONDITION_FIELD),
+            nodefile.REJECTION_TERMS_KEY: rejection_index_terms(
+                fm, node["content"]),
+            "access_count": fm.get("access_count", 0),
+            "last_access": fm.get("last_access", 0),
             "content_hash": hashlib.sha256(
                 node["content"].encode("utf-8")).hexdigest()[:12],
             "temporal": fm.get("temporal"), "spatial": fm.get("spatial"),

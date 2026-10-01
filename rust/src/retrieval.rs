@@ -201,7 +201,23 @@ pub fn graph(
 /// 对齐 `sorted(scored, key=lambda x: (-score, -importance, str(id)))`
 /// （`mdcos._lexical` 三键排序；issue #29：第三键 id 缺失会让分数并列时
 /// 路内顺序漂移 → RRF 名次连锁偏移）。
-pub fn sort_path(hits: &mut [Hit], docs: &[Option<Doc>]) {
+///
+/// P4（设计稿 §七）：`apply_freshness=true` 时，**先**把每条的分数乘上刷新/衰减
+/// 乘子（`crate::freshness::factor`，与 Python `MdCG._score` 同位同式），再排三键。
+/// 为什么只在 lexical 路开（`fuse` 里仅传给 lexical）见 `freshness.rs` 头注：
+/// Python 的 `_score` 只服务 lexical/bucket 两路，entity/graph 的分数在别处产生
+/// ——若在 `sort_path` 里对每一路都乘一次，entity 路的两侧名次就会分叉。
+pub fn sort_path(hits: &mut [Hit], docs: &[Option<Doc>], apply_freshness: bool) {
+    if apply_freshness && crate::freshness::enabled() {
+        let now = crate::freshness::now();
+        for h in hits.iter_mut() {
+            if let Some(d) = docs[h.idx].as_ref() {
+                h.score *= crate::freshness::factor(
+                    d.created_at, d.access_count, d.last_access,
+                    d.importance, d.protected, now);
+            }
+        }
+    }
     hits.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
@@ -240,7 +256,9 @@ pub fn fuse(
 
     for (name, hits) in paths {
         let mut h = hits.clone();
-        sort_path(&mut h, docs);
+        // P4：乘子只对 **lexical** 路生效（Python `_score` 的对位面；见
+        // `freshness.rs` 头注与 `sort_path` 的 docstring）。
+        sort_path(&mut h, docs, *name == "lexical");
         for hit in &h {
             if let Some(d) = docs[hit.idx].as_ref() {
                 node_by_id.entry(d.id.clone()).or_insert((hit.idx, hit.score));

@@ -638,3 +638,76 @@ def cond_terms(text: str) -> list[str]:
                 seen.add(seg)
                 out.append(seg)
     return out
+
+
+# ---- §5.1 六要素的**索引角色**：那张表从 4 行长成 6 行（P2-1）------------------
+#
+# 理论真源 `docs/theory/智能论3.4.md:3053-3059` 的「要素 | 标记 | 内容 |
+# **图的索引角色**」表**只有 4 行**（功能名/生效条件/子功能/执行）。v0.4 §5.1
+# 依裁定 2 把表补成 6 行，后两行为**新增检索维度**；本常量即那 6 行的
+# **代码侧唯一真源**（检索面、索引条目、守卫三处共用一份，禁止各写一份）。
+#
+# 表的两列语义：
+#   · 字段名 = CCG 六要素之一（`CCG_MARKS` 的子集，顺序即理论表序）；
+#   · 索引键 = 该要素在检索面上的**键名**（前 4 行既有，后 2 行本批新增）。
+# 「索引键」进索引条目（`MdCG._node_entry`）成为**免读文件的扁指标量**——
+# 与既有 `time_window` / `observation_position` 同款理由（检索期不读盘）。
+CCG_INDEX_ROLES = (
+    ("功能名",     "语义符号",   "已有"),
+    ("生效条件",   "条件词",     "已有（S2 门控）"),
+    ("子功能",     "结构词",     "已有"),
+    ("执行",       "机制词",     "已有"),
+    ("验证方式",   "后置条件词", "P2-1 新增：按验证手段检索"),
+    ("不适用条件", "拒绝域词",   "P2-1 新增：按边界检索（boundary_hit）"),
+)
+
+#: 新增两行的**字段名 → 索引键名**映射（索引条目里的扁平键；单一真源）。
+#: 键名刻意带 `_terms` 后缀：它们是**词项列表**（扁指标量），不是正文行原样。
+POSTCONDITION_FIELD = "验证方式"
+REJECTION_FIELD = "不适用条件"
+POSTCONDITION_TERMS_KEY = "postcondition_terms"
+REJECTION_TERMS_KEY = "rejection_terms"
+INDEX_TERMS_KEYS = (POSTCONDITION_TERMS_KEY, REJECTION_TERMS_KEY)
+
+#: 索引词项的最小长度。口径与 `mdcg.NEG_MIN_TERM`（负条件判据的词长下限）
+#: **同值同义**：单字符碎片（的/与/3）不是检索键。两处不可各自取值——
+#: `md_cg/test_p2_six_elements.py` 有交叉断言钉住两常量相等。
+ELEMENT_TERM_MIN = 2
+
+#: 索引词项的切分面：槽分隔（；;）、短语分隔（，,、/）、括号与空白。
+#: 为什么与 `cond_terms` 不同：那两个要素是**自由文本行**（不是条件空间四槽
+#: 合成串），没有「槽标签：」前缀，故不需要剥标签那一步；切分面本身同族。
+_ELEMENT_TERM_SPLIT_RE = re.compile(r"[；;，,、/（）()\[\]【】{}\s]+")
+
+
+# 生效条件：value 为假值（None/空串/纯空白）时按空文本处理返回 []；否则按「；;，,、/（）()[]【】{}空白」切分、逐段 strip、丢弃长度 < ELEMENT_TERM_MIN 的段与纯数字段、命中 is_dep_sentinel（空值语义哨兵）或 is_placeholder_text（骨架占位）的段、以及已入选的重复段，返回保序去重的 out；
+def element_terms_from_text(value, min_len: int = ELEMENT_TERM_MIN) -> list[str]:
+    """要素文本 → 索引词项（**确定性切分，无语义猜测**）。
+
+    这是「六要素索引键」的**切分单点**：`MdCG._node_entry` 与守卫共用。
+    只做形态切分 + 空值语义剔除，不做任何同义/近义扩展（同 `cond_terms` 纪律）。
+    """
+    out, seen = [], set()
+    for seg in _ELEMENT_TERM_SPLIT_RE.split(str(value or "")):
+        seg = seg.strip().strip("。.．:：")
+        if len(seg) < int(min_len) or seg.isdigit():
+            continue
+        if is_dep_sentinel(seg) or is_placeholder_text(seg):
+            continue
+        if seg not in seen:
+            seen.add(seg)
+            out.append(seg)
+    return out
+
+
+# 生效条件：field_name 为 CCG 要素名且 content 含该行时，取该行值（走 ccg_field_value 单点）→ 经 element_terms_from_text 切分成词项列表；该行缺失/值为空时返回 []；
+def ccg_element_terms(content: str, field_name: str,
+                      min_len: int = ELEMENT_TERM_MIN) -> list[str]:
+    """CCG 要素文本 → 索引词项（**取值走既有单点**，检索面不得另写正则）。
+
+    取值**必须**经 `ccg_field_value`（仓内 CCG 行解析的唯一真源：冒号可有可无、
+    首个命中行为准、与写入闸门 `data/policy.json` 同一行语义）；本函数只在其上
+    叠加**切分**，绝不自己 `re.match(r"^#\\s*验证方式")` ——那会立刻长出第二套
+    行语义（`ccg_mark_present` 的取单点动因即此类分叉）。
+    """
+    return element_terms_from_text(ccg_field_value(content, field_name), min_len)

@@ -13,7 +13,7 @@
 
 ![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-0.17.2%20%E5%B7%B2%E9%AA%8C%E8%AF%81-4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.6.1）**
+**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.7.0）**
 
 </div>
 
@@ -360,7 +360,7 @@ python test/locomo_jaccard_probe.py      # 主路线 Jaccard 口径拆解（J2_f
 | 记忆写入 · 关系链接 · 结构关系 | `cg(op=write)` `cg(op=link)` `stg(op=relation)` |
 | 多路融合检索 · 条件路由 · 因果链 · 时间线 | `mdcg_recall` `mdcg_search` `cg(op=route)` `stg(op=timeline)` |
 | 会话隔离（分档可见：public/internal 跨会话共享 · private/secret 绑定归属会话 · 设计者豁免；写入带会话归属 · 租户物理根接线 fail-closed） | `mdcg_remember(session=…)` `stg(op=timeline, session=…)`；私档经 `sensitivity: private` 写入（详见 issue #35 设计定稿） |
-| 检索性能开关（读缓存 · 热路径缓存 · 检索门控 · 统一归一——只翻译英文内容、中文原样） | env：`MDCG_READ_CACHE` `MDCG_HOTCACHE` `MDCG_RETRIEVAL_PIPELINE` `MDCG_UNIFY_QUERY`（读缓存默认开，=0 关；统一归一默认关，=1 开；热缓存/门控默认关，=1 开） |
+| 检索性能开关（读缓存 · 热路径缓存 · 检索门控 · 统一归一——只翻译英文内容、中文原样） | env：`MDCG_READ_CACHE` `MDCG_HOTCACHE` `MDCG_RETRIEVAL_PIPELINE` `MDCG_UNIFY_QUERY` `MDCG_CHAIN_TYPES` `MDCG_TEMPORAL_GAMMA`（读缓存默认开，=0 关；统一归一默认关，=1 开；热缓存/门控默认关，=1 开；因果/时间两路缺省开，可 `causal=false`/`temporal=false` 单关；`MDCG_CHAIN_TYPES` 因果路边类型集，留空=缺省 `causal,sequential,applies_to`；`MDCG_TEMPORAL_GAMMA` 时间邻近度衰减率，缺省 ln2/30天） |
 | 事实时效过滤（`validity=true` 只排「已过期」，保留「未生效」） | `mdcg_recall` `mdcg_search` `cg(op=read)` |
 | 写入裁决 · 主动遗忘 · 冲突检测 · 反思 | `mdcg_remember` `cg(op=verify)` `cg(op=metacognition)` `mdcg_reflect` |
 | 重要性评分 · 预算装包 · 分层注入 · 记忆自净 | `cg(op=session)` `cg(op=scrub)` `cg(op=info)` |
@@ -455,6 +455,7 @@ AEIS 仅作可选「身体」能力后端（角色扮演生成），不再存记
 | 文档 | 内容 |
 |---|---|
 | **[docs/ 目录索引](docs/README.md)** | 六域快速索引（mdcg / swarm / hive / theory / eval / plans）· 新文档归域规则 |
+| **[Release v0.7.0](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.7.0)** | 本版变更：① **自迭代与睡眠**——睡眠周期引擎（影子副本迭代 + 语义四闸 + git 周期合并，九步显式台账，缺省 23:00-07:00 窗口、一小时一轮、可调）② **因果/时间图检索路**进默认检索（因果路复用既有条件链；时间路走唯一时间核，半衰期 30 天；边类型集可配）③ **六要素补成 6 行索引角色**（验证方式/不适用条件进默认检索，边界命中与资格裁决分开计数）④ **权重刷新与衰减进主分数**（旧记忆降权、被调用者刷新，带 floor 与保护线、可预演可回滚）⑤ 累积修复：装机即挂（issue #48）、出货面冒烟进门禁（第九腿）、归一层缺省翻关、N230 重放遮蔽 |
 | **[Release v0.6.1](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.6.1)** | 本版变更：外部测试报告逐条核验后的四批修复——① 写面静默失败族（自动 id 加熵与撞车有界重生成 / 声明密级透传且落盘不一致即 fail-closed / 索引分片目录删除后自愈）· ② 合并吞正文与冲突误判（MERGE 与熵 DROP 两分支都保新正文 / 仅空白差异不再误判同一条件分歧 / CCG 哨兵空值不再触发假冲突）· ③ 召回面诚实性（负覆盖条目不再以满分冒充答案且不溢出 k / 一致性飞轮只对真冲突建单 / 显式 k=0 不再被当缺省 / 仅 1 个桶的库不说「分区正常」/ 类型错的参数与裸 null 出口收成结构化错误）· ④ 插件面（全角凭据形态纳入脱敏 / 注入记忆加不可信边界声明 / 子代理委派不写成本人记忆 / 召回与时间线读写两侧会话口径同尺）。九项探针先取证后改码，每处修复配定点变异自证 |
 | **[Release v0.6.0](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.6.0)** | 本版变更：init 一键配置命令（交互三问 → 四端 mcp.json 片段 + 指引）· bin 入口 · README 声明 DSH 0.17.2 已验证 · 检索强化（读缓存 / 智慧书预计算 / 统一归一 / 门控生产路径）· 蜂巢稳定形态与并发防线 · 会话隔离 |
 | **[Release v0.5.1](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.5.1)** | 本版变更：Windows 中文/编码与保留设备名修复（issue #39）· 结果完整性锚与 WAL seq 连续性（防伪造产物/防丢行乱序）· 启动对账 reconcile · 幂等提交 · 外部贡献 PR #40 十三处（health heal 闸门 / scrub 误报 / 写入侧落盘 / 桶路弃权）· 故障注入套件 18 用例入库 |

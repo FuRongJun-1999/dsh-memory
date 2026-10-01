@@ -288,7 +288,9 @@ pub fn search_ranked(
         // 与 issue #29 的第三键教训同源）。
         let seeds: Vec<Hit> = if p.graph_seeds_sorted {
             let mut v = lex_raw.clone();
-            retrieval::sort_path(&mut v, docs);
+            // P4：种子来自 lexical 路 ⇒ 其分数已带刷新/衰减乘子（Python
+            // `_path_graph` 的 seeds 同样取自带乘子的 `_lexical` 输出）。
+            retrieval::sort_path(&mut v, docs, true);
             v
         } else {
             lex_raw.clone()
@@ -485,7 +487,9 @@ mod tests {
             "只比 score 的排序在并列处退化为枚举序（R-3 判别力自证）"
         );
         let mut three = hits.clone();
-        retrieval::sort_path(&mut three, &docs);
+        // 本用例只验三键排序（apply_freshness=false；本夹具无 created_at ⇒
+        // 乘子对全体同值，传 true 亦同结果，取 false 以名实相符）
+        retrieval::sort_path(&mut three, &docs, false);
         let top5b: Vec<String> = three
             .iter()
             .take(5)

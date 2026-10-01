@@ -15,7 +15,12 @@
     `neg_condition_hits` → :3000-3002 命中即 `REJECT`）。
     ⇒「同一字段只承载一条语义（负条件→REJECT）」，P0-4 要的两件都**尚未存在**。
 
-本轮**不接检索面**（接线在 P2）：只落判据函数与守卫，检索读数必须零位移。
+P0-4 当轮**不接检索面**（接线在 P2）：只落判据函数与守卫，检索读数必须零位移。
+**（P2-2 已接线，2026-10-01）**：接线点两处——检索面 `MdCGOS.search_rrf`
+（`md_cg/mdcos.py:1754`）与默认打分收口 `MdCG._emit`（`md_cg/mdcg.py:4191`）；
+两处都调**同一个** `MdCG.judge_with_boundary`，边界标记一律经同族的 `boundary_mark`
+取（其体内复用 P0-4 的 `boundary_hit`）——**单点复用、不另写第二份判据**。
+上面那段「零命中」是 **P0-4 当轮的探针快照**，已被本文件 B5 组的接线断言取代。
 
 断言分组：
 
@@ -33,9 +38,14 @@
      标记只出现在 `boundary` 侧，`qualification` 侧不得出现 `marker`。
   B4 聚合计数——`tally_boundary` 的 `self_negation` 恒 0（非 0 = 自否定残留）；
      reject 与 boundary_hit 分别计数、互不掩盖。
-  B5 **本轮零接线**——生产源码（除 `mdcg.py` 的定义块本身）内
-     `boundary_hit` / `judge_with_boundary` / `tally_boundary` 零命中；
-     `mdcg.search` 与 `mdcos.py` 不引用它们 ⇒ 检索读数不可能被本判据改动。
+  B5 **接线已落（P2-2 改判，2026-10-01）**——P0-4 时的「本轮零接线」断言
+     已被 P2 的**接线契约**取代（§5.4：六要素进默认检索后拒绝域必须双语义可分）：
+       B5  检索面（`md_cg/mdcos.py`）与默认打分收口（`MdCG._emit`）**均已接线**；
+       B5a `boundary_mark` 仍是**单点复用**（体内调 P0-4 的 `boundary_hit`，
+           不另写第二份判据）；
+       B5b **默认口径零位移**：非边界问句下 `judge_with_boundary` 的 qualification
+           ≡ `judge_qualification`（逐例对拍），且无边界命中时 `_emit` 不落
+           边界键（默认链路的 meta 键集合不变）。
 
 运行：python -X utf8 -m md_cg.test_boundary_hit
       python -X utf8 -m md_cg.test_boundary_hit --head-baseline  # 红基线自证
@@ -232,30 +242,37 @@ def b4():
 
 # ---------------------------------------------------------------- B5
 def b5():
-    print("== B5 本轮零接线（检索读数不可能被本判据改动）==")
-    d = os.path.join(_REPO, "md_cg")
-    hits = []
-    for fn in sorted(os.listdir(d)):
-        if not fn.endswith(".py") or fn.startswith("test_"):
-            continue
-        if fn == "mdcg.py":
-            continue
-        t = _rel_text("md_cg/" + fn)
-        for k in ("boundary_hit", "judge_with_boundary", "tally_boundary",
-                  "is_boundary_query"):
-            if k in t:
-                hits.append((fn, k))
-    ok(not hits, "B5 除 mdcg.py 定义块外，生产源码零引用这组判据", hits)
+    print("== B5 接线已落（P2-2 改判）：检索面引用 + 单点复用 + 默认口径零位移 ==")
     src = _rel_text("md_cg/mdcg.py")
-    for fn in ("mdcos.py",):
-        t = _rel_text("md_cg/" + fn)
-        ok("judge_with_boundary" not in t and "boundary_hit" not in t,
-           "B5a %s 未引用本判据（检索面接线在 P2）" % fn)
-    # search 体内不得引用
-    i = src.index("    def search(self, query")
-    body = src[i:i + 4000]
-    ok("judge_with_boundary" not in body and "boundary_hit" not in body,
-       "B5b MdCG.search 体内零引用（本轮不动默认链路）")
+    mdcos = _rel_text("md_cg/mdcos.py")
+    ok("boundary_mark" in mdcos and "judge_with_boundary" in mdcos,
+       "B5 检索面（mdcos.py）已引用本组判据（P2-2 接线）")
+    i = src.index("    def _emit(self, scored")
+    body = src[i:i + 12000]
+    ok("boundary_mark(" in body,
+       "B5 默认打分收口 `MdCG._emit` 已接线（结果卡带 boundary_hit 标记）")
+    # 单点复用：boundary_mark 体内必须调 P0-4 的 boundary_hit，不得另写一份
+    j = src.index("def boundary_mark(")
+    bm = src[j:j + 2200]
+    ok("boundary_hit(" in bm and "rejection_index_terms(" in bm,
+       "B5a boundary_mark 单点复用 P0-4 判据（不另写第二份切词/命中实现）")
+    # 默认口径零位移：非边界问句下 judge_with_boundary ≡ judge_qualification
+    doc = ("# 功能名：x\n# 生效条件：无条件\n# 子功能：无\n"
+           "# 执行：无\n# 验证方式：test\n# 不适用条件：其它会话\n")
+    node = {"frontmatter": {"non_applicable_conditions": ["其它会话"]},
+            "content": doc}
+    same = True
+    for q, ctx in (("苹果 章节", None), ("其它会话", None),
+                   ("刚才在干什么", {"scene": "其它会话"}),
+                   ("怎么验证的", {"scene": "编译"})):
+        a = M.MdCG.judge_with_boundary(node, q, ctx)["qualification"]
+        b = dict(M.MdCG.judge_qualification(node, q, ctx))
+        b.setdefault("boundary_suppressed", False)
+        if a.get("state") != b.get("state"):
+            same = False
+    ok(same, "B5b 非边界问句下资格态 ≡ judge_qualification（默认口径零位移）")
+    ok('if _bnd["hit"]:' in body or "if _bnd[\"hit\"]:" in body,
+       "B5b 边界读数只在确有边界命中时落键（meta 键集合默认不变）")
 
 
 _GROUPS = (b0, b1, b2, b3, b4, b5)
@@ -282,9 +299,11 @@ def _run_groups() -> int:
 _MUTATIONS = (
     ("边界问句不做抑制（改动前形态）", "md_cg/mdcg.py",
      '        if bh["hit"] and bq:', "        if False:"),
+    # 注：锚点带尾换行——`boundary_mark` 与 `boundary_hit` 各有一行同前缀，
+    # 只有 `boundary_hit` 那行以换行收尾（`boundary_mark` 那行后还接了 "why"）
     ("不设展示标记", "md_cg/mdcg.py",
-     '            "marker": BOUNDARY_MARKER if hit else None,',
-     '            "marker": None,'),
+     '            "marker": BOUNDARY_MARKER if hit else None,\n',
+     '            "marker": None,\n'),
     ("判据不复用单点（抄第二份实现）", "md_cg/mdcg.py",
      "    hit = neg_condition_hits(terms, scene_str, MdCG._self_topic_text(fm, content))",
      "    hit = [x for x in terms if any(w in scene_str for w in str(x).split())]"),

@@ -50,7 +50,7 @@ fn probe_store_zh_tie() {
         println!("  {} score={:?} norm_eq={}", d.id, h.score, norm_eq);
     }
     let mut hits = hits;
-    retrieval::sort_path(&mut hits, &docs);
+    retrieval::sort_path(&mut hits, &docs, false);
     print!("  sorted:");
     for h in &hits {
         print!(" {}", docs[h.idx].as_ref().unwrap().id);

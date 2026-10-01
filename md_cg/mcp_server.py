@@ -3268,6 +3268,25 @@ _MDCG_OP_REQUIRE = {
 }
 
 
+# 生效条件：四个布尔入参任意组合下无条件返回 "max"（当 use_fuzzy 或 use_semantic 或 use_goal 或 use_causal 任一为真）或 None（全为假）；use_temporal 不参与判据；不做 IO、不看环境变量；
+def recall_fusion_default(use_fuzzy, use_semantic, use_goal, use_causal,
+                          use_temporal=False):
+    """`mdcg_recall` 的**缺省融合口径**判据（唯一单点，供守卫断言）。
+
+    P3-遗留 A（2026-10-01 补披露）：`use_causal` **缺省 True** ⇒ 默认 recall 的
+    融合口径由 `sum` 变成 **`max`**（影响**所有**默认召回调用，与库是否有边无关）。
+    该口径符合设计稿 §6.2「因果路融合缺省 max」与既有先例表达式
+    （fuzzy/semantic/goal 同款），故**保留**；本函数只把那个表达式从调用点提为
+    **可断言的名字**——否则「缺省到底是 sum 还是 max」只能靠读表达式，
+    静默漂移（少写一个 `or use_causal`）无守卫可抓。
+
+    `use_temporal` **刻意不入判据**：时间路是**排名项**（§6.3(e)：与 S4 层级
+    激活同类，不是单路独有召回型），它开着也不改变融合口径。
+    """
+    return ("max" if (use_fuzzy or use_semantic or use_goal or use_causal)
+            else None)
+
+
 # 生效条件：name 为已注册工具名之一（cg / stg / mdcg_whitebox / mdcg_service_info / mdcg_remember 等）；name 属 _MDCG_OP_REQUIRE 且 cg.principal 具 require_op 属性时先 require_op（越权抛 AccessDenied），principal 为 None 或无该方法时跳过；cg 走 _cg_call、stg 走 _stg_call、whitebox 走 _whitebox_call；未识别的 name 返回含 error 的响应字典而不抛异常，进程不因此中断；
 def _dispatch(cg, name, args):
     a = args or {}
@@ -3400,8 +3419,10 @@ def _dispatch(cg, name, args):
         # semantic 路同理：条件结构命中常是「独有召回」，故一并缺省 max。
         # P3：因果路按设计稿 §6.2「融合口径」同为**单路独有召回型**，照抄本条先例
         # 形态（同一表达式内追加条件，不另起第二套判据）。
-        fusion = a.get("fusion") or (
-            "max" if (use_fuzzy or use_semantic or use_goal or use_causal) else None)
+        # P3-遗留 A（2026-10-01）：表达式提为 `recall_fusion_default` 单点，
+        # 使「缺省口径 = max」可被守卫直接断言（防静默漂移）。
+        fusion = a.get("fusion") or recall_fusion_default(
+            use_fuzzy, use_semantic, use_goal, use_causal)
         # 默认单条上限从 mdcos 取（该模块只在 main() 里惰性导入，模块级没有名字，
         # 直接引用 mdcos.DEFAULT_MAX_ITEM_TOKENS 会 NameError —— 故此处按需导入）。
         from .mdcos import DEFAULT_MAX_ITEM_TOKENS as _DEFAULT_MAX_ITEM

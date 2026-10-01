@@ -23,6 +23,10 @@ fn doc(id: &str, body: &str) -> Option<Doc> {
         db_len,
         lit: None,
         edges: vec![],
+        created_at: 0.0,
+        access_count: 0.0,
+        last_access: 0.0,
+        protected: false,
     })
 }
 
@@ -46,7 +50,7 @@ fn probe_zh_tie() {
         println!("  {} -> {:?}", docs[h.idx].as_ref().unwrap().id, h.score);
     }
     let mut hits = hits;
-    retrieval::sort_path(&mut hits, &docs);
+    retrieval::sort_path(&mut hits, &docs, false);
     println!("  sorted:");
     for h in &hits {
         println!("  {}", docs[h.idx].as_ref().unwrap().id);

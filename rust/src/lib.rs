@@ -15,6 +15,7 @@
 
 pub mod atoms;
 pub mod engine;
+pub mod freshness;
 pub mod json;
 pub mod metrics;
 pub mod retrieval;
