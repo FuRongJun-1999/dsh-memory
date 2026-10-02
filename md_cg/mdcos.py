@@ -3598,7 +3598,7 @@ class MdCGOS(MdCG):
 
     # ---- 主动遗忘（写入侧三问闸门）+ 写保护盘点 ----
 
-# 生效条件：kw 中 gated 为假值时旁路直接 ACCEPT 写入并返回 bypass；否则 writelimit.check 非 None 时按 CONVERGE→MERGE 并经 converge_into（带 session 归属）并入 target、DROP/DEFER 只记 forgetting 日志，无限流拦截时按 forgetting.assess 的四态处理（ACCEPT 走 add；MERGE 走 reinforce（带 content 与 session，返回体带 content_sink 去向）；DROP 经 forgetting.record_drop 落去向留痕并带 dropped 去向单；DEFER 不落盘、经既有入队单点 self.propose 把**正文 + 声明 meta（**kw）+「为何待定」**送进审核队列（返回体带 proposed=pid；node_id 非字符串时兜底成内容派生 id 并写 proposed_id_fallback），并照旧只记 forgetting 留痕）。
+# 生效条件：kw 中 gated 为假值时旁路直接 ACCEPT 写入并返回 bypass；否则 writelimit.check 非 None 时按 CONVERGE→MERGE 并经 converge_into（带 session 归属）并入 target、DROP/DEFER 只记 forgetting 日志，无限流拦截时按 forgetting.assess 的四态处理（ACCEPT 走 add——issue50-d：落盘 importance 恒等于裁决 imp["score"]（hint 或启发式）并落 importance_source（"hint"|"heuristic"），add 的自动保护位只认显式声明；MERGE 走 reinforce（带 content 与 session，返回体带 content_sink 去向）；DROP 经 forgetting.record_drop 落去向留痕并带 dropped 去向单；DEFER 不落盘、经既有入队单点 self.propose 把**正文 + 声明 meta（**kw）+「为何待定」**送进审核队列（返回体带 proposed=pid；node_id 非字符串时兜底成内容派生 id 并写 proposed_id_fallback），并照旧只记 forgetting 留痕）。
     def remember_gated(self, node_id, content, layer="contextual", **kw):
         """写入情景层记忆前的**主动遗忘闸门**：三问 → 四态。
 
@@ -3645,6 +3645,15 @@ class MdCGOS(MdCG):
         来源，`assess` :214 先于 MERGE）把新正文全文与去向记进 `_forgetting.jsonl`
         并返回 `dropped` 去向单（trace_id/sha1/检索入口）。两条分支都有处置。
         H3：合并时把写入方会话归属并列落目标 fm（`fm.merge_sources`）。
+
+        issue50-d（2026-10-02）：ACCEPT 分支**落盘=裁决值**——此前「hint 非
+        None 才透传」的口径把启发式裁决值（0.84/0.71 量级，隔离沙箱实证）
+        全部丢在闸门上，落盘一律默认 0.5；现无条件落 `imp["score"]` 并按
+        `imp["from"]` 落 `importance_source`（"hint"|"heuristic"，进 fm 与
+        索引条目）。`add` 的自动保护位只认显式声明：heuristic 过线只落分、
+        不打保护位——由此审计面文案（assess 保护分支按 from 分叉）、落盘分、
+        保护位三者首次同源一致。外部基准（hive-memory-bench v1.0）测得 L3
+        使用端损耗 3-4/19：本批让重要度轴带电（排序次级键从此拿到真分）。
         """
         role = kw.get("role")
         vb = kw.get("verification_basis")
@@ -3703,8 +3712,18 @@ class MdCGOS(MdCG):
         v = verdict["verdict"]
         out = {"verdict": v, "node_id": node_id, "gate": verdict}
         if v == "ACCEPT":
-            if hint is not None and "importance" not in kw:
-                kw["importance"] = hint
+            # issue50-d（2026-10-02）：**落盘=裁决值**。此前「hint 非 None 才
+            # 透传」的口径把启发式裁决值全部丢在闸门上——隔离沙箱实证：
+            # u_heur_new 裁决 0.837/落盘 0.5、t_heur 裁决 0.711/落盘 0.5，落盘
+            # 重要度不携带任何区分信息（启发式全 0.5、插件 hint 通道全 0.6），
+            # 排序/使用端拿不到真分。现无条件落 `imp["score"]`（hint 或启发式，
+            # 均为 assess 实际使用的裁决值，含 0~1 裁剪），并按裁决来源落
+            # `importance_source`（"hint"|"heuristic"）进 fm 与索引条目——
+            # add 的自动保护位据此只认显式声明（heuristic 过线只落分、不打
+            # 保护位，与裁决②一致；writelimit 的保护豁免仍读原始 hint，不受
+            # 本批影响）。
+            kw["importance"] = verdict["importance"]["score"]
+            kw["importance_source"] = verdict["importance"]["from"]
             try:
                 out["written"] = self.add(node_id, content, layer=layer,
                                           override=override,

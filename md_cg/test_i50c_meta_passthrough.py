@@ -35,8 +35,9 @@ issue50-b 冻结）。
 **隔离临时根**（同名节点 `n`）：一路内容全新 ⇒ 直接 ACCEPT；另一路内容与基线半
 重复（dup≈0.73）⇒ DEFER ⇒ 入队 ⇒ `review_decide(accept)`。逐键对拍两个节点的
 frontmatter。`importance` 用显式 `importance=`（而非 `importance_hint=`）传入，
-使两条路径的 fm.importance 同源——「裁决用与落盘记的重要度不同源」是**另有裁定**
-的独立问题，本批不动、也不靠本守卫混淆。
+使两条路径的 fm.importance 同源——「裁决用与落盘记的重要度不同源」已由
+issue50-d 收口（remember_gated ACCEPT 分支落盘=裁决值），显式 `importance=`
+的 hint 面两口径等价，本守卫的对拍口径不受影响。
 
 白名单（B 组逐键读数的允许差异，每条附理由）
 --------------------------------------------
@@ -48,8 +49,13 @@ frontmatter。`importance` 用显式 `importance=`（而非 `importance_hint=`�
   · `created_at` —— 写入时刻时间戳（时间轴锚点）：直接路写入即落盘、DEFER 路
     裁决 accept 时才落盘，两次时刻必然不同；**非调用方声明的 meta**。
   · `condition_space` —— 仅其**派生**键 `time_window`（= created_at 起算，
-    add :2225）随之变；其余键必须逐位相等（B3 单列）。其余三个白名单项之外的
-    任何差异必须为 0（B1 逐行读数，不是结论）。
+    add :2225）随之变；其余键必须逐位相等（B3 单列）。
+  · `importance_source` —— issue50-d（2026-10-02）新增的**裁决面衍生键**
+    （"hint"|"heuristic"，标注落盘重要度来自显式声明还是闸门启发式），**仅
+    ACCEPT 直接路有**：DEFER 路经队列 accept 落盘，落盘时不存在本闸的 ACCEPT
+    裁决，该键无从产生（issue50-d 裁决①只覆盖 remember_gated 的 ACCEPT 分支）。
+    它不是调用方声明的 meta，不在 F1「声明不丢」的判据面内（B2 已排除）。
+其余三个白名单项之外的任何差异必须为 0（B1 逐行读数，不是结论）。
 
 断言分组（全部在**隔离临时根**的合成库上真跑，绝不触在役数据根）
   A 修复面：DEFER→accept 节点的声明 meta 与直接 ACCEPT 路**逐位相等**（六键
@@ -198,12 +204,16 @@ def _pair():
     return fd, fz, od, oz, az
 
 
-# 白名单（键 → 理由）。B 组要求 diff ⊆ 本表，且条目数恰 4。
+# 白名单（键 → 理由）。B 组要求 diff ⊆ 本表，且条目数恰 5。
 _WHITELIST = {
     "defer_reason": "issue50-b 的「为何待定」文案，仅 DEFER 路有（契约已裁定接受）",
     "reviewer": "accept 路径的裁决归属留痕（mdcos.py:2571-2572）；硬边界②不许削弱",
     "created_at": "写入时刻时间戳：直接路写入即落盘 / DEFER 路裁决 accept 时落盘",
     "condition_space": "仅派生键 time_window（= created_at 起算）随之变；其余键见 B3",
+    # issue50-d（2026-10-02）：裁决面衍生键，仅 ACCEPT 直接路有——DEFER 路经
+    # 队列 accept 落盘时不存在本闸的 ACCEPT 裁决，该键无从产生；不是调用方
+    # 声明的 meta，不在 F1「声明不丢」的判据面内（B2 已排除）。
+    "importance_source": "issue50-d 的落盘重要度来源标注，仅直接 ACCEPT 路有",
 }
 
 # 契约点名的六个声明键 → 直接 ACCEPT 路应落在的那些 fm 键。
@@ -273,8 +283,13 @@ def g_b():
               % (k, sa, sb, "同" if same else ("白名单" if k in _WHITELIST else "**差异**")))
     outside = [k for k in diff if k not in _WHITELIST]
     ok(not outside, "B1 白名单外的 fm 差异为 0（逐行读数）", outside)
-    only_direct = [k for k in keys if k in fd and k not in fz]
-    ok(not only_direct, "B2 DEFER 路不缺任何 fm 键（无 only-in-DIRECT）", only_direct)
+    # issue50-d 的 `importance_source` 是裁决面衍生键（仅直接 ACCEPT 路有，
+    # 见白名单理由），不属 F1「声明 meta 不丢」的判据面——B2 排除它。
+    only_direct = [k for k in keys if k in fd and k not in fz
+                   and k != "importance_source"]
+    ok(not only_direct,
+       "B2 DEFER 路不缺任何声明 meta 键（无 only-in-DIRECT；"
+       "issue50-d 的 importance_source 除外）", only_direct)
     cs_z = {k: v for k, v in (fz.get("condition_space") or {}).items()
             if k != "time_window"}
     cs_d = {k: v for k, v in (fd.get("condition_space") or {}).items()
@@ -287,8 +302,9 @@ def g_b():
        and len(tw_d) == 2 and float(tw_z[0]) >= float(tw_d[0]),
        "B4 time_window 确为两次写入时刻（差异真实存在，非被掩盖）",
        (tw_d, tw_z))
-    ok(len(_WHITELIST) == 4 and all(k in diff for k in _WHITELIST),
-       "B5 白名单恰 4 条且每条都真实命中（无空挂）", (len(_WHITELIST), diff))
+    ok(len(_WHITELIST) == 5 and all(k in diff for k in _WHITELIST),
+       "B5 白名单恰 5 条且每条都真实命中（无空挂；第 5 条=issue50-d 的"
+       " importance_source）", (len(_WHITELIST), diff))
 
 
 # ---------------------------------------------------------------- C None 捩点

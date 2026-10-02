@@ -236,7 +236,7 @@ def importance_score(hint, novelty, kind, content):
     return {"score": round(max(0.0, min(1.0, s)), 4), "from": "heuristic"}
 
 
-# 生效条件：以 source_kind(role,verification_basis) 的 kind 与 redundancy(cg,content,layer=layer,exclude=node_id) 的 red["max"] 为输入，按 if/elif 顺序取首个命中分支——imp["score"]≥PROTECT_IMPORTANCE→"ACCEPT"；否则 kind=="internal_deterministic" 且 red["max"]≥DUP_DROP→"DROP"；否则 red["max"]≥DUP_MERGE→"MERGE"；否则 red["max"]≥DUP_DROP→"DEFER"（**与 imp 无关**）；否则 imp["score"]≥IMPORTANCE_MIN→"ACCEPT"；否则 novelty≥NOVELTY_MIN→"ACCEPT"；否则→"DEFER"。返回体附带 P-9b 可见性字段：entropy.overwrite_of / entropy.overwrite_ratio（同 id 覆写时非 null）、dedup_skipped（**仅 PROTECT 分支**非 null，标注「因保护优先未走去重」+ 去重判据读数）——两者都不改 verdict、不改落盘行为。
+# 生效条件：以 source_kind(role,verification_basis) 的 kind 与 redundancy(cg,content,layer=layer,exclude=node_id) 的 red["max"] 为输入，按 if/elif 顺序取首个命中分支——imp["score"]≥PROTECT_IMPORTANCE→"ACCEPT"（reason 按 imp["from"] 分叉：hint→「触发不可遗忘保护」，heuristic→「未落保护——保护须显式声明」，issue50-d）；否则 kind=="internal_deterministic" 且 red["max"]≥DUP_DROP→"DROP"；否则 red["max"]≥DUP_MERGE→"MERGE"；否则 red["max"]≥DUP_DROP→"DEFER"（**与 imp 无关**）；否则 imp["score"]≥IMPORTANCE_MIN→"ACCEPT"；否则 novelty≥NOVELTY_MIN→"ACCEPT"；否则→"DEFER"。返回体附带 P-9b 可见性字段：entropy.overwrite_of / entropy.overwrite_ratio（同 id 覆写时非 null）、dedup_skipped（**仅 PROTECT 分支**非 null，标注「因保护优先未走去重」+ 去重判据读数）——两者都不改 verdict、不改落盘行为。
 def assess(cg, content, layer="contextual", role=None, verification_basis=None,
            importance_hint=None, node_id=None):
     """三问 → 四态裁决。返回完整判据（可审计，不只给结论）。
@@ -261,6 +261,16 @@ def assess(cg, content, layer="contextual", role=None, verification_basis=None,
           关键正文并入他节点、检索归属漂移——风险高于收益；③ 缺陷本体是「绕过
           去重而不可见」而非「保护存在」，标注即可消除静默且零回归面
           （test_p9_forget_protect.py 的「importance_hint≥0.7→ACCEPT」逐字不变）。
+
+    issue50-d（2026-10-02）：保护分支的 reason 文案按 **imp["from"] 分叉**——
+    改前启发式路径（不传 hint）过线时也声称「触发不可遗忘保护」，但落盘面
+    importance=0.5（默认）且无保护位（隔离沙箱直读 frontmatter 实证：
+    u_heur_new 裁决 0.837/落盘 0.5；t_heur 裁决 0.711/落盘 0.5）——审计面在
+    声称未发生的事。处置：from=="hint" 且 ≥0.7 维持原文案（add 的自动保护位
+    对显式声明真落 protected 位，文案与落盘一致）；from=="heuristic" 且 ≥0.7
+    改为如实文案「启发式 …（未落保护——保护须显式声明）」。裁决面 verdict、
+    分支顺序、常量均不变；落盘口径的修复在 remember_gated ACCEPT 分支
+    （mdcos.py：落盘=裁决值 + importance_source 标注来源）。
 
     issue50-a（2026-10-01）：分支 ④「半重复 → DEFER」此前写作
     `red["max"] >= DUP_DROP and imp["score"] < IMPORTANCE_MIN`，**结构性不可达**：
@@ -305,8 +315,19 @@ def assess(cg, content, layer="contextual", role=None, verification_basis=None,
         if red["with"] and red["max"] >= DUP_MERGE:
             due.append("与 %s 重复度 %.2f≥%.2f（够 MERGE 阈值）"
                        % (red["with"], red["max"], DUP_MERGE))
-        verdict, why = "ACCEPT", (f"重要度 {imp['score']:.2f}≥{PROTECT_IMPORTANCE}"
-                                 f"（触发不可遗忘保护）")
+        # issue50-d（2026-10-02）：文案按来源分叉——`imp["from"]` 就在手上的
+        # imp 里，单点可判。显式 hint 维持「触发不可遗忘保护」（add 的自动
+        # 保护位会真落 protected 位，文案与落盘一致）；启发式过线**只落分、
+        # 不打保护位**（issue50-d 裁决②：保护须显式声明），文案改成如实
+        # 表述——改前启发式 0.84 也声称「触发不可遗忘保护」，而落盘面
+        # importance=0.5 且无保护位（隔离沙箱实证），审计面在声称未发生的事。
+        # 分支顺序与 verdict 不变（硬边界：issue50-a 的那行除外，本批不动）。
+        if imp["from"] == "hint":
+            verdict, why = "ACCEPT", (f"重要度 {imp['score']:.2f}≥{PROTECT_IMPORTANCE}"
+                                      f"（触发不可遗忘保护）")
+        else:
+            verdict, why = "ACCEPT", (f"启发式 {imp['score']:.2f}≥{PROTECT_IMPORTANCE}"
+                                      f"（未落保护——保护须显式声明）")
         dedup_skipped = {
             "reason": "protect_importance",
             "detail": ("保护优先分支排在冗余判定之前：本次未走 MERGE/DROP"

@@ -1843,7 +1843,7 @@ class MdCG:
             self._log.close()
             self._log = None
 
-# 生效条件：以节点文件绝对路径 p、其所在层目录名 layer、解析出的 fm 与 content 为入参，构造含 path（相对 root 正斜杠）/layer（fm 回落 layer）/role/content_kind/session/tags/bucket（父目录名，等于层名时 None）/bucket_zh/importance/created_at/verification_basis/has_neg_conditions/content_hash/temporal/spatial/time_window/lifecycle 与 trust 状态字段/branch_id/branched_from/evidence_count/big_domain/observation_position/subgraph/edges/protected/protection_reason/immutable/self_state/derived_from/derived_relation 各键的条目，经 _strip_empty_gate_fields 清洗后返回；
+# 生效条件：以节点文件绝对路径 p、其所在层目录名 layer、解析出的 fm 与 content 为入参，构造含 path（相对 root 正斜杠）/layer（fm 回落 layer）/role/content_kind/session/tags/bucket（父目录名，等于层名时 None）/bucket_zh/importance/importance_source（issue50-d：fm 键缺省 None）/created_at/verification_basis/has_neg_conditions/content_hash/temporal/spatial/time_window/lifecycle 与 trust 状态字段/branch_id/branched_from/evidence_count/big_domain/observation_position/subgraph/edges/protected/protection_reason/immutable/self_state/derived_from/derived_relation 各键的条目，经 _strip_empty_gate_fields 清洗后返回；
     def _node_entry(self, p, layer, fm, content):
         """单节点索引条目——_scan_nodes 与定向 upsert 共用的**唯一真源**。
 
@@ -1875,6 +1875,10 @@ class MdCG:
             # S1b 跨语言收敛免读文件可判。
             "bucket_zh": fm.get("bucket_zh") or None,
             "importance": fm.get("importance", 0.5),
+            # issue50-d（2026-10-02）：重要度**来源**入快照（"hint"|"heuristic"，
+            # 旧库无此键 → None）——「这条 0.8 是显式声明还是启发式分」免读
+            # 文件可判（与既有扁平键同理由：检索期/审计期不读盘）。
+            "importance_source": fm.get("importance_source"),
             "created_at": fm.get("created_at", 0),
             "verification_basis": fm.get("verification_basis"),
             "has_neg_conditions": nodefile.has_non_applicable(content),
@@ -2046,7 +2050,8 @@ class MdCG:
             derived_from=None, relation: str = provenance.DEFAULT_RELATION,
             semantic: str = None, depends_on=None, valid_from=None,
             valid_until=None, effective_from=None, effective_until=None,
-            believed_at=None, verification_state: str = None, **extra) -> str:
+            believed_at=None, verification_state: str = None,
+            importance_source: str = None, **extra) -> str:
         """写入一个节点。
 
         verification_basis: 外部验证基底（白箱信任的硬门槛），
@@ -2236,6 +2241,11 @@ class MdCG:
             "evidence_count": 0, "positive_evidence": 0, "negative_evidence": 0,
         }
         fm.update(extra)
+        # issue50-d（2026-10-02）：重要度**来源**声明（"hint"|"heuristic"）落
+        # frontmatter——下游免读文件即可判「这条 0.8 是显式声明还是闸门启发式
+        # 分」。缺省 None 不落键（既有调用方 fm 形态逐位不变，零回归）。
+        if importance_source:
+            fm["importance_source"] = importance_source
         if bucket_zh:
             fm["bucket_zh"] = bucket_zh
         # S1 大域先验：写入时固化「内容 → 大域」（契约 §3 S1）。
@@ -2435,8 +2445,14 @@ class MdCG:
             fm["derived_from"] = parents
             fm["derived_relation"] = derived_rel
         # 重要性 ≥0.7 自动打保护标记（对齐 tool_table：≥0.7 触发不可遗忘保护）
+        # issue50-d（2026-10-02）：自动保护只认**显式声明**——调用方随 add
+        # 下传 importance_source 时，"heuristic"（闸门启发式分）过线**只落分、
+        # 不打位**（remember_gated 的裁决面文案已如实说「未落保护」）；
+        # importance_source 缺省 None（add 的全部既有调用方都不传）⇒ 本条件
+        # 恒真、既有行为逐位不变，零回归由构造保证。
         if (float(importance or 0.0) >= protect.AUTO_PROTECT_IMPORTANCE
-                and not fm.get("protected")):
+                and not fm.get("protected")
+                and importance_source != "heuristic"):
             fm["protected"] = True
             fm["protection_reason"] = (f"importance={float(importance):.2f}"
                                        f"≥{protect.AUTO_PROTECT_IMPORTANCE}")
@@ -2473,6 +2489,9 @@ class MdCG:
             "layer": layer, "tags": tags, "bucket": bucket,
             "bucket_zh": bucket_zh or None,
             "importance": importance, "created_at": fm["created_at"],
+            # issue50-d：重要度来源入快照（与 _node_entry 同口径——写入后即可
+            # 免读文件判「0.8 是显式 hint 还是启发式」，不等全量重建）。
+            "importance_source": fm.get("importance_source"),
             "verification_basis": verification_basis,
             "has_neg_conditions": nodefile.has_non_applicable(sealed),
             # P2-1 / P4-2①：与 `_node_entry`（重建路径）**同口径**——写路径的
