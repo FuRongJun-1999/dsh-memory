@@ -37,7 +37,7 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT
 from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
                self_state, predict, evolution, weights, pooling,
-               writelimit, reach, trust, roleviews)
+               writelimit, reach, trust, roleviews, autonomy_modes)
 from .fsutil import (FileLock, atomic_write, append_jsonl, read_jsonl,
                      read_jsonl_tail, count_jsonl, publish)
 from .security import (Principal, TenantRegistry, AccessDenied,
@@ -2012,10 +2012,11 @@ class MdCGOS(MdCG):
 
     # ================= 4. 审核队列（inbox → decisions） =================
 
-# 生效条件：当 node_id 与 content 传入时，在 strict 锁内按 payload_hash 查重；命中同内容提案（无论 pending/accepted/rejected，已裁决优先 break）时幂等返回既有 pid（info=True 返回 dedup 字典），未命中则生成新 pid 入队并返回 pid（info=True 返回 dedup False 字典）；
+# 生效条件：当 node_id 与 content 传入时，在 strict 锁内按 payload_hash（dedup_key 非空时以它为对账键、否则 _sig(content)）查重；命中同键提案（无论 pending/accepted/rejected，已裁决优先 break）时幂等返回既有 pid（info=True 返回 dedup 字典），未命中则生成新 pid 入队并返回 pid（info=True 返回 dedup False 字典）；kind 非空时原样落 rec 顶层 kind 键（缺省不落键 = 存量条目形状逐位不变）；
     def propose(self, node_id: str, content: str, layer: str = "knowledge",
                 tags=None, condition_space=None, verify=None,
-                info: bool = False, **kw):
+                info: bool = False, kind: str = None, dedup_key: str = None,
+                **kw):
         """把一个候选记忆放入海马体 inbox，等待审核（不直接持久化）。
 
         verify —— 验收判据（内联声明，裁决阶段只读），形如：
@@ -2028,10 +2029,22 @@ class MdCGOS(MdCG):
         不再入队。语义：重试与崩溃恢复无害——入队落盘成功而响应丢失时
         （MCP 客户端超时重试的真正机制），重试对账命中既有记录并返回原 pid。
 
+        kind / dedup_key（三档自治批次②，设计 §四 两个**可选**槽，缺省即
+        存量行为逐位不变）：
+          · `kind` = 队列条目**类型字段**（"proposal" 存量 / "mutation" 变更单）。
+            缺省 None **不落键**——存量与新普通提案的 rec 形状一字不变；读取方
+            经 `autonomy_modes.order_kind(rec)` 判类型，缺键一律视为 proposal
+            （零迁移）。
+          · `dedup_key` = 幂等对账键的**显式覆盖**（缺省 None → 原 `_sig(content)`）。
+            变更单必须覆盖：内容签名不带目标，「同一份新正文并入节点 X / 并入
+            节点 Y」会撞成同一条（`autonomy_modes.mutation_dedup_key` 把动作类与
+            目标并进键面）。键仍是 sha1 十六进制——`_inbox_phash_index` 与
+            `_cascade_dedup` 只做字符串比对，无需认识构造。
+
         返回值：info=False（默认）返回 pid 字符串（保形，存量调用零变化）；
         info=True 返回 {"pid", "dedup", "dup_of", "dup_status"}。
         """
-        phash = _sig(content)
+        phash = dedup_key or _sig(content)
         with FileLock(self.inbox_log, strict=True):
             # 增量对账（issue #32）：原实现每条全量 read_jsonl(inbox) +
             # read_jsonl(decisions)（锁内 O(M+D)/条、批量 O(M²)，旧格式行
@@ -2074,6 +2087,11 @@ class MdCGOS(MdCG):
                    "verify": verify or {}, "verify_hash": vhash,
                    "extra": kw, "actor": self.actor,
                    "session": getattr(self, "session", None)}
+            # 三档自治批次②（设计 §四）：类型字段**只在显式给定时落键**——
+            # 缺省不落，存量与新普通提案的 rec 形状逐位不变（零回归），
+            # 读取方按「缺键 = proposal」判（零迁移）。
+            if kind:
+                rec["kind"] = str(kind)
             append_jsonl(self.inbox_log, rec)
         self._audit("propose", node_id, pid=pid, layer=layer,
                     payload_hash=phash, verify_hash=vhash)
@@ -2460,7 +2478,120 @@ class MdCGOS(MdCG):
                 "verify_hash": src.get("verify_hash"),
                 "source": "hippocampus/decisions.jsonl"}
 
-# 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'），且写入前经与 add 同款双闸（N131，2026-09-25：principal 在位先 require_layer_write(目标层, 目标敏感度)——与 MdCGSecure.add 同序同错型；再 protect.guard_write(override=override)——self/anchor 层、immutable 标记，拒绝抛 ProtectionError/AccessDenied 且提案留 pending 不落库）后追加内容并定向索引 upsert（_node_entry 同源条目写入 index/_dirty）+flush，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
+# 生效条件：item 为 kind=mutation 的队列记录时按其载荷 extra.mutation 分派——B：primitive 为 "converge_into" 走 writelimit.converge_into、否则走 forgetting.reinforce（两者都以 rec.actor 为动作发起者、载荷 meta 的 session/override 复现原槽）；C：目标经 forgetting.prior_node 判定——目标已不存在即返回 {"ok": False, "error": "target_missing", ...}（fail-closed，不重建节点、不记 accepted），存在才 self.add(目标, 后像, layer=rec.layer, sensitivity=rec.sensitivity, override, **载荷 meta) 覆写落盘；D：self.forget(目标, override) 软删；动作类不在 {B,C,D} 或原语返回失败（ok 为 False / None / target_missing）时返回 {"ok": False, "error": "mutation_execute_failed"/"mutation_action_unknown", ...} 且**不改动任何节点**；成功返回 {"ok": True, "mutation": {...}, "node_id": ...}；
+    def _mutation_execute(self, item, reason: str = "", override: bool = False):
+        """变更单 accept 的执行桥：**显式越过确认判定**，直调对应动作的底层原语。
+
+        为什么这样就是「越过」（而不是绕过闸门）：三档自治的确认判定只长在
+        **热路径入口**（写链 `writepipe._gate_autonomy`、遗忘合并闸
+        `_autonomy_gate_merge`、工具面 `forget_gated`）；本桥调的是
+        `MdCG.add` / `forgetting.reinforce` / `writelimit.converge_into` /
+        `MdCGOS.forget`——即**库层原语**，它们历来不含档位判定（设计 §三 硬约束
+        「直调库层不接线，保持库层语义不变」）。故「已确认」这件事由调用点
+        （本桥）保证，不靠传一个 `already_confirmed=True` 之类的旗标穿透各层
+        （旗标会变成可被伪造的旁路）。
+
+        保护闸不绕：`add`/`reinforce`/`converge_into` 内部的
+        `protect.guard_write|guard_overwrite` 与 `forget` 的 `guard_forget`
+        仍是落盘必经之路——受保护节点在确认后依然被拦（拦下即返回失败、
+        裁决不落盘、提案保持 pending）。
+
+        失败语义（如实）：动作未发生 ⇒ 返回 ok=False 且**不记裁决**；调用方
+        （`review_decide`）据此提前返回，提案维持 pending 可见。
+
+        补强（2026-10-02，复核观察 3）：**C 改写的目标在 accept 时已消失**此前
+        走 `self.add` 的 upsert——静默把「改写」落地成「新增同 id 节点」并记
+        accepted（单子声称 C、盘面却是 A，前像被清空且无失败信号）。现与 B/D
+        同口径：目标不存在 ⇒ `{"ok": False, "error": "target_missing"}`，
+        **不重建节点**、不记裁决、提案保持 pending。判据复用存在性单点
+        `forgetting.prior_node`（与出单时的 C/A 判定同一单点）。
+        """
+        from . import autonomy_modes as _am
+        try:
+            slot = (item.get("extra") or {}).get(_am.MUTATION_SLOT) or {}
+        except AttributeError:
+            slot = {}
+        act = str(slot.get("action") or "").strip().upper()
+        tgt = slot.get("target") or item.get("id")
+        after = slot.get("after")
+        if after is None:
+            after = item.get("content") or ""
+        meta = dict(slot.get("meta") or {})
+        actor = item.get("actor") or getattr(self, "actor", None)
+        session = meta.pop("session", None)
+        _ovr = bool(meta.pop("override", False)) or bool(override)
+        layer = item.get("layer") or "knowledge"
+        sens = item.get("sensitivity")
+        try:
+            if act == _am.B_MERGE:
+                if str(slot.get("primitive") or "") == "converge_into":
+                    res = writelimit.converge_into(self, tgt, after,
+                                                   override=_ovr, actor=actor,
+                                                   session=session)
+                else:
+                    res = forgetting.reinforce(self, tgt, override=_ovr,
+                                               actor=actor, content=after,
+                                               session=session)
+                node_id = tgt
+            elif act == _am.C_REWRITE:
+                # 补强（2026-10-02，复核观察 3）：C 的**目标节点在 accept 执行时
+                # 已不存在** ⇒ fail-closed，**不得**静默 `self.add` upsert 成
+                # 新增。旧形态：目标出单后被删除，重放把「改写」落成「同名新
+                # 节点」并记 accepted——变更单声称执行了 C 改写，盘面却凭空多出
+                # 一个节点（前像被清空，且无任何失败信号）。
+                # 判据复用**存在性单点** `forgetting.prior_node`（与出单时的
+                # C/A 判定同一单点），错误名与 B/D 原语同口径
+                # （`writelimit.converge_into` 的 {"ok": False,
+                # "error": "target_missing"}）。
+                if forgetting.prior_node(self, tgt) is None:
+                    return {"ok": False, "error": "target_missing",
+                            "kind": _am.KIND_MUTATION, "action": act,
+                            "target": tgt,
+                            "detail": "变更单 C 改写：目标节点在 accept 执行时"
+                                      "已不存在（出单后被删除/移走）——"
+                                      "fail-closed 未执行任何动作、未重建节点。",
+                            "hint": "目标节点 %s 已不存在：C 改写不得静默转成"
+                                    "「新增同 id 节点」。请核对目标是否已被删除"
+                                    "（trash/ 可 restore）后重新提议——裁决"
+                                    "**未落盘**，提案保持 pending。" % tgt}
+                node_id = self.add(tgt, after, layer=layer, sensitivity=sens,
+                                   override=_ovr, **meta)
+                res = {"ok": True, "node_id": node_id}
+            elif act == _am.D_DELETE:
+                res = self.forget(tgt, reason=reason or slot.get("reason") or "",
+                                  override=_ovr)
+                node_id = tgt
+            else:
+                return {"ok": False, "error": "mutation_action_unknown",
+                        "kind": _am.KIND_MUTATION, "action": act or None,
+                        "detail": "变更单载荷的动作类缺失或不在 %s——fail-closed"
+                                  "未执行任何动作、提案保持 pending。"
+                                  % "/".join(_am.ACTION_CLASSES)}
+        except Exception as exc:            # noqa: BLE001
+            # 保护闸（ProtectionError/AccessDenied）、冲突闸（ConsistencyError）、
+            # 路径闸（ValueError）等一律走这里：动作**未发生** ⇒ 如实返回失败，
+            # 不落裁决、提案保持 pending（把异常原样抛给 CLI 会让裁决进程崩在
+            # 「已执行一半」的歧义态上，且提案去向不可见）。
+            return {"ok": False, "error": "mutation_execute_failed",
+                    "kind": _am.KIND_MUTATION, "action": act, "target": tgt,
+                    "detail": "%s: %s" % (type(exc).__name__, exc),
+                    "hint": "变更单未执行：目标节点 %s 的动作被既有闸门拦下或原语"
+                            "失败——裁决**未落盘**，提案保持 pending；"
+                            "受保护节点/冲突需先按既有通道处置（override 或"
+                            "修文）后重新裁决。" % tgt}
+        if not isinstance(res, dict) or res.get("ok") is False:
+            return {"ok": False, "error": "mutation_execute_failed",
+                    "kind": _am.KIND_MUTATION, "action": act, "target": tgt,
+                    "detail": res,
+                    "hint": "变更单未执行：目标节点 %s 的动作原语未成功"
+                            "（受保护/目标缺失/同 id 冲突等）——裁决**未落盘**，"
+                            "提案保持 pending，修好后可重新裁决。" % tgt}
+        return {"ok": True, "node_id": node_id,
+                "mutation": {"kind": _am.KIND_MUTATION, "action": act,
+                             "target": tgt, "primitive": slot.get("primitive"),
+                             "executed": True}}
+
+# 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'），且写入前经与 add 同款双闸（N131，2026-09-25：principal 在位先 require_layer_write(目标层, 目标敏感度)——与 MdCGSecure.add 同序同错型；再 protect.guard_write(override=override)——self/anchor 层、immutable 标记，拒绝抛 ProtectionError/AccessDenied 且提案留 pending 不落库）后追加内容并定向索引 upsert（_node_entry 同源条目写入 index/_dirty）+flush，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；kind=mutation 的变更单（三档自治批次②）不走上述分支——accept 经 _mutation_execute 执行对应动作（失败即返回错误、不记裁决、提案保持 pending）、reject 只留痕，其余裁决 fail-closed 返回 mutation_decision_unsupported；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
     def review_decide(self, pid: str, decision: str, edits: dict = None,
                       merge_into: str = None, reason: str = "",
                       redteam: dict = None, issues=None,
@@ -2478,6 +2609,14 @@ class MdCGOS(MdCG):
         「评估过了、无需改动」。二者都不写目标节点，故 noop 不可借道绕过 accept
         的写入门控（它根本不写）。此处 noop 是**裁决动作**，与 lifecycle/trust 中
         同名的**状态迁移结果码**分属两层（见模块常量区注释）。
+
+        **变更单**（`kind=mutation`，三档自治批次② · 设计 §四）：本批只定义
+        accept/reject——accept = 执行对应动作（B 合并原语 / C 覆写落盘走既有
+        add / D 软删走既有 forget），reject = 原样留痕不执行；edit/merge/noop
+        对变更单**未定义** ⇒ fail-closed 报错带 hint（不静默当已处理）。
+        执行失败 ⇒ **不记裁决**、提案保持 pending（与 merge 的
+        `merge_target_not_found` 同款：不落一条「accepted 而动作没做」）。
+        存量 `kind` 缺键的提案（= proposal）在本方法里**逐位不变**。
 
         两条验证纪律（借自任务分级协议的验证端）：
           1. 判据只读：verify 由 propose 声明，裁决阶段传入不同判据 → verify_readonly。
@@ -2533,6 +2672,14 @@ class MdCGOS(MdCG):
         if decision == "accept" and not rt_v and _redteam_required():
             return {"ok": False, "error": "redteam_required",
                     "detail": "MDCG_REDTEAM_REQUIRED=1：accept 必须带红队 pass"}
+
+        # 三档自治批次②（设计 §四）：**变更单**（kind=mutation）走**独立执行桥**
+        # ——在既有前置闸（已判/verify_readonly/再审批/红队门控）之后、既有
+        # accept/edit/merge/noop 链之前。proposal（含存量无 kind 条目）一律不
+        # 进此支，下面整条链对它逐位不变。
+        if autonomy_modes.order_kind(item) == autonomy_modes.KIND_MUTATION:
+            return self._decide_mutation(pid, item, decision, reason, override,
+                                        round_no, rt_v, rt_issues, expect)
 
         result = {"pid": pid, "decision": decision, "round": round_no,
                   "redteam": rt_v or "absent"}
@@ -2632,6 +2779,18 @@ class MdCGOS(MdCG):
             self.flush()
             result.update(ok=True, node_id=target)
 
+        return self._finish_decision(pid, item, decision, reason, round_no,
+                                     rt_v, rt_issues, expect, result)
+
+# 生效条件：result 为已定好的裁决返回体时，按其 pid/item/decision/reason/round_no/rt_v/rt_issues/expect 调 _record_decision（status 映射统一出口：reject→"rejected"、noop→"noop"、其余→"accepted"）落盘 jsonl + 审计节点，再按 item 的 payload_hash（缺失时 _sig(content)）调 _cascade_dedup 级联出清（有 closed 时写 result["cascade_closed"]），最后 flush 并返回 result；
+    def _finish_decision(self, pid, item, decision, reason, round_no, rt_v,
+                         rt_issues, expect, result):
+        """裁决**统一收尾**（单点）：proposal 链与变更单执行桥共用同一收尾。
+
+        为何抽出来：三档自治批次② 的变更单走独立执行桥（`_decide_mutation`），
+        但「落 decisions.jsonl + 写审计节点 + 级联出清 + flush」这几步必须与原
+        路径**同一条实现**——各写一份必然漂移（本仓已两次教训）。
+        """
         # status 映射统一出口：reject→"rejected"、noop→"noop"（同为终态，见
         # TERMINAL_DECISION_STATUS）、其余→"accepted"。
         result = self._record_decision(
@@ -2653,6 +2812,40 @@ class MdCGOS(MdCG):
         self.flush()
         return result
 
+# 生效条件：item 为 kind=mutation 的队列记录——decision 为 accept 时经 _mutation_execute 执行对应动作（返回 ok=False 时**原样返回该错误**、不落裁决、提案保持 pending），为 reject 时只置 ok=True 留痕；decision 非此二者时返回 {"ok": False, "error": "mutation_decision_unsupported", ...} 带 hint（fail-closed，不落裁决）；通过者交 _finish_decision 收尾后返回其结果；
+    def _decide_mutation(self, pid, item, decision, reason, override, round_no,
+                         rt_v, rt_issues, expect):
+        """变更单的裁决分派（三档自治批次② · 设计 §四）：accept 执行 / reject 留痕。
+
+        本批只定义 accept/reject 两态；其余裁决（edit/merge/noop）**fail-closed
+        报错带 hint**，不静默当作已处理——否则一条被 noop 的变更单会伪装成
+        「评估过、无需改动」，而实际动作从未发生过（设计 §三 硬约束③ 的同精神：
+        没发生的事不许汇报成发生了）。
+        """
+        if decision not in (DECISION_ACCEPT, DECISION_REJECT):
+            return {"ok": False, "error": "mutation_decision_unsupported",
+                    "kind": autonomy_modes.KIND_MUTATION,
+                    "decision": decision,
+                    "hint": "变更单（kind=mutation）本批只定义 accept/reject："
+                            "accept=执行对应动作（B reinforce/converge、"
+                            "C 覆写落盘、D 软删），reject=原样留痕不执行；"
+                            "edit/merge/noop 对变更单未定义——fail-closed "
+                            "未处理，提案保持 pending（未静默关闭）。"}
+        result = {"pid": pid, "decision": decision, "round": round_no,
+                  "redteam": rt_v or "absent"}
+        if decision == DECISION_ACCEPT:
+            mres = self._mutation_execute(item, reason=reason, override=override)
+            if not mres.get("ok"):
+                # 执行失败 = 动作未发生：**不落裁决**（提案保持 pending，与 merge
+                # 分支的 merge_target_not_found 同款——落一条 accepted 而动作没做，
+                # 就是「汇报不实」）。
+                return mres
+            result.update(mres)
+        else:
+            result["ok"] = True
+        return self._finish_decision(pid, item, decision, reason, round_no,
+                                     rt_v, rt_issues, expect, result)
+
 # 生效条件：无输入形参；调用即返回 list(read_jsonl(self.decisions_log))，记录内容取决于 decisions_log 可读结果；
     def decisions(self):
         return list(read_jsonl(self.decisions_log))
@@ -2660,11 +2853,17 @@ class MdCGOS(MdCG):
     # ================= 5. tombstone + 恢复时删除检查 =================
 
 # 生效条件：当 node_id 传入且索引中存在该节点时，先经 protect.guard_forget(override=override) 保护检查，随后尝试把源路径 os.replace 到 trash_dir/{node_id}.md；OSError 返回 ok False error 字符串；成功则写 deletions_log、_unstage、缓存失效、audit，并返回 ok True/id/tombstone；索引无此节点返回 not_found；
-    def forget(self, node_id: str, reason: str = "", override: bool = False):
-        """软删除：节点文件移入 trash/，写入删除清单（payload-free）。
+    def _forget_qualify(self, node_id: str, override: bool = False):
+        """删除的**既有资格前置闸**（单点）：索引代际感知 → not_found → 写保护。
 
-        写保护：受保护节点（self/anchor 层、protected 标记、importance≥0.7）
-        不可遗忘——需显式 override=True，且旧版本先快照、动作全程留痕。
+        为什么抽出来：三档自治（设计 §三 硬约束②「判定必须在既有资格闸通过
+        之后」）需要在**不重复、不重排、不放宽**这三道既有判据的前提下，先让
+        资格闸跑完再问档位。判据只此一份——`forget`（库层原路径）与
+        `forget_gated`（工具面档位路径）共用，不各写一份必然漂移。
+
+        返回 (entry, None) 表示资格通过（entry = 索引条目）；(None, err) 表示
+        资格未过（err 即既有 forget 的返回体；保护闸抛出的异常照旧外抛，不在
+        此吞掉——调用方看到的语义与改动前逐位一致）。
         """
         # N195（2026-09-28）：删除面与写面同源，先做索引代际感知。此前直读
         # 本进程内存索引——他进程刚写入的 anchor/self 节点在本进程索引中
@@ -2673,8 +2872,28 @@ class MdCGOS(MdCG):
         self._maybe_reload_index()
         e = self.index["nodes"].get(node_id)
         if not e:
-            return {"ok": False, "error": "not_found"}
+            return None, {"ok": False, "error": "not_found"}
         protect.guard_forget(self, node_id, override=override, actor=self.actor)
+        return e, None
+
+    def forget(self, node_id: str, reason: str = "", override: bool = False):
+        """软删除：节点文件移入 trash/，写入删除清单（payload-free）。
+
+        写保护：受保护节点（self/anchor 层、protected 标记、importance≥0.7）
+        不可遗忘——需显式 override=True，且旧版本先快照、动作全程留痕。
+
+        **库层语义不变**（三档自治批次②边界）：本方法不读档位、不出变更单——
+        档位判定在工具面 `forget_gated`（MCP `cg(op=forget)` / `mdcg_forget`），
+        脚本通道（`scripts/dsh_log_index.py` 等直调本方法）现状逐位不变。
+        """
+        e, err = self._forget_qualify(node_id, override=override)
+        if err is not None:
+            return err
+        return self._forget_apply(node_id, e, reason)
+
+# 生效条件：e 为 _forget_qualify 通过后的索引条目时执行既有软删体（os.replace 进 trash_dir、写 deletions_log、_unstage、缓存失效、audit）；publish 抛 OSError 时返回 {"ok": False, "error": 异常字符串}；成功返回 {"ok": True, "id", "tombstone"}；
+    def _forget_apply(self, node_id: str, e: dict, reason: str = ""):
+        """软删**执行体**（单点）：与改动前的 `forget` 体逐位一致。"""
         src = os.path.join(self.root, e["path"])
         fm, content = self._read(e)
         h = _sig(content or "", 16)
@@ -2695,6 +2914,43 @@ class MdCGOS(MdCG):
         chain.invalidate_cache(self)
         self._audit("forget", node_id, reason=reason, payload_hash=h)
         return {"ok": True, "id": node_id, "tombstone": h}
+
+# 生效条件：先跑既有资格前置闸 _forget_qualify（未过即原样返回其 err，含 not_found 与 protect.guard_forget 抛出）；资格通过后以 autonomy_modes.decide(D_DELETE) 判定——ALLOW 走 _forget_apply 软删并返回其原返回体；FORBID 返回 ok=False/moved_to="autonomy_forbidden" 终态；CONFIRM 经 autonomy_modes.propose_mutation 出变更单（目标 node_id、后像为空、复现参数 override 入载荷）并返回 ok=True/committed=False/deleted=False/moved_to="review_queue" 的终态（**不软删**）；
+    def forget_gated(self, node_id: str, reason: str = "", override: bool = False):
+        """软删的**档位路径**（三档自治批次② · 设计 §三 D 删除）：MCP 工具面专用。
+
+        位置（硬约束②「纯加严」）：`protect.guard_forget` 等既有资格判据跑完
+        之后才问档位——档位**不参与**资格判定、也**不放宽**任何判据：受保护
+        节点在这里照旧被 `ProtectionError` 拦下（不是先出单再拦）。
+
+        边界（如实）：脚本通道直调 `MdCGOS.forget`（库层原路径）**不接**本档位
+        ——本批只覆盖 MCP 工具面两个落点（`cg(op=forget)` / `mdcg_forget`）。
+        """
+        e, err = self._forget_qualify(node_id, override=override)
+        if err is not None:
+            return err
+        dec = autonomy_modes.decide(autonomy_modes.D_DELETE)
+        if dec["decision"] == autonomy_modes.ALLOW:
+            return self._forget_apply(node_id, e, reason)
+        aut = {"mode": dec["mode"], "action": dec["action"],
+               "action_name": dec["action_name"], "decision": dec["decision"]}
+        if dec["decision"] == autonomy_modes.FORBID:
+            return {"ok": False, "id": node_id, "deleted": False,
+                    "moved_to": "autonomy_forbidden", "error": "autonomy_forbid",
+                    "autonomy": aut, "hint": dec["hint"]}
+        pay = autonomy_modes.mutation_payload(
+            autonomy_modes.D_DELETE, node_id, after="",
+            reason=reason or "删除（MCP forget 工具面）", primitive="forget",
+            meta={"override": bool(override)})
+        pr = autonomy_modes.propose_mutation(
+            self, autonomy_modes.D_DELETE, node_id, payload=pay,
+            layer=e.get("layer") or "knowledge",
+            sensitivity=e.get("sensitivity"), info=True)
+        return {"ok": True, "id": node_id, "committed": False, "deleted": False,
+                "moved_to": "review_queue", "pid": pr["pid"], "mutation": pay,
+                "autonomy": aut,
+                "hint": "%s 本次未删除（节点原样在位）：变更单已入审核队列"
+                        "（pid=%s，目标 %s）。" % (dec["hint"], pr["pid"], node_id)}
 
 # 生效条件：无输入形参；调用即返回 list(read_jsonl(self.deletions_log))，记录内容取决于 deletions_log 可读结果；
     def deletions(self):
@@ -3598,7 +3854,176 @@ class MdCGOS(MdCG):
 
     # ---- 主动遗忘（写入侧三问闸门）+ 写保护盘点 ----
 
-# 生效条件：kw 中 gated 为假值时旁路直接 ACCEPT 写入并返回 bypass；否则 writelimit.check 非 None 时按 CONVERGE→MERGE 并经 converge_into（带 session 归属）并入 target、DROP/DEFER 只记 forgetting 日志，无限流拦截时按 forgetting.assess 的四态处理（ACCEPT 走 add——issue50-d：落盘 importance 恒等于裁决 imp["score"]（hint 或启发式）并落 importance_source（"hint"|"heuristic"），add 的自动保护位只认显式声明；MERGE 走 reinforce（带 content 与 session，返回体带 content_sink 去向）；DROP 经 forgetting.record_drop 落去向留痕并带 dropped 去向单；DEFER 不落盘、经既有入队单点 self.propose 把**正文 + 声明 meta（**kw）+「为何待定」**送进审核队列（返回体带 proposed=pid；node_id 非字符串时兜底成内容派生 id 并写 proposed_id_fallback），并照旧只记 forgetting 留痕）。
+# 生效条件：以 autonomy_modes.decide(B_MERGE) 判定——ALLOW 返回 None（调用方照旧执行合并原语，merge 裁决本身一字不改）；FORBID 返回 verdict="FORBID"/moved_to="autonomy_forbidden" 的终态；CONFIRM 经 autonomy_modes.propose_mutation 出变更单（目标 tgt、后像 content、复现参数 override/session 入载荷 meta）并返回 verdict="CONFIRM"/moved_to="review_queue" 的终态（**不调用任何合并原语、不落盘**）；
+    def _autonomy_gate_merge(self, node_id, tgt, content, kw, primitive,
+                             reason="", gate=None):
+        """三档自治档位在 **B 合并**出口的判定单点（设计 §三：变更确认档需确认）。
+
+        为什么是单点：合并的**两个落点**（`writelimit.check` 的 CONVERGE →
+        `converge_into`、`forgetting.assess` 的 MERGE → `reinforce`）都必须
+        过同一判据——两处各写一份必然漂移；且判定必须晚于**各自的裁决**
+        （限流闸 / 遗忘三问），档位不参与裁决（纯加严）。
+
+        变更单载荷：动作类 B · 目标 tgt · 后像 = 本次新内容 · 理由 · 复现参数
+        （override/session——merge 原语的两个非默认槽，裁决 accept 时按此重放）。
+        提议者/会话由 propose 的库端快照自动归属（`actor`/`session` 字段）。
+        """
+        from . import autonomy_modes as _am
+        # 资格在先（纯加严）：合并落盘时 reinforce/converge_into 内部的
+        # guard_overwrite 若会拒（受保护/越权），必须在**出单之前**照样拒——
+        # 否则一次本该报错的合并会变成「静默入队」。
+        self.write_qualify(tgt, override=bool(kw.get("override")),
+                           actor=self.actor)
+        dec = _am.decide(_am.B_MERGE)
+        if dec["decision"] == _am.ALLOW:
+            return None
+        aut = {"mode": dec["mode"], "action": dec["action"],
+               "action_name": dec["action_name"], "decision": dec["decision"]}
+        if dec["decision"] == _am.FORBID:
+            # 形态对齐原 MERGE 出口（gate / merged_into 两键照带）：调用方按
+            # 「gate.reason」取值读判断依据的既有读法不因本闸断裂。
+            return {"verdict": "FORBID", "node_id": node_id, "gate": gate,
+                    "merged_into": tgt, "moved_to": "autonomy_forbidden",
+                    "autonomy": aut, "hint": dec["hint"]}
+        # 队列的层闸（MdCGSecure.propose）按**目标节点的真层**校验：合并落点
+        # 本来就是目标层，用调用方声明的层会让闸与落点错位（issue50 前车：
+        # 校验层与落盘层错位会造死提案）。
+        tlayer = ((self.index.get("nodes") or {}).get(tgt) or {}).get("layer") \
+            or ((self.get(tgt) or {}).get("frontmatter") or {}).get("layer") \
+            or "contextual"
+        pay = _am.mutation_payload(
+            _am.B_MERGE, tgt, after=content,
+            reason=reason or ("档位确认（变更确认档）：新写入内容并入既有节点 %s"
+                              "（原语 %s）" % (tgt, primitive)),
+            primitive=primitive,
+            meta={"override": bool(kw.get("override")),
+                  "session": _writer_session(self, kw)})
+        pr = _am.propose_mutation(self, _am.B_MERGE, tgt, payload=pay,
+                                  layer=tlayer,
+                                  sensitivity=kw.get("sensitivity"), info=True)
+        return {"verdict": "CONFIRM", "node_id": node_id, "gate": gate,
+                "merged_into": tgt, "moved_to": "review_queue",
+                "pid": pr["pid"], "mutation": pay, "autonomy": aut,
+                "hint": "%s 本次未合并：变更单已入审核队列（pid=%s，目标 %s，"
+                        "新内容随单）。" % (dec["hint"], pr["pid"], tgt)}
+
+# 生效条件：以 forgetting.prior_node 判「同 id 已存在」（存在=C 改写、不存在=A 新增）后交 autonomy_modes.decide 判定——ALLOW 返回 None（调用方照旧 add 落盘，逐位不变）；FORBID 返回 ok=False/verdict="FORBID"/moved_to="autonomy_forbidden" 的终态（fail-closed，不落盘、不出单）；CONFIRM 先经 self.write_qualify 跑既有资格探针（受保护/越权覆写照旧当场抛出、不静默入队）再经 autonomy_modes.propose_mutation 出变更单并返回 ok=True/verdict="CONFIRM"/committed=False/moved_to="review_queue" 的终态（**不落盘**）；既有节点（C 改写）confirm/plan 两档出单、full 档放行；新节点（A 新增）confirm/full 两档放行、plan 档 FORBID（计划外零变更）；
+    def _autonomy_gate_rewrite(self, node_id, content, layer, kw,
+                               override=False, reason="", gate=None):
+        """三档自治档位在 **gated 面「C 改写 / A 新增」**出口的判定单点。
+
+        为什么要它（补强批次 2026-10-02，复核发现 1/2）：`gated=true` 的写入
+        在上游 `writepipe._gate_gated` 是**替代执行路径**（`remember_gated`
+        自行落盘后直接返回终态，链尾 `_gate_autonomy` 根本不执行）——而
+        `remember_gated` 的 ACCEPT 分支此前**无任何档位判据**、直调 `self.add`：
+        缺省（confirm）档对**既有 node_id 的覆写**直接落盘（不出变更单）、
+        计划档对**新 node_id** 也照样写入。二者都与设计 §三（C=需确认、
+        计划外零变更）相抵。本方法是该面**唯一**的档位判定点（与写链
+        `writepipe._gate_autonomy`、合并面 `_autonomy_gate_merge` 同口径）。
+
+        位置（纯加严，设计 §三 硬约束②）：遗忘闸四态裁决（`forgetting.assess`）
+        之后、`self.add` 落盘之前；档位**不参与**裁决、也不放宽任何既有判据。
+
+        动作类判定：`forgetting.prior_node(self, node_id)` 同 id 存在 ⇒
+        **C 改写**；不存在 ⇒ **A 新增**——判据复用同一单点，不另写一份存在性判据。
+
+        资格在先：既有节点出单**之前**先 `self.write_qualify`（与 add 内部同一批
+        protect 单点，只判不写）——受保护/越权覆写照旧当场 `ProtectionError`/
+        `AccessDenied`，不会变成「静默入队」（放宽既有判据）。
+
+        载荷 meta（复现原动作）：取**写链同一份白名单** `writepipe.
+        _AUTONOMY_META_KEYS`（延迟导入，单一真源），并补 gated 面独有的 fm 扩展键
+        `role`——直写路径 `self.add(..., **kw)` 会把 role 经 add 的 `**extra`
+        落 fm，重放不带就会「出单→确认→写」与直写两条路径 fm 不等价。
+        边界（如实）：`kw` 里的 `session` 不在本白名单内、且执行桥会把它
+        收进 B 原语的 session 槽（C 面不复现）——当前两个 gated 调用点
+        （`writepipe._gate_gated` / `mcp_server.mdcg_remember`）都不传 session。
+
+        返回形态：出单 = `ok=True/committed=False/moved_to="review_queue"`
+        且带 pid（口径同写链 `_gate_autonomy`）；FORBID = `ok=False/
+        moved_to="autonomy_forbidden"`（口径同写链 A 面）；ALLOW = `None`
+        （调用方原路落盘，行为逐位不变）。
+        """
+        from . import autonomy_modes as _am
+        # 载荷 meta 白名单的单一真源在写链（写面唯一定义处）；延迟导入防循环。
+        from . import writepipe as _wp
+        prior = forgetting.prior_node(self, node_id)
+        action = _am.C_REWRITE if prior is not None else _am.A_ADD
+        if prior is not None:
+            # 资格在先（纯加严）：同 `_autonomy_gate_merge` / `writepipe.
+            # _gate_autonomy`——覆写的层闸/写保护闸住在 `self.add` 内部，档位
+            # 先出单会把一次本该报错的覆写变成「静默入队」（放宽既有判据）。
+            self.write_qualify(node_id, target_layer=layer,
+                               override=bool(override), actor=self.actor)
+        dec = _am.decide(action)
+        if dec["decision"] == _am.ALLOW:
+            return None
+        aut = {"mode": dec["mode"], "action": dec["action"],
+               "action_name": dec["action_name"], "decision": dec["decision"]}
+        if dec["decision"] == _am.FORBID:
+            return {"ok": False, "verdict": "FORBID", "node_id": node_id,
+                    "committed": False, "gate": gate,
+                    "moved_to": "autonomy_forbidden", "error": "autonomy_forbid",
+                    "autonomy": aut, "hint": dec["hint"]}
+        meta = {k: kw[k] for k in _wp._AUTONOMY_META_KEYS
+                if kw.get(k) is not None}
+        if kw.get("role") is not None:
+            meta["role"] = kw["role"]
+        if override:
+            meta["override"] = True
+        pay = _am.mutation_payload(
+            action, node_id, after=content,
+            reason=reason or ("gated 面覆写（gated=true / remember_gated 对既有"
+                              "节点 %s 的 %s）" % (node_id, _am.ACTION_NAMES[action])),
+            primitive="add", meta=meta)
+        pr = _am.propose_mutation(self, action, node_id, payload=pay,
+                                  layer=layer,
+                                  sensitivity=kw.get("sensitivity"), info=True)
+        return {"ok": True, "verdict": "CONFIRM", "node_id": node_id,
+                "committed": False, "gate": gate, "moved_to": "review_queue",
+                "pid": pr["pid"], "mutation": pay, "autonomy": aut,
+                "hint": "%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
+                        % (dec["hint"], pr["pid"], node_id)}
+
+# 生效条件：node_id 不在索引中（新节点）时返回 None（新写入面没有「既有资格闸」，其层闸由落盘面把守）；在索引中时以 override=False 跑 protect.guard_overwrite（既有节点覆写前的统一双闸：principal 层闸按**既有节点真层** + 引擎级写保护闸）与（target_layer 非空且与真层不同时）protect.guard_move（受保护节点移出保护层的降级闸），任一拒绝抛出的 AccessDenied 一律照抛、ProtectionError 仅在 override 为假时照抛（override 为真时放行——真实写入那一次会带授权并写快照，本探针**不写快照**）；全部通过返回 None；本函数不落盘、不改索引、不写任何快照；
+    def write_qualify(self, node_id, target_layer=None, override=False,
+                      actor=None):
+        """既有节点写面的**资格探针**（三档自治：档位判定必须晚于既有资格闸）。
+
+        为什么要它（纯加严，设计 §三 硬约束②）：写面落盘时的两道资格闸
+        ——`protect.guard_overwrite`（层闸 + 写保护闸）与 `protect.guard_move`
+        （降级闸）——住在 `MdCG.add` **内部**。若档位闸在 add 之前就判「出变更
+        单」，一次本该被拒的越权/受保护覆写就从 `AccessDenied`/`ProtectionError`
+        变成「静默入队」——那是**放宽既有判据**（未授权者凭空获得一个排单出口）。
+        故档位判定前先用**同一批单点**跑一遍资格：判据只有一份（protect 的那些
+        单点），这里只负责按 add 的次序与范围调用它们。
+
+        无副作用边界（如实）：override=False 时 guard_write/guard_move 只判不写；
+        override=True 的情形**不由本探针**产生快照——快照归真实写入那一次
+        （`_allow` → `_protected_history`）。故本探针不得被当作「授权检查」以外的
+        用途（它不建目录、不落文件、不动索引）。
+        """
+        e = (self.index.get("nodes") or {}).get(node_id)
+        if not e:
+            return None
+        if target_layer and str(e.get("layer") or "") \
+                and str(e.get("layer")) != str(target_layer):
+            try:
+                protect.guard_move(self, node_id, target_layer, override=False,
+                                   actor=actor)
+            except protect.ProtectionError:
+                if not override:
+                    raise
+        try:
+            # 层闸按**既有节点真层**解析（layer=None ⇒ protect._resolve_target
+            # 取索引/ fm 的真层）——与 add 的 N221 跨层覆写同口径（源层在先）。
+            protect.guard_overwrite(self, node_id, override=False, actor=actor)
+        except protect.ProtectionError:
+            if not override:
+                raise
+        return None
+
+# 生效条件：kw 中 gated 为假值时旁路直接 ACCEPT 写入并返回 bypass；否则 writelimit.check 非 None 时按 CONVERGE→MERGE 并经 converge_into（带 session 归属）并入 target、DROP/DEFER 只记 forgetting 日志，无限流拦截时按 forgetting.assess 的四态处理（ACCEPT **先过档位闸 `_autonomy_gate_rewrite`**——既有 node_id ⇒ C 改写（confirm/plan 出单且不落盘、full 放行）、不存在 ⇒ A 新增（confirm/full 放行、plan fail-closed `autonomy_forbidden`），放行才走 add——issue50-d：落盘 importance 恒等于裁决 imp["score"]（hint 或启发式）并落 importance_source（"hint"|"heuristic"），add 的自动保护位只认显式声明；MERGE 走 reinforce（带 content 与 session，返回体带 content_sink 去向）；DROP 经 forgetting.record_drop 落去向留痕并带 dropped 去向单；DEFER 不落盘、经既有入队单点 self.propose 把**正文 + 声明 meta（**kw）+「为何待定」**送进审核队列（返回体带 proposed=pid；node_id 非字符串时兜底成内容派生 id 并写 proposed_id_fallback），并照旧只记 forgetting 留痕）。
     def remember_gated(self, node_id, content, layer="contextual", **kw):
         """写入情景层记忆前的**主动遗忘闸门**：三问 → 四态。
 
@@ -3654,6 +4079,17 @@ class MdCGOS(MdCG):
         不打保护位——由此审计面文案（assess 保护分支按 from 分叉）、落盘分、
         保护位三者首次同源一致。外部基准（hive-memory-bench v1.0）测得 L3
         使用端损耗 3-4/19：本批让重要度轴带电（排序次级键从此拿到真分）。
+
+        补强批次（2026-10-02，复核发现 1/2 的收口）：ACCEPT 分支此前**无任何
+        档位判据**、直调 `self.add`——`gated=true`（插件自动记忆主写入通道）
+        在缺省 confirm 档对既有 node_id 直接覆写（不出变更单）、在计划档对新
+        node_id 也照样写入。现该分支落盘前先经 `_autonomy_gate_rewrite`
+        （gated 面档位判定单点，与写链 `writepipe._gate_autonomy` 同口径、
+        同一存在性单点 `forgetting.prior_node`）：C 改写 confirm/plan 出单、
+        full 放行；A 新增 confirm/full 放行（行为逐位不变）、plan fail-closed。
+        出单前先跑 `write_qualify` 资格探针——受保护/越权覆写照旧当场拒，
+        不因「改为入队」而放宽既有判据（纯加严）。出单/拒绝都写一行
+        `_forgetting.jsonl`（verdict=CONFIRM/FORBID + hint），可审计。
         """
         role = kw.get("role")
         vb = kw.get("verification_basis")
@@ -3685,6 +4121,18 @@ class MdCGOS(MdCG):
         if lim is not None:
             if lim["verdict"] == "CONVERGE":
                 tgt = lim["target"]
+                # 三档自治批次②：档位判定在**限流闸裁决之后、合并原语之前**。
+                _ag = self._autonomy_gate_merge(node_id, tgt, content, kw,
+                                               primitive="converge_into",
+                                               gate=lim)
+                if _ag is not None:
+                    forgetting.log(self, {"t": time.time(), "node_id": node_id,
+                                          "layer": layer,
+                                          "verdict": _ag["verdict"],
+                                          "reason": _ag["hint"],
+                                          "limiter": lim.get("limiter"),
+                                          "actor": self.actor})
+                    return _ag
                 out = {"verdict": "MERGE", "node_id": node_id,
                        "merged_into": tgt, "gate": lim,
                        "converged": writelimit.converge_into(
@@ -3724,6 +4172,27 @@ class MdCGOS(MdCG):
             # 本批影响）。
             kw["importance"] = verdict["importance"]["score"]
             kw["importance_source"] = verdict["importance"]["from"]
+            # 三档自治批次②补强（2026-10-02）：**gated 面的 C 改写 / A 新增档位
+            # 判定**。此前本分支直调 `self.add`——`gated=true` 的覆写在确认档
+            # 不落任何档位判定就覆写既有节点（复核发现 1：插件自动记忆的主写入
+            # 通道可旁路确认档），计划档的新增也不被拦（发现 2）。判定与写链
+            # `writepipe._gate_autonomy` **同口径**、同一存在性单点
+            # （`forgetting.prior_node`）：既有 node_id ⇒ C 改写（confirm/plan
+            # 出单、full 放行）、不存在 ⇒ A 新增（confirm/full 放行、plan
+            # fail-closed）；出单前先跑 write_qualify 资格探针（受保护/越权覆写
+            # 照旧当场拒，不静默入队）。位置在 importance 落盘值写入之后，故
+            # 变更单载荷带的是**裁决值**（issue50-d 同源口径）。
+            _ag = self._autonomy_gate_rewrite(node_id, content, layer, kw,
+                                              override=override, gate=verdict)
+            if _ag is not None:
+                forgetting.log(self, {"t": time.time(), "node_id": node_id,
+                                      "layer": layer,
+                                      "verdict": _ag["verdict"],
+                                      "reason": _ag["hint"],
+                                      "importance": verdict["importance"],
+                                      "entropy": verdict["entropy"],
+                                      "actor": self.actor})
+                return _ag
             try:
                 out["written"] = self.add(node_id, content, layer=layer,
                                           override=override,
@@ -3741,6 +4210,24 @@ class MdCGOS(MdCG):
                     writelimit.record_accepted(self, node_id, content)
         elif v == "MERGE":
             tgt = verdict["redundancy"]["with"]
+            # 三档自治批次②：档位判定在**遗忘闸四态裁决之后、合并原语之前**
+            # （纯加严——裁决仍归 forgetting.assess，档位只决定「立即合并」还是
+            # 「出变更单」）。合并对象为空（tgt 假值）时不上报变更单：原路径
+            # 的 reinforce 也只在 tgt 为真时执行，档位不得把「无事发生」变成
+            # 「一张凭空指向空目标的单」。
+            if tgt:
+                _ag = self._autonomy_gate_merge(node_id, tgt, content, kw,
+                                                primitive="reinforce",
+                                                gate=verdict)
+                if _ag is not None:
+                    forgetting.log(self, {"t": time.time(), "node_id": node_id,
+                                          "layer": layer,
+                                          "verdict": _ag["verdict"],
+                                          "reason": _ag["hint"],
+                                          "importance": verdict["importance"],
+                                          "entropy": verdict["entropy"],
+                                          "actor": self.actor})
+                    return _ag
             out["merged_into"] = tgt
             # B3 ②（2026-09-30）：把**新正文**与写入方归属一并传下去。此前只传
             # tgt——调用方手上正握着 content 与 node_id 却不往下传，reinforce 写回
@@ -4656,10 +5143,26 @@ class MdCGSecure(MdCGOS):
 
     # ---------- 管理：需 can_admin ----------
 
-# 生效条件：先 principal.require_admin("forget")，再转 super().forget(node_id, reason, override=override)。
-    def forget(self, node_id: str, reason: str = "", override: bool = False):
+# 生效条件：principal 在位时调用 principal.require_admin("forget")（越权抛 AccessDenied），返回 None；
+    def _forget_admin(self):
+        """删除面的**管理权限闸单点**（三档自治批次②：两个入口共用一份口径）。
+
+        为什么抽出来：`forget`（既有）与 `forget_gated`（档位路径）都必须先过
+        这道闸——`MdCGSecure` 的 can_admin 要求原先只写在 `forget` 里，档位路径
+        若直调 `_forget_apply` 就把它整个跳过了（实测：`MDCG_CAN_ADMIN=0` 的身份
+        经 `mdcg_forget` 能把节点删掉）。判据只此一份，两个入口都走它。
+        """
         self.principal.require_admin("forget")
+
+# 生效条件：先 _forget_admin()，再转 super().forget(node_id, reason, override=override)；
+    def forget(self, node_id: str, reason: str = "", override: bool = False):
+        self._forget_admin()
         return super().forget(node_id, reason, override=override)
+
+# 生效条件：先 _forget_admin()（与 forget 同序同错型——管理闸在资格闸与档位判定**之前**），再转 super().forget_gated(node_id, reason, override=override)；三档自治批次② 的 D 删除工具面路径由此把 can_admin 要求带进档位路径；
+    def forget_gated(self, node_id: str, reason: str = "", override: bool = False):
+        self._forget_admin()
+        return super().forget_gated(node_id, reason, override=override)
 
 # 生效条件：先 principal.require_admin("restore")，再转 super().restore(node_id, force=force)。
     def restore(self, node_id: str, force: bool = False):

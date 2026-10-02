@@ -2071,7 +2071,7 @@ def _task_call(cg, a):
     return _t.list_tasks(cg, status=tstat or None, limit=a.get("limit"))
 
 
-# 生效条件：op 取 a.get("op") 转 str 去空白并 lower；缺失时按参数签名回推（含 content→write / query|node_id→read / intent→route；无签名可推时维持 read），op=="help" 在角色闸门之前直通 _help_call；其余 op 先经 cg.principal.require_op(op)（越权即 AccessDenied）再按 alias→内联名→cli 表分派；未识别 op 抛 ValueError；
+# 生效条件：op 取 a.get("op") 转 str 去空白并 lower；缺失时按参数签名回推（含 content→write / query|node_id→read / intent→route；无签名可推时维持 read），op=="help" 在角色闸门之前直通 _help_call；其余 op 先经 cg.principal.require_op(op)（越权即 AccessDenied）再按 alias→内联名→cli 表分派；未识别 op 抛 ValueError；fork：op=="forget" 的**删除**分支走 cg.forget_gated（三档自治批次②：档位判定在既有资格闸之后，变更确认档出变更单且不软删；restore 分支不变），op=="write" 经 writepipe 默认链（链尾 autonomy 档位闸）；
 def _cg_dispatch(cg, a):
     """认知图唯一入口的 op 分发主体。"""
     op = (a.get("op") or "read").strip().lower()
@@ -2408,8 +2408,11 @@ def _cg_dispatch(cg, a):
     if op == "forget":
         if (a.get("action") or "forget").strip().lower() == "restore":
             return cg.restore(a.get("node_id", ""), force=bool(a.get("force")))
-        return cg.forget(a.get("node_id", ""), a.get("reason", ""),
-                         override=bool(a.get("override")))
+        # 三档自治批次②（设计 §三 D 删除）：工具面经 forget_gated——档位判定在
+        # 既有资格闸（not_found / protect.guard_forget）**之后**，变更确认档
+        # 出变更单且不软删；库层 forget 语义不变（脚本通道不接，本批边界）。
+        return cg.forget_gated(a.get("node_id", ""), a.get("reason", ""),
+                               override=bool(a.get("override")))
 
     if op == "protect":
         return _protect_call(cg, a)
@@ -3287,7 +3290,7 @@ def recall_fusion_default(use_fuzzy, use_semantic, use_goal, use_causal,
             else None)
 
 
-# 生效条件：name 为已注册工具名之一（cg / stg / mdcg_whitebox / mdcg_service_info / mdcg_remember 等）；name 属 _MDCG_OP_REQUIRE 且 cg.principal 具 require_op 属性时先 require_op（越权抛 AccessDenied），principal 为 None 或无该方法时跳过；cg 走 _cg_call、stg 走 _stg_call、whitebox 走 _whitebox_call；未识别的 name 返回含 error 的响应字典而不抛异常，进程不因此中断；
+# 生效条件：name 为已注册工具名之一（cg / stg / mdcg_whitebox / mdcg_service_info / mdcg_remember 等）；name 属 _MDCG_OP_REQUIRE 且 cg.principal 具 require_op 属性时先 require_op（越权抛 AccessDenied），principal 为 None 或无该方法时跳过；cg 走 _cg_call、stg 走 _stg_call、whitebox 走 _whitebox_call；未识别的 name 返回含 error 的响应字典而不抛异常，进程不因此中断；mdcg_forget 走 cg.forget_gated（同 cg(op=forget) 的档位路径）、mdcg_remember 的非 gated 直写分支在同 id 覆写时先过 cg.write_qualify 再按档位判定（三档自治批次②）；
 def _dispatch(cg, name, args):
     a = args or {}
     # P1-1：mdcg_* 面的角色作用域闸（与 cg 工具的 require_op 同一语义——
@@ -3354,6 +3357,51 @@ def _dispatch(cg, name, args):
         _prior_cov = (_forgetting.self_coverage(cg, _prior, _content)
                       if _prior is not None else None)
         _dup = _forgetting.redundancy(cg, _content, layer=_layer, exclude=nid)
+        # 三档自治批次②（设计 §三）：本分支是**热写入路径的第二落点**（另两处 =
+        # writepipe 链尾执行器、remember_gated）——同 id 已存在 ⇒ C 改写、
+        # 不存在 ⇒ A 新增，判据复用 forgetting.prior_node（不另写一份存在性判据）。
+        # 位置：既有 `if a.get("gated")` 分支之后、`cg.add` 之前（直写面没有别的
+        # 资格闸；audit/限流属 gated 分支的链）。确认档 ⇒ 出单且不落盘。
+        from . import autonomy_modes as _am
+        _action = _am.C_REWRITE if _prior is not None else _am.A_ADD
+        if _prior is not None:
+            # 资格在先（纯加严）：见 writepipe._gate_autonomy 同款注释——覆写的
+            # 层闸/写保护闸在 cg.add 内部，档位闸不得抢在它们之前把拒绝变成入队。
+            cg.write_qualify(nid, target_layer=_layer,
+                             override=bool(a.get("override")),
+                             actor=getattr(cg, "actor", None))
+        _dec = _am.decide(_action)
+        if _dec["decision"] != _am.ALLOW:
+            _aut = {"mode": _dec["mode"], "action": _dec["action"],
+                    "action_name": _dec["action_name"],
+                    "decision": _dec["decision"]}
+            if _dec["decision"] == _am.FORBID:
+                return {"ok": False, "id": nid, "committed": False,
+                        "moved_to": "autonomy_forbidden",
+                        "error": "autonomy_forbid", "autonomy": _aut,
+                        "hint": _dec["hint"]}
+            _meta = {k: a[k] for k in
+                     ("tags", "condition_space", "verification_basis",
+                      "non_applicable_conditions", "derived_from", "relation",
+                      "role", "importance") if a.get(k) is not None}
+            # 直写面的裁决参数（本分支的 add 会自己跑冲突闸）：随单落进复现 meta，
+            # 否则「确认后落盘」与「直接落盘」两条路径的判据不等价。
+            _meta["consistency"] = bool(a.get("consistency", True))
+            _meta["on_conflict"] = a.get("on_conflict") or "reject"
+            _meta["override"] = bool(a.get("override"))
+            _pay = _am.mutation_payload(
+                _action, nid, after=_content,
+                reason="mdcg_remember 直写（%s）" % _am.ACTION_NAMES[_action],
+                primitive="add", meta=_meta)
+            _pr = _am.propose_mutation(cg, _action, nid, payload=_pay,
+                                       layer=_layer,
+                                       sensitivity=a.get("sensitivity"),
+                                       info=True)
+            return {"ok": True, "id": nid, "committed": False,
+                    "moved_to": "review_queue", "pid": _pr["pid"],
+                    "mutation": _pay, "autonomy": _aut,
+                    "hint": "%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
+                            % (_dec["hint"], _pr["pid"], nid)}
         written = cg.add(nid, _content, layer=_layer,
                          # B2：同上——落盘面丢字段＝上游声明静默失效。
                          sensitivity=a.get("sensitivity"),
@@ -3524,8 +3572,9 @@ def _dispatch(cg, name, args):
         return {"records": cg.review_records(pid=a.get("pid"))}
 
     if name == "mdcg_forget":
-        return cg.forget(a.get("node_id", ""), a.get("reason", ""),
-                         override=bool(a.get("override")))
+        # 三档自治批次②：与 cg(op=forget) 同一档位路径（forget_gated，见该分支注释）。
+        return cg.forget_gated(a.get("node_id", ""), a.get("reason", ""),
+                               override=bool(a.get("override")))
 
     if name == "mdcg_restore":
         return cg.restore(a.get("node_id", ""), force=bool(a.get("force")))

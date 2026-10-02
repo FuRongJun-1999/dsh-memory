@@ -1,0 +1,1091 @@
+# -*- coding: utf-8 -*-
+"""md_cg · 三档自治「档位单一入口」守卫（设计 v0.2 §三/§四/§五 · 批次②）
+
+覆盖（设计 §十一 验收判据在本批的落点）：
+  · **逐格矩阵**（3 档 × 5 动作类 A/B/C/D/E）＋ 缺省档 = confirm（裁定①）；
+  · 非法 env 值 fail-closed（报错 + hint 列合法值，**不**静默降级）；
+  · plan 档最小语义：无计划时「须命中计划步骤」的 A/B/E 一律 forbid
+    （计划输入面待后续批次；硬约束③ 计划外零变更）；
+  · **B/C/D 出单**（三条热路径各一：写链覆写 C / 遗忘与限流合并 B / 工具面删除 D）
+    —— 出单且**不落盘**，载荷含动作类·目标·后像·理由；
+  · **accept 执行**（B/C/D 三种动作各一）＋ **reject 不执行**（原样留痕）；
+  · edit/merge/noop 对变更单 fail-closed（不静默当已处理）；
+  · 幂等：同（动作类+目标+后像）不长第二条；不同目标**不撞键**；
+  · 存量兼容：旧条目无 `kind` 键一律视为 proposal（零迁移），accept 路径逐位不变；
+  · **不动面对拍**（设计 §十一）：
+      ① full 档下闸门对全部动作类返回 allow ⇒ 与改动前**同一条链**（构造性等价
+         ——本基线**不绑 git HEAD**，本仓已有两次教训）；
+      ② confirm 档下 A 新增 / E 权重 的动作面读数与 full 档**逐位相等**；
+      ③ 库层（`MdCG.add` / `_write_node` / `MdCGOS.forget`）与合并原语
+         （`forgetting.reinforce` / `writelimit.converge_into`）源码里**不得**出现
+         档位判据——「直调库层不接线」是 accept 执行桥「越过确认判定」的机制前提。
+
+**补强批次（2026-10-02）新增 I/J 两组**（独立复核三条未收口 + 容器栈一门禁红）：
+  · I 组 **gated 面**（`remember_gated` 的 ACCEPT 分支 = 插件主写入通道）：
+      - C 覆写（既有 node_id）：confirm/plan 档出变更单且不落盘、full 档照旧直落；
+        资格在先——受保护节点覆写在 `write_qualify` 处当场拦（不静默入队）；
+      - A 新增（node_id 不存在）：confirm/full 档**逐位零变化**（返回体与落盘节点
+        都对拍），plan 档 fail-closed（`autonomy_forbidden`，带 hint）；
+      - 链面（`op=write` + `gated=true`，`_gate_gated`）与 MCP 工具面
+        （`mdcg_remember(gated=true)`）同判据——插件主通道不再旁路确认档；
+      - 执行桥 C：目标在 accept 前消失 ⇒ `target_missing` 且**不重建**节点
+        （对照片：目标在位时照旧执行）；
+  · J 组 **容器栈一 SHIM-MISS 修复面**：`test_policy_required_ccg` 的 `_SHIMS`
+    登记（writepipe 档位闸的相对 import）+ 该腿 `--head-baseline` 整腿 PASS +
+    **负对照**（子进程内把 `_SHIMS` 去掉 `autonomy_modes` ⇒ 必须 SHIM-MISS
+    非零退出——J3 的绿不是空转）。
+
+定点变异自证（`--mutate`，与 `md_cg/test_neg_condition_hits.py` 同口径）：
+表内每项 = (说明, 目标, 锚点原文, 替换文, 预期红项数)。锚点须**逐字**出现在目标
+函数源码里；漂移即 ANCHOR-MISS（fail-closed，exit 2）。红项数与实测**逐一相符**
+才算通过——不符即 FAIL（多红=断言越界、少红=该判据无判别力）。
+目标形态三种：`("mod", 模块, 函数名)` / `("cls", 类, 方法名)` 走**源码替换 + exec**
+重装；`("attr", 模块, 属性名)` 是**常量型变异**（把属性换成 `替换文` 求值出的新值，
+用于 `_SHIMS` 这类「判据是数据不是函数体」的落点）。
+
+运行：
+  python -X utf8 -m md_cg.test_autonomy_modes              # 正常跑
+  python -X utf8 -m md_cg.test_autonomy_modes --mutate     # 定点变异自证
+
+沙箱（硬约束）：一切读写都在 tempfile.mkdtemp 内（含 MDCG_AUX_ROOT / 主密钥——
+crypto 在导入期求值 MASTER_FILE，故必须在任何 md_cg 子模块 import **之前**设好）；
+跑完 rmtree。**绝不碰在役数据根**。档位 env 由夹具按需设置并在 finally 还原。
+边界（如实，2026-10-02 补强批次实测）：`rmtree(..., ignore_errors=True)` 在 Windows 上
+可能被未释放的锁句柄挡住，每次跑约残留 1 个**空壳**沙箱目录（实测内容仅
+`<lib>/_index.json` 与 `.lock` 两个文件，全为合成库、零真实数据）；补强批次已清理
+本会话累积的 30 个，清理逻辑未改（根因未定，留池登记）。
+"""
+from __future__ import annotations
+
+import contextlib
+import inspect
+import io
+import json
+import os
+import shutil
+import sys
+import tempfile
+
+# ---- 沙箱：必须在任何 md_cg 子模块 import 之前 ------------------------------
+_SANDBOX = tempfile.mkdtemp(prefix="autonomy_modes_sandbox_")
+os.environ["MDCG_AUX_ROOT"] = _SANDBOX
+os.environ["MDCG_ROOT"] = os.path.join(_SANDBOX, "root")
+os.environ["MDCG_MASTER_KEY"] = os.urandom(32).hex()
+os.environ.pop("MDCG_TEST_LIVE_ROOT", None)
+_OLD_POLICY = os.environ.pop("MDCG_POLICY_FILE", None)
+
+from . import autonomy_modes, forgetting, writelimit, writepipe   # noqa: E402
+from . import mdcos                                                # noqa: E402
+from . import test_policy_required_ccg as _tpc                      # noqa: E402
+from .mdcos import MdCGOS, MdCGSecure                              # noqa: E402
+from .mdcg import MdCG                                             # noqa: E402
+from .security import Principal                                    # noqa: E402
+
+#: 档位 env 键名——**不写字面量**：从真源表取（全仓唯一字面量落点在本模块之外的
+#: autonomy_modes.AUTONOMY_ENV_KEYS，G 组把它 grep 钉死）。夹具因此不构成第二处
+#: 字面量，守卫的 grep 判据得以保持严格。
+_ENV_MODE = autonomy_modes.AUTONOMY_ENV_KEYS["mode"]
+
+_PASS = []
+_FAIL = []
+_RUN = [0]
+
+
+def ok(cond, msg, extra=""):
+    (_PASS if cond else _FAIL).append(msg)
+    print(("  PASS " if cond else "  FAIL ") + msg
+          + (("  ← " + str(extra)) if (extra and not cond) else ""))
+
+
+def _policy():
+    """审计闸要一份可用规则库（required 命中即 ACCEPT，同 test_writepipe 口径）。"""
+    path = os.path.join(_SANDBOX, "policy.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"forbidden": ["FORBIDDEN_WORD"], "required": ["PASSED"]}, f)
+    os.environ["MDCG_POLICY_FILE"] = path
+    return path
+
+
+def _lib(tag="lib"):
+    """独立合成库（每轮独立子根：变异模式连跑多轮，共用目录会读到上一轮盘面）。"""
+    return MdCGOS(os.path.join(_SANDBOX, "%s_r%d" % (tag, _RUN[0])), autoflush=0)
+
+
+@contextlib.contextmanager
+def _mode(m):
+    """按需设档位，退出还原（夹具专用；不在生产码里读/写档位）。"""
+    old = os.environ.get(_ENV_MODE)
+    os.environ[_ENV_MODE] = m
+    try:
+        yield m
+    finally:
+        if old is None:
+            os.environ.pop(_ENV_MODE, None)
+        else:
+            os.environ[_ENV_MODE] = old
+
+
+@contextlib.contextmanager
+def _no_mode():
+    """清掉档位 env（考「缺省 = confirm」）。"""
+    old = os.environ.pop(_ENV_MODE, None)
+    try:
+        yield
+    finally:
+        if old is not None:
+            os.environ[_ENV_MODE] = old
+
+
+def _pipe():
+    """新建默认链（档位闸是注册期绑定，故每组现建，变异才对写链生效）。"""
+    return writepipe.install_default_gates(writepipe.WritePipeline())
+
+
+#: 对拍要剔除的**时钟面**键（两次运行必然不同，与档位无关——剔除不算放水：
+#: 对拍的判据是「档位有没有改变行为」，不是「时间戳是否相同」）。
+_VOLATILE = ("t", "created_at", "last_access", "time_window", "last_merge_at")
+
+
+def _strip(d):
+    """递归剔除时钟面键，返回可逐位比较的结构。"""
+    if isinstance(d, dict):
+        return {k: _strip(v) for k, v in d.items() if k not in _VOLATILE}
+    if isinstance(d, list):
+        return [_strip(x) for x in d]
+    return d
+
+
+BODY = ("# 功能名：部署面端口约定\n"
+        "# 生效条件：载体/位置：prod 集群；时间：2026-09-30 起；方法：部署清单核对；约束：无\n"
+        "# 子功能：登记各服务监听端口\n"
+        "# 执行：核对 manifest 的 ports 段\n"
+        "# 验证方式：test\n"
+        "# 不适用条件：无\n"
+        "\n网关监听端口 8080/HTTP；管理面监听端口 8081/HTTP；"
+        "指标面监听端口 %s/HTTP；日志面监听端口 9091/HTTP\n")
+PLAIN = "PASSED 探针正文 %s"
+
+
+# =============================================================== A 组：矩阵
+def g_a():
+    print("== A 组：裁决矩阵逐格（3 档 × 5 动作类）==")
+    want = {
+        "plan":    {"A": "forbid", "B": "forbid", "C": "confirm",
+                    "D": "confirm", "E": "forbid"},      # 无计划 ⇒ 须计划步骤者 forbid
+        "confirm": {"A": "allow", "B": "confirm", "C": "confirm",
+                    "D": "confirm", "E": "allow"},       # 设计 §三 缺省列
+        "full":    {"A": "allow", "B": "allow", "C": "allow",
+                    "D": "allow", "E": "allow"},
+    }
+    for m in autonomy_modes.AUTONOMY_MODES:
+        for a in autonomy_modes.ACTION_CLASSES:
+            d = autonomy_modes.decide(a, mode_explicit=m)
+            ok(d["decision"] == want[m][a] and d["mode"] == m
+               and d["action"] == a,
+               "A 矩阵格 %s×%s → %s" % (m, a, want[m][a]), d)
+    # 矩阵真源 = MATRIX 表（逐格与上表同源，防「表改了判据没改」）
+    for m in autonomy_modes.AUTONOMY_MODES:
+        for a in autonomy_modes.ACTION_CLASSES:
+            cell = autonomy_modes.MATRIX[m][a]
+            ok(cell in (autonomy_modes.ALLOW, autonomy_modes.CONFIRM,
+                        autonomy_modes.PLAN_STEP),
+               "A 表内格 %s×%s 是合法格值（%s）" % (m, a, cell), cell)
+    d = autonomy_modes.decide("B", mode_explicit="confirm")
+    ok(bool(d["hint"]) and "变更单" in d["hint"],
+       "A confirm 判定带可读 hint（出变更单 + 裁决入口）", d["hint"][:40])
+    with _no_mode():
+        ok(autonomy_modes.mode() == "confirm",
+           "A 缺省档 = confirm（env 未设）", autonomy_modes.mode())
+    ok(autonomy_modes.DEFAULT_MODE == "confirm"
+       and autonomy_modes.AUTONOMY_ENV_DEFAULTS["mode"] == "confirm",
+       "A 缺省真源 = confirm（表与具名常量同源）")
+    with _mode("bogus"):
+        try:
+            autonomy_modes.mode()
+            ok(False, "A 非法 env fail-closed（未报错）")
+        except autonomy_modes.AutonomyModeError as e:
+            ok("bogus" in str(e) and "plan" in str(e) and "confirm" in str(e)
+               and "full" in str(e),
+               "A 非法 env fail-closed：报错 + hint 列合法值", str(e)[:50])
+    with _mode("  FULL  "):
+        ok(autonomy_modes.mode() == "full",
+           "A 档位名去空白/大小写不敏感（归一后合法即生效）")
+    # plan 档：有计划且命中 ⇒ allow；有计划未命中 ⇒ forbid（计划外零变更）
+    d = autonomy_modes.decide("B", mode_explicit="plan", plan=["B", "A"])
+    ok(d["decision"] == "allow", "A plan 档命中计划步骤 → allow", d)
+    d = autonomy_modes.decide("A", mode_explicit="plan", plan={"steps": [{"action": "B"}]})
+    ok(d["decision"] == "forbid" and "计划外零变更" in d["hint"],
+       "A plan 档未命中计划步骤 → forbid（计划外零变更）", d)
+    d = autonomy_modes.decide("A", mode_explicit="plan")
+    ok(d["decision"] == "forbid" and "计划输入面待后续批次" in d["hint"],
+       "A plan 档无计划 → forbid 且 hint 说明计划输入面待后续批次", d["hint"][:50])
+    try:
+        autonomy_modes.decide("Z", mode_explicit="confirm")
+        ok(False, "A 未知动作类未拒")
+    except ValueError:
+        ok(True, "A 未知动作类 fail-closed（ValueError）")
+
+
+# =============================================================== B 组：C 改写
+def g_b():
+    print("== B 组：写链 C 改写（cg(op=write) 同 id 覆写）==")
+    _policy()
+    pipe = _pipe()
+    with _mode("confirm"):
+        cg = _lib("c")
+        nid = "c_b1"
+        o1 = pipe.execute(cg, {"content_kind": "text",
+                               "content": PLAIN % "初版", "layer": "knowledge",
+                               "node_id": nid})
+        ok(o1.get("committed") is True, "B 首次写入（A 新增）直落不拦", o1)
+        o2 = pipe.execute(cg, {"content_kind": "text",
+                               "content": PLAIN % "改写版", "layer": "knowledge",
+                               "node_id": nid})
+        ok(o2.get("moved_to") == "review_queue"
+           and o2.get("committed") is False and bool(o2.get("pid")),
+           "B C 改写出变更单且不落盘", {k: o2.get(k) for k in
+                                        ("moved_to", "committed", "pid")})
+        ok("初版" in (cg.get(nid) or {}).get("content", "")
+           and "改写版" not in (cg.get(nid) or {}).get("content", ""),
+           "B 出单时目标节点正文**未被改写**（逐字比对）")
+        pay = o2.get("mutation") or {}
+        ok(pay.get("action") == "C" and pay.get("target") == nid
+           and pay.get("after") == (PLAIN % "改写版")
+           and bool(pay.get("reason")) and pay.get("primitive") == "add",
+           "B 载荷齐备：动作类 C · 目标 id · 后像正文 · 理由 · 复现原语", pay)
+        rec = [r for r in cg.review_list() if r.get("pid") == (o2.get("pid") or "")]
+        ok(len(rec) == 1 and autonomy_modes.order_kind(rec[0]) == "mutation"
+           and rec[0].get("id") == nid,
+           "B 队列条目 kind=mutation 且 id=目标节点（既有读取面可见）",
+           rec[0] if rec else None)
+        r = cg.review_decide(o2.get("pid") or "", "accept", reason="守卫")
+        ok(r.get("ok") is True, "B accept 返回 ok", r)
+        ok("改写版" in (cg.get(nid) or {}).get("content", ""),
+           "B accept **执行**改写：覆写落盘走既有 add")
+        # 前像式核对：accept 前盘面 == 旧正文（内容级「前像」由出单不落盘保证）
+        ok((cg.get(nid) or {}).get("content", "").count("改写版") == 1,
+           "B 改写只发生一次（幂等落盘）")
+        # full 档：直落（对拍锚：与改动前同一条路）
+        with _mode("full"):
+            o3 = pipe.execute(cg, {"content_kind": "text",
+                                   "content": PLAIN % "完全访问版",
+                                   "layer": "knowledge", "node_id": nid})
+        ok(o3.get("committed") is True and o3.get("moved_to") is None
+           and "完全访问版" in (cg.get(nid) or {}).get("content", ""),
+           "B full 档 C 改写直落（无单、无 extra 键）", o3)
+        # plan 档：A 新增 fail-closed（写链面）
+        with _mode("plan"):
+            o4 = pipe.execute(cg, {"content_kind": "text",
+                                   "content": PLAIN % "计划档", "layer": "knowledge",
+                                   "node_id": "c_plan_new"})
+        ok(o4.get("moved_to") == "autonomy_forbidden"
+           and o4.get("committed") is False
+           and cg.get("c_plan_new") is None,
+           "B plan 档 A 新增 fail-closed（未落盘、未出单）", o4)
+        cg.close()
+
+
+# =============================================================== C 组：B 合并
+def g_c():
+    print("== C 组：B 合并（遗忘闸 MERGE + 限流闸 CONVERGE 两落点）==")
+    with _mode("confirm"):
+        cg = _lib("m")
+        cg.add("m_t1", BODY % "9090", layer="knowledge", verification_basis="test")
+        cg.flush()
+        r1 = cg.remember_gated("m_n1", BODY % "9595", layer="knowledge")
+        ok(r1.get("verdict") == "CONFIRM" and r1.get("moved_to") == "review_queue"
+           and bool(r1.get("pid")),
+           "C 遗忘闸 MERGE → 出变更单且不合并", {k: r1.get(k) for k in
+                                            ("verdict", "moved_to", "pid")})
+        t = cg.get("m_t1")
+        ok("9595" not in (t or {}).get("content", "")
+           and not ((t or {}).get("frontmatter") or {}).get("merge_count"),
+           "C 出单时目标未被合并（新值与 merge_count 都不动）")
+        pay = r1.get("mutation") or {}
+        ok(pay.get("action") == "B" and pay.get("target") == "m_t1"
+           and pay.get("after") == (BODY % "9595")
+           and pay.get("primitive") == "reinforce",
+           "C 载荷：动作类 B · 目标 · 后像 · 原语 reinforce", pay)
+        r = cg.review_decide(r1.get("pid") or "", "accept", reason="守卫")
+        ok(r.get("ok") is True, "C accept 返回 ok", r)
+        t = cg.get("m_t1")
+        ok("9595" in (t or {}).get("content", "")
+           and ((t or {}).get("frontmatter") or {}).get("merge_count") == 1,
+           "C accept **执行**合并：reinforce 原语落盘（新值可检索）")
+        # reject 不执行
+        r2 = cg.remember_gated("m_n2", BODY % "7070", layer="knowledge")
+        r = cg.review_decide(r2.get("pid") or "", "reject", reason="守卫：不执行")
+        ok(r.get("ok") is True and "7070" not in
+           (cg.get("m_t1") or {}).get("content", ""),
+           "C reject **不执行**（原样留痕、目标未被改）")
+        # edit 对变更单 fail-closed
+        r3 = cg.remember_gated("m_n3", BODY % "6060", layer="knowledge")
+        r = cg.review_decide(r3.get("pid") or "", "edit", edits={"content": "x"}, reason="守卫")
+        ok(r.get("ok") is False and r.get("error") == "mutation_decision_unsupported"
+           and bool(r.get("hint")),
+           "C edit 对变更单 fail-closed（带 hint，不静默当已处理）", r)
+        ok(any(x.get("pid") == (r3.get("pid") or "") for x in cg.review_list()),
+           "C 未被自理的变更单仍在 pending（未被静默关闭）")
+        # CONVERGE 落点（限流闸 → converge_into）
+        r4 = cg.remember_gated("m_x1", "批次107 收官：指标面 9090 正常",
+                               layer="contextual")
+        r5 = cg.remember_gated("m_x2", "批次108 收官：指标面 9595 正常",
+                               layer="contextual")
+        ok(r4.get("verdict") == "ACCEPT", "C CONVERGE 前置：首条 ACCEPT", r4.get("verdict"))
+        ok(r5.get("verdict") == "CONFIRM"
+           and (r5.get("mutation") or {}).get("primitive") == "converge_into"
+           and (r5.get("mutation") or {}).get("target") == "m_x1",
+           "C 限流闸 CONVERGE → 出变更单（原语 converge_into、目标=既有节点）",
+           r5.get("mutation"))
+        ok("9595" not in (cg.get("m_x1") or {}).get("content", ""),
+           "C CONVERGE 出单时未并入")
+        r = cg.review_decide(r5.get("pid") or "", "accept", reason="守卫")
+        ok(r.get("ok") is True and "9595" in (cg.get("m_x1") or {}).get("content", ""),
+           "C accept **执行** CONVERGE：converge_into 落盘")
+        cg.close()
+
+
+# =============================================================== D 组：D 删除
+def g_d():
+    print("== D 组：D 删除（MCP 工具面 forget_gated）==")
+    with _mode("confirm"):
+        cg = _lib("d")
+        cg.add("d_1", BODY % "9090", layer="knowledge", verification_basis="test")
+        cg.add("d_prot", BODY % "8080", layer="self", verification_basis="test")
+        cg.flush()
+        r1 = cg.forget_gated("d_1", reason="守卫删除")
+        ok(r1.get("ok") is True and r1.get("deleted") is False
+           and r1.get("moved_to") == "review_queue" and bool(r1.get("pid")),
+           "D 删除出变更单且不软删（deleted=False 明示）",
+           {k: r1.get(k) for k in ("ok", "deleted", "moved_to", "pid")})
+        ok(cg.get("d_1") is not None, "D 出单后节点原样在位")
+        pay = r1.get("mutation") or {}
+        ok(pay.get("action") == "D" and pay.get("target") == "d_1"
+           and pay.get("after") == "" and pay.get("primitive") == "forget",
+           "D 载荷：动作类 D · 目标 · 后像为空 · 原语 forget", pay)
+        r = cg.review_decide(r1.get("pid") or "", "accept", reason="守卫")
+        ok(r.get("ok") is True and cg.get("d_1") is None,
+           "D accept **执行**软删（trash + 删除清单，既有 forget 原语）")
+        # 资格闸先于档位（纯加严）：受保护节点在资格闸就被拦，出单都轮不到
+        try:
+            cg.forget_gated("d_prot", reason="受保护")
+            ok(False, "D 受保护节点未被拦（纯加严被破坏）")
+        except Exception as exc:                          # noqa: BLE001
+            ok(type(exc).__name__ in ("ProtectionError", "AccessDenied"),
+               "D 受保护节点在资格闸就被拦（档位不参与资格判定、不放宽）",
+               type(exc).__name__)
+        ok(cg.get("d_prot") is not None, "D 受保护节点仍在位")
+        # 资格闸不过时不出单（not_found 原样返回）
+        r3 = cg.forget_gated("d_ghost", reason="不存在")
+        ok(r3 == {"ok": False, "error": "not_found"},
+           "D 资格闸未过 → 原样返回 not_found（不出单）", r3)
+        cg.flush()
+        # 库层不接线：直调 forget 不受档位影响（脚本通道现状逐位不变）
+        cg.add("d_2", BODY % "7070", layer="knowledge", verification_basis="test")
+        cg.flush()
+        dr = cg.forget("d_2", reason="库层直调")
+        ok(dr.get("ok") is True and bool(dr.get("tombstone"))
+           and cg.get("d_2") is None,
+           "D 库层 forget 直调不受档位影响（软删照旧成功）", dr)
+        cg.close()
+    # 安全层管理闸在**档位路径**同样生效（本批实修：档位路径曾直调 _forget_apply，
+    # 把 `MdCGSecure.forget` 的 can_admin 要求整个跳过——MDCG_CAN_ADMIN=0 的身份
+    # 经 mdcg_forget 能把节点删掉；test_p2_mcp §9 实测抓到，见报告）。
+    cg_ro = MdCGSecure(os.path.join(_SANDBOX, "ro_r%d" % _RUN[0]),
+                       principal=Principal(tenant="default", actor="ro",
+                                           role="reader", can_write=True,
+                                           can_admin=False))
+    with _mode("confirm"):
+        cg_ro.add("ro_1", BODY % "4040", layer="knowledge",
+                  verification_basis="test")
+        cg_ro.flush()
+        try:
+            cg_ro.forget_gated("ro_1", reason="守卫：无 can_admin")
+            ok(False, "D 无 can_admin 的身份经档位路径删除被拒（未报错）")
+        except Exception as exc:        # noqa: BLE001
+            ok(type(exc).__name__ == "AccessDenied"
+               and cg_ro.get("ro_1") is not None,
+               "D 无 can_admin 的身份经档位路径删除被拒（AccessDenied，节点在位）",
+               type(exc).__name__)
+        try:
+            cg_ro.forget("ro_1", reason="守卫：库层同拒")
+            ok(False, "D 无 can_admin 的身份直调库层 forget 同样被拒")
+        except Exception as exc:        # noqa: BLE001
+            ok(type(exc).__name__ == "AccessDenied",
+               "D 无 can_admin 的身份直调库层 forget 同样被拒（两入口同一闸）",
+               type(exc).__name__)
+    cg_ro.close()
+
+
+# =============================================================== E 组：幂等
+def g_e():
+    print("== E 组：变更单幂等（同动作+目标+后像不长第二条）==")
+    with _mode("confirm"):
+        cg = _lib("idem")
+        cg.add("e_1", BODY % "9090", layer="knowledge", verification_basis="test")
+        cg.add("e_2", BODY % "8080", layer="knowledge", verification_basis="test")
+        cg.flush()
+        k1 = autonomy_modes.mutation_dedup_key("C", "e_1", "X")
+        ok(k1 == autonomy_modes.mutation_dedup_key("C", "e_1", "X")
+           and k1 != autonomy_modes.mutation_dedup_key("C", "e_2", "X")
+           and k1 != autonomy_modes.mutation_dedup_key("B", "e_1", "X")
+           and k1 != autonomy_modes.mutation_dedup_key("C", "e_1", "Y"),
+           "E 幂等键：同三元恒同、动作/目标/后像任一不同即不同")
+        p1 = autonomy_modes.propose_mutation(
+            cg, "C", "e_1", after="X", reason="幂等探针", info=True)
+        p2 = autonomy_modes.propose_mutation(
+            cg, "C", "e_1", after="X", reason="幂等探针", info=True)
+        ok(p2.get("dedup") is True and p2.get("pid") == p1.get("pid"),
+           "E 同（动作+目标+后像）重复提议不长第二条（幂等返回既有 pid）", p2)
+        p3 = autonomy_modes.propose_mutation(
+            cg, "C", "e_2", after="X", reason="幂等探针", info=True)
+        ok(p3.get("dedup") is not True and p3.get("pid") != p1.get("pid"),
+           "E 换目标即长第二条（内容签名不带目标 ⇒ 必须覆盖对账键）", p3)
+        pend = [r for r in cg.review_list()
+                if autonomy_modes.order_kind(r) == "mutation"]
+        ok(len(pend) == 2, "E 三次提议（2 唯一键）→ 队列恰 2 条", len(pend))
+        cg.close()
+
+
+# =============================================================== F 组：存量兼容
+def g_f():
+    print("== F 组：存量兼容（缺 kind = proposal，接受路径逐位不变）==")
+    with _mode("confirm"):
+        cg = _lib("legacy")
+        rec = {"pid": "prop_legacy_1", "id": "f_1", "content": "老提案正文",
+               "layer": "knowledge", "tags": [], "payload_hash": "h1",
+               "extra": {}}
+        ok(autonomy_modes.order_kind(rec) == "proposal"
+           and autonomy_modes.mutation_view(rec) is None,
+           "F 缺 kind 键 ⇒ proposal（零迁移）", autonomy_modes.order_kind(rec))
+        pr = cg.propose("f_1", "老提案正文", layer="knowledge", info=True)
+        item = [r for r in cg.review_list() if r.get("pid") == pr["pid"]][0]
+        ok("kind" not in item,
+           "F 普通提案的 rec 形状零变化（不落 kind 键）", sorted(item))
+        r = cg.review_decide(pr["pid"], "accept", reason="守卫")
+        ok(r.get("ok") is True and r.get("node_id") == "f_1"
+           and "老提案正文" in (cg.get("f_1") or {}).get("content", ""),
+           "F proposal 的 accept 原路径逐位不变（落盘成功）", r)
+        # noop/merge 对 proposal 亦不变
+        pr2 = cg.propose("f_2", "老提案正文二", layer="knowledge", info=True)
+        r = cg.review_decide(pr2["pid"], "noop", reason="守卫")
+        ok(r.get("ok") is True and cg.get("f_2") is None,
+           "F proposal 的 noop 仍只留痕不落盘", r)
+        cg.close()
+
+
+# =============================================================== G 组：单点结构
+def _repo_root():
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _py_files():
+    root = _repo_root()
+    out = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames
+                       if d not in (".git", "__pycache__", "node_modules",
+                                    ".venv", "target", "lib")]
+        for fn in filenames:
+            if fn.endswith(".py"):
+                out.append(os.path.join(dirpath, fn))
+    return out
+
+
+def g_g():
+    print("== G 组：单点结构（全仓只有 autonomy_modes 读档位 env）==")
+    lit = '"%s"' % _ENV_MODE
+    hits = []
+    for p in _py_files():
+        try:
+            with open(p, encoding="utf-8") as f:
+                src = f.read()
+        except OSError:
+            continue
+        if lit in src or ("'%s'" % _ENV_MODE) in src:
+            hits.append(os.path.relpath(p, _repo_root()).replace("\\", "/"))
+    ok(hits == ["md_cg/autonomy_modes.py"],
+       "G 全仓 .py 里带引号的档位 env 字面量只出现在唯一入口模块", hits)
+    # 库层不接线（accept 执行桥「直越确认判定」的机制前提）
+    for owner, name in ((MdCG, "add"), (MdCG, "_write_node"),
+                        (MdCGOS, "forget")):
+        src = inspect.getsource(getattr(owner, name))
+        code = "\n".join(l for l in src.splitlines()
+                         if not l.strip().startswith("#"))
+        ok("autonomy_modes" not in code,
+           "G 库层 %s.%s 不含档位判据（保持库层语义不变）"
+           % (owner.__name__, name), [l for l in code.splitlines()
+                                      if "autonomy_modes" in l])
+    for mod, name in ((forgetting, "reinforce"), (writelimit, "converge_into")):
+        src = inspect.getsource(getattr(mod, name))
+        code = "\n".join(l for l in src.splitlines()
+                         if not l.strip().startswith("#"))
+        ok("autonomy_modes" not in code,
+           "G 合并原语 %s.%s 不含档位判据（执行桥直调原语即越过判定）"
+           % (mod.__name__, name))
+    # 接线点仍在（防「档位不生效」的静态退化）
+    wsrc = inspect.getsource(writepipe.install_default_gates)
+    ok('"autonomy"' in wsrc or "'autonomy'" in wsrc,
+       "G 写链默认链仍注册档位闸（链尾）")
+    ok("_gate_autonomy" in inspect.getsource(writepipe)
+       and "_autonomy_gate_merge" in inspect.getsource(mdcos),
+       "G 档位闸的接线单点存在（写链 + 合并两落点）")
+    ok("forget_gated" in inspect.getsource(mdcos)
+       and "forget_gated" in open(
+           os.path.join(_repo_root(), "md_cg", "mcp_server.py"),
+           encoding="utf-8").read(),
+       "G 删除档位路径（forget_gated）在库层与 MCP 工具面都在位")
+    # 管理闸单点（本批实修：档位路径曾绕过 MdCGSecure 的 can_admin 要求）
+    ok("def _forget_admin" in inspect.getsource(mdcos.MdCGSecure)
+       and "self._forget_admin()" in inspect.getsource(mdcos.MdCGSecure.forget)
+       and "self._forget_admin()"
+       in inspect.getsource(mdcos.MdCGSecure.forget_gated),
+       "G 管理闸单点：MdCGSecure 的 forget 与 forget_gated 都过 _forget_admin")
+
+
+# =============================================================== H 组：不动面对拍
+def g_h():
+    print("== H 组：不动面对拍（full 档全动作 / confirm 档 A·E）==")
+    for a in autonomy_modes.ACTION_CLASSES:
+        d = autonomy_modes.decide(a, mode_explicit="full")
+        ok(d["decision"] == "allow" and d["hint"] == "",
+           "H full 档 %s → allow 且无 hint（闸放行 = 与改动前同一条链）" % a, d)
+    for a in ("A", "E"):
+        d = autonomy_modes.decide(a, mode_explicit="confirm")
+        ok(d["decision"] == autonomy_modes.decide(a, mode_explicit="full")["decision"]
+           and d["hint"] == "",
+           "H confirm 档 %s 的动作面读数与 full 档逐位相等（不阻塞）" % a, d)
+    _policy()
+    runs = {}
+    for m in ("confirm", "full"):
+        with _mode(m):
+            cg = _lib("pair_" + m)
+            pipe = _pipe()
+            out = pipe.execute(cg, {"content_kind": "text",
+                                    "content": PLAIN % "对拍", "layer": "knowledge",
+                                    "node_id": "h_1"})
+            node = cg.get("h_1") or {}
+            runs[m] = (out, node)
+            cg.close()
+    oc, of = _strip(runs["confirm"][0]), _strip(runs["full"][0])
+    ok(oc == of, "H A 新增：confirm 档返回体与 full 档**逐位相等**（时钟面除外）",
+       {"confirm": oc, "full": of})
+    nc, nf = _strip(runs["confirm"][1]), _strip(runs["full"][1])
+    ok(nc == nf, "H A 新增：两档落盘节点（含正文与 fm，时钟面除外）逐位相等",
+       {"confirm": nc, "full": nf})
+    # full 档三动作真执行（与改动前同）：C 覆写 / B 合并 / D 软删
+    with _mode("full"):
+        cg = _lib("full_drive")
+        cg.add("f_a", BODY % "9090", layer="knowledge", verification_basis="test")
+        cg.flush()
+        rc = cg.remember_gated("f_b", BODY % "9595", layer="knowledge")
+        ok(rc.get("verdict") == "MERGE"
+           and "9595" in (cg.get("f_a") or {}).get("content", ""),
+           "H full 档 B 合并直落（无单、verdict=MERGE 与改动前同）",
+           rc.get("verdict"))
+        dd = cg.forget_gated("f_a", reason="full 档")
+        ok(dd.get("ok") is True and dd.get("deleted") is not False
+           and dd.get("moved_to") is None and dd.get("tombstone"),
+           "H full 档 D 删除直删（无单、带 tombstone 与改动前同）", dd)
+        ok(len([r for r in cg.review_list()
+                if autonomy_modes.order_kind(r) == "mutation"]) == 0,
+           "H full 档全程零变更单（队列无 mutation 条目）")
+        cg.close()
+
+
+# =============================================================== I 组：gated 面
+#: gated 面覆写探针正文：与库内既有正文**同族但不同值**（`assess` 的 redundancy
+#: 对同 id 自排除 ⇒ 判 ACCEPT 且带 overwrite 读数），故能走到 ACCEPT 分支的档位判定。
+def _mut_entries(recs):
+    return [x for x in recs if autonomy_modes.order_kind(x) == "mutation"]
+
+
+def _submit(script, args, drop_shim=False):
+    """子进程跑 `test_policy_required_ccg` 整腿（隔离：其 sys.path/sys.modules 污染不外溢）。
+
+    drop_shim=True = 该处判据的**定点变异**，且必须放在「读文件的那一侧」才生效：
+    在子进程内先把 `_SHIMS` 去掉 `autonomy_modes`（＝未登记的形态），该腿必须
+    SHIM-MISS 非零退出——正/负对照成对，证明 J3 的绿不是空转。
+    """
+    import subprocess
+    code = ("import sys; from md_cg import test_policy_required_ccg as t; "
+            + ('t._SHIMS = tuple(x for x in t._SHIMS'
+               ' if x != "autonomy_modes"); ' if drop_shim else "")
+            + "sys.exit(t.main())")
+    p = subprocess.run([sys.executable, "-X", "utf8", "-c", code] + list(args),
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", cwd=_repo_root(),
+                       env=dict(os.environ, PYTHONUTF8="1"))
+    return {"rc": p.returncode, "out": (p.stdout or "") + (p.stderr or "")}
+
+
+def g_i():
+    print("== I 组：gated 面 C 改写 / A 新增 + 执行桥 C 目标消失（补强批次）==")
+    # 每个场景**独立合成库**：遗忘闸的 redundancy 是全库比对（只排除本次 node_id），
+    # 同库多节点会把「新写入」判成 MERGE/DEFER 而走不到 ACCEPT 分支的档位判定——
+    # 场景隔离是让每条断言确实命中目标分支的前提（不是放水）。
+    _policy()
+
+    # ---- ① confirm 档：C 覆写出单且不落盘 ----
+    with _mode("confirm"):
+        cg = _lib("gated_c")
+        cg.add("i_1", BODY % "9090", layer="knowledge", verification_basis="test")
+        cg.flush()
+        r1 = cg.remember_gated("i_1", BODY % "9595", layer="knowledge")
+        ok(r1.get("verdict") == "CONFIRM"
+           and r1.get("moved_to") == "review_queue"
+           and r1.get("committed") is False and bool(r1.get("pid")),
+           "I gated C 覆写（confirm 档）出变更单且明示未落盘（moved_to=review_queue）",
+           {k: r1.get(k) for k in ("verdict", "ok", "committed", "moved_to", "pid")})
+        t = cg.get("i_1") or {}
+        ok("9090" in t.get("content", "") and "9595" not in t.get("content", ""),
+           "I gated C 出单时目标节点正文**未被覆写**（逐字比对）")
+        pay = r1.get("mutation") or {}
+        ok(pay.get("action") == "C" and pay.get("target") == "i_1"
+           and pay.get("after") == (BODY % "9595")
+           and pay.get("primitive") == "add" and bool(pay.get("reason")),
+           "I gated C 载荷齐备：动作类 C · 目标 · 后像 · 理由 · 复现原语 add", pay)
+        rec = [x for x in cg.review_list()
+               if x.get("pid") == (r1.get("pid") or "")]
+        ok(len(rec) == 1 and autonomy_modes.order_kind(rec[0]) == "mutation"
+           and rec[0].get("id") == "i_1",
+           "I gated C 队列条目 kind=mutation 且 id=目标（既有读取面可见）",
+           rec[0] if rec else None)
+        # accept 执行 / reject 不执行
+        rr = cg.review_decide(r1.get("pid") or "", "accept", reason="守卫")
+        ok(rr.get("ok") is True
+           and "9595" in (cg.get("i_1") or {}).get("content", ""),
+           "I gated C accept **执行**覆写（走既有 add，正文已换）", rr)
+        r_rej = cg.remember_gated("i_1", BODY % "6060", layer="knowledge")
+        cg.review_decide(r_rej.get("pid") or "", "reject", reason="守卫：不执行")
+        ok("6060" not in (cg.get("i_1") or {}).get("content", ""),
+           "I gated C reject **不执行**（目标未被改）")
+        cg.close()
+
+    # ---- ② 资格在先（纯加严）：受保护节点覆写在 write_qualify 处当场拦 ----
+    with _mode("confirm"):
+        cg = _lib("gated_prot")
+        cg.add("i_prot", BODY % "8080", layer="self", verification_basis="test")
+        cg.flush()
+        try:
+            cg.remember_gated("i_prot", BODY % "7070", layer="knowledge")
+            ok(False, "I gated C 受保护节点覆写未被资格闸拦（纯加严被破坏）")
+        except Exception as exc:                          # noqa: BLE001
+            ok(type(exc).__name__ in ("ProtectionError", "AccessDenied"),
+               "I gated C 受保护节点在 write_qualify 处当场被拦（资格先于档位、"
+               "不静默入队）", type(exc).__name__)
+        ok(cg.get("i_prot") is not None and len(_mut_entries(cg.review_list())) == 0,
+           "I 受保护覆写零出单（队列无变更单，未被静默入队）")
+        cg.close()
+
+    # ---- ③ plan 档：C 覆写出单（与 confirm 同格） ----
+    with _mode("plan"):
+        cg = _lib("gated_plan")
+        cg.add("i_p", BODY % "9090", layer="knowledge", verification_basis="test")
+        cg.flush()
+        r = cg.remember_gated("i_p", BODY % "9595", layer="knowledge")
+        ok(r.get("verdict") == "CONFIRM" and r.get("moved_to") == "review_queue"
+           and bool(r.get("pid"))
+           and "9595" not in (cg.get("i_p") or {}).get("content", ""),
+           "I gated C 覆写（plan 档）出变更单且不落盘（C 在 plan/confirm 同语义）",
+           {k: r.get(k) for k in ("verdict", "moved_to", "pid")})
+        cg.close()
+
+    # ---- ④ plan 档：A 新增 fail-closed（独立库：不得被同库近重复判成 MERGE） ----
+    with _mode("plan"):
+        cg = _lib("gated_plan_a")
+        r2 = cg.remember_gated("i_new", BODY % "7777", layer="knowledge")
+        ok(r2.get("verdict") == "FORBID" and r2.get("ok") is False
+           and r2.get("moved_to") == "autonomy_forbidden"
+           and r2.get("error") == "autonomy_forbid"
+           and "计划" in str(r2.get("hint") or "")
+           and cg.get("i_new") is None
+           and len(_mut_entries(cg.review_list())) == 0,
+           "I gated A 新增（plan 档）fail-closed 带 hint、未落盘、未出单",
+           {k: r2.get(k) for k in ("verdict", "ok", "moved_to", "error")})
+        cg.close()
+
+    # ---- ⑤ full 档：C 覆写照旧直落（零变更单） ----
+    with _mode("full"):
+        cg = _lib("gated_full")
+        cg.add("i_f", BODY % "9090", layer="knowledge", verification_basis="test")
+        cg.flush()
+        r = cg.remember_gated("i_f", BODY % "9595", layer="knowledge")
+        ok(r.get("verdict") == "ACCEPT" and r.get("written") == "i_f"
+           and "9595" in (cg.get("i_f") or {}).get("content", "")
+           and len(_mut_entries(cg.review_list())) == 0,
+           "I gated C 覆写（full 档）照旧直落：verdict=ACCEPT、正文已换、零变更单",
+           {k: r.get(k) for k in ("verdict", "written")})
+        cg.close()
+
+    # ---- ⑥ A 新增：confirm/full 两档**逐位一致**（不动面对拍） ----
+    runs = {}
+    for m in ("confirm", "full"):
+        with _mode(m):
+            cg = _lib("gated_pair_" + m)
+            r = cg.remember_gated("i_a", PLAIN % "对拍", layer="knowledge")
+            runs[m] = (r, _strip(cg.get("i_a") or {}))
+            cg.close()
+    ok(runs["confirm"][0].get("verdict") == "ACCEPT"
+       and runs["full"][0].get("verdict") == "ACCEPT"
+       and _strip(runs["confirm"][0]) == _strip(runs["full"][0]),
+       "I gated A 新增：confirm 档返回体与 full 档逐位相等（时钟面除外）",
+       {"confirm": _strip(runs["confirm"][0]),
+        "full": _strip(runs["full"][0])})
+    ok(runs["confirm"][1] == runs["full"][1],
+       "I gated A 新增：两档落盘节点（正文与 fm）逐位相等（A 面零变化）")
+
+    # ---- ⑦ 写链面（op=write + gated=true）与 MCP 工具面（插件主写入通道） ----
+    with _mode("confirm"):
+        cg = _lib("gated_chain")
+        pipe = _pipe()
+        o1 = pipe.execute(cg, {"content_kind": "text", "content": PLAIN % "甲",
+                               "layer": "knowledge", "node_id": "i_ch",
+                               "gated": True})
+        ok(o1.get("committed") is True,
+           "I gated 链面：A 新增（confirm 档）直落不拦（行为零变化）", o1)
+        o2 = pipe.execute(cg, {"content_kind": "text", "content": PLAIN % "乙",
+                               "layer": "knowledge", "node_id": "i_ch",
+                               "gated": True})
+        ok(o2.get("moved_to") == "review_queue" and o2.get("committed") is False
+           and bool((o2.get("gate") or {}).get("pid")),
+           "I gated 链面：C 覆写出单且不落盘（_gate_gated 透出 review_queue+pid）",
+           {k: o2.get(k) for k in ("moved_to", "committed")})
+        ok("甲" in (cg.get("i_ch") or {}).get("content", "")
+           and "乙" not in (cg.get("i_ch") or {}).get("content", ""),
+           "I gated 链面：出单时链上目标未被覆写（替代执行路径已改判出单）")
+        from .mcp_server import _dispatch
+        rm = _dispatch(cg, "mdcg_remember",
+                       {"content": PLAIN % "丙", "node_id": "i_ch",
+                        "gated": True, "layer": "knowledge"})
+        ok(rm.get("moved_to") == "review_queue" and bool(rm.get("pid"))
+           and rm.get("committed") is False
+           and "丙" not in (cg.get("i_ch") or {}).get("content", ""),
+           "I MCP 面 mdcg_remember(gated=true)：C 覆写出单且不落盘（插件主通道"
+           "不再旁路确认档）",
+           {k: rm.get(k) for k in ("verdict", "ok", "moved_to", "pid")})
+        cg.close()
+
+    # ---- ⑧ 执行桥：C 目标在 accept 前消失 ----
+    with _mode("confirm"):
+        cg = _lib("gated_bridge")
+        cg.add("i_b", BODY % "9090", layer="knowledge", verification_basis="test")
+        cg.flush()
+        rb = cg.remember_gated("i_b", BODY % "9595", layer="knowledge")
+        ok(rb.get("verdict") == "CONFIRM" and bool(rb.get("pid")),
+           "I 执行桥前置：C 覆写已出单", rb.get("verdict"))
+        cg.forget("i_b", reason="守卫：目标消失")
+        cg.flush()
+        rr = cg.review_decide(rb.get("pid") or "", "accept", reason="守卫")
+        ok(rr.get("ok") is False and rr.get("error") == "target_missing"
+           and cg.get("i_b") is None and bool(rr.get("hint")),
+           "I 执行桥 C 目标消失 → target_missing 且**不重建**节点（fail-closed）",
+           {k: rr.get(k) for k in ("ok", "error")})
+        ok(any(x.get("pid") == rb.get("pid") for x in cg.review_list()),
+           "I 目标消失的单仍在 pending（未被静默记 accepted）")
+        cg.add("i_b2", BODY % "9090", layer="knowledge", verification_basis="test")
+        cg.flush()
+        rb2 = cg.remember_gated("i_b2", BODY % "9595", layer="knowledge")
+        rr2 = cg.review_decide(rb2.get("pid") or "", "accept", reason="守卫")
+        ok(rr2.get("ok") is True
+           and "9595" in (cg.get("i_b2") or {}).get("content", ""),
+           "I 对照：目标在位时 accept 照旧执行覆写（判据不是「一律拒」）", rr2)
+        cg.close()
+
+
+# =============================================================== J 组：SHIM 修复面
+def g_j():
+    print("== J 组：容器栈一 SHIM-MISS 修复面（test_policy_required_ccg）==")
+    from . import test_policy_required_ccg as _tpc_g
+    ok(_tpc_g is _tpc and "autonomy_modes" in _tpc._SHIMS,
+       "J SHIM 登记：autonomy_modes 在 _SHIMS（writepipe 档位闸的相对 import "
+       "已覆盖）", list(_tpc._SHIMS))
+    try:
+        _tpc._check_shim_coverage(_tpc._baseline_sources())
+        ok(True, "J 基线源相对 import 全覆盖：SHIM-MISS 判据不抛（变异锚点亦在位）")
+    except SystemExit as exc:                             # noqa: BLE001
+        ok(False, "J 基线源相对 import 全覆盖：SHIM-MISS 判据不抛（fail-closed）",
+           exc)
+    got = _submit("md_cg/test_policy_required_ccg.py", ["--head-baseline"])
+    ok(got["rc"] == 0 and "红基线符合预期" in got["out"],
+       "J --head-baseline 整腿 PASS（退出码 0、红项集合 == 预期 11 项）",
+       {"rc": got["rc"], "tail": got["out"][-160:]})
+    got2 = _submit("md_cg/test_policy_required_ccg.py", ["--head-baseline"],
+                   drop_shim=True)
+    ok(got2["rc"] != 0 and "SHIM-MISS" in got2["out"],
+       "J 负对照（同处定点变异：_SHIMS 去掉 autonomy_modes）⇒ 该腿 SHIM-MISS "
+       "非零退出——J3 的绿有判别力", {"rc": got2["rc"]})
+
+
+_GROUPS = (g_a, g_b, g_c, g_d, g_e, g_f, g_g, g_h, g_i, g_j)
+
+
+def _run_groups():
+    """跑全部断言组（静默），返回失败数——供变异自证复用。"""
+    _PASS.clear()
+    _FAIL.clear()
+    for g in _GROUPS:
+        g()
+    return len(_FAIL)
+
+
+# =============================================================== 定点变异自证
+# 表内每项 = (说明, 目标, 锚点原文, 替换文, 预期红项数)。锚点须**逐字**出现在
+# 目标函数源码里；漂移即 ANCHOR-MISS（fail-closed，exit 2）。
+# 目标 = ("mod", 模块对象, 函数名) 或 ("cls", 类对象, 方法名)。
+_SRC_MUTATIONS = (
+    # ①「档位不生效」——env 读取口恒返回真源缺省（confirm）：全档位退化成一个档。
+    # 红 9（实测 2026-10-02 补强批次复测；批次②当时 7）：A 组的非法值/归一两条
+    # + full 档直落三条（B/H）+ plan 档 fail-closed 一条 + full 档零变更单一条；
+    # 补强批次 +2 = I 组「gated A 新增（plan 档）fail-closed」与「gated C 覆写
+    # （full 档）照旧直落」——mode 恒 confirm ⇒ 计划档/完全访问档一并退化。
+    ("档位不生效（mode 恒返回表内缺省）", "mod", autonomy_modes, "mode",
+     '    raw = autonomy_env("mode", environ)', '    raw = DEFAULT_MODE', 9),
+    # ②「confirm 也直落」——矩阵的 confirm 格被当成放行（确认形同虚设）。
+    # 红 39（实测 2026-10-02 补强批次复测；批次②当时 25）：A 组 6 条矩阵/hint
+    # 判据 + B/C/D/E 组全部「出单/不落盘/载荷/accept 执行/幂等」判据（确认路径
+    # 整体消失）；补强批次 +14 = I 组 gated 面同类判据（C confirm 四条 + accept
+    # + reject + plan C + 链面两条 + MCP 一条 + 执行桥五条）。
+    ("confirm 也直落（decide 把 confirm 格判成 allow）", "mod", autonomy_modes,
+     "decide", '    if cell == CONFIRM:', '    if False:', 39),
+    # ③ 矩阵整表坍缩成 full 列——「档位不生效」的真源版（判据被绕过、表仍在）。
+    # 红 46（实测 2026-10-02 补强批次复测；批次②当时 31）：A 组 15 格 +
+    # confirm/plan 相关判据 + 三个落点的出单判据（比 ② 多 plan 档与 full 档对拍）；
+    # 补强批次 +15 = ② 的 14 + I 组「gated C 覆写（plan 档）出变更单」。
+    ("矩阵整表坍缩成 full（档位不生效·真源版）", "mod", autonomy_modes, "decide",
+     '    cell = MATRIX[m][act]',
+     '    cell = MATRIX["full"][act]', 46),
+    # ④ 写链档位闸空转——C 改写不再出单（直接覆写）。
+    # 红 6（实测 2026-10-02）：B 组 C 改写 5 条（出单/未改写/载荷/队列/accept）
+    # + plan 档 A 新增 fail-closed 一条。
+    ("写链档位闸不生效（_gate_autonomy 恒放行）", "mod", writepipe,
+     "_gate_autonomy", '    prior = _forgetting.prior_node(cg, nid)',
+     '    return None\n    prior = _forgetting.prior_node(cg, nid)', 6),
+    # ⑤ 合并档位闸空转——B 立即合并（MERGE/CONVERGE 两落点同闸失效）。
+    # 红 10（实测 2026-10-02）：C 组 MERGE 出单 4 条 + C 组 CONVERGE 出单 3 条
+    # + H 组 full 档合并对拍 + F/E 相关 2 条。
+    ("合并档位闸不生效（_autonomy_gate_merge 恒放行）", "cls", mdcos.MdCGOS,
+     "_autonomy_gate_merge", '        dec = _am.decide(_am.B_MERGE)',
+     '        return None\n        dec = _am.decide(_am.B_MERGE)', 10),
+    # ⑥ 删除档位闸空转——D 立即软删（工具面档位形同虚设）。
+    # 红 4（实测 2026-10-02）：D 组出单/在位/载荷/accept 四条。
+    ("删除档位闸不生效（forget_gated 直调软删）", "cls", mdcos.MdCGOS,
+     "forget_gated", '        dec = autonomy_modes.decide(autonomy_modes.D_DELETE)',
+     '        return self._forget_apply(node_id, e, reason)\n'
+     '        dec = autonomy_modes.decide(autonomy_modes.D_DELETE)', 4),
+    # ⑦ 执行桥空转——accept「成功了」但动作没做（最危险的形态：汇报不实）。
+    # 红 9（实测 2026-10-02 补强批次复测；批次②当时 5）：B/C/C-CONVERGE/D 四条
+    # 「accept 执行」+ B 组「改写只发生一次」；补强批次 +4 = I 组「gated C accept
+    # 执行」「执行桥 C 目标消失→target_missing」「目标消失的单仍在 pending」
+    # 「对照：目标在位 accept 照旧执行」。
+    ("accept 不执行（执行桥空转）", "cls", mdcos.MdCGOS, "_mutation_execute",
+     '        try:\n            if act == _am.B_MERGE:',
+     '        return {"ok": True, "node_id": tgt}\n'
+     '        try:\n            if act == _am.B_MERGE:', 9),
+    # ⑧ 幂等键丢掉目标（退回内容签名）——不同目标的同内容变更单撞成一条。
+    # 红 4（实测 2026-10-02 补强批次复测；批次②当时 3）：E 组三条幂等判据；
+    # 补强批次 +1 = I 组「对照：目标在位 accept 照旧执行」——执行桥两张
+    # 同内容不同目标的 C 单撞键后，第二张的裁决落到已关闭的 pid 上。
+    ("幂等键丢掉目标（内容签名回归）", "mod", autonomy_modes,
+     "mutation_dedup_key",
+     '    text = "%s\\x1f%s\\x1f%s" % (act, tgt, after if after is not None else "")',
+     '    text = "%s" % (after if after is not None else "")', 4),
+    # ⑨ 类型字段不落 rec——变更单退化成提案（accept 会把它当新写入落盘）。
+    # 红 10（实测 2026-10-02 补强批次复测；批次②当时 6）：B 组队列 kind 一条 +
+    # C 组 3 条 + D 组 accept 一条 + E 组队列计数一条；补强批次 +4 = I 组
+    # 「gated C 队列条目 kind=mutation」「执行桥 C 目标消失→target_missing」
+    # 「目标消失的单仍在 pending」「对照：目标在位 accept 照旧执行」。
+    ("kind 不落 rec（变更单退化成提案）", "cls", mdcos.MdCGOS, "propose",
+     '            if kind:\n                rec["kind"] = str(kind)',
+     '            if False:\n                rec["kind"] = str(kind)', 10),
+    # ⑩ 档位路径绕过 can_admin 闸——**本批实修缺陷的原形态**（MdCGSecure.forget
+    # 的管理闸原先不在档位路径上；test_p2_mcp §9 实测抓到）。红 2（实测
+    # 2026-10-02）：D 组「无 can_admin 经档位路径删除被拒」+ G 组「管理闸单点」。
+    ("档位路径绕过 can_admin 闸（实修缺陷形态）", "cls", mdcos.MdCGSecure,
+     "forget_gated", '        self._forget_admin()\n'
+     '        return super().forget_gated(node_id, reason, override=override)',
+     '        return super().forget_gated(node_id, reason, override=override)', 2),
+    # ⑪ gated 面档位闸空转——`gated=true` 的 C 覆写照旧直接覆写（复核发现 1 的
+    # 原形态：插件主写入通道旁路确认档；I 组 C 面/链面/MCP 面判据整体失效）。
+    ("gated 面档位闸不生效（_autonomy_gate_rewrite 恒放行）", "cls", mdcos.MdCGOS,
+     "_autonomy_gate_rewrite",
+     '        prior = forgetting.prior_node(self, node_id)',
+     '        return None\n        prior = forgetting.prior_node(self, node_id)', 15),
+    # ⑫ gated 面档位闸丢掉资格探针——受保护/越权覆写从「当场拒」变成「静默入队」
+    # （放宽既有判据，纯加严被破坏）。
+    ("gated 面档位闸跳过资格探针（write_qualify 摘除）", "cls", mdcos.MdCGOS,
+     "_autonomy_gate_rewrite",
+     '            self.write_qualify(node_id, target_layer=layer,\n'
+     '                               override=bool(override), actor=self.actor)',
+     '            pass', 2),
+    # ⑬ 执行桥 C 目标消失判据摘除——回到 `self.add` 的 upsert（复核观察 3 的原形态：
+    # 「改写」静默落成「新增同 id 节点」并记 accepted）。
+    ("执行桥 C 目标消失判据摘除（upsert 回归）", "cls", mdcos.MdCGOS,
+     "_mutation_execute",
+     '                if forgetting.prior_node(self, tgt) is None:',
+     '                if False:', 3),
+    # ⑭ SHIM 登记丢失（**常量型变异**，kind="attr"）——baseline 假包缺
+    # autonomy_modes（补强一 的原形态：容器栈一 37/1 的那条红）。
+    ("SHIM 登记丢失（_SHIMS 去掉 autonomy_modes）", "attr", _tpc, "_SHIMS",
+     '"autonomy_modes")',
+     'tuple(x for x in _SHIMS if x != "autonomy_modes")', 2),
+)
+
+
+def _fn_src(target):
+    """变异锚点所在源码：`mod`/`cls` = 目标函数源码；`attr` = 属主源码（模块整体）。"""
+    kind, owner, name = target
+    if kind == "attr":
+        return inspect.getsource(owner)
+    return inspect.getsource(getattr(owner, name))
+
+
+def _strip_indent(text: str, n: int) -> str:
+    """按 n 列去缩进（首 n 列全空白的行才截，其余行 lstrip——防把空行/续行搞错）。"""
+    if not n:
+        return text
+    out = []
+    for line in text.split("\n"):
+        if line[:n].strip() == "":
+            out.append(line[n:])
+        else:
+            out.append(line.lstrip())
+    return "\n".join(out)
+
+
+def _anchor_check():
+    """返回 ANCHOR-MISS 说明列表（空 = 全部在位）。"""
+    bad = []
+    for name, _kind, owner, fname, old, _new, _n in _SRC_MUTATIONS:
+        if old not in _fn_src((_kind, owner, fname)):
+            bad.append("变异锚点缺失：%r @%s.%s" % (old[:40], owner.__name__, fname))
+    return bad
+
+
+@contextlib.contextmanager
+def _patched(target, old, new):
+    """把目标函数按字面替换变异后安装/还原（不落盘、不改源文件）。
+
+    接线点一律经**模块属性/类属性**在调用时解析（`_am.decide(...)` /
+    `self._autonomy_gate_merge(...)`），故 setattr 后全部出口同闸生效；
+    写链的档位闸是注册期绑定，故夹具每组现建 pipeline（见 `_pipe`）。
+    """
+    kind, owner, name = target
+    if kind == "attr":
+        # 常量型变异：把属主（模块/类）的该属性换成 `new` 求值出的新值。
+        # 为什么需要它：SHIM 登记（`_SHIMS` 元组）是**数据**不是函数体，源码替换
+        # 无从下手；而「登记丢失」正是补强批次修的那处判据，必须有定点变异钉死。
+        live = getattr(owner, name)
+        setattr(owner, name, eval(new, dict(vars(owner))))    # noqa: S307
+        try:
+            yield
+        finally:
+            setattr(owner, name, live)
+        return
+    # 方法源码自带类内缩进（def 行 4 空格、体内 8 空格）→ 必须先按 def 行的缩进
+    # 整块去缩进才可在模块级 exec；锚点/替换文按**同一**缩进量规整后匹配，
+    # 故表里写的是「源码原文形态」（与 _anchor_check 的判据同一份字面量）。
+    src = _fn_src(target)
+    cut = len(src) - len(src.lstrip(" "))
+    src2 = _strip_indent(src, cut)
+    old2 = _strip_indent(old, cut)
+    new2 = _strip_indent(new, cut)
+    if old2 not in src2:
+        raise AssertionError("变异锚点在去缩进后仍不匹配：%r" % old[:40])
+    src = src2.replace(old2, new2)
+    if kind == "mod":
+        ns = dict(vars(owner))
+        ns["__name__"] = owner.__name__
+    else:
+        ns = dict(vars(sys.modules[owner.__module__]))
+        ns["__name__"] = owner.__module__
+    exec(compile(src, "am_mut.py", "exec"), ns)
+    live = getattr(owner, name)
+    setattr(owner, name, ns[name])
+    try:
+        yield
+    finally:
+        setattr(owner, name, live)
+
+
+def _mutate_mode():
+    bad = []
+    anchor_bad = _anchor_check()
+    if anchor_bad:
+        for b in anchor_bad:
+            print("  ANCHOR-MISS " + b)
+        print("\n锚点自检：FAIL（fail-closed，exit 2）")
+        return 2
+    with contextlib.redirect_stdout(io.StringIO()):
+        clean = _run_groups()
+    print("  未变异基线：红项=%d%s"
+          % (clean, "" if clean == 0 else "  ← 基线即红，变异核验无意义"))
+    if clean:
+        bad.append("未变异基线即失败")
+    _RUN[0] = 10 ** 6      # 变异轮用独立子根（防读到上一轮盘面/限流状态）
+    for name, kind, owner, fname, old, new, expect in _SRC_MUTATIONS:
+        _RUN[0] += 1
+        try:
+            with _patched((kind, owner, fname), old, new), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                fails = _run_groups()
+        except Exception as exc:        # noqa: BLE001 —— 变异把路径打断也算「红」
+            fails = -1
+            print("  变异「%s」→ 断言链抛异常 %s: %s（判 FAIL）"
+                  % (name, type(exc).__name__, str(exc)[:80]))
+        verdict = ("命中预期" if fails == expect
+                   else "**红项数不符（预期 %d）**" % expect)
+        print("  变异「%s」→ 红项=%d  %s" % (name, fails, verdict))
+        for f in _FAIL[:6]:
+            print("      红:", f)
+        if len(_FAIL) > 6:
+            print("      …（余 %d 项）" % (len(_FAIL) - 6))
+        if fails != expect:
+            bad.append(name)
+    print("\n定点变异自证：%s"
+          % ("PASS（每处判据都有变异钉死，且红项数逐处吻合）" if not bad
+             else "FAIL —— " + "、".join(bad)))
+    return 0 if not bad else 1
+
+
+def _print_reds():
+    for f in _FAIL:
+        print("    红:", f)
+
+
+def main() -> int:
+    src = os.path.basename(os.path.abspath(__file__))
+    if "--mutate" in sys.argv:
+        print("!! 定点变异模式：逐个变异判据，套件应转红且红项数吻合\n")
+        try:
+            return _mutate_mode()
+        finally:
+            shutil.rmtree(_SANDBOX, ignore_errors=True)
+    anchor_bad = _anchor_check()
+    if anchor_bad:
+        for b in anchor_bad:
+            print("  ANCHOR-MISS " + b)
+        print("\n锚点自检：FAIL（fail-closed，exit 2）——实现改了请同步变异表")
+        return 2
+    print("锚点自检：PASS（%s；不以 git HEAD 为基线源）" % src)
+    try:
+        for g in _GROUPS:
+            g()
+    finally:
+        _RUN[0] += 1
+    print("\n三档自治档位守卫：%d 通过，%d 失败" % (len(_PASS), len(_FAIL)))
+    if _FAIL:
+        _print_reds()
+    return 0 if not _FAIL else 1
+
+
+if __name__ == "__main__":
+    try:
+        rc = main()
+    finally:
+        shutil.rmtree(_SANDBOX, ignore_errors=True)
+        os.environ.pop("MDCG_POLICY_FILE", None)
+        if _OLD_POLICY is not None:
+            os.environ["MDCG_POLICY_FILE"] = _OLD_POLICY
+        os.environ.pop(_ENV_MODE, None)
+    sys.exit(rc)

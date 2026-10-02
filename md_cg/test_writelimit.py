@@ -22,6 +22,13 @@ import shutil
 import tempfile
 import time
 
+# 三档自治批次②（2026-10-02）**夹具隔离**：本守卫考的不是档位面（档位守卫 =
+# md_cg/test_autonomy_modes.py），故显式置 full 档——回到改动前「动作直落」的
+# 行为，使本文件的断言意图（合并/覆写/软删真的发生）逐条不变；env 键名从唯一
+# 真源表取（本文件不构成第二处字面量）。
+from . import autonomy_modes as _autonomy_modes          # noqa: E402
+os.environ[_autonomy_modes.AUTONOMY_ENV_KEYS["mode"]] = "full"
+
 from .mdcos import MdCGOS
 from . import writelimit
 

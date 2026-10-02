@@ -12,6 +12,14 @@ import subprocess
 import sys
 import tempfile
 
+# 三档自治批次②（2026-10-02）**夹具隔离**：本守卫考的不是档位面（档位守卫 =
+# md_cg/test_autonomy_modes.py），故显式置 full 档——回到改动前「动作直落」的
+# 行为（本套的 forget/restore/review_decide 用例都假定软删真的发生），使断言
+# 意图逐条不变。子进程继承本进程 environ，故被拉起的 MCP server 同档。
+# env 键名从唯一真源表取（本文件不构成第二处字面量）。
+from md_cg import autonomy_modes as _autonomy_modes
+os.environ[_autonomy_modes.AUTONOMY_ENV_KEYS["mode"]] = "full"
+
 PASS = FAIL = 0
 FAILS = []
 

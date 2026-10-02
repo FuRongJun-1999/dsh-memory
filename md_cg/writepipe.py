@@ -20,7 +20,8 @@ write 的六道闸（audit 校验 / consistency 冲突 / review 审核 / gated �
   绕过（反面清单：不学 pi 的全权信任，信任必须结构强制）。
 
 默认链（install_default_gates，与重构前 _cg_dispatch write 分支行为逐字
-节一致）：audit → consistency → gated → _executor。
+节一致）：audit → consistency → gated → **autonomy（三档自治档位闸，
+2026-10-02 批次②）** → _executor。
 
 验收口径（交接文档 §3⑥）：全部既有写入测试零改动通过；新增/移除一个
 拦截器不改核心文件（register_before / unregister_before 即插即拔）。
@@ -401,6 +402,12 @@ def _gate_gated(ctx):
         out["moved_to"] = "merged_into:" + str(res.get("merged_into"))
     elif v in ("DROP", "DEFER"):
         out["moved_to"] = v.lower()
+    elif v == "CONFIRM":
+        # 三档自治批次②：变更确认档下 B 合并已出变更单（未合并）——去向如实
+        # 透出 review_queue（DROP/DEFER 两态的字面量分支一字未动）。
+        out["moved_to"] = res.get("moved_to") or "review_queue"
+        out["mutation"] = res.get("mutation")
+        out["autonomy"] = res.get("autonomy")
     # gated 是**替代落盘路径**（自行落盘/合并后直接返回终态、不跑 after 链），故
     # 一跳同步传播须在此单独触发——否则 MERGE 类覆写会漏传下游（非对称边界，
     # 与 `_after_trust` 注释互指）。
@@ -592,6 +599,89 @@ def _executor(ctx):
     return out
 
 
+# ---- 三档自治闸（设计 v0.2 §三 · 批次②） ----------------------------------
+
+#: 改写单要复现「原动作」所需的载荷键（**写链 payload 白名单**）：变更单裁决
+#: accept 时按此重放 cg.add，使「直接写」与「出单→确认→写」两条路径落盘的
+#: 节点 fm 等价（issue50-c F1 的同一教训：入队时丢声明 = 两条路径元数据不等价）。
+#: `sensitivity`/`layer` 不在列（各自有专属槽：rec.sensitivity / rec.layer）；
+#: `override` 在列（受保护节点的覆写授权是原动作的一部分，不能替调用方补）。
+_AUTONOMY_META_KEYS = ("tags", "condition_space", "verification_basis",
+                       "non_applicable_conditions", "derived_from", "relation",
+                       "depends_on", "valid_from", "valid_until",
+                       "verification_state", "importance", "importance_source",
+                       "override")
+
+
+# 生效条件：ctx 的 a/cg/nid 就绪时以 forgetting.prior_node 判「同 id 已存在」（存在=C 改写、不存在=A 新增）并交 autonomy_modes.decide 判定——ALLOW 返回 None 放行（与改动前同一条链）；FORBID 返回 ok=False/moved_to="autonomy_forbidden" 的终态（fail-closed，不落盘、不出单）；CONFIRM 经 autonomy_modes.propose_mutation 出变更单（复用既有 propose 单点）并返回 ok=True/committed=False/moved_to="review_queue" 的终态（**不落盘**）；
+def _gate_autonomy(ctx):
+    """档位闸：`cg(op=write)` 对**既有 node_id 的覆写**（C 改写）在变更确认档出单。
+
+    位置（设计 §三 硬约束②「纯加严」）：before 链**末位**——audit / consistency
+    / gated 三道既有资格闸全部放行之后、链尾执行器落盘之前。故：
+      · 档位**不参与**资格判定（内容政策/冲突/限流/遗忘裁决一律照旧先跑）；
+      · 档位**不放宽**任何既有判据（放行分支就是「返回 None」= 原链原样）；
+      · 覆写面的其余资格闸（层闸 + 写保护闸 + 降级闸）住在 `cg.add` 内部，
+        故出单**之前**先经 `cg.write_qualify`（同一批 protect 单点，只判不写）
+        跑一遍——受保护/越权覆写照旧当场被拒，不会变成「静默入队」。
+
+    动作类判定：`forgetting.prior_node` 同 id 存在 ⇒ **C 改写**；不存在 ⇒
+    **A 新增**（A 在缺省档与会话档都放行，只有计划档会 fail-closed 拦下——
+    设计 §三「计划外零变更」）。判据复用既有单点，不另写一份存在性判据。
+
+    不落盘的边界（如实）：`gated=true` 的写入在上游 `_gate_gated` 已是**替代
+    执行路径**（自行落盘/合并后直接返回终态、不走本闸），故本闸不覆盖它；
+    该面的档位判定由 `remember_gated` 自己的单点承担——**C 改写 / A 新增**在
+    `MdCGOS._autonomy_gate_rewrite`、**B 合并**在 `MdCGOS._autonomy_gate_merge`。
+    本闸只覆盖走链尾执行器的直写（`gated=false` 的 `cg(op=write)`）。
+    三处共用同一张矩阵（`autonomy_modes.decide`），不各写一份判据。
+
+    订正记录（2026-10-02，补强批次）：本句此前写「其覆写/合并分别由
+    `remember_gated` 的 C/B 判定覆盖」——B 合并确已覆盖，**C 覆写当时没有**
+    （该分支直调 `self.add`），属失实陈述（独立复核发现 1 的代码根据）。
+    补强批次在 `_autonomy_gate_rewrite` 落码后本句才与实现逐句一致。
+    """
+    a = ctx["a"]
+    cg = ctx["cg"]
+    nid = ctx["nid"]
+    from . import autonomy_modes as _am
+    from . import forgetting as _forgetting
+    prior = _forgetting.prior_node(cg, nid)
+    action = _am.C_REWRITE if prior is not None else _am.A_ADD
+    if prior is not None:
+        # 资格在先（纯加严）：覆写的层闸/写保护闸住在 `cg.add` 内部，若档位闸
+        # 先出单，一次本该 `AccessDenied`/`ProtectionError` 的覆写会变成静默入队
+        # ——那是放宽既有判据。故按**同一批 protect 单点**先跑一遍资格（只判不写）。
+        cg.write_qualify(nid, target_layer=a.get("layer"),
+                         override=bool(a.get("override")),
+                         actor=getattr(cg, "actor", None))
+    dec = _am.decide(action)
+    if dec["decision"] == _am.ALLOW:
+        return None
+    # 档位判定读数（**不参与资格判定**，只如实透出档位/动作类/判定）
+    _aut = {"mode": dec["mode"], "action": dec["action"],
+            "action_name": dec["action_name"], "decision": dec["decision"]}
+    if dec["decision"] == _am.FORBID:
+        return {"ok": False, "id": nid, "committed": False,
+                "moved_to": "autonomy_forbidden", "error": "autonomy_forbid",
+                "autonomy": _aut, "verdict": ctx.get("verdict"),
+                "hint": dec["hint"]}
+    meta = {k: a[k] for k in _AUTONOMY_META_KEYS if a.get(k) is not None}
+    pay = _am.mutation_payload(
+        action, nid, after=a.get("content", ""),
+        reason="写链覆写（cg(op=write) 对既有节点 %s 的 %s）"
+               % (nid, _am.ACTION_NAMES[action]),
+        primitive="add", meta=meta)
+    pr = _am.propose_mutation(cg, action, nid, payload=pay,
+                              layer=a.get("layer") or "knowledge",
+                              sensitivity=a.get("sensitivity"), info=True)
+    return {"ok": True, "id": nid, "pid": pr["pid"], "committed": False,
+            "moved_to": "review_queue", "autonomy": _aut, "mutation": pay,
+            "verdict": ctx.get("verdict"),
+            "hint": ("%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
+                     % (dec["hint"], pr["pid"], nid))}
+
+
 # 生效条件：value 传入即无条件延迟导入并转调 mcp_server._split_ids 后原样返回其结果（本符号无自身分支）；
 def _split_ids(value):
     # 与 mcp_server._split_ids 同源（延迟导入，单一真源）
@@ -612,8 +702,11 @@ def install_default_gates(pipe):
 
     链序（2026-09-19 起）：
         before = linkref(解析) → deps(依赖声明) → audit → consistency → gated
-                 → 链尾执行器
+                 → autonomy(档位) → 链尾执行器
         after  = linkref(建边) → trust(一跳传播)
+
+    autonomy（三档自治批次②）恒在最末：档位判定只决定「立即落」还是「出变更
+    单」，必须晚于全部既有资格闸（纯加严，设计 §三 硬约束②）。
 
     linkref 置于链首的理由：正文引用解析是**纯读、无副作用**，且其结果必须
     先于任何短路闸写入 ctx，供 after 链消费。短路闸（REJECT/DEFER/gated）
@@ -638,6 +731,12 @@ def install_default_gates(pipe):
     pipe.register_before("audit", _gate_audit)
     pipe.register_before("consistency", _gate_consistency)
     pipe.register_before("gated", _gate_gated)
+    # 档位闸**链尾**（三档自治批次②，设计 §三 硬约束②）：既有资格闸全部通过
+    # 之后、链尾执行器落盘之前——档位只决定「立即落」还是「出变更单」，不参与
+    # 资格判定。gated 分支是替代执行路径（自行落盘并已 return），其合并/覆写由
+    # remember_gated 的 B/C 判定覆盖（`_autonomy_gate_merge` / 补强批次的
+    # `_autonomy_gate_rewrite`），故本闸登记在 gated 之后即可。
+    pipe.register_before("autonomy", _gate_autonomy)
     pipe.register_after("linkref", linkref.after_hook())
     pipe.register_after("trust", _after_trust)
     return pipe

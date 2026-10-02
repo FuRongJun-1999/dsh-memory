@@ -26,6 +26,13 @@ noop 语义：**已评估、判定不改变任何现有记忆**——只留痕�
 审计 md 节点）并关闭提案，不落业务节点、不进负记忆。它与 reject 的区别是
 「评估过了、无需改动」而非「否掉这条候选」，故不可借 noop 绕过 accept 门控。
 
+变更单（三档自治批次②，kind=mutation）：队列里除「提案」外还有**变更单**
+——对既有记忆的 B 合并 / C 改写 / D 删除（设计 v0.2 §四）。`list` 会把它显式
+标为 `变更单(动作名→目标)`：accept = **执行**对应动作（B reinforce/converge、
+C 覆写落盘、D 软删），reject = 原样留痕不执行；edit/merge/noop 对变更单未定义
+（fail-closed 报错，不会静默当已处理）。存量条目无 `kind` 键，一律按提案走原
+路径（零迁移）。
+
 裁决留痕：decisions.jsonl + 审计 md 节点（由 review_decide 内部完成）。
 
 落盘归因（P1 修复，2026-09-26，DSH 端在役实测回告）：
@@ -112,6 +119,27 @@ def _brief(rec, width=66):
     return text[:width] + ("…" if len(text) > width else "")
 
 
+# 生效条件：rec 支持 .get 且其 kind 为 "mutation" 时返回「变更单(动作名→目标)」标签，其余（含缺键 = 存量提案）返回「提案」；本函数只读，不产生任何副作用；
+def _kind_label(rec):
+    """队列条目类型标签（三档自治批次②：变更单与提案在同一队列里可分辨）。
+
+    为什么要有：设计 §四「两类条目共用一个队列，靠类型字段区分」——显示面若
+    不区分，裁决者面对一张 `[pid] pending · contextual 层` 的单子看不出它是
+    「新写入候选」还是「对既有记忆的 B/C/D 变更单」，也无从知道确认后会发生
+    什么。缺键（存量条目）一律按提案显示（零迁移）。
+    """
+    try:
+        kind = str(rec.get("kind") or "").strip()
+        slot = (rec.get("extra") or {}).get("mutation") or {}
+    except AttributeError:
+        return "提案"
+    if kind != "mutation":
+        return "提案"
+    name = slot.get("action_name") or slot.get("action") or "?"
+    tgt = slot.get("target") or rec.get("id")
+    return "变更单(%s%s)" % (name, ("→ " + str(tgt)) if tgt else "")
+
+
 # 生效条件：cg 与 args 就绪时按 args.cmd 分派——"list" 时 cg.review_list() 为空则打印空队列并返回 0、非空则逐条打印（tags 取真值拼接、layer/round 为假值显示 "?"/0）后返回 0；"rounds" 时打印 cg.review_rounds(args.pid) 并返回 0；"stats" 时打印 cg.review_stats() 的记录数/提案数/待审数/已关闭数与动作分布（含 noop 计数）并返回 0；"edit" 时以 args.content 加真值 args.tags（按逗号分割并剔除空项）/args.layer 组成 edits 调 cg.review_decide；其余 cmd（含 noop）以 getattr(args, "into", None) 与 args.reason 调 cg.review_decide；后两类再按 out.get("ok") 为真返回 0，否则打印 out 并返回 1。
 def _execute(cg, args):
     """按子命令执行裁决（cg 的生命周期由 main 统一收尾）。"""
@@ -123,8 +151,9 @@ def _execute(cg, args):
         print("待审 %d 条：" % len(pend))
         for r in pend:
             tags = (", tags=" + ",".join(r.get("tags") or [])) if r.get("tags") else ""
-            print("  [%s] %s · %s 层%s · round=%s\n      %s" % (
-                r.get("pid"), r.get("status"), r.get("layer") or "?",
+            print("  [%s] %s · %s · %s 层%s · round=%s\n      %s" % (
+                r.get("pid"), r.get("status"), _kind_label(r),
+                r.get("layer") or "?",
                 tags, r.get("round") or 0, _brief(r)))
         print('\n裁决示例：python -m md_cg.review_cli accept <pid> --reason "实跑测试证据"')
         return 0

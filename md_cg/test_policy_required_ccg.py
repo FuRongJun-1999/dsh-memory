@@ -106,8 +106,12 @@ _BASELINE_MUTATIONS = {
 }
 # 假包里转发到真仓 md_cg.<name> 的模块。**必须覆盖基线源出现的全部相对 import**
 # （含函数内延迟导入）——缺登记即 SHIM-MISS fail-closed，不许靠「那条路径没跑到」侥幸绿着。
+# autonomy_modes（2026-10-02 补，三档自治批次②）：writepipe.py 新增链尾档位闸
+# `_gate_autonomy`，其函数内 `from . import autonomy_modes as _am` 被本文件的
+# AST 相对-import 扫描命中——不登记则假包缺模块（SHIM-MISS 红，容器栈一实测）。
 _SHIMS = ("twophase", "trust", "linkref", "mcp_server", "mdcg", "forgetting",
-          "units", "coldverify", "hotcache", "hyperedge", "nodefile")
+          "units", "coldverify", "hotcache", "hyperedge", "nodefile",
+          "autonomy_modes")
 _SHIM_TPL = ("import md_cg.%s as _m\n"
              "globals().update({k: v for k, v in vars(_m).items()\n"
              "                 if not k.startswith('__')})\n")
