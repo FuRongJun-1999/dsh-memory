@@ -52,6 +52,27 @@
     只读（结算前后库指纹逐位相同）。四条读数本身的深度判据（门槛边界 /
     窗口边界 3 天·30 天）见独立守卫 `md_cg/test_autonomy_admission.py`。
 
+**收官批次（步骤⑤，2026-10-03）新增 M 组**（设计 §十三.5 步骤⑤ / §十一 验收）：
+  · M 组 **覆盖矩阵未覆盖格补缺**——（a）plan 档热路径四面：写链 C 覆写 /
+    gated 面 B 合并（MERGE 落点）/ 限流闸 CONVERGE 落点 / 工具面 D 删除
+    （此前 plan 档只有 decide 级判据与 gated A 新增）；（b）**E 分数类在档位面**
+    的行为读数。
+    confirm/full 两档的 A/E 逐位对拍、与旧基线的 `git archive` oracle 对拍、
+    端到端回滚演练（跨写链/插件面/执行桥/回滚 CLI）在独立守卫
+    `md_cg/test_mode_parity.py`（收官批次另立；覆盖矩阵见收官报告）。
+
+**补强批次（v1.2，2026-10-03）扩展 M 组**（独立复核 DEFER 的解除项 U1/U2 ＋ E 面接线）：
+  · **M1e 直写面三档**（U1）：`mdcg_remember` **非 gated 直写分支**
+    （`mcp_server.py:3373` 的自注「热写入路径的第二落点」）——plan/confirm 两档
+    C 覆写**出单且不落盘**、full 档**直落**（此前该分支两档均无行为断言，复核
+    V4' 注入 0 红存活）；
+  · **M2 按标题意图重编码**：E 面**已接线**（`autonomy_modes.e_gate` 接在
+    `weights.recalc` / `freshness.recalc` / `lifecycle.set_state` /
+    `lifecycle.backfill` 的 apply 路径）⇒ 断言由「plan 与 confirm 逐位相等
+    （现状钉、非背书）」重编码为「**plan 被拦（fail-closed、零写盘）＋
+    confirm/full 逐位相等**」——**断言意图不变**（同 issue50-a 的 E1 先例：
+    改的是判据编码，不是判据意图）。
+
 定点变异自证（`--mutate`，与 `md_cg/test_neg_condition_hits.py` 同口径）：
 表内每项 = (说明, 目标, 锚点原文, 替换文, 预期红项数)。锚点须**逐字**出现在目标
 函数源码里；漂移即 ANCHOR-MISS（fail-closed，exit 2）。红项数与实测**逐一相符**
@@ -59,6 +80,17 @@
 目标形态三种：`("mod", 模块, 函数名)` / `("cls", 类, 方法名)` 走**源码替换 + exec**
 重装；`("attr", 模块, 属性名)` 是**常量型变异**（把属性换成 `替换文` 求值出的新值，
 用于 `_SHIMS` 这类「判据是数据不是函数体」的落点）。
+
+**F1 收口（2026-10-03）——防误删自检**：变异表第③条（矩阵整表坍缩）曾在工作树
+被删（仅剩注释；删除原因无留痕、不归因）；本批自 `git show HEAD:` 取回、按现行树
+勘定锚点并实测校准红项数。新增**变异表完整性自检**（`_table_gaps` /
+`_table_integrity_check`：编号无缺口 ＋ 表长与显式声明 `_MUTATION_IDS` 一致；
+缺项 ⇒ fail-closed 退出码 2 并报缺口编号）——今后删条目即机械报错，不再靠人工
+发现；「24 处」由此获得**自动核验载体**（每次运行 F1③ 测例自动核验）。自检的
+判别力由合成源自证测例（F1①–④）＋ 内置判别力钉 `_SELFCHECK_MUTATION`
+（剥掉自检开关 ⇒ 自证测例转红 **3**；不占表内编号——表长与声明恒等）钉死。
+三级判据（注释被覆盖 / 序列缺编号 / 表长不符）分别对应删元组留注释、
+注释与元组同删、编号齐而条目缺三种删法。
 
 运行：
   python -X utf8 -m md_cg.test_autonomy_modes              # 正常跑
@@ -79,6 +111,7 @@ import inspect
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -93,6 +126,11 @@ os.environ.pop("MDCG_TEST_LIVE_ROOT", None)
 _OLD_POLICY = os.environ.pop("MDCG_POLICY_FILE", None)
 
 from . import autonomy_modes, forgetting, writelimit, writepipe   # noqa: E402
+from . import freshness                                            # noqa: E402
+from . import weights                                              # noqa: E402
+from . import lifecycle as _lc                                     # noqa: E402
+from . import mcp_server                                           # noqa: E402
+from . import nodefile as _nf                                      # noqa: E402
 from . import mdcos                                                # noqa: E402
 from . import test_policy_required_ccg as _tpc                      # noqa: E402
 from .mdcos import MdCGOS, MdCGSecure                              # noqa: E402
@@ -159,9 +197,13 @@ def _pipe():
     return writepipe.install_default_gates(writepipe.WritePipeline())
 
 
-#: 对拍要剔除的**时钟面**键（两次运行必然不同，与档位无关——剔除不算放水：
-#: 对拍的判据是「档位有没有改变行为」，不是「时间戳是否相同」）。
-_VOLATILE = ("t", "created_at", "last_access", "time_window", "last_merge_at")
+#: 对拍要剔除的**时钟面/耗时面**键（两次运行必然不同，与档位无关——剔除不算
+#: 放水：对拍的判据是「档位有没有改变行为」，不是「时间戳/耗时是否相同」）。
+#: 收官批次（步骤⑤）追加三项，均为同一族：`batch`（strftime 派生的批号）、
+#: `note`（文案里内嵌 batch 的提示句，与 batch 同源）、`elapsed_ms`
+#: （运行耗时读数，性能面——M 组 E 分数类对拍用）。
+_VOLATILE = ("t", "created_at", "last_access", "time_window", "last_merge_at",
+             "batch", "note", "elapsed_ms")
 
 
 def _strip(d):
@@ -1060,7 +1102,345 @@ def g_l():
         autonomy_modes.reset_settlement()
 
 
-_GROUPS = (g_a, g_b, g_c, g_d, g_e, g_f, g_g, g_h, g_i, g_j, g_k, g_l)
+# =============================================================== M 组：收官补缺
+def g_m():
+    """收官批次（步骤⑤）：覆盖矩阵**未覆盖格**补缺（plan 档热路径 + E 分数类）。
+
+    覆盖矩阵（3 档 × A–E × 四套守卫）清点见
+    `docs/eval/三档自治_步骤⑤收官与全链验收_落码记录_v1.0.md`；本组补的是矩阵
+    里此前**无断言**的格：
+
+      · plan 档热路径四面：写链 C 覆写（非 gated）／gated 面 B 合并（MERGE
+        落点）／限流闸 CONVERGE 落点／工具面 D 删除——此前 plan 档只有
+        decide 级判据（A 组）与 gated A 新增（I 组 ④）；
+      · E 分数类（权重/生命周期）在档位面的**行为读数**。
+    补强批次（v1.2）扩展：
+      · **M1e**：`mdcg_remember` **非 gated 直写分支**（`mcp_server.py:3373`）
+        三档行为——复核 U1 的解除项（此前 plan/confirm 两档均无断言）；
+      · **M2 重编码**：E 面已接档位闸（`e_gate` 接在四处 apply 写盘路径）
+        ⇒ 判据由「plan≡confirm（现状钉）」改为「plan 被拦 ＋ confirm/full
+        逐位相等」（**意图不变**，同 issue50-a 的 E1 先例）。
+
+    边界（如实：设计内语义 vs 留池缺口分列，不混淆）：
+      · plan 档 **C/D 与 confirm 同格**（需确认 ⇒ 出单，非 forbid）——设计 §三
+        矩阵逐格如此，M1/M1d 钉的就是「出单且不落盘」；
+      · plan 档 **A/B/E 无计划输入即 forbid**（设计 §三 硬约束③）——属设计内
+        语义，**不并入** confirm↔full 不动面对拍范围（对拍锚只含 confirm/full）；
+      · **E 面档位闸已接线**（补强批次 v1.2）：plan 档 E 类动作
+        （`freshness.recalc` / `weights.recalc` / `lifecycle.set_state` /
+        `lifecycle.backfill` 的 **apply 路径**）fail-closed 且零写盘；
+        confirm/full 两档原链原样（逐位不变）。**未接**的三处入口及理由见
+        `autonomy_modes.e_gate()` docstring（`lifecycle.stamp` 属 B 链／库层
+        `require_transition` 禁接线／分数类回滚面待裁）——**计划输入面**仍留池：
+        现状 `plan=None` ⇒ plan 档 E 一律 fail-closed，「命中计划步骤」的
+        allow 分支待计划输入面接线（`autonomy_modes` 模块 docstring「本批不做」）。
+
+    confirm/full 两档的 A/E 逐位对拍、与旧基线的 oracle 对拍、端到端回滚演练
+    （跨写链/插件面/执行桥/回滚 CLI）在独立守卫 `md_cg/test_mode_parity.py`。
+    """
+    print("== M 组：收官补缺（plan 档热路径四面 + E 分数类在档位面）==")
+    from . import freshness as _fresh
+    # ---- M1 写链 C 覆写（plan 档，非 gated 面）----
+    with _mode("plan"):
+        cg = _lib("m_plan_c")
+        cg.add("mp_c", PLAIN % "初版", layer="knowledge",
+               verification_basis="test")
+        cg.flush()
+        o = _pipe().execute(cg, {"content_kind": "text", "content": PLAIN % "改写版",
+                                 "layer": "knowledge", "node_id": "mp_c"})
+        pay = o.get("mutation") or {}
+        ok(o.get("moved_to") == "review_queue" and o.get("committed") is False
+           and bool(o.get("pid")) and pay.get("action") == "C"
+           and pay.get("target") == "mp_c",
+           "M1 写链 C 覆写（plan 档）出变更单且不落盘（C 在 plan/confirm 同格，"
+           "此前写链面 plan 档无断言）",
+           {k: o.get(k) for k in ("moved_to", "committed", "pid")})
+        ok("改写版" not in (cg.get("mp_c") or {}).get("content", "")
+           and "初版" in (cg.get("mp_c") or {}).get("content", ""),
+           "M1 出单时目标正文**未被覆写**（逐字比对）")
+        cg.close()
+
+    # ---- M1b gated 面 B 合并（plan 档，MERGE 落点）----
+    with _mode("plan"):
+        cg = _lib("m_plan_b")
+        cg.add("mp_b", BODY % "9090", layer="knowledge",
+               verification_basis="test")
+        cg.flush()
+        r = cg.remember_gated("mp_bn", BODY % "9595", layer="knowledge")
+        ok(r.get("verdict") == "FORBID"
+           and r.get("moved_to") == "autonomy_forbidden"
+           and r.get("merged_into") == "mp_b"
+           and "计划" in str(r.get("hint") or ""),
+           "M1b gated 面 B 合并（plan 档·MERGE 落点）fail-closed：verdict=FORBID "
+           "+ 计划外零变更 hint（此前无断言）",
+           {k: r.get(k) for k in ("verdict", "moved_to", "merged_into")})
+        t = cg.get("mp_b") or {}
+        ok("9595" not in (t.get("content") or "")
+           and not ((t.get("frontmatter") or {}).get("merge_count"))
+           and len(_mut_entries(cg.review_list())) == 0,
+           "M1b 未合并：目标正文/merge_count 不动、零变更单（未落盘、未出单）",
+           (t.get("frontmatter") or {}).get("merge_count"))
+        cg.close()
+
+    # ---- M1c 限流闸 CONVERGE 落点（plan 档；锚点须在允许档先落）----
+    cg = _lib("m_plan_cv")
+    with _mode("confirm"):
+        r1 = cg.remember_gated("mp_x1", "批次107 收官：指标面 9090 正常",
+                               layer="contextual")
+    with _mode("plan"):
+        r2 = cg.remember_gated("mp_x2", "批次108 收官：指标面 9595 正常",
+                               layer="contextual")
+        ok(r1.get("verdict") == "ACCEPT" and r2.get("verdict") == "FORBID"
+           and r2.get("moved_to") == "autonomy_forbidden",
+           "M1c 限流闸 CONVERGE（plan 档）fail-closed：verdict=FORBID、"
+           "moved_to=autonomy_forbidden（锚点在 confirm 档落盘、切 plan 后"
+           "第二篇被拦——此前无断言）",
+           {"r1": r1.get("verdict"), "r2": r2.get("verdict")})
+        ok("9595" not in ((cg.get("mp_x1") or {}).get("content") or ""),
+           "M1c CONVERGE 未并入：目标正文不含新值（合并原语未被调用）")
+    cg.close()
+
+    # ---- M1d 工具面 D 删除（plan 档）----
+    with _mode("plan"):
+        cg = _lib("m_plan_d")
+        cg.add("mp_d", BODY % "9090", layer="knowledge",
+               verification_basis="test")
+        cg.flush()
+        r = cg.forget_gated("mp_d", reason="守卫：plan 档删除")
+        ok(r.get("moved_to") == "review_queue" and r.get("deleted") is False
+           and (r.get("mutation") or {}).get("action") == "D"
+           and cg.get("mp_d") is not None,
+           "M1d 工具面 D 删除（plan 档）出变更单且不软删（deleted=False 明示、"
+           "节点原样在位——此前无断言）",
+           {k: r.get(k) for k in ("moved_to", "deleted", "ok")})
+        cg.close()
+
+    # ---- M1e 直写面（mdcg_remember 非 gated）三档：plan/confirm 出单、full 直落 ----
+    # U1 解除项：`mcp_server.py:3373` 的 `_dec = _am.decide(_action)` 所在分支
+    # （`_dispatch` 的 `mdcg_remember` 非 gated 直写面）此前 **plan 与 confirm
+    # 两档均无行为断言**（复核 V4' 注入 0 红存活、不限档位摘除变体亦全绿）；
+    # 本组形态同 M1（写链面）：出单且不落盘 / 正文逐字未动 / 队列计数 + full 直落。
+    def _direct_probe(mode, tag):
+        with _mode(mode):
+            cg = _lib(tag)
+            cg.add("ud_c", PLAIN % "初版", layer="knowledge",
+                   verification_basis="test")
+            cg.flush()
+            o = mcp_server._dispatch(cg, "mdcg_remember",
+                                     {"content": PLAIN % "改写版",
+                                      "node_id": "ud_c", "layer": "knowledge"})
+            body = (cg.get("ud_c") or {}).get("content") or ""
+            orders = _mut_entries(cg.review_list())
+            cg.close()
+            return o, body, orders
+
+    o_p, b_p, m_p = _direct_probe("plan", "m_direct_plan")
+    ok(o_p.get("moved_to") == "review_queue" and o_p.get("committed") is False
+       and bool(o_p.get("pid"))
+       and (o_p.get("mutation") or {}).get("action") == "C"
+       and (o_p.get("mutation") or {}).get("target") == "ud_c",
+       "M1e① 直写面 C 覆写（plan 档·mdcg_remember 非 gated）出变更单且不落盘"
+       "（moved_to=review_queue、committed=False、单载荷 action=C/target 齐"
+       "——复核 U1：此前该分支 plan 档无行为断言）",
+       {k: o_p.get(k) for k in ("moved_to", "committed", "pid")})
+    ok("改写版" not in b_p and "初版" in b_p and len(m_p) == 1,
+       "M1e② plan 档出单时目标正文**未被覆写**（逐字比对）且队列恰 1 张",
+       {"orders": len(m_p), "body": b_p[:24]})
+    o_c, b_c, m_c = _direct_probe("confirm", "m_direct_confirm")
+    ok(o_c.get("moved_to") == "review_queue" and o_c.get("committed") is False
+       and bool(o_c.get("pid"))
+       and (o_c.get("mutation") or {}).get("action") == "C"
+       and "改写版" not in b_c and "初版" in b_c and len(m_c) == 1,
+       "M1e③ 直写面 C 覆写（confirm 档）出变更单且不落盘（正文未改、队列 1 张"
+       "——复核 U1：此前该分支 confirm 档亦无断言）",
+       {k: o_c.get(k) for k in ("moved_to", "committed", "pid")})
+    o_f, b_f, m_f = _direct_probe("full", "m_direct_full")
+    ok(o_f.get("ok") is True and o_f.get("moved_to") is None
+       and o_f.get("overwrite_of") == "ud_c" and "改写版" in b_f
+       and "初版" not in b_f,
+       "M1e④ 直写面 C 覆写（full 档）**直落**：ok=True、无单、正文已换"
+       "（overwrite_of 读数齐）",
+       {k: o_f.get(k) for k in ("ok", "moved_to", "overwrite_of")})
+    ok(len(m_f) == 0,
+       "M1e⑤ full 档同面零变更单（直落面不产单——与 confirm 链的分界）",
+       len(m_f))
+
+    # ---- M2 E 分数类在档位面（补强批次 v1.2：按标题意图重编码，意图不变）----
+    # 重编码的根据：E 面**已接档位闸**（autonomy_modes.e_gate 接在
+    # weights.recalc / freshness.recalc / lifecycle.set_state / lifecycle.backfill
+    # 的 apply 写盘路径）。故 M2 的判据由「plan≡confirm（现状钉、非背书）」改为
+    # 「**plan 被拦 ＋ confirm/full 逐位相等**」——断言意图（E 在 plan 档须受
+    # 计划约束、confirm/full 不阻塞）一字未改，改的是编码（同 issue50-a 的 E1
+    # 先例）。**本组不再钉「E 面无接线」**：那正是补强批次要消灭的留池项。
+    def _e_fresh(mode, tag):
+        with _mode(mode):
+            cg = _lib(tag)
+            cg.add("me_1", BODY % "9090", layer="knowledge",
+                   verification_basis="test", importance=0.4)
+            cg.add("me_2", PLAIN % "被引", layer="knowledge",
+                   verification_basis="test",
+                   edges=[{"target": "me_1", "relation_type": "part_of"}])
+            cg.flush()
+            out = _fresh.recalc(cg, apply=True, min_delta=0.0001,
+                                now=1700000000.0)
+            fm = dict(((cg.get("me_1") or {}).get("frontmatter") or {}))
+            cg.close()
+            return out, fm
+
+    op_, fp = _e_fresh("plan", "m_e_plan")
+    oc, fc = _e_fresh("confirm", "m_e_conf")
+    of, ff = _e_fresh("full", "m_e_full")
+    ok(op_.get("ok") is False and op_.get("error") == "autonomy_forbidden"
+       and "计划" in str(op_.get("hint") or "")
+       and op_.get("written") == 0,
+       "M2① E 面 plan 档**被拦**：freshness.recalc(apply=True) fail-closed"
+       "（ok=False/error=autonomy_forbidden/带「计划外零变更」hint/written=0）",
+       {k: op_.get(k) for k in ("ok", "error", "written")})
+    ok(fp.get("freshness_weight") is None
+       and fp.get("freshness_source") is None,
+       "M2② plan 档**零写盘**：盘面无 freshness_weight/freshness_source"
+       "（与 confirm 档对照——fail-closed 不是「报错但仍写」）",
+       {k: fp.get(k) for k in ("freshness_weight", "freshness_source")})
+    ok(oc.get("ok") is True and int(oc.get("written") or 0) >= 1
+       and fc.get("freshness_weight") is not None,
+       "M2③ confirm 档**照落**：written≥1 且 freshness_weight 已写盘"
+       "（E 列 confirm = 允许，分数类不阻塞）",
+       {k: oc.get(k) for k in ("ok", "written", "error")})
+    ok(_strip(oc) == _strip(of) and _strip(fc) == _strip(ff)
+       and ff.get("freshness_weight") is not None,
+       "M2④ E 接线**只在 plan 档生效**：confirm 与 full 两档输出**逐位相等**、"
+       "落盘 fm（剔除时钟面）逐位相等（「confirm/full 全线逐位不变」硬约束的"
+       "E 面锚）",
+       {"out_same": _strip(oc) == _strip(of),
+        "fm_diff": [k for k in set(fc) | set(ff)
+                    if _strip(fc).get(k) != _strip(ff).get(k)]})
+    with _mode("plan"):
+        cg = _lib("m_e_dry")
+        cg.add("me_1", BODY % "9090", layer="knowledge",
+               verification_basis="test", importance=0.4)
+        cg.flush()
+        dr = _fresh.recalc(cg, apply=False, min_delta=0.0001, now=1700000000.0)
+        cg.close()
+    ok(dr.get("ok") is True and dr.get("dry_run") is True
+       and int(dr.get("changed") or 0) >= 1,
+       "M2⑤ 闸只在 **apply 路径**：plan 档预演（apply=False）照旧出报表"
+       "（零写盘面不接闸——接线面即「变更」面）",
+       {k: dr.get(k) for k in ("ok", "dry_run", "changed")})
+
+    def _e_weights(mode, tag):
+        with _mode(mode):
+            cg = _lib(tag)
+            cg.add("mw_1", BODY % "9090", layer="knowledge",
+                   verification_basis="test", importance=0.4)
+            cg.add("mw_2", PLAIN % "被引", layer="knowledge",
+                   verification_basis="test",
+                   edges=[{"target": "mw_1", "relation_type": "part_of"}])
+            cg.flush()
+            out = weights.recalc(cg, apply=True, min_delta=0.0001)
+            fm = dict(((cg.get("mw_1") or {}).get("frontmatter") or {}))
+            cg.close()
+            return out, fm
+
+    wp, fwp = _e_weights("plan", "m_w_plan")
+    wc, fwc = _e_weights("confirm", "m_w_conf")
+    ok(wp.get("ok") is False and wp.get("error") == "autonomy_forbidden"
+       and fwp.get("importance") == 0.4,
+       "M2⑥ weights.recalc（第二写盘入口）plan 档被拦且 importance 盘面未改"
+       "（接线前实测 0.5→0.57 已写盘——本条即该缺口的机械钉）",
+       {k: wp.get(k) for k in ("ok", "error")})
+    ok(wc.get("ok") is True and int(wc.get("written") or 0) >= 1
+       and fwc.get("importance") != 0.4,
+       "M2⑦ weights.recalc confirm 档照落（importance 已重算写盘）",
+       {"written": wc.get("written"), "imp": fwc.get("importance")})
+
+    def _e_state(mode, tag):
+        with _mode(mode):
+            cg = _lib(tag)
+            cg.add("ml_1", BODY % "9090", layer="knowledge",
+                   verification_basis="test")
+            cg.flush()
+            out = _lc.set_state(cg, "ml_1", "converged", reason="守卫",
+                                actor="guard")
+            fm = dict(((cg.get("ml_1") or {}).get("frontmatter") or {}))
+            cg.close()
+            return out, fm
+
+    sp, fsp = _e_state("plan", "m_l_plan")
+    sc, fsc = _e_state("confirm", "m_l_conf")
+    ok(sp.get("ok") is False and sp.get("error") == "autonomy_forbidden"
+       and sp.get("changed") is False
+       and fsp.get(_lc.STATE_FIELD) == "active",
+       "M2⑧ lifecycle.set_state（第三写盘入口）plan 档被拦：ok=False + 状态未推进"
+       "（盘面仍 active；资格面在前——非法迁移仍走自己的 code）",
+       {k: sp.get(k) for k in ("ok", "error", "changed", "code")})
+    ok(sc.get("ok") is True and sc.get("changed") is True
+       and fsc.get(_lc.STATE_FIELD) == "converged",
+       "M2⑨ lifecycle.set_state confirm 档照落（状态推进 = converged）",
+       {"changed": sc.get("changed"), "state": fsc.get(_lc.STATE_FIELD)})
+
+    def _e_backfill(mode, tag):
+        """盘面直造**缺 lifecycle_state** 的节点（backfill 的「缺字段」前提）。"""
+        with _mode(mode):
+            cg = _lib(tag)
+            p = os.path.join(cg.root, "knowledge", "ml_bare.md")
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(_nf.dumps({"id": "ml_bare", "layer": "knowledge",
+                                   "created_at": 1700000000.0}, "# 探针节点\n"))
+            cg.rebuild_index()
+            out = _lc.backfill(cg, apply=True)
+            fm = dict(((cg.get("ml_bare") or {}).get("frontmatter") or {}))
+            cg.close()
+            return out, fm
+
+    bp, fbp = _e_backfill("plan", "m_b_plan")
+    bc, fbc = _e_backfill("confirm", "m_b_conf")
+    ok(bp.get("ok") is False and bp.get("error") == "autonomy_forbidden"
+       and bp.get("backfilled") == 0 and bp.get("missing") == 1
+       and fbp.get(_lc.STATE_FIELD) is None,
+       "M2⑩ lifecycle.backfill（第四写盘入口）plan 档被拦：盘点出 1 个缺字段节点"
+       "仍 fail-closed、零回填（盘面仍无 state 键）",
+       {k: bp.get(k) for k in ("ok", "error", "missing", "backfilled")})
+    ok(bc.get("ok") is True and bc.get("backfilled") == 1
+       and fbc.get(_lc.STATE_FIELD) == "active",
+       "M2⑪ lifecycle.backfill confirm 档照落（缺字段节点显式回填 active）",
+       {k: bc.get(k) for k in ("ok", "backfilled")})
+    ok(autonomy_modes.decide("A", mode_explicit="plan")["decision"] == "forbid"
+       and autonomy_modes.decide("E", mode_explicit="plan")["decision"] == "forbid",
+       "M2⑫ 设计内语义单独钉：plan 档 A/E 无计划即 forbid（计划输入面留池）"
+       "——**不并入** confirm↔full 不动面对拍范围")
+
+    # ---- F1 收口自证（2026-10-03）：防误删自检的判别力 ----
+    # （合成源三形态 + 真实表对照；判别力钉＝`_SELFCHECK_MUTATION`，不占表内编号）
+    # 合成源＝表体最小形态（编号用真实字符）；删法各一 + 真实表对照 + 表长兜底。
+    _S_DROP_TUPLE = ("x\n_SRC_MUTATIONS = (\n"
+                     "    # ① 甲\n    (\"a\",),\n"
+                     "    # ② 乙\n"                # ← ② 删元组留注释（F1 原形）
+                     "    # ③ 丙\n    (\"c\",),\n)\n")
+    _S_DROP_BOTH = ("x\n_SRC_MUTATIONS = (\n"
+                    "    # ① 甲\n    (\"a\",),\n"
+                    "    # ③ 丙\n    (\"c\",),\n)\n")   # ← ② 注释+元组同删
+    _self_src = io.open(os.path.abspath(__file__), encoding="utf-8").read()
+    ok(_table_gaps(_S_DROP_TUPLE, 2, ("①", "②", "③")) == ["②", "len:2≠3"],
+       "F1① 防误删自检判别力：删元组留注释（F1 原形）⇒ 报缺口编号 ②"
+       "（表长兜底随报——此前该形态无任何机械载体）",
+       _table_gaps(_S_DROP_TUPLE, 2, ("①", "②", "③")))
+    ok(_table_gaps(_S_DROP_BOTH, 2, ("①", "②", "③")) == ["②", "len:2≠3"],
+       "F1② 防误删自检判别力：注释与元组同删 ⇒ 仍报缺口编号 ②（编号序列比对"
+       "判据）",
+       _table_gaps(_S_DROP_BOTH, 2, ("①", "②", "③")))
+    ok(_table_integrity_check() == [],
+       "F1③ 真实表完好（**自动核验载体**）：编号 ①–㉔ 无缺口、表长 %d = 声明"
+       "——「24 处」不再只是文档声称，而是每次运行自动核验" % len(_MUTATION_IDS),
+       _table_integrity_check())
+    _n1, _n2 = len(_SRC_MUTATIONS) - 1, len(_SRC_MUTATIONS)
+    ok(_table_gaps(_self_src, _n1) == ["len:%d≠%d" % (_n1, _n2)],
+       "F1④ 表长判据兜底：真实源 + 表长-1 ⇒ 报「len:%d≠%d」（防「编号齐但"
+       "条目缺」的边角形态）" % (_n1, _n2),
+       _table_gaps(_self_src, _n1))
+
+
+_GROUPS = (g_a, g_b, g_c, g_d, g_e, g_f, g_g, g_h, g_i, g_j, g_k, g_l, g_m)
 
 
 def _run_groups():
@@ -1076,52 +1456,77 @@ def _run_groups():
 # 表内每项 = (说明, 目标, 锚点原文, 替换文, 预期红项数)。锚点须**逐字**出现在
 # 目标函数源码里；漂移即 ANCHOR-MISS（fail-closed，exit 2）。
 # 目标 = ("mod", 模块对象, 函数名) 或 ("cls", 类对象, 方法名)。
+#
+#: 本守卫模块对象——「防误删自检」的判别力钉（`_SELFCHECK_MUTATION`）以本模块为属主
+#: （`sys.modules[__name__]` 是同一对象的现取形态，不写第二处名字字面量；
+#: 同 `md_cg/test_mode_parity.py` 的 `_SELF` 先例）。
+_THIS = sys.modules[__name__]
 _SRC_MUTATIONS = (
     # ①「档位不生效」——env 读取口恒返回真源缺省（confirm）：全档位退化成一个档。
     # 锚点（批次④改）：env 解析单点从 mode() 抽到 _configured_mode()（settle() 与
     # mode() 共用；表达式文字逐字不变）——变异目标随之挪到该单点。
-    # 红 17（实测 2026-10-02 批次④）：原 9 条（A 组非法值/归一两条 + full 档直落
-    # 三条（B/H）+ plan 档 fail-closed 一条 + full 档零变更单一条 + I 组两条）
-    # + 批次④ L 组 8 条（L1 full+满足失效、L2 结算体形状、L2a 缺项告警、
-    # L3 plan 档（配置恒 confirm ⇒ plan 也退化）、L4 非法值 fail-closed 失效、
-    # L5 未结算对拍、L6 缓存零 IO、L8 结算态——L2b 与 L7 语义相符仍绿）。
+    # 红 27（实测 2026-10-03 补强批次 v1.2 校准 20→27）：20（收官批次）＝9 条
+    # （A 组非法值/归一两条 + full 档直落三条（B/H）+ plan 档 fail-closed 一条
+    # + full 档零变更单一条 + I 组两条）+ L 组 8 条（L1 full+满足失效、L2 结算体
+    # 形状、L2a 缺项告警、L3 plan 档（配置恒 confirm ⇒ plan 也退化）、L4 非法值
+    # fail-closed 失效、L5 未结算对拍、L6 缓存零 IO、L8 结算态——L2b 与 L7 语义
+    # 相符仍绿）+ 收官 M 组 3（M1b「MERGE 落点 FORBID」两条 + M1c「CONVERGE 落点
+    # FORBID」第一条；M1（C 覆写）与 M1d（D 删除）在 plan/confirm 同格 ⇒ 相符仍绿）；
+    # 补强批次 v1.2 +7 = M1e④⑤（full 臂退化 ⇒ 直写面不再直落：出单且不落盘、
+    # 非零变更单）+ M2①（plan 档 E 被拦判据失效——退化后照落）+ M2②（plan 零写盘）
+    # + M2⑥（weights plan 被拦）+ M2⑧（set_state plan 被拦）+ M2⑩（backfill plan
+    # 被拦）。M2⑤（预演不接闸）与 M2③④⑦⑨⑪⑫ 语义相符仍绿。
     ("档位不生效（配置档位恒返回表内缺省）", "mod", autonomy_modes,
      "_configured_mode",
-     '    raw = autonomy_env("mode", environ)', '    raw = DEFAULT_MODE', 17),
+     '    raw = autonomy_env("mode", environ)', '    raw = DEFAULT_MODE', 27),
     # ②「confirm 也直落」——矩阵的 confirm 格被当成放行（确认形同虚设）。
-    # 红 40（实测 2026-10-02 批次④；补强批次 39、批次②当时 25）：A 组 6 条矩阵/
-    # hint 判据 + B/C/D/E 组全部「出单/不落盘/载荷/accept 执行/幂等」判据（确认
-    # 路径整体消失）；补强批次 +14 = I 组 gated 面同类判据（C confirm 四条 +
-    # accept + reject + plan C + 链面两条 + MCP 一条 + 执行桥五条）；批次④ +1 =
-    # L 组 L2b（decide(D) 应判 confirm 却直落 allow）。
+    # 红 46（实测 2026-10-03 补强批次 v1.2 校准 43→46）：43（收官批次）＝
+    # 原 40（批次④）＝A 组 6 条矩阵/hint 判据 + B/C/D/E 组全部「出单/不落盘/
+    # 载荷/accept 执行/幂等」判据（确认路径整体消失）+ 补强批次 I 组 14 条 +
+    # L 组 L2b，＋收官 M 组 3（M1 两条：写链 C 覆写 plan 档不再出单——直落且正文
+    # 被覆写 + M1d：工具面 D 删除不再出单、直接软删；M1b/M1c 走 FORBID 格而非
+    # CONFIRM 格，相符仍绿）；补强批次 +3 = M1e①②③（**plan 档 C 的矩阵格也是
+    # CONFIRM** ⇒ 该格被当放行后直写面 plan/confirm 两臂全部直落：plan 两条
+    # 「出单/正文未改」+ confirm 一条同形）。M2 各条走 PLAN_STEP/ALLOW 格，
+    # 语义相符仍绿。
     ("confirm 也直落（decide 把 confirm 格判成 allow）", "mod", autonomy_modes,
-     "decide", '    if cell == CONFIRM:', '    if False:', 40),
+     "decide", '    if cell == CONFIRM:', '    if False:', 46),
     # ③ 矩阵整表坍缩成 full 列——「档位不生效」的真源版（判据被绕过、表仍在）。
-    # 红 47（实测 2026-10-02 批次④；补强批次 46、批次②当时 31）：A 组 15 格 +
-    # confirm/plan 相关判据 + 三个落点的出单判据（比 ② 多 plan 档与 full 档对拍）；
-    # 补强批次 +15 = ② 的 14 + I 组「gated C 覆写（plan 档）出变更单」；
-    # 批次④ +1 = L 组 L2b（同 ② 的那一条）。
+    # 红 63（实测 2026-10-03 补强批次 v1.2 校准 55→63）：55（收官批次）＝
+    # 原 47（批次④）＝A 组 15 格 + confirm/plan 相关判据 + 三个落点的出单判据 +
+    # 补强批次 I 组 15 + L 组 L2b，＋收官 M 组 8（M1 两条 + M1b 两条 + M1c 两条
+    # （CONVERGE 直接合并）+ M1d 一条 + M2 第三条（plan 档 A/E 的 forbid 语义消失））；
+    # 补强批次 +8 = M1e①②③（全档坍缩 full ⇒ 直写面 plan/confirm 也直落：出单/
+    # 正文未改/队列计数三条判据全失）+ M2① ② ⑥ ⑧ ⑩（plan 档 E 五处判据——
+    # 坍缩后 E 直接允许、照落写盘）。M2⑤（预演不接闸）与 M2③④⑦⑨⑪⑫ 相符仍绿。
+    # F1 收口（2026-10-03，本批）：本元组曾在工作树被删（仅剩注释，红 63 的形态
+    # 与注释都在、元组没了——删除原因无留痕、不归因）；自 `git show HEAD:` 取回
+    # （原 expect 47 = 历史值），按现行树勘定锚点、预期红项数按现行树实测校准。
     ("矩阵整表坍缩成 full（档位不生效·真源版）", "mod", autonomy_modes, "decide",
      '    cell = MATRIX[m][act]',
-     '    cell = MATRIX["full"][act]', 47),
+     '    cell = MATRIX["full"][act]', 63),
     # ④ 写链档位闸空转——C 改写不再出单（直接覆写）。
-    # 红 6（实测 2026-10-02）：B 组 C 改写 5 条（出单/未改写/载荷/队列/accept）
-    # + plan 档 A 新增 fail-closed 一条。
+    # 红 8（实测 2026-10-03 收官批次校准 6→8）：原 6（批次②）＝B 组 C 改写 5 条
+    # （出单/未改写/载荷/队列/accept）+ plan 档 A 新增 fail-closed 一条；
+    # 收官批次 +2 = M 组 M1 两条（plan 档写链 C 覆写的出单与「未覆写」判据）。
     ("写链档位闸不生效（_gate_autonomy 恒放行）", "mod", writepipe,
      "_gate_autonomy", '    prior = _forgetting.prior_node(cg, nid)',
-     '    return None\n    prior = _forgetting.prior_node(cg, nid)', 6),
+     '    return None\n    prior = _forgetting.prior_node(cg, nid)', 8),
     # ⑤ 合并档位闸空转——B 立即合并（MERGE/CONVERGE 两落点同闸失效）。
-    # 红 10（实测 2026-10-02）：C 组 MERGE 出单 4 条 + C 组 CONVERGE 出单 3 条
-    # + H 组 full 档合并对拍 + F/E 相关 2 条。
+    # 红 14（实测 2026-10-03 收官批次校准 10→14）：原 10（批次②）＝C 组 MERGE
+    # 出单 4 条 + C 组 CONVERGE 出单 3 条 + H 组 full 档合并对拍 + F/E 相关 2 条；
+    # 收官批次 +4 = M 组 M1b 两条（plan 档 MERGE 落点的 FORBID 与「未合并」判据）
+    # + M1c 两条（plan 档 CONVERGE 落点的 FORBID 与「未并入」判据）。
     ("合并档位闸不生效（_autonomy_gate_merge 恒放行）", "cls", mdcos.MdCGOS,
      "_autonomy_gate_merge", '        dec = _am.decide(_am.B_MERGE)',
-     '        return None\n        dec = _am.decide(_am.B_MERGE)', 10),
+     '        return None\n        dec = _am.decide(_am.B_MERGE)', 14),
     # ⑥ 删除档位闸空转——D 立即软删（工具面档位形同虚设）。
-    # 红 4（实测 2026-10-02）：D 组出单/在位/载荷/accept 四条。
+    # 红 5（实测 2026-10-03 收官批次校准 4→5）：原 4（批次②）＝D 组出单/在位/
+    # 载荷/accept 四条；收官批次 +1 = M 组 M1d（plan 档工具面删除的出单/不软删）。
     ("删除档位闸不生效（forget_gated 直调软删）", "cls", mdcos.MdCGOS,
      "forget_gated", '        dec = autonomy_modes.decide(autonomy_modes.D_DELETE)',
      '        return self._forget_apply(node_id, e, reason)\n'
-     '        dec = autonomy_modes.decide(autonomy_modes.D_DELETE)', 4),
+     '        dec = autonomy_modes.decide(autonomy_modes.D_DELETE)', 5),
     # ⑦ 执行桥空转——accept「成功了」但动作没做（最危险的形态：汇报不实）。
     # 锚点（批次③改）：提前 return 插在**前像拍摄之前**——空转形态同时废掉
     # 「执行时点前像/补全」（K 组一并红）。
@@ -1142,14 +1547,15 @@ _SRC_MUTATIONS = (
      '    text = "%s\\x1f%s\\x1f%s" % (act, tgt, after if after is not None else "")',
      '    text = "%s" % (after if after is not None else "")', 4),
     # ⑨ 类型字段不落 rec——变更单退化成提案（accept 会把它当新写入落盘）。
-    # 红 20（实测 2026-10-02 批次③；批次②当时 6、补强批次 10）：B 组队列 kind
-    # 一条 + C 组 3 条 + D 组 accept 一条 + E 组队列计数一条 + I 组 4 条
-    # （gated C 队列条目/目标消失/pending/对照）；批次③ +10 = K 组字段判据
-    # （kind 缺 ⇒ order_kind 判 proposal ⇒ mutation_view 返回 None、accept 走
-    # proposal 链——K 组除「提议时点占位」外整体红，语义相符）。
+    # 红 22（实测 2026-10-03 补强批次 v1.2 校准 20→22）：20（批次③）＝B 组队列
+    # kind 一条 + C 组 3 条 + D 组 accept 一条 + E 组队列计数一条 + I 组 4 条
+    # （gated C 队列条目/目标消失/pending/对照）+ 批次③ K 组字段判据 10（kind 缺
+    # ⇒ order_kind 判 proposal ⇒ mutation_view 返回 None、accept 走 proposal 链）；
+    # 补强批次 +2 = M1e②③（出单条目因缺 kind 被 `order_kind` 判成 proposal ⇒
+    # `_mut_entries` 计数 0≠1——队列计数判据的机械钉）。
     ("kind 不落 rec（变更单退化成提案）", "cls", mdcos.MdCGOS, "propose",
      '            if kind:\n                rec["kind"] = str(kind)',
-     '            if False:\n                rec["kind"] = str(kind)', 20),
+     '            if False:\n                rec["kind"] = str(kind)', 22),
     # ⑩ 档位路径绕过 can_admin 闸——**本批实修缺陷的原形态**（MdCGSecure.forget
     # 的管理闸原先不在档位路径上；test_p2_mcp §9 实测抓到）。红 2（实测
     # 2026-10-02）：D 组「无 can_admin 经档位路径删除被拒」+ G 组「管理闸单点」。
@@ -1200,7 +1606,187 @@ _SRC_MUTATIONS = (
      '    out = dict(payload or {})\n    out["kind"] = KIND_MUTATION',
      '    return dict(payload or {})\n'
      '    out = dict(payload or {})\n    out["kind"] = KIND_MUTATION', 9),
+    # ⑰ 补强批次 v1.2·U1——**直写面档位闸摘除**（不限档位放行）：`mdcg_remember`
+    # 非 gated 直写分支的档位判定被短路 ⇒ plan/confirm 两档 C 覆写从「出单且
+    # 不落盘」变「直落且正文被覆写」（复核 V4' 的**摘除形态**；接入前该注入在
+    # 现行树 0 红存活——M1e 即为解除项）。
+    # 红 3（实测）：M1e①②（plan 档：出单体 + 正文未改/队列 1 张，直落后两条皆
+    # 不成立）+ M1e③（confirm 档同形）。M1e④⑤（full 直落）语义相符仍绿。
+    ("直写面档位闸摘除（mdcg_remember 非 gated 分支放行）", "mod", mcp_server,
+     "_dispatch",
+     '        _dec = _am.decide(_action)\n'
+     '        if _dec["decision"] != _am.ALLOW:',
+     '        _dec = {"mode": "", "action": _action, "action_name": "",\n'
+     '                "decision": _am.ALLOW, "hint": ""}\n'
+     '        if False:', 3),
+    # ⑱ 补强批次 v1.2·U1——**直写面 plan 档旁路**（复核 V4' 的**追加式注入形态**，
+    # 逐字复刻其 payload）：判据行之后追加「plan 档 C 覆写放行」——只有 plan 档
+    # 转红（confirm 档不受影响）。两条形态成对：⑰ 证「闸在，不限档位摘除必红」，
+    # ⑱ 证「plan 档单点放行必红」。
+    # 红 2（实测）：M1e①②。
+    ("直写面 plan 档旁路（复核 V4' 注入形态）", "mod", mcp_server, "_dispatch",
+     '        _dec = _am.decide(_action)',
+     '        _dec = _am.decide(_action)\n'
+     '        if _am.mode() == "plan" and _action == _am.C_REWRITE '
+     'and _dec["decision"] == _am.CONFIRM:\n'
+     '            _dec = dict(_dec, decision=_am.ALLOW)', 2),
+    # ⑲ 补强批次 v1.2·E 面——**闸无差别阻塞**（「E 接线只在 plan 档生效」的反向
+    # 形态）：`e_gate` 恒判 FORBID ⇒ confirm/full 两档的 E 写盘一并被拦。
+    # 红 5（实测）：M2③（confirm 照落）+ M2④（confirm↔full 对拍）+ M2⑦（weights
+    # confirm）+ M2⑨（set_state confirm）+ M2⑪（backfill confirm）；plan 档判据
+    # （M2①②⑥⑧⑩）语义相符仍绿——**这一分布就是「只在 plan 档生效」的机械证据**。
+    ("E 面闸无差别阻塞（confirm/full 也被拦）", "mod", autonomy_modes, "e_gate",
+     '    return decide(E_WEIGHT, plan=plan, environ=environ)',
+     '    return dict(decide(E_WEIGHT, plan=plan, environ=environ),\n'
+     '                decision=FORBID)', 5),
+    # ⑳ 补强批次 v1.2·E 面——**接线摘除·freshness.recalc**（apply 路径的档位闸
+    # 短路）⇒ plan 档 E 照跑写盘（即复核实测的 importance/freshness 写盘形态）。
+    # 红 2（实测）：M2①②。
+    ("E 面接线摘除·freshness.recalc", "mod", freshness, "recalc",
+     '        from . import autonomy_modes as _am\n'
+     '        _dec = _am.e_gate()\n'
+     '        if _dec["decision"] != _am.ALLOW:\n'
+     '            return _am.forbidden_result(_dec, action="freshness", '
+     'dry_run=False,\n'
+     '                                        written=0, batch=batch)',
+     '        pass', 2),
+    # ㉑ 补强批次 v1.2·E 面——**接线摘除·weights.recalc**（第二写盘入口）。
+    # 红 1（实测）：M2⑥。
+    ("E 面接线摘除·weights.recalc", "mod", weights, "recalc",
+     '        from . import autonomy_modes as _am\n'
+     '        _dec = _am.e_gate()\n'
+     '        if _dec["decision"] != _am.ALLOW:\n'
+     '            return _am.forbidden_result(_dec, action="importance", '
+     'dry_run=False,\n'
+     '                                        written=0, batch=batch)',
+     '        pass', 1),
+    # ㉒ 补强批次 v1.2·E 面——**接线摘除·lifecycle.set_state**（唯一推进入口，
+    # 含 `MdCG.set_state` 委托面）。
+    # 红 1（实测）：M2⑧。
+    ("E 面接线摘除·lifecycle.set_state", "mod", _lc, "set_state",
+     '    from . import autonomy_modes as _am\n'
+     '    _dec = _am.e_gate()\n'
+     '    if _dec["decision"] != _am.ALLOW:\n'
+     '        out = _am.forbidden_result(_dec, node_id=node_id, changed=False)\n'
+     '        out.update({"from": src, "to": dst, "code": "autonomy_forbidden"})\n'
+     '        return out',
+     '    pass', 1),
+    # ㉓ 补强批次 v1.2·E 面——**接线摘除·lifecycle.backfill**（第二写盘入口）。
+    # 红 1（实测）：M2⑩。
+    ("E 面接线摘除·lifecycle.backfill", "mod", _lc, "backfill",
+     '    from . import autonomy_modes as _am\n'
+     '    _dec = _am.e_gate()\n'
+     '    if _dec["decision"] != _am.ALLOW:\n'
+     '        return _am.forbidden_result(_dec, dry_run=False, scanned=len(nodes),\n'
+     '                                    missing=len(missing), backfilled=0)',
+     '    pass', 1),
+    # ㉔ 补强批次 v1.2·E 面——**闸越过 apply 边界**（接在预演面之前）：在
+    # `freshness.recalc` 函数体首行插入同一判定 ⇒ plan 档**预演**（apply=False）
+    # 也被拦——「闸只在 apply 路径」这条判据（M2⑤）的判别形态。
+    # 红 1（实测）：M2⑤（apply 路径的 plan 判据仍绿——注入块与真闸的返回体同形，
+    # 语义相符）。
+    ("E 面闸越过 apply 边界（预演面也被拦）", "mod", freshness, "recalc",
+     '    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}',
+     '    from . import autonomy_modes as _am\n'
+     '    _dec0 = _am.e_gate()\n'
+     '    if _dec0["decision"] != _am.ALLOW:\n'
+     '        return _am.forbidden_result(_dec0, action="freshness",\n'
+     '                                    dry_run=not apply, written=0)\n'
+     '    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}', 1),
 )
+
+#: 「防误删自检」的判别力钉（F1 收口，2026-10-03）——**不占表内编号**：表长恒 =
+#: `_MUTATION_IDS` 的长度（复核口径「24 处」与实存一致）；它是自检体系的判别力
+#: 证明，形态与表内条目**同口径**：源码替换 + exec 重装 + 红项数比照，锚点同样
+#: 过 `_anchor_check`（漂移即 ANCHOR-MISS、fail-closed）。
+#: 剥掉 `_table_gaps` 的自检开关（恒判「完好」）⇒ 三条合成源自证测例（F1①②④）
+#: 转红——证明「删条目即机械报错」不是空转。红 3（实测）；F1③（真实表期望 []）
+#: 语义相符仍绿。
+_SELFCHECK_MUTATION = (
+    "防误删自检开关剥除（_table_gaps 恒判完好）", "mod", _THIS, "_table_gaps",
+    'def _table_gaps(text, entries_count, ids=_MUTATION_IDS):\n'
+    '    """变异表完整性判定（纯函数）：返回缺口说明列表（空 = 完好）。',
+    'def _table_gaps(text, entries_count, ids=_MUTATION_IDS):\n'
+    '    return []\n'
+    '    """变异表完整性判定（纯函数）：返回缺口说明列表（空 = 完好）。', 3)
+
+
+# ---- 变异表完整性自检（F1 收口：防误删，2026-10-03）------------------------
+# 由来：F1 复查发现第③条元组被删（仅剩注释）而无人察觉（数字只存文档/注释、
+# 无自动核验载体）——本自检把「编号无缺口 + 表长与显式声明一致」变成机械判据：
+# 缺项 ⇒ fail-closed 退出码 2 并报缺口编号（不再靠人工发现）。与 `_anchor_check`
+# 同层接入（正常运行与 --mutate 均先行执行），配判别力钉 `_SELFCHECK_MUTATION`
+# （剥掉自检开关 ⇒ 合成源自证测例转红 3）证明它有判别力。
+# 基线源＝**当前工作区文件**，不绑 git HEAD。
+#
+# 判据（`_table_gaps`，纯函数——自证测例以合成源调它）：
+#   a. 编号注释被下一**不同**编号注释覆盖（= 删元组留注释，F1 原形）⇒ 报该编号
+#      （同编号在块内的复提不算——⑱ 块先例）；
+#   b. 编号注释序列与声明不一致（缺/重复；含「注释与元组同删」的真删形态）⇒
+#      报缺者；
+#   c. len(_SRC_MUTATIONS) ≠ 声明长度 ⇒ 报「len:23≠24」兜底（防共用注释等边角）。
+_MUTATION_IDS = ("①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩",
+                 "⑪", "⑫", "⑬", "⑭", "⑮", "⑯", "⑰", "⑱", "⑲", "⑳",
+                 "㉑", "㉒", "㉓", "㉔")
+
+_ANNOT_RE = re.compile(r"^    # ([①-⑳㉑-㉔])")
+
+
+def _table_lines(text):
+    """取 `_SRC_MUTATIONS = (` 到首个独立 `)` 行之间的表体行（当前源，非 git 基线）。"""
+    out, on = [], False
+    for line in text.split("\n"):
+        if not on:
+            if line.startswith("_SRC_MUTATIONS = ("):
+                on = True
+            continue
+        if line.rstrip() == ")":
+            break
+        out.append(line)
+    return out
+
+
+def _table_gaps(text, entries_count, ids=_MUTATION_IDS):
+    """变异表完整性判定（纯函数）：返回缺口说明列表（空 = 完好）。"""
+    annot, gaps, pending = [], [], None
+    for line in _table_lines(text):
+        m = _ANNOT_RE.match(line)
+        if m:
+            nid = m.group(1)
+            if pending is None:
+                pending = nid
+                annot.append(nid)
+            elif nid != pending:
+                gaps.append(pending)      # a. 上一编号注释未被元组消费
+                pending = nid
+                annot.append(nid)
+            # nid == pending：同一条目注释块内的复提（如 ⑱ 块内「⑱ 证…」行）——
+            # 不构成新条目注释、不覆盖 pending（否则会把该块判成「缺条目」）。
+            continue
+        if pending is not None and line.startswith("    ("):
+            pending = None                # 元组消费其上最近的编号注释
+    if pending is not None:
+        gaps.append(pending)              # 表尾仍有未消费的编号注释
+    for i in ids:
+        if i not in annot:
+            gaps.append(i)                # b. 编号缺（含注释与元组同删的形态）
+        elif annot.count(i) > 1:
+            gaps.append(i)                # b. 编号重复
+    if entries_count != len(ids):
+        gaps.append("len:%d≠%d" % (entries_count, len(ids)))   # c. 表长兜底
+    seen, uniq = set(), []
+    for g in gaps:
+        if g not in seen:
+            seen.add(g)
+            uniq.append(g)
+    return uniq
+
+
+def _table_integrity_check():
+    """变异表完整性自检（真实表/当前工作区源）：返回缺口说明列表（空 = 完好）。"""
+    with io.open(os.path.abspath(__file__), encoding="utf-8") as f:
+        text = f.read()
+    return _table_gaps(text, len(_SRC_MUTATIONS))
 
 
 def _fn_src(target):
@@ -1225,9 +1811,10 @@ def _strip_indent(text: str, n: int) -> str:
 
 
 def _anchor_check():
-    """返回 ANCHOR-MISS 说明列表（空 = 全部在位）。"""
+    """返回 ANCHOR-MISS 说明列表（空 = 全部在位）——含自检判别力钉。"""
     bad = []
-    for name, _kind, owner, fname, old, _new, _n in _SRC_MUTATIONS:
+    for name, _kind, owner, fname, old, _new, _n in (_SRC_MUTATIONS
+                                                     + (_SELFCHECK_MUTATION,)):
         if old not in _fn_src((_kind, owner, fname)):
             bad.append("变异锚点缺失：%r @%s.%s" % (old[:40], owner.__name__, fname))
     return bad
@@ -1279,13 +1866,38 @@ def _patched(target, old, new):
         setattr(owner, name, live)
 
 
+def _run_one_mutation(item):
+    """执行单条定点变异并比照红项数；返回 None（命中预期）或条目名（不符）。"""
+    name, kind, owner, fname, old, new, expect = item
+    _RUN[0] += 1
+    try:
+        with _patched((kind, owner, fname), old, new), \
+                contextlib.redirect_stdout(io.StringIO()):
+            fails = _run_groups()
+    except Exception as exc:        # noqa: BLE001 —— 变异把路径打断也算「红」
+        fails = -1
+        print("  变异「%s」→ 断言链抛异常 %s: %s（判 FAIL）"
+              % (name, type(exc).__name__, str(exc)[:80]))
+    verdict = ("命中预期" if fails == expect
+               else "**红项数不符（预期 %d）**" % expect)
+    print("  变异「%s」→ 红项=%d  %s" % (name, fails, verdict))
+    for f in _FAIL[:6]:
+        print("      红:", f)
+    if len(_FAIL) > 6:
+        print("      …（余 %d 项）" % (len(_FAIL) - 6))
+    return None if fails == expect else name
+
+
 def _mutate_mode():
     bad = []
     anchor_bad = _anchor_check()
-    if anchor_bad:
+    gap_bad = _table_integrity_check()
+    if anchor_bad or gap_bad:
         for b in anchor_bad:
             print("  ANCHOR-MISS " + b)
-        print("\n锚点自检：FAIL（fail-closed，exit 2）")
+        for b in gap_bad:
+            print("  变异表缺口：" + b)
+        print("\n锚点/完整性自检：FAIL（fail-closed，exit 2）")
         return 2
     with contextlib.redirect_stdout(io.StringIO()):
         clean = _run_groups()
@@ -1294,25 +1906,16 @@ def _mutate_mode():
     if clean:
         bad.append("未变异基线即失败")
     _RUN[0] = 10 ** 6      # 变异轮用独立子根（防读到上一轮盘面/限流状态）
-    for name, kind, owner, fname, old, new, expect in _SRC_MUTATIONS:
-        _RUN[0] += 1
-        try:
-            with _patched((kind, owner, fname), old, new), \
-                    contextlib.redirect_stdout(io.StringIO()):
-                fails = _run_groups()
-        except Exception as exc:        # noqa: BLE001 —— 变异把路径打断也算「红」
-            fails = -1
-            print("  变异「%s」→ 断言链抛异常 %s: %s（判 FAIL）"
-                  % (name, type(exc).__name__, str(exc)[:80]))
-        verdict = ("命中预期" if fails == expect
-                   else "**红项数不符（预期 %d）**" % expect)
-        print("  变异「%s」→ 红项=%d  %s" % (name, fails, verdict))
-        for f in _FAIL[:6]:
-            print("      红:", f)
-        if len(_FAIL) > 6:
-            print("      …（余 %d 项）" % (len(_FAIL) - 6))
-        if fails != expect:
-            bad.append(name)
+    print("  表内条目：%d 处（编号 %s–%s；防误删自检保证无缺口、表长与声明一致）"
+          % (len(_SRC_MUTATIONS), _MUTATION_IDS[0], _MUTATION_IDS[-1]))
+    for item in _SRC_MUTATIONS:
+        r = _run_one_mutation(item)
+        if r:
+            bad.append(r)
+    # 防误删自检的判别力钉（不占表内编号——表长与声明恒等，见 _SELFCHECK_MUTATION）
+    r = _run_one_mutation(_SELFCHECK_MUTATION)
+    if r:
+        bad.append(r)
     print("\n定点变异自证：%s"
           % ("PASS（每处判据都有变异钉死，且红项数逐处吻合）" if not bad
              else "FAIL —— " + "、".join(bad)))
@@ -1333,12 +1936,19 @@ def main() -> int:
         finally:
             shutil.rmtree(_SANDBOX, ignore_errors=True)
     anchor_bad = _anchor_check()
-    if anchor_bad:
+    gap_bad = _table_integrity_check()
+    if anchor_bad or gap_bad:
         for b in anchor_bad:
             print("  ANCHOR-MISS " + b)
-        print("\n锚点自检：FAIL（fail-closed，exit 2）——实现改了请同步变异表")
+        for b in gap_bad:
+            print("  变异表缺口：" + b)
+        print("\n锚点/完整性自检：FAIL（fail-closed，exit 2）"
+              "——实现/变异表改了请同步")
         return 2
     print("锚点自检：PASS（%s；不以 git HEAD 为基线源）" % src)
+    print("变异表完整性自检：PASS（编号 %s–%s 无缺口、表长 %d = 声明——"
+          "删条目即 fail-closed，F1 收口）"
+          % (_MUTATION_IDS[0], _MUTATION_IDS[-1], len(_MUTATION_IDS)))
     try:
         for g in _GROUPS:
             g()

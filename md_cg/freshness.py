@@ -298,7 +298,7 @@ def entry_weight(entry, now=None, gamma=None, fm=None) -> tuple:
 # 三件套：预演 / 逐节点留痕 / 反向 apply（与 weights.recalc 同款）
 # --------------------------------------------------------------------------
 
-# 生效条件：cg.index["nodes"] 为 dict 时按 layer 过滤、limit 为真值才截断；dry-run 只出报表；apply=True 时逐节点把乘子（round 6）写入 frontmatter.freshness_weight 与 freshness_components，乘子 < DEMOTE_BELOW 时另写 freshness_state="degraded"（**只标记，不删记录**），乘子下降且 demote_layer 给定时经 cg._move_layer（内含 protect.guard_move）搬迁；每条 append_jsonl(action="freshness") 后 rebuild_index；返回报表 dict；
+# 生效条件：cg.index["nodes"] 为 dict 时按 layer 过滤、limit 为真值才截断；dry-run 只出报表（**不接档位闸**——零写盘面照旧）；apply=True 时先经 autonomy_modes.e_gate() 档位判定（补强批次 v1.2·E 面接线，位置＝任何盘面写入之前）：非 ALLOW（plan 档无计划）即经 forbidden_result() fail-closed 早退（零写盘、零审计行、带 hint），ALLOW（confirm/full）则逐节点把乘子（round 6）写入 frontmatter.freshness_weight 与 freshness_components，乘子 < DEMOTE_BELOW 时另写 freshness_state="degraded"（**只标记，不删记录**），乘子下降且 demote_layer 给定时经 cg._move_layer（内含 protect.guard_move）搬迁；每条 append_jsonl(action="freshness") 后 rebuild_index；返回报表 dict；
 def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
            actor="maintain", dry_run_samples=10, now=None, demote_layer=None):
     """刷新/衰减权重的重算（**可预演 + 逐节点留痕 + 可回滚**）。
@@ -312,6 +312,12 @@ def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
     `freshness_state="degraded"` 标记；要搬迁层位时给出 `demote_layer`，
     走既有 `_move_layer`（其内已调 `protect.guard_move`，受保护节点需显式
     `override`）——不新写第二条搬迁路径。
+
+    **档位闸（补强批次 v1.2·E 面接线）**：`apply=True` 的**写盘前**先经
+    `autonomy_modes.e_gate()`（设计 §三 plan 档 E「须命中计划步骤」）——
+    plan 档无计划 ⇒ `forbidden_result()` fail-closed 早退（零写盘、零审计行）；
+    confirm/full ⇒ ALLOW，**原链原样**（逐位不变）。`apply=False`（预演）
+    不接闸：零写盘面不属「变更」。
     """
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     ids = [nid for nid, e in list(nodes.items())
@@ -350,6 +356,16 @@ def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
             samples.append(plan)
     written, degraded = 0, 0
     if apply:
+        # 三档自治（补强批次 v1.2·E 面接线，设计 §三 plan 档 E「须命中计划步骤」）：
+        # E 类动作**写盘前**的档位判定单点。本函数无独立资格闸（逐节点取数在下方
+        # 循环里、取不到即 skip），故闸口取「进入写盘支路的第一行」＝任何盘面写入
+        # 之前；放行分支即原链原样（confirm/full 逐位不变），plan 档无计划
+        # ⇒ fail-closed 早退，**零写盘、零 _maintain.jsonl 行**。
+        from . import autonomy_modes as _am
+        _dec = _am.e_gate()
+        if _dec["decision"] != _am.ALLOW:
+            return _am.forbidden_result(_dec, action="freshness", dry_run=False,
+                                        written=0, batch=batch)
         if demote_layer:
             bind_move_layer(cg)         # 跨层降级走既有 _move_layer（现绑）
         for plan in planned:

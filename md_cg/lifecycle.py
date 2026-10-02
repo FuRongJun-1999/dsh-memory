@@ -202,7 +202,7 @@ def _sync_index(cg, node_id, fm) -> None:
 
 # ---------------------------------------------------------------- 推进 / 回填
 
-# 生效条件：cg.get(node_id) 为假值返回 {'ok': False, 'error': 'node_not_found', ...}；否则以 state_of(fm) 作 src 调 stamp——stamp 不 ok 返回 ok=False + error=code，code == "noop" 返回 ok=True + changed=False；其余情况取 fm[HISTORY_FIELD][-1]["at"] 后写盘、_sync_index 并追加审计 JSONL（append_jsonl 抛异常被吞掉），返回 ok=True + changed=True。
+# 生效条件：cg.get(node_id) 为假值返回 {'ok': False, 'error': 'node_not_found', ...}；否则以 state_of(fm) 作 src 调 stamp——stamp 不 ok 返回 ok=False + error=code，code == "noop" 返回 ok=True + changed=False；其余情况（合法且真迁移，即**资格面已过**）先经 autonomy_modes.e_gate() 档位判定（补强批次 v1.2·E 面接线，位置＝写盘之前）：非 ALLOW（plan 档无计划）即经 forbidden_result() fail-closed 早退（ok=False、error=autonomy_forbidden、零写盘、零审计行），ALLOW（confirm/full）才取 fm[HISTORY_FIELD][-1]["at"] 后写盘、_sync_index 并追加审计 JSONL（append_jsonl 抛异常被吞掉），返回 ok=True + changed=True。
 def set_state(cg, node_id: str, dst: str, reason: str = None,
               actor: str = None, override: bool = False) -> dict:
     """推进一个节点的生命周期状态（**唯一推进入口**）。
@@ -210,6 +210,13 @@ def set_state(cg, node_id: str, dst: str, reason: str = None,
     非法迁移不走异常而是返回 `{"ok": False, "error": <code>, ...}`（负路由：
     调用方自行决定降级处理；要硬拒请用 `require_transition`）。幂等迁移返回
     `changed=False` 且不写盘。返回体始终带 `from` / `to` / `code` 便于审计。
+
+    **档位闸（补强批次 v1.2·E 面接线）**：合法且真迁移（`stamp` 已过＝资格面
+    已过）之后、写盘之前，先经 `autonomy_modes.e_gate()`（设计 §三 plan 档
+    E「须命中计划步骤」）——plan 档无计划 ⇒ fail-closed 早退（
+    `ok=False`/`error="autonomy_forbidden"`/带 hint、零写盘、零审计行）；
+    confirm/full ⇒ ALLOW、**原链原样**（逐位不变）。非法迁移与 noop 由
+    `stamp` 先行裁决、各回各的 code（档位**不参与**资格判定）。
     """
     node = cg.get(node_id)
     if not node:
@@ -222,6 +229,15 @@ def set_state(cg, node_id: str, dst: str, reason: str = None,
         return {**base, "ok": False, "error": code, "reason": why}
     if code == "noop":
         return {**base, "ok": True, "changed": False, "reason": why}
+    # 三档自治（补强批次 v1.2·E 面接线，设计 §三 plan 档 E「须命中计划步骤」）：
+    # 位置＝资格面（`stamp` 的合法性/保护裁决）之后、写盘之前——非法迁移与 noop
+    # 已在上方各回各的 code，档位不参与资格判定；confirm/full ⇒ ALLOW 原链原样。
+    from . import autonomy_modes as _am
+    _dec = _am.e_gate()
+    if _dec["decision"] != _am.ALLOW:
+        out = _am.forbidden_result(_dec, node_id=node_id, changed=False)
+        out.update({"from": src, "to": dst, "code": "autonomy_forbidden"})
+        return out
     at = fm[HISTORY_FIELD][-1]["at"]
     cg._write_node(node_id, os.path.join(cg.root, node["path"]), fm,
                    node.get("content") or "")
@@ -236,13 +252,18 @@ def set_state(cg, node_id: str, dst: str, reason: str = None,
     return {**base, "ok": True, "changed": True, "reason": why, "at": at}
 
 
-# 生效条件：nodes 取 (cg.index or {}).get("nodes") or {}，遍历中缺 STATE_FIELD 或该值不在 STATES 的 nid 计入 missing（累计数达 limit 即 break，limit <= 0 时立即 break 使 missing 为空），apply 假值只返回 dry_run=True 的盘点结果，apply 为真时对每个 missing 中 cg.get 取不到的记入 failed、取到的把 state_of(fm) 显式写回 fm[STATE_FIELD] 并写盘与 _sync_index 后记入 done，返回 dry_run=False 的结果。
+# 生效条件：nodes 取 (cg.index or {}).get("nodes") or {}，遍历中缺 STATE_FIELD 或该值不在 STATES 的 nid 计入 missing（累计数达 limit 即 break，limit <= 0 时立即 break 使 missing 为空），apply 假值只返回 dry_run=True 的盘点结果（**不接档位闸**——零写盘面照旧），apply 为真时先经 autonomy_modes.e_gate() 档位判定（补强批次 v1.2·E 面接线，位置＝盘点资格面之后、写盘之前）：非 ALLOW（plan 档无计划）即经 forbidden_result() fail-closed 早退（零写盘、backfilled=0），ALLOW（confirm/full）才对每个 missing 中 cg.get 取不到的记入 failed、取到的把 state_of(fm) 显式写回 fm[STATE_FIELD] 并写盘与 _sync_index 后记入 done，返回 dry_run=False 的结果。
 def backfill(cg, apply: bool = False, limit: int = 5000) -> dict:
     """存量回填：把缺 `state` 的节点显式补成 `active`（幂等）。
 
     缺字段本就按 active 解释（`state_of`），故回填**不是让功能工作的前提**，
     而是把「缺省」变成「显式」——索引/审计里从此可直接读到状态。
     `apply=False`（默认）只盘点。写不动（文件取不回）的节点进 `failed` 如实上报。
+
+    **档位闸（补强批次 v1.2·E 面接线）**：`apply=True` 的**写盘前**先经
+    `autonomy_modes.e_gate()`（设计 §三 plan 档 E「须命中计划步骤」）——plan 档
+    无计划 ⇒ fail-closed 早退（零写盘、`backfilled=0`）；confirm/full ⇒ ALLOW、
+    原链原样。`apply=False`（盘点）不接闸。
     """
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     missing = []
@@ -256,6 +277,13 @@ def backfill(cg, apply: bool = False, limit: int = 5000) -> dict:
     if not apply:
         return {"ok": True, "dry_run": True, "scanned": len(nodes),
                 "missing": len(missing), "planned": missing[:50]}
+    # 三档自治（补强批次 v1.2·E 面接线）：E 类动作**写盘前**的档位判定单点
+    # （同 `set_state` 口径）——盘点（资格面）已完成、任何盘面写入之前。
+    from . import autonomy_modes as _am
+    _dec = _am.e_gate()
+    if _dec["decision"] != _am.ALLOW:
+        return _am.forbidden_result(_dec, dry_run=False, scanned=len(nodes),
+                                    missing=len(missing), backfilled=0)
     done, failed = [], []
     for nid in missing:
         node = cg.get(nid)

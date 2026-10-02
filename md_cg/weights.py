@@ -468,7 +468,7 @@ def node_importance(cg, nid, indeg=None, red=None, entry=None):
             "protected_floor": protected}
 
 
-# 生效条件：给定 cg 且 nodes = cg.index["nodes"] 时按 layer 过滤、limit 为真值才 ids = ids[:int(limit)] 逐节点重算，abs(after-before) < float(min_delta) 记 unchanged；仅 apply=True 才把 frontmatter.importance/importance_source/importance_components 写回（after >= IMPORTANCE_PROTECT 且未 protected 时补写 protected/protection_reason），并向 cg.root 下 append_jsonl(..., MAINTAIN_LOG) 记 batch 后 rebuild_index。
+# 生效条件：给定 cg 且 nodes = cg.index["nodes"] 时按 layer 过滤、limit 为真值才 ids = ids[:int(limit)] 逐节点重算，abs(after-before) < float(min_delta) 记 unchanged（**预演面不接档位闸**）；仅 apply=True 才在**任何写盘之前**先经 autonomy_modes.e_gate() 档位判定（补强批次 v1.2·E 面接线）——非 ALLOW（plan 档无计划）即经 forbidden_result() fail-closed 早退（零写盘、零审计行），ALLOW（confirm/full）才把 frontmatter.importance/importance_source/importance_components 写回（after >= IMPORTANCE_PROTECT 且未 protected 时补写 protected/protection_reason），并向 cg.root 下 append_jsonl(..., MAINTAIN_LOG) 记 batch 后 rebuild_index。
 def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
            actor="maintain", dry_run_samples=10):
     """结构重要性重算：覆盖度 + 冗余度 + 验证基底 → 重排节点重要性。
@@ -476,6 +476,11 @@ def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
     apply=False（默认）只出报表，不写盘（对应计划「可预演」）。
     apply=True 逐节点改写 `frontmatter.importance`，每批写一条 `_maintain.jsonl`
     （before/after/分量/actor），并提供 rollback 反向应用。
+
+    **档位闸（补强批次 v1.2·E 面接线）**：`apply=True` 的**写盘前**先经
+    `autonomy_modes.e_gate()`（设计 §三 plan 档 E「须命中计划步骤」）——plan 档
+    无计划 ⇒ `forbidden_result()` fail-closed 早退（零写盘、零审计行）；confirm/
+    full ⇒ ALLOW、**原链原样**（逐位不变）。`apply=False`（预演）不接闸。
     """
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     indeg = coverage_index(cg)
@@ -519,6 +524,15 @@ def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
         bl["avg_after"] = 0.0
     written = 0
     if apply:
+        # 三档自治（补强批次 v1.2·E 面接线，设计 §三 plan 档 E「须命中计划步骤」）：
+        # E 类动作**写盘前**的档位判定单点（同 `freshness.recalc` 口径）——
+        # 本函数无独立资格闸，闸口取「进入写盘支路的第一行」＝任何盘面写入之前；
+        # ALLOW（confirm/full）原链原样，plan 档无计划 ⇒ fail-closed 早退。
+        from . import autonomy_modes as _am
+        _dec = _am.e_gate()
+        if _dec["decision"] != _am.ALLOW:
+            return _am.forbidden_result(_dec, action="importance", dry_run=False,
+                                        written=0, batch=batch)
         for plan in planned:
             nid = plan["node_id"]
             node = cg.get(nid)

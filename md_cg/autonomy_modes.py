@@ -74,8 +74,23 @@
 `plan`/`confirm` 不受影响；**未调用过 settle 的进程 `mode()` 与改动前逐位
 一致**；合法数据面下的结算与读数逐位不变。
 
-本批**不做**（登记留池）：计划输入面；准入闸的生产调用点接线（启动面/
-常驻巡检调 `settle`——本批落生效面单点与守卫，接线由宿主按需调用）。
+**补强批次（v1.2，2026-10-03 · 步骤⑤补强）**：**E 面写盘前闸接线**——设计 §三
+矩阵的 E 列在 plan 档是「允许（须命中计划步骤）」，而接入前**生产码**的
+`decide()` 调用点只覆盖 A/B/C/D（plan 档 E 类动作照跑并写盘，实测 importance
+0.5→0.57 落盘）。本批把 `decide(E_WEIGHT)` 接到 E 面的**写盘入口**——
+`weights.recalc` / `freshness.recalc` / `lifecycle.set_state` /
+`lifecycle.backfill` 的 apply 路径（位置＝既有资格面之后、任何盘面写入之前），
+并立 `e_gate()` 为 E 面**唯一判定入口**、`forbidden_result()` 为统一的
+fail-closed 返回体（带档位读数与可执行 hint、零写盘、不出单）。语义两格
+（设计 §三 逐格）：plan 档无计划 ⇒ fail-closed；confirm/full ⇒ ALLOW、原链
+**原样**（「confirm/full 全线逐位不变」是硬约束，非建议）。未接的 E 面入口
+与理由（`lifecycle.stamp` 属 B 链 / 库层 `require_transition` 禁接线 /
+分数类回滚面待裁）逐条登记在 `e_gate()` docstring——留池项据此从「E 面整体
+未接线」**收窄**为「上述三处（各有面归属或待裁）」。
+
+本批**不做**（登记留池）：计划输入面（`plan=None` ⇒ plan 档 E 一律 fail-closed，
+故 E 面的「命中计划步骤」分支仍待计划输入面接线）；准入闸的生产调用点接线
+（启动面/常驻巡检调 `settle`——本批落生效面单点与守卫，接线由宿主按需调用）。
 """
 from __future__ import annotations
 
@@ -90,7 +105,10 @@ __all__ = [
     "ALLOW", "CONFIRM", "FORBID", "PLAN_STEP", "MATRIX",
     "A_ADD", "B_MERGE", "C_REWRITE", "D_DELETE", "E_WEIGHT",
     "KIND_PROPOSAL", "KIND_MUTATION", "KIND_FIELD",
-    "autonomy_env", "mode", "decide", "order_kind", "mutation_view",
+    "autonomy_env", "mode", "decide",
+    # 补强批次 v1.2：E 面写盘前闸（判定唯一入口 + 统一 fail-closed 返回体）
+    "e_gate", "forbidden_result",
+    "order_kind", "mutation_view",
     "mutation_payload", "mutation_executed", "mutation_dedup_key",
     "propose_mutation",
     # 批次④：准入闸生效面（设计 §六/§七）
@@ -419,6 +437,63 @@ def _plan_actions(plan):
         s = str(it or "").strip().upper()
         if s in ACTION_CLASSES:
             out.add(s)
+    return out
+
+
+# ---- 补强批次（v1.2）：E 面**写盘前**闸（设计 §三 plan 档 E「须命中计划步骤」） ----
+# 为什么需要单点：E 类动作（权重与生命周期）的写盘入口散在三处模块
+# （`weights.recalc` / `freshness.recalc` / `lifecycle.set_state|backfill`），
+# 若各写一份档位判据就是「各模块各读一份」——违背设计 §三 硬约束①「单一入口」。
+# 故判定经本函数（对 `decide` 的具名再出口），返回体与返回语义见下。
+
+# 生效条件：恒返回 decide(E_WEIGHT, plan=plan, environ=environ) 的**原样体**（含 mode/action/action_name/decision/hint 五键，decision ∈ ALLOW/CONFIRM/FORBID）；plan 为 None（本批现状：计划输入面无接线）时 plan 档 E 判 FORBID（fail-closed 带 hint）；confirm/full 两档恒 ALLOW（与 E 列矩阵逐格一致 ⇒ 调用方原链原样）；environ 显式传参（非进程级 os.environ）时不参与准入折算（同 decide）；非法 env 值仍由 mode() fail-closed 抛 AutonomyModeError；本函数零 IO、零副作用；
+def e_gate(plan=None, environ=None) -> dict:
+    """E 类动作**写盘前**的档位判定（**唯一入口**：E 面各写盘入口共用）。
+
+    调用方**只看 `decision`**：
+
+      · `ALLOW`（confirm/full 两档；将来计划命中时亦同）⇒ **原链原样**——
+        「confirm/full 全线逐位不变」是硬约束：本闸在放行分支不产生任何行为
+        差异（不写盘、不出单、不加返回键）。
+      · 其余（现状只有 plan 档无计划 ⇒ `FORBID`）⇒ 调 `forbidden_result()`
+        早退：**不落盘、不出单、不静默**，带档位读数与可执行 hint。
+
+    位置纪律（设计 §三 硬约束②「纯加严」）：调用点一律在**既有资格面之后、
+    盘面写入之前**——档位**不参与**资格判定（非法生命周期迁移/受保护拒绝/
+    节点不存在一律照旧先判、各回各的 error），也**不放宽**任何既有判据
+    （放行分支＝返回 None 级别的「什么都不做」）。
+
+    边界（如实登记：**未接闸**的 E 面入口与理由——留池项据此收窄）：
+      · `lifecycle.stamp` —— **无 IO 纯函数**（就地改 fm 副本，落盘由调用方
+        做），其两个调用方 `forgetting.reinforce` / `writelimit.converge_into`
+        都属 **B 合并/趋同链**（B 已有自己的闸，plan 档先于此处 fail-closed）；
+        在 E 闸里再拦一次＝用 E 判定去挡 B 动作，语义交叉且与 G 组「合并原语
+        不含档位判据」的机制前提相抵。故不接。
+      · `MdCG.add` 的 `lifecycle.require_transition` 面 —— **库层禁接线**
+        （守卫 G 组结构判据钉死）：「accept 执行桥直调库层越过确认判定」正是
+        建立在此前提上。
+      · 分数类**回滚**面（`freshness.rollback` / `weights.rollback`）——回滚是
+        「破坏可逆」准入读数（R3）与设计 §四 第 4 条的兑现面：在 plan 档拦
+        回滚与设计语义相抵，属**设计面待裁**（不在本批自行扩面）。
+    """
+    return decide(E_WEIGHT, plan=plan, environ=environ)
+
+
+# 生效条件：dec 支持 .get 时返回新 dict {"ok":False,"error":"autonomy_forbidden","autonomy":{mode,action,action_name,decision}（四键取自 dec，缺键回落 None）,"hint":dec["hint"] 或 ""}，并把 **extra 的键值原样并入（各写盘面补自己的上下文键）；不落盘、不出单、不改任何状态；
+def forbidden_result(dec, **extra) -> dict:
+    """E 面写盘前 fail-closed 的**统一返回体**（不静默：带档位读数与可执行 hint）。
+
+    键面固定：`ok=False` + `error="autonomy_forbidden"`（与写链/合并/删除三处
+    fail-closed 出口同值——读面可按同一错误码归并）+ `autonomy`（档位/动作类/
+    判定读数，形态同 `writepipe._gate_autonomy` 的 `_aut`）+ `hint`（来自
+    `decide`，含「怎么改才能执行」的可执行指引）。
+    """
+    out = {"ok": False, "error": "autonomy_forbidden",
+           "autonomy": {"mode": dec.get("mode"), "action": dec.get("action"),
+                        "action_name": dec.get("action_name"),
+                        "decision": dec.get("decision")},
+           "hint": dec.get("hint") or ""}
+    out.update(extra)
     return out
 
 
