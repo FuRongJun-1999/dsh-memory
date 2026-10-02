@@ -3127,7 +3127,7 @@ def _whitebox_call(cg, a):
     return whitebox.dispatch(cg, a)
 
 
-# 生效条件：op=(a.get("op") or "").strip().lower()；op=="relation" 时返回 stg.relation(cg, a.get("a",""), a.get("b",""), time_axis=axis)；op=="timeline" 时返回 stg.timeline(cg, layer=a.get("layer"), limit=int(a.get("limit") or 50), desc=bool(a.get("desc", True)), time_axis=axis, session=a.get("session"))（session 缺省不过滤读遍所有会话，"*" = 显式跨会话，其它值 = 本会话视图）；op=="anchors" 时返回 stg.anchors(cg, time_window=a.get("time_window"), bbox=a.get("bbox"), layer=a.get("layer"), limit=int(a.get("limit") or 50))；op=="consistency" 时返回 stg.consistency(cg, layer=a.get("layer"), limit=int(a.get("limit") or 50))；op 为空或其它的值抛 ValueError。
+# 生效条件：op=(a.get("op") or "").strip().lower()；op=="relation" 时返回 stg.relation(cg, a.get("a",""), a.get("b",""), time_axis=axis)；op=="timeline" 时返回 stg.timeline(cg, layer=a.get("layer"), limit=int(a.get("limit") or 50), desc=bool(a.get("desc", True)), time_axis=axis, session=a.get("session"))（session 缺省不过滤读遍所有会话，"*" = 显式跨会话，其它值 = 本会话视图）；op=="anchors" 时返回 stg.anchors(cg, time_window=a.get("time_window"), bbox=a.get("bbox"), layer=a.get("layer"), limit=int(a.get("limit") or 50))；op=="consistency" 时返回 stg.consistency(cg, layer=a.get("layer"), limit=int(a.get("limit") or 50))；op 为空或其它的值抛 ValueError；返回体**原样透传**——stg 三接口的 truncated/scanned/kept/hint 读数与修正后的 count 语义（条件命中总数，issue #52）不经本层裁剪或改写，max_scan 本批不开显式入参。
 def _stg_call(cg, a):
     """语义时空图唯一入口。
 
@@ -3136,6 +3136,13 @@ def _stg_call(cg, a):
     的透传策略**相反**——`cg` 侧缺省由库层定（不启用的时间算子），`stg` 侧轴
     决定「排序/关系依据」必须**恒有值**，故在此填默认；非法轴仍由
     `trust.time_axis_of` fail-closed 抛错（本层不预先白名单，避免两套枚举）。
+
+    返回体**原样透传**（issue #52）：timeline/anchors/consistency 新增的
+    `truncated` / `scanned` / `kept` 读数与截断时的 `hint` 随返回值自动带出，
+    本层不裁剪、不改写；`count` 语义已是**条件命中总数**（不再受索引切片影响，
+    在役对照 `timeline(session=…)` 由 25 恢复为 229）。`max_scan` 本批不在
+    MCP 面开显式入参（契约：数值不是修法——需要收窄时细化生效条件/
+    不适用条件，或按设计稿建立条件索引）。
     """
     from . import stg
     op = (a.get("op") or "").strip().lower()

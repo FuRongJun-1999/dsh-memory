@@ -431,7 +431,7 @@ def _node_digest(cg, nid) -> dict:
     N226（2026-09-28）：此前直读 `cg.index` 无可见性判定 ⇒ 端点摘要（layer/
     tags/importance/writer/session/temporal）把读闸拒绝节点的元数据照返回
     （实测 guest 经 `cg(op="edges", expand_nodes=true)` 拿到私密节点摘要）。
-    同库同身份的 `stg.timeline`（stg.py:133/172）早已接线 `_readable`——本处
+    同库同身份的 `stg.timeline`（stg.py:144/238）早已接线 `_readable`——本处
     是漏网的旁路出口，改为同一个跨层单点（`security.node_visible`）。
     """
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}

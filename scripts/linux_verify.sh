@@ -45,7 +45,8 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_readcache_prodpath test_mdstore_search_parity \
          test_rejected_redact test_rejected_credential_forms test_ccg_form_parity test_wisdom_md_store \
          test_neg_condition_hits test_token_lowercase_form test_srcindex \
-         test_logref test_p28_refcheck test_n225_nonobject_load; do
+         test_logref test_p28_refcheck test_n225_nonobject_load \
+         test_issue52_scan_condition_first; do
   out=$(python3 -m "md_cg.$t" 2>&1 | tail -1); rc=$?
   record "md_cg.$t" $rc
   echo "    -> $out"
@@ -85,13 +86,20 @@ echo "=== 断言判别力自证（退出码 0 = 变异后如预期转红）==="
 # tombstone 也当坏载荷）⇒ 2（G）；排序键归一（坏型槽记 0）⇒ 5（F）；tombstone 重放
 # （e is None ⇒ pop）⇒ 2（G，与上条从过窄/过宽两侧钉同一口径）；read_jsonl 原样
 # 产出 ⇒ 2（H）。锚点漂移同样退出码 2。
+# issue #52 面（2026-10-03 并入）：八处定点变异（三处契约点名：条件过滤移回截断
+# 之后 / 去掉 truncated 上报 / 截断选序改回字典序；另加 _scan 切片回退 / 默认值改
+# 全量 / _sec 闸绕过 / 快照回退删分支 / layer 过滤失效）各自**恰好**命中预期条数
+# （24/15/3/4/4/3/1/2），且无空转断言；锚点漂移＝退出码 2。另有 --legacy-baseline
+# 重建修前形态（切片先于条件 + 无截断上报），断言须转红——抓得住 #52 本身。
 for spec in "test_neg_condition_hits --head-baseline" \
             "test_neg_condition_hits --branch-baseline" \
             "test_policy_required_ccg --head-baseline" \
             "test_token_lowercase_form --head-baseline" \
             "test_logref --head-baseline" \
             "test_p28_refcheck --head-baseline" \
-            "test_n225_nonobject_load --branch-baseline"; do
+            "test_n225_nonobject_load --branch-baseline" \
+            "test_issue52_scan_condition_first --branch-baseline" \
+            "test_issue52_scan_condition_first --legacy-baseline"; do
   set -- $spec
   out=$(python3 -m "md_cg.$1" "$2" 2>&1 | tail -1); rc=$?
   record "md_cg.$1 $2" $rc

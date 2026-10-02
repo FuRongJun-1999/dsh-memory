@@ -16,7 +16,7 @@
   ③ N226 `md_cg/provenance.py:427`（`_node_digest` 直读 cg.index）+`539-543`：
      `cg(op="edges", expand_nodes=true)` 的端点摘要与边拓扑零可见性闸，两端都
      不可见的边照返回、`aggregates.sample` 亦回 `child->parent`（同库同身份的
-     `stg.timeline` stg.py:133/172 早已接线 `_readable`——本处是漏网出口）。
+     `stg.timeline` stg.py:144/238 早已接线 `_readable`——本处是漏网出口）。
   ④ N227 `md_cg/evolution.py:265/332` × `mdcos.py:3261`（health_os 挂
      evolution.summary）× `mcp_server.py:3071-3072/2125/3288-3292`：演化台账
      （`_evolution/ledger.md`）出口无可见性/身份闸，且工具面粗粒度 op 映射

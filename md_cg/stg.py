@@ -115,19 +115,30 @@ def _node(cg, node_id):
             "content": n.get("content") or ""}
 
 
-# 生效条件：cg.index["nodes"] 存在时按 list(...items())[:max_scan] 遍历，layer 为真值时仅保留 e.get("layer")==layer 的条目（layer 为假值不筛层），e 含 "temporal" 或 "spatial" 键时直接以快照字段构造 frontmatter、否则调用 cg._read(e) 且在 fm 为 None 时跳过；返回 out 列表（max_scan=None 切片取全部，0 时为空）；
-def _scan(cg, layer=None, max_scan=5000):
+# 生效条件：cg.index["nodes"] 存在时**逐条**遍历全部条目（不按索引序切片、不读正文），layer 为真值时仅保留 e.get("layer")==layer 的条目（layer 为假值不筛层），cg 带可调用的 _readable（MdCGSecure）时逐条过读可见性、不可见即跳过，e 含 "temporal" 或 "spatial" 键时直接以快照字段构造 frontmatter、否则调用 cg._read(e) 且在 fm 为 None 时跳过；返回 out 列表（全部 layer/可见性命中，**不做截断**——截断由各接口在条件过滤之后经 _cap_hits 执行，issue #52）；
+def _scan(cg, layer=None):
     """遍历节点：时空字段直接读索引快照（不读文件，O(1)/节点）。
 
     索引为旧快照（无 temporal/spatial 键）时回退读文件，保证兼容；
     正文一律不在此加载——预览按需读，避免全库 IO。
     授权单点（issue #35 会话隔离定稿）：cg 带 `_readable`（MdCGSecure）
     时逐条过读可见性——密级 × 会话绑定档在此与 _candidates 同口径，
-    stg 各 op（timeline/relation/anchors）不得成为绕过路径。
+    stg 各 op（timeline/relation/anchors）不得成为绕过路径。可见性判定
+    **先于一切**（含截断）：不可见节点既不进候选、也不占 kept 名额。
+
+    issue #52（条件先行于限额）：旧实现在此处 `list(index["nodes"].items())[:max_scan]`
+    ——按 id 字典序在**条件过滤之前**砍尾巴，库超 max_scan 后（a）本会话记忆等条件
+    命中若落在切片外即被永久排除（新写入节点恰在索引尾部）、（b）选面是无意义的 id
+    序、（c）截断完全静默、「读不全」与「读不到」不可区分、（d）被排除集合随索引
+    重排漂移。现改为：本函数只做「遍历 + layer/可见性过滤」，条件过滤与截断都归
+    各接口（条件先行，截断经 `_cap_hits` 只作用于条件命中集）。
+    全量快照遍历是 O(N) 内存操作（历代实测 1.7 万节点 ≈0.04s），是本修正的既定代价。
+    迭代仍取 `list(...)` 快照（H-4(a) 并发纪律：裸迭代在并写索引下会
+    RuntimeError）——去掉的只是切片，不是快照。
     """
     out = []
     _sec = getattr(cg, "_readable", None)
-    for nid, e in list(cg.index["nodes"].items())[:max_scan]:
+    for nid, e in list(cg.index["nodes"].items()):
         if layer and e.get("layer") != layer:
             continue
         if _sec is not None and not _sec(e):
@@ -151,6 +162,61 @@ def _scan(cg, layer=None, max_scan=5000):
                 continue
         out.append({"id": nid, "frontmatter": fm, "layer": e.get("layer"),
                     "path": e.get("path")})
+    return out
+
+
+# 生效条件：hits 为条件命中序列、max_scan 为 None 或可 int 化的单次扫描限额（None 视同不截断）、recency_key 为把单条命中映射到「越大越近期」可比较键的可调用对象时——len(hits) <= cap（cap = max_scan 为 None 时取 len(hits)，否则 int(max_scan)，负数归 0）返回 (hits 原序, False)；超限返回 (sorted(hits, key=recency_key, reverse=True)[:cap], True)。recency_key 由各接口按自己的时间轴构造且须含 id 稳定终键（同一批键下结果与索引物理序无关）。
+def _cap_hits(hits, max_scan, recency_key):
+    """条件命中集截断（issue #52 第 1/2 层）：只作用于**条件命中集**。
+
+    调用点恒在条件过滤之后（条件先行）；不过限时不改序、不标记（逐位兼容）。
+    兜底选序＝时间倒序优先保留近期——**不是**主修法：主修法是明确检索条件
+    与建立条件索引（docs/plans/stg条件化与结构索引_设计_v0.1.md）；选序只保证
+    截断真的发生时，先抛掉的是最久远/最不可判定者，而不是索引尾部。
+    """
+    n = len(hits)
+    cap = n if max_scan is None else int(max_scan)
+    if cap < 0:
+        cap = 0
+    if n <= cap:
+        return hits, False
+    return sorted(hits, key=recency_key, reverse=True)[:cap], True
+
+
+# 生效条件：h 为 timeline 命中元组 (start, end, id, layer, session)；返回 (start, end, id)——「越大越近期」，id 终键保证与索引物理序无关。
+def _tl_recent(h):
+    return (h[0], h[1], h[2])
+
+
+# 生效条件：h 为 anchors 命中 dict（含 "time" 区间或 None）时返回 (时间可判定否, start, end, id)——时间不可判定者键最小（倒序保留时最先被截），id 终键保证与索引物理序无关。
+def _an_recent(h):
+    iv = h.get("time")
+    if iv is None:
+        return (False, 0.0, 0.0, str(h.get("id")))
+    return (True, iv[0], iv[1], str(h.get("id")))
+
+
+# 生效条件：n 为 _scan 条目、time_axis 为时间轴名时返回 (时间可判定否, start, end, id)（口径同 _an_recent，区间按 time_axis 轴经 _interval 取；非法轴由 _interval 抛 ValueError，不吞错）。
+def _co_recent(n, time_axis):
+    iv = _interval(n["frontmatter"], time_axis)
+    if iv is None:
+        return (False, 0.0, 0.0, str(n["id"]))
+    return (True, iv[0], iv[1], str(n["id"]))
+
+
+# 截断可操作提示（issue #52 第 2 层：禁止静默）——文案必须含「细化生效条件/不适用条件」与「建立条件索引」语义；数值放大（调 max_scan）不是修法，故明文劝阻。
+_CAP_HINT = ("条件命中 %s 条超过单次扫描限额 max_scan=%s，已按时间倒序保留近期 %s 条"
+             "（截断不静默）：请细化生效条件/不适用条件（如 session/layer/time_window）"
+             "收窄命中集，或按设计稿建立条件索引（docs/plans/stg条件化与结构索引_设计_v0.1.md）"
+             "——不要调大 max_scan 数值。")
+
+
+# 生效条件：out 为接口返回体（dict）、scanned 为候选遍历数（layer/可见性过滤后、截断前）、hits 为条件命中总数（截断前）、kept 为截断后保留数、truncated 为其布尔标记、max_scan 为本次限额——恒把 scanned/kept/truncated 三键并入 out；truncated 为真时再并入 hint（_CAP_HINT 插值 hits/max_scan/kept）；返回 out。
+def _with_scan_reads(out, *, scanned, hits, kept, truncated, max_scan):
+    """读数与截断标记的统一出口（timeline/anchors/consistency 同一口径）。"""
+    out.update({"scanned": scanned, "kept": kept, "truncated": truncated})
+    if truncated:
+        out["hint"] = _CAP_HINT % (hits, max_scan, kept)
     return out
 
 
@@ -252,7 +318,7 @@ def _view_session(session):
     return _normalize_session(s)
 
 
-# 生效条件：以 _scan(cg,layer=layer,max_scan=max_scan) 为范围，session 经 _view_session 归一后（None/空/"*"=跨会话不过滤，其它值=归一后的具体会话）非跨会话时仅保留 frontmatter.session 精确相等的节点，_interval(n["frontmatter"], time_axis) 为 None 的节点被跳过，其余按 (start,end) 以 reverse=bool(desc) 排序，返回 count=全部命中数、limit=传入 limit、session=生效的会话过滤值（跨会话时为 None）、items 为排序后前 limit 项（limit=0 时为空列表）且每项附 session 归属与 _preview(cg,id)（time_axis 缺省 observed，与旧行为逐位一致；非法轴抛 ValueError）。
+# 生效条件：以 _scan(cg,layer=layer) 为候选（全部 layer/可见性命中），session 经 _view_session 归一后（None/空/"*"=跨会话不过滤，其它值=归一后的具体会话）非跨会话时仅保留 frontmatter.session 精确相等的节点，_interval(n["frontmatter"], time_axis) 为 None 的节点被跳过——**条件命中集到此确定**；随后才截断：命中集超过 max_scan（默认 5000 不变）时按 (start,end,id) 时间倒序保留近期 max_scan 条并标记 truncated；保留集按 (start,end,id) 以 reverse=bool(desc) 排序，返回 count=条件命中总数（截断前，**不再受索引切片影响**）、limit=传入 limit、session=生效的会话过滤值（跨会话时为 None）、scanned=候选遍历数、kept=截断后保留数、truncated=截断标记（截断时另有 hint）、items 为排序后前 limit 项（limit=0 时为空列表）且每项附 session 归属与 _preview(cg,id)（time_axis 缺省 observed，与旧行为逐位一致；非法轴抛 ValueError）。
 def timeline(cg, layer=None, limit=50, desc=True, max_scan=5000,
              time_axis="observed", session=None):
     """按时间排序的节点列表。`time_axis` 决定排序依据的时间区间（见 `_interval`）。
@@ -267,11 +333,19 @@ def timeline(cg, layer=None, limit=50, desc=True, max_scan=5000,
         「写进去查不出」；返回体 `session` 回带的是**归一后**的生效值。
     `items` 一并回带 `session`：跨会话视图下「这条是哪个会话做的」必须可辨，
     否则「能读到所有会话做了什么」只剩内容、丢了归属。
+
+    issue #52（条件先行 + 截断可观测）：`max_scan`（默认 5000，数值不变）
+    **只在条件命中集上生效**——旧实现把它当索引序切片（在 session/时间条件
+    过滤**之前**砍尾巴），本会话记忆因落在切片外而整片消失且没有任何标记；
+    现在 `count` 恒为条件命中总数（不受切片影响），命中集超限才按时间倒序
+    保留近期，并在返回体上报 `truncated`/`scanned`/`kept`/`hint`。
     """
     sid = _view_session(session)
     cross = sid in ("", "*")            # 跨会话：显式 "*" 与缺省同义
+    scanned = 0
     items = []
-    for n in _scan(cg, layer=layer, max_scan=max_scan):
+    for n in _scan(cg, layer=layer):
+        scanned += 1
         fm = n["frontmatter"] or {}
         if not cross and fm.get("session") != sid:
             continue
@@ -279,18 +353,31 @@ def timeline(cg, layer=None, limit=50, desc=True, max_scan=5000,
         if iv is None:
             continue
         items.append((iv[0], iv[1], n["id"], n["layer"], fm.get("session")))
+    hits = len(items)                    # 条件命中总数（截断前，count 的口径）
+    items, truncated = _cap_hits(items, max_scan, _tl_recent)
+    kept = len(items)
     items.sort(key=lambda x: (x[0], x[1], x[2]), reverse=bool(desc))
-    return {"count": len(items), "limit": limit,
-            "session": None if cross else sid,
-            "items": [{"id": i, "layer": l, "start": s, "end": e,
-                       "session": sn, "preview": _preview(cg, i)}
-                      for s, e, i, l, sn in items[:limit]]}
+    return _with_scan_reads(
+        {"count": hits, "limit": limit,
+         "session": None if cross else sid,
+         "items": [{"id": i, "layer": l, "start": s, "end": e,
+                    "session": sn, "preview": _preview(cg, i)}
+                   for s, e, i, l, sn in items[:limit]]},
+        scanned=scanned, hits=hits, kept=kept, truncated=truncated,
+        max_scan=max_scan)
 
 
-# 生效条件：time_window 为长度 2 的 list/tuple 时 q_t=(float(time_window[0]),float(time_window[1]))（元素不可转 float 会直接抛异常，源码未捕获），bbox 为长度 4 的 list/tuple 时同理构造 q_b；q_t 与 q_b 均为 None 时返回 {"error":"need_time_window_or_bbox"}；否则扫描节点、每节点时间区间按 _interval(fm, time_axis) 取（time_axis 缺省 observed 与旧行为逐位一致，非法轴抛 ValueError），并要求时间关系在 during/contains/overlaps/equals、空间关系在 inside/contains/overlaps/equals（提供查询侧才检查），返回 hits[:limit]（limit=None 取全部，0/False 取空）；
+# 生效条件：time_window 为长度 2 的 list/tuple 时 q_t=(float(time_window[0]),float(time_window[1]))（元素不可转 float 会直接抛异常，源码未捕获），bbox 为长度 4 的 list/tuple 时同理构造 q_b；q_t 与 q_b 均为 None 时返回 {"error":"need_time_window_or_bbox"}；否则以 _scan(cg,layer=layer) 为候选逐节点取 _interval(fm, time_axis)（time_axis 缺省 observed 与旧行为逐位一致，非法轴抛 ValueError）与 _bbox，要求时间关系在 during/contains/overlaps/equals、空间关系在 inside/contains/overlaps/equals（提供查询侧才检查）——**条件命中集到此确定**；随后才截断：命中集超过 max_scan（默认 5000 不变）时按 (时间可判定否,start,end,id) 倒序保留近期 max_scan 条并标记 truncated（无时间区间者最先被截）；返回 count=条件命中总数（截断前）、query、scanned=候选遍历数、kept=截断后保留数、truncated=截断标记（截断时另有 hint）、items=hits[:limit]（limit=None 取全部，0/False 取空）且每条附 preview；
 def anchors(cg, time_window=None, bbox=None, layer=None, limit=50, max_scan=5000,
             time_axis="observed"):
-    """落在给定时间窗 / 空间范围内的节点。`time_axis` 决定候选时间区间（见 `_interval`）。"""
+    """落在给定时间窗 / 空间范围内的节点。`time_axis` 决定候选时间区间（见 `_interval`）。
+
+    issue #52（条件先行 + 截断可观测）：时间窗/空间范围的条件命中集先于
+    `max_scan`（默认 5000，数值不变）确定——`count` 恒为条件命中总数，
+    命中集超限才按时间倒序保留近期（无时间区间者先被截），并上报
+    `truncated`/`scanned`/`kept`/`hint`；旧实现按索引序切片在条件**之前**，
+    命中项落在切片外即静默消失。
+    """
     q_t = None
     if isinstance(time_window, (list, tuple)) and len(time_window) == 2:
         q_t = (float(time_window[0]), float(time_window[1]))
@@ -300,8 +387,10 @@ def anchors(cg, time_window=None, bbox=None, layer=None, limit=50, max_scan=5000
     if q_t is None and q_b is None:
         return {"error": "need_time_window_or_bbox"}
 
+    scanned = 0
     hits = []
-    for n in _scan(cg, layer=layer, max_scan=max_scan):
+    for n in _scan(cg, layer=layer):
+        scanned += 1
         fm = n["frontmatter"]
         iv, bb = _interval(fm, time_axis), _bbox(fm)
         t_rel = time_relation(iv, q_t) if (q_t and iv) else None
@@ -312,13 +401,19 @@ def anchors(cg, time_window=None, bbox=None, layer=None, limit=50, max_scan=5000
             continue
         hits.append({"id": n["id"], "layer": n["layer"], "time": iv, "bbox": bb,
                      "time_relation": t_rel, "space_relation": s_rel})
+    total = len(hits)                    # 条件命中总数（截断前，count 的口径）
+    hits, truncated = _cap_hits(hits, max_scan, _an_recent)
+    kept = len(hits)
     for h in hits[:limit]:
         h["preview"] = _preview(cg, h["id"])
-    return {"count": len(hits), "query": {"time_window": q_t, "bbox": q_b},
-            "items": hits[:limit]}
+    return _with_scan_reads(
+        {"count": total, "query": {"time_window": q_t, "bbox": q_b},
+         "items": hits[:limit]},
+        scanned=scanned, hits=total, kept=kept, truncated=truncated,
+        max_scan=max_scan)
 
 
-# 生效条件：遍历 _scan(cg,layer=layer,max_scan=max_scan) 每条 frontmatter，bb 非 None 且不满足 bb[0]<=bb[2] and bb[1]<=bb[3] 记 invalid_bbox、iv（由 _interval(fm, time_axis) 取，time_axis 缺省 observed 与旧行为逐位一致、非法轴抛 ValueError）非 None 且 iv[0]>iv[1] 记 inverted_time_window、temporal 与 time_window 均经 trust.epoch_seconds 归一后可比且不满足 tw[0]<=t<=tw[1] 记 temporal_outside_window（该检查恒按观察轴内部口径、不随 time_axis 漂移；任一端不可转数值则忽略），返回 scanned 计数、issues 总数与 issues[:limit]（limit 默认 50）。
+# 生效条件：以 cand=list(_scan(cg,layer=layer)) 为候选（scanned=len(cand) 为遍历读数，layer/可见性即其条件面），**先**按 (时间可判定否,start,end,id) 时间倒序截断到 max_scan（默认 5000 不变，截断时 kept=保留数、truncated=True 并附 hint）——随后逐条检查：bb 非 None 且不满足 bb[0]<=bb[2] and bb[1]<=bb[3] 记 invalid_bbox、iv（由 _interval(fm, time_axis) 取，time_axis 缺省 observed 与旧行为逐位一致、非法轴抛 ValueError）非 None 且 iv[0]>iv[1] 记 inverted_time_window、temporal 与 time_window 均经 trust.epoch_seconds 归一后可比且不满足 tw[0]<=t<=tw[1] 记 temporal_outside_window（该检查恒按观察轴内部口径、不随 time_axis 漂移；任一端不可转数值则忽略）；返回 issues 总数与 issues[:limit]（limit 默认 50）、scanned=遍历读数、kept=实际检查节点数、truncated=截断标记（截断时另有 hint）。
 def consistency(cg, layer=None, limit=50, max_scan=5000, time_axis="observed"):
     """时空字段自洽性检查：非法 bbox / 时间倒置 / 窗口与时刻冲突。
 
@@ -329,11 +424,18 @@ def consistency(cg, layer=None, limit=50, max_scan=5000, time_axis="observed"):
     两端比较前统一经 `trust.epoch_seconds` 归一：旧实现裸 `float` 比较，历史毫秒
     节点的 `1.7e12` 与秒级 `temporal` 永不落入区间 → 该检查在真实库中**静默失效**
     （issue #23 同根因）。返回体的 `temporal` / `time_window` 也随之为归一后的秒值。
+
+    issue #52（条件先行 + 截断可观测）：候选/条件命中集（layer × 可见性）
+    **先于** `max_scan`（默认 5000，数值不变）确定；超限时按时间倒序保留近期
+    再检查——`kept` 为实际检查数、`truncated` 显式上报（旧实现按索引序切片
+    且无任何标记，「读不全」与「读不到」不可区分）。
     """
+    cand = list(_scan(cg, layer=layer))
+    scanned = len(cand)
+    cand, truncated = _cap_hits(cand, max_scan, lambda n: _co_recent(n, time_axis))
+    kept = len(cand)
     issues = []
-    scanned = 0
-    for n in _scan(cg, layer=layer, max_scan=max_scan):
-        scanned += 1
+    for n in cand:
         fm = n["frontmatter"]
         bb, iv = _bbox(fm), _interval(fm, time_axis)
         if bb and not (bb[0] <= bb[2] and bb[1] <= bb[3]):
@@ -348,5 +450,7 @@ def consistency(cg, layer=None, limit=50, max_scan=5000, time_axis="observed"):
             if lo is not None and hi is not None and not (lo <= t <= hi):
                 issues.append({"id": n["id"], "issue": "temporal_outside_window",
                                "temporal": t, "time_window": [lo, hi]})
-    return {"scanned": scanned, "issues": len(issues), "limit": limit,
-            "items": issues[:limit]}
+    return _with_scan_reads(
+        {"issues": len(issues), "limit": limit, "items": issues[:limit]},
+        scanned=scanned, hits=scanned, kept=kept, truncated=truncated,
+        max_scan=max_scan)
