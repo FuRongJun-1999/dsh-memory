@@ -241,9 +241,17 @@ def _pool_listing() -> list | None:
 
     c5 的自证面：成功趟前后各取一次，清单必须逐字节一致——守卫的池是 HIVE_JOBS_DIR
     指针指向的临时目录，在役池不该因本守卫增减任何一项。
+    **排除在役 serve 的心跳产物**（`_serve*`：`_serve.json` / `_serve.log` /
+    `_serve.tmp<pid>`——与 `scripts/test_utf8_boot_guard.py::_pool_listing` 同口径，
+    该处 2026-10-01 已按同一归因修复）：心跳的原子写协议是 tmp→rename，
+    `_serve.tmp<pid>` 存续窗口实测约 0.35s、占空比约一半（2026-10-02 探针 45s/448
+    采样：含 `_serve*` 口径变化 62 次，排除后 0 次）——不排除则两个采样点之间必被
+    闪现命中而假红（全量实测随机红，两次跑一红一绿）。排除后其余任何新增（含意外
+    落池）照旧判违规——判据强度不变。
     """
     try:
-        return sorted(os.listdir(os.path.join(ROOT, "hive", "jobs")))
+        return sorted(n for n in os.listdir(os.path.join(ROOT, "hive", "jobs"))
+                      if not n.startswith("_serve"))
     except OSError:
         return None
 

@@ -38,8 +38,14 @@
 **不静默降级**到缺省档——静默降级会把「配置打错」变成「放权范围与预期不符」，
 正是设计要消灭的那类不实。
 
-本批**不做**（登记留池，交批次③）：前像/影响面/回滚命令/`_protected_history`
-通用化；计划输入面；R1–R4 准入读数。
+**批次③（2026-10-02）**：变更单载荷在（动作类/目标/后像/理由/primitive/meta）
+之上补三字段——`before`（前像，**执行时点**快照引用）· `impact`（执行时点影响面
+读数）· `rollback`（可执行的回滚命令串）。三键在**提议时点**即占位（恒在键面，
+取值 None/""——字段完备），由执行桥（`mdcos._mutation_execute`）在动作落盘前
+经 `mutation_executed()` 补全为执行时点实值；回滚原语通用化与回滚实测在
+`md_cg/rollback.py` + `md_cg/rollback_cli.py`（守卫 `test_mutation_rollback.py`）。
+
+本批**不做**（登记留池）：计划输入面；R1–R4 准入读数。
 """
 from __future__ import annotations
 
@@ -53,7 +59,8 @@ __all__ = [
     "A_ADD", "B_MERGE", "C_REWRITE", "D_DELETE", "E_WEIGHT",
     "KIND_PROPOSAL", "KIND_MUTATION", "KIND_FIELD",
     "autonomy_env", "mode", "decide", "order_kind", "mutation_view",
-    "mutation_payload", "mutation_dedup_key", "propose_mutation",
+    "mutation_payload", "mutation_executed", "mutation_dedup_key",
+    "propose_mutation",
 ]
 
 # ---- §三「单一入口」：env 表的**单一真源** --------------------------------
@@ -257,9 +264,13 @@ def order_kind(rec) -> str:
     return k or KIND_PROPOSAL
 
 
-# 生效条件：rec 支持 .get 时返回该变更单的载荷视图 {"kind","action","action_name","target","after","reason","primitive"}（非变更单返回 None；载荷缺失的键回落 None/空串）；本函数只读，不产生任何副作用；
+# 生效条件：rec 支持 .get 时返回该变更单的载荷视图 {"kind","action","action_name","target","after","reason","primitive","before","impact","rollback","meta"}（非变更单返回 None；载荷缺失的键回落 None/空串）；本函数只读，不产生任何副作用；
 def mutation_view(rec):
-    """变更单的只读视图（非变更单返回 None）——显示面/执行桥共用同一取值口径。"""
+    """变更单的只读视图（非变更单返回 None）——显示面/执行桥共用同一取值口径。
+
+    `before`/`impact`/`rollback`（批次③）：三字段在提议时点即占键（取值
+    None/""＝尚未执行），执行后由执行桥补全（见 `mutation_executed`）。
+    """
     if order_kind(rec) != KIND_MUTATION:
         return None
     try:
@@ -275,14 +286,33 @@ def mutation_view(rec):
                      else rec.get("content"),
             "reason": slot.get("reason") or "",
             "primitive": slot.get("primitive") or "",
+            # 执行时点三字段（设计 §四，批次③）：提议时点为 None/""，执行后补全。
+            "before": slot.get("before"),
+            "impact": slot.get("impact"),
+            "rollback": slot.get("rollback") or "",
             "meta": dict(slot.get("meta") or {}),
             "raw": slot}
 
 
-# 生效条件：action_class 归一后属 ACTION_CLASSES（否则抛 ValueError），target 非空（否则抛 ValueError 且带 hint）；返回变更单载荷 dict——键：action/action_name/target/after/reason/primitive/meta（meta 为可复现原动作所需的落盘参数副本，缺省空 dict）；
+# 生效条件：action_class 归一后属 ACTION_CLASSES（否则抛 ValueError），target 非空（否则抛 ValueError 且带 hint）；返回变更单载荷 dict——键：action/action_name/target/after/reason/primitive/before/impact/rollback/meta（meta 为可复现原动作所需的落盘参数副本，缺省空 dict；后三者为执行时点字段，提议时点占位 None/""）；
 def mutation_payload(action_class, target, after="", reason="",
-                     primitive="", meta=None) -> dict:
-    """变更单载荷（**唯一构造点**：动作类+目标+后像+理由+复现参数）。"""
+                     primitive="", meta=None, before=None, impact=None,
+                     rollback=None) -> dict:
+    """变更单载荷（**唯一构造点**：动作类+目标+后像+理由+复现参数+执行时点三字段）。
+
+    执行时点三字段（设计 §四，批次③）——**键恒在**（提议时点即占位，
+    取值 None/""），由执行桥在动作落盘前经 `mutation_executed()` 补全：
+
+      · `before`   —— 前像（可回滚句柄）：**执行时点**快照的引用。
+        提议时点**不拍**：从提议到 accept 之间目标可能被第三方改动，回滚必须
+        撤销**本变更本身**、不抹第三方改动（设计 §四 明文）——前像必须反映
+        「执行前一刻」的盘面，故由 `mdcos._mutation_execute` 在动作原语落盘
+        之前调 `rollback.preimage()` 拍摄。
+      · `impact`   —— 影响面：执行时点采集的读数（边/索引条目/聚合行）。
+      · `rollback` —— 回滚命令：可执行的回滚命令串（`rollback.command_for`
+        构造，形态 `python -X utf8 -m md_cg.rollback_cli --root <root> --pid <pid>`，
+        守卫实测演练）。
+    """
     act = str(action_class or "").strip().upper()
     if act not in ACTION_CLASSES:
         raise ValueError("未知动作类：%r（允许：%s）"
@@ -293,7 +323,33 @@ def mutation_payload(action_class, target, after="", reason="",
                          "（无目标即无法复核、无法回滚）——fail-closed 拒绝出单。" % act)
     return {"action": act, "action_name": ACTION_NAMES[act], "target": tgt,
             "after": "" if after is None else after, "reason": str(reason or ""),
-            "primitive": str(primitive or ""), "meta": dict(meta or {})}
+            "primitive": str(primitive or ""),
+            # 执行时点三字段（键恒在；提议时点 = 未执行，占位 None/""）
+            "before": before, "impact": impact,
+            "rollback": str(rollback or ""),
+            "meta": dict(meta or {})}
+
+
+# 生效条件：payload 支持 dict() 复制（None/假值按空 dict 起底）时返回**新 dict**——原载荷逐键复制后补 kind=KIND_MUTATION 与 executed=True，并仅在实参非 None/非空时覆写 before/impact/rollback（缺省保留原载荷取值，不把 None 伪装成实值）；
+def mutation_executed(payload, before=None, impact=None, rollback=None) -> dict:
+    """执行时点补全（**唯一构造点**）：把前像/影响面/回滚命令并进载荷副本。
+
+    为什么不原地改载荷：出单时载荷已随队列条目落盘（append-only）——执行记录
+    里的补全形态是**新对象**，「提议时点载荷」与「执行时点载荷」两个事实都保留
+    （外部对照时能看见「执行时点才知道的东西在执行时才出现」）。执行桥把本函数
+    的返回值放进裁决返回体，`mdcos._record_decision` 再把它落进 decisions.jsonl
+    的 rec["mutation"]——回滚命令（CLI）据此读回前像与动作类。
+    """
+    out = dict(payload or {})
+    out["kind"] = KIND_MUTATION
+    out["executed"] = True
+    if before is not None:
+        out["before"] = before
+    if impact is not None:
+        out["impact"] = impact
+    if rollback:
+        out["rollback"] = rollback
+    return out
 
 
 # 生效条件：target 非空（否则抛 ValueError）时，对「动作类 + 目标 + 后像」三者的规范化拼接取 sha1 前 32 位十六进制返回；同（动作类+目标+后像）恒得同键、任一不同即得不同键（幂等对账键，形状沿用 propose 的 payload_hash）；

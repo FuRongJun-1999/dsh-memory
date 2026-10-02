@@ -245,6 +245,56 @@ def snapshot(cg, node_id):
     return rel
 
 
+# 生效条件：cg.get(node_id) 抛异常或返回假值时返回 None（与 snapshot 同口径——目标不存在＝动作不会发生，由调用方按既有错误路径处理）；否则在 cg.root/HISTORY_DIR/node_id 下以「秒级时间戳-微秒后缀」命名写入当前 frontmatter 与 content（写盘形态与 snapshot 逐位一致：同目录、同 nodefile 序列化、同 _write_node 封装钩子），_write_node 抛异常时返回 None，成功则追加一条 action="preimage" 的审计（reason 交代动作类与 pid）并返回相对 cg.root 且以 '/' 分隔的路径；
+def snapshot_preimage(cg, node_id, action="", pid=None, reason="", actor=None):
+    """执行时点前像（设计 §四「回滚原语通用化」：快照面推广为一切 C/D/B）。
+
+    与 `snapshot()` 的关系（**面复用、语义泛化**，既有行为一字不动）：
+    `_protected_history/<id>/` + `_protected_audit.jsonl` 这一对从「仅受保护节点」
+    推广为「一切 C/D/B 动作」的**前像面**——本函数是新入口，`snapshot()` /
+    `guard_*` 的既有形态（文件名 `%Y%m%d-%H%M%S.md`、审计 action="snapshot"、
+    reason「显式快照（rel）」、覆盖路径快照数）**不改一行**（守卫钉死）。
+    两条差别都是为「执行时点前像」的场景补强：
+      · 文件名带微秒后缀——同一节点的多个变更单可能在**同一秒**内先后执行，
+        秒级名会互相覆盖（探针实测：同秒二次 snapshot 返回同一路径）——前像
+        被后来的前像踩掉，早先那张的回滚句柄就指向错误时点的内容；
+      · 审计 action="preimage" 且 reason 交代动作类/pid——回滚与 §七 R3 读数
+        （「存在实测回滚记录」）要能把「变更单前像」与既有显式快照区分开。
+
+    为什么前像必须在**执行时点**拍（设计 §四 明文）：变更单在提议时点构造，
+    从提议到 accept 之间目标可能被第三方改动——回滚必须撤销**本变更本身**，
+    而不是一并抹掉第三方改动。故由执行桥（`mdcos._mutation_execute`）在动作
+    原语落盘**之前**拍摄，作为载荷 `before` 字段（执行时点快照引用）。
+
+    边界（如实）：加密库（覆写了 `_seal_content` 的实例）里本文件的密文层
+    因每次封装熵不同**不保证逐字节可复现**——前像的语义是「明文内容 + 结构
+    的可恢复」，逐字节比对在非加密库（含一切守卫合成库）上成立（探针实测）。
+    """
+    try:
+        node = cg.get(node_id)
+    except Exception:
+        node = None
+    if not node:
+        return None
+    d = os.path.join(cg.root, HISTORY_DIR, node_id)
+    os.makedirs(d, exist_ok=True)
+    ts = (time.strftime("%Y%m%d-%H%M%S", time.localtime())
+          + "-%06d" % (time.time_ns() // 1000 % 1000000))
+    p = os.path.join(d, f"{ts}.md")
+    try:
+        cg._write_node(node.get("id"), p, node.get("frontmatter") or {},
+                       node.get("content") or "")
+    except Exception:
+        return None
+    rel = os.path.relpath(p, cg.root).replace("\\", "/")
+    _audit(cg, "preimage", node_id,
+           reason or ("执行时点前像（动作类 %s，pid=%s）"
+                      % (action or "?", pid or "?")),
+           actor=actor if actor is not None else getattr(cg, "actor", None),
+           snapshot=rel)
+    return rel
+
+
 # 生效条件：cg.root/HISTORY_DIR/node_id 不是目录时返回 []；是目录时返回该目录下以 .md 结尾（不递归）的文件按名称排序后的 `HISTORY_DIR/node_id/文件名` 列表，无匹配文件则列表为空。
 def history(cg, node_id):
     """受保护节点的历史版本列表（按时间升序）。"""

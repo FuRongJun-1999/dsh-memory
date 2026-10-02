@@ -35,6 +35,14 @@
     **负对照**（子进程内把 `_SHIMS` 去掉 `autonomy_modes` ⇒ 必须 SHIM-MISS
     非零退出——J3 的绿不是空转）。
 
+**批次③（2026-10-02）新增 K 组**（设计 §四 变更单三字段 · 本批扩展）：
+  · K 组 **变更单字段完备**：载荷在（动作类/目标/后像/理由/primitive/meta）之上
+    的 `before`（前像）/`impact`（影响面）/`rollback`（回滚命令）三键——
+    提议时点恒在且占位（None/None/""）、**执行时点**补全（before 指向执行前一刻
+    的盘面：第三方改动被保留）、impact 三面（边/索引/聚合行）齐备、
+    rollback 为可执行命令串（含 `md_cg.rollback_cli` 与 pid）、decisions.jsonl
+    的 `rec["mutation"]` 落盘。深度回滚演练见 `md_cg/test_mutation_rollback.py`。
+
 定点变异自证（`--mutate`，与 `md_cg/test_neg_condition_hits.py` 同口径）：
 表内每项 = (说明, 目标, 锚点原文, 替换文, 预期红项数)。锚点须**逐字**出现在目标
 函数源码里；漂移即 ANCHOR-MISS（fail-closed，exit 2）。红项数与实测**逐一相符**
@@ -817,7 +825,99 @@ def g_j():
        "非零退出——J3 的绿有判别力", {"rc": got2["rc"]})
 
 
-_GROUPS = (g_a, g_b, g_c, g_d, g_e, g_f, g_g, g_h, g_i, g_j)
+# =============================================================== K 组：变更单字段
+def g_k():
+    print("== K 组：变更单三字段（前像=执行时点 · 影响面 · 回滚命令）==")
+    with _mode("confirm"):
+        cg = _lib("fields")
+        # 边影响面：本节点 part_of → k_p（父）——C 覆写的 add 全量重建 fm 会把
+        # 声明式 edges 清空（既有行为），前像/影响面据此可判别。
+        cg.add("k_1", PLAIN % "初版", layer="knowledge",
+               verification_basis="test",
+               edges=[{"target": "k_p", "relation_type": "part_of"}])
+        cg.add("k_p", PLAIN % "父", layer="knowledge",
+               verification_basis="test")
+        cg.flush()
+        pay0 = autonomy_modes.mutation_payload("C", "k_1", after=PLAIN % "改写版",
+                                               reason="字段完备探针",
+                                               primitive="add")
+        ok(pay0.get("before") is None and pay0.get("impact") is None
+           and pay0.get("rollback") == "",
+           "K 提议时点载荷三键恒在且占位（before/impact=None、rollback=''）",
+           {k: pay0.get(k) for k in ("before", "impact", "rollback")})
+        pr = autonomy_modes.propose_mutation(cg, "C", "k_1", payload=pay0,
+                                             layer="knowledge", info=True)
+        rec0 = [x for x in cg.review_list() if x.get("pid") == pr["pid"]]
+        view0 = autonomy_modes.mutation_view(rec0[0]) if rec0 else None
+        ok(view0 is not None and view0.get("before") is None
+           and view0.get("impact") is None and view0.get("rollback") == "",
+           "K 队列条目的 mutation_view 同口径三键（提议时点占位）", view0)
+        # 提议→accept 之间：第三方覆写（前像必须=执行时点=该版本）。
+        # 第三方自己也带同一条声明式边（add 全量重建 fm 的既有语义：不带即清空）
+        # ——使「执行时点影响面」的边读数在案、判据可评估。
+        cg.add("k_1", PLAIN % "第三方版", layer="knowledge",
+               verification_basis="test",
+               edges=[{"target": "k_p", "relation_type": "part_of"}])
+        third_p = os.path.join(cg.root, cg.index["nodes"]["k_1"]["path"])
+        with open(third_p, "rb") as f:
+            third_bytes = f.read()
+        r = cg.review_decide(pr["pid"], "accept", reason="K：执行")
+        m = r.get("mutation") or {}
+        ok(r.get("ok") is True and isinstance(m, dict),
+           "K accept 执行返回补全载荷（dict）", {k: r.get(k) for k in
+                                          ("ok", "error")})
+        pre_rel = m.get("before") or ""
+        pre_p = os.path.join(cg.root, pre_rel.replace("/", os.sep)) if pre_rel else ""
+        ok(bool(pre_rel) and os.path.isfile(pre_p),
+           "K before 非空且指向已落盘快照（执行时点前像）", pre_rel)
+        snap_bytes = None
+        if pre_p and os.path.isfile(pre_p):
+            with open(pre_p, "rb") as f:
+                snap_bytes = f.read()
+        # 前像缺失（变异「不拍前像」）时这里不 skip——None != third_bytes 即红，
+        # 「前像=执行时点」这条判据必须有判别力（不是空转的前提断言）。
+        ok(snap_bytes == third_bytes,
+           "K 前像=**执行时点**盘面（第三方改动被保留=逐字节等于 accept 前盘面）",
+           "前像字节与 accept 前盘面%s" % ("相同" if snap_bytes == third_bytes
+                                     else "不同/前像缺失"))
+        snap_text = (open(pre_p, encoding="utf-8").read()
+                     if (pre_p and os.path.isfile(pre_p)) else "")
+        ok("第三方版" in snap_text and "初版" not in snap_text,
+           "K 前像不是提议时点版本（含第三方版、不含出单前初版）",
+           repr(snap_text[-60:]))
+        imp = m.get("impact")
+        ok(isinstance(imp, dict)
+           and {"edges", "index", "agg_lines"} <= set(imp),
+           "K impact 三面齐备（边/索引条目/聚合行）", imp)
+        ok(isinstance(imp, dict)
+           and (imp.get("edges") or {}).get("parents") == ["k_p"],
+           "K impact·边 = 执行时点读数（part_of 父边 k_p 在案）",
+           (imp or {}).get("edges"))
+        ok(isinstance(imp, dict)
+           and isinstance(imp.get("index"), dict)
+           and imp["index"].get("present") is True
+           and isinstance(imp.get("agg_lines"), list),
+           "K impact·索引条目在案 + 聚合行为列表", (imp or {}).get("index"))
+        cmd = m.get("rollback") or ""
+        ok(isinstance(cmd, str) and "md_cg.rollback_cli" in cmd
+           and pr["pid"] in cmd and "utf8" in cmd,
+           "K rollback = 可执行回滚命令串（rollback_cli + pid + utf8）", cmd)
+        recs = [x for x in cg.decisions() if x.get("pid") == pr["pid"]]
+        rex = recs[-1] if recs else {}
+        ok(isinstance(rex.get("mutation"), dict)
+           and rex["mutation"].get("before") == pre_rel
+           and rex["mutation"].get("rollback") == cmd
+           and rex["mutation"].get("action") == "C",
+           "K 执行记录 rec['mutation'] 落盘（before/rollback/action 与返回体一致）",
+           sorted((rex.get("mutation") or {}).keys()))
+        ok(isinstance(rex.get("mutation"), dict)
+           and rex["mutation"].get("executed") is True
+           and rex["mutation"].get("impact") == imp,
+           "K rec['mutation'] 亦带 executed 与影响面（同一份补全形态）")
+        cg.close()
+
+
+_GROUPS = (g_a, g_b, g_c, g_d, g_e, g_f, g_g, g_h, g_i, g_j, g_k)
 
 
 def _run_groups():
@@ -874,14 +974,16 @@ _SRC_MUTATIONS = (
      '        return self._forget_apply(node_id, e, reason)\n'
      '        dec = autonomy_modes.decide(autonomy_modes.D_DELETE)', 4),
     # ⑦ 执行桥空转——accept「成功了」但动作没做（最危险的形态：汇报不实）。
-    # 红 9（实测 2026-10-02 补强批次复测；批次②当时 5）：B/C/C-CONVERGE/D 四条
-    # 「accept 执行」+ B 组「改写只发生一次」；补强批次 +4 = I 组「gated C accept
-    # 执行」「执行桥 C 目标消失→target_missing」「目标消失的单仍在 pending」
-    # 「对照：目标在位 accept 照旧执行」。
+    # 锚点（批次③改）：提前 return 插在**前像拍摄之前**——空转形态同时废掉
+    # 「执行时点前像/补全」（K 组一并红）。
+    # 红 18（实测 2026-10-02 批次③）：B 组 2（accept 执行/幂等）＋ C 组 2
+    # （MERGE/CONVERGE 执行）＋ D 组 1 ＋ I 组 3 ＋ K 组 10（前像/影响面/
+    # 命令串/执行记录——K 的提议时点占位与 mutation_view 两条在空转下仍绿，
+    # 语义相符）。
     ("accept 不执行（执行桥空转）", "cls", mdcos.MdCGOS, "_mutation_execute",
-     '        try:\n            if act == _am.B_MERGE:',
-     '        return {"ok": True, "node_id": tgt}\n'
-     '        try:\n            if act == _am.B_MERGE:', 9),
+     '            pre = _rb.preimage(self, act, tgt, pid=item.get("pid"),',
+     '            return {"ok": True, "node_id": tgt}\n'
+     '            pre = _rb.preimage(self, act, tgt, pid=item.get("pid"),', 18),
     # ⑧ 幂等键丢掉目标（退回内容签名）——不同目标的同内容变更单撞成一条。
     # 红 4（实测 2026-10-02 补强批次复测；批次②当时 3）：E 组三条幂等判据；
     # 补强批次 +1 = I 组「对照：目标在位 accept 照旧执行」——执行桥两张
@@ -891,13 +993,14 @@ _SRC_MUTATIONS = (
      '    text = "%s\\x1f%s\\x1f%s" % (act, tgt, after if after is not None else "")',
      '    text = "%s" % (after if after is not None else "")', 4),
     # ⑨ 类型字段不落 rec——变更单退化成提案（accept 会把它当新写入落盘）。
-    # 红 10（实测 2026-10-02 补强批次复测；批次②当时 6）：B 组队列 kind 一条 +
-    # C 组 3 条 + D 组 accept 一条 + E 组队列计数一条；补强批次 +4 = I 组
-    # 「gated C 队列条目 kind=mutation」「执行桥 C 目标消失→target_missing」
-    # 「目标消失的单仍在 pending」「对照：目标在位 accept 照旧执行」。
+    # 红 20（实测 2026-10-02 批次③；批次②当时 6、补强批次 10）：B 组队列 kind
+    # 一条 + C 组 3 条 + D 组 accept 一条 + E 组队列计数一条 + I 组 4 条
+    # （gated C 队列条目/目标消失/pending/对照）；批次③ +10 = K 组字段判据
+    # （kind 缺 ⇒ order_kind 判 proposal ⇒ mutation_view 返回 None、accept 走
+    # proposal 链——K 组除「提议时点占位」外整体红，语义相符）。
     ("kind 不落 rec（变更单退化成提案）", "cls", mdcos.MdCGOS, "propose",
      '            if kind:\n                rec["kind"] = str(kind)',
-     '            if False:\n                rec["kind"] = str(kind)', 10),
+     '            if False:\n                rec["kind"] = str(kind)', 20),
     # ⑩ 档位路径绕过 can_admin 闸——**本批实修缺陷的原形态**（MdCGSecure.forget
     # 的管理闸原先不在档位路径上；test_p2_mcp §9 实测抓到）。红 2（实测
     # 2026-10-02）：D 组「无 can_admin 经档位路径删除被拒」+ G 组「管理闸单点」。
@@ -929,6 +1032,25 @@ _SRC_MUTATIONS = (
     ("SHIM 登记丢失（_SHIMS 去掉 autonomy_modes）", "attr", _tpc, "_SHIMS",
      '"autonomy_modes")',
      'tuple(x for x in _SHIMS if x != "autonomy_modes")', 2),
+    # ⑮ 执行桥不拍前像（批次③）——三字段的「执行时点」半支失效：before 空、
+    # rollback 空，回滚句柄不存在、影响面缺失。
+    # 红 8（实测）：K 组前像 3 条 + impact 3 条 + rollback 1 条 + 记录落盘 1 条
+    # （K 的「executed 与影响面同形态」一条在 pre=None 时仍绿——mutation_executed
+    # 保留原占位，语义相符）。
+    ("执行桥不拍前像（执行时点前像整支失效）", "cls", mdcos.MdCGOS,
+     "_mutation_execute",
+     '            pre = _rb.preimage(self, act, tgt, pid=item.get("pid"),\n'
+     '                               reason="变更单执行时点前像（%s→%s，pid=%s）"\n'
+     '                                      % (act, tgt, item.get("pid") or "?"))',
+     '            pre = None', 8),
+    # ⑯ 执行时点补全摘除（批次③）——accept 返回/落盘的都是提议时点占位载荷
+    # （三字段保持 None/""，executed/kind 也不补）。
+    # 红 9（实测）：K 组字段判据除「提议时点三键占位」外整体红（语义相符）。
+    ("执行时点补全摘除（mutation_executed 空转）", "mod", autonomy_modes,
+     "mutation_executed",
+     '    out = dict(payload or {})\n    out["kind"] = KIND_MUTATION',
+     '    return dict(payload or {})\n'
+     '    out = dict(payload or {})\n    out["kind"] = KIND_MUTATION', 9),
 )
 
 

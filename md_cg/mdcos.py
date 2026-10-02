@@ -2360,7 +2360,7 @@ class MdCGOS(MdCG):
                  audit_source="hippocampus/decisions.jsonl", **extra)
         return nid
 
-# 生效条件：当 pid/item/decision/status/reason/round_no/rt_verdict/issues/vhash/result 传入时，构造 rec 并写 record_hash，把 result 中 ok/node_id/error/state 保留；在 strict 锁内追加 decisions_log；随后尝试写 md 审核记录，成功补 record_node_id/record_hash，异常则补 record_error 并 audit review_record_failed；最后 audit review_decide 并返回 result；
+# 生效条件：当 pid/item/decision/status/reason/round_no/rt_verdict/issues/vhash/result 传入时，构造 rec 并写 record_hash，把 result 中 ok/node_id/error/state 保留（result.mutation 为 dict 时另落 rec["mutation"]＝变更单执行时点载荷，proposal 链无此键、rec 形状逐位不变）；在 strict 锁内追加 decisions_log；随后尝试写 md 审核记录，成功补 record_node_id/record_hash，异常则补 record_error 并 audit review_record_failed；最后 audit review_decide 并返回 result；
     def _record_decision(self, pid, item, decision, status, reason, round_no,
                          rt_verdict, issues, vhash, result):
         """落盘一轮裁决：jsonl（权威）+ md 审计节点（可复核、供外部审计）。"""
@@ -2373,6 +2373,13 @@ class MdCGOS(MdCG):
         rec["record_hash"] = self._record_hash(rec)
         rec["result"] = {k: v for k, v in result.items()
                          if k in ("ok", "node_id", "error", "state")}
+        # 三档自治③（设计 §四）：变更单的**执行时点载荷**（含前像/影响面/
+        # 回滚命令）随裁决记录落盘——回滚 CLI 的读取源（rec["mutation"]）。
+        # proposal 链 result 无 mutation 键 ⇒ rec 形状逐位不变；record_hash
+        # 只算固定十键（_record_hash），不受本键影响。
+        _mut = result.get("mutation")
+        if isinstance(_mut, dict):
+            rec["mutation"] = _mut
         # 裁决记录不能丢：strict 锁内追加（并发裁决不交错；
         # 丢一条裁决会让提案回 pending → 重复落盘，比让裁决者等一下代价大）
         with FileLock(self.decisions_log, strict=True):
@@ -2478,7 +2485,7 @@ class MdCGOS(MdCG):
                 "verify_hash": src.get("verify_hash"),
                 "source": "hippocampus/decisions.jsonl"}
 
-# 生效条件：item 为 kind=mutation 的队列记录时按其载荷 extra.mutation 分派——B：primitive 为 "converge_into" 走 writelimit.converge_into、否则走 forgetting.reinforce（两者都以 rec.actor 为动作发起者、载荷 meta 的 session/override 复现原槽）；C：目标经 forgetting.prior_node 判定——目标已不存在即返回 {"ok": False, "error": "target_missing", ...}（fail-closed，不重建节点、不记 accepted），存在才 self.add(目标, 后像, layer=rec.layer, sensitivity=rec.sensitivity, override, **载荷 meta) 覆写落盘；D：self.forget(目标, override) 软删；动作类不在 {B,C,D} 或原语返回失败（ok 为 False / None / target_missing）时返回 {"ok": False, "error": "mutation_execute_failed"/"mutation_action_unknown", ...} 且**不改动任何节点**；成功返回 {"ok": True, "mutation": {...}, "node_id": ...}；
+# 生效条件：item 为 kind=mutation 的队列记录时先经 rollback.preimage 在**执行时点**留前像（目标在位时拍快照 + 采影响面 + 生成回滚命令；目标缺失返回 None 走既有错误路径；拍摄失败抛 PreimageError 被专捕成 preimage_unavailable 错误体），再按载荷 extra.mutation 分派——B：primitive 为 "converge_into" 走 writelimit.converge_into、否则走 forgetting.reinforce（两者都以 rec.actor 为动作发起者、载荷 meta 的 session/override 复现原槽）；C：目标经 forgetting.prior_node 判定——目标已不存在即返回 {"ok": False, "error": "target_missing", ...}（fail-closed，不重建节点、不记 accepted），存在才 self.add(目标, 后像, layer=rec.layer, sensitivity=rec.sensitivity, override, **载荷 meta) 覆写落盘；D：self.forget(目标, override) 软删；动作类不在 {B,C,D} 或原语返回失败（ok 为 False / None / target_missing）时返回 {"ok": False, "error": "mutation_execute_failed"/"mutation_action_unknown", ...} 且**不改动任何节点**；成功返回 {"ok": True, "mutation": <执行时点载荷：原载荷 + kind/executed + before/impact/rollback>, "node_id": ...}；
     def _mutation_execute(self, item, reason: str = "", override: bool = False):
         """变更单 accept 的执行桥：**显式越过确认判定**，直调对应动作的底层原语。
 
@@ -2505,8 +2512,20 @@ class MdCGOS(MdCG):
         同口径：目标不存在 ⇒ `{"ok": False, "error": "target_missing"}`，
         **不重建节点**、不记裁决、提案保持 pending。判据复用存在性单点
         `forgetting.prior_node`（与出单时的 C/A 判定同一单点）。
+
+    批次③（2026-10-02，设计 §四）——**执行时点三字段补全**：动作落盘**之前**
+        经 `rollback.preimage()` 拍前像（`protect.snapshot_preimage`，写
+        `_protected_history` 同面）+ 采影响面（边/索引条目/聚合行）+ 生成回滚
+        命令；成功返回的 `mutation` 是**补全后的执行时点载荷**
+        （`autonomy_modes.mutation_executed`），由 `_record_decision` 随裁决
+        落进 decisions.jsonl 的 `rec["mutation"]`（回滚 CLI 的读取源）。
+        前像**必须**是执行时点（不是提议时点）：从提议到 accept 之间目标可能
+        被第三方改动，回滚只撤销本变更本身（设计 §四 明文）。拍摄失败
+        （目标在位而快照未落）⇒ `preimage_unavailable` fail-closed，不执行
+        ——「一切破坏性动作先留前像」（设计 §六 义务）。
         """
         from . import autonomy_modes as _am
+        from . import rollback as _rb
         try:
             slot = (item.get("extra") or {}).get(_am.MUTATION_SLOT) or {}
         except AttributeError:
@@ -2522,7 +2541,17 @@ class MdCGOS(MdCG):
         _ovr = bool(meta.pop("override", False)) or bool(override)
         layer = item.get("layer") or "knowledge"
         sens = item.get("sensitivity")
+        pre = None
         try:
+            # ---- 执行时点补全（三档自治③ · 设计 §四）----
+            # 前像（执行时点快照引用）+ 影响面 + 回滚命令——在**动作落盘之前**：
+            # 从提议到 accept 之间目标可能被第三方改动，前像必须反映「执行前
+            # 一刻」的盘面，回滚才只撤销本变更本身。目标不存在时返回 None
+            # （动作不会发生，走既有 target_missing/not_found 错误路径）；
+            # 目标在位而拍摄失败 ⇒ PreimageError ⇒ 下方专捕 fail-closed。
+            pre = _rb.preimage(self, act, tgt, pid=item.get("pid"),
+                               reason="变更单执行时点前像（%s→%s，pid=%s）"
+                                      % (act, tgt, item.get("pid") or "?"))
             if act == _am.B_MERGE:
                 if str(slot.get("primitive") or "") == "converge_into":
                     res = writelimit.converge_into(self, tgt, after,
@@ -2567,6 +2596,17 @@ class MdCGOS(MdCG):
                         "detail": "变更单载荷的动作类缺失或不在 %s——fail-closed"
                                   "未执行任何动作、提案保持 pending。"
                                   % "/".join(_am.ACTION_CLASSES)}
+        except _rb.PreimageError as exc:
+            # 执行时点前像未落盘（目标在位而快照失败）——「一切破坏性动作先留
+            # 前像」（设计 §四/§六），fail-closed 不执行：动作**未发生** ⇒
+            # 如实返回失败，不落裁决、提案保持 pending。
+            return {"ok": False, "error": "preimage_unavailable",
+                    "kind": _am.KIND_MUTATION, "action": act, "target": tgt,
+                    "detail": str(exc),
+                    "hint": "变更单未执行：执行时点前像未落盘（设计 §四：一切"
+                            "破坏性动作先留前像）——裁决**未落盘**，提案保持 "
+                            "pending；排查 _protected_history 目录可写性后"
+                            "重新裁决。"}
         except Exception as exc:            # noqa: BLE001
             # 保护闸（ProtectionError/AccessDenied）、冲突闸（ConsistencyError）、
             # 路径闸（ValueError）等一律走这里：动作**未发生** ⇒ 如实返回失败，
@@ -2586,10 +2626,15 @@ class MdCGOS(MdCG):
                     "hint": "变更单未执行：目标节点 %s 的动作原语未成功"
                             "（受保护/目标缺失/同 id 冲突等）——裁决**未落盘**，"
                             "提案保持 pending，修好后可重新裁决。" % tgt}
-        return {"ok": True, "node_id": node_id,
-                "mutation": {"kind": _am.KIND_MUTATION, "action": act,
-                             "target": tgt, "primitive": slot.get("primitive"),
-                             "executed": True}}
+        # 执行时点载荷（**唯一补全点**，autonomy_modes.mutation_executed）：
+        # 原载荷（动作类/目标/后像/理由/primitive/meta）+ kind/executed +
+        # before/impact/rollback——_record_decision 随裁决落 decisions.jsonl
+        # 的 rec["mutation"]（回滚 CLI 据此读回前像与动作类）。
+        mpay = _am.mutation_executed(
+            slot, before=(pre or {}).get("before"),
+            impact=(pre or {}).get("impact"),
+            rollback=(pre or {}).get("rollback"))
+        return {"ok": True, "node_id": node_id, "mutation": mpay}
 
 # 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'），且写入前经与 add 同款双闸（N131，2026-09-25：principal 在位先 require_layer_write(目标层, 目标敏感度)——与 MdCGSecure.add 同序同错型；再 protect.guard_write(override=override)——self/anchor 层、immutable 标记，拒绝抛 ProtectionError/AccessDenied 且提案留 pending 不落库）后追加内容并定向索引 upsert（_node_entry 同源条目写入 index/_dirty）+flush，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；kind=mutation 的变更单（三档自治批次②）不走上述分支——accept 经 _mutation_execute 执行对应动作（失败即返回错误、不记裁决、提案保持 pending）、reject 只留痕，其余裁决 fail-closed 返回 mutation_decision_unsupported；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
     def review_decide(self, pid: str, decision: str, edits: dict = None,
