@@ -43,6 +43,15 @@
     rollback 为可执行命令串（含 `md_cg.rollback_cli` 与 pid）、decisions.jsonl
     的 `rec["mutation"]` 落盘。深度回滚演练见 `md_cg/test_mutation_rollback.py`。
 
+**批次④（2026-10-02）新增 L 组**（设计 §六/§七 准入闸 · 本批扩展）：
+  · L 组 **准入闸生效面**：`env MDCG_AUTONOMY=full` 而 R1–R4 读数不满足 ⇒
+    `settle()` 的实际生效档位回落 confirm 且 `alerts` 逐条报「缺哪条读数」
+    （不静默降级）；full+满足 ⇒ full（与改动前逐位一致）；plan/confirm
+    不受读数影响（零 IO 零告警）；非法 env 仍 fail-closed；未结算 = 旧行为
+    （对拍）；读数缓存 TTL 内不重扫（「不得让每次 decide 都全库扫描」）；
+    只读（结算前后库指纹逐位相同）。四条读数本身的深度判据（门槛边界 /
+    窗口边界 3 天·30 天）见独立守卫 `md_cg/test_autonomy_admission.py`。
+
 定点变异自证（`--mutate`，与 `md_cg/test_neg_condition_hits.py` 同口径）：
 表内每项 = (说明, 目标, 锚点原文, 替换文, 预期红项数)。锚点须**逐字**出现在目标
 函数源码里；漂移即 ANCHOR-MISS（fail-closed，exit 2）。红项数与实测**逐一相符**
@@ -73,6 +82,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 # ---- 沙箱：必须在任何 md_cg 子模块 import 之前 ------------------------------
 _SANDBOX = tempfile.mkdtemp(prefix="autonomy_modes_sandbox_")
@@ -917,7 +927,140 @@ def g_k():
         cg.close()
 
 
-_GROUPS = (g_a, g_b, g_c, g_d, g_e, g_f, g_g, g_h, g_i, g_j, g_k)
+# =============================================================== L 组：准入闸（批次④）
+def g_l():
+    """批次④（设计 §六/§七）：准入闸生效面——full 经 R1–R4 读数、回落不静默。
+
+    深度判据（R1–R4 四条读数本身、门槛边界、窗口边界）见独立守卫
+    `md_cg/test_autonomy_admission.py`；本组只钉**生效面接线**：
+    full+满足 ⇒ full（逐位一致）/ full+不满足 ⇒ confirm + alerts 报缺 /
+    plan·confirm 不受影响（零 IO 零告警）/ 非法 env fail-closed /
+    未结算 = 旧行为（对拍）/ 缓存频度 / 只读。
+    """
+    print("== L 组：准入闸（full 经读数 / plan·confirm 不受影响 / 回落不静默）==")
+    from . import admission as _adm_mod
+    from . import nodefile as _nf
+
+    def _lroot(tag):
+        p = os.path.join(_SANDBOX, "l_%s_r%d" % (tag, _RUN[0]))
+        os.makedirs(p, exist_ok=True)
+        return p
+
+    def _lwr(root, rel, rows):
+        p = os.path.join(root, rel)
+        d = os.path.dirname(p)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def _lmd(root, layer, nid, created_at):
+        p = os.path.join(root, layer, nid + ".md")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(_nf.dumps({"id": nid, "layer": layer,
+                               "created_at": created_at}, "# 探针节点\n"))
+
+    def _sat(tag):
+        """四条读数全满足的合成库（窗口数据用字面量天，不引用被测常量）。"""
+        r = _lroot(tag)
+        now = time.time()
+        _lwr(r, _adm_mod.FORGETTING_LOG, [
+            {"t": now - 3600, "verdict": "DROP"},
+            {"t": now - 3600, "verdict": "MERGE"},
+            {"t": now - 3600, "verdict": "DEFER"}])
+        _lmd(r, "rejected", "rej_1", now - 3600)
+        _lmd(r, "unresolved", "unr_1", now - 3600)
+        _lwr(r, _adm_mod.DEVICE_AUDIT, [
+            {"t": now - 7200, "op": "forget", "id": "z_1"},
+            {"t": now - 3600, "op": "restore", "id": "z_1", "forced": True}])
+        rows = []
+        for k, n_rej in ((1, 1), (2, 3), (3, 4)):
+            mid = now - (k - 0.5) * 10 * 86400.0
+            rows += [{"t": mid, "decision": "reject"} for _ in range(n_rej)]
+            rows += [{"t": mid, "decision": "accept"} for _ in range(10 - n_rej)]
+        _lwr(r, _adm_mod.DECISIONS_LOG, rows)
+        return r
+
+    try:
+        empty, sat = _lroot("empty"), _sat("sat")
+        # L1 full + 读数满足 ⇒ full（改动前行为逐位一致）
+        with _mode("full"):
+            autonomy_modes.reset_settlement()
+            st = autonomy_modes.settle(root=sat, force=True)
+            ok(st["effective"] == "full" and st["alerts"] == []
+               and autonomy_modes.mode() == "full",
+               "L1 full+读数满足 ⇒ 生效档位 full、零告警（与改动前逐位一致）",
+               st["effective"])
+        # L2 full + 读数不满足 ⇒ 回落 confirm + 报缺哪条（不静默降级）
+        with _mode("full"):
+            autonomy_modes.reset_settlement()
+            st = autonomy_modes.settle(root=empty, force=True)
+            ok(st["effective"] == "confirm" and st["configured"] == "full"
+               and st["settled"] is True,
+               "L2 full+读数不满足 ⇒ 实际生效档位回落 confirm（配置仍记 full）",
+               st["effective"])
+            miss = (st.get("admission") or {}).get("missing") or []
+            ok(bool(miss) and [a["reading"] for a in st["alerts"]] == miss,
+               "L2a 不静默降级：alerts 逐条报缺哪条读数（与读数 missing 一致）",
+               st["alerts"])
+            ok(autonomy_modes.mode() == "confirm"
+               and autonomy_modes.decide("D")["decision"] == "confirm",
+               "L2b 回落贯通判定链：mode() 与 decide(D) 同步 confirm",
+               {"mode": autonomy_modes.mode(), "dec": autonomy_modes.decide("D")["decision"]})
+        # L3 plan/confirm 不受读数影响（零 IO 零告警）
+        autonomy_modes.reset_settlement()
+        for m in ("confirm", "plan"):
+            with _mode(m):
+                n0 = _adm_mod.cache_stats()["checks"]
+                st = autonomy_modes.settle(root=empty, force=True)
+                ok(st["effective"] == m and st["admission"] is None
+                   and st["alerts"] == []
+                   and _adm_mod.cache_stats()["checks"] == n0,
+                   "L3 %s 档不受读数影响（零告警、零读数扫描）" % m,
+                   st["effective"])
+        # L4 非法 env 仍 fail-closed
+        with _mode("bogus-x"):
+            try:
+                autonomy_modes.settle(root=empty, force=True)
+                ok(False, "L4 非法 env settle 未报错")
+            except autonomy_modes.AutonomyModeError:
+                ok(True, "L4 非法 env fail-closed（settle 抛 AutonomyModeError）")
+        # L5 未结算 = 旧行为（对拍）
+        autonomy_modes.reset_settlement()
+        with _mode("full"):
+            ok(autonomy_modes.mode() == "full" and autonomy_modes.admission_state()["settled"] is False,
+               "L5 未结算时 mode() 返回配置档位（生效面未启用 = 改动前逐位一致）")
+        # L6 缓存频度（「不得让每次 decide 都全库扫描」）
+        autonomy_modes.reset_settlement()
+        _adm_mod.reset_cache()
+        with _mode("full"):
+            autonomy_modes.settle(root=empty, force=True, ttl=60)
+            autonomy_modes.settle(root=empty, ttl=60)
+            autonomy_modes.settle(root=empty, ttl=60)
+            ok(_adm_mod.cache_stats()["checks"] == 1,
+               "L6 读数缓存：TTL 内重复结算不重扫（热路径零 IO）",
+               _adm_mod.cache_stats())
+        # L7 只读（只告警不改数据）
+        fp0 = _adm_mod._fingerprint(sat)
+        autonomy_modes.reset_settlement()
+        with _mode("full"):
+            autonomy_modes.settle(root=sat, force=True)
+        ok(_adm_mod._fingerprint(sat) == fp0 and len(fp0) > 0,
+           "L7 只告警不改数据：结算前后库指纹逐位相同", len(fp0))
+        # L8 结算态可查（含 alerts）
+        autonomy_modes.reset_settlement()
+        with _mode("full"):
+            autonomy_modes.settle(root=empty, force=True)
+            ok(autonomy_modes.admission_state()["effective"] == "confirm"
+               and autonomy_modes.admission_state()["alerts"] != [],
+               "L8 结算态可查：admission_state() 返回回落体与 alerts")
+    finally:
+        autonomy_modes.reset_settlement()
+
+
+_GROUPS = (g_a, g_b, g_c, g_d, g_e, g_f, g_g, g_h, g_i, g_j, g_k, g_l)
 
 
 def _run_groups():
@@ -935,26 +1078,32 @@ def _run_groups():
 # 目标 = ("mod", 模块对象, 函数名) 或 ("cls", 类对象, 方法名)。
 _SRC_MUTATIONS = (
     # ①「档位不生效」——env 读取口恒返回真源缺省（confirm）：全档位退化成一个档。
-    # 红 9（实测 2026-10-02 补强批次复测；批次②当时 7）：A 组的非法值/归一两条
-    # + full 档直落三条（B/H）+ plan 档 fail-closed 一条 + full 档零变更单一条；
-    # 补强批次 +2 = I 组「gated A 新增（plan 档）fail-closed」与「gated C 覆写
-    # （full 档）照旧直落」——mode 恒 confirm ⇒ 计划档/完全访问档一并退化。
-    ("档位不生效（mode 恒返回表内缺省）", "mod", autonomy_modes, "mode",
-     '    raw = autonomy_env("mode", environ)', '    raw = DEFAULT_MODE', 9),
+    # 锚点（批次④改）：env 解析单点从 mode() 抽到 _configured_mode()（settle() 与
+    # mode() 共用；表达式文字逐字不变）——变异目标随之挪到该单点。
+    # 红 17（实测 2026-10-02 批次④）：原 9 条（A 组非法值/归一两条 + full 档直落
+    # 三条（B/H）+ plan 档 fail-closed 一条 + full 档零变更单一条 + I 组两条）
+    # + 批次④ L 组 8 条（L1 full+满足失效、L2 结算体形状、L2a 缺项告警、
+    # L3 plan 档（配置恒 confirm ⇒ plan 也退化）、L4 非法值 fail-closed 失效、
+    # L5 未结算对拍、L6 缓存零 IO、L8 结算态——L2b 与 L7 语义相符仍绿）。
+    ("档位不生效（配置档位恒返回表内缺省）", "mod", autonomy_modes,
+     "_configured_mode",
+     '    raw = autonomy_env("mode", environ)', '    raw = DEFAULT_MODE', 17),
     # ②「confirm 也直落」——矩阵的 confirm 格被当成放行（确认形同虚设）。
-    # 红 39（实测 2026-10-02 补强批次复测；批次②当时 25）：A 组 6 条矩阵/hint
-    # 判据 + B/C/D/E 组全部「出单/不落盘/载荷/accept 执行/幂等」判据（确认路径
-    # 整体消失）；补强批次 +14 = I 组 gated 面同类判据（C confirm 四条 + accept
-    # + reject + plan C + 链面两条 + MCP 一条 + 执行桥五条）。
+    # 红 40（实测 2026-10-02 批次④；补强批次 39、批次②当时 25）：A 组 6 条矩阵/
+    # hint 判据 + B/C/D/E 组全部「出单/不落盘/载荷/accept 执行/幂等」判据（确认
+    # 路径整体消失）；补强批次 +14 = I 组 gated 面同类判据（C confirm 四条 +
+    # accept + reject + plan C + 链面两条 + MCP 一条 + 执行桥五条）；批次④ +1 =
+    # L 组 L2b（decide(D) 应判 confirm 却直落 allow）。
     ("confirm 也直落（decide 把 confirm 格判成 allow）", "mod", autonomy_modes,
-     "decide", '    if cell == CONFIRM:', '    if False:', 39),
+     "decide", '    if cell == CONFIRM:', '    if False:', 40),
     # ③ 矩阵整表坍缩成 full 列——「档位不生效」的真源版（判据被绕过、表仍在）。
-    # 红 46（实测 2026-10-02 补强批次复测；批次②当时 31）：A 组 15 格 +
+    # 红 47（实测 2026-10-02 批次④；补强批次 46、批次②当时 31）：A 组 15 格 +
     # confirm/plan 相关判据 + 三个落点的出单判据（比 ② 多 plan 档与 full 档对拍）；
-    # 补强批次 +15 = ② 的 14 + I 组「gated C 覆写（plan 档）出变更单」。
+    # 补强批次 +15 = ② 的 14 + I 组「gated C 覆写（plan 档）出变更单」；
+    # 批次④ +1 = L 组 L2b（同 ② 的那一条）。
     ("矩阵整表坍缩成 full（档位不生效·真源版）", "mod", autonomy_modes, "decide",
      '    cell = MATRIX[m][act]',
-     '    cell = MATRIX["full"][act]', 46),
+     '    cell = MATRIX["full"][act]', 47),
     # ④ 写链档位闸空转——C 改写不再出单（直接覆写）。
     # 红 6（实测 2026-10-02）：B 组 C 改写 5 条（出单/未改写/载荷/队列/accept）
     # + plan 档 A 新增 fail-closed 一条。

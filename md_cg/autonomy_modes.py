@@ -45,12 +45,44 @@
 经 `mutation_executed()` 补全为执行时点实值；回滚原语通用化与回滚实测在
 `md_cg/rollback.py` + `md_cg/rollback_cli.py`（守卫 `test_mutation_rollback.py`）。
 
-本批**不做**（登记留池）：计划输入面；R1–R4 准入读数。
+**批次④（2026-10-02，设计 §六/§七）**：**准入闸**——`settle()` 是生效面
+（结算「实际生效档位」并冻结进进程级结算态）：`env MDCG_AUTONOMY=full` 而
+准入读数（`md_cg/admission.py` 的 R1–R4）不满足 ⇒ `effective` **回落 confirm**
+并在结算体 `alerts` 里逐条报「缺哪条读数」（另向 stderr 打一行启动面告警）
+——**不静默降级**；`plan`/`confirm` 不受读数影响（零 IO、零告警）；非法 env
+仍 fail-closed 抛 `AutonomyModeError`。
+
+「不可选中」的落法（设计 §六 逐字）：
+  · 准入闸作用于**经 env 选中 full** 的路径（`mode()` 读 env 后折算）；
+  · `decide(mode_explicit=…)` 是**显式强制指定**（守卫/工具用；不经 env 键
+    = 不属「选中」行为），不参与准入折算——生产热路径一律走 env 路径；
+  · **未 settle（生效面未启用）时 `mode()` 与改动前逐位一致**（对拍）；
+    结算只对「配置档位 = full」的进程态生效，且以 `settle` 的调用为界
+    （触发频度由调用方控制：MCP 启动面/常驻巡检按需调用；`admission.gate`
+    的读数有 TTL 缓存，见 `md_cg/admission.py`——热路径 `mode()`/`decide()`
+    零 IO，不因准入闸增加任何每次调用的扫描）。
+
+**补强批次（v1.1，2026-10-02）**：**结算异常语义 fail-closed**——`settle()`
+对读数结算过程的一切异常**捕获并写「结算失败/不可判」态**（键 `error` 非空，
+与「未调用过 settle」可区分；`alerts` 一并报「读数不可得」），向 stderr 打
+一行告警——**不静默**；失败态的**有效档位**两格：
+  · 此前**从未成功结算** ⇒ 回落 `confirm`——收口「数据面损坏（如溢出崩溃）
+    + 未结算 ⇒ `mode()` 照常返回 full」的 fail-open（设计 §六「不满足不可
+    选中/不静默降级」）；
+  · 此前**已有成功结算** ⇒ 保持上一次成功结算的 effective（**不升不降**，
+    既有对拍锚不得破；异常只是把结算态标记为失败/不可判，可随时重结算）。
+`plan`/`confirm` 不受影响；**未调用过 settle 的进程 `mode()` 与改动前逐位
+一致**；合法数据面下的结算与读数逐位不变。
+
+本批**不做**（登记留池）：计划输入面；准入闸的生产调用点接线（启动面/
+常驻巡检调 `settle`——本批落生效面单点与守卫，接线由宿主按需调用）。
 """
 from __future__ import annotations
 
 import hashlib
 import os
+import sys
+import time
 
 __all__ = [
     "AutonomyModeError", "AUTONOMY_ENV_DEFAULTS", "AUTONOMY_ENV_KEYS",
@@ -61,6 +93,9 @@ __all__ = [
     "autonomy_env", "mode", "decide", "order_kind", "mutation_view",
     "mutation_payload", "mutation_executed", "mutation_dedup_key",
     "propose_mutation",
+    # 批次④：准入闸生效面（设计 §六/§七）
+    "MODE_CONFIRM", "MODE_FULL",
+    "settle", "admission_state", "reset_settlement",
 ]
 
 # ---- §三「单一入口」：env 表的**单一真源** --------------------------------
@@ -76,6 +111,10 @@ AUTONOMY_ENV_KEYS = {
 AUTONOMY_MODES = ("plan", "confirm", "full")
 #: 缺省档位的具名常量（= 真源表取值，不另写第二处字面量）。
 DEFAULT_MODE = AUTONOMY_ENV_DEFAULTS["mode"]
+#: 阶梯两端的具名常量（从 AUTONOMY_MODES 派生——不另写第二处字面量）。
+#: 批次④ 准入闸只作用于 MODE_FULL（设计 §六「该档不可选中」）；回落目标 = MODE_CONFIRM。
+MODE_CONFIRM = AUTONOMY_MODES[1]
+MODE_FULL = AUTONOMY_MODES[2]
 
 # ---- 动作类（设计 §一 五类，一手普查口径） --------------------------------
 A_ADD = "A"           # 新增节点
@@ -131,9 +170,9 @@ def autonomy_env(name: str, environ=None) -> str:
     return AUTONOMY_ENV_DEFAULTS[name] if v is None else str(v)
 
 
-# 生效条件：autonomy_env("mode") 去空白转小写后属 AUTONOMY_MODES 时返回该档位名；不属（含空串）时抛 AutonomyModeError（hint 列合法值）——不静默降级；
-def mode(environ=None) -> str:
-    """当前自治档位（缺省 confirm）。非法值 fail-closed 报错。"""
+# 生效条件：autonomy_env("mode") 去空白转小写后属 AUTONOMY_MODES 时返回该档位名；不属（含空串）时抛 AutonomyModeError（hint 列合法值）——不静默降级；本函数是「配置档位」的唯一解释点（env 原文），settle() 与 mode() 共用；
+def _configured_mode(environ=None) -> str:
+    """配置档位（env 原文解释；非法值 fail-closed，文案与旧 mode() 逐字一致）。"""
     raw = autonomy_env("mode", environ)
     m = (raw or "").strip().lower()
     if m not in AUTONOMY_MODES:
@@ -147,15 +186,146 @@ def mode(environ=None) -> str:
     return m
 
 
+# 生效条件：恒返回「实际生效档位」——配置档位非 full（plan/confirm）时即配置档位（不受准入读数影响、零 IO）；配置档位为 full 且进程已由 settle() 结算（结算态 configured=full 且 effective 非空——含**结算失败态**，其 effective 按「未结算⇒confirm／已结算⇒保持上次」两格取值，见 settle）时返回结算的 effective（读数不满足/不可得 ⇒ MODE_CONFIRM＝设计 §六「该档不可选中」）；配置档位为 full 而未结算时返回 full（生效面未启用＝与改动前逐位一致）；environ 显式传参（非进程级 os.environ）时不参与准入折算；
+def mode(environ=None) -> str:
+    """当前**实际生效**档位（缺省 confirm；full 经准入闸，见 settle()）。
+
+    非法值 fail-closed 抛 AutonomyModeError（不静默降级）。
+    """
+    m = _configured_mode(environ)
+    if (m == MODE_FULL and environ is None
+            and _SETTLEMENT["configured"] == MODE_FULL
+            and _SETTLEMENT["effective"]):
+        return _SETTLEMENT["effective"]
+    return m
+
+
+# ---- 批次④：准入闸生效面（设计 §六/§七） --------------------------------
+#: 进程级结算态（生效面**唯一落点**）：settle() 写入；mode() / admission_state()
+#: 只读。键集恒定（形态固定，便于守卫与宿主逐键读）。`error`（补强批次）：
+#: None = 最近一次结算正常；非空 = 最近一次结算**失败/不可判**（读数不可得）
+#: ——这是「结算失败态」与「未调用过 settle」（configured=None）的可区分标记。
+_SETTLEMENT = {"configured": None, "effective": None, "settled": False,
+               "admission": None, "alerts": [], "root": None, "t": 0.0,
+               "error": None}
+
+
+# 生效条件：text 为字符串时向 stderr 写一行；写失败静默吞掉（告警已在结算体 alerts/error 里，stderr 只是启动面可观测性增强；写失败不得影响结算本身）；
+def _warn(text: str) -> None:
+    """启动面告警单点（设计 §七「自动回落并在启动面告警」）。"""
+    try:
+        sys.stderr.write(text)
+    except Exception:                                           # noqa: BLE001
+        pass
+
+
+# 生效条件：configured 档位经 _configured_mode(environ) 取 env 值（非法即 fail-closed 抛 AutonomyModeError）；configured 非 full 时零 IO 返回 {configured, effective=configured, settled=False, admission=None, alerts=[], error=None}；configured=full 时调 admission.gate(root 或 admission.default_root(), ttl, force) 结算——读数满足 ⇒ effective=full、alerts=[]；不满足（含不可判）⇒ effective=MODE_CONFIRM 且 alerts 逐条列出未过读数 {reading, ok, detail} 并向 stderr 打一行启动面告警；结算过程抛异常（读数不可得）⇒ 捕获不抛出、写失败态（error 非空 + alerts 一条「读数不可得」）——此前从未成功结算 ⇒ effective=MODE_CONFIRM（fail-closed，收口 fail-open）、已有成功结算 ⇒ 保持上次成功结算的 effective（不升不降）；所有分支的结算体（含 root/t/error）写入进程级 _SETTLEMENT 后原样返回；
+def settle(environ=None, root=None, force=False, ttl=None) -> dict:
+    """结算「实际生效档位」（准入闸生效面，设计 §六/§七）。
+
+    env `MDCG_AUTONOMY=full` 而准入读数（`md_cg/admission.py` 的 R1–R4）
+    不满足 ⇒ `effective` 回落 `confirm`，`alerts` 报「缺哪条读数」
+    ——**不静默降级**；`plan`/`confirm` 不受读数影响（零 IO、零告警）；
+    非法 env 仍 fail-closed 抛 `AutonomyModeError`。
+
+    **结算失败/不可判（补强批次）**：读数结算过程抛异常（读数不可得）⇒
+    **不抛出、不静默**——写失败态（`error` 非空 + `alerts` 一条「读数不可得」），
+    有效档位两格：此前从未成功结算 ⇒ 回落 `confirm`（收口「未结算 + 崩溃 ⇒
+    full 照常生效」的 fail-open）；此前已有成功结算 ⇒ 保持上一次成功结算的
+    effective（不升不降，既有对拍锚）。告警一行打 stderr。
+
+    调用面（触发频度）：由调用方按需调用——MCP 启动面一次、常驻巡检按
+    TTL 周期可重调（读数缓存见 `admission.gate`）；热路径 `mode()` /
+    `decide()` 只读结算态（零 IO），不因准入闸增加任何每次调用的扫描。
+    """
+    cfg = _configured_mode(environ)
+    now = time.time()
+    if cfg != MODE_FULL:
+        out = {"configured": cfg, "effective": cfg, "settled": False,
+               "admission": None, "alerts": [], "root": None, "t": now,
+               "error": None}
+        _SETTLEMENT.update(out)
+        return out
+    from . import admission as _adm        # 惰性 import：热路径 import 面不变
+    try:
+        r = _adm.gate(root if root is not None else _adm.default_root(),
+                      ttl=ttl, force=force)
+    except Exception as exc:                                # noqa: BLE001
+        # 结算失败/不可判（补强批次）：读数不可得 ⇒ fail-closed、不静默。
+        # 有效档位两格：从未成功结算 ⇒ confirm（收口「数据面损坏 + 未结算 ⇒
+        # full」的 fail-open）；已有成功结算 ⇒ 保持上次 effective（不升不降）。
+        prev = _SETTLEMENT["effective"] if _SETTLEMENT["settled"] else None
+        eff = prev or MODE_CONFIRM
+        if prev:
+            tail = "实际生效档位保持上次成功结算的 %s（不升不降）" % eff
+        else:
+            tail = "已回落 %s" % eff
+        err = "%s: %s" % (type(exc).__name__, exc)
+        detail = ("读数不可得（结算过程异常 %s）——%s（不静默降级；"
+                  "修好读数面后重新 settle 即可）。" % (err, tail))
+        out = {"configured": cfg, "effective": eff, "settled": True,
+               "admission": None,
+               "alerts": [{"reading": "settle_error", "ok": None,
+                           "detail": detail}],
+               "root": root, "t": now, "error": err}
+        _warn("[MdCG 三档自治] %s=%s 但结算失败/不可判：%s ——%s"
+              "（不静默降级；读数详情：python -X utf8 -m md_cg.admission "
+              "--root \"%s\"）。\n"
+              % (AUTONOMY_ENV_KEYS["mode"], cfg, err, tail,
+                 root if root is not None else "<default>"))
+        _SETTLEMENT.update(out)
+        return out
+    if r["ok"]:
+        out = {"configured": cfg, "effective": cfg, "settled": True,
+               "admission": r, "alerts": [], "root": r["root"], "t": now,
+               "error": None}
+    else:
+        alerts = [{"reading": rd["id"], "ok": rd["ok"], "detail": rd["detail"]}
+                  for rd in r["readings"] if rd["ok"] is not True]
+        out = {"configured": cfg, "effective": MODE_CONFIRM, "settled": True,
+               "admission": r, "alerts": alerts, "root": r["root"], "t": now,
+               "error": None}
+        # 启动面告警（设计 §七「自动回落并在启动面告警」）——一行，可观测；
+        # stderr 写失败不得影响结算本身（告警已在返回体 alerts 里）。
+        _warn("[MdCG 三档自治] %s=%s 但准入读数不满足：缺 %s ——实际生效"
+              "档位回落 %s（不静默降级；读数详情：python -X utf8 -m "
+              "md_cg.admission --root \"%s\"）。\n"
+              % (AUTONOMY_ENV_KEYS["mode"], cfg,
+                 "、".join(a["reading"] for a in alerts),
+                 MODE_CONFIRM, r["root"]))
+    _SETTLEMENT.update(out)
+    return out
+
+
+# 生效条件：无入参；返回进程级结算态的快照副本（configured/effective/settled/admission/alerts/root/t/error，alerts 为列表副本）——只读零 IO，供宿主与守卫答「它今天够格吗」（error 非空 ⇒ 最近一次结算失败/不可判）；
+def admission_state() -> dict:
+    """最近一次 settle() 的结算体快照（含 alerts/error）——只读、零副作用。"""
+    st = dict(_SETTLEMENT)
+    st["alerts"] = list(st.get("alerts") or [])
+    return st
+
+
+# 生效条件：无入参；把进程级结算态复位为未结算（configured=None、effective=None、settled=False、admission=None、alerts=[]、root=None、t=0.0、error=None），无返回值（供测试/宿主重结算）；
+def reset_settlement() -> None:
+    """清结算态（mode() 回到「配置档位」旧行为）。"""
+    _SETTLEMENT.update({"configured": None, "effective": None,
+                        "settled": False, "admission": None, "alerts": [],
+                        "root": None, "t": 0.0, "error": None})
+
+
 # 生效条件：action_class 归一后属 ACTION_CLASSES（否则抛 ValueError）；plan 命中集 _plan_actions(plan) 为 None（无计划输入）时 A/B/E 判 forbid（带「计划输入面待后续批次」hint），非 None 时命中该动作类判 allow、否则 forbid（计划外零变更）；其余格按 MATRIX 原样返回 allow/confirm；返回 {"action","action_name","mode","decision","hint"}，decision ∈ ALLOW/CONFIRM/FORBID；
 def decide(action_class, mode_explicit=None, plan=None, environ=None) -> dict:
     """§三 裁决矩阵判定：返回 allow | confirm | forbid（+ 可读 hint）。
 
     action_class  —— A/B/C/D/E（大小写不敏感；非法值抛 ValueError）。
     mode_explicit —— 显式档位；None（缺省）时**经唯一入口 `mode()` 读 env**
-                     （非法 env 即 fail-closed 抛错）。形参刻意不叫 `mode`：
+                     （非法 env 即 fail-closed 抛错；`mode()` 返回**实际生效
+                     档位**——full 经准入闸折算，见 `settle()`，回落时本判定
+                     按 confirm 档矩阵走）。形参刻意不叫 `mode`：
                     同名会遮蔽模块级唯一入口，`mode(environ)` 就成了对局部名的
                      调用——「单一入口」必须能被静态钉死（见守卫的定点变异）。
+                     显式传值（含 mode_explicit="full"）是**强制指定**，不参与
+                     准入折算（不经 env 键＝不属设计 §六 的「选中」行为）。
     plan          —— 计划（**本批只落最小判定语义**）：None = 无计划输入；
                      可给动作类集合（可迭代，元素为 "A"/"B"… 或含 "action" 键的
                      映射）。计划模式下 A/B/E 只有在命中计划步骤时才 allow。
