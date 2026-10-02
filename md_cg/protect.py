@@ -82,7 +82,7 @@ def _entry(cg, node_id):
     return ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)
 
 
-# 生效条件：cg 索引中无 node_id 条目时返回 None；有条目时先取 layer/importance（缺 importance 键回落 0.5）/protected/protection_reason/immutable/self_state，仅当条目缺 protected 或 immutable、或（缺 self_state 且条目 layer∈PROTECTED_LAYERS）、或（条目 layer∈PROTECTED_LAYERS 且 _GATE_UNKNOWN_KEYS 中任一键的值为 None）时再经 cg.get(node_id) 用 frontmatter 覆盖这四个键（cg.get 抛异常或返回假值时保留索引值；layer 取 frontmatter.layer or 索引 layer，importance 缺键时回落索引 importance）。
+# 生效条件：cg 索引中无 node_id 条目时返回 None；有条目时先取 layer/importance（缺 importance 键回落 0.5）/protected/protection_reason/immutable/self_state/importance_source（issue50-e：缺键读 None），仅当条目缺 protected 或 immutable、或（缺 self_state 且条目 layer∈PROTECTED_LAYERS）、或（条目 layer∈PROTECTED_LAYERS 且 _GATE_UNKNOWN_KEYS 中任一键的值为 None）时再经 cg.get(node_id) 用 frontmatter 覆盖这些键（cg.get 抛异常或返回假值时保留索引值；layer 取 frontmatter.layer or 索引 layer，importance 缺键时回落索引 importance）。
 def _fm(cg, node_id):
     """取判定所需的 frontmatter 字段；索引快照门控字段**未知**时回退读文件。"""
     e = _entry(cg, node_id)
@@ -95,6 +95,9 @@ def _fm(cg, node_id):
         "protection_reason": e.get("protection_reason"),
         "immutable": e.get("immutable"),
         "self_state": e.get("self_state"),
+        # issue50-e：重要度来源进判定面（_node_entry/_stage 恒落该键，值可为
+        # None ⇒「缺省来源」；老索引条目缺键时 .get() 同样得 None，等价缺省）。
+        "importance_source": e.get("importance_source"),
     }
     # 回退读文件：索引快照缺字段时。self_state 只在受保护层（self/anchor）
     # 需要，回退代价被限制在少量节点上，不影响全量统计性能。
@@ -128,12 +131,30 @@ def _fm(cg, node_id):
             fm["self_state"] = f2.get("self_state")
             fm["layer"] = f2.get("layer") or fm["layer"]
             fm["importance"] = f2.get("importance", fm["importance"])
+            fm["importance_source"] = f2.get("importance_source")
     return fm
 
 
-# 生效条件：cg 索引无 node_id 条目（_fm 直接返回 None，不走回退读文件）时返回 (False, '')；有条目时按 layer∈PROTECTED_LAYERS 返回 (True, 层保护)；否则 protected is True 时返回 (True, protection_reason 或 '显式保护标记')；否则 importance（缺失/假值/float 转换异常一律按 0.0）≥AUTO_PROTECT_IMPORTANCE 时返回 (True, 重要性保护)；其余返回 (False, '')。
+# 生效条件：cg 索引无 node_id 条目（_fm 直接返回 None，不走回退读文件）时返回 (False, '')；有条目时按 layer∈PROTECTED_LAYERS 返回 (True, 层保护)；否则 protected is True 时返回 (True, protection_reason 或 '显式保护标记')；否则 importance（缺失/假值/float 转换异常一律按 0.0）≥AUTO_PROTECT_IMPORTANCE 且 importance_source 为 None（键缺省）或 'hint' 时返回 (True, 重要性保护)——issue50-e：'heuristic' 等显式非 hint 来源不得由分数触发；其余返回 (False, '')。
 def is_protected(cg, node_id):
-    """**不可遗忘**判定 → (是否受保护, 原因)。节点不存在返回 (False, "")。"""
+    """**不可遗忘**判定 → (是否受保护, 原因)。节点不存在返回 (False, "")。
+
+    issue50-e（2026-10-02，使用者裁定「读面也只认显式来源」）：按分自动保护
+    只对**缺省来源或显式 hint** 的分数生效。issue50-d 落盘了启发式真分
+    （importance=0.7x + importance_source="heuristic"、不打保护位），若本
+    判定不看来源，读面（遗忘/搬迁闸、protect.check、scrub 净化与 confidence
+    校准的 skip 判定、stats 盘点）会把机器推断的分数重新认回受保护——写侧
+    「只落分不打位」被读侧单方面推翻。边界：
+    ① 键缺省（None）= 存量节点（既有 cg.add(importance=0.9) 直写、维护路径
+      调分等从未有过该键）⇒ 行为一字不变——按「缺省即不认」会大规模改变
+      既有保护面，禁止；
+    ② "hint" = 显式声明（写侧对 hint 过线本就打位，按分分支只是其无位形态
+      的兜底，语义不变）；
+    ③ "heuristic" 及其它显式来源不得由分数触发——机器推断的重要度不构成
+      不可遗忘的依据。层保护（PROTECTED_LAYERS）、fm.protected 位、
+      is_immutable 一律不动；MERGE 强化（forgetting.reinforce 跨 0.7 置
+      protected=True）是「重复确认」的显式动作，不经本分支，不受影响。
+    """
     fm = _fm(cg, node_id)
     if fm is None:
         return False, ""
@@ -146,7 +167,11 @@ def is_protected(cg, node_id):
         imp = float(fm.get("importance") or 0.0)
     except Exception:
         imp = 0.0
-    if imp >= AUTO_PROTECT_IMPORTANCE:
+    # issue50-e（2026-10-02）：按分保护**只认缺省或显式 hint 来源**——
+    # 语义与边界见 docstring ①②③；_fm 恒带 importance_source 键（缺省读
+    # None），老索引条目缺键同样落 None ⇒ 存量按分保护一字不变。
+    _src = fm.get("importance_source")
+    if imp >= AUTO_PROTECT_IMPORTANCE and (_src is None or _src == "hint"):
         return True, f"重要性保护：importance={imp:.2f}≥{AUTO_PROTECT_IMPORTANCE}"
     return False, ""
 
