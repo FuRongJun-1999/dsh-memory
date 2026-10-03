@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
       # 套件里 scripts/test_injection_chain.py 经 verify_discipline → render_discipline
       # 依赖 pyyaml（discipline-check job 已装，python-tests job 此前漏装 → 该用例
       # 在这里恒红 `ModuleNotFoundError: No module named 'yaml'`，属依赖面不一致，

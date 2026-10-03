@@ -13,3 +13,9 @@ scripts/git-hooks/* text eol=lf
 # `set: -^M: invalid option` + `syntax error near unexpected token '$'\r''`，
 # 整条 Linux 验证腿在第一步就退出——而本机（autocrlf=true）看不出来。
 *.sh text eol=lf
+
+# 同理（PR #47 跟进，2026-10-03）：GitHub Actions 工作流等 yml 文件也钉 LF——
+# 贡献者环境差异会把 yml 带成 CRLF 混合（实证：PR #47 的 python-tests.yml 索引层
+# 32 CRLF / 11 LF），跨平台一致性与 diff 噪声都要求归一。
+*.yml text eol=lf
+*.yaml text eol=lf
