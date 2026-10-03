@@ -4740,7 +4740,9 @@ class MdCG:
             try:
                 with open(full_path, encoding="utf-8") as f:
                     fm, content = nodefile.loads(f.read())
-            except OSError:
+            except (OSError, UnicodeDecodeError):
+                # 与索引重建同口径：损坏的非 UTF-8 节点不应让健康端点
+                # 整体崩溃；跳过该节点，保留其余盘面读数。
                 continue
             cpl = nodefile.ccg_completeness(content)
             layer = e["layer"]
