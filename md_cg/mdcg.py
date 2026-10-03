@@ -2496,15 +2496,12 @@ class MdCG:
                     os.remove(_old_real)
             except OSError:
                 pass  # 删除失败不阻断主写路径（残留双文件退回旧行为，可重建兜底）
-            # 旧桶计数递减（与 _unstage 同口径），否则 buckets 计数漂移；
-            # 仅在桶变化时做——同桶覆写的 _stage 自增是既有口径，不在此对账。
-            _ob = prev_entry.get("bucket")
-            if _ob and _ob != bucket:
-                _left = self.index["buckets"].get(_ob, 1) - 1
-                if _left > 0:
-                    self.index["buckets"][_ob] = _left
-                else:
-                    self.index["buckets"].pop(_ob, None)
+            # 旧桶计数递减由 `_set_index_entry` 单点接管（issue #53-B）：本处
+            # 原先手写一份「仅桶变化时撤旧」——并有一句注释把「同桶覆写的
+            # _stage 自增」当成既有口径，而实测那正是计数虚高的病灶（覆写一次
+            # counts +1，{'orphan': 1} → 2）。撤旧/加新统一在单点按**归属
+            # 变化**判定；若此处再手写一份，换桶覆写会被撤两次、同桶覆写
+            # 仍虚高，两处口径必然分叉。本处不再动计数。
         self._stage(node_id, _strip_empty_gate_fields({
             "path": os.path.relpath(path, self.root).replace("\\", "/"),
             "layer": layer, "tags": tags, "bucket": bucket,
@@ -3020,7 +3017,7 @@ class MdCG:
         if len(self._dirty) >= self.autoflush:
             self.flush()
 
-# 生效条件：无条件把 entry 写入 index["nodes"][node_id]（同键覆写 = dict 原地更新，物理位序不变）；entry.get("bucket") 为真值时该桶计数 +1；self._stg_index 非 None（第 3 层结构索引已构建）时同钩增量增/改该 id，为 None（未构建/已失效）时**不构建**——首次 stg 访问才构建，写路径零额外成本；返回 None。
+# 生效条件：无条件把 entry 写入 index["nodes"][node_id]（同键覆写 = dict 原地更新，物理位序不变）；桶计数只在该 id 的桶归属**变化**时调整（经 _bucket_shift 撤旧加新，同归属零动作）；self._stg_index 非 None（第 3 层结构索引已构建）时同钩增量增/改该 id，为 None（未构建/已失效）时**不构建**——首次 stg 访问才构建，写路径零额外成本；返回 None。
     def _set_index_entry(self, node_id, entry):
         """索引条目写入的**单点**（桶计数 + stg 结构索引同钩）。
 
@@ -3028,30 +3025,49 @@ class MdCG:
         两处口径必然漂开（本仓既有教训：同一判据写两份 = 迟早各漏一次）。
         无效化（rebuild/compact/重载）后 `_stg_index` 为 None ⇒ 这里退化为
         无操作，读侧「首次需要时构建」的惰性路径接管。
+
+        issue #53-B：同 id 再装入（add 覆写 / backfill 等 _stage）此前对 entry
+        的桶**无条件 +1**——旧条目的计数从不撤下，覆写一次即虚高 1（实测
+        {'orphan': 1} → 覆写后 {'orphan': 2}），health 分桶读数随之失真。
+        改为「归属变化才动计数」：撤旧、加新，同桶覆写零动作。
         """
+        _old = self.index["nodes"].get(node_id)
         self.index["nodes"][node_id] = entry
-        b = entry.get("bucket")
-        if b:
-            self.index["buckets"][b] = self.index["buckets"].get(b, 0) + 1
+        _ob = _old.get("bucket") if _old is not None else None
+        _nb = entry.get("bucket")
+        if _ob != _nb:
+            self._bucket_shift(_ob, -1)
+            self._bucket_shift(_nb, +1)
         ix = getattr(self, "_stg_index", None)
         if ix is not None:
             ix.add(node_id, entry)
 
-# 生效条件：无条件 pop index["nodes"][node_id]（不存在则无操作）；被 pop 的条目有真值 bucket 时该桶计数 -1，减后 <=0 则删除该桶键；self._stg_index 非 None 时同钩摘除该 id（未构建即不动）；返回被摘除的条目（不存在返回 None）。
+# 生效条件：无条件 pop index["nodes"][node_id]（不存在则无操作）；被 pop 的条目经 _bucket_shift 撤其桶一票；self._stg_index 非 None 时同钩摘除该 id（未构建即不动）；返回被摘除的条目（不存在返回 None）。
     def _remove_index_entry(self, node_id):
         """索引条目摘除的**单点**（与 `_set_index_entry` 对称：桶计数 + 结构索引同钩）。"""
         e = self.index["nodes"].pop(node_id, None)
-        if e and e.get("bucket"):
-            b = e["bucket"]
-            left = self.index["buckets"].get(b, 0) - 1
-            if left > 0:
-                self.index["buckets"][b] = left
-            else:
-                self.index["buckets"].pop(b, None)
+        if e:
+            self._bucket_shift(e.get("bucket"), -1)
         ix = getattr(self, "_stg_index", None)
         if ix is not None:
             ix.remove(node_id)
         return e
+
+# 生效条件：bucket 为假值时直接返回；否则 index["buckets"][bucket] 计数 +delta，结果 >0 时写回、<=0 时删除该键；无返回值。
+    def _bucket_shift(self, bucket, delta):
+        """桶计数 ±1 的**唯一实现**（归零删键）——issue #53-B 的单点收口。
+
+        此前 `_set_index_entry` 只加不减、`_remove_index_entry` 与 `add()` 内
+        各手写一份递减——同一判据三份实现，旧条目归属变化时三处口径必然分叉
+        （本仓既有教训：「同一判据写两份 = 迟早各漏一次」）。
+        """
+        if not bucket:
+            return
+        left = self.index["buckets"].get(bucket, 0) + delta
+        if left > 0:
+            self.index["buckets"][bucket] = left
+        else:
+            self.index["buckets"].pop(bucket, None)
 
 # 生效条件：恒把 self._stg_index 置 None（丢弃已构建的第 3 层结构索引）——凡**整体替换 self.index** 的路径（重载/compact/rebuild）调它：表按身份判代际（`StgIndex.index_obj is self.index`），显式失效让下次 stg 访问重新按新快照构建（惰性失效重建，设计稿 §3.2 二选一之选）；恒返回 None、不抛。
     def _invalidate_stg_index(self):
@@ -3099,6 +3115,17 @@ class MdCG:
             node_id, fm.get("sensitivity"), declared_sensitivity, sealed,
             has_sealer=(type(self)._seal_content is not MdCG._seal_content))
         atomic_write(path, nodefile.dumps(fm, sealed), durable=durable)
+        # issue #53-C：写盘口同步索引内容指纹——「所有写盘点都应走这里」的
+        # 同一收口面延伸。元数据更新族写点（update_tags / append_edge /
+        # append_subgraph_node / set_edge_condition / backfill_* …）走
+        # 「get() 解密 → 本方法重封」时密文每次变化（AEAD 随机 nonce），
+        # 而它们只同步自己关心的索引键——本键若不在此收口，索引 hash 会停在
+        # **旧密文**上 ⇒ 启动对账每次报 hash_drift 假阳性（实测可经 compact
+        # 快照与进程重开持久存活，直到某次全量重建；报告 issue #53-C）。
+        # 新节点首次写入时条目尚未装入（_stage 紧随其后，值同源）→ 取不到即跳过。
+        _entry = self.index["nodes"].get(node_id)
+        if _entry is not None:
+            _entry["content_hash"] = nodefile.content_hash(sealed)
         return sealed
 
     # ---------- S1 前置元数据：域标签回填 ----------
@@ -3113,7 +3140,8 @@ class MdCG:
         走 `get()`（解密）→ `_write_node()`（重新封装），保证加密库不会双重封装。
         """
         st = {"seen": 0, "already": 0, "written": 0, "no_signal": 0,
-              "unreadable": 0, "index_synced": 0, "dry_run": bool(dry_run)}
+              "unreadable": 0, "ciphertext": 0, "index_synced": 0,
+              "dry_run": bool(dry_run)}
         # 前置：功能未开启时**不做任何写入**——域标签是 S1 的元数据，默认口径不得被改变：
         # 否则「回填写索引」会与「_scan_nodes 默认关剥键」冲突，写/重建两条路口径不一致。
         if os.environ.get("MDCG_RETRIEVAL_PIPELINE") != "1":
@@ -3142,6 +3170,17 @@ class MdCG:
                 continue
             if content is None:
                 st["unreadable"] += 1
+                continue
+            from . import crypto
+            if crypto.is_encrypted(content):
+                # issue #53-A：密文不可分类——无密钥实例（backfill CLI 以基类
+                # MdCG 打开库）的 get() 把密文**原样**交出，base64 噪声会碰巧
+                # 命中大域词表（实测唯一命中＝「经济」：词表唯一拉丁词 GDP 被
+                # 三连子串撞上），假标签再被 already 分支永久固化。此处**单列
+                # 计数**并跳过（不与 no_signal 叠加：各计数是互斥分区）；
+                # classify_text 单点也已同源设防（双层：此层给可观测计数，
+                # 单点层保证任何调用方都不会误分类密文）。
+                st["ciphertext"] += 1
                 continue
             try:
                 dom = routing.classify_text(content)
@@ -4732,6 +4771,12 @@ class MdCG:
         h = routing.bucket_health(self.index.get("buckets", {}),
                                   total_nodes=len(self.index["nodes"]))
         h["total_nodes"] = len(self.index["nodes"])
+        # issue #53-B③：分桶读数的**覆盖范围自述**——分桶物理上只存在于
+        # BUCKETED_LAYERS（只 knowledge），非分桶层节点不进 buckets 计数。
+        # 此前读数不带范围，报告方把「nodes=4 / total_nodes=505」读成
+        # 「统计建立在个位数样本上」（实为「knowledge 层 4 个带桶条目」）
+        # ——加一行的成本买断这个歧义。
+        h["bucket_scope"] = list(BUCKETED_LAYERS)
         # 5 要素完整度（全节点扫一遍，可能慢但只在 health() 调用）
         layer_stats = {}
         neg_stats = {}

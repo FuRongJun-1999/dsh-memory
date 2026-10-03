@@ -172,14 +172,18 @@ class LingshuAdapter(Adapter):
                         "file_head": head})
         return out
 
-# 生效条件：无参数，遍历 self.cg.index["nodes"] 各节点的 e.get("bucket")，其缺失或为假值（None/空串等）时归入 "<none>" 计数，再把计数字典交 routing.bucket_health 并返回其结果。
+# 生效条件：无参数，计数与生产同源（MdCG._count_buckets：按 entry.bucket 现算、只含分桶层条目），再把计数字典交 routing.bucket_health 并返回其结果。
     def bucket_health(self):
-        """桶健康度自检（routing.bucket_health）：取证条件路由是否有区分力。"""
+        """桶健康度自检（routing.bucket_health）：取证条件路由是否有区分力。
+
+        issue #53-B④：此前本地版把非分桶层节点全归入 `"<none>"` 一桶——在只含
+        contextual 的 bench 库上恒得「单桶/巨桶」报警，读数与生产口径（分桶
+        只覆盖 BUCKETED_LAYERS）不一致。改为委托 `MdCG._count_buckets`
+        （同源单点：与快照装载/rebuild 同一口径）。
+        """
         from md_cg import routing
-        counts = {}
-        for e in list(self.cg.index["nodes"].values()):
-            b = e.get("bucket") or "<none>"
-            counts[b] = counts.get(b, 0) + 1
+        from md_cg.mdcg import MdCG
+        counts = MdCG._count_buckets(self.cg.index["nodes"])
         return routing.bucket_health(counts)
 
 

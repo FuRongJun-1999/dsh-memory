@@ -314,7 +314,7 @@ def bucket_health(counts: dict, total_nodes: int = None) -> dict:
         # 巨桶/期望扫描两条在 nb==1 时只是同一事实的两种写法，合并为一条如实读数。
         # expected_scan 的**数值**仍在返回 dict 里（下游读的是数：test_p0 :92、
         # bench_axis_domain :159），只有文案不再把「未分区」说成「巨桶退化」。
-        problems.append(f"单桶：全库仅 1 个分桶（{n} 个节点同桶），"
+        problems.append(f"单桶：仅 1 个分桶（{n} 个已分桶节点同桶），"
                         "条件路由本就不可用（从未分区，非分区退化）")
     elif expected_scan > 0.30:
         problems.append(f"路由无效：期望扫描 {expected_scan:.1%}（接近全量）")
@@ -417,5 +417,14 @@ def classify_text(text, limit: int = 400):
 
     返回 None 表示「无有效域信号」——此时**不写** big_domain 字段，
     该节点留在 ORPHAN/兜底池（S1 收敛时必须能被兜底召回，见契约 §3 S1 不变量）。
+
+    issue #53-A：密文（`<!-- mdcg-enc:v1:…`）恒无域信号——无密钥的读面会把
+    密文**原样**交到这里，base64 噪声会碰巧命中词表（实测唯一命中形态＝「经济」：
+    词表里唯一的拉丁词 GDP 被 base64 三连子串撞上），且假标签会被 backfill 的
+    already 幂等分支永久固化。判据收在此**唯一致敏点**：节点侧全部调用方
+    （add 写入面、backfill 回填面）自动同覆盖，无需各自设防。
     """
+    from . import crypto        # 延迟导入：routing 是底层模块，避免加载序耦合
+    if crypto.is_encrypted(text):
+        return None
     return big_domain_classify(domain_terms(text, limit))

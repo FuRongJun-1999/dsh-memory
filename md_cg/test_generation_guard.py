@@ -19,7 +19,8 @@
      模块顶层**——只在函数体内（顶层调用会与函数内延迟导入的避环设计冲突）。
   五 键集对拍：对临时 root 上的 `cg(op=info)` 真调一次 MCP 服务，响应必须含
      code_generation / disk_generation / stale_on_disk / restart_required / hint
-     五个新键，且**既有键集合**与改动前读码钉住的 18 键逐字一致。
+     五个新键，且**既有键集合**与读码钉住的 19 键（18 既有 + issue #53-B 扩键
+     bucket_scope）逐字一致。
 
 安全边界：一切在 `tempfile.mkdtemp()` 临时目录内进行（md_cg 树是复制出来的副本），
 绝不写工作区、绝不写任何在役记忆库、绝不起用真 root 的常驻服务、绝不重启/终止
@@ -39,13 +40,15 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO not in sys.path:                # 保证 `import md_cg.*` 能定位到当前树的包
     sys.path.insert(0, REPO)
 
-# 改动前读码钉住的 cg(op=info) 既有键集合（在临时 root 上实跑一次服务所读，
-# 2026-09-30 接线前）：本守卫要证明这 18 键一字未动。
+# 钉住的 cg(op=info) 既有键集合（在临时 root 上实跑一次服务所读）：
+# 18 键为 2026-09-30 接线前读码名单；bucket_scope 为 issue #53-B（2026-10-03）
+# 的**有意扩键**（分桶读数覆盖面自述，纯增量、与既有键无冲突，与代校验五键
+# 同构的扩键流程）——名单同步至此；其后任何未声明的漂移仍被 extra/lost 两向抓出。
 PINNED_INFO_KEYS = frozenset({
-    "action_source", "audit_kinds", "buckets", "ccg_by_layer", "ccg_contract",
-    "external_verifiers", "links", "neg_memory_counts", "ok", "os", "reason",
-    "security", "surface", "theory", "tools", "total_nodes", "whoami",
-    "write_policy",
+    "action_source", "audit_kinds", "buckets", "bucket_scope", "ccg_by_layer",
+    "ccg_contract", "external_verifiers", "links", "neg_memory_counts", "ok",
+    "os", "reason", "security", "surface", "theory", "tools", "total_nodes",
+    "whoami", "write_policy",
 })
 
 NEW_INFO_KEYS = ("code_generation", "disk_generation", "stale_on_disk",
@@ -325,8 +328,8 @@ def check_info_keys(tmp):
     if "重启常驻 MCP 进程" not in (info["hint"] or ""):
         _fail("五·键集", "hint 未含处置指引：%r" % (info["hint"],))
         return
-    _ok("五·键集", "五新键齐备、既有 18 键一字未动；代 %s（code==disk，"
-                   "restart_required=False）"
+    _ok("五·键集", "五新键齐备、既有 19 键（18 + #53-B 扩键 bucket_scope）一字未动；"
+                   "代 %s（code==disk，restart_required=False）"
         % info["code_generation"])
 
 
