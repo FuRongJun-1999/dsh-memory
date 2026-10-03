@@ -20,6 +20,9 @@ def main() -> None:
         with open(bad_path, "wb") as fh:
             fh.write(bytes((0xff, 0xfe, 0xfd)))
 
+        assert cg.get("bad") is None
+        results, _meta = cg.search("可读", k=5, include_neg=True)
+        assert any(item[0]["id"] == "good" for item in results), results
         health = cg.health()
         assert health["total_nodes"] == 2, health
         assert sum(v["total"] for v in health["ccg_by_layer"].values()) == 1, health

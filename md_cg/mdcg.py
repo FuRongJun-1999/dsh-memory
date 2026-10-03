@@ -3227,6 +3227,8 @@ class MdCG:
         try:
             with open(p, encoding="utf-8") as f:
                 fm, content = nodefile.loads(f.read())
+        except UnicodeDecodeError:
+            return None
         except OSError as exc:
             # C-3（FI-M02 / N134）：瞬时读失败**不得静默**——记账（真缺不记）。
             # 返回值语义不变（None = 不可读），本方法不入任何缓存，本处无负缓存
@@ -3267,6 +3269,8 @@ class MdCG:
         try:
             with open(p, encoding="utf-8") as f:
                 return nodefile.loads(f.read()) + (None,)
+        except UnicodeDecodeError:
+            return None, None, None
         except OSError as exc:
             if self._note_read_oserror(p, exc):
                 return None, None, fsutil.READ_FAIL_TRANSIENT
@@ -3679,7 +3683,7 @@ class MdCG:
                 try:
                     with open(full_path, encoding="utf-8") as f:
                         fm, content = nodefile.loads(f.read())
-                except OSError:
+                except (OSError, UnicodeDecodeError):
                     continue
                 if any(t in content for t in terms):
                     neg_coverage.append(e)
