@@ -65,11 +65,20 @@ def source_label(repo):
     return os.path.splitext(os.path.basename(source_path(repo)))[0]
 
 
-# 生效条件：repo 给定且 source_path(repo) 能按 "rb" 打开时，返回其内容 sha256 十六进制摘要前 16 位；源码不先校验是否可打开。
+# 生效条件：repo 给定且 source_path(repo) 能按 "rb" 打开时，返回其内容**经 EOL 归一（CRLF/裸 CR → LF）后** sha256 十六进制摘要前 16 位；源码不先校验是否可打开。
 def source_sha(repo):
+    """真源指纹（单点，verify_discipline 复用）：EOL 归一后再摘要。
+
+    为什么必须归一（2026-10-03 实证）：指纹按**检出形态的字节**算时，autocrlf=true
+    的工作区（CRLF）与 Linux/CI 的 LF 检出会算出两个值（同一提交：CRLF 版
+    e1e9112a409894aa / LF 版 7bebb1c66a86f35b）——陈化判据因此跨平台分裂（本机恒绿、
+    CI 恒红）。EOL 是检出环境的产物、不是真源内容；归一是让「内容变才陈化」成立。
+    """
     import hashlib
     with open(source_path(repo), "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()[:16]
+        data = f.read()
+    data = data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return hashlib.sha256(data).hexdigest()[:16]
 
 
 _NUM_PREFIX = re.compile(r"^\s*\d+\s*[.．、]\s*")

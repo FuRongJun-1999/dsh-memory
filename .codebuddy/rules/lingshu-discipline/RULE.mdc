@@ -9,7 +9,7 @@ provider:
 
 > 本文件由 `scripts/render_discipline.py` 从真源
 > `docs/工作纪律_认知图条目_v1.1.json` 渲染生成，**请勿手改**；改真源后重跑渲染。
-> 真源指纹（SHA256 前16位）：e1e9112a409894aa
+> 真源指纹（SHA256 前16位）：7bebb1c66a86f35b
 
 ## 概述
 

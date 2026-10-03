@@ -117,4 +117,4 @@ description: 灵枢工作纪律与记忆操作规程。会话开始或任何任�
 【使用须知】
 - 「触发」命中即执行对应「动作」，并在回复中输出该条「声明」原文。
 - 逐条的完整「不适用」边界见真源 JSON 对应节点的 negative.reject；此处仅列关键项。
-- 本段为自动生成（真源指纹 SHA256 前16位：e1e9112a409894aa），请勿手改；改真源后重跑 scripts/render_discipline.py。
+- 本段为自动生成（真源指纹 SHA256 前16位：7bebb1c66a86f35b），请勿手改；改真源后重跑 scripts/render_discipline.py。
