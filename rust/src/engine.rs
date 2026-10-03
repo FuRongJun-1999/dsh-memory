@@ -378,8 +378,11 @@ mod tests {
     ///
     /// 关键构造：**文件名序（候选枚举序）与 importance 序刻意相反**——
     /// a1..a6 的 importance 递增（0.1…0.6），故：
-    ///   · 种子按候选枚举序取前 5（旧口径 raw） ⇒ 种子 = a1..a5，目标 t6 不可达；
-    ///   · 种子按三键 sort_path 取前 5（新口径） ⇒ 种子 = a6..a2，目标 t1 不可达。
+    ///   · 种子按候选枚举序取前 5（旧口径 raw） ⇒ 种子 = 枚举序前 5（枚举序=目录
+    ///     装载序，平台相关：NTFS 名字序下为 a1..a5；ext4 read_dir hash 序下为另一
+    ///     集合——故旧口径的对照值在运行期动态取序、不硬编码）；
+    ///   · 种子按三键 sort_path 取前 5（新口径） ⇒ 种子 = a6..a2（id 为终键 ⇒
+    ///     平台无关），目标 t1 不可达。
     /// 于是「最终结果里有没有 t6 / t1」就是种子口径的**可观测判别面**。
     fn seed_rank_lib() -> PathBuf {
         let root = temp_root("seedrank");
@@ -443,17 +446,36 @@ mod tests {
         let hs = ids_of(&sorted.search("zzseed", 20));
         let hr = ids_of(&raw.search("zzseed", 20));
 
-        // 相关度最高（importance 0.6）的 a6 在两种口径下都是种子，故 t6 可达
-        // ——等等：raw 取枚举序前 5（a1..a5），a6 **不是**种子 ⇒ t6 只在新口径可达。
+        // 平台无关核（R-3 修复收益）：三键序（-score/-importance/+id，见
+        // retrieval::sort_path）以 id 为终键 ⇒ 完全确定、与目录枚举序无关——
+        // a6（importance 0.6 最高）必为种子 ⇒ t6 可达；a1（0.1 最低）被挤出
+        // 前 5 ⇒ t1 不可达。
         assert!(hs.contains(&"t6".to_string()),
                 "新口径：a6（相关度最高）应为种子 ⇒ t6 可达；实际 {hs:?}");
-        assert!(!hr.contains(&"t6".to_string()),
-                "旧口径：枚举序前 5 不含 a6 ⇒ t6 不可达；实际 {hr:?}");
-        // 反向面：a1（importance 最低）在旧口径是种子、新口径被挤出 ⇒ t1 反转
-        assert!(hr.contains(&"t1".to_string()),
-                "旧口径：a1 在枚举序前 5 内 ⇒ t1 可达；实际 {hr:?}");
         assert!(!hs.contains(&"t1".to_string()),
                 "新口径：a1 被三键排序挤出前 5 ⇒ t1 不可达；实际 {hs:?}");
+        // 旧口径（raw）的种子=**候选枚举序前 5**——枚举序=目录装载序、平台相关
+        // （NTFS 名字序 / ext4 read_dir hash 序；2026-10-03 CI 实测：硬编码
+        // a1..a5 的旧断言 Linux 红、Windows 绿）。故枚举序在运行期自取（与下一条
+        // 用例同法、与 raw 内部候选序同源），断言钉「旧口径的语义=枚举序前 5」
+        // ——与具体序无关、两平台恒真：
+        //   · a6 不在枚举序前 5 ⇒ t6 不可达（旧口径的判据面）
+        //   · a1 在枚举序前 5 内 ⇒ t1 可达
+        let docs = store::load_docs(&root, &sorted.entries, 1);
+        let hits = retrieval::lexical(&docs, &sorted.cand, "zzseed", 1e9, true);
+        let enum5: std::collections::BTreeSet<String> = hits
+            .iter()
+            .take(5)
+            .map(|h| docs[h.idx].as_ref().unwrap().id.clone())
+            .collect();
+        if !enum5.contains("a6") {
+            assert!(!hr.contains(&"t6".to_string()),
+                    "旧口径：a6 不在枚举序前 5 ⇒ t6 不可达；实际 hr={hr:?} enum5={enum5:?}");
+        }
+        if enum5.contains("a1") {
+            assert!(hr.contains(&"t1".to_string()),
+                    "旧口径：a1 在枚举序前 5 内 ⇒ t1 可达；实际 hr={hr:?} enum5={enum5:?}");
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -466,11 +488,19 @@ mod tests {
         let eng = SearchEngine::open(&root, &EngineConfig::default()).unwrap();
         let docs = store::load_docs(&root, &eng.entries, 1);
         let mut hits = retrieval::lexical(&docs, &eng.cand, "zzseed", 1e9, true);
-        assert!(hits.len() >= 2, "夹具前提：词法命中 ≥2");
+        assert!(hits.len() >= 5, "夹具前提：词法命中 ≥5");
         // 六条候选分数逐位相同（同正文同 tags）——这正是三键存在的理由
         let s0 = hits[0].score;
         assert!(hits.iter().all(|h| h.score == s0),
                 "夹具前提：候选分数并列（三键才可分辨）");
+        // 期望动态化（2026-10-03）：原硬编码 ["a1".."a5"] 隐含 NTFS 目录枚举序；
+        // ext4 read_dir 是另一序（同批 CI 实测红）。单键稳定排序的判别面是
+        // 「与枚举序一致」——枚举序在排序前自取（平台无关、两平台恒真）。
+        let enum5: Vec<String> = hits
+            .iter()
+            .take(5)
+            .map(|h| docs[h.idx].as_ref().unwrap().id.clone())
+            .collect();
         hits.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
@@ -482,9 +512,8 @@ mod tests {
             .map(|h| docs[h.idx].as_ref().unwrap().id.clone())
             .collect();
         assert_eq!(
-            top5,
-            vec!["a1", "a2", "a3", "a4", "a5"],
-            "只比 score 的排序在并列处退化为枚举序（R-3 判别力自证）"
+            top5, enum5,
+            "只比 score 的稳定排序在并列处保持枚举序（R-3 判别力自证）"
         );
         let mut three = hits.clone();
         // 本用例只验三键排序（apply_freshness=false；本夹具无 created_at ⇒

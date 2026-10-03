@@ -272,6 +272,13 @@ def g_c():
     if os.path.isdir(pool):
         names = sorted(n for n in os.listdir(pool)
                        if n.startswith("h") and os.path.isdir(os.path.join(pool, n)))
+    if not names:
+        # 干净检出 / CI 无在役台账（hive/jobs 为 gitignored 本地产物）：本组语义是
+        # 「存量零迁移」，无存量时**显式跳过**——如实标记、不静默、不假绿（对比：
+        # 原 C0 以 FAIL 表达「防空池假绿」，但未区分「无存量」与「存量违规」两态
+        # ——2026-10-03 CI 实测该组在空池下长期红；单跑者同判）。
+        print("  [SKIP] C 组跳过：无在役 job 台账（%s 不存在或为空——干净检出 / CI 的预期形态）" % pool)
+        return
     check("C0 前置：在役池可枚举且非空（防空池假绿）", bool(names),
           "池=%s 实得 %d 个 h* 目录" % (pool, len(names)))
     bad, rows = [], []
