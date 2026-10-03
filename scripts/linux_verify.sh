@@ -46,7 +46,7 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_rejected_redact test_rejected_credential_forms test_ccg_form_parity test_wisdom_md_store \
          test_neg_condition_hits test_token_lowercase_form test_srcindex \
          test_logref test_p28_refcheck test_n225_nonobject_load \
-         test_issue52_scan_condition_first; do
+         test_issue52_scan_condition_first test_stgidx_index_parity; do
   out=$(python3 -m "md_cg.$t" 2>&1 | tail -1); rc=$?
   record "md_cg.$t" $rc
   echo "    -> $out"
@@ -91,6 +91,8 @@ echo "=== 断言判别力自证（退出码 0 = 变异后如预期转红）==="
 # 全量 / _sec 闸绕过 / 快照回退删分支 / layer 过滤失效）各自**恰好**命中预期条数
 # （24/15/3/4/4/3/1/2），且无空转断言；锚点漂移＝退出码 2。另有 --legacy-baseline
 # 重建修前形态（切片先于条件 + 无截断上报），断言须转红——抓得住 #52 本身。
+# stgidx 面（2026-10-03 并入）：17 处定点变异（写钩增量/删钩/取数序/回退静默/资格当过滤/
+# by_time 序错等）各自**恰好**命中；锚点漂移＝退出码 2；防误删自检（_table_gaps）。
 for spec in "test_neg_condition_hits --head-baseline" \
             "test_neg_condition_hits --branch-baseline" \
             "test_policy_required_ccg --head-baseline" \
@@ -99,7 +101,8 @@ for spec in "test_neg_condition_hits --head-baseline" \
             "test_p28_refcheck --head-baseline" \
             "test_n225_nonobject_load --branch-baseline" \
             "test_issue52_scan_condition_first --branch-baseline" \
-            "test_issue52_scan_condition_first --legacy-baseline"; do
+            "test_issue52_scan_condition_first --legacy-baseline" \
+            "test_stgidx_index_parity --branch-baseline"; do
   set -- $spec
   out=$(python3 -m "md_cg.$1" "$2" 2>&1 | tail -1); rc=$?
   record "md_cg.$1 $2" $rc

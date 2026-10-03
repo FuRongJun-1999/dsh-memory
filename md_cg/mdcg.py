@@ -1451,6 +1451,12 @@ class MdCG:
         # （自身写入已由 _stage 落进内存索引，计入签名会让每次自身 flush 都被
         # 判成「他进程变化」→ 自身写入触发全量自重载）。flush() 里登记。
         self._own_shard = None
+        # 第 3 层结构索引（设计稿 §3.2）：装载期内存倒排，**首次 stg 访问时**才构建
+        # （惰性）；写路径经 `_set_index_entry`/`_remove_index_entry` 同钩增量维护，
+        # 整体换索引的路径（重载/compact/rebuild）经 `_invalidate_stg_index` 失效后
+        # 由下次访问重建。占用面：1.7 万节点 ≈ 三张小表 + 位序/分类两表（内存派生，
+        # 不改磁盘格式）。
+        self._stg_index = None
         self.index = self._load_index()
         # P1b-2（2026-09-26，DSH 在役复验）：索引只在本行装载一次，此后
         # read/get/search 全走内存态——其它进程（review_cli autoflush=1）
@@ -1671,6 +1677,10 @@ class MdCG:
         self._dirty_replay_superseded = superseded
         idx["buckets"] = self._count_buckets(idx["nodes"])
         self.index = idx
+        # 第 3 层结构索引随整体换索引一并失效：重载取回的是**另一份**快照
+        # （他进程写的新记录/新盘面），旧表按身份判代际必然不符——显式丢表，
+        # 下次 stg 访问按新快照重建（惰性失效重建，与 rebuild/compact 同路）。
+        self._invalidate_stg_index()
         self._index_sig = sig
         # 旧索引代里的派生缓存一并失效：query 结果缓存（hotcache，默认关）
         # 缓存的是旧候选池上的结果；解析读缓存（readcache，默认开）按 path
@@ -1785,13 +1795,20 @@ class MdCG:
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))
             ShardedLog.clear(self.index_log_dir)
         self.index = idx
+        # 第 3 层结构索引随快照替换失效（快照重建过，旧表与它的划分关系不再
+        # 有据可依）：下次 stg 访问重建；不在此处立即重算——compact 是收尾路
+        # 径，重建成本挪到真正需要索引的那次读（惰性失效重建，同一选）。
+        self._invalidate_stg_index()
         # P1b-2：自己写了快照 → 主动刷新签名，防止后续读路径把自己的
         # compact 误判为「他进程写入」而做一次无谓重载（自写自载循环）。
         self._index_sig = self._index_signature()
         return idx
 
-# 生效条件：self._dirty 非空时才在 FileLock(index_path) 下（必要时新建 ShardedLog）逐条 append、清空 _dirty 并关闭分片句柄；self._dirty 为空时立即返回、不写任何记录；
+# 生效条件：self._dirty 非空时才在 FileLock(index_path) 下（必要时新建 ShardedLog）逐条 append、清空 _dirty 并关闭分片句柄；self._dirty 为空时立即返回、不写任何记录；**不动 self.index、不失效第 3 层结构索引**——flush 只落索引派生物（分片日志），内存快照与其划分表本就不变（「flush 后表与快照一致」由守卫钉住）；
     def flush(self):
+        # 第 3 层结构索引（stgidx）：flush **不失效**——它不改内存索引（记录早在
+        # `_stage` 时就已同钩进表），若每次 flush 都丢表，惰性重建会在写读交替
+        # 负载下每轮重扫（与 readcache「写谁失效谁」同款纪律）。
         if not self._dirty:
             return
         # 世代/互斥防线（批次9，M3.3 落地）：append 必须与 compact/rebuild 的
@@ -1983,6 +2000,10 @@ class MdCG:
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))
             ShardedLog.clear(self.index_log_dir)
         self.index = idx
+        # 第 3 层结构索引随全量重建失效（新快照 = 新盘面语义）：下次 stg 访问
+        # 重建——重建后的划分不变量由守卫钉住（写/删/rebuild/compact 后三表与
+        # 快照一致）。
+        self._invalidate_stg_index()
         # P1b-2：rebuild 同 compact——写完快照即刷新签名（自写不自载）。
         self._index_sig = self._index_signature()
         # broad=True：rebuild 以盘面扫描为准——ccgc/crosscheck/backfill 等
@@ -2992,17 +3013,52 @@ class MdCG:
             atomic_write(self.recent_log, "")
         return len(recs)
 
-# 生效条件：无条件把 entry 写入 _dirty[node_id] 与 index["nodes"][node_id]；entry.get("bucket") 为真值时该桶计数 +1；当 len(self._dirty) >= self.autoflush 时调 flush()（autoflush 为 0 时每次标脏都立即 flush）；
+# 生效条件：无条件把 entry 记进 _dirty[node_id] 并经 _set_index_entry 写进 index["nodes"][node_id]（桶计数与 stg 结构索引同钩，见该函数）；当 len(self._dirty) >= self.autoflush 时调 flush()（autoflush 为 0 时每次标脏都立即 flush）；
     def _stage(self, node_id, entry):
         self._dirty[node_id] = entry
-        self.index["nodes"][node_id] = entry
-        if entry.get("bucket"):
-            self.index["buckets"][entry["bucket"]] = \
-                self.index["buckets"].get(entry["bucket"], 0) + 1
+        self._set_index_entry(node_id, entry)
         if len(self._dirty) >= self.autoflush:
             self.flush()
 
-# 生效条件：无条件 pop index["nodes"][node_id]（不存在则无操作）；被 pop 的条目有真值 bucket 时该桶计数 -1，减后 <=0 则删除该桶键；随后无论是否命中都把 _dirty[node_id] 置 None（删除 tombstone）并立即调 flush() 持久化；
+# 生效条件：无条件把 entry 写入 index["nodes"][node_id]（同键覆写 = dict 原地更新，物理位序不变）；entry.get("bucket") 为真值时该桶计数 +1；self._stg_index 非 None（第 3 层结构索引已构建）时同钩增量增/改该 id，为 None（未构建/已失效）时**不构建**——首次 stg 访问才构建，写路径零额外成本；返回 None。
+    def _set_index_entry(self, node_id, entry):
+        """索引条目写入的**单点**（桶计数 + stg 结构索引同钩）。
+
+        「同钩」是设计稿 §3.2 的字面要求：写路径的增量维护若与桶计数分家，
+        两处口径必然漂开（本仓既有教训：同一判据写两份 = 迟早各漏一次）。
+        无效化（rebuild/compact/重载）后 `_stg_index` 为 None ⇒ 这里退化为
+        无操作，读侧「首次需要时构建」的惰性路径接管。
+        """
+        self.index["nodes"][node_id] = entry
+        b = entry.get("bucket")
+        if b:
+            self.index["buckets"][b] = self.index["buckets"].get(b, 0) + 1
+        ix = getattr(self, "_stg_index", None)
+        if ix is not None:
+            ix.add(node_id, entry)
+
+# 生效条件：无条件 pop index["nodes"][node_id]（不存在则无操作）；被 pop 的条目有真值 bucket 时该桶计数 -1，减后 <=0 则删除该桶键；self._stg_index 非 None 时同钩摘除该 id（未构建即不动）；返回被摘除的条目（不存在返回 None）。
+    def _remove_index_entry(self, node_id):
+        """索引条目摘除的**单点**（与 `_set_index_entry` 对称：桶计数 + 结构索引同钩）。"""
+        e = self.index["nodes"].pop(node_id, None)
+        if e and e.get("bucket"):
+            b = e["bucket"]
+            left = self.index["buckets"].get(b, 0) - 1
+            if left > 0:
+                self.index["buckets"][b] = left
+            else:
+                self.index["buckets"].pop(b, None)
+        ix = getattr(self, "_stg_index", None)
+        if ix is not None:
+            ix.remove(node_id)
+        return e
+
+# 生效条件：恒把 self._stg_index 置 None（丢弃已构建的第 3 层结构索引）——凡**整体替换 self.index** 的路径（重载/compact/rebuild）调它：表按身份判代际（`StgIndex.index_obj is self.index`），显式失效让下次 stg 访问重新按新快照构建（惰性失效重建，设计稿 §3.2 二选一之选）；恒返回 None、不抛。
+    def _invalidate_stg_index(self):
+        """第 3 层结构索引的失效单点（整体换索引的三处编排点都调它）。"""
+        self._stg_index = None
+
+# 生效条件：先经 _remove_index_entry 摘除 index["nodes"][node_id]（桶计数与 stg 结构索引同钩），随后无论是否命中都把 _dirty[node_id] 置 None（删除 tombstone）并立即调 flush() 持久化；
     def _unstage(self, node_id):
         """摘除索引条目并**持久化**——与 `_stage` 对称的删除原语。
 
@@ -3012,14 +3068,7 @@ class MdCG:
         幽灵条目的代价：检索白跑候选、`ref action=prune` 因 `cg.get` 取不回
         而够不着它，`check` 的 dangling 永不归零（本机实测累积数百条）。
         """
-        e = self.index["nodes"].pop(node_id, None)
-        if e and e.get("bucket"):
-            b = e["bucket"]
-            left = self.index["buckets"].get(b, 0) - 1
-            if left > 0:
-                self.index["buckets"][b] = left
-            else:
-                self.index["buckets"].pop(b, None)
+        self._remove_index_entry(node_id)
         self._dirty[node_id] = None      # None = 删除记录，随 flush 落分片日志
         self.flush()                     # 删除不可延迟到 autoflush 阈值
 

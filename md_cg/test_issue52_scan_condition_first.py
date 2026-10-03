@@ -507,19 +507,18 @@ def _run_groups(fx) -> list:
 # 每条 = (名字, [(旧源码, 新源码), ...], 预期打红条数)。
 # 锚点缺失 ⇒ ANCHOR-MISS + 退出码 2（fail-closed）；预期条数不符 ⇒ 报红（「恰好」语义）。
 _M1 = [
-    ("    items = []\n    for n in _scan(cg, layer=layer):",
-     "    items = []\n    for n in _scan(cg, layer=layer)[:max_scan]:"),
-    ("    hits = []\n    for n in _scan(cg, layer=layer):",
-     "    hits = []\n    for n in _scan(cg, layer=layer)[:max_scan]:"),
-    ("    cand = list(_scan(cg, layer=layer))",
-     "    cand = list(_scan(cg, layer=layer))[:max_scan]"),
+    ("    items = []\n    for n in _scan(cg, layer=layer, nodes=pairs):",
+     "    items = []\n    for n in _scan(cg, layer=layer, nodes=pairs)[:max_scan]:"),
+    ("    hits = []\n    for n in _scan(cg, layer=layer, nodes=pairs):",
+     "    hits = []\n    for n in _scan(cg, layer=layer, nodes=pairs)[:max_scan]:"),
+    ("    cand = list(_scan(cg, layer=layer, nodes=pairs))",
+     "    cand = list(_scan(cg, layer=layer, nodes=pairs))[:max_scan]"),
 ]
 _M2 = [
     ("    out.update({\"scanned\": scanned, \"kept\": kept, \"truncated\": truncated})\n"
      "    if truncated:\n"
-     "        out[\"hint\"] = _CAP_HINT % (hits, max_scan, kept)\n"
-     "    return out",
-     "    return out"),
+     "        out[\"hint\"] = _CAP_HINT % (hits, max_scan, kept)\n",
+     "    pass  # 变异：去掉读数与 hint 上报\n"),
 ]
 _M3 = [
     ("_cap_hits(items, max_scan, _tl_recent)",
@@ -529,6 +528,8 @@ _M3 = [
     ("_cap_hits(cand, max_scan, lambda n: _co_recent(n, time_axis))",
      "_cap_hits(cand, max_scan, (lambda n: ()))"),
 ]
+# 维护记录：2026-10-03 第 3 层（stgidx 批）改造 _scan 结构后，同步 ①/②/⑥/⑦/⑧ 五组锚
+# ——ANCHOR-MISS 即是该信号（实现改动致锚漂移时当场报红 + 退出码 2，维护者按本表同步）。
 _MUTATIONS = (
     ("①条件过滤移回截断之后（三接口候选集切片）", _M1, 24),
     ("②去掉 truncated 上报（读数/hint 一并消失）", _M2, 15),
@@ -539,14 +540,14 @@ _MUTATIONS = (
     ("⑤max_scan 默认改 None（全量，契约禁止面）",
      [("max_scan=5000", "max_scan=None")], 4),
     ("⑥_sec 可见性闸绕过",
-     [("        if _sec is not None and not _sec(e):\n            continue",
-       "        if False:\n            continue")], 3),
+     [("    if _sec is not None and not _sec(e):\n        return None",
+       "    if False:\n        return None")], 3),
     ("⑦去掉旧快照回退读文件分支",
-     [("            fm, _content = cg._read(e)",
-       "            fm, _content = None, None")], 1),
+     [("        fm, _content = cg._read(e)",
+       "        fm, _content = None, None")], 1),
     ("⑧layer 过滤失效",
-     [("        if layer and e.get(\"layer\") != layer:\n            continue",
-       "        if False:\n            continue")], 2),
+     [("    if layer and e.get(\"layer\") != layer:\n        return None",
+       "    if False:\n        return None")], 2),
 )
 
 _LEGACY_REPLS = _M1 + _M2        # 修前形态重建：切片先于条件 + 无截断上报
