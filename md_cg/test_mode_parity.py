@@ -29,6 +29,11 @@
     · **判别力＝负对照**：对导出的 HEAD 树副本**定点注入**写链 A 面差异（把
       A 新增也判成需确认），对拍必须报 DIFF **且 DIFF 项恰好命中预期集合**
       （SAME 集合不变）——对拍机制不空转的机械证明；
+    · **已知返回体扩展的定向豁免（cons200 批，2026-10-03 同步）**：写链 out 的
+      consistency 读数新增 kept/truncated 两键（契约面：选面读数＋截断可观测，
+      见 `md_cg/test_cons200_scan_selection.py`），Q 组对拍对这两键**定向豁免**、
+      **旧键仍逐位对拍**，并以「新键在场」断言钉住（`_KNOWN_EXT_KEYS` /
+      `_norm_known_ext`）——有意扩展不误报 DIFF，真行为差异不因归一化被漏掉；
     · git 不可用 / 导出失败 / 导出树缺 md_cg ⇒ `ORACLE-MISS` 打印后退出码
       **2**（fail-closed，不静默跳过）。
 
@@ -77,6 +82,7 @@ policy——crypto 在导入期求值 MASTER_FILE，故必须在任何 md_cg 子
 from __future__ import annotations
 
 import contextlib
+import copy
 import hashlib
 import inspect
 import io
@@ -626,6 +632,26 @@ _NEG_INJECT = ('    dec = _am.decide(action)\n'
                '    if action == _am.A_ADD:\n'
                '        dec = dict(dec, decision=_am.CONFIRM)')
 
+#: cons200（2026-10-03）批的**已知返回体扩展**：写链 out 的 consistency 读数
+#: 新增 kept/truncated 两键（契约面＝选面读数＋截断可观测，实现与守卫见
+#: `md_cg/consistency.py` / `md_cg/test_cons200_scan_selection.py`）。Q 组对拍
+#: 口径据此**定向**归一化：只豁免这两个新键，**旧键（verdict/strength/reason/…）
+#: 仍逐位对拍**——有意的扩展不误报成 DIFF，真行为差异也不因归一化被漏掉；
+#: 新键另以「在场」断言钉住（删新键让对拍变绿 ⇒ 该断言转红）。同步口径
+#: 2026-10-03，与「守卫随实现同批同步」惯例一致（issue52 批同款先例）。
+_KNOWN_EXT_KEYS = ("kept", "truncated")
+
+
+# 生效条件：item 为观测脚本产出的对拍项（dict，任意形态）时返回其**深拷贝**，且当 item["out"]["consistency"] 为 dict 时从中剔除 _KNOWN_EXT_KEYS 各键；原项一字不动，非 dict 的 out/consistency 形态原样返回。
+def _norm_known_ext(item):
+    """Q 组对拍归一化：只剔「本批已知返回体扩展」键（深拷贝，不动原项）。"""
+    it = copy.deepcopy(item)
+    cvd = (it.get("out") or {}).get("consistency") if isinstance(it.get("out"), dict) else None
+    if isinstance(cvd, dict):
+        for k in _KNOWN_EXT_KEYS:
+            cvd.pop(k, None)
+    return it
+
 
 def g_q():
     print("== Q 组：与改动前基线的 oracle 对拍（git archive HEAD 只读导出）==")
@@ -652,13 +678,24 @@ def g_q():
     names = sorted(cur["items"])
     same, diff = [], []
     for n in names:
-        (same if cur["items"][n] == ora["items"][n] else diff).append(n)
+        (same if _norm_known_ext(cur["items"][n])
+         == _norm_known_ext(ora["items"][n]) else diff).append(n)
     print("   SAME(%d): %s" % (len(same), "、".join(same)))
     print("   DIFF(%d): %s" % (len(diff), "、".join(diff) or "（无）"))
     ok(diff == [],
        "Q 不动面对拍：A/E 全线 + full 档全线 + plan 档读数——工作树与改动前"
-       "基线（HEAD 导出树）**逐位一致**（%d 项 SAME / %d 项 DIFF）"
-       % (len(same), len(diff)), diff)
+       "基线（HEAD 导出树）**逐位一致**（%d 项 SAME / %d 项 DIFF；cons200 批"
+       "已知扩展键 %s 已定向豁免，见 _KNOWN_EXT_KEYS）"
+       % (len(same), len(diff), "、".join(_KNOWN_EXT_KEYS)), diff)
+    cvd_names = [n for n in names
+                 if isinstance(cur["items"][n].get("out"), dict)
+                 and isinstance(cur["items"][n]["out"].get("consistency"), dict)]
+    ok(bool(cvd_names) and all(
+        {"kept", "truncated"} <= set(cur["items"][n]["out"]["consistency"])
+        for n in cvd_names),
+       "Q 已知扩展在场：写链 out 的 consistency 读数（%s）均含本批新增键 "
+       "kept/truncated（cons200 契约面；归一化只豁免这两键，旧键仍逐位对拍）"
+       % "、".join(cvd_names), cvd_names)
     ok(len(names) >= 10,
        "Q 对拍项覆盖：A/E 全线（A_add/plg_A/E_weights/E_fresh）+ full 档全线"
        "（full_A/full_C/full_B/full_D/full_E_weights/full_E_fresh）+ 矩阵/缺省/"

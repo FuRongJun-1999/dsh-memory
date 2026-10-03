@@ -59,9 +59,20 @@ from .mdcg import expand_query_terms_weighted
 LOG_FILE = "_consistency.jsonl"
 
 MAX_SCAN = 200       # 单次检测最多比对的既有节点数（防 O(N) 爆炸）
+                     # cons200（2026-10-03）：本值是**相关面/保底面各自的限额**，不是
+                     # 「索引序前 N」——数值一字未动（契约禁止面）；超限走可观测
+                     # （truncated/kept/hint），修法是选面与预筛，不是调大本值。
 MAX_DEPTH = 3        # L2 递归深度上限（对齐 :273）
 MAX_NODES = 60       # L2 递归展开节点上限（对齐 :273）
 MIN_GAIN = 0.15      # 信息增益门槛：候选空间减少比例低于此值即停（对齐 :273）
+
+# 截断可操作提示（cons200：与 stg `_CAP_HINT` 同口径精神——禁止静默）——文案必须
+# 含「细化生效条件/不适用条件」与「建立条件索引」语义；数值放大（调 limit/MAX_SCAN）
+# 不是修法，故明文劝阻。
+_SCAN_HINT = ("候选 %s 条超过单次检测限额 limit=%s，已按相关性保留 %s 条"
+              "（截断不静默）：请细化生效条件/不适用条件收窄候选集，"
+              "或按设计稿建立条件索引（docs/plans/stg条件化与结构索引_设计_v0.1.md）"
+              "——不要调大 limit/MAX_SCAN 数值。")
 
 CLASH_HIGH = 0.6     # 条件互相覆盖阈值 → 明确互斥
 CLASH_LOW = 0.35     # 条件部分覆盖阈值 → 待定
@@ -304,6 +315,53 @@ def _slot_text(content):
 
 
 # --------------------------------------------------------------------------
+# 选面支持件（cons200）：相关性预筛打分（快照级，不读盘）
+# --------------------------------------------------------------------------
+
+# 生效条件：e 为索引快照条目、nid 为节点 id、tw_pos/tw_neg 为 {词: 权重}（可为空）、cov 为 _weighted_coverage 同签名函数、disc 为 _is_discipline 的预判结果（None 时按 `_is_discipline({"tags": e.get("tags")}, nid)` 现算）——只读条目内既有键（tags/rejection_terms），恒返回整数二元组 (rank, score)：disc 真 → (3, 0)；否则 rejection_terms 与 tw_pos/tw_neg 有整词子串交集 → (2, int(round(1e4 * max(双方 _cov)) ))；仅 rejection_terms 非空 → (1, 0)；其余 → (0, 0)；不读盘、不解析正文、不调用 cg.get。
+def _sift_score(e, nid, tw_pos, tw_neg, cov, disc=None):
+    """候选相关性打分（**只排序，不裁决**）——选面的廉价预筛单点。
+
+    为什么需要它（cons200 = 设计稿签收点 5）：修前选面是 `list(nodes.items())`
+    的索引序前 MAX_SCAN——库超限后 id 字典序靠后的记忆节点（`mem_*`）几乎从不
+    进入比对面；而在役库前 200 名基本全是 `code_*` 索引节点。修后按**相关性**
+    （本函数）排序取前 limit，让「可能与本内容构成条件冲突」的候选优先入面。
+
+    信号与廉价性（全部来自索引快照既有键，零读盘、零正文解析）：
+      · `tags`（`_is_discipline` 单点判纪律）——纪律违反是硬冲突（REJECT），
+        且其命中走 `_ban_hit` 子串判定、不走词权，故纪律候选 rank 最高（3）；
+      · `rejection_terms`（**不适用条件**的索引词项，由既有单点
+        `mdcg.rejection_index_terms` 生成——不新造第二套解析）：与本次内容的
+        条件词面（tw_pos/tw_neg）做整词交集（`in` 子串，C 速度），命中即
+        rank 2 并以 `_weighted_coverage`（既有单点）给连续分；非空但无交集
+        rank 1（弱迹象：该节点确有负条件声明）。
+    诚实边界（不假装全知）：本键只覆盖**负条件面**（新正↔旧负 / 新负↔旧负）。
+    「旧节点只声明生效条件（e_pos）」的比对面在快照里**无字段可判**（`_declared`
+    还要读 content 的 `# 生效条件：` 行）——故本函数不做任何剔除，只做排序；
+    信息不足的候选按 rank 0 落在相关面尾部、并在候选超限时由**保底面**
+    （修前扫描面 ∩ 候选，逐位保留）兜底，二者共同保证「修后检出 ⊇ 修前」。
+    """
+    if disc is None:
+        disc = _is_discipline({"tags": e.get("tags")}, nid)
+    if disc:
+        return 3, 0
+    rt = e.get("rejection_terms") or []
+    if not rt:
+        return 0, 0
+    blob = " ".join(str(t) for t in rt)
+    hit = False
+    if tw_pos:
+        hit = any(str(t) in blob for t in tw_pos)
+    if not hit and tw_neg:
+        hit = any(str(t) in blob for t in tw_neg)
+    if not hit:
+        return 1, 0
+    s1 = cov(tw_pos, blob) if tw_pos else 0.0
+    s2 = cov(tw_neg, blob) if tw_neg else 0.0
+    return 2, int(round(10000 * max(s1, s2)))
+
+
+# --------------------------------------------------------------------------
 # L0 情绪通道（信息差二阶变化）
 # --------------------------------------------------------------------------
 
@@ -426,7 +484,7 @@ def _recursive_reflect(cg, seeds, tw_pos, tw_neg, max_depth=MAX_DEPTH,
 # 主入口：三级决策
 # --------------------------------------------------------------------------
 
-# 生效条件：以 cg.index.nodes 为既有节点、content（假值按 ""）经 _new_terms 得 pos/neg 并算 tw_pos/tw_neg（non_applicable_conditions 入参先按 mdcos._is_null_condition 剔除空值语义哨兵——⑧ 漏斗单点），按循环中 hard（自否定或纪律命中）→ divergences（同条件槽且 concl < CONCLUSION_SAME）→ strength ≥ CLASH_HIGH → strength ≥ CLASH_LOW → comparable==0 且 (pos or neg) → 否则 ACCEPT 的顺序定 verdict；DEFER 且 int(depth)>0 且 emo["bias"] != "approaching" 时调 _recursive_reflect 补 recursion，auto_flywheel 且 verdict == REJECT 时加 unresolved_id，最后 log 并返回 rec；
+# 生效条件：以 cg.index.nodes 为既有节点、content（假值按 ""）经 _new_terms 得 pos/neg 并算 tw_pos/tw_neg（non_applicable_conditions 入参先按 mdcos._is_null_condition 剔除空值语义哨兵——⑧ 漏斗单点）；选面（cons200；收口轮①加面内例外）：快照级预筛剔「tw_pos 与 tw_neg 皆空（新节点未声明可展开条件）时的非纪律候选」，且**剔除永不触及修前扫描面**（过滤后索引序前 limit 内候选一律保留——面内例外；「修后检出 ⊇ 修前」由此成为与「条目 tags 与盘面 fm.tags 同源」无关的结构保证），候选超 limit 时精比面＝相关面（_sift_score 序）前 limit ∪ 保底面（过滤后索引序前 limit ∩ 候选），记 scanned（候选数）/kept（精比数）/truncated（scanned>kept）/hint；按循环中 hard（自否定或纪律命中）→ divergences（同条件槽且 concl < CONCLUSION_SAME）→ strength ≥ CLASH_HIGH → strength ≥ CLASH_LOW → comparable==0 且 (pos or neg) → 否则 ACCEPT 的顺序定 verdict；DEFER 且 int(depth)>0 且 emo["bias"] != "approaching" 时调 _recursive_reflect 补 recursion，auto_flywheel 且 verdict == REJECT 时加 unresolved_id，最后 log 并返回 rec；
 def check(cg, content, layer=None, condition_space=None,
           non_applicable_conditions=None, tags=None, exclude=None,
           limit=MAX_SCAN, depth=MAX_DEPTH, auto_flywheel=False,
@@ -436,12 +494,43 @@ def check(cg, content, layer=None, condition_space=None,
     返回完整判据（可审计）：
       verdict / reason / conflict_strength / emotional / conflicts[] /
       recursion{} / missing[] / unresolved_id（若触发飞轮）
+      + 选面读数 scanned / kept / truncated（超限时另附 hint）
 
     verdict：
       ACCEPT    无冲突，或新节点未声明条件（无从冲突）
       REJECT    硬冲突：自否定 / 违反纪律
       DEFER     条件互斥但可能可分辨（交给 L2 递归或飞轮）
       BLINDSPOT 有条件声明，但既有节点全无声明 → 无法建立比对路径（不假装确定）
+
+    选面（cons200，2026-10-03；设计稿签收点 5；收口轮① 2026-10-03 复核 DEFER
+    后补面内例外）：
+      修前＝`list(nodes.items())` 索引序前 limit 并静默 break——在役库 17882
+      节点 ⇒ 检测面 ≈1.1%，且 id 字典序最前的 `code_*` 索引节点占满名额，
+      真正相关的记忆节点（`mem_*` 在字典序后段）几乎从不进入比对面。修后：
+        · 预筛（快照级、不读盘）：`_sift_score` 只读条目既有键（tags /
+          rejection_terms），不做任何「信息不足」的剔除——唯一剔除档是
+          **可证无产出且不落修前扫描面**的「tw_pos 与 tw_neg 皆空（新节点
+          未声明可展开条件）时的非纪律候选」（c1/c2/c3/c4 与分歧判定都以
+          tw_* 为乘子；纪律违反走 `_ban_hit` 子串、不看词权，故纪律候选
+          一律保留）。**面内例外（收口轮①）**：剔除永不触及修前扫描面
+          （过滤后索引序前 limit 内的候选一律保留进候选面、落保底面通道）
+          ——「修后检出 ⊇ 修前」由此是**与「条目 tags 与盘面 fm.tags
+          同源」无关的结构保证**（预筛读条目快照，而精比读盘面；非同源
+          形态下面内候选仍进精比面、由盘面判据裁决）。
+        · 精比面＝相关面（`_sift_score` 序）前 limit ∪ **保底面**（过滤后
+          索引序前 limit ∩ 候选，逐位＝修前扫描面）。保底面不撤是「修后检出
+          ⊇ 修前」的结构性保证（不是概率）；两面上限各 limit（≤2×MAX_SCAN）。
+        · 可观测：`scanned`＝预筛后候选数、`kept`＝实际精比数、`truncated`＝
+          scanned>kept（截断不静默，附 `hint` 给细化条件/建索引方向）。
+      诚实边界：`rejection_terms` 只覆盖负条件面；「旧节点仅声明生效条件
+      （e_pos，正文 `# 生效条件：` 行）」在快照里无字段可判——此类节点在
+      候选超限且不落修前扫描面/保底面时可能不被精比（由 truncated 可观测）。
+      非同源形态（盘面 tags 与索引条目不一致，非合作写者直改 `.md` 不重建
+      索引）分两段：**面内**（修前扫描面内）由面内例外保底、精比读盘面判定，
+      修后仍检出（不构成回归）；**面外残余**（条目未标纪律、盘面是纪律的
+      节点落修前扫描面之外）修前亦检不出——不构成回归，属已声明边界
+      （预筛读索引条目快照；协作写者协议下条目与盘面同源，无此形态）。
+      判据本身（阈值/覆盖计算/四态路由）一字未动——本批只改**选面与读数**。
 
     non_applicable_conditions（⑧ 2026-09-30）：入参里的**空值语义哨兵**
     （`["无"]` / `["（无）"]` / `[""]`…）在本函数的入口统一剔除——判据复用
@@ -475,7 +564,7 @@ def check(cg, content, layer=None, condition_space=None,
     n_fn, n_sb = _slot_text(content)
 
     conflicts, hard, divergences = [], [], []
-    strength, scanned, comparable = 0.0, 0, 0
+    strength, comparable = 0.0, 0
 
     # ---- L1-a 自否定：自己的负条件排除自己的生效条件/正文 ----
     body = _body_text(content)
@@ -491,16 +580,47 @@ def check(cg, content, layer=None, condition_space=None,
         strength = max(strength, round(_cov(tw_neg, body), 4))
 
     # ---- L1-b 与既有节点的条件级比对（反题） ----
+    # 选面（cons200）：预筛（快照级，不读盘）→ 候选面 → 相关面 ∪ 保底面。
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
-    seeds = []
-    for nid, e in list(nodes.items()):
+    order = list(nodes.items())          # 索引序快照（H-4(a)：快照后再迭代）
+    lim = max(0, int(limit))
+    no_terms = not (tw_pos or tw_neg)    # 新节点未声明可展开条件
+    cand = []                            # (rank, score, in_before, nid, e)
+    fidx = 0
+    for nid, e in order:
         if exclude and nid == exclude:
             continue
         if layer and e.get("layer") != layer:
             continue
-        if scanned >= int(limit):
-            break
-        scanned += 1
+        in_before = fidx < lim           # 是否在修前扫描面内（过滤后前 limit）
+        fidx += 1
+        disc = _is_discipline({"tags": e.get("tags")}, nid)
+        # 预筛唯一剔除档（可证无产出；其余一律放行——宁多勿漏）：
+        # 新节点未声明可展开条件时，非纪律候选在精比中产出恒为零
+        # （c1/c2/c3/c4 与分歧判定均以 tw_pos/tw_neg 为乘子；纪律违反走
+        # _ban_hit 子串判定、不看词权——故纪律候选一律保留）。
+        # 收口轮①（复核 DEFER 后补）：**面内例外**——剔除永不触及修前扫描面
+        # （过滤后索引序前 limit 内的候选一律保留），使「修后检出 ⊇ 修前」
+        # 成为与「条目 tags 与盘面 fm.tags 同源」无关的结构保证（非同源形态
+        # 下面内候选仍进精比面、由盘面判据裁决）；面外非同源残余见 check
+        # docstring 诚实边界（修前亦检不出，不构成回归）。
+        if no_terms and not disc and not in_before:
+            continue
+        rank, score = _sift_score(e, nid, tw_pos, tw_neg, _cov, disc)
+        cand.append((rank, score, in_before, nid, e))
+    # 相关面：rank/score 降序 + id 升序终键（确定性；与索引物理序无关）
+    rel = sorted(cand, key=lambda t: (-t[0], -t[1], str(t[3])))[:lim]
+    rel_ids = {t[3] for t in rel}
+    # 精比面＝相关面 ∪ 保底面（过滤后索引序前 limit ∩ 候选）——保底面即
+    # 修前扫描面；其逐位保留是「修后检出 ⊇ 修前」的结构性保证（非概率），
+    # 两面上限各 limit（≤ 2×MAX_SCAN；MAX_SCAN 数值未动）。
+    scan_face = [(t[3], t[4]) for t in rel]
+    scan_face += [(t[3], t[4]) for t in cand if t[2] and t[3] not in rel_ids]
+    scanned = len(cand)                  # 预筛后候选数（截断前）
+    kept = len(scan_face)                # 实际精比数（相关面 ∪ 保底面）
+    truncated = scanned > kept
+    seeds = []
+    for nid, e in scan_face:
         node = cg.get(nid) or {}
         fm = node.get("frontmatter") or {}
         body = node.get("content") or ""
@@ -630,9 +750,14 @@ def check(cg, content, layer=None, condition_space=None,
     rec = {"t": time.time(), "layer": layer, "verdict": verdict,
            "reason": reason, "conflict_strength": round(strength, 4),
            "emotional": emo, "conflicts": allc, "recursion": recursion,
-           "missing": missing, "scanned": scanned, "comparable": comparable,
+           "missing": missing, "scanned": scanned, "kept": kept,
+           "truncated": truncated, "comparable": comparable,
            "pos": pos[:6], "neg": neg[:6],
            "actor": getattr(cg, "actor", "unknown")}
+    # 截断不静默（与 stg `_with_scan_reads` 同口径精神）：候选有被限额丢弃时
+    # 附可操作 hint（细化条件 / 建索引方向；数值放大不是修法）。
+    if truncated:
+        rec["hint"] = _SCAN_HINT % (scanned, lim, kept)
 
     # ---- 冲突自动触发飞轮（误差 → 补条件 → 结构更新） ----
     # H11⑥（2026-09-30）：**只对真冲突（REJECT）建单**。改前是
