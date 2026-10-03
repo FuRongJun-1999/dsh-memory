@@ -262,30 +262,45 @@ def main():
         a4.close()
 
         # ---------- ⑥ 性能粗测：无跨进程写入时逐读开销 ----------
-        print("\n【⑥】性能粗测（无跨进程写入，接线态 vs 重载桩空转态）")
-        N = 300
-        a2c = MdCGSecure(root3, principal=_principal())
-        for _ in range(5):
-            a2c.get("own_0")
-        t0 = time.perf_counter()
-        for _ in range(N):
-            a2c.get("own_0")
-        t_on = (time.perf_counter() - t0) / N * 1e6
-        orig = a2c._maybe_reload_index
-        a2c._maybe_reload_index = lambda: False
-        for _ in range(5):
-            a2c.get("own_0")
-        t0 = time.perf_counter()
-        for _ in range(N):
-            a2c.get("own_0")
-        t_off = (time.perf_counter() - t0) / N * 1e6
-        a2c._maybe_reload_index = orig
-        a2c.close()
-        print("       接线态 %.1f µs/读 · 桩空转态 %.1f µs/读 · 增幅 %.1f%%"
-              % (t_on, t_off, (t_on - t_off) / max(t_off, 1e-9) * 100))
-        check("性能上界：接线态 ≤ 桩空转态×3 + 30µs（stat 微秒级；宽松防抖）",
-              t_on <= t_off * 3 + 30.0,
-              "on=%.1f off=%.1f" % (t_on, t_off))
+        # 并行豁免 + 3 轮中位数（2026-10-03 外部报告核验新增）：
+        #   · 并行全量下 CPU 争抢使本断言假红（报告机器实测 on 242.0µs / off 35.6µs，
+        #     单独跑 3 次 41~42µs 全 PASS——接线态是 syscall 密集面，争抢长尾远重于
+        #     空转桩态）⇒ 并行时**明示豁免**（run_tests 经 MDCG_RUN_TESTS_PARALLEL
+        #     传信号；串行（--jobs 1，含 CI）照测——语义断言不受本豁免影响）；
+        #   · 串行下采样改 3 轮取中位（抗偶发长尾），阈值口径不变（仍防真回归）。
+        _parallel = os.environ.get("MDCG_RUN_TESTS_PARALLEL") == "1"
+        if _parallel:
+            print("\n【⑥】性能粗测（无跨进程写入，接线态 vs 重载桩空转态）")
+            print("  [SKIP] 性能上界断言（并行豁免）：CPU 争抢下本断言假红（外部报告"
+                  "实测 on 242.0µs vs off 35.6µs；单跑 41~42µs）——串行（--jobs 1，含 CI）照测")
+        else:
+            print("\n【⑥】性能粗测（无跨进程写入，接线态 vs 重载桩空转态；3 轮取中位）")
+            N = 300
+            a2c = MdCGSecure(root3, principal=_principal())
+
+            def _probe():
+                for _ in range(5):
+                    a2c.get("own_0")
+                t0 = time.perf_counter()
+                for _ in range(N):
+                    a2c.get("own_0")
+                return (time.perf_counter() - t0) / N * 1e6
+
+            on_runs = [_probe() for _ in range(3)]
+            orig = a2c._maybe_reload_index
+            a2c._maybe_reload_index = lambda: False
+            off_runs = [_probe() for _ in range(3)]
+            a2c._maybe_reload_index = orig
+            a2c.close()
+            t_on = sorted(on_runs)[1]
+            t_off = sorted(off_runs)[1]
+            print("       接线态 %.1f µs/读（3 轮 %s）· 桩空转态 %.1f µs/读（3 轮 %s）· 增幅 %.1f%%"
+                  % (t_on, "/".join("%.1f" % v for v in on_runs),
+                     t_off, "/".join("%.1f" % v for v in off_runs),
+                     (t_on - t_off) / max(t_off, 1e-9) * 100))
+            check("性能上界：接线态（3 轮中位）≤ 桩空转态（3 轮中位）×3 + 30µs（中位抗长尾）",
+                  t_on <= t_off * 3 + 30.0,
+                  "on=%.1f off=%.1f" % (t_on, t_off))
     finally:
         for r_ in roots:
             shutil.rmtree(r_, ignore_errors=True)

@@ -99,9 +99,21 @@ def _discover():
     return out
 
 
-# 生效条件：给定 name、候选命令列表 argvs、超时秒数 timeout，逐个 subprocess.run（cwd 为模块级常量 _REPO，env 在 os.environ 基础上覆盖 PYTHONUTF8=1/PYTHONIOENCODING=utf-8，shell=False，encoding="utf-8"/errors="replace"）：抛 TimeoutExpired 即返回 (name, False, f"超时（>{timeout}s）")；若 returncode!=0 且 stderr 含 "No module named" 且 len(argvs)>1 则记下该 stderr 末 300 字符继续下一候选，否则返回 (name, returncode==0, stdout+stderr 拼接后末 800 字符)；所有候选都命中回退条件时返回 (name, False, 最后记下的片段)；
-def _run_one(name, argvs, timeout):
+# 生效条件：给定 name、候选命令列表 argvs、超时秒数 timeout（parallel=True 时向子进程
+# 加传 MDCG_RUN_TESTS_PARALLEL=1 的并行信号），逐个 subprocess.run（cwd 为模块级常量
+# _REPO，env 在 os.environ 基础上覆盖 PYTHONUTF8=1/PYTHONIOENCODING=utf-8，shell=False，
+# encoding="utf-8"/errors="replace"）：抛 TimeoutExpired 即返回 (name, False,
+# f"超时（>{timeout}s）")；若 returncode!=0 且 stderr 含 "No module named" 且
+# len(argvs)>1 则记下该 stderr 末 300 字符继续下一候选，否则返回 (name,
+# returncode==0, stdout+stderr 拼接后末 800 字符)；所有候选都命中回退条件时返回
+# (name, False, 最后记下的片段)；
+def _run_one(name, argvs, timeout, parallel=False):
+    # parallel（2026-10-03 外部报告核验新增）：负载敏感的性能断言（见
+    # md_cg/test_index_crossprocess_reload ⑥）据此在并行下明示豁免、串行照测——
+    # 语义断言不受影响，覆盖不丢（对比 _SERIAL_ONLY 的整测试跳过——那个教训在集合注释里）。
     env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    if parallel:
+        env["MDCG_RUN_TESTS_PARALLEL"] = "1"
     last = ""
     for argv in argvs:                    # -m 优先；No module named 时回退直跑
         try:
@@ -226,7 +238,8 @@ def main():
     bad = []
     with concurrent.futures.ThreadPoolExecutor(
             max_workers=max(1, args.jobs)) as ex:
-        futs = {ex.submit(_run_one, n, a, args.timeout): (g, n)
+        _par = max(1, args.jobs) > 1
+        futs = {ex.submit(_run_one, n, a, args.timeout, _par): (g, n)
                 for g, n, a in runnable}
         for fu in concurrent.futures.as_completed(futs):
             name, ok, tail = fu.result()

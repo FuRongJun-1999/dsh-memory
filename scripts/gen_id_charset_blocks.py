@@ -436,6 +436,28 @@ def _report(adopted: set, skipped: dict, per_range: list, intervals: list,
 
 # ---------------------------------------------------------------- 主流程
 
+# 生效条件：v 为「X.Y.Z」形态版本串时返回 int 元组（非数字段按 0，宽松解析不抛）。
+def _ver_tuple(v: str) -> tuple:
+    return tuple(int(seg) if seg.isdigit() else 0 for seg in str(v).split("."))
+
+
+# 生效条件：读盘上表头「unicodedata 版本：X」快照版本串；表缺失/无该行返回 None。
+def _table_version(path=OUT_PATH):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for ln in fh:
+                if not ln.startswith("#"):
+                    break
+                pos = ln.find("unicodedata 版本：")
+                if pos >= 0:
+                    ver = ln[pos + len("unicodedata 版本："):].split("（")[0].strip()
+                    if ver and all(ch.isdigit() or ch == "." for ch in ver):
+                        return ver
+    except OSError:
+        return None
+    return None
+
+
 # 生效条件：argv 给出时按模式执行——缺省（干跑）打印报告；--write 自检通过后落盘并复读校验；
 # --check 与盘上逐字比对（缺失/陈化/自检失败均非 0）。返回退出码：0 一致或写入成功；1 陈化/自检失败。
 def main(argv=None) -> int:
@@ -464,6 +486,20 @@ def main(argv=None) -> int:
         except OSError as exc:
             print("✖ 表缺失或不可读（fail-closed）：%s —— %s" % (OUT_REL, exc))
             return 1
+        # 版本三态（2026-10-03 外部报告核验新增；表头本已声明「本表=某版本快照」）：
+        #   本机 == 表快照 ⇒ 原路径（逐字比对）。
+        #   本机 >  表快照（解释器升级）⇒ 原路径：重算 ≠ 盘上 ⇒ 判陈化、催促重跑
+        #     （设计既有语义「解释器升级后须重跑并复核」）。
+        #   本机 <  表快照（旧解释器复核新表）⇒ **豁免逐字比对、rc 仍 0**：本环境算不出
+        #     生成版本的码点集（实证：python 3.11/unidata 14.0.0 对 15.0.0 表重算
+        #     CJK 扩展C 少 1 码点，4153 vs 4154）——判 1 是伪信号（既非表错、也非应按
+        #     本机重跑）。豁免明示理由（不静默），版本无关面由测试守卫覆盖。
+        _tv = _table_version()
+        if _tv and _ver_tuple(version) < _ver_tuple(_tv):
+            print("✔ 陈化守卫豁免（跨版本）：本机 unicodedata %s 低于表快照 %s——"
+                  "逐字比对需在 ≥%s 的解释器上进行，本环境跳过；表以 %s 为准"
+                  % (version, _tv, _tv, _tv))
+            return 0
         if have == text:
             print("✔ 陈化守卫通过：%s 与重算结果逐字一致（%d 条区间 / %d 码点）"
                   % (OUT_REL, len(intervals), len(adopted)))
@@ -483,6 +519,13 @@ def main(argv=None) -> int:
         return 1
 
     if args.write:
+        # 防降级覆盖（2026-10-03 外部报告核验新增）：本机低于表快照版本时拒绝写入——
+        # 降级重生成会用旧码点集覆盖新表（实证差 1 码点），且与 CI（3.12）产生新陈化。
+        _tv = _table_version()
+        if _tv and _ver_tuple(version) < _ver_tuple(_tv):
+            print("✖ 拒绝写入（fail-closed）：本机 unicodedata %s 低于盘上表快照 %s——"
+                  "请用 ≥%s 的解释器重生成（仓库 CI 为 Python 3.12）" % (version, _tv, _tv))
+            return 1
         with open(OUT_PATH, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
         with open(OUT_PATH, encoding="utf-8") as fh:

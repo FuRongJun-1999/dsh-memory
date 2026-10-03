@@ -452,6 +452,25 @@ def group_table_hygiene():
     check("⑤ `gen_id_charset_blocks.py --check` 退出 0（表与生成规则一致，手改即陈化）",
           p.returncode == 0, ((p.stdout or "") + (p.stderr or ""))[-160:].replace("\n", " "))
 
+    # 跨版本豁免面（2026-10-03 外部报告核验新增）：表是「某版本快照」——当本机
+    # unicodedata **低于**表快照（如用 python 3.11 复核 15.0.0 表）时，--check 走
+    # 豁免路径（rc 仍 0）且必须**明示理由**（不静默）；同版本/升级态仍走原判据。
+    _out = (p.stdout or "") + (p.stderr or "")
+    _tv = None
+    try:
+        with open(os.path.join(_REPO, _BLOCKS_REL), encoding="utf-8") as _fh:
+            for _ln in _fh:
+                _m = re.search("unicodedata 版本：([0-9.]+)", _ln)
+                if _m:
+                    _tv = _m.group(1)
+                    break
+    except OSError:
+        _tv = None
+    if _tv and tuple(int(x) for x in unicodedata.unidata_version.split(".")) < tuple(int(x) for x in _tv.split(".")):
+        check("⑤ 跨版本豁免：本机 %s < 表快照 %s ⇒ --check 明示豁免理由（不静默、rc 0）"
+              % (unicodedata.unidata_version, _tv),
+              "陈化守卫豁免" in _out, _out[-160:].replace("\n", " "))
+
     # NFC（c5）：表内每一码点本地重算都 NFC 稳定 ⇒ 判据不必做真 NFC 计算
     unstable = []
     total = 0
