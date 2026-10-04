@@ -36,6 +36,14 @@ npm 副本内进程启动于 11:37~11:39，而源码 mtime 为 09:24 → `stale=
   python scripts/mdcg_stale_servers.py list                  # 只读列举（默认）
   python scripts/mdcg_stale_servers.py list --fail-on-stale   # 有污染源/陈旧则退出码 1（重建前置守卫）
   python scripts/mdcg_stale_servers.py kill --pid 19944 --pid 2100 --purge-report
+  python scripts/mdcg_stale_servers.py purge                  # 显式清理自报目录（只保留在役进程的自报）
+
+退出码（N255 起）：0 成功/无污染源；1 list 带 --fail-on-stale 且存在 risky 进程（或 kill 有失败项）；
+  2 **环境错误**——进程探测不可用（PowerShell 探不到/非零退出/输出不可解析）。修前探测失败与
+  「确实没有 md_cg 进程」不可分，一律落到「前置守卫通过」的退出码 0（读不通被当成干净）。
+副作用边界（N255）：`list` **只读**——自报目录的写/删只发生在显式的 `purge` 与
+  `kill --purge-report` 上；修前 `scan()` 尾部无条件 `purge()`，与「只读枚举无副作用」直接矛盾，
+  且探测失败时 `purge([])` 会把目录下全部自报一次删光。
 """
 from __future__ import annotations
 
@@ -128,17 +136,17 @@ def _read_cwd(pid):
         return None, "%s: %s" % (type(e).__name__, e)
 
 
-# 生效条件：argv 固定为 PowerShell -NoProfile -Command 加入参 argv_ps，env 强制 PYTHONUTF8=1 且 shell=False，返回合并后的 stdout+stderr 文本；超时或异常时返回 "<ERR ...>" 字符串而不抛出。
-def _ps(argv_ps: str, timeout: int = 60) -> str:
+# 生效条件：argv_ps 为 PowerShell -NoProfile -Command 加入参、timeout 为秒；env 强制 PYTHONUTF8=1 且 shell=False。返回 (text, rc)——text 为合并后的 stdout+stderr（未能执行时为 "<ERR ...>"），rc 为进程退出码、None 表示未能执行（异常/超时）。**退出码必须回传**（N255）：修前只并流文本、丢掉 rc，「PowerShell 失败」与「跑通但无输出」在调用方不可分。
+def _ps(argv_ps: str, timeout: int = 60):
     env = dict(os.environ)
     env["PYTHONUTF8"] = "1"
     try:
         r = subprocess.run(["powershell", "-NoProfile", "-Command", argv_ps],
                            capture_output=True, text=True, encoding="utf-8",
                            errors="replace", env=env, timeout=timeout, shell=False)
-        return (r.stdout or "") + (r.stderr or "")
     except Exception as e:  # noqa: BLE001
-        return "<ERR %s: %s>" % (type(e).__name__, e)
+        return "<ERR %s: %s>" % (type(e).__name__, e), None
+    return (r.stdout or "") + (r.stderr or ""), r.returncode
 
 
 # 生效条件：text 为 Format-List 形态文本（空行分隔的记录块、每块 "Key : Value" 行）时解析为 dict 列表，键值均 strip；无 ":" 的行与空块被跳过，因此输入为空串时返回空列表而不报错。
@@ -173,9 +181,60 @@ def _code_mtime() -> float:
     return latest
 
 
-# 生效条件：无入参，用 _ps(PS_QUERY) 枚举全部进程并解析为 dict 列表返回；PowerShell 不可用时 _ps 返回 "<ERR ...>"，_parse_ps 对其解析出空列表（调用方看到「未发现 md_cg 进程」，需结合 stderr 文本判别环境异常）。
-def _procs() -> list:
-    return _parse_ps(_ps(PS_QUERY))
+# 生效条件：无入参；返回 (records, err)——err 非 None 即「探测不可用」，调用方一律 fail-closed（绝不当作「未发现 md_cg 进程」）。四条可用性判据（①未能执行 ②非零退出 ③"<ERR" 标记 ④输出不可解析/记录缺 Name·ProcessId 键）见函数体与 docstring。
+def probe_processes():
+    """枚举进程 → (records, err)。**探测可用性的唯一单点**（N255）。
+
+    修前「PS 失败/超时/输出不可解析」与「确实没有 md_cg 进程」在调用方不可分——两者都
+    落到 `_procs() → []`：`scan()` 返回空行 → `list --fail-on-stale` 判「前置守卫通过」
+    （退出码 0），同时 scan() 尾部的 `purge([])` 把自报目录**删光**。实测（沙盒 TEMP +
+    令 PATH 不含 powershell）：`list --fail-on-stale` → stdout「污染源 0 个：无」、
+    EXITCODE=0，而落盘的 3 个自报 *.json 全被删除——重建前置守卫在探不到进程时反而判绿。
+
+    可用性判据（任一不成立即判不可用）：
+      ① PowerShell 未能执行（FileNotFoundError/超时等）→ rc is None；
+      ② PowerShell 非零退出；
+      ③ 输出带 `<ERR …>` 标记；
+      ④ 输出为空 / 解析不出任何记录 / 记录缺 PS_QUERY 必有的 Name·ProcessId 键
+         （后者正是把 `<ERR X: y>` 这种错误文本按「Key : Value」解析出的**伪记录**：
+         `scan()` 的 `name.startswith("python")` 对它恒为假，于是静默变成「无进程」）。
+    真跑过的 `Get-CimInstance Win32_Process | … | Format-List` 恒有输出（至少本进程一行），
+    故「无输出/不可解析」= 探测没真正执行，不得当成「没有进程」。
+    """
+    text, rc = _ps(PS_QUERY)
+    if rc is None:
+        return [], "PowerShell 未能执行：%s" % text[:200]
+    if rc != 0:
+        return [], "PowerShell 退出码 %d：%s" % (rc, text[:200])
+    if text.strip().startswith("<ERR"):
+        return [], "PowerShell 报告错误：%s" % text[:200]
+    rows = _parse_ps(text)
+    if not rows:
+        return [], "探测输出不可解析为进程记录（%d 字符）：%r" % (len(text), text[:200])
+    bad = [r for r in rows if not (r.get("Name") and r.get("ProcessId"))]
+    if bad:
+        return [], "探测输出含伪记录（缺 Name/ProcessId 键）：%r" % (bad[0],)
+    return rows, None
+
+
+# 生效条件：rec 为进程记录（可能是缺键的伪记录）时返回布尔——Name 以 python 开头且 CommandLine 含 MARK 即为本仓 md_cg MCP server 进程；缺键按空串处理（不误判）。
+def _is_mdcg_proc(rec) -> bool:
+    """「这是不是一个 md_cg MCP server 进程」的**唯一单点**（scan 与 purge 记账共用）。"""
+    return ((rec.get("Name") or "").lower().startswith("python")
+            and MARK in (rec.get("CommandLine") or ""))
+
+
+# 生效条件：procs 为 probe_processes() 的记录列表时返回在役 md_cg 进程 pid 的 set（ProcessId 非整数者跳过）；作为 purge 的 keep 集口径单点。
+def _live_mdcg_pids(procs) -> set:
+    keep = set()
+    for p in procs:
+        if not _is_mdcg_proc(p):
+            continue
+        try:
+            keep.add(int(p.get("ProcessId")))
+        except (TypeError, ValueError):
+            continue
+    return keep
 
 
 # 生效条件：stamp 为 "2026/9/17 15:17:30" 形态时返回 epoch 秒；解析失败返回 None（调用方据此跳过陈旧判定，不把未知启动时间的进程误判为陈旧）。
@@ -221,27 +280,27 @@ def _valid_report(ep, rec):
     return rec
 
 
-# 生效条件：无入参，返回全部命令行含 md_cg.mcp_server 的 python 进程记录，每项含 pid/parent/start/cwd/cwd_err/contract/render_version/source_dir/polluting/stale_by_mtime/cmd；判据序=自报（绝对事实）→ cwd 兜底 → mtime 附加信号，polluting 仅对 POLLUTING_CONTRACTS 置 True（unknown 置 None 以示「未知而非污染」）。
-def scan() -> list:
+# 生效条件：无入参；返回 (rows, err)——err 非 None 表示进程探测不可用（此时 rows 为空，但**不代表**没有 md_cg 进程，调用方须 fail-closed）。**只读**：不做任何写盘/删除（自报目录的清理走 purge_reports / kill --purge-report 显式路径；N255 修：修前此处无条件 purge，与本模块「只读枚举无副作用」直接矛盾）。每项含 pid/parent/start/cwd/cwd_err/contract/render_version/source_dir/polluting/stale_by_mtime/cmd；判据序=自报（绝对事实）→ cwd 兜底 → mtime 附加信号，polluting 仅对 POLLUTING_CONTRACTS 置 True（unknown 置 None 以示「未知而非污染」）。
+def scan():
+    procs, err = probe_processes()
+    if err:
+        return [], err
     thr = _code_mtime()
     want = _required_render_version()
     reports = _self_reports()
     repo_n = _norm(REPO)
     mdcg_n = _norm(MDCG_DIR)
-    pids = []
     out = []
-    for p in _procs():
-        name = (p.get("Name") or "").lower()
-        cmd = p.get("CommandLine") or ""
-        if not name.startswith("python") or MARK not in cmd:
+    for p in procs:
+        if not _is_mdcg_proc(p):
             continue
+        cmd = p.get("CommandLine") or ""
         raw_pid = p.get("ProcessId")
         ep = _epoch(p.get("CreationDate") or "")
         try:
             pid = int(raw_pid)
         except Exception:  # noqa: BLE001
             pid = None
-        pids.append(pid)
         cwd, cwd_err = (_read_cwd(pid) if pid else (None, "无效 pid"))
         rec = _valid_report(ep, reports.get(pid) if pid else None)
 
@@ -274,17 +333,32 @@ def scan() -> list:
                           else (None if contract == "unknown" else False)),
             "stale_by_mtime": (None if ep is None else ep < thr),
         })
+    return out, None
+
+
+# 生效条件：无入参；返回 (keep, 删除条数, err)——err 非 None 表示探测不可用，此时返回 (set(), 0, err) 且**不删任何文件**（fail-closed）。探测可用时才按「保留在役 md_cg 进程 pid」清理自报目录（含遗留 *.tmp），空 keep 亦允许（那意味着在役进程确已全部退出）。显式清理单点，由 `purge` 子命令与 `kill --purge-report` 调用——不再挂在 scan() 尾部（N255）。
+def purge_reports():
+    procs, err = probe_processes()
+    if err:
+        return set(), 0, err
+    keep = _live_mdcg_pids(procs)
+    if REPO not in sys.path:
+        sys.path.insert(0, REPO)
     try:
         from md_cg import selfreport as _sr
-        _sr.purge(pids)
-    except Exception:  # noqa: BLE001
-        pass
-    return out
+        n = _sr.purge(keep, allow_empty=True)
+    except Exception as e:  # noqa: BLE001
+        return keep, 0, "自报目录清理失败：%s: %s" % (type(e).__name__, e)
+    return keep, n, None
 
 
-# 生效条件：pid 为字符串/整数时先按 pid 重查进程表二次校验其命令行仍含 md_cg.mcp_server，校验通过才执行 taskkill /PID <pid> /F；进程不存在、命令行不匹配或 taskkill 非零退出时返回 ok=False 与 error 文案，绝不静默跳过。
+# 生效条件：pid 为字符串/整数时返回处置结果 dict——先 probe_processes()：探测不可用即返回 ok=False 与「探测不可用」文案（**不执行 taskkill、也不谎报「进程不存在」**，N255）；探测可用时按 pid 重查进程表二次校验其命令行仍含 md_cg.mcp_server，校验通过才执行 taskkill /PID <pid> /F；进程不存在、命令行不匹配或 taskkill 非零退出时返回 ok=False 与 error 文案，绝不静默跳过。
 def kill(pid: int) -> dict:
-    for p in _procs():
+    procs, err = probe_processes()
+    if err:
+        return {"pid": pid, "ok": False,
+                "error": "进程探测不可用（%s）——置信度不足，拒绝执行" % err}
+    for p in procs:
         if str(p.get("ProcessId")) == str(pid):
             if MARK not in (p.get("CommandLine") or ""):
                 return {"pid": pid, "ok": False,
@@ -297,18 +371,42 @@ def kill(pid: int) -> dict:
     return {"pid": pid, "ok": False, "error": "进程不存在"}
 
 
-# 生效条件：argv[0] 为 list/kill 之一时执行对应分支——list 打印 scan() 并给出合同代际分布（不改状态），kill 要求至少一个 --pid 且逐个调用 kill() 后打印结果；未给子命令时默认走 list，未知子命令返回码 2。list 带 --fail-on-stale 且存在 polluting=True 或 stale_by_mtime=True 的进程时返回码 1（重建前置守卫：污染源在位则重建必被刷回，宁可拒绝执行）。
+# 生效条件：argv[0] 为 list/kill/purge 之一时执行对应分支——list **只读**打印 scan()，探测不可用（err 非 None）时 stdout 打 "[]"（--json 形状兼容）、stderr 报环境错误并返回码 2，**绝不判绿**（N255）；purge 走 purge_reports() 显式清理自报目录，探测不可用→stderr 报错并返回码 2 且不删任何文件；kill 要求至少一个 --pid 且逐个调用 kill()（探测不可用则每个都记 ok=False），带 --purge-report 时再按在役集清理，清理未完成→返回码 2。未给子命令时默认走 list，未知子命令返回码 2。list 带 --fail-on-stale 且存在 polluting=True 或 stale_by_mtime=True 的进程时返回码 1（重建前置守卫：污染源在位则重建必被刷回，宁可拒绝执行）。
 def main() -> int:
     ap = argparse.ArgumentParser(description="md_cg MCP server 进程代际检测与处置")
-    ap.add_argument("cmd", nargs="?", default="list", choices=["list", "kill"])
+    ap.add_argument("cmd", nargs="?", default="list", choices=["list", "kill", "purge"])
     ap.add_argument("--pid", action="append", default=[], type=int)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--fail-on-stale", action="store_true",
                     help="list 时若存在污染源或 mtime 陈旧进程则退出码 1（重建前置守卫）")
+    ap.add_argument("--purge-report", action="store_true",
+                    help="kill 后按在役集清理自报目录（探测不可用则拒绝清理并退 2）")
     a = ap.parse_args()
 
+    if a.cmd == "purge":
+        # N255：清理是**显式**动作，且解包前先确认探测可用——空 keep 既可能是「在役进程
+        # 已全部退出」也可能是「探测失败」，两者不可分，故后者一律拒绝清理（退 2）。
+        keep, n, err = purge_reports()
+        if err:
+            print("[环境错误] 拒绝清理自报目录（fail-closed）：%s" % err, file=sys.stderr)
+            return 2
+        if a.json:
+            print(json.dumps({"purged": n, "live": sorted(keep)},
+                             ensure_ascii=False))
+        else:
+            print("已清理自报文件 %d 个；保留在役 md_cg 进程 %d 个：%s"
+                  % (n, len(keep), sorted(keep) or "无"))
+        return 0
+
     if a.cmd == "list":
-        rows = scan()
+        rows, err = scan()
+        if err:
+            # N255：探测不可用 ≠ 没有进程。修前此处 rows=[] → risky=[] → 判「前置守卫通过」
+            # （退出码 0），同时 scan() 尾部 purge([]) 把自报目录删光——读不通被当成干净。
+            if a.json:
+                print("[]")
+            print("[环境错误] 进程探测不可用：%s" % err, file=sys.stderr)
+            return 2
         risky = [r for r in rows
                  if r["polluting"] is True or r["stale_by_mtime"] is True]
         if a.json:
@@ -349,7 +447,15 @@ def main() -> int:
         return 2
     res = [kill(p) for p in a.pid]
     print(json.dumps(res, ensure_ascii=False, indent=2))
-    return 0 if all(r.get("ok") for r in res) else 1
+    all_ok = all(r.get("ok") for r in res)
+    if a.purge_report:
+        keep, n, err = purge_reports()
+        if err:
+            print("[环境错误] kill 已执行，但自报目录清理未完成（fail-closed）：%s" % err,
+                  file=sys.stderr)
+            return 2
+        print("已清理自报文件 %d 个；保留在役 md_cg 进程 %d 个" % (n, len(keep)))
+    return 0 if all_ok else 1
 
 
 if __name__ == "__main__":

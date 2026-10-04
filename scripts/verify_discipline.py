@@ -6,6 +6,12 @@
 反向（产物 → 真源）：产物里出现的每一条「按工作纪律第 N 条」声明，必须能在真源里找到；
                      出现真源没有的声明即判为孤儿（手抄残留 / 旧版本）。
 
+硬失败（与 .github/workflows/discipline-check.yml:4 同源，任一命中即 exit 1）：
+  产物缺失 / 孤儿声明 / 工具名未随端标注 / 产物陈化——陈化面含两条：渲染产物**缺**内嵌
+  真源指纹（N253：渲染链路写出的件必有模板指纹行，缺了即非渲染产物或被人手改），或
+  内嵌指纹 ≠ 当前真源指纹；仅 render:false 的真·手工投影允许无指纹（其漂移由字段级
+  逐字比对兜底）。
+
 用法：
     python scripts/verify_discipline.py                 # 默认校验 enabled 目标
     python scripts/verify_discipline.py --target codebuddy --allow-missing   # 干跑比对（产物未生成时不报错）
@@ -72,6 +78,17 @@ def extract(target, repo):
     if text is None:
         return None, "未找到受管块：" + R.expand(target["path"], repo)
     return text, R.expand(target["path"], repo)
+
+
+# 生效条件：target 为假值或矩阵未声明 render 键时一律返回 False（按「机器渲染」处理，保守）；仅 render 显式为 False 时返回 True。
+def is_manual_target(target) -> bool:
+    """该 target 是否为**手工投影**（矩阵声明 `render: false`，渲染链路不写它）。
+
+    单点判据（与 check_injection_matrix 的「含 render:false 手工件」口径同源）；
+    缺声明不等于豁免——真值/缺键一律按「机器渲染」处理（N253：只有真·手工件
+    才允许无内嵌指纹，详见 check() 的陈化面）。
+    """
+    return (target or {}).get("render", True) is False
 
 
 # 生效条件：str(target 的 memory or "") 以 "plugin/" 开头时直接返回 []（memory 缺失或为假值经 or 归一为 ""，不豁免）；否则逐行扫 text，含 TOOLNAME_DSH 任一名称且不含 MCP_CANON 的行按 1 起行号与 strip 后前 100 字符记入返回列表，无命中返回 []。
@@ -252,11 +269,27 @@ def check(target, src, repo, allow_missing):
     res["source_sha"] = R.source_sha(repo)
     res["stale"] = bool(m) and res["artifact_sha"] != res["source_sha"]
 
+    # N253（2026-10-05，high）：**机器渲染目标缺内嵌指纹 = 硬失败**（与指针分支 :207-211 同判据）。
+    # 修前「无指纹 ⇒ m 为空 ⇒ stale=False ⇒ ok=True」：陈化这一项（discipline-check.yml:4 自陈的
+    # 四项硬失败之一）可被四种形态静默绕过——删行 / 大写（或混合大小写）十六进制 / 空白插在
+    # 「前16位」与「）：」之间（半角或全角）/ 16 位 hex 内含空白；实测四类皆为 sha=None、
+    # missing=0、ok=True（同一条件下指针型 zcode-user 判 sha=None、missing=1、ok=False——
+    # 同库两套口径）。而渲染型产物是**由本仓渲染链路写出的**，其指纹行是模板固定行
+    # （full.md.tmpl:5 / rules.mdc.tmpl:12 / compact.txt.tmpl:18 / skill.md.tmpl:23），
+    # 缺了就说明它没走过渲染链路或被人手改——两种情形都不得放行。
+    # 只有真·手工投影（矩阵 render:false）才允许无指纹静默：它不在渲染链路内，其漂移由上面
+    # 的字段级逐字比对兜底（无指纹仍不能判陈化，但字段面已判）。
+    if m is None and not is_manual_target(target):
+        res["missing"].append({"no": 0, "field": "指纹", "key": "artifact_sha",
+                               "id": "-",
+                               "text": "渲染产物未内嵌真源指纹（模板固定行，形如"
+                                       "「真源指纹（SHA256 前16位）：<16 位小写 hex>」）"
+                                       "——无指纹即无法判陈化"})
+
     res["toolname"] = check_tool_alignment(text, target)
 
     # 陈化（产物内嵌指纹 ≠ 当前真源指纹）与缺失/孤儿/工具名漂移**同为硬失败**：
     # 改真源未重渲染的产物，会把旧纪律继续注入各端——静默放行等于门禁形同虚设。
-    # 无指纹的产物（如 render:false 的手工投影）m 为空 → stale=False，不受影响。
     res["ok"] = (not res["missing"] and not res["orphans"]
                  and not res["toolname"] and not res["stale"])
     return res

@@ -13,6 +13,15 @@ name: publish-artifact-check
 # 「基线 ⊆ 所选清单」（脚本只能增件，诱饵为骗过 R1/R4 必然漏列真发布件）。R5/R6 任一命中即
 # VERDICT=FAIL——生命周期脚本打印的清单不能冒充发布清单。
 #
+# N251（2026-10-05，high）：清单可信不等于清单**扫完**——内容面只覆盖「读得进来」的条目，
+# 而 `read_local_text_if_needed` 的三处静默 `return None`（stat 失败 / 超 TEXT_SIZE_LIMIT /
+# open 失败）与 `--registry` 侧的成员过滤都把「未扫」压成「已扫且干净」：被跳过的子集零
+# NOTE、零计数，R1 照打「内容面=0」、VERDICT=PASS / exit 0。实测：真形态令牌放进
+# 4,194,443 B 的 lib/big.txt（在清单内、size 字段在场）静默出货，同内容放进 53 B 小文件
+# 即 R1 FAIL（判据随文件大小翻转）；postpack 删掉 lib/gone.txt 后清单仍列该件而盘上已无，
+# 同样静默。故新增 R7 扫描面完整性：清单内文本件读不到 / 超限 / 真实路径越根一律逐条记账
+# 并判负——「未扫」不再等价于「干净」。
+#
 # 背景（2026-09-20 取证）：0.4.9 / 0.4.10 发布件实测夹带非追踪件（docs/experiments 2434 件、
 # whitebox_kb 运行时数据、md_cg/knowledge/orphan）；本 workflow 把「发版前机械核验」从人工
 # 记忆变为门禁。已发布版本按使用者裁定不回溯处置，红着即拦下一次发布。

@@ -5,6 +5,7 @@
 # 生效条件：本地模式需 npm 与 git 可用，且 --root 指向仓库根；
    registry 模式需网络可达 registry.npmjs.org。
 # 子功能：R1 凭据/密钥面；R2 私有数据面；R3 隐私文本；R4 非追踪件面；
+   R5 清单路径安全；R6 清单来源可信；R7 扫描面完整性（清单内文本件不得「未扫」而不报）；
    --registry 增加 tarball sha1/sha512/fileCount 一致性核验。
 # 执行：python scripts/check_publish_artifact.py [--root <仓库根>] [--registry <版本>] [--max-examples N] [--selftest]
 # 验证方式：本地 npm pack --dry-run --json 生成发布清单，扫描工作区文本；
@@ -13,7 +14,9 @@
 
 判据: R1 文件名/内容 token；R2 白箱 KB/实验区/缓存；R3 本机/沙箱路径；
 R4 包内非追踪件仅允许 lib/；R5 清单条目不得越出 --root；R6 清单来源须为
-npm 自身产出（N216：生命周期脚本 stdout 不得冒充发布清单）。
+npm 自身产出（N216：生命周期脚本 stdout 不得冒充发布清单）；R7 清单内文本件
+须真被扫描过——读不到 / 超 TEXT_SIZE_LIMIT 即判负（N251：「未扫」不得等价于
+「已扫且干净」）。
 用法: 本地模式 python scripts/check_publish_artifact.py --root <repo_root>；
 registry 后置核验 python scripts/check_publish_artifact.py --registry <version>。
 不适用条件: 非 npm 发布物；工作区缺少 npm 或 git；无法访问 registry.npmjs.org。
@@ -31,6 +34,7 @@ import re
 import subprocess
 import sys
 import tarfile
+import tempfile
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -45,6 +49,31 @@ TEXT_EXTS = {
 TEXT_SIZE_LIMIT = 3 * 1024 * 1024
 ALLOW_NONTRACKED = ("lib/",)
 BATCH_MAX = 400
+
+#: N251（2026-10-05，high）：清单内**文本件**却未被扫描的成因——「未扫」不得等价于
+#: 「已扫且干净」。修前 `read_local_text_if_needed` 的三处静默 `return None`（stat 失败 /
+#: 超 TEXT_SIZE_LIMIT / open 失败）与 registry 侧的成员过滤（`is_text_path(...) and
+#: size <= TEXT_SIZE_LIMIT`）都把两者压成同一可观测态：被跳过的子集零 NOTE、零计数，
+#: 而 R1 照样打印「内容面=0」、VERDICT=PASS / exit 0。实测两形态：①真形态令牌放进
+#: 4,194,443 B 的 `lib/big.txt`（在 npm 全形态清单内、size 字段在场）→ 静默出货，而
+#: 同一令牌放进 53 B 的小文件即 R1 FAIL（判据随文件大小翻转，等于没有判据）；②`postpack`
+#: 删掉 `lib/gone.txt` 后 npm 清单**仍列**该件而盘上已无 → 同样静默。
+#: 处置方向：逐条按成因记账并交 R7 判负（不得靠「读不到就跳过」把扫描面缩小）。
+UNSCANNED_UNREADABLE = "清单内文本件读不到（stat/open 失败）"
+#: 越根兜底闸命中：清单条目本身是包内相对路径（过了 R5 的 `unsafe_rel_reason`），
+#: 但符号链接/junction 归一后真实路径在 --root 之外——不读，同样属「未扫」。
+UNSCANNED_ESCAPE = "清单内文本件真实路径越出 --root（符号链接/链接点）"
+
+
+def unscanned_cause_oversize(size: int) -> str:
+    """清单内文本件超 TEXT_SIZE_LIMIT 的成因串（措辞单点，local / registry 共用）。"""
+    return "清单内文本件超 TEXT_SIZE_LIMIT（%d B > %d B）" % (size, TEXT_SIZE_LIMIT)
+
+
+def unscanned_entry(rel: str, cause: str) -> str:
+    """未扫条目记账行的**单点**（local / registry 同款，避免两套措辞漂移）。"""
+    return "%s（%s）" % (rel, cause)
+
 
 R1_FILE_RULES = [
     (r"(^|/)\.env$", "环境变量密文 .env"),
@@ -271,27 +300,41 @@ def base_env():
     return env
 
 
-def read_local_text_if_needed(root: str, rel: str):
+def read_local_text_detail(root: str, rel: str):
+    """读清单内文本件 → (text, 未扫成因)。**「未扫」判据的唯一单点**（N251）。
+
+    第二元素非空即表示「清单内本该扫却扫不成」，调用方须逐条记账并交 R7 判负——
+    修前三种 `return None`（stat 失败 / 超 TEXT_SIZE_LIMIT / open 失败）与「已扫且干净」
+    不可分，被跳过的子集零 NOTE 零计数（见 UNSCANNED_* 的取证注）。
+    返回 `(None, None)` 的两处是**按设计不扫**，不是未扫：①非文本扩展名（TEXT_EXTS 之外）——
+    二进制内容无 token 面可言；②越根条目（`unsafe_rel_reason` 命中）——R5 已记账判负，
+    且本条判据不许读它。
+    """
     ext = os.path.splitext(rel)[1].lower()
     if ext not in TEXT_EXTS:
-        return None
+        return None, None
     if unsafe_rel_reason(rel):
-        return None                      # 越根条目一律不读（N216；R5 已记账判负）
+        return None, None                # 越根条目一律不读（N216；R5 已记账判负）
     fp = os.path.join(root, *rel.split("/"))
     if not _within_root(root, fp):
-        return None                      # 兜底：清单判据之外的第二道越根闸
+        return None, UNSCANNED_ESCAPE    # 兜底：清单判据之外的第二道越根闸
     try:
         st = os.stat(fp)
     except OSError:
-        return None
+        return None, UNSCANNED_UNREADABLE
     if st.st_size > TEXT_SIZE_LIMIT:
-        return None
+        return None, unscanned_cause_oversize(st.st_size)
     try:
         with open(fp, "rb") as f:
             data = f.read()
     except OSError:
-        return None
-    return data.decode("utf-8", "replace")
+        return None, UNSCANNED_UNREADABLE
+    return data.decode("utf-8", "replace"), None
+
+
+def read_local_text_if_needed(root: str, rel: str):
+    """(兼容包装) → 文本内容或 None；语义与修前一致，成因面见 read_local_text_detail。"""
+    return read_local_text_detail(root, rel)[0]
 
 
 def parse_package_json(root: str):
@@ -583,8 +626,12 @@ def local_mode(root: str, report: CheckReport) -> int:
     r1_content_hits = []
     r3_hits = []
     notes = []
+    unscanned = []
     for rel in paths:
-        text = read_local_text_if_needed(root, rel)
+        text, cause = read_local_text_detail(root, rel)
+        if cause:
+            # N251：清单内却未扫——逐条记账，交 R7 判负；绝不再与「已扫且干净」同形。
+            unscanned.append(unscanned_entry(rel, cause))
         if text is None:
             continue
         _h, _n = scan_text_hits(text, R1_CONTENT_RULES, rel)
@@ -629,6 +676,13 @@ def local_mode(root: str, report: CheckReport) -> int:
         manifest["trust"],
         detail="；json 候选=%d 清单候选=%d"
                % (manifest["json_candidates"], manifest["manifest_candidates"]))
+    # N251：内容面只覆盖「读得进来」的那部分清单条目——读不到 / 超限的件必须显式判负，
+    # 否则 R1「内容面=0」把「未扫」读成「干净」（发版门禁的最后一道，不许有静默子集）。
+    report.rule(
+        "R7 扫描面完整性",
+        not unscanned,
+        unscanned,
+        detail="；清单文件数=%d 未扫文本件=%d" % (len(paths), len(unscanned)))
     return 0
 
 
@@ -710,6 +764,7 @@ def registry_mode(root: str, version: str, report: CheckReport) -> int:
             rel_files = []
             unsafe_members = []
             texts = {}
+            unscanned = []
             for m in members:
                 reason = unsafe_rel_reason(m.name)
                 if reason:
@@ -720,11 +775,20 @@ def registry_mode(root: str, version: str, report: CheckReport) -> int:
                     continue
                 rel = normalized_rel(m.name)
                 rel_files.append(rel)
-                if is_text_path(rel) and (m.size or 0) <= TEXT_SIZE_LIMIT:
-                    f = tf.extractfile(m)
-                    if f:
-                        data = f.read()
-                        texts[rel] = data.decode("utf-8", "replace")
+                if not is_text_path(rel):
+                    continue             # 非文本件按设计不扫（TEXT_EXTS 之外）
+                # N251：下面两条 continue 修前分别被写成「收集条件不满足」与「读不出即跳过」
+                # ——同一个「未扫」态与「已扫且干净」不可分。此处按成因逐条记账交 R7。
+                if (m.size or 0) > TEXT_SIZE_LIMIT:
+                    unscanned.append(
+                        unscanned_entry(rel, unscanned_cause_oversize(m.size or 0)))
+                    continue
+                f = tf.extractfile(m)
+                if not f:
+                    unscanned.append(unscanned_entry(rel, UNSCANNED_UNREADABLE))
+                    continue
+                data = f.read()
+                texts[rel] = data.decode("utf-8", "replace")
     except Exception as exc:  # noqa: BLE001
         print("  [环境错误] tarball 解包失败：%s: %s" % (type(exc).__name__, exc))
         return 2
@@ -752,6 +816,7 @@ def registry_mode(root: str, version: str, report: CheckReport) -> int:
     for rel in rel_files:
         text = texts.get(rel)
         if text is None:
+            # 非文本件，或未扫文本件——未扫成因已在收集期逐条记入 unscanned（见 R7）
             continue
         _h, _n = scan_text_hits(text, R1_CONTENT_RULES, rel)
         r1_content_hits.extend(_h)
@@ -777,6 +842,12 @@ def registry_mode(root: str, version: str, report: CheckReport) -> int:
         not unsafe_members,
         unsafe_members,
         detail="；tarball 条目越出包根即拒（`..` / 绝对 / 盘符 / UNC）")
+    # N251（registry 同族）：内容面只覆盖读得进来的成员——超限 / 读不出的文本成员判负。
+    report.rule(
+        "R7 扫描面完整性",
+        not unscanned,
+        unscanned,
+        detail="；包内文件数=%d 未扫文本件=%d" % (len(rel_files), len(unscanned)))
     return 0
 
 
@@ -892,6 +963,36 @@ def selftest() -> bool:
                     {"path": "a.js", "size": 1, "mode": 420}]}])
     check(esc_paths == ["a.js"] and len(esc_unsafe) == 1,
           "N216：越根条目不进扫描面且记账", (esc_paths, esc_unsafe))
+
+    # N251：「未扫」成因单点——清单内文本件读不到 / 超限须报成因（不得与「已扫且干净」同形）。
+    # 阈值经 globals 临时收窄，以免自检写 3MB 文件；真实阈值另由
+    # scripts/test_check_publish_artifact_coverage.py 的 C1/L1 腿按 TEXT_SIZE_LIMIT 取证。
+    with tempfile.TemporaryDirectory() as _t:
+        _ok = os.path.join(_t, "ok.txt")
+        with open(_ok, "w", encoding="utf-8", newline="\n") as _fh:
+            _fh.write("普通正文\n")
+        _img = os.path.join(_t, "img.png")
+        with open(_img, "wb") as _fh:
+            _fh.write(b"\x89PNG\r\n\x1a\n")
+        _tx, _cz = read_local_text_detail(_t, "ok.txt")
+        check(_tx is not None and _cz is None, "N251 已扫文本件无未扫成因", (_tx, _cz))
+        _tx, _cz = read_local_text_detail(_t, "gone.txt")
+        check(_tx is None and _cz == UNSCANNED_UNREADABLE,
+              "N251 清单内读不到 → 报未扫成因", _cz)
+        _tx, _cz = read_local_text_detail(_t, "img.png")
+        check(_tx is None and _cz is None, "N251 非文本扩展名 → 按设计不扫（无成因）", _cz)
+        _tx, _cz = read_local_text_detail(_t, "../outside.md")
+        check(_tx is None and _cz is None, "N251 越根条目 → R5 判负，不记未扫（不许读）", _cz)
+        _saved = globals()["TEXT_SIZE_LIMIT"]
+        globals()["TEXT_SIZE_LIMIT"] = 4
+        try:
+            _tx, _cz = read_local_text_detail(_t, "ok.txt")
+        finally:
+            globals()["TEXT_SIZE_LIMIT"] = _saved
+        check(_tx is None and bool(_cz) and "TEXT_SIZE_LIMIT" in _cz,
+              "N251 清单内超限 → 报未扫成因（成因与读不到可区分）", _cz)
+        check(len(unscanned_entry("a/b.txt", _cz)) > len("a/b.txt"),
+              "N251 未扫记账行单点含成因", unscanned_entry("a/b.txt", _cz))
 
     source_text = Path(__file__).read_text(encoding="utf-8")
     for label, rx in R3_RULES:

@@ -13,6 +13,14 @@ uname -s
 
 echo "=== python suites ==="
 fail=0; pass=0
+# N254（2026-10-05）：本脚本此前只有 set -u（无 set -e、无跨段聚合），末句是 echo → 进程
+# 退出码**恒 0**；消费退出码的宿主（docker run … && 下一步）把「全失败」读成「成功」。
+# 现复用同目录 scripts/linux_verify.sh:12-15 的既有单点 record，并以脚本末行
+# `[ "$fail" -eq 0 ]` 传播退出码（下面 python 套件段就地累加的是同两个计数器）。
+note() { echo "[$1] $2"; }
+record() { # record <label> <exit>
+  if [ "$2" -eq 0 ]; then pass=$((pass+1)); note "PASS" "$1"; else fail=$((fail+1)); note "FAIL" "$1"; fi
+}
 for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_interop test_p29_session_ingest_export test_p2 test_p2_mcp \
          test_p3 test_p43_pooling test_retr_gates_prodpath test_retr_s1 \
@@ -38,21 +46,24 @@ done
 echo "python_suite pass=$pass fail=$fail"
 
 echo "=== hive/scripts ==="
-python hive/test_orch.py >/dev/null 2>&1;            echo "orch=$?"
-python hive/test_exec_tools.py >/dev/null 2>&1;      echo "et=$?"
-python hive/test_serve_entry.py >/dev/null 2>&1;     echo "se=$?"
-python scripts/test_judgment_manifest.py >/dev/null 2>&1; echo "jm=$?"
+# N254：本段此前只 echo 退出码、不进聚合 → 该段全挂也不影响退出码。改用 record。
+python hive/test_orch.py >/dev/null 2>&1;            record "hive/test_orch.py" $?
+python hive/test_exec_tools.py >/dev/null 2>&1;      record "hive/test_exec_tools.py" $?
+python hive/test_serve_entry.py >/dev/null 2>&1;     record "hive/test_serve_entry.py" $?
+python scripts/test_judgment_manifest.py >/dev/null 2>&1; record "scripts/test_judgment_manifest.py" $?
 
 echo "=== gate（Linux 口径：四段；cpa 需 npm，无则跳过） ==="
 if command -v npm >/dev/null 2>&1; then
-  python scripts/check_publish_artifact.py >/dev/null 2>&1; echo "cpa=$?"
+  python scripts/check_publish_artifact.py >/dev/null 2>&1; record "check_publish_artifact" $?
 else
   echo "cpa=SKIP（容器无 npm——打包清单段由主机验证）"
+  # SKIP 不判负，与 run_tests 的缺依赖自判 SKIP 同口径（不计 pass 也不计 fail）
 fi
 python scripts/cogmap_sync.py check >/dev/null 2>&1 && \
 python scripts/link_check.py >/dev/null 2>&1 && \
 python scripts/workspace_index.py --check >/dev/null 2>&1 && \
 python scripts/verify_discipline.py --allow-missing >/dev/null 2>&1
-echo "gate4=$?"
+record "gate4 (cogmap/link/index/discipline)" $?
 
-echo "=== done ==="
+echo "=== 汇总: $pass pass / $fail fail ==="
+[ "$fail" -eq 0 ]

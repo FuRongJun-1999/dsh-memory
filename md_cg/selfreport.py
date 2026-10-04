@@ -126,10 +126,19 @@ def read_all() -> dict:
     return out
 
 
-# 生效条件：pids 为可迭代的 pid 集合（通常是「当前进程表中仍在的 md_cg 进程」）；删除自报目录中 pid 不在该集合内的 *.json 与遗留 *.tmp，返回删除条数；目录不存在或删除失败逐项吞掉，不抛。
-def purge(pids) -> int:
-    """清掉不属于「仍在的进程」的自报文件（防目录随重启次数膨胀）。"""
+# 生效条件：pids 为可迭代的 pid 集合（通常是「当前进程表中仍在的 md_cg 进程」），allow_empty 为破坏性动作的显式开关；keep 非空时删除自报目录中 pid 不在该集合内的 *.json 与遗留 *.tmp 并返回删除条数；keep 为**空集**且 allow_empty=False（默认）时一律不删并返回 0——空集既可能是「在役进程真的全部退出」也可能是「探测失败/未经校验」，两者不可分，故清空须显式开启；目录不存在或删除失败逐项吞掉，不抛。
+def purge(pids, *, allow_empty: bool = False) -> int:
+    """清掉不属于「仍在的进程」的自报文件（防目录随重启次数膨胀）。
+
+    N255（2026-10-05）：keep 为空集时**默认不删任何东西**（fail-closed）——空集既可能来自
+    「在役进程确已全部退出」，也可能来自**一次失败/未经校验的探测**。后者在本仓实证过：
+    `scripts/mdcg_stale_servers.py` 的 scan() 尾部曾无条件调用 `purge([])`（探测失败 →
+    pids 为空），把自报目录下全部 *.json 一次删光（沙盒 3 件预置全灭）。确要清空时，由
+    **探测已成功**的调用方显式传 `allow_empty=True`（见该脚本的 purge_reports()）。
+    """
     keep = {int(p) for p in (pids or ())}
+    if not keep and not allow_empty:
+        return 0
     n = 0
     try:
         names = os.listdir(SELF_REPORT_DIR)
