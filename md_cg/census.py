@@ -52,7 +52,8 @@ def load(root):
             try:
                 with open(p, encoding="utf-8") as f:
                     fm, _content = nodefile.loads(f.read())
-            except OSError:
+            except (OSError, UnicodeDecodeError):
+                # 损坏非 UTF-8 节点跳过（与 PR #54 读面同口径）
                 continue
             if not fm:
                 continue

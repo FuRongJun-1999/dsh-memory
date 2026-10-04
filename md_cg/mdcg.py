@@ -4784,6 +4784,11 @@ class MdCG:
         # 5 要素完整度（全节点扫一遍，可能慢但只在 health() 调用）
         layer_stats = {}
         neg_stats = {}
+        # PR #54 的跳过是**静默**的：被跳过的节点不进 layer_stats，读数对
+        # 「少算了几个」无自述（跳过与不存在在统计上同形）。加显式计数：
+        # 纯增量、与既有键无冲突，与 bucket_scope 同构的扩键流程。
+        # skipped_unreadable=0 ⇔ 索引内每个节点本进程都读盘成功。
+        skipped_unreadable = 0
         for e in list(self.index["nodes"].values()):
             full_path = self._node_disk_path(e)
             try:
@@ -4792,6 +4797,7 @@ class MdCG:
             except (OSError, UnicodeDecodeError):
                 # 与索引重建同口径：损坏的非 UTF-8 节点不应让健康端点
                 # 整体崩溃；跳过该节点，保留其余盘面读数。
+                skipped_unreadable += 1
                 continue
             cpl = nodefile.ccg_completeness(content)
             layer = e["layer"]
@@ -4812,4 +4818,5 @@ class MdCG:
                 neg_stats[layer] += 1
         h["ccg_by_layer"] = layer_stats
         h["neg_memory_counts"] = neg_stats
+        h["skipped_unreadable"] = skipped_unreadable
         return h

@@ -3005,7 +3005,7 @@ class MdCGOS(MdCG):
     def is_tombstoned(self, node_id: str):
         return any(r.get("id") == node_id for r in read_jsonl(self.deletions_log))
 
-# 生效条件：当 node_id 传入时，若 deletions_log 中存在该 id 且 force=False 返回 tombstoned 拒绝；否则检查 trash_dir/{node_id}.md，os.path.exists 为 False 返回 not_in_trash；可打开则读取并以 add(override=True) + trash frontmatter 元数据全量透传（显式形参逐项传，其余键经 **extra 回写；lifecycle_state 仅在 active→该态合法迁移时透传）恢复、移除 trash 源、audit，返回 ok True/id/forced=bool(force)；
+# 生效条件：当 node_id 传入时，若 deletions_log 中存在该 id 且 force=False 返回 tombstoned 拒绝；否则检查 trash_dir/{node_id}.md，os.path.exists 为 False 返回 not_in_trash；文件含坏字节（非 UTF-8）无法解析时返回 error=corrupt 且 trash 源原样保留（不删不移）；可打开则读取并以 add(override=True) + trash frontmatter 元数据全量透传（显式形参逐项传，其余键经 **extra 回写；lifecycle_state 仅在 active→该态合法迁移时透传）恢复、移除 trash 源、audit，返回 ok True/id/forced=bool(force)；
     def restore(self, node_id: str, force: bool = False):
         """恢复：若在删除清单中且未 force → 拒绝（恢复时删除检查）。"""
         tomb = [r for r in read_jsonl(self.deletions_log) if r.get("id") == node_id]
@@ -3015,8 +3015,14 @@ class MdCGOS(MdCG):
         src = os.path.join(self.trash_dir, f"{node_id}.md")
         if not os.path.exists(src):
             return {"ok": False, "error": "not_in_trash"}
-        with open(src, encoding="utf-8") as f:
-            fm, content = nodefile.loads(f.read())
+        try:
+            with open(src, encoding="utf-8") as f:
+                fm, content = nodefile.loads(f.read())
+        except UnicodeDecodeError:
+            # trash 源损坏：返回结构化失败，源文件原样保留（不删不移）
+            return {"ok": False, "error": "corrupt",
+                    "reason": "trash 文件非 UTF-8（损坏），恢复中止；"
+                              "源文件原样保留"}
         layer = fm.get("layer", "knowledge")
         # 恢复 = 原样放回：add 是**全量重建 fm**，只传个位数字段会把 edges/
         # depends_on/验证态/生命周期/created_at/语义摘要/证据计数等元数据永久

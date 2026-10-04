@@ -155,7 +155,7 @@ def collect_impact(cg, node_id):
     }
 
 
-# 生效条件：rel 指向的文件不存在时抛 RollbackError(code="preimage_missing")；存在则读取并以 cg._open_content(node_id, fm, raw) 对称解封，返回 (fm, content)——content 为 None（无密钥/身份不符）时抛 RollbackError(code="preimage_unreadable")；
+# 生效条件：rel 指向的文件不存在时抛 RollbackError(code="preimage_missing")；存在则读取并以 cg._open_content(node_id, fm, raw) 对称解封，返回 (fm, content)——content 为 None（无密钥/身份不符）时抛 RollbackError(code="preimage_unreadable")；文件含坏字节（非 UTF-8）无法解析时同样抛 RollbackError(code="preimage_unreadable")（fail-closed，不裸抛 UnicodeDecodeError）；
 def read_preimage(cg, node_id, rel):
     """读执行时点前像文件（**与 snapshot_preimage 对称**：写走 _write_node 封装、
     读走 _open_content 解封）——返回 (fm, content)。
@@ -163,14 +163,23 @@ def read_preimage(cg, node_id, rel):
     注意：快照文件以节点文件同款 nodefile 序列化落盘；加密库中其内容为密封
     形态，必须经解封钩子读，直接 nodefile.loads 会把密文当明文再次封装
     （双重封装）。非加密库两钩子恒等（探针实测逐字节一致）。
+
+    文件含坏字节（非 UTF-8）无法解析时抛 RollbackError(code="preimage_unreadable")
+    ——fail-closed，不裸抛 UnicodeDecodeError。
     """
     p = os.path.join(cg.root, str(rel).replace("/", os.sep))
     if not os.path.isfile(p):
         raise RollbackError("preimage_missing",
                             "前像文件不存在：%s——变更单可能未执行（无前像）"
                             "或快照被移走；fail-closed 不猜一个前像。" % rel)
-    with open(p, encoding="utf-8") as f:
-        fm, raw = nodefile.loads(f.read())
+    try:
+        with open(p, encoding="utf-8") as f:
+            fm, raw = nodefile.loads(f.read())
+    except UnicodeDecodeError as exc:
+        # 坏字节/非 UTF-8：fail-closed——绝不让 UnicodeDecodeError 裸抛逃逸
+        raise RollbackError("preimage_unreadable",
+                            "前像文件坏字节 / 非 UTF-8 无法解析：%s（%s）——"
+                            "fail-closed 不回滚。" % (rel, exc))
     content = cg._open_content(node_id, fm, raw)
     if content is None:
         raise RollbackError("preimage_unreadable",

@@ -312,7 +312,7 @@ def load_node(node_id, root, *, index=None) -> dict:
     try:
         with open(fp, encoding="utf-8") as f:
             text = f.read()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return {"node_id": node_id, "meta": dict(meta), "fm": {}, "content": None,
                 "text": None, "path": fp}
     fm, content = NF.loads(text)
