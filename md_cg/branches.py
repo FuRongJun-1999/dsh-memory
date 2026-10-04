@@ -111,6 +111,9 @@ def fork(cg, node_ids, branch_id=None, note=None) -> dict:
                condition_space=fm.get("condition_space"),
                importance=float(fm.get("importance", 0.5)),
                verification_basis=fm.get("verification_basis") or "test",
+               # A1（2026-10-05，复核补）：断言质量字段随副本携带（与
+               # verification_basis 同族；缺省 None 时 add 不落键，零行为变化）。
+               check_strength=fm.get("check_strength"),
                non_applicable_conditions=fm.get("non_applicable_conditions"),
                consistency=False,
                derived_from=[nid], relation="split_from",
@@ -165,6 +168,8 @@ def rewrite(cg, node_id, content, tags=None, importance=None,
                             else (fm.get("importance") or 0.5)),
            condition_space=fm.get("condition_space"),
            verification_basis=fm.get("verification_basis") or "test",
+           # A1（2026-10-05，复核补）：断言质量字段随重写携带（同上）。
+           check_strength=fm.get("check_strength"),
            non_applicable_conditions=fm.get("non_applicable_conditions"),
            override=True, consistency=False,
            derived_from=list(fm.get("derived_from") or []),

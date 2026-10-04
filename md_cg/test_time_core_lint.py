@@ -631,7 +631,9 @@ def g9():
                                            "confidence": 0.8}],
               "subgraph": {"nodes": ["n2"]},
               "valid_from": ts - 100, "valid_until": ts + 100000,
-              "effective_from": ts - 100, "effective_until": ts + 100000},
+              "effective_from": ts - 100, "effective_until": ts + 100000,
+              # A1（2026-10-05）：检验强度键存活断言（G9f）的夹具值。
+              "check_strength": "hoop"},
              body="# 功能名：n1\n# 生效条件：无条件\n# 子功能：无\n"
                   "# 执行：无\n# 验证方式：test\n# 不适用条件：无\n\n"
                   "上游条件 葡萄 触发。\n")
@@ -651,6 +653,11 @@ def g9():
     for k in ("valid_from", "valid_until", "effective_from", "effective_until"):
         ok(k in e1 and e1.get(k) == e0.get(k),
            "G9d 双时间轴键 %s 存活（trust.validity 免读盘判定面）" % k)
+    ok(nodefile.CHECK_STRENGTH_FIELD in e1
+       and e1.get(nodefile.CHECK_STRENGTH_FIELD)
+       == e0.get(nodefile.CHECK_STRENGTH_FIELD),
+       "G9f 检验强度键存活（check_strength，A1 新键；与 G9b–d 同族防漂移，"
+       "2026-10-05 复核补）")
     # 端到端：搬迁后因果路仍能经边召到下游（新路不再静默拿不到边）
     # 种子 = 词法命中 n1（上游），目标 n2 词面无重叠 —— 正是因果路的靶区。
     _r, m = cg.search_rrf("葡萄", k=5, record=False, paths=("lexical", "chain"))

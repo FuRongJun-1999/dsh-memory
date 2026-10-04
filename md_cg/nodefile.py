@@ -123,6 +123,16 @@ REPRODUCIBLE_BASIS = ("compiler", "test", "measurement", "formal_proof", "data")
 #: 来源一致性档：文科断言可用（来源表述一致即可）
 CONSISTENCY_BASIS = ("textbook", "public_kb")
 
+# ---- 多主体世界模型对齐（2026-10-05）：检验强度字段真源 ----------------------------
+# 「检验强度」分级（过程追踪过程 tracing 方法，见对齐评估 v0.1 §2 L1）：一条断言
+# 的**证据能带走多少裁决权重**——hoop（必要证据：不满足即证伪）/ smoking_gun
+# （决定性：单独即可确立）/ doubly_decisive（同时排除竞争假设）。与
+# `verification_basis`（来源**类型**）正交：一个说「凭什么类别的证据」，一个说
+# 「证据的裁决力有多强」。缺省 None＝未声明（**不落 fm 键**，存量零迁移、读取侧
+# `.get()` 回落）；显式传入时校验闭集（与 VERIFICATION_BASIS 同风格）。
+CHECK_STRENGTHS = ("hoop", "smoking_gun", "doubly_decisive")
+CHECK_STRENGTH_FIELD = "check_strength"
+
 # ---- 裁定 D（2026-09-19）：可验证记忆单元的**字段名真源** --------------------------
 # 「子功能」的契约角色是**依赖 dependency**（见 CCG_CONTRACT_ROLES），其落字段即
 # `depends_on`——名字与角色对齐（不叫 sub_features，避免同一概念两种写法）。

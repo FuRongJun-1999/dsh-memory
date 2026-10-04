@@ -135,7 +135,7 @@ _STALE_SNIPPET = (
     "import io, json, os\n"
     "from md_cg import generation as g\n"
     "target = os.path.join(os.path.dirname(g.__file__), 'fsutil.py')\n"
-    "raw = io.open(target, encoding='utf-8').read()\n"
+    "raw = io.open(target, encoding='utf-8', newline='').read()\n"
     "clean = g.is_stale()\n"
     "io.open(target, 'w', encoding='utf-8', newline='').write(raw + '\\n# 守卫临时改动\\n')\n"
     "modified = g.is_stale()\n"
@@ -177,8 +177,11 @@ def check_verify_and_mutation(tmp):
     _ok("一·全绿", "verify_delegations() 通过，且副本与当前树同代 %s" % real_fp)
 
     # 二：定点变异——改名 mdcg.py 里的 mint_auto_id 定义
+    # 读写都 newline=""（字节忠实）：恢复必须逐字节复原——默认读会把 CRLF
+    # 压成 LF、再以 newline="" 写回即静默改变文件（2026-10-05 复核定因：
+    # 该非对称曾使「三·判别力」在 CRLF 工作区下必红）。
     mdcg_path = os.path.join(tmp, "md_cg", "mdcg.py")
-    with open(mdcg_path, encoding="utf-8") as fh:
+    with open(mdcg_path, encoding="utf-8", newline="") as fh:
         original = fh.read()
     mutated = original.replace("def mint_auto_id(", "def mint_auto_id_renamed(", 1)
     if mutated == original:
