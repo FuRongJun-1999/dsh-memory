@@ -1584,8 +1584,9 @@ _SRC_MUTATIONS = (
      '                if False:', 3),
     # ⑭ SHIM 登记丢失（**常量型变异**，kind="attr"）——baseline 假包缺
     # autonomy_modes（补强一 的原形态：容器栈一 37/1 的那条红）。
+    # 锚点随 _SHIMS 文本演进同步（2026-10-05 A2：_SHIMS 尾部新增 ghostref）。
     ("SHIM 登记丢失（_SHIMS 去掉 autonomy_modes）", "attr", _tpc, "_SHIMS",
-     '"autonomy_modes")',
+     '"autonomy_modes", "ghostref")',
      'tuple(x for x in _SHIMS if x != "autonomy_modes")', 2),
     # ⑮ 执行桥不拍前像（批次③）——三字段的「执行时点」半支失效：before 空、
     # rollback 空，回滚句柄不存在、影响面缺失。

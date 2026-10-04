@@ -114,6 +114,9 @@ def fork(cg, node_ids, branch_id=None, note=None) -> dict:
                # A1（2026-10-05，复核补）：断言质量字段随副本携带（与
                # verification_basis 同族；缺省 None 时 add 不落键，零行为变化）。
                check_strength=fm.get("check_strength"),
+               # A2（2026-10-05）：幽灵引用标记随副本携带（正文属性——副本
+               # 正文与主支一致则标记有效；缺省 None 不落键）。
+               uncertain_refs=fm.get("uncertain_refs"),
                non_applicable_conditions=fm.get("non_applicable_conditions"),
                consistency=False,
                derived_from=[nid], relation="split_from",
@@ -159,8 +162,16 @@ def rewrite(cg, node_id, content, tags=None, importance=None,
     if isinstance(content, dict) or content is None:
         return {"ok": False, "error": "content 须为字符串"}
     for k in ("branch_id", "branched_from", "branch_note", "derived_from",
-              "relation", "merged_from_branch", "override", "consistency"):
-        extra.pop(k, None)   # 归属/血缘/写法闸不可经 extra 篡改
+              "relation", "merged_from_branch", "override", "consistency",
+              "uncertain_refs"):
+        extra.pop(k, None)   # 归属/血缘/写法闸/检测产物不可经 extra 篡改
+    # A2（2026-10-05，复核 yellow-1 修）：标记按**新正文**重算——本函数是
+    # 「改正文的唯一正路」，携带旧标记会与正文脱节（干净正文带陈旧标记 /
+    # 幽灵正文漏标，双向都错）；与 mdcg.add「正文属性、按当次检测重算」
+    # 的声明同口径。
+    from . import ghostref as _ghostref
+    _ur = _ghostref.find_ghost_phrases(
+        str(content or ""), known=set((cg.index.get("nodes") or {}).keys()))
     cg.add(nid, str(content or ""),
            layer=fm.get("layer") or e.get("layer") or "knowledge",
            tags=list(tags if tags is not None else (fm.get("tags") or [])),
@@ -170,6 +181,8 @@ def rewrite(cg, node_id, content, tags=None, importance=None,
            verification_basis=fm.get("verification_basis") or "test",
            # A1（2026-10-05，复核补）：断言质量字段随重写携带（同上）。
            check_strength=fm.get("check_strength"),
+           # A2（2026-10-05）：幽灵引用标记按新正文重算（见上）。
+           uncertain_refs=_ur or None,
            non_applicable_conditions=fm.get("non_applicable_conditions"),
            override=True, consistency=False,
            derived_from=list(fm.get("derived_from") or []),
@@ -208,13 +221,21 @@ def merge(cg, branch_id, reason=None) -> dict:
         chain = list(old_fm.get("derived_from") or [])
         if nid not in chain:
             chain.append(nid)
-        cg.add(orig, (src or {}).get("content") or "",
+        # A2（2026-10-05，复核 yellow-2① 修）：主支正文 = 分支正文 ⇒ 标记按
+        # 该正文重算（此前不携带 = 幽灵正文回写后无标记，方向与「宁标勿漏」
+        # 相反；fork/rewrite 已接线，此处补齐同族）。
+        from . import ghostref as _ghostref
+        _mcontent = (src or {}).get("content") or ""
+        _mur = _ghostref.find_ghost_phrases(
+            _mcontent, known=set((cg.index.get("nodes") or {}).keys()))
+        cg.add(orig, _mcontent,
                layer=old_fm.get("layer") or e.get("layer") or "knowledge",
                tags=list(old_fm.get("tags") or e.get("tags") or []),
                condition_space=src_fm.get("condition_space"),
                importance=float(old_fm.get("importance", 0.5)),
                verification_basis=old_fm.get("verification_basis") or "test",
                non_applicable_conditions=old_fm.get("non_applicable_conditions"),
+               uncertain_refs=_mur or None,
                override=True, consistency=False,
                derived_from=chain, relation="merged_from",
                merged_from_branch=bid, actor="branch_merge")

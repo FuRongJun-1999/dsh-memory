@@ -53,7 +53,8 @@ def _report(tag, out, node_id):
           "| edges:", len(_edges(node_id)),
           "| 节点含 uncertain/ghost 类键:",
           sorted(k for k in fm if "uncertain" in k or "ghost" in k),
-          "| 出口含告警键:", sorted(k for k in out if "ghost" in k or "warn" in k))
+          "| 出口含告警键:",
+          sorted(k for k in out if "ghost" in k or "late" in k or "warn" in k))
 
 
 # ---- P1 短语层回指·无可解析出处（现状应零痕迹）----

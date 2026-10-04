@@ -133,6 +133,12 @@ CONSISTENCY_BASIS = ("textbook", "public_kb")
 CHECK_STRENGTHS = ("hoop", "smoking_gun", "doubly_decisive")
 CHECK_STRENGTH_FIELD = "check_strength"
 
+#: 幽灵引用标记字段（A2，多主体世界模型对齐 v0.1 §2 L1「转引不得升级」）：
+#: 写入链检测到的**无可解析出处**的回指短语清单（短语层），落 fm 供后续
+#: 裁决/检索看见。**正文属性**：每次写入按当次检测重算、不继承（与
+#: check_strength 的声明继承语义相反——正文变了检测就该变）。
+UNCERTAIN_REFS_FIELD = "uncertain_refs"
+
 # ---- 裁定 D（2026-09-19）：可验证记忆单元的**字段名真源** --------------------------
 # 「子功能」的契约角色是**依赖 dependency**（见 CCG_CONTRACT_ROLES），其落字段即
 # `depends_on`——名字与角色对齐（不叫 sub_features，避免同一概念两种写法）。

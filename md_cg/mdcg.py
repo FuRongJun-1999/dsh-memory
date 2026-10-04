@@ -1903,6 +1903,10 @@ class MdCG:
             # 多主体世界模型对齐 v0.1（L1）：检验强度入快照（与写入路径 _stage
             # 同口径——重建后与写入后的条目形态一致，N137 同款纪律）。
             nodefile.CHECK_STRENGTH_FIELD: fm.get(nodefile.CHECK_STRENGTH_FIELD),
+            # A2（2026-10-05，复核 info-①）：幽灵标记也入快照——该键**不继承**
+            # （正文属性），入条目是为**字段级可见性**（索引筛选/快照统计不必读盘
+            # 开 fm），非继承源；与 check_strength 同口径仅为形态一致。
+            nodefile.UNCERTAIN_REFS_FIELD: fm.get(nodefile.UNCERTAIN_REFS_FIELD),
             "has_neg_conditions": nodefile.has_non_applicable(content),
             # ── P2-1（§5.1 六要素 6 行）：后两行的**索引键**入快照 ──────────
             # 验证方式 → 后置条件词；不适用条件 → 拒绝域词。与既有
@@ -2078,7 +2082,7 @@ class MdCG:
             valid_until=None, effective_from=None, effective_until=None,
             believed_at=None, verification_state: str = None,
             importance_source: str = None, check_strength: str = None,
-            **extra) -> str:
+            uncertain_refs=None, **extra) -> str:
         """写入一个节点。
 
         verification_basis: 外部验证基底（白箱信任的硬门槛），
@@ -2120,6 +2124,11 @@ class MdCG:
                     正交的**裁决力**分级（多主体世界模型对齐 v0.1 §2 L1）。
                     **覆写既有节点时默认继承**（同 verification_state 的坑）；
                     缺省 None 不落键（存量零迁移）。
+        uncertain_refs: 幽灵引用标记（真源 nodefile.UNCERTAIN_REFS_FIELD）——
+                    写入链检测到的**无可解析出处**的回指短语清单（检测在
+                    writepipe._gate_ghostref，多主体世界模型对齐 v0.1 §2 L1）。
+                    与 check_strength **相反不继承**：这是正文属性，正文变了
+                    检测就该变（覆写按当次检测重算，缺省 None 不落键）。
         """
         if layer not in LAYERS:
             raise ValueError(f"未知层：{layer}（允许：{LAYERS}）")
@@ -2162,6 +2171,8 @@ class MdCG:
             raise ValueError(f"未知验证基底：{verification_basis}（允许：{VERIFICATION_BASIS}）")
         if check_strength is not None and check_strength not in CHECK_STRENGTHS:
             raise ValueError(f"未知检验强度：{check_strength}（允许：{CHECK_STRENGTHS}）")
+        if uncertain_refs is not None and not isinstance(uncertain_refs, (list, tuple)):
+            raise ValueError("uncertain_refs 须为短语列表（list/tuple）")
         # 写保护：self/anchor 层、protected 标记、importance≥0.7 的**既有**节点
         # 不可被任意覆写；覆盖需 override=True（旧版本自动快照 + 审计留痕）。
         # N195（2026-09-28，多进程共享库形态）：写路径同样必须做代际感知——
@@ -2353,6 +2364,13 @@ class MdCG:
             _cs = None
         if _cs is not None:
             fm[nodefile.CHECK_STRENGTH_FIELD] = _cs
+        # uncertain_refs（A2 幽灵引用标记）：**正文属性、不继承**——覆写时 fm
+        # 全量重建，若沿用旧值会把「已改写掉幽灵回指的新正文」误标为仍有幽灵
+        # （与 check_strength 的声明继承语义相反）。仅在当次检测/显式传入非空
+        # 时落键；cap 16 只防直调灌超长（检测面本身已去重保序）。
+        if uncertain_refs:
+            fm[nodefile.UNCERTAIN_REFS_FIELD] = [
+                str(x) for x in uncertain_refs][:16]
         # 显式入口兼容两种写法：`state=`（调用方直觉）与 `lifecycle_state=`。
         # `state` 必须 **pop 掉**——该键名已属裁决四态（ACCEPT/REJECT/DEFER/
         # BLINDSPOT），落进 frontmatter 只会在读面制造同名歧义；归一到真字段名后
@@ -2537,6 +2555,9 @@ class MdCG:
             # 多主体世界模型对齐 v0.1（L1）：检验强度入快照——覆写继承免读文件
             # （prev_entry 取值）且与 _node_entry 同口径（N137 同款纪律）。
             nodefile.CHECK_STRENGTH_FIELD: fm.get(nodefile.CHECK_STRENGTH_FIELD),
+            # A2（2026-10-05，复核 info-①）：幽灵标记入快照（字段级可见性；
+            # 不继承——见 _node_entry 同款注释）。
+            nodefile.UNCERTAIN_REFS_FIELD: fm.get(nodefile.UNCERTAIN_REFS_FIELD),
             "has_neg_conditions": nodefile.has_non_applicable(sealed),
             # P2-1 / P4-2①：与 `_node_entry`（重建路径）**同口径**——写路径的
             # 定向 upsert 若漏这两组键，就得等下一次全量重建才补上（N137 同款
@@ -4558,6 +4579,9 @@ class MdCG:
             # A1（2026-10-05，复核实证）：检验强度随搬迁携带——N137 同款：
             # 搬迁条目缺键＝「move→普通覆写」链的继承源丢失该值 → 真丢数据。
             nodefile.CHECK_STRENGTH_FIELD: fm.get(nodefile.CHECK_STRENGTH_FIELD),
+            # A2（2026-10-05，复核 info-①）：幽灵标记随搬迁携带（字段级可见性；
+            # 不继承——搬迁不改正文，值从盘面 fm 读取，形态与重建条目一致）。
+            nodefile.UNCERTAIN_REFS_FIELD: fm.get(nodefile.UNCERTAIN_REFS_FIELD),
             "has_neg_conditions": nodefile.has_non_applicable(node["content"]),
             # P2-1 / P4-2①（与 `_node_entry` / `add()` 同口径；N137 的教训：
             # 搬迁条目缺键 = 新检索路对搬迁后的节点静默不可达）

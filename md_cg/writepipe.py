@@ -422,6 +422,45 @@ def _gate_gated(ctx):
     return out
 
 
+# 生效条件：a.get("ghostref") 为 False 时跳过（opt-out，与 linkref=False 同款）；否则对 a["content"]
+# 做幽灵引用检测（ghostref.check：短语层 + id 层），结果非空时分别写入 ctx["ghost_phrases"] /
+# ctx["late_refs"] 供链尾执行器落 fm 与出口告警消费；**恒返回 None（永不短路）**——本闸是标记/告警级，
+# 不参与拒收判定。
+def _gate_ghostref(ctx):
+    """幽灵引用闸（before 链：linkref 之后、deps 之前）：标记 + 降级告警，**不拒收**。
+
+    两条防线（对齐评估 v0.1 §2 L1「转引不得升级」；CD-WHALE-01 发现 C）：
+      ① 短语层：回指短语（「上次的/之前的/明明讲过」）且句内无可解析出处
+         ⇒ ctx["ghost_phrases"] → 落 fm.uncertain_refs（A2 标记面）；
+      ② id 层：引用目标创建时刻晚于本文档声明的生效起点（valid_from/
+         effective_from）⇒ ctx["late_refs"] → 出口降级告警（不改建边判定）。
+
+    为何不短路（与 deps 硬拒的边界）：回指是现实写作的常态——「上次的帐篷」
+    在对话记忆里天然存在，缺失的是**出处记录**而非内容本身。拒收会把正常
+    记忆挡在门外；标记让「出处不确定」这事可见、可裁决（未决不进二值）。
+
+    为何消费 ctx["linkref_targets"] 而非重算：linkref 是 targets 的唯一
+    写入点（同一次解析的两个面）；重算会引入「两次解析结果漂移」的可能。
+    """
+    a = ctx["a"]
+    if a.get("ghostref") is False:
+        return None
+    from . import ghostref as _ghostref
+    # own_from 取显式声明（**is None 判定**：0/空串不做假值跳转——
+    # 与 budget_tokens「显式 0 也是显式」同款口径）。
+    _own = a.get("valid_from")
+    if _own is None:
+        _own = a.get("effective_from")
+    rep = _ghostref.check(ctx["cg"], a.get("content") or "",
+                          linkref_targets=ctx.get("linkref_targets"),
+                          own_from=_own)
+    if rep["ghost_phrases"]:
+        ctx["ghost_phrases"] = rep["ghost_phrases"]
+    if rep["late_refs"]:
+        ctx["late_refs"] = rep["late_refs"]
+    return None
+
+
 # 生效条件：ctx["a"]["content"] 的「# 子功能：」行含显式跨节点引用（`@<节点 id>`）且 depends_on 解析为空时返回 ok=False/error="E050" 的终态；depends_on 含库中不存在的 id 时返回 ok=False/error="E051" 的终态；其余（无该行 / 哨兵 / 自然语言自述 / 声明且目标齐备）返回 None 放行；
 def _gate_deps(ctx):
     """依赖声明闸（before 链：linkref 之后、audit 之前）：**硬拒条件缺失**。
@@ -578,11 +617,33 @@ def _executor(ctx):
            depends_on=trust.as_deps(a.get("depends_on")),
            valid_from=a.get("valid_from"), valid_until=a.get("valid_until"),
            verification_state=a.get("verification_state"),
+           # A2 幽灵引用标记（正文属性：每次写入按当次检测重算，不继承——
+           # 与 check_strength 的声明继承相反；缺省 None 不落键）。
+           uncertain_refs=ctx.get("ghost_phrases") or None,
            **_hyperedge_extra(a))
     out = {"ok": True, "id": ctx["nid"], "committed": True,
            "verdict": ctx["verdict"]}
     if ctx.get("cvd") is not None:
         out["consistency"] = ctx["cvd"]
+    # A2 幽灵引用出口（标记/告警级，不改写入语义）：短语层标记已随
+    # uncertain_refs 落 fm，此处把「值写进了哪里、怎么处置」如实带回。
+    if ctx.get("ghost_phrases"):
+        from . import nodefile
+        _gp = list(ctx["ghost_phrases"])
+        out["ghost_refs"] = _gp[:16]
+        out["ghost_hint"] = (
+            "幽灵引用标记（A2）：正文含无可解析出处的回指短语（%s）——"
+            "已落 fm.%s（**未拒收**）。若其指代某条既有记忆，请改为可解析引用"
+            "（正文写裸 id，写入链自动建 reference 边）；确为首次出现时，"
+            "该标记即「出处待补」的诚实记录。"
+            % ("、".join(_gp[:5]), nodefile.UNCERTAIN_REFS_FIELD))
+    if ctx.get("late_refs"):
+        out["late_refs"] = list(ctx["late_refs"])[:10]
+        out["late_hint"] = (
+            "目标晚于自身（A2 降级告警）：本文档声明的生效起点早于被引目标的"
+            "创建时刻——引用了「当时尚不存在」的目标。边照常建立（linkref 不看"
+            "时间轴）；请核对两条时间轴：若引用意图成立可忽略，若是回填/转写"
+            "产生的时序错觉，请修正 valid_from。")
     # ⑥：直写提示（不改落盘行为、不改 verdict；见本函数开头注释）
     if _prior is not None:
         out["overwrite_of"] = _prior
@@ -727,6 +788,12 @@ def install_default_gates(pipe):
     """
     from . import linkref
     pipe.register_before("linkref", linkref.before_hook(), position=0)
+    # A2 幽灵引用闸（2026-10-05）：插在 linkref 之后——判据 ② 要消费
+    # ctx["linkref_targets"]（linkref 是 targets 的唯一写入点）；判据 ① 的
+    # 「句内无可解析出处」与 linkref 同源（同一次检测的两个面）。**永不短路**
+    # （标记/告警级，不做拒收——设计稿 v0.1 复核修订：幽灵引用检查器限定
+    # 短语层标记；回指是现实写作常态，拒收会把正常记忆挡在门外）。
+    pipe.register_before("ghostref", _gate_ghostref, position=1)
     pipe.register_before("deps", _gate_deps)
     pipe.register_before("audit", _gate_audit)
     pipe.register_before("consistency", _gate_consistency)

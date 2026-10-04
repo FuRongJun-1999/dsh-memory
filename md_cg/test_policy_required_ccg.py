@@ -109,9 +109,11 @@ _BASELINE_MUTATIONS = {
 # autonomy_modes（2026-10-02 补，三档自治批次②）：writepipe.py 新增链尾档位闸
 # `_gate_autonomy`，其函数内 `from . import autonomy_modes as _am` 被本文件的
 # AST 相对-import 扫描命中——不登记则假包缺模块（SHIM-MISS 红，容器栈一实测）。
+# ghostref（2026-10-05 补，A2 幽灵引用批次）：writepipe.py 新增 `_gate_ghostref`，
+# 其函数内 `from . import ghostref as _ghostref` 同款被扫描命中——同规则登记。
 _SHIMS = ("twophase", "trust", "linkref", "mcp_server", "mdcg", "forgetting",
           "units", "coldverify", "hotcache", "hyperedge", "nodefile",
-          "autonomy_modes")
+          "autonomy_modes", "ghostref")
 _SHIM_TPL = ("import md_cg.%s as _m\n"
              "globals().update({k: v for k, v in vars(_m).items()\n"
              "                 if not k.startswith('__')})\n")
