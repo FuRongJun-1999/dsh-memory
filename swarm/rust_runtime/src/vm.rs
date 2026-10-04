@@ -69,6 +69,9 @@ pub enum VmError {
 
 pub struct VM {
     pub ip: usize,
+    /// N244：跳转地址上界（`set_ip` 单点用；`run()` 置为 `len(code)`）。
+    /// 与 Python 侧 `ConditionVM._code_len`（N239）同构——双后端同判据。
+    code_len: usize,
     stack: Vec<Value>,
     symbols: HashMap<String, Value>,
     condition_stack: Vec<CondFrame>,
@@ -121,6 +124,24 @@ fn values_eq(a: &Value, b: &Value) -> bool {
         _ if is_num(a) && is_num(b) => as_f64(a) == as_f64(b),
         _ => false,
     }
+}
+
+/// 终态 trust 舍入**单点**（N246）：与 Python 侧 `round(x, 3)`
+/// （condition_vm.py 的终态组装）同口径——十进制**半偶**（对精确二进制值
+/// 正确舍入到 3 位小数，恰在并列点取偶）。
+///
+/// 旧实现 `(x * 1000.0).round() / 1000.0` 有两处偏差，都会破坏
+/// compiler/SEMANTICS.md §5 双后端契约：①`f64::round` 是**半数远离零**——
+/// 并列点（0.0625 等精确可表示的二进制小数）得 0.063 而 Python 得 0.062；
+/// ②`x * 1000.0` 本身不精确，非并列点也分叉（实测 0.0155 → 0.016 而
+/// Python 0.015、1.2345 → 1.235 而 Python 1.234）。
+///
+/// 实现取 `format!("{:.3}", x)`：Rust 定点格式先对二进制值做**精确**十进制
+/// 展开再按半偶舍入（实测 4019 例语料与 CPython `round(x,3)` 逐位一致，含
+/// 全部并列点、±0.0、NaN、±∞），parse 回 f64 即同一双精度值；解析异常时
+/// 原值回退（行为确定，不 panic）。
+fn round3(x: f64) -> f64 {
+    format!("{:.3}", x).parse::<f64>().unwrap_or(x)
 }
 
 fn arith(op: &str, a: &Value, b: &Value) -> Result<Value, String> {
@@ -190,6 +211,7 @@ impl VM {
     pub fn new() -> Self {
         VM {
             ip: 0,
+            code_len: 0,
             stack: Vec::new(),
             symbols: HashMap::new(),
             condition_stack: Vec::new(),
@@ -255,7 +277,7 @@ impl VM {
 
     fn state(&self) -> State {
         State {
-            trust: (self.trust_value * 1000.0).round() / 1000.0,
+            trust: round3(self.trust_value), // N246：与 Python round(x,3) 同口径
             symbols: self.symbols.clone(),
             condition_space: self.condition_stack.clone(),
             stack: self.stack.clone(),
@@ -273,6 +295,7 @@ impl VM {
         max_steps: u64,
     ) -> Result<State, VmError> {
         self.ip = 0;
+        self.code_len = code.len(); // N244：跳转地址上界（set_ip 单点用）
         self.stack = Vec::new();
         // 内建名归一（对齐 Python ConditionVM.reset，缺陷②③）：
         // 符号表里的 信任值/条件空间/信任分量 视为**寄存器初值**而非普通符号，
@@ -330,6 +353,32 @@ impl VM {
         self.stack
             .pop()
             .ok_or_else(|| VmError::Error("栈空弹出（字节码栈不平衡）".into()))
+    }
+
+    /// 跳转地址校验**单点**（N244，对齐 Python 侧 N239 `_jump`）：越界即拒。
+    ///
+    /// 旧实现四处直接 `self.ip = … as usize`：负目标被折成巨大无符号数
+    /// （`JUMP -1` → 2^64-1），`run` 的 `while self.ip < code.len()` 随即为假、
+    /// `run()` 返回 Ok（halt=None）、二进制 exit 0——其后指令整段不执行且无
+    /// 任何诊断（静默错误），且与 Python 侧已修的 N239 判据分叉。
+    ///
+    /// 目标须落在 `[0, code_len]`。上界取 **`<= code_len`** 而非 `<`：
+    /// `== code_len` 是「跳到程序末尾」的**既有语义**——编译器自身就产出该
+    /// 目标（知足标签与末尾 若/则 的 end 标签都落在此处）；`> code_len` 不可能
+    /// 由编译器产出，属越界。
+    ///
+    /// 地址在**写入 `self.ip` 处**校验（四处写入点统一走本助手）——未发生的
+    /// 跳转（如 `JUMP_IF_FALSE` 真值侧）不改变任何既有程序行为。
+    fn set_ip(&mut self, target: i64) -> Result<(), VmError> {
+        // 先判非负再转 u64：`as usize` 对负值折成巨大无符号数仍会通过上界比较
+        if target >= 0 && (target as u64) <= self.code_len as u64 {
+            self.ip = target as usize;
+            return Ok(());
+        }
+        Err(VmError::Error(format!(
+            "跳转目标越界：{target}（合法地址 0..={}）——负值不得回绕、超界不得静默结束",
+            self.code_len
+        )))
     }
 
     fn exec(&mut self, instr: &Instr) -> Result<(), VmError> {
@@ -390,12 +439,12 @@ impl VM {
                 }
             }
             "JUMP" => {
-                self.ip = expect_int(&instr.arg)? as usize;
+                self.set_ip(expect_int(&instr.arg)?)?; // N244：地址校验单点
             }
             "JUMP_IF_FALSE" => {
                 let v = self.pop()?;
                 if !truthy(&v) {
-                    self.ip = expect_int(&instr.arg)? as usize;
+                    self.set_ip(expect_int(&instr.arg)?)?; // N244
                 }
             }
             "DAO" => {
@@ -428,7 +477,7 @@ impl VM {
             "ZHIZU" => {
                 let (threshold, addr) = expect_threshold(&instr.arg)?;
                 if self.trust_value >= threshold {
-                    self.ip = addr as usize;
+                    self.set_ip(addr)?; // N244
                 }
             }
             "CMP_EQ" => {
@@ -477,7 +526,7 @@ impl VM {
                 for (pname, pval) in params.iter().zip(args) {
                     self.symbols.insert(pname.clone(), pval);
                 }
-                self.ip = entry as usize;
+                self.set_ip(entry)?; // N244：入口地址同为跳转目标
             }
             "RETURN" => {
                 if let Some(fr) = self.call_stack.pop() {
@@ -607,4 +656,259 @@ pub fn state_json(st: &State) -> String {
     }
     out.push_str("]}");
     out
+}
+
+#[cfg(test)]
+mod jump_guard_tests {
+    //! N244 守卫（缺陷：写入 `self.ip` 的跳转/调用入口目标全无范围校验——
+    //! 负目标被 `as usize` 折成巨大无符号数，`while self.ip < code.len()`
+    //! 随即为假、`run()` 返回 Ok（halt=None），其后指令整段静默不执行；
+    //! 超界目标同样静默结束）。
+    //! 纯行为断言（不做源码文本匹配）。判据对齐 Python 侧 N239 `_jump`：
+    //! 目标须落在 `[0, len(code)]`；**上界取 `<=` 而非 `<`**——`== len(code)`
+    //! 是编译器自身产出的「跳到程序末尾」既有语义（知足标签与末尾 若/则 的
+    //! end 标签都落在此处），收紧成 `<` 会打红合法产物。
+    use super::*;
+
+    fn ins(op: &str, arg: Arg) -> Instr {
+        Instr {
+            op: op.to_string(),
+            arg,
+        }
+    }
+
+    fn run_sum(code: &[Instr], max_steps: u64) -> Result<State, VmError> {
+        VM::new().run(code, HashMap::new(), 0.0, Vec::new(), max_steps)
+    }
+
+    /// 越界/负值目标必须得真错误——不是静默走完，也不是被当作正常控制流。
+    fn expect_jump_error(tag: &str, code: &[Instr]) {
+        match run_sum(code, 100_000) {
+            Err(VmError::Error(e)) => assert!(
+                e.contains("跳转目标越界"),
+                "{tag}：错误未点明跳转越界（得到 {e}）"
+            ),
+            Err(VmError::Halted(k, _)) => {
+                panic!("{tag}：得到 Halted({k})——越界目标不得被当作正常控制流")
+            }
+            Ok(st) => panic!(
+                "{tag}：run() 返回 Ok（halt={:?}、symbols={:?}）——越界目标被静默走完",
+                st.halt, st.symbols
+            ),
+        }
+    }
+
+    /// ① 负目标不得（折成大无符号数后）静默走完
+    #[test]
+    fn negative_targets_are_rejected() {
+        expect_jump_error(
+            "①a JUMP -1",
+            &[
+                ins("JUMP", Arg::Int(-1)),
+                ins("PUSH_CONST", Arg::Int(42)),
+                ins("STORE_NAME", Arg::Str("标记".into())),
+                ins("ZHI", Arg::None),
+            ],
+        );
+        expect_jump_error(
+            "①b JUMP_IF_FALSE -1（取假分支）",
+            &[
+                ins("PUSH_CONST", Arg::Int(0)),
+                ins("JUMP_IF_FALSE", Arg::Int(-1)),
+                ins("ZHI", Arg::None),
+            ],
+        );
+        expect_jump_error(
+            "①c ZHIZU (0.0,-1)（达标跳负地址）",
+            &[
+                ins("ZHIZU", Arg::Threshold(0.0, -1)),
+                ins("PUSH_CONST", Arg::Int(9)),
+                ins("ZHI", Arg::None),
+            ],
+        );
+        expect_jump_error(
+            "①d CALL 入口 -1",
+            &[
+                ins("PUSH_CONST", Arg::Int(1)),
+                ins("CALL", Arg::CallSig(-1, vec!["a".into()])),
+                ins("ZHI", Arg::None),
+            ],
+        );
+    }
+
+    /// ② 超界目标不得静默结束（旧实现：`while ip < len` 直接为假）
+    #[test]
+    fn out_of_range_targets_are_rejected() {
+        expect_jump_error(
+            "②a JUMP 999（len=4）",
+            &[
+                ins("PUSH_CONST", Arg::Int(1)),
+                ins("STORE_NAME", Arg::Str("甲".into())),
+                ins("JUMP", Arg::Int(999)),
+                ins("ZHI", Arg::None),
+            ],
+        );
+        expect_jump_error(
+            "②b JUMP_IF_FALSE 99（取假分支）",
+            &[
+                ins("PUSH_CONST", Arg::Int(0)),
+                ins("JUMP_IF_FALSE", Arg::Int(99)),
+                ins("ZHI", Arg::None),
+            ],
+        );
+        expect_jump_error(
+            "②c ZHIZU 超界地址",
+            &[
+                ins("ZHIZU", Arg::Threshold(0.0, 99)),
+                ins("ZHI", Arg::None),
+            ],
+        );
+        expect_jump_error(
+            "②d CALL 入口超界",
+            &[
+                ins("PUSH_CONST", Arg::Int(1)),
+                ins("CALL", Arg::CallSig(99, vec!["a".into()])),
+                ins("ZHI", Arg::None),
+            ],
+        );
+    }
+
+    /// ③ 边界精确性：`len(code)` 合法（跳到末尾），`len(code)+1` 拒
+    #[test]
+    fn bound_is_inclusive_len_code() {
+        // JUMP 目标 4 == len(code)（编译器产出的「跳到末尾」语义）→ 合法：
+        // 甲 已写入、`止` 被跳过 → halt=None
+        let at_end = [
+            ins("PUSH_CONST", Arg::Int(1)),
+            ins("STORE_NAME", Arg::Str("甲".into())),
+            ins("JUMP", Arg::Int(4)),
+            ins("ZHI", Arg::None),
+        ];
+        match run_sum(&at_end, 100_000) {
+            Ok(st) => {
+                assert_eq!(st.halt, None, "③a 跳到末尾：halt 应为 None（止 被跳过）");
+                assert_eq!(
+                    st.symbols.get("甲"),
+                    Some(&Value::Int(1)),
+                    "③a 跳到末尾：跳转前的指令须已执行"
+                );
+            }
+            Err(VmError::Error(e)) => panic!("③a JUMP 到 len(code) 应合法，却报错：{e}"),
+            Err(VmError::Halted(k, _)) => panic!("③a 被当作控制流提前收尾（{k}）"),
+        }
+        expect_jump_error(
+            "③b JUMP 到 len(code)+1 拒",
+            &[
+                ins("PUSH_CONST", Arg::Int(1)),
+                ins("STORE_NAME", Arg::Str("甲".into())),
+                ins("JUMP", Arg::Int(5)),
+                ins("ZHI", Arg::None),
+            ],
+        );
+    }
+
+    /// ④ 合法面一字不动：未发生的跳转不校验、自环仍走步数上限、CALL/RETURN 正常
+    #[test]
+    fn legal_jumps_unchanged() {
+        // ④a 未取分支的越界目标不校验（地址在写入 self.ip 处校验——未发生的
+        // 跳转不改变任何既有程序行为，与 Python N239 同口径）
+        let not_taken = [
+            ins("PUSH_CONST", Arg::Int(1)),
+            ins("JUMP_IF_FALSE", Arg::Int(99)),
+            ins("ZHI", Arg::None),
+        ];
+        assert!(
+            matches!(run_sum(&not_taken, 100_000), Ok(_)),
+            "④a 真值侧不跳：越界目标未被写入 ip，不应报错"
+        );
+        // ④b 自环 JUMP 0 仍由步数上限拦（既有契约不变，非新错误）
+        let looped = [ins("JUMP", Arg::Int(0)), ins("ZHI", Arg::None)];
+        match run_sum(&looped, 5) {
+            Err(VmError::Error(e)) => assert!(
+                e.contains("循环未终止"),
+                "④b 自环应仍走步数上限，得到 {e}"
+            ),
+            Ok(_) => panic!("④b 自环应触发步数上限，却正常收尾"),
+            Err(VmError::Halted(k, _)) => panic!("④b 自环应以步数上限报错，却 Halted({k})"),
+        }
+        // ④c 合法 CALL/RETURN 链路不受影响
+        let called = [
+            ins("PUSH_CONST", Arg::Int(1)),
+            ins("CALL", Arg::CallSig(3, vec!["a".into()])),
+            ins("ZHI", Arg::None),
+            ins("LOAD_NAME", Arg::Str("a".into())),
+            ins("STORE_NAME", Arg::Str("本地".into())),
+            ins("RETURN", Arg::None),
+        ];
+        match run_sum(&called, 100_000) {
+            Ok(st) => assert_eq!(st.halt.as_deref(), Some("halt"), "④c 返回后应执行 止"),
+            Err(VmError::Error(e)) => panic!("④c 合法调用不应报错：{e}"),
+            Err(VmError::Halted(k, _)) => panic!("④c 意外 Halted({k})"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod trust_round_tests {
+    //! N246 守卫：终态 trust 的舍入口径必须与 Python 侧
+    //! `round(self.trust_value, 3)`（condition_vm.py）一致——十进制**半偶**
+    //! （half-to-even）。旧实现 `(x * 1000.0).round() / 1000.0` 是「半数远离零」：
+    //! 并列点（0.0625 等精确可表示的二进制小数）Rust 读 0.063、Python 读 0.062，
+    //! 破坏 compiler/SEMANTICS.md §5 双后端契约（test_rust_codegen 的
+    //! `abs(差) < 1e-9` 等价判据判红）。
+    //! 期望值 = CPython `round(x, 3)`（实测对照；语料 4019 例，见 N246 归档）。
+    //! 纯行为断言：只驱动 VM 终态，不依赖实现内部形态（改码前后都编译）。
+    use super::*;
+
+    /// 空程序执行：终态 trust 即初值经单点舍入的结果（不掺 德/条件分支）
+    fn terminal_trust(t: f64) -> f64 {
+        match VM::new().run(&[], HashMap::new(), t, Vec::new(), 100_000) {
+            Ok(st) => st.trust,
+            Err(_) => panic!("空程序必成功（既不得报错、也不得中止）"),
+        }
+    }
+
+    /// 并列点（精确可表示的二进制小数，×1000 恰为 k+0.5）→ 半偶
+    #[test]
+    fn ties_round_half_to_even_like_python() {
+        for (x, want) in [
+            (0.0625_f64, 0.062_f64),
+            (0.3125, 0.312),
+            (0.5625, 0.562),
+            (0.8125, 0.812),
+            (-0.0625, -0.062),
+            (-0.3125, -0.312),
+            (-0.5625, -0.562),
+            (-0.8125, -0.812),
+        ] {
+            let got = terminal_trust(x);
+            assert_eq!(got, want, "并列点 {x} 应半偶舍入为 {want}，得 {got}");
+        }
+    }
+
+    /// 非并列点（含「看着像并列、二进制实际高于/低于」者）与特殊值
+    #[test]
+    fn non_ties_and_specials_match_python() {
+        for (x, want) in [
+            (0.0015_f64, 0.002_f64), // 二进制值高于并列点 → 进位
+            (0.0155, 0.015),
+            (0.1235, 0.123),
+            (0.9995, 1.0),
+            (2.675, 2.675),
+            (1.2345, 1.234),
+            (0.3 + 0.1, 0.4), // 0.4000000000000000222 → 0.4
+            (0.1 + 0.8, 0.9), // 0.9000000000000000222 → 0.9
+            (1.0, 1.0),
+            (0.0, 0.0),
+        ] {
+            let got = terminal_trust(x);
+            assert_eq!(got, want, "{x} 应舍入为 {want}，得 {got}");
+        }
+        assert!(terminal_trust(f64::NAN).is_nan(), "NaN 应保持 NaN");
+        assert_eq!(terminal_trust(f64::INFINITY), f64::INFINITY, "∞ 应保持 ∞");
+        assert!(
+            terminal_trust(-0.0).is_sign_negative(),
+            "负零应保持符号（round(-0.0,3) == -0.0）"
+        );
+    }
 }

@@ -353,8 +353,37 @@ pub mod serde_json_like {
                     match b.get(i) {
                         Some('"') => out.push('"'),
                         Some('\\') => out.push('\\'),
+                        Some('/') => out.push('/'),
                         Some('n') => out.push('\n'),
                         Some('t') => out.push('\t'),
+                        // N245：读侧须与写侧 `escape` **同集**——写侧对回车产 `\r`、
+                        // 对 <0x20 控制字符产 `\uXXXX`（制表符即 `\u0009`）。此前
+                        // 只认 `\" \\ \n \t`，集合不相容导致三面静默/拒服务：
+                        // ①符号值含制表符 → 实例请求行解析失败、终态恒为 error 而
+                        // 协调器 rc=0 照发 ACK/推进水位；②WAL 载荷含 `\u0009` →
+                        // 提交点扫描首行即断、合法 WAL 被误标 `.corrupt-*` 并从轮 1
+                        // 重跑；③配置含 `\r` → 整蜂群「配置 JSON 非法」exit 2。
+                        Some('r') => out.push('\r'),
+                        Some('b') => out.push('\u{0008}'),
+                        Some('f') => out.push('\u{000c}'),
+                        Some('u') => {
+                            // \uXXXX：4 位十六进制（BMP 码点）。代理对不合成——
+                            // 写侧不产（星平面字符原样直出），遇到即响亮报错。
+                            let hex: String = b
+                                .get(i + 1..i + 5)
+                                .map(|h| h.iter().collect())
+                                .unwrap_or_default();
+                            if hex.chars().count() != 4 {
+                                return Err("\\u 转义缺 4 位十六进制".into());
+                            }
+                            let cp = u32::from_str_radix(&hex, 16)
+                                .map_err(|_| format!("\\u 转义非法：{hex}"))?;
+                            out.push(
+                                char::from_u32(cp)
+                                    .ok_or_else(|| format!("\\u 码点非法：{hex}"))?,
+                            );
+                            i += 4; // 4 位十六进制已消费（循环末再 +1 越过末位）
+                        }
                         _ => return Err("不支持的转义".into()),
                     }
                 }
@@ -725,14 +754,31 @@ impl InstanceProc {
             // 2026-09-25 修复 #2：收件箱按 (来源,载荷) 平铺逐条注入——调用方
             // 已按来源稳定排序（同源内保持全局事件序），同轮同源多条路由
             // 逐条可见，不再只剩最后一条。
+            // N243（2026-10-05）：收件箱原以 JSON **数组**形态注入，而 serve 侧
+            // to_vm_value 对 List/Obj 落 `_ => None` 臂被静默跳过——符号「收件箱」
+            // 从未进实例 VM 符号表（程序一引用即「名实不符」），WAL/ACK/水位却
+            // 照记已投递，载荷只完整留在 WAL（留痕与实际投递不符）。
+            // 改为按 condition_space 同口径（见下方 cs_part）用 escape 把数组
+            // 序列化成 JSON **文本**注入：serve 走 Str 臂，VM 值模型（仅
+            // Null/Bool/Int/Float/Str）无需扩展即可承载，载荷逐字节保留在符号内。
+            // 内层 from 同步 escape：收件箱此刻已是「给人/程序再解析的 JSON 文本」，
+            // 来源名含引号/反斜杠时不再破坏内层结构（此前裸露插入只在数组形态下
+            // 表现为整条请求 JSON 非法）。
             let msgs: Vec<String> = inbox
                 .iter()
                 .map(|(from, payload)| {
-                    format!("{{\"from\":\"{}\",\"payload\":{}}}", from, payload)
+                    format!(
+                        "{{\"from\":\"{}\",\"payload\":{}}}",
+                        serde_json_like::escape(from),
+                        payload
+                    )
                 })
                 .collect();
-            symbols_parts
-                .push(format!("\"收件箱\":[{}]", msgs.join(",")));
+            let inbox_json = format!("[{}]", msgs.join(","));
+            symbols_parts.push(format!(
+                "\"收件箱\":\"{}\"",
+                serde_json_like::escape(&inbox_json)
+            ));
             symbols_parts.push(format!("\"已收消息数\":{}", inbox.len()));
         }
         // G-R2 条件空间卡 → 实例输入（v0.7.1 执行链接通）：serve 侧注入 VM
@@ -1607,9 +1653,13 @@ mod wal_recovery_tests {
 
     /// 构造与在线写入同格式的合法签名行（不带结尾换行）
     fn signed_line(secret: &str, seq: u64, ev_type: &str, round: u64, payload: &str) -> String {
+        // ts 只取一次：旧实现签名用第一次 now_ms()、写盘用第二次，跨毫秒边界
+        // 即「写盘 ts ≠ 入签 ts」→ 重放侧 HMAC 不符 → 提交点丢失（偶发假红，
+        // 隔离复跑通过、并发/负载下偶现）。
+        let ts = now_ms();
         let ev = Event {
             seq,
-            ts: now_ms(),
+            ts,
             from_id: "协调器".into(),
             to_id: "i1".into(),
             event_type: ev_type.into(),
@@ -1620,16 +1670,17 @@ mod wal_recovery_tests {
         };
         let hmac_hex = sign_event(secret, &ev);
         format!(
-            "{{\"seq\":{seq},\"ts\":{},\"from\":\"协调器\",\"to\":\"i1\",\"type\":\"{}\",\"round\":{round},\"level\":0,\"hmac\":\"{hmac_hex}\",\"payload\":{payload}}}",
-            now_ms(), serde_json_like::escape(ev_type)
+            "{{\"seq\":{seq},\"ts\":{ts},\"from\":\"协调器\",\"to\":\"i1\",\"type\":\"{}\",\"round\":{round},\"level\":0,\"hmac\":\"{hmac_hex}\",\"payload\":{payload}}}",
+            serde_json_like::escape(ev_type)
         )
     }
 
     /// 快照行（from/to 均为协调器，与在线写入一致）
     fn snapshot_line(secret: &str, seq: u64, round: u64) -> String {
+        let ts = now_ms(); // ts 只取一次（同上：跨毫秒即假红）
         let ev = Event {
             seq,
-            ts: now_ms(),
+            ts,
             from_id: "协调器".into(),
             to_id: "协调器".into(),
             event_type: SNAPSHOT_TYPE.into(),
@@ -1640,8 +1691,8 @@ mod wal_recovery_tests {
         };
         let hmac_hex = sign_event(secret, &ev);
         format!(
-            "{{\"seq\":{seq},\"ts\":{},\"from\":\"协调器\",\"to\":\"协调器\",\"type\":\"{SNAPSHOT_TYPE}\",\"round\":{round},\"level\":0,\"hmac\":\"{hmac_hex}\",\"payload\":{}}}",
-            now_ms(), ev.payload_json
+            "{{\"seq\":{seq},\"ts\":{ts},\"from\":\"协调器\",\"to\":\"协调器\",\"type\":\"{SNAPSHOT_TYPE}\",\"round\":{round},\"level\":0,\"hmac\":\"{hmac_hex}\",\"payload\":{}}}",
+            ev.payload_json
         )
     }
 
@@ -1964,5 +2015,102 @@ mod wal_recovery_tests {
         assert!(rp0.gossip_sent.is_empty(), "无指纹不得计数 gossip");
         assert_eq!(rp0.watermarks.get("乙"), Some(&3), "水位重建与指纹无关");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// N245（守卫）：行内含控制字符转义（写侧 `escape` 对 <0x20 产 `\uXXXX`、
+    /// 对回车产 `\r`）时提交点扫描必须照常推进——不得把合法 WAL 误判为坏 WAL
+    /// （零提交 → 归档 `.corrupt-*` 并从轮 1 重跑，破坏「同 project+同 WAL
+    /// 重入即续跑」幂等契约；WAL 本身是合法 JSON，Python 侧验签 all_valid）。
+    #[test]
+    fn commit_point_survives_control_char_escapes() {
+        let dir = guard_dir("n245");
+        let wal = dir.join("events.jsonl");
+        let wal_s = wal.to_str().unwrap();
+        let secret = dummy_secret();
+        // 首行即含转义载荷（在线 WAL 的真实序位：轮内散事件在快照之前）
+        let content = format!(
+            "{}\n{}\n",
+            signed_line(&secret, 1, "MSG", 1, r#"{"文本":"甲\u0009乙\r丙"}"#),
+            snapshot_line(&secret, 2, 1),
+        );
+        std::fs::write(&wal, &content).unwrap();
+        let rp = replay_wal(wal_s, &secret, &HashSet::new()).unwrap();
+        assert_eq!(
+            rp.completed,
+            Some(1),
+            "首行含 \\uXXXX/\\r 的合法 WAL 必须认出提交点（旧实现首行即断 → 零提交）"
+        );
+        assert_eq!(rp.kept_lines.len(), 2, "两行都在可信前缀内");
+        assert!(rp.had_wal_file);
+        let f = open_wal_for_run(wal_s, rp.completed, &rp.kept_lines, rp.had_wal_file);
+        assert!(f.is_ok(), "认出提交点即走续跑路径");
+        drop(f.unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&wal).unwrap(),
+            content,
+            "续跑是 append 语义：原 WAL 逐字节保留（不清零）"
+        );
+        let archives: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().contains(".corrupt-"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert!(archives.is_empty(), "合法 WAL 不得被归档为 .corrupt-*");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod escape_parity_tests {
+    //! N245 守卫：**写侧产出（`serde_json_like::escape`）必须全部落在读侧可解析集内**。
+    //!
+    //! 旧读侧 `ps` 只认 `\" \\ \n \t`，而写侧对 <0x20 控制字符产 `\uXXXX`、
+    //! 对回车产 `\r`——集合不相容，三面后果：①载荷含制表符（escape 产
+    //! `\u0009`）时实例侧请求解析失败、目标实例终态恒为 error，而协调器
+    //! rc=0 照发 ACK、水位照推进；②WAL 载荷含 `\u0009` 时提交点扫描首行即断，
+    //! 合法 WAL 被误标 `.corrupt-<ts>` 并从轮 1 重跑；③配置含标准 `\r` 转义
+    //! 则整蜂群 exit 2。本模块只断行为（写→读往返无损），不做源码文本匹配。
+    use super::serde_json_like::{escape, parse};
+
+    /// 语料：控制字符（→ `\uXXXX`）、回车（→ `\r`）、换行、引号/反斜杠、
+    /// 多字节与四字节字符、空串。
+    const CORPUS: [&str; 8] = [
+        "甲\u{9}乙",
+        "上\r下",
+        "上\n下",
+        "\u{1}\u{1f}\u{0}",
+        "引号\"与反斜杠\\",
+        "中文·標點——破折",
+        "",
+        "\u{7f}删字符与 emoji 😀",
+    ];
+
+    #[test]
+    fn escape_output_is_parseable_and_lossless() {
+        for s in CORPUS {
+            let json = format!("\"{}\"", escape(s));
+            let v = parse(&json)
+                .unwrap_or_else(|e| panic!("读侧无法解析写侧产出 {json:?}：{e}"));
+            assert_eq!(v.as_str(), Some(s), "往返不等：{s:?} → {json:?}");
+        }
+    }
+
+    #[test]
+    fn wal_shaped_line_round_trips() {
+        // 与 WAL 行同构：对象内嵌对象、字段含制表符与回车
+        let line = format!(
+            "{{\"seq\":1,\"type\":\"MSG\",\"payload\":{{\"文本\":\"{}\"}}}}",
+            escape("甲\u{9}乙\r丙")
+        );
+        let v = parse(&line).expect("读侧须能解析含 \\uXXXX/\\r 的 WAL 行");
+        let got = v
+            .get("payload")
+            .and_then(|p| p.get("文本"))
+            .and_then(|t| t.as_str());
+        assert_eq!(got, Some("甲\u{9}乙\r丙"));
     }
 }

@@ -179,8 +179,35 @@ mod serde_like {
                     match b.get(i) {
                         Some('"') => out.push('"'),
                         Some('\\') => out.push('\\'),
+                        Some('/') => out.push('/'),
                         Some('n') => out.push('\n'),
                         Some('t') => out.push('\t'),
+                        // N245：与协调器写侧 `serde_json_like::escape` **同集**——
+                        // 写侧对回车产 `\r`、对 <0x20 控制字符产 `\uXXXX`（制表符
+                        // 即 `\u0009`）。此前只认 `\" \\ \n \t`：符号值含制表符时
+                        // 请求行解析失败、实例终态恒为 error，而协调器 rc=0 照发
+                        // ACK、水位照推进（静默错误）。
+                        Some('r') => out.push('\r'),
+                        Some('b') => out.push('\u{0008}'),
+                        Some('f') => out.push('\u{000c}'),
+                        Some('u') => {
+                            // \uXXXX：4 位十六进制（BMP 码点）；代理对不合成
+                            // （写侧不产，遇到即响亮报错）
+                            let hex: String = b
+                                .get(i + 1..i + 5)
+                                .map(|h| h.iter().collect())
+                                .unwrap_or_default();
+                            if hex.chars().count() != 4 {
+                                return Err("\\u 转义缺 4 位十六进制".into());
+                            }
+                            let cp = u32::from_str_radix(&hex, 16)
+                                .map_err(|_| format!("\\u 转义非法：{hex}"))?;
+                            out.push(
+                                char::from_u32(cp)
+                                    .ok_or_else(|| format!("\\u 码点非法：{hex}"))?,
+                            );
+                            i += 4; // 4 位十六进制已消费（循环末再 +1 越过末位）
+                        }
                         _ => return Err("不支持的转义".into()),
                     }
                 }
@@ -322,4 +349,45 @@ fn compose_response(
         escape_json(instance_id),
         round_no
     )
+}
+
+#[cfg(test)]
+mod escape_parity_tests {
+    //! N245 守卫：serve 的请求读侧（`serde_like::parse_str`）必须能解析协调器
+    //! 写侧（`crate::swarm::serde_json_like::escape`）产出的全部转义——旧读侧
+    //! 只认 `\" \\ \n \t`，而写侧对 <0x20 控制字符产 `\uXXXX`、对回车产 `\r`：
+    //! 载荷含制表符时请求行解析失败、实例终态恒为 error，而协调器 rc=0 照发
+    //! ACK、水位照推进（静默错误）。纯行为断言（不做源码文本匹配）。
+    use super::serde_like::{parse, Value};
+
+    const CORPUS: [&str; 6] = [
+        "甲\u{9}乙",
+        "上\r下",
+        "上\n下",
+        "\u{1}\u{1f}",
+        "引号\"与反斜杠\\",
+        "中文，破折——",
+    ];
+
+    #[test]
+    fn request_line_written_by_coordinator_is_parseable() {
+        for s in CORPUS {
+            // 与 run_round 组装的请求同构：symbols 对象内嵌写侧 escape 的产出
+            let line = format!(
+                "{{\"symbols\":{{\"收件箱\":\"{}\"}},\"trust\":0.0}}",
+                crate::swarm::serde_json_like::escape(s)
+            );
+            let v = parse(&line)
+                .unwrap_or_else(|e| panic!("serve 读侧无法解析写侧产出：{e}（{line:?}）"));
+            let mut got = None;
+            if let Value::Obj(m) = &v {
+                if let Some(Value::Obj(sm)) = m.get("symbols") {
+                    if let Some(Value::Str(x)) = sm.get("收件箱") {
+                        got = Some(x.clone());
+                    }
+                }
+            }
+            assert_eq!(got.as_deref(), Some(s), "往返不等：{s:?} → {line:?}");
+        }
+    }
 }

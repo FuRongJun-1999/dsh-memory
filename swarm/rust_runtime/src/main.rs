@@ -122,8 +122,31 @@ fn parse_json_string(s: &str, start: usize) -> Result<(String, usize), String> {
                 match b.get(i) {
                     Some(b'"') => out.push('"'),
                     Some(b'\\') => out.push('\\'),
+                    Some(b'/') => out.push('/'),
                     Some(b'n') => out.push('\n'),
                     Some(b't') => out.push('\t'),
+                    // N245：与写侧 `serde_json_like::escape` **同集**——写侧对回车
+                    // 产 `\r`、对 <0x20 控制字符产 `\uXXXX`；此前只认
+                    // `\" \\ \n \t`，`--symbols` 值含 `\r` 即「不支持的转义」→ 整
+                    // 进程 exit 2（配置解析同面）。
+                    Some(b'r') => out.push('\r'),
+                    Some(b'b') => out.push('\u{0008}'),
+                    Some(b'f') => out.push('\u{000c}'),
+                    Some(b'u') => {
+                        // \uXXXX：4 位十六进制（BMP 码点）；代理对不合成
+                        // （写侧不产，遇到即响亮报错）
+                        let hex = b
+                            .get(i + 1..i + 5)
+                            .and_then(|h| std::str::from_utf8(h).ok())
+                            .ok_or("\\u 转义缺 4 位十六进制")?;
+                        let cp = u32::from_str_radix(hex, 16)
+                            .map_err(|_| format!("\\u 转义非法：{hex}"))?;
+                        out.push(
+                            char::from_u32(cp)
+                                .ok_or_else(|| format!("\\u 码点非法：{hex}"))?,
+                        );
+                        i += 4; // 4 位十六进制已消费（循环末再 +1 越过末位）
+                    }
                     _ => return Err("不支持的转义".into()),
                 }
             }
@@ -375,6 +398,34 @@ fn cmd_swarm(args: &[String]) -> ExitCode {
         Err(e) => {
             eprintln!("蜂群运行失败: {e}");
             ExitCode::from(1)
+        }
+    }
+}
+
+#[cfg(test)]
+mod escape_parity_tests {
+    //! N245 守卫：`--symbols` 入参读侧（`parse_json_string`）必须能解析
+    //! `json.dumps` 产出的标准转义（控制字符 `\uXXXX`、回车 `\r`…）——旧读侧
+    //! 只认 `\" \\ \n \t`，符号值含 `\r` 即「不支持的转义」→ 整进程 exit 2。
+    //! 纯行为断言（不做源码文本匹配）。
+    use super::parse_json_string;
+    use protocol_vm::swarm::serde_json_like::escape;
+
+    const CORPUS: [&str; 5] = [
+        "甲\u{9}乙",
+        "上\r下",
+        "\u{1}\u{1f}",
+        "引号\"与反斜杠\\",
+        "中文，破折——",
+    ];
+
+    #[test]
+    fn symbols_arg_escapes_are_parseable() {
+        for s in CORPUS {
+            let text = format!("\"{}\"", escape(s));
+            let (got, _) = parse_json_string(&text, 0)
+                .unwrap_or_else(|e| panic!("--symbols 读侧无法解析 {text:?}：{e}"));
+            assert_eq!(got, s, "往返不等：{text:?}");
         }
     }
 }
