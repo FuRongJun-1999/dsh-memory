@@ -5,7 +5,7 @@
 > **为什么有这一页**：查工作区文件前先读本页——按目录职责与关键入口定位，替代每次重复全盘浏览（**工作纪律第 18 条**）。
 > **数据源**：git 追踪面（`git ls-files`，NUL 分隔取原始路径）；gitignored 的语料 / 实验产物 / 构建产物不在其内。
 > **生成 / 守卫**：`python scripts/workspace_index.py --write` ｜ `--check`（CI：`.github/workflows/workspace-index-check.yml`）。
-> **快照**：HEAD `79cdd068` · 追踪 **2171** 件 · 生成于 2026-10-04 —— 计数与 HEAD 为生成时快照，**不参与守卫校验**；守卫校验的是：①顶层目录集合 ②根级文件集合 ③职责文案与关键入口 ④正文（归一化后）逐字一致。
+> **快照**：HEAD `90bb6bee` · 追踪 **2172** 件 · 生成于 2026-10-04 —— 计数与 HEAD 为生成时快照，**不参与守卫校验**；守卫校验的是：①顶层目录集合 ②根级文件集合 ③职责文案与关键入口 ④正文（归一化后）逐字一致。
 
 ## 一、顶层目录
 
@@ -23,7 +23,7 @@
 | `zcode/` | ZCode 端纪律注入件（full 变体） | 2 | `AGENTS.md` |
 | `codex/` | Codex CLI 端纪律注入件 + 插件形态（lingshu-memory/） | 7 | `AGENTS.md` · `lingshu-memory` |
 | `claude/` | Claude Code 端纪律注入件 + 插件形态（lingshu-memory/） | 7 | `CLAUDE.md` · `lingshu-memory` |
-| `scripts/` | 工程管线——纪律渲染/守卫、认知图同步、发布件与常驻进程体检 | 66 | `render_discipline.py` · `verify_discipline.py` · `cogmap_sync.py` |
+| `scripts/` | 工程管线——纪律渲染/守卫、认知图同步、发布件与常驻进程体检 | 67 | `render_discipline.py` · `verify_discipline.py` · `cogmap_sync.py` |
 | `test/` | 跨包测试与独立评测脚本（宿主侧 TS 测试 + python 集成） | 57 | `mock_mcp.py` · `hive_exec_test.py` |
 | `data/` | 公开评测数据与裁决留痕 | 18 | `memory-bench-1000.jsonl` · `policy.json` |
 | `docs/` | 文档（按工程域分目录，索引见 docs/README.md） | 174 | `README.md` · `工作纪律_认知图条目_v1.1.json` |
