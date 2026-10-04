@@ -90,7 +90,14 @@ ALL_OPS = ("help", "info", "route", "read", "write", "goal", "task", "recent", "
            #        —— 「这条记忆从哪来 / 谁由它派生」的读面；真源
            #        md_cg/provenance.py（find_edges）。**只读 op**：不含任何
            #        写入 path，故读面角色一律放行（与 status 同档）
-           "ccg", "status", "edges")
+           "ccg", "status", "edges",
+           # 路线 C（2026-10-05，多主体世界模型对齐 v0.1 §4）：证据审计面
+           #   audit  只读组装器（现值/出处链/两存备择/盲区/退役史）
+           #        —— 真源 md_cg/auditview.py；只读、零写路径。角色白名单
+           #        缺省不给（fail-closed，新增 op 默认不在任何清单内）；
+           #        本轮开给：designer（* 自动含）+ verify（证据审计＝验证
+           #        单元的本职读面，见其 ROLE_SPECS 注释）。
+           "audit")
 
 
 class TokenError(Exception):
@@ -166,8 +173,10 @@ ROLE_SPECS = OrderedDict([
         # 豁免被分型取代（同日裁定迭代）。
         "can_write": True, "can_admin": False, "clearance_cap": "internal",
         "layers_allow": ["rejected", "contextual"],
+        # audit（2026-10-05 路线 C）：证据审计视图＝验证单元的本职读面
+        #（现值/出处链/两存备择/盲区/退役史），只读、无写路径。
         "ops_allow": ["info", "route", "read", "write", "verify", "insight",
-                      "status", "edges"],
+                      "status", "edges", "audit"],
         "delegable": False,
         "forbidden": ["knowledge/self/anchor 层（不得改被验证内容）",
                       "private/secret 密级（restricted 错误处置标记属本职，"

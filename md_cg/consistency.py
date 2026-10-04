@@ -484,16 +484,21 @@ def _recursive_reflect(cg, seeds, tw_pos, tw_neg, max_depth=MAX_DEPTH,
 # 主入口：三级决策
 # --------------------------------------------------------------------------
 
-# 生效条件：以 cg.index.nodes 为既有节点、content（假值按 ""）经 _new_terms 得 pos/neg 并算 tw_pos/tw_neg（non_applicable_conditions 入参先按 mdcos._is_null_condition 剔除空值语义哨兵——⑧ 漏斗单点）；选面（cons200；收口轮①加面内例外）：快照级预筛剔「tw_pos 与 tw_neg 皆空（新节点未声明可展开条件）时的非纪律候选」，且**剔除永不触及修前扫描面**（过滤后索引序前 limit 内候选一律保留——面内例外；「修后检出 ⊇ 修前」由此成为与「条目 tags 与盘面 fm.tags 同源」无关的结构保证），候选超 limit 时精比面＝相关面（_sift_score 序）前 limit ∪ 保底面（过滤后索引序前 limit ∩ 候选），记 scanned（候选数）/kept（精比数）/truncated（scanned>kept）/hint；按循环中 hard（自否定或纪律命中）→ divergences（同条件槽且 concl < CONCLUSION_SAME）→ strength ≥ CLASH_HIGH → strength ≥ CLASH_LOW → comparable==0 且 (pos or neg) → 否则 ACCEPT 的顺序定 verdict；DEFER 且 int(depth)>0 且 emo["bias"] != "approaching" 时调 _recursive_reflect 补 recursion，auto_flywheel 且 verdict == REJECT 时加 unresolved_id，最后 log 并返回 rec；
+# 生效条件：以 cg.index.nodes 为既有节点、content（假值按 ""）经 _new_terms 得 pos/neg 并算 tw_pos/tw_neg（non_applicable_conditions 入参先按 mdcos._is_null_condition 剔除空值语义哨兵——⑧ 漏斗单点）；选面（cons200；收口轮①加面内例外）：快照级预筛剔「tw_pos 与 tw_neg 皆空（新节点未声明可展开条件）时的非纪律候选」，且**剔除永不触及修前扫描面**（过滤后索引序前 limit 内候选一律保留——面内例外；「修后检出 ⊇ 修前」由此成为与「条目 tags 与盘面 fm.tags 同源」无关的结构保证），候选超 limit 时精比面＝相关面（_sift_score 序）前 limit ∪ 保底面（过滤后索引序前 limit ∩ 候选），记 scanned（候选数）/kept（精比数）/truncated（scanned>kept）/hint；按循环中 hard（自否定或纪律命中）→ divergences（同条件槽且 concl < CONCLUSION_SAME）→ strength ≥ CLASH_HIGH → strength ≥ CLASH_LOW → comparable==0 且 (pos or neg) → 否则 ACCEPT 的顺序定 verdict；DEFER 且 int(depth)>0 且 emo["bias"] != "approaching" 时调 _recursive_reflect 补 recursion，auto_flywheel 且 verdict == REJECT 时加 unresolved_id，最后 log_write 为真时 log 并返回 rec；
 def check(cg, content, layer=None, condition_space=None,
           non_applicable_conditions=None, tags=None, exclude=None,
           limit=MAX_SCAN, depth=MAX_DEPTH, auto_flywheel=False,
-          query=None):
+          query=None, log_write=True):
     """节点间自动冲突检测（L0 情绪 → L1 反思 → L2 递归反思）。
 
     返回完整判据（可审计）：
       verdict / reason / conflict_strength / emotional / conflicts[] /
       recursion{} / missing[] / unresolved_id（若触发飞轮）
+
+    log_write（路线 C，2026-10-05）：缺省 True＝原行为（每次判定落
+    `_consistency.jsonl` 台账）。**只读消费面**（如 auditview 的证据审计）
+    须传 False——判定结果照常返回，但不写台账（复核 R2：审计面承诺
+    「纯读、不落盘」，而 log() 无条件追加会把每次审计变成一次写）。
       + 选面读数 scanned / kept / truncated（超限时另附 hint）
 
     verdict：
@@ -769,7 +774,8 @@ def check(cg, content, layer=None, condition_space=None,
     if auto_flywheel and verdict in FLYWHEEL_TRIGGERS:
         rec["unresolved_id"] = _fire_flywheel(cg, query or content, verdict,
                                               reason, missing, allc)
-    log(cg, rec)
+    if log_write:
+        log(cg, rec)
     return rec
 
 

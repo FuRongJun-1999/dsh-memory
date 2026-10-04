@@ -617,6 +617,11 @@ def _executor(ctx):
            depends_on=trust.as_deps(a.get("depends_on")),
            valid_from=a.get("valid_from"), valid_until=a.get("valid_until"),
            verification_state=a.get("verification_state"),
+           # A1 补接（2026-10-05，路线 C 动工时经 audit 现值面发现）：检验强度
+           # 透传。此前 add 层已支持该形参，但**写链实参表漏传**——经 MCP
+           # op=write 声明 check_strength 一律静默丢弃（与 B2 sensitivity 漏传
+           # 同族：上游声明、落盘面丢字段，比报错难发现）。
+           check_strength=a.get("check_strength"),
            # A2 幽灵引用标记（正文属性：每次写入按当次检测重算，不继承——
            # 与 check_strength 的声明继承相反；缺省 None 不落键）。
            uncertain_refs=ctx.get("ghost_phrases") or None,
@@ -671,6 +676,10 @@ _AUTONOMY_META_KEYS = ("tags", "condition_space", "verification_basis",
                        "non_applicable_conditions", "derived_from", "relation",
                        "depends_on", "valid_from", "valid_until",
                        "verification_state", "importance", "importance_source",
+                       # A1 补接（2026-10-05）：检验强度同族入载荷——否则
+                       # confirm 档出单 → accept 重放会丢该声明（与
+                       # verification_state 同款的「两条路径元数据不等价」坑）。
+                       "check_strength",
                        "override")
 
 

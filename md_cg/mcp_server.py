@@ -593,6 +593,8 @@ KERNEL_TOOLS = [
                        "建议能力名（不执行，由调用方决定）；op=read：召回/检索/按 id 取"
                        "（长内容自动截断 2000 行 / 50KB，返回 truncated+next_offset，"
                        "续读传 offset=next_offset，不静默丢内容）；"
+                       "op=audit：证据审计视图（只读组装，需 node_id；返回"
+                       "现值/出处链/两存备择/盲区/退役史五面；路线 C）；"
                        "op=write：写入前按 content_kind 审核（ACCEPT 落盘 / REJECT 进负记忆 / "
                        "DEFER 进审核队列）+ 节点间冲突检测（三级决策：情绪→反思→递归反思；"
                        "consistency=false 可关，on_conflict=reject|defer|record）；"
@@ -712,7 +714,7 @@ KERNEL_TOOLS = [
                             "scrub|predict|causal|"
                             "forget|goal|task|recent|info|index_code|index_doc|ref|whitebox|"
                             "theory|link|session|ingest|export|maintain|consolidate|"
-                            "insight|ccg|status|edges|help", True),
+                            "insight|ccg|status|edges|audit|help", True),
             ccg=_p("object", "CCG 六要素编译器入参：{action, node_id, dialog, marks, "
                              "slots, strict_spans, role, verdict, verifier, compiled_by, "
                              "evidence, slot_corrections, model, jobs, blocking, wait_s, "
@@ -782,6 +784,13 @@ KERNEL_TOOLS = [
             depth=_p("integer", "consistency：递归反思深度上限"),
             condition_space=_p("object", "条件空间"),
             verification_basis=_p("string", "验证基底"),
+            # A1 补接（2026-10-05，路线 C 动工时经 audit 现值面发现写链漏传后
+            # 一并补齐的三处接线之一）：检验强度（与验证基底正交的裁决力分级）。
+            check_strength=_p("string", "检验强度：hoop|smoking_gun|doubly_decisive"
+                                       "（与 verification_basis 正交的裁决力分级；"
+                                       "覆写既有节点时默认继承）"),
+            # 路线 C（2026-10-05）：audit 的截断上限。
+            cap=_p("integer", "audit：各面截断上限（1–64，缺省 8）"),
             non_applicable_conditions=_p("array", "不适用条件"),
             context=_p("object", "当前情境"),
             k=_p("integer", "返回条数（sustain pool_bench 亦用）"),
@@ -2337,6 +2346,26 @@ def _cg_dispatch(cg, a):
              "reason": q2.get("reason"), **refindex.ref_fields(n)}
             for n, s, q2 in res]}
 
+    if op == "audit":
+        # 路线 C（2026-10-05，多主体世界模型对齐 v0.1 §4）：证据审计面——
+        # 只读组装器（md_cg/auditview.py），零写路径改动。node_id 类型闸与
+        # read 面同口径（类型错 ⇒ 结构化 error，不静默降级）；截断参数用
+        # `cap`（**故意不用 view/limit 等既有名**——view 已被 roleviews 占用，
+        # 设计稿复核修订的命名约束）。
+        _nid = a.get("node_id")
+        if not isinstance(_nid, str) or not _nid.strip():
+            return {"ok": False, "error": "node_id_not_str",
+                    "node_id": _nid, "got_type": type(_nid).__name__,
+                    "hint": "audit 需字符串 node_id（证据审计视图按节点组装）；"
+                            "要按关键词检索请改用 query（read）"}
+        from . import auditview
+        _cap = a.get("cap")
+        try:
+            _cap = int(_cap) if _cap is not None else auditview.DEFAULT_CAP
+        except (TypeError, ValueError):
+            _cap = auditview.DEFAULT_CAP
+        return auditview.build(cg, _nid, cap=max(1, min(64, _cap)))
+
     if op == "write":
         # 写入路径拦截器链（Pi 钩子化移植，writepipe.py）：六道闸以扩展
         # 形态注册于 writepipe.default_pipeline()，次序/启停不再硬编码于
@@ -3341,6 +3370,9 @@ def _dispatch(cg, name, args):
                 role=a.get("role"), tags=a.get("tags"),
                 condition_space=a.get("condition_space"),
                 verification_basis=a.get("verification_basis"),
+                # A1 补接（2026-10-05）：检验强度同族透传（remember_gated 内部
+                # add(**kw) 直达；此前声明在 gated 分支静默丢弃）。
+                check_strength=a.get("check_strength"),
                 non_applicable_conditions=a.get("non_applicable_conditions"),
                 importance_hint=hint, override=bool(a.get("override")),
                 consistency=bool(a.get("consistency", True)),
@@ -3390,6 +3422,9 @@ def _dispatch(cg, name, args):
             _meta = {k: a[k] for k in
                      ("tags", "condition_space", "verification_basis",
                       "non_applicable_conditions", "derived_from", "relation",
+                      # A1 补接（2026-10-05）：检验强度入复现 meta——与
+                      # writepipe._AUTONOMY_META_KEYS 同款（两条路径元数据等价）。
+                      "check_strength",
                       "role", "importance") if a.get(k) is not None}
             # 直写面的裁决参数（本分支的 add 会自己跑冲突闸）：随单落进复现 meta，
             # 否则「确认后落盘」与「直接落盘」两条路径的判据不等价。
@@ -3416,6 +3451,8 @@ def _dispatch(cg, name, args):
                          condition_space=a.get("condition_space"),
                          importance=float(a.get("importance", 0.5)),
                          verification_basis=a.get("verification_basis"),
+                         # A1 补接（2026-10-05）：检验强度透传（同 B2）。
+                         check_strength=a.get("check_strength"),
                          non_applicable_conditions=a.get("non_applicable_conditions"),
                          override=bool(a.get("override")),
                          consistency=bool(a.get("consistency", True)),

@@ -4416,8 +4416,14 @@ class MdCGOS(MdCG):
     def check_consistency(self, content, layer=None, condition_space=None,
                           non_applicable_conditions=None, tags=None,
                           exclude=None, limit=consistency.MAX_SCAN,
-                          depth=consistency.MAX_DEPTH, auto_flywheel=False):
+                          depth=consistency.MAX_DEPTH, auto_flywheel=False,
+                          log_write=True):
         """不落盘地预检一条待写内容是否与既有节点/纪律冲突（三级决策）。
+
+        log_write（路线 C，2026-10-05，透传 consistency.check 同名参数）：
+        缺省 True＝原行为（落 `_consistency.jsonl` 台账）；**只读消费面**
+        （auditview 证据审计）传 False——判定照常返回、台账不写（「不落盘
+        预检」承诺的补全：既有 log 是无条件写，只读面消费会变成隐式写）。
 
         对齐《智能的公理化基石》§十一（情绪=信息差二阶变化，独立不参与信任）、
         条件论「反题」（预测与事实冲突）、:273（递归受深度/节点/循环/增益门槛约束）。
@@ -4436,7 +4442,7 @@ class MdCGOS(MdCG):
                                        if not _is_null_condition(x)],
             tags=tags,
             exclude=exclude, limit=limit, depth=depth,
-            auto_flywheel=auto_flywheel)
+            auto_flywheel=auto_flywheel, log_write=log_write)
 
 # 生效条件：当 limit 传入时，以 limit（默认 100）调用 consistency.history 并返回其结果；本函数不改变 limit；
     def consistency_history(self, limit=100):

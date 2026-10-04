@@ -13,6 +13,7 @@ import tempfile
 
 from . import state_events
 from .mdcos import MdCGOS
+from .writepipe import _AUTONOMY_META_KEYS, default_pipeline
 
 _ok = 0
 _fail = []
@@ -147,6 +148,26 @@ def main():
     fm_a3 = (cg.get("cs_a") or {}).get("frontmatter") or {}
     check("覆写显式改值", fm_a3.get("check_strength") == "doubly_decisive",
           fm_a3.get("check_strength"))
+
+    # ---- 9. 写链透传（A1 补接，2026-10-05：经路线 C 的 audit 现值面发现
+    # 写链实参表漏传 check_strength——经 MCP op=write 声明一律静默丢弃，
+    # 与 B2 sensitivity 漏传同族。此处钉住「写链透传」与「变更单载荷白名单」
+    # 两个面，防复发。）----
+    _pipe = default_pipeline()
+    _o = _pipe.execute(cg, {
+        "op": "write", "node_id": "cs_wire",
+        "content": "# 功能名：写链透传\n# 生效条件：测\n# 子功能：无\n"
+                   "# 执行：无\n# 验证方式：test\n# 不适用条件：无\n",
+        "layer": "knowledge", "content_kind": "text",
+        "verification_basis": "test", "check_strength": "smoking_gun"})
+    fm_w = (cg.get("cs_wire") or {}).get("frontmatter") or {}
+    check("写链透传 check_strength（A1 补接）",
+          _o.get("committed") is True
+          and fm_w.get("check_strength") == "smoking_gun",
+          (_o.get("committed"), fm_w.get("check_strength")))
+    check("变更单载荷白名单含 check_strength（A1 补接）",
+          "check_strength" in _AUTONOMY_META_KEYS,
+          list(_AUTONOMY_META_KEYS))
 
     print("\ntest_state_events: %d 通过 / %d 失败" % (_ok, len(_fail)))
     if _fail:
