@@ -237,15 +237,31 @@ class Compiler:
         else:
             self.warnings.append(f"L{e.line} 未编译表达式: {e.type.name}")
 
-# 生效条件：先对 e.args 逐个求值入栈；若 e.name 不在 self.funcs 则向 warnings 追加未定义函数并返回（不发 CALL），否则发 CALL (entry_lbl, params) 并挂 pending。
+# 生效条件：先对 e.args 逐个求值入栈；e.name 不在 self.funcs 时抛 SyntaxError('未定义函数')，在 self.funcs 但 len(e.args) 与形参表不等时抛 SyntaxError('实参个数不符')（两情形均不产出字节码，由 compile_source 窄捕获后返回 ok=False），否则发 CALL (entry_lbl, params) 并挂 pending。
     def _call_expr(self, e):
         """函数调用编译：实参求值入栈 → CALL (入口, 参数名)"""
         for a in e.args:
             self._expr(a)
         if e.name not in self.funcs:
-            self.warnings.append(f"L{e.line} 未定义函数 '{e.name}'（调用悬空）")
-            return
+            # N236：未定义函数由 warning 升为编译期错误。此前仅记警告且
+            # 不发 CALL——实参已入栈却无消费，产物残缺（如
+            # [STORE_NAME 甲]），VM 执行 STORE_NAME 时 pop 空栈裸穿
+            # IndexError（run 仅捕 VMHalt/MemoryError）。抛 SyntaxError
+            # 使 strict=False（pbc 等入口）不再产出残缺字节码。
+            raise SyntaxError(
+                f"L{e.line} 未定义函数 '{e.name}'（调用悬空——以名举实："
+                f"调用前须先「定义 {e.name}（…）」）")
         entry_lbl, params = self.funcs[e.name]
+        if len(e.args) != len(params):
+            # N237：实参条数与形参表不符同样致命——少参使 VM 的 CALL 按
+            # len(param_names) 连续 pop（condition_vm.py:361-366），栈内不足
+            # 即 IndexError；多参使多余实参永久残留值栈（静默语义错）。
+            # 同一既有判据处（N236 的函数存在性检查）追加条数比对，
+            # 使 strict=False（pbc 等入口）亦不产出错配字节码。
+            raise SyntaxError(
+                f"L{e.line} 函数 '{e.name}' 实参个数不符：定义 {len(params)} 个"
+                f"形参（{'、'.join(params) if params else '无'}），"
+                f"调用提供 {len(e.args)} 个（以名举实）")
         self._emit(Opcode.CALL, (entry_lbl, params))
         self.pending.append((len(self.code) - 1, entry_lbl))
 

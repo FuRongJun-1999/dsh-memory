@@ -1101,10 +1101,16 @@ class Parser:
             return self._parse_binary_tail(node)
         else:
             parts = []
+            line0 = self.current_token.line
+            col0 = self.current_token.column
             # 停止条件：标点符号 + 语句开头关键字
+            # N240：RPAREN（`）`/`)`）补入——此前右括号不构成表达式边界，
+            # 被兜底分支当字符串吃进操作数（`甲 = （1 + ）。` 产出
+            # PUSH_CONST '）'）。
             _EXPR_STOP = (
                 TokenType.ZE, TokenType.FOUZE,
                 TokenType.PERIOD, TokenType.COMMA, TokenType.SEMICOLON,
+                TokenType.RPAREN,
                 TokenType.WENYUE, TokenType.DAYUE, TokenType.SHUYUE,
                 TokenType.RUO, TokenType.DAO, TokenType.DE,
                 TokenType.ZIRAN, TokenType.WUWEI, TokenType.GU,
@@ -1116,7 +1122,18 @@ class Parser:
                    not self._is_at_end()):
                 parts.append(self.current_token.value)
                 self._advance()
-            return LiteralNode("".join(parts).strip(), "string")
+            text = "".join(parts).strip()
+            if not text:
+                # N240：操作数缺失不得静默成常量——此前返回
+                # LiteralNode("", "string")，`甲 = 1 + 。` / `甲 = （1 + ）。` /
+                # 行尾截断一律 ok=True 且把空串（或 `）`）压栈成算术操作数
+                # （静默错误结果，两入口 errors=[]）。记语法错误后仍以占位
+                # 节点保持 AST 完整，由 errors 通道终止编译。
+                hit = self.current_token.value if self.current_token else "EOF"
+                self.errors.append(
+                    f"L{line0}:C{col0} 表达式缺少操作数，"
+                    f"实际得到: '{hit}'")
+            return LiteralNode(text, "string")
     
 # 生效条件：必填实参 left 已解析，仅当 self.current_token.type 为 OP_ADD/OP_SUB/OP_MUL/OP_DIV 时消费该运算符、以 _parse_expression() 解析 right 并返回 BinaryExprNode（单级，不再递归调用自身），否则原样返回 left。
     def _parse_binary_tail(self, left: ASTNode) -> ASTNode:

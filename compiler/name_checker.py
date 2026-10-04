@@ -452,9 +452,14 @@ class NameChecker:
         self.predefined_used: Set[str] = set()
         self.user_declared: Set[str] = set()
 
+        # 已定义函数 → 形参名列表（N236/N237：check() 预扫描顶层 FUNC_DEF
+        # 填充）——调用处以名举实的判据来源（函数是否存在 + 实参条数是否
+        # 与形参一致），与 Compiler.funcs 同一收集面。
+        self.function_params: Dict[str, List[str]] = {}
+
     # ---- 主入口 ----
 
-# 生效条件：以 ProgramNode 实参 ast 调用时先清空 errors/warnings/declared_in_current/predefined_used/user_declared 并把 current_condition_space 置 None，再对 ast.statements 逐条 _check_statement，最后对 declared_in_current 中经 symbol_table.get 取到且 used 为 False 的符号追加"未被使用"警告，返回 (self.errors, self.warnings)；ast.statements 为空时返回两个空列表。
+# 生效条件：以 ProgramNode 实参 ast 调用时先清空 errors/warnings/declared_in_current/predefined_used/user_declared 并把 current_condition_space 置 None，再预扫描 ast.statements 的顶层 FUNC_DEF 填充 function_params（函数名→形参名列表），随后对 ast.statements 逐条 _check_statement，最后对 declared_in_current 中经 symbol_table.get 取到且 used 为 False 的符号追加"未被使用"警告，返回 (self.errors, self.warnings)；ast.statements 为空时返回两个空列表。
     def check(self, ast: ProgramNode) -> Tuple[List[str], List[str]]:
         """
         执行名实校验
@@ -466,6 +471,17 @@ class NameChecker:
         self.predefined_used = set()
         self.user_declared = set()
         self.current_condition_space = None
+
+        # 预扫描：收集已定义函数 → 形参名列表（顶层「定义 名（参数）：…」）。
+        # N236/N237：与 Compiler.funcs 同一收集面（compiler.py:50-53 仅取顶层
+        # FUNC_DEF），供调用处做「以名举实」校验——被调函数须先定义、且实参
+        # 条数须与形参表一致；否则少参在 VM 层 pop 空栈（IndexError）、多参
+        # 静默残留值栈（此前后置到运行期才暴露，见 _check_expression）。
+        self.function_params = {
+            stmt.name: list(getattr(stmt, 'params', None) or [])
+            for stmt in ast.statements
+            if stmt.type == NodeType.FUNC_DEF
+        }
 
         for stmt in ast.statements:
             self._check_statement(stmt)
@@ -724,7 +740,7 @@ class NameChecker:
 
     # ---- 表达式检查 ----
 
-# 生效条件：expr 为 None 时返回；否则按 expr.type 分派——IDENTIFIER→_check_identifier(expr.name, expr.line, expr.column)、BINARY_EXPR→递归 left 与 right、COMPARISON→递归 left 与 right 并调 _check_trust_comparison(expr)、LITERAL→_check_literal(expr)、UNARY_EXPR→对 expr.children（为 None 时按空列表）逐个递归、CALL_EXPR→有 name 属性时 _check_identifier(expr.name, expr.line, expr.column)，其余类型无动作。
+# 生效条件：expr 为 None 时返回；否则按 expr.type 分派——IDENTIFIER→_check_identifier(expr.name, expr.line, expr.column)、BINARY_EXPR→递归 left 与 right、COMPARISON→递归 left 与 right 并调 _check_trust_comparison(expr)、LITERAL→_check_literal(expr)、UNARY_EXPR→对 expr.children（为 None 时按空列表）逐个递归、CALL_EXPR→expr.name 不在 function_params 时向 errors 追加"未定义函数"，已定义但 len(args) 与形参表不等时向 errors 追加"实参个数不符"（否则无动作；N236 起不再经 _check_identifier 自动声明调用名），其余类型无动作。
     def _check_expression(self, expr: ASTNode):
         """检查表达式"""
         if expr is None:
@@ -746,9 +762,32 @@ class NameChecker:
             for child in (expr.children or []):
                 self._check_expression(child)
         elif expr.type == NodeType.CALL_EXPR:
-            # 调用表达式：检查函数名
-            if hasattr(expr, 'name'):
-                self._check_identifier(expr.name, expr.line, expr.column)
+            # 调用表达式：被调函数须已定义（以名举实），且实参条数须与
+            # 定义形参表一致（N236/N237）。
+            # N236：此前只 `_check_identifier(expr.name…)`——未知函数名被
+            # 宽松模式自动声明为用户变量而静默放行，编译得残缺字节码
+            # （实参入栈却无 CALL），VM 执行 STORE_NAME 时 pop 空栈裸穿
+            # IndexError。今升为编译期错误：两入口（compiler.compile_source /
+            # api.compile_source）共用本判据，同步 ok=False。
+            # N237：条数不符同样致命——少参使 CALL 按形参数连续 pop，
+            # 栈内不足即 IndexError；多参使多余实参永久残留值栈（静默语义
+            # 错，不崩溃更隐蔽）。此处按形参表比对，不等即报错。
+            name = getattr(expr, 'name', None)
+            if name is not None and name not in self.function_params:
+                self.errors.append(
+                    f"L{expr.line}:C{expr.column} 未定义函数 '{name}'"
+                    f"（调用悬空——以名举实：调用前须先「定义 {name}（…）」）"
+                )
+            elif name is not None:
+                params = self.function_params[name]
+                n_args = len(getattr(expr, 'args', None) or [])
+                if n_args != len(params):
+                    self.errors.append(
+                        f"L{expr.line}:C{expr.column} 函数 '{name}' 实参个数"
+                        f"不符：定义 {len(params)} 个形参"
+                        f"（{'、'.join(params) if params else '无'}），"
+                        f"调用提供 {n_args} 个（以名举实）"
+                    )
 
     # ---- 专项检查 ----
 

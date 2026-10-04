@@ -83,7 +83,8 @@ class VMResourceError(Exception):
     """VM 资源越界（N149 加固）：结构化错误——区别于 VMHalt（止/无为=语言控制流）
     与 RecursionError（步数上限·既有契约）。
     kind: "wall"（超出墙钟预算）| "mul_scale"（MUL 结果规模越界，申请未发生）
-          | "memory"（单步分配失败 MemoryError 转结构化）"""
+          | "memory"（单步分配失败 MemoryError 转结构化）
+          | "jump"（跳转/调用入口/返回地址越界——N239 地址校验单点 _jump）"""
 # 生效条件：kind 存入 self.kind，message 交 super().__init__。
     def __init__(self, kind, message):
         self.kind = kind
@@ -171,8 +172,11 @@ class ConditionVM:
         self.scope_depth = 0                 # 术曰作用域深度
         self.trace = []                      # 执行轨迹（可解释性）
         self.call_stack = []                 # 调用栈帧 [(返回ip, 保存的符号表)]
+        # N239：跳转地址上界（_jump 单点用）——run() 置为 len(code)；未绑定
+        # 代码的调用面（调试器单步 vm._exec）保持 None，此时只兜负值回绕。
+        self._code_len = None
 
-# 生效条件：code 自 ip=0 逐条执行至 ip 越界；steps 超过 max_steps（默认 100000）抛 RecursionError；max_wall_seconds 为真值（默认 VM_DEFAULT_WALL_SECONDS=10.0）时起墙钟预算、单步开始前 time.monotonic() 超限即抛 VMResourceError("wall")，为假值（None/0）时关闭；单步分配失败（MemoryError）转抛 VMResourceError("memory")；MUL 结果规模越界在 _exec 内抛 VMResourceError("mul_scale")（申请不发生）；catch_halt 为真（默认）时捕获 VMHalt 记 halt 并 break，为假时 VMHalt 直接上抛；trace 为假值时返回字典的 trace 字段为 None。
+# 生效条件：code 自 ip=0 逐条执行至 ip 越界；进入循环前把 _code_len 置为 len(code)（N239：跳转地址上界，供 _jump 单点校验）；steps 超过 max_steps（默认 100000）抛 RecursionError；max_wall_seconds 为真值（默认 VM_DEFAULT_WALL_SECONDS=10.0）时起墙钟预算、单步开始前 time.monotonic() 超限即抛 VMResourceError("wall")，为假值（None/0）时关闭；单步分配失败（MemoryError）转抛 VMResourceError("memory")；MUL 结果规模越界在 _exec 内抛 VMResourceError("mul_scale")（申请不发生）；跳转/调用入口/返回地址越界在 _exec 内抛 VMResourceError("jump")（N239）；catch_halt 为真（默认）时捕获 VMHalt 记 halt 并 break，为假时 VMHalt 直接上抛；trace 为假值时返回字典的 trace 字段为 None。
     def run(self, code, trace=False, catch_halt=True, symbols=None,
             trust=0.0, condition_stack=None, max_steps=100000,
             max_wall_seconds=VM_DEFAULT_WALL_SECONDS):
@@ -186,6 +190,7 @@ class ConditionVM:
         （大数自乘/巨型序列重复）另由 _exec 的 MUL 规模守卫（"mul_scale"）与
         MemoryError 结构化转换（"memory"）兜底；合法产物远触不到这些上限"""
         self.reset(symbols, trust, condition_stack)
+        self._code_len = len(code)   # N239：跳转地址上界（_jump 单点）
         halt = None
         steps = 0
         wall_deadline = (time.monotonic() + max_wall_seconds) \
@@ -229,6 +234,35 @@ class ConditionVM:
 # 生效条件：形参 v 同时满足 v is not None、v is not False、v != 0 时返回 True，否则返回 False（空串 ""、空列表 [] 等经 v != 0 判定仍为 True）。
     def _truthy(self, v):
         return v is not None and v is not False and v != 0
+
+# 生效条件：target 为 int（bool 不算）且落在 [0, self._code_len]（_code_len 为 None 时只校验非负）即返回 target；否则抛 VMResourceError("jump")。_code_len 由 run() 置为 len(code)、reset() 置 None。
+    def _jump(self, target):
+        """跳转地址校验**单点**（N239）：越界即拒——负值不得回绕、超界不得静默结束。
+
+        Python 的 `code[负索引]` 会把非法跳转**静默**解释成「从末尾倒数」：
+        手工 / `.pbc` 构造的 `JUMP -1` 于是跳到 `code[-1]` 执行，中间指令被
+        静默跳过（且自增后可能回到 0 成环）；`target > len(code)` 则让
+        `while self.ip < len(code)`（run）直接为假、程序静默结束。
+
+        上界取 **`<= len(code)`** 而非 `<`：`== len(code)` 是「跳到程序末尾」
+        的**既有语义**，编译器自身就产出该目标——知足标签与末尾 若/则 的
+        end 标签都 `_place` 在 `len(code)`（compiler.py:74-76、:137-139），
+        `test_defect_regression` ④a 亦钉死「知足达标 → 其后 止 被跳过
+        （halt=None）」。`> len(code)` 则不可能由编译器产出，属越界。
+
+        地址在**写入 self.ip 处**校验（调用点统一走本助手）——未发生的
+        跳转不改变任何既有程序行为；调试器路径（`_code_len is None`）只
+        兜住负值回绕。
+        """
+        n = self._code_len
+        if (isinstance(target, int) and not isinstance(target, bool)
+                and target >= 0 and (n is None or target <= n)):
+            return target
+        limit = "len(code)" if n is None else str(n)
+        raise VMResourceError(
+            "jump",
+            f"跳转目标越界：{target!r}（合法地址 0..{limit}）"
+            f"——负值不得回绕、超界不得静默结束")
 
     # ---- 内建名（缺陷②③）：名与实指向同一处存储 ----
 # 生效条件：condition_stack 为空时返回 DEFAULT_CONDITION_SPACE；否则栈顶为 dict 时返回 top.get('name') or DEFAULT_CONDITION_SPACE（缺 'name' 键或该键值为假值均回落默认），栈顶非 dict 时返回 str(top)。
@@ -298,10 +332,10 @@ class ConditionVM:
             else:
                 self.symbols[arg] = _val
         elif op == Opcode.JUMP:
-            self.ip = arg
+            self.ip = self._jump(arg)        # N239：地址校验单点
         elif op == Opcode.JUMP_IF_FALSE:
             if not self._truthy(self.stack.pop()):
-                self.ip = arg
+                self.ip = self._jump(arg)    # N239
         elif op == Opcode.DAO:
             # 道：创建协议路径 → 条件空间栈压入（对应灵枢条件路由）
             self.condition_stack.append({"name": arg, "trust_at_create": self.trust_value})
@@ -320,7 +354,7 @@ class ConditionVM:
             # 知足：信任≥阈值跳转（达标判定）
             threshold, addr = arg
             if self.trust_value >= threshold:
-                self.ip = addr
+                self.ip = self._jump(addr)   # N239
         elif op == Opcode.CMP_EQ:
             b, a = self.stack.pop(), self.stack.pop()
             self.stack.append(a == b)
@@ -372,7 +406,7 @@ class ConditionVM:
             self.symbols = dict(self.symbols)
             for pname, pval in zip(param_names, args):
                 self.symbols[pname] = pval
-            self.ip = entry_ip
+            self.ip = self._jump(entry_ip)   # N239：入口地址同为跳转目标
         elif op == Opcode.RETURN:
             # 返回值：栈顶保留；恢复调用帧（无帧则程序结束）
             if self.call_stack:
@@ -380,7 +414,7 @@ class ConditionVM:
                 self.symbols = saved_symbols
                 self.trust_value = saved_trust
                 self.condition_stack = saved_cond
-                self.ip = ret_ip
+                self.ip = self._jump(ret_ip)   # N239：返回地址同为跳转目标
             else:
                 # 顶层 RETURN：停止执行（无调用者）
                 raise VMHalt("halt", self._state())

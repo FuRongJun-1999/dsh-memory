@@ -51,6 +51,7 @@ import os
 import time
 
 from .mdcg import expand_query_terms_weighted
+from . import nodefile
 
 # --------------------------------------------------------------------------
 # 常量（全部可审计、可调）
@@ -250,20 +251,51 @@ def _ban_hit(content, neg_texts):
     return False
 
 
-# 生效条件：content 为真时按行过滤，跳过 strip 后以 "#" 开头且含全角或半角冒号的行，其余原行以换行连接返回；content 假值按空串返回 ""；
+# 生效条件：content 为真时逐行扫描——命中 CCG 要素标题行（判据单点 nodefile._ccg_heading_rest，`^#\s*<要素>` 冒号可有可无）即整段剥除：行内带值（`# 生效条件：v`／前缀式）只剥该行，裸标题（`# 不适用条件`）连同其后首个非空、非标题行（该字段的值行，取值口径同 nodefile.ccg_field_value）一并剥除；其余原行以换行连接返回；content 假值按空串返回 "";
 def _body_text(content):
-    """去掉 CCG 声明行（`# 字段：值`）后的正文。
+    """去掉 CCG 声明**整段字段**后的正文。
 
     自否定看的是「正文/生效条件是否与不适用条件矛盾」，不能把节点自己声明的
     `# 不适用条件：X` 当成 X 出现在正文里——否则**每个**声明了不适用条件的
     正常节点都会被误判为自相矛盾（真实 CCG 条目普遍带该字段）。
+
+    N238：判据复用**单点** `nodefile._ccg_heading_rest`（与写入闸门
+    data/policy.json 同一行语义、`mdcos._ccg_field` / `ccg_mark_present` 同源），
+    并连同**无冒号形态的值行**一起剥。此前本地判据是「以 # 开头**且含冒号**」，
+    裸标题 `# 不适用条件` 与其值行双双残留正文：同内容写成带冒号时
+    `_body_text == ''`（不命中），写成无冒号时 body 含禁令短语 ⇒ `_ban_hit`
+    恒中 ⇒ self_negation / strength=1.0 ⇒ REJECT（writepipe 下合法节点被拦入
+    review_queue 并自动建飞轮工单）。「冒号可有可无」已由
+    `nodefile.ccg_mark_present` / `ccg_field_value` 定案（test_ccg_form_parity
+    验收 PASS），本处是漏网的分叉。
     """
+    lines = (content or "").split("\n")
     out = []
-    for line in (content or "").splitlines():
-        s = line.strip()
-        if s.startswith("#") and ("：" in s or ":" in s):
+    i, n = 0, len(lines)
+    while i < n:
+        # 标题行判据走单点（传原行、不 strip——单点明确不认缩进标题，
+        # 与写入闸门同边界；缩进标题在任何面都不构成「已声明」）
+        rest = None
+        for mark in nodefile.CCG_MARKS:
+            rest = nodefile._ccg_heading_rest(lines[i], mark)
+            if rest is not None:
+                break
+        if rest is None:
+            out.append(lines[i])
+            i += 1
             continue
-        out.append(line)
+        i += 1
+        if rest.strip():
+            continue            # 行内已带值（冒号式 `# 字段：v` / 前缀式）
+        while i < n:            # 裸标题：其后首个非空、非标题行是值行，同剥
+            t = lines[i].strip()
+            if not t:
+                i += 1
+                continue
+            if t.startswith("#"):
+                break           # 下一个标题 ⇒ 本字段值为空，不消费
+            i += 1
+            break
     return "\n".join(out)
 
 
