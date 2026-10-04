@@ -13,7 +13,7 @@
 
 ![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-0.17.2%20%E5%B7%B2%E9%AA%8C%E8%AF%81-4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.7.1）**
+**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.7.2）**
 
 </div>
 
@@ -455,6 +455,7 @@ AEIS 仅作可选「身体」能力后端（角色扮演生成），不再存记
 | 文档 | 内容 |
 |---|---|
 | **[docs/ 目录索引](docs/README.md)** | 六域快速索引（mdcg / swarm / hive / theory / eval / plans）· 新文档归域规则 |
+| **[Release v0.7.2](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.7.2)** | 本版变更：读面损坏 UTF-8 家族收口——① 读取面不再因损坏非 UTF-8 节点崩溃（贡献者 PR #54）＋同形态残余加固（census / restore / read_preimage / locate 四站点：坏 trash 与坏前像均结构化失败且源保留，health 增 skipped_unreadable 计数）② issue #53 三缺陷（密文假域标签 / 桶计数虚高 / 假 hash_drift）③ 工程面收口（PR #47：CI 先构建 Rust/Hive 二进制再跑 Python 全量；套件并行改串行防共享临时目录竞态；charset 表与纪律指纹跨平台同判） |
 | **[Release v0.7.1](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.7.1)** | 本版变更：检索面三批同族收口——① issue #52 条件先行与截断可观测（timeline/anchors/consistency 的索引序切片退场：条件先于限额、截断可观测＋可操作提示，max_scan 数值不动）② stg 结构索引（by_session/by_layer/by_time 内存倒排＋条件资格首验，双 flag 默认关，在役实测 52× 收敛（7607 条规模；加速比随库规模与条件收窄度增长、小库下显著降低）、两臂逐位等价）③ consistency 选面（MAX_SCAN=200 索引序静默截断退场：相关性预筛＋保底面＋面内例外＋truncated/kept/hint 可观测，数值一字未动） |
 | **[Release v0.7.0](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.7.0)** | 本版变更：① **自迭代与睡眠**——睡眠周期引擎（影子副本迭代 + 语义四闸 + git 周期合并，九步显式台账，缺省 23:00-07:00 窗口、一小时一轮、可调）② **因果/时间图检索路**进默认检索（因果路复用既有条件链；时间路走唯一时间核，半衰期 30 天；边类型集可配）③ **六要素补成 6 行索引角色**（验证方式/不适用条件进默认检索，边界命中与资格裁决分开计数）④ **权重刷新与衰减进主分数**（旧记忆降权、被调用者刷新，带 floor 与保护线、可预演可回滚）⑤ 累积修复：装机即挂（issue #48）、出货面冒烟进门禁（第九腿）、归一层缺省翻关、N230 重放遮蔽 |
 | **[Release v0.6.1](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.6.1)** | 本版变更：外部测试报告逐条核验后的四批修复——① 写面静默失败族（自动 id 加熵与撞车有界重生成 / 声明密级透传且落盘不一致即 fail-closed / 索引分片目录删除后自愈）· ② 合并吞正文与冲突误判（MERGE 与熵 DROP 两分支都保新正文 / 仅空白差异不再误判同一条件分歧 / CCG 哨兵空值不再触发假冲突）· ③ 召回面诚实性（负覆盖条目不再以满分冒充答案且不溢出 k / 一致性飞轮只对真冲突建单 / 显式 k=0 不再被当缺省 / 仅 1 个桶的库不说「分区正常」/ 类型错的参数与裸 null 出口收成结构化错误）· ④ 插件面（全角凭据形态纳入脱敏 / 注入记忆加不可信边界声明 / 子代理委派不写成本人记忆 / 召回与时间线读写两侧会话口径同尺）。九项探针先取证后改码，每处修复配定点变异自证 |

@@ -38,6 +38,7 @@ echo "=== python 套件 ==="
 # 读缓存/MdStore 预计算逐位对照/p43 回流守恒。依赖 gitignored 本地语料的
 # 套件（p44/md_access_parity）不入清单（容器内必缺，由 run_tests SKIP 面
 # 在有语料的机器覆盖）。
+# 0.7.2 读面损坏 UTF-8 族：补登 test_health_corrupt_utf8 / test_corrupt_utf8_read_surfaces（Linux 容器单跑与 --mutate 自证均已绿，2026-10-04）。
 for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_interop test_subproc_encoding \
          test_p29_session_ingest_export test_p2 test_p2_mcp test_p3 \
@@ -46,7 +47,8 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_rejected_redact test_rejected_credential_forms test_ccg_form_parity test_wisdom_md_store \
          test_neg_condition_hits test_token_lowercase_form test_srcindex \
          test_logref test_p28_refcheck test_n225_nonobject_load \
-         test_issue52_scan_condition_first test_stgidx_index_parity; do
+         test_issue52_scan_condition_first test_stgidx_index_parity \
+         test_health_corrupt_utf8 test_corrupt_utf8_read_surfaces; do
   out=$(python3 -m "md_cg.$t" 2>&1 | tail -1); rc=$?
   record "md_cg.$t" $rc
   echo "    -> $out"
