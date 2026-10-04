@@ -279,14 +279,18 @@ fn submit_anchored(jobs: &Path, timeout_s: u64) -> (String, PathBuf) {
     (id, dir)
 }
 
-/// 承重断言 4（P11 结果完整性锚，批次53，能红 + 反向对照）：锚预期任务
+/// 承重断言 4（P11 结果完整性锚，批次53 + N232 加固，能红 + 反向对照）：锚预期任务
 /// （status 带 result_nonce）的产物在采信 done 前必须过完整性锚校验——
 ///   a. 诚实回写锚（HMAC 与预期一致）→ done（诚实执行器语义不变）；
 ///   b. 伪锚/挪锚（ 锚与预期不匹配）→ error 拒绝采信；
 ///   c. 旧格式产物（无 result_anchor）→ needs_review 不自动采信；
 ///   d. 无密钥 serve 对锚预期产物 → needs_review（fail-closed 不静默放行）；
-///   e. 旧格式任务（无 nonce）+ 旧格式产物 → done（向后兼容基线）。
-/// 反向对照：退回旧判据（删锚校验）则 b/c/d 全变 done，本测试必红；
+///   e. **持密钥** serve + 盘面无 nonce 记录（state=claimed）→ needs_review
+///      （N232：锚预期**不可判定**——「旧格式」与「nonce 被抹」在盘面同形，
+///      不自动采信，见 scheduler.rs AnchorExpect）；
+///   f. 同一盘面形态在**无密钥** serve 上 → done（旧格式基线的**边界就在这里**：
+///      锚判据整体未启用，行为零变更）。
+/// 反向对照：退回旧判据（删锚校验）则 b/c/d/e 全变 done，本测试必红；
 /// 弱化任一断言 = 弱化判据面 → A3 红。
 #[test]
 fn result_anchor_gate() {
@@ -331,7 +335,8 @@ fn result_anchor_gate() {
         vec![("state".to_string(), hive::json::Json::Str("claimed".into()))],
     );
 
-    // e. 旧格式任务（无 nonce）+ 旧格式产物 → 旧判据（向后兼容）
+    // e. 持密钥 serve + 盘面无 nonce（claimed）+ 旧判据形态产物 → 不可判定 fail-closed
+    //    （N232：该形态与「nonce 被抹除的降级攻击」在盘面同形）
     let e = submit(&jobs, "0", 60);
     let de = job::job_dir(&jobs, &e);
     fs::write(de.join("result.json"), r#"{"ok":true,"content":"legacy"}"#).unwrap();
@@ -367,10 +372,17 @@ fn result_anchor_gate() {
         err_c.contains("产物完整性锚缺失"),
         "c 的 error 须点明锚缺失: {err_c}"
     );
+    // e. N232：盘面无 nonce 记录（旧格式 与 nonce 被抹 同形）→ 不可判定 → 不采信
     assert_eq!(
         read_state(&jobs, &e),
-        "done",
-        "旧格式任务必须维持旧判据（向后兼容零变更）"
+        "needs_review",
+        "持密钥 serve 下盘面无 nonce 记录必须 fail-closed（N232）"
+    );
+    let st_e = job::read_status(&de).unwrap();
+    let err_e = st_e.get("error").unwrap().as_str().unwrap();
+    assert!(
+        err_e.contains("锚预期不可判定"),
+        "e 的 error 须点明锚预期不可判定: {err_e}"
     );
 
     // d. 无密钥 serve 对同一批锚预期产物 → fail-closed needs_review（不静默放行）
@@ -383,6 +395,16 @@ fn result_anchor_gate() {
     let _ = job::patch_status(
         &dd,
         vec![("state".to_string(), hive::json::Json::Str("running".into()))],
+    );
+    // f. N232 兼容边界：**无密钥** serve 上「盘面无 nonce + 旧格式产物」仍是 done
+    //    （锚判据整体未启用 → 行为与旧版逐字段一致）。现场须在 d 之后建：否则它会被
+    //    上面的**持密钥**那一轮先行终态化，断言就不再是 keyless 面的判据。
+    let f = submit(&jobs, "0", 60);
+    let df = job::job_dir(&jobs, &f);
+    fs::write(df.join("result.json"), r#"{"ok":true,"content":"legacy"}"#).unwrap();
+    let _ = job::patch_status(
+        &df,
+        vec![("state".to_string(), hive::json::Json::Str("claimed".into()))],
     );
     let cfg_keyless = ServeCfg::new(jobs.clone(), 1, tmp.join("fake_exec.py"));
     recover_orphans(&cfg_keyless);
@@ -399,6 +421,13 @@ fn result_anchor_gate() {
             .unwrap()
             .contains("不可校验"),
         "d 的 error 须点明不可校验"
+    );
+    // f. N232 兼容边界：**无密钥** serve 上「盘面无 nonce + 旧格式产物」仍是 done
+    //    （锚判据整体未启用 → 行为与旧版逐字段一致）
+    assert_eq!(
+        read_state(&jobs, &f),
+        "done",
+        "无密钥 serve 必须维持旧格式判据（兼容边界，N232 未越界）"
     );
     let _ = fs::remove_dir_all(&tmp);
 }

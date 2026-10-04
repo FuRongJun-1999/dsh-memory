@@ -28,6 +28,14 @@
 //! 有产物定终态、无产物删锁重投；主循环侧状态改写失败即回滚领取锁（不吞错、
 //! 不投递），双侧共同保证「锁在手 ⇔ state 已 claimed」，任务无 TTL 悬置归零。
 //!
+//! N233 状态改写**不得吞错**（2026-10-05，与 N191 同一条纪律补到 worker 面）：
+//! worker 的**终态落盘**走有界退避重试（[`land_final_status`]，复用 H-4 的
+//! [`retry_spawn`] 单点）——瞬态失败被吸收（无需重启 serve）；重试 >1 次成功留痕；
+//! 耗尽则 stderr 告警 + 落独立标记 `status.writefail.json`（[`job::WRITEFAIL_MARK`]，
+//! 旁证文件、绝不改写 status.json 本体）。**心跳**失败首次告警一行。旧版两处都是
+//! `let _`：一次瞬态失败即令任务永久停在 claimed/running，poll/doctor 恒报 running、
+//! 下游经 deps_gate 永久悬置且零信号。
+//!
 //! H-3 坏 status（本轮）：status.json 不可解析**不再被当成半成品无限等待**。
 //! 判据走 `job::read_status_classified` 三态（Ok / Absent / Corrupt）：Absent 是
 //! 提交竞态窗口（下拍再看），Corrupt 是事故——serve 启动时 stderr 告警、每拍
@@ -41,6 +49,11 @@
 //! error（拒绝采信）、通过 → done；旧格式任务（无 nonce）维持旧判据（向后兼容）。
 //! 密钥经 ServeCfg.result_key（生产入口 = keyres::resolve_key_from_env()，取
 //! hive 既有配置/令牌面；None = 锚判据不启用，行为与旧版一致）。
+//! N232 加固（2026-10-05）：**锚预期不可判定不得落回旧判据 done**——判据来源分两
+//! 面（见 [`AnchorExpect`]）：live 面用 spawn 期**内存事实**（注入过锚则必须回写
+//! 一致锚，盘面 status 被抹无效）；恢复面（recover_orphans，无内存事实）在**持
+//! 密钥**时对「盘面无 nonce 记录 / status 不可读」fail-closed（needs_review）。
+//! 无密钥 serve 仍是旧格式基线的边界（锚判据整体未启用，行为零变更）。
 
 
 use crate::exec;
@@ -546,7 +559,7 @@ pub fn recover_orphans(cfg: &ServeCfg) {
         let residual_claim =
             state == "claimed" || (state == "pending" && dir.join("claimed.lock").is_file());
         if residual_claim {
-            match classify_result(&dir, cfg.result_key.as_deref()) {
+            match classify_result(&dir, cfg.result_key.as_deref(), &AnchorExpect::Unknown) {
                 // 产物已产出 → 按产物定终态（删锁但绝不重投重跑）；
                 // 例外：spec 显式 rerun_on_recover → 旧产物更名留痕，强制重投（M1 逃生门）
                 Some((final_state, err)) => {
@@ -587,7 +600,7 @@ pub fn recover_orphans(cfg: &ServeCfg) {
             continue;
         }
         match state {
-            "running" => match classify_result(&dir, cfg.result_key.as_deref()) {
+            "running" => match classify_result(&dir, cfg.result_key.as_deref(), &AnchorExpect::Unknown) {
                 // 孤儿执行器可能已写出产物 → 按产物定终态（不误标 serve 中断）；
                 // 例外：spec 显式 rerun_on_recover → 旧产物更名留痕，回 pending 重投
                 Some((final_state, err)) => {
@@ -658,6 +671,11 @@ pub const SPAWN_MAX_ATTEMPTS: u32 = 3;
 pub const SPAWN_BACKOFF_BASE_MS: u64 = 200;
 /// 单次退避上限（防指数放大把 worker 卡死）。
 pub const SPAWN_BACKOFF_MAX_MS: u64 = 2000;
+/// worker 终态落盘的尝试次数（含首次，N233）：比拉起重试更宽——终态写入失败会把
+/// 任务永久留在 claimed/running（下游经 deps_gate 悬置），故值得多等一会儿把瞬态
+/// 吸收掉；退避按 `spawn_backoff` 递增封顶 2s ⇒ 全窗约 9s（与 python 侧
+/// `_write_result` 的递增重试同量级：同一「先重试再认输」的工程口径）。
+pub const STATUS_WRITE_MAX_ATTEMPTS: u32 = 8;
 
 /// 第 `failed` 次失败（1 起）后的等待时长：base × 2^(failed-1)，封顶 MAX。
 /// 生效条件：failed ≥ 1 → 返回 200ms / 400ms / …（≤ 2s）；不适用条件：无。
@@ -785,9 +803,13 @@ fn run_job(cfg: &ServeCfg, id: &str) {
     // H-4 止血：拉起执行器改为**有界退避重试**（次数/间隔有界，超限仍落 error
     // 并保留最后一次原因）。首次即成功时与旧路径逐位等价（retry_spawn 立刻
     // 返回 Ok(_, 1)，一次多余等待都没有）。
+    // P11（N232）：锚计划在拉起前算**一次**，既是注入值也是终态判据的**内存事实**
+    // （expect），故重试期间不重读盘面——盘面写者够不着本进程的判断依据。
+    let plan = plan_anchor(&dir, cfg);
+    let expect = plan.expect();
     let (mut child, _spawn_attempts) = match retry_spawn(
         SPAWN_MAX_ATTEMPTS,
-        || exec::spawn_executor(&cfg.exec_py, &dir, spawn_anchor(&dir, cfg).as_deref()),
+        || exec::spawn_executor(&cfg.exec_py, &dir, plan.anchor.as_deref()),
         thread::sleep,
     ) {
         Ok(v) => v,
@@ -806,12 +828,14 @@ fn run_job(cfg: &ServeCfg, id: &str) {
     let t0 = std::time::Instant::now();
     let final_state: String;
     let mut final_err: Option<String> = None;
+    // N233：心跳失败首次告警一次（后续每拍照旧重试，不刷屏）。
+    let mut hb_warned = false;
 
     loop {
         thread::sleep(tick);
         match child.try_wait() {
             Ok(Some(code)) => {
-                let (state, err) = classify_exit(&dir, code, cfg.result_key.as_deref());
+                let (state, err) = classify_exit(&dir, code, cfg.result_key.as_deref(), &expect);
                 final_state = state;
                 final_err = err;
                 break;
@@ -829,7 +853,17 @@ fn run_job(cfg: &ServeCfg, id: &str) {
                     final_state = "timeout".into();
                     break;
                 }
-                let _ = job::heartbeat(&dir, "running", started);
+                // N233：心跳失败**不得静默**（心跳停更是失联判据，故障必须可发现）——
+                // 首次失败 stderr 告警一行；本拍之后照旧每拍重试。
+                if let Err(e) = job::heartbeat(&dir, "running", started) {
+                    if !hb_warned {
+                        hb_warned = true;
+                        eprintln!(
+                            "[hive] 告警：任务 {id} 心跳写入失败（state=running）：{e} \
+                             —— 下一拍重试；持续失败将致心跳停更（失联判据失真）"
+                        );
+                    }
+                }
             }
             Err(_) => {
                 final_state = "error".into();
@@ -839,20 +873,67 @@ fn run_job(cfg: &ServeCfg, id: &str) {
         }
     }
 
-    let mut fields = vec![
-        ("state".to_string(), crate::json::Json::Str(final_state)),
-        ("heartbeat_ts".to_string(), crate::json::Json::Num(job::now_ms() as f64)),
-        (
-            "elapsed_s".to_string(),
-            crate::json::Json::Num(
-                (t0.elapsed().as_millis() as f64 / 1000.0 * 100.0).round() / 100.0,
-            ),
+    let elapsed_s = (t0.elapsed().as_millis() as f64 / 1000.0 * 100.0).round() / 100.0;
+    land_final_status(&dir, id, &final_state, final_err.as_deref(), elapsed_s);
+}
+
+/// worker 终态落盘（N233）：**不得吞错**——与 N191 已确立的主循环领取面纪律
+/// （`patch_status("claimed")` 失败即回滚领取锁 + stderr 告警，见 serve 循环）同一条：
+/// 状态改写在任何一条路径上都不许被 `let _` 抹成静默。
+///
+/// 判据：
+///   * 写入走 H-4 既有**有界退避重试**单点（[`retry_spawn`]，同一实现、不另造第二份
+///     重试判据）——瞬态失败（Windows 读者瞬态句柄一类）在此被吸收，无需重启 serve；
+///   * 重试 >1 次才成功 → stderr 留痕（瞬态也要可见，不静默消化）；
+///   * 重试耗尽 → stderr **告警**（点名 job_id/state/原因）+ 落独立标记
+///     [`job::WRITEFAIL_MARK`]（H-3 同款旁证文件，**绝不改写 status.json 本体**）+
+///     清理重试期间残留的同名 tmp。
+/// 生效条件：worker 已定终态（done/error/timeout/killed/needs_review）后调用一次。
+/// 不适用条件：不改写盘面只读时的「状态未落盘」这一事实——那只由修盘面权限 + serve
+/// 重启（`recover_orphans` 按产物定终态）收敛；本函数保证的是**失败可发现**。
+fn land_final_status(
+    dir: &Path,
+    id: &str,
+    state: &str,
+    err: Option<&str>,
+    elapsed_s: f64,
+) {
+    let res = retry_spawn(
+        STATUS_WRITE_MAX_ATTEMPTS,
+        || {
+            let mut fields = vec![
+                ("state".to_string(), crate::json::Json::Str(state.to_string())),
+                ("heartbeat_ts".to_string(), crate::json::Json::Num(job::now_ms() as f64)),
+                ("elapsed_s".to_string(), crate::json::Json::Num(elapsed_s)),
+            ];
+            if let Some(e) = err {
+                fields.push(("error".to_string(), crate::json::Json::Str(e.to_string())));
+            }
+            job::patch_status(dir, fields)
+        },
+        thread::sleep,
+    );
+    match res {
+        Ok(((), 1)) => {}
+        Ok(((), n)) => eprintln!(
+            "[hive] 瞬态：任务 {id} 终态写入经 {n} 次尝试落盘（前 {} 次被瞬态失败拒绝；\
+             state={state}）",
+            n - 1
         ),
-    ];
-    if let Some(e) = final_err {
-        fields.push(("error".to_string(), crate::json::Json::Str(e)));
+        Err((e, n)) => {
+            eprintln!(
+                "[hive] 告警：任务 {id} 终态写入失败（已重试 {n} 次，state={state}）：{e} \
+                 —— 落标记 {}；状态未落盘，restart serve 由 recover_orphans 按产物收敛",
+                job::WRITEFAIL_MARK
+            );
+            job::cleanup_write_tmp(&dir.join("status.json"));
+            if let Err(me) = job::write_status_writefail_mark(dir, id, state, &e) {
+                eprintln!(
+                    "[hive] 告警：任务 {id} 的失败标记亦未能落盘（盘面只读/盘满？）：{me}"
+                );
+            }
+        }
     }
-    let _ = job::patch_status(&dir, fields);
 }
 
 /// 产物判据（**唯一实现**）：读 result.json 定 (终态, error)。
@@ -871,11 +952,19 @@ fn run_job(cfg: &ServeCfg, id: &str) {
 ///     =不采信，不静默放行）；
 ///   * 锚不匹配（伪锚/挪锚/提交后 spec 被改）→ error（拒绝采信，终态）。
 /// status.json 无 `result_nonce`（旧格式任务）→ 维持旧判据 done（向后兼容：
-/// 存量任务池、无密钥提交面零变更）。
+/// 存量任务池、无密钥提交面零变更）——**但仅在「锚预期确实不存在」可判定时**
+/// （N232 加固，2026-10-05：见 [`AnchorExpect`]——盘面无 nonce 记录与 nonce 被
+/// 抹除在盘面同形，持密钥 serve 的恢复面按不可判定 fail-closed，无密钥 serve 才
+/// 是旧格式基线的边界）。
 /// 生效条件：dir 下 result.json 存在且可解析 → Some((done|error|needs_review,
 /// error 文本))；不存在 → None（无产物）；解析失败 → Some(("error", 解析错误))。
-/// 判据唯一实现（classify_exit 与 recover_orphans 共用，勿分叉——C9 教训）。
-fn classify_result(dir: &std::path::Path, key: Option<&str>) -> Option<(String, Option<String>)> {
+/// 判据唯一实现（classify_exit 与 recover_orphans 共用，勿分叉——C9 教训）；
+/// `expect` 是**输入**不是第二份判据：live 面带内存事实、恢复面按盘面 fail-closed。
+fn classify_result(
+    dir: &std::path::Path,
+    key: Option<&str>,
+    expect: &AnchorExpect,
+) -> Option<(String, Option<String>)> {
     let result_path = dir.join("result.json");
     if !result_path.is_file() {
         return None;
@@ -888,7 +977,7 @@ fn classify_result(dir: &std::path::Path, key: Option<&str>) -> Option<(String, 
                 .map(|s| s.to_string());
             Some(match err {
                 Some(e) => ("error".into(), Some(e)),
-                None => match verify_result_anchor(dir, &r, key) {
+                None => match verify_result_anchor(dir, &r, key, expect) {
                     AnchorVerdict::Pass => ("done".into(), None),
                     AnchorVerdict::MissingAnchor => (
                         "needs_review".into(),
@@ -918,6 +1007,17 @@ fn classify_result(dir: &std::path::Path, key: Option<&str>) -> Option<(String, 
                                 .into(),
                         ),
                     ),
+                    AnchorVerdict::ExpectationUnknown => (
+                        "needs_review".into(),
+                        Some(
+                            "锚预期不可判定：本 serve 已启用锚（持密钥）而任务 \
+                            status.json 无 result_nonce 记录（或 status 不可读）——\
+                            「旧格式任务」与「锚预期被抹除」在盘面同形，不自动采信 \
+                            （P11 加固 N232）。处置：确为旧格式的经 spec.rerun_on_recover \
+                            重投，或人工复核"
+                                .into(),
+                        ),
+                    ),
                 },
             })
         }
@@ -928,7 +1028,7 @@ fn classify_result(dir: &std::path::Path, key: Option<&str>) -> Option<(String, 
     }
 }
 
-/// 锚校验裁决（classify_result 内部；四态各对应一条终态处置）。
+/// 锚校验裁决（classify_result 内部；各态各对应一条终态处置）。
 enum AnchorVerdict {
     /// 校验通过（或旧格式任务无锚预期 → 旧判据）→ done。
     Pass,
@@ -938,24 +1038,93 @@ enum AnchorVerdict {
     Unverifiable,
     /// 锚不匹配（含 spec 不可读——校验输入残缺按失配拒绝，不冒险采信）。
     Mismatch,
+    /// **锚预期不可判定**（N232）：持密钥 serve 下盘面无 nonce 记录 / status 不可读
+    /// ——「旧格式」与「锚预期被抹除」在盘面同形 → fail-closed（needs_review）。
+    ExpectationUnknown,
 }
 
-/// P11 锚校验唯一实现：nonce 缺失 = 旧格式任务 → Pass（向后兼容基线）；
-/// 否则 result_anchor 必须存在且与 HMAC(key, spec 字节, nonce) 恒时相等。
-/// 生效条件：dir 的 status.json/spec.json/result 视图与密钥给定 → 四态裁决；
+/// P11 锚预期**来源**（N232，2026-10-05）：判据「本任务是否声明锚预期」由谁拍板——
+/// 盘面（同目录写者够得着）还是本进程内存（够不着）。
+///
+/// 缺陷本体：`status.json` 与 `result.json` 同处一个 job 目录、对写 result.json 的
+/// 组件**无写保护**——盘面 `result_nonce` 被抹除后，「旧格式任务」与「锚预期被抹除」
+/// 在盘面**同形**；旧码把两者并作一态直接 `Pass`→done，无钥即可把伪造产物降级。
+/// 判别力因此只能来自两处：内存事实（live 面）或「不可判定就 fail-closed」（恢复面）。
+#[derive(Debug, Clone)]
+enum AnchorExpect {
+    /// spawn 期内存事实：**已**注入锚（nonce = 本进程算锚所用值）→ 产物必须回写一致
+    /// 锚；盘面 status 被抹/被改都不改变本条（内存优先于盘面）。
+    Injected(String),
+    /// spawn 期内存事实：**未**注入锚（旧格式任务，或本 serve 无密钥）→ 盘面若声明了
+    /// 锚预期则走原判据（无密钥不可校验 / 锚缺失），否则旧格式 → 旧判据 done。
+    NotInjected,
+    /// 无内存事实（[`recover_orphans`]：上一任 serve 的现场，只有盘面可依）→ 持密钥时
+    /// 「盘面无 nonce 记录 / status 不可读」= 不可判定 → fail-closed。
+    Unknown,
+}
+
+/// P11 锚预期读取（**唯一实现**，N232）：把「本任务声明的锚预期」按来源裁出——
+/// `Ok(nonce)` = 有锚预期且值可知（继续校验 result_anchor）；
+/// `Err(裁决)` = 直接终局裁决（`Pass` = 旧判据 / `ExpectationUnknown` = 不可判定）。
+/// 生效条件：dir/key/expect 给定 → 三态上述；判据细节见 [`AnchorExpect`] 头注。
+/// 不适用条件：不做密码学校验（那是 [`verify_result_anchor`] 比对段的事）。
+fn expected_nonce(
+    dir: &std::path::Path,
+    key: Option<&str>,
+    expect: &AnchorExpect,
+) -> Result<String, AnchorVerdict> {
+    // 盘面读法（唯一一处）：status 可读 → 取其 result_nonce（空串视同未声明）；
+    // 不可读（H-3 Corrupt / 缺失）→ declared=None 且 readable=false（无密钥 serve
+    // 维持旧口径、持密钥 serve fail-closed）。
+    let (declared, readable) = match job::read_status(dir) {
+        Ok(s) => (
+            s.get("result_nonce")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .filter(|n| !n.is_empty()),
+            true,
+        ),
+        Err(_) => (None, false),
+    };
+    match expect {
+        // ① 内存事实优先：注入过锚就得对上——盘面怎么改写都不算数
+        AnchorExpect::Injected(n) => Ok(n.clone()),
+        // ② 无内存事实（恢复面）：只有盘面可依；持密钥时不可判定即 fail-closed
+        AnchorExpect::Unknown => match declared {
+            Some(n) => Ok(n),
+            None if key.is_none() => Err(AnchorVerdict::Pass),
+            None => Err(AnchorVerdict::ExpectationUnknown),
+        },
+        // ③ 内存事实 = 未注入锚：
+        //    * 盘面有 nonce + 无密钥 → 原判据（本 serve 校不了锚：锚缺失/不可校验）；
+        //    * 盘面有 nonce + 有密钥 → **违反不变量**（有钥有 nonce 必注入）= 锚预期
+        //      在拉起后出现 → 不采信；
+        //    * 盘面无 nonce（可读）→ 旧格式基线 → 旧判据 done；
+        //    * status 不可读 → 无密钥维持旧口径，持密钥 fail-closed。
+        AnchorExpect::NotInjected => match (key, declared, readable) {
+            (None, Some(n), _) => Ok(n),
+            (Some(_), Some(_), _) => Err(AnchorVerdict::ExpectationUnknown),
+            (_, None, true) => Err(AnchorVerdict::Pass),
+            (None, None, false) => Err(AnchorVerdict::Pass),
+            (Some(_), None, false) => Err(AnchorVerdict::ExpectationUnknown),
+        },
+    }
+}
+
+/// P11 锚校验唯一实现：先由 [`expected_nonce`] 裁出锚预期（N232：内存事实优先、
+/// 恢复面不可判定即 fail-closed）；有预期时 result_anchor 必须存在且与
+/// HMAC(key, spec 字节, nonce) 恒时相等。
+/// 生效条件：dir 的 status.json/spec.json/result 视图、密钥与预期来源给定 → 各态裁决；
 /// 判据细节见 classify_result 头注（承重反向对照在 tests/judgment_surface.rs）。
 fn verify_result_anchor(
     dir: &std::path::Path,
     result: &crate::json::Json,
     key: Option<&str>,
+    expect: &AnchorExpect,
 ) -> AnchorVerdict {
-    let nonce = match job::read_status(dir)
-        .ok()
-        .and_then(|s| s.get("result_nonce").and_then(|v| v.as_str()).map(String::from))
-    {
-        Some(n) if !n.is_empty() => n,
-        // 旧格式任务（无锚预期）→ 旧判据（向后兼容：存量池零变更）
-        _ => return AnchorVerdict::Pass,
+    let nonce = match expected_nonce(dir, key, expect) {
+        Ok(n) => n,
+        Err(v) => return v,
     };
     let echo = result
         .get("result_anchor")
@@ -971,8 +1140,8 @@ fn verify_result_anchor(
     let Ok(spec_bytes) = std::fs::read(dir.join("spec.json")) else {
         return AnchorVerdict::Mismatch; // 校验输入残缺：按失配拒绝（fail-closed）
     };
-    let expect = crate::hmac::result_anchor_hex(key, &spec_bytes, &nonce);
-    if crate::hmac::ct_eq(&echo, &expect) {
+    let expect_anchor = crate::hmac::result_anchor_hex(key, &spec_bytes, &nonce);
+    if crate::hmac::ct_eq(&echo, &expect_anchor) {
         AnchorVerdict::Pass
     } else {
         AnchorVerdict::Mismatch
@@ -1068,13 +1237,16 @@ fn deps_gate(jobs: &Path, dir: &Path) -> Result<bool, String> {
 /// 子进程退出后的终态分类：以 result.json 为准（error 字段区分 API 错误）。
 /// 生效条件：执行器正常退出后调用——**产物说了算**（result.json 有则按产物定
 /// 终态，无则按退出码；与 recover_orphans 共用 classify_result，判据不分叉；
-/// key 透传锚校验，见 classify_result P11 门）。
+/// key 透传锚校验，见 classify_result P11 门；`expect` = **本进程 spawn 期内存事实**
+/// （N232：注入过锚就得对上，盘面抹 nonce 无效）——恢复面没有内存事实，走
+/// [`AnchorExpect::Unknown`]）。
 fn classify_exit(
     dir: &std::path::Path,
     code: std::process::ExitStatus,
     key: Option<&str>,
+    expect: &AnchorExpect,
 ) -> (String, Option<String>) {
-    match classify_result(dir, key) {
+    match classify_result(dir, key, expect) {
         Some(x) => x,
         None if code.success() => (
             "error".into(),
@@ -1084,22 +1256,50 @@ fn classify_exit(
     }
 }
 
-/// P11 拉起期锚计算（批次53）：serve 持密钥且任务声明锚预期（status 有
+/// P11 拉起期锚计划（批次53；N232 起把「预期值」与「注入值」一并带出——终态判据
+/// 因此可用**内存事实**而非盘面）：serve 持密钥且任务声明锚预期（status 有
 /// result_nonce）时，按 hmac.rs 公式对当前 spec.json 字节算锚，经 env
-/// HIVE_RESULT_ANCHOR 注入执行器（执行器契约：回写 result_anchor）。None =
-/// 旧格式任务或 serve 无密钥——env 不注入，执行器零感知。
-/// 生效条件：dir/cfg 给定 → Some(锚) 当且仅当 cfg.result_key 与 result_nonce
-/// 与可读 spec.json 三者齐备；任一缺 → None（与 verify_result_anchor 的
-/// nonce 缺失→旧判据口径闭环：提交不锚、执行不注、终态不校）。
-fn spawn_anchor(dir: &std::path::Path, cfg: &ServeCfg) -> Option<String> {
-    let key = cfg.result_key.as_deref()?;
-    let st = job::read_status(dir).ok()?;
-    let nonce = st.get("result_nonce")?.as_str()?;
-    if nonce.is_empty() {
-        return None;
+/// HIVE_RESULT_ANCHOR 注入执行器（执行器契约：回写 result_anchor）。
+/// `nonce = Some` = 任务声明了锚预期（无论本 serve 有无密钥）；`anchor = Some` =
+/// 已注入（密钥 / 非空 nonce / 可读 spec.json 三者齐备）。旧格式任务或 serve 无密钥
+/// → `anchor = None`（env 不注入，执行器零感知）。
+/// 生效条件：dir/cfg 给定 → 上述两字段；判据细节见 classify_result 头注。
+struct AnchorPlan {
+    nonce: Option<String>,
+    anchor: Option<String>,
+}
+
+impl AnchorPlan {
+    /// 本计划对应的判据面预期来源（N232）：注入了锚 = `Injected`（内存事实）；
+    /// 未注入 = `NotInjected`（旧格式任务或无密钥 serve，盘面若声明了锚预期则走原
+    /// 判据）。
+    /// 生效条件：恒成立——纯投影，不读盘面（读盘只在此前的计划计算里发生一次）。
+    fn expect(&self) -> AnchorExpect {
+        match (&self.anchor, &self.nonce) {
+            (Some(_), Some(n)) => AnchorExpect::Injected(n.clone()),
+            _ => AnchorExpect::NotInjected,
+        }
     }
-    let spec_bytes = std::fs::read(dir.join("spec.json")).ok()?;
-    Some(crate::hmac::result_anchor_hex(key, &spec_bytes, nonce))
+}
+
+/// 生效条件：dir/cfg 给定 → 读 status 的 result_nonce（空串视同未声明）+ 在密钥与
+/// spec.json 齐备时算出注入锚；任一缺 → 对应字段为 None（不注入、不静默假定）。
+fn plan_anchor(dir: &std::path::Path, cfg: &ServeCfg) -> AnchorPlan {
+    let nonce = job::read_status(dir)
+        .ok()
+        .and_then(|s| {
+            s.get("result_nonce")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+        .filter(|n| !n.is_empty());
+    let anchor = match (cfg.result_key.as_deref(), nonce.as_deref()) {
+        (Some(key), Some(n)) => std::fs::read(dir.join("spec.json"))
+            .ok()
+            .map(|b| crate::hmac::result_anchor_hex(key, &b, n)),
+        _ => None,
+    };
+    AnchorPlan { nonce, anchor }
 }
 
 #[cfg(test)]

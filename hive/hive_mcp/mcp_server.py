@@ -1298,7 +1298,7 @@ def _force_utf8_stdio():
             pass
 
 
-# 生效条件：_force_utf8_stdio() 先执行（stdio 三流强制 UTF-8，issue #39）；此后逐行读 sys.stdin，空行与 json.loads 抛 ValueError 的行被跳过，_rpc(req) 抛非 ValueError 异常时回写 id=None 的 -32603 internal error 一行（入口兜底不崩 server，与工具层 try 同款模板），仅 _rpc(req) 返回非 None 时向 stdout 写一行 JSON 并 flush，读到 EOF 后返回 0。
+# 生效条件：_force_utf8_stdio() 先执行（stdio 三流强制 UTF-8，issue #39）；此后逐行读 sys.stdin，空行与 json.loads 抛 ValueError/RecursionError 的行被跳过（N231，2026-10-05：深嵌套单行 JSON——如 3000 层数组——令 json.loads 抛 RecursionError，它是 RuntimeError 族**不是** ValueError，旧入口只捕 ValueError 即被它逃出 main 的 try ⇒ 常驻 server 直接被一行杀掉；口径同 rust 文件协议侧 json.rs MAX_DEPTH=256：超深输入不进入解析面，跳过该行、继续服务），_rpc(req) 抛非 ValueError 异常时回写 id=None 的 -32603 internal error 一行（入口兜底不崩 server，与工具层 try 同款模板），仅 _rpc(req) 返回非 None 时向 stdout 写一行 JSON 并 flush，读到 EOF 后返回 0。
 def main() -> int:
     _force_utf8_stdio()
     for line in sys.stdin:
@@ -1307,7 +1307,7 @@ def main() -> int:
             continue
         try:
             req = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):
             continue
         try:
             resp = _rpc(req)

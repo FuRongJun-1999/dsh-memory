@@ -510,20 +510,84 @@ pub fn alloc_job_id(
 /// 禁止直接 `File::create` 目标文件：它先把旧文件截断为 0 字节，并发读者
 /// （patch_status 读-改-写、poll/doctor 轮询）会在「截断后、写完前」的窗口
 /// 读到空文件导致 parse 失败。同目录 rename 在 POSIX 与 Windows
-///（MoveFileEx + REPLACE_EXISTING）上均为原子替换，读者只见旧内容或新内容。
+/// （MoveFileEx + REPLACE_EXISTING）上均为原子替换，读者只见旧内容或新内容。
 /// tmp 名带 pid：多 serve 竞争写 `_serve.json` 时互不踩踏，rename 最后写者赢。
 /// 生效条件：写 JSON 文本（UTF-8）——tmp + fsync + rename 原子替换；并发读者
 /// 只见旧内容或新内容，绝不读空；多写者竞争时 rename 最后写者赢。
-/// 不适用条件：不保证跨进程写序（那由上层协议——status 单写者/日志锁——承载）。
+/// 不适用条件：不保证跨进程写序（那由上层协议——status 单写者/日志锁——承载）；
+/// 失败时 tmp 会留在目标同目录（调用方按需 [`cleanup_write_tmp`] 清理——重试型
+/// 写面每次尝试都建同名 tmp，故重试耗尽后须清一次）。
 pub fn write_json(path: &Path, v: &Json) -> std::io::Result<()> {
     let data = v.to_json_string();
-    let tmp = path.with_extension(format!("tmp{}", std::process::id()));
+    let tmp = write_tmp_path(path);
     {
         let mut f = fs::File::create(&tmp)?;
         f.write_all(data.as_bytes())?;
         f.sync_all()?;
     }
     fs::rename(&tmp, path)
+}
+
+/// 原子写的 tmp 落点（**唯一算名处**，[`write_json`] 与 [`cleanup_write_tmp`] 共用）：
+/// 目标同目录、扩展名带 pid——多写者互不踩踏，且同卷 rename 原子。
+/// 生效条件：恒成立——纯路径推导，不碰盘面。
+pub fn write_tmp_path(path: &Path) -> PathBuf {
+    path.with_extension(format!("tmp{}", std::process::id()))
+}
+
+/// 清理原子写失败后残留的 tmp（尽力而为，幂等）。
+/// 生效条件：path 对应的 tmp 存在则删；不存在/删不掉 → 静默（本函数是清洁面，
+/// 不是判据面——写失败的原因由调用方负责告警，勿在此吞掉信号）。
+/// 不适用条件：不改目标文件本身（失败时旧完整内容仍在位，fail-safe）。
+pub fn cleanup_write_tmp(path: &Path) {
+    let _ = fs::remove_file(write_tmp_path(path));
+}
+
+/// 状态改写失败标记文件名（N233）。
+///
+/// **旁证，不是任务本体**（与 H-3 的 [`CORRUPT_MARK`] 同款纪律）：status.json 写不
+/// 进去的原因（只读/盘满/瞬态句柄耗尽）与「写失败」这一事实本身都要可发现——标记
+/// 是独立落点，任何路径都**不得**因此去改写 status.json 本体。
+pub const WRITEFAIL_MARK: &str = "status.writefail.json";
+
+/// 生效条件：恒成立——状态改写失败标记的路径（dir/status.writefail.json）。
+pub fn write_fail_mark_path(dir: &Path) -> PathBuf {
+    dir.join(WRITEFAIL_MARK)
+}
+
+/// 落状态改写失败标记（N233）：**只写 status.writefail.json，绝不碰 status.json**。
+///
+/// 为什么需要它：status.json 永久不可写时（只读挂载/盘满），terminal 状态在物理上
+/// 就是写不进去——任何重试都救不了，唯一能做的是**让失败可发现**（不让 worker 用
+/// `let _` 把它抹成静默）。doctor/poll 不读本文件不构成豁免：serve stderr 亦同步
+/// 告警（见 scheduler::land_final_status），两处都是信号。
+/// 生效条件：dir 可写且 job_id/state/err 给定 → 写标记（tmp+rename 原子，与
+/// status 写面同款）；写失败 → Err 透传（调用方 stderr 告警，尽力而为不静默）。
+/// 不适用条件：不改写/不改名 status.json（任务本体不受任何影响）。
+pub fn write_status_writefail_mark(
+    dir: &Path,
+    job_id: &str,
+    state: &str,
+    err: &str,
+) -> Result<(), String> {
+    let v = Json::Obj(vec![
+        ("job_id".to_string(), Json::Str(job_id.to_string())),
+        ("kind".to_string(), Json::Str("status_write_failed".to_string())),
+        ("state".to_string(), Json::Str(state.to_string())),
+        ("error".to_string(), Json::Str(err.to_string())),
+        ("detected_ts".to_string(), Json::Num(now_ms() as f64)),
+        (
+            "note".to_string(),
+            Json::Str(
+                "status.json 终态写入在**有界退避重试**后仍失败（只读/盘满/瞬态句柄）：\
+                 任务状态未能落盘，poll/doctor 只见旧状态；本标记为独立旁证文件，\
+                 status.json 本体未被改写。处置：修盘面权限后重启 serve（recover_orphans \
+                 按产物定终态），或人工核 result.json 后处置。"
+                    .to_string(),
+            ),
+        ),
+    ]);
+    write_json(&write_fail_mark_path(dir), &v).map_err(|e| e.to_string())
 }
 
 /// 读 JSON 文本并解析（坏文件按错误返回，不静默吞）。

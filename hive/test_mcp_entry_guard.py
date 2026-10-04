@@ -18,11 +18,21 @@ Invalid Request、对 tools/call 的非 dict params 回 -32602 Invalid params
 （不进工具）；main 循环把 _rpc 调用纳入 try 兜底（与工具层同款模板）——
 入口未来演化再引入的异常也只回一行 -32603，不杀 server。
 
+N231（2026-10-05 缺陷挖掘，独立子进程实测）：**深嵌套单行 JSON**（如 3000 层
+数组/对象，单行即 JSON 合法输入）令 `json.loads` 抛 `RecursionError`——它是
+`RuntimeError` 子类、**不是 ValueError**（实测 issubclass=False，1500 层 ok、
+3000 层抛；recursionlimit=1000）——同样逃出只捕 ValueError 的入口：常驻 server
+进程直接退出（攻击行后合法探活无应答、rc=1）。与 2026-09-25 v2-N16 同族同形
+（同一条 try 的捕获面漏项），修法同源：入口把 RecursionError 一并纳入跳过面
+（口径与 rust 文件协议侧 json.rs MAX_DEPTH=256 同向：超深输入不进入解析面）。
+
 本测试把上述契约固化为机械断言：
   ① 单元面：_rpc 对七种攻击形态不抛异常、回正确错误码；
   ② 子进程面（复现实跑形态）：哑 env（临时 jobs 目录 + 不存在的 config）下
      逐攻击行 → 合法 tools/list 探活必须有应答、进程退出码 0；
-  ③ 合法面零回归：initialize / tools/list / 未知方法 / 未知工具 / notification。
+  ③ 深嵌套单行 JSON（N231）：同上子进程面——超深输入既不得杀 server，
+     也不得吞掉紧随其后的合法行；
+  ④ 合法面零回归：initialize / tools/list / 未知方法 / 未知工具 / notification。
 
 测试卫生：全程不触真实 serve（不发 spawn/poll/kill/restart/doctor）、
 不触真实 jobs 目录与真实令牌（HIVE_JOBS_DIR/HIVE_CONFIG 指向临时目录）。
@@ -69,6 +79,16 @@ NONDICT_PARAMS = [
     ("params_string", "x"),
     ("params_list", [1, 2]),
     ("params_int", 5),
+]
+
+# 深嵌套单行 JSON 攻击（N231）：**合法** JSON，但嵌套深度过 sys.recursionlimit 时
+# json.loads 抛 RecursionError（RuntimeError 族，非 ValueError）——旧入口只捕
+# ValueError 即被它逃出，一行杀常驻 server。深度取 3000（本机 recursionlimit=1000，
+# 实测 1500 层 ok / 3000 层抛；两形态都实测过红）。
+DEEP_DEPTH = 3000
+DEEP_LINES = [
+    ("deep_array_3000", "[" * DEEP_DEPTH + "]" * DEEP_DEPTH),
+    ("deep_object_3000", '{"a":' * DEEP_DEPTH + "1" + "}" * DEEP_DEPTH),
 ]
 
 _PROBE_RID = 777  # 攻击行后的合法探活请求 id
@@ -193,7 +213,16 @@ def main() -> int:
         check(f"子进程 tools/call {tag} 后探活有应答且 rc=0",
               probed and rc == 0, f"probed={probed} rc={rc} stderr尾={err!r}")
 
-    print("③ 合法面零回归（不触工具执行、不触 serve/jobs）")
+    print("③ 深嵌套单行 JSON（N231）：超深输入不得杀 server，其后合法行必须应答")
+    for tag, raw in DEEP_LINES:
+        lines = [raw,
+                 json.dumps({"jsonrpc": "2.0", "id": _PROBE_RID,
+                             "method": "tools/list"})]
+        probed, _, rc, err = _probe_after(lines)
+        check(f"子进程 {tag} 后探活有应答且 rc=0", probed and rc == 0,
+              f"probed={probed} rc={rc} stderr尾={err!r}")
+
+    print("④ 合法面零回归（不触工具执行、不触 serve/jobs）")
     r = ms._rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
     check("initialize 零回归",
           (r.get("result") or {}).get("serverInfo", {}).get("name")

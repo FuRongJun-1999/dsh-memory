@@ -20,6 +20,9 @@ result.json 的 error 字段），区别是**不调 LLM**——把 spec 里的�
 订阅约定：model 写 "cmd"、user_prompt 写任务标签——仅为过 rust 侧必填校验，本执行器不调 API。
 
 command 只收 argv 数组，字符串形态一律拒绝（不经 shell，规避转义/GBK 陷阱，第 15 条）。
+字段脏类型一律**规格错**（rc=2）：`commands` 非数组、`env` 非对象、`timeout_step_s`
+非数字（含 step 内同名字段与 `cwd` 非字符串）都在进执行前拦下——不得让类型异常逃到
+顶层兜底被记成「执行错」（N234，2026-10-05）。
 
 退出码：0 成功 / 2 规格错 / 3 执行错（与 exec.py 同形）。
 """
@@ -106,7 +109,35 @@ def _fail(job_dir: str, msg: str, code: int = EXIT_SPEC, extra: dict | None = No
     return code
 
 
-# 生效条件：spec["commands"] 为非空 list 时逐项归一（dict 原样收、list 包成 {"command": item}、其它类型返回错误 err），commands 缺失/非 list/空列表时若 spec.get("command") 为真值则只生成单步，否则返回 (None, None) 走 LLM 委托；随后逐步校验 command：是字符串时报「只收 argv 数组」，是 None 或不是「非空且全为 str 的 list」时统一报「必须是非空字符串数组」。
+# 生效条件：spec 为 dict 时逐项做**规格前置类型闸**——`commands` 键存在且非 None 时必须
+# 是 list（空列表合法：落回 `command` 口径）、`env` 非 None 时必须是为 dict、
+# `timeout_step_s` 非 None 时必须为数字（bool 不算——它是 int 子类但不是时长语义）；
+# 命中任一返回人话规格错文案，否则返回 None。
+# 为什么必须显式闸（N234，2026-10-05）：脏类型会让下游抛 AttributeError / ValueError /
+# TypeError 逃出 run_cmd，由 main 顶层兜底成 EXIT_EXEC(3)——规格错被记成执行错，与
+# :24「2=规格错 / 3=执行错」相悖；且 `commands` 非 list 真值形态旧版静默落进
+# 「无命令 → 转发 LLM」（:253-254）：确定性命令从未执行却以 ok=true 落盘，与同字段
+# 字符串 `command` 在 :128-131 的规格错执法不一致。
+def _is_num(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _spec_gate(spec: dict):
+    raw = spec.get("commands")
+    if raw is not None and not isinstance(raw, list):
+        return ('commands 必须是数组（对象数组 [{"command": [...]}] 或 argv 数组 '
+                '["python","x.py"]）——当前是 %s；本执行器不把脏类型当「无命令」'
+                '转发 LLM' % type(raw).__name__)
+    env = spec.get("env")
+    if env is not None and not isinstance(env, dict):
+        return "env 必须是对象（键值对）——当前是 %s" % type(env).__name__
+    ts = spec.get("timeout_step_s")
+    if ts is not None and not _is_num(ts):
+        return "timeout_step_s 必须是数字（秒）——当前是 %s" % type(ts).__name__
+    return None
+
+
+# 生效条件：spec["commands"] 为非空 list 时逐项归一（dict 原样收、list 包成 {"command": item}、其它类型返回错误 err），commands 缺失/非 list/空列表时若 spec.get("command") 为真值则只生成单步，否则返回 (None, None) 走 LLM 委托；随后逐步校验 command：是字符串时报「只收 argv 数组」，是 None 或不是「非空且全为 str 的 list」时统一报「必须是非空字符串数组」；并做步内字段类型闸（N234 同族：cwd 非字符串、timeout_step_s 非数字会让 _run_step 抛 TypeError/ValueError 逃出 run_cmd 记成执行错）——任一报错均返回 (None, err) 由调用方按规格错（rc=2）收口。
 def _norm_steps(spec: dict):
     """→ (steps, err)；两者皆 None 表示「无命令 → 走 LLM 委托」。"""
     raw = spec.get("commands")
@@ -130,6 +161,13 @@ def _norm_steps(spec: dict):
                           '请改 ["python","scripts/x.py"] 形态')
         if not (isinstance(argv, list) and argv and all(isinstance(x, str) for x in argv)):
             return None, f"第 {i} 步 command 必须是非空字符串数组"
+        cwd = s.get("cwd")
+        if cwd is not None and not isinstance(cwd, str):
+            return None, f"第 {i} 步 cwd 必须是字符串路径——当前是 {type(cwd).__name__}"
+        ts = s.get("timeout_step_s")
+        if ts is not None and not _is_num(ts):
+            return None, (f"第 {i} 步 timeout_step_s 必须是数字（秒）——当前是 "
+                          f"{type(ts).__name__}")
     return steps, None
 
 
@@ -238,7 +276,7 @@ def _delegate(job_dir: str, spec: dict | None = None) -> int:
     return p.returncode
 
 
-# 生效条件：job_dir/spec.json 读取抛 OSError/ValueError 即 _fail(..., EXIT_SPEC)；_norm_steps 返回 err 即 _fail(..., EXIT_SPEC)、返回 steps 为 None 即转 _delegate(job_dir, spec)；否则 env 由 spec.get("env") 字符串化后叠加在 os.environ 之上并 setdefault PYTHONUTF8="1"，default_cwd 取 spec.get("cwd") or spec.get("workdir") or job_dir，fail_fast 取 spec.get("fail_fast", True)（显式假值则不提前中断），逐步 _run_step 后按 expect_files、expect_stdout_contains 缺失项追加失败记录，写 result.json 并返回 EXIT_OK 或 EXIT_EXEC。
+# 生效条件：job_dir/spec.json 读取抛 OSError/ValueError 即 _fail(..., EXIT_SPEC)；_spec_gate 命中（commands/env/timeout_step_s 脏类型）即 _fail(..., EXIT_SPEC)；_norm_steps 返回 err 即 _fail(..., EXIT_SPEC)、返回 steps 为 None 即转 _delegate(job_dir, spec)；否则 env 由 spec.get("env") 字符串化后叠加在 os.environ 之上并 setdefault PYTHONUTF8="1"，default_cwd 取 spec.get("cwd") or spec.get("workdir") or job_dir，fail_fast 取 spec.get("fail_fast", True)（显式假值则不提前中断），逐步 _run_step 后按 expect_files、expect_stdout_contains 缺失项追加失败记录，写 result.json 并返回 EXIT_OK 或 EXIT_EXEC。
 def run_cmd(job_dir: str) -> int:
     t0 = time.time()
     try:
@@ -247,6 +285,9 @@ def run_cmd(job_dir: str) -> int:
     except (OSError, ValueError) as e:
         return _fail(job_dir, f"spec.json 读取失败：{e}", EXIT_SPEC)
 
+    gate_err = _spec_gate(spec)
+    if gate_err:
+        return _fail(job_dir, gate_err, EXIT_SPEC)
     steps, err = _norm_steps(spec)
     if err:
         return _fail(job_dir, err, EXIT_SPEC)

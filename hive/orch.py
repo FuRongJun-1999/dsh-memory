@@ -84,7 +84,11 @@ TRACE_MAX = 6                   # Q2：tool_trace 摘要保留条数（尾部优
 FULL_MAX_CHARS = 20000          # read_full 单次默认上限（超出给头 + 指针）
 DEFAULT_MAX_SUBTASKS = 8        # 单 job 子任务上限（spec.orchestrate.max_subtasks 可调）
 CHILDREN_FILE = "_children.json"
-TERMINAL_STATES = ("done", "error", "timeout", "killed")
+# 编排口的终态集（N235，2026-10-05）：needs_review = P11 锚不可信的终态失败态，与
+# scheduler.rs::deps_gate 的失败传播集、本文件 spawn_subtask 的 depends_on 文案
+# （:162）**同一口径**——缺它则 poll_subtasks 恒把 needs_review 子任务计为 active，
+# 编排器永远收不了口（同一状态两侧语义相反）。
+TERMINAL_STATES = ("done", "error", "timeout", "killed", "needs_review")
 SUB_TOOLS_ALLOW = ("lingshu_cg", "web_search", "read_file")   # 子代理可用工具（编排工具不外传；read_file 只读）
 ORCH_TOOLS = ("spawn_subtask", "poll_subtasks", "read_full", "record_adjudication")
 _ADJ_FILE = "_adjudication.jsonl"     # M5 纠正链侧车（job 目录内，随 job 留痕）

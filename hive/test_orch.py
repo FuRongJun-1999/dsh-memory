@@ -259,6 +259,33 @@ check("B34 正路令牌 → 编排器身份（session/harness 隔离）",
 check("B35 正路身份 ops 与真源一致",
       list(_pp.ops_allow or []) == list(tk.ORCH_OPS_ALLOW))
 
+# ------------------------------- N235 终态集：needs_review 的编排口语义（与调度面同口径）
+print("[N235] 终态集含 needs_review：锚不可信的上游产物不得让编排器收不了口")
+# 病灶：orch.TERMINAL_STATES 缺 needs_review ⇒ poll_subtasks 把 needs_review 子任务
+# 计为 active（done 不计）⇒ 编排器永远收不了口；而 hive/src/scheduler.rs deps_gate 与
+# orch.py 自己的 spawn schema 文案（:162）都把 needs_review 当**终态失败**传播——
+# 同一状态两侧语义相反。
+check("N235-1 TERMINAL_STATES 与调度面同口径（含 needs_review）",
+      "needs_review" in orc.TERMINAL_STATES, str(orc.TERMINAL_STATES))
+_c2s = os.path.join(JOBS, C2, "status.json")
+_c2_raw = open(_c2s, "rb").read()
+with open(_c2s, "w", encoding="utf-8") as f:
+    json.dump({"job_id": C2, "state": "needs_review",
+               "error": "产物完整性锚缺失（P11）"}, f, ensure_ascii=False)
+try:
+    _p3 = orc._poll({})
+    check("N235-2 needs_review 子任务计入 done（不再挂 active）",
+          _p3.get("count") == 2 and _p3.get("done") == 2 and _p3.get("active") == 0,
+          f"count={_p3.get('count')} done={_p3.get('done')} active={_p3.get('active')}")
+    _c2 = orc._card(C2)
+    check("N235-3 卡片提示按终态口径（不再提示「继续轮询」）",
+          "执行中" not in (_c2.get("hint") or ""), str(_c2.get("hint")))
+    check("N235-4 state 如实透出 needs_review", _c2.get("state") == "needs_review",
+          str(_c2.get("state")))
+finally:
+    with open(_c2s, "wb") as f:      # 还原现场，不干扰后续段
+        f.write(_c2_raw)
+
 # ------------------------------------------- C exec.py 两个扩展口（默认零变更）
 print("[C] exec.py 扩展口：register_tools / set_principal_factory")
 
