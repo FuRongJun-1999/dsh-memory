@@ -104,6 +104,7 @@ dsh plugin --profile web add .
 > 首次使用记忆库为空，召回返回空结果属正常现象；未配写入凭据时以只读 `guest` 运行（**读得到、写不进**），要真正落盘见[写入凭据](#-写入凭据让记忆真正落盘)。
 
 - **前置**：Node ≥ 22.19 · DSH 内核 ≥ 0.1.2-rc.1 · **已验证至 DSH 0.17.2** · **DSH 2.0（`0.2.0-rc.2`）接口面已按实装包复核、真实会话事件面已观测**（`origin='subagent'`／`delegationDepth>0`／`form='relay'` 的真实出现仍未观测，详见[详细版](docs/mdcg/README详细版_v0.4.10.md)） · **大脑零安装**（`md_cg` 随包自带，无需 pip 装任何引擎）· **Python 解释器**（插件按平台自动选：Windows `python` / Linux·macOS `python3`；解释器名特殊时用 `MDCG_PYTHON` 覆盖）
+- **Python 版本（已验证）**：**3.12.10 / 3.13.14 / 3.14.7（Windows）本仓实测通过** · **无第三方运行时依赖**（纯标准库，零 pip 依赖）
 - **写权限默认关闭**：不配凭据即以只读 `guest` 运行（读 / 召回 / 时间线可用，写入不落盘）。要真正落盘见「写入凭据」
 - 完整配置项（30+ 项）· 自动记忆机制 · DSH 看门狗 → [README 详细版](docs/mdcg/README详细版_v0.4.10.md)
 - **非 DSH 宿主**（CodeBuddy / ZCode / Codex CLI / Claude Code）：走[多 harness 接入](#多-harness-接入按端分目录)，各端有独立三步接入说明

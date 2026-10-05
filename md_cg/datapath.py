@@ -50,22 +50,49 @@ ENV_AUX_ROOT = "MDCG_AUX_ROOT"
 DEFAULT_AUX_DIRNAME = ".mdcg"
 
 
+#: Windows 保留设备名全集（末段直判用；比对前统一 .upper()，故此处全大写）：
+#: DOS 设备名 CON/PRN/AUX/NUL、控制台伪设备 CONIN$/CONOUT$、COM1-9/LPT1-9，
+#: 以及 Windows 承认的上标数字变体 COM¹²³/LPT¹²³（上标 0 与 4-9 不是保留名）。
+_RESERVED_DEVICE_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"]
+    + [f"COM{i}" for i in range(1, 10)]
+    + [f"LPT{i}" for i in range(1, 10)]
+    + ["COM\u00b9", "COM\u00b2", "COM\u00b3",
+       "LPT\u00b9", "LPT\u00b2", "LPT\u00b3"])
+
+
+# 生效条件：纯字符串判定（不触盘、无平台分支——平台闸在调用处 _abs_host_path）；
+# 传入 path 归一（"/" → "\"）后去尾随反斜杠取末段，末段按首个 "." 截断取 stem、
+# 再去尾随空格，stem.upper() 命中 _RESERVED_DEVICE_NAMES 即返回 True，否则 False。
+# 末段直判不依赖 OS/Python 版本的 GetFullPathNameW 吞并行为——较新 Windows 构建
+# 不再把「目录\aux」吞成 \\.\aux（issue #57），前缀判据随之失效，本函数是稳定判据。
+def _reserved_device_tail(path: str) -> bool:
+    seg = path.replace("/", "\\").rstrip("\\").split("\\")[-1]
+    stem = seg.split(".", 1)[0].rstrip(" ")
+    return stem.upper() in _RESERVED_DEVICE_NAMES
+
+
 # 生效条件：p 按仓库既有口径 expanduser+abspath 归一；平台为 Windows（os.name=="nt"）
-# 且归一结果以设备命名空间前缀（"\\\\.\\"）开头时抛 ValueError——保留设备名末段
-# （aux/con/nul/prn/com1-9/lpt1-9 等）会被 GetFullPathNameW 吞成设备路径
-# （例 D:\sandbox\aux → \\.\aux），目录语义静默丢失，密钥/令牌/数据覆盖键随之
-# 静默失联；非 Windows 平台该形态是合法目录名字面量，不判定。归一是纯字符串
-# 操作不触盘，路径无需存在即可复现。env_key 传覆盖键名（env 变量名或 paths.json
-# 键），仅用于错误消息定位误配来源；为空时消息以「该路径」指代。
+# 且命中两因之一时抛 ValueError——① 归一结果以设备命名空间前缀（"\\\\.\\"）开头：
+# 保留设备名末段（aux/con/nul/prn/com1-9/lpt1-9 等）被 GetFullPathNameW 吞成设备
+# 路径（例 D:\sandbox\aux → \\.\aux）；② 归一结果末段直判为保留设备名
+# （_reserved_device_tail）：较新 Windows 构建不再吞并（issue #57），旧前缀判据
+# 失效，末段直判不依赖 OS 行为——两因并置互为兜底。后果同：目录语义静默丢失，
+# 密钥/令牌/数据覆盖键随之静默失联；非 Windows 平台该形态是合法目录名字面量，
+# 不判定。归一是纯字符串操作不触盘，路径无需存在即可复现。env_key 传覆盖键名
+# （env 变量名或 paths.json 键），仅用于错误消息定位误配来源；为空时消息以
+# 「该路径」指代。
 def _abs_host_path(p: str, env_key: str = "") -> str:
     r = os.path.abspath(os.path.expanduser(p))
-    if os.name == "nt" and r.startswith("\\\\.\\"):
+    if os.name == "nt" and (r.startswith("\\\\.\\")
+                            or _reserved_device_tail(r)):
         who = env_key or "该路径"
         raise ValueError(
-            f"{who} 归一后解析为 Windows 设备命名空间路径 {r!r}：末段是 Windows "
-            "保留设备名（aux/con/nul/prn/com1-9/lpt1-9 等），GetFullPathNameW 会把"
-            "整个目录吞成设备路径，目录语义静默丢失（落在此处的密钥/令牌/数据会"
-            f"静默失联）；请把 {who} 改指向末段不含保留设备名的普通目录。")
+            f"{who} 归一后末段是 Windows 保留设备名（{r!r}）：GetFullPathNameW "
+            "可能把整个目录吞成设备路径（\\\\.\\aux 形态，目录语义静默丢失）；"
+            "较新 Windows 构建即便不吞并，保留设备名末段也一律按误配拒绝——"
+            "本守卫末段直判不依赖 OS 吞并行为（issue #57）。请把 "
+            f"{who} 改指向末段不含保留设备名的普通目录。")
     return r
 
 
