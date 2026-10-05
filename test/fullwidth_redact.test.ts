@@ -282,3 +282,58 @@ test('⑦ 同源：两条令牌规则的字面量字符类与共享字符集常�
   assert.ok(SENSITIVE_PATTERNS.every((p) => !p.re.source.includes('\n')),
     '规则源不得跨行（逐行抽取的字面扫描前提）')
 })
+
+// ---------------------------------------------------------------------------
+// ⑧/⑨ 值类两宽缺口（N265）：缺口字符两侧此前一半在值类、一半不在，构成「同形不同过滤」。
+// 两只退化形态（改前实测，红基线读数见本批报告）：
+//   形态一 · **整条漏检**——缺口字符落进值的前 4 位内 ⇒ `[值类]{4,}` 取不满下限 ⇒ 整条规则不匹配；
+//   形态二 · **尾部明文残留**——缺口字符在第 4 位之后 ⇒ 命中被截断在缺口处，其后值明文整段留下。
+// 样本值一律哑值（半角 `abc…defg` 与其 NFKC 同形全角串），非任何已签发凭据。
+test('⑧ 值类缺口（形态一·整条漏检）：半角 & 与全角 ＃％＾＊ 落在值前段时不得整条失配（N265）', () => {
+  // 缺口字符 = 半角 `&`（全角 `＆` 早在值类里）与全角 `＃％＾＊`（其半角同形 # % ^ * 早在值类里）。
+  const cases: Array<{ name: string; half: string; full: string }> = [
+    { name: '半角 &（全角 ＆ 早已在值类）', half: '密码:abc&defg', full: '密码：ａｂｃ＆ｄｅｆｇ' },
+    { name: '全角 ＃（半角 # 早已在值类）', half: '密码:abc#defg', full: '密码：ａｂｃ＃ｄｅｆｇ' },
+    { name: '全角 ％（半角 % 早已在值类）', half: '密码:abc%defg', full: '密码：ａｂｃ％ｄｅｆｇ' },
+    { name: '全角 ＾（半角 ^ 早已在值类）', half: '密码:abc^defg', full: '密码：ａｂｃ＾ｄｅｆｇ' },
+    { name: '全角 ＊（半角 * 早已在值类）', half: '密码:abc*defg', full: '密码：ａｂｃ＊ｄｅｆｇ' },
+  ]
+  for (const { name, half, full } of cases) {
+    assert.equal(full.normalize('NFKC'), half, `${name}: 两宽样本须互为同形（平台裁定）`)
+    for (const [width, text] of [['半角', half], ['全角', full]] as const) {
+      const val = text.replace(/^密码[:：]/, '')
+      assert.equal(val.length, 8, `${name}(${width}): 样本漂移（值须 8 位：前段 3 位，取不满 {4,} 下限）`)
+      const out = desensitize(wrap(text))
+      assert.ok(out !== null, `${name}(${width}): 非纯凭据消息不得返回 null`)
+      assert.ok(out.includes('[已过滤:密码]'),
+        `${name}(${width}): 未命中 ⇒ 凭据面整条漏检：${out}`)
+      assert.ok(!out.includes(val), `${name}(${width}): 凭据明文残留：${out}`)
+    }
+  }
+})
+
+test('⑨ 值类缺口（形态二·尾部明文残留）：缺口在第 4 位之后时命中不得被截断（N265）', () => {
+  // 长前缀形态：前 4 位刚好取满 `{4,}` 下限 ⇒ 命中被**截断在缺口字符处**，其后整段留下。
+  // 判别腿在尾段：值前 4 位之后的切片不得残留（改前该腿必红）。
+  const cases: Array<{ name: string; half: string; full: string }> = [
+    { name: '半角 &（全角 ＆ 早已在值类）', half: '密码:abcd&efgh', full: '密码：ａｂｃｄ＆ｅｆｇｈ' },
+    { name: '全角 ＃（半角 # 早已在值类）', half: '密码:abcd#efgh', full: '密码：ａｂｃｄ＃ｅｆｇｈ' },
+    { name: '全角 ％（半角 % 早已在值类）', half: '密码:abcd%efgh', full: '密码：ａｂｃｄ％ｅｆｇｈ' },
+    { name: '全角 ＾（半角 ^ 早已在值类）', half: '密码:abcd^efgh', full: '密码：ａｂｃｄ＾ｅｆｇｈ' },
+    { name: '全角 ＊（半角 * 早已在值类）', half: '密码:abcd*efgh', full: '密码：ａｂｃｄ＊ｅｆｇｈ' },
+  ]
+  for (const { name, half, full } of cases) {
+    assert.equal(full.normalize('NFKC'), half, `${name}: 两宽样本须互为同形（平台裁定）`)
+    for (const [width, text] of [['半角', half], ['全角', full]] as const) {
+      const val = text.replace(/^密码[:：]/, '')
+      assert.equal(val.length, 9, `${name}(${width}): 样本漂移（值须 9 位：前段 4 位，刚好取满 {4,} 下限）`)
+      const tail = val.slice(4)
+      assert.equal(tail.length, 5, `${name}(${width}): 尾段样本 = 缺口字符 + 4 位后缀（判别力自证）`)
+      const out = desensitize(wrap(text))
+      assert.ok(out !== null, `${name}(${width}): 非纯凭据消息不得返回 null`)
+      assert.ok(out.includes('[已过滤:密码]'), `${name}(${width}): 未命中：${out}`)
+      assert.ok(!out.includes(val), `${name}(${width}): 值未整段吃掉：${out}`)
+      assert.ok(!out.includes(tail), `${name}(${width}): 缺口字符后的值明文残留：${out}`)
+    }
+  }
+})

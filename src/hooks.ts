@@ -115,8 +115,17 @@ export const WORD_CHARS = `A-Za-z0-9_${FW_DIGITS}${FW_UPPER}${FW_LOWER}＿`
 /** 两宽数字类。 */
 const DIGIT_CHARS = `0-9${FW_DIGITS}`
 /** 两宽凭据值类：词字符 + `@ # $ % ^ & * ! . -` 的两宽形态。
- *  ASCII 连字符一律转义（`\\-`）——`[_-－]` 会被解析成 `_`→`－` 的**巨区间**。 */
-const CRED_VALUE_CHARS = `${WORD_CHARS}@＠#$＄%^＆*!.\\-－．`
+ *  ASCII 连字符一律转义（`\\-`）——`[_-－]` 会被解析成 `_`→`－` 的**巨区间**。
+ *
+ *  N265（本轮补齐）：半角 `&` 与全角 `＃％＾＊` 此前缺位——其对照形态（全角 `＆`、
+ *  半角 `# % ^ *`）早在类里，构成「同形不同过滤」：缺口字符落在值前 4 位内 ⇒ 整条漏检、
+ *  落在第 4 位之后 ⇒ 命中被截断在缺口处、尾部留明文。守卫
+ *  test/fullwidth_redact.test.ts ⑧（形态一）与 ⑨（形态二）钉住这两只退化形态。
+ *
+ *  ⚠️ 全角 `！` **不在**本类，且与半角 `!` 不对称（`!` 在类）——这是**有意保留**的现口径：
+ *  本文件「边界」段与同文件守卫 ④ 把全角叹号钉为句读边界（值在此收住）。改它必然要动那条
+ *  判据（属待裁决项），**勿在补字符集时顺手塞进来**——否则守卫 ④ 会红。 */
+const CRED_VALUE_CHARS = `${WORD_CHARS}@＠#＃$＄%％^＾&＆*＊!.\\-－．`
 /** 两宽令牌值类（本项目令牌 id/secret 的字符集：词字符 + `-`）。
  *  导出供守卫核对字面量规则的同源性（同 ⑦），不承诺稳定 ABI。 */
 export const TOKEN_VALUE_CHARS = `${WORD_CHARS}\\-－`
@@ -165,12 +174,28 @@ export const SENSITIVE_PATTERNS: Array<{ re: RegExp; label: string }> = [
       + `(?:${twoWidth('password')}|${twoWidth('passwd')}|${twoWidth('pwd')})`
       + `(?![${WORD_CHARS}])\\s*[:=＝：]\\s*[^\\s,，。;；]+`, 'gi'), label: '密码' },
   { re: new RegExp(`${twoWidth('Bearer')}\\s+[${BEARER_VALUE_CHARS}]{8,}`, 'gi'), label: '令牌' },
-  // 中文密码：值限定非中文连续串（凭据特征），避免误伤「密码是重要的安全概念」；
+  // 中文/日文密码标签：值限定非中文连续串（凭据特征），避免误伤「密码是重要的安全概念」；
   // 分隔符补全角等号 `＝`（半角 `=` 本就不在本规则的集合里，故只补全角形态）。
-  { re: new RegExp(`密码\\s*[:：是＝]\\s*[${CRED_VALUE_CHARS}]{4,}`, 'g'), label: '密码' },
+  // N269：词形补齐——繁体「密碼」、日文「パスワード」、中文「口令」与「密码」同表同口径
+  //（三者此前整条漏检：界面承诺 :66「密码…默认过滤」，却认不出这三种常见写法）；
+  // 日文 `は` 一类助词**刻意不并入分隔符集合**（`パスワードは重要です` 是普通句子，
+  // 并进去即刻误伤，与「值类不含中文」同一取舍）。
+  { re: new RegExp(`(?:密码|密碼|口令|パスワード)\\s*[:：是＝]\\s*[${CRED_VALUE_CHARS}]{4,}`, 'g'), label: '密码' },
   // 两宽：全角数字形态同样要被认（`\b` 换成两宽 lookaround，见上）
   { re: new RegExp(`(?<![${WORD_CHARS}])[${DIGIT_CHARS}]{17}[${DIGIT_CHARS}XxＸｘ](?![${WORD_CHARS}])`, 'g'), label: '身份证号' },
   { re: new RegExp(`(?<![${WORD_CHARS}])[1１][3-9３-９][${DIGIT_CHARS}]{9}(?![${WORD_CHARS}])`, 'g'), label: '手机号' },
+  // N269：凭据标签词形的「标签: 值」形态——密钥 / token / secret / creds 此前整条漏检
+  //（界面承诺 :66「密钥/密码/令牌…默认过滤」，而裸 `token:`/`secret=`/`creds=` 一个都不认）。
+  // 值类取共享单点 CRED_VALUE_CHARS 并设 `{4,}` 下限（与中文密码规则同口径）：比
+  // 「任意非空白续写」窄，避免吃掉 `token: 这句是说明文字` 一类普通文本；词形用
+  // twoWidth 单点生成（半角/全角拼写都认，`ＴＯＫＥＮ：…` 同样命中）；标签前后沿用
+  // 两宽 lookaround（`mytoken=`/`tokenize:` 不命中）。
+  // 位置约束：两条令牌规则必须留在数组**最后两位**（test/token_redact_parity.test.ts
+  // 的交换序按 n-2/n-1 取它们做对拍），故本规则插在其前。
+  { re: new RegExp(
+      `(?<![${WORD_CHARS}])`
+      + `(?:密钥|${twoWidth('token')}|${twoWidth('secret')}|${twoWidth('creds')})`
+      + `(?![${WORD_CHARS}])\\s*[:=＝：]\\s*[${CRED_VALUE_CHARS}]{4,}`, 'gi'), label: '密钥' },
   // 本项目自有令牌（issue #45）：批次71 已把形态加进**写入闸门**的禁表，但自动
   // 记忆走的是 mdcg_remember(gated=true)、**不过 audit**，此处是这条路上唯一的
   // 防线——此前不认自家令牌，用户粘一次即明文落进共用记忆库。

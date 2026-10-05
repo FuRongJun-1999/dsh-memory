@@ -11,7 +11,7 @@
   (c) 截断完全静默（返回体无任何标记）——「读不全」与「读不到」不可区分；
   (d) 被排除集合随索引重排漂移（运行期 dict 追加 vs 重建后 sorted 写盘）。
 三接口 timeline/anchors/consistency 共用 `_scan` 同病；MCP 面 `_stg_call` 不透传
-max_scan（永远默认口径）；DSH 侧 hooks.ts:423 auto-recall 直连 timeline 默认口径。
+max_scan（永远默认口径）；DSH 侧 hooks.ts:432 auto-recall 直连 timeline 默认口径。
 
 本批修法（设计者裁定 2026-10-03，原文）：「遇到更多的检索节点，应该要建立索引，
 明确检索条件，和不适用条件，而不是扩大节点数」⇒ 只落「条件先行 + 截断可观测」

@@ -310,6 +310,15 @@ export class LingshuBridge {
             if (!this.disposed) this.spawnAndHandshake()
           }, 300_000)
           this.retryTimer.unref()
+          // N267：冷却路径也必须结算状态面——否则子进程已死而 readyState 停在 'ok'，
+          // isReady() 恒 true、waitReady() 立即 resolve(true)（该值经 MdcgClient 一行
+          // 直通宿主门控，调用错误被空 catch 静默吞 → 状态面失真）。只跳过
+          // scheduleRetry（冷却定时器上面已安排重试）。
+          // flushBootQueue 与另三处退出结算（spawn error / 常规 exit / 握手失败）同形：
+          // 该分支的生产可达态为 ok/failed，bootQueue 此时必为空——属对称防御，
+          // 不单独承担判据（行为无可观察差异）。
+          this.readyState = 'failed'
+          this.flushBootQueue(false)
           return
         }
         // 有挂起请求的失败是异常的；仅启动失败的等待者得到 false

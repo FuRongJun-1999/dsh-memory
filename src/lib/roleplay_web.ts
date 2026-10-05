@@ -847,6 +847,17 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                         res.end(JSON.stringify({ ok: false, error: '非法角色 id（白名单 ^[A-Za-z0-9_.-]{1,64}$）' }));
                         return;
                     }
+                    // N266：入口类型闸——message 必须是字符串。此前这段直接
+                    // `p.message.includes(w)`：message 为数组时静默走
+                    // Array.prototype.includes（逐元素**全等**比较），把敏感词拆进
+                    // 不同元素即整条绕过硬拦截；数字/对象/缺省则抛 TypeError 落 500
+                    // （内部异常文本随响应外泄）。与 role_id 同口径：非法形态在入口
+                    // 一律 400 拒——不转发引擎、不落转录。
+                    if (typeof p.message !== 'string') {
+                        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, route: 'refused', refused: 'bad_message', error: 'message 必须是字符串（非字符串形态不得绕过内容硬拦截，N266）' }));
+                        return;
+                    }
                     // P1 完善（会话隔离）：按客户端实例隔离 session 与转录
                     const cid = clientIdOf(req);
                     // —— 服务端内容分级硬拦截（不依赖前端，法律与协议保护）——
@@ -860,13 +871,17 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                         res.end(JSON.stringify({ reply: '⛔ 已拒绝：涉及未成年人的性内容违反国家法律与灵枢协议（未成年人保护）。灵枢不提供任何涉及未成年人的性扮演内容。', route: 'refused', refused: 'minor_nsfw' }));
                         return;
                     }
-                    appendTranscript(role, { time: Date.now(), role: 'user', text: p.message }, cid);
-                    void toGraph('user-turn', (g) => g.writeTranscript(role, cid, 'user', p.message));
                     if (!capReady()) {
                         res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
                         res.end(JSON.stringify({ reply: '', route: 'unavailable', error: CAP_ABSENT_MSG }));
                         return;
                     }
+                    // N266：落盘移到内容门控与就绪闸**之后**——被内容门控拒绝的、以及
+                    // 「能力未接入」（503）的回合都从未发生，此前这两笔写在校验与
+                    // capReady 之前，未经门控的 message 原文会被留进本地转录
+                    //（读同一文件的历史接口随即原样回放）。
+                    appendTranscript(role, { time: Date.now(), role: 'user', text: p.message }, cid);
+                    void toGraph('user-turn', (g) => g.writeTranscript(role, cid, 'user', p.message));
                     const r = await capability.callTool('roleplay_chat', {
                         message: p.message, role_id: role, session_id: sessionFor(role, cid), data_dir: roleDataDir,
                     });

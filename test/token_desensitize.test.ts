@@ -58,3 +58,50 @@ test('⑤ 前缀不误伤：普通文本原样保留', () => {
   const other = '用户喜欢猫，上次聊了冒泡排序的实现'
   assert.equal(desensitize(other), other)
 })
+
+// ————— N269：语言面 / 标签面词形补齐（与 hooks.ts:66 的界面承诺同面）—————
+// 缺陷形态（本轮复核实测）：下列词形此前**整条原样通过**——凭据明文经该路落进记忆库；
+// 该路（mdcg_remember(gated=true)）不过 audit，SENSITIVE_PATTERNS 是唯一防线。
+
+test('⑥ 语言面词形：密碼 / パスワード / 口令 与既有「密码」同口径（N269）', () => {
+  const cases: Array<[string, string]> = [
+    ['繁体 密碼', '密碼：abcdefgh1234'],
+    ['日文 パスワード', 'パスワード：abcdefgh1234'],
+    ['中文 口令', '口令：abcdefgh1234'],
+    ['口令+是 分隔', '口令是abcdefgh1234'],
+  ]
+  for (const [name, text] of cases) {
+    const out = desensitize(`我的配置 ${text} 请妥善保管`)
+    assert.ok(out !== null, `${name}: 非纯凭据消息不得返回 null`)
+    assert.ok(!out.includes('abcdefgh1234'), `${name}: 凭据明文残留：${out}`)
+    assert.ok(out.includes('[已过滤:密码]'), `${name}: 未命中（界面承诺的默认过滤形同虚设）：${out}`)
+  }
+})
+
+test('⑦ 标签面词形：密钥 / token / secret / creds 的「标签: 值」形态不得漏检（N269）', () => {
+  const cases: Array<[string, string, string]> = [
+    ['中文 密钥', '密钥：abcdefgh1234', 'abcdefgh1234'],
+    ['token:', 'token: abcdefgh1234', 'abcdefgh1234'],
+    ['secret=', 'secret=abcdefgh1234', 'abcdefgh1234'],
+    ['creds=', 'creds=abcdefgh1234', 'abcdefgh1234'],
+    ['全角拼写 ＴＯＫＥＮ：', 'ＴＯＫＥＮ：ａｂｃｄｅｆｇｈ１２３４', 'ａｂｃｄｅｆｇｈ１２３４'],
+  ]
+  for (const [name, text, secret] of cases) {
+    const out = desensitize(`我的配置 ${text} 请妥善保管`)
+    assert.ok(out !== null, `${name}: 非纯凭据消息不得返回 null`)
+    assert.ok(!out.includes(secret), `${name}: 凭据明文残留：${out}`)
+    assert.ok(out.includes('[已过滤:密钥]'), `${name}: 未命中：${out}`)
+  }
+})
+
+test('⑧ 误伤边界：标签后是中文说明/低熵值时不动（与「密码是重要的安全概念」同口径）', () => {
+  for (const k of [
+    'token: 这句是中文说明文字',
+    'secret: 待办事项',
+    '口令：不是凭据只是说明',
+    '密钥：管理很重要',
+    '令牌很重要，tk_ 是前缀',
+  ]) {
+    assert.equal(desensitize(k), k, `普通文本被误伤：${k} ⇒ ${desensitize(k)}`)
+  }
+})

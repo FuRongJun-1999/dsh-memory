@@ -259,8 +259,12 @@ export function combineVerdict(w: VerifyResult['whitebox'],
                                l: VerifyResult['llm_review']): VerifyResult['verdict'] {
   const c = l.conclusion || ''
   // P1 修复（GPT 审查）：白箱通道异常 → fail-closed（不因复核「同意」而 pass）
+  // N268：**复核通道**异常的标记由 llmReview 写在 `l.conclusion`（`llm_error: …`）——
+  // 此前只查 w.judgment（该字段只可能由 whiteboxVerify 写 whitebox_error）⇒ 该分支
+  // 是死条件，复核抛异常时白箱「采纳」径直判 pass（复核不可用反成「通过」）。
+  // 两字段都查：l 侧是真正的生产者口径，w 侧保留同形防御（防上游把异常塞进白箱字段）。
   if (w.judgment.startsWith('whitebox_error') || w.judgment.startsWith('llm_error')
-      || w.d_norm < 0) {
+      || c.startsWith('llm_error') || w.d_norm < 0) {
     return 'needs_revision'
   }
   if (w.judgment.startsWith('采纳')) {
