@@ -50,13 +50,22 @@ MCP_CANON = "mdcg"
 # 历史缺陷（20260916 第二例）：原实现只比 动作/声明 两栏，而根注入件序言承诺的
 # 「编号 / 触发 / 不适用 / 声明出口」四项中，触发与不适用两栏**完全无守卫**——
 # 承诺项无守卫即等同无承诺（与「手写行号必腐化」同构）。
-FIELD_LABEL = {"trigger": "触发", "action": "动作", "negative": "不适用", "declaration": "声明"}
-FIELD_ORDER = ("trigger", "action", "negative", "declaration")
+# N258（2026-10-05）：本文件 docstring 承诺「每条纪律的 semantic / 动作 / 声明 必须
+# 出现在产物中」，但 FIELD_ORDER 只含 trigger/action/negative/declaration——渲染器
+# 写出的「N. 语义」标题**零判据**（产物副本里第 3 条标题被替换/删除，check() 仍
+# ok=True）。补入 semantic：取值与渲染器 _title 单点同源（去数字前缀后的语义文本；
+# 产物里「N. 语义」标题均含该文本，子串判据可覆盖，且不重复钉标题号码格式）。
+FIELD_LABEL = {"semantic": "语义", "trigger": "触发", "action": "动作", "negative": "不适用", "declaration": "声明"}
+FIELD_ORDER = ("semantic", "trigger", "action", "negative", "declaration")
 
 
-# 生效条件：n 为纪律节点、key 为 "action"/"declaration" 时返回 str(n 的 execution.how / response.direct，缺键回落 "")，key 为 "trigger"/"negative" 时返回 R._list_or(n 的 conditions.apply / negative.reject，默认文本「（无前置条件，始终适用）」/「（无）」)，key 为其它值时抛 KeyError(key)。
+# 生效条件：n 为纪律节点、key 为 "semantic" 时返回去数字前缀后的 n["semantic"]（缺键回落 n["id"]），key 为 "action"/"declaration" 时返回 str(n 的 execution.how / response.direct，缺键回落 "")，key 为 "trigger"/"negative" 时返回 R._list_or(n 的 conditions.apply / negative.reject，默认文本「（无前置条件，始终适用）」/「（无）」)，key 为其它值时抛 KeyError(key)。
 def field_value(n, key):
     """取该条纪律在指定字段上的『渲染口径』文本（与 render_discipline 生成产物同源）。"""
+    if key == "semantic":
+        # 与渲染器 _title 单点同源：去掉「N. 」数字前缀（产物标题是「N. <语义>」，
+        # 子串判据对去前缀形态最稳——标题被替换/删除即判缺失；号码格式不重复钉）
+        return R._NUM_PREFIX.sub("", str(n.get("semantic", n["id"])))
     if key == "action":
         return str((n.get("execution") or {}).get("how", ""))
     if key == "declaration":

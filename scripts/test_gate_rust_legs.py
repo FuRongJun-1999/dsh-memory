@@ -36,6 +36,8 @@
   G4（**红传导**：接了但不管用 ≡ 没接）——三条打红路径各自断言腿**非 0 退出 + 指认到
         自己**：
           ①腿①：桩 cargo（模拟 `cargo test` 失败，rc=101）⇒ 腿① 非 0 + `[FAIL]`；
+          ④腿①：桩 cargo（rc=0 但**零测试**）⇒ 腿① 非 0 + `[FAIL]` + 文案点名「零测试」
+            （N257：0 样本不构成通过，与 SKIP 同不得计入通过）；
           ②腿②：真二进制 + env `MDCG_SCORE_MODE=legacy`（两侧口径被拨散）⇒ 腿② 非 0
             + `[FAIL]` + `口径不一致`（CH-1 的 rc=3 报警面真被门禁接住）；
           ③腿②：桩 serve（`info.score=legacy`，不依赖真二进制）⇒ 同上（无 rust 工具链的
@@ -223,6 +225,13 @@ _STUB_CARGO = (
     "sys.exit(101)\n"
 )
 
+#: N257：rc=0 但零测试的桩（用例被删/改名、manifest 被掏空的现场形态）
+_STUB_CARGO_ZERO = (
+    "print('   Compiling mdcg-eval v0.2.0 (stub)')\n"
+    "print('running 0 tests')\n"
+    "print('test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured')\n"
+)
+
 _STUB_SERVE = (
     "import sys, json\n"
     "for line in sys.stdin:\n"
@@ -323,6 +332,14 @@ def g4():
     ok("[FAIL]" in out, "G4b 腿①失败：打印 [FAIL]（指认到腿①）", out[-300:])
     ok("计入通过数 0" in out, "G4c 腿①失败：不计入通过数", out[-300:])
     ok("cargo test" in out and "补救" in out, "G4d 腿①失败：打印补救命令", out[-300:])
+    # ④腿① N257：rc=0 但零测试 ——「0 样本不构成通过」（桩：0 passed 且退出码 0）
+    stub_zero = _stub(_TMP, "stub_cargo_zero", _STUB_CARGO_ZERO)
+    rc, out = _leg1_run(["--cargo", stub_zero])
+    ok(rc != 0, "G4m 腿①rc=0 但零测试 ⇒ 腿**非 0 退出**（0 样本不算通过）",
+       "rc=%s out=%s" % (rc, out[-300:]))
+    ok("[FAIL]" in out, "G4n 腿①零测试：打印 [FAIL]（指认到腿①）", out[-300:])
+    ok("零测试" in out, "G4o 腿①零测试：文案点名「零测试」", out[-300:])
+    ok("计入通过数 0" in out, "G4p 腿①零测试：不计入通过数", out[-300:])
     # ②腿②：真二进制 + 口径 env 冲突（CH-1 报警面）
     if os.path.isfile(_EXE):
         rc, out = _leg2_run(["--exe", _EXE], env=_env({"MDCG_SCORE_MODE": "legacy"}))
@@ -571,6 +588,9 @@ _MUTATIONS = (
     ("R-7 腿①失败不传非 0（return 1 → return 0）",
      "leg1", '跳过 0 / 退出码 1")\n    return 1',
      '跳过 0 / 退出码 1")\n    return 0', 1),
+    ("R-7 腿①零测试重新静默计入通过（撤掉 N257 判据）",
+     "leg1", "        if passed == 0:\n",
+     "        if False:  # MUT：零测试也计入通过\n", 4),
     ("R-7 腿②失败不传非 0（return 1 → return 0）", "leg2",
      '跳过 0 / 退出码 1")\n    return 1', '跳过 0 / 退出码 1")\n    return 0', 2),
     ("R-7 腿②缺产物静默跳过（撤掉自动构建补救）", "leg2",

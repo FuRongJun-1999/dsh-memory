@@ -251,13 +251,20 @@ def _carrier_of(body, created_at):
 
 # ---------------------------------------------------------------- 盘点
 
-# 生效条件：当 root/NODE_DIR 是目录时，扫描该目录下 .md 文件，将 _read_node 得到非空 fm 且 tags 正则中带引号的标签以 TAG_PREFIX 开头处的整数为键，记录 path/fm/body 到返回字典；root/NODE_DIR 不是目录时返回空字典。
-def scan_nodes(root):
-    """返回 {条号(int): {"path", "raw", "fm", "body"}}（tags 含 discipline:N）。"""
-    out = {}
+# 生效条件：当 root/NODE_DIR 是目录时，扫描该目录下 .md 文件，将 _read_node 得到非空 fm 且 tags 正则中带引号的标签以 TAG_PREFIX 开头处的整数为键记录 path/fm/body（同条号多份时保留先到者、其余进 dups），并统计全部 discipline 标签命中数；root/NODE_DIR 不是目录时返回空结构。
+def scan_nodes_detail(root):
+    """→ {"by_no": {no: entry}, "dups": {no: [path, ...]}, "total": int}。
+
+    N259（2026-10-05）：原 scan_nodes 以条号为键**覆盖写**——同一条号两个文件时
+    后写覆盖前写，「多出/重复」节点对 check/sync 全部不可见（与产物面
+    verify_discipline 的 orphans 判据不对称：产物面有多出检测、投影面没有）。
+    本函数把重复面（dups）与标签总数（total）列进返回体，check 计入 ok、
+    sync 一并清除。
+    """
+    by_no, dups, total = {}, {}, 0
     d = os.path.join(root, NODE_DIR)
     if not os.path.isdir(d):
-        return out
+        return {"by_no": by_no, "dups": dups, "total": total}
     for fn in sorted(os.listdir(d)):
         if not fn.endswith(".md"):
             continue
@@ -268,15 +275,57 @@ def scan_nodes(root):
         tags = fm.get("tags") or ""
         for t in re.findall(r"[\"']([^\"']+)[\"']", tags):
             if t.startswith(TAG_PREFIX):
+                total += 1
                 try:
-                    out[int(t[len(TAG_PREFIX):])] = {
-                        "path": path, "fm": fm, "fm_raw": fm, "body": body}
+                    no = int(t[len(TAG_PREFIX):])
                 except ValueError:
-                    pass
+                    continue
+                if no in by_no:
+                    # 同一文件内重复标签不算「多份文件」（否则 sync 会误删留存者）
+                    if path != by_no[no]["path"]:
+                        dups.setdefault(no, []).append(path)
+                    continue
+                by_no[no] = {"path": path, "fm": fm, "fm_raw": fm, "body": body}
+    return {"by_no": by_no, "dups": dups, "total": total}
+
+
+# 生效条件：当 root/NODE_DIR 是目录时返回 scan_nodes_detail(root)["by_no"]（向后兼容薄包装）；否则返回空字典。
+def scan_nodes(root):
+    """返回 {条号(int): {"path", "raw", "fm", "body"}}（tags 含 discipline:N）。"""
+    return scan_nodes_detail(root)["by_no"]
+
+
+# 生效条件：exp 为 expected_fields 结果、cur 为 scan_nodes_detail 的单条登记（含 fm/body）、sha 为当前真源指纹；逐项核对——condition_space.source_sha 不等、condition_space.trigger 规范化不等、expected_body 各行规范化后不包含于节点正文、fm.id 规范化后为空——任一项成立即在返回列表记一条 {"kind","detail"}；全过返回空列表。
+def _node_drift(exp, cur, sha):
+    """某投影节点相对真源期望的漂移项（check 与 sync 共用的**单点判据**）。
+
+    N260（2026-10-05）：修前 check 用「trigger 等值 + 正文行包含」，sync 用
+    「正文行列表全等 + source_sha」——两套判据使两种分叉同时成立：
+      · 只改 frontmatter 的 trigger：check 报 DRIFT，sync 报「已一致，无需改动」
+        （文档指定的修复链清不掉漂移）；
+      · 只追加正文行：check 判绿（包含关系仍成立），sync 报 changed（重渲染有动作）。
+    「守卫判绿」与「重渲染空操作」必须同判——判据收进本单点，两侧各自引用。
+    """
+    fm, body = cur["fm"], cur["body"]
+    out = []
+    cs = _json_field(fm, "condition_space")
+    got_sha = str(cs.get("source_sha") or "").strip().strip('"')
+    if got_sha != sha:
+        out.append({"kind": "sha",
+                    "detail": "source_sha %s ≠ 当前真源 %s（改真源后未同步）" % (got_sha or "-", sha)})
+    if _norm(cs.get("trigger") or "") != _norm(exp["trigger"]):
+        out.append({"kind": "trigger", "detail": "condition_space.trigger 不一致"})
+    carrier, time_txt = _carrier_of(body, fm.get("created_at"))
+    for want in expected_body(exp, carrier, time_txt):
+        name = want.split("：", 1)[0].lstrip("# ")
+        if _norm(want) not in _norm(body):
+            out.append({"kind": "body:" + name, "detail": "%s 行与真源不一致" % name})
+    if _norm(fm.get("id") or "").strip('"') == "":
+        out.append({"kind": "id", "detail": "节点缺 id"})
     return out
 
 
-# 生效条件：当 root 不为 None 时，基于 repo 加载真源与矩阵，对每条真源节点在 scan_nodes(root) 结果中检查缺失、source_sha 不等、condition_space.trigger 经 _norm 不等、expected_body 各行经 _norm 不包含于节点正文、fm.id 规范化后为空，任一项成立即记入 drift 并返回 ok=not drift；root 为 None（判据体没有执行面）时返回 skipped=True 且 **ok=False**（fail-closed：skipped 不得计入通过）。
+# 生效条件：当 root 不为 None 时，基于 repo 加载真源与矩阵，对每条真源节点在 scan_nodes_detail(root) 的 by_no 中检查缺失，有则经 _node_drift **单点判据**（N260，check/sync 共用）记入漂移；并追加 N259 多出（真源之外条号）与重复（同条号多份）两类检查；任一项成立即 ok=False（drift 非空）；root 为 None（判据体没有执行面）时返回 skipped=True 且 **ok=False**（fail-closed：skipped 不得计入通过）。
 def check_cg_nodes(repo, root, allow_missing=True):
     """守卫：真源 ↔ 认知图投影节点一致性。root 为 None → skipped 且 ok=False（不计通过）。"""
     if root is None:
@@ -291,7 +340,8 @@ def check_cg_nodes(repo, root, allow_missing=True):
     mx = R.load_matrix(repo)
     source_rel = mx["source"]
     nodes = R.nodes_of(src)
-    have = scan_nodes(root)
+    det = scan_nodes_detail(root)
+    have = det["by_no"]
 
     drift = []
     for i, n in enumerate(nodes, 1):
@@ -301,25 +351,24 @@ def check_cg_nodes(repo, root, allow_missing=True):
             drift.append({"no": i, "id": exp["node_id"], "kind": "missing",
                           "detail": "认知图内无 discipline:%d 投影节点" % i})
             continue
-        fm, body = cur["fm"], cur["body"]
-        cs = _json_field(fm, "condition_space")
-        got_sha = str(cs.get("source_sha") or "").strip().strip('"')
-        if got_sha != sha:
-            drift.append({"no": i, "id": exp["node_id"], "kind": "sha",
-                          "detail": "source_sha %s ≠ 当前真源 %s（改真源后未同步）" % (got_sha or "-", sha)})
-        if _norm(cs.get("trigger") or "") != _norm(exp["trigger"]):
-            drift.append({"no": i, "id": exp["node_id"], "kind": "trigger",
-                          "detail": "condition_space.trigger 不一致"})
-        carrier, time_txt = _carrier_of(body, fm.get("created_at"))
-        for want in expected_body(exp, carrier, time_txt):
-            name = want.split("：", 1)[0].lstrip("# ")
-            if _norm(want) not in _norm(body):
-                drift.append({"no": i, "id": exp["node_id"], "kind": "body:" + name,
-                              "detail": "%s 行与真源不一致" % name})
-        if _norm(fm.get("id") or "").strip('"') == "":
-            drift.append({"no": i, "id": exp["node_id"], "kind": "id", "detail": "节点缺 id"})
+        for d in _node_drift(exp, cur, sha):
+            drift.append(dict(d, no=i, id=exp["node_id"]))
+    # N259（2026-10-05）：多出（真源之外条号）与重复（同条号多份文件）此前对
+    # check/sync 全不可见（scan 覆盖写）——与产物面 orphans 判据对称补齐。
+    known = set(range(1, len(nodes) + 1))
+    for no in sorted(have):
+        if no not in known:
+            drift.append({"no": no, "id": "-", "kind": "orphan",
+                          "detail": "认知图内存在真源之外的 discipline:%d 投影节点（多出/陈旧）：%s"
+                                    % (no, os.path.basename(have[no]["path"]))})
+    for no in sorted(det["dups"]):
+        paths = [have[no]["path"]] + det["dups"][no]
+        drift.append({"no": no, "id": "-", "kind": "dup",
+                      "detail": "discipline:%d 有 %d 个投影节点（重复）：%s"
+                                % (no, len(paths),
+                                   "、".join(os.path.basename(p) for p in paths))})
     return {"skipped": False, "ok": not drift, "drift": drift,
-            "nodes": len(nodes), "source_sha": sha, "scanned": len(have)}
+            "nodes": len(nodes), "source_sha": sha, "scanned": det["total"]}
 
 
 # ---------------------------------------------------------------- 同步
@@ -369,7 +418,7 @@ def _new_node_fm(exp, now):
     return nid, fm
 
 
-# 生效条件：当 root 不为 None 时，基于 repo 加载真源并与 scan_nodes(root) 比对：对缺失条号生成 created 记录（write 为真时写新节点），对正文或 source_sha 不一致条号生成 changed 记录（write 为真时写回），返回 changed/created/nodes/source_sha；root 为 None 时返回 skipped。
+# 生效条件：当 root 不为 None 时，基于 repo 加载真源并与 scan_nodes_detail(root) 比对：先记 N259 多出/重复条目 removed（write 为真时删文件），再对缺失条号生成 created（write 时写新节点），对其余条目经 _node_drift **单点判据**（N260，与 check 同判）非空者生成 changed（write 时写回，id 缺失补发新 id）；返回 changed/created/removed/nodes/source_sha；root 为 None 时返回 skipped。
 def sync_cg_nodes(repo, root, write=False):
     """把真源同步进认知图投影节点。write=False 时干跑（只报告差异）。"""
     if root is None:
@@ -382,8 +431,32 @@ def sync_cg_nodes(repo, root, write=False):
     mx = R.load_matrix(repo)
     source_rel = mx["source"]
     nodes = R.nodes_of(src)
-    have = scan_nodes(root)
+    det = scan_nodes_detail(root)
+    have = det["by_no"]
     now = datetime.now().timestamp()
+
+    removed = []
+    # N259（2026-10-05）：先清「多出/重复」——真源之外的条号整份移除；同条号多份
+    # 保先到者（sorted 稳定序 = 文件名字典序首个），其余移除。仅 write 落盘
+    # （干跑只报告）；先清再比对（留存者若也漂移会照常进 changed 被改写）。
+    known = set(range(1, len(nodes) + 1))
+    for no in sorted(det["dups"]):
+        for p in det["dups"][no]:
+            if write:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+            removed.append({"no": no, "kind": "dup", "path": p, "written": bool(write)})
+    for no in sorted([k for k in have if k not in known]):
+        p = have[no]["path"]
+        if write:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        removed.append({"no": no, "kind": "orphan", "path": p, "written": bool(write)})
+        del have[no]
 
     changed, created = [], []
     for i, n in enumerate(nodes, 1):
@@ -402,6 +475,8 @@ def sync_cg_nodes(repo, root, write=False):
             created.append({"no": i, "id": nid, "path": path, "written": bool(write)})
             continue
 
+        if not _node_drift(exp, cur, sha):     # N260：与 check 同判据（单点）
+            continue
         fm, body = cur["fm"], cur["body"]
         fm = dict(fm)
         carrier, time_txt = _carrier_of(body, fm.get("created_at"))
@@ -411,19 +486,19 @@ def sync_cg_nodes(repo, root, write=False):
              "time_window": _json_field(fm, "condition_space").get("time_window") or [now, now + 3600]},
             ensure_ascii=False)
         fm["non_applicable_conditions"] = json.dumps(exp["nac"], ensure_ascii=False)
-
-        cur_norm_body = [_norm(l) for l in (body or "").splitlines() if l.strip()]
-        same = cur_norm_body == [_norm(l) for l in want_body] and \
-            str(_json_field(cur["fm"], "condition_space").get("source_sha") or "") == sha
-        if same:
-            continue
+        # N260：id 缺失的修链闭环——重写时补发逐条唯一 nid（否则 id 漂移永远清不掉：
+        # 每次 sync 都改写、check 仍判红，修链不收敛）
+        if _norm(fm.get("id") or "").strip('"') == "":
+            fm["id"] = '"%s"' % _new_node_fm(exp, now)[0]
         order = [k for k in cur["fm"].keys()]
+        if "id" not in order:
+            order.append("id")
         changed.append({"no": i, "id": str(fm.get("id", "")).strip('"'), "path": cur["path"],
                         "written": bool(write)})
         if write:
             _write_node(cur["path"], fm, order, want_body)
     return {"skipped": False, "changed": changed, "created": created,
-            "source_sha": sha, "nodes": len(nodes)}
+            "removed": removed, "source_sha": sha, "nodes": len(nodes)}
 
 
 # 生效条件：argv 为 None 时 argparse 从 sys.argv 解析，否则解析给定 argv；解析出 --write 时以 require_root(args.cg_root, init=args.init) 取根（缺失/误配 fail-closed）并执行 sync_cg_nodes(write=True) 返回 0；否则以 require_root(args.cg_root) 严格取根（三态一律 fail-closed）执行 check_cg_nodes 并按 ok 返回 0/1。
@@ -454,7 +529,9 @@ def main(argv=None):
                 print("  [新建] 第%d条 -> %s" % (r["no"], r["path"]))
             for r in rep["changed"]:
                 print("  [同步] 第%d条 %s -> %s" % (r["no"], r["id"], r["path"]))
-            if not rep["created"] and not rep["changed"]:
+            for r in rep.get("removed", []):
+                print("  [清除] %s 第%d条 -> %s" % (r["kind"], r["no"], r["path"]))
+            if not rep["created"] and not rep["changed"] and not rep.get("removed"):
                 print("  已一致，无需改动")
         return 0
 

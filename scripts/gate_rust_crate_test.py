@@ -8,10 +8,13 @@
 
 本脚本只做「接线」：**不新增任何检查逻辑**，只把既有的 `cargo test` 摆进门禁链。
 
-判据（三条，缺任一条即门禁非 0）：
+判据（四条，缺任一条即门禁非 0）：
   ① `cargo test` 在 `rust/` 下真实执行，退出码 != 0 ⇒ 本腿退出码 1 ⇒ `npm run gate` 非 0；
   ② `cargo` 不在位 ⇒ **显式 [SKIP] 且不计入通过数**，打印可执行的补救命令，退出码 0；
-  ③ 汇总行**显式记账**「计入通过数 N / 跳过 N」——SKIP 永不计入通过数。
+  ③ 汇总行**显式记账**「计入通过数 N / 跳过 N」——SKIP 永不计入通过数；
+  ④ `cargo test` rc=0 但 **0 测试**（passed 汇总为 0）⇒ 本腿退出码 1——「跑起来了却没
+     测到任何用例」（用例被删/改名、manifest 被掏空）同样没有回归保障，不得计入通过
+     （N257，与 N9「0 样本不构成通过」同口径）。
 
 ②为什么是 SKIP 而不是 fail-closed：本仓既有 [SKIP] 语义即先例——`scripts/
 verify_discipline.py` 对未生成的 `codebuddy-local` 产物打 `[SKIP] codebuddy-local
@@ -94,6 +97,18 @@ def main() -> int:
     failed = sum(int(x) for x in re.findall(r"(\d+) failed", out))
 
     if p.returncode == 0:
+        # N257（2026-10-05）：rc=0 但**零测试**不算通过——本腿的全部价值是「已有检查
+        # 真的跑起来」；passed 汇总为 0 意味着没有一条用例被发现/执行（用例被删、
+        # manifest 被掏空、crate 改名都会走到这里），回归保障为零，与 SKIP 一样不得
+        # 计入通过（N9「0 样本不构成通过」同口径）。
+        if passed == 0:
+            print(f"[FAIL] cargo test rc=0 但**零测试**（0 passed）——本腿无回归保障，"
+                  f"不计入通过（用时 {dt:.1f}s）")
+            for ln in out.splitlines()[-15:]:
+                print("       | " + ln)
+            print(f"       补救：cd rust && cargo test —— 确认用例未被删除/改名")
+            print(f"       本腿汇总：计入通过数 0 / 跳过 0 / 退出码 1")
+            return 1
         print(f"[PASS] cargo test rc=0：{passed} passed / {failed} failed"
               f"（用时 {dt:.1f}s）")
         print(f"       本腿汇总：计入通过数 1 / 跳过 0 / 退出码 0")

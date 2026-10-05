@@ -26,13 +26,17 @@ import os
 import re
 import sys
 
+try:
+    import yaml                      # 与本仓门禁链同源的 PyYAML 依赖（verify_discipline 同款）
+except ImportError:                  # 无 PyYAML 环境：真读条目文件时 fail-closed
+    yaml = None                      # （见 read_entry_tarball——绝不静默当「未声明」放行）
+
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_ENTRY = os.path.join(
     _REPO, "awesome-dsh-plugin", "data", "plugins", "FuRongJun-1999__dsh-memory.yml"
 )
 DEFAULT_PACKAGE = os.path.join(_REPO, "package.json")
 
-_TARBALL_RE = re.compile(r"^tarball:[ \t]*(\S+)[ \t]*$", re.M)
 _VERSION_RE = re.compile(r"(\d+\.\d+\.\d+)")
 
 
@@ -53,12 +57,45 @@ def read_package_version(path):
 
 
 # 生效条件：path 指向文件读出的全文经 _TARBALL_RE.search 命中时返回捕获组 1，无任何匹配时返回 None。
+def _find_tarball(doc):
+    """在解析出的 YAML 文档里找 `tarball` 字段（顶层映射；列表形态逐项下探）——
+    非空字符串返回其值；无字段 / 显式空值返回 None；其余形态抛 ValueError（fail-closed）。"""
+    if isinstance(doc, dict):
+        if "tarball" not in doc:
+            return None
+        v = doc["tarball"]
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        raise ValueError("tarball 字段形态非法（非空字符串才有效）：%r" % (v,))
+    if isinstance(doc, list):
+        for item in doc:
+            v = _find_tarball(item)
+            if v:
+                return v
+    return None
+
+
 def read_entry_tarball(path):
-    """返回条目声明的 tarball URL；未声明返回 None。"""
+    """返回条目声明的 tarball URL；未声明返回 None。
+
+    N256（2026-10-05）：旧实现是**行锚正则** `^tarball:[ \\t]*(\\S+)[ \\t]*$`——
+    只认「顶格 + 无行内注释 + 标量」一种写法。YAML 合法别写法（缩进 / 行内注释 /
+    冒号前空格 / 列表项 / 内联映射）下正则一律失明 ⇒ 返回 None 走「未声明」出口，
+    其 rc 与 stdout 与**真·未声明**逐字相同（**过期 tarball 静默放行**，本门禁的
+    整个存在理由被绕过）。改为 `yaml.safe_load` 精确解析（与本仓门禁链同源的
+    PyYAML 依赖）；PyYAML 缺失或 YAML 非法 ⇒ 抛 ValueError，由 check() 收敛为
+    退出码 2「读不通」——**绝不把「解析不了」静默降级成「未声明」**。
+    """
+    if yaml is None:
+        raise ValueError("环境缺 PyYAML，无法解析条目 YAML（fail-closed：不按「未声明」放行）")
     with open(path, "r", encoding="utf-8") as fh:
-        text = fh.read()
-    match = _TARBALL_RE.search(text)
-    return match.group(1) if match else None
+        try:
+            doc = yaml.safe_load(fh)
+        except yaml.YAMLError as exc:
+            raise ValueError("条目 YAML 解析失败：%s" % exc) from exc
+    return _find_tarball(doc)
 
 
 # 生效条件：url 以 "/" 切分取末段、末段若以 ".tgz" 结尾则去掉该 4 字符后，_VERSION_RE.findall 有匹配时返回最后一个匹配串，无匹配时返回 None。
