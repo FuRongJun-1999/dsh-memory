@@ -328,10 +328,12 @@ class _CountGet:
     def __getattr__(self, k):
         return getattr(self.__dict__["_cg"], k)
 
-    def get(self, nid):
+    def get(self, nid, probe=True):
+        # N276：get 增可选 probe 形参（批内单探针）；夹具同步接口并原样透传
+        # ——计数语义不变（每次 get 仍计一次，不论探针与否），判据一字未动。
         self.__dict__["gets"] += 1
         self.__dict__["ids"].append(nid)
-        return self.__dict__["_cg"].get(nid)
+        return self.__dict__["_cg"].get(nid, probe=probe)
 
 
 # ---------------------------------------------------------------- G1 选面

@@ -179,22 +179,31 @@ def resolve_gamma(gamma=None) -> float:
 # 核（一律经 time_core；本模块不写指数核）
 # --------------------------------------------------------------------------
 
-# 生效条件：gamma 与 dt_days（单位=天）任意可转 float 时，返回 time_core.cred_factor(gamma, dt_days, floor, ceil)；dt 非有限值（inf/nan）时同样交给 cred_factor（inf → 取 floor）；
+# 生效条件：gamma 与 dt_days（单位=天）任意可转 float 时，返回 time_core.cred_factor(gamma, dt_days, floor, ceil)；dt 非有限值（inf/nan）时同样交给 cred_factor（inf → 取 floor）；enabled 为 None（缺省）时自算（模块级 enabled()），显式传 bool 时按传入值——两者皆假值即恒返回 1.0；
 def decay_factor(gamma: float, dt_days: float, floor: float = SCORE_FLOOR,
-                 ceil: float = SCORE_CEIL) -> float:
+                 ceil: float = SCORE_CEIL, enabled=None) -> float:
     """时间衰减乘子 `e^(-γ·Δt)`（**核来自唯一权威** `time_core.cred_factor`）。
 
     ⚠ `dt_days` 的单位**必须**是「天」（`DT_UNIT`）；调用方负责换算，
     换算单点是 `entry_weight`（`(now - created_at) / SECONDS_PER_DAY`）。
+
+    `enabled`（N274）：None=自算（默认，行为与改动前逐位一致）；显式传
+    bool 时不再自算——供 `entry_weight`/`_score` 把开关**循环外解析一次**
+    后透传，消掉逐节点 env 读取。自算分支写 `globals()["enabled"]()` 而非
+    直接 `enabled()`：形参同名会遮蔽模块函数，而 `globals()` 的解析语义与
+    改前那句 `enabled()` 逐位一致（含测试对模块函数的打桩/替换面）。
     """
-    if not enabled():
+    if enabled is None:
+        enabled = globals()["enabled"]()
+    if not enabled:
         return 1.0
     return _tc.cred_factor(float(gamma), float(dt_days), float(floor),
                            float(ceil))
 
 
-# 生效条件：access_count 与 last_access 任意（不可转数值按 0 处理）、importance 任意可转 float；按 REFRESH_PARAMS 的三档判定返回 1.0+gain / 1.0−gain / 1.0；
-def refresh_factor(access_count=0, last_access=0, importance=0.0) -> float:
+# 生效条件：access_count 与 last_access 任意（不可转数值按 0 处理）、importance 任意可转 float；enabled 为 None（缺省）时自算（模块级 enabled()），显式传 bool 时按传入值——两者皆假值即恒返回 1.0；否则按 REFRESH_PARAMS 的三档判定返回 1.0+gain / 1.0−gain / 1.0；
+def refresh_factor(access_count=0, last_access=0, importance=0.0,
+                   enabled=None) -> float:
     """访问刷新/降权乘子（**门槛与步长照抄 AEIS** `consolidate_cycle`）。
 
     判定序（与 AEIS 同序同门）：
@@ -209,8 +218,13 @@ def refresh_factor(access_count=0, last_access=0, importance=0.0) -> float:
     在**从未被访问**（`access_count == 0`）时也为真——照抄原样会让「刚写、
     从未调用的高重要度节点」白拿一次刷新。加此闸后「未被调用」只能不刷新，
     不会反被奖励（语义仍与 §7.1「被经常调用的记忆其权重被刷新」一致）。
+
+    `enabled`（N274）：None=自算（默认，行为与改动前逐位一致）；显式传
+    bool 时不再自算——与 `decay_factor` 同一透传口径（见其 docstring）。
     """
-    if not enabled():
+    if enabled is None:
+        enabled = globals()["enabled"]()
+    if not enabled:
         return 1.0
     p = REFRESH_PARAMS
     try:
@@ -251,8 +265,8 @@ def protected_floor(entry) -> float:
     return max(SCORE_FLOOR, min(1.0, IMPORTANCE_PROTECT / imp))
 
 
-# 生效条件：entry 为可取 created_at / access_count / last_access / importance / protected 的映射；fm 为真值时上述五个键优先取自 fm（缺键回落 entry）；now 为假值（None）时取 freshness_now()；无条件返回 (乘子, 依据 dict)——乘子 = decay_factor(gamma, |now-created_at|/86400, protected_floor(取数后的映射), SCORE_CEIL) × refresh_factor(...)；created_at 缺失/不可转数值/≤0 时 dt_days 取 inf（判「距参照无穷远」，由 floor 兜住）；
-def entry_weight(entry, now=None, gamma=None, fm=None) -> tuple:
+# 生效条件：entry 为可取 created_at / access_count / last_access / importance / protected 的映射；fm 为真值时上述五个键优先取自 fm（缺键回落 entry）；now 为假值（None）时取 freshness_now()；enabled 为 None（缺省）时自算（模块级 enabled()），显式传 bool 时按传入值——两者皆假值即早退返回 (1.0, {"disabled": True})（早退先于 now/γ 解析，与改前同序）；否则无条件返回 (乘子, 依据 dict)——乘子 = decay_factor(gamma, |now-created_at|/86400, protected_floor(取数后的映射), SCORE_CEIL, enabled=…) × refresh_factor(..., enabled=…)；created_at 缺失/不可转数值/≤0 时 dt_days 取 inf（判「距参照无穷远」，由 floor 兜住）；
+def entry_weight(entry, now=None, gamma=None, fm=None, enabled=None) -> tuple:
     """索引条目 → 分数乘子 `(乘子, 依据)`（**检索期唯一取数点**，免读文件）。
 
     `entry` 直接来自索引快照（`_node_entry` 已落 `created_at` /
@@ -260,6 +274,11 @@ def entry_weight(entry, now=None, gamma=None, fm=None) -> tuple:
 
     `fm` 为可选覆盖源（写面刚落的 frontmatter 可能比索引条目新）：只为
     避免在热路径上拷贝 dict 而设，取数优先级 `fm > entry > 缺省`。
+
+    `enabled`（N274）：None=自算（默认，行为与改动前逐位一致）；显式传
+    bool 时不再自算，且向下透传给 `decay_factor`/`refresh_factor`——它们
+    同样不再各自读 env。自算分支经 `globals()["enabled"]()`（形参遮蔽，
+    解析语义同改前的 `enabled()`，见 `decay_factor` 同注）。
     """
     e = entry or {}
     keys = ("created_at", "access_count", "last_access", "importance",
@@ -269,7 +288,9 @@ def entry_weight(entry, now=None, gamma=None, fm=None) -> tuple:
                for k in keys}
     else:
         src = {k: e.get(k) for k in keys}
-    if not enabled():
+    if enabled is None:
+        enabled = globals()["enabled"]()
+    if not enabled:
         return 1.0, {"disabled": True}
     g = resolve_gamma(gamma)
     ref = freshness_now() if now is None else float(now)
@@ -286,9 +307,9 @@ def entry_weight(entry, now=None, gamma=None, fm=None) -> tuple:
         # 微变）且两侧跨语言同值。详见 DT_QUANTUM_DAYS 的说明。
         dt_days = float(int(dt_days / DT_QUANTUM_DAYS)) * DT_QUANTUM_DAYS
     floor = protected_floor(src)
-    d = decay_factor(g, dt_days, floor, SCORE_CEIL)
+    d = decay_factor(g, dt_days, floor, SCORE_CEIL, enabled=enabled)
     r = refresh_factor(src.get("access_count"), src.get("last_access"),
-                       src.get("importance"))
+                       src.get("importance"), enabled=enabled)
     return d * r, {"gamma": g, "dt_days": dt_days, "unit": DT_UNIT,
                    "decay": d, "refresh": r, "floor": floor,
                    "protected": bool(src.get("protected"))}

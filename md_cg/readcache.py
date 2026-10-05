@@ -25,7 +25,9 @@
   2. 缓存**解析产物** `(fm, content)`（benchmark 版只缓存原文，parse 仍逐次），
      **并缓存文档侧检索派生物** `_doc_norm_bigrams`（归一化 bigram——批次 21
      实测本机热点 88% 在此而非 I/O：内容不变则派生物不变，随读缓存常驻；
-     Rust `load_docs` 预计算 stripped/db_len 同款理论）；
+     Rust `load_docs` 预计算 stripped/db_len 同款理论）与 `_positive_body`
+     （剥除不适用条件后的召回键正文——N273，8000 池实测 ~102ms/查询，
+     与 bigram 同一 path 键控 + 脏集失效口径，两者恒同步）；
   3. 进程内一致性边界（与 MdStore 相同的诚实边界）：跨进程/外部直接改写
      md 文件不保证可见——认知图的多进程形态（每智能体一进程）各持快照。
   4. **读失败不固化（C-3 / FI-M02 / N134，2026-09-29）**：只接纳「成功」与
@@ -67,7 +69,7 @@ def direct_read(cg, entry):
     return fn(entry)
 
 
-# 生效条件：cg 提供 _read_status（MdCG/MdCGSecure 恒有）时按其**三态标签**包装：第三元素为 None（成功 / 终态真缺）者照脏集精确失效口径入缓存，第三元素非 None（瞬时读失败，fsutil.READ_FAIL_TRANSIENT）者**一律不入缓存**（C-3：不得把可重试的读失败以「新鲜」身份固化）；cg 无 _read_status（非 MdCG 载体）时回落包装 cg._read，且空结果一律不接纳（无判别面时的保守侧：宁可重读，不可固化可能是瞬时的缺失）；cg._doc_norm_bigrams 存在时同款包装其派生物（_score 热点：文档侧归一化 bigram 只依赖 content，随读缓存一并常驻）；包装后 cg._read 与 cg._doc_norm_bigrams 走缓存、cg._read_cache/_norm_bigrams_cache 为缓存字典、cg._read_uncached 为**穿透缓存的原始二态 _read**（direct_read 的真源，返回形状与 install 前逐位一致）；返回缓存字典。
+# 生效条件：cg 提供 _read_status（MdCG/MdCGSecure 恒有）时按其**三态标签**包装：第三元素为 None（成功 / 终态真缺）者照脏集精确失效口径入缓存，第三元素非 None（瞬时读失败，fsutil.READ_FAIL_TRANSIENT）者**一律不入缓存**（C-3：不得把可重试的读失败以「新鲜」身份固化）；cg 无 _read_status（非 MdCG 载体）时回落包装 cg._read，且空结果一律不接纳（无判别面时的保守侧：宁可重读，不可固化可能是瞬时的缺失）；cg._doc_norm_bigrams 存在时同款包装其派生物（_score 热点：文档侧归一化 bigram 只依赖 content，随读缓存一并常驻）；cg._positive_body 存在时同款包装其派生物（_like 热点：剥除不适用条件后的正文只依赖 content，N273 与前者同一 path 键控 + 脏集失效口径）；包装后 cg._read 与 cg._doc_norm_bigrams/cg._positive_body 走缓存、cg._read_cache/_norm_bigrams_cache/_positive_body_cache 为缓存字典、cg._read_uncached 为**穿透缓存的原始二态 _read**（direct_read 的真源，返回形状与 install 前逐位一致）；返回缓存字典。
 def install(cg):
     """把 `cg._read`（与派生物钩子）包成**脏集精确失效**的常驻缓存。
 
@@ -189,14 +191,37 @@ def install(cg):
 
         cg._doc_norm_bigrams = _cached_nb
         cg._norm_bigrams_cache = nb_cache
+
+    # N273（第 32 轮性能面）：`_positive_body` 派生物同款缓存层——同 `entry`
+    # path 键、同 `_fresh` 脏集判据、同装载/失效时机（与 `_doc_norm_bigrams`
+    # 一字不差的同形结构，故两者命中率与失效行为恒同步）。修前 `_like` 每
+    # 查询对每个候选节点直调 `nodefile.positive_body`（逐行扫 CCG 声明段），
+    # 8000 池实测每次查询 ~102ms（占热态查询 ~47%）——它却是与 bigram 同
+    # 性质的纯函数（只依赖 content），缓存不对称在此收口。
+    pb_cache = {}
+    if hasattr(cg, "_positive_body"):
+        orig_pb = cg._positive_body
+
+        def _cached_pb(entry, content):
+            p = entry["path"]
+            gen = getattr(cg._dirty, "write_gen", len(cg._dirty))
+            hit = pb_cache.get(p)
+            if hit is not None and _fresh(p, hit):
+                return hit[1]
+            val = orig_pb(entry, content)
+            pb_cache[p] = (gen, val)
+            return val
+
+        cg._positive_body = _cached_pb
+        cg._positive_body_cache = pb_cache
     return cache
 
 
-# 生效条件：cg._read_cache 与 cg._norm_bigrams_cache 均清空（写侧显式兜底；哨兵之外的强制手段），返回清空的条目总数；无缓存时返回 0。
+# 生效条件：cg._read_cache、cg._norm_bigrams_cache 与 cg._positive_body_cache 均清空（写侧显式兜底；哨兵之外的强制手段），返回清空的条目总数；无缓存时返回 0。
 def clear(cg) -> int:
     """强制清空（外部批量改写文件后可手动调；正常写路径无需——哨兵自动失效）。"""
     n = 0
-    for attr in ("_read_cache", "_norm_bigrams_cache"):
+    for attr in ("_read_cache", "_norm_bigrams_cache", "_positive_body_cache"):
         c = getattr(cg, attr, None)
         if c:
             n += len(c)

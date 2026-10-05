@@ -285,8 +285,14 @@ def g5_same_multiplier_slot():
               0 < kd - jd <= 12
               and all(l.strip() for l in seg[jd + 1:kd]),
               f"pooling 行={jd} 乘子行={kd}")
+        # N274：乘子行改为「调用跨两行」形态（循环外提升后追加
+        # now/gamma/enabled 关键字透传）——判据性质不变（仍要求乘子**直接
+        # 乘在 raw 上**、同一乘子位、以 [0] 取乘子），仅匹配形态同步为
+        # 跨行；并顺带收紧为「行首即 raw = raw * …」。
         check("乘子直接乘在 raw 上（同一乘子位，不新开乘子链）",
-              "raw * freshness.entry_weight(e, fm=fm)[0]" in seg[kd])
+              seg[kd].strip().startswith("raw = raw * freshness.entry_weight(")
+              and "[0]" in (seg[kd] + seg[kd + 1]),   # 单行/跨行两形态皆可
+              f"kd 行={seg[kd]!r} 次行={seg[kd + 1]!r}")
         # 行为：同内容两节点，仅 created_at 不同 → 分数比 == 乘子比
         scored = _score_pair(cg)
         m_new = F.entry_weight(cg.index["nodes"]["k_new"], now=REF)[0]
@@ -577,6 +583,93 @@ def g12_rust_parity_e2e():
         shutil.rmtree(root, ignore_errors=True)
 
 
+def g13_hot_loop_reads():
+    """N274：freshness 读取点全部提升到 `_score` 循环外（调用计数判据）。
+
+    判据＝**与文档数无关**：同一 `_score` 调用于 2 节点与 20 节点两批文档
+    时，`enabled`/`freshness_now`/`resolve_gamma`/`temporal_gamma` 的调用
+    计数相同。修前（8000 池实测，2026-10-05）为每节点 7 次（enabled 4×N
+    + now/γ/temporal 各 N）；墙钟只作辅助，不作判据。
+    """
+    print("== G13 freshness 读取提升到 _score 循环外（N274）==")
+    import md_cg.mdcos as MC
+    root, cg = _lib()
+    c = {"enabled": 0, "now": 0, "gamma": 0, "temporal": 0}
+    orig = {n: getattr(F, n) for n in ("enabled", "freshness_now",
+                                       "resolve_gamma")}
+    orig_tg = MC.temporal_gamma
+
+    def _wrap(fn, key):
+        def _w(*a, **k):
+            c[key] += 1
+            return fn(*a, **k)
+        return _w
+
+    F.enabled = _wrap(orig["enabled"], "enabled")
+    F.freshness_now = _wrap(orig["freshness_now"], "now")
+    F.resolve_gamma = _wrap(orig["resolve_gamma"], "gamma")
+    MC.temporal_gamma = _wrap(orig_tg, "temporal")
+    try:
+        def _mk_docs(n):
+            return [({"path": "knowledge/k%d.md" % i},
+                     {"id": "k%d" % i, "tags": [],
+                      "created_at": REF - i * DAY, "access_count": 0,
+                      "last_access": 0, "importance": 0.5},
+                     BODY.format(n="k%d" % i, t="k%d 正文 苹果 章节" % i))
+                    for i in range(n)]
+
+        def _count(docs):
+            for k in c:
+                c[k] = 0
+            cg._score(docs, "苹果 章节",
+                      M.bigrams(M.normalize_en("苹果 章节")))
+            return dict(c)
+
+        c2 = _count(_mk_docs(2))
+        c20 = _count(_mk_docs(20))
+        # 判据面＝**env 读取三面**（enabled / freshness_now / temporal_gamma
+        # ——后者是 γ 的实际读取点：resolve_gamma 的 early-return 分支不碰
+        # temporal_gamma，故「temporal_gamma 常数」即「γ 的 env 读取归零」）。
+        # 诚实边界：resolve_gamma 的**函数调用**仍每节点一次（early-return
+        # 直通已解析的 float，~0.15µs/节点、不读 env）——保留它是因为
+        # resolve_gamma 还承担「非法 gamma 回落缺省」的单点边界语义，跳过
+        # 调用会改变该边界。
+        check("env 读取面与文档数无关（enabled/now/temporal；修前各 N×）",
+              {k: c2[k] for k in ("enabled", "now", "temporal")}
+              == {k: c20[k] for k in ("enabled", "now", "temporal")},
+              f"c2={c2} c20={c20}")
+        check("enabled() 常数级（修前 = 4×N）", c20["enabled"] <= 2, str(c20))
+        check("freshness_now() 常数级（修前 = 1×N）", c20["now"] <= 1, str(c20))
+        check("temporal_gamma() 常数级（修前 = 1×N；γ 的实际读取点）",
+              c20["temporal"] <= 1, str(c20))
+        # 自证腿（常驻）：全缺省签名的旧路径仍自算，四个 spy 数得到——证明
+        # 上面的「零/常数」不是 spy 失效造成的假绿（判别力在位）。
+        for k in c:
+            c[k] = 0
+        F.entry_weight({"created_at": REF, "importance": 0.5})
+        check("自证腿：全缺省签名仍自算（四路 spy 各 ≥1，判别力在位）",
+              c["enabled"] >= 1 and c["now"] >= 1 and c["gamma"] >= 1
+              and c["temporal"] >= 1, str(c))
+        # 语义等价：显式透传与自算逐位同值；关闭恒 1.0（三面同口径）
+        e0 = {"created_at": REF - 30 * DAY, "importance": 0.5}
+        check("显式 enabled+now+γ 透传与自算同值（逐位一致）",
+              F.entry_weight(e0, now=REF)[0]
+              == F.entry_weight(e0, now=REF, gamma=F.resolve_gamma(None),
+                                enabled=True)[0])
+        check("enabled=False 恒 1.0（entry/decay/refresh 三面同口径）",
+              F.entry_weight(e0, now=REF, enabled=False)[0] == 1.0
+              and F.decay_factor(0.023, 100.0, enabled=False) == 1.0
+              and F.refresh_factor(0, 0, 0.9, enabled=False) == 1.0)
+    finally:
+        F.enabled = orig["enabled"]
+        F.freshness_now = orig["freshness_now"]
+        F.resolve_gamma = orig["resolve_gamma"]
+        MC.temporal_gamma = orig_tg
+        cg.close()
+        import shutil
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def _mut_floor_zero():
     return _patch(F, "SCORE_FLOOR", 0.0)
 
@@ -641,6 +734,7 @@ def _collect():
     g10_weights_autoprotect_kept()
     g11_rust_parity()
     g12_rust_parity_e2e()
+    g13_hot_loop_reads()
     return list(FAILS)
 
 

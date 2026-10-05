@@ -492,7 +492,7 @@ def _recursive_reflect(cg, seeds, tw_pos, tw_neg, max_depth=MAX_DEPTH,
 # 主入口：三级决策
 # --------------------------------------------------------------------------
 
-# 生效条件：以 cg.index.nodes 为既有节点、content（假值按 ""）经 _new_terms 得 pos/neg 并算 tw_pos/tw_neg（non_applicable_conditions 入参先按 mdcos._is_null_condition 剔除空值语义哨兵——⑧ 漏斗单点）；选面（cons200；收口轮①加面内例外）：快照级预筛剔「tw_pos 与 tw_neg 皆空（新节点未声明可展开条件）时的非纪律候选」，且**剔除永不触及修前扫描面**（过滤后索引序前 limit 内候选一律保留——面内例外；「修后检出 ⊇ 修前」由此成为与「条目 tags 与盘面 fm.tags 同源」无关的结构保证），候选超 limit 时精比面＝相关面（_sift_score 序）前 limit ∪ 保底面（过滤后索引序前 limit ∩ 候选），记 scanned（候选数）/kept（精比数）/truncated（scanned>kept）/hint；按循环中 hard（自否定或纪律命中）→ divergences（同条件槽且 concl < CONCLUSION_SAME）→ strength ≥ CLASH_HIGH → strength ≥ CLASH_LOW → comparable==0 且 (pos or neg) → 否则 ACCEPT 的顺序定 verdict；DEFER 且 int(depth)>0 且 emo["bias"] != "approaching" 时调 _recursive_reflect 补 recursion，auto_flywheel 且 verdict == REJECT 时加 unresolved_id，最后 log_write 为真时 log 并返回 rec；
+# 生效条件：以 cg.index.nodes 为既有节点、content（假值按 ""）经 _new_terms 得 pos/neg 并算 tw_pos/tw_neg（non_applicable_conditions 入参先按 mdcos._is_null_condition 剔除空值语义哨兵——⑧ 漏斗单点）；选面（cons200；收口轮①加面内例外）：快照级预筛剔「tw_pos 与 tw_neg 皆空（新节点未声明可展开条件）时的非纪律候选」，且**剔除永不触及修前扫描面**（过滤后索引序前 limit 内候选一律保留——面内例外；「修后检出 ⊇ 修前」由此成为与「条目 tags 与盘面 fm.tags 同源」无关的结构保证），候选超 limit 时精比面＝相关面（_sift_score 序）前 limit ∪ 保底面（过滤后索引序前 limit ∩ 候选），记 scanned（候选数）/kept（精比数）/truncated（scanned>kept）/hint；按循环中 hard（自否定或纪律命中）→ divergences（同条件槽且 concl < CONCLUSION_SAME）→ strength ≥ CLASH_HIGH → strength ≥ CLASH_LOW → comparable==0 且 (pos or neg) → 否则 ACCEPT 的顺序定 verdict；DEFER 且 int(depth)>0 且 emo["bias"] != "approaching" 时调 _recursive_reflect 补 recursion，auto_flywheel 且 verdict == REJECT 时加 unresolved_id，最后 log_write 为真时 log 并返回 rec；N276：精比环的索引代际探针循环外单探一次（环内 cg.get(nid, probe=False)；无探活面载体回落 cg.get(nid)，行为零变）；
 def check(cg, content, layer=None, condition_space=None,
           non_applicable_conditions=None, tags=None, exclude=None,
           limit=MAX_SCAN, depth=MAX_DEPTH, auto_flywheel=False,
@@ -632,9 +632,20 @@ def check(cg, content, layer=None, condition_space=None,
     scanned = len(cand)                  # 预筛后候选数（截断前）
     kept = len(scan_face)                # 实际精比数（相关面 ∪ 保底面）
     truncated = scanned > kept
+    # N276（第 32 轮性能面）：scan_face 精比环内逐节点 cg.get 会各自重探索引
+    # 签名（快照 stat + listdir + 逐分片 stat，单点实测 ~38µs；本库 200 次/
+    # 调用全同签名重探）——循环外单探一次、环内 probe=False；语义窗口=本批
+    # 读期间「他进程写入」不被探知（毫秒级，与读缓存已声明的进程内一致性
+    # 边界同款）；无探活面的载体（测试桩）回落原 cg.get(nid)，行为零变。
+    _probe = getattr(cg, "_maybe_reload_index", None)
+    if callable(_probe):
+        _probe()
+    else:
+        _probe = None
     seeds = []
     for nid, e in scan_face:
-        node = cg.get(nid) or {}
+        node = (cg.get(nid, probe=False) if _probe is not None
+                else cg.get(nid)) or {}
         fm = node.get("frontmatter") or {}
         body = node.get("content") or ""
         e_pos, e_neg = _declared(fm, body)

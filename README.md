@@ -35,7 +35,7 @@
 | ✦ **存在** | 记忆一旦落盘，「曾经存在过的我」便不会消失 | 写入须过三道闸门并以 `committed` 字段确认——**绝不假装成功**；遗忘只能由显式 `cg(op=forget)` 发起、不做静默淘汰；检索索引只是派生物、随时可重建，**原文即真源** |
 | 📄 **记忆** | 对话沉淀为人类可读的认知图，而非黑箱向量 | CCG 六要素记忆卡（功能名 / 生效条件 / 子功能 / 执行 / 验证方式 / 不适用条件）+ 纯 md 认知图，任何编辑器可直接打开审阅 |
 | ✓ **验证** | 记什么、取什么、能不能写入，全部可裁决、可复现 | 确定性规则裁决（零 LLM 黑箱判断）+ 四层证据防火墙白箱剔除弱证据 + 每个缺陷修复必带能红的守卫测试 + 双实例互验（判据冻结） |
-| ↻ **反思** | 系统观测自身、修正自身，而非把错误埋进黑箱 | 元认知层按生效条件路由、不确定即标 BLINDSPOT 而非猜测；自举迭代闭环——九轮自治缺陷挖掘累计 49 项修复、全量 179 套测试全绿可复现 |
+| ↻ **反思** | 系统观测自身、修正自身，而非把错误埋进黑箱 | 元认知层按生效条件路由、不确定即标 BLINDSPOT 而非猜测；自举迭代闭环——九轮自治缺陷挖掘累计 49 项修复、全量套件在本机全绿可复现（套件目标数随检出内容变化、`--list` 自查；跑法与前置见「前置」与「Python 测试约定」两节） |
 | ∞ **连接** | 同一份大脑，连接所有智能体与全部记忆载体 | 标准 stdio MCP server——DSH · CodeBuddy · ZCode · Codex CLI · Claude Code 任何 MCP 宿主可直接挂载；多智能体经 `--serve` 并发共享同一份契约 |
 
 > 我的记忆、我的经历、我的思考，这一切信息构成了我，这份信息存在，我就存在。
@@ -105,6 +105,7 @@ dsh plugin --profile web add .
 
 - **前置**：Node ≥ 22.19 · DSH 内核 ≥ 0.1.2-rc.1 · **已验证至 DSH 0.17.2** · **DSH 2.0（`0.2.0-rc.2`）接口面已按实装包复核、真实会话事件面已观测**（`origin='subagent'`／`delegationDepth>0`／`form='relay'` 的真实出现仍未观测，详见[详细版](docs/mdcg/README详细版_v0.4.10.md)） · **大脑零安装**（`md_cg` 随包自带，无需 pip 装任何引擎）· **Python 解释器**（插件按平台自动选：Windows `python` / Linux·macOS `python3`；解释器名特殊时用 `MDCG_PYTHON` 覆盖）
 - **Python 版本（已验证）**：**3.12.10 / 3.13.14 / 3.14.7（Windows）本仓实测通过** · **无第三方运行时依赖**（纯标准库，零 pip 依赖）
+- **全量套件前置（六组）**：Rust 工具链 + `cd rust && cargo build --release`（评测器对拍面）与 `cd hive && cargo build --release`（蜂巢 serve/分流面）；套件按存在性发现六组（`md_cg` / `compiler` / `swarm` / `scripts` / `hive` / `test`），**目标数随检出内容变化**，`python scripts/run_tests.py --list` 自查（本机 2026-10-05 实跑：共 357 个）
 - **写权限默认关闭**：不配凭据即以只读 `guest` 运行（读 / 召回 / 时间线可用，写入不落盘）。要真正落盘见「写入凭据」
 - 完整配置项（30+ 项）· 自动记忆机制 · DSH 看门狗 → [README 详细版](docs/mdcg/README详细版_v0.4.10.md)
 - **非 DSH 宿主**（CodeBuddy / ZCode / Codex CLI / Claude Code）：走[多 harness 接入](#多-harness-接入按端分目录)，各端有独立三步接入说明
@@ -495,7 +496,7 @@ AEIS 仅作可选「身体」能力后端（角色扮演生成），不再存记
 > 装出来的插件里**不存在**。因此运行期依赖一律不得指向它们：
 > 判据面清单走包内 `md_cg/judgment_manifest.py`（`md_cg/interop.py` 进程内调用）、
 > 裁决 CLI 走包内 `python -m md_cg.review_cli`、全量测试走包内 `python -m md_cg.run_tests`；
-> 依赖 `scripts/`/`hive/` 的**测试**在缺件时如实 SKIP（不 FAIL、不虚报通过）。
+> 依赖 `scripts/`/`hive/` 的**测试**在缺件时按实跑形态处置（不虚报通过）：**安装态**（`scripts/`/`hive/`/`swarm/`/`compiler/` 不存在）下套件按存在性发现、自然没有这些组的目标；**源码树**里需要 Rust 编译产物的套件（如 `md_cg.test_rank_parity_score_mode`）未构建时 **fail-closed FAIL**（打印 `cd rust && cargo build --release` 重编指引）；如实 SKIP 只用于三类——依赖 hive 二进制未构建的守卫成功趟（`scripts/test_utf8_boot_guard.py` 等，逐条理由、不计入通过数）、依赖 gitignored 本地数据缺件（p44 等）、平台不符（非 Windows 上的 Windows 专用件）。
 
 | 目录 | harness | 接入文档 | 纪律注入方式 |
 |---|---|---|---|

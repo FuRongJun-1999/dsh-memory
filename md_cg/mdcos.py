@@ -977,7 +977,9 @@ class MdCGOS(MdCG):
                 # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
                 hits = [d for d in docs
                         if self._like(d[2], d[1], terms,
-                                      index_key_hits(d[0], terms, q))
+                                      index_key_hits(d[0], terms, q),
+                                      entry=d[0],
+                                      positive_body=self._positive_body)
                         or (semantic_on() and d[1].get("semantic"))]
                 out = try_stage(hits, TIER_BUCKET_LIKE)
                 if out:
@@ -1004,7 +1006,9 @@ class MdCGOS(MdCG):
             _dif = set(_rstat.get("reach_diffused_paths") or ())
             hits_r = [d for d in docs_r
                       if self._like(d[2], d[1], terms,
-                                    index_key_hits(d[0], terms, q))
+                                    index_key_hits(d[0], terms, q),
+                                    entry=d[0],
+                                    positive_body=self._positive_body)
                       or (semantic_on() and d[1].get("semantic"))
                       or d[0].get("path") in _dif]     # 图扩散补召回：无词面命中也放行进打分
             stat["pre_cap"] = len(hits_r)     # 与 T2 同序：截断**前**的候选数
@@ -1038,7 +1042,9 @@ class MdCGOS(MdCG):
         # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
         hits = [d for d in docs_all
                 if self._like(d[2], d[1], terms,
-                              index_key_hits(d[0], terms, q))
+                              index_key_hits(d[0], terms, q),
+                              entry=d[0],
+                              positive_body=self._positive_body)
                 or (semantic_on() and d[1].get("semantic"))]
         stat["pre_cap"] = len(hits)
         stat["cap"] = GLOBAL_CAP
@@ -1088,7 +1094,9 @@ class MdCGOS(MdCG):
         # 语义摘要=检索面（设想核心），否则摘要层只在 LIKE 全空时生效
         hits = [d for d in docs
                 if self._like(d[2], d[1], terms,
-                              index_key_hits(d[0], terms, query))
+                              index_key_hits(d[0], terms, query),
+                              entry=d[0],
+                              positive_body=self._positive_body)
                 or (semantic_on() and d[1].get("semantic"))]
         if not hits:
             # 兜底池（LIKE 全空 = 无相关度信号）：截断依据=importance/created_at
@@ -1346,8 +1354,10 @@ class MdCGOS(MdCG):
         out = []
         for e, fm, c in self._read_many(entries, stat):
             tags = " ".join(str(t) for t in (fm.get("tags") or []))
-            # 负条件行不作召回键（反例命中应由 judge 走 REJECT，不该召回节点）
-            cov = _weighted_coverage(tw, f"{nodefile.positive_body(c)} {tags}")
+            # 负条件行不作召回键（反例命中应由 judge 走 REJECT，不该召回节点）。
+            # N273：走 `_positive_body` 钩子（readcache 启用时 path 键控缓存
+            # 版）——与 `_like` 侧同一条派生物缓存口径，不再是第二处直调。
+            cov = _weighted_coverage(tw, f"{self._positive_body(e, c)} {tags}")
             if cov <= 0.0:
                 continue
             e_dom = routing.route_key(None, e.get("tags"))
@@ -5109,8 +5119,8 @@ class MdCGSecure(MdCGOS):
     def _neg_coverage(self, terms):
         return [e for e in super()._neg_coverage(terms) if self._readable(e)]
 
-# 生效条件：node_id 在 self.index["nodes"] 中存在且 self._readable(e) 为假时返回 None，否则转 super().get(node_id)；索引缺该条目时**先做代际探活重载再判可见性**（N196：索引缺条目 ≡ 本进程陈旧，不得据以跳过读隔离），重载后仍无条目才回落 super().get 的 not_found 语义；super().get 返回真值节点后用**同一次读取所得的 frontmatter**（sensitivity/session）再判一次可见性，为假即返回 None（N213：命中陈旧条目的路径不得以旧快照当判据、以新盘面当正文）；
-    def get(self, node_id: str):
+# 生效条件：probe 为真（缺省，行为与改动前逐位一致）时，索引缺该条目才做代际探活重载（N196）且 super().get 照旧探活；probe=False 时两处探活一并跳过（N276：调用方已在本批读之前探过一次，批量循环内的逐节点读不再各自重探）；其余判据与 probe 无关：node_id 在 self.index["nodes"] 中存在且 self._readable(e) 为假时返回 None，否则转 super().get(node_id, probe=probe)；索引缺该条目时**先做代际探活重载再判可见性**（N196：索引缺条目 ≡ 本进程陈旧，不得据以跳过读隔离），重载后仍无条目才回落 super().get 的 not_found 语义；super().get 返回真值节点后用**同一次读取所得的 frontmatter**（sensitivity/session）再判一次可见性，为假即返回 None（N213：命中陈旧条目的路径不得以旧快照当判据、以新盘面当正文）；
+    def get(self, node_id: str, probe: bool = True):
         e = self.index["nodes"].get(node_id)
         if e is None:
             # N196（2026-09-28）：索引缺条目**不**等于「节点不存在」——本进程
@@ -5120,11 +5130,14 @@ class MdCGSecure(MdCGOS):
             # 第二次读才归 None，因为那时条目已随重载进入索引）。先探活重载
             # 再判可见性；真不存在时 e 仍为 None，super().get 照旧返回 None。
             # 成本只在**未命中**路径（一次 stat），命中路径零变化。
-            self._maybe_reload_index()
+            # N276：probe=False（批内单探针）时本探活同跳——语义窗口见
+            # forgetting.redundancy 同注（本批读期间他进程写入不探知）。
+            if probe:
+                self._maybe_reload_index()
             e = self.index["nodes"].get(node_id)
         if e is not None and not self._readable(e):
             return None                     # 读隔离：不可见即不存在
-        node = super().get(node_id)
+        node = super().get(node_id, probe=probe)
         if node is None:
             return None
         # N213（2026-09-28）：命中陈旧条目的路径此前**零探活**——可见性判据取自

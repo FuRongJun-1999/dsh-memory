@@ -77,6 +77,28 @@ def count_opens(fn):
         builtins.open = real
 
 
+def count_pb(fn):
+    """打桩 md_cg.nodefile.positive_body 计数（N273 召回键派生物调用面）。
+
+    计数面覆盖直调与钩子内直调（`MdCG._positive_body` 默认实现即调它）——
+    readcache 缓存版命中时该函数零调用，「未缓存实现」下每候选一次。
+    """
+    import md_cg.nodefile as _nf
+    n = 0
+    real = _nf.positive_body
+
+    def _spy(content):
+        nonlocal n
+        n += 1
+        return real(content)
+
+    _nf.positive_body = _spy
+    try:
+        return fn(), n
+    finally:
+        _nf.positive_body = real
+
+
 def main():
     root = tempfile.mkdtemp(prefix="mdcg_readcache_")
     os.environ.pop("MDCG_READ_CACHE", None)
@@ -148,9 +170,53 @@ def main():
         check("P6a 热缓存后二次检索派生物零重算（identity 不变）",
               same and len(snap) > 0, f"snap={len(snap)}")
 
+        # P8 `_positive_body` 派生物缓存（N273，`_like` 召回键面）——与 P6
+        # 同形判定：调用计数为主判据（修前实现每候选一次、8000 池实测
+        # 8000 次/查询），identity 快照为辅。
+        print("== P8 召回键派生物缓存（_positive_body，N273）==")
+        pbc = getattr(cg, "_positive_body_cache", {})
+        snap_pb = {k: v[1] for k, v in pbc.items()}
+        check("P8pre 召回键派生物缓存已装载", len(snap_pb) > 0,
+              f"entries={len(snap_pb)}")
+        (_res8, n_pb), = (count_pb(lambda: cg.search("蜂群调度")),)
+        check("P8a 热态二次检索 _positive_body 零重调（修前 = 每候选一次）",
+              n_pb == 0, f"calls={n_pb}")
+        pbc2 = getattr(cg, "_positive_body_cache", {})
+        same_pb = all(pbc2[k][1] is snap_pb[k] for k in snap_pb if k in pbc2)
+        check("P8b 热态二次检索派生物零重算（identity 不变）",
+              same_pb and len(snap_pb) > 0, f"snap={len(snap_pb)}")
+        # 写 1 节点 → 脏集精确失效：仅新 path 重算（旧条目零重算）
+        cg.add("pb_new", "# 功能名：召回键样本\n# 正文：蜂群调度 新增节点 独有标记PB\n"
+                         "# 不适用条件：仅当 排除场景PB 时", layer="knowledge")
+        cg.flush()
+        (_res8c, n_pb8), = (count_pb(lambda: cg.search("蜂群调度")),)
+        check("P8c 写 1 节点后仅该节点重算（脏集精确失效）", n_pb8 == 1,
+              f"calls={n_pb8}")
+        check("P8c2 写后新内容可检索（不陈旧）",
+              any(x[0].get("id") == "pb_new" for x in _res8c[0]),
+              f"ids={[x[0].get('id') for x in _res8c[0]][:5]}")
+        # P8d 红基线自证腿：摘回**未缓存**实现（类上原方法）跑同一查询，
+        # 调用计数必须 >0——证明 P8a 的「零重调」判据对「无缓存层」形态有
+        # 判别力（不依赖 git 回退的常驻自证）。
+        from md_cg.mdcg import MdCG as _MdCG
+        _saved_pb = cg._positive_body
+        cg._positive_body = _MdCG.__dict__["_positive_body"].__get__(
+            cg, type(cg))
+        try:
+            (_res8d, n_pb_uncached), = (count_pb(lambda: cg.search("蜂群调度")),)
+        finally:
+            cg._positive_body = _saved_pb
+        check("P8d 红基线自证：未缓存实现下同查询调用计数 >0",
+              n_pb_uncached > 0, f"calls={n_pb_uncached}")
+        check("P8e 恢复缓存版后再次零重调",
+              count_pb(lambda: cg.search("蜂群调度"))[1] == 0,
+              "缓存版未复原")
+
         # P5 clear 兜底（破坏性，放最后）
         n = rc.clear(cg)
         check("P5 clear 返回清空条目数", n > 0, f"cleared={n}")
+        check("P5b clear 一并清空召回键派生物缓存",
+              len(getattr(cg, "_positive_body_cache", {})) == 0)
 
         # P7 写代际单调（批次 23，issue #31 D-4 / v20 复现场景，能红 len 代际）
         print("== P7 flush 后同量写入不回退（D-4 陈旧读）==")

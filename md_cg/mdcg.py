@@ -3303,9 +3303,10 @@ class MdCG:
 
     # ---------- 读 ----------
 
-# 生效条件：index["nodes"].get(node_id) 为假值时回落 self._dirty.get(node_id)，仍为假值返回 None；打开 root 下 e["path"] 抛 FileNotFoundError（终态真缺）或 _open_content 返回 None（无密钥/身份不符）时返回 None；抛其余 OSError（瞬时读失败，C-3）同样返回 None，但先经 _note_read_oserror 记账（不得静默）；否则返回 {id, frontmatter, content, path}；
-    def get(self, node_id: str):
-        self._maybe_reload_index()      # P1b-2：读面代际感知（他进程写快照后可见）
+# 生效条件：probe 为真（缺省，行为与改动前逐位一致）时先经 _maybe_reload_index() 做代际探活（他进程写快照后可见，P1b-2 原语义）；probe=False 时跳过探活（调用方已在本批读之前探过一次——N276 的批内单探针口径，仅限「循环内逐节点读」的批量调用点使用）；其余分支与探测无关：index["nodes"].get(node_id) 为假值时回落 self._dirty.get(node_id)，仍为假值返回 None；打开 root 下 e["path"] 抛 FileNotFoundError（终态真缺）或 _open_content 返回 None（无密钥/身份不符）时返回 None；抛其余 OSError（瞬时读失败，C-3）同样返回 None，但先经 _note_read_oserror 记账（不得静默）；否则返回 {id, frontmatter, content, path}；
+    def get(self, node_id: str, probe: bool = True):
+        if probe:
+            self._maybe_reload_index()  # P1b-2：读面代际感知（他进程写快照后可见）
         e = self.index["nodes"].get(node_id) or self._dirty.get(node_id)
         if not e:
             return None
@@ -3374,6 +3375,24 @@ class MdCG:
         基类默认即算即弃，行为与改动前逐位一致。
         """
         return bigrams(normalize_en(c))
+
+# 生效条件：恒返回 nodefile.positive_body(content)——剥除 `# 不适用条件` 声明段后的正文（剥除算法单点 _strip_ccg_segments，行内带值只剥该行、裸标题连同其后首个非空非标题的值行一并剥除）；内容不变则派生物不变，readcache 启用时覆写为缓存版（随读缓存一并常驻）。
+    def _positive_body(self, entry, content):
+        """文档侧「剥除不适用条件后的正文」（`_like` 召回键，N273 钩子化）。
+
+        与 `_doc_norm_bigrams` 同形：纯函数、只依赖 content（见
+        `nodefile.positive_body`），内容不变则派生物不变——readcache 启用
+        时覆写为缓存版（path 键控 + 脏集失效，同一条口径）；基类默认即算
+        即弃，行为与改动前逐位一致。
+
+        为什么要有钩子（N273，第 32 轮性能面）：`_like` 每查询对每个候选
+        节点调 `nodefile.positive_body`（逐行扫 CCG 声明段），8000 池实测
+        单点 ~11.6µs、每次查询 ~102ms（占热态查询 ~47%）——而它与已被
+        缓存的 `_doc_norm_bigrams` 同性质（纯函数、只依赖 content），缓存
+        面若只覆盖后者即「派生物缓存的不对称」：更贵的没缓存、便宜的缓存
+        了。`entry` 只为缓存层取 path 键（默认实现不消费它）。
+        """
+        return nodefile.positive_body(content)
 
     # ---------- 资格判定（与性能 tier 正交）----------
 
@@ -3818,7 +3837,9 @@ class MdCG:
                 # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
                 hits = [d for d in docs
                         if self._like(d[2], d[1], terms,
-                                      index_key_hits(d[0], terms, q))
+                                      index_key_hits(d[0], terms, q),
+                                      entry=d[0],
+                                      positive_body=self._positive_body)
                         or (semantic_on() and d[1].get("semantic"))]
                 out = try_stage(hits, TIER_BUCKET_LIKE)
                 if out:
@@ -3845,7 +3866,9 @@ class MdCG:
             _dif = set(_rstat.get("reach_diffused_paths") or ())
             hits_r = [d for d in docs_r
                       if self._like(d[2], d[1], terms,
-                                    index_key_hits(d[0], terms, q))
+                                    index_key_hits(d[0], terms, q),
+                                    entry=d[0],
+                                    positive_body=self._positive_body)
                       or (semantic_on() and d[1].get("semantic"))
                       or d[0].get("path") in _dif]     # 图扩散补召回：无词面命中也放行进打分
             stat["pre_cap"] = len(hits_r)     # 与 T2 同序：截断**前**的候选数
@@ -3948,7 +3971,9 @@ class MdCG:
         # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
         hits = [d for d in docs_all
                 if self._like(d[2], d[1], terms,
-                              index_key_hits(d[0], terms, q))
+                              index_key_hits(d[0], terms, q),
+                              entry=d[0],
+                              positive_body=self._positive_body)
                 or (semantic_on() and d[1].get("semantic"))]
         # ---- S3 图扩散激活（契约 §3 S3；flag 控，默认关）----
         # 为何：审计偏差 1 曾成立——「edges 一直只被写入、检索从不使用」。**该偏差
@@ -4093,8 +4118,8 @@ class MdCG:
         return docs
 
     @staticmethod
-# 生效条件：terms 为空时返回 False；否则任一 t 在 positive_body(content) 的小写串中出现，或该 t 的小写形式出现在 fm 的 tags（tags 取自 fm.get("tags") or []，缺键或假值按空列表拼接）小写串中，或 index_keys 为真值（六要素后两行的索引键命中，见 index_key_hits）即返回 True。
-    def _like(content, fm, terms, index_keys=None):
+# 生效条件：terms 为空时返回 False；否则任一 t 在 body 的小写串中出现（body 取自 positive_body 钩子——透传绑定方法时走 readcache 缓存版，未传时回落 nodefile.positive_body(content) 直调，两者同值），或该 t 的小写形式出现在 fm 的 tags（tags 取自 fm.get("tags") or []，缺键或假值按空列表拼接）小写串中，或 index_keys 为真值（六要素后两行的索引键命中，见 index_key_hits）即返回 True。
+    def _like(content, fm, terms, index_keys=None, entry=None, positive_body=None):
         # 负条件行（`# 不适用条件：`）是反例声明，不作召回键：命中它只应由
         # judge_qualification 走 REJECT，不能把节点召回。tags 仍参与匹配。
         #
@@ -4104,10 +4129,19 @@ class MdCG:
         # 拒绝域仍不作普通问句的召回键（`index_key_hits` 只在**边界问句**上
         # 放开拒绝域召回；见函数说明）。index_keys 为 None（旧调用方）时
         # 行为与改动前逐位一致。
+        #
+        # N273（第 32 轮性能面）：`entry`/`positive_body` 是**派生物钩子的
+        # 透传面**——调用点传 `entry=d[0]` 与 `positive_body=self._positive_body`
+        # （readcache 启用时后者是 path 键控缓存版）；不传的旧调用方（三/四
+        # 参）走下面的直调分支，行为与改动前逐位一致。本函数保持 staticmethod
+        # 正是为了让旧调用方零改动（钩子由调用点显式传入，不靠 self 解析）。
         if index_keys and index_keys.get("hit"):
             return True
         tags = " ".join(str(t) for t in (fm.get("tags") or []))
-        body = nodefile.positive_body(content)
+        if positive_body is not None:
+            body = positive_body(entry, content)
+        else:
+            body = nodefile.positive_body(content)
         # 双边小写化：英文大小写统一（中文无大小写不受影响）
         body_l = body.lower()
         tags_l = tags.lower()
@@ -4133,6 +4167,18 @@ class MdCG:
         _s4_on = (os.environ.get("MDCG_RETRIEVAL_PIPELINE") == "1"
                   and os.environ.get("MDCG_GATE_S4_LAYER") == "1")
         _boost = layer_boosts() if _s4_on else None
+        # N274（第 32 轮性能面）：刷新/衰减乘子的**开关/时刻/γ 循环外各解析
+        # 一次**——三者在单次 _score 内是常量（同一批文档同一口径；env 与
+        # 时钟不随节点变化）。修前每节点重读 7 次（循环内 enabled + 经
+        # entry_weight 的 enabled/γ/now + decay/refresh 各自一次 enabled），
+        # 8001 池实测 56007 次/查询。解析结果经 entry_weight 既有形参
+        # now/gamma 与新增形参 enabled 透传；`_path_temporal` 的
+        # `gamma = temporal_gamma()` 同为此模式（mdcos.py:1301）。
+        # 禁用时不解析 now/γ（与修前「enabled=False 早退于解析之前」同序），
+        # 且恒不调 entry_weight（保持修前 `if freshness.enabled():` 的零调用）。
+        _fr_on = freshness.enabled()
+        _fr_now = freshness.freshness_now() if _fr_on else None
+        _fr_gamma = freshness.resolve_gamma(None) if _fr_on else None
         scored = []
         for e, fm, c in docs:
             # 归一化 content 后取 bigram（与 query 侧 normalize_en 对称）；
@@ -4158,8 +4204,10 @@ class MdCG:
             # access_count / last_access），检索期**不读盘**（§7.2 卡点一）。
             # 核走唯一权威 time_core，γ 走 P3 已落的唯一读取点（见 freshness 模块头）。
             # 开关 `MDCG_FRESHNESS`（缺省开）=0 时乘子恒 1.0（与改动前逐位一致）。
-            if freshness.enabled():
-                raw = raw * freshness.entry_weight(e, fm=fm)[0]
+            # N274：开关/时刻/γ 由循环外解析一次后透传（见上），此处零 env 读取。
+            if _fr_on:
+                raw = raw * freshness.entry_weight(
+                    e, now=_fr_now, gamma=_fr_gamma, fm=fm, enabled=_fr_on)[0]
             if _boost:                      # S4：层级加成（最后一步；上限仍夹在 1.0）
                 raw = min(1.0, raw + _boost.get(str(fm.get("layer") or ""), 0.0))
             scored.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,

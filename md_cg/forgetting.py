@@ -174,7 +174,7 @@ def self_coverage(cg, node_id, content):
     return round(_coverage(bigrams(payload(content)), body), 4)
 
 
-# 生效条件：content 经 payload/bigrams 得空集合时直接返回零值 best（max=0.0、with=None、compared=0）；否则遍历 cg.index 的 nodes，跳过 nid==exclude，layer 为真值时只比较 str(layer 字段 or "")==layer 的节点，cg.get(nid) 抛异常/返回假值、或该节点 content 的 bigrams 为空则跳过，每计入一个节点后若 n>=limit 立即 break（故 limit 为 0 或负数时只比较首项即停），返回覆盖度最大者 best（无覆盖度提升时不更新 with/jaccard，compared 为实际计入数）。
+# 生效条件：content 经 payload/bigrams 得空集合时直接返回零值 best（max=0.0、with=None、compared=0）；否则**循环外经 cg._maybe_reload_index() 单探一次**（N276：无该方法/不可调用的载体跳过，环内回落原 cg.get(nid)），遍历 cg.index 的 nodes，跳过 nid==exclude，layer 为真值时只比较 str(layer 字段 or "")==layer 的节点，cg.get(nid, probe=False)（无探活面的载体回落 cg.get(nid)）抛异常/返回假值、或该节点 content 的 bigrams 为空则跳过，每计入一个节点后若 n>=limit 立即 break（故 limit 为 0 或负数时只比较首项即停），返回覆盖度最大者 best（无覆盖度提升时不更新 with/jaccard，compared 为实际计入数）。
 def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE):
     """Q1 重复？——新内容被既有同层节点覆盖的最大比例。"""
     new = bigrams(payload(content))
@@ -182,6 +182,18 @@ def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE)
     if not new:
         return best
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
+    # N276（第 32 轮性能面）：**批内代际探针只做一次**——循环里每次 cg.get
+    # 都会经 MdCG.get 首行重算索引签名（快照 stat + listdir + 逐分片 stat，
+    # 单点实测 ~38µs；本库 240 次/调用全同签名重探）。此处循环外探一次、
+    # 环内 cg.get(nid, probe=False)。语义窗口=**本调用期间「他进程写入」
+    # 不被探知**（毫秒级；读取环本就按当次快照判定，与读缓存/热缓存已声明
+    # 的进程内一致性边界同款，故注释记账即可）；无探活面的载体（测试桩）
+    # 回落原 cg.get(nid)，行为零变。
+    _probe = getattr(cg, "_maybe_reload_index", None)
+    if callable(_probe):
+        _probe()
+    else:
+        _probe = None
     n = 0
     for nid in list(nodes.keys()):
         if nid == exclude:
@@ -189,7 +201,8 @@ def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE)
         if layer and str(nodes[nid].get("layer") or "") != layer:
             continue
         try:
-            node = cg.get(nid)
+            node = (cg.get(nid, probe=False) if _probe is not None
+                    else cg.get(nid))
         except Exception:
             node = None
         if not node:
