@@ -36,6 +36,10 @@ UTF-8 模式」这一真实现场下的行为。修前正确性挂在「环境�
      与 ② 合起来即「被 import 不重启 ∧ `python -m` 形态仍自动重启」（F6 不得修坏 A3）。
   ⑨ STREAMS（F3）—— **行为差分**：在「父进程 sys.stdin/stdout/stderr 不指向 fd 0/1/2」
      的拓扑下跑同一条 stdio 组帧 E2E，助手**漏传任一条流**都必须让组帧转红。
+  ⑨b NESTED-LOGS（隔离，issue #58）—— `_env_clean` 返回的 env 必须把
+     `MDCG_TESTLOG_DIR` 钉在**本次守卫的临时面**（绝对路径、落 `dirname(fusedir)`
+     之下、setdefault）：M4 变异下嵌套真跑的 run_tests 自此刻不再清洗共享的真实
+     日志目录。判据在**被判根源码**上装载 `_env_clean` 实测（M14 删隔离行即转红）。
   ⑩ MUTATIONS —— 定点变异自证：每个判据都有定点变异把它打红，且**恰好**命中预期项集
      与预期退出码（另含一个「无关改动必须全绿」的假阳性对照）。
   ⑪ 三态汇总 —— 判据结果分 `ok` / `红` / **`skip`**（抛出 `Skipped`）：skip 逐条打印
@@ -264,6 +268,14 @@ def _env_clean(root: str, fusedir: str, extra: dict | None = None,
     env.setdefault("MDCG_STATE_ROOT", os.path.join(iso, "state"))
     env.setdefault("MDCG_DATA_ROOT", os.path.join(iso, "data"))
     env.setdefault("MDCG_TENANT_REGISTRY", os.path.join(iso, "_tenants_absent.json"))
+    # 嵌套日志隔离（issue #58，2026-10-05 实测）：M4（NO_REEXEC 被忽略）下「采指引」
+    # 退化为**真跑入口**——两个 run_tests 入口会真跑整个套件（嵌套），其逐用例日志
+    # 缺省落**共享的真实日志目录**（md_cg/run_tests.py 的 `MDCG_TESTLOG_DIR or
+    # <tempdir>/md_cg_testlogs`），把外层套件的 per-test 日志整体清洗成熔断行
+    # （单跑守卫实测：352/352 个文件 10 秒内被改写；rc 判定不受影响，日志是唯一受害者）。
+    # setdefault 把嵌套 runner 的日志钉在本次守卫的临时面（iso 下 testlogs 子目录）；
+    # 不覆盖使用者/宿主显式配置。
+    env.setdefault("MDCG_TESTLOG_DIR", os.path.join(iso, "testlogs"))
     if counter:
         env["UTF8GUARD_COUNT"] = counter
         env["UTF8GUARD_FUSE"] = str(fuse if fuse else FUSE_LIMIT)
@@ -954,6 +966,13 @@ def check_guide(root: str, tmp: str, fusedir: str) -> tuple[bool, str]:
     的变异下（M2）会无限自重启。故两处都挂计数熔断：任何失控的解释器启动在第 N 次
     被 sitecustomize `os._exit(97)` 截断，且两处各用**独立**计数文件（共用会把正常
     入口也累加到熔断线）。
+
+    M4 真跑的**日志面**（issue #58，2026-10-05）：嵌套的 run_tests 入口会把**逐用例
+    日志**写进**共享的真实日志目录**（`md_cg/run_tests.py` 缺省 `%TEMP%/md_cg_testlogs`），
+    与套件场景下**外层**套件的 per-test 日志同名相撞、把它们整体清洗成熔断行（rc 判定
+    不受影响，日志是唯一受害者）。修法＝`_env_clean` 用 setdefault 把 `MDCG_TESTLOG_DIR`
+    钉在本次守卫临时面（iso 下 testlogs）——嵌套 runner 的日志自此不再与真实日志目录
+    相撞（判据 NESTED-LOGS；隔离行被删即 M14 转红）。
     """
     fails, oks = [], []
     for rel, _role in ENTRIES:
@@ -1120,6 +1139,74 @@ def check_streams(root: str, tmp: str, fusedir: str) -> tuple[bool, str]:
                   "宿主管道零痕迹" % PROBE_ZH)
 
 
+# ---------------------------------------------------------------- 判据 ⑨b：嵌套日志隔离
+
+# 生效条件：root 为被判仓面、tmp 未用、fusedir 为本次守卫的熔断面；从被判根源码 AST 抽出 `_DIRTY_KEYS` / `FUSE_LIMIT` / `_env_clean` 的顶层定义、在受控命名空间装载后调用 `_env_clean(root, fusedir)`，断言返回 env 含 MDCG_TESTLOG_DIR、为绝对路径、落 os.path.dirname(fusedir) 之下；缺任一返回 (False, 说明)。
+def check_nested_logs(root: str, _tmp: str, fusedir: str) -> tuple[bool, str]:
+    """⑨b（隔离，issue #58）：嵌套 runner 的日志必须落守卫临时面。
+
+    为什么要有这条：M4 定点变异（NO_REEXEC 被忽略）下 GUIDE 的「采指引」退化为
+    **真跑入口**——`md_cg/run_tests.py` / `scripts/run_tests.py` 会真跑整个套件
+    （嵌套）。嵌套 runner 的逐用例日志若落缺省位（`%TEMP%/md_cg_testlogs`），会与
+    外层套件的 per-test 日志**同名相撞**、把它们整体清洗成熔断行（issue #58 单跑
+    守卫实测：352/352 个文件 10 秒内被改写；rc 判定不受影响，日志是唯一受害者）。
+    故 `_env_clean` 必须把 `MDCG_TESTLOG_DIR`（setdefault）钉在本次守卫的临时面。
+
+    查法（**在被判根源码上实测**，不查字符串）：AST 从被判根的那份守卫源码里抽出
+    `_DIRTY_KEYS` / `FUSE_LIMIT` / `_env_clean` 的顶层定义，在受控命名空间里装载
+    并调用 `_env_clean(root, fusedir)`，断言返回的 env：①含 `MDCG_TESTLOG_DIR`；
+    ②为绝对路径；③落 `os.path.dirname(fusedir)` 之下。删掉/破坏那条 setdefault
+    即转红（M14 实测）——判据对**隔离行为**敏感，而非对写法敏感；装载时先摘掉
+    宿主 env 里可能已有的同类键，确保判的是「缺键输入 ⇒ 必须补键」。
+    """
+    ap = os.path.join(root, GUARD_REL.replace("/", os.sep))
+    if not os.path.isfile(ap):
+        return False, "被判根源码不可达（%s）⇒ 隔离面不可判（fail-closed）" % ap
+    try:
+        with open(ap, encoding="utf-8", errors="replace") as fh:
+            src = fh.read()
+        tree = ast.parse(src, filename=GUARD_REL)
+    except (OSError, SyntaxError) as e:
+        return False, "被判根源码不可读/不可解析：%s: %s" % (type(e).__name__, e)
+    segs = {}
+    for node in tree.body:                       # 只认顶层定义（真源形态）
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and getattr(node.targets[0], "id", None) in ("_DIRTY_KEYS",
+                                                              "FUSE_LIMIT")):
+            segs[node.targets[0].id] = ast.get_source_segment(src, node) or ""
+        elif isinstance(node, ast.FunctionDef) and node.name == "_env_clean":
+            segs["_env_clean"] = ast.get_source_segment(src, node) or ""
+    gone = [k for k in ("_DIRTY_KEYS", "FUSE_LIMIT", "_env_clean") if not segs.get(k)]
+    if gone:
+        return False, "被判根源码缺顶层定义 %s（隔离面不可判）" % gone
+    ns = {"os": os, "NO_REEXEC_ENV": NO_REEXEC_ENV,
+          # `_host_utf8_default` 打桩为 False——它只决定是否追加 PYTHONUTF8=0，
+          # 与 MDCG_TESTLOG_DIR 的存在性/落点无关（打桩不遮任何被判面）。
+          "_host_utf8_default": lambda: False}
+    try:
+        exec(compile(segs["_DIRTY_KEYS"] + "\n" + segs["FUSE_LIMIT"] + "\n"
+                     + segs["_env_clean"], "<被判根 _env_clean>", "exec"), ns)
+    except Exception as e:                                    # noqa: BLE001
+        return False, "被判根源码的 _env_clean 装载失败：%s: %s" % (type(e).__name__, e)
+    saved = os.environ.pop("MDCG_TESTLOG_DIR", None)   # 判据只认「缺键输入 ⇒ 必须补键」
+    try:
+        env = ns["_env_clean"](root, fusedir)
+    finally:
+        if saved is not None:
+            os.environ["MDCG_TESTLOG_DIR"] = saved
+    val = env.get("MDCG_TESTLOG_DIR")
+    if not val:
+        return False, ("被判根源码的 _env_clean 返回的 env 缺 MDCG_TESTLOG_DIR ⇒ "
+                       "嵌套 runner 的日志会落共享的真实日志目录（issue #58 形态）")
+    if not os.path.isabs(val):
+        return False, "MDCG_TESTLOG_DIR 非绝对路径：%r" % (val,)
+    if not _under(val, os.path.dirname(fusedir)):
+        return False, ("MDCG_TESTLOG_DIR 未落守卫临时面：%r（期望位于 %s 之下）"
+                       % (val, os.path.dirname(fusedir)))
+    return True, ("被判根 _env_clean 的返回 env 含 MDCG_TESTLOG_DIR=%r（绝对路径、"
+                  "落守卫临时面 %s）" % (val, os.path.dirname(fusedir)))
+
+
 # ---------------------------------------------------------------- 判据登记表
 
 _CHECKS = (
@@ -1139,6 +1226,8 @@ _CHECKS = (
     ("GUIDE", "⑦ 七入口 fail-fast 指引可照抄：起进程真跑通（F2）", check_guide),
     ("IMPORT", "⑧ import 七入口不得重启解释器（F6，计数 1）", check_import_no_restart),
     ("STREAMS", "⑨ 三流显式传递：非 fd 0/1/2 拓扑下组帧必须落显式流（F3）", check_streams),
+    ("NESTED-LOGS", "⑨ 嵌套 runner 日志隔离（issue #58：M4 真跑入口时不得清洗真实日志目录）",
+     check_nested_logs),
 )
 
 
@@ -1295,6 +1384,25 @@ def _mut_import_gate_off(srcs: dict) -> dict:
     return srcs
 
 
+# 生效条件：srcs 给出时删掉 _env_clean 的嵌套日志隔离行（MDCG_TESTLOG_DIR 的 setdefault，issue #58），返回新 srcs。
+def _mut_logdir_isolation_off(srcs: dict) -> dict:
+    """M14：嵌套 runner 日志隔离被关掉（issue #58）——NESTED-LOGS 必须转红。
+
+    删的是 `_env_clean` 里把 `MDCG_TESTLOG_DIR` 钉进守卫临时面的那一行 ⇒ 装载后
+    调用返回的 env 无该键（判据先摘宿主同名键再实测），嵌套真跑（M4 场景）的日志
+    将重新落共享的真实日志目录。
+
+    needle 用**拼接**写（本函数自己就在被判源码里，与 S1 同因）：整串写成一行会让
+    它在文件里出现两次（隔离行本体 + 本函数），`_sub` 的「恰好一次」判据直接报漂移。
+    """
+    rel = GUARD_REL
+    srcs[rel] = _sub(srcs[rel],
+                     '    env.setdefault("MDCG_TESTLOG_DIR",'
+                     + ' os.path.join(iso, "testlogs"))\n',
+                     "", "M14")
+    return srcs
+
+
 # ------------------------------------------------- ④ 成功趟（c4/c5/c6）的三处定点变异
 
 # 生效条件：srcs 给出时把**成功趟**从本守卫里删掉（`_CHECKS` 注册项改 id + 函数名退场 = 修前的单趟形态），返回新 srcs。
@@ -1388,6 +1496,15 @@ def _mut_ctx_echo_gone(srcs: dict) -> dict:
 #:   留痕（不得静默改判据）：S1/S2 的第一版曾因**注入点撞车**报漂移——S1 的 needle
 #:   整串写在变异函数里（本文件即被判源码）⇒ 出现 2 次；S2 的锚点与 `_ensure_serve`
 #:   同形 ⇒ 也 2 次。修法见两个变异函数的 docstring（拼接法 + 锚到下一句）。
+#:
+#:   ⑦（issue #58，2026-10-05 本机实测，命令同 `python -X utf8
+#:   scripts/test_utf8_boot_guard.py`）：新增 NESTED-LOGS 判据与 M14 变异（嵌套 runner
+#:   日志隔离——`_env_clean` 用 setdefault 把 `MDCG_TESTLOG_DIR` 钉在守卫临时面）⇒
+#:   读数更新为 **32/32**（正向 14/14 + 定点变异 18/18）、rc=0；M14 红项恰
+#:   {NESTED-LOGS}、退出码 1。隔离实证：跑前/跑后真实日志目录三哨兵 (size, sha256)
+#:   逐位不变、全目录 newest mtime 停在守卫跑之前（跑期间零改写）；另以「宿主显式设
+#:   `MDCG_TESTLOG_DIR=X`」跑全量 ⇒ 嵌套 runner 的 351 个逐用例日志落 X（样例内容为
+#:   熔断行）——日志落点确由该 env 决定（setdefault 不覆盖显式配置）。
 _MUTATIONS = (
     ("M1-no-m-form", "重启 argv 丢掉 -m 模块语义（直跑文件）",
      _mut_m_form_off, frozenset({"E2E-MDCG"}), 1),
@@ -1416,6 +1533,8 @@ _MUTATIONS = (
      _mut_guide_no_m, frozenset({"GUIDE"}), 1),
     ("M13-import-gate-off", "被 import 也重启（F6 前的静默重启行为）",
      _mut_import_gate_off, frozenset({"IMPORT"}), 1),
+    ("M14-logdir-isolation-off", "嵌套 runner 日志隔离被关掉（_env_clean 不再钉 MDCG_TESTLOG_DIR）",
+     _mut_logdir_isolation_off, frozenset({"NESTED-LOGS"}), 1),
     # ---- ④ 成功趟（c4/c5/c6）的三处：删趟 / 生产面切断 / 无关改名假阳性 ----
     ("S1-success-pass-dropped", "成功趟被删掉（注册 id 与函数名退场 ⇒ 两趟退回单趟）",
      _mut_success_pass_dropped, frozenset({"E2E-PASSES"}), 1),
