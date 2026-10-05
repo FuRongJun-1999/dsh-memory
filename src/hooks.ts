@@ -20,7 +20,9 @@
  * `origin` / `delegationDepth`）的自动记忆**整条会话拦掉**；② **消息级**——
  * `source.form === 'relay'`（「另一个 agent 发给本 agent 的消息」）不写。
  * 两条判据均为「**字段在场且取值匹配才拦**」：字段缺失一律退化为不过滤（默认放行），
- * 且宿主是否真写这些字段**未在真实会话事件上验证过**（见 installMemoryHooks 内注释）。
+ * 宿主字段面已在本机真实会话事件上观测（2026-10-05 订正：19 场，会话头
+ * `delegationDepth=0` 真实在写）；**仍未观测**的是 `origin='subagent'` /
+ * `delegationDepth>0` / `form='relay'` 的真实出现（见 installMemoryHooks 内注释）。
  *
  * autoRecall：通过 system-prompt/assemble 事件（waterfall，异步允许）在每次
  * 模型请求组装 system prompt 时自动注入灵枢最近记忆
@@ -345,14 +347,17 @@ const UNASSIGNED_SESSION = 'unassigned'
 
 /** H1 **会话级**判据：这条 session 是否「子代理/委派子会话」。
  *
- *  字段来源（DSH 类型面，node_modules/@deepseek-ai/dsh-session/lib/types/types.d.ts）：
- *    · `header.origin?: 'subagent'`（:64「Coarse product classification for a
- *      session created as a subagent child」）；
- *    · `header.delegationDepth?: number`（:70「absent (zero) for a top-level
- *      session, parent depth + 1 for a subagent child」）。
+ *  字段来源（DSH 类型面，dsh-session/lib/types/types.d.ts）：实装 DSH 2.0
+ *  （`dsh-0.2.0-rc.2`）:81 `header.origin?: 'subagent'`「Coarse product
+ *  classification for a session created as a subagent child」；:87
+ *  `header.delegationDepth?: number`「absent (zero) for a top-level session,
+ *  parent depth + 1 for a subagent child」（本仓 devDeps `0.1.0-rc.8` 同字段
+ *  在 :64 / :70）。
  *
- *  ⚠️ **未验证项（如实标注）**：本机未装 DSH harness，真实宿主是否真给子代理
- *  子会话写这两个字段，**只在类型面成立、未在真实会话事件上观测过**。故判据取
+ *  ⚠️ **观测面（2026-10-05 订正）**：本机**已装** DSH 2.0（`dsh-0.2.0-rc.2`）；
+ *  19 场真实会话（`sessions/…/session.v4.jsonl.zstd`）观测到会话头
+ *  `delegationDepth=0` 真实在写（19/19），`origin` 键从未出现。**仍未观测**：
+ *  `origin='subagent'` / `delegationDepth>0` 的真实出现。故判据取
  *  「**字段在场且取值匹配才拦**」的形态：header 缺失 / 非对象 / 两个字段都取不到
  *  或不匹配 → 一律返回 false（**不拦**，安全退化为既有行为），绝不因字段缺失而
  *  报错，也不因此改变既有写入行为。
@@ -372,18 +377,22 @@ function isSubagentSession(session: unknown): boolean {
 
 /** H1 **消息级**判据：这条消息是否是「另一个 agent 发给本 agent 的」（委派/中继）。
  *
- *  字段来源（DSH 类型面，node_modules/@deepseek-ai/dsh-llm/lib/types/message.d.ts）：
- *  `ContextForm` 的 `'relay'`（:52 注释原文「A message another agent addressed to
- *  this one」），按类型只挂在 `kind: 'plugin'` 变体的 `form` 上（:98-101）。
+ *  字段来源（DSH 类型面，dsh-llm/lib/types/message.d.ts）：实装 DSH 2.0 里 `'relay'`
+ *  在 `ContextFormed` 判别联合上（:90 `readonly form: 'relay';`；:55-56 注释原文
+ *  「A message another agent addressed to this one」），该联合由各生产者按需混入自己的
+ *  source 类型——2.0 的 `MessageSourceMap` 注释明确**无共享 catch-all `plugin`
+ *  类别**，`kind` 由各生产者声明在自己的模块里（:94-100；本仓 devDeps
+ *  `0.1.0-rc.8` 同段在 :52 / :86）。
  *
- *  ⚠️ **未验证项（如实标注）**：真实宿主是否真给委派消息写 `form: 'relay'`
- *  **未观测过**。故同样取「字段在场且取值匹配才拦」；source 缺失/非对象 → false。
+ *  ⚠️ **观测面（2026-10-05 订正）**：本机**已装** DSH 2.0；19 场真实会话中
+ *  `form='relay'` 从未出现（270 条 `user/message` 实测无 relay），即**真实出现
+ *  仍未观测**。故同样取「字段在场且取值匹配才拦」；source 缺失/非对象 → false。
  *
- *  与既有 `kind !== 'user'` 判据的关系：类型面下 `kind='plugin'` 的中继**本就被**
- *  那条拦掉；本判据放在它**之前**，是为了 ① 不把委派判定押在 `source.kind` 单点上、
- *  ② 覆盖「生产者把中继标成 `kind='user'` 且带 form」这一类型面之外的形态——子会话
- *  的**首轮用户提示**就可能是这种：它与真人输入在 `kind` 上不可分，只有会话级判据
- *  （或这里的 form）能拦。 */
+ *  与既有 `kind !== 'user'` 判据的关系：`kind` 非 `'user'` 的中继**本就被**那条拦掉
+ *  （19 场实测的注入类 kind 均非 `'user'`）；本判据放在它**之前**，是为了
+ *  ① 不把委派判定押在 `source.kind` 单点上、② 覆盖「生产者把中继标成
+ *  `kind='user'` 且带 form」这一类型面之外的形态——子会话的**首轮用户提示**就可能
+ *  是这种：它与真人输入在 `kind` 上不可分，只有会话级判据（或这里的 form）能拦。 */
 function isRelayedMessage(source: unknown): boolean {
   const s = source as { form?: unknown } | null | undefined
   return !!s && typeof s === 'object' && s.form === 'relay'
