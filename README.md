@@ -331,6 +331,8 @@ python test/locomo_independent_eval.py   # MdCG 引擎口径五臂（A 中文五
 python test/locomo_jaccard_probe.py      # 主路线 Jaccard 口径拆解（J2_full 完整版 / J2_zh 仅中文层 / J2_body 仅英文归一词 / J0_raw 英文原词）
 ```
 
+> **复现用两处数据面开关（可选 env，缺省行为如下）**：`MDCG_E2E_JUDGE_ROOT` 覆盖 `md_cg.bench_e2e_judge` 的数据根——缺省 `<仓根父目录>/test/e2e_judge`（建池缓存 / LLM 缓存 / 结果都落在其下；`--data-root` 参数优先于该 env）；`MDCG_CONFORMANCE_ROOT` 指认真源库根（仓外私有）——设置且 `<库根>/_index.json` 存在时，`md_cg.test_conformance` 加跑真源集成基线复核（K1–K5 断言；不达标即该套件判败），未设置（或缺 `_index.json`）时该集成段打印 SKIP、合成库主测面照常全跑。
+
 > 自建 bench 的噪声层 400 条 + unlabeled 边界 350 条为天然负对照；任何基准报告须带**干扰抑制负例组**与 **T-JUDGE 负例拒绝率**双向报告（遵守「只报总分 = 不通过」）。
 
 ---
