@@ -542,10 +542,10 @@ def _check_doc(e: dict, dname: str, text: str, sections: list[tuple[str, str, st
                 )
 
     # 2) op / 工具名引用 ⊆ 真源
-    valid_ops = set(e["cg_ops"]) | set(e["stg_ops"])
-    for op in sorted(set(_CG_OP_RE.findall(text)) - valid_ops):
+    #    按基元各用各集合——并集同服两循环会让 cg(op=仅stg)/stg(op=仅cg) 跨基元误引零报错通过
+    for op in sorted(set(_CG_OP_RE.findall(text)) - set(e["cg_ops"])):
         errors.append(f"{dname} 引用了不存在的 cg op：cg(op={op})")
-    for op in sorted(set(_STG_OP_RE.findall(text)) - valid_ops):
+    for op in sorted(set(_STG_OP_RE.findall(text)) - set(e["stg_ops"])):
         errors.append(f"{dname} 引用了不存在的 stg op：stg(op={op})")
     valid_names = set(e["mdcg_tools"]) | set(NAME_ALLOWLIST)
     for name in sorted(set(_MDCG_RE.findall(text)) - valid_names):

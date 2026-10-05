@@ -11,7 +11,7 @@
     return 之后——111 行 → 7 行，通道 B 整条流水线静默消失）。
 
 生效条件：扫描 md_cg/scripts/hive/src（py 面）全部 .py；任一文件 ast.parse
-失败计 FAIL（语法坏）；命中 unreachable 计 FAIL 并打印 文件:行(终止语句类型)
+失败、或含非 UTF-8 字节（解码失败，N261）计 FAIL（语法坏）；命中 unreachable 计 FAIL 并打印 文件:行(终止语句类型)
 → 后继行(类型)；零命中 PASS。排除 _pycache_/node_modules/.git。
 """
 import ast
@@ -50,7 +50,7 @@ def main() -> int:
             try:
                 scan_tree(ast.parse(p.read_text(encoding="utf-8"), str(p)),
                           str(p), hits)
-            except SyntaxError as e:
+            except (SyntaxError, UnicodeDecodeError) as e:  # N261：解码失败计 FAIL
                 parse_fail.append(f"{p}: {e}")
     for pf in parse_fail:
         print(f"[SYNTAX] {pf}")
