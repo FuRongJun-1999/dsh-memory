@@ -22,6 +22,8 @@
 
 只扫 git 受管 `.md`（=外部 clone 能看到的集合）；跳过 http(s)/mailto/tel/data/纯锚点；
 含 `[]*<>{}` 的目标视为非路径形态（正则/公式/模板占位，如实测化学式 `fkd[I]/kt`）。
+围栏代码块与行内代码（反引号跨度）内的文本先经 `_strip_code_spans` 置空——代码里
+写出的链接形态是**示例**不是引用，按真链接判会假红（本仓实测自伤一次）。
 
 用法：python scripts/link_check.py        # 退出码 0=无断链；1=有 BROKEN/UNTRACKED
 """
@@ -68,7 +70,65 @@ def _tracked_ok(relcand, tracked):
     return any(p.startswith(prefix) for p in tracked)
 
 
-# 生效条件：对 _git(["ls-files","*.md"]) 的每个 rel 且 os.path.isfile 为真者读文并按模块常量 LINK 逐条匹配——raw 以 SKIP_SCHEMES 开头则跳过；target（raw 去 "#" 首段）为空或含 NON_PATH_CHARS 者计入 non_path；否则按 target 是否以 "/" 前缀分别以 REPO 或文档所在目录 normpath 得 cand 与 relcand，relcand 或 target 命中 _allowlist() 计入 n_allowed，cand 不满足 os.path.exists 计入 broken，否则 _tracked_ok(relcand,tracked) 为假计入 untracked，其余计入 n_ok，最终返回含 files/broken/untracked/non_path/ok/allowed 的 dict。
+# 围栏开启行口径对齐 md_cg/docindex.py::_FENCE（`^\s*(```+|~~~+)`）；闭合按 CommonMark
+# 从紧：同定界符、不短于开启者、且无信息串（围栏内的 ` ```js ` 只算代码内容）。
+_FENCE_OPEN = re.compile(r"^\s*(`{3,}|~{3,})")
+_BACKTICK_RUN = re.compile(r"`+")
+
+
+# 生效条件：对任意 line（含空串、无成对反引号者）用 _BACKTICK_RUN 取全部反引号串，按出现序以**同长度**成对（CommonMark 口径：长度不等者视为代码内容，继续找闭合），返回 [(start,end)] 半开区间列表；无成对者返回空列表。
+def _code_span_ranges(line):
+    """行内代码跨度 [start,end)：反引号串按同长度成对。"""
+    runs = [(m.start(), m.end()) for m in _BACKTICK_RUN.finditer(line)]
+    spans, opening = [], None
+    for r in runs:
+        if opening is None:
+            opening = r
+        elif (r[1] - r[0]) == (opening[1] - opening[0]):
+            spans.append((opening[0], r[1]))
+            opening = None
+    return spans
+
+
+# 生效条件：逐行扫描 text（\n 切分，末行无 \n 亦计）——不在围栏内时遇 _FENCE_OPEN 匹配行打开围栏（记录定界符与长度）、否则把该行 _code_span_ranges 命中的字符置空格；在围栏内时整行置空格、遇「同定界符且长度≥开启者且无信息串」的行闭合；返回与 text **等长且换行位置不变**的字符串（代码跨度外字符原样保留）。
+def _strip_code_spans(text):
+    """把围栏代码块与行内代码跨度内的字符换成空格（长度/换行不变）。
+
+    单点：scan() 的链接匹配面前置本函数。为什么必须做——代码块/行内代码里写出的
+    Markdown 链接形态（示例、伪码、模板占位）不是引用，按真链接判会假红（本仓实测
+    自伤一次：报告正文写出该形态即令 gate 红）。判据本身（围栏外真链接判 broken）
+    不动，只把「示例」排除出扫描面；等长替换保证 scan() 报出的行号仍是源文件行号。
+    """
+    out = list(text)
+    i, fence = 0, None            # fence = (定界符, 长度)；None = 不在围栏内
+    while i < len(text):
+        j = text.find("\n", i)
+        if j < 0:
+            j = len(text)
+        line = text[i:j]
+        s = line.strip()
+        blank = False
+        if fence is not None:
+            blank = True
+            if s and s.count(fence[0]) == len(s) and len(s) >= fence[1]:
+                fence = None                      # 闭合行本身也属围栏，一并置空
+        else:
+            m = _FENCE_OPEN.match(line)
+            if m:
+                fence = (m.group(1)[0], len(m.group(1)))
+                blank = True
+            else:
+                for a, b in _code_span_ranges(line):
+                    for k in range(i + a, i + b):
+                        out[k] = " "
+        if blank:
+            for k in range(i, j):
+                out[k] = " "
+        i = j + 1
+    return "".join(out)
+
+
+# 生效条件：对 _git(["ls-files","*.md"]) 的每个 rel 且 os.path.isfile 为真者读文并经 _strip_code_spans 后按模块常量 LINK 逐条匹配——raw 以 SKIP_SCHEMES 开头则跳过；target（raw 去 "#" 首段）为空或含 NON_PATH_CHARS 者计入 non_path；否则按 target 是否以 "/" 前缀分别以 REPO 或文档所在目录 normpath 得 cand 与 relcand，relcand 或 target 命中 _allowlist() 计入 n_allowed，cand 不满足 os.path.exists 计入 broken，否则 _tracked_ok(relcand,tracked) 为假计入 untracked，其余计入 n_ok，最终返回含 files/broken/untracked/non_path/ok/allowed 的 dict。
 def scan():
     files = _git(["ls-files", "*.md"])
     tracked = set(_git(["ls-files"]))
@@ -81,7 +141,7 @@ def scan():
             continue
         with open(path, encoding="utf-8", errors="replace") as f:
             text = f.read()
-        for m in LINK.finditer(text):
+        for m in LINK.finditer(_strip_code_spans(text)):
             raw = m.group(1).strip()
             if raw.startswith(SKIP_SCHEMES):
                 continue

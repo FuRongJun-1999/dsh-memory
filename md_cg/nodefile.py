@@ -402,6 +402,48 @@ def ccg_mark_present(content: str, mark: str) -> bool:
     return False
 
 
+# 生效条件：content 为真时逐行扫描——命中 marks 中任一要素的 CCG 标题行（判据单点 _ccg_heading_rest，`^#\s*<要素>` 冒号可有可无）即整段剥除：行内带值（`# 生效条件：v`／前缀式）只剥该行，裸标题连同其后首个非空、非标题行（该字段的值行，取值口径同 ccg_field_value）一并剥除；其余原行原样保留（含缩进）以 "\n" 连接返回；content 假值按空串返回。
+def _strip_ccg_segments(content, marks=CCG_MARKS):
+    """剥除 CCG 声明**整段字段**后的文本——剥除算法单点。
+
+    单点动因（N238 同族）：六要素允许无冒号形态（`# 不适用条件` + 换行 + 值行），
+    **值行才是内容本体**；只剥标题行会把该字段的正文留在正文里——同一条内容写成
+    带冒号时剥净、写成无冒号时残留，两种写法给出两种结论（该缺陷在
+    `consistency._body_text` 已按 N238 收口，本函数把**剥除算法本身**也收成一份，
+    防下游再各写一份循环而漂移）。调用方：`positive_body`（只剥不适用条件）与
+    `consistency._body_text`（剥全部六要素）。
+
+    判据一律走单点（`_ccg_heading_rest`，与写入闸门 data/policy.json 同一行语义）：
+    缩进标题与二级标题不构成「已声明」，与 `ccg_mark_present` 同边界。
+    """
+    lines = (content or "").split("\n")
+    out = []
+    i, n = 0, len(lines)
+    while i < n:
+        rest = None
+        for mark in marks:
+            rest = _ccg_heading_rest(lines[i], mark)
+            if rest is not None:
+                break
+        if rest is None:
+            out.append(lines[i])
+            i += 1
+            continue
+        i += 1
+        if rest.strip():
+            continue            # 行内已带值（冒号式 `# 字段：v` / 前缀式）→ 只剥该行
+        while i < n:            # 裸标题：其后首个非空、非标题行是值行，同剥
+            t = lines[i].strip()
+            if not t:
+                i += 1
+                continue
+            if t.startswith("#"):
+                break           # 下一个标题 ⇒ 本字段值为空，不消费
+            i += 1
+            break
+    return "\n".join(out)
+
+
 # 生效条件：content 中出现 "# {mark}：" 或 "# {mark}:"（中/英文冒号）或仅 "# {mark}" 标题行即把该 mark 计入 present 与 required_present；complete 为 required_present 覆盖全部 CCG_REQUIRED、all_present 为 present 覆盖全部 CCG_MARKS，ratio = len(required_present)/len(CCG_REQUIRED)，四键连同两个清单一起返回。
 def ccg_completeness(content: str) -> dict:
     """CCG 要素齐全度——白箱可审计性的量化指标。
@@ -457,39 +499,45 @@ def is_placeholder_text(value) -> bool:
     return any(m in s for m in PLACEHOLDER_MARKERS)
 
 
-# 生效条件：content 中含 "# 不适用条件："（全角冒号）或 "# 不适用条件:"（半角冒号）即返回 True，两者都不出现返回 False。
+# 生效条件：content 中存在 NEG_FIELD（"不适用条件"）的 CCG 标题行（判据单点 ccg_mark_present，`^#\s*不适用条件`，冒号可有可无，与写入闸门同一行语义）时返回 True，否则 False。
 def has_non_applicable(content: str) -> bool:
     """是否声明了不适用条件——REJECT 路径成立的必要条件。
 
     没有不适用条件的节点在白箱下不能 REJECT（无法证明「不适用」），
     只能 ACCEPT 或 BLINDSPOT。这是第 1 篇第 10 章从 28%→88% 的关键。
+
+    A3（N238 同族残面）：判据单点 = `ccg_mark_present`——本函数原先只认
+    「`# 不适用条件：`／`# 不适用条件:`」两种**带冒号**的字面量，无冒号形态
+    （`# 不适用条件` + 换行 + 值行）被判成「没声明」：同一条正文写不写冒号
+    给出两种结论，而「冒号可有可无」已由单点定案（test_ccg_form_parity ①-⑦）。
+    消费面：索引条目 `has_neg_conditions`（mdcg `_entry` / rebuild / `_stage`），
+    进而 `export`/`insight`/`sustain`/`predict` 的统计与边界读数。
     """
-    return "# 不适用条件：" in content or "# 不适用条件:" in content
+    return ccg_mark_present(content, NEG_FIELD)
 
 
 #: 负条件字段名——它是**反例声明**，不是召回键
 NEG_FIELD = "不适用条件"
 
 
-# 生效条件：content 为 None 时按 "" 处理；逐行 strip 后，仅当该行以 "#" 开头且 lstrip("#").strip() 又以 NEG_FIELD 开头时丢弃该行，其余行原样保留（保留原缩进），返回保留行的 "\n".join。
+# 生效条件：content 为 None 时按 "" 处理；逐行剥除 NEG_FIELD 的整段 CCG 声明（剥除算法单点 _strip_ccg_segments——行内带值只剥该行，裸标题连同其后首个非空、非标题的值行一并剥除），其余行原样保留（含原缩进），返回保留行的 "\n".join。
 def positive_body(content: str) -> str:
-    """剥离 `# 不适用条件：` 行后的正文——负条件不作召回键。
+    """剥离 `# 不适用条件` 声明段后的正文——负条件不作召回键。
 
     不适用条件声明的是「什么时候**不**适用」，其触发词是反例。一旦把它当召回
     键，查询命中反例时节点反而被召回——**恰好在它不该适用的地方被召回**，属实
     质性错误。反例的正确去向是 `judge_qualification` 的 REJECT 路径（读
     `frontmatter.non_applicable_conditions`），而不是召回。
 
-    只剥离真正的 CCG 行（以 `#` 开头且字段名匹配），避免误伤正文里恰好以
-    「不适用条件」开头的普通句子。
+    只剥离真正的 CCG 行（判据单点 `_ccg_heading_rest`：`# <字段>` 标题前缀、
+    冒号可有可无），避免误伤正文里恰好以「不适用条件」开头的普通句子。
+
+    A3（N238 同族残面）：剥的必须是**整段字段**——无冒号形态（`# 不适用条件` +
+    换行 + 值行）原先只剥标题行，值行（内容本体）残留 ⇒ 反例词面照样进召回键
+    （`MdCG._like` 实测命中），与带冒号写法的行为相反。剥除算法收在单点
+    `_strip_ccg_segments`（与 `consistency._body_text` 共用一份循环）。
     """
-    keep = []
-    for ln in (content or "").split("\n"):
-        s = ln.strip()
-        if s.startswith("#") and s.lstrip("#").strip().startswith(NEG_FIELD):
-            continue
-        keep.append(ln)
-    return "\n".join(keep)
+    return _strip_ccg_segments(content, (NEG_FIELD,))
 
 
 # ---- 条件空间 → 生效条件声明 -------------------------------------------------

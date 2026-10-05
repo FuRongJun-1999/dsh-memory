@@ -120,3 +120,10 @@ docs/experiments/
 # Git Bash 下 `> nul` 重定向误建的意外产物，均不入库
 .zcodeignore
 nul
+
+# ZCode 端本地工作区（A8，2026-10-05 使用者裁决）：会话计划 / 探针 / 复核草稿 /
+# 工作流定义与运行记录 / 提交信息模板——本机工具产物，且正文含本机路径字面量，
+# 不入库。此前只有「收尾时逐文件显式 add」的纪律在挡（`git add -A` 会整包带上）。
+# 覆盖面自 `.zcode/` 顶收起：其下 `workflow-drafts/` 与 `workflow-runs/` 各自的
+# 内嵌 .gitignore（`*`）继续生效（更靠近路径者优先级更高，本规则只是补顶层）。
+/.zcode/

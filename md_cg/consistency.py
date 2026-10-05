@@ -251,7 +251,7 @@ def _ban_hit(content, neg_texts):
     return False
 
 
-# 生效条件：content 为真时逐行扫描——命中 CCG 要素标题行（判据单点 nodefile._ccg_heading_rest，`^#\s*<要素>` 冒号可有可无）即整段剥除：行内带值（`# 生效条件：v`／前缀式）只剥该行，裸标题（`# 不适用条件`）连同其后首个非空、非标题行（该字段的值行，取值口径同 nodefile.ccg_field_value）一并剥除；其余原行以换行连接返回；content 假值按空串返回 "";
+# 生效条件：委托 nodefile._strip_ccg_segments(content, nodefile.CCG_MARKS)（剥除算法单点）——命中 CCG 要素标题行（判据单点 nodefile._ccg_heading_rest，`^#\s*<要素>` 冒号可有可无）即整段剥除：行内带值（`# 生效条件：v`／前缀式）只剥该行，裸标题（`# 不适用条件`）连同其后首个非空、非标题行（该字段的值行，取值口径同 nodefile.ccg_field_value）一并剥除；其余原行以换行连接返回；content 假值按空串返回 "";
 def _body_text(content):
     """去掉 CCG 声明**整段字段**后的正文。
 
@@ -268,35 +268,11 @@ def _body_text(content):
     review_queue 并自动建飞轮工单）。「冒号可有可无」已由
     `nodefile.ccg_mark_present` / `ccg_field_value` 定案（test_ccg_form_parity
     验收 PASS），本处是漏网的分叉。
+
+    A3 追认：剥除算法本身也已收单点 `nodefile._strip_ccg_segments`（六要素全剥）
+    ——本处不再自持循环，避免与 `nodefile.positive_body` 各写一份而再次漂移。
     """
-    lines = (content or "").split("\n")
-    out = []
-    i, n = 0, len(lines)
-    while i < n:
-        # 标题行判据走单点（传原行、不 strip——单点明确不认缩进标题，
-        # 与写入闸门同边界；缩进标题在任何面都不构成「已声明」）
-        rest = None
-        for mark in nodefile.CCG_MARKS:
-            rest = nodefile._ccg_heading_rest(lines[i], mark)
-            if rest is not None:
-                break
-        if rest is None:
-            out.append(lines[i])
-            i += 1
-            continue
-        i += 1
-        if rest.strip():
-            continue            # 行内已带值（冒号式 `# 字段：v` / 前缀式）
-        while i < n:            # 裸标题：其后首个非空、非标题行是值行，同剥
-            t = lines[i].strip()
-            if not t:
-                i += 1
-                continue
-            if t.startswith("#"):
-                break           # 下一个标题 ⇒ 本字段值为空，不消费
-            i += 1
-            break
-    return "\n".join(out)
+    return nodefile._strip_ccg_segments(content, nodefile.CCG_MARKS)
 
 
 # 生效条件：text 假值时按空串处理，返回把任意连续空白（半角/全角空格、\t、\r、\n）折叠为单个半角空格并去掉首尾空白后的字符串；纯空白文本返回空串 "";

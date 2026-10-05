@@ -15,13 +15,18 @@
 （冒号可有可无），`mdcos._ccg_field`、`ccgc._has_ccg_line`、
 `consolidate._has_ccg_line`、`tasks._field_line` 一律委托该单点。
 
-本套的六组断言：
+本套的七组断言：
  ① 两形态都判齐（形态不改变「齐不齐」）
  ② 缺要素仍判不全（放宽的是标点，不是要求——判别力自证，两种形态各测）
  ③ 写入闸门与检索面**结论一致**（读真源 data/policy.json 复算，直接钉住分叉）
  ④ 取值面同源：无冒号的「值」= 标题后首个非空非标题行
  ⑤ 四个副本函数与单点结论一致（防未来再长出第五、第六套口径）
  ⑥ 写读闭环：无冒号节点经 upsert 后取得到新值（不出现「写进去读不出」）
+ ⑦ 「不适用条件」两函数（`has_non_applicable` / `positive_body`）× 两形态同权：
+   无冒号形态同样算「已声明」（旧码只认冒号写法），且 positive_body 连**值行**
+   一并剥净（旧码只剥标题行 ⇒ 同一条正文写不写冒号会给出两种召回面）；
+   并含**红基线自证**——`git show HEAD:md_cg/nodefile.py` 物化后跑同一批断言，
+   HEAD 版对无冒号形态必须失手（否则本节断言空转；本改动入库后该腿 SKIP）。
 """
 from __future__ import annotations
 
@@ -29,12 +34,15 @@ import io
 import json
 import os
 import re
+import subprocess
 import sys
+import types
 
-from . import ccgc, consolidate, nodefile, tasks
+from . import ccgc, consistency, consolidate, nodefile, tasks
+from .mdcg import MdCG
 from .mdcos import _ccg_field
 
-PASS = FAIL = 0
+PASS = FAIL = SKIPPED = 0
 FAILS = []
 
 
@@ -47,6 +55,34 @@ def ok(cond, label):
         FAIL += 1
         FAILS.append(label)
         print("  [FAIL] %s" % label)
+
+
+def skip(label, why):
+    """不适用/前提缺失的腿：只报不判——不计入 FAIL（如红基线随 HEAD 前移而不可复现）。"""
+    global SKIPPED
+    SKIPPED += 1
+    print("  [SKIP] %s（%s）" % (label, why))
+
+
+def _load_head_nodefile():
+    """物化 HEAD 版 `md_cg/nodefile.py` 并 exec 成模块（红基线自证用）。
+
+    nodefile 只依赖 stdlib、顶层无副作用（无包内相对导入、无模块级 I/O），故
+    HEAD 字节可独立 exec 进一个空模块命名空间。取不到（无 git / 无提交 / 路径
+    不在仓内）时返回 (None, 原因)——由调用方 SKIP，不静默当成功。
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run(["git", "-c", "core.quotepath=false", "show",
+                        "HEAD:md_cg/nodefile.py"],
+                       cwd=root, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if r.returncode != 0 or not (r.stdout or "").strip():
+        return None, ("git show 失败 rc=%s %s"
+                      % (r.returncode, (r.stderr or "").strip()[:200]))
+    mod = types.ModuleType("_head_nodefile_legacy")
+    mod.__file__ = os.path.join(root, "md_cg", "nodefile.py")
+    exec(compile(r.stdout, "HEAD:md_cg/nodefile.py", "exec"), mod.__dict__)
+    return mod, ""
 
 
 MARKS = ("功能名", "生效条件", "子功能", "执行", "验证方式", "不适用条件")
@@ -177,8 +213,63 @@ def main() -> int:
         except ValueError:
             ok(True, "⑥%s：值含换行被拒（N208 fail-closed）" % enc)
 
+    print("== ⑦ 「不适用条件」两函数 × 两形态同权（A3：N238 同族残面收口）==")
+    # 被测：`has_non_applicable`（判「有没有声明」）与 `positive_body`（剥声明段后再作召回键）。
+    # 判据全部在单点（`ccg_mark_present` / `_ccg_heading_rest` / `ccg_field_value`，①-⑤ 已验收）
+    # ——两函数都不得自带一套「冒号可有可无」的本地口径。
+    NEG = "不适用条件"
+    COLON_NEG = "# 功能名：p\n# 不适用条件：ZXQ7\n正文第一行\n"
+    BARE_NEG = "# 功能名：p\n# 不适用条件\nZXQ7\n正文第一行\n"
+    for name, body in (("带冒号", COLON), ("无冒号", NONCOLON), ("混形态", MIXED)):
+        ok(nodefile.has_non_applicable(body) == nodefile.ccg_mark_present(body, NEG),
+           "⑦%s：has_non_applicable 与单点同判（%s）"
+           % (name, nodefile.has_non_applicable(body)))
+    ok(nodefile.has_non_applicable(BARE_NEG) is True,
+       "⑦无冒号形态：通体判 True（旧码 False——真声明被判成没声明）")
+    ok(nodefile.has_non_applicable(COLON_NEG) is True
+       and nodefile.has_non_applicable("") is False
+       and nodefile.has_non_applicable("正文提到不适用条件，但不是 CCG 行\n") is False,
+       "⑦带冒号 True / 空正文 False / 行内提及 False（放宽的是标点，不是判据）")
+
+    pb_bare = nodefile.positive_body(BARE_NEG)
+    pb_colon = nodefile.positive_body(COLON_NEG)
+    ok(pb_bare == pb_colon,
+       "⑦positive_body 两形态剥除结论一致（无冒号得到 %r）" % pb_bare)
+    ok("ZXQ7" not in pb_bare and "正文第一行" in pb_bare,
+       "⑦无冒号形态：值行一并剥净、正文保留（旧码残留值行 ZXQ7）")
+    ok(nodefile.positive_body("# 不适用条件\n# 执行：x\n后文\n") == "# 执行：x\n后文\n",
+       "⑦裸标题后紧跟另一标题：不吞下一要素（取值口径同 ccg_field_value）")
+    plain_line = "正文提到不适用条件这个词，但不是 CCG 行。\n"
+    ok(nodefile.positive_body(plain_line) == plain_line,
+       "⑦普通句子不误伤（只剥 CCG 行）")
+    only_neg = "# 不适用条件\nZXQ7\n正文第一行\n"
+    ok(consistency._body_text(only_neg) == nodefile.positive_body(only_neg),
+       "⑦只声明该要素时：positive_body 与 consistency._body_text 同口径（同一剥除算法单点）")
+    # 消费点用中文反例词面（不做大小写归一——`_like` 只小写 body/tags，
+    # 拿大写词面测会因边被消而空转，测不出「值行残留 ⇒ 反例被召回」）
+    BARE_NEG_CN = "# 功能名：p\n# 不适用条件\n不得把甲当作乙\n正文第一行\n"
+    ok(MdCG._like(BARE_NEG_CN, {}, ["不得把甲当作乙"]) is False,
+       "⑦消费点 _like：无冒号形态的反例词不作召回键（旧码残留值行 ⇒ 会被召回）")
+    ok(MdCG._like(BARE_NEG_CN, {}, ["正文第一行"]) is True,
+       "⑦消费点 _like：正条件行照常命中（判别力未削弱）")
+
+    print("-- ⑦红基线自证：HEAD 版 nodefile 对无冒号形态必须失手 --")
+    head, why = _load_head_nodefile()
+    if head is None:
+        skip("⑦红基线自证", "取不到 HEAD 版：%s" % why)
+    else:
+        h_present = head.has_non_applicable(BARE_NEG)
+        h_leak = "ZXQ7" in head.positive_body(BARE_NEG)
+        if h_present is True and not h_leak:
+            skip("⑦红基线自证",
+                 "HEAD 版已含修复（本改动已入库）——红基线只在其提交前可复现")
+        else:
+            ok(h_present is False and h_leak,
+               "⑦红基线可复现：HEAD 版判 has_non_applicable=%s、positive_body 残留值行=%s"
+               % (h_present, h_leak))
+
     print()
-    print("ccg_form_parity: PASS=%d FAIL=%d" % (PASS, FAIL))
+    print("ccg_form_parity: PASS=%d FAIL=%d SKIP=%d" % (PASS, FAIL, SKIPPED))
     if FAILS:
         print("FAILS: " + "; ".join(FAILS))
     return 1 if FAIL else 0
