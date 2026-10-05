@@ -180,19 +180,24 @@ def main():
     print("[5] A6：test/ 收集面（具名裁决清单）与 PATTERNS 双副本同步")
     # A6（2026-10-05 使用者裁决「测试文件是检验系统稳定性的支柱」）：收集面与
     # 判据面**同时**纳入 test/ ——两处漏一即被 [1] 的覆盖完备性腿抓住（本节能红：
-    # 把 run_tests 的 test/ 段或 PATTERNS 的两个 test/ 条目任一去掉即 FAIL）。
+    # 把 run_tests 的 test/ 段或 PATTERNS 的 test/ 条目任一去掉即 FAIL）。
+    # 批次99 补收 chaos_injection/run_all.py（FI-M04 陈旧登记同步后按预注追加）。
+    _TEST_FACE = ("test/chaos_injection/run_all.py",
+                  "test/hive_exec_test.py", "test/hive_wm_test.py")
     disc_files = rt._discovered_files()
-    for rel in ("test/hive_exec_test.py", "test/hive_wm_test.py"):
+    for rel in _TEST_FACE:
         check(f"收集面含裁决条目 {rel}", rel in disc_files)
     test_entries = sorted(f for f in disc_files if f.startswith("test/"))
     check("test/ 组恰收具名裁决清单（无未裁决件被拖入）",
-          test_entries == ["test/hive_exec_test.py", "test/hive_wm_test.py"],
+          test_entries == sorted(_TEST_FACE),
           test_entries)
     check("test/ 条目全在判据面冻结域内（跑什么 ⊆ 冻结什么）",
           not jm.coverage_gap(test_entries), jm.coverage_gap(test_entries))
-    check("PATTERNS 含 test/ 两条精确名冻结",
+    check("PATTERNS 含 test/ 三条精确名冻结",
           ("test", "hive_exec_test.py") in jm.PATTERNS
-          and ("test", "hive_wm_test.py") in jm.PATTERNS, jm.PATTERNS[-2:])
+          and ("test", "hive_wm_test.py") in jm.PATTERNS
+          and ("test/chaos_injection", "run_all.py") in jm.PATTERNS,
+          jm.PATTERNS[-3:])
     # 双副本（md_cg/judgment_manifest.py 是出货包侧同源实现）：两侧 PATTERNS 一旦
     # 漂移，源码树（hive runner）与安装态算出的 digest 天然不等 → A3 红。本腿把
     # 「逐字同步」从注释约定升为机械判据（此前只有注释，无守卫——本轮补严）。

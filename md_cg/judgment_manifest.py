@@ -57,9 +57,11 @@ PATTERNS = [
     ("compiler/tests", "*.py"),
     ("swarm/tests", "*.py"),
     # test/（A6，2026-10-05）：与 scripts/ 版逐字同步——test/ 侧逐文件裁决可收件的
-    # 精确名冻结（未过裁决的件不进判据面；chaos 套件待其陈旧登记同步后另件追加）。
+    # 精确名冻结（未过裁决的件不进判据面）。批次99 补收：chaos 套件的陈旧登记已
+    # 同步（FI-M04 读码代理断言改 AST 语义判据 + 去锁定点变异自证）。
     ("test", "hive_exec_test.py"),
     ("test", "hive_wm_test.py"),
+    ("test/chaos_injection", "run_all.py"),
 ]
 
 

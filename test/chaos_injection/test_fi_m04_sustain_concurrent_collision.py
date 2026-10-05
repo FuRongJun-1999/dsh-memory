@@ -29,6 +29,7 @@ weights.coverage_index`，且无条件调 `refindex.check_refs`，全部作用�
 （tidys/evolves/scrubs/heals 四处 `with self._lock:`）——这是**刻意不扩**的
 并发契约边界（H-4 契约「不改 _lock 覆盖范围」）；巡检侧的共享索引读改走快照。
 """
+import ast
 import json
 import os
 import sys
@@ -51,10 +52,34 @@ def main() -> int:
 
         # ═══ 读码断言（确定性基线）═══
         src = harness.src("md_cg/sustain.py")
-        lock_sites = src.count("with self._lock:")
-        case.check("读码：_lock 覆盖范围未扩（仍恰 4 处记账清单——tidys/evolves/"
-                   "scrubs/heals；契约「不改 _lock 覆盖范围」）",
-                   lock_sites == 4, f"with self._lock 出现 {lock_sites} 次")
+        # 记账面锁覆盖：**语义判据（AST）**——五个记账面（tidys/evolves/scrubs/
+        # heals/sleeps）的 append 调用必须都落在 `with self._lock:` 体内。
+        # **计数基线**（恰 5 处）由主守卫 md_cg/test_h4_sustain_snapshot.py 的 G0
+        # **单点持有**——本副本不重复钉计数：9db1bcb7 新增 sleeps 记账面时主守卫
+        # 已同步 4→5 而本副本漏同步（就地钉数即漂移源；同族教训＝「判据/取值
+        # 单点化，副本一律委托」）。
+        _faces = {"tidys", "evolves", "scrubs", "heals", "sleeps"}
+        _locked = set()
+        for node in ast.walk(ast.parse(src)):
+            if not isinstance(node, ast.With) or not node.items:
+                continue
+            ce = node.items[0].context_expr
+            if not (isinstance(ce, ast.Attribute) and ce.attr == "_lock"
+                    and isinstance(ce.value, ast.Name) and ce.value.id == "self"):
+                continue
+            for sub in ast.walk(node):
+                if (isinstance(sub, ast.Call)
+                        and isinstance(sub.func, ast.Attribute)
+                        and sub.func.attr == "append"
+                        and isinstance(sub.func.value, ast.Attribute)
+                        and isinstance(sub.func.value.value, ast.Name)
+                        and sub.func.value.value.id == "self"):
+                    _locked.add(sub.func.value.attr)
+        _unlocked = sorted(_faces - _locked)
+        case.check("读码：_lock 覆盖范围未扩——五个记账面（tidys/evolves/scrubs/"
+                   "heals/sleeps）全部在 `with self._lock:` 体内（AST 语义判据；"
+                   "计数基线归主守卫 G0 单点）",
+                   not _unlocked, f"未在锁内的记账面={_unlocked}")
         diag = src.split("def diagnose", 1)[1].split("\ndef heal", 1)[0]
         case.check("读码：diagnose 的 nodes 迭代点已取快照（N138 崩溃面止血——"
                    "取用前 list(nodes.items())）",

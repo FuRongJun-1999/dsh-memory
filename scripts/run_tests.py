@@ -52,13 +52,14 @@ _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #: `test/` 下**已逐文件裁决可收**的测试（A6，2026-10-05 使用者裁决「测试文件是
 #: 检验系统稳定性的支柱」）。准入判据＝有明确退出码约定 ∧ 零外部依赖 ∧ 快 ∧
 #: 裸 clone 可直接跑。**具名而非 glob**：`test/` 同时住着支撑模块、评测脚本与
-#: 待同步的套件，glob 会把未裁决件一并拖进收集面。本次**不收**的件与理由：
-#:   · chaos_injection/run_all.py（18 case，退 0/1 契约完整）——**当前实跑退 1**：
-#:     FI-M04 的读码代理断言「sustain.py 的 `with self._lock:` 恰 4 处」陈旧于
-#:     9db1bcb7 新增的 sleeps 记账面（该提交已同步主守卫 test_h4_sustain_snapshot
-#:     G0 的 4→5，漏同步本副本）⇒ 用例侧陈旧基线（非被测对象缺陷、动态腿全绿）。
-#:     按「不得放宽任何守卫判据」本项无权就地改它的判据：先收它＝把既存红引进入
-#:     口，须另件同步登记后再收（届时连同 PATTERNS 加 ("test","chaos_injection/…")）。
+#: 待同步的套件，glob 会把未裁决件一并拖进收集面。**补收（批次99，2026-10-05）**：
+#:   · chaos_injection/run_all.py —— 原「实跑退 1」已修：FI-M04 的读码代理断言原钉
+#:     「sustain.py 的 `with self._lock:` 恰 4 处」，陈旧于 9db1bcb7 新增的 sleeps
+#:     记账面（该提交已同步主守卫 test_h4_sustain_snapshot G0 的 4→5，漏同步本副本）。
+#:     修法＝本副本改 **AST 语义判据**（五个记账面的 append 必须全在 `with self._lock:`
+#:     体内；**计数基线归 G0 单点**，副本不再钉数——就地补 5 只是复制漂移源）；
+#:     定点变异自证（去 sleeps 锁→红点名 `未在锁内的记账面=['sleeps']`、恢复→绿）。
+#:     现 18 case 全一致（含 3 个 EXPECTED_GAP 基线维持）、EXIT 0、实跑 ~23s ⇒ 收。
 #:   · mock_mcp.py（stdio 模拟服务，非测试；跑起来等 stdin 会挂住套件）
 #:   · orchestrator_memory.py（自述「演示/参考脚本——selftest() 只 print 不 assert，
 #:     退出码恒 0，跑绿不代表功能验证」）
@@ -66,7 +67,8 @@ _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #:     硬编码测试机绝对路径（POSIX 形态，不写字面）+ 外部数据集
 #:     data/benchmarks/locomo-zh-500，print-only 无退出码判据）
 #:   · chaos_injection/{harness,mdcg_support,registry}.py（支撑模块，无退出码面）
-TEST_DIR_TESTS = ("hive_exec_test.py", "hive_wm_test.py")
+TEST_DIR_TESTS = ("hive_exec_test.py", "hive_wm_test.py",
+                  "chaos_injection/run_all.py")
 
 
 # 生效条件：以模块级常量 _REPO 为根，返回全量套件实际执行的测试文件路径列表（相对 _REPO 的正斜杠路径）——md_cg/test_*.py、compiler 与 swarm 下 tests/*.py（basename 以 "_" 开头者跳过）、scripts/test_*.py、hive/test_*.py，按组序拼接。
