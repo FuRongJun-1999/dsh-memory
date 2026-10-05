@@ -34,6 +34,14 @@
   G7 冲突挂起——主库/影子同 id 并发改动 ⇒ 该 id 进 `conflicts`、**未写进主库**、
      也未进影子分支的树；另一条（未冲突的）正常合并。
   G8 回滚——对合并提交 `revert`：主库真源面回到合并前，历史不丢（只增不减）。
+  G9 物化窗口内漂移（issue #60）——`ok` 与 `face_stable` 拆开后，活跃工作区
+     （每轮都有真源面改动）**照常迭代**：phases 含 iterate、②③④ 不再记
+     「本轮未迭代」、台账落一条含 iterate 的记录。
+  G10 手动入口（issue #61）——`--once` 不等 tick 即落台账并打印与台账同源的
+     「本轮未迭代原因」；`--once --dry-run` 只预览（零台账新增、零物化）；
+     `--dry-run` 单独使用报错；`--status` 带 `last_cycle` 段。
+  G11 物化未完成（父进程持根级锁 ⇒ busy）——②③④ 记「物化未完成：…」，
+     与门拦 gate_reason **可区分**（`rec["skipped"]` 为空、两处文案同源）。
 
 运行：python -X utf8 -m md_cg.test_sleep_p1
       python -X utf8 -m md_cg.test_sleep_p1 --mutate         # 定点变异自证
@@ -59,6 +67,7 @@ import types
 
 from . import sleep as SL
 from . import sustain as SUS
+from .fsutil import FileLock
 
 _PASS = []
 _FAIL = []
@@ -611,7 +620,203 @@ def g8_revert():
        "G8e 历史只增不减（revert 自身也进历史）")
 
 
-_GROUPS = (g0, g8, g1, g2, g3, g4, g5, g6, g7, g8_revert)
+# ---------------------------------------------------------------- G9
+class _Cap(io.StringIO):
+    """捕获 `_main` 的输出——它开头会调 `sys.stdout.reconfigure`，纯 StringIO
+    没有这个方法（真 stdout 才有），故补一个空实现。"""
+
+    def reconfigure(self, **_kw):                     # noqa: D102 —— 空实现
+        pass
+
+
+def _drift_probe(S, *, at=2, rel="knowledge/n_drift.md"):
+    """物化窗口内漂移模拟（补丁就地装上）：第 `at` 次调用 `source_face_hashes` 时
+    多返回一条新增路径（其余调用照真源）；返回**还原函数**。
+
+    补丁打在**函数实际读取的命名空间**上（`materialize.__globals__`）而不是模块
+    属性：变异自证时 `SL` 是 exec 出来的模块，其函数读 exec 命名空间，而模块对象
+    的 `__dict__` 只是它的副本——打在模块属性上，变异后的模块内部调用看不到补丁
+    （本机实测：G9 会在变异下空转）。真源码下两者是同一个 dict。
+    """
+    ns = S.materialize.__globals__
+    real = ns["source_face_hashes"]
+    seen = {"n": 0}
+
+    def _wrap(r):
+        seen["n"] += 1
+        d = dict(real(r))
+        if seen["n"] == at:
+            d[rel] = "0" * 64
+        return d
+
+    ns["source_face_hashes"] = _wrap
+
+    def _restore():
+        ns["source_face_hashes"] = real
+
+    return _restore
+
+
+def g9():
+    print("== G9 物化窗口内漂移 ⇒ 照常迭代（#60：不再自我否决）==")
+    S = globals()["SL"]
+    gen, root, state = _fixture(contextual_hot=1, unverified=1)
+    from .mdcos import MdCGOS
+    cg = MdCGOS(root)
+    n0 = len(S.read_ledger())
+    restore = _drift_probe(S)
+    try:
+        r = S.run_cycle(cg, batch="G9B1", round_index=1, now="03:00")
+    finally:
+        restore()
+    ph = r["steps"][6]["phases"]
+    mat = ph.get("materialize") or {}
+    ok(mat.get("ok") is True and mat.get("face_stable") is False,
+       "G9a 漂移窗口内物化仍记 ok=True、face_stable=False", mat)
+    ok(bool(ph.get("iterate")),
+       "G9b **物化成功即迭代**：phases 含 iterate 读数（非 None）", sorted(ph))
+    ok(all(not s.get("skipped") for s in r["steps"][1:4]),
+       "G9c 九步 ②③④ 不再是「本轮未迭代」（裁在门拦或物化未完成，二者皆非）",
+       [s.get("skipped") for s in r["steps"][1:4]])
+    ok(len(S.read_ledger()) == n0 + 1, "G9d 本轮记账（台账 +1）",
+       (n0, len(S.read_ledger())))
+    led = S.read_ledger()[-1]
+    ok(led.get("batch") == "G9B1"
+       and "iterate" in ((led.get("steps") or [{}] * 7)[6].get("phases") or {}),
+       "G9e 台账落一条**含 iterate** 的记录（可回看「上次为何迭代/未迭代」）",
+       (led.get("batch"), sorted((((led.get("steps") or [{}] * 7)[6]
+                                   .get("phases") or {})))))
+
+
+# ---------------------------------------------------------------- G10
+def g10():
+    print("== G10 手动入口：--once / --once --dry-run / --status（#61 不等 tick）==")
+    S = globals()["SL"]
+    import time as _t
+    gen, root, state = _fixture(contextual_hot=1, unverified=1)
+    lt = _t.localtime()
+    cur = lt.tm_hour * 60 + lt.tm_min
+    a0, b0 = (cur + 120) % 1440, (cur + 180) % 1440
+    win = "%02d:%02d-%02d:%02d" % (a0 // 60, a0 % 60, b0 // 60, b0 % 60)
+    ok(S.in_window(win, None) is False,
+       "G10 前置：构造出的窗口确定性地不含当前时刻（%s）" % win)
+    # ① --once --dry-run（窗口内）：零台账新增、零物化，打印「将执行…」
+    os.environ["MDCG_SLEEP_WINDOW"] = ""
+    n0 = len(S.read_ledger())
+    cap = _Cap()
+    with contextlib.redirect_stdout(cap):
+        rc = S._main(["--root", root, "--once", "--dry-run"])
+    txt = cap.getvalue()
+    ok(rc == 0 and len(S.read_ledger()) == n0,
+       "G10a --once --dry-run **零台账新增**", (rc, n0, len(S.read_ledger())))
+    ok("将执行物化→迭代→对账→合并" in txt,
+       "G10b 预览打印「将执行物化→迭代→对账→合并」",
+       [l for l in txt.splitlines() if l.startswith("预览")])
+    ok(not os.path.isdir(os.path.join(state, "sleep", "shadow"))
+       and not os.path.isdir(os.path.join(state, "sleep", "lib.git")),
+       "G10c dry-run **不物化**（影子与版本库都没建出来）")
+    # ② --dry-run 单独使用 → 报错
+    cap2, err2 = _Cap(), io.StringIO()
+    with contextlib.redirect_stdout(cap2), contextlib.redirect_stderr(err2):
+        rc2 = S._main(["--root", root, "--dry-run"])
+    ok(rc2 == 2 and "--dry-run" in err2.getvalue(),
+       "G10d --dry-run 单独使用给出报错（返回 2，不执行任何动作）",
+       (rc2, err2.getvalue().strip()))
+    # ③ --once（窗口外，确定性构造）：落台账 + 打印与台账同源的原因
+    os.environ["MDCG_SLEEP_WINDOW"] = win
+    n1 = len(S.read_ledger())
+    cap3 = _Cap()
+    with contextlib.redirect_stdout(cap3):
+        rc3 = S._main(["--root", root, "--once"])
+    txt3 = cap3.getvalue()
+    led = S.read_ledger()
+    ok(rc3 == 0 and len(led) == n1 + 1 and len(led) > n0,
+       "G10e --once 不等 tick 即落一条台账记录", (rc3, n1, len(led)))
+    rec = led[-1]
+    ok("窗口外" in (rec.get("skipped") or ""),
+       "G10e2 台账记门拦原因（窗口外）", rec.get("skipped"))
+    ok("本轮未迭代原因：" in txt3 and (rec.get("skipped") or "") in txt3,
+       "G10e3 --once 显式打印「本轮未迭代原因」，文案与台账同源",
+       [l for l in txt3.splitlines() if l.startswith("本轮未迭代原因")])
+    ok(all(s.get("skipped") == rec.get("skipped") for s in rec["steps"][1:4]),
+       "G10e4 台账 ②③④ 的 skip 文案 == 同一门拦原因（不静默）",
+       [s.get("skipped") for s in rec["steps"][1:4]])
+    # ④ --status：last_cycle = 最近一条台账记录
+    def _status():
+        capx = _Cap()
+        with contextlib.redirect_stdout(capx):
+            rcx = S._main(["--root", root, "--status"])
+        return rcx, json.loads(capx.getvalue())
+
+    rcx, doc = _status()
+    lc = doc.get("last_cycle") or {}
+    ok(rcx == 0 and lc.get("batch") == rec.get("batch")
+       and lc.get("round") == rec.get("round")
+       and lc.get("candidates") == rec.get("candidates")
+       and lc.get("skipped") == rec.get("skipped"),
+       "G10f --status 的 last_cycle = 最近一条台账记录（t/batch/round/"
+       "candidates/skipped）", lc)
+    ok(lc.get("not_iterated_reason") == rec.get("skipped")
+       and "窗口外" in (lc.get("not_iterated_reason") or ""),
+       "G10f2 last_cycle 带「上次为何没迭代」的一致原因",
+       lc.get("not_iterated_reason"))
+    ok(lc.get("steps_skip") == {s.get("step"): s.get("skipped")
+                                for s in rec["steps"][1:4]},
+       "G10f3 last_cycle 带 ②③④ 的 skip 文案", lc.get("steps_skip"))
+    # ⑤ --once（窗口内）：真跑一轮（物化→迭代→对账→合并）后再看 --status
+    os.environ["MDCG_SLEEP_WINDOW"] = ""
+    cap4 = _Cap()
+    with contextlib.redirect_stdout(cap4):
+        rc4 = S._main(["--root", root, "--once"])
+    rec4 = S.read_ledger()[-1]
+    ok(rc4 == 0 and rec4.get("skipped") is None
+       and (rec4.get("candidates") or 0) > 0,
+       "G10g 窗口内 --once 真迭代（非只记账）",
+       {k: rec4.get(k) for k in ("skipped", "candidates", "merged")})
+    rcx2, doc2 = _status()
+    lc2 = doc2.get("last_cycle") or {}
+    mz = lc2.get("materialize") or {}
+    ok(isinstance(mz, dict) and all(k in mz for k in ("ok", "busy", "face_stable"))
+       and mz.get("ok") is True and mz.get("busy") is False
+       and mz.get("face_stable") is True,
+       "G10h last_cycle 带 phases.materialize 摘要（ok/busy/face_stable）", mz)
+    ok(lc2.get("not_iterated_reason") is None,
+       "G10h2 迭代过的一轮不报「未迭代原因」", lc2.get("not_iterated_reason"))
+    os.environ.pop("MDCG_SLEEP_WINDOW", None)
+
+
+# ---------------------------------------------------------------- G11
+def g11():
+    print("== G11 物化未完成（根级锁被占）⇒ ②③④ 记**可区分**的 skip 文案 ==")
+    S = globals()["SL"]
+    gen, root, state = _fixture(contextual_hot=1, unverified=1)
+    from .mdcos import MdCGOS
+    cg = MdCGOS(root)
+    lp = S.lock_path()
+    with FileLock(lp, timeout=5.0, strict=False) as lk:
+        ok(lk.acquired is True, "G11 前置：父进程已持根级锁", lp)
+        r = S.run_cycle(cg, batch="G11B1", round_index=1, now="03:00",
+                        timeout=0.3)
+    ph = r["steps"][6]["phases"].get("materialize") or {}
+    ok(ph.get("ok") is False and ph.get("busy") is True,
+       "G11a 取不到根级锁 ⇒ 物化 ok=False、busy=True（早退路径语义不变）", ph)
+    texts = [s.get("skipped") for s in r["steps"][1:4]]
+    ok(all(t and t.startswith("物化未完成：") for t in texts),
+       "G11b ②③④ 记「物化未完成：…」——与门拦 gate_reason **可区分**", texts)
+    ok(r.get("skipped") is None,
+       "G11c 四道门全过 ⇒ rec['skipped'] 为空：两类未迭代原因不混同",
+       r.get("skipped"))
+    ok(S.cycle_not_iterated_reason(r) == texts[0],
+       "G11d 「本轮未迭代原因」== 台账 ②③④ 的同一文案（CLI 与台账同源）",
+       S.cycle_not_iterated_reason(r))
+    led = S.read_ledger()[-1]
+    ok(led.get("batch") == "G11B1"
+       and all((s.get("skipped") or "").startswith("物化未完成：")
+               for s in led["steps"][1:4]),
+       "G11e 物化未完成的一轮同样落台账（可回看）", led.get("batch"))
+
+
+_GROUPS = (g0, g8, g1, g2, g3, g4, g5, g6, g7, g8_revert, g9, g10, g11)
 
 
 def _run_groups() -> int:
@@ -639,8 +844,14 @@ _MUTATIONS = (
     ("窗口跨午夜判据写反", "md_cg/sleep.py",
      "    return t >= start or t < end",
      "    return t >= start and t < end"),
+    # 锚点同步（2026-10-06）：本条此前锚在裁定⑰之前的旧 parse_window 形态上，实现
+    # 改了而表未同步 ⇒ `--mutate` 恒以 ANCHOR-MISS 退出 2（**先存**缺陷，非本批引入；
+    # 判据 scripts/run_tests.py 不跑 --mutate，故一直未被门禁兜住）。此处按当前实现
+    # 重新锚定**同一意图**的变异（留空/非法不再当作全时段，回落 (0,1) 窄窗）——不放宽
+    # 也不删除任何既有断言。实测红集 7 项 = G1f/G1h/G1h3 ＋ 依赖空窗全时段入口的新
+    # 断言组 G10b/G10g/G10h（编排侧 --mutate 亲跑读数）。
     ("留空/非法窗口不再视作全时段", "md_cg/sleep.py",
-     "    s = str(spec or \"\").strip()\n    if not s or \"-\" not in s:\n        return None",
+     "    s = str(spec or \"\").strip()\n    if not s:\n        return None                      # 留空 = 全时段（唯一显式入口）",
      "    s = str(spec or \"\").strip()\n    if not s or \"-\" not in s:\n        return (0, 1)"),
     ("密文项不再被闸拦下（会随分支入册）", "md_cg/sleep.py",
      '                                 "reason": ("影子侧为密文节点（无密钥不重放、"\n'
@@ -676,6 +887,11 @@ _MUTATIONS = (
      "                    pass                       # 睡眠周期失败不中断常驻\n"
      "                next_sleep = now + self.sleep_interval\n",
      ""),
+    # issue #60：物化 ok 语义回退成旧「真源面未变才算成功」——活跃工作区（每轮
+    # 都有真源面改动）将永不自迭代；预期红集 = 断言组 G9（G9b/G9c/G9e）。
+    ("物化 ok 语义回退（漂移即不迭代）", "md_cg/sleep.py",
+     '        if m.get("ok"):\n            # **物化成功即迭代**（issue #60）',
+     '        if m.get("ok") and m.get("face_stable"):\n            # **物化成功即迭代**（issue #60）'),
     ("两入口不再共用 sleep 读取器（写死 auto）", "md_cg/mcp_server.py",
      "        sleep_interval=_sleep.sleep_interval(),\n"
      "        auto_sleep=_sleep.sleep_enabled(),\n"

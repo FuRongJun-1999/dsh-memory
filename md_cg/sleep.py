@@ -31,12 +31,18 @@
 
 四阶段（§4.4）里本模块的落点：
 
-    ① 物化   `materialize()`          —— 持根级锁；主库真源面逐字节不变
+    ① 物化   `materialize()`          —— 持根级锁；挂上影子即成功（`ok=True`）；
+                                       真源面在窗口内漂移只记 `face_stable=False`，
+                                       **不阻断迭代**（漂移交 ③ 的并发闸按「主库
+                                       优先」逐项处置——issue #60）
     ② 迭代   （P1；在影子上跑，本模块不管）
     ③ 对账+提交 `reconcile_and_commit()` —— 持根级锁；Δ 为空即零提交零写入
     ④ 合并   `merge()`                —— 持根级锁；写主库的正是「应写的那部分」
 
-脚本式用法（只读判读）：`python -X utf8 -m md_cg.sleep --status`
+脚本式用法：`python -X utf8 -m md_cg.sleep --status`（只读判读，含上一轮读数）｜
+            `--once`（立即跑一轮，不等常驻 tick，同样过四道门）｜
+            `--once --dry-run`（只预览：跑盘点与四道门，不物化、不记账）｜
+            `--audit`（只跑两条机械判据）
 """
 from __future__ import annotations
 
@@ -352,7 +358,7 @@ def _busy(phase: str, timeout: float) -> dict:
                        "只有一个能进）")}
 
 
-# 生效条件：root 为数据根（缺省取 mdcg_root()）；在 <state_root>/sleep/sleep 的根级锁内，建/复用独立 git 目录并（首次）把真源面入册为 main 基线，再 git worktree add -b sleep/<ts> <shadow> main（分支已存在则复用该分支重试一次）；返回含 ok/phase/busy/git_dir/shadow/branch/pathspecs/lock_acquired/source_face_delta/lock 的字典——ok 为真且 source_face_delta 三键全空 = 主库真源面逐字节未变。
+# 生效条件：root 为数据根（缺省取 mdcg_root()）；在 <state_root>/sleep/sleep 的根级锁内，建/复用独立 git 目录并（首次）把真源面入册为 main 基线，再 git worktree add -b sleep/<ts> <shadow> main（分支已存在则复用该分支重试一次）；返回含 ok/face_stable/phase/busy/lock_held/git_dir/shadow/branch/pathspecs/baseline/source_face_delta/lock 的字典——**ok = 物化动作是否成功**（正常挂上影子的成功路径恒真；取不到根级锁或影子未能挂上时保持假）；**face_stable = 主库真源面在物化窗口内逐字节未变**（原 ok 的真值；漂移不阻断物化，交 ③ 的并发闸按「主库优先」处置）。
 def materialize(root: str = None, *, git_dir_path: str = None,
                 shadow: str = None, ts: str = None,
                 timeout: float = DEFAULT_LOCK_TIMEOUT) -> dict:
@@ -360,6 +366,11 @@ def materialize(root: str = None, *, git_dir_path: str = None,
 
     幂等：影子已存在时先摘（`worktree remove --force`，非注册目录退化为 rmtree）
     再挂。分支已存在（同一秒重入）时退化为复用该分支。
+
+    `ok` 与 `face_stable` 是**两件事**（issue #60）：前者只说「影子挂上了没」，
+    后者才是「物化窗口内主库真源面有没有被别的写方动过」。窗口内漂移**不阻断**
+    迭代——活跃工作区（每轮都有新增 contextual/*.md）正是如此；同一 id 的改动
+    由 ③ 的并发闸（`baseline_face` 水位，主库优先）逐项裁决，那才是漂移的处置点。
     """
     root = os.path.abspath(root or mdcg_root())
     G = git_dir_path or git_dir()
@@ -391,7 +402,11 @@ def materialize(root: str = None, *, git_dir_path: str = None,
             reused = False
         after = source_face_hashes(root)
         delta = face_delta(before, after)
-        return {"ok": not (delta["added"] or delta["removed"] or delta["changed"]),
+        # ok = **物化动作成功**（影子已挂上）；真源面漂移与否是另一个读数
+        # （face_stable），不再拿来否决整轮迭代（issue #60）。
+        return {"ok": True,
+                "face_stable": not (delta["added"] or delta["removed"]
+                                    or delta["changed"]),
                 "busy": False, "lock_held": True, "phase": "materialize",
                 "git_dir": G, "shadow": S, "branch": branch,
                 "branch_reused": reused, "repo_created": rep["created"],
@@ -653,6 +668,34 @@ def batch_merged(batch: str) -> bool:
         return False
     return any(r.get("batch") == batch and r.get("merged") is True
                for r in read_ledger())
+
+
+# 生效条件：无入参；返回台账里的**下一轮序号**（已有记录中最大的 round + 1；空台账/无有效 round 时为 1）——CLI `--once` 接着历史轮次编号，不另起一套计数。
+def next_round_index() -> int:
+    nums = [r.get("round") for r in read_ledger()]
+    nums = [n for n in nums if isinstance(n, int) and not isinstance(n, bool)]
+    return (max(nums) + 1) if nums else 1
+
+
+# 生效条件：rec 为 run_cycle 落台账的记录字典时，返回 ⑦记录步里的 phases 字典（缺该步或形态不符时返回 {}）。
+def _record_phases(rec: dict) -> dict:
+    for s in (rec.get("steps") or []):
+        if isinstance(s, dict) and s.get("step") == "record":
+            return s.get("phases") or {}
+    return {}
+
+
+# 生效条件：rec 为 run_cycle 落台账的记录字典时返回「本轮未迭代原因」文案或 None——先取门拦 `rec["skipped"]`，再取 ②③④ 的 skip 文案（物化未完成等）；已迭代的一轮返回 None。CLI `--once` 与 `--status` 的同一文案源（不另写第二份判据）。
+def cycle_not_iterated_reason(rec: dict):
+    if not isinstance(rec, dict):
+        return None
+    if rec.get("skipped"):
+        return rec["skipped"]
+    for s in (rec.get("steps") or []):
+        if isinstance(s, dict) and s.get("step") in ("induce", "promote", "scrub") \
+                and s.get("skipped"):
+            return s["skipped"]
+    return None
 
 
 # 生效条件：root 给定且 md_cg.mdcos 可导入时返回该 root 上的 MdCGOS 实例；导入失败抛原异常。
@@ -1151,13 +1194,19 @@ def ledger_steps(*, scan: dict, iterated: dict = None, delta_digest: dict = None
     return steps
 
 
-# 生效条件：给定 cg（主库）与各相位开关时，按 §3.2 的稳态判据与 §4.4 的四阶段跑一轮睡眠周期并返回台账记录；enabled=False / merge_mode="never" / 窗口外 / 候选数为 0 四种情形**只记账不动手**（②③④记 skipped）；batch 为已合并批次时直接返回 {"idempotent": True} 且零动作。
+# 生效条件：给定 cg（主库）与各相位开关时，按 §3.2 的稳态判据与 §4.4 的四阶段跑一轮睡眠周期并返回台账记录；enabled=False / merge_mode="never" / 窗口外 / 候选数为 0 四种情形**只记账不动手**（②③④记 gate_reason）；物化未完成（busy/error）时 ②③④ 记「物化未完成：…」（与门拦文案**区分**）；batch 为已合并批次时直接返回 {"idempotent": True} 且零动作；dry_run=True 时只跑感知盘点与四道门评估（**不物化、不记账**）。
 def run_cycle(cg=None, *, root: str = None, batch: str = None,
               enabled: bool = True, merge_mode: str = None,
               scrub_apply: bool = None, window: str = None,
               round_index: int = 1, now=None, git_dir_path: str = None,
-              shadow: str = None, timeout: float = DEFAULT_LOCK_TIMEOUT) -> dict:
-    """一轮睡眠周期（§3.1 九步 + §4.4 四阶段）。"""
+              shadow: str = None, dry_run: bool = False,
+              timeout: float = DEFAULT_LOCK_TIMEOUT) -> dict:
+    """一轮睡眠周期（§3.1 九步 + §4.4 四阶段）。
+
+    `dry_run=True` 是**预览档**（`--once --dry-run`）：只跑 ① 感知盘点与四道门
+    评估（总开关 / 合并策略 / 窗口 / 稳态），**不物化、不记账**——早退点刻意
+    置于 `materialize` 之前，也不触 `_append_ledger`。
+    """
     root = os.path.abspath(root or (cg.root if cg is not None else mdcg_root()))
     if cg is None:
         cg = _open_cg(root)
@@ -1179,7 +1228,10 @@ def run_cycle(cg=None, *, root: str = None, batch: str = None,
                    candidates=None, steps=ledger_steps(
                        scan={}, skip_reason="幂等：同批次已合并",
                        round_index=round_index, prev_candidates=prev))
-        _append_ledger(rec)
+        if dry_run:
+            rec["dry_run"] = True               # 预览档：**不记账**
+        else:
+            _append_ledger(rec)
         return rec
 
     # ① 感知盘点（主库，只读）——稳态判据的口径
@@ -1200,14 +1252,37 @@ def run_cycle(cg=None, *, root: str = None, batch: str = None,
     elif not scan["candidates"]:
         gate_reason = "稳态：盘点候选数为 0（只记账不动手）"
 
+    if dry_run:
+        # 预览档：四道门已评完即止——**不物化、不记账**（连影子都不建）。
+        rec.update(dry_run=True, skipped=gate_reason,
+                   planned=(None if gate_reason
+                            else "将执行物化→迭代→对账→合并"),
+                   steps=ledger_steps(scan=scan, round_index=round_index,
+                                      prev_candidates=prev,
+                                      skip_reason=gate_reason or ""))
+        return rec
+
     phases, iterated, delta, digest = {}, None, {}, {"n": 0, "ids": [], "kinds": {}}
+    mat_fail = None
     if gate_reason is None:
         m = materialize(root, git_dir_path=git_dir_path, shadow=shadow,
                         ts=b, timeout=timeout)
         phases["materialize"] = {k: m.get(k) for k in
-                                 ("ok", "busy", "branch", "shadow", "git_dir",
-                                  "baseline", "source_face_delta")}
+                                 ("ok", "face_stable", "busy", "branch", "shadow",
+                                  "git_dir", "baseline", "source_face_delta",
+                                  "reason", "error")}
+        if not m.get("ok"):
+            # 物化**未完成**（取不到根级锁 / 影子未能挂上）——与「门拦」区分记账：
+            # 门拦是「按设计不动手」，这里是「想动手却没做成」，用户要能一眼分开。
+            mat_fail = ("物化未完成：根级锁被占（另一进程在周期内）"
+                        if m.get("busy")
+                        else "物化未完成：%s" % (m.get("error") or "未知原因"))
         if m.get("ok"):
+            # **物化成功即迭代**（issue #60）：`ok` 现在只说「影子挂上了没」；
+            # 物化窗口内主库真源面的漂移另记 `face_stable`，**不阻断**迭代——
+            # 活跃工作区（每轮都有新写入）本就如此。迭代期间主库被改动/新增的
+            # 同一 id，由下面对账段的并发闸（`baseline_face` 水位）逐项裁
+            # 「主库优先」——那才是漂移的处置点，不是在这里自我否决。
             S = m["shadow"]
             iterated = iterate(S, scrub_apply=scrub)
             phases["iterate"] = iterated
@@ -1255,25 +1330,64 @@ def run_cycle(cg=None, *, root: str = None, batch: str = None,
     rec["steps"] = ledger_steps(scan=scan, iterated=iterated,
                                 delta_digest=digest, phases=phases,
                                 round_index=round_index, prev_candidates=prev,
-                                skip_reason=gate_reason or "")
+                                skip_reason=gate_reason or mat_fail or "")
     rec["skipped"] = gate_reason
     _append_ledger(rec)
     return rec
 
 
-# 生效条件：argv 含 --status 时打印当前解析结果（git_dir / shadow / lock / pathspecs / tracking / history 四读数）的 JSON 并返回 0；argv 含 --audit 时只打印两条机械判据结论（不合规返回 1）；无参数时打印解析结果。
+# 生效条件：recs 为 read_ledger(limit=1) 的返回（空列表或单条记录）时，返回该记录的 CLI 视图（t/batch/round/candidates/skipped / ②③④ skip 文案 / phases.materialize 摘要 / 未迭代原因）；无记录返回 None。
+def _last_cycle_view(recs):
+    if not recs:
+        return None
+    rec = recs[-1]
+    return {"t": rec.get("t"), "batch": rec.get("batch"),
+            "round": rec.get("round"), "candidates": rec.get("candidates"),
+            "skipped": rec.get("skipped"),
+            "steps_skip": {s.get("step"): s.get("skipped")
+                           for s in (rec.get("steps") or [])
+                           if isinstance(s, dict)
+                           and s.get("step") in ("induce", "promote", "scrub")},
+            "materialize": _record_phases(rec).get("materialize"),
+            "not_iterated_reason": cycle_not_iterated_reason(rec)}
+
+
+# 生效条件：argv 含 --once 时以 env 读取器为参数跑一轮 run_cycle（round 取 next_round_index()；--dry-run 同用时只预览、不物化不记账）并打印整条记录与「本轮未迭代原因」（未迭代时，文案与台账同源）；argv 含 --audit 时只打印两条机械判据结论（不合规返回 1）；--dry-run **不与 --once 同用**时返回 2（报错，不执行任何动作）；其余情形打印当前解析结果（git_dir / shadow / lock / pathspecs / tracking / history / **last_cycle** 读数）的 JSON 并返回 0。
 def _main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="睡眠周期 git 机制（只读判读面）")
+    ap = argparse.ArgumentParser(description="睡眠周期 git 机制（只读判读 + 手动一轮）")
     ap.add_argument("--root", default=None, help="数据根（缺省 mdcg_root()）")
     ap.add_argument("--git-dir", dest="git_dir_path", default=None)
     ap.add_argument("--shadow", default=None)
     ap.add_argument("--status", action="store_true", help="打印当前解析与判据读数")
     ap.add_argument("--audit", action="store_true", help="只跑两条机械判据")
+    ap.add_argument("--once", action="store_true",
+                    help="立即跑一轮睡眠周期（不等常驻循环的 tick；同样过四道门）")
+    ap.add_argument("--dry-run", dest="dry_run", action="store_true",
+                    help="只预览（须与 --once 同用）：跑盘点与四道门，不物化、不记账")
     a = ap.parse_args(argv)
+    if a.dry_run and not a.once:
+        sys.stderr.write("--dry-run 须与 --once 同用："
+                         "单独使用不执行任何动作（预览一轮请用 --once --dry-run）\n")
+        return 2
     root = os.path.abspath(a.root or mdcg_root())
     G = a.git_dir_path or git_dir()
     shadow = a.shadow or shadow_dir()
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if a.once:
+        rec = run_cycle(None, root=root, enabled=sleep_enabled(),
+                        merge_mode=sleep_merge_mode(),
+                        scrub_apply=sleep_scrub_apply(), window=sleep_window(),
+                        round_index=next_round_index(), dry_run=a.dry_run,
+                        git_dir_path=a.git_dir_path, shadow=a.shadow)
+        print(json.dumps(rec, ensure_ascii=False, indent=2))
+        if rec.get("dry_run"):
+            print("预览：" + (rec.get("planned")
+                            or ("门拦：%s" % (rec.get("skipped") or ""))))
+        else:
+            why = cycle_not_iterated_reason(rec)
+            if why:
+                print("本轮未迭代原因：" + why)
+        return 0
     if a.audit:
         tr = audit_tracking(root, git_dir_path=G)
         hi = audit_history(root, git_dir_path=G)
@@ -1289,6 +1403,8 @@ def _main(argv=None) -> int:
     if os.path.isdir(G):
         out["tracking"] = audit_tracking(root, git_dir_path=G)
         out["history"] = audit_history(root, git_dir_path=G)
+    # 上一轮读数：从 CLI 就能看到「上次为何没迭代」（门拦 / 物化未完成 / 幂等）。
+    out["last_cycle"] = _last_cycle_view(read_ledger(limit=1))
     print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0
 

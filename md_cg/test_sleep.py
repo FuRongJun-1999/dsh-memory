@@ -11,6 +11,10 @@
        `state_root` 侧而非数据根；**绝不在数据根内建 `.git`**；
     ④ 回滚**只提供 `revert`**（不提供抹历史的强推档）。
 
+⚠ **口径更新（2026-10-06 · issue #60）**：① 的「逐字节不变」是**物化窗口内的读数**
+（`materialize.face_stable`），**不再是「跳过迭代」的闸**——窗口内漂移由 ③ 对账段
+的并发闸按「主库优先」逐项裁决；`materialize.ok` 只说「影子挂上了没」（见 G8）。
+
 断言分组：
 
   G0 隔离与落点——沙箱四根全落守卫临时目录；锁文件在 `state_root` 侧、**不在数据根**；
@@ -32,6 +36,9 @@
      `busy=True` 且不取得锁；父进程释放后同一子进程脚本转 `ok=True`。
   G7 判据自身有判别力（正对照）——改动一个 .md 后 `face_delta` 必须报 changed；
      给根里加一个非白名单 .md 之外的件不改变判据（负对照）。
+  G8 物化窗口内漂移（issue #60）——`ok` = **物化动作成功**（挂上影子即 True），
+     `face_stable` = 真源面窗口内逐字节未变（原 ok 的真值）；漂移时
+     `source_face_delta.added` 照旧逐项报出，`baseline_face` 照旧记录。
 
 运行：python -X utf8 -m md_cg.test_sleep
       python -X utf8 -m md_cg.test_sleep --mutate         # 定点变异自证
@@ -485,7 +492,57 @@ def g7():
        "G7c 正对照：删除 .md 被报为 removed", d2)
 
 
-_GROUPS = (g0, g1, g2, g3, g4, g5, g6, g7)
+# ---------------------------------------------------------------- G8
+def g8():
+    print("== G8 物化窗口内漂移：ok=物化动作成功、face_stable=真源面未变（issue #60）==")
+    S = globals()["SL"]
+    gen, root, state = _fixture()
+    G = os.path.join(state, "sleep", "lib.git")
+    SH = os.path.join(state, "sleep", "shadow")
+    # 补丁要打在**函数实际读取的命名空间**上（`materialize.__globals__`），而不是
+    # 模块属性：变异自证时 `SL` 是 exec 出来的模块，其函数读 exec 命名空间，而模块
+    # 对象的 `__dict__` 只是它的副本——打在模块属性上，变异后的模块内部调用看不到
+    # 补丁（本机实测：该断言会在变异下空转，反而误红）。真源码下两者是同一个 dict。
+    ns = S.materialize.__globals__
+    real = ns["source_face_hashes"]
+    seen = {"n": 0}
+
+    def _drift(r):
+        """只在物化窗口的**第二次**取样（= after）注入一条新增路径。"""
+        seen["n"] += 1
+        d = dict(real(r))
+        if seen["n"] == 2:
+            d["knowledge/n_drift.md"] = "0" * 64
+        return d
+
+    try:
+        ns["source_face_hashes"] = _drift
+        m = S.materialize(root=root, git_dir_path=G, shadow=SH, ts="G8T1")
+    finally:
+        ns["source_face_hashes"] = real
+    ok(m.get("ok") is True and m.get("busy") is False,
+       "G8a **物化成功即 ok=True**（不再因窗口内真源面漂移自我否决）",
+       {k: m.get(k) for k in ("ok", "busy", "error", "hint")})
+    ok(m.get("face_stable") is False,
+       "G8b face_stable=False（窗口内确有漂移——原 ok 的真值迁到该读数）",
+       m.get("face_stable"))
+    ok(m["source_face_delta"]["added"] == ["knowledge/n_drift.md"]
+       and not m["source_face_delta"]["removed"]
+       and not m["source_face_delta"]["changed"],
+       "G8c source_face_delta.added 逐项报出漂移路径（原读数保留）",
+       m["source_face_delta"])
+    ok(bool(m.get("baseline_face")) and os.path.isdir(SH)
+       and os.path.exists(os.path.join(SH, ".git")),
+       "G8d 漂移不阻断挂影子：baseline_face 已记录、影子在位",
+       (bool(m.get("baseline_face")), SH))
+    # 负对照：窗口内无漂移 ⇒ face_stable=True（该读数不是恒假）
+    m2 = S.materialize(root=root, git_dir_path=G, shadow=SH, ts="G8T2")
+    ok(m2.get("ok") is True and m2.get("face_stable") is True,
+       "G8e 负对照：窗口内无漂移 ⇒ face_stable=True",
+       {k: m2.get(k) for k in ("ok", "face_stable", "busy")})
+
+
+_GROUPS = (g0, g1, g2, g3, g4, g5, g6, g7, g8)
 
 
 def _run_groups() -> int:
