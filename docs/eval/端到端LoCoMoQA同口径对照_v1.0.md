@@ -90,7 +90,7 @@ python -X utf8 -m md_cg.bench_e2e_locomo_qa                           # QA 500�
 # 检索四组对照：§2 数字由 dialog_zh 池 + zh_queries/questions500 双查询面直算（本报告数据根）
 ```
 
-产物：`D:\program\test\e2e_judge\results\locomo_qa_*.json`（QA 逐题）、
+产物：`<数据根>\test\e2e_judge\results\locomo_qa_*.json`（QA 逐题）、
 `upstream/zh_turns.json`（5882 turn 中文）、`upstream/zh_queries.json`（500 问句中文）、
 `upstream/answers_map.json`（上游 gold，1976/1976）。评测器：`md_cg/bench_e2e_locomo_qa.py`。
 

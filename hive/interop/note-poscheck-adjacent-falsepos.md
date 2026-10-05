@@ -18,7 +18,7 @@
 另：`changed` 列表原用 `git diff main <branch>`，而本地 `main` 可能落后发布线几十个提交
 （工作树陈旧），会把大量与本次候选无关的文件也纳入检查，放大误报面。
 
-## 2. 修正（`C:\\Users\\FuRongJun\\.mdcg\\_coord\\pos_check.py`）
+## 2. 修正（`~/.mdcg\\_coord\\pos_check.py`）
 
 1. 只认两个合法锚点：`node.lineno-2`（紧贴定义行上方）与 `first-2`（装饰器上方）；
    其它位置出现的注释属于**相邻符号**，不计入本符号判定。

@@ -33,12 +33,14 @@ on:
       - '.gitignore'
       - 'README.md'
       - 'scripts/check_publish_artifact.py'
+      - 'scripts/check_local_paths.py'
       - '.github/workflows/publish-artifact-check.yml'
       - 'lib/**'
       - 'src/**'
       - 'md_cg/**'
       - 'skills/**'
       - 'dsh/**'
+      - 'hive/**'
       - 'codebuddy/**'
       - 'zcode/**'
       - 'docs/**'
@@ -49,12 +51,14 @@ on:
       - '.gitignore'
       - 'README.md'
       - 'scripts/check_publish_artifact.py'
+      - 'scripts/check_local_paths.py'
       - '.github/workflows/publish-artifact-check.yml'
       - 'lib/**'
       - 'src/**'
       - 'md_cg/**'
       - 'skills/**'
       - 'dsh/**'
+      - 'hive/**'
       - 'codebuddy/**'
       - 'zcode/**'
       - 'docs/**'
@@ -73,3 +77,9 @@ jobs:
         run: python scripts/check_publish_artifact.py --selftest
       - name: 产物面政策检查（npm pack --dry-run 清单 × git ls-files 追踪集合）
         run: python scripts/check_publish_artifact.py
+      # B6（2026-10-05）：npm 面由上面的 R3 规则把守；GitHub 公开面（git 追踪件全量）
+      # 另有本机路径门禁——本机目录结构不得进入仓库（相对路径/中性占位）。
+      - name: 本机路径门禁自检（正负样例 + 不命中自身源码）
+        run: python scripts/check_local_paths.py --selftest
+      - name: 追踪面本机路径扫描（git ls-files 全量）
+        run: python scripts/check_local_paths.py

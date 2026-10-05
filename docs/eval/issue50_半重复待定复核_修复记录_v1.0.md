@@ -1,6 +1,6 @@
 # issue50 · 半重复待定复核（forgetting 分支④ 结构性不可达）修复记录 v1.0
 
-> **日期**：2026-10-01 ｜ **缺陷号**：issue50-a ｜ **被测面**：`D:\program\dsh-memory-main` **工作树（未提交）**——1 个已修改跟踪件（`md_cg/forgetting.py`）＋ 1 个未跟踪新守卫（`md_cg/test_i50a_half_dup_defer.py`）＋ 未跟踪 `.zcode/`（工作流草稿面，非本次产物）。
+> **日期**：2026-10-01 ｜ **缺陷号**：issue50-a ｜ **被测面**：`<仓根>` **工作树（未提交）**——1 个已修改跟踪件（`md_cg/forgetting.py`）＋ 1 个未跟踪新守卫（`md_cg/test_i50a_half_dup_defer.py`）＋ 未跟踪 `.zcode/`（工作流草稿面，非本次产物）。
 > **契约**：动态工作流 `dwfrun-4e2ef43d-…` 的 `args.contract`——「只加一行定点补丁：分支④ 判据删去 `and imp["score"] < IMPORTANCE_MIN`；其余六条分支的判据/顺序/文案与五个常量零改动；不得改断言迁就实现」。
 >
 > **证据分级（本报告不越界陈述）**：
@@ -59,7 +59,7 @@ elif red["max"] >= DUP_DROP and imp["score"] < IMPORTANCE_MIN:
 命令（脚本落 `%TEMP%/i50a_probe_report.py`，隔离 `tempfile.mkdtemp` 合成库，跑完已删）：
 
 ```
-python -X utf8 C:\Users\test\AppData\Local\Temp\i50a_probe_report.py
+python -X utf8 %TEMP%\i50a_probe_report.py
 ```
 
 读数（原文照录；`改前`＝把分支④ 合取加回当前源码后 `exec` 出的等价改写，非 git HEAD 全文）：
@@ -82,7 +82,7 @@ python -X utf8 C:\Users\test\AppData\Local\Temp\i50a_probe_report.py
 **命令**（只读打开在役留痕，未写入）：
 
 ```
-python -X utf8 -c "import io,json,collections; rows=[json.loads(l) for l in io.open(r'D:\program\AEIS\data\mdcg\_forgetting.jsonl',encoding='utf-8',errors='replace') if l.strip()]; …"
+python -X utf8 -c "import io,json,collections; rows=[json.loads(l) for l in io.open(r'<在役库根>\_forgetting.jsonl',encoding='utf-8',errors='replace') if l.strip()]; …"
 ```
 
 留痕记录**不存 `role` 字段**（字段集合＝`t / node_id / layer / verdict / reason / importance / entropy / actor`），但每条带 `entropy.source_kind`——它是 `role` 的纯函数投影（`forgetting.py:90-102`），故可等价替代 `role` 做通道归因。交叉表（215 行）：
@@ -156,7 +156,7 @@ python -X utf8 -c "import io,json,collections; rows=[json.loads(l) for l in io.o
 ### 3.2 `git diff` 实测（本报告实跑，原文照录）
 
 ```
-$ git -C D:/program/dsh-memory-main diff --stat -- md_cg/forgetting.py
+$ git -C <仓根> diff --stat -- md_cg/forgetting.py
  md_cg/forgetting.py | 19 +++++++++++++++----
  1 file changed, 15 insertions(+), 4 deletions(-)
 ```
@@ -368,8 +368,8 @@ python -X utf8 -m md_cg.test_writelimit        → AssertionError(E1)，rc=1
 ### 4.7 在役库留痕只读核验（**本报告实跑**）
 
 ```
-$ python -X utf8 -c "…读 D:\program\AEIS\data\mdcg\_forgetting.jsonl…"
-D:\program\AEIS\data\mdcg isdir= True
+$ python -X utf8 -c "…读 <在役库根>\_forgetting.jsonl…"
+<在役库根> isdir= True
    _forgetting.jsonl exists= True
    行数= 215 verdict 分布= {'ACCEPT': 201, 'MERGE': 14}
    mtime= 2026-09-27 08:05
@@ -384,7 +384,7 @@ MDCG_ROOT env= None
 | 命题 | 本报告能给的证据 | 判定 |
 |---|---|---|
 | 工作流腿 5 提到的「路由记忆指向的在役库根」不存在（本机绝对路径字面量已按发布门禁 R3 口径抹除） | `os.path.isdir(...)` = `False`（本报告实跑） | **成立** |
-| `D:\program\AEIS\data\mdcg` 存在且是一个 MCG 数据根 | 目录内含 `_index.json`、`_forgetting.jsonl`、`_keys.json`、`_audit.jsonl` 等面；`contextual` 435 节点、`knowledge` 1247 节点（本报告实跑列目录） | **成立** |
+| `<在役库根>` 存在且是一个 MCG 数据根 | 目录内含 `_index.json`、`_forgetting.jsonl`、`_keys.json`、`_audit.jsonl` 等面；`contextual` 435 节点、`knowledge` 1247 节点（本报告实跑列目录） | **成立** |
 | 该目录的 `_forgetting.jsonl` 由 DSH 插件/codebuddy 写入过 | 215 行里 `actor` 分布 = `{'dsh-memory': 194, 'codebuddy': 21}`；`dsh-memory` 与插件缺省 actor 同名（`src/index.ts:202` `actor: z.string().default('dsh-memory')`） | **成立（「曾由插件写到此处」）** |
 | **它「是当前的」在役数据根** | **给不出**。插件解析优先级是 `env MDCG_ROOT` → `<用户级状态根>/paths.json` → 配置项 → 默认 `<用户级状态根>/data/mdcg`（`src/index.ts:189-197`）；本机 `MDCG_ROOT` **未设**（实跑 `os.environ.get("MDCG_ROOT")` 返回 `None`），且在 `~/.zcode`、`~/AppData/Roaming`、`~/.dsh`、`~/.config` 下**未找到 `paths.json`**（本报告实跑 glob）。⇒ **插件此刻解析到哪个根，本报告无法证明**；该路径也可能只是**历史写入根**或另一检出 | **未验证（已如实标注）** |
 
@@ -479,9 +479,9 @@ python -X utf8 -m md_cg.test_writelimit                      # AssertionError(E1
 python -X utf8 -m md_cg.test_p31_insight                     # 70/0，rc=0（连跑 6 轮均 rc=0）
 python -X utf8 -m scripts.test_utf8_boot_guard               # 30/30，rc=0
 python -X utf8 -c "from md_cg import test_i50a_half_dup_defer as T; print(len(T._anchor_check()), T.main())"   # 0 0（现状锚点）
-python -X utf8 -c "…读 D:\program\AEIS\data\mdcg\_forgetting.jsonl，按 entropy.source_kind × dup 分档 × verdict 交叉…"  # 215 行；external_surprising×[0.60,0.85)×ACCEPT = 8
+python -X utf8 -c "…读 <在役库根>\_forgetting.jsonl，按 entropy.source_kind × dup 分档 × verdict 交叉…"  # 215 行；external_surprising×[0.60,0.85)×ACCEPT = 8
 python -X utf8 %TEMP%/i50a_sweep.py                          # 腿 4 等价补跑：8 档 → dup/novelty/imp 逐档；0.600 实测 0.5994 出窗口
-git -C D:/program/dsh-memory-main diff --stat -- md_cg/forgetting.py   # 15 insertions(+), 4 deletions(-)
+git -C <仓根> diff --stat -- md_cg/forgetting.py   # 15 insertions(+), 4 deletions(-)
 python -X utf8 %TEMP%/i50a_probe_report.py                   # 改前 ACCEPT / 现行 DEFER（hint=0.60 与 hint=None 两路）
 python -X utf8 %TEMP%/i50a_e1_pairs.py                       # E1 断言：改前 True / 改后 False
 python -X utf8 %TEMP%/i50a_h_probe.py                        # E1 False；H1 False(groups=0)、H2 True、H3 False、H4 TypeError；落盘=1/5

@@ -62,7 +62,7 @@ def main():
         check("3a 合规 verdict 通过门禁", isinstance(v, dict) and v["passed"] == 27)
         for name, bad in [
             ("3b 绝对路径拦截",
-             {**v, "details": [{"log": r"D:\program\secret\path.txt"}]}),
+             {**v, "details": [{"log": r"D:\secret\path.txt"}]}),
             ("3c prompt 字段拦截",
              {**v, "prompt": "你是一个…"}),
             ("3d API key 拦截",

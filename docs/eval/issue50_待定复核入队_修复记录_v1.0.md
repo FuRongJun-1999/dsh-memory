@@ -1,6 +1,6 @@
 # issue50-b · 遗忘闸门 DEFER 待定复核入队——修复记录 v1.0
 
-> **日期**：2026-10-01 ｜ **缺陷号**：issue50-b ｜ **被测面**：`D:\program\dsh-memory-main` 工作树（未提交）
+> **日期**：2026-10-01 ｜ **缺陷号**：issue50-b ｜ **被测面**：`<仓根>` 工作树（未提交）
 > **关联**：issue50-a（forgetting 分支④「半重复→DEFER」结构性不可达）→ `docs/eval/issue50_半重复待定复核_修复记录_v1.0.md`；
 > 设计依据 → `docs/plans/记忆自处理三档自治_设计_v0.2.md`（§八.2 在 `:145-152`，落码顺序在 `:184`）
 > **证据口径**：〔实跑〕= 我（报告撰写员）在本会话亲自执行并读到输出；〔采集〕= 本工作流复现阶段所得；〔复核实跑〕= 本工作流**独立复核阶段**所得，我未重跑（其探针在仓外临时目录）。
@@ -150,7 +150,7 @@
 
 ### L5（命令级）`test_writelimit` E 节旧编码转红
 
-- **载荷（命令）**：`cd D:/program/dsh-memory-main && python -X utf8 -m md_cg.test_writelimit`。
+- **载荷（命令）**：`cd <仓根> && python -X utf8 -m md_cg.test_writelimit`。
 - **观测（异常/崩溃点）**：`rc=1`；`AssertionError: [FAIL] E1 knowledge 不聚合不限流 …`（`r_k1.verdict='ACCEPT'`（保护分支）/ `r_k2.verdict='DEFER'`，`reason='半重复 0.78∈[0.6,0.85) 且未触发不可遗忘保护（待定复核）'`，`duplicate_ratio=0.7777777777777778`，`duplicate_with='wl_k1'`）；**堆栈停在 `test_writelimit.py:125`**（`check` 的 assert 在 `:37`）。
 - **站点**：改前-B `md_cg/test_writelimit.py:125-127`。
 
@@ -191,7 +191,7 @@
 
 ### L10 全量回归基线（采集时）
 
-- **载荷（命令）**：`cd D:/program/dsh-memory-main && python -X utf8 scripts/run_tests.py`。
+- **载荷（命令）**：`cd <仓根> && python -X utf8 scripts/run_tests.py`。
 - **观测**：`rc=1`；`===== SUMMARY 299/300 通过，5 跳过（依赖缺失/平台不符）=====`；失败：**`md_cg.test_writelimit`（唯一失败项，即 L5 的 E1）**。受影响守卫单跑均 rc=0：`md_cg.test_i50a_half_dup_defer`（26 通过/0 失败）、`md_cg.test_p9_forget_protect`（37/0）、`md_cg.test_p9c_dedup_hints`（31/0）、`md_cg.test_p2_mcp`（64/0）。
 - **站点**：`scripts/run_tests.py`；失败断言改前-B `md_cg/test_writelimit.py:125`。
 
@@ -397,7 +397,7 @@ python -X utf8 scripts/run_tests.py
 
 ### 6.5 硬边界
 
-- 全部实验根在系统临时目录（`tempfile.mkdtemp`）且跑完清理；**未触碰在役数据根 `D:\program\AEIS`**；
+- 全部实验根在系统临时目录（`tempfile.mkdtemp`）且跑完清理；**未触碰在役数据根 `<AEIS 工程根>`**；
 - **未 `git add` / `commit` / `push`**；本次只写入本报告一个文件；
 - 报告不含明文凭据。
 

@@ -25,7 +25,7 @@
 判据（双锚点）：先按 `node.lineno`（def/class 行）向上扫 3 行，未命中再按装饰器行向上扫 3 行；
 向上扫遇非注释非空行即停。写入锚点统一为 `node.lineno`。
 
-| 文件（`C:\Users\FuRongJun\.mdcg\_coord\`） | 修正 |
+| 文件（`~/.mdcg\_coord\`） | 修正 |
 | --- | --- |
 | `repo_gap.py` | `has_cond` 双锚点（缺口口径） |
 | `blindspot_ledger.py` | 覆盖/不适用判定双锚点 |
@@ -46,7 +46,7 @@
 ```python
 # 期望输出: decorator-rule=275  canonical-rule=247  missed=28
 import ast, io, os, subprocess, tarfile, tempfile
-R = r'D:/Program Files/2_ai/dsh-memory'
+R = r'<仓根>'
 ar = subprocess.run(['git','-C',R,'archive','--format=tar','origin/main'], capture_output=True)
 t = tempfile.mkdtemp(); tarfile.open(fileobj=io.BytesIO(ar.stdout)).extractall(t)
 def cov(lines, node, dec_rule):

@@ -309,8 +309,9 @@ def main():
            "J5 显式坏路径 report_summary 不炸且如实 BLINDSPOT")
 
         # ---------- 集成（真源存在才跑，缺失即 SKIP）----------
-        real = "D:/Program Files/2_ai/AEIS/data/mdcg"
-        if os.path.exists(os.path.join(real, "_index.json")):
+        # 真源在仓外私有路径：以 env 显式指认（MDCG_CONFORMANCE_ROOT），不把本机目录写进仓库
+        real = os.environ.get("MDCG_CONFORMANCE_ROOT", "")
+        if real and os.path.exists(os.path.join(real, "_index.json")):
             rp = C.check(real, check_paths=False)
             cv = rp["coverage"]
             print(f"  [集成] 真源 nodes={rp['nodes']} 混层比={cv['mixed_ratio'] * 100:.1f}%"
@@ -323,7 +324,7 @@ def main():
             ok(rp["gate"]["decisions_total"] >= 100, "K4 闸门样本 ≥ 100")
             ok(cv["role_ratio"] < 0.10, "K5 role 覆盖率仍处治理区（<10%）")
         else:
-            print("  [集成] SKIP 真源库不存在（外部 clone 正常情形）")
+            print("  [集成] SKIP 真源库不可用（设 MDCG_CONFORMANCE_ROOT=<库根> 可跑集成）")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

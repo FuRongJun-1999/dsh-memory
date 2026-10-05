@@ -2,7 +2,7 @@
 
 > **注记（2026-10-03 收口轮 · 编排侧）**：本文件为**第一轮现场记录**（23 断言/5 变异，F1『未修』等表述为当时状态）。收口轮（面内例外＋无词面口径断言＋三处增补：27 断言/6 变异；第一轮 DEFER → 补齐 → 第二轮 ACCEPT）见 `docs/eval/cons200_冲突检测选面_实施记录_v1.1.md`——状态口径以后者为准。
 
-**日期**：2026-10-03 ｜ **被测面**：`D:\program\dsh-memory-main` 工作树（**未提交**——`git status --porcelain` 实列 `M md_cg/consistency.py`、`M md_cg/test_mode_parity.py`、`?? md_cg/test_cons200_scan_selection.py`、`?? .zcode/`；本报告落盘前实测）｜ **基线**：HEAD `9a1150dd21f4d7cb0d2a48933ea559a15518f7bd`（`git rev-parse HEAD` 实跑核实）
+**日期**：2026-10-03 ｜ **被测面**：`<仓根>` 工作树（**未提交**——`git status --porcelain` 实列 `M md_cg/consistency.py`、`M md_cg/test_mode_parity.py`、`?? md_cg/test_cons200_scan_selection.py`、`?? .zcode/`；本报告落盘前实测）｜ **基线**：HEAD `9a1150dd21f4d7cb0d2a48933ea559a15518f7bd`（`git rev-parse HEAD` 实跑核实）
 
 **关联**：
 - 设计稿 `docs/plans/stg条件化与结构索引_设计_v0.1.md`——本批为其**待签收点 5**（读码核实 `:107` 与签收记录 `:122`：「同族 `consistency.check` 的 `MAX_SCAN=200` 选面（字典序前 200 → 应改相关性/条件预筛）……**纳入本线第二实现批**（主体批不含；批间独立复核）」）的落地；

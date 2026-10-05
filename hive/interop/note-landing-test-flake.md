@@ -18,7 +18,7 @@
 
 两者都是「先红后绿」的抖动，而非真实回归。
 
-## 2. 修正（`C:\\Users\\FuRongJun\\.mdcg\\_coord\\auto_land2.py`）
+## 2. 修正（`~/.mdcg\\_coord\\auto_land2.py`）
 
 1. 每组测试失败后**重跑一次**再判：两次都红才写 `checksum-failed`；
    日志区分 `attempt=1/2`。

@@ -92,7 +92,7 @@ pub fn hide_window(_cmd: &mut Command) {}
 /// 终止执行器子进程。Windows 用 taskkill /T /F 回收**进程树**（含孙进程），
 /// 其余平台只杀直接子进程（诚实边界：孙进程由执行器契约约束，见下）。
 ///
-/// 为什么需要进程树回收（2026-09-22 实锤，`D:\2_ai` C10/M2）：`child.kill()` 在
+/// 为什么需要进程树回收（2026-09-22 实锤，外部设计稿 C10/M2）：`child.kill()` 在
 /// Windows = TerminateProcess，**只杀直接子进程**——执行器派生的孙进程
 /// （subprocess / 编译器 / 测试长睡进程）在 kill/timeout 后成为孤儿继续运行，
 /// 占用端口、文件句柄，表现为「任务已 killed 但还有进程在跑」。

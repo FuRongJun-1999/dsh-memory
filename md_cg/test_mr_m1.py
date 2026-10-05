@@ -635,7 +635,7 @@ def _real_root():
         cands.append(mdcg_root())
     except Exception:
         pass
-    cands.append("D:/Program Files/2_ai/AEIS/data/mdcg")
+    cands.append(os.environ.get("MDCG_CONFORMANCE_ROOT"))
     for r in cands:
         if r and os.path.exists(os.path.join(r, "_index.json")):
             return r

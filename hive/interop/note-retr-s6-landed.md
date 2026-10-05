@@ -50,7 +50,7 @@ python -X utf8 -m md_cg.backfill_bigdomain --root <库根>             # 真补�
 
 ## 3b. 真实库实测（只读，2026-09-19）
 
-真实库 = `D:/Program Files/2_ai/AEIS/data/mdcg`，**12,149 个节点**（1.38 GB，未做任何写入）：
+真实库 = `<在役库根>`，**12,149 个节点**（1.38 GB，未做任何写入）：
 
 | 观测 | 数值 |
 | --- | --- |

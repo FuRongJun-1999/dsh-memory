@@ -20,7 +20,7 @@
 | 简称 | 是什么 | 怎么得到 |
 |---|---|---|
 | **HEAD 树** | 修前代码（`git archive HEAD` 导出的整树，`%TEMP%\i43head2_*\tree`） | 只读导出；HEAD 无 `resolve_rulebook`（实测 `hasattr(audit,'resolve_rulebook')` → `False`） |
-| **现行树** | 修复后的工作树 `D:\program\dsh-memory-main` | 本报告 §4.2 的实测均在其上 |
+| **现行树** | 修复后的工作树 `<仓根>` | 本报告 §4.2 的实测均在其上 |
 | **工作流树** | 工作流做复现时所用（未由本报告取得） | — |
 
 ### 0.3 两个计数单位（不混淆）
@@ -196,7 +196,7 @@
 | 2 | 写链探针（`MdCGSecure(<临时root>)` + `install_default_gates(WritePipeline())` + `{'content_kind':'text', content:TEXT}`），随后二进制读 `inbox.jsonl` | **HEAD** | probe rc=0；`moved_to=review_queue`、`state=DEFER`；`inbox.jsonl` 468 与 469 字节（同字面跑两次）；凭据与标记**字节面双命中**；`content` 与原文逐字相等 |
 | 3 | 同 #2，**env 未设** | 现行 | probe rc=0；`moved_to=rejected`、`state=REJECT`；`inbox.jsonl` 不存在；全库扫描凭据字节命中 `0`；负记忆含 `[已过滤:` 占位符 |
 | 4 | 同 #2，`MDCG_POLICY_FILE=<非法 JSON 文件>` | 现行 | probe rc=0；`moved_to=policy_unavailable`、`state=None`；落盘文件仅 `_keys.json` / `_keys.json.lock`；凭据字节命中 `0` |
-| 5 | `python -X utf8 -m md_cg.mcp_server`（临时 root + 临时 aux + 真签发令牌，stdin 送 EOF） | 现行，env 未设 | **server rc=0**；stderr `[mdcg-mcp] 写入策略：来源=package_default path=D:\program\dsh-memory-main\data\policy.json（forbidden=11 required=6）` |
+| 5 | `python -X utf8 -m md_cg.mcp_server`（临时 root + 临时 aux + 真签发令牌，stdin 送 EOF） | 现行，env 未设 | **server rc=0**；stderr `[mdcg-mcp] 写入策略：来源=package_default path=<仓根>\data\policy.json（forbidden=11 required=6）` |
 | 6 | 同 #5 | **HEAD**，env 未设 | **server rc=0**；**stderr 恰 3 行**（路径 / 自报 / 自报文件）；`policy`、`POLICY`、`规则库`、`规则`、`策略` 五关键词在 stdout+stderr 全体中命中均 `False` |
 | 7 | 同 #5 + `MDCG_POLICY_FILE={"forbidden": 1}` | 现行 | **server rc=1**；stderr 末行 `TypeError: 'int' object is not iterable`（`mcp_server.py:3907` → `audit.py:157`）；策略行**未打印** |
 | 8 | 同 #7 换 `{"required": true}` 走 `python -X utf8 -m md_cg.mcp_server --show-config` | 现行 | **rc=1**、stdout 空；traceback `mcp_server.py:3799 → audit.py:159`（`'bool' object is not iterable`） |

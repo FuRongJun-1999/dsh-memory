@@ -166,13 +166,13 @@ id 前缀 `x_`（字典序排在 gold 之后——平局兜底**偏向 gold**，
 ## 7 · 复现
 
 ```bash
-# 前置：DEEPSEEK_API_KEY；数据根默认 D:\program\test\e2e_judge（--data-root 可改）
+# 前置：DEEPSEEK_API_KEY；数据根默认 <数据根>\test\e2e_judge（--data-root 可改）
 # 主口径（MDCG_UNIFY_QUERY=0；归一开对照去掉该前缀即可）
 MDCG_UNIFY_QUERY=0 python -X utf8 -m md_cg.bench_e2e_judge --quick      # 冒烟（确定性两臂）
 MDCG_UNIFY_QUERY=0 python -X utf8 -m md_cg.bench_e2e_judge --skip-llm   # 全量确定性矩阵
 MDCG_UNIFY_QUERY=0 python -X utf8 -m md_cg.bench_e2e_judge --arms llm   # LLM 裁决臂 ×2 轮
 MDCG_UNIFY_QUERY=0 python -X utf8 -m md_cg.bench_e2e_qa                 # QA 端到端
-# gold 答案映射（上游对齐，500/500）：D:\program\test\e2e_judge\upstream\answers_map.json
+# gold 答案映射（上游对齐，500/500）：<数据根>\test\e2e_judge\upstream\answers_map.json
 ```
 
 产物：`results/summary_*.json`（三臂指标+LLM 逐题）、`results/qa_*.json`（QA 逐题）、
@@ -193,5 +193,5 @@ MDCG_UNIFY_QUERY=0 python -X utf8 -m md_cg.bench_e2e_qa                 # QA 端
 ---
 
 *评测器：`md_cg/bench_e2e_judge.py`（三臂裁决）· `md_cg/bench_e2e_qa.py`（QA 层）。
-数据根：`D:\program\test\e2e_judge`（池缓存 / LLM 缓存 / 结果与逐题明细）。
+数据根：`<数据根>\test\e2e_judge`（池缓存 / LLM 缓存 / 结果与逐题明细）。
 v1.0（2026-09-23 归一开态）已被 v1.1 双态复核取代；v1.0 数字保留于 §4 对照列。*

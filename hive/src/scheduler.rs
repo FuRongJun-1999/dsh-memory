@@ -491,7 +491,7 @@ pub fn scan_corrupt(jobs: &Path) -> Vec<(String, String)> {
 /// 同一判据、同一实现）；有产物按产物定终态，无产物才走旧路径（claimed 重投 /
 /// running 标 error）。
 ///
-/// 历史缺陷（2026-09-22 实锤，`D:\2_ai` C9/M1）：同一段代码两套判据——
+/// 历史缺陷（2026-09-22 实锤，外部设计稿 C9/M1）：同一段代码两套判据——
 /// `classify_exit`（正常退出）信产物，`recover_orphans`（崩溃恢复）不信产物——
 /// serve 崩溃重启后，执行器已写完 result.json 的任务被重投重跑（claimed）或
 /// 误标「serve 中断」（running）。修复 = 判据前移，不是引入新机制。

@@ -55,8 +55,8 @@
       #      （session-<uuid4>）须真实存在于 MDCG_DSH_SESSIONS_ROOT/<workspace>/ 下，
       #      否则降级 anonymous（记忆照样落盘，只是归属不可追溯）。
       # 本机接线（2026-09-26 实测生效）：由启动脚本按工作区解析当前会话目录名后注入
-      #   DSH_HOME=D:\dsh-home
-      #   set MDCG_DSH_SESSIONS_ROOT=D:\dsh-home\sessions
+      #   DSH_HOME=%USERPROFILE%\.dsh
+      #   set MDCG_DSH_SESSIONS_ROOT=%USERPROFILE%\.dsh\sessions
       #   set MDCG_HARNESS=dsh
       #   set MDCG_UNIT=agent
       #   set MDCG_SESSION=session-<当前会话 uuid>

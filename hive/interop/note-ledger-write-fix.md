@@ -28,7 +28,7 @@ T1 写入的 `landed` → 落地环下一轮重读该行（非终态）→ 重�
 实测：**26 行**「校验和落地」提交在 `origin/main` 中存在，账面却是 `stale/无实际新增条件`
 （例：`iter-genspecs-c1-fix` ↔ 提交 `95bac64`；`iter-mdcos-c1` 落地后 6 秒被写成 stale）。
 
-## 3. 修正（`C:\Users\FuRongJun\.mdcg\_coord\multiport.py`）
+## 3. 修正（`~/.mdcg\_coord\multiport.py`）
 
 1. `_as_dict(r)`：dict / list 两种行格式归一化（根因消除，写路径不再崩）。
 2. `save()` 终态保护：磁盘行为 `landed` / `checksum-failed` / `stale` / `superseded` 时，

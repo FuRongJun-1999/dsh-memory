@@ -40,7 +40,8 @@
   python -X utf8 -m md_cg.bench_e2e_judge --quick        # 冒烟 20题×level 0,1×无LLM
   python -X utf8 -m md_cg.bench_e2e_judge                # 全量 120题×4级×3臂+LLM两轮
   python -X utf8 -m md_cg.bench_e2e_judge --skip-llm     # 只跑确定性两臂
-环境：DEEPSEEK_API_KEY（LLM 臂）；数据落 --data-root（默认 D:/program/test/e2e_judge）
+环境：DEEPSEEK_API_KEY（LLM 臂）；数据落 --data-root（默认 <仓根父目录>/test/e2e_judge，
+可用 MDCG_E2E_JUDGE_ROOT 覆盖）
 """
 from __future__ import annotations
 
@@ -64,7 +65,8 @@ from md_cg.mdcos import MdCGOS                             # noqa: E402
 from md_cg import nodefile                                 # noqa: E402
 
 DATA_SRC = os.path.join(HERE, "data", "benchmarks", "locomo-zh-500")
-DEFAULT_ROOT = r"D:\program\test\e2e_judge"
+DEFAULT_ROOT = os.environ.get("MDCG_E2E_JUDGE_ROOT") or os.path.join(
+    os.path.dirname(HERE), "test", "e2e_judge")
 FUSION_KW = dict(paths=("lexical", "bucket", "entity", "graph", "fuzzy"),
                  fusion="sum")
 LEVELS_DEFAULT = (0, 1, 2, 4)

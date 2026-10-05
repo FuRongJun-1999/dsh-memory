@@ -1,6 +1,6 @@
 # issue50-c · 遗忘闸门 DEFER 出口元数据透传与 node_id 兜底——修复记录 v1.0
 
-> **日期**：2026-10-01 ｜ **缺陷号**：issue50-c ｜ **被测面**：`D:\program\dsh-memory-main` 工作树（未提交）
+> **日期**：2026-10-01 ｜ **缺陷号**：issue50-c ｜ **被测面**：`<仓根>` 工作树（未提交）
 > **关联**：issue50-a（`forgetting` 分支④「半重复→DEFER」结构性不可达）→ `docs/eval/issue50_半重复待定复核_修复记录_v1.0.md`；
 > issue50-b（DEFER 出口接线入队）→ `docs/eval/issue50_待定复核入队_修复记录_v1.0.md`；本轮落修的是 **issue50-b 报告 §5.2 所列 uncovered 的 F1/F2 两项**。
 > **证据口径**：〔实跑〕= 我（报告撰写员）在本会话亲自执行并读到输出；〔采集〕= 本工作流复现阶段所得，我未重跑；〔复核实跑〕= 本工作流**独立复核阶段**所得，我未重跑（其探针在仓外临时目录）。
@@ -14,7 +14,7 @@
 | 名称 | 是哪棵树 | 本文哪里用它 |
 |---|---|---|
 | **修前**（= 缺陷现场） | 已应用 issue50-a / issue50-b、**未应用 issue50-c** 的 `md_cg/mdcos.py` | §一.3 的「修前」列、§二各腿的站点列 |
-| **当前盘**（= 修后） | `D:\program\dsh-memory-main` 工作树（a + b + c 都在） | 全文「修后」与所有〔实跑〕读数 |
+| **当前盘**（= 修后） | `<仓根>` 工作树（a + b + c 都在） | 全文「修后」与所有〔实跑〕读数 |
 | **HEAD** | `git -C … diff` 的对照面（a/b/c 三批**均未提交**，故 HEAD 里 `mdcos.py` 三个改动都不存在） | §三.1 的 diff hunk 读数 |
 
 **行号来源（不是两种做法，只有一种）**：本文所有「修前」行号**不是本报告侧换算的结果，而是转引** issue50-b 报告 §3.1/§1.3 的表（该表由 b 报告实跑 `git diff` 得出，我读其正文转抄而来）。所有「当前盘」行号均为**本次读码所见**。两者是**同一棵树上的两种坐标**（同一处代码在修前树与当前盘上行号不同），不一致时以当前盘为准并列出差额；§二各腿站点列因此是**转引来的修前坐标**，不是我从当前盘反推的。
@@ -266,7 +266,7 @@ DEL_G_C_RC= 1
 ### 4.5 python 全量〔实跑〕
 
 ```
-python -X utf8 scripts/run_tests.py        （仓根，无参数，工作目录 D:\program\dsh-memory-main）
+python -X utf8 scripts/run_tests.py        （仓根，无参数，工作目录 <仓根>）
 第 1 次：===== SUMMARY 302/302 通过，5 跳过（依赖缺失/平台不符） =====   用时 221.6 s ；rc=0
 第 2 次：===== SUMMARY 302/302 通过，5 跳过（依赖缺失/平台不符） =====   用时 223.6 s ；rc=0
 ```
@@ -283,7 +283,7 @@ python -X utf8 scripts/run_tests.py        （仓根，无参数，工作目录 
 | 栈一 | `docker … scripts/linux_verify.sh`（linux 侧 rust + python 十套） | `结果: 22 pass / 0 fail`；`[PASS] smoke_test (linux)`；`=== 汇总: 38 pass / 0 fail ===` | **0** |
 | 栈二 | Node TAP（`npm test`） | `# cancelled 0` / `# skipped 3` / `# todo 0` / `# duration_ms 11503.1857` | **0** |
 
-本机 `docker` 可执行在 PATH（`C:\Program Files\Docker\Docker\resources\bin\docker.EXE`，本次实跑 `shutil.which` 读到），**本轮未执行任何容器**，故两栈读数一律为〔采集〕转述，我未复跑。
+本机 `docker` 可执行在 PATH（`<Program Files>\Docker\Docker\resources\bin\docker.EXE`，本次实跑 `shutil.which` 读到），**本轮未执行任何容器**，故两栈读数一律为〔采集〕转述，我未复跑。
 
 ### 4.7 读者反馈取证〔实跑·本会话新增，隔离临时根，不改仓库文件〕
 
@@ -340,7 +340,7 @@ python -X utf8 scripts/run_tests.py        （仓根，无参数，工作目录 
 
 - 依据为四态判定单：issue50-c（F1 DEFER 出口 meta 透传 + F2 `node_id=None` 兜底）判定 = **【成立 / ACCEPT】**。「四态判定单」即复核方用**四态术语（成立 / 削弱 / 证伪 / 待定）**给出的一份判定；本次材料只把最终结论（**成立（= ACCEPT）**）与依据交给我，**判定单原文未随材料给我**。
 - 复核范围与独立性：全部实验在 `%TEMP%/i50c_review` 与 `%TEMP%/i50c_*` 合成库跑，结束已清理（原文记「113→0，二次测量 12→0」——**采集材料未说明这两个数数的是什么**（临时文件？目录？合成库条目？），本报告不代它解释，只照录；可确定的是：其所述「工作区文件零改动」我本次复核确认——`git status` 与起始逐字相同；未 `git add`/`commit`/`push`、未用 `stash`）。
-- 复核的三组实验（均〔复核实跑〕，我未重跑）：**① 修前崩溃腿现行不再崩 + 退化路径真发生**（现行 `probe.py D:/program/dsh-memory-main none` → 无异常、`verdict=DEFER`、`proposed_id_fallback=pre_d29863d9537d` 且 == 独立调用 `forgetting._prefeed_id(content)`、独立解析 `inbox.jsonl` 得 `queue_n=1`、accept 后落盘节点「**独立文件系统扫描出的正文与输入逐字相等**」（`content_match_fs=true`）、每次 `fs_node_ids == index_node_ids`）；**② 合法输入与改动前逐位对照**（ACCEPT 腿 HEAD vs 现行 11 项状态键全同、fm「去时间量逐位相等」；DEFER 腿 pre-c vs 现行，差异**恰为 F1 承诺补回的键**；（另用**独立 oracle** 自算 fm diff：**该 oracle 自己那组载荷是 26 键**，差异仅 `['defer_reason','reviewer']`，与守卫白名单一致；**26 ≠ 本报告守卫的并集 27**，因两者载荷不同——详见 §4.7 的「三个键数」对照）；**③ 删断言探针 / 非静默可观测面**（删组探针、fail-closed 探针、经 `mcp_server.call_tool` 读 DEFER 出口）。
+- 复核的三组实验（均〔复核实跑〕，我未重跑）：**① 修前崩溃腿现行不再崩 + 退化路径真发生**（现行 `probe.py <仓根> none` → 无异常、`verdict=DEFER`、`proposed_id_fallback=pre_d29863d9537d` 且 == 独立调用 `forgetting._prefeed_id(content)`、独立解析 `inbox.jsonl` 得 `queue_n=1`、accept 后落盘节点「**独立文件系统扫描出的正文与输入逐字相等**」（`content_match_fs=true`）、每次 `fs_node_ids == index_node_ids`）；**② 合法输入与改动前逐位对照**（ACCEPT 腿 HEAD vs 现行 11 项状态键全同、fm「去时间量逐位相等」；DEFER 腿 pre-c vs 现行，差异**恰为 F1 承诺补回的键**；（另用**独立 oracle** 自算 fm diff：**该 oracle 自己那组载荷是 26 键**，差异仅 `['defer_reason','reviewer']`，与守卫白名单一致；**26 ≠ 本报告守卫的并集 27**，因两者载荷不同——详见 §4.7 的「三个键数」对照）；**③ 删断言探针 / 非静默可观测面**（删组探针、fail-closed 探针、经 `mcp_server.call_tool` 读 DEFER 出口）。
 - 与我的独立读数交叉：复核【③】的**删断言探针与 fail-closed 探针两项，我在 §4.3 用自己的探针独立复现**（删 `g_a` → 变异①红项 11→3 且红项 = B1/B2/B3，逐字一致；假锚点 → `_anchor_check()` 1 条 + rc=2，一致）；复核【③】所述「删 `g_c` → EXIT=1」，我在 §4.3 复到同一退出码（`_mutate_mode()` rc=1，④⑤ 红项数不符）。
 
 ### 5.2 复核的未覆盖面（标题承诺的「复核所列清单」原文**未随材料给我**）

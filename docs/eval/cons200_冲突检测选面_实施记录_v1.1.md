@@ -2,7 +2,7 @@
 
 **版本行**：v1.1-r1（收口轮；v1.1 主体＋按读者反馈逐条修订——处置明细见 §七）
 **落位说明（编排侧收口）**：本文件原名 `docs/eval/undefined_修复记录_v1.0.md`（run args 丢失所致，来由见「『undefined』来由」节）；编排侧收口更名为 `docs/eval/cons200_冲突检测选面_实施记录_v1.1.md`，报告内容未由编排侧改动。**文件名版本（v1.1）与版本行（v1.1-r1）分属落位约定与修订轮次，二者不一致非笔误**。
-**日期**：2026-10-03 ｜ **被测面**：`D:\program\dsh-memory-main` 工作树（**未提交**——`git status --porcelain` 实列 `M md_cg/consistency.py`、`M md_cg/test_mode_parity.py`、`?? md_cg/test_cons200_scan_selection.py`、`?? docs/eval/cons200_冲突检测选面_实施记录_v1.0.md`、`?? .zcode/`）｜ **基线**：HEAD `9a1150dd21f4d7cb0d2a48933ea559a15518f7bd`〔本报告实跑〕
+**日期**：2026-10-03 ｜ **被测面**：`<仓根>` 工作树（**未提交**——`git status --porcelain` 实列 `M md_cg/consistency.py`、`M md_cg/test_mode_parity.py`、`?? md_cg/test_cons200_scan_selection.py`、`?? docs/eval/cons200_冲突检测选面_实施记录_v1.0.md`、`?? .zcode/`）｜ **基线**：HEAD `9a1150dd21f4d7cb0d2a48933ea559a15518f7bd`〔本报告实跑〕
 
 **本报告覆盖的闭环**：第一轮缺口 → 补齐（两最小条件＋三处增补）→ 第二轮复核。
 

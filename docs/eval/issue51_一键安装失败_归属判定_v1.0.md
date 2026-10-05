@@ -9,7 +9,7 @@
 
 - 来源：dsh-plugin-hub（第三方插件市场）**安装失败自动报告**，自动提交至本仓库（作者 Weizuo-84，2026-10-02）。
 - 命令：`dsh plugin --profile web add @furongjun1999/dsh-memory`（另试 `--profile desktop`，同样失败）。
-- 环境读数（报告自带）：DSH v0.2.0-rc.2 · Hub v1.4.13 · Node v24.18.1 · **pnpm: unknown** · **npm: unknown** · git 2.55 · win32 x64 (10.0.22000) · Profile `desktop` · DSH Home `C:\Users\Administrator\.dsh`。
+- 环境读数（报告自带）：DSH v0.2.0-rc.2 · Hub v1.4.13 · Node v24.18.1 · **pnpm: unknown** · **npm: unknown** · git 2.55 · win32 x64 (10.0.22000) · Profile `desktop` · DSH Home `~/.dsh`。
 - 错误正文：仅两行 `[exit 1]`。报告模板自述「Full log: `~/.dsh/profiles/desktop/hub.log` (paste or attach for the full output)」——**报告者未附日志**。
 
 ## 二、一手证据（本判定全部由编排侧亲跑，读数如下）

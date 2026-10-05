@@ -22,7 +22,7 @@ LLM 预算白烧一轮，且账面「无实际新增条件（已落实）」容�
 
 ## 2. 修正
 
-| 文件（`C:\Users\FuRongJun\.mdcg\_coord\`） | 修正 |
+| 文件（`~/.mdcg\_coord\`） | 修正 |
 | --- | --- |
 | `collect_files2.py` | 先 `git fetch origin main`，再以 `origin/main` 归档枚举 |
 | `unit_review.py` | `diff` 与基线 `show` 全部改 `origin/main` |
@@ -39,9 +39,9 @@ LLM 预算白烧一轮，且账面「无实际新增条件（已落实）」容�
 ## 4. 复核（可复现）
 
 ```
-cd D:/Program Files/2_ai/dsh-memory
+cd <仓根>
 git rev-list --count main..origin/main          # 期望 >0（证明本地 main 落后）
-python -X utf8 C:/Users/FuRongJun/.mdcg/_coord/collect_files2.py \
+python -X utf8 ~/.mdcg/_coord/collect_files2.py \
   --files compiler/name_checker.py --n 60 --max-src 12000 --out <tmp>   # 期望 COLLECT n=6
 ```
 

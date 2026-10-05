@@ -4,7 +4,7 @@
 # 生效条件：md_cg/routing.py 的 `bucket_health(counts, total_nodes=None)`、md_cg/mdcg.py
 #           的 `MdCG.health` 呼叫点（把节点总数传进判据）、md_cg/protect.py 的 `mark`
 #           三处修复在位时成立；沙箱条件：所有库根一律 tempfile.mkdtemp，绝不触在役库
-#           （D:/program/dsh-memory-main 的 in-service 库）与在役服务；本文件只读源码，
+#           （<仓根> 的 in-service 库）与在役服务；本文件只读源码，
 #           变异时只写目标文件且在 finally 里按原始字节复原。
 # 子功能：钉的是**消费方看得见的目标语义**，不是站点文本——
 #   A M3 假警报方向：「从未分区」的库（单桶）不得被读成「分区退化」——读数里不得
