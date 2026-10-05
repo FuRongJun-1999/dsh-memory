@@ -19,10 +19,14 @@ def check(name, ok, detail=''):
     print(f'[{"✓" if ok else "✘"}] {name}{" — " + detail if detail else ""}')
 
 # ① 循环编译：当 计数 小于 3 执行 计数 = 计数 + 1
+# N271（2026-10-05）：读取位置收紧后，循环条件读取「计数」须先声明——
+# 步骤 1 前置『计数 = 0』使本组保持合法正例（此前依赖宿主播种/宽松隐式
+# 自动声明）；循环语义、字节码结构与运行断言逐条不变。
 src = '''
 术曰：
-1。当 计数 小于 3 执行 计数 = 计数 + 1；
-2。德 0.6。
+1。计数 = 0；
+2。当 计数 小于 3 执行 计数 = 计数 + 1；
+3。德 0.6。
 '''
 code, r = compile_source(src)
 check('①a 循环源码编译成功', r["ok"], str(r.get("errors", []))[:40])
@@ -42,8 +46,9 @@ if r["ok"]:
 # ③ 循环+后续语句：循环推进计数 3 次后，德 0.6（循环后语句正常执行）
 src3 = '''
 术曰：
-1。当 计数 小于 3 执行 计数 = 计数 + 1；
-2。德 0.6。
+1。计数 = 0；
+2。当 计数 小于 3 执行 计数 = 计数 + 1；
+3。德 0.6。
 '''
 code3, r3 = compile_source(src3)
 if r3["ok"]:
@@ -56,8 +61,9 @@ if r3["ok"]:
 # ④ 条件恒假 → 循环零次（体不执行）
 src4 = '''
 术曰：
-1。当 计数 大于 5 执行 德 0.2；
-2。德 0.6。
+1。计数 = 0；
+2。当 计数 大于 5 执行 德 0.2；
+3。德 0.6。
 '''
 code4, r4 = compile_source(src4)
 if r4["ok"]:
@@ -69,7 +75,8 @@ if r4["ok"]:
 # ⑤ 死循环被步数上限拦截（max_steps 保护）
 src5 = '''
 术曰：
-1。当 计数 大于 0 执行 德 0.1；
+1。计数 = 1；
+2。当 计数 大于 0 执行 德 0.1；
 '''
 code5, r5 = compile_source(src5)
 if r5["ok"]:
@@ -82,19 +89,24 @@ if r5["ok"]:
 
 # ⑥ 与白箱「编译-循环」单元对照：字节码形态一致
 # 白箱单元: [cond..., JIF exit, body..., JUMP 0]（相对编译；这里标签回填绝对地址）
+# N271 后循环前有『计数 = 0』前置，循环起点不再固定为 ip=1——判据改为
+# 相对结构：JUMP 回跳目标须**恰为条件起点**（即循环变量的 LOAD_NAME，且在 JIF 之前）。
 if r["ok"]:
     jif = next(i for i, (op, _) in enumerate(code) if op == Opcode.JUMP_IF_FALSE)
     jump = next(i for i, (op, _) in enumerate(code) if op == Opcode.JUMP)
     exit_addr = code[jif][1]
+    back = code[jump][1]
     check('⑥ 循环结构对照（JIF跳出→体→JUMP回条件）',
-          exit_addr == jump + 1 and code[jump][1] == 1,
-          f'JIF→{exit_addr} JUMP→{code[jump][1]}')
+          exit_addr == jump + 1 and back < jif
+          and code[back] == (Opcode.LOAD_NAME, '计数'),
+          f'JIF→{exit_addr} JUMP→{back}（回跳目标＝条件起点「读计数」）')
 
 # ⑦ 循环体块（多语句：赋值;若则）+ 嵌套条件（控制流组合）
 src7 = '''
 术曰：
-1。当 计数 小于 3 执行 计数 = 计数 + 1；若 计数 大于 1，则 德 0.1；
-2。止。
+1。计数 = 0；
+2。当 计数 小于 3 执行 计数 = 计数 + 1；若 计数 大于 1，则 德 0.1；
+3。止。
 '''
 code7, r7 = compile_source(src7)
 if r7["ok"]:
@@ -115,12 +127,16 @@ if r7["ok"]:
 # _parse_statement_or_block（『；』同局限接 + 步骤号边界），源码由
 # 「语法错误」转为合法解析——步骤 1 条件体两语句同受门控、步骤 2 止。
 # 按本注预言还原为执行断言：字节码两 DE 均在 JUMP_IF_FALSE/JUMP 之间
-# （门控），播种 计数=1 执行 trust==0.2；未播种时 VM 运行期 NameError
-# （名实不符，运行期名实校验如实生效）。
+# （门控），执行 trust==0.2。
+# N271 更新（2026-10-05）：条件读取「计数」须先声明——前置『计数 = 1』
+# 使本组保持合法正例，执行断言（trust==0.2）不变；原「未声明播种 → 运行期
+# NameError」的兜底面由 ⑧d 改为**编译期即拒**的等价源码断言（读取位置
+# 收紧后不再到运行期才炸）。
 src8 = '''
 术曰：
-1。若 计数 大于 0，则 德 0.1；德 0.1；
-2。止。
+1。计数 = 1；
+2。若 计数 大于 0，则 德 0.1；德 0.1；
+3。止。
 '''
 code8, r8 = compile_source(src8)
 check('⑧ 条件体多语句合法编译（N4 后步骤号语法补齐）',
@@ -136,13 +152,13 @@ if r8["ok"]:
     check('⑧c 执行断言还原：计数=1 → trust==0.2',
           st8["trust"] == 0.2,
           f'trust={st8["trust"]}')
-    try:
-        ConditionVM().run(code8)
-        _name_err = False
-    except NameError:
-        _name_err = True
-    check('⑧d 未声明 计数 时运行期 NameError（名实校验不缺席）',
-          _name_err, '')
+    # N271：无前置声明的等价源码（计数 首次出现在条件读取位置）——
+    # 修复前经宽松隐式自动声明过审、运行期才 NameError；现编译期即拒。
+    code8n, r8n = compile_source('术曰：\n1。若 计数 大于 0，则 德 0.1；德 0.1；\n2。止。\n')
+    check('⑧d 未声明 计数 的等价源码编译期即拒（N271 读取位置收紧）',
+          r8n["ok"] is False and code8n is None
+          and any('未声明' in e for e in r8n.get("errors", [])),
+          'ok=%s errors=%s' % (r8n.get("ok"), [str(x)[:60] for x in r8n.get("errors", [])[:1]]))
 
 print(f'\n=== 中文循环语法（当…执行）测试: {pass_n}/{pass_n + fail_n} 通过 ===')
 sys.exit(0 if fail_n == 0 else 1)

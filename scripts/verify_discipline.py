@@ -11,6 +11,8 @@
   真源指纹（N253：渲染链路写出的件必有模板指纹行，缺了即非渲染产物或被人手改），或
   内嵌指纹 ≠ 当前真源指纹；仅 render:false 的真·手工投影允许无指纹（其漂移由字段级
   逐字比对兜底）。
+指针型渲染产物（render 非 false 的 pointer 目标，2026-10-05 裁决① zcode-user）另有
+  第四检：extract 文本与重渲染结果逐字一致——手改表行 / 指纹 / 指向 / 任意正文即判漂移。
 
 认知图投影节点腿（A2 使用者裁决 2026-10-05）：本案还有一腿校验「真源 ↔ 认知图
 structural/ 下 discipline:N 投影节点」的一致性，它需要显式 root（--cg-root / MDCG_ROOT）：
@@ -216,10 +218,16 @@ def check(target, src, repo, allow_missing):
 
     # 指针型产物（target.pointer 为真，2026-09-28 登记 zcode-user）：本件**不含条款正文**
     # （只指向纪律本体文件 + 执行公约摘要）⇒ 字段级 strict 比对在此物理上不适用（会报满屏
-    # 「缺失」而掩盖真问题）。判据换成三条**等同强度**的检查：
+    # 「缺失」而掩盖真问题）。判据换成四条检查：
     #   ①指向面：须给出纪律本体的仓内路径（zcode/AGENTS.md）——路径写错/删掉即硬失败；
     #   ②陈化面：内嵌真源指纹须等于当前真源指纹——改真源未更新指针即硬失败（与渲染产物同判据）；
     #   ③工具名随端：复用既有 check_tool_alignment（同一判据函数，不另立一套）。
+    # ④全文一致（2026-10-05 使用者裁决①）：本件已由手写指针升级为**渲染产物**
+    #   （render: true + variant zcode-user），手改表行 / 指纹 / 指向 / 任意正文必须判漂移——
+    #   判据 = extract 文本与 R.render(target, src, repo) 逐字比对。两侧仅归一**末尾**空白/
+    #   换行（extract 走 universal newlines，EOL 已归一到 "\n"）；逐字比较不得放水，否则
+    #   「用户级注入面与模板各说各话」而两边都判绿。仅对**非 render:false** 的 pointer 目标
+    #   成立：真·手工指针（render:false）没有渲染基准可比，不设此检（其漂移靠 ①②③）。
     # 为什么不是「render:false 就不查」：无守卫的手工件必然漂移（20260916 codebuddy-local 实例
     # 的教训），指针件同样需要一个机械守卫，只是判据面不同。
     if target.get("pointer"):
@@ -243,6 +251,18 @@ def check(target, src, repo, allow_missing):
                                    "id": "-",
                                    "text": "指针未内嵌真源指纹（形如「前16位）：<16 hex>」）"
                                            "——无指纹即无法判陈化"})
+        # ④全文与重渲染逐字一致（见上方判据注释；仅非 render:false 的 pointer 目标）
+        if not is_manual_target(target):
+            rendered = R.render(target, src, repo)
+            render_match = rendered.rstrip() == text.rstrip()
+            res["pointer_checks"]["render_match"] = render_match
+            if not render_match:
+                res["missing"].append({
+                    "no": 0, "field": "全文", "key": "render_match", "id": "-",
+                    "text": "本件为渲染产物（variant=%s）：全文与重渲染结果逐字不一致——手改"
+                            "表行 / 指纹 / 指向 / 任意正文均判漂移；请重跑 "
+                            "`python scripts/render_discipline.py --target %s --write`"
+                            % (target.get("variant"), target.get("_name") or "?")})
         res["ok"] = (not res["missing"] and not res["toolname"] and not res["stale"])
         return res
 

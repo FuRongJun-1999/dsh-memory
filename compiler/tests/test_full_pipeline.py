@@ -51,9 +51,13 @@ TEST_CASES = {
         "expect_success": True,
     },
     "undefined_identifier": {
-        "name": "未定义标识符（宽松模式自动声明）",
+        # N271（2026-10-05）：读取位置收紧——『若未知变量大于0.5』的条件读取
+        # 未声明即编译期 error（修复前宽松隐式自动声明、success=True 零警告，
+        # 运行期 VM LOAD_NAME 才炸 NameError）。本用例由「宽松放行」改为
+        # 「读取未声明即拒」的显式断言。
+        "name": "未声明读取拒绝（读取位置位置语义·N271）",
         "source": "若未知变量大于0.5，则德 累积。",
-        "expect_success": True,
+        "expect_success": False,
     },
     "empty_source": {
         "name": "空源代码",
@@ -66,8 +70,12 @@ TEST_CASES = {
         "expect_success": True,
     },
     "assignment": {
+        # N272（2026-10-05）：『信任阈值 ＝ 0.7』为 SEMANTICS.md §1 写面
+        # 「—」的只读内建名（修复前过审、运行期落 symbols 遮蔽内建读取），
+        # 本用例保留「赋值语句」意图、目标改普通变量；只读拒绝由 N272 守卫
+        # 与 test_builtin_write_guard_n272 显式覆盖。
         "name": "赋值语句",
-        "source": "信任阈值 ＝ 0.7。德 累积信任值。",
+        "source": "甲 ＝ 0.7。德 累积信任值。",
         "expect_success": True,
     },
 }

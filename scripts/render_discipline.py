@@ -364,6 +364,10 @@ _TEMPLATES = {
     "full": "full.md.tmpl",
     "skill": "skill.md.tmpl",  # SKILL.md 形态（YAML frontmatter + 纪律正文），供插件 skills/ 目录
     "rules-mdc": "rules.mdc.tmpl",  # CodeBuddy .codebuddy/rules/ RULE.mdc 形态（rules 协议 frontmatter + full 正文）
+    # 用户级注入件（~/.zcode/AGENTS.md）形态：执行公约 + 声明出口表（18 条 response.direct
+    # 原文）+ 指向，**不含条款全文**（本件对所有工作目录生效，全文成本高；见矩阵注释）。
+    # 2026-10-05 使用者裁决①：本件由手写指针升级为渲染产物，防漂移改由「渲染 + 全文一致校验」承担。
+    "zcode-user": "zcode-user.md.tmpl",
 }
 
 

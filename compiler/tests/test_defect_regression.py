@@ -61,10 +61,13 @@ def top_types(src):
 # =============================================================================
 print('--- (1) while 循环体贪心吞语句 ---')
 
-src_n = '当 计数 小于 3 执行 计数 = 计数 + 1。计数 = 0。'
+# N271（2026-10-05）：读取位置收紧后，循环条件/右值读取「计数」须先声明
+# ——前置『计数 = 0。』使本组保持合法正例（此前依赖宽松隐式自动声明）；
+# 块边界观察（。终止 vs ；续接）与运行语义逐条不变。
+src_n = '计数 = 0。当 计数 小于 3 执行 计数 = 计数 + 1。计数 = 0。'
 types_n = top_types(src_n)
-check('①a 「。」终止循环体（后续语句归顶层：LOOP + ASSIGN）',
-      types_n == ['LOOP_STMT', 'ASSIGN_STMT'], str(types_n))
+check('①a 「。」终止循环体（后续语句归顶层：ASSIGN + LOOP + ASSIGN）',
+      types_n == ['ASSIGN_STMT', 'LOOP_STMT', 'ASSIGN_STMT'], str(types_n))
 
 code_n, r_n = compile_source(src_n)
 if r_n['ok']:
@@ -78,10 +81,10 @@ if r_n['ok']:
 else:
     check('①b 无步骤编号编译成功', False, str(r_n['errors'])[:60])
 
-src_semi = '当 计数 小于 3 执行 计数 = 计数 + 1；德 0.1。止。'
+src_semi = '计数 = 0。当 计数 小于 3 执行 计数 = 计数 + 1；德 0.1。止。'
 types_semi = top_types(src_semi)
-check('①c 「；」仍续接循环体（LOOP + ZHI/INSTRUCTION 两项）',
-      types_semi == ['LOOP_STMT', 'INSTRUCTION_STMT'], str(types_semi))
+check('①c 「；」仍续接循环体（ASSIGN + LOOP + ZHI/INSTRUCTION 三项）',
+      types_semi == ['ASSIGN_STMT', 'LOOP_STMT', 'INSTRUCTION_STMT'], str(types_semi))
 code_semi, r_semi = compile_source(src_semi)
 if r_semi['ok']:
     st_semi = ConditionVM().run(code_semi, symbols={'计数': 0})

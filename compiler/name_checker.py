@@ -419,6 +419,17 @@ CONDITION_SPACE_RULES = {
 }
 
 
+#: 条件空间名全集（含切换目标：恢复默认/default）——N270 别名解析的落点集合。
+#: 与 condition_vm.CONDITION_SPACE_NAMES 同集（test_defect_regression ⑤a 守一致）。
+SPACE_NAME_TOKENS = frozenset(CONDITION_SPACE_RULES) | {"恢复默认", "default"}
+
+#: SEMANTICS.md §1 写面标「—」的只读内建名（N272）：赋值即编译期 error。
+#: 运行期同判由 VM 的 STORE_NAME 单点闸（VMBuiltinError / Rust VmError::Error）。
+READONLY_BUILTIN_NAMES = frozenset({
+    "信任阈值", "伴侣", "工作", "默认", "恢复默认", "default",
+})
+
+
 # =============================================================================
 # 名实校验器
 # =============================================================================
@@ -448,6 +459,11 @@ class NameChecker:
         # 当前条件空间上下文（用于约束检查）
         self.current_condition_space: Optional[str] = None
 
+        # N270：顺序流别名环境（标识符 → 空间名字符串）——『甲 = 伴侣』后
+        # 『条件空间 = 甲』/『若 条件空间 为 甲』解析出「伴侣」；链式传递；
+        # 中途重赋值（非空间名值）即失效（pop）。消除别名绕过空间上限。
+        self.space_aliases: Dict[str, str] = {}
+
         # 统计
         self.predefined_used: Set[str] = set()
         self.user_declared: Set[str] = set()
@@ -471,6 +487,7 @@ class NameChecker:
         self.predefined_used = set()
         self.user_declared = set()
         self.current_condition_space = None
+        self.space_aliases = {}
 
         # 预扫描：收集已定义函数 → 形参名列表（顶层「定义 名（参数）：…」）。
         # N236/N237：与 Compiler.funcs 同一收集面（compiler.py:50-53 仅取顶层
@@ -530,11 +547,30 @@ class NameChecker:
             # 函数定义：递归校验函数体——否则「止 情感权重 于 0.9」这类
             # 指令包进函数体即绕过条件空间约束（顶层被拦、函数体零拦截，
             # 2026-09-25 缺陷 #3）。body 可为语句列表或单节点（解析器两形态）。
-            if isinstance(stmt.body, list):
-                for s in stmt.body:
-                    self._check_statement(s)
-            elif stmt.body is not None:
-                self._check_statement(stmt.body)
+            # N271：函数形参在**函数体检查上下文**中登记为已声明——读取位置
+            # 收紧（读取未声明即 error）后，『定义 f（x）：返回 x』的形参
+            # 读取不得误报；检查后还原（形参不泄漏出函数体，不污染外层同名，
+            # 也不参与「未被使用」警告）。
+            params = list(getattr(stmt, 'params', None) or [])
+            saved_params = {p: self.symbol_table.get(p) for p in params}
+            for p in params:
+                self.symbol_table[p] = Symbol(
+                    name=p, kind=SymbolKind.VARIABLE,
+                    declared_at=(stmt.line, stmt.column),
+                    source="user_declared",
+                    attributes={"function_param": True})
+            try:
+                if isinstance(stmt.body, list):
+                    for s in stmt.body:
+                        self._check_statement(s)
+                elif stmt.body is not None:
+                    self._check_statement(stmt.body)
+            finally:
+                for p, old in saved_params.items():
+                    if old is None:
+                        self.symbol_table.pop(p, None)
+                    else:
+                        self.symbol_table[p] = old
         elif stmt.type == NodeType.RETURN_STMT:
             # 返回语句：返回值表达式同样过字面量/标识符校验
             if stmt.value is not None:
@@ -567,25 +603,46 @@ class NameChecker:
 
     # ---- 各类语句检查 ----
 
-# 生效条件：以 stmt 调用时先检查 stmt.condition 表达式并做条件空间切换检测，then_body 为真值时递归 _check_statement(stmt.then_body)，else_body 为真值时递归 _check_statement(stmt.else_body)，最后把 current_condition_space 置为 None。
+# 生效条件：以 stmt 调用时先检查 stmt.condition 表达式并做条件空间切换检测（N270 极性感知：正向比较（为/等于）then 内处于该空间、else 不沿用；负向比较（不为/不等于）then 内不沿用、else 处于该空间），then_body 为真值时递归 _check_statement(stmt.then_body)，else_body 为真值时递归 _check_statement(stmt.else_body)，最后恢复进入本语句前的 current_condition_space（无外层已知空间时为 None）。
     def _check_condition(self, stmt: ConditionStmtNode):
-        """检查条件语句"""
+        """检查条件语句
+
+        N270：条件空间比较的上下文按**比较运算符极性**设置——
+          · 正向（条件空间 为/等于 X）：then 内处于 X；else 不沿用（非 X）。
+          · 负向（条件空间 不为/不等于 X）：then 内不沿用（不假定是 X）；
+            else 内处于 X。
+        修复前不加极性、then/else 同顶一个空间：负向条件误拒
+        （『若 条件空间 不为 伴侣，则 止情感权重于0.9』误报上限）、
+        正向 else 误拦（else 恰是「非伴侣」路径）。
+        结束恢复外层空间（修复前无条件置 None——语句后的已知空间丢失，
+        『条件空间 = 伴侣。若 x，则 德 0.1。止情感权重于0.9。』漏拦）。
+        """
         # 检查条件表达式
         self._check_expression(stmt.condition)
 
-        # 检测条件空间切换
-        self._check_condition_space_switch(stmt.condition)
+        outer = self.current_condition_space
+        switch = self._condition_space_switch_of(stmt.condition)
+
+        # then 分支：正向比较处于该空间；负向不沿用（保持外层）
+        if switch is not None:
+            space, positive = switch
+            self.current_condition_space = space if positive else outer
 
         # 检查 then 分支
         if stmt.then_body:
             self._check_statement(stmt.then_body)
 
+        # else 分支反极性：负向比较的 else 才是该空间；正向不沿用
+        if switch is not None:
+            space, positive = switch
+            self.current_condition_space = outer if positive else space
+
         # 检查 else 分支
         if stmt.else_body:
             self._check_statement(stmt.else_body)
 
-        # 恢复条件空间
-        self.current_condition_space = None
+        # 恢复外层条件空间（比较不改变运行期空间）
+        self.current_condition_space = outer
 
 # 生效条件：以 stmt 调用时检查 stmt.condition 表达式，且仅当 stmt.body 为真值时才递归 _check_statement(stmt.body)。
     def _check_loop(self, stmt: LoopStmtNode):
@@ -691,10 +748,20 @@ class NameChecker:
         if stmt.statement:
             self._check_statement(stmt.statement)
 
-# 生效条件：stmt.target 命中模块级常量 PREDEFINED_SYMBOLS 且属于源码 protected 集合（存在优先/不伤害/信任优先/缩小信息差/协议降熵/知识统一/P0/P1/P2/验证单元/维生系统/记录单元/硬锚点/公理实现）时向 errors 追加"锚点层保护符号，不可赋值"并直接返回；否则 target 不在 symbol_table 时以 SymbolKind.VARIABLE 与 source="user_declared" 登记并把 name 加入 declared_in_current/user_declared，target 已在 symbol_table 时把其 used 置 True；stmt.value_node 为真值时检查该表达式；最后 target=="条件空间" 时调 _apply_space_assign_switch 联动条件空间检查上下文。
+# 生效条件：stmt.target 命中模块级常量 READONLY_BUILTIN_NAMES（SEMANTICS §1 写面「—」：信任阈值/伴侣/工作/默认/恢复默认/default）时向 errors 追加"内建只读名，不可赋值"并直接返回；否则 target 命中 PREDEFINED_SYMBOLS 且属于源码 protected 集合（存在优先/不伤害/信任优先/缩小信息差/协议降熵/知识统一/P0/P1/P2/验证单元/维生系统/记录单元/硬锚点/公理实现）时向 errors 追加"锚点层保护符号，不可赋值"并直接返回；否则 target 不在 symbol_table 时以 SymbolKind.VARIABLE 与 source="user_declared" 登记并把 name 加入 declared_in_current/user_declared，target 已在 symbol_table 时把其 used 置 True；stmt.value_node 为真值时检查该表达式并更新 space_aliases（值解析出空间名即记别名，解析不出即失效）；最后 target=="条件空间" 时调 _apply_space_assign_switch 联动条件空间检查上下文。
     def _check_assign(self, stmt: AssignStmtNode):
         """检查赋值语句"""
         target = stmt.target
+
+        # N272：SEMANTICS.md §1 写面标「—」的只读内建名——写入即编译期
+        # error。修复前『信任阈值 = 0.9』过审、运行期写入落 symbols 遮蔽
+        # 内建读取（两台 VM 皆漏；实测 symbols={'信任阈值': 0.9} 改写判定）。
+        if target in READONLY_BUILTIN_NAMES:
+            self.errors.append(
+                f"L{stmt.line}:C{stmt.column} "
+                f"'{target}' 是内建只读名（SEMANTICS.md §1 写面「—」），不可赋值"
+            )
+            return
 
         # 检查是否是受保护的预定义符号
         if target in PREDEFINED_SYMBOLS:
@@ -731,6 +798,15 @@ class NameChecker:
         if stmt.value_node:
             self._check_expression(stmt.value_node)
 
+        # N270：顺序流别名环境更新（甲 = 伴侣 ⇒ space_aliases['甲']='伴侣'；
+        # 链式 乙 = 甲 传递；值解析不出空间名（数值/普通词/表达式）即失效）。
+        # 供『条件空间 = 甲』与『若 条件空间 为 甲』解析出真实空间名。
+        resolved_alias = self._resolve_space_name(stmt.value_node)
+        if resolved_alias is not None:
+            self.space_aliases[target] = resolved_alias
+        else:
+            self.space_aliases.pop(target, None)
+
         # 条件空间赋值 = 空间切换（SEMANTICS.md §1.2；VM STORE_NAME 对
         # BUILTIN_CONDITION_SPACE 真调 _switch_condition_space，见
         # condition_vm.py:208-213）——名实校验同步联动检查上下文，否则
@@ -747,7 +823,12 @@ class NameChecker:
             return
 
         if expr.type == NodeType.IDENTIFIER:
-            self._check_identifier(expr.name, expr.line, expr.column)
+            # N271：读取位置——未声明即编译期 error（修复前宽松自动声明，
+            # 『若 甲 大于 0.5，则 止。』（甲未声明）success=True 零警告、
+            # 运行期 VM LOAD_NAME 才炸 NameError——名实两套）。指令操作数
+            # 位置（_check_instruction）保持既有宽松，不经此处。
+            self._check_identifier(expr.name, expr.line, expr.column,
+                                   is_read=True)
         elif expr.type == NodeType.BINARY_EXPR:
             self._check_expression(expr.left)
             self._check_expression(expr.right)
@@ -772,6 +853,11 @@ class NameChecker:
             # N237：条数不符同样致命——少参使 CALL 按形参数连续 pop，
             # 栈内不足即 IndexError；多参使多余实参永久残留值栈（静默语义
             # 错，不崩溃更隐蔽）。此处按形参表比对，不等即报错。
+            # N271：实参同为读取位置——表达式内嵌套调用的实参此前不经
+            # _check_expression（语句级 CALL_EXPR 分支另行逐个检查），
+            # 『结果 = 1 加 f（乙）』的 乙 可静默过审；此处递归补齐。
+            for a in (getattr(expr, 'args', None) or []):
+                self._check_expression(a)
             name = getattr(expr, 'name', None)
             if name is not None and name not in self.function_params:
                 self.errors.append(
@@ -791,21 +877,33 @@ class NameChecker:
 
     # ---- 专项检查 ----
 
-# 生效条件：以 name/line/col 调用时——name 已在 symbol_table 则置其 used=True，且 source=="predefined" 时加入 predefined_used 后返回；否则 name 包含某个预定义符号（s in name 且 s != name）时以 attributes={"auto_declared":True,"contains":contained} 自动登记为用户变量并返回；否则存在被包含匹配（name in s 且 s != name）时向 warnings 追加"可能是 '{container[0]}' 的一部分"并返回；否则以 attributes={"auto_declared":True} 自动登记为用户变量。
-    def _check_identifier(self, name: str, line: int, col: int):
+# 生效条件：以 name/line/col（is_read 默认 False）调用时——name 已在 symbol_table 则置其 used=True，且 source=="predefined" 时加入 predefined_used 后返回；is_read 为真（N271 读取位置：条件/比较/右值/返回/实参等经 _check_expression 的标识符面）时未声明即向 errors 追加"未声明（以名举实）"并返回（不再隐式自动声明）；否则 name 包含某个预定义符号（s in name 且 s != name）时以 attributes={"auto_declared":True,"contains":contained} 自动登记为用户变量并返回；否则存在被包含匹配（name in s 且 s != name）时向 warnings 追加"可能是 '{container[0]}' 的一部分"并返回；否则以 attributes={"auto_declared":True} 自动登记为用户变量。
+    def _check_identifier(self, name: str, line: int, col: int,
+                          is_read: bool = False):
         """检查标识符是否已声明
 
-        匹配策略（v2.1）：
+        匹配策略（v2.2）：
         1. 完全匹配 → 命中（预定义或用户声明）
-        2. 子串匹配（包含预定义符号）→ 自动声明为用户变量
-           （如 "新信任路径"、"累积信任值" 是合法的多词短语）
-        3. 被包含匹配 → 警告（建议用完整名称）
-        4. 均不匹配 → 自动声明为用户变量（宽松模式）
+        2. is_read=True（N271 读取位置）→ 未声明即 **error**——读取位置
+           的隐式自动声明会把 NameError 掩蔽到运行期（『若 甲 大于 0.5，
+           则 止。』修复前 success=True 零警告、运行期 LOAD_NAME 炸）
+        3. 指令操作数位置（is_read=False，默认）保留既有宽松：
+           子串匹配（包含预定义符号的多词短语，如 "新信任路径"、
+           "累积信任值"）→ 自动声明为用户变量（文档化的有意设计）；
+           被包含匹配 → 警告；完全未匹配 → 自动声明（宽松模式）
         """
         if name in self.symbol_table:
             self.symbol_table[name].used = True
             if self.symbol_table[name].source == "predefined":
                 self.predefined_used.add(name)
+            return
+
+        # N271：读取位置——未声明即编译期 error（以名举实）
+        if is_read:
+            self.errors.append(
+                f"L{line}:C{col} 标识符 '{name}' 未声明"
+                f"（以名举实：读取前须先赋值）"
+            )
             return
 
         # 子串匹配：包含已知预定义符号的多词短语
@@ -892,34 +990,71 @@ class NameChecker:
             f"情感权重不可超过 {max_w}，当前值: {value}"
         )
 
-# 生效条件：condition 为 None 时返回；仅当 condition.type == COMPARISON 且 condition.left 为 IDENTIFIER 且 left.name == "条件空间" 且 condition.right 为 IDENTIFIER 时——right.name 在模块级常量 CONDITION_SPACE_RULES 中则把 current_condition_space 置为该名称，否则 right.name 不在 PREDEFINED_SYMBOLS 中时向 warnings 追加"未知的条件空间: '{space_name}'"。
-    def _check_condition_space_switch(self, condition: ASTNode):
+# 生效条件：以节点调用即按节点形态解析空间名——IDENTIFIER 且其名在模块级常量 SPACE_NAME_TOKENS 中返回该名、否则返回 space_aliases 中该名的别名值（无别名得 None）；LITERAL 且 literal_type=="string" 且 literal_value 在 SPACE_NAME_TOKENS 中返回该值；节点为 None 或其余形态返回 None。
+    def _resolve_space_name(self, node: ASTNode) -> Optional[str]:
+        """从节点解析空间名字符串（N270 别名跟随单点）
+
+        IDENTIFIER：名字本身是空间名 ⇒ 自身；否则查顺序流别名环境
+        （甲=伴侣 ⇒ 解析出 伴侣；链式传递；中途重赋值已 pop ⇒ None）。
+        LITERAL string：字面值在空间名集 ⇒ 该值。
+        其余形态（数值/表达式/None）⇒ None（VM 无对应静态规则）。
         """
-        检测条件语句中的条件空间切换
-        如：若条件空间为伴侣 → 切换当前上下文为「伴侣」
+        if node is None:
+            return None
+        if node.type == NodeType.IDENTIFIER:
+            name = node.name
+            if name in SPACE_NAME_TOKENS:
+                return name
+            return self.space_aliases.get(name)
+        if (node.type == NodeType.LITERAL and
+                getattr(node, "literal_type", None) == "string"):
+            val = node.literal_value
+            if val in SPACE_NAME_TOKENS:
+                return val
+        return None
+
+# 生效条件：condition 为 None 或非 COMPARISON 时返回 None；仅当 condition.left 为 IDENTIFIER 且 left.name=="条件空间"、condition.op 为 "=="（正向）或 "!="（负向）、condition.right 为 IDENTIFIER 时继续——右操作数经 _resolve_space_name 解析（含别名）得到空间名且该名在 CONDITION_SPACE_RULES 中时返回 (空间名, positive)；解析不出且 right.name 不在 PREDEFINED_SYMBOLS 中时向 warnings 追加"未知的条件空间: '{right.name}'"后返回 None；其余（含 >、<、不大于、不小于等不构成确定切换语境者）返回 None。
+    def _condition_space_switch_of(self, condition: ASTNode):
+        """条件空间比较的切换语境（N270 极性感知单点）
+
+        返回 (space_name, positive)：
+          positive=True ——『条件空间 为/等于 X』：then 内处于 X；
+          positive=False ——『条件空间 不为/不等于 X』：else 内处于 X。
+        修复前不看极性、then/else 同顶一个空间：负向条件误拒、正向
+        else 误拦（详见 _check_condition）。
         """
-        # 检查是否为 "条件空间 为/等于 X" 的模式
-        if condition is None:
-            return
+        if condition is None or condition.type != NodeType.COMPARISON:
+            return None
 
-        if condition.type == NodeType.COMPARISON:
-            left = condition.left
-            right = condition.right
+        left = condition.left
+        right = condition.right
+        if not (left and left.type == NodeType.IDENTIFIER and
+                left.name == "条件空间"):
+            return None
 
-            # 左操作数是 "条件空间"，右操作数是空间名称
-            if (left and left.type == NodeType.IDENTIFIER and
-                    left.name == "条件空间"):
-                if right and right.type == NodeType.IDENTIFIER:
-                    space_name = right.name
-                    if space_name in CONDITION_SPACE_RULES:
-                        self.current_condition_space = space_name
-                    elif space_name not in PREDEFINED_SYMBOLS:
-                        self.warnings.append(
-                            f"L{right.line}:C{right.column} "
-                            f"未知的条件空间: '{space_name}'"
-                        )
+        if condition.op == "==":
+            positive = True
+        elif condition.op == "!=":
+            positive = False
+        else:
+            # >、<、不大于、不小于等对条件空间名的比较不构成确定的切换语境
+            return None
 
-# 生效条件：value_node 为 None 时返回；value_node.type 为 IDENTIFIER 时取其 name、为 LITERAL 且 literal_type=="string" 时取其 literal_value 作 space_name，其余形态（数值字面量/表达式/其他）直接返回不动作；space_name 为"恢复默认"时把 current_condition_space 置"默认"（VM 弹栈到根语义），在 CONDITION_SPACE_RULES 中时置为该名称，否则不在 PREDEFINED_SYMBOLS 中时向 warnings 追加"L{value_node.line}:C{value_node.column} 未知的条件空间: '{space_name}'"。
+        if right is None or right.type != NodeType.IDENTIFIER:
+            return None
+
+        space_name = self._resolve_space_name(right)
+        if space_name is not None and space_name in CONDITION_SPACE_RULES:
+            return (space_name, positive)
+        # 未知空间名：沿既有「仅警告」语义（不放行错误值也不误杀）
+        if space_name is None and right.name not in PREDEFINED_SYMBOLS:
+            self.warnings.append(
+                f"L{right.line}:C{right.column} "
+                f"未知的条件空间: '{right.name}'"
+            )
+        return None
+
+# 生效条件：value_node 为 None 时返回；否则先经 _resolve_space_name 解析（含 N270 别名跟随：甲=伴侣 后 条件空间=甲 解析出「伴侣」），解析不出时回落原始名（IDENTIFIER 取其 name、LITERAL 且 literal_type=="string" 取其 literal_value，其余形态直接返回不动作）；space_name 为"恢复默认"时把 current_condition_space 置"默认"（VM 弹栈到根语义），在 CONDITION_SPACE_RULES 中时置为该名称，否则不在 PREDEFINED_SYMBOLS 中时向 warnings 追加"L{value_node.line}:C{value_node.column} 未知的条件空间: '{space_name}'"。
     def _apply_space_assign_switch(self, value_node: ASTNode):
         """
         赋值「条件空间 = <空间名>」的检查上下文联动
@@ -927,20 +1062,26 @@ class NameChecker:
         VM 侧 STORE_NAME 对 BUILTIN_CONDITION_SPACE 真切换
         （condition_vm.py:208-213；SEMANTICS.md §1.2），名实校验须同步，
         否则赋值形态使空间约束（如伴侣空间情感权重上限 0.15）失效。
-        语义对齐 _check_condition_space_switch 与 VM _switch_condition_space。
+        语义对齐 _condition_space_switch_of 与 VM _switch_condition_space。
+        N270：空间名先经别名单点解析（甲=伴侣 ⇒ 条件空间=甲 等价于 =伴侣，
+        消除别名绕过）；解析不出时回落原始名逻辑（未知空间名仅警告等
+        既有语义逐字不变）。
         """
         if value_node is None:
             return
 
-        # 空间名可来自标识符（条件空间 = 伴侣）或字符串字面量（= "伴侣"）
-        if value_node.type == NodeType.IDENTIFIER:
-            space_name = value_node.name
-        elif (value_node.type == NodeType.LITERAL and
-                getattr(value_node, "literal_type", None) == "string"):
-            space_name = value_node.literal_value
-        else:
-            # 数值/表达式等非空间名形态：不动上下文（VM 无对应静态规则）
-            return
+        # N270：别名/直接名/字符串字面量的统一解析（单点）
+        space_name = self._resolve_space_name(value_node)
+        if space_name is None:
+            # 空间名可来自标识符（条件空间 = 伴侣）或字符串字面量（= "伴侣"）
+            if value_node.type == NodeType.IDENTIFIER:
+                space_name = value_node.name
+            elif (value_node.type == NodeType.LITERAL and
+                    getattr(value_node, "literal_type", None) == "string"):
+                space_name = value_node.literal_value
+            else:
+                # 数值/表达式等非空间名形态：不动上下文（VM 无对应静态规则）
+                return
 
         if space_name == "恢复默认":
             # VM 语义：弹栈到根并置名「默认」（SEMANTICS.md §1.2）
@@ -1064,6 +1205,7 @@ class NameChecker:
         self.predefined_used = set()
         self.user_declared = set()
         self.current_condition_space = None
+        self.space_aliases = {}
 
 # 生效条件：required 为空，固定输出标题三段并遍历 sorted(self.predefined_used) 追加每个能在 symbol_table.get(name) 命中的符号行（缺键或假值则跳过）；当 self.user_declared、self.errors、self.warnings 各自非空时追加对应段落，而 errors 与 warnings 同时为空时改为输出「名实校验通过，无错误无警告」行，最终返回这些行以 "\n" 连接的结果。
     def report(self) -> str:

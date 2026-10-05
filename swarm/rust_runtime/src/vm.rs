@@ -27,6 +27,13 @@ const CONDITION_SPACE_NAMES: [&str; 5] = ["伴侣", "工作", "默认", "恢复�
 const TRUST_COMPONENT_NAMES: [&str; 5] =
     ["P_trust", "T_pred", "T_context", "E_weight", "情感权重"];
 
+/// SEMANTICS.md §1 写面标「—」的只读内建名（N272）：写入 → `VmError::Error`。
+/// 与 compiler/{name_checker,condition_vm}.py 的 `READONLY_BUILTIN_NAMES` 同集
+/// ——编译期/运行期同判；修复前写入落 symbols 静默遮蔽内建读取（两 VM 皆漏）。
+fn is_readonly_builtin(name: &str) -> bool {
+    name == BUILTIN_TRUST_THRESHOLD || CONDITION_SPACE_NAMES.contains(&name)
+}
+
 /// 栈值/符号值。Int 保留整数算术语义（对齐 Python int/float 区分）。
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -434,6 +441,13 @@ impl VM {
                         return Err(VmError::Error(format!("{} 只能写数值", key)));
                     }
                     *slot = as_f64(&v);
+                } else if is_readonly_builtin(&key) {
+                    // N272：SEMANTICS.md §1 写面「—」的只读内建名——写入即
+                    // 结构化拒（修复前落 symbols 静默遮蔽内建读取；与 Python
+                    // 侧 VMBuiltinError('readonly') 同判）。
+                    return Err(VmError::Error(format!(
+                        "{key} 是只读内建名，不可写入（SEMANTICS.md §1 写面「—」）"
+                    )));
                 } else {
                     self.symbols.insert(key, v);
                 }

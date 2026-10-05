@@ -102,19 +102,23 @@ check('③d 函数体单语句仍为语句本身', n7 == 1 and body_len(s7.body)
 
 print('--- (4) 双入口产物语义：B 须受条件门控 ---')
 
-r8 = api_compile('若 甲 大于 0，则 德 0.1；德 0.2。')
+# N271（2026-10-05）：读取位置收紧后，条件读取「甲」须先声明——前置
+# 『甲 = 1。』使本段保持合法正例；门控结构断言改按 JIF 相对定位。
+_r8src = '甲 = 1。若 甲 大于 0，则 德 0.1；德 0.2。'
+r8 = api_compile(_r8src)
 _indented = [ln for ln in r8.code.splitlines() if '_runtime.accumulate_trust' in ln]
 check('④a api success=True', r8.success is True, 'errors=%s' % r8.errors[:1])
 check('④b 两处 德 调用均缩进（在 if 体内）',
       len(_indented) == 2 and all(ln.startswith('    _runtime') for ln in _indented),
       str(_indented))
 
-code8, res8 = vm_compile('若 甲 大于 0，则 德 0.1；德 0.2。')
+code8, res8 = vm_compile(_r8src)
 ops8 = [op.name for op, _ in code8]
 check('④c vm ok=True', res8['ok'] is True, str(res8.get('errors', [])[:1]))
+_ji8 = ops8.index('JUMP_IF_FALSE')
 check('④d vm 字节码：两个 DE 均在 JUMP_IF_FALSE 与 JUMP 之间（同受门控）',
-      ops8[:4] == ['LOAD_NAME', 'PUSH_CONST', 'CMP_GT', 'JUMP_IF_FALSE']
-      and ops8[4:6] == ['DE', 'DE'] and ops8[6] == 'JUMP',
+      ops8[_ji8 - 3:_ji8] == ['LOAD_NAME', 'PUSH_CONST', 'CMP_GT']
+      and ops8[_ji8 + 1:_ji8 + 3] == ['DE', 'DE'] and ops8[_ji8 + 3] == 'JUMP',
       str(ops8))
 
 print('--- (5) 步骤号边界不回归：「；」后紧跟步骤号仍终止块 ---')

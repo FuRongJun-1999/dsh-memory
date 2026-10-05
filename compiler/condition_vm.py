@@ -66,6 +66,10 @@ CONDITION_SPACE_NAMES = ("伴侣", "工作", "默认", "恢复默认", "default"
 TRUST_COMPONENT_NAMES = ("P_trust", "T_pred", "T_context", "E_weight", "情感权重")
 DEFAULT_CONDITION_SPACE = "默认"
 
+#: SEMANTICS.md §1 写面标「—」的只读内建名（N272）：写入 → 结构化拒。
+#: 与 name_checker.READONLY_BUILTIN_NAMES 同集——编译期/运行期同判。
+READONLY_BUILTIN_NAMES = frozenset(CONDITION_SPACE_NAMES) | {BUILTIN_TRUST_THRESHOLD}
+
 #: 内建名缺失哨兵（区分「内建值为 None」与「不是内建名」）
 _MISSING = object()
 
@@ -85,6 +89,24 @@ class VMResourceError(Exception):
     kind: "wall"（超出墙钟预算）| "mul_scale"（MUL 结果规模越界，申请未发生）
           | "memory"（单步分配失败 MemoryError 转结构化）
           | "jump"（跳转/调用入口/返回地址越界——N239 地址校验单点 _jump）"""
+# 生效条件：kind 存入 self.kind，message 交 super().__init__。
+    def __init__(self, kind, message):
+        self.kind = kind
+        super().__init__(message)
+
+
+class VMBuiltinError(Exception):
+    """内建名写入契约违例（N270/N272）：结构化错误——与 Rust
+    `VmError::Error`（vm.rs STORE_NAME 分支与 run 初值归一）同判据。
+
+    kind: "type"（写类型不符：信任值/信任分量须数值、条件空间须字符串）
+          | "readonly"（SEMANTICS.md §1 写面「—」的只读内建名写入）。
+    修复前：条件空间写数值静默成空间名（cond_name=0.9）、信任值写字符串
+    裸 TypeError（末态 round 崩）、信任阈值/空间名写入落 symbols 静默遮蔽
+    内建读取——两 VM 皆漏。
+    单点收口：写闸在 STORE_NAME（编译期同判由 name_checker 保护面扩展），
+    初值闸在 reset——不另立第二份判据。
+    """
 # 生效条件：kind 存入 self.kind，message 交 super().__init__。
     def __init__(self, kind, message):
         self.kind = kind
@@ -160,14 +182,25 @@ class ConditionVM:
         seed_trust = self.symbols.pop(BUILTIN_TRUST_VALUE, None)
         seed_space = self.symbols.pop(BUILTIN_CONDITION_SPACE, None)
         self.condition_stack = list(condition_stack or [])  # 条件空间栈
+        if seed_trust is not None and not isinstance(seed_trust, (int, float)):
+            # N270：注入初值契约与 Rust run（vm.rs:305-312）同判——修复前
+            # 字符串初值使 trust_value 成字符串、末态 round 时裸 TypeError。
+            raise VMBuiltinError(
+                "type",
+                f"名实不符：{BUILTIN_TRUST_VALUE} 初值需数值，得到 {seed_trust!r}")
         self.trust_value = trust if seed_trust is None else seed_trust
         # 信任分量寄存器（name_checker 声明的 P_trust/T_pred/T_context/
-        # E_weight/情感权重 的运行时投影；符号注入同样归一为初值）
+        # E_weight/情感权重 的运行时投影；符号注入同样归一为初值——
+        # 非数值注入丢弃，对齐 Rust run 的 is_num 守卫，N270）
         self.trust_parts = {n: 0.0 for n in TRUST_COMPONENT_NAMES}
         for _n in TRUST_COMPONENT_NAMES:
             if _n in self.symbols:
-                self.trust_parts[_n] = self.symbols.pop(_n)
-        if seed_space is not None:
+                _v = self.symbols.pop(_n)
+                if isinstance(_v, (int, float)):
+                    self.trust_parts[_n] = _v
+        # 初值空间名：仅字符串才切换（对齐 Rust run 的 Value::Str 分支——
+        # 非字符串注入不切换，N270）
+        if isinstance(seed_space, str):
             self._switch_condition_space(seed_space)
         self.scope_depth = 0                 # 术曰作用域深度
         self.trace = []                      # 执行轨迹（可解释性）
@@ -323,12 +356,34 @@ class ConditionVM:
                 self.stack.append(_v)
         elif op == Opcode.STORE_NAME:
             _val = self.stack.pop()
+            # 写面契约**单点**（N270/N272，SEMANTICS.md §1）——两台 VM 同判，
+            # 不另立第二份判据：
+            #   信任值/信任分量：只能写数值（Rust vm.rs:412-418/430-436 同）
+            #   条件空间：只能写空间名（字符串）（Rust vm.rs:420-429 同）
+            #   信任阈值/伴侣/工作/默认/恢复默认/default：只读（写面「—」）
             if arg == BUILTIN_TRUST_VALUE:       # 写信任值 → 寄存器
+                if not isinstance(_val, (int, float)):
+                    raise VMBuiltinError(
+                        "type",
+                        f"{BUILTIN_TRUST_VALUE} 只能写数值，得到 {_val!r}")
                 self.trust_value = _val
             elif arg == BUILTIN_CONDITION_SPACE: # 写条件空间 → 切换
+                if not isinstance(_val, str):
+                    raise VMBuiltinError(
+                        "type",
+                        f"{BUILTIN_CONDITION_SPACE} 只能写空间名（字符串），"
+                        f"得到 {_val!r}")
                 self._switch_condition_space(_val)
             elif arg in self.trust_parts:        # 写信任分量
+                if not isinstance(_val, (int, float)):
+                    raise VMBuiltinError(
+                        "type", f"{arg} 只能写数值，得到 {_val!r}")
                 self.trust_parts[arg] = _val
+            elif arg in READONLY_BUILTIN_NAMES:  # 只读内建名（写面「—」）
+                raise VMBuiltinError(
+                    "readonly",
+                    f"{arg} 是只读内建名，不可写入"
+                    f"（SEMANTICS.md §1 写面「—」）")
             else:
                 self.symbols[arg] = _val
         elif op == Opcode.JUMP:

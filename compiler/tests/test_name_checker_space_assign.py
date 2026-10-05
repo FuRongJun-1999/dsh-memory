@@ -103,11 +103,21 @@ for tag, name, src in LEGAL:
 
 print('--- (5) 未知空间名：沿比较式「仅警告」语义（不放行错误值也不误杀）---')
 
-r5, e5 = api_no_crash('条件空间 = 未知空间\n止情感权重于0.9。')
-check('⑤a 未知空间名仅警告、编译仍成功（对齐比较式 :843-846）',
+# N271（2026-10-05）：裸词右值『未知空间』现为读取位置（未声明即拒）——
+# 「未知空间名仅警告、不误杀」的本意用字符串形态验证；裸词形态的拒绝由
+# ⑤a2 显式钉死（修复前它经宽松隐式自动声明过审、运行期 LOAD_NAME 才炸）。
+r5, e5 = api_no_crash('条件空间 = "未知空间"\n止情感权重于0.9。')
+check('⑤a 未知空间名（字符串形态）仅警告、编译仍成功（对齐比较式语义）',
       e5 is None and r5 is not None and r5.success is True
       and any('未知的条件空间' in w for w in r5.warnings),
       e5 or 'success=%s warnings=%s' % (r5.success, r5.warnings[:1]))
+
+r5a2, e5a2 = api_no_crash('条件空间 = 未知空间\n止情感权重于0.9。')
+check('⑤a2 裸词右值（读取未声明）编译期拒绝（N271 位置语义）',
+      e5a2 is None and r5a2 is not None and r5a2.success is False
+      and any('未声明' in e for e in r5a2.errors),
+      e5a2 or 'success=%s errors=%s' % (getattr(r5a2, 'success', None),
+                                        [str(x)[:60] for x in getattr(r5a2, 'errors', [])[:1]]))
 
 r5b, e5b = api_no_crash('条件空间 = 0.9。')
 check('⑤b 非空间名赋值（数值）不受影响仍成功',
