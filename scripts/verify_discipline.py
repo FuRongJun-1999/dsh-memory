@@ -12,11 +12,19 @@
   内嵌指纹 ≠ 当前真源指纹；仅 render:false 的真·手工投影允许无指纹（其漂移由字段级
   逐字比对兜底）。
 
+认知图投影节点腿（A2 使用者裁决 2026-10-05）：本案还有一腿校验「真源 ↔ 认知图
+structural/ 下 discipline:N 投影节点」的一致性，它需要显式 root（--cg-root / MDCG_ROOT）：
+  未提供 / 提供但不存在 / 存在但非认知图 三态**一律 fail-closed（退出码 2）**——
+此前「未提供」即静默 [SKIP] 退 0，判据体在全部自动化面从未执行；skipped 一律不计通过。
+四个自动化面（package.json gate / discipline-check.yml / verify_linux.sh / git-hooks）
+各自先 `discipline_nodes.py --write --init --cg-root .tmp/discipline-cg` 建最小库再显式传根。
+
 用法：
     python scripts/verify_discipline.py                 # 默认校验 enabled 目标
+    python scripts/verify_discipline.py --cg-root <root>  # 投影节点腿的执行面（缺失/无效即退 2）
     python scripts/verify_discipline.py --target codebuddy --allow-missing   # 干跑比对（产物未生成时不报错）
     python scripts/verify_discipline.py --json
-退出码：0 全部一致；1 存在漂移或缺失；2 用法错误。
+退出码：0 全部一致；1 存在漂移或缺失；2 用法错误 / 认知图 root 缺失或无效（fail-closed）。
 """
 from __future__ import annotations
 
@@ -302,7 +310,8 @@ def main(argv=None):
     ap.add_argument("--all-targets", action="store_true", help="含 enabled=false 的目标（干跑比对）")
     ap.add_argument("--allow-missing", action="store_true", help="产物不存在时不计为失败")
     ap.add_argument("--cg-root", default=None,
-                    help="认知图 root：校验 structural/ 投影节点一致性（缺省读环境变量 MDCG_ROOT；都无则跳过）")
+                    help="认知图 root：校验 structural/ 投影节点一致性（缺省读环境变量 MDCG_ROOT）。"
+                         "A2 裁决：未提供/不存在/非认知图三态一律 fail-closed（退出码 2）")
     ap.add_argument("--no-chain", action="store_true",
                     help="跳过祖先链发现（Pi⑦⑤ 报告面）；硬判据（path_dup / root_shadow）不受影响")
     ap.add_argument("--json", action="store_true")
@@ -320,17 +329,22 @@ def main(argv=None):
         t["_name"] = name
         results.append(check(t, src, repo, args.allow_missing))
 
-    # 认知图投影节点守卫（2026-09-16）：纪律在灵枢认知图 structural/ 下还有一份投影
-    # （tags 含 discipline:N），此前是手工快照、无守卫 → 改真源必然陈化。此处纳入
-    # 同一守卫（root 未提供则跳过：外部 clone 无认知图，不应因此误红）。
-    cg_res = DN.check_cg_nodes(repo, DN.resolve_root(args.cg_root))
+    # 认知图投影节点守卫（2026-09-16；A2 使用者裁决 2026-10-05 改口径）：纪律在灵枢认知图
+    # structural/ 下还有一份投影（tags 含 discipline:N），此前是手工快照、无守卫 → 改真源
+    # 必然陈化。此处纳入同一守卫。
+    # A2 裁决：root 缺失/无效**一律 fail-closed**——此前「未提供」即静默 [SKIP] 退 0，
+    # 判据体在全部自动化面从未执行；「提供但不存在」与「未提供」同分支。故取根走
+    # DN.require_root（三态文案单点），非 0 退出（退出码 2）；四个自动化面各自显式提供 root。
+    cg_res = DN.check_cg_nodes(repo, DN.require_root(args.cg_root))
 
     # Pi⑦⑤ 注入面发现 + 防重复（矩阵 injection: 段；未声明则整体静默跳过）
     inj_res = (check_injection_matrix(mx, repo, names, probe_chain=not args.no_chain)
                if R.injection_conf(mx) else None)
 
     bad = [r for r in results if not r["ok"]]
-    if (not cg_res.get("skipped")) and (not cg_res["ok"]):
+    # A2：skipped 不得计入通过——check_cg_nodes 在 root 缺失时已返回 ok=False，这里再显式
+    # 兜一层（任何 skipped 一律进 bad），免得日后有人只改一侧又把它变回静默绿。
+    if cg_res.get("skipped") or not cg_res["ok"]:
         bad = bad + [{"target": "cg-projection-nodes"}]
     if inj_res is not None and not inj_res["ok"]:
         bad = bad + [{"target": "injection-surface"}]
@@ -359,7 +373,8 @@ def main(argv=None):
                 print("        陈化：产物指纹 %s ≠ 当前真源 %s（改真源后未重渲染）"
                       % (r.get("artifact_sha"), r.get("source_sha")))
         if cg_res.get("skipped"):
-            print("[SKIP] %-10s %s" % ("cg-nodes", cg_res["reason"]))
+            # A2：skipped = 判据体没执行 ⇒ 不是通过态，显式升为失败（fail-closed）。
+            print("[FAIL] %-10s %s" % ("cg-nodes", cg_res["reason"]))
         else:
             cg_mark = "OK  " if cg_res["ok"] else "DRIFT"
             print("[%s] %-10s variant=%-7s -> 认知图投影节点 %d/%d 一致（真源指纹 %s）"

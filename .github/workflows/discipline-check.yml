@@ -25,7 +25,9 @@ on:
       - 'AGENTS.md'
       - 'scripts/render_discipline.py'
       - 'scripts/verify_discipline.py'
+      - 'scripts/discipline_nodes.py'
       - 'scripts/test_injection_chain.py'
+      - 'scripts/test_discipline_cg_root_failclosed.py'
       - '.github/workflows/discipline-check.yml'
   pull_request:
     paths:
@@ -38,7 +40,9 @@ on:
       - 'AGENTS.md'
       - 'scripts/render_discipline.py'
       - 'scripts/verify_discipline.py'
+      - 'scripts/discipline_nodes.py'
       - 'scripts/test_injection_chain.py'
+      - 'scripts/test_discipline_cg_root_failclosed.py'
       - '.github/workflows/discipline-check.yml'
 
 jobs:
@@ -56,8 +60,14 @@ jobs:
       # → render_discipline.py L28），门禁形同未上线：红着等于没门禁。
       - name: 安装守卫链依赖（PyYAML：render_discipline 解析 harnesses.yaml）
         run: python -m pip install pyyaml
+      # A2（2026-10-05 使用者裁决）：投影判据体必须在全部自动化面**真的执行**——此前无
+      # --cg-root 时 verify 静默 [SKIP] 退 0（判据体从未跑过）。CI 环境没有本机认知图库，
+      # 故先用仓内既有 discipline_nodes.py 在 checkout 里建一个最小库（只有 structural/ 层，
+      # 由真源同步而来、逐字节可重放），再把它的路径显式交给守卫；root 三态一律 fail-closed。
+      - name: 建最小认知图库（投影判据体的执行面；root 不存在则建）
+        run: python scripts/discipline_nodes.py --init --write --cg-root .tmp/discipline-cg
       - name: 纪律真源 ↔ 各端产物一致性（缺失/孤儿/工具名随端/陈化 四项硬校验）
-        run: python scripts/verify_discipline.py --allow-missing
+        run: python scripts/verify_discipline.py --allow-missing --cg-root .tmp/discipline-cg
       # 注入面守卫自检：祖先链发现 / 槽位声明完备 / path_dup·root_shadow 硬判据 / dir 别名折叠
       # （junction 别名折叠项在 Linux 上自动 SKIP——mklink 不存在，属环境差异非失败）
       - name: 注入面发现与防重复自检（Pi⑦⑤）

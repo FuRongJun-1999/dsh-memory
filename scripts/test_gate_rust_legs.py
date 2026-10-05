@@ -112,13 +112,15 @@ _LIVE = dict(F)
 _LEG1 = "python scripts/gate_rust_crate_test.py"
 _LEG2 = "python scripts/gate_rust_parity.py"
 _LEGS = (_LEG1, _LEG2)
-# 既有六条腿（追加新腿不得顶掉它们）
+# 既有六条腿（追加新腿不得顶掉它们）。A2（2026-10-05 使用者裁决）：discipline 腿自本轮起
+# 显式携带认知图 root（`--cg-root .tmp/discipline-cg`，root 缺失即 fail-closed）——值仍
+# 逐字取自 package.json gate 链，腿被顶掉/被改写都仍会在此点名。
 _OLD_LEGS = ("python scripts/check_unreachable.py",
              "python scripts/check_publish_artifact.py",
              "python scripts/cogmap_sync.py check",
              "python scripts/link_check.py",
              "python scripts/workspace_index.py --check",
-             "python scripts/verify_discipline.py --allow-missing")
+             "python scripts/verify_discipline.py --allow-missing --cg-root .tmp/discipline-cg")
 
 _EXE = os.path.join(_REPO, "rust", "target", "release",
                     "mdcg-eval.exe" if os.name == "nt" else "mdcg-eval")

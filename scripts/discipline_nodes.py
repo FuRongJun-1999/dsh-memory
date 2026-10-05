@@ -14,14 +14,27 @@
   - `render_discipline.py --all --write` 顺带同步（认知图 root 可用才做）
   - `verify_discipline.py` 校验一致性（root 不可用则跳过，外部 clone 不误红）
 
-root 解析顺序：`--cg-root` > 环境变量 `MDCG_ROOT` > 缺失 → 跳过（退出 0）。
+root 解析（三态单点 = resolve_root，A2 使用者裁决 2026-10-05）：`--cg-root` > 环境变量
+`MDCG_ROOT`；判据面（本文件 `--check` / verify_discipline.py）**三态一律 fail-closed**
+（非 0 退出）——
+  · 未提供         → 退出码 2。此前静默 `[SKIP]` 退 0 ⇒ 判据体在全部自动化面从未执行。
+  · 提供但不存在   → 退出码 2。此前与「未提供」同分支，文案还误写成「未提供」。
+  · 存在但非认知图 → 退出码 2。此前按「空库」报满额 DRIFT 退 1，看不出是**误配**。
+唯一豁免在**写向**：render_discipline.py 的「顺带同步」面未提供 root 时不同步
+（require_root(allow_missing=True)），使 `render_discipline.py --write` 在任何机器上
+可用；误配两态在写向同样 fail-closed（误配不许静默）。
+自动化面（package.json gate 链 / .github/workflows/discipline-check.yml /
+scripts/verify_linux.sh / scripts/git-hooks/pre-commit）各自用 `--init --write` 在仓内
+`.tmp/discipline-cg` 建一个**最小认知图库**（只有 structural/ 层，真源不变即逐字节可重放），
+再把该路径显式交给判据面——判据体因此每次都真执行。
 **不硬编码本机路径**（第14条：公开仓产物不得含本机绝对路径）。
 
 用法：
     python scripts/discipline_nodes.py --check [--cg-root <root>]
     python scripts/discipline_nodes.py --write [--cg-root <root>]
+    python scripts/discipline_nodes.py --write --init --cg-root <root>   # 建最小库（root 不存在则建之、空目录就地建层）
     python scripts/discipline_nodes.py --check --json
-退出码：0 一致或跳过；1 存在漂移；2 用法错误。
+退出码：0 一致；1 存在漂移；2 用法错误 / root 缺失或无效（fail-closed）。
 """
 from __future__ import annotations
 
@@ -47,30 +60,99 @@ _CARRIER_RE = re.compile(r"载体/位置：(.*?)；时间：(.*?)；方法：", 
 
 # ---------------------------------------------------------------- 基础工具
 
-# 生效条件：当显式参数 explicit 为真值时以其为候选 root，为假值（None/空串）时回落到环境变量 MDCG_ROOT，二者均假值则返回 None；候选经 expanduser/normpath 后，若 abspath 的 basename 以小写 "_md_cg_" 开头则 raise SystemExit（工具链产物目录，禁止作认知图 root），当 os.path.isdir 为真才返回该路径，否则返回 None。
-def resolve_root(explicit=None):
-    """认知图 root：显式参数 > MDCG_ROOT 环境变量 > None（跳过）。
+# 生效条件：无入参（惰性 import，cost 只在判定 root 形态时支付）；把仓根补进 sys.path 后返回 md_cg.mdcg 的 LAYERS 元组。
+def library_layers():
+    """认知图库的层目录单点：复用 md_cg/mdcg.py 的 LAYERS（不在本文件复制第二份字面量）。"""
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if repo not in sys.path:
+        sys.path.insert(0, repo)
+    from md_cg.mdcg import LAYERS  # noqa: PLC0415 —— 惰性：仅 root 形态判定才付导入成本
+    return tuple(LAYERS)
 
+
+# 生效条件：无入参时直接构造 SystemExit；有入参时先向 stderr 写 "[discipline_nodes] <msg>" 再 raise SystemExit(2)。
+def _fail(msg):
+    """fail-closed 单点：误配/缺失的文案走 stderr，退出码 2（用法错误口径，与 check 的 1=漂移区分）。"""
+    if msg:
+        sys.stderr.write("[discipline_nodes] " + msg + "\n")
+    raise SystemExit(2)
+
+
+# 生效条件：当显式参数 explicit 为真值（非空串）时以其为候选 root，为假值（None/空串）时回落到环境变量 MDCG_ROOT，二者均假值则返回 {"state":"missing"}；候选经 expanduser/normpath 归一后 abspath 的 basename 若以小写 "_md_cg_" 开头则 _fail（工具链产物目录，禁止作认知图 root）；路径非目录返回 {"state":"not_found"}，是目录且其下含 LAYERS 任一层目录返回 {"state":"ok"}，否则返回 {"state":"not_library"}（bool 字段 empty 标记该目录是否为空）。
+def resolve_root(explicit=None):
+    """认知图 root 三态判定（只判定，不建目录、不写盘）。
+
+    返回 {"state", "root", "message", "empty"}：
+      ok            root 存在且是认知图库（其下含 LAYERS 任一层目录）
+      missing       未提供（--cg-root 与 MDCG_ROOT 均为空）
+      not_found     提供了但不存在 / 不是目录
+      not_library   存在但非认知图库（无任一 LAYERS 层目录）；empty 标记该目录是否为空
+
+    三态各给**独立文案**（历史缺陷：not_found 与 missing 同分支、文案误写「未提供」）。
     `_md_cg_` 前缀守卫（2026-09-20 补，与 mcp_server 的同名守卫同口径）：该前缀目录是
     md_cg 工具链的**导出/评测产物**（白箱语料 `_md_cg_wisdom_graph`、评测灌库
-    `_md_cg_eval_*` 等，只读或可再生语义），禁止作为认知图 root。历史缺陷实例（本轮）：
+    `_md_cg_eval_*` 等，只读或可再生语义），禁止作为认知图 root。历史缺陷实例：
     误传 `--cg-root _md_cg_wisdom_graph` → 投影节点被写进禁止目录，且因 `_new_node_fm`
-    nid 碰撞被静默覆盖。与「root 不可用则跳过」的区别：这是**误配**而非不可用——
-    静默跳过会让误配无声通过，故 fail-closed 抛出。
+    nid 碰撞被静默覆盖——误配必须响，故 fail-closed 抛出（退出码 2）。
     """
-    root = explicit or os.environ.get("MDCG_ROOT")
-    if not root:
-        return None
-    root = os.path.normpath(os.path.expanduser(root))
+    raw = explicit or os.environ.get("MDCG_ROOT")
+    if not raw:
+        return {"state": "missing", "root": None, "empty": False,
+                "message": "未提供认知图 root（--cg-root / MDCG_ROOT）——投影判据体没有执行面。"
+                           "自动化面必须显式提供：先用 "
+                           "`python scripts/discipline_nodes.py --write --init --cg-root <dir>` "
+                           "建最小库（四自动化面口径），或指向本机认知图库"
+                           "（md_cg/datapath.py 的 mdcg_root() 解析：env MDCG_ROOT > "
+                           "paths.json > 用户级状态根 data/mdcg）。"}
+    root = os.path.normpath(os.path.expanduser(raw))
     base = os.path.basename(os.path.abspath(root)).lower()
     if base.startswith(BAD_ROOT_PREFIX):
-        raise SystemExit(
-            "[discipline_nodes] root 指向 md_cg 工具链产物目录（`%s` 前缀 = 导出/评测快照，"
+        _fail(
+            "root 指向 md_cg 工具链产物目录（`%s` 前缀 = 导出/评测快照，"
             "只读或可再生语义），禁止作为认知图 root：\n    %s\n"
             "请指向主认知图目录（本机由 md_cg/datapath.py 的 mdcg_root() 解析："
             "env MDCG_ROOT > paths.json > 用户级状态根 data/mdcg）。"
             % (BAD_ROOT_PREFIX, root))
-    return root if os.path.isdir(root) else None
+    if not os.path.isdir(root):
+        return {"state": "not_found", "root": root, "empty": False,
+                "message": "提供的认知图 root **不存在**（或不是目录）：\n    %s\n"
+                           "若是要新建库，请用 `--write --init`（root 不存在时建之），"
+                           "否则请修正路径。" % root}
+    if not any(os.path.isdir(os.path.join(root, lay)) for lay in library_layers()):
+        empty = not os.listdir(root)
+        return {"state": "not_library", "root": root, "empty": empty,
+                "message": "提供的认知图 root **存在但不是认知图库**（其下无 %s 任一层目录）：\n"
+                           "    %s\n"
+                           "（%s请指向认知图库根，而不是仓库根/文档目录等其它位置。）"
+                           % ("/".join(library_layers()), root,
+                              "该目录为空——" if empty else "")}
+    return {"state": "ok", "root": root, "empty": False, "message": ""}
+
+
+# 生效条件：resolve_root 得三态后——ok 返回 root；missing 在 allow_missing 为真时返回 None、为假时 _fail；not_found 在 init 为真时 makedirs(root) 后返回该路径、为假时 _fail；not_library 在 init 为真且该目录为空（empty）时返回该路径、否则 _fail。
+def require_root(explicit=None, allow_missing=False, init=False):
+    """判据面 / 写面的统一取根：非 ok 一律 fail-closed（stderr 文案 + 退出码 2）。
+
+    allow_missing：**仅**对「未提供」态放行（返回 None）——给 render_discipline.py 的
+      「顺带同步」面用（写向不产出判据，且 render --write 必须能在任何机器上跑）；
+      误配两态不受此豁免（误配必须响，不许静默）。
+    init：允许「建库」——root 不存在则建之、空目录就地建层（这正是四自动化面建
+      `.tmp/discipline-cg` 最小库的路径）；**含内容的**非认知图目录仍 fail-closed
+      （那是指错地方，不是待建的库）。
+    """
+    v = resolve_root(explicit)
+    if v["state"] == "ok":
+        return v["root"]
+    if v["state"] == "missing" and allow_missing:
+        return None
+    if not init:
+        _fail(v["message"])
+    if v["state"] == "not_found":
+        os.makedirs(v["root"], exist_ok=True)
+        return v["root"]
+    if v["state"] == "not_library" and v["empty"]:
+        return v["root"]
+    _fail(v["message"])
 
 
 # 生效条件：对 path 指向的文本，raw 以“---”开头且从第 4 个字符起能找到“\n---”时返回 (fm, body)，否则返回 (None, raw)。
@@ -194,12 +276,15 @@ def scan_nodes(root):
     return out
 
 
-# 生效条件：当 root 不为 None 时，基于 repo 加载真源与矩阵，对每条真源节点在 scan_nodes(root) 结果中检查缺失、source_sha 不等、condition_space.trigger 经 _norm 不等、expected_body 各行经 _norm 不包含于节点正文、fm.id 规范化后为空，任一项成立即记入 drift 并返回 ok=not drift；root 为 None 时返回 skipped。
+# 生效条件：当 root 不为 None 时，基于 repo 加载真源与矩阵，对每条真源节点在 scan_nodes(root) 结果中检查缺失、source_sha 不等、condition_space.trigger 经 _norm 不等、expected_body 各行经 _norm 不包含于节点正文、fm.id 规范化后为空，任一项成立即记入 drift 并返回 ok=not drift；root 为 None（判据体没有执行面）时返回 skipped=True 且 **ok=False**（fail-closed：skipped 不得计入通过）。
 def check_cg_nodes(repo, root, allow_missing=True):
-    """守卫：真源 ↔ 认知图投影节点一致性。root 为 None 时返回 skipped。"""
+    """守卫：真源 ↔ 认知图投影节点一致性。root 为 None → skipped 且 ok=False（不计通过）。"""
     if root is None:
-        return {"skipped": True, "reason": "未提供认知图 root（--cg-root / MDCG_ROOT），跳过投影节点校验",
-                "ok": True, "drift": [], "nodes": 0}
+        return {"skipped": True, "ok": False,
+                "reason": "未提供认知图 root（--cg-root / MDCG_ROOT）——投影判据体未执行。"
+                          "判据面一律 fail-closed：请显式提供 root"
+                          "（四自动化面口径 = `--init --write --cg-root .tmp/discipline-cg`）。",
+                "drift": [], "nodes": 0}
     src = R.load_source(repo)
     sha = R.source_sha(repo)
     source_rel = os.path.basename(R.source_path(repo))
@@ -288,7 +373,9 @@ def _new_node_fm(exp, now):
 def sync_cg_nodes(repo, root, write=False):
     """把真源同步进认知图投影节点。write=False 时干跑（只报告差异）。"""
     if root is None:
-        return {"skipped": True, "reason": "未提供认知图 root（--cg-root / MDCG_ROOT），跳过投影节点同步",
+        return {"skipped": True,
+                "reason": "未提供认知图 root（--cg-root / MDCG_ROOT），本次不同步"
+                          "（写向豁免；判据面由 verify_discipline 强制 fail-closed）",
                 "changed": [], "created": []}
     src = R.load_source(repo)
     sha = R.source_sha(repo)
@@ -339,20 +426,23 @@ def sync_cg_nodes(repo, root, write=False):
             "source_sha": sha, "nodes": len(nodes)}
 
 
-# 生效条件：argv 为 None 时 argparse 从 sys.argv 解析，否则解析给定 argv；解析出 --write 时执行 sync_cg_nodes(repo, resolve_root(args.cg_root), write=True) 并返回 0；否则执行 check_cg_nodes(repo, resolve_root(args.cg_root)) 并按返回的 ok 返回 0/1。
+# 生效条件：argv 为 None 时 argparse 从 sys.argv 解析，否则解析给定 argv；解析出 --write 时以 require_root(args.cg_root, init=args.init) 取根（缺失/误配 fail-closed）并执行 sync_cg_nodes(write=True) 返回 0；否则以 require_root(args.cg_root) 严格取根（三态一律 fail-closed）执行 check_cg_nodes 并按 ok 返回 0/1。
 def main(argv=None):
     ap = argparse.ArgumentParser(description="工作纪律认知图投影节点同步器与守卫")
     ap.add_argument("--repo", default=R.REPO_DEFAULT)
-    ap.add_argument("--cg-root", default=None, help="认知图 root（缺省读环境变量 MDCG_ROOT）")
+    ap.add_argument("--cg-root", default=None,
+                    help="认知图 root（缺省读环境变量 MDCG_ROOT）；判据面缺失/无效一律 fail-closed（退出码 2）")
     ap.add_argument("--check", action="store_true", help="校验一致性（默认动作）")
     ap.add_argument("--write", action="store_true", help="同步（写盘）")
+    ap.add_argument("--init", action="store_true",
+                    help="建库：root 不存在则建之、空目录就地建层（四自动化面用它建判据体的执行面最小库）")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
     repo = os.path.abspath(args.repo)
-    root = resolve_root(args.cg_root)
 
     if args.write:
+        root = require_root(args.cg_root, init=args.init)
         rep = sync_cg_nodes(repo, root, write=True)
         if args.json:
             print(json.dumps(rep, ensure_ascii=False, indent=2))
@@ -368,6 +458,8 @@ def main(argv=None):
                 print("  已一致，无需改动")
         return 0
 
+    # 判据面：三态（未提供 / 不存在 / 非认知图）一律 fail-closed，绝不再静默 [SKIP] 退 0。
+    root = require_root(args.cg_root)
     res = check_cg_nodes(repo, root)
     if args.json:
         print(json.dumps(res, ensure_ascii=False, indent=2))

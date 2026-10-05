@@ -6,6 +6,8 @@
 #   实测（v17-1）：真源位移按区域是 +8/+9/+15/+18/+37/+56/+87，不是常数，
 #   手工施加位移必然翻车——那次 32/32 处统一偏 −1，把 CI 门禁踩红。
 #   故本地钩子做「自动修」（build 重挂），发布链（prepublishOnly）与 CI 做「报错拦」（check）。
+#   该分工**只针对行号面**；纪律投影面没有「自动修」的本地终点（真投影住在使用者的
+#   认知图库里），只能在钩子里拦一道——见文末「认知图投影判据体」段。
 #
 # 安装（一次性，仓库级本地配置，不入库）：
 #   git config core.hooksPath scripts/git-hooks
@@ -23,3 +25,12 @@ fi
 
 "$PY" scripts/cogmap_sync.py build
 git add README.md "docs/mdcg/功能调用映射表_v0.1.md"
+
+# 认知图投影判据体（A2，2026-10-05 使用者裁决）：判据体必须在自动化面**真的执行**——
+# 此前 verify 无 --cg-root 时静默 [SKIP] 退 0，等于没跑。本机没有可移植的认知图库路径，
+# 故先生成仓内最小库（.tmp/，root 不存在则建、不触任何在役库），再把路径显式交给守卫；
+# 判据面 root 三态（未提供/不存在/非认知图）一律 fail-closed 非 0。
+# 红了怎么修：改过真源就跑 `"$PY" scripts/render_discipline.py --all --write` 重渲染，
+# 或按输出指认的漂移项逐处修；确需绕过用 `git commit --no-verify`。
+"$PY" scripts/discipline_nodes.py --init --write --cg-root .tmp/discipline-cg
+"$PY" scripts/verify_discipline.py --allow-missing --cg-root .tmp/discipline-cg

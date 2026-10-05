@@ -116,6 +116,15 @@ llm-adapter-poc/
 # run_*.py 重跑再生；实验结论沉淀在 docs/ 的评测报告 md 中）
 docs/experiments/
 .env
+
+# 认知图投影判据体的执行面夹具（A2，2026-10-05 使用者裁决）：package.json gate 链 /
+# .github/workflows/discipline-check.yml / scripts/verify_linux.sh / pre-commit 钩子用
+# `discipline_nodes.py --init --write --cg-root .tmp/discipline-cg` 在仓内建一个**最小
+# 认知图库**（只有 structural/ 层，18 条 discipline 投影节点由真源现算），再把该路径显式
+# 交给 verify_discipline 执行投影判据体。它是可再生的运行态产物（真源不变即逐字节可重放，
+# 且 nid/created_at 带时刻），不入库。
+/.tmp/
+
 # ZCode 桌面端自动同步的本地忽略文件（工具维护，非仓库内容）；nul 为
 # Git Bash 下 `> nul` 重定向误建的意外产物，均不入库
 .zcodeignore

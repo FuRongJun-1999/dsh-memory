@@ -590,9 +590,13 @@ def main(argv=None):
     # 投影（tags 含 discipline:N），是 route 命中纪律的检索面。它此前是手工快照、不在
     # 渲染矩阵内 → 改真源后必然陈化（实例：第16条新增「读回确认」后投影仍停留旧
     # source_sha/旧正文；第17条无投影节点）。此处并入渲染链路一并刷新。
-    # root 未提供（--cg-root / MDCG_ROOT）则跳过——外部 clone 不产生任何依赖。
+    # root 未提供（--cg-root / MDCG_ROOT）则跳过——**写向豁免**（A2 使用者裁决 2026-10-05）：
+    # 渲染链路要能在任何机器上跑（public clone 无认知图库），且本面是「顺带同步」、不产出
+    # 判据；判据面（verify_discipline.py / discipline_nodes.py --check）由 require_root 强制
+    # 三态 fail-closed。误配两态（不存在 / 非认知图）在写向同样 fail-closed——误配不许静默。
     import discipline_nodes as DN
-    cg_rep = DN.sync_cg_nodes(repo, DN.resolve_root(args.cg_root), write=args.write)
+    cg_rep = DN.sync_cg_nodes(repo, DN.require_root(args.cg_root, allow_missing=True),
+                             write=args.write)
     if not args.json:
         if cg_rep.get("skipped"):
             print("[SKIP] " + cg_rep["reason"])

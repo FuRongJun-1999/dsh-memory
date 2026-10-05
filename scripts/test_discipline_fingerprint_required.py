@@ -26,10 +26,12 @@ render:false 的真·手工投影豁免（其漂移由字段级逐字比对兜�
   S6 真·手工投影豁免（render:false，合成矩阵）：无指纹**不**记硬失败；同一产物挂到
      render 目标则记硬失败（豁免只因 render:false，不因文本内容）
   S7 指针型不被削弱（合成矩阵 pointer:true）：无指纹仍记 pointer_sha 硬失败
-  S8 在役链路不误伤：真实仓 `verify_discipline.py --allow-missing`（CI / npm gate 口径）→ exit 0
+  S8 在役链路不误伤：真实仓 `verify_discipline.py --allow-missing --cg-root <最小库>`
+     （CI / npm gate 口径；A2 2026-10-05 裁决后 root 缺失即 fail-closed）→ exit 0
 
 运行：python -X utf8 scripts/test_discipline_fingerprint_required.py
 """
+import atexit
 import json
 import os
 import re
@@ -42,6 +44,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 
 _VD = os.path.join(HERE, "verify_discipline.py")
+_DN = os.path.join(HERE, "discipline_nodes.py")
 _MATRIX = os.path.join(REPO, "docs", "discipline", "harnesses.yaml")
 _SOURCE = os.path.join(REPO, "docs", "工作纪律_认知图条目_v1.1.json")
 _PRODUCT = os.path.join(REPO, "zcode", "AGENTS.md")
@@ -70,9 +73,34 @@ def _env():
     return dict(os.environ, PYTHONUTF8="1")
 
 
+_CG_ROOT = None
+
+
+def _cg_root():
+    """投影腿的执行面（A2，2026-10-05）：root 缺失即 fail-closed，故现建一个最小库当合法 root。
+
+    与四自动化面同口径：`discipline_nodes.py --init --write --cg-root <仓外临时目录>`。
+    只建一次（真源不变即一致），跑完由 atexit 清理。
+    """
+    global _CG_ROOT
+    if _CG_ROOT is None:
+        d = tempfile.mkdtemp(prefix="n253_cg_lib_")
+        p = subprocess.run([sys.executable, "-X", "utf8", _DN, "--init", "--write",
+                            "--cg-root", d], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", env=_env(), cwd=HERE,
+                           timeout=300)
+        if p.returncode != 0:
+            raise RuntimeError("最小认知图库建失败（rc=%s）：%s"
+                               % (p.returncode, (p.stdout or "") + (p.stderr or ""))[-300:])
+        atexit.register(shutil.rmtree, d, True)
+        _CG_ROOT = d
+    return _CG_ROOT
+
+
 def _verify_json(repo, targets):
     """跑守卫 → (results 列表, 原始 stdout)。targets 为 target 名列表。"""
-    argv = [sys.executable, "-X", "utf8", _VD, "--repo", repo, "--json"]
+    argv = [sys.executable, "-X", "utf8", _VD, "--repo", repo, "--json",
+            "--cg-root", _cg_root()]
     for t in targets:
         argv += ["--target", t]
     p = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
@@ -231,8 +259,9 @@ def main():
                   and "pointer_sha" in _fingerprint_keys(by["n253-pointer"]),
                   by["n253-pointer"])
 
-    print("[3] 在役链路不误伤：真实仓 --allow-missing")
-    p = subprocess.run([sys.executable, "-X", "utf8", _VD, "--allow-missing"],
+    print("[3] 在役链路不误伤：真实仓 --allow-missing（A2 后口径含 --cg-root 最小库）")
+    p = subprocess.run([sys.executable, "-X", "utf8", _VD, "--allow-missing",
+                        "--cg-root", _cg_root()],
                        capture_output=True, text=True, encoding="utf-8",
                        errors="replace", env=_env(), cwd=REPO, timeout=300)
     out = p.stdout or ""

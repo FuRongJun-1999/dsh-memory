@@ -15,17 +15,35 @@ v3 迁移（2026-09-10，三仓分离后）：
 通道 B：LLM 初稿（deepseek/glm）→ verifier 六层校验 → 测试 → 固化
 四机制安全闭环：selfmod 快照/审计/裁决 在每次固化前强制执行。
 
+selfmod 闭环落地（A5 使用者裁决 2026-10-05）：固化 = 通道 A 的 `persist_triggers`
+（就地改 WISDOM 单元表源文件）与通道 B 的 verified 落盘；**两处写盘前都强制走
+`selfmod_gate`**，任一环节不成立即**拒且不改盘**（fail-closed）：
+  · 裁决 —— ①待固化对象已过既有验证（通道 A 的 verify_patch / 通道 B 的
+    verifier+cases，由调用方原样传入，不许旁路）②目标在**授权自改写面**内
+    （防补丁/路径解析把自改写到别处）③前像与当前盘面逐字节一致（读取到落盘
+    之间被第三方改过 ⇒ 固化依据已失效 ⇒ 拒，不静默覆盖别人的改动）
+  · 快照 —— 逐字节前像 → `<数据根>/bootstrap/selfmod/snapshots/<名>.<秒>-<微秒>.bak`
+    （二进制原子落盘，复用 `fsutil.publish` 的 Windows 短重试）
+  · 审计 —— append-only 台账 `<数据根>/bootstrap/selfmod/selfmod_audit.jsonl`
+    （`FileLock(strict=True)` + `fsutil.append_jsonl`——fsutil 明文「裁决记录」这类
+    不能丢的写用 strict 锁；形态与本仓既有台账同款）
+裁决/快照/审计本身失败也算「不通过」（快照/审计没就位就不许固化——这正是闭环
+与 `branches._audit`「审计失败不阻断主流程」的区别：那个是观测留痕，这个是准入闸）。
+
 用法：
   python scripts/bootstrap_loop.py --once --channel-b     # 单轮含 LLM 通道
   python scripts/bootstrap_loop.py --once                # 单轮仅通道 A
   python scripts/bootstrap_loop.py --interval 600 --channel-b   # 长期跑
 日志：<数据根>/bootstrap/bootstrap_log.jsonl
+安全闭环台账/前像：<数据根>/bootstrap/selfmod/{selfmod_audit.jsonl,snapshots/}
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -146,23 +164,20 @@ def verify_patch(patch):
     return r.get("unit") == uid and r.get("ok")
 
 
-# 生效条件：patches 中某 patch 的 domain 命中 files 六键之一、对应 os.path.exists(path) 为真、且 path 内容正则搜到 `"uid": {` 行且其后 600 字符块内无 "triggers" 时才插入 triggers 行并让 changed 自增，否则跳过；返回 changed。
+# 生效条件：patches 中某 patch 的 domain 命中 files 六键之一、对应 os.path.exists(path) 为真、且 path 内容正则搜到 `"uid": {` 行且其后 600 字符块内无 "triggers" 时才进入固化；固化前调 selfmod_gate（裁决→快照→审计）通过才插入 triggers 行并让 changed 自增，裁决不通过即跳过该文件（不改盘，留痕见 selfmod 台账）；返回 changed。
 def persist_triggers(patches):
     import re
-    files = {
-        "graph": os.path.join(WISDOM, "graph_db_units.py"),
-        "compiler": os.path.join(WISDOM, "compiler_code_units.py"),
-        "pylang": os.path.join(WISDOM, "python_code_units.py"),
-        "os": os.path.join(WISDOM, "os_units.py"),
-        "browser": os.path.join(WISDOM, "browser_units.py"),
-        "net": os.path.join(WISDOM, "net_units.py"),
-    }
+    files = {dom: os.path.join(WISDOM, fn) for dom, fn in UNIT_FILES.items()}
     changed = 0
     for p in patches:
         dom, uid, triggers = p["domain"], p["unit"], p["add_triggers"]
         path = files.get(dom)
         if not path or not os.path.exists(path):
             continue
+        # 前像基准 = 盘面**原字节**（文本读会把 \r\n 归一成 \n——拿文本摘要当盘面
+        # 摘要会在 CRLF 文件上把「前像一致」误判成不一致，通道 A 就白拒了）
+        with open(path, "rb") as f:
+            raw = f.read()
         with open(path, encoding="utf-8") as f:
             src = f.read()
         pat_uid = re.compile(r'(\n(\s*)"' + re.escape(uid) + r'": \{\n)')
@@ -174,6 +189,15 @@ def persist_triggers(patches):
             continue
         ind = m.group(2)
         trig_json = json.dumps(triggers, ensure_ascii=False)
+        # selfmod 闭环（固化前强制，docstring:16）：裁决（本函数契约 = 入参只含
+        # verify_patch 通过者，V22 守卫钉死 ⇒ verified=True ∧ 目标在授权自改写面内
+        # ∧ 前像与盘面一致）→ 快照（逐字节前像）→ 审计（台账留痕）。**拒即不写盘**。
+        _g = selfmod_gate([path], action=SELFMOD_ACTION_REWRITE,
+                          why="通道 A triggers 固化（域 %s / 单元 %s）" % (dom, uid),
+                          expect_sha={path: _selfmod_sha(raw)},
+                          where="persist_triggers")
+        if not _g["ok"]:
+            continue                      # 裁决不通过：本文件本轮不动（留痕见台账）
         src = src[:m.end(1)] + ind + '    "triggers": ' + trig_json + ',\n' + src[m.end(1):]
         _tmp = path + ".tmp"
         with open(_tmp, "w", encoding="utf-8") as f:
@@ -225,6 +249,208 @@ def _load_json_state(path: str, default, what: str):
         except Exception:
             pass
         return default
+
+
+# ==================== selfmod 安全闭环（快照 / 审计 / 裁决） ====================
+# docstring「四机制安全闭环：selfmod 快照/审计/裁决 在每次固化前强制执行」的实现。
+# 固化面只有两处，都是**自改**：通道 A persist_triggers 写 WISDOM 单元表源文件、
+# 通道 B run_channel_b 的 verified 落盘；两处写盘前调 selfmod_gate，拒即不写盘。
+SELFMOD_DIRNAME = "selfmod"                 # <STATE>/selfmod/
+SELFMOD_SNAPSHOT_DIRNAME = "snapshots"      # <STATE>/selfmod/snapshots/
+SELFMOD_AUDIT_NAME = "selfmod_audit.jsonl"  # <STATE>/selfmod/selfmod_audit.jsonl
+CHANNEL_B_VERIFIED = "channel_b_verified_units.json"   # 通道 B 固化落点（唯一字面量）
+#: 自改动作类（留痕用，取三档自治动作类同字母口径：C=就地改既有单元 / A=新增单元）。
+#: 本闭环只做「前置闸 + 留痕」——**不接档位矩阵**：矩阵的对象面是认知图记忆节点
+#: （docs/plans/记忆自处理三档自治_设计_v0.2.md §一），把源文件自改折成矩阵动作类
+#: 会让默认「变更确认」档直接停掉通道 A 的固化（生产行为变更，须另行裁决）。
+SELFMOD_ACTION_REWRITE = "C"
+SELFMOD_ACTION_ADD = "A"
+#: 通道 A 的域 → WISDOM 下单元表文件名（persist_triggers 与自改写面判据**共用一份**，
+#: 不复制第二处字面量）。
+UNIT_FILES = {
+    "graph": "graph_db_units.py",
+    "compiler": "compiler_code_units.py",
+    "pylang": "python_code_units.py",
+    "os": "os_units.py",
+    "browser": "browser_units.py",
+    "net": "net_units.py",
+}
+
+
+# 生效条件：无入参，按模块级 STATE 返回 (selfmod 目录, 快照目录, 审计台账路径) 三元组，只拼路径不建目录。
+def _selfmod_paths():
+    """selfmod 闭环的三个落点（按 STATE 现算——守卫可整体重定向 STATE）。"""
+    d = os.path.join(STATE, SELFMOD_DIRNAME)
+    return d, os.path.join(d, SELFMOD_SNAPSHOT_DIRNAME), \
+        os.path.join(d, SELFMOD_AUDIT_NAME)
+
+
+# 生效条件：data 为 bytes 时原样摘要、为 str 时先按 utf-8 编码再摘要，返回 sha256 十六进制前 16 位。
+def _selfmod_sha(data) -> str:
+    """盘面摘要（前 16 位，与真源指纹同口径）。"""
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
+# 生效条件：path 经 normcase/abspath 归一后落于授权自改写面（WISDOM 下 UNIT_FILES 各单元表 + STATE 下的通道 B 落盘）内时返回 True，否则 False。
+def _selfmod_allowed(path) -> bool:
+    """授权自改写面（唯一真源）：本循环只许改自己的单元表与自己的 verified 账。
+
+    为什么要有这一层：固化对象来自「扫描缺口 → 补丁」与「模型可控队列」两条链，
+    路径若被解析/补丁带到别处（如任意 .py），自改就成了「任意文件覆写」。判据面
+    只认同两份声明集合，不新增策略。
+    """
+    p = os.path.normcase(os.path.abspath(path))
+    face = {os.path.normcase(os.path.abspath(os.path.join(WISDOM, fn)))
+            for fn in UNIT_FILES.values()}
+    face.add(os.path.normcase(os.path.abspath(
+        os.path.join(STATE, CHANNEL_B_VERIFIED))))
+    return p in face
+
+
+# 生效条件：把 data（bytes）经同目录唯一临时名 + fsutil.publish 短重试写进 path；写成功置 tmp 为 None，任一步失败时删除残留临时文件后抛出原异常。
+def _selfmod_write_bytes(path: str, data: bytes) -> None:
+    """逐字节原子落盘（前像专用）：`fsutil.atomic_write` 是**文本**口径
+    （写 str、newline 归一），前像要逐字节保真，故走二进制变体，原子性仍复用
+    `fsutil.publish`（Windows 目标被短暂持锁时短重试，本仓明文单点）。
+    """
+    import fsutil
+    d = os.path.dirname(os.path.abspath(path)) or "."
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".tmp-",
+                               dir=d)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        fsutil.publish(tmp, path)
+        tmp = None
+    finally:
+        if tmp and os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+
+# 生效条件：path 不是常规文件时返回 None（无旧字节可留：首建目标没有前像）；是常规文件时原样读字节并以 `<快照目录>/<basename>.<秒>-<微秒>.bak` 为该前像落点写入（命名同 protect.snapshot_preimage 的「秒级+微秒」口径，同秒多次固化不互相踩像）后返回该路径。
+def _selfmod_snapshot(path: str):
+    """逐字节前像 → 快照目录；返回快照文件路径（目标不存在时返回 None）。"""
+    if not os.path.isfile(path):
+        return None
+    with open(path, "rb") as f:
+        data = f.read()
+    _d, snap_dir, _a = _selfmod_paths()
+    os.makedirs(snap_dir, exist_ok=True)
+    ts = (time.strftime("%Y%m%d-%H%M%S", time.localtime())
+          + "-%06d" % (time.time_ns() // 1000 % 1000000))
+    snap = os.path.join(snap_dir, "%s.%s.bak" % (os.path.basename(path), ts))
+    _selfmod_write_bytes(snap, data)
+    return snap
+
+
+# 生效条件：无入参；对 rec 追加进审计台账——FileLock(SELFMOD_AUDIT, strict=True) 下调 fsutil.append_jsonl，锁超时或写失败即抛（调用方按「审计未就位 ⇒ 不许固化」处置）。
+def _selfmod_audit(rec: dict) -> None:
+    """append-only 审计台账（裁决记录口径：strict 锁，不许静默丢）。"""
+    import fsutil
+    _d, _s, audit = _selfmod_paths()
+    os.makedirs(os.path.dirname(audit), exist_ok=True)
+    with fsutil.FileLock(audit, strict=True):
+        fsutil.append_jsonl(audit, rec)
+
+
+# 生效条件：给定 paths（可为空列表）与 action/why——verified 为假、任一 path 不在授权自改写面内、expect_sha 中该 path 给出的摘要与**拍像前或拍像后**的盘面不等、快照抛异常、审计抛异常时返回 ok=False（并在审计可写时尽力留一条 ok=False 记录、向主日志写一行 selfmod_rejected），调用方**不得写盘**；全部成立时返回 ok=True 并带 snapshots（逐 path 的前像引用与改前摘要）与 audit（本次台账记录）。
+def selfmod_gate(paths, action, why, verified=True, expect_sha=None, where=""):
+    """固化前强制：裁决 → 快照 → 审计。**裁决不通过即拒且不改盘**（fail-closed）。
+
+    裁决判据（三者全部成立才 ok=True）：
+      ① verified —— 待固化对象已过既有验证（通道 A `verify_patch` / 通道 B
+         的 verifier+cases）。由调用方把**判定值原样传入**：固化的验证输入不许
+         旁路，False 即拒。
+      ② 授权自改写面 —— 每个目标都落在 `_selfmod_allowed` 的面内。
+      ③ 前像一致 —— 调用方按「读取时的字节」给出 expect_sha 时，当前盘面摘要
+         必须相等（TOCTOU：读取到落盘之间被第三方改过 ⇒ 本次固化依据已失效 ⇒
+         拒，绝不静默覆盖别人的改动）。
+    快照/审计失败同样判拒——「安全件未就位就不许固化」是本闭环与纯留痕式审计
+    （`branches._audit`：审计失败不阻断主流程）的分界。
+    """
+    paths = [p for p in (paths or []) if p]
+    expect_sha = dict(expect_sha or {})
+    rec = {"op": "selfmod", "action": action, "where": where, "why": why,
+           "pid": os.getpid(), "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+           "mode": "selfmod", "verified": bool(verified),
+           "targets": [os.path.abspath(p) for p in paths]}
+
+    def _deny(reason, snapshots=None):
+        rec.update({"ok": False, "reason": reason,
+                    "snapshots": snapshots or []})
+        try:                                   # 拒也要留痕；台账不可写不掩盖「拒」
+            _selfmod_audit(rec)
+        except Exception:
+            pass
+        try:                                   # 主日志一行（watchdog 未知 round 不计不下沉）
+            log_event({"round": "selfmod_rejected", "action": action,
+                       "where": where, "why": why, "reason": reason,
+                       "targets": rec["targets"]})
+        except Exception:
+            pass
+        return {"ok": False, "why": reason, "action": action,
+                "snapshots": snapshots or [], "audit": rec}
+
+    if not verified:
+        return _deny("待固化对象未过既有验证（裁决不通过）")
+    for p in paths:
+        if not _selfmod_allowed(p):
+            return _deny("目标不在授权自改写面内：%s" % p)
+    for p in paths:
+        want = expect_sha.get(p)
+        if want is None:
+            continue
+        try:
+            with open(p, "rb") as f:
+                cur = _selfmod_sha(f.read())
+        except OSError as e:
+            return _deny("前像核验读盘失败：%s（%s）" % (p, e))
+        if cur != want:
+            return _deny("前像失效（TOCTOU）：%s 现盘面 %s ≠ 固化依据 %s"
+                         % (p, cur, want))
+
+    snaps = []
+    for p in paths:
+        try:
+            snap = _selfmod_snapshot(p)
+        except Exception as e:                 # noqa: BLE001 —— 快照失败即拒
+            return _deny("快照失败：%s（%s）" % (p, str(e)[:120]),
+                         snapshots=[s["snapshot"] for s in snaps if s["snapshot"]])
+        snaps.append({"path": os.path.abspath(p), "snapshot": snap,
+                      "before_sha": expect_sha.get(p) or ""})
+    # 拍像后**再核一次**盘面：把 TOCTOU 窗口收到「本次核对 → 调用方写盘」之间
+    # （拍像期间被改的话，前面那次核对就是过期证据）。此拒留下的快照是**该时点
+    # 的盘面**，属留痕不是错误——拒绝记录（ok=False）与它成对。
+    for p in paths:
+        want = expect_sha.get(p)
+        if want is None:
+            continue
+        try:
+            with open(p, "rb") as f:
+                cur = _selfmod_sha(f.read())
+        except OSError as e:
+            return _deny("前像复核读盘失败：%s（%s）" % (p, e),
+                         snapshots=[s["snapshot"] for s in snaps if s["snapshot"]])
+        if cur != want:
+            return _deny("前像失效（拍像后盘面已变动）：%s 现盘面 %s ≠ 固化依据 %s"
+                         % (p, cur, want),
+                         snapshots=[s["snapshot"] for s in snaps if s["snapshot"]])
+    rec.update({"ok": True, "snapshots": [s["snapshot"] for s in snaps
+                                          if s["snapshot"]],
+                "files": snaps})
+    try:
+        _selfmod_audit(rec)
+    except Exception as e:                     # noqa: BLE001 —— 审计未就位即拒
+        return {"ok": False, "why": "审计台账不可写：%s" % str(e)[:120],
+                "action": action, "snapshots": rec["snapshots"], "audit": rec}
+    return {"ok": True, "why": "", "action": action, "snapshots": rec["snapshots"],
+            "audit": rec}
 
 
 # 危险名 denylist（配合 __builtins__ 收窄双层防御）：
@@ -293,14 +519,16 @@ def run_channel_b(llm_generate=None, max_tasks=5):
 
 
     queue_path = os.path.join(STATE, "channel_b_queue.json")
-    out_path = os.path.join(STATE, "channel_b_verified_units.json")
+    out_path = os.path.join(STATE, CHANNEL_B_VERIFIED)
     # 批次 35：初始化必须是 dict——空串形态在产物文件不存在时首次固化即
     # TypeError（verified[key]=... 对 str 赋值）。此缺陷因 run_channel_b
     # 长期无测试覆盖而潜伏（V21 报告流程建议 2 的全链路冒烟首跑即暴露）。
     # N169：读取走 _load_json_state——状态文件损坏（写中被 taskkill /F
     # 强杀截断）不再每轮裸 json.load 同崩，留痕重建后通道继续运行。
     verified = _load_json_state(out_path, {}, "verified_units（已验证固化态）")
-    stats = {"generated": 0, "passed": 0, "failed": 0, "source": "queue"}
+    stats = {"generated": 0, "passed": 0, "failed": 0, "source": "queue",
+             "selfmod_rejected": 0}
+    newly = []          # 本轮新固化条目（key, item）——裁决拒时要原样退回 pending
 
     queue = []
     qd = _load_json_state(queue_path, None, "channel_b_queue（LLM 初稿队列）")
@@ -402,6 +630,7 @@ def run_channel_b(llm_generate=None, max_tasks=5):
                              "fingerprint": __import__("hashlib").sha256(
                                  code.encode()).hexdigest()[:16],
                              "ts": time.strftime("%Y-%m-%d %H:%M")}
+            newly.append((key, item))
             stats["passed"] += 1
             item["status"] = "verified"
         else:
@@ -420,12 +649,30 @@ def run_channel_b(llm_generate=None, max_tasks=5):
                               "ts": time.strftime("%Y-%m-%d %H:%M")})
             _atomic_write_json(_rej, _rej_list)
 
+    # selfmod 闭环（固化前强制，docstring:16）：verified 落盘属**固化**，落盘前
+    # 走 裁决（已验证 ∧ 目标在授权自改写面内）→ 快照（逐字节前像）→ 审计（台账）。
+    # 裁决不通过 ⇒ 不落盘，且把本轮条目退回 pending（不谎报已固化——退回后下轮
+    # 重新验证再试，不丢代码），stats 记 selfmod_rejected。
+    flush_verified = True
+    if newly:
+        _g = selfmod_gate([out_path], action=SELFMOD_ACTION_ADD,
+                          why="通道 B verified 固化（%d 条）" % len(newly),
+                          where="run_channel_b")
+        flush_verified = bool(_g["ok"])
+        if not flush_verified:
+            for key, item in newly:
+                verified.pop(key, None)
+                item["status"] = "new"
+            stats["passed"] -= len(newly)
+            stats["selfmod_rejected"] = len(newly)
+
     if queue:
         qd = {"_comment": "自举产物队列（已完成项标记 verified）",
               "_instructions": "bootstrap_loop 自动消化",
               "pending": queue}
         _atomic_write_json(queue_path, qd)       # N169：原子落盘
-    _atomic_write_json(out_path, verified)       # N169：原子落盘
+    if flush_verified:
+        _atomic_write_json(out_path, verified)   # N169：原子落盘
     return stats
 
 

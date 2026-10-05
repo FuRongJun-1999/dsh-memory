@@ -59,10 +59,14 @@ else
   echo "cpa=SKIP（容器无 npm——打包清单段由主机验证）"
   # SKIP 不判负，与 run_tests 的缺依赖自判 SKIP 同口径（不计 pass 也不计 fail）
 fi
+# A2（2026-10-05 使用者裁决）：认知图投影判据体必须在全部自动化面真的执行——此前无
+# --cg-root 时 verify 静默 [SKIP] 退 0（判据体从未执行）。容器内没有本机认知图库，故先
+# 用仓内既有 discipline_nodes.py 建最小库（root 不存在则建），再把路径显式交给验证腿。
 python scripts/cogmap_sync.py check >/dev/null 2>&1 && \
 python scripts/link_check.py >/dev/null 2>&1 && \
 python scripts/workspace_index.py --check >/dev/null 2>&1 && \
-python scripts/verify_discipline.py --allow-missing >/dev/null 2>&1
+python scripts/discipline_nodes.py --init --write --cg-root .tmp/discipline-cg >/dev/null 2>&1 && \
+python scripts/verify_discipline.py --allow-missing --cg-root .tmp/discipline-cg >/dev/null 2>&1
 record "gate4 (cogmap/link/index/discipline)" $?
 
 echo "=== 汇总: $pass pass / $fail fail ==="
