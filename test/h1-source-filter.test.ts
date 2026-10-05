@@ -28,6 +28,8 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { installMemoryHooks, type MemoryHooksOptions } from '../src/hooks.ts'
 
 interface Assembly {
@@ -80,6 +82,9 @@ function makeHarness(graph: object, overrides: Partial<MemoryHooksOptions> = {})
   installMemoryHooks(ctx as never, graph as never, {
     userMessage: true, assistantMessage: true, toolResult: true,
     importance: 0.6, autoRecall: true, autoRecallLimit: 4, desensitize: false,
+    // 落盘审计（issue #56）指向临时目录：本文件不测审计面，但**绝不得写真实 ~/.dsh**
+    // （本文件的会话事件会触发审计记录，缺省路径是用户家目录）。
+    auditPath: join(tmpdir(), 'dsh-hook-audit-h1.json'),
     ...overrides,
   })
   const assemble = async (hostCtx: unknown): Promise<Assembly> => {

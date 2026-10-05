@@ -48,6 +48,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { MdcgClient } from './lib/mdcg_client.js'
 import { escapePromptBraces, renderUntrustedMemoryBlock } from './lib/prompt_safety.js'
+import { HookAuditRecorder, kindOf, type HookWriteRole } from './lib/hook_audit.js'
 
 /** 自动记忆开关。 */
 export interface MemoryHooksOptions {
@@ -65,6 +66,11 @@ export interface MemoryHooksOptions {
   autoRecallLimit: number
   /** 自动记忆脱敏：写入前过滤敏感信息（密钥/密码/令牌/身份证/手机号，默认 true）。 */
   desensitize: boolean
+  /** 落盘审计文件路径（issue #56，诊断面：哪些消息被设计滤除、source.kind 分布、
+   *  写入/跳过计数）。缺省 `~/.dsh/logs/dsh-memory-hook-audit.json`（与桥探针 /
+   *  apply 探针同目录同惯例），供测试与定制注入；审计自身失败静默降级，
+   *  绝不冒泡进记忆路径。不改任何既有选项语义。 */
+  auditPath?: string
 }
 
 /** 从 ContentBlock[] 提取纯文本。 */
@@ -394,17 +400,29 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
   }
   const graph = mdcg
 
+  /** 落盘审计（issue #56，诊断面）：三处过滤分支与写入/跳过路径各留一道**盘面**
+   *  痕迹——宿主 logger 不落盘时，单看记忆侧无法区分「被设计滤除」与
+   *  「写入失败/漏记」。审计失败静默降级（见 src/lib/hook_audit.ts），
+   *  绝不冒泡进记忆路径、不改任何写入/过滤判定。 */
+  const audit = new HookAuditRecorder(opts.auditPath)
+
   /** 最近一次观测到的宿主会话标识（见 sessionIdOf；空串 = 未知/无会话）。 */
   let lastSession = ''
 
-  /** 记忆沉淀（fire-and-forget）。认知图未就绪则跳过并告警（不退回 AEIS）。 */
-  const memorize = (label: string, run: (g: MdcgClient) => Promise<unknown>): void => {
+  /** 记忆沉淀（fire-and-forget）。认知图未就绪则跳过并告警（不退回 AEIS）。
+   *  `role`=null 表示**读预热**（user-recall）——审计只统计写入路径，
+   *  故读预热不参与 written/skipped 计数（它不写记忆）。 */
+  const memorize = (label: string, role: HookWriteRole | null, run: (g: MdcgClient) => Promise<unknown>): void => {
     if (!graph.isReady()) {
+      if (role) audit.skipped('not_ready', role)
       ctx.logger.warn(`dsh-memory: 认知图未就绪，跳过自动记忆（${label}）`)
       return
     }
-    void run(graph).catch((err: Error) =>
-      ctx.logger.warn(`dsh-memory: 自动记忆 ${label} 失败: ${err.message}`))
+    if (role) audit.written(role)
+    void run(graph).catch((err: Error) => {
+      if (role) audit.skipped('failed', role)
+      ctx.logger.warn(`dsh-memory: 自动记忆 ${label} 失败: ${err.message}`)
+    })
   }
 
   // P1 完善（GPT 审查·自动记忆脱敏）：写入前过滤敏感信息（默认开启）。
@@ -476,6 +494,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
     // 召回会拿子代理的 session 去读（读错会话）。字段缺失即不拦，见 isSubagentSession。
     if (isSubagentSession(session)) {
       ctx.logger.info('dsh-memory: 子代理会话的自动记忆被拦（H1：header.origin/delegationDepth）')
+      audit.filtered('subagent')
       return
     }
     // 会话归属（P45）：记忆写入必须带会话身份，用来区分不同会话的记忆。
@@ -485,10 +504,14 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
     if (sid) lastSession = sid
     const sessionTag = sid ? { session: sid } : { session: UNASSIGNED_SESSION }
     if (event.type === 'user/message' && opts.userMessage) {
+      // 落盘审计（issue #56）：source.kind 分布——先于两级判据记录**完整**输入分布
+      // （含被滤与放行），「宿主到底给这条消息标了什么 kind」是排障第一问。
+      audit.observeKind(kindOf(event.data.source))
       // H1 **消息级**判据：委派/中继消息（`form: 'relay'` 语义＝「另一个 agent
       // 发给本 agent 的消息」）不写。先于 kind 判据，理由见 isRelayedMessage 注释。
       if (isRelayedMessage(event.data.source)) {
         ctx.logger.info('dsh-memory: 委派/中继消息的自动记忆被拦（H1：source.form=relay）')
+        audit.filtered('relay', kindOf(event.data.source))
         return
       }
       // 只记真实用户输入（kind='user'），跳过插件注入/系统上下文
@@ -496,13 +519,14 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
         // T4 诊断（2026-08-30）：dsh 端对话零写入排查——记录被滤事件的实际
         // source.kind（若 dsh 新版改了 kind 值，此处日志可定位）
         ctx.logger.info(`dsh-memory: user/message 事件被滤（source.kind=${event.data.source?.kind ?? 'undefined'}）`)
+        audit.filtered('kind', kindOf(event.data.source))
         return
       }
       const text = extractText(event.data.content)
       if (!text) return
       const safe = sanitize(text)  // 脱敏：纯凭据消息 → null → 跳过写入
-      if (safe === null) return
-      memorize('user', (g) => g.remember(safe, {
+      if (safe === null) { audit.skipped('sanitized', 'user'); return }
+      memorize('user', 'user', (g) => g.remember(safe, {
         role: 'user', tags: ['dsh', 'user'], importance: opts.importance,
         ...sessionTag,
       }))
@@ -518,13 +542,13 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       // 改 mdcg_client.ts（本件放行面之外），故在调用点改走等价出口。
       // 带上它不构成越权：cg 读路径的 session 是**归因/视图**维度，不参与任何授权
       // （issue #35 定稿「身份不可自报」，见 md_cg/mdcos.py 的 _candidates）。
-      memorize('user-recall', (g) => g.read(safe.slice(0, 200), { k: 3, ...sessionTag }))
+      memorize('user-recall', null, (g) => g.read(safe.slice(0, 200), { k: 3, ...sessionTag }))
     } else if (event.type === 'assistant/message' && opts.assistantMessage) {
       const text = extractText(event.data.message.content)
       if (!text) return
       const safe = sanitize(text)
-      if (safe === null) return
-      memorize('assistant', (g) => g.remember(safe, {
+      if (safe === null) { audit.skipped('sanitized', 'assistant'); return }
+      memorize('assistant', 'assistant', (g) => g.remember(safe, {
         role: 'assistant', tags: ['dsh', 'assistant'], importance: opts.importance * 0.8,
         ...sessionTag,
       }))
@@ -533,8 +557,8 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       const text = extractText(event.data.message.content)
       if (!text) return
       const safe = sanitize(text)
-      if (safe === null) return
-      memorize('tool', (g) => g.remember(safe, {
+      if (safe === null) { audit.skipped('sanitized', 'tool'); return }
+      memorize('tool', 'tool', (g) => g.remember(safe, {
         role: 'tool-output', tags: ['dsh', 'tool'], importance: opts.importance * 0.6,
         ...sessionTag,
       }))

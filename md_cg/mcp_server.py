@@ -59,6 +59,26 @@ from utf8_boot import ensure_utf8  # noqa: E402
 ensure_utf8(__file__)
 
 
+# ------------------------------------------- 入口自保证 OpenBLAS 线程数（2026-10-05）
+# 根因（返修取证）：numpy（md_cg 可选依赖，经 whitebox_kb 系列模块加载）在**导入期**
+# 由 OpenBLAS 按线程数（默认 = 核数）申请每线程缓冲——本机 32 核实测单进程
+# `import numpy` 的**全机提交内存**增量 0.73 GiB。启动链上的代校验
+# （verify_delegations → 导入含 numpy 的目标模块，见 main）把这笔分配带到
+# **服务应答之前**：机器提交内存吃紧、或**多进程同启**（并行测试套件 / 多会话
+# 并存 / 常驻扫描）时，OpenBLAS 重试 10 次后放弃并 exit(1)——进程在 initialize
+# 应答前死亡，桥侧只见「握手失败 / 插件激活失败」，子进程 stderr 里的
+# `OpenBLAS error: Memory allocation still failed after 10 retries` 是唯一线索。
+# 实测（本机，2026-10-05；随提交内存压力波动）：12 个并发 `import numpy` 默认
+# 4~9/12 失败（两轮独立读数，stderr 同上），置本值后 0/12（两轮）；单进程提交
+# 增量 0.73 → 0.013 GiB（4 线程 0.100 GiB）。md_cg 现有数值面是向量点积/范数/
+# 小矩阵，单线程对其**无已观测的性能意义**（⚠ 未做基准实测，出现 BLAS 密集路径
+# 须在性能轮复测）。显式设值优先，只填空缺/空白（仓库口径：空白视为未设置）。
+# 位置钉死：必须在 numpy 可被导入之前——模块级，早于 main() 的代校验；
+# 且晚于 ensure_utf8（其重启形态经 env 继承本值，两条保证互不干扰）。
+if not (os.environ.get("OPENBLAS_NUM_THREADS") or "").strip():
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+
+
 # SERVER_VERSION 从包根 package.json 动态读取（issue #42：硬编码 0.1.0 与发布
 # 版本脱节，握手自报假版本）；读不到（文件缺失/损坏/裁剪）回落保底值不阻塞启动。
 # v21-R1（2026-09-28）：**回落必须覆盖全形态**——修前只捉 (OSError, ValueError)

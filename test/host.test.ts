@@ -68,7 +68,12 @@ async function mountHost(dataDir: string) {
         clearance: 'private',
       },
       tools: 'core',
-      memory: { userMessage: true, assistantMessage: false, toolResult: false, importance: 0.6 },
+      memory: {
+        userMessage: true, assistantMessage: false, toolResult: false, importance: 0.6,
+        // 落盘审计（issue #56）指向本次测试的临时数据目录：走真实 apply 的测试
+        // **绝不得写真实 ~/.dsh**（缺省路径是用户家目录）。
+        auditPath: join(dataDir, 'hook-audit.json'),
+      },
       toolCallTimeoutMs: 15_000,
       maxRetryDelayMs: 5_000,
       failOnStartupError: true,
