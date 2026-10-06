@@ -262,6 +262,22 @@ def write_window_md(sid: str, con=None, limit: int = WINDOW_LIMIT) -> Path:
     return out
 
 
+_SE_CACHE: dict = {}
+
+
+def _load_state_extract():
+    """同目录单点复用：state_extract（每轮写入链的第二步·保守状态抽取）。"""
+    if "mod" not in _SE_CACHE:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "state_extract",
+            Path(__file__).resolve().parent / "state_extract.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _SE_CACHE["mod"] = mod
+    return _SE_CACHE["mod"]
+
+
 def sync_to_window(sid: str, max_turns: int = 200) -> int:
     """增量同步本会话真人轮进灵枢运行态窗口（`_recent`）。返回新写入轮数。
 
@@ -288,6 +304,16 @@ def sync_to_window(sid: str, max_turns: int = 200) -> int:
         meta = {"session": sid, "source": SYNC_TAG, "turn": t["turn"]}
         cg.remember_event("user", t["user"], tags=["zcode", SYNC_TAG], meta=meta, window=200)
         cg.remember_event("assistant", t["assistant"], tags=["zcode", SYNC_TAG], meta=meta, window=200)
+        # 轮写入链的第二步（使用者 2026-10-06 裁定「在写入 mdcg 的时候做处理」）：
+        # 对同一轮做**保守状态抽取** → 台账（state_events）。与写窗口同循环同 cg；
+        # 逐轮 fail-soft（抽取失败绝不影响窗口写入与轮次推进）。
+        try:
+            _se = _load_state_extract()
+            if _se.enabled():
+                _se.extract_and_record(cg, sid, t["turn"], "user",
+                                       t.get("user") or "")
+        except Exception:  # noqa: BLE001
+            pass
         sst["last_turn_created"] = int(t.get("t") or 0)
     save_state(state)
     return len(fresh)
