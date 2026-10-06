@@ -19,6 +19,8 @@
  *   外部裁决回填  → MdcgClient.verify()     → MCP cg(op=verify)
  *   最近记忆时间线 → MdcgClient.timeline()  → MCP stg(op=timeline)
  *   近期事件窗口  → MdcgClient.recent()     → MCP cg(op=recent)
+ *   窗口追加事件  → MdcgClient.recentAdd()  → MCP cg(op=recent, action=add)
+ *   会话续接包    → MdcgClient.sessionRecall() → MCP cg(op=session, action=recall)
  *   身份读取      → MdcgClient.identity()   → MCP cg(op=identity)
  *   白箱能力验证  → MdcgClient.whitebox()   → MCP cg(op=whitebox)
  *   服务信息      → MdcgClient.serviceInfo()→ MCP cg(op=info)
@@ -305,6 +307,52 @@ export class MdcgClient {
   /** 最近记忆。 */
   recent(limit = 20): Promise<unknown> {
     return this.cg({ op: 'recent', limit })
+  }
+
+  /** 追加一条**近期事件窗口**记录（`cg(op=recent, action=add)` →
+   *  `md_cg` 的 `remember_event(role, text, tags, meta, window)`）。
+   *
+   *  这是「滑动窗口」写侧：事件落 `_recent.jsonl`（**运行态面**），按窗口滚动
+   *  淘汰（服务端缺省 200 条，`mdcg.py:91 DEFAULT_RECENT_WINDOW`）——它**不是
+   *  知识节点**：不占 knowledge 层、不进检索正排，与 `remember()` 的知识面沉淀
+   *  是两条独立的轨道（见 src/hooks.ts 文件头的 contextWindow 头注）。
+   *
+   *  ⚠️ **不注入 as_unit**（与 `write()` 同款理由的反面）：本调用不写任何层的
+   *  节点（服务端 `remember_event` 不做层白名单校验），收窄单元无收益且可能压低
+   *  事件密级（缺省 internal）；`meta.session` 由调用方显式给出（沿本文件
+   *  `remember()` 的 sessionTag 口径）。
+   *
+   *  ⚠️ 服务端对 `meta` 做 `setdefault`（tenant/session/harness/unit，见
+   *  `mdcos.py:5057 remember_event`）：调用方已写的键**不被覆盖**。 */
+  recentAdd(role: string, text: string,
+            meta: Record<string, unknown> = {},
+            tags: string[] = []): Promise<unknown> {
+    return this.cg({ op: 'recent', action: 'add', role, text, meta, tags })
+  }
+
+  /** **会话续接包**（`cg(op=session, action=recall)` → `md_cg` 的
+   *  `session_recall`）：一次取回 notes / goals / tasks / **recent 事件窗口** /
+   *  unresolved / self_state，按 `budget_tokens` 整包裁剪（服务端
+   *  `mdcos.py:3351-3362`：交替丢 recent / notes 尾部）。
+   *
+   *  本插件消费其中的 `recent` 段——滑动窗口的**注入面**（见 src/hooks.ts）。
+   *  `recent_limit` 语义 = 近期事件**条数**（非「轮数」）；服务端读取时会按
+   *  `max(1, recent_limit or 10)` 归一（`mdcos.py:3309`）。
+   *
+   *  ⚠️ 两条服务端事实（决定注入侧的可达性，勿据本方法名臆测）：
+   *   ① `recent` 段取 `recent_events(limit=recent_limit)` —— **不按 session
+   *      过滤**（近期事件是运行态滚动窗口，会话归属只写在每条事件的 meta 里）；
+   *   ② budget 是**整包**预算：库内 notes/tasks/self_state 占位越多，同样
+   *      budget 下 recent 段被裁得越短（实测：空库 + 10 条窗口条目，
+   *      budget_tokens=600 → recent 8 条；1200 → 10 条）。
+   *
+   *  只读调用，不注入 as_unit（同其它读路径：读无副作用，收窄只会压低 owner
+   *  的 private 读能力）。 */
+  sessionRecall(session: string, recentLimit: number, budgetTokens: number): Promise<unknown> {
+    return this.cg({
+      op: 'session', action: 'recall',
+      session, recent_limit: recentLimit, budget_tokens: budgetTokens,
+    })
   }
 
   /** 最近记忆**时间线**（AEIS `timeline` 的对应物）：`stg(op=timeline)` →

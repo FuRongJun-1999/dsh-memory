@@ -169,8 +169,29 @@ export const Config: z<Config> = z.object({
       autoRecall: z.boolean().default(true),
       autoRecallLimit: z.number().default(4),
       desensitize: z.boolean().default(true),
+      /** **短期会话窗口**（滑动窗口，2026-10-06）——「短期保留近 N 条对话记录」
+       *  的机制实现（长期记忆仍走灵枢的显式调用）。
+       *
+       *  enabled（缺省 true）控制**整条机制**（写侧 + 注入侧同时静默）；
+       *  turns（缺省 10）＝窗口取数条数（服务端 `session_recall` 的
+       *  `recent_limit`，语义是**条**不是轮）。
+       *
+       *  ⚠️ **两轨关系（勿混，机制头注见 src/hooks.ts / mdcg_client.ts）**：
+       *    · 知识面轨：`userMessage` / `assistantMessage` 管「消息沉淀成记忆
+       *      节点」（role:user/assistant，进检索正排）。使用者 2026-09-27 的
+       *      `userMessage=false` 决策关的是**这一轨**——消息不自动进知识面；
+       *    · 窗口轨：本组管「消息进**运行态窗口**」（`_recent.jsonl`：滚动淘汰、
+       *      不占知识层、不进检索正排、**不是知识节点**）。
+       *  两轨独立开关、互不替代：知识面关掉时窗口照常工作（这正是本机制存在
+       *  的意义——上下文压缩后的续接锚不依赖自动记忆的写入开关）。 */
+      contextWindow: z
+        .object({
+          enabled: z.boolean().default(true),
+          turns: z.number().default(10),
+        })
+        .default({ enabled: true, turns: 10 }),
     })
-    .default({ userMessage: true, assistantMessage: false, toolResult: false, importance: 0.6, autoRecall: true, autoRecallLimit: 4, desensitize: true }),
+    .default({ userMessage: true, assistantMessage: false, toolResult: false, importance: 0.6, autoRecall: true, autoRecallLimit: 4, desensitize: true, contextWindow: { enabled: true, turns: 10 } }),
   toolCallTimeoutMs: z.number().default(60_000),
   maxRetryDelayMs: z.number().default(30_000),
   failOnStartupError: z.boolean().default(false),

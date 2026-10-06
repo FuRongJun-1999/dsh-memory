@@ -24,10 +24,29 @@
  * `delegationDepth=0` 真实在写）；**仍未观测**的是 `origin='subagent'` /
  * `delegationDepth>0` / `form='relay'` 的真实出现（见 installMemoryHooks 内注释）。
  *
+ * contextWindow（滑动窗口，2026-10-06）：**短期记忆 = 运行态事件窗口**。
+ * 写侧把每条 user/assistant 消息（经既有 sanitize 的原文）追加进灵枢的
+ * `_recent.jsonl` 滚动窗口（`cg(op=recent, action=add)`）；注入侧在每次
+ * system-prompt/assemble 时注入独立的「【本会话近期对话】」块
+ * （`cg(op=session, action=recall)` 的 recent 段）——宿主压缩（retained 置空
+ * 后重新投影）时该块随既有块一起自然重现，即「上下文满后早期对话的接续锚」。
+ *
+ * ⚠️ **两轨关系（勿混）**：
+ *   · 知识面轨：`opts.userMessage` / `opts.assistantMessage` 管「消息沉淀成
+ *     记忆节点」（role:user/assistant，进检索正排）；使用者 2026-09-27 的
+ *     `userMessage=false` 决策关的是**这一轨**（消息不自动进知识面）。
+ *   · 窗口轨：`opts.contextWindow`（enabled/turns）管「消息进运行态窗口」
+ *     （`_recent.jsonl`：滚动淘汰、**不占知识层、不进检索正排、不是知识节点**）。
+ *   两轨**独立开关、互不替代**：知识面关掉时窗口照常工作（这正是本机制存在的
+ *   意义——压缩后的续接锚不依赖自动记忆的写入开关）。
+ *
  * autoRecall：通过 system-prompt/assemble 事件（waterfall，异步允许）在每次
  * 模型请求组装 system prompt 时自动注入灵枢最近记忆
  * （`stg(op=timeline)`，最近记忆节点时间线），让记忆"自动可用"而不只依赖
  * Agent 主动调用 recall/think 工具。失败静默（不影响请求）。
+ * contextWindow 的注入面是**独立第二块**（`lingshu:session-window`）——既有块
+ * （timeline / `lingshu:auto-recall`）的行为一字不动；第二块的注入门控 =
+ * 注入面总开关 `opts.autoRecall` × 本机制开关 `contextWindow.enabled`。
  * ⚠️ 该注入块的**稳定性**决定宿主是否新追加快照：内容没变时也必须照旧 push
  * （宿主按渲染后的整段文本去重）；跳过 push 反而会各追加一份「有块/无块」的快照
  * —— 详见 installMemoryHooks 里的长注释。
@@ -76,6 +95,18 @@ export interface MemoryHooksOptions {
    *  apply 探针同目录同惯例），供测试与定制注入；审计自身失败静默降级，
    *  绝不冒泡进记忆路径。不改任何既有选项语义。 */
   auditPath?: string
+  /** **短期会话窗口**（滑动窗口，2026-10-06）：enabled（缺省 true）控制整条
+   *  机制（写侧 + 注入侧同时静默）；turns（缺省 10）= 窗口取数条数
+   *  （`session_recall` 的 `recent_limit`，语义是**条**不是轮）。
+   *
+   *  ⚠️ **两轨关系（勿混，头注有详述）**：`userMessage` / `assistantMessage`
+   *  管**知识面**（消息沉淀成记忆节点，进检索正排）；本组管**运行态窗口**
+   *  （`_recent.jsonl`：滚动淘汰、不占知识层、不进正排、不是知识节点）。
+   *  两轨独立开关、互不替代——知识面开关关掉时窗口照常工作。
+   *
+   *  可选（缺省视为 `{ enabled: true, turns: 10 }`）：既有调用方不传本项时
+   *  行为与缺省一致，不改变任何既有选项语义。 */
+  contextWindow?: { enabled: boolean; turns: number }
 }
 
 /** 从 ContentBlock[] 提取纯文本。 */
@@ -323,6 +354,57 @@ function formatTimelineDecayed(payload: unknown): string {
   return out.join('\n').slice(0, RECALL_MAX_CHARS)
 }
 
+// ---------------------------------------------------------------- 会话窗口渲染
+// 「短期会话窗口」（contextWindow）的取数/渲染常量。与上方 RECALL_* 同款纪律：
+// 常量写死在此处（而非 config schema——未知键会被 schema 剥离）。
+/** 窗口块取数的整包 token 预算（服务端 `session_recall` 的 budget_tokens）。
+ *
+ *  ⚠️ 这是**整包**预算，不是 recent 段的独立预算：notes/goals/tasks/self_state
+ *  与 recent 共享（服务端裁剪循环交替丢 recent / notes 尾部，md_cg/mdcos.py:
+ *  3351-3362）。取 600 是**有意保守**——本块定位是「存在性锚点 / 接续提示」，
+ *  宁可少注入几条，也不挤占宿主上下文。实测（空库 + 10 条窗口条目）：
+ *  budget_tokens=600 → recent 段 8 条；1200 → 10 条。 */
+const WINDOW_BUDGET_TOKENS = 600
+/** 单条窗口条目预览上限（字符）。 */
+const WINDOW_ITEM_CHARS = 120
+/** 窗口块总长上限（字符）。 */
+const WINDOW_MAX_CHARS = 800
+
+/** 会话窗口载荷 → 注入文本（限幅沿 RECALL 分级渲染的风格：单条 ≤120 字、
+ *  整块 ≤800 字）。
+ *
+ *  `cg(op=session, action=recall)` 的 `recent` 段 = `{role, text, t}` 列表，
+ *  按**新→旧**排列（服务端 `recent_events` 的 newest_first）。渲染取**旧→新**
+ *  （对话流水的自然阅读序），但**裁剪保最新**：先按服务端序（新→旧）逐条
+ *  试放入上限（放不下就**停在更旧的条目上**，整条不放入），最后整体反转
+ *  ——总长受限时丢掉的是**最旧**条目（近因优先），且**不切条目中间**
+ *  （逐条整放/整弃；最后才 slice 是错的——那会把最新一条切掉半截）。
+ *
+ *  空载荷 / 无 recent 段 / 全空条目 → 返回空串（调用方据此**不 push** 第二块）。 */
+function formatSessionWindow(payload: unknown, limit: number): string {
+  const items = (payload && typeof payload === 'object'
+    && Array.isArray((payload as { recent?: unknown }).recent))
+    ? (payload as { recent: Array<Record<string, unknown>> }).recent
+    : []
+  const rows: string[] = []
+  const max = Math.max(1, Math.floor(limit) || 10)
+  let used = 0
+  for (const it of items.slice(0, max)) {
+    const role = String(it['role'] ?? '').trim() || 'user'
+    const preview = String(it['text'] ?? '').replace(/\s+/g, ' ').trim()
+    if (!preview) continue
+    const body = preview.length > WINDOW_ITEM_CHARS
+      ? preview.slice(0, WINDOW_ITEM_CHARS) + '…'
+      : preview
+    const row = `[${role}] ${body}`
+    const next = used === 0 ? row.length : used + 1 + row.length
+    if (used > 0 && next > WINDOW_MAX_CHARS) break
+    rows.push(row)
+    used = next
+  }
+  return rows.reverse().join('\n')
+}
+
 /** 取宿主会话标识（只用于**归因/隔离**，不参与任何权限判断）。
  *
  *  动机：记忆写入必须带会话身份才能区分不同会话；读取默认只看本会话（防串台），
@@ -409,6 +491,62 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
    *  「写入失败/漏记」。审计失败静默降级（见 src/lib/hook_audit.ts），
    *  绝不冒泡进记忆路径、不改任何写入/过滤判定。 */
   const audit = new HookAuditRecorder(opts.auditPath)
+
+  // ── 短期会话窗口（contextWindow）：与知识面写入**独立成轨**（见文件头）──
+  // 缺省开启（{ enabled: true, turns: 10 }）；enabled=false → 写侧与注入侧
+  // **同时静默**。turns = 窗口取数条数（session_recall 的 recent_limit 语义是
+  // **条**不是轮）；clamp 到 1~50（与既有 recallLimit 同款纪律，防配置失手）。
+  const cw = opts.contextWindow ?? { enabled: true, turns: 10 }
+  const cwEnabled = cw.enabled !== false
+  const cwTurns = Math.max(1, Math.min(50, Math.floor(cw.turns || 10)))
+
+  /** 窗口条目判定（contextWindow 写侧）：这条事件是否值得进「近期对话」窗口。
+   *  返回 null = 不写。
+   *
+   *  过滤面与知识面**同源**（复用同一组谓词函数，故两处口径不会各自漂移）：
+   *    · user/message：`form==='relay'`（H1 消息级）与 `kind!=='user'`（插件注入 /
+   *      系统上下文）不写——与自动记忆同一判定；有文本才写；
+   *    · assistant/message：有文本即写；
+   *    · 其它事件类型（tool/result 等）：一律不写（窗口是**对话**记录）。
+   *
+   *  ⚠️ 两处**有意不同门**（这是设计，不是遗漏）：本判定**不看**
+   *  `opts.userMessage` / `opts.assistantMessage`——那两个开关管知识面（消息沉淀
+   *  成记忆节点），本机制由 `contextWindow.enabled` 管（运行态窗口）。若把窗口写
+   *  也挂到那两个开关上，使用者既有的 `userMessage=false` 就会连带关掉窗口，
+   *  「知识面关、窗口开」的独立轨道即不成立（两轨关系见文件头）。
+   *
+   *  ⚠️ 子代理会话（H1 会话级）由调用点**更早**拦回（在取 sid 之前），不在此重判
+   *  ——与自动记忆同口径：委派指令不进真人窗口。 */
+  const windowEntry = (event: SessionEvent): { role: 'user' | 'assistant'; text: string } | null => {
+    if (event.type === 'user/message') {
+      if (isRelayedMessage(event.data.source)) return null
+      if (event.data.source?.kind !== 'user') return null
+      const text = extractText(event.data.content)
+      return text ? { role: 'user', text } : null
+    }
+    if (event.type === 'assistant/message') {
+      const text = extractText(event.data.message.content)
+      return text ? { role: 'assistant', text } : null
+    }
+    return null
+  }
+
+  /** 窗口写入（fire-and-forget）：失败只记 warn，**绝不炸会话流**（沿 memorize
+   *  的 catch 风格）。桥未就绪静默跳过（窗口是运行态面，不阻塞对话；「未就绪」
+   *  的告警已由 memorize 路径负责，不在此重复刷屏）。
+   *
+   *  ⚠️ 同步抛出也必须被吞（catch 两段）：真实部署下 graph 是 MdcgClient 全量
+   *  实现；但桥替换实现 / 降级替身缺该方法时，抛错同样不得越过会话流边界。 */
+  const noteRecent = (role: 'user' | 'assistant', text: string,
+                      meta: Record<string, unknown>): void => {
+    if (!graph.isReady()) return
+    try {
+      void graph.recentAdd(role, text, meta, ['dsh', 'recent-window'])
+        .catch((err: Error) => ctx.logger.warn(`dsh-memory: 短期窗口写入失败: ${err.message}`))
+    } catch (err) {
+      ctx.logger.warn(`dsh-memory: 短期窗口写入失败: ${(err as Error).message}`)
+    }
+  }
 
   /** 本实例是否曾观测到会话（B 治本批）。
    *
@@ -507,6 +645,29 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
                 `【灵枢最近记忆】\n${text.slice(0, RECALL_MAX_CHARS)}`)),
             })
           }
+          // ── 独立第二块：「【本会话近期对话】」（contextWindow 注入面）──
+          // 与上方 timeline 块**块名/取数/开关各自独立**（既有块一字未动）。
+          // 稳定性口径与既有块同等：**每步都 push**（内容随新轮增长属预期——
+          // 宿主对内容变化追加快照的既有行为不变；窗口不变时两块逐字节相同）。
+          // fail-soft：取数/渲染失败 → 静默、不 push 第二块，绝不抛——且因
+          // 上方既有块已先 push，本块的失败**不影响**既有块（反之亦然）。
+          // 门控 = 注入面总开关 autoRecall（本 handler 的注册条件）× 本机制开关
+          // contextWindow.enabled。
+          if (cwEnabled) {
+            try {
+              const win = await graph.sessionRecall(sid, cwTurns, WINDOW_BUDGET_TOKENS)
+              const winText = formatSessionWindow(win, cwTurns)
+              if (winText) {
+                // 注入边界同规（文件头硬约束）：不可信内容边界 + `{{` 转义，
+                // 都只改注入副本——窗口原文在库内保真。
+                assembly.contexts.push({
+                  name: 'lingshu:session-window',
+                  text: escapePromptBraces(renderUntrustedMemoryBlock(
+                    `【本会话近期对话】\n${winText}`)),
+                })
+              }
+            } catch { /* 静默：窗口取数失败不影响请求，也不影响既有块 */ }
+          }
         }
       }
       catch { /* 静默：召回失败不影响请求 */ }
@@ -594,6 +755,22 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
         role: 'tool-output', tags: ['dsh', 'tool'], importance: opts.importance * 0.6,
         ...sessionTag,
       }))
+    }
+
+    // ── 短期窗口写侧（contextWindow）：与上方知识面写入**独立成轨** ──
+    // 位置在既有分支链**之外**：不受 opts.userMessage / opts.assistantMessage
+    // 门控（那两个开关管知识面；本机制由 contextWindow.enabled 管——两轨关系
+    // 见文件头与 windowEntry 注释）。
+    // 过滤面与知识面同源：H1 会话级（子代理整条会话）已在函数首拦回；此处经
+    // windowEntry 复用同一组谓词（relay / kind），再经**同一个** sanitize 脱敏
+    // ——纯凭据消息（sanitize 返回 null）同样不写（不把明文凭据引进窗口）。
+    // 失败只记 warn（noteRecent），绝不冒泡进会话流。
+    if (cwEnabled) {
+      const entry = windowEntry(event)
+      if (entry) {
+        const safe = sanitize(entry.text)
+        if (safe !== null) noteRecent(entry.role, safe, { ...sessionTag })
+      }
     }
   })
 }
