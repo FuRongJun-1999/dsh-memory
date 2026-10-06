@@ -237,6 +237,8 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 
 五件套共享同一套 18 条工作纪律与记忆闭环（见文末[工程纪律](#-工程纪律与设计者视角可选推荐)），接入方式互不牵动——只用记忆就只接大脑，不必理解蜂群与编译器。
 
+> **🧬 完整身体库**：平台的「身」面——世界模型七层／3D 场景与角色／白箱生成／自研蜂窝神经网络／记忆可视化——已作为对外完整版独立公开：[**FuRongJun-1999/lingshu**](https://github.com/FuRongJun-1999/lingshu)（与本大脑经 MCP 组合；能力面一览见下文架构节）。
+
 > **📣 蜂巢反馈邀请**：`hive/` 是五件套里最新的一层，目前处于**稳定阶段**——调度生命周期已闭环（原子领取 / 心跳 / 超时强杀 / kill / 崩溃恢复）并通过回归验证，但并发与崩溃恢复这类路径只有在**真实任务、真实机器**上跑得足够多才会真正稳定，因此这一层会持续迭代。我们特别**欢迎下载试用后反馈**：拉起失败、任务卡住、心跳异常、平台差异、kill 不生效等失败路径，对我们比「跑通了」更有价值。请开 [Issue](https://github.com/FuRongJun-1999/dsh-memory/issues) 并附 `hive_doctor` 输出（serve 存活 / 任务统计 / env 检查）。
 
 ---
@@ -450,9 +452,32 @@ DeepSeek Harness (cordis)
 ```
 
 **记忆只有一个真源**：`md_cg/` 认知图（纯 md 文档，随包自带）。确定性规则引擎与知识库已内迁；
-AEIS 仅作可选「身体」能力后端（角色扮演生成），不再存记忆、默认不启动。
+「身体」能力为可选后端（角色扮演生成），不再存记忆、默认不启动——其**对外完整版**即
+[**灵枢身体库 lingshu**](https://github.com/FuRongJun-1999/lingshu)（独立公开仓 · MIT），0.8.0 起经 MCP 与本大脑直接组合。
 
 > 其它 MCP 宿主同构：宿主工具面（`cg` / `stg` / `mdcg_*`）↔ stdio MCP ↔ `md_cg` 大脑；四端差异只在**纪律注入方式**（矩阵见[多 harness 接入](#多-harness-接入按端分目录)），大脑与记忆真源零改动。
+
+### 🧬 完整身体库（lingshu）可以展示什么
+
+[**FuRongJun-1999/lingshu**](https://github.com/FuRongJun-1999/lingshu) 是灵枢的「身」面——**灵×脑×身聚合仓**（独立公开 · MIT），身体件逐件筛选入仓、默认路径零 LLM 依赖。与本大脑经 MCP 组合后，各能力面开箱可看：
+
+| 能力面 | 载体件 | 展示什么 |
+|---|---|---|
+| **身体×脑闭环** | `world/brain_store.py` | 经 MCP 连本大脑：从记忆重建 3D 世界（M1）／观测入脑（M2：坐标直存＋状态事件记账）；隔离库端到端 10/10、断线重连复读通过 |
+| **世界模型七层闭环** | `world/seven_layer_loop.py` | 感知→记忆→理解→预测→验证→物理→决策 持续自主循环；每 tick 七层留痕＋自增强曲线 |
+| **世界推演循环** | `world/wm_simloop.py` | 世界图↔认知图显式推演（装载／推演／回写三环）；拓扑生长＝死区门控→假设→验证窗口→固化或 REVERT（验证不成立不固化）；全程 WAL 留痕 |
+| **3D 场景与角色** | `world/scene_model.py` · `silhouette3d.py` · `skeleton3d.py` | 语义时空图↔3D 场景绑定；角色轮廓／40+ 关节骨架确定性渲染；状态驱动呈现（状态→颜色/姿态） |
+| **白箱生成与读回** | `gen/` 七件 | 确定性渲染器（零训练）＋真实域读出器（纯 numpy＋PIL：prompt 确定性解析、多物体构图逐物体读出） |
+| **自研蜂窝神经网络** | `nn/` 十四件 | 蜂窝 CNN＋并行条件路由一体（6 邻 stencil 等距感受野）；核可学习而每步白箱（权重直读／响应图／梯度数值可验证） |
+| **记忆可视化** | `tools/coggraph/` | 一条命令把认知图变可交互知识图谱（七步确定性管线：导出→推导边→会话链→命名审计→同义归并→渲染） |
+| **理论地基** | `docs/theory/` 六件 | 世界模型（白箱固化／完整整理）· 存算一体（架构总纲／学习路线）· 自研神经网络（长期路线） |
+
+上手两行（lingshu 仓根）：
+
+```bash
+pip install -e ".[full]"                     # 轻核零依赖可裸跑；full 含 numpy / Pillow
+python -X utf8 tests/test_brain_store.py     # 身体×脑端到端（MDCG_BRAIN_PYTHONPATH 指向本大脑包目录）
+```
 
 ---
 
@@ -461,6 +486,7 @@ AEIS 仅作可选「身体」能力后端（角色扮演生成），不再存记
 | 文档 | 内容 |
 |---|---|
 | **[docs/ 目录索引](docs/README.md)** | 六域快速索引（mdcg / swarm / hive / theory / eval / plans）· 新文档归域规则 |
+| **[完整身体库（lingshu）](https://github.com/FuRongJun-1999/lingshu)** | 平台「身」面（独立公开仓 · MIT）：世界模型七层／3D 场景与角色／白箱生成／自研蜂窝神经网络／记忆可视化／身体×脑适配器 |
 | **[Release v0.8.0](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.8.0)** | 本版变更：**身体×脑组合**（与对外完整身体库 [lingshu](https://github.com/FuRongJun-1999/lingshu) 组合）——① 身体×脑对接四条落地：身侧适配器 `brain_store`（MCP stdio）**零改动对接** `scene_model`——M1 读向（`cg(op=read)` 候选＋适配器侧 tag 过滤＋`spatial.coords3d` 直存坐标＋槽位投影取状态）／M2 写向（`mdcg_remember` 含坐标直存；状态经 conn 垫片翻译为 `cg(op=state_event)` 记账——事件是源、槽位是投影）；身侧端到端 10/10＋断线重连复读通过；组合冒烟进发布门禁（第 12 腿 `body_e2e_smoke`，两栈同跑） ② 状态追踪链（语义时空图核心能力）：鲸娘七类状态追踪（人物/地点/时间/事件/因果/物品/情感）→ 状态追踪图（世界书条目＋大事记时间线＋分幕大纲）→ 多主体常驻件 `state_atlas`（全角色世界书＋酒馆 worldbook JSON 导出）→ **轮写入链**（会话每轮保守状态抽取 `state_extract` 接进每轮 mdcg 写入链：仅用户轮＋两条高精度规则＋同值去重＋证据可甄别；三层同源＝认知图＋台账投影＋原文 evidence 互指） ③ 退役边界四项裁定落地（基类检索/因果链/rust 内核接线，subgraph 结构面钉住）＋ index.lock 有界自清（三闸口径） ④ issue #64 修复（外部报告）：replay_check 空集当通行双修——负条件两态拦截（`neg_absent`/`neg_dropped_all` 不进 verify 不落盘）＋撤销过严一票否决（自否定归 no_conflict 覆盖率口径）＋ CLI 角色级 `--reflect/--verify-max-tokens`、`--timeout` 系列 |
 | **[Release v0.7.5](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.7.5)** | 本版变更：**上下文自管理机制**——① DSH 端会话滑动窗口（窗口沉淀＋续接注入两轨独立；真机验收＝窗口写入当前会话真实 id、知识面开关互不替代）② zcode 端上下文接管（会话同步器＋三件钩子：SessionStart 接续包注入／Stop 每轮镜像——会话 md 只留最近 10 条、全量转写、运行态窗口三写／UserPromptSubmit 压缩后重建＋逢十轮归档提醒；库根解析与 MCP 同源）③ 系统提示词压缩三步重建（读纪律→声明→回取近 10 轮窗口）＋长会话每 10 轮间歇归档（纪律真源修订＋8 端产物重渲染）④ issue #63 修复：常驻循环无界等待有界化＋活体进度面 |
 | **[Release v0.7.4](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.7.4)** | 本版变更：世界模型（语义时空图）功能端三批落地＋DSH 会话归因治本——① P1 状态事件抽取器 v4（24 条字面锚规则×11 槽位；三层消歧＝用户侧声明优先/非事实三类/内容实指时点；对拍答案卷三率＝漏 1/误 0/错 1（分母 25），与 v3 基线五项逐位对齐、跨目录逐字节确定性）② P2 槽位寄存器投影（state_slots——**事件是源、槽位是投影**，查询时现算不建第二真源：现值/退役/区间/变迁史）＋ stg 第五 op `state_chain`（flag MDCG_STG_STATE 默认关；CLI 只读入口）③ P3 写侧记账口 `cg(op=state_event)`（五元事件 append；权限双闸＝映射既有 write 词＋require_write；actor 恒取令牌）＋《秤》v2.1 §5.1 账本完整性探针（覆盖缺口率/无账可辨率/变迁史可查率；隔离 root、确定性、可复跑）＋使用与运维文档 ④ DSH 会话归因治本（启动脚本去目录 mtime 猜测＋插件运行期会话注入：写归因面 mdcg_remember/cg(op=write) 注入当前会话、读面语义不动；真机端到端验收＝写入归因该会话真实 id）；真实语料读数：鲸娘 25 事件→11 槽位（2 退役），账本探针缺口 3/14（形态/发色瞳色/米饭＝P1 已知边界） |
