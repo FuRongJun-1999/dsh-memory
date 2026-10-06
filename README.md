@@ -13,7 +13,7 @@
 
 ![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-0.17.2%20%E5%B7%B2%E9%AA%8C%E8%AF%81-4E9BF1)![DSH 2.0](https://img.shields.io/badge/DSH%202.0-%E6%8E%A5%E5%8F%A3%E9%9D%A2%E5%B7%B2%E5%A4%8D%E6%A0%B8-4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.8.0）**
+**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.8.1）**
 
 </div>
 
@@ -487,6 +487,7 @@ python -X utf8 tests/test_brain_store.py     # 身体×脑端到端（MDCG_BRAIN
 |---|---|
 | **[docs/ 目录索引](docs/README.md)** | 六域快速索引（mdcg / swarm / hive / theory / eval / plans）· 新文档归域规则 |
 | **[完整身体库（lingshu）](https://github.com/FuRongJun-1999/lingshu)** | 平台「身」面（独立公开仓 · MIT）：世界模型七层／3D 场景与角色／白箱生成／自研蜂窝神经网络／记忆可视化／身体×脑适配器 |
+| **[Release v0.8.1](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.8.1)** | 本版变更：**外部报告修复入版（issue #65）＋ 完整身体库展示位**——① issue #65 修复：`session_recall` ③ 近期事件段按会话隔离（`meta.session` 严格相等；显式 `"*"` 跨会话汇总；falsy 退回全局）——多窗口并发时 A 窗口注入包不再混入 B 窗口报文（静默跨会话污染消除，可被压缩检查点记入的错块源头切断）；守卫 R65 组 12 断言（42/42）＋六腿变异自证＋独立复核 ACCEPT＋全量 359/359 ② README：完整身体库 [lingshu](https://github.com/FuRongJun-1999/lingshu) 展示位三落点（平台全景／架构节「可以展示什么」八能力面／文档导航表） |
 | **[Release v0.8.0](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.8.0)** | 本版变更：**身体×脑组合**（与对外完整身体库 [lingshu](https://github.com/FuRongJun-1999/lingshu) 组合）——① 身体×脑对接四条落地：身侧适配器 `brain_store`（MCP stdio）**零改动对接** `scene_model`——M1 读向（`cg(op=read)` 候选＋适配器侧 tag 过滤＋`spatial.coords3d` 直存坐标＋槽位投影取状态）／M2 写向（`mdcg_remember` 含坐标直存；状态经 conn 垫片翻译为 `cg(op=state_event)` 记账——事件是源、槽位是投影）；身侧端到端 10/10＋断线重连复读通过；组合冒烟进发布门禁（第 12 腿 `body_e2e_smoke`，两栈同跑） ② 状态追踪链（语义时空图核心能力）：鲸娘七类状态追踪（人物/地点/时间/事件/因果/物品/情感）→ 状态追踪图（世界书条目＋大事记时间线＋分幕大纲）→ 多主体常驻件 `state_atlas`（全角色世界书＋酒馆 worldbook JSON 导出）→ **轮写入链**（会话每轮保守状态抽取 `state_extract` 接进每轮 mdcg 写入链：仅用户轮＋两条高精度规则＋同值去重＋证据可甄别；三层同源＝认知图＋台账投影＋原文 evidence 互指） ③ 退役边界四项裁定落地（基类检索/因果链/rust 内核接线，subgraph 结构面钉住）＋ index.lock 有界自清（三闸口径） ④ issue #64 修复（外部报告）：replay_check 空集当通行双修——负条件两态拦截（`neg_absent`/`neg_dropped_all` 不进 verify 不落盘）＋撤销过严一票否决（自否定归 no_conflict 覆盖率口径）＋ CLI 角色级 `--reflect/--verify-max-tokens`、`--timeout` 系列 |
 | **[Release v0.7.5](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.7.5)** | 本版变更：**上下文自管理机制**——① DSH 端会话滑动窗口（窗口沉淀＋续接注入两轨独立；真机验收＝窗口写入当前会话真实 id、知识面开关互不替代）② zcode 端上下文接管（会话同步器＋三件钩子：SessionStart 接续包注入／Stop 每轮镜像——会话 md 只留最近 10 条、全量转写、运行态窗口三写／UserPromptSubmit 压缩后重建＋逢十轮归档提醒；库根解析与 MCP 同源）③ 系统提示词压缩三步重建（读纪律→声明→回取近 10 轮窗口）＋长会话每 10 轮间歇归档（纪律真源修订＋8 端产物重渲染）④ issue #63 修复：常驻循环无界等待有界化＋活体进度面 |
 | **[Release v0.7.4](https://github.com/FuRongJun-1999/dsh-memory/releases/tag/v0.7.4)** | 本版变更：世界模型（语义时空图）功能端三批落地＋DSH 会话归因治本——① P1 状态事件抽取器 v4（24 条字面锚规则×11 槽位；三层消歧＝用户侧声明优先/非事实三类/内容实指时点；对拍答案卷三率＝漏 1/误 0/错 1（分母 25），与 v3 基线五项逐位对齐、跨目录逐字节确定性）② P2 槽位寄存器投影（state_slots——**事件是源、槽位是投影**，查询时现算不建第二真源：现值/退役/区间/变迁史）＋ stg 第五 op `state_chain`（flag MDCG_STG_STATE 默认关；CLI 只读入口）③ P3 写侧记账口 `cg(op=state_event)`（五元事件 append；权限双闸＝映射既有 write 词＋require_write；actor 恒取令牌）＋《秤》v2.1 §5.1 账本完整性探针（覆盖缺口率/无账可辨率/变迁史可查率；隔离 root、确定性、可复跑）＋使用与运维文档 ④ DSH 会话归因治本（启动脚本去目录 mtime 猜测＋插件运行期会话注入：写归因面 mdcg_remember/cg(op=write) 注入当前会话、读面语义不动；真机端到端验收＝写入归因该会话真实 id）；真实语料读数：鲸娘 25 事件→11 槽位（2 退役），账本探针缺口 3/14（形态/发色瞳色/米饭＝P1 已知边界） |
