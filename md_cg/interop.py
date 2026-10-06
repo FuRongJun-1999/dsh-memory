@@ -47,6 +47,11 @@ _FORBIDDEN_RES = [
 ]
 _FORBIDDEN_KEYS = {"prompt", "content", "spec", "api_key", "base", "model",
                    "system_prompt", "user_prompt", "content_head"}
+#: git add/commit 子进程的超时（秒）——issue #63 同批加固：本机 git 为秒级
+#: 操作，120s 为安全上界；超时即 kill。**stdin=subprocess.DEVNULL 同加**：
+#: 不指定 stdin 时子进程继承父进程 stdin（常驻宿主下是 JSON-RPC 活管道），
+#: 读 stdin 的子进程会悬挂（先例形态 `md_cg/run_tests.py:105`）。
+_GIT_TIMEOUT_S = 120
 
 
 class InteropSanityError(ValueError):
@@ -323,15 +328,26 @@ def write_verdict_to_repo(verdict: dict, repo: str = HERE,
     out = {"ok": True, "path": fp}
     if do_commit:
         import subprocess
-        r1 = subprocess.run(["git", "add", os.path.relpath(fp, repo)],
-                            cwd=repo, capture_output=True, text=True,
-                            encoding="utf-8", errors="replace")
-        r2 = subprocess.run(
-            ["git", "commit", "-q", "-m",
-             f"interop(verifier): iter={it} verdict={verdict.get('verdict')} "
-             f"passed={verdict.get('passed')} failed={verdict.get('failed')}"],
-            cwd=repo, capture_output=True, text=True,
-            encoding="utf-8", errors="replace")
+        try:
+            r1 = subprocess.run(["git", "add", os.path.relpath(fp, repo)],
+                                cwd=repo, capture_output=True, text=True,
+                                encoding="utf-8", errors="replace",
+                                timeout=_GIT_TIMEOUT_S,
+                                stdin=subprocess.DEVNULL)
+            r2 = subprocess.run(
+                ["git", "commit", "-q", "-m",
+                 f"interop(verifier): iter={it} verdict={verdict.get('verdict')} "
+                 f"passed={verdict.get('passed')} failed={verdict.get('failed')}"],
+                cwd=repo, capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
+                timeout=_GIT_TIMEOUT_S, stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            # 超时**不吞**：如实记进既有错误面（与 rc≠0 同一条 commit_err），
+            # 不假装提交成功（issue #63）。
+            out["committed"] = False
+            out["commit_err"] = ("git 超时（%ss）已被 kill：%s" %
+                                 (_GIT_TIMEOUT_S, out_dir))
+            return out
         out["committed"] = r2.returncode == 0
         if r2.returncode != 0:
             out["commit_err"] = (r2.stderr or r1.stderr)[:200]

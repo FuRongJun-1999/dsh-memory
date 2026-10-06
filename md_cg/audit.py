@@ -456,11 +456,17 @@ def _verify_code(payload, ctx):
         # 被测命令只要输出非 gbk 字节，读取线程就抛 UnicodeDecodeError →
         # p.stdout/p.stderr 可能为空 → 下一行的失败证据丢失，
         # 「实测失败」会退化成一句没有依据的 REJECT（对齐 whitebox.py 的写法）。
+        # stdin=subprocess.DEVNULL（issue #63 同批加固）：不指定 stdin 时子进程
+        # 继承父进程 stdin（常驻宿主下是 JSON-RPC 活管道），读 stdin 的测试
+        # 命令会悬挂到 timeout 才被 kill——形态对齐 `md_cg/run_tests.py:105`。
         p = subprocess.run(argv, cwd=ctx.get("cwd"), capture_output=True,
                            text=True, encoding="utf-8", errors="replace",
-                           shell=False,
+                           shell=False, stdin=subprocess.DEVNULL,
                            timeout=int(os.environ.get("MDCG_CODE_TEST_TIMEOUT", "60")))
     except (OSError, subprocess.SubprocessError) as exc:
+        # TimeoutExpired（SubprocessError 子类）也走这里：DEFER + 文案带异常
+        # 名与原文（如 "TimeoutExpired: Command '…' timed out after 60 seconds"）
+        # ——超时**不吞**（issue #63）。
         return _verdict(DEFER, "code", f"测试无法执行：{type(exc).__name__}: {exc}")
     if p.returncode == 0:
         return _verdict(ACCEPT, "code", f"实测通过：{cmd}")

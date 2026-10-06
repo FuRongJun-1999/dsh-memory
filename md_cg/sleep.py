@@ -75,6 +75,14 @@ GIT_USER_EMAIL = "sleep@lingshu.local"
 FORBIDDEN_BASENAMES = ("_keys.json", "_access.log", "_index.json")
 FORBIDDEN_SUFFIXES = (".tmp", ".lock")
 DEFAULT_LOCK_TIMEOUT = 30.0
+#: 单条 git 子进程的**硬超时**（秒）——issue #63 主修（单点可调）。
+#: 取值依据：本机 git 操作为秒级（init / add / commit / rev-parse / worktree /
+#: merge / revert 全是单库本地动作），120s 为安全上界；超时即 kill
+#: （`subprocess.run(timeout=)` 语义），异常消息里带「若是残留锁则人工核删」的
+#: 指引（本模块**不自动删** index.lock——可能是他进程的锁，误删更糟）。
+_GIT_TIMEOUT_S = 120
+#: git 子进程超时后可能的残留锁名（仅用于异常消息里的核删指引，不自动删）。
+_GIT_LOCK_NAME = "index.lock"
 #: 睡眠轮次的**台账**（append-only JSONL）——落 `sleep_root()` 侧（状态面，
 #: **不是数据根**）：台账是运行态，不该成为真源面的一部分、也不该进版本库。
 SLEEP_LEDGER = "_sleep.jsonl"
@@ -114,6 +122,16 @@ SLEEP_MERGE_MODES = ("auto", "ask", "never")
 
 class SleepError(Exception):
     """git 操作失败（带 stderr 摘要）。"""
+
+
+class SleepGitTimeout(SleepError):
+    """git 子进程**超时已被 kill**（issue #63）——与「git 返回非零」区分。
+
+    为什么单列一支：超时与普通失败的处理面不同——普通失败（rc≠0）是 git
+    对本次操作的裁决（冲突 / 非法状态），超时是**本次操作没有完成**（可能
+    留下半成品与残留锁），台账文案必须能分开（物化超时 vs 物化失败）。
+    `SleepError` 的子类 ⇒ 所有既有 `except SleepError` 面照旧收得住。
+    """
 
 
 # 生效条件：name 为 SLEEP_ENV_DEFAULTS 的键时，按 SLEEP_ENV_KEYS[name] 从 environ（缺省 os.environ）取名取值，缺键（None）时回落真源缺省；返回**原始字符串**（不做 bool/float 解释——解释归各具名包装）。name 非表内键时抛 KeyError（不做静默回落：拼错键名即编程错误）。
@@ -265,23 +283,47 @@ def face_delta(before: dict, after: dict) -> dict:
                               if before[k] != after[k])}
 
 
-# 生效条件：git_dir_path 与 work_tree 给定时以 ["git", "--git-dir=<git_dir_path>", "--work-tree=<work_tree>", *args] 调 subprocess.run（capture_output + text + 显式 utf-8/errors=replace + env 带 PYTHONUTF8=1 + shell=False）并返回 CompletedProcess；returncode 非零不抛（由调用方判）。
+# 生效条件：git_dir_path 与 work_tree 给定时以 ["git", "--git-dir=<git_dir_path>", "--work-tree=<work_tree>", *args] 调 subprocess.run（capture_output + text + 显式 utf-8/errors=replace + env 带 PYTHONUTF8=1 + shell=False + **timeout=_GIT_TIMEOUT_S** + **stdin=DEVNULL**）并返回 CompletedProcess；returncode 非零不抛（由调用方判）；TimeoutExpired **不吞**——单点转 SleepGitTimeout（消息含「超时（_GIT_TIMEOUT_S）已被 kill」+ 命令名 + 残留锁人工核删指引）。
 def _git(git_dir_path: str, work_tree: str, *args: str) -> subprocess.CompletedProcess:
     """git 调用的**唯一出口**：`--git-dir` 与 `--work-tree` 一律显式给。
 
     `--work-tree` 不是装饰：物化与合并传数据根，对账+提交传影子——同一个版本库
     两个工作树，靠这两个显式开关切换，**不依赖进程 cwd**（`hive/wm.py` 用 `-C`
     是因为它的工作树就是版本库本身；这里两者分居，故用分裂形态）。
+
+    **有界化（issue #63）**——三件套缺一不可：
+
+      ① `timeout=_GIT_TIMEOUT_S`：子进程**无界等待**是常驻循环停摆的直接成因
+         （实测停 9.5 小时：`SustainLoop` 单线程串行六档，任一档挂住即全停）。
+      ② `stdin=subprocess.DEVNULL`：不指定 stdin 时子进程**继承父进程 stdin**
+         ——DSH 常驻宿主的 stdin 是 **JSON-RPC 活管道**（不写入也不关闭），
+         任何读 stdin 的子进程会永久悬挂（实测：活管道下 6s 仍 poll=None；
+         DEVNULL 下 0.02s 立即 EOF）。先例形态：`md_cg/run_tests.py:105`。
+      ③ `TimeoutExpired` **不吞**：转 `SleepGitTimeout`（`SleepError` 子类，
+         既有 `except SleepError` 面照旧收得住），消息带命令名与残留锁核删
+         指引——`subprocess.run(timeout=)` kill 子进程后 git 可能留下
+         `index.lock`；**本模块不自动删**（可能是他进程的锁，误删更糟），
+         是否自动清理列入待裁（见 issue #63 台账）。
     """
     argv = ["git", "--git-dir=" + git_dir_path, "--work-tree=" + work_tree]
     argv.extend(args)
     env = dict(os.environ, PYTHONUTF8="1")
-    return subprocess.run(argv, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace",
-                          env=env, shell=False)
+    try:
+        return subprocess.run(argv, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
+                              env=env, shell=False,
+                              timeout=_GIT_TIMEOUT_S,
+                              stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired as exc:
+        raise SleepGitTimeout(
+            "git %s 超时（%ss）已被 kill（命令：git %s）——"
+            "本次 git 操作未完成；若后续 git 操作报 lock，请人工核删 "
+            "%s（可能是被 kill 的进程留下的残留锁，本模块不自动删）"
+            % (" ".join(args[:2]), _GIT_TIMEOUT_S, " ".join(args[:6]),
+               os.path.join(git_dir_path, _GIT_LOCK_NAME))) from exc
 
 
-# 生效条件：同 _git 的调用形态；returncode != 0 时抛 SleepError（消息取 stderr 为真值、为空则取 stdout，strip 后截 300 字符），为 0 时返回 stdout。
+# 生效条件：同 _git 的调用形态；returncode != 0 时抛 SleepError（消息取 stderr 为真值、为空则取 stdout，strip 后截 300 字符），为 0 时返回 stdout；_git 侧超时以 SleepGitTimeout（SleepError 子类，消息含「超时…已被 kill」）原样冒出——两条失败面**可区分**（rc≠0 = git 的裁决；超时 = 操作没完成）。
 def _git_ok(git_dir_path: str, work_tree: str, *args: str) -> str:
     r = _git(git_dir_path, work_tree, *args)
     if r.returncode != 0:
@@ -380,26 +422,36 @@ def materialize(root: str = None, *, git_dir_path: str = None,
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
             return _busy("materialize", timeout)
-        rep = ensure_repo(root, G)
-        init = _stage_and_commit(G, root, "sleep: 基线（真源面入册）") \
-            if not _has_head(G, root) else {"committed": False,
-                                            "reason": "已有基线提交"}
-        if os.path.isdir(S):
-            r = _git(G, root, "worktree", "remove", "--force", S)
+        try:
+            rep = ensure_repo(root, G)
+            init = _stage_and_commit(G, root, "sleep: 基线（真源面入册）") \
+                if not _has_head(G, root) else {"committed": False,
+                                                "reason": "已有基线提交"}
+            if os.path.isdir(S):
+                r = _git(G, root, "worktree", "remove", "--force", S)
+                if r.returncode != 0:
+                    # 非注册工作树（上一次运行被杀、目录残留）→ 直接摘目录
+                    shutil.rmtree(S, ignore_errors=True)
+            r = _git(G, root, "worktree", "add", "-b", branch, S, BASE_BRANCH)
             if r.returncode != 0:
-                # 非注册工作树（上一次运行被杀、目录残留）→ 直接摘目录
-                shutil.rmtree(S, ignore_errors=True)
-        r = _git(G, root, "worktree", "add", "-b", branch, S, BASE_BRANCH)
-        if r.returncode != 0:
-            r2 = _git(G, root, "worktree", "add", S, branch)
-            if r2.returncode != 0:
-                return {"ok": False, "busy": False, "lock_held": True,
-                        "phase": "materialize", "lock": lock_path(),
-                        "error": (r2.stderr or r2.stdout).strip()[:300],
-                        "hint": "影子分支/目录未能挂上"}
-            reused = True
-        else:
-            reused = False
+                r2 = _git(G, root, "worktree", "add", S, branch)
+                if r2.returncode != 0:
+                    return {"ok": False, "busy": False, "lock_held": True,
+                            "phase": "materialize", "lock": lock_path(),
+                            "error": (r2.stderr or r2.stdout).strip()[:300],
+                            "hint": "影子分支/目录未能挂上"}
+                reused = True
+            else:
+                reused = False
+        except SleepGitTimeout as e:
+            # 超时与「物化失败」分开记账（issue #63）：超时 = git 操作**没完成**
+            # （已被 kill），与 rc≠0 的「git 的裁决失败」不是一回事——
+            # run_cycle 据此写「物化超时：…」（见 mat_fail 分流）。
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "materialize", "lock": lock_path(),
+                    "timeout": True, "error": str(e),
+                    "hint": ("git 子进程超时已被 kill：本轮物化放弃；"
+                             "残留锁核删指引见 error")}
         after = source_face_hashes(root)
         delta = face_delta(before, after)
         # ok = **物化动作成功**（影子已挂上）；真源面漂移与否是另一个读数
@@ -446,9 +498,17 @@ def reconcile_and_commit(root: str = None, *, git_dir_path: str = None,
                     "error": "影子工作树不存在：先 materialize", "shadow": S}
         # 链式工作树用自己的 gitdir（否则 HEAD/index 取主那一份，提交会落到 main）
         GS = worktree_git_dir(S) or G
-        br = branch or _git_ok(GS, S, "rev-parse", "--abbrev-ref", "HEAD").strip()
-        msg = "sleep: %s 轮对账提交" % (batch or _stamp())
-        res = _stage_and_commit(GS, S, msg)
+        try:
+            br = branch or _git_ok(GS, S, "rev-parse", "--abbrev-ref",
+                                   "HEAD").strip()
+            msg = "sleep: %s 轮对账提交" % (batch or _stamp())
+            res = _stage_and_commit(GS, S, msg)
+        except SleepGitTimeout as e:
+            # 超时（issue #63）：本阶段未完成——与「Δ 为空/未提交」等读数分开报。
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "reconcile_and_commit", "git_dir": G,
+                    "worktree_git_dir": GS, "shadow": S, "timeout": True,
+                    "error": str(e), "lock": lock_path()}
         after = source_face_hashes(root)
         delta = face_delta(before, after)
         return {"ok": not (delta["added"] or delta["removed"] or delta["changed"]),
@@ -481,27 +541,40 @@ def merge(root: str = None, *, git_dir_path: str = None, branch: str,
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
             return _busy("merge", timeout)
-        cur = _git_ok(G, root, "rev-parse", "--abbrev-ref", "HEAD").strip()
-        if cur != BASE_BRANCH:
-            return {"ok": False, "busy": False, "lock_held": True, "phase": "merge",
-                    "lock": lock_path(), "head": cur,
-                    "error": "当前 HEAD 在 %s，merge 须在 %s 上执行" % (cur, BASE_BRANCH)}
-        r = _git(G, root, "merge", "--no-ff", branch, "-m",
-                 "sleep: merge %s into %s" % (branch, BASE_BRANCH))
-        if r.returncode != 0:
-            out = (r.stdout + r.stderr).strip()
-            return {"ok": False, "busy": False, "lock_held": True, "phase": "merge",
-                    "lock": lock_path(), "shadow": S,
-                    "conflict": "CONFLICT" in out, "error": out[:500],
-                    "source_face_delta": face_delta(before, source_face_hashes(root)),
-                    "hint": ("冲突不自动解决（照 hive/wm.py 既有裁决）：人工/LLM 裁决后 "
-                             "git add + git commit 收口，或 git merge --abort 放弃本次合并")}
+        try:
+            cur = _git_ok(G, root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+            if cur != BASE_BRANCH:
+                return {"ok": False, "busy": False, "lock_held": True,
+                        "phase": "merge", "lock": lock_path(), "head": cur,
+                        "error": "当前 HEAD 在 %s，merge 须在 %s 上执行"
+                                 % (cur, BASE_BRANCH)}
+            r = _git(G, root, "merge", "--no-ff", branch, "-m",
+                     "sleep: merge %s into %s" % (branch, BASE_BRANCH))
+            if r.returncode != 0:
+                out = (r.stdout + r.stderr).strip()
+                return {"ok": False, "busy": False, "lock_held": True,
+                        "phase": "merge", "lock": lock_path(), "shadow": S,
+                        "conflict": "CONFLICT" in out, "error": out[:500],
+                        "source_face_delta": face_delta(before,
+                                                        source_face_hashes(root)),
+                        "hint": ("冲突不自动解决（照 hive/wm.py 既有裁决）："
+                                 "人工/LLM 裁决后 git add + git commit 收口，"
+                                 "或 git merge --abort 放弃本次合并")}
+            head = _git_ok(G, root, "rev-parse", "HEAD").strip()
+        except SleepGitTimeout as e:
+            # 超时（issue #63）：合并**未完成**（不是冲突、也不是被拒）——
+            # 单独一档读数，冲突裁决路径不受影响。
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "merge", "lock": lock_path(), "shadow": S,
+                    "timeout": True, "error": str(e),
+                    "hint": ("git 子进程超时已被 kill：合并未完成；"
+                             "残留锁核删指引见 error")}
         after = source_face_hashes(root)
         delta = face_delta(before, after)
         return {"ok": True, "busy": False, "lock_held": True, "phase": "merge",
-                "lock": lock_path(), "merged": branch,
-                "commit": _git_ok(G, root, "rev-parse", "HEAD").strip(),
-                "source_face_delta": delta, "main_written": delta["added"] + delta["changed"]}
+                "lock": lock_path(), "merged": branch, "commit": head,
+                "source_face_delta": delta,
+                "main_written": delta["added"] + delta["changed"]}
 
 
 # 生效条件：commit 为版本库中存在的提交（或分支名）；在根级锁内以其父提交数判是否 merge（git rev-list --parents -n1 字段数 > 2 即 merge），是 merge 则附 -m 1，执行 git revert --no-edit <参数> <commit>；returncode != 0 时返回 ok=False 与 conflict/error/hint，成功返回 ok=True、reverted、commit（新提交）与 source_face_delta。**只走 revert，不提供抹历史的强推档**。
@@ -521,22 +594,31 @@ def revert(commit: str, root: str = None, *, git_dir_path: str = None,
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
             return _busy("revert", timeout)
-        parents = _git_ok(G, root, "rev-list", "--parents", "-n1", commit).split()
-        args = ["revert", "--no-edit"]
-        if len(parents) > 2:
-            args += ["-m", "1"]
-        args.append(commit)
-        r = _git(G, root, *args)
-        if r.returncode != 0:
-            out = (r.stdout + r.stderr).strip()
-            return {"ok": False, "busy": False, "lock_held": True, "phase": "revert",
-                    "lock": lock_path(), "conflict": "CONFLICT" in out,
-                    "error": out[:500],
-                    "hint": "冲突不自动解决；处理后可 git revert --continue / --abort"}
+        try:
+            parents = _git_ok(G, root, "rev-list", "--parents", "-n1",
+                              commit).split()
+            args = ["revert", "--no-edit"]
+            if len(parents) > 2:
+                args += ["-m", "1"]
+            args.append(commit)
+            r = _git(G, root, *args)
+            if r.returncode != 0:
+                out = (r.stdout + r.stderr).strip()
+                return {"ok": False, "busy": False, "lock_held": True,
+                        "phase": "revert", "lock": lock_path(),
+                        "conflict": "CONFLICT" in out, "error": out[:500],
+                        "hint": ("冲突不自动解决；处理后可 git revert --continue "
+                                 "/ --abort")}
+            head = _git_ok(G, root, "rev-parse", "HEAD").strip()
+        except SleepGitTimeout as e:
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "revert", "lock": lock_path(), "timeout": True,
+                    "error": str(e),
+                    "hint": ("git 子进程超时已被 kill：回滚未完成；"
+                             "残留锁核删指引见 error")}
         after = source_face_hashes(root)
         return {"ok": True, "busy": False, "lock_held": True, "phase": "revert",
-                "lock": lock_path(), "reverted": commit,
-                "commit": _git_ok(G, root, "rev-parse", "HEAD").strip(),
+                "lock": lock_path(), "reverted": commit, "commit": head,
                 "merge_commit": len(parents) > 2,
                 "source_face_delta": face_delta(before, after)}
 
@@ -981,10 +1063,20 @@ def reconcile_gated(root: str = None, *, git_dir_path: str = None,
         gated = gate_delta(cgm, delta, baseline_face=baseline_face,
                            shadow_root=S)
         GS = worktree_git_dir(S) or G
-        br = branch or _git_ok(GS, S, "rev-parse", "--abbrev-ref", "HEAD").strip()
-        rels = _stage_set(delta, gated["accepted"])
-        res = _commit_paths(GS, S, rels,
-                            "sleep: %s 轮对账提交" % (batch or _stamp()))
+        try:
+            br = branch or _git_ok(GS, S, "rev-parse", "--abbrev-ref",
+                                   "HEAD").strip()
+            rels = _stage_set(delta, gated["accepted"])
+            res = _commit_paths(GS, S, rels,
+                                "sleep: %s 轮对账提交" % (batch or _stamp()))
+        except SleepGitTimeout as e:
+            # 超时（issue #63）：四闸裁决读数（delta / accepted / conflicts /
+            # rejected）照带——只是入册没完成。
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "reconcile_gated", "git_dir": G,
+                    "worktree_git_dir": GS, "shadow": S, "timeout": True,
+                    "error": str(e), "lock": lock_path(),
+                    "delta": delta, **gated}
         after = source_face_hashes(root)
         return {"ok": True, "busy": False, "lock_held": True,
                 "phase": "reconcile_gated", "git_dir": G, "worktree_git_dir": GS,
@@ -1061,7 +1153,14 @@ def merge_cycle(cg_main, root: str = None, *, git_dir_path: str = None,
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
             return _busy("merge_cycle", timeout)
-        cur = _git_ok(G, root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        try:
+            cur = _git_ok(G, root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        except SleepGitTimeout as e:
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "merge_cycle", "lock": lock_path(),
+                    "branch": branch, "timeout": True, "error": str(e),
+                    "hint": ("git 子进程超时已被 kill：合并尚未开始；"
+                             "残留锁核删指引见 error")}
         if cur != BASE_BRANCH:
             return {"ok": False, "busy": False, "lock_held": True,
                     "phase": "merge_cycle", "lock": lock_path(), "head": cur,
@@ -1079,39 +1178,54 @@ def merge_cycle(cg_main, root: str = None, *, git_dir_path: str = None,
         # 层迁移会把源层目录搬空，`pathspecs` 滤空目录后就把「旧位置删除」漏掉，
         # 主库 HEAD 会留着旧文件 ⇒ 与影子分支的树不同（本机实测过这个漏）。
         ps = _stage_set(delta or {}, accepted or [])
-        if ps:
-            _git_ok(G, root, "add", "--", *ps)
-            if _git(G, root, "diff", "--cached", "--quiet").returncode != 0:
-                _git_ok(G, root, "commit", "-m",
-                        "sleep: %s 语义重放 Δ" % (batch or _stamp()))
-                # **本轮内容所在的提交**（回退入口）：按 §4.4 的次序，内容由
-                # 「语义重放」先写进主库并提交，随后的 `--no-ff` 合并只是**拓扑记录**
-                # （其树与第一父提交相同 ⇒ `git revert -m 1 <合并提交>` 对内容零影响，
-                # 回退要指向本提交；ops 文档据此登记）。
-                out["round_commit"] = _git_ok(G, root, "rev-parse", "HEAD").strip()
-        out["replay_commit"] = _git_ok(G, root, "rev-parse", "HEAD").strip()
-        # 仅当两侧树**完全相同**才合并（否则让 git 的文本自动合并去裁决就会绕过四闸）
-        same = _git(G, root, "diff", "--quiet", branch, "HEAD").returncode == 0
-        if not same:
-            changed = [ln.strip() for ln in _git(
-                G, root, "diff", "--name-only", branch, "HEAD").stdout.splitlines()
-                if ln.strip()]
-            out.update(deferred="tree_divergence",
-                       note="影子分支与重放后的主库树不同 ⇒ 挂起不合并（不自动解决）",
-                       conflict_ids=sorted({os.path.basename(p)[:-3]
-                                            for p in changed}))
+        try:
+            if ps:
+                _git_ok(G, root, "add", "--", *ps)
+                if _git(G, root, "diff", "--cached", "--quiet").returncode != 0:
+                    _git_ok(G, root, "commit", "-m",
+                            "sleep: %s 语义重放 Δ" % (batch or _stamp()))
+                    # **本轮内容所在的提交**（回退入口）：按 §4.4 的次序，内容由
+                    # 「语义重放」先写进主库并提交，随后的 `--no-ff` 合并只是**拓扑记录**
+                    # （其树与第一父提交相同 ⇒ `git revert -m 1 <合并提交>` 对内容零影响，
+                    # 回退要指向本提交；ops 文档据此登记）。
+                    out["round_commit"] = _git_ok(G, root, "rev-parse",
+                                                  "HEAD").strip()
+            out["replay_commit"] = _git_ok(G, root, "rev-parse", "HEAD").strip()
+            # 仅当两侧树**完全相同**才合并（否则让 git 的文本自动合并去裁决就会绕过四闸）
+            same = _git(G, root, "diff", "--quiet", branch,
+                        "HEAD").returncode == 0
+            if not same:
+                changed = [ln.strip() for ln in _git(
+                    G, root, "diff", "--name-only", branch,
+                    "HEAD").stdout.splitlines() if ln.strip()]
+                out.update(deferred="tree_divergence",
+                           note=("影子分支与重放后的主库树不同 ⇒ 挂起不合并"
+                                 "（不自动解决）"),
+                           conflict_ids=sorted({os.path.basename(p)[:-3]
+                                                for p in changed}))
+                out["source_face_delta"] = face_delta(before,
+                                                      source_face_hashes(root))
+                return out
+            r = _git(G, root, "merge", "--no-ff", branch, "-m",
+                     "sleep: merge %s into %s" % (branch, BASE_BRANCH))
+            if r.returncode != 0:
+                txt = (r.stdout + r.stderr).strip()
+                out.update(ok=False, conflict="CONFLICT" in txt, error=txt[:500],
+                           hint=("冲突不自动解决（照 hive/wm.py 既有裁决）："
+                                 "人工裁决后 git add + git commit 收口，"
+                                 "或放弃本次合并"))
+                out["source_face_delta"] = face_delta(before,
+                                                      source_face_hashes(root))
+                return out
+            out["merge_commit"] = _git_ok(G, root, "rev-parse", "HEAD").strip()
+        except SleepGitTimeout as e:
+            # 超时（issue #63）：重放后的入册/合并**未完成**（既非冲突、也非
+            # 树分歧）——单独一档读数，与上面两条裁决路径分开。
+            out.update(ok=False, timeout=True, error=str(e),
+                       hint=("git 子进程超时已被 kill：入册/合并未完成；"
+                             "残留锁核删指引见 error"))
             out["source_face_delta"] = face_delta(before, source_face_hashes(root))
             return out
-        r = _git(G, root, "merge", "--no-ff", branch, "-m",
-                 "sleep: merge %s into %s" % (branch, BASE_BRANCH))
-        if r.returncode != 0:
-            txt = (r.stdout + r.stderr).strip()
-            out.update(ok=False, conflict="CONFLICT" in txt, error=txt[:500],
-                       hint=("冲突不自动解决（照 hive/wm.py 既有裁决）：人工裁决后 "
-                             "git add + git commit 收口，或放弃本次合并"))
-            out["source_face_delta"] = face_delta(before, source_face_hashes(root))
-            return out
-        out["merge_commit"] = _git_ok(G, root, "rev-parse", "HEAD").strip()
         out["merged"] = branch
         after = source_face_hashes(root)
         dlt = face_delta(before, after)
@@ -1270,13 +1384,18 @@ def run_cycle(cg=None, *, root: str = None, batch: str = None,
         phases["materialize"] = {k: m.get(k) for k in
                                  ("ok", "face_stable", "busy", "branch", "shadow",
                                   "git_dir", "baseline", "source_face_delta",
-                                  "reason", "error")}
+                                  "reason", "error", "timeout")}
         if not m.get("ok"):
-            # 物化**未完成**（取不到根级锁 / 影子未能挂上）——与「门拦」区分记账：
-            # 门拦是「按设计不动手」，这里是「想动手却没做成」，用户要能一眼分开。
+            # 物化**未完成**（取不到根级锁 / 影子未能挂上 / git 超时）——与
+            # 「门拦」区分记账：门拦是「按设计不动手」，这里是「想动手却没做成」，
+            # 用户要能一眼分开；超时再单列一档文案（issue #63：物化超时 ≠
+            # 物化失败——前者是操作没完成、后者是 git 的裁决）。
             mat_fail = ("物化未完成：根级锁被占（另一进程在周期内）"
                         if m.get("busy")
-                        else "物化未完成：%s" % (m.get("error") or "未知原因"))
+                        else ("物化超时：%s" % (m.get("error") or "未知原因")
+                              if m.get("timeout")
+                              else "物化未完成：%s" % (m.get("error")
+                                                       or "未知原因")))
         if m.get("ok"):
             # **物化成功即迭代**（issue #60）：`ok` 现在只说「影子挂上了没」；
             # 物化窗口内主库真源面的漂移另记 `face_stable`，**不阻断**迭代——
@@ -1292,7 +1411,7 @@ def run_cycle(cg=None, *, root: str = None, batch: str = None,
                                  cg=cg, timeout=timeout)
             phases["reconcile"] = {k: rc.get(k) for k in
                                    ("committed", "commit", "branch", "reason",
-                                    "busy")}
+                                    "busy", "timeout", "error")}
             delta = rc.get("delta") or {}
             digest = {"n": len(delta), "ids": sorted(delta)[:20],
                       "kinds": {k: sum(1 for v in delta.values() if v["kind"] == k)
@@ -1313,7 +1432,8 @@ def run_cycle(cg=None, *, root: str = None, batch: str = None,
                                        ("ok", "merged", "merge_commit",
                                         "round_commit", "replay_commit",
                                         "deferred", "conflict", "conflict_ids",
-                                        "error", "main_written", "busy")}
+                                        "error", "main_written", "busy",
+                                        "timeout")}
                     phases["merge"]["replayed"] = (mg.get("replayed") or {}).get("written")
                     rec["merged"] = bool(mg.get("ok")) and not mg.get("deferred")
                     if mg.get("deferred"):

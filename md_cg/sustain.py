@@ -71,6 +71,17 @@ DEFAULT_SCRUB_INTERVAL = 3600.0   # 记忆自净（抽查/去污染/校准）1h
 DEFAULT_EVOLVE_INTERVAL = 7200.0  # 演化巡检（固化/重要性候选盘点）2h；只读
 DEFAULT_TIDY_INTERVAL = 21600.0   # 整理巡检（contextual 同构组聚合）6h
 
+#: 六档 tick 的（档名 → interval 属性名）映射——进度面与 stale 阈值的取值面，
+#: 顺序即 `SustainLoop._run()` 的执行序（单一真源：改档名/加点只改这里）。
+TICK_INTERVAL_ATTRS = (("beat", "beat_interval"), ("heal", "heal_interval"),
+                       ("scrub", "scrub_interval"), ("evolve", "evolve_interval"),
+                       ("tidy", "tidy_interval"), ("sleep", "sleep_interval"))
+#: 活体进度面的 stale 阈值下限（秒）——issue #63：某档 tick 运行超过
+#: `max(2×该档 interval, TICK_STALE_MIN_S)` 时，状态面显式给 `stale_tick`
+#: 告警。**只上报，不杀线程**（线程不可安全强杀；处置=人工重启常驻进程，
+#: 见 `docs/mdcg/睡眠周期_运维前提与维护指南_v1.0.md`）。
+TICK_STALE_MIN_S = 1800.0
+
 # ---- 四档 `auto_*` 缺省的**单一真源**（P0-2，2026-10-01）--------------------
 # 为什么要有这张表：同一组缺省此前在**三处**各写一份——op 路径
 # （mcp_server.py 的 `_sustain_call` start 分支）、env 路径（`_start_sustain`）
@@ -1077,6 +1088,13 @@ class SustainLoop:
         self.tidys = []
         # 数据健康不变量断言集结论（Pi⑤）：与 tidy 同节奏，只取结论不落盘
         self.last_conformance = None
+        # 活体进度面（issue #63）：当前档 / 上一档完成 / 上一档错误——
+        # 写点 = 既有心跳戳（见 `_progress_fields` / `_flush_progress`），
+        # **不造第二套状态文件**。
+        self.current_tick = None
+        self.last_tick_done = None
+        self.last_tick_error = None
+        self._ticks_wrapped = False          # 六档进度面包装的幂等标记
         self._started_at = None
         self._th = None
         self._stop = threading.Event()
@@ -1084,17 +1102,125 @@ class SustainLoop:
 
     # ---- 心跳 ----
 
-# 生效条件：task_running 非 None 时先置 self.task_running=bool(task_running)，再 write_stamp(self.name, self.d, task_running=self.task_running, root=self.cg.root, uptime=... if self._started_at else 0.0)，beats 自增并记 last_beat=rec["ts"]，返回该 rec；
+# 生效条件：task_running 非 None 时先置 self.task_running=bool(task_running)，再 write_stamp(self.name, self.d, task_running=self.task_running, root=self.cg.root, uptime=... if self._started_at else 0.0, **进度三字段)，beats 自增并记 last_beat=rec["ts"]，返回该 rec；
     def beat(self, task_running: bool = None) -> dict:
         if task_running is not None:
             self.task_running = bool(task_running)
         rec = write_stamp(
             self.name, self.d, task_running=self.task_running, root=self.cg.root,
             uptime=round(time.time() - self._started_at, 3)
-            if self._started_at else 0.0)
+            if self._started_at else 0.0,
+            **self._progress_fields())          # 进度面随心跳同落（单点状态面）
         self.beats += 1
         self.last_beat = rec["ts"]
         return rec
+
+    # ---- 活体进度面（issue #63）----
+    #
+    # 为什么有这一段：`_run()` 单线程串行六档，任一档**无界阻塞**即全循环停摆
+    # （实测停 9.5 小时：心跳/自愈/巡检/演化/整理/睡眠全停）。卡住期间外部
+    # **无法知道卡在哪档**——tick 台账在 run_cycle **返回后**才写。故：
+    #   · 进入/退出每档各刷一次**既有状态面**（心跳戳）——不造第二套状态文件；
+    #   · `current_tick` 给出「此刻在哪档、已跑多久」，`stale_tick` 超限告警；
+    #   · 六档异常**不再静默**（容忍≠静默）：`last_tick_error` 记类名 + 摘要。
+    # 形态：全部经 `_wrap_ticks()` **单点包装**——`_run` 的六档 try/except 逐字
+    # 未改（`md_cg/test_sleep_p1.py` G3a 把它钉死；包装让异常在进入 `_run` 的
+    # except 之前就已被记录，那边的 `pass` 保留为兜底）。
+
+# 生效条件：无入参；返回进度三字段 dict（current_tick / last_tick_done / last_tick_error；None 值由 write_stamp 丢弃）——写戳与 status 读取的唯一取值面。
+    def _progress_fields(self) -> dict:
+        """进度三字段（写点与读取的**单一取值面**）。"""
+        return {"current_tick": self.current_tick,
+                "last_tick_done": self.last_tick_done,
+                "last_tick_error": self.last_tick_error}
+
+# 生效条件：以 write_stamp(self.name, self.d, task_running=self.task_running, root=self.cg.root, uptime=... if self._started_at else 0.0, **进度三字段) 刷新既有心跳戳（原子替换）；写失败静默（与心跳同纪律）——进度面缺失是已知边界（写失败时 status 的当前档读数退化为 null）。
+    def _flush_progress(self):
+        """把进度面刷新进**既有状态面**（心跳戳）——不新建状态文件。
+
+        为什么**进入**档时就要刷：卡死场景下「没有下一次写」正是常态——进度
+        必须在进入时就落盘，否则观测面恰好缺了要观测的那一刻。写失败静默
+        （与 `beat()` 同纪律），但失败即拉不到进度，属已知边界。
+        """
+        try:
+            write_stamp(self.name, self.d, task_running=self.task_running,
+                        root=self.cg.root,
+                        uptime=round(time.time() - self._started_at, 3)
+                        if self._started_at else 0.0,
+                        **self._progress_fields())
+        except Exception:                            # noqa: BLE001
+            pass                                     # 进度面刷新失败不拖垮常驻
+
+# 生效条件：无入参；把六档 tick 方法（beat / _tick_heal / _tick_scrub / _tick_evolve / _tick_tidy / _tick_sleep）就地包上 _wrap_tick（幂等：_ticks_wrapped 为真即直接返回 self）；返回 self。
+    def _wrap_ticks(self):
+        """把六档 tick 包上进度面（幂等）——**不改 `_run` 的逐字形态**。
+
+        为什么用包装而不是改 `_run` 的六档结构：`_run` 的六档 try/except 形态
+        被既有守卫**逐字**钉死（`md_cg/test_sleep_p1.py` G3a「第六档形态与
+        既有五档逐字同构（try/except 吞异常 + 末尾 _stop.wait(_POLL)）」），
+        而 issue #63 要求的「进/出留读数 + 异常不静默」是**每档同款**动作——
+        单点包装既保住既有形态（六档语义与顺序一字不动），又免六处重复
+        （改档名/加点只动 `TICK_INTERVAL_ATTRS`）。
+        """
+        if getattr(self, "_ticks_wrapped", False):
+            return self
+        for name, _attr in TICK_INTERVAL_ATTRS:
+            meth = "_tick_" + name if name != "beat" else "beat"
+            setattr(self, meth, self._wrap_tick(name, getattr(self, meth)))
+        self._ticks_wrapped = True
+        return self
+
+# 生效条件：name 为该档名、fn 为该档可调用；返回包装函数 wrapped——调用时先写 current_tick={name, started_at, pid} 并刷新戳，调 fn(*a, **kw)，异常记入 last_tick_error={name, error: 类名+摘要（截 200 字符）, t} 并**不重抛**（容忍≠静默；`_run` 的既有 except 保留为兜底），随后清 current_tick、记 last_tick_done={name, t, ok} 并再刷新戳。
+    def _wrap_tick(self, name: str, fn):
+        """单档 tick 的**进度面包裹**（issue #63）：进/出各留读数，异常不静默。
+
+        「容忍 ≠ 静默」：六档的 except 面此前只有 `pass`——失败的档在外部
+        读不到。现在失败一律进 `last_tick_error`（类名 + 摘要）；卡住靠
+        `current_tick` 的年龄与 `stale_tick` 告警判（不杀线程）。
+        """
+        def wrapped(*a, **kw):
+            self.current_tick = {"name": name, "started_at": time.time(),
+                                 "pid": os.getpid()}
+            self._flush_progress()
+            ok_ = True
+            try:
+                fn(*a, **kw)
+            except Exception as e:                   # noqa: BLE001
+                ok_ = False
+                self.last_tick_error = {"name": name, "t": time.time(),
+                                        "error": "%s: %s" % (type(e).__name__,
+                                                             str(e)[:200])}
+            self.current_tick = None
+            self.last_tick_done = {"name": name, "t": time.time(), "ok": ok_}
+            self._flush_progress()
+            return ok_
+        wrapped.__name__ = "wrapped_%s_tick" % name
+        return wrapped
+
+# 生效条件：ct 为 current_tick 形态（含 name 与 started_at）且 name 在 TICK_INTERVAL_ATTRS 内时，以该档 interval 算 lim=max(2×interval, TICK_STALE_MIN_S)，年龄（now-started_at）超 lim 返回 {tick, age_s, limit_s, alert}（alert 文案含档名与已运行时长）；未超或形态不符返回 None。
+    def _stale_tick(self, ct):
+        """`current_tick` 的 stale 判定：年龄 > `max(2×该档 interval, 1800s)`。
+
+        超限**只告警不杀线程**（线程不可安全强杀；处置=人工重启常驻进程，
+        见运维指南「常驻循环的卡死防护与观测」一节）。
+        """
+        if not isinstance(ct, dict):
+            return None
+        name = ct.get("name")
+        attr = dict(TICK_INTERVAL_ATTRS).get(name)
+        if attr is None:
+            return None
+        try:
+            lim = max(2.0 * float(getattr(self, attr)), TICK_STALE_MIN_S)
+            age = max(0.0, time.time() - float(ct.get("started_at") or 0.0))
+        except (TypeError, ValueError):
+            return None
+        if age <= lim:
+            return None
+        return {"tick": name, "age_s": round(age, 1), "limit_s": round(lim, 1),
+                "alert": ("档 %s 已运行 %.0fs（阈值 %.0fs = max(2×间隔, %.0fs)）"
+                          "——疑似卡死；不自动杀线程，处置=人工重启常驻进程"
+                          % (name, age, lim, TICK_STALE_MIN_S))}
 
     # ---- 生命周期 ----
 
@@ -1119,8 +1245,9 @@ class SustainLoop:
         clear_stamp(self.name, self.d)
         return self
 
-# 生效条件：self._stop 未置位期间轮询，按 beat_interval/heal_interval/scrub_interval/evolve_interval/tidy_interval/**sleep_interval（第六档）** 到期分别执行 beat 与 _tick_heal/_tick_scrub/_tick_evolve/_tick_tidy/_tick_sleep，各 tick 抛出的异常被吞掉不中断循环，末尾以 _stop.wait(_POLL) 休眠；
+# 生效条件：self._stop 未置位期间轮询（**先调 _wrap_ticks 给六档包上进度面，幂等**），按 beat_interval/heal_interval/scrub_interval/evolve_interval/tidy_interval/**sleep_interval（第六档）** 到期分别执行 beat 与 _tick_heal/_tick_scrub/_tick_evolve/_tick_tidy/_tick_sleep（六档调用形态与既有五档逐字同构：try/except 吞异常 + `_stop.wait(_POLL)` 收尾；进/出读数与异常记录由包装单点提供——issue #63）；
     def _run(self):
+        self._wrap_ticks()               # issue #63：六档包上进度面（幂等，形态不变）
         next_beat = time.time() + self.beat_interval
         next_heal = time.time() + self.heal_interval
         next_scrub = time.time() + self.scrub_interval
@@ -1309,12 +1436,25 @@ class SustainLoop:
 
     # ---- 状态 ----
 
-# 生效条件：以 read_stamp(self.name, self.d) 判定 state（有戳走 judge(age, interval=self.beat_interval, task_running=...)，无戳为 "stopped"），返回含 name/running/pid/uptime（无 _started_at 时为 0.0）/beats/last_beat/各 interval 与 auto_* 开关/heals[-5:]/evolves[-5:]/tidys[-5:]/peers(self.d)/ledger.summary() 的 dict；
+# 生效条件：以 read_stamp(self.name, self.d) 判定 state（有戳走 judge(age, interval=self.beat_interval, task_running=...)，无戳为 "stopped"）；进度面（issue #63）同进程内存优先、跨进程回落戳内字段，current_tick 附 running_s（已运行秒数）；stale_tick 在 current_tick 年龄超 max(2×该档 interval, 1800s) 时给出告警（含档名与时长）；返回含 name/running/pid/uptime（无 _started_at 时为 0.0）/beats/last_beat/各 interval 与 auto_* 开关/heals[-5:]/evolves[-5:]/tidys[-5:]/current_tick/last_tick_done/last_tick_error/stale_tick/peers(self.d)/ledger.summary() 的 dict；
     def status(self) -> dict:
         st = read_stamp(self.name, self.d)
         state = (judge(st["age"], interval=self.beat_interval,
                        task_running=bool(st.get("task_running")))
                  if st else "stopped")
+        # 进度面（issue #63）：同进程内存优先（最实时），跨进程回落戳内字段
+        # ——戳是**既有状态面**（不造第二套状态文件）；外部 `action=beat`
+        # 覆盖戳时内存侧不受影响。
+        cur = self.current_tick or (st or {}).get("current_tick")
+        if isinstance(cur, dict):
+            cur = dict(cur)
+            try:
+                cur["running_s"] = round(max(
+                    0.0, time.time() - float(cur.get("started_at") or 0.0)), 1)
+            except (TypeError, ValueError):
+                cur["running_s"] = None
+        last_done = self.last_tick_done or (st or {}).get("last_tick_done")
+        last_err = self.last_tick_error or (st or {}).get("last_tick_error")
         return {"name": self.name, "running": bool(self._th
                                                    and self._th.is_alive()),
                 "pid": os.getpid(),
@@ -1344,6 +1484,12 @@ class SustainLoop:
                 "last_sleep": self.last_sleep,
                 "sleeps": self.sleeps[-5:],
                 "last_conformance": self.last_conformance,
+                # 活体进度面（issue #63）：此刻在哪档 / 上一档完成 / 上一档错误
+                # / 超限告警（只上报，不杀线程）。
+                "current_tick": cur,
+                "last_tick_done": last_done,
+                "last_tick_error": last_err,
+                "stale_tick": self._stale_tick(cur),
                 "peers": peers(self.d),
                 "sessions": self.ledger.summary()}
 

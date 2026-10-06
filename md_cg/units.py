@@ -135,8 +135,11 @@ def _tasklist_row(pid):
         # 显式 utf-8 + replace：只消费 ASCII 的 pid 列，但**不依赖 locale**——
         # locale 口径与「后代写 UTF-8」不一致时读线程会崩（见 test_subproc_encoding.py）。
         # P2-16（批次 30）：timeout=10——tasklist 挂起曾永久阻塞判活路径。
+        # stdin=subprocess.DEVNULL（issue #63 同批加固）：不指定 stdin 时子进程
+        # 继承父进程 stdin（常驻宿主下是 JSON-RPC 活管道）——判活路径不得因
+        # 子进程读 stdin 而悬挂；形态对齐 `md_cg/run_tests.py:105`。
         r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
-                           capture_output=True, text=True,
+                           capture_output=True, text=True, stdin=subprocess.DEVNULL,
                            encoding="utf-8", errors="replace", timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None

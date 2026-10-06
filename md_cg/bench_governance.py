@@ -315,9 +315,12 @@ def run(root=None, keep=False):
 
 def _git_head():
     try:
+        # timeout=10 既有；stdin=subprocess.DEVNULL 为 issue #63 同批加固——
+        # 不指定 stdin 时子进程继承父进程 stdin（常驻宿主下是 JSON-RPC 活管道）。
         out = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
                              capture_output=True, text=True, encoding="utf-8",
-                             errors="replace", shell=False, timeout=10)
+                             errors="replace", shell=False, timeout=10,
+                             stdin=subprocess.DEVNULL)
         return (out.stdout or "").strip() or "unknown"
     except Exception:                                     # noqa: BLE001
         return "unknown"

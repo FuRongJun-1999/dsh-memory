@@ -481,6 +481,9 @@ ROW_RE = re.compile(
     r"^\s*(precise|temporal|interference|reference)\s+(\d+)\s+"
     r"([\d.]+)%\s+([\d.]+)%\s+([\d.]+)\s*$", re.M)
 GROUPS = ["precise", "temporal", "interference", "reference"]
+#: 单臂评测子进程的超时（秒）——issue #63 同批加固：评测跑批比 git 长，按
+#: 「一臂为分钟级」给 1800s（30min）为安全上界；超时即 kill（不再是无限等待）。
+_EVAL_TIMEOUT_S = 1800
 
 
 # 生效条件：os.path.exists(RUST_BIN) 为真时以 argv=[RUST_BIN,"--dataset","mad","--tag",name,"--lib",lib]（extra 为真值时追加 list(extra)）执行 subprocess，返回码非 0 或 ROW_RE 在 stdout 未匹配到任何组时 raise SystemExit，否则返回 {组:(n,hit@1,hit@5,MRR)}。
@@ -498,8 +501,15 @@ def run_one(name, lib, extra=None):
     if extra:
         argv += list(extra)
     env = dict(os.environ, PYTHONUTF8="1")
-    p = subprocess.run(argv, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace", env=env, cwd=HERE)
+    try:
+        # timeout + stdin=DEVNULL（issue #63 同批加固）：评测跑批有界化，
+        # 且不继承父进程 stdin（常驻宿主下是 JSON-RPC 活管道）。
+        p = subprocess.run(argv, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", env=env, cwd=HERE,
+                           timeout=_EVAL_TIMEOUT_S,
+                           stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        raise SystemExit(f"[失败] {name}：评测超时（>{_EVAL_TIMEOUT_S}s）已被 kill")
     if p.returncode != 0:
         raise SystemExit(f"[失败] {name}：{(p.stderr or '')[-900:]}")
     got = {}
