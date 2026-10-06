@@ -103,6 +103,44 @@ def state_of(fm) -> str:
     return s if s in STATES else "active"
 
 
+# 生效条件：入参 e 为索引条目（或同形 frontmatter 副本）时返回 state_of(e) == "archived" 的布尔结果；缺 STATE_FIELD 或取值不在 STATES 时 state_of 回落 "active" ⇒ 返回 False。
+def is_archived(e) -> bool:
+    """默认检索剔除面＝本函数（判据单点）。
+
+    `archived` 的语义（模块 docstring :42）是「不再参与**默认检索**」——本函数是该
+    宣称的**唯一判据**，全部消费点共同引用（判据单点，多个消费点）：
+
+      · cg 检索面：`MdCGOS._candidates`（mdcos.py）——`MdCGSecure._candidates` 经
+        `super()` 覆盖叠加读可见性，故全部**检索类** cg 读 op（search / search_rrf /
+        recall / route…）都经它；
+      · stg 扫描面：`stg._scan_one`（stg.py，`_scan` 的逐条实现单点）——timeline /
+        anchors / consistency 三 op 的候选面同点覆盖（`relation` 面是显式 id 直读，
+        `state_chain` 走 append-only 台账，两者不经扫描面）；
+      · 会话续接注入面：`MdCGOS.session_recall`（mdcos.py）的四个取数段——会话要点
+        `_session_notes`、活跃目标 `goals`、任务台账 `tasks`、未解问题 `unresolved`
+        （`goals`/`tasks` 经 `_retired_by_id` 按 id 回查索引后交本判据）。该 op 是
+        「装配续接包注入上下文/回给调用方」的注入面，与检索面同属「退役即不再默认
+        回出」；它自持取数面（不经 `_candidates`），故单点接线（独立复核 2026-10-06
+        两轮实测：接线前 archived 要点摘要、未解问题正文、**活跃目标与任务卡**均经
+        该 op 照旧回出；`recent` 段是事件窗口、`self_state` 是只读快照卡，不含节点
+        条目，不涉退役）。
+
+    **fail-open**（缺键/非法值 → active）：存量节点不回填也照常参与检索
+    （存量零迁移、不误剔）；「不误剔」的另一半是**只剔 archived**——
+    converged / demoted 是**降权轴**，仍参与默认检索。
+
+    不适用条件（**不**消费本函数，故 archived 期间照常可达）：显式 id 直读
+    （`cg.get`）、审计面（`op=audit`）、工程台账的**显式管理查询面**
+    （`cg(op=goal, action=list)` / `cg(op=task, action=list)`；注意与消费面之别——
+    会话续接注入包内的对应段已按上表剔除，两者不冲突）、负记忆层
+    （rejected / unresolved 的覆盖标记面）、统计面（health / whoami / conformance）
+    ——「退役不删除、可显式恢复」的承诺要求它们在 archived 期间照常可达。
+    边界（已知未覆盖面，另立裁定）：基类 `MdCG.search`、`chain.adjacency` 拓扑面、
+    `subgraph.children_index/parents_index` 结构面、rust 检索内核。
+    """
+    return state_of(e) == "archived"
+
+
 # 生效条件：按 _RANK.get(dst, 0) > _RANK.get(src, 0) 判定，src 或 dst 不在 _RANK 键中时该侧按 0 参与比较。
 def is_downgrade(src: str, dst: str) -> bool:
     """是否向「更低」的状态迁移（active < converged < demoted < archived）。"""

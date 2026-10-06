@@ -37,7 +37,7 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT
 from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
                self_state, predict, evolution, weights, pooling,
-               writelimit, reach, trust, roleviews, autonomy_modes)
+               writelimit, reach, trust, roleviews, autonomy_modes, lifecycle)
 from .fsutil import (FileLock, atomic_write, append_jsonl, read_jsonl,
                      read_jsonl_tail, count_jsonl, publish)
 from .security import (Principal, TenantRegistry, AccessDenied,
@@ -425,6 +425,26 @@ def _note_visible(cg, e) -> bool:
     return _security.visible_to(cg, e)
 
 
+# 生效条件：cg 索引的 nodes 中该 nid 有条目且 lifecycle.is_archived(该条目) 为真时返回 True；条目缺失时把 None 交给 state_of ⇒ 返回 False（fail-open，与判据单点同语义）。
+def _retired_by_id(cg, nid) -> bool:
+    """退役判据在「**按 id 取**的节点」上的单点包装（会话续接包台账段用）。
+
+    台账两段（goals / tasks）拿到的是 `_goal_entry` / `tasks._entry` 的**对外条目**
+    （只有 id，没有索引条目本身），故此处按 id 回查索引再交判据单点
+    `lifecycle.is_archived`——判据仍只此一份，不另立第二套口径。
+    """
+    e = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(nid)
+    return lifecycle.is_archived(e)
+
+
+#: 会话续接包台账段（goals / tasks）的取数窗：取全量再过滤退役再截断
+#: （`list_goals` 本就全表扫；`tasks.session_tasks` 内部本就先建全量列表再切片，
+#: 故不增遍历成本），避免「窗口内的 archived 被剔后不足额」。
+_LEDGER_WINDOW = 10 ** 6
+#: 台账段每段最终回出的条数（与改动前的 limit=5 逐位一致）。
+_PACK_ROWS = 5
+
+
 # 生效条件：以任意 root 构造时按其拼接 audit_log/hippocampus/trash 等路径并 makedirs 创建 hippocampus 与 trash_dir（exist_ok=True），autoflush 透传父类、actor 存入 self.actor；
 class MdCGOS(MdCG):
     """MdCG + 记忆 OS 七项能力。"""
@@ -747,7 +767,7 @@ class MdCGOS(MdCG):
                     payload_hash=_sig(content))
         return nid
 
-# 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），validity 为真值而 trust.is_expired(e) 为真时剔除（**只排已过期，not_yet 保留**），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点；view 为真值时 role 维度裁决权移交 roleviews.matches（receipt=工作角色白名单须绕过默认剔除才可达，非法 view ValueError），view 为假值且 include_work 为假时剔除 WORK_ROLES 角色，时间算子启用时按 time_axis 轴过滤（效力轴不可判定 fail-open、观察轴不可判定 fail-closed 并入 self._time_filter_stat），其余收集进 out 返回。
+# 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，恒剔除 lifecycle.is_archived(e) 为真的节点（退役不参与默认检索；缺 lifecycle 键=active 照常，converged/demoted 仍参与），session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），validity 为真值而 trust.is_expired(e) 为真时剔除（**只排已过期，not_yet 保留**），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点；view 为真值时 role 维度裁决权移交 roleviews.matches（receipt=工作角色白名单须绕过默认剔除才可达，非法 view ValueError），view 为假值且 include_work 为假时剔除 WORK_ROLES 角色，时间算子启用时按 time_axis 轴过滤（效力轴不可判定 fail-open、观察轴不可判定 fail-closed 并入 self._time_filter_stat），其余收集进 out 返回。
     def _candidates(self, layer=None, roles=None, include_work=False,
                     session=None, branch=None, validity=None,
                     start_time=None, end_time=None, start_operator=None,
@@ -782,6 +802,19 @@ class MdCGOS(MdCG):
             if e.get("layer") in NEG_ROUTE_LAYERS:
                 continue  # 负记忆走覆盖标记；目标只做定向，都不进正排
                           # （真源 mdcg.NEG_ROUTE_LAYERS，本处直接导入，不留第二份字面量）
+            if lifecycle.is_archived(e):
+                continue  # lifecycle.py:42 标称兑现：archived 不参与默认检索。
+                          # 本处是 **cg 检索面单点**——`MdCGSecure._candidates`
+                          # 经 super() 在此之上叠加读可见性，故全部**检索类**
+                          # cg 读 op（search / search_rrf / recall / route…）经此
+                          # 一处。cg 的读 op 并非全走候选池：`op=session` 的续接包
+                          # 自持取数面，另在 `_session_notes` / `session_recall`
+                          # 接同一判据（见 lifecycle.is_archived 的消费面清单）。
+                          # 判据单点在 lifecycle.is_archived（fail-open：缺键=
+                          # active 照常；只剔 archived——converged/demoted 是
+                          # **降权轴**，仍参与默认检索）。
+                          # 直读面（cg.get / op=audit / 库层 set_state 恢复路径）**不**
+                          # 经本函数：退役不删除、可显式恢复。见 lifecycle.is_archived
             # '"*"' = 显式跨会话（读遍所有会话）；缺省 None 同义（见 stg.timeline）
             if session and session != "*" and e.get("session") != session:
                 continue
@@ -3153,11 +3186,18 @@ class MdCGOS(MdCG):
         return {"ok": True, "id": nid, "session": session, "layer": layer,
                 "basis": basis, "tokens": est_tokens(content)}
 
-# 生效条件：当 session 传入且为真时仅保留 tags 含 f"session:{session}" 的项；保留 tags 含 SESSION_TAG 或任一以 "session:" 开头的索引节点，且该索引条目经可见性单点 _readable 判为可见，_read 的 content 为 None 则跳过；按 created_at 降序后返回前 max(1, int(limit or 5)) 条，limit 为假值（含 0/None）按 5 处理；
+# 生效条件：当 session 传入且为真时仅保留 tags 含 f"session:{session}" 的项；恒剔除 lifecycle.is_archived(e) 为真的条目（退役不参与默认注入，判据单点在 lifecycle.py）；保留 tags 含 SESSION_TAG 或任一以 "session:" 开头的索引节点，且该索引条目经可见性单点 _readable 判为可见，_read 的 content 为 None 则跳过；按 created_at 降序后返回前 max(1, int(limit or 5)) 条，limit 为假值（含 0/None）按 5 处理；
     def _session_notes(self, session=None, limit=5):
         """按时间倒序取会话要点（索引过滤 + 可见性闸 + 惰性回读摘要）。只读，不写盘。"""
         out = []
         for nid, e in list((self.index.get("nodes") or {}).items()):
+            if lifecycle.is_archived(e):
+                continue               # 退役剔除（判据单点 lifecycle.is_archived，
+                                       # 与 cg 检索面 `_candidates`、stg 面
+                                       # `_scan_one` 同一份）：会话续接包是「把节点
+                                       # **内容摘要**回给调用方」的注入面，archived
+                                       # 不再参与默认注入（与 §5.2 退役纪律同口径）；
+                                       # fail-open：缺键/非法值=active 照常。
             tags = list(e.get("tags") or [])
             if self.SESSION_TAG not in tags and not any(
                     str(t).startswith("session:") for t in tags):
@@ -3191,7 +3231,7 @@ class MdCGOS(MdCG):
         out.sort(key=lambda n: (-n["created_at"], str(n.get("id") or "")))
         return out[:max(1, int(limit or 5))]
 
-# 生效条件：limit 经 max(1,min(int(limit or 5),50))、budget_tokens 经 max(200,int(budget_tokens or 1200)) 归一后逐段取数（include_state 为真才取 self_state），每段异常只把段名追加进 degraded，再由 while 循环按预算交替裁 recent/notes 尾部、任务段最后才裁并置 tasks_truncated。
+# 生效条件：limit 经 max(1,min(int(limit or 5),50))、budget_tokens 经 max(200,int(budget_tokens or 1200)) 归一后逐段取数（include_state 为真才取 self_state；会话要点段、未解问题段与台账两段（goals/tasks）恒剔除 lifecycle.is_archived 条目——退役不参与默认注入；台账段取全量窗过滤后再截断 `_PACK_ROWS` 条，`tasks.active_total/done_total` 取剔除后的全窗计数），每段异常只把段名追加进 degraded，再由 while 循环按预算交替裁 recent/notes 尾部、任务段最后才裁并置 tasks_truncated。
     def session_recall(self, session=None, limit=5, recent_limit=10,
                        budget_tokens=1200, include_state=True):
         """按需恢复：一次调用返回「可续接的上下文包」（替代 hook 自动注入）。
@@ -3203,6 +3243,15 @@ class MdCGOS(MdCG):
         任务段（2026-09-16 新增）是「忘记已实现的工程」的直接解药：新会话开机即见
         「还在做的」与「刚做完的」，不必先想到去查。任务属结构层、跨会话稳定，
         故**不按 session 过滤**——工程台账跟着工程走，不跟着会话走。
+
+        **退役口径（本包统一）**：本 op 是**注入面**（内容直接回给调用方/进上下文），
+        故四个取数段（notes / goals / tasks［active/done 两清单］/ unresolved；合计
+        五个清单）一律剔除
+        `lifecycle_state=archived`（判据单点 `lifecycle.is_archived`）——「退役不参与
+        默认注入」。`recent` 段是**事件窗口**（非节点）、`self_state` 是只读快照卡，
+        两者不含节点条目，不涉及退役。**管理查询面不受限**：`cg(op=goal, action=list)`
+        与 `cg(op=task, action=list)` 直读台账、archived 期间照常可达（两处不冲突：
+        同一份台账，注入面剔除、管理面直读）。
         """
         limit = max(1, min(int(limit or 5), 50))
         budget = max(200, int(budget_tokens or 1200))
@@ -3218,26 +3267,41 @@ class MdCGOS(MdCG):
         except Exception:                                  # noqa: BLE001
             pack["degraded"].append("notes")
         # ② 活跃目标（检索定向的默认来源）
+        # 退役剔除（判据单点 lifecycle.is_archived，经 `_retired_by_id` 按 id 取）：
+        # 续接包是**注入面**，archived 不参与默认注入（同 ① 与 ④）。取数窗取
+        # **全量**（limit=None）再过滤再截断——否则窗口内的 archived 被剔后不足额，
+        # 本该补位的在役目标补不上（`list_goals` 本就是全表扫，无额外成本）。
+        # 管理查询面 `cg(op=goal, action=list)` **不受限**（不经本函数、直读台账）。
         try:
             pack["goals"] = [{"id": g["id"], "goal": g["goal"],
                               "priority": g["priority"]}
-                             for g in self.active_goals(limit=5)]
+                             for g in self.active_goals(limit=None)
+                             if not _retired_by_id(self, g.get("id"))
+                             ][:_PACK_ROWS]
         except Exception:                                  # noqa: BLE001
             pack["degraded"].append("goals")
         # ②.5 任务台账（structural 层）——见 docstring：不按 session 过滤
+        # 退役剔除（同上，台账段是同一注入面的子段）：列表剔 archived、`*_total`
+        # 随之取**剔除后**的全窗计数（列表是它的前 `_PACK_ROWS` 条，两者同源自洽）；
+        # 管理查询面 `cg(op=task, action=list)` 仍直读台账、**不受限**。
         try:
             from . import tasks as _tasks
-            ts = _tasks.session_tasks(self, active_limit=5, done_limit=5)
+            ts = _tasks.session_tasks(self, active_limit=_LEDGER_WINDOW,
+                                      done_limit=_LEDGER_WINDOW)
+            _act = [t for t in ts["active"]
+                    if not _retired_by_id(self, t.get("id"))]
+            _done = [t for t in ts["done"]
+                     if not _retired_by_id(self, t.get("id"))]
             pack["tasks"] = {
                 "active": [{"id": t["id"], "name": t["name"], "status": t["status"],
                             "plan": (t.get("plan") or "")[:300],
                             "updated_at": t.get("updated_at")}
-                           for t in ts["active"]],
+                           for t in _act[:_PACK_ROWS]],
                 "done": [{"id": t["id"], "name": t["name"], "status": t["status"],
                           "result": (t.get("result") or "")[:300],
                           "updated_at": t.get("updated_at")}
-                         for t in ts["done"]],
-                "active_total": ts["active_total"], "done_total": ts["done_total"]}
+                         for t in _done[:_PACK_ROWS]],
+                "active_total": len(_act), "done_total": len(_done)}
         except Exception:                                  # noqa: BLE001
             pack["degraded"].append("tasks")
         # ③ 近期事件（原始滚动窗口）
@@ -3253,6 +3317,11 @@ class MdCGOS(MdCG):
             for nid, e in list((self.index.get("nodes") or {}).items()):
                 if e.get("layer") != "unresolved":
                     continue
+                if lifecycle.is_archived(e):
+                    continue           # 退役剔除（同 ① 会话要点：本条是续接包里
+                                       # 「未解问题正文片段回给调用方」的第二处注入
+                                       # 子面，判据仍是 lifecycle.is_archived 单点；
+                                       # fail-open 同上）
                 # N211（2026-09-28，本族第二出口，原树内并号 N209 按 v24 裁定改判）：与 ① 会话要点同根——此处也
                 # 是「只按 layer 过滤 → 回读正文 → 抽出 `# 问题：`」的直读出口，
                 # 无 _readable。实测：restricted 档未解问题的正文经 session_recall
