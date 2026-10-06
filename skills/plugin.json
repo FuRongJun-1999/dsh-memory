@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "lingshu-skills",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "灵枢（AEIS）自我认知技能包——白箱条件化知识（Agent Skills 兼容导出）。本质是灵枢了解自身的工具：每个技能描述灵枢在什么条件下能做什么、怎么执行、克制什么（KCCS 四要素），由条件路由图精确路由，由灵枢 MCP 工具执行验证（物理基底）。",
   "author": {
     "name": "灵枢（AEIS）· CommonTrustProtocol"
