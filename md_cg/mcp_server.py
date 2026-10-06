@@ -189,6 +189,9 @@ TOOLS = [
                           consistency=_p("boolean", "写入前节点间自动冲突检测（三级决策，默认 true）"),
                           on_conflict=_p("string", "冲突处置：reject（默认，抛错）|defer（不写）|record（记录放行）"),
                           condition_space=_p("object", "条件空间"),
+                          spatial=_p("object", "3D 空间锚（0.8.0 身体×脑对接约定，四条裁定之二）："
+                                               "{\"coords3d\": {x,y,z}} 自定义键直存米制；"
+                                               "可选 bbox 投影后补（不改既有 bbox 2D 语义）"),
                           verification_basis=_p("string", "验证基底"),
                           non_applicable_conditions=_p("array", "不适用条件")),
                           },
@@ -1589,6 +1592,15 @@ def _split_ids(value):
         if s and s not in out:
             out.append(s)
     return out
+
+
+# 生效条件：a 为 MCP 参数字典时——`a["spatial"]` 非 None 返回 {"spatial": ...}，否则返回 {}
+# （**缺省不传**：未声明 spatial 的写入零落键，既有 fm 形态逐位不变；0.8.0 身体×脑对接
+# 四条裁定之二引入，gated 分支与非 gated add 两处共用本单点）。
+def _spatial_kw(a):
+    if a.get("spatial") is not None:
+        return {"spatial": a["spatial"]}
+    return {}
 
 
 # 生效条件：始终构造 ex（verify=a.get("verify")、importance=float(a["importance"]) 当 a.get("importance") is not None 否则 None、verification_basis=a.get("verification_basis") or (verdict or {}).get("basis")、non_applicable_conditions、role、derived_from=_split_ids(a.get("derived_from")) or None、relation），返回其中值不属于 (None, [], '', {}) 的键值对。
@@ -3446,6 +3458,11 @@ def _dispatch(cg, name, args):
                 # A1 补接（2026-10-05）：检验强度同族透传（remember_gated 内部
                 # add(**kw) 直达；此前声明在 gated 分支静默丢弃）。
                 check_strength=a.get("check_strength"),
+                # 0.8.0 身体×脑对接（四条裁定之二，2026-10-06）：`spatial`
+                # 自定义键**直存**——约定 {"coords3d": {x,y,z}} 米制（可选 bbox
+                # 投影后补）；不改既有 fm.spatial.bbox 的 2D 语义。
+                # 缺省不传（_spatial_kw）——未声明时零落键，既有 fm 形态逐位不变。
+                **_spatial_kw(a),
                 non_applicable_conditions=a.get("non_applicable_conditions"),
                 importance_hint=hint, override=bool(a.get("override")),
                 consistency=bool(a.get("consistency", True)),
@@ -3498,6 +3515,9 @@ def _dispatch(cg, name, args):
                       # A1 补接（2026-10-05）：检验强度入复现 meta——与
                       # writepipe._AUTONOMY_META_KEYS 同款（两条路径元数据等价）。
                       "check_strength",
+                      # 0.8.0 对接：spatial 同样随单落复现 meta（入队后
+                      # accept 落盘与直接落盘**元数据等价**，判据不分叉）。
+                      "spatial",
                       "role", "importance") if a.get(k) is not None}
             # 直写面的裁决参数（本分支的 add 会自己跑冲突闸）：随单落进复现 meta，
             # 否则「确认后落盘」与「直接落盘」两条路径的判据不等价。
@@ -3526,6 +3546,8 @@ def _dispatch(cg, name, args):
                          verification_basis=a.get("verification_basis"),
                          # A1 补接（2026-10-05）：检验强度透传（同 B2）。
                          check_strength=a.get("check_strength"),
+                         # 0.8.0 对接：spatial 直存透传（同 B2）；缺省不传（零落键）。
+                         **_spatial_kw(a),
                          non_applicable_conditions=a.get("non_applicable_conditions"),
                          override=bool(a.get("override")),
                          consistency=bool(a.get("consistency", True)),

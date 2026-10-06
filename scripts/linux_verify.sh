@@ -48,11 +48,18 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_neg_condition_hits test_token_lowercase_form test_srcindex \
          test_logref test_p28_refcheck test_n225_nonobject_load \
          test_issue52_scan_condition_first test_stgidx_index_parity \
-         test_health_corrupt_utf8 test_corrupt_utf8_read_surfaces; do
+         test_health_corrupt_utf8 test_corrupt_utf8_read_surfaces \
+         test_spatial_coords3d; do
   out=$(python3 -m "md_cg.$t" 2>&1 | tail -1); rc=$?
   record "md_cg.$t" $rc
   echo "    -> $out"
 done
+
+# 身体×脑组合冒烟（0.8.0 对接，四条裁定之四：进发布链）：
+# 身体侧视角经 MCP 全链（记账→台账→投影→查询），隔离库、退出码判据。
+out=$(python3 scripts/body_e2e_smoke.py 2>&1 | tail -1); rc=$?
+record "body_e2e_smoke" $rc
+echo "    -> $out"
 
 for t in hive/test_orch.py hive/test_exec_tools.py hive/test_serve_entry.py \
          hive/test_result_anchor_chain.py; do
@@ -104,7 +111,8 @@ for spec in "test_neg_condition_hits --head-baseline" \
             "test_n225_nonobject_load --branch-baseline" \
             "test_issue52_scan_condition_first --branch-baseline" \
             "test_issue52_scan_condition_first --legacy-baseline" \
-            "test_stgidx_index_parity --branch-baseline"; do
+            "test_stgidx_index_parity --branch-baseline" \
+            "test_spatial_coords3d --mutate"; do
   set -- $spec
   out=$(python3 -m "md_cg.$1" "$2" 2>&1 | tail -1); rc=$?
   record "md_cg.$1 $2" $rc
