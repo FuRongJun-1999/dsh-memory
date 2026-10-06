@@ -25,11 +25,17 @@
     闸门 1 · grounding 支撑度（确定性）：候选短语必须能在节点正文里找到字符级依据，
         否则判为幻觉 → REJECT。（对应「不猜测」）
     闸门 2 · replay 回放（确定性）：把候选条件当作查询，回放生产检索路径的判定：
-         · pos_recall    以「生效条件」为查询 → 本节点应被召回，且不被自身负条件挡住；
+         · pos_recall    以「生效条件」为查询 → 本节点应被召回（issue #64：原式另带
+                         「负条件一票否决」因子，过严误杀共享主题词的合格负条件，
+                         已撤销——自否定职责由 no_conflict 承担）；
          · neg_separated 以「不适用条件」为查询 → 应触发条件级负路由，且负条件与正文
                          低相关（负条件必须是「域外」的，不能把知识本身否定掉）；
          · no_conflict   生效条件与不适用条件不得互相覆盖。
        三者同时成立才算「条件稳定」。（对应「回放 / 断言 / 回归」）
+       闸门 2 前另设**负条件两态拦截**（issue #64，见 consolidate 主流程）：
+       候选未产出负条件（neg_absent）/ 负条件被 grounding 删光（neg_dropped_all）
+       → 直接 REJECT，不进 replay、不进验证单元、不落盘——「负条件被删光」不得
+       被 replay 的空集短路翻译成「通过」（否则缺「不适用条件」要素的节点仍会落盘）。
     闸门 3 · 验证单元（GLM，独立模型）：逐条核验候选是否有正文依据、负条件是否真域外。
         硬约束：**验证单元只能否决，不能新增/改写**——它没有产出权，
         否则验证环节自己就成了新的幻觉源。
@@ -284,6 +290,8 @@ def http_llm(prompt: str, model: str = None, base: str = None, key: str = None,
     max_tokens=None 走三级解析（显式 > MDCG_LLM_MAX_TOKENS > DEFAULT_MAX_TOKENS）；
     历史 bug（issue #24）：曾硬编码 1200——思考模型 reasoning 吃光预算，
     content 空串静默落成 parse_failed，离线固化 100% DEFER。
+    timeout 由调用方注入（CLI --timeout / --reflect-timeout / --verify-timeout，
+    默认 120 秒）——issue #64：此前 CLI 两 lambda 均未传，恒为硬默认、不可配。
     """
     if role:
         model, base, key = role_config(role, model, base, key)
@@ -496,20 +504,25 @@ def grounding_filter(cand: dict, body: str, thresholds: dict = None):
     return kept, detail
 
 
-# 生效条件：给定 pos_terms、neg_terms、body，返回含 pos_recall、neg_separated、no_conflict、ok 的回放判定字典。
+# 生效条件：给定 pos_terms、neg_terms、body，返回含 pos_recall、neg_separated、no_conflict、ok 的回放判定字典；pos_recall 只认「生效条件在正文上有覆盖率」，不含负条件一票否决。
 def replay_check(pos_terms, neg_terms, body: str) -> dict:
     """回放生产判定：正例召回 + 负例剔除 + 无自相矛盾。
 
     复用 _path_semantic 的同一批原语，保证与生产路同源（P6 与真实路做一致性回归）。
+
+    issue #64（2026-10-06）：pos_recall 原式带 `and not _neg_hit(tw_pos, neg_terms)`
+    一票否决——「生效条件任一词整词出现在不适用条件里」即判负；而负条件描述的正是
+    **邻近易混情境**，与生效条件共享领域主题词是结构必然（不共享主题词就谈不上「邻近」），
+    该因子把大量合格负条件误杀为「正例召回失败」。自否定职责已由第 3 条 no_conflict
+    以覆盖率口径（<0.5 才算互相覆盖）承担——本因子与它同意图且更严，故撤销。
     """
     pos_text = " ".join(pos_terms or [])
     neg_text = " ".join(neg_terms or [])
     tw_pos = expand_query_terms_weighted(pos_text) if pos_text else {}
     tw_neg = expand_query_terms_weighted(neg_text) if neg_text else {}
 
-    # 1. 正例：以生效条件为查询，本节点正文应被命中，且不被自身负条件挡住
-    pos_recall = bool(pos_text) and _weighted_coverage(tw_pos, body) > 0.0 \
-        and not _neg_hit(tw_pos, neg_terms)
+    # 1. 正例：以生效条件为查询，本节点正文应被命中（不含负条件一票否决，见 docstring）
+    pos_recall = bool(pos_text) and _weighted_coverage(tw_pos, body) > 0.0
 
     # 2. 负例：以不适用条件为查询，应触发条件级负路由；且负条件与正文低相关
     #    （负条件必须是「域外」的，若与正文强相关，等于让知识否定自己）
@@ -652,7 +665,7 @@ def _apply_node(cg, e, fm: dict, content: str, kept: dict, prov: dict,
         before=before, after=evolution.state_of(cg, nid) or {})
 
 
-# 生效条件：给定 root，扫描正排层节点并执行反思→白箱闸门→验证→固化，返回报表 rep；require_verify=True 且无 verify_fn 时全部 DEFER。
+# 生效条件：给定 root，扫描正排层节点并执行反思→白箱闸门（含负条件两态拦截）→验证→固化，返回报表 rep；require_verify=True 且无 verify_fn 时全部 DEFER。
 def consolidate(root: str, layer: str = None, limit: int = None, apply: bool = False,
                 overwrite: bool = False, llm_fn=None, reflect_fn=None,
                 verify_fn=None, reflect_model: str = "", verify_model: str = "",
@@ -663,6 +676,10 @@ def consolidate(root: str, layer: str = None, limit: int = None, apply: bool = F
 
     llm_fn 是 reflect_fn 的旧名（向后兼容，单模型模式）。
     require_verify=True 且无 verify_fn → 一律 DEFER（纪律 5：未经验证不固化）。
+    白箱闸门内先过**负条件两态拦截**（issue #64）：候选未产出负条件 → reasons
+    记 neg_absent；负条件被 grounding 删光 → reasons 记 neg_dropped_all；两态
+    都直接 REJECT（不进 replay / 不进验证单元 / 不落盘）——缺「不适用条件」
+    要素的节点不得因空集短路被判「通过」。
     """
     reflect_fn = reflect_fn or llm_fn
     cg = MdCGOS(root)
@@ -728,6 +745,36 @@ def consolidate(root: str, layer: str = None, limit: int = None, apply: bool = F
         kept, gdetail = grounding_filter(cand, body, thresholds)
         pos = kept.get("生效条件") or []
         neg = kept.get("不适用条件") or []
+
+        # 2a) 负条件两态拦截（issue #64，2026-10-06）：「不适用条件」是 CCG 必需要素，
+        #     候选**未产出**（neg_absent）或**产出了但被 grounding 删光**（neg_dropped_all）
+        #     时都必须 REJECT——不进 replay、不进验证单元、不落盘。
+        #     修复前把空 neg 交给 replay_check，命中其 `else: neg_separated = True` 短路，
+        #     「负条件被删光/未产出」被翻译成「通过」，缺要素节点照常落盘并携带
+        #     verification_basis 声明（B 类实测：accepted=1/written=1，正文无
+        #     「# 不适用条件」行）。两态各自计数，便于报表区分「模型没产出」与
+        #     「产出被 grounding 判为幻觉丢弃」。
+        neg_cand = cand.get("不适用条件") or []
+        if not isinstance(neg_cand, list):
+            neg_cand = [neg_cand]
+        neg_cand = [t for t in neg_cand if str(t).strip()]
+        if not neg_cand:
+            rep["rejected"] += 1
+            _bump("neg_absent")
+            if verbose and len(rep["samples"]) < 8:
+                rep["samples"].append({"id": nid, "verdict": "REJECT",
+                                       "stage": "whitebox", "reason": "neg_absent",
+                                       "grounding": gdetail, "replay": None})
+            continue
+        if not neg:
+            rep["rejected"] += 1
+            _bump("neg_dropped_all")
+            if verbose and len(rep["samples"]) < 8:
+                rep["samples"].append({"id": nid, "verdict": "REJECT",
+                                       "stage": "whitebox", "reason": "neg_dropped_all",
+                                       "grounding": gdetail, "replay": None})
+            continue
+
         replay = replay_check(pos, neg, body)
         if not kept or not replay["ok"]:
             rep["rejected"] += 1
@@ -1477,9 +1524,21 @@ def _cli(argv=None) -> int:
     ap.add_argument("--min-grounding", type=float, default=None,
                     help="统一 grounding 阈值（默认按字段 0.5 / 不适用条件 0.34）")
     ap.add_argument("--max-tokens", type=int, default=None,
-                    help=f"LLM 输出预算（含思考模型 reasoning_tokens；默认 "
+                    help=f"LLM 输出预算共用缺省（含思考模型 reasoning_tokens；默认 "
                          f"{DEFAULT_MAX_TOKENS}，可 env {MAX_TOKENS_ENV} 覆盖；"
-                         "子代理配置标准 v0.5 §1）")
+                         "子代理配置标准 v0.5 §1）；两角色可分别用 "
+                         "--reflect-max-tokens / --verify-max-tokens 单设")
+    ap.add_argument("--reflect-max-tokens", type=int, default=None,
+                    help="反思单元输出预算（缺省回落 --max-tokens）")
+    ap.add_argument("--verify-max-tokens", type=int, default=None,
+                    help="验证单元输出预算（缺省回落 --max-tokens）")
+    ap.add_argument("--timeout", type=float, default=120,
+                    help="LLM HTTP 超时秒数（缺省 120）；两角色可分别用 "
+                         "--reflect-timeout / --verify-timeout 单设")
+    ap.add_argument("--reflect-timeout", type=float, default=None,
+                    help="反思单元 HTTP 超时（缺省回落 --timeout）")
+    ap.add_argument("--verify-timeout", type=float, default=None,
+                    help="验证单元 HTTP 超时（缺省回落 --timeout）")
     ap.add_argument("--no-llm", action="store_true",
                     help="不调用 LLM，只做四要素完整性普查")
     ap.add_argument("--check", action="store_true",
@@ -1530,16 +1589,28 @@ def _cli(argv=None) -> int:
                   f"（{_ROLE_ENV[REFLECT_ROLE][2]} / DEEPSEEK_API_KEY）→ 退化为普查模式",
                   file=sys.stderr)
         else:
+            # 单值 --max-tokens / --timeout 继续作两角色共用缺省；角色级参数缺省
+            # None → 回落共用缺省。issue #64：此前单值被同时喂 reflect/verify，
+            # timeout 恒为 http_llm 默认 120 不可配（生产两 lambda 均未传）——
+            # 两侧预算/超时需求可不同，须能分别单设。
+            refl_mt = (a.reflect_max_tokens if a.reflect_max_tokens is not None
+                       else a.max_tokens)
+            refl_to = (a.reflect_timeout if a.reflect_timeout is not None
+                       else a.timeout)
             reflect_fn = (lambda p: http_llm(p, role=REFLECT_ROLE,   # noqa: E731
                                              model=a.reflect_model,
-                                             max_tokens=a.max_tokens))
+                                             max_tokens=refl_mt, timeout=refl_to))
             if a.self_verify:
                 verify_fn = reflect_fn
             elif not a.no_verify:
                 if v_key:
+                    ver_mt = (a.verify_max_tokens
+                              if a.verify_max_tokens is not None else a.max_tokens)
+                    ver_to = (a.verify_timeout if a.verify_timeout is not None
+                              else a.timeout)
                     verify_fn = (lambda p: http_llm(p, role=VERIFY_ROLE,  # noqa: E731
                                                     model=a.verify_model,
-                                                    max_tokens=a.max_tokens))
+                                                    max_tokens=ver_mt, timeout=ver_to))
                 else:
                     print(f"[consolidate] 验证单元未配置 key"
                           f"（{_ROLE_ENV[VERIFY_ROLE][2]} / ZHIPU_API_KEY / GLM_API_KEY）"
