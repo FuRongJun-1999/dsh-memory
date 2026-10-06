@@ -3231,7 +3231,7 @@ class MdCGOS(MdCG):
         out.sort(key=lambda n: (-n["created_at"], str(n.get("id") or "")))
         return out[:max(1, int(limit or 5))]
 
-# 生效条件：limit 经 max(1,min(int(limit or 5),50))、budget_tokens 经 max(200,int(budget_tokens or 1200)) 归一后逐段取数（include_state 为真才取 self_state；会话要点段、未解问题段与台账两段（goals/tasks）恒剔除 lifecycle.is_archived 条目——退役不参与默认注入；台账段取全量窗过滤后再截断 `_PACK_ROWS` 条，`tasks.active_total/done_total` 取剔除后的全窗计数），每段异常只把段名追加进 degraded，再由 while 循环按预算交替裁 recent/notes 尾部、任务段最后才裁并置 tasks_truncated。
+# 生效条件：limit 经 max(1,min(int(limit or 5),50))、budget_tokens 经 max(200,int(budget_tokens or 1200)) 归一后逐段取数（include_state 为真才取 self_state；会话要点段、未解问题段与台账两段（goals/tasks）恒剔除 lifecycle.is_archived 条目——退役不参与默认注入；台账段取全量窗过滤后再截断 `_PACK_ROWS` 条，`tasks.active_total/done_total` 取剔除后的全窗计数；③ recent 段按会话过滤（issue #65）：session 为真值且 str(session).strip() != "*" 时只保留 (r.get("meta") or {}).get("session") == session 的事件（严格相等；缺 meta.session 者丢弃——最坏空窗口），显式 "*" 不过滤（跨会话汇总），falsy 会话（None/""）退回全局窗口；会话要点段的 tags 过滤与台账段的不过滤口径不变），每段异常只把段名追加进 degraded，再由 while 循环按预算交替裁 recent/notes 尾部、任务段最后才裁并置 tasks_truncated。
     def session_recall(self, session=None, limit=5, recent_limit=10,
                        budget_tokens=1200, include_state=True):
         """按需恢复：一次调用返回「可续接的上下文包」（替代 hook 自动注入）。
@@ -3243,6 +3243,15 @@ class MdCGOS(MdCG):
         任务段（2026-09-16 新增）是「忘记已实现的工程」的直接解药：新会话开机即见
         「还在做的」与「刚做完的」，不必先想到去查。任务属结构层、跨会话稳定，
         故**不按 session 过滤**——工程台账跟着工程走，不跟着会话走。
+
+        **会话口径（issue #65，2026-10-07 修）**：③ recent 段跟会话走——`session`
+        为真值且非 `"*"` 时只回 `meta.session` 与本会话**严格相等**的事件（缺
+        `meta.session` 者被丢弃：最坏是空窗口，绝不把别的会话的报文塞进本会话
+        上下文——宿主把 recent 当用户输入处理，混入即静默污染，且可被压缩检查点
+        记入）；显式 `"*"` = 跨会话汇总（与 stg 面 `view_session` 的 `"*"` 同款
+        语义）；`session` 为 None/空串（falsy）时退回旧的全局窗口行为。口径分工：
+        ① 会话要点段本就按 `session:{sid}` tag 过滤；目标段与任务段是**有意跨
+        会话**的工程面（见上段），不在此列。
 
         **退役口径（本包统一）**：本 op 是**注入面**（内容直接回给调用方/进上下文），
         故四个取数段（notes / goals / tasks［active/done 两清单］/ unresolved；合计
@@ -3307,6 +3316,20 @@ class MdCGOS(MdCG):
         # ③ 近期事件（原始滚动窗口）
         try:
             evs = self.recent_events(limit=max(1, int(recent_limit or 10)))
+            # issue #65（外部报告 by ducc239，对 v0.7.5 实测，本 workflow 修前复现）：
+            # 本段此前**不传会话**，而 `MdCGSecure.recent_events` 无 session 形参
+            # （只有 private/secret 档做会话归属判断、默认档全放行）⇒ recent 恒为
+            # 全进程窗口：多窗口/多会话并发时 A 的续接包里混入 B 的报文（宿主把
+            # recent 当用户输入处理，可被压缩检查点记入——静默污染，不报错）。
+            # 语义矩阵（与 `session_compact` 的 `if session:` 过滤同族对齐，那边已有正确形态）：
+            #   真值且非 "*" → 只回本会话（`meta.session` **严格相等**；缺
+            #     `meta.session` 的事件被丢弃——最坏空窗口，杜绝错块）；
+            #   显式 "*" → 不过滤（跨会话汇总合法用法，与 stg 面 `view_session`
+            #     的 "*" 同款语义）；
+            #   falsy（None/""）→ 退回旧行为（全局窗口，存量调用面零迁移）。
+            # `strip()` 防空白包裹的 "*"（" * " 也按汇总处理）。
+            if session and str(session).strip() != "*":
+                evs = [r for r in evs if (r.get("meta") or {}).get("session") == session]
             pack["recent"] = [{"role": r.get("role"),
                                "text": (r.get("text") or "")[:300],
                                "t": r.get("t")} for r in evs]

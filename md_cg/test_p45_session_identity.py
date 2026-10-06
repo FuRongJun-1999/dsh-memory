@@ -17,16 +17,31 @@
   E 会话要点：session_note 缺省用 Principal.session；recall 带回会话自我切片
   F 审计归因：_audit.jsonl 条目带 harness/unit
   G MCP 入口：_self_state_call 缺省会话透传 + index 快捷反查
+  R65 issue #65：session_recall ③ 近期事件段的**会话隔离**（外部报告 by ducc239，
+      对 v0.7.5 实测；本 workflow 修前复现）——假会话 id 空窗口 / A 只回 A /
+      B 只回 B / "*" 与 None 退回全局 / 缺 meta.session 者被丢弃 / compact 回归 /
+      MCP 入口端到端 / 文档口径在位；外加**定点变异自证**模式。
 
-运行：python -m md_cg.test_p45_session_identity
+运行：python -m md_cg.test_p45_session_identity                 # 正常跑
+      python -m md_cg.test_p45_session_identity --self-proof     # 变异自证
+退出码：0 全绿 ｜ 1 断言失败 ｜ 2 ANCHOR-MISS（锚点漂移，fail-closed）
+
+变异自证的基线源 = **运行中的实现源码**（`inspect.getsource` 就地变异、就地复原），
+**不读 git**——把基线绑到某个提交，下一次改动即失效（本仓已有两次教训）。
 """
 from __future__ import annotations
 
+import contextlib
+import inspect
+import io
 import json
 import os
+import sys
 import tempfile
+import textwrap
 
 from .mdcos import MdCGOS, MdCGSecure
+from . import mdcos as _mdcos
 from .security import Principal
 from . import self_state as ss
 from . import mcp_server as ms
@@ -65,6 +80,14 @@ def _restore(old):
 
 
 def main():
+    global PASS, FAIL
+    if "--self-proof" in sys.argv:
+        return _r65_self_proof()
+    _rc = _r65_anchor_preflight()           # 锚点漂移 → ANCHOR-MISS + 退出码 2
+    if _rc:
+        return _rc
+    PASS = FAIL = 0                         # 计数器复位：变异自证模式内会复用本函数重跑
+    del FAILS[:]
     # ---------- A. Principal 归因字段 ----------
     print("\n[A] Principal 归因字段（与授权正交）")
     p0 = Principal(actor="a0")
@@ -207,6 +230,10 @@ def main():
     check("G3 refresh 经 MCP 缺省登记会话",
           bool(out2.get("ok")))
 
+    # ---------- R65. 近期事件段的会话隔离（issue #65） ----------
+    print("\n[R65] session_recall ③ 近期事件：按会话隔离（issue #65；修前=全进程窗口）")
+    _r65_group()
+
     print("\n" + "=" * 68)
     print(f"通过 {PASS} / 失败 {FAIL}")
     if FAILS:
@@ -215,6 +242,226 @@ def main():
     return FAIL
 
 
+# ======================================================================
+# R65（issue #65）：session_recall ③ 近期事件段的会话隔离
+# ======================================================================
+# 缺陷（外部报告 by ducc239，对 v0.7.5 实测；本 workflow 修前复现）：③ 段取
+# `self.recent_events(limit=…)` 时**不传会话**，而 `MdCGSecure.recent_events`
+# 无 session 形参（只有 private/secret 档判会话归属，默认档全放行）⇒ recent 恒为
+# 全进程窗口：多窗口/多会话并发时 A 的续接包里混入 B 的报文（宿主把它当用户输入
+# 处理，可被压缩检查点记入——静默污染）。同族既有正确形态（旁证）：`session_compact`
+# 的 `if session: evs = [...]`、`_session_notes` 的 `session:{sid}` tag 过滤、
+# MCP `_session_call` 已传 `session=`——缺口只在 session_recall ③ 段一处。
+R65_A = "session-AAA-0000"
+R65_B = "session-BBBB-0000"
+R65_AX = R65_A + "-long"           # A 的**前缀延伸**会话：钉「严格相等」判据
+R65_FAKE = "session-zzzz-nope-0000"
+R65_BARE = "N0 无会话归属的裸事件"
+R65_GLOBAL = ("A1", "A2", "AX", "B1", "N0")   # 全局窗口（不过滤）读数
+
+# 五条事件：A×2 / B×1 / 裸×1（缺 meta.session）/ A 前缀延伸×1。
+# 裸事件经**基类** remember_event 直写注入——安全档写入会把 meta.session
+# setdefault 成本进程会话（mdcos.py:5087），测不到「缺 meta.session」形态；而读侧
+# 对无归属事件的丢弃正是本 issue 的契约要求（存量数据 / 非安全档写入形态）。
+R65_EVENTS = (
+    ("user", "A1 会话A的第一句话", {"session": R65_A}),
+    ("assistant", "A2 会话A的第二句话", {"session": R65_A}),
+    ("user", "B1 会话B的第一句话", {"session": R65_B}),
+    ("user", R65_BARE, {}),
+    ("user", "AX 会话A前缀延伸会话", {"session": R65_AX}),
+)
+
+# 真源文件快照（导入时取一次）：变异自证把 `MdCGOS.session_recall` 换成 exec 出来的
+# 临时函数，那种函数**没有源文件**（`getsource` 会抛 OSError）——故注释行检查必须锚在
+# 导入时记下的真源路径上；docstring 检查则走 `__doc__`（变异体也带，M6 才能转红）。
+_R65_FILE = inspect.getsourcefile(MdCGOS.session_recall)
+
+
+def _r65_lib():
+    """隔离库（系统临时目录合成库；不留仓内件）。"""
+    cg = MdCGOS(tempfile.mkdtemp(prefix="mdcg_p45_r65_"))
+    for role, text, meta in R65_EVENTS:
+        cg.remember_event(role, text, meta=meta)
+    return cg
+
+
+def _r65_recent(cg, session):
+    """续接包 recent 段的事件短标签（前 2 字），排序后返回（顺序不参与判据）。"""
+    pack = cg.session_recall(session=session, recent_limit=20,
+                             budget_tokens=4000, include_state=False)
+    return sorted((r.get("text") or "")[:2] for r in (pack.get("recent") or []))
+
+
+def _r65_cond_line():
+    """`def session_recall` 上方紧邻的「生效条件：」注释行（本仓惯例：改函数须同步）。"""
+    lines = io.open(_R65_FILE, encoding="utf-8").read().splitlines()
+    for i, ln in enumerate(lines):
+        if ln.strip().startswith("def session_recall("):
+            j = i - 1
+            while j >= 0 and not lines[j].strip():
+                j -= 1
+            return lines[j] if j >= 0 else ""
+    return ""
+
+
+def _r65_group():
+    """R65 组断言（变异自证模式复用同一组，故不依赖模块级实例）。"""
+    cg = _r65_lib()
+    check("R65.1 假会话 id → recent 空窗口（修前=全库五条；杜绝错块）",
+          _r65_recent(cg, R65_FAKE) == [], _r65_recent(cg, R65_FAKE))
+    check("R65.2 会话 A → recent 恰为 A 的两条（严格相等：不含 B／裸事件／A 的前缀延伸会话）",
+          _r65_recent(cg, R65_A) == ["A1", "A2"], _r65_recent(cg, R65_A))
+    check("R65.3 会话 B → recent 恰为 B 的一条",
+          _r65_recent(cg, R65_B) == ["B1"], _r65_recent(cg, R65_B))
+    check('R65.4a session="*" → 不过滤（跨会话汇总合法用法）',
+          _r65_recent(cg, "*") == list(R65_GLOBAL), _r65_recent(cg, "*"))
+    check('R65.4b session=" * "（空白包裹）→ 仍按汇总处理（strip 判据）',
+          _r65_recent(cg, " * ") == list(R65_GLOBAL), _r65_recent(cg, " * "))
+    check("R65.5a session=None → 全局窗口（退回旧行为）",
+          _r65_recent(cg, None) == list(R65_GLOBAL), _r65_recent(cg, None))
+    check('R65.5b session=""（falsy）→ 全局窗口',
+          _r65_recent(cg, "") == list(R65_GLOBAL), _r65_recent(cg, ""))
+    check("R65.6a 指定会话下缺 meta.session 的事件被丢弃（不许漏；最坏空窗口）",
+          "N0" not in _r65_recent(cg, R65_A), _r65_recent(cg, R65_A))
+    check("R65.6b 不指定会话（None）时缺 meta.session 的事件照旧可见",
+          "N0" in _r65_recent(cg, None), _r65_recent(cg, None))
+    check("R65.7 回归：session_compact(session=A) 仍只压 A、compact(None) 照旧全局",
+          cg.session_compact(session=R65_A, limit=50)["events"] == 2
+          and cg.session_compact(session=None, limit=50)["events"] == len(R65_EVENTS),
+          (cg.session_compact(session=R65_A, limit=50)["events"],
+           cg.session_compact(session=None, limit=50)["events"]))
+    _doc = inspect.getdoc(MdCGOS.session_recall) or ""
+    check("R65.8 文档口径在位：docstring 声明「段跟会话走」＝recent 跟会话（含『跨会话汇总』"
+          "例外口径）＋ 紧邻「生效条件：」注释含过滤条款",
+          ("段跟会话走" in _doc and "跨会话汇总" in _doc
+           and "recent 段按会话过滤" in _r65_cond_line()),
+          _r65_cond_line()[:48])
+    _mcp = MdCGSecure(tempfile.mkdtemp(prefix="mdcg_p45_r65_mcp_"),
+                      principal=Principal(actor="r65_mcp", session=R65_A))
+    _mcp.remember_event("user", "A1 生产形态：本会话事件", meta={"session": R65_A})
+    _mcp.remember_event("user", "B1 生产形态：他会话事件", meta={"session": R65_B})
+    _hit = ms._session_call(_mcp, {"action": "recall", "session": R65_A,
+                                   "recent_limit": 20, "budget_tokens": 4000,
+                                   "include_state": False})
+    _none = ms._session_call(_mcp, {"action": "recall", "session": R65_FAKE,
+                                    "recent_limit": 20, "budget_tokens": 4000,
+                                    "include_state": False})
+    check("R65.9 MCP 入口（_session_call recall）端到端：本会话只回本会话、假 id 空窗口",
+          sorted((r.get("text") or "")[:2] for r in _hit.get("recent") or []) == ["A1"]
+          and (_none.get("recent") or []) == [],
+          (_hit.get("recent"), _none.get("recent")))
+
+
+# ---------------------------------------------------------------- 定点变异自证
+# 锚点在**去缩进后的实现源码**上定位（方法体在类体内缩进 4 格，编译前统一 dedent）。
+# 每条变异声明**期望转红的断言项**；实跑红项与期望必须**恰好相等**——多红=断言语义
+# 纠缠，少红=该判据空转（本仓教训：test_neg_condition_hits 的「整条命中档」曾 31 条
+# 断言全绿而分支已删）。锚点漂移（命中次数 ≠1）→ ANCHOR-MISS + 退出码 2（fail-closed）。
+_R65_A_BLOCK = (
+    '        if session and str(session).strip() != "*":\n'
+    '            evs = [r for r in evs if (r.get("meta") or {}).get("session") == session]\n')
+_R65_A_COND = 'if session and str(session).strip() != "*":'
+_R65_A_STRIP = 'str(session).strip() != "*"'
+_R65_A_FILTER = ('evs = [r for r in evs '
+                 'if (r.get("meta") or {}).get("session") == session]')
+_R65_A_DOC = "段跟会话走"
+_R65_ANCHORS = (_R65_A_BLOCK, _R65_A_COND, _R65_A_STRIP, _R65_A_FILTER, _R65_A_DOC)
+
+_R65_MUTATIONS = (
+    ("①删整段会话过滤（recent 回到全进程窗口）", _R65_A_BLOCK, "",
+     {"R65.1", "R65.2", "R65.3", "R65.6a", "R65.9"}),
+    ("②删 \"*\" 例外（星号也过滤）", _R65_A_COND, "if session:",
+     {"R65.4a", "R65.4b"}),
+    ("③去 strip（\" * \" 不再按汇总处理）", _R65_A_STRIP, 'str(session) != "*"',
+     {"R65.4b"}),
+    ("④缺 meta.session 改 fail-open（放行）", _R65_A_FILTER,
+     ('evs = [r for r in evs if not (r.get("meta") or {}).get("session") '
+      'or (r.get("meta") or {}).get("session") == session]'),
+     # 签名：放行无归属事件 ⇒ 三个「按会话」腿任一都混入裸事件（R65.1/2/3 与 R65.6a
+     # 同红）；R65.9 的库内无裸事件，故它**不**红——与变异① 的签名差恰在这一项。
+     {"R65.1", "R65.2", "R65.3", "R65.6a"}),
+    ("⑤去 falsy 守卫（None/\"\" 也过滤）", _R65_A_COND,
+     'if str(session).strip() != "*":', {"R65.5a", "R65.5b"}),
+    ("⑥文档口径回退（docstring 反转）", _R65_A_DOC, "段不跟会话走", {"R65.8"}),
+)
+
+
+def _r65_anchor_preflight():
+    """锚点自检：任一锚点在实现源码里命中次数 ≠1 → ANCHOR-MISS + 退出码 2（fail-closed）。"""
+    src = textwrap.dedent(inspect.getsource(MdCGOS.session_recall))
+    bad = [(a, src.count(a)) for a in _R65_ANCHORS if src.count(a) != 1]
+    if not bad:
+        return 0
+    for a, n in bad:
+        print("  ANCHOR-MISS 锚点漂移（命中 %d 次，期望恰好 1）：%r" % (n, a[:70]))
+    print("  => 实现已漂移，变异表失效：退出码 2（fail-closed；请同步 _R65_MUTATIONS 锚点）")
+    return 2
+
+
+def _r65_run():
+    """跑 R65 组，返回（转红断言项集合, 通过数, 失败数）。"""
+    global PASS, FAIL
+    PASS = FAIL = 0
+    del FAILS[:]
+    _r65_group()
+    return ({n.split(" ", 1)[0] for n in FAILS}, PASS, FAIL)
+
+
+def _r65_self_proof():
+    """逐条变异 → 要求恰好命中期望红项；复原后重跑全套应当全绿。"""
+    rc = _r65_anchor_preflight()
+    if rc:
+        return rc
+    print("!! 定点变异自证：就地变异运行中的实现源码（不读 git），逐条要求**恰好**命中期望红项\n")
+    src = textwrap.dedent(inspect.getsource(MdCGOS.session_recall))
+    orig = MdCGOS.session_recall
+    bad = []
+    with contextlib.redirect_stdout(io.StringIO()):
+        base_red, _, _ = _r65_run()
+    print("  未变异基线：红项 %d %s" % (len(base_red),
+                                        "（应为 0）" if base_red else ""))
+    if base_red:
+        bad.append("未变异基线即转红：%s" % sorted(base_red))
+    marks = "①②③④⑤⑥"
+    for i, (name, old, new, expect) in enumerate(_R65_MUTATIONS):
+        ns = dict(vars(_mdcos))
+        exec(compile(src.replace(old, new), "<r65-mutated-%d>" % i, "exec"), ns)
+        MdCGOS.session_recall = ns["session_recall"]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                red, _, _ = _r65_run()
+        except Exception as exc:                       # noqa: BLE001
+            red = {"<变异体运行异常:%s>" % type(exc).__name__}
+        finally:
+            MdCGOS.session_recall = orig
+        hit = red == expect
+        if not hit:
+            bad.append("变异%s %s：红项 %s ≠ 期望 %s"
+                       % (marks[i], name, sorted(red), sorted(expect)))
+        print("  变异%s %-32s 红项 %d（期望 %d）%s"
+              % (marks[i], name, len(red), len(expect),
+                 "PASS" if hit else "**FAIL** 实=%s 期=%s" % (sorted(red), sorted(expect))))
+    argv_bak = list(sys.argv)
+    sys.argv[:] = [a for a in argv_bak if a != "--self-proof"]
+    _buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(_buf):
+            full_rc = main()
+    finally:
+        sys.argv[:] = argv_bak
+    print("  复原后重跑全套（A–G + R65）：退出码 %d %s"
+          % (full_rc, "（全绿）" if full_rc == 0 else "**非全绿**"))
+    if full_rc:
+        for _ln in _buf.getvalue().splitlines():
+            if "[FAIL]" in _ln:
+                print("    复原重跑红：%s" % _ln.strip()[:120])
+        bad.append("复原后全套非全绿（rc=%d）" % full_rc)
+    print("\n变异自证：%s"
+          % ("PASS（六条腿逐条恰好命中期望红项；复原后全绿）" if not bad
+             else "FAIL —— " + "；".join(bad)))
+    return 0 if not bad else 1
+
+
 if __name__ == "__main__":
-    import sys
-    sys.exit(1 if main() else 0)
+    _rc = main()
+    sys.exit(_rc if _rc in (0, 2) else 1)
