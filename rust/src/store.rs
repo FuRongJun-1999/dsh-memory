@@ -493,19 +493,21 @@ mod opt_batch1_tests {
 
     #[test]
     fn archived_entries_excluded_from_candidates() {
-        // 退役纪律（2026-10-06 接线）：archived 剔除；converged（降权轴）与
-        // 缺键（active，fail-open）仍参与——两侧都要钉住（防一刀切）。
+        // 退役纪律（2026-10-06 接线）：archived 剔除；converged/demoted（降权轴）
+        // 与缺键（active，fail-open）仍参与——两侧都要钉住（防一刀切）。
         let mut a = entry("knowledge/a.md", "a", &[]);
         let b = entry("knowledge/b.md", "b", &[]);
         let mut c = entry("knowledge/c.md", "c", &[]);
+        let mut d = entry("knowledge/d.md", "d", &[]);
         a.lifecycle_state = None;
         c.lifecycle_state = Some("converged".to_string());
+        d.lifecycle_state = Some("demoted".to_string());
         let mut arch = b;
         arch.lifecycle_state = Some("archived".to_string());
-        let entries = vec![a, arch, c];
+        let entries = vec![a, arch, c, d];
         let cand = candidates(&entries);
-        assert_eq!(cand, vec![0, 2],
-                   "archived 必须剔除；converged 与缺键必须保留（判据两侧）");
+        assert_eq!(cand, vec![0, 2, 3],
+                   "archived 必须剔除；converged/demoted 与缺键必须保留（判据两侧）");
     }
 
     #[test]

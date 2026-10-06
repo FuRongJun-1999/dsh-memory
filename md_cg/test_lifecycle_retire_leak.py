@@ -144,6 +144,12 @@ def _subgraph_children():
     return _sg.children_index(cg)
 
 
+def _subgraph_parents():
+    """结构面反查表（`subgraph.parents_index`：child_id → [parent_id...]）。"""
+    from . import subgraph as _sg
+    return _sg.parents_index(cg)
+
+
 # ------------------------------------------------------------ R1 复现序列
 n1 = cg.add("rl_v1", _body("旧事实 v1", "甲地（初始登记）"), layer="knowledge",
             verification_basis="test", importance=0.4)
@@ -480,6 +486,9 @@ cg.set_state(_c7_child, "archived", reason="守卫：结构面归档", actor="te
 check("R7.1 子节点退役后 children_index 映射仍在（裁定：结构面直读不接判据）",
       "rl_c7_child" in (_subgraph_children().get("rl_c7_parent") or []),
       _subgraph_children())
+check("R7.2 parents_index 反向表同钉（裁定文本两侧对称——仅给一侧接线也会被本腿抓住）",
+      "rl_c7_parent" in (_subgraph_parents().get("rl_c7_child") or []),
+      _subgraph_parents())
 
 print("=" * 58)
 print("test_lifecycle_retire_leak: %d 通过 / %d 失败" % (_ok, len(_fail)))
