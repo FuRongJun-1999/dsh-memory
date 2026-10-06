@@ -356,9 +356,12 @@ def group_m4(S):
                   isinstance(o, dict) and _g(o, "action_source") in
                   ("explicit", "sig", "default", "none"),
                   str(o)[:110])
-        # 抛错面钉住（既有 fail-closed，非本闸范围）：只允许 verify（缺 verdict）一支。
-        check("M4-8 抛错面只有既有的 verify 缺裁决一支（新增抛错即红）",
-              {r[0] for r in raised} <= {"verify"}, raised)
+        # 抛错面钉住（既有 fail-closed，非本闸范围）：只允许 verify（缺 verdict）
+        # 与 state_event（缺 subject/slot——P3 写口的 fail-closed，缺参即
+        # ValueError 原样上抛，见 md_cg/test_state_event_op.py E 组）两支；
+        # 本闸只管读面 action 推导，写口抛错面在此**登记**（仍「新增抛错即红」）。
+        check("M4-8 抛错面只有既有的 verify 缺裁决与 state_event 缺参两支（新增抛错即红）",
+              {r[0] for r in raised} <= {"verify", "state_event"}, raised)
         if raised:
             print("      · 已知非 dict 返回：%s" % raised)
     finally:

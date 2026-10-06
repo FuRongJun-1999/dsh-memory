@@ -727,12 +727,16 @@ KERNEL_TOOLS = [
                        "（offset/limit）、**分页前全集**聚合（aggregation=by_relation|"
                        "by_parent|by_child）、端点索引摘要（expand_nodes=true）。"
                        "时间条件缺省走**观察轴**（派生边只有写入时刻 t，无效力声明）"
-                       "——与 op=read 缺省效力轴**有意不同**，由库层单点校验。",
+                       "——与 op=read 缺省效力轴**有意不同**，由库层单点校验。"
+                       "op=state_event：状态事件记账（追加一条五元事件"
+                       "subject/slot/old/new/kind；actor 恒取令牌；"
+                       "查询走 stg(op=state_chain)）。",
         "inputSchema": _s("",
             op=_p("string", "route|read|write|verify|review|protect|identity|"
                             "consistency|metacognition|self_state|evolution|sustain|"
                             "scrub|predict|causal|"
-                            "forget|goal|task|recent|info|index_code|index_doc|ref|whitebox|"
+                            "forget|goal|task|recent|state_event|info|index_code|"
+                            "index_doc|ref|whitebox|"
                             "theory|link|session|ingest|export|maintain|consolidate|"
                             "insight|ccg|status|edges|audit|help", True),
             ccg=_p("object", "CCG 六要素编译器入参：{action, node_id, dialog, marks, "
@@ -752,6 +756,10 @@ KERNEL_TOOLS = [
                               "write 时作为来源证据（user=外部惊奇）"),
             meta=_p("object", "recent op：附加元数据"),
             window=_p("integer", "recent op：滚动窗口大小（默认 200）"),
+            slot=_p("string", "state_event：事件槽位（五元之一——哪项状态）"),
+            old=_p("string", "state_event：变更前值（撤回时留空、new 必填；"
+                             "old/new 双空非法）"),
+            new=_p("string", "state_event：变更后值（撤回＝留空；空值即值作废）"),
             include_recent=_p("boolean", "read：是否附近期事件窗口（默认否）"),
             limit=_p("integer", "goal/recent 的返回条数；read 的近期事件条数；"
                                 "edges 分页条数（缺省 50、上限 500，0/负数报错不当「全部」）"),
@@ -820,7 +828,8 @@ KERNEL_TOOLS = [
                              "receipt（回执审计：命令与预期输出）；"
                              "非法值库层报错（fail-closed）"),
             budget_tokens=_p("integer", "read 的 token 预算"),
-            evidence=_p("string", "verify 的证据"),
+            evidence=_p("string", "verify 的证据；state_event：出处（五元之一，"
+                                 "回指原文/轮次）"),
             verdict=_p("string", "verify 裁决：confirmed|weakened|falsified；"
                                  "insight verify：verified|falsified"),
             question=_p("string", "whitebox：ask/verify 的问题"),
@@ -913,7 +922,8 @@ KERNEL_TOOLS = [
                                    "节点；**未生效（valid_from 未到）保留**"
                                    "（两者语义相反，预约/计划类记忆生效前仍可召回）"),
             ts=_p("number", "sustain note：事件时间戳"),
-            seq=_p("integer", "sustain note：事件序号"),
+            seq=_p("integer", "sustain note：事件序号；state_event：事件序号"
+                              "（五元之一——轮或序号）"),
             task_running=_p("boolean", "sustain：任务执行中（心跳阈值放宽）"),
             beat_interval=_p("number", "sustain start：心跳间隔秒（默认 600）"),
             heal_interval=_p("number", "sustain start：巡检间隔秒（默认 300）"),
@@ -968,7 +978,8 @@ KERNEL_TOOLS = [
             set=_p("object", "link policy：设置子系统签名策略"),
             signers_file=_p("string", "link：签名策略文件（缺省 ~/.mdcg/_signers.json）"),
             swarm=_p("string", "link：跨节点共享目录（缺省 ~/.mdcg/swarm）"),
-            subject=_p("string", "link evidence：按主体过滤（如 agent:node-x）"),
+            subject=_p("string", "link evidence：按主体过滤（如 agent:node-x）；"
+                                 "state_event：事件主体（五元之一——谁的状态）"),
             subjects=_p("array", "link export：限定导出的主体列表"),
             out=_p("string", "link export：证据包输出路径；export/maintain 输出路径"),
             pack=_p("object", "link import：内联证据包（与 path 二选一）"),
@@ -2115,7 +2126,10 @@ def _cg_dispatch(cg, a):
         return _help_call(cg, a)
     _p = getattr(cg, "principal", None)
     if _p is not None and hasattr(_p, "require_op"):
-        _p.require_op(op)          # 角色作用域闸门：越权即 AccessDenied
+        # P3 写口（state_event）映射到既有 "write" op 词——不给令牌 face 引入新
+        # op 词（角色白名单/派生收窄面零改动）：凡 ops 白名单含 write 的角色可
+        # 记账，guest/只读令牌照拒。其余 op 逐位不变。
+        _p.require_op("write" if op == "state_event" else op)
 
     if op == "status":
         return _status_call(cg, a)
@@ -2434,6 +2448,26 @@ def _cg_dispatch(cg, a):
             return {"cleared": cg.clear_recent()}
         return {"events": cg.recent_events(limit=int(a.get("limit") or 20),
                                            roles=a.get("roles"))}
+
+    if op == "state_event":
+        # L2 状态事件记账（P3 写口；设计稿 §2「事件是源、槽位是投影、查询走 stg」）。
+        # actor **恒取令牌**（不接受请求参数——沿本文件既有防伪造口径：客户端
+        # 不得改写归属）；台账是直写盘面的 append-only 文件、**绕过库层节点写闸**，
+        # 故在此显式补齐 require_write（缺了它：ops 白名单放行但 can_write=False
+        # 的令牌也能落盘）。kind 归一：空串归 None——「未分类」是合法记账，
+        # 而 append 对空串抛 ValueError。append 的 ValueError（缺 subject/slot、
+        # old/new 双空、非法 kind）原样上抛（fail-closed，不吞）。
+        from . import state_events as _se
+        _actor = _p.actor if _p is not None else "system"
+        if _p is not None:
+            _p.require_write("internal")
+        rec = _se.append(cg, a.get("subject"), a.get("slot"),
+                         old=a.get("old"), new=a.get("new"),
+                         kind=(a.get("kind") or "").strip() or None,
+                         seq=a.get("seq"),
+                         evidence=a.get("evidence") or "",
+                         actor=_actor)
+        return {"ok": True, "event": rec}
 
     if op == "verify":
         return cg.verify(a.get("node_id", ""), a.get("evidence", ""),

@@ -92,6 +92,7 @@ FUNC_DESC: dict[tuple[str, str], str] = {
     ("cg", "goal"): "目标（写入 / 状态 / 清单）",
     ("cg", "task"): "任务实体（登记 / 计划 / 状态 / 结果；done 无结果拒收）",
     ("cg", "recent"): "最近记忆（事件窗口）",
+    ("cg", "state_event"): "状态事件记账（追加五元事件；查询走 stg(state_chain)）",
     ("cg", "verify"): "外部裁决回填（节点证据验证）",
     ("cg", "review"): "审核队列（DEFER / 提案裁决）",
     ("cg", "forget"): "主动遗忘 / 恢复",

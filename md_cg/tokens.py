@@ -97,7 +97,14 @@ ALL_OPS = ("help", "info", "route", "read", "write", "goal", "task", "recent", "
            #        缺省不给（fail-closed，新增 op 默认不在任何清单内）；
            #        本轮开给：designer（* 自动含）+ verify（证据审计＝验证
            #        单元的本职读面，见其 ROLE_SPECS 注释）。
-           "audit")
+           # P3 新增（世界模型功能端 P3，2026-10-06）：
+           #   state_event  状态事件记账（追加一条五元事件到 append-only 台账）
+           #        —— 写口；**角色面零新词**：cg 面作用域闸把它映射到既有
+           #        "write" 词（见 mcp_server._cg_dispatch），各角色
+           #        ROLE_SPECS.ops_allow 白名单零改动；登记于本表只为
+           #        「op 三处同步」契约（ALL_OPS == cg 工具 schema == 分发分支，
+           #        见 test_p27/test_p29/test_p30/test_p31 防漏改守卫）。
+           "audit", "state_event")
 
 
 class TokenError(Exception):
