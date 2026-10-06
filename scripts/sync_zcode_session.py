@@ -37,12 +37,32 @@ ZCODE_DB = Path.home() / ".zcode" / "cli" / "db" / "db.sqlite"
 STATE_FILE = Path.home() / ".mdcg" / "zcode_sync.json"
 SYNC_TAG = "zcode-window"
 
-#: 转写落点根（持久、仓外；与 dsh-log-transcripts 同级先例）
-TRANSCRIPT_ROOT = Path(r"D:\program\AEIS\data\zcode-log-transcripts")
-#: 会话 md 镜像落点根（只留最近 10 轮；Stop 钩子每轮刷新）
-WINDOW_ROOT = Path(r"D:\program\AEIS\data\zcode-session-window")
-WINDOW_LIMIT = 10        # 「只维护最后 10 条，超长优先遗忘最旧历史」（使用者 2026-10-06）
+# 「只维护最后 10 条，超长优先遗忘最旧历史」（使用者 2026-10-06）
+WINDOW_LIMIT = 10
 WINDOW_TAIL_SCAN = 600   # 尾扫消息条数（每轮低开销；够覆盖 ≥10 轮）
+
+
+def _data_root() -> Path:
+    """数据区根（转写与窗口镜像的父目录；**不落本机绝对字面量**——门禁 check_local_paths）：
+    ① env `MDCG_DATA_ROOT`（zcode 侧 MCP 配置有此键）→ ② mdcg 库根的父目录 → ③ 家目录 `.mdcg`。
+    """
+    env = os.environ.get("MDCG_DATA_ROOT")
+    if env:
+        return Path(env)
+    try:
+        return Path(_resolve_root()).parent
+    except Exception:  # noqa: BLE001
+        return Path.home() / ".mdcg"
+
+
+def transcript_root() -> Path:
+    """全量转写落点根（持久、仓外；与 dsh-log-transcripts 同级先例）。"""
+    return _data_root() / "zcode-log-transcripts"
+
+
+def window_root() -> Path:
+    """会话 md 镜像落点根（只留最近 10 轮；Stop 钩子每轮刷新）。"""
+    return _data_root() / "zcode-session-window"
 
 
 def _open_db_ro():
@@ -104,7 +124,8 @@ def _resolve_root() -> str:
     ① env `MDCG_ROOT` → ② `~/.zcode/cli/config.json` 里 mcp.servers.mdcg 的 env.MDCG_ROOT
     → ③ `md_cg.datapath.mdcg_root()` 缺省。
     背景：本机 `mdcg_root()` 缺省解析到 C 盘 profile 遗留根，而 zcode 侧 MCP 服务的是
-    `D:\\program\\AEIS\\data\\mdcg`——钩子脚本若走缺省会读写**非权威库**（2026-10-06 实测抓出）。
+    配置里声明的 AEIS 数据区库根（`mcp.servers.mdcg` 的 `env.MDCG_ROOT`）——钩子脚本
+    若走缺省会读写**非权威库**（2026-10-06 实测抓出）。
     """
     env = os.environ.get("MDCG_ROOT")
     if env:
@@ -175,7 +196,7 @@ def _render_turn(t: dict) -> str:
     return "\n".join(parts)
 
 
-def append_transcript(sid: str, con=None, root=TRANSCRIPT_ROOT) -> int:
+def append_transcript(sid: str, con=None, root=None) -> int:
     """全量 md 转写增量追加（真人轮；水位分键 `transcript|session`）。返回新增轮数。"""
     own = con is None
     if own:
@@ -192,7 +213,7 @@ def append_transcript(sid: str, con=None, root=TRANSCRIPT_ROOT) -> int:
     fresh = [t for t in turns if int(t.get("t") or 0) > last_t]
     if not fresh:
         return 0
-    root = Path(root)
+    root = Path(root) if root is not None else transcript_root()
     root.mkdir(parents=True, exist_ok=True)
     out = root / f"{sid}.md"
     if not out.exists():
@@ -232,8 +253,9 @@ def write_window_md(sid: str, con=None, limit: int = WINDOW_LIMIT) -> Path:
         human = datetime.datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d %H:%M:%S") if ts else "?"
         lines += [f"## 轮 {i} · {human}", "", "**我说：**", "", (t.get("user") or "").strip(), "",
                   "**ZCode说：**", "", (t.get("assistant") or "").strip(), "", "---", ""]
-    WINDOW_ROOT.mkdir(parents=True, exist_ok=True)
-    out = WINDOW_ROOT / f"{sid}.md"
+    wroot = window_root()
+    wroot.mkdir(parents=True, exist_ok=True)
+    out = wroot / f"{sid}.md"
     tmp = out.with_name(out.name + ".tmp")
     tmp.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     os.replace(tmp, out)

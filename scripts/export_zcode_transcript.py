@@ -52,7 +52,7 @@ def main() -> int:
     print(f"会话 {sid}｜真人轮总数 {total}")
 
     added = sync_mod.append_transcript(sid, con=con)      # 单点：追加逻辑在 sync 模块
-    out = sync_mod.TRANSCRIPT_ROOT / f"{sid}.md"
+    out = sync_mod.transcript_root() / f"{sid}.md"
     print(f"新增轮 {added}｜转写文件 {out}（{out.stat().st_size if out.exists() else 0} 字节）")
     con.close()
 
@@ -66,10 +66,10 @@ def main() -> int:
             print("（库层无 index_doc 方法——请以 cg(op=index_doc, path=...) 经 MCP 建索引）")
             return 0
         try:
-            r = fn(str(TRANSCRIPT_ROOT), incremental=True)
+            r = fn(str(sync_mod.transcript_root()), incremental=True)
             print("index_doc:", json.dumps(r, ensure_ascii=False)[:300])
         except TypeError:
-            r = fn(str(TRANSCRIPT_ROOT))
+            r = fn(str(sync_mod.transcript_root()))
             print("index_doc:", json.dumps(r, ensure_ascii=False)[:300])
     return 0
 
