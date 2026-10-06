@@ -51,10 +51,12 @@ def ok(cond, msg, extra=""):
           + (("  ← " + str(extra)) if (extra and not cond) else ""))
 
 
-# 生效条件：无入参；把根相关 env 键现值存入 _SAVED 并逐个移除（隔离：任何经 env 取根的路径都不得落到在役库）。
+# 生效条件：无入参；把根相关与**行为类** env 键现值存入 _SAVED 并逐个移除（隔离：
+# 任何经 env 取根/改行为（自治档/限流/检索管线等）的路径都不得落到在役库或改变判据）。
 def _sandbox_env():
     for k in ("MDCG_ROOT", "MDCG_STATE_ROOT", "MDCG_AUX_ROOT", "MDCG_DATA_ROOT",
-              "MDCG_STG_STATE"):
+              "MDCG_STG_STATE", "MDCG_AUTONOMY", "MDCG_WRITELIMIT",
+              "MDCG_RETRIEVAL_PIPELINE", "MDCG_POLICY_FILE", "MDCG_SESSION"):
         _SAVED[k] = os.environ.get(k)
         os.environ.pop(k, None)
 
@@ -74,9 +76,9 @@ def _fresh_cg():
     return MdCGOS(os.path.join(_TMP, "gen%d" % _GEN[0], "root"))
 
 
-# 生效条件：cg 为沙箱实例、spatial 为附加键（可为 None=不带）时写一条场景节点并返回 (nid, 写入返回体)。
-def _write_scene(cg, nid, spatial, content=None):
-    kw = dict(layer="contextual", gated=False, importance=0.6,
+# 生效条件：cg 为沙箱实例、spatial 为附加键（可为 None=不带）、gated 选直写/闸门路径时写一条场景节点并返回 (nid, 写入返回体)。
+def _write_scene(cg, nid, spatial, content=None, gated=False):
+    kw = dict(layer="contextual", gated=gated, importance=0.6,
               tags=["spatial", "cat:fatfish", "ent:肥鱼", "world_model"])
     if spatial is not None:
         kw["spatial"] = spatial
@@ -174,11 +176,28 @@ def group_d():
     return len(_FAIL) - n0
 
 
+# 生效条件：无入参；E 组——**gated=true 闸门路径行为透传**（复核观察项②收口：
+# 此前 gated 分支仅静态判据，现补行为断言；返回红项数）。
+def group_e():
+    n0 = len(_FAIL)
+    cg = _fresh_cg()
+    nid, out = _write_scene(cg, "sp_e1", SP_A, gated=True)
+    ok(out.get("verdict") == "ACCEPT", "E1 gated=true 写入走闸门且 ACCEPT", out)
+    ok(_entry_spatial(cg, nid) == SP_A, "E2 gated=true spatial 落盘逐位（行为面）",
+       _entry_spatial(cg, nid))
+    nid2, _ = _write_scene(cg, "sp_e2", None, gated=True,
+                           content="场景实体 桌子（table）位于 (1.5,0.45,6.0)，状态 neutral")
+    ok("spatial" not in _entry_fm(cg, nid2), "E3 gated=true 缺省不落键",
+       sorted(_entry_fm(cg, nid2).keys()))
+    return len(_FAIL) - n0
+
+
 def run_all():
     print("== A 落盘直存 =="); group_a()
     print("== B 形态与边界 =="); group_b()
     print("== C MCP 面接线 =="); group_c()
     print("== D 既有键零位移 =="); group_d()
+    print("== E gated 闸门路径 =="); group_e()
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +208,7 @@ _ANCHOR = "**_spatial_kw(a)"
 
 
 # 生效条件：无入参；M1 行为变异——把 MdCGOS.add 的 spatial 剔除（模拟透传丢失），
-# A2 单条断言应恰好转红 1 项；结束还原原方法。
+# A2（直写面）与 E2（gated 面）同款断言应**恰好**转红 2 项；结束还原原方法。
 def _mut_m1():
     real = MdCGOS.add
 
@@ -204,6 +223,10 @@ def _mut_m1():
         nid, _ = _write_scene(cg, "sp_m1", SP_A)
         ok(_entry_spatial(cg, nid) == SP_A, "M1 变异下 A2 断言（应转红）",
            _entry_spatial(cg, nid))
+        nid2, _ = _write_scene(cg, "sp_m1g", SP_A, gated=True,
+                               content="场景实体 树（tree）位于 (-2,1,7.0)，状态 neutral")
+        ok(_entry_spatial(cg, nid2) == SP_A, "M1 变异下 E2 断言（应转红）",
+           _entry_spatial(cg, nid2))
         return len(_FAIL) - n0
     finally:
         MdCGOS.add = real
@@ -223,13 +246,13 @@ def _mut_m2():
 
 
 def run_mutate():
-    ok(len(_FAIL) == 0 and len(_PASS) >= 0, "前置：变异轮前无失败")
+    ok(len(_FAIL) == 0, "前置：变异轮前无失败")
     print("== 定点变异自证 ==")
     verdict = 0
     base_fail = len(_FAIL)
     red1 = _mut_m1()
-    if red1 != 1:
-        print(f"  FAIL M1 预期恰好 1 红，实得 {red1}")
+    if red1 != 2:
+        print(f"  FAIL M1 预期恰好 2 红（A2 直写面 + E2 gated 面），实得 {red1}")
         verdict = 1
     red2 = _mut_m2()
     if red2 is None:
@@ -239,7 +262,7 @@ def run_mutate():
         print(f"  FAIL M2 预期恰好 1 红，实得 {red2}")
         verdict = 1
     if verdict == 0:
-        print("  MUTATE=PASS（两处定点变异各自恰好命中 1 项）")
+        print("  MUTATE=PASS（M1 两断言面各 1 红=2；M2 恰好 1 红）")
     # 变异轮的落红不计入正式判定
     del _FAIL[base_fail:]
     return verdict
