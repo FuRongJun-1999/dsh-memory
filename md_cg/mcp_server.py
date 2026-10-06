@@ -1063,10 +1063,12 @@ KERNEL_TOOLS = [
                        "op=timeline：按时间排序（可用 session 切本会话/跨会话视图，"
                        "看「所有会话做了什么」传 session=\"*\"，返回项带会话归属）；"
                        "op=anchors：落在时间窗/空间范围的节点；"
-                       "op=consistency：时空字段自洽性检查。"
+                       "op=consistency：时空字段自洽性检查；"
+                       "op=state_chain：状态槽位投影（现值/区间/变迁史；"
+                       "flag MDCG_STG_STATE 默认关）。"
                        "四个 op 均可用 time_axis 切换时间轴（缺省 observed）。",
         "inputSchema": _s("",
-            op=_p("string", "relation|timeline|anchors|consistency", True),
+            op=_p("string", "relation|timeline|anchors|consistency|state_chain", True),
             a=_p("string", "relation 的节点 a"), b=_p("string", "relation 的节点 b"),
             time_window=_p("array", "anchors 的时间窗 [t1,t2]"),
             bbox=_p("array", "anchors 的包围盒 [x1,y1,x2,y2]"),
@@ -1077,7 +1079,12 @@ KERNEL_TOOLS = [
                                  "（frontmatter.session 精确相等）"),
             desc=_p("boolean", "timeline 是否倒序（默认是）"),
             time_axis=_p("string", "时间轴：observed（观察轴 temporal/time_window，"
-                                   "缺省）| effective（效力轴 effective_from/until）")),
+                                   "缺省）| effective（效力轴 effective_from/until）"),
+            subject=_p("string", "state_chain 的主体（省略＝不过滤）"),
+            slot=_p("string", "state_chain 的槽位（省略＝不过滤）"),
+            include_retired=_p("boolean", "state_chain 是否含退役槽位（默认 false；"
+                                          "退役不删除，只是默认不列）"),
+            history=_p("boolean", "state_chain 是否带变迁史（默认 true）")),
     },
 ]
 
@@ -3212,13 +3219,25 @@ def _stg_call(cg, a):
     if op == "consistency":
         return stg.consistency(cg, layer=a.get("layer"),
                                limit=int(a.get("limit") or 50), time_axis=axis)
+    if op == "state_chain":
+        # 第 5 op：状态槽位投影（flag MDCG_STG_STATE **默认关**）。关臂由 stg 侧
+        # 返回 disabled 返回体（**不抛**——「没开」不是错误，是与「没命中」可分辨的
+        # 如实答复）；开臂委托 md_cg/state_slots.py 现算（本层不复制投影逻辑）。
+        # time_axis 与本 op 无关：台账事件行只有落账时间戳 t，无第二轴（不伪造）。
+        return stg.state_chain(
+            cg, subject=a.get("subject"), slot=a.get("slot"),
+            include_retired=bool(a.get("include_retired", False)),
+            history=bool(a.get("history", True)),
+            limit=int(a.get("limit") or 50))
     if not op:
         # fail-closed 且给出可操作提示：stg 的 op 四值签名区分度低于 cg（relation 需
         # a+b、timeline/anchors/consistency 皆以 layer+limit 为主），**不做签名推导**
         # ——猜错会静默返回错误视图，比报错更贵。
         raise ValueError("stg 的 op 为必填参数（缺失即报错，不静默降级）；"
-                         "允许 op：relation | timeline | anchors | consistency")
-    raise ValueError(f"stg 未知 op：{op}（允许 relation | timeline | anchors | consistency）")
+                         "允许 op：relation | timeline | anchors | consistency | "
+                         "state_chain")
+    raise ValueError(f"stg 未知 op：{op}（允许 relation | timeline | anchors | "
+                     f"consistency | state_chain）")
 
 
 # --------------------------------------------------------------------------

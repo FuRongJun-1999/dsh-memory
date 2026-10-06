@@ -120,6 +120,7 @@ FUNC_DESC: dict[tuple[str, str], str] = {
     ("stg", "timeline"): "时间线",
     ("stg", "anchors"): "锚点检索（时空窗口）",
     ("stg", "consistency"): "时空一致性",
+    ("stg", "state_chain"): "状态槽位投影（现值 / 区间 / 变迁史）",
     ("whitebox", "ask"): "白箱问答",
     ("whitebox", "remember"): "白箱编码（知识写入能力库）",
     ("whitebox", "verify_encoding"): "验证编码能力（写入口令→追问命中）",
