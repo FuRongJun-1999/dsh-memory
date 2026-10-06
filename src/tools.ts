@@ -8,6 +8,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type ParameterPropertySpec, type ParameterSchemaSpec, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type { LingshuBridge, McpTool } from './bridge.ts'
+// B 治本批（2026-10-06）：写归因注入单点（运行期会话 → 写归因调用）。
+// 运行时导入写 `.js`（本仓口径：type-only 才写 `.ts`，tsconfig 未开
+// allowImportingTsExtensions —— 值导入写 `.ts` 会 TS5097 编译失败）。
+import { attributeSession } from './lib/session_state.js'
 
 /** 默认暴露的核心工具集合：**记忆面已基元化**，只注册 `cg` / `stg` 两个认知基元。
  *
@@ -186,7 +190,14 @@ export async function registerLingshuTools(
         // 此前完全忽略取消，取消后写操作（remember/relate/ingest 等）仍可能产生副作用
         async execute(args: Record<string, unknown>, exec: { signal: AbortSignal }) {
           if (exec.signal.aborted) throw new Error(`灵枢 ${tool.name} 已取消`)
-          const result = await bridge.callTool(tool.name, args as Record<string, unknown>, exec.signal)
+          // B 治本批（2026-10-06）：agent 直调工具的转发面把**运行期会话**注入
+          // **写归因调用**——env（MDCG_SESSION）取消后，请求声明即归因唯一来源
+          // （md_cg/mcp_server.py 的 _declared_session：env > 请求声明 > 进程身份）。
+          // 判据单点在 lib/session_state.ts 的 attributeSession：只注入
+          // mdcg_remember 与 cg(op=write) 两个写面；读面（视图过滤）/ op 特化语义
+          // 一律不动。命中且未显式声明时返回新对象，否则原样透传。
+          const forwarded = attributeSession(tool.name, args as Record<string, unknown>)
+          const result = await bridge.callTool(tool.name, forwarded, exec.signal)
           if (exec.signal.aborted) throw new Error(`灵枢 ${tool.name} 已取消`)
           if (result.isError) {
             throw new Error(extractText(result.content) || `灵枢 ${tool.name} 执行失败`)

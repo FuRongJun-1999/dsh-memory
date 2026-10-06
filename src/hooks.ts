@@ -51,6 +51,9 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { MdcgClient } from './lib/mdcg_client.js'
 import { escapePromptBraces, renderUntrustedMemoryBlock } from './lib/prompt_safety.js'
 import { HookAuditRecorder, kindOf, type HookWriteRole } from './lib/hook_audit.js'
+// 运行期会话状态单点（B 治本批）：观测在 hooks 面，写归因注入在工具面
+// （src/tools.ts）——两处共用同一状态，见 lib/session_state.ts 头注。
+import { currentSession, noteSession, UNASSIGNED_SESSION } from './lib/session_state.js'
 
 /** 自动记忆开关。 */
 export interface MemoryHooksOptions {
@@ -334,16 +337,8 @@ function sessionIdOf(raw: unknown): string {
   return typeof v === 'string' ? v.trim() : ''
 }
 
-/** 会话归属未知时的**显式占位**（H2③，2026-09-30）。
- *
- *  ⚠️ 不可退回「不传 session 键」：md_cg 的 `Principal.__init__` 在 session 为假值时
- *  生成**进程级随机** `sess_<hex>`（md_cg/security.py:117）——插件不传，等于让一个
- *  进程内所有「宿主未给标识」的会话共用一个**不可辨认**的随机桶：归属在审计上既
- *  读不出是谁、跨进程也对不上，是静默的归属丢失。
- *  本常量把这一态写成**显式值**：跨进程一致、可辨认、可审计，且不是伪造的宿主
- *  会话 id（非 DSH 形态，服务端 `_normalize_session` 原样采用、不会被改写成别的桶）。
- *  要读这个桶：`stg(op=timeline, session="unassigned")`。 */
-const UNASSIGNED_SESSION = 'unassigned'
+// UNASSIGNED_SESSION（会话归属未知时的显式占位常量）单点已移至
+// lib/session_state.ts（B 治本批：本文件与工具面共用同一常量与同一会话状态）。
 
 /** H1 **会话级**判据：这条 session 是否「子代理/委派子会话」。
  *
@@ -415,8 +410,24 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
    *  绝不冒泡进记忆路径、不改任何写入/过滤判定。 */
   const audit = new HookAuditRecorder(opts.auditPath)
 
-  /** 最近一次观测到的宿主会话标识（见 sessionIdOf；空串 = 未知/无会话）。 */
-  let lastSession = ''
+  /** 本实例是否曾观测到会话（B 治本批）。
+   *
+   *  会话状态本体是**进程级单点**（lib/session_state.ts；hooks 面观测、工具面
+   *  src/tools.ts 的写归因注入共用）；而「本实例有没有观测过」是**实例级**事实：
+   *  多实例并存时（测试；或宿主重装钩子），不得让**别的实例**的观测替本实例决定
+   *  召回过滤——否则新装的钩子在尚未观测到会话时就按别的实例的会话去读
+   *  （读错会话，正是 P45 会话隔离要防的形态）。真机单实例下两者等价：首个
+   *  session/event 之前模块状态为空，之后回落值恒为同一单点值。
+   *
+   *  ⚠️ 这是**经 owner 裁定的契约字面偏离（dwfq-7b3a555e-1）**：契约给的形态是
+   *  下方回落处直接 `|| currentSession()`（无本门）；但字面形态与硬边界
+   *  「test/session-attribution.test.ts 逐字未动且全绿」互斥——该守卫 ② 以
+   *  「新建 harness = 未观测」为前提，字面回落会读成前一实例的 sess_B。裁定
+   *  接受本门，两条理由：① 保留原闭包变量「新实例 = 干净状态」的**有意**语义
+   *  （新装钩子未观测时不加召回过滤）；② 冻结守卫零误伤。真机单实例与字面
+   *  **逐位等价**（差异窗口「本实例未观测 ∧ 模块单点非空」单实例下不可达；
+   *  HMR 重载时新实例回落 '' 属更保守行为）。 */
+  let observedSession = false
 
   /** 记忆沉淀（fire-and-forget）。认知图未就绪则跳过并告警（不退回 AEIS）。
    *  `role`=null 表示**读预热**（user-recall）——审计只统计写入路径，
@@ -471,7 +482,13 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           // 想读**所有**会话做了什么：别走自动召回（它会串台），显式调
           // `stg(op=timeline, session="*")`，返回项带 session 归属。
           const hostCtx = (_ctx as unknown) as { agent?: { session?: unknown } } | undefined
-          const sid = sessionIdOf(hostCtx?.agent?.session) || lastSession
+          // 回落 = **本实例观测门 × 模块单点值**（裁定项 dwfq-7b3a555e-1，见上方
+          // observedSession 注释）：本实例尚未观测 → 回落 ''（保持「新实例 =
+          // 干净状态」，与 test/session-attribution.test.ts ② 的「未观测 → 不加
+          // 过滤」相容）；已观测 → 取 lib/session_state.ts 的进程级单点值。
+          // 真机单实例下两者逐位等价（差异窗口不可达）。
+          const sid = sessionIdOf(hostCtx?.agent?.session)
+            || (observedSession ? currentSession() : '')
           const text = formatTimelineDecayed(
             await graph.timeline(recallLimit, sid ? { session: sid } : {}))
           if (text) {
@@ -499,8 +516,9 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
 
   ctx.on('session/event', (session, event: SessionEvent) => {
     // H1（2026-09-30）**会话级**判据：子代理/委派子会话的自动记忆**整条会话**拦掉。
-    // 位置在取 sid **之前**——子代理会话不得污染 lastSession，否则顶层会话的自动
-    // 召回会拿子代理的 session 去读（读错会话）。字段缺失即不拦，见 isSubagentSession。
+    // 位置在取 sid **之前**——子代理会话不得污染会话状态（lib/session_state.ts
+    // 单点），否则顶层会话的自动召回会拿子代理的 session 去读（读错会话）。
+    // 字段缺失即不拦，见 isSubagentSession。
     if (isSubagentSession(session)) {
       ctx.logger.info('dsh-memory: 子代理会话的自动记忆被拦（H1：header.origin/delegationDepth）')
       audit.filtered('subagent')
@@ -508,9 +526,14 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
     }
     // 会话归属（P45）：记忆写入必须带会话身份，用来区分不同会话的记忆。
     // 空串 = 宿主未给出会话标识 → **显式标注 unassigned**（H2③：不落内核的进程级
-    // 随机 sess_*，也不编造宿主会话 id——见 UNASSIGNED_SESSION 的注释）。
+    // 随机 sess_*，也不编造宿主会话 id——见 lib/session_state.ts 的常量注释）。
     const sid = sessionIdOf(session)
-    if (sid) lastSession = sid
+    // 观测即记录（B 治本批）：注入单点在 lib/session_state.ts——工具面
+    // （src/tools.ts 的写归因转发）读同一个状态；位置不动（H1 子代理闸之后）。
+    if (sid) {
+      noteSession(sid)
+      observedSession = true
+    }
     const sessionTag = sid ? { session: sid } : { session: UNASSIGNED_SESSION }
     if (event.type === 'user/message' && opts.userMessage) {
       // 落盘审计（issue #56）：source.kind 分布——先于两级判据记录**完整**输入分布
