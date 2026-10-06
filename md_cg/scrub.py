@@ -115,11 +115,13 @@ def _access(cg):
         return {}, {}
 
 
-# 生效条件：`from . import chain` 成功且 chain.adjacency(cg) 正常返回时返回该 dict，导入或调用抛任何异常时返回 {}。
+# 生效条件：`from . import chain` 成功且 chain.adjacency(cg, skip_archived=False) 正常返回时返回该 dict，导入或调用抛任何异常时返回 {}。
 def _adjacency(cg) -> dict:
     try:
         from . import chain
-        return chain.adjacency(cg)
+        # 维护面全量口径（2026-10-06 退役接线批次）：去污染抽查是维护写面，
+        # 退役节点仍可被抽查 ⇒ 显式旁路退役过滤（度数口径与接线前逐位一致）。
+        return chain.adjacency(cg, skip_archived=False)
     except Exception:
         return {}
 

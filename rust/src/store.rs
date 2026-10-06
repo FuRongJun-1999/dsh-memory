@@ -48,6 +48,11 @@ pub struct Entry {
     #[allow(dead_code)]
     pub last_access: f64,
     pub edges: Vec<String>,
+    /// 退役纪律（《秤》v2.1 §5.2；2026-10-06 接线）：索引条目的
+    /// `lifecycle_state`（对齐 `md_cg/lifecycle.py` 的 `STATE_FIELD`）。
+    /// 缺键/非 "archived" ⇒ 照常参与候选（fail-open，与 Python 侧
+    /// `lifecycle.is_archived` 同口径）；"archived" 在 `candidates` 剔除。
+    pub lifecycle_state: Option<String>,
 }
 
 /// 内存文档：`lit` 是 `positive_body(content)`；口径 A 两者恒等 → 存 `None` 省内存。
@@ -131,6 +136,11 @@ fn entry_from_json(id: &str, e: &Json) -> Entry {
         access_count: e.get("access_count").and_then(|v| v.as_f64()).unwrap_or(0.0),
         last_access: e.get("last_access").and_then(|v| v.as_f64()).unwrap_or(0.0),
         edges: extract_edges(e.get("edges")),
+        // 退役纪律：与 md_cg/lifecycle.py 的 STATE_FIELD 同键名（"lifecycle_state"）。
+        lifecycle_state: e
+            .get("lifecycle_state")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
     }
 }
 
@@ -305,6 +315,12 @@ pub fn candidates(entries: &[Entry]) -> Vec<usize> {
             if SKIP_LAYERS.contains(&e.layer.as_str()) {
                 return false;
             }
+            // 退役纪律（《秤》v2.1 §5.2；2026-10-06 接线）：archived 不进候选
+            // ——与 Python 侧 `lifecycle.is_archived` 同口径（缺键/非法=active，
+            // fail-open；converged/demoted 是降权轴，仍参与）。
+            if e.lifecycle_state.as_deref() == Some("archived") {
+                return false;
+            }
             match &e.role {
                 Some(r) => !WORK_ROLES.contains(&r.as_str()),
                 None => true,
@@ -471,7 +487,38 @@ mod opt_batch1_tests {
             access_count: 0.0,
             last_access: 0.0,
             edges: vec![],
+            lifecycle_state: None,
         }
+    }
+
+    #[test]
+    fn archived_entries_excluded_from_candidates() {
+        // 退役纪律（2026-10-06 接线）：archived 剔除；converged（降权轴）与
+        // 缺键（active，fail-open）仍参与——两侧都要钉住（防一刀切）。
+        let mut a = entry("knowledge/a.md", "a", &[]);
+        let b = entry("knowledge/b.md", "b", &[]);
+        let mut c = entry("knowledge/c.md", "c", &[]);
+        a.lifecycle_state = None;
+        c.lifecycle_state = Some("converged".to_string());
+        let mut arch = b;
+        arch.lifecycle_state = Some("archived".to_string());
+        let entries = vec![a, arch, c];
+        let cand = candidates(&entries);
+        assert_eq!(cand, vec![0, 2],
+                   "archived 必须剔除；converged 与缺键必须保留（判据两侧）");
+    }
+
+    #[test]
+    fn lifecycle_state_parsed_from_index_json() {
+        // 走真实解析路径：键名与 md_cg/lifecycle.py 的 STATE_FIELD 同源
+        // （"lifecycle_state"）——键名漂移会被本断言钉红。
+        let j = json::parse(r#"{"path":"knowledge/x.md","layer":"knowledge",
+                               "lifecycle_state":"archived"}"#).unwrap();
+        let e = entry_from_json("x", &j);
+        assert_eq!(e.lifecycle_state.as_deref(), Some("archived"));
+        let j2 = json::parse(r#"{"path":"knowledge/y.md","layer":"knowledge"}"#).unwrap();
+        let e2 = entry_from_json("y", &j2);
+        assert_eq!(e2.lifecycle_state, None, "缺键必须是 None（fail-open 前提）");
     }
 
     #[test]

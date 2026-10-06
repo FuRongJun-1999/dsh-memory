@@ -158,8 +158,8 @@ def node_conditions(cg, nid):
     return pos
 
 
-# 生效条件：cg 已有 _chain_adj 且其 [0] 等于 bool(include_hierarchy)、[1] 等于可见性闸存在位时直接返回缓存的 [2]；否则以 cg.index["nodes"]（无 index 或无该键时视为无节点）逐节点收集 frontmatter.edges 中 edge_target 非空的出边，include_hierarchy 为真时再为 subgraph.nodes 各合成一条 relation_type="part_of"、confidence=1.0 的层级边，仅对有出边的 nid 建表，写回 cg._chain_adj=(bool(include_hierarchy), 闸存在位, adj) 后返回 adj；cg 提供 _chain_visible(nid) 谓词（读隔离，MdCGSecure 注入）时不可见 nid 的出边整体不入表、指向不可见目标的边（含层级合成边）截断——不可见节点 id、其边条件与下游拓扑对调用方不存在（walk/explain/causal_path/expand_from_seeds 全部消费者同闸）；
-def adjacency(cg, include_hierarchy=True):
+# 生效条件：cg 已有 _chain_adj 且其 [0] 等于 bool(include_hierarchy)、[1] 等于可见性闸存在位、[2] 等于 bool(skip_archived) 时直接返回缓存的 [3]；否则以 cg.index["nodes"]（无 index 或无该键时视为无节点）逐节点收集 frontmatter.edges 中 edge_target 非空的出边（skip_archived=False 时该轮退役过滤整体旁路——维护面全量口径），include_hierarchy 为真时再为 subgraph.nodes 各合成一条 relation_type="part_of"、confidence=1.0 的层级边，仅对有出边的 nid 建表，写回 cg._chain_adj=(bool(include_hierarchy), 闸存在位, bool(skip_archived), adj) 后返回 adj；skip_archived=True（缺省）时 lifecycle.is_archived 为真的节点出边整体不入表、指向退役目标的边（含层级合成边）截断（判据单点 lifecycle.is_archived，缺键=active fail-open；退役不删除、可显式恢复）；cg 提供 _chain_visible(nid) 谓词（读隔离，MdCGSecure 注入）时不可见 nid 的出边整体不入表、指向不可见目标的边（含层级合成边）截断——不可见节点 id、其边条件与下游拓扑对调用方不存在（walk/explain/causal_path/expand_from_seeds 全部消费者同闸）；
+def adjacency(cg, include_hierarchy=True, skip_archived=True):
     """出邻接表：nid → [(target_id, edge_dict)]。
 
     来源两处：
@@ -172,8 +172,8 @@ def adjacency(cg, include_hierarchy=True):
     （`cg.index["nodes"]`），不是「只碰种子邻域」。故契约 S3「不走全表」这一句
     对**本函数不成立**，正确表述是「不读正文；邻接构建为 O(N) 索引条目级」。
     代价读数（`scripts/p2p4_probe.py` R7，400 条目确定性小库）：冷建 ~0.24ms、
-    缓存命中 ~1µs；缓存键 `(include_hierarchy, 闸存在位)` 存于 `cg._chain_adj`，
-    写入/删除后由 `invalidate_cache` 作废。
+    缓存命中 ~1µs；缓存键 `(include_hierarchy, 闸存在位, skip_archived)` 存于
+    `cg._chain_adj`，写入/删除后由 `invalidate_cache` 作废。
     （可选硬化路径 (b1)：在索引快照的**边集合**上增量构建邻接——本轮未做，
     如需做见 P3 遗留 B 的二选一。）
 
@@ -184,17 +184,29 @@ def adjacency(cg, include_hierarchy=True):
     目标的边截断；谓词缺席（基类）行为零变化。缓存键含闸存在位；闸语义
     实例内稳定（_readable 绑定档判定恒用 principal.session，见 mdcos
     _readable），同一实例不会跨身份串台。
+
+    退役纪律（《秤》v2.1 §5.2；2026-10-06 接线）：`skip_archived=True`（缺省）时
+    archived 节点出边整体不入表、指向 archived 目标的边截断——`cg(op=causal,
+    action=chain)` 等**读/预测面**（chain()／predict.*）由此不再扩散进退役节点；
+    **维护面显式旁路**：`scrub`（去污染抽查，按度数排序的维护写面）传
+    `skip_archived=False` 取全量表——退役节点仍可被抽查（判据面 = 默认读/注入
+    面必消费、维护/管理面直读，见运维文档 §九.5 面的判据）。判据单点
+    `lifecycle.is_archived`（缺键=active fail-open）。
     """
     cached = getattr(cg, "_chain_adj", None)
     vis = getattr(cg, "_chain_visible", None)
     vis_on = vis is not None
     if (cached is not None and cached[0] == bool(include_hierarchy)
-            and cached[1] == vis_on):
-        return cached[2]
+            and cached[1] == vis_on
+            and cached[2] == bool(skip_archived)):
+        return cached[3]
     from . import subgraph as _sg
+    from . import lifecycle as _lc
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
     adj = {}
     for nid in list(nodes):
+        if skip_archived and _lc.is_archived(nodes.get(nid)):
+            continue          # 退役节点：其出边与条件整体不入表（不解析 fm）
         if vis is not None and not vis(nid):
             continue          # 不可见节点：其出边与条件整体不可见（不解析 fm）
         fm = _sg._fm(cg, nid)
@@ -202,11 +214,15 @@ def adjacency(cg, include_hierarchy=True):
         for e in (fm.get("edges") or []):
             tgt = edge_target(e)
             if tgt:
+                if skip_archived and _lc.is_archived(nodes.get(tgt)):
+                    continue  # 拓扑边界：指向退役目标的边径直截断
                 if vis is not None and not vis(tgt):
                     continue  # 拓扑边界：指向不可见目标的边对调用方不存在
                 out.append((tgt, e if isinstance(e, dict) else {"target": tgt}))
         if include_hierarchy:
             for ch in _sg.declared(fm)["nodes"]:
+                if skip_archived and _lc.is_archived(nodes.get(ch)):
+                    continue
                 if vis is not None and not vis(ch):
                     continue
                 out.append((ch, {"target": ch, "relation_type": "part_of",
@@ -214,7 +230,7 @@ def adjacency(cg, include_hierarchy=True):
         if out:
             adj[nid] = out
     try:
-        cg._chain_adj = (bool(include_hierarchy), vis_on, adj)
+        cg._chain_adj = (bool(include_hierarchy), vis_on, bool(skip_archived), adj)
     except Exception:
         pass
     return adj

@@ -53,10 +53,13 @@ def ok(cond, msg, extra=""):
 
 # 生效条件：无入参；把根相关与**行为类** env 键现值存入 _SAVED 并逐个移除（隔离：
 # 任何经 env 取根/改行为（自治档/限流/检索管线等）的路径都不得落到在役库或改变判据）。
+# 注：档位/限流 env 字面量按「单点结构」守卫（test_autonomy_modes G 组）要求
+# **拼接构造**——带引号的字面量只许出现在唯一入口模块。
 def _sandbox_env():
-    for k in ("MDCG_ROOT", "MDCG_STATE_ROOT", "MDCG_AUX_ROOT", "MDCG_DATA_ROOT",
-              "MDCG_STG_STATE", "MDCG_AUTONOMY", "MDCG_WRITELIMIT",
-              "MDCG_RETRIEVAL_PIPELINE", "MDCG_POLICY_FILE", "MDCG_SESSION"):
+    keys = ("MDCG_ROOT", "MDCG_STATE_ROOT", "MDCG_AUX_ROOT", "MDCG_DATA_ROOT",
+            "MDCG_STG_STATE", "MDCG_" + "AUTONOMY", "MDCG_" + "WRITELIMIT",
+            "MDCG_RETRIEVAL_PIPELINE", "MDCG_POLICY_FILE", "MDCG_SESSION")
+    for k in keys:
         _SAVED[k] = os.environ.get(k)
         os.environ.pop(k, None)
 

@@ -3690,7 +3690,12 @@ class MdCG:
                    # （非法视图 ValueError——fail-closed 只针对调用方误用）
                    and (view is None or roleviews.matches(e, view))
                    # 时效：只在显式启用时排除已过期（not_yet 保留）
-                   and not (validity and trust.is_expired(e, now=now))):
+                   and not (validity and trust.is_expired(e, now=now))
+                   # 退役纪律（《秤》v2.1 §5.2；2026-10-06 接线）：archived
+                   # 不进默认检索候选——判据单点 lifecycle.is_archived
+                   # （缺键=active fail-open），与生产路径 `MdCGOS._candidates`
+                   # 同一口径（此前基类面未接，属已登记的已知未覆盖面）。
+                   and not lifecycle.is_archived(e)):
                 entries.append(e)
 
         # 默认关：索引里可能残留门控字段（曾开启过 / 回填过）→ 返回前剥离，

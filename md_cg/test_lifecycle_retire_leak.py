@@ -35,8 +35,11 @@ import shutil
 import tempfile
 
 from . import lifecycle, stg
+from . import chain as _chain
+from . import scrub as _scrub
 from . import mcp_server
 from . import tasks as _tasks
+from .mdcg import MdCG
 from .mdcos import MdCGOS
 
 _root = tempfile.mkdtemp(prefix="mdcg_retire_")
@@ -133,6 +136,12 @@ def _fm(nid):
 
 def _idx(nid):
     return (cg.index.get("nodes") or {}).get(nid) or {}
+
+
+def _subgraph_children():
+    """结构面正查表（`subgraph.children_index`：parent_id → [child_id...]）。"""
+    from . import subgraph as _sg
+    return _sg.children_index(cg)
 
 
 # ------------------------------------------------------------ R1 复现序列
@@ -399,6 +408,78 @@ _sess_call_ids |= {str(u.get("id"))
 check("R4.6 op=session（action=recall）全链：archived 要点/未解问题不出现、在役对照出现",
       _sess_call_ids.isdisjoint({_note1, _unr1}) and _note2 in _sess_call_ids,
       sorted(_sess_call_ids))
+
+# ------------------------------------------- R5 基类 MdCG.search（2026-10-06 接线）
+# 边界四条第 1 面（运维文档 §九.5 登记的已知未覆盖面）：plain `MdCG` 实例
+# （白箱 KB / 离线脚本 / 测试）的默认检索面此前未接判据——同序列下 MdCG 命中
+# `['a_v1','a_v2']` 而 MdCGOS 只命中 `['a_v1']` 的取证。现按「默认读面必须消费
+# 判据」接线；本腿：在役对照（converged 降权轴仍参与）→ archived 剔除。
+def _base_ids():
+    r = MdCG(_root).search(Q, k=50, record=False)
+    res = r[0] if isinstance(r, tuple) else r
+    return {str(n.get("id")) for n, *_ in (res or [])}
+
+
+_b5 = _base_ids()
+check("R5.1 基类面：archived（rl_v2）不出现、v1 出现",
+      n2 not in _b5 and n1 in _b5, sorted(_b5))
+check("R5.2 基类面不误剔：converged（rl_converged）仍参与（降权轴）",
+      n3 in _b5, sorted(_b5))
+
+# ------------------------------------------- R6 因果链面（2026-10-06 接线）
+# 边界四条第 2 面：`chain.adjacency` 无 lifecycle 判据 ⇒ `cg(op=causal,
+# action=chain)` 扩散进 archived（取证：链里出现归档 b_tgt）。接线后缺省
+# `skip_archived=True` 剔除退役节点出边与指向退役目标的边；维护面
+# （scrub 去污染抽查）显式 `skip_archived=False` 保留全量（面的判据分工）。
+# 另钉一条本批实证的缓存缺口：归档发生在链**已建**之后（缓存已热）也必须
+# 生效——`lifecycle.set_state` 现在补了 `chain.invalidate_cache` 单点。
+_c6_seed = cg.add("rl_c6_seed", _body("因果链种子", "辛地"), layer="knowledge",
+                  verification_basis="test", importance=0.4,
+                  edges=[{"target": "rl_c6_tgt", "relation_type": "causal",
+                          "confidence": 0.9}])
+_c6_tgt = cg.add("rl_c6_tgt", _body("因果链目标（待退役）", "壬地"),
+                 layer="knowledge", verification_basis="test", importance=0.4)
+
+
+def _c6_has(rep):
+    return any("rl_c6_tgt" in (c.get("nodes") or []) for c in (rep or []))
+
+
+check("R6.0 前提：因果链在役时确实扩散到目标（非空断言，防本腿空转）",
+      _c6_has(cg.causal_chain("rl_c6_seed")), cg.causal_chain("rl_c6_seed"))
+cg.set_state(_c6_tgt, "demoted", reason="守卫：链面降权", actor="test")
+cg.set_state(_c6_tgt, "archived", reason="守卫：链面归档", actor="test")
+check("R6.1 目标退役后因果链不扩散进它（缓存已热时亦生效——set_state 同点失效）",
+      not _c6_has(cg.causal_chain("rl_c6_seed")), cg.causal_chain("rl_c6_seed"))
+check("R6.2 维护面旁路：adjacency(skip_archived=False) 仍含退役边（scrub 全量口径）",
+      any(t == "rl_c6_tgt" for t, _e in
+          (_chain.adjacency(cg, skip_archived=False).get("rl_c6_seed") or [])))
+check("R6.3 scrub 面经旁路取数同证（维护写面不受退役过滤约束）",
+      any(t == "rl_c6_tgt" for t, _e in
+          (_scrub._adjacency(cg).get("rl_c6_seed") or [])))
+cg.set_state(_c6_tgt, "active", reason="守卫：链面恢复", actor="test")
+check("R6.4 恢复后因果链重新扩散（退役可逆，同面）",
+      _c6_has(cg.causal_chain("rl_c6_seed")), cg.causal_chain("rl_c6_seed"))
+cg.set_state(_c6_tgt, "demoted", reason="守卫：复测降权", actor="test")
+cg.set_state(_c6_tgt, "archived", reason="守卫：复测归档", actor="test")
+
+# --------------------------------- R7 结构面（裁定：不接——定向面直读，钉住裁定）
+# 边界四条第 3 面经使用者裁定（2026-10-06）**保持直读**：调用方给显式父/子
+# id、返回 id 映射不回正文，属定向/结构面。本腿把裁定钉住——若未来有人
+# "顺手接线"，R7.1 转红即提醒该行为已被裁定（改行为须先改裁定）。
+_c7_parent = cg.add("rl_c7_parent", _body("结构面父节点", "癸地"),
+                    layer="knowledge", verification_basis="test", importance=0.4,
+                    subgraph={"nodes": ["rl_c7_child"]})
+_c7_child = cg.add("rl_c7_child", _body("结构面子节点（待退役）", "子地"),
+                   layer="knowledge", verification_basis="test", importance=0.4)
+check("R7.0 前提：children_index 含该父→子映射（非空断言，防本腿空转）",
+      "rl_c7_child" in (_subgraph_children().get("rl_c7_parent") or []),
+      _subgraph_children())
+cg.set_state(_c7_child, "demoted", reason="守卫：结构面降权", actor="test")
+cg.set_state(_c7_child, "archived", reason="守卫：结构面归档", actor="test")
+check("R7.1 子节点退役后 children_index 映射仍在（裁定：结构面直读不接判据）",
+      "rl_c7_child" in (_subgraph_children().get("rl_c7_parent") or []),
+      _subgraph_children())
 
 print("=" * 58)
 print("test_lifecycle_retire_leak: %d 通过 / %d 失败" % (_ok, len(_fail)))

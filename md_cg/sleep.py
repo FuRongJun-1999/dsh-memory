@@ -78,11 +78,15 @@ DEFAULT_LOCK_TIMEOUT = 30.0
 #: 单条 git 子进程的**硬超时**（秒）——issue #63 主修（单点可调）。
 #: 取值依据：本机 git 操作为秒级（init / add / commit / rev-parse / worktree /
 #: merge / revert 全是单库本地动作），120s 为安全上界；超时即 kill
-#: （`subprocess.run(timeout=)` 语义），异常消息里带「若是残留锁则人工核删」的
-#: 指引（本模块**不自动删** index.lock——可能是他进程的锁，误删更糟）。
+#: （`subprocess.run(timeout=)` 语义）；残留锁处置见 `_clear_git_lock`
+#: （有界自清，2026-10-06 落地原「是否自动清理」待裁项）。
 _GIT_TIMEOUT_S = 120
-#: git 子进程超时后可能的残留锁名（仅用于异常消息里的核删指引，不自动删）。
+#: git 超时被 kill 后可能的残留锁名（有界自清的**唯一**对象名）。
 _GIT_LOCK_NAME = "index.lock"
+#: 残留锁的**超龄阈值**（秒）——有界自清的第二闸：本模块全部 git 调用都带
+#: `_GIT_TIMEOUT_S` 超时，合法操作结构性不可能持锁超过它；300s（≈2.5×）之上
+#: 仍存在的锁只可能是崩溃/被 kill 的残留。
+_GIT_LOCK_STALE_S = 300
 #: 睡眠轮次的**台账**（append-only JSONL）——落 `sleep_root()` 侧（状态面，
 #: **不是数据根**）：台账是运行态，不该成为真源面的一部分、也不该进版本库。
 SLEEP_LEDGER = "_sleep.jsonl"
@@ -284,6 +288,44 @@ def face_delta(before: dict, after: dict) -> dict:
 
 
 # 生效条件：git_dir_path 与 work_tree 给定时以 ["git", "--git-dir=<git_dir_path>", "--work-tree=<work_tree>", *args] 调 subprocess.run（capture_output + text + 显式 utf-8/errors=replace + env 带 PYTHONUTF8=1 + shell=False + **timeout=_GIT_TIMEOUT_S** + **stdin=DEVNULL**）并返回 CompletedProcess；returncode 非零不抛（由调用方判）；TimeoutExpired **不吞**——单点转 SleepGitTimeout（消息含「超时（_GIT_TIMEOUT_S）已被 kill」+ 命令名 + 残留锁人工核删指引）。
+# 生效条件：git_dir_path 下存在 index.lock 且（force 为真 或 其 mtime 距今 ≥ _GIT_LOCK_STALE_S 秒）时删除该文件、记一行 `git_lock_cleared` 台账（写入失败不阻断）并返回 "cleared"；锁不存在返回 "absent"；存在但未达清理条件、或删除失败（OSError）返回 "left"（保持既有的人工核删指引面）。
+def _clear_git_lock(git_dir_path: str, *, force: bool = False) -> str:
+    """有界自清影子仓的 git 残留锁（三闸口径，2026-10-06 落地待裁项）。
+
+    背景（issue #63 台账「是否自动清理」）：`_git` 超时 kill 自己的 git 后，
+    影子仓可能留下 `index.lock`，此前只给人工核删指引。现**有界**自清：
+
+      ① **范围闸**：只碰本模块影子仓的 `<git_dir>/index.lock`——该仓由本模块
+         单属、轮级独占，无第三方 git 的合法持锁面；
+      ② **时机/年龄闸**：`force=True` 仅在本模块**刚 kill 掉自己超时的 git
+         子进程**后调用（此刻仓内任何锁只可能来自该进程或其更早残留）；
+         非 force（每次 git 调用前的巡检）只在锁 **mtime 距今 ≥
+         `_GIT_LOCK_STALE_S`** 时清理（≫ 全部调用的 120s 超时上界，合法操作
+         结构性不可能持锁这么久）；
+      ③ **其余一律不删**（返回 "left"），异常消息保留人工核删指引。
+
+    返回 "cleared" / "left" / "absent"。
+    """
+    lock = os.path.join(git_dir_path, _GIT_LOCK_NAME)
+    try:
+        st = os.stat(lock)
+    except OSError:
+        return "absent"
+    age = max(0.0, time.time() - st.st_mtime)
+    if not force and age < _GIT_LOCK_STALE_S:
+        return "left"
+    try:
+        os.remove(lock)
+    except OSError:
+        return "left"
+    try:
+        _append_ledger({"event": "git_lock_cleared", "lock": lock,
+                        "age_s": round(age, 1), "force": bool(force)})
+    except OSError:               # 台账失败不阻断 git 主链（与审计面同风格）
+        pass
+    return "cleared"
+
+
 def _git(git_dir_path: str, work_tree: str, *args: str) -> subprocess.CompletedProcess:
     """git 调用的**唯一出口**：`--git-dir` 与 `--work-tree` 一律显式给。
 
@@ -291,7 +333,7 @@ def _git(git_dir_path: str, work_tree: str, *args: str) -> subprocess.CompletedP
     两个工作树，靠这两个显式开关切换，**不依赖进程 cwd**（`hive/wm.py` 用 `-C`
     是因为它的工作树就是版本库本身；这里两者分居，故用分裂形态）。
 
-    **有界化（issue #63）**——三件套缺一不可：
+    **有界化（issue #63）**——四件套缺一不可：
 
       ① `timeout=_GIT_TIMEOUT_S`：子进程**无界等待**是常驻循环停摆的直接成因
          （实测停 9.5 小时：`SustainLoop` 单线程串行六档，任一档挂住即全停）。
@@ -300,14 +342,16 @@ def _git(git_dir_path: str, work_tree: str, *args: str) -> subprocess.CompletedP
          任何读 stdin 的子进程会永久悬挂（实测：活管道下 6s 仍 poll=None；
          DEVNULL 下 0.02s 立即 EOF）。先例形态：`md_cg/run_tests.py:105`。
       ③ `TimeoutExpired` **不吞**：转 `SleepGitTimeout`（`SleepError` 子类，
-         既有 `except SleepError` 面照旧收得住），消息带命令名与残留锁核删
-         指引——`subprocess.run(timeout=)` kill 子进程后 git 可能留下
-         `index.lock`；**本模块不自动删**（可能是他进程的锁，误删更糟），
-         是否自动清理列入待裁（见 issue #63 台账）。
+         既有 `except SleepError` 面照旧收得住），消息带命令名与残留锁处置读数。
+      ④ **残留锁有界自清**（2026-10-06 落地待裁项）：调用前置巡检清超龄残留
+         （崩溃场景），超时 kill 后 `force` 清当前残留（见 `_clear_git_lock`
+         三闸口径）——消息里如实带「已清理/未清理」。
     """
     argv = ["git", "--git-dir=" + git_dir_path, "--work-tree=" + work_tree]
     argv.extend(args)
     env = dict(os.environ, PYTHONUTF8="1")
+    # 前置巡检：清超龄残留锁（有界自清第一时机——崩溃残留，无 handler 可依）
+    _clear_git_lock(git_dir_path)
     try:
         return subprocess.run(argv, capture_output=True, text=True,
                               encoding="utf-8", errors="replace",
@@ -315,11 +359,14 @@ def _git(git_dir_path: str, work_tree: str, *args: str) -> subprocess.CompletedP
                               timeout=_GIT_TIMEOUT_S,
                               stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired as exc:
+        # 第二时机：本模块刚 kill 自己的 git——此刻仓内任何锁只可能是残留
+        _lock_state = _clear_git_lock(git_dir_path, force=True)
         raise SleepGitTimeout(
             "git %s 超时（%ss）已被 kill（命令：git %s）——"
-            "本次 git 操作未完成；若后续 git 操作报 lock，请人工核删 "
-            "%s（可能是被 kill 的进程留下的残留锁，本模块不自动删）"
+            "本次 git 操作未完成；残留锁处置：%s（%s）"
             % (" ".join(args[:2]), _GIT_TIMEOUT_S, " ".join(args[:6]),
+               {"cleared": "已自动清理", "left": "未动，若后续报 lock 请人工核删",
+                "absent": "无残留锁"}.get(_lock_state, _lock_state),
                os.path.join(git_dir_path, _GIT_LOCK_NAME))) from exc
 
 

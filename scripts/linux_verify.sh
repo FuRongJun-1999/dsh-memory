@@ -49,7 +49,7 @@ for t in test_hive_ingest test_p38_concurrent_flush test_p39_verify_flow \
          test_logref test_p28_refcheck test_n225_nonobject_load \
          test_issue52_scan_condition_first test_stgidx_index_parity \
          test_health_corrupt_utf8 test_corrupt_utf8_read_surfaces \
-         test_spatial_coords3d; do
+         test_spatial_coords3d test_sleep_gitlock; do
   out=$(python3 -m "md_cg.$t" 2>&1 | tail -1); rc=$?
   record "md_cg.$t" $rc
   echo "    -> $out"

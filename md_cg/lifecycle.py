@@ -280,6 +280,13 @@ def set_state(cg, node_id: str, dst: str, reason: str = None,
     cg._write_node(node_id, os.path.join(cg.root, node["path"]), fm,
                    node.get("content") or "")
     _sync_index(cg, node_id, fm)
+    # 退役接线（2026-10-06）：状态迁移改变 `is_archived` 读数 ⇒ 依赖该判据的
+    # 邻接缓存（`chain.adjacency` 的 skip_archived 过滤）必须**同点作废**——
+    # 此前只有本地写路径（add/_stage 尾三连）清缓存，set_state 后旧缓存会让
+    # 退役节点继续沿因果链/图面扩散（本批探针实证：归档后 causal_chain 仍含
+    # 目标）。懒导入避免模块环；`invalidate_cache` 内部自吞异常，不阻断推进。
+    from . import chain as _chain
+    _chain.invalidate_cache(cg)
     try:
         append_jsonl(os.path.join(cg.root, AUDIT_FILE), {
             "t": at, "action": "set_state", "node_id": node_id,
