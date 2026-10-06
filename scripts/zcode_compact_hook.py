@@ -71,6 +71,23 @@ def _build_context(sid: str, sync_mod=None) -> str:
     return sync_mod.build_continuation_context(sid)
 
 
+def _ack_compact(sync_mod, sid: str) -> None:
+    """本钩子已注入接续包 ≈ 已履行「近 10 轮重建」职能——记录压缩确认位，
+    防 UserPromptSubmit 钩子在同一压缩上重复注入（2026-10-06 重启后实测双注入）。"""
+    con = sync_mod._open_db_ro()
+    try:
+        cts = sync_mod.latest_compact_ts(con, sid)
+    finally:
+        con.close()
+    if not cts:
+        return
+    state = sync_mod.load_state()
+    wst = state.setdefault("win|" + sid, {})
+    if cts > int(wst.get("last_compact_ack") or 0):
+        wst["last_compact_ack"] = cts
+        sync_mod.save_state(state)
+
+
 def main() -> int:
     payload = {}
     try:
@@ -95,6 +112,10 @@ def main() -> int:
         try:
             _sync(sync_mod, sid)
         except Exception:  # noqa: BLE001 —— 同步失败不阻断注入
+            pass
+        try:
+            _ack_compact(sync_mod, sid)
+        except Exception:  # noqa: BLE001 —— 确认位写入失败不阻断
             pass
         text = _build_context(sid, sync_mod)
         print(json.dumps({"additionalContext": text}, ensure_ascii=False))
