@@ -26,9 +26,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
-#: 转写落点根（持久、仓外；与 dsh-log-transcripts 同级先例）
-TRANSCRIPT_ROOT = Path(r"D:\program\AEIS\data\zcode-log-transcripts")
-
 
 def _load_sync_module():
     spec = importlib.util.spec_from_file_location(
@@ -36,18 +33,6 @@ def _load_sync_module():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
-
-
-def _render_header(sid: str) -> str:
-    return (f"# ZCode 会话转录：{sid}\n\n"
-            f"> 导出器：scripts/export_zcode_transcript.py（增量追加；只收真人轮与其回合最终回复）\n"
-            f"> 回读：灵枢 `cg(op=ref)` 按区间读回本文件原文\n\n---\n")
-
-
-def _render_turn(t: dict) -> str:
-    parts = ["**我说：**", "", t["user"].strip(), "", "**ZCode说：**", "",
-             (t.get("assistant") or "").strip(), "", "---", ""]
-    return "\n".join(parts)
 
 
 def main() -> int:
@@ -63,35 +48,18 @@ def main() -> int:
     if not sid:
         print("未找到含真人输入的 zcode 会话")
         return 1
+    total = len(sync_mod.extract_turns(con, sid, 10 ** 6))
+    print(f"会话 {sid}｜真人轮总数 {total}")
 
-    turns = sync_mod.extract_turns(con, sid, 10 ** 6)     # 全量
-    print(f"会话 {sid}｜真人轮总数 {len(turns)}")
-
-    state = sync_mod.load_state()
-    key = "transcript|" + sid
-    sst = state.setdefault(key, {})
-    last_t = int(sst.get("last_turn_created") or 0)
-    fresh = [t for t in turns if int(t.get("t") or 0) > last_t]
-
-    TRANSCRIPT_ROOT.mkdir(parents=True, exist_ok=True)
-    out = TRANSCRIPT_ROOT / f"{sid}.md"
-    if not out.exists():
-        out.write_text(_render_header(sid), encoding="utf-8")
-    if fresh:
-        with open(out, "a", encoding="utf-8", newline="\n") as f:
-            for t in fresh:
-                f.write(_render_turn(t))
-        sst["last_turn_created"] = int(fresh[-1].get("t") or 0)
-        sync_mod.save_state(state)
-    print(f"新增轮 {len(fresh)}｜转写文件 {out}（{out.stat().st_size} 字节）")
+    added = sync_mod.append_transcript(sid, con=con)      # 单点：追加逻辑在 sync 模块
+    out = sync_mod.TRANSCRIPT_ROOT / f"{sid}.md"
+    print(f"新增轮 {added}｜转写文件 {out}（{out.stat().st_size if out.exists() else 0} 字节）")
+    con.close()
 
     if a.index:
         sys.path.insert(0, str(HERE.parent))
         from md_cg.mdcos import MdCGOS
-        root = a.root or os.environ.get("MDCG_ROOT")
-        if not root:
-            from md_cg.datapath import mdcg_root
-            root = mdcg_root()
+        root = a.root or sync_mod._resolve_root()
         cg = MdCGOS(root)
         fn = getattr(cg, "index_doc", None)
         if fn is None:

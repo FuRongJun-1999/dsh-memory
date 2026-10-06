@@ -10,7 +10,8 @@
     ②工程接续（任务台账/活跃目标/未解——跨会话稳定段）
   · 完整原文另有全量 md 转写（scripts/export_zcode_transcript.py）+ 灵枢 doc_ref
     回读（cg(op=ref)）——模型需要时读回。
-  · 真·「只保留 10 条」的硬窗属自研会话引擎（身体侧）原生能力，非本钩子职责。
+  · 会话 md 镜像（只留最近 10 轮、超长优先遗忘最旧）由 scripts/zcode_window_hook.py
+    的 Stop 钩子每轮维护；本钩子在启动/恢复时也顺带刷新一次（二者单点共享）。
 
 行为（fail-soft 硬纪律：**任何异常 → 空输出 + 退出 0，绝不阻断会话**）：
   · 先增量同步本会话真人轮（复用 scripts/sync_zcode_session.py 的单点逻辑）；
@@ -51,64 +52,23 @@ def _session_id(payload: dict) -> str:
 
 
 def _sync(sync_mod, sid: str) -> None:
-    """增量同步本会话真人轮进窗口（尽力而为；失败不抛）。"""
-    con = sync_mod._open_db_ro()
-    turns = sync_mod.extract_turns(con, sid, 200)
-    if not turns:
-        return
-    state = sync_mod.load_state()
-    from md_cg.datapath import mdcg_root
-    root = os.environ.get("MDCG_ROOT") or mdcg_root()
-    key = os.path.normcase(os.path.abspath(root)) + "|" + sid
-    sst = state.setdefault(key, {})
-    last_t = int(sst.get("last_turn_created") or 0)
-    fresh = [t for t in turns if int(t.get("t") or 0) > last_t]
-    if not fresh:
-        return
-    from md_cg.mdcos import MdCGOS
-    cg = MdCGOS(root)
-    for t in fresh:
-        meta = {"session": sid, "source": "zcode-window", "turn": t["turn"]}
-        cg.remember_event("user", t["user"], tags=["zcode", "zcode-window"], meta=meta, window=200)
-        cg.remember_event("assistant", t["assistant"], tags=["zcode", "zcode-window"], meta=meta, window=200)
-        sst["last_turn_created"] = int(t.get("t") or 0)
-    sync_mod.save_state(state)
+    """增量同步本会话真人轮进窗口 + 刷新窗口 md 镜像与全量转写（全部尽力而为）。"""
+    sync_mod.sync_to_window(sid)
+    try:
+        sync_mod.write_window_md(sid)
+    except Exception:  # noqa: BLE001 —— 镜像刷新失败不阻断
+        pass
+    try:
+        sync_mod.append_transcript(sid)
+    except Exception:  # noqa: BLE001 —— 转写追加失败不阻断
+        pass
 
 
-def _build_context(sid: str) -> str:
-    """接续包 → 注入文本（窗口近 10 轮 + 工程接续段；任何段缺即略）。"""
-    from md_cg.datapath import mdcg_root
-    from md_cg.mdcos import MdCGOS
-    root = os.environ.get("MDCG_ROOT") or mdcg_root()
-    cg = MdCGOS(root)
-    pack = cg.session_recall(session=sid, recent_limit=10, budget_tokens=1200)
-    lines = ["【灵枢接续包（自动注入：会话开始/压缩恢复）】",
-             "以下为你错过的近期对话与在办事项（来自灵枢记忆系统；完整原文可用 cg(op=ref) 回读）。"]
-    act = (pack.get("tasks") or {}).get("active") or []
-    if act:
-        lines.append("\n## 在办任务")
-        for t in act[:5]:
-            name = t.get("name") or t.get("id") or "?"
-            lines.append(f"- {name}（{t.get('status', '?')}）")
-    goals = pack.get("goals") or []
-    if goals:
-        lines.append("\n## 活跃目标")
-        for g in goals[:3]:
-            lines.append(f"- {g.get('goal_text') or g.get('text') or g}")
-    recent = pack.get("recent") or []
-    if recent:
-        lines.append("\n## 本会话近期对话（近 10 条）")
-        for e in recent:
-            txt = str(e.get("text") or "").replace("\n", " ")
-            if len(txt) > 120:
-                txt = txt[:120] + "…"
-            lines.append(f"- [{e.get('role')}] {txt}")
-    unres = pack.get("unresolved") or []
-    if unres:
-        lines.append("\n## 未解问题")
-        for u in unres[:3]:
-            lines.append(f"- {str(u.get('question') or u.get('id') or u)[:100]}")
-    return "\n".join(lines)
+def _build_context(sid: str, sync_mod=None) -> str:
+    """接续包 → 注入文本（窗口近 10 轮 + 工程接续段；单点在 sync_zcode_session）。"""
+    if sync_mod is None:
+        sync_mod = _load_sync_module()
+    return sync_mod.build_continuation_context(sid)
 
 
 def main() -> int:
@@ -136,7 +96,7 @@ def main() -> int:
             _sync(sync_mod, sid)
         except Exception:  # noqa: BLE001 —— 同步失败不阻断注入
             pass
-        text = _build_context(sid)
+        text = _build_context(sid, sync_mod)
         print(json.dumps({"additionalContext": text}, ensure_ascii=False))
     except Exception as e:  # noqa: BLE001 —— 硬纪律：绝不阻断会话
         sys.stderr.write(f"[zcode_compact_hook] fail-soft: {type(e).__name__}: {e}\n")

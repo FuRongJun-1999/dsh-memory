@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import sqlite3
@@ -35,6 +36,13 @@ from pathlib import Path
 ZCODE_DB = Path.home() / ".zcode" / "cli" / "db" / "db.sqlite"
 STATE_FILE = Path.home() / ".mdcg" / "zcode_sync.json"
 SYNC_TAG = "zcode-window"
+
+#: 转写落点根（持久、仓外；与 dsh-log-transcripts 同级先例）
+TRANSCRIPT_ROOT = Path(r"D:\program\AEIS\data\zcode-log-transcripts")
+#: 会话 md 镜像落点根（只留最近 10 轮；Stop 钩子每轮刷新）
+WINDOW_ROOT = Path(r"D:\program\AEIS\data\zcode-session-window")
+WINDOW_LIMIT = 10        # 「只维护最后 10 条，超长优先遗忘最旧历史」（使用者 2026-10-06）
+WINDOW_TAIL_SCAN = 600   # 尾扫消息条数（每轮低开销；够覆盖 ≥10 轮）
 
 
 def _open_db_ro():
@@ -52,17 +60,25 @@ def latest_realuser_session(con) -> str:
     return row[0] if row else ""
 
 
-def extract_turns(con, sid: str, max_turns: int):
+def extract_turns(con, sid: str, max_turns: int, scan_limit: int | None = None):
     """提取「真人轮」：realUser 消息 + 同 turnId 的 assistant 最终文本。
 
     返回升序 [(turn_id, created_ms, user_text, assistant_text), ...]（只含完整轮）。
+    scan_limit 非空时只扫**尾部 N 条消息**（每轮钩子低开销调用；全量调用保持缺省 None）。
     """
+    if scan_limit:
+        cur = con.execute(
+            "SELECT id, sequence, data FROM message WHERE session_id=? "
+            "ORDER BY sequence DESC LIMIT ?", (sid, int(scan_limit)))
+        rows = list(reversed(cur.fetchall()))
+    else:
+        cur = con.execute(
+            "SELECT id, sequence, data FROM message WHERE session_id=? ORDER BY sequence",
+            (sid,))
+        rows = cur.fetchall()
     turns = []
-    cur = con.execute(
-        "SELECT id, sequence, data FROM message WHERE session_id=? ORDER BY sequence",
-        (sid,))
     pending = None            # 当前待填的轮
-    for mid, seq, data in cur.fetchall():
+    for mid, seq, data in rows:
         d = json.loads(data)
         role = d.get("role")
         anchor = d.get("anchor") or {}
@@ -81,6 +97,216 @@ def extract_turns(con, sid: str, max_turns: int):
     if pending and pending.get("assistant"):
         turns.append(pending)
     return turns[-max_turns:]
+
+
+def _resolve_root() -> str:
+    """库根解析单点（**与 zcode MCP 服务端同源，防双库分叉**）：
+    ① env `MDCG_ROOT` → ② `~/.zcode/cli/config.json` 里 mcp.servers.mdcg 的 env.MDCG_ROOT
+    → ③ `md_cg.datapath.mdcg_root()` 缺省。
+    背景：本机 `mdcg_root()` 缺省解析到 C 盘 profile 遗留根，而 zcode 侧 MCP 服务的是
+    `D:\\program\\AEIS\\data\\mdcg`——钩子脚本若走缺省会读写**非权威库**（2026-10-06 实测抓出）。
+    """
+    env = os.environ.get("MDCG_ROOT")
+    if env:
+        return env
+    try:
+        cfg = Path.home() / ".zcode" / "cli" / "config.json"
+        d = json.loads(cfg.read_text(encoding="utf-8"))
+        v = (((d.get("mcp") or {}).get("servers") or {}).get("mdcg")
+             or {}).get("env", {}).get("MDCG_ROOT")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    except Exception:  # noqa: BLE001 —— 配置缺失即回退缺省
+        pass
+    from md_cg.datapath import mdcg_root
+    return mdcg_root()
+
+
+def count_completed_turns(con, sid: str) -> int:
+    """本会话**已完成**真人轮数（有真人提问且有同回合助手回复；末轮未完成不计）。"""
+    cur = con.execute(
+        "SELECT COUNT(*) FROM message WHERE session_id=? "
+        "AND json_extract(data,'$.anchor.origin')='realUser'", (sid,))
+    n = int(cur.fetchone()[0] or 0)
+    if n <= 0:
+        return 0
+    row = con.execute(
+        "SELECT data FROM message WHERE session_id=? "
+        "AND json_extract(data,'$.anchor.origin')='realUser' "
+        "ORDER BY sequence DESC LIMIT 1", (sid,)).fetchone()
+    tid = None
+    try:
+        tid = (json.loads(row[0]).get("anchor") or {}).get("turnId") if row else None
+    except Exception:  # noqa: BLE001
+        tid = None
+    if tid:
+        has = con.execute(
+            "SELECT 1 FROM message WHERE session_id=? "
+            "AND json_extract(data,'$.anchor.turnId')=? "
+            "AND json_extract(data,'$.role')='assistant' LIMIT 1", (sid, tid)).fetchone()
+        if not has:
+            n -= 1
+    return n
+
+
+def latest_compact_ts(con, sid: str) -> int:
+    """最近一次上下文压缩的时刻（compact_summary 消息 time.created；无则 0）。
+
+    结构性判据（json_extract semantics.kind）——不按文本子串，免受消息正文提及污染。
+    """
+    cur = con.execute(
+        "SELECT data FROM message WHERE session_id=? AND data LIKE '%compact_summary%' "
+        "ORDER BY sequence DESC LIMIT 40", (sid,))
+    best = 0
+    for (d,) in cur.fetchall():
+        try:
+            m = json.loads(d)
+        except ValueError:
+            continue
+        if ((m.get("semantics") or {}).get("kind")) == "compact_summary":
+            best = max(best, int((m.get("time") or {}).get("created") or 0))
+            break
+    return best
+
+
+def _render_turn(t: dict) -> str:
+    parts = ["**我说：**", "", t["user"].strip(), "", "**ZCode说：**", "",
+             (t.get("assistant") or "").strip(), "", "---", ""]
+    return "\n".join(parts)
+
+
+def append_transcript(sid: str, con=None, root=TRANSCRIPT_ROOT) -> int:
+    """全量 md 转写增量追加（真人轮；水位分键 `transcript|session`）。返回新增轮数。"""
+    own = con is None
+    if own:
+        con = _open_db_ro()
+    try:
+        turns = extract_turns(con, sid, 10 ** 6, scan_limit=WINDOW_TAIL_SCAN)
+    finally:
+        if own:
+            con.close()
+    state = load_state()
+    key = "transcript|" + sid
+    sst = state.setdefault(key, {})
+    last_t = int(sst.get("last_turn_created") or 0)
+    fresh = [t for t in turns if int(t.get("t") or 0) > last_t]
+    if not fresh:
+        return 0
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    out = root / f"{sid}.md"
+    if not out.exists():
+        out.write_text(
+            f"# ZCode 会话转录：{sid}\n\n"
+            f"> 导出器：scripts/export_zcode_transcript.py（增量追加；只收真人轮与其回合最终回复）\n"
+            f"> 回读：灵枢 `cg(op=ref)` 按区间读回本文件原文\n\n---\n", encoding="utf-8")
+    with open(out, "a", encoding="utf-8", newline="\n") as f:
+        for t in fresh:
+            f.write(_render_turn(t))
+    sst["last_turn_created"] = int(fresh[-1].get("t") or 0)
+    save_state(state)
+    return len(fresh)
+
+
+def write_window_md(sid: str, con=None, limit: int = WINDOW_LIMIT) -> Path:
+    """会话 md 镜像：**只保留最近 limit 轮**（超长优先遗忘最旧）；原子写。返回落点路径。"""
+    own = con is None
+    if own:
+        con = _open_db_ro()
+    try:
+        turns = extract_turns(con, sid, limit, scan_limit=WINDOW_TAIL_SCAN)
+        total = count_completed_turns(con, sid)
+    finally:
+        if own:
+            con.close()
+    start = max(1, total - len(turns) + 1)
+    lines = [
+        f"# ZCode 会话窗口镜像：{sid}",
+        "",
+        f"> 维护：scripts/zcode_window_hook.py（Stop 钩子每轮刷新）｜**只保留最近 {limit} 轮**，超长优先遗忘最旧",
+        f"> 更新：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}｜本窗 {len(turns)} 轮（轮 {start}–{total}）",
+        f"> 完整原文：zcode-log-transcripts/{sid}.md 与灵枢 _recent 窗口（cg(op=recent) / session_recall）",
+        "", "---", ""]
+    for i, t in enumerate(turns, start=start):
+        ts = int(t.get("t") or 0)
+        human = datetime.datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d %H:%M:%S") if ts else "?"
+        lines += [f"## 轮 {i} · {human}", "", "**我说：**", "", (t.get("user") or "").strip(), "",
+                  "**ZCode说：**", "", (t.get("assistant") or "").strip(), "", "---", ""]
+    WINDOW_ROOT.mkdir(parents=True, exist_ok=True)
+    out = WINDOW_ROOT / f"{sid}.md"
+    tmp = out.with_name(out.name + ".tmp")
+    tmp.write_text("\n".join(lines), encoding="utf-8", newline="\n")
+    os.replace(tmp, out)
+    return out
+
+
+def sync_to_window(sid: str, max_turns: int = 200) -> int:
+    """增量同步本会话真人轮进灵枢运行态窗口（`_recent`）。返回新写入轮数。
+
+    尾扫口径（每轮钩子低开销）；首次大回填用 CLI（--turns）走全量。
+    """
+    con = _open_db_ro()
+    try:
+        turns = extract_turns(con, sid, max_turns, scan_limit=WINDOW_TAIL_SCAN)
+    finally:
+        con.close()
+    if not turns:
+        return 0
+    state = load_state()
+    root = _resolve_root()
+    key = os.path.normcase(os.path.abspath(root)) + "|" + sid
+    sst = state.setdefault(key, {})
+    last_t = int(sst.get("last_turn_created") or 0)
+    fresh = [t for t in turns if int(t.get("t") or 0) > last_t]
+    if not fresh:
+        return 0
+    from md_cg.mdcos import MdCGOS
+    cg = MdCGOS(root)
+    for t in fresh:
+        meta = {"session": sid, "source": SYNC_TAG, "turn": t["turn"]}
+        cg.remember_event("user", t["user"], tags=["zcode", SYNC_TAG], meta=meta, window=200)
+        cg.remember_event("assistant", t["assistant"], tags=["zcode", SYNC_TAG], meta=meta, window=200)
+        sst["last_turn_created"] = int(t.get("t") or 0)
+    save_state(state)
+    return len(fresh)
+
+
+def build_continuation_context(sid: str, header: str | None = None) -> str:
+    """接续包文本（窗口近 10 轮 + 工程接续段）。任何段缺即略；由调用方决定注入。"""
+    from md_cg.mdcos import MdCGOS
+    root = _resolve_root()
+    cg = MdCGOS(root)
+    # 预算 4000：实测（2026-10-06）在富库（unresolved 28 条 + 自我卡）下 1200 会把
+    # recent 段整段裁空——「回取近 10 轮窗口」是接续包主载荷，必须保住（本函数调用侧
+    # 还会再切片，最终注入文本有界）。
+    pack = cg.session_recall(session=sid, recent_limit=10, budget_tokens=4000)
+    lines = [header or "【灵枢接续包（自动注入：会话开始/压缩恢复）】",
+             "以下为你错过的近期对话与在办事项（来自灵枢记忆系统；完整原文可用 cg(op=ref) 回读）。"]
+    act = (pack.get("tasks") or {}).get("active") or []
+    if act:
+        lines.append("\n## 在办任务")
+        for t in act[:5]:
+            name = t.get("name") or t.get("id") or "?"
+            lines.append(f"- {name}（{t.get('status', '?')}）")
+    goals = pack.get("goals") or []
+    if goals:
+        lines.append("\n## 活跃目标")
+        for g in goals[:3]:
+            lines.append(f"- {g.get('goal_text') or g.get('text') or g}")
+    recent = pack.get("recent") or []
+    if recent:
+        lines.append("\n## 本会话近期对话（近 10 条）")
+        for e in recent:
+            txt = str(e.get("text") or "").replace("\n", " ")
+            if len(txt) > 120:
+                txt = txt[:120] + "…"
+            lines.append(f"- [{e.get('role')}] {txt}")
+    unres = pack.get("unresolved") or []
+    if unres:
+        lines.append("\n## 未解问题")
+        for u in unres[:3]:
+            lines.append(f"- {str(u.get('question') or u.get('id') or u)[:100]}")
+    return "\n".join(lines)
 
 
 def _text_of(con, mid: str) -> str:
