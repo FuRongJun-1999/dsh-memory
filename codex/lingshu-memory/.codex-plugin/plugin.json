@@ -1,6 +1,6 @@
 {
   "name": "lingshu-memory",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "Lingshu long-term memory: 16-discipline skill + mdcg MCP wiring for Codex CLI",
   "author": {
     "name": "FuRongJun-1999"
