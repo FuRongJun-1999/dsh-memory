@@ -2180,7 +2180,7 @@ class MdCGOS(MdCG):
 
     # ================= 4. 审核队列（inbox → decisions） =================
 
-# 生效条件：当 node_id 与 content 传入时，在 strict 锁内按 payload_hash（dedup_key 非空时以它为对账键、否则 _sig(content)）查重；命中同键提案（无论 pending/accepted/rejected，已裁决优先 break）时幂等返回既有 pid（info=True 返回 dedup 字典），未命中则生成新 pid 入队并返回 pid（info=True 返回 dedup False 字典）；rec 顶层 session 经 _attribution_session_of（写归因三态：env/请求声明→原值；未声明的进程自动随机→unattributed；纯 MdCGOS 回落原语义）；kind 非空时原样落 rec 顶层 kind 键（缺省不落键 = 存量条目形状逐位不变）；
+# 生效条件：当 node_id 与 content 传入时，先取**有效会话**单点 _eff_session＝kw["session"]（显式声明优先）or _attribution_session_of(self, kw.get("sensitivity"))（写归因三态：env/请求声明→原值；未声明的进程自动随机→unattributed；纯 MdCGOS 回落原语义），在 strict 锁内按 payload_hash（dedup_key 非空时以它为对账键、否则 _sig(content)）查重；命中同键提案（无论 pending/accepted/rejected，已裁决优先 break）时幂等返回既有 pid（info=True 返回 dedup 字典）且 propose_dedup 审计取同一 _eff_session，未命中则生成新 pid 入队并返回 pid（info=True 返回 dedup False 字典）；rec 顶层 session 取 _eff_session、propose 审计亦取同一 _eff_session（审计 == rec.session == accept 落盘节点）；kind 非空时原样落 rec 顶层 kind 键（缺省不落键 = 存量条目形状逐位不变）；
     def propose(self, node_id: str, content: str, layer: str = "knowledge",
                 tags=None, condition_space=None, verify=None,
                 info: bool = False, kind: str = None, dedup_key: str = None,
@@ -2213,6 +2213,18 @@ class MdCGOS(MdCG):
         info=True 返回 {"pid", "dedup", "dup_of", "dup_status"}。
         """
         phash = dedup_key or _sig(content)
+        # 有效会话**单一计算点**（2026-10-07 同族补齐）：显式声明优先、否则写归因
+        # 三态单点——与 `MdCGSecure._attribution` 的 `kw.setdefault("session",
+        # self._attributed_session(sens))`、`session_note` 的 `session or
+        # _attribution_session_of(self)` 是**同一取值口径**（不新造第三套）。
+        # 修前 rec.session 只走三态单点，显式 `session="X"` 只落 `rec.extra.session`
+        # （后者经 review_decide 的 `**extra` 透传给 accept 的 add）⇒ 同一份声明在
+        # **同一条 rec 上留下两个相异的 session 键**（rec.session=单点、extra.session=X），
+        # 且与 add / session_note / `_writer_session`「显式声明优先」的兄弟口径相反。
+        # 本值既落 rec.session、又喂 propose / propose_dedup 两条审计行（同 add 手法：
+        # 审计取写面刚算出的同一有效会话），使「审计 == 入队记录 == accept 落盘节点」同值。
+        _eff_session = (kw.get("session")
+                        or _attribution_session_of(self, kw.get("sensitivity")))
         with FileLock(self.inbox_log, strict=True):
             # 增量对账（issue #32）：原实现每条全量 read_jsonl(inbox) +
             # read_jsonl(decisions)（锁内 O(M+D)/条、批量 O(M²)，旧格式行
@@ -2231,7 +2243,7 @@ class MdCGOS(MdCG):
             if dup:
                 self._audit("propose_dedup", node_id, dup_of=dup["pid"],
                             dup_status=dup["status"], payload_hash=phash,
-                            sens=kw.get("sensitivity"))
+                            sens=kw.get("sensitivity"), session=_eff_session)
                 if info:
                     return {"pid": dup["pid"], "dedup": True,
                             "dup_of": dup["pid"], "dup_status": dup["status"]}
@@ -2255,24 +2267,28 @@ class MdCGOS(MdCG):
                    "sensitivity": kw.get("sensitivity"),
                    "verify": verify or {}, "verify_hash": vhash,
                    "extra": kw, "actor": self.actor,
-                   # 写归因三态（2026-10-07，P1「inbox 现场」收口点）：此前
-                   # 该值 = 进程自动随机 sess_<hex12>（交接单 mem_1790416361175
-                   # 实测：入队即落 sess_0804baa32949 ≠ 请求声明值）。经可选
-                   # 钩子三态解析：env/声明→原值；未声明的自动随机→
-                   # UNATTRIBUTED_SESSION（纯 MdCGOS 无钩子时回落原语义）。
-                   "session": _attribution_session_of(self,
-                                                      kw.get("sensitivity"))}
+                   # 有效会话（2026-10-07，P1「inbox 现场」收口点 ＋ 同族补齐）：
+                   # 显式声明优先、否则写归因三态钩子解析——env/请求声明→原值；
+                   # 未声明的自动随机→ UNATTRIBUTED_SESSION（纯 MdCGOS 无钩子时
+                   # 回落 self.session）。此前该值恒取三态单点（入队即落
+                   # sess_0804baa32949 ≠ 请求声明值，见交接单 mem_1790416361175），
+                   # 显式 `session=` 只落 extra.session ⇒ 同一 rec 两个 session 键
+                   # 相异。取值移到上方单点 `_eff_session`，与审计同源。
+                   "session": _eff_session}
             # 三档自治批次②（设计 §四）：类型字段**只在显式给定时落键**——
             # 缺省不落，存量与新普通提案的 rec 形状逐位不变（零回归），
             # 读取方按「缺键 = proposal」判（零迁移）。
             if kind:
                 rec["kind"] = str(kind)
             append_jsonl(self.inbox_log, rec)
-        # 审计与入队 rec 同 sens（写归因三态）：rec.session 经
-        # `_attribution_session_of(self, kw.get("sensitivity"))` 落定，审计走同一 sens。
+        # 审计与入队 rec 同「有效会话」（写归因三态 ＋ 同族补齐）：rec.session 取上方
+        # 单点 `_eff_session`（显式声明优先、否则三态单点），审计行取**同一个值**
+        # （`session=` 命名参数进 meta 后 `MdCGSecure._audit` 的 setdefault 不再覆盖，
+        # 与 add / session_note 逐字同款）——否则显式档下 rec 落 'X' 而审计落单点值
+        # （未声明档 'unattributed'／绑定档进程随机）⇒ 同一写入两处字面分叉。
         self._audit("propose", node_id, pid=pid, layer=layer,
                     payload_hash=phash, verify_hash=vhash,
-                    sens=kw.get("sensitivity"))
+                    sens=kw.get("sensitivity"), session=_eff_session)
         if info:
             return {"pid": pid, "dedup": False,
                     "dup_of": None, "dup_status": None}

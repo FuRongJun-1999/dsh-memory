@@ -30,6 +30,12 @@ private 含 secret）三处同为该进程的随机 session。解析单点 =
     （B5/B6，2026-10-07 输入空间补齐）：`add(session='X')`（共享／绑定两输入）
     的审计行 == fm.session == 索引条目 == 'X'（`docindex.ingest_transcript`
     的 `add(..., session=<派生 token>)` 即此形态）。
+    ⑦ **propose 侧显式 session kw 维**（同族补齐，2026-10-07，B7-B10）：
+    `propose(session='X')`（共享 / 绑定两输入）时 `rec.session` ==
+    `rec.extra.session` == 审计行 == 'X'——修前显式值只落 `extra.session` 而
+    `rec.session` 恒取三态单点（同一条 rec 两个 session 键相异）；并覆盖幂等
+    对账分支（B9：`propose_dedup` 审计）与「入队 → 裁决 accept → 落盘」闭环
+    （B10：`rec.session` == 落盘 `fm.session` == 内层 add 审计）。
   C review_cli 双副本（缺口④）：`scripts/review_cli.py` 是**薄壳**——与
     `md_cg/review_cli.py` 共用同一 `main`（运行时同一对象、无自带实现）、
     `autoflush=1` 生效、`--session` 帮助文本为三态口径、端到端可跑。
@@ -320,6 +326,81 @@ def _group_b():
               fm6.get("session") == "X"
               and bool(au6) and au6.get("session") == "X",
               f"fm={fm6.get('session')!r} audit={(au6 or {}).get('session')!r}")
+
+        # B7/B8 **显式 session kw 维（propose 一侧，同族补齐，2026-10-07）**：
+        #   `propose(session='X')` 直传（库层调用方声明归属；MCP 面走请求级
+        #   cg.session，不经此 kw）——修前显式值只落 `rec.extra.session`、`rec.session`
+        #   仍取三态单点 ⇒ **同一条 rec 上两个 session 键相异**（rec.session=单点、
+        #   extra.session='X'），且与 add / session_note / `_writer_session`「显式声明
+        #   优先」的兄弟口径相反。修后 rec.session == rec.extra.session == 审计 == 'X'
+        #   （未声明档共享 / 绑定两输入同；绑定档修前 rec 落进程随机）。
+        cg.propose("b_prop_expl", "B7 显式会话提案（共享档）",
+                   sensitivity="internal", session="X")
+        rec7 = _inbox_last(root)
+        au7 = _audit_of(cg, "propose", "b_prop_expl")
+        check("B7 propose(session='X')（未声明进程·共享档）："
+              "rec.session == extra.session == 审计 == 'X'",
+              rec7.get("session") == (rec7.get("extra") or {}).get("session") == "X"
+              and bool(au7) and au7.get("session") == "X",
+              f"rec={rec7.get('session')!r} "
+              f"extra={(rec7.get('extra') or {}).get('session')!r} "
+              f"audit={(au7 or {}).get('session')!r}")
+
+        cg.propose("b_prop_priv", "B8 显式会话提案（绑定档）",
+                   sensitivity="private", session="X")
+        rec8 = _inbox_last(root)
+        au8 = _audit_of(cg, "propose", "b_prop_priv")
+        check("B8 propose(session='X', sensitivity='private')："
+              "rec.session == extra.session == 审计 == 'X'",
+              rec8.get("session") == (rec8.get("extra") or {}).get("session") == "X"
+              and bool(au8) and au8.get("session") == "X",
+              f"rec={rec8.get('session')!r} "
+              f"extra={(rec8.get('extra') or {}).get('session')!r} "
+              f"audit={(au8 or {}).get('session')!r}")
+
+        # B9 幂等对账分支的审计行（propose_dedup）同取该有效会话：同内容 + 同显式
+        #   session 二次入队 → 幂等返回既有 pid，`propose_dedup` 审计须与首次那份
+        #   声明同值（修前落三态单点）。该分支此前无任何断言覆盖。
+        cg.propose("b_prop_expl", "B7 显式会话提案（共享档）",
+                   sensitivity="internal", session="X")
+        au9 = _audit_of(cg, "propose_dedup", "b_prop_expl")
+        check("B9 propose 重复入队（同内容同显式 session）："
+              "propose_dedup 审计 == 'X'",
+              bool(au9) and au9.get("session") == "X",
+              f"audit={(au9 or {}).get('session')!r}")
+
+        # B10 跨「入队 → 裁决 accept → 落盘」两个生命周期面同值：显式档下修前
+        #    rec.session 落三态单点、而 accept 经 `**extra` 落 fm 为 'X' ⇒ 同一次
+        #    写入在入队记录与落盘节点上相异；修后 rec.session == fm.session ==
+        #    accept 内层 add 审计 == 'X'（三处一致判据在 propose 侧的完整闭环）。
+        pid10 = cg.propose("b_prop_acc", "B10 显式会话提案（接受的落盘）",
+                           sensitivity="internal", session="X")
+        rec10 = _inbox_last(root)
+        cg.review_decide(pid10, "accept", reason="B10")
+        fm10 = _fm_disk(cg, "b_prop_acc") or {}
+        au10 = _audit_of(cg, "add", "b_prop_acc")
+        check("B10 显式 session 提案 accept 落盘："
+              "rec.session == fm.session == add 审计 == 'X'",
+              rec10.get("session") == fm10.get("session") == "X"
+              and bool(au10) and au10.get("session") == "X",
+              f"rec={rec10.get('session')!r} fm={fm10.get('session')!r} "
+              f"add_audit={(au10 or {}).get('session')!r}")
+
+        # B11 审计面三态单点的**直接**覆盖（$③ 判别腿重定位，2026-10-07）：add /
+        #   session_note / propose / propose_dedup 四条写面现已各自显式传 session
+        #   （有效会话在 `_audit` 之外的单点落定），`MdCGSecure._audit` 的
+        #   `setdefault("session", _attributed_session(sens))` 只再由**不传 session
+        #   的 op** 触及（forget / restore / review_decide …）。取 forget 作代表：
+        #   未声明档（进程自动随机）审计行须落 'unattributed'（三态收口），退回
+        #   原始 principal.session 会记成进程随机 sess_<hex12>——该处此前无断言覆盖，
+        #   故把 $③ 的判别腿从 propose 迁移到这条 op（覆盖迁移，非断言放宽）。
+        cg.add("b_fgt", "B11 待遗忘节点（覆盖审计面三态单点）", layer="contextual")
+        cg.forget("b_fgt", reason="B11")
+        au11 = _audit_of(cg, "forget", "b_fgt")
+        check("B11 未声明档 forget：审计行 session == unattributed"
+              "（不传 session 的 op 仍经 _audit 三态单点）",
+              bool(au11) and au11.get("session") == UNATTRIBUTED_SESSION,
+              f"audit={(au11 or {}).get('session')!r}")
     finally:
         cg.close()
         shutil.rmtree(root, ignore_errors=True)
@@ -478,6 +559,8 @@ _ANCHORS = (
      'session = ((session or "").strip()'),
     (lambda: _src_of(MdCGOS.add),
      'session=kw.get("session"))'),
+    (lambda: _src_of(MdCGOS.propose),
+     'phash = dedup_key or _sig(content)'),
     (lambda: _src_of(MdCGSecure._attribution),
      'kw.setdefault("session", self._attributed_session(sens))'),
     (lambda: _src_of(MdCGSecure._audit),
@@ -536,11 +619,15 @@ _MUTATIONS = (
     # ⑥ 同族补齐点（本批新增）：抽回「写面把有效会话传给审计」→ op=add 审计行退回
     #    三态单点。显式档诸腿（A5-A7 内层 add 行 / B5-B6 add 直传 / D1-D2 纯 MdCGOS）
     #    转红；无显式档（A1-A4、B1-B4、D3）不牵连（零连带：单点值与写面值本就同值）。
+    #    覆盖面扩一条（2026-10-07 本批）：新增 B10（入队→accept→落盘的闭环）同时
+    #    钉住 accept 内层 add 的审计行，故本腿红项由 7 增至 8——**覆盖扩大（非断言
+    #    放宽）**：B10 的整条链（rec.session == fm.session == add 审计）本就必须
+    #    同时依赖 add 侧与 propose 侧两处修复。
     ("$⑥", "add 的审计行退回三态单点（抽回写面传值）",
      MdCGOS.add,
      'session=kw.get("session"))',
      ')',
-     {"A5", "A6", "A7", "B5", "B6", "D1", "D2"}),
+     {"A5", "A6", "A7", "B5", "B6", "B10", "D1", "D2"}),
     # ⑦（重定位）：写面 `_attribution` 不再经三态单点（直接取 self.session）→
     #    未声明进程的 add 落进程随机而非 'unattributed'（B1 转红）。它原由 ③ 承担，
     #    本批后 ③ 已不触达 add（写面传值优先，见实现注释），故把 B1 的判别腿重定位到
@@ -550,14 +637,27 @@ _MUTATIONS = (
      'kw.setdefault("session", self._attributed_session(sens))',
      'kw.setdefault("session", self.session)',
      {"B1"}),
-    # ③（覆盖面收缩说明，2026-10-07）：本批后 `add` 的审计行不再取自本 setdefault
-    #    （写面显式传值优先），故该变异只再触达**未传写面会话**的 op（propose → B3）；
-    #    B1 的判别腿改由 ⑦ 承担（断言字面与强度未变，非放宽）。
+    # ③（判别腿二次重定位说明，2026-10-07 本批）：上一批后该腿只再经 propose 触达
+    #    （→B3）；本批 propose / propose_dedup 的审计行也改为写面显式传值优先，
+    #    故 setdefault 只再由**不传 session 的 op**（forget/restore/review_decide…）
+    #    触及——判别腿自 B3 **迁移到**新增 B11（forget 审计行），属**覆盖迁移**（该
+    #    断言的判别力与强度都不变，非放宽）。B3 仍由 ⑧ 与 setdefault 之外的取值链覆盖。
     ("$③", "审计面退回原始 principal.session（不接三态）",
      MdCGSecure._audit,
      'meta.setdefault("session", self._attributed_session(sens))',
      'meta.setdefault("session", self.principal.session)',
-     {"B3"}),
+     {"B11"}),
+    # ⑦ 同族补齐点（本批新增）：抽回「propose 有效会话单点尊重显式声明」→
+    #    `_eff_session` 退回只取三态单点。显式档诸腿（B7 共享 / B8 绑定 /
+    #    B9 propose_dedup / B10 入队→accept 落盘闭环）转红；无显式档
+    #    （B3 未声明 propose）与 add 侧（B1-B6）不牵连（单点值与写面值本就同值）。
+    ("$⑧", "propose 的有效会话退回只取三态单点（抽回显式优先）",
+     MdCGOS.propose,
+     '    _eff_session = (kw.get("session")\n'
+     '                    or _attribution_session_of(self, kw.get("sensitivity")))',
+     '    _eff_session = _attribution_session_of(self, '
+     'kw.get("sensitivity"))',
+     {"B7", "B8", "B9", "B10"}),
     ("$④b", "去掉 review_cli._cg 的 autoflush=1",
      _rv_pkg._cg,
      'return MdCGSecure(_root(args), principal=p, autoflush=1)',
