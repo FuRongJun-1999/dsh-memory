@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 """md_cg · 会话归因口径一致性守卫（三处缺口：②session_note 漏 sens / ③审计面未接三态 / ④review_cli 双副本）
+⑤（同族补齐，2026-10-07）：`session_note` 漏转发**显式 session** 给 add——显式档下
+返回体 / tag / 审计 = 该显式值，而 fm.session 落单点值（未声明档 'unattributed'、
+声明档权威值）⇒ 同一写入四处分叉。守卫 A3/A4 两输入（共享 / 绑定）。
 
 契约（2026-10-07 设计者「会话身份三态」的收口不变量）
 ------------------------------------------------------
@@ -12,7 +15,9 @@ private 含 secret）三处同为该进程的随机 session。解析单点 =
 覆盖
 ----
   A session_note 三处口径（缺口②）：返回体 / 节点 fm.session / 节点 session
-    标签 / 审计记录 —— 未声明档同为 unattributed；绑定档同为进程随机。
+    标签 / 审计记录 —— 未声明档同为 unattributed；绑定档同为进程随机；
+    **显式 session 档（同族补齐）**：未声明档 + 显式 session='X'（共享 / 绑定
+    两输入）时四处同为该显式值（`session_note` 经 add(session=session) 转发）。
   B 写面审计同 sens（缺口③）：add / propose 的审计记录 session 与同次写入面
     （节点 fm.session / 入队 rec.session）同口径同值。
   C review_cli 双副本（缺口④）：`scripts/review_cli.py` 是**薄壳**——与
@@ -154,6 +159,35 @@ def _group_a():
               and bool(au2) and au2.get("session") == exp2,
               f"ret={n2.get('session')!r} fm={fm2.get('session')!r} "
               f"tags={tags2} audit={(au2 or {}).get('session')!r} 期望={exp2!r}")
+
+        # A3 显式 session 档（同族补齐）：未声明进程 + 显式 'X'（共享档）→ 四处同 'X'
+        #   修前 = 返回体 / tag / 审计 均为 'X' 而 fm.session 落单点值 'unattributed'
+        #   （`session_note` 从不把显式 session 转发给 add）——同一写入四处分叉。
+        n3 = cg.session_note("A3 显式会话档（共享）", session="X")
+        fm3 = _fm_disk(cg, n3["id"]) or {}
+        tags3 = fm3.get("tags") or []
+        au3 = _audit_of(cg, "session_note", n3["id"])
+        check("A3 显式 session='X'（共享档）：返回 == fm.session == tag == 审计 == 'X'",
+              n3.get("session") == fm3.get("session") == "X"
+              and "session:X" in tags3
+              and bool(au3) and au3.get("session") == "X",
+              f"ret={n3.get('session')!r} fm={fm3.get('session')!r} "
+              f"tags={tags3} audit={(au3 or {}).get('session')!r}")
+
+        # A4 显式 session 档 × 绑定档：未声明进程 + private + 显式 'X' → 四处同 'X'
+        #   （显式声明优先于绑定档豁免——与 D 组「私档 + 显式 session → 原值」同口径；
+        #    修前 fm.session 落进程随机、与其余三处 'X' 分叉。）
+        n4 = cg.session_note("A4 显式会话档（绑定）", session="X",
+                             sensitivity="private")
+        fm4 = _fm_disk(cg, n4["id"]) or {}
+        tags4 = fm4.get("tags") or []
+        au4 = _audit_of(cg, "session_note", n4["id"])
+        check("A4 显式 session='X' + private：返回 == fm.session == tag == 审计 == 'X'",
+              n4.get("session") == fm4.get("session") == "X"
+              and "session:X" in tags4
+              and bool(au4) and au4.get("session") == "X",
+              f"ret={n4.get('session')!r} fm={fm4.get('session')!r} "
+              f"tags={tags4} audit={(au4 or {}).get('session')!r}")
     finally:
         cg.close()
         shutil.rmtree(root, ignore_errors=True)
@@ -360,6 +394,13 @@ _MUTATIONS = (
      'or (_attribution_session_of(self, sensitivity) or "").strip()',
      'or (_attribution_session_of(self) or "").strip()',
      {"A2"}),
+    # ⑤ 同族补齐点：抽回「显式 session 转发」→ 仅显式档两腿（A3 共享 / A4 绑定）转红，
+    #    默认档（A1）与绑定档无显式（A2）不牵连（零连带）。
+    ("$⑤", "session_note 不转发显式 session 给 add（抽回同族补齐）",
+     MdCGOS.session_note,
+     'sensitivity=sensitivity, session=session)',
+     'sensitivity=sensitivity)',
+     {"A3", "A4"}),
     ("$③", "审计面退回原始 principal.session（不接三态）",
      MdCGSecure._audit,
      'meta.setdefault("session", self._attributed_session(sens))',
@@ -480,7 +521,7 @@ def _self_proof():
                 print("    复原重跑红：%s" % _ln.strip()[:120])
         bad.append("复原后全套非全绿（rc=%d）" % full_rc)
     print("\n变异自证：%s"
-          % ("PASS（四条腿逐条恰好命中期望红项；复原后全绿）" if not bad
+          % ("PASS（五条腿逐条恰好命中期望红项；复原后全绿）" if not bad
              else "FAIL —— " + "；".join(bad)))
     return 0 if not bad else 1
 

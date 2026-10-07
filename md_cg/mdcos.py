@@ -3269,7 +3269,7 @@ class MdCGOS(MdCG):
                 return ln.strip()[:500]
         return ""
 
-# 生效条件：当 summary 传入且 strip 后非空时，session 按显式入参、_attribution_session_of(self, sensitivity)（写归因三态：env/请求声明→原值；未声明的进程自动随机→unattributed；sens 达 private 档豁免保持随机；纯 MdCGOS 回落 self.session）——与下方 add(sensitivity=sensitivity) 同一 sens、同一单点、同一口径、日期依次回落；conditions 为假值时回落默认条件；用 SESSION_TAG 与 session 标签调用 add，返回含 ok/id/session/layer/basis/tokens 的字典；summary 为空则 raise ValueError；
+# 生效条件：当 summary 传入且 strip 后非空时，session 按显式入参、_attribution_session_of(self, sensitivity)（写归因三态：env/请求声明→原值；未声明的进程自动随机→unattributed；sens 达 private 档豁免保持随机；纯 MdCGOS 回落 self.session）——该算出值既作 SESSION_TAG 与 session 标签、又经 add(session=session) 转发给写路径（同 sens、同单点、同口径，与 add(sensitivity=sensitivity) 成对），使返回体 session ＝ tags 里的 session ＝ 节点 fm.session ＝ 审计记录 session；日期兜底；conditions 为假值时回落默认条件；返回含 ok/id/session/layer/basis/tokens 的字典；summary 为空则 raise ValueError；
     def session_note(self, summary, session=None, tags=None, layer="contextual",
                      importance=0.6, sensitivity=None, conditions=None,
                      basis="data"):
@@ -3289,6 +3289,13 @@ class MdCGOS(MdCG):
         # 此处不传 sens 时绑定档（sensitivity 达 private）会算出 'unattributed'，
         # 而节点 fm.session 是进程随机——返回体 / tags 与 fm.session 分叉，按
         # tag 过滤找不到该节点真实归属。传同一 sensitivity 后三处同一单点取值。
+        # **显式 session 必须转发给 add**（2026-10-07，同族补齐）：下行的
+        # add(session=session) 使 `_attribution` 的 setdefault 不覆盖该值、
+        # `MdCGOS.add` 的 `_sess` 取到它 → 节点 fm.session 落**这个算出值**
+        # （显式入参优先）。此前只传 sens 不传 session，显式档下返回体 / tags /
+        # 审计均为该显式值而 fm.session 落单点值（未声明档='unattributed'、
+        # 声明档=权威值）——同一写入四处口径分叉。转发后四处同值（未声明进程 ＋
+        # 显式 session='X' → 全为 'X'）。
         session = ((session or "").strip()
                    or (_attribution_session_of(self, sensitivity) or "").strip()
                    or time.strftime("%Y%m%d"))
@@ -3309,7 +3316,7 @@ class MdCGOS(MdCG):
                  condition_space={"observation_position": "session"},
                  verification_basis=basis,
                  non_applicable_conditions=["其它会话"],
-                 sensitivity=sensitivity)
+                 sensitivity=sensitivity, session=session)
         self._audit("session_note", nid, session=session)
         return {"ok": True, "id": nid, "session": session, "layer": layer,
                 "basis": basis, "tokens": est_tokens(content)}
