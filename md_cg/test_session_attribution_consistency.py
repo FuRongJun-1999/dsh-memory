@@ -1,0 +1,514 @@
+# -*- coding: utf-8 -*-
+"""md_cg · 会话归因口径一致性守卫（三处缺口：②session_note 漏 sens / ③审计面未接三态 / ④review_cli 双副本）
+
+契约（2026-10-07 设计者「会话身份三态」的收口不变量）
+------------------------------------------------------
+**同一写入在「审计记录 / 节点 fm.session / 节点 tag」三处口径必须一致**——
+未声明档三处同为 `UNATTRIBUTED_SESSION='unattributed'`；授权绑定档（sens 达
+private 含 secret）三处同为该进程的随机 session。解析单点 =
+`MdCGSecure._attributed_session`（三态：env → 请求声明 → unattributed；绑定档
+豁免保持进程随机，见 test_session_identity_tristate 的 D 组）。
+
+覆盖
+----
+  A session_note 三处口径（缺口②）：返回体 / 节点 fm.session / 节点 session
+    标签 / 审计记录 —— 未声明档同为 unattributed；绑定档同为进程随机。
+  B 写面审计同 sens（缺口③）：add / propose 的审计记录 session 与同次写入面
+    （节点 fm.session / 入队 rec.session）同口径同值。
+  C review_cli 双副本（缺口④）：`scripts/review_cli.py` 是**薄壳**——与
+    `md_cg/review_cli.py` 共用同一 `main`（运行时同一对象、无自带实现）、
+    `autoflush=1` 生效、`--session` 帮助文本为三态口径、端到端可跑。
+
+运行：python -m md_cg.test_session_attribution_consistency
+      python -m md_cg.test_session_attribution_consistency --self-proof
+退出码：0 全绿 ｜ 1 断言失败 ｜ 2 ANCHOR-MISS（锚点漂移，fail-closed）
+
+变异自证的基线 = **运行中的实现源码**（`inspect.getsource` 就地变异、就地复原），
+不读 git；④ 的 scripts 源文本走内存 override 变异（绝不写盘）。
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import contextlib
+import importlib.util
+import inspect
+import io
+import os
+import shutil
+import sys
+import tempfile
+import textwrap
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from md_cg import nodefile
+from md_cg import review_cli as _rv_pkg
+from md_cg.mdcos import MdCGOS, MdCGSecure, UNATTRIBUTED_SESSION
+from md_cg.security import Principal
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCRIPTS_CLI = os.path.join(REPO, "scripts", "review_cli.py")
+
+PASS = FAIL = 0
+FAILS = []
+
+
+def check(name, cond, detail=""):
+    global PASS, FAIL
+    if cond:
+        PASS += 1
+        print(f"  [PASS] {name}" + (f"  · {detail}" if detail else ""))
+    else:
+        FAIL += 1
+        FAILS.append(name)
+        print(f"  [FAIL] {name}  · {str(detail)[:240]}")
+
+
+def _setenv(**kw):
+    old = {k: os.environ.get(k) for k in kw}
+    for k, v in kw.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+    return old
+
+
+def _restore(old):
+    for k, v in old.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+
+
+def _cg_no_decl(root):
+    """未声明进程形态：自动随机会话的 principal（session=None）。"""
+    return MdCGSecure(root, principal=Principal(
+        actor="attrcons", clearance="secret", can_write=True, can_admin=True,
+        role="designer"), autoflush=1)
+
+
+def _fm_disk(cg, nid):
+    """直读节点文件 frontmatter（不经读闸——守卫只看归因字段）。"""
+    e = (cg.index.get("nodes") or {}).get(nid)
+    if not e:
+        return None
+    with open(os.path.join(cg.root, e["path"]), encoding="utf-8") as f:
+        fm, _c = nodefile.loads(f.read())
+    return fm
+
+
+def _audit_of(cg, op, nid):
+    recs = [r for r in cg.audit_records()
+            if r.get("op") == op and r.get("id") == nid]
+    return recs[-1] if recs else None
+
+
+def _inbox_last(root):
+    path = os.path.join(root, "hippocampus", "inbox.jsonl")
+    last = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    last = __import__("json").loads(line)
+    return last
+
+
+# ----------------------------------------------------------------------
+# 组
+# ----------------------------------------------------------------------
+
+def _group_a():
+    print("\n[A] session_note 三处口径（返回体 / fm.session / tag / 审计）——缺口②")
+    root = tempfile.mkdtemp(prefix="attrcons_a_")
+    cg = _cg_no_decl(root)
+    try:
+        # A1 未声明档（默认 internal）→ 返回/fm.session/tag/审计 同为 unattributed
+        n1 = cg.session_note("A1 未声明档会话要点")
+        fm1 = _fm_disk(cg, n1["id"]) or {}
+        tags1 = fm1.get("tags") or []
+        au1 = _audit_of(cg, "session_note", n1["id"])
+        check("A1 未声明档：返回 == fm.session == tag == 审计 == unattributed",
+              n1.get("session") == fm1.get("session") == UNATTRIBUTED_SESSION
+              and f"session:{UNATTRIBUTED_SESSION}" in tags1
+              and bool(au1) and au1.get("session") == UNATTRIBUTED_SESSION,
+              f"ret={n1.get('session')!r} fm={fm1.get('session')!r} "
+              f"tags={tags1} audit={(au1 or {}).get('session')!r}")
+
+        # A2 绑定档（sensitivity=private）→ 四处同为进程随机（== principal.session）
+        exp2 = cg.principal.session
+        n2 = cg.session_note("A2 绑定档会话要点", sensitivity="private")
+        fm2 = _fm_disk(cg, n2["id"]) or {}
+        tags2 = fm2.get("tags") or []
+        au2 = _audit_of(cg, "session_note", n2["id"])
+        check("A2 绑定档 private：返回 == fm.session == tag == 审计 == 进程随机",
+              str(exp2).startswith("sess_")
+              and n2.get("session") == fm2.get("session") == exp2
+              and f"session:{exp2}" in tags2
+              and bool(au2) and au2.get("session") == exp2,
+              f"ret={n2.get('session')!r} fm={fm2.get('session')!r} "
+              f"tags={tags2} audit={(au2 or {}).get('session')!r} 期望={exp2!r}")
+    finally:
+        cg.close()
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def _group_b():
+    print("\n[B] 写面审计同 sens（add / propose 审计 == 同次写入面）——缺口③")
+    root = tempfile.mkdtemp(prefix="attrcons_b_")
+    cg = _cg_no_decl(root)
+    try:
+        # B1 未声明档 add（默认 internal）→ 审计 == fm.session == unattributed
+        cg.add("b_int", "B1", layer="contextual")
+        fm1 = _fm_disk(cg, "b_int") or {}
+        au1 = _audit_of(cg, "add", "b_int")
+        check("B1 未声明档 add：审计 == fm.session == unattributed",
+              fm1.get("session") == UNATTRIBUTED_SESSION
+              and bool(au1) and au1.get("session") == UNATTRIBUTED_SESSION,
+              f"fm={fm1.get('session')!r} audit={(au1 or {}).get('session')!r}")
+
+        # B2 绑定档 add（private）→ 审计 == fm.session == 进程随机
+        exp2 = cg.principal.session
+        cg.add("b_priv", "B2", layer="contextual", sensitivity="private")
+        fm2 = _fm_disk(cg, "b_priv") or {}
+        au2 = _audit_of(cg, "add", "b_priv")
+        check("B2 绑定档 add(private)：审计 == fm.session == 进程随机",
+              fm2.get("session") == exp2
+              and bool(au2) and au2.get("session") == exp2,
+              f"fm={fm2.get('session')!r} audit={(au2 or {}).get('session')!r} "
+              f"期望={exp2!r}")
+
+        # B3 未声明档 propose（internal）→ 审计 == 入队 rec.session == unattributed
+        cg.propose("b_prop", "B3", sensitivity="internal")
+        rec3 = _inbox_last(root)
+        au3 = _audit_of(cg, "propose", "b_prop")
+        check("B3 未声明档 propose：审计 == 入队 rec.session == unattributed",
+              rec3.get("session") == UNATTRIBUTED_SESSION
+              and bool(au3) and au3.get("session") == UNATTRIBUTED_SESSION,
+              f"rec={rec3.get('session')!r} audit={(au3 or {}).get('session')!r}")
+
+        # B4 已声明档（env/显式构造）→ 审计与 fm.session 同为该声明值（三态不误伤声明）
+        root4 = tempfile.mkdtemp(prefix="attrcons_b4_")
+        cg4 = MdCGSecure(root4, principal=Principal(
+            actor="attrcons", clearance="secret", can_write=True,
+            can_admin=True, role="designer", session="sess_decl_b4"),
+            autoflush=1)
+        try:
+            cg4.add("b_decl", "B4", layer="contextual")
+            fm4 = _fm_disk(cg4, "b_decl") or {}
+            au4 = _audit_of(cg4, "add", "b_decl")
+            check("B4 声明档（env/显式）：审计 == fm.session == 声明值",
+                  fm4.get("session") == "sess_decl_b4"
+                  and bool(au4) and au4.get("session") == "sess_decl_b4",
+                  f"fm={fm4.get('session')!r} audit={(au4 or {}).get('session')!r}")
+        finally:
+            cg4.close()
+            shutil.rmtree(root4, ignore_errors=True)
+    finally:
+        cg.close()
+        shutil.rmtree(root, ignore_errors=True)
+
+
+# ---- C：review_cli 双副本（缺口④） ----
+
+#: scripts 源文本的内存 override（只供 --self-proof 的文本变异用，绝不写盘）
+_SCRIPTS_SRC_OVERRIDE = None
+
+
+def _scripts_src():
+    if _SCRIPTS_SRC_OVERRIDE is not None:
+        return _SCRIPTS_SRC_OVERRIDE
+    with open(SCRIPTS_CLI, encoding="utf-8") as f:
+        return f.read()
+
+
+def _scripts_is_thin(src):
+    """薄壳判据（AST）：模块级 `from md_cg.review_cli import main` 且**无**自带
+    模块级 `def main`。只看语义节点，docstring 里的字样不算。"""
+    tree = ast.parse(src)
+    imports_shared = any(
+        isinstance(n, ast.ImportFrom) and n.module == "md_cg.review_cli"
+        and any(a.name == "main" for a in n.names) for n in tree.body)
+    own_main = any(isinstance(n, ast.FunctionDef) and n.name == "main"
+                   for n in tree.body)
+    return imports_shared and not own_main
+
+
+def _load_scripts_module():
+    """载入 scripts/review_cli.py 为模块；若有内存源 override（变异用）
+    则 exec 该源文本——使 C2/C5 与 C1 同受变异影响，与磁盘级变异行为一致。"""
+    if _SCRIPTS_SRC_OVERRIDE is not None:
+        import types as _t
+        ns = {"__name__": "_attrcons_review_cli", "__file__": SCRIPTS_CLI}
+        exec(compile(_SCRIPTS_SRC_OVERRIDE, SCRIPTS_CLI, "exec"), ns)
+        return _t.SimpleNamespace(**ns)
+    spec = importlib.util.spec_from_file_location("_attrcons_review_cli",
+                                                  SCRIPTS_CLI)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _group_c():
+    print("\n[C] review_cli 双副本：共用同一 main + autoflush 生效 ——缺口④")
+    # C1 源码级：scripts 版是薄壳（AST）
+    src = _scripts_src()
+    check("C1 scripts/review_cli.py 为薄壳（AST：导入共用 main 且无自带 def main）",
+          _scripts_is_thin(src), "src[:120]=%r" % src[:120])
+
+    # C2 运行时同一对象：scripts.main is md_cg.review_cli.main
+    try:
+        smod = _load_scripts_module()
+        same = smod.main is _rv_pkg.main
+    except Exception as exc:                              # noqa: BLE001
+        same = False
+        print("    （载入 scripts 模块异常：%s）" % exc)
+    check("C2 scripts.main 与 md_cg.review_cli.main 是同一对象", same)
+
+    # C3 autoflush 生效：共用 main 的构造路径 _cg → autoflush == 1
+    root = tempfile.mkdtemp(prefix="attrcons_c_")
+    cg = None
+    try:
+        cg = _rv_pkg._cg(argparse.Namespace(root=root))
+        check("C3 共用 main 的 _cg 构造 autoflush == 1（scripts 版由此获得）",
+              cg.autoflush == 1, str(cg.autoflush))
+    finally:
+        if cg is not None:
+            cg.close()
+        shutil.rmtree(root, ignore_errors=True)
+
+    # C4 帮助文本为三态口径（不再有陈旧的「随机会话」措辞）
+    msrc = inspect.getsource(_rv_pkg.main)
+    check("C4 --session 帮助为三态口径（含 'unattributed'、无 '随机会话'）",
+          "仍无则落 'unattributed'" in msrc and "随机会话" not in msrc)
+
+    # C5 端到端：scripts 薄壳的 main 可跑（list → rc 0）
+    root2 = tempfile.mkdtemp(prefix="attrcons_c5_")
+    try:
+        smod = _load_scripts_module()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = smod.main(["list", "--root", root2])
+        check("C5 薄壳端到端：scripts.main(['list',...]) → 退出码 0",
+              rc == 0 and "审核队列" in buf.getvalue(),
+              "rc=%s out=%r" % (rc, buf.getvalue()[:80]))
+    finally:
+        shutil.rmtree(root2, ignore_errors=True)
+
+
+# ----------------------------------------------------------------------
+# 定点变异自证（锚点 = 去缩进后的运行中源码；命中 ≠1 → ANCHOR-MISS）
+# ----------------------------------------------------------------------
+
+def _src_of(fn):
+    return textwrap.dedent(inspect.getsource(fn))
+
+
+# 锚点 = 变异点**邻行**的稳定串（不与被抽回的表达式重叠）：这样磁盘级抽回
+# 修复后 preflight 仍过、红项落在断言上（而非 ANCHOR-MISS）；锚点漂移则说明
+# 变异点已搬家，变异表失效（fail-closed rc=2）。
+_ANCHORS = (
+    (lambda: _src_of(MdCGOS.session_note),
+     'session = ((session or "").strip()'),
+    (lambda: _src_of(MdCGSecure._audit),
+     'meta.setdefault("tenant", self.principal.tenant)'),
+    (lambda: _src_of(_rv_pkg._cg),
+     'session = _session_of(args)'),
+)
+
+
+def _anchor_preflight():
+    bad = []
+    for get_src, anchor in _ANCHORS:
+        n = get_src().count(anchor)
+        if n != 1:
+            bad.append((anchor, n))
+    if not bad:
+        return 0
+    for anchor, n in bad:
+        print("  ANCHOR-MISS 锚点漂移（命中 %d 次，期望恰好 1）：%r"
+              % (n, anchor[:70]))
+    print("  => 实现已漂移，变异表失效：退出码 2（fail-closed）")
+    return 2
+
+
+def _run_all():
+    global PASS, FAIL
+    PASS = FAIL = 0
+    del FAILS[:]
+    old = _setenv(MDCG_SESSION=None, DSH_SESSION_ID=None)
+    try:
+        _group_a()
+        _group_b()
+        _group_c()
+    finally:
+        _restore(old)
+    return ({n.split(" ", 1)[0] for n in FAILS}, PASS, FAIL)
+
+
+# 变异表：每条 (标签, 名, 宿主函数或 None, old, new, 期望红项集合)。
+# 宿主函数为 None → 文本变异（走 _SCRIPTS_SRC_OVERRIDE，只改内存源文本）。
+_MUTATIONS = (
+    ("$②", "session_note 漏传 sens（退回 _attribution_session_of(self)）",
+     MdCGOS.session_note,
+     'or (_attribution_session_of(self, sensitivity) or "").strip()',
+     'or (_attribution_session_of(self) or "").strip()',
+     {"A2"}),
+    ("$③", "审计面退回原始 principal.session（不接三态）",
+     MdCGSecure._audit,
+     'meta.setdefault("session", self._attributed_session(sens))',
+     'meta.setdefault("session", self.principal.session)',
+     {"B1", "B3"}),
+    ("$④b", "去掉 review_cli._cg 的 autoflush=1",
+     _rv_pkg._cg,
+     'return MdCGSecure(_root(args), principal=p, autoflush=1)',
+     'return MdCGSecure(_root(args), principal=p)',
+     {"C3"}),
+    # ④a：让 scripts 版再自带实现（不再是薄壳）→ C1 应红（文本变异）
+    ("$④a", "让 scripts 版再自带实现（不再是薄壳）",
+     None,
+     "from md_cg.review_cli import main  # noqa: E402",
+     "from md_cg.review_cli import _root, _session_of  # noqa: E402\n\n\n"
+     "def main(argv=None):\n"
+     "    return _root, _session_of\n",
+     {"C1", "C2", "C5"}),
+)
+
+
+def _mutate_and_run(ns_mod, host_fn, old, new):
+    """就地变异 host_fn 后跑全套，finally 复原。
+
+    类方法走「类体内 exec」——直接 exec 一个裸 `def` 会丢掉编译器为类体语境生成的
+    `__class__` 空位，使零参 `super()` 报 RuntimeError；故把变异源贴进一个同名基类的临时类体
+    里 exec（造出 `__class__` cell），再把该 cell 指回**真类**——这样 `super()` 仍相对真类的 MRO
+    解析（与原方法同路）。
+    """
+    src = _src_of(host_fn)
+    mutated = src.replace(old, new)
+    qn = getattr(host_fn, "__qualname__", host_fn.__name__)
+    ns = dict(vars(ns_mod))
+    short = qn.split(".")[-1]
+    if "." in qn:                        # 类方法
+        cls = ns_mod.__dict__[qn.split(".")[0]]
+        base = cls.__bases__[0]
+        wrapper = ("class _Mut(" + base.__name__ + "):" + chr(10)
+                   + textwrap.indent(mutated, "    "))
+        exec(compile(wrapper, "<attrcons-mutated>", "exec"), ns)
+        fn = ns["_Mut"].__dict__[short]
+        free = fn.__code__.co_freevars
+        if "__class__" in free:
+            fn.__closure__[free.index("__class__")].cell_contents = cls
+        orig = cls.__dict__[short]
+        setattr(cls, short, fn)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                red, _, _ = _run_all()
+            return red
+        finally:
+            setattr(cls, short, orig)
+    exec(compile(mutated, "<attrcons-mutated>", "exec"), ns)
+    orig = getattr(ns_mod, short)
+    setattr(ns_mod, short, ns[short])
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            red, _, _ = _run_all()
+        return red
+    finally:
+        setattr(ns_mod, short, orig)
+
+
+def _mutate_scripts_and_run(old, new):
+    global _SCRIPTS_SRC_OVERRIDE
+    _SCRIPTS_SRC_OVERRIDE = _scripts_src().replace(old, new)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            red, _, _ = _run_all()
+        return red
+    finally:
+        _SCRIPTS_SRC_OVERRIDE = None
+
+
+def _self_proof():
+    rc = _anchor_preflight()
+    if rc:
+        return rc
+    print("!! 定点变异自证：就地变异运行中的实现源码（不读 git / 不写盘），"
+          "逐条要求**恰好**命中期望红项\n")
+    with contextlib.redirect_stdout(io.StringIO()):
+        base_red, _, _ = _run_all()
+    print("  未变异基线：红项 %d %s" % (len(base_red),
+                                        "（应为 0）" if base_red else ""))
+    bad = []
+    if base_red:
+        bad.append("未变异基线即转红：%s" % sorted(base_red))
+    for tag, name, host_fn, old, new, expect in _MUTATIONS:
+        try:
+            if host_fn is None:                            # 文本变异（内存源）
+                red = _mutate_scripts_and_run(old, new)
+            else:
+                red = _mutate_and_run(sys.modules[host_fn.__module__],
+                                      host_fn, old, new)
+        except Exception as exc:                          # noqa: BLE001
+            red = {"<变异体运行异常:%s>" % type(exc).__name__}
+        hit = red == expect
+        if not hit:
+            bad.append("变异%s：红项 %s ≠ 期望 %s"
+                       % (tag, sorted(red), sorted(expect)))
+        print("  %-4s %-44s 红项 %d（期望 %d）%s"
+              % (tag, name, len(red), len(expect),
+                 "PASS" if hit else "**FAIL** 实=%s 期=%s" % (sorted(red),
+                                                              sorted(expect))))
+    argv_bak = list(sys.argv)
+    sys.argv[:] = [a for a in argv_bak if a != "--self-proof"]
+    _buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(_buf):
+            full_rc = main()
+    finally:
+        sys.argv[:] = argv_bak
+    print("  复原后重跑全套（A–C）：退出码 %d %s"
+          % (full_rc, "（全绿）" if full_rc == 0 else "**非全绿**"))
+    if full_rc:
+        for _ln in _buf.getvalue().splitlines():
+            if "[FAIL]" in _ln:
+                print("    复原重跑红：%s" % _ln.strip()[:120])
+        bad.append("复原后全套非全绿（rc=%d）" % full_rc)
+    print("\n变异自证：%s"
+          % ("PASS（四条腿逐条恰好命中期望红项；复原后全绿）" if not bad
+             else "FAIL —— " + "；".join(bad)))
+    return 0 if not bad else 1
+
+
+def main():
+    global PASS, FAIL
+    if "--self-proof" in sys.argv:
+        return _self_proof()
+    _rc = _anchor_preflight()
+    if _rc:
+        return _rc
+    PASS = FAIL = 0
+    del FAILS[:]
+    old = _setenv(MDCG_SESSION=None, DSH_SESSION_ID=None)
+    try:
+        _group_a()
+        _group_b()
+        _group_c()
+    finally:
+        _restore(old)
+    print("\n" + "=" * 68)
+    print(f"通过 {PASS} / 失败 {FAIL}")
+    if FAILS:
+        print("失败项：" + "，".join(FAILS))
+    print("=" * 68)
+    return 0 if FAIL == 0 else 1
+
+
+if __name__ == "__main__":
+    _rc = main()
+    sys.exit(_rc if _rc in (0, 2) else 1)

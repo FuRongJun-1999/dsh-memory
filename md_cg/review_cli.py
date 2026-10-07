@@ -206,8 +206,8 @@ def main(argv=None):
     common.add_argument("--root", help="存储根目录（默认环境变量 MDCG_ROOT）")
     common.add_argument("--session", default=None,
                         help="裁决会话 id（落盘归属 frontmatter.session；缺省取"
-                             "环境变量 MDCG_SESSION，仍无则随机会话并 stderr 告警。"
-                             "同一批裁决传同一值即得同一归属）")
+                             "环境变量 MDCG_SESSION，仍无则落 'unattributed' 并 "
+                             "stderr 告警。同一批裁决传同一值即得同一归属）")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("list", help="列出待审条目", parents=[common])

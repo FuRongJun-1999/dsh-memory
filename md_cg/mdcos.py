@@ -578,11 +578,18 @@ class MdCGOS(MdCG):
 
     # ================= 6. payload-free 审计 =================
 
-# 生效条件：当 op 与 node_id 传入时，构造含 t/op/id/actor/session 并合并 meta 的记录，尝试轮转后追加到 self.audit_log；追加过程中的 OSError 被吞掉；
-    def _audit(self, op: str, node_id: str, **meta):
-        """只记事件与载荷哈希，绝不记录内容（payload-free）。"""
+# 生效条件：当 op 与 node_id 传入时，构造含 t/op/id/actor/session（session 经 _attribution_session_of(self, sens) 取用——纯 MdCGOS 无钩子时回落 getattr(self,"session",None)，与改动前逐位一致）并合并 meta 的记录，尝试轮转后追加到 self.audit_log；追加过程中的 OSError 被吞掉；
+    def _audit(self, op: str, node_id: str, sens=None, **meta):
+        """只记事件与载荷哈希，绝不记录内容（payload-free）。
+
+        sens：本次 op 的密级（写归因三态单点的输入，见
+        `_attribution_session_of`）；缺省 None＝该 op 无密级维度。归因会话
+        与写面同一单点取用；纯 MdCGOS 无 `_attributed_session` 钩子时回落
+        `self.session`（改动前语义逐位不变）。sens 是**命名参数**、不进 meta
+        （审计记录形状不变）。
+        """
         rec = {"t": time.time(), "op": op, "id": node_id, "actor": self.actor,
-               "session": getattr(self, "session", None)}
+               "session": _attribution_session_of(self, sens)}
         rec.update(meta)
         try:
             self._rotate_audit_if_needed()
@@ -831,8 +838,11 @@ class MdCGOS(MdCG):
             e["session"] = _sess
         if e is not None and (role is not None or _sess):
             self._dirty[nid] = e
+        # 审计与写面同 sens（写归因三态，2026-10-07）：本节点 frontmatter.session
+        # 由 `_attribution(kw, sens)` 落定，审计记录须经**同一 sens** 过三态单点，
+        # 否则未声明档审计记进程随机、节点记 unattributed（字面分叉）。
         self._audit("add", nid, layer=layer, role=role,
-                    payload_hash=_sig(content))
+                    payload_hash=_sig(content), sens=kw.get("sensitivity"))
         return nid
 
 # 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，恒剔除 lifecycle.is_archived(e) 为真的节点（退役不参与默认检索；缺 lifecycle 键=active 照常，converged/demoted 仍参与），session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），validity 为真值而 trust.is_expired(e) 为真时剔除（**只排已过期，not_yet 保留**），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点；view 为真值时 role 维度裁决权移交 roleviews.matches（receipt=工作角色白名单须绕过默认剔除才可达，非法 view ValueError），view 为假值且 include_work 为假时剔除 WORK_ROLES 角色，时间算子启用时按 time_axis 轴过滤（效力轴不可判定 fail-open、观察轴不可判定 fail-closed 并入 self._time_filter_stat），其余收集进 out 返回。
@@ -2207,7 +2217,8 @@ class MdCGOS(MdCG):
                     break          # 已裁决的最有信息量，优先返回
             if dup:
                 self._audit("propose_dedup", node_id, dup_of=dup["pid"],
-                            dup_status=dup["status"], payload_hash=phash)
+                            dup_status=dup["status"], payload_hash=phash,
+                            sens=kw.get("sensitivity"))
                 if info:
                     return {"pid": dup["pid"], "dedup": True,
                             "dup_of": dup["pid"], "dup_status": dup["status"]}
@@ -2244,8 +2255,11 @@ class MdCGOS(MdCG):
             if kind:
                 rec["kind"] = str(kind)
             append_jsonl(self.inbox_log, rec)
+        # 审计与入队 rec 同 sens（写归因三态）：rec.session 经
+        # `_attribution_session_of(self, kw.get("sensitivity"))` 落定，审计走同一 sens。
         self._audit("propose", node_id, pid=pid, layer=layer,
-                    payload_hash=phash, verify_hash=vhash)
+                    payload_hash=phash, verify_hash=vhash,
+                    sens=kw.get("sensitivity"))
         if info:
             return {"pid": pid, "dedup": False,
                     "dup_of": None, "dup_status": None}
@@ -3255,7 +3269,7 @@ class MdCGOS(MdCG):
                 return ln.strip()[:500]
         return ""
 
-# 生效条件：当 summary 传入且 strip 后非空时，session 按显式入参、_attribution_session_of(self)（写归因三态：env/请求声明→原值；未声明的进程自动随机→unattributed；纯 MdCGOS 回落 self.session）、日期依次回落；conditions 为假值时回落默认条件；用 SESSION_TAG 与 session 标签调用 add，返回含 ok/id/session/layer/basis/tokens 的字典；summary 为空则 raise ValueError；
+# 生效条件：当 summary 传入且 strip 后非空时，session 按显式入参、_attribution_session_of(self, sensitivity)（写归因三态：env/请求声明→原值；未声明的进程自动随机→unattributed；sens 达 private 档豁免保持随机；纯 MdCGOS 回落 self.session）——与下方 add(sensitivity=sensitivity) 同一 sens、同一单点、同一口径、日期依次回落；conditions 为假值时回落默认条件；用 SESSION_TAG 与 session 标签调用 add，返回含 ok/id/session/layer/basis/tokens 的字典；summary 为空则 raise ValueError；
     def session_note(self, summary, session=None, tags=None, layer="contextual",
                      importance=0.6, sensitivity=None, conditions=None,
                      basis="data"):
@@ -3270,8 +3284,13 @@ class MdCGOS(MdCG):
         # 会话身份缺省：显式入参 > 写归因三态会话（env/请求声明→原值；未声明的
         # 进程自动随机→'unattributed'，见 `_attribution_session_of` >
         # 日期兜底。会话只作切片与归因，不参与权限判定。
+        # **sens 必须与落盘同传**（2026-10-07，写归因三态）：节点 fm.session 由
+        # 下面的 add(sensitivity=sensitivity) 经 `_attribution(kw, sens)` 落定；
+        # 此处不传 sens 时绑定档（sensitivity 达 private）会算出 'unattributed'，
+        # 而节点 fm.session 是进程随机——返回体 / tags 与 fm.session 分叉，按
+        # tag 过滤找不到该节点真实归属。传同一 sensitivity 后三处同一单点取值。
         session = ((session or "").strip()
-                   or (_attribution_session_of(self) or "").strip()
+                   or (_attribution_session_of(self, sensitivity) or "").strip()
                    or time.strftime("%Y%m%d"))
         nid = self._session_node_id(session, summary)
         cond = conditions or f"续接会话 {session}、或查询命中该会话要点关键词时"
@@ -5569,10 +5588,15 @@ class MdCGSecure(MdCGOS):
             pass
         return out
 
-# 生效条件：对 meta 先 setdefault tenant/session/clearance，并在 principal.harness、principal.unit 为真值时补入同名键，再转 super()._audit(op, node_id, **meta)。
-    def _audit(self, op, node_id, **meta):
+# 生效条件：对 meta 先 setdefault tenant/session/clearance（session 经写归因三态单点 self._attributed_session(sens) 取用，与写面同口径；env/请求声明→原值，未声明的进程自动随机→unattributed，sens 达 private 档豁免保持随机），并在 principal.harness、principal.unit 为真值时补入同名键，再转 super()._audit(op, node_id, **meta)；sens 是命名参数、不进 meta（审计记录形状不变）。
+    def _audit(self, op, node_id, sens=None, **meta):
         meta.setdefault("tenant", self.principal.tenant)
-        meta.setdefault("session", self.principal.session)
+        # 写归因三态（2026-10-07 设计者裁定）：审计面与写面**同一 sens** 过单点
+        # ——此前恒取原始 principal.session，未声明档下审计记随机值而同次写入的
+        # 节点是 'unattributed'（审计与写面字面分叉）；sens 达 private 档的绑定
+        # 写入两处同为进程随机（豁免在该函数内，非此处硬编码），故不可简化为恒
+        # unattributed（那会在绑定档引入**新**分叉）。
+        meta.setdefault("session", self._attributed_session(sens))
         meta.setdefault("clearance", self.principal.clearance)
         # 嵌套身份归因：harness（承载端）/ unit（单元分工）只入审计，不参与授权。
         if getattr(self.principal, "harness", None):
