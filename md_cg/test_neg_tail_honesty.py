@@ -14,6 +14,11 @@
 #   A 负覆盖尾诚实化：①分数＝哨兵 0.0 + 负性走独立字段（不再冒充 1.0 候选）
 #     ②条数计入 k 预算（len(results) ≤ k，含 k=0/1 边界）④位置在尾部、真 id 走
 #     `node_id` 字段（`id` 仍是落盘路径——既有消费者口径一字不动）
+#     ＋ H10 修订（2026-10-07，缺陷：k ≤ 提示数时真实命中归零）：**真实命中优先**
+#     ——提示条数＝min(NEG_COVERAGE_MAX, max(0, k − 真实命中数))，不是 min(3, k)。
+#     故 A 组的尾断言改在 **k=5**（3 真命中 + 2 尾条正好用满 k）取样；A5 除
+#     「总数 ≤ k / k_budget 逐位一致」外，钉住「主结果条数＝min(k, 真实命中数)」
+#     （改前 k=2/3 时为 0——本组对旧口径的判别力所在）。
 #   B `_compute_d` 分母只数真实候选（提示条目不进分母，D 不再被虚高）
 #   C 基类与生产路径同口径：负记忆/目标槽不进正排，同一负节点不再双列
 #     （负层元组真源单点：mdcos 直接导入 mdcg.NEG_ROUTE_LAYERS，不留同值副本）
@@ -136,7 +141,9 @@ def _count_calls(obj, name, fn):
 def group_a():
     print("\n[A] 负覆盖尾诚实化：分数哨兵 / 独立字段 / k 预算 / 位置")
     cg = _neg_lib("tail")
-    res, meta = cg.search(QUERY, k=3, record=False)
+    # k=5：本库 3 条真实命中（_neg_lib 的 mem_*）< 5 → 尾条按 k 预算出现
+    # （H10 修订后 k=3 时 3 条真命中已用满 k，尾条为 0——见 A5 的新契约断言）。
+    res, meta = cg.search(QUERY, k=5, record=False)
     tail = [r for r in res if (r[2] or {}).get("negative_coverage")]
     prim = [r for r in res if not (r[2] or {}).get("negative_coverage")]
     check("A1 负覆盖条目不冒充候选：分数恒字面量 0.0（哨兵常量本身也是 0.0），"
@@ -167,7 +174,11 @@ def group_a():
           str([(r[0].get("id"), (r[2] or {}).get("negative_coverage"))
                for r in res]))
 
-    print("\n[A'] k 预算：总数恒 ≤ k（改前 k=3 → 5）")
+    print("\n[A'] k 预算：真实命中优先 + 总数恒 ≤ k"
+          "（H10 修订：改前 k=2/3 真实命中归零）")
+    #: 本库的真实命中数：`_neg_lib` 的 3 条 mem_*（含查询词）过质量闸（score > 0）；
+    #: 负层节点不进正排（另 2 条）。改前提示按 min(3, k) 先占位 → k ≤ 3 时主结果为 0。
+    n_real = 3
     ok_len = True
     detail = []
     for k in (1, 2, 3, 5, 20):
@@ -176,9 +187,18 @@ def group_a():
         np = len(r) - nt
         b = m.get("k_budget") or {}
         detail.append("k=%d len=%d prim=%d neg=%d budget=%s" % (k, len(r), np, nt, b))
-        if len(r) > k or b != {"k": k, "primary": np, "neg_tail": nt}:
+        if len(r) > k:
             ok_len = False
-    check("A5 结果总数 ≤ k 且 meta.k_budget 与实取逐位一致（尾巴计入预算）",
+        # 真实命中永不被提示挤占：主结果恰为 min(k, 真实命中数) 条（改前 k≤3 → 0）
+        if np != min(k, n_real):
+            ok_len = False
+        # 「产生信息才落键」：有尾条时 k_budget 与实取逐位一致，无尾条时不落键
+        if nt and b != {"k": k, "primary": np, "neg_tail": nt}:
+            ok_len = False
+        if not nt and "k_budget" in m:
+            ok_len = False
+    check("A5 结果总数 ≤ k、主结果条数＝min(k, 真实命中数)（真实命中不被提示挤占）、"
+          "且 meta.k_budget 与实取逐位一致（尾巴计入预算）",
           ok_len, "; ".join(detail))
     check("A6 主结果实取 = k − 提示条数（_primary_slots 单点）",
           _mdcg.MdCG._primary_slots(3, 2) == 1
@@ -192,7 +212,7 @@ def group_a():
           r0 == [] and "k_budget" not in m0, str(r0))
 
     print("\n[A''] 审计面与卡片同源")
-    res3, meta3 = cg.search(QUERY, k=3, record=False)
+    res3, meta3 = cg.search(QUERY, k=5, record=False)
     rows = meta3.get("neg_coverage_tail") or []
     cards = [r for r in res3 if (r[2] or {}).get("negative_coverage")]
     check("A8 meta.neg_coverage_tail 与入榜条目逐条同源（含 node_id/score=0.0）",
@@ -528,6 +548,14 @@ def _pre_fix_k_budget():
     _mdcg.MdCG._primary_slots = staticmethod(lambda k, n_tail: int(k))
 
 
+def _pre_fix_neg_budget():
+    """改前口径：提示条数上界恒为 min(NEG_COVERAGE_MAX, |覆盖|)，不看 k 预算
+    （H10 修订前）——k ≤ 提示数时真实命中被挤成 0（本组 A5 的判别力所在）。"""
+    _orig = _mdcg.MdCG.__dict__["_neg_tail"]
+    _mdcg.MdCG._neg_tail = lambda self, neg_coverage, budget: _orig(
+        self, neg_coverage, _mdcg.NEG_COVERAGE_MAX)
+
+
 def _pre_fix_d_denom():
     _mdcg._is_neg_coverage = lambda card: False   # 改动前：分母含提示条目
 
@@ -561,7 +589,12 @@ def _pre_fix_health_total():
 
 _MUTATIONS = {
     "neg_score": (_pre_fix_neg_score, ["A1", "A8"]),
-    "k_budget": (_pre_fix_k_budget, ["A5", "A6"]),
+    # k_budget：主结果退回 scored[:k]（尾巴在 k 之外）——A6 钉公式；本库 scored
+    # 短于 k（3 条真命中）故 A5 的「≤ k」不再被它打红，溢出判别力归新守卫
+    # md_cg/test_neg_coverage_budget.py 的 T3 全量兜底场景（scored ≥ k 且真命中 < k）。
+    "k_budget": (_pre_fix_k_budget, ["A6"]),
+    # neg_budget：把 H10 修订抽回改前口径（提示按 min(3,·) 先占位）——A5 必红
+    "neg_budget": (_pre_fix_neg_budget, ["A5"]),
     "d_denom": (_pre_fix_d_denom, ["B1"]),
     "base_dup": (_pre_fix_base_dup, ["C1", "C2", "C4", "C5"]),
     "sentinel": (_pre_fix_sentinel, ["E1", "E2"]),
@@ -578,6 +611,7 @@ def _snapshot():
     # 实测踩过（`_primary_slots() takes 2 positional arguments but 3 were given`）。
     return {"NEG_COVERAGE_SCORE": _mdcg.NEG_COVERAGE_SCORE,
             "_primary_slots": _mdcg.MdCG.__dict__["_primary_slots"],
+            "_neg_tail": _mdcg.MdCG.__dict__["_neg_tail"],
             "_is_neg_coverage": _mdcg._is_neg_coverage,
             "NEG_ROUTE_LAYERS": _mdcg.NEG_ROUTE_LAYERS,
             "_is_null_condition": mdcos._is_null_condition,
@@ -590,6 +624,7 @@ def _snapshot():
 def _restore(snap):
     _mdcg.NEG_COVERAGE_SCORE = snap["NEG_COVERAGE_SCORE"]
     _mdcg.MdCG._primary_slots = snap["_primary_slots"]
+    _mdcg.MdCG._neg_tail = snap["_neg_tail"]
     _mdcg._is_neg_coverage = snap["_is_neg_coverage"]
     _mdcg.NEG_ROUTE_LAYERS = snap["NEG_ROUTE_LAYERS"]
     mdcos._is_null_condition = snap["_is_null_condition"]

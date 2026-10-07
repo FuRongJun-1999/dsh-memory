@@ -4228,12 +4228,17 @@ class MdCG:
         「尾巴是否计入 k」这一个口径在**此一处**裁决：`_emit` 只从这里取预算，
         故 `len(results) = n_tail + (k - n_tail) ≤ k` 由构造保证。改前（等价于
         恒返回 int(k)）尾巴在 k 之外，结果数可到 k+min(3,|覆盖|)。
+
+        H10 修订（2026-10-07）：调用方传进来的 `n_tail` 由 `_emit` 限为
+        min(NEG_COVERAGE_MAX, max(0, k − 真实命中数))——真实命中先占位，
+        故此处 `k − n_tail ≥ min(k, 真实命中数)`，主结果不会被提示挤成 0。
+        本函数体一字未改（H10② 的「≤ k」口径仍单点在此）。
         """
         return max(0, int(k) - int(n_tail))
 
 
-# 生效条件：k<=0 或 neg_coverage 为空 → 返回 []；否则自 neg_coverage 起逐条 self._read（content 为 None 跳过，_read 已含 _node_disk_path 边界闸与 OSError→(None,None) 语义），每命中一条产出 (card, NEG_COVERAGE_SCORE, qual) 且最多取 min(NEG_COVERAGE_MAX, k) 条；card 带 negative_coverage/neg_layer/node_id 三个独立字段；qual.state 为 rejected 层→STATE_REJECT、否则 STATE_DEFER；
-    def _neg_tail(self, neg_coverage, k):
+# 生效条件：budget<=0 或 neg_coverage 为空 → 返回 []；否则自 neg_coverage 起逐条 self._read（content 为 None 跳过，_read 已含 _node_disk_path 边界闸与 OSError→(None,None) 语义），每命中一条产出 (card, NEG_COVERAGE_SCORE, qual) 且最多取 min(NEG_COVERAGE_MAX, budget) 条；card 带 negative_coverage/neg_layer/node_id 三个独立字段；qual.state 为 rejected 层→STATE_REJECT、否则 STATE_DEFER；
+    def _neg_tail(self, neg_coverage, budget):
         """负覆盖提示条目（结果尾部）的**单点构造**（H10①②④）。
 
         与真实候选的区别在**字段**上而不在分数上：
@@ -4243,10 +4248,12 @@ class MdCG:
             `md_cg/test_emit_negtail_cache.py`（E0b/E2a/E5）按 `id` 认路盘路径，
             故 `id` 语义一字不动，真 id 走这个**新增**字段——纯增量键）；
           · 分数＝`NEG_COVERAGE_SCORE` 哨兵值（不是「得分 1.0 的答案」）。
-        条数＝min(NEG_COVERAGE_MAX, k)：**计入 k 预算**，与 `_emit` 的主结果
-        `scored[:k - len(tail)]` 配对，保证 `len(results) ≤ k`。
+        条数＝min(NEG_COVERAGE_MAX, budget)：**计入 k 预算**——`budget` 由
+        `_emit` 算出＝max(0, k − 真实命中数)（H10 修订：真实命中优先，改前此处
+        收的恒是 k，提示按 min(3, k) 全额占位、k 小时把真实命中挤成 0）；
+        与 `_emit` 的主结果 `scored[:k - len(tail)]` 仍配对，`len(results) ≤ k` 不变。
         """
-        slots = max(0, int(k))
+        slots = max(0, int(budget))
         if slots <= 0 or not neg_coverage:
             return []
         out = []
@@ -4277,7 +4284,7 @@ class MdCG:
         return out
 
 
-# 生效条件：scored 按 (-分数, -importance) 排序，负覆盖提示条数 = len(_neg_tail(neg_coverage, k)) 先占 k 预算，主结果取 scored[:max(0,k-提示数)] 后逐条判定（judge 为真值时调 judge_qualification(r[0], stat["query"] 或 "", context)，否则 qual={"state":None,"reason":"judge_disabled"}），再把提示条目 extend 到 out 末尾；record 为真且主结果非空时调 record_access；pool_plan 以 pooling.plan(stat["cap"] 或模块级 GLOBAL_CAP, pools) 生成，stat["pool_taken"] 为真时并入 taken/cands/lost；返回 (out, 含 tier/scanned/bucket/candidates/pre_cap/cap/cut_order/pools/covered_neg/big_domain 的审计 dict)；
+# 生效条件：scored 按 (-分数, -importance) 排序，真实命中数 n_real = min(max(0,k), scored 中 s>0 的条数)，负覆盖提示条数 = len(_neg_tail(neg_coverage, max(0,k-n_real))) = min(NEG_COVERAGE_MAX, max(0,k-n_real))（H10 修订：真实命中优先，提示不再按 min(3,k) 先占位——改前 k=2/3 时主结果配额被算成 0、一条真实命中都不返回），主结果取 scored[:max(0,k-提示数)] 后逐条判定（judge 为真值时调 judge_qualification(r[0], stat["query"] 或 "", context)，否则 qual={"state":None,"reason":"judge_disabled"}），再把提示条目 extend 到 out 末尾；record 为真且主结果非空时调 record_access；pool_plan 以 pooling.plan(stat["cap"] 或模块级 GLOBAL_CAP, pools) 生成，stat["pool_taken"] 为真时并入 taken/cands/lost；返回 (out, 含 tier/scanned/bucket/candidates/pre_cap/cap/cut_order/pools/covered_neg/big_domain 的审计 dict)；
     def _emit(self, scored, k, tier, stat, bucket, record, candidates,
               judge, context, neg_coverage, big_domain=None, big_scores=None,
               pools=None):
@@ -4350,7 +4357,23 @@ class MdCG:
         #   ② **计入 k 预算**：主结果让位给提示条数，故 len(results) 恒 ≤ k，
         #      不再出现 k+3 的超发（改前 k=3 → 5、k=5 → 7，与 k 无关）；
         #   ④ 位置如实为**尾部**（旧注释「（首条）」与代码相反，一并删除）。
-        _neg_tail = self._neg_tail(neg_coverage, k)
+        #
+        # H10 修订（2026-10-07，缺陷：k ≤ 提示数时真实命中归零）：
+        # **真实命中优先**——主结果先取满 min(k, 真实命中数)，提示条数才是
+        # min(NEG_COVERAGE_MAX, max(0, k − 真实命中数))。真实命中数＝`scored` 里
+        # **过质量闸**者（`s > 0`；与 `try_stage` 的 `valid` 同一口径、同一处——
+        # 本条正是「scored 是已过质量闸的候选」的那处唯一判据）。
+        # 改前口径是「提示按 min(NEG_COVERAGE_MAX, k) 先全额占位」（`_neg_tail(.., k)`
+        # 后 `_primary_slots(k, n_tail)` 算主结果），k=2/3 时主结果配额被算成 0——
+        # **一条真实命中都不返回**，调用方读成「库里没有」而实际有高分命中
+        # （把「读不到」读成「不存在」）。
+        # 与 `_primary_slots` 仍配对：results = scored[:k − n_neg] ⇒ len(results) ≤ k
+        # 一字不变（H10② 的成果不回退）。提示条数为 0（真实命中已占满 k）时，
+        # 负覆盖信号**不失传**：仍从**既有**统计/审计面读到——meta["covered_neg"]
+        # （全部被覆盖路径，恒在）与 stat["gates"]["s5"]["neg"]（S5 门控开启时的
+        # 计数位数）——两者皆非为本次修复新增，故不新增协议字段。
+        _n_real = min(max(0, int(k)), sum(1 for _, s in scored if s > 0))
+        _neg_tail = self._neg_tail(neg_coverage, max(0, int(k) - _n_real))
         results = scored[:self._primary_slots(k, len(_neg_tail))]
         # ---- S6 一致性交叉验证（契约 §3 S6；flag 控、默认关）----
         # 只读复用 crosscheck 的「赛道 × 来源执照」判定：对 top-k 逐个给出赛道、声明依据是否被

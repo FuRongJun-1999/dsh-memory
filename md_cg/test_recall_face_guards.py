@@ -641,10 +641,19 @@ _MUTATIONS = {
         "mdcg.py", r"(?m)^NEG_COVERAGE_SCORE = 0\.0\s*$",
         "NEG_COVERAGE_SCORE = 1.0", ["N1", "N2", "N2b", "N5"],
         "提示条目分数退回 1.0（改动前：高过任何真实候选）"),
-    "H10-kbudget": (
-        "mdcg.py", r"(?m)^\s*return max\(0, int\(k\) - int\(n_tail\)\)\s*$",
-        "        return max(0, int(k))", ["N3"],
-        "主结果退回 scored[:k]（尾巴在 k 之外 → 结果数 k+3）"),
+    # H10 修订（2026-10-07）后，k 预算的裁决点从「`_primary_slots` 一律让位给
+    # min(3,k) 条提示」改为「真实命中先占满 min(k, 真实命中数)，提示才是余下位子」。
+    # 故本条变异改成新单点：把「真实命中数」恒取 k（提示条恒不出现 → 负覆盖信号
+    # 在结果面静默消失）——N 组现场（2 真命中 + 2 负节点）能判别它。
+    # 旧变异「`_primary_slots` 退回 scored[:k]（尾巴在 k 之外 → len > k）」在本组
+    # 现场（scored 短于 k）已**不可观测**（结果数不会超 k 是因为候选本就少），
+    # 其判别力属「len(scored) ≥ k 而真命中 < k」的 T3 全量兜底形态——已移到
+    # `md_cg/test_neg_coverage_budget.py`（B3b，定点变异 primary-slots-no-budget）。
+    "H10-real-first": (
+        "mdcg.py",
+        r"(?m)^\s*_n_real = min\(max\(0, int\(k\)\), sum\(1 for _, s in scored if s > 0\)\)\s*$",
+        "        _n_real = max(0, int(k))", ["N0", "N2b", "D0", "D2"],
+        "真实命中数恒取 k（提示条恒不出现：负覆盖提示在结果面静默失传）"),
     "H10-ddenom": (
         "mdcg.py",
         r"(?m)^\s*cands = \[r for r in results if not _is_neg_coverage\(r\[0\]\)\]\s*$",
