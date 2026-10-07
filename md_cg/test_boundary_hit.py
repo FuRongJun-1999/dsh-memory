@@ -17,7 +17,7 @@
 
 P0-4 当轮**不接检索面**（接线在 P2）：只落判据函数与守卫，检索读数必须零位移。
 **（P2-2 已接线，2026-10-01）**：接线点两处——检索面 `MdCGOS.search_rrf`
-（`md_cg/mdcos.py:1754`）与默认打分收口 `MdCG._emit`（`md_cg/mdcg.py:4191`）；
+（`md_cg/mdcos.py` 的 `MdCGOS.search_rrf` 接线点）与默认打分收口 `MdCG._emit`（`md_cg/mdcg.py`）；
 两处都调**同一个** `MdCG.judge_with_boundary`，边界标记一律经同族的 `boundary_mark`
 取（其体内复用 P0-4 的 `boundary_hit`）——**单点复用、不另写第二份判据**。
 上面那段「零命中」是 **P0-4 当轮的探针快照**，已被本文件 B5 组的接线断言取代。

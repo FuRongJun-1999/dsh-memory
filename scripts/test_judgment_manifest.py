@@ -42,7 +42,7 @@ def check(name, cond, detail=""):
 def _materialize(files, tmp):
     """把判据面物化成临时实验面（弱化实验的唯一落笔面，在役判据面全程只读）。
 
-    仓内先例：scripts/test_verify_open_encoding.py:310 `_materialize_surface`
+    仓内先例：scripts/test_verify_open_encoding.py 的 `_materialize_surface`（扫描面物化单点）
     （shutil.copyfile 物化扫描面）+ 同文件 :93「定点变异：完整扫描面临时副本上注入」；
     scripts/criteria_fingerprint.py:38 `worktree_of`（git archive → tempfile.mkdtemp）。
     """

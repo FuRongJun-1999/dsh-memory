@@ -3,7 +3,7 @@
 
 病灶（C-8 清单；本守卫作者按清单要求独立复现过一次，见 P3 的实测数字）：
   `apply_retrieval_gates`（md_cg/mdcg.py）自称「两份 search 的唯一实现」，但
-  `MdCGOS.search_rrf`（mdcos.py:1267 → `MdCGSecure.search_rrf`，mdcos.py:4164）
+  `MdCGOS.search_rrf` → `MdCGSecure.search_rrf`（两条生产读路径，均在 mdcos.py）
   **整段不含门控**——meta 连 gates 键都没有、scanned 恒全表。同一开关下两条
   **生产读路径**的候选面分裂：
       cg(op=read, query)           → MdCGSecure.search      → 收敛（S1 实测 38→23）

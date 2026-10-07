@@ -1,0 +1,1755 @@
+{
+ "_doc": "行号锚基线：rules = 留档面整类豁免（带理由）；anchors = HEAD 存量锚基线冻结（只减不增：新增红必然未登记 → 报红）。生成见 .tmp/gen_line_anchor_baseline.py。本文件是『守卫件』的一部分。",
+ "_frozen_counts_by_file": {
+  "compiler/condition_vm.py": 1,
+  "docs/GBrain可借鉴点_灵枢落点交接_20260919.md": 9,
+  "docs/eval/W4_情绪决策通路_设计_v0.1.md": 30,
+  "docs/eval/W6_存在契约载体_设计_v0.1.md": 44,
+  "docs/hive/令牌语义修正_仲裁位_v0.1.md": 1,
+  "docs/hive/检索路径与认知结构契约_v0.1.md": 1,
+  "docs/hive/蜂巢设计_理论对齐_v0.1.md": 12,
+  "docs/mdcg/README详细版_v0.4.10.md": 1,
+  "docs/mdcg/世界模型功能端_使用与运维_v1.0.md": 1,
+  "docs/mdcg/全库代码评审与条件化注释_计划_v0.1.md": 2,
+  "docs/mdcg/睡眠周期_运维前提与维护指南_v1.0.md": 1,
+  "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md": 9,
+  "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md": 21,
+  "docs/plans/GridWorld最小闭环规格_v0.1.md": 20,
+  "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md": 11,
+  "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md": 20,
+  "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md": 10,
+  "docs/plans/真源索引_通用机制_v0.3.md": 7,
+  "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md": 53,
+  "docs/plans/蜂巢模型密钥配置面_v1.0.md": 62,
+  "docs/plans/记忆自处理三档自治_设计_v0.2.md": 20,
+  "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md": 6,
+  "docs/theory/概念分层对齐表_v0.1.md": 2,
+  "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md": 4,
+  "docs/不可靠性理论_v0.1.md": 2,
+  "docs/记忆评审系统_立项设计与施工交接_20260915.md": 1,
+  "hive/src/keyres.rs": 1,
+  "hive/test_orch.py": 1,
+  "md_cg/bench_axis_domain.py": 1,
+  "md_cg/freshness.py": 1,
+  "md_cg/logref.py": 1,
+  "md_cg/mdcg.py": 4,
+  "md_cg/mdcos.py": 1,
+  "md_cg/protect.py": 5,
+  "md_cg/protocol.py": 1,
+  "md_cg/provenance.py": 1,
+  "md_cg/subgraph.py": 1,
+  "md_cg/test_auto_defaults.py": 1,
+  "md_cg/test_autonomy_modes.py": 1,
+  "md_cg/test_b4_shard_dir_selfheal_guard.py": 1,
+  "md_cg/test_branch_discard_tombstone.py": 1,
+  "md_cg/test_i50c_meta_passthrough.py": 1,
+  "md_cg/test_legacy_p3_node_id_type.py": 2,
+  "md_cg/test_n178_units_jobid_gate.py": 2,
+  "md_cg/test_n195_writepath_reload.py": 4,
+  "md_cg/test_n196_stale_gate_skip.py": 2,
+  "md_cg/test_n197_n208_write_face_gates.py": 1,
+  "md_cg/test_n198_tokens_corrupt_failclosed.py": 1,
+  "md_cg/test_n199_tokens_concurrent_write.py": 1,
+  "md_cg/test_n201_proposal_visibility.py": 3,
+  "md_cg/test_n202_session_notes_visibility.py": 3,
+  "md_cg/test_n204_n205_n226_n227_n228_n229_exit_gates.py": 2,
+  "md_cg/test_n209_verify_write_face_gates.py": 2,
+  "md_cg/test_n212_n213_n224_generation_gates.py": 1,
+  "md_cg/test_n214_n215_n221_n222_write_face_gates.py": 6,
+  "md_cg/test_n225_nonobject_load.py": 3,
+  "md_cg/test_verify_dirty_reconcile.py": 1,
+  "rust/src/text.rs": 4,
+  "scripts/_mdcg_reindex_dshlogs.py": 1,
+  "scripts/test_judgment_manifest.py": 1,
+  "src/lib/mdcg_client.ts": 1,
+  "src/lib/prompt_safety.ts": 1,
+  "src/lib/session_state.ts": 1
+ },
+ "rules": [
+  {
+   "glob": "docs/eval/*_设计_v*.md",
+   "mode": "keep",
+   "reason": "现行设计稿（任务书「活文档」面）——docs/eval 中仍具指路作用的设计/契约件，**不属**既往评测报告，故**不予豁免**（keep 规则优先于下面的 docs/eval 规则）。"
+  },
+  {
+   "glob": "docs/eval/*接口契约*",
+   "mode": "keep",
+   "reason": "现行接口契约件（同上，不属既往评测报告，不予豁免）。"
+  },
+  {
+   "glob": "docs/eval/**",
+   "mode": "exempt",
+   "reason": "**既往轮次记录面（历史留档）**。判据为本仓明规：「历史留档刻意不改写：docs/eval/ 下既往评测报告、scripts/retrieval_dataset.json 的 design 说明、_md_cg_p27 留档条目——改写即伪造历史」（docs/eval/归一层缺省翻关_修复记录_v1.0.md:384）。被豁免的体裁（各自件头多自陈「行号为挖掘时快照 / 改后行号＝读工作树核实〔本报告实跑〕」）：缺陷挖掘_自主迭代_系列、*_落码记录_*、*_实施记录_*、*_修复记录_*、issue*/N 编号缺陷件、优化第 N 批、发布*、性能专项、*_探针读数_*、*_取证_*、*_对照_*、*_核验_*、*评分报告*、*第三方验证报告*、*_冒烟_*、*_实测_*、*裁决处置*、DSH 端/日志索引系列等——体裁差异不改变「既往某时点的记录」这一性质，故整类豁免。"
+  }
+ ],
+ "anchors": [
+  {
+   "key": "compiler/condition_vm.py:282 -> compiler.py:74",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:54 -> md_cg/nodefile.py:122",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:54 -> md_cg/trust.py:61",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:57 -> md_cg/coldverify.py:148",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:57 -> md_cg/statushdr.py:77",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:57 -> trust.py:500",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:81 -> md_cg/mcp_server.py:48",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:81 -> md_cg/theory.py:38",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:95 -> md_cg/mdcg.py:221",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:95 -> mdcg.py:235",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:120 -> autonomy.py:179",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:126 -> mdcos.py:110",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:13 -> autonomy.py:177",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:13 -> consistency.py:751",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:135 -> test_w5_path_fingerprint.py:32",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:15 -> autonomy.py:179",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:187 -> md_cg/autonomy.py:148",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:188 -> md_cg/autonomy.py:177",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:191 -> md_cg/autonomy.py:254",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:192 -> md_cg/autonomy.py:227",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:193 -> md_cg/autonomy.py:29",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:195 -> md_cg/links.py:348",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:196 -> md_cg/self_state.py:86",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:197 -> md_cg/self_state.py:396",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:200 -> md_cg/mdcos.py:107",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:201 -> md_cg/mdcos.py:1768",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:215 -> autonomy.py:179",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:216 -> mdcos.py:1804",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:30 -> links.py:348",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:44 -> md_cg/autonomy.py:184",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:45 -> md_cg/mdcos.py:1768",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:46 -> md_cg/metacognition.py:380",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:56 -> autonomy.py:243",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:66 -> test_autonomy_modes.py:555",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:67 -> hotcache.py:60",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:71 -> autonomy.py:158",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:71 -> mdcg.py:4522",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:72 -> metacognition.py:56",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:76 -> autonomy.py:36",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:93 -> mdcos.py:1855",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:105 -> test/roleplay_edit_guard.test.ts:21",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:110 -> refindex.py:479",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:141 -> identity.py:82",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:189 -> md_cg/identity.py:51",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:190 -> md_cg/identity.py:55",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:191 -> md_cg/identity.py:70",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:192 -> md_cg/identity.py:79",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:193 -> md_cg/identity.py:96",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:194 -> md_cg/identity.py:114",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:195 -> md_cg/identity.py:127",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:197 -> md_cg/identity.py:310",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:202 -> md_cg/self_state.py:111",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:203 -> md_cg/self_state.py:340",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:204 -> md_cg/self_state.py:352",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:205 -> md_cg/self_state.py:433",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:214 -> md_cg/protect.py:204",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:215 -> md_cg/protect.py:319",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:217 -> md_cg/refindex.py:51",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:218 -> md_cg/refindex.py:132",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:224 -> md_cg/refindex.py:588",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:235 -> md_cg/tokens.py:52",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:243 -> test/roleplay_edit_guard.test.ts:19",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:246 -> scripts/state_atlas.py:18",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:254 -> refindex.py:489",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:26 -> md_cg/identity.py:51",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:30 -> identity.py:109",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:30 -> identity.py:79",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:31 -> identity.py:206",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:31 -> protect.py:45",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:32 -> identity.py:127",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:32 -> identity.py:80",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:32 -> identity.py:96",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:34 -> identity.py:310",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:34 -> identity.py:316",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:35 -> self_state.py:19",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:35 -> self_state.py:19",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:35 -> self_state.py:7",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:56 -> refindex.py:23",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:58 -> refindex.py:588",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:70 -> protect.py:204",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:70 -> protect.py:319",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:71 -> identity.py:121",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:82 -> md_cg/mcp_server.py:1318",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:91 -> tokens.py:15",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/令牌语义修正_仲裁位_v0.1.md:20 -> tokens.py:225",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/检索路径与认知结构契约_v0.1.md:59 -> md_cg/chain.py:152",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> exec.py:96",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> job.rs:35",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> job.rs:45",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> job.rs:52",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> job.rs:95",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> orch.py:466",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> spec.rs:84",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:43 -> orch.py:259",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:43 -> wm.py:11",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:46 -> scheduler.rs:3",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:48 -> job.rs:166",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:77 -> scheduler.rs:124",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/README详细版_v0.4.10.md:707 -> md_cg/security.py:117",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/世界模型功能端_使用与运维_v1.0.md:231 -> md_cg/mdcos.py:3029",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/全库代码评审与条件化注释_计划_v0.1.md:156 -> md_cg/codeindex.py:247",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/全库代码评审与条件化注释_计划_v0.1.md:270 -> tokens.py:59",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/睡眠周期_运维前提与维护指南_v1.0.md:264 -> md_cg/run_tests.py:105",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:197 -> consolidate.py:899",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:304 -> md_cg/links.py:62",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:355 -> mdcg.py:58",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:66 -> md_cg/mdcg.py:37",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:67 -> md_cg/mdcg.py:34",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:69 -> md_cg/consolidate.py:776",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:71 -> md_cg/evolution.py:45",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:72 -> md_cg/mcp_server.py:1784",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:73 -> md_cg/predict.py:526",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:176 -> nodefile.py:73",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:198 -> sources.py:296",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:277 -> md_cg/audit.py:167",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:292 -> fsutil.py:249",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:33 -> md_cg/codeindex.py:1",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:36 -> md_cg/nodefile.py:51",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:38 -> md_cg/tokens.py:56",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:382 -> nodefile.py:19",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:39 -> md_cg/sources.py:219",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:40 -> md_cg/sustain.py:12",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:41 -> mdcg.py:513",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:41 -> mdcos.py:313",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:48 -> codeindex.py:80",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:48 -> mdcg.py:709",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:48 -> mdcos.py:746",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:50 -> sustain.py:141",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:52 -> codeindex.py:107",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:53 -> tokens.py:59",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:54 -> links.py:1",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:79 -> mdcg.py:513",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:79 -> mdcos.py:313",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:121 -> md_cg/autonomy.py:199",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:131 -> md_cg/predict.py:477",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:132 -> md_cg/predict.py:592",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:134 -> md_cg/autonomy.py:107",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:136 -> md_cg/predict.py:40",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:146 -> md_cg/predict.py:888",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:149 -> md_cg/self_state.py:235",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:17 -> md_cg/predict.py:226",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:19 -> md_cg/predict.py:678",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:23 -> md_cg/predict.py:790",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:25 -> md_cg/autonomy.py:95",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:26 -> md_cg/autonomy.py:158",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:30 -> md_cg/self_state.py:438",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:36 -> md_cg/autonomy.py:36",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:36 -> md_cg/metacognition.py:105",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:36 -> md_cg/predict.py:62",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:36 -> md_cg/predict.py:86",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:78 -> md_cg/self_state.py:95",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:79 -> md_cg/predict.py:592",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:80 -> md_cg/predict.py:739",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:119 -> hive/src/main.rs:223",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:120 -> hive/src/main.rs:473",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:121 -> hive/src/main.rs:696",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:122 -> hive/src/scheduler.rs:213",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:145 -> hive/README.md:281",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:145 -> job.rs:54",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:145 -> scheduler.rs:1017",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:145 -> spec.rs:49",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:163 -> scripts/check_publish_artifact.py:46",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:73 -> md_cg/identity.py:55",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:85 -> identity.py:67",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:27 -> md_cg/evolution.py:42",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:29 -> mdcg.py:2970",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:38 -> trust.py:81",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:42 -> mdcos.py:852",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:45 -> audit.py:11",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:45 -> linkref.py:186",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:52 -> lifecycle.py:52",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:52 -> mdcos.py:750",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:53 -> scrub.py:832",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:56 -> trust.py:79",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:56 -> trust.py:81",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:63 -> autonomy_modes.py:129",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:63 -> autonomy_modes.py:543",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:65 -> links.py:9",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:68 -> test_time_core_lint.py:812",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:76 -> autonomy.py:6",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:76 -> predict.py:13",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:85 -> roleviews.py:37",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:88 -> mdcos.py:772",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:98 -> mdcos.py:88",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:191 -> mdcos.py:1770",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:193 -> md_cg/mdcos.py:3931",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:194 -> md_cg/mdcos.py:3931",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:3273",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:3441",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:499",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:5089",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:5575",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:221 -> mdcos.py:3287",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:223 -> scripts/dsh_log_index.py:616",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/真源索引_通用机制_v0.3.md:32 -> md_cg/logref.py:119",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/真源索引_通用机制_v0.3.md:34 -> md_cg/srcindex.py:86",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/真源索引_通用机制_v0.3.md:43 -> refindex.py:445",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/真源索引_通用机制_v0.3.md:44 -> md_cg/srcindex.py:71",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/真源索引_通用机制_v0.3.md:46 -> refindex.py:520",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/真源索引_通用机制_v0.3.md:83 -> pooling.py:39",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/真源索引_通用机制_v0.3.md:94 -> docindex.py:297",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:106 -> md_cg/mcp_server.py:4153",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:106 -> md_cg/sustain.py:1052",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:116 -> md_cg/mdcg.py:1646",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:146 -> md_cg/chain.py:2",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:147 -> md_cg/mdcos.py:1160",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:148 -> md_cg/mcp_server.py:3351",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:148 -> md_cg/mdcos.py:1347",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:149 -> md_cg/mdcg.py:3392",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:150 -> md_cg/mcp_server.py:1433",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:150 -> md_cg/predict.py:1020",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:151 -> md_cg/mdcos.py:1481",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:152 -> md_cg/stg.py:197",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:153 -> md_cg/consolidate.py:1210",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:153 -> md_cg/mdcg.py:2299",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:154 -> md_cg/links.py:46",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:154 -> md_cg/mcp_server.py:2083",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:193 -> md_cg/mdcg.py:4127",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:195 -> md_cg/mdcg.py:1532",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:196 -> md_cg/mdcg.py:177",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:196 -> md_cg/mdcos.py:1057",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:197 -> md_cg/weights.py:452",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:208 -> md_cg/sustain.py:1214",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:209 -> md_cg/mdcg.py:1353",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:211 -> scripts/bootstrap_loop.py:32",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:255 -> md_cg/consolidate.py:899",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:289 -> fsutil.py:58",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:289 -> mdcos.py:561",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:291 -> check_publish_artifact.py:49",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:291 -> datapath.py:13",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:292 -> mdcg.py:1284",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:294 -> crypto.py:311",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:294 -> mdcos.py:2555",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:294 -> protect.py:244",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:295 -> fsutil.py:26",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:298 -> mdcg.py:1609",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:298 -> refindex.py:324",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:304 -> wm.py:116",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:305 -> wm.py:332",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:306 -> wm.py:352",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:334 -> md_cg/evolution.py:2",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:36 -> links.py:53",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:393 -> md_cg/mdcg.py:3561",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:393 -> rust/src/retrieval.rs:201",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:416 -> md_cg/mdcos.py:1481",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:441 -> links.py:53",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:446 -> md_cg/mdcos.py:738",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:457 -> md_cg/consolidate.py:1210",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:476 -> md_cg/mdcg.py:3575",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:479 -> md_cg/mdcg.py:1532",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:480 -> md_cg/mdcg.py:3561",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:480 -> rust/src/retrieval.rs:201",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:487 -> md_cg/protect.py:135",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:491 -> md_cg/protect.py:272",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:107 -> hive/exec.py:92",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:108 -> hive/exec.py:1405",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:109 -> hive/exec.py:1430",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:111 -> hive/exec.py:982",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:115 -> hive/orch.py:516",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:123 -> hive/serve_start.py:63",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:124 -> hive/serve_start.py:88",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:127 -> md_cg/writelimit.py:54",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:137 -> hive/serve_start.py:296",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:143 -> hive/src/exec.rs:282",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:144 -> hive/src/exec.rs:298",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:145 -> hive/src/keyres.rs:64",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:148 -> hive/src/exec.rs:262",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:149 -> hive/src/keyres.rs:66",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:182 -> hive/src/exec.rs:98",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:183 -> hive/hive_mcp/mcp_server.py:269",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:184 -> hive/exec.py:1412",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:206 -> hive/serve_start.py:88",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:219 -> hive/serve_start.py:564",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:220 -> hive/serve_start.py:481",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:220 -> hive/src/exec.rs:137",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:220 -> hive/src/scheduler.rs:454",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:221 -> hive/serve_start.py:443",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:234 -> hive/README.md:543",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:234 -> hive/config.local.example.json:7",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:234 -> hive/serve_start.py:160",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:234 -> hive/serve_start.py:70",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:234 -> md_cg/writelimit.py:54",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:235 -> hive/exec.py:98",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:235 -> hive/orch.py:511",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:235 -> hive/serve_start.py:69",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:236 -> hive/README.md:281",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:236 -> hive/hive_mcp/mcp_server.py:418",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:246 -> hive/src/keyres.rs:24",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:246 -> hive/src/scheduler.rs:574",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:248 -> hive/README.md:579",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:27 -> hive/src/exec.rs:85",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:28 -> hive/exec.py:1405",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:28 -> hive/exec.py:146",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:332 -> hive/src/keyres.rs:33",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:337 -> hive/src/exec.rs:166",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:337 -> hive/src/scheduler.rs:550",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:337 -> hive/src/scheduler.rs:574",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:337 -> hive/src/scheduler.rs:758",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:339 -> hive/src/keyres.rs:43",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:56 -> hive/README.md:535",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:56 -> hive/exec.py:92",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:57 -> hive/src/exec.rs:98",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:57 -> hive/src/keyres.rs:33",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:58 -> hive/exec.py:113",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:58 -> hive/orch.py:516",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:62 -> hive/src/exec.rs:130",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:62 -> hive/src/exec.rs:98",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:63 -> hive/src/exec.rs:154",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:63 -> hive/src/exec.rs:83",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:64 -> hive/exec.py:118",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:64 -> hive/exec.py:92",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:86 -> hive/src/exec.rs:98",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:87 -> hive/src/exec.rs:83",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:90 -> hive/src/exec.rs:118",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:99 -> hive/src/main.rs:189",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:99 -> hive/src/scheduler.rs:574",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:149 -> md_cg/mdcos.py:3717",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:149 -> mdcos.py:3702",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:149 -> writepipe.py:260",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:152 -> md_cg/test_writelimit.py:123",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:45 -> md_cg/forgetting.py:456",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:46 -> consolidate.py:891",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:47 -> forgetting.py:411",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:47 -> forgetting.py:756",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:47 -> md_cg/mcp_server.py:324",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:48 -> md_cg/freshness.py:302",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:48 -> md_cg/lifecycle.py:52",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:52 -> consolidate.py:970",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:53 -> protect.py:32",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:54 -> mdcos.py:2016",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:54 -> writepipe.py:260",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:55 -> md_cg/sleep.py:84",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:55 -> md_cg/sustain.py:88",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:83 -> protect.py:32",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:86 -> freshness.py:428",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:90 -> md_cg/sleep.py:596",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:22 -> trust.py:367",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:24 -> stg.py:485",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:25 -> stg.py:542",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:58 -> trust.py:81",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:65 -> md_cg/scrub.py:409",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:65 -> trust.py:81",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+  },
+  {
+   "key": "docs/theory/概念分层对齐表_v0.1.md:104 -> rust_swarm.py:88",
+   "why": "理论真源（只读引用面）存量锚：同上，冻结。"
+  },
+  {
+   "key": "docs/theory/概念分层对齐表_v0.1.md:33 -> swarm/rust_swarm.py:40",
+   "why": "理论真源（只读引用面）存量锚：同上，冻结。"
+  },
+  {
+   "key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md:95 -> src/index.ts:126",
+   "why": "理论真源（只读引用面）存量锚：同上，冻结。"
+  },
+  {
+   "key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md:96 -> src/index.ts:186",
+   "why": "理论真源（只读引用面）存量锚：同上，冻结。"
+  },
+  {
+   "key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md:97 -> src/bridge.ts:50",
+   "why": "理论真源（只读引用面）存量锚：同上，冻结。"
+  },
+  {
+   "key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md:99 -> package.json:14",
+   "why": "理论真源（只读引用面）存量锚：同上，冻结。"
+  },
+  {
+   "key": "docs/不可靠性理论_v0.1.md:93 -> md_cg/datapath.py:60",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/不可靠性理论_v0.1.md:93 -> md_cg/mcp_server.py:3610",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "docs/记忆评审系统_立项设计与施工交接_20260915.md:61 -> tokens.py:127",
+   "why": "文档面存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "hive/src/keyres.rs:4 -> orch.py:326",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "hive/test_orch.py:103 -> md_cg/security.py:118",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/bench_axis_domain.py:11 -> mdcg.py:37",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/freshness.py:51 -> md_cg/protect.py:135",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/logref.py:127 -> refindex.py:302",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/mdcg.py:3573 -> md_cg/mdcg.py:4181",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/mdcg.py:3575 -> md_cg/mdcos.py:1754",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/mdcg.py:3671 -> mdcos.py:748",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/mdcg.py:45 -> mdcos.py:748",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/mdcos.py:4610 -> forgetting.py:879",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/protect.py:394 -> md_cg/mdcg.py:3502",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/protect.py:400 -> md_cg/mdcos.py:3889",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/protect.py:50 -> mdcg.py:1294",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/protect.py:51 -> mdcg.py:1848",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/protect.py:68 -> mdcg.py:1508",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/protocol.py:81 -> mcp_server.py:1849",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/provenance.py:434 -> stg.py:144",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/subgraph.py:124 -> migrate.py:43",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_auto_defaults.py:17 -> sustain.py:966",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_autonomy_modes.py:1118 -> mcp_server.py:3373",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_b4_shard_dir_selfheal_guard.py:16 -> fsutil.py:706",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_branch_discard_tombstone.py:7 -> mdcg.py:1010",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_i50c_meta_passthrough.py:46 -> mdcos.py:2565",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_legacy_p3_node_id_type.py:15 -> md_cg/mdcg.py:1338",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_legacy_p3_node_id_type.py:22 -> md_cg/mdcg.py:1461",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n178_units_jobid_gate.py:14 -> hive/hive_mcp/mcp_server.py:133",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n178_units_jobid_gate.py:15 -> hive/src/job.rs:63",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n195_writepath_reload.py:4 -> mdcg.py:1034",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n195_writepath_reload.py:6 -> mdcg.py:1476",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n195_writepath_reload.py:7 -> mdcg.py:1607",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n195_writepath_reload.py:7 -> mdcos.py:2356",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n196_stale_gate_skip.py:12 -> mdcos.py:3887",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n196_stale_gate_skip.py:7 -> mdcos.py:4039",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n197_n208_write_face_gates.py:10 -> md_cg/insight.py:297",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n198_tokens_corrupt_failclosed.py:4 -> tokens.py:288",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n199_tokens_concurrent_write.py:5 -> md_cg/tokens.py:343",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n201_proposal_visibility.py:10 -> md_cg/mdcos.py:1946",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n201_proposal_visibility.py:12 -> md_cg/mcp_server.py:3067",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n201_proposal_visibility.py:6 -> md_cg/mdcos.py:1794",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n202_session_notes_visibility.py:6 -> md_cg/mdcos.py:2548",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n202_session_notes_visibility.py:9 -> mdcg.py:2445",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n202_session_notes_visibility.py:96 -> mdcg.py:104",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n204_n205_n226_n227_n228_n229_exit_gates.py:16 -> md_cg/provenance.py:427",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n204_n205_n226_n227_n228_n229_exit_gates.py:19 -> stg.py:144",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n209_verify_write_face_gates.py:54 -> md_cg/scrub.py:683",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n209_verify_write_face_gates.py:6 -> md_cg/mdcg.py:3502",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n212_n213_n224_generation_gates.py:15 -> mdcg.py:1794",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:10 -> md_cg/forgetting.py:247",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:12 -> md_cg/mdcos.py:3380",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:18 -> writelimit.py:141",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:33 -> md_cg/mdcg.py:1560",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:39 -> md_cg/scrub.py:718",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:43 -> md_cg/mcp_server.py:1671",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n225_nonobject_load.py:10 -> mdcg.py:1050",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n225_nonobject_load.py:15 -> mdcg.py:1235",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_n225_nonobject_load.py:17 -> fsutil.py:386",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "md_cg/test_verify_dirty_reconcile.py:5 -> mdcg.py:3166",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "rust/src/text.rs:4 -> mdcg.py:113",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "rust/src/text.rs:5 -> mdcg.py:128",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "rust/src/text.rs:6 -> nodefile.py:163",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "rust/src/text.rs:7 -> nodefile.py:78",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "scripts/_mdcg_reindex_dshlogs.py:19 -> datapath.py:254",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "scripts/test_judgment_manifest.py:47 -> scripts/criteria_fingerprint.py:38",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "src/lib/mdcg_client.ts:35 -> md_cg/mcp_server.py:1691",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "src/lib/prompt_safety.ts:27 -> lib/index.js:109",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  },
+  {
+   "key": "src/lib/session_state.ts:93 -> md_cg/mdcos.py:5009",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+  }
+ ]
+}

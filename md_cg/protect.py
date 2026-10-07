@@ -394,7 +394,7 @@ def require_layer(cg, node_id, layer=None, sensitivity=None, actor=None):
     （`md_cg/mdcg.py:3502`）、`trust.set_state`（验证态唯一推进入口 ⇒ 依赖者
     `mark_dependents` 与 `set_verification` 两条写路，`md_cg/trust.py:697-698`）、
     `MdCG._move_layer`（降级搬迁 = 源层一次删除写 + 目标层一次新增写，
-    `md_cg/mdcg.py:3405`）。后果：持 verify 令牌（`layers_allow` 仅
+    `md_cg/mdcg.py` 的 `MdCG._move_layer`）。后果：持 verify 令牌（`layers_allow` 仅
     rejected/contextual、forbidden 明列「knowledge/self/anchor 层」）即可改写
     knowledge 层节点本体、把 self 层依赖者置 doubted、把 knowledge 节点搬出层。
     层闸口径与 `MdCGSecure.add`/`add_rejected` 一致（`md_cg/mdcos.py:3889`/`:3898`）。
