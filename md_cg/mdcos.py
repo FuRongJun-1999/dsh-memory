@@ -84,6 +84,47 @@ TEMPORAL_DT_UNIT = "day"
 TEMPORAL_SCORE_FLOOR = 0.001
 
 
+# ==========================================================================
+# W5 路线B · 路径指纹（path_fingerprint）：把「我走了哪条路」聚合成一个
+# **单一、可命名、可指认、确定性可复算**的对象。
+#
+# 五标志之「路径感知」在全亮档要求「单一可命名、运行时可自述的路径对象」；
+# 本仓既有路径读数分散（`docs/eval/W5_标志线与融合核对_v0.1.md` §一）：
+#   · 选面 scanned/kept/truncated/comparable 与 L2 递归 trace/stopped_by
+#     （`md_cg/consistency.py`）——**判定面**；
+#   · 命中路 per_path/provenance（本模块 `search_rrf`）——**检索面**。
+# 本函数把一次**检索决策**的路径聚合成三段（selection/recursion/paths）＋
+# 一个稳定 hash，落在 `search_rrf`/`recall` 返回的 meta（新增 `path_fingerprint` 键）。
+# 落**检索面**而非判定面的理由：命中路 provenance（每候选被哪几路捞到、排第几）
+# **只在检索面存在**——落判定面将不得不凭空造「paths」段（无中生有，违反白箱纪律）；
+# 检索面本身亦能自陈选面（scanned/gates/fused/judge_filtered）与递归展开
+# （因果路多跳 depth/hops）。
+#
+# 纪律：**只增不改**——既有 meta 键一个不动；**纯聚合输出**，不改检索/判定行为；
+# hash **确定性**（sha256 over 排序归一 JSON，不含时间戳/随机/uuid/对象地址）。
+# ==========================================================================
+
+PATH_FINGERPRINT_KEYS = ("selection", "recursion", "paths")
+
+
+# 生效条件：selection/recursion/paths 三段任一可为 None（按空 dict 代入），返回 {"selection":…,"recursion":…,"paths":…,"hash":…}；hash=sha256(三段排序归一 JSON)[:16]，同一三段（键序无关、列表序保留）恒得同一 hash，不含时间戳/随机数/对象地址。不适用条件：把三段内容跨进程对齐时仍须各自归一，本函数只保证「同结构同 hash」，不改写任何语义。
+def build_path_fingerprint(selection=None, recursion=None, paths=None) -> dict:
+    """一次决策的路径指纹：三段（选面/递归/命中路）＋稳定 hash。
+
+    **只增不改**的聚合器——不读盘、不写盘、不改任何既有返回值，只把调用方
+    已算好的三段读数归一成单一对象。hash 用 sha256（非内置 hash()：后者有随机
+    盐，跨进程不稳定），对 `json.dumps(..., sort_keys=True)` 的规范串取值——故
+    **确定性**：同一三段恒得同一 hash，且**不含**时间戳/随机数/对象地址。
+    """
+    fp = {"selection": dict(selection or {}),
+          "recursion": dict(recursion or {}),
+          "paths": dict(paths or {})}
+    canon = json.dumps(fp, ensure_ascii=False, sort_keys=True,
+                       separators=(",", ":"), default=str)
+    fp["hash"] = hashlib.sha256(canon.encode("utf-8")).hexdigest()[:16]
+    return fp
+
+
 # 生效条件：environ（缺省 os.environ）里 TEMPORAL_GAMMA_ENV 为真值且 float() 可解析且 > 0 时返回该值；缺失/空串/不可解析/非正数一律回落 `math.log(2)/links.DECAY_DAYS`（缺省半衰期 30 天）。
 def temporal_gamma(environ=None) -> float:
     """时间邻近度衰减率 γ（**每天**）的唯一读取点。"""
@@ -1811,6 +1852,38 @@ class MdCGOS(MdCG):
             results.append((node, round(fs, 6), qual, prov.get(nid, [])))
         _bnd_meta = ({"boundary": boundary_counts}
                      if boundary_counts["hit"] else {})
+        # W5 路线B · 路径指纹（**只增不改**：纯聚合输出，不改任何既有键/行为）。
+        #   selection＝本次检索的选面（扫描量 / 生效门控 / 融合数 / 裁决读数）；
+        #   recursion＝本次检索实际发生的**递归展开**（因果路多跳：命中节点数、
+        #             最大深度、最大跳数）——检索面的「递归压力」可指认面；
+        #   paths＝命中路面（各路候选数 per_path ＋ 候选级 provenance，与既有
+        #          meta 的 "paths"/"provenance" 两键同源、逐位对得上）；
+        #   hash＝三段排序归一后的确定性摘要（同输入同 hash）。
+        _chain_depths = [int(v.get("depth") or 0) for v in chain_prov.values()]
+        _chain_hops = [max(0, len(v.get("chain") or []) - 1)
+                       for v in chain_prov.values()]
+        _fp_recursion = {"chain": {
+            "enabled": "chain" in paths,
+            "nodes": len(chain_prov),
+            "depth_max": max(_chain_depths) if _chain_depths else 0,
+            "hops_max": max(_chain_hops) if _chain_hops else 0}}
+        _fp_paths = {
+            "per_path": dict(per_path),
+            "used": sorted({str(p.get("path")) for _lst in prov.values()
+                            for p in _lst}),
+            "multi": sum(1 for _lst in prov.values()
+                         if len({p.get("path") for p in _lst}) >= 2),
+            "provenance": prov}
+        _fp_selection = {
+            "scanned": stat["scanned"],
+            "gates": sorted((gates or {}).keys()) or None,
+            "fused": len(results),
+            "judge_ranking": bool(judge and judge_ranking),
+            "judge_filtered": filtered,
+            "early_stopped": early_stopped}
+        _path_fp = build_path_fingerprint(selection=_fp_selection,
+                                          recursion=_fp_recursion,
+                                          paths=_fp_paths)
         if record and results:
             self.record_access([r[0]["id"] for r in results], "RRF")
         # 热路径：写 query 结果缓存 —— **同样受 `_time_on` 约束**。
@@ -1825,7 +1898,8 @@ class MdCGOS(MdCG):
                          "early_stopped": early_stopped,
                          "expand_source": fuzzy_source,
                          "goal_used": goal_used,
-                         "provenance": prov, **_tf_meta,
+                         "provenance": prov,
+                         "path_fingerprint": _path_fp, **_tf_meta,
                          **_gates_meta, **_bnd_meta}, k=k, layer=layer,
                          session=session, branch=branch, validity=validity,
                          view=view, extra=_cache_extra)
@@ -1836,7 +1910,8 @@ class MdCGOS(MdCG):
                          "early_stopped": early_stopped,
                          "expand_source": fuzzy_source,
                          "goal_used": goal_used,
-                         "provenance": prov, **_tf_meta,
+                         "provenance": prov,
+                         "path_fingerprint": _path_fp, **_tf_meta,
                          **_gates_meta, **_bnd_meta}
 
     # ================= 7. budget-driven pack =================
