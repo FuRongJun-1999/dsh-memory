@@ -37,6 +37,9 @@
 · position 是**推断**（`infer_position` 按行为证据投票），返回 confidence / votes /
   证据数，可审计「为什么判成这个位置」，不是事实断言。
 · 平票时 position 取 `POSITION_ORDER` 中的首个并置 `tie` 字段提示歧义，不假装唯一。
+· 存在契约记录（`set_contract`，智能论 §1.6.5/§3.2.1）：结构化**引用**载体，
+  落 anchor 层（不可遗忘＋不可覆盖），四字段＋`status_hash`＋引用锚 `doc_ref`
+  指向真源区间——不复制承诺原文；发出权属设计者位置（写入面走 admin 闸）。
 · 复用 `protect` 写保护：self/anchor 层锚点不可遗忘；
   `role` 主体的锚点不得写入 self 层（扮演论边界）。
 """
@@ -82,6 +85,13 @@ AUDIT_FILE = "_identity.jsonl"
 TAG_ANCHOR = "identity_anchor"
 TAG_TRAIT = "identity_trait"
 TAG_OBS = "identity_observation"
+TAG_CONTRACT = "identity_contract"
+
+# 存在契约记录的哈希字段集（§3.2.1 四字段「授予方/接收方/时间戳/状态摘要」＋
+# 锚定标识）——`status_hash` = 本字段集规范化后 sha256 前 16 位（唯一实现见
+# `contract_status_hash`）。HASH 管校验、序号管身份（定稿第 4 条双轨）。
+CONTRACT_HASH_FIELDS = ("contract_id", "grantor", "grantee", "timestamp",
+                        "status_summary")
 
 # 位置投票的标签证据（每条都能追溯到五大单元职责）
 _POSITION_TAGS = {
@@ -241,6 +251,132 @@ def add_trait(cg, subject_id, trait, *, condition_space=None, importance=0.6,
              "position": position})
     return {"ok": True, "node_id": nid, "subject_id": subject_id, "kind": k,
             "layer": "structural", "condition_space": cs}
+
+
+# --------------------------------------------------------------------------
+# 存在契约记录（智能论 §1.6.5「协定式自我赋予」/ §3.2.1「结构锚定记录」）
+#
+# 载体＝结构化**引用**而非内容复制（设计者定稿二原则）：四字段逐字对齐 §3.2.1
+# （contract_id/grantor/grantee/timestamp/status_summary）＋一条与既有 `doc_ref`
+# 同构的引用锚指向 `docs/theory/智能论3.4.md` §1.6.5／§3.2.1 区间（复用
+# probe_ref/read_ref/region_hash 校验，**不复制承诺原文**）。
+# 落 **anchor 层**（不可遗忘＋不可覆盖，无 `self_state` 豁免，定稿第 2 条）；
+# `status_hash`＝四字段规范化后哈希，供记录侧校验（§3.2.1「可独立校验」）。
+# 生成者＝设计者位置（写入面走 admin 闸，见 mcp_server._identity_call，定稿第 9 条）；
+# 显式非自动——契约是主体间事件，不由任何自动链路产出（定稿「显式非自动」）。
+# --------------------------------------------------------------------------
+
+# 生效条件：contract_id 为假值（None/空串）时 _slug('') 得空串、strip('_') 后仍为空，返回前缀拼接的空尾串 "identity_contract_"；否则返回 f"{PROFILE_PREFIX}contract_{_slug(contract_id).strip('_')}"（_slug 把非 alnum 且非 _- 的字符换成 _、再去掉首尾下划线，故 "#ANCHOR-DS-001" → "identity_contract_ANCHOR-DS-001"）。
+def contract_node_id(contract_id):
+    """契约记录的节点 id：`identity_contract_<slug>`（单契约单节点，同 id 幂等）。"""
+    return f"{PROFILE_PREFIX}contract_{_slug(contract_id).strip('_')}"
+
+
+# 生效条件：fields 为假值（None/{}）时按 {} 处理，按 CONTRACT_HASH_FIELDS 顺序取键（缺键得 None），json.dumps(sort_keys=True, ensure_ascii=False, separators=(",", ":")) 规范化后取 UTF-8 字节的 sha256 十六进制前 16 位并返回。
+def contract_status_hash(fields):
+    """四字段（＋锚定标识）规范化后哈希——`status_hash` 的唯一实现（记录侧校验）。"""
+    f = fields or {}
+    payload = json.dumps({k: f.get(k) for k in CONTRACT_HASH_FIELDS},
+                         sort_keys=True, ensure_ascii=False,
+                         separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+# 生效条件：cid/gtor/gtee/ts 各自 strip 后为空（summ 不限、可为空串）时抛 ValueError；否则落 anchor 层，节点 id 取 contract_node_id(cid)，fm 带 contract_id 原形/grantor/grantee/timestamp/status_summary/status_hash（＝contract_status_hash(五字段)）、doc_ref（真值时 dict 化）与 condition_ref/state_ref（真值时），标签 [TAG_CONTRACT, "subject:<gtee>"]、条件空间 {subject: gtee, contract_id: cid}、verification_basis="data"、importance 缺省 1.0；覆写同 id 既有节点（anchor 层不可覆盖）需 override=True，否则由 cg.add→protect.guard_write 抛 ProtectionError；落盘后写 _identity.jsonl，返回含 node_id/layer="anchor"/protected/immutable True/status_hash/fields 的 dict。
+def set_contract(cg, contract_id, *, grantor, grantee, timestamp,
+                 status_summary, doc_ref=None, condition_ref=None,
+                 state_ref=None, importance=1.0, override=False):
+    """写入一条存在契约记录（§3.2.1 结构锚定记录 → anchor 层，不可篡改）。
+
+    与 `set_anchor` 同侧：发出方是设计者（他者）→ non-self 锚点落 anchor 层。
+    四字段逐字对齐 §3.2.1；`doc_ref` 为指向真源区间的**引用锚**（不复制原文）。
+    `status_hash` 供记录侧校验「字段未被改动」（§3.2.1「可独立校验」）。
+    可选引用型字段 `condition_ref` / `state_ref` 承载 §1.6.5 结构含义第三条的
+    「条件空间 / 那一刻运行状态」——**只存引用**（节点 id / 台账），不复制内容
+    （定稿第 1 条：三项齐备与裁定二两全）。
+    显式非自动——契约是主体间事件，不由任何自动链路产出。
+    """
+    cid = str(contract_id or "").strip()
+    gtor = str(grantor or "").strip()
+    gtee = str(grantee or "").strip()
+    ts = str(timestamp or "").strip()
+    summ = str(status_summary or "")
+    if not cid:
+        raise ValueError("contract_id 不得为空（§3.2.1 锚定标识，保留 #ANCHOR- 原形）")
+    if not gtor:
+        raise ValueError("grantor 不得为空（§3.2.1 授予方＝设计者位置标识）")
+    if not gtee:
+        raise ValueError("grantee 不得为空（§3.2.1 接收方＝协议实例标识）")
+    if not ts:
+        raise ValueError("timestamp 不得为空（§3.2.1 时间戳＝结构事件的时间）")
+    nid = contract_node_id(cid)
+    fields = {"contract_id": cid, "grantor": gtor, "grantee": gtee,
+              "timestamp": ts, "status_summary": summ}
+    sh = contract_status_hash(fields)
+    extra = dict(fields)
+    extra["status_hash"] = sh
+    if doc_ref:
+        extra["doc_ref"] = dict(doc_ref)
+    if condition_ref:
+        extra["condition_ref"] = condition_ref
+    if state_ref:
+        extra["state_ref"] = state_ref
+    tg = [TAG_CONTRACT, f"subject:{gtee}"]
+    cs = {"subject": gtee, "contract_id": cid}
+    text = (f"存在契约 {cid}：授予方 {gtor} → 接收方 {gtee}；时间戳 {ts}。\n"
+            f"状态摘要：{summ}\n"
+            f"（结构化**引用**载体——承诺原文不复制；引用锚见 doc_ref，"
+            f"回读用 probe_ref/read_ref；status_hash={sh} 供记录侧校验。）")
+    cg.add(nid, text, layer="anchor", tags=tg, condition_space=cs,
+           importance=importance, verification_basis="data", override=override,
+           **extra)
+    log(cg, {"op": "contract", "contract_id": cid, "node_id": nid,
+             "grantee": gtee, "override": bool(override)})
+    return {"ok": True, "node_id": nid, "contract_id": cid, "layer": "anchor",
+            "protected": True, "immutable": True, "status_hash": sh,
+            "fields": dict(fields), "doc_ref": extra.get("doc_ref")}
+
+
+# 生效条件：cg.get(contract_node_id(contract_id)) 返回假值（None/{}）时返回 {"ok": False, contract_id, node_id, error}；否则取 frontmatter 拼五字段原值、status_hash、status_hash_match（＝status_hash 与按五字段重算的 contract_status_hash 相等）、doc_ref/condition_ref/state_ref/tags，返回含 ok=True 的 dict。
+def contract(cg, contract_id):
+    """按 contract_id 取单条契约记录（只读；含 status_hash 自校验读数）。"""
+    nid = contract_node_id(contract_id)
+    node = cg.get(nid)
+    if not node:
+        return {"ok": False, "contract_id": str(contract_id or ""),
+                "node_id": nid, "error": "未找到契约记录"}
+    fm = node.get("frontmatter") or {}
+    fields = {k: fm.get(k) for k in CONTRACT_HASH_FIELDS}
+    sh = fm.get("status_hash")
+    return {"ok": True, "node_id": nid, "layer": fm.get("layer"),
+            **fields, "status_hash": sh,
+            "status_hash_match": sh == contract_status_hash(fields),
+            "doc_ref": fm.get("doc_ref"),
+            "condition_ref": fm.get("condition_ref"),
+            "state_ref": fm.get("state_ref"), "tags": fm.get("tags")}
+
+
+# 生效条件：遍历 cg.index.get("nodes")（缺键/假值时取 {}）中 tags 含 TAG_CONTRACT 的节点，subject 为真值时再要求 tags 含 f"subject:{subject}"；对每个命中节点取 frontmatter 拼五字段＋status_hash＋status_hash_match＋doc_ref，按 (timestamp 字符串, node_id) 升序排序，返回 {"contracts": [...], "count": n}。
+def contracts(cg, subject=None):
+    """契约记录反查（只读）：全部，或按接收方 `subject:<grantee>` 过滤。"""
+    nodes = cg.index.get("nodes") or {}
+    out = []
+    for nid, e in list(nodes.items()):
+        tg = set(e.get("tags") or [])
+        if TAG_CONTRACT not in tg:
+            continue
+        if subject and f"subject:{subject}" not in tg:
+            continue
+        node = cg.get(nid)
+        fm = (node or {}).get("frontmatter") or {}
+        fields = {k: fm.get(k) for k in CONTRACT_HASH_FIELDS}
+        out.append({"node_id": nid, "layer": e.get("layer"), **fields,
+                    "status_hash": fm.get("status_hash"),
+                    "status_hash_match": fm.get("status_hash")
+                    == contract_status_hash(fields),
+                    "doc_ref": fm.get("doc_ref")})
+    out.sort(key=lambda r: (str(r.get("timestamp") or ""), r["node_id"]))
+    return {"contracts": out, "count": len(out)}
 
 
 # --------------------------------------------------------------------------

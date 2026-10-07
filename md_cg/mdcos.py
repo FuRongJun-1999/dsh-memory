@@ -4512,6 +4512,21 @@ class MdCGOS(MdCG):
         """自描述：位置效应表 + 扮演论三接口。"""
         return identity.catalog()
 
+# 生效条件：当 contract_id 传入时，以 contract_id 及 **kw 调用 identity.set_contract 并返回其结果；
+    def identity_contract(self, contract_id, **kw):
+        """存在契约记录（§1.6.5/§3.2.1）：结构化引用载体，落 anchor 层不可篡改。"""
+        return identity.set_contract(self, contract_id, **kw)
+
+# 生效条件：当 contract_id 传入时，调用 identity.contract(self, contract_id) 并返回其结果；
+    def identity_contract_record(self, contract_id):
+        """按 contract_id 取单条契约记录（含 status_hash 自校验读数）。"""
+        return identity.contract(self, contract_id)
+
+# 生效条件：当 subject 传入时，调用 identity.contracts(self, subject=subject) 并返回其结果；
+    def identity_contracts(self, subject=None):
+        """契约记录反查（只读）：全部，或按接收方 subject 过滤。"""
+        return identity.contracts(self, subject=subject)
+
     # ---- 节点间自动冲突检测（三级决策：情绪 → 反思 → 递归反思）----
 
 # 生效条件：当 content 传入时，先对 non_applicable_conditions 逐项过 _is_null_condition（空值语义哨兵剔除，⑤），再以 layer/condition_space/剔除后的列表/tags/exclude/limit/depth/auto_flywheel 的传入值或默认值（limit=consistency.MAX_SCAN、depth=consistency.MAX_DEPTH、auto_flywheel=False）调用 consistency.check 并返回其结果；

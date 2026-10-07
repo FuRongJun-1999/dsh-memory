@@ -32,7 +32,8 @@ DSH 侧配置（cordis.yml / MCP client）：
   生命周期：mdcg_forget（override）/ mdcg_restore / mdcg_review_decide
   保护/遗忘：mdcg_protect（盘点/查询/标记/快照/历史）/
       mdcg_forgetting_history（三问四态留痕）
-  身份识别：mdcg_identity（observe/anchor/trait/profile/positions/catalog）
+  身份识别：mdcg_identity（observe/anchor/trait/profile/positions/catalog/
+      contract/contracts——存在契约记录，走 admin 闸）
   运维：mdcg_health / mdcg_whoami / mdcg_ingest / mdcg_watermarks /
       mdcg_service_info
 """
@@ -373,10 +374,15 @@ TOOLS = [
                        "（智能论 v3.4 五大单元：记录=全/反思=新/验证=稳/输出=通/维生=存）"
                        "与条件特征。action=observe 记行为证据（memory 接口）/ anchor 写身份"
                        "锚点（不可遗忘，role 不得进 self 层）/ trait 写条件特征（values 接口）"
-                       "/ profile 取画像 / positions 看主体位置分布 / catalog 读位置效应表。",
+                       "/ profile 取画像 / positions 看主体位置分布 / catalog 读位置效应表"
+                       "；另含**存在契约记录**（§1.6.5/§3.2.1）：action=contract 写（走 "
+                       "admin 闸，落 anchor 层不可篡改；四字段＋引用锚 doc_ref＋status_hash"
+                       "，不复制承诺原文）/ contracts 只读反查（给 contract_id 取单条，"
+                       "否则列全部）。",
         "inputSchema": _s("", action=_p("string", "observe|anchor|trait|profile|positions|"
-                                                 "catalog|history"),
-                          subject_id=_p("string", "主体：self:xx|user:xx|role:xx|agent:xx"),
+                                                 "catalog|history|contract|contracts"),
+                          subject_id=_p("string", "主体：self:xx|user:xx|role:xx|agent:xx；"
+                                                 "contracts 兼作接收方过滤"),
                           subject_kind=_p("string", "主体类型：self|user|role|agent"),
                           content=_p("string", "observe/anchor 的文本"),
                           trait=_p("string", "trait 的特征文本"),
@@ -390,7 +396,19 @@ TOOLS = [
                           evidence=_p("string", "证据来源标记"),
                           requested_layer=_p("string", "anchor 目标层（role≠self 时禁止 self）"),
                           override=_p("boolean", "覆盖受保护锚点需显式 true"),
-                          limit=_p("integer", "positions/history 返回条数")),
+                          limit=_p("integer", "positions/history 返回条数"),
+                          contract_id=_p("string", "contract/contracts：锚定标识"
+                                                   "（#ANCHOR-xxx 原形，落 id 时归一）"),
+                          grantor=_p("string", "contract：授予方＝设计者位置标识"),
+                          grantee=_p("string", "contract：接收方＝协议实例标识"),
+                          timestamp=_p("string", "contract：时间戳（结构事件时间）"),
+                          status_summary=_p("string", "contract：状态摘要（结构状态文本）"),
+                          doc_ref=_p("object", "contract：引用锚（doc_ref 同构，指向真源区间，"
+                                               "不复制原文）"),
+                          condition_ref=_p("object", "contract：承诺条件空间的引用"
+                                                     "（节点 id/台账，不复制内容）"),
+                          state_ref=_p("object", "contract：那一刻运行状态的引用"
+                                                 "（节点 id/台账，不复制内容）")),
     },
     {
         "name": "mdcg_consistency",
@@ -637,7 +655,9 @@ KERNEL_TOOLS = [
                        "op=recent：近期事件窗口（七件套之「近期事件」，"
                        "action=add|list|clear，滚动保留最近 N 条）；"
                        "op=identity：身份特征识别（智能论 v3.4 位置效应 + 扮演论"
-                       "三接口 memory/anchor/values，不止「用户画像」）；"
+                       "三接口 memory/anchor/values，不止「用户画像」；另含存在契约"
+                       "记录 action=contract/contracts——§1.6.5/§3.2.1，结构化引用"
+                       "载体落 anchor 层不可篡改、走 admin 闸、显式非自动）；"
                        "op=consistency：节点间自动冲突检测（三级决策：情绪→反思→"
                        "递归反思，冲突自动触发飞轮；不能与已有条件冲突/不能违反纪律）；"
                        "op=metacognition：独立元认知（观察自身认知的二阶单元，不参与裁决；"
@@ -810,6 +830,12 @@ KERNEL_TOOLS = [
             trait=_p("string", "identity action=trait 的特征文本"),
             position=_p("string", "identity：位置效应 record|reflect|verify|output|sustain"),
             requested_layer=_p("string", "identity anchor 目标层（role≠self 时禁止 self）"),
+            contract_id=_p("string", "identity contract/contracts：锚定标识（#ANCHOR- 原形）"),
+            grantor=_p("string", "identity contract：授予方＝设计者位置标识"),
+            grantee=_p("string", "identity contract：接收方＝协议实例标识"),
+            timestamp=_p("string", "identity contract：时间戳（结构事件时间）"),
+            status_summary=_p("string", "identity contract：状态摘要（结构状态文本）"),
+            doc_ref=_p("object", "identity contract：引用锚（指向真源区间，不复制原文）"),
             auto_flywheel=_p("boolean", "consistency：冲突时自动投递飞轮（默认否）"),
             exclude=_p("string", "consistency：排除自身节点 id"),
             depth=_p("integer", "consistency：递归反思深度上限"),
@@ -843,7 +869,8 @@ KERNEL_TOOLS = [
             questions=_p("array", "whitebox verify_existing：探针问题列表"),
             action=_p("string", "review: list|decide|rounds|stats；forget: forget|restore；"
                                 "protect: stats|check|mark|snapshot|history|forgetting；"
-                                "identity: observe|anchor|trait|profile|positions|catalog；"
+                                "identity: observe|anchor|trait|profile|positions|catalog|"
+                                "contract|contracts；"
                                 "consistency: check|history|stats|catalog；"
                                 "goal: add|list|status；recent: add|list|clear；"
                                 "sustain: status|beat|peers|diagnose|heal|"
@@ -1280,7 +1307,7 @@ def _protect_call(cg, a):
     raise ValueError(f"protect 未知 action：{act}")
 
 
-# 生效条件：当 cg、a 传入时，按 a.get('action') or 'profile'（空串/None 回退 'profile'）并 strip().lower() 分派，subject_id 取 a.get('subject_id') or ''（空串/None 回落 ''）：action=catalog 返回 identity.catalog()；action=positions 返回 {'positions': cg.identity_positions(limit=int(a.get('limit') or 0))}（a.get('limit') 假值回落 0）；action=profile 时若 sid 为假值返回 {'subjects': cg.identity_positions(limit=0), 'hint': '指定 subject_id 可获取完整画像（锚点+位置+特征）'}，否则返回 cg.identity_profile(sid)；action=observe 时以 sid 和 a.get('content') or a.get('text') or '' 调用 cg.identity_observe（含 kind=a.get('subject_kind')、role=a.get('role')、layer=a.get('layer')、tags=a.get('tags')、condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.5))、verification_basis=a.get('verification_basis')、evidence=a.get('evidence')、override=bool(a.get('override'))）；action=trait 时以 sid 和 a.get('trait') or a.get('content') or '' 调用 cg.identity_trait（含 condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.6))、position=a.get('position')、kind=a.get('subject_kind')、verification_basis=a.get('verification_basis') or 'data'、override=bool(a.get('override'))）；action=anchor 时若 cg.principal 非 None 先调用 cg.principal.require_admin('identity_anchor')，再以 sid 和 a.get('content') or a.get('text') or '' 调用 cg.identity_anchor（含 kind=a.get('subject_kind')、condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.9))、override=bool(a.get('override'))、requested_layer=a.get('requested_layer')）；action=history 返回 {'records': cg.identity_history(limit=int(a.get('limit') or 100))}（a.get('limit') 假值回落 100）；其他 action 抛 ValueError；
+# 生效条件：当 cg、a 传入时，按 a.get('action') or 'profile'（空串/None 回退 'profile'）并 strip().lower() 分派，subject_id 取 a.get('subject_id') or ''（空串/None 回落 ''）：action=catalog 返回 identity.catalog()；action=positions 返回 {'positions': cg.identity_positions(limit=int(a.get('limit') or 0))}（a.get('limit') 假值回落 0）；action=profile 时若 sid 为假值返回 {'subjects': cg.identity_positions(limit=0), 'hint': '指定 subject_id 可获取完整画像（锚点+位置+特征）'}，否则返回 cg.identity_profile(sid)；action=observe 时以 sid 和 a.get('content') or a.get('text') or '' 调用 cg.identity_observe（含 kind=a.get('subject_kind')、role=a.get('role')、layer=a.get('layer')、tags=a.get('tags')、condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.5))、verification_basis=a.get('verification_basis')、evidence=a.get('evidence')、override=bool(a.get('override'))）；action=trait 时以 sid 和 a.get('trait') or a.get('content') or '' 调用 cg.identity_trait（含 condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.6))、position=a.get('position')、kind=a.get('subject_kind')、verification_basis=a.get('verification_basis') or 'data'、override=bool(a.get('override'))）；action=anchor 时若 cg.principal 非 None 先调用 cg.principal.require_admin('identity_anchor')，再以 sid 和 a.get('content') or a.get('text') or '' 调用 cg.identity_anchor（含 kind=a.get('subject_kind')、condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.9))、override=bool(a.get('override'))、requested_layer=a.get('requested_layer')）；action=history 返回 {'records': cg.identity_history(limit=int(a.get('limit') or 100))}（a.get('limit') 假值回落 100）；action=contract 时若 cg.principal 非 None 先调用 cg.principal.require_admin('identity_contract')（对齐 action=anchor 的管理闸先例，§3.2.1 发出权属设计者位置），再以 a.get('contract_id') 及 grantor/grantee/timestamp/status_summary/doc_ref/condition_ref/state_ref/importance（缺省 1.0）/override 调用 cg.identity_contract；action=contracts 时若 a.get('contract_id') 为真值返回 cg.identity_contract_record(该 id)，否则返回 cg.identity_contracts(subject=a.get('subject_id'))；其他 action 抛 ValueError；
 def _identity_call(cg, a):
     """身份特征识别统一入口（cg op=identity 与 mdcg_identity 共用）。
 
@@ -1328,6 +1355,27 @@ def _identity_call(cg, a):
             requested_layer=a.get("requested_layer"))
     if act == "history":
         return {"records": cg.identity_history(limit=int(a.get("limit") or 100))}
+    if act == "contract":
+        # 定稿第 9 条：契约生成者＝设计者位置（走 admin 闸），权威唯一性 > 便利性；
+        # 对齐 action=anchor 的 require_admin("identity_anchor") 先例。
+        principal = getattr(cg, "principal", None)
+        if principal is not None:
+            principal.require_admin("identity_contract")
+        return cg.identity_contract(
+            a.get("contract_id") or "",
+            grantor=a.get("grantor") or "",
+            grantee=a.get("grantee") or "",
+            timestamp=a.get("timestamp") or "",
+            status_summary=a.get("status_summary") or "",
+            doc_ref=a.get("doc_ref"),
+            condition_ref=a.get("condition_ref"), state_ref=a.get("state_ref"),
+            importance=float(a.get("importance", 1.0)),
+            override=bool(a.get("override")))
+    if act == "contracts":
+        cid = a.get("contract_id")
+        if cid:
+            return cg.identity_contract_record(cid)
+        return cg.identity_contracts(subject=a.get("subject_id"))
     raise ValueError(f"identity 未知 action：{act}")
 
 
