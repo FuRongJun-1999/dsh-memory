@@ -485,6 +485,33 @@ _LEDGER_WINDOW = 10 ** 6
 #: 台账段每段最终回出的条数（与改动前的 limit=5 逐位一致）。
 _PACK_ROWS = 5
 
+#: 写归因三态第三态（2026-10-07 设计者裁定「会话身份三态」）：env → 请求声明
+#: → 两者皆无时**显式** 'unattributed'——不再把不可辨认的进程自动随机
+#: sess_<hex12> 写进写归因面（节点 fm.session / 入队 rec.session / 事件
+#: meta.session / 会话要点）。解析单点在 `MdCGSecure._attributed_session`；
+#: 本常量是字面量真源。
+#:
+#: 与插件侧 UNASSIGNED_SESSION='unassigned'（src/lib/session_state.ts）：语义
+#: 同源（都表示「未获宿主/请求声明的显式占位」），**字面不同**——两端口径
+#: 统一列入待裁（本次不动插件：其字面量被插件侧冻结守卫逐字钉死）。读面按
+#: 字面取用，故两侧各成一个桶；统一前不得互相假设（勿做双值兼容——防第二
+#: 真源）。
+UNATTRIBUTED_SESSION = "unattributed"
+
+
+# 生效条件：cg 有可调用的 _attributed_session（MdCGSecure 的写归因三态单点）时返回 hook(sens)；无该属性（纯 MdCGOS：无 principal/session_auto）时回落 getattr(cg, "session", None)（改动前语义）。
+def _attribution_session_of(cg, sens=None):
+    """写归因会话的**可选钩子**取用器（与 `_note_visible` 同款口径）。
+
+    单点定义在子类 `MdCGSecure._attributed_session`（判据需要 principal 的
+    session_auto 来源标记）；基类代码（propose / session_note）经本函数取用
+    ——直调会让纯 MdCGOS 实例整段降级。无钩子时回落改动前语义。
+    """
+    hook = getattr(cg, "_attributed_session", None)
+    if hook is None:
+        return getattr(cg, "session", None)
+    return hook(sens)
+
 
 # 生效条件：以任意 root 构造时按其拼接 audit_log/hippocampus/trash 等路径并 makedirs 创建 hippocampus 与 trash_dir（exist_ok=True），autoflush 透传父类、actor 存入 self.actor；
 class MdCGOS(MdCG):
@@ -2130,7 +2157,7 @@ class MdCGOS(MdCG):
 
     # ================= 4. 审核队列（inbox → decisions） =================
 
-# 生效条件：当 node_id 与 content 传入时，在 strict 锁内按 payload_hash（dedup_key 非空时以它为对账键、否则 _sig(content)）查重；命中同键提案（无论 pending/accepted/rejected，已裁决优先 break）时幂等返回既有 pid（info=True 返回 dedup 字典），未命中则生成新 pid 入队并返回 pid（info=True 返回 dedup False 字典）；kind 非空时原样落 rec 顶层 kind 键（缺省不落键 = 存量条目形状逐位不变）；
+# 生效条件：当 node_id 与 content 传入时，在 strict 锁内按 payload_hash（dedup_key 非空时以它为对账键、否则 _sig(content)）查重；命中同键提案（无论 pending/accepted/rejected，已裁决优先 break）时幂等返回既有 pid（info=True 返回 dedup 字典），未命中则生成新 pid 入队并返回 pid（info=True 返回 dedup False 字典）；rec 顶层 session 经 _attribution_session_of（写归因三态：env/请求声明→原值；未声明的进程自动随机→unattributed；纯 MdCGOS 回落原语义）；kind 非空时原样落 rec 顶层 kind 键（缺省不落键 = 存量条目形状逐位不变）；
     def propose(self, node_id: str, content: str, layer: str = "knowledge",
                 tags=None, condition_space=None, verify=None,
                 info: bool = False, kind: str = None, dedup_key: str = None,
@@ -2204,7 +2231,13 @@ class MdCGOS(MdCG):
                    "sensitivity": kw.get("sensitivity"),
                    "verify": verify or {}, "verify_hash": vhash,
                    "extra": kw, "actor": self.actor,
-                   "session": getattr(self, "session", None)}
+                   # 写归因三态（2026-10-07，P1「inbox 现场」收口点）：此前
+                   # 该值 = 进程自动随机 sess_<hex12>（交接单 mem_1790416361175
+                   # 实测：入队即落 sess_0804baa32949 ≠ 请求声明值）。经可选
+                   # 钩子三态解析：env/声明→原值；未声明的自动随机→
+                   # UNATTRIBUTED_SESSION（纯 MdCGOS 无钩子时回落原语义）。
+                   "session": _attribution_session_of(self,
+                                                      kw.get("sensitivity"))}
             # 三档自治批次②（设计 §四）：类型字段**只在显式给定时落键**——
             # 缺省不落，存量与新普通提案的 rec 形状逐位不变（零回归），
             # 读取方按「缺键 = proposal」判（零迁移）。
@@ -3222,7 +3255,7 @@ class MdCGOS(MdCG):
                 return ln.strip()[:500]
         return ""
 
-# 生效条件：当 summary 传入且 strip 后非空时，session 按显式入参、self.session、日期依次回落；conditions 为假值时回落默认条件；用 SESSION_TAG 与 session 标签调用 add，返回含 ok/id/session/layer/basis/tokens 的字典；summary 为空则 raise ValueError；
+# 生效条件：当 summary 传入且 strip 后非空时，session 按显式入参、_attribution_session_of(self)（写归因三态：env/请求声明→原值；未声明的进程自动随机→unattributed；纯 MdCGOS 回落 self.session）、日期依次回落；conditions 为假值时回落默认条件；用 SESSION_TAG 与 session 标签调用 add，返回含 ok/id/session/layer/basis/tokens 的字典；summary 为空则 raise ValueError；
     def session_note(self, summary, session=None, tags=None, layer="contextual",
                      importance=0.6, sensitivity=None, conditions=None,
                      basis="data"):
@@ -3234,10 +3267,11 @@ class MdCGOS(MdCG):
         summary = (summary or "").strip()
         if not summary:
             raise ValueError("summary 不能为空")
-        # 会话身份缺省：显式入参 > 进程归因会话（嵌套身份 (harness, session)）
-        # > 日期兜底。会话只作切片与归因，不参与权限判定。
+        # 会话身份缺省：显式入参 > 写归因三态会话（env/请求声明→原值；未声明的
+        # 进程自动随机→'unattributed'，见 `_attribution_session_of` >
+        # 日期兜底。会话只作切片与归因，不参与权限判定。
         session = ((session or "").strip()
-                   or (getattr(self, "session", None) or "").strip()
+                   or (_attribution_session_of(self) or "").strip()
                    or time.strftime("%Y%m%d"))
         nid = self._session_node_id(session, summary)
         cond = conditions or f"续接会话 {session}、或查询命中该会话要点关键词时"
@@ -5047,16 +5081,48 @@ class MdCGSecure(MdCGOS):
 
     # ---------- 索引：把 role / sensitivity / 写入归属一并索引 ----------
 
-# 生效条件：对传入的 kw 生效——writer/session 缺键时分别落 self.principal.actor 与 self.session，self.principal.harness 为真值时 harness 缺键才落该值，已存在的键一律不覆盖。
-    def _attribution(self, kw):
+# 生效条件：self.session 与 self.principal.session 不同（请求级/库层显式覆盖的声明值）时返回 self.session；principal 未带 session_auto 标记或该标记为 False（env/显式构造的声明来源）时返回 self.session；标记为 True 且两值相同（未获声明的进程自动随机）且 sens 经 _rank 判定达到 private 档（含 secret；非法密级回落视为未达到、不抛）时返回 self.session（授权绑定档豁免）；其余（自动随机 × 非绑定档）返回模块常量 UNATTRIBUTED_SESSION。
+    def _attributed_session(self, sens=None):
+        """**写归因的会话三态解析（单一真源，2026-10-07 设计者裁定）**。
+
+        态① env：部署侧注入（MDCG_SESSION / DSH_SESSION_ID；`_apply_attribution`
+        与 serve 注入时已清 session_auto）→ 原值；
+        态② 请求声明：call_tool 请求级覆盖（cg.session ≠ principal.session）
+        或库层显式构造 session → 原值；
+        态③ 都无：Principal 构造时的**进程自动随机**（session_auto=True 且
+        未被覆盖）→ `UNATTRIBUTED_SESSION`（显式、跨进程可辨认、可审计）
+        ——不再把不可辨认的随机 hex 写进任何写归因面。
+
+        例外（**授权绑定档豁免**）：sens 达到 private 档时保持进程随机——
+        绑定档的落盘值参与读回判据（`_readable` 的 `nsess ==
+        principal.session`），改写成 unattributed 会让写者读不回自己刚写的
+        private/secret 节点（既有语义破坏）。该豁免面由
+        test_session_identity_tristate 的 D 组钉死。
+        """
+        sess = self.session
+        if not getattr(self.principal, "session_auto", False):
+            return sess                  # env / 显式构造：声明来源，原值
+        if sess != self.principal.session:
+            return sess                  # 请求级/库层显式覆盖：声明有效
+        try:
+            bound = sens is not None and _rank(sens) >= _rank("private")
+        except AccessDenied:
+            bound = False                # 非法密级不在此抛（写侧 _rank 校验在先）
+        if bound:
+            return sess                  # 授权绑定档：保持随机（读回判据锚定它）
+        return UNATTRIBUTED_SESSION
+
+# 生效条件：对传入的 kw 生效——writer/session 缺键时分别落 self.principal.actor 与 _attributed_session(sens)（写归因三态：env/请求声明→原值；未声明的进程自动随机→unattributed，私有档豁免见该函数），self.principal.harness 为真值时 harness 缺键才落该值，已存在的键一律不覆盖。
+    def _attribution(self, kw, sens=None):
         """写入归属注入（归因维度，不参与授权）。
 
-        writer/session/harness 缺省取当前身份；库层调用方可显式传值覆盖
-        （如会话台账写入），MCP 面不透传该入参——客户端不得伪造归属。
+        writer/session/harness 缺省取当前身份（session 经 `_attributed_session`
+        三态解析，2026-10-07）；库层调用方可显式传值覆盖（如会话台账写入），
+        MCP 面不透传该入参——客户端不得伪造归属。
         writer 语义=最后写入者（更新路径自然刷新），created_at 记首写。
         """
         kw.setdefault("writer", self.principal.actor)
-        kw.setdefault("session", self.session)
+        kw.setdefault("session", self._attributed_session(sens))
         if self.principal.harness:
             kw.setdefault("harness", self.principal.harness)
         return kw
@@ -5083,13 +5149,13 @@ class MdCGSecure(MdCGOS):
 
     # ---------- 写：权限校验 ----------
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 _rank(sens) 并 principal.require_layer_write(layer, sens)，再 _attribution(kw) 后转 super().add（并把**原始声明** sensitivity 以 declared_sensitivity 键并传，供库层落盘闸判「声明↔落盘」一致性；未声明时为 None），最后按下发的 nid 调 _index_sensitivity 并返回 nid。
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 _rank(sens) 并 principal.require_layer_write(layer, sens)，再 _attribution(kw, sens)（会话归因走三态解析）后转 super().add（并把**原始声明** sensitivity 以 declared_sensitivity 键并传，供库层落盘闸判「声明↔落盘」一致性；未声明时为 None），最后按下发的 nid 调 _index_sensitivity 并返回 nid。
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
         _rank(sens)
         self.principal.require_layer_write(layer, sens)
-        self._attribution(kw)
+        self._attribution(kw, sens)
         # B2（2026-09-30）：`sens` 是归一后的落盘值，`sensitivity` 才是调用方
         # 的**原始声明**（None=未声明）。两者必须分别下传——库层 `_write_node`
         # 的密级闸据此判「声明 private 而落 internal」这类静默降级；把归一值
@@ -5099,21 +5165,21 @@ class MdCGSecure(MdCGOS):
         self._index_sensitivity(nid, sens)
         return nid
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write("rejected", sens) 与 _attribution(kw) 后转 super().add_rejected，最后按下发的 nid 调 _index_sensitivity 并返回 nid。
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write("rejected", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_rejected，最后按下发的 nid 调 _index_sensitivity 并返回 nid。
     def add_rejected(self, hypothesis: str, reason: str, sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
         self.principal.require_layer_write("rejected", sens)
-        self._attribution(kw)
+        self._attribution(kw, sens)
         nid = super().add_rejected(hypothesis, reason, sensitivity=sens, **kw)
         self._index_sensitivity(nid, sens)
         return nid
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write("unresolved", sens) 与 _attribution(kw) 后转 super().add_unresolved(question, known_clues, goal)，最后调 _index_sensitivity 并返回 nid。
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write("unresolved", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_unresolved(question, known_clues, goal)，最后调 _index_sensitivity 并返回 nid。
     def add_unresolved(self, question: str, known_clues: str = "", goal: str = "",
                        sensitivity: str = None, **kw) -> str:
         sens = sensitivity or DEFAULT_SENSITIVITY
         self.principal.require_layer_write("unresolved", sens)
-        self._attribution(kw)
+        self._attribution(kw, sens)
         nid = super().add_unresolved(question, known_clues, goal, sensitivity=sens, **kw)
         self._index_sensitivity(nid, sens)
         return nid
@@ -5166,7 +5232,7 @@ class MdCGSecure(MdCGOS):
                     sensitivity=e.get("sensitivity"))
         return super().verify(node_id, evidence, verdict, override=override)
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，经 _rank(sens) 与 principal.require_write(sens) 后把 m 基于 meta 复制并 setdefault tenant/session、harness 与 unit 为真值时补入，再强制 m["sensitivity"]=sens，text 经 _seal_content("_recent", text, sens) 后连 tags=tags 一起转 super().remember_event（window 为 None 时不传该参，否则带上 window）。
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，经 _rank(sens) 与 principal.require_write(sens) 后把 m 基于 meta 复制并 setdefault tenant 与 _attributed_session(sens)（写归因三态：env/请求声明→原值；未声明的进程自动随机→unattributed，私有档豁免见该函数）、harness 与 unit 为真值时补入，再强制 m["sensitivity"]=sens，text 经 _seal_content("_recent", text, sens) 后连 tags=tags 一起转 super().remember_event（window 为 None 时不传该参，否则带上 window）。
     def remember_event(self, role: str, text: str, tags=None, meta=None,
                        window=None, sensitivity: str = None):
         sens = sensitivity or DEFAULT_SENSITIVITY
@@ -5174,7 +5240,10 @@ class MdCGSecure(MdCGOS):
         self.principal.require_write(sens)
         m = dict(meta or {})
         m.setdefault("tenant", self.principal.tenant)
-        m.setdefault("session", self.principal.session)
+        # 写归因三态（2026-10-07）：此前恒取 principal.session（自动随机时事件
+        # 归因不可辨认；且请求声明对事件面静默失效）；现与节点/入队同一单点
+        # 解析——事件面与写面同口径（显式 meta["session"] 仍不可覆盖）。
+        m.setdefault("session", self._attributed_session(sens))
         if getattr(self.principal, "harness", None):
             m.setdefault("harness", self.principal.harness)
         if getattr(self.principal, "unit", None):

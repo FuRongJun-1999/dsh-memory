@@ -99,7 +99,7 @@ class Principal:
     theory_version —— 当前声明的协议版本（审计与 whoami 用）
     """
 
-# 生效条件：clearance 须为模块级常量 SENSITIVITY_ORDER 成员（否则 _rank 抛 AccessDenied），session 为假值（含 None/空串）时生成 sess_ 随机串，expires_at 为假值（含 None/0）时存 None 否则 float(expires_at)，layers_allow/ops_allow 为 None 时存 None 否则 tuple 化。
+# 生效条件：clearance 须为模块级常量 SENSITIVITY_ORDER 成员（否则 _rank 抛 AccessDenied），session 为假值（含 None/空串）时生成 sess_ 随机串并把 session_auto 置 True（未获声明的进程自动随机；写归因三态收口的识别位，消费方 MdCGSecure._attributed_session），session 真值时原样采用并把 session_auto 置 False（显式声明的来源），expires_at 为假值（含 None/0）时存 None 否则 float(expires_at)，layers_allow/ops_allow 为 None 时存 None 否则 tuple 化。
     def __init__(self, tenant: str = "default", actor: str = "system",
                  clearance: str = DEFAULT_SENSITIVITY, can_write: bool = True,
                  can_admin: bool = False, session: str = None,
@@ -114,7 +114,19 @@ class Principal:
         self.clearance = clearance
         self.can_write = can_write
         self.can_admin = can_admin
-        self.session = session or ("sess_" + uuid.uuid4().hex[:12])
+        if session:
+            self.session = session
+            self.session_auto = False
+        else:
+            self.session = "sess_" + uuid.uuid4().hex[:12]
+            # 归因三态（2026-10-07 设计者裁定「会话身份三态」）：本值是「未获
+            # 任何声明来源」的进程自动随机——**只标记来源、不改值**（绑定档的
+            # 读回判据锚定值本身，见 mdcos._readable；值语义由 test_p45 A1/C5
+            # 钉死）。写归因落盘时由 MdCGSecure._attributed_session 把该态收口
+            # 为 'unattributed'。**赋值方**须知：凡把 session 改写为声明值处
+            # （_apply_attribution / serve 的 env 注入 / tokens.narrowed_principal
+            # 的复制传导）必须同步维护本标记，否则收口会把声明值误当自动随机。
+            self.session_auto = True
         # 归因维度（嵌套身份）：只入审计（_audit/_recent），不参与权限判定。
         # 权限域仍由令牌记录决定（tokens.ROLE_SPECS），与 harness/unit 无关。
         # 受控例外：MCP 请求级 `as_unit` 收窄（tokens.narrowed_principal）产出的是

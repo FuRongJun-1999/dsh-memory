@@ -652,7 +652,7 @@ def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
             "expires_at": rec["expires_at"]}
 
 
-# 生效条件：normalize_role(unit) 结果不在 POSITION_ROLES 时抛 TokenError；否则返回 Principal：unit/role=u、can_admin 恒 False、clearance=_clamp_level(spec["clearance_cap"], p.clearance)、can_write=bool(spec["can_write"]) and bool(p.can_write)、layers_allow/ops_allow=_narrow(spec 对应值, p 对应值)，tenant/actor/session/harness/token_id/parent/expires_at/auth_mode/theory 等沿用 p。
+# 生效条件：normalize_role(unit) 结果不在 POSITION_ROLES 时抛 TokenError；否则返回 Principal：unit/role=u、can_admin 恒 False、clearance=_clamp_level(spec["clearance_cap"], p.clearance)、can_write=bool(spec["can_write"]) and bool(p.can_write)、layers_allow/ops_allow=_narrow(spec 对应值, p 对应值)，tenant/actor/session/harness/token_id/parent/expires_at/auth_mode/theory 等沿用 p，session_auto 来源标记同款传导（getattr(p, "session_auto", False)）。
 def narrowed_principal(p: Principal, unit: str) -> Principal:
     """按「单元」收窄 principal 权限（**请求级**身份，只能变小不能变大）。
 
@@ -676,7 +676,7 @@ def narrowed_principal(p: Principal, unit: str) -> Principal:
     if u not in POSITION_ROLES:
         raise TokenError(f"未知单元：{unit!r}（可选 {list(POSITION_ROLES)}）")
     spec = role_spec(u)
-    return Principal(
+    q = Principal(
         tenant=p.tenant, actor=p.actor, session=p.session, harness=p.harness,
         unit=u, role=u,
         clearance=_clamp_level(spec["clearance_cap"], p.clearance),
@@ -687,6 +687,11 @@ def narrowed_principal(p: Principal, unit: str) -> Principal:
         token_id=p.token_id, parent=p.parent, expires_at=p.expires_at,
         auth_mode=p.auth_mode,
         theory_ok=p.theory_ok, theory_version=p.theory_version)
+    # 2026-10-07 三态：session 值被**复制**（非空）不等于「声明来源」——来源
+    # 标记必须原样传导，否则写归因三态收口（MdCGSecure._attributed_session）
+    # 会把 owner 的进程自动随机误判为声明值放行（身份收窄不改归因来源）。
+    q.session_auto = getattr(p, "session_auto", False)
+    return q
 
 
 # 生效条件：先以 _store_lock(path) 取令牌库跨进程写锁（超时抛 TokenError），再在临界区内执行 _revoke_locked(token_id, path) 并返回其结果。

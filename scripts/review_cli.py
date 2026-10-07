@@ -29,10 +29,13 @@ noop 语义：**已评估、判定不改变任何现有记忆**——只留痕�
 
 裁决留痕：decisions.jsonl + 审计 md 节点（由 review_decide 内部完成）。
 
-落盘归因（P1 修复，2026-09-26，与包内 md_cg/review_cli.py 同步）：
-  · 会话：--session（各子命令通用）缺省取环境变量 MDCG_SESSION，仍无则维持
-    现状随机会话并 stderr 告警一行。同一批裁决传同一 session，落盘节点的
-    frontmatter.session 才稳定一致。
+落盘归因（P1 修复，2026-09-26，与包内 md_cg/review_cli.py 同步；
+2026-10-07 三态收口同步）：
+  · 会话：--session（各子命令通用）缺省取环境变量 MDCG_SESSION，仍无则落
+    **'unattributed'**（写归因三态第三态，MdCGSecure._attributed_session 单点；
+    不再使用随机会话 id）并 stderr 告警一行。同一批裁决传同一 session，落盘
+    节点的 frontmatter.session 才稳定一致（原实录为每次随机 sess_<uuid12>，
+    同批 5 节点 5 个会话 id——三态收口后消除）。
   · 写入者：accept/edit 落盘节点的 frontmatter.writer 保留**提案原始写入者**
     （propose 时库端快照的 actor）；裁决者身份记入 frontmatter.reviewer。
   · DSH 前置条件（环境侧自行核对，本 CLI 不校验）：MCP 写入面对 DSH 形态会话
@@ -71,22 +74,24 @@ def _root(args):
 
 # 生效条件：args 的 session 属性为真值（含 getattr 缺省 None 回落）或环境变量 MDCG_SESSION 去空白后非空时返回该值（前者优先），两者皆无返回 None。
 def _session_of(args):
-    """裁决会话归属：--session > 环境变量 MDCG_SESSION > None（随机 + 告警）。"""
+    """裁决会话归属：--session > 环境变量 MDCG_SESSION > None（落 unattributed + 告警）。"""
     s = str(getattr(args, "session", None)
             or os.environ.get("MDCG_SESSION", "") or "").strip()
     return s or None
 
 
-# 生效条件：args 就绪时先经 _session_of 取裁决会话归属，取到 None 时向 stderr 告警一行（缺省随机会话、同批裁决请传同一 --session）后维持现状；随后构造写死权限的 Principal(actor="designer-cli", clearance="secret", can_write=True, can_admin=True, role="designer", auth_mode="local-cli", session=<上述归属>)，再以 _root(args) 取到的存储根返回 MdCGSecure(root, principal=p)。
+# 生效条件：args 就绪时先经 _session_of 取裁决会话归属，取到 None 时向 stderr 告警一行（缺省归属 unattributed、同批裁决请传同一 --session）后维持现状；随后构造写死权限的 Principal(actor="designer-cli", clearance="secret", can_write=True, can_admin=True, role="designer", auth_mode="local-cli", session=<上述归属>)，再以 _root(args) 取到的存储根返回 MdCGSecure(root, principal=p)。
 def _cg(args):
     session = _session_of(args)
     if session is None:
-        # P1 归因（2026-09-26，DSH 端在役实测）：缺省随机会话会让同一批裁决
-        # 得到互不相同的落盘归属（5 节点 5 个 sess_* 实录）。不拒绝、告警一行
-        # 后维持现状（向后兼容）；要稳定归属请显式传同一 --session。
+        # P1 归因（2026-09-26 取证；2026-10-07 设计者「会话身份三态」裁定收口）：
+        # 缺省不再落进程随机 sess_* ——写入归属经 MdCGSecure._attributed_session
+        # 三态解析落 'unattributed'（显式、可辨认；原实录「5 节点 5 个随机
+        # sess_*」由此消除）。同一批裁决要稳定归属仍请显式传同一 --session。
+        # 告警保留一行：缺省归属表达的是「无声明」，不是真实会话。
         sys.stderr.write("警告：未指定 --session / 环境变量 MDCG_SESSION，"
-                         "本次裁决落盘使用随机会话 id——同一批裁决请传同一 "
-                         "--session 以稳定归属。\n")
+                         "本次裁决落盘会话归属为 unattributed（不再使用随机会话 id）"
+                         "——同一批裁决请传同一 --session 以稳定归属。\n")
     p = Principal(actor="designer-cli", clearance="secret",
                   can_write=True, can_admin=True, role="designer",
                   auth_mode="local-cli", session=session)
@@ -179,8 +184,8 @@ def main(argv=None):
     common.add_argument("--root", help="存储根目录（默认环境变量 MDCG_ROOT）")
     common.add_argument("--session", default=None,
                         help="裁决会话 id（落盘归属 frontmatter.session；缺省取"
-                             "环境变量 MDCG_SESSION，仍无则随机会话并 stderr 告警。"
-                             "同一批裁决传同一值即得同一归属）")
+                             "环境变量 MDCG_SESSION，仍无则落 'unattributed' 并 "
+                             "stderr 告警。同一批裁决传同一值即得同一归属）")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("list", help="列出待审条目", parents=[common])

@@ -14,7 +14,10 @@ writer 全被 designer-cli 覆盖，原始写入者（dsh-memory，提案记录 
   ③ 裁决者身份不丢失：frontmatter.reviewer == "designer-cli"
   ④ 稳定性：同一 --session 两次裁决 → 两节点 session 一致
   ⑤ 兜底：未传 --session 时环境变量 MDCG_SESSION 生效
-  ⑥ 仍无（两者皆缺省）→ stderr 告警一行 + 维持随机会话（现状兼容）
+  ⑥ 仍无（两者皆缺省）→ stderr 告警一行 + 落盘归属 'unattributed'
+     （2026-10-07 设计者「会话身份三态」裁定：原「维持随机会话」的现状兼容
+     被三态收口替代——缺省不再产生进程随机 sess_*；收口单点
+     MdCGSecure._attributed_session，守卫同步更新，断言强度不降）
 
 运行：python -m md_cg.test_review_cli_attribution
 """
@@ -145,19 +148,20 @@ def main():
               and fm3.get("session") == "sess_env_03",
               str(fm3 and fm3.get("session")))
 
-        print("\n【⑥】两者皆缺省 → stderr 告警一行 + 维持随机会话")
+        print("\n【⑥】两者皆缺省 → stderr 告警一行 + 落盘归属 unattributed"
+              "（2026-10-07 三态裁定）")
         pid4 = _propose(root_a, "attr-node-4",
-                        "P1 归因守卫第四提案：随机会话告警。")
+                        "P1 归因守卫第四提案：缺省归属告警。")
         r4 = _run_cli(root_a, ["accept", pid4, "--root", root_a,
                                "--reason", "归因守卫"])
         fm4 = _fm(root_a, "attr-node-4")
         check("退出码 0（告警不阻断裁决）", r4.returncode == 0,
               (r4.stdout or r4.stderr or "")[:200])
         warn = [ln for ln in (r4.stderr or "").splitlines() if ln.strip()]
-        check("stderr 恰一行随机会话告警",
-              len(warn) == 1 and "随机会话" in warn[0], str(warn))
-        check("缺省仍落随机会话 id（sess_ 前缀，现状兼容）",
-              bool(fm4) and str(fm4.get("session", "")).startswith("sess_"),
+        check("stderr 恰一行缺省归属告警（明示 unattributed）",
+              len(warn) == 1 and "unattributed" in warn[0], str(warn))
+        check("缺省落 unattributed（三态裁定：不再产生进程随机 sess_*）",
+              bool(fm4) and fm4.get("session") == "unattributed",
               str(fm4 and fm4.get("session")))
         check("无 --session 时原始 writer 归因同样在位",
               bool(fm4) and fm4.get("writer") == "dsh-memory",

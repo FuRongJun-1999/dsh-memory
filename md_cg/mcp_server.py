@@ -2486,6 +2486,22 @@ def _cg_dispatch(cg, a):
                               tags=a.get("tags"),
                               status=a.get("goal_status") or "active")
             return {"ok": True, "id": gid}
+        if act == "generate":
+            # W2 自主目标 · 盲区→目标生成器（**仅显式调用**；首版不进 sleep/sustain
+            # 自动循环——设计者裁定第 8 条）。默认 dry_run（apply 缺省 False，零落库）；
+            # apply=True 才按三区确认闸落台账/入审核队列/丢弃（裁定第 9 条白名单冻结）。
+            # 权限：批量落库（apply）与 insight.tickets 同构，须写权（无写权 fail-closed）。
+            from . import goal_gen
+            prin = getattr(cg, "principal", None)
+            apply = bool(a.get("apply"))
+            if prin is not None and apply and not bool(
+                    getattr(prin, "can_write", False)):
+                prin.require_admin("goal_generate")
+            _actor = getattr(prin, "actor", None) if prin is not None else None
+            return goal_gen.candidates(
+                cg, sources=a.get("sources"),
+                limit=int(a.get("limit") or goal_gen.DEFAULT_LIMIT),
+                apply=apply, actor=_actor)
         if act in ("status", "set_status"):
             return {"ok": True,
                     "goal": cg.set_goal_status(a.get("node_id", ""),
@@ -3973,7 +3989,7 @@ def _declared_session(raw):
     return _normalize_session(s)
 
 
-# 生效条件：环境变量 MDCG_SESSION（优先）或 DSH_SESSION_ID 去空白后非空时把 p.session 设为 _normalize_session(raw)，MDCG_HARNESS 去空白后非空时把 p.harness 设为该值，MDCG_UNIT 去空白后非空时把 p.unit 设为该值，三者均为空串或未设置时 p 的对应字段保持原值；
+# 生效条件：环境变量 MDCG_SESSION（优先）或 DSH_SESSION_ID 去空白后非空时把 p.session 设为 _normalize_session(raw) 并把 p.session_auto 置 False（env=声明来源，写归因三态收口据此不改写），MDCG_HARNESS 去空白后非空时把 p.harness 设为该值，MDCG_UNIT 去空白后非空时把 p.unit 设为该值，三者均为空串或未设置时 p 的对应字段保持原值（session_auto 保持构造值）；
 def _apply_attribution(p):
     """归因维度注入（嵌套身份：(harness, session)），**不参与授权**。
 
@@ -3986,6 +4002,9 @@ def _apply_attribution(p):
            or os.environ.get("DSH_SESSION_ID") or "").strip()
     if raw:
         p.session = _normalize_session(raw)
+        # 2026-10-07 三态：env 是**声明来源**（部署侧权威）——清进程自动标记，
+        # 使写归因三态收口（MdCGSecure._attributed_session）不对 env 值改写。
+        p.session_auto = False
     harness = (os.environ.get("MDCG_HARNESS") or "").strip()
     if harness:
         p.harness = harness
@@ -4348,10 +4367,13 @@ def main():
         return 3
     # 会话归属（归因维度，不参与授权）：部署侧可为每个 agent 连接注入固定
     # 会话 id（MDCG_SESSION），多会话共用一个 root 时按 frontmatter.session
-    # 区分「本会话记忆 / 其他会话记忆」；缺省=进程自动生成（sess_<uuid>）。
+    # 区分「本会话记忆 / 其他会话记忆」；缺省=进程自动生成（sess_<uuid>）——
+    # 2026-10-07 三态：该自动态在**写归因落盘**时收口为 'unattributed'
+    # （MdCGSecure._attributed_session；本处注入值是声明来源，须清自动标记）。
     _p_session = os.environ.get("MDCG_SESSION", "").strip()
     if _p_session:
         principal.session = _p_session
+        principal.session_auto = False
     # 索引可见性（2026-09-16）：autoflush=1 —— 逐条写入立即落分片日志
     # `_index_log/`。根因（第4条取证）：默认 autoflush=64 且常驻进程不 close，
     # 单条写入在达阈值前**对其他进程不可见**（`_load_index` = 快照 + 分片日志
