@@ -1,6 +1,6 @@
 # lingshu-memory · Codex CLI 插件
 
-灵枢（Lingshu）长期记忆系统的 **Codex CLI 插件形态**：把「16 条工作纪律」做成随插件分发的
+灵枢（Lingshu）长期记忆系统的 **Codex CLI 插件形态**：把「18 条工作纪律」做成随插件分发的
 skill（`skills/linglu-discipline/`），并附灵枢大脑（stdio MCP server `mdcg`）的接入模板。
 
 > 与手工路线（复制 `codex/AGENTS.md` 到项目根 + 合并 config.toml）的差别：插件把纪律装进
@@ -53,7 +53,7 @@ python -m md_cg.tokens issue --role designer --actor codex
 | 文件 | 作用 | 性质 |
 |---|---|---|
 | `.codex-plugin/plugin.json` | 插件清单（name 与文件夹一致 · interface 完整 · 无 hooks 字段） | 手写 |
-| `skills/linglu-discipline/SKILL.md` | 16 条工作纪律 + 记忆操作规程 | **渲染产物**，勿手改 |
+| `skills/linglu-discipline/SKILL.md` | 18 条工作纪律 + 记忆操作规程 | **渲染产物**，勿手改 |
 | `config.toml.example` | 灵枢 MCP 接入模板（`mdcg` 记忆 + `hive` 蜂巢两段 server，与 `codex/config.toml.example` 同源） | 模板副本 |
 | `README.md` | 本文件 | 手写 |
 

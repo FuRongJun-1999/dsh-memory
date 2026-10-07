@@ -58,7 +58,7 @@ dsh --profile web --dump-config | findstr mcp-hive   # 确认配置确实进了�
 
 ## 纪律注入（personaPrefix 受管块）
 
-DSH 端的 16 条工作纪律**不走独立文件**，而是以 `compact` 变体写入
+DSH 端的 18 条工作纪律**不走独立文件**，而是以 `compact` 变体写入
 `~/.dsh/profiles/web/cordis.patch.yml` 的 `personaPrefix` 键，用受管标记块 `lingshu:discipline`
 原地修订（保留注释）：
 

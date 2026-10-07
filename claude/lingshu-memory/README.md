@@ -1,6 +1,6 @@
 # lingshu-memory · Claude Code 插件
 
-灵枢（Lingshu）长期记忆系统的 **Claude Code 插件形态**：把「16 条工作纪律」做成随插件分发的
+灵枢（Lingshu）长期记忆系统的 **Claude Code 插件形态**：把「18 条工作纪律」做成随插件分发的
 skill（`skills/linglu-discipline/`），并附灵枢大脑（stdio MCP server `mdcg`）的接入模板。
 
 > 与手工路线（复制 `claude/CLAUDE.md` 到项目根）的差别：CLAUDE.md **不能随插件分发**，
@@ -58,7 +58,7 @@ python -m md_cg.tokens issue --role designer --actor claude-code
 | 文件 | 作用 | 性质 |
 |---|---|---|
 | `.claude-plugin/plugin.json` | 插件清单 | 手写 |
-| `skills/linglu-discipline/SKILL.md` | 16 条工作纪律 + 记忆操作规程 | **渲染产物**，勿手改 |
+| `skills/linglu-discipline/SKILL.md` | 18 条工作纪律 + 记忆操作规程 | **渲染产物**，勿手改 |
 | `mcp.json.example` | 灵枢 MCP 接入模板（`mdcg` 记忆 + `hive` 蜂巢两条 server，与 `claude/mcp.json.example` 同源） | 模板副本 |
 | `README.md` | 本文件 | 手写 |
 

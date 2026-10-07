@@ -1,7 +1,7 @@
 {
   "name": "lingshu-memory",
   "version": "0.8.1",
-  "description": "Lingshu long-term memory: 16-discipline skill + mdcg MCP wiring for Codex CLI",
+  "description": "Lingshu long-term memory: 18-discipline skill + mdcg MCP wiring for Codex CLI",
   "author": {
     "name": "FuRongJun-1999"
   },
@@ -11,8 +11,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "灵枢记忆",
-    "shortDescription": "跨会话长期记忆 + 16 条工作纪律",
-    "longDescription": "挂载灵枢（Lingshu）长期记忆系统：stdio MCP server（mdcg）接入模板与 16 条工作纪律 skill。记忆本体为纯 md 认知图，记什么、取什么、能不能写入全部由确定性规则裁决，写没写成功看 committed 字段，全程可审计。",
+    "shortDescription": "跨会话长期记忆 + 18 条工作纪律",
+    "longDescription": "挂载灵枢（Lingshu）长期记忆系统：stdio MCP server（mdcg）接入模板与 18 条工作纪律 skill。记忆本体为纯 md 认知图，记什么、取什么、能不能写入全部由确定性规则裁决，写没写成功看 committed 字段，全程可审计。",
     "developerName": "FuRongJun-1999",
     "category": "Developer Tools",
     "capabilities": ["Interactive"],
