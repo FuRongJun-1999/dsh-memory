@@ -58,7 +58,8 @@ import time
 
 from . import crypto
 from .datapath import aux_root
-from .fsutil import append_jsonl, atomic_write, ends_mid_line
+from .fsutil import (FileLock, append_jsonl, atomic_write, count_jsonl,
+                     ends_mid_line, publish, read_jsonl)
 from .mdcg import LAYERS
 
 STAMP_VERSION = 1
@@ -238,6 +239,287 @@ def peers(d: str = None):
             rec["state"] = judge(rec["age"],
                                  task_running=bool(rec.get("task_running")))
             out.append(rec)
+    return out
+
+
+# --------------------------------------------------------------------------
+# 心跳台账（append-only · 有界分片轮转）—— 让「连续 N 周期无断」可严格测得
+#
+# 缺口（答卷 `docs/plans/灵枢1.0_最小智能系统实存答卷_v1.1.md` §八 分诊第 4 项 ·
+# **甲类能力缺口**）：`_sustain.jsonl` 是 heal **动作**台账（有动作才写，平静期与
+# 停摆期不可区分），心跳戳是**覆盖式单点**（无历史序列）——故「连续 N 周期无断」
+# 在现数据结构下**不可严格测得**（取证见 `docs/eval/W7v11_结构面局限取证_v0.1.md`
+# §丁）。
+#
+# 本台账补此缺口：**每个心跳周期追加一行**（append-only、只追加不改写历史行），
+# 配合 **分片轮转 + 保留片数上限**（有界，形态照抄 `_audit.jsonl` 轮转）与
+# **节流探测**（把 stat 写入税摊到 1/N），并由只读统计
+# `heartbeat_ledger_stats()` 直接算出「最长连续无断区间 / 断点数 / 最近一次周期
+# 时刻」。位置与 `_sustain.jsonl` **同域**（库根 `<root>/_heartbeat.jsonl`）。
+#
+# **零判定变更**（硬边界）：本台账只新增写入与只读统计，不改变任何既有读面——
+# `beat()` 的返回、心跳戳字段、`_sustain.jsonl` 既有记录、`judge()`/`heal()` 的
+# 返回均逐位不变（守卫 `md_cg/test_heartbeat_ledger.py` L1 钉死）。
+#
+# **写点边界**：只有**常驻循环**的 `SustainLoop.beat()` 记台账（那才是「心跳
+# 周期」）；`write_stamp` 的其它调用点不记——进度面刷新 `_flush_progress` 非心跳
+# 周期（进/出六档各刷一次，会把「停摆」稀释），MCP 手动 `action=beat` 非循环
+# 自证（人可手动补戳，不能当「循环活着」的证据）。故台账是**循环自证面**。
+# --------------------------------------------------------------------------
+
+HEARTBEAT_LOG = "_heartbeat.jsonl"        # 活动台账（与 _sustain.jsonl 同域：库根）
+HEARTBEAT_ARCHIVE = "_heartbeat_archive"  # 分片归档目录（不在 LAYERS，不参与节点索引）
+HEARTBEAT_INDEX = "_index.json"           # 归档索引：分片 bytes/events 缓存（稳态 O(1)）
+HEARTBEAT_ROTATE_BYTES = 4 << 20          # 活动台账轮转阈值（≤0 关闭轮转＝退回无上界）
+HEARTBEAT_KEEP_SHARDS = 4                 # 归档分片保留数（≤0 不淘汰；淘汰必留痕）
+HEARTBEAT_PROBE_EVERY = 8                 # 每 N 次写入探测一次大小（把写入税摊到 1/N）
+HEARTBEAT_ENV = "MDCG_HEARTBEAT_LEDGER"   # 开关（缺省开；"0"/"false"/"False" 关）
+#: 相邻心跳周期间隔 ≤ 该阈值即视为「连续」；缺省 2× 心跳间隔（600s）= 1200s。
+HEARTBEAT_GAP_THRESHOLD = 2.0 * DEFAULT_BEAT_INTERVAL
+#: 轮转自述行与心跳周期行的区分标记（统计只取 kind=="beat"，轮转痕不进时间序列）。
+HB_KIND_BEAT = "beat"
+HB_KIND_ROTATE = "rotate"
+
+#: root → 已写次数（进程内；仅用于节流探测步长。跨进程各自计数，不影响正确性
+#: ——多写者共享同一活动文件时，任一方到点都会做一次 stat，只是探测得更密）。
+_HB_WRITES: dict = {}
+
+
+# 生效条件：environ 缺省取 os.environ，读 HEARTBEAT_ENV 键，其 str() 值不在 AUTO_OFF_VALUES 中即返回 True（缺键回落 "1"＝开）；否则 False。
+def heartbeat_ledger_enabled(environ=None) -> bool:
+    """心跳台账开关（缺省**开**）：`MDCG_HEARTBEAT_LEDGER` ∈ 关断字面量即关。"""
+    env = os.environ if environ is None else environ
+    return str(env.get(HEARTBEAT_ENV, "1")) not in AUTO_OFF_VALUES
+
+
+# 生效条件：给定库根 root，返回 root/HEARTBEAT_LOG 的拼接路径。
+def heartbeat_path(root: str) -> str:
+    return os.path.join(root, HEARTBEAT_LOG)
+
+
+# 生效条件：给定库根 root，返回 root/HEARTBEAT_ARCHIVE 的拼接路径。
+def heartbeat_archive_dir(root: str) -> str:
+    return os.path.join(root, HEARTBEAT_ARCHIVE)
+
+
+# 生效条件：t 为数值时间戳时返回 "%Y-%m-%dT%H:%M:%S" 本地时间字符串。
+def _iso(t) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(float(t)))
+
+
+# 生效条件：root/HEARTBEAT_ARCHIVE 可列目录时返回其中以 "_heartbeat." 开头、".jsonl" 结尾的名字升序列表（序号零填充 ⇒ 字典序==时间序）；listdir 抛 OSError 时返回 []。
+def _hb_shards(root: str):
+    try:
+        names = os.listdir(heartbeat_archive_dir(root))
+    except OSError:
+        return []
+    return sorted(n for n in names
+                  if n.startswith("_heartbeat.") and n.endswith(".jsonl"))
+
+
+# 生效条件：遍历 _hb_shards(root) 中 "_heartbeat.<n>.jsonl" 形式取 int(n) 最大值 top（解析失败 continue、无可解析项 top=0），返回 top+1。
+def _hb_next_seq(root: str) -> int:
+    top = 0
+    for n in _hb_shards(root):
+        try:
+            top = max(top, int(n[len("_heartbeat."):-len(".jsonl")]))
+        except ValueError:
+            continue
+    return top + 1
+
+
+# 生效条件：读 root/HEARTBEAT_ARCHIVE/HEARTBEAT_INDEX（json）；不可读/损坏/非 dict 时回落 {}，只保留 value 为 dict 的项。
+def _hb_load_index(root: str) -> dict:
+    try:
+        with open(os.path.join(heartbeat_archive_dir(root), HEARTBEAT_INDEX),
+                  "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if isinstance(v, dict)}
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+# 生效条件：把 idx 以 JSON（ensure_ascii=False, indent=1, sort_keys=True）原子写入 root/HEARTBEAT_ARCHIVE/HEARTBEAT_INDEX；OSError 被吞掉。
+def _hb_save_index(root: str, idx: dict):
+    try:
+        os.makedirs(heartbeat_archive_dir(root), exist_ok=True)
+        atomic_write(os.path.join(heartbeat_archive_dir(root), HEARTBEAT_INDEX),
+                     json.dumps(idx, ensure_ascii=False, indent=1, sort_keys=True))
+    except OSError:
+        pass
+
+
+# 生效条件：HEARTBEAT_ROTATE_BYTES <= 0 时直接返回（轮转关闭）；否则 root 写计数自增，未到 HEARTBEAT_PROBE_EVERY 倍数即返回；到倍数且活动台账 size ≥ 阈值时调用 rotate_heartbeat(root)。
+def _hb_rotate_if_needed(root: str):
+    """写前闸门：活动台账达阈值即切分（把 stat 摊到 1/HEARTBEAT_PROBE_EVERY）。"""
+    limit = HEARTBEAT_ROTATE_BYTES
+    if limit <= 0:
+        return
+    n = _HB_WRITES.get(root, 0) + 1
+    _HB_WRITES[root] = n
+    if n % HEARTBEAT_PROBE_EVERY:
+        return
+    try:
+        if os.path.getsize(heartbeat_path(root)) < limit:
+            return
+    except OSError:
+        return
+    rotate_heartbeat(root)
+
+
+# 生效条件：在 FileLock(root/_heartbeat.rotate.lock) 下，若活动台账 size ≥ HEARTBEAT_ROTATE_BYTES 则 publish 为 HEARTBEAT_ARCHIVE/_heartbeat.%06d.jsonl，登记索引、淘汰越限分片，并在新活动台账追加一条 kind="rotate" 自述行后返回 {"shard","bytes","events","pruned"}；size 不足、getsize OSError 或 rename 失败时返回 None。
+def rotate_heartbeat(root: str, reason: str = "size"):
+    """把活动心跳台账切分为归档分片（publish 原子 rename，不重写一个字节）。
+
+    语义边界（诚实面）：
+    · 分片内容与轮转前**逐行一致**（rename 不动字节）；轮转前记录序列是轮转后
+      （跨分片按时间序合并）序列的**前缀**——append-only 指「分片内只追加」，
+      分片封存后不再改写；
+    · 并发由 FileLock + 「rename 前复检大小 / 失败即返回 None」兜住；
+    · 保留策略只淘汰**分片**，且淘汰名单写进新台账的 rotate 自述行（不静默丢证据）。
+    """
+    path = heartbeat_path(root)
+    with FileLock(os.path.join(root, "_heartbeat.rotate.lock"), timeout=5.0):
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            return None
+        if size < HEARTBEAT_ROTATE_BYTES:
+            return None                    # 已被并发写者轮转
+        arc = heartbeat_archive_dir(root)
+        os.makedirs(arc, exist_ok=True)
+        name = "_heartbeat.%06d.jsonl" % _hb_next_seq(root)
+        try:
+            publish(path, os.path.join(arc, name))
+        except OSError:
+            return None                    # 抢输（文件已被移走）→ 让位，不报错
+        events = count_jsonl(os.path.join(arc, name))
+        idx = _hb_load_index(root)
+        idx[name] = {"bytes": size, "events": events,
+                     "t": round(time.time(), 3), "reason": reason}
+        _hb_save_index(root, idx)
+        pruned = _hb_prune_shards(root)
+        _HB_WRITES[root] = 0
+        row = {"t": time.time(), "name": "_rotate", "pid": os.getpid(),
+               "kind": HB_KIND_ROTATE, "ok": True, "shard": name,
+               "bytes": size, "events": events, "pruned": pruned, "reason": reason}
+        try:                               # 自述留痕：轮转本身可审计
+            append_jsonl(path, row)
+        except OSError:
+            pass
+        return {"shard": name, "bytes": size, "events": events, "pruned": pruned}
+
+
+# 生效条件：HEARTBEAT_KEEP_SHARDS <= 0 时返回 []（不淘汰）；否则保留最近 keep 个分片，越限的逐个 os.remove 并从索引 pop（OSError 则 continue），最后保存索引并返回被淘汰分片名列表。
+def _hb_prune_shards(root: str):
+    """保留最近 HEARTBEAT_KEEP_SHARDS 个分片、淘汰更旧的（≤0 表示不淘汰）。"""
+    keep = HEARTBEAT_KEEP_SHARDS
+    if keep <= 0:
+        return []
+    shards = _hb_shards(root)
+    gone = shards[:-keep] if len(shards) > keep else []
+    if not gone:
+        return []
+    idx = _hb_load_index(root)
+    for n in gone:
+        try:
+            os.remove(os.path.join(heartbeat_archive_dir(root), n))
+        except OSError:
+            continue                       # 删不掉就留着：不假装已淘汰
+        idx.pop(n, None)
+    _hb_save_index(root, idx)
+    return gone
+
+
+# 生效条件：开关关（heartbeat_ledger_enabled() 为假）时返回 None 且不写盘；否则先经 _hb_rotate_if_needed(root) 有界闸门，再向 root/HEARTBEAT_LOG 追加一行 {"t","name","pid","kind":"beat","ok"(,"error")}，返回该行；任何写入异常被吞掉并返回 None（心跳不可因台账而中断）。
+def record_heartbeat(root: str, name: str, *, ok: bool = True, error=None,
+                     t=None, pid=None, extra=None) -> dict:
+    """追加一条**心跳周期**记录（append-only）——「连续 N 周期无断」的原始证据。
+
+    字段（至少）：`t`（时间戳）+`name`（周期名）+`pid`+`ok`（该周期结果）；
+    失败时附 `error`（摘要，截 200）。写路径 best-effort：开关关 / 任何异常都
+    返回 None 且不外溢（与心跳写戳同纪律）。
+    """
+    if not heartbeat_ledger_enabled():
+        return None
+    row = {"t": float(t) if t is not None else time.time(),
+           "name": name, "pid": os.getpid() if pid is None else pid,
+           "kind": HB_KIND_BEAT, "ok": bool(ok)}
+    if error is not None:
+        row["error"] = str(error)[:200]
+    if extra:
+        row.update(extra)
+    try:
+        _hb_rotate_if_needed(root)
+        append_jsonl(heartbeat_path(root), row)
+    except Exception:                      # noqa: BLE001 —— 台账永不拖垮心跳
+        return None
+    return row
+
+
+# 生效条件：按 _hb_shards(root)（时间序，旧片在前）再活动台账的顺序流式产出各 JSONL 记录（read_jsonl 自动跳过坏行）；文件/目录缺失即跳过。
+def _hb_records(root: str):
+    arc = heartbeat_archive_dir(root)
+    for n in _hb_shards(root):
+        for r in read_jsonl(os.path.join(arc, n)):
+            yield r
+    for r in read_jsonl(heartbeat_path(root)):
+        yield r
+
+
+# 生效条件：只读统计 root 下全部 kind="beat" 记录（name 非 None 时按周期名过滤）的 t 序列——以相邻 t 间隔 > threshold_s 为断点，返回 {n, threshold_s, shards, file, absent, span_s, span_iso, last_iso, last_age_s, segments, longest_s, longest_iso, count_in_longest, breaks, breaks_top}；无记录时 absent=True 且各读数 None。
+def heartbeat_ledger_stats(root: str, *, name: str = None,
+                           threshold_s: float = HEARTBEAT_GAP_THRESHOLD) -> dict:
+    """只读统计：**最长连续无断区间 / 断点数 / 最近一次周期时刻**。
+
+    用途＝闭合答卷 §八 分诊第 4 项的「不可严格测得」——`_sustain.jsonl`（heal 动作
+    台账）与心跳戳（覆盖式单点）都答不了，本台账答得了。**只读**：不写、不轮转。
+    有界台账（分片 ≤ 保留片数 × 轮转阈值）使该读数代价有界。
+    """
+    ts = []
+    for r in _hb_records(root):
+        if not isinstance(r, dict) or r.get("kind") != HB_KIND_BEAT:
+            continue
+        if name is not None and r.get("name") != name:
+            continue
+        v = r.get("t")
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            ts.append(float(v))
+    ts.sort()
+    out = {"n": len(ts), "threshold_s": float(threshold_s),
+           "shards": len(_hb_shards(root)), "file": HEARTBEAT_LOG}
+    if not ts:
+        out.update({"absent": True, "segments": 0, "longest_s": None,
+                    "longest_iso": None, "count_in_longest": 0,
+                    "breaks": 0, "breaks_top": [], "span_s": None,
+                    "span_iso": None, "last_iso": None, "last_age_s": None})
+        return out
+    runs, breaks = [], []
+    start = prev = ts[0]
+    for t in ts[1:]:
+        if t - prev > threshold_s:
+            runs.append((start, prev))
+            breaks.append({"at_iso": _iso(prev), "next_iso": _iso(t),
+                           "gap_s": round(t - prev, 1)})
+            start = t
+        prev = t
+    runs.append((start, prev))
+    best = max(runs, key=lambda r: r[1] - r[0])
+    out.update({
+        "absent": False,
+        "span_s": round(ts[-1] - ts[0], 1),
+        "span_iso": "%s → %s" % (_iso(ts[0]), _iso(ts[-1])),
+        "last_iso": _iso(ts[-1]),
+        "last_age_s": round(max(0.0, time.time() - ts[-1]), 1),
+        "segments": len(runs),
+        "longest_s": round(best[1] - best[0], 1),
+        "longest_iso": "%s → %s" % (_iso(best[0]), _iso(best[1])),
+        "count_in_longest": sum(1 for t in ts if best[0] <= t <= best[1]),
+        "breaks": len(breaks),
+        "breaks_top": sorted(breaks, key=lambda b: -b["gap_s"])[:5],
+    })
     return out
 
 
@@ -1102,17 +1384,27 @@ class SustainLoop:
 
     # ---- 心跳 ----
 
-# 生效条件：task_running 非 None 时先置 self.task_running=bool(task_running)，再 write_stamp(self.name, self.d, task_running=self.task_running, root=self.cg.root, uptime=... if self._started_at else 0.0, **进度三字段)，beats 自增并记 last_beat=rec["ts"]，返回该 rec；
+# 生效条件：task_running 非 None 时先置 self.task_running=bool(task_running)，再 write_stamp(self.name, self.d, task_running=self.task_running, root=self.cg.root, uptime=... if self._started_at else 0.0, **进度三字段)；写戳抛异常时先 record_heartbeat(ok=False, error=摘要) 再原样抛出；写戳成功则 beats 自增、记 last_beat=rec["ts"]、record_heartbeat(ok=True, t=rec["ts"])，返回该 rec；
     def beat(self, task_running: bool = None) -> dict:
         if task_running is not None:
             self.task_running = bool(task_running)
-        rec = write_stamp(
-            self.name, self.d, task_running=self.task_running, root=self.cg.root,
-            uptime=round(time.time() - self._started_at, 3)
-            if self._started_at else 0.0,
-            **self._progress_fields())          # 进度面随心跳同落（单点状态面）
+        try:
+            rec = write_stamp(
+                self.name, self.d, task_running=self.task_running, root=self.cg.root,
+                uptime=round(time.time() - self._started_at, 3)
+                if self._started_at else 0.0,
+                **self._progress_fields())      # 进度面随心跳同落（单点状态面）
+        except Exception as e:                   # noqa: BLE001
+            # 写戳失败：台账如实记 error 摘要（「容忍≠静默」），随后**原样抛出**
+            # ——既有行为不变（写戳失败 beat 亦失败，只是现在多一条错误留痕）。
+            record_heartbeat(self.cg.root, self.name, ok=False,
+                             error="%s: %s" % (type(e).__name__, e))
+            raise
         self.beats += 1
         self.last_beat = rec["ts"]
+        # 心跳周期台账（append-only，缺省开）：写戳成功后再追加一行。**不改返回、
+        # 不改戳**（零判定变更，守卫 L1）——t 取戳的 ts，使台账与戳同源。
+        record_heartbeat(self.cg.root, self.name, ok=True, t=rec["ts"])
         return rec
 
     # ---- 活体进度面（issue #63）----
