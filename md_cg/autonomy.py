@@ -140,6 +140,80 @@ def gain_gate(cg, bid: str, now: float | None = None,
             "reason": "有增益证据或冷却已过"}
 
 
+#: 好奇线探索预算（§2.9.3.1 非任务探索 · 设计者位置定稿 v1.2 组1，2026-10-07）：
+#: 滚动窗口内「豁免探索」的**显式上限声明位**（单一真源）。**缺省关**——未设
+#: `MDCG_EXPLORE_BUDGET_MAX`（未设/非正整数）即视为**未声明预算** ⇒ 不得豁免：
+#: 调用方带 `bypass_gain=True` 时**回落任务定价**（`enforce_gain=True`）并留痕说明，
+#: **非硬拒绝**（真源 L1846-1848「预算耗尽即回到任务定价」）。
+#:   MDCG_EXPLORE_BUDGET_MAX     窗口内上限（条＝**提案条数**，与 `limit` 同量纲）
+#:   MDCG_EXPLORE_BUDGET_WINDOW  窗口秒数（缺省 86400＝每日；非数值/非正回落缺省）
+#: 台账口径：窗口内已用 = Σ 台账 `n_proposals`（只计 `bypass_gain=True` 的记录）。
+BUDGET_MAX_ENV = "MDCG_EXPLORE_BUDGET_MAX"
+BUDGET_WINDOW_ENV = "MDCG_EXPLORE_BUDGET_WINDOW"
+BUDGET_WINDOW_DEFAULT = 86400.0
+
+
+# 生效条件：MDCG_EXPLORE_BUDGET_MAX 未设或非正整数 ⇒ declared=False（used=0、exhausted=False，缺省关不豁免）；已声明时窗口取 MDCG_EXPLORE_BUDGET_WINDOW（缺省 86400.0 秒，非数值或非正回落缺省），以 t >= now-window 扫描 _explore_log_path(cg) 中 bypass_gain 为真的记录累加 used=Σ n_proposals（缺键回退 len(bids)、再缺回退 0），used >= max ⇒ exhausted=True；纯读无副作用，OSError／坏行／缺键一律不抛出。
+def budget_gate(cg, now: float | None = None) -> dict:
+    """探索预算门（§2.9.3.1 非任务探索 · 滚动窗口，纯读无副作用）。
+
+    **单点预算声明**：`MDCG_EXPLORE_BUDGET_MAX` / `MDCG_EXPLORE_BUDGET_WINDOW`
+    是本模块**唯一**的预算声明位——预算上限是**设计决策**（真源 L1846-1848
+    「不从第零定律推导」），故缺省**不声明 = 关**（未设 env 即不豁免）。
+
+    返回 `{"declared", "window", "max", "used", "exhausted"}`（可审计）：
+      未声明 → `declared=False` ⇒ 调用带 `bypass_gain=True` 时回落任务定价；
+      已声明 → `used` = 窗口内已用豁免条数（Σ 台账 `n_proposals`，单位同
+               `limit`）；`used >= max` ⇒ `exhausted=True`（**降级回落**，非硬拒绝）。
+    窗口计数从既有 `_explore.jsonl` 派生（扫描读法仿 `gain_gate`）。
+    """
+    now = time.time() if now is None else float(now)
+    declared, mx = False, 0
+    try:
+        mx = int(str(os.environ.get(BUDGET_MAX_ENV) or "").strip())
+        declared = mx > 0
+    except (TypeError, ValueError):
+        declared = False
+    window = BUDGET_WINDOW_DEFAULT
+    try:
+        w = float(str(os.environ.get(BUDGET_WINDOW_ENV) or "").strip())
+        if w > 0:
+            window = w
+    except (TypeError, ValueError):
+        pass
+    used = 0
+    if declared:
+        lo = now - window
+        try:
+            with open(_explore_log_path(cg), encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        r = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(r, dict) or not r.get("bypass_gain"):
+                        continue                    # 只计豁免记录（豁免额度口径）
+                    try:
+                        t = float(r.get("t") or 0.0)
+                    except (TypeError, ValueError):
+                        t = 0.0
+                    if t < lo:
+                        continue                    # 窗口外不计
+                    n = r.get("n_proposals")
+                    if not isinstance(n, (int, float)) or isinstance(n, bool):
+                        try:
+                            n = len(r.get("bids") or [])
+                        except TypeError:
+                            n = 0
+                    used += int(n or 0)
+        except OSError:
+            pass
+    return {"declared": declared, "window": window, "max": mx,
+            "used": used, "exhausted": bool(declared and used >= mx)}
+
+
 # 生效条件：cg 的反思记录经 metacognition._reflections 取末 int(window) 条切片（window=0 时切片即全量），按非空 query 聚合后仅 score=W_D2*d2_abs+W_BLINDSPOT*blindspot+W_DEFER*defer>0 的项进入 out（**资格判据先于加分**：score<=0 即 continue，D_meta 与情绪均不构成资格），其中 enforce_gain 为真值时还须 gain_gate(cg, …, now)["sigma"]>0 否则该项标 deferred_exhausted 转入 deferred，enforce_gain 为假值时不做增益筛选全数进入 out；D_meta 加分 W_DMETA*d_meta.pressure(d_meta.compute(cg, window), DMETA_PROXY) 每轮只算一次并在循环内复用，只写入 sort_score 与 reason 证据（不改 score、不改资格、不改 σ），MDCG_D_META 关闭或未启用时该加分为 0.0；情绪加分 emotion_bonus=W_EMO*D2_EMOTION*sign（sign 由 d2_mean=d2_sum/samples 经 metacognition._emotion 三判：approaching=+1/avoiding=-1/stable=0，eps=D2_EMOTION 即硬上限）仅在 MDCG_PROPOSAL_EMOTION=="1" 时生效、否则恒 0.0，只并入 sort_score（= score + d_meta 加分 + 情绪加分）与 reason/emotion 逐条证据（不改 score、不改资格、不改 σ）；最终 out 按 (-sort_score, -last_t) 排序后截取 max(1, int(limit)) 条（limit=0 或负数也返回 1 条）并随 n_signals=len(agg) 返回；
 def proposals(cg, window: int = 200, limit: int = 3,
               enforce_gain: bool = True) -> dict:
@@ -240,7 +314,7 @@ def proposals(cg, window: int = 200, limit: int = 3,
                             "D_meta/情绪只加排序分、不改资格（DEV-002a）")}
 
 
-# 生效条件：cg 必需，该符号始终返回 ok=True、action="explore"；其中 bypass_gain 为真值时以 enforce_gain=False 调 proposals、为假值时以 True 调（window/limit 原样透传），逐条提案用 apply/actor 调 predict.learn_blindspots 并把其首个 step 的 terminal 记入 outcomes[bid]，同一 blindspot_id 本轮已见则记为 skipped，调用抛异常则记为 error（"%s: %s" % (type(exc).__name__, exc)），并额外取本轮 d_meta.compute（append 前状态）与上一条 explore 留痕的 meta_outcomes.before，并列写入 meta_outcomes={before, prev_before, delta, proxy, enabled}（**outcomes 值类型不变**），并把本轮 proposals 原样并入 rec 的 proposals 键（W4 只增：含 emotion/emotion_bonus 观测面，既有键与 outcomes 值类型不变），最后 append_jsonl 写 _explore_log_path(cg) 时仅 OSError 被忽略；
+# 生效条件：cg 必需，该符号始终返回 ok=True、action="explore"；budget_gate(cg) 已声明（MDCG_EXPLORE_BUDGET_MAX 为正整数）且窗口未耗尽时，bypass_gain=True 才实授豁免（granted=True）并以 enforce_gain=False 调 proposals，否则（未请求/未声明/已耗尽）以 enforce_gain=True 调（回落任务定价，window/limit 原样透传）；逐条提案用 apply/actor 调 predict.learn_blindspots 并把其首个 step 的 terminal 记入 outcomes[bid]，同一 blindspot_id 本轮已见则记为 skipped，调用抛异常则记为 error（"%s: %s" % (type(exc).__name__, exc)），并额外取本轮 d_meta.compute（append 前状态）与上一条 explore 留痕的 meta_outcomes.before，并列写入 meta_outcomes={before, prev_before, delta, proxy, enabled}（**outcomes 值类型不变**），并把本轮 proposals 原样并入 rec 的 proposals 键（W4 只增：含 emotion/emotion_bonus 观测面，既有键与 outcomes 值类型不变），最后一处 append_jsonl 写 _explore_log_path(cg) 时仅 OSError 被忽略；rec["bypass_gain"] 记**生效值**（granted），显式请求（req）时另加 rec["budget"]={requested,declared,granted,window,max,used,exhausted}（默认路径无此键 ⇒ 零变更），返回体同法（req 时含 budget 键并追加 note）；
 def explore(cg, apply: bool = False, limit: int = 3, window: int = 200,
             actor: str = "autonomy", bypass_gain: bool = False) -> dict:
     """最小探索闭环：提案 → 逐盲区五态验证 →（apply）回写待补线索。
@@ -254,11 +328,24 @@ def explore(cg, apply: bool = False, limit: int = 3, window: int = 200,
       ①深度：单轮验证，不递归展开（explore 不嵌套调用 explore）；
       ②循环：本轮内同一 blindspot_id 只验证一次（seen 去重）；
       ③增益：proposals 端 σ(Gain) 门槛（DEFER_EXHAUSTED 冷却）；
-      ④预算：`limit` 即本轮探索预算；
-        `bypass_gain=True` = 2.9.3.1 非任务探索的**显式预算豁免**
-        （绕过增益筛选照常探索，留痕 bypass_gain 字段可审计）。
+      ④预算：`limit` 即本轮探索预算；好奇线预算门（§2.9.3.1）另由 `budget_gate`
+        裁决窗口额度——`bypass_gain=True` 时**仅在预算已声明
+        （`MDCG_EXPLORE_BUDGET_MAX`）且窗口未耗尽时**实授豁免（绕过 σ(Gain)
+        筛选照常探索）；**未设 env 即不豁免**（缺省关），请求未获准时
+        **回落任务定价**（`enforce_gain=True`，降级非硬拒绝）并留痕 `budget` 字段。
     """
-    pr = proposals(cg, window=window, limit=limit, enforce_gain=not bypass_gain)
+    # 好奇线预算门（§2.9.3.1 · v1.2 组1，2026-10-07）：**缺省关**——未声明预算
+    # 不豁免。豁免仅在「显式请求 ∧ 预算已声明 ∧ 窗口未耗尽」时**实授**；否则
+    # **回落任务定价**（enforce_gain=True，降级非硬拒绝，非拒绝探索）。bgate 仅在
+    # 显式请求时计算 ⇒ 默认调用路径零变更（C1 硬门）。
+    req = bool(bypass_gain)
+    bgate = budget_gate(cg) if req else None
+    granted = bool(req and bgate["declared"] and not bgate["exhausted"])
+    brec = ({"requested": True, "declared": bgate["declared"],
+             "granted": granted, "window": bgate["window"],
+             "max": bgate["max"], "used": bgate["used"],
+             "exhausted": bgate["exhausted"]} if req else None)
+    pr = proposals(cg, window=window, limit=limit, enforce_gain=not granted)
     mv = d_meta.compute(cg, window=window)      # 本轮 D_meta（append 前状态）
     prev = None
     for r in d_meta.tail_jsonl(_explore_log_path(cg), 1):
@@ -291,7 +378,10 @@ def explore(cg, apply: bool = False, limit: int = 3, window: int = 200,
            "apply": bool(apply), "n_proposals": len(steps),
            "bids": [s["blindspot_id"] for s in steps],
            "outcomes": outcomes,
-           "bypass_gain": bool(bypass_gain),
+           # **生效值**（豁免实授）：未声明预算/窗口耗尽/未请求 → False。
+           # 请求意图另见 req 时的 budget.requested（不混淆「请求」与「实授」，
+           # 使台账 bypass_gain 计数 == 预算门 used 的口径同源）。
+           "bypass_gain": granted,
            # D_meta 并列留痕（**outcomes 值类型不变**：终态字符串契约是
            # gain_gate 停滞集比对的前提，改成 dict 会让 σ 静默恒为 1.0）：
            #   before      = 本轮开始时的三代理（含上轮 apply 的效果）
@@ -313,15 +403,27 @@ def explore(cg, apply: bool = False, limit: int = 3, window: int = 200,
            # 使「读数→排序」可复放可对账（reason/返回体之外的持久观测面）。
            # 既有键与 outcomes 值类型不变（gain_gate 停滞集比对不受影响）。
            "proposals": pr["proposals"]}
+    if brec is not None:            # 预算留痕（只增；默认路径无此键 ⇒ 零变更）
+        rec["budget"] = brec
     try:
         append_jsonl(_explore_log_path(cg), rec)
     except OSError:
         pass
-    return {"ok": True, "action": "explore", "apply": bool(apply),
-            "proposals": pr["proposals"], "steps": steps,
-            "n_signals": pr["n_signals"], "deferred": pr.get("deferred") or [],
-            "note": ("提案=信息差信号排序（score 定价）+ σ(Gain) 门槛（实现值"
-                     "裁决资格）；终态五态由 learn_blindspots 诚实判定；"
-                     "apply=True 仅落地 carried/unresolved 的 gap_hint 待补"
-                     "线索（幂等）；P-T-40 四保护=单轮深度/本轮循环去重/"
-                     "增益冷却/预算 limit（bypass_gain 显式豁免可审计）")}
+    out = {"ok": True, "action": "explore", "apply": bool(apply),
+           "proposals": pr["proposals"], "steps": steps,
+           "n_signals": pr["n_signals"], "deferred": pr.get("deferred") or [],
+           "note": ("提案=信息差信号排序（score 定价）+ σ(Gain) 门槛（实现值"
+                    "裁决资格）；终态五态由 learn_blindspots 诚实判定；"
+                    "apply=True 仅落地 carried/unresolved 的 gap_hint 待补"
+                    "线索（幂等）；P-T-40 四保护=单轮深度/本轮循环去重/"
+                    "增益冷却/预算 limit（bypass_gain 显式豁免可审计）")}
+    if brec is not None:            # 预算门返回体（只增；默认路径无此键）
+        out["budget"] = brec
+        out["note"] += ("；好奇线预算门（%s/%s）：declared=%s used=%s max=%s "
+                        "exhausted=%s → %s"
+                        % (BUDGET_MAX_ENV, BUDGET_WINDOW_ENV,
+                           bgate["declared"], bgate["used"], bgate["max"],
+                           bgate["exhausted"],
+                           "豁免实授（任务外条件空间）" if granted
+                           else "回落任务定价（预算未声明/已耗尽）"))
+    return out

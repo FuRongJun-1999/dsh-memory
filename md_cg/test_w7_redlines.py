@@ -322,8 +322,15 @@ _TERM_NAME_PATTERNS = ("self_destruct", "selfdestruct", "self_terminate",
 #: 硬终止原语（无人工触发的调用即违例）。
 _TERM_CALL_PATTERNS = ("os._exit(", "os.abort(", "os.kill(os.getpid(",
                        "signal.raise_signal(", "signal.SIGKILL")
-#: 白名单（逐条具名）：测试用 `os._exit(0)` 模拟「进程被杀」的可见性守卫，非系统自裁路径。
-_TERM_WHITELIST = {"md_cg/test_review_cli_visibility.py"}
+#: 白名单（逐条具名，每条须写理由，禁匿名豁免）：
+#:  - `test_review_cli_visibility.py`：测试用 `os._exit(0)` 模拟「进程被杀」的可见性守卫，非系统自裁路径。
+#:  - **本文件自身**：它逐字定义了上面两组 token（`_TERM_NAME_PATTERNS` / `_TERM_CALL_PATTERNS`），
+#:    而扫描面取 `git ls-files "*.py"`，本文件被提交进仓后必然把自己也纳入 ⇒ **自指命中**
+#:    （2026-10-07 实测：提交前未跟踪时 E1 绿、提交后 514→515 文件立刻转红）。扫描器不扫自己。
+#:    残留风险与兜底：E1b 的扫描面下限断言防「扫描面塌缩成假绿」；变异①经 `_SCAN_EXTRA`
+#:    注入合成自裁调用点，仍保证 E1 有判别力。
+_TERM_WHITELIST = {"md_cg/test_review_cli_visibility.py",
+                   "md_cg/test_w7_redlines.py"}
 #: 变异注入点（--mutate E 往扫描面塞一个合成自裁调用点）。
 _SCAN_EXTRA: dict[str, str] = {}
 #: 扫描面下限（低于它说明扫描范围失效 = 假绿）。

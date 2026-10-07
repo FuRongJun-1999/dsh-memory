@@ -3929,12 +3929,16 @@ class MdCGOS(MdCG):
                                    or kw.get("summary") or "")
             return _br.list_branches(self)
         if act == "explore":
-            # 信息差驱动自主探索（opt-in）：提案 → 五态验证 → 回写 gap_hint
+            # 信息差驱动自主探索（opt-in）：提案 → 五态验证 → 回写 gap_hint。
+            # `bypass_gain`（v1.2 组1 好奇线接线，§2.9.3.1）：透传显式豁免请求，
+            # 由 autonomy.budget_gate 裁决（**缺省关**——未声明
+            # MDCG_EXPLORE_BUDGET_MAX 或窗口耗尽即回落任务定价，非硬拒绝）。
             from . import autonomy
             return autonomy.explore(self, apply=bool(kw.get("apply")),
                                     limit=(kw.get("limit") or 3),
                                     window=(kw.get("window") or 200),
-                                    actor=actor)
+                                    actor=actor,
+                                    bypass_gain=bool(kw.get("bypass_gain")))
         if act == "tickets":
             # 盲区消解票据（阶段三 §5.4，opt-in）：盲区 → 四类任务卡
             # （research/prototype/grilling/task）经 tasks.upsert 落库挂图。

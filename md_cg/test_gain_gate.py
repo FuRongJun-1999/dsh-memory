@@ -8,7 +8,8 @@
   ④ 集成：proposals 端 σ 筛选拦截 → deferred 可审计；enforce_gain=False 放行
   ⑤ explore 留痕 outcomes 实现值（下轮 gain_gate 的裁决输入）
      + meta_outcomes 并列留痕（D_meta 压力，不改 outcomes 值类型）
-  ⑥ 预算豁免：bypass_gain=True 冷却中照常探索且留痕 bypass_gain
+  ⑥ 预算豁免：声明探索预算（v1.2 组1 好奇线门）后 bypass_gain=True 冷却中照常
+     探索且留痕 bypass_gain（**未声明预算即回落任务定价——见 test_curiosity_budget.py**）
   ⑦ D_meta 压力冷却：终态停滞且压力仍扩大 → 冷却过期也不放行（新分支）
 
 运行：python -m md_cg.test_gain_gate
@@ -150,7 +151,7 @@ def main():
         ok(all(isinstance(v, str) for v in rec["outcomes"].values()),
            "⑤eoutcomes 值仍为终态字符串（dict 化会使 σ 静默恒 1.0，此处守卫）")
 
-        # ---------- ⑥ 预算豁免 ----------
+        # ---------- ⑥ 预算豁免（v1.2 组1：豁免须先声明探索预算） ----------
         cg6_root = os.path.join(tmp, "root6")
         os.makedirs(cg6_root, exist_ok=True)
         cg6 = MdCGOS(cg6_root)
@@ -164,13 +165,23 @@ def main():
                layer="knowledge", verification_basis="test")
         _sig(cg6, 1.0, "反应堆冷却方案", 0.9, {"BLINDSPOT": 2})
         _hist(cg6, bid, ["carried", "carried"])
-        ex2 = autonomy.explore(cg6, actor="test", bypass_gain=True)
+        # 缺省关：未声明预算不豁免（MDCG_EXPLORE_BUDGET_MAX 未设即回落任务定价）
+        ex2_off = autonomy.explore(cg6, actor="test", bypass_gain=True)
+        ok(not ex2_off["steps"] and len(ex2_off.get("deferred") or []) == 1
+           and ex2_off["budget"]["declared"] is False,
+           "⑥缺省关：未声明预算 → bypass_gain=True 亦回落任务定价（不豁免）")
+        # 声明预算（窗口内上限 30，缺省窗口 86400）→ 豁免实授
+        os.environ["MDCG_EXPLORE_BUDGET_MAX"] = "30"
+        try:
+            ex2 = autonomy.explore(cg6, actor="test", bypass_gain=True)
+        finally:
+            os.environ.pop("MDCG_EXPLORE_BUDGET_MAX", None)
         ok(bool(ex2["steps"]) and ex2["steps"][0]["blindspot_id"] == bid,
-           "⑥预算豁免：冷却中盲区 bypass_gain=True 仍照常探索（2.9.3.1）")
+           "⑥b预算内：冷却中盲区 bypass_gain=True 仍照常探索（2.9.3.1）")
         with open(autonomy._explore_log_path(cg6), encoding="utf-8") as f:
             rec6 = [__import__("json").loads(x) for x in f if x.strip()][-1]
         ok(rec6.get("bypass_gain") is True,
-           "⑥b豁免留痕可审计（bypass_gain=True）")
+           "⑥c豁免留痕可审计（bypass_gain=True）")
 
         # ---------- ⑦ D_meta 压力冷却（新分支） ----------
         cg7_root = os.path.join(tmp, "root7")

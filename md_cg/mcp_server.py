@@ -1082,6 +1082,10 @@ KERNEL_TOOLS = [
             neighbors=_p("boolean", "insight reconstruct：是否并入一跳邻域（默认 true）"),
             recent_days=_p("integer", "insight outlook：近期窗口天数（默认 7）"),
             sample_limit=_p("integer", "insight outlook：抽样清单条数（默认 8）"),
+            bypass_gain=_p("boolean", "insight explore：§2.9.3.1 非任务探索的"
+                                      "预算豁免请求（默认 false；缺省关——未声明 "
+                                      "MDCG_EXPLORE_BUDGET_MAX 或窗口耗尽即回落"
+                                      "任务定价，非硬拒绝）"),
             max_events=_p("integer", "ingest：单次最多摄取事件数"),
             task_status=_p("string", "task op：active|blocked|done|dropped；"
                                      "迁 done 必须同时给 result（缺一不收）"),
@@ -3179,7 +3183,8 @@ def _insight_call(cg, a):
         blindspot_id=a.get("blindspot_id"), horizon=a.get("horizon"),
         max_branches=a.get("max_branches"), recent_days=a.get("recent_days"),
         sample_limit=a.get("sample_limit"), max_nodes=a.get("max_nodes"),
-        types=a.get("types"), min_blindspot=a.get("min_blindspot"))
+        types=a.get("types"), min_blindspot=a.get("min_blindspot"),
+        bypass_gain=a.get("bypass_gain"))
 
 
 # 生效条件：当 cg、a 传入时，按 a.get('action') or 'read'（空串/None 回退 'read'）分派：action=stat 返回 {'ok': True, 'action': 'stat', 'ledger': refindex.Ledger(cg.root).summary(), 'note': 'ref 索引水位（_refindex.json）：files/nodes 是已登记量；last_index.truncated=true 表示最近一次索引被截断。'}；action=check 返回 refindex.check_refs(cg, ledger=refindex.Ledger(cg.root), max_nodes=int(a.get('max_nodes') or refindex.MAX_CHECK)) 的结果并补 action='check' 与 note（max_nodes 假值回落 refindex.MAX_CHECK）；action 为 prune/prune_dangling 返回 refindex.prune_dangling(cg, only_roots=a.get('roots'), dry_run=bool(a.get('dry_run')), max_nodes=int(a.get('max_nodes') or refindex.MAX_CHECK)) 的结果并补 action='prune' 与 note（max_nodes 假值回落常量，dry_run 缺键为 False）；action 为 read/get 时 nid=(a.get('node_id') or '').strip()，若 nid 非空但 cg.get(nid) 为假返回 {'ok': False, 'error': '节点不存在：nid'}，ref 取 a.get('ref') 当且仅当它是 dict，否则若 node 非 None 用 refindex.ref_of(node)，若 ref 仍为假返回 {'ok': False, 'error': '该节点没有 code_ref/doc_ref（不是索引节点）'}，否则返回 refindex.read_ref(ref, root=a.get('root'), ref_kind=ref_kind) 的结果并设 out['node_id']=nid or None；其他 action 抛 ValueError；
