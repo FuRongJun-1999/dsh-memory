@@ -1364,6 +1364,9 @@ class SustainLoop:
         self.heals = []
         self.last_scrub = None
         self.scrubs = []
+        # 自净轮次（issue #66）：`_tick_scrub` 每轮自增，用作抽样 seed 的
+        # 轮次分量——固定 seed 会让每轮样本逐字相同（抽样面冻结）。
+        self.scrub_round = 0
         self.last_evolve = None
         self.evolves = []
         self.last_tidy = None
@@ -1685,19 +1688,33 @@ class SustainLoop:
             self.evolves.append(rec)
             self.evolves = self.evolves[-20:]
 
-# 生效条件：以 dry_run=not self.auto_scrub 调 scrub.sweep(self.cg)，把 t/ok/n_issues/n_high_medium/applied/dry_run 记入 last_scrub 与 scrubs（保留最近 20 条）；auto_scrub=False（默认）时 dry_run=True 只读巡检；
+# 生效条件：self.scrub_round 自增后以 seed=f"sustain:{self.scrub_round}"、dry_run=not self.auto_scrub 调 scrub.sweep(self.cg)，把 t/ok/n_issues/n_high_medium/applied/already_handled/planned_dry_run/checked_breakdown/seed/dry_run 记入 last_scrub 与 scrubs（保留最近 20 条）；auto_scrub=False（默认）时 dry_run=True 只读巡检；
     def _tick_scrub(self):
         """记忆自净：抽查 → 联想 → 去污染 → 校准偏差。
 
         `auto_scrub=False`（默认）时只做只读巡检并记账，不动任何节点；
         开启后才执行去污染（仍只做可逆动作、永不删节点）。
+
+        抽样轮转（issue #66）：seed 按**轮次**派生（`scrub_round` 每 tick
+        自增）——固定 seed=0 会让每轮样本逐字相同（抽样面冻结，「老面孔」
+        长期占用名额）；库层 `scrub.sample` 的缺省 seed=0 不变（显式调用的
+        可复现性不受影响）。
         """
         from . import scrub
-        rep = scrub.sweep(self.cg, dry_run=not self.auto_scrub)
+        self.scrub_round += 1
+        seed = f"sustain:{self.scrub_round}"
+        rep = scrub.sweep(self.cg, dry_run=not self.auto_scrub, seed=seed)
+        dec = rep["decontaminate"]
         rec = {"t": rep["t"], "ok": rep["ok"],
                "n_issues": rep["audit"]["n_issues"],
                "n_high_medium": rep["n_high_medium"],
-               "applied": rep["decontaminate"]["applied"],
+               "applied": dec["applied"],
+               # 覆盖账（issue #66）：轮读数可区分「旧面孔（名单命中跳过）」
+               # 与「本轮检查」（dry_run 轮是常驻默认下唯一的账）。
+               "already_handled": dec["already_handled"],
+               "planned_dry_run": dec["planned_dry_run"],
+               "checked_breakdown": dec["checked_breakdown"],
+               "seed": seed,
                "dry_run": rep["dry_run"]}
         self.last_scrub = rec
         with self._lock:

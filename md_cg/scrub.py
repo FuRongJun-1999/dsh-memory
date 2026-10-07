@@ -247,7 +247,13 @@ def _quota(n: int, strategy: str) -> dict:
 
 # 生效条件：k<=0 或 pool 为假值（空池）时返回 []，否则取池前 k*3 项后用 random.Random(f"{seed}:{stratum}") 稳定洗牌并返回前 k 项（池长不足 k*3 时对全池洗牌）。
 def _pick(pool, k: int, seed, stratum: str):
-    """从池中取 k 个：风险最高的 3k 个入池，再按 seed 稳定洗牌。"""
+    """从池中取 k 个：风险最高的 3k 个入池，再按 seed 稳定洗牌。
+
+    层内候选 ≤ k 时**全量抽取**——单节点分层（如 low_conf 全库 1 个）
+    因此每轮必中：这是**有意设计**（该层全部人口 = 全量覆盖，风险优先
+    持续观察），不是漏配轮转。issue #66 核实：seed 轮转只让大池层换人，
+    小分层恒中占少数名额、且账本上可由 `already_handled` 如实读出。
+    """
     if k <= 0 or not pool:
         return []
     cand = list(pool)
@@ -639,11 +645,17 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
 
     动作：`weaken`（verify weakened → 反例+1、置信-0.15、跌破 0.2 自动降级）、
     `demote`（降级到情境层）、`hint`（只建议，不改）。保护节点跳过；永不删除。
+
+    读数口径（issue #66）：`already_handled` = 命中幂等名单（此前已处置过，
+    旧键 `skipped_done` 即此含义——不是「检查并跳过」）；`planned_dry_run`
+    = 本轮检查到、但本轮无任何处置动作（dry_run 登记计划未执行；实修恒 0）；
+    两者与 `applied` / `skipped_protected` / `hints` 构成逐条去向的互斥分类
+    （`checked_breakdown`，仅读数，不回喂 `_handled`）。
     """
     rep = audit(cg, node_ids, hops=hops, min_severity=min_severity)
     handled = _handled(cg)
     actions = []
-    n_applied = n_prot = n_done = n_hint = 0
+    n_applied = n_prot = n_done = n_hint = n_planned = 0
 
     for issue in rep["issues"]:
         nid, kind = issue["node_id"], issue["kind"]
@@ -672,6 +684,7 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
                             "applied": False})
             continue
         if dry_run:
+            n_planned += 1
             actions.append({"node_id": nid, "kind": kind,
                             "action": "planned",
                             "planned": list(CONTAMINATION[kind][1]),
@@ -703,13 +716,38 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
                         "done": done, "detail": issue["detail"],
                         "applied": True})
 
+    # 覆盖账（issue #66）：逐条去向的**互斥分类**（五键之和 = 本轮处置循环的
+    # issue 条数，kinds 过滤者除外），**只用于读数**——不回喂 `_handled`
+    # （幂等账本仍只认「改过」的单条记录，读法见 `_handled`）。
+    #   applied           本轮实际执行了处置动作（weaken/demote）
+    #   already_handled   命中幂等名单（此前已处置过）→「旧面孔」。
+    #                     旧键 `skipped_done` 的**实际含义就是它**——不是「检查
+    #                     过并跳过」，正名于此（旧键保留兼容，值恒等）。
+    #   planned_dry_run = dry_run 下**本会处置、因 dry_run 未遂**（**≠「无需处置」**；
+    #                     「无需处置」由 hint 一格承载）（原写「无任何处置动作」易误读，
+    #                     计划未执行）→「本轮检查面」。实修恒 0：检查出的可
+    #                     处置问题都会动手。它与 `already_handled` 语义相反：
+    #                     一个数「本轮新检查」，一个数「此前已处置（幂等存量）」。
+    #   protected         受保护跳过（`protect.is_protected` 拦下）
+    #   hint              声明只给建议（duplicate/unverified/not_yet，不动手）
+    breakdown = {"applied": n_applied, "already_handled": n_done,
+                 "planned_dry_run": n_planned, "protected": n_prot,
+                 "hint": n_hint}
     if not dry_run:
         _log(cg, "decontaminate_batch", ok=True, applied=n_applied,
+             # 覆盖账（issue #66）：分类明细只读数不回喂 `_handled`；
+             # `already_handled` 为 `skipped_done` 的正名（二者恒等）。
+             already_handled=n_done, planned_dry_run=n_planned,
              skipped_protected=n_prot, skipped_done=n_done, hints=n_hint,
-             actor=actor)
+             checked_breakdown=breakdown, actor=actor)
     return {"ok": True, "dry_run": dry_run, "n_issues": rep["n_issues"],
             "applied": n_applied, "skipped_protected": n_prot,
-            "skipped_done": n_done, "hints": n_hint, "actions": actions,
+            # 正名（issue #66）：`skipped_done` = 命中幂等名单，**非「检查并跳过」**；
+            # 兼容键保留（值恒等），新读数请用 `already_handled`。
+            "already_handled": n_done, "skipped_done": n_done,
+            "planned_dry_run": n_planned,
+            "hints": n_hint, "actions": actions,
+            "checked_breakdown": breakdown,
             "audit": rep, "t": time.time()}
 
 
@@ -850,6 +888,12 @@ def sweep(cg, *, n: int = DEFAULT_SAMPLE, seed=None, dry_run: bool = True,
            "decontaminate": dec, "calibration": cal, "t": time.time()}
     _log(cg, "sweep", n_sample=smp["n"], n_issues=rep["n_issues"],
          n_high_medium=len(hi), applied=dec["applied"], dry_run=dry_run,
+         # 覆盖账（issue #66）：轮级读数也带逐条去向分类——dry_run 轮是常驻
+         # 默认下**唯一的账**（批量记录仅在实修轮写），不带则「三个旧面孔 +
+         # 一个新问题」与「四个全新问题」在 last_sweep 读数上不可区分。
+         already_handled=dec["already_handled"],
+         planned_dry_run=dec["planned_dry_run"],
+         checked_breakdown=dec["checked_breakdown"],
          calibration=(cal.get("verdict") if cal.get("ok")
                       else cal.get("reason")))
     return out
@@ -861,19 +905,34 @@ def history(cg, limit: int = 100) -> dict:
     return {"n": len(recs), "records": recs[-int(limit):]}
 
 
-# 生效条件：读取 cg.root 下 SCRUB_LOG 的 JSONL 记录，过滤 op=="sweep" 得 sweeps、op=="decontaminate" 且 ok 为真得 decs；last 为 sweeps 最后一项或 None；返回 {'sweeps':len(sweeps),'decontaminated':len(decs),'last_sweep':last 的 t/n_issues/n_high_medium/applied/dry_run/calibration 或 None}；
+# 生效条件：读取 cg.root 下 SCRUB_LOG 的 JSONL 记录，过滤 op=="sweep" 得 sweeps、op=="decontaminate" 且 ok 为真得 decs、op=="decontaminate_batch" 且 ok 为真得 batches；last 为 sweeps 最后一项或 None；返回 {'sweeps':len(sweeps),'decontaminated':batches 的 applied 累计,'decontaminated_records':len(decs),'batches':len(batches),'last_sweep':last 的 t/n_issues/n_high_medium/applied/dry_run/already_handled/planned_dry_run/checked_breakdown/calibration 或 None}；
 def summary(cg) -> dict:
-    """给 health_os / 自维持循环用的只读摘要。"""
+    """给 health_os / 自维持循环用的只读摘要。
+
+    `decontaminated`（issue #66 口径修正）= 批量汇总记录的**累计 applied 之和**
+    ——「实际处置量」；原口径（`op="decontaminate"` 单条记录条数）另留
+    `decontaminated_records`，`batches` 为批量轮数——三键并置，信息不丢。
+    """
     recs = list(read_jsonl(os.path.join(cg.root, SCRUB_LOG)))
     sweeps = [r for r in recs if r.get("op") == "sweep"]
     decs = [r for r in recs if r.get("op") == "decontaminate" and r.get("ok")]
+    batches = [r for r in recs if r.get("op") == "decontaminate_batch"
+               and r.get("ok")]
     last = sweeps[-1] if sweeps else None
-    return {"sweeps": len(sweeps), "decontaminated": len(decs),
+    return {"sweeps": len(sweeps),
+            "decontaminated": sum(int(r.get("applied") or 0) for r in batches),
+            "decontaminated_records": len(decs),
+            "batches": len(batches),
             "last_sweep": ({"t": last.get("t"),
                             "n_issues": last.get("n_issues"),
                             "n_high_medium": last.get("n_high_medium"),
                             "applied": last.get("applied"),
                             "dry_run": last.get("dry_run"),
+                            # 覆盖账（issue #66）：轮读数可区分「旧面孔/新检查」；
+                            # 旧记录无此键 → None（向后兼容读数）。
+                            "already_handled": last.get("already_handled"),
+                            "planned_dry_run": last.get("planned_dry_run"),
+                            "checked_breakdown": last.get("checked_breakdown"),
                             "calibration": last.get("calibration")}
                            if last else None)}
 
