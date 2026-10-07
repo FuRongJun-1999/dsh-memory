@@ -347,3 +347,87 @@ L3 Asset Store + 审计台账   可寻址 asset:// ／ 每次操作一条审计
 **（六）登记为后续小项（本批不改，超范围）**：`_classify_backend_err` 关键词表不含 magick 的 `invalid colormap index` ⇒「坏 palette PNG」这类损坏输入落 `E_BACKEND_FAIL` 而非 §3.3 的 `E_DECODE`（补关键词可同时改善多个 op，留下一批）；符号链接逃逸／`E_PERM` 仍**未用真样例打过**（沿 §十-#10）。
 
 **补 op 批实测（编排侧亲跑）**：`md_cg/imgskill.py` 877→**1442 行**、`md_cg/test_imgskill.py` 557→**1229 行**；守卫 **两条后端各 39 passed / 0 failed**（默认 pillow 兜底带降级留痕；`IMGSKILL_MAGICK` 注入走 magick 7.1.2-31）；新增断言 21 条（既有 18 条未减弱，仅把 G3 的 `E_UNSUPPORTED_OP` 例由已实现的 `crop` 换为仍范围外的 `extract`）；7 件定点变异**各自恰好打中 1 项**；`check_local_paths` PASS。
+
+---
+
+## 十二、暴露面：CLI 接线与首个真实调用（v0.1-r2 · 2026-10-07）
+
+> **本节只解决一件事**：`md_cg/imgskill.py` 此前是「**库内模块、零调用者**」——机制在位、但与生产路径不可达（与本仓已修过两回的「机制在位、生产路径不可达」同形）。本节给它一个**真实可达、且已被用过一次**的入口，并留下证据。**契约面（§三–§五、§九、§十、§十一）本节点不动**。
+
+### 12.1 为什么是 CLI，不是 MCP op
+
+| 取向 | 理由 |
+|---|---|
+| **不扩大协议面** | §九-#5 已定「本版不新增 MCP op」，本节**延续**该原则——能力先落库内＋CLI，暴露面不因新能力而改协议。`md_cg/mcp_server.py` **未改一行**。 |
+| **真实消费者是「人/脚本显式调用」** | 当前无「系统自动链路」消费本 Skill（L1/L2、自动触发均不在本任务）；给一个**显式命令入口**才是这个阶段真实可用的面——比新增一个没人调的 op 更接近「接线」。 |
+| **同一条实现路径（关键）** | CLI **只把命令行搬运成 `run(req)` 的入参**；参数校验、后端路由、执行、审计**全部走 `run()`／`_norm_params`**——CLI 侧不另写一份逻辑，故「库调用」与「CLI 调用」不可能漂移成两条路径。守卫 `Y1` 断言 CLI 出参与库 `run()` 读数**逐项一致**且**落同一本台账**，即为该点的机械证据。 |
+
+### 12.2 入口用法
+
+```
+python -X utf8 -m md_cg.imgskill <op> [--dst DST] [<op 参数>] [--root DIR]
+                                  [--caller NAME] [--level L0|L1|L2] [--idempotency-key KEY]
+```
+
+- **全局项**（`--root`／`--caller`／`--level`／`--idempotency-key`）在 `op` **前后皆可**。
+- **`--root` 无隐式默认根**（§九-#8）：未给即 `run()` 拒 `E_BAD_PARAM`——CLI **不绕**该判据（`Y1` 断言 rc=1 且码为 `E_BAD_PARAM`）。
+- **退出码**：`0` = `run()` 返回 `ok=true`；`1` = `ok=false`（错误码在 stdout JSON 的 `error` 里，可机械分支）；`2` = 用法错（未给 op／未知 op 名）。
+- **stdout**：`run()` 出参的 JSON（`ensure_ascii=False`）——CLI 不改写出参形状。
+- **`--help`** 列全部 op；`<op> --help` 列该 op 参数（argparse 子命令）。
+- **op 面 = `OPS_IMPL`（13 件）**：`inspect`/`resize`/`convert`/`thumbnail`/`crop`/`rotate`/`flip`/`flop`/`adjust`/`blur`/`sharpen`/`composite`/`mask`。**范围外 op 名不是 CLI 命令**（argparse 用法错 rc=2）；**库面语义不变**（`run()` 对范围外 op 仍返 `E_UNSUPPORTED_OP`，非出错）——此差异**显式登记**，非静默偏移。
+
+### 12.3 首次真实调用（读数 · 确定性复跑）
+
+**源图**：`docs/images/lingshu-moonlight-covenant-poster.png`（仓内真实资产，**只读**——按沙箱规则拷入沙箱根，仓内原文件未改，`sha256=cecf832d…07dc`／5013311 B 前后一致）。
+**产物**：一律落调用方给的 `tempfile` 沙箱根（**未写入仓库、未写入在役库**）。命令在 `op` 前给 `--root`。
+
+| # | 命令（原文；`<根>` = 调用方给的沙箱根） | 读数（`meta`／`backend`） |
+|---|---|---|
+| 1 | `python -X utf8 -m md_cg.imgskill inspect poster.png --root <根>` | `ok=true`；`PNG` 2160×3240 RGB 8bit 5013311 B `sha256=cecf832d…07dc`；`backend=pillow 12.3.0`；`audit_id=audit_<ts>_1` |
+| 2 | `… resize poster.png --width 512 --root <根>` | 落盘 `poster_out.png`；512×768 PNG 577410 B `sha256=72d1c2f9…fc60c`（`width` 给、`height` 保持纵横比：3240×512/2160=768） |
+| 3 | `… convert poster.png --format webp --dst out/poster.webp --root <根>` | 落盘 `out/poster.webp`；`WEBP` 2160×3240 310286 B `sha256=99c2f16c…3f4e` |
+| 4 | `IMGSKILL_MAGICK=<magick 可执行体> python -X utf8 -m md_cg.imgskill thumbnail poster.png --max-edge 512 --dst out/magick_th.png --root <根>` | `backend=magick 7.1.2-31`；341×512 PNG 269683 B（最长边 == `max_edge`，§五 判据） |
+
+- **两次真实后端**都经 CLI 打到：默认 `pillow 12.3.0`（`magick` 不在 PATH 时降级、降级留痕在台账）；`IMGSKILL_MAGICK` 注入则走 `magick 7.1.2-31`。
+- `audit_id` 含时间戳，逐次不同；`sha256`／尺寸／字节为确定性读数，复跑可核。
+- **「用过一次」的证据** = 上表 4 条命令的 rc=0、产物落盘、台账 4 行（`.imgskill/audit.jsonl`，落沙箱根内）。
+
+### 12.4 守卫（结构防悬空）
+
+`md_cg/test_imgskill.py` 新增 **Y 面 4 条**（既有 39 条**未减弱**，合计 **43 passed**，两条后端路径各跑绿）：
+
+- **`Y1`**：以**子进程**跑真 CLI（`-m md_cg.imgskill`）——`--help` 列全部已实现 op；`inspect` rc=0、出参键面齐、**读数与库 `run()` 逐项一致**、**台账 +1 行**；`resize`/`convert` 产物尺寸/格式对；未给 `--root` → `E_BAD_PARAM`；`_CLI_OPS`／`OPS_IMPL`／子命令三处 op 面一致；**范围外 op 在 CLI 上得 rc=2**（钉住 §12.2 登记的差异）；**路径口径两例**（Y1i，见 §12.6）。
+- **`Y2` 结构防悬空**：`__main__` 入口锚点须恰好 1 处；真件判据为绿；**摘掉入口的变异件必须转红**。
+- **变异实测（「卸下入口必红」）**：把 `imgskill.py` 的 `__main__` 入口块摘掉（2 行；`cli_main` 仍在）后重跑守卫 → **恰好 4 项转红、全落 Y 面**（`39 passed, 4 failed`），既有 39 条不连坐；复原后 `43 passed, 0 failed`。
+- 同形先例：`test_curiosity_budget.py` C6（生产入口真走到预算门）、`test_gain_gate.py` 的生产路径断言。
+
+### 12.5 本节**未做**的事（边界，显式）
+
+- **仍不新增 MCP op**；`md_cg/mcp_server.py` 未改（不扩大协议面）。
+- **L1/L2 与自动触发不在本任务**：CLI 仍是「显式调用」面，不是自动链路；`generate` 等云侧面留步 3。
+- **不改契约面**：§三–§五、§九、§十、§十一 的裁定与判据本节点不动。
+- **不动 git**（未 `add`／`commit`／`checkout`）；源图只读；产物只落 `tempfile` 沙箱根。
+
+### 12.6 路径口径（编排侧亲跑暴露；Y1i 钉住）
+
+**发现经过**：编排侧独立复核时用**仓内相对路径**跑首次真实调用：
+
+```
+python -X utf8 -m md_cg.imgskill resize docs/images/lingshu-moonlight-covenant-poster.png \
+        --width 256 --root <临时沙箱根>
+→ rc=1  {"error": {"code": "E_NOINPUT", "detail": {"src": "docs/images/…"}, "message": "src 不存在"}}
+```
+
+四探针（`inspect` 同一张图、只变路径与根）把语义钉死：
+
+| 场景 | 错误码／结果 | 说明 |
+|---|---|---|
+| 仓内相对路径，根 = 另一临时目录 | `E_NOINPUT` | `safe_join` 把 `rel` 拼到**根**下 ⇒ `<根>/docs/images/…` 不存在 |
+| 绝对路径、不在根内 | `E_PATH_OUT_OF_SCOPE` | 越界闸在先（`commonpath` 前缀不匹配） |
+| 拷入根后以相对名调用 | `ok=true` | 正常面 |
+| 不给 `--root` | `E_BAD_PARAM` | §九-#8 无隐式默认根 |
+
+**判定：实现正确（fail-closed），是调用方用法错**——**`<源>`／`--dst`／`--over-path`／`--mask-path` 一律相对沙箱根解析**；要处理仓内文件**须先拷入沙箱根**（§12.3 表即如此做法）。这不是缺陷，但**是可用性上真会绊人的一处**（按 Unix 习惯给相对路径的人必踩一次），故①写进 `--help` 的 epilog 与本节、②由 `Y1i` 两条断言钉住（仓内相对路径 → `E_NOINPUT`；根外绝对路径 → `E_PATH_OUT_OF_SCOPE`），防日后有人「顺手放宽」成隐式 cwd 解析而破坏 §九-#8。
+
+**同轮订正的措辞问题（我自己的，非子代理的）**：`--help` epilog 原写「本版范围外 op（返回 `E_UNSUPPORTED_OP`，非出错）」——该句在**使用点**上误导：照着敲 CLI 得到的是 argparse 用法错 `rc=2`（`E_UNSUPPORTED_OP` 是**库面** `run()` 的语义）。已改为明写「库面 `run()` 对之返 `E_UNSUPPORTED_OP`；**CLI 上这些名字不是子命令**，敲了得到 rc=2」。
+

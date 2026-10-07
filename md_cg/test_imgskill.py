@@ -34,8 +34,17 @@ r"""图像 Skill（`md_cg/imgskill.py`）守卫 · 契约真源 `docs/eval/图�
     `mask` 写面收窄 → `E_UNSUPPORTED_FORMAT`）。
   * **X-范围**——`E_UNSUPPORTED_OP` **收窄**：13 个已实现 op 必不返回它；范围外集
     （`extract`/`export`/L1 类/L2 类/未知 op）必返回它；`OPS_IMPL` 与实现表 `_OPS` 一致。
+  * **Y-暴露面 / 结构防悬空（契约 §十二）**——`Y1`：以**子进程**跑真 CLI
+    （`python -X utf8 -m md_cg.imgskill ...`）——`--help` 列全部已实现 op；`inspect`
+    rc=0、出参键面齐、读数与库 `run()` **逐项一致**且**落审计台账**（证明 CLI 与库
+    是**同一条**实现路径，不是第二份逻辑）；`resize`/`convert` 产物落盘尺寸/格式对；
+    未给 `--root` → fail-closed（rc=1、`E_BAD_PARAM`）；`_CLI_OPS`/`OPS_IMPL`/子命令
+    三处 op 面一致。`Y2`：**结构防悬空**——`__main__` 入口锚点须恰好 1 处；真件判据为
+    绿；**摘掉入口的变异件必须转红**（同形先例：`test_curiosity_budget.py` C6、
+    `test_gain_gate.py` 的生产路径断言）。
 
-断言计数：G1–G7 18 条（**未减弱**）＋ X 面 21 条 = **39 条**（`--` 见末行 `N passed`）。
+断言计数：G1–G7 18 条（**未减弱**）＋ X 面 21 条 ＋ Y 面 4 条 = **43 条**
+（`--` 见末行 `N passed`）。
 
 边界：测试与实验一律落 `tempfile` 沙箱，**不写任何在役库**；本件不改 `md_cg/` 生产逻辑。
 后端无关：`imgskill` 走自动路由（`magick` 优先、Pillow 兜底）。若要压 `magick` 面，
@@ -51,6 +60,7 @@ import json
 import math
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -1076,6 +1086,191 @@ def d_no_reuse(req):
     return S.run(req)
 
 
+# ---------------------------------------------------------------- Y CLI 暴露面
+#
+# **结构防悬空**：CLI 入口必须**真能走到 impl**（`run()`），且**摘掉入口必须转红**。
+# 同形先例：`test_curiosity_budget.py` C6（生产入口真走到预算门）、`test_gain_gate.py`
+# 的生产路径断言。判据一律以**子进程跑真 CLI**（`-m md_cg.imgskill`）为准——不靠同进程
+# 内 `cli_main()`，否则「入口命令真的可跑」这条根本没被打到。
+
+_CLI_MAIN = ("-m", "md_cg.imgskill")
+#: `__main__` 入口钩子锚点（须在源码里**恰好** 1 处；缺/重 → 判红）
+_CLI_ENTRY_ANCHOR = 'if __name__ == "__main__":'
+#: `run()` 出参的键面（CLI 出参须逐项在场）
+_CLI_FIELDS = ("ok", "artifact_path", "asset", "meta", "audit_id", "backend", "error")
+#: 仓根（`_SRC` == `<仓根>/md_cg/imgskill.py`）——Y1i 用它显式指定子进程 cwd
+_CLI_REPO = os.path.dirname(os.path.dirname(_SRC))
+#: 仓根相对路径、且在仓内**确实存在**——Y1i① 用它判「路径根锚定而非 cwd 锚定」
+_CLI_REPO_REL = "md_cg/imgskill.py"
+
+
+def _cli_src_text():
+    with open(_SRC, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _cli_probe(inv, *args, env=None, cwd=None):
+    """子进程跑 CLI，返回 `(rc, 出参 dict|None, stdout, stderr)`。
+
+    `inv` = `("-m", "md_cg.imgskill")`（真件）或 `("<变异件路径>",)`（变异件以脚本跑）。
+    子进程统一 argv 列表 + 显式 UTF-8（纪律 15；不拼 shell 串）。
+    `cwd` 缺省 `None` = 继承；**显式给**时用于「路径是否按 cwd 解析」类判据（Y1i）。
+    """
+    e = dict(os.environ)
+    e["PYTHONUTF8"] = "1"
+    if env:
+        e.update(env)
+    cp = subprocess.run([sys.executable, "-X", "utf8"] + list(inv) + list(args),
+                        shell=False, capture_output=True, encoding="utf-8",
+                        errors="replace", timeout=180, env=e, cwd=cwd)
+    obj = None
+    lines = [ln for ln in (cp.stdout or "").strip().splitlines() if ln.strip()]
+    if lines:
+        try:
+            obj = json.loads(lines[-1])
+        except ValueError:
+            obj = None
+    return cp.returncode, obj, (cp.stdout or ""), (cp.stderr or "")
+
+
+def _cli_ok(rc, obj):
+    """CLI 判据谓词（真件与变异件**共用**，故可作定点变异的打靶对象）。
+
+    判据：rc==0 且 stdout 是可解析 JSON 且出参键面齐且 `ok=true`。
+    """
+    return (rc == 0 and isinstance(obj, dict)
+            and set(_CLI_FIELDS) <= set(obj) and obj.get("ok") is True)
+
+
+def _cli_subcommands():
+    """CLI 已注册的子命令名集（从解析器结构读，不硬编码）。"""
+    for a in S.build_parser()._actions:
+        if a.__class__.__name__ == "_SubParsersAction":
+            return set(a.choices)
+    return set()
+
+
+def ya_cli_reaches_impl(_impl):
+    """Y1 暴露面落地：`--help` 列 op；inspect/resize/convert 子进程真跑到 `run()`。"""
+    fails = []
+    root = mk_root()
+    mk_src(root, "in/p.png", (40, 30))
+
+    # Y1a `--help` 列全部已实现 op 且 rc=0
+    rc, _obj, out, err = _cli_probe(_CLI_MAIN, "--help")
+    if rc != 0 or not out.strip():
+        fails.append(f"Y1 CLI --help 非 rc=0 或无输出（rc={rc}；{err.strip()[:120]}）")
+    else:
+        miss = [op for op in S.OPS_IMPL if op not in out]
+        if miss:
+            fails.append(f"Y1 CLI --help 未列 op：{miss}")
+
+    # Y1b/Y1c inspect：rc=0、字段齐、且读数与库调用**逐项一致**（同一实现路径的证据）
+    lib = S.run({"op": "inspect", "src": "in/p.png", "sandbox_root": root,
+                 "caller": "y-lib"})
+    n_before = len(S.read_audit(root))
+    rc, obj, out, err = _cli_probe(_CLI_MAIN, "inspect", "in/p.png", "--root", root)
+    if not _cli_ok(rc, obj):
+        fails.append(f"Y1 CLI inspect 子进程未过判据（rc={rc}；{err.strip()[:120]}）")
+    else:
+        if not isinstance(obj.get("meta"), dict) \
+                or {"format", "width", "height", "sha256"} - set(obj["meta"]):
+            fails.append(f"Y1 CLI inspect meta 字段不齐（{obj.get('meta')!r}）")
+        elif obj["meta"] != lib.get("meta"):
+            fails.append("Y1 CLI inspect 读数与库 run() 不一致（疑两条实现路径）")
+        if len(S.read_audit(root)) != n_before + 1:
+            fails.append("Y1 CLI inspect 未落审计台账（子进程未走 run()）")
+
+    # Y1d resize：产物落盘且尺寸 == 参数要求（width=20 → 20x15 保持纵横比）
+    rc, obj, out, err = _cli_probe(_CLI_MAIN, "resize", "in/p.png",
+                                   "--width", "20", "--dst", "o/cli_r.png",
+                                   "--root", root)
+    if not _cli_ok(rc, obj):
+        fails.append(f"Y1 CLI resize 子进程未过判据（rc={rc}；{err.strip()[:120]}）")
+    elif Image.open(abspath(root, obj["artifact_path"])).size != (20, 15):
+        fails.append(f"Y1 CLI resize 产物尺寸不符（{obj['artifact_path']}）")
+
+    # Y1e convert：产物格式 == WEBP
+    rc, obj, out, err = _cli_probe(_CLI_MAIN, "convert", "in/p.png",
+                                   "--format", "webp", "--dst", "o/cli_c.webp",
+                                   "--root", root)
+    if not _cli_ok(rc, obj):
+        fails.append(f"Y1 CLI convert 子进程未过判据（rc={rc}；{err.strip()[:120]}）")
+    elif (obj.get("meta") or {}).get("format") != "WEBP":
+        fails.append(f"Y1 CLI convert 格式不符（{(obj.get('meta') or {}).get('format')!r}）")
+
+    # Y1f 未给 --root：fail-closed（rc=1、E_BAD_PARAM）——CLI 没绕开 run() 的判据
+    rc, obj, out, err = _cli_probe(_CLI_MAIN, "inspect", "in/p.png")
+    code = (obj or {}).get("error", {}).get("code") if isinstance(obj, dict) else None
+    if rc != 1 or not isinstance(obj, dict) or obj.get("ok") is not False \
+            or code != S.E_BAD_PARAM:
+        fails.append(f"Y1 CLI 未给 --root 未 fail-closed（rc={rc}；code={code!r}）")
+
+    # Y1g op 面三处一致：_CLI_OPS 键集 == OPS_IMPL == 解析器子命令集
+    if set(S._CLI_OPS) != set(S.OPS_IMPL) or _cli_subcommands() != set(S.OPS_IMPL):
+        fails.append("Y1 CLI op 面与 OPS_IMPL 不一致"
+                     f"（_CLI_OPS={sorted(S._CLI_OPS)} 子命令={sorted(_cli_subcommands())}）")
+
+    # Y1h 范围外 op **在 CLI 上**走用法错 rc=2（库面 run() 才是 E_UNSUPPORTED_OP）。
+    #     该差异契约 §12.2 显式登记——此处用测试钉住，防「登记了却无人测」的漂移。
+    oos = S.OPS_OUT_OF_SCOPE[0]
+    rc, obj, out, err = _cli_probe(_CLI_MAIN, oos, "in/p.png", "--root", root)
+    if rc != 2:
+        fails.append(f"Y1 CLI 范围外 op（{oos}）未走 argparse 用法错 rc=2（rc={rc}）"
+                     "——§12.2 登记的差异未钉住")
+
+    # Y1i 路径口径（编排侧亲跑暴露，已写进 --help 与契约 §12.6）：路径一律相对沙箱根解析。
+    #     ① 仓内**确实存在**的仓根相对路径（子进程 cwd = 仓根，故它按 cwd 真能找到）→ 仍须
+    #        `E_NOINPUT`——这正是「根锚定、非 cwd 锚定」的可判形态；若日后有人给解析加 cwd
+    #        兜底（破坏 §九-#8），此例会变成能找到文件而转红。
+    #     ② 根外绝对路径 → `E_PATH_OUT_OF_SCOPE`（越界闸在先）。
+    rc, obj, out, err = _cli_probe(_CLI_MAIN, "inspect", _CLI_REPO_REL,
+                                   "--root", root, cwd=_CLI_REPO)
+    c1 = ((obj or {}).get("error") or {}).get("code")
+    if rc != 1 or c1 != S.E_NOINPUT:
+        fails.append(f"Y1 CLI 仓根相对路径未按「根」解析（rc={rc}；code={c1!r}，"
+                     "期望 E_NOINPUT——路径须根锚定、不得 cwd 兜底）")
+    rc, obj, out, err = _cli_probe(_CLI_MAIN, "inspect", _SRC, "--root", root)
+    c2 = ((obj or {}).get("error") or {}).get("code")
+    if rc != 1 or c2 != S.E_PATH_OUT_OF_SCOPE:
+        fails.append(f"Y1 CLI 根外绝对路径未越界拒绝（rc={rc}；code={c2!r}，"
+                     "期望 E_PATH_OUT_OF_SCOPE）")
+    return fails
+
+
+def _write_mutant_no_entry():
+    """把 `imgskill.py` 的 `__main__` 入口块**摘掉**，写成一个自足临时模块。
+
+    该模块零 `md_cg` 相对 import（G5① 已断言），故可直接以脚本跑——「入口被摘」= 跑
+    起来不再产生任何 CLI 行为（无出参），正是「悬空」的形态。
+    """
+    lines = _cli_src_text().splitlines(keepends=True)
+    idx = [i for i, ln in enumerate(lines) if ln.strip().startswith(_CLI_ENTRY_ANCHOR)]
+    d = tempfile.mkdtemp(prefix="imgskill_mut_")
+    _ROOTS.append(d)
+    p = os.path.join(d, "imgskill_noentry.py")
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("".join(lines[:idx[0]] if idx else lines))
+    return p, len(idx)
+
+
+def yb_entry_off_red():
+    """Y2 结构防悬空：锚点在位 + 真件为绿 + **摘掉入口恰好转红**（定点变异自证）。"""
+    root = mk_root()
+    mk_src(root, "in/p.png", (40, 30))
+    mutant, n_anchor = _write_mutant_no_entry()
+    ok(n_anchor == 1, f"Y2 结构锚点：`{_CLI_ENTRY_ANCHOR}` 在 imgskill.py 恰好 1 处"
+                      f"（实得 {n_anchor}）")
+    real = _cli_ok(*_cli_probe(_CLI_MAIN, "inspect", "in/p.png",
+                               "--root", root)[:2])
+    ok(real, "Y2 真件 CLI（入口在位）判据为绿")
+    got = _cli_ok(*_cli_probe((mutant,), "inspect", "in/p.png",
+                              "--root", root)[:2])
+    ok((not got) and real,
+       f"Y2 结构防悬空变异：摘掉 `__main__` 入口 → CLI 判据转红（真件绿={real} "
+       f"变异件绿={got}）——同一判据，入口摘掉即失判")
+
+
 # ---------------------------------------------------------------- 主流程
 
 def main():
@@ -1206,6 +1401,12 @@ def main():
     # ---------- X 范围收窄 ----------
     f = xf_scope(real)
     ok(not f, f"X-范围 E_UNSUPPORTED_OP 收窄：只对真正未实现者返回 [{f}]")
+
+    # ---------- Y CLI 暴露面（结构防悬空） ----------
+    f = ya_cli_reaches_impl(real)
+    ok(not f, f"Y1 CLI 暴露面：子进程跑 -m md_cg.imgskill 真走到 run()"
+              f"（inspect/resize/convert 落盘读数齐）[{f}]")
+    yb_entry_off_red()
 
     print(f"\nimgskill: {PASS} passed, {FAIL} failed")
     for k, v in READINGS:

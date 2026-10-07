@@ -125,6 +125,12 @@ docs/experiments/
 # 且 nid/created_at 带时刻），不入库。
 /.tmp/
 
+# 图像 Skill 的运行时审计台账（`md_cg/imgskill.py`）：落**调用方显式给的沙箱根**内，
+# 即 `<根>/.imgskill/audit.jsonl`。正常调用的根是临时目录、本不入库；但若有人把根指到
+# 仓内目录，台账就会落进工作区（编排侧复核时自己踩过一次：`--root docs/images`）。
+# 显式忽略，免被误 add。契约见 docs/eval/图像Skill_接口契约_设计_v0.1.md §十二。
+.imgskill/
+
 # ZCode 桌面端自动同步的本地忽略文件（工具维护，非仓库内容）；nul 为
 # Git Bash 下 `> nul` 重定向误建的意外产物，均不入库
 .zcodeignore

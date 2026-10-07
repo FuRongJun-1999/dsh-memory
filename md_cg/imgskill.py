@@ -86,10 +86,15 @@ r"""图像 Skill（Image Skill）· L1 能力子系统 · **本版实现 13 op**
 审计（定稿 §四）：每次操作（成功/失败皆然）往 `<根>/.imgskill/audit.jsonl` 追一行，
 公共字段逐项在场；降级换后端时额外落 `backend_note`（§九-#11「降级必须落审计字段」）。
 
-无 CLI：本模块只作库用；跑法见 `python -m md_cg.test_imgskill`。
+**CLI（本版新增，契约 §十二——暴露面落地，不得与库分叉）**：本模块既是库、也是一个
+显式命令行入口——`python -X utf8 -m md_cg.imgskill <op> [参数]`。CLI **只把命令行搬运
+成 `run(req)` 的入参**：参数校验、执行、审计**全在同一份 `run()` 内**，CLI 侧不另写一份
+逻辑（否则「库调用」与「CLI 调用」会漂移成两条实现路径）。`--help` 列全部 op 与参数。
+**仍不新增 MCP op**（沿 §九-#5：不扩大协议面）；入口给的是「人/脚本显式调用」面。
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import math
@@ -105,6 +110,7 @@ __all__ = [
     "LEVEL_MAP", "ERROR_CODES", "GRAVITIES",
     "derive_level", "resolve_magick", "resolve_backend", "read_audit",
     "AUDIT_REL", "audit_path",
+    "build_parser", "cli_main",
 ]
 
 # ---------------------------------------------------------------- 常量
@@ -1440,3 +1446,158 @@ def _find_reuse(root, key, op, in_sha, nparams):
             if os.path.isfile(p) and _sha256_file(p) == rec.get("output_sha256"):
                 return rec
     return None
+
+
+# ---------------------------------------------------------------- CLI 入口
+#
+# 暴露面（契约 §十二）：**不新增 MCP op**（沿 §九-#5）——本版给库一个「人/脚本可显式
+# 调用」的入口：`python -X utf8 -m md_cg.imgskill <op> [参数]`。CLI **只做入参搬运**：
+# 把命令行映射成 `run(req)` 的入参 dict；**校验/执行/审计全在 `run()` 同一条路径内**，
+# 此处不另写一份逻辑（故 CLI 与库调用不可能分叉）。docs/eval 契约 §十二 记该决定。
+
+_CLI_DEFAULT_CALLER = "cli:imgskill"
+
+#: 每个已实现 op 的命令行参数表：`op -> ((旗标, dest, 类型, 必填, 帮助), ...)`。
+#: **只声明「有哪些参数、什么标量类型」，不声明取值域**——取值域与校验仍归
+#: `run()`/`_norm_params`（避免两处各写一份参数规则而漂移）。类型仅做命令行标量转换
+#: （`int`/`float`/`str`）——不转换的话 `_norm_params` 会把 `"512"` 判成非整数而拒。
+_CLI_OPS = {
+    "inspect": (),
+    "resize": (("--width", "width", int, False, "目标宽（与/或 --height；缺省保持纵横比）"),
+               ("--height", "height", int, False, "目标高"),
+               ("--filter", "filter", str, False, "重采样滤波器（缺省 lanczos）")),
+    "convert": (("--format", "format", str, False, "目标格式（缺省由 --dst 后缀定）"),),
+    "thumbnail": (("--max-edge", "max_edge", int, True, "长边目标像素数"),),
+    "crop": (("--x", "x", int, False, "裁窗左（缺省 0）"),
+             ("--y", "y", int, False, "裁窗上（缺省 0）"),
+             ("--width", "width", int, True, "裁窗宽"),
+             ("--height", "height", int, True, "裁窗高")),
+    "rotate": (("--degrees", "degrees", float, True, "旋转角度（本版约定正角=顺时针）"),),
+    "flip": (("--axis", "axis", str, False, "轴同义确认项（vertical）"),),
+    "flop": (("--axis", "axis", str, False, "轴同义确认项（horizontal）"),),
+    "adjust": (("--brightness", "brightness", int, False, "亮度百分比 ±100"),
+               ("--contrast", "contrast", int, False, "对比度百分比 ±100"),
+               ("--gamma", "gamma", float, False, "伽马 (0, 10]")),
+    "blur": (("--sigma", "sigma", float, True, "高斯 sigma (0, 100]"),),
+    "sharpen": (("--sigma", "sigma", float, True, "反锐化 sigma (0, 100]"),),
+    "composite": (("--over-path", "over_path", str, True, "叠加图路径（相对沙箱根）"),
+                  ("--gravity", "gravity", str, False, "落位 gravity（缺省 center）"),
+                  ("--opacity", "opacity", float, False, "不透明度 [0, 1]（缺省 1.0）")),
+    "mask": (("--mask-path", "mask_path", str, True, "mask 路径（相对沙箱根）"),
+             ("--mode", "mode", str, False, "mask 模式（本版只 set）")),
+}
+
+_CLI_EPILOG = "\n".join((
+    "示例（沙箱根与所有路径一律由调用方显式给——无隐式默认根，契约 §九-#8）：",
+    "  python -X utf8 -m md_cg.imgskill inspect <源> --root <沙箱根>",
+    "  python -X utf8 -m md_cg.imgskill resize <源> --width 256 --root <沙箱根>",
+    "  python -X utf8 -m md_cg.imgskill convert <源> --format webp --root <沙箱根>",
+    "",
+    "路径口径：<源>/--dst/--over-path/--mask-path 一律**相对沙箱根**解析（绝对路径、或经 ..",
+    "逃出根 → E_PATH_OUT_OF_SCOPE）——故要处理仓内文件须先拷入沙箱根；直接给仓内相对路径",
+    "会被解析成 <根>/<该相对路径> 而返 E_NOINPUT（不是「找不到该功能」）。",
+    "",
+    "全局项（--root/--caller/--level/--idempotency-key）在 op 前后皆可；",
+    "每个 op 的参数见 `python -X utf8 -m md_cg.imgskill <op> --help`。",
+    "本版实现 op：" + "/".join(OPS_IMPL),
+    "本版范围外 op（库面 run() 对之返 E_UNSUPPORTED_OP；**CLI 上这些名字不是子命令**，",
+    "敲了得到 argparse 用法错 rc=2——该差异见契约 §十二）：" + "/".join(OPS_OUT_OF_SCOPE),
+))
+
+
+def _cli_common_parent():
+    """公共项（供子命令副本用；`default=SUPPRESS` 使「op 前给的全局值」不被抹掉）。"""
+    c = argparse.ArgumentParser(add_help=False)
+    c.add_argument("--root", metavar="DIR",
+                   help="沙箱根（**无隐式默认根**：未给即 run() 拒 E_BAD_PARAM，§九-#8）")
+    c.add_argument("--caller", metavar="NAME", help="调用者标识（进审计）")
+    c.add_argument("--level", choices=(L0, L1, L2), metavar="{L0,L1,L2}",
+                   help="declared_level（低于 op 派生等级 → 拒 E_LEVEL_DOWNGRADE）")
+    c.add_argument("--idempotency-key", dest="idempotency_key", metavar="KEY",
+                   help="同 key 同参可复用已存产物")
+    for a in c._actions:                      # 副本不设默认：未显式给就不落属性
+        a.default = argparse.SUPPRESS
+    return c
+
+
+def build_parser():
+    """构造 CLI 解析器（`--help` 列 op 与每 op 的参数）。**不在此校验取值**。"""
+    ap = argparse.ArgumentParser(
+        prog="python -X utf8 -m md_cg.imgskill",
+        description="图像 Skill（Image Skill）命令行入口——把命令行搬运成 run(req)。",
+        epilog=_CLI_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--root", metavar="DIR",
+                    help="沙箱根（**无隐式默认根**：未给即 run() 拒 E_BAD_PARAM，§九-#8）")
+    ap.add_argument("--caller", metavar="NAME", default=_CLI_DEFAULT_CALLER,
+                    help="调用者标识（进审计；缺省 %(default)s）")
+    ap.add_argument("--level", choices=(L0, L1, L2), metavar="{L0,L1,L2}",
+                    help="declared_level（低于 op 派生等级 → 拒 E_LEVEL_DOWNGRADE）")
+    ap.add_argument("--idempotency-key", dest="idempotency_key", metavar="KEY",
+                    help="同 key 同参可复用已存产物")
+    parent = _cli_common_parent()
+    sub = ap.add_subparsers(dest="op", metavar="OP")
+    for op in OPS_IMPL:                        # 覆盖全部已实现 op（顺序即 OPS_IMPL）
+        sp = sub.add_parser(op, parents=[parent], help=f"{op} 操作",
+                            description=f"{op} 操作（校验/执行/审计均走 run()）")
+        sp.add_argument("src", metavar="SRC", help="源路径（相对沙箱根，UTF-8）")
+        sp.add_argument("--dst", metavar="DST", default=None,
+                        help="产物路径（相对沙箱根；缺省由 op+params 派生）")
+        for flag, dest, kind, required, help_ in _CLI_OPS[op]:
+            sp.add_argument(flag, dest=dest, type=kind, required=required,
+                            default=None, help=help_)
+    return ap
+
+
+def _cli_params(op, args):
+    """把已解析的命令行搬成 `params` dict（**不校验**——校验在 `run()`/`_norm_params`）。
+
+    `inspect` 无参；`resize` 恒带 width/height（None 合法，交 `run()` 判「不得皆缺」）；
+    其余 op **只送用户显式给的非 None 取值**，缺省值由 `run()` 内补齐。
+    """
+    if op == "inspect":
+        return {}
+    if op == "resize":
+        p = {"width": args.width, "height": args.height}
+        if args.filter is not None:
+            p["filter"] = args.filter
+        return p
+    out = {}
+    for _flag, dest, _kind, _req, _h in _CLI_OPS[op]:
+        v = getattr(args, dest)
+        if v is not None:
+            out[dest] = v
+    return out
+
+
+def cli_main(argv=None):
+    """CLI 主入口：解析 → 组 `req` → 调 `run()` → 打印 JSON → 退出码。
+
+    退出码：0 = `run()` 返回 `ok=true`；1 = `ok=false`（错误码在 stdout 的 JSON `error`
+    里，可机械分支）；2 = 未给 op（用法错，打印帮助）。
+    """
+    ap = build_parser()
+    args = ap.parse_args(argv)
+    if not args.op:
+        ap.print_help(sys.stderr)
+        return 2
+    req = {"op": args.op, "src": args.src,
+           "params": _cli_params(args.op, args),
+           "sandbox_root": getattr(args, "root", None),
+           "caller": getattr(args, "caller", _CLI_DEFAULT_CALLER)}
+    dst = getattr(args, "dst", None)
+    if dst is not None:
+        req["dst"] = dst
+    level = getattr(args, "level", None)
+    if level is not None:
+        req["declared_level"] = level
+    key = getattr(args, "idempotency_key", None)
+    if key is not None:
+        req["idempotency_key"] = key
+    res = run(req)
+    print(json.dumps(res, ensure_ascii=False, sort_keys=True))
+    return 0 if res.get("ok") else 1
+
+
+if __name__ == "__main__":                      # CLI 入口钩子（守卫「结构防悬空」锚点）
+    raise SystemExit(cli_main())
