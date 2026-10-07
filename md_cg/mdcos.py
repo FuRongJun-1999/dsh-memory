@@ -815,7 +815,7 @@ class MdCGOS(MdCG):
 
     # ================= 2. role 分层索引 =================
 
-# 生效条件：当 node_id 与 content 传入时，先若有 role 非 None 则放入 kw，调用父类 add 得 nid；仅当索引中 e 非 None 且 role 非 None 时把 role 写入索引并标记 dirty；随后记 audit 并返回 nid；
+# 生效条件：当 node_id 与 content 传入时，先若有 role 非 None 则放入 kw，调用父类 add 得 nid；仅当索引中 e 非 None 且 role 非 None 时把 role 写入索引并标记 dirty；随后记 audit（session 取与写面同一**有效会话**＝kw["session"]——显式声明优先、否则三态单点；sens 同 kw.get("sensitivity")）并返回 nid；
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             role: str = None, **kw) -> str:
         """在父类 add 之上：写入 role（frontmatter + 索引），默认 role=None（知识）。"""
@@ -841,8 +841,21 @@ class MdCGOS(MdCG):
         # 审计与写面同 sens（写归因三态，2026-10-07）：本节点 frontmatter.session
         # 由 `_attribution(kw, sens)` 落定，审计记录须经**同一 sens** 过三态单点，
         # 否则未声明档审计记进程随机、节点记 unattributed（字面分叉）。
+        #
+        # 审计与写面同「有效会话」（同族补齐，2026-10-07）：上面 830-832 行已把
+        # 有效会话（显式声明优先、否则三态单点）落进 `kw["session"]`，而
+        # `super().add(**kw)` 正是把它写进 frontmatter.session / 索引条目——
+        # 故审计行取**同一个已算出的值**（`session=` 命名参数进 meta 后，
+        # `MdCGSecure._audit` 的 setdefault 不再覆盖；与 `session_note` 同一手法）
+        # 而不在 `_audit` 里再拼一次逻辑。修前只补了 sens 一维：显式 session 档下
+        # 审计仍取三态单点 ⇒ 节点 fm.session 落 'X' 而审计行落单点值（未声明档
+        # 'unattributed'／绑定档进程随机）——同一写入两处字面分叉
+        # （`docindex.ingest_transcript` 的 `add(session=<token>)` 早已如此）。
+        # 纯 MdCGOS（无 `_attributed_session` 钩子）同样由此受益：`session_note`
+        # 的日期兜底值经 `add(session=…)` 落 fm 后，add 事件不再落 None。
         self._audit("add", nid, layer=layer, role=role,
-                    payload_hash=_sig(content), sens=kw.get("sensitivity"))
+                    payload_hash=_sig(content), sens=kw.get("sensitivity"),
+                    session=kw.get("session"))
         return nid
 
 # 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，恒剔除 lifecycle.is_archived(e) 为真的节点（退役不参与默认检索；缺 lifecycle 键=active 照常，converged/demoted 仍参与），session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），validity 为真值而 trust.is_expired(e) 为真时剔除（**只排已过期，not_yet 保留**），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点；view 为真值时 role 维度裁决权移交 roleviews.matches（receipt=工作角色白名单须绕过默认剔除才可达，非法 view ValueError），view 为假值且 include_work 为假时剔除 WORK_ROLES 角色，时间算子启用时按 time_axis 轴过滤（效力轴不可判定 fail-open、观察轴不可判定 fail-closed 并入 self._time_filter_stat），其余收集进 out 返回。
