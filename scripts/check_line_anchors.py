@@ -27,10 +27,14 @@ review_cli.py` 2026-10-07 被薄壳化为 43 行，一次性让 8 处锚越界�
     无法确定目标，硬报红会制造假红）。
 
 **已知边界（2026-10-08 实测记入——读 `VERDICT` 时必须一并读这两条）**：
-  · **同文件简写锚不进扫描面**：`ANCHOR` 只认「带扩展名的路径 + `:行号`」，故「同文件 `:93`」
-    这类**无路径前缀的裸 `:行号`** 既不进红/绿、也不进冻结 ⇒ `VERDICT: PASS` 是**必要条件**
-    （无未登记的红），**不是**「锚全对」的充分判据。实测：`docs/plans/蜂巢模型密钥配置面_v1.0.md`
-    改前有 131 处裸锚、守卫零覆盖（该轮改造后剩 15 处）。
+  · **同文件简写锚不进扫描面（现「可见」、仍「不判」）**：`ANCHOR` 只认「带扩展名的路径 +
+    `:行号`」，故「同文件 `:NN`」这类**无路径前缀的裸 `:行号`**（下称**简写锚**）既不进红/绿、
+    也不进冻结 ⇒ `VERDICT: PASS` 是**必要条件**（无未登记的红），**不是**「锚全对」的充分判据。
+    **2026-10-08 起该盲区已可见**：汇总行新增一行「简写锚（不进判定·仅报告） N 处 / M 行」，
+    `--list` 以 `[SHORTHAND]` 逐条列出并附**按件 top**。**但本桶只报告、不进五判定，也不改
+    `VERDICT`/退出码**——「可见」不等于「纳入」。识别规则与排除项见 `_SHORTHAND` 处注释。
+    实测（2026-10-08 一轮）：全仓 6146 处 / 2759 行（简写锚集中在 `docs/eval/` 历史留档面，
+    与该面「刻意不改写历史」的既有豁免口径一致；守卫自身此桶计 0 处）。
   · **构建产物在场与否会挪动 FROZEN↔UNRESOLVED 的归属**：目标件是被 gitignore 的构建产物时
     （如 `lib/index.js`），其在否决定该锚落在「基线冻结」还是「无法解析」⇒ 读数可能在
     359/258 ↔ 358/259 之间摆动（**红恒 0、VERDICT 不变**）。触发条件实测＝`npm run build`
@@ -77,6 +81,43 @@ ANCHOR = re.compile(
 )
 CODE_SPAN = re.compile(r"`([^`\n]+)`")      # 行内代码跨度
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
+
+# ---- 简写锚（裸 `:行号`）—— **只报告、不判定** -------------------------------------
+# 识别规则（全部成立才算一处简写锚；六条见 docstring「已知边界」与 .tmp/shorthand_plan.md）：
+#   R1 冒号后**紧跟**数字（无空白）：`:N` 或区间 `:N-M`；
+#   R2 冒号前一位**不是** 标识符/路径/引号/括号/冒号 —— 左边界：
+#       拦下 `14:55`（时刻）、`1:1`（比值）、`key[:16]`（切片，前位 `[`）、
+#       `{"a":1}`（前位 `"`）、`路径.py:NN`（前位扩展名字母，已是路径锚）、
+#       `fe80::1`（前位 `:`，IPv6 双冒号）；
+#   R3 数字后一位**不是** ASCII 字母/数字/下划线 —— 右边界：拦下 `{int(y):04d}`
+#       `{name:9s}` `{len(uids):3d}` 一类格式化占位符；
+#   R4 冒号前一位**不是**中日韩汉字 —— 拦下「中文词 + 冒号 + 数字」（`结果:22`、
+#       字典字面量 `{甲:1}`/`{友:2,师:1}`/`watermarks={乙:1}`）；
+#   R5 该冒号**不在**任一 `ANCHOR` 路径锚匹配区间内（`路径.py :NN` 带空格那种）；
+#   R6 数字至多 7 位（避免命中长哈希/ID）。
+# **全角冒号 `：` 整体不纳入**：本仓 `：` 紧接数字共 1243 处，其中日期形（`：2026-09-26`）128 处、
+# 其余 1115 处为中文行文标点（`：0.019 秒`/`：1。德…`/`：500 链`），抽查零处是行号锚 ⇒ 纳入即
+# 注入上千误判，故只认半角 `:`。
+_SHORTHAND = re.compile(
+    r"""(?<![0-9A-Za-z_./\\"'$\[\]{}:]):(?P<a>\d{1,7})(?:-(?P<b>\d{1,7}))?(?![0-9A-Za-z_])"""
+)
+_CJK = re.compile(r"[\u3400-\u9fff]")
+
+
+def find_shorthand(line: str, anchor_spans: list) -> list:
+    """抠出行内全部「简写锚」（start 偏移 + 显示文本）；纯报告用，不参与判定。
+
+    anchor_spans = 该行全部 `ANCHOR` 匹配的 (start, end)，用于 R5 排除路径锚内部。
+    """
+    got = []
+    for m in _SHORTHAND.finditer(line):
+        s = m.start()
+        if any(lo <= s < hi for lo, hi in anchor_spans):
+            continue                                   # R5：落在路径锚内
+        if s > 0 and _CJK.match(line[s - 1]):
+            continue                                   # R4：中文词 + 冒号 + 数字
+        got.append((s, m.group(0)))
+    return got
 
 
 def tracked_files(root: str) -> list[str]:
@@ -170,6 +211,8 @@ def main() -> int:
     ap.add_argument("--root", default=REPO)
     ap.add_argument("--baseline", default=BASELINE)
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--shorthand-top", type=int, default=0, metavar="N",
+                    help="额外打印「简写锚」按件 top N（0=不打印；--list 时默认 top 15）")
     ap.add_argument("--json", default=None)
     args = ap.parse_args()
     root = os.path.abspath(args.root)
@@ -188,6 +231,8 @@ def main() -> int:
                              for a in base.get("anchors", [])}
 
     red, green, exempt, frozen, unresolved = [], [], [], [], []
+    shorthand = []                       # 只报告：裸 `:行号`（不进五判定、不改 VERDICT）
+    short_by_file: dict[str, int] = {}
     n_anchors = n_noid = 0
 
     for rel in scannable:
@@ -195,7 +240,11 @@ def main() -> int:
         if lines is None:
             continue
         for i, line in enumerate(lines, 1):
-            for m in ANCHOR.finditer(line):
+            anchor_matches = list(ANCHOR.finditer(line))
+            for _s, _txt in find_shorthand(line, [m.span() for m in anchor_matches]):
+                shorthand.append({"at": "%s:%d" % (rel, i), "anchor": _txt})
+                short_by_file[rel] = short_by_file.get(rel, 0) + 1
+            for m in anchor_matches:
                 raw_path = m.group("path") or m.group("path2")
                 a = int(m.group("a") or m.group("a2"))
                 b = int(m.group("b")) if m.group("b") else None
@@ -231,11 +280,18 @@ def main() -> int:
                     rec["reason"] = reason
                     (exempt if kind == "exempt" else frozen).append(rec)
 
+    short_lines = len({s["at"] for s in shorthand})
     print("check_line_anchors: root=%s" % root)
     print("  扫描件 %d（受管件 %d）" % (len(scannable), len(files)))
     print("  识别锚 %d   其中无随行标识符·不判 %d" % (n_anchors, n_noid))
     print("  绿 %d | 红(未登记) %d | 豁免(留档面) %d | 基线冻结 %d | 无法解析 %d"
           % (len(green), len(red), len(exempt), len(frozen), len(unresolved)))
+    print("  简写锚（不进判定·仅报告） %d 处 / %d 行   ← 不入五计数、不改 VERDICT"
+          % (len(shorthand), short_lines))
+    top_n = args.shorthand_top if args.shorthand_top else (15 if args.list else 0)
+    if top_n > 0 and short_by_file:
+        for rel, cnt in sorted(short_by_file.items(), key=lambda kv: (-kv[1], kv[0]))[:top_n]:
+            print("    [SHORTHAND-TOP] %4d 处  %s" % (cnt, rel))
     if args.list:
         for r in red:
             print("  [RED]      %s   %s" % (r["anchor"], r["why"]))
@@ -245,10 +301,13 @@ def main() -> int:
             print("  [EXEMPT]   %s   (%s)" % (r["anchor"], r["reason"]))
         for r in unresolved:
             print("  [UNRESOLVED] %s   (%s)" % (r["anchor"], r["why"]))
+        for s in shorthand:
+            print("  [SHORTHAND] %s -> %s（不进判定）" % (s["at"], s["anchor"]))
     if args.json:
         with open(args.json, "w", encoding="utf-8") as f:
             json.dump({"red": red, "green": green, "exempt": exempt,
-                       "frozen": frozen, "unresolved": unresolved},
+                       "frozen": frozen, "unresolved": unresolved,
+                       "shorthand": shorthand, "shorthand_by_file": short_by_file},
                       f, ensure_ascii=False, indent=1)
     if red:
         print("VERDICT: FAIL —— %d 条行号锚未通过且未登记" % len(red))
