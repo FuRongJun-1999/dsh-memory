@@ -321,3 +321,29 @@ L3 Asset Store + 审计台账   可寻址 asset:// ／ 每次操作一条审计
 **实现过程中查出并修掉一个真缺陷**：`magick %[channels]` 实返 `"srgb  4.0"`（带浮点尾巴），原样透出会污染 `meta.mode`——已取首 token 归一为 `RGB`。
 
 **结论**：本版**可验收**；下一批 ＝ 其余 9 op 与 L1/L2 面（须先有模型／云侧，属步 3 邻域）。
+
+---
+
+## 十一、契约回写补正（v0.1-r1 · 2026-10-07 随补 op 批）
+
+> **本节补正 §五 的若干点；冲突之处以本节为准。** 起因：实现 §五 余下 10 个 op 时发现该表有**三处内部冲突**（判据栏与实现栏互斥）与**两处未给取值**；实现方按「**判据优先、主后端语义优先**」做了 gap-fill，此处逐条确认并回写。
+
+**（一）三处内部冲突 → 以「判据优先、主后端（`magick`）语义优先」为准**
+
+| # | §五 原状 | 冲突 | **补正后（本节为准）** |
+|---|---|---|---|
+| A | `thumbnail` 判据「最长边 == `max_edge`（保持纵横比）」／实现栏写 `Pillow thumbnail()` | Pillow 的 `thumbnail()` **只缩不放**，与判据（缩与放两向都要求最长边 == `max_edge`）**互斥** | **判据不变**；Pillow 侧实现改为**等比 resize（LANCZOS）** |
+| B | `rotate` 两栏方向 | `magick` 正角＝顺时针、Pillow `rotate` 正角＝逆时针，**互斥** | **取正角＝顺时针**（主后端语义）；Pillow 侧做方向反转补偿 |
+| C | `flip`/`flop` 参数栏列了 `axis`；`composite` 命令栏含 `-geometry +X+Y` 而参数栏未列 | 参数栏与命令栏不一致 | `axis` 为**选填同轴确认项**；`composite` 位置**只由 `gravity` 定**，只收 `over_path`／`gravity`／`opacity`，**多余键 → `E_BAD_PARAM`** |
+
+**（二）两处未给取值 → 确认实现方取值**：`thumbnail` 的 Pillow 侧滤波器**固定 LANCZOS**；`mask.mode` **本版只支持 `"set"`**（`mul` 等未落，走 `E_UNSUPPORTED_OP`——`magick` 单命令实测三种写法均无确定等价，为一个 mode 引多步中间产物不匹配收益）。
+
+**（三）两处实现自加前提 → 接受**：`composite` 要求 **over ≤ base**、`mask` 要求 **mask 尺寸 == 源**——两后端在越界／异尺寸下行为不判齐，**fail-closed（`E_BAD_PARAM`）优于行为不可预期**（沿「不猜」原则）。
+
+**（四）已接受、登记为已知差异（不设跨后端逐位门）**：`adjust`（magick 16-bit vs Pillow 8-bit LUT）与 `sharpen`（Pillow 侧固定 `percent=150, threshold=0`）**两后端数学不同源**——**判据不要求逐位**（§五 对这两行的判据是「参数入台账 ＋ 同参幂等」）；非直角 `rotate` 尺寸两后端本不同（45° 实测 magick 52×52／Pillow 50×50）——**只设 ±3px 内部门**。
+
+**（五）`mask` 写面收窄 → 接受**：收窄为 `png`／`tif`／`tiff`——webp/bmp 编码器在 alpha 恒不透明时**会丢通道**，直接违反「alpha 通道存在且可读回」的判据。**判据优先**的正确取舍。
+
+**（六）登记为后续小项（本批不改，超范围）**：`_classify_backend_err` 关键词表不含 magick 的 `invalid colormap index` ⇒「坏 palette PNG」这类损坏输入落 `E_BACKEND_FAIL` 而非 §3.3 的 `E_DECODE`（补关键词可同时改善多个 op，留下一批）；符号链接逃逸／`E_PERM` 仍**未用真样例打过**（沿 §十-#10）。
+
+**补 op 批实测（编排侧亲跑）**：`md_cg/imgskill.py` 877→**1442 行**、`md_cg/test_imgskill.py` 557→**1229 行**；守卫 **两条后端各 39 passed / 0 failed**（默认 pillow 兜底带降级留痕；`IMGSKILL_MAGICK` 注入走 magick 7.1.2-31）；新增断言 21 条（既有 18 条未减弱，仅把 G3 的 `E_UNSUPPORTED_OP` 例由已实现的 `crop` 换为仍范围外的 `extract`）；7 件定点变异**各自恰好打中 1 项**；`check_local_paths` PASS。
