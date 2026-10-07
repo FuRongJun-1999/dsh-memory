@@ -1,5 +1,5 @@
 {
- "_doc": "行号锚基线：rules = 留档面整类豁免（带理由）；anchors = HEAD 存量锚基线冻结（只减不增：新增红必然未登记 → 报红）。生成见 .tmp/gen_line_anchor_baseline.py。本文件是『守卫件』的一部分。",
+ "_doc": "行号锚基线：rules = 留档面整类豁免（带理由）；anchors = HEAD 存量锚基线冻结（只减不增：新增红必然未登记 → 报红）。**键制 v2（2026-10-08 起）：键 = 锚件路径#锚行全文sha256前16位 -> 目标引用串（含区间尾）；位置无关、内容敏感**——v1 的行号键已逐条翻译迁移，每条保留 legacy_key/head_line 供对照。生成见 .tmp/gen_line_anchor_baseline.py；v1→v2 迁移见 .tmp/migrate_baseline_keys.py（一次性，临时件未入仓）。本文件是『守卫件』的一部分。",
  "_frozen_counts_by_file": {
   "compiler/condition_vm.py": 1,
   "docs/GBrain可借鉴点_灵枢落点交接_20260919.md": 9,
@@ -84,1440 +84,2517 @@
  ],
  "anchors": [
   {
-   "key": "compiler/condition_vm.py:282 -> compiler.py:74",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "compiler/condition_vm.py#d252c2fea1fa6387 -> compiler.py:74-76",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "compiler/condition_vm.py:282 -> compiler.py:74",
+   "head_line": 282,
+   "line_text": "        end 标签都 `_place` 在 `len(code)`（compiler.py:74-76、:137-139），"
   },
   {
-   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:54 -> md_cg/nodefile.py:122",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md#a7c2a577c326bf38 -> md_cg/nodefile.py:122-123",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:54 -> md_cg/nodefile.py:122",
+   "head_line": 54,
+   "line_text": "  - 字段**已在**：`valid_from` / `valid_until` —— `md_cg/nodefile.py:122-123`（`VALID_FROM_FIELD` / `VALID_UNTIL_FIELD`，注释自陈「`valid_until` 既有（已被 scrub 的过期消费面使用）；`vali…"
   },
   {
-   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:54 -> md_cg/trust.py:61",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md#a7c2a577c326bf38 -> md_cg/trust.py:61-62",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:54 -> md_cg/trust.py:61",
+   "head_line": 54,
+   "line_text": "  - 字段**已在**：`valid_from` / `valid_until` —— `md_cg/nodefile.py:122-123`（`VALID_FROM_FIELD` / `VALID_UNTIL_FIELD`，注释自陈「`valid_until` 既有（已被 scrub 的过期消费面使用）；`vali…"
   },
   {
-   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:57 -> md_cg/coldverify.py:148",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md#a99afce4404e4ab1 -> md_cg/coldverify.py:148",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:57 -> md_cg/coldverify.py:148",
+   "head_line": 57,
+   "line_text": "  - 消费面**只在治理/展示侧**：`trust.patrol`（`trust.py:500-524` 巡检粗判 expired/not_yet 清单出报表）、`md_cg/statushdr.py:77`（状态头展示）、`md_cg/coldverify.py:148`（冷启动复核转 expired 态）。"
   },
   {
-   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:57 -> md_cg/statushdr.py:77",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md#a99afce4404e4ab1 -> md_cg/statushdr.py:77",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:57 -> md_cg/statushdr.py:77",
+   "head_line": 57,
+   "line_text": "  - 消费面**只在治理/展示侧**：`trust.patrol`（`trust.py:500-524` 巡检粗判 expired/not_yet 清单出报表）、`md_cg/statushdr.py:77`（状态头展示）、`md_cg/coldverify.py:148`（冷启动复核转 expired 态）。"
   },
   {
-   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:57 -> trust.py:500",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md#a99afce4404e4ab1 -> trust.py:500-524",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:57 -> trust.py:500",
+   "head_line": 57,
+   "line_text": "  - 消费面**只在治理/展示侧**：`trust.patrol`（`trust.py:500-524` 巡检粗判 expired/not_yet 清单出报表）、`md_cg/statushdr.py:77`（状态头展示）、`md_cg/coldverify.py:148`（冷启动复核转 expired 态）。"
   },
   {
-   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:81 -> md_cg/mcp_server.py:48",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md#e49c6533b5a7d6cc -> md_cg/mcp_server.py:48",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:81 -> md_cg/mcp_server.py:48",
+   "head_line": 81,
+   "line_text": "  - **修正报告的「无冻结承诺」更精确表述**：`PROTOCOL_VERSION` 存在但**语义不同**——`md_cg/mcp_server.py:48` 与 `md_cg/whitebox.py:51` 是 **MCP 传输协议版本**（JSON-RPC 侧），`md_cg/theory.py:38` 是*…"
   },
   {
-   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:81 -> md_cg/theory.py:38",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md#e49c6533b5a7d6cc -> md_cg/theory.py:38",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:81 -> md_cg/theory.py:38",
+   "head_line": 81,
+   "line_text": "  - **修正报告的「无冻结承诺」更精确表述**：`PROTOCOL_VERSION` 存在但**语义不同**——`md_cg/mcp_server.py:48` 与 `md_cg/whitebox.py:51` 是 **MCP 传输协议版本**（JSON-RPC 侧），`md_cg/theory.py:38` 是*…"
   },
   {
-   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:95 -> md_cg/mdcg.py:221",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md#f972ad4d34ee6f7f -> md_cg/mdcg.py:221-232",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:95 -> md_cg/mdcg.py:221",
+   "head_line": 95,
+   "line_text": "  - 所有相关开关都是**部署期 env**，不是运行期探测：`MDCG_SEMANTIC`（`md_cg/mdcg.py:221-232` `semantic_on()`，注释「默认关闭零回归」）、`MDCG_EN_ATOMS`（`mdcg.py:235-301`，默认 `\"0\"`）、`MDCG_TOOL_FACE…"
   },
   {
-   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:95 -> mdcg.py:235",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md#f972ad4d34ee6f7f -> mdcg.py:235-301",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/GBrain可借鉴点_灵枢落点交接_20260919.md:95 -> mdcg.py:235",
+   "head_line": 95,
+   "line_text": "  - 所有相关开关都是**部署期 env**，不是运行期探测：`MDCG_SEMANTIC`（`md_cg/mdcg.py:221-232` `semantic_on()`，注释「默认关闭零回归」）、`MDCG_EN_ATOMS`（`mdcg.py:235-301`，默认 `\"0\"`）、`MDCG_TOOL_FACE…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:120 -> autonomy.py:179",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#03ce4c130908640a -> autonomy.py:177",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:13 -> autonomy.py:177",
+   "head_line": 13,
+   "line_text": "1. **缺口**（承接探针读数，原文）：情绪读数（信息差二阶 `emotional_bias`）与情感读数（信任二阶 `affect`）**齐备且有落盘**，但全部止于「读数/卡字段/建议」——唯一被消费的两处（`consistency.py:751` 的 L2 递归调度、`autonomy.py:177` 的提案评…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:126 -> mdcos.py:110",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#03ce4c130908640a -> consistency.py:751",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:13 -> consistency.py:751",
+   "head_line": 13,
+   "line_text": "1. **缺口**（承接探针读数，原文）：情绪读数（信息差二阶 `emotional_bias`）与情感读数（信任二阶 `affect`）**齐备且有落盘**，但全部止于「读数/卡字段/建议」——唯一被消费的两处（`consistency.py:751` 的 L2 递归调度、`autonomy.py:177` 的提案评…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:13 -> autonomy.py:177",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#05907b5789734ec4 -> md_cg/autonomy.py:177-180",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:188 -> md_cg/autonomy.py:177",
+   "head_line": 188,
+   "line_text": "| `score`（资格定价器）与 `score<=0→continue` | `md_cg/autonomy.py:177-180` |"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:13 -> consistency.py:751",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#14382238d9a6969f -> md_cg/autonomy.py:254-278",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:191 -> md_cg/autonomy.py:254",
+   "head_line": 191,
+   "line_text": "| `_explore.jsonl` 留痕（proposals 落痕） | `md_cg/autonomy.py:254-278` |"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:135 -> test_w5_path_fingerprint.py:32",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#2710e9ab753d4bd6 -> md_cg/autonomy.py:184",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:44 -> md_cg/autonomy.py:184",
+   "head_line": 44,
+   "line_text": "| **(a)** `autonomy.proposals` 的 `sort_score` | `md_cg/autonomy.py:184`（`sort_score`） | **极小**：一个函数内加一个加分项 + 一个 env 读点 | **高**：既有的 `d_meta_bonus`/`reason`/`_exp…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:15 -> autonomy.py:179",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#2e460f0b754d1e6d -> md_cg/mdcos.py:1768",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:201 -> md_cg/mdcos.py:1768",
+   "head_line": 201,
+   "line_text": "| `search_rrf` 融合排序/终排（(b) 的落点） | `md_cg/mdcos.py:1768`、`:1793-1806` |"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:187 -> md_cg/autonomy.py:148",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#3646094e6c9c05e1 -> md_cg/metacognition.py:380-383",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:46 -> md_cg/metacognition.py:380",
+   "head_line": 46,
+   "line_text": "| **(c)** 元认知建议面（`metacognition._advise` 的 `diverging` 显式化） | `md_cg/metacognition.py:380-383` | 极小（模板字符串/字段） | 高（`_metacognition.jsonl` `:428`） | 远 | 低，**但**：建…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:188 -> md_cg/autonomy.py:177",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#45a33524dad71fc0 -> hotcache.py:60-65",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:67 -> hotcache.py:60",
+   "head_line": 67,
+   "line_text": "- **热缓存**：`proposals()` **不经** `hotcache` 的 query 缓存（它直读 `metacognition._reflections(cg)` `:148`），故**无需**登记进 `hotcache._ENV_SWITCHES`（`hotcache.py:66-68`）——这是 (…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:191 -> md_cg/autonomy.py:254",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#59c6709d8974b5f6 -> autonomy.py:179",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:120 -> autonomy.py:179",
+   "head_line": 120,
+   "line_text": "1. **微调被层层放大、渗入资格**（最重）→ 对策：**硬上限** `|emotion_bonus| ≤ ε`（§3.3）；**只写 `sort_score`**，资格判据 `score>0` 在加分**之前**（`autonomy.py:179`）；**只加排序分不改定价器**（`score` 与 `sort_s…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:192 -> md_cg/autonomy.py:227",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#5da1314661663862 -> md_cg/self_state.py:86",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:196 -> md_cg/self_state.py:86",
+   "head_line": 196,
+   "line_text": "| `self_state` 五维（不升情绪维） | `md_cg/self_state.py:86` |"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:193 -> md_cg/autonomy.py:29",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#60c0fe8409f599b8 -> metacognition.py:56",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:72 -> metacognition.py:56",
+   "head_line": 72,
+   "line_text": "- **映射**：取窗内均值 `d2_mean = d2_sum / samples`，按**既有阈值** `metacognition.D2_EMOTION = 0.05`（`metacognition.py:56`）三判（复用 `metacognition._emotion` 的语义 `:65-71`，不新造阈值、…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:195 -> md_cg/links.py:348",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#67c000cefaa6cfb8 -> autonomy.py:36-43",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:76 -> autonomy.py:36",
+   "head_line": 76,
+   "line_text": "  该映射**确定性**（同窗口同读数恒同档），且**逐提案不同值**（`d2_sum` 逐 query 不同）——不重蹈 `d_meta` 「本轮取库侧 query 无关代理 ⇒ 同轮各提案加分同值 ⇒ 当前口径下排序不变」的空转（`autonomy.py:36-43` 自陈）。"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:196 -> md_cg/self_state.py:86",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#6bb313bb67c9a827 -> mdcos.py:1804",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:216 -> mdcos.py:1804",
+   "head_line": 216,
+   "line_text": "2. **否决 (b)(c) 为「首版的一处」**：采纳——(b) 与 `judge_ranking` 共享同一 `fs`，`fs*0.5`（`mdcos.py:1804`）是**真实泄漏通道**；(c) 纯输出、**不产生消费位**（缺口依旧）。"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:197 -> md_cg/self_state.py:396",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#7a609c0d434c3f63 -> test_w5_path_fingerprint.py:32-33",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:135 -> test_w5_path_fingerprint.py:32",
+   "head_line": 135,
+   "line_text": "- **P1 默认关逐位一致**：未设 / `\"0\"` / `\"false\"` 时，`proposals()` 的返回体（含每条 `sort_score`）与「恒 `bonus=0.0` 的基线」**逐位相同**（对拍，不绑 git HEAD——`test_w5_path_fingerprint.py:32-33` 的…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:200 -> md_cg/mdcos.py:107",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#7d54af5b1cffb6c9 -> test_autonomy_modes.py:555-568",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:66 -> test_autonomy_modes.py:555",
+   "head_line": 66,
+   "line_text": "- **不改动** `autonomy_modes.py` 的 `MDCG_AUTONOMY` 档位键（该键是全仓唯一「档位 env」，由守卫 `test_autonomy_modes.py:555-568` 的 G 组把带引号字面量钉死在唯一入口模块）。`MDCG_PROPOSAL_EMOTION` 是**另一个**…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:201 -> md_cg/mdcos.py:1768",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#8dd297d5b63537c8 -> autonomy.py:243",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:56 -> autonomy.py:243",
+   "head_line": 56,
+   "line_text": "**倾向与理由（选 (a)）**：在「只开一处」的限制下，(a) 是**唯一同时满足「是真实消费位」与「结构性安全」**的候选——它是排序（端点有人据以动作：`explore` 取排序后的提案逐条驱动 `predict.learn_blindspots` `autonomy.py:243`），且它与铁律的**唯一交集面…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:215 -> autonomy.py:179",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#8f511175f8ff369a -> autonomy.py:179",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:215 -> autonomy.py:179",
+   "head_line": 215,
+   "line_text": "1. **落点采纳 (a)**：`autonomy.proposals` 的 `sort_score` 加 `emotion_bonus`——采纳其安全性论证：资格在**源码顺序**上被 `score<=0 → continue`（`autonomy.py:179`）物理隔离；`autonomy.py` 的 **imp…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:216 -> mdcos.py:1804",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#8fc397cd2b917d9f -> md_cg/self_state.py:396-397",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:197 -> md_cg/self_state.py:396",
+   "head_line": 197,
+   "line_text": "| `self_state` 的 `emotion`/`affect` 字段 | `md_cg/self_state.py:396-397`、`:434`、`:461`/`:464` |"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:30 -> links.py:348",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#910e43eda3bee0cb -> mdcos.py:110",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:126 -> mdcos.py:110",
+   "head_line": 126,
+   "line_text": "7. **确定性破坏**（涨落源于时间/随机）→ 对策：加分只依赖 `_reflection.jsonl` 里已落痕的 `d2`/`samples`，无 `time()`/随机；同窗口恒同值（对照 `build_path_fingerprint` 的确定性纪律 `mdcos.py:110`）。"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:44 -> md_cg/autonomy.py:184",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#a111857aeb951ab8 -> md_cg/autonomy.py:29",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:193 -> md_cg/autonomy.py:29",
+   "head_line": 193,
+   "line_text": "| `autonomy` 的 import 面（无判据/信任模块） | `md_cg/autonomy.py:29` |"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:45 -> md_cg/mdcos.py:1768",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#a5aab3e6028077f9 -> links.py:348",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:30 -> links.py:348",
+   "head_line": 30,
+   "line_text": "- **不改资格判定**（`judge_qualification` `mdcg.py:3474`）、**不改信任值**（`links.observe` 的 `P_trust` `links.py:348`）、**不改写入闸门**、**不改层的晋升/退役**。"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:46 -> md_cg/metacognition.py:380",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#aea150eb2f746270 -> mdcos.py:1855-1915",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:93 -> mdcos.py:1855",
+   "head_line": 93,
+   "line_text": "「只增不改」地加**命名读数**（对照 `mdcos.py:1855-1915` 的 `path_fingerprint` 落地法）："
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:56 -> autonomy.py:243",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#c6ce13a589012740 -> autonomy.py:158-161",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:71 -> autonomy.py:158",
+   "head_line": 71,
+   "line_text": "- **源**：每条提案的聚合 `a[\"d2_sum\"]`（同一 query 窗内 `d2` 之和，`autonomy.py:158-161`）、`a[\"samples\"]`（`:168`）。这是与 `consistency.emotional_bias`、`metacognition._emotion` **同源**…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:66 -> test_autonomy_modes.py:555",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#c6ce13a589012740 -> mdcg.py:4522",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:71 -> mdcg.py:4522",
+   "head_line": 71,
+   "line_text": "- **源**：每条提案的聚合 `a[\"d2_sum\"]`（同一 query 窗内 `d2` 之和，`autonomy.py:158-161`）、`a[\"samples\"]`（`:168`）。这是与 `consistency.emotional_bias`、`metacognition._emotion` **同源**…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:67 -> hotcache.py:60",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#cad7233c35bf466a -> md_cg/mdcos.py:107",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:200 -> md_cg/mdcos.py:107",
+   "head_line": 200,
+   "line_text": "| `path_fingerprint` 只增不改/确定性落地法 | `md_cg/mdcos.py:107`、`:111-125`、`:1855-1915` |"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:71 -> autonomy.py:158",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#dec0a9b29f618bb7 -> md_cg/autonomy.py:148-169",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:187 -> md_cg/autonomy.py:148",
+   "head_line": 187,
+   "line_text": "| `proposals()` 聚合与 `d2_sum`/`samples` | `md_cg/autonomy.py:148-169` |"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:71 -> mdcg.py:4522",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#e4a79d3dbd725635 -> md_cg/links.py:348",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:195 -> md_cg/links.py:348",
+   "head_line": 195,
+   "line_text": "| `links.observe` 的 `P_trust`（信任，本设计不触） | `md_cg/links.py:348` |"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:72 -> metacognition.py:56",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#e4d6d7b301253c5f -> autonomy.py:179",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:15 -> autonomy.py:179",
+   "head_line": 15,
+   "line_text": "3. **为什么这一处安全**：`proposals()` 的资格判据是 `score > 0`（`autonomy.py:179` 的 `if score <= 0: continue`）与 σ(Gain) 门槛（`:191-197`）——二者都只读 `score`/`gain_gate`，**不读 `sort_sc…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:76 -> autonomy.py:36",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#f947e9d714fce285 -> md_cg/mdcos.py:1768",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:45 -> md_cg/mdcos.py:1768",
+   "head_line": 45,
+   "line_text": "| **(b)** 检索排序的次级因子（`search_rrf` 融合后重排） | `md_cg/mdcos.py:1768`（`fused_all` 排序键）、或 `:1805`（judge 终排） | **大**：改检索主排序链；须处理热缓存键（`hotcache._ENV_SWITCHES` `hotcache.…"
   },
   {
-   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:93 -> mdcos.py:1855",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W4_情绪决策通路_设计_v0.1.md#fbba5a6253293761 -> md_cg/autonomy.py:227",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W4_情绪决策通路_设计_v0.1.md:192 -> md_cg/autonomy.py:227",
+   "head_line": 192,
+   "line_text": "| `explore()` 消费排序后的提案 | `md_cg/autonomy.py:227`、`:243`；入口 `md_cg/mdcos.py:3900`（`insight`） |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:105 -> test/roleplay_edit_guard.test.ts:21",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#05d342a59c9038c0 -> md_cg/mcp_server.py:1318-1321",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:82 -> md_cg/mcp_server.py:1318",
+   "head_line": 82,
+   "line_text": "**结论（倾向）**：对齐 `set_anchor` 的**管理闸先例** `require_admin(\"identity_anchor\")`（`md_cg/mcp_server.py:1318-1321`），新写入面走同款 admin 闸。"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:110 -> refindex.py:479",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#07de16a2fc9aa5c4 -> md_cg/refindex.py:132-147",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:218 -> md_cg/refindex.py:132",
+   "head_line": 218,
+   "line_text": "| ref 字段提取 | `ref_fields` / `ref_of` | `md_cg/refindex.py:132-147` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:141 -> identity.py:82",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#0d8038cc50e56eaf -> tokens.py:15-18",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:91 -> tokens.py:15",
+   "head_line": 91,
+   "line_text": "| **B｜记录单元角色生成** | 给 record 角色授 `anchor` 层写权，由 record 令牌产出 | 贴合 §3.2.1 字面 | 须扩大 record 角色的 `layers_allow` 到 `anchor`/`self`（`tokens.py:18/52` 明示保护层只对显式授权角色开放）——…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:189 -> md_cg/identity.py:51",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#0ee78abaa182de1f -> md_cg/identity.py:55-67",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:190 -> md_cg/identity.py:55",
+   "head_line": 190,
+   "line_text": "| 位置效应五单元 | `POSITIONS` / `POSITION_ORDER` | `md_cg/identity.py:55-67` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:190 -> md_cg/identity.py:55",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#100c86d0fe7f2ab6 -> md_cg/identity.py:51-52",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:26 -> md_cg/identity.py:51",
+   "head_line": 26,
+   "line_text": "**结论**：在 `identity` 模块**新增第四类记录**——「契约记录」（与 `anchor`／`trait`／`observation` 三类并列），**不新增 `SUBJECT_KIND`**（契约是主体间的**事件**，不是第四种主体；`SUBJECT_KIND = (\"self\",\"user\",\"ro…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:191 -> md_cg/identity.py:70",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#17d5bb05891f2eeb -> md_cg/self_state.py:111-119",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:202 -> md_cg/self_state.py:111",
+   "head_line": 202,
+   "line_text": "| 状态卡/关系节点 id | `state_node_id` / `relation_node_id` | `md_cg/self_state.py:111-119` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:192 -> md_cg/identity.py:79",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#1cb9039a12811790 -> md_cg/identity.py:70-77",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:191 -> md_cg/identity.py:70",
+   "head_line": 191,
+   "line_text": "| 三接口落层 | `INTERFACES`（anchor→self\\|anchor） | `md_cg/identity.py:70-77` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:193 -> md_cg/identity.py:96",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#1e1c241df9538d6a -> protect.py:204-245",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:70 -> protect.py:204",
+   "head_line": 70,
+   "line_text": "| ① | **不可篡改** 记录不可被内部/外部操作修改（`:2097`） | `anchor` 层 ∈ `PROTECTED_LAYERS`（`protect.py:45`）→ `is_immutable` 判层保护（`protect.py:180-198`，层保护分支 `:194-195`；契约记录不设 `sel…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:194 -> md_cg/identity.py:114",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#1e1c241df9538d6a -> protect.py:319-331",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:70 -> protect.py:319",
+   "head_line": 70,
+   "line_text": "| ① | **不可篡改** 记录不可被内部/外部操作修改（`:2097`） | `anchor` 层 ∈ `PROTECTED_LAYERS`（`protect.py:45`）→ `is_immutable` 判层保护（`protect.py:180-198`，层保护分支 `:194-195`；契约记录不设 `sel…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:195 -> md_cg/identity.py:127",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#1f9e949dfc066624 -> md_cg/identity.py:114-117",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:194 -> md_cg/identity.py:114",
+   "head_line": 194,
+   "line_text": "| 档案节点 id / 随机 id | `subject_node_id` / `_nid`（sha256 前 10） | `md_cg/identity.py:114-117/121-123` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:197 -> md_cg/identity.py:310",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#24e6c3ff9c3cccb2 -> md_cg/protect.py:204-245",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:214 -> md_cg/protect.py:204",
+   "head_line": 214,
+   "line_text": "| 审计 / 快照 | `_audit` / `snapshot`（`_protected_history/`、`_protected_audit.jsonl`） | `md_cg/protect.py:204-245` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:202 -> md_cg/self_state.py:111",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#2bcedb97a5458433 -> md_cg/refindex.py:51-54",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:217 -> md_cg/refindex.py:51",
+   "head_line": 217,
+   "line_text": "| ref 协议常量 | `LEDGER_FILE`/`REF_KEYS`/`STATUSES` | `md_cg/refindex.py:51-54` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:203 -> md_cg/self_state.py:340",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#2d7393cb80e2eb46 -> identity.py:310-337",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:34 -> identity.py:310",
+   "head_line": 34,
+   "line_text": "| **与 `profile` 的关系** | `profile`（`identity.py:310-337`）当前只认 `TAG_ANCHOR`→anchors、`TAG_TRAIT`→traits；契约记录带 `subject:<grantee>` 标签会进遍历但被忽略。设计**建议**为 `profile` 加可…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:204 -> md_cg/self_state.py:352",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#2d7393cb80e2eb46 -> identity.py:316-329",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:34 -> identity.py:316",
+   "head_line": 34,
+   "line_text": "| **与 `profile` 的关系** | `profile`（`identity.py:310-337`）当前只认 `TAG_ANCHOR`→anchors、`TAG_TRAIT`→traits；契约记录带 `subject:<grantee>` 标签会进遍历但被忽略。设计**建议**为 `profile` 加可…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:205 -> md_cg/self_state.py:433",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#4a8bdb0049030e0f -> md_cg/self_state.py:340-349",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:203 -> md_cg/self_state.py:340",
+   "head_line": 203,
+   "line_text": "| 身份指针（只存指针） | `_identity_ref` | `md_cg/self_state.py:340-349` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:214 -> md_cg/protect.py:204",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#4db5700968b2aebb -> md_cg/identity.py:310-337",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:197 -> md_cg/identity.py:310",
+   "head_line": 197,
+   "line_text": "| 主体画像 | `profile`（anchors/traits/position） | `md_cg/identity.py:310-337` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:215 -> md_cg/protect.py:319",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#4f73a99c1f535556 -> identity.py:127-133",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:32 -> identity.py:127",
+   "head_line": 32,
+   "line_text": "| **与主体模型复用之关系** | grantor / grantee 用 `subject_id` 形态表达（`self:lingshu`／`agent:deepseek`）；写事件走 `identity.log`（`identity.py:127-133`）落 `_identity.jsonl` | `split…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:217 -> md_cg/refindex.py:51",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#4f73a99c1f535556 -> identity.py:80",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:32 -> identity.py:80",
+   "head_line": 32,
+   "line_text": "| **与主体模型复用之关系** | grantor / grantee 用 `subject_id` 形态表达（`self:lingshu`／`agent:deepseek`）；写事件走 `identity.log`（`identity.py:127-133`）落 `_identity.jsonl` | `split…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:218 -> md_cg/refindex.py:132",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#4f73a99c1f535556 -> identity.py:96-105",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:32 -> identity.py:96",
+   "head_line": 32,
+   "line_text": "| **与主体模型复用之关系** | grantor / grantee 用 `subject_id` 形态表达（`self:lingshu`／`agent:deepseek`）；写事件走 `identity.log`（`identity.py:127-133`）落 `_identity.jsonl` | `split…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:224 -> md_cg/refindex.py:588",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#55dced6e22ebab3f -> md_cg/protect.py:319-357",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:215 -> md_cg/protect.py:319",
+   "head_line": 215,
+   "line_text": "| 写/删/搬守卫 | `guard_write` / `guard_forget` / `guard_move` | `md_cg/protect.py:319-357` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:235 -> md_cg/tokens.py:52",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#58cb8639d3f6d622 -> md_cg/identity.py:51-52",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:189 -> md_cg/identity.py:51",
+   "head_line": 189,
+   "line_text": "| 主体四类 kind | `SUBJECT_KIND` | `md_cg/identity.py:51-52` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:243 -> test/roleplay_edit_guard.test.ts:19",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#60232eb89055f171 -> refindex.py:479-516",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:110 -> refindex.py:479",
+   "head_line": 110,
+   "line_text": "4. 引用锚 `probe_ref(doc_ref)` 的 `status == \"ok\"`（`refindex.py:479-516`）；`read_ref` 回读区间文本含 §1.6.5 标题；"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:246 -> scripts/state_atlas.py:18",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#6d57c38a4056e56b -> test/roleplay_edit_guard.test.ts:19-22",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:243 -> test/roleplay_edit_guard.test.ts:19",
+   "head_line": 243,
+   "line_text": "| 隔离库 Node 守卫范式 | `mkdtempSync` + `node:test` | `test/roleplay_edit_guard.test.ts:19-22` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:254 -> refindex.py:489",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#753394af2b08b2e3 -> identity.py:109-110",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:30 -> identity.py:109",
+   "head_line": 30,
+   "line_text": "| **节点 id 形态** | `identity_contract_<slug>`（单契约单节点，同 id 幂等覆盖） | 复用 `identity._slug`（`identity.py:109-110`）与档案前缀范式 `PROFILE_PREFIX=\"identity_\"`（`identity.py:79`）…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:26 -> md_cg/identity.py:51",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#753394af2b08b2e3 -> identity.py:79",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:30 -> identity.py:79",
+   "head_line": 30,
+   "line_text": "| **节点 id 形态** | `identity_contract_<slug>`（单契约单节点，同 id 幂等覆盖） | 复用 `identity._slug`（`identity.py:109-110`）与档案前缀范式 `PROFILE_PREFIX=\"identity_\"`（`identity.py:79`）…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:30 -> identity.py:109",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#785c54d33cc046d9 -> refindex.py:588",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:58 -> refindex.py:588",
+   "head_line": 58,
+   "line_text": "- **一处需处理的接口差**：`check_refs` 默认 `only_tagged=True`，**只探测 tags 含 `code`/`doc` 的节点**（`refindex.py:588`）。契约记录若要被巡检覆盖，须带 `doc` 标签，或扩展巡检口径——**设计要点**（见 §三 表与 §五 步 4）。"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:30 -> identity.py:79",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#7b1ce690df44ad57 -> md_cg/self_state.py:352-366",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:204 -> md_cg/self_state.py:352",
+   "head_line": 204,
+   "line_text": "| 关系出入度 | `_relation_counts` | `md_cg/self_state.py:352-366` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:31 -> identity.py:206",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#93aef0009a041787 -> md_cg/tokens.py:52",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:235 -> md_cg/tokens.py:52",
+   "head_line": 235,
+   "line_text": "| 核心层 / 全可写层 | `CORE_LAYERS` / `ALL_LAYERS` | `md_cg/tokens.py:52/55-56` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:31 -> protect.py:45",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#99c1a5ca99f22d2e -> identity.py:121-123",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:71 -> identity.py:121",
+   "head_line": 71,
+   "line_text": "| ② | **可独立校验** 凭状态摘要验证一致性（`:2098`） | **引用锚侧**：`probe_ref`（`refindex.py:479-516`）＋ `region_hash`（`codeindex.py:263-270`）可校验「引用锚所指真源区间」未漂移；**记录侧**：`status_summar…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:32 -> identity.py:127",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#9c21f1a5b22f315f -> refindex.py:23-30",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:56 -> refindex.py:23",
+   "head_line": 56,
+   "line_text": "- **同构而非新格式**：`doc_ref` 的既有键集为 `{path, heading, heading_path, level, lineno, end, anchor, hash, lang, precise, root}`（`refindex.py:459-471`，`_doc_ref`）；其中 `root…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:32 -> identity.py:80",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#a379dc04456798f4 -> md_cg/identity.py:79-84",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:192 -> md_cg/identity.py:79",
+   "head_line": 192,
+   "line_text": "| 档案前缀与审计文件 | `PROFILE_PREFIX` / `AUDIT_FILE` / `TAG_*` | `md_cg/identity.py:79-84` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:32 -> identity.py:96",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#a69e293ac53ef7af -> md_cg/identity.py:96-110",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:193 -> md_cg/identity.py:96",
+   "head_line": 193,
+   "line_text": "| 主体 id 拆分与 slug | `split_subject` / `_slug` | `md_cg/identity.py:96-110` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:34 -> identity.py:310",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#aacfab618b0d3136 -> test/roleplay_edit_guard.test.ts:21-22",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:105 -> test/roleplay_edit_guard.test.ts:21",
+   "head_line": 105,
+   "line_text": "**隔离临时库范式**（复用 `scripts/probe_a2_ghostref.py:11-27`：`tempfile.mkdtemp` ＋ `MdCGOS`；`test/roleplay_edit_guard.test.ts:21-22`：`mkdtempSync`），**不碰活库**。断言链："
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:34 -> identity.py:316",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#bb5e43b6f41613e2 -> md_cg/self_state.py:433-440",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:205 -> md_cg/self_state.py:433",
+   "head_line": 205,
+   "line_text": "| 状态派生返回体 | `_derive`（含 `identity_ref`） | `md_cg/self_state.py:433-440` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:35 -> self_state.py:19",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#c2abd4cf2a4adb57 -> md_cg/identity.py:127-133",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:195 -> md_cg/identity.py:127",
+   "head_line": 195,
+   "line_text": "| 身份锚点审计 | `log`→`_identity.jsonl` | `md_cg/identity.py:127-133` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:35 -> self_state.py:19",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#c33734be765b659a -> scripts/state_atlas.py:18-25",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:246 -> scripts/state_atlas.py:18",
+   "head_line": 246,
+   "line_text": "| 只读多主体状态视图（不适用） | `state_atlas.py` | `scripts/state_atlas.py:18-25` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:35 -> self_state.py:7",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#d0f380b9d7b6c4a7 -> identity.py:206",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:31 -> identity.py:206",
+   "head_line": 31,
+   "line_text": "| **落层** | **`anchor` 层** | 契约是**外部授予**的锚定事件，发出方是设计者（他者）——语义同侧于 role/user 锚点；`set_anchor` 的落层规则「kind=self→self 层，其余→anchor 层」（`identity.py:206`）表明 non-self 锚点落 …"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:56 -> refindex.py:23",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#d0f380b9d7b6c4a7 -> protect.py:45",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:31 -> protect.py:45",
+   "head_line": 31,
+   "line_text": "| **落层** | **`anchor` 层** | 契约是**外部授予**的锚定事件，发出方是设计者（他者）——语义同侧于 role/user 锚点；`set_anchor` 的落层规则「kind=self→self 层，其余→anchor 层」（`identity.py:206`）表明 non-self 锚点落 …"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:58 -> refindex.py:588",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#dd1881b319ef3009 -> self_state.py:19-33",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:35 -> self_state.py:19",
+   "head_line": 35,
+   "line_text": "| **与 self_state 的关系** | ① 九项自我信息（`self_state.py:19-33`）**不新增第十项**（self 层「薄卡不装事件」，`self_state.py:7/11-17/483-484`）；② **可选**加**只读指针** `contracts_ref`（契约节点 id 列表）…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:70 -> protect.py:204",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#dd1881b319ef3009 -> self_state.py:19-33",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:35 -> self_state.py:19",
+   "head_line": 35,
+   "line_text": "| **与 self_state 的关系** | ① 九项自我信息（`self_state.py:19-33`）**不新增第十项**（self 层「薄卡不装事件」，`self_state.py:7/11-17/483-484`）；② **可选**加**只读指针** `contracts_ref`（契约节点 id 列表）…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:70 -> protect.py:319",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#dd1881b319ef3009 -> self_state.py:7",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:35 -> self_state.py:7",
+   "head_line": 35,
+   "line_text": "| **与 self_state 的关系** | ① 九项自我信息（`self_state.py:19-33`）**不新增第十项**（self 层「薄卡不装事件」，`self_state.py:7/11-17/483-484`）；② **可选**加**只读指针** `contracts_ref`（契约节点 id 列表）…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:71 -> identity.py:121",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#df3b4c5e70353774 -> refindex.py:489",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:254 -> refindex.py:489",
+   "head_line": 254,
+   "line_text": "- **`doc_ref` 手动构造的 root 语义**——`index_doc` 产出的 `doc_ref.root` 是索引时的文档大域根；契约记录若指向仓内 `docs/theory/`，其 `root` 应填仓根还是文档根（`probe_ref` 用 `root+path` 拼路径，`refindex.py:…"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:82 -> md_cg/mcp_server.py:1318",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#f59fe89ee99e3deb -> md_cg/refindex.py:588",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:224 -> md_cg/refindex.py:588",
+   "head_line": 224,
+   "line_text": "| 漂移/悬空巡检 | `check_refs`（`only_tagged` 只探 `code`/`doc`） | `md_cg/refindex.py:588-...` |"
   },
   {
-   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md:91 -> tokens.py:15",
-   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。"
+   "key": "docs/eval/W6_存在契约载体_设计_v0.1.md#fddeb4f6c0e7d3ea -> identity.py:82-84",
+   "why": "现行设计稿（docs/eval 设计/契约件）存量手写锚：同上，冻结。",
+   "legacy_key": "docs/eval/W6_存在契约载体_设计_v0.1.md:141 -> identity.py:82",
+   "head_line": 141,
+   "line_text": "- 要加：`TAG_CONTRACT = \"identity_contract\"`（并列 `identity.py:82-84`）＋ `set_contract(cg, contract_id, *, grantor, grantee, timestamp, status_summary, doc_ref, impor…"
   },
   {
-   "key": "docs/hive/令牌语义修正_仲裁位_v0.1.md:20 -> tokens.py:225",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/令牌语义修正_仲裁位_v0.1.md#18c9cd00a6703622 -> tokens.py:225",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/令牌语义修正_仲裁位_v0.1.md:20 -> tokens.py:225",
+   "head_line": 20,
+   "line_text": "- 裁决要过 `MdCGSecure.review_decide` 的库层 `require_admin` 闸门，而 `can_admin` 只有 designer 角色为真 → **编排者被迫持 designer 角色**（tokens.py:225 `ORCH_ROLE = \"designer\"`，取证 2026-…"
   },
   {
-   "key": "docs/hive/检索路径与认知结构契约_v0.1.md:59 -> md_cg/chain.py:152",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/检索路径与认知结构契约_v0.1.md#a4e50b525e5a16b2 -> md_cg/chain.py:152",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/检索路径与认知结构契约_v0.1.md:59 -> md_cg/chain.py:152",
+   "head_line": 59,
+   "line_text": "  不符——`chain.adjacency`（`md_cg/chain.py:152`）遍历**全部索引节点**建出邻接，"
   },
   {
-   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> exec.py:96",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md#28ea10f80d3596ff -> job.rs:166-188",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:48 -> job.rs:166",
+   "head_line": 48,
+   "line_text": "| A8 | 3.8 元认知孵化层（L2233–2240）：**状态暴露强制 / 递归判定强制 / 存在性门** | 系统状态必须可被外部观测（孵化元认知的前提） | `_serve.json` 心跳每拍刷新 + exec_py/exec_mode 资格自报（`job.rs:166-188`）；progress.jso…"
   },
   {
-   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> job.rs:35",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md#3fbb61cb045dbc42 -> exec.py:96-98",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> exec.py:96",
+   "head_line": 41,
+   "line_text": "| A1 | 元公理2 熵变公理（L637–646）+ 协议降熵定理（L751）：多智能体系统天然趋向分歧噪声，稳定协作必须靠协议降熵；**协议效力取决于降熵能力，不取决于内容正确性** | 每个机制必须能回答「它降低了什么熵」，否则不该存在 | 原子领取 `claimed.lock`（`job.rs:95-102`）…"
   },
   {
-   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> job.rs:45",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md#3fbb61cb045dbc42 -> job.rs:35-39",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> job.rs:35",
+   "head_line": 41,
+   "line_text": "| A1 | 元公理2 熵变公理（L637–646）+ 协议降熵定理（L751）：多智能体系统天然趋向分歧噪声，稳定协作必须靠协议降熵；**协议效力取决于降熵能力，不取决于内容正确性** | 每个机制必须能回答「它降低了什么熵」，否则不该存在 | 原子领取 `claimed.lock`（`job.rs:95-102`）…"
   },
   {
-   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> job.rs:52",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md#3fbb61cb045dbc42 -> job.rs:45-51",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> job.rs:45",
+   "head_line": 41,
+   "line_text": "| A1 | 元公理2 熵变公理（L637–646）+ 协议降熵定理（L751）：多智能体系统天然趋向分歧噪声，稳定协作必须靠协议降熵；**协议效力取决于降熵能力，不取决于内容正确性** | 每个机制必须能回答「它降低了什么熵」，否则不该存在 | 原子领取 `claimed.lock`（`job.rs:95-102`）…"
   },
   {
-   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> job.rs:95",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md#3fbb61cb045dbc42 -> job.rs:52-61",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> job.rs:52",
+   "head_line": 41,
+   "line_text": "| A1 | 元公理2 熵变公理（L637–646）+ 协议降熵定理（L751）：多智能体系统天然趋向分歧噪声，稳定协作必须靠协议降熵；**协议效力取决于降熵能力，不取决于内容正确性** | 每个机制必须能回答「它降低了什么熵」，否则不该存在 | 原子领取 `claimed.lock`（`job.rs:95-102`）…"
   },
   {
-   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> orch.py:466",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md#3fbb61cb045dbc42 -> job.rs:95-102",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> job.rs:95",
+   "head_line": 41,
+   "line_text": "| A1 | 元公理2 熵变公理（L637–646）+ 协议降熵定理（L751）：多智能体系统天然趋向分歧噪声，稳定协作必须靠协议降熵；**协议效力取决于降熵能力，不取决于内容正确性** | 每个机制必须能回答「它降低了什么熵」，否则不该存在 | 原子领取 `claimed.lock`（`job.rs:95-102`）…"
   },
   {
-   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> spec.rs:84",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md#3fbb61cb045dbc42 -> orch.py:466-479",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> orch.py:466",
+   "head_line": 41,
+   "line_text": "| A1 | 元公理2 熵变公理（L637–646）+ 协议降熵定理（L751）：多智能体系统天然趋向分歧噪声，稳定协作必须靠协议降熵；**协议效力取决于降熵能力，不取决于内容正确性** | 每个机制必须能回答「它降低了什么熵」，否则不该存在 | 原子领取 `claimed.lock`（`job.rs:95-102`）…"
   },
   {
-   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:43 -> orch.py:259",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md#3fbb61cb045dbc42 -> spec.rs:84-165",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:41 -> spec.rs:84",
+   "head_line": 41,
+   "line_text": "| A1 | 元公理2 熵变公理（L637–646）+ 协议降熵定理（L751）：多智能体系统天然趋向分歧噪声，稳定协作必须靠协议降熵；**协议效力取决于降熵能力，不取决于内容正确性** | 每个机制必须能回答「它降低了什么熵」，否则不该存在 | 原子领取 `claimed.lock`（`job.rs:95-102`）…"
   },
   {
-   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:43 -> wm.py:11",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md#50059e759b67e710 -> orch.py:259",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:43 -> orch.py:259",
+   "head_line": 43,
+   "line_text": "| A3 | 3.1.1 位置效应（L2028–2040）：反思=新/验证=稳/记录=全/输出=通/维生=存，**不消除倾向而以反向制衡达成动态平衡** | 角色是结构位置，天然携带倾向 → 用身份隔离+制衡机制，不用「提示词恳求中立」 | session 隔离 `hive_job_*` / `hive_orch_*`…"
   },
   {
-   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:46 -> scheduler.rs:3",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md#50059e759b67e710 -> wm.py:11-14",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:43 -> wm.py:11",
+   "head_line": 43,
+   "line_text": "| A3 | 3.1.1 位置效应（L2028–2040）：反思=新/验证=稳/记录=全/输出=通/维生=存，**不消除倾向而以反向制衡达成动态平衡** | 角色是结构位置，天然携带倾向 → 用身份隔离+制衡机制，不用「提示词恳求中立」 | session 隔离 `hive_job_*` / `hive_orch_*`…"
   },
   {
-   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:48 -> job.rs:166",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md#59676f38157b218d -> scheduler.rs:124-158",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:77 -> scheduler.rs:124",
+   "head_line": 77,
+   "line_text": "- **依据**：A2 + A14（意义=被记录、被验证、被锚定的路径——恢复时盘面产物就是已锚定路径）。`<外部设计稿>` 实锤：`recover_orphans`（`scheduler.rs:124-158`）不信产物，而 `classify_exit`（`:284-312`）信产物——同一代码两套判据。"
   },
   {
-   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:77 -> scheduler.rs:124",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/hive/蜂巢设计_理论对齐_v0.1.md#8d174de2d0e9812a -> scheduler.rs:3-9",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/hive/蜂巢设计_理论对齐_v0.1.md:46 -> scheduler.rs:3",
+   "head_line": 46,
+   "line_text": "| A6 | 3.6 蜂群信息结构五特征（L2205–2212）：分布式协议 / 局部决策与宏观涌现 / 动态信息差 / 验证驱动信任 / 功能可重组 | 五特征即评分表，差距即迭代项来源 | 分布式协议✓（文件协议即接口）；局部决策✓（worker 自主领取+drain 停机，`scheduler.rs:3-9`）；…"
   },
   {
-   "key": "docs/mdcg/README详细版_v0.4.10.md:707 -> md_cg/security.py:117",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/README详细版_v0.4.10.md#ce079eff001b2677 -> md_cg/security.py:117",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/README详细版_v0.4.10.md:707 -> md_cg/security.py:117",
+   "head_line": 707,
+   "line_text": "    - 宿主**未给会话标识**时，写入不再是「留空」——留空会让 md_cg 的 `Principal.__init__` 生成**进程级随机** `sess_*` 兜底桶（`md_cg/security.py:117`）：一个进程内所有无标识会话共用一桶、跨进程对不上、审计上不可辨认。改为**显式 `unass…"
   },
   {
-   "key": "docs/mdcg/世界模型功能端_使用与运维_v1.0.md:231 -> md_cg/mdcos.py:3029",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/世界模型功能端_使用与运维_v1.0.md#533c969e4244e0b7 -> md_cg/mdcos.py:3029",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/世界模型功能端_使用与运维_v1.0.md:231 -> md_cg/mdcos.py:3029",
+   "head_line": 231,
+   "line_text": "  → `cg.restore`（`md_cg/mdcos.py:3029`）＝把**已遗忘**（软删除进 `trash/`）的节点放回，"
   },
   {
-   "key": "docs/mdcg/全库代码评审与条件化注释_计划_v0.1.md:156 -> md_cg/codeindex.py:247",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/全库代码评审与条件化注释_计划_v0.1.md#68ff4e946cdc1548 -> tokens.py:59",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/全库代码评审与条件化注释_计划_v0.1.md:270 -> tokens.py:59",
+   "head_line": 270,
+   "line_text": "| **G** | **零测试**：`index_code` 仅出现在 `tokens.py:59` 与 `mcp_server.py`（5 处）；`test_*.py` 中 **0 命中** | `codeindex-tests` 新建测试护栏 |"
   },
   {
-   "key": "docs/mdcg/全库代码评审与条件化注释_计划_v0.1.md:270 -> tokens.py:59",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/全库代码评审与条件化注释_计划_v0.1.md#b598981f1d75d401 -> md_cg/codeindex.py:247-285",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/全库代码评审与条件化注释_计划_v0.1.md:156 -> md_cg/codeindex.py:247",
+   "head_line": 156,
+   "line_text": "`md_cg/codeindex.py:247-285`：合成 6 行 CCG 位于 `lines[273-283]`（`# 功能名 / # 生效条件 / # 子功能 / # 执行 / # 验证方式 / # 不适用条件` + `# 位置`），源码 leading comments 于 **`L284`** 以 `lin…"
   },
   {
-   "key": "docs/mdcg/睡眠周期_运维前提与维护指南_v1.0.md:264 -> md_cg/run_tests.py:105",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/睡眠周期_运维前提与维护指南_v1.0.md#3eec566fd97b5957 -> md_cg/run_tests.py:105",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/睡眠周期_运维前提与维护指南_v1.0.md:264 -> md_cg/run_tests.py:105",
+   "head_line": 264,
+   "line_text": "| ② 输入无界 | 同处**未指定 `stdin`** ⇒ 子进程**继承父进程 stdin**——DSH 常驻宿主的 **JSON-RPC 活管道**（不写入也不关闭） | `stdin=subprocess.DEVNULL`：读 stdin 的子进程立即 EOF（先例形态 `md_cg/run_tests.py:…"
   },
   {
-   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:197 -> consolidate.py:899",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md#0b92252a553b08a0 -> md_cg/links.py:62-63",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:304 -> md_cg/links.py:62",
+   "head_line": 304,
+   "line_text": "**落点**：`md_cg/links.py:62-63 links_file()`（`LINKS_FILE_ENV`/`DEFAULT_LINKS_FILE`）+ 写路径侧的派生关系声明。"
   },
   {
-   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:304 -> md_cg/links.py:62",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md#0d97e5b051e83020 -> md_cg/evolution.py:45",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:71 -> md_cg/evolution.py:45",
+   "head_line": 71,
+   "line_text": "- `md_cg/evolution.py:45 KIND_LAYER_SHIFT` 为层位移专用条目类型；`:51 STATE_FIELDS` 含 `layer` → 层位移**可被演化账本记录且可原样写回**。"
   },
   {
-   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:355 -> mdcg.py:58",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md#1be1b8e113a66307 -> md_cg/mdcg.py:34",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:67 -> md_cg/mdcg.py:34",
+   "head_line": 67,
+   "line_text": "- `md_cg/mdcg.py:34 LAYERS` 已含 `contextual`；`md_cg/tokens.py` 层白名单已含 `contextual` → **归位复用既有层枚举**，无需新增层。"
   },
   {
-   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:66 -> md_cg/mdcg.py:37",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md#209f30442c15ffea -> md_cg/mcp_server.py:1784-1787",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:72 -> md_cg/mcp_server.py:1784",
+   "head_line": 72,
+   "line_text": "- `md_cg/mcp_server.py:1784-1787`：`consolidate` 全 action **一律 `require_admin`** → G4 属管理操作，**权限面已就位，无需新增授权面**。"
   },
   {
-   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:67 -> md_cg/mdcg.py:34",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md#2413642992d90fe1 -> md_cg/predict.py:526",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:73 -> md_cg/predict.py:526",
+   "head_line": 73,
+   "line_text": "- `md_cg/predict.py:526 _SAFE_LAYERS` 含 `contextual` → 归位后仍可被锚点/反馈闭环读到（不破 D-006）。"
   },
   {
-   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:69 -> md_cg/consolidate.py:776",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md#2a0421a3c5a7241a -> consolidate.py:899-904",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:197 -> consolidate.py:899",
+   "head_line": 197,
+   "line_text": "- 条件 C（证据条件）：`consolidate.induce` 产出一律 `inferred`，**不得冒充 `verified`**（`consolidate.py:899-904` 已内含该纪律）。"
   },
   {
-   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:71 -> md_cg/evolution.py:45",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md#63181898081e356e -> mdcg.py:58",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:355 -> mdcg.py:58",
+   "head_line": 355,
+   "line_text": "**实测**：`GLOBAL_CAP=500`（`mdcg.py:58`），截断率 **34.5%**（前序实测），索引节点（`code_`/`doc_` 1813 条）与知识节点**同池竞争**。"
   },
   {
-   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:72 -> md_cg/mcp_server.py:1784",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md#dcd659f35dc64910 -> md_cg/mdcg.py:37",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:66 -> md_cg/mdcg.py:37",
+   "head_line": 66,
+   "line_text": "- `md_cg/mdcg.py:37 BUCKETED_LAYERS = (\"knowledge\",)` → **`contextual` 非分桶层**，归位后落点恒为 `contextual/<id>.md`，不触发分桶路径变更。"
   },
   {
-   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:73 -> md_cg/predict.py:526",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md#f40ab56d4ec48650 -> md_cg/consolidate.py:776",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md:69 -> md_cg/consolidate.py:776",
+   "head_line": 69,
+   "line_text": "- `md_cg/consolidate.py:776 promote_memories()` 已实现「预演 → 批次 → `_maintain.jsonl` 留痕 → 演化账本」四件套；"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:176 -> nodefile.py:73",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#01cf9eee041b1edc -> nodefile.py:19-23",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:382 -> nodefile.py:19",
+   "head_line": 382,
+   "line_text": "| **正文 `---` 不污染 frontmatter** | 文档正文分隔线被 `nodefile` 当 frontmatter 边界 → `doc_ref` 读不回 | 校验 `doc_ref` 字段可正常 `loads` 往返（`['总览','9. 分阶段实施']`），与 `nodefile.py:19-23`…"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:198 -> sources.py:296",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#075adc3d0bb4ba74 -> mdcg.py:513-519",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:41 -> mdcg.py:513",
+   "head_line": 41,
+   "line_text": "| 「非 CCG 正文」有两种既有豁免范式 | `mdcg.py:513-519`（目标节点**按 CCG 格式渲染**以避开 BLINDSPOT）、`mdcos.py:313-316`（`ccg_exempt` legacy 记忆 → DEFER） |"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:277 -> md_cg/audit.py:167",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#075adc3d0bb4ba74 -> mdcos.py:313-316",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:41 -> mdcos.py:313",
+   "head_line": 41,
+   "line_text": "| 「非 CCG 正文」有两种既有豁免范式 | `mdcg.py:513-519`（目标节点**按 CCG 格式渲染**以避开 BLINDSPOT）、`mdcos.py:313-316`（`ccg_exempt` legacy 记忆 → DEFER） |"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:292 -> fsutil.py:249",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#0c9d91756c212e27 -> md_cg/audit.py:167-169",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:277 -> md_cg/audit.py:167",
+   "head_line": 277,
+   "line_text": "- `md_cg/audit.py:167-169`（`_verify_code` 的「实测」路径）：`text=True` 退回 locale(gbk) → 被测命令"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:33 -> md_cg/codeindex.py:1",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#11ecc279e72711e2 -> codeindex.py:107-108",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:52 -> codeindex.py:107",
+   "head_line": 52,
+   "line_text": "| **F** | **全量重扫 + 静默截断** | `codeindex.py:107-108`：达到 `max_files`/`max_items` **直接 return**，调用方 `mcp_server.py:1513` 只回 `indexed/error_count`，不报 `truncated` → 索…"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:36 -> md_cg/nodefile.py:51",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#2be7e1f0a95d96ec -> codeindex.py:80-88",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:48 -> codeindex.py:80",
+   "head_line": 48,
+   "line_text": "| **B** | **代码节点恒定被判 BLINDSPOT** | `codeindex.render`(`codeindex.py:80-88`) 只输出 `# path::name (kind, L..)` / `# sig` / `# 注释` / `# doc:`，**不含 CCG 5 要素标记**；而 `ju…"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:38 -> md_cg/tokens.py:56",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#2be7e1f0a95d96ec -> mdcg.py:709-714",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:48 -> mdcg.py:709",
+   "head_line": 48,
+   "line_text": "| **B** | **代码节点恒定被判 BLINDSPOT** | `codeindex.render`(`codeindex.py:80-88`) 只输出 `# path::name (kind, L..)` / `# sig` / `# 注释` / `# doc:`，**不含 CCG 5 要素标记**；而 `ju…"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:382 -> nodefile.py:19",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#2be7e1f0a95d96ec -> mdcos.py:746",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:48 -> mdcos.py:746",
+   "head_line": 48,
+   "line_text": "| **B** | **代码节点恒定被判 BLINDSPOT** | `codeindex.render`(`codeindex.py:80-88`) 只输出 `# path::name (kind, L..)` / `# sig` / `# 注释` / `# doc:`，**不含 CCG 5 要素标记**；而 `ju…"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:39 -> md_cg/sources.py:219",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#3b8206896736d2f7 -> md_cg/codeindex.py:1-13",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:33 -> md_cg/codeindex.py:1",
+   "head_line": 33,
+   "line_text": "| 条件代码图模块已存在，AST 抽注释/接口 | `md_cg/codeindex.py:1-13`（设计声明）、`:53-75`（`extract`）、`:78-88`（`render`）、`:91-95`（`node_id`）、`:98-118`（`index_dir`） |"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:40 -> md_cg/sustain.py:12",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#4281d02bf0aaa6e8 -> md_cg/sustain.py:12-14",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:40 -> md_cg/sustain.py:12",
+   "head_line": 40,
+   "line_text": "| 自愈只修派生物、逐条留痕的纪律已定 | `md_cg/sustain.py:12-14`（诊断只读）、`:277-302`（`_audit` + 幂等修复 + 失败不拖垮进程） |"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:41 -> mdcg.py:513",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#5287ea629df99bfd -> links.py:1-20",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:54 -> links.py:1",
+   "head_line": 54,
+   "line_text": "| **H** | **code 图与 doc 图不互链** | `links.py` 是蜂群信任（`links.py:1-20`），与代码/文档无关；代码节点 tags 仅 `[\"code\",\"code:<kind>\"]`(`mcp_server.py:1505`)，无指向文档的边 | 中（「互链」是索引的价值上限）…"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:41 -> mdcos.py:313",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#56d6a7b114e513ca -> nodefile.py:73",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:176 -> nodefile.py:73",
+   "head_line": 176,
+   "line_text": "1. **ref 落盘**：代码/文档节点的 `frontmatter.code_ref`/`doc_ref` 五字段完整，且 `loads` 往返不丢（`nodefile.py:73`）。"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:48 -> codeindex.py:80",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#73e9f1e89c30f1dd -> md_cg/tokens.py:56-59",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:38 -> md_cg/tokens.py:56",
+   "head_line": 38,
+   "line_text": "| 已有 op 注册表与权限校验 | `md_cg/tokens.py:56-59`（`ALL_OPS`，含 `index_code`）+ `test_p21_tokens.py` |"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:48 -> mdcg.py:709",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#85cd96234f3632d4 -> sources.py:296-307",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:198 -> sources.py:296",
+   "head_line": 198,
+   "line_text": "| 密级泄漏 | 私有文档被索引进公开层 | 显式声明 `sensitivity`，不依赖默认值；越权写入由 `security` 事前拦截（`sources.py:296-307` 已有同款范式） |"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:48 -> mdcos.py:746",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#8e580049b261f0de -> tokens.py:59",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:53 -> tokens.py:59",
+   "head_line": 53,
+   "line_text": "| **G** | **零测试** | `index_code` 仅出现在 `tokens.py:59` 与 `mcp_server.py`（5 处）；`test_*.py` 中 **0 命中** | 中 |"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:50 -> sustain.py:141",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#ae4be3a9fd0d9ca8 -> md_cg/sources.py:219-253",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:39 -> md_cg/sources.py:219",
+   "head_line": 39,
+   "line_text": "| 增量 watermark 机制有现成范式 | `md_cg/sources.py:219-253`（`_sources.json`：`{source_key:{t,seq,count}}`）、`:257-334`（`ingest` 增量+去重+幂等） |"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:52 -> codeindex.py:107",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#b97235be3389e0e5 -> sustain.py:141-266",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:50 -> sustain.py:141",
+   "head_line": 50,
+   "line_text": "| **D** | **无漂移/悬空检测**——源码改了、行号漂了，索引不知道 | 无 ref 校验代码；`sustain.diagnose`(`sustain.py:141-266`) 的巡检项里无 ref | 高（静默故障，正是方案自己警惕的那类） |"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:53 -> tokens.py:59",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#b9aeb0dbee593d8e -> fsutil.py:249",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:292 -> fsutil.py:249",
+   "head_line": 292,
+   "line_text": "2. `fsutil.ShardedLog.clear`(`fsutil.py:249`) 逐文件 `os.remove` 是**性能热点**（`rebuild_index` 每次都调）。"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:54 -> links.py:1",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#d49443352a63804f -> md_cg/nodefile.py:51",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:36 -> md_cg/nodefile.py:51",
+   "head_line": 36,
+   "line_text": "| ref 字段**能解析回来** | `md_cg/nodefile.py:51`（值一律 `json.dumps`）→ `:73`（`json.loads`），嵌套 dict 保真 |"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:79 -> mdcg.py:513",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#d8ac6c5695f5fb5c -> mdcg.py:513-519",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:79 -> mdcg.py:513",
+   "head_line": 79,
+   "line_text": "同仓已有两个正确范式可抄：目标节点**按 CCG 格式渲染**（`mdcg.py:513-519`，注释直写「保证 judge_qualification 能给出 ACCEPT 而非 BLINDSPOT」）、legacy 记忆走 `ccg_exempt`（`mdcos.py:313-316`）。"
   },
   {
-   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:79 -> mdcos.py:313",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md#d8ac6c5695f5fb5c -> mdcos.py:313-316",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md:79 -> mdcos.py:313",
+   "head_line": 79,
+   "line_text": "同仓已有两个正确范式可抄：目标节点**按 CCG 格式渲染**（`mdcg.py:513-519`，注释直写「保证 judge_qualification 能给出 ACCEPT 而非 BLINDSPOT」）、legacy 记忆走 `ccg_exempt`（`mdcos.py:313-316`）。"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:121 -> md_cg/autonomy.py:199",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#147ca93a85a8c49d -> md_cg/self_state.py:95",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:78 -> md_cg/self_state.py:95",
+   "head_line": 78,
+   "line_text": "| 状态节点 id | `gw_s_<x>_<y>` | `_slug` 惯例（`md_cg/self_state.py:95`） |"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:131 -> md_cg/predict.py:477",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#19e082c642241aa6 -> md_cg/autonomy.py:199-205",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:121 -> md_cg/autonomy.py:199",
+   "head_line": 121,
+   "line_text": "同构纪律：`type`/`t`/`actor` 前置（对齐 `_explore.jsonl` 形态 `md_cg/autonomy.py:199-205`）；append 失败不阻塞；指标全部可从 `_gridworld.jsonl` + `predict.stats` + `self_state.snapshot` …"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:132 -> md_cg/predict.py:592",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#1a701d7c3cea0c1a -> md_cg/predict.py:678",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:19 -> md_cg/predict.py:678",
+   "head_line": 19,
+   "line_text": "| 预测反馈回灌 | `md_cg/predict.py:678` | `feedback(cg, predicted_node_id, actual_node_id=None, hit=None, note=\"\", actor=\"predict\", sync_self=True, channel=None)` | *…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:134 -> md_cg/autonomy.py:107",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#2b8154752600d52c -> md_cg/predict.py:226",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:17 -> md_cg/predict.py:226",
+   "head_line": 17,
+   "line_text": "| 每动作候选枚举 | `md_cg/predict.py:226` | `branch_candidates(cg, node_id, semantic=True) -> [{node_id, confidence, source, relation_type, condition}]` | **动作选择器**：当前…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:136 -> md_cg/predict.py:40",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#38955f465641fc4c -> md_cg/predict.py:477-520",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:131 -> md_cg/predict.py:477",
+   "head_line": 131,
+   "line_text": "| G1 | **动作概念缺位**：predict 全链只认「节点+边」，无动作空间抽象；`routes` 是图内路径生成器不是动作选择器 | `md_cg/predict.py:477-520`（DFS 无动作参数） | 以「边 `condition` 字段承载动作」编码（§3）；选择器=branch_candida…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:146 -> md_cg/predict.py:888",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#5a64c38d4436815d -> md_cg/self_state.py:235",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:149 -> md_cg/self_state.py:235",
+   "head_line": 149,
+   "line_text": "| ④自我可靠性 | hit_rate / beta_mean / beta_ci95 / reflect（脱离死区）随 episode 演化 | `self_state.snapshot()[\"prediction\"]`（`md_cg/self_state.py:235`） | beta_ci95 收窄；reflec…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:149 -> md_cg/self_state.py:235",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#7e32aeb87962080e -> md_cg/predict.py:592",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:79 -> md_cg/predict.py:592",
+   "head_line": 79,
+   "line_text": "| 层 | **必须 `knowledge`** | `_SAFE_LAYERS=(\"knowledge\",\"contextual\",\"structural\")`（`md_cg/predict.py:592`）——hit 分支 `_boost_incoming`（`:615`）只改这三层，其他层**静默不改边**，模型…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:17 -> md_cg/predict.py:226",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#9ec6018f5aab37d4 -> md_cg/autonomy.py:95",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:25 -> md_cg/autonomy.py:95",
+   "head_line": 25,
+   "line_text": "| 探索提案 | `md_cg/autonomy.py:95` | `proposals(cg, window=200, limit=3, enforce_gain=True)`；评分 `=W_D2·Σ\\|d2\\|+W_BLINDSPOT·BLINDSPOT+W_DEFER·DEFER`（权重 `:34`），score…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:19 -> md_cg/predict.py:678",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#b0d131834138ab4d -> md_cg/autonomy.py:36",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:36 -> md_cg/autonomy.py:36",
+   "head_line": 36,
+   "line_text": "**账本同构约定**：既有 append-only jsonl——`_prediction.jsonl`（`md_cg/predict.py:62`）、`_learn.jsonl`（`:724`）、`_explore.jsonl`（`md_cg/autonomy.py:36`）、`_reflection.jsonl`（…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:23 -> md_cg/predict.py:790",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#b0d131834138ab4d -> md_cg/metacognition.py:105",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:36 -> md_cg/metacognition.py:105",
+   "head_line": 36,
+   "line_text": "**账本同构约定**：既有 append-only jsonl——`_prediction.jsonl`（`md_cg/predict.py:62`）、`_learn.jsonl`（`:724`）、`_explore.jsonl`（`md_cg/autonomy.py:36`）、`_reflection.jsonl`（…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:25 -> md_cg/autonomy.py:95",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#b0d131834138ab4d -> md_cg/predict.py:62",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:36 -> md_cg/predict.py:62",
+   "head_line": 36,
+   "line_text": "**账本同构约定**：既有 append-only jsonl——`_prediction.jsonl`（`md_cg/predict.py:62`）、`_learn.jsonl`（`:724`）、`_explore.jsonl`（`md_cg/autonomy.py:36`）、`_reflection.jsonl`（…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:26 -> md_cg/autonomy.py:158",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#b0d131834138ab4d -> md_cg/predict.py:86-90",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:36 -> md_cg/predict.py:86",
+   "head_line": 36,
+   "line_text": "**账本同构约定**：既有 append-only jsonl——`_prediction.jsonl`（`md_cg/predict.py:62`）、`_learn.jsonl`（`:724`）、`_explore.jsonl`（`md_cg/autonomy.py:36`）、`_reflection.jsonl`（…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:30 -> md_cg/self_state.py:438",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#b6aef2f057051686 -> md_cg/predict.py:592",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:132 -> md_cg/predict.py:592",
+   "head_line": 132,
+   "line_text": "| G2 | **层硬约束**：hit 分支 `_boost_incoming` 只改 `_SAFE_LAYERS` 三层，其余层静默不改边 | `md_cg/predict.py:592`、`:615` | 状态节点强制落 `knowledge` 层（§3）；M1 冒烟加断言：feedback 后边置信度确有上升 |"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:36 -> md_cg/autonomy.py:36",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#c0521f1cd18610df -> md_cg/autonomy.py:107",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:134 -> md_cg/autonomy.py:107",
+   "head_line": 134,
+   "line_text": "| G4 | **盲区信号依赖 reflect**：`autonomy.proposals` 只读 `_reflection.jsonl`，闭环不调 `reflect()` 则零信号、五态闭环空转（「信号在记录、无人在听」防复发） | `md_cg/autonomy.py:107` | 管线第 7 步为**必选步**（…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:36 -> md_cg/metacognition.py:105",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#c3902fe3ef03bcf0 -> md_cg/self_state.py:438",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:30 -> md_cg/self_state.py:438",
+   "head_line": 30,
+   "line_text": "| 自我状态刷新 | `md_cg/self_state.py:438` | `refresh(cg, subject=\"self:lingshu\", window=20, ..., actor=\"self_state\", force=False, strict=False, session=None)`（幂等 fin…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:36 -> md_cg/predict.py:62",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#d5d2e9a607bc3a48 -> md_cg/predict.py:739-757",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:80 -> md_cg/predict.py:739",
+   "head_line": 80,
+   "line_text": "| 正文 | CCG 五行齐全：`# 功能名：格(x,y)` / `# 生效条件：…` / `# 执行：…` / `# 子功能：…` / `# 不适用条件：…` | `_is_settled`（`md_cg/predict.py:739-757`）判「知识层+五要素」为 resolved——五态闭环才能出 `resol…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:36 -> md_cg/predict.py:86",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#e57e4efab1d6dfd8 -> md_cg/predict.py:40",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:136 -> md_cg/predict.py:40",
+   "head_line": 136,
+   "line_text": "| G6 | `dynamic_hit_threshold` 样本<50 不触发反思（MIN_SAMPLES=50） | `md_cg/predict.py:40`、`:662-665` | 不构成障碍：主判据读 `beta_posterior`（无门槛）；反思触发是滞后旁证非主判据 |"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:78 -> md_cg/self_state.py:95",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#f2bd5ed3f44265af -> md_cg/predict.py:790",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:23 -> md_cg/predict.py:790",
+   "head_line": 23,
+   "line_text": "| 盲区五态闭环 | `md_cg/predict.py:790` | `learn_blindspots(cg, blindspot_id=None, limit=8, horizon=3, max_branches=5, apply=False, actor=\"insight\")`；五态 `unknowable/n…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:79 -> md_cg/predict.py:592",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#fa59997473905bbd -> md_cg/autonomy.py:158",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:26 -> md_cg/autonomy.py:158",
+   "head_line": 26,
+   "line_text": "| 探索闭环 | `md_cg/autonomy.py:158` | `explore(cg, apply=False, limit=3, window=200, actor=\"autonomy\", bypass_gain=False)`；P-T-40 四保护（`gain_gate` `:51`） | 元认知面：提案→…"
   },
   {
-   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md:80 -> md_cg/predict.py:739",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/GridWorld最小闭环规格_v0.1.md#fec67717ce86ec09 -> md_cg/predict.py:888-901",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/GridWorld最小闭环规格_v0.1.md:146 -> md_cg/predict.py:888",
+   "head_line": 146,
+   "line_text": "| ①预测误差随轮次下降 | 逐步误差=1−hit；episode 级=1−hit_rate；后验均值=β 后验 mean | `_gridworld.jsonl`、`predict.stats()[\"beta\"][\"all\"]`（`md_cg/predict.py:888-901`） | 后 20% episodes…"
   },
   {
-   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:119 -> hive/src/main.rs:223",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md#43d81a7ae7e1198e -> md_cg/identity.py:55-67",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:73 -> md_cg/identity.py:55",
+   "head_line": 73,
+   "line_text": "**五单元闭集（本契约的关键收窄，使用者 2026-09-29 裁定）**：单元槽**不是自由文本**，取值限定为**蜂巢五单元**，真源是 `md_cg/identity.py:55-67` 的 `POSITIONS`："
   },
   {
-   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:120 -> hive/src/main.rs:473",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md#563f80c04918e33e -> scripts/check_publish_artifact.py:46",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:163 -> scripts/check_publish_artifact.py:46",
+   "head_line": 163,
+   "line_text": "- **R4「非追踪件面」瞬时红 → 不立项查证**（使用者裁定）。判据：发布面（`package.json` 的 `files` = `lib, src, md_cg, data/policy.json, skills, README.md, dsh, codebuddy, zcode, docs`）内出现未被 gi…"
   },
   {
-   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:121 -> hive/src/main.rs:696",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md#612a2619f016c620 -> hive/README.md:281",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:145 -> hive/README.md:281",
+   "head_line": 145,
+   "line_text": "- **依赖无环性依据不动**：`scheduler.rs:1017-1019` 的注释（**勘误**：本稿早期写作 690-697，那是 `retry_spawn` 的重试循环，非本论点所在；同论点另在 `spec.rs:49-50`、`job.rs:54-55`、`main.rs:285-286`、`mcp_ser…"
   },
   {
-   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:122 -> hive/src/scheduler.rs:213",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md#612a2619f016c620 -> job.rs:54-55",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:145 -> job.rs:54",
+   "head_line": 145,
+   "line_text": "- **依赖无环性依据不动**：`scheduler.rs:1017-1019` 的注释（**勘误**：本稿早期写作 690-697，那是 `retry_spawn` 的重试循环，非本论点所在；同论点另在 `spec.rs:49-50`、`job.rs:54-55`、`main.rs:285-286`、`mcp_ser…"
   },
   {
-   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:145 -> hive/README.md:281",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md#612a2619f016c620 -> scheduler.rs:1017-1019",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:145 -> scheduler.rs:1017",
+   "head_line": 145,
+   "line_text": "- **依赖无环性依据不动**：`scheduler.rs:1017-1019` 的注释（**勘误**：本稿早期写作 690-697，那是 `retry_spawn` 的重试循环，非本论点所在；同论点另在 `spec.rs:49-50`、`job.rs:54-55`、`main.rs:285-286`、`mcp_ser…"
   },
   {
-   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:145 -> job.rs:54",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md#612a2619f016c620 -> spec.rs:49-50",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:145 -> spec.rs:49",
+   "head_line": 145,
+   "line_text": "- **依赖无环性依据不动**：`scheduler.rs:1017-1019` 的注释（**勘误**：本稿早期写作 690-697，那是 `retry_spawn` 的重试循环，非本论点所在；同论点另在 `spec.rs:49-50`、`job.rs:54-55`、`main.rs:285-286`、`mcp_ser…"
   },
   {
-   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:145 -> scheduler.rs:1017",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md#68b02439c734dba1 -> hive/src/main.rs:223",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:119 -> hive/src/main.rs:223",
+   "head_line": 119,
+   "line_text": "| `hive/src/main.rs:223` `find_active_by_hash` | 名升序取首个 = 最老活跃同哈希 | 活跃同哈希中 `created_ts` 最小者 |"
   },
   {
-   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:145 -> spec.rs:49",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md#83d9637a88d805fa -> hive/src/main.rs:473",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:120 -> hive/src/main.rs:473",
+   "head_line": 120,
+   "line_text": "| `hive/src/main.rs:473` poll 列表 | 名升序 | `created_ts` 升序 |"
   },
   {
-   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:163 -> scripts/check_publish_artifact.py:46",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md#84c00b68d0d7c203 -> hive/src/main.rs:696",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:121 -> hive/src/main.rs:696",
+   "head_line": 121,
+   "line_text": "| `hive/src/main.rs:696` doctor | 名升序 | `created_ts` 升序 |"
   },
   {
-   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:73 -> md_cg/identity.py:55",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md#90d3ec874c203591 -> hive/src/scheduler.rs:213",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:122 -> hive/src/scheduler.rs:213",
+   "head_line": 122,
+   "line_text": "| `hive/src/scheduler.rs:213`/`:300` 领取顺序 | 名升序 = FIFO | `created_ts` 升序 = FIFO（**语义保持**） |"
   },
   {
-   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:85 -> identity.py:67",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md#ebbe307cc360af68 -> identity.py:67",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/全中文编码与蜂巢任务标识契约_v2.0.md:85 -> identity.py:67",
+   "head_line": 85,
+   "line_text": "- `POSITION_ORDER`（`identity.py:67`）同时给出**规范顺序**，可用于校验与排序，不必在 id 契约里另立一份。"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:27 -> md_cg/evolution.py:42",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#20749229d51db30d -> trust.py:79-83",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:56 -> trust.py:79",
+   "head_line": 56,
+   "line_text": "**最小落地步**（M，须先定单一真源）：**事件是源、槽位是投影**（对齐架构「状态＝事件投影」）——槽位现值表不是独立真源，而是 L0 `_state_events.jsonl` 的物化视图；槽位 schema 须同步三处既有面：`evolution.STATE_FIELDS`（回滚面，`:52-54`）、`scr…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:29 -> mdcg.py:2970",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#20749229d51db30d -> trust.py:81-82",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:56 -> trust.py:81",
+   "head_line": 56,
+   "line_text": "**最小落地步**（M，须先定单一真源）：**事件是源、槽位是投影**（对齐架构「状态＝事件投影」）——槽位现值表不是独立真源，而是 L0 `_state_events.jsonl` 的物化视图；槽位 schema 须同步三处既有面：`evolution.STATE_FIELDS`（回滚面，`:52-54`）、`scr…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:38 -> trust.py:81",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#27337126478906a8 -> mdcos.py:852",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:42 -> mdcos.py:852",
+   "head_line": 42,
+   "line_text": "| 两存之为默认、冲突一等、未决不进二值 | `consistency.py` 判定链（`:487`）：hard→**divergences（同条件槽分歧，`:675-683`）→DEFER＋missing 落显式缺口（`:734/:743-744`）**（修复 2026-09-12 `ce55c048`，2026-1…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:42 -> mdcos.py:852",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#36e9a4e0719343a4 -> mdcos.py:88-99",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:98 -> mdcos.py:88",
+   "head_line": 98,
+   "line_text": "| 统一时间核 `1−exp(−λt)` | `freshness.cred_factor`（`md_cg/whitebox_kb/aeis_core/time_core.py:28`）——γ 锚定 **30 天无观测半衰期**（ln2/30≈0.0231/天，唯一读取点 `mdcos.py:88-99 tempora…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:45 -> audit.py:11",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#523a439b8cb32214 -> links.py:9-18",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:65 -> links.py:9",
+   "head_line": 65,
+   "line_text": "| 来源档位×冲突时长「两条机械维度即可驱动」 | 来源档位雏形＝linkref 出处边＋`links.P_trust` 跨节点信任层（概率估计/可被反例击穿/降快于升，`links.py:9-18`）＋`writepipe._after_trust` 一跳传播（`:479-484`）；**冲突持续时长（t_devia…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:45 -> linkref.py:186",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#58c4512232b2d64f -> test_time_core_lint.py:812-815",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:68 -> test_time_core_lint.py:812",
+   "head_line": 68,
+   "line_text": "**最小落地步**：①（S）`U_connection` 维实装：冲突边存续时长按 `1−exp(−λt)` 入 conflict_strength 合成——**λ 为工程参数（使用者裁定 2026-10-04：随项目调整、不写死）**：缺省锚定既有尺子 ln2/30 天（受定点变异守卫钉死不得漂移，`test_tim…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:52 -> lifecycle.py:52",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#5a094c58ba94927e -> audit.py:11",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:45 -> audit.py:11",
+   "head_line": 45,
+   "line_text": "**最小落地步**：①（S）幽灵引用检查器——**两层**：id 引用层沿用 linkref（现状只解析 id，`linkref.py:186-211`；「目标晚于自身」形态加降级告警）；**短语层为新增面**——扫描正文回指短语（「上次的/之前的/明明讲过」）且无可解析出处 ⇒ **标记 uncertain、不做拒收…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:52 -> mdcos.py:750",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#5a094c58ba94927e -> linkref.py:186-211",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:45 -> linkref.py:186",
+   "head_line": 45,
+   "line_text": "**最小落地步**：①（S）幽灵引用检查器——**两层**：id 引用层沿用 linkref（现状只解析 id，`linkref.py:186-211`；「目标晚于自身」形态加降级告警）；**短语层为新增面**——扫描正文回指短语（「上次的/之前的/明明讲过」）且无可解析出处 ⇒ **标记 uncertain、不做拒收…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:53 -> scrub.py:832",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#711dd3fa3429050d -> autonomy_modes.py:129",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:63 -> autonomy_modes.py:129",
+   "head_line": 63,
+   "line_text": "| **提交点**（候选不改世界，选中才提交） | ①`twophase`（写入两段式，指纹对账 `:202-204`）；②审核队列 `mreview`：改写/删除/合并先出**变更单**（`autonomy_modes.py:543 mutation_payload` 含 after 后像、`:619 propose…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:56 -> trust.py:79",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#711dd3fa3429050d -> autonomy_modes.py:543",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:63 -> autonomy_modes.py:543",
+   "head_line": 63,
+   "line_text": "| **提交点**（候选不改世界，选中才提交） | ①`twophase`（写入两段式，指纹对账 `:202-204`）；②审核队列 `mreview`：改写/删除/合并先出**变更单**（`autonomy_modes.py:543 mutation_payload` 含 after 后像、`:619 propose…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:56 -> trust.py:81",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#74f7521951abcabb -> trust.py:81-82",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:38 -> trust.py:81",
+   "head_line": 38,
+   "line_text": "| 断言元组十元 | 节点具 **CCG 六要素**（功能名/生效条件/子功能/执行/验证方式/不适用条件）＋`condition_space`＋`verification_basis`（验证基底：compiler/test/data/other）＋`non_applicable_conditions`＋双时间轴（`t…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:63 -> autonomy_modes.py:129",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#770d4c078156f7ec -> mdcos.py:772-777",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:88 -> mdcos.py:772",
+   "head_line": 88,
+   "line_text": "**最小落地步**（S→M）：加一个只读组装器——**新 op（如 `cg(op=\"audit\")`）；不得复用 `view` 参数名**（已被 roleviews 占用，`mdcos.py:772-777`，非法值 fail-closed ValueError）：给节点 id 输出「现值＋出处链＋两存/备择＋盲区＋退…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:63 -> autonomy_modes.py:543",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#a926646254362370 -> scrub.py:832-853",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:53 -> scrub.py:832",
+   "head_line": 53,
+   "line_text": "| 注入级退役（旧值不再进上下文） | 读面 `validity` 过滤＝注入级退役的原语；`scrub.sweep`（自净闭环：抽查→联想→体检→去污染/校准，`scrub.py:832-853`） | **部分**（有过滤原语；「某槽位旧值退出注入面」的槽位级语义待寄存器落地） |"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:65 -> links.py:9",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#ca5b27f8b377b02a -> md_cg/evolution.py:42",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:27 -> md_cg/evolution.py:42",
+   "head_line": 27,
+   "line_text": "| append-only 事件日志、原序 | 审计 `_audit.jsonl`（全量事件流）；分片索引日志（ShardedLog）；软删 `_deletions.jsonl`（trash 留痕可 restore）；覆写快照 `_protected_history/`；结构变更账本 `_evolution/ledge…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:68 -> test_time_core_lint.py:812",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#caabe56bfacd2d4a -> autonomy.py:6",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:76 -> autonomy.py:6",
+   "head_line": 76,
+   "line_text": "| 推演三判据（收敛＞覆盖、可预测性为验证、归约效率） | 「可预测性为验证」有单点雏形：`predict.py:13` 命中率动态校准（MIN_SAMPLES=50＋动态死区）＋命中历史持久化台账 `_prediction.jsonl`（`:20`，跨进程可审计）；`autonomy.py:6` 盲区聚类（知识边界）…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:76 -> autonomy.py:6",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#caabe56bfacd2d4a -> predict.py:13",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:76 -> predict.py:13",
+   "head_line": 76,
+   "line_text": "| 推演三判据（收敛＞覆盖、可预测性为验证、归约效率） | 「可预测性为验证」有单点雏形：`predict.py:13` 命中率动态校准（MIN_SAMPLES=50＋动态死区）＋命中历史持久化台账 `_prediction.jsonl`（`:20`，跨进程可审计）；`autonomy.py:6` 盲区聚类（知识边界）…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:76 -> predict.py:13",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#da9d0abde9bfecf7 -> lifecycle.py:52",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:52 -> lifecycle.py:52",
+   "head_line": 52,
+   "line_text": "| 退役不删除、失效≠证伪（rank 语义） | `lifecycle.py:52 STATES=(active→converged→demoted→archived)` 降级轴＋`can_transition` 迁移裁决（`:113`）；`forgetting.py` 写入门（ACCEPT／内部确定性先行 DROP≥…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:85 -> roleviews.py:37",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#da9d0abde9bfecf7 -> mdcos.py:750",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:52 -> mdcos.py:750",
+   "head_line": 52,
+   "line_text": "| 退役不删除、失效≠证伪（rank 语义） | `lifecycle.py:52 STATES=(active→converged→demoted→archived)` 降级轴＋`can_transition` 迁移裁决（`:113`）；`forgetting.py` 写入门（ACCEPT／内部确定性先行 DROP≥…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:88 -> mdcos.py:772",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#dd13c68bb913abcb -> mdcg.py:2970",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:29 -> mdcg.py:2970",
+   "head_line": 29,
+   "line_text": "| 事件必记账（T1 事件记录 vs T2 状态陈述） | `_recent.jsonl`（`mdcg.py:2970 remember_event`；窗口滚动截断 `DEFAULT_RECENT_WINDOW=200`，`:91`）与审计是事件流，但**节点级「状态链」无一等载体**——「基线→变更→后续引用」的三段…"
   },
   {
-   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:98 -> mdcos.py:88",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md#ff64d4885a24de67 -> roleviews.py:37-60",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/多主体世界模型_对齐评估与落地设计_v0.1.md:85 -> roleviews.py:37",
+   "head_line": 85,
+   "line_text": "| 双层：叙事注入面／证据审计面 | 检索面（`read`/`route`）＋`op=ref` 逐字回源；**已有角色资格分流**：`roleviews.py:37-60` 三视图（main＝结论与修正历史／verifier＝判据面与环境陷阱／receipt＝命令与预期输出）＋既有审计组件（`op=whitebox`、…"
   },
   {
-   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:191 -> mdcos.py:1770",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md#212629042e2cf50e -> mdcos.py:3273-3275",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:3273",
+   "head_line": 217,
+   "line_text": "| 2026-10-07 会话轮 48 | — | **空档推队列：三态工程四项遗留的逐项核实（只核实、未动码）——三项确认为真缺口，另查出 ①一处新缺陷 ②一处正在发散的双副本（纪律 6）**。**方法**＝先读裁决记录再读码（台账行 164／165＋`9cd837e5` 的 13 文件 +1509/−95），**每…"
   },
   {
-   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:193 -> md_cg/mdcos.py:3931",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md#212629042e2cf50e -> mdcos.py:3441",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:3441",
+   "head_line": 217,
+   "line_text": "| 2026-10-07 会话轮 48 | — | **空档推队列：三态工程四项遗留的逐项核实（只核实、未动码）——三项确认为真缺口，另查出 ①一处新缺陷 ②一处正在发散的双副本（纪律 6）**。**方法**＝先读裁决记录再读码（台账行 164／165＋`9cd837e5` 的 13 文件 +1509/−95），**每…"
   },
   {
-   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:194 -> md_cg/mdcos.py:3931",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md#212629042e2cf50e -> mdcos.py:499",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:499",
+   "head_line": 217,
+   "line_text": "| 2026-10-07 会话轮 48 | — | **空档推队列：三态工程四项遗留的逐项核实（只核实、未动码）——三项确认为真缺口，另查出 ①一处新缺陷 ②一处正在发散的双副本（纪律 6）**。**方法**＝先读裁决记录再读码（台账行 164／165＋`9cd837e5` 的 13 文件 +1509/−95），**每…"
   },
   {
-   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:3273",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md#212629042e2cf50e -> mdcos.py:5089-5117",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:5089",
+   "head_line": 217,
+   "line_text": "| 2026-10-07 会话轮 48 | — | **空档推队列：三态工程四项遗留的逐项核实（只核实、未动码）——三项确认为真缺口，另查出 ①一处新缺陷 ②一处正在发散的双副本（纪律 6）**。**方法**＝先读裁决记录再读码（台账行 164／165＋`9cd837e5` 的 13 文件 +1509/−95），**每…"
   },
   {
-   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:3441",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md#212629042e2cf50e -> mdcos.py:5575",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:5575",
+   "head_line": 217,
+   "line_text": "| 2026-10-07 会话轮 48 | — | **空档推队列：三态工程四项遗留的逐项核实（只核实、未动码）——三项确认为真缺口，另查出 ①一处新缺陷 ②一处正在发散的双副本（纪律 6）**。**方法**＝先读裁决记录再读码（台账行 164／165＋`9cd837e5` 的 13 文件 +1509/−95），**每…"
   },
   {
-   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:499",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md#7520902ef4502df3 -> md_cg/mdcos.py:3931-3941",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:194 -> md_cg/mdcos.py:3931",
+   "head_line": 194,
+   "line_text": "| 2026-10-07 会话轮 28 | — | **v1.2 第 1 组完成（好奇线通电）**：`md_cg/autonomy.py` 加**预算声明单点**（`MDCG_EXPLORE_BUDGET_MAX`／`MDCG_EXPLORE_BUDGET_WINDOW`，约 `:151-153`）＋新函数 `budg…"
   },
   {
-   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:5089",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md#845b447c066cfdd4 -> md_cg/mdcos.py:3931-3937",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:193 -> md_cg/mdcos.py:3931",
+   "head_line": 193,
+   "line_text": "| 2026-10-07 会话轮 27 | — | **好奇线（§2.9.3.1 非任务探索）通电设计稿 ＋ 设计者位置定稿**：产物 `docs/eval/好奇线_通电设计_v0.1.md`（267 行 ＋ 定稿节）。**来由**＝设计者方向说明「好奇，信息差带来的原动力，与威胁带来的原动力一样有效」→ 真源定位 *…"
   },
   {
-   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:217 -> mdcos.py:5575",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md#9db6d6dec8b314c6 -> mdcos.py:3287-3291",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:221 -> mdcos.py:3287",
+   "head_line": 221,
+   "line_text": "| 2026-10-08 会话轮 59 | — | **在飞那件已收口：显式 `session` 档修复落地——★性质判定先行（判为「疏忽」而非有意设计，附证）＋同族补齐一处＋守卫加进同一张表**。**①性质判定（任务书给死的第一步，非「先修」）**：判为**缺陷（疏忽）**，最强两条证据——a) **上一批 `299…"
   },
   {
-   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:221 -> mdcos.py:3287",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md#b750147f5c090634 -> scripts/dsh_log_index.py:616-626",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:223 -> scripts/dsh_log_index.py:616",
+   "head_line": 223,
+   "line_text": "| 2026-10-08 会话轮 66 | — | **在飞那件收口：`add` 的审计行改为取「写面同一有效会话」——★性质判定先行的方法第二次奏效，且这次它给出了「反事实判据」**。**①性质判定（任务书第一步，且我点名要它回答「是不是我的判据写宽了」）**：判为**缺陷（疏忽）**，六条证据，最强三条——a) *…"
   },
   {
-   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:223 -> scripts/dsh_log_index.py:616",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md#dd7d9a613d3c7eb0 -> mdcos.py:1770-1776",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md:191 -> mdcos.py:1770",
+   "head_line": 191,
+   "line_text": "| 2026-10-07 会话轮 25 | — | **v1.1 第 3 组完成（结构面四项取证）**：探针 `scripts/probe_w7v11_struct_limited.py`（只读；三子命令 fastpath／layers／sustain，库根经 `--root`／`MDCG_ROOT` 传入）＋取证文档…"
   },
   {
-   "key": "docs/plans/真源索引_通用机制_v0.3.md:32 -> md_cg/logref.py:119",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/真源索引_通用机制_v0.3.md#033c8a93ff9794cc -> refindex.py:520",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/真源索引_通用机制_v0.3.md:46 -> refindex.py:520",
+   "head_line": 46,
+   "line_text": "| 按区间**回读真源**（单点） | `read_ref(ref, root=…)` → ok/stale/dangling + `text`（`refindex.py:520`） |"
   },
   {
-   "key": "docs/plans/真源索引_通用机制_v0.3.md:34 -> md_cg/srcindex.py:86",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/真源索引_通用机制_v0.3.md#28a03da45368f334 -> md_cg/logref.py:119-128",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/真源索引_通用机制_v0.3.md:32 -> md_cg/logref.py:119",
+   "head_line": 32,
+   "line_text": "「区间哈希 + 行位全等」承担（`md_cg/logref.py:119-128` 自陈：`hash` 与 `lineno/end`"
   },
   {
-   "key": "docs/plans/真源索引_通用机制_v0.3.md:43 -> refindex.py:445",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/真源索引_通用机制_v0.3.md#3d787e58d27eba42 -> refindex.py:445",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/真源索引_通用机制_v0.3.md:43 -> refindex.py:445",
+   "head_line": 43,
+   "line_text": "| 统一 ref 协议（指向真源的指针） | 节点 frontmatter `code_ref` / `doc_ref`（path / root / heading / level / lineno / end / anchor / **hash**）——`refindex.py:445` 与 `refindex.py…"
   },
   {
-   "key": "docs/plans/真源索引_通用机制_v0.3.md:44 -> md_cg/srcindex.py:71",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/真源索引_通用机制_v0.3.md#5b48ab365ef4fa99 -> md_cg/srcindex.py:86",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/真源索引_通用机制_v0.3.md:34 -> md_cg/srcindex.py:86",
+   "head_line": 34,
+   "line_text": "（`md_cg/srcindex.py:71` 的 `src_id` 与 `md_cg/srcindex.py:86` 的 `file_hash`），"
   },
   {
-   "key": "docs/plans/真源索引_通用机制_v0.3.md:46 -> refindex.py:520",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/真源索引_通用机制_v0.3.md#92974c7de317d294 -> pooling.py:39",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/真源索引_通用机制_v0.3.md:83 -> pooling.py:39",
+   "head_line": 83,
+   "line_text": "（`pooling.py:39`、`:81` 的前缀分流）与**外键**（`_index.json` 快照、`_link.jsonl`、"
   },
   {
-   "key": "docs/plans/真源索引_通用机制_v0.3.md:83 -> pooling.py:39",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/真源索引_通用机制_v0.3.md#97cfa62d031dedb0 -> md_cg/srcindex.py:71",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/真源索引_通用机制_v0.3.md:44 -> md_cg/srcindex.py:71",
+   "head_line": 44,
+   "line_text": "| 统一的索引节点 id（**路径-标题寻址**，位置化） | `docindex.node_id(it)` / `codeindex.node_id(it)`（`refindex.add_items` 内统一调用）；要**内容寻址**的参照是 `srcindex.src_id` 的 `file_hash`（`md_c…"
   },
   {
-   "key": "docs/plans/真源索引_通用机制_v0.3.md:94 -> docindex.py:297",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/真源索引_通用机制_v0.3.md#c03f5b37b35c7fb2 -> docindex.py:297-298",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/真源索引_通用机制_v0.3.md:94 -> docindex.py:297",
+   "head_line": 94,
+   "line_text": "| **D3** | dup 后缀（`docindex.py:297-298`）是位置化键的补丁 | 插 / 删同标题章节 ⇒ 该文档 id 全量重算，旧代靠 `prune_orphans`（`refindex.py:784`）清退；幂等性靠「同 id 原子覆盖 + 旧代清退」，不靠 id 稳定 |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:106 -> md_cg/mcp_server.py:4153",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#03bcc3f090c50257 -> md_cg/protect.py:135-151",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:487 -> md_cg/protect.py:135",
+   "head_line": 487,
+   "line_text": "AEIS 的 `decay_cycle` **没有 floor**，而 md_cg 的保护判定是**即时读 `importance ≥ 0.70`**（`md_cg/protect.py:135-151`）⇒ **衰减穿过 0.70 会让节点自动失去保护**。移植时必须："
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:106 -> md_cg/sustain.py:1052",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#0436b32a03e5d764 -> md_cg/mdcg.py:1646-1651",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:116 -> md_cg/mdcg.py:1646",
+   "head_line": 116,
+   "line_text": "**（d）索引现状**：`_index.json = {nodes, buckets, _fingerprint}` 扁平快照（`md_cg/mdcg.py:1646-1651`）；与条件空间有关的只有 `time_window`(:1572) 与 `observation_position`(:1590) 两个标量。…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:116 -> md_cg/mdcg.py:1646",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#13d079680c5a8dda -> md_cg/sustain.py:1214-1227",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:208 -> md_cg/sustain.py:1214",
+   "head_line": 208,
+   "line_text": "| 1 | **跨进程无互斥** | `md_cg/sustain.py:1214-1227`（`_LOOPS` 进程内字典）、`start()` `:1015-1024` 不读心跳戳、`sustain.py` 未 import FileLock | **P0**：副本机制正是为绕开它而设计（§四） |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:146 -> md_cg/chain.py:2",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#15a2a52f82433fe6 -> scripts/bootstrap_loop.py:32-33",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:211 -> scripts/bootstrap_loop.py:32",
+   "head_line": 211,
+   "line_text": "| 4 | **`bootstrap_loop` 写入面在包内** | `scripts/bootstrap_loop.py:32-33`（`WISDOM=BRAIN/md_cg/whitebox_kb/wisdom`）、`persist_triggers` `:150-185` 直改 `*_units.py`、`:5…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:147 -> md_cg/mdcos.py:1160",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#1c5f96aed587f382 -> md_cg/evolution.py:2-28",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:334 -> md_cg/evolution.py:2",
+   "head_line": 334,
+   "line_text": "- **逐节点留痕**：`_maintain.jsonl` 每节点一条（`:544-549`）+ `evolution.record` 的 `pattern/missing/action/state/evidence`（`md_cg/evolution.py:2-28`）。"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:148 -> md_cg/mcp_server.py:3351",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#2053c8dedfa3fe77 -> links.py:53",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:36 -> links.py:53",
+   "head_line": 36,
+   "line_text": "| 12 | 「**γ = ln2/30天、Δt 用 created_at**」 | **§6.3(c)(d)** | 半衰期 30 天档（与 `links.py:53` 同刻度）；Δt 取写入时刻 `created_at`（最稳，不依赖未落主链的 `temporal_coordinate`） |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:148 -> md_cg/mdcos.py:1347",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#20a02f6e25fa76e8 -> md_cg/mdcg.py:4127-4131",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:193 -> md_cg/mdcg.py:4127",
+   "head_line": 193,
+   "line_text": "| `access_count`/`last_access` | **只记账**：读路径 append-only 写 `_access.log`（不碰节点文件）；维护路径 `compact_access()` 折叠落 frontmatter | `md_cg/mdcg.py:4127-4131`、`:4146-4164…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:149 -> md_cg/mdcg.py:3392",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#23d9ba4dac800b1d -> md_cg/weights.py:452-457",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:197 -> md_cg/weights.py:452",
+   "head_line": 197,
+   "line_text": "| `weights.recalc` 公式 | `0.40·basis_trust + 0.35·cov + 0.25·(1−rr)`——**无时间项、无访问项**；有 floor 0.70、预演、`_maintain.jsonl`、rollback | `md_cg/weights.py:452-457`、`:459…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:150 -> md_cg/mcp_server.py:1433",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#2c014808a393cb0f -> wm.py:352-359",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:306 -> wm.py:352",
+   "head_line": 306,
+   "line_text": "- `cmd_revert`（`wm.py:352-359`）：`git revert`（merge commit 自动 `-m 1`），\"历史不丢\"。"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:150 -> md_cg/predict.py:1020",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#320fbea4f30d5cd1 -> md_cg/mdcg.py:1353-1357",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:209 -> md_cg/mdcg.py:1353",
+   "head_line": 209,
+   "line_text": "| 2 | **N230 `_dirty` 重放遮蔽**（未修） | `md_cg/mdcg.py:1353-1357`；`docs/eval/缺陷挖掘_自主迭代_v25.md:132/178` | 旧盖新 ⇒ 使用者报的\"旧记忆干扰\" |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:151 -> md_cg/mdcos.py:1481",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#3942e881909a0167 -> md_cg/mcp_server.py:4153",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:106 -> md_cg/mcp_server.py:4153",
+   "head_line": 106,
+   "line_text": "**（d）现状驱动力**：`md_cg/sustain.py:1052-1098` 五档 tick；`md_cg/mcp_server.py:4153` `main()` 在 stdin 读循环**之前**调 `_start_sustain(cg)`；`MDCG_SUBSTAIN` 缺省 `\"1\"`（`:3571`）⇒…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:152 -> md_cg/stg.py:197",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#3942e881909a0167 -> md_cg/sustain.py:1052-1098",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:106 -> md_cg/sustain.py:1052",
+   "head_line": 106,
+   "line_text": "**（d）现状驱动力**：`md_cg/sustain.py:1052-1098` 五档 tick；`md_cg/mcp_server.py:4153` `main()` 在 stdin 读循环**之前**调 `_start_sustain(cg)`；`MDCG_SUBSTAIN` 缺省 `\"1\"`（`:3571`）⇒…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:153 -> md_cg/consolidate.py:1210",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#3b27c39e068541b6 -> mdcg.py:1284-1299",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:292 -> mdcg.py:1284",
+   "head_line": 292,
+   "line_text": "| 5 | 整库 `git checkout` 回滚会让所有长驻进程走\"指纹失配 → 全库扫描\"（1.4 万文件；签名只含 `(mtime_ns,size)`，`mdcg.py:1284-1299`） | **回滚不走 `checkout`**：回滚 = `git revert` 出一个新提交 + 语义重放回主库；且回…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:153 -> md_cg/mdcg.py:2299",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#3ecf5e53d9b3572a -> md_cg/mdcg.py:177-187",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:196 -> md_cg/mdcg.py:177",
+   "head_line": 196,
+   "line_text": "| `importance` 在检索里 | **只作并列键 + 兜底池主键，零乘子形态** | `md_cg/mdcg.py:177-187`、`:3703-3706`、`:3420-3422`；`md_cg/mdcos.py:1057-1067`、`:1512-1515` |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:154 -> md_cg/links.py:46",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#3ecf5e53d9b3572a -> md_cg/mdcos.py:1057-1067",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:196 -> md_cg/mdcos.py:1057",
+   "head_line": 196,
+   "line_text": "| `importance` 在检索里 | **只作并列键 + 兜底池主键，零乘子形态** | `md_cg/mdcg.py:177-187`、`:3703-3706`、`:3420-3422`；`md_cg/mdcos.py:1057-1067`、`:1512-1515` |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:154 -> md_cg/mcp_server.py:2083",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#4a66f1f9081b05fd -> md_cg/mdcos.py:738",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:446 -> md_cg/mdcos.py:738",
+   "head_line": 446,
+   "line_text": "3. **平滑核 vs 硬窗口**：本路取**平滑核**（`cred_factor`）；若更想要\"只取 N 天内\"，那是**过滤**（走既有的 `validity=True` 时间过滤路径，`md_cg/mdcos.py:738`），不是本路的替代品——两者可并存。"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:193 -> md_cg/mdcg.py:4127",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#4ab1746c4c11caa5 -> md_cg/mdcos.py:1481-1503",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:416 -> md_cg/mdcos.py:1481",
+   "head_line": 416,
+   "line_text": "| 融合位置 | `search_rrf` 的 `ranked` 字典，按 `w/(RRF_K+rank)` 融合 | `md_cg/mdcos.py:1481-1503`、`:1519-1525` |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:195 -> md_cg/mdcg.py:1532",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#4feb75b358db68f9 -> md_cg/mdcg.py:1532-1563",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:195 -> md_cg/mdcg.py:1532",
+   "head_line": 195,
+   "line_text": "| **卡点** | 索引条目构造函数 `_node_entry` 的键集**不含**这两个字段 ⇒ 检索想用也拿不到（除非读盘，违反\"检索不写少读\"纪律） | `md_cg/mdcg.py:1532-1563` |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:196 -> md_cg/mdcg.py:177",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#52a63a0cc2ccbcd4 -> md_cg/chain.py:2-10",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:146 -> md_cg/chain.py:2",
+   "head_line": 146,
+   "line_text": "| 因果链原语 | **已完整实现**：`chain.py` 模块命题「**因果链就是条件链**」；边权 `EDGE_WEIGHTS`（14 键，causal .85 / sequential .60 / …）；`edge_weight = 类型 base × 边 confidence`；`MAX_DEPTH=5`、`…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:196 -> md_cg/mdcos.py:1057",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#6c2e0655bd915fa6 -> md_cg/mdcg.py:3561-3581",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:480 -> md_cg/mdcg.py:3561",
+   "head_line": 480,
+   "line_text": "2. **双侧同改**：Python `_score`（`md_cg/mdcg.py:3561-3581`）与 Rust `sort_path`（`rust/src/retrieval.rs:201-220`）必须同改，并保留逐位对拍守卫（先例 `docs/eval/优化第一批…_v1.0.md:218-221`）。"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:197 -> md_cg/weights.py:452",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#6c2e0655bd915fa6 -> rust/src/retrieval.rs:201-220",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:480 -> rust/src/retrieval.rs:201",
+   "head_line": 480,
+   "line_text": "2. **双侧同改**：Python `_score`（`md_cg/mdcg.py:3561-3581`）与 Rust `sort_path`（`rust/src/retrieval.rs:201-220`）必须同改，并保留逐位对拍守卫（先例 `docs/eval/优化第一批…_v1.0.md:218-221`）。"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:208 -> md_cg/sustain.py:1214",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#70316846347d8740 -> mdcg.py:1609-1612",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:298 -> mdcg.py:1609",
+   "head_line": 298,
+   "line_text": "**已具备的保护（不冲突，可依赖）**：`_scan_nodes` 只走 `LAYERS`（`mdcg.py:1609-1612`）、`census` 只剪枝 `ARCHIVE_DIRS`（`census.py:31`）、`codeindex/docindex/refindex` 的 `SKIP_DIRS` **已含 …"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:209 -> md_cg/mdcg.py:1353",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#70316846347d8740 -> refindex.py:324",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:298 -> refindex.py:324",
+   "head_line": 298,
+   "line_text": "**已具备的保护（不冲突，可依赖）**：`_scan_nodes` 只走 `LAYERS`（`mdcg.py:1609-1612`）、`census` 只剪枝 `ARCHIVE_DIRS`（`census.py:31`）、`codeindex/docindex/refindex` 的 `SKIP_DIRS` **已含 …"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:211 -> scripts/bootstrap_loop.py:32",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#720fa8b5e47b6535 -> md_cg/consolidate.py:899-960",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:255 -> md_cg/consolidate.py:899",
+   "head_line": 255,
+   "line_text": "| 归纳 / 升层（门槛式 `consolidate`） | ✅（以可预演 + 可回滚为前提） | promote 路径不调 LLM（`md_cg/consolidate.py:899-960`） |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:255 -> md_cg/consolidate.py:899",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#7e95809eebb94021 -> wm.py:332-349",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:305 -> wm.py:332",
+   "head_line": 305,
+   "line_text": "- `cmd_merge`（`wm.py:332-349`）：`git merge --no-ff`，**冲突诚实报错、不自动解决**。"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:289 -> fsutil.py:58",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#81c0daf58e59cd49 -> md_cg/mdcos.py:1481-1503",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:151 -> md_cg/mdcos.py:1481",
+   "head_line": 151,
+   "line_text": "| **因果为什么不进候选池** | 它只能经 `op=causal` / `mdcg_causal` 到达，**既不写进 `search_rrf` 的 `ranked` 字典，也不注册为 `paths` 取值** ⇒ 与融合链路零交集 | `md_cg/mdcos.py:1481-1503` |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:289 -> mdcos.py:561",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#894bfcedbfec88cf -> md_cg/consolidate.py:1210-1211",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:457 -> md_cg/consolidate.py:1210",
+   "head_line": 457,
+   "line_text": "2. **归并成员边读侧不可达**：若因果/结构路要含 `generalizes`/`instance_of`（`md_cg/consolidate.py:1210-1211`），必须先确认边类型覆盖面。"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:291 -> check_publish_artifact.py:49",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#8b7138b95c3a0e30 -> links.py:53",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:441 -> links.py:53",
+   "head_line": 441,
+   "line_text": "⇒ **已裁（§〇.3-12）：缺省 γ = `ln2 / 30天`（半衰期 30 天）**，与 `links.py:53` 的半衰期同刻度；`UNVERIFIED_DAYS=14` 留作可选严格档（`MDCG_TEMPORAL_GAMMA` 可覆盖，见下）。"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:291 -> datapath.py:13",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#a7a0d2087f39ac64 -> md_cg/links.py:46-47",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:154 -> md_cg/links.py:46",
+   "head_line": 154,
+   "line_text": "| ⚠ 易混 | **`cg(op=link)` 管的是跨节点信任（`_links.json` / P_trust），不是图谱边** | `md_cg/mcp_server.py:2083-2135`、`md_cg/links.py:46-47` |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:292 -> mdcg.py:1284",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#a7a0d2087f39ac64 -> md_cg/mcp_server.py:2083-2135",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:154 -> md_cg/mcp_server.py:2083",
+   "head_line": 154,
+   "line_text": "| ⚠ 易混 | **`cg(op=link)` 管的是跨节点信任（`_links.json` / P_trust），不是图谱边** | `md_cg/mcp_server.py:2083-2135`、`md_cg/links.py:46-47` |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:294 -> crypto.py:311",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#b4255e8622e3fc35 -> md_cg/consolidate.py:1210-1211",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:153 -> md_cg/consolidate.py:1210",
+   "head_line": 153,
+   "line_text": "| 边的 relationship 写入面 | `MdCG.append_edge()`（幂等键 `(target, relation_type)`）；`consolidate` 写 `generalizes`/`instance_of`；`linkref` 写 `reference` | `md_cg/mdcg.py…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:294 -> mdcos.py:2555",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#b4255e8622e3fc35 -> md_cg/mdcg.py:2299-2320",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:153 -> md_cg/mdcg.py:2299",
+   "head_line": 153,
+   "line_text": "| 边的 relationship 写入面 | `MdCG.append_edge()`（幂等键 `(target, relation_type)`）；`consolidate` 写 `generalizes`/`instance_of`；`linkref` 写 `reference` | `md_cg/mdcg.py…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:294 -> protect.py:244",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#b5651beb2896983c -> md_cg/protect.py:272-282",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:491 -> md_cg/protect.py:272",
+   "head_line": 491,
+   "line_text": "- 记忆里那条语义边界：**不可遗忘 ≠ 不可覆盖**，衰减属\"降级/搬迁\"族，须走 `guard_move` 语义（`md_cg/protect.py:272-282`），且\"降级不得误实现为删除记录\"。"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:295 -> fsutil.py:26",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#bd10c6caa25079f5 -> check_publish_artifact.py:49-67",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:291 -> check_publish_artifact.py:49",
+   "head_line": 291,
+   "line_text": "| 4 | 若数据根落进仓内：`files` 含 `md_cg`，而 R1 明列 `_index.json`/`_keys.json`/`_index_log/` 为包内禁止件、R4 只放行 `lib/`、R2 点名 `md_cg/knowledge/orphan` ⇒ 三道门禁同时拦（`check_publish_a…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:298 -> mdcg.py:1609",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#bd10c6caa25079f5 -> datapath.py:13-24",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:291 -> datapath.py:13",
+   "head_line": 291,
+   "line_text": "| 4 | 若数据根落进仓内：`files` 含 `md_cg`，而 R1 明列 `_index.json`/`_keys.json`/`_index_log/` 为包内禁止件、R4 只放行 `lib/`、R2 点名 `md_cg/knowledge/orphan` ⇒ 三道门禁同时拦（`check_publish_a…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:298 -> refindex.py:324",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#c97cb306b2b8bdc1 -> md_cg/mdcos.py:1160-1211",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:147 -> md_cg/mdcos.py:1160",
+   "head_line": 147,
+   "line_text": "| 关系链检索路 | `_path_chain`：沿 causal/sequential/applies_to 多跳，种子取 `ranked[\"lexical\"]+ranked[\"entity\"]`，默认 5 跳 | `md_cg/mdcos.py:1160-1211`、`:1492-1494` |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:304 -> wm.py:116",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#cc0d9f2ee7d56fff -> md_cg/mdcg.py:1532-1563",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:479 -> md_cg/mdcg.py:1532",
+   "head_line": 479,
+   "line_text": "1. **数据可得**：把 `access_count` / `last_access`（或派生的 `refresh` 分数）**加进索引条目**（`_node_entry` 现无这两个键，`md_cg/mdcg.py:1532-1563`；先例是同为扁指标量的 `time_window`/`observation_p…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:305 -> wm.py:332",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#ccc2be1232e5922a -> md_cg/mcp_server.py:1433-1468",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:150 -> md_cg/mcp_server.py:1433",
+   "head_line": 150,
+   "line_text": "| 因果查询 | `cg(op=causal)` → `predict.causal_path`（BFS 可达性）+ `causal_gate`（D-002 伪因果门：须有 causal/sequential 边、或共同父节点、或偏好权重>0.5） | `md_cg/mcp_server.py:1433-1468`、`…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:306 -> wm.py:352",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#ccc2be1232e5922a -> md_cg/predict.py:1020-1059",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:150 -> md_cg/predict.py:1020",
+   "head_line": 150,
+   "line_text": "| 因果查询 | `cg(op=causal)` → `predict.causal_path`（BFS 可达性）+ `causal_gate`（D-002 伪因果门：须有 causal/sequential 边、或共同父节点、或偏好权重>0.5） | `md_cg/mcp_server.py:1433-1468`、`…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:334 -> md_cg/evolution.py:2",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#cf18036cdc21e4c5 -> fsutil.py:26-44",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:295 -> fsutil.py:26",
+   "head_line": 295,
+   "line_text": "| 8 | Windows `os.replace` 与 git 索引互造 `PermissionError`（已实证需 20 次重试，`fsutil.py:26-44`） | 三段 git 操作在**根级锁**内做（同 1），不并发于写方 |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:36 -> links.py:53",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#d2ad79523d6da479 -> crypto.py:311-330",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:294 -> crypto.py:311",
+   "head_line": 294,
+   "line_text": "| 7 | **冲突是语义的而非文本的**：同 id 覆盖须过 `protect.guard_write`/`is_immutable`（`protect.py:244-268`）、层迁移须过 `lifecycle.can_transition`（`mdcos.py:2555-2559`）、密文按 `(tenant,a…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:393 -> md_cg/mdcg.py:3561",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#d2ad79523d6da479 -> mdcos.py:2555-2559",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:294 -> mdcos.py:2555",
+   "head_line": 294,
+   "line_text": "| 7 | **冲突是语义的而非文本的**：同 id 覆盖须过 `protect.guard_write`/`is_immutable`（`protect.py:244-268`）、层迁移须过 `lifecycle.can_transition`（`mdcos.py:2555-2559`）、密文按 `(tenant,a…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:393 -> rust/src/retrieval.rs:201",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#d2ad79523d6da479 -> protect.py:244-268",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:294 -> protect.py:244",
+   "head_line": 294,
+   "line_text": "| 7 | **冲突是语义的而非文本的**：同 id 覆盖须过 `protect.guard_write`/`is_immutable`（`protect.py:244-268`）、层迁移须过 `lifecycle.can_transition`（`mdcos.py:2555-2559`）、密文按 `(tenant,a…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:416 -> md_cg/mdcos.py:1481",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#d9bbb387be6c8f2b -> md_cg/stg.py:197-320",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:152 -> md_cg/stg.py:197",
+   "head_line": 152,
+   "line_text": "| `stg` 三个 op | `relation`/`timeline`/`anchors` 都是**查询**（全库扫描 + 排序），**不产出候选分** | `md_cg/stg.py:197-320`、`:5-13` |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:441 -> links.py:53",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#dbc299f06bfaee7e -> md_cg/mdcg.py:3561-3581",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:393 -> md_cg/mdcg.py:3561",
+   "head_line": 393,
+   "line_text": "1. **双侧同改**：主分数形态变化 ⇒ Python（`_score`，`md_cg/mdcg.py:3561-3581`）与 Rust（`sort_path`，`rust/src/retrieval.rs:201-220`）必须同改，并保留逐位对拍守卫（先例 `docs/eval/优化第一批…_v1.0.md:2…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:446 -> md_cg/mdcos.py:738",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#dbc299f06bfaee7e -> rust/src/retrieval.rs:201-220",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:393 -> rust/src/retrieval.rs:201",
+   "head_line": 393,
+   "line_text": "1. **双侧同改**：主分数形态变化 ⇒ Python（`_score`，`md_cg/mdcg.py:3561-3581`）与 Rust（`sort_path`，`rust/src/retrieval.rs:201-220`）必须同改，并保留逐位对拍守卫（先例 `docs/eval/优化第一批…_v1.0.md:2…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:457 -> md_cg/consolidate.py:1210",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#dfc8af2d5317a8fa -> fsutil.py:58",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:289 -> fsutil.py:58",
+   "head_line": 289,
+   "line_text": "| 2 | 数据根**无 `.gitignore`**，`mkstemp` 临时件与 `*.lock` 会漏进工作区（`fsutil.py:58`、`:124`、`mdcos.py:561`） | 用**显式 pathspec 白名单**而非 ignore 面；临时件/锁件不在白名单内 ⇒ 进不去 |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:476 -> md_cg/mdcg.py:3575",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#dfc8af2d5317a8fa -> mdcos.py:561",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:289 -> mdcos.py:561",
+   "head_line": 289,
+   "line_text": "| 2 | 数据根**无 `.gitignore`**，`mkstemp` 临时件与 `*.lock` 会漏进工作区（`fsutil.py:58`、`:124`、`mdcos.py:561`） | 用**显式 pathspec 白名单**而非 ignore 面；临时件/锁件不在白名单内 ⇒ 进不去 |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:479 -> md_cg/mdcg.py:1532",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#e9e7ca588a523621 -> md_cg/mdcg.py:3392-3425",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:149 -> md_cg/mdcg.py:3392",
+   "head_line": 149,
+   "line_text": "| S3 图扩散 | `search` 内**已实现**，但**必须显式 =1**（有意的非对称），且**不看边类型/边权**（纯 `decay**hop`） | `md_cg/mdcg.py:3392-3425`、`:3164-3169`、`:3470-3511` |"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:480 -> md_cg/mdcg.py:3561",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#eb90e5dfb21b7c3e -> wm.py:116-233",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:304 -> wm.py:116",
+   "head_line": 304,
+   "line_text": "- `cmd_snapshot`（`wm.py:116-233`）：凭证闸 → 拷白名单产物 → `checkout -B task/<id>` → `add` → `commit` → `finally` 无条件 `checkout main`。"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:480 -> rust/src/retrieval.rs:201",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#f42fa154d7cdf31a -> md_cg/mcp_server.py:3351-3358",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:148 -> md_cg/mcp_server.py:3351",
+   "head_line": 148,
+   "line_text": "| **但它不在默认路** | `search_rrf` 缺省 `paths=(\"lexical\",\"bucket\",\"entity\",\"graph\")`；`mdcg_recall` 也从不 append `\"chain\"` | `md_cg/mdcos.py:1347`、`md_cg/mcp_server.py:33…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:487 -> md_cg/protect.py:135",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#f42fa154d7cdf31a -> md_cg/mdcos.py:1347",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:148 -> md_cg/mdcos.py:1347",
+   "head_line": 148,
+   "line_text": "| **但它不在默认路** | `search_rrf` 缺省 `paths=(\"lexical\",\"bucket\",\"entity\",\"graph\")`；`mdcg_recall` 也从不 append `\"chain\"` | `md_cg/mdcos.py:1347`、`md_cg/mcp_server.py:33…"
   },
   {
-   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:491 -> md_cg/protect.py:272",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md#f572ce975ac070a3 -> md_cg/mdcg.py:3575-3577",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md:476 -> md_cg/mdcg.py:3575",
+   "head_line": 476,
+   "line_text": "**主分数形态**：`score ← score × cred_factor(γ, Δt) × refresh(access_count, last_access)`，`refresh` 按 §7.1 的 AEIS 既有门槛与步长实现。落位取\"分池权重乘数\"**同一乘子位**（`md_cg/mdcg.py:3575-3…"
   },
   {
-   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:183 -> hive/hive_mcp/mcp_server.py:269",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md#1b4aee827e34cad7 -> hive/src/keyres.rs:24-26",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:246 -> hive/src/keyres.rs:24",
+   "head_line": 246,
+   "line_text": "1. **【跨面未落地项·建议单列修复】`hive/hive_mcp/mcp_server.py` 的锚链副本未同步**。现码：`:269` `_RESULT_KEY_KEYS = (\"HIVE_ORCH_TOKEN\", \"HIVE_ORCH_TOKEN_FILE\", \"HIVE_API_KEY\")`（仍含兜底环，其 …"
   },
   {
-   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:246 -> hive/src/keyres.rs:24",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md#1b4aee827e34cad7 -> hive/src/scheduler.rs:574-584",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:246 -> hive/src/scheduler.rs:574",
+   "head_line": 246,
+   "line_text": "1. **【跨面未落地项·建议单列修复】`hive/hive_mcp/mcp_server.py` 的锚链副本未同步**。现码：`:269` `_RESULT_KEY_KEYS = (\"HIVE_ORCH_TOKEN\", \"HIVE_ORCH_TOKEN_FILE\", \"HIVE_API_KEY\")`（仍含兜底环，其 …"
   },
   {
-   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:246 -> hive/src/scheduler.rs:574",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md#3ed5ed82f061c228 -> hive/hive_mcp/mcp_server.py:269",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:183 -> hive/hive_mcp/mcp_server.py:269",
+   "head_line": 183,
+   "line_text": "| C2 | **partial** | 链已收窄（`:33-52`）、头注含诚实边界与「同链副本」点名；判 partial 的唯一原因是**同链 Python 副本未同步**——我确认 `hive/hive_mcp/mcp_server.py:269` 仍为三键含 `HIVE_API_KEY`、`:285-292` …"
   },
   {
-   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:27 -> hive/src/exec.rs:85",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/蜂巢模型密钥配置面_v1.0.md#d1c4d19b2811b9f7 -> hive/src/exec.rs:85-86",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/蜂巢模型密钥配置面_v1.0.md:27 -> hive/src/exec.rs:85",
+   "head_line": 27,
+   "line_text": "- 剥离面（旧）：`hive/src/exec.rs:85-86` 三键常量；`:134-135` 无条件 `env_remove`；`:137` 起仅 orchestrate 重注。"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:149 -> md_cg/mdcos.py:3717",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#02d80562d0101921 -> md_cg/sleep.py:84",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:55 -> md_cg/sleep.py:84",
+   "head_line": 55,
+   "line_text": "4. **缺省档位事实上已经是「完全访问」**：自愈开、自整理开、自演化关、去污染实改关（`md_cg/sustain.py:88-89`）；睡眠合并缺省 `auto`、去污染实改缺省关（`md_cg/sleep.py:84` 表）。它已经在跑，而且跑在判断力最弱的那条通道上（§八）。"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:149 -> mdcos.py:3702",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#02d80562d0101921 -> md_cg/sustain.py:88-89",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:55 -> md_cg/sustain.py:88",
+   "head_line": 55,
+   "line_text": "4. **缺省档位事实上已经是「完全访问」**：自愈开、自整理开、自演化关、去污染实改关（`md_cg/sustain.py:88-89`）；睡眠合并缺省 `auto`、去污染实改缺省关（`md_cg/sleep.py:84` 表）。它已经在跑，而且跑在判断力最弱的那条通道上（§八）。"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:149 -> writepipe.py:260",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#1c2ae52be3bea3ad -> md_cg/test_writelimit.py:123-127",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:152 -> md_cg/test_writelimit.py:123",
+   "head_line": 152,
+   "line_text": "- **附带（既有守卫的编码问题）**：`md_cg/test_writelimit.py:123-127`（E 节\"knowledge 不聚合不限流\"）把「半重复→ACCEPT」一并钉死在断言里，第①条落地后必然转红。经读码确认，该断言的**意图是层豁免**（限流器未介入），**编码**却依赖遗忘闸门的旧裁决——须按…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:152 -> md_cg/test_writelimit.py:123",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#20bfc5dab998da5a -> md_cg/forgetting.py:456",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:45 -> md_cg/forgetting.py:456",
+   "head_line": 45,
+   "line_text": "| **B** | **合并**（新内容并入既有节点） | `forgetting.reinforce`（`md_cg/forgetting.py:456`，写回在 `:524`）＋ `writelimit.converge_into` | 部分：前像无快照；聚合行可按标记剥离 | **无**（普通节点）；受保护节点要…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:45 -> md_cg/forgetting.py:456",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#4f3e8f39e7244e01 -> md_cg/mdcos.py:3717-3723",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:149 -> md_cg/mdcos.py:3717",
+   "head_line": 149,
+   "line_text": "- **遗忘闸门的 DEFER 没有复核入口**：`md_cg/mdcos.py:3717-3723` 对非 DROP 的裁决只写一行留痕（`node_id/layer/verdict/reason/importance/entropy/actor`，**不含正文**），**不调用任何入队入口**；对比 DROP 分支…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:46 -> consolidate.py:891",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#4f3e8f39e7244e01 -> mdcos.py:3702-3714",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:149 -> mdcos.py:3702",
+   "head_line": 149,
+   "line_text": "- **遗忘闸门的 DEFER 没有复核入口**：`md_cg/mdcos.py:3717-3723` 对非 DROP 的裁决只写一行留痕（`node_id/layer/verdict/reason/importance/entropy/actor`，**不含正文**），**不调用任何入队入口**；对比 DROP 分支…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:47 -> forgetting.py:411",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#4f3e8f39e7244e01 -> writepipe.py:260",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:149 -> writepipe.py:260",
+   "head_line": 149,
+   "line_text": "- **遗忘闸门的 DEFER 没有复核入口**：`md_cg/mdcos.py:3717-3723` 对非 DROP 的裁决只写一行留痕（`node_id/layer/verdict/reason/importance/entropy/actor`，**不含正文**），**不调用任何入队入口**；对比 DROP 分支…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:47 -> forgetting.py:756",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#50d016d2c80e6489 -> md_cg/sleep.py:596-612",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:90 -> md_cg/sleep.py:596",
+   "head_line": 90,
+   "line_text": "- **形态已在**：睡眠周期的九步显式台账（`md_cg/sleep.py:596-612`，明文\"不许悄悄跳过、不许改名\"，未接线步显式标注 `未接线`；`STEPS` 顺序即台账顺序）。这是\"照计划做、可审计\"的**现成骨架**。"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:47 -> md_cg/mcp_server.py:324",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#5f88840c6bd6f302 -> forgetting.py:411",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:47 -> forgetting.py:411",
+   "head_line": 47,
+   "line_text": "| **D** | **删除** | 软删（节点移入 `trash/`＋删除清单，可审计，`md_cg/mcp_server.py:324`）；**丢弃**（`forgetting.assess` 的丢弃分支 → 只留痕不落节点，`forgetting.py:411` `record_drop`）；断面裁剪 `forg…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:48 -> md_cg/freshness.py:302",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#5f88840c6bd6f302 -> forgetting.py:756",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:47 -> forgetting.py:756",
+   "head_line": 47,
+   "line_text": "| **D** | **删除** | 软删（节点移入 `trash/`＋删除清单，可审计，`md_cg/mcp_server.py:324`）；**丢弃**（`forgetting.assess` 的丢弃分支 → 只留痕不落节点，`forgetting.py:411` `record_drop`）；断面裁剪 `forg…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:48 -> md_cg/lifecycle.py:52",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#5f88840c6bd6f302 -> md_cg/mcp_server.py:324",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:47 -> md_cg/mcp_server.py:324",
+   "head_line": 47,
+   "line_text": "| **D** | **删除** | 软删（节点移入 `trash/`＋删除清单，可审计，`md_cg/mcp_server.py:324`）；**丢弃**（`forgetting.assess` 的丢弃分支 → 只留痕不落节点，`forgetting.py:411` `record_drop`）；断面裁剪 `forg…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:52 -> consolidate.py:970",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#9ad4112968d37522 -> md_cg/freshness.py:302",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:48 -> md_cg/freshness.py:302",
+   "head_line": 48,
+   "line_text": "| **E** | 权重与生命周期 | `freshness.recalc(..., apply=False)`（`md_cg/freshness.py:302`）、`weights`、`lifecycle.stamp`（`md_cg/lifecycle.py:52` 四态单向降级轴） | 是：`freshness.r…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:53 -> protect.py:32",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#9ad4112968d37522 -> md_cg/lifecycle.py:52",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:48 -> md_cg/lifecycle.py:52",
+   "head_line": 48,
+   "line_text": "| **E** | 权重与生命周期 | `freshness.recalc(..., apply=False)`（`md_cg/freshness.py:302`）、`weights`、`lifecycle.stamp`（`md_cg/lifecycle.py:52` 四态单向降级轴） | 是：`freshness.r…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:54 -> mdcos.py:2016",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#abbd731a6523aa80 -> consolidate.py:891",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:46 -> consolidate.py:891",
+   "head_line": 46,
+   "line_text": "| **C** | **改写**（既有节点就地改） | 同 id 覆写（`cg(op=write, node_id=…)`）＝改写；`_write_node` 直调点：`backfill`×8、`consolidate:642/848/891`、`ccgc:837/926`、`crosscheck:675/971`、`…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:54 -> writepipe.py:260",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#af3531f45d44c798 -> protect.py:32",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:53 -> protect.py:32",
+   "head_line": 53,
+   "line_text": "2. **热写入路径上破坏性最强的三个动作没有确认**：合并与改写由 `forgetting.reinforce` **就地把既有节点改写**（改 frontmatter ＋ 追加聚合行），丢弃只留痕不落节点；对**普通节点**全无前置确认，只有 importance ≥ 0.70 的受保护节点要 `override`…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:55 -> md_cg/sleep.py:84",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#b7c2db7f0f6e5321 -> mdcos.py:2016",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:54 -> mdcos.py:2016",
+   "head_line": 54,
+   "line_text": "3. **热路径上唯一形似确认的机制是 `DEFER → 审核队列`**（`writepipe.py:260/325` `moved_to=\"review_queue\"`、`mdcos.propose` `mdcos.py:2016/4284`，裁决通道 `scripts/review_cli.py` 的 accept…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:55 -> md_cg/sustain.py:88",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#b7c2db7f0f6e5321 -> writepipe.py:260",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:54 -> writepipe.py:260",
+   "head_line": 54,
+   "line_text": "3. **热路径上唯一形似确认的机制是 `DEFER → 审核队列`**（`writepipe.py:260/325` `moved_to=\"review_queue\"`、`mdcos.propose` `mdcos.py:2016/4284`，裁决通道 `scripts/review_cli.py` 的 accept…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:83 -> protect.py:32",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#bf0ddcf2c38411ba -> consolidate.py:970",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:52 -> consolidate.py:970",
+   "head_line": 52,
+   "line_text": "1. **确认形态只长在批量维护上**：`consolidate`／`crosscheck`／`ccgc`／`trust`／`autonomy` 全是\"**先出报表、再落盘**\"（落盘参数 `apply` 缺省为假；如 `consolidate.py:970/1130/1411`、`crosscheck.py:738`…"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:86 -> freshness.py:428",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#ed35aff194d3e667 -> freshness.py:428",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:86 -> freshness.py:428",
+   "head_line": 86,
+   "line_text": "  - 分数类：各模块既有 `rollback`（`freshness.py:428` 等）。"
   },
   {
-   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:90 -> md_cg/sleep.py:596",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/记忆自处理三档自治_设计_v0.2.md#faf8f3da74cf7942 -> protect.py:32-33",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/记忆自处理三档自治_设计_v0.2.md:83 -> protect.py:32",
+   "head_line": 83,
+   "line_text": "  - 受保护节点：`_protected_history/<id>/<时间戳>.md` ＋ `_protected_audit.jsonl`（`protect.py:32-33`）——**把这一对从\"仅受保护节点\"推广为\"一切 C/D/B 动作\"**；"
   },
   {
-   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:22 -> trust.py:367",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md#2afb05742e8538ab -> trust.py:81-82",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:58 -> trust.py:81",
+   "head_line": 58,
+   "line_text": "| `t_from` / `t_to` | 生效区间（双轴） | `trust.py:81-82` 别名族、`:367 TIME_AXES` |"
   },
   {
-   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:24 -> stg.py:485",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md#314e3dd064ce90c7 -> stg.py:542-546",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:25 -> stg.py:542",
+   "head_line": 25,
+   "line_text": "| **读面纪律** | 条件先行＋截断可观测（issue #52，`stg.py:542-546`）；条件资格首验 `:441 _attach_qualification`（复用 `judge_qualification` 单点，**只上报不过滤**，`MDCG_STG_QUALIFY` 默认关） |"
   },
   {
-   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:25 -> stg.py:542",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md#3c4020abb8fbc0c8 -> stg.py:485",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:24 -> stg.py:485",
+   "head_line": 24,
+   "line_text": "| **会话视图** | `stg.py:485 _view_session`（与写侧 `_normalize_session` 同尺；H2 修复） |"
   },
   {
-   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:58 -> trust.py:81",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md#8148058c0afa31e1 -> trust.py:367",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:22 -> trust.py:367",
+   "head_line": 22,
+   "line_text": "| **时间模型** | 双轴（`trust.py:367` `TIME_AXES=(\"effective\",\"observed\")`、`:378 time_axis_of`；别名族 `:81-82` FROM/UNTIL_ALIASES）；统一时间核（time_core `cred_factor`，γ 半衰期 30 …"
   },
   {
-   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:65 -> md_cg/scrub.py:409",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md#880d4ea9dfe6037f -> md_cg/scrub.py:409",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:65 -> md_cg/scrub.py:409",
+   "head_line": 65,
+   "line_text": "**同步纪律（一字不新造）**：`evolution.STATE_FIELDS`（`md_cg/evolution.py:52`，回滚面）｜`scrub` 键族（`md_cg/scrub.py:409 _EXPIRY_KEYS`、`:485 _NOT_YET_KEYS`，含「`valid_from` 绝不并入 `_EX…"
   },
   {
-   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:65 -> trust.py:81",
-   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。"
+   "key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md#880d4ea9dfe6037f -> trust.py:81-82",
+   "why": "活文档面（docs/plans）存量手写锚：本次审计仅把 33 条界到「确凿」，其余不在本次改动面内 → 冻结（非「通过」；建议同法改符号锚）。",
+   "legacy_key": "docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md:65 -> trust.py:81",
+   "head_line": 65,
+   "line_text": "**同步纪律（一字不新造）**：`evolution.STATE_FIELDS`（`md_cg/evolution.py:52`，回滚面）｜`scrub` 键族（`md_cg/scrub.py:409 _EXPIRY_KEYS`、`:485 _NOT_YET_KEYS`，含「`valid_from` 绝不并入 `_EX…"
   },
   {
-   "key": "docs/theory/概念分层对齐表_v0.1.md:104 -> rust_swarm.py:88",
-   "why": "理论真源（只读引用面）存量锚：同上，冻结。"
+   "key": "docs/theory/概念分层对齐表_v0.1.md#6fdf067fbcddefde -> rust_swarm.py:88",
+   "why": "理论真源（只读引用面）存量锚：同上，冻结。",
+   "legacy_key": "docs/theory/概念分层对齐表_v0.1.md:104 -> rust_swarm.py:88",
+   "head_line": 104,
+   "line_text": "| 4-3 | WAL 验签 ↔ integrity_rate ↔ 跨节点 evidence 验签（`rust_swarm.py:88` / `173` / `evidence.py`） | 同一验证动作（验签）的三个读出位置 | 统一定位为「验签=来源可信（L1/L2 边界）原语」；三处读出各有用途（对账/健康/入库…"
   },
   {
-   "key": "docs/theory/概念分层对齐表_v0.1.md:33 -> swarm/rust_swarm.py:40",
-   "why": "理论真源（只读引用面）存量锚：同上，冻结。"
+   "key": "docs/theory/概念分层对齐表_v0.1.md#777eab0254393685 -> swarm/rust_swarm.py:40",
+   "why": "理论真源（只读引用面）存量锚：同上，冻结。",
+   "legacy_key": "docs/theory/概念分层对齐表_v0.1.md:33 -> swarm/rust_swarm.py:40",
+   "head_line": 33,
+   "line_text": "| 实例信任初值 `trust` | `swarm/rust_swarm.py:40`（make_swarm_config） | 实例注册时声明的行为信任初值，随 gossip `@trust` payload 在蜂群传播更新 | [0,1] 配置值 | 与 compiler「德」寄存器同源：德=trust_value…"
   },
   {
-   "key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md:95 -> src/index.ts:126",
-   "why": "理论真源（只读引用面）存量锚：同上，冻结。"
+   "key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md#564d15a609e05121 -> src/bridge.ts:50",
+   "why": "理论真源（只读引用面）存量锚：同上，冻结。",
+   "legacy_key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md:97 -> src/bridge.ts:50",
+   "head_line": 97,
+   "line_text": "| B3 | `src/bridge.ts:50` | 注释/默认指向 `aeis.mcp.server` | 同步为 `md_cg.mcp_server` |"
   },
   {
-   "key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md:96 -> src/index.ts:186",
-   "why": "理论真源（只读引用面）存量锚：同上，冻结。"
+   "key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md#75dc38809a3f37e4 -> src/index.ts:126",
+   "why": "理论真源（只读引用面）存量锚：同上，冻结。",
+   "legacy_key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md:95 -> src/index.ts:126",
+   "head_line": 95,
+   "line_text": "| B1 | `src/index.ts:126` | `moduleArgs` 默认 `['-m','aeis.mcp.server']` | `['-m','md_cg.mcp_server']` |"
   },
   {
-   "key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md:97 -> src/bridge.ts:50",
-   "why": "理论真源（只读引用面）存量锚：同上，冻结。"
+   "key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md#ad7e815624531d1e -> src/index.ts:186",
+   "why": "理论真源（只读引用面）存量锚：同上，冻结。",
+   "legacy_key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md:96 -> src/index.ts:186",
+   "head_line": 96,
+   "line_text": "| B2 | `src/index.ts:186` | `env: { AEIS_DB, AEIS_IDENTITY, ... }` | 去掉 `AEIS_DB`（或降为兼容可选） |"
   },
   {
-   "key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md:99 -> package.json:14",
-   "why": "理论真源（只读引用面）存量锚：同上，冻结。"
+   "key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md#b702036217b54dbe -> package.json:14-21",
+   "why": "理论真源（只读引用面）存量锚：同上，冻结。",
+   "legacy_key": "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md:99 -> package.json:14",
+   "head_line": 99,
+   "line_text": "| B5 | **`package.json:14-21`** | `files` 白名单**不含** `md_cg` | **加 `md_cg`**（否则 npm 包不含大脑，B 无意义） |"
   },
   {
-   "key": "docs/不可靠性理论_v0.1.md:93 -> md_cg/datapath.py:60",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/不可靠性理论_v0.1.md#98f0016007468ac2 -> md_cg/datapath.py:60",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/不可靠性理论_v0.1.md:93 -> md_cg/datapath.py:60",
+   "head_line": 93,
+   "line_text": "| 路径语义暗改写（GetFullPathNameW 把保留设备名末段归一成 `\\\\.\\` 设备路径） | datapath 环境根守卫 `_abs_host_path` 抛 ValueError + main() 启动探针 fail-fast（`md_cg/datapath.py:60`、`md_cg/mcp_ser…"
   },
   {
-   "key": "docs/不可靠性理论_v0.1.md:93 -> md_cg/mcp_server.py:3610",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/不可靠性理论_v0.1.md#98f0016007468ac2 -> md_cg/mcp_server.py:3610-3616",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/不可靠性理论_v0.1.md:93 -> md_cg/mcp_server.py:3610",
+   "head_line": 93,
+   "line_text": "| 路径语义暗改写（GetFullPathNameW 把保留设备名末段归一成 `\\\\.\\` 设备路径） | datapath 环境根守卫 `_abs_host_path` 抛 ValueError + main() 启动探针 fail-fast（`md_cg/datapath.py:60`、`md_cg/mcp_ser…"
   },
   {
-   "key": "docs/记忆评审系统_立项设计与施工交接_20260915.md:61 -> tokens.py:127",
-   "why": "文档面存量手写锚：同上，冻结。"
+   "key": "docs/记忆评审系统_立项设计与施工交接_20260915.md#b4b7413b357dc5e9 -> tokens.py:127",
+   "why": "文档面存量手写锚：同上，冻结。",
+   "legacy_key": "docs/记忆评审系统_立项设计与施工交接_20260915.md:61 -> tokens.py:127",
+   "head_line": 61,
+   "line_text": "- **独立性约束（不可妥协）**：复核执行者持 verify 令牌（只能落 rejected/contextual，禁改 knowledge——`tokens.py:127` 结构保证）；复用 `crosscheck.detect_self_verify` 检出「写入者=复核者」即违例；意见落库后走 mdcos 审核…"
   },
   {
-   "key": "hive/src/keyres.rs:4 -> orch.py:326",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "hive/src/keyres.rs#e7e07d8360315f08 -> orch.py:326",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "hive/src/keyres.rs:4 -> orch.py:326",
+   "head_line": 4,
+   "line_text": "//!   1. `HIVE_ORCH_TOKEN`        —— hive 编排器令牌（env 直值；orch.py:326 同一读取面）"
   },
   {
-   "key": "hive/test_orch.py:103 -> md_cg/security.py:118",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "hive/test_orch.py#92cc0dcf9c2bedfe -> md_cg/security.py:118",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "hive/test_orch.py:103 -> md_cg/security.py:118",
+   "head_line": 103,
+   "line_text": "    取证口径：`allows_op` 是 **Principal 的方法**（md_cg/security.py:118"
   },
   {
-   "key": "md_cg/bench_axis_domain.py:11 -> mdcg.py:37",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/bench_axis_domain.py#4ca96618a41fb423 -> mdcg.py:37",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/bench_axis_domain.py:11 -> mdcg.py:37",
+   "head_line": 11,
+   "line_text": "   （mdcg.py:37）→ `bucket` 字段恒为 None，**连分桶都没发生**；"
   },
   {
-   "key": "md_cg/freshness.py:51 -> md_cg/protect.py:135",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/freshness.py#75309cbbd3913e52 -> md_cg/protect.py:135-151",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/freshness.py:51 -> md_cg/protect.py:135",
+   "head_line": 51,
+   "line_text": "`importance ≥ 0.70`**（`md_cg/protect.py:135-151`、`weights.IMPORTANCE_PROTECT`）"
   },
   {
-   "key": "md_cg/logref.py:127 -> refindex.py:302",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/logref.py#0d299d47cf3c8376 -> refindex.py:302-317",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/logref.py:127 -> refindex.py:302",
+   "head_line": 127,
+   "line_text": "    `doc_ref.path` 不同源（refindex.py:302-317），开它就等于引一条会误判的"
   },
   {
-   "key": "md_cg/mdcg.py:3573 -> md_cg/mdcg.py:4181",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/mdcg.py#14faf8c219797a9e -> md_cg/mdcos.py:1754",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/mdcg.py:3575 -> md_cg/mdcos.py:1754",
+   "head_line": 3575,
+   "line_text": "          · `MdCos.search_rrf`（`md_cg/mdcos.py:1754`）＝默认召回路径，同款标记与"
   },
   {
-   "key": "md_cg/mdcg.py:3575 -> md_cg/mdcos.py:1754",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/mdcg.py#5505c8eec2bbee01 -> md_cg/mdcg.py:4181",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/mdcg.py:3573 -> md_cg/mdcg.py:4181",
+   "head_line": 3573,
+   "line_text": "          · `MdCG._emit`（`md_cg/mdcg.py:4181`）＝默认打分收口，结果卡带"
   },
   {
-   "key": "md_cg/mdcg.py:3671 -> mdcos.py:748",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/mdcg.py#60efe6de471b74ff -> mdcos.py:748-749",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/mdcg.py:45 -> mdcos.py:748",
+   "head_line": 45,
+   "line_text": "#: 口径与生产路径 `MdCGOS._candidates`（mdcos.py:748-749）一致。"
   },
   {
-   "key": "md_cg/mdcg.py:45 -> mdcos.py:748",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/mdcg.py#c6ea8bd356c23345 -> mdcos.py:748-749",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/mdcg.py:3671 -> mdcos.py:748",
+   "head_line": 3671,
+   "line_text": "        # 生产路径 `MdCGOS._candidates`（mdcos.py:748-749）早已排除三者的做法"
   },
   {
-   "key": "md_cg/mdcos.py:4610 -> forgetting.py:879",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/mdcos.py#8599b82446b2e1b3 -> forgetting.py:879",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/mdcos.py:4610 -> forgetting.py:879",
+   "head_line": 4610,
+   "line_text": "            # **内容派生 id**（`forgetting._prefeed_id` 同款——forgetting.py:879"
   },
   {
-   "key": "md_cg/protect.py:394 -> md_cg/mdcg.py:3502",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/protect.py#213a1eb8290499a0 -> md_cg/mdcg.py:3502",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/protect.py:394 -> md_cg/mdcg.py:3502",
+   "head_line": 394,
+   "line_text": "    （`md_cg/mdcg.py:3502`）、`trust.set_state`（验证态唯一推进入口 ⇒ 依赖者"
   },
   {
-   "key": "md_cg/protect.py:400 -> md_cg/mdcos.py:3889",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/protect.py#4086552dc9b1a43e -> mdcg.py:1294-1298",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/protect.py:50 -> mdcg.py:1294",
+   "head_line": 50,
+   "line_text": "# 索引条目里的**门控三键**（键集单点定义）：`_node_entry`（mdcg.py:1294-1298）与"
   },
   {
-   "key": "md_cg/protect.py:50 -> mdcg.py:1294",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/protect.py#c05b30a75dcc9f8a -> mdcg.py:1508",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/protect.py:68 -> mdcg.py:1508",
+   "head_line": 68,
+   "line_text": "    内存索引**，而写面只有 `MdCG.add`（mdcg.py:1508）接了探活——删除（forget）、"
   },
   {
-   "key": "md_cg/protect.py:51 -> mdcg.py:1848",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/protect.py#ca0bf721b6f36545 -> md_cg/mdcos.py:3889",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/protect.py:400 -> md_cg/mdcos.py:3889",
+   "head_line": 400,
+   "line_text": "    层闸口径与 `MdCGSecure.add`/`add_rejected` 一致（`md_cg/mdcos.py:3889`/`:3898`）。"
   },
   {
-   "key": "md_cg/protect.py:68 -> mdcg.py:1508",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/protect.py#f5038c65e96f8f4d -> mdcg.py:1848-1851",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/protect.py:51 -> mdcg.py:1848",
+   "head_line": 51,
+   "line_text": "# `_stage`（mdcg.py:1848-1851）恒落这三键，值可为 None ⇒「键不存在」不是"
   },
   {
-   "key": "md_cg/protocol.py:81 -> mcp_server.py:1849",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/protocol.py#919c8fa0a70c2e50 -> mcp_server.py:1849-1857",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/protocol.py:81 -> mcp_server.py:1849",
+   "head_line": 81,
+   "line_text": "#: （`_cg_call` 追加，实测 mcp_server.py:1849-1857 的 act_source 三元表达式 +"
   },
   {
-   "key": "md_cg/provenance.py:434 -> stg.py:144",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/provenance.py#c4c80cf22c6771c2 -> stg.py:144",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/provenance.py:434 -> stg.py:144",
+   "head_line": 434,
+   "line_text": "    同库同身份的 `stg.timeline`（stg.py:144/238）早已接线 `_readable`——本处"
   },
   {
-   "key": "md_cg/subgraph.py:124 -> migrate.py:43",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/subgraph.py#53980f4dbcbe9fde -> migrate.py:43",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/subgraph.py:124 -> migrate.py:43",
+   "head_line": 124,
+   "line_text": "            # 兼容历史语料：早期迁移器把关系类型写在 `type` 键（`migrate.py:43`、"
   },
   {
-   "key": "md_cg/test_auto_defaults.py:17 -> sustain.py:966",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_auto_defaults.py#3337585fe181d120 -> sustain.py:966",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_auto_defaults.py:17 -> sustain.py:966",
+   "head_line": 17,
+   "line_text": "    `SustainLoop.__init__` 形参另有一份 `auto_tidy=False`（sustain.py:966）——"
   },
   {
-   "key": "md_cg/test_autonomy_modes.py:1118 -> mcp_server.py:3373",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_autonomy_modes.py#8d7d7b9d62d17a12 -> mcp_server.py:3373",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_autonomy_modes.py:1118 -> mcp_server.py:3373",
+   "head_line": 1118,
+   "line_text": "      · **M1e**：`mdcg_remember` **非 gated 直写分支**（`mcp_server.py:3373`）"
   },
   {
-   "key": "md_cg/test_b4_shard_dir_selfheal_guard.py:16 -> fsutil.py:706",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_b4_shard_dir_selfheal_guard.py#0bdd33fca0a06a36 -> fsutil.py:706",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_b4_shard_dir_selfheal_guard.py:16 -> fsutil.py:706",
+   "head_line": 16,
+   "line_text": "**唯一**实现，两处调用点均为委托——``fsutil.py:706``（``__init__``, \"init\"，首建"
   },
   {
-   "key": "md_cg/test_branch_discard_tombstone.py:7 -> mdcg.py:1010",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_branch_discard_tombstone.py#c3243efac8e6b9d9 -> mdcg.py:1010-1012",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_branch_discard_tombstone.py:7 -> mdcg.py:1010",
+   "head_line": 7,
+   "line_text": "`_index_log`。close 时 compact 的「计数对账重扫 + 日志重放」（mdcg.py:1010-1012"
   },
   {
-   "key": "md_cg/test_i50c_meta_passthrough.py:46 -> mdcos.py:2565",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_i50c_meta_passthrough.py#f2db80390b50247f -> mdcos.py:2565-2567",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_i50c_meta_passthrough.py:46 -> mdcos.py:2565",
+   "head_line": 46,
+   "line_text": "  · `reviewer`   —— accept 路径的裁决归属留痕（mdcos.py:2565-2567）。硬边界"
   },
   {
-   "key": "md_cg/test_legacy_p3_node_id_type.py:15 -> md_cg/mdcg.py:1338",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_legacy_p3_node_id_type.py#57dfbf4cce66d0be -> md_cg/mdcg.py:1461",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_legacy_p3_node_id_type.py:22 -> md_cg/mdcg.py:1461",
+   "head_line": 22,
+   "line_text": "  · 写面 fail-closed（md_cg/mdcg.py:1461 区，`add` 的 node_id 校验前）：`node_id`"
   },
   {
-   "key": "md_cg/test_legacy_p3_node_id_type.py:22 -> md_cg/mdcg.py:1461",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_legacy_p3_node_id_type.py#777b125034a730e3 -> md_cg/mdcg.py:1338",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_legacy_p3_node_id_type.py:15 -> md_cg/mdcg.py:1338",
+   "head_line": 15,
+   "line_text": "此后任何一次全量重扫（`_scan_nodes`，md_cg/mdcg.py:1338 `sorted(nodes)`）都会在"
   },
   {
-   "key": "md_cg/test_n178_units_jobid_gate.py:14 -> hive/hive_mcp/mcp_server.py:133",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n178_units_jobid_gate.py#29d175e1f96ec662 -> hive/hive_mcp/mcp_server.py:133-143",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n178_units_jobid_gate.py:14 -> hive/hive_mcp/mcp_server.py:133",
+   "head_line": 14,
+   "line_text": "同族家法已有：`hive/hive_mcp/mcp_server.py:133-143 _valid_job_id`（`_t_poll`"
   },
   {
-   "key": "md_cg/test_n178_units_jobid_gate.py:15 -> hive/src/job.rs:63",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n178_units_jobid_gate.py#ec0e10c9cdc29f55 -> hive/src/job.rs:63-67",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n178_units_jobid_gate.py:15 -> hive/src/job.rs:63",
+   "head_line": 15,
+   "line_text": ":481、`_t_kill` :515 用）与 `hive/src/job.rs:63-67 valid_job_id`（同为"
   },
   {
-   "key": "md_cg/test_n195_writepath_reload.py:4 -> mdcg.py:1034",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n195_writepath_reload.py#105efd2de56006e2 -> mdcg.py:1607",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n195_writepath_reload.py:7 -> mdcg.py:1607",
+   "head_line": 7,
+   "line_text": "`self.index` mdcg.py:1607）与 `MdCGOS.forget`（mdcos.py:2356"
   },
   {
-   "key": "md_cg/test_n195_writepath_reload.py:6 -> mdcg.py:1476",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n195_writepath_reload.py#105efd2de56006e2 -> mdcos.py:2356",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n195_writepath_reload.py:7 -> mdcos.py:2356",
+   "head_line": 7,
+   "line_text": "`self.index` mdcg.py:1607）与 `MdCGOS.forget`（mdcos.py:2356"
   },
   {
-   "key": "md_cg/test_n195_writepath_reload.py:7 -> mdcg.py:1607",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n195_writepath_reload.py#1773859495407365 -> mdcg.py:1476",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n195_writepath_reload.py:6 -> mdcg.py:1476",
+   "head_line": 6,
+   "line_text": "`MdCG.add`（protect.guard_write 调用点 mdcg.py:1476、prev_entry 取"
   },
   {
-   "key": "md_cg/test_n195_writepath_reload.py:7 -> mdcos.py:2356",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n195_writepath_reload.py#fd423925ad4e1493 -> mdcg.py:1034",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n195_writepath_reload.py:4 -> mdcg.py:1034",
+   "head_line": 4,
+   "line_text": "缺陷（修复前）：`_maybe_reload_index`（mdcg.py:1034）全仓仅 **5 处** 调用点，"
   },
   {
-   "key": "md_cg/test_n196_stale_gate_skip.py:12 -> mdcos.py:3887",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n196_stale_gate_skip.py#839be9337f35e166 -> mdcos.py:3887",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n196_stale_gate_skip.py:12 -> mdcos.py:3887",
+   "head_line": 12,
+   "line_text": "  ② 授权（`MdCGSecure.verify` falsified 分支，mdcos.py:3887）：N130 的"
   },
   {
-   "key": "md_cg/test_n196_stale_gate_skip.py:7 -> mdcos.py:4039",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n196_stale_gate_skip.py#e4cfd39fcba4f2b8 -> mdcos.py:4039",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n196_stale_gate_skip.py:7 -> mdcos.py:4039",
+   "head_line": 7,
+   "line_text": "  ① 读隔离（`MdCGSecure.get`，mdcos.py:4039）：该实现先读"
   },
   {
-   "key": "md_cg/test_n197_n208_write_face_gates.py:10 -> md_cg/insight.py:297",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n197_n208_write_face_gates.py#6a2597bf4a6ce80d -> md_cg/insight.py:297",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n197_n208_write_face_gates.py:10 -> md_cg/insight.py:297",
+   "head_line": 10,
+   "line_text": "① `md_cg/insight.py:297`（verify 写回）：`_read_event` 后 `cg._write_node(...)`，"
   },
   {
-   "key": "md_cg/test_n198_tokens_corrupt_failclosed.py:4 -> tokens.py:288",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n198_tokens_corrupt_failclosed.py#f4f1939987ee048a -> tokens.py:288-299",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n198_tokens_corrupt_failclosed.py:4 -> tokens.py:288",
+   "head_line": 4,
+   "line_text": "缺陷（修复前）：`tokens._load`（tokens.py:288-299）对不可解析 / 顶层非对象 /"
   },
   {
-   "key": "md_cg/test_n199_tokens_concurrent_write.py:5 -> md_cg/tokens.py:343",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n199_tokens_concurrent_write.py#7b021cefe47142bb -> md_cg/tokens.py:343",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n199_tokens_concurrent_write.py:5 -> md_cg/tokens.py:343",
+   "head_line": 5,
+   "line_text": "  · `md_cg/tokens.py:343`（`_save`）`tmp = p + \".tmp\"` —— **固定共享临时名**；"
   },
   {
-   "key": "md_cg/test_n201_proposal_visibility.py:10 -> md_cg/mdcos.py:1946",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n201_proposal_visibility.py#3cc1ca0519926716 -> md_cg/mcp_server.py:3067",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n201_proposal_visibility.py:12 -> md_cg/mcp_server.py:3067",
+   "head_line": 12,
+   "line_text": "  · 出口面（`md_cg/mcp_server.py:3067`）：细粒度工具 `mdcg_review_list` 映射到"
   },
   {
-   "key": "md_cg/test_n201_proposal_visibility.py:12 -> md_cg/mcp_server.py:3067",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n201_proposal_visibility.py#47a35c68129bf040 -> md_cg/mdcos.py:1794-1803",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n201_proposal_visibility.py:6 -> md_cg/mdcos.py:1794",
+   "head_line": 6,
+   "line_text": "  · 写面（`md_cg/mdcos.py:1794-1803` `MdCGOS.propose`）：`rec[\"content\"]` 以"
   },
   {
-   "key": "md_cg/test_n201_proposal_visibility.py:6 -> md_cg/mdcos.py:1794",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n201_proposal_visibility.py#5e1587a01e2a8697 -> md_cg/mdcos.py:1946-1963",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n201_proposal_visibility.py:10 -> md_cg/mdcos.py:1946",
+   "head_line": 10,
+   "line_text": "  · 读面（`md_cg/mdcos.py:1946-1963` `review_list`）：全函数体**零**"
   },
   {
-   "key": "md_cg/test_n202_session_notes_visibility.py:6 -> md_cg/mdcos.py:2548",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n202_session_notes_visibility.py#3257e560d4a5d87c -> mdcg.py:104-111",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n202_session_notes_visibility.py:96 -> mdcg.py:104",
+   "head_line": 96,
+   "line_text": "# 退场清洁（机制说明，非本次修复面）：库层 `mdcg._atexit_flush_all`（mdcg.py:104-111）"
   },
   {
-   "key": "md_cg/test_n202_session_notes_visibility.py:9 -> mdcg.py:2445",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n202_session_notes_visibility.py#9b299fb670ee5d06 -> md_cg/mdcos.py:2548",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n202_session_notes_visibility.py:6 -> md_cg/mdcos.py:2548",
+   "head_line": 6,
+   "line_text": "缺陷（修复前）：`md_cg/mdcos.py:2548 _session_notes` 全函数体**零 `_readable`"
   },
   {
-   "key": "md_cg/test_n202_session_notes_visibility.py:96 -> mdcg.py:104",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n202_session_notes_visibility.py#f77cad405a604dde -> mdcg.py:2445-2454",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n202_session_notes_visibility.py:9 -> mdcg.py:2445",
+   "head_line": 9,
+   "line_text": "（无密钥 / 身份不符）→ 视为不存在」）。而 `_read`（mdcg.py:2445-2454）只在"
   },
   {
-   "key": "md_cg/test_n204_n205_n226_n227_n228_n229_exit_gates.py:16 -> md_cg/provenance.py:427",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n204_n205_n226_n227_n228_n229_exit_gates.py#268e9168aacdf7eb -> md_cg/provenance.py:427",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n204_n205_n226_n227_n228_n229_exit_gates.py:16 -> md_cg/provenance.py:427",
+   "head_line": 16,
+   "line_text": "  ③ N226 `md_cg/provenance.py:427`（`_node_digest` 直读 cg.index）+`539-543`："
   },
   {
-   "key": "md_cg/test_n204_n205_n226_n227_n228_n229_exit_gates.py:19 -> stg.py:144",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n204_n205_n226_n227_n228_n229_exit_gates.py#4c99d3daea62f4ec -> stg.py:144",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n204_n205_n226_n227_n228_n229_exit_gates.py:19 -> stg.py:144",
+   "head_line": 19,
+   "line_text": "     `stg.timeline` stg.py:144/238 早已接线 `_readable`——本处是漏网出口）。"
   },
   {
-   "key": "md_cg/test_n209_verify_write_face_gates.py:54 -> md_cg/scrub.py:683",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n209_verify_write_face_gates.py#570869654c20cf14 -> md_cg/scrub.py:683-696",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n209_verify_write_face_gates.py:54 -> md_cg/scrub.py:683",
+   "head_line": 54,
+   "line_text": "try/except（`md_cg/scrub.py:683-696`）把 `_move_layer` 的 AccessDenied 记成"
   },
   {
-   "key": "md_cg/test_n209_verify_write_face_gates.py:6 -> md_cg/mdcg.py:3502",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n209_verify_write_face_gates.py#713c4c4ae41c5ab5 -> md_cg/mdcg.py:3502",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n209_verify_write_face_gates.py:6 -> md_cg/mdcg.py:3502",
+   "head_line": 6,
+   "line_text": "`confirmed` / `weakened` 分支全程零闸——`md_cg/mdcg.py:3502` 直写"
   },
   {
-   "key": "md_cg/test_n212_n213_n224_generation_gates.py:15 -> mdcg.py:1794",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n212_n213_n224_generation_gates.py#e80d8f84ab6ee207 -> mdcg.py:1794-1812",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n212_n213_n224_generation_gates.py:15 -> mdcg.py:1794",
+   "head_line": 15,
+   "line_text": "   次生（②）：`prev_entry` 取本进程索引 → 为 None ⇒ `mdcg.py:1794-1812` 的"
   },
   {
-   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:10 -> md_cg/forgetting.py:247",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py#0d34ad2ee381b780 -> writelimit.py:141",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:18 -> writelimit.py:141",
+   "head_line": 18,
+   "line_text": "   `writelimit.check` 因形参层≠contextual 直接放行（`writelimit.py:141`）、"
   },
   {
-   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:12 -> md_cg/mdcos.py:3380",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py#13b10ea79ea66af2 -> md_cg/mdcos.py:3380",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:12 -> md_cg/mdcos.py:3380",
+   "head_line": 12,
+   "line_text": "     · `md_cg/mdcos.py:3380` = `remember_gated` 的 MERGE 分支；"
   },
   {
-   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:18 -> writelimit.py:141",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py#5ea6d2d386585019 -> md_cg/mcp_server.py:1671-1674",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:43 -> md_cg/mcp_server.py:1671",
+   "head_line": 43,
+   "line_text": "   `md_cg/mcp_server.py:1671-1674`（`_scrub_call` 对 calibrate 不设"
   },
   {
-   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:33 -> md_cg/mdcg.py:1560",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py#743ca874949786db -> md_cg/mdcg.py:1560",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:33 -> md_cg/mdcg.py:1560",
+   "head_line": 33,
+   "line_text": "   （`md_cg/mdcg.py:1560/1571` 落层、`:1794-1801` 旧层同 id 文件 `os.remove`、"
   },
   {
-   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:39 -> md_cg/scrub.py:718",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py#83887b86c25ed6ab -> md_cg/scrub.py:718",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:39 -> md_cg/scrub.py:718",
+   "head_line": 39,
+   "line_text": "④ **N222 新增：`scrub._apply_offset`（calibrate 落库动作，`md_cg/scrub.py:718/747`）**"
   },
   {
-   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:43 -> md_cg/mcp_server.py:1671",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py#c811d746be08ef51 -> md_cg/forgetting.py:247",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n214_n215_n221_n222_write_face_gates.py:10 -> md_cg/forgetting.py:247",
+   "head_line": 10,
+   "line_text": "① **N214 `forgetting.reinforce`（MERGE 落库动作，`md_cg/forgetting.py:247/274`）**"
   },
   {
-   "key": "md_cg/test_n225_nonobject_load.py:10 -> mdcg.py:1050",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n225_nonobject_load.py#34e70e5c7a7f67d0 -> fsutil.py:386",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n225_nonobject_load.py:17 -> fsutil.py:386",
+   "head_line": 17,
+   "line_text": "  · ``fsutil.ShardedLog.read_all``（fsutil.py:386 旧行）``r.get(\"_t\", 0)`` ⇒"
   },
   {
-   "key": "md_cg/test_n225_nonobject_load.py:15 -> mdcg.py:1235",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n225_nonobject_load.py#524b83245031024d -> mdcg.py:1235",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n225_nonobject_load.py:15 -> mdcg.py:1235",
+   "head_line": 15,
+   "line_text": "  · ``mdcg.MdCG.compact_index``（mdcg.py:1235 旧行）同款 ⇒ 存活实例运行中"
   },
   {
-   "key": "md_cg/test_n225_nonobject_load.py:17 -> fsutil.py:386",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_n225_nonobject_load.py#7d6e7140356c1f62 -> mdcg.py:1050",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_n225_nonobject_load.py:10 -> mdcg.py:1050",
+   "head_line": 10,
+   "line_text": "  · ``mdcg.MdCG._load_index``（mdcg.py:1050 旧行）``d.get(\"schema\")`` ⇒"
   },
   {
-   "key": "md_cg/test_verify_dirty_reconcile.py:5 -> mdcg.py:3166",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "md_cg/test_verify_dirty_reconcile.py#9a4f772d86045d31 -> mdcg.py:3166-3170",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "md_cg/test_verify_dirty_reconcile.py:5 -> mdcg.py:3166",
+   "head_line": 5,
+   "line_text": "confirmed/weakened 直写分支（mdcg.py:3166-3170）`_write_node` 落盘后只原地改"
   },
   {
-   "key": "rust/src/text.rs:4 -> mdcg.py:113",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "rust/src/text.rs#10670769ebd67dcb -> mdcg.py:128",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "rust/src/text.rs:5 -> mdcg.py:128",
+   "head_line": 5,
+   "line_text": "//!   * `bigrams`            ≈ mdcg.py:128"
   },
   {
-   "key": "rust/src/text.rs:5 -> mdcg.py:128",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "rust/src/text.rs#6e5c2ae56edf91f0 -> mdcg.py:113",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "rust/src/text.rs:4 -> mdcg.py:113",
+   "head_line": 4,
+   "line_text": "//!   * `expand_query_terms` ≈ mdcg.py:113"
   },
   {
-   "key": "rust/src/text.rs:6 -> nodefile.py:163",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "rust/src/text.rs#a100f0b5719b7b5e -> nodefile.py:163",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "rust/src/text.rs:6 -> nodefile.py:163",
+   "head_line": 6,
+   "line_text": "//!   * `positive_body`      ≈ nodefile.py:163"
   },
   {
-   "key": "rust/src/text.rs:7 -> nodefile.py:78",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "rust/src/text.rs#bb1419d972c91a9a -> nodefile.py:78",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "rust/src/text.rs:7 -> nodefile.py:78",
+   "head_line": 7,
+   "line_text": "//!   * `parse_frontmatter`  ≈ nodefile.py:78 (`loads`)"
   },
   {
-   "key": "scripts/_mdcg_reindex_dshlogs.py:19 -> datapath.py:254",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "scripts/_mdcg_reindex_dshlogs.py#8b7fe98048df4c21 -> datapath.py:254-266",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "scripts/_mdcg_reindex_dshlogs.py:19 -> datapath.py:254",
+   "head_line": 19,
+   "line_text": "· 环境变量清洗：`ENV_CLEAN` 全清（`datapath.py:254-266` 的 `MDCG_AUX_ROOT` 可改 aux"
   },
   {
-   "key": "scripts/test_judgment_manifest.py:47 -> scripts/criteria_fingerprint.py:38",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "scripts/test_judgment_manifest.py#11c870b7884bb1d8 -> scripts/criteria_fingerprint.py:38",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "scripts/test_judgment_manifest.py:47 -> scripts/criteria_fingerprint.py:38",
+   "head_line": 47,
+   "line_text": "    scripts/criteria_fingerprint.py:38 `worktree_of`（git archive → tempfile.mkdtemp）。"
   },
   {
-   "key": "src/lib/mdcg_client.ts:35 -> md_cg/mcp_server.py:1691",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "src/lib/mdcg_client.ts#31da35b7f0311222 -> md_cg/mcp_server.py:1691",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "src/lib/mdcg_client.ts:35 -> md_cg/mcp_server.py:1691",
+   "head_line": 35,
+   "line_text": " *   而 `mdcg_remember`（`md_cg/mcp_server.py:1691`）直接调 `MdCG.remember_gated`"
   },
   {
-   "key": "src/lib/prompt_safety.ts:27 -> lib/index.js:109",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "src/lib/prompt_safety.ts#a72c7469688ef23b -> lib/index.js:109-116",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "src/lib/prompt_safety.ts:27 -> lib/index.js:109",
+   "head_line": 27,
+   "line_text": " * 依据（宿主源码 `lib/index.js:109-116`）：`interpolate` 以"
   },
   {
-   "key": "src/lib/session_state.ts:93 -> md_cg/mdcos.py:5009",
-   "why": "源码注释/docstring 存量手写锚：同上，冻结。"
+   "key": "src/lib/session_state.ts#c3a60377249ba49c -> md_cg/mdcos.py:5009-5053",
+   "why": "源码注释/docstring 存量手写锚：同上，冻结。",
+   "legacy_key": "src/lib/session_state.ts:93 -> md_cg/mdcos.py:5009",
+   "head_line": 93,
+   "line_text": " *      绑定档可见性判定 `MdCGSecure._readable`（md_cg/mdcos.py:5009-5053）"
   }
  ]
 }

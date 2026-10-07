@@ -26,7 +26,7 @@ review_cli.py` 2026-10-07 被薄壳化为 43 行，一次性让 8 处锚越界�
   · 目标件**不可解析**（未入库 / 同名多处）→ 记为 UNRESOLVED 单列，不报红（机械层面
     无法确定目标，硬报红会制造假红）。
 
-**已知边界（2026-10-08 实测记入——读 `VERDICT` 时必须一并读这两条）**：
+**已知边界（2026-10-08 实测记入——读 `VERDICT` 时必须一并读这几条）**：
   · **同文件简写锚不进扫描面（现「可见」、仍「不判」）**：`ANCHOR` 只认「带扩展名的路径 +
     `:行号`」，故「同文件 `:NN`」这类**无路径前缀的裸 `:行号`**（下称**简写锚**）既不进红/绿、
     也不进冻结 ⇒ `VERDICT: PASS` 是**必要条件**（无未登记的红），**不是**「锚全对」的充分判据。
@@ -39,6 +39,11 @@ review_cli.py` 2026-10-07 被薄壳化为 43 行，一次性让 8 处锚越界�
     （如 `lib/index.js`），其在否决定该锚落在「基线冻结」还是「无法解析」⇒ 读数可能在
     359/258 ↔ 358/259 之间摆动（**红恒 0、VERDICT 不变**）。触发条件实测＝`npm run build`
     的脚本先 `rmSync('lib')` 再编译，与构建并发跑本守卫即读到缺失态。
+  · **内容身份键会合并「同内容锚行」**：`anchors` 键制 v2 以「锚行全文＋目标引用串」为身份
+    ⇒ 同一行上的重复同目标锚、乃至两条文本完全相同的锚行，都归一个索引词条（v1 靠行号本可
+    区分，但那正是位置身份之病）。当前 359 条实测仅 1 对重复（`docs/eval` 的 W6 件行 35 面
+    两条相同锚），且 v1 的 dict 索引本就合并 ⇒ **无条目丢失**；但「同文本不同位置」的两条锚
+    在新键制下不可区分，属刻意取舍。
 
 baseline/allowlist = `scripts/line_anchor_baseline.json`，**两种机制，语义不同、不许混称**：
 
@@ -46,10 +51,26 @@ baseline/allowlist = `scripts/line_anchor_baseline.json`，**两种机制，语�
     `docs/eval/` 下既往评测报告…改写即伪造历史」（`docs/eval/归一层缺省翻关_修复记录_v1.0.md:384`）。
     逐条 glob 带理由；`mode:"keep"` 的规则**优先**（用于把现行设计/契约件从 docs/eval 里
     划出来、不予豁免）。豁免项**不是**「问题不存在」，而是「按本仓纪律不得改写」。
-  · `anchors`（**基线冻结 frozen**）——HEAD 时点的**存量手写锚债**，逐条 `file:line → target:line`
-    登记。它们**不是**「通过」，只是**冻结**：本次审计只把 33 条界到「确凿」，其余（机械
-    判据更严，命中量更大）不在本次改动面内。**基线只减不增**——新引入一条漂移锚必然不在
-    基线内 → 报红。
+  · `anchors`（**基线冻结 frozen**）——HEAD 时点的**存量手写锚债**，逐条按**内容身份**登记
+    （键制 v2，2026-10-08 起；见下）。它们**不是**「通过」，只是**冻结**：本次审计只把 33 条
+    界到「确凿」，其余（机械判据更严，命中量更大）不在本次改动面内。**基线只减不增**——
+    新引入一条漂移锚必然不在基线内 → 报红。
+
+**键制 v2（位置无关、内容敏感）**——`anchors` 每条键 = 锚件路径 ＋ **锚行全文 SHA-256 前 16 hex**
+＋ 目标引用串（`raw:a`，区间含尾号 `-b`）：
+
+  · **v1 之病**：键的锚件侧曾是「锚自身所在行号」⇒ 在其上方插入一行，其后所有键失配，存量
+    冻结锚瞬间变红（实测：纲领件插入 2 行 → 红 0 变红 9，其中一条还因行号巧合撞键存活）
+    ——守卫自己犯其所治之病：**用位置当身份，位置一动身份就丢**。
+  · **位置无关**：键不含锚自身行号 ⇒ 上方插入/删除任意行（含空行、整段）条目仍命中。
+  · **内容敏感**：改写该行任何字符（目标引用/标识符/空白）即失配 ⇒ 该锚若 B/C 不成立即报红
+    ——内容变了必须重新审视，**不自动继承豁免**。规范化为**行文本原样**（读取层已归一 CRLF），
+    刻意保守：不 strip、不折叠空白。
+  · **同内容即同身份**：同一行上两条完全相同的锚（同目标同区间）键相同 ⇒ 合并为一个索引词条
+    （v1 的 dict 索引亦同）；两行文本相同、目标相同者亦归同一条——这是「位置不能当身份」的
+    直接代价。目标引用串入键（含 v1 丢弃的区间尾）用于区分同一行上的多条锚。
+  · **换代静默风险**：v1 行号键在 v2 下**永不命中** ⇒ 迁移须逐条翻译（`.tmp` 一次性迁移脚本），
+    不可只改守卫。
 
 用法：
   python scripts/check_line_anchors.py            # 退出码 0=无未豁免/未冻结的红；1=有
@@ -61,6 +82,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -183,6 +205,21 @@ def ident_in_line(ident: str, text: str) -> bool:
     return len(tail) >= 4 and tail in text
 
 
+def anchor_key(rel: str, line: str, raw_path: str, a: int, b: int | None = None) -> str:
+    """`anchors` 基线的**内容身份键**（键制 v2，2026-10-08 起）。
+
+    位置无关：键不含锚自身所在行号，只含**锚行全文**的哈希 ⇒ 在其上方插入/删除任意行
+    （含空行、整段）该条目仍命中。
+    内容敏感：该行文本任何变化（目标引用/标识符/空白皆算）即改变哈希 ⇒ 条目失配 ⇒
+    该锚若 B/C 不成立即报红（内容变了必须重新审视，不自动继承豁免）。
+    目标引用串（含区间尾 b，v1 曾丢弃）入键，用于区分同一行上的多条锚。
+    规范化为**行文本原样**（不含行尾换行；读取层已归一 CRLF）——刻意保守，不 strip/不折叠空白。
+    """
+    h = hashlib.sha256(line.encode("utf-8")).hexdigest()[:16]
+    tgt = "%s:%d%s" % (raw_path, a, ("-%d" % b) if b else "")
+    return "%s#%s -> %s" % (rel, h, tgt)
+
+
 def load_baseline(path: str) -> dict:
     if not path or not os.path.isfile(path):
         return {"rules": [], "anchors": []}
@@ -253,10 +290,11 @@ def main() -> int:
                 if ident is None:
                     n_noid += 1
                     continue
-                key = "%s:%d -> %s:%d" % (rel, i, raw_path, a)
+                at = "%s:%d" % (rel, i)          # 现值行号：仅定位显示，不参与判定与键
+                key = anchor_key(rel, line, raw_path, a, b)
                 tgt = resolve_target(root, raw_path, rel, by_base)
                 if tgt is None:
-                    unresolved.append({"anchor": key, "ident": ident,
+                    unresolved.append({"anchor": key, "at": at, "ident": ident,
                                        "why": "目标件不可解析（未入库/同名多处）"})
                     continue
                 tl = read_lines(root, tgt) or []
@@ -266,7 +304,7 @@ def main() -> int:
                         len(tl), a, ("-%d" % b) if b else "")
                 elif not ident_in_line(ident, tl[a - 1]):
                     why = "随行标识符 `%s` 不在该行" % ident
-                rec = {"anchor": key, "target": "%s:%d" % (tgt, a), "ident": ident,
+                rec = {"anchor": key, "at": at, "target": "%s:%d" % (tgt, a), "ident": ident,
                        "target_line": (tl[a - 1][:100] if 1 <= a <= len(tl) else None)}
                 if why is None:
                     green.append(rec)
@@ -294,13 +332,13 @@ def main() -> int:
             print("    [SHORTHAND-TOP] %4d 处  %s" % (cnt, rel))
     if args.list:
         for r in red:
-            print("  [RED]      %s   %s" % (r["anchor"], r["why"]))
+            print("  [RED]      %s   %s   @%s" % (r["anchor"], r["why"], r["at"]))
         for r in frozen:
-            print("  [FROZEN]   %s   %s" % (r["anchor"], r["why"]))
+            print("  [FROZEN]   %s   %s   @%s" % (r["anchor"], r["why"], r["at"]))
         for r in exempt:
-            print("  [EXEMPT]   %s   (%s)" % (r["anchor"], r["reason"]))
+            print("  [EXEMPT]   %s   (%s)   @%s" % (r["anchor"], r["reason"], r["at"]))
         for r in unresolved:
-            print("  [UNRESOLVED] %s   (%s)" % (r["anchor"], r["why"]))
+            print("  [UNRESOLVED] %s   (%s)   @%s" % (r["anchor"], r["why"], r["at"]))
         for s in shorthand:
             print("  [SHORTHAND] %s -> %s（不进判定）" % (s["at"], s["anchor"]))
     if args.json:
