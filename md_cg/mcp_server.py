@@ -3936,6 +3936,33 @@ def _is_dsh_session(s: str) -> bool:
 
 
 # 生效条件：s=str(raw or "").strip()；s 为空返回 "anonymous"；非 DSH 形态返回 s；DSH 形态时以 root=os.environ.get("MDCG_DSH_SESSIONS_ROOT") or ~/.dsh/sessions 遍历条目，存在 root/<name>/s 目录则返回 s，os.listdir 抛 OSError 时返回 s，否则返回 "anonymous"。
+def _is_session5_like(s):
+    """会话身份五元组形态（s5.*）判定 —— 权威定义见 md_cg/session5.py。
+
+    设计者 2026-10-09 定稿：s5.<harness>.<unit>.<workspace>.<epoch>.<digest12>；
+    语义是会话身份由 (harness, unit, 工作区, 会话创建时间, 首条 user 消息)
+    确定性推导 —— 任何进程/端都能复算同一值，不依赖 env 传递。
+
+    为何不改主校验而走本分支：_is_dsh_session 只认 uuid4 形态，session- 前缀的
+    非 uuid4 串会被它判假进而降级 anonymous；s5.* 属「载体自定的会话名」，走
+    _normalize_session 的『非 DSH 形态原样采用』分支即可，无需改主路径。
+
+    延迟 import（且兼容包内/脚本两种加载形态），使本判定在 session5 模块缺失时
+    安全退化为「非 s5」，不影响既有会话归因。
+    """
+    try:
+        from session5 import is_session5
+    except ImportError:
+        try:
+            from md_cg.session5 import is_session5
+        except ImportError:
+            return False
+    try:
+        return bool(is_session5(s))
+    except Exception:
+        return False
+
+
 def _normalize_session(raw):
     """会话 id 归一 + 轻校验（只影响归因，不影响写入）。
 
@@ -3950,6 +3977,8 @@ def _normalize_session(raw):
     s = str(raw or "").strip()
     if not s:
         return "anonymous"
+    if _is_session5_like(s):          # s5 五元组形态（见 md_cg/session5.py）
+        return s
     if not _is_dsh_session(s):
         return s
     root = (os.environ.get("MDCG_DSH_SESSIONS_ROOT")
