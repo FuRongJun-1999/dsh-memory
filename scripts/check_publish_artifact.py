@@ -359,13 +359,45 @@ def parse_package_json(root: str):
 
 
 def _is_pack_manifest_shape(val) -> bool:
-    """npm pack --json 的**基本清单形态**：数组（元素为含 files 列表的对象）或单对象。"""
+    """npm pack --json 的**基本清单形态**：数组（元素为含 files 列表的对象）、单对象，
+    或 npm 12 起的**包名键控对象**（issue #70：{"<包名>": [ {files:[...]}, ... ]}）。"""
     if isinstance(val, list):
         return bool(val) and all(
             isinstance(it, dict) and isinstance(it.get("files"), list) for it in val)
     if isinstance(val, dict):
-        return isinstance(val.get("files"), list)
+        if isinstance(val.get("files"), list):
+            return True
+        return _is_named_pack_object(val)
     return False
+
+
+def _is_named_pack_object(val) -> bool:
+    """npm 12（issue #70）的**包名键控对象**：整个对象无顶层 files 键，
+    而每个 value 都是非空的「含 files 列表的对象」数组。"""
+    if not isinstance(val, dict) or not val:
+        return False
+    if isinstance(val.get("files"), list):
+        return False
+    for v in val.values():
+        if not isinstance(v, list) or not v:
+            return False
+        for it in v:
+            if not (isinstance(it, dict) and isinstance(it.get("files"), list)):
+                return False
+    return True
+
+
+def _normalize_pack_manifest(val):
+    """把包名键控对象摊平为条目数组（issue #70，2026-10-09 DSH 端）。
+
+    修前：npm 12 的 npm pack --json 产出 {"<包名>": [ {...} ]}，形态闸不认 ⇒
+    extract_pack_manifest 判无候选 ⇒ check_publish_artifact 恒以环境错误退出（exit=2）。
+    归一后下游 _manifest_paths 无需改（它只认 list/单对象）。
+    非该形态（含老版数组、老版单对象）原样返回。
+    """
+    if _is_named_pack_object(val):
+        return [it for v in val.values() for it in v]
+    return val
 
 
 def _is_full_pack_manifest_shape(val) -> bool:
@@ -375,6 +407,7 @@ def _is_full_pack_manifest_shape(val) -> bool:
     「生命周期脚本冒充清单」的最小诱饵通常只写 `{path}`——全形态优先即用于在
     **多段候选**中挑出 npm 自身产出（N216）。
     """
+    val = _normalize_pack_manifest(val)      # issue #70：先摊平包名键控对象
     if not isinstance(val, list) or not val:
         return False
     for it in val:
@@ -436,7 +469,7 @@ def extract_pack_manifest(stdout: str):
         return None, meta
     meta["shape_rank"] = "full" if full else "shape"
     meta["picked_offset"] = picked[0]
-    return picked[2], meta
+    return _normalize_pack_manifest(picked[2]), meta   # issue #70：包名键控对象在此摊平
 
 
 # 生效条件：无入参，恒返回一个字符串——Windows 返回 "npm.cmd"（npm 在 Windows 上的可执行入口），其它平台返回 "npm"；不判存在性、不触盘。
