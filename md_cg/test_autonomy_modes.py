@@ -113,6 +113,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -539,16 +540,49 @@ def _repo_root():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _tracked_rels():
+    """git 追踪面（仓根相对 · posix 分隔）集合；git 不可用/非仓 ⇒ None（调用方降级）。
+
+    G 组判据面须锚在**追踪面**而非文件系统面：本地工作树的 gitignore 产物
+    （`.tmp/` 草稿、`_md_cg_p*/` 运行库、构建残留）不在 CI 干净克隆里，用文件
+    系统面判定会让「本地红 / CI 绿」分裂（本件实证：`.tmp/` 下草稿曾被判为
+    第二处档位 env 字面量）。`.tmp` 只是当前最大污染源，故按「是否被 git 追踪」
+    这个**性质**判，不逐个硬编码排除目录。
+    """
+    try:
+        proc = subprocess.run(["git", "-C", _repo_root(), "ls-files", "-z"],
+                              capture_output=True, check=True)
+    except Exception:                                  # noqa: BLE001 —— 兜底见下
+        return None
+    return {p.replace("\\", "/") for p in
+            proc.stdout.decode("utf-8", "replace").split("\0") if p}
+
+
 def _py_files():
+    """全仓 .py 的判据面 = 文件系统走查 ∩ **git 追踪面**（非追踪件不入面）。
+
+    降级（明示，非静默改语义）：git 不可用或非仓环境 ⇒ 退化为原文件系统走查，
+    并打印 `[降级]` 一行——此时扫描面可能与 CI 干净克隆不一致，读数须按降级看待。
+    """
     root = _repo_root()
+    tracked = _tracked_rels()
+    if tracked is None:
+        print("  [降级] git 不可用：G 组扫描面退化为文件系统走查"
+              "（可能与 CI 干净克隆不一致）")
     out = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames
                        if d not in (".git", "__pycache__", "node_modules",
                                     ".venv", "target", "lib")]
         for fn in filenames:
-            if fn.endswith(".py"):
-                out.append(os.path.join(dirpath, fn))
+            if not fn.endswith(".py"):
+                continue
+            p = os.path.join(dirpath, fn)
+            if tracked is not None:
+                rel = os.path.relpath(p, root).replace("\\", "/")
+                if rel not in tracked:
+                    continue        # 非追踪件不入判据面（保留原目录排除语义）
+            out.append(p)
     return out
 
 

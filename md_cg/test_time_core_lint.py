@@ -150,8 +150,31 @@ def _reg_lines():
 
 
 
+def _tracked_rels():
+    """git 追踪面（仓根相对 · posix 分隔）集合；git 不可用/非仓 ⇒ None（降级）。
+
+    审计面须锚在**追踪面**而非文件系统面：`audit()` 默认 root=仓根，若按文件
+    系统面走查，本地 gitignore 产物（`.tmp/` 等）会被当成源码审计——与 CI 干净
+    克隆分裂（本件实证：`.tmp/aeis_base_156/**` 曾致 G1c 假红 117 条）。按
+    「是否被 git 追踪」这个性质判，不逐个硬编码排除目录。
+    """
+    try:
+        proc = subprocess.run(["git", "-C", _REPO, "ls-files", "-z"],
+                              capture_output=True, check=True)
+    except Exception:                                  # noqa: BLE001 —— 兜底见下
+        return None
+    return {p.replace("\\", "/") for p in
+            proc.stdout.decode("utf-8", "replace").split("\0") if p}
+
+
 def _iter_files(root):
-    """审计面：root 下所有 .py / .rs（跳过 _SKIP_DIRS）→ [(rel, abspath)]。"""
+    """审计面：root 下所有 .py / .rs（跳过 _SKIP_DIRS）→ [(rel, abspath)]。
+
+    root 为仓根时再按**追踪面**过滤（非追踪件不入审计面）——降级口径：git 不可
+    用（含 `--mutate` 的最小镜像树：非 git 仓）⇒ 该 root 走全盘走查，与原行为
+    一致，判据语义不静默变更。
+    """
+    tracked = _tracked_rels() if os.path.abspath(root) == _REPO else None
     out = []
     for dp, dn, fn in os.walk(root):
         dn[:] = [d for d in dn if d not in _SKIP_DIRS]
@@ -160,6 +183,8 @@ def _iter_files(root):
                 continue
             p = os.path.join(dp, f)
             rel = os.path.relpath(p, root).replace("\\", "/")
+            if tracked is not None and rel not in tracked:
+                continue        # 非追踪件不入审计面
             out.append((rel, p))
     return sorted(out)
 

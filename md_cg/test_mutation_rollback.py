@@ -112,6 +112,51 @@ def _repo_root():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _tracked_rels():
+    """git 追踪面（仓根相对 · posix 分隔）集合；git 不可用/非仓 ⇒ None（降级）。
+
+    单点判据面须锚在**追踪面**而非文件系统面：本地 gitignore 产物（`.tmp/` 等）
+    不在 CI 干净克隆里，用文件系统面判定会让「本地红 / CI 绿」分裂。按「是否被
+    git 追踪」这个性质判，不逐个硬编码排除目录。
+    """
+    try:
+        proc = subprocess.run(["git", "-C", _repo_root(), "ls-files", "-z"],
+                              capture_output=True, check=True)
+    except Exception:                                  # noqa: BLE001 —— 兜底见下
+        return None
+    return {p.replace("\\", "/") for p in
+            proc.stdout.decode("utf-8", "replace").split("\0") if p}
+
+
+def _scan_prod_py(needle):
+    """全仓生产码（非 test_*.py · .py）里含 needle 的文件 → 排序后的仓根相对路径。
+
+    扫描面 = 文件系统走查 ∩ **git 追踪面**；降级：git 不可用 ⇒ 退化为文件系统
+    走查（打印 `[降级]`，读数须按降级看待），判据语义不静默变更。
+    """
+    root = _repo_root()
+    tracked = _tracked_rels()
+    if tracked is None:
+        print("  [降级] git 不可用：T 组扫描面退化为文件系统走查"
+              "（可能与 CI 干净克隆不一致）")
+    hits = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames
+                       if d not in (".git", "__pycache__", "node_modules",
+                                    ".venv", "target", "lib")]
+        for fn in filenames:
+            if not fn.endswith(".py") or fn.startswith("test_"):
+                continue          # 生产码单点：测试/守卫自身的调用与字面量不算第二实现
+            p = os.path.join(dirpath, fn)
+            rel = os.path.relpath(p, root).replace("\\", "/")
+            if tracked is not None and rel not in tracked:
+                continue          # 非追踪件不入判据面
+            src = open(p, encoding="utf-8", errors="replace").read()
+            if needle in src:
+                hits.append(rel)
+    return sorted(hits)
+
+
 def _pre_path(cg, rel):
     return os.path.join(cg.root, str(rel).replace("/", os.sep))
 
@@ -488,34 +533,12 @@ def g_s():
 def g_t():
     print("== T 组：单点结构 · 边界 fail-closed · 时点判别 ==")
     # 单点：前像拍摄入口全仓唯一（protect 定义 + rollback 调用）
-    hits = []
-    for dirpath, dirnames, filenames in os.walk(_repo_root()):
-        dirnames[:] = [d for d in dirnames
-                       if d not in (".git", "__pycache__", "node_modules",
-                                    ".venv", "target", "lib")]
-        for fn in filenames:
-            if not fn.endswith(".py") or fn.startswith("test_"):
-                continue          # 生产码单点：测试/守卫自身的调用与字面量不算第二实现
-            p = os.path.join(dirpath, fn)
-            src = open(p, encoding="utf-8", errors="replace").read()
-            if "snapshot_preimage(" in src:
-                hits.append(os.path.relpath(p, _repo_root()).replace("\\", "/"))
-    ok(sorted(hits) == ["md_cg/protect.py", "md_cg/rollback.py"],
+    hits = _scan_prod_py("snapshot_preimage(")
+    ok(hits == ["md_cg/protect.py", "md_cg/rollback.py"],
        "T 前像拍摄入口单点（snapshot_preimage 只出现在 protect 定义 + rollback 调用）",
        hits)
-    hits2 = []
-    for dirpath, dirnames, filenames in os.walk(_repo_root()):
-        dirnames[:] = [d for d in dirnames
-                       if d not in (".git", "__pycache__", "node_modules",
-                                    ".venv", "target", "lib")]
-        for fn in filenames:
-            if not fn.endswith(".py") or fn.startswith("test_"):
-                continue          # 同上：只看生产码
-            p = os.path.join(dirpath, fn)
-            src = open(p, encoding="utf-8", errors="replace").read()
-            if "mutation_executed(" in src:
-                hits2.append(os.path.relpath(p, _repo_root()).replace("\\", "/"))
-    ok(sorted(hits2) == ["md_cg/autonomy_modes.py", "md_cg/mdcos.py"],
+    hits2 = _scan_prod_py("mutation_executed(")
+    ok(hits2 == ["md_cg/autonomy_modes.py", "md_cg/mdcos.py"],
        "T 执行时点补全单点（mutation_executed 只在 autonomy_modes 定义 + mdcos 调用）",
        hits2)
     cmd = rollback.command_for("/tmp/x root", "prop_abc")
