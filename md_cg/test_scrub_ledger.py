@@ -15,6 +15,9 @@
      `sample()` 缺省调用仍**可复现**（seed=0 不变）。
   S6 summary 双口径：累计 applied 之和与原口径（单条记录条数）各自正确、
      另留 `batches`（批量轮数）。
+  S7 抽样窗口：无风险排序的对照池（`random` / `random-fill`）不被 3k 窗口
+     截断——遍历顺序靠后的节点可被抽到；风险分层池的窗口语义**不变**
+     （反向钉住，防「放开对照池」被连带松绑成「全都放开」）。
 
 运行：
   python -m md_cg.test_scrub_ledger                # 全绿基线
@@ -287,6 +290,57 @@ def s6_summary(sc, tmp):
 
 
 # --------------------------------------------------------------------------
+# S7 抽样窗口（对照池不截断）
+# --------------------------------------------------------------------------
+
+def s7_pool_window(sc, tmp):
+    # `_pool_candidates` 只对风险分层 sort，`random` 池保持遍历顺序——对无排序
+    # 的池做 3k 窗口截断没有「取风险最高」的含义，只会让遍历顺序靠后的节点
+    # **永远抽不到**（修前实测：池 60 / k=4，300 个 seed 下窗口外命中恒为 0）。
+    pool = [(f"p{i:03d}", "随机基线") for i in range(60)]
+    k = 4
+    for stratum in ("random", "random-fill"):
+        seen = set()
+        for seed in range(200):
+            for nid, _reason in sc._pick(pool, k, seed, stratum):
+                seen.add(nid)
+        beyond = sorted(int(x[1:]) for x in seen if int(x[1:]) >= k * 3)
+        ok(len(beyond) > 0, "S7",
+           f"[{stratum}] 对照池可触达 3k 窗口外（k*3={k * 3}）："
+           f"命中 {len(beyond)} 个窗口外节点（修前恒 0）")
+
+    # 反向钉住：风险分层池的窗口语义**不变**，仍只在风险最高的 k*3 个内抽——
+    # 防这次「放开对照池」被连带松绑成「全都放开」（那会让风险优先失效）。
+    seen_r = set()
+    for stratum in ("hot", "stale", "low_conf", "disputed", "unverified",
+                    "orphan"):
+        for seed in range(200):
+            for nid, _reason in sc._pick(pool, k, seed, stratum):
+                seen_r.add(nid)
+    beyond_r = sorted(int(x[1:]) for x in seen_r if int(x[1:]) >= k * 3)
+    ok(not beyond_r, "S7",
+       f"风险分层池仍在窗口内（六个分层合测）：窗口外命中 {beyond_r}")
+
+    # 端到端：`sample(strategy="random")` 的 docstring 承诺是「纯随机基线」，
+    # 60 个 seed 的累计覆盖面必须突破窗口上限（修前恒等于 k*3 = 36）。
+    # seed 取 120：修后漏掉任一节点的概率上界 60×(1-12/60)^120 ≈ 1.4e-10，
+    # 不会把守卫变成偶发抖动的测试（60 个 seed 时该上界约 9e-5）。
+    cg = MdCG(_mk_root(tmp, "s7e2e"))
+    N = 60
+    for i in range(N):
+        cg.add(f"w{i:03d}", f"# 功能名：节点{i}\n\n第 {i} 个节点。")
+    hit = set()
+    for seed in range(120):
+        out = sc.sample(cg, sc.DEFAULT_SAMPLE, strategy="random", seed=seed)
+        for s in out["sample"]:
+            hit.add(s["node_id"])
+    cap = sc.DEFAULT_SAMPLE * 3
+    ok(len(hit) > cap, "S7",
+       f"random 策略 120 个 seed 覆盖面 {len(hit)}/{N} 必须超过窗口上限 {cap}"
+       f"（修前恰为 {cap}，窗口外永不出现）")
+
+
+# --------------------------------------------------------------------------
 # 运行全部断言
 # --------------------------------------------------------------------------
 
@@ -302,6 +356,7 @@ def run_all(sc, su):
         s4_compat(sc, tmp)
         s5_rotation(sc, su, tmp)
         s6_summary(sc, tmp)
+        s7_pool_window(sc, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return PASS, FAIL, list(FAILS)
@@ -356,6 +411,12 @@ def _mutations():
                '''    seed = 0 if seed is None else seed''',
                '''    seed = time.time_ns() if seed is None else seed''',
                {"S5"}, "库层缺省 seed 漂移：显式调用可复现性被破"),
+        "M10": (scrub_p,
+                '''    if windowed is None:
+        windowed = stratum not in UNRANKED_POOLS''',
+                '''    if windowed is None:
+        windowed = True''',
+                {"S7"}, "对照池窗口回退：random 重新被 3k 截断（窗口外永不可达）"),
     }
 
 

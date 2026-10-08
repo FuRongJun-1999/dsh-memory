@@ -67,6 +67,11 @@ STRATUM_WEIGHTS = {"stale": 0.20, "low_conf": 0.20, "disputed": 0.15,
                    "unverified": 0.15, "orphan": 0.10, "hot": 0.10,
                    "random": 0.10}
 
+# 无风险排序的池（对照组）：`_pool_candidates` 只对风险分层做 sort，`random`
+# 保持遍历顺序（`random-fill` 是同一池在补足阶段的别名）。`_pick` 的 3k 窗口
+# 对它们没有「取风险最高」的含义，故缺省不启用（见 `_pick`）。
+UNRANKED_POOLS = ("random", "random-fill")
+
 # 污染类型 → (严重度, 处置动作)
 CONTAMINATION = {
     "contradiction": ("high", ("weaken", "demote")),
@@ -212,6 +217,8 @@ def _pool_candidates(cg, *, now, stale_days, unverified_days, max_reads=200):
         pools["random"].append((nid, "随机基线"))
 
     # 池内排序：风险优先（可复现），抽样时再按 seed 洗牌
+    # （`random` 是遍历顺序的对照组，**刻意不排序**——故 `_pick` 不对它启用
+    #   3k 窗口，见 UNRANKED_POOLS）
     pools["stale"].sort(key=lambda x: (nodes.get(x[0], {}).get("created_at") or 0))
     pools["hot"].sort(key=lambda x: -(int(counts.get(x[0]) or 0)))
     pools["unverified"].sort(
@@ -245,19 +252,28 @@ def _quota(n: int, strategy: str) -> dict:
     return out
 
 
-# 生效条件：k<=0 或 pool 为假值（空池）时返回 []，否则取池前 k*3 项后用 random.Random(f"{seed}:{stratum}") 稳定洗牌并返回前 k 项（池长不足 k*3 时对全池洗牌）。
-def _pick(pool, k: int, seed, stratum: str):
+# 生效条件：k<=0 或 pool 为假值（空池）时返回 []；windowed 缺省按 stratum 是否为 UNRANKED_POOLS 成员判定；windowed 为真且池长超 k*3 时先截到池前 k*3 项（否则对全池），再用 random.Random(f"{seed}:{stratum}") 稳定洗牌并返回前 k 项。
+def _pick(pool, k: int, seed, stratum: str, *, windowed=None):
     """从池中取 k 个：风险最高的 3k 个入池，再按 seed 稳定洗牌。
 
     层内候选 ≤ k 时**全量抽取**——单节点分层（如 low_conf 全库 1 个）
     因此每轮必中：这是**有意设计**（该层全部人口 = 全量覆盖，风险优先
     持续观察），不是漏配轮转。issue #66 核实：seed 轮转只让大池层换人，
     小分层恒中占少数名额、且账本上可由 `already_handled` 如实读出。
+
+    `windowed` 缺省按 `stratum` 判定：`UNRANKED_POOLS` 里的**对照池**不启用
+    3k 窗口——`_pool_candidates` 只对风险分层 sort，`random` 池保持遍历顺序，
+    对它截断**没有**「取风险最高」的含义，只会让遍历顺序靠后的节点永远抽不到。
+    实测（池 60 / k=4）：300 个 seed 下窗口外命中恒为 0；端到端
+    `sample(strategy="random")` 跑 60 个 seed 累计只触及 36 个节点，与
+    docstring 承诺的「纯随机基线」不符。池长不超 k*3 时两条路径逐位一致。
     """
     if k <= 0 or not pool:
         return []
+    if windowed is None:
+        windowed = stratum not in UNRANKED_POOLS
     cand = list(pool)
-    if len(cand) > k * 3:
+    if windowed and len(cand) > k * 3:
         cand = cand[:k * 3]
     random.Random(f"{seed}:{stratum}").shuffle(cand)
     return cand[:k]
@@ -289,7 +305,9 @@ def sample(cg, n: int = DEFAULT_SAMPLE, *, strategy: str = "stratified",
                 continue
             seen.add(nid)
             picked.append({"node_id": nid, "stratum": s, "reason": reason})
-    # 风险层不够时用随机池补足（先剔除已选，避免跳过造成不满额）
+    # 风险层不够时用随机池补足（先剔除已选，避免跳过造成不满额）；
+    # 补足走的也是对照池（`random-fill`），同样不做 3k 窗口截断——否则补足
+    # 名额只在遍历顺序的前 3k 个候选里打转，「覆盖」语义同样失效。
     if len(picked) < int(n):
         rest = [x for x in pools["random"] if x[0] not in seen]
         for nid, reason in _pick(rest, int(n) - len(picked), seed,
