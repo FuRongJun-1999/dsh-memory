@@ -67,6 +67,10 @@ def _commit_visibility(cg, out):
             out["flush_error"] = "%s: %s" % (type(exc).__name__, exc)
 
 
+# issue #82.3：写入硬上限（全 content_kind 统一）。
+MAX_WRITE_BYTES = 1048576        # 1 MiB
+
+
 class WritePipeline:
     """写入拦截器链（实例级；default_pipeline() 提供进程级默认单例）。"""
 
@@ -127,6 +131,23 @@ class WritePipeline:
         形态逐字节一致）；链尾执行器产生落盘响应，after 链只观测不改写。
         """
         a = a or {}
+        # ---- issue #82.2（2026-10-09 DSH 端实施）：work_wip 属过程件，
+        # 缺省不得进 knowledge 层（否则分桶/条件路由被过程件稀释）。
+        # 单点规范化：仅当未显式给 layer 且 content_kind==work_wip 时改路由到
+        # contextual；各分支既有的 layer-or-knowledge 兜底不动（仍服务其余 kind）。
+        if not a.get("layer") and (a.get("content_kind") or "").strip() == "work_wip":
+            a = dict(a)
+            a["layer"] = "contextual"
+        # ---- issue #82.3（同批）：写入硬上限（全 kind 统一）。
+        # 判据：存量最大 463KB、P999=17KB ⇒ 1 MiB 约 60 倍余量、零存量阻断。
+        # 超限如实报（当前大小 + 上限），不截断、不静默。
+        _wc = a.get("content") or ""
+        _wbytes = len(_wc.encode("utf-8")) if isinstance(_wc, str) else 0
+        if _wbytes > MAX_WRITE_BYTES:
+            return {"ok": False, "error": "content 超过写入硬上限（issue #82.3）",
+                    "bytes": _wbytes, "limit": MAX_WRITE_BYTES,
+                    "verdict": {"state": "REJECT", "kind": (a.get("content_kind") or "text"),
+                                "evidence": "content %d 字节 > 上限 %d" % (_wbytes, MAX_WRITE_BYTES)}}
         # B1（2026-09-30）：自动 id 的铸造**只有一份实现**（mdcg.mint_auto_id）
         # ——原先此处 `"mem_" + 毫秒` 与 mcp_server 的 mdcg_remember 分支各写一份，
         # 同毫秒自动写入铸出同一 id，被 add 的 upsert 语义静默顶替（无失败信号）。
