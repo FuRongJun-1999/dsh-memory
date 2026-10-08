@@ -53,8 +53,11 @@ sustain 的后台巡检线程与请求线程**共享同一个 MdCG 实例与同�
 变异计数**——它们只在正向跑里作防线在位证据（对照组观测记 NOTE）；定点变异
 自证由确定性判据 G1/G2/G4a 承担。
 
-**扫描面**：`md_cg/**.py` **全部模块**（含 `test_*.py`——早先把测试面切在判据外
-＝给判据留豁免口；实测测试面另有 25 处裸站点，已一并取快照，见 `_domain_files`）。
+**扫描面**：`md_cg/**.py` **全部模块 ∩ git 追踪面（＝追踪面）**（含 `test_*.py`
+——早先把测试面切在判据外＝给判据留豁免口；实测测试面另有 25 处裸站点，已一并
+取快照，见 `_domain_files`）。本守卫的扫描面**同时是执行面**（`_build_control_modules`
+会 `exec` 枚举到的文件），故一并锚在追踪面上：gitignore 的本地草稿既不得入判据、
+也不得被 `exec`。
 """
 from __future__ import annotations
 
@@ -65,6 +68,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -137,6 +141,8 @@ _PASS: list = []
 _FAIL: list = []
 _SKIP: list = []
 _NOTES: list = []
+#: 降级告警的「每进程一次」哨兵（`_domain_files()` 一次运行里被调多次）
+_DEGRADE_WARNED: list = []
 
 
 def ok(cond, msg, extra=""):
@@ -402,20 +408,58 @@ def _scan_source_uncached(src: str) -> list:
     return out
 
 
+def _tracked_rels():
+    """git 追踪面（仓根相对 · posix 分隔）集合；git 不可用/非仓 ⇒ None（调用方降级）。
+
+    本守卫的扫描面**同时是执行面**（`_control_sources` / `_build_control_modules`
+    会把枚举到的文件 `exec` 成对照模块），故「文件系统面」的危害不止判据污染：
+    一个被 gitignore 的 `.py` 既进判据面、又会被 `exec`。判据面与执行面一律锚在
+    **追踪面**上。按「是否被 git 追踪」这个**性质**判，不逐个硬编码排除目录
+    （`.tmp/` 只是当前最大污染源）。
+    """
+    try:
+        proc = subprocess.run(["git", "-C", _REPO, "ls-files", "-z"],
+                              capture_output=True, check=True)
+    except Exception:                                  # noqa: BLE001 —— 兜底见下
+        return None
+    return {p.replace("\\", "/") for p in
+            proc.stdout.decode("utf-8", "replace").split("\0") if p}
+
+
 def _domain_files() -> list:
-    """扫描面：**md_cg/**.py 全部模块**（含测试，不再切掉测试面）。
+    """扫描面：**md_cg/**.py 全部模块 ∩ **git 追踪面**（＝追踪面；含测试）。
+
+    「全 md_cg 域」在本守卫里的确切含义是 **md_cg/**.py ∩ git 追踪面**：早先版本
+    只走文件系统面，于是被 gitignore 的本地草稿既入判据面、又被 `exec`（见
+    `_tracked_rels` 注释）；CI 干净克隆里没有这些件，「本地红 / CI 绿」即分裂。
+    取**交集**（而非纯追踪面）＝只删非追踪件、不新增任何文件 ⇒ 判据强度只增不减，
+    且干净树/CI 上（无 gitignore 产物）与原读数逐位相同。
 
     早先版本把 `test_*.py` 排除在外（理由：夹具单线程自读自写），但那等于给
     判据留了个自证豁免口——「全 md_cg 域再无裸迭代」这句话要么全真、要么不该
     这么说。实测测试面另有 25 处裸站点（12 个测试文件，且**无**改写自身迭代源
     的形态），已一并取快照后纳入本扫描面。
+
+    降级（明示，非静默改语义）：git 不可用/非仓 ⇒ 退回原文件系统走查并打印
+    `[降级]` 一行（每进程一次），此时扫描面/执行面可能与 CI 干净克隆不一致，
+    读数须按降级看待。
     """
+    tracked = _tracked_rels()
+    if tracked is None and not _DEGRADE_WARNED:
+        _DEGRADE_WARNED.append(True)
+        print("  [降级] git 不可用：扫描面/执行面退化为文件系统走查"
+              "（可能与 CI 干净克隆不一致）")
     out = []
     for dirpath, dirnames, filenames in os.walk(_MD_DIR):
         dirnames[:] = [d for d in dirnames if d != "__pycache__"]
         for f in sorted(filenames):
-            if f.endswith(".py"):
-                out.append(os.path.join(dirpath, f))
+            if not f.endswith(".py"):
+                continue
+            path = os.path.join(dirpath, f)
+            if tracked is not None and \
+                    os.path.relpath(path, _REPO).replace(os.sep, "/") not in tracked:
+                continue          # 非追踪件不入判据面/执行面
+            out.append(path)
     return out
 
 

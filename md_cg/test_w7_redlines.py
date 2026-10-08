@@ -363,6 +363,13 @@ def _tracked_py():
 
 
 def _walk_py():
+    """降级扫描面：`md_cg`/`hive`/`src` 全盘走查（**仅 `_tracked_py()` 不可用时**走此路）。
+
+    只在 git 不可用/非仓环境被调用——此时判据面退化为文件系统走查（可能把
+    gitignore 产物算进来、与 CI 干净克隆不一致），故打印 `[降级]` 一行明示；
+    判据本身不变（E1/E1b 照旧）。"""
+    print("  [降级] git 不可用：E1 扫描面退化为文件系统走查"
+          "（可能与 CI 干净克隆不一致）")
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out = []
     for top in ("md_cg", "hive", "src"):

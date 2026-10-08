@@ -1561,6 +1561,10 @@ def _materialize_list(root: str) -> list:
     except OSError:
         names = []
     if not names:
+        # 降级（明示，非静默改语义）：git 不可用/非仓 ⇒ 退回全盘走查，物化面可能
+        # 含 gitignore 产物（与 CI 干净克隆不一致）；判据本身不变，读数须按降级看待。
+        print("[降级] git 不可用：物化面退化为文件系统走查"
+              "（可能与 CI 干净克隆不一致）")
         for cur, subs, files in os.walk(root):
             subs[:] = [d for d in subs if d != "__pycache__"]
             for f in files:

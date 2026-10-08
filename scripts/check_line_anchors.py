@@ -143,12 +143,19 @@ def find_shorthand(line: str, anchor_spans: list) -> list:
 
 
 def tracked_files(root: str) -> list[str]:
-    """库内相对路径（posix 分隔）的受管件；无 git 时退化为全盘走查（沙箱用）。"""
+    """库内相对路径（posix 分隔）的受管件；无 git 时退化为全盘走查（沙箱用）。
+
+    降级（明示，非静默改语义）：git 不可用/非仓 ⇒ 退回全盘走查并打印 `[降级]`
+    一行——此时受管面含 gitignore 产物、可能与 CI 干净克隆不一致，读数须按降级
+    看待。判据（锚点冻结/未登记）本身不变。
+    """
     try:
         out = subprocess.run(["git", "-C", root, "ls-files", "-z"],
                              capture_output=True, check=True)
         return [f for f in out.stdout.decode("utf-8", "replace").split("\0") if f]
     except Exception:
+        print("[降级] git 不可用：受管件面退化为文件系统走查"
+              "（可能与 CI 干净克隆不一致）")
         got = []
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = [d for d in dirnames if d != ".git"]

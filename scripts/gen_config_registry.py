@@ -21,7 +21,8 @@ registry 不是运行时取值源，故生成器不进 import 链。
   取不出的（派生别名 / 非常量表达式）**一律不收录**，在报告里计数，不猜值。
 
 【env 面】只收**策展名单**（`CURATED_ENV_NAMES`）里的 env 名；对每个名字在
-  `md_cg/` 下做 AST 扫描，把「读取点 → 缺省」收成集合：
+  `md_cg/` 下（**∩ git 追踪面**——非追踪件不入面，见 `_iter_md_cg_py`）做 AST 扫描，
+  把「读取点 → 缺省」收成集合：
   · `os.environ.get("X", d)`        → 字面量缺省 d
   · `os.environ.get("X")`           → 无缺省（语义 = 关 / fail-open，按 `SEMANTICS` 定）
   · `os.environ.get(NAME, d)`       → NAME 为模块级 `NAME = "X"` 常量（间接入口）
@@ -43,6 +44,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -352,12 +354,43 @@ def build_const_entries(params):
 # env 面
 # ---------------------------------------------------------------------------
 
+def _tracked_rels():
+    """git 追踪面（仓根相对 · posix 分隔）集合；git 不可用/非仓 ⇒ None（调用方降级）。
+
+    本脚本是**生成器**：扫描面的危害不止判据污染——非追踪件里的 `MDCG_*` 字面量会
+    被当作「生产读取点」写进生成件 `md_cg/config_registry_bulk.py`（等同把本地草稿
+    的缺省固化成仓库真源）。故扫描面一律锚在**追踪面**上。按「是否被 git 追踪」这个
+    **性质**判，不逐个硬编码排除目录（`.tmp/` 只是当前最大污染源）。
+    """
+    try:
+        proc = subprocess.run(["git", "-C", REPO, "ls-files", "-z"],
+                              capture_output=True, check=True)
+    except Exception:                                  # noqa: BLE001 —— 兜底见下
+        return None
+    return {p.replace("\\", "/") for p in
+            proc.stdout.decode("utf-8", "replace").split("\0") if p}
+
+
 def _iter_md_cg_py():
+    """`md_cg/` 下 `.py` 枚举面 ∩ **git 追踪面**（非追踪件不入面；不改 `__pycache__` 语义）。
+
+    降级（明示，非静默改语义）：git 不可用/非仓 ⇒ 退回原文件系统走查并打印
+    `[降级]` 一行，此时生成件可能与 CI 干净克隆里生成的不一致，读数须按降级看待。
+    """
+    tracked = _tracked_rels()
+    if tracked is None:
+        print("[降级] git 不可用：AST 扫描面退化为文件系统走查"
+              "（可能与 CI 干净克隆不一致）")
     for dirpath, dirs, files in os.walk(os.path.join(REPO, SCAN_DIR)):
         dirs[:] = [d for d in dirs if d != "__pycache__"]
         for fn in files:
-            if fn.endswith(".py"):
-                yield os.path.join(dirpath, fn)
+            if not fn.endswith(".py"):
+                continue
+            ap = os.path.join(dirpath, fn)
+            if tracked is not None and \
+                    os.path.relpath(ap, REPO).replace(os.sep, "/") not in tracked:
+                continue          # 非追踪件不入判据面（保留原 .py 语义）
+            yield ap
 
 
 def _module_env_name_consts(tree):
