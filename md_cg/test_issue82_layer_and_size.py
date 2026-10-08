@@ -52,14 +52,17 @@ def check(name, cond, detail=""):
 def _cg(root):
     from md_cg import tokens as TK
     from md_cg.mdcos import MdCGSecure
-    prof = r"D:\dsh-home\profiles\web\cordis.patch.yml"
+    # 令牌文件路径**不得写进追踪面**（门禁 check_local_paths）：
+    # 由环境变量 MDCG_DSH_PROFILE 提供，未设则走匿名 principal。
+    prof = os.environ.get("MDCG_DSH_PROFILE") or ""
     tok = None
-    try:
-        m = re.search("MDCG_TOKEN:[ ]*'([^']+)'",
-                      open(prof, encoding="utf-8", errors="replace").read())
-        tok = m.group(1) if m else None
-    except OSError:
-        tok = None
+    if prof:
+        try:
+            m = re.search("MDCG_TOKEN:[ ]*'([^']+)'",
+                          open(prof, encoding="utf-8", errors="replace").read())
+            tok = m.group(1) if m else None
+        except OSError:
+            tok = None
     return MdCGSecure(root, principal=TK.verify_token(tok) if tok else None)
 
 
