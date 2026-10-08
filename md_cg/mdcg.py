@@ -1150,6 +1150,29 @@ def apply_retrieval_gates(entries, terms, big_domain, context, min_results):
     return entries, gates
 
 
+# 生效条件：fp 为可读文件路径时返回其**整文件字节**的 sha256 十六进制摘要前 16 位；open/read 抛 OSError 时返回 None（读不到即「证不出」，调用方据此走 fail-open 分支）；不缓存、不解析、不看扩展名。
+def _file_digest(fp: str):
+    """节点文件的**整字节身份指纹**（#80）。
+
+    为什么不用 nodefile.content_hash：那只哈希**正文**、按纪律**不含
+    frontmatter**（nodefile.py:314-316）——frontmatter 被单独改写时它不变，
+    不足以回答「这个文件还是我标脏时那个文件吗」。本判据要的正是**整文件
+    逐字身份**，故直接哈希盘面字节。
+
+    为什么截 16 位：与全仓 sha256 系列（nodefile.content_hash 截 12、
+    mdcg.py:2571 截 12）同族；本判据只做同/异比较、不做安全承诺，
+    16 位（64 bit）的碰撞概率远低于误判代价。
+
+    为什么返回 None 而不抛：调用方两条路径（登记 / 判陈旧）都必须
+    fail-open——「证不出陈旧就不当陈旧」是 N230 的既有不变量。
+    """
+    try:
+        with open(fp, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:16]
+    except OSError:
+        return None
+
+
 # 生效条件：无独立生效条件（模块级哨兵字典类）；任何变更操作（setitem/delitem/clear/pop/popitem/setdefault/update）都会使 write_gen 自增 1，读取 write_gen 不变更；setitem 的值为含非空 path 字符串的 dict 时把该 path 记入 path_gen（值为当时的 write_gen）且不动 broad_gen，值为其它形态（含 None tombstone）或经 delitem/pop/popitem/setdefault/update 变更时把 broad_gen 置为当时的 write_gen，clear() 缺省（flush 收尾）只使 write_gen 自增、不改写 path_gen/broad_gen，clear(broad=True)（rebuild_index 收尾）同时把 broad_gen 置为当时的 write_gen。
 class _DirtyDict(dict):
     """写代际哨兵字典（批次 23，issue #31 D-4 / v20 报告）：任何变更使
@@ -1206,14 +1229,26 @@ class _DirtyDict(dict):
         else:
             self.broad_gen = self.write_gen
 
-    # 生效条件：k 为节点 id、v 为 entry；恒 pop 该 k 的旧见证，随后仅当 v 为含非空 path 字符串的 dict 且 self.root 为真、且 os.stat(root/path) 成功时记入 self.staged_stat[k]=(st_mtime_ns, st_size)；其余情形（None tombstone / 无 path / stat 失败 / 无 root）不登记——不登记即「证不出陈旧」，重放按旧口径放行。
+    # 生效条件：k 为节点 id、v 为 entry；恒 pop 该 k 的旧见证，随后仅当 v 为含非空 path 字符串的 dict 且 self.root 为真、且 os.stat(root/path) 成功时记入 self.staged_stat[k]=(st_mtime_ns, st_size, 整文件 sha256 前 16 位)；内容读不到（OSError）时第三元记 None（显式的「陈旧证不出」标记，判据侧据此放行）；其余情形（None tombstone / 无 path / stat 失败 / 无 root）不登记——不登记即「证不出陈旧」，重放按旧口径放行。
     def _note_witness(self, k, v):
         """落盘逐字见证的登记（N230）。
 
-        为什么记 (mtime_ns, size)：`_maybe_reload_index` 需要判「本实例这条
-        未 flush 的写入，是不是已经被他进程后来写下的**更新**记录盖过」。节点
-        文件是唯一真源——标脏时它长什么样，重放时再 stat 一次，不一样就说明
-        盘面已被别人改过（改写内容必然改 mtime_ns；NTFS 粒度 100ns）。
+        为什么记 (mtime_ns, size, sha256)：`_maybe_reload_index` 需要判「本实例
+        这条未 flush 的写入，是不是已经被他进程后来写下的**更新**记录盖过」。
+        节点文件是唯一真源——标脏时它长什么样，重放时再看一次，不一样就说明
+        盘面已被别人改过。
+
+        **#80（2026-10-09）修正**：原判据只记 (mtime_ns, size)，其原注释断言
+        「改写内容必然改 mtime_ns；NTFS 粒度 100ns」——**该断言是错的**。
+        mtime 可被**还原**：cp -p / rsync -t / tar x / robocopy /DCOPY:T /
+        备份还原 / 网盘同步客户端回写原 mtime；粗粒度文件系统（FAT 2s、
+        ext3 1s）下同刻度写入更是常态。届时一个**等长**改写会同时满足 size
+        相等与 mtime 相等 ⇒ 见证不失配 ⇒ 判据漏判 ⇒ 旧写盖新写并随 flush
+        持久化（沙箱实测：撕裂 17/17 轮、持久化 13/13 轮）。
+        故补第三元**整文件内容哈希**：mtime/size 失配仍即时判陈旧（零额外
+        IO，原语义一字不改），**双双相等时再比内容哈希**——身份最终由字节定，
+        不再由时间戳定。
+
         stat 失败与无 path 一律不登记：**证不出陈旧就不当陈旧**——「本实例未
         落盘写入不因重载从检索面消失」是既有不变量，宁可漏挡也不误杀。
         """
@@ -1221,11 +1256,13 @@ class _DirtyDict(dict):
         p = v.get("path") if isinstance(v, dict) else None
         if not (isinstance(p, str) and p and self.root):
             return
+        fp = os.path.join(self.root, p)
         try:
-            st = os.stat(os.path.join(self.root, p))
+            st = os.stat(fp)
         except OSError:
             return
-        self.staged_stat[k] = (st.st_mtime_ns, st.st_size)
+        # #80：第三元=整文件内容哈希（mtime/size 可被还原，不足以定身份）。
+        self.staged_stat[k] = (st.st_mtime_ns, st.st_size, _file_digest(fp))
 
     def __setitem__(self, k, v):
         self._bump()
@@ -1600,22 +1637,35 @@ class MdCG:
             parts.append((fn, s.st_size, s.st_mtime_ns))
         return (snap, tuple(parts))
 
-# 生效条件：self._dirty.staged_stat 中无该 nid 的见证、或 self._dirty[nid] 非含非空 path 的 dict 时返回 False；有见证时对 root/path 再 stat 一次——OSError（文件已不在，标脏时在）返回 True，成功则返回 (st_mtime_ns, st_size) 与见证不等的布尔（不等即 True）。
+# 生效条件：self._dirty.staged_stat 中无该 nid 的见证、或 self._dirty[nid] 非含非空 path 的 dict 时返回 False；有见证时对 root/path 再 stat 一次——OSError（文件已不在，标脏时在）返回 True；成功且 (st_mtime_ns, st_size) 与见证不等时返回 True；两者相等时再比整文件 sha256（见证第三元）——不等返回 True、相等返回 False；见证第三元为 None（登记时内容读不到）或当前内容读不到时返回 False（证不出陈旧即放行）。
     def _dirty_entry_superseded(self, nid) -> bool:
         """本实例 `_dirty[nid]` 是否**已被盘面更新盖过**（N230：旧不得盖新）。
 
-        判据是**节点文件的逐字见证**：标脏那一刻记下 `(st_mtime_ns, st_size)`，
-        重放前再 stat 一次；不相等 ⇒ 盘面已被他进程改写过 ⇒ 本实例这条是旧的，
-        重放必须放行盘面（`_maybe_reload_index` 据此跳过本条）。
+        判据是**节点文件的逐字见证**：标脏那一刻记下
+        `(st_mtime_ns, st_size, 整文件 sha256 前 16 位)`，重放前再看一次；
+        任何一项不等 ⇒ 盘面已被他进程改写过 ⇒ 本实例这条是旧的，重放必须
+        放行盘面（`_maybe_reload_index` 据此跳过本条）。
+
+        四级判定（#80 之后）：
+          ① (mtime_ns, size) 不等 ⇒ True（零额外 IO，与旧判据逐位一致）；
+          ② 两者相等 ⇒ 比内容哈希，不等 ⇒ True（**#80 补的就是这一级**）；
+          ③ 见证第三元为 None（登记时读不到内容）或当前读不到 ⇒ False（证不出）；
+          ④ 哈希相等 ⇒ False（盘面确未变，照旧重放本实例这条）。
 
         三条边界（都是有意的）：
         · **证不出陈旧就不当陈旧**：无见证（无 path / stat 失败 / `_dirty` 未挂
-          root）返回 False ⇒ 照旧重放——「本实例未落盘写入不因重载从检索面消失」
+          root / 内容读不到）返回 False ⇒ 照旧重放——「本实例未落盘写入不因重载从检索面消失」
           这条既有不变量优先于本缺陷的覆盖面。
         · **tombstone（`None`）不走本判据**：`_unstage` 立即 flush（删除不延迟到
           autoflush 阈值），故 tombstone 实际上极少跨重载存活；其语义一字不改。
-        · **同内容改写**：他进程用同样的字节重写（size 同）时 mtime_ns 仍会变，
-          故仍判陈旧——放行的盘面条目与本条同义，结果无差。
+        · **同内容改写**：他进程用同样的字节重写时 mtime_ns 通常仍会变 ⇒ ① 即判
+          陈旧——放行的盘面条目与本条同义，结果无差（此路径仅为保守性保留，
+          正确性不再依赖它）。
+
+        **#80（2026-10-09）**：旧判据只到 ① 为止，其原注释断言「改写内容必然改
+        mtime_ns」，被实测证伪（见 `_note_witness`）：等长改写 + mtime 被还原时
+        ① 不成立、旧判据直接返回 False ⇒ **旧写盖新写并随 flush 持久化**。
+        ②③④ 即为此补的字节级身份判定。
         """
         st = self._dirty.staged_stat.get(nid)
         if st is None:
@@ -1624,11 +1674,22 @@ class MdCG:
         p = e.get("path") if isinstance(e, dict) else None
         if not p:
             return False
+        fp = os.path.join(self.root, p)
         try:
-            cur = os.stat(os.path.join(self.root, p))
+            cur = os.stat(fp)
         except OSError:
             return True                # 标脏时文件在、现在不在 ⇒ 盘面确已变
-        return (cur.st_mtime_ns, cur.st_size) != st
+        if (cur.st_mtime_ns, cur.st_size) != (st[0], st[1]):
+            return True                # ① 快路径：时间戳/长度任一变化即陈旧
+        # #80：② 双双相等**不足以定身份**——mtime 可被还原工具与粗粒度文件系统
+        # 抹平，故比内容哈希（身份最终由字节定，不由时间戳定）。
+        old = st[2] if len(st) > 2 else None
+        if old is None:
+            return False               # ③ 登记时读不到内容 ⇒ 证不出陈旧，放行
+        cur_digest = _file_digest(fp)
+        if cur_digest is None:
+            return False               # ③ 现在读不到 ⇒ 证不出陈旧，放行
+        return cur_digest != old       # ④ 字节相同 ⇒ 盘面确未变
 
 # 生效条件：stat 对比 _index_signature() 与 self._index_sig，相等（含双侧 None）即返回 False 不做任何事；不等则调 _load_index() 重载，OSError/ValueError 时静默放弃并返回 False（重载失败不阻塞读，沿用旧内存态）；成功后把 self._dirty 重放回新索引（None=tombstone pop、否则覆盖，与 _load_index 的日志重放同语义——本实例未 flush 的写入不得因重载从检索面消失；N230：见证失配者判为陈旧，**跳过重放**并计入 self._dirty_replay_superseded）并重算 buckets，替换 self.index、刷新 self._index_sig、返回 True；
     def _maybe_reload_index(self):

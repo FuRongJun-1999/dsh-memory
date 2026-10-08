@@ -21,6 +21,15 @@
 重放——「本实例未落盘写入不因重载从检索面消失」这条既有不变量一并保留。
 tombstone（`None`）语义**一字不改**（`_unstage` 立即 flush，不跨重载存活）。
 
+**#80（2026-10-09）补强**：见证由 `(mtime_ns, size)` 增为三元组
+`(mtime_ns, size, 整文件 sha256 前 16 位)`。原判据断言「改写内容必然改
+mtime_ns」，实测证伪——cp -p / rsync -t / tar x / 备份还原 / 网盘同步会**回写原
+mtime**，粗粒度文件系统（FAT 2s、ext3 1s）下同刻度写入更是常态；此时一个**等长**
+改写同时满足 size 与 mtime 相等 ⇒ 见证不失配 ⇒ 漏判 ⇒ 旧写盖新写并随 flush
+持久化（修前沙箱实测：撕裂 17/17、持久化 13/13）。修法：mtime/size 失配仍即时
+判陈旧（零额外 IO），**双双相等时再比内容哈希**——身份由字节定，不由时间戳定。
+tombstone / 无 path / stat 失败三种情形**仍照旧放行**（不变量不动）。
+
 断言分组：
 
   G0 前置——站点在位：`_dirty_entry_superseded` / `_note_witness` 各一处；`_dirty.root` 已挂。
@@ -29,7 +38,8 @@ tombstone（`None`）语义**一字不改**（`_unstage` 立即 flush，不跨�
   G2 不变量保持——他进程只动**别的**节点时，本实例未 flush 的写入必须仍在检索面
      上（`_dirty_replay_superseded == 0`，该条目仍在 index 且哈希不变）。
   G3 tombstone 语义一字不改——`_dirty[nid]=None` 在重载时仍 pop 掉该条目。
-  G4 见证判据的判别力（正/负对照）——`_dirty_entry_superseded` 的四条边界逐一断言。
+  G4 见证判据的判别力（正/负对照）——`_dirty_entry_superseded` 的边界逐一断言；
+      G4g/G4h 为 #80 补的「等长改写 + mtime 还原」正/负对照（修前 G4g 必红）。
   G5 单点结构（静态）——`for nid, e in self._dirty.items():` 的重放体内**必须**
      经过 `_dirty_entry_superseded`（副本回归/裸赋值回归即红）。
 
@@ -230,6 +240,35 @@ def g4():
        "G4e 条目无 path → 不判陈旧（无见证可查）")
     ok(c._dirty.root == r and c._dirty.staged_stat.get("w_node") is None,
        "G4f 移除文件的那次 stat 失败**不登记**见证（staged_stat 无该键）")
+
+    # ---- #80：等长改写 + mtime 被还原（旧判据的漏判面）----
+    c.add("w2_node", BODY % ("w2", "V1"), layer="knowledge",
+          verification_basis="test")
+    st_w = c._dirty.staged_stat.get("w2_node")
+    ok(st_w is not None and len(st_w) == 3 and st_w[2] is not None,
+       "G4g-前置：见证为三元组 (mtime_ns, size, 内容哈希) 且哈希非空", st_w)
+    p2 = os.path.join(r, c._dirty["w2_node"]["path"])
+    raw = open(p2, "rb").read()
+    mut = raw.replace(b"V1", b"V2")
+    ok(len(mut) == len(raw) and mut != raw,
+       "G4g-前置：等长改写（len %d == %d 且字节确实变了）"
+       % (len(mut), len(raw)))
+    st0 = os.stat(p2)
+    with open(p2, "wb") as f:
+        f.write(mut)
+    os.utime(p2, ns=(st0.st_atime_ns, st0.st_mtime_ns))   # 回写原 mtime
+    cur = os.stat(p2)
+    ok((cur.st_mtime_ns, cur.st_size) == (st_w[0], st_w[1]),
+       "G4g-前置：判陈旧时刻 (mtime_ns,size) 与见证**逐位相等**"
+       "（快路径必被绕过——旧判据在此返回 False）")
+    ok(c._dirty_entry_superseded("w2_node") is True,
+       "G4g **#80 命中面**：等长改写 + mtime 还原 ⇒ 仍判陈旧（内容哈希定身份）")
+    with open(p2, "wb") as f:
+        f.write(raw)                                       # 字节改回原样
+    os.utime(p2, ns=(st0.st_atime_ns, st0.st_mtime_ns))
+    ok(c._dirty_entry_superseded("w2_node") is False,
+       "G4h 反向对照：字节改回原样 + mtime 同样还原 ⇒ 不判陈旧"
+       "（判据比的是内容，不是「动过就脏」）")
     c.close()
 
 
@@ -271,19 +310,23 @@ def _run_groups() -> int:
 # ---------------------------------------------------------------- 变异表
 # 锚点 = (名字, rel, old, new)。每次变异必须让套件**转红**：
 #   M1 重放体恢复无条件覆盖（= 改动前形态）→ G1c/G1d/G5 红
-#   M2 判据恒 False（见证照记但不采信）→ G1c/G1d 红
-#   M3 见证完全不登记 → 判据永远拿不到见证 ⇒ 同 M2
+#   M2 内容哈希比较失效（#80 判据对等长改写失明）→ G4g 红
+#   M3 见证退回 #80 修前形态（只记 mtime/size）→ G4g 红
+#   M4 见证第三元恒 None（哈希拿不到）→ G4g 红（退化为「证不出即放行」）
 _MUTATIONS = (
     ("重放体恢复无条件覆盖（改动前形态）", "md_cg/mdcg.py",
      "            if self._dirty_entry_superseded(nid):\n"
      "                superseded += 1\n                continue",
      "            if False:\n                superseded += 1\n                continue"),
-    ("判据恒 False（见证不采信）", "md_cg/mdcg.py",
-     "        return (cur.st_mtime_ns, cur.st_size) != st",
-     "        return False"),
-    ("见证完全不登记", "md_cg/mdcg.py",
-     "        self.staged_stat[k] = (st.st_mtime_ns, st.st_size)",
-     "        self.staged_stat.pop(k, None)"),
+    ("内容哈希比较失效（#80 面失明）", "md_cg/mdcg.py",
+     "        return cur_digest != old       # ④ 字节相同 ⇒ 盘面确未变",
+     "        return False                   # 变异：哈希比较失效"),
+    ("见证退回 #80 修前形态（只记 mtime/size）", "md_cg/mdcg.py",
+     "        self.staged_stat[k] = (st.st_mtime_ns, st.st_size, _file_digest(fp))",
+     "        self.staged_stat[k] = (st.st_mtime_ns, st.st_size)"),
+    ("见证第三元恒 None（哈希拿不到）", "md_cg/mdcg.py",
+     "        self.staged_stat[k] = (st.st_mtime_ns, st.st_size, _file_digest(fp))",
+     "        self.staged_stat[k] = (st.st_mtime_ns, st.st_size, None)"),
 )
 
 
