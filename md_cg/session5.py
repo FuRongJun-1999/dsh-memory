@@ -41,11 +41,11 @@ _S5_RE = re.compile(
 
 
 def slug_workspace(path):
-    """工作区路径 → slug：分隔符序列与其余非字母数字统一归一为**单**下划线（D:\\4_ai → D_4_ai、D-4_ai → D_4_ai）。
+    """工作区路径 → slug：分隔符序列与其余非字母数字统一归一为**单**下划线（C:\\proj\\app → C_proj_app、C-proj-app → C_proj_app）。
 
     口径（与设计者确认的形态示例一致）：
-        D:\\4_ai    → D_4_ai     （":\\" 连续分隔符归一个 _）
-        D-4_ai    → D_4_ai     （DSH 会话目录名形态）
+        C:\\proj\\app → C_proj_app （":\\" 连续分隔符归一个 _）
+        C-proj-app → C_proj_app （DSH 会话目录名形态）
         /home/x/y → home_x_y
     即无论调用方给原生路径还是已归一的目录名，同一工作区得同一 slug
     （纯函数、跨端一致）——这是「同一会话在任何端复算出同一 id」的前提。

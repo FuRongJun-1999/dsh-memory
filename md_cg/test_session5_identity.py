@@ -6,8 +6,8 @@
 ③起点时间=会话创建时间（unix 秒）。
 
 判据：
-  G1 形态：make_session5 产出符合正则，且与设计者示例前缀 s5.dsh.agent.D_4_ai. 对齐
-  G2 slug：D:\\4_ai 与 D-4_ai 归一为同一 D_4_ai（跨端一致的前提）
+  G1 形态：make_session5 产出符合正则，且前缀＝s5.dsh.agent.<workspace-slug>.（设计者示例形态的等效合成例）
+  G2 slug：C:\\proj\\app 与 C-proj-app 归一为同一 C_proj_app（跨端一致的前提）
   G3 可复算：verify_session5 对正确起点消息为真、对篡改消息为假
   G4 归一化接线：_normalize_session 原样保留 s5（不降级 anonymous）；
      且不误判 uuid4 形态与 sess_ 回落桶
@@ -44,20 +44,21 @@ def main():
     from md_cg import session5 as s5
 
     msg = "你好，这是本会话的第一条消息"
-    sid = s5.make_session5("dsh", "agent", r"D:\4_ai", 1791340000, msg)
+    sid = s5.make_session5("dsh", "agent", r"C:\proj\app", 1791340000, msg)
     check("G1a 形态符合正则", s5.is_session5(sid), sid)
-    check("G1b 与设计者示例前缀对齐", sid.startswith("s5.dsh.agent.D_4_ai.1791340000."), sid)
+    check("G1b 与设计者示例前缀对齐", sid.startswith("s5.dsh.agent.C_proj_app.1791340000."), sid)
     parsed = s5.parse_session5(sid) or {}
     check("G1c 字段可拆解", parsed.get("harness") == "dsh" and parsed.get("unit") == "agent"
-          and parsed.get("workspace") == "D_4_ai" and parsed.get("start_epoch") == 1791340000,
+          and parsed.get("workspace") == "C_proj_app" and parsed.get("start_epoch") == 1791340000,
           str(parsed))
 
-    check("G2a 原生路径归一", s5.slug_workspace(r"D:\4_ai") == "D_4_ai", s5.slug_workspace(r"D:\4_ai"))
-    check("G2b 目录名形态归一（与 a 同结果）", s5.slug_workspace("D-4_ai") == "D_4_ai",
-          s5.slug_workspace("D-4_ai"))
+    check("G2a 原生路径归一", s5.slug_workspace(r"C:\proj\app") == "C_proj_app",
+          s5.slug_workspace(r"C:\proj\app"))
+    check("G2b 目录名形态归一（与 a 同结果）", s5.slug_workspace("C-proj-app") == "C_proj_app",
+          s5.slug_workspace("C-proj-app"))
     check("G2c 跨端一致：两种输入生成同一 id",
-          s5.make_session5("dsh", "agent", r"D:\4_ai", 1791340000, msg)
-          == s5.make_session5("dsh", "agent", "D-4_ai", 1791340000, msg), "")
+          s5.make_session5("dsh", "agent", r"C:\proj\app", 1791340000, msg)
+          == s5.make_session5("dsh", "agent", "C-proj-app", 1791340000, msg), "")
 
     check("G3a 正确起点消息 → 校验通过", s5.verify_session5(sid, msg) is True, "")
     check("G3b 篡改起点消息 → 校验不通过", s5.verify_session5(sid, "伪造的首条消息") is False, "")

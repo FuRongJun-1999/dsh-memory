@@ -49,14 +49,16 @@ def check(name, cond, detail=""):
 def _cg(root):
     from md_cg import tokens as TK
     from md_cg.mdcos import MdCGSecure
-    prof = r"D:\dsh-home\profiles\web\cordis.patch.yml"
+    # 本机跑可设 MDCG_DSH_PROFILE 指向 DSH profile（内含 MDCG_TOKEN）；未设/读不到回落 guest 身份
+    prof = os.environ.get("MDCG_DSH_PROFILE")
     tok = None
-    try:
-        m = re.search("MDCG_TOKEN:[ ]*'([^']+)'", open(prof, encoding="utf-8",
-                                                         errors="replace").read())
-        tok = m.group(1) if m else None
-    except OSError:
-        tok = None
+    if prof:
+        try:
+            m = re.search("MDCG_TOKEN:[ ]*'([^']+)'", open(prof, encoding="utf-8",
+                                                             errors="replace").read())
+            tok = m.group(1) if m else None
+        except OSError:
+            tok = None
     pr = TK.verify_token(tok) if tok else None
     return MdCGSecure(root, principal=pr)
 
