@@ -396,7 +396,11 @@ def g7_fail_closed(impl):
     elif code_of(r) not in ("E_BAD_PARAM", "E_PATH_OUT_OF_SCOPE"):
         fails.append(f"G7 未给根错误码不符（{code_of(r)!r}）")
     # b) 越界路径（`..` 与绝对路径）
-    for bad in ("../escape.png", "C:/Windows/win.ini"):
+    # issue #84.2（2026-10-09 DSH 端）：越界样例按平台构造——原写死 Windows
+    # 绝对路径，在 POSIX 上 C:/Windows/win.ini **不是绝对路径**，该腿语义随平台
+    # 漂移（可能假绿）。../ 相对越界腿保留（跨平台语义一致）。
+    _abs_out = "C:/Windows/win.ini" if os.name == "nt" else "/etc/hosts"
+    for bad in ("../escape.png", _abs_out):
         r = impl(dict(base, src=bad, sandbox_root=root))
         if r.get("ok"):
             fails.append(f"G7 越界 src={bad} 却 ok=true")

@@ -61,7 +61,10 @@ def main() -> int:
         return 0
 
     results = []
-    hard_fail = False
+    # issue #84.4（2026-10-09 DSH 端）：硬失败改为**按 case 归属**——原先是全局量，
+    # 一旦某 case 硬红，汇总里每一行（含观测与登记本来就一致的）都被标『不一致』，
+    # 读数失真。此处只记 id 集合，判据下放到每行自身。
+    hard_fail_ids = set()
     for c in targets:
         case_id = c[5:11].upper().replace("_", "-")  # test_fi_r01_... → FI-R01
         reg = REGISTRY.get(case_id)
@@ -82,7 +85,7 @@ def main() -> int:
             if r.returncode not in (0, 1):
                 print(f"  !! 执行层异常 rc={r.returncode}（视同 untestable，硬红）")
                 print((r.stderr or "")[-800:])
-                hard_fail = True
+                hard_fail_ids.add(case_id)
                 results.append((case_id, "untestable", reg, elapsed))
                 continue
             if parsed is None:
@@ -93,7 +96,7 @@ def main() -> int:
             results.append((case_id, parsed["verdict"], reg, elapsed))
         except subprocess.TimeoutExpired:
             print("  !! 用例超时 300s（硬红）")
-            hard_fail = True
+            hard_fail_ids.add(case_id)
             results.append((case_id, "untestable", reg, 300.0))
 
     print("\n===== 汇总 =====")
@@ -101,10 +104,14 @@ def main() -> int:
     for case_id, verdict, reg, elapsed in results:
         exp = reg["expected_verdict"] if reg else "?"
         tag = reg["gap_tag"] if reg and reg["gap_tag"] else "-"
-        ok = (verdict == exp) and not hard_fail
+        # issue #84.4：判据只看**本行**（观测 vs 登记）；硬红由 verdict=='untestable'
+        # 自然体现，不再让全局量污染其余行。
+        ok = (verdict == exp)
+        hard = case_id in hard_fail_ids
         if not ok:
             rc = 1
-        print(f"  [{'一致' if ok else '不一致'}] {case_id}  "
+        mark = "硬红" if hard else ("一致" if ok else "不一致")
+        print(f"  [{mark}] {case_id}  "
               f"观测={verdict}  登记={exp}  留档={tag}  ({elapsed:.1f}s)")
     if rc == 0:
         print("\nALL CONSISTENT: 全部用例观测状态与登记一致 → EXIT 0")
