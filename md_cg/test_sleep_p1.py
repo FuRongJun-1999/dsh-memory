@@ -211,11 +211,43 @@ def g0():
        "G0n MDCG_SLEEP_WINDOW 缺省 = 23:00-07:00", S.sleep_window())
 
 
+def _tracked_rels():
+    """git 追踪面（仓根相对 · posix 分隔）集合；git 不可用/非仓 ⇒ None（调用方降级）。
+
+    G8 判据面须锚在**追踪面**而非文件系统面：本地工作树的 gitignore 产物
+    （`.tmp/` 草稿、`md_cg/_md_cg_eval_*/` 评测灌库、`md_cg/knowledge/` 运行态）
+    不在 CI 干净克隆里，用文件系统面判定会让「本地红 / CI 绿」分裂。`.tmp` 只是
+    当前最大污染源，故按「是否被 git 追踪」这个**性质**判，不逐个硬编码排除目录。
+    """
+    try:
+        proc = subprocess.run(["git", "-C", _REPO, "ls-files", "-z"],
+                              capture_output=True, check=True)
+    except Exception:                                  # noqa: BLE001 —— 兜底见下
+        return None
+    return {p.replace("\\", "/") for p in
+            proc.stdout.decode("utf-8", "replace").split("\0") if p}
+
+
 def _production_py():
+    """生产码文本面 = `md_cg/` 下非 test_ 的 `.py` ∩ **git 追踪面**（非追踪件不入面）。
+
+    降级（明示，非静默改语义）：git 不可用或非仓环境 ⇒ 退化为原文件系统走查，
+    并打印 `[降级]` 一行——此时判据面可能与 CI 干净克隆不一致，读数须按降级看待。
+    """
+    tracked = _tracked_rels()
+    if tracked is None:
+        print("  [降级] git 不可用：G8 扫描面退化为文件系统走查"
+              "（可能与 CI 干净克隆不一致）")
     d = os.path.join(_REPO, "md_cg")
-    return {"md_cg/" + fn: _rel_text("md_cg/" + fn)
-            for fn in sorted(os.listdir(d)) if fn.endswith(".py")
-            and not fn.startswith("test_")}
+    out = {}
+    for fn in sorted(os.listdir(d)):
+        if not fn.endswith(".py") or fn.startswith("test_"):
+            continue
+        rel = "md_cg/" + fn
+        if tracked is not None and rel not in tracked:
+            continue          # 非追踪件不入判据面（保留原 .py/非 test_ 语义）
+        out[rel] = _rel_text(rel)
+    return out
 
 
 def g8():

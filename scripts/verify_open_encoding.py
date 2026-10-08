@@ -49,6 +49,7 @@ import argparse
 import ast
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -152,8 +153,31 @@ class AnchorMiss(Exception):
     """锚点漂移（退出码 2）。"""
 
 
+def _tracked_rels():
+    """git 追踪面（仓根相对 · posix 分隔）集合；git 不可用/非仓 ⇒ None（调用方降级）。
+
+    判据面须锚在**追踪面**而非文件系统面：`SCAN_DIRS` 子树内的 gitignore 产物
+    （`hive/jobs/`、`md_cg/_md_cg_eval_*/`、`md_cg/knowledge/` 运行态等）不在 CI
+    干净克隆里，用文件系统面判定会让「本地红 / CI 绿」分裂。按「是否被 git 追踪」
+    这个**性质**判，不逐个硬编码排除目录。
+    """
+    try:
+        proc = subprocess.run(["git", "-C", ROOT, "ls-files", "-z"],
+                              capture_output=True, check=True)
+    except Exception:                                  # noqa: BLE001 —— 兜底见下
+        return None
+    return {p.replace("\\", "/") for p in
+            proc.stdout.decode("utf-8", "replace").split("\0") if p}
+
+
 # 生效条件：base 为仓根绝对路径时，遍历 SCAN_DIRS 下全部 .py（跳过 __pycache__；目录缺失即抛 AnchorMiss），返回按正斜杠相对路径排序的 (rel, abspath) 列表。
+# 判据面 = 文件系统走查 ∩ **git 追踪面**（仅当 base 就是仓根 ROOT 时启用；对其它 base——含定点变异的最小物化面 `tmp`——保持原走查语义，故变异自证不受影响）。降级（明示）：git 不可用 ⇒ 退化为原走查并打印 `[降级]`，读数须按降级看待。
 def list_py(base: str) -> list[tuple[str, str]]:
+    at_root = os.path.abspath(base) == ROOT
+    tracked = _tracked_rels() if at_root else None
+    if at_root and tracked is None:
+        print("[降级] git 不可用：SCAN_DIRS 扫描面退化为文件系统走查"
+              "（可能与 CI 干净克隆不一致）")
     out: list[tuple[str, str]] = []
     for d in SCAN_DIRS:
         top = os.path.join(base, d)
@@ -164,7 +188,10 @@ def list_py(base: str) -> list[tuple[str, str]]:
             for f in files:
                 if f.endswith(".py"):
                     ap = os.path.join(cur, f)
-                    out.append((os.path.relpath(ap, base).replace("\\", "/"), ap))
+                    rel = os.path.relpath(ap, base).replace("\\", "/")
+                    if tracked is not None and rel not in tracked:
+                        continue            # 非追踪件不入判据面
+                    out.append((rel, ap))
     return sorted(set(out))
 
 

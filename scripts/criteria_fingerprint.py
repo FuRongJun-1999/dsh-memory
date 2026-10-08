@@ -20,17 +20,45 @@ import tempfile
 
 TARGET_REL = "scripts/run_tests.py"
 TRUNC = 16
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _tracked_rels():
+    """git 追踪面（仓根相对 · posix 分隔）集合；git 不可用/非仓 ⇒ None（调用方降级）。
+
+    判据面须锚在**追踪面**而非文件系统面：若本地工作树里有未追踪的
+    `md_cg/test_*.py`（草稿/临时夹具），文件系统面会把它算进指纹，而
+    `--commit`（git archive 抽树）那条腿没有它 ⇒ 两端指纹「假不一致」。
+    按「是否被 git 追踪」这个**性质**判，不逐个硬编码排除目录。
+    """
+    try:
+        proc = subprocess.run(["git", "-C", _REPO, "ls-files", "-z"],
+                              capture_output=True, check=True)
+    except Exception:                                  # noqa: BLE001 —— 兜底见下
+        return None
+    return {p.replace("\\", "/") for p in
+            proc.stdout.decode("utf-8", "replace").split("\0") if p}
 
 
 # 生效条件：给定 root 时，递归收集 root/md_cg 下文件名以 test_ 开头且以 .py 结尾的文件（跳过 __pycache__ 目录），并在 os.path.exists(root/TARGET_REL) 为真时追加模块级常量 TARGET_REL，返回去重排序后的以 "/" 分隔的相对路径列表；
+# root 就是**本仓工作树**时，再按「git 追踪面」过滤（非追踪件不入判据面）；降级（明示）：该情形下 git 不可用 ⇒ 退回原文件系统走查并打印 `[降级]`，读数须按降级看待。`--commit` 腿传的是 git archive 抽出的临时树（≠ 本仓根），保持原走查语义 —— 那条腿本来就是追踪面，不得再被本仓追踪面误筛。
 def files_from_worktree(root):
+    at_repo = os.path.abspath(root) == _REPO
+    tracked = _tracked_rels() if at_repo else None
+    if at_repo and tracked is None:
+        print("[降级] git 不可用：判据面退化为文件系统走查"
+              "（可能与 CI 干净克隆不一致）")
     out = []
     for base, dirs, names in os.walk(os.path.join(root, "md_cg")):
         dirs[:] = [d for d in sorted(dirs) if d != "__pycache__"]
         for fn in sorted(names):
             if fn.startswith("test_") and fn.endswith(".py"):
-                out.append(os.path.relpath(os.path.join(base, fn), root).replace(os.sep, "/"))
-    if os.path.exists(os.path.join(root, TARGET_REL)):
+                rel = os.path.relpath(os.path.join(base, fn), root).replace(os.sep, "/")
+                if tracked is not None and rel not in tracked:
+                    continue        # 非追踪件不入判据面
+                out.append(rel)
+    if os.path.exists(os.path.join(root, TARGET_REL)) and (
+            tracked is None or TARGET_REL in tracked):
         out.append(TARGET_REL)
     return sorted(set(out))
 

@@ -39,6 +39,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -68,7 +69,7 @@ COUNT_SCAN_GLOBS = (
     "**/.codex-plugin/*.json",
     "**/.agents/plugins/*.json",
 )
-COUNT_SCAN_SKIP_DIRS = ("node_modules", ".git", "__pycache__", ".tmp", ".mypy_cache", ".pytest_cache")
+COUNT_SCAN_SKIP_DIRS = ("node_modules", ".git", "__pycache__", ".mypy_cache", ".pytest_cache")
 
 # —— 工具名随端标注守卫（20260916 漂移实例的机械捕获器）——
 # 纪律件里出现的 DSH 端基元注册名；宿主内建桥端（memory 以 plugin/ 开头）该名即本端正名，豁免。
@@ -244,19 +245,50 @@ def count_claims(text):
     return out
 
 
-# 生效条件：repo 给定，按 COUNT_SCAN_GLOBS 逐模式 glob（相对仓根拼接），跳过路径段命中
-# COUNT_SCAN_SKIP_DIRS 的项与非普通文件，去重后返回排序的绝对路径列表。
+# 生效条件：repo 给定，按 COUNT_SCAN_GLOBS 逐模式 glob（相对仓根拼接），保留命中
+# **git 追踪面**的普通文件（非追踪件不入面），去重后返回排序的绝对路径列表。
 def count_scan_files(repo):
+    """分发面计数扫描面 = 文件系统 glob ∩ **git 追踪面**。
+
+    判据面锚在**追踪面**而非文件系统面：本地 gitignore 产物（`.tmp/` 草稿、
+    `node_modules/` 等）不在 CI 干净克隆里，纳入即「本地红 / CI 绿」分裂。
+    按「是否被 git 追踪」这个**性质**判，**不**逐个硬编码排除目录——`.tmp` 曾以
+    「硬编码跳过目录名」绕过（正是本类要消灭的写法），现改由追踪面判据覆盖。
+    （实测：`.tmp` 等点开头目录本就不被 glob 的 `*`/`**` 匹配，故该口径对本仓是
+    等价收紧；本机以 `*/*/README.md` 命中的 `node_modules/*` 为例，改后同样被
+    追踪面挡住。）
+    降级（明示，非静默改语义）：git 不可用/非仓 ⇒ 退回原「按目录名跳过」口径并
+    打印 `[降级]` 一行，读数须按降级看待。
+    """
+    tracked = _tracked_rels(repo)
+    if tracked is None:
+        print("[降级] git 不可用：分发面计数扫描面退化为文件系统 glob 走查"
+              "（可能与 CI 干净克隆不一致）")
     seen, out = set(), []
     for pat in COUNT_SCAN_GLOBS:
         for path in glob.glob(os.path.join(repo, *pat.split("/")), recursive=True):
             rp = os.path.relpath(path, repo).replace(os.sep, "/")
-            if any(seg in COUNT_SCAN_SKIP_DIRS for seg in rp.split("/")):
-                continue
+            if tracked is None:
+                if any(seg in COUNT_SCAN_SKIP_DIRS for seg in rp.split("/")):
+                    continue
+            elif rp not in tracked:
+                continue                    # 非追踪件不入判据面
             if os.path.isfile(path) and path not in seen:
                 seen.add(path)
                 out.append(path)
     return sorted(out)
+
+
+# 生效条件：repo 给定，执行 git ls-files -z，成功 ⇒ 返回仓根相对（posix 分隔）的追踪面集合；git 不可用/非仓（非零退出或 OSError）⇒ 返回 None（调用方明示降级）。
+def _tracked_rels(repo):
+    """git 追踪面（仓根相对 · posix 分隔）集合；git 不可用/非仓 ⇒ None（调用方降级）。"""
+    try:
+        proc = subprocess.run(["git", "-C", repo, "ls-files", "-z"],
+                              capture_output=True, check=True)
+    except Exception:                                  # noqa: BLE001 —— 兜底见上
+        return None
+    return {p.replace("\\", "/") for p in
+            proc.stdout.decode("utf-8", "replace").split("\0") if p}
 
 
 # 生效条件：repo 给定，期望 = len(R.nodes_of(R.load_source(repo)))**（真源现算，不硬编码）**；
