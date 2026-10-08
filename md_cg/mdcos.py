@@ -2063,10 +2063,20 @@ class MdCGOS(MdCG):
                                     "reason": "oversize_or_over_budget"})
                     continue          # 关闭截断或预算不足：跳过，继续尝试更小的
             used += t
+            # Only summarize already available qualification/frontmatter data;
+            # query suitability and persistent verification are distinct states.
+            fm = node.get("frontmatter") or {}
+            metadata = {"state": qual.get("state"),
+                        "reason": qual.get("reason"),
+                        trust.STATE_FIELD: trust.state_of(fm)}
+            for field in ("verification_basis", nodefile.CHECK_STRENGTH_FIELD,
+                          "derived_from", "derived_relation", "source"):
+                if field in fm and fm[field] is not None:
+                    metadata[field] = fm[field]
             entry = {"id": node["id"], "score": score, "state": qual.get("state"),
                      "tokens": t, "content": content,
                      "frontmatter": node.get("frontmatter"),
-                     "provenance": prov}
+                     "provenance": prov, "metadata": metadata}
             if truncated:
                 entry["truncated"] = True
             pack.append(entry)
