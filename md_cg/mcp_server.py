@@ -4518,7 +4518,16 @@ def main():
             continue
         try:
             msg = json.loads(line)
-        except ValueError:
+        except ValueError as _pe:
+            # issue #83.1：非法 JSON 按 JSON-RPC 2.0 回 -32700 Parse error。
+            # 修前此处静默 continue —— 客户端只能等超时，且无任何信号；
+            # 解析失败时无从取 id（JSON-RPC 规定 Parse error 的 id 为 null）。
+            try:
+                _reply(None, error={"code": -32700,
+                                    "message": "Parse error：请求体不是合法 JSON"})
+            except Exception:      # noqa: BLE001 —— 回写失败不带崩 server
+                pass
+            sys.stderr.write("[mdcg-mcp] Parse error（已回 -32700）: %r\n" % (_pe,))
             continue
         # N206：msg 非 dict（`[]`/`123`/`null`/`"x"`/批量数组都是合法 JSON）
         # 由 _serve_line 的入口类型闸拦下（-32600，不崩）；此处再兜一层——
