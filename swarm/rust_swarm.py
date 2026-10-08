@@ -29,7 +29,7 @@ DEFAULT_SECRET = "蜂群默认密钥"
 
 # 生效条件：instances 每项必含 id（i["id"]），role/trust/symbols 分别缺省回落 "worker"/0.0/{}，rounds 经 max(1, int(rounds))，routes 为 None 或空时得到空列表、否则每项必含 from 与 to（r["from"]/r["to"]），condition_space 非 None 时写入 cfg["condition_space"]，返回 cfg；
 def make_swarm_config(instances: List[Dict], routes: Optional[List[Dict]] = None,
-                      rounds: int = 1, shared_secret: str = DEFAULT_SECRET,
+                      rounds: int = 1, shared_secret: Optional[str] = None,
                       topology: str = "",
                       condition_space: Optional[Dict] = None) -> Dict:
     """instances: [{"id","role","trust","symbols"}]；routes: [{"from","event_type","to","payload","level"}]
@@ -38,6 +38,16 @@ def make_swarm_config(instances: List[Dict], routes: Optional[List[Dict]] = None
     指定后角色由拓扑推导（首实例为 queen/coordinator，其余 worker）——G4a。
     condition_space: G-R2 条件空间卡（§0.0.5 四要素，缺一不可）：
       {"space_id","observation_position","observation_tool","time_window","existence_constraint"}"""
+    # issue #81（2026-10-09 设计者裁定 A：fail-closed）——缺省密钥一律拒。
+    # 修前缺省回落源码内公开常量「蜂群默认密钥」：任何读过源码者都能自签伪造
+    # WAL 行并通过验签（实测 all_valid=True，FI-R08 记于混沌注入 case）。
+    # 与 N143（空串拒）同精神：宁拒不绿。DEFAULT_SECRET 常量保留供显式引用
+    # 与历史对照，但**不再作为缺省**。
+    if not shared_secret:
+        raise ValueError(
+            "WAL 验签密钥不得为空（shared_secret 必填，issue #81）："
+            "缺省曾回落公开常量，持该常量者可自签伪造 WAL 行并通过验签。"
+            "请显式传入密钥（如 secrets.token_hex(16)），并在后续轮次复用同一密钥。")
     cfg = {"algo": ALGO, "shared_secret": shared_secret, "rounds": max(1, int(rounds)),
            "topology": topology,
            "instances": [{"id": i["id"], "role": i.get("role", "worker"),

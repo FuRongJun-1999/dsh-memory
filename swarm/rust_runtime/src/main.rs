@@ -296,11 +296,20 @@ fn cmd_swarm(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let secret = cfg_json
-        .get("shared_secret")
-        .and_then(|x| x.as_str())
-        .unwrap_or("蜂群默认密钥")
-        .to_string();
+    // issue #81（2026-10-09 设计者裁定 A：fail-closed）——缺/空 shared_secret 一律拒启动。
+    // 修前 unwrap_or("蜂群默认密钥")：缺省回落公开常量，持该常量者可自签伪造 WAL 行
+    // 并通过验签（实测 all_valid=true，FI-R08 记于混沌注入 case）。
+    let secret = match cfg_json.get("shared_secret").and_then(|x| x.as_str()) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => {
+            eprintln!(
+                "配置缺少 shared_secret（或为空）——拒绝启动（issue #81 fail-closed）：\
+                 缺省曾回落公开常量，持该常量者可自签伪造 WAL 行并通过验签。\
+                 请在配置中显式提供 shared_secret。"
+            );
+            return ExitCode::from(2);
+        }
+    };
     let rounds = cfg_json
         .get("rounds")
         .and_then(|x| x.as_f64())
