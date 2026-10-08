@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 
 from .fsutil import publish
 
@@ -31,9 +32,23 @@ _ROW_KEYS = ("id", "layer", "path", "tags", "importance", "confidence",
 
 # 生效条件：给定 cg 与 kind 即返回 os.path.join(cg.root, f"export_{kind}_{当前 %Y%m%d_%H%M%S 时间戳}.jsonl")，无任何前置校验或分支。
 def _default_out(cg, kind: str) -> str:
-    """默认导出路径：`<root>/export_<kind>_<ts>.jsonl`（可搬运、可灾备）。"""
+    """默认导出路径：`<root>/export_<kind>_<ts>.jsonl`（可搬运、可灾备）。
+
+    issue #78：秒级时间戳下同秒两次导出会同名，第二次 publish 覆盖第一份快照，
+    而两个调用都返回 ok —— 静默丢数据。此处做碰撞自增：首份保持原格式不变
+    （对依赖 export_<kind>_<ts>.jsonl 精确格式的调用方零影响），仅当目标已存在
+    时追加 _1/_2… 后缀，绝不覆盖既有快照。
+    """
     ts = time.strftime("%Y%m%d_%H%M%S")
-    return os.path.join(cg.root, f"export_{kind}_{ts}.jsonl")
+    base = os.path.join(cg.root, f"export_{kind}_{ts}")
+    out = base + ".jsonl"
+    if not os.path.exists(out):
+        return out
+    for i in range(1, 10000):
+        cand = f"{base}_{i}.jsonl"
+        if not os.path.exists(cand):
+            return cand
+    return f"{base}_{int(time.time() * 1000)}.jsonl"
 
 
 # 生效条件：cg.get(nid) 为 None 时返回 None；否则以 fm = node.get("frontmatter") or {}（缺键或假值回落空 dict）与 entry 组装行，layer 取 fm 的 layer、为假值时回落 entry.get("layer")，include_content 为真值时追加 content = node.get("content") or ""，最终只保留 _ROW_KEYS 中实际存在的键。
@@ -103,7 +118,9 @@ def _write_jsonl(cg, out_path: str, entries, include_content: bool = True):
     parent = os.path.dirname(out_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    tmp = out_path + ".tmp"
+    # issue #78 附带：tmp 加 uuid 段——两进程同时导出同一 out 时不再共用
+    # 同一个 .tmp（原实现下后写者会踩掉前者的中间态）。
+    tmp = "%s.%s.tmp" % (out_path, uuid.uuid4().hex[:8])
     written = skipped = 0
     by_layer = {}
     t0 = time.time()
