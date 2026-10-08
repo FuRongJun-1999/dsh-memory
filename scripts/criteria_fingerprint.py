@@ -3,10 +3,35 @@
 
 # 功能名：判据面指纹复算
 # 生效条件：需要比对「判据面文件集合」在两端是否同一（互验断言 A3 的机械输入）时；任一修订号可用
-# 子功能：集合=md_cg 下所有 test_*.py + scripts/run_tests.py；算法=sha256(按仓库相对路径升序拼接各文件字节)，取值前 16 个十六进制字符
+# 子功能：集合=md_cg 下所有 test_*.py + scripts/run_tests.py；算法=sha256(按仓库相对路径升序拼接各文件**行尾归一后**的字节)，取值前 16 个十六进制字符
 # 执行：python -X utf8 scripts/criteria_fingerprint.py [--commit <rev>] [--json]（--commit 用 git archive 抽树计算，不改工作树）
-# 验证方式：--commit 5a2778a 应得 c5a3280201a4499f（与编外 receipt 一致）；--commit main 同值即表示两端判据面逐字节同一
+# 验证方式：--commit 5a2778a 应得 199d99ef460d0ad3（行尾归一后的**跨环境稳定值**；见下「EOL 口径」——旧文档值 c5a3280201a4499f 是 core.autocrlf=true 下的 EOL artifact，在 core.autocrlf=false 的克隆里旧脚本同样算出 199d99ef460d0ad3）；--commit main 同值即表示两端判据面逐字节同一（行尾不再使两腿/两机分裂）
 # 不适用条件：本脚本不入判据集合（名字非 test_*、且非 run_tests.py），但它**落在 scripts/ 下**——若将来口径扩为「scripts 下所有 .py」则会使集合变化，须同步两端
+
+EOL 口径（S4b 裁定 = 归一；只动行尾两个字节序列，不改其余任何字节）：
+
+  · **为什么要归一**：判据面的内容 = **判据文本**，行尾（CRLF/LF）是 checkout 的本地
+    artifact、不是判据内容。实测（本机 `core.autocrlf=true`，git 2.55）三条事实：
+      ① 工作树的 EOL 是**混合**的（273 件里 29 件 CRLF / 244 件 LF——被工具重写过的文件
+         行尾与 git 检出不一致）⇒ 旧脚本工作树腿 = `6918af00a470f00d`；
+      ② **`git archive` 也听 `core.autocrlf`**（非只 checkout）⇒ 旧脚本 `--commit` 腿在这台
+         机器上把 273 件全转成 CRLF = `d560fa6dbf3d599a`；两条腿因此天生不等，而差异**纯由
+         行尾状态造成**，不含任何内容差异；
+      ③ 同一克隆（autocrlf=false，LF 面）里旧脚本两腿**相等** = `82e33bec15273d6c`；
+         把该克隆翻成 autocrlf=true + 面全 CRLF，旧脚本两腿**又相等**但换成 `d560fa6dbf3d599a`
+         ——同一个修订号、同一份内容，值随机器检出配置而变 ⇒ 判据不可复现、跨端互验 A3 报假不一致。
+  · **归一怎么做**：`_lf()` 把每个文件字节里的全部 `b"\\r\\n"` 换成 `b"\\n"`；其余字节逐位保留
+    （不做 strip / 不改编码 / 不动行内空白）。归一在 `fingerprint()` 的**唯一取字节点**做 ⇒
+    工作树腿与 `--commit` 抽树腿**走同一条口径**（`--commit` 腿在 autocrlf=true 下本是 CRLF，
+    只归一工作树腿会让两腿在干净克隆里仍分裂——那只是把缺陷挪位，不是修）。
+    实测归一后上述两种环境得**同一个值** `1c8f564ce29d3679`（= HEAD 内容全 LF 归一）。
+  · **代价 / 已知取舍（明示，不藏）**：ⓐ 若有人**故意**把行尾由 LF 改成 CRLF 并当作「内容
+    改动」，归一后该改动**不会**使指纹改变——本脚本视其为正确（行尾不是判据内容）；确需把行尾
+    也算进判据时，须另行报告「归一前 / 归一后」两个值（本班按归一实施，未加双值输出）。
+    ⓑ 归一使**冻结向量取值换代**：`5a2778a` 由 EOL artifact 值 `c5a3280201a4499f`（autocrlf=true）
+    换为跨环境稳定值 `199d99ef460d0ad3`——跨端取值若不带上本口径改动，两端值必分裂，须同步。
+    ⓒ `md_cg/test_reach_meta_exits.py` 的 **git blob 自带 CRLF**（工作树与 blob 皆 CRLF），
+    故归一在「LF 面」上对它亦非 no-op——这是归一使 `82e33bec…`→`1c8f564c…` 的唯一来源件。
 """
 import argparse
 import hashlib
@@ -77,13 +102,20 @@ def worktree_of(commit):
     return tmp
 
 
-# 生效条件：给定 root 时，逐个以二进制读取 files_from_worktree(root) 返回的每个文件并更新 sha256，返回 {"files": 该列表长度, "value": 摘要 hexdigest 的前 TRUNC 位}；
+# 生效条件：data 为 bytes 时返回把全部 b"\r\n" 换成 b"\n" 后的副本（只改行尾两个字节序列，
+# 其余字节逐位保留 ⇒ 不改变判据内容语义）；非 bytes 由 bytes.replace 语义抛错，不兜底。
+def _lf(data: bytes) -> bytes:
+    """行尾归一 CRLF→LF（口径与理由见文件头「EOL 口径」段）。"""
+    return data.replace(b"\r\n", b"\n")
+
+
+# 生效条件：给定 root 时，逐个以二进制读取 files_from_worktree(root) 返回的每个文件、经 `_lf()` 行尾归一后更新 sha256，返回 {"files": 该列表长度, "value": 摘要 hexdigest 的前 TRUNC 位}；
 def fingerprint(root):
     files = files_from_worktree(root)
     h = hashlib.sha256()
     for f in files:
         with open(os.path.join(root, f), "rb") as fh:
-            h.update(fh.read())
+            h.update(_lf(fh.read()))
     return {"files": len(files), "value": h.hexdigest()[:TRUNC]}
 
 

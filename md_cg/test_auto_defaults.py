@@ -343,10 +343,15 @@ _MUTATIONS = (
     ("op 路径读取器不回落真源（旧「另一处字面量」）", "mod", "md_cg/sustain.py",
      "        return bool(args[name])\n    return auto_default(name)",
      "        return bool(args[name])\n    return False", 1),
+    # 锚点 = **布局无关的唯一子串**：只取到 `("auto_tidy")` 为止，不带尾括号——
+    # `ensure_loop(` 的收尾随「单行参数 / 多行关键字实参」而变（现役实现是多行、
+    # 行尾 `,`），把 `))` 写进锚点即把变异项钉死在某一版行布局上（S4a 缺陷：
+    # 实现改成多行后锚点漂移、`--mutate` 误判为 fail-closed 退出码 2）。
+    # 该串在 mcp_server.py 恰 1 处（与 G3e 同一子串，唯一性由 G3e 守卫）。
     ("env 路径改回手写 env 读取（第二处 MDCG_AUTO_TIDY 字面量）", "src",
      "md_cg/mcp_server.py",
-     'auto_tidy=sustain.auto_from_env("auto_tidy"))',
-     'auto_tidy=os.environ.get("MDCG_AUTO_TIDY", "1") not in ("0", "false", "False"))',
+     'auto_tidy=sustain.auto_from_env("auto_tidy")',
+     'auto_tidy=os.environ.get("MDCG_AUTO_TIDY", "1") not in ("0", "false", "False")',
      1),
 )
 
