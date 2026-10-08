@@ -51,6 +51,9 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PASS = FAIL = 0
 FAILS = []
+# issue #84.1（2026-10-09 DSH 端）：显式跳过计数——无 numpy 的解释器上 G4 不判红，
+# 但必须在汇总行明示「跳过 1」，不许静默放绿（对齐 #84 口径）。
+SKIPPED = 0
 
 
 def check(name, cond, detail=""):
@@ -62,6 +65,18 @@ def check(name, cond, detail=""):
         FAIL += 1
         FAILS.append(name)
         print(f"  FAIL {name}  {detail}")
+
+
+# 生效条件：本解释器可导入 numpy 时返回 True，否则 False；恒不抛。
+def _numpy_available():
+    """issue #84.1：numpy 是 md_cg 的**可选**依赖，而 G4 断言「import numpy 成功」。
+    无 numpy 的解释器（如本机 MDCG_PYTHON 3.13.12）上该断言恒红——那是环境缺失，
+    不是缺陷回归。故显式 SKIP 并在汇总行计入跳过，而非静默放绿。"""
+    try:
+        import numpy  # noqa: F401
+        return True
+    except Exception:
+        return False
 
 
 # 生效条件：总是返回一份「清掉 OPENBLAS_NUM_THREADS、锚定本仓 PYTHONPATH、隔离
@@ -152,9 +167,15 @@ def main():
               rc == 0 and out == "1", f"rc={rc} out={out!r} err={err!r}")
 
         print("== G4 时序：自保证早于首个 numpy 导入，且 numpy 随后可导入 ==")
-        rc, out, err = _run_child(_G4_CODE, _child_env(tmp))
-        check("G4 import mcp_server 后 numpy 未加载；numpy 导入成功且值=1",
-              rc == 0 and out == "1 False", f"rc={rc} out={out!r} err={err!r}")
+        if _numpy_available():
+            rc, out, err = _run_child(_G4_CODE, _child_env(tmp))
+            check("G4 import mcp_server 后 numpy 未加载；numpy 导入成功且值=1",
+                  rc == 0 and out == "1 False", f"rc={rc} out={out!r} err={err!r}")
+        else:
+            global SKIPPED
+            SKIPPED += 1
+            print("  SKIP G4 本解释器无 numpy（ModuleNotFoundError）——按 issue #84 口径"
+                  "显式跳过，不静默放绿；该腿需在有 numpy 的解释器上复跑")
 
         print("== G5 实弹并发：6 个「启动期（import + 代校验）」子进程全部成功 ==")
         env5 = _child_env(tmp)
@@ -185,7 +206,7 @@ def main():
         shutil.rmtree(tmp, ignore_errors=True)
 
     print("\n" + "=" * 64)
-    print(f"PASS={PASS}  FAIL={FAIL}")
+    print(f"PASS={PASS}  FAIL={FAIL}  跳过={SKIPPED}")
     if FAILS:
         print("失败项：" + "；".join(FAILS))
     return 0 if FAIL == 0 else 1
