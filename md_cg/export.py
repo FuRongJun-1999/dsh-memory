@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 
 from .fsutil import publish
 
@@ -29,11 +30,11 @@ _ROW_KEYS = ("id", "layer", "path", "tags", "importance", "confidence",
              "created_at", "edges", "protected", "sensitivity", "content")
 
 
-# 生效条件：给定 cg 与 kind 即返回 os.path.join(cg.root, f"export_{kind}_{当前 %Y%m%d_%H%M%S 时间戳}.jsonl")，无任何前置校验或分支。
+# 生效条件：给定 cg 与 kind，返回 cg.root 下带当前秒级时间戳和独立 UUID 的导出路径；仅生成名字，不创建文件。
 def _default_out(cg, kind: str) -> str:
-    """默认导出路径：`<root>/export_<kind>_<ts>.jsonl`（可搬运、可灾备）。"""
+    """默认导出路径带 UUID，使同秒导出各自保留独立快照与临时文件。"""
     ts = time.strftime("%Y%m%d_%H%M%S")
-    return os.path.join(cg.root, f"export_{kind}_{ts}.jsonl")
+    return os.path.join(cg.root, f"export_{kind}_{ts}_{uuid.uuid4().hex}.jsonl")
 
 
 # 生效条件：cg.get(nid) 为 None 时返回 None；否则以 fm = node.get("frontmatter") or {}（缺键或假值回落空 dict）与 entry 组装行，layer 取 fm 的 layer、为假值时回落 entry.get("layer")，include_content 为真值时追加 content = node.get("content") or ""，最终只保留 _ROW_KEYS 中实际存在的键。
