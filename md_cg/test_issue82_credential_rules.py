@@ -64,6 +64,19 @@ def main():
                        ("= 中文前缀（原漏）", "我的密码=abc123456")):
         check("G2 %s ⇒ REJECT" % name, verdict(tail) == "REJECT", str(verdict(tail)))
 
+    # ---- issue #90（2026-10-09）：词边界在中文/下划线前失效的三种形态 ----
+    # 根因：Python3 的 \b 把**汉字与下划线**都当 word char ⇒「库密」之间、「_p」之间
+    # 不是边界，只有「密码」在行首或前接空格时才命中。修法：英文侧 \b 改
+    # (?<![A-Za-z0-9])（只排除英文数字前缀，容许 _ 与汉字前缀）。
+    for _name, _tail in (("xx密码：", "数据库密码：Hunter2Secret"),
+                         ("xx口令=", "邮箱口令=Hunter2Secret"),
+                         ("x_password=", "db_password=Hunter2Secret"),
+                         ("user_passwd:", "user_passwd: Hunter2Secret")):
+        check("G6 #90 形态 %s ⇒ REJECT" % _name, verdict(_tail) == "REJECT", str(verdict(_tail)))
+    # G7 不误伤：英文前缀紧邻的「mypassword」不是禁表词
+    check("G7 #90 反向对照：mypassword: ⇒ ACCEPT（不是禁表词）",
+          verdict("mypassword: Hunter2Secret") == "ACCEPT", str(verdict("mypassword: Hunter2Secret")))
+
     bio = "密码：三联体密码子、简并性、通用性。起始密码子AUG、终止密码子。"
     check("G3 误伤对照·生物学句 ⇒ ACCEPT（修前会命中）",
           verdict(bio) == "ACCEPT", str(verdict(bio)))
