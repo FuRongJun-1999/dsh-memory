@@ -65,7 +65,17 @@ import sys
 import tempfile
 from contextlib import contextmanager
 
-from PIL import Image
+# issue #84 同族（2026-10-09 DSH 端）：PIL(Pillow) 是**可选**依赖——本件全程用它
+# 造/读 PNG。无它时原代码在**模块级**直接 ModuleNotFoundError（rc=1，非零退出），
+# 读者会误以为『测试坏了』，实为环境缺依赖。按仓内 #84 口径**显式跳过**：
+# 打印 SKIP 说明并以 rc=2 退出（『有跳过』语义，与本批 #75/#84.1 守卫一致），
+# 不静默放绿、也不伪装成失败。
+try:
+    from PIL import Image
+except ImportError:
+    print("  SKIP md_cg.test_imgskill：本解释器无 PIL（Pillow）——按 #84 口径显式跳过，"
+          "不静默放绿；该件需在有 PIL 的解释器上复跑")
+    raise SystemExit(2)
 
 from . import imgskill as S
 
