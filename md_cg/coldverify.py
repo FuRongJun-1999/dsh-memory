@@ -113,8 +113,26 @@ class ColdVerifyQueue:
             self._persist()
         return task
 
-    def drain(self, cg, *, limit=BATCH_LIMIT):
-        """同步消费队列（用于测试/手动处理）。返回处理结果列表。"""
+    def drain(self, cg, *, limit=BATCH_LIMIT, dry_run=False):
+        """同步消费队列（用于测试/手动处理）。返回处理结果列表。
+
+        issue #72（2026-10-09 DSH 端）：dry_run=True 时**只预演不消费**——
+        不 popleft、不 _process、不落盘、不计数，只列出**将消费**的条目及其积压龄。
+        注意本方法本就**不启常驻线程**（opt-in 语义见 :15），dry_run 只是把
+        「想看看会发生什么」这条路也显式化。"""
+        if dry_run:
+            with self._lock:
+                preview = list(self._queue)[:max(0, int(limit))]
+            now = time.time()
+            return {"dry_run": True,
+                    "would_process": [
+                        {"node_id": x.get("node_id"),
+                         "action": x.get("action"),
+                         "enqueued_at": x.get("enqueued_at"),
+                         "age_s": round(now - float(x.get("enqueued_at") or 0), 1)}
+                        for x in preview],
+                    "queue_size": len(self._queue),
+                    "limit": int(limit)}
         results = []
         with self._lock:
             batch = []
@@ -252,6 +270,12 @@ class ColdVerifyQueue:
                 "stats": dict(self._stats),
                 "worker_alive": (self._worker is not None
                                   and self._worker.is_alive()),
+                # issue #72：积压龄（最久未消费条目的秒数）——让「积压无人管」
+                # 不再是隐性状态；空队列为 None。
+                "oldest_age_s": (
+                    round(time.time() - min(float(x.get("enqueued_at") or 0)
+                                            for x in self._queue), 1)
+                    if self._queue else None),
                 "queue_file": self._queue_path,
             }
 
