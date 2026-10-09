@@ -765,7 +765,7 @@ KERNEL_TOOLS = [
             ccg=_p("object", "CCG 六要素编译器入参：{action, node_id, dialog, marks, "
                              "slots, strict_spans, role, verdict, verifier, compiled_by, "
                              "evidence, slot_corrections, model, jobs, blocking, wait_s, "
-                             "allow_degrade, channel, autostart, doctor, apply, basis}"),
+                             "allow_degrade, channel, doctor, apply, basis}"),
             intent=_p("string", "route 的查询意图"), query=_p("string", "read 的查询"),
             goal=_p("string", "goal op 的目标文本；read 的定向目标（缺省用活跃目标）；"
                               "task op：任务目标（CCG「执行」栏）"),
@@ -2768,9 +2768,9 @@ def _ccg_call(cg, a):
     from . import units as _units
 
     o = a.get("ccg") or {}
-    if not isinstance(o, dict):
-        return {"ok": False, "op": "ccg",
-                "error": "ccg 参数须为对象：{action, node_id, dialog, ...}"}
+    # 第 17 条 D 案：`autostart` 已从模型可达工具面移除，模型侧携带即显式拒绝。
+    if not isinstance(o, dict) or (set(_CCG_REMOVED_PARAMS) & set(o)):
+        return _ccg_param_gate(o)
     act = str(o.get("action") or a.get("action") or "compile").strip().lower()
     node_id = str(o.get("node_id") or a.get("node_id") or "").strip()
     actor = str(getattr(getattr(cg, "principal", None), "actor", "") or o.get("actor") or "agent")
@@ -2822,14 +2822,14 @@ def _ccg_call(cg, a):
         compiled = got["compiled"]
         role = str(o.get("role") or _units.REFLECT).strip().lower()
         prompt = _units.prompt_for(role, compiled, dialog=str(o.get("dialog") or ""))
+        # 第 17 条 D 案：不再透传 autostart（模型面已移除；能力留代码内/部署侧通道）。
         r = _units.review(prompt=prompt, role=role, node_id=node_id, jobs=jobs,
                           model=o.get("model") or "",
                           timeout_s=int(o.get("timeout_s") or _units.DEFAULT_TIMEOUT_S),
                           allow_degrade=bool(o.get("allow_degrade")),
                           channel=o.get("channel") or "",
                           wait_s=float(o.get("wait_s") or _units.DEFAULT_TIMEOUT_S),
-                          blocking=bool(o.get("blocking")), cg=cg, actor=actor,
-                          autostart=bool(o.get("autostart")))
+                          blocking=bool(o.get("blocking")), cg=cg, actor=actor)
         unit = r.get("unit")
         out = {"ok": True, "op": "ccg", "action": "review", "state": r["state"],
                "role": role, "node_id": node_id, "job_id": r.get("job_id"),
@@ -4093,6 +4093,44 @@ def _declared_session(raw):
             or os.environ.get("DSH_SESSION_ID") or "").strip():
         return None                  # 环境已固定会话：客户端不得改写归属
     return _normalize_session(s)
+
+
+# --------------------------------------------------- 第 17 条 D 案：工具面移除参数
+# 裁定（设计者 2026-10-10 当场裁定「按推荐做」＝ 待裁清单第 17 条 D 案）：把 `autostart`
+# 从**模型可达的工具面**移除。为什么：该参数一经透传即触发 `units.autostart_serve` 的
+# detached `Popen`（拉起 hive serve）——即「模型经一次 MCP 调用即可拉起一个进程」，
+# 与仓内同族留档 G6/N178（`docs/eval/缺陷挖掘_自主迭代_v21.md`：review 带 autostart
+# 可在模型选的目录拉起 serve）同向。D 的边界＝**只去掉模型面的表达面**：
+#   · `units.review(autostart=...)` 与 `units.autostart_serve` **原样保留**（默认 False，
+#     供部署侧/显式代码通道使用，两仓零调用方显式置 true，故去掉透传不破坏任何调用方）；
+#   · 模型侧携带该参数 = **显式拒绝**（不是静默忽略——静默会让调用方按「已拉起」继续
+#     推理，属假成功；本仓既有教训：静默降级 = 观测面全绿而事实已偏）。
+# 本段位置说明：定义点**刻意放在 `_ccg_call` 之后**——本仓行号锚守卫
+# `scripts/check_line_anchors.py` 冻结了两处现存绿锚（`bypass_gain` 与 `MDCG_SESSION`
+# 所在行，均在 `_ccg_call` 与 `_normalize_session` 之间），在它们之前插行即把它们打红；
+# Python 按调用期解析名字，故后置定义无碍。
+_CCG_REMOVED_PARAMS = ("autostart",)
+
+
+# 生效条件：o 非 dict 时返回 ok=False 的「ccg 参数须为对象」拒答（removed_params 为空表）；o 为 dict 时 hit 取 _CCG_REMOVED_PARAMS 中存在于 o 的键（保留 _CCG_REMOVED_PARAMS 顺序），返回 ok=False、error 点名 hit、removed_params=hit 并附可照做 hint 的拒答。恒返回 dict，不做任何派发。
+def _ccg_param_gate(o) -> dict:
+    """`ccg` 对象入参闸：对象形态 ＋ **模型面已移除参数**（第 17 条 D 案）。
+
+    fail-closed：命中 `_CCG_REMOVED_PARAMS` 即拒，绝不降级为「忽略该键继续执行」。
+    """
+    if not isinstance(o, dict):
+        return {"ok": False, "op": "ccg",
+                "error": "ccg 参数须为对象：{action, node_id, dialog, ...}",
+                "removed_params": []}
+    hit = [k for k in _CCG_REMOVED_PARAMS if k in o]
+    return {"ok": False, "op": "ccg",
+            "action": str(o.get("action") or "").strip().lower(),
+            "error": "ccg 参数 %s 已从工具面移除（第 17 条 D：进程拉起不由模型面触发）"
+                     % "/".join(hit),
+            "removed_params": hit,
+            "hint": "去掉该参数后重发；serve 由部署侧拉起"
+                    "（`hive/serve_start.py` 或 `hive.exe serve --jobs <jobs>`），"
+                    "通道体检走 cg(op=ccg, action=units, doctor=true)"}
 
 
 # 生效条件：环境变量 MDCG_SESSION（优先）或 DSH_SESSION_ID 去空白后非空时把 p.session 设为 _normalize_session(raw) 并把 p.session_auto 置 False（env=声明来源，写归因三态收口据此不改写），MDCG_HARNESS 去空白后非空时把 p.harness 设为该值，MDCG_UNIT 去空白后非空时把 p.unit 设为该值，三者均为空串或未设置时 p 的对应字段保持原值（session_auto 保持构造值）；
