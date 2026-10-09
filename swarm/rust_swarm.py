@@ -43,6 +43,23 @@ def make_swarm_config(instances: List[Dict], routes: Optional[List[Dict]] = None
     # WAL 行并通过验签（实测 all_valid=True，FI-R08 记于混沌注入 case）。
     # 与 N143（空串拒）同精神：宁拒不绿。DEFAULT_SECRET 常量保留供显式引用
     # 与历史对照，但**不再作为缺省**。
+    # issue #99（2026-10-09 DSH 端）：WAL 签名串用 | 拼接且**不转义、无长度前缀**
+    # ⇒ 字段里的 | 可被挪动字段边界伪造签名（实测：from=inst_a|inst_b / to=inst_c
+    # 与 from=inst_a / to=inst_b|inst_c 的签名相同，all_valid 均为 True）。
+    # 本笔在此**堵入口**：id / role / 路由 event_type 一律不得含 |（配置侧最常见的
+    # 入口）。**这是堵已知形态，不是修协议**——彻底解需把签名串改为长度前缀或 JSON
+    # 规范化，且 **Rust 与 Python 两侧同步**（见节点 mem_dsh_brain_99_fixed 的后续项）。
+    for _i in (instances or []):
+        _iid = str((_i or {}).get("id") or "")
+        if "|" in _iid:
+            raise ValueError(
+                "实例 id 不得含 |（issue #99：WAL 签名串以 | 拼接且不转义，"
+                "含 | 的 id 可被挪动字段边界后伪造签名）：%r" % _iid)
+    for _r in (routes or []):
+        _et = str((_r or {}).get("event_type") or "")
+        if "|" in _et:
+            raise ValueError(
+                "路由 event_type 不得含 |（issue #99，同上）：%r" % _et)
     if not shared_secret:
         raise ValueError(
             "WAL 验签密钥不得为空（shared_secret 必填，issue #81）："
