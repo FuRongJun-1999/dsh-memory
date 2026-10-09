@@ -4458,7 +4458,11 @@ class MdCG:
         # 计数位数）——两者皆非为本次修复新增，故不新增协议字段。
         _n_real = min(max(0, int(k)), sum(1 for _, s in scored if s > 0))
         _neg_tail = self._neg_tail(neg_coverage, max(0, int(k) - _n_real))
-        results = scored[:self._primary_slots(k, len(_neg_tail))]
+        # issue #89②（2026-10-09 DSH 端）：**0 分（无质量信号）条目不得装进结果**——
+        # 它们对调用方无价值且有误导（LLM 会当成相关内容）。裁到真实命中数为止。
+        # 判据复用紧随其上的 _n_real（＝ min(k, sum(s>0))，H10 已算好），
+        # 故本笔不引入第二个「什么是真实命中」的口径。
+        results = scored[:min(self._primary_slots(k, len(_neg_tail)), _n_real)]
         # ---- S6 一致性交叉验证（契约 §3 S6；flag 控、默认关）----
         # 只读复用 crosscheck 的「赛道 × 来源执照」判定：对 top-k 逐个给出赛道、声明依据是否被
         # 该赛道许可、以及断言条数。**不进主排序**（scored/out 的次序一律不动），只落审计摘要。
