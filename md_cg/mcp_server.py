@@ -3512,6 +3512,24 @@ def _dispatch(cg, name, args):
         # 铸出同一 id → add 的 upsert 语义静默顶替（返回 committed 却 0 命中）。
         from .mdcg import mint_auto_id
         nid = a.get("node_id") or mint_auto_id(cg)
+        # issue #93（2026-10-09 DSH 端）：**这条通路此前不过 policy 的 forbidden 规则**。
+        # 同样内容走 writepipe（cg(op=write)）会被判 REJECT 或打码，而 mdcg_remember
+        # ——hooks 自动记忆走的正是它——直接落盘 ⇒ AKIA / ghp_ / URL 内嵌凭据 /
+        # PEM 私钥块等**明文入库**，且无令牌 guest 可检索。
+        # 处置与 REJECT 分支**同口径**：按片段**打码**而非整条拒绝（自动记忆是 hooks
+        # 通路，整条拒绝会静默丢记忆，比打码更糟）；打码失败不阻塞写入。
+        # 与 #69 甲自洽：inbox（待裁决区）保原文可追溯，而**记忆库是可被 guest 检索的对外面**。
+        try:
+            from . import audit as _audit93
+            _rb93 = _audit93.load_rulebook()
+            if isinstance(_rb93, tuple):
+                _rb93 = _rb93[0]
+            _red93 = _audit93.redact_forbidden(a.get("content", ""), _rb93)
+            if _red93 and _red93 != a.get("content", ""):
+                a = dict(a)
+                a["content"] = _red93
+        except Exception:                      # noqa: BLE001 —— 打码失败不阻塞写入
+            pass
         hint = a.get("importance_hint")
         if hint is None and a.get("importance") is not None:
             hint = float(a["importance"])
