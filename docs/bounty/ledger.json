@@ -1,0 +1,29 @@
+{
+  "_schema": {
+    "说明": "灵枢悬赏板 · 声誉账本（append-only 事件流；由 scripts/bounty_board.py 追加，禁手改既有行）",
+    "字段": {
+      "id": "事件指纹（内容 sha1 前 12 位）——同事件重复投递按 id 幂等去重",
+      "ts": "事件时间（UTC ISO8601）",
+      "issue": "issue 号",
+      "action": "claim|deliver|withdraw|dispute|verify|settle|expire|reject",
+      "actor": "触发者登录名（超时回板记 schedule）",
+      "from": "迁移前态（bounty:* 的裸值）",
+      "to": "迁移后态",
+      "holder": "事件涉及的持有者（现场上下文；超时回板记**原**持有者以记负分）",
+      "difficulty": "difficulty:* 的裸值（计分依据）",
+      "delta": "本事件声誉分增量（结算为正；超时/虚假交付为负）",
+      "reason": "判定理由（拒绝原因 / 验收理由）",
+      "pr": "交付链接指向本仓 PR 时的元数据（号/标题/态/head sha）"
+    },
+    "计分": {
+      "easy": 1,
+      "medium": 3,
+      "hard": 6,
+      "expert": 10,
+      "虚假交付": -5,
+      "超时未交付": -1
+    },
+    "生成": "python -X utf8 scripts/bounty_board.py --ledger-append <events.jsonl>"
+  },
+  "events": []
+}

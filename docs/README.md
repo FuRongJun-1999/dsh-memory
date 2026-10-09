@@ -13,6 +13,7 @@ docs/
 ├── theory/    智能论与白箱智能理论（跨工程）
 ├── eval/      评测与第三方验证报告
 ├── plans/     项目计划 / 交接文档 / 实验规格（跨工程）
+├── bounty/    对外悬赏板（规则 / 账本 / 荣誉榜；状态机在 scripts/bounty_board.py）
 ├── discipline/  工作纪律渲染管线（模板 / harness 矩阵）
 ├── promo/     宣传物料
 ├── experiments/ 实验区（gitignored，可重跑再生产物）
@@ -123,6 +124,14 @@ docs/
 | [GridWorld 最小闭环规格 v0.1](plans/GridWorld最小闭环规格_v0.1.md) | 实验规格 |
 | [多主体世界模型·对齐评估与落地设计 v0.1](plans/多主体世界模型_对齐评估与落地设计_v0.1.md) | 五层对齐评估＋A→B→C 动工基线（33 条复核发现已裁定） |
 | [语义时空图补全·世界模型功能端 设计 v0.1](plans/语义时空图补全_世界模型功能端_设计_v0.1.md) | 现状盘点（四 op＋L0 台账）＋L2 槽位 schema 方向＋语料管线与验收口径（待签收） |
+
+## bounty/ · 对外悬赏板
+
+| 文档 | 内容 |
+|---|---|
+| [规则说明 v0.1](bounty/README.md) | 状态机 / 命令面 / 验收四闸 / 声誉计分 / 争议流程（外部读者口径） |
+| [账本](bounty/ledger.json) | append-only 声誉事件流（workflow 产出 JSONL，维护者本地并入） |
+| [荣誉榜](bounty/board.md) | 由账本机械生成的榜面（勿手改；发布模板与 workflow 见 `.github/`） |
 
 ## 根级横切交接件（留 docs/ 根，不入子域）
 
