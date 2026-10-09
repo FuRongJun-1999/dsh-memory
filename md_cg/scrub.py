@@ -24,6 +24,10 @@
   跑过一轮但没动的条目**下轮仍会报**，那是设计意图（持续观察），不是重复劳动。
   ⇒ 使用者若期望「跑过就不再报」，应改看 already_handled 读数，而非期望幂等名单增长。
 
+**issue #67（2026-10-09 DSH 端）**：_pick 的 3k 截断**只对有序池成立**；对照组
+（random 池，_pool_candidates 唯一不排序者）此前同样被截断 ⇒「随机基线」退化成
+「索引前 3k 名」。现由 ordered 形参区分：风险层截断不变，对照组取全池。
+
 ② **联想（associate）**
    从抽样节点出发三路邻域合并：
      关系链（`chain.walk`，带条件序列）· 子图层级（`subgraph.expand`）
@@ -259,19 +263,25 @@ def _quota(n: int, strategy: str) -> dict:
     return out
 
 
-# 生效条件：k<=0 或 pool 为假值（空池）时返回 []，否则取池前 k*3 项后用 random.Random(f"{seed}:{stratum}") 稳定洗牌并返回前 k 项（池长不足 k*3 时对全池洗牌）。
-def _pick(pool, k: int, seed, stratum: str):
+# 生效条件：k<=0 或 pool 为假值（空池）时返回 []；否则 ordered 为真时先取池前 k*3 项（风险优先窗口），ordered 为假时**不截断**（无序池＝对照组 random，见 issue #67），随后一律用 random.Random(f"{seed}:{stratum}") 稳定洗牌并返回前 k 项（池长不足窗口时对全池洗牌）。
+def _pick(pool, k: int, seed, stratum: str, *, ordered: bool = True):
     """从池中取 k 个：风险最高的 3k 个入池，再按 seed 稳定洗牌。
 
     层内候选 ≤ k 时**全量抽取**——单节点分层（如 low_conf 全库 1 个）
     因此每轮必中：这是**有意设计**（该层全部人口 = 全量覆盖，风险优先
     持续观察），不是漏配轮转。issue #66 核实：seed 轮转只让大池层换人，
     小分层恒中占少数名额、且账本上可由 `already_handled` 如实读出。
+
+    issue #67（2026-10-09 DSH 端）：**对照组（random 池）不得截断**。_pool_candidates
+    只对六个风险层排序（stale/hot/unverified/orphan/disputed/low_conf），random 池
+    是**唯一不排序**的池；对它取 [:k*3] 等于把「随机基线」变成「索引前 3k 名」——
+    对照面既非随机、又恒看不到后段人口，抽样结论无从代表全库。故 ordered=False。
+    风险层保持截断**不变**：那是「风险优先窗口」的有意设计，不属本 issue 面。
     """
     if k <= 0 or not pool:
         return []
     cand = list(pool)
-    if len(cand) > k * 3:
+    if ordered and len(cand) > k * 3:
         cand = cand[:k * 3]
     random.Random(f"{seed}:{stratum}").shuffle(cand)
     return cand[:k]
@@ -298,7 +308,8 @@ def sample(cg, n: int = DEFAULT_SAMPLE, *, strategy: str = "stratified",
     quota = _quota(n, strategy)
     picked, seen = [], set()
     for s in STRATA:
-        for nid, reason in _pick(pools.get(s), quota.get(s, 0), seed, s):
+        for nid, reason in _pick(pools.get(s), quota.get(s, 0), seed, s,
+                                 ordered=(s != "random")):
             if nid in seen:
                 continue
             seen.add(nid)
@@ -307,7 +318,7 @@ def sample(cg, n: int = DEFAULT_SAMPLE, *, strategy: str = "stratified",
     if len(picked) < int(n):
         rest = [x for x in pools["random"] if x[0] not in seen]
         for nid, reason in _pick(rest, int(n) - len(picked), seed,
-                                 "random-fill"):
+                                 "random-fill", ordered=False):
             seen.add(nid)
             picked.append({"node_id": nid, "stratum": "random",
                            "reason": reason})
