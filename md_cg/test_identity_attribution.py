@@ -8,6 +8,10 @@
 授权豁免）+ 审计/提案入队补 session + MDCG_SESSION env（部署侧固定会话归属）。
 边界：归属是归因维度不参与授权；MCP 面不透传写入归属入参（客户端不得伪造），
 库层调用方可显式覆盖（setdefault）；writer 语义=最后写入者。
+
+运行：python -X utf8 -m md_cg.test_identity_attribution
+      python -X utf8 -m md_cg.test_identity_attribution --mutate shared-narrow  # 定点变异自证
+      python -X utf8 -m md_cg.test_identity_attribution --mutate --list
 """
 import glob
 import json
@@ -63,6 +67,76 @@ def _row(r):
     return r if isinstance(r, dict) else (r[0] if r else {})
 
 
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# 定点变异自证（--mutate，照 md_cg/test_w7_redlines.py 范式）：每条变异＝「注入受保护
+# 能力的**丧失**」→ 声明**期望转红的断言项集合**；实跑红项须与之逐项**相等**（多红=
+# 语义纠缠，少红=空转）。变异注入受保护实现（md_cg 侧），不动测试语料。
+_MUT_INJECT_SHARED_NARROW = r'''
+import md_cg.mdcos as M
+from md_cg.mdcos import _rank
+_orig = M.MdCGSecure._readable
+def _rb(self, e, session=None):
+    r = _orig(self, e, session=session)
+    if (r and session and e.get("session")
+            and e.get("session") != session
+            and _rank(e.get("sensitivity") or "internal") < _rank("private")):
+        return False   # 共享档被查询 session 收窄（#35 前的旧契约）
+    return r
+M.MdCGSecure._readable = _rb
+'''
+
+_MUTATIONS = {
+    "shared-narrow": (
+        _MUT_INJECT_SHARED_NARROW,
+        {"⑥a 共享档跨会话可见：显式 session 不缩小可见性"}),
+}
+
+
+def _run_injected(snippet):
+    import subprocess
+    code = ("import sys\n"
+            "sys.path.insert(0, %r)\n"
+            "%s\n"
+            "import runpy\n"
+            "runpy.run_module('md_cg.test_identity_attribution', run_name='__main__')\n"
+            % (_REPO, snippet))
+    env = dict(os.environ, PYTHONUTF8="1")
+    p = subprocess.run([sys.executable, "-X", "utf8", "-c", code],
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", env=env)
+    red = {ln.split("[FAIL]", 1)[1].split("·")[0].strip()
+           for ln in p.stdout.splitlines() if "[FAIL]" in ln}
+    return red, p.stdout
+
+
+def _mutate(group):
+    if group in ("--list", "list", ""):
+        print("变异组：" + ", ".join(sorted(_MUTATIONS)))
+        for name, (_s, expect) in sorted(_MUTATIONS.items()):
+            print(f"  {name}：期望红项 {sorted(expect)}")
+        return 0
+    if group not in _MUTATIONS:
+        print(f"未知组名 {group!r}（可选 {sorted(_MUTATIONS)}）")
+        return 2
+    base_red, _ = _run_injected("")
+    if base_red:
+        print("!! 基线非 0 红，变异自证无意义：" + ", ".join(sorted(base_red)))
+        return 1
+    print(f"!! 归属守卫定点变异自证 · 组 {group}：内存注入共享档逐会话收窄，逐条要求**恰好**命中期望红项\n")
+    snippet, expect = _MUTATIONS[group]
+    red, _out = _run_injected(snippet)
+    okk = red == expect
+    print(f"  实跑红项 {len(red)}（期望 {len(expect)}）"
+          + ("" if okk else f"  ← 差异：多红 {sorted(red - expect)} / 少红 {sorted(expect - red)}"))
+    print("\n变异自证：" + ("PASS（恰好命中期望红项）" if okk else "FAIL"))
+    return 0 if okk else 1
+
+
+if "--mutate" in sys.argv:
+    _i = sys.argv.index("--mutate")
+    sys.exit(_mutate(sys.argv[_i + 1] if _i + 1 < len(sys.argv) else ""))
+
 root = tempfile.mkdtemp(prefix="mdcg_attr_")
 try:
     cg = MdCGSecure(root, principal=_p("alice", "sess_A"))
@@ -111,12 +185,21 @@ try:
     # 可见性），还**比旧断言强**——加比对了「显式 session="sess_B"」与「不传 session」
     # 两次检索的 id 集合**逐元素相等**；旧断言只查两个 id 是否在集合里，对
     # 「传了 session 却同时漏掉别的共享档节点」这种收窄不敏感。
+    # 2026-10-09 守卫脆性修复（⑥a 判别力）：当前库的共享档只有 n1/n2 两个节点，
+    # 而「显式 session 不缩小可见性」这条等式（ids_b == ids_n）在两个集合都等于
+    # 同一小集合 {n1,n2} 时恒真——实测无第 3 节点时对「只丢 n1/n2 之外的共享档
+    # 节点」这类收窄观测不到（同一小集合两侧同坍缩，判不出）。补第 3 个共享档节点
+    # n3（**同 actor bob** 写、异会话 sess_B3——经 cg2 自身带显式 session 写入，
+    # 规避异实例写入后本进程索引未代际重载而看不到），使 ids_n 至少含 3 个跨会话
+    # 共享节点；再要求 n3 也在 ids_b 内——共享档收窄一旦发生即转红。
+    cg2.add("n3", "丙会话共享档知识条目", layer="knowledge", session="sess_B3")
+
     res_b, _ = cg2.search("会话", session="sess_B")
     ids_b = {_row(r).get("id") for r in res_b}
     res_n, _ = cg2.search("会话")
     ids_n = {_row(r).get("id") for r in res_n}
     check("⑥a 共享档跨会话可见：显式 session 不缩小可见性",
-          "n1" in ids_b and "n2" in ids_b and ids_b == ids_n,
+          {"n1", "n2", "n3"} <= ids_b and ids_b == ids_n,
           f"{sorted(ids_b)} vs {sorted(ids_n)}")
 
     # ⑥b~⑦ 绑定档对照（private 节点归 sess_B）：

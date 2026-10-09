@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """md_cg · P3 验收（#2 进程/权限 + #3 设备驱动）
 
-运行：python -m md_cg.test_p3
+运行：python -X utf8 -m md_cg.test_p3
+      python -X utf8 -m md_cg.test_p3 --mutate sensitivity-blind   # 定点变异自证
+      python -X utf8 -m md_cg.test_p3 --mutate --list             # 只列变异表
 """
 from __future__ import annotations
 
@@ -82,6 +84,18 @@ def main():
         # score>0）验密级过滤不吞自己的条目。比旧断言强在：两条各自可判真伪——旧断言
         # 把「密级过滤」与「兜底填充」两件不相干的事绑在一个 `and` 上，前半截永真、
         # 后半截依赖 #89 要禁的行为。
+        # 判别力前提（2026-10-09 守卫脆性修复）：`all(⊆{pub1})` 在结果为空时**恒真**
+        # （空集没有元素可违反），故单靠它无法证伪——若语料演化到查询「条目」对受
+        # 保护节点零词面交集，一旦 `Principal.allows` 失效把 internal/private 漏进来，
+        # 结果仍为空、断言照绿（实测 4 态矩阵：变异语料 + 注入 allows 恒 True ⇒
+        # PASS·[]，判别力被抹掉）。故先钉一条**正对照**：同一查询在可见身份（private）
+        # 下**必须**真命中至少一个受保护节点——它保证下面的密级断言不是空集恒真，
+        # 且语料一旦退化即在此转红，不会静默失去判别力。
+        res_probe, _ = cg_priv.search("条目", k=10)
+        probe_ids = [r[0]["id"] for r in res_probe]
+        check("探针：查询「条目」对受保护节点有真命中（密级断言的判别力前提）",
+              any(i in ("int1", "prv1") for i in probe_ids),
+              f"{probe_ids}")
         res_pub, _ = pub_again.search("条目", k=10)
         check("public 检索结果不含非 public 条目（结果集 ⊆ {pub1}）",
               all(r[0]["id"] == "pub1" for r in res_pub),
@@ -271,5 +285,86 @@ def main():
     return 0 if FAIL == 0 else 1
 
 
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# ================= 定点变异自证（--mutate，照 md_cg/test_w7_redlines.py 范式） ========
+# 每条变异＝「注入受保护能力的**丧失**」→ 声明**期望转红的断言项集合**；实跑红项必须
+# 与之逐项**相等**（多红 = 断言语义纠缠，少红 = 该判据空转）。变异注入**受保护实现**
+# （md_cg 侧），不动测试语料——证明密级断言对「读隔离失效」有真实判别力（而非空集恒真）。
+_MUT_INJECT_SENS_BLIND = r'''
+import md_cg.mdcos as M
+from md_cg.mdcos import _rank
+def _rb(self, e, session=None):
+    # 抹掉密级维度：只保留会话绑定（写闸/直接 allows 不受影响，只破**读隔离**）
+    sens = e.get("sensitivity")
+    if not sens:
+        fm, _c = self._read(e)
+        sens = "secret" if fm is None else (fm.get("sensitivity") or "internal")
+        e["sensitivity"] = sens
+    if sens == "restricted":
+        from md_cg.security import can_read_restricted
+        return self.principal.allows("internal") and can_read_restricted(self.principal)
+    if _rank(sens) >= _rank("private"):
+        if self.principal.can_admin:
+            return True
+        nsess = e.get("session")
+        return bool(nsess) and nsess == self.principal.session
+    return True
+M.MdCGSecure._readable = _rb
+'''
+
+_MUTATIONS = {
+    "sensitivity-blind": (
+        _MUT_INJECT_SENS_BLIND,
+        {"public 读不到 internal 节点",
+         "public 检索结果不含非 public 条目（结果集 ⊆ {pub1}）",
+         "recall 同样受密级过滤",
+         "public 调用方看不到私有会话记忆"}),
+}
+
+
+def _run_injected(snippet):
+    import subprocess
+    code = ("import sys\n"
+            "sys.path.insert(0, %r)\n"
+            "%s\n"
+            "import runpy\n"
+            "runpy.run_module('md_cg.test_p3', run_name='__main__')\n"
+            % (_REPO, snippet))
+    env = dict(os.environ, PYTHONUTF8="1")
+    p = subprocess.run([sys.executable, "-X", "utf8", "-c", code],
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", env=env)
+    red = {ln.split("[FAIL]", 1)[1].split("·")[0].strip()
+           for ln in p.stdout.splitlines() if "[FAIL]" in ln}
+    return red, p.stdout
+
+
+def _mutate(group):
+    if group in ("--list", "list", ""):
+        print("变异组：" + ", ".join(sorted(_MUTATIONS)))
+        for name, (_s, expect) in sorted(_MUTATIONS.items()):
+            print(f"  {name}：期望红项 {len(expect)} 条")
+        return 0
+    if group not in _MUTATIONS:
+        print(f"未知组名 {group!r}（可选 {sorted(_MUTATIONS)}）")
+        return 2
+    base_red, _ = _run_injected("")
+    if base_red:
+        print("!! 基线非 0 红，变异自证无意义：" + ", ".join(sorted(base_red)))
+        return 1
+    print(f"!! P3 定点变异自证 · 组 {group}：内存注入读隔离失效，逐条要求**恰好**命中期望红项\n")
+    snippet, expect = _MUTATIONS[group]
+    red, _out = _run_injected(snippet)
+    okk = red == expect
+    print(f"  实跑红项 {len(red)}（期望 {len(expect)}）"
+          + ("" if okk else f"  ← 差异：多红 {sorted(red - expect)} / 少红 {sorted(expect - red)}"))
+    print("\n变异自证：" + ("PASS（恰好命中期望红项）" if okk else "FAIL"))
+    return 0 if okk else 1
+
+
 if __name__ == "__main__":
+    if "--mutate" in sys.argv:
+        _i = sys.argv.index("--mutate")
+        sys.exit(_mutate(sys.argv[_i + 1] if _i + 1 < len(sys.argv) else ""))
     sys.exit(main())
