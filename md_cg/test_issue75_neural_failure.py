@@ -26,6 +26,12 @@
 （假 sentence_transformers / 假 cspmn / 假 model / 缺键索引），不依赖真模型；
 numpy 缺失时相关断言记 SKIP 而非冒充绿。
 
+**覆盖域（重要 · 2026-10-10 补）**：正跑 13 条在两个域下同为全绿；但**变异自证的
+期望红项集合是域相关的**——A5 的可达性由 numpy 决定（机理见 _MUTATIONS 上方注释）。
+两个域各自**实测**回填，运行时打印当前域。教训：曾在只测过 numpy-缺失域的情况下
+把该域读数当普适值写进提交正文，被 zcode 端在 numpy 2.5.3 域复现出差异
+（变异② 实得 5 条、A5 未红）——「单域读数不得冒称全域」。
+
 源码形态断言一律读**盘上文件**（io.open），**不用** inspect.getsource——
 变异是把方法 monkeypatch 掉，getsource 在读盘型断言上会读到变异体（前车之鉴）。
 """
@@ -407,12 +413,23 @@ def _mut_degrade_raises():
     return lambda: setattr(nr.NeuralRetriever, "_degrade", orig)
 
 
-#: 组 → [(变异名, 应用函数, 期望转红断言前缀集合)]——期望集合按**实测**填
+#: 组 → [(变异名, 应用函数, 期望转红断言前缀集合**按 numpy 可用性分域**)]
+#:
+#: 为何分域（A5 的可达性是域相关的）：
+#:   · numpy **可用** ⇒ CSPMN 抛异常后回退走真 numpy 路径**成功**，全程不触 _degrade
+#:     ⇒ 变异②（_degrade 改抛）下 A5 **不应**红；
+#:   · numpy **缺失** ⇒ 守卫注入的假 numpy 令 linalg.norm 抛 ⇒ 外层兜底走 _degrade
+#:     ⇒ 变异② 下 A5 **必**红。
+#: 两个域各自**实测**回填（numpy 2.5.3 域＝用 --target 隔离目录装同版本复现 zcode 端读数）。
 _MUTATIONS = {
     "A": [("去掉结构化记录（可观测性归零）", _mut_no_record,
-           {"A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A12"}),
+           # 变异① 两域实测同集：可观测性归零对每个失败点都生效，与 numpy 无关
+           {False: {"A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A12"},
+            True:  {"A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A12"}}),
           ("降级改成抛异常（破坏 D-005 契约）", _mut_degrade_raises,
-           {"A2", "A3", "A5", "A6", "A10", "A12"})],
+           # 变异② 两域**不同**：差集恰为 A5（见上方机理）
+           {False: {"A2", "A3", "A5", "A6", "A10", "A12"},
+            True:  {"A2", "A3", "A6", "A10", "A12"}})],
 }
 
 
@@ -453,14 +470,19 @@ def _mutate(name):
     rc = _anchor_preflight()
     if rc:
         return rc
+    _has_np = _numpy is not None
     print("!! #75② 定点变异自证 · 组 " + name + "：内存注入退化，逐条要求恰好命中期望红项")
+    print("  覆盖域：numpy " + ("可用（CSPMN 回退走真 numpy 路径 ⇒ A5 不触 _degrade）"
+                              if _has_np else
+                              "缺失（注入假 numpy ⇒ A5 经外层 _degrade 兜底）"))
     base_red, _, _ = _run_group(name)
     print("  未变异基线：红项 " + str(len(base_red))
           + ("（应为 0）" if not base_red else " " + str(sorted(base_red))))
     bad = []
     if base_red:
         bad.append("基线即转红：" + str(sorted(base_red)))
-    for i, (mname, apply, expect) in enumerate(_MUTATIONS[name]):
+    for i, (mname, apply, expect_by_dom) in enumerate(_MUTATIONS[name]):
+        expect = expect_by_dom[_has_np]
         restore = apply()
         try:
             red, _, _ = _run_group(name)
