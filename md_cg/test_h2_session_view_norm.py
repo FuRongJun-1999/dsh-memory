@@ -47,6 +47,14 @@ FAILS = []
 DSH_ID = "session-11111111-2222-3333-4444-555555555555"
 ENV_KEY = "MDCG_DSH_SESSIONS_ROOT"
 
+# 环境隔离（照 md_cg/test_state_event_op.py 钉 MDCG_TOKEN_FILE 的先例，2026-10-09）：
+# mcp_server 的 env 权威 `_declared_session` / `_apply_attribution`（MDCG_SESSION
+# 优先、退回 DSH_SESSION_ID）会**覆盖**本测试自声明的 session——凡 harness 注入
+# 这两个键之一者，A2/A3/D2/D3 转红；未注入者全绿，同一件两机读数分叉。本测试不
+# 依赖任何 env 会话，故全程清掉这两个键，使测试自声明的 session 成为权威，结束复原。
+# **不改实现语义**（env 权威是既有契约，本笔只做测试侧环境隔离）。
+_SESSION_ENV_KEYS = ("MDCG_SESSION", "DSH_SESSION_ID")
+
 
 def check(name, cond, detail=""):
     global PASS
@@ -210,6 +218,11 @@ def test_e(root, sessions_root):
 
 
 def main():
+    # 先隔离宿主注入的会话 env（见 _SESSION_ENV_KEYS 注释）——保证本测试自声明的
+    # session 在任何 harness 下都是权威，读数不因宿主而分叉。
+    _saved_env = {k: os.environ.get(k) for k in _SESSION_ENV_KEYS}
+    for _k in _SESSION_ENV_KEYS:
+        os.environ.pop(_k, None)
     tmp = tempfile.mkdtemp(prefix="mdcg_h2_")
     sessions_root = os.path.join(tmp, "sessions")
     os.makedirs(sessions_root, exist_ok=True)
@@ -219,14 +232,19 @@ def main():
         test_c(os.path.join(tmp, "root_c"), sessions_root)
         test_d(os.path.join(tmp, "root_d"), tmp)
         test_e(os.path.join(tmp, "root_e"), sessions_root)
+
+        print("\n通过 %d / 失败 %d" % (PASS, len(FAILS)))
+        if FAILS:
+            print("失败项：" + ", ".join(FAILS))
+            return 1
+        return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-
-    print("\n通过 %d / 失败 %d" % (PASS, len(FAILS)))
-    if FAILS:
-        print("失败项：" + ", ".join(FAILS))
-        return 1
-    return 0
+        for _k, _v in _saved_env.items():
+            if _v is None:
+                os.environ.pop(_k, None)
+            else:
+                os.environ[_k] = _v
 
 
 if __name__ == "__main__":
