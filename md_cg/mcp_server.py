@@ -4189,6 +4189,39 @@ def _resolve_root(env=None):
                 return None, (f"MDCG_TENANT={tenant} 已登记根 {t_root}，"
                               f"与显式 MDCG_ROOT={root} 不一致（fail-closed）")
             root = t_root
+    else:
+        # issue #98（2026-10-09 DSH 端）：**MDCG_TENANT 未设时的残余面**——原实现此时
+        # 直接返回 MDCG_ROOT，既不与登记表对照、也不看令牌属于哪个租户 ⇒
+        # 「A 的令牌 + MDCG_ROOT=B 的登记根」可跨租户读 internal 并写入。
+        # 手法（按 issue 建议 2）：**反向查登记表**——若 MDCG_ROOT 命中任一已登记租户
+        # 的登记根，而本进程未声明 MDCG_TENANT，即属身份与根未对照，fail-closed 拒绝。
+        # 无需解令牌即可堵住该形态；自建（未登记）根不受影响。
+        if root:
+            try:
+                from .security import TenantRegistry as _TR98
+                _reg98 = _TR98(env.get("MDCG_TENANT_REGISTRY") or None)
+                _owner98 = None
+                # 登记表内部就是 tenant -> 根 的 dict（TenantRegistry.data，
+                # security.py:282）；无 all_tenants() 方法，故直接迭代 data。
+                # 登记表结构 = {"schema":1,"tenants":{租户:{root,...}}}（security.py:302/:316）
+                # —— 故须迭代 data["tenants"] 的键，而不是 data 本身的键（首版即栽在此：
+                # 迭代到 schema/tenants 两个字面键，root_of 全落空 ⇒ 反查恒不命中、G1 恒红）。
+                _map98 = (getattr(_reg98, "data", None) or {}).get("tenants") or {}
+                for _tn in list(_map98.keys()):
+                    try:
+                        _tr = _reg98.root_of(_tn)
+                    except Exception:
+                        continue
+                    if _tr and os.path.abspath(_tr) == os.path.abspath(root):
+                        _owner98 = _tn
+                        break
+                if _owner98:
+                    return None, (
+                        f"MDCG_ROOT={root} 是租户 {_owner98} 的登记根，"
+                        f"但本进程未声明 MDCG_TENANT —— 身份与根未对照，"
+                        f"拒绝启动（fail-closed，issue #98）")
+            except Exception:
+                pass   # 登记表不可用按未登记处理（与上方口径一致）
     return root, None
 
 
