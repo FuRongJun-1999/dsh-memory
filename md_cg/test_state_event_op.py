@@ -87,6 +87,12 @@ def _sandbox_env():
               "MDCG_STG_STATE"):
         _SAVED[k] = os.environ.get(k)
         os.environ.pop(k, None)
+    # #86（令牌运行期复检）：把复检读的令牌库钉到本进程隔离库——本件 _principal 的签发/
+    # 校验都显式落 _tokfile()，而 mcp_server._runtime_token_recheck 经 tokens.token_file(None)
+    # 读 env MDCG_TOKEN_FILE（缺省＝在役库）；不钉则复检在在役库查不到本库 token_id ⇒
+    # A10（最外层 call_tool 通路）被误判「令牌记录已不存在」。_restore_env 依 _SAVED 原样还原。
+    _SAVED["MDCG_TOKEN_FILE"] = os.environ.get("MDCG_TOKEN_FILE")
+    os.environ["MDCG_TOKEN_FILE"] = _tokfile()
 
 
 # 生效条件：无入参；把 _SAVED 逐个还原（原值 None 则移除键），恢复进程原有 env 形态。
