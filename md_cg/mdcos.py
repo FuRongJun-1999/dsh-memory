@@ -514,6 +514,32 @@ def _attribution_session_of(cg, sens=None):
     return hook(sens)
 
 
+#: B1（2026-10-10 设计者裁定）：跨身份读的**可选采样**开关
+#: （`MDCG_READ_FOREIGN_SAMPLE`）。跨身份读是**设计内隔离**，量大（在役库
+#: 302 万条 `open_failed` 全属此类）——**默认不逐条记**（否则把 A2 刚修掉的
+#: 「无界噪声」原样搬回来）；N>0 时每 N 次跨身份读记一条 `read_foreign`（N=1
+#: 全记，供守卫/取证）。进程内计数恒完整、零 IO、零新增文件增长。
+READ_FOREIGN_SAMPLE_ENV = "MDCG_READ_FOREIGN_SAMPLE"
+
+
+# 生效条件：读 os.environ 的 MDCG_READ_FOREIGN_SAMPLE，能解析为 int 则返回该值，缺失/空/非法一律返回 0（关闭）。
+def _read_foreign_sample_rate():
+    try:
+        return int(os.environ.get(READ_FOREIGN_SAMPLE_ENV, "0") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+# 生效条件：cg 为读方实例；采样率（见 _read_foreign_sample_rate）≤0 时直接返回 False（不记、零副作用）；>0 时把 cg._read_foreign_seen 自增 1，返回「rate==1 或计数能被 rate 整除」的布尔结果。
+def _read_foreign_sampled(cg):
+    """跨身份读是否落一条 read_foreign（采样开关，默认关）。"""
+    rate = _read_foreign_sample_rate()
+    if rate <= 0:
+        return False
+    cg._read_foreign_seen = getattr(cg, "_read_foreign_seen", 0) + 1
+    return rate == 1 or cg._read_foreign_seen % rate == 0
+
+
 # 生效条件：以任意 root 构造时按其拼接 audit_log/hippocampus/trash 等路径并 makedirs 创建 hippocampus 与 trash_dir（exist_ok=True），autoflush 透传父类、actor 存入 self.actor；
 class MdCGOS(MdCG):
     """MdCG + 记忆 OS 七项能力。"""
@@ -4990,7 +5016,7 @@ class MdCGSecure(MdCGOS):
                                  "actor": self.principal.actor})
         return sealed
 
-# 生效条件：content 为 None 或非加密时原样返回 content；加密时先用**本次读取所得的 frontmatter**（sensitivity/session）复核读可见性，不可见即写 read_denied 审计并返回 None；可见但 self.dek 为假值时写 read_locked 审计并返回 None；crypto.open_node 抛 CryptoError 时写 open_failed 审计并返回 None，成功则返回明文。
+# 生效条件：content 为 None 或非加密时原样返回 content；加密时先用**本次读取所得的 frontmatter**（sensitivity/session）复核读可见性，不可见即写 read_denied 审计并返回 None；可见但 self.dek 为假值时写 read_locked 审计并返回 None；随后比密文携带的 enc_id_fp（或 fm.get("enc_id_fp")）与当前 principal 指纹，不相等即（按采样）写 read_foreign 审计并返回 None 且**不**尝试解密；相等或指纹缺失（旧格式存量）才 crypto.open_node，抛 CryptoError 时写 open_failed 审计并返回 None，成功则返回明文。
     def _open_content(self, node_id, fm, content):
         """密文解封；无密钥 / 身份不符 / **读不可见** → None（不可读），失败留审计。"""
         if content is None or not crypto.is_encrypted(content):
@@ -5019,6 +5045,23 @@ class MdCGSecure(MdCGOS):
                                      "actor": self.principal.actor,
                                      "reason": self._crypto_error or "no_dek"})
             return None
+        # B1（2026-10-10 设计者裁定）：**跨身份在解密前可判**。密文块携带非敏感
+        # 指纹 `enc_id_fp`（新格式；旧格式无该段则回落 fm.get，两者皆无 ⇒ 旧路径）。
+        # 不等 ⇒ 预期隔离（read_foreign，默认不记/可采样）并**跳过 open_node**；
+        # 相等才试解密，失败才记 `open_failed`（**此时才是真异常**——密钥/节点不
+        # 匹配或密文被篡改）。判据取密文自带指纹而非索引条目：与正文同源、无 TOCTOU。
+        declared = (fm or {}).get("enc_id_fp") or crypto.enc_id_fp(content)
+        if declared:
+            mine = crypto.identity_fingerprint(self.principal.tenant,
+                                               self.principal.actor)
+            if declared != mine:
+                if _read_foreign_sampled(self):
+                    crypto.audit(self.root, {
+                        "op": "read_foreign", "node_id": node_id,
+                        "tenant": self.principal.tenant,
+                        "actor": self.principal.actor,
+                        "reason": "读隔离：密文属他身份（预期，非篡改）"})
+                return None
         try:
             return crypto.open_node(content, self.dek, node_id,
                                     self.principal.tenant, self.principal.actor)

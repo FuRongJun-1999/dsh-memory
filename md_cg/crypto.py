@@ -28,6 +28,10 @@
     ① 换了身份（actor / tenant 不符）→ 解不开；
     ② 把密文拷贝到另一个节点 → 校验失败。
   即「密钥 + 身份」双因子，缺一不可。
+· **跨身份可在解密前判定**（B1，2026-10-10）：密文块另携**非敏感**指纹
+  `enc_id_fp`（= `identity_fingerprint(tenant, actor)`，与 `_keys.json` 信封同款，
+  16 位 hex、不泄露身份原文），读方零解密即可判「是否跨身份」——设计内隔离与
+  「密文被篡改」不再混进同一条审计文案（存量旧格式无该段，读方走旧路径）。
 
 密码学实现
 ----------
@@ -418,22 +422,45 @@ def is_encrypted(content):
     return bool(content) and content.lstrip().startswith(ENC_PREFIX)
 
 
-# 生效条件：content、dek、node_id、tenant、actor 为入参，生成 NONCE_LEN 随机 nonce，将 str(content).encode("utf-8") 以 aead_encrypt(dek, nonce, ..., _node_aad(node_id, tenant, actor)) 加密，返回 f"{ENC_PREFIX}{_b64e(nonce + tag + ct)}{ENC_SUFFIX}"。
+# 生效条件：content 为入参；非密文（is_encrypted 为假）时返回 None；密文块正文中不含 ":"（旧格式，仅 base64）时返回 None；否则返回 ":" 前的 enc_id_fp 字串（空串亦返回 None）。base64 标准字母表不含 ":"，故该分隔符无歧义；旧格式密文天然无此段 ⇒ 返回 None（调用方走旧路径）。
+def enc_id_fp(content):
+    """从密文标记块取出**非敏感**身份指纹 `enc_id_fp`（B1）。
+
+    新格式：`<!-- mdcg-enc:v1:<enc_id_fp>:<base64(nonce+tag+ct)> -->`
+    存量旧格式（无该段）返回 None —— 不需要迁移，读方走旧路径（新写逐步带上）。
+    """
+    if not is_encrypted(content):
+        return None
+    body = content.strip()[len(ENC_PREFIX):-len(ENC_SUFFIX)]
+    if ":" not in body:
+        return None
+    return body.split(":", 1)[0] or None
+
+
+# 生效条件：content、dek、node_id、tenant、actor 为入参，生成 NONCE_LEN 随机 nonce，将 str(content).encode("utf-8") 以 aead_encrypt(dek, nonce, ..., _node_aad(node_id, tenant, actor)) 加密，返回 f"{ENC_PREFIX}{enc_id_fp}:{_b64e(nonce + tag + ct)}{ENC_SUFFIX}"，其中 enc_id_fp=identity_fingerprint(tenant, actor)（非敏感 16 位 hex，随密文同行，读方零解密即可判跨身份）。
 def seal_node(content, dek, node_id, tenant, actor):
-    """明文 → 密文标记块（正文整体加密；frontmatter 不在此处处理）。"""
+    """明文 → 密文标记块（正文整体加密；frontmatter 不在此处处理）。
+
+    A2/B1（2026-10-10）：密文块携带 `identity_fingerprint(tenant, actor)`（16 位
+    hex，与 `_keys.json` 信封同款指纹）——它是**非敏感**标识（不泄露身份原文），
+    使「跨身份读」在解密前可判（省掉无谓 MAC、并把真异常留给 open_failed）。
+    """
     nonce = secrets.token_bytes(NONCE_LEN)
     ct, tag = aead_encrypt(dek, nonce, str(content).encode("utf-8"),
                            _node_aad(node_id, tenant, actor))
-    return f"{ENC_PREFIX}{_b64e(nonce + tag + ct)}{ENC_SUFFIX}"
+    return (f"{ENC_PREFIX}{identity_fingerprint(tenant, actor)}:"
+            f"{_b64e(nonce + tag + ct)}{ENC_SUFFIX}")
 
 
-# 生效条件：content、dek、node_id、tenant、actor 为入参；若 is_encrypted(content) 为假则原样返回 content；否则 strip 后切掉 ENC_PREFIX/ENC_SUFFIX，base64 解出 raw，按 NONCE_LEN、TAG_LEN 切出 nonce/tag/ct，调 aead_decrypt(dek, nonce, ct, tag, _node_aad(node_id, tenant, actor)) 并 utf-8 解码返回；aead_decrypt 失败抛 CryptoError。
+# 生效条件：content、dek、node_id、tenant、actor 为入参；若 is_encrypted(content) 为假则原样返回 content；否则 strip 后切掉 ENC_PREFIX/ENC_SUFFIX，正文含 ":" 时丢弃其前的 enc_id_fp 段（新格式），base64 解出 raw，按 NONCE_LEN、TAG_LEN 切出 nonce/tag/ct，调 aead_decrypt(dek, nonce, ct, tag, _node_aad(node_id, tenant, actor)) 并 utf-8 解码返回；aead_decrypt 失败抛 CryptoError；旧格式（无 ":" 段）与新格式同一路径解密（向后兼容）。
 def open_node(content, dek, node_id, tenant, actor):
-    """密文标记块 → 明文；未加密原样返回；失败抛 CryptoError。"""
+    """密文标记块 → 明文；未加密原样返回；失败抛 CryptoError（兼容旧格式）。"""
     if not is_encrypted(content):
         return content
     body = content.strip()
     body = body[len(ENC_PREFIX):-len(ENC_SUFFIX)]
+    if ":" in body:                        # 新格式：<enc_id_fp>:<b64>
+        body = body.split(":", 1)[1]
     raw = _b64d(body)
     nonce = raw[:NONCE_LEN]
     tag = raw[NONCE_LEN:NONCE_LEN + TAG_LEN]
@@ -557,6 +584,7 @@ def catalog():
             "DEK 信封 AAD = mdcg-dek|v|tenant|actor",
             "节点 AAD = mdcg-node|v|tenant|actor|node_id",
             "信封另存 id_fp 指纹，解密前先比对（快速失败）",
+            "密文块携带 enc_id_fp 指纹（新格式），读方零解密即可判跨身份",
         ],
         "plaintext_metadata": ["layer", "tags", "condition_space", "importance",
                                "sensitivity", "created_at"],
