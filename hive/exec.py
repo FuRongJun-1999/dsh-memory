@@ -1100,13 +1100,21 @@ def _under(path: str, root: str) -> bool:
 # 会随 tool 消息发往 HIVE_API_BASE 外部网关，SSH 私钥 / 云凭据 / 浏览器
 # Cookie 库无论根约束如何都**不该**进上下文。匹配在斜杠归一后做（Windows
 # 反斜杠兼容）；目录段整段匹配（防 ~/.sshx 误伤）、文件名前缀/精确匹配。
+# issue #95（2026-10-09 DSH 端）：原表漏了**本仓自己落盘的凭据目录** ——
+# 用户主目录下的 .mdcg/ 里是 Node 插件自动签发的 designer **明文令牌**，
+# 而 context_files 走黑名单、黑名单天生会漏「自家刚写下的东西」。
 _SENSITIVE_DIR_SEGMENTS = (".ssh", ".aws", ".gcloud", ".azure", ".kube",
-                           ".gnupg", ".docker", ".netrc")
+                           ".gnupg", ".docker", ".netrc",
+                           ".mdcg", "keyrings")
 _SENSITIVE_FILE_NAMES = ("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
                          ".netrc", ".htpasswd", ".npmrc", ".pypirc",
                          "credentials", "credentials.json",
                          "config.local.json",
-                         "cookies.sqlite", "cookies.sqlite-journal")
+                         "cookies.sqlite", "cookies.sqlite-journal",
+                         # issue #95：下面这些是实测「原文进入消息」的形态
+                         "token", ".pgpass", ".my.cnf",
+                         "login.keyring", "keyring.json",
+                         "logins.json", "key4.db", "signons.sqlite")
 
 
 # 生效条件：real 为 realpath 规范化后的绝对路径；归一斜杠小写后，任一父目录段属 _SENSITIVE_DIR_SEGMENTS、文件名精确命中 _SENSITIVE_FILE_NAMES（含 config.local.json——N141，批次 49）、或命中 V21-8 族匹配（id_rsa/id_ed25519/id_ecdsa/id_dsa/service-account 前缀族、名字含 credential/creds、.env 后缀族——堵「改名/加后缀即免检」缺口，V21 报告 8 类实测样本全覆盖；.token 后缀族——N141 补部署令牌文件 orch.token/designer.token）、或以 credentials/access_tokens 前缀命中、或文件名以 .env 开头/以 .env/.pem/.key/.p12/.pfx/.kdbx/.token 结尾时返回原因说明串，否则返回 None。
@@ -1122,6 +1130,10 @@ def _sensitive_read(real: str) -> str | None:
         if name == cand or (cand == "credentials" and name.startswith(
                 ("credentials", "access_tokens"))):
             return f"敏感凭据文件（{name}）"
+    # issue #95：shell/python 历史文件（实测 ~/.bash_history 原文进入消息，
+    # 且里面常有 OPENAI_API_KEY=… / mysql -p… 这类二次凭据）。
+    if name.endswith(("_history", ".history")):
+        return "敏感凭据文件（%s：命令历史常含明文凭据）" % name
     # V21-8（批次 34，外部报告）：族匹配——精确名黑名单「改名/加后缀即免检」
     # （id_rsa.bak / prod.env / creds.json / aws_credentials /
     # service-account.json 等 8 类实测正文泄露）。目录段思路扩展到文件名：
@@ -1162,6 +1174,9 @@ _PII_PATTERNS = (
         r"(?<![0-9A-Za-z])(?:sk-[A-Za-z0-9_-]{16,}|"
         r"gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|"
         r"Bearer\s+[A-Za-z0-9._-]{20,})(?![0-9A-Za-z])")),
+    # issue #95（2026-10-09 DSH 端）：灵枢令牌形态 mdcg1.<...>（与 data/policy.json
+    # 第 11 条同源）——它是**本仓自己签发**的凭据，实测可经 context_files 外发。
+    ("灵枢令牌", re.compile(r"(?<![0-9A-Za-z])mdcg1\.[A-Za-z0-9._\-]{16,}")),
     # 身份证（18 位含校验位 X）——先于手机号（避免 17 位段被手机号误吃）
     ("身份证号", re.compile(r"(?<![0-9A-Za-z])\d{6}(?:19|20)\d{2}"
                            r"(?:0[1-9]|1[0-2])(?:[0-2]\d|3[01])"
