@@ -143,6 +143,39 @@ def _kind_label(rec):
     return "变更单(%s%s)" % (name, ("→ " + str(tgt)) if tgt else "")
 
 
+# issue #71（2026-10-09 DSH 端）：批量处置的**安全红线**——只接受**显式 pid**，
+# 且形态严格（prop_ + 十六进制）。**禁止通配/正则/tag 直批**：那等于把质量闸
+# 改成「自动通过」，与 policy 的必需六要素精神冲突。
+_PID_RE = __import__("re").compile(r"^prop_[0-9a-f]{6,}$")
+
+
+def _load_pids(path):
+    """读取「一行一个显式 pid」的批量清单；含非法形态即整体拒绝（返回 None）。"""
+    try:
+        raw = open(path, encoding="utf-8", errors="replace").read()
+    except OSError as exc:
+        sys.stderr.write("无法读取 --pids-file：%s" % exc + chr(10))
+        return None
+    ids, bad = [], []
+    for line in raw.splitlines():
+        tok = line.strip()
+        if not tok or tok.startswith("#"):
+            continue
+        if not _PID_RE.match(tok):
+            bad.append(tok)
+        else:
+            ids.append(tok)
+    if bad:
+        sys.stderr.write(
+            "拒绝执行：--pids-file 含非显式 pid 形态（禁通配/正则/tag）：%r"
+            "。请只写一行一个的显式 pid（形如 prop_1a2b3c4d）。" % bad[:5])
+        return None
+    if not ids:
+        sys.stderr.write("--pids-file 里没有任何显式 pid。" + chr(10))
+        return None
+    return ids
+
+
 # 生效条件：cg 与 args 就绪时按 args.cmd 分派——"list" 时 cg.review_list() 为空则打印空队列并返回 0、非空则逐条打印（tags 取真值拼接、layer/round 为假值显示 "?"/0）后返回 0；"rounds" 时打印 cg.review_rounds(args.pid) 并返回 0；"stats" 时打印 cg.review_stats() 的记录数/提案数/待审数/已关闭数与动作分布（含 noop 计数）并返回 0；"edit" 时以 args.content 加真值 args.tags（按逗号分割并剔除空项）/args.layer 组成 edits 调 cg.review_decide；其余 cmd（含 noop）以 getattr(args, "into", None) 与 args.reason 调 cg.review_decide；后两类再按 out.get("ok") 为真返回 0，否则打印 out 并返回 1。
 def _execute(cg, args):
     """按子命令执行裁决（cg 的生命周期由 main 统一收尾）。"""
@@ -160,6 +193,14 @@ def _execute(cg, args):
                 tags, r.get("round") or 0, _brief(r)))
         print('\n裁决示例：python -m md_cg.review_cli accept <pid> --reason "实跑测试证据"')
         return 0
+
+    if args.cmd in ("accept", "reject", "noop"):
+        pf = getattr(args, "pids_file", None)
+        if pf:
+            return _batch_decide(cg, args, pf)
+        if not getattr(args, "pid", None):
+            sys.stderr.write("需要 <pid> 或 --pids-file（两者给其一）。" + chr(10))
+            return 1
 
     if args.cmd == "rounds":
         print(json.dumps(cg.review_rounds(args.pid), ensure_ascii=False, indent=1))
@@ -197,6 +238,31 @@ def _execute(cg, args):
     return 1
 
 
+def _batch_decide(cg, args, pids_file):
+    """批量裁决（issue #71）：**先预览、再执行**两段式。"""
+    ids = _load_pids(pids_file)
+    if ids is None:
+        return 1
+    if not getattr(args, "apply", False):
+        print("DRY-RUN：将处置 %d 条（未落盘）。确认后加 --apply。" % len(ids))
+        pend = {r.get("pid"): r for r in (cg.review_list() or [])}
+        for pid in ids:
+            r = pend.get(pid)
+            note = "（不在待审队列）" if r is None else _brief(r)
+            print("  [%s] %s" % (pid, note))
+        return 0
+    rc, done = 0, 0
+    for pid in ids:
+        out = cg.review_decide(pid, args.cmd, reason=args.reason)
+        if out.get("ok"):
+            done += 1
+        else:
+            rc = 1
+            print("  %s 未生效：%s" % (pid, json.dumps(out, ensure_ascii=False)))
+    print("批量裁决完成：%d/%d 条生效。" % (done, len(ids)))
+    return rc
+
+
 # 生效条件：argv 为 None（默认）时由 argparse 解析 sys.argv、否则解析传入的 argv（子命令 dest="cmd" 为 required，已注册 list/accept/reject/edit/merge/rounds 并带 --root 等参数），解析成功后构造 cg=_cg(args) 并返回 _execute(cg, args)，finally 中执行 cg.close()。
 def main(argv=None):
     ap = argparse.ArgumentParser(
@@ -216,7 +282,12 @@ def main(argv=None):
                         ("reject", "丢弃（只记裁决）"),
                         ("noop", "已评估、判定不改变现有记忆（只留痕）")):
         s = sub.add_parser(name, help=help_, parents=[common])
-        s.add_argument("pid")
+        # issue #71：pid 由必填改可选（批量为 --pids-file），两者须给其一。
+        s.add_argument("pid", nargs="?", default=None)
+        s.add_argument("--pids-file", default=None,
+                        help="批量：一行一个显式 pid（禁通配/正则/tag）")
+        s.add_argument("--apply", action="store_true",
+                        help="批量：确认执行（缺省为 dry-run 只预览）")
         s.add_argument("--reason", default="", help="裁决理由（进留痕）")
     s = sub.add_parser("edit", help="修订后写入", parents=[common])
     s.add_argument("pid")
