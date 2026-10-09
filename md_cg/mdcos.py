@@ -40,6 +40,7 @@ from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                writelimit, reach, trust, roleviews, autonomy_modes, lifecycle)
 from .fsutil import (FileLock, atomic_write, append_jsonl, read_jsonl,
                      read_jsonl_tail, count_jsonl, publish)
+from .rotate import Rotator
 from .security import (Principal, TenantRegistry, AccessDenied,
                        SENSITIVITY_ORDER, DEFAULT_SENSITIVITY, _rank)
 from . import security as _security
@@ -533,8 +534,25 @@ class MdCGOS(MdCG):
         self.trash_dir = os.path.join(self.root, self.TRASH)
         os.makedirs(self.hippocampus, exist_ok=True)
         os.makedirs(self.trash_dir, exist_ok=True)
-        self._audit_writes = 0        # 进程内写入计数（轮转探测节流，稳态零 stat）
-        self._audit_index = None      # 归档索引缓存（懒加载）
+        self._audit_writes = 0        # 旧进程内写入计数（现由巡转器自持，见下）
+        self._audit_index = None      # 旧归档索引缓存（现由巡转器自持，见下）
+        # 审计轮转的机制实现唯一收口到 md_cg.rotate.Rotator（A2，2026-10-10）；
+        # 本实例只保留薄委托方法（口径/阈值仍读本类常量，守卫可原地改）。
+        self._audit_rot = Rotator(
+            root=self.root, basename="_audit",
+            archive_name=self.AUDIT_ARCHIVE, index_name=self.AUDIT_INDEX,
+            rotate_bytes=self.AUDIT_ROTATE_BYTES,
+            keep_shards=self.AUDIT_KEEP_SHARDS,
+            probe_every=self.AUDIT_PROBE_EVERY,
+            count_max_bytes=self.AUDIT_COUNT_MAX_BYTES,
+            counter=lambda p: count_jsonl(p),
+            scale_reader=self._log_scale,
+            mark_factory=lambda name, size, events, pruned, reason: {
+                "t": time.time(), "op": "audit_rotate", "id": name,
+                "actor": self.actor, "bytes": size, "events": events,
+                "pruned": pruned, "reason": reason,
+                "session": getattr(self, "session", None)},
+            clock=lambda: time.time())
         # 审核队列增量对账缓存（issue #32）：inbox/decisions 均为 append-only
         # （写点全在 strict 锁内经 append_jsonl，无轮转/截断），propose 的
         # 幂等对账从「每条全量重读 O(M+D)」改为「stat 尾部增量」——跨进程
@@ -620,198 +638,61 @@ class MdCGOS(MdCG):
 
     # ---------- 审计日志分片轮转（治本：给无上界增长装上界） ----------
 
-# 生效条件：当 self.audit_archive 可被 os.listdir 列出时，返回其中以 "_audit." 开头且以 ".jsonl" 结尾的名字升序列表；listdir 抛 OSError 时返回 []；
+# 生效条件：无条件返回 self._audit_rot.shards()（archive 可列时给出 "<basename>." 开头/.jsonl 结尾的升序名；OSError 时 []）；机制在 md_cg.rotate.Rotator，本方法只作既有调用面的兼容入口。
     def _audit_shards(self):
-        """归档分片名，序号零填充 ⇒ 字典序 == 时间序。"""
-        try:
-            names = os.listdir(self.audit_archive)
-        except OSError:
-            return []
-        return sorted(n for n in names
-                      if n.startswith("_audit.") and n.endswith(".jsonl"))
+        """归档分片名，序号零填充 ⇒ 字典序 == 时间序（委托 Rotator）。"""
+        return self._audit_rot.shards()
 
-# 生效条件：当 self._audit_index 为 None 时，尝试读取 audit_archive 中 AUDIT_INDEX 并过滤 value 为 dict，读取失败或数据非 dict 时 idx 为空字典；随后把 self._audit_index 设为 idx 并返回；非 None 时不重读直接返回；
+# 生效条件：无条件返回 self._audit_rot.load_index()（首次读盘并过滤 dict 值、失败空起步并缓存，之后不重读）。
     def _load_audit_index(self) -> dict:
-        if self._audit_index is None:
-            idx = {}
-            try:
-                with open(os.path.join(self.audit_archive, self.AUDIT_INDEX),
-                          "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    idx = {k: v for k, v in data.items() if isinstance(v, dict)}
-            except (OSError, ValueError):
-                idx = {}                       # 索引缺失/损坏 → 空起步，自愈补数
-            self._audit_index = idx
-        return self._audit_index
+        return self._audit_rot.load_index()
 
-# 生效条件：当 idx 传入时，尝试创建 self.audit_archive 并把 idx 的 JSON（ensure_ascii=False, indent=1, sort_keys=True）原子写入 AUDIT_INDEX；OSError 被吞掉；最后把 self._audit_index 设为 idx，无返回值；
+# 生效条件：无条件委派 self._audit_rot.save_index(idx)（建目录 + 原子写 JSON，OSError 吞掉；缓存更新在 Rotator 内）。
     def _save_audit_index(self, idx: dict):
-        try:
-            os.makedirs(self.audit_archive, exist_ok=True)
-            atomic_write(os.path.join(self.audit_archive, self.AUDIT_INDEX),
-                         json.dumps(idx, ensure_ascii=False, indent=1, sort_keys=True))
-        except OSError:
-            pass
-        self._audit_index = idx
+        self._audit_rot.save_index(idx)
 
-# 生效条件：当 AUDIT_ROTATE_BYTES > 0 且 _audit_writes 自增后能被 AUDIT_PROBE_EVERY 整除，且 audit_log 的 getsize 不小于 AUDIT_ROTATE_BYTES 时，调用 rotate_audit；AUDIT_ROTATE_BYTES<=0、未到探测间隔或 getsize 不足/OSError 时直接返回；
+# 生效条件：先把本类常量（AUDIT_ROTATE_BYTES/KEEP_SHARDS/PROBE_EVERY/COUNT_MAX_BYTES）同步进巡转器，再委派 maybe_rotate()——AUDIT_ROTATE_BYTES<=0、未到探测间隔或活动文件不足阈值时不动；本方法不再自持写入计数。
+    def _sync_audit_rotator(self):
+        """把本实例可变的类常量同步进巡转器（守卫/调用方可原地改阈值）。"""
+        r = self._audit_rot
+        r.rotate_bytes = self.AUDIT_ROTATE_BYTES
+        r.keep_shards = self.AUDIT_KEEP_SHARDS
+        r.probe_every = self.AUDIT_PROBE_EVERY
+        r.count_max_bytes = self.AUDIT_COUNT_MAX_BYTES
+
+# 生效条件：同步阈值后委派 self._audit_rot.maybe_rotate()；返回切分结果 dict 或 None。
     def _rotate_audit_if_needed(self):
-        """写前闸门：活动日志达阈值即切分（把 stat 摊到 1/AUDIT_PROBE_EVERY）。
+        """写前闸门：活动日志达阈值即切分（委托 Rotator，stat 摊到 1/PROBE_EVERY）。"""
+        self._sync_audit_rotator()
+        return self._audit_rot.maybe_rotate()
 
-        为什么不逐条 stat：写路径要付的是「每次写入税」，而活动文件由本进程与同
-        root 其它进程共同增长，故按固定间隔读一次真实元数据校准——既不漏轮转，
-        也不把 O(1) 纪律反向变成 O(n) 写入开销。
-        """
-        limit = self.AUDIT_ROTATE_BYTES
-        if limit <= 0:
-            return
-        self._audit_writes = (self._audit_writes or 0) + 1
-        if self._audit_writes % self.AUDIT_PROBE_EVERY:
-            return
-        try:
-            if os.path.getsize(self.audit_log) < limit:
-                return
-        except OSError:
-            return
-        self.rotate_audit()
-
-# 生效条件：当 reason（默认 "size"）传入时，在 FileLock 下若 audit_log 的 size >= AUDIT_ROTATE_BYTES 则 os.replace 为 _audit.%06d.jsonl 归档并更新索引/剪枝/自述留痕后返回 {"shard","bytes","events","pruned"}；size 不足、getsize OSError 或 os.replace 失败时返回 None；
+# 生效条件：同步阈值后委派 self._audit_rot.rotate(reason)；FileLock 下 size>=阈值才切分（publish 归档 + 索引 + 剪枝 + 自述），返回 {"shard","bytes","events","pruned"} 或 None。
     def rotate_audit(self, reason: str = "size"):
-        """把活动审计日志切分为归档分片（os.replace 原子，不重写一个字节）。
+        """把活动审计日志切分为归档分片（委托 Rotator，publish 原子，不重写字节）。"""
+        self._sync_audit_rotator()
+        return self._audit_rot.rotate(reason)
 
-        语义边界（诚实面）：
-        · 分片内容与轮转前**逐行一致**（rename 不动字节）；最新记录始终在活动文件
-          `_audit.jsonl` 中——读尾部取最新记录的调用方不受轮转影响；
-        · 并发由 FileLock + 「rename 前复检大小 / 失败即返回 None」兜住：抢输的
-          进程不重复切分，也不丢记录（记录要么在旧片、要么在活动文件）；
-        · 保留策略只淘汰**分片**，且淘汰名单写进审计（不静默丢证据）。
-        """
-        with FileLock(os.path.join(self.root, "_audit.rotate.lock"), timeout=5.0):
-            try:
-                size = os.path.getsize(self.audit_log)
-            except OSError:
-                return None
-            if size < self.AUDIT_ROTATE_BYTES:
-                return None                    # 已被并发写者轮转
-            os.makedirs(self.audit_archive, exist_ok=True)
-            name = "_audit.%06d.jsonl" % self._next_shard_seq()
-            dst = os.path.join(self.audit_archive, name)
-            try:
-                publish(self.audit_log, dst)   # Windows 短重试：AV 短锁不误判抢输
-            except OSError:
-                return None                    # 抢输（文件已被移走）→ 让位，不报错
-            scale = self._audit_count_shard(dst, size)   # 分档：有界扫描 / 只读量级
-            events = scale["events"]
-            idx = self._load_audit_index()
-            idx[name] = {"bytes": size, "events": events, "exact": scale["exact"],
-                         "t": round(time.time(), 3), "reason": reason}
-            self._save_audit_index(idx)
-            pruned = self._prune_audit_shards()
-            self._audit_writes = 0
-            try:                               # 自述留痕：轮转本身可审计
-                append_jsonl(self.audit_log,
-                             {"t": time.time(), "op": "audit_rotate", "id": name,
-                              "actor": self.actor, "bytes": size, "events": events,
-                              "pruned": pruned, "reason": reason,
-                              "session": getattr(self, "session", None)})
-            except OSError:
-                pass
-            return {"shard": name, "bytes": size, "events": events, "pruned": pruned}
-
-# 生效条件：当 path 与 size 传入时，size 为 None 则先 getsize（OSError 返回 bytes/events 0 exact True）；size <= AUDIT_COUNT_MAX_BYTES 时返回 count_jsonl(path) 精确条数 exact True；超过时返回 _log_scale(path) 的事件数 exact False；
+# 生效条件：同步阈值后委派 self._audit_rot.count_shard(path, size)；size 缺省则先 getsize，≤COUNT_MAX_BYTES 走 count_jsonl 精确、超限走 _log_scale 元数据口径 exact=False。
     def _audit_count_shard(self, path, size: int = None) -> dict:
-        """分片条数读数：有界分片给精确值，超大历史分片只给量级。
+        """分片条数读数（委托 Rotator）：有界分片精确，超大历史分片只给量级。"""
+        self._sync_audit_rotator()
+        return self._audit_rot.count_shard(path, size)
 
-        为什么分档：阈值内的分片扫描是**有界**代价（≤ AUDIT_COUNT_MAX_BYTES）；但
-        历史遗留的超大文件（本机首个分片即 4.0 GB）若在轮转/体检路径上全量解析，
-        就会把「一次调用堵死整条通道」原样复现——故超阈值退回 _log_scale 元数据
-        口径并如实标注 exact=False（要精确值走离线工具，不在写路径上付 O(n)）。
-        """
-        if size is None:
-            try:
-                size = os.path.getsize(path)
-            except OSError:
-                return {"bytes": 0, "events": 0, "exact": True}
-        if size <= self.AUDIT_COUNT_MAX_BYTES:
-            return {"bytes": size, "events": count_jsonl(path), "exact": True}
-        s = self._log_scale(path)
-        return {"bytes": size, "events": s["events"], "exact": False}
-
-# 生效条件：在已用 root 构造的实例上遍历 _audit_shards() 的分片名，对 `_audit.<n>.jsonl` 形式中 int(n) 成功的取最大值 top（解析失败 continue、无可解析项时 top=0），返回 top+1。
+# 生效条件：无条件委派 self._audit_rot.next_seq()（遍历分片名取最大序号 +1）。
     def _next_shard_seq(self) -> int:
-        top = 0
-        for n in self._audit_shards():
-            try:
-                top = max(top, int(n[len("_audit."):-len(".jsonl")]))
-            except ValueError:
-                continue
-        return top + 1
+        return self._audit_rot.next_seq()
 
-# 生效条件：当 AUDIT_KEEP_SHARDS > 0 且分片数超过该值时，计算 gone=shards[:-keep] 并逐个尝试 os.remove、成功则从索引 pop（OSError 则 continue），最后保存索引并返回 gone；keep<=0 或 gone 为空时返回 []；
+# 生效条件：同步阈值后委派 self._audit_rot.prune()；keep<=0 或未超保留数时返回 []。
     def _prune_audit_shards(self):
-        """保留最近 AUDIT_KEEP_SHARDS 个分片、淘汰更旧的（≤0 表示不淘汰）。"""
-        keep = self.AUDIT_KEEP_SHARDS
-        if keep <= 0:
-            return []
-        shards = self._audit_shards()
-        gone = shards[:-keep] if len(shards) > keep else []
-        if not gone:
-            return []
-        idx = self._load_audit_index()
-        for n in gone:
-            try:
-                os.remove(os.path.join(self.audit_archive, n))
-            except OSError:
-                continue                       # 删不掉就留着：不假装已淘汰
-            idx.pop(n, None)
-        self._save_audit_index(idx)
-        return gone
+        """保留最近 AUDIT_KEEP_SHARDS 个分片、淘汰更旧的（委托 Rotator）。"""
+        self._sync_audit_rotator()
+        return self._audit_rot.prune()
 
-# 生效条件：在已用 root 构造的实例上以 _log_scale(audit_log) 取活动读数为 active，对磁盘现有分片 present 中未登记者按 _audit_count_shard 采纳进 idx（OSError 则 continue，有采纳才写回索引），返回 active 并附 shards/shard_bytes/shard_events（均只统计 k in present）/oversized（非 exact 分片数）/total_bytes/total_events（active["events"] 为 None 时取 None）/total_exact/rotate_bytes=self.AUDIT_ROTATE_BYTES/keep_shards=self.AUDIT_KEEP_SHARDS。
+# 生效条件：同步阈值后委派 self._audit_rot.scale()；返回 active 读数 + shards/shard_bytes/shard_events/oversized/total_bytes/total_events/total_exact/rotate_bytes/keep_shards。
     def audit_scale(self) -> dict:
-        """审计面量级读数（O(1) 稳态）：活动文件实时读数 + 归档分片索引缓存。
-
-        为什么不逐片重数（第 4 条：指标与代价匹配）：轮转后「总计」= 活动 + 各分片，
-        逐片全量数会把体检摊成 O(分片总字节)。分片是**封存文件**（内容不再变），故
-        封存时数一次、落索引缓存即得稳态 O(1)；目录里出现未登记分片（外部手工放入）
-        时自愈补数一次——绝不假装与磁盘一致。
-        """
-        active = self._log_scale(self.audit_log)
-        present = self._audit_shards()
-        idx = self._load_audit_index()
-        healed = False
-        for n in present:
-            if n in idx:
-                continue
-            p = os.path.join(self.audit_archive, n)
-            try:
-                sc = self._audit_count_shard(p)       # 分档：有界扫描 / 只读量级
-                idx[n] = {"bytes": sc["bytes"], "events": sc["events"],
-                          "exact": sc["exact"], "t": round(time.time(), 3),
-                          "reason": "adopted"}
-                healed = True
-            except OSError:
-                continue
-        if healed:
-            self._save_audit_index(idx)
-        shard_bytes = sum(int(v.get("bytes") or 0) for k, v in idx.items() if k in present)
-        shard_events = sum(int(v.get("events") or 0) for k, v in idx.items() if k in present)
-        oversized = sum(1 for n in present if not idx.get(n, {}).get("exact", True))
-        out = dict(active)
-        out.update({
-            "shards": len(present),
-            "shard_bytes": shard_bytes,
-            "shard_events": shard_events,
-            "oversized": oversized,       # 非精确分片数（历史遗留超大文件）
-            "total_bytes": active["bytes"] + shard_bytes,
-            "total_events": (active["events"] + shard_events
-                             if active["events"] is not None else None),
-            "total_exact": bool(active["exact"]) and oversized == 0,
-            "rotate_bytes": self.AUDIT_ROTATE_BYTES,
-            "keep_shards": self.AUDIT_KEEP_SHARDS,
-        })
-        return out
+        """审计面量级读数（委托 Rotator，O(1) 稳态：活动实时 + 分片索引缓存）。"""
+        self._sync_audit_rotator()
+        return self._audit_rot.scale()
 
     # ================= 2. role 分层索引 =================
 

@@ -48,6 +48,7 @@ import time
 
 from .datapath import aux_root
 from .fsutil import FileLock
+from .rotate import Rotator
 
 # ---- 常量 ----------------------------------------------------------------
 
@@ -67,6 +68,26 @@ KEYS_FILE = "_keys.json"
 AUDIT_FILE = "_crypto.jsonl"
 MASTER_ENV = "MDCG_MASTER_KEY"
 MASTER_FILE = os.path.join(aux_root(), "master.key")
+
+# ---- 审计分片轮转（A2，2026-10-10）-------------------------------------
+# `_crypto.jsonl` 此前「直接 append + except OSError: pass」——无阈值/无归档/无
+# 索引/无淘汰/无体检/失败静默（在役库实测 682 MB / 302 万条无界增长）。现与
+# `_audit.jsonl` 共用唯一实现 `md_cg.rotate.Rotator`（参数化共享件）。
+AUDIT_BASENAME = "_crypto"
+CRYPTO_ARCHIVE = "_crypto_archive"
+CRYPTO_INDEX = "_index.json"
+CRYPTO_ROTATE_BYTES = 64 << 20     # 活动文件轮转阈值（≤0 关闭，退回无上界）
+CRYPTO_KEEP_SHARDS = 8             # 归档分片保留数（≤0 不淘汰；淘汰必留痕）
+CRYPTO_PROBE_EVERY = 32            # 每 N 次写入探测一次大小（写入税摊到 1/N）
+CRYPTO_COUNT_MAX_BYTES = 64 << 20  # 超此规模的分片只给量级（不付 O(n) 全量计数）
+
+#: 每 root 一个巡转器（进程内缓存）：分片索引缓存据此在重复体检间保持 O(1)。
+_ROTATORS = {}
+
+#: 审计写失败告警上限（进程内）：N126 点名「审计写入 best-effort 静默吞错」——
+#: 通道坏死时**不再静默**，但告警有界（防刷屏），计数面恒完整。
+_AUDIT_WRITE_FAILURES = 0
+_AUDIT_WRITE_WARN_CAP = 16
 
 # scrypt 参数（交互式场景：N=2^14 / r=8 / p=1，约 16MB 内存）
 SCRYPT_N, SCRYPT_R, SCRYPT_P, SCRYPT_DKLEN = 2 ** 14, 8, 1, 32
@@ -423,22 +444,98 @@ def open_node(content, dek, node_id, tenant, actor):
 
 # ---- 审计（payload-free）-------------------------------------------------
 
-# 生效条件：root、rec 为入参，复制 rec，若未提供 ts 则设 time.time()，设 payload_free=True，尝试 append_jsonl(os.path.join(root, AUDIT_FILE), rec)；OSError 时静默忽略。
+# 生效条件：root 为入参，按 root 取/建进程内缓存的 Rotator（basename=_crypto、archive=_crypto_archive、index=_index.json、lock=<root>/_crypto.rotate.lock），每次调用把模块级 CRYPTO_* 常量同步进实例（守卫可原地改阈值）后返回；同一 root 复用同一实例（分片索引缓存 ⇒ 重复体检 O(1)）。
+def _rotator(root):
+    key = os.path.abspath(root)
+    r = _ROTATORS.get(key)
+    if r is None:
+        r = Rotator(root=root, basename=AUDIT_BASENAME,
+                    archive_name=CRYPTO_ARCHIVE, index_name=CRYPTO_INDEX,
+                    rotate_bytes=CRYPTO_ROTATE_BYTES,
+                    keep_shards=CRYPTO_KEEP_SHARDS,
+                    probe_every=CRYPTO_PROBE_EVERY,
+                    count_max_bytes=CRYPTO_COUNT_MAX_BYTES,
+                    mark_factory=_rotate_mark,
+                    clock=lambda: time.time())
+        _ROTATORS[key] = r
+    r.rotate_bytes = CRYPTO_ROTATE_BYTES
+    r.keep_shards = CRYPTO_KEEP_SHARDS
+    r.probe_every = CRYPTO_PROBE_EVERY
+    r.count_max_bytes = CRYPTO_COUNT_MAX_BYTES
+    return r
+
+
+# 生效条件：name（分片名）、size、events、pruned、reason 为入参，返回 crypto 协议形状的轮转自述记录（ts/op=crypto_rotate/node_id=分片名/bytes/events/pruned/reason/payload_free=True）。
+def _rotate_mark(name, size, events, pruned, reason):
+    return {"ts": time.time(), "op": "crypto_rotate", "node_id": name,
+            "bytes": size, "events": events, "pruned": pruned,
+            "reason": reason, "payload_free": True}
+
+
+# 生效条件：root、exc 为入参，无条件把 _AUDIT_WRITE_FAILURES 累加 1；累计不超过 _AUDIT_WRITE_WARN_CAP 时向 stderr 写一行含库根与异常类型的告警（N126：不再静默吞错）；返回是否写了告警行。
+def _note_audit_write_failure(root, exc):
+    """登记一次审计写失败 + stderr 告警（N126 口径：容忍 ≠ 静默）。
+
+    审计仍是 best-effort（写失败不阻断业务），但**通道坏死不得无痕**——磁盘满 /
+    文件被独占 / 权限回收时，运维必须有可见线索（有界告警，防刷屏）。
+    """
+    global _AUDIT_WRITE_FAILURES
+    _AUDIT_WRITE_FAILURES += 1
+    if _AUDIT_WRITE_FAILURES > _AUDIT_WRITE_WARN_CAP:
+        return False
+    sys.stderr.write(
+        "[mdcg-crypto] 审计写入失败（best-effort，已容忍）%s：%s: %s"
+        "——本次后进程内累计 %d 次。排查方向：磁盘满 / 文件被独占 / "
+        "权限回收；轮转面经 crypto.audit_scale(root) 可读。\n"
+        % (root, type(exc).__name__, exc, _AUDIT_WRITE_FAILURES))
+    return True
+
+
+# 生效条件：root、rec 为入参，复制 rec，若未提供 ts 则设 time.time()，设 payload_free=True；先经 _rotator(root).maybe_rotate() 做写前轮转闸门（阈值内零切分），再 append_jsonl(os.path.join(root, AUDIT_FILE), rec)；轮转或追加抛 (OSError, TimeoutError) 时经 _note_audit_write_failure 记账 + 有界 stderr 告警，不阻断调用方（best-effort 语义不变）。
 def audit(root, rec):
     from .fsutil import append_jsonl
     rec = dict(rec)
     rec.setdefault("ts", time.time())
     rec["payload_free"] = True
     try:
+        _rotator(root).maybe_rotate()
+    except (OSError, TimeoutError) as e:      # 轮转失败不得阻断审计写
+        _note_audit_write_failure(root, e)
+    try:
         append_jsonl(os.path.join(root, AUDIT_FILE), rec)
-    except OSError:
-        pass
+    except OSError as e:
+        _note_audit_write_failure(root, e)
 
 
-# 生效条件：root 为入参，返回 list(read_jsonl(os.path.join(root, AUDIT_FILE))) 得到的记录列表。
-def audit_records(root):
+# 生效条件：root 为入参；limit 为 None 时返回 _crypto_archive 各分片（时间序）与活动文件的全部记录（跨分片合并）；limit 非 None（含 0）时从 reversed(paths) 读取并在 len(out) >= limit 时停止，返回 out[-limit:]（有界日志不被读成 O(n) 全量）。
+def audit_records(root, limit: int = None):
+    """审计记录读取——轮转后跨分片按时间序（旧片在前）合并。
+
+    与 `MdCGOS.audit_records` 同款口径（A2 共享件）：默认全量语义保持既有调用方
+    零改动；`limit=N` 取尾部 N 条。**旧实现 `list(read_jsonl(...))` 无 limit、把
+    682 MB 单文件全量物化**——轮转后不改就会漏掉归档分片，故此处必须跨片合并。
+    """
     from .fsutil import read_jsonl
-    return list(read_jsonl(os.path.join(root, AUDIT_FILE)))
+    r = _rotator(root)
+    paths = [os.path.join(r.archive, n) for n in r.shards()]
+    paths.append(r.active)
+    if limit is None:
+        out = []
+        for p in paths:
+            out.extend(read_jsonl(p))
+        return out
+    out = []
+    for p in reversed(paths):                 # 从最新往回读，读满 limit 即停
+        if len(out) >= limit:
+            break
+        out = list(read_jsonl(p)) + out
+    return out[-limit:]
+
+
+# 生效条件：root 为入参，返回 _rotator(root).scale()——活动文件实时读数 + 归档分片索引缓存聚合（shards/shard_bytes/shard_events/oversized/total_bytes/total_events/total_exact/rotate_bytes/keep_shards）。
+def audit_scale(root) -> dict:
+    """审计面量级/有界性读数（O(1) 稳态，与 audit_scale 同款共享件）。"""
+    return _rotator(root).scale()
 
 
 # ---- 自描述 --------------------------------------------------------------
