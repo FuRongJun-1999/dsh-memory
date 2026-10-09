@@ -203,15 +203,28 @@ def _probe():
 
 
 def _mut_serial_revert():
-    """退化：_default_out 退回「总是返回基础路径」＝撤销 1ceefd3f 的串行自增。"""
-    orig = export._default_out
+    """退化：**同时撤掉两层**——_default_out 总是返回基础路径（撤销 1ceefd3f 的
+    串行自增）＋ _claim_path 恒返回首选名（撤销本笔的原子占位）。
+
+    为什么必须两层（2026-10-09 实测，非推测）：修复后承载层是**两层**——
+    _default_out 的碰撞自增 + _claim_path 的原子占位。只撤其中一层，另一层会
+    兜住：只撤 _default_out ⇒ 串行 4 件仍绿（_claim_path 让位）；只撤
+    _claim_path ⇒ 串行 4 件仍绿（_default_out 自增）、仅并发件转红。
+    本变异瞄准的是「两层全撤」这一真实缺陷形态。"""
+    orig_d, orig_c = export._default_out, export._claim_path
 
     def _reverted(cg, kind):
         return os.path.join(cg.root, "export_%s_%s.jsonl" % (
             kind, export.time.strftime("%Y%m%d_%H%M%S")))
 
     export._default_out = _reverted
-    return lambda: setattr(export, "_default_out", orig)
+    export._claim_path = lambda preferred: preferred
+
+    def _restore():
+        export._default_out = orig_d
+        export._claim_path = orig_c
+
+    return _restore
 
 
 def _mut_fix_inject():
@@ -229,7 +242,10 @@ def _mut_fix_inject():
 #: 组 → [(变异名, 应用函数, (期望红项集合, 期望登记开放面集合))]
 _MUTATIONS = {
     "A": [
-        ("串行面退化：_default_out 总是返回基础路径", _mut_serial_revert,
+        # 期望集**保持原样**：撤两层后与修复前的缺陷形态等价 —— 串行 4 件转红、
+        # 并发件回到「取到同一路径」⇒ 命中开放面分支登记 SKIP（这正是本文件
+        # 原本的自证口径）。承载层变了，注入对象跟着变，期望不变。
+        ("两层全撤：_default_out 无自增 ＋ _claim_path 无占位", _mut_serial_revert,
          (_SERIAL_CASES, {_CONCURRENT})),
         ("注入 PR #79 uuid 修复", _mut_fix_inject, (set(), set())),
     ],
@@ -265,10 +281,11 @@ def _mutate(name):
         return rc
     print("!! #78 导出快照定点变异自证 · 组 %s：内存注入，逐条要求**恰好**命中期望\n" % name)
     base_red, base_open = _probe()
-    print("  未变异基线：红项 %s（应为 []）｜登记开放面 %s（应为 [并发用例]）"
+    print("  未变异基线：红项 %s（应为 []）｜登记开放面 %s（应为 []——并发面已闭合）"
           % (sorted(base_red), sorted(base_open)))
     bad = []
-    if base_red or base_open != {_CONCURRENT}:
+    # 基线期望按**实测**：并发面已由本笔闭合 ⇒ 登记开放面为空集
+    if base_red or base_open != set():
         bad.append("基线不符：红 %s 开放面 %s" % (sorted(base_red), sorted(base_open)))
     for mname, apply, (exp_red, exp_open) in _MUTATIONS[name]:
         restore = apply()
