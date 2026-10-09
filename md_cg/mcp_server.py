@@ -4302,7 +4302,24 @@ def _force_utf8_stdio():
             pass
 
 
-# 生效条件：msg 为 json.loads 的产物（任意 JSON 值，可为非对象）；非 dict 时回 id=null 的 -32600 Invalid Request 并返回 False（不抛、不退出）；msg 为 dict 时按 msg.get("method") 分派——initialize 回 protocolVersion/capabilities/serverInfo，notifications/initialized 无响应，tools/list 回 tools_for_surface()，tools/call 在 params 非 dict 时回 -32602 Invalid params 且**不进工具**、params 为 dict 或缺省时经 call_tool 回 content，shutdown 回空结果并返回 True（调用方据此跳出读循环）；其余 method 在 id 非 None 时回 -32601；分派体任何异常都回带 id 的 -32603 并返回 False（fail-closed：单行请求不得杀 server）。
+# 生效条件：name 不是非空字符串、args 非对象或已提供的 op/action/as_unit 非字符串时返回可操作的参数错误提示；其余返回 None，不访问大脑、不修改参数。
+def _tool_call_input_error(name, args):
+    """校验工具调用外壳及分发控制字段（issue #83.2）。
+
+    只检查分发前消费的字符串；业务数据仍由对应工具校验，兼容现有
+    tags 等字段接受列表或逗号串的接口。显式 null 不是省略参数。
+    """
+    if not isinstance(name, str) or not name.strip():
+        return "name 必须为非空 string；请传入 tools/list 返回的工具名"
+    if not isinstance(args, dict):
+        return "arguments 必须为 object；无参数请省略 arguments 或传 {}"
+    for field in ("op", "action", "as_unit"):
+        if field in args and not isinstance(args[field], str):
+            return f"arguments.{field} 必须为 string；请按工具参数说明传值"
+    return None
+
+
+# 生效条件：已解析消息为对象时分派 JSON-RPC 方法；tools/call 先检查 params 与分发参数类型，不合法回 -32602 且不调用工具；非对象回 -32600；shutdown 返回 True，其余返回 False，未处理异常回 -32603。
 def _serve_line(cg, msg) -> bool:
     """处理一行已解析的 JSON-RPC 消息；返回 True 表示请求进程下线（shutdown）。
 
@@ -4344,7 +4361,7 @@ def _serve_line(cg, msg) -> bool:
             params = msg.get("params")
             # params 类型闸：非 dict（[1,2] / "x" / 7）时下方 params.get 抛
             # AttributeError——工具层 try 包不到这里，回 -32602 不进工具。
-            # params 缺省/None 维持原语义（`or {}`，落工具层「未知工具」错误）。
+            # params 缺省/None 归为空对象，再由下方工具名校验给出参数提示。
             if params is not None and not isinstance(params, dict):
                 _reply(rid, error={"code": -32602,
                                    "message": "Invalid params：params 必须为 "
@@ -4353,7 +4370,12 @@ def _serve_line(cg, msg) -> bool:
                 return False
             params = params or {}
             name = params.get("name")
-            args = params.get("arguments") or {}
+            args = params.get("arguments", {})
+            input_error = _tool_call_input_error(name, args)
+            if input_error:
+                _reply(rid, error={"code": -32602,
+                                   "message": "Invalid params：" + input_error})
+                return False
             try:
                 out = call_tool(cg, name, args)
                 _reply(rid, {"content": [{"type": "text", "text": _j(out)}],
