@@ -1217,6 +1217,15 @@ class _DirtyDict(dict):
         # `MdCG._dirty_entry_superseded`。
         self.root = None
         self.staged_stat = {}
+        # issue #80 残留面（2026-10-09 DSH 端，C 案：标记而非清除 + flush 侧过滤）：
+        # _maybe_reload_index 判某条脏条目已被盘面更新盖过时**跳过重放**（放行盘面），
+        # 但原实现把条目**留在脏集** ⇒ 随后的 flush 会把它**无条件 append 进分片日志**，
+        # compact 再把它固化进 _index.json ⇒ **索引侧旧盖新，且跨进程/跨重启存活**
+        # （仅 rebuild_index 可自愈）。此处按 nid 打标记，flush 侧据此过滤。
+        # 标记集**放在本类内**（不挂宿主）——与 dict 同生命周期，使泄漏面收敛到
+        # 本类的变更点上（setitem/delitem/pop/popitem/setdefault/update/clear），
+        # 而不是靠『记得在四处都写一遍』。
+        self.superseded_ids = set()
 
     def _bump(self):
         self.write_gen += 1
@@ -1268,11 +1277,13 @@ class _DirtyDict(dict):
         self._bump()
         self._note(v)
         self._note_witness(k, v)
+        self.superseded_ids.discard(k)      # 新写入不再陈旧（issue #80 残留面）
         super().__setitem__(k, v)
 
     def __delitem__(self, k):
         self._bump()
         self.staged_stat.pop(k, None)
+        self.superseded_ids.discard(k)      # issue #80 残留面
         self.broad_gen = self.write_gen
         super().__delitem__(k)
 
@@ -1294,11 +1305,13 @@ class _DirtyDict(dict):
         if broad:
             self.broad_gen = self.write_gen
         self.staged_stat.clear()
+        self.superseded_ids.clear()         # issue #80 残留面：脏集清空 ⇒ 标记一并清
         super().clear()
 
     def pop(self, k, *d):
         self._bump()
         self.staged_stat.pop(k, None)
+        self.superseded_ids.discard(k)      # issue #80 残留面
         self.broad_gen = self.write_gen
         return super().pop(k, *d)
 
@@ -1306,17 +1319,20 @@ class _DirtyDict(dict):
         self._bump()
         self.broad_gen = self.write_gen
         self.staged_stat.clear()      # 摘哪条不确定，保守清空（下一轮按「无见证」放行）
+        self.superseded_ids.clear()   # issue #80 残留面：同上，摘哪条不确定 ⇒ 保守清空
         return super().popitem()
 
     def setdefault(self, k, d=None):
         self._bump()
         self.broad_gen = self.write_gen
         self.staged_stat.pop(k, None)
+        self.superseded_ids.discard(k)      # issue #80 残留面
         return super().setdefault(k, d)
 
     def update(self, *a, **k):
         self._bump()
         self.broad_gen = self.write_gen
+        self.superseded_ids.clear()   # issue #80 残留面：批量变更 ⇒ 保守清空
         self.staged_stat.clear()
         super().update(*a, **k)
 
@@ -1735,6 +1751,9 @@ class MdCG:
             # 照旧重放（见 _note_witness 的「证不出陈旧就不当陈旧」）。
             if self._dirty_entry_superseded(nid):
                 superseded += 1
+                # issue #80 残留面（C 案）：跳过重放**且打标记**——否则本条会随
+                # 随后的 flush 落进分片日志，compact 再固化进 _index.json（旧盖新）。
+                self._dirty.superseded_ids.add(nid)
                 continue
             idx["nodes"][nid] = e
         self._dirty_replay_superseded = superseded
@@ -1888,6 +1907,10 @@ class MdCG:
             # 追加会被自家探活当成他进程变化（多线程下白重载一次）。
             self._own_shard = self._log.path
             for nid, e in self._dirty.items():
+                # issue #80 残留面（C 案）：被判定陈旧（重放时已放行盘面）的条目
+                # **不得**落分片日志——落了就成『索引侧旧盖新』且跨重启存活。
+                if nid in self._dirty.superseded_ids:
+                    continue
                 self._log.append({"id": nid, "e": e})
             self._dirty.clear()   # 保住 _DirtyDict 钩子（批次 23 D-4：不得换新 dict）
             # 写完立即关分片句柄：Windows 上「被本进程打开的文件」无法删除，
