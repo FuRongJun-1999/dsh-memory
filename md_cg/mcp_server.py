@@ -3025,6 +3025,15 @@ def _export_call(cg, a):
         principal.require_admin(f"export_{act}")
     # P1-4（批次 26）：export 的 out 是写路径——根白名单约束
     check_path_root(a.get("out"), "MDCG_EXPORT_ROOT", "export")
+    # issue #85 建议 3（2026-10-09 DSH 端）：**export 默认不得覆盖已存在文件**。
+    # 原实现直接写 out + ".tmp" 再 publish 改名 ⇒ 传一个**已有文件**的路径即被静默覆盖
+    # （issue 实测：designer 令牌 cg(op=export, out=<根外已有文件>) → ok:true，原文件被覆盖）。
+    # 处置：目标已存在即拒，并给出**显式逃生口** overwrite=true（不改变常规用法——
+    # 不传 out 时走 _default_out 带时间戳，本就不冲突）。
+    _out85 = a.get("out")
+    if _out85 and os.path.exists(_out85) and not a.get("overwrite"):
+        raise PermissionError(
+            "export 目标已存在：%s（如确要覆盖，请显式传 overwrite=true）" % _out85)
     inc = a.get("include_content")
     return _ex.run(
         cg, action=act, out=a.get("out"), ids=a.get("ids"),
