@@ -116,8 +116,23 @@ export const UNTRUSTED_MEMORY_NOTICE =
  *     由 test/untrusted_memory.test.ts ② 的幂等断言抓出）。
  *     紧邻判据同时是与真实解析器对齐的：`< /tag>` 不是任何解析器认的标签形态。
  */
+//: issue #94（2026-10-09 DSH 端）：**全角斜杠与零宽字符**也须打断——
+//:   原式 `(\/?)` 只收半角斜杠、「\s*」不匹配零宽 ⇒ `＜／untrusted-memory＞` 与
+//:   `</untrusted\u200b-memory>` 都**漏打断**（可提前闭合边界）。尖括号与连字符此前
+//:   已做全角兼容，斜杠与零宽属同类遗漏。
+//:   幂等性不受影响：打断后是 `< /untrusted-memory>`，`<` 与标记名之间隔的是**空格**
+//:   （非零宽、非斜杠），仍不命中——见下方 ② 的幂等断言。
+const _ZW = '[\\u200b-\\u200d\\ufeff]*'
+//: 零宽插入位置：只在**分段之间**（untrusted ⟷ 分隔符 ⟷ memory），
+//: **不逐字符插**——实测逐字符插会把字符类 `[-_－＿]` 拆散成
+//: `[\u200b...]*-[\u200b...]*_` 这样的非法字符类，导致**整个正则失效**
+//: （四个形态全不匹配）。这是本笔第二版踩的坑，留档。
+//: 已知残留：零宽插在 `untrusted`/`memory` **词内部**（如 `untr\u200busted`）仍漏
+//: ——那需要「匹配前剥零宽」的保索引方案，见节点 mem_dsh_brain_94_fixed。
+const _SEP = '[-_－＿]'
+const _TAG_LOOSE = 'untrusted' + _ZW + _SEP + _ZW + 'memory'
 const BOUNDARY_TAG_RE = new RegExp(
-  `[<＜](\\/?)\\s*${UNTRUSTED_MEMORY_TAG.replace('-', '[-_－＿]')}\\s*[>＞]`,
+  `[<＜]([\\/／]?)${_ZW}\\s*${_TAG_LOOSE}\\s*[>＞]`,
   'gi',
 )
 
