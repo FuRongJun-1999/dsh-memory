@@ -46,6 +46,9 @@ _DELIM = "---"
 # 完整的 6 行 MARKS：功能名（标题）+ 5 要素（条件、子功能、执行、验证、不适用）。
 # 「验证方式」与「不适用条件」是白箱的关键新增，缺则不可证 ACCEPT/REJECT。
 CCG_MARKS = ("功能名", "生效条件", "子功能", "执行", "验证方式", "不适用条件")
+# 有界的六字段正则表；避免每个标题探测都重建并 escape 同一模式。
+_CCG_HEADING_PATTERNS = {mark: re.compile(r"^#\s*" + re.escape(mark))
+                         for mark in CCG_MARKS}
 # 门槛即全部 MARKS：原先「生效条件可隐含」的豁免已废止（观测位置 ≠ 生效条件，
 # 见 `condition_space_text`）——生效条件必须由 condition_space 四槽合成显式声明，
 # 不存在「常用条件默认省略」的合法情形。缺它即缺证据：补写，或判 BLINDSPOT。
@@ -376,10 +379,17 @@ def _ccg_heading_rest(line: str, mark: str):
       * `# 生效条件`、`#生效条件`、`# 生效条件：v`、`# 生效条件 v` → 命中；
       * `## 生效条件`、`  # 生效条件`（缩进）→ **不**命中（闸门同样不认二级标题/缩进标题）。
     """
-    m = re.match(r"^#\s*" + re.escape(mark), line or "")
+    line = line or ""
+    if not line.startswith("#"):
+        return None
+    pattern = _CCG_HEADING_PATTERNS.get(mark)
+    if pattern is None:
+        # 保留调用方传自定义字段的原语义，不缓存无限增长的字段名。
+        pattern = re.compile(r"^#\s*" + re.escape(mark))
+    m = pattern.match(line)
     if not m:
         return None
-    return (line or "")[m.end():]
+    return line[m.end():]
 
 
 # 生效条件：content 中存在 `# <mark>` 标题行（判据=_ccg_heading_rest 非 None；与写入闸门同一正则语义，冒号可有可无）时返回 True，否则 False。
