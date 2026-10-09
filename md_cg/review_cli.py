@@ -52,6 +52,7 @@ C 覆写落盘、D 软删），reject = 原样留痕不执行；edit/merge/noop 
     否则两侧归因对不上。
 """
 import argparse
+import time
 import json
 import os
 import sys
@@ -143,6 +144,69 @@ def _kind_label(rec):
     return "变更单(%s%s)" % (name, ("→ " + str(tgt)) if tgt else "")
 
 
+# ---- issue #71（2026-10-09 DSH 端）：待审队列的**单向索引**与**分级** ----
+# 索引由 cg.review_list() **单向派生**（inbox -> 索引），可随时重建；
+# **只放摘要（首行截 80 字）与元数据，不放正文**——正文留在 inbox（#69 甲：内部可追溯）。
+INDEX_REL = ("hippocampus", "inbox.index.json")
+SUMMARY_MAX = 80
+
+
+def _index_path(root):
+    return os.path.join(root, *INDEX_REL)
+
+
+def _build_index(cg):
+    """从 review_list() 派生索引条目（单向、可重建、不含正文）。"""
+    items = []
+    for r in (cg.review_list() or []):
+        items.append({
+            "pid": r.get("pid"),
+            "kind": _kind_label(r),
+            "verdict": r.get("status"),
+            "layer": r.get("layer"),
+            "tags": list(r.get("tags") or []),
+            "round": r.get("round") or 0,
+            "created_at": (r.get("created_at")
+                           or r.get("t") or None),
+            "summary": (_brief(r, SUMMARY_MAX) or ""),
+        })
+    return items
+
+
+def _age_days(item, now=None):
+    """积压龄（天）；无时间戳返回 None。"""
+    ts = item.get("created_at")
+    if ts is None:
+        return None
+    try:
+        return max(0.0, ((now or time.time()) - float(ts)) / 86400.0)
+    except (TypeError, ValueError):
+        return None
+
+
+def _filter_sort(items, args):
+    """按 list 的分级参数过滤与排序（默认 age：最久未裁决优先）。"""
+    out_ = list(items)
+    q = (getattr(args, "query", None) or "").strip().lower()
+    if q:
+        out_ = [x for x in out_ if q in json.dumps(x, ensure_ascii=False).lower()]
+    tag = (getattr(args, "tag", None) or "").strip()
+    if tag:
+        out_ = [x for x in out_ if tag in (x.get("tags") or [])]
+    kind = (getattr(args, "kind", None) or "").strip()
+    if kind:
+        out_ = [x for x in out_ if str(x.get("kind") or "").startswith(kind)]
+    older = getattr(args, "older_than", None)
+    if older is not None:
+        out_ = [x for x in out_ if (_age_days(x) or 0.0) >= float(older)]
+    sort = (getattr(args, "sort", None) or "age")
+    if sort == "kind":
+        out_.sort(key=lambda x: (str(x.get("kind") or ""), str(x.get("pid") or "")))
+    else:
+        out_.sort(key=lambda x: -( _age_days(x) or 0.0))
+    return out_
+
+
 # issue #71（2026-10-09 DSH 端）：批量处置的**安全红线**——只接受**显式 pid**，
 # 且形态严格（prop_ + 十六进制）。**禁止通配/正则/tag 直批**：那等于把质量闸
 # 改成「自动通过」，与 policy 的必需六要素精神冲突。
@@ -180,17 +244,42 @@ def _load_pids(path):
 def _execute(cg, args):
     """按子命令执行裁决（cg 的生命周期由 main 统一收尾）。"""
     if args.cmd == "list":
-        pend = cg.review_list()
-        if not pend:
-            print("审核队列为空（0 条待审）。")
+        items = _build_index(cg)
+        # 索引落盘（单向派生自 inbox；每次 list 都刷新，保证与队列一致）
+        idx_written = None
+        try:
+            ip = _index_path(_root(args))
+            os.makedirs(os.path.dirname(ip), exist_ok=True)
+            with open(ip, "w", encoding="utf-8") as f:
+                json.dump({"generated_at": time.time(),
+                           "count": len(items),
+                           "items": items}, f, ensure_ascii=False, indent=1)
+            idx_written = ip
+        except OSError:
+            idx_written = None
+        rows = _filter_sort(items, args)
+        if getattr(args, "rebuild_index", False) and idx_written:
+            print("索引已重建：%s（%d 条）" % (idx_written, len(items)))
+        if not rows:
+            print("没有符合条件的待审条目（队列共 %d 条）。" % len(items))
             return 0
-        print("待审 %d 条：" % len(pend))
-        for r in pend:
+        gb = (getattr(args, "group_by", None) or "").strip()
+        print("待审 %d 条：" % len(rows))
+        last_group = None
+        for r in rows:
+            if gb:
+                g = str(r.get(gb) or "?")
+                if g != last_group:
+                    print("  == %s ==" % g)
+                    last_group = g
             tags = (", tags=" + ",".join(r.get("tags") or [])) if r.get("tags") else ""
-            print("  [%s] %s · %s · %s 层%s · round=%s\n      %s" % (
-                r.get("pid"), r.get("status"), _kind_label(r),
+            age = _age_days(r)
+            age_s = ("%.1f 天" % age) if age is not None else "?"
+            print("  [%s] %s · %s · %s 层%s · round=%s · 积压 %s\n      %s" % (
+                r.get("pid"), r.get("verdict"), r.get("kind"),
                 r.get("layer") or "?",
-                tags, r.get("round") or 0, _brief(r)))
+                tags, r.get("round") or 0, age_s,
+                str(r.get("summary") or "")))
         print('\n裁决示例：python -m md_cg.review_cli accept <pid> --reason "实跑测试证据"')
         return 0
 
@@ -276,7 +365,18 @@ def main(argv=None):
                              "stderr 告警。同一批裁决传同一值即得同一归属）")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("list", help="列出待审条目", parents=[common])
+    sl = sub.add_parser("list", help="列出待审条目（含分级）", parents=[common])
+    sl.add_argument("--query", default=None, help="按关键词过滤（匹配索引条目字段）")
+    sl.add_argument("--tag", default=None, help="按 tag 过滤")
+    sl.add_argument("--kind", default=None, help="按类型前缀过滤（提案/变更单）")
+    sl.add_argument("--older-than", dest="older_than", type=float, default=None,
+                      help="只列积压龄 >= N 天的条目")
+    sl.add_argument("--group-by", dest="group_by", default=None,
+                      help="分组显示（kind/verdict）")
+    sl.add_argument("--sort", default="age",
+                      help="排序：age（默认，最久未裁决优先）/kind")
+    sl.add_argument("--rebuild-index", dest="rebuild_index", action="store_true",
+                      help="重建索引文件（单向派生自 inbox）")
     sub.add_parser("stats", help="裁决动作统计（含 noop）", parents=[common])
     for name, help_ in (("accept", "按原样写入落盘"),
                         ("reject", "丢弃（只记裁决）"),
