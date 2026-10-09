@@ -377,6 +377,65 @@ def a13():
             ("staticmethod=" + str(static_ok), cls_rv, inst_rv, stages))
 
 
+def a14():
+    """A14 把 A5 的**域相关性本身**钉死——两域 × 两变异下**均稳定为绿**。
+
+    A5 的可达性由 numpy 决定，故它在变异②（_degrade 改抛）下红不红**随域而变**：
+      · numpy 可用 ⇒ CSPMN 回退走真 numpy 路径**成功** ⇒ _degrade **零调用**
+        ⇒ 变异② 不该令 A5 转红（该域的 _degrade 契约由 A2/A3/A6 覆盖，实测三者均红）；
+      · numpy 缺失 ⇒ 注入的假 numpy 令 linalg.norm 抛 ⇒ 经外层 _degrade 兜底 ⇒ **≥1 调用**
+        ⇒ 变异② 必须令 A5 转红。
+    本条用**计数器**直接断言「该域应有的 _degrade 调用次数」——于是「期望集合随域变脸」
+    不再是守卫脆性，而是被本条钉住的**语义**。
+    """
+    has_np = _numpy is not None
+    inst = _fresh()
+    _install_index(inst)
+    inst.embed = ((lambda text: _vec(1.0, 0.0, 0.0)) if has_np
+                  else (lambda text: "fake-vec"))
+    fake = types.ModuleType("cspmn")
+    fake.GPU_THRESHOLD = 0                 # 任意 n 都触发 GPU 分支
+
+    class _BoomCSPMN:
+        def __init__(self, backend="auto"):
+            raise RuntimeError("GPU lost")
+
+    fake.CSPMN = _BoomCSPMN
+    sys.modules["cspmn"] = fake
+    if not has_np:
+        fake_np = types.ModuleType("numpy")
+
+        class _Linalg:
+            @staticmethod
+            def norm(x):
+                raise RuntimeError("fake numpy：仅为到达 CSPMN 分支")
+
+        fake_np.linalg = _Linalg
+        fake_np.maximum = lambda a, b: a
+        fake_np.argsort = lambda x: []
+        sys.modules["numpy"] = fake_np
+    calls = []
+    orig = nr.NeuralRetriever._degrade
+
+    def _count(self, stage, exc, degrade_value):
+        calls.append(stage)
+        return orig(self, stage, exc, degrade_value)
+
+    nr.NeuralRetriever._degrade = _count
+    try:
+        try:
+            inst.search_index("q", limit=3, threshold=0.0)
+        except Exception:                             # noqa: BLE001
+            pass          # 变异② 下 _degrade 抛 ⇒ 此处吞掉，只数调用次数（不逃逸）
+    finally:
+        nr.NeuralRetriever._degrade = orig
+        sys.modules.pop("cspmn", None)
+        if not has_np:
+            sys.modules.pop("numpy", None)
+    ok = (calls == []) if has_np else (len(calls) >= 1)
+    return (ok, ("numpy=" + str(has_np), "degrade_calls=" + str(calls)))
+
+
 _ITEMS = [("A1 初始：无失败记录", a1),
           ("A2 load_index 失败 → False + stage=load_index", a2),
           ("A3 embed 失败 → None + stage=embed", a3),
@@ -389,7 +448,8 @@ _ITEMS = [("A1 初始：无失败记录", a1),
           ("A10 日志面：模块 logger 记一条 WARNING", a10),
           ("A11 源码形态（读盘上文件）", a11),
           ("A12 降级不抛（三重失败仍返回 []）", a12),
-          ("A13 _cosine 保持 staticmethod（类级调用不抛、不进实例记录）", a13)]
+          ("A13 _cosine 保持 staticmethod（类级调用不抛、不进实例记录）", a13),
+          ("A14 A5 的域相关性（_degrade 调用次数随 numpy 而定，两域均稳定）", a14)]
 
 _GROUPS = {"A": _ITEMS}
 
