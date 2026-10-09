@@ -94,10 +94,21 @@ def main():
     check("G3 --apply 确实走执行路径（输出含批量裁决完成）",
           "批量裁决完成" in txt3, txt3.strip().splitlines()[-1][:70] if txt3.strip() else "")
 
-    # G6 静态：不扩 read 面
+    # G6 静态：不扩 read 面（**加固版**，由 zcode 端 2026-10-09 复核提出）
+    # 原版只 grep 两个读 op（cg.search / cg.recall），偏窄——「未扩 read」的真实保证
+    # 应来自**枚举**而非点名。加固为 AST 枚举：列出 review_cli 里所有 cg.<attr> 调用，
+    # 断言**全部落在白名单内**；任何新增的 cg 面（尤其检索面）都会让本条红。
+    import ast as _ast
     src = open(os.path.join(HERE, "review_cli.py"), encoding="utf-8").read()
-    check("G6 静态：review_cli 未新增 cg 检索面调用（不扩 read）",
-          ("cg.search(" not in src) and ("cg.recall(" not in src), "")
+    _used = set()
+    for _node in _ast.walk(_ast.parse(src)):
+        if isinstance(_node, _ast.Attribute) and isinstance(_node.value, _ast.Name) \
+                and _node.value.id == "cg":
+            _used.add(_node.attr)
+    _ALLOWED = {"review_list", "review_decide", "review_stats", "review_rounds", "close"}
+    _extra = sorted(_used - _ALLOWED)
+    check("G6 加固：AST 枚举 review_cli 的 cg 面，全部落在白名单内",
+          not _extra, "used=%r 越界=%r" % (sorted(_used), _extra))
 
     print("")
     print("=" * 64)
