@@ -151,6 +151,19 @@ VERB_SPECS = {
                 "required": ("pack", "tokens_used", "budget", "skipped", "recent",
                              "meta"),
                 "optional": (),
+                # issue #76（2026-10-09 DSH 端登记）：pack 的**条目级**形状。
+                # 顶层 required/optional 只声明**响应级**键；条目级此前无任何声明，
+                # 新增的 metadata 面因此无处可查。此处登记条目级与 metadata 级字段，
+                # 并由 test_recall_metadata 的声明一致性断言 + --mutate 组 A 守卫不漂移。
+                # 注：state=ACCEPT 只表示「当前查询适用」，与 verification_state
+                # （持久验证状态）**语义不同**，同一条可同时是 ACCEPT + unverified。
+                "entry_required": ("id", "score", "state", "tokens", "content",
+                                   "frontmatter", "provenance", "metadata"),
+                "entry_optional": ("truncated",),
+                "entry_metadata_required": ("state", "reason", "verification_state"),
+                "entry_metadata_optional": ("verification_basis", "check_strength",
+                                            "derived_from", "derived_relation",
+                                            "source"),
             },
         },
         "semantics": "读动词三分态：单节点视图 / 检索结果列表 / token 预算包",
