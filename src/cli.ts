@@ -12,7 +12,8 @@
  * 零运行时依赖：只用 Node 内置模块。
  */
 import { resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { pathToFileURL, fileURLToPath } from 'node:url'
+import { realpathSync } from 'node:fs'
 import { runInit } from './init.js'
 
 const USAGE = [
@@ -47,9 +48,18 @@ function isMainEntry(): boolean {
   const entry = process.argv[1]
   if (!entry) return false
   try {
-    const entryUrl = pathToFileURL(resolve(entry)).href
-    return import.meta.url === entryUrl
-      || (process.platform === 'win32' && import.meta.url.toLowerCase() === entryUrl.toLowerCase())
+    // issue #97（2026-10-09 DSH 端）：npm 在 POSIX 把 bin 装成**符号链接**
+    // （node_modules/.bin/lingshu -> ../@furongjun1999/dsh-memory/lib/cli.js），
+    // 此时 argv[1] 是**链接路径**，而 resolve 是纯词法操作、解不开链接
+    // ⇒ 与 import.meta.url **永不相等** ⇒ 主函数不执行，**静默空转且 exit=0**
+    // （README 推荐的首条命令在 Linux/macOS 上无效而用户与脚本都看不出失败）。
+    // Windows 用 .cmd 传真实路径，故开发者在本机测不出来。
+    // 修：比较前对**两侧**都做 realpathSync —— 当前模块自身也可能是链接
+    // （npm link / 全局安装同样走软链）。
+    const selfUrl = pathToFileURL(realpathSync(fileURLToPath(import.meta.url))).href
+    const entryUrl = pathToFileURL(realpathSync(entry)).href
+    return selfUrl === entryUrl
+      || (process.platform === 'win32' && selfUrl.toLowerCase() === entryUrl.toLowerCase())
   } catch {
     return false
   }
