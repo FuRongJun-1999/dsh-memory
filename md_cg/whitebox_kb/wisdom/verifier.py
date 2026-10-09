@@ -218,6 +218,32 @@ def _table_payload_chars() -> int:
     return total
 
 
+# issue #91（2026-10-09 DSH 端）：被校验代码的执行命名空间——**限 builtins 白名单**。
+# 原实现三处 exec(compile(...), ns) 里 ns 未限 __builtins__ ⇒ 模块顶层代码在判定**之前**
+# 就已执行（实测 open() 载荷：ok=False 但副作用文件已创建）。
+# 本白名单保留常用纯函数与异常类型，**去掉** open / __import__ / eval / exec / compile /
+# globals / locals / vars / dir / input / breakpoint —— 即「能算出答案，但碰不到外面」。
+# 已知未覆盖（见节点 mem_dsh_brain_91_fixed）：**无超时**（exec 同步阻塞，需子进程方案）需另笔。
+import builtins as _bi
+_SAFE_BUILTIN_NAMES = (
+    "abs", "all", "any", "bool", "chr", "dict", "divmod", "enumerate",
+    "filter", "float", "format", "frozenset", "getattr", "hasattr",
+    "hash", "int", "isinstance", "issubclass", "iter", "len",
+    "list", "map", "max", "min", "next", "object", "ord",
+    "pow", "print", "range", "repr", "reversed", "round",
+    "set", "slice", "sorted", "str", "sum", "tuple", "type", "zip",
+    "Exception", "ValueError", "TypeError", "KeyError",
+    "IndexError", "ZeroDivisionError", "StopIteration",
+    "ArithmeticError", "AttributeError", "AssertionError",
+    "NotImplementedError", "RuntimeError", "True", "False", "None")
+
+
+def SAFE_NS() -> Dict[str, Any]:
+    """被校验代码的执行命名空间：仅暴露 SAFE_BUILTIN_NAMES 内的内建。"""
+    _b = {k: getattr(_bi, k) for k in _SAFE_BUILTIN_NAMES if hasattr(_bi, k)}
+    return {"__builtins__": _b}
+
+
 class VerifyCache:
     """校验结果本地缓存。相同指纹 → 零计算返回。
 
@@ -498,10 +524,13 @@ class Verifier:
         # 不应计入——字符计数会误判，如 pattern 注释含裸括号）
         # 禁止裸 import（白箱代码应自包含）——但允许标准库
         imports = [n for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]
+        # issue #91（2026-10-09 DSH 端）：原白名单含 os / sys / socket / threading ——
+        # 它们足以在**判定之前**产生副作用（os.system / open / 起线程 / 连网）。
+        # 白箱被校验代码不需要这些能力，故一并移除。
         STDLIB_OK = {"collections", "typing", "functools", "itertools", "math",
                      "random", "json", "re", "string", "dataclasses", "abc",
-                     "os", "sys", "io", "struct", "asyncio", "heapq", "queue",
-                     "threading", "time", "socket", "hashlib", "uuid", "base64",
+                     "struct", "heapq", "queue",
+                     "hashlib", "uuid", "base64",
                      "statistics", "bisect", "decimal", "fractions"}
         if imports and not req.expected_structure.get("allow_import"):
             bad = []
@@ -530,7 +559,7 @@ class Verifier:
         if not req.cases:
             return {"level": "L2样例", "ok": True, "evidence": "无样例（跳过）"}
 
-        ns: Dict[str, Any] = {}
+        ns: Dict[str, Any] = SAFE_NS()
         try:
             exec(compile(req.code, "<verify>", "exec"), ns)
         except Exception as e:
@@ -580,7 +609,7 @@ class Verifier:
         if not extra_cases:
             return {"level": "L3边界", "ok": True, "evidence": "无额外边界用例"}
 
-        ns: Dict[str, Any] = {}
+        ns: Dict[str, Any] = SAFE_NS()
         try:
             exec(compile(req.code, "<verify>", "exec"), ns)
         except Exception as e:
@@ -996,7 +1025,7 @@ class Verifier:
         try:
             # 组装依赖 + 被测代码
             combined = "\n\n".join(req.deps) + "\n\n" + req.code
-            ns: Dict[str, Any] = {}
+            ns: Dict[str, Any] = SAFE_NS()
             exec(compile(combined, "<integrate>", "exec"), ns)
 
             # 端到端：跑第一个样例
