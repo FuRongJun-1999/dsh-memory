@@ -206,6 +206,13 @@ def role_config(role: str, model: str = None, base: str = None,
     凭证发到另一个厂商的网关，既必然失败又构成凭证外泄。
     """
     m_env, b_env, k_env = _ROLE_ENV[role]
+    # issue #96（2026-10-09 DSH 端）：model/base 必须先解析出，key 的**通用兜底**
+    # 才有判据可依——原实现在 key 段之后才解析 base，于是「跨厂商不回落」这条
+    # 注释里的意图无从落实。
+    model = (model or os.environ.get(m_env) or os.environ.get("MDCG_LLM_MODEL")
+             or ROLE_DEFAULT_MODEL[role])
+    base = (base or os.environ.get(b_env) or os.environ.get("MDCG_LLM_BASE")
+            or ROLE_DEFAULT_BASE[role])
     if key is None:
         key = os.environ.get(k_env)
         if key is None and role == VERIFY_ROLE:
@@ -214,13 +221,20 @@ def role_config(role: str, model: str = None, base: str = None,
                 if key:
                     break
         if key is None:
-            key = os.environ.get("MDCG_LLM_KEY")
+            # issue #96（**本条是要害**）：MDCG_LLM_KEY 是**通用**变量，实测里它
+            # 承载的是反思单元（DeepSeek）的 key。若验证单元的 base 与反思单元
+            # **不同厂商**，把该 key 发给验证网关＝**凭证外泄 + 记忆正文外发到
+            # 第二家厂商**。故此处改为：**仅在 base 同源时才允许通用兜底**。
+            _generic_ok = True
+            if role == VERIFY_ROLE:
+                _r_base = (os.environ.get(_ROLE_ENV[REFLECT_ROLE][1])
+                           or os.environ.get("MDCG_LLM_BASE")
+                           or ROLE_DEFAULT_BASE[REFLECT_ROLE])
+                _generic_ok = (base == _r_base)
+            if _generic_ok:
+                key = os.environ.get("MDCG_LLM_KEY")
         if key is None and role == REFLECT_ROLE:
             key = os.environ.get("DEEPSEEK_API_KEY")
-    model = (model or os.environ.get(m_env) or os.environ.get("MDCG_LLM_MODEL")
-             or ROLE_DEFAULT_MODEL[role])
-    base = (base or os.environ.get(b_env) or os.environ.get("MDCG_LLM_BASE")
-            or ROLE_DEFAULT_BASE[role])
     return model, base, key
 
 
