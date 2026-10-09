@@ -73,10 +73,24 @@ def main():
             tenant="public", actor="web", clearance="public"))
         check("public 读不到 internal 节点", pub_again.get("int1") is None)
         check("public 读不到 private 节点", pub_again.get("prv1") is None)
+        # 期望更新（#89② 收窄靶区，2026-10-09）：原断言 = `all(id=="pub1")` **且**
+        # `res_pub` 非空。查询「条目」与本库零词面交集（pub1 正文是「公开知识 的内容」；
+        # 探针实测该查询全库正分 0）⇒ #89② 后 T3 兜底不再返回 0 分填充行，结果为空集，
+        # 旧断言的后半截（非空）随之转红——而它此前成立**只因**那条 0 分填充行。
+        # 拆成两条：①密级语义（结果集 ⊆ {pub1}，**不要求非空**——空集也满足"看得到
+        # 的东西全是 public"）②另用**真命中**查询（「公开知识」在 pub1 正文里，实测
+        # score>0）验密级过滤不吞自己的条目。比旧断言强在：两条各自可判真伪——旧断言
+        # 把「密级过滤」与「兜底填充」两件不相干的事绑在一个 `and` 上，前半截永真、
+        # 后半截依赖 #89 要禁的行为。
         res_pub, _ = pub_again.search("条目", k=10)
-        check("public 检索结果全部 public",
-              all(r[0]["id"] == "pub1" for r in res_pub) and res_pub,
+        check("public 检索结果不含非 public 条目（结果集 ⊆ {pub1}）",
+              all(r[0]["id"] == "pub1" for r in res_pub),
               f"{[r[0]['id'] for r in res_pub]}")
+        res_pub_hit, _ = pub_again.search("公开知识", k=10)
+        check("public 真命中查询仍返回自己的条目（密级过滤不吞真命中）",
+              [r[0]["id"] for r in res_pub_hit] == ["pub1"]
+              and any(float(r[1] or 0) > 0 for r in res_pub_hit),
+              f"{[(r[0]['id'], round(float(r[1] or 0), 3)) for r in res_pub_hit]}")
         res_priv, _ = cg_priv.search("条目", k=10)
         check("private 检索能看到 private 节点",
               any(r[0]["id"] == "prv1" for r in res_priv),

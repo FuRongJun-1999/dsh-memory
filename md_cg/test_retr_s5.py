@@ -13,6 +13,8 @@
   正候选——H10① 2026-09-30（改前该条目被赋 1.0，高过任何真实候选）
 - 无负记忆命中时不落 s5 审计；幂等（重复检索 / 索引重建）
 """
+import contextlib
+import io
 import os
 import sys
 import tempfile
@@ -23,6 +25,7 @@ from md_cg.mdcg import MdCG  # noqa: E402
 
 passed = 0
 failed = 0
+FAILS = []
 TEXT = "阿尔法 贝塔 伽马 德尔塔"
 # neg 文本必须与 pos_overlap 高度重叠（jaccard ≥ 0.5），否则重叠支路测不出来
 NEGTEXT = "阿尔法 贝塔 伽马 德尔塔 否决样本"
@@ -36,6 +39,7 @@ def check(name, cond, detail=""):
         print("  [PASS] " + name)
     else:
         failed += 1
+        FAILS.append(name)
         print("  [FAIL] " + name + "  " + detail)
 
 
@@ -145,8 +149,13 @@ def main():
     _setenv(MDCG_NEG_LAMBDA="1")
     r1, _m1 = cg.search(QUERY, k=10, judge=False, record=False)
     sc1 = _scores(r1)
-    check("λ=1：压到 0 且不为负",
-          sc1["pos_overlap"] == 0.0 and sc1["pos_edge"] == 0.0
+    # 取键改 `.get`（2026-10-09）：S5 降权到 0 **不等于**该候选被删除——本实现自述
+    # 「只降权、不删除、下限 0」（mdcg.py `_emit` S5 段），故这两个 id 必须**仍在
+    # 结果里**。旧写法 `sc1["pos_overlap"]` 在键缺失时抛 KeyError 崩整件，错误路径
+    # 读成「崩溃」而非「这条断言不成立」；改 `.get` 后判据一字不变（缺键 ⇒ None ≠ 0.0
+    # ⇒ 仍 FAIL），但失败被**点名**到本条断言。这正是 `--mutate old-cut` 要的红项。
+    check("λ=1：压到 0 且不为负（降权不得变成删除）",
+          sc1.get("pos_overlap") == 0.0 and sc1.get("pos_edge") == 0.0
           and min(sc1.values()) >= 0.0, str(sc1))
 
     # ---- 5) 阈值真的在过滤：部分重叠候选（包含度≈0.5）在 0.6 下不抑制、0.4 下被抑制 ----
@@ -207,7 +216,80 @@ def main():
     return 0 if failed == 0 else 1
 
 
+# ---------------------------------------------- 定点变异（反面探针，自证判别力）
+# S5 的契约是「只降权、不删除」（mdcg.py `_emit` S5 段自述）：λ=1 把候选乘成 0，
+# 但候选必须仍在结果里。若主结果被裁到「真命中数」（c82e4255 旧口径），被乘成 0 的
+# 真候选会被当成「无质量信号」删掉 ⇒ λ=1 那条断言转红并点名。范式照
+# `md_cg/test_w7_redlines.py`：
+#   python -X utf8 -m md_cg.test_retr_s5 --mutate old-cut
+def _set_primary_bound(fn):
+    """把 `MdCG._primary_bound` 换成 fn（纯内存），返回恢复函数（`__dict__` 快照还原）。"""
+    orig = MdCG.__dict__["_primary_bound"]
+    MdCG._primary_bound = fn
+
+    def _restore():
+        MdCG._primary_bound = orig
+    return _restore
+
+
+_MUTATIONS = {
+    "old-cut": (
+        "主结果裁到真命中数（c82e4255 旧口径 min(_primary_slots, _n_real)）",
+        lambda: _set_primary_bound(
+            lambda self, k, n_neg, tier, n_real:
+            min(self._primary_slots(k, n_neg), n_real)),
+        {"λ=1：压到 0 且不为负（降权不得变成删除）"}),
+}
+
+
+def _reds():
+    """跑一遍 main()（新建 temp 库，幂等）；返回 (转红断言名集合, 异常名或 None)。"""
+    global passed, failed
+    passed = failed = 0
+    del FAILS[:]
+    with contextlib.redirect_stdout(io.StringIO()):
+        try:
+            main()
+        except Exception as exc:                               # noqa: BLE001
+            return set(), type(exc).__name__
+    return set(FAILS), None
+
+
+def _mutate(name):
+    if name not in _MUTATIONS:
+        print("未知变异名 %r（可选 %s）" % (name, sorted(_MUTATIONS)))
+        return 1
+    mname, apply, expect = _MUTATIONS[name]
+    print("!! S5 定点变异自证：内存注入退化，要求**恰好**命中期望红项\n")
+    bad = []
+    base_red, base_exc = _reds()
+    if base_exc:
+        bad.append("基线异常：%s" % base_exc)
+    if base_red:
+        bad.append("基线即转红：%s" % sorted(base_red))
+    print("  未变异基线：红项 %d %s" % (len(base_red), sorted(base_red)))
+    restore = apply()
+    try:
+        red, exc = _reds()
+    finally:
+        restore()
+    if exc:
+        red = {"<变异体异常:%s>" % exc}
+    hit = red == expect
+    if not hit:
+        bad.append("变异 %s：红项 %s ≠ 期望 %s" % (name, sorted(red), sorted(expect)))
+    print("  变异 {:<8} 红项 {}（期望 {}）{}".format(
+        name, len(red), len(expect), "PASS" if hit else "**FAIL**"))
+    if not hit:
+        print("    实=%s 期=%s" % (sorted(red), sorted(expect)))
+    print("\n变异自证：" + ("PASS（恰好命中期望红项）" if not bad else "FAIL —— " + "；".join(bad)))
+    return 0 if not bad else 1
+
+
 if __name__ == "__main__":
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+    if "--mutate" in sys.argv:
+        _i = sys.argv.index("--mutate")
+        sys.exit(_mutate(sys.argv[_i + 1] if _i + 1 < len(sys.argv) else ""))
     sys.exit(main())

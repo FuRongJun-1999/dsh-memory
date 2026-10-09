@@ -104,9 +104,15 @@ def main():
                   calls == [0, 600], f"calls={calls}")
             check("T3c rep%d 共打分 600 文档（旧 1100，省 45）" % rep,
                   sum(calls) == 600, f"total={sum(calls)}")
-            check("T3d rep%d tier/scanned/结果规模不变" % rep,
+            # 期望更新（#89② 收窄靶区，2026-10-09）：本查询与 600 条正文零词面交集
+            # （实测全库正分 0）⇒ T3 全量兜底且无真命中。旧断言 `len(res) == 20`
+            # 能成立**只因** T3 兜底按相关度/importance 装的 20 条 0 分填充行
+            # （#89② 后该情形返回 0 条主结果）。规模断言不取消、只**移交给真命中
+            # 那段**（见下方 T2d：有交集查询段 `len(res) == 20`，密级/规模在此真判），
+            # 本段保留可达的机制面读数（tier/scanned 逐值不变）+ 上界断言。
+            check("T3d rep%d tier/scanned 不变，主结果规模 ≤ k" % rep,
                   meta.get("tier") == "T3_global_scan"
-                  and meta.get("scanned") == N and len(res) == 20,
+                  and meta.get("scanned") == N and len(res) <= 20,
                   f"tier={meta.get('tier')} scanned={meta.get('scanned')} "
                   f"n={len(res)}")
 
@@ -121,6 +127,12 @@ def main():
             check("T2c rep%d tier 不变（T2_global_like）" % rep,
                   meta.get("tier") == "T2_global_like",
                   f"tier={meta.get('tier')}")
+            # T2d（2026-10-09，#89② 收窄靶区）：**结果规模断言移交到本段**——
+            # 600 条正文全含 QUERY_HIT ⇒ 全库真命中 600 ⇒ T2 出口，主结果取满 k=20。
+            # 与 T3d 的 `≤ k` 上界配对：规模为真时钉等号（T2 段），为 0 时钉上界与
+            # tier（T3 段），两段合起来才盖住「规模不被打分透传改动」这一原意。
+            check("T2d rep%d 有交集 ⇒ 主结果取满 k（规模不受 #89② 影响）" % rep,
+                  len(res) == 20, f"n={len(res)}")
 
         print("== 纯度：透传 scored ≡ 现算 _score（不改结果的直接证据）==")
         (res, meta), calls, pairs = count_score(

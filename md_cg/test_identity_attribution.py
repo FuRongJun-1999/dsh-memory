@@ -103,10 +103,21 @@ try:
     #     编码的是 #35 之前的契约（同口径见 test_p47_session_view 的 D1a/D2/D3）。
     #   · 绑定档（private/secret）仅归属会话——由 principal.session 判定，查询侧
     #     自报的 session 不越权；can_admin（设计者）整体判断豁免。
-    res_b, _ = cg2.search("知识", session="sess_B")
+    # 期望更新（#89② 收窄靶区，2026-10-09）：本组原用查询「知识」——它与 n1/n2 正文
+    # （「乙会话更新了这条」/「显式会话标签条目」）零词面交集，探针实测全库正分 0 ⇒
+    # 落到 T3 全量兜底且无真命中；旧断言能见到 n1/n2 **只因** T3 兜底按 importance
+    # 装的 0 分填充行（#89② 后该情形返回 0 条）。改用**真命中**查询「会话」（两节点
+    # 正文均含该词，实测 score>0）：断言不但保留原意（显式 session 不缩小共享档
+    # 可见性），还**比旧断言强**——加比对了「显式 session="sess_B"」与「不传 session」
+    # 两次检索的 id 集合**逐元素相等**；旧断言只查两个 id 是否在集合里，对
+    # 「传了 session 却同时漏掉别的共享档节点」这种收窄不敏感。
+    res_b, _ = cg2.search("会话", session="sess_B")
     ids_b = {_row(r).get("id") for r in res_b}
+    res_n, _ = cg2.search("会话")
+    ids_n = {_row(r).get("id") for r in res_n}
     check("⑥a 共享档跨会话可见：显式 session 不缩小可见性",
-          "n1" in ids_b and "n2" in ids_b, ids_b)
+          "n1" in ids_b and "n2" in ids_b and ids_b == ids_n,
+          f"{sorted(ids_b)} vs {sorted(ids_n)}")
 
     # ⑥b~⑦ 绑定档对照（private 节点归 sess_B）：
     #   · 跨身份（另一 actor/会话）不可见；

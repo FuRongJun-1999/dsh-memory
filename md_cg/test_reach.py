@@ -13,8 +13,11 @@
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
+import sys
 import tempfile
 import time
 
@@ -374,5 +377,80 @@ def main():
     return 0
 
 
+# ---------------------------------------------- 定点变异（反面探针，自证判别力）
+# 本组钉的「图扩散邻居进结果」是 reach 补召回**唯一的结果层出口**（`mdcg.search` 的
+# reach 分支 `or d[0].get("path") in _dif` 显式放行的 0 分行）。#89② 把主结果裁到
+# `_n_real`（真命中数）时它会被裁掉——故下面注入**旧口径**（`min(_primary_slots,
+# _n_real)`）应使 (5) 那条断言转红并点名。范式照 `md_cg/test_w7_redlines.py`：
+#   python -X utf8 -m md_cg.test_reach --mutate old-cut
+def _set_primary_bound(fn):
+    """把 `MdCG._primary_bound` 换成 fn（纯内存），返回恢复函数（`__dict__` 快照还原）。"""
+    from .mdcg import MdCG
+    orig = MdCG.__dict__["_primary_bound"]
+    MdCG._primary_bound = fn
+
+    def _restore():
+        MdCG._primary_bound = orig
+    return _restore
+
+
+_MUTATIONS = {
+    # 名字 → (说明, 应用函数→恢复函数, 期望转红的断言标签集合)
+    "old-cut": (
+        "主结果裁到真命中数（c82e4255 旧口径 min(_primary_slots, _n_real)）",
+        lambda: _set_primary_bound(
+            lambda self, k, n_neg, tier, n_real:
+            min(self._primary_slots(k, n_neg), n_real)),
+        {"(5) 图扩散邻居进入 search 结果（补召回落地）"}),
+}
+
+
+def _reds():
+    """跑一遍 main()（新建 temp 语料，幂等）；返回 (转红断言标签集合, 异常名或 None)。"""
+    global PASS, FAIL
+    PASS = FAIL = 0
+    del FAILS[:]
+    with contextlib.redirect_stdout(io.StringIO()):
+        try:
+            main()
+        except Exception as exc:                               # noqa: BLE001
+            return set(), type(exc).__name__
+    return set(FAILS), None
+
+
+def _mutate(name):
+    if name not in _MUTATIONS:
+        print(f"未知变异名 {name!r}（可选 {sorted(_MUTATIONS)}）")
+        return 1
+    mname, apply, expect = _MUTATIONS[name]
+    print("!! reach 定点变异自证：内存注入退化，要求**恰好**命中期望红项\n")
+    bad = []
+    base_red, base_exc = _reds()
+    if base_exc:
+        bad.append("基线异常：%s" % base_exc)
+    if base_red:
+        bad.append("基线即转红：%s" % sorted(base_red))
+    print("  未变异基线：红项 %d %s" % (len(base_red), sorted(base_red)))
+    restore = apply()
+    try:
+        red, exc = _reds()
+    finally:
+        restore()
+    if exc:
+        red = {"<变异体异常:%s>" % exc}
+    hit = red == expect
+    if not hit:
+        bad.append("变异 %s：红项 %s ≠ 期望 %s" % (name, sorted(red), sorted(expect)))
+    print("  变异 {:<8} 红项 {}（期望 {}）{}".format(
+        name, len(red), len(expect), "PASS" if hit else "**FAIL**"))
+    if not hit:
+        print("    实=%s 期=%s" % (sorted(red), sorted(expect)))
+    print("\n变异自证：" + ("PASS（恰好命中期望红项）" if not bad else "FAIL —— " + "；".join(bad)))
+    return 0 if not bad else 1
+
+
 if __name__ == "__main__":
+    if "--mutate" in sys.argv:
+        _i = sys.argv.index("--mutate")
+        raise SystemExit(_mutate(sys.argv[_i + 1] if _i + 1 < len(sys.argv) else ""))
     raise SystemExit(main())
