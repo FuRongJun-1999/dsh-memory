@@ -4368,7 +4368,51 @@ class MdCG:
         return out
 
 
-# 生效条件：scored 按 (-分数, -importance) 排序，真实命中数 n_real = min(max(0,k), scored 中 s>0 的条数)，负覆盖提示条数 = len(_neg_tail(neg_coverage, max(0,k-n_real))) = min(NEG_COVERAGE_MAX, max(0,k-n_real))（H10 修订：真实命中优先，提示不再按 min(3,k) 先占位——改前 k=2/3 时主结果配额被算成 0、一条真实命中都不返回），主结果取 scored[:max(0,k-提示数)] 后逐条判定（judge 为真值时调 judge_qualification(r[0], stat["query"] 或 "", context)，否则 qual={"state":None,"reason":"judge_disabled"}），再把提示条目 extend 到 out 末尾；record 为真且主结果非空时调 record_access；pool_plan 以 pooling.plan(stat["cap"] 或模块级 GLOBAL_CAP, pools) 生成，stat["pool_taken"] 为真时并入 taken/cands/lost；返回 (out, 含 tier/scanned/bucket/candidates/pre_cap/cap/cut_order/pools/covered_neg/big_domain 的审计 dict)；
+# 生效条件：tier == TIER_GLOBAL_SCAN（T3 全量兜底：候选取自未经 _like 过滤的全量表、且该出口**不设阈值**）且 n_real == 0（全库无任何 s>0 的条目）时返回 True；tier 为其它层（T0/T1/T2 桶与 LIKE、S3 spread）或 n_real > 0 时返回 False。
+    @staticmethod
+    def _zero_filler_only(tier, n_real) -> bool:
+        """#89② 靶区单点判据：**只有「T3 兜底 ∧ 全库无真命中」才是纯 0 分填充行**。
+
+        定因（2026-10-09，原始读数见交付记录 `%TEMP%\\p89_red\\`）——`score == 0`
+        在结果装配处**两种语义并存**，光看分数分不开：
+
+          · **T3 全量兜底**（`docs_all` 未过 `_like`）：`s == 0` ⇔ 与查询零词面/语义
+            交集 ⇒ **真无关**。该出口按相关度（次级 importance/created_at）把 top-k
+            装进结果，0 分行就是「库里没有相关内容时的填充」= #89 的靶区。
+          · **T0/T1/T2 与 reach 路径**：`s == 0` 另有语义——① 过了 LIKE 闸的真候选被
+            S5 按 λ 降权（本实现 S5 自述「只降权、不删除、下限 0」）；② reach 图扩散
+            邻居经 `path in reach_diffused_paths` 显式补入（reach 补召回的**唯一结果层
+            出口**）。这两类 0 都**带质量信号**，裁它们 = 把「降权」变成「删除」。
+            结构上还多一层保证：这些路径都经 `try_stage` 出口，而其判据是
+            `valid >= min_results`（缺省 1，且各调用点 k ≥ 1）⇒ 它们**不会**在有真
+            命中的情况下只剩 0 分行；T3 是唯一**不设阈值**的兜底出口。
+
+        `n_real`（＝`min(k, sum(s>0))`，H10 已算好的同一口径）只用来回答「库里到底有
+        没有真相关」：T3 下 `sum(s>0) > 0` ⇒ 0 分行是「真命中之外的填充」，与改动前
+        逐位一致 ⇒ 不裁。（`n_real` 恒不用于裁主结果条数——那是它**不具备**的职能。）
+        """
+        return tier == TIER_GLOBAL_SCAN and not n_real
+
+
+# 生效条件：恒返回主结果实取条数上界——`_zero_filler_only(tier, n_real)` 为真（T3 全量兜底 ∧ 全库无真命中 ⇒ #89② 靶区）时返回 0；否则返回 `_primary_slots(k, n_neg)`（= max(0, k − 负覆盖提示条数)）。
+    def _primary_bound(self, k, n_neg, tier, n_real) -> int:
+        """主结果实取条数上界——#89② 收窄后**唯一**的裁切裁决点（2026-10-09）。
+
+        两种口径在此合流：
+          · `_primary_slots(k, n_neg)`（H10② 单点在彼）：k 预算扣掉负覆盖提示条；
+          · #89② 收窄：**只**在 `_zero_filler_only(...)` 为真时把上界压到 0。
+
+        改前（c82e4255）此处是 `min(_primary_slots(k, n_neg), _n_real)`——把**只服务
+        H10 负覆盖尾条预算**的 `_n_real` 借来当主结果裁切上限（`_n_real` 的 docstring
+        与 H10 修订注释都写明它只算「提示条让位」的预算），于是 T2 里被 S5 降权到 0 的
+        真候选、reach 里被显式补入的图扩散邻居一并被删——**真退化**，非期望过时。
+        """
+        if self._zero_filler_only(tier, n_real):
+            return 0
+        return self._primary_slots(k, n_neg)
+
+
+# 生效条件：scored 按 (-分数, -importance) 排序，真实命中数 n_real = min(max(0,k), scored 中 s>0 的条数)，负覆盖提示条数 = len(_neg_tail(neg_coverage, max(0,k-n_real))) = min(NEG_COVERAGE_MAX, max(0,k-n_real))（H10 修订：真实命中优先，提示不再按 min(3,k) 先占位——改前 k=2/3 时主结果配额被算成 0、一条真实命中都不返回），主结果取 scored[:max(0,k-提示数)]（#89② 收窄：tier==TIER_GLOBAL_SCAN 且 n_real==0 时取 0 条；单点见 _primary_bound/_zero_filler_only）后逐条判定（judge 为真值时调 judge_qualification(r[0], stat["query"] 或 "", context)，否则 qual={"state":None,"reason":"judge_disabled"}），再把提示条目 extend 到 out 末尾；record 为真且主结果非空时调 record_access；pool_plan 以 pooling.plan(stat["cap"] 或模块级 GLOBAL_CAP, pools) 生成，stat["pool_taken"] 为真时并入 taken/cands/lost；返回 (out, 含 tier/scanned/bucket/candidates/pre_cap/cap/cut_order/pools/covered_neg/big_domain 的审计 dict)；
     def _emit(self, scored, k, tier, stat, bucket, record, candidates,
               judge, context, neg_coverage, big_domain=None, big_scores=None,
               pools=None):
@@ -4458,11 +4502,15 @@ class MdCG:
         # 计数位数）——两者皆非为本次修复新增，故不新增协议字段。
         _n_real = min(max(0, int(k)), sum(1 for _, s in scored if s > 0))
         _neg_tail = self._neg_tail(neg_coverage, max(0, int(k) - _n_real))
-        # issue #89②（2026-10-09 DSH 端）：**0 分（无质量信号）条目不得装进结果**——
-        # 它们对调用方无价值且有误导（LLM 会当成相关内容）。裁到真实命中数为止。
-        # 判据复用紧随其上的 _n_real（＝ min(k, sum(s>0))，H10 已算好），
-        # 故本笔不引入第二个「什么是真实命中」的口径。
-        results = scored[:min(self._primary_slots(k, len(_neg_tail)), _n_real)]
+        # issue #89②（2026-10-09 DSH 端实施、zcode 端收窄靶区）：**0 分（无质量信号）
+        # 条目不得装进结果**——它们对调用方无价值且有误导（LLM 会当成相关内容）。
+        # 但与 `try_stage` 的 `valid` 同一口径的 `_n_real`（＝ min(k, sum(s>0))）**只服务
+        # H10 的负覆盖尾条预算**（其 docstring 明写：真实命中先占位、提示条让位），
+        # 本笔原先把它借来当「主结果裁切上限」，等于给 H10 加了一层它不具备的职能——
+        # 于是 T2 里被 S5 降权到 0 的真候选、reach 里显式补入的图扩散邻居被一并删除。
+        # 收窄后的判据单点在 `MdCG._zero_filler_only` / 裁切上界单点在
+        # `MdCG._primary_bound`（两路 `score==0` 的语义分档见前者 docstring）。
+        results = scored[:self._primary_bound(k, len(_neg_tail), tier, _n_real)]
         # ---- S6 一致性交叉验证（契约 §3 S6；flag 控、默认关）----
         # 只读复用 crosscheck 的「赛道 × 来源执照」判定：对 top-k 逐个给出赛道、声明依据是否被
         # 该赛道许可、以及断言条数。**不进主排序**（scored/out 的次序一律不动），只落审计摘要。
