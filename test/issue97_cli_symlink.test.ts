@@ -28,7 +28,9 @@ function runCli(entry: string, root: string): { lines: number; code: number } {
   try {
     out = execFileSync(process.execPath,
       [entry, 'init', '--end', 'dsh', '--root', root, '--python', 'python3'],
-      { cwd: REPO, encoding: 'utf8', timeout: 60000 })
+      // cwd 用临时目录：init 会把配置片段落盘（lingshu-mcp-snippet.json），
+      // 跑在仓根会污染工作树（首版即如此，提交后 git status 多出一个未追踪文件）。
+      { cwd: dirname(root), encoding: 'utf8', timeout: 60000 })
   } catch (e) {
     const err = e as { status?: number; stdout?: string; stderr?: string }
     code = err.status ?? 1
