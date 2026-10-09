@@ -23,13 +23,19 @@
       C9  锚点·真握手三条（initialize / notifications/initialized / tools/list）
       C10 锚点·沙箱内注入 `MDCG_ROOT` 与 `MDCG_AUX_ROOT`（两根本体）
       C11 单点未被绕过：`check_publish_artifact._npm_pack_json` 走 `resolve_npm()`
+      C12 锚点·懒加载数据面 S7：装机后**真 import** `md_cg.units` 问字符集表可解析
+          吗（`CHARSET_BLOCKS_ERROR is None`）+ 打印「修法：files 加
+          hive/id_charset_blocks.txt」——第三例「仓库里在、包里不在」的机器读面
   [B] 定点变异自证（`--mutate`；真跑 npm，慢）：
-      B1 静态面：11 处定点变异逐条应用，每处**恰好**命中预期红项（集合相等，多
+      B1 静态面：12 处定点变异逐条应用，每处**恰好**命中预期红项（集合相等，多
          一项少一项都判红）；锚点漂移 → ANCHOR-MISS → 退出码 2。
       B2 行为面：在**临时副本**上先跑出绿（rc=0 / fails=[] / tools=['cg','stg']），
-         再从 `package.json` 的 `files` 里删掉 `"utf8_boot.py"` → 本腿必须变红
-         （rc=1）且**恰好**命中 4 项（S1 清单缺件 / S2 装机目录缺件 / S4 握手起不来 /
-         S5 无从取 tools），并打印点名缺件的修法行。
+         再施加两处 `files` 变异，各自必须变红且**恰好**命中：
+         ① 删 `"utf8_boot.py"` → 4 项（S1 清单缺件 / S2 装机目录缺件 / S4 握手起不来 /
+            S5 无从取 tools），并打印点名缺件的修法行；
+         ② 删 `"hive/id_charset_blocks.txt"` → 1 项（S7 字符集表不可解析）——此处
+            **不波及** S4/S5：units 是懒加载，进程照常起、握手照常成，这正是第三例
+            比前两例隐蔽的原因，故必须单列断言。
 
 运行（scripts/ 非包，直跑）：
   python -X utf8 scripts/test_publish_smoke_guard.py             # [A]（全量套件里的形态）
@@ -64,6 +70,14 @@ BEHAVIOR_EXPECTED_REDS = {
 }
 MISSING_HINT = "修法：files 加 utf8_boot.py"
 
+#: S7（懒加载数据面：装机后 md_cg/units.py 的字符集表可解析）的判据名与修法行。
+#: **第三例「仓库里在、包里不在」**（前两例见 issue #38 / #48）：加这一层是因为
+#: 前两例让进程起来即退（响），第三例只在 cg(op=ccg, action=units) 上静默失效。
+#: 判据名与 check_publish_smoke.py 的 report.rule 逐字一致——改名而本表未同步即红。
+S7_RULE_NAME = "S7 装机后 md_cg/units.py 的字符集表可解析（懒加载数据面）"
+MISSING_HINT_CHARSET = "修法：files 加 hive/id_charset_blocks.txt"
+BEHAVIOR_EXPECTED_REDS_CHARSET = {S7_RULE_NAME}
+
 ANCHOR_CHECK_NAMES = (
     "C4 锚点·出货清单点名缺件与修法行",
     "C5 锚点·缺省工具面 DEFAULT_TOOLS",
@@ -72,6 +86,7 @@ ANCHOR_CHECK_NAMES = (
     "C8 锚点·复用 npm 解析单点",
     "C9 锚点·真握手三条 JSON-RPC",
     "C10 锚点·沙箱内注入 MDCG_ROOT/MDCG_AUX_ROOT",
+    "C12 锚点·懒加载数据面 S7（真 import 字符集表 + 修法行）",
 )
 
 _PASS = []
@@ -172,6 +187,11 @@ def _static_checks(root):
         add("C10", ANCHOR_CHECK_NAMES[6],
             ('env["MDCG_ROOT"] = mem_root' in src)
             and ('env["MDCG_AUX_ROOT"] = aux_dir' in src), "")
+        add("C12", ANCHOR_CHECK_NAMES[7],
+            (MISSING_HINT_CHARSET in src)
+            and (S7_RULE_NAME in src)
+            and ("import md_cg.units as u" in src)
+            and ("CHARSET_BLOCKS_ERROR" in src), "")
 
     try:
         cpa = _read(root, *CPA_REL)
@@ -250,6 +270,8 @@ def _static_mutations():
          rep(*CPA_REL, old='[resolve_npm(), "pack", "--dry-run", "--json"]',
              new='["npm.cmd" if os.name == "nt" else "npm", "pack", "--dry-run", "--json"]'),
          {"C11"}),
+        ("去掉字符集表修法行", rep(*SMOKE_REL, old=MISSING_HINT_CHARSET, new="修法见文档"),
+         {"C12"}),
     )
 
 
@@ -309,6 +331,14 @@ def _files_without_utf8_boot(root):
     if not isinstance(files, list) or "utf8_boot.py" not in files:
         raise AnchorMiss("package.json 的 files 里没有 utf8_boot.py（变异无从施加）")
     return pj, [f for f in files if f != "utf8_boot.py"]
+
+
+def _files_without_charset(root):
+    pj = json.loads(_read(root, "package.json"))
+    files = pj.get("files")
+    if not isinstance(files, list) or "hive/id_charset_blocks.txt" not in files:
+        raise AnchorMiss("package.json 的 files 里没有 hive/id_charset_blocks.txt（变异无从施加）")
+    return pj, [f for f in files if f != "hive/id_charset_blocks.txt"]
 
 
 def _static_group():
@@ -403,6 +433,33 @@ def _behavior_body(tmp):
              (summary or {}).get("installed_has_utf8_boot"),
              (summary or {}).get("handshake_rc")))
     print("     红项点名：%s" % "；".join(sorted(fails)))
+
+    # —— 变异 2：files 里删掉 "hive/id_charset_blocks.txt" ——
+    # 先把 package.json 复位（上一处变异已删 utf8_boot，不复位就变成两处同时缺件，
+    # 「恰好命中 S7 一处」的断言会失真）；复位源取真源 HERE，不依赖副本现状。
+    _write(copy_root, "package.json", text=_read(HERE, "package.json"))
+    pj2, files2 = _files_without_charset(copy_root)
+    pj2["files"] = files2
+    _write(copy_root, "package.json", text=json.dumps(pj2, ensure_ascii=False, indent=2) + "\n")
+    rc, summary, out = _run_smoke(copy_root, os.path.join(sandbox, "red_charset"))
+    fails = set((summary or {}).get("fails") or [])
+    ok(rc == 1, "B2 红侧2：删字符集表后本腿 rc=1（修前形态：腿不会红）", "rc=%s" % rc)
+    ok(fails == BEHAVIOR_EXPECTED_REDS_CHARSET,
+       "B2 红侧2：恰好命中预期红项 %s" % sorted(BEHAVIOR_EXPECTED_REDS_CHARSET),
+       "实得 %s" % sorted(fails))
+    ok(MISSING_HINT_CHARSET in out,
+       "B2 红侧2：点名缺件并打印修法行「%s」" % MISSING_HINT_CHARSET)
+    ok((summary or {}).get("has_utf8_boot") is True
+       and (summary or {}).get("charset_blocks_error"),
+       "B2 红侧2：对照（utf8_boot 仍在清单）且字符集表确已不可用",
+       json.dumps({k: (summary or {}).get(k) for k in
+                   ("has_utf8_boot", "charset_blocks_error", "charset_blocks_ranges")},
+                  ensure_ascii=False)[:220])
+    print("     红侧2读数：清单含 utf8_boot=%s · charset_err=%r · ranges=%s"
+          % ((summary or {}).get("has_utf8_boot"),
+             (summary or {}).get("charset_blocks_error"),
+             (summary or {}).get("charset_blocks_ranges")))
+    print("     红侧2点名：%s" % "；".join(sorted(fails)))
 
 
 def main():

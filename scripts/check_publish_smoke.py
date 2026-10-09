@@ -7,6 +7,7 @@
    绝不读写使用者的真实记忆库。
 # 子功能：①npm pack 真产物 → 出货清单点名断言（仓根 utf8_boot.py）
    ②空沙箱真装（npm install <tgz>）→ 装好的目录里点名断言
+   ②.5 懒加载数据面：装机后 import md_cg.units，问它的字符集表解析成功没有
    ③从装好的目录真启动 MCP → 真发 initialize / notifications/initialized / tools/list
    ④启动 stderr 的策略来源记录（NOTE，恒不判负）
 # 执行：python -X utf8 scripts/check_publish_smoke.py [--root <仓库根>]
@@ -20,16 +21,20 @@
    --legacy-peer-deps 跳过 peer）、不覆盖 MDCG_MCP_SURFACE=full 的多工具面（本腿只
    测缺省面 ['cg','stg']）、不覆盖 TypeScript 侧 lib/ 的运行时行为。
 
-为什么另立一道腿（同类已漏两次）：
+为什么另立一道腿（同类已漏三次）：
   · 「仓库里在、包里不在」这一类缺陷，既有八道门禁**全看不见**——check_publish_artifact
     只扫包内件的内容政策（凭据/私有数据/隐私/非追踪），不检查某个**必要件是否缺席**；
-    实测两次：#38（scripts/ 与 hive/ 整目录未出货）、issue #48（仓根 utf8_boot.py 未被
+    实测三次：#38（scripts/ 与 hive/ 整目录未出货）、issue #48（仓根 utf8_boot.py 未被
     files 收录 ⇒ 0.6.1 装机即挂，`md_cg/mcp_server.py` 的 `from utf8_boot import ensure_utf8`
-    直接 ModuleNotFoundError）。
-  · 故本腿以**出货清单点名 + 真装真握手**收口：必要件缺席即红并点名缺件，且不只信清单
-    ——装出来的目录里再点名一次、真启动一次，把「清单有而装机没有」也一起堵住。
+    直接 ModuleNotFoundError）、第三次＝`hive/id_charset_blocks.txt` 未被 files 收录
+    ⇒ 装机后 `md_cg/units.py` 的字符集表解析 fail-closed（见 S7）。
+  · 第三次比前两次**隐蔽**：前两次让进程起来即退（响），第三次不阻塞启动、记忆照常，
+    只在 cg(op=ccg, action=units) 这条委派链上静默把一切 job_id 判 False。
+  · 故本腿以**出货清单点名 + 真装真握手 + 懒加载数据面语义探测**收口：必要件缺席即红并
+    点名缺件，且不只信清单——装出来的目录里再点名一次、真启动一次、真 import 一次，把
+    「清单有而装机没有」与「文件在但解析不了」一起堵住。
 
-判据（S0–S6，名字即机器读面）：
+判据（S0–S7，名字即机器读面）：
   S0 npm 可执行面可解析（探不到即 fail-closed 退出码 1，不静默 SKIP）
   S1 出货清单含仓根 utf8_boot.py（缺则点名「修法：files 加 utf8_boot.py」）
   S2 装好的目录含 utf8_boot.py
@@ -37,6 +42,9 @@
   S4 真握手成功（initialize → serverInfo，name/version 与包内 package.json 对齐）
   S5 tools 面 == 缺省面 ['cg','stg']
   S6 策略来源来自**包内** data/policy.json（NOTE，恒不判负）
+  S7 装机后 md_cg/units.py 的字符集表可解析（**语义**判据：真 import 真解析，不止看
+     文件名在不在——`CHARSET_BLOCKS_ERROR is None` 且区间数 > 0；缺则点名
+     「修法：files 加 hive/id_charset_blocks.txt」）
 
 退出码：0 通过｜1 判据红（含 npm 探不到，按本腿契约 fail-closed）｜2 环境错误。
 """
@@ -76,6 +84,8 @@ INSTALL_SUBDIR = "install"
 #: 握手总预算：实测 1.3s（0.6.1 装机面），给足余量但不无限等。
 HANDSHAKE_TIMEOUT = 180
 NPM_TIMEOUT = 600
+#: 懒加载数据面探测预算（只 import 一个模块并打印一行 JSON，实测 <1s）。
+PROBE_TIMEOUT = 120
 
 
 # 生效条件：无入参，按脚本所在位置加载同目录 check_publish_artifact.py（scripts/ 非包，
@@ -390,6 +400,57 @@ def main(argv=None):
     report.rule("S3 装好的目录含 md_cg/mcp_server.py", have_server,
                 "" if have_server
                 else ("安装未成功" if not install_ok else "装机目录里没有 md_cg/mcp_server.py"))
+
+    # ---- ②.5 懒加载数据面：装机后「模块能不能解析出它的数据」 ----
+    # 与 S1/S2/S3 同族（都是拦「仓库里在、包里不在」），但**判据更强**：不看某个
+    # 文件名在不在，而是真起一个解释器 import 该模块、问它数据解析成功没有。
+    # 第三例复发（前两例见 issue #38 / #48「出货面缺件」）：
+    #   `md_cg/units.py` 在**模块导入时**按「本文件上溯两级 + hive/id_charset_blocks.txt」
+    #   读字符集表（三处读者共读的唯一真源），而 package.json 的 files 白名单不含
+    #   `hive/` ⇒ 装机后该表不可读、解析 fail-closed（区间集为空 ⇒ 一切 job_id 判
+    #   False）。**这一例比前两例隐蔽**：它不阻塞进程启动、记忆功能照常（不像 #48
+    #   那样 `ModuleNotFoundError` 让插件起来即退），只在走到 cg(op=ccg, action=units)
+    #   这条委派链时静默失效——故必须由本腿点名。
+    charset_err = None
+    charset_ranges = None
+    charset_ok = False
+    charset_detail = "安装未成功，无从探测"
+    if install_ok:
+        probe = (
+            "import sys, json\n"
+            "sys.path.insert(0, %r)\n"
+            "import md_cg.units as u\n"
+            "print(json.dumps({'err': u.CHARSET_BLOCKS_ERROR,"
+            " 'n': len(u.CHARSET_BLOCKS)}))\n" % installed_pkg)
+        proc_probe = _run([sys.executable, "-X", "utf8", "-c", probe],
+                          installed_pkg, _base_env(), PROBE_TIMEOUT)
+        if proc_probe is None:
+            charset_detail = "探测进程起不来（解释器不可执行或超时）"
+        elif proc_probe.returncode != 0:
+            charset_detail = ("探测进程 rc=%s（md_cg.units 导入即失败）：%s"
+                              % (proc_probe.returncode, _stderr_tail(proc_probe.stderr, 4)))
+        else:
+            try:
+                payload = json.loads((proc_probe.stdout or "").strip().splitlines()[-1])
+                charset_err = payload.get("err")
+                charset_ranges = payload.get("n")
+            except (ValueError, IndexError) as exc:
+                charset_detail = "探测输出不可解析：%s" % exc
+            if charset_ranges is not None:
+                charset_ok = (charset_err is None and isinstance(charset_ranges, int)
+                              and charset_ranges > 0)
+                if charset_ok:
+                    charset_detail = ""
+                else:
+                    charset_detail = ("装机后字符集表不可用（ranges=%r err=%r）——"
+                                      "job_id 闸 fail-closed 会判一切 id 为 False"
+                                      % (charset_ranges, charset_err))
+    summary["charset_blocks_error"] = charset_err
+    summary["charset_blocks_ranges"] = charset_ranges
+    if not report.rule("S7 装机后 md_cg/units.py 的字符集表可解析（懒加载数据面）",
+                       charset_ok, charset_detail):
+        print("         修法：files 加 hive/id_charset_blocks.txt"
+              "（package.json 的 files 白名单收录该数据文件）")
 
     # ---- ③ 真启动 + 真握手 ----
     print("=== 3) 真启动 + 真握手（stdlib MCP：initialize / notifications/initialized / tools/list）===")

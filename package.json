@@ -22,6 +22,7 @@
     "md_cg",
     "utf8_boot.py",
     "data/policy.json",
+    "hive/id_charset_blocks.txt",
     "skills",
     "README.md",
     "dsh",
