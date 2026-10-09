@@ -177,6 +177,9 @@ def cut_by_relevance(docs, scored, total, pools=None, key_of=None, stat=None):
     order = sorted(
         range(len(docs)),
         key=lambda i: (-float(scored[i][1]),
+                       # issue #89①：分数封顶后同分不可分辨，精确命中作**次级键**
+                       # （分数语义一字不动，只在并列时把整串命中提前）。
+                       -int(scored[i][0].get(EXACT_HIT_KEY) or 0),
                        -float(scored[i][0]["frontmatter"].get("importance") or 0),
                        -float(scored[i][0]["frontmatter"].get("created_at") or 0),
                        # 终键：三级全等时按 nid 定序。没有它，sorted 的**稳定性**
@@ -549,6 +552,37 @@ def lexical_sim(qb: set, nb: set, mode: str = None) -> float:
         union = len(qb | nb)
         return inter / union if union else 0.0
     return inter / len(qb)
+
+
+# issue #89①（2026-10-09 DSH 端）：整串精确命中判据单点。
+# 判据与 neg_condition_hits 判据 ① **同源**（去全部空白后作子串 + 长度下限 2），
+# 检索面的「整串命中」只有这一个口径，不另发明一套。
+EXACT_HIT_KEY = "_exact_hit"
+EXACT_MIN_LEN = 2
+
+
+# 生效条件：q 与 content 去全部空白后，q 长度 >= EXACT_MIN_LEN 且作为**连续子串**出现在 content 中 -> 返回 1，否则 0（假值按 "" 处理）。
+def exact_hit_of(q: str, content: str) -> int:
+    """整串精确命中（0/1）——**分数之外的次级排序键**（issue #89①）。
+
+    缺陷（本端实测复现，2026-10-09）：打分走 bigram 覆盖度，**连续整串**与
+    「分散出现同样两个 bigram」得分**逐位相同**（实测 10 条 sim 全 = 1.0）；
+    封顶 min(1.0, ...) 后完全不可分辨 ⇒ 排序退化到 id 字典序 ⇒ 精确命中被
+    挤出 top-k（复现：10 条同分、精确命中 id 字典序最大 ⇒ top5 不含它，
+    与 GitHub #89 现象「222 不在前 5」一致）。
+
+    **为什么不是「封顶前保留原始分」**（issue 建议 1 前半句）：实测封顶前的
+    原始分同样全 = 1.0（sim 与 sim+tag_bonus 逐条相同）——原始分本身就没有
+    分辨力，故该句在本机制下**不成立**；判据必须落在**分数之外**。
+
+    为什么落排序键而不改分数：分数封顶 1.0 是既有契约（下游按 score 排序/
+    取首位、MCP 三处把 score 透给调用方），改 cap 或让分数越过 1.0 会破契约；
+    本判据只加 0/1 标记，**分数与阈值语义一字不动**。
+    """
+    _q = re.sub(r"\s+", "", q or "")
+    if len(_q) < EXACT_MIN_LEN:
+        return 0
+    return 1 if _q in re.sub(r"\s+", "", content or "") else 0
 
 
 # 负条件判据的词长下限（批次76）：空白切词会把中文句子里夹的裸标识符切成独立词、
@@ -4098,7 +4132,9 @@ class MdCG:
                                "hops": _s3_hops, "decay": _s3_decay,
                                "gain": _s3_gain, "valid": _valid}
                 if _valid >= min_results:
-                    _merged.sort(key=lambda x: (-x[1], -float(
+                    _merged.sort(key=lambda x: (-x[1],
+                        # issue #89①：同分时精确命中优先（次级键）
+                        -int(x[0].get(EXACT_HIT_KEY) or 0), -float(
                         x[0]["frontmatter"].get("importance") or 0),
                         str(x[0].get("id") or "")))
                     if record and _merged[:k]:
@@ -4300,7 +4336,10 @@ class MdCG:
             if _boost:                      # S4：层级加成（最后一步；上限仍夹在 1.0）
                 raw = min(1.0, raw + _boost.get(str(fm.get("layer") or ""), 0.0))
             scored.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
-                            "content": c, "path": e["path"]}, raw))
+                            "content": c, "path": e["path"],
+                            # issue #89①：精确命中标记随 doc 携带，供排序键消费；
+                            # _emit 出口剥离（内部键，不透出）。
+                            EXACT_HIT_KEY: exact_hit_of(q, c)}, raw))
         return scored
 
 
@@ -4474,6 +4513,8 @@ class MdCG:
                         "neg": len(neg_coverage), "suppressed": len(_s5_hits),
                         "suppressed_ids": _s5_hits[:20]}
         scored.sort(key=lambda x: (-x[1],
+                                   # issue #89①：同分时精确命中优先（次级键）
+                                   -int(x[0].get(EXACT_HIT_KEY) or 0),
                                    -float(x[0]["frontmatter"].get("importance") or 0),
                                    str(x[0].get("id") or "")))
         # ---- 负覆盖提示条目（H10①②④）：先建尾条目，再按 k 预算切主结果 ----
@@ -4640,6 +4681,12 @@ class MdCG:
         # 未启用则 meta 键集合与改动前逐字节一致（默认关零变更纪律）。
         if stat.get("time_filter"):
             meta["time_filter"] = stat["time_filter"]
+        # issue #89①：次级排序键用毕即剥离——EXACT_HIT_KEY 是**内部键**，
+        # 不得随 doc 引用透出。MCP 面（_node_view / 三处显式取键）本就是白名单，
+        # 本步是第二道防线，也为将来新增的消费面兜底。
+        for _r in out:
+            if isinstance(_r[0], dict):
+                _r[0].pop(EXACT_HIT_KEY, None)
         return out, meta
 
     # ---------- 五大单元之四：反思 / 验证 / 输出 ----------
