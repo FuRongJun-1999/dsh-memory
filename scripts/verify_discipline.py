@@ -262,8 +262,11 @@ def count_scan_files(repo):
     """
     tracked = _tracked_rels(repo)
     if tracked is None:
+        # 走 **stderr**：本脚本有 `--json`（stdout 须是纯 JSON，供 test_discipline_*
+        # 等消费方 json.loads）。若把 [降级] 打到 stdout，`--repo <非 git 临时仓>`
+        # 场景下 JSON 前多一行、json.loads 直接崩（N253 守卫 S2–S6 首现该形态）。
         print("[降级] git 不可用：分发面计数扫描面退化为文件系统 glob 走查"
-              "（可能与 CI 干净克隆不一致）")
+              "（可能与 CI 干净克隆不一致）", file=sys.stderr)
     seen, out = set(), []
     for pat in COUNT_SCAN_GLOBS:
         for path in glob.glob(os.path.join(repo, *pat.split("/")), recursive=True):

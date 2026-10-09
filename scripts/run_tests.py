@@ -59,7 +59,8 @@ _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #:     修法＝本副本改 **AST 语义判据**（五个记账面的 append 必须全在 `with self._lock:`
 #:     体内；**计数基线归 G0 单点**，副本不再钉数——就地补 5 只是复制漂移源）；
 #:     定点变异自证（去 sleeps 锁→红点名 `未在锁内的记账面=['sleeps']`、恢复→绿）。
-#:     现 18 case 全一致（含 3 个 EXPECTED_GAP 基线维持）、EXIT 0、实跑 ~23s ⇒ 收。
+#:     现 18 case 全一致（含 2 个 EXPECTED_GAP 基线维持：FI-M01/FI-M07；FI-R08 于
+#:     2026-10-09 issue #81 结案转 pass）、EXIT 0、实跑 ~23s ⇒ 收。
 #:   · mock_mcp.py（stdio 模拟服务，非测试；跑起来等 stdin 会挂住套件）
 #:   · orchestrator_memory.py（自述「演示/参考脚本——selftest() 只 print 不 assert，
 #:     退出码恒 0，跑绿不代表功能验证」）
@@ -192,13 +193,43 @@ def _dep_db_and_mdroot():
     return _dep_db() or _dep_mdroot()
 
 
+def _dep_numpy():
+    """csre 模块级硬依赖 numpy（issue #84 口径）——无它 G1 无法真跑。"""
+    try:
+        import numpy  # noqa: F401
+    except Exception:
+        return ("依赖 numpy（csre 模块级硬依赖）——按 issue #84 口径 SKIP"
+                "（等价于该守卫自身的 rc=2『有跳过』语义）")
+    return None
+
+
+def _dep_pil():
+    """图像守卫全程用 PIL(Pillow) 造/读 PNG（issue #84 口径）——无它该件起不来。"""
+    try:
+        from PIL import Image  # noqa: F401
+    except Exception:
+        return ("依赖 Pillow（PIL）——按 issue #84 口径 SKIP"
+                "（等价于该守卫自身的 rc=2『有跳过』语义）")
+    return None
+
+
 # 裸 clone 环境 SKIP 探测（2026-09-14 外部复核建议 #3）：
 # 依赖 gitignored 本地数据或特定平台的测试，依赖缺失时标 SKIP（附原因）
 # 不计入失败——避免裸 clone 用户第一眼看到虚假 FAIL（复核实测 83/87 根因）。
+#
+# 口径统一（2026-10-09）：依赖缺失的**跳过**在**本入口单点**裁决（本节即全量
+# 入口的 skip authority）——被测件自身仍保留 `rc=2`（「有跳过」语义，见
+# md_cg/test_imgskill.py、md_cg/test_csre_index_import_guard.py 的退出码契约）
+# 作直跑兜底，但 run_tests 的 PASS 判据是 `rc==0`，不会把 rc=2 误读为通过或失败。
+# 故此处**登记**依赖探测，而非把判据放宽为「rc∈{0,2} 即通过」——后者会把本仓
+# 大量用 rc=2 表「fail-closed 锚点漂移」的守卫（test_boundary_hit / test_c8_search_
+# rrf_gates / test_autonomy_admission 等，其原文明确「不得静默跳过」）一并放行。
 _SKIPS = {
     "md_cg.test_p44_md_whitebox": _dep_db_and_mdroot,
     "md_cg.test_md_access_parity": _dep_db_and_mdroot,
     "md_cg.test_wisdom_md_store": _dep_mdroot,
+    "md_cg.test_imgskill": _dep_pil,
+    "md_cg.test_csre_index_import_guard": _dep_numpy,
     "swarm.tests.test_swarm_fault": (
         lambda: None if os.name == "nt"
         else "Windows 专用（powershell/taskkill）"),

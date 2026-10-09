@@ -16,7 +16,7 @@
 | FI-R05 | S1/S8 消息丢失 | WAL 整行物理删除 | **gap** | NEW(P0-2/seq连续性) |
 | FI-R06 | S3 消息乱序 | WAL 行序交换 + submit 依赖不存在 | **gap**（①半）+拦截（②半） | NEW(P0-2/seq连续性) |
 | FI-R07 | S3 消息重复 | 双 serve 竞争领取同一任务 | pass（claim 原子锁恰好一次） | 次观测=P0-2 基线 |
-| FI-R08 | S8 平台默认值 | 公开常量 DEFAULT_SECRET 伪造签名 WAL | **gap** | N143（v17.md:85） |
+| FI-R08 | S8 平台默认值 | 缺省密钥 fail-closed（原公开常量 DEFAULT_SECRET 伪造签名 WAL） | pass（#81 结案） | N143（v17.md:85） |
 | FI-R09 | S1 句柄对撞 | CreateFileW 持句柄撞 os.replace 重试窗 | pass（P2 原子写） | - |
 
 ## 用例表 · mdcg 面（FI-M，md_cg 记忆本体）

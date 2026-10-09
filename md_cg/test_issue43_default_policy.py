@@ -82,6 +82,13 @@ _GROUP = ["?"]
 SECRET = "sk-" + ("A1b2C3d4" * 3)
 MARK = "I43CANARY"
 
+# 包内默认策略的**规模基线**（防「禁表被削弱」的显式人工核对位，非从文件自身推导——
+# 那样即自证空转）。计数随策略真源 `data/policy.json` 变更同步：
+#   11 → 12（2026-10-09 issue #82.1 提交 0590b650「禁表扩边界」新增第 12 条
+#   『是/为/等于/is』凭据形态；该笔只改了 data/policy.json + 新守卫，未同步本件）。
+_EXPECTED_FORBIDDEN = 12
+_EXPECTED_REQUIRED = 6       # 六要素（功能名/生效条件/子功能/执行/验证方式/不适用条件）
+
 
 def _group(name):
     _GROUP[0] = name
@@ -180,14 +187,16 @@ def g1():
             dflt = json.load(f)
         ok((rules or {}) == dflt,
            "G1b 规则与包内 data/policy.json 逐条一致（不掺默认值）")
-        ok(len((rules or {}).get("forbidden") or []) == 11
-           and len((rules or {}).get("required") or []) == 6,
-           "G1c 包内默认含 11 条 forbidden + 6 条 required（禁表与六要素未被削弱）")
+        ok(len((rules or {}).get("forbidden") or []) == _EXPECTED_FORBIDDEN
+           and len((rules or {}).get("required") or []) == _EXPECTED_REQUIRED,
+           "G1c 包内默认含 %d 条 forbidden + %d 条 required（禁表与六要素未被削弱）"
+           % (_EXPECTED_FORBIDDEN, _EXPECTED_REQUIRED))
         ok(audit.load_rulebook() == dflt,
            "G1d load_rulebook 未设 env 时同样回落包内默认")
         rep = audit.policy_report()
         ok(rep.get("source") == "package_default" and rep.get("available") is True
-           and rep.get("forbidden") == 11 and rep.get("required") == 6,
+           and rep.get("forbidden") == _EXPECTED_FORBIDDEN
+           and rep.get("required") == _EXPECTED_REQUIRED,
            "G1e policy_report 报出来源与计数（source=%s）" % rep.get("source"))
     with _env(MDCG_POLICY_FILE=""):
         rules2, src2, err2 = audit.resolve_rulebook()

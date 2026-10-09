@@ -14,8 +14,11 @@
 失败、或含非 UTF-8 字节（解码失败，N261）计 FAIL（语法坏）；命中 unreachable 计 FAIL 并打印 文件:行(终止语句类型)
 → 后继行(类型)；零命中 PASS。排除 _pycache_/node_modules/.git。
 判据面 = 文件系统走查 ∩ **git 追踪面**：被 gitignore 的本地产物（如 `hive/jobs/`、
-`md_cg/_md_cg_eval_*/` 运行态）不在 CI 干净克隆里，纳入即「本地红 / CI 绿」分裂；
-git 不可用/非仓 ⇒ 打印 `[降级]` 并退化为原文件系统走查（读数须按降级看待）。
+`md_cg/_md_cg_eval_*/` 运行态）不在 CI 干净克隆里，纳入即「本地红 / CI 绿」分裂。
+**仅当扫描基座（cwd）就是本仓根时**才启用追踪面过滤；对其它基座（如守卫的**临时目录
+夹具**、非仓工作树）保持原文件系统走查语义——否则会拿本仓的追踪面去过滤夹具自己的
+文件、命中恒 0（N261 解码守卫 A/B/C 组即此形态）。降级（明示）：仓根下 git 不可用 ⇒
+打印 `[降级]` 并退化为原文件系统走查（读数须按降级看待）。
 """
 import ast
 import os
@@ -29,14 +32,17 @@ SKIP_DIRS = {"__pycache__", "node_modules", ".git", "target"}
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def _tracked_rels():
-    """git 追踪面（仓根相对 · posix 分隔）集合；git 不可用/非仓 ⇒ None（调用方降级）。
+def _tracked_rels(base):
+    """git 追踪面（相对 base · posix 分隔）集合；git 不可用/非仓 ⇒ None（调用方降级）。
 
     按「是否被 git 追踪」这个**性质**判，不逐个硬编码排除目录（`.tmp`/`hive/jobs`
     只是当前污染源；将来在扫描子树内新建任何 gitignore 目录都被同一判据挡住）。
+
+    `base` 须与扫描基座（cwd，ROOTS 相对它解析）**同一**——本函数取仓根仅在
+    「cwd == 仓根」时被调用（见 main），故两者恒一致。
     """
     try:
-        proc = subprocess.run(["git", "-C", _REPO, "ls-files", "-z"],
+        proc = subprocess.run(["git", "-C", base, "ls-files", "-z"],
                               capture_output=True, check=True)
     except Exception:                                  # noqa: BLE001 —— 兜底见下
         return None
@@ -63,8 +69,12 @@ def scan_tree(tree, path, hits):
 def main() -> int:
     hits, parse_fail = [], []
     count = 0
-    tracked = _tracked_rels()
-    if tracked is None:
+    # 扫描基座 = cwd（ROOTS 相对它解析）；追踪面过滤**仅当基座就是本仓根**时启用
+    # ——夹具/非仓工作树下保持原文件系统走查语义（口径同 verify_open_encoding.
+    # list_py / criteria_fingerprint.files_from_worktree 的「仅当 base==仓根」）。
+    at_root = os.path.abspath(os.getcwd()) == _REPO
+    tracked = _tracked_rels(_REPO) if at_root else None
+    if at_root and tracked is None:
         print("[降级] git 不可用：扫描面退化为文件系统走查"
               "（可能与 CI 干净克隆不一致）")
     for root in ROOTS:

@@ -69,7 +69,10 @@ def main():
           "ok = (verdict == exp)" in runall and 'mark = "硬红"' in runall, "")
 
     if _pil_available():
-        r = subprocess.run([sys.executable, "-X", "utf8", os.path.join(HERE, "test_imgskill.py")],
+        # 必须走 `-m`（模块方式）：test_imgskill.py 以相对导入 `from . import imgskill`
+        # 取被测件——**直跑脚本**会因「no known parent package」ImportError（rc=1），
+        # 那是调用方式的产物，不是该腿被削弱（本守卫的 G5 首版即栽在此）。
+        r = subprocess.run([sys.executable, "-X", "utf8", "-m", "md_cg.test_imgskill"],
                            cwd=REPO, capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=300, shell=False)
         check("G5 真跑 imgskill 守卫（本平台）仍通过", r.returncode == 0,

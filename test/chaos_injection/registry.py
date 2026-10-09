@@ -45,12 +45,17 @@ REGISTRY = {
     # 不拦重跑）——原 P0-2「提交面无幂等键」次观测结案，v0.3 矩阵 T2/T7 幂等🟢
     "FI-R07": {"expected_verdict": "pass", "gap_tag": None,
                "title": "双 serve 竞争领取：claim 原子锁恰好一次 + 提交面幂等键"},
-    # S8 平台默认值：DEFAULT_SECRET 公开常量可伪造合法签名 = N143（v17.md:85
-    # 留档，owner=rust，密钥生命周期决策 deferred；2026-09-26 N143 最小修复
-    # 已闭合空串验签面——verify 入口空串抛 ValueError / CLI --secret "" rc=2，
-    # 公开常量伪造腿仍缺口，verdict 维持 gap）
-    "FI-R08": {"expected_verdict": "gap", "gap_tag": "N143",
-               "title": "公开缺省密钥伪造合法签名 WAL"},
+    # S8 平台默认值：缺省密钥曾回落源码内公开常量 DEFAULT_SECRET ⇒ 持常量者可
+    # 自签伪造整条群史并通过验签 = N143（v17.md:85 留档，owner=rust）。
+    # **2026-10-09 缺口结案 → 登记改 pass**（issue #81 设计者裁定 A：fail-closed，
+    # 提交 303f3b9a）：rust_swarm.make_swarm_config 对缺/空 shared_secret 一律抛
+    # ValueError，不再回落公开常量；「用公开缺省密钥伪造」这一注入面已不存在。
+    # 2026-09-26 N143 最小修复已闭合空串验签面（verify 入口空串抛 ValueError /
+    # CLI --secret "" rc=2），本条把「缺省密钥从何而来」的 fail-closed 一并落地。
+    # 本格此后作回归守卫：make_swarm_config 若再回落公开常量 ⇒ 观测转 gap ⇒ 套件亮红；
+    # 定点复核见 test_fi_r08_default_secret_forge.py（结案后为修复面确认断言）。
+    "FI-R08": {"expected_verdict": "pass", "gap_tag": None,
+               "title": "缺省密钥 fail-closed（原公开缺省密钥伪造 WAL 缺口结案）"},
     # P2 原子写：读者瞬态句柄对撞 os.replace → 重试窗内读者恒读完整态
     "FI-R09": {"expected_verdict": "pass", "gap_tag": None,
                "title": "写面对撞：读者独占句柄撞 os.replace 重试窗"},

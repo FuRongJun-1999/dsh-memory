@@ -65,8 +65,14 @@ td = tempfile.mkdtemp(prefix="swarm_cli_atomic_")
 # ============ ① 成功路径：cmd_run --out 落盘字节逐位钉住 ============
 print("=== ① 成功路径：cmd_run --out 落盘字节 == json.dumps(report, ensure_ascii=False, indent=1) ===")
 cfg_path = os.path.join(td, "swarm.json")
+# issue #81（fail-closed，提交 303f3b9a）后 shared_secret 为**必填**：
+# rust_swarm.make_swarm_config 对缺/空密钥一律抛 ValueError，不再回落源码内公开
+# 常量。本件只测「报告落盘原子化」，与密钥无关——故按同批其它 swarm 测试的口径
+# 补上显式密钥（config schema 本就含 shared_secret，见 swarm_cli.py:16 docstring），
+# 不依赖已废除的缺省默认（补此键前本件红于 make_swarm_config 的 ValueError）。
 with open(cfg_path, "w", encoding="utf-8") as f:
-    json.dump({"source": "问曰：x", "instances": [{"id": "实例甲"}]}, f,
+    json.dump({"source": "问曰：x", "instances": [{"id": "实例甲"}],
+               "shared_secret": "report-atomic-测试密钥"}, f,
               ensure_ascii=False)
 out_path = os.path.join(td, "report_out.json")
 args = argparse.Namespace(config=cfg_path, project=None, wal="events.jsonl",

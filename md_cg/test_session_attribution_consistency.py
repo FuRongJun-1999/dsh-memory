@@ -486,8 +486,12 @@ def _group_c():
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = smod.main(["list", "--root", root2])
+        # 「待审」是空队列文案的稳定片段：原「审核队列为空（0 条待审）。」在
+        # issue #71（提交 c9601210，待审队列单向索引与分级）改为「没有符合条件的
+        # 待审条目（队列共 %d 条）。」——两版共存「待审」，只钉载体文本里的稳定
+        # 词，不再钉整句（钉整句即随文案漂移而假红）。
         check("C5 薄壳端到端：scripts.main(['list',...]) → 退出码 0",
-              rc == 0 and "审核队列" in buf.getvalue(),
+              rc == 0 and "待审" in buf.getvalue(),
               "rc=%s out=%r" % (rc, buf.getvalue()[:80]))
     finally:
         shutil.rmtree(root2, ignore_errors=True)

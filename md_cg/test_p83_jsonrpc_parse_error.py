@@ -65,6 +65,11 @@ def main():
     root = tempfile.mkdtemp(prefix="p83_guard_")
     env = {**os.environ, "MDCG_ROOT": root, "PYTHONUTF8": "1",
            "PYTHONPATH": REPO, "PYTHONIOENCODING": "utf-8"}
+    # 隔离宿主鉴权态：本 case 只测 stdio 帧面（非法 JSON → -32700），与鉴权无关。
+    # 宿主若带**陈旧/已吊销**的 MDCG_TOKEN（本机实测：开发机 env 里有一个失效令牌），
+    # mcp_server 启动即 fail-closed 拒绝（rc=3）→ 无任何应答 → G1 超时、随后写
+    # stdin 撞已关管道（OSError Errno 22）。摘掉该键即复现 CI（裸环境）口径。
+    env.pop("MDCG_TOKEN", None)
     proc = subprocess.Popen([PYEXE, "-X", "utf8", "-m", "md_cg.mcp_server"],
                             cwd=REPO, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, encoding="utf-8",
