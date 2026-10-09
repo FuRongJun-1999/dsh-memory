@@ -3490,8 +3490,53 @@ def recall_fusion_default(use_fuzzy, use_semantic, use_goal, use_causal,
 
 
 # 生效条件：name 为已注册工具名之一（cg / stg / mdcg_whitebox / mdcg_service_info / mdcg_remember 等）；name 属 _MDCG_OP_REQUIRE 且 cg.principal 具 require_op 属性时先 require_op（越权抛 AccessDenied），principal 为 None 或无该方法时跳过；cg 走 _cg_call、stg 走 _stg_call、whitebox 走 _whitebox_call；未识别的 name 返回含 error 的响应字典而不抛异常，进程不因此中断；mdcg_forget 走 cg.forget_gated（同 cg(op=forget) 的档位路径）、mdcg_remember 的非 gated 直写分支在同 id 覆写时先过 cg.write_qualify 再按档位判定（三档自治批次②）；
+# issue #86（2026-10-09 DSH 端）：**令牌运行期复检**。
+# 背景：令牌只在服务启动时 verify_token 一次（_identity），之后全程用缓存的
+# Principal；security.Principal.expired() 存在但**运行期没有任何调用点**读
+# revoked_at / expires_at ⇒ 用户 revoke 之后，常驻宿主（DSH/IDE 里的 MCP 进程）
+# 一直有效到重启（issue 实测：吊销后同进程 write 仍 True，只有新进程 rc=3 才拒）。
+# 实现口径（按 issue 建议 2）：在 _dispatch 入口做一次**廉价**复检——
+# 按 *_tokens.json 的 (mtime_ns, size)* 缓存解析结果，文件没变时开销 = 一次 stat；
+# 变了才重查该 token_id 是否已不存在（=被吊销/清理）或带 revoked_at。
+# **fail-open**：表读不到/解析失败一律放行（与既有语义一致，且绝不因复检本身
+# 让服务不可用）；非令牌身份（env/anon，token_id 为空）不适用。
+_TOK_RECHECK_CACHE = {}
+
+
+def _runtime_token_recheck(p):
+    """返回拒绝原因字符串；放行返回 None。"""
+    tid = getattr(p, "token_id", None)
+    if not tid:
+        return None                      # 非令牌身份：不适用
+    try:
+        from .tokens import _load, token_file
+        path = token_file(None)
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size)
+        cache = _TOK_RECHECK_CACHE
+        if cache.get("key") != key:
+            cache = {"key": key, "tokens": (_load(path).get("tokens") or {})}
+            _TOK_RECHECK_CACHE.clear()
+            _TOK_RECHECK_CACHE.update(cache)
+        rec = (_TOK_RECHECK_CACHE.get("tokens") or {}).get(tid)
+        if rec is None:
+            return "令牌记录已不存在（可能已被吊销或清理）"
+        if isinstance(rec, dict) and rec.get("revoked_at"):
+            return "令牌已吊销（revoked_at=%s）" % rec.get("revoked_at")
+    except Exception as _e86:
+        sys.stderr.write("[mdcg-mcp] ⚠ #86 运行期令牌复检异常（已放行）：%s: %s\n"
+                         % (type(_e86).__name__, _e86))
+        return None
+    return None
+
+
 def _dispatch(cg, name, args):
     a = args or {}
+    # issue #86（2026-10-09 DSH 端）：**令牌运行期复检**（见 _runtime_token_recheck）
+    _re86 = _runtime_token_recheck(getattr(cg, "principal", None))
+    if _re86:
+        from .security import AccessDenied as _AD86
+        raise _AD86("令牌运行期复检未通过：%s" % _re86)
     # P1-1：mdcg_* 面的角色作用域闸（与 cg 工具的 require_op 同一语义——
     # ops_allow=None 令牌不受影响；受限令牌越权即 AccessDenied）
     _need_op = _MDCG_OP_REQUIRE.get(name)
