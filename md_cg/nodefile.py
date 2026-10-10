@@ -366,6 +366,10 @@ def ccg_value_has_break(value) -> bool:
     return ("\n" in v) or ("\r" in v)
 
 
+# 生效条件：模块导入时按 CCG_MARKS 六个固定要素各预构造一次 `^#\s*<要素>` 模式（键=要素名，值=re.Pattern）；仅覆盖固定六字段，非六要素的任意 mark 不在表内，由 _ccg_heading_rest 走回退构造，通用性一字不动。
+_HEADING_RE = {_m: re.compile(r"^#\s*" + re.escape(_m)) for _m in CCG_MARKS}
+
+
 # 生效条件：line 匹配 `^#\s*<mark>`（与写入闸门 data/policy.json 的必需正则同一语义）时返回 mark 之后的余文，否则返回 None；行内置下划线均不参与判定。
 def _ccg_heading_rest(line: str, mark: str):
     """`# <mark>…` 标题行的**行语义单点**：命中返回 mark 之后的余文，否则 None。
@@ -375,11 +379,23 @@ def _ccg_heading_rest(line: str, mark: str):
     由此确定的边界（都是**故意**与闸门一致的宽松/严格，不是疏漏）：
       * `# 生效条件`、`#生效条件`、`# 生效条件：v`、`# 生效条件 v` → 命中；
       * `## 生效条件`、`  # 生效条件`（缩进）→ **不**命中（闸门同样不认二级标题/缩进标题）。
+
+    性能（issue #102）：六要素取值/齐全度/正文剥除反复走本单点，原实现每次调用都
+    `"^#\\s*" + re.escape(mark)` 拼一次模式串再进 `re.match`——**模式构造**（拼接 +
+    escape）是每行的重复开销。现按 `mark` 查模块级预构造表 `_HEADING_RE`（六个固定
+    要素各构造一次），命中即省去拼接/escape。注意口径：Python 本就有正则缓存，本改动
+    **消除的是「重复构造模式串」，不是「重复编译」**（编译早已由缓存覆盖）；非六要素的
+    任意 `mark` 不在表内，回退到即时构造，语义与旧实现逐位一致。
     """
-    m = re.match(r"^#\s*" + re.escape(mark), line or "")
+    pat = _HEADING_RE.get(mark)
+    if pat is None:
+        # 非六要素的任意 mark：表只覆盖固定六字段，回退即时构造，不得因提速弄坏通用性
+        pat = re.compile(r"^#\s*" + re.escape(mark))
+    s = line or ""
+    m = pat.match(s)
     if not m:
         return None
-    return (line or "")[m.end():]
+    return s[m.end():]
 
 
 # 生效条件：content 中存在 `# <mark>` 标题行（判据=_ccg_heading_rest 非 None；与写入闸门同一正则语义，冒号可有可无）时返回 True，否则 False。
