@@ -101,6 +101,56 @@ class RRFCandidates(unittest.TestCase):
         self.assertTrue(results)
         self.assertEqual(meta["rrf_candidates"]["paths"]["lexical"]["fallback"], "no_like_hit")
 
+    def test_broad_query_skips_warm_sync_and_keeps_write_visibility(self):
+        self.compare("资料", paths=("lexical", "fuzzy"))
+        index = self.cg._rrf_candidate_index
+        with patch.object(index, "sync", wraps=index.sync) as sync:
+            _, meta = self.compare("资料", paths=("lexical", "fuzzy"))
+        self.assertEqual(sync.call_count, 0)
+        self.assertTrue(all(d.get("early_bypass")
+                            for d in meta["rrf_candidates"]["paths"].values()))
+        self.cg.add("noise0", "资料 修改后仍然可见的罕见词", override=True)
+        self.cg.flush()
+        _, meta = self.compare("资料", paths=("lexical", "fuzzy"))
+        self.assertEqual(meta["rrf_candidates"]["update_reads"], 1)
+        rows, _ = self.compare("修改后仍然可见的罕见词", paths=("fuzzy",))
+        self.assertIn("noise0", {r[0]["id"] for r in rows})
+
+    def test_domain_affinity_reused_per_query_with_exact_scores(self):
+        from . import routing
+        for i in range(24):
+            domain = "物理" if i % 2 else "计算机"
+            self.cg.add(f"domain{i}", "甲乙物理", tags=["domain:" + domain])
+        entries = self.cg._candidates()
+        weights = {"甲乙": 1.0, "物理": 0.5}
+        domains = routing.big_domain_score_weighted(weights)
+        total = sum(domains.values()) or 1.0
+        top = sorted(domains.items(), key=lambda kv: (-kv[1], str(kv[0])))[:3]
+        context = {"tags": ["domain:物理"]}
+        original = routing.domain_similarity
+        expected = {}
+        for domain in ("物理", "计算机"):
+            key = routing.route_key(None, ["domain:" + domain])
+            affinity = max([0.0] + [original(key, d) * (s / total) for d, s in top])
+            expected[domain] = round(min(1.0, 0.6 + 0.3 * affinity
+                                         + 0.1 * original(key, "物理")), 6)
+        with patch.dict(os.environ, {"MDCG_RRF_CANDIDATES": "0"}):
+            with patch.object(routing, "domain_similarity", wraps=original) as similarity:
+                rows, _ = self.cg._path_fuzzy("甲乙物理", entries, context,
+                                              expand=lambda q: dict(weights))
+            self.assertLessEqual(similarity.call_count, 12)
+            by_id = {node["id"]: score for node, score in rows}
+            for i in range(24):
+                self.assertEqual(by_id[f"domain{i}"], expected["物理" if i % 2 else "计算机"])
+            with patch.object(routing, "domain_similarity", wraps=original) as similarity:
+                goal_rows, _ = self.cg._path_goal("甲乙", entries, goal_text="甲乙")
+            self.assertLessEqual(similarity.call_count, 9)
+            for node, score in goal_rows:
+                if node["id"].startswith("domain"):
+                    self.assertEqual(score, 0.7)
+        # A different context must calculate its own affinity.
+        self.compare("甲乙物理", paths=("lexical", "fuzzy"), context={"tags": ["domain:计算机"]})
+
     def test_add_edit_and_flush_only_reindex_changed_nodes(self):
         self.compare("甲乙丙丁", paths=("fuzzy",))
         self.cg.add("new", "新增罕见线索")

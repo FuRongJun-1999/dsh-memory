@@ -1472,6 +1472,9 @@ class MdCGOS(MdCG):
             ctx_domain = routing.route_key(ctx, ctx.get("tags"))
         stat = {"scanned": 0}
         out = []
+        # Domain affinity depends on this query and the domain key, not on
+        # each document. Reuse it within this call; no cross-query cache.
+        domain_affinity = {}
         for e, fm, c in self._read_many(entries, stat):
             tags = " ".join(str(t) for t in (fm.get("tags") or []))
             # 负条件行不作召回键（反例命中应由 judge 走 REJECT，不该召回节点）。
@@ -1482,11 +1485,14 @@ class MdCGOS(MdCG):
             if cov <= 0.0:
                 continue
             e_dom = routing.route_key(None, e.get("tags"))
-            aff = 0.0
-            for d, s in top_domains:
-                aff = max(aff, routing.domain_similarity(e_dom, d) * (s / dom_total))
-            ctx_aff = (routing.domain_similarity(e_dom, ctx_domain)
-                       if ctx_domain else 0.0)
+            if e_dom not in domain_affinity:
+                aff = 0.0
+                for d, s in top_domains:
+                    aff = max(aff, routing.domain_similarity(e_dom, d) * (s / dom_total))
+                ctx_aff = (routing.domain_similarity(e_dom, ctx_domain)
+                           if ctx_domain else 0.0)
+                domain_affinity[e_dom] = (aff, ctx_aff)
+            aff, ctx_aff = domain_affinity[e_dom]
             score = min(1.0, 0.6 * cov + 0.3 * aff + 0.1 * ctx_aff)
             out.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
                          "content": c, "path": e["path"]}, round(score, 6)))
@@ -1570,6 +1576,7 @@ class MdCGOS(MdCG):
                              key=lambda kv: (-kv[1], str(kv[0])))[:3]
         stat = {"scanned": 0}
         out = []
+        domain_affinity = {}
         for e, fm, c in self._read_many(entries, stat):
             if e.get("layer") == "goals":
                 continue
@@ -1578,9 +1585,12 @@ class MdCGOS(MdCG):
             if cov <= 0.0:
                 continue
             e_dom = routing.route_key(None, e.get("tags"))
-            aff = 0.0
-            for d, s in top_domains:
-                aff = max(aff, routing.domain_similarity(e_dom, d) * (s / dom_total))
+            if e_dom not in domain_affinity:
+                aff = 0.0
+                for d, s in top_domains:
+                    aff = max(aff, routing.domain_similarity(e_dom, d) * (s / dom_total))
+                domain_affinity[e_dom] = aff
+            aff = domain_affinity[e_dom]
             score = min(1.0, 0.7 * cov + 0.3 * aff)
             out.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
                          "content": c, "path": e["path"]}, round(score, 6)))
@@ -1696,6 +1706,9 @@ class MdCGOS(MdCG):
             # MDCG_EN_ATOMS / MDCG_UNIFY_QUERY 等不入键即跨口径命中（2026-09-24 修复）。
             "env_switch": _hc.env_switch_key(),
         }
+        if "bm25" in paths:
+            from . import bm25
+            _cache_extra["bm25_access"] = bm25.access_key(self)
         # 不可稳定进键的参数（自定义可调用 query_expand）：非默认即**绕行**
         # 缓存（读+写双侧闭合）——fail-closed，宁可不用缓存也不串味。
         _bypass = query_expand is not None
@@ -1707,12 +1720,16 @@ class MdCGOS(MdCG):
                 _results, _meta = cached
                 _meta["cached"] = True
                 return _results, _meta
-        entries = self._candidates(layer=layer, roles=roles, include_work=include_work,
-                                   session=session, branch=branch, validity=validity,
-                                   start_time=start_time, end_time=end_time,
-                                   start_operator=start_operator,
-                                   end_operator=end_operator, time_axis=time_axis,
-                                   view=view)
+        candidate_fn = self._candidates
+        if "bm25" in paths:
+            from . import bm25
+            candidate_fn = lambda **options: bm25.candidate_pool(self, **options)
+        entries = candidate_fn(layer=layer, roles=roles, include_work=include_work,
+                               session=session, branch=branch, validity=validity,
+                               start_time=start_time, end_time=end_time,
+                               start_operator=start_operator,
+                               end_operator=end_operator, time_axis=time_axis,
+                               view=view)
         _tf = getattr(self, "_time_filter_stat", None)
         if not entries:
             _m = {"tier": None, "reason": "no_candidates", "paths": {}}
@@ -1754,14 +1771,18 @@ class MdCGOS(MdCG):
                         if _t_en else (None, None))
         if "lexical" in paths:
             ranked["lexical"] = self._lexical(q, entries, stat)
+        if "bm25" in paths:
+            from . import bm25
+            ranked["bm25"], _index_meta["bm25"] = bm25.search(self, q, entries, stat)
         if "bucket" in paths:
             ranked["bucket"] = self._path_bucket(q, entries, context)
         if "entity" in paths:
             ranked["entity"] = self._path_entity(q, entries)
         if "graph" in paths:
-            ranked["graph"] = self._path_graph(q, entries, ranked.get("lexical") or [])
+            ranked["graph"] = self._path_graph(
+                q, entries, ranked.get("lexical") or ranked.get("bm25") or [])
         if "chain" in paths:
-            seeds = (ranked.get("lexical") or []) + (ranked.get("entity") or [])
+            seeds = (ranked.get("lexical") or ranked.get("bm25") or []) + (ranked.get("entity") or [])
             ranked["chain"], chain_prov = self._path_chain(q, entries, seeds, context)
         if "temporal" in paths:
             # P3-temporal：时间路（排名项）。时间算子/区间未启用时恒空——默认

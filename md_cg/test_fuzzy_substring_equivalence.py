@@ -115,8 +115,10 @@ class FuzzySubstringEquivalence(unittest.TestCase):
                     # score, semantic field and candidate-path cardinality.
                     for result in (actual, expected):
                         report = result[1].get("rrf_candidates", {})
-                        for key in ("build_reads", "update_reads", "index_ms"):
+                        for key in ("build_reads", "update_reads", "index_ms", "cached_nodes"):
                             report.pop(key, None)
+                        for detail in report.get("paths", {}).values():
+                            detail.pop("early_bypass", None)
                     self.assertEqual(actual, expected)
             cg.close()
 

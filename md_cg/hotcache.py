@@ -54,7 +54,7 @@ _KEYED_EXTRA = ("include_work", "roles", "paths", "path_weights", "recall_only",
                 # 环境变量（MDCG_SEMANTIC/MDCG_EN_ATOMS/MDCG_UNIFY_QUERY…），它们
                 # 同样改变候选资格与打分。v14 只补了参数面，故另立一键
                 # （2026-09-24 修复：同 query 下切开关会命中另一口径的缓存 → 静默错答）。
-                "env_switch")
+                "env_switch", "bm25_access")
 #: 不可稳定规范化的参数（自定义可调用）：非默认即**绕行缓存**（fail-closed）。
 _BYPASS_EXTRA = ("query_expand",)
 #: 影响检索结果的进程级开关（新增一个就登记一个——同 _KEYED_EXTRA 的纪律）。
