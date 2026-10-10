@@ -146,14 +146,33 @@ def narrow(cg, entries, terms, mode, query=""):
     if idx is None:
         idx = cg._rrf_candidate_index = CandidateIndex()
     try:
+        words = {word for term in terms for word in term_tokens(
+            str(term).lower() if mode == "lexical" else str(term))}
+        threshold = len(entries) * 0.75
+        # A fresh high-frequency posting is a selectivity hint, never a
+        # pruning decision. Choosing the original full pool is safe even if
+        # some posting members are outside this query's visibility/gates.
+        # Avoid the linear sync and set unions when they cannot pay off.
+        if (idx.initialized and idx.nodes is cg.index["nodes"]
+                and idx.dirty is dirty and idx.last_sync is not None
+                and idx.last_sync[2] == dirty.write_gen
+                and idx.broad_gen == dirty.broad_gen
+                and any(len(idx.post.get(word, ())) >= threshold for word in words)):
+            detail.update(fallback="broad_candidates", early_bypass=True)
+            return entries
         idx.sync(cg, entries, report)
         table = idx.post
         found = set()
-        for term in terms:
-            text = str(term).lower() if mode == "lexical" else str(term)
-            for word in term_tokens(text):
-                found.update(table.get(word, ()))
-        if len(found) >= len(entries) * 0.75:
+        for word in words:
+            posting = table.get(word, ())
+            if len(posting) >= threshold:
+                detail["fallback"] = "broad_candidates"
+                return entries
+            found.update(posting)
+            if len(found) >= threshold:
+                detail["fallback"] = "broad_candidates"
+                return entries
+        if len(found) >= threshold:
             detail["fallback"] = "broad_candidates"
             return entries
         if mode == "lexical":

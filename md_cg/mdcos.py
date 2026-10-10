@@ -1472,6 +1472,9 @@ class MdCGOS(MdCG):
             ctx_domain = routing.route_key(ctx, ctx.get("tags"))
         stat = {"scanned": 0}
         out = []
+        # Domain affinity depends on this query and the domain key, not on
+        # each document. Reuse it within this call; no cross-query cache.
+        domain_affinity = {}
         for e, fm, c in self._read_many(entries, stat):
             tags = " ".join(str(t) for t in (fm.get("tags") or []))
             # 负条件行不作召回键（反例命中应由 judge 走 REJECT，不该召回节点）。
@@ -1482,11 +1485,14 @@ class MdCGOS(MdCG):
             if cov <= 0.0:
                 continue
             e_dom = routing.route_key(None, e.get("tags"))
-            aff = 0.0
-            for d, s in top_domains:
-                aff = max(aff, routing.domain_similarity(e_dom, d) * (s / dom_total))
-            ctx_aff = (routing.domain_similarity(e_dom, ctx_domain)
-                       if ctx_domain else 0.0)
+            if e_dom not in domain_affinity:
+                aff = 0.0
+                for d, s in top_domains:
+                    aff = max(aff, routing.domain_similarity(e_dom, d) * (s / dom_total))
+                ctx_aff = (routing.domain_similarity(e_dom, ctx_domain)
+                           if ctx_domain else 0.0)
+                domain_affinity[e_dom] = (aff, ctx_aff)
+            aff, ctx_aff = domain_affinity[e_dom]
             score = min(1.0, 0.6 * cov + 0.3 * aff + 0.1 * ctx_aff)
             out.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
                          "content": c, "path": e["path"]}, round(score, 6)))
@@ -1570,6 +1576,7 @@ class MdCGOS(MdCG):
                              key=lambda kv: (-kv[1], str(kv[0])))[:3]
         stat = {"scanned": 0}
         out = []
+        domain_affinity = {}
         for e, fm, c in self._read_many(entries, stat):
             if e.get("layer") == "goals":
                 continue
@@ -1578,9 +1585,12 @@ class MdCGOS(MdCG):
             if cov <= 0.0:
                 continue
             e_dom = routing.route_key(None, e.get("tags"))
-            aff = 0.0
-            for d, s in top_domains:
-                aff = max(aff, routing.domain_similarity(e_dom, d) * (s / dom_total))
+            if e_dom not in domain_affinity:
+                aff = 0.0
+                for d, s in top_domains:
+                    aff = max(aff, routing.domain_similarity(e_dom, d) * (s / dom_total))
+                domain_affinity[e_dom] = aff
+            aff = domain_affinity[e_dom]
             score = min(1.0, 0.7 * cov + 0.3 * aff)
             out.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
                          "content": c, "path": e["path"]}, round(score, 6)))
