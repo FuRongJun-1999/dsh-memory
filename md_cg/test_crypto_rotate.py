@@ -217,10 +217,20 @@ def main():
            "⑫归档目录 _crypto_archive 不在 LAYERS → 分片不参与节点索引")
 
         # ---------- ⑭ N126：写失败开口告警（不再静默） ----------
-        roote = _mk(tmp, "e", rotate=2048)
+        # 本条只考「append 失败不静默」，故**必须让轮转闸门不介入**：Linux 上
+        # `os.path.getsize(目录)` = 4096（Windows = 0），若阈值 ≤4096 会先走轮转
+        # 路径——`Rotator.rotate` 的 `publish` 是 `os.replace`，在 POSIX 上能把该
+        # 同名**目录**整个 rename 进归档，随后 append 到重建的空文件反而成功
+        # ⇒ 计数不增、归档被建，两条断言全失真（2026-10-10 容器实测复现）。
+        # 阈值取 1<<30（远高于两平台的目录 getsize）⇒ 两平台都不触发轮转。
+        roote = _mk(tmp, "e", rotate=(1 << 30))
         active_e = os.path.join(roote, crypto.AUDIT_FILE)
         os.remove(active_e) if os.path.exists(active_e) else None
         os.makedirs(active_e)                    # 同名目录顶位 → append 必失败
+        ok(os.path.getsize(active_e) < crypto.CRYPTO_ROTATE_BYTES,
+           "⑭前置：同名目录 size(%d) < 轮转阈值(%d) ⇒ 不触发轮转（Linux 目录"
+           " getsize=4096 / Windows=0，阈值须高于二者，否则目录被 rename 进归档）"
+           % (os.path.getsize(active_e), crypto.CRYPTO_ROTATE_BYTES))
         n0 = crypto._AUDIT_WRITE_FAILURES
         err = io.StringIO()
         with contextlib.redirect_stderr(err):

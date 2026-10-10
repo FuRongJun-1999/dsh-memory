@@ -274,9 +274,12 @@ def _run_child(src_path: str):
     if os.name != "nt":
         kw["start_new_session"] = True          # 便于 killpg 拆树
     try:
+        # 文本模式显式声明 encoding=（纪律第 15 条 / test_subproc_encoding 守卫）：
+        # `**kw` 透传 + 管道时，守卫无法静态确认口径（kw 可能被注入 text=True）——
+        # 故此处直接声明 utf-8（子进程以 `-X utf8` + PYTHONUTF8=1 启动，输出即 utf-8）。
         p = subprocess.Popen([sys.executable, "-X", "utf8", "-c", _CHILD_SRC],
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             env=env, **kw)
+                             env=env, encoding="utf-8", errors="replace", **kw)
     except Exception as e:
         return {"hang": False, "sec": 0.0, "out": "",
                 "stderr": "无法启动判据子进程: %s" % e}
@@ -285,11 +288,11 @@ def _run_child(src_path: str):
     except subprocess.TimeoutExpired:
         _kill_tree(p.pid, p)                    # 挂死 ⇒ 拆整棵树（含孙进程）
         return {"hang": True, "sec": time.time() - t0, "out": ""}
-    txt = out.decode("utf-8", "replace")
+    txt = out                                   # text 模式：communicate 已解码
     m = re.search(r"@@P91@@(.*)", txt, re.S)
     if not m:
         return {"hang": False, "sec": time.time() - t0, "out": txt,
-                "stderr": err.decode("utf-8", "replace")[-500:]}
+                "stderr": err[-500:]}
     return {"hang": False, "sec": time.time() - t0, "data": json.loads(m.group(1))}
 
 

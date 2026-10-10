@@ -37,8 +37,17 @@ FAILS = []
 
 #: 改动前（抽出共享件之前，同一序列真跑）捕获的字节指纹。**判据常量**——
 #: 改后任一处字节漂移 ⇒ 逐位比对失败（这就是「审计侧逐位不变」的可执行断言）。
+#:
+#: **平台维度（2026-10-10 DSH 端复核，根因判定）**：golden 必须按平台区分——
+#: 同一序列在 Windows 与 Linux 上**改动前**就产出不同字节。根因：`fsutil.append_jsonl`
+#: 以 `os.open`/`os.write` 写日志，Windows 的 fd 默认文本模式把 `\n` 翻成 `\r\n`
+#: （Linux 为二进制、保持 `\n`），每条记录多 1 字节；分片/索引里记录的 `bytes`
+#: 尺寸随之差 9（= 每片行数）。**这不是共享件引入的行为改变**：改动前的代码在真
+#: Linux 容器里跑同一序列，产出与改动后**逐位相同**（即 CI 报出的 got 值就是
+#: 改动前的 Linux 值）⇒ 判定为「golden 未声明平台」，非 `rotate.py` 真改行为。
+#: 故两张表各自锁「本平台改动前后逐位不变」，判别力不削。
 _GOLDEN_FROZEN_TS = 1700000000.0
-_GOLDEN = {
+_GOLDEN_WIN = {
     "_audit.jsonl":
         "ada0801b4e5764723b896df75500474879a7118010514ebac19912fdfbe4367c",
     "_audit_archive/_audit.000002.jsonl":
@@ -50,6 +59,21 @@ _GOLDEN = {
     "_audit_archive/_index.json":
         "186ff64d9f51a0183528e2f2d57da74997d6a15ee560bfbc08d6660d1ad42fc6",
 }
+_GOLDEN_LIN = {
+    "_audit.jsonl":
+        "91dcc9231e2b0992df91fcece56546eaf7dbe5353e4fb43f7d4914b7b925f676",
+    "_audit_archive/_audit.000002.jsonl":
+        "268e7e36f93c7db3b52c279aae0407496efbcb021f37c8d0e5ab3053a69a2501",
+    "_audit_archive/_audit.000003.jsonl":
+        "82e6a57db8ccb9ed82ddaef5cb2c475b224aba1998f2dbb119a6e2a54790fd7b",
+    "_audit_archive/_audit.000004.jsonl":
+        "d2d72a856e4421a3c336607466c124cfc5bd0929eee45727efd98fcfd882b8f8",
+    "_audit_archive/_index.json":
+        "643deb64679cfbeeada4e55902e7bb8c731ad4877654e8a3d2c2848429ea82da",
+}
+#: 按运行平台选表（Windows fd 文本模式 ⇒ CRLF；Linux 二进制 ⇒ LF）。
+_GOLDEN = _GOLDEN_WIN if os.name == "nt" else _GOLDEN_LIN
+_PLATFORM = "win" if os.name == "nt" else "lin"
 
 
 def ok(cond, label):
@@ -139,7 +163,9 @@ def main():
 
         for rel, want in _GOLDEN.items():
             got = _sha(os.path.join(root, rel))
-            ok(got == want, "①逐位不变 %s（%s == %s）" % (rel, got[:16], want[:16]))
+            ok(got == want,
+               "①逐位不变[%s] %s（%s == %s）" % (_PLATFORM, rel, got[:16],
+                                                want[:16]))
 
         # ---------- ② 两侧同源：同一个 Rotator 类对象 ----------
         cg2 = MdCGOS(os.path.join(tmp, "root2"))
