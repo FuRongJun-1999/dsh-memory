@@ -11,6 +11,7 @@ from collections import Counter, OrderedDict, defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import heapq
+from itertools import islice
 import math
 import os
 import re
@@ -23,6 +24,9 @@ LIMIT = 50
 BLOCK_SIZE = 128
 BLOCK_THRESHOLD = 4096
 BLOCK_CACHE_TERMS = 32
+BLOCK_SAMPLE = 256
+BLOCK_PAIR_LIMIT = 32
+STREAM_THRESHOLD = 32768
 _WORDS = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]+|[^\W_\u3400-\u9fff\uf900-\ufaff]+")
 
 
@@ -159,6 +163,8 @@ class BM25Index:
         self.rank_version = -1
         self.block_paths = self.ordinals = self.block_best = None
         self.term_blocks = OrderedDict()
+        self.block_policy = OrderedDict()
+        self.policy_version = -1
         self.entries = self.allowed = self.write_gen = None
 
     def remove(self, path):
@@ -205,7 +211,7 @@ class BM25Index:
                 report["build_reads" if first else "update_reads"] += 1
                 yield entry
         for entry, (fm, content, failure) in _build_reads(
-                cg, changed(), report, stream=len(allowed) >= BLOCK_THRESHOLD):
+                cg, changed(), report, stream=len(allowed) >= STREAM_THRESHOLD):
             path = entry["path"]
             if failure is not None or content is None:
                 report["unavailable"] += 1
@@ -230,6 +236,17 @@ class BM25Index:
         self.write_gen = getattr(dirty, "write_gen", None)
         report["documents"] = len(self.docs)
         report["tokens"] = self.total_length
+        if first and len(allowed) >= STREAM_THRESHOLD and os.environ.get("MDCG_BM25_BLOCK_MAX", "1") != "0":
+            started = time.perf_counter()
+            frequent = heapq.nlargest(BLOCK_CACHE_TERMS, self.post,
+                                      key=lambda term: len(self.post[term]))
+            for term in frequent:
+                posting = self.post[term]
+                if self._block_worthwhile(posting, term):
+                    self._prepare_block_paths()
+                    self._blocks(posting, term)
+            report["block_terms_prepared"] = len(self.term_blocks)
+            report["block_preparation_ms"] = (time.perf_counter() - started) * 1000
         return allowed
 
     def rank(self, query, allowed, report):
@@ -241,8 +258,8 @@ class BM25Index:
                     (count - len(self.post[term]) + 0.5) / (len(self.post[term]) + 0.5)), term)
                  for term in dict.fromkeys(tokenize(query)) if term in self.post]
         report["posting_candidates"] = sum(len(p) for p, _idf, _term in terms)
-        if (terms and max(len(p) for p, _idf, _term in terms) >= BLOCK_THRESHOLD
-                and os.environ.get("MDCG_BM25_BLOCK_MAX", "1") != "0"):
+        if (os.environ.get("MDCG_BM25_BLOCK_MAX", "1") != "0"
+                and terms and any(self._block_worthwhile(p, term) for p, _idf, term in terms)):
             return self._rank_blocks(terms, avg_length, report)
         scores = defaultdict(float)
         for posting, idf, _term in terms:
@@ -254,6 +271,26 @@ class BM25Index:
         report["matched"] = len(scores)
         return heapq.nsmallest(LIMIT, scores.items(), key=lambda row: (
             -row[1], -self.docs[row[0]][3], self.docs[row[0]][4]))
+
+    def _block_worthwhile(self, posting, term):
+        """Avoid bound overhead when a posting has highly varied TF/length.
+
+        This only chooses an exact execution algorithm, never a candidate set.
+        A bounded sample makes no distributional correctness assumption: a bad
+        cost prediction can cost time, but cannot remove any search result.
+        """
+        if len(posting) < BLOCK_THRESHOLD:
+            return False
+        if self.policy_version != self.version:
+            self.block_policy.clear()
+            self.policy_version = self.version
+        if term not in self.block_policy:
+            pairs = {(tf, self.docs[path][2]) for path, tf in islice(posting.items(), BLOCK_SAMPLE)}
+            self.block_policy[term] = len(pairs) <= BLOCK_PAIR_LIMIT
+            while len(self.block_policy) > BLOCK_CACHE_TERMS:
+                self.block_policy.popitem(last=False)
+        self.block_policy.move_to_end(term)
+        return self.block_policy[term]
 
     def _blocks(self, posting, term):
         cached = self.term_blocks.get(term)
@@ -274,14 +311,7 @@ class BM25Index:
                 self.term_blocks.popitem(last=False)
         return blocks
 
-    def _rank_blocks(self, terms, avg_length, report):
-        """Exact top 50 with per-block score bounds and deterministic ties.
-
-        Bounds take the maximum of the actual (TF, length) pairs in each block,
-        using the same floating-point operations as exhaustive scoring. Taking
-        a maximum, then summing in query-term order, cannot understate any
-        document's computed score. Bitmaps count all matches, even pruned ones.
-        """
+    def _prepare_block_paths(self):
         if self.rank_version != self.version:
             self.block_paths = list(self.docs)
             self.ordinals = {path: i for i, path in enumerate(self.block_paths)}
@@ -290,6 +320,16 @@ class BM25Index:
                                for i in range(0, len(self.block_paths), BLOCK_SIZE)]
             self.term_blocks.clear()
             self.rank_version = self.version
+
+    def _rank_blocks(self, terms, avg_length, report):
+        """Exact top 50 with per-block score bounds and deterministic ties.
+
+        Bounds take the maximum of the actual (TF, length) pairs in each block,
+        using the same floating-point operations as exhaustive scoring. Taking
+        a maximum, then summing in query-term order, cannot understate any
+        document's computed score. Bitmaps count all matches, even pruned ones.
+        """
+        self._prepare_block_paths()
         bounds, matches = defaultdict(float), defaultdict(int)
         for posting, idf, term in terms:
             for block, (bitmap, pairs) in self._blocks(posting, term).items():

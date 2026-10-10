@@ -303,7 +303,7 @@ class BM25Tests(unittest.TestCase):
             self.cg.add(f"mixed{i:04d}", " ".join(words), importance=rng.choice((0.1, 0.4, 0.9)))
         # The strongest short document is in a late block, not an initial prefix.
         self.cg.add("zz_outlier", "common second third", importance=1.0)
-        with patch.object(bm25, "BLOCK_THRESHOLD", 64):
+        with patch.object(bm25, "BLOCK_THRESHOLD", 64), patch.object(bm25, "BLOCK_PAIR_LIMIT", 256):
             for edited in (False, True):
                 if edited:
                     self.cg.add("mixed0519", "common " * 70, importance=1.0, override=True)
@@ -332,6 +332,48 @@ class BM25Tests(unittest.TestCase):
         self.assertLess(info["posting_visits"], info["posting_candidates"])
         self.assertLess(info["scored_documents"], 520)
 
+    def test_varied_lengths_choose_exhaustive_without_building_block_tables(self):
+        for i in range(280):
+            self.cg.add(f"varied{i:04d}", "common " + "filler " * i)
+        with patch.object(bm25, "BLOCK_THRESHOLD", 64):
+            rows, meta = self.search("common")
+        self.assertNotIn("algorithm", meta["bm25"])
+        self.assertIsNone(self.cg._bm25_index.ordinals)
+        self.assertEqual(meta["bm25"]["posting_visits"], 280)
+        self.assertEqual(rows[0][0]["id"], "varied0000")
+
+    def test_access_changes_invalidate_reused_candidate_pool(self):
+        from .security import Principal
+        cg = mdcos.MdCGSecure(str(Path(self.temp.name) / "identity"), principal=Principal(
+            tenant="pool-test", actor="reader", session="A", clearance="secret",
+            can_admin=True, can_write=True))
+        try:
+            cg.add("private", "privateword", sensitivity="private")
+            cg.add("public", "publicword", sensitivity="public")
+            opts = dict(paths=("bm25",), judge=False, record=False)
+            self.assertTrue(cg.search_rrf("privateword", **opts)[0])
+            cg.principal.can_admin = False
+            cg.principal.session = "B"
+            self.assertEqual(cg.search_rrf("privateword", **opts)[0], [])
+            cg.principal.clearance = "public"
+            self.assertTrue(cg.search_rrf("publicword", **opts)[0])
+            self.assertEqual(cg.search_rrf("privateword", **opts)[0], [])
+        finally:
+            cg.close()
+
+    def test_large_build_prepares_other_frequent_terms_before_their_first_query(self):
+        for i in range(280):
+            self.cg.add(f"prepared{i:04d}", "common second", importance=0.4)
+        with patch.object(bm25, "BLOCK_THRESHOLD", 64), patch.object(bm25, "STREAM_THRESHOLD", 64):
+            first, meta = self.search("common")
+            self.assertGreaterEqual(meta["bm25"]["block_terms_prepared"], 2)
+            table = self.cg._bm25_index.term_blocks["second"]
+            second, info = self.search("second")
+            self.assertEqual([r[0]["id"] for r in first], [r[0]["id"] for r in second])
+            self.assertIs(self.cg._bm25_index.term_blocks["second"], table)
+            self.assertEqual(info["bm25"]["build_reads"], 0)
+            self.assertTrue(info["bm25"]["pool_reused"])
+
     def test_pool_reuse_invalidates_on_write_and_bypasses_clock_filters(self):
         with patch.object(self.cg, "_candidates", wraps=self.cg._candidates) as candidates:
             self.search("apple")
@@ -355,7 +397,7 @@ class BM25Tests(unittest.TestCase):
         original = self.cg._read_status
         def fail(entry):
             return (None, None, "transient") if entry["path"].endswith("/a.md") else original(entry)
-        with patch.object(bm25, "BLOCK_THRESHOLD", 1), patch.dict(os.environ, {
+        with patch.object(bm25, "STREAM_THRESHOLD", 1), patch.dict(os.environ, {
                 "MDCG_BM25_BUILD_WORKERS": "4"}), patch.object(self.cg, "_read_status", side_effect=fail):
             rows, meta = self.search("apple")
             self.assertEqual({r[0]["id"] for r in rows}, {"b"})
