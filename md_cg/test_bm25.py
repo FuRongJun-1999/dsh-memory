@@ -379,7 +379,7 @@ class BM25Tests(unittest.TestCase):
         self.cg.add("share2", "shared " * 5 + "common")
         self.search("shared")
         idx = self.cg._bm25_index
-        paths = [self.cg.index["nodes"][nid]["path"] for nid in ("share1", "share2")]
+        paths = tuple(self.cg.index["nodes"][nid]["path"] for nid in ("share1", "share2"))
         for path in paths:
             self.assertIsInstance(idx.docs[path][1], tuple)
             self.assertIs(next(t for t in idx.docs[path][1] if t == "shared"), idx.terms["shared"])
