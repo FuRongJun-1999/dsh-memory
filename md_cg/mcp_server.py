@@ -2986,7 +2986,7 @@ def _skip_dirs_report(stats, limit=20):
     return out
 
 
-# 生效条件：先经 check_path_root(a.get("path"), "MDCG_INGEST_ROOT", "ingest")（env 未设置或 path 空时放行，越界抛 PermissionError）；act=(a.get("action") or "stat").strip().lower()；act 属 ("file","dir","jsonl") 且 principal 非 None 且其 can_write 为假时先 require_admin(f"ingest_{act}")，随后以 action=act 及各透传参数调 sources.run 并返回。
+# 生效条件：先经 check_path_root(a.get("path"), "MDCG_INGEST_ROOT", "ingest")（path 空时放行；env 未配置走三级回落链、不再放开，越界抛 PermissionError；2026-10-10 裁定 dsh #85 选 A）；act=(a.get("action") or "stat").strip().lower()；act 属 ("file","dir","jsonl") 且 principal 非 None 且其 can_write 为假时先 require_admin(f"ingest_{act}")，随后以 action=act 及各透传参数调 sources.run 并返回。
 def _ingest_call(cg, a):
     """文件摄取分派（P0）：file / dir / jsonl / stat。
 
@@ -3264,9 +3264,11 @@ def _ref_call(cg, a):
     # P1-X（两份独立报告合并）：ref 回读是任意文件读原语——
     # 自报 root、inline ref 自带的 root/path 均模型可控，probe_ref 直接
     # os.path.join 后 open 全文回读（绝对 path 丢弃 root、'..' 上跳同漏）。
-    # 按最终将打开的完整路径过根白名单：env 未设置=放开（部署开关，与
-    # P1-4 的 ingest/export/link 同语义）；设置了=realpath 落根内否则拒
-    # （fail-closed），上跳与绝对路径在 realpath 归一后自然涵盖。
+    # 按最终将打开的完整路径过根白名单（2026-10-10 设计者裁定 dsh #85 选 A：
+    # 未配置**不再放开**，走三级回落链——env 已配置用它；未配置回落 mdcg 实际
+    # 配置库根；连库根也无则取工作区并把它配置下来；判据真源 =
+    # security._whitelist_roots 与其 P1-4 注释块）；越界一律拒（fail-closed），
+    # 上跳与绝对路径在 realpath 归一后自然涵盖。
     from .security import check_path_root
     check_path_root(
         os.path.join(a.get("root") or ref.get("root") or "",

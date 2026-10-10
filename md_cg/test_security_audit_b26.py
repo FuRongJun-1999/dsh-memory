@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 """安全审计修复守卫 B（批次 26，外部审查报告 P1-2/3/4/5/6/7）。
 
-- P1-4：check_path_root 根白名单（env 未设=放开 / 设置=越界即拒）
+- P1-4：check_path_root 根白名单（**2026-10-10 语义更迭**：env 未设 ⇒ 回落
+  mdcg 记忆库根；连库根也无 ⇒ 取工作区并把它配置下来。原「env 未设=放开」
+  已被设计者裁定 dsh #85 选 A 推翻——见 P1-4e 处理由与 security.py 头注）
 - P1-5：LEGACY env 身份不再自授 admin（需显式二次开关）
 - P1-7：bootstrap_loop AST 沙箱（合法排序函数过 / 恶意样本全拒）
 - P1-6 增量：hive read_file 敏感凭据路径拒读
@@ -56,8 +58,37 @@ def main():
         check("P1-4d 无路径参数（stat 类）放行", True)
     finally:
         os.environ.pop("MDCG_INGEST_ROOT", None)
-    check_path_root("C:/Windows/win.ini", "MDCG_INGEST_ROOT", "t")
-    check("P1-4e env 未设置=放开（默认部署零变更）", True)
+    # ---- P1-4e：语义更迭（2026-10-10 设计者裁定 dsh #85 选 A）----
+    # **旧断言（本次改前逐字）**：
+    #     check_path_root("C:/Windows/win.ini", "MDCG_INGEST_ROOT", "t")
+    #     check("P1-4e env 未设置=放开（默认部署零变更）", True)
+    # 它钉住的正是「env 未设置 = 放开」这条**被本次裁定推翻**的语义
+    # （裁定原话：「记忆写入当然是用 mdcg 的实际配置库。如果没配置，以工作区
+    # 优先，并配置。」）。故**按新语义重写为两条**（非删除、非改恒真、非调数字）：
+    #   ① env 未设 + 路径在记忆根内 ⇒ 放行（回落 MDCG_ROOT）；
+    #   ② env 未设 + 路径在记忆根外 ⇒ PermissionError（fail-closed）。
+    # 实现侧头注已同步改写（`md_cg/security.py` 的 P1-4 注释块），并明写
+    # 「`docs/plans/统一配置层_设计_v0.1.md:356` 的『绝不动 security.py 判据』
+    # 已被 2026-10-10 裁定取代」。三级回落链的完整覆盖见新增守卫
+    # `md_cg/test_p14_root_fallback.py`（含正对照与定点变异自证）。
+    memroot = tempfile.mkdtemp(prefix="b26_memroot_")
+    saved_mdcg_root = os.environ.get("MDCG_ROOT")
+    os.environ["MDCG_ROOT"] = memroot
+    try:
+        check_path_root(os.path.join(memroot, "inside.md"),
+                        "MDCG_INGEST_ROOT", "t")
+        check("P1-4e1 env 未设置 + 路径在记忆根内=放行（回落 MDCG_ROOT）", True)
+        try:
+            check_path_root("C:/Windows/win.ini", "MDCG_INGEST_ROOT", "t")
+            check("P1-4e2 env 未设置 + 路径在记忆根外=拒绝（fail-closed）",
+                  False, "未抛")
+        except PermissionError:
+            check("P1-4e2 env 未设置 + 路径在记忆根外=拒绝（fail-closed）", True)
+    finally:
+        if saved_mdcg_root is None:
+            os.environ.pop("MDCG_ROOT", None)
+        else:
+            os.environ["MDCG_ROOT"] = saved_mdcg_root
 
     print("== P1-5 LEGACY env 身份 admin 二次开关 ==")
     saved = {k: os.environ.get(k) for k in

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 import uuid
 
@@ -355,22 +356,106 @@ class TenantRegistry:
 
 # P1-4（批次 26，外部审查报告）：工具路径参数的根白名单——ingest/export/link
 # 的 path/out 是模型可控输入，原样透传 = 任意文件读（/etc/passwd 进图）与
-# 任意文件写（evidence export 的 out）。校验语义与 HIVE_READ_ROOTS 同构：
-# **env 未设置 = 放开**（默认部署零行为变更，与 2026-09-19 的读放开裁定
-# 精神一致）；**设置了 = realpath 落根内否则拒**（fail-closed），`..` 与
-# 绝对路径穿越在 realpath 归一后自然被涵盖。支持 os.pathsep 分隔多根。
-# 生效条件：env_var 环境变量去空白后为空、或 path 为 None/空串时直接返回（不约束）；否则取 realpath(expanduser(path))，与 env 值按 os.pathsep 切分的每个根做「相等或以根+os.sep 为前缀」判定，任一命中即返回；全部未命中抛 PermissionError（含 what/原 path/realpath/roots 的拒绝说明）。
-def check_path_root(path, env_var: str, what: str) -> None:
+# 任意文件写（evidence export 的 out）。校验语义：**未配置不再放开**。
+#
+# 语义（三级回落链）——设计者 2026-10-10 裁定「15 a」原话：
+#   「记忆写入当然是用 mdcg 的实际配置库。如果没配置，以工作区优先，并配置。」
+#   ① env_var（`MDCG_INGEST_ROOT` / `MDCG_EXPORT_ROOT`）已配置 ⇒ 用它
+#      （os.pathsep 多根）；realpath 落根内否则拒（fail-closed）。
+#   ② env_var 未配置 ⇒ 回落 **mdcg 实际配置库根** = `datapath.mdcg_root()`
+#      （`MDCG_ROOT` → `paths.json` 的 "root" → 用户级数据根）。**只在确有显式
+#      配置、或该库根目录已存在时**才认——否则把「已经装着记忆的默认库」弃用、
+#      把根改到工作区，正是 `datapath.py` 头注记载的「记忆真源分裂成两处」事故
+#      形态（issue #18 相邻问题，数据丢失级）。
+#   ③ 连库根也无（空白态：env 与 paths.json 都没配，且默认库根目录不存在）
+#      ⇒ **以工作区优先，并把它配置下来**：白名单根取**工作区**（进程 cwd，
+#      `os.path.realpath(os.getcwd())`），并写进**用户级** `paths.json` 的
+#      "root" 键（`datapath.set_user_root`，不碰 env、不写注册表）——下一轮即由
+#      ② 读到它，故这是**一次性**动作（幂等，见 `_persist_workspace_root`）。
+# `..` 与绝对路径穿越在 realpath 归一后自然被涵盖。支持 os.pathsep 分隔多根。
+#
+# ★头注更迭（2026-10-10，设计者裁定 #85 选 A）：本判据**原**为「env 未设置 =
+#   放开（默认部署零行为变更，与 2026-09-19 的读放开裁定精神一致）」——该自陈
+#   **已被 2026-10-10 裁定取代**（原文见上）。同时被取代的还有
+#   `docs/plans/统一配置层_设计_v0.1.md:356` 的「**绝不动 `security.py` 判据**」
+#   ——那一行是**登记批次**的自我约束（只登记 + 文档化语义 + 给建议），不是判据
+#   真源；设计者裁定优先于该自我约束。判据真源 = 本注 + `_whitelist_roots`。
+
+# 生效条件：无入参；`datapath.mdcg_root_configured()` 为真时返回 `datapath.mdcg_root()`；为假但 `datapath.mdcg_root()` 的目录已存在（已装记忆的默认库）时同样返回它；两者皆不成立（空白态）返回 None；datapath 解析抛异常（如 Windows 保留设备名误配的 ValueError）时原样向上抛，不吞。
+def _configured_library_root():
+    """②级：mdcg 实际配置库根；空白态返回 None。"""
+    from . import datapath
+    if datapath.mdcg_root_configured():
+        return datapath.mdcg_root()
+    p = datapath.mdcg_root()
+    return p if os.path.isdir(p) else None
+
+
+# 生效条件：无入参；恒返回 `os.path.realpath(os.getcwd())`；取不到（OSError）时返回 None。
+def _workspace_root():
+    """③级：工作区根 = 进程当前工作目录（cwd）。"""
+    try:
+        return os.path.realpath(os.getcwd())
+    except OSError:
+        return None
+
+
+#: 工作区落配置的失败告警只打一次——判据里的写副作用不得变成刷屏源（同「不静默」纪律：失败必须可见，但只需可见一次）。
+_persist_warned = [False]
+
+
+# 生效条件：ws 为非空真值时以 `datapath.set_user_root(ws, "root")` 把工作区写进**用户级** `paths.json` 的 "root" 键并返回 True；写失败（只读盘/权限等）时返回 False，且只在**首次**失败时向 stderr 打一行含 ws 与 paths_file() 的告警（不抛——写配置失败不该让判据失效，白名单本轮仍以 ws 生效）。
+def _persist_workspace_root(ws: str) -> bool:
+    """③级「并配置」：把工作区写进用户级 `paths.json` 的 "root" 键（不碰 env）。
+
+    为什么写 `paths.json` 的 "root"（= 记忆库根）而不是另开一个键：设计者原话的
+    对象就是「mdcg 的实际配置库」，仓内既有的「把记忆根配下来」的唯一机制正是
+    `datapath.set_user_root(path, "root")`（永远写用户级新位置，不写会随包更新
+    消失的旧包内件）。副作用与替代见 `docs/plans/统一配置层_设计_v0.1.md` 之外的
+    裁定留痕（本次实现报告）——**只在空白态触发**，且用户可手改该文件撤销。
+    """
+    from . import datapath
+    try:
+        datapath.set_user_root(ws, "root")
+        return True
+    except Exception as exc:                    # noqa: BLE001 —— 写配置失败不构成拒判理由
+        if not _persist_warned[0]:
+            _persist_warned[0] = True
+            sys.stderr.write(
+                "[mdcg] 记忆库根未配置且默认库根不存在，已以工作区为白名单根"
+                "（%s），但把它写进 %s 失败：%s\n"
+                % (ws, datapath.paths_file(), exc))
+        return False
+
+
+# 生效条件：env_var 环境变量去空白后非空时返回其按 os.pathsep 切分、逐段 strip+expanduser+realpath 后的非空根列表；为空时走三级回落链——②级 `_configured_library_root()` 非 None 即返回 `[realpath(该根)]`；否则取 ③级 `_workspace_root()`，非 None 时先 `_persist_workspace_root(ws)` 再返回 `[ws]`；ws 为 None（连 cwd 都取不到）时抛 PermissionError（fail-closed，绝不回落放开）。
+def _whitelist_roots(env_var: str) -> list:
     raw = (os.environ.get(env_var) or "").strip()
-    if not raw:
-        return                                   # 未配置 = 放开（部署开关）
+    if raw:
+        out = []
+        for p in raw.split(os.pathsep):
+            p = p.strip()
+            if p:
+                out.append(os.path.realpath(os.path.expanduser(p)))
+        return out
+    lib = _configured_library_root()
+    if lib:
+        return [os.path.realpath(os.path.expanduser(lib))]
+    ws = _workspace_root()
+    if not ws:
+        raise PermissionError(
+            "无法确定白名单根：%s 未配置、mdcg 记忆库根未配置且默认库根不存在、"
+            "进程工作区（cwd）也取不到——fail-closed 拒访问"
+            "（P1-4；2026-10-10 设计者裁定 #85 选 A）" % env_var)
+    _persist_workspace_root(ws)
+    return [ws]
+
+
+# 生效条件：path 为 None/空串时直接返回（无路径参数，如 stat/action——不触任何回落与配置写）；否则取 `_whitelist_roots(env_var)`（env 已配用它；未配回落 mdcg 记忆库根；连库根也无则取工作区并把它配置下来）后，对 realpath(expanduser(path)) 与每个根做「相等或以根+os.sep 为前缀」判定，任一命中即返回；全部未命中抛 PermissionError（含 what/原 path/realpath/roots 与「显式登记」指路）。
+def check_path_root(path, env_var: str, what: str) -> None:
     if path is None or str(path).strip() == "":
         return                                   # 无路径参数（如 stat/action）
-    roots = []
-    for p in raw.split(os.pathsep):
-        p = p.strip()
-        if p:
-            roots.append(os.path.realpath(os.path.expanduser(p)))
+    roots = _whitelist_roots(env_var)
     real = os.path.realpath(os.path.expanduser(str(path)))
     for r in roots:
         if real == r or real.startswith(r.rstrip(os.sep) + os.sep):
@@ -378,7 +463,9 @@ def check_path_root(path, env_var: str, what: str) -> None:
     raise PermissionError(
         f"{what} 路径超出 {env_var} 白名单，拒绝访问：{path} "
         f"(realpath={real}, roots={roots})——路径类工具参数的根约束"
-        "（P1-4），部署用该环境变量声明可读写的根目录")
+        f"（P1-4；2026-10-10 设计者裁定 #85 选 A：未配置时回落 mdcg 记忆库根，"
+        f"连库根也无则取工作区并把它配置下来）。库外读写请**显式登记**："
+        f"设 {env_var}=<根>（os.pathsep 可多根）")
 
 
 # 错误处置链路角色集（批次 28 分型）：restricted（错误处置标记）的可见性

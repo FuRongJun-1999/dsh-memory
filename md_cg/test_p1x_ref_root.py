@@ -13,12 +13,18 @@ probe_ref 以调用方自报的 root 与 ref.path 直接 os.path.join 后 open �
 
 修复：_ref_call 的 read/get 分支按「最终将打开的完整路径」挂
 check_path_root(MDCG_INGEST_ROOT)；index_code/index_doc 对模型可控的显式
-path 挂同闸。语义与 P1-4 先例一致：env 未设置 = 放开（部署开关，默认行为
-不变）；设置了 = realpath 落根内否则拒（fail-closed，上跳与绝对路径在
-realpath 归一后自然涵盖）。
+path 挂同闸。
+
+★语义更迭（2026-10-10 设计者裁定 dsh #85 选 A）：原语义「env 未设置 = 放开
+（部署开关，默认行为不变）」**已被推翻**——现在是三级回落链：env 已配置 ⇒
+用它；未配置 ⇒ 回落 mdcg 实际配置库根（MDCG_ROOT / paths.json 的 root，或
+该库根目录已存在）；连库根也无 ⇒ 以工作区为根并把它配置下来。三级全覆盖见
+md_cg/test_p14_root_fallback.py；判据真源 = md_cg/security.py 的
+_whitelist_roots 与其 P1-4 注释块。
 
 本文件钉死：三形态 + 索引越界必须拒绝；白名单内索引/回读不误伤；
-env 未设保持放开语义；ingest 先例闸与 guest op 闸不回归。
+env 未设时按新回落链判定（根内放行 / 根外拒）；ingest 先例闸与 guest op 闸
+不回归。
 运行：python -m md_cg.test_p1x_ref_root
 """
 from __future__ import annotations
@@ -128,12 +134,43 @@ def main():
             "path": os.path.join(victim, "secret.txt")}))
         check("④a ingest 越界仍被 P1-4 拦（先例闸不回归）", ok, d)
         os.environ.pop(env, None)
-        rr = call_tool(cg, "cg", {
-            "op": "ref", "ref": dict(path="secret.txt", root=victim, **full)})
-        check("④b env 未设 = 部署开关放开（默认行为不变）",
-              rr.get("ok") is True
-              and "AKIAIOSFODNN7EXAMPLE" in (rr.get("text") or ""),
-              f"ok={rr.get('ok')}")
+        # ---- ④b：语义更迭（2026-10-10 设计者裁定 dsh #85 选 A）----
+        # **旧断言（本次改前逐字）**：
+        #     rr = call_tool(cg, "cg", {
+        #         "op": "ref", "ref": dict(path="secret.txt", root=victim, **full)})
+        #     check("④b env 未设 = 部署开关放开（默认行为不变）",
+        #           rr.get("ok") is True
+        #           and "AKIAIOSFODNN7EXAMPLE" in (rr.get("text") or ""),
+        #           f"ok={rr.get('ok')}")
+        # 它钉住的正是「env 未设 = 放开」这条**被本次裁定推翻**的语义（裁定原话：
+        # 「记忆写入当然是用 mdcg 的实际配置库。如果没配置，以工作区优先，并配
+        # 置。」）。故**按新语义重写为两条**（非删除、非改恒真、非调数字）：
+        #   ④b1 env 未设 + 路径在记忆库根内 ⇒ 放行（回落 MDCG_ROOT）；
+        #   ④b2 env 未设 + 路径在记忆库根外 ⇒ PermissionError（fail-closed）。
+        saved_mdcg_root = os.environ.get("MDCG_ROOT")
+        libroot = tempfile.mkdtemp(prefix="p1x_libroot_")
+        with open(os.path.join(libroot, "secret.txt"), "w",
+                  encoding="utf-8") as f:
+            f.write(SECRET_TEXT)
+        os.environ["MDCG_ROOT"] = libroot
+        try:
+            rr = call_tool(cg, "cg", {
+                "op": "ref", "ref": dict(path="secret.txt", root=libroot,
+                                         **full)})
+            check("④b1 env 未设 + 路径在记忆库根内=放行（回落 MDCG_ROOT）",
+                  rr.get("ok") is True
+                  and "AKIAIOSFODNN7EXAMPLE" in (rr.get("text") or ""),
+                  f"ok={rr.get('ok')}")
+            ok, d = denied(lambda: call_tool(cg, "cg", {
+                "op": "ref", "ref": dict(path="secret.txt", root=victim,
+                                         **full)}))
+            check("④b2 env 未设 + 路径在记忆库根外=拒绝（fail-closed）", ok, d)
+        finally:
+            if saved_mdcg_root is None:
+                os.environ.pop("MDCG_ROOT", None)
+            else:
+                os.environ["MDCG_ROOT"] = saved_mdcg_root
+            shutil.rmtree(libroot, ignore_errors=True)
         try:
             tokens.Principal(role="guest", ops_allow=("read",), theory_ok=True
                              ).require_op("ref")

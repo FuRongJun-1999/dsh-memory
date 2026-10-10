@@ -268,6 +268,23 @@ def mdcg_root() -> str:
     return os.path.join(data_root(), "mdcg")
 
 
+# 生效条件：无入参；ENV_DATA_ROOT 或 ENV_MDCG_ROOT 任一为非空真值时返回 True；否则 paths_file() 的 JSON 顶层为 dict 且其 "root" 为非空真值时返回 True；其余（无文件/解析失败/顶层非 dict/无该键/假值）返回 False。**不看目录是否存在**——存在性判据留给调用方。
+def mdcg_root_configured() -> bool:
+    """认知图根是否**被显式配置**（env `MDCG_DATA_ROOT`/`MDCG_ROOT`，或 paths.json 的 "root"）。
+
+    为什么需要它（2026-10-10 设计者裁定「15 a」/ dsh-memory #85 的落地面）：
+    `mdcg_root()` 是**恒有返回值**的回落链（未配置时给默认 `data_root()/mdcg`），
+    单看它的返回值分不出「用户配了」与「走默认」。`security.check_path_root` 的
+    三级回落链要在「连库根也无」时才取工作区，故须一个显式的「配置位」判据——
+    即本函数。**只看显式配置**：默认目录是否存在由调用方另判（`os.path.isdir`），
+    因为「默认库已装记忆」与「默认库位空着」在 check_path_root 里处置不同。
+    """
+    if (os.environ.get(ENV_DATA_ROOT) or "").strip() \
+            or (os.environ.get(ENV_MDCG_ROOT) or "").strip():
+        return True
+    return bool(str(_user_paths().get("root") or "").strip())
+
+
 # 生效条件：parts 非空时路径为 data_root() 与各 part 的 join，parts 为空时路径即 data_root()；create 为真值（默认 True）时对该路径 makedirs(exist_ok=True)，create 为假值时只返回路径不建目录。
 def state_dir(*parts: str, create: bool = True) -> str:
     """运行态子目录（日志/队列/草稿…），默认挂在数据根下。"""
