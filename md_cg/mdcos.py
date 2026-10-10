@@ -187,8 +187,32 @@ def _sig(text: str, n: int = 12) -> str:
     return hashlib.sha1(text.strip().encode("utf-8")).hexdigest()[:n]
 
 
+_SUBSTRING_CACHE_MAX_TERM = 64
+
+
+def _contains_substring_at_length(term, text, length, substrings):
+    """Test one length, reusing query-local pieces for ordinary-sized terms."""
+    n = len(term)
+    # Long terms use the same search without retaining their potentially
+    # quadratic number of substrings. Nothing is cached by document/process.
+    if substrings is None or n > _SUBSTRING_CACHE_MAX_TERM:
+        for i in range(n - length + 1):
+            if term[i:i + length] in text:
+                return True
+        return False
+    pieces = substrings.get(length)
+    if pieces is None:
+        pieces = tuple(dict.fromkeys(term[i:i + length]
+                       for i in range(n - length + 1)))
+        substrings[length] = pieces
+    for piece in pieces:
+        if piece in text:
+            return True
+    return False
+
+
 # 生效条件：term 与 text 均非空时，term 整词出现在 text 中返回 1.0；否则仅当 term 长度 n≥2 且存在长度 L 满足 2≤L<n 的最长命中子串时返回 0.5*L/n；term 或 text 为空、term 长度 <2、或无此类命中子串时返回 0.0。
-def _term_degree(term: str, text: str) -> float:
+def _term_degree(term: str, text: str, substrings=None) -> float:
     """词在文本中的分级命中（0~1）：整词出现 1.0；否则取最长命中子串的长度比 × 0.5。
 
     这是「模糊匹配」的最朴素形态——不要求整词命中，允许部分覆盖，
@@ -201,24 +225,69 @@ def _term_degree(term: str, text: str) -> float:
     if term in text:
         return 1.0
     n = len(term)
-    if n < 2:
+    if n < 3:
         return 0.0
-    for L in range(n - 1, 1, -1):
-        for i in range(0, n - L + 1):
-            if term[i:i + L] in text:
-                return 0.5 * L / n
-    return 0.0
+
+    # The longest possible partial match has only two candidate substrings.
+    # Check it directly so near-exact matches keep their constant probe count.
+    if substrings is not None and n <= _SUBSTRING_CACHE_MAX_TERM:
+        edges = substrings.get(n - 1)
+        if edges is None:
+            edges = (term[:-1], term[1:])
+            substrings[n - 1] = edges
+    else:
+        edges = (term[:-1], term[1:])
+    if edges[0] in text or edges[1] in text:
+        return 0.5 * (n - 1) / n
+    if n == 3:
+        return 0.0
+
+    # A partial match of length >= 2 necessarily contains a matching bigram.
+    # Rejecting this common case first avoids testing every longer substring.
+    if not _contains_substring_at_length(term, text, 2, substrings):
+        return 0.0
+    # Existence is monotone in length: a matching L-character substring also
+    # contains a matching (L-1)-character substring. Binary search therefore
+    # finds exactly the same longest partial match as the descending scan.
+    low, high = 2, n - 2
+    while low < high:
+        middle = (low + high + 1) // 2
+        if _contains_substring_at_length(term, text, middle, substrings):
+            low = middle
+        else:
+            high = middle - 1
+    return 0.5 * low / n
+
+
+def _prepare_coverage(tw):
+    """Prepare weights and lazy substring caches for a single query."""
+    terms = []
+    denominator = 0.0
+    for term, weight in (tw or {}).items():
+        if str(term).startswith("__") or weight <= 0:
+            continue
+        denominator += weight
+        terms.append((str(term), weight, {}))
+    return terms, denominator
 
 
 # 生效条件：tw 为 {词: 权重} 映射（None 视作空），只累加 t 不以 "__" 开头且权重 w > 0 的项，返回 num/den；tw 无有效项（den 为 0）时返回 0.0，text 任意（转交 _term_degree）。
-def _weighted_coverage(tw: dict, text: str) -> float:
+def _weighted_coverage(tw: dict, text: str, prepared=None) -> float:
     """词权 × 分级命中的加权覆盖率 ∈ [0,1]。"""
-    num = den = 0.0
-    for t, w in (tw or {}).items():
-        if str(t).startswith("__") or w <= 0:
-            continue
-        den += w
-        num += w * _term_degree(str(t), text)
+    num = 0.0
+    if prepared is None:
+        # One-off consistency/consolidation calls do not benefit from building
+        # query caches. Keep their original single-pass weight accumulation.
+        den = 0.0
+        for t, w in (tw or {}).items():
+            if str(t).startswith("__") or w <= 0:
+                continue
+            den += w
+            num += w * _term_degree(str(t), text)
+    else:
+        terms, den = prepared
+        for t, w, substrings in terms:
+            num += w * _term_degree(t, text, substrings)
     return num / den if den else 0.0
 
 
@@ -1380,6 +1449,7 @@ class MdCGOS(MdCG):
         source = tw.pop("__source__", "whitebox")
         if not tw:
             return [], source
+        coverage = _prepare_coverage(tw)
         dom_scores = routing.big_domain_score_weighted(tw)
         dom_total = sum(dom_scores.values()) or 1.0
         top_domains = sorted(dom_scores.items(),
@@ -1395,7 +1465,8 @@ class MdCGOS(MdCG):
             # 负条件行不作召回键（反例命中应由 judge 走 REJECT，不该召回节点）。
             # N273：走 `_positive_body` 钩子（readcache 启用时 path 键控缓存
             # 版）——与 `_like` 侧同一条派生物缓存口径，不再是第二处直调。
-            cov = _weighted_coverage(tw, f"{self._positive_body(e, c)} {tags}")
+            cov = _weighted_coverage(tw, f"{self._positive_body(e, c)} {tags}",
+                                     coverage)
             if cov <= 0.0:
                 continue
             e_dom = routing.route_key(None, e.get("tags"))
@@ -1431,6 +1502,7 @@ class MdCGOS(MdCG):
         tw = {str(k): float(v) for k, v in tw.items() if not str(k).startswith("__")}
         if not tw:
             return []
+        coverage = _prepare_coverage(tw)
         ctx = context if isinstance(context, dict) else {}
         ctx_domain = routing.route_key(ctx, ctx.get("tags")) if ctx else None
         ctx_tw = ctx.get("time_window") if ctx else None
@@ -1442,7 +1514,7 @@ class MdCGOS(MdCG):
             if neg_gate and _neg_hit(tw, neg):
                 continue                      # 条件级负路由：此查询下无资格
             cs = fm.get("condition_space") or {}
-            eff_cov = _weighted_coverage(tw, " ".join(pos)) if pos else 0.0
+            eff_cov = _weighted_coverage(tw, " ".join(pos), coverage) if pos else 0.0
             slot = _slot_overlap(tw, cs, q_domain, ctx_tw)
             ctx_aff = (routing.domain_similarity(
                 routing.route_key(cs, fm.get("tags")), ctx_domain)
@@ -1476,6 +1548,7 @@ class MdCGOS(MdCG):
               if not str(k).startswith("__")}
         if not tw:
             return [], ""
+        coverage = _prepare_coverage(tw)
         dom_scores = routing.big_domain_score_weighted(tw)
         dom_total = sum(dom_scores.values()) or 1.0
         top_domains = sorted(dom_scores.items(),
@@ -1486,7 +1559,7 @@ class MdCGOS(MdCG):
             if e.get("layer") == "goals":
                 continue
             tags = " ".join(str(t) for t in (fm.get("tags") or []))
-            cov = _weighted_coverage(tw, f"{c} {tags}")
+            cov = _weighted_coverage(tw, f"{c} {tags}", coverage)
             if cov <= 0.0:
                 continue
             e_dom = routing.route_key(None, e.get("tags"))
