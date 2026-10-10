@@ -230,6 +230,7 @@ def clear(cg) -> int:
     bm25_index = getattr(cg, "_bm25_index", None)
     if bm25_index is not None:
         bm25_index.clear()
+    cg._bm25_candidate_pool = None
     for attr in ("_read_cache", "_norm_bigrams_cache", "_positive_body_cache"):
         c = getattr(cg, attr, None)
         if c:

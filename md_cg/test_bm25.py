@@ -2,6 +2,7 @@
 import math
 import json
 import os
+import random
 from pathlib import Path
 import tempfile
 import subprocess
@@ -291,6 +292,78 @@ class BM25Tests(unittest.TestCase):
             if guest is not None:
                 guest.close()
             cg.close()
+
+    def test_block_bounds_match_exhaustive_scores_with_outliers_and_edits(self):
+        rng = random.Random(108)
+        for i in reversed(range(520)):
+            words = ["common"] * rng.randint(1, 7)
+            words += ["second"] * rng.randint(0, 8)
+            words += ["third"] * rng.randint(0, 4)
+            words += ["padding"] * rng.randint(0, 50)
+            self.cg.add(f"mixed{i:04d}", " ".join(words), importance=rng.choice((0.1, 0.4, 0.9)))
+        # The strongest short document is in a late block, not an initial prefix.
+        self.cg.add("zz_outlier", "common second third", importance=1.0)
+        with patch.object(bm25, "BLOCK_THRESHOLD", 64):
+            for edited in (False, True):
+                if edited:
+                    self.cg.add("mixed0519", "common " * 70, importance=1.0, override=True)
+                    self.cg.forget("mixed0000", override=True)
+                    self.cg.flush()
+                for query in ("common", "common second", "third common second",
+                              "common absent", "common common third", "padding second"):
+                    entries = self.cg._candidates()
+                    with patch.dict(os.environ, {"MDCG_BM25_BLOCK_MAX": "0"}):
+                        reference, ref = bm25.search(self.cg, query, entries, {"scanned": 0})
+                    actual, info = bm25.search(self.cg, query, entries, {"scanned": 0})
+                    self.assertNotIn("fallback", info)
+                    self.assertEqual(actual, reference, (edited, query))
+                    self.assertEqual(info["matched"], ref["matched"])
+                    self.assertEqual(info["algorithm"], "exact_block_max")
+
+    def test_equal_score_blocks_prune_without_changing_top50_or_match_count(self):
+        for i in reversed(range(520)):
+            self.cg.add(f"equal{i:04d}", "same common", importance=0.4)
+        with patch.object(bm25, "BLOCK_THRESHOLD", 64):
+            rows, meta = self.search("same common", k=100)
+        info = meta["bm25"]
+        self.assertEqual([r[0]["id"] for r in rows], [f"equal{i:04d}" for i in range(50)])
+        self.assertEqual(info["matched"], 520)
+        self.assertGreater(info["blocks_skipped"], 0)
+        self.assertLess(info["posting_visits"], info["posting_candidates"])
+        self.assertLess(info["scored_documents"], 520)
+
+    def test_pool_reuse_invalidates_on_write_and_bypasses_clock_filters(self):
+        with patch.object(self.cg, "_candidates", wraps=self.cg._candidates) as candidates:
+            self.search("apple")
+            self.search("banana")
+            self.search("pear")
+            self.assertEqual(candidates.call_count, 1)
+            self.cg.add("fresh", "freshword")
+            self.cg.flush()
+            self.assertEqual({n[0]["id"] for n in self.search("freshword")[0]}, {"fresh"})
+            self.assertEqual(candidates.call_count, 2)
+            self.search("apple", validity=True)
+            self.search("pear", validity=True)
+            self.assertEqual(candidates.call_count, 4)
+            self.search("apple", start_time="2020-01-01")
+            self.search("pear", start_time="2020-01-01")
+            self.assertEqual(candidates.call_count, 6)
+
+    def test_parallel_build_keeps_existing_cache_and_retries_failed_reads(self):
+        self.cg._read_status(self.cg.index["nodes"]["b"])
+        saved = self.cg._read_cache[self.cg.index["nodes"]["b"]["path"]]
+        original = self.cg._read_status
+        def fail(entry):
+            return (None, None, "transient") if entry["path"].endswith("/a.md") else original(entry)
+        with patch.object(bm25, "BLOCK_THRESHOLD", 1), patch.dict(os.environ, {
+                "MDCG_BM25_BUILD_WORKERS": "4"}), patch.object(self.cg, "_read_status", side_effect=fail):
+            rows, meta = self.search("apple")
+            self.assertEqual({r[0]["id"] for r in rows}, {"b"})
+            self.assertEqual(meta["bm25"]["build_workers"], 4)
+            self.assertGreater(meta["bm25"]["unavailable"], 0)
+        self.assertIs(self.cg._read_cache[self.cg.index["nodes"]["b"]["path"]], saved)
+        self.assertIn("a", {r[0]["id"] for r in self.search("apple")[0]})
+        self.assertTrue(self.cg.search("apple", record=False)[0])
 
 
 if __name__ == "__main__":

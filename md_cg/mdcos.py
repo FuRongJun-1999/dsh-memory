@@ -1720,12 +1720,16 @@ class MdCGOS(MdCG):
                 _results, _meta = cached
                 _meta["cached"] = True
                 return _results, _meta
-        entries = self._candidates(layer=layer, roles=roles, include_work=include_work,
-                                   session=session, branch=branch, validity=validity,
-                                   start_time=start_time, end_time=end_time,
-                                   start_operator=start_operator,
-                                   end_operator=end_operator, time_axis=time_axis,
-                                   view=view)
+        candidate_fn = self._candidates
+        if "bm25" in paths:
+            from . import bm25
+            candidate_fn = lambda **options: bm25.candidate_pool(self, **options)
+        entries = candidate_fn(layer=layer, roles=roles, include_work=include_work,
+                               session=session, branch=branch, validity=validity,
+                               start_time=start_time, end_time=end_time,
+                               start_operator=start_operator,
+                               end_operator=end_operator, time_axis=time_axis,
+                               view=view)
         _tf = getattr(self, "_time_filter_stat", None)
         if not entries:
             _m = {"tier": None, "reason": "no_candidates", "paths": {}}
