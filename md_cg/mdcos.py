@@ -1706,6 +1706,9 @@ class MdCGOS(MdCG):
             # MDCG_EN_ATOMS / MDCG_UNIFY_QUERY 等不入键即跨口径命中（2026-09-24 修复）。
             "env_switch": _hc.env_switch_key(),
         }
+        if "bm25" in paths:
+            from . import bm25
+            _cache_extra["bm25_access"] = bm25.access_key(self)
         # 不可稳定进键的参数（自定义可调用 query_expand）：非默认即**绕行**
         # 缓存（读+写双侧闭合）——fail-closed，宁可不用缓存也不串味。
         _bypass = query_expand is not None
@@ -1764,14 +1767,18 @@ class MdCGOS(MdCG):
                         if _t_en else (None, None))
         if "lexical" in paths:
             ranked["lexical"] = self._lexical(q, entries, stat)
+        if "bm25" in paths:
+            from . import bm25
+            ranked["bm25"], _index_meta["bm25"] = bm25.search(self, q, entries, stat)
         if "bucket" in paths:
             ranked["bucket"] = self._path_bucket(q, entries, context)
         if "entity" in paths:
             ranked["entity"] = self._path_entity(q, entries)
         if "graph" in paths:
-            ranked["graph"] = self._path_graph(q, entries, ranked.get("lexical") or [])
+            ranked["graph"] = self._path_graph(
+                q, entries, ranked.get("lexical") or ranked.get("bm25") or [])
         if "chain" in paths:
-            seeds = (ranked.get("lexical") or []) + (ranked.get("entity") or [])
+            seeds = (ranked.get("lexical") or ranked.get("bm25") or []) + (ranked.get("entity") or [])
             ranked["chain"], chain_prov = self._path_chain(q, entries, seeds, context)
         if "temporal" in paths:
             # P3-temporal：时间路（排名项）。时间算子/区间未启用时恒空——默认

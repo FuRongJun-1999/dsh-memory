@@ -214,6 +214,7 @@ TOOLS = [
                           k=_p("integer", "候选上限"), context=_p("object", "当前情境条件空间"),
                           include_work=_p("boolean", "是否含工具输出/命令/编辑（默认否）"),
                           fuzzy=_p("boolean", "启用第 5 路模糊召回（分级隶属度，默认否）"),
+                          bm25=_p("boolean", "用 BM25 倒排词频评分替换词法路（默认否；仍经可见性与门控）"),
                          semantic=_p("boolean", "启用第 6 路条件空间结构化匹配"
                                                "（白箱语义路：CCG 生效条件 + condition_space "
                                                "四槽，不适用条件命中即剔除；默认否）"),
@@ -857,6 +858,7 @@ KERNEL_TOOLS = [
                              "receipt（回执审计：命令与预期输出）；"
                              "非法值库层报错（fail-closed）"),
             budget_tokens=_p("integer", "read 的 token 预算"),
+            bm25=_p("boolean", "read：显式使用 BM25 倒排评分（默认否）"),
             evidence=_p("string", "verify 的证据；state_event：出处（五元之一，"
                                  "回指原文/轮次）"),
             verdict=_p("string", "verify 裁决：confirmed|weakened|falsified；"
@@ -2440,9 +2442,16 @@ def _cg_dispatch(cg, a):
                              include_recent=bool(a.get("include_recent")),
                              recent_limit=int(a.get("limit") or 10),
                              session=a.get("session"),
-                             validity=a.get("validity"), **_tkw)
+                             validity=a.get("validity"),
+                             **({"paths": ("bm25",)} if a.get("bm25") else {}), **_tkw)
         from . import refindex
-        res, meta = cg.search(q, layer=a.get("layer"), k=_int_arg(a, "k", 20),
+        if a.get("bm25"):
+            ranked, meta = cg.search_rrf(q, paths=("bm25",), layer=a.get("layer"),
+                k=_int_arg(a, "k", 20), context=a.get("context"), session=a.get("session"),
+                validity=a.get("validity"), **_tkw)
+            res = [(n, s, qual) for n, s, qual, _provenance in ranked]
+        else:
+            res, meta = cg.search(q, layer=a.get("layer"), k=_int_arg(a, "k", 20),
                               context=a.get("context"),
                               session=a.get("session"),
                               validity=a.get("validity"), **_tkw)
@@ -3717,6 +3726,7 @@ def _dispatch(cg, name, args):
         return out
 
     if name == "mdcg_recall":
+        use_bm25 = bool(a.get("bm25"))
         use_fuzzy = bool(a.get("fuzzy"))
         use_semantic = bool(a.get("semantic"))
         use_goal = bool(a.get("goal_path") or a.get("goal"))
@@ -3728,9 +3738,9 @@ def _dispatch(cg, name, args):
         use_temporal = a.get("temporal")
         use_causal = True if use_causal is None else bool(use_causal)
         use_temporal = True if use_temporal is None else bool(use_temporal)
-        if (use_fuzzy or use_semantic or use_goal
+        if (use_bm25 or use_fuzzy or use_semantic or use_goal
                 or not use_causal or not use_temporal):
-            paths = ["lexical", "bucket", "entity", "graph"]
+            paths = ["bm25" if use_bm25 else "lexical", "bucket", "entity", "graph"]
             if use_fuzzy:
                 paths.append("fuzzy")
             if use_semantic:
