@@ -374,6 +374,24 @@ class BM25Tests(unittest.TestCase):
             self.assertEqual(info["bm25"]["build_reads"], 0)
             self.assertTrue(info["bm25"]["pool_reused"])
 
+    def test_shared_term_storage_preserves_tf_and_releases_removed_terms(self):
+        self.cg.add("share1", "shared common")
+        self.cg.add("share2", "shared " * 5 + "common")
+        self.search("shared")
+        idx = self.cg._bm25_index
+        paths = [self.cg.index["nodes"][nid]["path"] for nid in ("share1", "share2")]
+        for path in paths:
+            self.assertIsInstance(idx.docs[path][1], tuple)
+            self.assertIs(next(t for t in idx.docs[path][1] if t == "shared"), idx.terms["shared"])
+        self.assertEqual([idx.post["shared"][p] for p in paths], [1, 5])
+        self.cg.forget("share1")
+        self.cg.forget("share2")
+        self.assertEqual(self.search("shared")[0], [])
+        self.assertNotIn("shared", idx.terms)
+        self.assertNotIn("shared", idx.post)
+        readcache.clear(self.cg)
+        self.assertEqual(idx.terms, {})
+
     def test_pool_reuse_invalidates_on_write_and_bypasses_clock_filters(self):
         with patch.object(self.cg, "_candidates", wraps=self.cg._candidates) as candidates:
             self.search("apple")
@@ -404,6 +422,8 @@ class BM25Tests(unittest.TestCase):
             self.assertEqual(meta["bm25"]["build_workers"], 4)
             self.assertGreater(meta["bm25"]["unavailable"], 0)
         self.assertIs(self.cg._read_cache[self.cg.index["nodes"]["b"]["path"]], saved)
+        self.assertIn(self.cg.index["nodes"]["b"]["path"], self.cg._realpath_cache)
+        self.assertNotIn(self.cg.index["nodes"]["c"]["path"], self.cg._realpath_cache)
         self.assertIn("a", {r[0]["id"] for r in self.search("apple")[0]})
         self.assertTrue(self.cg.search("apple", record=False)[0])
 

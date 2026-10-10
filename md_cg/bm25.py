@@ -98,10 +98,11 @@ def _build_reads(cg, entries, report, stream):
     report["build_workers"] = workers
     read_cache = getattr(cg, "_read_cache", {})
     body_cache = getattr(cg, "_positive_body_cache", {})
+    real_cache = getattr(cg, "_realpath_cache", {})
 
     def submit(entry, executor):
         path = entry["path"]
-        existed = (path in read_cache, path in body_cache)
+        existed = (path in read_cache, path in body_cache, path in real_cache)
         value = executor.submit(cg._read_status, entry) if executor else cg._read_status(entry)
         return entry, value, existed
 
@@ -113,6 +114,8 @@ def _build_reads(cg, entries, report, stream):
                 read_cache.pop(entry["path"], None)
             if not existed[1]:
                 body_cache.pop(entry["path"], None)
+            if not existed[2]:
+                real_cache.pop(entry["path"], None)
 
     if workers == 1:
         for entry in entries:
@@ -153,8 +156,9 @@ class BM25Index:
         self.clear()
 
     def clear(self):
-        self.docs = {}       # path -> (generation, Counter, length, importance, id)
+        self.docs = {}       # path -> (generation, unique terms, length, importance, id)
         self.post = {}       # term -> {path: TF}
+        self.terms = {}      # per-index canonical strings; cleared with access scope
         self.total_length = 0
         self.nodes = self.dirty = self.access = None
         self.broad_gen = -1
@@ -178,6 +182,7 @@ class BM25Index:
             del posting[path]
             if not posting:
                 del self.post[term]
+                del self.terms[term]
 
     def sync(self, cg, entries, report):
         dirty = getattr(cg, "_dirty", None)
@@ -224,9 +229,19 @@ class BM25Index:
             tags = " ".join(str(t) for t in (fm.get("tags") or []))
             tf = Counter(tokenize(text + "\n" + tags))
             length = sum(tf.values())
+            doc_terms = []
             for term, count in tf.items():
-                self.post.setdefault(term, {})[path] = count
-            self.docs[path] = (getattr(dirty, "write_gen", 0), tf, length,
+                if term not in self.post:
+                    self.post[term] = {}
+                    self.terms[term] = term
+                canonical = self.terms[term]
+                self.post[canonical][path] = count
+                doc_terms.append(canonical)
+            # TF already lives in postings. Removal only needs the unique
+            # terms. Share their strings within this index rather than keeping
+            # a duplicate Counter and duplicate Han tokens for every document.
+            # No global interning: lock/scope invalidation must release terms.
+            self.docs[path] = (getattr(dirty, "write_gen", 0), tuple(doc_terms), length,
                                float(fm.get("importance") or 0),
                                str(fm.get("id") or path))
             self.total_length += length
