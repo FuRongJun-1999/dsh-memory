@@ -43,6 +43,9 @@ class CandidateIndex:
         self.docs.clear()
         self.semantic.clear()
         self.post.clear()
+        self.nodes = None
+        self.dirty = None
+        self.broad_gen = -1
         self.initialized = False
         self.last_sync = None
 

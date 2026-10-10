@@ -124,6 +124,8 @@ class RRFCandidates(unittest.TestCase):
         self.cg.rebuild_index()
         self.compare("甲乙丙丁")
         readcache.clear(self.cg)
+        self.assertIsNone(self.cg._rrf_candidate_index.nodes)
+        self.assertIsNone(self.cg._rrf_candidate_index.dirty)
         _, meta = self.compare("甲乙丙丁", paths=("fuzzy",))
         self.assertGreater(meta["rrf_candidates"]["build_reads"], 0)
 
