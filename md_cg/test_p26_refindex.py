@@ -124,6 +124,12 @@ def main():
     print("=" * 68)
 
     tmp = tempfile.mkdtemp(prefix="mdcg_refidx_")
+    # 部署声明：本用例的读写白名单根（2026-10-10 设计者裁定 dsh #85 选 A 后，
+    # MDCG_INGEST_ROOT / MDCG_EXPORT_ROOT 未配置**不再放开**，会回落 mdcg 记忆库根
+    # 与工作区；本用例沙箱在两者之外，故必须显式声明——这正是新语义要求的
+    # 「部署用环境变量声明可读写的根」。
+    os.environ["MDCG_INGEST_ROOT"] = tmp
+    os.environ["MDCG_EXPORT_ROOT"] = tmp
     code_dir = os.path.join(tmp, "pkg")
     bad_dir = os.path.join(tmp, "broken")
     os.makedirs(code_dir)
@@ -349,10 +355,21 @@ def main():
 
         # ===================================================== ⑧ ref 边界
         print("\n【8】op=ref 边界（缺 root / 无 code_ref / 节点不存在）")
-        no_root = ref_read(cg, ref={"path": "alpha.py", "lineno": 1, "end": 1})
+        # 语义更迭（2026-10-10 设计者裁定 dsh #85 选 A）：无 root 的相对 path 过去
+        # 因「env 未设=放开」被放行、由 probe_ref 自行解析（可静默读错位置）；现在
+        # 未配置不再放开，realpath 落在白名单外的路径**当场抛 PermissionError**。
+        # 判据意图不变（「无 root ⇒ 明确报错，而非静默读错位置」），机制更严：
+        # 由「返回 ok=False」升级为「硬拒且消息点明白名单根」。
+        try:
+            no_root = ref_read(cg, ref={"path": "alpha.py", "lineno": 1, "end": 1})
+            no_root_denied = (no_root.get("ok") is False
+                              and "root" in (no_root.get("error") or ""))
+            no_root_detail = str(no_root.get("error"))[:80]
+        except PermissionError as exc:
+            no_root_denied = "MDCG_INGEST_ROOT" in str(exc)
+            no_root_detail = "PermissionError(%s…)" % str(exc)[:50]
         check("ref 无 root → 明确报错（而非静默读错位置）",
-              no_root.get("ok") is False and "root" in (no_root.get("error") or ""),
-              str(no_root.get("error"))[:80])
+              no_root_denied, no_root_detail)
         cg.add("p26_plain", ccg_body("普通知识卡片"))
         cg.flush()
         no_ref = ref_read(cg, node_id="p26_plain")

@@ -74,6 +74,12 @@ def main():
     print("=" * 68)
 
     tmp = tempfile.mkdtemp(prefix="mdcg_p29_")
+    # 部署声明：本用例的读写白名单根（2026-10-10 设计者裁定 dsh #85 选 A 后，
+    # MDCG_INGEST_ROOT / MDCG_EXPORT_ROOT 未配置**不再放开**，会回落 mdcg 记忆库根
+    # 与工作区；本用例沙箱在两者之外，故必须显式声明——这正是新语义要求的
+    # 「部署用环境变量声明可读写的根」。
+    os.environ["MDCG_INGEST_ROOT"] = tmp
+    os.environ["MDCG_EXPORT_ROOT"] = tmp
     # 每次运行独立根：摄取 watermark 与节点 id 都按 source key 恒定派生，
     # 若复用固定 ROOT，二次运行会因「同 id 已存在」被判幂等而 written=0，
     # 破坏「重跑 ≡ 首跑」。故根随 tmp 走，运行完即弃。

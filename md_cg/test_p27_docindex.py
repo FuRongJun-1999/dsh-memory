@@ -209,6 +209,13 @@ def main():
     print("=" * 68)
 
     tmp = tempfile.mkdtemp(prefix="mdcg_docidx_")
+    # 部署声明：本用例的读写白名单根（2026-10-10 设计者裁定 dsh #85 选 A 后，
+    # MDCG_INGEST_ROOT / MDCG_EXPORT_ROOT 未配置**不再放开**，会回落 mdcg 记忆库根
+    # 与工作区；本用例沙箱在两者之外，故必须显式声明——这正是新语义要求的
+    # 「部署用环境变量声明可读写的根」。
+    # 【9】段刻意索引仓内**真实 docs/**，故按 os.pathsep 声明多根（部署声明的正形态）
+    os.environ["MDCG_INGEST_ROOT"] = tmp + os.pathsep + _BASE
+    os.environ["MDCG_EXPORT_ROOT"] = tmp
     fx = os.path.join(tmp, "fx")
     os.makedirs(os.path.join(fx, "private"))
     with open(os.path.join(fx, "guide.md"), "w", encoding="utf-8") as f:

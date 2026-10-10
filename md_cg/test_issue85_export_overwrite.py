@@ -48,6 +48,12 @@ def main():
     from md_cg.security import Principal
 
     d = tempfile.mkdtemp(prefix="p85_")
+    # 部署声明：本用例的读写白名单根（2026-10-10 设计者裁定 dsh #85 选 A 后，
+    # MDCG_INGEST_ROOT / MDCG_EXPORT_ROOT 未配置**不再放开**，会回落 mdcg 记忆库根
+    # 与工作区；本用例沙箱在两者之外，故必须显式声明——这正是新语义要求的
+    # 「部署用环境变量声明可读写的根」。
+    os.environ["MDCG_INGEST_ROOT"] = d
+    os.environ["MDCG_EXPORT_ROOT"] = d
     root = os.path.join(d, "mem")
     os.makedirs(root, exist_ok=True)
     p = Principal(actor="guard", clearance="secret", can_write=True, can_admin=True,

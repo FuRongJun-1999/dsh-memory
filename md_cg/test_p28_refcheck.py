@@ -807,6 +807,12 @@ def main(argv=None):
     print("=" * 68)
 
     tmp = tempfile.mkdtemp(prefix="mdcg_refcheck_")
+    # 部署声明：本用例的读写白名单根（2026-10-10 设计者裁定 dsh #85 选 A 后，
+    # MDCG_INGEST_ROOT / MDCG_EXPORT_ROOT 未配置**不再放开**，会回落 mdcg 记忆库根
+    # 与工作区；本用例沙箱在两者之外，故必须显式声明——这正是新语义要求的
+    # 「部署用环境变量声明可读写的根」。
+    os.environ["MDCG_INGEST_ROOT"] = tmp
+    os.environ["MDCG_EXPORT_ROOT"] = tmp
     src = os.path.join(tmp, "pkg")
     os.makedirs(src)
     alpha = os.path.join(src, "alpha.py")
