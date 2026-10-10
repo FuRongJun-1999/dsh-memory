@@ -28,10 +28,14 @@
     ① 换了身份（actor / tenant 不符）→ 解不开；
     ② 把密文拷贝到另一个节点 → 校验失败。
   即「密钥 + 身份」双因子，缺一不可。
-· **跨身份可在解密前判定**（B1，2026-10-10）：密文块另携**非敏感**指纹
-  `enc_id_fp`（= `identity_fingerprint(tenant, actor)`，与 `_keys.json` 信封同款，
-  16 位 hex、不泄露身份原文），读方零解密即可判「是否跨身份」——设计内隔离与
-  「密文被篡改」不再混进同一条审计文案（存量旧格式无该段，读方走旧路径）。
+· **跨身份读的失败分类**（B1，2026-10-10；同日 DSH 端独立复核纠正）：密文块另携
+  **非敏感**指纹 `enc_id_fp`（= `identity_fingerprint(tenant, actor)`，与
+  `_keys.json` 信封同款，16 位 hex、不泄露身份原文）。**它不参与解密与否的判定**
+  ——MAC 校验（`open_node`）是唯一判据；只有当解密**失败**时才用该指纹把这次失败
+  归类：不等 ⇒ 预期隔离（`read_foreign`），其余（含存量旧格式无该段）⇒ 真异常
+  （`open_failed`）。之所以**不**用它预先跳过解密：它是**未认证明文段**（不在
+  `_node_aad` 里、`open_node` 解密前丢弃），让可篡改字段决定「是否执行唯一的完整性
+  校验」会派生假阴性（真密文被静默拒读）与假阳性（谎报指纹制造 `open_failed`）。
 
 密码学实现
 ----------
@@ -443,7 +447,8 @@ def seal_node(content, dek, node_id, tenant, actor):
 
     A2/B1（2026-10-10）：密文块携带 `identity_fingerprint(tenant, actor)`（16 位
     hex，与 `_keys.json` 信封同款指纹）——它是**非敏感**标识（不泄露身份原文），
-    使「跨身份读」在解密前可判（省掉无谓 MAC、并把真异常留给 open_failed）。
+    供读方在**解密失败后**给失败分类（跨身份预期隔离 vs 真异常）。它**不**决定
+    是否解密：MAC 校验恒为唯一判据（见 `_open_content`）。
     """
     nonce = secrets.token_bytes(NONCE_LEN)
     ct, tag = aead_encrypt(dek, nonce, str(content).encode("utf-8"),
@@ -584,7 +589,8 @@ def catalog():
             "DEK 信封 AAD = mdcg-dek|v|tenant|actor",
             "节点 AAD = mdcg-node|v|tenant|actor|node_id",
             "信封另存 id_fp 指纹，解密前先比对（快速失败）",
-            "密文块携带 enc_id_fp 指纹（新格式），读方零解密即可判跨身份",
+            "密文块携带 enc_id_fp 指纹（新格式）：解密失败后据此分类"
+            "（跨身份预期隔离 / 真异常），不参与解密与否的判定",
         ],
         "plaintext_metadata": ["layer", "tags", "condition_space", "importance",
                                "sensitivity", "created_at"],

@@ -12,6 +12,11 @@
      （`md_cg.rotate.Rotator`）。
   ③ 源面：轮转实现体已从 `mdcos.py` 抽出（旧 `publish(self.audit_log, dst)` 不再
      出现在 mdcos），`crypto.audit` 已接共享件（`maybe_rotate()` 在位）。
+  ③d **独立实现扫描（2026-10-10 DSH 端独立复核补）**：全仓 .py 里构造分片名
+     （basename 加 6 位零填充序号 + `.jsonl`）的文件集合必须**恰好**等于已声明集
+     `{md_cg/rotate.py, md_cg/sustain.py}`——`rotate.py` 自述此前写「轮转机制唯一
+     实现点」，与 `sustain.py::rotate_heartbeat` 自带第三份独立轮转的事实不符；
+     现订正措辞，并让本断言在「他处存在/新增独立实现」时**点名到具体文件**。
 
 运行：python -m md_cg.test_audit_rotate_parity
 """
@@ -79,6 +84,42 @@ def _read_src(name):
         return f.read()
 
 
+#: 分片名构造式（防本守卫自命中：写成拼接式，文件内不出现完整字面量）。
+_SHARD_MARK = "%0" + "6d.jsonl"
+#: 已声明的独立轮转实现（`rotate.Rotator` 之外）：心跳台账自带一份。
+_DECLARED_ROTATORS = {"md_cg/rotate.py", "md_cg/sustain.py"}
+
+
+def _scan_shard_builders():
+    """全仓 .py 里构造零填充分片名（basename + 6 位序号 + `.jsonl`）的文件。
+
+    归一化为仓内相对路径；跳过 `.git` 等点目录与构建产物目录，并排除本守卫
+    自身（它必须引用该构造式做扫描）。
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    me = os.path.relpath(os.path.abspath(__file__), root).replace("\\", "/")
+    hits = set()
+    skip = {"node_modules", "target", "__pycache__", "venv", "build", "dist"}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames
+                       if d not in skip and not d.startswith(".")]
+        for fn in filenames:
+            if not fn.endswith(".py"):
+                continue
+            p = os.path.join(dirpath, fn)
+            rel = os.path.relpath(p, root).replace("\\", "/")
+            if rel == me:
+                continue
+            try:
+                with open(p, "r", encoding="utf-8", errors="replace") as f:
+                    txt = f.read()
+            except OSError:
+                continue
+            if _SHARD_MARK in txt:
+                hits.add(rel)
+    return hits
+
+
 def main():
     tmp = tempfile.mkdtemp(prefix="mdcg_a2_parity_")
     orig_time = mdcos_mod.time
@@ -122,9 +163,17 @@ def main():
            and "self._audit_rot" in s_mdcos,
            "③a mdcos 轮转实现体已抽出（旧 publish 体不在 mdcos，改走 _audit_rot）")
         ok("class Rotator" in s_rotate and "def maybe_rotate" in s_rotate,
-           "③b md_cg/rotate.py 是唯一实现点（class Rotator）")
+           "③b md_cg/rotate.py 是审计/密文两路共用实现（class Rotator）；"
+           "心跳另有独立轮转见 ③d")
         ok("_rotator(root).maybe_rotate()" in s_crypto,
            "③c crypto.audit 已接共享件（写前轮转闸门在位）")
+        # ③d 独立实现扫描：分片名构造者集合必须恰好等于已声明集。
+        hits = _scan_shard_builders()
+        extra = sorted(hits - _DECLARED_ROTATORS)
+        ok(hits == _DECLARED_ROTATORS,
+           "③d 独立轮转实现扫描：构造零填充分片名的文件集 = %s（应为 %s；"
+           "未声明/新增的独立实现 = %s）"
+           % (sorted(hits), sorted(_DECLARED_ROTATORS), extra or "无"))
     finally:
         mdcos_mod.time = orig_time
         shutil.rmtree(tmp, ignore_errors=True)

@@ -530,13 +530,20 @@ def _read_foreign_sample_rate():
         return 0
 
 
-# 生效条件：cg 为读方实例；采样率（见 _read_foreign_sample_rate）≤0 时直接返回 False（不记、零副作用）；>0 时把 cg._read_foreign_seen 自增 1，返回「rate==1 或计数能被 rate 整除」的布尔结果。
+# 生效条件：cg 为读方实例；**无条件**先把 cg._read_foreign_seen 自增 1（计数恒完整，与采样开关无关）再读采样率（见 _read_foreign_sample_rate），rate ≤ 0 时返回 False（不落审计）；否则返回「rate==1 或计数能被 rate 整除」的布尔结果。计数经 cg.crypto_status()['read_foreign_seen'] 可读。
 def _read_foreign_sampled(cg):
-    """跨身份读是否落一条 read_foreign（采样开关，默认关）。"""
+    """跨身份读是否落一条 read_foreign（采样开关，默认关）。
+
+    缺陷二修正（2026-10-10，DSH 端独立复核）：**计数恒完整、采样只决定是否落审计**。
+    原实现在 `rate <= 0` 时**先 `return False`、后自增** ⇒ 默认配置下
+    `cg._read_foreign_seen` 从不被创建 ⇒ 越权探测信号**完全丢失**（DSH 端实测：
+    连读 3 次后 `hasattr` 仍 False）。现计数无条件增长（零 IO、零新增文件），
+    默认「不落审计」的口径不变（隔离读是常态，在役库 `open_failed` 曾达 301 万条）。
+    """
+    cg._read_foreign_seen = getattr(cg, "_read_foreign_seen", 0) + 1
     rate = _read_foreign_sample_rate()
     if rate <= 0:
         return False
-    cg._read_foreign_seen = getattr(cg, "_read_foreign_seen", 0) + 1
     return rate == 1 or cg._read_foreign_seen % rate == 0
 
 
@@ -4916,6 +4923,11 @@ class MdCGSecure(MdCGOS):
         self.kek = None
         self.dek = None
         self._crypto_error = None
+        #: 缺陷二（2026-10-10 DSH 端独立复核）：跨身份读**计数恒完整**（与采样
+        #: 开关无关）——原实现把自增放在「采样开启」之后 ⇒ 默认配置下该属性从不
+        #: 被创建、越权探测信号完全丢失。此处显式初始化，使 `crypto_status()` 的
+        #: `read_foreign_seen` 恒可读、实例上稳定存在。
+        self._read_foreign_seen = 0
         super().__init__(root, actor=self.principal.actor, **kw)
         self.session = self.principal.session
         self._init_crypto(master_key)
@@ -4979,7 +4991,7 @@ class MdCGSecure(MdCGOS):
         self._crypto_error = "locked"
         return self.crypto_status()
 
-# 生效条件：调用 crypto_status 时，返回当前加密状态字典；unlocked 取决于 self.dek is not None，kek_fp 在 self.kek 为假值时取 None，否则取 crypto.kek_fingerprint(self.kek)。
+# 生效条件：调用 crypto_status 时，返回当前加密状态字典；unlocked 取决于 self.dek is not None，kek_fp 在 self.kek 为假值时取 None，否则取 crypto.kek_fingerprint(self.kek)；read_foreign_seen 取进程内跨身份失败解密计数（缺陷二：计数恒完整、与采样开关无关，可被体检面读到）。
     def crypto_status(self):
         """当前加密状态（不含密钥材料）。"""
         return {
@@ -4993,6 +5005,10 @@ class MdCGSecure(MdCGOS):
             "error": self._crypto_error,
             "keys_file": crypto.keys_path(self.root),
             "envelopes": crypto.envelopes(self.root),
+            # 缺陷二：跨身份读计数**恒完整**（默认采样关闭时也增长），透出到
+            # 既有体检面（health_os / profile 都含 crypto_status）——越权探测
+            # 信号不再因默认不落审计而彻底不可观测。
+            "read_foreign_seen": getattr(self, "_read_foreign_seen", 0),
         }
 
 # 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，若 sens 不在 crypto.ENCRYPTED_LEVELS 或 content 已加密则原样返回 content；否则 self.dek 为假值时写 seal_denied 审计并抛 crypto.LockedError，有 dek 时 seal_node 并写 seal 审计后返回密文。
@@ -5016,7 +5032,7 @@ class MdCGSecure(MdCGOS):
                                  "actor": self.principal.actor})
         return sealed
 
-# 生效条件：content 为 None 或非加密时原样返回 content；加密时先用**本次读取所得的 frontmatter**（sensitivity/session）复核读可见性，不可见即写 read_denied 审计并返回 None；可见但 self.dek 为假值时写 read_locked 审计并返回 None；随后比密文携带的 enc_id_fp（或 fm.get("enc_id_fp")）与当前 principal 指纹，不相等即（按采样）写 read_foreign 审计并返回 None 且**不**尝试解密；相等或指纹缺失（旧格式存量）才 crypto.open_node，抛 CryptoError 时写 open_failed 审计并返回 None，成功则返回明文。
+# 生效条件：content 为 None 或非加密时原样返回 content；加密时先用**本次读取所得的 frontmatter**（sensitivity/session）复核读可见性，不可见即写 read_denied 审计并返回 None；可见但 self.dek 为假值时写 read_locked 审计并返回 None；随后**无条件**调 crypto.open_node（唯一的完整性校验处）——成功即返回明文（指纹fp 是什么都不影响解密）；仅当抛 CryptoError 时才用**密文自带**的非敏感指纹 enc_id_fp 给这次失败分类：指纹有值且 ≠ 本方指纹 ⇒ 按采样写 read_foreign 审计（预期隔离）；否则写 open_failed 审计（真异常，含旧格式无指纹）。
     def _open_content(self, node_id, fm, content):
         """密文解封；无密钥 / 身份不符 / **读不可见** → None（不可读），失败留审计。"""
         if content is None or not crypto.is_encrypted(content):
@@ -5045,16 +5061,30 @@ class MdCGSecure(MdCGOS):
                                      "actor": self.principal.actor,
                                      "reason": self._crypto_error or "no_dek"})
             return None
-        # B1（2026-10-10 设计者裁定）：**跨身份在解密前可判**。密文块携带非敏感
-        # 指纹 `enc_id_fp`（新格式；旧格式无该段则回落 fm.get，两者皆无 ⇒ 旧路径）。
-        # 不等 ⇒ 预期隔离（read_foreign，默认不记/可采样）并**跳过 open_node**；
-        # 相等才试解密，失败才记 `open_failed`（**此时才是真异常**——密钥/节点不
-        # 匹配或密文被篡改）。判据取密文自带指纹而非索引条目：与正文同源、无 TOCTOU。
-        declared = (fm or {}).get("enc_id_fp") or crypto.enc_id_fp(content)
-        if declared:
+        # B1（2026-10-10 设计者裁定）＋ **同日 DSH 端独立复核纠正**：
+        # **完整性校验（MAC）是唯一判据**——先无条件试解密。`open_node` 是唯一做
+        # 认证标签校验的地方；只有它**失败**（CryptoError）时，才用密文自带的
+        # **非敏感**指纹 `enc_id_fp` 给这次失败**分类**：
+        #   · 指纹有值且 ≠ 本方指纹 ⇒ 预期隔离（`read_foreign`，按采样落审计）；
+        #   · 其余（含旧格式无该段）⇒ 真异常（`open_failed`）。
+        #
+        # 为何**不再**用指纹**短路**解密：`enc_id_fp` 是密文块内的**未认证明文段**
+        # （`crypto._node_aad` 只绑 node_id/tenant/actor，不含它；`open_node` 解密前
+        # 丢弃它）——让一个可被篡改的字段决定「是否执行唯一的完整性校验」，会派生
+        # 两个可操纵后果：
+        #   ① 假阴性：只改指纹段（密文本体完好）⇒ 真密文被**静默拒读**、审计零留痕；
+        #   ② 假阳性：谎报指纹＝读方自己（或写 `fm.enc_id_fp`）⇒ 走到解密 ⇒ 失败记
+        #      `open_failed`（本该是「预期隔离」）⇒ 误报口径又回来了。
+        # 判据一律取**密文自带**指纹（与正文同源），不再回落可写 frontmatter
+        # `fm.enc_id_fp`——那与「判据取密文自带指纹…无 TOCTOU」自述不符。
+        try:
+            return crypto.open_node(content, self.dek, node_id,
+                                    self.principal.tenant, self.principal.actor)
+        except crypto.CryptoError as e:
+            declared = crypto.enc_id_fp(content)
             mine = crypto.identity_fingerprint(self.principal.tenant,
                                                self.principal.actor)
-            if declared != mine:
+            if declared and declared != mine:
                 if _read_foreign_sampled(self):
                     crypto.audit(self.root, {
                         "op": "read_foreign", "node_id": node_id,
@@ -5062,10 +5092,6 @@ class MdCGSecure(MdCGOS):
                         "actor": self.principal.actor,
                         "reason": "读隔离：密文属他身份（预期，非篡改）"})
                 return None
-        try:
-            return crypto.open_node(content, self.dek, node_id,
-                                    self.principal.tenant, self.principal.actor)
-        except crypto.CryptoError as e:
             crypto.audit(self.root, {"op": "open_failed", "node_id": node_id,
                                      "tenant": self.principal.tenant,
                                      "actor": self.principal.actor,

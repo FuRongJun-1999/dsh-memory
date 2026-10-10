@@ -6,11 +6,19 @@
 只让「指标与代价错配」不再显形；**有界性的来源是轮转**：单文件 ≤ rotate_bytes、
 分片数 ≤ keep_shards ⇒ 单片读取代价与总量都有上界。
 
-本模块是轮转机制**唯一实现点**（A2，2026-10-10 设计者裁定）：`mdcos` 的审计轮转
-（`_audit.jsonl`）与 `crypto.audit`（`_crypto.jsonl`）此前各自有无/有一份，现统一
-改调 `Rotator`。参数化面：目录 + 基名 + 归档目录 + 索引名 + 阈值 + 保留数 + 探测
-节流 + 计数口径（`counter` / `scale_reader`）+ 自述记录形状（`mark_factory`）+ 时钟
-（`clock`，取证/守卫用）。
+本模块是**审计面**轮转的参数化共享件（A2，2026-10-10 设计者裁定）：`mdcos` 的
+审计轮转（`_audit.jsonl`）与 `crypto.audit`（`_crypto.jsonl`）此前各自有无一份，
+现统一改调 `Rotator`。参数化面：目录 + 基名 + 归档目录 + 索引名 + 阈值 + 保留数 +
+探测节流 + 计数口径（`counter` / `scale_reader`）+ 自述记录形状（`mark_factory`）
++ 时钟（`clock`，取证/守卫用）。
+
+**范围订正（2026-10-10，DSH 端独立复核；原注释「唯一实现点」不实）**：本模块覆盖
+**审计（`_audit.jsonl`）与密文（`_crypto.jsonl`）两路**；**心跳台账另有一份独立轮转**
+——`md_cg/sustain.py::rotate_heartbeat`（分片名 `_heartbeat.%06d.jsonl`，自带
+`_hb_next_seq` / `_hb_load_index` / `_hb_prune_shards`），它**不**经 `Rotator`。
+本注释此前写「轮转机制唯一实现点」与该事实不符，现订正为「审计/密文两路共用此实现；
+心跳另有一份独立轮转」。守卫 `test_audit_rotate_parity` 的 ③d 已能扫出「他处仍有
+独立实现」并点名到文件，防止再新增第三份而不被发现。
 
 设计边界（诚实面）
 ------------------
