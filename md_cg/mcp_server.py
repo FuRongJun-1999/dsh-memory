@@ -2445,16 +2445,14 @@ def _cg_dispatch(cg, a):
                              validity=a.get("validity"),
                              **({"paths": ("bm25",)} if a.get("bm25") else {}), **_tkw)
         from . import refindex
+        search_args = dict(layer=a.get("layer"), k=_int_arg(a, "k", 20),
+                           context=a.get("context"), session=a.get("session"),
+                           validity=a.get("validity"), **_tkw)
         if a.get("bm25"):
-            ranked, meta = cg.search_rrf(q, paths=("bm25",), layer=a.get("layer"),
-                k=_int_arg(a, "k", 20), context=a.get("context"), session=a.get("session"),
-                validity=a.get("validity"), **_tkw)
+            ranked, meta = cg.search_rrf(q, paths=("bm25",), **search_args)
             res = [(n, s, qual) for n, s, qual, _provenance in ranked]
         else:
-            res, meta = cg.search(q, layer=a.get("layer"), k=_int_arg(a, "k", 20),
-                              context=a.get("context"),
-                              session=a.get("session"),
-                              validity=a.get("validity"), **_tkw)
+            res, meta = cg.search(q, **search_args)
         return {"meta": meta, "results": [
             {"node": _node_view(n), "score": s, "state": q2.get("state"),
              "reason": q2.get("reason"), **refindex.ref_fields(n)}
