@@ -199,6 +199,44 @@ class RRFCandidates(unittest.TestCase):
             _, meta = self.compare("甲乙丙丁", paths=("fuzzy",))
         self.assertEqual(meta["rrf_candidates"]["paths"]["fuzzy"]["fallback"], "index_error")
 
+    def test_real_ciphertext_lock_unlock_and_guest_isolation(self):
+        from . import crypto
+        from .security import Principal
+        root = Path(self.temp.name) / "encrypted"
+        master = bytes(range(32))  # Isolated test key; never load a user's key.
+        cg = mdcos.MdCGSecure(str(root), master_key=master, principal=Principal(
+            tenant="rrf-test", actor="owner", session="S", clearance="secret",
+            role="designer", can_write=True, can_admin=True))
+        guest = None
+        try:
+            cg.add("sealed", "加密罕见线索", sensitivity="secret")
+            cg.add("noise", "天气晴朗", sensitivity="public")
+            cg.flush()
+            path = cg.index["nodes"]["sealed"]["path"]
+            _fm, disk_content = nodefile.loads((root / path).read_text(encoding="utf-8"))
+            self.assertTrue(crypto.is_encrypted(disk_content))
+            self.assertNotIn("加密罕见线索", disk_content)
+            options = dict(k=5, paths=("fuzzy",), judge=False, record=False)
+            with patch.dict(os.environ, {"MDCG_RRF_CANDIDATES": "0"}):
+                expected, _ = cg.search_rrf("加密罕见线索", **options)
+            actual, _ = cg.search_rrf("加密罕见线索", **options)
+            self.assertEqual(actual, expected)
+            self.assertEqual({r[0]["id"] for r in actual}, {"sealed"})
+            self.assertIn(path, cg._rrf_candidate_index.post["密罕"])
+            cg.lock()
+            self.assertEqual(cg.search_rrf("加密罕见线索", **options)[0], [])
+            cg.unlock(master)
+            self.assertEqual(cg.search_rrf("加密罕见线索", **options)[0], expected)
+            guest = mdcos.MdCGSecure(str(root), master_key=master, principal=Principal(
+                tenant="rrf-test", actor="guest", session="other", clearance="public",
+                role="guest", can_write=False))
+            self.assertEqual(guest.search_rrf("加密罕见线索", **options)[0], [])
+            self.assertNotIn(path, guest._rrf_candidate_index.docs)
+        finally:
+            if guest is not None:
+                guest.close()
+            cg.close()
+
 
 if __name__ == "__main__":
     unittest.main()
