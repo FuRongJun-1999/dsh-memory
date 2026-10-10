@@ -8,11 +8,16 @@
 
 校验链（六层，全部确定性）：
   ① 校验指纹 → 本地缓存（已校验过 → 直接返回）
-  ② L1 语法：ast.parse + 结构规则
+  ② L1 语法：ast.parse + 结构规则（纯静态，不执行被校验代码）
   ③ L2 样例：输入→期望断言运行（物理基底裁决）
   ④ L3 边界：额外边界用例
   ⑤ 规范符合性：condition_kb 语义对齐 + 结构规范（白箱规则）
   ⑥ 集成测试：依赖单元组装 + 回归
+
+执行面（③④⑥）的**两条边界**（issue #91）：
+  · 能力边界——被校验代码跑在 `SAFE_NS()` 的内建白名单命名空间里（碰不到外面）；
+  · 时间边界——一律经 `_run_guarded` 在**受控时限子进程**中运行，超时即 fail-closed
+    （`EXEC_TIMEOUT_S`），不可能再把调用方永久挂死。
 
 用法：
   python verifier.py --verify "os_112|工作窃取|<code文件路径>"   # 校验单个
@@ -26,6 +31,7 @@ import copy
 import hashlib
 import importlib
 import json
+import marshal
 import os
 import subprocess
 import sys
@@ -97,7 +103,10 @@ def _assert_match(got: Any, exp: Any) -> bool:
     白箱单元常返回完整状态字典（如 VM 执行循环返回
     {'trust':…, 'symbols':…, 'cond':…, 'stack':…}），而样例期望只关心其中
     关键字段（如 {'trust': 0.8}）——完整相等会误判，子集匹配符合「状态断言」语义。
-    """
+
+    **语义真源**：L2/L3 的实际断言现在跑在受控时限子进程里（`_EXEC_RUNNER_SRC`
+    的 `_match` 与之逐字同义）；本函数保留为可读的语义定义与父侧直调入口。
+    （集成层是严格相等 `!=`，不经本函数——与改造前一致。）"""
     if isinstance(exp, dict) and isinstance(got, dict):
         return all(got.get(k) == v for k, v in exp.items())
     return got == exp
@@ -172,7 +181,9 @@ class VerifyResult:
 # v6（2026-08-31）：cases 形态修复（list→tuple）后指纹归一化同值，旧 False
 # 条目对修复免疫；bump 版本作废全部旧缓存——长驻进程内存快照复活毒条目的
 # 终局解（版本不符整体清空，任何进程加载即重建）。
-VERIFIER_VERSION = 10  # v10：结构规范的字面匹配改大小写不敏感——该表是语言无关的
+VERIFIER_VERSION = 11  # v11（issue #91 根因③）：L2/L3/集成三处执行一律改走**受控
+                       # 时限子进程**（超时 fail-closed，不再可能永久挂死）；判据面
+                       # 变更（执行环境与用例过境编码）故 bump 作废旧缓存。v10：结构规范的字面匹配改大小写不敏感——该表是语言无关的
                        # 任务语义判据（要求去重结构出现），字面取自 Python 命名习惯
                        # （set/seen），JS 标准 API 写作 `new Set(arr)`，敏感匹配把正确
                        # 实现判为「未见对应结构」（实测 code-js/去重 假失败）。v9：
@@ -223,7 +234,8 @@ def _table_payload_chars() -> int:
 # 就已执行（实测 open() 载荷：ok=False 但副作用文件已创建）。
 # 本白名单保留常用纯函数与异常类型，**去掉** open / __import__ / eval / exec / compile /
 # globals / locals / vars / dir / input / breakpoint —— 即「能算出答案，但碰不到外面」。
-# 已知未覆盖（见节点 mem_dsh_brain_91_fixed）：**无超时**（exec 同步阻塞，需子进程方案）需另笔。
+# 无超时（#91 根因③）已由本文件同批的「受控时限子进程」补齐——见下方 EXEC_TIMEOUT_S 段；
+# 该白名单被**父侧 SAFE_NS() 与子进程侧 `_EXEC_RUNNER_SRC` 共用同一份**（单一真源）。
 import builtins as _bi
 _SAFE_BUILTIN_NAMES = (
     "abs", "all", "any", "bool", "chr", "dict", "divmod", "enumerate",
@@ -242,6 +254,336 @@ def SAFE_NS() -> Dict[str, Any]:
     """被校验代码的执行命名空间：仅暴露 SAFE_BUILTIN_NAMES 内的内建。"""
     _b = {k: getattr(_bi, k) for k in _SAFE_BUILTIN_NAMES if hasattr(_bi, k)}
     return {"__builtins__": _b}
+
+
+# 白箱被校验代码允许导入的标准库（其余一律 L1 拒——见 `_check_l1_syntax`）。
+# issue #91（2026-10-09 DSH 端）：原表含 os / sys / socket / threading —— 它们足以在
+# **判定之前**产生副作用（os.system / 起线程 / 连网），故一并移除。原为
+# `_check_l1_syntax` 的**局部变量**，本笔提到模块级：守卫要能直接断言本表内容
+# （防回退），局部变量钉不住。
+_STDLIB_OK = {"collections", "typing", "functools", "itertools", "math",
+              "random", "json", "re", "string", "dataclasses", "abc",
+              "struct", "heapq", "queue",
+              "hashlib", "uuid", "base64",
+              "statistics", "bisect", "decimal", "fractions"}
+
+
+# ============ 受控时限执行（issue #91 根因③：被校验代码原先无任何时限） ============
+#
+# 形态选择＝**子进程 + subprocess 超时**。论证（本机 win32，且须在 Linux 上同样成立）：
+#   · 同进程 `signal.alarm` / `setitimer`：**Windows 无 `signal.SIGALRM`**——该形态
+#     在本机根本无法成立，直接排除；
+#   · 同进程看门狗线程：CPython 只能向目标线程投递一次异步异常
+#     （`PyThreadState_SetAsyncExc`），被 `while True` 里的裸 `except` 吞掉即永久
+#     挂死——线程泄漏、吃满 GIL，后续所有校验在同一进程里一起劣化；
+#   · 独立进程可被无条件终止（POSIX `kill` / Windows `TerminateProcess`），
+#     `subprocess` 的超时路径**先 kill 再 wait**，不留僵尸、不阻塞后续调用。
+#     ⇒ 「必须被真正中断」在 win32 与 POSIX 上唯一同时可靠的形态。
+# 代价：每次执行付一次解释器启动（本机实测 ~25 ms）。收益：被校验代码（模型可控
+# 输入）从此既碰不到外面（SAFE_NS），也**跑不出时限**。
+EXEC_TIMEOUT_S = 20.0
+
+
+class _UnencodableCase(Exception):
+    """用例元素无法安全跨进程承载（执行器能力边界，**不是**代码缺陷）。"""
+
+
+def _enc_value(v: Any) -> Dict[str, Any]:
+    """用例元素 → JSON-safe 节点（子进程侧 `_EXEC_RUNNER_SRC::_dec` 逆向还原）。
+
+    为什么不用 pickle：用例里实测存在 **lambda**（74 处，回调注入型单元）与
+    **动态类对象**（`type('狗', (), {})`，2 处）——pickle 对前者抛
+    PicklingError、对后者按限定名找不到。故走本编码器：
+      · 字面量 → `repr` ＋ 子进程侧 `ast.literal_eval`（**不** eval 任意文本）；
+      · float → `hex()` 往返（`repr(inf)` == 'inf' 在受限命名空间里求不出值）；
+      · 可调用对象 → `marshal`（输入是**父进程内存里**的 code object，非字符串注入），
+        子进程侧以**同一份白名单**重建 globals；
+      · 类对象 → 内建走名字查表；非内建走 `type(name, bases, dict)` 配方重建。
+    不可表达的形态 → `_UnencodableCase` ⇒ 调用方 fail-closed（不静默跳过/不静默通过）。
+    """
+    if v is None or isinstance(v, bool):
+        return {"t": "lit", "r": repr(v)}
+    if isinstance(v, (int, str, bytes)):
+        return {"t": "lit", "r": repr(v)}
+    if isinstance(v, float):
+        return {"t": "float", "h": v.hex()}
+    if isinstance(v, complex):
+        return {"t": "lit", "r": repr(v)}
+    if isinstance(v, bytearray):
+        return {"t": "ba", "h": bytes(v).hex()}
+    if isinstance(v, tuple):
+        return {"t": "tuple", "v": [_enc_value(x) for x in v]}
+    if isinstance(v, list):
+        return {"t": "list", "v": [_enc_value(x) for x in v]}
+    if isinstance(v, set):
+        return {"t": "set", "v": [_enc_value(x) for x in v]}
+    if isinstance(v, frozenset):
+        return {"t": "fset", "v": [_enc_value(x) for x in v]}
+    if isinstance(v, dict):
+        return {"t": "dict",
+                "v": [[_enc_value(k), _enc_value(x)] for k, x in v.items()]}
+    if isinstance(v, types.FunctionType):
+        return {"t": "fn", "code": marshal.dumps(v.__code__).hex(),
+                "name": v.__name__}
+    if isinstance(v, type):
+        if v.__module__ == "builtins":
+            return {"t": "bi", "n": v.__qualname__}
+        return _enc_dyn_class(v)
+    raise _UnencodableCase(f"不支持的用例元素类型: {type(v).__name__}")
+
+
+def _enc_dyn_class(cls: type) -> Dict[str, Any]:
+    """非内建类 → `type(name, bases, dict)` 配方（成员逐个编码）。
+
+    `__dict__` / `__weakref__` 是 `type()` 自动生成的描述符
+    （`getset_descriptor`，本编码器不表达），显式提供反而会与 `type()` 冲突，
+    故按「自动生成」跳过——**仅**这两项；其余成员编码失败即 fail-closed
+    （`_UnencodableCase`），不静默丢成员。
+    """
+    members = []
+    for k, val in vars(cls).items():
+        if k in ("__dict__", "__weakref__"):
+            continue
+        try:
+            members.append([k, _enc_value(val)])
+        except _UnencodableCase as e:
+            raise _UnencodableCase(f"类 {cls.__name__} 的成员 {k} 不可传输：{e}")
+    return {"t": "cls", "n": cls.__name__,
+            "b": [_enc_value(b) for b in cls.__bases__], "d": members}
+
+
+#: 子进程侧执行器源码（自包含：只用 stdlib；载荷的 stdout 由父侧接 DEVNULL，
+#: 故 `print` 污染不了结果通道——结果一律走 out.json）。用法：
+#:     python -X utf8 -c <本源码> <req.json> <out.json>
+_EXEC_RUNNER_SRC = r'''
+import ast
+import builtins as _bi
+import json
+import marshal
+import sys
+import types
+
+_SAFE_NAMES = __SAFE_BUILTIN_NAMES__
+
+
+def _safe_builtins():
+    # 与父侧 SAFE_NS() 的**同一份**白名单
+    return {k: getattr(_bi, k) for k in _SAFE_NAMES if hasattr(_bi, k)}
+
+
+def _dec(n):
+    t = n["t"]
+    if t == "lit":
+        return ast.literal_eval(n["r"])
+    if t == "float":
+        return float.fromhex(n["h"])
+    if t == "ba":
+        return bytearray.fromhex(n["h"])
+    if t == "tuple":
+        return tuple(_dec(x) for x in n["v"])
+    if t == "list":
+        return [_dec(x) for x in n["v"]]
+    if t == "set":
+        return set(_dec(x) for x in n["v"])
+    if t == "fset":
+        return frozenset(_dec(x) for x in n["v"])
+    if t == "dict":
+        return {_dec(k): _dec(v) for k, v in n["v"]}
+    if t == "fn":
+        code = marshal.loads(bytes.fromhex(n["code"]))
+        return types.FunctionType(code, {"__builtins__": _safe_builtins()},
+                                  n["name"])
+    if t == "bi":
+        if n["n"] not in _SAFE_NAMES:
+            raise ValueError("内建类不在白名单：%s" % n["n"])
+        return getattr(_bi, n["n"])
+    if t == "cls":
+        return type(n["n"], tuple(_dec(x) for x in n["b"]),
+                    {k: _dec(v) for k, v in n["d"]})
+    raise ValueError("未知用例节点：%s" % t)
+
+
+def _match(got, exp):
+    # 与父侧 _assert_match 同语义：dict 期望做子集匹配
+    if isinstance(exp, dict) and isinstance(got, dict):
+        return all(got.get(k) == v for k, v in exp.items())
+    return got == exp
+
+
+def main():
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        p = json.load(f)
+    out = {"exec": "ok", "exec_err": "", "found": False, "results": [],
+           "ran": 0}
+
+    def dump():
+        with open(sys.argv[2], "w", encoding="utf-8") as f:
+            json.dump(out, f, ensure_ascii=False)
+
+    mode = p.get("mode") or "samples"
+    tag = "边界用例" if mode == "boundary" else "样例"
+    try:
+        cases = [_dec(n) for n in (p.get("cases") or [])]
+    except Exception as e:
+        out["exec"] = "error"
+        out["exec_err"] = str(e)
+        dump()
+        return
+    ns = {"__builtins__": _safe_builtins()}
+    try:
+        exec(compile(p["code"], "<verify>", "exec"), ns)
+    except Exception as e:
+        out["exec"] = "error"
+        out["exec_err"] = str(e)
+        dump()
+        return
+    fn = ns.get(p.get("func")) if p.get("func") else None
+    if not callable(fn):
+        dump()
+        return
+    out["found"] = True
+    for i, pair in enumerate(cases, 1):
+        try:
+            inp, exp = pair
+        except Exception:
+            out["results"].append({"kind": "fail",
+                                   "detail": "样例%d 结构非法: %r" % (i, pair)})
+            break
+        if mode == "samples" and inp == "call":
+            continue
+        out["ran"] += 1
+        try:
+            got = fn(inp) if not isinstance(inp, tuple) else fn(*inp)
+        except Exception as e:
+            if mode == "boundary" and exp == "any":
+                continue          # 边界用例允许异常返回
+            out["results"].append({"kind": "fail",
+                                   "detail": "%s%d 崩溃: %s → %s"
+                                             % (tag, i, inp, e)})
+            break
+        if mode == "integration":
+            if got != exp:        # 集成层是**严格相等**（非子集匹配）
+                out["results"].append(
+                    {"kind": "fail",
+                     "detail": "组装后首样例失败: %s → %s（期望 %s）"
+                               % (inp, got, exp)})
+            break
+        if mode == "boundary" and exp == "any":
+            continue
+        if not _match(got, exp):
+            out["results"].append({"kind": "fail",
+                                   "detail": "%s%d 失败: %s → %s（期望 %s）"
+                                             % (tag, i, inp, got, exp)})
+            break
+    dump()
+
+
+main()
+'''.replace("__SAFE_BUILTIN_NAMES__", repr(tuple(_SAFE_BUILTIN_NAMES)))
+
+
+def _first_func_info(code: str) -> Tuple[Optional[str], Optional[int],
+                                         Optional[str]]:
+    """(首个函数名, 形参个数, 首个形参名)——纯 ast 解析，不执行任何代码。"""
+    try:
+        tree = ast.parse(code)
+        funcs = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+        if not funcs:
+            return None, None, None
+        f = funcs[0]
+        names = [a.arg for a in list(f.args.posonlyargs) + list(f.args.args)]
+        return f.name, len(names), (names[0] if names else None)
+    except Exception:
+        return None, None, None
+
+
+def _guard_fail(res: Dict[str, Any], level: str) -> Optional[Dict[str, Any]]:
+    """执行器侧失败（超时／能力边界／执行器不可用）→ 明确的失败 check。
+
+    `guard_blocked=True` 是给 `verify()` 看的**不缓存标记**：这些读数是资源/环境
+    态，不是「代码缺陷」的确定性判据——固化成永久判负会让一次抖动永久生效。
+    判定本身**仍是 fail-closed**（本次判负，不静默回退、不静默通过）。
+    """
+    kind = res.get("exec")
+    if kind == "timeout":
+        return {"level": level, "ok": False, "guard_blocked": True,
+                "evidence": f"执行超时（超过 {res.get('timeout')}s 未返回，"
+                            f"已强制终止；被校验代码须在受控时限内返回）"}
+    if kind == "unencodable":
+        return {"level": level, "ok": False, "guard_blocked": True,
+                "evidence": f"用例超出受控执行器的承载边界: {res.get('exec_err')}"}
+    if kind == "runner_error":
+        return {"level": level, "ok": False, "guard_blocked": True,
+                "evidence": f"受控执行器不可用: {res.get('exec_err')}"}
+    return None
+
+
+def _run_guarded(code: str, cases: List[Any], func_name: Optional[str],
+                 mode: str, timeout: float) -> Dict[str, Any]:
+    """在**受控时限**内于子进程执行 `code`（并按 mode 跑用例），返回结果 dict。
+
+    `exec` ∈ {ok, error, timeout, unencodable, runner_error}：
+      · ok            —— 执行完成（用例结果在 results / ran）；
+      · error         —— 代码自身的编译/执行异常（exec_err 与旧文本同形）；
+      · timeout       —— 超时被强制终止（fail-closed）；
+      · unencodable   —— 用例元素无法跨进程承载（fail-closed）；
+      · runner_error  —— 执行器起不来/未产出结果（fail-closed）。
+    超时路径：`proc.kill()` 后**必须再 wait/communicate 回收**——只 kill 不 wait 会
+    留僵尸；返回值里的 `pid`/`reaped` 是该路径的**可断言残留**（守卫据此判不泄漏）。
+    """
+    try:
+        payload = {"code": code,
+                   "cases": [_enc_value(c) for c in cases],
+                   "func": func_name, "mode": mode}
+    except _UnencodableCase as e:
+        return {"exec": "unencodable", "exec_err": str(e), "found": False,
+                "results": [], "ran": 0}
+
+    env = dict(os.environ)
+    env["PYTHONUTF8"] = "1"                      # 纪律 15：显式 UTF-8 环境
+    try:
+        with tempfile.TemporaryDirectory(prefix="mdcg_verify_") as d:
+            req_p = os.path.join(d, "req.json")
+            out_p = os.path.join(d, "out.json")
+            with open(req_p, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False)
+            proc = subprocess.Popen(
+                [sys.executable, "-X", "utf8", "-c", _EXEC_RUNNER_SRC,
+                 req_p, out_p],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,       # 载荷的 print 污染不了结果通道
+                stderr=subprocess.PIPE, env=env)
+            timed_out = False
+            try:
+                proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                proc.kill()
+                try:
+                    proc.communicate(timeout=10.0)   # 回收（kill 后仍须 wait）
+                except Exception:                    # noqa: BLE001
+                    pass
+            reaped = proc.poll() is not None
+            if timed_out:
+                return {"exec": "timeout", "exec_err": "", "found": False,
+                        "results": [], "ran": 0, "timeout": timeout,
+                        "pid": proc.pid, "reaped": reaped}
+            try:
+                with open(out_p, "r", encoding="utf-8") as f:
+                    res = json.load(f)
+            except Exception:                        # noqa: BLE001
+                tail = (proc.stderr.read() if proc.stderr else b"") or b""
+                return {"exec": "runner_error", "reaped": reaped, "pid": proc.pid,
+                        "exec_err": "执行器未产出结果（rc=%s）：%s"
+                                    % (proc.returncode,
+                                       tail.decode("utf-8", "replace")[-300:]),
+                        "found": False, "results": [], "ran": 0}
+            res["pid"] = proc.pid
+            res["reaped"] = reaped
+            return res
+    except Exception as e:                           # noqa: BLE001
+        return {"exec": "runner_error", "exec_err": str(e), "found": False,
+                "results": [], "ran": 0}
 
 
 class VerifyCache:
@@ -433,9 +775,15 @@ def _ci_body_comments():
 class Verifier:
     """本地校验器：六层校验链，零 LLM。"""
 
-    def __init__(self, cache: Optional[VerifyCache] = None):
-        """组装：缓存句柄注入（默认新建；变异测试可传隔离缓存）。"""
+    def __init__(self, cache: Optional[VerifyCache] = None,
+                 exec_timeout: Optional[float] = None):
+        """组装：缓存句柄注入（默认新建；变异测试可传隔离缓存）；
+        `exec_timeout` 注入受控执行时限（缺省 `EXEC_TIMEOUT_S`；守卫用小值
+        构造必超时载荷，避免把整套测试拖长）。
+        """
         self.cache = cache or VerifyCache()
+        self.exec_timeout = (EXEC_TIMEOUT_S if exec_timeout is None
+                             else float(exec_timeout))
 
     # ---------- 主入口 ----------
     def verify(self, req: VerifyRequest) -> VerifyResult:
@@ -497,8 +845,12 @@ class Verifier:
         result = VerifyResult(ok=ok, checks=checks, fingerprint=fp, reason=reason,
                               verified_at=time.strftime("%Y-%m-%d %H:%M:%S"),
                               version=VERIFIER_VERSION)
-        # 写缓存
-        self.cache.put(result)
+        # 写缓存（**例外**：受控执行器侧的资源态失败——超时/能力边界/执行器不可用
+        # ——不固化。它们是环境读数而非「代码缺陷」的确定性判据，固化成永久判负
+        # 会让一次抖动（机器繁忙／临时目录不可用）永久生效。判定本身仍是
+        # fail-closed（本次返回失败），不因不缓存而静默通过。）
+        if not any(c.get("guard_blocked") for c in checks):
+            self.cache.put(result)
         return result
 
     # ---------- L1 语法 ----------
@@ -524,14 +876,9 @@ class Verifier:
         # 不应计入——字符计数会误判，如 pattern 注释含裸括号）
         # 禁止裸 import（白箱代码应自包含）——但允许标准库
         imports = [n for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]
-        # issue #91（2026-10-09 DSH 端）：原白名单含 os / sys / socket / threading ——
-        # 它们足以在**判定之前**产生副作用（os.system / open / 起线程 / 连网）。
-        # 白箱被校验代码不需要这些能力，故一并移除。
-        STDLIB_OK = {"collections", "typing", "functools", "itertools", "math",
-                     "random", "json", "re", "string", "dataclasses", "abc",
-                     "struct", "heapq", "queue",
-                     "hashlib", "uuid", "base64",
-                     "statistics", "bisect", "decimal", "fractions"}
+        # issue #91（2026-10-09 DSH 端）：白名单已去掉 os / sys / socket / threading
+        # ——表体见模块级 `_STDLIB_OK`（提到模块级是为了让守卫能直接断言它）。
+        STDLIB_OK = _STDLIB_OK
         if imports and not req.expected_structure.get("allow_import"):
             bad = []
             for n in imports:
@@ -555,51 +902,30 @@ class Verifier:
 
     # ---------- L2 样例 ----------
     def _check_l2_samples(self, req: VerifyRequest) -> Dict[str, Any]:
-        """每个 (输入, 期望) 运行断言。"""
+        """每个 (输入, 期望) 运行断言。**执行在受控时限子进程中**（issue #91 根因③）。"""
         if not req.cases:
             return {"level": "L2样例", "ok": True, "evidence": "无样例（跳过）"}
 
-        ns: Dict[str, Any] = SAFE_NS()
-        try:
-            exec(compile(req.code, "<verify>", "exec"), ns)
-        except Exception as e:
+        func_name, _n_args, _a0 = _first_func_info(req.code)
+        # 找被测函数（第一个函数定义）——父侧 ast 判定（原语义：函数名不在命名空间即判负）
+        res = _run_guarded(req.code, list(req.cases), func_name, "samples",
+                           self.exec_timeout)
+        blocked = _guard_fail(res, "L2样例")
+        if blocked:
+            return blocked
+        if res["exec"] == "error":
             return {"level": "L2样例", "ok": False,
-                    "evidence": f"代码编译/执行失败: {e}"}
-
-        # 找被测函数（第一个函数定义）
-        func_name = None
-        try:
-            tree = ast.parse(req.code)
-            funcs = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
-            func_name = funcs[0].name if funcs else None
-        except Exception:
-            pass
-
-        if not func_name or func_name not in ns:
+                    "evidence": f"代码编译/执行失败: {res['exec_err']}"}
+        if not res["found"]:
             return {"level": "L2样例", "ok": False,
                     "evidence": f"找不到被测函数（期望 {func_name}）"}
-
-        fn = ns[func_name]
-        ran = 0
-        for case_idx, (inp, exp) in enumerate(req.cases, 1):
-            if inp == "call":
-                # 'call' 特殊标记：域注入型单元（L2 由域集成测试覆盖，
-                # 与 code_compose verify_code 语义一致——不把 'call' 当输入）
-                continue
-            ran += 1
-            try:
-                got = fn(inp) if not isinstance(inp, tuple) else fn(*inp)
-            except Exception as e:
-                return {"level": "L2样例", "ok": False,
-                        "evidence": f"样例{case_idx} 崩溃: {inp} → {e}"}
-            if not _assert_match(got, exp):
-                return {"level": "L2样例", "ok": False,
-                        "evidence": f"样例{case_idx} 失败: {inp} → {got}（期望 {exp}）"}
-        if ran == 0:
+        for r in res["results"]:
+            return {"level": "L2样例", "ok": False, "evidence": r["detail"]}
+        if res["ran"] == 0:
             return {"level": "L2样例", "ok": True,
                     "evidence": "注入型单元（样例均为 call 标记，由集成测试覆盖）"}
         return {"level": "L2样例", "ok": True,
-                "evidence": f"{ran} 组样例全部通过"}
+                "evidence": f"{res['ran']} 组样例全部通过"}
 
     # ---------- L3 边界 ----------
     def _check_l3_boundary(self, req: VerifyRequest) -> Dict[str, Any]:
@@ -609,25 +935,9 @@ class Verifier:
         if not extra_cases:
             return {"level": "L3边界", "ok": True, "evidence": "无额外边界用例"}
 
-        ns: Dict[str, Any] = SAFE_NS()
-        try:
-            exec(compile(req.code, "<verify>", "exec"), ns)
-        except Exception as e:
-            return {"level": "L3边界", "ok": False, "evidence": f"执行失败: {e}"}
+        func_name, n_args, _a0 = _first_func_info(req.code)
 
-        func_name = None
-        n_args = None
-        try:
-            tree = ast.parse(req.code)
-            funcs = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
-            if funcs:
-                func_name = funcs[0].name
-                args = funcs[0].args
-                n_args = len(args.posonlyargs) + len(args.args)
-        except Exception:
-            pass
-
-        if not func_name or func_name not in ns:
+        if not func_name:
             return {"level": "L3边界", "ok": True, "evidence": "跳过（无函数）"}
 
         if n_args is not None and n_args != 1:
@@ -640,24 +950,23 @@ class Verifier:
         DICTISH_ARGS = {"adj", "graph", "g", "table", "state", "env", "cond",
                         "nodes", "node", "map", "units", "db", "queue",
                         "buffer", "registry", "cert"}
-        if n_args == 1 and funcs[0].args.args \
-                and funcs[0].args.args[0].arg in DICTISH_ARGS:
+        if n_args == 1 and _a0 in DICTISH_ARGS:
             return {"level": "L3边界", "ok": True,
-                    "evidence": f"跳过（参数 {funcs[0].args.args[0].arg} 为图/状态类，边界由样例覆盖）"}
+                    "evidence": f"跳过（参数 {_a0} 为图/状态类，边界由样例覆盖）"}
 
-        fn = ns[func_name]
-        for case_idx, (inp, exp) in enumerate(extra_cases, 1):
-            try:
-                got = fn(inp) if not isinstance(inp, tuple) else fn(*inp)
-            except Exception as e:
-                # 边界用例允许异常返回（如空列表→None/报错均可接受）
-                if exp == "any":
-                    continue
-                return {"level": "L3边界", "ok": False,
-                        "evidence": f"边界用例{case_idx} 崩溃: {inp} → {e}"}
-            if exp != "any" and not _assert_match(got, exp):
-                return {"level": "L3边界", "ok": False,
-                        "evidence": f"边界用例{case_idx} 失败: {inp} → {got}（期望 {exp}）"}
+        # 执行在受控时限子进程中（issue #91 根因③）
+        res = _run_guarded(req.code, list(extra_cases), func_name, "boundary",
+                           self.exec_timeout)
+        blocked = _guard_fail(res, "L3边界")
+        if blocked:
+            return blocked
+        if res["exec"] == "error":
+            return {"level": "L3边界", "ok": False,
+                    "evidence": f"执行失败: {res['exec_err']}"}
+        if not res["found"]:
+            return {"level": "L3边界", "ok": True, "evidence": "跳过（无函数）"}
+        for r in res["results"]:
+            return {"level": "L3边界", "ok": False, "evidence": r["detail"]}
         return {"level": "L3边界", "ok": True,
                 "evidence": f"{len(extra_cases)} 组边界用例通过"}
 
@@ -1019,27 +1328,27 @@ class Verifier:
 
     # ---------- ⑥ 集成测试 ----------
     def _check_integration(self, req: VerifyRequest) -> Dict[str, Any]:
-        """依赖单元组装 + 端到端运行（简化：deps 代码拼接后执行）。"""
+        """依赖单元组装 + 端到端运行（简化：deps 代码拼接后执行）。
+
+        **执行在受控时限子进程中**（issue #91 根因③）；deps 与 req.code 拼接后
+        一并送入，故依赖代码的顶层语句同样跑不出时限、也碰不到外面。
+        """
         if not req.deps:
             return {"level": "集成", "ok": True, "evidence": "无依赖（跳过）"}
         try:
-            # 组装依赖 + 被测代码
             combined = "\n\n".join(req.deps) + "\n\n" + req.code
-            ns: Dict[str, Any] = SAFE_NS()
-            exec(compile(combined, "<integrate>", "exec"), ns)
-
-            # 端到端：跑第一个样例
-            if req.cases:
-                func_name = None
-                tree = ast.parse(req.code)
-                funcs = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
-                func_name = funcs[0].name if funcs else None
-                if func_name and func_name in ns:
-                    inp, exp = req.cases[0]
-                    got = ns[func_name](inp) if not isinstance(inp, tuple) else ns[func_name](*inp)
-                    if got != exp:
-                        return {"level": "集成", "ok": False,
-                                "evidence": f"组装后首样例失败: {inp} → {got}（期望 {exp}）"}
+            func_name, _n, _a0 = _first_func_info(req.code)
+            first_case = list(req.cases[:1])
+            res = _run_guarded(combined, first_case, func_name, "integration",
+                               self.exec_timeout)
+            blocked = _guard_fail(res, "集成")
+            if blocked:
+                return blocked
+            if res["exec"] == "error":
+                return {"level": "集成", "ok": False,
+                        "evidence": f"组装失败: {res['exec_err']}"}
+            for r in res["results"]:
+                return {"level": "集成", "ok": False, "evidence": r["detail"]}
             return {"level": "集成", "ok": True,
                     "evidence": f"{len(req.deps)} 个依赖组装 + 端到端通过"}
         except Exception as e:
