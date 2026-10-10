@@ -24,6 +24,10 @@ const HTML = `<!doctype html>
 * { box-sizing:border-box; margin:0; padding:0; }
 body { background:var(--bg); color:var(--txt); font-family:"PingFang SC","Noto Sans SC",system-ui,sans-serif; height:100vh; height:100dvh; display:flex; flex-direction:column; overflow:hidden; }
 header { flex:none; padding:14px 18px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
+/* issue #20：/roleplay 页面无返回出口——Electron 壳下无浏览器后退按钮，history.back 不可靠，
+   故给一个真实锚点 href="/"（同源根＝DSH 宿主页），不依赖 JS 与历史栈，任何宿主都能点出去。 */
+header a.back { flex:none; font-size:13px; color:var(--accent); text-decoration:none; border:1px solid var(--line); border-radius:8px; padding:6px 12px; background:var(--card); }
+header a.back:hover { border-color:var(--accent); }
 header h1 { font-size:17px; font-weight:600; }
 header .badge { font-size:11px; color:var(--accent2); border:1px solid var(--accent2); padding:2px 8px; border-radius:999px; }
 #roles { margin-left:auto; display:flex; gap:8px; align-items:center; }
@@ -95,6 +99,7 @@ footer button:disabled { opacity:.5; cursor:wait; }
 </head>
 <body>
 <header>
+  <a id="dshm-rp-back" class="back" href="/" title="返回 DSH（灵枢大脑宿主页）">← 返回 DSH</a>
   <h1>灵枢 · 角色扮演</h1><span class="badge">白箱 · 扮演论 v3.3</span>
   <div id="roles">
     <select id="roleSel"></select>
