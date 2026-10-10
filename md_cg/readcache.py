@@ -219,8 +219,14 @@ def install(cg):
 
 # 生效条件：cg._read_cache、cg._norm_bigrams_cache 与 cg._positive_body_cache 均清空（写侧显式兜底；哨兵之外的强制手段），返回清空的条目总数；无缓存时返回 0。
 def clear(cg) -> int:
-    """强制清空（外部批量改写文件后可手动调；正常写路径无需——哨兵自动失效）。"""
+    """强制清空解析与候选派生物；返回值仍只计原三类读缓存条目。
+
+    外部批量改写文件后可手动调；正常写路径由脏集哨兵失效。
+    """
     n = 0
+    candidate_index = getattr(cg, "_rrf_candidate_index", None)
+    if candidate_index is not None:
+        candidate_index.clear()
     for attr in ("_read_cache", "_norm_bigrams_cache", "_positive_body_cache"):
         c = getattr(cg, attr, None)
         if c:

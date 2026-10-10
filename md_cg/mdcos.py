@@ -37,7 +37,8 @@ from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT
 from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
                self_state, predict, evolution, weights, pooling,
-               writelimit, reach, trust, roleviews, autonomy_modes, lifecycle)
+               writelimit, reach, trust, roleviews, autonomy_modes, lifecycle,
+               rrf_candidates)
 from .fsutil import (FileLock, atomic_write, append_jsonl, read_jsonl,
                      read_jsonl_tail, count_jsonl, publish)
 from .rotate import Rotator
@@ -1196,6 +1197,8 @@ class MdCGOS(MdCG):
         # qb 与文档侧 normalize_en 口径对齐（同 MdCGOS.search，防大小写断裂）
         # + 英→中语素 bigram 补充（跨语词法分恢复）
         qb = bigrams(normalize_en(query)) | en_zh_bigrams(query)
+        full_entries = entries
+        entries = rrf_candidates.narrow(self, entries, terms, "lexical", query)
         docs = self._read_many(entries, stat)
         # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池——
         # 语义摘要=检索面（设想核心），否则摘要层只在 LIKE 全空时生效
@@ -1206,6 +1209,12 @@ class MdCGOS(MdCG):
                               positive_body=self._positive_body)
                 or (semantic_on() and d[1].get("semantic"))]
         if not hits:
+            if entries is not full_entries:
+                # Bigram candidates are a superset, so false positives may
+                # produce no LIKE hits. The importance fallback must use the
+                # original full pool, never the narrowed subset.
+                docs = self._read_many(full_entries, stat)
+                rrf_candidates.lexical_fallback(self, len(full_entries))
             # 兜底池（LIKE 全空 = 无相关度信号）：截断依据=importance/created_at
             # 序，确定可复算；此时 bigram 部分匹配不足以定序（共现噪声），
             # 故本路不做「先全量打分再截断」。
@@ -1450,6 +1459,9 @@ class MdCGOS(MdCG):
         if not tw:
             return [], source
         coverage = _prepare_coverage(tw)
+        if math.isfinite(coverage[1]):
+            entries = rrf_candidates.narrow(
+                self, entries, [t for t, _w, _cache in coverage[0]], "fuzzy")
         dom_scores = routing.big_domain_score_weighted(tw)
         dom_total = sum(dom_scores.values()) or 1.0
         top_domains = sorted(dom_scores.items(),
@@ -1549,6 +1561,9 @@ class MdCGOS(MdCG):
         if not tw:
             return [], ""
         coverage = _prepare_coverage(tw)
+        if math.isfinite(coverage[1]):
+            entries = rrf_candidates.narrow(
+                self, entries, [t for t, _w, _cache in coverage[0]], "goal")
         dom_scores = routing.big_domain_score_weighted(tw)
         dom_total = sum(dom_scores.values()) or 1.0
         top_domains = sorted(dom_scores.items(),
@@ -1727,6 +1742,7 @@ class MdCGOS(MdCG):
         _tf_meta = {"time_filter": _tf} if _tf else {}
         _gates_meta = {"gates": gates} if gates else {}
         ranked = {}          # path -> [(node, score)]
+        _index_meta = rrf_candidates.begin(self)
         fuzzy_source = None
         chain_prov = {}
         # P3-temporal：时间路的参照窗（与 `_candidates` 同一真源 `trust.check_time_args`
@@ -1937,7 +1953,7 @@ class MdCGOS(MdCG):
                          "goal_used": goal_used,
                          "provenance": prov,
                          "path_fingerprint": _path_fp, **_tf_meta,
-                         **_gates_meta, **_bnd_meta}, k=k, layer=layer,
+                         **_gates_meta, **_bnd_meta, **_index_meta}, k=k, layer=layer,
                          session=session, branch=branch, validity=validity,
                          view=view, extra=_cache_extra)
         return results, {"tier": "RRF", "scanned": stat["scanned"],
@@ -1949,7 +1965,7 @@ class MdCGOS(MdCG):
                          "goal_used": goal_used,
                          "provenance": prov,
                          "path_fingerprint": _path_fp, **_tf_meta,
-                         **_gates_meta, **_bnd_meta}
+                         **_gates_meta, **_bnd_meta, **_index_meta}
 
     # ================= 7. budget-driven pack =================
 

@@ -103,11 +103,21 @@ class FuzzySubstringEquivalence(unittest.TestCase):
             cg = mdcos.MdCGOS(str(root))
             options = dict(k=4, paths=("lexical", "fuzzy", "semantic", "goal"),
                            goal_text="甲乙丙丁", record=False, judge=False)
-            with patch.dict("os.environ", {"MDCG_HOTCACHE": "0", "MDCG_FRESHNESS": "0"}):
-                actual = cg.search_rrf("甲乙丙丁", **options)
-                with patch.object(mdcos, "_weighted_coverage", oracle_coverage):
-                    expected = cg.search_rrf("甲乙丙丁", **options)
-            self.assertEqual(actual, expected)
+            for flag in ("0", "1"):
+                with self.subTest(candidate_index=flag), patch.dict("os.environ", {
+                        "MDCG_HOTCACHE": "0", "MDCG_FRESHNESS": "0",
+                        "MDCG_RRF_CANDIDATES": flag}):
+                    actual = cg.search_rrf("甲乙丙丁", **options)
+                    with patch.object(mdcos, "_weighted_coverage", oracle_coverage):
+                        expected = cg.search_rrf("甲乙丙丁", **options)
+                    # Lazy construction and a reused index have different work
+                    # counters/timings. Preserve the comparison of every card,
+                    # score, semantic field and candidate-path cardinality.
+                    for result in (actual, expected):
+                        report = result[1].get("rrf_candidates", {})
+                        for key in ("build_reads", "update_reads", "index_ms"):
+                            report.pop(key, None)
+                    self.assertEqual(actual, expected)
             cg.close()
 
 

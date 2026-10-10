@@ -65,7 +65,8 @@ _BYPASS_EXTRA = ("query_expand",)
 #: 直接改变融合结果，同属「漏登即跨口径串味」的一类。
 _ENV_SWITCHES = ("MDCG_SEMANTIC", "MDCG_EN_ATOMS", "MDCG_UNIFY_QUERY",
                  "MDCG_RETRIEVAL_PIPELINE", "MDCG_S7_FRESHNESS",
-                 "MDCG_CN_GRAMS", "MDCG_CHAIN_TYPES", "MDCG_TEMPORAL_GAMMA")
+                 "MDCG_CN_GRAMS", "MDCG_CHAIN_TYPES", "MDCG_TEMPORAL_GAMMA",
+                 "MDCG_RRF_CANDIDATES")
 
 
 # 生效条件：无必需形参；返回 _ENV_SWITCHES 中每个变量名的 (名, 当前取值或 None) 元组（稳定、可哈希，随 query 缓存键一起参与比对）。
