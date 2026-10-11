@@ -44,22 +44,26 @@ def check(name, cond, got=""):
                         ("  ← " + str(got)[:150]) if got != "" else ""))
 
 
+#: 档位 env 名的**单一真源**（仓内 G 组纪律：带引号的字面量只许出现在 autonomy_modes.py）
+_ENV_MODE = _am.AUTONOMY_ENV_KEYS["mode"]
+
+
 class _Mode:
-    """临时设 MDCG_AUTONOMY（与既有测试同口径），退出即还原。"""
+    """临时设档位（与既有 test_autonomy_modes 同口径：经单一真源取名），退出即还原。"""
 
     def __init__(self, mode):
         self.mode = mode
 
     def __enter__(self):
-        self.old = os.environ.get("MDCG_AUTONOMY")
-        os.environ["MDCG_AUTONOMY"] = self.mode
+        self.old = os.environ.get(_ENV_MODE)
+        os.environ[_ENV_MODE] = self.mode
         return self
 
     def __exit__(self, *exc):
         if self.old is None:
-            os.environ.pop("MDCG_AUTONOMY", None)
+            os.environ.pop(_ENV_MODE, None)
         else:
-            os.environ["MDCG_AUTONOMY"] = self.old
+            os.environ[_ENV_MODE] = self.old
         return False
 
 

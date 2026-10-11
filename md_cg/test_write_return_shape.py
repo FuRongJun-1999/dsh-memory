@@ -100,8 +100,12 @@ def g_machine_decidable():
     ok(a.get('committed') is True and b.get('committed') is False,
        'G3a 「已提交 / 待审」两态仅凭 committed 即可机器区分（不依赖 ok）',
        (a.get('committed'), b.get('committed')))
-    ok(a.get('ok') is True and b.get('ok') is True,
-       'G3b 两态 ok 相同 => 印证「只判 ok 必然误判」（#109 要害；本守卫不以 ok 作判据）')
+    ok(a.get('ok') is True and b.get('ok') is False,
+       'G3b #109 修复后：两态 ok **不再相同**（已提交 True / 待审 False）——'
+       '「只判 ok」如今也能机器区分；本守卫自此同时钉 ok 与 committed 两路')
+    ok(b.get('status') == 'pending_review',
+       'G3c 待审态须带 status=pending_review（#109 契约：ok/committed/status 三键同述一态）',
+       b.get('status'))
 
 
 def g_verb_face():

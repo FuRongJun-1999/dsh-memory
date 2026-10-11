@@ -65,8 +65,12 @@ def main():
 
         def write_once(nid):
             try:
+                # content_kind 必给：缺省 '' 会被审计判 BLINDSPOT ⇒ 入审核队列（不落盘）。
+                # 本件要测的是**令牌层是否放行**，故必须让写真的走到落盘面（ACCEPT）；
+                # 修 #109 之前该探针靠「入队也返回 ok=True」蒙过，属误判（现 ok 与 committed 同真值）。
                 r = M._dispatch(cg, "cg", {"op": "write", "node_id": nid,
-                                           "content": SIX, "consistency": False})
+                                           "content": SIX, "consistency": False,
+                                           "content_kind": "text"})
                 return bool(r and (r.get("ok") if isinstance(r, dict) else True))
             except Exception as exc:
                 return "DENY:%s" % type(exc).__name__
