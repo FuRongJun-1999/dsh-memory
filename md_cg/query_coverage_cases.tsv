@@ -1,0 +1,16 @@
+# id	query (literal \n decoded)	min_run	cap	expected keys (ordered)
+short	记忆检索引擎	4	16	记忆|忆检|检索|索引|引擎
+single_spread	甲乙丙丁戊己庚辛	4	4	甲乙|丙丁|戊己|庚辛
+two_runs	甲乙丙丁戊己庚辛\n天地玄黄宇宙洪荒	4	4	甲乙|庚辛|天地|洪荒
+one_slot	甲乙丙丁戊己庚辛	4	1	丁戊
+three_runs_two_slots	甲乙丙丁 天地玄黄 春夏秋冬	4	2	乙丙|夏秋
+repeated	甲乙甲乙甲乙	4	16	甲乙|乙甲
+stop_only	这个这个这个	4	16	个这
+short_runs	甲乙 丙丁	4	16	-
+lower_min	甲乙 丙丁	2	16	甲乙|丙丁
+empty		4	16	-
+ascii	memory cache API	4	16	-
+unicode_boundary	甲乙丙丁𠀀天地玄黄	4	4	甲乙|丙丁|天地|玄黄
+dedup_runs	甲乙丙丁 甲乙丙丁 天地玄黄	4	4	甲乙|丙丁|天地|玄黄
+zero_cap	甲乙丙丁 天地玄黄	4	0	甲乙
+exact_budget	甲乙丙丁戊己	4	5	甲乙|乙丙|丙丁|丁戊|戊己

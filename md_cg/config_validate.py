@@ -31,6 +31,7 @@ RULES = {
     'MDCG_CLEARANCE': {'enum': ['public', 'internal', 'restricted', 'private', 'secret'],
  'type': 'str'},
     'MDCG_CN_GRAMS': {'bool_like': True, 'type': 'bool'},
+    'MDCG_CN_GRAMS_COVERAGE': {'bool_like': True, 'type': 'bool'},
     'MDCG_D_META': {'bool_like': True, 'type': 'bool'},
     'MDCG_EN_ATOMS': {'bool_like': True, 'type': 'bool'},
     'MDCG_EXPLORE_BUDGET_MAX': {'type': 'str'},

@@ -389,7 +389,7 @@ CN_STOP_GRAMS = {
 }
 
 
-# 生效条件：当 query 非空且环境变量 MDCG_CN_GRAMS 不为 "0" 时，对 query 中长度 ≥ max(min_run,2) 的连续中文串切 2-gram，去重且排除 CN_STOP_GRAMS，最多 cap 个返回；MDCG_CN_GRAMS=="0" 或 query 为假值时返回 []（cap<=0 仍会 append 后立即返回首个 gram）。
+# 生效条件：MDCG_CN_GRAMS=="0" 时返回 []；MDCG_CN_GRAMS_COVERAGE=="1" 时按片段分配 cap 并在段内分散选词；其余沿用前缀截断。两态均仅取长度≥max(min_run,2) 的中文串、去重并排除 CN_STOP_GRAMS；cap<=0 保留历史首词行为。
 def cn_recall_grams(query: str, min_run: int = 4, cap: int = 16) -> list:
     """构词法 v1 · 中文召回扩展：把连续中文串切成 2-gram 作为额外召回键。
 
@@ -402,6 +402,11 @@ def cn_recall_grams(query: str, min_run: int = 4, cap: int = 16) -> list:
     """
     if os.environ.get("MDCG_CN_GRAMS") == "0":   # A/B 开关：关闭即回退旧行为
         return []
+    # Explicit opt-in: keep the default retrieval contract while evaluating
+    # bounded whole-query coverage on long, multi-part questions (#108).
+    if os.environ.get("MDCG_CN_GRAMS_COVERAGE") == "1":
+        from .query_coverage import select_cn_grams
+        return select_cn_grams(query, min_run, cap, CN_STOP_GRAMS)
     out = []
     for run in re.findall(r"[\u4e00-\u9fff]{%d,}" % max(min_run, 2), query or ""):
         for i in range(len(run) - 1):

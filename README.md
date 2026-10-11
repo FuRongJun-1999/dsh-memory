@@ -610,6 +610,12 @@ python scripts/run_tests.py                  # 源码树入口（等价；需 sc
 > 自证），改其**作用域**另须跑 `md_cg/test_unify_scope.py`（与 Rust 侧同源 fixture
 > `md_cg/semantic/unify_fixture.json`，见 `docs/hive/检索算法口径对照_v0.1.md`）。
 
+中文长查询有独立的**召回词覆盖实验**：`MDCG_CN_GRAMS_COVERAGE=1` 才启用，
+在既有 16 个中文 2-gram 预算内先给各段分配名额、再在段内分散取词，避免所有名额
+耗在开头。缺省保留现有前缀截断，`MDCG_CN_GRAMS=0` 仍优先关闭全部中文扩展。
+Python 与 Rust 使用同一份 15 例夹具；不修改评分公式。它不能保证所有关键词或
+后续 top-k 都被保留，真实长对话质量仍待标定。见[使用与验收说明](docs/mdcg/query_coverage.md)。
+
 ### 编码约定（全 UTF-8 · 命令统一走 python）
 
 **本仓所有文本一律 UTF-8（无 BOM）**——源码、配置、文档、数据、测试夹具，以及**路径与文件名**（含蜂巢任务标识）同此一律。中文可以直接出现在路径里：这不是建议，是约定。

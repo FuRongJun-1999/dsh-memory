@@ -1,0 +1,110 @@
+{
+  "records": [
+    {
+      "mutant": "baseline",
+      "tests": 6,
+      "failures": [],
+      "errors": [],
+      "skips": 0,
+      "log": "test_base_and_production_search_recall_tail (md_cg.test_query_coverage.QueryCoverage.test_base_and_production_search_recall_tail) ... ok\ntest_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) ... ok\ntest_budget_membership_and_determinism (md_cg.test_query_coverage.QueryCoverage.test_budget_membership_and_determinism) ... ok\ntest_hotcache_flip_matches_uncached_result (md_cg.test_query_coverage.QueryCoverage.test_hotcache_flip_matches_uncached_result) ... ok\ntest_default_and_non_one_values_keep_prefix (md_cg.test_query_coverage.QueryCoverage.test_default_and_non_one_values_keep_prefix) ... ok\ntest_master_switch_and_nonpositive_cap (md_cg.test_query_coverage.QueryCoverage.test_master_switch_and_nonpositive_cap) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 1.575s\n\nOK\n",
+      "returncode": 0,
+      "expected": true
+    },
+    {
+      "mutant": "no_dispatch",
+      "tests": 1,
+      "failures": [
+        "md_cg.test_query_coverage.QueryCoverage.test_base_and_production_search_recall_tail"
+      ],
+      "errors": [],
+      "skips": 0,
+      "log": "test_base_and_production_search_recall_tail (md_cg.test_query_coverage.QueryCoverage.test_base_and_production_search_recall_tail) ... FAIL\n\n======================================================================\nFAIL: test_base_and_production_search_recall_tail (md_cg.test_query_coverage.QueryCoverage.test_base_and_production_search_recall_tail)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\md_cg\\test_query_coverage.py\", line 126, in test_base_and_production_search_recall_tail\n    self.assertEqual(new[0][0][\"id\"], \"gold\")\nAssertionError: 'filler0000' != 'gold'\n- filler0000\n+ gold\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.347s\n\nFAILED (failures=1)\n",
+      "returncode": 1,
+      "expected": true
+    },
+    {
+      "mutant": "prefix_only",
+      "tests": 1,
+      "failures": [
+        "md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases (name='single_spread')",
+        "md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases (name='two_runs')",
+        "md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases (name='one_slot')",
+        "md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases (name='three_runs_two_slots')",
+        "md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases (name='unicode_boundary')",
+        "md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases (name='dedup_runs')"
+      ],
+      "errors": [],
+      "skips": 0,
+      "log": "test_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) ... \n  test_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) (name='single_spread') ... FAIL\n  test_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) (name='two_runs') ... FAIL\n  test_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) (name='one_slot') ... FAIL\n  test_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) (name='three_runs_two_slots') ... FAIL\n  test_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) (name='unicode_boundary') ... FAIL\n  test_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) (name='dedup_runs') ... FAIL\n\n======================================================================\nFAIL: test_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) (name='single_spread')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\md_cg\\test_query_coverage.py\", line 66, in test_shared_golden_cases\n    self.assertEqual(mdcg.cn_recall_grams(query, min_run, cap), expected)\nAssertionError: Lists differ: ['甲乙', '乙丙', '丙丁', '丁戊'] != ['甲乙', '丙丁', '戊己', '庚辛']\n\nFirst differing element 1:\n'乙丙'\n'丙丁'\n\n- ['甲乙', '乙丙', '丙丁', '丁戊']\n+ ['甲乙', '丙丁', '戊己', '庚辛']\n\n======================================================================\nFAIL: test_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) (name='two_runs')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\md_cg\\test_query_coverage.py\", line 66, in test_shared_golden_cases\n    self.assertEqual(mdcg.cn_recall_grams(query, min_run, cap), expected)\nAssertionError: Lists differ: ['甲乙', '乙丙', '丙丁', '丁戊'] != ['甲乙', '庚辛', '天地', '洪荒']\n\nFirst differing element 1:\n'乙丙'\n'庚辛'\n\n- ['甲乙', '乙丙', '丙丁', '丁戊']\n?         ^^    ^^    ^^\n\n+ ['甲乙', '庚辛', '天地', '洪荒']\n?         ^^    ^^    ^^\n\n\n======================================================================\nFAIL: test_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) (name='one_slot')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\md_cg\\test_query_coverage.py\", line 66, in test_shared_golden_cases\n    self.assertEqual(mdcg.cn_recall_grams(query, min_run, cap), expected)\nAssertionError: Lists differ: ['甲乙'] != ['丁戊']\n\nFirst differing element 0:\n'甲乙'\n'丁戊'\n\n- ['甲乙']\n+ ['丁戊']\n\n======================================================================\nFAIL: test_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) (name='three_runs_two_slots')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\md_cg\\test_query_coverage.py\", line 66, in test_shared_golden_cases\n    self.assertEqual(mdcg.cn_recall_grams(query, min_run, cap), expected)\nAssertionError: Lists differ: ['甲乙', '乙丙'] != ['乙丙', '夏秋']\n\nFirst differing element 0:\n'甲乙'\n'乙丙'\n\n- ['甲乙', '乙丙']\n+ ['乙丙', '夏秋']\n\n======================================================================\nFAIL: test_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) (name='unicode_boundary')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\md_cg\\test_query_coverage.py\", line 66, in test_shared_golden_cases\n    self.assertEqual(mdcg.cn_recall_grams(query, min_run, cap), expected)\nAssertionError: Lists differ: ['甲乙', '乙丙', '丙丁', '天地'] != ['甲乙', '丙丁', '天地', '玄黄']\n\nFirst differing element 1:\n'乙丙'\n'丙丁'\n\n- ['甲乙', '乙丙', '丙丁', '天地']\n?        ------\n\n+ ['甲乙', '丙丁', '天地', '玄黄']\n?                  ++++++\n\n\n======================================================================\nFAIL: test_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) (name='dedup_runs')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\md_cg\\test_query_coverage.py\", line 66, in test_shared_golden_cases\n    self.assertEqual(mdcg.cn_recall_grams(query, min_run, cap), expected)\nAssertionError: Lists differ: ['甲乙', '乙丙', '丙丁', '天地'] != ['甲乙', '丙丁', '天地', '玄黄']\n\nFirst differing element 1:\n'乙丙'\n'丙丁'\n\n- ['甲乙', '乙丙', '丙丁', '天地']\n?        ------\n\n+ ['甲乙', '丙丁', '天地', '玄黄']\n?                  ++++++\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.020s\n\nFAILED (failures=6)\n",
+      "returncode": 1,
+      "expected": true
+    },
+    {
+      "mutant": "unbounded",
+      "tests": 1,
+      "failures": [
+        "md_cg.test_query_coverage.QueryCoverage.test_budget_membership_and_determinism"
+      ],
+      "errors": [],
+      "skips": 0,
+      "log": "test_budget_membership_and_determinism (md_cg.test_query_coverage.QueryCoverage.test_budget_membership_and_determinism) ... FAIL\n\n======================================================================\nFAIL: test_budget_membership_and_determinism (md_cg.test_query_coverage.QueryCoverage.test_budget_membership_and_determinism)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\md_cg\\test_query_coverage.py\", line 104, in test_budget_membership_and_determinism\n    self.assertEqual(len(actual), min(cap, len(eligible)))\nAssertionError: 150 != 16\n\n----------------------------------------------------------------------\nRan 1 test in 0.005s\n\nFAILED (failures=1)\n",
+      "returncode": 1,
+      "expected": true
+    },
+    {
+      "mutant": "cache_key_omitted",
+      "tests": 1,
+      "failures": [
+        "md_cg.test_query_coverage.QueryCoverage.test_hotcache_flip_matches_uncached_result"
+      ],
+      "errors": [],
+      "skips": 0,
+      "log": "test_hotcache_flip_matches_uncached_result (md_cg.test_query_coverage.QueryCoverage.test_hotcache_flip_matches_uncached_result) ... FAIL\n\n======================================================================\nFAIL: test_hotcache_flip_matches_uncached_result (md_cg.test_query_coverage.QueryCoverage.test_hotcache_flip_matches_uncached_result)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\md_cg\\test_query_coverage.py\", line 152, in test_hotcache_flip_matches_uncached_result\n    self.assertNotEqual(before, hotcache.env_switch_key())\nAssertionError: (('MDCG_SEMANTIC', None), ('MDCG_EN_ATOMS', None), ('MDCG_UNIFY_QUERY', '0'), ('MDCG_RETRIEVAL_PIPELINE', None), ('MDCG_S7_FRESHNESS', None), ('MDCG_CN_GRAMS', '1'), ('MDCG_CHAIN_TYPES', None), ('MDCG_TEMPORAL_GAMMA', None), ('MDCG_RRF_CANDIDATES', '0')) == (('MDCG_SEMANTIC', None), ('MDCG_EN_ATOMS', None), ('MDCG_UNIFY_QUERY', '0'), ('MDCG_RETRIEVAL_PIPELINE', None), ('MDCG_S7_FRESHNESS', None), ('MDCG_CN_GRAMS', '1'), ('MDCG_CHAIN_TYPES', None), ('MDCG_TEMPORAL_GAMMA', None), ('MDCG_RRF_CANDIDATES', '0'))\n\n----------------------------------------------------------------------\nRan 1 test in 0.545s\n\nFAILED (failures=1)\n",
+      "returncode": 1,
+      "expected": true
+    },
+    {
+      "mutant": "default_on",
+      "tests": 1,
+      "failures": [
+        "md_cg.test_query_coverage.QueryCoverage.test_default_and_non_one_values_keep_prefix (value=None)",
+        "md_cg.test_query_coverage.QueryCoverage.test_default_and_non_one_values_keep_prefix (value='true')",
+        "md_cg.test_query_coverage.QueryCoverage.test_default_and_non_one_values_keep_prefix (value='')"
+      ],
+      "errors": [],
+      "skips": 0,
+      "log": "test_default_and_non_one_values_keep_prefix (md_cg.test_query_coverage.QueryCoverage.test_default_and_non_one_values_keep_prefix) ... \n  test_default_and_non_one_values_keep_prefix (md_cg.test_query_coverage.QueryCoverage.test_default_and_non_one_values_keep_prefix) (value=None) ... FAIL\n  test_default_and_non_one_values_keep_prefix (md_cg.test_query_coverage.QueryCoverage.test_default_and_non_one_values_keep_prefix) (value='true') ... FAIL\n  test_default_and_non_one_values_keep_prefix (md_cg.test_query_coverage.QueryCoverage.test_default_and_non_one_values_keep_prefix) (value='') ... FAIL\n\n======================================================================\nFAIL: test_default_and_non_one_values_keep_prefix (md_cg.test_query_coverage.QueryCoverage.test_default_and_non_one_values_keep_prefix) (value=None)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\md_cg\\test_query_coverage.py\", line 77, in test_default_and_non_one_values_keep_prefix\n    self.assertEqual(mdcg.cn_recall_grams(QUERY), expected)\nAssertionError: Lists differ: ['查询', '季度', '发计', '各个', '资源', '实进', '段预', '情况', [42 chars]'设置'] != ['查询', '询当', '当前', '前季', '季度', '度项', '项目', '目研', [42 chars]'个部']\n\nFirst differing element 1:\n'季度'\n'询当'\n\n  ['查询',\n+  '询当',\n+  '当前',\n+  '前季',\n   '季度',\n+  '度项',\n+  '项目',\n+  '目研',\n+  '研发',\n   '发计',\n+  '计划',\n+  '划以',\n+  '以及',\n+  '及各',\n   '各个',\n+  '个部']\n-  '资源',\n-  '实进',\n-  '段预',\n-  '情况',\n-  '特别',\n-  '要了',\n-  '格退',\n-  '度曲',\n-  '恒定',\n-  '下的',\n-  '参数',\n-  '设置']\n\n======================================================================\nFAIL: test_default_and_non_one_values_keep_prefix (md_cg.test_query_coverage.QueryCoverage.test_default_and_non_one_values_keep_prefix) (value='true')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\md_cg\\test_query_coverage.py\", line 77, in test_default_and_non_one_values_keep_prefix\n    self.assertEqual(mdcg.cn_recall_grams(QUERY), expected)\nAssertionError: Lists differ: ['查询', '季度', '发计', '各个', '资源', '实进', '段预', '情况', [42 chars]'设置'] != ['查询', '询当', '当前', '前季', '季度', '度项', '项目', '目研', [42 chars]'个部']\n\nFirst differing element 1:\n'季度'\n'询当'\n\n  ['查询',\n+  '询当',\n+  '当前',\n+  '前季',\n   '季度',\n+  '度项',\n+  '项目',\n+  '目研',\n+  '研发',\n   '发计',\n+  '计划',\n+  '划以',\n+  '以及',\n+  '及各',\n   '各个',\n+  '个部']\n-  '资源',\n-  '实进',\n-  '段预',\n-  '情况',\n-  '特别',\n-  '要了',\n-  '格退',\n-  '度曲',\n-  '恒定',\n-  '下的',\n-  '参数',\n-  '设置']\n\n======================================================================\nFAIL: test_default_and_non_one_values_keep_prefix (md_cg.test_query_coverage.QueryCoverage.test_default_and_non_one_values_keep_prefix) (value='')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\md_cg\\test_query_coverage.py\", line 77, in test_default_and_non_one_values_keep_prefix\n    self.assertEqual(mdcg.cn_recall_grams(QUERY), expected)\nAssertionError: Lists differ: ['查询', '季度', '发计', '各个', '资源', '实进', '段预', '情况', [42 chars]'设置'] != ['查询', '询当', '当前', '前季', '季度', '度项', '项目', '目研', [42 chars]'个部']\n\nFirst differing element 1:\n'季度'\n'询当'\n\n  ['查询',\n+  '询当',\n+  '当前',\n+  '前季',\n   '季度',\n+  '度项',\n+  '项目',\n+  '目研',\n+  '研发',\n   '发计',\n+  '计划',\n+  '划以',\n+  '以及',\n+  '及各',\n   '各个',\n+  '个部']\n-  '资源',\n-  '实进',\n-  '段预',\n-  '情况',\n-  '特别',\n-  '要了',\n-  '格退',\n-  '度曲',\n-  '恒定',\n-  '下的',\n-  '参数',\n-  '设置']\n\n----------------------------------------------------------------------\nRan 1 test in 0.004s\n\nFAILED (failures=3)\n",
+      "returncode": 1,
+      "expected": true
+    },
+    {
+      "mutant": "master_ignored",
+      "tests": 1,
+      "failures": [
+        "md_cg.test_query_coverage.QueryCoverage.test_master_switch_and_nonpositive_cap"
+      ],
+      "errors": [],
+      "skips": 0,
+      "log": "test_master_switch_and_nonpositive_cap (md_cg.test_query_coverage.QueryCoverage.test_master_switch_and_nonpositive_cap) ... FAIL\n\n======================================================================\nFAIL: test_master_switch_and_nonpositive_cap (md_cg.test_query_coverage.QueryCoverage.test_master_switch_and_nonpositive_cap)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<repo>\\md_cg\\test_query_coverage.py\", line 81, in test_master_switch_and_nonpositive_cap\n    self.assertEqual(mdcg.cn_recall_grams(QUERY), [])\nAssertionError: Lists differ: ['查询', '季度', '发计', '各个', '资源', '实进', '段预',[49 chars]'设置'] != []\n\nFirst list contains 16 additional elements.\nFirst extra element 0:\n'查询'\n\n+ []\n- ['查询',\n-  '季度',\n-  '发计',\n-  '各个',\n-  '资源',\n-  '实进',\n-  '段预',\n-  '情况',\n-  '特别',\n-  '要了',\n-  '格退',\n-  '度曲',\n-  '恒定',\n-  '下的',\n-  '参数',\n-  '设置']\n\n----------------------------------------------------------------------\nRan 1 test in 0.005s\n\nFAILED (failures=1)\n",
+      "returncode": 1,
+      "expected": true
+    },
+    {
+      "mutant": "baseline",
+      "tests": 6,
+      "failures": [],
+      "errors": [],
+      "skips": 0,
+      "log": "test_base_and_production_search_recall_tail (md_cg.test_query_coverage.QueryCoverage.test_base_and_production_search_recall_tail) ... ok\ntest_shared_golden_cases (md_cg.test_query_coverage.QueryCoverage.test_shared_golden_cases) ... ok\ntest_budget_membership_and_determinism (md_cg.test_query_coverage.QueryCoverage.test_budget_membership_and_determinism) ... ok\ntest_hotcache_flip_matches_uncached_result (md_cg.test_query_coverage.QueryCoverage.test_hotcache_flip_matches_uncached_result) ... ok\ntest_default_and_non_one_values_keep_prefix (md_cg.test_query_coverage.QueryCoverage.test_default_and_non_one_values_keep_prefix) ... ok\ntest_master_switch_and_nonpositive_cap (md_cg.test_query_coverage.QueryCoverage.test_master_switch_and_nonpositive_cap) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 1.572s\n\nOK\n",
+      "returncode": 0,
+      "expected": true
+    }
+  ],
+  "source_sha256": {
+    "md_cg/mdcg.py": "acee305b6ccb87fa50fdca0ef58e536d1d232520c7d2621e11d079cf2f5214eb",
+    "md_cg/query_coverage.py": "e8a56ba943764ac37b4a1be0d1238263192390394e982d34497954fdbe6ce102",
+    "md_cg/hotcache.py": "f3f48bfa765bf811729e7edcab9b17f12c2e8c33c1a7643903e37c45ef238af7",
+    "md_cg/query_coverage_cases.tsv": "c881275dccf0436f3b9543c6e37c94d2324a4ee67d4dfc906571fc30e14b5340",
+    "md_cg/test_query_coverage.py": "597b8c25d7b3323669a8e1009ee47cfabd49a0007aa299082c7fbd061f20c770"
+  }
+}

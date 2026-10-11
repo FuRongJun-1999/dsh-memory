@@ -186,7 +186,20 @@ def _table_entries():
 
 
 # 手维条目 = 三张既有真源表的键（上层可追加；追加须给齐 SCHEMA 必填字段）
-CURATED_ENTRIES = _table_entries()
+CURATED_ENTRIES = _table_entries() + ({
+    "key": "dsh-memory-main::env::MDCG_CN_GRAMS_COVERAGE",
+    "name": "MDCG_CN_GRAMS_COVERAGE",
+    "face": "TUNE", "layer": "tune", "kind": "env", "tunable": True,
+    "value": None, "value_repr": "None", "value_type": "str",
+    "domain": "off", "semantic": "off", "env_name": "MDCG_CN_GRAMS_COVERAGE",
+    "anchor": {"how": "env_flag", "file": "md_cg/mdcg.py",
+               "symbol": "cn_recall_grams"},
+    "status": "uncalibrated",
+    "evidence": "显式 =1 才开启片段预算分配；缺省保持前缀截断。尚无真实对话池质量标定。",
+    "since": "query-coverage experiment",
+    "notes": "中文召回词覆盖实验；MDCG_CN_GRAMS=0 优先关闭全部扩展。",
+    "repo": "dsh-memory-main",
+},)
 
 # ---------------------------------------------------------------------------
 # §3 汇总与查询

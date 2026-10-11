@@ -97,9 +97,13 @@ pub fn expand_query_terms(query: &str) -> Vec<String> {
 
 /// 中文连续串 2-gram 召回扩展（对齐 `mdcg.cn_recall_grams`，min_run=4，
 /// cap=16，MDCG_CN_GRAMS=0 关闭；`CN_STOP_GRAMS` 纯语法组合剔除）。
+/// MDCG_CN_GRAMS_COVERAGE=1 opts into bounded coverage over all eligible runs.
 pub fn cn_recall_grams(query: &str) -> Vec<String> {
     if std::env::var("MDCG_CN_GRAMS").as_deref() == Ok("0") {
         return Vec::new();
+    }
+    if std::env::var("MDCG_CN_GRAMS_COVERAGE").as_deref() == Ok("1") {
+        return covered_cn_grams(query, 4, 16);
     }
     let chars: Vec<char> = query.chars().collect();
     let mut out: Vec<String> = Vec::new();
@@ -128,6 +132,69 @@ pub fn cn_recall_grams(query: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// Same bounded coverage contract as Python query_coverage.select_cn_grams.
+/// Kept pure so tests do not mutate process-wide environment variables.
+fn covered_cn_grams(query: &str, min_run: usize, cap: usize) -> Vec<String> {
+    use std::collections::HashSet;
+
+    fn positions(size: usize, count: usize) -> Vec<usize> {
+        let count = count.min(size);
+        match count {
+            0 => Vec::new(),
+            1 => vec![size / 2],
+            _ => (0..count).map(|i| i * (size - 1) / (count - 1)).collect(),
+        }
+    }
+
+    let mut groups: Vec<Vec<String>> = Vec::new();
+    let mut flat = Vec::new();
+    let mut seen = HashSet::new();
+    for run in query.split(|c: char| !is_zh(c)) {
+        let chars: Vec<char> = run.chars().collect();
+        if chars.len() < min_run.max(2) {
+            continue;
+        }
+        let mut grams = Vec::new();
+        for pair in chars.windows(2) {
+            let gram: String = pair.iter().collect();
+            if !CN_STOP_GRAMS.contains(&gram.as_str()) && seen.insert(gram.clone()) {
+                flat.push(gram.clone());
+                grams.push(gram);
+            }
+        }
+        if !grams.is_empty() {
+            groups.push(grams);
+        }
+    }
+    if cap == 0 {
+        return flat.into_iter().take(1).collect();
+    }
+    if flat.len() <= cap {
+        return flat;
+    }
+    if groups.len() > cap {
+        groups = positions(groups.len(), cap).into_iter()
+            .map(|i| groups[i].clone()).collect();
+    }
+    let mut quotas = vec![0; groups.len()];
+    let mut remaining = cap;
+    while remaining > 0 {
+        for (i, grams) in groups.iter().enumerate() {
+            if quotas[i] < grams.len() {
+                quotas[i] += 1;
+                remaining -= 1;
+                if remaining == 0 {
+                    break;
+                }
+            }
+        }
+    }
+    let selected: HashSet<String> = groups.iter().zip(quotas.iter())
+        .flat_map(|(grams, &quota)| positions(grams.len(), quota).into_iter()
+            .map(|j| grams[j].clone())).collect();
+    flat.into_iter().filter(|gram| selected.contains(gram)).collect()
 }
 
 /// 中文高频功能 bigram（召回扩展时剔除：纯语法组合，召回价值低）。
@@ -482,5 +549,22 @@ mod tests {
         let t = expand_query_terms("What did Caroline buy?");
         assert_eq!(t.first().map(String::as_str), Some("caroline buy"));
         assert!(t.contains(&"caroline".to_string()) && t.contains(&"buy".to_string()));
+    }
+
+    #[test]
+    fn query_coverage_shared_cases() {
+        let data = include_str!("../../md_cg/query_coverage_cases.tsv");
+        let mut count = 0;
+        for line in data.lines().filter(|line| !line.starts_with('#') && !line.is_empty()) {
+            let fields: Vec<&str> = line.split('\t').collect();
+            assert_eq!(fields.len(), 5);
+            let query = fields[1].replace("\\n", "\n");
+            let expected: Vec<String> = if fields[4] == "-" { Vec::new() }
+                else { fields[4].split('|').map(String::from).collect() };
+            assert_eq!(covered_cn_grams(&query, fields[2].parse().unwrap(),
+                fields[3].parse().unwrap()), expected, "{}", fields[0]);
+            count += 1;
+        }
+        assert!(count >= 10);
     }
 }
