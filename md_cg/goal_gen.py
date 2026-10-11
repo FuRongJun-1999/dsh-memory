@@ -386,12 +386,16 @@ def _apply_candidate(cg, cand, actor=None):
             return {"moved_to": "goals", "id": gid, "decision": d,
                     "mode": dec.get("mode")}
         if d == autonomy_modes.CONFIRM:      # confirm 档：出变更单（入审核队列）
-            return {"moved_to": "review_queue", "pid": _enqueue(cg, cand),
+            # #109：补齐 ok/committed/status——此前无字段，调用方只能猜
+            return {"ok": False, "committed": False, "status": "pending_review",
+                    "moved_to": "review_queue", "pid": _enqueue(cg, cand),
                     "decision": d, "mode": dec.get("mode")}
         return {"moved_to": "forbidden", "decision": d,
                 "mode": dec.get("mode"), "hint": dec.get("hint")}
     # 探索类：一律入审核队列（不入 goals 层）
-    return {"moved_to": "review_queue", "pid": _enqueue(cg, cand),
+    # #109：同上（探索类一律入队）
+    return {"ok": False, "committed": False, "status": "pending_review",
+            "moved_to": "review_queue", "pid": _enqueue(cg, cand),
             "decision": "confirm"}
 
 

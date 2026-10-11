@@ -641,15 +641,28 @@ _NEG_INJECT = ('    dec = _am.decide(action)\n'
 #: 2026-10-03，与「守卫随实现同批同步」惯例一致（issue52 批同款先例）。
 _KNOWN_EXT_KEYS = ("kept", "truncated")
 
+#: #109（2026-10-11）批的**已知有意契约变更**：凡「已受理待审」返回体（committed=False 且
+#: moved_to="review_queue"）由 ok=True 改为 **ok=False + status="pending_review"**（ok 与
+#: committed 同真值）。这是跨 tier 的统一收口，故 plan_C / plan_D 两项本就不该被报成「真行为
+#: 差异」——Q 组把该类返回体**定向归一化回改动前形态**后再逐位对拍；旧键「逐位对拍」口径只在
+#: 本声明面之外的记录上保持。归一化范围若被放宽（例如把非入队返回体也归一化），负对照与下面的
+#: 「在场断言」会把它抓出来。
+_KNOWN_QUEUE_CONTRACT = "review_queue"
 
-# 生效条件：item 为观测脚本产出的对拍项（dict，任意形态）时返回其**深拷贝**，且当 item["out"]["consistency"] 为 dict 时从中剔除 _KNOWN_EXT_KEYS 各键；原项一字不动，非 dict 的 out/consistency 形态原样返回。
+
+# 生效条件：item 为观测脚本产出的对拍项（dict，任意形态）时返回其**深拷贝**：① 当 item["out"]["consistency"] 为 dict 时剔除 _KNOWN_EXT_KEYS 各键（cons200 批已知扩展）；② 当 item["out"] 为「已受理待审」形态（committed=False 且 moved_to=="review_queue"）时剔除 status 并把 ok 归一回 True（#109 批已知有意契约变更）；原项一字不动。
 def _norm_known_ext(item):
-    """Q 组对拍归一化：只剔「本批已知返回体扩展」键（深拷贝，不动原项）。"""
+    """Q 组对拍归一化：剔「本批已知返回体扩展」键 + 归一本批已声明的契约变更（深拷贝）。"""
     it = copy.deepcopy(item)
-    cvd = (it.get("out") or {}).get("consistency") if isinstance(it.get("out"), dict) else None
+    out = it.get("out") if isinstance(it.get("out"), dict) else None
+    cvd = out.get("consistency") if isinstance(out, dict) else None
     if isinstance(cvd, dict):
         for k in _KNOWN_EXT_KEYS:
             cvd.pop(k, None)
+    if isinstance(out, dict) and out.get("committed") is False \
+            and out.get("moved_to") == _KNOWN_QUEUE_CONTRACT:
+        out.pop("status", None)
+        out["ok"] = True                      # 归一化回 HEAD 形态（#109 声明面）
     return it
 
 
@@ -696,6 +709,16 @@ def g_q():
        "Q 已知扩展在场：写链 out 的 consistency 读数（%s）均含本批新增键 "
        "kept/truncated（cons200 契约面；归一化只豁免这两键，旧键仍逐位对拍）"
        % "、".join(cvd_names), cvd_names)
+    _q_names = [n for n in names
+                if isinstance(cur["items"][n].get("out"), dict)
+                and cur["items"][n]["out"].get("moved_to") == "review_queue"]
+    ok(bool(_q_names) and all(
+        cur["items"][n]["out"].get("ok") is False
+        and cur["items"][n]["out"].get("status") == "pending_review"
+        for n in _q_names),
+       "Q #109 契约在场：已受理待审返回体（%s）一律 ok=False + "
+       "status=pending_review（ok 与 committed 同真值；删掉该契约即此断言转红）"
+       % "、".join(_q_names), _q_names)
     ok(len(names) >= 10,
        "Q 对拍项覆盖：A/E 全线（A_add/plg_A/E_weights/E_fresh）+ full 档全线"
        "（full_A/full_C/full_B/full_D/full_E_weights/full_E_fresh）+ 矩阵/缺省/"

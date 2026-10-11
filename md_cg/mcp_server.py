@@ -3675,8 +3675,10 @@ def _dispatch(cg, name, args):
                                        layer=_layer,
                                        sensitivity=a.get("sensitivity"),
                                        info=True)
-            return {"ok": True, "id": nid, "committed": False,
-                    "moved_to": "review_queue", "pid": _pr["pid"],
+            # #109：ok 与 committed 同真值——「已受理待审」不再返回 ok=True
+            return {"ok": False, "id": nid, "committed": False,
+                    "moved_to": "review_queue", "status": "pending_review",
+                    "pid": _pr["pid"],
                     "mutation": _pay, "autonomy": _aut,
                     "hint": "%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
                             % (_dec["hint"], _pr["pid"], nid)}

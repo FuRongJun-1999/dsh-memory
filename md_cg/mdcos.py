@@ -3198,8 +3198,10 @@ class MdCGOS(MdCG):
             self, autonomy_modes.D_DELETE, node_id, payload=pay,
             layer=e.get("layer") or "knowledge",
             sensitivity=e.get("sensitivity"), info=True)
-        return {"ok": True, "id": node_id, "committed": False, "deleted": False,
-                "moved_to": "review_queue", "pid": pr["pid"], "mutation": pay,
+        # #109：ok 与 committed 同真值
+        return {"ok": False, "id": node_id, "committed": False, "deleted": False,
+                "moved_to": "review_queue", "status": "pending_review",
+                "pid": pr["pid"], "mutation": pay,
                 "autonomy": aut,
                 "hint": "%s 本次未删除（节点原样在位）：变更单已入审核队列"
                         "（pid=%s，目标 %s）。" % (dec["hint"], pr["pid"], node_id)}
@@ -4235,7 +4237,9 @@ class MdCGOS(MdCG):
         pr = _am.propose_mutation(self, _am.B_MERGE, tgt, payload=pay,
                                   layer=tlayer,
                                   sensitivity=kw.get("sensitivity"), info=True)
-        return {"verdict": "CONFIRM", "node_id": node_id, "gate": gate,
+        # #109：补齐 ok/committed——此前连字段都没有，调用方只能猜
+        return {"ok": False, "verdict": "CONFIRM", "node_id": node_id, "gate": gate,
+                "committed": False, "status": "pending_review",
                 "merged_into": tgt, "moved_to": "review_queue",
                 "pid": pr["pid"], "mutation": pay, "autonomy": aut,
                 "hint": "%s 本次未合并：变更单已入审核队列（pid=%s，目标 %s，"
@@ -4313,8 +4317,10 @@ class MdCGOS(MdCG):
         pr = _am.propose_mutation(self, action, node_id, payload=pay,
                                   layer=layer,
                                   sensitivity=kw.get("sensitivity"), info=True)
-        return {"ok": True, "verdict": "CONFIRM", "node_id": node_id,
+        # #109：ok 与 committed 同真值
+        return {"ok": False, "verdict": "CONFIRM", "node_id": node_id,
                 "committed": False, "gate": gate, "moved_to": "review_queue",
+                "status": "pending_review",
                 "pid": pr["pid"], "mutation": pay, "autonomy": aut,
                 "hint": "%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
                         % (dec["hint"], pr["pid"], node_id)}

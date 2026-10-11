@@ -415,10 +415,11 @@ def g_d():
         cg.add("d_prot", BODY % "8080", layer="self", verification_basis="test")
         cg.flush()
         r1 = cg.forget_gated("d_1", reason="守卫删除")
-        ok(r1.get("ok") is True and r1.get("deleted") is False
+        ok(r1.get("ok") is False and r1.get("deleted") is False
+           and r1.get("status") == "pending_review"
            and r1.get("moved_to") == "review_queue" and bool(r1.get("pid")),
-           "D 删除出变更单且不软删（deleted=False 明示）",
-           {k: r1.get(k) for k in ("ok", "deleted", "moved_to", "pid")})
+           "D 删除出变更单且不软删（deleted=False 明示；#109：ok=False + status=pending_review）",
+           {k: r1.get(k) for k in ("ok", "status", "deleted", "moved_to", "pid")})
         ok(cg.get("d_1") is not None, "D 出单后节点原样在位")
         pay = r1.get("mutation") or {}
         ok(pay.get("action") == "D" and pay.get("target") == "d_1"

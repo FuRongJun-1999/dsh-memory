@@ -218,7 +218,19 @@ def _reject_hint(verdict):
             "拒绝依据见 verdict.evidence")
 
 
-# 生效条件：先经 audit.resolve_rulebook() 判策略可用性——不可用（env 显式坏路径 / env 未设且包内默认也拿不到）即返回 ok=False/moved_to="policy_unavailable" 与结构化 error（含 code/reason/hint），**不进 audit、不 propose、不落任何节点**；可用则把规则经 ctx["rules"] 下传（含 forbidden=0 且 required=0 的空规则，空规则仍走 _rule_check 的 DEFER 分支），其后 ctx["a"] 经 audit.audit 得出的 state 为 ACCEPT 时返 None 放行，为 REJECT 时经 cg.add_rejected（正文先经 audit.redact_forbidden 把禁表命中替换为占位符、再截前 200 字）返回 ok=False/moved_to="rejected"（hint 由 _reject_hint 按「可修正的缺要素 / 政策违规」分型生成），其余 state 经 cg.propose 返回 moved_to="review_queue"（pr 带 dedup 时再附 dedup/dup_of/dup_status 并改写 hint）；
+# #109（2026-10-11）：返回体的**提交语义单一真源**——「已受理待审（入审核队列）」不再与
+# 「已落盘」共用 ok=True，否则只判 ok 的调用方会把「未提交」计成「已入库」（实测 8,146 轮里 40 次）。
+# 口径（本文件与 mcp_server / mdcos / goal_gen 同用）：**ok = 「本次是否真的落盘/提交」**，与
+# committed 同真值；「已受理待审」另由 status 显式标注，调用方可机械区分三态：
+#   · 已落盘      ok=True,  committed=True
+#   · 已受理待审  ok=False, committed=False, status="pending_review"（moved_to 说明去向）
+#   · 被拒/未受理 ok=False, committed=False, moved_to="rejected"/"autonomy_forbidden"/…
+# 仓内先例：冲突闸 `_gate_consistency`（本文件 :345 附近）早已是 ok=False + moved_to="review_queue"，
+# 本条是把其余同形返回体**对齐到该先例**（按不变量收口，不新增语义）。
+STATUS_PENDING_REVIEW = "pending_review"
+
+
+# 生效条件：先经 audit.resolve_rulebook() 判策略可用性——不可用（env 显式坏路径 / env 未设且包内默认也拿不到）即返回 ok=False/moved_to="policy_unavailable" 与结构化 error（含 code/reason/hint），**不进 audit、不 propose、不落任何节点**；可用则把规则经 ctx["rules"] 下传（含 forbidden=0 且 required=0 的空规则，空规则仍走 _rule_check 的 DEFER 分支），其后 ctx["a"] 经 audit.audit 得出的 state 为 ACCEPT 时返 None 放行，为 REJECT 时经 cg.add_rejected（正文先经 audit.redact_forbidden 把禁表命中替换为占位符、再截前 200 字）返回 ok=False/moved_to="rejected"（hint 由 _reject_hint 按「可修正的缺要素 / 政策违规」分型生成），其余 state 经 cg.propose 返回 ok=False/committed=False/status="pending_review"/moved_to="review_queue"（#109：不与「已落盘」共用 ok=True；pr 带 dedup 时再附 dedup/dup_of/dup_status 并改写 hint）；
 def _gate_audit(ctx):
     """校验闸：先判策略可用性（fail-closed），再按 audit.audit 四态分派。
 
@@ -278,8 +290,9 @@ def _gate_audit(ctx):
                     layer=a.get("layer") or "knowledge",
                     tags=a.get("tags"), condition_space=a.get("condition_space"),
                     **_proposal_extras(a, verdict))
-    out = {"ok": True, "id": ctx["nid"], "pid": pr["pid"], "committed": False,
-           "moved_to": "review_queue", "verdict": verdict,
+    out = {"ok": False, "id": ctx["nid"], "pid": pr["pid"], "committed": False,
+           "moved_to": "review_queue", "status": STATUS_PENDING_REVIEW,
+           "verdict": verdict,
            "hint": "这是校验闸门的正常行为（verdict=%s）：内容未达 ACCEPT，"
                    "已入审核队列——不需要重试；落盘须经裁决（can_admin 权限）"
                    "——agent 可在经蜂群或验证端复核后自行裁决，例外须转使用者"
@@ -704,7 +717,7 @@ _AUTONOMY_META_KEYS = ("tags", "condition_space", "verification_basis",
                        "override")
 
 
-# 生效条件：ctx 的 a/cg/nid 就绪时以 forgetting.prior_node 判「同 id 已存在」（存在=C 改写、不存在=A 新增）并交 autonomy_modes.decide 判定——ALLOW 返回 None 放行（与改动前同一条链）；FORBID 返回 ok=False/moved_to="autonomy_forbidden" 的终态（fail-closed，不落盘、不出单）；CONFIRM 经 autonomy_modes.propose_mutation 出变更单（复用既有 propose 单点）并返回 ok=True/committed=False/moved_to="review_queue" 的终态（**不落盘**）；
+# 生效条件：ctx 的 a/cg/nid 就绪时以 forgetting.prior_node 判「同 id 已存在」（存在=C 改写、不存在=A 新增）并交 autonomy_modes.decide 判定——ALLOW 返回 None 放行（与改动前同一条链）；FORBID 返回 ok=False/moved_to="autonomy_forbidden" 的终态（fail-closed，不落盘、不出单）；CONFIRM 经 autonomy_modes.propose_mutation 出变更单（复用既有 propose 单点）并返回 ok=False/committed=False/status="pending_review"/moved_to="review_queue" 的终态（**不落盘**；#109：ok 与 committed 同真值，调用方不再把「待审」计成「已入库」）；
 def _gate_autonomy(ctx):
     """档位闸：`cg(op=write)` 对**既有 node_id 的覆写**（C 改写）在变更确认档出单。
 
@@ -766,8 +779,9 @@ def _gate_autonomy(ctx):
     pr = _am.propose_mutation(cg, action, nid, payload=pay,
                               layer=a.get("layer") or "knowledge",
                               sensitivity=a.get("sensitivity"), info=True)
-    return {"ok": True, "id": nid, "pid": pr["pid"], "committed": False,
-            "moved_to": "review_queue", "autonomy": _aut, "mutation": pay,
+    return {"ok": False, "id": nid, "pid": pr["pid"], "committed": False,
+            "moved_to": "review_queue", "status": STATUS_PENDING_REVIEW,
+            "autonomy": _aut, "mutation": pay,
             "verdict": ctx.get("verdict"),
             "hint": ("%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
                      % (dec["hint"], pr["pid"], nid))}
