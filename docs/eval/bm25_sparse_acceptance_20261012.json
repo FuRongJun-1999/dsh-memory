@@ -843,6 +843,6 @@
     "default": "opt-in BM25 path; default retrieval paths unchanged",
     "cold": "cold builds remain O(N); snapshot preparation excluded; OS cache not flushed",
     "environment": "Windows; Mem Reduct observed running; no isolated-host or peak-RSS guarantee",
-    "grading": "expert is requested difficulty; maintainer review and CI remain separate gates"
+    "ci": "local runtime validation does not replace the PR full CI run"
   }
 }

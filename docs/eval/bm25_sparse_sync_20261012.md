@@ -1,6 +1,6 @@
 # BM25 写后稀疏同步：算法与架构优化
 
-日期：2026-10-12。难度申报：expert（待维护者评审）。
+日期：2026-10-12。
 
 少量记忆写入后，原实现仍遍历整个候选池进行资格过滤与 TF/DF/文档长度同步。本轮用**有界写入日志 + 原生资格重判 + 稀疏统计同步**消除普通覆盖/新增时的整池遍历，保留原 BM25 公式、排序与过滤语义。
 
@@ -47,7 +47,7 @@ Windows / Ryzen 9 7945HX / 32 GB RAM / Python 3.12。两个独立完整源码进
 | 最新上游集成 | 6/6 入口通过 | 再跑 55 项 BM25，另跑 #145/#147/#148 三组上游新守卫 |
 | 当前 CSRE 两条存储路径 | SQLite 回退、WB_MD_DIRECT=1 各 1 次真实 build_index 成功，矩阵/ID 相等 | 合成数据；另 2 次错名定点变异均 ImportError；不是历史上游检出复现；[记录](bm25_sparse_csre_paths_20261012.json) |
 | 旧入口与语料面 | 旧 `md_cg.test_csre_import_contract` 不存在，调用失败；现有 `test_csre_index_import_guard` 4 检查通过（1 次 build 实跑） | `test_md_access_parity` 4 字面量断言通过，真实语料 SQL/解析对拍 **SKIP**，未算运行通过 |
-| CI / 人审 | PR 创建后单独查询 CI；expert 为申报 | 本地验证不代替全量 CI 或维护者裁定 |
+| CI | PR 创建后单独查询流水线 | 本地验证不代替全量 CI |
 
 ## 正式公开数据回归
 
@@ -78,3 +78,5 @@ python -X utf8 -m md_cg.bench_beir_bm25 --name nfcorpus --split test --data ../b
 ```
 
 每次使用新的 workspace、pool 和 output 路径。没有完成百万条、独立实例并发吞吐、共享实例并发读写或真实私有语料验收；这些不计为通过。
+
+源码归档与无第三方依赖的核心离线复跑步骤见 [复跑说明](bm25_sparse_reproduce_20261012.md)。
