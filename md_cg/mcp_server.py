@@ -43,6 +43,14 @@ import json
 import os
 import sys
 
+# issue #133 + #140：op 元数据**单点真源**（名字 / 段落 / 专属参数 / 权限词 /
+# dispatch 目标 / 二级子 op / 缺省 action / 签名推导）。本模块此前把这些分散在
+# 5 处字面量里（枚举串、description 段落、_ACTION_SIGS、_ACTION_DEFAULT、
+# require_op 实参），互不对账——实测删掉枚举串里的一个 op，全部测试仍绿。
+# 现在各处**从 op_table 派生**；分发结构（下面 `_cg_dispatch` 的 `if op == "x"` 链）
+# 保持原样，故 `protocol.dispatch_ops()` 的 AST 提取面逐位不变，仍是独立读数。
+from . import op_table as _ot  # noqa: E402
+
 # ---------------------------------------------------------------- 入口自保证 UTF-8
 # 约束（工作纪律第 15 条）：本调用必须在**任何文件/库 I/O 之前**——utf8_boot.ensure_utf8
 # 在解释器未开 UTF-8 模式时以相同 argv 重启自身（-X utf8），早于它的任何 open/stdio
@@ -631,138 +639,11 @@ TOOLS = [
 KERNEL_TOOLS = [
     {
         "name": "cg",
-        "description": "认知图接口（唯一入口）。op=route：按情境条件路由，返回相关知识 + "
-                       "建议能力名（不执行，由调用方决定）；op=read：召回/检索/按 id 取"
-                       "（长内容自动截断 2000 行 / 50KB，返回 truncated+next_offset，"
-                       "续读传 offset=next_offset，不静默丢内容）；"
-                       "op=audit：证据审计视图（只读组装，需 node_id；返回"
-                       "现值/出处链/两存备择/盲区/退役史五面；路线 C）；"
-                       "op=write：写入前按 content_kind 审核（ACCEPT 落盘 / REJECT 进负记忆 / "
-                       "DEFER 进审核队列）+ 节点间冲突检测（三级决策：情绪→反思→递归反思；"
-                       "consistency=false 可关，on_conflict=reject|defer|record）；"
-                       "gated=true 时再经主动遗忘闸门三问→四态，"
-                       "未指定 layer 时默认 contextual）；"
-                       "op=verify：外部裁决回填；op=review：审核队列；"
-                       "op=protect：写保护盘点/查询/标记/快照/历史；"
-                       "op=forget：软删除/恢复（受保护节点需 override）；"
-                       "op=goal：目标槽（第 5 篇七件套之「目标」，"
-                       "action=add|list|status；目标不进召回，只给 read 定向）；"
-                       "op=task：结构层任务实体（跨会话的工程台账，与信任/自我/协议同级；"
-                       "action=open 登记或更新（同名即同卡）、status 状态迁移"
-                       "（进行中/受阻/完成/放弃，迁 完成 时结果必填）、plan_add 追加计划变更、"
-                       "get 单卡全字段、list 清单、find 同族提示（只提示不合并）、"
-                       "session 会话装配面（进行中+近期完成）；"
-                       "任务只存骨架，中间过程不入库，任务知识走 knowledge 层）；"
-                       "op=recent：近期事件窗口（七件套之「近期事件」，"
-                       "action=add|list|clear，滚动保留最近 N 条）；"
-                       "op=identity：身份特征识别（智能论 v3.4 位置效应 + 扮演论"
-                       "三接口 memory/anchor/values，不止「用户画像」；另含存在契约"
-                       "记录 action=contract/contracts——§1.6.5/§3.2.1，结构化引用"
-                       "载体落 anchor 层不可篡改、走 admin 闸、显式非自动）；"
-                       "op=consistency：节点间自动冲突检测（三级决策：情绪→反思→"
-                       "递归反思，冲突自动触发飞轮；不能与已有条件冲突/不能违反纪律）；"
-                       "op=metacognition：独立元认知（观察自身认知的二阶单元，不参与裁决；"
-                       "action=report|trace|calibration|blindspots|trust|self_check|"
-                       "history|catalog）；"
-                       "op=self_state：自我状态层（薄自我+富索引：状态卡单例 + 关系节点，"
-                       "九项自我信息只存当前值与指针，具体任务/人物/会话/时间/信任由认知图"
-                       "按五维索引连接；action=snapshot|refresh|bootstrap|relate|relations|"
-                       "index|dimensions|audit|history|summary|catalog）；"
-                       "op=info：身份+健康+审核体系自描述；"
-                       "op=sustain：持续性自维持（常驻/心跳/自愈/会话续接；"
-                       "action=status|beat|peers|diagnose|heal|evolve|start|stop|"
-                       "resume|note|catalog；evolve=演化巡检只读盘点固化/重要性候选；"
-                       "heal 默认不动演化，须 allow_evolve=true）；"
-                       "op=scrub：记忆自净（抽查/联想/去污染/校准偏差；"
-                       "action=sample|associate|audit|decontaminate|calibrate|"
-                       "sweep|history|summary|catalog）；"
-                       "op=predict：生成式预测（候选未来，非必然未来；沿因果/时序边 + "
-                       "语义邻近经 D-002 伪因果过滤门生成局部路线，输出 uncertainty_bound / "
-                       "extrapolation_validity / T_pred 四维评分；支持盲区驱动与命中反馈 "
-                       "action=routes|feedback|stats|catalog）；"
-                       "op=causal：因果推理（causal 边 = 条件依赖因果；action=path 可达性 / "
-                       "gate 伪因果过滤门 / chain 因果链 / explain 解释 / catalog）；"
-                       "op=evolution：演化账本（md 载体 `_evolution/ledger.md`，"
-                       "每一次修改 = 对一条缺失条件的补充，记录认知规律与状态而非实现；"
-                       "action=record|entries|show|history|patterns|summary|rollback|catalog，"
-                       "rollback 撤回某条演化的状态且撤销本身也留痕）；"
-                       "op=index_code：按目录（大域）索引代码，只存注释/接口，"
-                       "code_ref 指回源文件，不复制完整代码（后缀按提取器注册表："
-                       ".py 走精确 AST、.ts/.js 为弱提取器；返回 truncated 截断状态"
-                       "与 skipped_suffixes 覆盖缺口，不再静默不完整）；"
-                       "op=index_doc：按目录索引 md 文档的**章节**（只切 level<=3，"
-                       "只存标题+摘要、不存全文），doc_ref 指回原文行区间；layer 与"
-                       "密级显式声明（默认 knowledge/internal，路径命中私有提示降为 "
-                       "private）；正文里的 --- 与围栏代码块内的 # 不会被误切；"
-                       "op=ref：ref 协议入口（action=read 按 code_ref/doc_ref 回读源区间 / "
-                       "check 漂移·悬空巡检 / stat 看 _refindex.json 水位）。read 需 "
-                       "node_id 或 ref 对象，root 可覆盖；返回 text 与 hash_match，"
-                       "hash_match=False 即源已漂移、索引位置不再可信；check 只读、不抛、"
-                       "不改源文件，报 stale（源已改动）/dangling（源文件已删除）；"
-                       "op=whitebox：显式调用白箱能力库（AEIS 已下线为本地库）并验证其"
-                       "编码/已有知识回答能力（action=ask|remember|verify_encoding|"
-                       "verify_existing|ping|report；结论写回 self 层留痕）；"
-                       "op=theory：协议版本层（action=check|show|declare|catalog）；"
-                       "op=link：蜂群互联层（对端信任 P_trust + 跨节点证据存储；"
-                       "action=ls|show|handshake|observe|promote|degrade|isolate|"
-                       "withdraw|decay|policy|card|publish|peers|evidence|export|"
-                       "import|catalog；"
-                       "另有节点**派生溯源**（区别于对端信任）：derive 列边、"
-                       "derive_dangling 悬空巡检（只读、不删边）、derive_catalog 自描述、"
-                       "derive_rebuild 按 frontmatter 重建台账（默认预演）；权威声明只在"
-                       "节点写入时产生（write/remember 的 derived_from），本层不新增写入口）；"
-                       "op=session：会话三件套（action=note 写要点 / recall 续接 / "
-                       "compact 压摘要；hook 缺失时的库侧替代——载体负责「何时做」、库保证"
-                       "「一次调用就够用」；note 与 compact(note=True) 需 can_write，recall 只读）；"
-                       "op=ingest：文件摄取（action=file|dir|jsonl|stat|hive；写链需 can_write，"
-                           "支持 dry_run 预演与 incremental 增量去重、watermark 留痕；"
-                           "mine_fix_pairs 全入口默认关（先落账后挖矿，显式开启走 propose 队列）；"
-                           "hive=蜂巢任务事件源——path=hive/jobs 目录或 env MDCG_HIVE_JOBS，"
-                           "只落 contextual，error 事件自动 private）；"
-                       "op=export：全库导出（action=graph|nodes|slice|stat；导出整库属管理"
-                       "操作，一律 require_admin）；"
-                       "op=maintain：记忆维护（action=stat|history|importance|longterm|"
-                       "prefeed|separate|rollback|backfill|cap|exempt|vision_evidence|refine|"
-                       "propagate 及其 *_history；propagate = 验证态的**多跳**失效传播巡检"
-                       "（默认预演，apply 需 admin）；权限按 action 分档：只读放行、prefeed "
-                       "写入需 can_write、批量改写与 rollback 需 admin；dry-run 只出报表不改盘）；"
-                       "op=consolidate：离线固化（action=promote 提升 | induce 归纳 | "
-                       "contextualize 语境化，及其 _rollback/_history；批量提升属管理操作，"
-                       "一律 require_admin）；"
-                       "op=insight：洞察（action=window|record|verify|list|report|"
-                       "reconstruct|learn|outlook|catalog|fork|branch_rewrite|branch_search|"
-                       "branch_merge|branch_discard|branches|tickets；权限按 action 分档：只读放行、"
-                       "条件记账与分支写需 can_write、落库 apply 与分支弃置需 admin）；"
-                       "op=ccg：CCG 六要素编译器（action=compile|review|attest|link|"
-                       "recalibrate|units|catalog；入参统一在 ccg 对象里）。"
-                       "把对话记录编译为六要素候选 → **编外复核**（裁定 A：编译者不得自证，"
-                       "E041 机械拒绝）→ 落库；复核优先走蜂巢 reflect/verify 单元，"
-                       "蜂巢不可用则提示配置，或显式 allow_degrade 降级 harness 端子代理。"
-                       "op=status：**可验证记忆单元**读面（验证态 unverified|verified|"
-                       "doubted|expired|rechecking + 依赖 depends_on + 双时间轴 valid_from/"
-                       "valid_until + 履历台账）；给 node_id 看单节点全貌、不给看全库摘要、"
-                       "action=ledger 读台账。所有读面返回体统一带 status_head 状态头"
-                       "（✓已验证 / △已修改 / !异常 / ?存疑），hint 亦升级为该格式"
-                       "（MDCG_STATUS_HEAD=0 回退旧文本）。"
-                       "op=edges：**三元组反查**读面（阶段二 4.2）：按派生边任意端 / "
-                       "谓词 / 时间反查「这条记忆从哪来、谁由它派生」——subject/predicate/"
-                       "object ≡ child/relation/parent（`derived_from` 派生的三元组）。"
-                       "支持排序（ordering=desc 按写入时刻新→旧，缺省/asc）、分页"
-                       "（offset/limit）、**分页前全集**聚合（aggregation=by_relation|"
-                       "by_parent|by_child）、端点索引摘要（expand_nodes=true）。"
-                       "时间条件缺省走**观察轴**（派生边只有写入时刻 t，无效力声明）"
-                       "——与 op=read 缺省效力轴**有意不同**，由库层单点校验。"
-                       "op=state_event：状态事件记账（追加一条五元事件"
-                       "subject/slot/old/new/kind；actor 恒取令牌；"
-                       "查询走 stg(op=state_chain)）。",
+        # issue #133 + #140：description 由单点表拼接（前缀 + 各 op 段落，
+        # 按 doc_order 逐字复原）——不再手写这 5KB 段落文本。
+        "description": _ot.cg_description(),
         "inputSchema": _s("",
-            op=_p("string", "route|read|write|verify|review|protect|identity|"
-                            "consistency|metacognition|self_state|evolution|sustain|"
-                            "scrub|predict|causal|"
-                            "forget|goal|task|recent|state_event|info|index_code|"
-                            "index_doc|ref|whitebox|"
-                            "theory|link|session|ingest|export|maintain|consolidate|"
-                            "insight|ccg|status|edges|audit|help", True),
+            op=_p("string", _ot.op_enum(), True),
             ccg=_p("object", "CCG 六要素编译器入参：{action, node_id, dialog, marks, "
                              "slots, strict_spans, role, verdict, verifier, compiled_by, "
                              "evidence, slot_corrections, model, jobs, blocking, wait_s, "
@@ -1115,7 +996,7 @@ KERNEL_TOOLS = [
                        "flag MDCG_STG_STATE 默认关）。"
                        "四个 op 均可用 time_axis 切换时间轴（缺省 observed）。",
         "inputSchema": _s("",
-            op=_p("string", "relation|timeline|anchors|consistency|state_chain", True),
+            op=_p("string", _ot.stg_op_enum(), True),
             a=_p("string", "relation 的节点 a"), b=_p("string", "relation 的节点 b"),
             time_window=_p("array", "anchors 的时间窗 [t1,t2]"),
             bbox=_p("array", "anchors 的包围盒 [x1,y1,x2,y2]"),
@@ -1872,41 +1753,16 @@ def _scrub_call(cg, a):
 # 处置：签名明确指向非默认 action → 按签名推导并透出 action_derived/hint_action；
 # 无签名可依 → 维持默认执行但同样透出标记，让「按默认走」可见而非静默。
 # 判据用「键存在且非 None」（False / 0 / "" 属显式传入），避免真值判断误吞。
-_ACTION_SIGS = {
-    "review":  (("decision", "decide"), ("node_id", "verify_record")),
-    "recent":  (("text", "add"), ("content", "add")),
-    "goal":    (("goal", "add"), ("action_hint", "add")),
-    # task：**写意图优先、读意图最后**。name→open 先命中——open（upsert）本身
-    # 兼容 plan/result/change 全字段，故「name+change」同传也不会丢信息；把
-    # change→plan_add 放其后，只在「只给 change」时才是纯追加变更。node_id→get
-    # 置于末位：否则「node_id+change」会被静默当成只读（写意图被吞，
-    # 与 review 的 `pid+decision` 静默走 list 同构）。
-    "task":    (("name", "open"), ("task_status", "status"),
-                ("result", "status"), ("change", "plan_add"),
-                ("node_id", "get")),
-    "predict": (("hit", "feedback"), ("predicted_node_id", "feedback"),
-                ("actual_node_id", "feedback")),
-    "session": (("summary", "note"), ("text", "note"), ("content", "note")),
-    "insight": (("statement", "record"),),
-    "whitebox": (("questions", "verify_existing"), ("question", "ask"),
-                 ("message", "ask"), ("query", "ask"),
-                 ("marker", "verify_encoding"),
-                 ("content", "remember"), ("text", "remember")),
-}
+#
+# issue #133 + #140：本表**不再手写**——真源是 `md_cg/op_table.py` 的 `_OP_TABLE`
+# 每个 op 的 `sigs` 字段（此处只是派生视图）。task 的次序语义（写意图优先、读意图
+# 最后）原样保留在表内，见 op_table 的 task 条目。
+_ACTION_SIGS = _ot.action_sigs()
 
 # op → 分支内缺省 action 字面量。**仅供缺省透出提示，不参与执行**；与各
 # _xxx_call / 分支里的 `a.get("action") or "<默认>"` 保持同步（同源守卫见
-# test_action_derive.py）。
-_ACTION_DEFAULT = {
-    "theory": "check", "link": "ls", "scrub": "sweep", "forget": "forget",
-    "protect": "stats", "identity": "profile", "consistency": "check",
-    "metacognition": "report", "self_state": "snapshot", "predict": "routes",
-    "causal": "path", "evolution": "summary", "sustain": "status",
-    "goal": "list", "task": "list", "recent": "list", "review": "list", "session": "recall",
-    "ingest": "stat", "export": "stat", "maintain": "stat",
-    "consolidate": "promote", "insight": "outlook",
-    "ccg": "compile", "ref": "read", "whitebox": "ping",
-}
+# test_action_derive.py）。issue #133 + #140：真源同上（`_OP_TABLE[*]["default_action"]`）。
+_ACTION_DEFAULT = _ot.action_default()
 
 
 # 生效条件：op == "ingest" 时若 str(a.get("path") or "").strip() 非空，则按 a.get("patterns") 为真值→("dir","patterns")、该 path 小写以 ".jsonl" 结尾→("jsonl","path(*.jsonl)")、否则→("file","path")；其他 op 按常量 _ACTION_SIGS.get(op, ()) 的顺序取第一个 key 存在于 a 且 a.get(key) is not None 的项返回 (act, key)，无匹配则返回 (None, None)；

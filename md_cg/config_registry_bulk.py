@@ -334,6 +334,7 @@ ENV_ROWS = [
     ('PREDICTION_META_PROXY', 'CALIB', 'calib', 'env', True, "'unmodeled_growth'", 'str', 'enum', 'PREDICTION_META_PROXY', 'enum', 'env_literal', 'md_cg/predict.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('IMGSKILL_BACKEND', 'TUNE', 'tune', 'env', True, "'auto'", 'str', 'enum', 'IMGSKILL_BACKEND', 'enum', 'env_literal', 'md_cg/imgskill.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('IMGSKILL_PILLOW', 'TUNE', 'tune', 'env', True, 'None', 'str', 'on', 'IMGSKILL_PILLOW', 'on', 'env_flag', 'md_cg/imgskill.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 允许（=="0" 显式禁用 Pillow 后端）', 'unknown', ''),
+    ('MDCG_PLAIN_CACHE_MAX', 'TUNE', 'tune', 'env', True, '256', 'str', 'value', 'MDCG_PLAIN_CACHE_MAX', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省：未设 = 256（解密明文缓存条目上限，超出按插入序淘汰最旧）', 'unknown', ''),
 ]
 
 # 环境面**分类登记**（只登记「属于环境面」与值域类型；**不登记缺省值**）

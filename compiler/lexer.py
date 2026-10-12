@@ -60,6 +60,12 @@ class TokenType(Enum):
     DENGYU = auto()       # 等于
     DAYU = auto()         # 大于
     XIAOYU = auto()       # 小于
+    # issue #127（2026-10-12）：否定比较词——此前词法表缺这三词，`不小于`
+    # 被切成 IDENTIFIER('不') + XIAOYU('小于')，parser 合并成 `甲不 < 乙`，
+    # 语义与字面**相反**（后端 CMP_GE/CMP_LE/CMP_NE 早已就绪，纯前端缺接线）。
+    BUDENGYU = auto()     # 不等于
+    BUDAYU = auto()       # 不大于
+    BUXIAOYU = auto()     # 不小于
     
     # === 循环关键字（当…执行：白箱循环语法）===
     DANG = auto()         # 当
@@ -132,6 +138,9 @@ KEYWORDS = {
     # 条件/逻辑
     "若", "则", "否则", "于", "为", "不为", "且", "或", "非",
     "等于", "大于", "小于",
+    # issue #127：否定比较词（长匹配优先——SORTED_KW 按长度降序，
+    # 「不小于」先于「小于」命中）
+    "不等于", "不大于", "不小于",
     # 循环（当…执行：白箱循环语法）
     "当", "执行",
     # 函数（定义…返回：函数抽象）
@@ -167,6 +176,10 @@ KEYWORD_MAP = {
     "等于": TokenType.DENGYU,
     "大于": TokenType.DAYU,
     "小于": TokenType.XIAOYU,
+    # issue #127：否定比较词 → 独立 TokenType（parser 侧映射 >= / <= / !=）
+    "不等于": TokenType.BUDENGYU,
+    "不大于": TokenType.BUDAYU,
+    "不小于": TokenType.BUXIAOYU,
     "当": TokenType.DANG,
     "执行": TokenType.ZHIXING,
     "定义": TokenType.DINGYI,
@@ -179,6 +192,27 @@ KEYWORD_MAP = {
 
 # 按长度降序排列
 SORTED_KW = sorted(KEYWORDS, key=len, reverse=True)
+
+#: CJK 标识符收集的**断开前瞻集合**（`_segment` 的 CJK 分支专用）：这些词一旦
+#: 出现在 CJK run 中途即须断开，断点落在**词首**，使主循环的最长匹配能正常发出
+#: 对应 token。内容 = 「于」+ 以「于」结尾的比较词（含 issue #127 的三个否定
+#: 比较词）。**必须是 KEYWORDS 的子集**：集合里有而词法表里没有的词会让 CJK 分支
+#: 在词首 break、主循环又匹配不到 ⇒ `ident` 为空且 i 不前进 ⇒ **死循环**。
+#: 故此处由 KEYWORDS 派生校验（见模块末尾 `_assert_break_words_are_keywords`）。
+CJK_BREAK_WORDS = ("不等于", "不大于", "不小于",
+                   "大于", "等于", "小于", "于")
+
+# 生效条件：CJK_BREAK_WORDS 每个元素都在 KEYWORDS 中时返回 None（不动作）；存在
+# 不在 KEYWORDS 的元素时抛 AssertionError 并点名——该形态会让 _segment 的 CJK
+# 分支在词首 break 而主循环匹配不到，`ident` 为空且 i 不前进 ⇒ 分词死循环。
+def _assert_break_words_are_keywords():
+    _orphans = [w for w in CJK_BREAK_WORDS if w not in KEYWORDS]
+    if _orphans:
+        raise AssertionError(
+            f"CJK_BREAK_WORDS 含非关键字 {_orphans}：该形态会让 _segment 死循环")
+
+
+_assert_break_words_are_keywords()
 
 # 中文标点映射
 PUNCTUATION_MAP = {
@@ -390,8 +424,10 @@ class Lexer:
                         # + 孤立 YU。其余关键词（乘/加/为/且…）不在此断开：
                         # 运算词内嵌于名词是合法标识符（「阶乘」「加权」），
                         # 全量前瞻会把它们切碎（见上 docstring 的整段保护规则）。
-                        if any(text.startswith(k, i) for k in
-                               ("大于", "等于", "小于", "于")):
+                        # issue #127：否定比较词（不等于/不大于/不小于）同规——
+                        # 断点须落在词首「不」，否则「甲不小于乙」被吞作
+                        # IDENTIFIER('甲不') + XIAOYU('小于')（字面相反）。
+                        if any(text.startswith(k, i) for k in CJK_BREAK_WORDS):
                             break
                         # 定向断开（安全修复）：「条件空间为X」的无空格
                         # 写法。仅当「为/不为」紧接在名词「条件空间」之后

@@ -20,6 +20,7 @@ S1b 桶收敛能少扫 5.5~10.4 倍，但**召回集合会变**（真实库一�
 7. v1 不接写入路径的增量维护（每次写都 load+save 75MB 不可接受）：**改写后请重建**；
    重建是幂等且无副作用的（不改任何节点内容）。增量（dirty 集）为下一里程碑。
 """
+import hashlib
 import io
 import json
 import os
@@ -90,37 +91,91 @@ def term_ngram_sets(terms):
     return sets, ""
 
 
-# 生效条件：index_nodes 为 dict 时返回 {"nodes": 节点数, "dir_mtimes": {相对目录: mtime_ns}, "index_mtime": 索引文件 mtime_ns}；
-# 假值时返回 {"nodes": 0, "dir_mtimes": {}, "index_mtime": None}。
-def snapshot(root: str, index_nodes) -> dict:
-    """快照指纹：节点数 + 各节点目录 mtime + 索引文件 mtime。
+# 生效条件：fp 为可读文件路径时返回其**整文件字节**的 sha256 十六进制前 16 位；open/read 抛 OSError 时返回 None（读不到即「证不出」，调用方按内容层判据收口）；不缓存、不解析、不看扩展名。
+def _file_digest(fp: str):
+    """节点文件的**整字节身份指纹**（#131；口径与 `mdcg._file_digest` /
+    `refindex._sha256_file` 同源——身份由字节定，不由时间戳定）。
 
-    为何用目录 mtime：节点写入走 fsutil.atomic_write（temp + os.replace），
-    目录 mtime 必然变化，故「目录 mtime + 节点数」能以 O(目录数) 次 stat
-    发现「发布表已过期」，无需重读/重哈希任何节点文件。
+    为什么必须与目录 mtime 并置：目录 mtime 只在**直接子项增删**时变化，
+    **同目录内容级改写**（就地追写、备份还原、同步盘回写、人手编辑）不动它。
+    实测（issue #131）：就地给节点正文追加一个词后目录 mtime 逐位不变
+    （1791742330453756100 → 1791742330453756100），而**文件** mtime 与 size
+    都变了；旧判据只 stat 目录 ⇒ `stale_reason` 判「新鲜」，S7 放心用旧表
+    收窄、把只在新正文里出现的真命中**整条剔掉**（静默丢召回）。
+
+    为什么还要第三元 sha256（而不是只比文件的 mtime_ns + size）：**mtime 可被
+    还原**——cp -p / rsync -t / tar x / robocopy /DCOPY:T / 备份还原 / 网盘同步
+    客户端回写原 mtime；粗粒度文件系统（FAT 2s、ext3 1s）下同刻度写入更是常态。
+    届时一次**等长**改写同时满足 size 相等与 mtime 相等 ⇒ 身份失配判不出来。
+    故 (mtime_ns, size) 失配即判陈旧（零额外 IO），**双双相等时再比内容哈希**
+    ——与 `mdcg._note_witness`（#80）同一范式、同一口径。
+
+    截 16 位：与全仓 sha256 系列（`mdcg._file_digest` 截 16、`refindex`
+    截 64）同族；本判据只做同/异比较、不做安全承诺。
     """
-    dirs, files = set(), {}
+    try:
+        with open(fp, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:16]
+    except OSError:
+        return None
+
+
+# 生效条件：index_nodes 为 dict 时返回 {"nodes": 节点数, "dir_mtimes": {相对目录: mtime_ns}, "file_mtimes": {根级相对文件: mtime_ns}, "node_files": {相对路径: [mtime_ns, size, sha256 前16位]}, "index_mtime": 索引文件 mtime_ns}；
+# 假值时返回 {"nodes": 0, "dir_mtimes": {}, "file_mtimes": {}, "node_files": {}, "index_mtime": None}。
+def snapshot(root: str, index_nodes) -> dict:
+    """快照指纹：节点数 + 各节点目录 mtime + 根级文件 mtime + **逐节点文件内容身份** + 索引文件 mtime。
+
+    为何用目录 mtime（第一层，廉价）：节点写入走 fsutil.atomic_write（temp +
+    os.replace），目录 mtime 必然变化，故「目录 mtime + 节点数」能以 O(目录数)
+    次 stat 发现「发布表已过期」，无需重读/重哈希任何节点文件。
+
+    为何还要 node_files（第二层，内容同源；#131）：上述断言**只对走
+    atomic_write 的合作写者成立**。非合作写者（就地追写/备份还原/同步盘回写）
+    不动目录 mtime ⇒ 第一层判不出来。本层逐节点记 (mtime_ns, size, sha256)，
+    与 `mdcg._note_witness` 同款口径，使判据与**被判对象（节点正文）同源**。
+    """
+    dirs, files, node_files = set(), {}, {}
     for e in (index_nodes or {}).values():
         p = (e or {}).get("path") or ""
+        if not p:
+            continue
         d = os.path.dirname(p)
         if d:
             dirs.add(d)
-        elif p:
+        else:
             # 根级节点（path 无目录）不能靠「根目录 mtime」判定：我们自己写的
             # _postings.json / _postings_meta.json 就在根目录，会把根目录 mtime 改掉
             # → 快照刚建就自判过期（独立复核 2026-09-19 指出）。改为逐文件记 mtime。
             files[p] = _mtime_ns(os.path.join(root or "", p))
+        fp = os.path.join(root or "", p)
+        try:
+            st = os.stat(fp)
+        except OSError:
+            node_files[p] = [None, None, None]     # 读不到即「证不出」，判据侧据此判陈旧
+        else:
+            node_files[p] = [st.st_mtime_ns, st.st_size, _file_digest(fp)]
     return {"nodes": len(index_nodes or {}),
             "dir_mtimes": {d: _mtime_ns(os.path.join(root or "", d)) for d in dirs},
             "file_mtimes": files,
+            "node_files": node_files,
             "index_mtime": _mtime_ns(os.path.join(root or "", "_index.json"))}
 
 
 # 生效条件：meta 非 dict 或 schema 不符 → 'no_meta'（无数据文件时 'no_index'）；无 snapshot → 'no_snapshot'；
 # 节点数 / 目录集合 / 目录 mtime / 根级文件集合 / 根级文件 mtime / 索引 mtime 任一不一致 → 对应 reason；
+# 旧快照无 node_files（内容层）→ 'no_content_snapshot'；节点文件集合变化 → 'node_files_changed'；
+# 逐节点 stat 失败 → 'node_file_missing'；文件 (mtime_ns, size) 或整文件 sha256 与快照不符 → 'content_changed'；
 # 全部一致 → ''（空串，代表新鲜可用）。index_nodes 为假值时返回 'no_index'。
 def stale_reason(root: str, index_nodes, meta=None) -> str:
-    """返回 '' 表示快照仍与当前索引一致；否则返回过期原因（调用方必须回退全量）。"""
+    """返回 '' 表示快照仍与当前索引一致；否则返回过期原因（调用方必须回退全量）。
+
+    判据与**被判对象同源**（#131）：`_postings.json` 索引的是**节点正文 + tags**
+    的字符 bigram，故新鲜度判据的最后一层必须落到**节点文件的内容身份**上。
+    前几层（节点数 / 目录 mtime / 根级文件 mtime / `_index.json` mtime）只覆盖
+    「合作写者」（走 atomic_write ⇒ 目录 mtime 必变）与跨进程写（`_index.json`
+    mtime 变化）；**同进程内的就地改写**两层都漏（实测：目录 mtime 逐位不变、
+    `_index.json` 不变 ⇒ 旧判据返回 ''），故补 `node_files` 内容层收口。
+    """
     if not index_nodes:
         return "no_index"
     if meta is None:
@@ -156,6 +211,33 @@ def stale_reason(root: str, index_nodes, meta=None) -> str:
             return "root_file_touched"
     if snap.get("index_mtime") != _mtime_ns(os.path.join(root or "", "_index.json")):
         return "index_touched"
+    # ---- 内容层（#131）：逐节点文件身份 = (mtime_ns, size) 快路径 → sha256 定身份 ----
+    want_nf = snap.get("node_files")
+    if not isinstance(want_nf, dict):
+        # 旧快照（本层引入前构建）无法证明「表与正文同源」——按「宁可慢，不可
+        # 丢召回」的既有承诺 fail-closed：判过期、回退全量（重建一次即补上本层）。
+        return "no_content_snapshot"
+    paths_now = set()
+    for e in index_nodes.values():
+        p = (e or {}).get("path") or ""
+        if p:
+            paths_now.add(p)
+    if set(want_nf.keys()) != paths_now:
+        return "node_files_changed"
+    for p, rec in want_nf.items():
+        fp = os.path.join(root or "", p)
+        try:
+            st = os.stat(fp)
+        except OSError:
+            return "node_file_missing"       # 快照里有、盘上没了 ⇒ 表必过期
+        if not isinstance(rec, (list, tuple)) or len(rec) < 2:
+            return "no_content_snapshot"
+        if (st.st_mtime_ns, st.st_size) != (rec[0], rec[1]):
+            return "content_changed"         # ① 快路径：时间戳/长度任一变化即陈旧
+        # ② 双双相等**不足以定身份**——mtime 可被还原（cp -p / rsync -t / 备份
+        #    还原 / 粗粒度文件系统），等长改写会同时满足两式 ⇒ 比内容哈希。
+        if rec[2] is None or _file_digest(fp) != rec[2]:
+            return "content_changed"
     return ""
 
 

@@ -136,12 +136,22 @@ class HotCache:
         if isinstance(v, (set, frozenset)):
             return tuple(sorted((HotCache._canon(x) for x in v), key=repr))
         if isinstance(v, dict):
-            # #153（2026-10-12 DSH 端）：键片段用**三元组**（"dict", 键, 值）。
-            # 修前是二元组 (键, 值)，与下面的 list/tuple/set 分支同形 ⇒
-            # `{"a": 1}` 与 `[("a", 1)]` 的 canon **逐位相同**，两个语义不同的入参
-            # 撞同一个 query 缓存键 ⇒ 静默串结果（缓存正确性缺陷，非优化项）。
-            return tuple(sorted(("dict", str(k), HotCache._canon(x))
-                                for k, x in v.items()))
+            # #153（2026-10-12 DSH 端）：键片段用**三元组**（"k", 类型名, str(键)）。
+            # 修前是 (str(键), 值) 二元组，两个缺陷：
+            #   ① 撞键：`{1: 'x'}` 与 `{'1': 'x'}` 的 canon **逐位相同**
+            #      （int 1 与 str '1' 都 str 成 "1"）⇒ 语义不同的入参命中同一
+            #      缓存键，静默串结果；
+            #   ② 抛异常：`sorted(...)` 对 (str, 值) 二元组排序，键相同则比到
+            #      **值**——`_canon({1: None, '1': (1, 2)})` 比 None 与 tuple
+            #      ⇒ `TypeError: '<' not supported between instances of
+            #      'tuple' and 'NoneType'`，异常从 `search_rrf` 逃出（检索
+            #      入口整体 500）。context 是模型可控入参，形态不可信。
+            # 故：片段里带 `type(k).__name__` 消撞键；排序键**只取片段**
+            # （`key=lambda kv: kv[0]`，全是 str 元组 ⇒ 恒可比，不触值）。
+            return tuple(sorted(
+                ((("k", type(k).__name__, str(k)), HotCache._canon(x))
+                 for k, x in v.items()),
+                key=lambda kv: kv[0]))
         # 其余（含自定义对象/可调用）：repr 含内存地址 → 每次不同 →
         # 缓存永不命中（等价绕行），是**安全侧**失败（不串味）。
         return ("repr", repr(v))
@@ -172,7 +182,24 @@ class HotCache:
             return None
         self._stats["query_hits"] += 1
         self._queries.move_to_end(key)
-        return results, dict(meta)
+        # #153①（2026-10-12 DSH 端）：**出口一律深一层浅拷贝**——修前只
+        # `dict(meta)` 拷贝了 meta，`results` 是**缓存内部 list 的引用**：
+        # 调用方（检索后处理 / 排序 / 截断 / 上层 append）对返回值的任何原地
+        # 修改都会**写回缓存**，下一次命中就拿到被污染的「结果」——别名污染
+        # 是静默错答（不是性能问题）。行内元素 dict 同样按引用共享（`bm25`
+        # 的 rows 是 `(node_dict, score)`），故逐行浅拷贝、行内 dict 再拷贝。
+        return [HotCache._copy_row(r) for r in results], dict(meta)
+
+    @staticmethod
+    def _copy_row(row):
+        """query 结果行的**浅拷贝**（#153①）：list/tuple 保持原容器类型，
+        容器内的 dict 元素另拷一份，其余标量原样。"""
+        if isinstance(row, dict):
+            return dict(row)
+        if isinstance(row, (list, tuple)):
+            items = [dict(x) if isinstance(x, dict) else x for x in row]
+            return tuple(items) if isinstance(row, tuple) else items
+        return row
 
     def put_query(self, query, results, meta, k=20, layer=None,
                   session=None, branch=None, validity=None, view=None,

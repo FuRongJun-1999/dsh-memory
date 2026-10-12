@@ -356,6 +356,92 @@ def loads(text: str):
     return fm, content
 
 
+# 生效条件：fm 为任意值、content 为节点正文（str 或 None，仅供后续扩展使用，当前判据不读它）时——fm 非 dict 返回单元素问题清单；否则逐项校验**下游按类型直接消费**的字段（condition_space/subgraph 须 dict，tags/non_applicable_conditions 须 list/tuple，importance/confidence/created_at/access_count/last_access/evidence_count 须 number，id/layer/role/sensitivity/verification_basis 须 str，bool 一律不算 number），返回按发现顺序的问题描述列表；全部合法（含字段缺省）返回空列表 []。无副作用、不抛异常。
+def frontmatter_problem(fm, content=None) -> list:
+    """单节点 frontmatter 的**类型可用性**判据（唯一单点，issue #146）。
+
+    病象（issue #146 现场）：`loads()` 对解析失败的取值行**保留原字符串**
+    （`except ValueError: fm[k] = v`）——一个手改漏了 `}` 的
+    `condition_space: {"a": 1` 就变成 `str`；随后 `MdCG._node_entry` 的
+    `(fm.get("condition_space") or {}).get(...)` 对 str 直接 `.get` 抛
+    AttributeError，且该调用在 `_scan_nodes` 的 `try` **之外** ⇒ 异常逃出
+    `MdCG.__init__`：**整库打不开、MCP 服务起不来**（一个坏文件炸全库）。
+    密级行改坏同族：`sensitivity` 变成非法值后 `_rank` 抛 AccessDenied，
+    炸全员检索。
+
+    为什么单点在这里：`loads` 是 fm 的唯一来源，而「哪些字段会被下游按类型
+    消费」是格式契约的一部分（与 `dumps` 的字段集同源）。判据写在读侧第二处
+    （如 `_scan_nodes` 内联、`get` 内联）就是两份判据各自漂移的老路——本仓
+    反复出现的缺陷族（见 `ccg_value_has_break` / `ccg_mark_present` 的同款
+    单点动因）。
+
+    边界（如实）：
+      · **只判类型，不判取值域**——`sensitivity` 的合法取值域在
+        `security.SENSITIVITY_ORDER`（本模块不 import security，免循环依赖），
+        由 `mdcos` 侧消费本判据时另判（#146③）。
+      · **缺省（None）一律合法**：存量节点本就不带这些键，本判据不得把
+        「未声明」判成「损坏」。
+      · bool **不算** number（`True` 是 `int` 子类，落盘会成 `importance: true`
+        ——与 add 拒 `node_id=True` 同款理由）。
+    """
+    if not isinstance(fm, dict):
+        return ["frontmatter 不是对象：%s" % type(fm).__name__]
+    problems = []
+
+    def _bad(key, want, got):
+        problems.append("%s 类型非法：期望 %s，实为 %s"
+                        % (key, want, type(got).__name__))
+
+    # (1) 下游直接取映射的字段：非 dict 即 AttributeError
+    #     （(fm.get("condition_space") or {}).get(...)）。
+    for _key in ("condition_space",):
+        _v = fm.get(_key)
+        if _v is not None and not isinstance(_v, dict):
+            _bad(_key, "dict", _v)
+    # (1)' subgraph 不是 dict-only：subgraph.declared() 兼容三种写法
+    #     （{nodes: [...]} / 纯 id 列表 / 内联对象列表）——list 形态是
+    #     合法的存量形态（md_cg 引用式写入即用 list）。只拒既非映射也
+    #     非序列的形态：写成 dict-only 会让 p8 的 subgraph=["a","b"]
+    #     被误判为损坏、整节点不可读（回归现场(2)）。
+    _v = fm.get("subgraph")
+    if _v is not None and not isinstance(_v, (dict, list, tuple)):
+        _bad("subgraph", "dict/list", _v)
+    # (2) 下游直接迭代/拼接的列表字段：str 会被逐字符迭代（静默错值）。
+    for _key in ("tags", "non_applicable_conditions", "edges"):
+        _v = fm.get(_key)
+        if _v is not None and not isinstance(_v, (list, tuple)):
+            _bad(_key, "list", _v)
+    # ②' 依赖/派生声明：`trust.as_deps` / `provenance.as_list` 明确容错
+    #     单值与逗号串（写路径归一为列表，但存量/外部手写件可能仍是串）
+    #     ⇒ 只拒「既非序列也非字符串」的形态，不把合法的单值形态误判为损坏。
+    for _key in ("depends_on", "derived_from"):
+        _v = fm.get(_key)
+        if _v is not None and not isinstance(_v, (list, tuple, str)):
+            _bad(_key, "list/str", _v)
+    # ③ 下游按数值直接消费的标量：str 会让排序/格式串异常，且
+    #    `float("0.5}")` 抛 ValueError 把读面炸掉。
+    for _key in ("importance", "confidence", "created_at", "access_count",
+                 "last_access", "evidence_count", "positive_evidence",
+                 "negative_evidence"):
+        _v = fm.get(_key)
+        if _v is None:
+            continue
+        if isinstance(_v, bool) or not isinstance(_v, (int, float)):
+            _bad(_key, "number", _v)
+    # ④ 下游按字符串消费的标量（`str` 之外的形态会静默变成 repr 文本）。
+    # id 不在此列：存量毒文件（旧版本 add(123) 写出 / 外部编辑器落下的
+    # id: 123）是 legacy P3 的自愈腿——_scan_nodes 一律 str(nid) 归一后
+    # 入索引（归一是消费点的职责）。此处判损坏会让该腿失效：毒节点从
+    # 索引里消失、经归一 id 也读不回（回归现场(1)）。写面拒写与读面自愈
+    # 各司其职，判据不越权。
+    for _key in ("layer", "role", "sensitivity", "verification_basis",
+                 "writer", "session", "content_kind"):
+        _v = fm.get(_key)
+        if _v is not None and not isinstance(_v, str):
+            _bad(_key, "str", _v)
+    return problems
+
+
 # 生效条件：value 的 str 形态含 "\n" 或 "\r" 时返回 True，否则 False。
 def ccg_value_has_break(value) -> bool:
     """CCG 行值是否含换行——含换行即可注入一行伪造的独立正文行。

@@ -3,8 +3,9 @@
 
 【为什么】
 MCP 工具的 op 参数空间全量 schema 常驻调用方上下文：kernel 暴露面（cg+stg）
-达 ~20k 字符，其中 cg 一个工具就有 169 个参数——绝大多数是「长尾 op 专属参数的
-解释文字」，只在少数场景才需要，却每次会话都要付费注入。
+达 ~20k 字符，其中 cg 一个工具的参数面就占绝大部分——绝大多数是「长尾 op 专属
+参数的解释文字」，只在少数场景才需要，却每次会话都要付费注入。
+（此处**不写死参数个数**：修前写的「169 个参数」早已陈旧，与 schema 实况不符。）
 
 pi 的做法（`system-prompt.ts:82-84` 工具只以一行 snippet 常驻系统提示，完整描述
 只进 API tools 字段；`skills.ts:355-383` 索引常驻、正文按需 read）证明：
@@ -30,6 +31,8 @@ from __future__ import annotations
 import os
 import re
 
+from . import op_table as _ot
+
 FULL_ENV = "MDCG_TOOL_FACE"
 
 # --------------------------------------------------------------------------
@@ -37,10 +40,20 @@ FULL_ENV = "MDCG_TOOL_FACE"
 # --------------------------------------------------------------------------
 CG_HELP_HINT = '完整 op/参数语义：cg(op="help", query="<op 名 | 参数名 | 工具名>")'
 
+
+# 生效条件：无入参；返回 cg 的一行职责（op 计数由 `md_cg/op_table.py` 的
+# `_OP_TABLE` **动态**派生，不再写死数字——issue #133 + #140：修前这里写死的
+# 计数早已陈旧（与枚举串/段落/dispatch 三方互不对账）。
+def cg_brief() -> str:
+    return ("灵枢认知图唯一入口（%d op：写/读/审/护/演化/元认知/预测/白箱/验证态 status/"
+            "三元组反查 edges…）。" % len(_ot.op_names())) + CG_HELP_HINT
+
+
 TOOL_BRIEFS = {
-    "cg": "灵枢认知图唯一入口（34 op：写/读/审/护/演化/元认知/预测/白箱/验证态 status/"
-          "三元组反查 edges…）。" + CG_HELP_HINT,
-    "stg": "语义时空图 4 op：relation|timeline|anchors|consistency。" + CG_HELP_HINT,
+    "cg": cg_brief(),
+    # stg 的 op 计数同样由单点表派生（issue #133 + #140）。
+    "stg": ("语义时空图 %d op：%s。" % (len(_ot.stg_ops()), "|".join(_ot.stg_ops()))
+            + CG_HELP_HINT),
     "mdcg_remember": "写入记忆节点（gated=true 走主动遗忘闸门；正文建议含 CCG 五要素）。",
     "mdcg_recall": "按 token 预算召回记忆包（RRF 多路融合，可开模糊/条件语义路与查询扩展）。",
     "mdcg_search": "精确检索（T0–T3 阶梯 + 四态资格判定）。",

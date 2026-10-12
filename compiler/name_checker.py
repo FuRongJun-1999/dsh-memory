@@ -833,7 +833,30 @@ class NameChecker:
             self._check_expression(expr.left)
             self._check_expression(expr.right)
         elif expr.type == NodeType.COMPARISON:
-            self._check_expression(expr.left)
+            # issue #127 止血（2026-10-12）：词法表缺「不小于/不大于/不等于」
+            # 时，`甲 不小于 乙` 被切成 IDENTIFIER('不') + XIAOYU('小于')，
+            # parser 的 _merge_identifiers 合并成 IdentifierNode('甲不') +
+            # 比较符 '<'——名实校验只报「'甲不' 未声明」，把「否定比较词当前
+            # 不支持」这个真因藏在误导性的未声明错误后面（字面还相反）。
+            # 治本已在 lexer（三词入表 + 断点落在词首），此处保留一条**可操作
+            # 的改写提示**兜底残留形态（如用户误写「甲不 小于 乙」）。
+            left = expr.left
+            _ln = str(getattr(left, "name", "")) if left is not None else ""
+            if (left is not None and left.type == NodeType.IDENTIFIER
+                    and expr.op in ("<", ">", "==")
+                    and len(_ln) > 1 and _ln.endswith("不")):
+                # 按被切出的运算符回推用户意图的**否定比较词**（字面相反）：
+                #   `甲不 < 乙`  ← 甲 不小于 乙（>=）
+                #   `甲不 > 乙`  ← 甲 不大于 乙（<=）
+                #   `甲不 == 乙` ← 甲 不等于 乙（!=）
+                _want = {"<": "不小于", ">": "不大于", "==": "不等于"}[expr.op]
+                _operand = _ln[:-1]          # 去掉尾字「不」
+                self.errors.append(
+                    f"L{left.line}:C{left.column} 否定比较词当前不支持"
+                    f"（源码被切成 '{_ln}' + '{expr.op}'，字面与否定词相反）——"
+                    f"请改写为 `若 {_operand} {_want} … 则 …`")
+            else:
+                self._check_expression(expr.left)
             self._check_expression(expr.right)
             # 额外检查：信任值比较的合理性
             self._check_trust_comparison(expr)

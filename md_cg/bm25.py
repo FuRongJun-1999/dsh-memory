@@ -31,6 +31,22 @@ STREAM_THRESHOLD = 32768
 _WORDS = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]+|[^\W_\u3400-\u9fff\uf900-\ufaff]+")
 
 
+class _PoolEntries(list):
+    """候选池的**防御性副本**（#153①）：内容与缓存池逐位一致，但容器独立
+    ——调用方原地修改不会写回 `cg._bm25_candidate_pool`。
+
+    携带 `pool_key`：`candidate_pool` 的缓存命中判定是「同一 nodes / 同一
+    dirty / 同键」，而 `BM25Index.sync` 原先用**对象同一性**判「这一批 entries
+    还是上一批」；返回副本后同一性必然失配 ⇒ 池复用恒失效。把池键随副本带
+    过去，`sync` 改看池键即可（语义等价，且对拷贝透明）。
+    """
+    __slots__ = ("pool_key",)
+
+    def __init__(self, items, pool_key):
+        super().__init__(items)
+        self.pool_key = pool_key
+
+
 def tokenize(text):
     """Unicode words/numbers; Han unigrams + adjacent pairs, no stemming."""
     for word in _WORDS.findall(text.lower()):
@@ -77,10 +93,21 @@ def candidate_pool(cg, **options):
     saved = getattr(cg, "_bm25_candidate_pool", None)
     if saved and saved[0] is nodes and saved[1] is dirty and saved[2] == key:
         cg._time_filter_stat = None
-        return saved[3]
-    entries = cg._candidates(**options)
+        # #153①（2026-10-12 DSH 端）：**返回防御性副本**——修前直接
+        # `return saved[3]` 把缓存内部 list 交出去，调用方任何原地修改
+        # （append/pop/sort）都写回缓存，下一次同键命中即拿到被污染的候选池
+        # （别名污染 = 静默错答）。元素是索引条目 dict，本函数不拥有它们，
+        # 调用方按约定只读（与 mdcos `_inbox_recs` 的「调用方只读不得变更」
+        # 同款边界）——本层要防的是**容器本身**被改。
+        # 副本携带 `pool_key`：`BM25Index.sync` 的「同一池」复用判定原先靠
+        # `self.entries is entries` 的**对象同一性**，拷贝会让它恒判换池
+        # （池复用失效、build_reads 回退，test_bm25 实测转红）——故把池键
+        # 随副本带过去，复用判定改看池键（等价语义，且对拷贝透明）。
+        return _PoolEntries(saved[3], saved[2])
+    entries = _PoolEntries(cg._candidates(**options), key)
     cg._bm25_candidate_pool = (nodes, dirty, key, entries)
-    return entries
+    # 首次构建也返回副本：缓存内那一份只作复用源，任何调用方都拿不到它。
+    return _PoolEntries(entries, key)
 
 
 def _build_reads(cg, entries, report, stream):
@@ -230,7 +257,15 @@ class BM25Index:
         self.broad_gen = dirty.broad_gen if cached else -1
         first = not self.initialized
         report["cache_mode"] = "path_generations" if cached else "uncached_rebuild"
-        if (cached and self.initialized and self.entries is entries
+        # #153①：候选池改由 `candidate_pool` 返回**防御性副本**，故「同一批
+        # entries」不再能靠对象同一性判——副本携带池键（`_PoolEntries.pool_key`）
+        # 时按池键判等；无池键（直调 `cg._candidates` 的路径）回落原同一性判据。
+        _pool_same = self.entries is entries
+        if not _pool_same:
+            _ek = getattr(entries, "pool_key", None)
+            _sk = getattr(self.entries, "pool_key", None)
+            _pool_same = _ek is not None and _ek == _sk
+        if (cached and self.initialized and _pool_same
                 and self.write_gen == dirty.write_gen
                 and len(self.docs) == len(self.allowed)):
             report.update(documents=len(self.docs), tokens=self.total_length,

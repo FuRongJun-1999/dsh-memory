@@ -30,6 +30,7 @@ def _brief(st):
     if isinstance(snap, dict):
         out["dirs"] = len(snap.get("dir_mtimes") or {})
         out["root_files"] = len(snap.get("file_mtimes") or {})
+        out["node_files"] = len(snap.get("node_files") or {})   # #131 内容层规模（只报计数）
     return out
 
 

@@ -18,8 +18,10 @@
 两者由 `audit()` 的 `action_source` / `protect_neg_route` 段透出，并由 `test_protocol`
 的**同源源码守卫**钉住 mcp_server / protect 的实现（防「声明了没做」）。
 
-**协议面 ≠ MCP 面全量**（2026-09-19 实测）：`_cg_dispatch` 现有 35 个 op 分支，
-其中 30 个（ccg / review / protect / verify / whitebox …）属**扩展能力面**——它们是能力，
+**协议面 ≠ MCP 面全量**（2026-09-19 实测，issue #133 复核）：`_cg_dispatch` 有数十个
+op 分支（**确切数目不在此写死**——取 `audit()["actual"]`，或真源
+`md_cg/op_table.py::_OP_TABLE`；修前此处写死「35 个」，已陈旧），
+其中除五动词外的（ccg / review / protect / verify / whitebox …）属**扩展能力面**——它们是能力，
 不是协议违例。把「协议覆盖范围」当成「MCP 面全量」会让协议每加一个 op 就永久红灯，
 故反向对账降级为 `extension_ops` 报告项（清单可见、不 FAIL）；扩展面的文档一致性由
 README 认知图 + `docs/mdcg/功能调用映射表` 的 cogmap 门禁承担（已在 CI）。

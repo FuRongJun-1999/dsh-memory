@@ -666,11 +666,22 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
                     `【本会话近期对话】\n${winText}`)),
                 })
               }
-            } catch { /* 静默：窗口取数失败不影响请求，也不影响既有块 */ }
+            } catch (err) {
+              // issue #128（2026-10-12）：**空 catch 改为显式回报**。此前这里是
+              // 一个静默空 catch——窗口取数失败（含桥未实现该方法、
+              // session_recall 报错）在盘面与日志面**双双无痕**，与「本会话确实
+              // 没有近期对话」不可分辨（自动召回块「从未注入成功」正是靠这个
+              // 静默吞掉的）。失败仍不得越过会话流边界（不抛），但必须留痕。
+              ctx.logger.warn(`dsh-memory: 本会话窗口注入失败（已跳过该块）: ${(err as Error).message}`)
+            }
           }
         }
       }
-      catch { /* 静默：召回失败不影响请求 */ }
+      catch (err) {
+        // issue #128：同上——召回取数/渲染失败此前被空 catch 吞成「无痕」，
+        // 现改为显式回报（不抛，仍不阻塞模型请求）。
+        ctx.logger.warn(`dsh-memory: 自动召回注入失败（已跳过该块）: ${(err as Error).message}`)
+      }
       return next()
     })
   }

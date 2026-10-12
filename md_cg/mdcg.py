@@ -19,6 +19,7 @@ P0 风险（基线功能）：
 import os
 import re
 import json
+import math
 import time
 import atexit
 import weakref
@@ -1548,6 +1549,39 @@ def _check_sensitivity_landing(node_id, fm_sensitivity, declared, sealed,
     return None
 
 
+# 生效条件：field 为字段名（str）、value 为待落盘数值——value 非 bool 且经 float() 可转为 [0, 1] 区间内的**有限数**时返回该 float，否则抛 ValueError（文案点名字段、原值、允许域与理由）。
+def _require_unit_number(field, value) -> float:
+    """写侧数值守卫单点（#151②）：[0, 1] 有限数，否则 fail-closed。
+
+    为什么**非有限视同非法**（与 `reach._ttl()` 同款判据，特征串
+    `if not math.isfinite(v) or v <= 0:`）：
+      · `inf` ⇒ `importance >= protect.AUTO_PROTECT_IMPORTANCE` 恒真 ⇒
+        节点被打上**不可遗忘保护**并永久霸榜（inf 参与任何加权相乘仍是 inf）；
+      · `nan` ⇒ 一切比较恒 False ⇒ 排序不可复现（同一查询两次顺序可不同），
+        且事后无法从读数区分「没算」与「算成 nan」。
+    为什么**拒**而不回落：回落会让「填错」看起来像「填对」（与
+    `_check_sensitivity_landing` 的「静默回落 = 声明被静默改写」同向）；
+    子类 `mdcos.MdCGOS.add` 的回落语义在**更上游**，不受本单点影响。
+    判据单点化（同仓纪律）：写侧各处共用这一份，守卫可对其定点变异自证。
+    """
+    if isinstance(value, bool) or value is None:
+        raise ValueError(
+            f"非法 {field}：{value!r}——须为 [0, 1] 区间内的有限数（bool 不算"
+            f" number：落盘会成 `{field}: true`）；fail-closed 拒绝落盘（#151②）。")
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"非法 {field}：{value!r}——须为 [0, 1] 区间内的有限数（不可转"
+            f" float）；fail-closed 拒绝落盘（#151②）。")
+    if not math.isfinite(v) or not (0.0 <= v <= 1.0):
+        raise ValueError(
+            f"非法 {field}：{value!r}——须为 [0, 1] 区间内的有限数（非有限视同"
+            f"非法：inf 会触发不可遗忘保护并永久霸榜，nan 使排序不可复现）；"
+            f"fail-closed 拒绝落盘（#151②）。")
+    return v
+
+
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
 # 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引并以 _index_signature() 记录 _index.json 签名到 self._index_sig（跨进程读面代际感知的基线，P1b-2）、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
@@ -2122,9 +2156,19 @@ class MdCG:
             "derived_relation": fm.get("derived_relation"),
                     })
 
-# 生效条件：遍历模块级 LAYERS 各层目录下所有 .md 文件，读取抛 OSError 的跳过；nid 取 fm.get("id")，为假值时回落去掉 .md 的文件名；条目经 self._node_entry(p, layer, fm, content) 构造；返回按 nid 排序的 nodes；
+# 生效条件：遍历模块级 LAYERS 各层目录下所有 .md 文件，读取抛 OSError 的跳过；nid 取 fm.get("id")，为假值时回落去掉 .md 的文件名；fm 经 nodefile.frontmatter_problem 判为损坏（类型非法）或 self._node_entry(p, layer, fm, content) 抛异常者**一律隔离**（记入 self._quarantined，路径 + 原因），不进索引、不改盘、continue；其余条目经 self._node_entry(p, layer, fm, content) 构造；返回按 nid 排序的 nodes；
     def _scan_nodes(self):
         nodes = {}
+        # issue #146①：**坏文件隔离面**。修前只有「读文件」在 try 内，
+        # `nodes[nid] = self._node_entry(...)` 在 try **之外**——一个手改坏了
+        # frontmatter 的节点（漏 `}` ⇒ condition_space 成 str ⇒ `_node_entry`
+        # 的 `(fm.get("condition_space") or {}).get(...)` 抛 AttributeError）
+        # 会把异常送出 `MdCG.__init__`：整库打不开、MCP 服务起不来（一个坏
+        # 文件炸全库）。隔离口径：坏文件**不进索引、不改盘**（盘面是唯一真相
+        # 源，重建索引是派生物，绝不因读不动而回写），其余节点照常可用。
+        # 隔离清单经 self._quarantined 透出到 health / op=info（仅确有隔离时
+        # 出键，健康库键集逐位不变）。
+        quarantined = {}
         for layer in LAYERS:
             base = os.path.join(self.root, layer)
             for dirpath, _dirs, files in os.walk(base):
@@ -2151,7 +2195,26 @@ class MdCG:
                     # 写面（add）对非字符串 node_id 已 fail-closed 拒写，此处
                     # 只兜盘面既有脏数据——拒写与自愈各司其职。
                     nid = str(nid)
-                    nodes[nid] = self._node_entry(p, layer, fm, content)
+                    _rel = os.path.relpath(p, self.root).replace("\\", "/")
+                    # ① 类型可用性判据（单点，nodefile.frontmatter_problem）
+                    _prob = nodefile.frontmatter_problem(fm, content)
+                    if _prob:
+                        quarantined[nid] = {"path": _rel,
+                                            "reason": "frontmatter 损坏：" + "；".join(_prob)}
+                        continue
+                    # ② 判据之外仍可能抛（下游消费面比类型判据更宽）——兜底
+                    #    收口在此，异常**不得**逃出装载路径（#146①的根因）。
+                    try:
+                        nodes[nid] = self._node_entry(p, layer, fm, content)
+                    except Exception as exc:                   # noqa: BLE001
+                        quarantined[nid] = {
+                            "path": _rel,
+                            "reason": "索引条目构造失败：%s: %s"
+                                      % (type(exc).__name__, str(exc)[:160])}
+                        continue
+        # 隔离清单**每次全量扫描都重建**（不累加）——扫描即盘面真相，上一次
+        # 被隔离的文件修好后本次自动回归索引（自愈腿，与 legacy P3 同向）。
+        self._quarantined = quarantined
         # 索引序确定性：按 nid 排序返回。os.walk 的遍历序是**文件系统事实**
         # （NTFS 上常为字母序，但换 FS / 目录碎片化后不保证），若直接作为
         # index["nodes"] 的物理序，就会让「完全并列」的结果顺序依赖重建路径。
@@ -2326,6 +2389,23 @@ class MdCG:
                 f"非法 node_id：{node_id!r}（空语义值的字符串化污染形态 "
                 f"{sorted(_NODE_ID_FORBIDDEN)} 禁写——会落盘成 None.md 参与检索"
                 f"（DSH 在役库实测缺陷 P3）；fail-closed，如为合法业务 id 请改名）")
+        # issue #151②（2026-10-12 DSH 端）：**数值有限性 + 范围守卫**（范式抄
+        # `reach._ttl()`：非有限视同非法）。子类 `mdcos.MdCGOS.add` 早已有
+        # 回落式守卫（#151a），但**基类 `MdCG.add` 仍裸存**——直接实例化
+        # `MdCG`（bench/迁移/脚本/测试面大量存在）填 `importance=inf` 会：
+        #   · `float("inf") >= protect.AUTO_PROTECT_IMPORTANCE` 恒真 ⇒ 节点被
+        #     打上**不可遗忘保护**且永久霸榜（inf 参与任何加权相乘仍是 inf）；
+        #   · 填 `nan` 则 `nan >= x` 恒假、`nan` 参与排序恒 False ⇒ 结果不可
+        #     复现（同一查询两次顺序可不同），且事后无法从读数区分。
+        # 处置与基类既有的 node_id/verification_basis 校验同款：**fail-closed
+        # 拒写**（抛结构化 ValueError，点名字段、值、允许域与理由），不静默
+        # 回落——回落会让「填错」看起来像「填对」（与 `_check_sensitivity_landing`
+        # 的「静默回落 = 声明被静默改写」同向）。子类回落守卫在**更上游**，
+        # 故 MdCGOS 的既有语义（非法值回落文档缺省）一字不变。
+        # 判据单点在模块级 `_require_unit_number`（同仓单点判据纪律：判据只写
+        # 一份，写侧读侧共用；守卫可对其做定点变异自证）。
+        _require_unit_number("importance", importance)
+        _require_unit_number("confidence", confidence)
         if verification_basis is not None and verification_basis not in VERIFICATION_BASIS:
             raise ValueError(f"未知验证基底：{verification_basis}（允许：{VERIFICATION_BASIS}）")
         if check_strength is not None and check_strength not in CHECK_STRENGTHS:
@@ -3487,6 +3567,13 @@ class MdCG:
         content = self._open_content(node_id, fm, content)
         if content is None:
             return None                     # 有节点但无密钥 → 不可读即不存在
+        # issue #146④：损坏 frontmatter 按**不可读**返回（None），不得把
+        # 坏 fm 透给调用方——`protect.mark` / `update_tags` / `set_state` 等
+        # 「get → 改 fm → _write_node 回写」的族类会把读出来的坏 fm 原样
+        # 写回盘面（把一次读取失败固化成一次写放大，甚至覆盖掉可人工修复的
+        # 现场）。判据单点在 `nodefile.frontmatter_problem`。
+        if nodefile.frontmatter_problem(fm, content):
+            return None
         return {"id": node_id, "frontmatter": fm, "content": content, "path": e["path"]}
 
 # 生效条件：path 为节点盘上路径、exc 为读该文件时捕获的异常；仅当 fsutil.classify_read_failure(exc) 判为瞬时（非 FileNotFoundError）时调 fsutil.note_transient_read_failure 记账并返回 True，终态（真缺）不记账返回 False；本方法不改任何控制流（读不到仍是读不到）。
@@ -3517,13 +3604,22 @@ class MdCG:
             return None, None, None
         try:
             with open(p, encoding="utf-8") as f:
-                return nodefile.loads(f.read()) + (None,)
+                fm, content = nodefile.loads(f.read())
         except UnicodeDecodeError:
             return None, None, None
         except OSError as exc:
             if self._note_read_oserror(p, exc):
                 return None, None, fsutil.READ_FAIL_TRANSIENT
             return None, None, None
+        # issue #146④：损坏 frontmatter 按**不可读**返回（三态里的「终态缺失」
+        # ——不可读即不存在，与越界/真缺同形）。修前 `_read_status` 是唯一
+        # 「读盘 → 交给调用方」的单点，坏 fm 从这里透出去：`protect.mark` /
+        # 治理面「读 → 改 → 回写」会把坏文件**原样写回**（把读取失败固化成
+        # 写放大，覆盖人工可修复的现场）。判据单点 `frontmatter_problem`，
+        # 本层只消费、不另写第二份类型判据。
+        if nodefile.frontmatter_problem(fm, content):
+            return None, None, None
+        return fm, content, None
 
 # 生效条件：等价于 _read_status(entry) 的前两项（成功 → (fm, content)；终态缺失或瞬时读失败 → (None, None)）；返回形状与语义同 C-3 修复前**逐位一致**，包内全部既有调用点（_read_many / _goal_entry / _neg_coverage / 派生物 / 治理面）不受三态面影响；
     def _read(self, entry):
@@ -5200,4 +5296,10 @@ class MdCG:
         h["ccg_by_layer"] = layer_stats
         h["neg_memory_counts"] = neg_stats
         h["skipped_unreadable"] = skipped_unreadable
+        # issue #146②：**隔离文件清单**（键只在确有隔离文件时出现——健康库
+        # 的 health 键集逐位不变，故既有守卫/调用方零感知）。报路径 + 原因，
+        # 使「某节点为什么搜不到」在体检面可回答，而不是静默消失。
+        _quar = getattr(self, "_quarantined", None)
+        if _quar:
+            h["quarantined"] = {k: dict(v) for k, v in sorted(_quar.items())}
         return h

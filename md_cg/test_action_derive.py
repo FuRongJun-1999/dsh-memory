@@ -102,6 +102,12 @@ check("A16 显式 None 不算签名",
 _MCP_SRC = open(M.__file__, encoding="utf-8", errors="replace").read()
 _WB_SRC = open(os.path.join(os.path.dirname(M.__file__), "whitebox.py"),
                encoding="utf-8", errors="replace").read()
+# issue #133 + #140：`_ACTION_SIGS` / `_ACTION_DEFAULT` 的真源已迁到
+# `md_cg/op_table.py`（mcp_server 里是派生视图），故「目标 action 是否真实存在」
+# 的扫描面须同步纳入该文件——判据强度不变（凭空写一个不存在的 action 名，
+# 三处都不含 ⇒ 仍转红）。
+_OT_SRC = open(os.path.join(os.path.dirname(M.__file__), "op_table.py"),
+               encoding="utf-8", errors="replace").read()
 # 源码中所有 `a.get("action") or "<默认>"` 形式的缺省字面量
 _pairs = set(re.findall(r'a\.get\("action"\)\s*or\s*"([a-z_]+)"', _MCP_SRC))
 # ccg 的嵌套形态：`o.get("action") or a.get("action") or "<默认>"`
@@ -119,7 +125,8 @@ check("B3 whitebox dispatch 的缺省 action=ping 真实存在（跨文件守卫
 # 推导规则的目标 action 必须真实存在于对应分支识别面（抽样防幻影推导）
 for _op, _acts in M._ACTION_SIGS.items():
     _missing = [act for _, act in _acts
-                if ('"%s"' % act) not in _MCP_SRC and ('"%s"' % act) not in _WB_SRC]
+                if ('"%s"' % act) not in _MCP_SRC and ('"%s"' % act) not in _WB_SRC
+                and ('"%s"' % act) not in _OT_SRC]
     check("B4 推导目标 action 在分支中被识别：%s" % _op, not _missing, _missing)
 
 

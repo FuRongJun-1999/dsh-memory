@@ -999,6 +999,10 @@ class Parser:
         if self.current_token and self.current_token.type in (
             TokenType.DENGYU, TokenType.DAYU, TokenType.XIAOYU,
             TokenType.WEI, TokenType.BUWEI,
+            # issue #127：否定比较词（不小于/不大于/不等于）——此前词法缺
+            # 三词导致 `不小于` 编译成 `甲不 < 乙`（字面相反）；补接线后
+            # 映射到后端早已就绪的 >= / <= / !=。
+            TokenType.BUXIAOYU, TokenType.BUDAYU, TokenType.BUDENGYU,
         ):
             op_token = self.current_token
             op_map = {
@@ -1007,6 +1011,9 @@ class Parser:
                 TokenType.XIAOYU: "<",
                 TokenType.WEI: "==",
                 TokenType.BUWEI: "!=",
+                TokenType.BUXIAOYU: ">=",
+                TokenType.BUDAYU: "<=",
+                TokenType.BUDENGYU: "!=",
             }
             op = op_map.get(op_token.type, "==")
             self._advance()

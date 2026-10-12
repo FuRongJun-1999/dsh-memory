@@ -5173,6 +5173,9 @@ class MdCGSecure(MdCGOS):
         self.kek = None
         self.dek = None
         self._crypto_error = None
+        #: #152③（2026-10-12 DSH 端）：解密产物缓存（键见 `_plain_key`）。
+        #: 显式初始化（而非惰性）：lock/unlock 的清缓存路径要能无条件命中它。
+        self._plain_cache = {}
         #: 缺陷二（2026-10-10 DSH 端独立复核）：跨身份读**计数恒完整**（与采样
         #: 开关无关）——原实现把自增放在「采样开启」之后 ⇒ 默认配置下该属性从不
         #: 被创建、越权探测信号完全丢失。此处显式初始化，使 `crypto_status()` 的
@@ -5254,6 +5257,16 @@ class MdCGSecure(MdCGOS):
 # 生效条件：无条件尝试清 readcache 并失效 hotcache；任一模块不可用/抛异常时静默跳过（缓存面清理不得阻断锁/解锁这一主路径）；
     def _invalidate_caches_on_key_change(self):
         """密钥面突变后清缓存（#152）。失败不阻断锁/解锁。"""
+        # #152③：解密产物缓存**整清**——锁后内存里不留任何明文（fail-closed
+        # 与 `get()` 的 lock 语义一致：`self.dek` 为假时 `_open_content` 恒
+        # 返 None，缓存里若还留着明文，任何绕过 `_open_content` 的读面都成了
+        # 泄漏面）。放在最前：即使下面的模块 import 失败也必须清掉明文。
+        try:
+            _pc = getattr(self, "_plain_cache", None)
+            if _pc is not None:
+                _pc.clear()
+        except Exception:                                      # noqa: BLE001
+            pass
         try:
             from . import readcache as _rc
             _rc.clear(self)
@@ -5311,6 +5324,23 @@ class MdCGSecure(MdCGOS):
         """密文解封；无密钥 / 身份不符 / **读不可见** → None（不可读），失败留审计。"""
         if content is None or not crypto.is_encrypted(content):
             return content
+        # issue #146③-a：**密级与封装形态一致性闸**（fail-closed，不抛）。
+        # 现场：`crypto._node_aad` 只绑 node_id/tenant/actor，**不绑 sensitivity**
+        # （见下方 B1 注释）——故 fm.sensitivity 是**未认证明文段**，手改密级行
+        # 即改读可见性判据：把 `sensitivity: private` 改成 `internal` 后，
+        # `_readable` 放行、密文照解 ⇒ **他人会话读到密文正文的明文**。
+        # 判据（fail-closed 不可读，而非抛异常）：密文（is_encrypted 为真）必须
+        # 配**加密档**密级（crypto.ENCRYPTED_LEVELS）；声明值缺失/非法/非加密档
+        # 一律判不可读并留审计。**不做**「把 sensitivity 绑进 AAD」——那需要
+        # 密文格式迁移，属待裁项（本批显式不做）。
+        _sens = (fm or {}).get("sensitivity")
+        if _sens not in crypto.ENCRYPTED_LEVELS:
+            crypto.audit(self.root, {"op": "read_denied", "node_id": node_id,
+                                     "tenant": self.principal.tenant,
+                                     "actor": self.principal.actor,
+                                     "reason": "密级与封装形态不一致：密文配非加密档"
+                                               "（声明=%r）" % (_sens,)})
+            return None
         # N213（2026-09-28）：绑定档（private/secret）正文只有加密后才可能落盘，
         # 故所有解密出口都汇到本函数——把「读可见性」闸设在这里 = 一次接线覆盖
         # 全部读面（get / search 的 _read_many 正文水合 / reach / recent_events）。
@@ -5351,9 +5381,26 @@ class MdCGSecure(MdCGOS):
         #      `open_failed`（本该是「预期隔离」）⇒ 误报口径又回来了。
         # 判据一律取**密文自带**指纹（与正文同源），不再回落可写 frontmatter
         # `fm.enc_id_fp`——那与「判据取密文自带指纹…无 TOCTOU」自述不符。
+        # #152③（2026-10-12 DSH 端）：**解密产物缓存**。实测每查询逐节点
+        # AEAD 解密：`_read` 命中缓存后 0.25 µs/节点，而 `_read + 解密` 为
+        # 160.18 µs/节点（解密占 99.8%）——3000 节点一次查询外推 480 ms，
+        # 而 `internal` 库仅 0.14 µs/节点（密文库检索的**全部**额外成本几乎
+        # 都在这里）。缓存键取 `(node_id, 密文摘要, dek 指纹)`：
+        #   · 明文是 `(密文, dek, node_id, tenant, actor)` 的**纯函数**——
+        #     键含密文摘要 ⇒ 任何写盘（AEAD 随机 nonce 使密文逐次不同）**自动
+        #     失效**，无需另接 path_gen 哨兵（#153① 的容器别名污染另由
+        #     hotcache 出口拷贝收口，两者互补）；
+        #   · 键含 dek 指纹 ⇒ lock/unlock 换密钥态自然失配（与 `bm25.access_key`
+        #     的 `sha256(dek)` 同款范式）；**另**在 lock/unlock 整清（见
+        #     `_invalidate_caches_on_key_change`），保证锁后内存里不留明文。
+        # 只缓存**成功**的解密结果（失败/隔离不缓存，与 readcache 的 C-3 同向）。
+        _ck = self._plain_key(node_id, content)
+        _hit = self._plain_get(_ck)
+        if _hit is not None:
+            return _hit
         try:
-            return crypto.open_node(content, self.dek, node_id,
-                                    self.principal.tenant, self.principal.actor)
+            _plain = crypto.open_node(content, self.dek, node_id,
+                                      self.principal.tenant, self.principal.actor)
         except crypto.CryptoError as e:
             declared = crypto.enc_id_fp(content)
             mine = crypto.identity_fingerprint(self.principal.tenant,
@@ -5371,6 +5418,41 @@ class MdCGSecure(MdCGOS):
                                      "actor": self.principal.actor,
                                      "reason": str(e)[:120]})
             return None
+        self._plain_put(_ck, _plain)
+        return _plain
+
+# 生效条件：node_id 与密文 content 给定；返回 (node_id, sha256(content) 前 16 位, dek 指纹或 None) 三元组——明文缓存的唯一键（#152③）。
+    def _plain_key(self, node_id, content):
+        """解密产物缓存的键（#152③）——纯函数输入的完备刻画。"""
+        _d = hashlib.sha256(content.encode("utf-8", "replace")).hexdigest()[:16]
+        _dek = self.dek
+        _fp = hashlib.sha256(_dek).hexdigest()[:16] if _dek else None
+        return (node_id, _d, _fp)
+
+# 生效条件：key 在 self._plain_cache 中时把该条目移到末尾并返回其明文；不在则返回 None；缓存未初始化时惰性建空。
+    def _plain_get(self, key):
+        c = getattr(self, "_plain_cache", None)
+        if c is None:
+            c = self._plain_cache = {}
+            return None
+        if key in c:
+            v = c.pop(key)
+            c[key] = v
+            return v
+        return None
+
+# 生效条件：无条件把 key→plain 写入 self._plain_cache 并按上限（MDCG_PLAIN_CACHE_MAX，缺省 256）淘汰最旧条目；写入失败不影响返回。
+    def _plain_put(self, key, plain):
+        c = getattr(self, "_plain_cache", None)
+        if c is None:
+            c = self._plain_cache = {}
+        c[key] = plain
+        try:
+            _cap = int(os.environ.get("MDCG_PLAIN_CACHE_MAX") or 256)
+        except ValueError:
+            _cap = 256
+        while len(c) > max(1, _cap):
+            c.pop(next(iter(c)), None)
 
     # ---------- 索引：把 role / sensitivity / 写入归属一并索引 ----------
 
@@ -5575,6 +5657,14 @@ class MdCGSecure(MdCGOS):
             else:
                 sens = fm.get("sensitivity") or DEFAULT_SENSITIVITY
             e["sensitivity"] = sens
+        # issue #146③-b：**非法密级值按隔离处理**（fail-closed 不可读，**不抛**）。
+        # 修前：`sensitivity` 被手改坏（如 `sensitivity: internl` 或漏 `}` 后
+        # 变成字符串片段）时，下面 `self.principal.allows(sens)` 里的 `_rank(sens)`
+        # 抛 `AccessDenied` 从 `_readable` **逃出**，炸穿 `_candidates` → 整个
+        # 检索入口 500（一个坏文件炸全员检索）。此处收口为「不可见」——与
+        # 「密级未知按 secret」同向的 fail-closed，且不再有异常逃逸面。
+        if sens not in SENSITIVITY_ORDER:
+            return False
         # restricted = 错误处置标记（批次 28 分型，使用者裁定）：不走纯密级
         # rank——密级底线 internal ∧ 错误处置链路角色（designer/orchestr/
         # verify，或 can_admin）。平级（record/worker）与下游（output/guest）
