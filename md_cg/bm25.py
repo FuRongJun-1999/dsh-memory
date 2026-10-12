@@ -66,6 +66,7 @@ def candidate_pool(cg, **options):
             or any(options.get(k) is not None for k in (
                 "start_time", "end_time", "start_operator", "end_operator"))
             or os.environ.get("MDCG_BM25_POOL_CACHE", "1") == "0"):
+        cg._bm25_pool_delta = None
         return cg._candidates(**options)
     from .hotcache import HotCache
     principal = getattr(cg, "principal", None)
@@ -78,8 +79,58 @@ def candidate_pool(cg, **options):
     if saved and saved[0] is nodes and saved[1] is dirty and saved[2] == key:
         cg._time_filter_stat = None
         return saved[3]
+    from .mdcos import MdCGOS, MdCGSecure
+    native = getattr(method, "__func__", None) in (MdCGOS._candidates, MdCGSecure._candidates)
+    if (native and saved and len(saved) == 6 and saved[0] is nodes
+            and saved[1] is dirty and saved[2][1:] == key[1:]
+            and saved[4] is not None and len(saved[4]) == len(saved[3])
+            and callable(getattr(dirty, "changed_ids_since", None))):
+        ids = dirty.changed_ids_since(saved[2][0])
+        if ids is not None:
+            changed = method(_ids=ids, **options)
+            slots, entries, old_count = saved[4], saved[3], saved[5]
+            # Normal overwrites preserve node order, including route changes.
+            # Appends are safe only for a previously complete pool; membership changes
+            # conservatively use the original complete qualification path.
+            paths = [entry["path"] for entry in changed]
+            added = sum(nid not in slots for nid in ids)
+            same_paths = all(
+                isinstance(nid, str) and nodes.get(nid) is not None
+                and os.path.basename(nodes[nid]["path"]) == nid + ".md"
+                for nid in ids)
+            if (len(changed) == len(ids) and len(set(paths)) == len(paths)
+                    and same_paths and len(nodes) == old_count + added
+                    and (not added or len(entries) == old_count)):
+                removed = []
+                for nid, entry in zip(ids, changed):
+                    path = entry["path"]
+                    if nid in slots:
+                        position, old_path = slots[nid]
+                        if old_path != path:
+                            removed.append(old_path)
+                        entries[position] = entry
+                    else:
+                        position = len(entries)
+                        entries.append(entry)
+                    slots[nid] = (position, path)
+                cg._bm25_pool_delta = (saved[2][0], dirty.write_gen, entries,
+                                       tuple(changed), tuple(removed))
+                cg._bm25_candidate_pool = (nodes, dirty, key, entries, slots, len(nodes))
+                cg._time_filter_stat = None
+                return entries
     entries = cg._candidates(**options)
-    cg._bm25_candidate_pool = (nodes, dirty, key, entries)
+    slots = None
+    if native:
+        # Legacy id/path aliases or duplicate paths get the original full scan.
+        slots = {}
+        for position, entry in enumerate(entries):
+            nid = os.path.basename(entry["path"])[:-3]
+            if nodes.get(nid) is not entry or nid in slots:
+                slots = None
+                break
+            slots[nid] = (position, entry["path"])
+    cg._bm25_pool_delta = None
+    cg._bm25_candidate_pool = (nodes, dirty, key, entries, slots, len(nodes))
     return entries
 
 
@@ -236,13 +287,32 @@ class BM25Index:
             report.update(documents=len(self.docs), tokens=self.total_length,
                           pool_reused=True, build_workers=0)
             return self.allowed
-        allowed = {entry["path"]: entry for entry in entries}
+        delta = getattr(cg, "_bm25_pool_delta", None)
+        incremental = bool(cached and self.initialized and self.entries is entries
+                           and len(self.docs) == len(self.allowed)
+                           and delta and delta[0] == self.write_gen
+                           and delta[1] == dirty.write_gen and delta[2] is entries)
+        if incremental:
+            allowed = self.allowed
+            to_check = delta[3]
+            for path in delta[4]:
+                allowed.pop(path, None)
+                self.remove(path)
+            for entry in to_check:
+                allowed[entry["path"]] = entry
+        else:
+            allowed = {entry["path"]: entry for entry in entries}
+            to_check = allowed.values()
         # Statistics must exclude other sessions, roles, layers and gated-out
         # documents, including documents indexed by a preceding broader query.
-        for path in self.docs.keys() - allowed.keys():
-            self.remove(path)
+        if not incremental:
+            for path in self.docs.keys() - allowed.keys():
+                self.remove(path)
+        report["sync_checked_documents"] = len(to_check)
+        report["pool_incremental"] = incremental
         def changed():
-            for path, entry in allowed.items():
+            for entry in to_check:
+                path = entry["path"]
                 old = self.docs.get(path)
                 if old is not None and dirty.path_gen.get(path, 0) <= old[0]:
                     continue
@@ -491,6 +561,7 @@ def search(cg, query, entries, stat):
     report = {"k1": K1, "b": B, "limit": LIMIT, "input": len(entries),
               "build_reads": 0, "update_reads": 0, "unavailable": 0,
               "posting_visits": 0, "matched": 0, "block_layout_rebuilt": False,
+              "sync_checked_documents": 0, "pool_incremental": False,
               "block_layout_touched": 0, "block_repaired_blocks": 0,
               "block_update_slots": 0, "block_rebuild_postings": 0}
     started = time.perf_counter()

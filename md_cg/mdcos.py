@@ -935,7 +935,7 @@ class MdCGOS(MdCG):
     def _candidates(self, layer=None, roles=None, include_work=False,
                     session=None, branch=None, validity=None,
                     start_time=None, end_time=None, start_operator=None,
-                    end_operator=None, time_axis=None, view=None):
+                    end_operator=None, time_axis=None, view=None, _ids=None):
         """候选池：按层 + role 过滤。默认剔除工作角色（工具输出/命令/编辑）。
 
         session：会话归属过滤（frontmatter.session，写入时自动落盘）——
@@ -962,7 +962,12 @@ class MdCGOS(MdCG):
         """
         now = time.time() if validity else None
         out = []
-        for e in list(self.index["nodes"].values()):
+        if _ids is None:
+            source = list(self.index["nodes"].values())
+        else:
+            source = list(self.index["nodes"][nid] for nid in _ids
+                          if nid in self.index["nodes"])
+        for e in source:
             if e.get("layer") in NEG_ROUTE_LAYERS:
                 continue  # 负记忆走覆盖标记；目标只做定向，都不进正排
                           # （真源 mdcg.NEG_ROUTE_LAYERS，本处直接导入，不留第二份字面量）
@@ -5650,13 +5655,13 @@ class MdCGSecure(MdCGOS):
     def _candidates(self, layer=None, roles=None, include_work=False,
                     session=None, branch=None, validity=None,
                     start_time=None, end_time=None, start_operator=None,
-                    end_operator=None, time_axis=None, view=None):
+                    end_operator=None, time_axis=None, view=None, _ids=None):
         out = super()._candidates(layer=layer, roles=roles, include_work=include_work,
                                   session=None, branch=branch, validity=validity,
                                   start_time=start_time, end_time=end_time,
                                   start_operator=start_operator,
                                   end_operator=end_operator, time_axis=time_axis,
-                                  view=view)
+                                  view=view, _ids=_ids)
         return [e for e in out if self._readable(e, session=session)]
 
 # 生效条件：在 super()._neg_coverage(terms) 的结果上，只保留 self._readable(e) 为真的条目。
