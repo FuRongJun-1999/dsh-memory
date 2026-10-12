@@ -25,6 +25,8 @@
 from __future__ import annotations
 
 import os
+import heapq
+import math
 
 # 边类型 → 传播权重 base（AEIS《激活引擎 v0.1》第 14 行）
 EDGE_WEIGHTS = {
@@ -341,7 +343,7 @@ def explain(cg, start_id, **kw):
 
 
 # 生效条件：seeds 为 dict 时取其 items、否则取 list(seeds or [])（假值 seeds 得空列表，返回空 best），逐 (sid, s0) 跳过 sid 为假值或 float(s0) 抛 TypeError/ValueError 的项，对 walk(cg, sid, relation_types, max_depth, max_nodes, max_chains, include_hierarchy) 每条链取 nodes[-1] 为 nid（nid==sid 则跳过）并按 s0*链 weight*decay^depth 对每个 nid 只保留最高分，返回 best；
-def expand_from_seeds(cg, seeds, relation_types=CHAIN_TYPES_DEFAULT,
+def _expand_legacy(cg, seeds, relation_types=CHAIN_TYPES_DEFAULT,
                       max_depth=MAX_DEPTH_DEFAULT, decay=0.9,
                       max_nodes=MAX_NODES_DEFAULT, max_chains=500,
                       include_hierarchy=True):
@@ -376,4 +378,165 @@ def expand_from_seeds(cg, seeds, relation_types=CHAIN_TYPES_DEFAULT,
             if cur is None or sc > cur["score"]:
                 best[nid] = {"score": round(sc, 6), "chain": c,
                              "depth": c["depth"], "conditions": c["conditions"]}
+    return best
+
+
+# 生效条件：单调边权/衰减下逐种子优先展开，较浅且不弱的标签支配后续同节点标签；累计乘积不在中间舍入，资源预算只计实际弹出的有效标签。
+def _best_seed(cg, adj, sid, s0, rels, depth_limit, decay, max_nodes,
+               max_chains, report):
+    """Depth/weight Pareto labels; a deeper strong prefix cannot erase a
+    shallower weak prefix which still has enough hops to reach a descendant.
+    Results remain bounded best effort when either existing budget runs out.
+    """
+    frontiers, queue, choices = {}, [], {}
+    serial = 0
+    seed_conditions = None
+
+    def offer(nid, weight, nodes, hops):
+        nonlocal serial
+        depth = len(hops)
+        frontier = frontiers.setdefault(nid, {})
+        for old in frontier.values():
+            if old[1] <= depth and old[2] >= weight:
+                if (old[1] < depth or old[2] > weight or old[3] <= nodes):
+                    report["dominated"] += 1
+                    return
+        for old_depth, old in list(frontier.items()):
+            if depth <= old_depth and weight >= old[2]:
+                if depth < old_depth or weight > old[2] or nodes < old[3]:
+                    del frontier[old_depth]
+        label = (nid, depth, weight, nodes, hops)
+        frontier[depth] = label
+        # walk exposes a six-decimal cumulative edge weight. Round only when
+        # constructing its public chain; never round intermediate products.
+        # The half-unit upper envelope is safe for that same public score.
+        upper = s0 * min(1.0, weight + 0.0000005) * (decay ** depth)
+        heapq.heappush(queue, (-upper, depth, nodes, serial, label))
+        serial += 1
+        report["enqueued"] += 1
+        report["peak_queue"] = max(report["peak_queue"], len(queue))
+        if depth and nid != sid:
+            rounded_weight = round(weight, 6)
+            score = s0 * rounded_weight * (decay ** depth)
+            key = (-score, depth, -weight, nodes)
+            old = choices.get(nid)
+            if old is None or key < old[0]:
+                conditions = [h["condition"] for h in hops]
+                c = {"start": sid, "nodes": list(nodes), "hops": list(hops),
+                     "conditions": conditions, "weight": rounded_weight,
+                     "depth": depth,
+                     "avg_weight": round(weight ** (1.0 / depth), 6)}
+                choices[nid] = (key, {"score": round(score, 6), "chain": c,
+                                     "depth": depth, "conditions": conditions})
+
+    offer(sid, 1.0, (sid,), ())
+    popped_chains = 0
+    while (queue and report["expanded"] < max_nodes
+           and popped_chains < max_chains):
+        _upper, _depth, _nodes, _serial, label = heapq.heappop(queue)
+        cur, depth, weight, nodes, hops = label
+        if frontiers.get(cur, {}).get(depth) is not label:
+            report["stale_pops"] += 1
+            continue
+        report["expanded"] += 1
+        if depth:
+            popped_chains += 1
+        if depth_limit is not None and depth >= depth_limit:
+            continue
+        for tgt, edge in adj.get(cur, ()):
+            report["edges_scanned"] += 1
+            rel = edge_rel(edge)
+            if (rels and rel not in rels) or tgt in nodes:
+                continue
+            w = edge_weight(edge)
+            condition = edge_condition(edge)
+            if not condition and not hops:
+                if seed_conditions is None:
+                    seed_conditions = "；".join(node_conditions(cg, sid))
+                condition = seed_conditions
+            hop = {"from": cur, "to": tgt, "relation_type": rel,
+                   "weight": w, "condition": condition}
+            offer(tgt, weight * w, nodes + (tgt,), hops + (hop,))
+    report["pending_labels"] = sum(
+        frontiers.get(label[0], {}).get(label[1]) is label
+        for *_prefix, label in queue)
+    report["complete"] = report["pending_labels"] == 0
+    report["output_truncated"] = len(choices) > max_chains
+    report["complete"] = report["complete"] and not report["output_truncated"]
+    # Keep the existing per-seed output budget. A root with many direct edges
+    # can discover more targets than it is allowed to return.
+    return dict(sorted(choices.items(), key=lambda item: item[1][0])[:max_chains])
+
+
+# 生效条件：有限非负种子分、0<=decay<=1、非负整数资源预算与[0,1]边权表时，沿已有可见性/退役过滤邻接表作强度优先搜索，保留每节点深度/原始累积权重的 Pareto 标签；每起点预算沿用 max_nodes/max_chains，预算未耗尽时返回每目标最强简单链，耗尽时 stats.complete=False 并返回已发现的有界结果；越出单调性前提时保留旧 walk 路径，不改权重、上限或明细字段。
+def expand_from_seeds(cg, seeds, relation_types=CHAIN_TYPES_DEFAULT,
+                      max_depth=MAX_DEPTH_DEFAULT, decay=0.9,
+                      max_nodes=MAX_NODES_DEFAULT, max_chains=500,
+                      include_hierarchy=True, stats=None):
+    """Retrieve strongest chains without enumerating redundant DFS paths.
+
+    Scores retain seed * round(edge_product, 6) * decay**depth. Among retained
+    candidates, ties prefer shorter depth, greater unrounded edge product,
+    then node-id sequence. Equal depth/weight labels use node-id order; a
+    stronger prefix can dominate a lexically earlier one (e.g. before a zero
+    edge), so provenance is not the lexically first of *all* tied paths.
+    A start is not
+    returned through a zero-hop self hit; another seed may reach it by edges.
+    walk/explain keep their existing all-chain enumeration contract.
+
+    stats, if supplied, reports per-seed work and whether the bounded search
+    completed. Budget exhaustion is not a global-optimality certificate.
+    Nonmonotone/custom numeric inputs use the original compatibility path.
+    """
+    seed_items = list(seeds.items()) if isinstance(seeds, dict) else list(seeds or [])
+    parsed = []
+    safe = (isinstance(decay, (int, float)) and math.isfinite(decay)
+            and 0 <= decay <= 1
+            and isinstance(max_nodes, int) and max_nodes >= 0
+            and isinstance(max_chains, int) and max_chains >= 0)
+    for sid, value in seed_items:
+        if not sid:
+            continue
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            continue
+        safe = safe and math.isfinite(score) and score >= 0
+        safe = safe and isinstance(sid, str)
+        parsed.append((sid, score))
+    try:
+        safe = safe and all(math.isfinite(w) and 0 <= w <= 1
+                            for w in (*EDGE_WEIGHTS.values(), DEFAULT_EDGE_WEIGHT))
+        depth_limit = (None if max_depth is None else
+                       max(0, min(int(max_depth), MAX_DEPTH_HARD)))
+    except (TypeError, ValueError, OverflowError):
+        safe = False
+        depth_limit = None
+    report = {"algorithm": "depth_pareto_best_first" if safe else "legacy_fallback",
+              "complete": True if safe else None, "seeds": [],
+              "expanded": 0, "edges_scanned": 0, "dominated": 0}
+    if not safe:
+        best = _expand_legacy(cg, seed_items, relation_types, max_depth, decay,
+                              max_nodes, max_chains, include_hierarchy)
+    else:
+        best, choices = {}, {}
+        rels = tuple(str(r).lower() for r in (relation_types or ()))
+        adj = adjacency(cg, include_hierarchy=include_hierarchy) if parsed else {}
+        for sid, score in parsed:
+            seed_report = {"start": sid, "expanded": 0, "edges_scanned": 0,
+                           "dominated": 0, "enqueued": 0, "stale_pops": 0,
+                           "peak_queue": 0}
+            found = _best_seed(cg, adj, sid, score, rels, depth_limit, decay,
+                               max_nodes, max_chains, seed_report)
+            for nid, choice in found.items():
+                if nid not in choices or choice[0] < choices[nid][0]:
+                    choices[nid] = choice
+            report["seeds"].append(seed_report)
+            report["complete"] = report["complete"] and seed_report["complete"]
+            for key in ("expanded", "edges_scanned", "dominated"):
+                report[key] += seed_report[key]
+        best = {nid: value[1] for nid, value in choices.items()}
+    if stats is not None:
+        stats.clear()
+        stats.update(report)
     return best
