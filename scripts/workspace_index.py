@@ -71,6 +71,8 @@ DIR_ROLES = {
                 ["render_discipline.py", "verify_discipline.py", "cogmap_sync.py"]),
     "test": ("跨包测试与独立评测脚本（宿主侧 TS 测试 + python 集成）",
              ["mock_mcp.py", "hive_exec_test.py"]),
+    "tests": ("悬赏验收直接运行入口（复用 md_cg 下同一守卫与定点变异自证）",
+              ["test_chain_best_first.py"]),
     "data": ("公开评测数据与裁决留痕",
              ["memory-bench-1000.jsonl", "policy.json"]),
     "docs": ("文档（按工程域分目录，索引见 docs/README.md）",
