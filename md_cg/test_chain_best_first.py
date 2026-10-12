@@ -141,7 +141,7 @@ def populate(cg, outgoing):
 class ChainGuards(unittest.TestCase):
     def test_strong_target_default_budget(self):
         result = chain.expand_from_seeds(Graph(converging_graph()), {"seed": 1.0})
-        self.assertIn("strong_target", result, "strong_target starved by weak DFS branch")
+        self.assertTrue("strong_target" in result, "strong_target starved by weak DFS branch")
         self.assertEqual(result["strong_target"]["score"], .585225, "strong chain score")
         self.assertEqual(result["strong_target"]["chain"]["nodes"],
                          ["seed", "strong_a", "strong_target"], "strong chain provenance")
@@ -164,7 +164,7 @@ class ChainGuards(unittest.TestCase):
                  "weak_root": [edge(f"leaf{i:04}") for i in range(1000)]}
         stats = {}
         result = chain.expand_from_seeds(Graph(graph), {"seed": 1}, stats=stats)
-        self.assertIn("strong_target", result, "priority must preserve strong target under budget")
+        self.assertTrue("strong_target" in result, "priority must preserve strong target under budget")
         self.assertFalse(stats["complete"], "wide graph must disclose truncated search")
         self.assertLessEqual(stats["expanded"], 500, "node budget unchanged")
         self.assertLessEqual(len(result), 500, "per-seed output cap unchanged")
@@ -174,7 +174,7 @@ class ChainGuards(unittest.TestCase):
                  "b": [edge("x")], "weak": [edge("x")],
                  "x": [edge("u")], "u": [edge("v")], "v": []}
         result = chain.expand_from_seeds(Graph(graph), {"s": 1}, max_depth=4)
-        self.assertIn("v", result, "shallow weak prefix must retain remaining depth")
+        self.assertTrue("v" in result, "shallow weak prefix must retain remaining depth")
         self.assertEqual(result["v"]["chain"]["nodes"], ["s", "weak", "x", "u", "v"], "depth Pareto path")
         self.assertEqual(result, exhaustive(graph, {"s": 1}, depth=4))
 
@@ -237,7 +237,7 @@ class ChainGuards(unittest.TestCase):
         outgoing = {f"n{i}": [edge(f"n{i + 1}")] for i in range(70)}
         graph = Graph(outgoing)
         for depth in (0, -1):
-            self.assertEqual(chain.expand_from_seeds(graph, {"n0": 1}, max_depth=depth), {}, "zero depth")
+            self.assertEqual(len(chain.expand_from_seeds(graph, {"n0": 1}, max_depth=depth)), 0, "zero depth")
         result = chain.expand_from_seeds(graph, {"n0": 1}, max_depth=1000)
         self.assertIn("n64", result, "hard depth cap includes boundary")
         self.assertNotIn("n65", result, "hard depth cap rejects next node")

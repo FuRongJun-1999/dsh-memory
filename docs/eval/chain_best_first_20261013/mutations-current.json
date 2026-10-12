@@ -1,0 +1,92 @@
+{
+  "passed": 9,
+  "failed": 0,
+  "mutants": [
+    {
+      "mutation": "legacy_dfs",
+      "guard": "test_strong_target_default_budget",
+      "expected_assertion": "strong_target starved",
+      "killed_by_named_assertion": true,
+      "errors": 0,
+      "skipped": 0,
+      "log": "F\n======================================================================\nFAIL: test_strong_target_default_budget (md_cg.test_chain_best_first.ChainGuards.test_strong_target_default_budget)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bounty68-retrieval-20261012\\md_cg\\test_chain_best_first.py\", line 144, in test_strong_target_default_budget\n    self.assertTrue(\"strong_target\" in result, \"strong_target starved by weak DFS branch\")\nAssertionError: False is not true : strong_target starved by weak DFS branch\n\n----------------------------------------------------------------------\nRan 1 test in 0.003s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutation": "weakest_first",
+      "guard": "test_priority_under_truncation",
+      "expected_assertion": "priority must preserve strong target",
+      "killed_by_named_assertion": true,
+      "errors": 0,
+      "skipped": 0,
+      "log": "F\n======================================================================\nFAIL: test_priority_under_truncation (md_cg.test_chain_best_first.ChainGuards.test_priority_under_truncation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bounty68-retrieval-20261012\\md_cg\\test_chain_best_first.py\", line 167, in test_priority_under_truncation\n    self.assertTrue(\"strong_target\" in result, \"priority must preserve strong target under budget\")\nAssertionError: False is not true : priority must preserve strong target under budget\n\n----------------------------------------------------------------------\nRan 1 test in 0.012s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutation": "no_dominance",
+      "guard": "test_convergence_work_and_order",
+      "expected_assertion": "duplicate label queue bound",
+      "killed_by_named_assertion": true,
+      "errors": 0,
+      "skipped": 0,
+      "log": "F\n======================================================================\nFAIL: test_convergence_work_and_order (md_cg.test_chain_best_first.ChainGuards.test_convergence_work_and_order)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bounty68-retrieval-20261012\\md_cg\\test_chain_best_first.py\", line 158, in test_convergence_work_and_order\n    self.assertLessEqual(stats[\"seeds\"][0][\"enqueued\"], 28, \"duplicate label queue bound\")\nAssertionError: 118 not less than or equal to 28 : duplicate label queue bound\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutation": "ignore_depth_in_dominance",
+      "guard": "test_shallow_weaker_prefix",
+      "expected_assertion": "shallow weak prefix must retain remaining depth",
+      "killed_by_named_assertion": true,
+      "errors": 0,
+      "skipped": 0,
+      "log": "F\n======================================================================\nFAIL: test_shallow_weaker_prefix (md_cg.test_chain_best_first.ChainGuards.test_shallow_weaker_prefix)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bounty68-retrieval-20261012\\md_cg\\test_chain_best_first.py\", line 177, in test_shallow_weaker_prefix\n    self.assertTrue(\"v\" in result, \"shallow weak prefix must retain remaining depth\")\nAssertionError: False is not true : shallow weak prefix must retain remaining depth\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutation": "omit_seed_score",
+      "guard": "test_multiple_seeds_and_decay",
+      "expected_assertion": "seed scaling, decay",
+      "killed_by_named_assertion": true,
+      "errors": 0,
+      "skipped": 0,
+      "log": "F\n======================================================================\nFAIL: test_multiple_seeds_and_decay (md_cg.test_chain_best_first.ChainGuards.test_multiple_seeds_and_decay)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bounty68-retrieval-20261012\\md_cg\\test_chain_best_first.py\", line 185, in test_multiple_seeds_and_decay\n    self.assertEqual(result, exhaustive(graph, {\"s\": 5, \"t\": .5}, decay=.7),\nAssertionError: {'x': {'score': 0.595, 'chain': {'start': 't', 'nodes': [[1041 chars]n']}} != {'x': {'score': 1.4875, 'chain': {'start': 's', 'nodes': [1052 chars]n']}}\nDiff is 3652 characters long. Set self.maxDiff to None to see it. : seed scaling, decay and reaching another seed\n\n----------------------------------------------------------------------\nRan 1 test in 0.003s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutation": "omit_decay",
+      "guard": "test_multiple_seeds_and_decay",
+      "expected_assertion": "seed scaling, decay",
+      "killed_by_named_assertion": true,
+      "errors": 0,
+      "skipped": 0,
+      "log": "F\n======================================================================\nFAIL: test_multiple_seeds_and_decay (md_cg.test_chain_best_first.ChainGuards.test_multiple_seeds_and_decay)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bounty68-retrieval-20261012\\md_cg\\test_chain_best_first.py\", line 185, in test_multiple_seeds_and_decay\n    self.assertEqual(result, exhaustive(graph, {\"s\": 5, \"t\": .5}, decay=.7),\nAssertionError: {'x': {'score': 2.125, 'chain': {'start': 's', 'nodes': [[1049 chars]n']}} != {'x': {'score': 1.4875, 'chain': {'start': 's', 'nodes': [1052 chars]n']}}\nDiff is 2267 characters long. Set self.maxDiff to None to see it. : seed scaling, decay and reaching another seed\n\n----------------------------------------------------------------------\nRan 1 test in 0.002s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutation": "ignore_relation_filter",
+      "guard": "test_conditions_and_relation_filter",
+      "expected_assertion": "default relation filter",
+      "killed_by_named_assertion": true,
+      "errors": 0,
+      "skipped": 0,
+      "log": "F\n======================================================================\nFAIL: test_conditions_and_relation_filter (md_cg.test_chain_best_first.ChainGuards.test_conditions_and_relation_filter)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bounty68-retrieval-20261012\\md_cg\\test_chain_best_first.py\", line 219, in test_conditions_and_relation_filter\n    self.assertNotIn(\"x\", result, \"default relation filter\")\nAssertionError: 'x' unexpectedly found in {'a': {'score': 0.765, 'chain': {'start': 's', 'nodes': ['s', 'a'], 'hops': [{'from': 's', 'to': 'a', 'relation_type': 'causal', 'weight': 0.85, 'condition': 'seed fallback'}], 'conditions': ['seed fallback'], 'weight': 0.85, 'depth': 1, 'avg_weight': 0.85}, 'depth': 1, 'conditions': ['seed fallback']}, 'x': {'score': 0.675, 'chain': {'start': 's', 'nodes': ['s', 'x'], 'hops': [{'from': 's', 'to': 'x', 'relation_type': 'similar', 'weight': 0.75, 'condition': 'fixture condition'}], 'conditions': ['fixture condition'], 'weight': 0.75, 'depth': 1, 'avg_weight': 0.75}, 'depth': 1, 'conditions': ['fixture condition']}, 'u': {'score': 0.585225, 'chain': {'start': 's', 'nodes': ['s', 'a', 'u'], 'hops': [{'from': 's', 'to': 'a', 'relation_type': 'causal', 'weight': 0.85, 'condition': 'seed fallback'}, {'from': 'a', 'to': 'u', 'relation_type': 'causal', 'weight': 0.85, 'condition': 'downstream condition'}], 'conditions': ['seed fallback', 'downstream condition'], 'weight': 0.7225, 'depth': 2, 'avg_weight': 0.85}, 'depth': 2, 'conditions': ['seed fallback', 'downstream condition']}} : default relation filter\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutation": "ignore_depth_limit",
+      "guard": "test_depth_and_budget_edges",
+      "expected_assertion": "zero depth",
+      "killed_by_named_assertion": true,
+      "errors": 0,
+      "skipped": 0,
+      "log": "F\n======================================================================\nFAIL: test_depth_and_budget_edges (md_cg.test_chain_best_first.ChainGuards.test_depth_and_budget_edges)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bounty68-retrieval-20261012\\md_cg\\test_chain_best_first.py\", line 240, in test_depth_and_budget_edges\n    self.assertEqual(len(chain.expand_from_seeds(graph, {\"n0\": 1}, max_depth=depth)), 0, \"zero depth\")\nAssertionError: 70 != 0 : zero depth\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutation": "erase_conditions",
+      "guard": "test_conditions_and_relation_filter",
+      "expected_assertion": "downstream provenance",
+      "killed_by_named_assertion": true,
+      "errors": 0,
+      "skipped": 0,
+      "log": "F\n======================================================================\nFAIL: test_conditions_and_relation_filter (md_cg.test_chain_best_first.ChainGuards.test_conditions_and_relation_filter)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bounty68-retrieval-20261012\\md_cg\\test_chain_best_first.py\", line 220, in test_conditions_and_relation_filter\n    self.assertEqual(result[\"u\"][\"conditions\"], [\"seed fallback\", \"downstream condition\"],\nAssertionError: Lists differ: ['seed fallback', ''] != ['seed fallback', 'downstream condition']\n\nFirst differing element 1:\n''\n'downstream condition'\n\n- ['seed fallback', '']\n+ ['seed fallback', 'downstream condition'] : first-hop condition fallback and downstream provenance\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nFAILED (failures=1)\n"
+    }
+  ],
+  "source_sha256": "f376e566b6735aee8d589e6a6a2a91162023c8cfda0309d7efe8ba13f9199a85",
+  "source_unchanged": true,
+  "restored_passed": true,
+  "restored_tests": 14,
+  "restored_log": "..............\n----------------------------------------------------------------------\nRan 14 tests in 0.623s\n\nOK\n"
+}

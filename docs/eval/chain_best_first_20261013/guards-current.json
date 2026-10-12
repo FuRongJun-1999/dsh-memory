@@ -1,0 +1,9 @@
+{
+  "tests": 14,
+  "passed": 14,
+  "failed": 0,
+  "failure_assertions": 0,
+  "errors": 0,
+  "skipped": 0,
+  "log": "test_conditions_and_relation_filter (md_cg.test_chain_best_first.ChainGuards.test_conditions_and_relation_filter) ... ok\ntest_convergence_work_and_order (md_cg.test_chain_best_first.ChainGuards.test_convergence_work_and_order) ... ok\ntest_cycles_zero_weights_and_scores (md_cg.test_chain_best_first.ChainGuards.test_cycles_zero_weights_and_scores) ... ok\ntest_depth_and_budget_edges (md_cg.test_chain_best_first.ChainGuards.test_depth_and_budget_edges) ... ok\ntest_hierarchy_and_read_gates (md_cg.test_chain_best_first.ChainGuards.test_hierarchy_and_read_gates) ... ok\ntest_legacy_numeric_fallback (md_cg.test_chain_best_first.ChainGuards.test_legacy_numeric_fallback) ... ok\ntest_multiple_seeds_and_decay (md_cg.test_chain_best_first.ChainGuards.test_multiple_seeds_and_decay) ... ok\ntest_native_markdown_default_rrf (md_cg.test_chain_best_first.ChainGuards.test_native_markdown_default_rrf) ... ok\ntest_priority_under_truncation (md_cg.test_chain_best_first.ChainGuards.test_priority_under_truncation) ... ok\ntest_round_only_final_product (md_cg.test_chain_best_first.ChainGuards.test_round_only_final_product) ... ok\ntest_seeded_exhaustive_oracle (md_cg.test_chain_best_first.ChainGuards.test_seeded_exhaustive_oracle) ... ok\ntest_shallow_weaker_prefix (md_cg.test_chain_best_first.ChainGuards.test_shallow_weaker_prefix) ... ok\ntest_strong_target_default_budget (md_cg.test_chain_best_first.ChainGuards.test_strong_target_default_budget) ... ok\ntest_zero_suffix_tied_provenance (md_cg.test_chain_best_first.ChainGuards.test_zero_suffix_tied_provenance) ... ok\n\n----------------------------------------------------------------------\nRan 14 tests in 0.674s\n\nOK\n"
+}
