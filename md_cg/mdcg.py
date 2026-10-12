@@ -1286,6 +1286,11 @@ class _DirtyDict(dict):
         self.write_gen = 0
         self.path_gen = {}      # path → 该 path 最近一次标脏时的 write_gen
         self.broad_gen = 0      # 最近一次无 path 可辨变更的 write_gen（整池兜底）
+        # Bounded retrieval hint only; path_gen/broad_gen stay authoritative.
+        # Unlike the pending dict, this history survives an ordinary flush.
+        from collections import deque
+        self.change_log = deque(maxlen=4096)
+        self.change_floor = 0
         # N230（2026-10-01）：**落盘逐字见证**——nid → 标脏那一刻节点文件的
         # (st_mtime_ns, st_size)。`MdCG.__init__` 负责注入 `root`（本类不反查
         # 宿主，免得与 MdCG 的构造顺序耦合）。语义与用法见
@@ -1304,6 +1309,18 @@ class _DirtyDict(dict):
 
     def _bump(self):
         self.write_gen += 1
+
+    def changed_ids_since(self, generation):
+        """Ordered distinct writes, or None when complete history is unavailable."""
+        if (generation < self.change_floor or generation < self.broad_gen
+                or generation > self.write_gen):
+            return None
+        recent = []
+        for version, nid in reversed(self.change_log):
+            if version <= generation:
+                break
+            recent.append(nid)
+        return tuple(dict.fromkeys(reversed(recent)))
 
     def _note(self, v):
         """标脏登记：值带 path → 精确记路径代际；否则保守记整池代际。"""
@@ -1354,6 +1371,9 @@ class _DirtyDict(dict):
         self._note_witness(k, v)
         self.superseded_ids.discard(k)      # 新写入不再陈旧（issue #80 残留面）
         super().__setitem__(k, v)
+        if len(self.change_log) == self.change_log.maxlen:
+            self.change_floor = self.change_log[0][0]
+        self.change_log.append((self.write_gen, k))
 
     def __delitem__(self, k):
         self._bump()

@@ -1,0 +1,439 @@
+{
+  "date": "2026-10-12",
+  "validation_head": "d6e82fa847118a22a30c4195a5270e09ff97a0de",
+  "integrated_upstream": "77ea07f1a281bb0426f8bcf099bf0f6a9608dfdd",
+  "timing_scope": "original 10k/100k timings remain at measured optimization ec33472 against dcb8fbf4; later upstream integration was not retimed at scale",
+  "source_equivalence": {
+    "bm25.py": {
+      "windows_sha256": "9fa8e606c4350e4946dcc6346b2d0fd05819a9bb557b306588926bb54da7d45b",
+      "lf_sha256": "ba8ab3562fbacb913146abb35d16fcb1d130b2074687c7eb8dec4ccb7a5bc816",
+      "same_as_measured_optimization_lf": true
+    },
+    "mdcg.py": {
+      "windows_sha256": "c56967b3888a00135cae40eb8497a6de17ef4ec0fae53a40894ddc9369128923",
+      "lf_sha256": "411a2ff3657bcf218b01159fef6d7d288880c488cd73c44f73bb18daa7bc895d",
+      "measured_dirty_dict_ast_unchanged": true,
+      "all_other_code_ast_matches_latest_upstream": true
+    },
+    "mdcos.py": {
+      "windows_sha256": "3ec650941440d553e1ca244f1936301d10f7492498849bb5a80e0eacc33bbe49",
+      "lf_sha256": "53ce32c50db5343501f9e5bff81c43dc50f2da526be563656692a518d73031cf",
+      "measured_candidate_methods_ast_unchanged": true,
+      "all_other_code_ast_matches_latest_upstream": true
+    },
+    "readcache.py": {
+      "windows_sha256": "aaeb8166b180a5ad3673adf2919cf083ed448c5e23db06c5bc22efd59c96cbe0",
+      "lf_sha256": "274d081dd8009f45b5f78854d3d04bcd75fc6ce1f317707e4b3925ea6cd276b1",
+      "same_as_measured_optimization_lf": true
+    }
+  },
+  "unit_tests": {
+    "test_bm25": 25,
+    "test_bm25_incremental": 12,
+    "test_bm25_sparse_sync": 18
+  },
+  "mutations": {
+    "block": {
+      "passed": true,
+      "killed": 9
+    },
+    "incremental": {
+      "passed": true,
+      "killed": 6
+    },
+    "sparse": {
+      "passed": true,
+      "killed": 8
+    }
+  },
+  "runtime_commands": [
+    {
+      "module": "md_cg.test_bm25",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_bm25"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_bm25.log"
+    },
+    {
+      "module": "md_cg.test_bm25_incremental",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_bm25_incremental"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_bm25_incremental.log"
+    },
+    {
+      "module": "md_cg.test_bm25_sparse_sync",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_bm25_sparse_sync"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_bm25_sparse_sync.log"
+    },
+    {
+      "module": "md_cg.test_bm25_mutations",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_bm25_mutations",
+        "--output",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\latest-integration\\block-mutants.json"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_bm25_mutations.log"
+    },
+    {
+      "module": "md_cg.test_bm25_incremental_mutations",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_bm25_incremental_mutations",
+        "--output",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\latest-integration\\incremental-mutants.json"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_bm25_incremental_mutations.log"
+    },
+    {
+      "module": "md_cg.test_bm25_sparse_mutations",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_bm25_sparse_mutations",
+        "--output",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\latest-integration\\sparse-mutants.json"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_bm25_sparse_mutations.log"
+    },
+    {
+      "module": "md_cg.test_p28_refcheck",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_p28_refcheck"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_p28_refcheck.log"
+    },
+    {
+      "module": "md_cg.test_issue150_empty_query_terms",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_issue150_empty_query_terms"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_issue150_empty_query_terms.log"
+    },
+    {
+      "module": "md_cg.test_issue150_empty_query_terms",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_issue150_empty_query_terms",
+        "--mutate"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_issue150_empty_query_terms-mutate.log"
+    },
+    {
+      "module": "md_cg.test_issue151_153_157_write_cache_index",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_issue151_153_157_write_cache_index"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_issue151_153_157_write_cache_index.log"
+    },
+    {
+      "module": "md_cg.test_issue152_sealed_postings",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_issue152_sealed_postings"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_issue152_sealed_postings.log"
+    },
+    {
+      "module": "md_cg.test_issue153b_index_generation_invalidation",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_issue153b_index_generation_invalidation"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_issue153b_index_generation_invalidation.log"
+    },
+    {
+      "module": "md_cg.test_issue157b_index_remainder",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_issue157b_index_remainder"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_issue157b_index_remainder.log"
+    },
+    {
+      "module": "swarm.tests.test_issue156_max_depth",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "swarm.tests.test_issue156_max_depth"
+      ],
+      "exit_code": 0,
+      "log": "swarm.tests.test_issue156_max_depth.log"
+    },
+    {
+      "module": "hive.test_issue155_156_rust",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "hive.test_issue155_156_rust"
+      ],
+      "exit_code": 1,
+      "log": "hive.test_issue155_156_rust.log"
+    },
+    {
+      "module": "md_cg.test_issue145_sleep_no_silent_rollback",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_issue145_sleep_no_silent_rollback"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_issue145_sleep_no_silent_rollback.log"
+    },
+    {
+      "module": "md_cg.test_issue147_pack_id_escape",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_issue147_pack_id_escape"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_issue147_pack_id_escape.log"
+    },
+    {
+      "module": "md_cg.test_issue148_merge_downgrade_leak",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_issue148_merge_downgrade_leak"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_issue148_merge_downgrade_leak.log"
+    },
+    {
+      "module": "md_cg.test_readcache_precise_inval",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_readcache_precise_inval"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_readcache_precise_inval.log"
+    },
+    {
+      "module": "md_cg.test_readcache_prodpath",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_readcache_prodpath"
+      ],
+      "exit_code": 0,
+      "log": "md_cg.test_readcache_prodpath.log"
+    }
+  ],
+  "hive_explicit_interpreter_followup": {
+    "module": "hive.test_issue155_156_rust",
+    "command": [
+      "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+      "-X",
+      "utf8",
+      "-m",
+      "hive.test_issue155_156_rust"
+    ],
+    "environment_override": {
+      "HIVE_PYTHON": "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe"
+    },
+    "exit_code": 0,
+    "log": "hive-explicit-python.log"
+  },
+  "local_entry_status": "initial 19/20; Hive default-interpreter control failed on Windows; explicit HIVE_PYTHON rerun 9/9 assertions and exit 0; original failure retained",
+  "quality": {
+    "scifact": {
+      "queries": 300,
+      "failures": 0,
+      "rankings_scores_matched_equal": true,
+      "all_metrics_equal": true,
+      "metrics": {
+        "ndcg": {
+          "NDCG@1": 0.53333,
+          "NDCG@3": 0.61962,
+          "NDCG@5": 0.63941,
+          "NDCG@10": 0.66168,
+          "NDCG@50": 0.68087,
+          "NDCG@100": 0.68087
+        },
+        "map": {
+          "MAP@1": 0.51483,
+          "MAP@3": 0.59219,
+          "MAP@5": 0.60417,
+          "MAP@10": 0.61464,
+          "MAP@50": 0.61949,
+          "MAP@100": 0.61949
+        },
+        "recall": {
+          "Recall@1": 0.51483,
+          "Recall@3": 0.679,
+          "Recall@5": 0.72594,
+          "Recall@10": 0.79094,
+          "Recall@50": 0.87039,
+          "Recall@100": 0.87039
+        },
+        "precision": {
+          "P@1": 0.53333,
+          "P@3": 0.24,
+          "P@5": 0.15733,
+          "P@10": 0.08733,
+          "P@50": 0.0196,
+          "P@100": 0.0098
+        },
+        "mrr": {
+          "MRR@1": 0.53333,
+          "MRR@3": 0.60833,
+          "MRR@5": 0.61967,
+          "MRR@10": 0.62762,
+          "MRR@50": 0.6313,
+          "MRR@100": 0.6313
+        }
+      }
+    },
+    "nfcorpus": {
+      "queries": 323,
+      "failures": 0,
+      "rankings_scores_matched_equal": true,
+      "all_metrics_equal": true,
+      "metrics": {
+        "ndcg": {
+          "NDCG@1": 0.4195,
+          "NDCG@3": 0.36327,
+          "NDCG@5": 0.33672,
+          "NDCG@10": 0.30694,
+          "NDCG@50": 0.26484,
+          "NDCG@100": 0.24738
+        },
+        "map": {
+          "MAP@1": 0.0567,
+          "MAP@3": 0.09189,
+          "MAP@5": 0.10285,
+          "MAP@10": 0.11757,
+          "MAP@50": 0.13542,
+          "MAP@100": 0.13542
+        },
+        "recall": {
+          "Recall@1": 0.0567,
+          "Recall@3": 0.10017,
+          "Recall@5": 0.11954,
+          "Recall@10": 0.14915,
+          "Recall@50": 0.21171,
+          "Recall@100": 0.21171
+        },
+        "precision": {
+          "P@1": 0.43344,
+          "P@3": 0.33437,
+          "P@5": 0.27802,
+          "P@10": 0.21672,
+          "P@50": 0.09455,
+          "P@100": 0.04728
+        },
+        "mrr": {
+          "MRR@1": 0.43344,
+          "MRR@3": 0.49432,
+          "MRR@5": 0.50717,
+          "MRR@10": 0.51508,
+          "MRR@50": 0.5185,
+          "MRR@100": 0.5185
+        }
+      }
+    }
+  },
+  "paired_smoke": {
+    "queries": 61,
+    "mismatches": 0,
+    "errors": 0,
+    "network_attempts": {
+      "before": [],
+      "after": []
+    }
+  },
+  "ci_failed_run": {
+    "run": 38229446836,
+    "merge_sha": "c27c3681effb8b97531b2cb9aaaca59bf86a17c2",
+    "passed": 445,
+    "failed": 3,
+    "skipped": 6
+  },
+  "ci_fix": {
+    "issue150": "select the real platform executable suffix, preserving fail-closed behavior",
+    "issue156": "build protocol_vm before the full suite",
+    "p28": "update six exact source citations and section fingerprint without weakening assertions"
+  },
+  "ci_fix_files_sha256_lf": {
+    ".github/workflows/python-tests.yml": "27dc7ff9d0c3e508dbd54cb8de72859014f68060af83e003f71318339b987c61",
+    "md_cg/test_issue150_empty_query_terms.py": "affeafe509d0b67aca71d1f416b1e6840111e3b212596f02b557628a57dd0812",
+    "md_cg/test_p28_refcheck.py": "e10cf491bfe7a0fe6341b075e7c911f8a2d9ea8a665e0f8174cc67c452c3acac",
+    "docs/plans/真源索引_通用机制_v0.3.md": "a15a40c5c89250254024e2e2a9e02e6bbd04f4fd9cc776760139ca003e812015"
+  }
+}

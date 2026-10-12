@@ -38,6 +38,8 @@ jobs:
         run: |
           cargo build --release --manifest-path rust/Cargo.toml
           cargo build --release --manifest-path hive/Cargo.toml
+          # #156 的实际 CLI 守卫需要 protocol_vm，必须先构建，不能跳过守卫。
+          cargo build --release --manifest-path swarm/rust_runtime/Cargo.toml
       - name: Python 全量套件（scripts/run_tests.py）
         # 多个 hive 守卫共享临时工作区与生成表；并行执行会产生竞态假红。
         run: python scripts/run_tests.py --jobs 1
