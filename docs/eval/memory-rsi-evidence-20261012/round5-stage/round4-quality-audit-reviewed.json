@@ -1,0 +1,508 @@
+{
+  "historical_scores_unchanged": {
+    "A": 30,
+    "B": 27,
+    "C": 27,
+    "D": 27
+  },
+  "same_execution_caps_verified_all_160": true,
+  "explicit_temperature": false,
+  "remote_weights_pinned": false,
+  "flagged_tasks": {
+    "configuration-root-2": "Unstated exception-class requirement",
+    "permission-conjunction-1": "Unstated actor.ops schema",
+    "permission-conjunction-2": "Unstated actor.ops/public schema"
+  },
+  "task_families": 10,
+  "family_related_A_instances": true,
+  "memory_necessary_tasks": 0,
+  "reflection_events": [
+    {
+      "task": "dependency-version-1",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "dependency-version-2",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "api-parameter-migration-1",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 1,
+      "insufficient": false
+    },
+    {
+      "task": "api-parameter-migration-2",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "configuration-root-1",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "configuration-root-2",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "data-structure-protocol-1",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "data-structure-protocol-2",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "permission-conjunction-1",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "permission-conjunction-2",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "stale-event-knowledge-1",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "stale-event-knowledge-2",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "multi-step-url-encoding-1",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "multi-step-url-encoding-2",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "historical-policy-conflict-1",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "historical-policy-conflict-2",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "insufficient-evidence-1",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "insufficient-evidence-2",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "failure-safe-publication-1",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "failure-safe-publication-2",
+      "rep": 1,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "dependency-version-1",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "dependency-version-2",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "api-parameter-migration-1",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "api-parameter-migration-2",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "configuration-root-1",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "configuration-root-2",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "data-structure-protocol-1",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "data-structure-protocol-2",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "permission-conjunction-1",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "permission-conjunction-2",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "stale-event-knowledge-1",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "stale-event-knowledge-2",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "multi-step-url-encoding-1",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "multi-step-url-encoding-2",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "historical-policy-conflict-1",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "historical-policy-conflict-2",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "insufficient-evidence-1",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "insufficient-evidence-2",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    },
+    {
+      "task": "failure-safe-publication-1",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": true,
+      "rejected_candidates": 3,
+      "insufficient": false
+    },
+    {
+      "task": "failure-safe-publication-2",
+      "rep": 2,
+      "arm": "D",
+      "reason": "insufficient_or_rejected_memory",
+      "delivered_any": false,
+      "rejected_candidates": 4,
+      "insufficient": true
+    }
+  ],
+  "reflection_reasons": {
+    "insufficient_or_rejected_memory": 40
+  },
+  "reflection_with_nonempty_delivery": 17,
+  "unauthorized_project_reads": [
+    {
+      "task": "dependency-version-1",
+      "rep": 1,
+      "arm": "D",
+      "requested": "task.md",
+      "blocked": true
+    },
+    {
+      "task": "dependency-version-2",
+      "rep": 1,
+      "arm": "D",
+      "requested": "task.md",
+      "blocked": true
+    },
+    {
+      "task": "dependency-version-2",
+      "rep": 1,
+      "arm": "D",
+      "requested": "README.md",
+      "blocked": true
+    },
+    {
+      "task": "api-parameter-migration-2",
+      "rep": 1,
+      "arm": "D",
+      "requested": "README.md",
+      "blocked": true
+    },
+    {
+      "task": "permission-conjunction-2",
+      "rep": 1,
+      "arm": "C",
+      "requested": "task.md",
+      "blocked": true
+    },
+    {
+      "task": "multi-step-url-encoding-1",
+      "rep": 1,
+      "arm": "A",
+      "requested": "task.md",
+      "blocked": true
+    },
+    {
+      "task": "multi-step-url-encoding-1",
+      "rep": 1,
+      "arm": "A",
+      "requested": "README.md",
+      "blocked": true
+    },
+    {
+      "task": "multi-step-url-encoding-1",
+      "rep": 1,
+      "arm": "B",
+      "requested": "task.py",
+      "blocked": true
+    },
+    {
+      "task": "multi-step-url-encoding-2",
+      "rep": 1,
+      "arm": "D",
+      "requested": "README.md",
+      "blocked": true
+    },
+    {
+      "task": "multi-step-url-encoding-2",
+      "rep": 1,
+      "arm": "D",
+      "requested": "task.md",
+      "blocked": true
+    },
+    {
+      "task": "stale-event-knowledge-1",
+      "rep": 2,
+      "arm": "B",
+      "requested": "task.md",
+      "blocked": true
+    },
+    {
+      "task": "stale-event-knowledge-2",
+      "rep": 2,
+      "arm": "A",
+      "requested": "task.py",
+      "blocked": true
+    },
+    {
+      "task": "insufficient-evidence-2",
+      "rep": 2,
+      "arm": "C",
+      "requested": "README.md",
+      "blocked": true
+    }
+  ],
+  "all_unauthorized_reads_blocked": true,
+  "candidate_hidden_truth_introspection_hits": [
+    {
+      "task": "configuration-root-1",
+      "rep": 1,
+      "arm": "C",
+      "matches": [
+        "__main__"
+      ]
+    }
+  ],
+  "A_success_memory_failure_runs": 11,
+  "unique_task_repeat_pairs": 8,
+  "stage_multilabel_counts": {
+    "D": 10,
+    "H": 8,
+    "G": 6,
+    "C": 1
+  },
+  "specification_flagged_failure_runs": 3,
+  "caveat": "H is a test-design fact, D can be correct rejection, G currently proves interface overhead only; F/attention causality requires new interventions.",
+  "reviewed_multilabel_counts": {
+    "D": 9,
+    "H": 8,
+    "G": 6,
+    "A": 1,
+    "C": 1
+  },
+  "candidate_hidden_truth_introspection_hits_interpretation": "Only __name__ == \"__main__\" guard observed; no code.co_consts / frame inspection observed.",
+  "synthetic_checker_canary_recovered": true
+}

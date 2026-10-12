@@ -1,0 +1,52 @@
+[
+  {
+    "name": "no_parent_truth",
+    "boundary_assertion_passed": true,
+    "candidate_accepted": true
+  },
+  {
+    "name": "file_denied",
+    "boundary_assertion_passed": true,
+    "candidate_accepted": true
+  },
+  {
+    "name": "subprocess_denied",
+    "boundary_assertion_passed": true,
+    "candidate_accepted": true
+  },
+  {
+    "name": "network_denied",
+    "boundary_assertion_passed": true,
+    "candidate_accepted": true
+  },
+  {
+    "name": "outside_delete_denied",
+    "boundary_assertion_passed": true,
+    "candidate_accepted": true
+  },
+  {
+    "name": "alias_detected",
+    "boundary_assertion_passed": true,
+    "candidate_accepted": false
+  },
+  {
+    "name": "deepcopy_accepted",
+    "boundary_assertion_passed": true,
+    "candidate_accepted": true
+  },
+  {
+    "name": "ordered_dict_rejected",
+    "boundary_assertion_passed": true,
+    "candidate_accepted": false
+  },
+  {
+    "name": "ordered_dict_accepted",
+    "boundary_assertion_passed": true,
+    "candidate_accepted": true
+  },
+  {
+    "name": "sibling_alias_detected",
+    "boundary_assertion_passed": true,
+    "candidate_accepted": false
+  }
+]

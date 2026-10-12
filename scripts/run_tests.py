@@ -331,6 +331,9 @@ _SKIPS = {
     "md_cg.whitebox_kb.wisdom.test_navigate_self_bootstrap": _dep_db,
     "md_cg.test_imgskill": _dep_pil,
     "md_cg.test_csre_index_import_guard": _dep_numpy,
+    "md_cg.test_csre_correctness": _dep_numpy,
+    "md_cg.test_csre_session": _dep_numpy,
+    "md_cg.test_csre_mutations": _dep_numpy,
     "swarm.tests.test_swarm_fault": (
         lambda: None if os.name == "nt"
         else "Windows 专用（powershell/taskkill）"),

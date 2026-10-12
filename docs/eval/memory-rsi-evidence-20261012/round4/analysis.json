@@ -1,0 +1,719 @@
+{
+  "prefix": "formal",
+  "protocol_sha256": "e5b1ded3a0573102af2055b33e547a3506ac61a919a3d88cb59f54530f847075",
+  "algorithm_sha256": "8af142463ec5b0d0384dddf063635d8eda08eebf0d5d6b452a2808b9d704fc1b",
+  "model": {
+    "model": "deepseek-official/deepseek-flash",
+    "reasoning": "off",
+    "max_tool_calls": 14,
+    "max_model_requests": 8,
+    "learning_max_tool_calls": 18,
+    "learning_max_model_requests": 12,
+    "max_output_tokens_per_request": 2048,
+    "timeout_seconds": 120,
+    "provider_retries": 0,
+    "memory_budget_estimated_tokens": 1000
+  },
+  "arms": {
+    "A": {
+      "trials": 40,
+      "successes": 30,
+      "success_rate": 0.75,
+      "external_behavior_passes": 30,
+      "session_error_codes": {},
+      "timeout_trials": 0,
+      "invalid_integration_trials": 0,
+      "positive_opportunity_successes": 16,
+      "positive_opportunities": 20,
+      "negative_opportunity_successes": 14,
+      "negative_opportunities": 20,
+      "total_tokens": 421130,
+      "uncached_input_plus_output": 108170,
+      "cached_input_tokens": 312960,
+      "uncached_input_tokens": 84235,
+      "output_tokens": 23935,
+      "model_requests": 246,
+      "executed_tools": 281,
+      "mean_model_requests": 6.15,
+      "mean_executed_tools": 7.025,
+      "latency_p50_ms": 8424.5,
+      "latency_p95_ms": 11236.449999999997,
+      "target_source_retrieved_positive": 0,
+      "applicable_target_delivered_positive": 0,
+      "any_memory_delivered": 0,
+      "inapplicable_retrieved_items": 0,
+      "inapplicable_gate_withheld_items": 0,
+      "inapplicable_gate_withheld_rate": null,
+      "inapplicable_delivered_items": 0,
+      "inapplicable_declared_reject_items": 0,
+      "inapplicable_declared_reject_rate": null,
+      "inapplicable_declared_use_items": 0,
+      "declared_use_trials": 0,
+      "declaration_error_trials": 0,
+      "declaration_errors": 0,
+      "adoption_unknown_trials": 0,
+      "linked_delivered_items": 0,
+      "delivered_items": 0,
+      "truncated_public_text_trials": 0,
+      "observed_action_marker_trials": 0,
+      "model_note_marker_trials": 0,
+      "mean_retrieval_envelope_estimated_tokens": 52,
+      "max_tool_envelope_including_reflection_estimated_tokens": 61,
+      "tool_envelopes_above_1000_estimated_tokens": 0,
+      "reflection_events": 0,
+      "memory_path_counts": {
+        "no_cross_task_memory": 40
+      }
+    },
+    "B": {
+      "trials": 40,
+      "successes": 27,
+      "success_rate": 0.675,
+      "external_behavior_passes": 27,
+      "session_error_codes": {},
+      "timeout_trials": 0,
+      "invalid_integration_trials": 0,
+      "positive_opportunity_successes": 15,
+      "positive_opportunities": 20,
+      "negative_opportunity_successes": 12,
+      "negative_opportunities": 20,
+      "total_tokens": 602073,
+      "uncached_input_plus_output": 137945,
+      "cached_input_tokens": 464128,
+      "uncached_input_tokens": 109570,
+      "output_tokens": 28375,
+      "model_requests": 267,
+      "executed_tools": 311,
+      "mean_model_requests": 6.675,
+      "mean_executed_tools": 7.775,
+      "latency_p50_ms": 9271.0,
+      "latency_p95_ms": 11904.349999999997,
+      "target_source_retrieved_positive": 14,
+      "applicable_target_delivered_positive": 14,
+      "any_memory_delivered": 40,
+      "inapplicable_retrieved_items": 134,
+      "inapplicable_gate_withheld_items": 0,
+      "inapplicable_gate_withheld_rate": 0.0,
+      "inapplicable_delivered_items": 57,
+      "inapplicable_declared_reject_items": 35,
+      "inapplicable_declared_reject_rate": 0.6140350877192983,
+      "inapplicable_declared_use_items": 7,
+      "declared_use_trials": 18,
+      "declaration_error_trials": 5,
+      "declaration_errors": 5,
+      "adoption_unknown_trials": 3,
+      "linked_delivered_items": 80,
+      "delivered_items": 80,
+      "truncated_public_text_trials": 40,
+      "observed_action_marker_trials": 0,
+      "model_note_marker_trials": 40,
+      "mean_retrieval_envelope_estimated_tokens": 498.925,
+      "max_tool_envelope_including_reflection_estimated_tokens": 517,
+      "tool_envelopes_above_1000_estimated_tokens": 0,
+      "reflection_events": 0,
+      "memory_path_counts": {
+        "declared_use_edit_external_success_causality_unproven": 9,
+        "delivered_without_applicable_target_source": 26,
+        "declared_use_edit_external_failure_causality_unproven": 4,
+        "applicable_source_delivered_no_declared_use": 1
+      }
+    },
+    "C": {
+      "trials": 40,
+      "successes": 27,
+      "success_rate": 0.675,
+      "external_behavior_passes": 27,
+      "session_error_codes": {},
+      "timeout_trials": 0,
+      "invalid_integration_trials": 0,
+      "positive_opportunity_successes": 16,
+      "positive_opportunities": 20,
+      "negative_opportunity_successes": 11,
+      "negative_opportunities": 20,
+      "total_tokens": 598132,
+      "uncached_input_plus_output": 138612,
+      "cached_input_tokens": 459520,
+      "uncached_input_tokens": 107644,
+      "output_tokens": 30968,
+      "model_requests": 270,
+      "executed_tools": 319,
+      "mean_model_requests": 6.75,
+      "mean_executed_tools": 7.975,
+      "latency_p50_ms": 9646.5,
+      "latency_p95_ms": 13015.15,
+      "target_source_retrieved_positive": 17,
+      "applicable_target_delivered_positive": 17,
+      "any_memory_delivered": 17,
+      "inapplicable_retrieved_items": 140,
+      "inapplicable_gate_withheld_items": 140,
+      "inapplicable_gate_withheld_rate": 1.0,
+      "inapplicable_delivered_items": 0,
+      "inapplicable_declared_reject_items": 0,
+      "inapplicable_declared_reject_rate": null,
+      "inapplicable_declared_use_items": 0,
+      "declared_use_trials": 16,
+      "declaration_error_trials": 22,
+      "declaration_errors": 24,
+      "adoption_unknown_trials": 0,
+      "linked_delivered_items": 17,
+      "delivered_items": 17,
+      "truncated_public_text_trials": 4,
+      "observed_action_marker_trials": 12,
+      "model_note_marker_trials": 0,
+      "mean_retrieval_envelope_estimated_tokens": 459.525,
+      "max_tool_envelope_including_reflection_estimated_tokens": 925,
+      "tool_envelopes_above_1000_estimated_tokens": 0,
+      "reflection_events": 0,
+      "memory_path_counts": {
+        "declared_use_edit_external_success_causality_unproven": 12,
+        "retrieved_but_withheld_or_not_delivered": 23,
+        "declared_use_edit_external_failure_causality_unproven": 4,
+        "applicable_source_delivered_no_declared_use": 1
+      }
+    },
+    "D": {
+      "trials": 40,
+      "successes": 27,
+      "success_rate": 0.675,
+      "external_behavior_passes": 27,
+      "session_error_codes": {},
+      "timeout_trials": 0,
+      "invalid_integration_trials": 0,
+      "positive_opportunity_successes": 17,
+      "positive_opportunities": 20,
+      "negative_opportunity_successes": 10,
+      "negative_opportunities": 20,
+      "total_tokens": 625758,
+      "uncached_input_plus_output": 142302,
+      "cached_input_tokens": 483456,
+      "uncached_input_tokens": 111572,
+      "output_tokens": 30730,
+      "model_requests": 275,
+      "executed_tools": 323,
+      "mean_model_requests": 6.875,
+      "mean_executed_tools": 8.075,
+      "latency_p50_ms": 10283.0,
+      "latency_p95_ms": 12616.2,
+      "target_source_retrieved_positive": 17,
+      "applicable_target_delivered_positive": 17,
+      "any_memory_delivered": 17,
+      "inapplicable_retrieved_items": 141,
+      "inapplicable_gate_withheld_items": 141,
+      "inapplicable_gate_withheld_rate": 1.0,
+      "inapplicable_delivered_items": 0,
+      "inapplicable_declared_reject_items": 0,
+      "inapplicable_declared_reject_rate": null,
+      "inapplicable_declared_use_items": 0,
+      "declared_use_trials": 16,
+      "declaration_error_trials": 18,
+      "declaration_errors": 21,
+      "adoption_unknown_trials": 1,
+      "linked_delivered_items": 17,
+      "delivered_items": 17,
+      "truncated_public_text_trials": 4,
+      "observed_action_marker_trials": 11,
+      "model_note_marker_trials": 0,
+      "mean_retrieval_envelope_estimated_tokens": 450.55,
+      "max_tool_envelope_including_reflection_estimated_tokens": 1008,
+      "tool_envelopes_above_1000_estimated_tokens": 2,
+      "reflection_events": 40,
+      "memory_path_counts": {
+        "declared_use_edit_external_success_causality_unproven": 14,
+        "retrieved_but_withheld_or_not_delivered": 23,
+        "applicable_source_delivered_adoption_unknown": 1,
+        "declared_use_edit_external_failure_causality_unproven": 2
+      }
+    }
+  },
+  "paired": {
+    "B_vs_A": {
+      "paired_runs": 40,
+      "candidate_wins": [],
+      "candidate_losses": [
+        {
+          "task": "dependency-version-2",
+          "family": "dependency-version",
+          "rep": 1
+        },
+        {
+          "task": "configuration-root-2",
+          "family": "configuration-root",
+          "rep": 2
+        },
+        {
+          "task": "stale-event-knowledge-1",
+          "family": "stale-event-knowledge",
+          "rep": 2
+        }
+      ],
+      "tie_successes": 27,
+      "tie_failures": 10,
+      "mean_family_effect": -0.075,
+      "family_effects": {
+        "dependency-version": -0.25,
+        "api-parameter-migration": 0,
+        "configuration-root": -0.25,
+        "data-structure-protocol": 0,
+        "permission-conjunction": 0,
+        "stale-event-knowledge": -0.25,
+        "multi-step-url-encoding": 0,
+        "historical-policy-conflict": 0,
+        "insufficient-evidence": 0,
+        "failure-safe-publication": 0
+      },
+      "family_cluster_bootstrap_95": [
+        -0.15,
+        0.0
+      ],
+      "independent_family_count": 10,
+      "bootstrap_degenerate": false,
+      "unclustered_exact_sign_p_descriptive_only": 0.25,
+      "sign_p_warning": "repeats and related instances violate independent-discordance assumption; not evidence of significance",
+      "positive_transfer_pair_wins": 0,
+      "positive_transfer_opportunities": 20,
+      "negative_transfer_pair_losses": 2,
+      "negative_transfer_opportunities": 20,
+      "all_task_pair_losses": 3,
+      "boundary": "Paired outcome changes are associations. Self-declared use does not establish memory causality."
+    },
+    "C_vs_B": {
+      "paired_runs": 40,
+      "candidate_wins": [
+        {
+          "task": "configuration-root-2",
+          "family": "configuration-root",
+          "rep": 2
+        },
+        {
+          "task": "stale-event-knowledge-1",
+          "family": "stale-event-knowledge",
+          "rep": 2
+        }
+      ],
+      "candidate_losses": [
+        {
+          "task": "configuration-root-2",
+          "family": "configuration-root",
+          "rep": 1
+        },
+        {
+          "task": "dependency-version-2",
+          "family": "dependency-version",
+          "rep": 2
+        }
+      ],
+      "tie_successes": 25,
+      "tie_failures": 11,
+      "mean_family_effect": 0.0,
+      "family_effects": {
+        "dependency-version": -0.25,
+        "api-parameter-migration": 0,
+        "configuration-root": 0,
+        "data-structure-protocol": 0,
+        "permission-conjunction": 0,
+        "stale-event-knowledge": 0.25,
+        "multi-step-url-encoding": 0,
+        "historical-policy-conflict": 0,
+        "insufficient-evidence": 0,
+        "failure-safe-publication": 0
+      },
+      "family_cluster_bootstrap_95": [
+        -0.075,
+        0.075
+      ],
+      "independent_family_count": 10,
+      "bootstrap_degenerate": false,
+      "unclustered_exact_sign_p_descriptive_only": 1,
+      "sign_p_warning": "repeats and related instances violate independent-discordance assumption; not evidence of significance",
+      "positive_transfer_pair_wins": 1,
+      "positive_transfer_opportunities": 20,
+      "negative_transfer_pair_losses": 2,
+      "negative_transfer_opportunities": 20,
+      "all_task_pair_losses": 2,
+      "boundary": "Paired outcome changes are associations. Self-declared use does not establish memory causality."
+    },
+    "D_vs_C": {
+      "paired_runs": 40,
+      "candidate_wins": [
+        {
+          "task": "dependency-version-2",
+          "family": "dependency-version",
+          "rep": 1
+        },
+        {
+          "task": "configuration-root-1",
+          "family": "configuration-root",
+          "rep": 1
+        },
+        {
+          "task": "configuration-root-1",
+          "family": "configuration-root",
+          "rep": 2
+        }
+      ],
+      "candidate_losses": [
+        {
+          "task": "api-parameter-migration-2",
+          "family": "api-parameter-migration",
+          "rep": 1
+        },
+        {
+          "task": "multi-step-url-encoding-1",
+          "family": "multi-step-url-encoding",
+          "rep": 1
+        },
+        {
+          "task": "api-parameter-migration-2",
+          "family": "api-parameter-migration",
+          "rep": 2
+        }
+      ],
+      "tie_successes": 24,
+      "tie_failures": 10,
+      "mean_family_effect": 0.0,
+      "family_effects": {
+        "dependency-version": 0.25,
+        "api-parameter-migration": -0.5,
+        "configuration-root": 0.5,
+        "data-structure-protocol": 0,
+        "permission-conjunction": 0,
+        "stale-event-knowledge": 0,
+        "multi-step-url-encoding": -0.25,
+        "historical-policy-conflict": 0,
+        "insufficient-evidence": 0,
+        "failure-safe-publication": 0
+      },
+      "family_cluster_bootstrap_95": [
+        -0.15,
+        0.15
+      ],
+      "independent_family_count": 10,
+      "bootstrap_degenerate": false,
+      "unclustered_exact_sign_p_descriptive_only": 1,
+      "sign_p_warning": "repeats and related instances violate independent-discordance assumption; not evidence of significance",
+      "positive_transfer_pair_wins": 2,
+      "positive_transfer_opportunities": 20,
+      "negative_transfer_pair_losses": 2,
+      "negative_transfer_opportunities": 20,
+      "all_task_pair_losses": 3,
+      "boundary": "Paired outcome changes are associations. Self-declared use does not establish memory causality."
+    },
+    "D_vs_B": {
+      "paired_runs": 40,
+      "candidate_wins": [
+        {
+          "task": "dependency-version-2",
+          "family": "dependency-version",
+          "rep": 1
+        },
+        {
+          "task": "configuration-root-1",
+          "family": "configuration-root",
+          "rep": 1
+        },
+        {
+          "task": "configuration-root-1",
+          "family": "configuration-root",
+          "rep": 2
+        },
+        {
+          "task": "configuration-root-2",
+          "family": "configuration-root",
+          "rep": 2
+        },
+        {
+          "task": "stale-event-knowledge-1",
+          "family": "stale-event-knowledge",
+          "rep": 2
+        }
+      ],
+      "candidate_losses": [
+        {
+          "task": "api-parameter-migration-2",
+          "family": "api-parameter-migration",
+          "rep": 1
+        },
+        {
+          "task": "configuration-root-2",
+          "family": "configuration-root",
+          "rep": 1
+        },
+        {
+          "task": "multi-step-url-encoding-1",
+          "family": "multi-step-url-encoding",
+          "rep": 1
+        },
+        {
+          "task": "dependency-version-2",
+          "family": "dependency-version",
+          "rep": 2
+        },
+        {
+          "task": "api-parameter-migration-2",
+          "family": "api-parameter-migration",
+          "rep": 2
+        }
+      ],
+      "tie_successes": 22,
+      "tie_failures": 8,
+      "mean_family_effect": 0.0,
+      "family_effects": {
+        "dependency-version": 0,
+        "api-parameter-migration": -0.5,
+        "configuration-root": 0.5,
+        "data-structure-protocol": 0,
+        "permission-conjunction": 0,
+        "stale-event-knowledge": 0.25,
+        "multi-step-url-encoding": -0.25,
+        "historical-policy-conflict": 0,
+        "insufficient-evidence": 0,
+        "failure-safe-publication": 0
+      },
+      "family_cluster_bootstrap_95": [
+        -0.15,
+        0.15
+      ],
+      "independent_family_count": 10,
+      "bootstrap_degenerate": false,
+      "unclustered_exact_sign_p_descriptive_only": 1,
+      "sign_p_warning": "repeats and related instances violate independent-discordance assumption; not evidence of significance",
+      "positive_transfer_pair_wins": 3,
+      "positive_transfer_opportunities": 20,
+      "negative_transfer_pair_losses": 4,
+      "negative_transfer_opportunities": 20,
+      "all_task_pair_losses": 5,
+      "boundary": "Paired outcome changes are associations. Self-declared use does not establish memory causality."
+    }
+  },
+  "families": [
+    {
+      "family": "api-parameter-migration",
+      "A": {
+        "successes": 4,
+        "trials": 4
+      },
+      "B": {
+        "successes": 4,
+        "trials": 4
+      },
+      "C": {
+        "successes": 4,
+        "trials": 4
+      },
+      "D": {
+        "successes": 2,
+        "trials": 4
+      }
+    },
+    {
+      "family": "configuration-root",
+      "A": {
+        "successes": 2,
+        "trials": 4
+      },
+      "B": {
+        "successes": 1,
+        "trials": 4
+      },
+      "C": {
+        "successes": 1,
+        "trials": 4
+      },
+      "D": {
+        "successes": 3,
+        "trials": 4
+      }
+    },
+    {
+      "family": "data-structure-protocol",
+      "A": {
+        "successes": 4,
+        "trials": 4
+      },
+      "B": {
+        "successes": 4,
+        "trials": 4
+      },
+      "C": {
+        "successes": 4,
+        "trials": 4
+      },
+      "D": {
+        "successes": 4,
+        "trials": 4
+      }
+    },
+    {
+      "family": "dependency-version",
+      "A": {
+        "successes": 4,
+        "trials": 4
+      },
+      "B": {
+        "successes": 3,
+        "trials": 4
+      },
+      "C": {
+        "successes": 2,
+        "trials": 4
+      },
+      "D": {
+        "successes": 3,
+        "trials": 4
+      }
+    },
+    {
+      "family": "failure-safe-publication",
+      "A": {
+        "successes": 4,
+        "trials": 4
+      },
+      "B": {
+        "successes": 4,
+        "trials": 4
+      },
+      "C": {
+        "successes": 4,
+        "trials": 4
+      },
+      "D": {
+        "successes": 4,
+        "trials": 4
+      }
+    },
+    {
+      "family": "historical-policy-conflict",
+      "A": {
+        "successes": 4,
+        "trials": 4
+      },
+      "B": {
+        "successes": 4,
+        "trials": 4
+      },
+      "C": {
+        "successes": 4,
+        "trials": 4
+      },
+      "D": {
+        "successes": 4,
+        "trials": 4
+      }
+    },
+    {
+      "family": "insufficient-evidence",
+      "A": {
+        "successes": 2,
+        "trials": 4
+      },
+      "B": {
+        "successes": 2,
+        "trials": 4
+      },
+      "C": {
+        "successes": 2,
+        "trials": 4
+      },
+      "D": {
+        "successes": 2,
+        "trials": 4
+      }
+    },
+    {
+      "family": "multi-step-url-encoding",
+      "A": {
+        "successes": 2,
+        "trials": 4
+      },
+      "B": {
+        "successes": 2,
+        "trials": 4
+      },
+      "C": {
+        "successes": 2,
+        "trials": 4
+      },
+      "D": {
+        "successes": 1,
+        "trials": 4
+      }
+    },
+    {
+      "family": "permission-conjunction",
+      "A": {
+        "successes": 0,
+        "trials": 4
+      },
+      "B": {
+        "successes": 0,
+        "trials": 4
+      },
+      "C": {
+        "successes": 0,
+        "trials": 4
+      },
+      "D": {
+        "successes": 0,
+        "trials": 4
+      }
+    },
+    {
+      "family": "stale-event-knowledge",
+      "A": {
+        "successes": 4,
+        "trials": 4
+      },
+      "B": {
+        "successes": 3,
+        "trials": 4
+      },
+      "C": {
+        "successes": 4,
+        "trials": 4
+      },
+      "D": {
+        "successes": 4,
+        "trials": 4
+      }
+    }
+  ],
+  "repeat_stability": {
+    "A": {
+      "tasks_repeated": 20,
+      "consistent_tasks": 20,
+      "mixed_outcome_tasks": []
+    },
+    "B": {
+      "tasks_repeated": 20,
+      "consistent_tasks": 17,
+      "mixed_outcome_tasks": [
+        "dependency-version-2",
+        "configuration-root-2",
+        "stale-event-knowledge-1"
+      ]
+    },
+    "C": {
+      "tasks_repeated": 20,
+      "consistent_tasks": 19,
+      "mixed_outcome_tasks": [
+        "configuration-root-2"
+      ]
+    },
+    "D": {
+      "tasks_repeated": 20,
+      "consistent_tasks": 17,
+      "mixed_outcome_tasks": [
+        "dependency-version-2",
+        "configuration-root-2",
+        "multi-step-url-encoding-1"
+      ]
+    }
+  },
+  "source_A_sessions": 20,
+  "source_A_successes": 19,
+  "capsules": 9,
+  "actual_api_currency_cost": null,
+  "cost_unavailable_reason": "Provider billing/charged-unit records are unavailable; cached and uncached token usage are reported separately.",
+  "source_support_authentication": "local trusted-controller HMAC plus independently replayed task execution, not universal semantic validation",
+  "statistical_boundary": "Task instances/repetitions in a family are correlated; bootstrap uses broad families. A zero-width ceiling bootstrap is uninformative about unseen tasks."
+}
