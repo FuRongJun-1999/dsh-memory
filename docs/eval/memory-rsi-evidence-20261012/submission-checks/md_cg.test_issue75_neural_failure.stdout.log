@@ -1,0 +1,18 @@
+#75 部位②守卫 · neural_retrieve 降级路径的结构化失败与可观测
+========================================================================
+  [PASS] A1 初始：无失败记录  · ([], None)
+  [PASS] A2 load_index 失败 → False + stage=load_index  · (False, [{'stage': 'load_index', 'exc_type': 'FileNotFoundError', 'message': "[Errno 2] No such file or directory: 'E:\\\\lingshu\\\\work\\\\r5-tmp\\\\991ac3be6d\\\\i75_no_such_index.npz'"}])
+  [PASS] A3 embed 失败 → None + stage=embed  · (None, [{'stage': 'embed', 'exc_type': 'RuntimeError', 'message': 'encode boom'}])
+  [PASS] A4 ensure_model 失败 → stage=ensure_model（_fail_reason 保留）  · (False, [{'stage': 'ensure_model', 'exc_type': 'RuntimeError', 'message': 'model dir missing'}], 'model dir missing')
+  [PASS] A5 CSPMN 抛异常 → 记录 cspmn_backend 且回退 numpy 结果不变  · ('numpy=True', ['cspmn_backend'], "base=[('a', 1.0, 'd1', 'e1'), ('c', 0.707, 'd3', 'e3'), ('b', 0.0, 'd2', 'e2')]", "got=[('a', 1.0, 'd1', 'e1'), ('c', 0.707, 'd3', 'e3'), ('b', 0.0, 'd2', 'e2')]")
+  [PASS] A6 search_index 外层兜底 → [] + stage=search_index  · ([], ['search_index'])
+  [PASS] A7 记录结构三键齐备且类型正确  · ({'stage': 'probe', 'exc_type': 'ValueError', 'message': '结构检查'},)
+  [PASS] A8 上限口径：留最近 FAILURE_LIMIT 条、最旧先丢  · (50, 10, 'e10', 'e59', 50)
+  [PASS] A9 failures()/last_failure() 返回副本  · ([{'stage': 'probe', 'exc_type': 'ValueError', 'message': '副本'}],)
+  [PASS] A10 日志面：模块 logger 记一条 WARNING  · (1, '[neural_retrieve] 降级 stage=probe exc=ValueError: 日志面探针')
+  [PASS] A11 源码形态（读盘上文件）  · 未过项=[]
+  [PASS] A12 降级不抛（三重失败仍返回 []）  · ([], [])
+  [PASS] A13 _cosine 保持 staticmethod（类级调用不抛、不进实例记录）  · ('staticmethod=True', 0.0, 0.0, [])
+  [PASS] A14 A5 的域相关性（_degrade 调用次数随 numpy 而定，两域均稳定）  · ('numpy=True', 'degrade_calls=[]')
+========================================================================
+通过 14 / 失败 0 / 不可判定(SKIP) 0

@@ -230,6 +230,9 @@ _SKIPS = {
     "md_cg.test_wisdom_md_store": _dep_mdroot,
     "md_cg.test_imgskill": _dep_pil,
     "md_cg.test_csre_index_import_guard": _dep_numpy,
+    "md_cg.test_csre_correctness": _dep_numpy,
+    "md_cg.test_csre_session": _dep_numpy,
+    "md_cg.test_csre_mutations": _dep_numpy,
     "swarm.tests.test_swarm_fault": (
         lambda: None if os.name == "nt"
         else "Windows 专用（powershell/taskkill）"),

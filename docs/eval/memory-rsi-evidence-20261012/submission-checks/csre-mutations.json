@@ -1,0 +1,55 @@
+{
+  "baseline_tests": 22,
+  "mutations": [
+    {
+      "mutation": "M0_negative_gate",
+      "expected_assertion": "test_negative_gate_filters_before_top_k_and_backfills",
+      "killed_by_expected_assertion": true,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "mutation": "M1_warm_freshness",
+      "expected_assertion": "test_changed_content_invalidates_new_and_already_loaded_engines",
+      "killed_by_expected_assertion": true,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "mutation": "M2_source_identity",
+      "expected_assertion": "test_identical_rows_from_another_database_are_not_accepted",
+      "killed_by_expected_assertion": true,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "mutation": "M3_row_hash",
+      "expected_assertion": "test_changed_content_invalidates_new_and_already_loaded_engines",
+      "killed_by_expected_assertion": true,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "mutation": "M4_readonly_source",
+      "expected_assertion": "test_missing_database_is_not_created",
+      "killed_by_expected_assertion": true,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "mutation": "M5_nonfinite_vectors",
+      "expected_assertion": "test_invalid_shape_and_nonfinite_vectors_are_rejected",
+      "killed_by_expected_assertion": true,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0
+    }
+  ],
+  "killed": 6,
+  "source_untouched": true
+}

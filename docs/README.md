@@ -158,3 +158,5 @@ docs/
 2. **跨工程理论** → `theory/`；**评测 / 第三方报告** → `eval/`；**计划 / 交接 / 规格** → `plans/`。
 3. **横切全局件**（工作纪律真源等）→ 留顶层，移动前必须核对引用面并全量重写。
 4. 入域后在本页对应清单登记一行；`discipline/`、`experiments/`、`promo/` 既有惯例不变。
+
+- [Memory-RSI 五轮工作与提交范围（第五轮进行中）](eval/memory-rsi-work-summary-20261012.md)

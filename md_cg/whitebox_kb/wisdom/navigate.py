@@ -48,8 +48,9 @@ def _l1_domain_prior(dex, question: str) -> str | None:
         if key not in _CSRE_CACHE:
             from csre import Csre
             _c = Csre(str(db_path))
-            _c.ensure_loaded()
             _CSRE_CACHE[key] = _c
+        # rank_domains validates the source even for an already cached engine.
+        # A stale/unbound index returns no prior, preserving the full-scan path.
         doms = _CSRE_CACHE[key].rank_domains(question, top_k=1)
         if doms and doms[0].get("score", 0) >= 0.5:
             return doms[0].get("domain") or None
