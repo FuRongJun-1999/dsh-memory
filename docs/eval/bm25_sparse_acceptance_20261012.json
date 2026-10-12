@@ -1,8 +1,101 @@
 {
   "date": "2026-10-12",
-  "head_at_runtime_validation": "1714ef5627e1e41d7421cf873d9adb4b1ae7c544",
+  "head_at_runtime_validation": "8f35c593304ab1e09d7242ec13650b0e6b906c9d",
   "frozen_baseline": "dcb8fbf4148f727a5b4de1bd0737e14000935857",
   "rebased_onto": "68aef58a06aff57f5a86d7287d06224929387dbd",
+  "integrated_upstream": "be4672cd97b284628e7ef00cb5451885fd46a262",
+  "integration_commands": [
+    {
+      "name": "test_bm25",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_bm25"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:39:20.743380+00:00",
+      "seconds": 30.811522899995907,
+      "exit_code": 0
+    },
+    {
+      "name": "test_bm25_incremental",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_bm25_incremental"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:39:51.555811+00:00",
+      "seconds": 85.97461099999782,
+      "exit_code": 0
+    },
+    {
+      "name": "test_bm25_sparse_sync",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_bm25_sparse_sync"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:41:17.530888+00:00",
+      "seconds": 21.91467700000794,
+      "exit_code": 0
+    },
+    {
+      "name": "test_issue148_merge_downgrade_leak",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_issue148_merge_downgrade_leak"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:41:39.449705+00:00",
+      "seconds": 0.5310534000018379,
+      "exit_code": 0
+    },
+    {
+      "name": "test_issue147_pack_id_escape",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_issue147_pack_id_escape"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:41:39.981437+00:00",
+      "seconds": 0.4199607000045944,
+      "exit_code": 0
+    },
+    {
+      "name": "test_issue145_sleep_no_silent_rollback",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_issue145_sleep_no_silent_rollback"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:41:40.401988+00:00",
+      "seconds": 3.3879850000084843,
+      "exit_code": 0
+    }
+  ],
   "source_equivalence": {
     "bm25.py": {
       "benchmark_and_final_sha256_lf": "ba8ab3562fbacb913146abb35d16fcb1d130b2074687c7eb8dec4ccb7a5bc816",
@@ -13,8 +106,14 @@
       "final_working_file_sha256": "29e6aa02b87e2283ef9dfcd40dd1b64768f4199134876cc5cd6f78a06aa85ed8"
     },
     "mdcos.py": {
-      "benchmark_and_final_sha256_lf": "41339b70109d53d1fa59f82a4018c46e6490676aa5f17dba6841461abd40688c",
-      "final_working_file_sha256": "a4c605f8a04a395509f3cf10edf5a8f8c98a7f45d5ae0ab689c08c33eab8601a"
+      "benchmark_sha256_lf": "41339b70109d53d1fa59f82a4018c46e6490676aa5f17dba6841461abd40688c",
+      "final_sha256_lf": "94d172f726d1ad4fcbc811e6ae5bb9b2b404dd9fa39f633c22956247e04a30b7",
+      "changed_untimed_methods": [
+        "MdCGOS._mutation_execute",
+        "MdCGOS.remember_gated"
+      ],
+      "all_other_code_ast_equal": true,
+      "final_working_file_sha256": "cf603ead130644bc0a5b8561bd25b7763f9eec861c61911d973f8df05f98672e"
     },
     "readcache.py": {
       "benchmark_and_final_sha256_lf": "274d081dd8009f45b5f78854d3d04bcd75fc6ce1f317707e4b3925ea6cd276b1",
@@ -372,35 +471,6 @@
       "exit_code": 0
     },
     {
-      "name": "scifact-after",
-      "command": [
-        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
-        "-X",
-        "utf8",
-        "-u",
-        "-m",
-        "md_cg.bench_beir_bm25",
-        "--name",
-        "scifact",
-        "--split",
-        "test",
-        "--data",
-        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-data\\scifact",
-        "--pool",
-        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\scifact-after-corpus",
-        "--output-dir",
-        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\scifact-after",
-        "--beir-root",
-        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-official",
-        "--arms",
-        "bm25"
-      ],
-      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
-      "started_at": "2026-10-12T08:18:43.210920+00:00",
-      "seconds": 39.2382013000024,
-      "exit_code": 0
-    },
-    {
       "name": "nfcorpus-before",
       "command": [
         "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
@@ -430,6 +500,35 @@
       "exit_code": 0
     },
     {
+      "name": "scifact-after",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.bench_beir_bm25",
+        "--name",
+        "scifact",
+        "--split",
+        "test",
+        "--data",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-data\\scifact",
+        "--pool",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-integrated-final\\scifact-after-corpus",
+        "--output-dir",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-integrated-final\\scifact-after",
+        "--beir-root",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-official",
+        "--arms",
+        "bm25"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:43:34.015579+00:00",
+      "seconds": 42.78335049998714,
+      "exit_code": 0
+    },
+    {
       "name": "nfcorpus-after",
       "command": [
         "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
@@ -445,17 +544,17 @@
         "--data",
         "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-data\\nfcorpus",
         "--pool",
-        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\nfcorpus-after-corpus",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-integrated-final\\nfcorpus-after-corpus",
         "--output-dir",
-        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\nfcorpus-after",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-integrated-final\\nfcorpus-after",
         "--beir-root",
         "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-official",
         "--arms",
         "bm25"
       ],
       "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
-      "started_at": "2026-10-12T08:19:49.261390+00:00",
-      "seconds": 20.06653290000395,
+      "started_at": "2026-10-12T08:44:16.799711+00:00",
+      "seconds": 29.383560600006604,
       "exit_code": 0
     }
   ],
@@ -675,6 +774,66 @@
       }
     }
   },
+  "superseded_initial_after_commands": [
+    {
+      "name": "scifact-after",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.bench_beir_bm25",
+        "--name",
+        "scifact",
+        "--split",
+        "test",
+        "--data",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-data\\scifact",
+        "--pool",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\scifact-after-corpus",
+        "--output-dir",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\scifact-after",
+        "--beir-root",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-official",
+        "--arms",
+        "bm25"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:18:43.210920+00:00",
+      "seconds": 39.2382013000024,
+      "exit_code": 0
+    },
+    {
+      "name": "nfcorpus-after",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.bench_beir_bm25",
+        "--name",
+        "nfcorpus",
+        "--split",
+        "test",
+        "--data",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-data\\nfcorpus",
+        "--pool",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\nfcorpus-after-corpus",
+        "--output-dir",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\nfcorpus-after",
+        "--beir-root",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-official",
+        "--arms",
+        "bm25"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:19:49.261390+00:00",
+      "seconds": 20.06653290000395,
+      "exit_code": 0
+    }
+  ],
   "limits": {
     "unavailable_entry": "md_cg.test_csre_import_contract is absent at this upstream revision",
     "md_access_parity": "4 literal assertions passed; corpus-dependent SQL/parser parity SKIPPED",
