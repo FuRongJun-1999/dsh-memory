@@ -12,7 +12,7 @@ MUTATIONS=[
  ('M5_nonfinite_vectors','not np.isfinite(matrix).all()', 'False', 'test_invalid_shape_and_nonfinite_vectors_are_rejected'),
 ]
 def run_mutations():
-    path=Path(guards.WISDOM)/'csre.py';source=path.read_text('utf8');original=guards.Csre;records=[]
+    path=Path(guards.WISDOM)/'csre.py';source=path.read_text(encoding='utf8');original=guards.Csre;records=[]
     for name,before,after,test in MUTATIONS:
         assert source.count(before)==1,(name,'mutation location must be unique')
         module=types.ModuleType('csre_memory_mutation');module.__file__=str(path)
@@ -24,7 +24,7 @@ def run_mutations():
             records.append({'mutation':name,'expected_assertion':test,'killed_by_expected_assertion':killed,'failures':len(result.failures),'errors':len(result.errors),'skips':len(result.skipped)})
             assert killed,(name,records[-1])
         finally:guards.Csre=original
-    assert path.read_text('utf8')==source,'Source file changed'
+    assert path.read_text(encoding='utf8')==source,'Source file changed'
     return records
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--output',type=Path);a=p.parse_args()
