@@ -60,11 +60,13 @@ def _main():
     else:
         valid = guards.wasSuccessful() and not guards.skipped
     report = {
-        "head": subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip(),
+        "head": subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                                        text=True, encoding="utf-8", errors="replace").strip(),
         "source_sha256": {p: digest(repo / p) for p in ("md_cg/chain.py", "md_cg/mdcos.py")},
         "harness_sha256": digest(__file__), "helper_sha256": digest(helper_path),
         "source_dirty": subprocess.check_output(["git", "-C", str(repo), "status", "--porcelain", "--",
-                                                 "md_cg/chain.py", "md_cg/mdcos.py"], text=True).strip(),
+                                                 "md_cg/chain.py", "md_cg/mdcos.py"],
+                                                text=True, encoding="utf-8", errors="replace").strip(),
         "python": sys.version, "platform": sys.platform, "repeats": args.repeats,
         "guards_expected_baseline_failure": args.expect_baseline_failure,
         "guards_valid": valid, "guards_log": guard_log, "cases": [],
