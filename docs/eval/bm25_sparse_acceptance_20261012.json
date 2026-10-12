@@ -1,0 +1,689 @@
+{
+  "date": "2026-10-12",
+  "head_at_runtime_validation": "1714ef5627e1e41d7421cf873d9adb4b1ae7c544",
+  "frozen_baseline": "dcb8fbf4148f727a5b4de1bd0737e14000935857",
+  "rebased_onto": "68aef58a06aff57f5a86d7287d06224929387dbd",
+  "source_equivalence": {
+    "bm25.py": {
+      "benchmark_and_final_sha256_lf": "ba8ab3562fbacb913146abb35d16fcb1d130b2074687c7eb8dec4ccb7a5bc816",
+      "final_working_file_sha256": "9fa8e606c4350e4946dcc6346b2d0fd05819a9bb557b306588926bb54da7d45b"
+    },
+    "mdcg.py": {
+      "benchmark_and_final_sha256_lf": "38f31dfa78f48e3ca769e088ffcecd51028624f87602f9ef391cd70a00606af6",
+      "final_working_file_sha256": "29e6aa02b87e2283ef9dfcd40dd1b64768f4199134876cc5cd6f78a06aa85ed8"
+    },
+    "mdcos.py": {
+      "benchmark_and_final_sha256_lf": "41339b70109d53d1fa59f82a4018c46e6490676aa5f17dba6841461abd40688c",
+      "final_working_file_sha256": "a4c605f8a04a395509f3cf10edf5a8f8c98a7f45d5ae0ab689c08c33eab8601a"
+    },
+    "readcache.py": {
+      "benchmark_and_final_sha256_lf": "274d081dd8009f45b5f78854d3d04bcd75fc6ce1f317707e4b3925ea6cd276b1",
+      "final_working_file_sha256": "aaeb8166b180a5ad3673adf2919cf083ed448c5e23db06c5bc22efd59c96cbe0"
+    }
+  },
+  "raw_evidence": {
+    "bm25_sparse_10k_varied_20261012.json.gz": {
+      "original_sha256": "8ae44efc9fe3d5b33b57fbbe710a690ec782999733cfd0b5eb3f3aad4e132ca9",
+      "gzip_sha256": "4e1aa0b779cdfcbbc7c54cde83542a6238445bec845fabe51a489516a1e2ceea",
+      "original_bytes": 916223
+    },
+    "bm25_sparse_100k_uniform_20261012.json.gz": {
+      "original_sha256": "7aa25d7a908452c37b22d21b25ccfb35b1520fc109b66427345c83502331fe9d",
+      "gzip_sha256": "90b76c7de2e3190e80ed98fd341b7c9b67e6c4df48c8be1265490ca1fee328cd",
+      "original_bytes": 986432
+    }
+  },
+  "paired_synthetic_queries": 602,
+  "synthetic_production_queries": 1204,
+  "synthetic_result_mismatches": 0,
+  "bm25_unit_tests": {
+    "test_bm25": 25,
+    "test_bm25_incremental": 12,
+    "test_bm25_sparse_sync": 18
+  },
+  "mutations_killed": {
+    "test_bm25_mutations": 9,
+    "test_bm25_incremental_mutations": 6,
+    "test_bm25_sparse_mutations": 8
+  },
+  "related_commands": [
+    {
+      "name": "test_bm25",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_bm25"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:07:40.989360+00:00",
+      "seconds": 35.475815600002534,
+      "exit_code": 0
+    },
+    {
+      "name": "test_bm25_incremental",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_bm25_incremental"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:08:16.466343+00:00",
+      "seconds": 86.67303379999066,
+      "exit_code": 0
+    },
+    {
+      "name": "test_bm25_sparse_sync",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_bm25_sparse_sync"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:09:43.139652+00:00",
+      "seconds": 20.784862600005,
+      "exit_code": 0
+    },
+    {
+      "name": "test_readcache_precise_inval",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_readcache_precise_inval"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:10:03.925159+00:00",
+      "seconds": 1.0032993000058923,
+      "exit_code": 0
+    },
+    {
+      "name": "test_readcache_prodpath",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_readcache_prodpath"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:10:04.928760+00:00",
+      "seconds": 0.6487498999922536,
+      "exit_code": 0
+    },
+    {
+      "name": "test_readcache_default_on",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_readcache_default_on"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:10:05.578377+00:00",
+      "seconds": 0.5559668999921996,
+      "exit_code": 0
+    },
+    {
+      "name": "test_n230_dirty_replay",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_n230_dirty_replay"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:10:06.134862+00:00",
+      "seconds": 0.4040026000002399,
+      "exit_code": 0
+    },
+    {
+      "name": "test_verify_dirty_reconcile",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_verify_dirty_reconcile"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:10:06.539482+00:00",
+      "seconds": 0.4246243000088725,
+      "exit_code": 0
+    },
+    {
+      "name": "test_c3_transient_read_negative",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_c3_transient_read_negative"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:10:06.964506+00:00",
+      "seconds": 0.6933442000008654,
+      "exit_code": 0
+    },
+    {
+      "name": "test_c8_search_rrf_gates",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_c8_search_rrf_gates"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:10:07.658303+00:00",
+      "seconds": 4.784196499997051,
+      "exit_code": 0
+    },
+    {
+      "name": "test_role_views",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_role_views"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:10:12.443416+00:00",
+      "seconds": 0.42697520001092926,
+      "exit_code": 0
+    },
+    {
+      "name": "test_index_crossprocess_reload",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_index_crossprocess_reload"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:10:12.871132+00:00",
+      "seconds": 1.3672585000022082,
+      "exit_code": 0
+    },
+    {
+      "name": "test_csre_import_contract",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_csre_import_contract"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:10:14.239100+00:00",
+      "seconds": 0.1835960000025807,
+      "exit_code": 1
+    },
+    {
+      "name": "test_h4_sustain_snapshot",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_h4_sustain_snapshot"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:10:14.430001+00:00",
+      "seconds": 137.45602040000085,
+      "exit_code": 0
+    },
+    {
+      "name": "test_bm25_mutations",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_bm25_mutations",
+        "--output",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\regression-final\\test_bm25_mutations.json"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:12:31.890268+00:00",
+      "seconds": 226.99050439998973,
+      "exit_code": 0
+    },
+    {
+      "name": "test_bm25_incremental_mutations",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_bm25_incremental_mutations",
+        "--output",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\regression-final\\test_bm25_incremental_mutations.json"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:16:18.882808+00:00",
+      "seconds": 138.27828020000015,
+      "exit_code": 0
+    },
+    {
+      "name": "test_bm25_sparse_mutations",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_bm25_sparse_mutations",
+        "--output",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\regression-final\\test_bm25_sparse_mutations.json"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:18:37.161932+00:00",
+      "seconds": 31.455941000007442,
+      "exit_code": 0
+    }
+  ],
+  "compatibility_commands": [
+    {
+      "name": "test_csre_index_import_guard",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_csre_index_import_guard"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:17:57.871964+00:00",
+      "seconds": 0.4167133000009926,
+      "exit_code": 0
+    },
+    {
+      "name": "test_md_access_parity",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.test_md_access_parity"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:17:58.288781+00:00",
+      "seconds": 0.20365049999963958,
+      "exit_code": 0
+    }
+  ],
+  "official_commands": [
+    {
+      "name": "scifact-before",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.bench_beir_bm25",
+        "--name",
+        "scifact",
+        "--split",
+        "test",
+        "--data",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-data\\scifact",
+        "--pool",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\scifact-before-corpus",
+        "--output-dir",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\scifact-before",
+        "--beir-root",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-official",
+        "--arms",
+        "bm25"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-baseline-20261012",
+      "started_at": "2026-10-12T08:17:58.613063+00:00",
+      "seconds": 44.59699590000673,
+      "exit_code": 0
+    },
+    {
+      "name": "scifact-after",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.bench_beir_bm25",
+        "--name",
+        "scifact",
+        "--split",
+        "test",
+        "--data",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-data\\scifact",
+        "--pool",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\scifact-after-corpus",
+        "--output-dir",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\scifact-after",
+        "--beir-root",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-official",
+        "--arms",
+        "bm25"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:18:43.210920+00:00",
+      "seconds": 39.2382013000024,
+      "exit_code": 0
+    },
+    {
+      "name": "nfcorpus-before",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.bench_beir_bm25",
+        "--name",
+        "nfcorpus",
+        "--split",
+        "test",
+        "--data",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-data\\nfcorpus",
+        "--pool",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\nfcorpus-before-corpus",
+        "--output-dir",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\nfcorpus-before",
+        "--beir-root",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-official",
+        "--arms",
+        "bm25"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-baseline-20261012",
+      "started_at": "2026-10-12T08:19:22.449364+00:00",
+      "seconds": 26.810916500005987,
+      "exit_code": 0
+    },
+    {
+      "name": "nfcorpus-after",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-u",
+        "-m",
+        "md_cg.bench_beir_bm25",
+        "--name",
+        "nfcorpus",
+        "--split",
+        "test",
+        "--data",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-data\\nfcorpus",
+        "--pool",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\nfcorpus-after-corpus",
+        "--output-dir",
+        "E:\\lingshu\\outputs\\bm25-sparse-sync-20261012\\beir-final\\nfcorpus-after",
+        "--beir-root",
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\beir-official",
+        "--arms",
+        "bm25"
+      ],
+      "cwd": "E:\\lingshu\\work\\bm25-sparse-sync-20261012",
+      "started_at": "2026-10-12T08:19:49.261390+00:00",
+      "seconds": 20.06653290000395,
+      "exit_code": 0
+    }
+  ],
+  "official_quality": {
+    "scifact": {
+      "queries_per_arm": 300,
+      "all_rankings_equal": true,
+      "before": {
+        "ndcg": {
+          "NDCG@1": 0.53333,
+          "NDCG@3": 0.61962,
+          "NDCG@5": 0.63941,
+          "NDCG@10": 0.66168,
+          "NDCG@50": 0.68087,
+          "NDCG@100": 0.68087
+        },
+        "map": {
+          "MAP@1": 0.51483,
+          "MAP@3": 0.59219,
+          "MAP@5": 0.60417,
+          "MAP@10": 0.61464,
+          "MAP@50": 0.61949,
+          "MAP@100": 0.61949
+        },
+        "recall": {
+          "Recall@1": 0.51483,
+          "Recall@3": 0.679,
+          "Recall@5": 0.72594,
+          "Recall@10": 0.79094,
+          "Recall@50": 0.87039,
+          "Recall@100": 0.87039
+        },
+        "precision": {
+          "P@1": 0.53333,
+          "P@3": 0.24,
+          "P@5": 0.15733,
+          "P@10": 0.08733,
+          "P@50": 0.0196,
+          "P@100": 0.0098
+        },
+        "mrr": {
+          "MRR@1": 0.53333,
+          "MRR@3": 0.60833,
+          "MRR@5": 0.61967,
+          "MRR@10": 0.62762,
+          "MRR@50": 0.6313,
+          "MRR@100": 0.6313
+        }
+      },
+      "after": {
+        "ndcg": {
+          "NDCG@1": 0.53333,
+          "NDCG@3": 0.61962,
+          "NDCG@5": 0.63941,
+          "NDCG@10": 0.66168,
+          "NDCG@50": 0.68087,
+          "NDCG@100": 0.68087
+        },
+        "map": {
+          "MAP@1": 0.51483,
+          "MAP@3": 0.59219,
+          "MAP@5": 0.60417,
+          "MAP@10": 0.61464,
+          "MAP@50": 0.61949,
+          "MAP@100": 0.61949
+        },
+        "recall": {
+          "Recall@1": 0.51483,
+          "Recall@3": 0.679,
+          "Recall@5": 0.72594,
+          "Recall@10": 0.79094,
+          "Recall@50": 0.87039,
+          "Recall@100": 0.87039
+        },
+        "precision": {
+          "P@1": 0.53333,
+          "P@3": 0.24,
+          "P@5": 0.15733,
+          "P@10": 0.08733,
+          "P@50": 0.0196,
+          "P@100": 0.0098
+        },
+        "mrr": {
+          "MRR@1": 0.53333,
+          "MRR@3": 0.60833,
+          "MRR@5": 0.61967,
+          "MRR@10": 0.62762,
+          "MRR@50": 0.6313,
+          "MRR@100": 0.6313
+        }
+      },
+      "evaluator": {
+        "official_commit": "ef83d29307061c65d04b035b4f4e7c18bd8374af",
+        "evaluator_sha256": "ef9b3e48581432fb2ada67ad98f383221f422a8ccf0570436dc6b950493eaef3",
+        "dataset_sha256": {
+          "corpus.jsonl": "dec31c8182f3d744c7d2c09423756fd1d17cbef75808db13ba01cc0aab4d1ac6",
+          "queries.jsonl": "8ff84a7c903f722981cd8d595c022660140c51867b27608a6d4910db86080313",
+          "qrels/test.tsv": "0864bb985e0ca2367ba217977e72004d549054b2b06666ed9d4825ac7c21284c"
+        },
+        "packages": {
+          "pytrec-eval-terrier": "0.5.10",
+          "numpy": "2.5.3",
+          "tqdm": "4.70.1"
+        },
+        "parameters": {
+          "k1": 1.2,
+          "b": 0.75,
+          "limit": 50
+        }
+      }
+    },
+    "nfcorpus": {
+      "queries_per_arm": 323,
+      "all_rankings_equal": true,
+      "before": {
+        "ndcg": {
+          "NDCG@1": 0.4195,
+          "NDCG@3": 0.36327,
+          "NDCG@5": 0.33672,
+          "NDCG@10": 0.30694,
+          "NDCG@50": 0.26484,
+          "NDCG@100": 0.24738
+        },
+        "map": {
+          "MAP@1": 0.0567,
+          "MAP@3": 0.09189,
+          "MAP@5": 0.10285,
+          "MAP@10": 0.11757,
+          "MAP@50": 0.13542,
+          "MAP@100": 0.13542
+        },
+        "recall": {
+          "Recall@1": 0.0567,
+          "Recall@3": 0.10017,
+          "Recall@5": 0.11954,
+          "Recall@10": 0.14915,
+          "Recall@50": 0.21171,
+          "Recall@100": 0.21171
+        },
+        "precision": {
+          "P@1": 0.43344,
+          "P@3": 0.33437,
+          "P@5": 0.27802,
+          "P@10": 0.21672,
+          "P@50": 0.09455,
+          "P@100": 0.04728
+        },
+        "mrr": {
+          "MRR@1": 0.43344,
+          "MRR@3": 0.49432,
+          "MRR@5": 0.50717,
+          "MRR@10": 0.51508,
+          "MRR@50": 0.5185,
+          "MRR@100": 0.5185
+        }
+      },
+      "after": {
+        "ndcg": {
+          "NDCG@1": 0.4195,
+          "NDCG@3": 0.36327,
+          "NDCG@5": 0.33672,
+          "NDCG@10": 0.30694,
+          "NDCG@50": 0.26484,
+          "NDCG@100": 0.24738
+        },
+        "map": {
+          "MAP@1": 0.0567,
+          "MAP@3": 0.09189,
+          "MAP@5": 0.10285,
+          "MAP@10": 0.11757,
+          "MAP@50": 0.13542,
+          "MAP@100": 0.13542
+        },
+        "recall": {
+          "Recall@1": 0.0567,
+          "Recall@3": 0.10017,
+          "Recall@5": 0.11954,
+          "Recall@10": 0.14915,
+          "Recall@50": 0.21171,
+          "Recall@100": 0.21171
+        },
+        "precision": {
+          "P@1": 0.43344,
+          "P@3": 0.33437,
+          "P@5": 0.27802,
+          "P@10": 0.21672,
+          "P@50": 0.09455,
+          "P@100": 0.04728
+        },
+        "mrr": {
+          "MRR@1": 0.43344,
+          "MRR@3": 0.49432,
+          "MRR@5": 0.50717,
+          "MRR@10": 0.51508,
+          "MRR@50": 0.5185,
+          "MRR@100": 0.5185
+        }
+      },
+      "evaluator": {
+        "official_commit": "ef83d29307061c65d04b035b4f4e7c18bd8374af",
+        "evaluator_sha256": "ef9b3e48581432fb2ada67ad98f383221f422a8ccf0570436dc6b950493eaef3",
+        "dataset_sha256": {
+          "corpus.jsonl": "10cc83ef1826b1425e6a87090b5140b39b27755d5a27e48215a88611c899991f",
+          "queries.jsonl": "d024e6621b84925d485ae473d316a0c3af31c62c8068a59fb29d22f7613aef2a",
+          "qrels/test.tsv": "f8fba6ef3d4dd9c3a242a8ba4ae38276fc3622fce7dcbae764766d564542fd2a"
+        },
+        "packages": {
+          "pytrec-eval-terrier": "0.5.10",
+          "numpy": "2.5.3",
+          "tqdm": "4.70.1"
+        },
+        "parameters": {
+          "k1": 1.2,
+          "b": 0.75,
+          "limit": 50
+        }
+      }
+    }
+  },
+  "limits": {
+    "unavailable_entry": "md_cg.test_csre_import_contract is absent at this upstream revision",
+    "md_access_parity": "4 literal assertions passed; corpus-dependent SQL/parser parity SKIPPED",
+    "csre_paths": "2 real current synthetic builds passed; 2 in-memory broken-symbol controls raised ImportError",
+    "concurrency": "serial clients only; shared-engine concurrent read/write not validated",
+    "scale": "100k uniform + 10k varied; no million-document claim",
+    "default": "opt-in BM25 path; default retrieval paths unchanged",
+    "cold": "cold builds remain O(N); snapshot preparation excluded; OS cache not flushed",
+    "environment": "Windows; Mem Reduct observed running; no isolated-host or peak-RSS guarantee",
+    "grading": "expert is requested difficulty; maintainer review and CI remain separate gates"
+  }
+}

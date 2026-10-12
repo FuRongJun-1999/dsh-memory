@@ -1,0 +1,41 @@
+{
+  "calls": 4,
+  "current_success": 2,
+  "expected_import_errors": 2,
+  "unexpected_failures": 0,
+  "matrix_and_ids_equal": true,
+  "source_sha256_lf": "863bd2fa8b48f1e11cf362412db638e23c01ae020dc7aa99331bd727cee8256b",
+  "control_scope": "in-memory fault injection, not historical upstream execution",
+  "records": [
+    {
+      "mode": "sqlite_fallback",
+      "source": "current",
+      "status": "passed",
+      "result": {
+        "units": 2,
+        "vocab": 2
+      }
+    },
+    {
+      "mode": "sqlite_fallback",
+      "source": "in_memory_mutation",
+      "status": "expected_import_error",
+      "error": "cannot import name 'md_conn_or_none' from 'md_access' (E:\\lingshu\\work\\bm25-sparse-sync-20261012\\md_cg\\whitebox_kb\\wisdom\\md_access.py)"
+    },
+    {
+      "mode": "markdown_direct",
+      "source": "current",
+      "status": "passed",
+      "result": {
+        "units": 2,
+        "vocab": 2
+      }
+    },
+    {
+      "mode": "markdown_direct",
+      "source": "in_memory_mutation",
+      "status": "expected_import_error",
+      "error": "cannot import name 'md_conn_or_none' from 'md_access' (E:\\lingshu\\work\\bm25-sparse-sync-20261012\\md_cg\\whitebox_kb\\wisdom\\md_access.py)"
+    }
+  ]
+}

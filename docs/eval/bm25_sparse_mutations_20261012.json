@@ -1,0 +1,163 @@
+{
+  "source_sha256_lf": {
+    "bm25": "ba8ab3562fbacb913146abb35d16fcb1d130b2074687c7eb8dec4ccb7a5bc816",
+    "mdcg": "38f31dfa78f48e3ca769e088ffcecd51028624f87602f9ef391cd70a00606af6",
+    "journal": "f7d061c2bb5b53618736e3bc6763079174d42fc8ff1ea1d4cf74f529c747e7f3"
+  },
+  "guard_sha256_lf": "ca7dff89139f7c6abde768013b57b3e61bf6801b1aaae3524f734bf0f0ea039c",
+  "mutations": [
+    {
+      "id": "S0",
+      "fault": "ignore incomplete write history",
+      "passed": true,
+      "expected_failures": {
+        "test_history_overflow_falls_back_instead_of_missing_edits": "self.assertEqual({row[0][\"id\"] for row in rows}, {f\"sparse{i:04d}\" for i in range(3)})"
+      },
+      "actual": {
+        "tests_run": 1,
+        "failures": {
+          "test_history_overflow_falls_back_instead_of_missing_edits": "self.assertEqual({row[0][\"id\"] for row in rows}, {f\"sparse{i:04d}\" for i in range(3)})"
+        },
+        "errors": [],
+        "skipped": [],
+        "log": "F\n======================================================================\nFAIL: test_history_overflow_falls_back_instead_of_missing_edits (md_cg.test_bm25_sparse_sync.SparseSyncTests.test_history_overflow_falls_back_instead_of_missing_edits)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bm25-sparse-sync-20261012\\md_cg\\test_bm25_sparse_sync.py\", line 225, in test_history_overflow_falls_back_instead_of_missing_edits\n    self.assertEqual({row[0][\"id\"] for row in rows}, {f\"sparse{i:04d}\" for i in range(3)})\nAssertionError: Items in the second set but not the first:\n'sparse0000'\n\n----------------------------------------------------------------------\nRan 1 test in 1.614s\n\nFAILED (failures=1)\n"
+      }
+    },
+    {
+      "id": "S1",
+      "fault": "bypass eligibility of changed nodes",
+      "passed": true,
+      "expected_failures": {
+        "test_membership_drop_and_restore_keep_full_candidate_order": "self.assertNotIn(\"sparse0000\", [r[0][\"id\"] for r in rows])"
+      },
+      "actual": {
+        "tests_run": 1,
+        "failures": {
+          "test_membership_drop_and_restore_keep_full_candidate_order": "self.assertNotIn(\"sparse0000\", [r[0][\"id\"] for r in rows])"
+        },
+        "errors": [],
+        "skipped": [],
+        "log": "F\n======================================================================\nFAIL: test_membership_drop_and_restore_keep_full_candidate_order (md_cg.test_bm25_sparse_sync.SparseSyncTests.test_membership_drop_and_restore_keep_full_candidate_order)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bm25-sparse-sync-20261012\\md_cg\\test_bm25_sparse_sync.py\", line 209, in test_membership_drop_and_restore_keep_full_candidate_order\n    self.assertNotIn(\"sparse0000\", [r[0][\"id\"] for r in rows])\nAssertionError: 'sparse0000' unexpectedly found in ['sparse0000', 'sparse0007', 'sparse0014', 'sparse0021', 'sparse0028', 'sparse0035', 'sparse0042', 'sparse0049', 'sparse0056', 'sparse0063', 'sparse0070', 'sparse0077', 'sparse0084', 'sparse0091', 'sparse0001', 'sparse0008', 'sparse0015', 'sparse0022', 'sparse0029', 'sparse0036', 'sparse0043', 'sparse0050', 'sparse0057', 'sparse0064', 'sparse0071', 'sparse0078', 'sparse0085', 'sparse0092', 'sparse0002', 'sparse0009', 'sparse0016', 'sparse0023', 'sparse0030', 'sparse0037', 'sparse0044', 'sparse0051', 'sparse0058', 'sparse0065', 'sparse0072', 'sparse0079', 'sparse0086', 'sparse0093', 'sparse0003', 'sparse0010', 'sparse0017', 'sparse0024', 'sparse0031', 'sparse0038', 'sparse0045', 'sparse0052']\n\n----------------------------------------------------------------------\nRan 1 test in 1.587s\n\nFAILED (failures=1)\n"
+      }
+    },
+    {
+      "id": "S2",
+      "fault": "retain candidates whose membership dropped",
+      "passed": true,
+      "expected_failures": {
+        "test_membership_drop_and_restore_keep_full_candidate_order": "self.assertNotIn(\"sparse0000\", [r[0][\"id\"] for r in rows])"
+      },
+      "actual": {
+        "tests_run": 1,
+        "failures": {
+          "test_membership_drop_and_restore_keep_full_candidate_order": "self.assertNotIn(\"sparse0000\", [r[0][\"id\"] for r in rows])"
+        },
+        "errors": [],
+        "skipped": [],
+        "log": "F\n======================================================================\nFAIL: test_membership_drop_and_restore_keep_full_candidate_order (md_cg.test_bm25_sparse_sync.SparseSyncTests.test_membership_drop_and_restore_keep_full_candidate_order)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bm25-sparse-sync-20261012\\md_cg\\test_bm25_sparse_sync.py\", line 209, in test_membership_drop_and_restore_keep_full_candidate_order\n    self.assertNotIn(\"sparse0000\", [r[0][\"id\"] for r in rows])\nAssertionError: 'sparse0000' unexpectedly found in ['sparse0000', 'sparse0007', 'sparse0014', 'sparse0021', 'sparse0028', 'sparse0035', 'sparse0042', 'sparse0049', 'sparse0056', 'sparse0063', 'sparse0070', 'sparse0077', 'sparse0084', 'sparse0091', 'sparse0001', 'sparse0008', 'sparse0015', 'sparse0022', 'sparse0029', 'sparse0036', 'sparse0043', 'sparse0050', 'sparse0057', 'sparse0064', 'sparse0071', 'sparse0078', 'sparse0085', 'sparse0092', 'sparse0002', 'sparse0009', 'sparse0016', 'sparse0023', 'sparse0030', 'sparse0037', 'sparse0044', 'sparse0051', 'sparse0058', 'sparse0065', 'sparse0072', 'sparse0079', 'sparse0086', 'sparse0093', 'sparse0003', 'sparse0010', 'sparse0017', 'sparse0024', 'sparse0031', 'sparse0038', 'sparse0045', 'sparse0052']\n\n----------------------------------------------------------------------\nRan 1 test in 1.570s\n\nFAILED (failures=1)\n"
+      }
+    },
+    {
+      "id": "S3",
+      "fault": "leave migrated paths in TF postings",
+      "passed": true,
+      "expected_failures": {
+        "test_route_migration_removes_old_tf_and_keeps_node_order": "self.assertNotIn(\"fallback\", meta.get(\"bm25\", {}))"
+      },
+      "actual": {
+        "tests_run": 1,
+        "failures": {
+          "test_route_migration_removes_old_tf_and_keeps_node_order": "self.assertNotIn(\"fallback\", meta.get(\"bm25\", {}))"
+        },
+        "errors": [],
+        "skipped": [],
+        "log": "F\n======================================================================\nFAIL: test_route_migration_removes_old_tf_and_keeps_node_order (md_cg.test_bm25_sparse_sync.SparseSyncTests.test_route_migration_removes_old_tf_and_keeps_node_order)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bm25-sparse-sync-20261012\\md_cg\\test_bm25_sparse_sync.py\", line 94, in test_route_migration_removes_old_tf_and_keeps_node_order\n    rows, info = self.search(\"migratedword common\")\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"E:\\lingshu\\work\\bm25-sparse-sync-20261012\\md_cg\\test_bm25.py\", line 40, in search\n    self.assertNotIn(\"fallback\", meta.get(\"bm25\", {}))\nAssertionError: 'fallback' unexpectedly found in {'k1': 1.2, 'b': 0.75, 'limit': 50, 'input': 99, 'build_reads': 0, 'update_reads': 1, 'unavailable': 0, 'posting_visits': 97, 'matched': 97, 'block_layout_rebuilt': False, 'sync_checked_documents': 1, 'pool_incremental': True, 'block_layout_touched': 0, 'block_repaired_blocks': 0, 'block_update_slots': 0, 'block_rebuild_postings': 0, 'cache_mode': 'path_generations', 'build_workers': 1, 'documents': 100, 'tokens': 493, 'posting_candidates': 97, 'fallback': 'lexical_index_error', 'error_type': 'KeyError', 'ms': 6.407799999578856}\n\n----------------------------------------------------------------------\nRan 1 test in 1.597s\n\nFAILED (failures=1)\n"
+      }
+    },
+    {
+      "id": "S4",
+      "fault": "accept delta with a missing predecessor",
+      "passed": true,
+      "expected_failures": {
+        "test_pool_can_advance_twice_before_bm25_consumes_it": "self.assertEqual({row[0][\"id\"] for row in rows}, {\"sparse0000\", \"sparse0001\"})"
+      },
+      "actual": {
+        "tests_run": 1,
+        "failures": {
+          "test_pool_can_advance_twice_before_bm25_consumes_it": "self.assertEqual({row[0][\"id\"] for row in rows}, {\"sparse0000\", \"sparse0001\"})"
+        },
+        "errors": [],
+        "skipped": [],
+        "log": "F\n======================================================================\nFAIL: test_pool_can_advance_twice_before_bm25_consumes_it (md_cg.test_bm25_sparse_sync.SparseSyncTests.test_pool_can_advance_twice_before_bm25_consumes_it)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bm25-sparse-sync-20261012\\md_cg\\test_bm25_sparse_sync.py\", line 237, in test_pool_can_advance_twice_before_bm25_consumes_it\n    self.assertEqual({row[0][\"id\"] for row in rows}, {\"sparse0000\", \"sparse0001\"})\nAssertionError: Items in the second set but not the first:\n'sparse0000'\n\n----------------------------------------------------------------------\nRan 1 test in 1.593s\n\nFAILED (failures=1)\n"
+      }
+    },
+    {
+      "id": "S5",
+      "fault": "treat incomplete reads as a reusable complete index",
+      "passed": true,
+      "expected_failures": {
+        "test_failed_delta_read_is_retried_without_another_write": "self.assertEqual([r[0][\"id\"] for r in self.search(\"retryword\")[0]], [\"sparse0045\"])"
+      },
+      "actual": {
+        "tests_run": 1,
+        "failures": {
+          "test_failed_delta_read_is_retried_without_another_write": "self.assertEqual([r[0][\"id\"] for r in self.search(\"retryword\")[0]], [\"sparse0045\"])"
+        },
+        "errors": [],
+        "skipped": [],
+        "log": "F\n======================================================================\nFAIL: test_failed_delta_read_is_retried_without_another_write (md_cg.test_bm25_sparse_sync.SparseSyncTests.test_failed_delta_read_is_retried_without_another_write)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bm25-sparse-sync-20261012\\md_cg\\test_bm25_sparse_sync.py\", line 252, in test_failed_delta_read_is_retried_without_another_write\n    self.assertEqual([r[0][\"id\"] for r in self.search(\"retryword\")[0]], [\"sparse0045\"])\nAssertionError: Lists differ: [] != ['sparse0045']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'sparse0045'\n\n- []\n+ ['sparse0045']\n\n----------------------------------------------------------------------\nRan 1 test in 1.589s\n\nFAILED (failures=1)\n"
+      }
+    },
+    {
+      "id": "S6",
+      "fault": "ignore broad invalidation in the journal",
+      "passed": true,
+      "expected_failures": {
+        "test_bounded_journal_retains_flush_events_and_invalidates_broad_changes": "self.assertIsNone(dirty.changed_ids_since(0))"
+      },
+      "actual": {
+        "tests_run": 1,
+        "failures": {
+          "test_bounded_journal_retains_flush_events_and_invalidates_broad_changes": "self.assertIsNone(dirty.changed_ids_since(0))"
+        },
+        "errors": [],
+        "skipped": [],
+        "log": "F\n======================================================================\nFAIL: test_bounded_journal_retains_flush_events_and_invalidates_broad_changes (md_cg.test_bm25_sparse_sync.SparseSyncTests.test_bounded_journal_retains_flush_events_and_invalidates_broad_changes)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bm25-sparse-sync-20261012\\md_cg\\test_bm25_sparse_sync.py\", line 288, in test_bounded_journal_retains_flush_events_and_invalidates_broad_changes\n    self.assertIsNone(dirty.changed_ids_since(0))\nAssertionError: ('a', 'b') is not None\n\n----------------------------------------------------------------------\nRan 1 test in 0.056s\n\nFAILED (failures=1)\n"
+      }
+    },
+    {
+      "id": "S7",
+      "fault": "sort append IDs instead of retaining first-write order",
+      "passed": true,
+      "expected_failures": {
+        "test_appends_and_repeated_new_id_preserve_original_pool_order": "self.assertEqual(self.pool(), self.cg._candidates())"
+      },
+      "actual": {
+        "tests_run": 1,
+        "failures": {
+          "test_appends_and_repeated_new_id_preserve_original_pool_order": "self.assertEqual(self.pool(), self.cg._candidates())"
+        },
+        "errors": [],
+        "skipped": [],
+        "log": "F\n======================================================================\nFAIL: test_appends_and_repeated_new_id_preserve_original_pool_order (md_cg.test_bm25_sparse_sync.SparseSyncTests.test_appends_and_repeated_new_id_preserve_original_pool_order)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"E:\\lingshu\\work\\bm25-sparse-sync-20261012\\md_cg\\test_bm25_sparse_sync.py\", line 73, in test_appends_and_repeated_new_id_preserve_original_pool_order\n    self.assertEqual(self.pool(), self.cg._candidates())\nAssertionError: Lists differ: [{'pa[95374 chars]/new_a.md', 'layer': 'knowledge', 'tags': [], [1837 chars]one}] != [{'pa[95374 chars]/new_z.md', 'layer': 'knowledge', 'tags': [], [1837 chars]one}]\n\nFirst differing element 99:\n{'pat[21 chars]/new_a.md', 'layer': 'knowledge', 'tags': [], [880 chars]None}\n{'pat[21 chars]/new_z.md', 'layer': 'knowledge', 'tags': [], [877 chars]None}\n\nDiff is 114849 characters long. Set self.maxDiff to None to see it.\n\n----------------------------------------------------------------------\nRan 1 test in 1.713s\n\nFAILED (failures=1)\n"
+      }
+    }
+  ],
+  "passed": true,
+  "baseline": {
+    "tests_run": 7,
+    "failures": {},
+    "errors": [],
+    "skipped": [],
+    "log": ".......\n----------------------------------------------------------------------\nRan 7 tests in 10.035s\n\nOK\n"
+  },
+  "restored": {
+    "tests_run": 7,
+    "failures": {},
+    "errors": [],
+    "skipped": [],
+    "log": ".......\n----------------------------------------------------------------------\nRan 7 tests in 9.652s\n\nOK\n"
+  },
+  "killed": 8,
+  "network_attempts": []
+}
