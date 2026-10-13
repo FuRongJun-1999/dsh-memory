@@ -325,7 +325,9 @@ def a10():
 
 def a11():
     """源码形态（读**盘上文件**，非 getsource）：机制在位、裸 pass 已除、except 数未变。"""
-    src = io.open(_TARGET, encoding="utf-8", newline="").read()
+    # Source-shape checks use logical lines on both CRLF and LF checkouts.
+    with io.open(_TARGET, encoding="utf-8", newline=None) as source:
+        src = source.read()
     checks = {
         "module logger": src.count("logger = logging.getLogger(__name__)") == 1,
         "_record_failure def": src.count("def _record_failure(self, stage, exc):") == 1,

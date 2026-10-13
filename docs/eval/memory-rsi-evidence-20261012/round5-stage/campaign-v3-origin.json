@@ -1,0 +1,11 @@
+{
+  "version": "r5-v1.2",
+  "source": "E:\\lingshu\\work\\memory-diagnosis-round5-20261012",
+  "A_sessions_reused_byte_identical": 24,
+  "A_ledger_sha256": "0da0cb6a9f2c418722e06db8151f2745b170d0e0b41968af58772066b811059c",
+  "prior_diagnostic_complete_trials": 49,
+  "prior_interrupted_raw_trials_retained": 1,
+  "original_truth_and_results_untouched": true,
+  "metadata_semantics": "Project facts originate in A-session input. Public API docs support general semantics only.",
+  "production_algorithm_changes": 0
+}

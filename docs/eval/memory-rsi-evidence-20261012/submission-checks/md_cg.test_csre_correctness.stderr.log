@@ -1,0 +1,32 @@
+test_changed_content_invalidates_new_and_already_loaded_engines (__main__.CsreTests.test_changed_content_invalidates_new_and_already_loaded_engines) ... ok
+test_corrupt_archive_fails_closed_and_rebuild_recovers (__main__.CsreTests.test_corrupt_archive_fails_closed_and_rebuild_recovers) ... ok
+test_deletion_and_negative_condition_edits_invalidate_index (__main__.CsreTests.test_deletion_and_negative_condition_edits_invalidate_index) ... ok
+test_empty_or_nonstring_negative_conditions_do_not_reject (__main__.CsreTests.test_empty_or_nonstring_negative_conditions_do_not_reject) ... ok
+test_empty_vocabulary_round_trip_has_consistent_dimensions (__main__.CsreTests.test_empty_vocabulary_round_trip_has_consistent_dimensions) ... ok
+test_explicit_context_terms_take_part_in_negative_gate (__main__.CsreTests.test_explicit_context_terms_take_part_in_negative_gate) ... ok
+test_identical_rows_from_another_database_are_not_accepted (__main__.CsreTests.test_identical_rows_from_another_database_are_not_accepted) ... ok
+test_identifier_boundary_survives_index_reload (__main__.CsreTests.test_identifier_boundary_survives_index_reload) ... ok
+test_index_round_trip_retains_negative_gate_without_pickle (__main__.CsreTests.test_index_round_trip_retains_negative_gate_without_pickle) ... ok
+test_interrupted_save_keeps_previous_archive_and_cleans_own_temporary_file (__main__.CsreTests.test_interrupted_save_keeps_previous_archive_and_cleans_own_temporary_file) ... ok
+test_invalid_shape_and_nonfinite_vectors_are_rejected (__main__.CsreTests.test_invalid_shape_and_nonfinite_vectors_are_rejected) ... ok
+test_legacy_unbound_index_is_rejected_without_writes (__main__.CsreTests.test_legacy_unbound_index_is_rejected_without_writes) ... ok
+test_md_direct_source_is_refreshed_without_manual_reload (__main__.CsreTests.test_md_direct_source_is_refreshed_without_manual_reload) ... ok
+test_missing_database_is_not_created (__main__.CsreTests.test_missing_database_is_not_created) ... ok
+test_navigation_rechecks_cached_engine_and_recovers_after_explicit_rebuild (__main__.CsreTests.test_navigation_rechecks_cached_engine_and_recovers_after_explicit_rebuild) ... ok
+test_negated_environment_keeps_candidates_through_ranking (__main__.CsreTests.test_negated_environment_keeps_candidates_through_ranking) ... ok
+test_negative_gate_filters_before_top_k_and_backfills (__main__.CsreTests.test_negative_gate_filters_before_top_k_and_backfills) ... ok
+test_nonpositive_limit_never_returns_rows (__main__.CsreTests.test_nonpositive_limit_never_returns_rows) ... ok
+test_safe_context_and_disabled_gate_preserve_candidates (__main__.CsreTests.test_safe_context_and_disabled_gate_preserve_candidates) ... ok
+test_schema_change_invalidates_index (__main__.CsreTests.test_schema_change_invalidates_index) ... ok
+test_stale_index_cannot_be_saved_over_existing_file (__main__.CsreTests.test_stale_index_cannot_be_saved_over_existing_file) ... ok
+test_wal_commit_is_detected_without_relying_on_database_mtime (__main__.CsreTests.test_wal_commit_is_detected_without_relying_on_database_mtime) ... ok
+test_a_positive_occurrence_survives_an_earlier_negation (__main__.NegativeMeaningTests.test_a_positive_occurrence_survives_an_earlier_negation) ... ok
+test_ascii_identifier_boundaries (__main__.NegativeMeaningTests.test_ascii_identifier_boundaries) ... ok
+test_explicit_local_negation (__main__.NegativeMeaningTests.test_explicit_local_negation) ... ok
+test_positive_mentions_still_count (__main__.NegativeMeaningTests.test_positive_mentions_still_count) ... ok
+test_punctuation_remains_literal (__main__.NegativeMeaningTests.test_punctuation_remains_literal) ... ok
+
+----------------------------------------------------------------------
+Ran 27 tests in 0.719s
+
+OK

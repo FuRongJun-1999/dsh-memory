@@ -1,0 +1,27 @@
+test_a_later_failed_bound_check_withholds_the_action (__main__.AdversarialTests.test_a_later_failed_bound_check_withholds_the_action) ... ok
+test_an_action_for_another_error_does_not_replace_this_action (__main__.AdversarialTests.test_an_action_for_another_error_does_not_replace_this_action) ... ok
+test_changed_source_is_rejected (__main__.AdversarialTests.test_changed_source_is_rejected) ... ok
+test_check_cannot_credit_an_action_after_a_replacement_for_same_error (__main__.AdversarialTests.test_check_cannot_credit_an_action_after_a_replacement_for_same_error) ... ok
+test_condition_order_does_not_bypass_conflicting_action_gate (__main__.AdversarialTests.test_condition_order_does_not_bypass_conflicting_action_gate) ... ok
+test_condition_whitespace_and_duplicates_are_canonical_but_raw_trace_stays_raw (__main__.AdversarialTests.test_condition_whitespace_and_duplicates_are_canonical_but_raw_trace_stays_raw) ... ok
+test_conflicting_action_is_deferred_with_original_evidence (__main__.AdversarialTests.test_conflicting_action_is_deferred_with_original_evidence) ... ok
+test_disabled_and_existing_root_refused (__main__.AdversarialTests.test_disabled_and_existing_root_refused) ... ok
+test_existing_review_accept_retains_evidence_without_upgrading_truth (__main__.AdversarialTests.test_existing_review_accept_retains_evidence_without_upgrading_truth) ... ok
+test_failed_first_repair_does_not_disqualify_successful_retry (__main__.AdversarialTests.test_failed_first_repair_does_not_disqualify_successful_retry) ... ok
+test_failed_or_string_true_never_yields_lesson (__main__.AdversarialTests.test_failed_or_string_true_never_yields_lesson) ... ok
+test_generalization_and_confidence_cannot_inherit_evidence (__main__.AdversarialTests.test_generalization_and_confidence_cannot_inherit_evidence) ... ok
+test_legacy_reflector_proposal_requires_review_in_same_context (__main__.AdversarialTests.test_legacy_reflector_proposal_requires_review_in_same_context) ... ok
+test_multiple_successful_checks_form_one_candidate_with_all_evidence (__main__.AdversarialTests.test_multiple_successful_checks_form_one_candidate_with_all_evidence) ... ok
+test_proposal_only_duplicate_and_audited_rollback (__main__.AdversarialTests.test_proposal_only_duplicate_and_audited_rollback) ... ok
+test_repeated_experiences_merge_without_erasing_versions (__main__.AdversarialTests.test_repeated_experiences_merge_without_erasing_versions) ... ok
+test_resource_limits_are_explicit (__main__.AdversarialTests.test_resource_limits_are_explicit) ... ok
+test_secure_guest_cannot_write_through_lab (__main__.AdversarialTests.test_secure_guest_cannot_write_through_lab) ... ok
+test_trace_is_idempotent_and_not_knowledge (__main__.AdversarialTests.test_trace_is_idempotent_and_not_knowledge) ... ok
+test_unrelated_and_out_of_order_checks_withheld (__main__.AdversarialTests.test_unrelated_and_out_of_order_checks_withheld) ... ok
+test_untrusted_failed_observation_does_not_override_tool_check (__main__.AdversarialTests.test_untrusted_failed_observation_does_not_override_tool_check) ... ok
+test_untrusted_observation_and_missing_evidence_rejected (__main__.AdversarialTests.test_untrusted_observation_and_missing_evidence_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 22 tests in 0.915s
+
+OK
