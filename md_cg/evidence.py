@@ -214,7 +214,7 @@ def _pack_payload(pack: dict) -> bytes:
     return _canon(body)
 
 
-# 生效条件：当传入 cg、subjects、since 时，遍历 cg.index["nodes"] 中按 node_id 排序的节点，仅收集标签含常量 TAG_OBS、不含 TAG_ANCHOR/TAG_TRAIT、不含 TAG_XNODE、能提取 subject: 标签且该 subject 在 subjects（subjects 为真时）或不限制（subjects 假值时）、且若 since 为真且 ts 为真则要求 float(ts) >= float(since) 的节点，返回含 node_id、subject、text（截断 MAX_TEXT）、kind、role、layer、过滤后的 tags、importance、verification_basis、ts 的列表。
+# 生效条件：当传入 cg、subjects、since 时，遍历 cg.index["nodes"] 中按 node_id 排序的节点，仅收集标签含常量 TAG_OBS、不含 TAG_ANCHOR/TAG_TRAIT、不含 TAG_XNODE、能提取 subject: 标签且该 subject 在 subjects（subjects 为真时）或不限制（subjects 假值时）、且若 since 为真且 ts 为真则要求 float(ts) >= float(since) 的节点，返回含 node_id、subject、text（截断 MAX_TEXT）、kind、role、layer、**sensitivity（取 subgraph.node_sensitivity，判不了为 None）**、过滤后的 tags、importance、verification_basis、ts 的列表。
 def _collect(cg, subjects=None, since=None) -> list:
     """收集本根**本地原始**观测证据（排除档案节点与已导入的跨节点证据）。"""
     want = set(subjects or [])
@@ -248,6 +248,9 @@ def _collect(cg, subjects=None, since=None) -> list:
             "kind": fm.get("kind"),
             "role": fm.get("role"),
             "layer": e.get("layer"),
+            # 密级随包传递（本件病灶）：不带档位的包会让对端把 private 落成
+            # internal 明文。取法与派生节点同源（subgraph.node_sensitivity）。
+            "sensitivity": _node_sensitivity(cg, nid),
             "tags": sorted(t for t in tg
                            if isinstance(t, str)
                            and not t.startswith("subject:")
@@ -377,6 +380,35 @@ def _xnode_id(from_node: str, orig: str) -> str:
     return f"xnode_{_slug(from_node)}_{_slug(orig)}"
 
 
+def _node_sensitivity(cg, nid):
+    """节点档位的**唯一取法**：复用 subgraph.node_sensitivity（与 #164 派生节点密级同源）。
+
+    判不了（档位缺失/非法）返回 None —— 调用方一律 fail-closed，不得把 None
+    当 internal 用。
+    """
+    from . import subgraph as _subgraph
+    return _subgraph.node_sensitivity(cg, nid)
+
+
+def _encrypted_levels():
+    """加密档位集合的唯一来源（crypto.ENCRYPTED_LEVELS，不另立第二份名单）。"""
+    from .crypto import ENCRYPTED_LEVELS
+    return ENCRYPTED_LEVELS
+
+
+def _item_sensitivity(it) -> str | None:
+    """条目声明的档位；缺字段/非字符串/未知档一律返回 None（判不了 ⇒ fail-closed）。
+
+    未知档的判据复用 security.SENSITIVITY_ORDER（阶梯单点），不另立第二份名单。
+    """
+    from .security import SENSITIVITY_ORDER
+    s = it.get("sensitivity")
+    if not isinstance(s, str):
+        return None
+    s = s.strip()
+    return s if s in SENSITIVITY_ORDER else None
+
+
 # 生效条件：当传入 pack、reason、swarm、**kw 时，构建含 at、reason、from_node、pack_id 及 kw 中非 None 项的拒绝记录，尝试追加到 inbox_dir(swarm)/_rejected.jsonl（OSError 忽略），返回 {"ok": False, "rejected": True, "reason": reason, "from_node": ...} 并合并 kw 中非 None 项。
 def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
     rec = {"at": time.time(), "reason": reason,
@@ -395,7 +427,7 @@ def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
     return out
 
 
-# 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、且有签名或 signer 等于 "null" 方可通过；通过则对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，importance 默认 0.5，verification_basis 默认 "data"），统计 written/skipped，若 archive 为真则写包到收件箱，返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
+# 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、且有签名或 signer 等于 "null" 方可通过；通过则对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，importance 默认 0.5，verification_basis 默认 "data"，**sensitivity 取条目声明档位并经 _item_sensitivity 校验：缺字段/非字符串/未知档一律 fail-closed 计入 skipped 不写盘；写入遇 AccessDenied（导入方密级不足）同样计入 skipped 不降级落盘**），统计 written/skipped，若 archive 为真**且包内不含 private/secret 条目**则写包到收件箱（含加密档位时 fail-closed 不落，理由见返回体的 archive_skipped），返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived、archive_skipped 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
 def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                 signers_file: str = None, archive: bool = True) -> dict:
     """导入对端证据包：验签 → 落本根（带 `source:<node>` 标签）。
@@ -425,8 +457,11 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
         return _note_reject(pack, "证据包缺少签名（跨节点证据必须可溯源）",
                             swarm=swarm)
 
+    from .security import AccessDenied
+
     items = pack["items"][:MAX_ITEMS]
     written, skipped = [], 0
+    encrypted_seen = False
     for it in items:
         if not isinstance(it, dict):
             skipped += 1
@@ -436,6 +471,14 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
         if not subj or not text:
             skipped += 1
             continue
+        sens = _item_sensitivity(it)
+        if sens is None:
+            # 判不了档位（缺字段/非法档）⇒ fail-closed 不写盘：把未知档当
+            # internal 落盘正是本件要消灭的降级形态（#164「判不了不生成」同口径）。
+            skipped += 1
+            continue
+        if sens in _encrypted_levels():
+            encrypted_seen = True
         tags = [TAG_XNODE, f"{SOURCE_PREFIX}{from_node}"]
         tags += [t for t in (it.get("tags") or [])
                  if isinstance(t, str) and t
@@ -443,18 +486,31 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                  and not t.startswith(SOURCE_PREFIX)
                  and t not in (TAG_XNODE, _identity.TAG_ANCHOR, _identity.TAG_TRAIT)]
         imp = it.get("importance")
-        _identity.observe(
-            cg, subj, text,
-            kind=it.get("kind"), role=it.get("role"),
-            layer=it.get("layer") or "knowledge",
-            tags=tags,
-            importance=0.5 if imp is None else imp,
-            verification_basis=it.get("verification_basis") or "data",
-            node_id=_xnode_id(from_node, it.get("node_id") or subj),
-            override=True)
+        try:
+            _identity.observe(
+                cg, subj, text,
+                kind=it.get("kind"), role=it.get("role"),
+                layer=it.get("layer") or "knowledge",
+                tags=tags,
+                importance=0.5 if imp is None else imp,
+                verification_basis=it.get("verification_basis") or "data",
+                sensitivity=sens,
+                node_id=_xnode_id(from_node, it.get("node_id") or subj),
+                override=True)
+        except AccessDenied:
+            # 导入方密级不足：跳过（不得降级落盘），与「判不了」同属 fail-closed。
+            skipped += 1
+            continue
         written.append(_xnode_id(from_node, it.get("node_id") or subj))
 
     archived = ""
+    archive_skipped = ""
+    if archive and encrypted_seen:
+        # 包内含 private/secret 条目 ⇒ fail-closed 不落收件箱：归档写的是
+        # **明文 JSON**，落一份就等于把密文档位的正文再明文落一遍。
+        archive = False
+        archive_skipped = ("包内含 private/secret 条目：fail-closed 不写收件箱"
+                           "（归档是明文，会绕过 ENCRYPTED_LEVELS）")
     if archive:
         try:
             archived = write_pack(pack, swarm=swarm)["file"]
@@ -467,7 +523,8 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
     return {"ok": True, "from_node": from_node, "pack_id": pack.get("pack_id"),
             "imported": len(written), "skipped": skipped,
             "truncated": len(pack["items"]) > MAX_ITEMS,
-            "node_ids": written, "archived": archived}
+            "node_ids": written, "archived": archived,
+            "archive_skipped": archive_skipped}
 
 
 # --------------------------------------------------------------------------
