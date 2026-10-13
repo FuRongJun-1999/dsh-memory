@@ -12,9 +12,9 @@
 |---|---|---|
 | 新守卫测试方法 | 7 通过 / 1 失败 | 8 通过 / 0 失败 |
 
-原始代码冻结于 `efa2ee2ba4986c02ad204f05a99712c226d0023d`；最新共同基线为 `4169c5bd`，包含其后独立的 CI 前置修复 `cbf43fe289c9e81cd9beb14cd77ca902e4058535`。本项测量代码提交 `654853d9fcabc0647716eef870fe8077f96c5149`，逐文件 SHA256 在证据 ZIP 的 identity.json，分别记录运行时 CRLF 字节与 LF 归一源码，便于跨平台检出核对。五个核心分支不互相包含对方的修复。
+原始代码冻结于 `efa2ee2ba4986c02ad204f05a99712c226d0023d`；最新共同基线为 `4169c5bd`，包含其后独立的 CI 前置修复 `cbf43fe289c9e81cd9beb14cd77ca902e4058535`。本项测量代码提交 `84a7ef97d6736f9fe4df9ae69ec4d99f2377619d`，逐文件 SHA256 在证据 ZIP 的 identity.json，分别记录运行时 CRLF 字节与 LF 归一源码，便于跨平台检出核对。五个核心分支不互相包含对方的修复。
 
-Windows Python 3.12.10、Linux / WSL Python 3.13.12：各 **8 项守卫通过 / 0 失败 / 0 异常 / 0 SKIP**；各 **4 项定点变异被指定断言捕获**，异常和跳过均为 0，源码未改写；恢复后 8 项再绿。这里按测试方法与变异计数，不把子断言或恢复轮重复相加。
+Windows Python 3.12.10、Linux / WSL Python 3.13.12：各 **8 项守卫通过 / 0 失败 / 0 异常 / 0 SKIP**；各 **5 项定点变异被指定断言捕获**，异常和跳过均为 0，源码未改写；恢复后 8 项再绿。这里按测试方法与变异计数，不把子断言或恢复轮重复相加。
 
 ```bash
 python -X utf8 tests/test_stg_time_blocks.py
@@ -36,6 +36,7 @@ python -X utf8 proof/repro_baseline.py --baseline ../baseline --fixed . --module
 
 | 单点变异 | 必红断言 | Windows / Linux 实际结果 |
 |---|---|---|
+| lose bulk failure fallback | `Guards.test_nonfinite_and_untimed_still_partition` | 1 项断言失败 / 0 异常 / 0 SKIP |
 | exclude upper endpoint | `Guards.test_inclusive_range_ties` | 1 项断言失败 / 0 异常 / 0 SKIP |
 | retain deleted time pair | `Guards.test_empty_and_reinsert` | 1 项断言失败 / 0 异常 / 0 SKIP |
 | reverse update time | `Guards.test_random_updates_match_sorted_oracle` | 1 项断言失败 / 0 异常 / 0 SKIP |
@@ -49,9 +50,9 @@ python -X utf8 proof/repro_baseline.py --baseline ../baseline --fixed . --module
 
 | 节点数 | 原建表 ms | 新建表 ms | 原删除 ms | 新删除 ms | 原 120 查询 ms | 新 120 查询 ms |
 |---|---:|---:|---:|---:|---:|---:|
-| 10,000 | 35.58 | 20.52 | 22.40 | 21.08 | 0.353 | 0.482 |
-| 40,000 | 335.14 | 88.21 | 188.89 | 110.73 | 0.624 | 0.796 |
-| 160,000 | 4410.22 | 435.65 | 2249.37 | 598.90 | 0.898 | 1.249 |
+| 10,000 | 34.82 | 19.41 | 21.41 | 18.58 | 0.314 | 0.368 |
+| 40,000 | 328.21 | 85.47 | 198.62 | 104.70 | 0.579 | 0.763 |
+| 160,000 | 4384.63 | 413.77 | 2223.37 | 577.08 | 0.860 | 1.219 |
 
 每个运行的 timed_before 等于 N、删除后剩余 0、broken 为 false；全部窗口结果 SHA256 与独立排序 oracle 一致。建表包含原生分类，删除包含原生摘除；不把 fixture 生成耗时算进去。初轮有其他守卫进程活动的配对读数另存 `initial-benchmark.json`，最终轮无其他本地测试进程并跑。
 
@@ -59,9 +60,12 @@ python -X utf8 proof/repro_baseline.py --baseline ../baseline --fixed . --module
 python -X utf8 scripts/bench_stg_time_blocks.py --repo ../baseline --output baseline-bench.json
 python -X utf8 scripts/bench_stg_time_blocks.py --repo . --output fixed-bench.json
 python -X utf8 -m md_cg.test_stgidx_index_parity --branch-baseline
+python -X utf8 proof/probe_bulk_fallback.py --repo .
 ```
 
 已有 STG 守卫实跑：51 条原断言通过，17/17 原变异按各自预期失败数点名变红；原断言与失败数量均未降低。新守卫在旧实现仅 1 项结构断言红，属于数据结构能力增强，性能收益由配对基准证明。
+
+发布前追加的损坏输入复核发现第一版批量排序把比较异常移出了 add() 的保护范围：混入不可比较的节点 ID 时原版标记 broken，第一版却抛 TypeError。已在 finish() 处保留原回退边界，新增第五项定点变异「丢掉 bulk 失败回退」确保断言必红。这是本方案审阅中发现并修正的遗漏，不另申报为上游缺陷。三版真实执行与源码 SHA256 见 bulk-fallback-review.json。
 
 ## 相关回归与 CI
 
