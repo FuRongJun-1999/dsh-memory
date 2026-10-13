@@ -44,7 +44,11 @@ class ExportSnapshotTests(unittest.TestCase):
         self.environment = patch.dict(os.environ, {
             "MDCG_EXPORT_ROOT": str(self.root), "MDCG_ROOT": str(self.root / "brain"),
             "MDCG_STATE_ROOT": str(self.root / "state"),
-            "MDCG_AUX_ROOT": str(self.root / "aux"),
+            # 不可取名 "aux"：Windows 保留设备名，datapath.aux_root() 会按
+            # 误配拒绝（#57）。旧值一直没浮出，是因为 _export_call 从不解析 aux 根；
+            # #211 的落点判据要读它，误配即暴露（本行只改这一个环境变量取值，
+            # 该值在文件内无任何断言依赖）。
+            "MDCG_AUX_ROOT": str(self.root / "auxstore"),
             "MDCG_DATA_ROOT": str(self.root / "data"),
         })
         self.environment.start()

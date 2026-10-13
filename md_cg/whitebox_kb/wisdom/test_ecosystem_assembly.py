@@ -24,7 +24,7 @@ print('第七阶段 · 7 终极目标 × 7 初级复现 生态盘点')
 print('=' * 60)
 total = 0
 for name, fn in MODS:
-    src = io.open(f'{TOOLS}\\{fn}', encoding='utf-8').read()
+    src = io.open(os.path.join(TOOLS, fn), encoding='utf-8').read()
     # 精确匹配单元 dict 键: 行首 4 空格 + "域-名(可含空格)": {
     uids = re.findall(r'^    "([^"]+)":\s*\{', src, re.M)
     total += len(uids)
