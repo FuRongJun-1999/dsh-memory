@@ -73,8 +73,30 @@ class EvidenceError(Exception):
 # 路径与身份
 # --------------------------------------------------------------------------
 
-# 生效条件：当传入 path 为真值时返回 path；否则若环境变量 SWARM_DIR_ENV 为真值则返回其值；否则返回模块级常量 DEFAULT_SWARM_DIR。
+# 生效条件：swarm 为显式传入的目录参数（任意类型）；合规返回空字符串，否则返回中文理由——非 str/空、含空字节、含 .. 路径段各一条。**单一真源**：swarm_dir 汇点共用本函数，规则只有一份。
+#
+# 口径说明（issue #245）：只拦截路径穿越（`..`），不拦截绝对路径——
+# 绝对路径是本模块的文档化语义（`--swarm` 帮助文本、MDCG_SWARM_DIR 环境变量、
+# test_p24_evidence 等既有测试均以绝对路径调用）。`..` 段在相对与绝对两种
+# 形态下都会被拦截（含 `..\..` 反斜杠形态）。
+def _swarm_error(swarm) -> str:
+    """swarm 目录参数判据（issue #245）。"""
+    if not isinstance(swarm, str) or not swarm.strip():
+        return "swarm 非字符串或为空"
+    if "\x00" in swarm:
+        return "swarm 含空字节"
+    parts = swarm.replace("\\", "/").split("/")
+    if ".." in parts:
+        return f"swarm 含 .. 路径穿越：{swarm!r}"
+    return ""
+
+
+# 生效条件：当传入 path 为真值时先经 _swarm_error 校验（非法抛 EvidenceError），再返回 path；否则若环境变量 SWARM_DIR_ENV 为真值则返回其值；否则返回模块级常量 DEFAULT_SWARM_DIR。
 def swarm_dir(path: str = None) -> str:
+    if path:
+        err = _swarm_error(path)
+        if err:
+            raise EvidenceError(f"swarm 参数非法（issue #245，fail-closed）：{err}")
     return path or os.environ.get(SWARM_DIR_ENV) or DEFAULT_SWARM_DIR
 
 
