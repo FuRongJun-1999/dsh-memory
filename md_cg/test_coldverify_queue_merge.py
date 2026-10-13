@@ -12,7 +12,12 @@ r"""守卫 · coldverify 队列的跨实例合并（多实例共用 _coldverify.
 #         ⑥ 锁拿不到时 fail-closed：enqueue 不抛、盘上逐字节不变、条目留内存待下次补落
 #         ⑦ 墓碑按 TTL/上限收敛：过期墓碑不再挡恢复（宁可重放，不静默丢）
 #         ⑧ 解析口径对照：坏行容忍与 fsutil.read_jsonl 同口径，非法 action 为有意加严
-# 执行：python -X utf8 -m md_cg.test_coldverify_queue_merge [--mutate=clobber|ignore_tombstones|no_leading_newline|no_prune|append_swallow]
+#         ⑨ 多字节截断残行不吞其后好行：读盘 errors="replace"，且「读不全」时
+#            写路径 fail-closed（不拿残缺集合覆写掉没读到的条目）
+#         ⑩ 落盘失败可观测：persist_failed 计数（锁超时/追加失败/读不全都不静默）
+#         ⑪ clear 的覆盖边界：本实例内存 ∪ 盘上条目（他实例内存中未落盘的条目
+#            仍会在其后续落盘时出现，属已声明边界而非静默惊喜）
+# 执行：python -X utf8 -m md_cg.test_coldverify_queue_merge [--mutate=clobber|ignore_tombstones|no_leading_newline|no_prune|append_swallow|strict_decode]
 # 验证方式：真跑临时库（进程内两实例 + 两个活进程并发屏障），逐条断言盘上内容
 # 不适用条件：无（不依赖网络、不依赖 rust 工具链、不依赖本地白箱库）
 
@@ -34,6 +39,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
+
+#: 真正的 builtins.open。strict_decode 变异会替换 builtins.open；守卫自身的
+#: 读盘辅助必须不受影响，否则变异会把守卫自己打断（traceback 中断整轮），
+#: 而不是打出定点红。
+_REAL_OPEN = open
 
 PASS = 0
 FAIL = 0
@@ -65,12 +75,15 @@ def disk_tasks(root, mod):
     if not os.path.exists(path):
         return []
     out = []
-    with open(path, "r", encoding="utf-8") as f:
+    with _REAL_OPEN(path, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            rec = json.loads(line)
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue        # 坏行/半截行：辅助函数不因读坏行炸掉
             if isinstance(rec, dict) and not rec.get("_done"):
                 out.append(rec)
     return out
@@ -85,12 +98,15 @@ def disk_tombstones(root, mod):
     if not os.path.exists(path):
         return 0
     n = 0
-    with open(path, "r", encoding="utf-8") as f:
+    with _REAL_OPEN(path, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            rec = json.loads(line)
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue        # 坏行/半截行：辅助函数不因读坏行炸掉
             if isinstance(rec, dict) and rec.get("_done"):
                 n += 1
     return n
@@ -116,6 +132,7 @@ def run(mutate=""):
         legacy_persist(self)
 
     restore = []
+    _builtin_restore = None
     if mutate == "clobber":
         restore.append((cv.ColdVerifyQueue, "_persist",
                         cv.ColdVerifyQueue._persist))
@@ -183,11 +200,29 @@ def run(mutate=""):
                         cv.ColdVerifyQueue._append_task))
         cv.ColdVerifyQueue._append_task = _swallow
 
+    elif mutate == "strict_decode":
+        # 变异：读盘退化成**严格解码**（没有 errors="replace"）——即本轮修复前的
+        # 形态。半截行截断在多字节字符中间时，文本迭代会抛 UnicodeDecodeError
+        # （它不是 json.loads 的 ValueError，内层 except 抓不到），坏字节之后的
+        # 好行整段读不到。只改 open 的 errors 语义，其余形态不变 ⇒ 定点红 ⑨。
+        import builtins as _bi
+        _real_open = _bi.open
+
+        def _strict_open(file, mode="r", *a, **kw):
+            kw.pop("errors", None)
+            return _real_open(file, mode, *a, **kw)
+
+        _bi.open = _strict_open
+        _builtin_restore = _real_open
+
     try:
         _cases(cv)
     finally:
         for obj, name, val in restore:
             setattr(obj, name, val)
+        if _builtin_restore is not None:
+            import builtins as _bi2
+            _bi2.open = _builtin_restore
 
 
 def _cases(cv):
@@ -369,6 +404,9 @@ def _cases(cv):
         check("⑧ 锁拿不到时不改写盘（逐字节不变：宁可晚一拍，也不无锁读改写）",
               after_bytes == before_bytes,
               "before=%dB after=%dB" % (len(before_bytes), len(after_bytes)))
+        check("⑧ 追加失败有可观测信号（persist_failed 计数，不静默）",
+              q13.status()["stats"].get("persist_failed", 0) >= 1,
+              "persist_failed=%r" % (q13.status()["stats"].get("persist_failed"),))
         q13.drain(_cg(root12), limit=0)            # 锁恢复 → 走合并补落
         check("⑧ 锁恢复后合并补落：内存里那条晚一拍也落到盘上",
               "lock_timeout" in ids(root12, cv), "ids=%r" % (ids(root12, cv),))
@@ -456,6 +494,51 @@ def _cases(cv):
           q16.status()["stats"]["skipped"] == 2,
           "skipped=%d" % (q16.status()["stats"]["skipped"],))
 
+    # ---------------------------------------------------------------- ⑪ 多字节截断残行
+    root15 = tempfile.mkdtemp(prefix="cvq15_")
+    p15 = os.path.join(root15, cv.QUEUE_FILE)
+    good1 = json.dumps({"node_id": "good1", "action": "reverify",
+                        "enqueued_at": 1700000000.0, "kwargs": {}},
+                       ensure_ascii=False).encode("utf-8")
+    good2 = json.dumps({"node_id": "good2", "action": "reverify",
+                        "enqueued_at": 1700000000.0, "kwargs": {}},
+                       ensure_ascii=False).encode("utf-8")
+    # 被杀在**多字节字符中间**：中文字符只落了一半字节。严格解码会抛
+    # UnicodeDecodeError（不是 json.loads 的 ValueError），坏字节之后的整段读不到
+    torn_mb = (b'{"node_id": "tornmb", "action": "reverify", '
+               b'"kwargs": {"k": "\xe4\xb8')
+    with open(p15, "wb") as fh:
+        fh.write(good1 + b"\n" + torn_mb + b"\n" + good2 + b"\n")
+    q17 = cv.ColdVerifyQueue(root=root15)
+    loaded15 = [t.get("node_id") for t in q17._queue]
+    check("⑪ 多字节截断残行不吞其后好行：坏字节之后的任务仍被加载",
+          loaded15 == ["good1", "good2"], "loaded=%r" % (loaded15,))
+    check("⑪ 坏行被跳过并计数（容忍 ≠ 静默）",
+          q17.status()["stats"]["skipped"] >= 1,
+          "skipped=%d" % (q17.status()["stats"]["skipped"],))
+    q17.drain(_cg(root15), limit=0)              # 触发一次写前合并（压实）
+    check("⑪ 压实后好行仍在盘上（不拿残缺集合覆写掉没读到的条目）",
+          ids(root15, cv) == ["good1", "good2"], "ids=%r" % (ids(root15, cv),))
+    check("⑪ 读得全时不该触发 fail-closed（persist_failed 保持 0）",
+          q17.status()["stats"].get("persist_failed", 0) == 0,
+          "persist_failed=%r" % (q17.status()["stats"].get("persist_failed"),))
+
+    # ---------------------------------------------------------------- ⑫ clear 覆盖边界
+    root16 = tempfile.mkdtemp(prefix="cvq16_")
+    a16 = cv.ColdVerifyQueue(root=root16)
+    a16.enqueue("on_disk", action="reverify")
+    b16 = cv.ColdVerifyQueue(root=root16)       # b16 内存里也持有 on_disk
+    # 手工模拟「他实例内存里有、盘上没有」的条目（追加失败时就是这个形态）
+    b16._queue.append({"node_id": "mem_only", "action": "reverify",
+                       "enqueued_at": time.time(), "kwargs": {}})
+    a16.clear()
+    check("⑫ clear 后盘上无未消费条目（本实例内存 ∪ 盘上条目都落墓碑）",
+          ids(root16, cv) == [], "ids=%r" % (ids(root16, cv),))
+    b16.drain(_cg(root16), limit=0)
+    check("⑫ clear 的覆盖边界（已声明，非静默惊喜）：他实例内存中未落盘的条目"
+          "仍会在其落盘时出现，已消费的 on_disk 不复活",
+          ids(root16, cv) == ["mem_only"], "ids=%r" % (ids(root16, cv),))
+
     # ---------------------------------------------------------------- ⑥ 阴性对照
     root8 = tempfile.mkdtemp(prefix="cvq8_")
     root9 = tempfile.mkdtemp(prefix="cvq9_")
@@ -486,12 +569,18 @@ def main(argv=None):
             mutate = a.split("=", 1)[1]
     if mutate and mutate not in ("clobber", "ignore_tombstones",
                                  "no_leading_newline", "no_prune",
-                                 "append_swallow"):
+                                 "append_swallow", "strict_decode"):
         print("未知变异：%s（可用：clobber / ignore_tombstones / "
-              "no_leading_newline / no_prune / append_swallow）" % mutate)
+              "no_leading_newline / no_prune / append_swallow / "
+              "strict_decode）" % mutate)
         return 2
     print("== coldverify 队列跨实例合并守卫（mutate=%r）" % mutate)
-    run(mutate)
+    try:
+        run(mutate)
+    except Exception as exc:                       # noqa: BLE001
+        # 守卫自身崩掉必须**点名**失败（否则 traceback 中断整轮、读数不可判读）
+        check("守卫自身未因变异/环境异常中断", False,
+              "%s: %s" % (type(exc).__name__, exc))
     print("")
     print("=" * 64)
     print("通过 %d ／ 失败 %d%s" % (PASS, FAIL,

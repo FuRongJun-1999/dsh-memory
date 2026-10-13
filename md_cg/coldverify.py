@@ -63,12 +63,20 @@ class ColdVerifyQueue:
         self._worker = None
         self._stop = threading.Event()
         self._stats = {"enqueued": 0, "processed": 0, "errors": 0,
-                       "skipped": 0}
+                       "skipped": 0,
+                       #: 落盘失败 / 被 fail-closed 跳过的次数：追加与压实失败
+                       #: 此前是纯静默（except 直接 pass），运维看不到「内存里
+                       #: 有、盘上没有」的窗口。见 _append_task/_persist。
+                       "persist_failed": 0}
         self._queue_path = (os.path.join(root, QUEUE_FILE)
                              if root else None)
         #: 已消费任务的墓碑（任务键 → 落碑时刻）。用于阻止**另一实例**内存里
         #: 仍持有的同一条任务在它下次 _persist 时被写回盘上（重放）。
         self._tombstones: dict = {}
+        #: 上一次 _read_disk 是否**读到一半失败**（拿到的只是残缺集合）。
+        #: _persist 据此跳过本次落盘（fail-closed）：用残缺集合合并再覆写，
+        #: 会抹掉「没读到」的那些条目。
+        self._read_incomplete = False
         self._load_persisted()
 
     @staticmethod
@@ -93,10 +101,19 @@ class ColdVerifyQueue:
         同一批非法行不该被反复计入。
         """
         tasks, tombs = [], {}
+        self._read_incomplete = False
         if not self._queue_path or not os.path.exists(self._queue_path):
             return tasks, tombs
         try:
-            with open(self._queue_path, "r", encoding="utf-8") as f:
+            # errors="replace"：与 fsutil.read_jsonl:216 同口径，**不能省**。
+            # 追加写点被杀在多字节字符中间时，严格解码会在迭代中抛
+            # UnicodeDecodeError（它不是 json.loads 的 ValueError，内层
+            # except 抓不到），冒泡到下面的外层 except 后只返回坏字节之前的
+            # 任务；随后 _persist 拿这份残缺集合合并再 atomic_write，坏字节
+            # 之后的**好条目被永久抹掉**——不只是「丢掉那一行」。replace 把
+            # 坏字节换成 U+FFFD，该行退化成一条普通坏行，只丢它自己。
+            with open(self._queue_path, "r", encoding="utf-8",
+                      errors="replace") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -132,7 +149,9 @@ class ColdVerifyQueue:
                         continue
                     tasks.append(task)
         except Exception:                              # noqa: BLE001
-            pass  # 崩溃恢复容错：文件损坏就不恢复
+            # 崩溃恢复容错：文件损坏就不恢复。但「读到一半失败」时已读到的
+            # 部分只是残缺集合，写路径必须据此 fail-closed（见 _persist）。
+            self._read_incomplete = True
         return tasks, tombs
 
     def _prune_tombstones(self, tombs, now=None) -> dict:
@@ -174,6 +193,12 @@ class ColdVerifyQueue:
         try:
             with FileLock(self._queue_path, strict=True):
                 disk_tasks, disk_tombs = self._read_disk(count_skipped=False)
+                if self._read_incomplete:
+                    # fail-closed：盘上内容没读全，合并后的集合会缺条目，
+                    # 此刻覆写 = 把没读到的条目永久抹掉。宁可晚一拍（条目仍
+                    # 在内存里，下次再试）。
+                    self._stats["persist_failed"] += 1
+                    return
                 tombs = dict(disk_tombs)
                 tombs.update(self._tombstones)
                 self._tombstones = self._prune_tombstones(tombs)
@@ -199,7 +224,8 @@ class ColdVerifyQueue:
                 atomic_write(self._queue_path,
                              "".join(x + "\n" for x in lines))
         except Exception:                              # noqa: BLE001
-            pass  # 持久化失败不影响内存队列
+            self._stats["persist_failed"] += 1  # 不静默：落盘失败可观测
+            # 持久化失败不影响内存队列（条目仍在内存，下次 drain/clear 再试）
 
     def enqueue(self, node_id: str, action: str = "reverify", **kw):
         """入队异步验证任务。返回 task dict。"""
@@ -247,7 +273,8 @@ class ColdVerifyQueue:
                 finally:
                     os.close(fd)
         except Exception:                              # noqa: BLE001
-            pass  # 落盘失败不影响内存队列
+            self._stats["persist_failed"] += 1  # 不静默：追加失败可观测
+            # 追加失败不影响内存队列（条目仍在内存，下次 _persist 合并补落）
 
     def drain(self, cg, *, limit=BATCH_LIMIT, dry_run=False):
         """同步消费队列（用于测试/手动处理）。返回处理结果列表。
@@ -420,7 +447,13 @@ class ColdVerifyQueue:
 
     def clear(self):
         """清空队列（测试用）。盘上条目一并落墓碑，否则他实例下次 _persist
-        合并时会把它们当「未消费」写回（清空只清本实例内存 = 假清空）。"""
+        合并时会把它们当「未消费」写回（清空只清本实例内存 = 假清空）。
+
+        **边界（不宣称全局清空）**：只覆盖「本实例内存 ∪ 盘上可观察条目」。
+        另一实例内存里因追加失败（见 @persist_failed@ 计数）尚未落盘的任务，
+        在它自己后续 _persist 合并时仍会出现——那条任务确实已 enqueue 且未被
+        消费，从它那一侧看写回是对的。要全局清空请在无其它活实例时执行；
+        本方法主要给测试与单实例运维用。"""
         with self._lock:
             disk_tasks, _ = self._read_disk(count_skipped=False)
             now = time.time()
