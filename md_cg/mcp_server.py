@@ -2216,6 +2216,16 @@ def _cg_dispatch(cg, a):
             # P1-4（批次 26）：证据包写/读路径根约束（报告点名的
             # 「link export 不经 require_admin → 任意文件写」缺口）
             check_path_root(a.get("out"), "MDCG_EXPORT_ROOT", "link/export")
+            # issue #211：白名单只判「在根内」，而 MDCG_EXPORT_ROOT 未配置时
+            # 回落记忆库根本身 ⇒ _keys.json / 节点 .md 都在可写面里。补一道
+            # 与白名单无关的落点约束；overwrite 只对管理员开放。
+            if a.get("out"):
+                from .security import check_export_target
+                _ow = bool(a.get("overwrite"))
+                if _ow and _p is not None:
+                    _p.require_admin("link/export overwrite")
+                check_export_target(a.get("out"), cg.root, "link/export",
+                                    allow_overwrite=_ow)
             subs = a.get("subjects") or a.get("subject")
             if isinstance(subs, str):
                 subs = [subs]
@@ -2978,6 +2988,11 @@ def _export_call(cg, a):
     # 处置：目标已存在即拒，并给出**显式逃生口** overwrite=true（不改变常规用法——
     # 不传 out 时走 _default_out 带时间戳，本就不冲突）。
     _out85 = a.get("out")
+    # issue #211：管理员 overwrite=true 也不得把导出写进 _keys.json / 层目录 /
+    # 辅助根（自伤面：覆写密钥库后整库 private 永久不可解）。
+    if _out85:
+        from .security import check_export_target
+        check_export_target(_out85, cg.root, "export", allow_overwrite=True)
     if _out85 and os.path.exists(_out85) and not a.get("overwrite"):
         raise PermissionError(
             "export 目标已存在：%s（如确要覆盖，请显式传 overwrite=true）" % _out85)
