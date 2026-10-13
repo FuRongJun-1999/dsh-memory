@@ -2089,7 +2089,15 @@ class MdCGOS(MdCG):
         elif judge and judge_ranking:
             # 证据防火墙：语义/词法融合产生候选（不要漏），资格授予优先级（不要错）
             kept = []
-            for nid, fs in fused_all[:max(k * 2, 10)]:
+            for nid, fs in fused_all:
+                # Qualification never raises a score above max(fs, fs * .5).
+                # Inspect candidates until none can beat the current kth
+                # qualified result (including the deterministic id tie).
+                # A fixed oversampling window can run out of safe candidates.
+                upper = max(fs, fs * 0.5)
+                if (k > 0 and len(kept) == k
+                        and (-upper, nid) >= (-kept[-1][1], kept[-1][0])):
+                    break
                 node, s = node_by_id[nid]
                 qual = self.judge_qualification(node, q, context)
                 quals[nid] = qual
@@ -2098,6 +2106,9 @@ class MdCGOS(MdCG):
                     filtered += 1
                     continue
                 kept.append((nid, fs if st == STATE_ACCEPT else fs * 0.5))
+                kept.sort(key=lambda x: (-x[1], x[0]))
+                if k > 0:
+                    kept = kept[:k]
             kept.sort(key=lambda x: (-x[1], x[0]))
             fused = kept[:k]
         else:
