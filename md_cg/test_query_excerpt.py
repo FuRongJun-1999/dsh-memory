@@ -88,6 +88,14 @@ class QueryExcerpt(unittest.TestCase):
         self.assertEqual(first, qe.select(text, "key sapphire launch", 70))
         self.check_spans(text, first)
 
+    def test_budget_unicode_category_boundaries(self):
+        boundaries = "\u303f\u3040\u30ff\u3100\u3400\u4dff\u4e00\u9fff\ua000🙂"
+        text = (boundaries * 12 + " sapphire evidence.\n\n") * 12
+        for budget in (16, 30, 60, 90, 150):
+            result = qe.select(text, "sapphire evidence", budget)
+            self.assertLessEqual(mdcos.est_tokens(result["content"]), budget, "category boundary budget")
+            self.check_spans(text, result)
+
     def store(self):
         temp = tempfile.TemporaryDirectory(prefix="query_excerpt_")
         self.addCleanup(temp.cleanup)
@@ -160,7 +168,7 @@ def mutations():
         return False
     cases = [
         ("ignore-query", 'terms = tuple(dict.fromkeys(tokenize(query or "")))[:MAX_TERMS]', 'terms = ()', "test_tail_evidence_survives"),
-        ("ignore-budget", 'if est_tokens(trial) <= budget:', 'if True:', "test_budget_includes_gap_markers_and_random_unicode"),
+        ("ignore-budget", 'if trial_tokens <= budget:', 'if True:', "test_budget_includes_gap_markers_and_random_unicode"),
         ("shift-offset", '"spans": [list(s) for s in spans]', '"spans": [[s[0] + 1, s[1]] for s in spans]', "test_tail_evidence_survives"),
         ("omit-selected-text", 'content = _render(text, spans)', 'content = "fabricated evidence"', "test_tail_evidence_survives"),
         ("whole-document", 'content = _render(text, spans)', 'content = text', "test_budget_includes_gap_markers_and_random_unicode"),
