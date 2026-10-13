@@ -186,6 +186,14 @@ class Guards(RuntimeCase):
         self.assertEqual(stgidx.verify(ix, nodes), [])
         ids, _ = ix.subset(time_range=(5, 5))
         self.assertEqual(set(ids), {'a', 'c', 'd'})
+        # The old incremental builder marks incomparable IDs as broken.
+        # Bulk sorting must keep that recovery boundary instead of throwing.
+        try:
+            broken = stgidx.build({'nodes': {1: {'temporal': 1.0},
+                                            'a': {'temporal': 1.0}}}).broken
+        except TypeError:
+            broken = False
+        self.assertTrue(broken, 'bulk comparison failure must mark the index broken')
 
     def test_native_stg_index_matches_scan(self):
         for i in range(35):
@@ -206,6 +214,10 @@ class Guards(RuntimeCase):
         self.assertEqual(list(ix.by_time), before)
 
 MUTATIONS = [
+    mutation('lose bulk failure fallback', 'md_cg.stgidx', 'build',
+             ['md_cg.stgidx:build'],
+             '        ix.broken = True\n', '        pass\n',
+             'test_nonfinite_and_untimed_still_partition'),
     mutation('exclude upper endpoint', 'md_cg.stgidx', '_TimeBlocks.range_ids',
              ['md_cg.stgidx:_TimeBlocks.range_ids'], 'if t > hi:', 'if t >= hi:',
              'test_inclusive_range_ties'),

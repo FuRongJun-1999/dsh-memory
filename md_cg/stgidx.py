@@ -199,7 +199,12 @@ def build(index_obj):
     ix.by_time = _TimeBlocks(bulk=True)
     for nid in nodes:                      # 快照物理序（dict 插入序）→ pos 即此序
         ix.add(nid, nodes[nid])
-    ix.by_time.finish()
+    try:
+        ix.by_time.finish()
+    except Exception:
+        # Bulk sorting postpones comparison errors until after add(). Keep
+        # the original fail-closed contract: callers fall back on broken.
+        ix.broken = True
     return ix
 
 
