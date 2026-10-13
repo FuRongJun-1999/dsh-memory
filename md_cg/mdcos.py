@@ -2184,7 +2184,8 @@ class MdCGOS(MdCG):
                judge_ranking: bool = False, session=None, branch=None,
                validity=None, max_item_tokens: int = DEFAULT_MAX_ITEM_TOKENS,
                start_time=None, end_time=None, start_operator=None,
-               end_operator=None, time_axis=None, view=None):
+               end_operator=None, time_axis=None, view=None,
+               excerpt_strategy: str = "prefix"):
         """按 token 预算装包：装到预算花完为止。
 
         装包策略（2026-09-14 调整）：
@@ -2192,6 +2193,8 @@ class MdCGOS(MdCG):
           （返回体标注 truncated=True），而不是直接丢弃；
         · 仅当剩余预算不足以放下一份最小摘录时，才跳过并继续尝试更小的条目（原行为）；
         · 传 max_item_tokens=0 可显式关闭截断，回到"超大一律跳过"的旧行为。
+        · excerpt_strategy="query" 显式启用查询相关原文片段选择；只改变原本需要
+          截断的条目，返回 excerpt.spans 原文字符位置。缺省 prefix 保留前缀策略。
         动机：旧策略是「跳过超大、继续试更小的」——预算紧张时形成**逆向淘汰**，
         越有价值的详实条目越容易被排除（实测 budget=1500 时 16 条被刷、只装 2 条）。
 
@@ -2211,6 +2214,8 @@ class MdCGOS(MdCG):
         view：角色化读取视图（第四阶段 6.1，显式启用，缺省 None 零变更），
         透传 search_rrf/search 候选层。
         """
+        if excerpt_strategy not in ("prefix", "query"):
+            raise ValueError("excerpt_strategy must be prefix or query")
         if use_rrf:
             kw = dict(k=k, layer=layer, context=context, roles=roles,
                       include_work=include_work, judge=judge, session=session,
@@ -2253,6 +2258,7 @@ class MdCGOS(MdCG):
             content = node.get("content") or ""
             t = est_tokens(content)
             truncated = False
+            excerpt = None
             if used + t > budget_tokens:
                 # 超预算：优先纳入"前 N token 摘录"，而不是直接丢弃。
                 # 旧行为（跳过超大、继续试更小的）在预算紧张时会把最有价值的
@@ -2260,7 +2266,12 @@ class MdCGOS(MdCG):
                 room = budget_tokens - used
                 if max_item_tokens and room >= min_excerpt:
                     keep = min(max_item_tokens, room)
-                    content = excerpt_tokens(content, keep)
+                    if excerpt_strategy == "query":
+                        from .query_excerpt import select
+                        excerpt = select(content, query, keep)
+                        content = excerpt["content"]
+                    else:
+                        content = excerpt_tokens(content, keep)
                     t = est_tokens(content)
                     if t <= 0:
                         skipped.append({"id": node["id"], "tokens": 0,
@@ -2288,6 +2299,9 @@ class MdCGOS(MdCG):
                      "provenance": prov, "metadata": metadata}
             if truncated:
                 entry["truncated"] = True
+            if excerpt is not None:
+                entry["excerpt"] = {key: value for key, value in excerpt.items()
+                                    if key != "content"}
             pack.append(entry)
         # 近期事件（第 5 篇第 3 章）：只作上下文尾巴，不参与 RRF 正排；
         # 计入 token 预算（诚实口径：附了就是占了）。
