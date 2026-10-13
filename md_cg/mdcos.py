@@ -1998,6 +1998,14 @@ class MdCGOS(MdCG):
             scored = sorted(scored, key=lambda x: (-x[1],
                             -float(x[0]["frontmatter"].get("importance") or 0),
                             str(x[0].get("id") or "")))
+            # RRF assigns one rank/vote per node per path. Graph convergence
+            # and repeated edges may produce several copies of a node; keep
+            # its strongest occurrence before rank assignment and path caps.
+            unique = {}
+            for row in scored:
+                unique.setdefault(row[0]["id"], row)
+            scored = list(unique.values())
+            ranked[name] = scored
             per_path[name] = len(scored)
             if name in ro:
                 continue
