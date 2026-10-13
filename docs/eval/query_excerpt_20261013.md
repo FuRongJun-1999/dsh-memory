@@ -2,13 +2,13 @@
 
 2026-10-13
 
-在 PR #168 的关系链修复之上，增加显式启用的 `excerpt_strategy="query"`。按查询选择原文片段，降低“节点找到了，预算却只留下正文开头”的信息损失。原 PR 的 `0d3e71931f011ef122f0e23053cdf0436920de98` 保持冻结；新增功能在独立分支，不改变已交付悬赏的内容。
+新增显式启用的 `excerpt_strategy="query"`：按查询选择原文片段，降低“节点找到了，预算却只留下正文开头”的信息损失。最终交付独立基于主线 `9c5d946aef17f756f07053f7f386483015f626cc`，不包含尚未合并的 PR #168 关系链改动；两项成果分别验收。
 
 ## 算法与实验设置
 
 段落 IDF 降低通用词影响，边际词项覆盖降低重复片段收益，贪心选择最多四个窗口。长段落围绕匹配位置取窗，按原文顺序输出，返回完整正文字符位置；省略标记计入预算。生产选择过程不调用 LLM，不建立新持久索引或全局明文缓存。缺省仍为 prefix；新方式只替换原本触发预算截断的摘录。
 
-基础为 PR #168；算法固定版提交 `6a6219f`。首次检索在本地 commit 因身份配置失败后执行，文件已冻结并逐一记录 SHA256；随后沿用原提交作者身份本地提交，未改算法，再复跑一次检索。以 JSON 的实际源文件指纹为准，不把第一次记录的 HEAD 冒充包含未提交改动。
+初始实验在 PR #168 上冻结源码，功能版归档为 `6a6219f`；第一次原始 JSON 的 HEAD 不能代表当时未提交的选择器，须用所附源码 SHA256 定位。最终移植到上述最新主线，仅补精确 token 计数复用，测量版为 `ddb845f71300f49aaa79d869e35876cfc86e0845`：2500 组固定随机对照与原选择器逐字一致，两个 92 题材料及 query 的原文位置、分数、出处均一致（仅排除重新入库产生的 created_at / condition_space.time_window）。184 份真实原始答卷据此离线重算，未重新调用模型、未按测试题调参。
 
 - 公共数据：[hive-memory-bench](https://github.com/FuRongJun-1999/hive-memory-bench)，固定快照 `f4509d7282f82982af5de9c8fe71863fc95b38cb`；23 章、主轮 92 题。
 - 数据 © 2026 符荣峻，CC BY 4.0；评测代码 MIT。原语料与题目未改写，适配为原生 Markdown 章节点，并仅按章节顺序建立 sequential 边。
@@ -19,7 +19,7 @@
 
 ## 实跑结果
 
-| 指标 | PR #168 前缀摘录 | 新增 query 摘录 |
+| 指标 | 当前主线前缀摘录 | 新增 query 摘录 |
 |---|---:|---:|
 | 标注引文完整保留数（有效原文引文共 681 条） | 38 / 681 | 113 / 681 |
 | 引文保留率，微平均 | 5.58% | 16.59% |
@@ -29,10 +29,10 @@
 | 完整规则判定 pass / review / fail | 0 / 19 / 73 | 4 / 36 / 52 |
 | Reader 可定位引文 | 223 | 243 |
 | Reader 不可定位引文（也计入 invalid，非两条） | 0 | 1 |
-| 原生 recall p50，第一轮 / 顺序复跑 | 15.45 / 16.75 ms | 65.92 / 63.75 ms |
+| 当前主线原生 recall p50，顺序实跑 | 15.91 ms | 38.15 ms |
 | 平均装入节点数 | 4.57 | 5.60 |
 
-两轮检索的引文保留读数一致。真实回答的规则覆盖逐题对照为 **41 胜 / 41 平 / 10 负**。92 题共享少量章节，不等于 92 个独立样本，本报告不宣称统计显著。计时是本机运行的描述性读数，第一次两臂检索并行，第二次顺序运行，不能当作稳定服务 SLA。
+初始两轮检索与主线移植后的引文保留读数一致。真实回答的规则覆盖逐题对照为 **41 胜 / 41 平 / 10 负**。92 题共享少量章节，不等于 92 个独立样本，本报告不宣称统计显著。初始查询版 p50 为 65.92 / 63.75 ms；精确计数复用后当前主线顺序复跑为 38.15 ms，前缀版为 15.91 ms。所有计时只是本机描述性读数，不能当作稳定服务 SLA。
 
 查询片段并不保证下游模型零错误：504 份实际摘录逐一按 `cg.get(id)["content"]` 和返回区间重建，全部一致；但新 reader 的一条引文未能在原文中定位，原始答卷及判分保留。75 道适用反编造轴的题两臂均未触发其关键词规则，不代表已经完成语义层编造审查。
 
@@ -40,15 +40,14 @@
 
 | 验证 | 最终结果 |
 |---|---|
-| 新增运行守卫 | 11 通过 / 0 失败，含 400 组 Unicode 预算/位置检查 |
+| 新增运行守卫 | 提交版 12 通过 / 0 失败，含 400 组 Unicode 预算/位置检查与 Unicode 分类边界；初始版为 11 项 |
 | 真实 stdio MCP | mdcg_recall 与 cg(read) 两个入口均返回相关原文及位置 |
-| 定点变异 | 6 / 6 被指定断言捕获，0 异常/0 SKIP；恢复后 11 项通过，源文件未变 |
+| 定点变异 | 6 / 6 被指定断言捕获，0 异常/0 SKIP；恢复后提交版 12 项通过，源文件未变 |
 | 已有前缀摘录守卫 | 6 / 6 通过 |
-| 已有关系链守卫 | 14 / 14 通过，含 600 个小图独立穷举对拍 |
-| 相关回归 | 13 / 13 模块通过，0 SKIP；含读隔离、生命周期、RRF、读缓存与子进程编码 |
+| 相关回归 | 冻结实验版 13 / 13 模块通过，0 SKIP；含读隔离、生命周期、RRF、读缓存与子进程编码；当前主线完整回归以 PR CI 为准 |
 | 独立离线复跑包 | 从冻结基础源码解压并应用补丁，新目录 11 项守卫通过；184 份已有答卷离线重算与原读数一致，0 API 调用 |
 | 静态检查 | 文档映射、相对链接、工作区索引、显式编码、本机路径与发布件七项政策门禁通过；单列，不算运行测试 |
-| 新增分支全量 CI | 尚未运行；PR #168 的绿灯不能替代本分支验证 |
+| 新增分支全量 CI | 以本 PR 对应 head 的 GitHub Actions 为准；PR #168 的绿灯不能替代本分支验证 |
 
 第一次批量回归将辅助目录误命名为 Windows 保留设备名 aux，被既有生产路径守卫拒绝；改为普通目录 sidecar 后 13 项复跑通过，未放宽生产断言。初始错误日志在本地验证目录保留。
 
@@ -59,8 +58,8 @@ python -X utf8 tests/test_query_excerpt.py
 python -X utf8 tests/test_query_excerpt.py --mutate
 git clone https://github.com/FuRongJun-1999/hive-memory-bench.git ../hive-memory-bench
 git -C ../hive-memory-bench checkout f4509d7282f82982af5de9c8fe71863fc95b38cb
-git worktree add --detach ../dsh-memory-pr168 0d3e71931f011ef122f0e23053cdf0436920de98
-python -X utf8 scripts/bench_query_excerpt_hive.py retrieve --repo ../dsh-memory-pr168 --bench ../hive-memory-bench --strategy prefix --output results/prefix.json
+git worktree add --detach ../dsh-memory-base 9c5d946aef17f756f07053f7f386483015f626cc
+python -X utf8 scripts/bench_query_excerpt_hive.py retrieve --repo ../dsh-memory-base --bench ../hive-memory-bench --strategy prefix --output results/prefix.json
 python -X utf8 scripts/bench_query_excerpt_hive.py retrieve --bench ../hive-memory-bench --strategy query --output results/query.json
 python -X utf8 scripts/bench_query_excerpt_hive.py reader --bench ../hive-memory-bench --input results/prefix.json --output results/prefix-answers
 python -X utf8 scripts/bench_query_excerpt_hive.py reader --bench ../hive-memory-bench --input results/query.json --output results/query-answers
@@ -79,3 +78,5 @@ python -X utf8 scripts/bench_query_excerpt_hive.py score --bench ../hive-memory-
 尚未验证其他公开语料、百万条、并发、私域数据。IDF 和原文窗口会增加 CPU 时间，词面相关也可能漏掉反方向证据；保留显式启用，未改全项目默认设置。
 
 原始材料：[汇总](query_excerpt_20261013/summary.json)、[运行守卫与变异日志](query_excerpt_20261013/guards-and-mutations.log)、[评测计划](query_excerpt_20261013/evaluation-plan.md)、[完整原始证据 ZIP](query_excerpt_20261013/raw-evidence.zip)。ZIP 内含两轮检索、逐题规则分、两组 184 份答卷和 SHA256 清单，已逐项校验哈希与 CRC。
+
+主线交付补证：[两臂材料一致性](query_excerpt_20261013/main-integration.json)、[2500 组选择器对照](query_excerpt_20261013/selector-parity.json)、[当前测量版与功能输出一致性](query_excerpt_20261013/optimized-compatibility.json)。最新主线完整检索与离线重评分保存在证据 ZIP 的 integration/。
