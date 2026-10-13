@@ -102,6 +102,13 @@ def node_id(root: str = None, explicit: str = None) -> str:
     """
     nid = (explicit or os.environ.get(NODE_ID_ENV) or "").strip()
     if nid:
+        # issue #277：node_id 会拼进落盘路径（publish_card 用 node_id + ".json"），
+        # 必须过白名单。与 mdcg._NODE_ID_RE 同一真源（延迟导入，避免 import 时序问题）。
+        from .mdcg import _NODE_ID_RE
+        if ".." in nid or not _NODE_ID_RE.match(nid):
+            raise EvidenceError(
+                f"非法 node_id：{nid!r}（须匹配 {_NODE_ID_RE.pattern}"
+                f" 且不含 '..'——node_id 会拼进落盘路径，穿越一律拒绝）")
         return nid
     r = _root_of(root)
     if not r:
