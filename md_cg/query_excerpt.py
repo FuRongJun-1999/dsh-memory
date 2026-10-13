@@ -73,7 +73,7 @@ def select(text, query, max_tokens):
     The budget uses the same estimate as recall(), including omission markers.
     Callers must treat offsets as indices into the *unchanged* input string.
     """
-    from .mdcos import est_tokens, excerpt_tokens
+    from .mdcos import est_tokens, excerpt_tokens, _tokens_from_counts
 
     text = text or ""
     budget = int(max_tokens)
@@ -104,6 +104,7 @@ def select(text, query, max_tokens):
                * (.2 if len(t) == 1 and not t.isdigit() else 1.0) for t in terms}
     window_budget = max(8, (budget - 8) // 2)
     candidates = {}
+    span_sizes = {}
     for start, end, tf in paragraphs:
         if not tf:
             continue
@@ -124,28 +125,42 @@ def select(text, query, max_tokens):
             counts = Counter(t for t in tokenize(content) if t in termset)
             if counts:
                 candidates[span] = counts
+                cjk = sum(1 for ch in content if 0x4e00 <= ord(ch) <= 0x9fff
+                          or 0x3040 <= ord(ch) <= 0x30ff)
+                span_sizes[span] = (cjk, len(content) - cjk)
     if not candidates:
         return prefix("no_query_match")
 
     def value(span, counts, covered):
         gain = sum(weights[t] * n / (n + 1) / (covered[t] + 1) for t, n in counts.items())
-        return gain / max(1, est_tokens(text[span[0]:span[1]])) ** .25
+        return gain / max(1, _tokens_from_counts(*span_sizes[span])) ** .25
 
     covered = Counter()
     choices = sorted(candidates, key=lambda span: (-value(span, candidates[span], covered), span))[:MAX_CANDIDATES]
     selected = []
+    selected_cjk = selected_other = 0
+    gap_cjk = sum(1 for ch in GAP if 0x4e00 <= ord(ch) <= 0x9fff
+                  or 0x3040 <= ord(ch) <= 0x30ff)
+    gap_other = len(GAP) - gap_cjk
     for _ in range(MAX_WINDOWS):
         viable = []
         for span in choices:
             if any(span[0] < end and span[1] > start for start, end in selected):
                 continue
-            trial = _render(text, selected + [span])
-            if est_tokens(trial) <= budget:
+            merged = _merge(selected + [span])
+            gaps = len(merged) - 1 + int(merged[0][0] > 0) + int(merged[-1][1] < len(text))
+            cjk, other = span_sizes[span]
+            trial_tokens = _tokens_from_counts(selected_cjk + cjk + gaps * gap_cjk,
+                                              selected_other + other + gaps * gap_other)
+            if trial_tokens <= budget:
                 viable.append(span)
         if not viable:
             break
         chosen = min(viable, key=lambda span: (-value(span, candidates[span], covered), span))
         selected.append(chosen)
+        cjk, other = span_sizes[chosen]
+        selected_cjk += cjk
+        selected_other += other
         covered.update({t: 1 for t in candidates[chosen]})
         choices.remove(chosen)
     if not selected:
