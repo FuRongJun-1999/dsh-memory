@@ -3181,14 +3181,22 @@ class MdCGOS(MdCG):
                 tags = list(edits.get("tags", tags))
                 layer = edits.get("layer", layer)
             extra = dict(item.get("extra") or {})
-            # issue #186（C 兜底）：以提案记录**顶层** rec["sensitivity"] /
-            # rec["session"] 兜底（extra 有则用 extra，没有则回落顶层）——即使将来
-            # 某个入队点漏把密级放进 extra，accept 也不会把已记录在提案顶层的密级 /
-            # 会话丢掉（顶层 sensitivity 由 propose 恒落，见 rec["sensitivity"]）。
+            # issue #186（C 兜底）：以提案记录**顶层** rec["sensitivity"] 兜底
+            # （extra 有则用 extra，没有则回落顶层）——即使将来某个入队点漏把密级
+            # 放进 extra，accept 也不会把已记录在提案顶层的密级丢掉（顶层 sensitivity
+            # 由 propose 恒落，见 rec["sensitivity"]）。
             if extra.get("sensitivity") is None and item.get("sensitivity"):
                 extra["sensitivity"] = item["sensitivity"]
-            if not extra.get("session") and item.get("session"):
-                extra["session"] = item["session"]
+            # session **不是**声明透传要素，而是**归因维**（同 writer / reviewer）：
+            # 2026-10-07 三态裁定——accept 落盘的会话归属一律取**裁决者**面
+            # （显式 --session > 环境 MDCG_SESSION > unattributed），**不得**被提案里
+            # 写入者的会话覆盖。故此处主动丢弃 extra 里的 session（提案侧写入者的
+            # 会话仍完整保留在 inbox 记录的 rec["session"] 上，可追溯），让 add 的
+            # _eff_session 走裁决者单点。issue #186 修复一度把 session 与 sensitivity
+            # 同等当作「声明透传要素」回落顶层，导致 review_cli 的 --session 失效
+            # （md_cg/test_review_cli_attribution.py ①④⑤⑥ 转红）——两者语义不同，
+            # 不可同法处置。
+            extra.pop("session", None)
             if item.get("verify"):
                 extra["verify"] = item["verify"]
                 extra["verify_hash"] = expect

@@ -20,6 +20,7 @@ r"""守卫 · #91 whitebox verifier 不得在判定前产生副作用（2026-10-
 """
 from __future__ import annotations
 
+import builtins
 import os
 import sys
 import tempfile
@@ -115,9 +116,40 @@ def main():
     # G4 SAFE_NS 白名单不含危险名
     ns = V.SAFE_NS()
     b = ns.get("__builtins__") or {}
-    danger = [k for k in ("open", "__import__", "eval", "exec", "compile",
+    danger = [k for k in ("open", "eval", "exec", "compile",
                           "globals", "locals", "vars", "input") if k in b]
     check("G4 SAFE_NS 不含危险内建", not danger, "越界=%r" % (danger,))
+    # G4c~G4e（issue #187 判据升级）：`__import__` 的处置由「不许有」升级为
+    # 「只许有**受控**的」。判据强度不降反升——旧判据是「能力可达性」的**代理**
+    # （代理：没有 __import__ ⇒ 碰不到外面），新判据**直接测**该能力属性：
+    # ① 在场者不是真内置；② 危险模块逐项 ImportError；③ 纯计算模块可用。
+    # 若将来有人把真内置塞回来，G4c 立红；把受控导入删掉，G4c 也红（设计已变更，
+    # 见 md_cg/whitebox_kb/wisdom/verifier.py 的 _safe_builtins() 与 #187 守卫）。
+    _gi = b.get("__import__")
+    check("G4c SAFE_NS 的 __import__ 在位且非真内置（受控导入）",
+          _gi is not None and _gi is not builtins.__import__,
+          "present=%r is_real=%r" % (_gi is not None,
+                                      _gi is builtins.__import__))
+    _blocked = []
+    for _m in ("os", "sys", "subprocess", "builtins", "importlib",
+               "ctypes", "socket"):
+        try:
+            _gi(_m)
+            _blocked.append(_m)
+        except ImportError:
+            pass
+        except Exception as _e:                          # noqa: BLE001
+            _blocked.append("%s:%s" % (_m, type(_e).__name__))
+    check("G4d SAFE_NS 的受控导入逐项拒绝危险模块", not _blocked,
+          "未拦住=%r" % (_blocked,))
+    try:
+        _r = _gi("re")
+        _ok_re = hasattr(_r, "search") and getattr(_r, "__builtins__", None) is None
+    except Exception as _e:                              # noqa: BLE001
+        _ok_re = False
+        _r = "%s: %s" % (type(_e).__name__, _e)
+    check("G4e SAFE_NS 的受控导入放行纯计算模块且不泄露裸 module",
+          _ok_re, "%r" % (_r,))
     check("G4b SAFE_NS 保留常用纯函数（len/range/sorted 在）",
           all(k in b for k in ("len", "range", "sorted")), "")
 
