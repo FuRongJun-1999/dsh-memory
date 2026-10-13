@@ -3,7 +3,11 @@
 
 跑法：
   python -X utf8 scripts/test_check_guard_coverage.py
-  python -X utf8 scripts/test_check_guard_coverage.py --mutate=covered|no_registry|glob
+  python -X utf8 scripts/test_check_guard_coverage.py --mutate=covered|no_registry|glob|surface_keys
+
+变异自证（注入必失败 ⇒ 断言必红并点名）：
+  --mutate=surface_keys 把反向判据换回 #179 落地时的**缺陷版**（扫 package.json 的
+  全部 scripts 键），于是「非执行面脚本文案里的路径不进反向判据面」这条断言必红。
 """
 
 from __future__ import annotations
@@ -32,12 +36,19 @@ def load_guard():
     return mod
 
 
-def synth(tmp: str) -> str:
-    """合成小仓：alpha 被 gate 点名；beta 被 CI 点名；gamma 有配对测试；delta 孤儿。"""
+def synth(tmp: str, gate: str = "python scripts/check_alpha.py",
+          prepare: str = "") -> str:
+    """合成小仓：alpha 被 gate 点名；beta 被 CI 点名；gamma 有配对测试；delta 孤儿。
+
+    `prepare` 用来注入**非执行面**脚本的文案（#179 判据面越权的实况形态）。
+    """
     os.makedirs(os.path.join(tmp, "scripts"))
     os.makedirs(os.path.join(tmp, ".github", "workflows"))
+    scripts = {"gate": gate}
+    if prepare:
+        scripts["prepare"] = prepare
     with open(os.path.join(tmp, "package.json"), "w", encoding="utf-8") as fh:
-        json.dump({"scripts": {"gate": "python scripts/check_alpha.py"}}, fh)
+        json.dump({"scripts": scripts}, fh)
     with open(os.path.join(tmp, ".github", "workflows", "w.yml"), "w", encoding="utf-8") as fh:
         fh.write("run: python scripts/check_beta.py\n")
     for n in ("check_alpha.py", "check_beta.py", "check_gamma.py", "check_delta.py"):
@@ -53,6 +64,24 @@ def states(mod, root: str) -> dict:
     return {os.path.basename(r["guard"]): r["state"] for r in info["guards"]}
 
 
+def legacy_missing_named_paths(mod, repo_root: str) -> list:
+    """#179 落地时的**缺陷版**反向判据：扫 package.json 的**全部** scripts 键。
+
+    只用于 --mutate=surface_keys 的定点变异自证（注入历史缺陷 ⇒ 守卫断言必红并点名）。
+    """
+    pj_path = os.path.join(repo_root, "package.json")
+    if not os.path.isfile(pj_path):
+        raise OSError("package.json 不存在：" + pj_path)
+    with open(pj_path, "r", encoding="utf-8") as fh:
+        scripts = json.load(fh).get("scripts") or {}
+    named = set()
+    for k in sorted(scripts):
+        named |= mod.named_paths_in(str(scripts[k]))
+    named |= mod.named_paths_in(mod._workflow_run_text(repo_root))
+    return [r for r in sorted(named)
+            if not os.path.exists(os.path.join(repo_root, r.replace("/", os.sep)))]
+
+
 def run(mutate: str) -> int:
     """三条变异 + 一套**恒定的核心断言**。
 
@@ -61,7 +90,9 @@ def run(mutate: str) -> int:
     """
     mod = load_guard()
     tmp = tempfile.mkdtemp(prefix="guardcov_test_")
-    synth(tmp)
+    # #161 实况：prepare（**非执行面**）的错误文案里提到 lib/index.js（构建产物，
+    # 干净克隆上必然不存在）。它不得进反向判据面——否则元守卫在干净克隆上恒退 4。
+    synth(tmp, prepare="node -e \"if(!require('fs').existsSync('lib/index.js'))process.exitCode=1\"")
 
     if mutate == "covered":
         # 判据被破坏：分类恒返回「已覆盖」⇒ 孤儿再也识别不出来
@@ -72,6 +103,9 @@ def run(mutate: str) -> int:
     if mutate == "glob":
         # 判据被破坏：配对测试收集面被清空 ⇒ 有配对测试的守卫被误判为孤儿
         mod.COLLECT_GLOBS = ()
+    if mutate == "surface_keys":
+        # 判据被破坏：反向判据换回 #179 落地时的缺陷版（扫 package.json 全部 scripts 键）
+        mod.missing_named_paths = lambda root: legacy_missing_named_paths(mod, root)
 
     st = states(mod, tmp)
 
@@ -85,13 +119,36 @@ def run(mutate: str) -> int:
     ok("delta 无执行面 ⇒ orphan（与 gamma 同仓对照）", st.get("check_delta.py") == "orphan",
        str(st.get("check_delta.py")))
 
+    # ---- 反向判据面（#179）：判据面 = 执行面，非执行面文案不得成为判据对象 ----
+    synth_missing = mod.missing_named_paths(tmp)
+    ok("非执行面脚本（prepare）文案里的路径不进反向判据面（#179 判据面越权）",
+       synth_missing == [], str(synth_missing))
+
     real = mod.build(REPO)
     ok("真仓无未登记孤儿（退出码 0）", mod.exit_code(real) == 0,
        "orphans=" + str(real["orphans"]) + " bad=" + str(real.get("bad_registry")))
+    ok("真仓反向判据面无假阳性（点名缺失 0）", real["missing_named"] == [],
+       str(real["missing_named"]))
     ok("真仓守卫数 >= 8", real["n_guards"] >= 8, str(real["n_guards"]))
     gc = [r for r in real["guards"] if r["guard"].endswith("check_guard_coverage.py")]
     ok("check_guard_coverage 自身有执行面（本测试即其配对测试）",
        bool(gc) and gc[0]["state"] == "covered_test", str(gc[0]["state"]) if gc else "缺失")
+
+    # ---- 反向判据的**正向控制**：防「一律不报」的空判据 ----
+    tmp2 = tempfile.mkdtemp(prefix="guardcov_named_")
+    os.makedirs(os.path.join(tmp2, "scripts"))
+    os.makedirs(os.path.join(tmp2, ".github", "workflows"))
+    with open(os.path.join(tmp2, "package.json"), "w", encoding="utf-8") as fh:
+        json.dump({"scripts": {"gate": "python scripts/check_alpha.py scripts/check_ghost.py"}}, fh)
+    with open(os.path.join(tmp2, ".github", "workflows", "w.yml"), "w", encoding="utf-8") as fh:
+        fh.write("run: python scripts/check_ghost2.py\n")
+    with open(os.path.join(tmp2, "scripts", "check_alpha.py"), "w", encoding="utf-8") as fh:
+        fh.write("# x\n")
+    miss2 = mod.missing_named_paths(tmp2)
+    ok("执行面点名的缺失件必被抓（gate + workflow 两向）",
+       miss2 == ["scripts/check_ghost.py", "scripts/check_ghost2.py"], str(miss2))
+    ok("点名缺失 ⇒ 退 4（#179 反向判据仍有牙齿）",
+       mod.exit_code(mod.build(tmp2)) == 4, str(mod.exit_code(mod.build(tmp2))))
 
     if mutate == "":
         bad = tempfile.mkdtemp(prefix="guardcov_nopj_")
@@ -120,7 +177,8 @@ def run(mutate: str) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mutate", default="", choices=("", "covered", "no_registry", "glob"))
+    ap.add_argument("--mutate", default="",
+                    choices=("", "covered", "no_registry", "glob", "surface_keys"))
     a = ap.parse_args()
     return run(a.mutate)
 
