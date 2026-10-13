@@ -224,24 +224,19 @@ def read_jsonl(path: str):
                 continue
 
 
-# 生效条件：os.path.exists(path) 为假时返回 ([], None)；否则以二进制只读打开并 seek 到 offset 后一次性读到 EOF，按 b"\n" 切行逐段 decode("utf-8","replace") 再 strip，空行跳过，json.loads 成功的收入列表，ValueError 跳过；返回 (对象列表, offset+读到的字节数)——EOF 偏移是真实消费位置（stat 与 read 之间并发 append 的字节已计入），供增量缓存作水位。
+# 生效条件：文件不存在返回 ([], None)；从 offset 读到 EOF，但只解析最后一个换行之前的完整记录；完整坏行跳过，未完成尾行留待后续重读。返回记录与已消费的完整行字节水位，不以读前或读后的 stat size 代替。
 def read_jsonl_tail(path: str, offset: int):
-    """从字节偏移 offset 起**增量**读 append-only jsonl → `(records, end_offset)`。
+    """Incremental JSONL records and the last committed newline offset.
 
-    存在理由（issue #32）：propose 等高频对账每次全量重读 inbox/decisions
-    是 O(M+D)/条、批量 O(M²)；append-only 契约（写点全部经 append_jsonl，
-    无轮转/截断）下「上次扫描到的 size」必为行边界，从该偏移起只解析新增
-    字节即可。上一次写入中断在行中间（ends_mid_line 补 \\n 场景）时，残行
-    前半已在上一轮装载中被跳过、增量窗口读到的是补写的换行与新行——与
-    全量 read_jsonl 的容错结果一致。
+    A writer may still be completing JSON/UTF-8 when this reader reaches EOF.
+    Advancing beyond that suffix permanently loses the eventual record in the
+    four inbox/decisions caches. Keep the cursor at its starting line boundary.
+    Complete corrupt lines still advance the cursor; append_jsonl's crash
+    resynchronization newline therefore cannot block later valid records.
 
-    返回值（水位口径，竞态修复）：end_offset 是**实际读到的 EOF 位置**。
-    调用方若把「读前 stat 的 size」当水位，stat→read 窗口内的跨进程
-    append 会在本轮被并入、而水位偏小——下一轮增量从旧水位重读，同一条
-    记录在列表型缓存里重复并入且永不自愈。存本函数返回的 end_offset
-    即可精确续读。**读后再 stat 不可取**：re-stat 可能大于已消费位置，
-    下轮会跳过未读记录（丢账比重复更糟）。文件不存在返回 (list, None)，
-    调用方自行回落。
+    A complete append that races with the initial stat is consumed exactly
+    once: the returned cursor is measured from bytes actually read. A JSON
+    object without its terminating newline is pending, even if parseable.
     """
     if not os.path.exists(path):
         return [], None
@@ -249,7 +244,11 @@ def read_jsonl_tail(path: str, offset: int):
     with open(path, "rb") as f:
         f.seek(offset)
         data = f.read()
-    for b in data.split(b"\n"):
+    # Only complete lines are committed. A concurrent writer may still be in
+    # the middle of JSON or a UTF-8 code point: retain that suffix for the next
+    # read, rather than permanently advancing the consumer beyond it.
+    committed = data.rfind(b"\n") + 1
+    for b in data[:committed].split(b"\n"):
         line = b.decode("utf-8", "replace").strip()
         if not line:
             continue
@@ -257,7 +256,7 @@ def read_jsonl_tail(path: str, offset: int):
             recs.append(json.loads(line))
         except ValueError:
             continue
-    return recs, offset + len(data)
+    return recs, offset + committed
 
 
 _COUNT_CACHE = {}          # abspath -> (bytes_scanned, mtime_ns, lines)

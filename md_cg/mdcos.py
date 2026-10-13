@@ -2569,7 +2569,7 @@ class MdCGOS(MdCG):
                     "dup_of": None, "dup_status": None}
         return pid
 
-# 生效条件：stat decisions_log 失败（OSError）时把 _pid_st 置空 dict、两扫描键置 -1 并返回空 dict；size 与 mtime_ns 均与缓存键一致时直接返回 _pid_st（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移（外部非合作重写/回退）时经 read_jsonl_tail(path, 0) 全量重建 _pid_st，否则经 read_jsonl_tail 从已扫描偏移起增量并入，逐条把 r.get("pid") 为真值的记录写入 _pid_st（后并入覆盖先并入）；水位存 read_jsonl_tail 返回的真实 EOF 偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _pid_st。
+# 生效条件：stat decisions_log 失败（OSError）时把 _pid_st 置空 dict、两扫描键置 -1 并返回空 dict；size 与 mtime_ns 均与缓存键一致时直接返回 _pid_st（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移（外部非合作重写/回退）时经 read_jsonl_tail(path, 0) 全量重建 _pid_st，否则经 read_jsonl_tail 从已扫描偏移起增量并入，逐条把 r.get("pid") 为真值的记录写入 _pid_st（后并入覆盖先并入）；水位存 read_jsonl_tail 返回的已提交完整行偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _pid_st。
     def _pid_status(self):
         """pid → 最新一条裁决记录（多轮再审批时取最后一轮）。
 
@@ -2578,7 +2578,7 @@ class MdCGOS(MdCG):
         契约下改为 stat 尾部对账：size/mtime 未变零解析；size 增长只解析
         新增字节；size 回退/首装全量重建兜底。mtime 单变 size 不变（touch
         类）走增量窗口=0 行，结果不变。跨进程 append 由 stat 自动并入。
-        水位口径（竞态修复）：存 read_jsonl_tail 返回的**真实 EOF 偏移**，
+        水位口径（竞态修复）：存 read_jsonl_tail 返回的**已提交完整行偏移**，
         不存读前 stat 的 size——stat→read 窗口内的并发 append 本轮已并入，
         水位偏小会让下一轮重读同一段（本缓存是 dict 后写覆盖不受损，但与
         列表型缓存共用同一口径）。
@@ -2605,14 +2605,14 @@ class MdCGOS(MdCG):
         self._pid_st_mtime = mtime
         return self._pid_st
 
-# 生效条件：stat inbox_log 失败（OSError）时把 _inbox_idx 置空 dict、两扫描键置 -1 并返回空 dict；size 与 mtime_ns 均与缓存键一致时直接返回 _inbox_idx（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时经 read_jsonl_tail(path, 0) 全量重建，否则经 read_jsonl_tail 增量并入，逐条以 r.get("payload_hash") 或（缺键时）_sig(r.get("content") or "") 为 ph 把 (r.get("pid"), r.get("id")) 追加进 _inbox_idx[ph]（文件序）；水位存 read_jsonl_tail 返回的真实 EOF 偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _inbox_idx。
+# 生效条件：stat inbox_log 失败（OSError）时把 _inbox_idx 置空 dict、两扫描键置 -1 并返回空 dict；size 与 mtime_ns 均与缓存键一致时直接返回 _inbox_idx（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时经 read_jsonl_tail(path, 0) 全量重建，否则经 read_jsonl_tail 增量并入，逐条以 r.get("payload_hash") 或（缺键时）_sig(r.get("content") or "") 为 ph 把 (r.get("pid"), r.get("id")) 追加进 _inbox_idx[ph]（文件序）；水位存 read_jsonl_tail 返回的已提交完整行偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _inbox_idx。
     def _inbox_phash_index(self):
         """inbox 的 phash → [(pid, node_id)]（文件序）增量索引（propose 对账用）。
 
         与 _pid_status 同款 stat 尾部对账（issue #32）。存量旧格式行
         （无 payload_hash）在**并入时**现算一次 _sig（此后常驻，不再
         每条 propose 重算——旧路径每条重算 M 次 sha1）。
-        水位口径（竞态修复，同 _pid_status）：存真实 EOF 偏移，不存读前
+        水位口径（竞态修复，同 _pid_status）：存已提交完整行偏移，不存读前
         stat 的 size——窗口内并发 append 不得在下轮重复并入。
         """
         try:
@@ -2637,14 +2637,14 @@ class MdCGOS(MdCG):
         self._inbox_idx_mtime = mtime
         return self._inbox_idx
 
-# 生效条件：stat inbox_log 失败（OSError）时把 _inbox_recs 置空列表、两扫描键置 -1 并返回它；size 与 mtime_ns 均与缓存键一致时直接返回 _inbox_recs（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时以 read_jsonl_tail(path, 0) 全量重建，否则以 read_jsonl_tail(offset) 结果 extend 增量并入；水位存 read_jsonl_tail 返回的真实 EOF 偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _inbox_recs（内部缓存，调用方只读不得变更）。
+# 生效条件：stat inbox_log 失败（OSError）时把 _inbox_recs 置空列表、两扫描键置 -1 并返回它；size 与 mtime_ns 均与缓存键一致时直接返回 _inbox_recs（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时以 read_jsonl_tail(path, 0) 全量重建，否则以 read_jsonl_tail(offset) 结果 extend 增量并入；水位存 read_jsonl_tail 返回的已提交完整行偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _inbox_recs（内部缓存，调用方只读不得变更）。
     def _inbox_records(self):
         """inbox 全记录（文件序）增量缓存——review 治理面单次调用共用一次解析。
 
         与 _pid_status 同款 stat 尾部对账（issue #35）：原 review_decide 线性
         扫 inbox 找 pid、_cascade_dedup 再全量读一遍（2 遍/调用）；改走本
         缓存后稳态零解析，调用方在内存列表上线性扫（万条 ~1ms 级，无 IO）。
-        水位口径（竞态修复）：存 read_jsonl_tail 返回的**真实 EOF 偏移**，
+        水位口径（竞态修复）：存 read_jsonl_tail 返回的**已提交完整行偏移**，
         不存读前 stat 的 size——stat→read 窗口内的并发 append 本轮已并入，
         水位偏小会让下一轮 extend 重读同一条（review_list 重复 pid、
         _cascade_dedup 连写两条 reject），且稳态 size 只增、永不自愈。
@@ -2668,7 +2668,7 @@ class MdCGOS(MdCG):
         self._inbox_recs_mtime = mtime
         return self._inbox_recs
 
-# 生效条件：stat decisions_log 失败（OSError）时把 _dec_recs 置空列表、两扫描键置 -1 并返回它；size 与 mtime_ns 均与缓存键一致时直接返回 _dec_recs（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时以 read_jsonl_tail(path, 0) 全量重建，否则以 read_jsonl_tail(offset) 结果 extend 增量并入；水位存 read_jsonl_tail 返回的真实 EOF 偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _dec_recs（内部缓存，调用方只读不得变更）。
+# 生效条件：stat decisions_log 失败（OSError）时把 _dec_recs 置空列表、两扫描键置 -1 并返回它；size 与 mtime_ns 均与缓存键一致时直接返回 _dec_recs（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时以 read_jsonl_tail(path, 0) 全量重建，否则以 read_jsonl_tail(offset) 结果 extend 增量并入；水位存 read_jsonl_tail 返回的已提交完整行偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _dec_recs（内部缓存，调用方只读不得变更）。
     def _decisions_records(self):
         """decisions 全记录（文件序）增量缓存——review 治理面单次调用共用一次解析。
 
@@ -2676,7 +2676,7 @@ class MdCGOS(MdCG):
         全量线性扫找单条 pid（每调用 1 遍整文件 json.loads）；改走本缓存后
         稳态零解析，调用方内存线性扫。与 _pid_status（pid→最新）互补：
         本缓存保全量记录（多轮裁决历史、by_decision 统计口径）。
-        水位口径（竞态修复，同 _inbox_records）：存真实 EOF 偏移——窗口内
+        水位口径（竞态修复，同 _inbox_records）：存已提交完整行偏移——窗口内
         并发 append 不得在下一轮重复 extend（review_stats 计数虚高/翻倍、
         永不自愈）。
         """
