@@ -4,20 +4,25 @@ r"""守卫 · coldverify 队列的跨实例合并（多实例共用 _coldverify.
 # 功能名：冷路径队列落盘的跨实例合并
 # 生效条件：两个及以上 ColdVerifyQueue 指向同一 root（attach() 每个 cg 实例
 #           各建一个；同机多进程/多 MdCGOS 实例共用一个记忆库根时必然发生）
-# 子功能：① enqueue 追加落盘（不改写/不截断，抹不掉他人条目）+ drain 读改写合并
-#         ② 消费落 _done 墓碑（他实例内存里的同一份不再被写回）
-#         ③ clear 真清空（盘上条目一并落墓碑）
-#         ④ 落盘走 FileLock(strict=True) + atomic_write（无锁不写、不留半截）
-#         ⑤ 解析单点 _read_disk 供恢复与合并共用（非法 action 只计一次 skipped）
-#         ⑥ 锁拿不到时 fail-closed：enqueue 不抛、盘上逐字节不变、条目留内存待下次补落
-#         ⑦ 墓碑按 TTL/上限收敛：过期墓碑不再挡恢复（宁可重放，不静默丢）
-#         ⑧ 解析口径对照：坏行容忍与 fsutil.read_jsonl 同口径，非法 action 为有意加严
-#         ⑨ 多字节截断残行不吞其后好行：读盘 errors="replace"，且「读不全」时
-#            写路径 fail-closed（不拿残缺集合覆写掉没读到的条目）
-#         ⑩ 落盘失败可观测：persist_failed 计数（锁超时/追加失败/读不全都不静默）
-#         ⑪ clear 的覆盖边界：本实例内存 ∪ 盘上条目（他实例内存中未落盘的条目
-#            仍会在其后续落盘时出现，属已声明边界而非静默惊喜）
-# 执行：python -X utf8 -m md_cg.test_coldverify_queue_merge [--mutate=clobber|ignore_tombstones|no_leading_newline|no_prune|append_swallow|strict_decode]
+# 契约面（C 编号是本契约的「面」；与 _cases() 里的**用例**编号 ①–⑭ 不是同一套，
+#         用例编号见各条 print 文案——上一版把两套编号混排过，这里分开）：
+#   C1 enqueue 追加落盘（不改写/不截断，抹不掉他人条目）+ drain 读改写合并
+#   C2 消费落 _done 墓碑（他实例内存里的同一份不再被写回）
+#   C3 clear 真清空（盘上条目一并落墓碑）
+#   C4 落盘走 FileLock(strict=True) + atomic_write（无锁不写、不留半截）
+#   C5 解析单点 _read_disk 供恢复与合并共用（非法 action 只计一次 skipped）
+#   C6 锁拿不到时 fail-closed：enqueue 与 _persist 都不抛、盘上逐字节不变、
+#      条目留内存待下次补落
+#   C7 墓碑按 TTL/上限收敛：过期墓碑不再挡恢复（宁可重放，不静默丢）
+#   C8 解析口径对照：坏行容忍与 fsutil.read_jsonl 同口径，非法 action 为有意加严
+#   C9 多字节截断残行不吞其后好行：读盘 errors="replace"，且「读不全」时
+#      写路径 fail-closed（不拿残缺集合覆写掉没读到的条目）
+#   C10 落盘失败可观测：persist_failed 计数（锁超时/追加失败/读不全都不静默）
+#   C11 clear 的覆盖边界：本实例内存 ∪ 盘上条目（他实例内存中未落盘的条目
+#      仍会在其后续落盘时出现，属已声明边界而非静默惊喜）
+#   C12 两实例并发 drain/_persist 的合并是「盘上 ∪ 各自内存」的并集：
+#      两条都不丢、不留半截临时文件
+# 执行：python -X utf8 -m md_cg.test_coldverify_queue_merge [--mutate=clobber|ignore_tombstones|no_leading_newline|no_prune|append_swallow|strict_decode|persist_no_lock]
 # 验证方式：真跑临时库（进程内两实例 + 两个活进程并发屏障），逐条断言盘上内容
 # 不适用条件：无（不依赖网络、不依赖 rust 工具链、不依赖本地白箱库）
 
@@ -33,6 +38,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -200,6 +206,32 @@ def run(mutate=""):
                         cv.ColdVerifyQueue._append_task))
         cv.ColdVerifyQueue._append_task = _swallow
 
+    elif mutate == "persist_no_lock":
+        # 变异：_persist 的落盘闸失效（把 FileLock 换成空壳 ⇒ 无锁读改写，
+        # 且锁故障不再 fail-closed）。其余形态不变 ⇒ 定点红 ⑬（盘上逐字节
+        # 不变 / persist_failed 计数两条）。
+        class _NoLock(object):
+            def __init__(self, *a, **kw):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        _orig_persist = cv.ColdVerifyQueue._persist
+
+        def _persist_nolock(self):
+            real = cv.FileLock
+            cv.FileLock = _NoLock
+            try:
+                _orig_persist(self)
+            finally:
+                cv.FileLock = real
+
+        restore.append((cv.ColdVerifyQueue, "_persist", _orig_persist))
+        cv.ColdVerifyQueue._persist = _persist_nolock
     elif mutate == "strict_decode":
         # 变异：读盘退化成**严格解码**（没有 errors="replace"）——即本轮修复前的
         # 形态。半截行截断在多字节字符中间时，文本迭代会抛 UnicodeDecodeError
@@ -539,6 +571,100 @@ def _cases(cv):
           "仍会在其落盘时出现，已消费的 on_disk 不复活",
           ids(root16, cv) == ["mem_only"], "ids=%r" % (ids(root16, cv),))
 
+    # ---------------------------------------------------------------- ⑬ _persist 侧锁超时
+    # ⑧ 只覆盖 enqueue 走的追加路径；drain/clear 走的是 _persist（读改写合并），
+    # 那条路径上的锁故障同样不能变成「无锁读改写」或静默。
+    root17 = tempfile.mkdtemp(prefix="cvq17_")
+    q18 = cv.ColdVerifyQueue(root=root17)
+    q18.enqueue("persist_pre", action="reverify")
+    p17 = os.path.join(root17, cv.QUEUE_FILE)
+    with open(p17, "rb") as fh:
+        before17 = fh.read()
+    # 内存里再补一条「盘上没有」的（追加失败时的形态）：锁恢复后应被合并补落
+    q18._queue.append({"node_id": "persist_mem_only", "action": "reverify",
+                       "enqueued_at": time.time(), "kwargs": {}})
+    real_lock17 = getattr(cv, "FileLock", None)
+    if real_lock17 is None:
+        check("⑬ _persist 侧锁拿不到时 fail-closed（无锁不写、盘上逐字节不变）",
+              False, "改前实现无 FileLock：_persist 裸 open(path,'w') 全量覆写")
+        skip("⑬ _persist 侧锁故障可观测（persist_failed）与恢复后合并补落",
+             "改前无落盘闸，构造不出「锁超时」")
+    else:
+        class _Boom17(object):
+            """FileLock 替身：拿锁必超时（strict=True 语义）。"""
+
+            def __init__(self, *a, **kw):
+                pass
+
+            def __enter__(self):
+                raise TimeoutError("模拟 FileLock 超时（strict=True）")
+
+            def __exit__(self, *exc):
+                return False
+
+        pf_before = q18.status()["stats"].get("persist_failed", 0)
+        cv.FileLock = _Boom17
+        raised17 = None
+        try:
+            q18._persist()                      # drain/clear 走的路径
+        except Exception as exc:                # noqa: BLE001
+            raised17 = exc
+        finally:
+            cv.FileLock = real_lock17
+        check("⑬ _persist 侧锁拿不到不抛（drain/clear 不能因锁故障炸给调用方）",
+              raised17 is None, "raised=%r" % (raised17,))
+        with open(p17, "rb") as fh:
+            after17 = fh.read()
+        check("⑬ _persist 侧锁拿不到时不改写盘（逐字节不变：不做无锁读改写）",
+              after17 == before17,
+              "before=%dB after=%dB" % (len(before17), len(after17)))
+        check("⑬ _persist 侧落盘失败计入 persist_failed（与追加侧同一可观测口径）",
+              q18.status()["stats"].get("persist_failed", 0) >= pf_before + 1,
+              "before=%r after=%r" % (pf_before,
+                                      q18.status()["stats"].get("persist_failed")))
+        q18.drain(_cg(root17), limit=0)         # 锁恢复 → 合并补落
+        check("⑬ 锁恢复后合并补落：内存里那条晚一拍也落到盘上",
+              ids(root17, cv) == ["persist_mem_only", "persist_pre"],
+              "ids=%r" % (ids(root17, cv),))
+
+    # ---------------------------------------------------------------- ⑭ 两实例并发 drain
+    # ⑬ 是单边锁故障；这条是**两边同时**走 _persist（合并）——FileLock 序列化后
+    # 终态应是「盘上 ∪ 各自内存」的并集，谁也不许把对方刚合并进去的条目抹掉。
+    root18 = tempfile.mkdtemp(prefix="cvq18_")
+    qa = cv.ColdVerifyQueue(root=root18)
+    qa.enqueue("concA", action="reverify")
+    qb = cv.ColdVerifyQueue(root=root18)        # qb 内存里也持有 concA
+    qb.enqueue("concB", action="reverify")      # qa 内存里没有 concB（只在盘上）
+    qa._queue.append({"node_id": "concA2", "action": "reverify",
+                      "enqueued_at": time.time(), "kwargs": {}})
+    barrier = threading.Barrier(2)
+    errs = []
+
+    def _drain_one(q):
+        try:
+            barrier.wait(timeout=20)            # 屏障：两边同时进 _persist
+            q.drain(_cg(root18), limit=0)
+        except Exception as exc:                # noqa: BLE001
+            errs.append("%s: %s" % (type(exc).__name__, exc))
+
+    threads = [threading.Thread(target=_drain_one, args=(q,))
+               for q in (qa, qb)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    check("⑭ 两实例并发 drain 都不抛（并发合并不得因锁竞争炸给调用方）",
+          errs == [], "errs=%r" % (errs,))
+    check("⑭ 并发合并后条目一条不丢（终态 = 两实例内存 ∪ 盘上的并集）",
+          ids(root18, cv) == ["concA", "concA2", "concB"],
+          "ids=%r" % (ids(root18, cv),))
+    check("⑭ 并发合并后各自内存也不被对方抹掉（limit=0 不消费）",
+          len(qa._queue) == 2 and len(qb._queue) == 2,
+          "qa=%d qb=%d" % (len(qa._queue), len(qb._queue)))
+    check("⑭ 并发 drain 不留半截临时文件",
+          [n for n in os.listdir(root18) if ".tmp-" in n] == [],
+          "tmp=%r" % ([n for n in os.listdir(root18) if ".tmp-" in n],))
+
     # ---------------------------------------------------------------- ⑥ 阴性对照
     root8 = tempfile.mkdtemp(prefix="cvq8_")
     root9 = tempfile.mkdtemp(prefix="cvq9_")
@@ -569,10 +695,11 @@ def main(argv=None):
             mutate = a.split("=", 1)[1]
     if mutate and mutate not in ("clobber", "ignore_tombstones",
                                  "no_leading_newline", "no_prune",
-                                 "append_swallow", "strict_decode"):
+                                 "append_swallow", "strict_decode",
+                                 "persist_no_lock"):
         print("未知变异：%s（可用：clobber / ignore_tombstones / "
               "no_leading_newline / no_prune / append_swallow / "
-              "strict_decode）" % mutate)
+              "strict_decode / persist_no_lock）" % mutate)
         return 2
     print("== coldverify 队列跨实例合并守卫（mutate=%r）" % mutate)
     try:
