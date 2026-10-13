@@ -710,10 +710,8 @@ _SRC_MUTATIONS = (
 
     # ④ 时间维取数不回排物理序 ⇒ 基线候选序无法复现（条目次序变）
     ("④取数序错（时间维不回排物理序）", _stgidx.StgIndex, "subset",
-     "        if dims[0] == \"time\":\n"
-     "            ids = sorted(ids, key=self.pos.__getitem__)\n",
-     "        if False:\n"
-     "            ids = sorted(ids, key=self.pos.__getitem__)\n", 3),
+     "        return self._in_pos_order(srcs[0]), tuple(dims)\n",
+     "        return (list(srcs[0]) if dims[0] == \"time\" else self._in_pos_order(srcs[0])), tuple(dims)\n", 3),
 
     # ⑤ unassigned 桶被混进具体会话视图（会话语义放大）——契约 §待签收点 4 红线
     ("⑤unassigned 桶混进具体会话视图", _stgidx.StgIndex, "subset",
@@ -722,15 +720,14 @@ _SRC_MUTATIONS = (
      "                        + list(self.by_session.get(None, []) or []))\n", 9),
 
     # ⑥ 时间窗上界漏并列（hi 处同刻节点被排除）⇒ 边界命中漏召回（与基线不等价）
-    ("⑥时间窗上界漏并列（边界命中漏召回）", _stgidx.StgIndex, "range_ids",
-     "        while b < len(self.by_time) and self.by_time[b][0] == hi:\n"
-     "            b += 1\n",
-     "", 1),
+    ("⑥时间窗上界漏并列（边界命中漏召回）", _stgidx._TimeBlocks, "range_ids",
+     "                if t > hi:\n",
+     "                if t >= hi:\n", 1),
 
     # ⑦ by_time 排序键错（乱序）⇒ 区间二分取不到该取的面
     ("⑦by_time 排序键错（乱序）", _stgidx.StgIndex, "_classify",
-     "            bisect.insort(self.by_time, (t, nid))\n",
-     "            bisect.insort(self.by_time, (-t, nid))\n", 8),
+     "            self.by_time.add((t, nid))\n",
+     "            self.by_time.add((-t, nid))\n", 8),
 
     # ⑧ 索引直取不收窄（子集=全量）⇒ 收敛读数失真（等价性判据的形态面必红）
     ("⑧索引直取不收窄（子集=全量）", _stg, "_index_pairs",
@@ -787,8 +784,8 @@ _SRC_MUTATIONS = (
 
     # ⑰ 分桶键取错字段（by_layer 按 session 建 ⇒ 划分键与条目口径不符）
     ("⑰分桶键取错字段（划分键与条目口径不符）", _stgidx.StgIndex, "_classify",
-     "        self.by_layer.setdefault(layer, []).append(nid)\n",
-     "        self.by_layer.setdefault(sid, []).append(nid)\n", 12),
+     "        self._push(self.by_layer.setdefault(layer, []),\n",
+     "        self._push(self.by_layer.setdefault(sid, []),\n", 12),
 
     # ⑮ 截断选序回退为字典序 ⇒ 近期优先失效（第 1/2 层语义被改）
     ("⑮截断选序改回字典序（近期优先失效）", _stg, "_cap_hits",
