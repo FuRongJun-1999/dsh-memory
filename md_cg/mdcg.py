@@ -1678,6 +1678,23 @@ def _warn_quarantined(items) -> None:
         pass
 
 
+# 生效条件：schema 同源、nodes 为 dict、全部键为字符串且条目具有非空字符串 path 与字符串/None bucket 时返回 True；任一不符返回 False，由加载与 compact 共用回扫真源。
+def _usable_index_snapshot(value):
+    """A derived snapshot must contain usable entries before it can be replayed.
+
+    Node files remain authoritative. Re-scan the whole snapshot on a malformed
+    container/entry instead of accepting a partial pool and losing real nodes.
+    """
+    if not isinstance(value, dict) or value.get("schema") != SCHEMA:
+        return False
+    nodes = value.get("nodes")
+    return isinstance(nodes, dict) and all(
+        isinstance(nid, str) and isinstance(entry, dict)
+        and isinstance(entry.get("path"), str) and bool(entry["path"])
+        and (entry.get("bucket") is None or isinstance(entry.get("bucket"), str))
+        for nid, entry in nodes.items())
+
+
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
 # 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引并以 _index_signature() 记录 _index.json 签名到 self._index_sig（跨进程读面代际感知的基线，P1b-2）、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
@@ -1746,7 +1763,7 @@ class MdCG:
                 # 服务起不来、一次性脚本全崩，而盘上 .md 真源完好无损（丢的只是
                 # 派生索引这一条腿）。视同损坏 ⇒ idx 保持 None ⇒ 落到下面**既有**
                 # 的「回退全库扫描」路径（不新增第三套判据）。
-                if isinstance(d, dict) and d.get("schema") == SCHEMA:
+                if _usable_index_snapshot(d):
                     idx = d
             except (ValueError, OSError):
                 idx = None
@@ -2042,7 +2059,7 @@ class MdCG:
                 try:
                     with open(self.index_path, encoding="utf-8") as f:
                         d = json.load(f)
-                    if not isinstance(d, dict):
+                    if not _usable_index_snapshot(d):
                         # N225（2026-09-29）：顶层非对象（合法 JSON 但非对象）
                         # 与下面两条**同一口径**——视同损坏，走 scan_fallback
                         # 全库扫描（宁重扫勿清池）。不这样收口，裸调 d.get 的
