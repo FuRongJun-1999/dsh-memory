@@ -219,6 +219,7 @@ TOOLS = [
                           budget_tokens=_p("integer", "token 预算（默认 1200）"),
                           max_item_tokens=_p("integer", "单条上限（默认 250）；超限条目截断纳入。"
                                                         "传 0 关闭截断、回到「超大一律跳过」的旧行为"),
+                          excerpt_strategy=_p("string", "超预算条目摘录方式：prefix（默认，正文开头）或 query（按查询选择原文片段，附字符位置）"),
                           k=_p("integer", "候选上限"), context=_p("object", "当前情境条件空间"),
                           include_work=_p("boolean", "是否含工具输出/命令/编辑（默认否）"),
                           fuzzy=_p("boolean", "启用第 5 路模糊召回（分级隶属度，默认否）"),
@@ -739,6 +740,7 @@ KERNEL_TOOLS = [
                              "receipt（回执审计：命令与预期输出）；"
                              "非法值库层报错（fail-closed）"),
             budget_tokens=_p("integer", "read 的 token 预算"),
+            excerpt_strategy=_p("string", "read 超预算条目摘录方式：prefix（默认）或 query（查询相关原文片段）"),
             bm25=_p("boolean", "read：显式使用 BM25 倒排评分（默认否）"),
             evidence=_p("string", "verify 的证据；state_event：出处（五元之一，"
                                  "回指原文/轮次）"),
@@ -2373,6 +2375,7 @@ def _cg_dispatch(cg, a):
         # 把 0 当没传，静默换成 1200 —— 调用方以为「零预算」拿到的是满预算结果。
         if a.get("budget_tokens") is not None:
             return cg.recall(q, budget_tokens=int(a["budget_tokens"]),
+                             excerpt_strategy=a.get("excerpt_strategy") or "prefix",
                              k=_int_arg(a, "k", 20), context=a.get("context"),
                              goal_text=a.get("goal"),
                              include_recent=bool(a.get("include_recent")),
@@ -3748,6 +3751,7 @@ def _dispatch(cg, name, args):
                          max_item_tokens=int(a["max_item_tokens"])
                          if a.get("max_item_tokens") is not None
                          else _DEFAULT_MAX_ITEM,
+                         excerpt_strategy=a.get("excerpt_strategy") or "prefix",
                          k=_int_arg(a, "k", 20), context=a.get("context"),
                          include_work=bool(a.get("include_work")),
                          paths=paths, fusion=fusion,
