@@ -502,6 +502,69 @@ def check_path_root(path, env_var: str, what: str) -> None:
         f"设 {env_var}=<根>（os.pathsep 可多根）")
 
 
+# 生效条件：path 为 None/空串时直接返回（未指定落点，不触任何判定）；否则按 realpath 判三条——① 落在辅助存储根（datapath.aux_root()，master.key/_signer.key/令牌库缺省位置）内即拒；② 落在记忆库根 lib_root 内时只许**根顶层**且文件名不以 _ / . 开头（与 op=export 缺省落点 <root>/export_*.jsonl 同位；节点只在层目录里，_keys.json/_index.json 以下划线开头）；③ 目标（含悬空符号链接）已存在且 allow_overwrite 为假即拒。全部命中放行。
+def check_export_target(path, lib_root, what: str,
+                        allow_overwrite: bool = False) -> None:
+    """导出落点的**第二道**约束（issue #211）：与白名单无关。
+
+    为什么另立判据：check_path_root 只判「在根内」，而 MDCG_EXPORT_ROOT
+    未配置时 _whitelist_roots **回落记忆库根本身**（#85 选 A）——于是
+    _keys.json、_index.json、各层节点 .md 全在可写面里。缺省部署下，
+    持 sustain 令牌（can_admin=False）的调用方两次 MCP 调用即可把证据包
+    整份替换掉数据密钥信封库：此后属主读自己的 private 记忆一律 not_found、
+    新 private 写入报 LockedError，且库内无备份（永久数据丢失）。
+
+    本函数**只加拒绝分支、不新增放行**，且不改 evidence.write_pack
+    （CLI --out 是本机用户自选落点，行为不变）。
+
+    平台口径：比较用 normcase(realpath(...))——Windows 的盘符大小写与
+    长路径前缀形态在 realpath 下不保证归一，只按原串比较即可能被绕过。
+    """
+    if path is None or str(path).strip() == "":
+        return                                   # 未指定落点
+    raw = os.path.expanduser(str(path))
+
+    def _norm(p):
+        return os.path.normcase(os.path.realpath(p))
+
+    real = _norm(raw)
+
+    def _inside(root):
+        r = _norm(root)
+        return real == r or real.startswith(r.rstrip(os.sep) + os.sep)
+
+    from . import datapath
+    try:
+        _aux = datapath.aux_root()
+    except ValueError as exc:
+        # aux 根解析失败（典型：末段是 Windows 保留设备名，datapath 的 #57
+        # 守卫直判拒绝）⇒ 无法校验落点是否落在密钥/令牌库内 ⇒ fail-closed
+        # 拒绝，并把原因说清楚（不把 datapath 的原始 ValueError 直接漏给
+        # 导出调用方——那会让人以为导出本身坏了）。
+        raise PermissionError(
+            f"{what}：辅助存储根无法解析，导出落点不可校验（fail-closed 拒）："
+            f"{exc}")
+    if _inside(_aux):
+        raise PermissionError(
+            f"{what}：out 不得落在辅助存储根内（密钥与令牌库所在）：{path}")
+
+    if lib_root and _inside(lib_root):
+        lib = _norm(lib_root)
+        base = os.path.basename(real)
+        if os.path.dirname(real) != lib:
+            raise PermissionError(
+                f"{what}：out 落在记忆库根内时只许根顶层的普通文件"
+                f"（不得进层目录）：{path}")
+        if base.startswith(("_", ".")):
+            raise PermissionError(
+                f"{what}：out 落在记忆库根内时文件名不得以 _ 或 . 开头"
+                f"（密钥库/索引/元数据所在）：{path}")
+
+    if (os.path.lexists(raw) or os.path.exists(real)) and not allow_overwrite:
+        raise PermissionError(
+            f"{what} 目标已存在：{path}（不覆盖已有文件）")
+
+
 # 错误处置链路角色集（批次 28 分型）：restricted（错误处置标记）的可见性
 # 不走密级 rank——链路角色与平级同为 internal，rank 无法区分「处置者」与
 # 「扩散面」。designer=全局观测本职；orchestr=上级节点（拆解派发/裁决
