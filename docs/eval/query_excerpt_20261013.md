@@ -1,0 +1,81 @@
+# 查询相关原文片段：从关系链召回到证据装包
+
+2026-10-13
+
+在 PR #168 的关系链修复之上，增加显式启用的 `excerpt_strategy="query"`。按查询选择原文片段，降低“节点找到了，预算却只留下正文开头”的信息损失。原 PR 的 `0d3e71931f011ef122f0e23053cdf0436920de98` 保持冻结；新增功能在独立分支，不改变已交付悬赏的内容。
+
+## 算法与实验设置
+
+段落 IDF 降低通用词影响，边际词项覆盖降低重复片段收益，贪心选择最多四个窗口。长段落围绕匹配位置取窗，按原文顺序输出，返回完整正文字符位置；省略标记计入预算。生产选择过程不调用 LLM，不建立新持久索引或全局明文缓存。缺省仍为 prefix；新方式只替换原本触发预算截断的摘录。
+
+基础为 PR #168；算法固定版提交 `6a6219f`。首次检索在本地 commit 因身份配置失败后执行，文件已冻结并逐一记录 SHA256；随后沿用原提交作者身份本地提交，未改算法，再复跑一次检索。以 JSON 的实际源文件指纹为准，不把第一次记录的 HEAD 冒充包含未提交改动。
+
+- 公共数据：[hive-memory-bench](https://github.com/FuRongJun-1999/hive-memory-bench)，固定快照 `f4509d7282f82982af5de9c8fe71863fc95b38cb`；23 章、主轮 92 题。
+- 数据 © 2026 符荣峻，CC BY 4.0；评测代码 MIT。原语料与题目未改写，适配为原生 Markdown 章节点，并仅按章节顺序建立 sequential 边。
+- 两臂相同 BM25 + chain、k=20、总预算 1200（生产 est_tokens）、截断单条 250、同一题面。候选检索规则相同，片段实际长度改变后，预算能容纳的条目数也可能变化。
+- 卡片答案键只由检索结束后的评分函数读取；不进入入库、检索参数或 reader 提示。
+- Reader 复用 Harness 的既有凭据，在内存中直连 DeepSeek 官方 API，模型 `deepseek-flash`；**不声称通过 Harness 宿主运行**。同一官方作答契约、temperature=0、thinking disabled、输出上限 2400；每臂 92 次成功、0 失败、0 重试、0 长度截断，共 442130 tokens。另有一次 16 tokens 的连通性探测。
+- 首先各跑 8 题连通冒烟，完整运行重用相同内容指纹的 16 份缓存，没有重复支付这些答卷。完整阶段每臂并发 4；两个初始冒烟臂曾同时运行，总并发上限为 8。
+
+## 实跑结果
+
+| 指标 | PR #168 前缀摘录 | 新增 query 摘录 |
+|---|---:|---:|
+| 标注引文完整保留数（有效原文引文共 681 条） | 38 / 681 | 113 / 681 |
+| 引文保留率，微平均 | 5.58% | 16.59% |
+| 引文保留率，按题宏平均 | 5.17% | 17.11% |
+| 真实 reader 的官方**规则层**平均覆盖率 | 20.29% | 33.22% |
+| 仅覆盖轴达到该题阈值 | 2 / 92 | 6 / 92 |
+| 完整规则判定 pass / review / fail | 0 / 19 / 73 | 4 / 36 / 52 |
+| Reader 可定位引文 | 223 | 243 |
+| Reader 不可定位引文（也计入 invalid，非两条） | 0 | 1 |
+| 原生 recall p50，第一轮 / 顺序复跑 | 15.45 / 16.75 ms | 65.92 / 63.75 ms |
+| 平均装入节点数 | 4.57 | 5.60 |
+
+两轮检索的引文保留读数一致。真实回答的规则覆盖逐题对照为 **41 胜 / 41 平 / 10 负**。92 题共享少量章节，不等于 92 个独立样本，本报告不宣称统计显著。计时是本机运行的描述性读数，第一次两臂检索并行，第二次顺序运行，不能当作稳定服务 SLA。
+
+查询片段并不保证下游模型零错误：504 份实际摘录逐一按 `cg.get(id)["content"]` 和返回区间重建，全部一致；但新 reader 的一条引文未能在原文中定位，原始答卷及判分保留。75 道适用反编造轴的题两臂均未触发其关键词规则，不代表已经完成语义层编造审查。
+
+## 验证
+
+| 验证 | 最终结果 |
+|---|---|
+| 新增运行守卫 | 11 通过 / 0 失败，含 400 组 Unicode 预算/位置检查 |
+| 真实 stdio MCP | mdcg_recall 与 cg(read) 两个入口均返回相关原文及位置 |
+| 定点变异 | 6 / 6 被指定断言捕获，0 异常/0 SKIP；恢复后 11 项通过，源文件未变 |
+| 已有前缀摘录守卫 | 6 / 6 通过 |
+| 已有关系链守卫 | 14 / 14 通过，含 600 个小图独立穷举对拍 |
+| 相关回归 | 13 / 13 模块通过，0 SKIP；含读隔离、生命周期、RRF、读缓存与子进程编码 |
+| 独立离线复跑包 | 从冻结基础源码解压并应用补丁，新目录 11 项守卫通过；184 份已有答卷离线重算与原读数一致，0 API 调用 |
+| 静态检查 | 文档映射、相对链接、工作区索引、显式编码、本机路径与发布件七项政策门禁通过；单列，不算运行测试 |
+| 新增分支全量 CI | 尚未运行；PR #168 的绿灯不能替代本分支验证 |
+
+第一次批量回归将辅助目录误命名为 Windows 保留设备名 aux，被既有生产路径守卫拒绝；改为普通目录 sidecar 后 13 项复跑通过，未放宽生产断言。初始错误日志在本地验证目录保留。
+
+## 复跑
+
+```bash
+python -X utf8 tests/test_query_excerpt.py
+python -X utf8 tests/test_query_excerpt.py --mutate
+git clone https://github.com/FuRongJun-1999/hive-memory-bench.git ../hive-memory-bench
+git -C ../hive-memory-bench checkout f4509d7282f82982af5de9c8fe71863fc95b38cb
+git worktree add --detach ../dsh-memory-pr168 0d3e71931f011ef122f0e23053cdf0436920de98
+python -X utf8 scripts/bench_query_excerpt_hive.py retrieve --repo ../dsh-memory-pr168 --bench ../hive-memory-bench --strategy prefix --output results/prefix.json
+python -X utf8 scripts/bench_query_excerpt_hive.py retrieve --bench ../hive-memory-bench --strategy query --output results/query.json
+python -X utf8 scripts/bench_query_excerpt_hive.py reader --bench ../hive-memory-bench --input results/prefix.json --output results/prefix-answers
+python -X utf8 scripts/bench_query_excerpt_hive.py reader --bench ../hive-memory-bench --input results/query.json --output results/query-answers
+python -X utf8 scripts/bench_query_excerpt_hive.py score --bench ../hive-memory-bench --input results/prefix.json --answers results/prefix-answers --output results/prefix-score.json
+python -X utf8 scripts/bench_query_excerpt_hive.py score --bench ../hive-memory-bench --input results/query.json --answers results/query-answers --output results/query-score.json
+```
+
+检索部分仅标准库；评分与读取 Harness YAML 需 PyYAML。reader 需要已有凭据，会产生模型调用；默认仅在内存读取用户目录下的 `.dsh/.credentials.yaml` 中 DEEPSEEK_API_KEY，不打印、不记录请求头。已有答卷可直接离线重算规则分，不需要重复调用模型。重跑 retrieve 请使用新的输出文件名，防止复用旧数据目录。
+
+## 限制
+
+这是公开数据上的真实 reader 对照，加官方**规则层**诊断；未运行双判官锚自证、开放题语义终裁与正式成绩登记，不能称为正式榜单成绩。规则覆盖达标数与最终验收通过数是不同指标，review 也未计作 pass。
+
+本次 1200 估算 token、无额外检索 LLM 的配置，与 #85 的 8000 字材料、问题 LLM 扩展及不同 reader 提示不构成直接胜负比较。它证明本方案相对自己的冻结基线有收益，不能据此声称超过 QMD。
+
+尚未验证其他公开语料、百万条、并发、私域数据。IDF 和原文窗口会增加 CPU 时间，词面相关也可能漏掉反方向证据；保留显式启用，未改全项目默认设置。
+
+原始材料：[汇总](query_excerpt_20261013/summary.json)、[运行守卫与变异日志](query_excerpt_20261013/guards-and-mutations.log)、[评测计划](query_excerpt_20261013/evaluation-plan.md)、[完整原始证据 ZIP](query_excerpt_20261013/raw-evidence.zip)。ZIP 内含两轮检索、逐题规则分、两组 184 份答卷和 SHA256 清单，已逐项校验哈希与 CRC。

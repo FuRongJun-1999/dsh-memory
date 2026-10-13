@@ -1,0 +1,18 @@
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 3.344s
+
+OK
+...........
+----------------------------------------------------------------------
+Ran 11 tests in 3.631s
+
+OK
+ignore-query assertion-red test_tail_evidence_survives
+ignore-budget assertion-red test_budget_includes_gap_markers_and_random_unicode
+shift-offset assertion-red test_tail_evidence_survives
+omit-selected-text assertion-red test_tail_evidence_survives
+whole-document assertion-red test_budget_includes_gap_markers_and_random_unicode
+always-prefix assertion-red test_real_recall_changes_excerpt_only
+通过 6 / 失败 0
+restored guards True production source unchanged True
