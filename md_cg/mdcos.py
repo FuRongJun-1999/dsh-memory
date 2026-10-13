@@ -3196,7 +3196,19 @@ class MdCGOS(MdCG):
             # 同等当作「声明透传要素」回落顶层，导致 review_cli 的 --session 失效
             # （md_cg/test_review_cli_attribution.py ①④⑤⑥ 转红）——两者语义不同，
             # 不可同法处置。
-            extra.pop("session", None)
+            # 取值序（2026-10-07 三态裁定的完整落地，本仓两条既有判据的交集）：
+            #   ① 裁决者的**有效会话**（_attribution_session_of：env / 显式 --session /
+            #      库层显式构造）非 unattributed ⇒ 用它（md_cg/test_review_cli_attribution ①④⑤）；
+            # session **不做任何兜底**：extra["session"] 就是提案侧**显式声明**的
+            # 会话（_proposal_extras 的 a.get("session")；未声明则该键值为 None、
+            # 在 _proposal_extras 里被过滤掉、不落键）。三条既有判据的交集唯此一解：
+            #   · 声明了 ⇒ 经 **extra 透传落盘（test_session_attribution_consistency
+            #     B10：rec.session == fm.session == add 审计）；
+            #   · 未声明 ⇒ extra 无此键，落盘走 add 的归因单点（裁决者面：env /
+            #     显式 --session / unattributed）——这正是 review_cli ①④⑤⑥ 的判据；
+            #   · **不得**用 inbox 记录顶层 rec["session"] 兜底：那是**写入者**面
+            #     （principal 显式构造），兜底会让「裁决者两者皆缺省」时冒出写入者的
+            #     会话（review_cli ⑥ 必须落 unattributed）。
             if item.get("verify"):
                 extra["verify"] = item["verify"]
                 extra["verify_hash"] = expect
