@@ -582,7 +582,6 @@ COMPILER_UNITS = {
             "    # 执行：逐语句分派，冲突赋值 → 类型标记'混合'（编译期拦截候选）\n"
 "    # 不适用条件：kind 非 {COND, assign} 时\n"
             "    # 冲突赋值 → 类型标记'混合'（编译期拦截候选）\n"
-            "    import re as _re\n"
             "    types, spaces = {}, {}\n"
             "    for st in statements:\n"
             "        kind = st[0]\n"
@@ -601,9 +600,17 @@ COMPILER_UNITS = {
             "            else:\n"
             "                types.setdefault(st[1], t)\n"
             "        elif kind == 'COND':\n"
-            "            m = _re.search(r'条件空间为(.+?)(?:[，,。\\s]|$)', st[1])\n"
-            "            if m:\n"
-            "                spaces[m.group(1).strip()] = '已声明'\n"
+            "            _i = st[1].find('条件空间为')\n"
+            "            if _i >= 0:\n"
+            "                _rest = st[1][_i + 5:]\n"
+            "                _cut = len(_rest)\n"
+            "                for _d in ('，', ',', '。', ' ', '\\t', '\\r', '\\n'):\n"
+            "                    _j = _rest.find(_d)\n"
+            "                    if _j >= 0 and _j < _cut:\n"
+            "                        _cut = _j\n"
+            "                _key = _rest[:_cut].strip()\n"
+            "                if _key:\n"
+            "                    spaces[_key] = '已声明'\n"
             "    return {'types': types, 'spaces': spaces}\n"),
         "cases": [(([("assign", "甲", 3), ("assign", "乙", "x")],),
                    {"types": {"甲": "数值", "乙": "文本"}, "spaces": {}}),

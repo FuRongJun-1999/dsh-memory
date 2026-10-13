@@ -3181,6 +3181,14 @@ class MdCGOS(MdCG):
                 tags = list(edits.get("tags", tags))
                 layer = edits.get("layer", layer)
             extra = dict(item.get("extra") or {})
+            # issue #186（C 兜底）：以提案记录**顶层** rec["sensitivity"] /
+            # rec["session"] 兜底（extra 有则用 extra，没有则回落顶层）——即使将来
+            # 某个入队点漏把密级放进 extra，accept 也不会把已记录在提案顶层的密级 /
+            # 会话丢掉（顶层 sensitivity 由 propose 恒落，见 rec["sensitivity"]）。
+            if extra.get("sensitivity") is None and item.get("sensitivity"):
+                extra["sensitivity"] = item["sensitivity"]
+            if not extra.get("session") and item.get("session"):
+                extra["session"] = item["session"]
             if item.get("verify"):
                 extra["verify"] = item["verify"]
                 extra["verify_hash"] = expect

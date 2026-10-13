@@ -611,8 +611,21 @@ def domain_route(question, uid=None):
         return {"question": question, "ok": False, "reason": u,
                 "task": t, "code": None, "domain": domain}
     ok, checks = _verify_with_verifier(code, unit, u)
+    # issue #187：verify-fail 分支必须回传 reason（首个 ✗ 条目），
+    # 否则调用方 `r.get("reason")` 恒为 None（真因埋在 checks 里没人看）。
+    reason = ""
+    if not ok:
+        for _c in (checks or []):
+            _t = _c.get("evidence", "") if isinstance(_c, dict) else _c
+            _t = str(_t)
+            if _t.startswith("✗"):
+                reason = _t
+                break
+        if not reason:
+            reason = "本地校验未过"
     return {"question": question, "ok": ok, "task": t, "unit": u,
-            "code": code, "checks": checks, "solidified": False, "domain": domain}
+            "code": code, "checks": checks, "solidified": False,
+            "domain": domain, "reason": reason}
 
 
 def detect_language(question):

@@ -1540,7 +1540,22 @@ def _spatial_kw(a):
     return {}
 
 
-# 生效条件：始终构造 ex（verify=a.get("verify")、importance=float(a["importance"]) 当 a.get("importance") is not None 否则 None、verification_basis=a.get("verification_basis") or (verdict or {}).get("basis")、non_applicable_conditions、role、derived_from=_split_ids(a.get("derived_from")) or None、relation），返回其中值不属于 (None, [], '', {}) 的键值对。
+def _as_deps(v):
+    """与直连路径同口径的依赖归一（单点 = trust.as_deps，**不复制语义**）。
+
+    issue #186 补完：直连链尾的取值表达式是
+    `depends_on=trust.as_deps(a.get("depends_on")),`（md_cg/writepipe.py）；入队面
+    若把原始值原样透传，两路径的落盘形态（列表归一 / 去重 / 上限）就会分叉——
+    所以这里只做**同一次调用**，不重复实现归一规则。延迟 import 防环：模块级
+    `from . import trust` 会把包加载顺序咬回来，本模块既有惯例就是函数体内 import。
+    """
+
+    try:
+        from . import trust as _trust
+    except Exception:                     # noqa: BLE001 —— 不可用时原样透传
+        return v
+    return _trust.as_deps(v)
+# 生效条件：始终构造 ex（verify=a.get("verify")、importance=float(a["importance"]) 当 a.get("importance") is not None 否则 None、verification_basis=a.get("verification_basis") or (verdict or {}).get("basis")、non_applicable_conditions、role、derived_from=_split_ids(a.get("derived_from")) or None、relation、sensitivity、session、valid_from、valid_until、depends_on（经 _as_deps 归一，与直连链尾 trust.as_deps 同口径）、verification_state），返回其中值不属于 (None, [], '', {}) 的键值对。
 def _proposal_extras(a, verdict=None):
     """入队时保全 write 的落盘要素，避免裁决 accept 后退化成默认值。
 
@@ -1553,6 +1568,13 @@ def _proposal_extras(a, verdict=None):
 
     空值一律不传：父类 `add(importance: float = 0.5)` 对 None 无容错，显式传
     None 会落成 null 并绕过保护线，所以必须在入口过滤而非依赖下游兜底。
+
+    本白名单覆盖的键集合 = 「op=write 直接提交分支会交给 add() 的键」中**可由
+    入队通道保全**的部分。issue #186（P0）是同族失败模式第二次发作：`sensitivity`
+    / `session` / `valid_from` / `valid_until` 此前同样只活在调用方声明面，入队即丢
+    ——accept 落盘后密级退化 internal、声明 private 的正文以明文落盘（可被无令牌
+    访客读到）、session 变 unattributed、valid_until 丢失。四键与上面诸键同属
+    「写落盘要素」，故一并纳入本白名单（对照 commit 0f566cc2 修 importance 的同族）。
     """
     ex = {
         "verify": a.get("verify"),
@@ -1564,6 +1586,14 @@ def _proposal_extras(a, verdict=None):
         "role": a.get("role"),
         "derived_from": _split_ids(a.get("derived_from")) or None,
         "relation": a.get("relation"),
+        # issue #186（P0）：入队即保全写落盘要素的第二批——密级 / 会话 / 有效期
+        # （importance 漏传族的同族第二次发作）。值取 a.get(...)，空值由末尾过滤剔除。
+        "sensitivity": a.get("sensitivity"),
+        "session": a.get("session"),
+        "valid_from": a.get("valid_from"),
+        "valid_until": a.get("valid_until"),
+             "depends_on": _as_deps(a.get("depends_on")),
+             "verification_state": a.get("verification_state"),
     }
     return {k: v for k, v in ex.items() if v not in (None, [], "", {})}
 
