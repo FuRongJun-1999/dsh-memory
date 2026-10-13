@@ -129,6 +129,28 @@ def run(mutate: str) -> int:
        "orphans=" + str(real["orphans"]) + " bad=" + str(real.get("bad_registry")))
     ok("真仓反向判据面无假阳性（点名缺失 0）", real["missing_named"] == [],
        str(real["missing_named"]))
+
+    # ---- 「正反两向同源」这条不变量本身必须有守护（否则两侧将来再分叉也不会变红）----
+    # ① workflow run: 抽取：正向（gather_surfaces.ci_text）与反向（_workflow_run_text）
+    #    必须是同一套规则，否则「正向看得见、反向看不见」会开出假阴性通道。
+    _sf_real = mod.gather_surfaces(REPO)
+    _fwd = mod.named_paths_in(_sf_real["ci_text"])
+    _rev = mod.named_paths_in(mod._workflow_run_text(REPO))
+    ok("正反两向的 workflow run: 抽取同源（点名路径集合逐字相同）", _fwd == _rev,
+       "forward=%d reverse=%d 差集=%s" % (len(_fwd), len(_rev), sorted(_fwd ^ _rev)))
+    # ② package.json 脚本键：两向必须读同一个 SURFACE_SCRIPT_KEYS。
+    #    把 prepare 纳入执行面后，正向 gate_text 与反向 missing 必须**同时**变化。
+    _saved = mod.SURFACE_SCRIPT_KEYS
+    mod.SURFACE_SCRIPT_KEYS = ("gate", "prepare")
+    try:
+        _sf2 = mod.gather_surfaces(tmp)
+        _rev2 = mod.missing_named_paths(tmp)
+    finally:
+        mod.SURFACE_SCRIPT_KEYS = _saved
+    ok("两向共用 SURFACE_SCRIPT_KEYS（常量一改，正反两向同时变化）",
+       "lib/index.js" in _sf2["gate_text"] and _rev2 == ["lib/index.js"],
+       "forward=%s reverse=%s" % ("lib/index.js" in _sf2["gate_text"], _rev2))
+
     ok("真仓守卫数 >= 8", real["n_guards"] >= 8, str(real["n_guards"]))
     gc = [r for r in real["guards"] if r["guard"].endswith("check_guard_coverage.py")]
     ok("check_guard_coverage 自身有执行面（本测试即其配对测试）",
