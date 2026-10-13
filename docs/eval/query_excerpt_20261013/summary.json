@@ -1,0 +1,135 @@
+{
+  "prefix": {
+    "questions": 92,
+    "retained_quotes": 38,
+    "valid_annotated_quotes": 681,
+    "micro_quote_retention": 0.055800293685756244,
+    "macro_quote_retention": 0.051737119332859,
+    "rule_coverage_mean": 0.20292391304347826,
+    "rule_coverage_pass_count": 2,
+    "rule_verdicts": {
+      "fail": 73,
+      "review": 19
+    },
+    "valid_citations": 223,
+    "mislocated_citations": 0,
+    "fabricated_citations": 0,
+    "invalid_citations": 0,
+    "anti_pattern_checked_questions": 75,
+    "anti_pattern_flagged_questions": 0,
+    "reader_api_calls": 92,
+    "reader_failures": 0,
+    "reader_retries": 0,
+    "reader_length_cutoffs": 0,
+    "total_tokens": 219629,
+    "retrieval_p50_ms_runs": [
+      15.453800006071106,
+      16.754550015321
+    ],
+    "mean_packed_nodes": 4.565217391304348
+  },
+  "query": {
+    "questions": 92,
+    "retained_quotes": 113,
+    "valid_annotated_quotes": 681,
+    "micro_quote_retention": 0.16593245227606462,
+    "macro_quote_retention": 0.17109528403275878,
+    "rule_coverage_mean": 0.33221739130434785,
+    "rule_coverage_pass_count": 6,
+    "rule_verdicts": {
+      "fail": 52,
+      "review": 36,
+      "pass": 4
+    },
+    "valid_citations": 243,
+    "mislocated_citations": 0,
+    "fabricated_citations": 1,
+    "invalid_citations": 1,
+    "anti_pattern_checked_questions": 75,
+    "anti_pattern_flagged_questions": 0,
+    "reader_api_calls": 92,
+    "reader_failures": 0,
+    "reader_retries": 0,
+    "reader_length_cutoffs": 0,
+    "total_tokens": 222501,
+    "retrieval_p50_ms_runs": [
+      65.91865001246333,
+      63.750450004590675
+    ],
+    "mean_packed_nodes": 5.5978260869565215
+  },
+  "paired_rule_coverage": {
+    "wins": 41,
+    "ties": 41,
+    "losses": 10,
+    "significance_claim": false
+  },
+  "verified_real_source_excerpts": 504,
+  "regressions": [
+    {
+      "module": "md_cg.test_recall_metadata",
+      "exit_code": 0,
+      "explicit_skip": false
+    },
+    {
+      "module": "md_cg.test_recall_face_guards",
+      "exit_code": 0,
+      "explicit_skip": false
+    },
+    {
+      "module": "md_cg.test_chain_read_isolate",
+      "exit_code": 0,
+      "explicit_skip": false
+    },
+    {
+      "module": "md_cg.test_n123_derive_expiry_chain",
+      "exit_code": 0,
+      "explicit_skip": false
+    },
+    {
+      "module": "md_cg.test_p8_subgraph_chain",
+      "exit_code": 0,
+      "explicit_skip": false
+    },
+    {
+      "module": "md_cg.test_c8_search_rrf_gates",
+      "exit_code": 0,
+      "explicit_skip": false
+    },
+    {
+      "module": "md_cg.test_rrf_candidates",
+      "exit_code": 0,
+      "explicit_skip": false
+    },
+    {
+      "module": "md_cg.test_rrf_graph_seed_cache",
+      "exit_code": 0,
+      "explicit_skip": false
+    },
+    {
+      "module": "md_cg.test_issue130_rrf_rank_credibility",
+      "exit_code": 0,
+      "explicit_skip": false
+    },
+    {
+      "module": "md_cg.test_lifecycle",
+      "exit_code": 0,
+      "explicit_skip": false
+    },
+    {
+      "module": "md_cg.test_lifecycle_retire_leak",
+      "exit_code": 0,
+      "explicit_skip": false
+    },
+    {
+      "module": "md_cg.test_readcache_precise_inval",
+      "exit_code": 0,
+      "explicit_skip": false
+    },
+    {
+      "module": "md_cg.test_subproc_encoding",
+      "exit_code": 0,
+      "explicit_skip": false
+    }
+  ]
+}
