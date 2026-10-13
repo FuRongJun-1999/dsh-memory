@@ -1,0 +1,86 @@
+{
+  "merged_upstream": "d6e8c8376979bbc927d89deb72ec277258e5909c",
+  "measurement_head": "8fc0b0ca152081b8fa70f0a46f8a2124aedbf783",
+  "measurement_uncommitted_changes": [
+    "md_cg/op_table.py parameter registration",
+    "test_ecosystem_assembly.py portable path"
+  ],
+  "failed_ci": {
+    "head": "5721eeacfd23ad02db795c7a55d981beccbebe5d",
+    "url": "https://github.com/FuRongJun-1999/dsh-memory/actions/runs/38342979570",
+    "passed": 458,
+    "failed": 4,
+    "skipped": 7,
+    "failures": [
+      "md_cg.test_issue91_verifier_sandbox",
+      "md_cg.test_review_cli_attribution",
+      "md_cg.whitebox_kb.wisdom.test_ecosystem_assembly",
+      "scripts.test_check_op_table_parity"
+    ]
+  },
+  "repairs": [
+    "Merge upstream d6e8c837: sandbox guard and reviewer session fix",
+    "Register excerpt_strategy under cg read in the authoritative op table",
+    "Use os.path.join for the existing ecosystem test on Linux"
+  ],
+  "targeted_results": {
+    "op_table_parity": {
+      "passed": 29,
+      "failed": 0
+    },
+    "verifier_sandbox": {
+      "passed": 9,
+      "failed": 0
+    },
+    "review_cli_attribution": {
+      "passed": 10,
+      "failed": 0
+    },
+    "ecosystem_assembly": {
+      "linux_python": "3.13.12",
+      "exit_code": 0,
+      "known_inventory_warning": "680 regex units versus 686 registry units; not counted as a successful inventory check"
+    },
+    "query_guards": {
+      "passed": 12,
+      "failed": 0
+    },
+    "exact_assertion_mutations": {
+      "killed": 6,
+      "errors": 0,
+      "skips": 0
+    }
+  },
+  "ignored_ingest_metadata": [
+    "created_at",
+    "condition_space.time_window"
+  ],
+  "reader_answers": "184 frozen original answers remain valid after exact material and functional pack parity; no new API calls",
+  "arms": {
+    "prefix": {
+      "questions": 92,
+      "same_contexts": 92,
+      "same_functional_packs": 92,
+      "source_sha256": {
+        "md_cg/mdcos.py": "86a7319348537a961fdd9a3b5dd38852c1adaa4ef98689eacfa2d0c2ebdc62fb",
+        "md_cg/chain.py": "c31dd9b07432e2a7c655f8a94a856b5985629ec41ad25535517a08d4304ea90d",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/query_excerpt.py": "c365f025d06ec1a10aa54ac47bb3186dc0d6d32ed7e4d572ae40e5d0c26a6f17"
+      },
+      "retrieval_p50_ms": 14.737200006493367
+    },
+    "query": {
+      "questions": 92,
+      "same_contexts": 92,
+      "same_functional_packs": 92,
+      "source_sha256": {
+        "md_cg/mdcos.py": "86a7319348537a961fdd9a3b5dd38852c1adaa4ef98689eacfa2d0c2ebdc62fb",
+        "md_cg/chain.py": "c31dd9b07432e2a7c655f8a94a856b5985629ec41ad25535517a08d4304ea90d",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/query_excerpt.py": "c365f025d06ec1a10aa54ac47bb3186dc0d6d32ed7e4d572ae40e5d0c26a6f17"
+      },
+      "retrieval_p50_ms": 37.454200006322935
+    }
+  },
+  "final_ci": "See the PR checks for the final submitted head; this file preserves the earlier failure and local repair evidence."
+}

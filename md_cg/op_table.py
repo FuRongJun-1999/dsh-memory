@@ -55,6 +55,7 @@ _OP_TABLE = {
             "offset",
             "view",
             "budget_tokens",
+            "excerpt_strategy",
             "bm25",
             "session",
             "validity",
