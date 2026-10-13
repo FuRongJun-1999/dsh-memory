@@ -82,5 +82,61 @@
       "retrieval_p50_ms": 37.454200006322935
     }
   },
-  "final_ci": "See the PR checks for the final submitted head; this file preserves the earlier failure and local repair evidence."
+  "final_ci": "See the PR checks for the final submitted head; this file preserves the earlier failure and local repair evidence.",
+  "second_ci": {
+    "head": "5a28eb93508e4d06a07e7d2499935e80298ea4aa",
+    "url": "https://github.com/FuRongJun-1999/dsh-memory/actions/runs/38345458868",
+    "passed": 461,
+    "failed": 1,
+    "skipped": 7,
+    "failure": "md_cg.test_session_attribution_consistency",
+    "repair": "Merge upstream eb522e334ea33856c0aedf36a4231e236f1b4e5d; keep all existing assertions and all eight exact mutation legs"
+  },
+  "second_upstream_merge": {
+    "upstream": "eb522e334ea33856c0aedf36a4231e236f1b4e5d",
+    "families": {
+      "session": {
+        "passed": 10,
+        "total": 10,
+        "skipped": 0
+      },
+      "review": {
+        "passed": 7,
+        "total": 7,
+        "skipped": 0
+      }
+    },
+    "session_self_proof_mutations": 8,
+    "windows_query_guards": 12,
+    "windows_query_mutations": 6,
+    "linux_query_guards": 12,
+    "linux_query_mutations": 6,
+    "arms": {
+      "prefix": {
+        "same_contexts": 92,
+        "same_functional_packs": 92,
+        "measurement_head": "a6925038b77369e1cba3929535e2991cb0601cf2",
+        "source_sha256": {
+          "md_cg/mdcos.py": "d5ac70621d607c676a9a818d33887811cadce31ef666a2df1125b9aaebd726d0",
+          "md_cg/chain.py": "c31dd9b07432e2a7c655f8a94a856b5985629ec41ad25535517a08d4304ea90d",
+          "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+          "md_cg/query_excerpt.py": "c365f025d06ec1a10aa54ac47bb3186dc0d6d32ed7e4d572ae40e5d0c26a6f17"
+        },
+        "timing_scope": "Material parity run alongside targeted regressions; does not replace frozen sequential timing"
+      },
+      "query": {
+        "same_contexts": 92,
+        "same_functional_packs": 92,
+        "measurement_head": "a6925038b77369e1cba3929535e2991cb0601cf2",
+        "source_sha256": {
+          "md_cg/mdcos.py": "d5ac70621d607c676a9a818d33887811cadce31ef666a2df1125b9aaebd726d0",
+          "md_cg/chain.py": "c31dd9b07432e2a7c655f8a94a856b5985629ec41ad25535517a08d4304ea90d",
+          "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+          "md_cg/query_excerpt.py": "c365f025d06ec1a10aa54ac47bb3186dc0d6d32ed7e4d572ae40e5d0c26a6f17"
+        },
+        "timing_scope": "Material parity run alongside targeted regressions; does not replace frozen sequential timing"
+      }
+    },
+    "new_reader_api_calls": 0
+  }
 }
