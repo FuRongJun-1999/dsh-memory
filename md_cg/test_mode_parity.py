@@ -639,7 +639,7 @@ _NEG_INJECT = ('    dec = _am.decide(action)\n'
 #: 仍逐位对拍**——有意的扩展不误报成 DIFF，真行为差异也不因归一化被漏掉；
 #: 新键另以「在场」断言钉住（删新键让对拍变绿 ⇒ 该断言转红）。同步口径
 #: 2026-10-03，与「守卫随实现同批同步」惯例一致（issue52 批同款先例）。
-_KNOWN_EXT_KEYS = ("kept", "truncated")
+_KNOWN_EXT_KEYS = ("kept", "truncated", "scope_layers")
 
 #: 本批（#109 后续 · 协议形状补齐）的**已知有意变更**：`mdcos` 的 **forget 自治出口**
 #: （带 `deleted` 键的两条分支）补齐协议必需键 `committed`/`verdict`
@@ -701,7 +701,8 @@ def g_q():
                  if isinstance(cur["items"][n].get("out"), dict)
                  and isinstance(cur["items"][n]["out"].get("consistency"), dict)]
     ok(bool(cvd_names) and all(
-        {"kept", "truncated"} <= set(cur["items"][n]["out"]["consistency"])
+        {"kept", "truncated", "scope_layers"}
+        <= set(cur["items"][n]["out"]["consistency"])
         for n in cvd_names),
        "Q 已知扩展在场：写链 out 的 consistency 读数（%s）均含本批新增键 "
        "kept/truncated（cons200 契约面；归一化只豁免这两键，旧键仍逐位对拍）"

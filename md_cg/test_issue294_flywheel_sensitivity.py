@@ -206,8 +206,11 @@ def g1():
     w = _src("md_cg/writepipe.py")
     s = _src("md_cg/mcp_server.py")
     d = _src("md_cg/mdcos.py")
+    # issue #193：check 的签名在 sensitivity 之前新增了 write_scope（写入面
+    # 的额外比对层）。本断言判的是「check 收 sensitivity 形参」这一事实，
+    # 故锚点随之同步——删掉 sensitivity 仍转红（判别力不变）。
     _check("G1a consistency.check 收 sensitivity",
-           "log_write=True, sensitivity=None):" in c)
+           "write_scope=False, sensitivity=None):" in c)
     _check("G1b check 把 sensitivity 交给 _fire_flywheel",
            "allc,\n                                              sensitivity=sensitivity)"
            .replace("\n", "\r\n") in c or
@@ -217,8 +220,9 @@ def g1():
            or "conflicts=None," in c and "sensitivity=None):" in c)
     _check("G1d payload 带上 sensitivity",
            'payload["sensitivity"] = sensitivity' in c)
+    # issue #193：同上（mdcos.check_consistency 的透传签名）。
     _check("G1e check_consistency 收 sensitivity",
-           "log_write=True, sensitivity=None):" in d)
+           "write_scope=False, sensitivity=None):" in d)
     _check("G1f check_consistency 透传", "sensitivity=sensitivity)" in d)
     _check("G1g MdCG.add 冲突闸透传归一后的密级",
            'sensitivity=extra.get("sensitivity"))' in m)

@@ -649,11 +649,21 @@ def _recursive_reflect(cg, seeds, tw_pos, tw_neg, max_depth=MAX_DEPTH,
 # 主入口：三级决策
 # --------------------------------------------------------------------------
 
+#: issue #193：写入面的**额外比对层**——写入路径把「写到哪层」当成了「只和哪层
+#: 比」。contextual 是 gated 写入的缺省层：同层无节点即判 BLINDSPOT「既有节点均
+#: 未声明条件」、同层只有无关节点即判 ACCEPT「无冲突」，而同一内容写 knowledge
+#: 层判 DEFER——同条件同结论槽的矛盾取值因此被静默放过（实测 20 条写 contextual
+#: 全部漏判）。只扩**写入面**（`write_scope=True`）：只读 `mdcg_consistency
+#: action=check` 与 auditview 不传该参数，比对范围逐位不变。方向**单向**——
+#: knowledge 不回看 contextual，structural/anchor 不纳入（层权限与保护语义不同，
+#: 不混比）。
+EXTRA_SCOPE = {"contextual": ("knowledge",)}
+
 # 生效条件：以 cg.index.nodes 为既有节点、content（假值按 ""）经 _new_terms 得 pos/neg 并算 tw_pos/tw_neg（non_applicable_conditions 入参先按 mdcos._is_null_condition 剔除空值语义哨兵——⑧ 漏斗单点）；选面（cons200；收口轮①加面内例外）：快照级预筛剔「tw_pos 与 tw_neg 皆空（新节点未声明可展开条件）时的非纪律候选」，且**剔除永不触及修前扫描面**（过滤后索引序前 limit 内候选一律保留——面内例外；「修后检出 ⊇ 修前」由此成为与「条目 tags 与盘面 fm.tags 同源」无关的结构保证），候选超 limit 时精比面＝相关面（_sift_score 序）前 limit ∪ 保底面（过滤后索引序前 limit ∩ 候选），记 scanned（候选数）/kept（精比数）/truncated（scanned>kept）/hint；按循环中 hard（自否定或纪律命中）→ divergences（同条件槽且 concl < CONCLUSION_SAME）→ strength ≥ CLASH_HIGH → strength ≥ CLASH_LOW → comparable==0 且 (pos or neg) → 否则 ACCEPT 的顺序定 verdict；DEFER 且 int(depth)>0 且 emo["bias"] != "approaching" 时调 _recursive_reflect 补 recursion，auto_flywheel 且 verdict == REJECT 时加 unresolved_id，最后 log_write 为真时 log 并返回 rec；N276：精比环的索引代际探针循环外单探一次（环内 cg.get(nid, probe=False)；无探活面载体回落 cg.get(nid)，行为零变）；
 def check(cg, content, layer=None, condition_space=None,
           non_applicable_conditions=None, tags=None, exclude=None,
           limit=MAX_SCAN, depth=MAX_DEPTH, auto_flywheel=False,
-          query=None, log_write=True, sensitivity=None):
+          query=None, log_write=True, write_scope=False, sensitivity=None):
     """节点间自动冲突检测（L0 情绪 → L1 反思 → L2 递归反思）。
 
     返回完整判据（可审计）：
@@ -757,12 +767,23 @@ def check(cg, content, layer=None, condition_space=None,
     order = list(nodes.items())          # 索引序快照（H-4(a)：快照后再迭代）
     lim = max(0, int(limit))
     no_terms = not (tw_pos or tw_neg)    # 新节点未声明可展开条件
+    # issue #193：写入面的层外候选层集合。新内容未声明可展开条件时不扩面
+    # （自由正文 #68 自动记忆面无条件可依，扩面只会空转）。
+    extra_layers = (EXTRA_SCOPE.get(layer, ())
+                    if (write_scope and layer and not no_terms) else ())
+    extra_cand = []                      # (rank, score, False, nid, e)
     cand = []                            # (rank, score, in_before, nid, e)
     fidx = 0
     for nid, e in order:
         if exclude and nid == exclude:
             continue
         if layer and e.get("layer") != layer:
+            # issue #193：层外候选**另道收集**（不进相关面/保底面，故同层
+            # 检出逐位不变），排序取前 limit 后并入精比面。
+            if e.get("layer") in extra_layers:
+                _d = _is_discipline({"tags": e.get("tags")}, nid)
+                _r, _s = _sift_score(e, nid, tw_pos, tw_neg, _cov, _d)
+                extra_cand.append((_r, _s, False, nid, e))
             continue
         in_before = fidx < lim           # 是否在修前扫描面内（过滤后前 limit）
         fidx += 1
@@ -788,6 +809,10 @@ def check(cg, content, layer=None, condition_space=None,
     # 两面上限各 limit（≤ 2×MAX_SCAN；MAX_SCAN 数值未动）。
     scan_face = [(t[3], t[4]) for t in rel]
     scan_face += [(t[3], t[4]) for t in cand if t[2] and t[3] not in rel_ids]
+    # issue #193：写入面的层外候选独立排序取前 lim，**不碰保底面**——保底面
+    # 与相关面都不含层外节点，同层检出因此逐位不变（≤ 3×MAX_SCAN）。
+    scan_face += [(t[3], t[4]) for t in
+                  sorted(extra_cand, key=lambda t: (-t[0], -t[1], str(t[3])))[:lim]]
     scanned = len(cand)                  # 预筛后候选数（截断前）
     kept = len(scan_face)                # 实际精比数（相关面 ∪ 保底面）
     truncated = scanned > kept
@@ -1002,6 +1027,9 @@ def check(cg, content, layer=None, condition_space=None,
            "reason": reason, "conflict_strength": round(strength, 4),
            "emotional": emo, "conflicts": allc, "recursion": recursion,
            "missing": missing, "scanned": scanned, "kept": kept,
+           # issue #193：实际参与比对的层集合（层外候选并入时非单层；
+           # 未传 layer 时为 None）。
+           "scope_layers": ([layer] + list(extra_layers)) if layer else None,
            "truncated": truncated, "comparable": comparable,
            "pos": pos[:6], "neg": neg[:6],
            "actor": getattr(cg, "actor", "unknown")}

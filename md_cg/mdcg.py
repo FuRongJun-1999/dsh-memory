@@ -2574,6 +2574,9 @@ class MdCG:
                              condition_space=condition_space,
                              non_applicable_conditions=non_applicable_conditions,
                              tags=tags, exclude=node_id, auto_flywheel=True,
+                             # issue #193：写入面按 EXTRA_SCOPE 并入层外候选
+                             # （只读 check 面不变）。
+                             write_scope=True,
                              # issue #294：extra["sensitivity"] 是**归一后的
                              # 落盘值**（MdCGSecure.add 算出，含 #297 的既有
                              # 密级继承），正是飞轮该沿用的那个值。

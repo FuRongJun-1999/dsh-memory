@@ -538,6 +538,9 @@ def _gate_consistency(ctx):
         condition_space=a.get("condition_space"),
         non_applicable_conditions=a.get("non_applicable_conditions"),
         tags=a.get("tags"), exclude=ctx["nid"], auto_flywheel=True,
+        # issue #193：写入面把写入层当成了比对范围——contextual 写入因此
+        # 看不到 knowledge 的同条件结论槽矛盾。
+        write_scope=True,
         # issue #294：cg(op=write) 入口同样要透传声明密级（缺了这条，
         # 冲突闸 → 飞轮那条出口对动词面照旧泄明文）。
         sensitivity=a.get("sensitivity"))
