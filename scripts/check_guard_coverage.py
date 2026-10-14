@@ -51,6 +51,15 @@ COLLECT_GLOBS = (
     "hive/test_*.py",
 )
 
+# 「执行面」在 package.json 里的脚本键。**正反两向必须共用这一个常量**：
+# 正向（gather_surfaces 判「守卫有没有执行面」）与反向（missing_named_paths 判
+# 「点名件在不在盘上」）若各写一份键列表，两向判据面必然漂移。
+# 实况（#179 落地时）：反向判据扫的是**全部** scripts 键，于是 #161 有意
+# fail-closed 的 prepare 文案里的 `lib/index.js`（构建产物、被 .gitignore 忽略、
+# 干净克隆上必然不存在）被判成「被 gate/CI 点名」，本守卫在干净克隆上恒退 4，
+# 并把配对测试 scripts/test_check_guard_coverage.py 一并拖红。
+SURFACE_SCRIPT_KEYS = ("gate", "prepublishOnly", "test")
+
 # 孤儿登记表：文件名 -> {"reason": 为何暂无执行面, "owner": 复核人, "review": 复核日期}
 # 规则：**新增孤儿必须改这里**，从而在 code review 里可见；数量不得增加。
 EXCEPTIONS: dict[str, dict[str, str]] = {
@@ -119,7 +128,7 @@ def gather_surfaces(repo: str) -> dict:
     pj = json.loads(_read(pj_path))
     scripts = pj.get("scripts") or {}
     gate_text = " ".join(
-        str(scripts.get(k, "")) for k in ("gate", "prepublishOnly", "test")
+        str(scripts.get(k, "")) for k in SURFACE_SCRIPT_KEYS
     )
 
     wf_dir = os.path.join(repo, ".github", "workflows")
@@ -247,6 +256,14 @@ def missing_named_paths(repo_root: str) -> list:
     这是 #129 元守卫缺失的反向那半：既有判据只遍历「盘上已存在的守卫」，
     故「点名了但文件没了」当场不可见（#179）。本函数只判**存在性**，
     不判该守卫跑得绿不绿（check_line_anchors 的红基线是另一回事）。
+
+    判据面 = **执行面**（`SURFACE_SCRIPT_KEYS` 三个键 + workflow 的 run: 步骤），
+    与正向判据同源。为什么不能扫 package.json 的**全部** scripts 键：非执行面脚本
+    （prepare / build / lint…）的**文案**里出现的路径并不是「被 gate/CI 点名」，
+    却会被当判据对象。实例：#161 让 prepare 在干净克隆上**有意** fail-closed，
+    其错误文案里含 `lib/index.js`（构建产物、被 .gitignore 忽略、干净克隆上必然
+    不存在）⇒ 本守卫恒退 4，且把配对测试一并拖红（见 #179 的原始建议：反向判据
+    只解析「gate/prepublishOnly 与 workflow 点名的所有路径」）。
     """
     pj_path = os.path.join(repo_root, "package.json")
     if not os.path.isfile(pj_path):
@@ -254,8 +271,8 @@ def missing_named_paths(repo_root: str) -> list:
     pj = json.loads(_read(pj_path))
     scripts = pj.get("scripts") or {}
     named = set()
-    for k in sorted(scripts):
-        named |= named_paths_in(str(scripts[k]))
+    for k in SURFACE_SCRIPT_KEYS:
+        named |= named_paths_in(str(scripts.get(k, "")))
     named |= named_paths_in(_workflow_run_text(repo_root))
     missing = []
     for rel in sorted(named):
