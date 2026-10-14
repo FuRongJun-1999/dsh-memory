@@ -907,6 +907,19 @@ def check(cg, content, layer=None, condition_space=None,
                 else:
                     concl = (_cov(tw_content, _norm_ws(e_body))
                              if tw_content else 0.0)
+                    # issue #189（2026-10-14 DSH 端）：结论比对加反向量。
+                    # 只在**真分歧路径**上取小：`tw_content` 量的是「新结论的词在
+                    # 旧结论里覆盖多少」，单向——旧结论整段是新结论子串时（去掉开头
+                    # 否定词或末位数字）正向读数仍可能 >= CONCLUSION_SAME 而被吞。
+                    # 反向量把「旧结论有多少落进新结论」也计入，取 min 得双向下界。
+                    # 为什么放在 else 支内：H8 的「去空白后逐字相等」短路（concl = 1.0）
+                    # 与结论面皆空短路**已判重复**，跑反向量只会把它们打成假分歧
+                    # （实测 H8-A6 词内插空白 fwd 0.9388 / rev 0.8623；A3 逐字重复
+                    # fwd==rev 0.7833 —— 两串相同覆盖率仍 < 1.0，因为扩展词不在文中）。
+                    if concl >= CONCLUSION_SAME:
+                        concl = min(concl, _cov(
+                            expand_query_terms_weighted(_norm_ws(e_body)),
+                            _norm_ws(n_concl)))
                 if concl < CONCLUSION_SAME:
                     divergences.append({
                         "type": "same_condition_divergence", "with": nid,
