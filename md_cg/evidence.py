@@ -539,6 +539,37 @@ def _item_sensitivity(it: dict):
     return s, ""
 
 
+# 生效条件：pack 不是 dict、或其 items 中任一「不能明文归档」时返回 True；否则 False。
+# 判不了档位（缺字段/非字符串/未知档）与加密档同等处理（True 表示 fail-closed）。
+def _pack_sealed_levels(pack):
+    """issue #191：归档闸必须扫**整包**的加密档。
+
+    归档写的是 write_pack(pack) —— **整包明文 JSON**。原判据只扫已写盘切片
+    pack["items"][:MAX_ITEMS]：头部 500 条全 internal、第 501 条 private 的包，
+    切片内 sealed 为空 => 照常归档，尾部条目的私密正文随整包明文落进收件箱，
+    绕过 ENCRYPTED_LEVELS。本函数与 main 落地的 _item_sensitivity 同口径（同样
+    归一大小写、同样只认 _SENSITIVITY_ORDER 内的档），**只把扫描面从切片扩到整包**，
+    不改「判不了档位是否挡归档」这一既有行为（那会翻掉 #147 G2 的合法包不误伤判据）。
+
+    pack 结构不可信（非 dict / items 非列表）时返回 ["未知"] 以 fail-closed。
+    """
+    items = (pack or {}).get("items") if isinstance(pack, dict) else None
+    if not isinstance(items, list):
+        return ["未知（items 非列表）"]
+    sealed = set()
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        sens, _why = _item_sensitivity(it)
+        if sens in _ENCRYPTED_LEVELS:
+            sealed.add(sens)
+    return sorted(sealed)
+
+
+# 生效条件：整包存在任一加密档条目时返回 True；否则 False。
+def _pack_has_unarchivable(pack) -> bool:
+    return bool(_pack_sealed_levels(pack))
+
 def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
     rec = {"at": time.time(), "reason": reason,
            "from_node": (pack or {}).get("from_node"),
@@ -681,10 +712,7 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
     if archive:
         # issue #258：归档是**明文 JSON**，包内含加密档（private/secret）时
         # 再落一份到收件箱等于绕过 ENCRYPTED_LEVELS ⇒ 不归档并给出理由。
-        sealed = sorted({it.get("sensitivity") for it in items
-                         if isinstance(it, dict)
-                         and str(it.get("sensitivity") or "").strip().lower()
-                         in _ENCRYPTED_LEVELS})
+        sealed = _pack_sealed_levels(pack)
         if sealed:
             archive_skipped = ("包内含加密档 %s：归档为明文 JSON，"
                                "跳过以免绕过落盘加密" % "、".join(sealed))

@@ -358,57 +358,68 @@ def s10():
            "override=True" in src and "_import_importance" not in src)
 
 
+def s11_whole_pack_gate():
+    """S11 ★ 归档闸扫整包：切片外的加密档条目也要挡住收件箱（明文归档绕过）。
+
+    审计发现（@ybyz2 对 #260 的复核指出的真缺口）：归档写的是 write_pack(pack)
+    即**整包明文 JSON**，而闸只扫 pack["items"][:MAX_ITEMS]。构造「头部 MAX_ITEMS
+    条全 internal、尾部 1 条 private」的包，切片内 sealed 为空 => 原实现照常归档，
+    尾部私密正文随整包明文落进收件箱。
+    """
+    cg = _fresh("s11")
+    items = [_item("n%d" % i, "t%d" % i, sens="internal")
+             for i in range(ev.MAX_ITEMS)]
+    items.append(_item("ntail", "TAIL-SECRET-BODY", sens="private"))
+    pack = _pack("peer-tail", items, created_at=3000.0, pack_id="pack-tailtailtail")
+    out = ev.import_pack(cg, _write(pack), swarm=os.environ["MDCG_SWARM_DIR"])
+    _check("S11.1 ★ 切片外 private 条目挡住归档（整包判据）",
+           not out.get("archived") and bool(out.get("archive_skipped")),
+           "archived=%r skipped=%r" % (out.get("archived"),
+                                       (out.get("archive_skipped") or "")[:40]))
+    _check("S11.2 ★ 整包判据直接可调用且为 True",
+           ev._pack_has_unarchivable(pack) is True,
+           str(ev._pack_has_unarchivable(pack)))
+    clean = _pack("peer-clean", [_item("na", "b")], created_at=3001.0,
+                  pack_id="pack-cleanclean")
+    _check("S11.3 阴性对照：全 internal 的包不误挡",
+           ev._pack_has_unarchivable(clean) is False,
+           str(ev._pack_has_unarchivable(clean)))
+    naked = {"node_id": "nx", "subject": "bob", "text": "x"}
+    # 判不了档位的条目**不单独挡归档** —— 这是 main 已落地的既有行为（#147 G2 的合法包
+    # 不带 sensitivity 且必须照常归档），本件只把扫描面从切片扩到整包，不改这条。
+    _check("S11.4 判不了档位的条目不单独挡归档（与 main 既有行为一致）",
+           ev._pack_has_unarchivable(_pack("peer-naked", [naked])) is False,
+           "缺 sensitivity 字段")
+    _check("S11.5 非 dict 条目不单独挡归档",
+           ev._pack_has_unarchivable(_pack("peer-junk", ["not-a-dict"])) is False, ""
+           )
+    _check("S11.6 ★ 判不了档位的条目在**切片外**也不致漏扫加密档",
+           ev._pack_sealed_levels(_pack("peer-mix", [naked, _item("nz", "z", sens="secret")]))
+           == ["secret"],
+           str(ev._pack_sealed_levels(_pack("peer-mix",
+                                      [naked, _item("nz", "z", sens="secret")]))))
+
+
 _GROUPS = (("S1", s1), ("S2", s2), ("S3", s3), ("S4", s4), ("S5", s5),
-           ("S6", s6), ("S7", s7), ("S8", s8), ("S9", s9), ("S10", s10))
+           ("S6", s6), ("S7", s7), ("S8", s8), ("S9", s9), ("S10", s10),
+           ("S11", s11_whole_pack_gate))
 
 
 def main():
-    want = [a for a in sys.argv[1:] if not a.startswith("--")]
-    print("== 对端证据包导入范围守卫（issue #191）==")
-    for gid, fn in _GROUPS:
-        if want and gid not in want:
-            continue
+    if _MARK not in open(os.path.join(_REPO, _REL), encoding="utf-8").read():
+        print("SOURCE-ALREADY-MUTATED：%s 不含本件标记，先恢复到修复版再跑" % _REL)
+        return 2
+    want = [a for a in sys.argv[1:] if a.startswith("S")]
+    groups = [g for g in _GROUPS if not want or any(g[0].startswith(w) for w in want)]
+    for gid, fn in groups:
         print("[%s]" % gid)
         try:
             fn()
         except Exception as e:
-            _check("%s 组内异常：%s: %s" % (gid, type(e).__name__, e), False)
-    total = len(_OK) + len(_BAD)
+            _check("%s 组内异常：%s: %s" % (gid, type(e).__name__, e), False, "")
     print("对端证据包导入范围守卫（issue #191）：通过 %d / 失败 %d"
           % (len(_OK), len(_BAD)))
-    return 1 if _BAD else 0
-
-
-# ---------------------------------------------------------------------------
-# 定点变异自证（仓内体例：每条变异必须打红它该打红的判据）
-# ---------------------------------------------------------------------------
-_MUTATIONS = (
-    # (标签, 锚点, 替换, 期望命中的判据组)
-    ("V1 落层白名单去掉（anchor/self 原样透传）",
-     "        if layer not in IMPORT_LAYERS:\n            layer = \"knowledge\"\n            clamped += 1\n",
-     "",
-     "S2"),
-    ("V2 重要度不再夹取（原样透传）",
-     "        imp = _import_importance(it.get(\"importance\"))\n",
-     "        imp = it.get(\"importance\") or 0.5\n",
-     "S3"),
-    ("V3 created_at 版本闸去掉（旧包可覆写）",
-     "        last = seen.get(xid)\n        if isinstance(last, (int, float)) and not isinstance(last, bool) \\\n                and created <= float(last):\n            replayed += 1\n            continue\n",
-     "",
-     "S5"),
-    ("V4 版本闸比较方向反转（新包被拒、旧包放行）",
-     "                and created <= float(last):\n",
-     "                and created >= float(last):\n",
-     "S5"),
-    ("V5 本地节点覆写闸去掉（foreign 不拦）",
-     "        cur = nodes.get(xid)\n        if cur is not None and TAG_XNODE not in (cur.get(\"tags\") or []):\n",
-     "        cur = nodes.get(xid)\n        if False:\n",
-     "S8"),
-    ("V6 seen 落盘被跳过（跨进程/跨实例记忆失效）",
-     "    _seen_save(cg, seen)\n",
-     "    pass\n",
-     "S5"),
-)
+    return 0 if not _BAD else 1
 
 
 def _live_ok():
@@ -429,7 +440,8 @@ def _live_ok():
         print("    （盘上源 exec 失败：%s: %s）" % (type(e).__name__, e))
         return False
     same = True
-    for name in ("_import_importance", "_seen_load", "_seen_save", "_seen_path"):
+    for name in ("_import_importance", "_seen_load", "_seen_save", "_seen_path",
+                 "_pack_sealed_levels", "_pack_has_unarchivable"):
         a, b = getattr(mod, name, None), ns.get(name)
         if a is None or b is None:
             continue
@@ -443,6 +455,39 @@ def _run_guard(groups):
                           "md_cg.test_issue191_import_scope"] + list(groups),
                          cwd=_REPO, capture_output=True, timeout=300)
     return out.returncode, out.stdout.decode("utf-8", "replace")
+
+
+_MUTATIONS = (
+    ("V1 落层白名单被去掉（对端 layer 原样透传）",
+     "        if layer not in IMPORT_LAYERS:\n            layer = \"knowledge\"\n            clamped += 1\n",
+     "        pass\n",
+     "S2"),
+    ("V2 重要度不再夹取（对端可自行顶到保护线以上）",
+     "    return min(max(float(raw), 0.0), IMPORT_IMPORTANCE_MAX)\n",
+     "    return float(raw)\n",
+     "S3"),
+    ("V3 created_at 版本闸被去掉（旧包回滚已入库证据）",
+     "and created <= float(last):\n",
+     "and False:\n",
+     "S5"),
+    ("V4 版本闸方向反转（新包被判为旧包）",
+     "and created <= float(last):\n",
+     "and created >= float(last):\n",
+     "S5"),
+    ("V5 本地节点覆写闸被去掉（同名本地节点被覆盖）",
+     "        if cur is not None and TAG_XNODE not in (cur.get(\"tags\") or []):\n",
+     "        if False:\n",
+     "S8"),
+    ("V6 seen 落盘被跳过（跨进程/跨实例记忆失效）",
+     "    _seen_save(cg, seen)\n",
+     "    pass\n",
+     "S5"),
+    ("V7 归档闸退回「只扫已写盘切片」",
+     "        sealed = _pack_sealed_levels(pack)\n",
+     "        sealed = sorted(set(_item_sensitivity(x)[0] for x in items\n"
+     "                        if isinstance(x, dict)) & _ENCRYPTED_LEVELS)\n",
+     "S11"),
+)
 
 
 def mutate():
