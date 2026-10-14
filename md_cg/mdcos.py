@@ -47,6 +47,7 @@ from .fsutil import (FileLock, atomic_write, append_jsonl, read_jsonl,
                      read_jsonl_tail, count_jsonl, publish,
                      merge_rmw_lock, node_write_lock)
 from .rotate import Rotator
+from . import timeanchor as _timeanchor
 from .security import (Principal, TenantRegistry, AccessDenied,
                        SENSITIVITY_ORDER, DEFAULT_SENSITIVITY, _rank)
 from . import security as _security
@@ -1762,6 +1763,44 @@ class MdCGOS(MdCG):
         out.sort(key=lambda x: (-x[1], str(x[0].get("id") or "")))
         return out
 
+# 生效条件：MDCG_TIME_ANCHOR=="1" 且问句已解析出区间 parsed=((d0,d1), 规则 id) 时由 search_rrf 调用；对 entries 逐条取事件区间（timeanchor.node_interval：显式 temporal > 派生 temporal_anchor > 观测当日），与问句区间有交集者按 anchor_score 打分进本路；返回 (scored, meta, tier)，meta 只含区间/规则/命中数/来源分布（不含正文），tier 为 {节点 id: 0（显式/派生）| 1（观测当日推定）}。
+    def _path_time_anchor(self, parsed, entries):
+        """相对时间锚定路（查询侧，设计文档 docs/plans/相对时间锚定_设计_v0.1.md）。
+
+        * 只在开关开 ∧ 问句含规则表内的日期写法时被调用——其余情况本函数零调用，
+          `ranked` 不出现本路名，meta 与 path_fingerprint 逐位不变。
+        * 候选面 = `entries`（已过 `_candidates` 资格与 S1/S2 门控），不另扫全库；
+          派生字段不在索引快照里，故逐条 `_read` frontmatter（代价见设计文档「不适用条件」）。
+        * 分数 = `timeanchor.anchor_score`：来源越具体、区间越窄分越高——显式/派生区间
+          排在「观测当日推定」之前；同分由 RRF 既有兜底键 `(-importance, id)` 定序。
+        * 融合后由 search_rrf 把**有交集的节点稳定前置**（问句点名的日期是约束，
+          不是一路普通投票）：显式/派生区间（直接写了时间的证据）在前，仅凭观测当日
+          推定的在后（推定 ≠ 证据）；无交集时本路为空、结果顺序不变。
+        """
+        (q0, q1), rid = parsed
+        out, srcs, tier = [], {}, {}
+        for e in entries:
+            fm, c = self._read(e)
+            if c is None or not isinstance(fm, dict):
+                continue
+            iv = _timeanchor.node_interval(fm, trust.parse_time)
+            if iv is None or not _timeanchor.overlaps(iv[0], iv[1], q0, q1):
+                continue
+            c = self._open_content(fm.get("id"), fm, c)
+            if c is None:
+                continue
+            srcs[iv[2]] = srcs.get(iv[2], 0) + 1
+            tier[fm.get("id") or e["path"]] = 1 if iv[2] == _timeanchor.SRC_OBSERVED else 0
+            out.append(({"id": fm.get("id") or e["path"], "frontmatter": fm,
+                         "content": c, "path": e["path"]},
+                        _timeanchor.anchor_score(iv[2], (iv[1] - iv[0]).days)))
+        out.sort(key=lambda x: (-x[1], str(x[0].get("id") or "")))
+        _names = {_timeanchor.SRC_EXPLICIT: "explicit", _timeanchor.SRC_DERIVED: "derived",
+                  _timeanchor.SRC_OBSERVED: "observed"}
+        return out, {"interval": [q0.isoformat(), q1.isoformat()], "rule": rid,
+                     "overlap": len(out),
+                     "sources": {_names[k]: v for k, v in sorted(srcs.items())}}, tier
+
 # 生效条件：以 expand or expand_query_terms_weighted 作扩展函数并对 query 调用（结果为假值按 {} 处理），从其中 pop "__source__"（缺键为 "whitebox"）得 source，tw 为空返回 ([], source)，否则对 entries 中存在 _weighted_coverage>0 的条目按 0.6·cov+0.3·aff+0.1·ctx_aff（context 非 None 时以 route_key(ctx, ctx.get("tags")) 得 ctx_domain，context 非 dict 时用 {}）打分，返回 (out, source)。
     def _path_fuzzy(self, query, entries, context=None, expand=None):
         """模糊路径（分级隶属度）：返回 (scored, source)。
@@ -1999,6 +2038,9 @@ class MdCGOS(MdCG):
         q = unify_query(q)
         if not q:
             return [], {"tier": None, "reason": "empty_query", "paths": {}}
+        # 相对时间锚定（MDCG_TIME_ANCHOR=1，缺省关 ⇒ 不解析、不入键、零变更）：日期从
+        # **原问句**解析（unify 会改写英文词形）；解析结果进缓存键（相对写法随「今天」变）。
+        _ta_q = _timeanchor.parse_query_detail(query) if _timeanchor.enabled() else None
         # P1b-2：读面代际感知——必须在热路径 query 缓存查询**之前**：旧索引
         # 代里缓存的命中结果对新写入不可见（静默错答），重载成功时
         # _maybe_reload_index 已顺带失效 hotcache/readcache。
@@ -2030,6 +2072,9 @@ class MdCGOS(MdCG):
             # （无需全清；命中率只在代际变化时受影响，其余查询照常命中）。
             "index_gen": self._index_generation(),
         }
+        if _ta_q is not None:
+            _cache_extra["time_anchor"] = (_ta_q[0][0].isoformat(),
+                                           _ta_q[0][1].isoformat(), _ta_q[1])
         if "bm25" in paths:
             from . import bm25
             _cache_extra["bm25_access"] = bm25.access_key(self)
@@ -2128,6 +2173,10 @@ class MdCGOS(MdCG):
         if "goal" in paths:
             ranked["goal"], goal_used = self._path_goal(
                 q, entries, context, goal_text=goal_text)
+        _ta_meta, _ta_tier = {}, {}
+        if _ta_q is not None:
+            ranked["time_anchor"], _ta_info, _ta_tier = self._path_time_anchor(_ta_q, entries)
+            _ta_meta = {"time_anchor": _ta_info}
 
         # 排序 + RRF 融合
         rrf, prov = {}, {}
@@ -2220,6 +2269,10 @@ class MdCGOS(MdCG):
             for node, s in scored:
                 node_by_id.setdefault(node["id"], (node, s))
         fused_all = sorted(rrf.items(), key=lambda kv: (-kv[1], kv[0]))
+        if _ta_tier:
+            # 时间锚定：问句点名的日期是约束——区间有交集者**稳定前置**（组内保持融合序）：
+            # 档 0 = 显式/派生区间有交集，档 1 = 仅「观测当日」推定有交集，档 2 = 其余
+            fused_all.sort(key=lambda kv: _ta_tier.get(kv[0], 2))
 
         # 温路径早停判据（2026-09-19 热温冷分层）：
         # top-1 RRF 分 >= threshold 且 top-k 全部来自 >=2 路共识 → 提前返回
@@ -2268,6 +2321,8 @@ class MdCGOS(MdCG):
                 if k > 0:
                     kept = kept[:k]
             kept.sort(key=lambda x: (-x[1], x[0]))
+            if _ta_tier:
+                kept.sort(key=lambda x: _ta_tier.get(x[0], 2))   # 稳定排序：交集者前置
             fused = kept[:k]
         else:
             fused = fused_all[:k]
@@ -2382,7 +2437,8 @@ class MdCGOS(MdCG):
                          "provenance": prov,
                          "path_truncation": path_truncation,
                          "path_fingerprint": _path_fp, **_tf_meta,
-                         **_gates_meta, **_bnd_meta, **_index_meta}, k=k, layer=layer,
+                         **_gates_meta, **_bnd_meta, **_index_meta, **_ta_meta},
+                         k=k, layer=layer,
                          session=session, branch=branch, validity=validity,
                          view=view, extra=_cache_extra, clock_window=_query_window)
         return results, {"tier": "RRF", "scanned": stat["scanned"],
@@ -2396,7 +2452,7 @@ class MdCGOS(MdCG):
                          "provenance": prov,
                          "path_truncation": path_truncation,
                          "path_fingerprint": _path_fp, **_tf_meta,
-                         **_gates_meta, **_bnd_meta, **_index_meta}
+                         **_gates_meta, **_bnd_meta, **_index_meta, **_ta_meta}
 
     # ================= 7. budget-driven pack =================
 
