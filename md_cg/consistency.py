@@ -646,7 +646,13 @@ def check(cg, content, layer=None, condition_space=None,
     for nid, e in order:
         if exclude and nid == exclude:
             continue
-        if layer and e.get("layer") != layer:
+        # #193: 比对面扩展到
+        # ——同层＋knowledge
+        # 层（contextual
+        # 写入与
+        # knowledge
+        # 同条件矛盾检不出）
+        if layer and e.get("layer") != layer and e.get("layer") != "knowledge":
             continue
         in_before = fidx < lim           # 是否在修前扫描面内（过滤后前 limit）
         fidx += 1
