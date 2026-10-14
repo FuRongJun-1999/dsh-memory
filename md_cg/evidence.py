@@ -565,6 +565,40 @@ def _import_importance(raw):
     return v, 0
 
 
+# ---- issue #258 补丁（2026-10-14）：归档闸只扫已写盘切片 ----
+# 归档落的是整包明文 JSON（write_pack(pack) 写的是 pack 全量），而归档闸只扫
+# pack[items][:MAX_ITEMS] 这一切片。于是「头部 500 条全 internal、第 501 条
+# private」的包：切片内判不出加密档 => 闸放行 => 整包落进收件箱，且 archive_skipped
+# 为空串（连留痕都没有）。扫描面必须与落盘面一致。
+def _pack_sealed_levels(pack):
+    """扫整包条目里的加密档（归档面的实际范围）-> sorted 后的档位列表。
+
+    与 _item_sensitivity 同口径（同样归一大小写、同样只认 _SENSITIVITY_ORDER 内
+    的档），只把扫描面从切片扩到整包；pack 非 dict / items 非 list 时按 fail-closed
+    返回占位档（宁可漏归档，不可漏判加密档）。
+    """
+    if not isinstance(pack, dict):
+        return ["未知（pack 非字典）"]
+    items = pack.get("items")
+    if not isinstance(items, list):
+        return ["未知（items 非列表）"]
+    sealed = set()
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        sens, why = _item_sensitivity(it)
+        if why:
+            continue
+        if sens in _ENCRYPTED_LEVELS:
+            sealed.add(sens)
+    return sorted(sealed)
+
+
+def _pack_has_unarchivable(pack) -> bool:
+    """整包是否含不该以明文归档的条目（薄封装，供守卫直接调用）。"""
+    return bool(_pack_sealed_levels(pack))
+
+
 def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                 signers_file: str = None, archive: bool = True) -> dict:
     """导入对端证据包：验签 → 落本根（带 `source:<node>` 标签）。
@@ -680,10 +714,9 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
     if archive:
         # issue #258：归档是**明文 JSON**，包内含加密档（private/secret）时
         # 再落一份到收件箱等于绕过 ENCRYPTED_LEVELS ⇒ 不归档并给出理由。
-        sealed = sorted({it.get("sensitivity") for it in items
-                         if isinstance(it, dict)
-                         and str(it.get("sensitivity") or "").strip().lower()
-                         in _ENCRYPTED_LEVELS})
+        # issue #258：扫描面与落盘面一致——write_pack 写的是整包，
+        # 故此处也必须扫整包（此前只扫 items 切片，见 _pack_sealed_levels）。
+        sealed = _pack_sealed_levels(pack)
         if sealed:
             archive_skipped = ("包内含加密档 %s：归档为明文 JSON，"
                                "跳过以免绕过落盘加密" % "、".join(sealed))
