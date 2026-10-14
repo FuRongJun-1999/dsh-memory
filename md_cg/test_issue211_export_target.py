@@ -149,8 +149,12 @@ def _run():
                    os.path.join(lib, "export_1.jsonl"), lib, "t")[0] is False)
     # aux 根误配（末段是 Windows 保留设备名）时 datapath.aux_root() 抛
     # ValueError；落点无法校验 ⇒ 必须 fail-closed，且理由要能看懂。
-    _old_aux = os.environ.get("MDCG_AUX_ROOT")
-    os.environ["MDCG_AUX_ROOT"] = os.path.join(_SANDBOX, "aux")
+    # Inject the resolver failure itself. "aux" is a valid directory on POSIX;
+    # the same failure/PermissionError contract must be exercised on all hosts.
+    _old_aux_resolver = datapath.aux_root
+    def _broken_aux_resolver():
+        raise ValueError("injected auxiliary-root resolution failure")
+    datapath.aux_root = _broken_aux_resolver
     try:
         hit, kind, txt10 = _raised(security.check_export_target,
                                    os.path.join(lib, "export_2.jsonl"), lib, "t")
@@ -158,10 +162,7 @@ def _run():
                hit and kind == "PermissionError" and "辅助存储根无法解析" in txt10,
                repr((hit, kind, txt10[:90])))
     finally:
-        if _old_aux is None:
-            os.environ.pop("MDCG_AUX_ROOT", None)
-        else:
-            os.environ["MDCG_AUX_ROOT"] = _old_aux
+        datapath.aux_root = _old_aux_resolver
 
     print("\n[2] 集成 link/export：非管理员不得覆写密钥库与节点文件")
     cg = _mk("sustain", "sustain", can_admin=False)

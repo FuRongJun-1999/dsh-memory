@@ -43,6 +43,126 @@ _UNHASHABLE = object()
 MISSING = object()
 
 
+class _TimeBlocks:
+    """Sorted time pairs with bounded local moves and inclusive range reads.
+
+    Leaf size follows sqrt(layout population). Rebuild only after a fourfold
+    population change; split/merge keeps both leaf moves and directory moves
+    O(sqrt(N)) amortized, instead of shifting N pairs for each timed deletion.
+    Iteration/indexing retain the old sequence view for diagnostics/guards.
+    """
+    def __init__(self, bulk=False):
+        self._blocks, self._maxes = [], []
+        self._size, self._layout, self._leaf = 0, 1, 32
+        self._pending = [] if bulk else None
+
+    def __len__(self):
+        return self._size
+
+    def __iter__(self):
+        if self._pending is not None:
+            yield from sorted(self._pending)
+        else:
+            for block in self._blocks:
+                yield from block
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return list(self)[index]
+        if index < 0:
+            index += self._size
+        if index < 0 or index >= self._size:
+            raise IndexError(index)
+        if self._pending is not None:
+            return sorted(self._pending)[index]
+        for block in self._blocks:
+            if index < len(block):
+                return block[index]
+            index -= len(block)
+        raise IndexError(index)
+
+    def __delitem__(self, index):
+        self.remove(self[index])
+
+    def insert(self, index, item):
+        self.add(item)  # sorted collection: item, rather than ordinal, owns order
+
+    def _reset(self, items):
+        self._size = len(items)
+        self._layout = max(1, self._size)
+        self._leaf = max(32, math.isqrt(self._layout))
+        self._blocks = [items[i:i + self._leaf]
+                        for i in range(0, len(items), self._leaf)]
+        self._maxes = [block[-1] for block in self._blocks]
+
+    def finish(self):
+        if self._pending is not None:
+            items = sorted(self._pending)
+            self._pending = None
+            self._reset(items)
+
+    def _resize(self):
+        if self._size > 4 * self._layout or self._size * 4 < self._layout:
+            self._reset(list(self))
+
+    def add(self, item):
+        if self._pending is not None:
+            self._pending.append(item)
+            self._size += 1
+            return
+        if not self._blocks:
+            self._blocks, self._maxes = [[item]], [item]
+        else:
+            i = min(bisect.bisect_left(self._maxes, item), len(self._blocks) - 1)
+            block = self._blocks[i]
+            bisect.insort(block, item)
+            self._maxes[i] = block[-1]
+            if len(block) > 2 * self._leaf:
+                middle = len(block) // 2
+                left, right = block[:middle], block[middle:]
+                self._blocks[i:i + 1] = [left, right]
+                self._maxes[i:i + 1] = [left[-1], right[-1]]
+        self._size += 1
+        self._resize()
+
+    def remove(self, item):
+        i = bisect.bisect_left(self._maxes, item)
+        if i == len(self._blocks):
+            raise KeyError(item)
+        block = self._blocks[i]
+        j = bisect.bisect_left(block, item)
+        if j == len(block) or block[j] != item:
+            raise KeyError(item)
+        del block[j]
+        self._size -= 1
+        if not block:
+            del self._blocks[i]
+            del self._maxes[i]
+        else:
+            self._maxes[i] = block[-1]
+            if len(block) < self._leaf // 2 and len(self._blocks) > 1:
+                a = i - 1 if i else 0
+                if len(self._blocks[a]) + len(self._blocks[a + 1]) <= 2 * self._leaf:
+                    merged = self._blocks[a] + self._blocks[a + 1]
+                    self._blocks[a:a + 2] = [merged]
+                    self._maxes[a:a + 2] = [merged[-1]]
+        self._resize()
+
+    def range_ids(self, lo, hi):
+        if lo > hi:
+            return []
+        out = []
+        i = bisect.bisect_left(self._maxes, (lo,))
+        for j in range(i, len(self._blocks)):
+            block = self._blocks[j]
+            a = bisect.bisect_left(block, (lo,))
+            for t, nid in block[a:]:
+                if t > hi:
+                    return out
+                out.append(nid)
+        return out
+
+
 # 生效条件：value 可 hash 时原样返回，hash 抛 TypeError（list/dict 等）时返回模块级哨兵 _UNHASHABLE。
 def _hashable(value):
     try:
@@ -69,15 +189,22 @@ def time_of(entry):
     return float(s)
 
 
-# 生效条件：index_obj 为含 dict 型 "nodes" 的快照（或顶层就是 dict）时返回按其**物理序**一次性构建的 StgIndex（O(N)，逐条经 add 分类）；"nodes" 缺失或非 dict 时返回 None（调用方据此回退并上报 reason，不静默）。
+# 生效条件：index_obj 为含 dict 型 "nodes" 的快照（或顶层就是 dict）时返回按其**物理序**一次性构建的 StgIndex（分类 O(N)，时间对排序 O(N log N)）；"nodes" 缺失或非 dict 时返回 None（调用方据此回退并上报 reason，不静默）。
 def build(index_obj):
-    """快照 → 三张表（O(N)）；快照形态不可用返回 None。"""
+    """快照 → 三张表（时间对批量排序，其余维线性）；快照形态不可用返回 None。"""
     nodes = index_obj.get("nodes") if isinstance(index_obj, dict) else None
     if not isinstance(nodes, dict):
         return None
     ix = StgIndex(index_obj)
+    ix.by_time = _TimeBlocks(bulk=True)
     for nid in nodes:                      # 快照物理序（dict 插入序）→ pos 即此序
         ix.add(nid, nodes[nid])
+    try:
+        ix.by_time.finish()
+    except Exception:
+        # Bulk sorting postpones comparison errors until after add(). Keep
+        # the original fail-closed contract: callers fall back on broken.
+        ix.broken = True
     return ix
 
 
@@ -175,11 +302,9 @@ class StgIndex:
     """快照的结构倒排（三张表 + 物理位序 + 每节点分类记录）。
 
     维护纪律：增删只经 `add` / `remove`（写侧单点），取数只经 `subset`（读侧单点）。
-    #157：四个桶列表各配一张**下标表**（ix_session/ix_layer/ix_untimed/ix_nonfinite），
-    摘除走 swap-pop（O(1)）；桶内顺序因此不再保证是物理序，由 `subset` 出口统一
-    `_in_pos_order` 回排把契约保住。`by_time` 必须保持升序、不能换位，其 `del`
-    仍为 O(表长)——批量删 timed 节点仍是 O(N²)，属本件**未闭合余项**（见
-    `_unclassify` 内注释与守卫 G4 对照读数）。
+    #157 的 session/layer/untimed/nonfinite 桶继续使用下标表与 swap-pop。
+    时间对改为平方根有序块：局部挪移与块目录挪移均有界，消除逐次整表
+    删除的 O(N²) 批量代价；区间双端包含与物理序回排保持。
     `cls[nid] = (sid, layer, bucket, t)` 是**增量摘除**的依据（不必回扫桶猜分类）；
     任一步异常 ⇒ `broken = True`（读侧据此回退全量并重建，绝不带着半张表取数）。
     """
@@ -188,7 +313,7 @@ class StgIndex:
         self.index_obj = index_obj      # 强引用：读侧按 `is` 判代际（防 id 复用）
         self.by_session = {}
         self.by_layer = {}
-        self.by_time = []
+        self.by_time = _TimeBlocks()
         self.untimed = []
         self.nonfinite = []
         self.pos = {}
@@ -257,13 +382,13 @@ class StgIndex:
             self._push(self.untimed, self.ix_untimed, nid)
         elif math.isfinite(t):
             bucket = 0
-            bisect.insort(self.by_time, (t, nid))
+            self.by_time.add((t, nid))
         else:
             bucket = 1                  # NaN/±inf：见模块 docstring「为什么单列」
             self._push(self.nonfinite, self.ix_nonfinite, nid)
         self.cls[nid] = (sid, layer, bucket, t)
 
-    # 生效条件：nid 必在 cls 中；按分类把 nid 从其所在桶以 swap-pop（O(1)）摘除并同步下标表——桶空则连桶键一并删除；bucket==0 走 by_time 的二分定位 + del（升序表不可换位，仍为 O(表长) 的搬移，见下方余项注释）；任一步异常抛给上层置 broken；恒返回 None。
+    # 生效条件：nid 必在 cls 中；按分类把 nid 从其所在桶以 swap-pop（O(1)）摘除并同步下标表——桶空则连桶键一并删除；bucket==0 走有序块精确键删除（局部搬移，规模变化时摊还压实）；任一步异常抛给上层置 broken；恒返回 None。
     def _unclassify(self, nid):
         sid, layer, bucket, t = self.cls.pop(nid)
         self._swap_pop(self.by_session[sid], self.ix_session[sid], nid)
@@ -275,16 +400,9 @@ class StgIndex:
             self.by_layer.pop(layer, None)
             self.ix_layer.pop(layer, None)
         if bucket == 0:
-            # 二分定位而非全表连比：(t, nid) 在升序表内唯一，命中即该位；
-            # 不在该位 ⇒ 状态已不可信，抛错由上层置 broken（绝不摘错条目）。
-            # 余项（#157 未闭合部分）：by_time 必须保持升序，不能 swap-pop，
-            # 故 del 仍是 O(表长) 的搬移——批量删 timed 节点仍为 O(N²)，
-            # 计数见守卫 G4 的前后对照；彻底解法是「升序表 + 惰性删除（墓碑 +
-            # 阈值压实）」，属读侧多点改动，留待裁定（本件范围见任务卡）。
-            i = bisect.bisect_left(self.by_time, (t, nid))
-            if i >= len(self.by_time) or self.by_time[i] != (t, nid):
-                raise KeyError(nid)
-            del self.by_time[i]
+            # 精确键删除；不存在即抛错并使上层标记 broken。
+            # 只挪动当前块，空块/小块合并与规模压实由时间容器维护。
+            self.by_time.remove((t, nid))
         elif bucket == 1:
             self._swap_pop(self.nonfinite, self.ix_nonfinite, nid)
         else:
@@ -293,14 +411,7 @@ class StgIndex:
     # 生效条件：lo <= hi 时返回 t ∈ [lo, hi] 的 id 列表（**时间序**，调用方按 pos 回排）；lo > hi 返回空列表（区间为空——调用方在 inverted 查询上先回退，见 stg 侧）。
     def range_ids(self, lo, hi):
         """`by_time` 区间截取（二分）；返回时间序 id 列表。"""
-        if lo > hi:
-            return []
-        a = bisect.bisect_left(self.by_time, (lo,))
-        b = bisect.bisect_left(self.by_time, (hi,))
-        # 同 t 并列：把 t == hi 的尾巴一并纳入（不假设 id 字符上界，避免脆弱判据）
-        while b < len(self.by_time) and self.by_time[b][0] == hi:
-            b += 1
-        return [nid for _t, nid in self.by_time[a:b]]
+        return self.by_time.range_ids(lo, hi)
 
     # 生效条件：session/layer 为 MISSING 表示该维不参与（**注意 None 是合法维值**，不表示缺省），time_range 为 None 表示时间维不参与、否则为 (lo, hi)；无任何参与维时返回 (None, ())；否则返回 (候选 id 列表（**索引物理序**）, 实际服务的维名元组)——任一维在表中无键即得空列表（与基线等值比较同语义，非回退）。
     # 生效条件：ids 为可迭代 nid（每个 nid 均应在 self.pos 中，否则 KeyError 抛给上层置 broken）；返回按**物理位序**（pos）升序的**新列表**。为什么出口统一回排（#157）：桶表改为 swap-pop 后不再是物理序，而 subset 的对外契约仍是「索引物理序」——该契约在**读侧单点**（此处）承担 O(k log k)，写侧换来 O(1) 摘除。

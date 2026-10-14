@@ -29,7 +29,10 @@
                          「负条件一票否决」因子，过严误杀共享主题词的合格负条件，
                          已撤销——自否定职责由 no_conflict 承担）；
          · neg_separated 以「不适用条件」为查询 → 应触发条件级负路由，且负条件与正文
-                         低相关（负条件必须是「域外」的，不能把知识本身否定掉）；
+                         低相关（负条件必须是「域外」的，不能把知识本身否定掉）。
+                         ★ issue #278：该「域外」与闸门 1 的 grounding>=0.34 方向相反，
+                         二者夹出**窄缝**——负条件须「复用正文领域名词 + 换场景短语」，
+                         **完全域外会被闸门 1 丢光**（neg_dropped_all）。详见 replay_check；
          · no_conflict   生效条件与不适用条件不得互相覆盖。
        三者同时成立才算「条件稳定」。（对应「回放 / 断言 / 回归」）
        闸门 2 前另设**负条件两态拦截**（issue #64，见 consolidate 主流程）：
@@ -540,6 +543,19 @@ def replay_check(pos_terms, neg_terms, body: str) -> dict:
 
     # 2. 负例：以不适用条件为查询，应触发条件级负路由；且负条件与正文低相关
     #    （负条件必须是「域外」的，若与正文强相关，等于让知识否定自己）
+    #
+    #    ★ issue #278：上面这句「域外」**单独看会误导**——它只是本闸的条件。
+    #    负条件实际要同时过**两道闸**，方向相反，夹出一条窄缝：
+    #      闸门 1 grounding_score(neg, body) >= 0.34   ⇒ 必须**复用**正文领域名词
+    #      闸门 2 _weighted_coverage(neg, body) < 0.5  ⇒ 又不能复用**太多**
+    #    故「完全域外」（如「在 Linux 或 macOS 上部署时」）**过不了闸门 1**：
+    #    grounding=0.0 < 0.34 会被 grounding_filter 丢掉，neg 被删光 ⇒ 记
+    #    neg_dropped_all 直接 REJECT（见下方负条件两态拦截）。
+    #    可行形态是「**复用正文领域名词 + 换场景短语**」，例如
+    #    「pnpm 以外的包管理器」「不用 pnpm 的工程」（实测过两闸）。
+    #    实测窗口非空但窄：15 条候选里 5 条过两闸。
+    #    ⚠ 改 0.34（DEFAULT_GROUNDING）或下面这个 0.5 都会**平移窗口**，
+    #      二者是一对，须一起看；守卫 test_issue278_neg_window.py 钉住该窗口。
     if neg_terms:
         neg_separated = _neg_hit(tw_neg, neg_terms) \
             and _weighted_coverage(tw_neg, body) < 0.5

@@ -537,7 +537,10 @@ def _gate_consistency(ctx):
                                  else "knowledge"),
         condition_space=a.get("condition_space"),
         non_applicable_conditions=a.get("non_applicable_conditions"),
-        tags=a.get("tags"), exclude=ctx["nid"], auto_flywheel=True)
+        tags=a.get("tags"), exclude=ctx["nid"], auto_flywheel=True,
+        # issue #294：cg(op=write) 入口同样要透传声明密级（缺了这条，
+        # 冲突闸 → 飞轮那条出口对动词面照旧泄明文）。
+        sensitivity=a.get("sensitivity"))
     ctx["cvd"] = cvd
     v = cvd.get("verdict")
     # issue #26（2026-09-23）：BLINDSPOT ≠ REJECT——冲突闸的 BLINDSPOT 唯一出口

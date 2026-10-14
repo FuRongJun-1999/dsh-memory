@@ -1693,6 +1693,23 @@ def _warn_quarantined(items) -> None:
         pass
 
 
+# 生效条件：schema 同源、nodes 为 dict、全部键为字符串且条目具有非空字符串 path 与字符串/None bucket 时返回 True；任一不符返回 False，由加载与 compact 共用回扫真源。
+def _usable_index_snapshot(value):
+    """A derived snapshot must contain usable entries before it can be replayed.
+
+    Node files remain authoritative. Re-scan the whole snapshot on a malformed
+    container/entry instead of accepting a partial pool and losing real nodes.
+    """
+    if not isinstance(value, dict) or value.get("schema") != SCHEMA:
+        return False
+    nodes = value.get("nodes")
+    return isinstance(nodes, dict) and all(
+        isinstance(nid, str) and isinstance(entry, dict)
+        and isinstance(entry.get("path"), str) and bool(entry["path"])
+        and (entry.get("bucket") is None or isinstance(entry.get("bucket"), str))
+        for nid, entry in nodes.items())
+
+
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
 # 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引并以 _index_signature() 记录 _index.json 签名到 self._index_sig（跨进程读面代际感知的基线，P1b-2）、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
@@ -1761,7 +1778,7 @@ class MdCG:
                 # 服务起不来、一次性脚本全崩，而盘上 .md 真源完好无损（丢的只是
                 # 派生索引这一条腿）。视同损坏 ⇒ idx 保持 None ⇒ 落到下面**既有**
                 # 的「回退全库扫描」路径（不新增第三套判据）。
-                if isinstance(d, dict) and d.get("schema") == SCHEMA:
+                if _usable_index_snapshot(d):
                     idx = d
             except (ValueError, OSError):
                 idx = None
@@ -2057,7 +2074,7 @@ class MdCG:
                 try:
                     with open(self.index_path, encoding="utf-8") as f:
                         d = json.load(f)
-                    if not isinstance(d, dict):
+                    if not _usable_index_snapshot(d):
                         # N225（2026-09-29）：顶层非对象（合法 JSON 但非对象）
                         # 与下面两条**同一口径**——视同损坏，走 scan_fallback
                         # 全库扫描（宁重扫勿清池）。不这样收口，裸调 d.get 的
@@ -2556,7 +2573,11 @@ class MdCG:
             vd = _cons.check(self, content, layer=layer,
                              condition_space=condition_space,
                              non_applicable_conditions=non_applicable_conditions,
-                             tags=tags, exclude=node_id, auto_flywheel=True)
+                             tags=tags, exclude=node_id, auto_flywheel=True,
+                             # issue #294：extra["sensitivity"] 是**归一后的
+                             # 落盘值**（MdCGSecure.add 算出，含 #297 的既有
+                             # 密级继承），正是飞轮该沿用的那个值。
+                             sensitivity=extra.get("sensitivity"))
             v = vd["verdict"]
             if v == "REJECT" and on_conflict == "reject":
                 raise _cons.ConsistencyError(v, vd["reason"], vd["conflicts"])
@@ -5325,6 +5346,22 @@ class MdCG:
         try_data = json.loads(error_report) if isinstance(error_report, str) else error_report
         _q = try_data.get('query', '?')
         _st = try_data.get('actual_state', '?')
+        # issue #294（2026-10-14）：调用方声明的密级。修前这一跳把 payload 原样
+        # 用掉，工单便按 add_unresolved 的缺省档 internal 明文落盘。缺省 None＝
+        # 调用方未声明，走 #87 的 internal，**逐键不变**（零变化面）。
+        _sens = try_data.get("sensitivity")
+        _topic = f"{_q}|{_st}"
+        _kw = {}
+        if _sens:
+            _kw["sensitivity"] = _sens
+            if _sens not in ("public", "internal"):
+                # 工单 id 由**正文 slug** 而来，明文写进文件名、_index.json 与
+                # _audit.jsonl——密级高于 internal 时改用不可逆身份：正文不再
+                # 进文件名与索引。身份里带密级，private 与 restricted 的同一段
+                # 话不会落到同一张工单上互相覆写正文；同一密级同一主题仍得同一
+                # id（H11⑦「同题同单」不变）。
+                _topic = "h" + hashlib.sha1(
+                    ("%s|%s" % (_sens, _topic)).encode("utf-8")).hexdigest()[:16]
         question = (f"为何 {_q} 出现 {_st}"
                     f" 而期望 {try_data.get('expected_state','?')}？")
         clues = try_data.get("missing", "")
@@ -5375,7 +5412,9 @@ class MdCG:
                                   context=" | ".join(parts),
                                   # ⑦ 身份文本：只取「主题｜实际态」——问题模板措辞、
                                   # reason、missing、现场数值一变就不再是新工单。
-                                  topic=f"{_q}|{_st}")
+                                  # （密级高于 internal 时 _topic 已换成不可逆身份，
+                                  # 见上方 issue #294 段。）
+                                  topic=_topic, **_kw)
         return {"unresolved_id": nid, "question": question}
 
     # ---------- 访问计数：append-only，检索路径不写节点文件 ----------

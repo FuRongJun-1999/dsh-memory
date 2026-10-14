@@ -171,7 +171,7 @@ def history(cg, limit=100):
 # 生效条件：subject_id 定 kind 默认值，kind 参数为真值时覆盖之；node_id 为假值时用 _nid("obs", subject_id, text[:32])（含 time.time()）生成；标签为 list(tags or []) 追加 subject:<subject_id>、TAG_OBS、kind:<k>，evidence 为真值时再追加一条 evidence:<evidence>；condition_space 以 dict(condition_space or {}) 为底并 setdefault subject/kind；落层用 layer 真值否则 "knowledge"，role 为真值时随 extra 传 role；返回 {"ok": True, "node_id", "subject_id", "kind"}。
 def observe(cg, subject_id, text, *, kind=None, role=None, layer=None, tags=None,
             condition_space=None, importance=0.5, verification_basis=None,
-            evidence=None, node_id=None, override=False):
+            evidence=None, node_id=None, sensitivity=None, override=False):
     """memory 接口：记录一条关于主体的**行为证据**（用于位置推断）。
 
     写入知识层，自动带 `subject:<id>` 标签，使 `infer_position` 定位到该主体。
@@ -187,6 +187,10 @@ def observe(cg, subject_id, text, *, kind=None, role=None, layer=None, tags=None
     cs.setdefault("subject", subject_id)
     cs.setdefault("kind", k)
     extra = {"role": role} if role else {}
+    # issue #258：sensitivity 透传（缺省 None ⇒ 行为逐位不变，既有调用方零变更）。
+    # 此前该形参**不存在** ⇒ 跨节点证据包导入时密级被静默回落到缺省 internal。
+    if sensitivity is not None:
+        extra["sensitivity"] = sensitivity
     cg.add(nid, text, layer=layer or "knowledge", tags=tg, condition_space=cs,
            importance=importance, verification_basis=verification_basis,
            override=override, **extra)

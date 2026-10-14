@@ -2026,6 +2026,14 @@ class MdCGOS(MdCG):
             scored = sorted(scored, key=lambda x: (-x[1],
                             -float(x[0]["frontmatter"].get("importance") or 0),
                             str(x[0].get("id") or "")))
+            # RRF assigns one rank/vote per node per path. Graph convergence
+            # and repeated edges may produce several copies of a node; keep
+            # its strongest occurrence before rank assignment and path caps.
+            unique = {}
+            for row in scored:
+                unique.setdefault(row[0]["id"], row)
+            scored = list(unique.values())
+            ranked[name] = scored
             per_path[name] = len(scored)
             if name in ro:
                 continue
@@ -2117,7 +2125,15 @@ class MdCGOS(MdCG):
         elif judge and judge_ranking:
             # 证据防火墙：语义/词法融合产生候选（不要漏），资格授予优先级（不要错）
             kept = []
-            for nid, fs in fused_all[:max(k * 2, 10)]:
+            for nid, fs in fused_all:
+                # Qualification never raises a score above max(fs, fs * .5).
+                # Inspect candidates until none can beat the current kth
+                # qualified result (including the deterministic id tie).
+                # A fixed oversampling window can run out of safe candidates.
+                upper = max(fs, fs * 0.5)
+                if (k > 0 and len(kept) == k
+                        and (-upper, nid) >= (-kept[-1][1], kept[-1][0])):
+                    break
                 node, s = node_by_id[nid]
                 qual = self.judge_qualification(node, q, context)
                 quals[nid] = qual
@@ -2126,6 +2142,9 @@ class MdCGOS(MdCG):
                     filtered += 1
                     continue
                 kept.append((nid, fs if st == STATE_ACCEPT else fs * 0.5))
+                kept.sort(key=lambda x: (-x[1], x[0]))
+                if k > 0:
+                    kept = kept[:k]
             kept.sort(key=lambda x: (-x[1], x[0]))
             fused = kept[:k]
         else:
@@ -2597,7 +2616,7 @@ class MdCGOS(MdCG):
                     "dup_of": None, "dup_status": None}
         return pid
 
-# 生效条件：stat decisions_log 失败（OSError）时把 _pid_st 置空 dict、两扫描键置 -1 并返回空 dict；size 与 mtime_ns 均与缓存键一致时直接返回 _pid_st（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移（外部非合作重写/回退）时经 read_jsonl_tail(path, 0) 全量重建 _pid_st，否则经 read_jsonl_tail 从已扫描偏移起增量并入，逐条把 r.get("pid") 为真值的记录写入 _pid_st（后并入覆盖先并入）；水位存 read_jsonl_tail 返回的真实 EOF 偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _pid_st。
+# 生效条件：stat decisions_log 失败（OSError）时把 _pid_st 置空 dict、两扫描键置 -1 并返回空 dict；size 与 mtime_ns 均与缓存键一致时直接返回 _pid_st（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移（外部非合作重写/回退）时经 read_jsonl_tail(path, 0) 全量重建 _pid_st，否则经 read_jsonl_tail 从已扫描偏移起增量并入，逐条把 r.get("pid") 为真值的记录写入 _pid_st（后并入覆盖先并入）；水位存 read_jsonl_tail 返回的已提交完整行偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _pid_st。
     def _pid_status(self):
         """pid → 最新一条裁决记录（多轮再审批时取最后一轮）。
 
@@ -2606,7 +2625,7 @@ class MdCGOS(MdCG):
         契约下改为 stat 尾部对账：size/mtime 未变零解析；size 增长只解析
         新增字节；size 回退/首装全量重建兜底。mtime 单变 size 不变（touch
         类）走增量窗口=0 行，结果不变。跨进程 append 由 stat 自动并入。
-        水位口径（竞态修复）：存 read_jsonl_tail 返回的**真实 EOF 偏移**，
+        水位口径（竞态修复）：存 read_jsonl_tail 返回的**已提交完整行偏移**，
         不存读前 stat 的 size——stat→read 窗口内的并发 append 本轮已并入，
         水位偏小会让下一轮重读同一段（本缓存是 dict 后写覆盖不受损，但与
         列表型缓存共用同一口径）。
@@ -2633,14 +2652,14 @@ class MdCGOS(MdCG):
         self._pid_st_mtime = mtime
         return self._pid_st
 
-# 生效条件：stat inbox_log 失败（OSError）时把 _inbox_idx 置空 dict、两扫描键置 -1 并返回空 dict；size 与 mtime_ns 均与缓存键一致时直接返回 _inbox_idx（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时经 read_jsonl_tail(path, 0) 全量重建，否则经 read_jsonl_tail 增量并入，逐条以 r.get("payload_hash") 或（缺键时）_sig(r.get("content") or "") 为 ph 把 (r.get("pid"), r.get("id")) 追加进 _inbox_idx[ph]（文件序）；水位存 read_jsonl_tail 返回的真实 EOF 偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _inbox_idx。
+# 生效条件：stat inbox_log 失败（OSError）时把 _inbox_idx 置空 dict、两扫描键置 -1 并返回空 dict；size 与 mtime_ns 均与缓存键一致时直接返回 _inbox_idx（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时经 read_jsonl_tail(path, 0) 全量重建，否则经 read_jsonl_tail 增量并入，逐条以 r.get("payload_hash") 或（缺键时）_sig(r.get("content") or "") 为 ph 把 (r.get("pid"), r.get("id")) 追加进 _inbox_idx[ph]（文件序）；水位存 read_jsonl_tail 返回的已提交完整行偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _inbox_idx。
     def _inbox_phash_index(self):
         """inbox 的 phash → [(pid, node_id)]（文件序）增量索引（propose 对账用）。
 
         与 _pid_status 同款 stat 尾部对账（issue #32）。存量旧格式行
         （无 payload_hash）在**并入时**现算一次 _sig（此后常驻，不再
         每条 propose 重算——旧路径每条重算 M 次 sha1）。
-        水位口径（竞态修复，同 _pid_status）：存真实 EOF 偏移，不存读前
+        水位口径（竞态修复，同 _pid_status）：存已提交完整行偏移，不存读前
         stat 的 size——窗口内并发 append 不得在下轮重复并入。
         """
         try:
@@ -2665,14 +2684,14 @@ class MdCGOS(MdCG):
         self._inbox_idx_mtime = mtime
         return self._inbox_idx
 
-# 生效条件：stat inbox_log 失败（OSError）时把 _inbox_recs 置空列表、两扫描键置 -1 并返回它；size 与 mtime_ns 均与缓存键一致时直接返回 _inbox_recs（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时以 read_jsonl_tail(path, 0) 全量重建，否则以 read_jsonl_tail(offset) 结果 extend 增量并入；水位存 read_jsonl_tail 返回的真实 EOF 偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _inbox_recs（内部缓存，调用方只读不得变更）。
+# 生效条件：stat inbox_log 失败（OSError）时把 _inbox_recs 置空列表、两扫描键置 -1 并返回它；size 与 mtime_ns 均与缓存键一致时直接返回 _inbox_recs（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时以 read_jsonl_tail(path, 0) 全量重建，否则以 read_jsonl_tail(offset) 结果 extend 增量并入；水位存 read_jsonl_tail 返回的已提交完整行偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _inbox_recs（内部缓存，调用方只读不得变更）。
     def _inbox_records(self):
         """inbox 全记录（文件序）增量缓存——review 治理面单次调用共用一次解析。
 
         与 _pid_status 同款 stat 尾部对账（issue #35）：原 review_decide 线性
         扫 inbox 找 pid、_cascade_dedup 再全量读一遍（2 遍/调用）；改走本
         缓存后稳态零解析，调用方在内存列表上线性扫（万条 ~1ms 级，无 IO）。
-        水位口径（竞态修复）：存 read_jsonl_tail 返回的**真实 EOF 偏移**，
+        水位口径（竞态修复）：存 read_jsonl_tail 返回的**已提交完整行偏移**，
         不存读前 stat 的 size——stat→read 窗口内的并发 append 本轮已并入，
         水位偏小会让下一轮 extend 重读同一条（review_list 重复 pid、
         _cascade_dedup 连写两条 reject），且稳态 size 只增、永不自愈。
@@ -2696,7 +2715,7 @@ class MdCGOS(MdCG):
         self._inbox_recs_mtime = mtime
         return self._inbox_recs
 
-# 生效条件：stat decisions_log 失败（OSError）时把 _dec_recs 置空列表、两扫描键置 -1 并返回它；size 与 mtime_ns 均与缓存键一致时直接返回 _dec_recs（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时以 read_jsonl_tail(path, 0) 全量重建，否则以 read_jsonl_tail(offset) 结果 extend 增量并入；水位存 read_jsonl_tail 返回的真实 EOF 偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _dec_recs（内部缓存，调用方只读不得变更）。
+# 生效条件：stat decisions_log 失败（OSError）时把 _dec_recs 置空列表、两扫描键置 -1 并返回它；size 与 mtime_ns 均与缓存键一致时直接返回 _dec_recs（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时以 read_jsonl_tail(path, 0) 全量重建，否则以 read_jsonl_tail(offset) 结果 extend 增量并入；水位存 read_jsonl_tail 返回的已提交完整行偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _dec_recs（内部缓存，调用方只读不得变更）。
     def _decisions_records(self):
         """decisions 全记录（文件序）增量缓存——review 治理面单次调用共用一次解析。
 
@@ -2704,7 +2723,7 @@ class MdCGOS(MdCG):
         全量线性扫找单条 pid（每调用 1 遍整文件 json.loads）；改走本缓存后
         稳态零解析，调用方内存线性扫。与 _pid_status（pid→最新）互补：
         本缓存保全量记录（多轮裁决历史、by_decision 统计口径）。
-        水位口径（竞态修复，同 _inbox_records）：存真实 EOF 偏移——窗口内
+        水位口径（竞态修复，同 _inbox_records）：存已提交完整行偏移——窗口内
         并发 append 不得在下一轮重复 extend（review_stats 计数虚高/翻倍、
         永不自愈）。
         """
@@ -5096,7 +5115,7 @@ class MdCGOS(MdCG):
                           non_applicable_conditions=None, tags=None,
                           exclude=None, limit=consistency.MAX_SCAN,
                           depth=consistency.MAX_DEPTH, auto_flywheel=False,
-                          log_write=True):
+                          log_write=True, sensitivity=None):
         """不落盘地预检一条待写内容是否与既有节点/纪律冲突（三级决策）。
 
         log_write（路线 C，2026-10-05，透传 consistency.check 同名参数）：
@@ -5121,7 +5140,10 @@ class MdCGOS(MdCG):
                                        if not _is_null_condition(x)],
             tags=tags,
             exclude=exclude, limit=limit, depth=depth,
-            auto_flywheel=auto_flywheel, log_write=log_write)
+            auto_flywheel=auto_flywheel, log_write=log_write,
+            # issue #294：密级必须一路透传到飞轮——它决定工单的落盘密级与
+            # 身份（id）算法，缺了这条，private 正文会以 internal 明文建单。
+            sensitivity=sensitivity)
 
 # 生效条件：当 limit 传入时，以 limit（默认 100）调用 consistency.history 并返回其结果；本函数不改变 limit；
     def consistency_history(self, limit=100):
@@ -5764,10 +5786,72 @@ class MdCGSecure(MdCGOS):
 
     # ---------- 写：权限校验 ----------
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 _rank(sens) 并 principal.require_layer_write(layer, sens)，再 _attribution(kw, sens)（会话归因走三态解析）后转 super().add（并把**原始声明** sensitivity 以 declared_sensitivity 键并传，供库层落盘闸判「声明↔落盘」一致性；未声明时为 None），最后按下发的 nid 调 _index_sensitivity 并返回 nid。
+# 生效条件：declared 为真值时原样返回（显式声明优先，仍由库层落盘闸判「声明↔落盘」一致性）；declared 为假值且 node_id 有既有节点时返回其密级（索引快照优先、缺条目回读节点文件）；declared 为假值且无既有节点、也未被判为坏节点隔离（self._quarantined）时返回 DEFAULT_SENSITIVITY；既有节点存在而密级判不了（损坏/非法/读不出）或被隔离时抛 AccessDenied（fail-closed，不回落缺省档）。
+    def _write_sensitivity(self, node_id, declared):
+        """写面密级解析单点（issue #297）：未声明则**继承既有节点密级**。
+
+        病象：`add`/`propose` 此前一律 `sensitivity or DEFAULT_SENSITIVITY`。
+        而 `MdCG.add` 是**全量重建 fm**——层位（N221）、生命周期状态、检验强度、
+        验证态、依赖、双时间轴都逐列显式继承了，密级却是唯一没接继承的那一列。
+        于是同 id 改写既有 private 节点、调用方不重传 sensitivity（LLM 代理更新
+        记忆时通常不带）时，节点被重建为 `internal` **明文**落盘，无令牌访客
+        `cg(op=read)` 即可读到新正文；缺省 `MDCG_AUTONOMY=confirm` 档下变更单
+        记录与 accept 回执里的 sensitivity 也已是 internal，**全程无降密级提示**。
+
+        口径（与仓内既有继承语义同向，「显式传入优先；否则取旧值」）：
+          · 显式声明 → 原样返回。主动改密级是合法动作，仍走
+            `_check_sensitivity_landing` 的「声明↔落盘」一致性闸；
+          · 未声明 + **无既有节点** → `DEFAULT_SENSITIVITY`（新写入面零变化）；
+          · 未声明 + **有既有节点** → 继承其密级；
+          · 未声明 + 有既有节点而密级**判不了**（值非法 / 读不出）→ fail-closed
+            抛 `AccessDenied`，不静默回落明文档（与 #164「判不了不生成」同口径）。
+
+        取既有密级优先**索引快照**（元数据明文，免读盘/免解密），索引无条目才回读
+        节点文件——与 `MdCG.add` 取 prev_entry/prev_state 的同一顺序（索引陈旧
+        时靠回读兜底，不把「本进程没这条」当成「库里没这条」）。
+
+        判据面只读密级、**不改**任何状态：本方法不落盘、不动索引、不建目录。
+        """
+        if declared:
+            return declared
+        try:
+            prev = subgraph.node_sensitivity(self, node_id)
+        except AccessDenied:
+            raise
+        except Exception as exc:                       # noqa: BLE001
+            raise AccessDenied(
+                "写入 %r 未声明 sensitivity，而既有节点密级读不出来（%s）——"
+                "fail-closed 拒绝，不回落缺省档（issue #297）"
+                % (node_id, exc)) from exc
+        if prev:
+            return prev
+        # prev 为假有三种成因、后果相反，必须区分（不区分就是本件的病象）：
+        #   ① 真无此节点 → 新写，回落缺省档（新写入面零变化）；
+        #   ② 有节点但密级非法/读不出 → fail-closed；
+        #   ③ 该 id 已被判为**坏节点隔离**（#146）→ 盘面有文件、索引与读面都没有
+        #      → 密级判不了 → fail-closed（隔离它的理由正是「密级坏掉的节点若被
+        #      当默认档消费，等于静默降级为明文」，写面按缺省档写就是同一件事）。
+        try:
+            exists = bool(self.get(node_id))
+        except Exception:                              # noqa: BLE001
+            exists = True                              # 读不出来＝判不了 ⇒ fail-closed
+        if not exists:
+            _q = (getattr(self, "_quarantined", None) or {}).get(node_id)
+            if not _q:
+                return DEFAULT_SENSITIVITY
+            raise AccessDenied(
+                "写入 %r 未声明 sensitivity，而该 id 已被判为坏节点隔离"
+                "（%s：%s）——密级判不了，fail-closed 拒绝；若确认要按某档"
+                "写入，请显式声明 sensitivity（issue #297）"
+                % (node_id, _q.get("path"), _q.get("reason")))
+        raise AccessDenied(
+            "写入 %r 未声明 sensitivity，而既有节点密级判不了（缺/非法）——"
+            "fail-closed 拒绝，不回落缺省档（issue #297）" % (node_id,))
+
+# 生效条件：调用方未声明 sensitivity 时先经 _write_sensitivity 解析出 sens（issue #297：既有节点**继承旧密级**、新节点回落 DEFAULT_SENSITIVITY、既有节点密级判不了则 fail-closed 抛 AccessDenied），再 _rank(sens) 并 principal.require_layer_write(layer, sens)，再 _attribution(kw, sens)（会话归因走三态解析）后转 super().add（并把**原始声明** sensitivity 以 declared_sensitivity 键并传，供库层落盘闸判「声明↔落盘」一致性；未声明时为 None），最后按下发的 nid 调 _index_sensitivity 并返回 nid。
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             sensitivity: str = None, **kw) -> str:
-        sens = sensitivity or DEFAULT_SENSITIVITY
+        sens = self._write_sensitivity(node_id, sensitivity)
         _rank(sens)
         self.principal.require_layer_write(layer, sens)
         self._attribution(kw, sens)
@@ -5799,9 +5883,9 @@ class MdCGSecure(MdCGOS):
         self._index_sensitivity(nid, sens)
         return nid
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write(kw.get("layer", "knowledge"), sens)（缺省与基类 MdCGOS.propose 的 layer="knowledge" 一致——此前误用 or "contextual" 导致校验层与落盘层错位：knowledge-only 身份被误拒 / contextual-only 身份入队成死提案，2026-09-25 缺陷 #5），再转 super().propose(node_id, content, sensitivity=sens) 并返回其结果。
+# 生效条件：调用方未声明 sensitivity 时先经 _write_sensitivity 解析出 sens（issue #297：既有节点**继承旧密级**——缺省 confirm 档下提案记录若在入队时就已降成 internal，accept 只会照抄该值，故继承必须发生在这里、不能只补落盘面），再 principal.require_layer_write(kw.get("layer", "knowledge"), sens)（缺省与基类 MdCGOS.propose 的 layer="knowledge" 一致——此前误用 or "contextual" 导致校验层与落盘层错位：knowledge-only 身份被误拒 / contextual-only 身份入队成死提案，2026-09-25 缺陷 #5），再转 super().propose(node_id, content, sensitivity=sens) 并返回其结果。
     def propose(self, node_id: str, content: str, sensitivity: str = None, **kw):
-        sens = sensitivity or DEFAULT_SENSITIVITY
+        sens = self._write_sensitivity(node_id, sensitivity)
         self.principal.require_layer_write(kw.get("layer", "knowledge"), sens)
         return super().propose(node_id, content, sensitivity=sens, **kw)
 

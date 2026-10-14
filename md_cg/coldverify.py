@@ -28,7 +28,12 @@ import json
 import os
 import threading
 import time
-from collections import deque
+from collections import Counter, deque
+
+from .fsutil import FileLock as _FileLock
+from .fsutil import atomic_write as _atomic_write
+from .fsutil import ends_mid_line as _ends_mid_line
+from .fsutil import read_jsonl as _read_jsonl
 
 #: 队列文件名
 QUEUE_FILE = "_coldverify.jsonl"
@@ -67,33 +72,112 @@ class ColdVerifyQueue:
         分支（或执行任意已知分支）。「入口校验、加载不校验」是不对称的，而这里
         的数据来自磁盘（可能被旧版本或手工编辑写坏）。故按同一白名单拒收并
         计入 `skipped`，不静默放行。
+
+        issue #265：**逐行容错**。此前 `json.loads` 的异常由包住整个循环的
+        `except` 捕获 ⇒ 上一个写者被杀死留下的半截行会让**整份队列都不恢复**
+        （实测）。改为逐行捕获：坏行只丢它自己，后续行照常恢复。
         """
         if not self._queue_path or not os.path.exists(self._queue_path):
             return
+        for task in _read_jsonl(self._queue_path):
+            try:
+                if task.get("_done"):
+                    continue
+                if task.get("action") not in _VALID_ACTIONS:
+                    self._stats["skipped"] += 1   # 拒收：非法 action 不入队
+                    continue
+                self._queue.append(task)
+            except Exception:                          # noqa: BLE001
+                self._stats["skipped"] += 1
+
+    def _append_persisted(self, task):
+        """把**一条**任务追加到队列文件（issue #265）。
+
+        此前 `enqueue` 调 `_persist()` 做全量覆写——写盘的是「本实例内存的
+        快照」，跨实例没有任何互斥或合并。多实例共用同一 root 时（两个 MCP
+        server 进程，或 server + CLI），后落盘者把先落盘者刚写的整段抹掉，
+        两边都 rc=0、都报成功、**无痕丢失**（实测：两进程各自入队 →
+        `disk_lines=1`）。
+
+        追加在物理上抹不掉别人的条目。半截行（上一个写者被杀在中途）由
+        `_ends_mid_line` 补一个换行处理，否则新记录会粘在那行上、两条都解析
+        不出来。
+
+        跨进程 FileLock：与 `_drop_persisted` 的读改写互斥——否则「追加」可能
+        落在对方的「读」与「写回」之间而被覆盖。strict=False（best-effort）：
+        入队在**写路径**上（`writepipe._after_trust` 每次写入都调），锁竞争失败
+        时宁可让这次追加无锁落盘，也不能让异常打断写入（调用方已 try/except，
+        但静默放行比抛更符合本模块「永不拖垮主进程」的边界）。
+        """
+        if not self._queue_path:
+            return
+        line = json.dumps(task, ensure_ascii=False) + "\n"
         try:
-            with open(self._queue_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    task = json.loads(line)
-                    if task.get("_done"):
-                        continue
-                    if task.get("action") not in _VALID_ACTIONS:
-                        self._stats["skipped"] += 1   # 拒收：非法 action 不入队
-                        continue
-                    self._queue.append(task)
+            with _FileLock(self._queue_path, strict=False):
+                if _ends_mid_line(self._queue_path):
+                    line = "\n" + line
+                d = os.path.dirname(os.path.abspath(self._queue_path)) or "."
+                os.makedirs(d, exist_ok=True)
+                fd = os.open(self._queue_path,
+                             os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+                try:
+                    os.write(fd, line.encode("utf-8"))
+                finally:
+                    os.close(fd)
         except Exception:                              # noqa: BLE001
-            pass  # 崩溃恢复容错：文件损坏就不恢复
+            pass  # 持久化失败不影响内存队列
+
+    def _drop_persisted(self, consumed):
+        """从队列文件删掉**本实例刚消费**的条目（issue #265）。
+
+        读改写全程持跨进程 `FileLock(strict=True)` 并以 `atomic_write` 落盘
+        （整文件替换：读者要么看到旧内容、要么看到新内容，永远看不到半截）。
+
+        **只删自己消费的**：他实例刚追加的条目原样保留——这正是本件的病象
+        （全量覆写会把它们抹掉）。匹配键取 `(node_id, action, enqueued_at)`，
+        用 Counter 逐条扣减，故同键的重复入队也各删一条、不会多删别人的。
+
+        `strict=True`：消费是**不能丢**的写（删错了等于把别人的任务抹掉，正是
+        本件要修的），锁竞争失败时显式抛出让调用方重试，好过静默退化为无锁
+        并发。异常由本方法的 `except` 收口——drain 不因落盘失败而崩。
+        """
+        if not self._queue_path or not consumed:
+            return
+        want = Counter((t.get("node_id"), t.get("action"), t.get("enqueued_at"))
+                       for t in consumed)
+        try:
+            with _FileLock(self._queue_path, strict=True):
+                if not os.path.exists(self._queue_path):
+                    return
+                kept = []
+                for task in _read_jsonl(self._queue_path):
+                    k = (task.get("node_id"), task.get("action"),
+                         task.get("enqueued_at"))
+                    if want.get(k, 0) > 0:
+                        want[k] -= 1          # 本实例消费掉的：从盘上摘除
+                        continue
+                    if task.get("_done"):
+                        continue              # 墓碑：已消费，不再入队
+                    kept.append(task)
+                _atomic_write(self._queue_path, "".join(
+                    json.dumps(t, ensure_ascii=False) + "\n" for t in kept))
+        except Exception:                              # noqa: BLE001
+            pass  # 持久化失败不影响内存队列
 
     def _persist(self):
-        """持久化当前队列（全量覆写）。"""
+        """全量覆写当前队列。**仅供 clear() 的重置语义**（enqueue/drain 不再走它）。
+
+        issue #265：全量覆写正是丢条目的根因，故入队改走 `_append_persisted`
+        （追加）、消费改走 `_drop_persisted`（只删自己消费的）。本方法保留给
+        `clear()` 的显式重置，并补上跨进程锁 + 原子替换。
+        """
         if not self._queue_path:
             return
         try:
-            with open(self._queue_path, "w", encoding="utf-8") as f:
-                for task in self._queue:
-                    f.write(json.dumps(task, ensure_ascii=False) + "\n")
+            with _FileLock(self._queue_path, strict=True):
+                _atomic_write(self._queue_path, "".join(
+                    json.dumps(task, ensure_ascii=False) + "\n"
+                    for task in self._queue))
         except Exception:                              # noqa: BLE001
             pass  # 持久化失败不影响内存队列
 
@@ -110,7 +194,8 @@ class ColdVerifyQueue:
         with self._lock:
             self._queue.append(task)
             self._stats["enqueued"] += 1
-            self._persist()
+            # issue #265：追加而非全量覆写（后者会抹掉他实例刚写的条目）
+            self._append_persisted(task)
         return task
 
     def drain(self, cg, *, limit=BATCH_LIMIT, dry_run=False):
@@ -149,8 +234,9 @@ class ColdVerifyQueue:
                                  "action": task["action"],
                                  "error": str(exc),
                                  "ok": False})
-        with self._lock:
-            self._persist()
+        # issue #265：只从盘上摘除**本批消费掉**的条目——全量覆写会把他实例
+        # 刚追加的条目一并抹掉（本件的病象）。
+        self._drop_persisted(batch)
         return results
 
     def _process(self, cg, task):

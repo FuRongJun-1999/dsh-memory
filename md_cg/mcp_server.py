@@ -437,6 +437,8 @@ TOOLS = [
                           exclude=_p("string", "check：排除自身节点 id"),
                           depth=_p("integer", "check：递归反思深度上限"),
                           auto_flywheel=_p("boolean", "check：冲突时自动投递飞轮"),
+                          sensitivity=_p("string",
+                                         "check：待写内容声明的密级（透传飞轮建单）"),
                           limit=_p("integer", "check 扫描上限 / history 条数")),
     },
     {
@@ -1285,7 +1287,11 @@ def _consistency_call(cg, a):
             tags=a.get("tags"), exclude=a.get("exclude"),
             limit=int(a.get("limit") or consistency.MAX_SCAN),
             depth=int(depth) if depth is not None else consistency.MAX_DEPTH,
-            auto_flywheel=bool(a.get("auto_flywheel")))
+            auto_flywheel=bool(a.get("auto_flywheel")),
+            # issue #294：check 面也要能声明密级——否则
+            # mdcg_consistency(action=check, auto_flywheel=true) 的调用方
+            # 无从告诉飞轮「这段正文是 private 的」，同一条出口照旧泄明文。
+            sensitivity=a.get("sensitivity"))
     if act == "history":
         return {"records": cg.consistency_history(limit=int(a.get("limit") or 100))}
     if act == "stats":
@@ -2088,6 +2094,34 @@ def _gate_link_signers_file(a):
                          % (cur, sf))
 
 
+def _gate_link_swarm(a):
+    """issue #245：swarm 由调用方指定 = 调用方自选「跨节点共享目录」。
+
+    该值被 `peers_dir`/`inbox_dir` 直接 `os.path.join` 当作**写盘根**
+    （`publish_card`/`write_pack`/`_rejected.jsonl`），传绝对路径或 `../`
+    即可在记忆库之外建目录写文件。
+
+    ★ 既有的 realpath 兜底（#147 的 write_pack、#277 的 publish_card）
+    **兜不住**：那些判据的基准 `base = os.path.realpath(peers_dir(swarm))`
+    本身由 `swarm` 派生 ⇒ `real.startswith(base)` 恒真，是自证同义反复。
+    故收口必须在**入口**，不能靠汇点。
+
+    收口：只接受运维侧现行共享目录（realpath 归一）；未传则行为逐位不变。
+    """
+    sw = a.get("swarm")
+    if not sw:
+        return                       # 未传 → 行为逐位不变（缺省/环境变量）
+    if not isinstance(sw, str):
+        raise ValueError("link: swarm 必须是字符串路径，收到 %r（%s）"
+                         % (sw, type(sw).__name__))
+    from . import evidence as _ev
+    cur = _ev.swarm_dir()
+    if os.path.realpath(os.path.expanduser(sw)) != os.path.realpath(
+            os.path.expanduser(cur)):
+        raise ValueError("link: swarm 只能指向现行共享目录（%s），收到 %s"
+                         % (cur, sw))
+
+
 def _import_subsystem_gate(a, ev):
     """issue #167：import 不得挑一个**更松**的子系统策略来验签。
 
@@ -2148,6 +2182,7 @@ def _cg_dispatch(cg, a):
         act = (a.get("action") or "ls").strip().lower()
         _actor = _p.actor if _p is not None else "system"
         _gate_link_signers_file(a)
+        _gate_link_swarm(a)
         if act == "catalog":
             return _lk.catalog()
         if act == "ls":
@@ -2369,7 +2404,17 @@ def _cg_dispatch(cg, a):
         # 再解析"），反向证据 test_protocol A11/B8/B10 钉住该形态；改它须连带改协议
         # 真源与那三条断言（不在本次指派文件内）。两态可区分性因此为：类型错 =
         # `{"ok": False, "error": "node_id_not_str", ...}`，不存在 = `null`。
-        # 判据用 `is not None`（显式 "" 也是显式：旧写法会把它当没传而静默转检索）。
+        # 判据用「is not None」——**两种「显式」的处置刻意不同，勿当成疏漏**：
+        #   · 显式 "" 是**显式**：旧写法会把它当没传而静默转检索（本行注释的原始
+        #     动机），故它必须落进下面的类型闸 → 走「节点不存在」的 null，不转检索。
+        #   · 显式 None 是**未传**：MCP 客户端把「没有 id」序列化成 null 是常规形态，
+        #     故它落到下方检索分支。这是**刻意保留**的决定，由
+        #     test_read_face_input_gates 的 M2-B8 / M2-B9 两条钉住（M2-B9 断言名即
+        #     「node_id=None 仍是「未传」，走检索（不回归）」）。
+        # 该不对称曾被外部复审读作疏漏（issue #274）——根因是此处只写了 "" 的动机、
+        # 没写 None 的动机；故本次**只补文档，不改行为**。若要改成「None 也报类型
+        # 错」，须连带改 M2-B9 与协议形态表，属**行为变更**（issue #274 的 R1），
+        # 不是补漏。
         if a.get("node_id") is not None:
             _nid = a["node_id"]
             if not isinstance(_nid, str):
