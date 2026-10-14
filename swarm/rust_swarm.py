@@ -89,6 +89,16 @@ def make_swarm_config(instances: List[Dict], routes: Optional[List[Dict]] = None
         if "|" in _et:
             raise ValueError(
                 "路由 event_type 不得含 |（issue #99，同上）：%r" % _et)
+        # issue #332（#99 残留）：routes.to/from 同样进入签名串（seq|type|from|to|...），
+        # 含 | 可被挪动字段边界伪造签名，此前只堵了 event_type，to/from 漏了。
+        _fr = str((_r or {}).get("from") or "")
+        if "|" in _fr:
+            raise ValueError(
+                "路由 from 不得含 |（issue #332，#99 残留）：%r" % _fr)
+        _to = str((_r or {}).get("to") or "")
+        if "|" in _to:
+            raise ValueError(
+                "路由 to 不得含 |（issue #332，#99 残留）：%r" % _to)
     if not shared_secret:
         raise ValueError(
             "WAL 验签密钥不得为空（shared_secret 必填，issue #81）："
