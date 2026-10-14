@@ -64,6 +64,15 @@ from .mdcg import LAYERS
 SLEEP_DIRNAME = "sleep"
 GITDIR_DIRNAME = "lib.git"
 SHADOW_DIRNAME = "shadow"
+#: 记忆根绑定标记（lib.git 目录内，**不进版本库、不进工作树**）：内容为该
+#: lib.git 所服务记忆根的 realpath。issue #295：lib.git / 影子落在**用户级
+#: 状态根**下、与 MDCG_ROOT 无关，同一 state_root 下两个记忆根共用一份版本库
+#: ⇒ A 根入册的层文件一直留在 HEAD（空层被 pathspecs 滤掉、删除记不进去），
+#: B 根下一轮从该 HEAD fork，把 A 的文件判成「影子侧新增」重放进 B 根——
+#: 跨租户可读、同 id 节点被顶替删除。
+ROOT_MARKER = "mdcg-root"
+#: 多根共存时按根分槽的父目录名（`<state_root>/sleep/roots/<sha256[:16]>/`）。
+ROOTS_DIRNAME = "roots"
 #: 根级锁文件名（`FileLock` 会再拼 `.lock`）——即 `<state_root>/sleep/sleep.lock`。
 LOCK_NAME = "sleep"
 #: 基线分支与影子分支前缀（§4.1：分支名 `sleep/<时间戳>`）。
@@ -187,18 +196,83 @@ def sleep_root() -> str:
     return os.path.join(state_root(), SLEEP_DIRNAME)
 
 
-# 生效条件：explicit 非空时经 abspath 归一返回；否则取 env MDCG_SLEEP_GITDIR（非空）经 abspath 返回；两者皆空时返回 sleep_root() 下 "lib.git" 的拼接路径。不触盘、不建目录。
-def git_dir(explicit: str = None) -> str:
-    """独立 git 目录（§4.7 `MDCG_SLEEP_GITDIR`；缺省 `state_root()/sleep/lib.git`）。"""
+# 生效条件：explicit 非空时经 abspath 归一返回；否则取 env MDCG_SLEEP_GITDIR（非空）经 abspath 返回；两者皆空且 root 非空时返回 `_slot_root(root)` 下 "lib.git"（issue #295 按根分槽）；root 也为空时返回 sleep_root() 下 "lib.git" 的拼接路径（旧行为逐字不变）。不触盘、不建目录。
+def git_dir(explicit: str = None, root: str = None) -> str:
+    """独立 git 目录（§4.7 `MDCG_SLEEP_GITDIR`；缺省 `state_root()/sleep/lib.git`）。
+
+    issue #295：传 root 时落点按根分槽（见 `_slot_root`）——同一 state_root 下
+    第二个记忆根不再共用第一根的 lib.git；不传 root 时返回值与修前逐字相同。
+    """
     v = explicit or sleep_env("gitdir")     # 键名/缺省的真源 = SLEEP_ENV_KEYS 表
-    return os.path.abspath(v) if v else os.path.join(sleep_root(), GITDIR_DIRNAME)
+    if v:
+        return os.path.abspath(v)
+    if root:
+        return os.path.join(_slot_root(root), GITDIR_DIRNAME)
+    return os.path.join(sleep_root(), GITDIR_DIRNAME)
 
 
-# 生效条件：explicit 非空时经 abspath 归一返回；否则取 env MDCG_SLEEP_SHADOW（非空）经 abspath 返回；两者皆空时返回 sleep_root() 下 "shadow" 的拼接路径。不触盘。
-def shadow_dir(explicit: str = None) -> str:
-    """影子工作树落点（§4.7 `MDCG_SLEEP_SHADOW`；缺省 `state_root()/sleep/shadow`）。"""
+# 生效条件：explicit 非空时经 abspath 归一返回；否则取 env MDCG_SLEEP_SHADOW（非空）经 abspath 返回；两者皆空且 root 非空时返回 `_slot_root(root)` 下 "shadow"（issue #295 按根分槽）；root 也为空时返回 sleep_root() 下 "shadow" 的拼接路径（旧行为逐字不变）。不触盘。
+def shadow_dir(explicit: str = None, root: str = None) -> str:
+    """影子工作树落点（§4.7 `MDCG_SLEEP_SHADOW`；缺省 `state_root()/sleep/shadow`）。
+
+    issue #295：传 root 时与 `git_dir` 同槽按根分开；不传 root 时返回值与修前逐字相同。
+    """
     v = explicit or sleep_env("shadow")     # 键名/缺省的真源 = SLEEP_ENV_KEYS 表
-    return os.path.abspath(v) if v else os.path.join(sleep_root(), SHADOW_DIRNAME)
+    if v:
+        return os.path.abspath(v)
+    if root:
+        return os.path.join(_slot_root(root), SHADOW_DIRNAME)
+    return os.path.join(sleep_root(), SHADOW_DIRNAME)
+
+
+# 生效条件：git_dir_path 下存在可读的 ROOT_MARKER 且首行非空时返回其 realpath；
+# 目录/标记缺失或不可读时返回 ""（未绑定）。不触盘创建任何东西。
+def bound_root(git_dir_path: str) -> str:
+    """lib.git 绑定的记忆根（未绑定返回空串）。"""
+    try:
+        with open(os.path.join(git_dir_path, ROOT_MARKER),
+                  encoding="utf-8") as f:
+            v = f.readline().strip()
+    except OSError:
+        return ""
+    return os.path.realpath(v) if v else ""
+
+
+# 生效条件：git_dir_path 已绑定且绑定根 ≠ realpath(root) 时返回中文原因串；
+# 未绑定、绑定本根或标记不可读时返回 ""。
+def _bind_error(git_dir_path: str, root: str) -> str:
+    owner = bound_root(git_dir_path)
+    if owner and owner != os.path.realpath(root):
+        return ("lib.git %s 绑定的是另一个记忆根 %s（本根 %s）——"
+                "每个记忆根须用各自的 lib.git / 影子（issue #295）"
+                % (git_dir_path, owner, os.path.realpath(root)))
+    return ""
+
+
+# 生效条件：git_dir_path 为已存在的目录且未绑定时写入 ROOT_MARKER
+# （realpath(root)）并返回 True；已绑定（含本根）时不动盘、返回 False。
+def _bind_root(git_dir_path: str, root: str) -> bool:
+    if bound_root(git_dir_path):
+        return False
+    with open(os.path.join(git_dir_path, ROOT_MARKER), "w",
+              encoding="utf-8") as f:
+        f.write(os.path.realpath(root) + "\n")
+    return True
+
+
+# 生效条件：root 为记忆根路径时返回本根该用的落点父目录——缺省 lib.git 不存在、
+# 未绑定或绑定本根时为 sleep_root()（单根安装路径逐字不变）；已绑定别的根时为
+# sleep_root()/roots/<sha256(realpath(root))[:16]>。**须在根级锁内调用**：
+# 两个根同时首轮时，后到者靠先到者写下的绑定才能分到自己的槽。
+def _slot_root(root: str) -> str:
+    """按根分槽（issue #295）：返回 `lib.git` / `shadow` 的父目录。"""
+    legacy = os.path.join(sleep_root(), GITDIR_DIRNAME)
+    if (not os.path.isdir(legacy)
+            or bound_root(legacy) in ("", os.path.realpath(root))):
+        return sleep_root()
+    key = hashlib.sha256(os.path.realpath(root).encode(
+        "utf-8", "surrogateescape")).hexdigest()[:16]
+    return os.path.join(sleep_root(), ROOTS_DIRNAME, key)
 
 
 # 生效条件：无入参；恒返回 sleep_root() 下 "sleep" 的拼接路径（`FileLock` 会再拼 ".lock"，即 <state_root>/sleep/sleep.lock）。**绝不在数据根内**——锁件进不了真源面，也进不了版本库白名单。
@@ -424,10 +498,22 @@ def _has_head(git_dir_path: str, work_tree: str) -> bool:
 def _stage_and_commit(git_dir_path: str, work_tree: str, message: str) -> dict:
     """白名单 add + 有改动才 commit（Δ 为空 ⇒ 整轮跳过，§4.4）。"""
     ps = pathspecs(work_tree)
-    if not ps:
+    # issue #295③：**空层也要记删除**。pathspecs 只返回盘上非空的层，于是
+    # 「某层在盘上已空、索引/HEAD 里仍有文件」这件事入不了册：那些文件一直留在
+    # HEAD，下一轮影子 fork 出来又被判成「影子侧新增」重放回主库。旧版本里已经
+    # 混进别的根文件的 lib.git 被本根沿用（K3）时，也靠这一步在第一轮清掉。
+    # `git rm -r --cached` 只动索引，不碰工作树。
+    top = {p.split("/", 1)[0] for p in
+           _git_ok(git_dir_path, work_tree, "ls-files").splitlines() if p}
+    stale = [l for l in LAYERS if l not in ps and l in top]
+    if not ps and not stale:
         return {"committed": False, "reason": "白名单为空（真源面无任何 .md）",
                 "pathspecs": ps}
-    _git_ok(git_dir_path, work_tree, "add", "--", *ps)
+    if ps:
+        _git_ok(git_dir_path, work_tree, "add", "--", *ps)
+    if stale:
+        _git_ok(git_dir_path, work_tree, "rm", "-r", "-q", "--cached", "--",
+                *stale)
     if _git(git_dir_path, work_tree, "diff", "--cached", "--quiet").returncode == 0:
         return {"committed": False, "reason": "Δ 为空（无待提交改动）",
                 "pathspecs": ps}
@@ -465,15 +551,26 @@ def materialize(root: str = None, *, git_dir_path: str = None,
     由 ③ 的并发闸（`baseline_face` 水位，主库优先）逐项裁决，那才是漂移的处置点。
     """
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
-    S = shadow or shadow_dir()
     branch = BRANCH_PREFIX + (ts or _stamp())
     before = source_face_hashes(root)
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
             return _busy("materialize", timeout)
+        # issue #295①②：落点与绑定**必须在根级锁内解析**——两个根同时首轮时，
+        # 后到者只有看到先到者写下的绑定才能分到自己的槽；锁外解析会双双认领
+        # legacy lib.git，串库照旧。显式指定的 git_dir_path / shadow 仍优先，
+        # 但绑定检查对它们同样生效（覆盖显式把两根配到同一个 GITDIR 的情况）。
+        G = git_dir_path or git_dir(root=root)
+        S = shadow or shadow_dir(root=root)
+        err = _bind_error(G, root)
+        if err:
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "materialize", "lock": lock_path(),
+                    "git_dir": G, "shadow": S, "root": root, "error": err,
+                    "hint": "每个记忆根须用各自的 lib.git / 影子"}
         try:
             rep = ensure_repo(root, G)
+            _bind_root(G, root)
             # #145①（2026-10-12 DSH 端）：**每轮都把真源面入册 lib.git**，不再只在首轮。
             # 病象：修前 `if not _has_head(G, root)` ⇒ 首轮之后主库的编辑从不进版本库，
             # 而影子是 `worktree add -b <branch> S BASE_BRANCH`（从**冻结基线** fork）
@@ -593,12 +690,18 @@ def merge(root: str = None, *, git_dir_path: str = None, branch: str,
     ——不许在非主线上做合并（与 `wm.py:cmd_merge` 同判据）。
     """
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
-    S = shadow or shadow_dir()
+    G = git_dir_path or git_dir(root=root)
+    S = shadow or shadow_dir(root=root)
     before = source_face_hashes(root)
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
             return _busy("merge", timeout)
+        # issue #295：绑定到别的记忆根的 lib.git 一律拒绝（少做，不多写）。
+        _be = _bind_error(G, root)
+        if _be:
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "merge", "lock": lock_path(),
+                    "git_dir": G, "error": _be}
         try:
             cur = _git_ok(G, root, "rev-parse", "--abbrev-ref", "HEAD").strip()
             if cur != BASE_BRANCH:
@@ -647,11 +750,17 @@ def revert(commit: str, root: str = None, *, git_dir_path: str = None,
     与 `hive/wm.py:cmd_revert` 同口径。
     """
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
+    G = git_dir_path or git_dir(root=root)
     before = source_face_hashes(root)
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
             return _busy("revert", timeout)
+        # issue #295：绑定到别的记忆根的 lib.git 一律拒绝。
+        _be = _bind_error(G, root)
+        if _be:
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "revert", "lock": lock_path(),
+                    "git_dir": G, "error": _be}
         try:
             parents = _git_ok(G, root, "rev-list", "--parents", "-n1",
                               commit).split()
@@ -687,7 +796,7 @@ def revert(commit: str, root: str = None, *, git_dir_path: str = None,
 def tracked_paths(root: str = None, *, git_dir_path: str = None) -> list:
     """版本库当前追踪的路径集合（`git ls-files`）。"""
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
+    G = git_dir_path or git_dir(root=root)
     return [ln.strip() for ln in _git_ok(G, root, "ls-files").splitlines()
             if ln.strip()]
 
@@ -696,7 +805,7 @@ def tracked_paths(root: str = None, *, git_dir_path: str = None) -> list:
 def history_paths(root: str = None, *, git_dir_path: str = None) -> list:
     """**全部历史**（所有分支、所有提交）里出现过的路径。"""
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
+    G = git_dir_path or git_dir(root=root)
     out = _git_ok(G, root, "log", "--all", "--name-only", "--pretty=format:")
     return [ln.strip() for ln in out.splitlines() if ln.strip()]
 
@@ -1115,8 +1224,8 @@ def reconcile_gated(root: str = None, *, git_dir_path: str = None,
                     timeout: float = DEFAULT_LOCK_TIMEOUT) -> dict:
     """③ 对账 + 提交（§4.4，**持根级锁**）：Δ 逐项过四闸 → 只把通过者入册。"""
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
-    S = shadow or shadow_dir()
+    G = git_dir_path or git_dir(root=root)
+    S = shadow or shadow_dir(root=root)
     before = source_face_hashes(root)
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
@@ -1214,12 +1323,18 @@ def merge_cycle(cg_main, root: str = None, *, git_dir_path: str = None,
                 timeout: float = DEFAULT_LOCK_TIMEOUT) -> dict:
     """④ 合并（§4.4，**持根级锁**）：语义重放 → `--no-ff` 合并；冲突挂起。"""
     root = os.path.abspath(root or cg_main.root)
-    G = git_dir_path or git_dir()
-    S = shadow or shadow_dir()
+    G = git_dir_path or git_dir(root=root)
+    S = shadow or shadow_dir(root=root)
     before = source_face_hashes(root)
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
             return _busy("merge_cycle", timeout)
+        # issue #295：绑定到别的记忆根的 lib.git 一律拒绝。
+        _be = _bind_error(G, root)
+        if _be:
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "merge_cycle", "lock": lock_path(),
+                    "git_dir": G, "error": _be}
         try:
             cur = _git_ok(G, root, "rev-parse", "--abbrev-ref", "HEAD").strip()
         except SleepGitTimeout as e:
@@ -1574,8 +1689,8 @@ def _main(argv=None) -> int:
                          "单独使用不执行任何动作（预览一轮请用 --once --dry-run）\n")
         return 2
     root = os.path.abspath(a.root or mdcg_root())
-    G = a.git_dir_path or git_dir()
-    shadow = a.shadow or shadow_dir()
+    G = a.git_dir_path or git_dir(root=root)
+    shadow = a.shadow or shadow_dir(root=root)
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if a.once:
         rec = run_cycle(None, root=root, enabled=sleep_enabled(),
