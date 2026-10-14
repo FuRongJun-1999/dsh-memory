@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import sys
 import time
@@ -53,6 +54,16 @@ CARD_KIND = "mdcg.node.card"
 
 TAG_XNODE = "xnode:cross"
 SOURCE_PREFIX = "source:"
+
+# ---- issue #191：导入侧的层/重要度夹紧与旧包重放台账（三处收口） ----
+#: 落层白名单：对端声明**不得**自选受保护层（protect.PROTECTED_LAYERS = self/anchor）
+#: 或 goals/structural 一类特殊层，一律改落 knowledge。
+IMPORT_LAYERS = ("knowledge", "contextual")
+#: 导入重要度上限。**必须低于** protect.AUTO_PROTECT_IMPORTANCE（0.70）——否则对端
+#: 一条声明就能把节点变成不可遗忘（属主 mdcg_forget 直接 ProtectionError）。
+IMPORT_IMPORTANCE_MAX = 0.5
+#: 已见包版本台账（本根顶层）：xnode id -> 最后一次写入所用包的 created_at。
+SEEN_FILE = "_xnode_seen.json"
 
 MAX_ITEMS = 500              # 单包条目上限（防灌包）
 MAX_TEXT = 4000              # 单条正文上限
@@ -495,6 +506,65 @@ def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
 
 
 # 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、且有签名或 signer 等于 "null" 方可通过；通过则对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，importance 默认 0.5，verification_basis 默认 "data"），统计 written/skipped，若 archive 为真则写包到收件箱，返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
+def _seen_path(cg) -> str:
+    """已见台账路径（本根顶层）。cg.root 不可用时返回空串（调用方按无账处理）。"""
+    root = getattr(cg, "root", None)
+    return os.path.join(str(root), SEEN_FILE) if root else ""
+
+
+def _load_seen(cg) -> dict:
+    """读台账。缺文件 / 坏 JSON / 非对象一律按空账——台账是防重放，不是写入前提。"""
+    p = _seen_path(cg)
+    if not p:
+        return {}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_seen(cg, seen: dict) -> None:
+    """落盘台账。失败**不逃逸**（同上：台账不是写入前提）。"""
+    p = _seen_path(cg)
+    if not p:
+        return
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(seen, f, ensure_ascii=False, sort_keys=True)
+    except OSError:
+        pass
+
+
+def _import_layer(raw):
+    """落层白名单（issue #191-A）-> (层, 是否夹紧)。非白名单层一律改落 knowledge。"""
+    layer = raw.strip() if isinstance(raw, str) else "knowledge"
+    if layer not in IMPORT_LAYERS:
+        return "knowledge", 1
+    return layer, 0
+
+
+def _import_importance(raw):
+    """重要度夹到 [0, IMPORT_IMPORTANCE_MAX]（issue #191-A）-> (值, 是否夹紧)。
+
+    非数值 / bool / 非有限值按上限处理（与 #151 对越界值回落 0.5 同口径，但上限
+    更低——见 IMPORT_IMPORTANCE_MAX 说明）。缺省（None）沿用既有 0.5，不算夹紧。
+    """
+    if raw is None:
+        return IMPORT_IMPORTANCE_MAX, 0
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return IMPORT_IMPORTANCE_MAX, 1
+    v = float(raw)
+    if not math.isfinite(v):
+        return IMPORT_IMPORTANCE_MAX, 1
+    if v < 0.0:
+        return 0.0, 1
+    if v > IMPORT_IMPORTANCE_MAX:
+        return IMPORT_IMPORTANCE_MAX, 1
+    return v, 0
+
+
 def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                 signers_file: str = None, archive: bool = True) -> dict:
     """导入对端证据包：验签 → 落本根（带 `source:<node>` 标签）。
@@ -524,55 +594,86 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
         return _note_reject(pack, "证据包缺少签名（跨节点证据必须可溯源）",
                             swarm=swarm)
 
+    # issue #191-B：包版本以**签名载荷里的 created_at** 为准（`_pack_payload` 已含它，
+    # 对端改不了）。缺省按 0（只能新建、不能覆写）；非数值 / 非有限值整包拒收。
+    created = pack.get("created_at")
+    if created is None:
+        created = 0.0
+    elif (isinstance(created, bool) or not isinstance(created, (int, float))
+          or not math.isfinite(created)):
+        return _note_reject(pack, f"证据包 created_at 非法：{created!r}", swarm=swarm)
+    seen = _load_seen(cg)
     items = pack["items"][:MAX_ITEMS]
-    written, skipped = [], 0
+    written, skipped, replayed, clamped = [], 0, 0, 0
     #: issue #258：拒收理由留痕（此前降级**不可见**——返回体只说 imported: N）
     reasons = []
-    for it in items:
-        if not isinstance(it, dict):
-            skipped += 1
-            reasons.append("条目非字典")
-            continue
-        subj = (it.get("subject") or "").strip()
-        text = (it.get("text") or "").strip()
-        if not subj or not text:
-            skipped += 1
-            reasons.append("条目缺 subject/text")
-            continue
-        # issue #258：密级 fail-closed。缺字段/非字符串/未知档一律**不写盘**，
-        # 绝不回落到 DEFAULT_SENSITIVITY（那正是本件的病象）。旧格式包（无
-        # sensitivity）因此一律不收——**有意的行为变更**，与「跨节点证据没有
-        # 签名就不可溯源，宁可不产出」同口径。
-        sens, why = _item_sensitivity(it)
-        if why:
-            skipped += 1
-            reasons.append(why)
-            continue
-        tags = [TAG_XNODE, f"{SOURCE_PREFIX}{from_node}"]
-        tags += [t for t in (it.get("tags") or [])
-                 if isinstance(t, str) and t
-                 and not t.startswith("subject:")
-                 and not t.startswith(SOURCE_PREFIX)
-                 and t not in (TAG_XNODE, _identity.TAG_ANCHOR, _identity.TAG_TRAIT)]
-        imp = it.get("importance")
-        try:
-            _identity.observe(
-                cg, subj, text,
-                kind=it.get("kind"), role=it.get("role"),
-                layer=it.get("layer") or "knowledge",
-                tags=tags,
-                importance=0.5 if imp is None else imp,
-                verification_basis=it.get("verification_basis") or "data",
-                node_id=_xnode_id(from_node, it.get("node_id") or subj),
-                sensitivity=sens,
-                override=True)
-        except _AccessDenied:
-            # issue #258：导入方密级不足 ⇒ **跳过，不降级落盘**（此前会落到
-            # 缺省 internal，等于把对端的 private 洗成 internal）。
-            skipped += 1
-            reasons.append("本节点密级不足（sensitivity=%s）" % sens)
-            continue
-        written.append(_xnode_id(from_node, it.get("node_id") or subj))
+    try:
+        for it in items:
+            if not isinstance(it, dict):
+                skipped += 1
+                reasons.append("条目非字典")
+                continue
+            subj = (it.get("subject") or "").strip()
+            text = (it.get("text") or "").strip()
+            if not subj or not text:
+                skipped += 1
+                reasons.append("条目缺 subject/text")
+                continue
+            # issue #258：密级 fail-closed。缺字段/非字符串/未知档一律**不写盘**，
+            # 绝不回落到 DEFAULT_SENSITIVITY（那正是本件的病象）。旧格式包（无
+            # sensitivity）因此一律不收——**有意的行为变更**，与「跨节点证据没有
+            # 签名就不可溯源，宁可不产出」同口径。
+            sens, why = _item_sensitivity(it)
+            if why:
+                skipped += 1
+                reasons.append(why)
+                continue
+            tags = [TAG_XNODE, f"{SOURCE_PREFIX}{from_node}"]
+            tags += [t for t in (it.get("tags") or [])
+                     if isinstance(t, str) and t
+                     and not t.startswith("subject:")
+                     and not t.startswith(SOURCE_PREFIX)
+                     and t not in (TAG_XNODE, _identity.TAG_ANCHOR, _identity.TAG_TRAIT)]
+            # issue #191-A：落层白名单 + 重要度夹紧——对端声明不得自选保护级。
+            layer, c_layer = _import_layer(it.get("layer"))
+            imp, c_imp = _import_importance(it.get("importance"))
+            clamped += c_layer + c_imp
+            xid = _xnode_id(from_node, it.get("node_id") or subj)
+            # issue #191-B：旧包重放不得把新证据覆写回旧内容（含属主删除后复活）。
+            last = seen.get(xid)
+            if (isinstance(last, (int, float)) and not isinstance(last, bool)
+                    and created <= last):
+                replayed += 1
+                continue
+            # issue #191-C：本根里恰好同名的**本地**节点（不带 xnode:cross 标签）不得
+            # 被对端覆写——override 只用于更新本来源自己的 xnode。
+            prev = (cg.index.get("nodes") or {}).get(xid)
+            if prev is not None and TAG_XNODE not in set(prev.get("tags") or []):
+                skipped += 1
+                reasons.append("同名本地节点（非跨节点证据）不覆写：%s" % xid)
+                continue
+            try:
+                _identity.observe(
+                    cg, subj, text,
+                    kind=it.get("kind"), role=it.get("role"),
+                    layer=layer,
+                    tags=tags,
+                    importance=imp,
+                    verification_basis=it.get("verification_basis") or "data",
+                    node_id=xid,
+                    sensitivity=sens,
+                    override=True)
+            except _AccessDenied:
+                # issue #258：导入方密级不足 ⇒ **跳过，不降级落盘**（此前会落到
+                # 缺省 internal，等于把对端的 private 洗成 internal）。
+                skipped += 1
+                reasons.append("本节点密级不足（sensitivity=%s）" % sens)
+                continue
+            written.append(xid)
+            seen[xid] = created
+
+    finally:
+        _save_seen(cg, seen)
 
     archived = ""
     archive_skipped = ""
@@ -597,6 +698,9 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                 archived = ""
     return {"ok": True, "from_node": from_node, "pack_id": pack.get("pack_id"),
             "imported": len(written), "skipped": skipped,
+            # issue #191：被夹紧的条目数（层 / 重要度）与因旧包重放而跳过的条目数。
+            # 此前返回体只说 imported: N，看不出落了哪一层、也没提示重放。
+            "clamped": clamped, "replayed": replayed,
             "truncated": len(pack["items"]) > MAX_ITEMS,
             "node_ids": written, "archived": archived,
             # issue #258：拒收理由（封顶 20 条，防灌包刷屏）+ 归档跳过理由
