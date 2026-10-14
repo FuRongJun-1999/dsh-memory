@@ -4749,10 +4749,17 @@ def main():
             def _reject_const(s):
                 raise ValueError("非标准 JSON 字面量：%s（JSON-RPC 不接受 NaN/Infinity）" % s)
             msg = json.loads(line, parse_constant=_reject_const)
-        except ValueError as _pe:
+        except (ValueError, RecursionError) as _pe:
             # issue #83.1：非法 JSON 按 JSON-RPC 2.0 回 -32700 Parse error。
             # 修前此处静默 continue —— 客户端只能等超时，且无任何信号；
             # 解析失败时无从取 id（JSON-RPC 规定 Parse error 的 id 为 null）。
+            # issue #321（2026-10-14）：捕获面还须含 RecursionError——它属
+            # RuntimeError 族**不是** ValueError：一行约 20 KB、嵌套约 1 万层的
+            # **合法** JSON 会让 json.loads 抛 RecursionError，旧 except 只捕
+            # ValueError 即被它逃出 main 的 try ⇒ 常驻 server rc=1 退出，攻击行
+            # 之后的请求（含写入）全无应答；且解析在鉴权之前，零凭据可达。
+            # 口径与 hive 侧 N231（hive/hive_mcp/mcp_server.py:1362）同源：超深
+            # 输入不进入解析面，按 -32700 回一行、继续服务。
             try:
                 _reply(None, error={"code": -32700,
                                     "message": "Parse error：请求体不是合法 JSON"})

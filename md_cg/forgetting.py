@@ -390,7 +390,51 @@ def log(cg, rec):
     return rec
 
 
-# 生效条件：body 与 content 必传（None 按空串）；把 content 逐行空白归一去重、剔除已出现在 body 中的行；delta 为空（零新增信息）时返回 (None, None, None)，否则返回 (追加后的正文, 追加行, 行号)。
+# 段边界字符集（aggregate_line 的「已覆盖」判据用，issue #323）：除串端外，只有
+# 紧邻这些字符才算「整段出现」——「】」收束聚合行前缀，「；」是段连接符，空白是
+# 空白归一后的分词边界。
+_SEG_BOUNDARY = "；】 \t"
+
+
+# 生效条件：s 非空且 hay 为已做空白归一的正文串时，判断 s 是否以「整段」形态出现在 hay
+# ——匹配处左右两侧须分别落在段边界（串端 / 聚合行前缀结束符「】」/ 段分隔符「；」/ 空白）；
+# s 为空时返回 False。
+def _segment_covered(s, hay) -> bool:
+    """新行 s 是否已以「整段」形态存在于 hay（而非任意子串）。
+
+    issue #323（B3 判据缺陷）：旧判据 s in have 是**子串**判据——旧正文
+    「报销上限 15000 元」+ 新值「报销上限 1500」时它判「已存在」，新行一字不追加，
+    而 reinforce 照常把 importance +0.05、merge_count +1 并写盘 ⇒ 回执说已合并、
+    库里留下并**强化**的是过时值（静默失真 + 可信度投毒）。触发面不止前缀：
+    v3.10→v3.1、8080→808、2026-10-15→2026-10-1 同病，任何「新值恰为旧正文
+    连续片段」的更正都被吞。
+
+    判据取「段边界对齐」而非「整串相等」：聚合行是「- 【聚合 …】」+ 若干段以
+    「；」连接，故段边界 = 串端 /「】」/「；」/ 空白。这样：
+      · 同文重写、逐段再写仍判「已覆盖」⇒ 幂等性（B3 的原目标）不退化；
+      · 前缀式/片段式更正左右必有一侧紧贴非分隔字符 ⇒ 判「未覆盖」⇒ 原样追加，
+        可被 read/search 命中。
+    取段边界而非「整串相等」的理由：段文本本身可能含「；」，若按「；」拆成集合
+    再判相等，「a；b」这类单段内容每次再写都会重复追加（正文无界增长）——段边界
+    判据同时守住这两个方向。
+
+    不适用条件：不判相似度（assess 的 redundancy）、不判该不该合并（gate 层）、
+    不改聚合行的拼接格式（仍是「；」连接），只回答「这一行要不要追加」。
+    """
+    if not s:
+        return False
+    i = hay.find(s)
+    while i >= 0:
+        j = i + len(s)
+        left = i == 0 or hay[i - 1] in _SEG_BOUNDARY
+        right = j == len(hay) or hay[j] in _SEG_BOUNDARY
+        if left and right:
+            return True
+        i = hay.find(s, i + 1)
+    return False
+
+
+# 生效条件：body 与 content 必传（None 按空串）；把 content 逐行空白归一去重、剔除已以整段形态出现在 body 中的行（段边界判据，见 _segment_covered）；delta 为空（零新增信息）时返回 (None, None, None)，否则返回 (追加后的正文, 追加行, 行号)。
 def aggregate_line(body, content, stamp=None):
     """MERGE 聚合行（**单点**）：新正文里「目标正文还没有的」行 → 追加一行。
 
@@ -406,17 +450,19 @@ def aggregate_line(body, content, stamp=None):
       · 不截断——旧口径把新值丢在 80 字外即整体丢失（P-3 实测：端口 9090
         变体在库中 0 次落盘），而「新值必须在库里可检索」正是本修的目标；
       · 只追加 delta——旧口径无条件追加，逐字重复的再写也会让目标正文无限
-        增长。按「归一化行是否已出现在目标正文（含已追加的聚合行）中」判，
-        纯重复零追加（不增长），带新信息的变体各追加一次（新值原样落盘，
-        可被 read/search 命中）。**幂等性靠子串判据**：聚合行自带
-        `- 【聚合 …】` 前缀，故比对用的是「归一化后的整段目标正文」而非
-        逐行集合——否则第二次同文再写会因前缀差异重复追加。
+        增长。按「归一化行是否已以**整段**形态出现在目标正文（含已追加的
+        聚合行）中」判，纯重复零追加（不增长），带新信息的变体各追加一次
+        （新值原样落盘，可被 read/search 命中）。**幂等性靠段边界判据**
+        （_segment_covered，issue #323 收口）：聚合行自带「- 【聚合 …】」前缀、
+        段间以「；」连接，故判「已覆盖」时要求匹配处左右两侧都落在段边界
+        （串端 /「】」/「；」/ 空白）——既保住「第二次同文再写零追加」，又不再把
+        「更正值恰为旧值前缀/片段」（15000→1500）误判为已存在。
     """
     have = " ".join((body or "").split())
     delta, seen = [], set()
     for l in (content or "").splitlines():
         s = " ".join(l.split())
-        if not s or s in seen or s in have:
+        if not s or s in seen or _segment_covered(s, have):
             continue
         seen.add(s)
         delta.append(s)
