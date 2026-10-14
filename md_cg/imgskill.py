@@ -1442,7 +1442,18 @@ def _find_reuse(root, key, op, in_sha, nparams):
         if (rec.get("idempotency_key") == key and rec.get("ok") is True
                 and rec.get("op") == op and rec.get("input_sha256") == in_sha
                 and rec.get("params") == nparams and rec.get("output_path")):
-            p = os.path.join(root, rec["output_path"])
+            # issue #325（2026-10-15 DSH 端）：台账落在沙箱根内、**可被任意主体写**，
+            # 故 `output_path` 是不可信输入——必须与同文件其它入口（:1177/:1228/
+            # :1352/:1366）同过 safe_join。修前这里直接 os.path.join：投毒台账把
+            # output_path 写成根外的相对穿越路径，本面就会读到沙箱根外任意可读文件
+            # 并把它的 SHA-256 经 output_sha256 回带出去（存在性探测 + 完整哈希读出）。
+            # 口径同 read_audit 对坏行的处置（_unparsable）：越界条目视为**不可复用**，
+            # 但不让整次 run() 失败（台账是不可信输入，坏条目不该造成 DoS）。
+            try:
+                p = safe_join(root, rec["output_path"],
+                              what="audit.output_path")
+            except SkillError:
+                continue
             if os.path.isfile(p) and _sha256_file(p) == rec.get("output_sha256"):
                 return rec
     return None
