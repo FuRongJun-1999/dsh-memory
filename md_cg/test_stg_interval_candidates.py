@@ -248,7 +248,19 @@ class Guards(RuntimeCase):
         self.assertEqual(stgidx.verify(ix, nodes), [])
         self.assertEqual(ix.subset(time_range=(500, 510))[0], ['new'])
 
+    def test_endpoint_start_audit_checks_values(self):
+        nodes = {'a': {'time_window': [10, 300]}, 'b': {'time_window': [100, 400]}}
+        ix = stgidx.build({'nodes': nodes})
+        self.assertTrue(hasattr(ix, 'interval_starts'), 'start summaries require a source-value witness')
+        # Keep the block minimum unchanged: key-only and minimum-only audits
+        # would both miss this different start value on the nonminimum member.
+        ix.interval_starts['b'] = 200
+        self.assertTrue(stgidx.verify(ix, nodes), 'each stored start value must equal its authoritative interval')
+
 MUTATIONS = [
+    mutation('audit only endpoint keys', 'md_cg.stgidx', 'verify', ['md_cg.stgidx:verify'],
+             'ix.interval_starts != starts', 'set(ix.interval_starts) != set(starts)',
+             'test_endpoint_start_audit_checks_values'),
     mutation('reverse block-start pruning', 'md_cg.stgidx', '_TimeBlocks.crossing_ids', ['md_cg.stgidx:_TimeBlocks.crossing_ids'],
              'if self._mins[j] >= lo:', 'if self._mins[j] <= lo:', 'test_native_contains_and_overlap'),
     mutation('start-only subset', 'md_cg.stgidx', 'StgIndex.subset', ['md_cg.stgidx:StgIndex.subset'],

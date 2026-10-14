@@ -11,9 +11,9 @@
 | 实际 anchors 返回条数（关闭→开启索引） | 3 → 1 | 3 → 3 |
 | 5 万条、100 个窗口完整命中窗口数 | 0/100 | 100/100 |
 | 同一合成语料命中总数 | 1100 / 应有 6031 | 6031 / 应有 6031 |
-| 12 个新增守卫 | 3 通过 / 9 失败 | 12 通过 / 0 失败 |
+| 13 个新增守卫 | 3 通过 / 10 失败 | 13 通过 / 0 失败 |
 
-Windows Python 3.12、Linux/WSL Python 3.13 各 **12/12 守卫、6/6 定点变异**，0 errors / 0 SKIP；变异必须由表列断言失败捕获，导入异常、其他运行错误及跳过不计。变异只在内存替换目标实现，执行后重跑全部守卫、核对源码字节未变。
+Windows Python 3.12、Linux/WSL Python 3.13 各 **13/13 守卫、7/7 定点变异**，0 errors / 0 SKIP；变异必须由表列断言失败捕获，导入异常、其他运行错误及跳过不计。变异只在内存替换目标实现，执行后重跑全部守卫、核对源码字节未变。
 
 Windows 最终 7/7 条回归命令；Linux 原生临时目录 7/7，含旧 STG 51 条断言与 17 处定点变异。初次 Windows 旧变异运行撞上源码修改窗口，结果作废；固定源码后 17/17 已重跑通过。WSL 直接在 NTFS 临时目录运行曾超时，未计通过。
 
@@ -32,6 +32,7 @@ python -X utf8 tests/test_stg_interval_candidates.py --mutate --output mutations
 
 ## 具名反面对照
 
+- audit only endpoint keys → `Guards.test_endpoint_start_audit_checks_values`
 - reverse block-start pruning → `Guards.test_native_contains_and_overlap`
 - start-only subset → `Guards.test_native_contains_and_overlap`
 - ignore long interval ends → `Guards.test_native_contains_and_overlap`
