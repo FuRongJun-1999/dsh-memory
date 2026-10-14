@@ -669,7 +669,12 @@ def g9():
               "valid_from": ts - 100, "valid_until": ts + 100000,
               "effective_from": ts - 100, "effective_until": ts + 100000,
               # A1（2026-10-05）：检验强度键存活断言（G9f）的夹具值。
-              "check_strength": "hoop"},
+              "check_strength": "hoop",
+              # issue #192：归因三键存活断言（G9g）的夹具值——搬迁改走
+              # _node_entry 之前，这三键会被手写字段表丢掉。
+              "role": "user",
+              "content_kind": "note",
+              "session": "sess-192"},
              body="# 功能名：n1\n# 生效条件：无条件\n# 子功能：无\n"
                   "# 执行：无\n# 验证方式：test\n# 不适用条件：无\n\n"
                   "上游条件 葡萄 触发。\n")
@@ -694,6 +699,12 @@ def g9():
        == e0.get(nodefile.CHECK_STRENGTH_FIELD),
        "G9f 检验强度键存活（check_strength，A1 新键；与 G9b–d 同族防漂移，"
        "2026-10-05 复核补）")
+    # issue #192：搬迁条目由 _node_entry 构造 ⇒ 归因三键随之存活。此前手写
+    # 表无这三键，搬迁后默认检索把工作角色节点放回候选池、按会话过滤
+    # 漏节点（实测 n_cache@exp1 / n_tool 三处读数）。
+    for k in ("role", "content_kind", "session"):
+        ok(k in e1 and e1.get(k) == e0.get(k) and e1.get(k) is not None,
+           "G9g 归因键 %s 存活（role/content_kind/session，issue #192）" % k)
     # 端到端：搬迁后因果路仍能经边召到下游（新路不再静默拿不到边）
     # 种子 = 词法命中 n1（上游），目标 n2 词面无重叠 —— 正是因果路的靶区。
     _r, m = cg.search_rrf("葡萄", k=5, record=False, paths=("lexical", "chain"))
@@ -864,11 +875,13 @@ _MUTATIONS = (
      "md_cg/chain.py",
      "    raw = (environ or os.environ).get(CHAIN_TYPES_ENV)\n",
      "    raw = None\n", 1),
-    ("P3-M5 N137 复发：_move_layer 的 _stage 条目不再带 edges",
+    ("P3-M5 N137/#192 复发：搬迁条目丢掉归因三键（回到手写表口径）",
      "md_cg/mdcg.py",
-     "            \"edges\": fm.get(\"edges\") or [],\n"
-     "            \"subgraph\": fm.get(\"subgraph\"),\n",
-     "            \"subgraph\": fm.get(\"subgraph\"),\n", 2),
+     "        entry = self._node_entry(new_path, to_layer, fm, sealed)",
+     '        entry = self._node_entry(new_path, to_layer, fm, sealed)\n'
+     '        for _k in ("role", "content_kind", "session"):\n'
+     '            entry.pop(_k, None)\n',
+     2),
     ("P3-M6 缺省集退化：search_rrf 缺省不再含两条图检索路",
      "md_cg/mdcos.py",
      "                   paths=(\"lexical\", \"bucket\", \"entity\", \"graph\", \"chain\",\n"

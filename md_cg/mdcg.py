@@ -5134,58 +5134,44 @@ class MdCG:
         d = os.path.join(self.root, to_layer)
         os.makedirs(d, exist_ok=True)
         new_path = os.path.join(d, f"{node_id}.md")
-        self._write_node(node_id, new_path, fm, node["content"])
+        sealed = self._write_node(node_id, new_path, fm, node["content"])
         old_full = os.path.join(self.root, node["path"])
         if (os.path.abspath(old_full) != os.path.abspath(new_path)
                 and os.path.exists(old_full)):
             os.remove(old_full)
         rel = os.path.relpath(new_path, self.root).replace("\\", "/")
-        # N137（2026-10-01）：本条 _stage 条目此前缺 edges / subgraph / 双时间轴
-        # （trust.FROM/UNTIL/EFFECTIVE_FROM/EFFECTIVE_UNTIL）四组键——搬迁 =
-        # 「删除源层条目 + 写入目标层条目」，缺键即让目标层条目**静默退化**：
-        # ① 新检索路（P3-causal 的 chain 路走 index 的 edges 建邻接、P3-temporal
-        #    走索引标量）搬迁后对它即不可达（节点还在，边/时刻没了）；
-        # ② trust.validity 的时效过滤免读盘判定失效（valid_from/until 不在快照）。
-        # 写入口 `_node_entry`（_scan_nodes / rebuild 共用）与 `add()` 的 _stage
-        # 条目都带这些键——本条与之对齐，杜绝「重建后有、搬迁后没有」的形态漂移。
-        self._stage(node_id, _strip_empty_gate_fields({
-            "path": rel, "layer": to_layer, "tags": fm.get("tags", []),
-            "bucket": None, "importance": fm.get("importance", 0.5),
-            "created_at": fm.get("created_at", 0),
-            "verification_basis": fm.get("verification_basis"),
-            # A1（2026-10-05，复核实证）：检验强度随搬迁携带——N137 同款：
-            # 搬迁条目缺键＝「move→普通覆写」链的继承源丢失该值 → 真丢数据。
-            nodefile.CHECK_STRENGTH_FIELD: fm.get(nodefile.CHECK_STRENGTH_FIELD),
-            # A2（2026-10-05，复核 info-①）：幽灵标记随搬迁携带（字段级可见性；
-            # 不继承——搬迁不改正文，值从盘面 fm 读取，形态与重建条目一致）。
-            nodefile.UNCERTAIN_REFS_FIELD: fm.get(nodefile.UNCERTAIN_REFS_FIELD),
-            "has_neg_conditions": nodefile.has_non_applicable(node["content"]),
-            # P2-1 / P4-2①（与 `_node_entry` / `add()` 同口径；N137 的教训：
-            # 搬迁条目缺键 = 新检索路对搬迁后的节点静默不可达）
-            nodefile.POSTCONDITION_TERMS_KEY: nodefile.ccg_element_terms(
-                node["content"], nodefile.POSTCONDITION_FIELD),
-            nodefile.REJECTION_TERMS_KEY: rejection_index_terms(
-                fm, node["content"]),
-            "access_count": fm.get("access_count", 0),
-            "last_access": fm.get("last_access", 0),
-            "content_hash": hashlib.sha256(
-                node["content"].encode("utf-8")).hexdigest()[:12],
-            "temporal": fm.get("temporal"), "spatial": fm.get("spatial"),
-            "time_window": (fm.get("condition_space") or {}).get("time_window"),
-            "big_domain": fm.get("big_domain"),
-            "observation_position": (fm.get("condition_space") or {}).get("observation_position"),
-            "evidence_count": fm.get("evidence_count", 0),
-            # N137：边域与嵌套子图（chain 路 / 递归展开的免读盘来源）
-            "edges": fm.get("edges") or [],
-            "subgraph": fm.get("subgraph"),
-            # N137：双时间轴（trust.validity 的免读盘判定面，与 add/_node_entry 同口径）
-            trust.STATE_FIELD: fm.get(trust.STATE_FIELD),
-            trust.DEPS_FIELD: fm.get(trust.DEPS_FIELD),
-            trust.FROM_FIELD: fm.get(trust.FROM_FIELD),
-            trust.UNTIL_FIELD: fm.get(trust.UNTIL_FIELD),
-            trust.EFFECTIVE_FROM_FIELD: fm.get(trust.EFFECTIVE_FROM_FIELD),
-            trust.EFFECTIVE_UNTIL_FIELD: fm.get(trust.EFFECTIVE_UNTIL_FIELD),
-        }))
+        # issue #192：搬迁条目改由 `_node_entry` 构造——**手写字段表已删除**。
+        #
+        # N137（2026-10-01）/ A1 / A2 三轮都在同一张手写表上逐个补键
+        # （edges/subgraph/双时间轴、check_strength、uncertain_refs），但表与真源
+        # `_node_entry` 一直在漂：实测搬迁条目 **29 键** vs `_node_entry` **43 键**，
+        # 前者是后者的**真子集**——丢失 role/content_kind/session/bucket_zh/
+        # importance_source/lifecycle_state/branch_id/branched_from/protected/
+        # protection_reason/immutable/self_state/derived_from/derived_relation 共 14 键。
+        # `_set_index_entry` 是**整条替换**（`index["nodes"][id] = entry`，不合并），
+        # 故搬迁 =「删源层条目 + 写目标层条目」，缺键即静默退化（实测）：
+        # ① 分支实验副本 `<nid>@<branch>` 在默认检索（branch=None）里现身；
+        # ② role=tool-output/command/edit 的工作节点不再被默认剔除；
+        # ③ content_kind=work_wip 的草稿进入 verifier 视图；
+        # ④ session 丢失后按会话过滤漏节点、角色统计记成 (none)。
+        # 重建路径（_scan_nodes / merge 定向 upsert / rollback._land / reconcile）
+        # 早已同源——issue #34 立此单点的理由正是「字段集漂移」，搬迁不再自持一份。
+        #
+        # 取值口径：content 传 `_write_node` 返回的**落盘值**（private 为密文），
+        # 与重建路径同源。手写表此前取 `node["content"]`（解密后明文），使
+        # `content_hash`/后置条件词/拒绝域词在 `_index.json` 里留下 private 正文的
+        # 明文派生词与明文 sha256 前 12 位（实测跨重启存活）。
+        old_entry = self.index["nodes"].get(node_id) or {}
+        entry = self._node_entry(new_path, to_layer, fm, sealed)
+        # `_node_entry` 不产出的两个归因键：从 fm 带过（与 add() 的 _stage 同口径）。
+        for _k in ("writer", "harness"):
+            if fm.get(_k) is not None:
+                entry[_k] = fm[_k]
+        # 密级取**旧条目**而非 fm：基类 MdCG 无密级概念，从 fm 取会给它凭空长出该键、
+        # 改变条目形态（`_node_entry` 同样不产出该键；MdCGSecure 读时按盘面回填）。
+        if old_entry.get("sensitivity") is not None:
+            entry["sensitivity"] = old_entry["sensitivity"]
+        self._stage(node_id, entry)
         self.index["buckets"] = self._count_buckets(self.index["nodes"])
         return {"id": node_id, "from": from_layer, "to": to_layer,
                 "path": rel, "reason": reason}
