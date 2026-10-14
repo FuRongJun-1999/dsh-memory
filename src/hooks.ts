@@ -577,7 +577,27 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       return
     }
     if (role) audit.written(role)
-    void run(graph).catch((err: Error) => {
+    // issue #296：工具面把**未落盘**的回执以 ok:false 返回（不是 MCP isError，
+    // 故下方 .catch 收不到它）。此前只接 .catch ⇒ 这类回执零告警，而上面那笔
+    // written 已经记下——审计文件对一次「服务端明确说没写」的调用显示「已写入」。
+    // 现补读回执：ok:false 且 verdict 不是 MERGE/DROP（前者并入既有节点、后者零新
+    // 信息，都不是失败）时记 skipped.failed 并告警；回执带 proposed 说明正文已
+    // 转审核队列（有去向），只告警、不计 failed。
+    void run(graph).then((res) => {
+      if (!role || !res || typeof res !== 'object') return
+      const r = res as { ok?: unknown; verdict?: unknown; proposed?: unknown; gate?: unknown; error?: unknown }
+      if (r.ok !== false) return
+      const v = typeof r.verdict === 'string' ? r.verdict : ''
+      if (v === 'MERGE' || v === 'DROP') return
+      const g = (r.gate && typeof r.gate === 'object') ? r.gate as { reason?: unknown } : {}
+      const why = String(g.reason || (typeof r.gate === 'string' ? r.gate : '') || r.error || '')
+      if (r.proposed) {
+        ctx.logger.warn(`dsh-memory: 自动记忆 ${label} 未直接落盘，已转审核队列（${v || '?'} ${why}）`)
+        return
+      }
+      audit.skipped('failed', role)
+      ctx.logger.warn(`dsh-memory: 自动记忆 ${label} 未写入（${v || 'ok:false'} ${why}）`)
+    }, (err: Error) => {
       if (role) audit.skipped('failed', role)
       ctx.logger.warn(`dsh-memory: 自动记忆 ${label} 失败: ${err.message}`)
     })
