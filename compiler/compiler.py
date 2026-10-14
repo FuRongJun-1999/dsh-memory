@@ -83,6 +83,19 @@ class Compiler:
         entry_lbl, params = self.funcs[stmt.name]
         self._place(entry_lbl)
         self._stmt(stmt.body)
+        # N330：无返回值函数被消费时运行期裸 IndexError。函数体若未以显式
+        # 返回结尾，隐式 RETURN 到达时栈顶可能无值（调用方 STORE_NAME 直接
+        # pop 空栈）。此处自动补 None，保证 RETURN 恒有值可留，调用约定
+        # "RETURN 栈顶保留" 不被违背。
+        _body = stmt.body
+        _last = None
+        if _body is not None:
+            if _body.type == NodeType.BLOCK and getattr(_body, 'statements', None):
+                _last = _body.statements[-1]
+            else:
+                _last = _body
+        if _last is None or _last.type != NodeType.RETURN_STMT:
+            self._emit(Opcode.PUSH_CONST, None)
         self._emit(Opcode.RETURN)
 
     # ---- 标签 ----
