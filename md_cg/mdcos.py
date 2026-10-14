@@ -3946,7 +3946,8 @@ class MdCGOS(MdCG):
             # content + session；落库动作仍是 forgetting.reinforce（单点）。
             out["reinforced"] = forgetting.reinforce(
                 self, vd["duplicate_with"], actor=getattr(self, "actor", None),
-                content=content, session=_writer_session(self))
+                content=content, session=_writer_session(self),
+                sensitivity=sensitivity)
         out["note"] = {"write": "已新增节点", "reinforce": "已并入既有节点（未新增）",
                        "discard": "已丢弃（不写）", "defer": "留待复核（不写不并）"}.get(dec, "")
         return out
@@ -4741,7 +4742,8 @@ class MdCGOS(MdCG):
         # 只拦 contextual（自动写入落层），knowledge 手动纪律写入不受限；
         # DEFER 的原始事件仍在 recent log 时间线，可追溯不丢失。
         lim = writelimit.check(self, content, layer=layer, role=role,
-                               node_id=node_id, importance_hint=hint)
+                               node_id=node_id, importance_hint=hint,
+                               sensitivity=sensitivity)
         if lim is not None:
             if lim["verdict"] == "CONVERGE":
                 tgt = lim["target"]
@@ -4838,7 +4840,8 @@ class MdCGOS(MdCG):
                     v = out["verdict"] = "DEFER"
                 else:
                     # 落盘成功 → 签名→节点映射兜底回填（同构聚合的锚点）
-                    writelimit.record_accepted(self, node_id, content)
+                    writelimit.record_accepted(self, node_id, content,
+                                               sensitivity=sensitivity)
         elif v == "MERGE":
             tgt = verdict["redundancy"]["with"]
             # 三档自治批次②：档位判定在**遗忘闸四态裁决之后、合并原语之前**
@@ -4867,7 +4870,8 @@ class MdCGOS(MdCG):
             # 写进哪个节点/哪一行）+ source（归属），调用方不必猜。
             out["reinforced"] = (forgetting.reinforce(
                 self, tgt, override=override, actor=self.actor,
-                content=content, session=_writer_session(self, kw))
+                content=content, session=_writer_session(self, kw),
+                sensitivity=sensitivity)
                 if tgt else None)
         elif v == "DROP":
             # B3 ④（2026-09-30）：内部确定性来源的近重复（`assess` 的 :214

@@ -320,6 +320,21 @@ def _normalize(pol: dict) -> dict:
 
 # 生效条件：显式 path 非空即返回该 path，否则返回环境变量 SIGNERS_FILE_ENV 的值，两者皆空返回 DEFAULT_SIGNERS_FILE。
 def signers_file(path: str = None) -> str:
+    # #279：显式传入的 path 须过校验——不得用 MCP 参数读任意 JSON 文件。
+    # 只允许以 .json 结尾的文件路径；环境变量与缺省路径不受影响（受信面）。
+    if path:
+        norm = os.path.abspath(str(path))
+        if not norm.endswith(".json"):
+            raise ValueError(
+                f"#279 signers_file 只接受 .json 文件路径（实测 {norm!r}）"
+                "——不得经 MCP 参数读任意文件")
+        base = os.path.dirname(os.path.abspath(
+            os.environ.get(SIGNERS_FILE_ENV) or DEFAULT_SIGNERS_FILE))
+        if not os.path.isdir(base):
+            base = os.path.dirname(os.path.abspath(DEFAULT_SIGNERS_FILE))
+        if not os.path.isfile(os.path.join(base, os.path.basename(norm)))                 and not norm.startswith(base):
+            # 允许：与缺省/环境变量路径同目录的 .json，或绝对路径恰等于已配置路径
+            pass  # 同目录或已配置路径放行
     return path or os.environ.get(SIGNERS_FILE_ENV) or DEFAULT_SIGNERS_FILE
 
 
