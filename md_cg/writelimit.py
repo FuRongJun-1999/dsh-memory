@@ -62,6 +62,31 @@ def enabled() -> bool:
         not in ("0", "false", "no")
 
 
+# 生效条件：形参 sensitivity 为字符串且 strip/lower 后属于 crypto.ENCRYPTED_LEVELS 时返回 True；
+# crypto 导入失败、形参非字符串时返回 False（fail-open：判不了就不改变既有行为——密级判据的唯一
+# 单点仍是 security.merge_downgrades，本函数只决定「要不要落签名」）。
+def _is_encrypted_level(sensitivity) -> bool:
+    """声明密级是否属「加密级」——其正文在盘上是密文（crypto.ENCRYPTED_LEVELS）。
+
+    issue #313：#148 修复建议第 1 条「加密级跳过签名（频率限流照常）」此前**未实现**
+    —— check / record_accepted 只把 sensitivity 记进台账（且生产调用方从未传值，
+    sens 恒为 null），模板签名 `sk` 照写，于是 `_writelimit.json` 里躺着 private /
+    secret 正文的**去数字明文骨架**，而同一内容的节点正文在盘上是密文
+    （`<!-- mdcg-enc:v1:…`）。密级越高的内容越不该以明文形式躺进明文台账，故
+    加密级一律不落签名；频率限流（步骤 1）不受影响，照常生效。
+
+    不适用条件：本函数只判「该不该落签名」——不判降密级（security.merge_downgrades
+    单点）、不判读写权限（security 层）、不评价内容相关性。
+    """
+    if not isinstance(sensitivity, str):
+        return False
+    try:
+        from .crypto import ENCRYPTED_LEVELS as _EL
+    except Exception:                                   # noqa: BLE001
+        return False
+    return sensitivity.strip().lower() in tuple(_EL)
+
+
 # 生效条件：形参 content 为假值返回 None；否则 strip 后若 _RE_TITLE 命中且标题骨架 s 非空且 len(s)>=MIN_SKELETON 返回 "t:"+s，否则返回 None；无标题且 len(text)>=MAX_CONTENT 返回 None；无标题且 len(text)<MAX_CONTENT 时全文骨架 s 非空且 len(s)>=MIN_SKELETON 返回 s，否则返回 None；
 def template_signature(content: str):
     """同模板流水签名：标题模板优先，其次全文骨架。
@@ -161,9 +186,9 @@ def check(cg, content, layer="contextual", role=None, node_id=None,
         _save(cg, st)
         return {"verdict": "DEFER", "limiter": "rate", "reason":
                 f"ratelimit:{key}:>{RATE_MAX}in{int(RATE_WINDOW)}s"}
-    # 2) 同构聚合
+    # 2) 同构聚合（加密级跳过签名——见 _is_encrypted_level，issue #313）
     sig = template_signature(content)
-    if sig:
+    if sig and not _is_encrypted_level(sensitivity):
         rec = st["sigs"].get(sig)
         if rec and now - float(rec.get("t") or 0) < CONVERGE_WINDOW \
                 and rec.get("nid"):
@@ -206,7 +231,8 @@ def check(cg, content, layer="contextual", role=None, node_id=None,
 def record_accepted(cg, node_id, content, now=None, sensitivity=None) -> None:
     """ACCEPT 落盘后确保签名→节点映射存在（check 已预占位，此处兜底）。"""
     sig = template_signature(content)
-    if not sig:
+    # issue #313：加密级不落签名（与 check 同一判据单点）
+    if not sig or _is_encrypted_level(sensitivity):
         return
     now = float(now if now is not None else time.time())
     st = _load(cg)

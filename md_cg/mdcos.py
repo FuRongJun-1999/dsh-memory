@@ -4016,7 +4016,7 @@ class MdCGOS(MdCG):
 # 生效条件：当 content 传入时，先调用 forgetting.prefeed 得到裁决 vd；write=False（默认）返回预演 out（written/reinforced 为 None）；write=True 时按 vd["decision"] 为 "write" 则用 node_id 或 _prefeed_id(content)、importance_hint 为 None 时取 0.5 调用 add 并写 written；为 "reinforce" 且有 duplicate_with 则调用 forgetting.reinforce 写 reinforced；discard/defer 不写不并；最后返回 out；
     def prefeed(self, content, layer="contextual", role=None,
                 verification_basis=None, importance_hint=None, node_id=None,
-                write=False, tags=None, conditions=None):
+                write=False, tags=None, conditions=None, sensitivity=None):
         """海马体前馈：写入**之前**做新奇检测——重复项并入而非新增。
 
         write=False（默认）只做裁决预演（不写盘）；write=True 时按裁决落库：
@@ -4042,6 +4042,9 @@ class MdCGOS(MdCG):
                 importance=(0.5 if importance_hint is None else importance_hint),
                 verification_basis=verification_basis,
                 condition_space=conditions,
+                # issue #313/#315：本入口此前**没有** sensitivity 槽，两条落库支
+                # （add / reinforce）都拿不到密级。现补形参并逐支下传。
+                sensitivity=sensitivity,
                 actor=getattr(self, "actor", None))
         elif dec == "reinforce" and vd.get("duplicate_with"):
             # B3（2026-09-30）：同族未接线写点——此处与 remember_gated 的 MERGE
@@ -4049,7 +4052,8 @@ class MdCGOS(MdCG):
             # content + session；落库动作仍是 forgetting.reinforce（单点）。
             out["reinforced"] = forgetting.reinforce(
                 self, vd["duplicate_with"], actor=getattr(self, "actor", None),
-                content=content, session=_writer_session(self))
+                content=content, session=_writer_session(self),
+                sensitivity=sensitivity)
         out["note"] = {"write": "已新增节点", "reinforce": "已并入既有节点（未新增）",
                        "discard": "已丢弃（不写）", "defer": "留待复核（不写不并）"}.get(dec, "")
         return out
@@ -4844,7 +4848,11 @@ class MdCGOS(MdCG):
         # 只拦 contextual（自动写入落层），knowledge 手动纪律写入不受限；
         # DEFER 的原始事件仍在 recent log 时间线，可追溯不丢失。
         lim = writelimit.check(self, content, layer=layer, role=role,
-                               node_id=node_id, importance_hint=hint)
+                               node_id=node_id, importance_hint=hint,
+                               # issue #313：声明密级随签名记账。缺这一行的后果：
+                               # 台账 sens 恒 null，且加密级的**明文骨架**照落
+                               # （后者由 writelimit._is_encrypted_level 收口）。
+                               sensitivity=kw.get("sensitivity"))
         if lim is not None:
             if lim["verdict"] == "CONVERGE":
                 tgt = lim["target"]
@@ -4941,7 +4949,9 @@ class MdCGOS(MdCG):
                     v = out["verdict"] = "DEFER"
                 else:
                     # 落盘成功 → 签名→节点映射兜底回填（同构聚合的锚点）
-                    writelimit.record_accepted(self, node_id, content)
+                    # issue #313：密级一并记账（加密级由原语内部跳过签名）
+                    writelimit.record_accepted(self, node_id, content,
+                                               sensitivity=kw.get("sensitivity"))
         elif v == "MERGE":
             tgt = verdict["redundancy"]["with"]
             # 三档自治批次②：档位判定在**遗忘闸四态裁决之后、合并原语之前**
@@ -4970,7 +4980,13 @@ class MdCGOS(MdCG):
             # 写进哪个节点/哪一行）+ source（归属），调用方不必猜。
             out["reinforced"] = (forgetting.reinforce(
                 self, tgt, override=override, actor=self.actor,
-                content=content, session=_writer_session(self, kw))
+                content=content, session=_writer_session(self, kw),
+                # issue #315：#148 的降密级 fail-closed 判据在 forgetting.reinforce
+                # 内（security.merge_downgrades 单点），但它**依赖这个形参**——不传
+                # 则取缺省 None，merge_downgrades(target, None) 恒 False ⇒ 判据放行，
+                # 声明 private 的正文以聚合行并入 internal 节点、按 internal 明文存续。
+                # 同函数 CONVERGE 支（:4865）已接线，本支此前漏接。
+                sensitivity=kw.get("sensitivity"))
                 if tgt else None)
         elif v == "DROP":
             # B3 ④（2026-09-30）：内部确定性来源的近重复（`assess` 的 :214
