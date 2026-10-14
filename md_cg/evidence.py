@@ -28,6 +28,7 @@ import argparse
 import hashlib
 import json
 import os
+import math
 import sys
 import time
 
@@ -36,7 +37,7 @@ from . import identity as _identity
 from . import security as _sec
 from . import signer as _signer
 from .datapath import aux_root
-from .fsutil import publish
+from .fsutil import atomic_write, publish
 
 NODE_ID_ENV = "MDCG_NODE_ID"
 SWARM_DIR_ENV = "MDCG_SWARM_DIR"
@@ -56,6 +57,16 @@ SOURCE_PREFIX = "source:"
 
 MAX_ITEMS = 500              # 单包条目上限（防灌包）
 MAX_TEXT = 4000              # 单条正文上限
+
+# ---- issue #191（2026-10-14 DSH 端）：对端条目不得自选保护级 ----
+# 病象：条目自带的 layer/importance 原样交给 identity.observe(override=True)
+# ⇒ 对端可把节点落进 anchor/self（protect.PROTECTED_LAYERS）或把 importance
+# 顶到 >= 0.7（protect.AUTO_PROTECT_IMPORTANCE），落到本根即**不可遗忘**，
+# 属主 mdcg_forget 被 ProtectionError 拒绝，而返回体只说 imported: N。
+# 判据：外来数据不能决定本根的保护级 ⇒ 落层白名单 + 重要度夹到上限以下。
+IMPORT_LAYERS = ("knowledge", "contextual")
+IMPORT_IMPORTANCE_MAX = 0.5   # 严格小于 AUTO_PROTECT_IMPORTANCE(0.70)
+SEEN_FILE = "_xnode_seen.json"
 
 # ---- issue #258：密级面的**单一权威**（不另立判据，直接引既有常量） ----
 _SENSITIVITY_ORDER = _sec.SENSITIVITY_ORDER
@@ -453,6 +464,57 @@ def _validate(pack: dict) -> str:
     return _pack_id_error(pack.get("pack_id"))
 
 
+# 生效条件：importance 为真 bool 或非有限值或非数值时返回 IMPORT_IMPORTANCE_MAX；
+# 否则按 float 夹到 [0, IMPORT_IMPORTANCE_MAX]；None 也返回上限。
+def _import_importance(raw):
+    """issue #191：对端声明的重要度一律夹到 [0, IMPORT_IMPORTANCE_MAX]。
+
+    bool 是 int 的子类（True == 1），不特判就会被当成 1.0 顶到保护线以上。
+    """
+    if isinstance(raw, bool) or raw is None:
+        return IMPORT_IMPORTANCE_MAX
+    if not isinstance(raw, (int, float)) or not math.isfinite(raw):
+        return IMPORT_IMPORTANCE_MAX
+    return min(max(float(raw), 0.0), IMPORT_IMPORTANCE_MAX)
+
+
+# 生效条件：cg.root 为空时返回空 dict；_xnode_seen.json 不存在/不可读/非 dict 时
+# 返回空 dict（回到修前行为：不因记录损坏而拒收）；否则返回 id→created_at 映射。
+def _seen_load(cg) -> dict:
+    """issue #191：读本根「已导入 xnode 的最后一次 created_at」。"""
+    p = _seen_path(cg)
+    if not p:
+        return {}
+    try:
+        d = json.load(open(p, encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+# 生效条件：cg.root 为空时返回 ""；否则返回 os.path.join(root, SEEN_FILE)。
+def _seen_path(cg) -> str:
+    root = getattr(cg, "root", None)
+    return os.path.join(root, SEEN_FILE) if root else ""
+
+
+# 生效条件：cg.root 为空或 write 失败（OSError）时返回 False；否则原子写回。
+def _seen_save(cg, seen: dict) -> bool:
+    """issue #191：落盘已见记录（只含 xnode id 与时间戳，不含正文）。"""
+    p = _seen_path(cg)
+    if not p:
+        return False
+    try:
+        atomic_write(p, json.dumps(seen, ensure_ascii=False, sort_keys=True))
+        try:
+            os.chmod(p, 0o600)
+        except OSError:
+            pass
+    except OSError:
+        return False
+    return True
+
+
 # 生效条件：当传入 from_node 和 orig 时，返回 f"xnode_{_slug(from_node)}_{_slug(orig)}"。
 def _xnode_id(from_node: str, orig: str) -> str:
     return f"xnode_{_slug(from_node)}_{_slug(orig)}"
@@ -524,8 +586,22 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
         return _note_reject(pack, "证据包缺少签名（跨节点证据必须可溯源）",
                             swarm=swarm)
 
+    # ---- issue #191：包级 created_at 是签名载荷里的版本号，必须可用 ----
+    created = pack.get("created_at")
+    if created is None:
+        created = 0.0            # 缺省只能新建，不能覆写已有 xnode
+    elif (isinstance(created, bool) or not isinstance(created, (int, float))
+          or not math.isfinite(created)):
+        return _note_reject(pack, "证据包 created_at 非法：%r" % (created,),
+                            swarm=swarm)
+    else:
+        created = float(created)
+
     items = pack["items"][:MAX_ITEMS]
     written, skipped = [], 0
+    clamped, replayed, foreign = 0, 0, 0
+    seen = _seen_load(cg)
+    nodes = cg.index.get("nodes") or {}
     #: issue #258：拒收理由留痕（此前降级**不可见**——返回体只说 imported: N）
     reasons = []
     for it in items:
@@ -554,16 +630,38 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                  and not t.startswith("subject:")
                  and not t.startswith(SOURCE_PREFIX)
                  and t not in (TAG_XNODE, _identity.TAG_ANCHOR, _identity.TAG_TRAIT)]
-        imp = it.get("importance")
+        xid = _xnode_id(from_node, it.get("node_id") or subj)
+        # issue #191：旧包不得覆写新内容（含属主删除后重放复活）。
+        # created_at 是签名载荷的一部分，对端改它即验签失败。
+        last = seen.get(xid)
+        if isinstance(last, (int, float)) and not isinstance(last, bool) \
+                and created <= float(last):
+            replayed += 1
+            continue
+        cur = nodes.get(xid)
+        if cur is not None and TAG_XNODE not in (cur.get("tags") or []):
+            # 同 id 的**本地**节点不得被外来包覆写（accept.py D7）
+            foreign += 1
+            skipped += 1
+            reasons.append("同名本地节点非跨节点证据，拒绝覆写")
+            continue
+        # issue #191：外来数据不能决定本根的保护级 —— 落层白名单 + 重要度夹取
+        layer = it.get("layer") or "knowledge"
+        if layer not in IMPORT_LAYERS:
+            layer = "knowledge"
+            clamped += 1
+        imp = _import_importance(it.get("importance"))
+        if imp != it.get("importance"):
+            clamped += 1
         try:
             _identity.observe(
                 cg, subj, text,
                 kind=it.get("kind"), role=it.get("role"),
-                layer=it.get("layer") or "knowledge",
+                layer=layer,
                 tags=tags,
-                importance=0.5 if imp is None else imp,
+                importance=imp,
                 verification_basis=it.get("verification_basis") or "data",
-                node_id=_xnode_id(from_node, it.get("node_id") or subj),
+                node_id=xid,
                 sensitivity=sens,
                 override=True)
         except _AccessDenied:
@@ -572,7 +670,11 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
             skipped += 1
             reasons.append("本节点密级不足（sensitivity=%s）" % sens)
             continue
-        written.append(_xnode_id(from_node, it.get("node_id") or subj))
+        written.append(xid)
+        seen[xid] = created
+
+    # issue #191：已写条目的版本记录必须落盘 —— 中途抛错也不丢
+    _seen_save(cg, seen)
 
     archived = ""
     archive_skipped = ""
@@ -597,6 +699,7 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                 archived = ""
     return {"ok": True, "from_node": from_node, "pack_id": pack.get("pack_id"),
             "imported": len(written), "skipped": skipped,
+            "clamped": clamped, "replayed": replayed, "foreign": foreign,
             "truncated": len(pack["items"]) > MAX_ITEMS,
             "node_ids": written, "archived": archived,
             # issue #258：拒收理由（封顶 20 条，防灌包刷屏）+ 归档跳过理由
