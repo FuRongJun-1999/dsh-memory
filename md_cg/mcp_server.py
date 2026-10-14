@@ -4316,8 +4316,11 @@ def _resolve_root(env=None):
     env = env if env is not None else os.environ
     root = env.get("MDCG_ROOT")
     tenant = env.get("MDCG_TENANT")
+    # issue #319（2026-10-14 DSH 端）：t_root 必须在**分支之外**先置 None——
+    # 否则「声明了未登记租户」这条路径上 t_root 未定义，下方反查面无法表达
+    # 「身份与根未对照」这一条件。
+    t_root = None
     if tenant:
-        t_root = None
         reg_err = ""
         try:
             from .security import TenantRegistry
@@ -4340,7 +4343,12 @@ def _resolve_root(env=None):
                 return None, (f"MDCG_TENANT={tenant} 已登记根 {t_root}，"
                               f"与显式 MDCG_ROOT={root} 不一致（fail-closed）")
             root = t_root
-    else:
+    # issue #319（2026-10-14 DSH 端）：反查面的条件从「未声明 MDCG_TENANT」
+    # 扩展为「未声明 **或** 声明的租户未登记」。#98 只堵了 tenant 为假这一条
+    # 路径：tenant 为真但未登记时 t_root 为 None，原 `else:` 不执行，程序直接
+    # 用 MDCG_ROOT 不做任何对照 ⇒ 只多设一个 MDCG_TENANT=default（未登记）
+    # 就能拿自己的令牌打开别的已登记租户的根（读 internal 正文 + 写入）。
+    if not (tenant and t_root):
         # issue #98（2026-10-09 DSH 端）：**MDCG_TENANT 未设时的残余面**——原实现此时
         # 直接返回 MDCG_ROOT，既不与登记表对照、也不看令牌属于哪个租户 ⇒
         # 「A 的令牌 + MDCG_ROOT=B 的登记根」可跨租户读 internal 并写入。
@@ -4367,10 +4375,15 @@ def _resolve_root(env=None):
                         _owner98 = _tn
                         break
                 if _owner98:
+                    # issue #319：本面现在也覆盖「声明了未登记租户」这条路径，
+                    # 文案必须按实际情况说——否则失败信息指向错误的原因
+                    # （明明声明了 MDCG_TENANT，却说「未声明」，排查会被带偏）。
+                    _decl = (f"声明的 MDCG_TENANT={tenant} 未登记"
+                             if tenant else "未声明 MDCG_TENANT")
                     return None, (
                         f"MDCG_ROOT={root} 是租户 {_owner98} 的登记根，"
-                        f"但本进程未声明 MDCG_TENANT —— 身份与根未对照，"
-                        f"拒绝启动（fail-closed，issue #98）")
+                        f"但本进程{_decl} —— 身份与根未对照，"
+                        f"拒绝启动（fail-closed，issue #98/#319）")
             except Exception:
                 pass   # 登记表不可用按未登记处理（与上方口径一致）
     return root, None
