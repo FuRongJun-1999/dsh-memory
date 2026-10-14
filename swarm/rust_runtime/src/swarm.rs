@@ -518,9 +518,21 @@ fn replay_wal(
         watermarks: HashMap::new(),
         gossip_sent: HashMap::new(),
     };
+    // fix(#328)：区分"文件不存在"与"读失败"。
+    // read_to_string 在文件存在但含非法 UTF-8（崩溃撕裂写）时同样返回 Err，
+    // 不能与"无 WAL = 首跑"混同，否则 had_wal_file 恒 false 会跳过归档直接截断，
+    // 已验签的审计证据被静默销毁。
+    let wal_exists = std::path::Path::new(wal_path).exists();
     let raw = match std::fs::read_to_string(wal_path) {
         Ok(r) => r,
-        Err(_) => return Ok(rp), // 无 WAL = 首跑
+        Err(_) => {
+            if wal_exists {
+                // 文件存在但读失败：标记有文件，走 archive_corrupt_wal 归档留痕
+                rp.had_wal_file = true;
+            }
+            // 文件不存在 = 首跑（had_wal_file 保持 false，无需归档）
+            return Ok(rp);
+        }
     };
     rp.had_wal_file = true;
     // 第一遍：提交点 = 最后一个通过 HMAC 验签的快照行。
