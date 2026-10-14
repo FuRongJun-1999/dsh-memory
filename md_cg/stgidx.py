@@ -242,7 +242,7 @@ def build(index_obj):
 def verify(ix, nodes):
     """划分不变量自检：返回不一致说明列表（空 = 完好）。"""
     bad = []
-    ends, uncertain = {}, set()
+    ends, starts, uncertain = {}, {}, set()
     for nid, entry in nodes.items():
         start, end = trust.time_window_of(entry, "observed")
         if start is not None and end is not None and math.isfinite(start):
@@ -250,10 +250,11 @@ def verify(ix, nodes):
                 uncertain.add(nid)
             elif end != start:
                 ends[nid] = end
+                starts[nid] = start
     if list(ix.by_end) != sorted((end, nid) for nid, end in ends.items()):
         bad.append("by_end 与观察区间终点不一致")
     if (ix.interval_ends != ends or ix.uncertain_ends != uncertain
-            or set(ix.interval_starts) != set(ends)):
+            or ix.interval_starts != starts):
         bad.append("区间终点分类与快照不一致")
     if ix.by_end._mins != [min(ix.interval_starts[nid] for _end, nid in block)
                            for block in ix.by_end._blocks]:
