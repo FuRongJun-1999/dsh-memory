@@ -467,6 +467,35 @@ def _iso(s) -> Optional[_dt.date]:
         return None
 
 
+_EXPLICIT_DATE_RE = re.compile(r"^\s*(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?![0-9])")
+
+
+# 生效条件：t 为显式 temporal 原值。字符串以 YYYY-MM-DD（或 / 分隔）开头 → 直接取字面日期（墙上日历日，与主机时区无关）；
+# 数值/纯数字串 → 视为 UNIX 秒，经 parse_ts 归一后按 ts_to_date（MDCG_TIME_ANCHOR_TZ）折算，与 created_at 同口径；
+# 其余或不可解析 → None。不把字符串日期经 trust.parse_time（time.mktime，主机本地时区）转成秒再按 UTC 渲染回来——那条往返在非 UTC 主机上会把日期整体偏一天。
+def explicit_date(t, parse_ts=None) -> Optional[_dt.date]:
+    if t is None or isinstance(t, bool):
+        return None
+    if isinstance(t, str):
+        m = _EXPLICIT_DATE_RE.match(t)
+        if m:
+            try:
+                return _D(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            except ValueError:
+                return None
+        try:
+            float(t.strip())
+        except ValueError:
+            return None
+    if parse_ts is None:
+        return None
+    try:
+        ts = parse_ts(t)
+    except Exception:                                      # noqa: BLE001
+        ts = None
+    return ts_to_date(ts)
+
+
 #: node_interval 的来源等级（越小越具体；查询侧排序第一键）。
 SRC_EXPLICIT, SRC_DERIVED, SRC_OBSERVED = 0, 1, 2
 
@@ -476,14 +505,9 @@ def node_interval(fm, parse_ts=None):
     if not isinstance(fm, dict):
         return None
     t = fm.get(EXPLICIT_FIELD)
-    if t is not None and parse_ts is not None:
-        try:
-            ts = parse_ts(t)
-        except Exception:                                  # noqa: BLE001
-            ts = None
-        d = ts_to_date(ts)
-        if d is not None:
-            return (d, d, SRC_EXPLICIT)
+    d = explicit_date(t, parse_ts)
+    if d is not None:
+        return (d, d, SRC_EXPLICIT)
     a = fm.get(DERIVED_FIELD)
     if isinstance(a, dict):
         d0, d1 = _iso(a.get("start")), _iso(a.get("end"))
