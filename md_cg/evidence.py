@@ -639,6 +639,13 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
             imp, c_imp = _import_importance(it.get("importance"))
             clamped += c_layer + c_imp
             xid = _xnode_id(from_node, it.get("node_id") or subj)
+            # issue #333：xid 无长度上界，超长 from_node/subject 生成 212 字符 id，
+            # 后续 cg.add 抛 ValueError 直接逃逸。fail-closed：跳过该条并留痕。
+            _xid_err = _node_id_error(xid)
+            if _xid_err:
+                skipped += 1
+                reasons.append("节点 id 非法（%s）" % _xid_err)
+                continue
             # issue #191-B：旧包重放不得把新证据覆写回旧内容（含属主删除后复活）。
             last = seen.get(xid)
             if (isinstance(last, (int, float)) and not isinstance(last, bool)
