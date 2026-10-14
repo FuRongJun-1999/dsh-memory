@@ -38,7 +38,7 @@ def _check(name, cond, detail=""):
 
 
 sys.path.insert(0, _REPO)
-from md_cg import forgetting, autonomy_modes  # noqa: E402
+from md_cg import forgetting  # noqa: E402
 
 _STAMP = "10-14 22:00"
 
@@ -143,12 +143,18 @@ _check("E4 段边界判据是独立单点函数（_segment_covered 可被直接�
 print("== A7 端到端：MERGE 后更正落进目标正文且可检索 ==")
 _d = tempfile.mkdtemp(prefix="iss323_e2e_")
 try:
+    # G 组反漂移（md_cg/test_autonomy_modes.py）：档位 env 的字面量只许出现在
+    # 唯一入口模块 autonomy_modes.py——守卫里写带引号的档位 env 名会被判红。
+    # 故键取 AUTONOMY_ENV_KEYS，档名从 MATRIX 推（不硬编码字面量）。
+    from md_cg import autonomy_modes as _am
+    _FULL = next(_m for _m in _am.AUTONOMY_MODES
+                 if (_am.MATRIX.get(_m) or {}).get(_am.B_MERGE) == _am.ALLOW)
     os.environ.update({"MDCG_ROOT": _d + "/brain",
         "MDCG_STATE_ROOT": _d + "/state", "MDCG_AUX_ROOT": _d + "/auxstore",
         "MDCG_DATA_ROOT": _d + "/datastore", "MDCG_EXPORT_ROOT": _d,
         "MDCG_TOKEN_FILE": _d + "/auxstore/tokens.json",
         "MDCG_SUSTAIN": "0", "MDCG_SLEEP": "0",
-        autonomy_modes.AUTONOMY_ENV_KEYS["mode"]: "full"})
+        _am.AUTONOMY_ENV_KEYS["mode"]: _FULL})
     from md_cg.mdcos import MdCGSecure
     from md_cg.security import Principal
     from md_cg import mcp_server
