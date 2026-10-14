@@ -907,6 +907,15 @@ def check(cg, content, layer=None, condition_space=None,
                 else:
                     concl = (_cov(tw_content, _norm_ws(e_body))
                              if tw_content else 0.0)
+                    # issue #189：单向覆盖只量「新结论的词在旧结论里出现多少」，
+                    # 新结论整段是旧结论的子串时恒为 1.0（「启用缓存」⊂「不启用缓存」、
+                    # 「超时 30」⊂「超时 300」）⇒ 删掉否定词或末位数字被当成重复。
+                    # 判「相同」须两个方向都达标：正向已达标时再反向量一次取小值；
+                    # 正向未达标时不算反向，既有 conclusion_overlap 读数一字不变。
+                    if concl >= CONCLUSION_SAME:
+                        concl = min(concl, _cov(
+                            expand_query_terms_weighted(_norm_ws(e_body)),
+                            _norm_ws(n_concl)))
                 if concl < CONCLUSION_SAME:
                     divergences.append({
                         "type": "same_condition_divergence", "with": nid,
