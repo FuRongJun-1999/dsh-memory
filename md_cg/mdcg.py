@@ -30,6 +30,7 @@ import threading
 
 from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
                lifecycle, reach, trust, roleviews, fsutil, freshness)
+from . import timeanchor as _timeanchor
 from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
                      read_jsonl, sweep_stale_temps, note_bad_payload_rows)
 
@@ -3038,6 +3039,10 @@ class MdCG:
             "evidence_count": 0, "positive_evidence": 0, "negative_evidence": 0,
         }
         fm.update(extra)
+        # 相对时间锚定（MDCG_TIME_ANCHOR=1，缺省关 ⇒ 零调用、fm 逐位不变）：无显式 temporal
+        # 时把正文里的时间表达以 created_at 为参照归一成派生字段 temporal_anchor；解析不了不写。
+        if _timeanchor.enabled():
+            _timeanchor.apply_on_write(fm, content)
         # issue50-d（2026-10-02）：重要度**来源**声明（"hint"|"heuristic"）落
         # frontmatter——下游免读文件即可判「这条 0.8 是显式声明还是闸门启发式
         # 分」。缺省 None 不落键（既有调用方 fm 形态逐位不变，零回归）。
