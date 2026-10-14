@@ -2142,6 +2142,38 @@ def _import_subsystem_gate(a, ev):
                       % (sub, ev.SUBSYSTEM, why)}
 
 
+# 生效条件：p 具 require_op（Principal）且 a["verification_state"] 归一后属**非中性**
+#   验证态时，转调 p.require_op("verify")（不具 verify op 即抛 AccessDenied）；p 无
+#   require_op 或该参数缺省/空/中性（trust.STATES[0] = unverified）时直接返回，无返回值。
+#   未知取值（不在 trust.STATES 内）同样按非中性处置——fail-closed。
+def _require_verify_for_vstate(p, a):
+    """issue #320（2026-10-15 DSH 端）：写入面自带的验证态声明 = 一次裁决行为。
+
+    病因：`verification_state` 是 op=write 的公开参数（protocol.py 的 write.optional），
+    而 `_cg_dispatch` 只 `require_op("write")`——于是 `record`（ops_allow 无 verify，
+    条约「不得自证」）可声明 `verification_state="verified"` 直接落盘：回执
+    「✓ 已验证（方式=…）」、importance≥0.7 触发不可遗忘保护、只读召回居首，而同一
+    令牌调 mdcg_verify 被 AccessDenied。库层（mdcg.py 的 `trust.require_transition`）
+    只校验**状态机迁移是否合法**（unverified→verified 合法），不看写的人有没有裁决权，
+    也不经 trust.set_state 留台账。
+
+    口径：非中性值一律要求 verify op；中性值与参数缺省不拦（存量调用零影响）。
+    合法路径是 `mdcg_verify`（_MDCG_OP_REQUIRE 映射到 verify op），由它经
+    trust.set_state 留台账。
+    """
+    if p is None or not hasattr(p, "require_op"):
+        return
+    try:
+        from . import trust as _t
+        _neutral = _t.STATES[0]
+    except Exception:                     # noqa: BLE001 —— 不可用时用文档口径
+        _neutral = "unverified"
+    _raw = str(a.get("verification_state") or "").strip().lower()
+    if not _raw or _raw == _neutral:
+        return
+    p.require_op("verify")
+
+
 def _cg_dispatch(cg, a):
     """认知图唯一入口的 op 分发主体。"""
     op = (a.get("op") or "read").strip().lower()
@@ -2153,6 +2185,11 @@ def _cg_dispatch(cg, a):
         # op 词（角色白名单/派生收窄面零改动）：凡 ops 白名单含 write 的角色可
         # 记账，guest/只读令牌照拒。其余 op 逐位不变。
         _p.require_op("write" if op == "state_event" else op)
+    if op == "write":
+        # issue #320：op 名合规（write）不等于**参数**合规——验证态是裁决面，
+        # 按参数再要一次 verify op。单点放在分派层，不下沉到库层：库层不认识角色
+        # 白名单，且写面另有「入队→accept」通道（accept 的裁决权在 admin 手上）。
+        _require_verify_for_vstate(_p, a)
 
     if op == "status":
         return _status_call(cg, a)
