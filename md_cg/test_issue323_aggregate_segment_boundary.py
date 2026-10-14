@@ -38,7 +38,7 @@ def _check(name, cond, detail=""):
 
 
 sys.path.insert(0, _REPO)
-from md_cg import forgetting  # noqa: E402
+from md_cg import forgetting, autonomy_modes  # noqa: E402
 
 _STAMP = "10-14 22:00"
 
@@ -147,7 +147,8 @@ try:
         "MDCG_STATE_ROOT": _d + "/state", "MDCG_AUX_ROOT": _d + "/auxstore",
         "MDCG_DATA_ROOT": _d + "/datastore", "MDCG_EXPORT_ROOT": _d,
         "MDCG_TOKEN_FILE": _d + "/auxstore/tokens.json",
-        "MDCG_SUSTAIN": "0", "MDCG_SLEEP": "0", "MDCG_AUTONOMY": "full"})
+        "MDCG_SUSTAIN": "0", "MDCG_SLEEP": "0",
+        autonomy_modes.AUTONOMY_ENV_KEYS["mode"]: "full"})
     from md_cg.mdcos import MdCGSecure
     from md_cg.security import Principal
     from md_cg import mcp_server
