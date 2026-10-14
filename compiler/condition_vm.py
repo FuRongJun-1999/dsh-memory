@@ -181,6 +181,9 @@ class ConditionVM:
         # 只有一处存储，杜绝名实两套（这是缺陷②的根因）。
         seed_trust = self.symbols.pop(BUILTIN_TRUST_VALUE, None)
         seed_space = self.symbols.pop(BUILTIN_CONDITION_SPACE, None)
+        # issue #331：只读内建名（信任阈值/条件空间名）不得被 symbols 注入遮蔽——直接丢弃
+        for _rn in READONLY_BUILTIN_NAMES:
+            self.symbols.pop(_rn, None)
         self.condition_stack = list(condition_stack or [])  # 条件空间栈
         if seed_trust is not None and not isinstance(seed_trust, (int, float)):
             # N270：注入初值契约与 Rust run（vm.rs:305-312）同判——修复前
