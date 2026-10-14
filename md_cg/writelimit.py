@@ -19,6 +19,9 @@ mem_* 节点；主动遗忘闸门（forgetting.assess）MERGE 命中率仅 1%—
     已落盘的同构组（≥min_group 条）→ 保留最早节点追加成员清单，
     成员降权（importance×0.5，下限 0.1）+ tidy:converged 标记；
     永不删除节点（可逆、可审计），受保护节点跳过。
+    幂等（2026-10-13，issue #190）：已被整理过的节点（tags 含 tidy:converged
+    或 lifecycle_state=="converged"）不再进组、不再降权、不再重写，因此周期
+    巡检第 2 轮起对同一组零落盘；返回 dict 新增键 already_tidied（跳过计数）。
 
 状态持久化 <root>/_writelimit.json（进程重启不失效）；
 env MDCG_WRITELIMIT=0 整体关闭；importance_hint≥0.7（保护优先语义）
@@ -42,6 +45,7 @@ CONVERGE_WINDOW = 86400.0     # 同构聚合窗口（秒，24h）
 MAX_CONTENT = 200             # 参与同构聚合的内容长度上限（字符）
 MIN_SKELETON = 4              # 模板骨架最短长度（防「好的/收到」误聚）
 MAX_APPLY = 500               # tidy 单次落盘成员数上限（防一次改爆）
+TIDY_TAG = "tidy:converged"   # 成员「已整理定型」标记（唯一真源，issue #190）
 
 _RE_URL = re.compile(r"https?://\S+")
 _RE_HEX = re.compile(r"\b[0-9a-fA-F]{12,}\b")
@@ -291,7 +295,22 @@ def converge_into(cg, target: str, content: str, override=False, actor=None,
 
 # ---------- 读侧：已落盘同构组的周期整理（sustain 巡检入口）----------
 
-# 生效条件：形参 cg 的 index["nodes"] 中 layer=="contextual" 且 cg.get 可取的节点按 template_signature 非空分组，扫描到 scanned>=limit（limit=0 立即 break）为止，成员数≥min_group 的组按成员数降序进入 planned；apply 为真且 planned 非空时，逐组循环且累计 n_ap>=MAX_APPLY 后不再开新组（组内成员仍可继续 n_ap 累加超过），跳过 protected/immutable 成员，保留每组最早节点并追加整理聚合、成员降权，输出 out（out["planned"] 仅取 planned[:20]；apply 假或 planned 空直接返回 out）；
+# 生效条件：形参 e 为 cg.get 返回的节点 dict 时，frontmatter["tags"] 含 TIDY_TAG 或 frontmatter[lifecycle.STATE_FIELD]=="converged" 返回 True，否则 False（e 无 frontmatter 也不报错）；
+def _already_tidied(e: dict) -> bool:
+    """该节点是否已被 tidy 整理过（issue #190 幂等判据）。
+
+    只认既有标记：frontmatter["tags"] 里的 TIDY_TAG（历史存量），或显式状态
+    字段 lifecycle.STATE_FIELD == "converged"（② 显式状态机收口后由
+    lifecycle.stamp 写入）。不新增字段、不做迁移，所以修复前已落盘的历史
+    节点天然被认账；两者都缺（未整理过的新节点）返回 False。
+    """
+    fm = e.get("frontmatter") or {}
+    if TIDY_TAG in (fm.get("tags") or []):
+        return True
+    return fm.get(lifecycle.STATE_FIELD) == "converged"
+
+
+# 生效条件：形参 cg 的 index["nodes"] 中 layer=="contextual" 且 cg.get 可取的节点按 template_signature 非空分组，扫描到 scanned>=limit（limit=0 立即 break）为止，成员数≥min_group 的组按成员数降序进入 planned（_already_tidied 为真的节点在扫描阶段即跳过、只计入 out["already_tidied"]）；apply 为真且 planned 非空时，逐组循环且累计 n_ap>=MAX_APPLY 后不再开新组（组内成员仍可继续 n_ap 累加超过），跳过 protected/immutable 成员，保留每组最早节点并追加整理聚合、成员降权，输出 out（out["planned"] 仅取 planned[:20]；apply 假或 planned 空直接返回 out）；
 def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
                     limit=2000) -> dict:
     """扫描 contextual 层已落盘节点，按模板签名分组并整理。
@@ -301,8 +320,14 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
       · 成员节点：tags += tidy:converged、importance×0.5（下限 0.1）
     永不删除节点（可逆、可审计）；protected/immutable 成员跳过；
     apply=False 只盘点不动任何节点。
+
+    幂等（issue #190）：已被整理过的节点（tags 含 tidy:converged 或
+    lifecycle_state=="converged"）在扫描阶段就跳过——不进组、不再降权、不再
+    重写保留节点，所以同一组第 2 轮起 planned 为空、零落盘。返回 dict 新增
+    键 already_tidied（本次跳过的已整理节点数），其余键与语义不变。
     """
     groups: dict = {}
+    already_tidied = 0
     scanned = 0
     for nid, entry in list(getattr(cg, "index", {})
                            .get("nodes", {}).items()):
@@ -314,6 +339,9 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
         if not e:
             continue
         scanned += 1
+        if _already_tidied(e):
+            already_tidied += 1
+            continue
         sig = template_signature(e.get("content") or "")
         if sig:
             groups.setdefault(sig, []).append(e)
@@ -330,6 +358,7 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
     out = {"t": time.time(), "actor": actor, "scanned": scanned,
            "groups": len(planned),
            "members": sum(len(p["members"]) for p in planned),
+           "already_tidied": already_tidied,
            "apply": bool(apply), "planned": planned[:20], "applied": []}
     if not apply or not planned:
         return out
@@ -369,7 +398,7 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
     return out
 
 
-# 生效条件：e 提供 "id"/"path"，对其 frontmatter 副本在 tags 不含 "tidy:converged" 时追加该 tag、importance 置 round(max(0.1, float(fm.get("importance",0.5) or 0)*0.5), 3)，经 lifecycle.stamp(fm,"converged",reason=...,actor=actor) 后 _ok 为真时 setdefault(lifecycle.STATE_FIELD,"converged")，随后 cg._write_node 落盘，且 cg.index["nodes"].get(e["id"]) 非 None 时同步 tags/importance/状态字段到索引。
+# 生效条件：e 提供 "id"/"path"，对其 frontmatter 副本在 tags 不含 TIDY_TAG 时追加该 tag、importance 置 round(max(0.1, float(fm.get("importance",0.5) or 0)*0.5), 3)，经 lifecycle.stamp(fm,"converged",reason=...,actor=actor) 后 _ok 为真时 setdefault(lifecycle.STATE_FIELD,"converged")，随后 cg._write_node 落盘，且 cg.index["nodes"].get(e["id"]) 非 None 时同步 tags/importance/状态字段到索引。
 def _demote(cg, e: dict, actor: str = "sustain_tidy") -> None:
     """成员降权：tags += tidy:converged，importance×0.5（下限 0.1）。
 
@@ -383,8 +412,8 @@ def _demote(cg, e: dict, actor: str = "sustain_tidy") -> None:
     """
     fm = dict(e.get("frontmatter") or {})
     tags = list(fm.get("tags") or [])
-    if "tidy:converged" not in tags:
-        tags.append("tidy:converged")
+    if TIDY_TAG not in tags:
+        tags.append(TIDY_TAG)
     fm["tags"] = tags
     fm["importance"] = round(max(0.1, float(fm.get("importance", 0.5)
                                           or 0) * 0.5), 3)
