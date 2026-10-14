@@ -1,0 +1,337 @@
+{
+  "baseline_commit": "10bc96a28e742e04676556e1a6789f7c873ccdce",
+  "kind": "actual temporary-store guards / named runtime mutations",
+  "platforms": {
+    "windows": {
+      "baseline": {
+        "tests": 10,
+        "passed": 3,
+        "failed": 7,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_budget_applies_across_parents (__main__.Guards.test_budget_applies_across_parents) ... FAIL\ntest_budget_applies_across_second_wave (__main__.Guards.test_budget_applies_across_second_wave) ... FAIL\ntest_convergent_parent_provenance (__main__.Guards.test_convergent_parent_provenance) ... ok\ntest_cycle_and_shared_child_match_bfs_oracle (__main__.Guards.test_cycle_and_shared_child_match_bfs_oracle) ... ok\ntest_doubted_bridge_remains_traversable (__main__.Guards.test_doubted_bridge_remains_traversable) ... ok\ntest_exactly_full_leaf_wave_is_not_truncated (__main__.Guards.test_exactly_full_leaf_wave_is_not_truncated) ... FAIL\ntest_more_roots_than_budget (__main__.Guards.test_more_roots_than_budget) ... FAIL\ntest_negative_budget_is_zero (__main__.Guards.test_negative_budget_is_zero) ... FAIL\ntest_sparse_provenance_work_is_linear (__main__.Guards.test_sparse_provenance_work_is_linear) ... FAIL\ntest_zero_budget_no_admission (__main__.Guards.test_zero_budget_no_admission) ... FAIL\n\n======================================================================\nFAIL: test_budget_applies_across_parents (__main__.Guards.test_budget_applies_across_parents)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-propagate-20261015\\md_cg\\test_trust_bounded_frontier.py\", line 134, in test_budget_applies_across_parents\n    self.assertEqual(rep['updated'], ['child0'], 'six roots leave only one downstream admission')\nAssertionError: Lists differ: ['child0', 'child1', 'child2', 'child3', 'child4', 'child5'] != ['child0']\n\nFirst list contains 5 additional elements.\nFirst extra element 1:\n'child1'\n\n- ['child0', 'child1', 'child2', 'child3', 'child4', 'child5']\n+ ['child0'] : six roots leave only one downstream admission\n\n======================================================================\nFAIL: test_budget_applies_across_second_wave (__main__.Guards.test_budget_applies_across_second_wave)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-propagate-20261015\\md_cg\\test_trust_bounded_frontier.py\", line 146, in test_budget_applies_across_second_wave\n    self.assertEqual([n['node_id'] for n in rep['planned']], ['a', 'b', 'c', 'a0', 'a1'])\nAssertionError: Lists differ: ['a', 'b', 'c', 'a0', 'a1', 'b0', 'c0'] != ['a', 'b', 'c', 'a0', 'a1']\n\nFirst list contains 2 additional elements.\nFirst extra element 5:\n'b0'\n\n- ['a', 'b', 'c', 'a0', 'a1', 'b0', 'c0']\n?                           ------------\n\n+ ['a', 'b', 'c', 'a0', 'a1']\n\n======================================================================\nFAIL: test_exactly_full_leaf_wave_is_not_truncated (__main__.Guards.test_exactly_full_leaf_wave_is_not_truncated)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-propagate-20261015\\md_cg\\test_trust_bounded_frontier.py\", line 208, in test_exactly_full_leaf_wave_is_not_truncated\n    self.assertEqual(rep.get('visited'), 2)\nAssertionError: None != 2\n\n======================================================================\nFAIL: test_more_roots_than_budget (__main__.Guards.test_more_roots_than_budget)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-propagate-20261015\\md_cg\\test_trust_bounded_frontier.py\", line 162, in test_more_roots_than_budget\n    self.assertEqual(rep.get('roots_admitted'), 2)\nAssertionError: None != 2\n\n======================================================================\nFAIL: test_negative_budget_is_zero (__main__.Guards.test_negative_budget_is_zero)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-propagate-20261015\\md_cg\\test_trust_bounded_frontier.py\", line 214, in test_negative_budget_is_zero\n    self.assertEqual(rep['max_nodes'], 0)\nAssertionError: -1 != 0\n\n======================================================================\nFAIL: test_sparse_provenance_work_is_linear (__main__.Guards.test_sparse_provenance_work_is_linear)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-propagate-20261015\\md_cg\\test_trust_bounded_frontier.py\", line 202, in test_sparse_provenance_work_is_linear\n    self.assertLessEqual(work[0], 10*241, 'provenance cannot rescan all child lists per reached node')\nAssertionError: 7260 not less than or equal to 2410 : provenance cannot rescan all child lists per reached node\n\n======================================================================\nFAIL: test_zero_budget_no_admission (__main__.Guards.test_zero_budget_no_admission)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-propagate-20261015\\md_cg\\test_trust_bounded_frontier.py\", line 154, in test_zero_budget_no_admission\n    self.assertEqual(rep.get('visited'), 0)\nAssertionError: None != 0\n\n----------------------------------------------------------------------\nRan 10 tests in 2.386s\n\nFAILED (failures=7)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 10,
+          "passed": 10,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_budget_applies_across_parents (__main__.Guards.test_budget_applies_across_parents) ... ok\ntest_budget_applies_across_second_wave (__main__.Guards.test_budget_applies_across_second_wave) ... ok\ntest_convergent_parent_provenance (__main__.Guards.test_convergent_parent_provenance) ... ok\ntest_cycle_and_shared_child_match_bfs_oracle (__main__.Guards.test_cycle_and_shared_child_match_bfs_oracle) ... ok\ntest_doubted_bridge_remains_traversable (__main__.Guards.test_doubted_bridge_remains_traversable) ... ok\ntest_exactly_full_leaf_wave_is_not_truncated (__main__.Guards.test_exactly_full_leaf_wave_is_not_truncated) ... ok\ntest_more_roots_than_budget (__main__.Guards.test_more_roots_than_budget) ... ok\ntest_negative_budget_is_zero (__main__.Guards.test_negative_budget_is_zero) ... ok\ntest_sparse_provenance_work_is_linear (__main__.Guards.test_sparse_provenance_work_is_linear) ... ok\ntest_zero_budget_no_admission (__main__.Guards.test_zero_budget_no_admission) ... ok\n\n----------------------------------------------------------------------\nRan 10 tests in 2.801s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "remove cross-parent cap",
+            "test": "Guards.test_budget_applies_across_parents",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_budget_applies_across_parents (__main__.Guards.test_budget_applies_across_parents) ... FAIL\n\n======================================================================\nFAIL: test_budget_applies_across_parents (__main__.Guards.test_budget_applies_across_parents)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-propagate-20261015\\md_cg\\test_trust_bounded_frontier.py\", line 134, in test_budget_applies_across_parents\n    self.assertEqual(rep['updated'], ['child0'], 'six roots leave only one downstream admission')\nAssertionError: Lists differ: ['child0', 'child1', 'child2', 'child3', 'child4', 'child5'] != ['child0']\n\nFirst list contains 5 additional elements.\nFirst extra element 1:\n'child1'\n\n- ['child0', 'child1', 'child2', 'child3', 'child4', 'child5']\n+ ['child0'] : six roots leave only one downstream admission\n\n----------------------------------------------------------------------\nRan 1 test in 0.310s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "c09932cd6f125718ab820fbef15830c541179b1191665a9d341494680af5495a"
+          },
+          {
+            "name": "erase provenance parents",
+            "test": "Guards.test_convergent_parent_provenance",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_convergent_parent_provenance (__main__.Guards.test_convergent_parent_provenance) ... FAIL\n\n======================================================================\nFAIL: test_convergent_parent_provenance (__main__.Guards.test_convergent_parent_provenance)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-propagate-20261015\\md_cg\\test_trust_bounded_frontier.py\", line 183, in test_convergent_parent_provenance\n    self.assertEqual(rep['planned'], [{'node_id': 'child', 'depth': 1, 'via': ['a', 'b']}])\nAssertionError: Lists differ: [{'node_id': 'child', 'depth': 1, 'via': []}] != [{'node_id': 'child', 'depth': 1, 'via': ['a', 'b']}]\n\nFirst differing element 0:\n{'node_id': 'child', 'depth': 1, 'via': []}\n{'node_id': 'child', 'depth': 1, 'via': ['a', 'b']}\n\n- [{'depth': 1, 'node_id': 'child', 'via': []}]\n+ [{'depth': 1, 'node_id': 'child', 'via': ['a', 'b']}]\n?                                           ++++++++\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.066s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "c09932cd6f125718ab820fbef15830c541179b1191665a9d341494680af5495a"
+          },
+          {
+            "name": "stop at doubted bridge",
+            "test": "Guards.test_doubted_bridge_remains_traversable",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_doubted_bridge_remains_traversable (__main__.Guards.test_doubted_bridge_remains_traversable) ... FAIL\n\n======================================================================\nFAIL: test_doubted_bridge_remains_traversable (__main__.Guards.test_doubted_bridge_remains_traversable)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-propagate-20261015\\md_cg\\test_trust_bounded_frontier.py\", line 171, in test_doubted_bridge_remains_traversable\n    self.assertEqual([n['node_id'] for n in rep['planned']], ['leaf'])\nAssertionError: Lists differ: [] != ['leaf']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'leaf'\n\n- []\n+ ['leaf']\n\n----------------------------------------------------------------------\nRan 1 test in 0.063s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "c09932cd6f125718ab820fbef15830c541179b1191665a9d341494680af5495a"
+          },
+          {
+            "name": "restore quadratic provenance scan",
+            "test": "Guards.test_sparse_provenance_work_is_linear",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_sparse_provenance_work_is_linear (__main__.Guards.test_sparse_provenance_work_is_linear) ... FAIL\n\n======================================================================\nFAIL: test_sparse_provenance_work_is_linear (__main__.Guards.test_sparse_provenance_work_is_linear)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-propagate-20261015\\md_cg\\test_trust_bounded_frontier.py\", line 202, in test_sparse_provenance_work_is_linear\n    self.assertLessEqual(work[0], 10*241, 'provenance cannot rescan all child lists per reached node')\nAssertionError: 7260 not less than or equal to 2410 : provenance cannot rescan all child lists per reached node\n\n----------------------------------------------------------------------\nRan 1 test in 2.096s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "c09932cd6f125718ab820fbef15830c541179b1191665a9d341494680af5495a"
+          }
+        ],
+        "restored": {
+          "tests": 10,
+          "passed": 10,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_budget_applies_across_parents (__main__.Guards.test_budget_applies_across_parents) ... ok\ntest_budget_applies_across_second_wave (__main__.Guards.test_budget_applies_across_second_wave) ... ok\ntest_convergent_parent_provenance (__main__.Guards.test_convergent_parent_provenance) ... ok\ntest_cycle_and_shared_child_match_bfs_oracle (__main__.Guards.test_cycle_and_shared_child_match_bfs_oracle) ... ok\ntest_doubted_bridge_remains_traversable (__main__.Guards.test_doubted_bridge_remains_traversable) ... ok\ntest_exactly_full_leaf_wave_is_not_truncated (__main__.Guards.test_exactly_full_leaf_wave_is_not_truncated) ... ok\ntest_more_roots_than_budget (__main__.Guards.test_more_roots_than_budget) ... ok\ntest_negative_budget_is_zero (__main__.Guards.test_negative_budget_is_zero) ... ok\ntest_sparse_provenance_work_is_linear (__main__.Guards.test_sparse_provenance_work_is_linear) ... ok\ntest_zero_budget_no_admission (__main__.Guards.test_zero_budget_no_admission) ... ok\n\n----------------------------------------------------------------------\nRan 10 tests in 2.961s\n\nOK\n"
+        },
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      },
+      "related_regressions": [
+        {
+          "module": "md_cg.test_trust",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.588,
+          "tail": "--- ① 裁决\n--- ② 解析\n--- ③ 时间轴\n--- ④ 缺省/幂等\n--- ⑤ set_state\n--- ⑥ 覆写继承\n--- ⑦ 反查索引\n--- ⑧ 一跳同步传播\n--- ⑨ 多跳异步传播\n--- ⑩ 写入闸门\n--- ⑪ 输出协议\n--- ⑫ 巡检/自描述\n--- ⑬ MCP 面：status op / 状态头 / 写闸硬拒\n\nPASS=127 FAIL=0\n"
+        },
+        {
+          "module": "md_cg.test_coldverify_drain",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.268,
+          "tail": "[PASS] G4 未调 start_worker() ⇒ worker_alive is False（opt-in 未被破坏）  · worker_alive=False\n[PASS] G2 预演不消费：队列文件逐字节不变且 processed 不增  · file_same=True proc 0->0\n[PASS] G3 预演非空转：would_process 与队首 3 条一致  · n=3 ids=['n0', 'n1', 'n2']\n[PASS] G5 status 含 oldest_age_s 且与队首条目一致（±2s）  · age=0.0 exp=0.0\n[PASS] G1 受控消费：drain(limit=3) 后队列清空、processed 增 3  · size=0 processed=3\n\n================================================================\n通过 5 ／ 失败 0\n================================================================\n"
+        },
+        {
+          "module": "md_cg.test_issue265_coldverify_multiproc",
+          "args": [],
+          "exit": 1,
+          "seconds": 3.034,
+          "tail": "ok   S2b 两条分别是 liveA 与 liveB\n== S3 同进程两实例（各自先构造再各自入队）==\n  ok   S3a 盘上 **2** 条（改前=1）\n  ok   S3b 两实例内存各 1 条（内存面本就独立）\n== S4 drain 只删自己消费的 ==\n  ok   S4-pre 盘上两条都在（追加生效）\n  ok   S4-pre2 qc 只认 consume_me_A\n  ok   S4a 自己消费的已从盘上摘除\n  ok   S4b ★ 他实例未消费的条目**留在盘上**\n  ok   S4c 盘上恰 1 条\n== S5 半截行：整份队列仍恢复，且后续追加不粘连 ==\n  ok   S5a ★ 半截行不阻断整份恢复（改前=0 条）\n  ok   S5b 追加的新条目可读（未粘在半截行上）\n  ok   S5c 两行好条目仍在\n== S6 反陈化：三处理由在源码里 ==\n  ok   S6a 标注 issue #265\n  ok   S6b 写明「追加在物理上抹不掉别人的条目」\n  ok   S6c 写明「只删自己消费的」\n  ok   S6d 写明半截行/整份不恢复的旧病象\n  ok   S6e 写明跨进程 FileLock 的必要性（与读改写互斥）\n== S7 修复前原形（提交前/后都稳定）==\n       （修复前源取自 引入提交 e8a296d8 的父版本）\n  ok   S7a 修复前无 _append_persisted\n  ok   S7b 修复前无 _drop_persisted\n  ok   S7c ★ 修复前的 _persist 确是「全量覆写」原形\n== S8 代价不退化（报告要求「同量级」）==\n       中位=8.028ms 首50=6.934ms 末50=8.874ms（改前实测中位 0.407ms）\n  FAIL S8a 入队中位 < 5ms/次（宽裕上界，防退化）  8.02779999867198\n  ok   S8b 追加是 O(1)：末 50 次 ≤ 首 50 次的 3 倍\n== S9 既有语义不破 ==\n  ok   S9a 崩溃恢复：新实例恢复未处理任务\n  ok   S9b clear() 仍清空队列文件\n  ok   S9c 加载路径只收合法 action\n  ok   S9d 非法 action 计入 skipped（可审计）\n  ok   S9e ★ dry_run 前后队列文件**逐字节不变**（#72 G2）\n== S10 墓碑：_done 条目加载时跳过 ==\n  ok   S10a _done 条目不恢复\n  ok   S10b 未消费条目照常恢复\n\n冷路径跨实例守卫：34 通过，1 失败\n"
+        },
+        {
+          "module": "md_cg.test_n176_link_trust",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.442,
+          "tail": "== X1 record 角色权限面（哑令牌临时库）==\n  OK   X1a record 令牌可签发（哑临时令牌文件）\n  OK   X1b record can_write=True\n  OK   X1c record ops_allow 含 ccg\n  OK   X1d 令牌主体=worker-a\n== X2 攻击复现：编造名无令牌签章 → link(apply=true) 必须拒 ==\n  OK   X2a compile success（攻击面成立）\n  OK   X2b 编造名过 attest（E041 只拦同源，病灶如实留证）\n  OK   X2c link(apply=true) 拒绝且 written==0（E052）\n  OK   X2d knowledge 层未被写入（六要素仍不全）\n  OK   X2e 未进入检索传播（盘上正文无六行）\n== X3 link_pending 同闸 ==\n  OK   X3a link_pending(apply=true) 拒绝（E052）\n  OK   X3b pending 保留（暂存非存档，可待令牌复核）\n== X4 MCP 工具面同闸 ==\n  OK   X4a MCP compile 成功并落 pending\n  OK   X4b MCP attest 自报签章通过（病灶如实留证）\n  OK   X4c MCP link(apply=true) 拒绝（E052）\n== X5 对照面：有令牌签章正常落库 ==\n  OK   X5a 令牌签章 identity=token 且覆盖自报\n  OK   X5b 有令牌签章 link 落库六行\n  OK   X5c 六要素齐备（正常通路不受影响）\n== X6 对照面：同源 E041 不动 ==\n  OK   X6a 同源变体仍 E041\n== X7 dry-run 不拦 ==\n  OK   X7a dry-run ok=True 且附 E052 预告 warning\n  OK   X7b dry-run 确未写入\n\nALL OK: 20 项（N176 无令牌签章不落 knowledge 层守卫全绿）\n"
+        },
+        {
+          "module": "md_cg.test_n123_derive_expiry_chain",
+          "args": [],
+          "exit": 0,
+          "seconds": 1.188,
+          "tail": "\n[1] derive 夹紧：子 expires_at = min(请求值, 父 expires_at)\n  [PASS] 子令牌过期时间不超过父令牌  · child-parent=0.0s（旧代码 +999639s）\n  [PASS] 夹紧开口 clamped 标注 expires_at  · clamped=['expires_at']\n\n[2] verify 沿链传播：父记录过期 → 子令牌拒绝\n  [PASS] 父令牌过期被拒（基线，旧代码即拦）  · 令牌已过期\n  [PASS] 父过期后子令牌沿链拒验（N123 核心断言）  · 令牌已失效：派生链祖先 tk_e813d39047b2 已过期（过期沿派生链传播）\n\n[3] 端到端：父 ttl=0.4 自然到期 → 长 TTL 子令牌（ttl=999999）失效\n  [PASS] 派生时子界已被父夹紧  · child=1791995222.3 parent=1791995222.3\n  [PASS] 父自然到期被拒  · 令牌已过期\n  [PASS] 子令牌随父到期失效（修复前：verify OK 继续用）  · 令牌已过期\n\n[4] 父无界：子 TTL 取请求值\n  [PASS] 父无界 expires_at=None\n  [PASS] 父无界时子 expires_at=now+60（取请求值）  · delta=60.0s\n  [PASS] 父无界夹紧不开口  · clamped=[]\n  [PASS] 子短于父取请求值\n  [PASS] 子未指定 ttl 沿用父界（无界父→无界子）  · expires_at=None\n\n[5] 子自身过期仍拦截\n  [PASS] 子自身先到期被拒  · 令牌已过期\n\n[6] 存量库三层链传播 + parent 环防护\n  [PASS] 中间层过期 → 孙令牌沿链拒验  · 令牌已失效：派生链祖先 tk_6f43a4a57729 已过期（过期沿派生链传播）\n  [PASS] 沿链校验无死循环（<2s）  · 0.016s\n  [PASS] parent 环不挂死（防环）  · 0.000s\n\n通过 16 / 失败 0\n"
+        },
+        {
+          "module": "md_cg.test_trust_edge_reachability",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.389,
+          "tail": ", want, reason=why,\n  PASS E2 具名实现点仍在：md_cg/trust.py :: r = set_state(cg, k, \"doubted\", reason=reason,\n  PASS E2 死边的成因片段仍在：unverified→expired :: if old_state == \"unverified\":\n== E3 死边冻结：条数不得增加 ==\n  PASS E3 死边条数 ≤ 1（实际 1）——新增死边须先说明为何是必要的\n== E4 反陈化：死边**现在真的**不可达（真跑 coldverify）==\n  PASS E4a 前置：探针节点的状态确为 unverified（实际 'unverified'）\n  PASS E4b 死边仍不可达：coldverify 对 unverified 返回 unverified_no_action（实际 ['unverified_no_action']）\n  PASS E4c 死边未被执行：状态仍为 unverified（实际 'unverified'）\n  PASS E4d 反向腿前置：对照节点已被置为 verified（实际 'verified'）\n  PASS E4e 反向腿：非 unverified 节点**不**被同一跳过分支拦下（实际 [None]）\n  PASS E4f 该边经公共 API 仍可达（ok=True）——「死边」= 无自动实现点，非表内拒绝\n  PASS E4g 公共 API 调用后状态确为 expired（实际 'expired'）\n== E5 表与裁决函数逐位一致 ==\n  PASS E5a can_transition 与 TRANSITIONS 在 5×5 全格上逐位一致\n  PASS E5b 未知 src 按 unverified 处理（unverified→verified 合法）\n  PASS E5c dst 非 STATES 一律拒绝\n  PASS E5d 同状态幂等放行\n== E6 拒绝必须被报出（不静默）==\n  PASS E6a 前置：dn 确已声明依赖 up（实际 ['up']）\n  PASS E6b 非 expired 下游可被标 doubted（changed=1 终态='doubted'）\n  PASS E6c expired 下游未被改动（终态 'expired'）\n  PASS E6d 拒绝**被报出**（skipped 非空）：['dn(illegal_transition)']\n  PASS E6e skipped 里带机器码 illegal_transition：['dn(illegal_transition)']\n\n迁移边可达性守卫：28 通过，0 失败\n"
+        },
+        {
+          "module": "md_cg.test_p8_subgraph_chain",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.589,
+          "tail": ", '服务在运行']\n  [PASS] 只走 causal（不含 sequential）\n  [PASS] relation_types 过滤生效  · [{'start': 'job', 'nodes': ['job', 'job2'], 'hops': [{'from': 'job', 'to': 'job2', 'relation_type': 'sequential', 'weight': 0.6, 'condition': '顺序执行'}], 'conditions': ['顺序执行'], 'weight': 0.6, 'depth': 1, 'avg_weight': 0.6}]\n  [PASS] causal 过滤下不含 sequential 边\n  [PASS] direction=in 反向可达\n  [PASS] visited 剪枝：环链不无限增长  · [1]\n  [PASS] explain 输出「条件→结果」步骤  · {'条件': '数据库在运行', '关系': 'causal', '置信': 0.765, '结果': 'svc'}\n  [PASS] 边无条件 → 回退节点生效条件  · ['午夜窗口']\n  [PASS] 种子扩散打分 = 种子 × 链权 × decay^跳  · 0.6885\n  [PASS] 层级 part_of 边参与链遍历  · [['r', 'a'], ['r', 'b'], ['r', 'a', 'a1']]\n\n[C] 检索接入（chain 路 + 可审计 provenance）\n  [PASS] chain 路召回链下游节点  · ['api', 'svc', 'db', 'job2', 'job']\n  [PASS] provenance 标注 chain 路  · ['svc', 'api', 'job2']\n  [PASS] provenance 带条件序列（可审计）  · [{'path': 'chain', 'rank': 2, 'chain': ['db', 'svc'], 'conditions': ['数据库在运行']}]\n  [PASS] 默认检索路**含** chain（P3：进缺省集；原断言为「不含」）  · ['chain', 'graph', 'lexical']\n  [PASS] 显式不含 chain 时该路不出现（分路开关保留）  · ['graph', 'lexical']\n  [PASS] 公开 API：subgraph_expand/flatten/validate/roots\n  [PASS] 公开 API：causal_chain/explain_chain\n\n==== P8 结果：35 通过 / 0 失败 ====\n"
+        },
+        {
+          "module": "md_cg.test_lifecycle",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.522,
+          "tail": "7 add 覆写显式非法状态 → 硬拒\n[ok] ④8 硬拒后磁盘内容未被改写（校验先于写盘）\n[ok] ⑤1 同状态幂等（noop / changed=False）\n[ok] ⑤2 幂等不刷历史\n[ok] ⑤3 幂等不写审计\n[ok] ⑥0 新建即自动受保护（importance≥0.7）\n[ok] ⑥1 受保护节点降级被拒 → protected 码\n[ok] ⑥2 拒绝后状态未变（保护 = 不可遗忘）\n[ok] ⑥3 override=True 放行降级\n[ok] ⑥4 回升不受保护限制（无需 override）\n[ok] ⑦1 裸 add 覆写**继承**旧状态（不静默打回 active）\n[ok] ⑦2 继承后索引仍是 converged\n[ok] ⑦3 显式合法迁移放行（converged→active）\n[ok] ⑦4 新节点显式状态从 active 起算（active→converged 合法）\n[ok] ⑧0 旧库形态成立（字段已摘除）\n[ok] ⑧1 dry-run 盘点缺失且不改盘\n[ok] ⑧2 apply 回填为显式 active\n[ok] ⑧3 回填幂等（第二次无缺失）\n[ok] ⑧4 缺字段节点在回填前也按 active 工作（state_of 缺省）\n[ok] ⑨1 tidy 降权 → lifecycle_state=converged\n[ok] ⑨2 兼容别名 tidy:converged tag 保留（历史数据不破）\n[ok] ⑨3 降权后索引同步 converged\n[ok] ⑨4 MERGE 强化 → 逐级回升 active\n[ok] ⑨5 回升与 importance 强化同批落盘（+delta）\n[ok] ⑨6 两处收口共用同一迁移历史（active→converged→active 两条，同一 actor 面）\n[ok] ⑨7 强化 active 节点：状态幂等（不刷历史、不误降）\n[ok] ⑩1 状态字段名与裁决四态 state 不撞名（消歧）\n[ok] ⑩2 set_state 返回体恒带 from/to/code（可审计）\n[ok] ⑩3 迁移历史滚动上限（不无界膨胀）\n==========================================================\ntest_lifecycle: 55 通过 / 0 失败\n[fsutil] ShardedLog 分片目录缺失，已重建（目录 _index_log，调用点 append）——本进程持有的分片实例不自愈；本次后进程内累计重建 1 次。排查方向：库根 _index_log/ 被外部清理/还原删掉，或库根被换过；正文 .md 未受影响，索引缺口由重放/全库扫描补齐。\n"
+        }
+      ]
+    },
+    "linux": {
+      "baseline": {
+        "tests": 10,
+        "passed": 3,
+        "failed": 7,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_budget_applies_across_parents (__main__.Guards.test_budget_applies_across_parents) ... FAIL\ntest_budget_applies_across_second_wave (__main__.Guards.test_budget_applies_across_second_wave) ... FAIL\ntest_convergent_parent_provenance (__main__.Guards.test_convergent_parent_provenance) ... ok\ntest_cycle_and_shared_child_match_bfs_oracle (__main__.Guards.test_cycle_and_shared_child_match_bfs_oracle) ... ok\ntest_doubted_bridge_remains_traversable (__main__.Guards.test_doubted_bridge_remains_traversable) ... ok\ntest_exactly_full_leaf_wave_is_not_truncated (__main__.Guards.test_exactly_full_leaf_wave_is_not_truncated) ... FAIL\ntest_more_roots_than_budget (__main__.Guards.test_more_roots_than_budget) ... FAIL\ntest_negative_budget_is_zero (__main__.Guards.test_negative_budget_is_zero) ... FAIL\ntest_sparse_provenance_work_is_linear (__main__.Guards.test_sparse_provenance_work_is_linear) ... FAIL\ntest_zero_budget_no_admission (__main__.Guards.test_zero_budget_no_admission) ... FAIL\n\n======================================================================\nFAIL: test_budget_applies_across_parents (__main__.Guards.test_budget_applies_across_parents)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-propagate-20261015/md_cg/test_trust_bounded_frontier.py\", line 134, in test_budget_applies_across_parents\n    self.assertEqual(rep['updated'], ['child0'], 'six roots leave only one downstream admission')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['child0', 'child1', 'child2', 'child3', 'child4', 'child5'] != ['child0']\n\nFirst list contains 5 additional elements.\nFirst extra element 1:\n'child1'\n\n- ['child0', 'child1', 'child2', 'child3', 'child4', 'child5']\n+ ['child0'] : six roots leave only one downstream admission\n\n======================================================================\nFAIL: test_budget_applies_across_second_wave (__main__.Guards.test_budget_applies_across_second_wave)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-propagate-20261015/md_cg/test_trust_bounded_frontier.py\", line 146, in test_budget_applies_across_second_wave\n    self.assertEqual([n['node_id'] for n in rep['planned']], ['a', 'b', 'c', 'a0', 'a1'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['a', 'b', 'c', 'a0', 'a1', 'b0', 'c0'] != ['a', 'b', 'c', 'a0', 'a1']\n\nFirst list contains 2 additional elements.\nFirst extra element 5:\n'b0'\n\n- ['a', 'b', 'c', 'a0', 'a1', 'b0', 'c0']\n?                           ------------\n\n+ ['a', 'b', 'c', 'a0', 'a1']\n\n======================================================================\nFAIL: test_exactly_full_leaf_wave_is_not_truncated (__main__.Guards.test_exactly_full_leaf_wave_is_not_truncated)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-propagate-20261015/md_cg/test_trust_bounded_frontier.py\", line 208, in test_exactly_full_leaf_wave_is_not_truncated\n    self.assertEqual(rep.get('visited'), 2)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != 2\n\n======================================================================\nFAIL: test_more_roots_than_budget (__main__.Guards.test_more_roots_than_budget)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-propagate-20261015/md_cg/test_trust_bounded_frontier.py\", line 162, in test_more_roots_than_budget\n    self.assertEqual(rep.get('roots_admitted'), 2)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != 2\n\n======================================================================\nFAIL: test_negative_budget_is_zero (__main__.Guards.test_negative_budget_is_zero)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-propagate-20261015/md_cg/test_trust_bounded_frontier.py\", line 214, in test_negative_budget_is_zero\n    self.assertEqual(rep['max_nodes'], 0)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\nAssertionError: -1 != 0\n\n======================================================================\nFAIL: test_sparse_provenance_work_is_linear (__main__.Guards.test_sparse_provenance_work_is_linear)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-propagate-20261015/md_cg/test_trust_bounded_frontier.py\", line 202, in test_sparse_provenance_work_is_linear\n    self.assertLessEqual(work[0], 10*241, 'provenance cannot rescan all child lists per reached node')\n    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 7260 not less than or equal to 2410 : provenance cannot rescan all child lists per reached node\n\n======================================================================\nFAIL: test_zero_budget_no_admission (__main__.Guards.test_zero_budget_no_admission)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-propagate-20261015/md_cg/test_trust_bounded_frontier.py\", line 154, in test_zero_budget_no_admission\n    self.assertEqual(rep.get('visited'), 0)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != 0\n\n----------------------------------------------------------------------\nRan 10 tests in 23.064s\n\nFAILED (failures=7)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 10,
+          "passed": 10,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_budget_applies_across_parents (__main__.Guards.test_budget_applies_across_parents) ... ok\ntest_budget_applies_across_second_wave (__main__.Guards.test_budget_applies_across_second_wave) ... ok\ntest_convergent_parent_provenance (__main__.Guards.test_convergent_parent_provenance) ... ok\ntest_cycle_and_shared_child_match_bfs_oracle (__main__.Guards.test_cycle_and_shared_child_match_bfs_oracle) ... ok\ntest_doubted_bridge_remains_traversable (__main__.Guards.test_doubted_bridge_remains_traversable) ... ok\ntest_exactly_full_leaf_wave_is_not_truncated (__main__.Guards.test_exactly_full_leaf_wave_is_not_truncated) ... ok\ntest_more_roots_than_budget (__main__.Guards.test_more_roots_than_budget) ... ok\ntest_negative_budget_is_zero (__main__.Guards.test_negative_budget_is_zero) ... ok\ntest_sparse_provenance_work_is_linear (__main__.Guards.test_sparse_provenance_work_is_linear) ... ok\ntest_zero_budget_no_admission (__main__.Guards.test_zero_budget_no_admission) ... ok\n\n----------------------------------------------------------------------\nRan 10 tests in 12.995s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "remove cross-parent cap",
+            "test": "Guards.test_budget_applies_across_parents",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_budget_applies_across_parents (__main__.Guards.test_budget_applies_across_parents) ... FAIL\n\n======================================================================\nFAIL: test_budget_applies_across_parents (__main__.Guards.test_budget_applies_across_parents)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-propagate-20261015/md_cg/test_trust_bounded_frontier.py\", line 134, in test_budget_applies_across_parents\n    self.assertEqual(rep['updated'], ['child0'], 'six roots leave only one downstream admission')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['child0', 'child1', 'child2', 'child3', 'child4', 'child5'] != ['child0']\n\nFirst list contains 5 additional elements.\nFirst extra element 1:\n'child1'\n\n- ['child0', 'child1', 'child2', 'child3', 'child4', 'child5']\n+ ['child0'] : six roots leave only one downstream admission\n\n----------------------------------------------------------------------\nRan 1 test in 2.004s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "c09932cd6f125718ab820fbef15830c541179b1191665a9d341494680af5495a"
+          },
+          {
+            "name": "erase provenance parents",
+            "test": "Guards.test_convergent_parent_provenance",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_convergent_parent_provenance (__main__.Guards.test_convergent_parent_provenance) ... FAIL\n\n======================================================================\nFAIL: test_convergent_parent_provenance (__main__.Guards.test_convergent_parent_provenance)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-propagate-20261015/md_cg/test_trust_bounded_frontier.py\", line 183, in test_convergent_parent_provenance\n    self.assertEqual(rep['planned'], [{'node_id': 'child', 'depth': 1, 'via': ['a', 'b']}])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [{'node_id': 'child', 'depth': 1, 'via': []}] != [{'node_id': 'child', 'depth': 1, 'via': ['a', 'b']}]\n\nFirst differing element 0:\n{'node_id': 'child', 'depth': 1, 'via': []}\n{'node_id': 'child', 'depth': 1, 'via': ['a', 'b']}\n\n- [{'depth': 1, 'node_id': 'child', 'via': []}]\n+ [{'depth': 1, 'node_id': 'child', 'via': ['a', 'b']}]\n?                                           ++++++++\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.396s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "c09932cd6f125718ab820fbef15830c541179b1191665a9d341494680af5495a"
+          },
+          {
+            "name": "stop at doubted bridge",
+            "test": "Guards.test_doubted_bridge_remains_traversable",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_doubted_bridge_remains_traversable (__main__.Guards.test_doubted_bridge_remains_traversable) ... FAIL\n\n======================================================================\nFAIL: test_doubted_bridge_remains_traversable (__main__.Guards.test_doubted_bridge_remains_traversable)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-propagate-20261015/md_cg/test_trust_bounded_frontier.py\", line 171, in test_doubted_bridge_remains_traversable\n    self.assertEqual([n['node_id'] for n in rep['planned']], ['leaf'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != ['leaf']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'leaf'\n\n- []\n+ ['leaf']\n\n----------------------------------------------------------------------\nRan 1 test in 0.405s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "c09932cd6f125718ab820fbef15830c541179b1191665a9d341494680af5495a"
+          },
+          {
+            "name": "restore quadratic provenance scan",
+            "test": "Guards.test_sparse_provenance_work_is_linear",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_sparse_provenance_work_is_linear (__main__.Guards.test_sparse_provenance_work_is_linear) ... FAIL\n\n======================================================================\nFAIL: test_sparse_provenance_work_is_linear (__main__.Guards.test_sparse_provenance_work_is_linear)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-propagate-20261015/md_cg/test_trust_bounded_frontier.py\", line 202, in test_sparse_provenance_work_is_linear\n    self.assertLessEqual(work[0], 10*241, 'provenance cannot rescan all child lists per reached node')\n    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 7260 not less than or equal to 2410 : provenance cannot rescan all child lists per reached node\n\n----------------------------------------------------------------------\nRan 1 test in 10.541s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "c09932cd6f125718ab820fbef15830c541179b1191665a9d341494680af5495a"
+          }
+        ],
+        "restored": {
+          "tests": 10,
+          "passed": 10,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_budget_applies_across_parents (__main__.Guards.test_budget_applies_across_parents) ... ok\ntest_budget_applies_across_second_wave (__main__.Guards.test_budget_applies_across_second_wave) ... ok\ntest_convergent_parent_provenance (__main__.Guards.test_convergent_parent_provenance) ... ok\ntest_cycle_and_shared_child_match_bfs_oracle (__main__.Guards.test_cycle_and_shared_child_match_bfs_oracle) ... ok\ntest_doubted_bridge_remains_traversable (__main__.Guards.test_doubted_bridge_remains_traversable) ... ok\ntest_exactly_full_leaf_wave_is_not_truncated (__main__.Guards.test_exactly_full_leaf_wave_is_not_truncated) ... ok\ntest_more_roots_than_budget (__main__.Guards.test_more_roots_than_budget) ... ok\ntest_negative_budget_is_zero (__main__.Guards.test_negative_budget_is_zero) ... ok\ntest_sparse_provenance_work_is_linear (__main__.Guards.test_sparse_provenance_work_is_linear) ... ok\ntest_zero_budget_no_admission (__main__.Guards.test_zero_budget_no_admission) ... ok\n\n----------------------------------------------------------------------\nRan 10 tests in 21.417s\n\nOK\n"
+        },
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      }
+    },
+    "linux-native": {
+      "related_regressions": [
+        {
+          "module": "md_cg.test_trust",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.699,
+          "tail": "--- ① 裁决\n--- ② 解析\n--- ③ 时间轴\n--- ④ 缺省/幂等\n--- ⑤ set_state\n--- ⑥ 覆写继承\n--- ⑦ 反查索引\n--- ⑧ 一跳同步传播\n--- ⑨ 多跳异步传播\n--- ⑩ 写入闸门\n--- ⑪ 输出协议\n--- ⑫ 巡检/自描述\n--- ⑬ MCP 面：status op / 状态头 / 写闸硬拒\n\nPASS=127 FAIL=0\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_coldverify_drain",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.68,
+          "tail": "[PASS] G4 未调 start_worker() ⇒ worker_alive is False（opt-in 未被破坏）  · worker_alive=False\n[PASS] G2 预演不消费：队列文件逐字节不变且 processed 不增  · file_same=True proc 0->0\n[PASS] G3 预演非空转：would_process 与队首 3 条一致  · n=3 ids=['n0', 'n1', 'n2']\n[PASS] G5 status 含 oldest_age_s 且与队首条目一致（±2s）  · age=0.0 exp=0.0\n[PASS] G1 受控消费：drain(limit=3) 后队列清空、processed 增 3  · size=0 processed=3\n\n================================================================\n通过 5 ／ 失败 0\n================================================================\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_issue265_coldverify_multiproc",
+          "args": [],
+          "exit": 0,
+          "seconds": 2.275,
+          "tail": "* 条（改前=1）\n  ok   S3b 两实例内存各 1 条（内存面本就独立）\n== S4 drain 只删自己消费的 ==\n  ok   S4-pre 盘上两条都在（追加生效）\n  ok   S4-pre2 qc 只认 consume_me_A\n  ok   S4a 自己消费的已从盘上摘除\n  ok   S4b ★ 他实例未消费的条目**留在盘上**\n  ok   S4c 盘上恰 1 条\n== S5 半截行：整份队列仍恢复，且后续追加不粘连 ==\n  ok   S5a ★ 半截行不阻断整份恢复（改前=0 条）\n  ok   S5b 追加的新条目可读（未粘在半截行上）\n  ok   S5c 两行好条目仍在\n== S6 反陈化：三处理由在源码里 ==\n  ok   S6a 标注 issue #265\n  ok   S6b 写明「追加在物理上抹不掉别人的条目」\n  ok   S6c 写明「只删自己消费的」\n  ok   S6d 写明半截行/整份不恢复的旧病象\n  ok   S6e 写明跨进程 FileLock 的必要性（与读改写互斥）\n== S7 修复前原形（提交前/后都稳定）==\n       （修复前源取自 引入提交 e8a296d8 的父版本）\n  ok   S7a 修复前无 _append_persisted\n  ok   S7b 修复前无 _drop_persisted\n  ok   S7c ★ 修复前的 _persist 确是「全量覆写」原形\n== S8 代价不退化（报告要求「同量级」）==\n       中位=0.049ms 首50=0.050ms 末50=0.049ms（改前实测中位 0.407ms）\n  ok   S8a 入队中位 < 5ms/次（宽裕上界，防退化）\n  ok   S8b 追加是 O(1)：末 50 次 ≤ 首 50 次的 3 倍\n== S9 既有语义不破 ==\n  ok   S9a 崩溃恢复：新实例恢复未处理任务\n  ok   S9b clear() 仍清空队列文件\n  ok   S9c 加载路径只收合法 action\n  ok   S9d 非法 action 计入 skipped（可审计）\n  ok   S9e ★ dry_run 前后队列文件**逐字节不变**（#72 G2）\n== S10 墓碑：_done 条目加载时跳过 ==\n  ok   S10a _done 条目不恢复\n  ok   S10b 未消费条目照常恢复\n\n冷路径跨实例守卫：35 通过，0 失败\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_n176_link_trust",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.792,
+          "tail": "== X1 record 角色权限面（哑令牌临时库）==\n  OK   X1a record 令牌可签发（哑临时令牌文件）\n  OK   X1b record can_write=True\n  OK   X1c record ops_allow 含 ccg\n  OK   X1d 令牌主体=worker-a\n== X2 攻击复现：编造名无令牌签章 → link(apply=true) 必须拒 ==\n  OK   X2a compile success（攻击面成立）\n  OK   X2b 编造名过 attest（E041 只拦同源，病灶如实留证）\n  OK   X2c link(apply=true) 拒绝且 written==0（E052）\n  OK   X2d knowledge 层未被写入（六要素仍不全）\n  OK   X2e 未进入检索传播（盘上正文无六行）\n== X3 link_pending 同闸 ==\n  OK   X3a link_pending(apply=true) 拒绝（E052）\n  OK   X3b pending 保留（暂存非存档，可待令牌复核）\n== X4 MCP 工具面同闸 ==\n  OK   X4a MCP compile 成功并落 pending\n  OK   X4b MCP attest 自报签章通过（病灶如实留证）\n  OK   X4c MCP link(apply=true) 拒绝（E052）\n== X5 对照面：有令牌签章正常落库 ==\n  OK   X5a 令牌签章 identity=token 且覆盖自报\n  OK   X5b 有令牌签章 link 落库六行\n  OK   X5c 六要素齐备（正常通路不受影响）\n== X6 对照面：同源 E041 不动 ==\n  OK   X6a 同源变体仍 E041\n== X7 dry-run 不拦 ==\n  OK   X7a dry-run ok=True 且附 E052 预告 warning\n  OK   X7b dry-run 确未写入\n\nALL OK: 20 项（N176 无令牌签章不落 knowledge 层守卫全绿）\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_n123_derive_expiry_chain",
+          "args": [],
+          "exit": 0,
+          "seconds": 1.384,
+          "tail": "\n[1] derive 夹紧：子 expires_at = min(请求值, 父 expires_at)\n  [PASS] 子令牌过期时间不超过父令牌  · child-parent=0.0s（旧代码 +999639s）\n  [PASS] 夹紧开口 clamped 标注 expires_at  · clamped=['expires_at']\n\n[2] verify 沿链传播：父记录过期 → 子令牌拒绝\n  [PASS] 父令牌过期被拒（基线，旧代码即拦）  · 令牌已过期\n  [PASS] 父过期后子令牌沿链拒验（N123 核心断言）  · 令牌已失效：派生链祖先 tk_5a67337d0802 已过期（过期沿派生链传播）\n\n[3] 端到端：父 ttl=0.4 自然到期 → 长 TTL 子令牌（ttl=999999）失效\n  [PASS] 派生时子界已被父夹紧  · child=1791995680.7 parent=1791995680.7\n  [PASS] 父自然到期被拒  · 令牌已过期\n  [PASS] 子令牌随父到期失效（修复前：verify OK 继续用）  · 令牌已过期\n\n[4] 父无界：子 TTL 取请求值\n  [PASS] 父无界 expires_at=None\n  [PASS] 父无界时子 expires_at=now+60（取请求值）  · delta=60.0s\n  [PASS] 父无界夹紧不开口  · clamped=[]\n  [PASS] 子短于父取请求值\n  [PASS] 子未指定 ttl 沿用父界（无界父→无界子）  · expires_at=None\n\n[5] 子自身过期仍拦截\n  [PASS] 子自身先到期被拒  · 令牌已过期\n\n[6] 存量库三层链传播 + parent 环防护\n  [PASS] 中间层过期 → 孙令牌沿链拒验  · 令牌已失效：派生链祖先 tk_4746836e8a42 已过期（过期沿派生链传播）\n  [PASS] 沿链校验无死循环（<2s）  · 0.000s\n  [PASS] parent 环不挂死（防环）  · 0.000s\n\n通过 16 / 失败 0\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_trust_edge_reachability",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.701,
+          "tail": "ASS E2 死边的成因片段仍在：unverified→expired :: if old_state == \"unverified\":\n== E3 死边冻结：条数不得增加 ==\n  PASS E3 死边条数 ≤ 1（实际 1）——新增死边须先说明为何是必要的\n== E4 反陈化：死边**现在真的**不可达（真跑 coldverify）==\n  PASS E4a 前置：探针节点的状态确为 unverified（实际 'unverified'）\n  PASS E4b 死边仍不可达：coldverify 对 unverified 返回 unverified_no_action（实际 ['unverified_no_action']）\n  PASS E4c 死边未被执行：状态仍为 unverified（实际 'unverified'）\n  PASS E4d 反向腿前置：对照节点已被置为 verified（实际 'verified'）\n  PASS E4e 反向腿：非 unverified 节点**不**被同一跳过分支拦下（实际 [None]）\n  PASS E4f 该边经公共 API 仍可达（ok=True）——「死边」= 无自动实现点，非表内拒绝\n  PASS E4g 公共 API 调用后状态确为 expired（实际 'expired'）\n== E5 表与裁决函数逐位一致 ==\n  PASS E5a can_transition 与 TRANSITIONS 在 5×5 全格上逐位一致\n  PASS E5b 未知 src 按 unverified 处理（unverified→verified 合法）\n  PASS E5c dst 非 STATES 一律拒绝\n  PASS E5d 同状态幂等放行\n== E6 拒绝必须被报出（不静默）==\n  PASS E6a 前置：dn 确已声明依赖 up（实际 ['up']）\n  PASS E6b 非 expired 下游可被标 doubted（changed=1 终态='doubted'）\n  PASS E6c expired 下游未被改动（终态 'expired'）\n  PASS E6d 拒绝**被报出**（skipped 非空）：['dn(illegal_transition)']\n  PASS E6e skipped 里带机器码 illegal_transition：['dn(illegal_transition)']\n\n迁移边可达性守卫：28 通过，0 失败\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_p8_subgraph_chain",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.765,
+          "tail": " 'job2'], 'hops': [{'from': 'job', 'to': 'job2', 'relation_type': 'sequential', 'weight': 0.6, 'condition': '顺序执行'}], 'conditions': ['顺序执行'], 'weight': 0.6, 'depth': 1, 'avg_weight': 0.6}]\n  [PASS] causal 过滤下不含 sequential 边\n  [PASS] direction=in 反向可达\n  [PASS] visited 剪枝：环链不无限增长  · [1]\n  [PASS] explain 输出「条件→结果」步骤  · {'条件': '数据库在运行', '关系': 'causal', '置信': 0.765, '结果': 'svc'}\n  [PASS] 边无条件 → 回退节点生效条件  · ['午夜窗口']\n  [PASS] 种子扩散打分 = 种子 × 链权 × decay^跳  · 0.6885\n  [PASS] 层级 part_of 边参与链遍历  · [['r', 'a'], ['r', 'b'], ['r', 'a', 'a1']]\n\n[C] 检索接入（chain 路 + 可审计 provenance）\n  [PASS] chain 路召回链下游节点  · ['api', 'svc', 'db', 'job2', 'job']\n  [PASS] provenance 标注 chain 路  · ['svc', 'api', 'job2']\n  [PASS] provenance 带条件序列（可审计）  · [{'path': 'chain', 'rank': 2, 'chain': ['db', 'svc'], 'conditions': ['数据库在运行']}]\n  [PASS] 默认检索路**含** chain（P3：进缺省集；原断言为「不含」）  · ['chain', 'graph', 'lexical']\n  [PASS] 显式不含 chain 时该路不出现（分路开关保留）  · ['graph', 'lexical']\n  [PASS] 公开 API：subgraph_expand/flatten/validate/roots\n  [PASS] 公开 API：causal_chain/explain_chain\n\n==== P8 结果：35 通过 / 0 失败 ====\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_lifecycle",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.673,
+          "tail": "ok] ⑤3 幂等不写审计\n[ok] ⑥0 新建即自动受保护（importance≥0.7）\n[ok] ⑥1 受保护节点降级被拒 → protected 码\n[ok] ⑥2 拒绝后状态未变（保护 = 不可遗忘）\n[ok] ⑥3 override=True 放行降级\n[ok] ⑥4 回升不受保护限制（无需 override）\n[ok] ⑦1 裸 add 覆写**继承**旧状态（不静默打回 active）\n[ok] ⑦2 继承后索引仍是 converged\n[ok] ⑦3 显式合法迁移放行（converged→active）\n[ok] ⑦4 新节点显式状态从 active 起算（active→converged 合法）\n[ok] ⑧0 旧库形态成立（字段已摘除）\n[ok] ⑧1 dry-run 盘点缺失且不改盘\n[ok] ⑧2 apply 回填为显式 active\n[ok] ⑧3 回填幂等（第二次无缺失）\n[ok] ⑧4 缺字段节点在回填前也按 active 工作（state_of 缺省）\n[ok] ⑨1 tidy 降权 → lifecycle_state=converged\n[ok] ⑨2 兼容别名 tidy:converged tag 保留（历史数据不破）\n[ok] ⑨3 降权后索引同步 converged\n[ok] ⑨4 MERGE 强化 → 逐级回升 active\n[ok] ⑨5 回升与 importance 强化同批落盘（+delta）\n[ok] ⑨6 两处收口共用同一迁移历史（active→converged→active 两条，同一 actor 面）\n[ok] ⑨7 强化 active 节点：状态幂等（不刷历史、不误降）\n[ok] ⑩1 状态字段名与裁决四态 state 不撞名（消歧）\n[ok] ⑩2 set_state 返回体恒带 from/to/code（可审计）\n[ok] ⑩3 迁移历史滚动上限（不无界膨胀）\n==========================================================\ntest_lifecycle: 55 通过 / 0 失败\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000[fsutil] ShardedLog 分片目录缺失，已重建（目录 _index_log，调用点 append）——本进程持有的分片实例不自愈；本次后进程内累计重建 1 次。排查方向：库根 _index_log/ 被外部清理/还原删掉，或库根被换过；正文 .md 未受影响，索引缺口由重放/全库扫描补齐。\n"
+        }
+      ]
+    }
+  },
+  "known_baseline_windows_failure": "== S1 结构：追加 + 只删自己消费的 ==\n  ok   S1a enqueue 走 _append_persisted\n  ok   S1b enqueue **不再**走 _persist（全量覆写）\n  ok   S1c drain 走 _drop_persisted\n  ok   S1d drain **不再**走 _persist\n  ok   S1e _append_persisted 用 O_APPEND 追加\n  ok   S1f _drop_persisted 用 FileLock(strict=True) + atomic_write\n== S2 ★ 两进程（真并发、同根）各自入队 ==\n  ok   S2a 盘上 **2** 条（改前=1，后写者抹掉先写者）\n  ok   S2b 两条分别是 liveA 与 liveB\n== S3 同进程两实例（各自先构造再各自入队）==\n  ok   S3a 盘上 **2** 条（改前=1）\n  ok   S3b 两实例内存各 1 条（内存面本就独立）\n== S4 drain 只删自己消费的 ==\n  ok   S4-pre 盘上两条都在（追加生效）\n  ok   S4-pre2 qc 只认 consume_me_A\n  ok   S4a 自己消费的已从盘上摘除\n  ok   S4b ★ 他实例未消费的条目**留在盘上**\n  ok   S4c 盘上恰 1 条\n== S5 半截行：整份队列仍恢复，且后续追加不粘连 ==\n  ok   S5a ★ 半截行不阻断整份恢复（改前=0 条）\n  ok   S5b 追加的新条目可读（未粘在半截行上）\n  ok   S5c 两行好条目仍在\n== S6 反陈化：三处理由在源码里 ==\n  ok   S6a 标注 issue #265\n  ok   S6b 写明「追加在物理上抹不掉别人的条目」\n  ok   S6c 写明「只删自己消费的」\n  ok   S6d 写明半截行/整份不恢复的旧病象\n  ok   S6e 写明跨进程 FileLock 的必要性（与读改写互斥）\n== S7 修复前原形（提交前/后都稳定）==\n       （修复前源取自 引入提交 e8a296d8 的父版本）\n  ok   S7a 修复前无 _append_persisted\n  ok   S7b 修复前无 _drop_persisted\n  ok   S7c ★ 修复前的 _persist 确是「全量覆写」原形\n== S8 代价不退化（报告要求「同量级」）==\n       中位=8.262ms 首50=7.322ms 末50=9.136ms（改前实测中位 0.407ms）\n  FAIL S8a 入队中位 < 5ms/次（宽裕上界，防退化）  8.26210000377614\n  ok   S8b 追加是 O(1)：末 50 次 ≤ 首 50 次的 3 倍\n== S9 既有语义不破 ==\n  ok   S9a 崩溃恢复：新实例恢复未处理任务\n  ok   S9b clear() 仍清空队列文件\n  ok   S9c 加载路径只收合法 action\n  ok   S9d 非法 action 计入 skipped（可审计）\n  ok   S9e ★ dry_run 前后队列文件**逐字节不变**（#72 G2）\n== S10 墓碑：_done 条目加载时跳过 ==\n  ok   S10a _done 条目不恢复\n  ok   S10b 未消费条目照常恢复\n\n冷路径跨实例守卫：34 通过，1 失败\n",
+  "benchmark_baseline": {
+    "shape": "one expired root, N unverified leaf dependencies",
+    "nodes": 5001,
+    "edges": 5000,
+    "apply": false,
+    "dataset_sha256": "b6ba3e840688e232d2d774ccaa38a1ccdaf5d5059b00447bf6c53ed4e5af6099",
+    "timings_ms": [
+      166.47859999648063,
+      152.34369999961928,
+      156.4208999989205,
+      152.75839999958407,
+      151.5350000045146
+    ],
+    "median_ms": 152.75839999958407,
+    "reachable": 5000,
+    "visited": null,
+    "truncated": null
+  },
+  "benchmark_fixed": {
+    "shape": "one expired root, N unverified leaf dependencies",
+    "nodes": 5001,
+    "edges": 5000,
+    "apply": false,
+    "dataset_sha256": "b6ba3e840688e232d2d774ccaa38a1ccdaf5d5059b00447bf6c53ed4e5af6099",
+    "timings_ms": [
+      20.425099995918572,
+      11.758900000131689,
+      20.229900001140777,
+      11.546999994607177,
+      9.790799995244015
+    ],
+    "median_ms": 11.758900000131689,
+    "reachable": 5000,
+    "visited": 5001,
+    "truncated": false
+  }
+}

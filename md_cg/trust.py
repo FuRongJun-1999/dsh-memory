@@ -809,33 +809,51 @@ def propagate(cg, *, apply: bool = False, max_nodes: int = MAX_NODES_DEFAULT,
         if st in ("expired", "rechecking"):
             roots.append(nid)
     roots.sort()
-    seen, waves, passed = set(roots), [], set()
-    frontier, depth = list(roots), 0
-    while frontier and len(seen) < int(max_nodes):
+    cap = max(0, int(max_nodes))
+    admitted_roots = roots[:cap]
+    seen, waves, passed = set(admitted_roots), [], set()
+    root_set = set(roots)
+    frontier, depth = list(admitted_roots), 0
+    truncated = len(admitted_roots) < len(roots)
+    while frontier and len(seen) < cap:
         depth += 1
         nxt = []
         for nid in frontier:
             for k in dep_map.get(nid, []):
-                if k in seen:
+                if k in seen or k in root_set:
                     continue
+                # The cap applies across the whole wave, not once per parent.
+                if len(seen) >= cap:
+                    truncated = True
+                    break
                 seen.add(k)
                 if state_of(nodes.get(k) or {}) == "doubted":
                     passed.add(k)       # 穿过但不重复标记（不是终点）
                 nxt.append(k)
-                if len(seen) >= int(max_nodes):
-                    break
+            if truncated:
+                break
         for k in nxt:
             if k in passed:
                 continue                # 已 doubted：无需再标（幂等）
             waves.append({"node_id": k, "depth": depth,
-                          "via": sorted(n for n in dep_map if k in dep_map[n]
-                                        and n in seen)})
+                          # Incoming dependencies are already on this entry.
+                          # Scanning every parent's child list per result was
+                          # quadratic even for a sparse star/chain graph.
+                          "via": sorted(n for n in as_deps((nodes.get(k) or {}).get(DEPS_FIELD))
+                                        if n in seen)})
+        if truncated:
+            break
         frontier = nxt
+    if frontier and len(seen) >= cap and not truncated:
+        truncated = any(k not in seen and k not in root_set
+                        for nid in frontier for k in dep_map.get(nid, ()))
+    bounds = {"visited": len(seen), "truncated": truncated,
+              "roots_admitted": len(admitted_roots)}
     if not apply:
         return {"ok": True, "dry_run": True, "roots": roots[:50],
                 "roots_count": len(roots), "reachable": len(waves),
                 "planned": waves[:50], "passed_doubted": sorted(passed)[:20],
-                "max_nodes": int(max_nodes),
+                "max_nodes": cap, **bounds,
                 "note": "预演：未改盘；只降不升（复核须显式）"}
     done, skipped = [], []
     for w in waves:
@@ -849,7 +867,7 @@ def propagate(cg, *, apply: bool = False, max_nodes: int = MAX_NODES_DEFAULT,
     return {"ok": True, "dry_run": False, "roots": roots[:50],
             "roots_count": len(roots), "updated": done, "updated_count": len(done),
             "passed_doubted": sorted(passed)[:20],
-            "skipped": skipped[:20], "max_nodes": int(max_nodes)}
+            "skipped": skipped[:20], "max_nodes": cap, **bounds}
 
 
 # ---------------------------------------------------------------- 巡检 / 回填
