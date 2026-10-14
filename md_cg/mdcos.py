@@ -907,10 +907,13 @@ class MdCGOS(MdCG):
             except OSError:
                 pass
             self._rotate_audit_if_needed()
-    # #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
-    # 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
-    # （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
-            _ok = append_jsonl(self.audit_log, rec)
+            # issue #549：审计账本是**不可丢**的治理面（被 admission 等消费做状态
+            # 推断；缺行使「发生过」与「没发生过」不可区分），而缺省 append_jsonl
+            # 在 Windows 上多写者并发实测丢 29–39%。故此处走 durable=True ——
+            # 把「判半截行 + 追加」收进 FileLock(strict=True) 临界区。
+            # #326-④：同时显式消费返回值（不留裸调用，守卫 AST 钉子会抓）——
+            # 失败源已记 fsutil.APPEND_FAILURES + 有界 stderr 告警（B 面单点）。
+            _ok = append_jsonl(self.audit_log, rec, durable=True)
         except OSError:
             pass
 

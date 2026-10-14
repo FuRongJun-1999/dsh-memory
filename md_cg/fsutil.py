@@ -293,7 +293,13 @@ def ends_mid_line(path: str) -> bool:
         return False
 
 
-# 生效条件：record 序列化为 json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"；若 ends_mid_line(path) 为真则在行首再补一个 "\n"；随后建父目录并以 O_CREAT|O_WRONLY|O_APPEND、权限 0o600 打开 path 写入该行 UTF-8 字节后关闭；成功返回 True；os.makedirs/os.open/os.write 抛 OSError（磁盘满/只读介质/权限拒绝/路径过长）时**兜住并返回 False**（best-effort 契约：簿记写入失败不得升级为业务路径失败，issue #326-④）；KeyboardInterrupt/SystemExit 是 BaseException、不在兜住面内，照常上抛。
+# 生效条件：record 序列化为 json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"；若 ends_mid_line(path) 为真则在行首再补一个 "\n"；
+# 随后建父目录并以 O_CREAT|O_WRONLY|O_APPEND、权限 0o600 打开 path 写入该行 UTF-8 字节后关闭；成功返回 True；
+# **durable=True 时整段「追加」收进 FileLock(path, strict=True) 临界区**（issue #549：审计账本等不可丢的写面）；
+# os.makedirs/os.open/os.write 抛 OSError（磁盘满/只读介质/权限拒绝/路径过长）时**兜住并返回 False**
+# （best-effort 契约：簿记写入失败不得升级为业务路径失败，issue #326-④）；KeyboardInterrupt/SystemExit 是
+# BaseException、不在兜住面内，照常上抛。
+# 参数关系（两批改动正交，合并保留）：strict=「失败是否上抛」(#326-④) · durable=「是否进临界区」(#549)。
 #: 写失败累计计数 + **有界**样本（issue #326-④ B 面）。
 #: 为什么在源头记账：`append_jsonl` 的失败契约是**返回值**（不上抛）——若无本地捕获的
 #: 调用点只是忽略返回值，失败就**静默**了（本仓 121 个调用点属此类）。把失败信号收成
@@ -324,7 +330,8 @@ def _note_append_failure(path, exc):
     return False
 
 
-def append_jsonl(path: str, record: dict, strict: bool = False) -> bool:
+def append_jsonl(path: str, record: dict, strict: bool = False,
+                 durable: bool = False) -> bool:
     """向 append-only 日志追加一条记录（best-effort 语义）：成功 True、写失败 False。
 
     注意 O_APPEND 的原子性是**平台相关**的：POSIX 保证「定位到末尾 + 写入」是
@@ -348,13 +355,48 @@ def append_jsonl(path: str, record: dict, strict: bool = False) -> bool:
     「没落盘」当成功回执发出去。**不新增第四种失败编码**：上抛的异常由工具面按仓内
     既有三种编码（业务失败 isError=false+JSON / 异常 isError=true+JSON / read 缺失
     null）中的「异常」形态呈现，不自创形态。
+
+    因此**缺省**（`durable=False`）仍只用于**丢一条无所谓**的簿记（访问计数）；
+    任何不能丢的东西（索引增量）**首选** ShardedLog——每个写者独占一个分片，
+    不共享写入点，物理上无从冲突。
+
+    issue #549（2026-10-14）：但**审计账本**（`MdCGOS._audit` 的 `_audit.jsonl`）
+    此前也走本函数缺省路径，实测 6 进程 × 20 条在多写者下静默丢
+    **29.2% / 36.7% / 39.2%**（三轮），且 `add` 仍返回成功、worker 零报错 ——
+    而该账本被 `admission` 等消费做状态推断，缺行使审计追溯出现
+    **无法察觉的空洞**（「发生过」与「没发生过」不可区分）。
+    审计账本的写点分散且要参与轮转，改 ShardedLog 需动读面与轮转器；
+    故此处提供 **`durable=True`**：把「判半截行 + 追加」整段收进
+    `FileLock(strict=True)` 临界区（该锁的既有语义即「不能丢的写」），
+    以最小改动关掉静默丢行。
+
+    `durable=True` 的代价是**锁定串行化**（并发写审计会排队）。
+    按既有价值序（`FileLock` 注释：写被拒绝的代价大于一次竞态，而**不能丢的写**
+    宁可让写入者等一下）——审计账本属「不能丢」，故取 strict 语义：
+    锁竞争超时**显式抛错**给调用方，而不是静默退化为无锁并发再丢行。
     """
     line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
-    if ends_mid_line(path):
-        line = "\n" + line
     d = os.path.dirname(os.path.abspath(path)) or "."
     try:
         os.makedirs(d, exist_ok=True)
+        if durable:
+            # issue #549：整段临界区——判半截行与追加必须原子（否则两个写者可同时
+            # 判定「上一行完整」而各自直接追加，交错仍会丢）。
+            # 注：不加 ".lock" 后缀的第二把锁——FileLock 内部即以 path + ".lock" 命名，
+            # 与本文件其他写点（inbox/decisions）同构。
+            # 失败契约与下方共用：临界区内抛 OSError 同样落到 _note_append_failure；
+            # `strict=True` 时同一条腿再上抛（两参数正交，见上方契约注释）。
+            with FileLock(path, strict=True):
+                if ends_mid_line(path):
+                    line = "\n" + line
+                fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+                try:
+                    os.write(fd, line.encode("utf-8"))
+                finally:
+                    os.close(fd)
+            return True
+        if ends_mid_line(path):
+            line = "\n" + line
         fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
     except OSError as e:
         _note = _note_append_failure(path, e)
