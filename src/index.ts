@@ -270,6 +270,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       actor: config.mdcg.actor,
       clearance: config.mdcg.clearance,
       autoIssue: !legacyAuth,
+      // #224：租户与 config.env 透传——cordis.yml 的 mdcg.tenant 进令牌、
+      // config.env 的 MDCG_AUX_ROOT 进密钥环路径解析
+      tenant: config.mdcg.tenant,
+      envOverride: config.env,
     })
     cred = resolution
     // 注入子进程 env：显式配置与密钥环都在此汇合成**唯一**的 MDCG_TOKEN。
