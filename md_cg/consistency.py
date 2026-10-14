@@ -50,7 +50,7 @@ import json
 import os
 import time
 
-from .mdcg import expand_query_terms_weighted
+from .mdcg import expand_query_terms_weighted, _ensure_list
 from . import nodefile
 from .fsutil import ends_mid_line
 
@@ -315,7 +315,7 @@ def _new_terms(content, condition_space, non_applicable_conditions):
             pos.extend(str(x) for x in val)
         elif val not in (None, ""):
             pos.append(str(val))
-    neg.extend(str(x) for x in (non_applicable_conditions or []))
+    neg.extend(str(x) for x in _ensure_list(non_applicable_conditions))
     v2 = _ccg_field(content or "", "不适用条件")
     if v2:
         neg.append(v2)

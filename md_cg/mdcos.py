@@ -29,7 +29,7 @@ import uuid
 from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT,
                    STATE_REJECT, STATE_DEFER, STATE_BLINDSPOT, TIER_BUCKET_LIKE,
                    TIER_BUCKET_SCAN, TIER_GLOBAL_LIKE, TIER_GLOBAL_SCAN,
-                   GLOBAL_CAP, expand_query_terms_weighted,
+                   GLOBAL_CAP, expand_query_terms_weighted, _ensure_list,
                    expand_query_terms_llm, en_zh_bigrams, semantic_on,
                    cut_by_relevance, apply_retrieval_gates, NEG_ROUTE_LAYERS,
                    # P2-3（§5.4）：六要素后两行索引键的召回判据单点（mdcg 侧）
@@ -517,7 +517,7 @@ def _declared_conditions(fm: dict, content: str):
                 _push(pos, x)
         for x in (comment.get("不适用条件") or []):
             _push(neg, x)
-    for x in (fm.get("non_applicable_conditions") or []):
+    for x in _ensure_list(fm.get("non_applicable_conditions")):
         _push(neg, x)
     return pos, neg
 
@@ -3371,8 +3371,8 @@ class MdCGOS(MdCG):
             merged_content = (tgt["content"].rstrip() + "\n\n" +
                               item["content"].strip() + "\n")
             # 不适用条件并集（保序去重）
-            neg = list(fm.get("non_applicable_conditions") or [])
-            for x in (item.get("extra") or {}).get("non_applicable_conditions") or []:
+            neg = _ensure_list(fm.get("non_applicable_conditions"))
+            for x in _ensure_list((item.get("extra") or {}).get("non_applicable_conditions")):
                 if x not in neg:
                     neg.append(x)
             fm["non_applicable_conditions"] = neg
