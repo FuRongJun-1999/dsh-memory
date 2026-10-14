@@ -5144,6 +5144,17 @@ class MdCG:
             trust.UNTIL_FIELD: fm.get(trust.UNTIL_FIELD),
             trust.EFFECTIVE_FROM_FIELD: fm.get(trust.EFFECTIVE_FROM_FIELD),
             trust.EFFECTIVE_UNTIL_FIELD: fm.get(trust.EFFECTIVE_UNTIL_FIELD),
+            # #192（2026-10-14）：搬迁条目与 _node_entry / add() 同口径——
+            # 缺这些键 ⇒ 分支实验副本在默认检索出现、
+            # role=tool-output 的工作节点不被剔除、content_kind=work_wip
+            # 草稿进入 verifier 视图。
+            "role": fm.get("role"),
+            "content_kind": fm.get("content_kind"),
+            "session": fm.get("session"),
+            "branch_id": fm.get("branch_id"),
+            "branched_from": fm.get("branched_from"),
+            "derived_from": fm.get("derived_from") or [],
+            lifecycle.STATE_FIELD: fm.get(lifecycle.STATE_FIELD),
         }))
         self.index["buckets"] = self._count_buckets(self.index["nodes"])
         return {"id": node_id, "from": from_layer, "to": to_layer,
