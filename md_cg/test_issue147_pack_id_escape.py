@@ -106,8 +106,13 @@ def _sandbox():
 
 
 def _pack(pid):
+    # #258 起：条目必须带**可判定**的 sensitivity，否则 import_pack 的归档闸按
+    # fail-closed 拒绝写收件箱（整包明文里可能含判不了档位的正文）。本夹具代表
+    # 当前格式的证据包，故显式声明 internal——否则 G2「合法 pack_id 不误伤」会
+    # 因「未归档」转红，与本守卫要钉的 pack_id 穿越无关。
     return {"kind": ev.KIND, "schema": ev.SCHEMA, "from_node": "attacker",
-            "pack_id": pid, "items": [{"subject": "s", "text": "t"}],
+            "pack_id": pid, "items": [{"subject": "s", "text": "t",
+                                       "sensitivity": "internal"}],
             "sig": {"signer": "null", "signature": "", "signed": False}}
 
 

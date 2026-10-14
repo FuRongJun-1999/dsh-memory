@@ -409,6 +409,23 @@ def _item_sensitivity(it) -> str | None:
     return s if s in SENSITIVITY_ORDER else None
 
 
+def _pack_has_unarchivable(pack) -> bool:
+    """整包里是否存在「不能明文归档」的条目（归档闸的**唯一判据点**）。
+
+    归档写的是**整包明文 JSON**（write_pack(pack)），所以闸不能只看「已写盘的
+    条目」：缺 sensitivity 字段、非法档位、超出 items[:MAX_ITEMS] 的尾部条目、
+    subject/text 为空而在档位校验前 continue 的条目，都不会进 written，却都会被
+    整包写进收件箱。判不了档位与加密档位同等处理（返回 True ⇒ fail-closed）。
+    """
+    for it in ((pack or {}).get("items") or []):
+        if not isinstance(it, dict):
+            return True
+        sens = _item_sensitivity(it)
+        if sens is None or sens in _encrypted_levels():
+            return True
+    return False
+
+
 # 生效条件：当传入 pack、reason、swarm、**kw 时，构建含 at、reason、from_node、pack_id 及 kw 中非 None 项的拒绝记录，尝试追加到 inbox_dir(swarm)/_rejected.jsonl（OSError 忽略），返回 {"ok": False, "rejected": True, "reason": reason, "from_node": ...} 并合并 kw 中非 None 项。
 def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
     rec = {"at": time.time(), "reason": reason,
@@ -427,7 +444,7 @@ def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
     return out
 
 
-# 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、且有签名或 signer 等于 "null" 方可通过；通过则对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，importance 默认 0.5，verification_basis 默认 "data"，**sensitivity 取条目声明档位并经 _item_sensitivity 校验：缺字段/非字符串/未知档一律 fail-closed 计入 skipped 不写盘；写入遇 AccessDenied（导入方密级不足）同样计入 skipped 不降级落盘**），统计 written/skipped，若 archive 为真**且包内不含 private/secret 条目**则写包到收件箱（含加密档位时 fail-closed 不落，理由见返回体的 archive_skipped），返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived、archive_skipped 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
+# 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、且有签名或 signer 等于 "null" 方可通过；通过则对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，importance 默认 0.5，verification_basis 默认 "data"，**sensitivity 取条目声明档位并经 _item_sensitivity 校验：缺字段/非字符串/未知档一律 fail-closed 计入 skipped 不写盘；写入遇 AccessDenied（导入方密级不足）同样计入 skipped 不降级落盘**），统计 written/skipped，若 archive 为真**且整包不含 private/secret 或判不了档位的条目**（判据单点 _pack_has_unarchivable，扫**整包全部条目**而非仅已写盘者）则写包到收件箱（否则 fail-closed 不落，理由见返回体的 archive_skipped），返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived、archive_skipped 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
 def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                 signers_file: str = None, archive: bool = True) -> dict:
     """导入对端证据包：验签 → 落本根（带 `source:<node>` 标签）。
@@ -461,7 +478,6 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
 
     items = pack["items"][:MAX_ITEMS]
     written, skipped = [], 0
-    encrypted_seen = False
     for it in items:
         if not isinstance(it, dict):
             skipped += 1
@@ -477,8 +493,6 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
             # internal 落盘正是本件要消灭的降级形态（#164「判不了不生成」同口径）。
             skipped += 1
             continue
-        if sens in _encrypted_levels():
-            encrypted_seen = True
         tags = [TAG_XNODE, f"{SOURCE_PREFIX}{from_node}"]
         tags += [t for t in (it.get("tags") or [])
                  if isinstance(t, str) and t
@@ -505,12 +519,13 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
 
     archived = ""
     archive_skipped = ""
-    if archive and encrypted_seen:
-        # 包内含 private/secret 条目 ⇒ fail-closed 不落收件箱：归档写的是
-        # **明文 JSON**，落一份就等于把密文档位的正文再明文落一遍。
+    if archive and _pack_has_unarchivable(pack):
+        # 包内含 private/secret **或判不了档位**的条目 ⇒ fail-closed 不落收件箱：
+        # 归档写的是**整包明文 JSON**，落一份就等于把密文档位的正文再明文落一遍；
+        # 判据必须是**整包**（含未写盘的条目），否则缺档/尾部条目会绕过闸。
         archive = False
-        archive_skipped = ("包内含 private/secret 条目：fail-closed 不写收件箱"
-                           "（归档是明文，会绕过 ENCRYPTED_LEVELS）")
+        archive_skipped = ("包内含 private/secret 或判不了档位的条目："
+                           "fail-closed 不写收件箱（归档是明文，会绕过 ENCRYPTED_LEVELS）")
     if archive:
         try:
             archived = write_pack(pack, swarm=swarm)["file"]
