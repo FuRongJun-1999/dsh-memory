@@ -52,6 +52,7 @@ import time
 
 from .mdcg import expand_query_terms_weighted
 from . import nodefile
+from .fsutil import ends_mid_line
 
 # --------------------------------------------------------------------------
 # 常量（全部可审计、可调）
@@ -444,7 +445,41 @@ def emotional_bias(conflict_strength, prev_strength=None):
             "note": "情绪通道独立，不参与信任/资格计算（智能论 §十一）"}
 
 
-# 生效条件：cg 给出时，若 cg.root 下 LOG_FILE 可读，则逐行解析 JSON 并取 .get("conflict_strength")，返回最后一条可解析记录的该键值（缺键或值为 None 则为 None）；路径不可用或 OSError 返回 None；
+# 生效条件：p 给出时，若文件可读则逐行**容错**解析（errors="replace" 解码；空行跳过；JSON 解析失败或解析结果不是对象时计入 stats["unparsable"] 并跳过），只产出 dict 行；路径缺失则什么都不产出；OSError 抛给调用方；stats 给出时按 {"unparsable": n} 累加；
+def _records(p, stats=None):
+    """留痕的**单点**容错读（流式，不载全量）。
+
+    issue #225：`log()` 是 `open(p,"a")` 单行追加，一次写被打断（断电 / 磁盘写满 /
+    进程被杀）会把某条留痕截在多字节字符中间。旧读取器用严格 utf-8 解码，
+    `UnicodeDecodeError`（ValueError 子类）在 `for line in f` 处抛、内层
+    `except (ValueError, TypeError)` 管不到，外层只接 OSError ⇒ 此后每次
+    `check()`（写热路径，:804 无条件取上一条强度）与 `summary()`（cg(op=info)
+    健康面）都报错：新记忆静默全丢、重启不恢复，而 heal 报 ok。
+
+    容错口径与 `fsutil.read_jsonl` 一致（`errors="replace"` ＋ 坏行跳过），差别只在
+    **多一个 `unparsable` 计数**：诊断面必须看得见「台账里有几条读不出来」，不能把
+    读不出来的行当作不存在。非对象行（`null` / `[1]`）一并计入——它们在 `.get(...)`
+    处抛 AttributeError，与坏行同属「读不出来」。
+    """
+    if not os.path.exists(p):
+        return
+    with open(p, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+            except ValueError:
+                r = None
+            if not isinstance(r, dict):
+                if stats is not None:
+                    stats["unparsable"] = stats.get("unparsable", 0) + 1
+                continue
+            yield r
+
+
+# 生效条件：cg 给出时，若 cg.root 下 LOG_FILE 可读，则容错逐行解析（坏行/非对象行跳过，见 _records）并取 .get("conflict_strength")，返回最后一条可解析记录的该键值（缺键或值为 None 则为 None）；路径不可用或 OSError 返回 None；
 def _last_strength(cg):
     """上一条留痕的冲突强度（二阶差分的基线）。流式读，不载全量。"""
     p = os.path.join(cg.root, LOG_FILE)
@@ -452,15 +487,8 @@ def _last_strength(cg):
         return None
     last = None
     try:
-        with open(p, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    last = json.loads(line).get("conflict_strength")
-                except (ValueError, TypeError):
-                    pass
+        for r in _records(p):
+            last = r.get("conflict_strength")
     except OSError:
         return None
     return last
@@ -921,65 +949,54 @@ def _fire_flywheel(cg, query, verdict, reason, missing, conflicts=None):
 # 留痕 / 统计 / 自描述
 # --------------------------------------------------------------------------
 
-# 生效条件：cg 与 rec 给出时，将 rec 序列化为 JSON 行追加到 cg.root 下 LOG_FILE，OSError 被吞掉，返回 rec；
+# 生效条件：cg 与 rec 给出时，将 rec 序列化为 JSON 行追加到 cg.root 下 LOG_FILE；追加前若末字节不是换行（上一条被截在半行），先补一个换行再写本条，避免两条粘连成一行不可解析；OSError 被吞掉，返回 rec；
 def log(cg, rec):
     """append-only 留痕：每条判定可审计。"""
     p = os.path.join(cg.root, LOG_FILE)
     try:
+        line = json.dumps(rec, ensure_ascii=False) + "\n"
+        # issue #225：写入端也防粘连——读取端容错只能让台账**可读**；残行若不补换行，
+        # 本条会与残行拼成一行，两条留痕一起读不出来（丢的是**新**记录）。
+        if ends_mid_line(p):
+            line = "\n" + line
         with open(p, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            f.write(line)
     except OSError:
         pass
     return rec
 
 
-# 生效条件：cg 给出时，若 cg.root 下 LOG_FILE 可读，则逐行解析 JSON（空行/解析失败跳过）；limit 真值时返回 out[-int(limit):][::-1]（int(limit)=0 时为全部倒序），limit 为假值（0/None/""）时返回 out[::-1]；路径不可用或 OSError 返回 []；
+# 生效条件：cg 给出时，若 cg.root 下 LOG_FILE 可读，则容错逐行解析（空行/坏行/非对象行跳过，见 _records）；limit 真值时返回 out[-int(limit):][::-1]（int(limit)=0 时为全部倒序），limit 为假值（0/None/""）时返回 out[::-1]；路径不可用或 OSError 返回 []；
 def history(cg, limit=100):
     """最近冲突判定留痕（倒序）。"""
     p = os.path.join(cg.root, LOG_FILE)
     if not os.path.exists(p):
         return []
-    out = []
     try:
-        with open(p, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    out.append(json.loads(line))
-                except (ValueError, TypeError):
-                    pass
+        out = list(_records(p))
     except OSError:
         return []
     return out[-int(limit):][::-1] if limit else out[::-1]
 
 
-# 生效条件：逐行 json.loads 计数（不可解析行跳过、OSError 忽略、路径缺失则计数为 0），每行 total 加 1 并按 r.get("verdict")（缺键即 None 键）与 emotional.bias 为真值时的 b 累加，返回 {'records','by_verdict','by_bias','max_scan','max_depth','min_gain'}，后三者取模块常量 MAX_SCAN/MAX_DEPTH/MIN_GAIN；
+# 生效条件：容错逐行解析计数（空行/坏行/非对象行跳过，见 _records；OSError 忽略、路径缺失则计数为 0），每行 total 加 1 并按 r.get("verdict")（缺键即 None 键）与 emotional.bias 为真值时的 b 累加；另返回 unparsable = 读不出来的行数（JSON 坏行 ＋ 非对象行），使诊断面不因坏行而假性健康；返回 {'records','unparsable','by_verdict','by_bias','max_scan','max_depth','min_gain'}，后三者取模块常量 MAX_SCAN/MAX_DEPTH/MIN_GAIN；
 def summary(cg):
     """冲突面汇总（流式计数，供 health 审计）。"""
     p = os.path.join(cg.root, LOG_FILE)
     by_verdict, by_bias, total = {}, {}, 0
-    if os.path.exists(p):
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        r = json.loads(line)
-                    except (ValueError, TypeError):
-                        continue
-                    total += 1
-                    v = r.get("verdict")
-                    by_verdict[v] = by_verdict.get(v, 0) + 1
-                    b = (r.get("emotional") or {}).get("bias")
-                    if b:
-                        by_bias[b] = by_bias.get(b, 0) + 1
-        except OSError:
-            pass
-    return {"records": total, "by_verdict": by_verdict, "by_bias": by_bias,
+    stats = {"unparsable": 0}
+    try:
+        for r in _records(p, stats):
+            total += 1
+            v = r.get("verdict")
+            by_verdict[v] = by_verdict.get(v, 0) + 1
+            b = (r.get("emotional") or {}).get("bias")
+            if b:
+                by_bias[b] = by_bias.get(b, 0) + 1
+    except OSError:
+        pass
+    return {"records": total, "unparsable": stats["unparsable"],
+            "by_verdict": by_verdict, "by_bias": by_bias,
             "max_scan": MAX_SCAN, "max_depth": MAX_DEPTH,
             "min_gain": MIN_GAIN}
 
