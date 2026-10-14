@@ -1,0 +1,412 @@
+{
+  "baseline_commit": "10bc96a28e742e04676556e1a6789f7c873ccdce",
+  "kind": "actual temporary-store guards / named runtime mutations",
+  "platforms": {
+    "windows": {
+      "baseline": {
+        "tests": 12,
+        "passed": 3,
+        "failed": 9,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_broken_index_still_falls_back (__main__.Guards.test_broken_index_still_falls_back) ... ok\ntest_endpoint_audit_detects_corruption (__main__.Guards.test_endpoint_audit_detects_corruption) ... FAIL\ntest_incremental_endpoint_replacement (__main__.Guards.test_incremental_endpoint_replacement) ... FAIL\ntest_interval_delete_all_and_regrow (__main__.Guards.test_interval_delete_all_and_regrow) ... FAIL\ntest_layer_and_session_intersection (__main__.Guards.test_layer_and_session_intersection) ... FAIL\ntest_millisecond_windows_and_temporal_precedence (__main__.Guards.test_millisecond_windows_and_temporal_precedence) ... FAIL\ntest_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... FAIL\ntest_nonfinite_endpoint_is_conservative (__main__.Guards.test_nonfinite_endpoint_is_conservative) ... FAIL\ntest_point_fast_path_inclusive (__main__.Guards.test_point_fast_path_inclusive) ... ok\ntest_random_interval_updates_preserve_block_bounds (__main__.Guards.test_random_interval_updates_preserve_block_bounds) ... FAIL\ntest_random_intervals_match_exact_oracle (__main__.Guards.test_random_intervals_match_exact_oracle) ... FAIL\ntest_remove_interval_cleans_endpoint (__main__.Guards.test_remove_interval_cleans_endpoint) ... ok\n\n======================================================================\nFAIL: test_endpoint_audit_detects_corruption (__main__.Guards.test_endpoint_audit_detects_corruption)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 201, in test_endpoint_audit_detects_corruption\n    self.assertTrue(hasattr(ix, 'by_end'), 'interval endpoint index is required')\nAssertionError: False is not true : interval endpoint index is required\n\n======================================================================\nFAIL: test_incremental_endpoint_replacement (__main__.Guards.test_incremental_endpoint_replacement)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 169, in test_incremental_endpoint_replacement\n    self.assertEqual(ix.subset(time_range=(420, 430))[0], ['a'])\nAssertionError: Lists differ: [] != ['a']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'a'\n\n- []\n+ ['a']\n\n======================================================================\nFAIL: test_interval_delete_all_and_regrow (__main__.Guards.test_interval_delete_all_and_regrow)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 249, in test_interval_delete_all_and_regrow\n    self.assertEqual(ix.subset(time_range=(500, 510))[0], ['new'])\nAssertionError: Lists differ: [] != ['new']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'new'\n\n- []\n+ ['new']\n\n======================================================================\nFAIL: test_layer_and_session_intersection (__main__.Guards.test_layer_and_session_intersection)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 210, in test_layer_and_session_intersection\n    self.assertEqual(ix.subset(time_range=(200, 210), layer='knowledge', session='x')[0], ['a'])\nAssertionError: Lists differ: [] != ['a']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'a'\n\n- []\n+ ['a']\n\n======================================================================\nFAIL: test_millisecond_windows_and_temporal_precedence (__main__.Guards.test_millisecond_windows_and_temporal_precedence)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 196, in test_millisecond_windows_and_temporal_precedence\n    self.assertEqual(ix.subset(time_range=(lo, lo+1))[0], ['long'])\nAssertionError: Lists differ: [] != ['long']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'long'\n\n- []\n+ ['long']\n\n======================================================================\nFAIL: test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 140, in test_native_contains_and_overlap\n    self.assertEqual(self.ids(1), self.ids(0), 'indexed anchors must retain containing/overlapping memories')\nAssertionError: Lists differ: ['point'] != ['long', 'left', 'point']\n\nFirst differing element 0:\n'point'\n'long'\n\nSecond list contains 2 additional elements.\nFirst extra element 1:\n'left'\n\n- ['point']\n+ ['long', 'left', 'point'] : indexed anchors must retain containing/overlapping memories\n\n======================================================================\nFAIL: test_nonfinite_endpoint_is_conservative (__main__.Guards.test_nonfinite_endpoint_is_conservative)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 189, in test_nonfinite_endpoint_is_conservative\n    self.assertTrue(expected <= set(ids), 'non-finite ends must not silently remove exact baseline hits')\nAssertionError: False is not true : non-finite ends must not silently remove exact baseline hits\n\n======================================================================\nFAIL: test_random_interval_updates_preserve_block_bounds (__main__.Guards.test_random_interval_updates_preserve_block_bounds)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 237, in test_random_interval_updates_preserve_block_bounds\n    self.assertTrue(expected <= set(ids))\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_random_intervals_match_exact_oracle (__main__.Guards.test_random_intervals_match_exact_oracle)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 154, in test_random_intervals_match_exact_oracle\n    self.assertEqual(actual, expected, 'full scan and indexed overlap decisions must agree in physical order')\nAssertionError: Lists differ: ['n038', 'n117', 'n140', 'n206', 'n318'] != ['n008', 'n009', 'n010', 'n018', 'n032', 'n03[478 chars]348']\n\nFirst differing element 0:\n'n038'\n'n008'\n\nSecond list contains 61 additional elements.\nFirst extra element 5:\n'n038'\n\nDiff is 769 characters long. Set self.maxDiff to None to see it. : full scan and indexed overlap decisions must agree in physical order\n\n----------------------------------------------------------------------\nRan 12 tests in 0.238s\n\nFAILED (failures=9)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_broken_index_still_falls_back (__main__.Guards.test_broken_index_still_falls_back) ... ok\ntest_endpoint_audit_detects_corruption (__main__.Guards.test_endpoint_audit_detects_corruption) ... ok\ntest_incremental_endpoint_replacement (__main__.Guards.test_incremental_endpoint_replacement) ... ok\ntest_interval_delete_all_and_regrow (__main__.Guards.test_interval_delete_all_and_regrow) ... ok\ntest_layer_and_session_intersection (__main__.Guards.test_layer_and_session_intersection) ... ok\ntest_millisecond_windows_and_temporal_precedence (__main__.Guards.test_millisecond_windows_and_temporal_precedence) ... ok\ntest_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... ok\ntest_nonfinite_endpoint_is_conservative (__main__.Guards.test_nonfinite_endpoint_is_conservative) ... ok\ntest_point_fast_path_inclusive (__main__.Guards.test_point_fast_path_inclusive) ... ok\ntest_random_interval_updates_preserve_block_bounds (__main__.Guards.test_random_interval_updates_preserve_block_bounds) ... ok\ntest_random_intervals_match_exact_oracle (__main__.Guards.test_random_intervals_match_exact_oracle) ... ok\ntest_remove_interval_cleans_endpoint (__main__.Guards.test_remove_interval_cleans_endpoint) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.272s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "reverse block-start pruning",
+            "test": "Guards.test_native_contains_and_overlap",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... FAIL\n\n======================================================================\nFAIL: test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 140, in test_native_contains_and_overlap\n    self.assertEqual(self.ids(1), self.ids(0), 'indexed anchors must retain containing/overlapping memories')\nAssertionError: Lists differ: ['point'] != ['long', 'left', 'point']\n\nFirst differing element 0:\n'point'\n'long'\n\nSecond list contains 2 additional elements.\nFirst extra element 1:\n'left'\n\n- ['point']\n+ ['long', 'left', 'point'] : indexed anchors must retain containing/overlapping memories\n\n----------------------------------------------------------------------\nRan 1 test in 0.076s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "856a3d04482a3a342f35647cfebecf2da4d6b9d8193ba0a91af0d184c4948be6"
+          },
+          {
+            "name": "start-only subset",
+            "test": "Guards.test_native_contains_and_overlap",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... FAIL\n\n======================================================================\nFAIL: test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 140, in test_native_contains_and_overlap\n    self.assertEqual(self.ids(1), self.ids(0), 'indexed anchors must retain containing/overlapping memories')\nAssertionError: Lists differ: [] != ['long', 'left', 'point']\n\nSecond list contains 3 additional elements.\nFirst extra element 0:\n'long'\n\n- []\n+ ['long', 'left', 'point'] : indexed anchors must retain containing/overlapping memories\n\n----------------------------------------------------------------------\nRan 1 test in 0.073s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "856a3d04482a3a342f35647cfebecf2da4d6b9d8193ba0a91af0d184c4948be6"
+          },
+          {
+            "name": "ignore long interval ends",
+            "test": "Guards.test_native_contains_and_overlap",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... FAIL\n\n======================================================================\nFAIL: test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 140, in test_native_contains_and_overlap\n    self.assertEqual(self.ids(1), self.ids(0), 'indexed anchors must retain containing/overlapping memories')\nAssertionError: Lists differ: ['point'] != ['long', 'left', 'point']\n\nFirst differing element 0:\n'point'\n'long'\n\nSecond list contains 2 additional elements.\nFirst extra element 1:\n'left'\n\n- ['point']\n+ ['long', 'left', 'point'] : indexed anchors must retain containing/overlapping memories\n\n----------------------------------------------------------------------\nRan 1 test in 0.075s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "856a3d04482a3a342f35647cfebecf2da4d6b9d8193ba0a91af0d184c4948be6"
+          },
+          {
+            "name": "omit endpoint insertion",
+            "test": "Guards.test_native_contains_and_overlap",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... FAIL\n\n======================================================================\nFAIL: test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 140, in test_native_contains_and_overlap\n    self.assertEqual(self.ids(1), self.ids(0), 'indexed anchors must retain containing/overlapping memories')\nAssertionError: Lists differ: ['point'] != ['long', 'left', 'point']\n\nFirst differing element 0:\n'point'\n'long'\n\nSecond list contains 2 additional elements.\nFirst extra element 1:\n'left'\n\n- ['point']\n+ ['long', 'left', 'point'] : indexed anchors must retain containing/overlapping memories\n\n----------------------------------------------------------------------\nRan 1 test in 0.078s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "856a3d04482a3a342f35647cfebecf2da4d6b9d8193ba0a91af0d184c4948be6"
+          },
+          {
+            "name": "retain stale interval end",
+            "test": "Guards.test_incremental_endpoint_replacement",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_incremental_endpoint_replacement (__main__.Guards.test_incremental_endpoint_replacement) ... FAIL\n\n======================================================================\nFAIL: test_incremental_endpoint_replacement (__main__.Guards.test_incremental_endpoint_replacement)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 167, in test_incremental_endpoint_replacement\n    self.assertEqual(stgidx.verify(ix, nodes), [], 'old endpoint must be removed when an interval changes')\nAssertionError: Lists differ: ['by_end 与观察区间终点不一致'] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n'by_end 与观察区间终点不一致'\n\n- ['by_end 与观察区间终点不一致']\n+ [] : old endpoint must be removed when an interval changes\n\n----------------------------------------------------------------------\nRan 1 test in 0.008s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "856a3d04482a3a342f35647cfebecf2da4d6b9d8193ba0a91af0d184c4948be6"
+          },
+          {
+            "name": "drop uncertain endpoints",
+            "test": "Guards.test_nonfinite_endpoint_is_conservative",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_nonfinite_endpoint_is_conservative (__main__.Guards.test_nonfinite_endpoint_is_conservative) ... FAIL\n\n======================================================================\nFAIL: test_nonfinite_endpoint_is_conservative (__main__.Guards.test_nonfinite_endpoint_is_conservative)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-interval-20261015\\md_cg\\test_stg_interval_candidates.py\", line 189, in test_nonfinite_endpoint_is_conservative\n    self.assertTrue(expected <= set(ids), 'non-finite ends must not silently remove exact baseline hits')\nAssertionError: False is not true : non-finite ends must not silently remove exact baseline hits\n\n----------------------------------------------------------------------\nRan 1 test in 0.008s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "856a3d04482a3a342f35647cfebecf2da4d6b9d8193ba0a91af0d184c4948be6"
+          }
+        ],
+        "restored": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_broken_index_still_falls_back (__main__.Guards.test_broken_index_still_falls_back) ... ok\ntest_endpoint_audit_detects_corruption (__main__.Guards.test_endpoint_audit_detects_corruption) ... ok\ntest_incremental_endpoint_replacement (__main__.Guards.test_incremental_endpoint_replacement) ... ok\ntest_interval_delete_all_and_regrow (__main__.Guards.test_interval_delete_all_and_regrow) ... ok\ntest_layer_and_session_intersection (__main__.Guards.test_layer_and_session_intersection) ... ok\ntest_millisecond_windows_and_temporal_precedence (__main__.Guards.test_millisecond_windows_and_temporal_precedence) ... ok\ntest_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... ok\ntest_nonfinite_endpoint_is_conservative (__main__.Guards.test_nonfinite_endpoint_is_conservative) ... ok\ntest_point_fast_path_inclusive (__main__.Guards.test_point_fast_path_inclusive) ... ok\ntest_random_interval_updates_preserve_block_bounds (__main__.Guards.test_random_interval_updates_preserve_block_bounds) ... ok\ntest_random_intervals_match_exact_oracle (__main__.Guards.test_random_intervals_match_exact_oracle) ... ok\ntest_remove_interval_cleans_endpoint (__main__.Guards.test_remove_interval_cleans_endpoint) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.268s\n\nOK\n"
+        },
+        "tests": 6,
+        "passed": 6,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      },
+      "related_regressions": [
+        {
+          "module": "md_cg.test_stgidx_index_parity",
+          "args": [],
+          "exit": 0,
+          "seconds": 92.125,
+          "tail": "显式失效表并随后重建（划分不变量成立）\n  PASS G2i 一轮增删迁移+rebuild+compact 后仍走直取且两臂逐位等价\n== G3 unassigned（无会话节点）语义保持现状 ==\n  PASS G3 unassigned 四判据：None 桶归属 / 会话视图不放大 / 跨会话可见 / 如实回退\n== G4 截断语义继承第 1/2 层 ==\n  PASS G4 截断继承：truncated/kept/hint/近期优先/count + max_scan 默认 5000 不动\n== G5 可观测：回退 reason / 表规模 / 自愈 / 关臂不建表 ==\n  PASS G5a 表规模读数 == 快照实况（size/full_nodes）且划分不变量成立\n  PASS G5b 表缺失 ⇒ 回退全量且 reason=tables_missing（禁止静默）\n  PASS G5c 代际不符 ⇒ 本次回退全量（结果与基线一致）且 reason 在场\n  PASS G5d 代际不符当场丢弃陈旧表（下次访问自愈重建）\n  PASS G5e 自愈：下一访问重建后回到索引臂且结果不变\n  PASS G5f 旧快照条目（须读文件才知会话/时间）⇒ 回退且 reason 在场\n  PASS G5g 无条件下可索引 ⇒ 回退且 reason=no_condition_dimension\n  PASS G5h 倒置查询窗 ⇒ 不索引时间维（预筛会漏 equals）且 reason 在场\n  PASS G5i 非观察轴 ⇒ 时间维不索引（表按观察轴建）且 reason 在场\n  PASS G5j flag 默认关：不构建表、不落 index 键（零成本默认面）\n== G6 条件资格首验：只上报不过滤（read 面同口径） ==\n  PASS G6a 开关面：关不带 qualification（默认面零变化）、开逐条带出\n  PASS G6b 资格态取自 read 面四态（含夹具设计的 REJECT 条目）\n  PASS G6c **只上报不过滤**：被打回条目仍在返回体里、条目集与关臂逐位一致\n  PASS G6d 摘掉 qualification 后返回体与关臂逐位一致（行为零变化）\n  PASS G6e 与 read 面单点 judge_qualification 逐条同口径（未另写判据）\n== G7 结构：资格判据唯一调用点 / _scan 无切片 ==\n  PASS G7a stg 侧 judge_qualification 恰一处调用（不另写第二套资格判据）\n  PASS G7b _scan 内无切片子表达式（第 1/2 层条件先行红线不因索引化回退）\n\nstgidx 守卫：51 通过，0 失败\n"
+        },
+        {
+          "module": "md_cg.test_stgidx_index_parity",
+          "args": [
+            "--branch-baseline"
+          ],
+          "exit": 2,
+          "seconds": 123.109,
+          "tail": "!! 定点变异自证：逐处变异，断言须**恰好**打红预期条数；锚点漂移=ANCHOR-MISS+退出码 2\n\n  未变异基线：51 条断言全绿（表内 17 处变异，编号 ①–⑰）\n  变异「①写钩增量维护摘除（表与快照不一致）」→ 打红 3 条（预期 3）OK\n  变异「②删除钩摘除（删后表与快照不一致）」→ 打红 2 条（预期 2）OK\n  变异「③索引臂加限额切片（条件先行红线回退）」→ 打红 1 条（预期 1）OK\n  变异「④取数序错（时间维不回排物理序）」→ 打红 3 条（预期 3）OK\n  变异「⑤unassigned 桶混进具体会话视图」→ 打红 9 条（预期 9）OK\n  变异「⑥时间窗上界漏并列（边界命中漏召回）」→ 打红 1 条（预期 1）OK\n  变异「⑦by_time 排序键错（乱序）」→ 打红 8 条（预期 8）OK\n  变异「⑧索引直取不收窄（子集=全量）」→ 打红 14 条（预期 14）OK\n  变异「⑨回退路径静默无 reason」→ 打红 14 条（预期 14）OK\n  变异「⑩资格被当过滤生效（REJECT 条目被剔除）」→ 打红 4 条（预期 4）OK\n  变异「⑪资格上报面摘除（flag 开也不带 qualification）」→ 打红 3 条（预期 3）OK\n  变异「⑫默认关失效（关臂也建表/落 meta）」→ 打红 3 条（预期 3）OK\n  变异「⑬代际不符不丢陈旧表（永陷回退）」→ 打红 2 条（预期 2）OK\n  变异「⑭rebuild/compact 不失效表」→ 打红 1 条（预期 1）OK\n  ANCHOR-MISS ⑯层维取数失效（候选面塌成空） ← ANCHOR-MISS:subset\n"
+        },
+        {
+          "module": "md_cg.test_stg_time_blocks",
+          "args": [
+            "--mutate"
+          ],
+          "exit": 0,
+          "seconds": 1.915,
+          "tail": "通过 5 / 失败 0 / errors 0 / SKIP 0\n"
+        },
+        {
+          "module": "md_cg.test_retr_s8_time",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.535,
+          "tail": "保留、窗外剔除、无端点 fail-open 保留\n  [PASS] 效力轴：审计块 axis/mode/applied 正确、dropped 与存活数记账自洽\n  [PASS] 观察轴：temporal 命中唯一、效力组按观测窗不相交剔除\n  [PASS] 观察轴：无字段节点 fail-closed 并计入 axis_missing\n  [PASS] 端点模式：单端 gte 只筛起点侧且不返回空集、无该轴字段者 fail-open 保留\n  [PASS] 误用三则经库层抛 ValueError（孤算子 / 逆序 / 非法轴）\n  [PASS] stg timeline：观察轴 14 条（旧库节点不可判定被跳过）、效力轴 4 条（两端齐备）\n  [PASS] stg timeline：缺省轴与显式 observed 逐位一致（旧行为兼容）\n  [PASS] stg relation：效力轴取 effective 区间（eff_a before eff_b）；观察轴取写入观测时刻（区间不同）\n  [PASS] stg anchors：效力轴命中 2（eff_a overlaps + eff_c contains）、观察轴 0\n  [PASS] stg 非法轴 fail-closed（四 op 同源 trust.time_axis_of）\n  [PASS] 毫秒存量先决条件：索引快照确实落 13 位毫秒窗（否则本组断言退化为空转）\n  [PASS] 单位归一：_interval 与 trust.time_window_of 同口径（毫秒 /1000）\n  [PASS] 单位归一：毫秒存量不再顶到 timeline 头部（旧行为 1.6e12 恒排最前）\n  [PASS] 单位归一：S2 时间门控对毫秒节点不再误剔除（同根因）\n  [PASS] 默认口径等价：关→开→关 首末一致且无 time_filter 键\n  [PASS] 热缓存：同参二次 search_rrf 命中（cached=True）且结果一致\n  [PASS] 时间算子启用时绕开热缓存：缓存已有 15 条全量，仍返回过滤后 11 条、meta 无 cached\n  [PASS] 时间算子查询不污染缓存（写侧同受绕行约束）：其后默认查询仍为全量 15 条\n  [PASS] recall 透传：meta 带 time_filter（观察轴）且过滤真实生效\n  [PASS] Secure.search 常规路径：过滤生效且 meta 带 time_filter（审计块不被吞）\n  [PASS] Secure.search 默认关：候选不变且 meta 键集合不含 time_filter（默认关零变更）\n\ntest_retr_s8: 31 通过 / 0 失败\n"
+        },
+        {
+          "module": "md_cg.test_lifecycle_retire_leak",
+          "args": [],
+          "exit": 0,
+          "seconds": 1.28,
+          "tail": "ead+node_id 分支）不受限：archived 仍可显式取回\n[ok] R4.5 四条读面口径同源（都经 _candidates 单点）\n[ok] R1.11a 前提：graph/chain 扩散确实能到达边目标（非空断言，防本腿空转）\n[ok] R1.11b 目标退役后图扩展路不返回它、种子照常返回（图扩展不绕过 _candidates）\n[ok] R1.12a 前提：会话要点与未解问题都确在续接包里（非空断言，防本腿空转）\n[ok] R1.12b 退役后续接包不再回该要点与未解问题（注入面剔除）；在役对照仍在\n[ok] R3.5 恢复后续接包重新回该要点（退役可逆，同面）\n[ok] R1.13a 前提：活跃目标与任务卡都确在续接包里（非空断言，防本腿空转）\n[ok] R1.13b0 台账两节点退役成功（任务卡默认 protected，降级走 override=True）\n[ok] R1.13b 退役后台账段不再回该目标与任务卡；在役对照仍在；total 取剔除后计数\n[ok] R1.13c 管理面不受限对照：cg(op=goal/task, action=list) 仍可见 archived 台账\n[ok] R3.6 恢复后台账段重新回该目标（退役可逆，同面）\n[ok] R4.6 op=session（action=recall）全链：archived 要点/未解问题不出现、在役对照出现\n[ok] R5.1 基类面：archived（rl_v2）不出现、v1 出现\n[ok] R5.2 基类面不误剔：converged（rl_converged）仍参与（降权轴）\n[ok] R6.0 前提：因果链在役时确实扩散到目标（非空断言，防本腿空转）\n[ok] R6.1 目标退役后因果链不扩散进它（缓存已热时亦生效——set_state 同点失效）\n[ok] R6.2 维护面旁路：adjacency(skip_archived=False) 仍含退役边（scrub 全量口径）\n[ok] R6.3 scrub 面经旁路取数同证（维护写面不受退役过滤约束）\n[ok] R6.4 恢复后因果链重新扩散（退役可逆，同面）\n[ok] R7.0 前提：children_index 含该父→子映射（非空断言，防本腿空转）\n[ok] R7.1 子节点退役后 children_index 映射仍在（裁定：结构面直读不接判据）\n[ok] R7.2 parents_index 反向表同钉（裁定文本两侧对称——仅给一侧接线也会被本腿抓住）\n==========================================================\ntest_lifecycle_retire_leak: 46 通过 / 0 失败\n"
+        },
+        {
+          "module": "md_cg.test_trust",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.51,
+          "tail": "--- ① 裁决\n--- ② 解析\n--- ③ 时间轴\n--- ④ 缺省/幂等\n--- ⑤ set_state\n--- ⑥ 覆写继承\n--- ⑦ 反查索引\n--- ⑧ 一跳同步传播\n--- ⑨ 多跳异步传播\n--- ⑩ 写入闸门\n--- ⑪ 输出协议\n--- ⑫ 巡检/自描述\n--- ⑬ MCP 面：status op / 状态头 / 写闸硬拒\n\nPASS=127 FAIL=0\n"
+        },
+        {
+          "module": "md_cg.test_p8_subgraph_chain",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.552,
+          "tail": ", '服务在运行']\n  [PASS] 只走 causal（不含 sequential）\n  [PASS] relation_types 过滤生效  · [{'start': 'job', 'nodes': ['job', 'job2'], 'hops': [{'from': 'job', 'to': 'job2', 'relation_type': 'sequential', 'weight': 0.6, 'condition': '顺序执行'}], 'conditions': ['顺序执行'], 'weight': 0.6, 'depth': 1, 'avg_weight': 0.6}]\n  [PASS] causal 过滤下不含 sequential 边\n  [PASS] direction=in 反向可达\n  [PASS] visited 剪枝：环链不无限增长  · [1]\n  [PASS] explain 输出「条件→结果」步骤  · {'条件': '数据库在运行', '关系': 'causal', '置信': 0.765, '结果': 'svc'}\n  [PASS] 边无条件 → 回退节点生效条件  · ['午夜窗口']\n  [PASS] 种子扩散打分 = 种子 × 链权 × decay^跳  · 0.6885\n  [PASS] 层级 part_of 边参与链遍历  · [['r', 'a'], ['r', 'b'], ['r', 'a', 'a1']]\n\n[C] 检索接入（chain 路 + 可审计 provenance）\n  [PASS] chain 路召回链下游节点  · ['api', 'svc', 'db', 'job2', 'job']\n  [PASS] provenance 标注 chain 路  · ['svc', 'api', 'job2']\n  [PASS] provenance 带条件序列（可审计）  · [{'path': 'chain', 'rank': 2, 'chain': ['db', 'svc'], 'conditions': ['数据库在运行']}]\n  [PASS] 默认检索路**含** chain（P3：进缺省集；原断言为「不含」）  · ['chain', 'graph', 'lexical']\n  [PASS] 显式不含 chain 时该路不出现（分路开关保留）  · ['graph', 'lexical']\n  [PASS] 公开 API：subgraph_expand/flatten/validate/roots\n  [PASS] 公开 API：causal_chain/explain_chain\n\n==== P8 结果：35 通过 / 0 失败 ====\n"
+        }
+      ]
+    },
+    "linux": {
+      "baseline": {
+        "tests": 12,
+        "passed": 3,
+        "failed": 9,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_broken_index_still_falls_back (__main__.Guards.test_broken_index_still_falls_back) ... ok\ntest_endpoint_audit_detects_corruption (__main__.Guards.test_endpoint_audit_detects_corruption) ... FAIL\ntest_incremental_endpoint_replacement (__main__.Guards.test_incremental_endpoint_replacement) ... FAIL\ntest_interval_delete_all_and_regrow (__main__.Guards.test_interval_delete_all_and_regrow) ... FAIL\ntest_layer_and_session_intersection (__main__.Guards.test_layer_and_session_intersection) ... FAIL\ntest_millisecond_windows_and_temporal_precedence (__main__.Guards.test_millisecond_windows_and_temporal_precedence) ... FAIL\ntest_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... FAIL\ntest_nonfinite_endpoint_is_conservative (__main__.Guards.test_nonfinite_endpoint_is_conservative) ... FAIL\ntest_point_fast_path_inclusive (__main__.Guards.test_point_fast_path_inclusive) ... ok\ntest_random_interval_updates_preserve_block_bounds (__main__.Guards.test_random_interval_updates_preserve_block_bounds) ... FAIL\ntest_random_intervals_match_exact_oracle (__main__.Guards.test_random_intervals_match_exact_oracle) ... FAIL\ntest_remove_interval_cleans_endpoint (__main__.Guards.test_remove_interval_cleans_endpoint) ... ok\n\n======================================================================\nFAIL: test_endpoint_audit_detects_corruption (__main__.Guards.test_endpoint_audit_detects_corruption)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 201, in test_endpoint_audit_detects_corruption\n    self.assertTrue(hasattr(ix, 'by_end'), 'interval endpoint index is required')\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: False is not true : interval endpoint index is required\n\n======================================================================\nFAIL: test_incremental_endpoint_replacement (__main__.Guards.test_incremental_endpoint_replacement)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 169, in test_incremental_endpoint_replacement\n    self.assertEqual(ix.subset(time_range=(420, 430))[0], ['a'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != ['a']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'a'\n\n- []\n+ ['a']\n\n======================================================================\nFAIL: test_interval_delete_all_and_regrow (__main__.Guards.test_interval_delete_all_and_regrow)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 249, in test_interval_delete_all_and_regrow\n    self.assertEqual(ix.subset(time_range=(500, 510))[0], ['new'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != ['new']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'new'\n\n- []\n+ ['new']\n\n======================================================================\nFAIL: test_layer_and_session_intersection (__main__.Guards.test_layer_and_session_intersection)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 210, in test_layer_and_session_intersection\n    self.assertEqual(ix.subset(time_range=(200, 210), layer='knowledge', session='x')[0], ['a'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != ['a']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'a'\n\n- []\n+ ['a']\n\n======================================================================\nFAIL: test_millisecond_windows_and_temporal_precedence (__main__.Guards.test_millisecond_windows_and_temporal_precedence)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 196, in test_millisecond_windows_and_temporal_precedence\n    self.assertEqual(ix.subset(time_range=(lo, lo+1))[0], ['long'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != ['long']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'long'\n\n- []\n+ ['long']\n\n======================================================================\nFAIL: test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 140, in test_native_contains_and_overlap\n    self.assertEqual(self.ids(1), self.ids(0), 'indexed anchors must retain containing/overlapping memories')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['point'] != ['long', 'left', 'point']\n\nFirst differing element 0:\n'point'\n'long'\n\nSecond list contains 2 additional elements.\nFirst extra element 1:\n'left'\n\n- ['point']\n+ ['long', 'left', 'point'] : indexed anchors must retain containing/overlapping memories\n\n======================================================================\nFAIL: test_nonfinite_endpoint_is_conservative (__main__.Guards.test_nonfinite_endpoint_is_conservative)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 189, in test_nonfinite_endpoint_is_conservative\n    self.assertTrue(expected <= set(ids), 'non-finite ends must not silently remove exact baseline hits')\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: False is not true : non-finite ends must not silently remove exact baseline hits\n\n======================================================================\nFAIL: test_random_interval_updates_preserve_block_bounds (__main__.Guards.test_random_interval_updates_preserve_block_bounds)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 237, in test_random_interval_updates_preserve_block_bounds\n    self.assertTrue(expected <= set(ids))\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_random_intervals_match_exact_oracle (__main__.Guards.test_random_intervals_match_exact_oracle)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 154, in test_random_intervals_match_exact_oracle\n    self.assertEqual(actual, expected, 'full scan and indexed overlap decisions must agree in physical order')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['n038', 'n117', 'n140', 'n206', 'n318'] != ['n008', 'n009', 'n010', 'n018', 'n032', 'n03[478 chars]348']\n\nFirst differing element 0:\n'n038'\n'n008'\n\nSecond list contains 61 additional elements.\nFirst extra element 5:\n'n038'\n\nDiff is 769 characters long. Set self.maxDiff to None to see it. : full scan and indexed overlap decisions must agree in physical order\n\n----------------------------------------------------------------------\nRan 12 tests in 2.223s\n\nFAILED (failures=9)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_broken_index_still_falls_back (__main__.Guards.test_broken_index_still_falls_back) ... ok\ntest_endpoint_audit_detects_corruption (__main__.Guards.test_endpoint_audit_detects_corruption) ... ok\ntest_incremental_endpoint_replacement (__main__.Guards.test_incremental_endpoint_replacement) ... ok\ntest_interval_delete_all_and_regrow (__main__.Guards.test_interval_delete_all_and_regrow) ... ok\ntest_layer_and_session_intersection (__main__.Guards.test_layer_and_session_intersection) ... ok\ntest_millisecond_windows_and_temporal_precedence (__main__.Guards.test_millisecond_windows_and_temporal_precedence) ... ok\ntest_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... ok\ntest_nonfinite_endpoint_is_conservative (__main__.Guards.test_nonfinite_endpoint_is_conservative) ... ok\ntest_point_fast_path_inclusive (__main__.Guards.test_point_fast_path_inclusive) ... ok\ntest_random_interval_updates_preserve_block_bounds (__main__.Guards.test_random_interval_updates_preserve_block_bounds) ... ok\ntest_random_intervals_match_exact_oracle (__main__.Guards.test_random_intervals_match_exact_oracle) ... ok\ntest_remove_interval_cleans_endpoint (__main__.Guards.test_remove_interval_cleans_endpoint) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 2.231s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "reverse block-start pruning",
+            "test": "Guards.test_native_contains_and_overlap",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... FAIL\n\n======================================================================\nFAIL: test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 140, in test_native_contains_and_overlap\n    self.assertEqual(self.ids(1), self.ids(0), 'indexed anchors must retain containing/overlapping memories')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['point'] != ['long', 'left', 'point']\n\nFirst differing element 0:\n'point'\n'long'\n\nSecond list contains 2 additional elements.\nFirst extra element 1:\n'left'\n\n- ['point']\n+ ['long', 'left', 'point'] : indexed anchors must retain containing/overlapping memories\n\n----------------------------------------------------------------------\nRan 1 test in 0.505s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "856a3d04482a3a342f35647cfebecf2da4d6b9d8193ba0a91af0d184c4948be6"
+          },
+          {
+            "name": "start-only subset",
+            "test": "Guards.test_native_contains_and_overlap",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... FAIL\n\n======================================================================\nFAIL: test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 140, in test_native_contains_and_overlap\n    self.assertEqual(self.ids(1), self.ids(0), 'indexed anchors must retain containing/overlapping memories')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != ['long', 'left', 'point']\n\nSecond list contains 3 additional elements.\nFirst extra element 0:\n'long'\n\n- []\n+ ['long', 'left', 'point'] : indexed anchors must retain containing/overlapping memories\n\n----------------------------------------------------------------------\nRan 1 test in 0.506s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "856a3d04482a3a342f35647cfebecf2da4d6b9d8193ba0a91af0d184c4948be6"
+          },
+          {
+            "name": "ignore long interval ends",
+            "test": "Guards.test_native_contains_and_overlap",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... FAIL\n\n======================================================================\nFAIL: test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 140, in test_native_contains_and_overlap\n    self.assertEqual(self.ids(1), self.ids(0), 'indexed anchors must retain containing/overlapping memories')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['point'] != ['long', 'left', 'point']\n\nFirst differing element 0:\n'point'\n'long'\n\nSecond list contains 2 additional elements.\nFirst extra element 1:\n'left'\n\n- ['point']\n+ ['long', 'left', 'point'] : indexed anchors must retain containing/overlapping memories\n\n----------------------------------------------------------------------\nRan 1 test in 0.500s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "856a3d04482a3a342f35647cfebecf2da4d6b9d8193ba0a91af0d184c4948be6"
+          },
+          {
+            "name": "omit endpoint insertion",
+            "test": "Guards.test_native_contains_and_overlap",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... FAIL\n\n======================================================================\nFAIL: test_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 140, in test_native_contains_and_overlap\n    self.assertEqual(self.ids(1), self.ids(0), 'indexed anchors must retain containing/overlapping memories')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['point'] != ['long', 'left', 'point']\n\nFirst differing element 0:\n'point'\n'long'\n\nSecond list contains 2 additional elements.\nFirst extra element 1:\n'left'\n\n- ['point']\n+ ['long', 'left', 'point'] : indexed anchors must retain containing/overlapping memories\n\n----------------------------------------------------------------------\nRan 1 test in 0.507s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "856a3d04482a3a342f35647cfebecf2da4d6b9d8193ba0a91af0d184c4948be6"
+          },
+          {
+            "name": "retain stale interval end",
+            "test": "Guards.test_incremental_endpoint_replacement",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_incremental_endpoint_replacement (__main__.Guards.test_incremental_endpoint_replacement) ... FAIL\n\n======================================================================\nFAIL: test_incremental_endpoint_replacement (__main__.Guards.test_incremental_endpoint_replacement)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 167, in test_incremental_endpoint_replacement\n    self.assertEqual(stgidx.verify(ix, nodes), [], 'old endpoint must be removed when an interval changes')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['by_end 与观察区间终点不一致'] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n'by_end 与观察区间终点不一致'\n\n- ['by_end 与观察区间终点不一致']\n+ [] : old endpoint must be removed when an interval changes\n\n----------------------------------------------------------------------\nRan 1 test in 0.119s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "856a3d04482a3a342f35647cfebecf2da4d6b9d8193ba0a91af0d184c4948be6"
+          },
+          {
+            "name": "drop uncertain endpoints",
+            "test": "Guards.test_nonfinite_endpoint_is_conservative",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_nonfinite_endpoint_is_conservative (__main__.Guards.test_nonfinite_endpoint_is_conservative) ... FAIL\n\n======================================================================\nFAIL: test_nonfinite_endpoint_is_conservative (__main__.Guards.test_nonfinite_endpoint_is_conservative)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-interval-20261015/md_cg/test_stg_interval_candidates.py\", line 189, in test_nonfinite_endpoint_is_conservative\n    self.assertTrue(expected <= set(ids), 'non-finite ends must not silently remove exact baseline hits')\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: False is not true : non-finite ends must not silently remove exact baseline hits\n\n----------------------------------------------------------------------\nRan 1 test in 0.119s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "856a3d04482a3a342f35647cfebecf2da4d6b9d8193ba0a91af0d184c4948be6"
+          }
+        ],
+        "restored": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_broken_index_still_falls_back (__main__.Guards.test_broken_index_still_falls_back) ... ok\ntest_endpoint_audit_detects_corruption (__main__.Guards.test_endpoint_audit_detects_corruption) ... ok\ntest_incremental_endpoint_replacement (__main__.Guards.test_incremental_endpoint_replacement) ... ok\ntest_interval_delete_all_and_regrow (__main__.Guards.test_interval_delete_all_and_regrow) ... ok\ntest_layer_and_session_intersection (__main__.Guards.test_layer_and_session_intersection) ... ok\ntest_millisecond_windows_and_temporal_precedence (__main__.Guards.test_millisecond_windows_and_temporal_precedence) ... ok\ntest_native_contains_and_overlap (__main__.Guards.test_native_contains_and_overlap) ... ok\ntest_nonfinite_endpoint_is_conservative (__main__.Guards.test_nonfinite_endpoint_is_conservative) ... ok\ntest_point_fast_path_inclusive (__main__.Guards.test_point_fast_path_inclusive) ... ok\ntest_random_interval_updates_preserve_block_bounds (__main__.Guards.test_random_interval_updates_preserve_block_bounds) ... ok\ntest_random_intervals_match_exact_oracle (__main__.Guards.test_random_intervals_match_exact_oracle) ... ok\ntest_remove_interval_cleans_endpoint (__main__.Guards.test_remove_interval_cleans_endpoint) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 2.211s\n\nOK\n"
+        },
+        "tests": 6,
+        "passed": 6,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      }
+    },
+    "linux-native": {
+      "related_regressions": [
+        {
+          "module": "md_cg.test_stgidx_index_parity",
+          "args": [],
+          "exit": 0,
+          "seconds": 4.017,
+          "tail": "SS G3 unassigned 四判据：None 桶归属 / 会话视图不放大 / 跨会话可见 / 如实回退\n== G4 截断语义继承第 1/2 层 ==\n  PASS G4 截断继承：truncated/kept/hint/近期优先/count + max_scan 默认 5000 不动\n== G5 可观测：回退 reason / 表规模 / 自愈 / 关臂不建表 ==\n  PASS G5a 表规模读数 == 快照实况（size/full_nodes）且划分不变量成立\n  PASS G5b 表缺失 ⇒ 回退全量且 reason=tables_missing（禁止静默）\n  PASS G5c 代际不符 ⇒ 本次回退全量（结果与基线一致）且 reason 在场\n  PASS G5d 代际不符当场丢弃陈旧表（下次访问自愈重建）\n  PASS G5e 自愈：下一访问重建后回到索引臂且结果不变\n  PASS G5f 旧快照条目（须读文件才知会话/时间）⇒ 回退且 reason 在场\n  PASS G5g 无条件下可索引 ⇒ 回退且 reason=no_condition_dimension\n  PASS G5h 倒置查询窗 ⇒ 不索引时间维（预筛会漏 equals）且 reason 在场\n  PASS G5i 非观察轴 ⇒ 时间维不索引（表按观察轴建）且 reason 在场\n  PASS G5j flag 默认关：不构建表、不落 index 键（零成本默认面）\n== G6 条件资格首验：只上报不过滤（read 面同口径） ==\n  PASS G6a 开关面：关不带 qualification（默认面零变化）、开逐条带出\n  PASS G6b 资格态取自 read 面四态（含夹具设计的 REJECT 条目）\n  PASS G6c **只上报不过滤**：被打回条目仍在返回体里、条目集与关臂逐位一致\n  PASS G6d 摘掉 qualification 后返回体与关臂逐位一致（行为零变化）\n  PASS G6e 与 read 面单点 judge_qualification 逐条同口径（未另写判据）\n== G7 结构：资格判据唯一调用点 / _scan 无切片 ==\n  PASS G7a stg 侧 judge_qualification 恰一处调用（不另写第二套资格判据）\n  PASS G7b _scan 内无切片子表达式（第 1/2 层条件先行红线不因索引化回退）\n\nstgidx 守卫：51 通过，0 失败\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_stgidx_index_parity",
+          "args": [
+            "--branch-baseline"
+          ],
+          "exit": 0,
+          "seconds": 15.114,
+          "tail": "!! 定点变异自证：逐处变异，断言须**恰好**打红预期条数；锚点漂移=ANCHOR-MISS+退出码 2\n\n  未变异基线：51 条断言全绿（表内 17 处变异，编号 ①–⑰）\n  变异「①写钩增量维护摘除（表与快照不一致）」→ 打红 3 条（预期 3）OK\n  变异「②删除钩摘除（删后表与快照不一致）」→ 打红 2 条（预期 2）OK\n  变异「③索引臂加限额切片（条件先行红线回退）」→ 打红 1 条（预期 1）OK\n  变异「④取数序错（时间维不回排物理序）」→ 打红 3 条（预期 3）OK\n  变异「⑤unassigned 桶混进具体会话视图」→ 打红 9 条（预期 9）OK\n  变异「⑥时间窗上界漏并列（边界命中漏召回）」→ 打红 1 条（预期 1）OK\n  变异「⑦by_time 排序键错（乱序）」→ 打红 8 条（预期 8）OK\n  变异「⑧索引直取不收窄（子集=全量）」→ 打红 14 条（预期 14）OK\n  变异「⑨回退路径静默无 reason」→ 打红 14 条（预期 14）OK\n  变异「⑩资格被当过滤生效（REJECT 条目被剔除）」→ 打红 4 条（预期 4）OK\n  变异「⑪资格上报面摘除（flag 开也不带 qualification）」→ 打红 3 条（预期 3）OK\n  变异「⑫默认关失效（关臂也建表/落 meta）」→ 打红 3 条（预期 3）OK\n  变异「⑬代际不符不丢陈旧表（永陷回退）」→ 打红 2 条（预期 2）OK\n  变异「⑭rebuild/compact 不失效表」→ 打红 1 条（预期 1）OK\n  变异「⑯层维取数失效（候选面塌成空）」→ 打红 5 条（预期 5）OK\n  变异「⑰分桶键取错字段（划分键与条目口径不符）」→ 打红 12 条（预期 12）OK\n  变异「⑮截断选序改回字典序（近期优先失效）」→ 打红 1 条（预期 1）OK\n\n判别力自证：PASS（十七处变异各自恰好命中，且无空转断言）\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_stg_time_blocks",
+          "args": [
+            "--mutate"
+          ],
+          "exit": 0,
+          "seconds": 1.224,
+          "tail": "通过 5 / 失败 0 / errors 0 / SKIP 0\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_retr_s8_time",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.881,
+          "tail": "力组按观测窗不相交剔除\n  [PASS] 观察轴：无字段节点 fail-closed 并计入 axis_missing\n  [PASS] 端点模式：单端 gte 只筛起点侧且不返回空集、无该轴字段者 fail-open 保留\n  [PASS] 误用三则经库层抛 ValueError（孤算子 / 逆序 / 非法轴）\n  [PASS] stg timeline：观察轴 14 条（旧库节点不可判定被跳过）、效力轴 4 条（两端齐备）\n  [PASS] stg timeline：缺省轴与显式 observed 逐位一致（旧行为兼容）\n  [PASS] stg relation：效力轴取 effective 区间（eff_a before eff_b）；观察轴取写入观测时刻（区间不同）\n  [PASS] stg anchors：效力轴命中 2（eff_a overlaps + eff_c contains）、观察轴 0\n  [PASS] stg 非法轴 fail-closed（四 op 同源 trust.time_axis_of）\n  [PASS] 毫秒存量先决条件：索引快照确实落 13 位毫秒窗（否则本组断言退化为空转）\n  [PASS] 单位归一：_interval 与 trust.time_window_of 同口径（毫秒 /1000）\n  [PASS] 单位归一：毫秒存量不再顶到 timeline 头部（旧行为 1.6e12 恒排最前）\n  [PASS] 单位归一：S2 时间门控对毫秒节点不再误剔除（同根因）\n  [PASS] 默认口径等价：关→开→关 首末一致且无 time_filter 键\n  [PASS] 热缓存：同参二次 search_rrf 命中（cached=True）且结果一致\n  [PASS] 时间算子启用时绕开热缓存：缓存已有 15 条全量，仍返回过滤后 11 条、meta 无 cached\n  [PASS] 时间算子查询不污染缓存（写侧同受绕行约束）：其后默认查询仍为全量 15 条\n  [PASS] recall 透传：meta 带 time_filter（观察轴）且过滤真实生效\n  [PASS] Secure.search 常规路径：过滤生效且 meta 带 time_filter（审计块不被吞）\n  [PASS] Secure.search 默认关：候选不变且 meta 键集合不含 time_filter（默认关零变更）\n\ntest_retr_s8: 31 通过 / 0 失败\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_lifecycle_retire_leak",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.982,
+          "tail": "边目标（非空断言，防本腿空转）\n[ok] R1.11b 目标退役后图扩展路不返回它、种子照常返回（图扩展不绕过 _candidates）\n[ok] R1.12a 前提：会话要点与未解问题都确在续接包里（非空断言，防本腿空转）\n[ok] R1.12b 退役后续接包不再回该要点与未解问题（注入面剔除）；在役对照仍在\n[ok] R3.5 恢复后续接包重新回该要点（退役可逆，同面）\n[ok] R1.13a 前提：活跃目标与任务卡都确在续接包里（非空断言，防本腿空转）\n[ok] R1.13b0 台账两节点退役成功（任务卡默认 protected，降级走 override=True）\n[ok] R1.13b 退役后台账段不再回该目标与任务卡；在役对照仍在；total 取剔除后计数\n[ok] R1.13c 管理面不受限对照：cg(op=goal/task, action=list) 仍可见 archived 台账\n[ok] R3.6 恢复后台账段重新回该目标（退役可逆，同面）\n[ok] R4.6 op=session（action=recall）全链：archived 要点/未解问题不出现、在役对照出现\n[ok] R5.1 基类面：archived（rl_v2）不出现、v1 出现\n[ok] R5.2 基类面不误剔：converged（rl_converged）仍参与（降权轴）\n[ok] R6.0 前提：因果链在役时确实扩散到目标（非空断言，防本腿空转）\n[ok] R6.1 目标退役后因果链不扩散进它（缓存已热时亦生效——set_state 同点失效）\n[ok] R6.2 维护面旁路：adjacency(skip_archived=False) 仍含退役边（scrub 全量口径）\n[ok] R6.3 scrub 面经旁路取数同证（维护写面不受退役过滤约束）\n[ok] R6.4 恢复后因果链重新扩散（退役可逆，同面）\n[ok] R7.0 前提：children_index 含该父→子映射（非空断言，防本腿空转）\n[ok] R7.1 子节点退役后 children_index 映射仍在（裁定：结构面直读不接判据）\n[ok] R7.2 parents_index 反向表同钉（裁定文本两侧对称——仅给一侧接线也会被本腿抓住）\n==========================================================\ntest_lifecycle_retire_leak: 46 通过 / 0 失败\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_trust",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.707,
+          "tail": "--- ① 裁决\n--- ② 解析\n--- ③ 时间轴\n--- ④ 缺省/幂等\n--- ⑤ set_state\n--- ⑥ 覆写继承\n--- ⑦ 反查索引\n--- ⑧ 一跳同步传播\n--- ⑨ 多跳异步传播\n--- ⑩ 写入闸门\n--- ⑪ 输出协议\n--- ⑫ 巡检/自描述\n--- ⑬ MCP 面：status op / 状态头 / 写闸硬拒\n\nPASS=127 FAIL=0\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_p8_subgraph_chain",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.743,
+          "tail": " 'job2'], 'hops': [{'from': 'job', 'to': 'job2', 'relation_type': 'sequential', 'weight': 0.6, 'condition': '顺序执行'}], 'conditions': ['顺序执行'], 'weight': 0.6, 'depth': 1, 'avg_weight': 0.6}]\n  [PASS] causal 过滤下不含 sequential 边\n  [PASS] direction=in 反向可达\n  [PASS] visited 剪枝：环链不无限增长  · [1]\n  [PASS] explain 输出「条件→结果」步骤  · {'条件': '数据库在运行', '关系': 'causal', '置信': 0.765, '结果': 'svc'}\n  [PASS] 边无条件 → 回退节点生效条件  · ['午夜窗口']\n  [PASS] 种子扩散打分 = 种子 × 链权 × decay^跳  · 0.6885\n  [PASS] 层级 part_of 边参与链遍历  · [['r', 'a'], ['r', 'b'], ['r', 'a', 'a1']]\n\n[C] 检索接入（chain 路 + 可审计 provenance）\n  [PASS] chain 路召回链下游节点  · ['api', 'svc', 'db', 'job2', 'job']\n  [PASS] provenance 标注 chain 路  · ['svc', 'api', 'job2']\n  [PASS] provenance 带条件序列（可审计）  · [{'path': 'chain', 'rank': 2, 'chain': ['db', 'svc'], 'conditions': ['数据库在运行']}]\n  [PASS] 默认检索路**含** chain（P3：进缺省集；原断言为「不含」）  · ['chain', 'graph', 'lexical']\n  [PASS] 显式不含 chain 时该路不出现（分路开关保留）  · ['graph', 'lexical']\n  [PASS] 公开 API：subgraph_expand/flatten/validate/roots\n  [PASS] 公开 API：causal_chain/explain_chain\n\n==== P8 结果：35 通过 / 0 失败 ====\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        }
+      ]
+    }
+  },
+  "stable_windows_old_stg_mutations": "!! 定点变异自证：逐处变异，断言须**恰好**打红预期条数；锚点漂移=ANCHOR-MISS+退出码 2\n\n  未变异基线：51 条断言全绿（表内 17 处变异，编号 ①–⑰）\n  变异「①写钩增量维护摘除（表与快照不一致）」→ 打红 3 条（预期 3）OK\n  变异「②删除钩摘除（删后表与快照不一致）」→ 打红 2 条（预期 2）OK\n  变异「③索引臂加限额切片（条件先行红线回退）」→ 打红 1 条（预期 1）OK\n  变异「④取数序错（时间维不回排物理序）」→ 打红 3 条（预期 3）OK\n  变异「⑤unassigned 桶混进具体会话视图」→ 打红 9 条（预期 9）OK\n  变异「⑥时间窗上界漏并列（边界命中漏召回）」→ 打红 1 条（预期 1）OK\n  变异「⑦by_time 排序键错（乱序）」→ 打红 8 条（预期 8）OK\n  变异「⑧索引直取不收窄（子集=全量）」→ 打红 14 条（预期 14）OK\n  变异「⑨回退路径静默无 reason」→ 打红 14 条（预期 14）OK\n  变异「⑩资格被当过滤生效（REJECT 条目被剔除）」→ 打红 4 条（预期 4）OK\n  变异「⑪资格上报面摘除（flag 开也不带 qualification）」→ 打红 3 条（预期 3）OK\n  变异「⑫默认关失效（关臂也建表/落 meta）」→ 打红 3 条（预期 3）OK\n  变异「⑬代际不符不丢陈旧表（永陷回退）」→ 打红 2 条（预期 2）OK\n  变异「⑭rebuild/compact 不失效表」→ 打红 1 条（预期 1）OK\n  变异「⑯层维取数失效（候选面塌成空）」→ 打红 5 条（预期 5）OK\n  变异「⑰分桶键取错字段（划分键与条目口径不符）」→ 打红 12 条（预期 12）OK\n  变异「⑮截断选序改回字典序（近期优先失效）」→ 打红 1 条（预期 1）OK\n\n判别力自证：PASS（十七处变异各自恰好命中，且无空转断言）\n",
+  "invalidated_initial_stg_mutation_exit": 2,
+  "benchmark_baseline": {
+    "nodes": 50000,
+    "interval_fraction": 0.05,
+    "windows": 100,
+    "dataset_sha256": "54ee84c28dcece25e475aae9877ff38db020d4f2cbf9158bc170902730523828",
+    "correct_windows": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "expected_total_hits": 6031,
+    "actual_total_hits": 1100,
+    "build_ms": [
+      138.15390000672778,
+      129.02930000564083,
+      129.6370999989449,
+      126.41390000499086,
+      128.92650000139838
+    ],
+    "query_ms": [
+      1.1130999992019497,
+      1.3977999988128431,
+      1.5026000037323684,
+      1.2715999982901849,
+      1.4635000043199398
+    ],
+    "median_build_ms": 129.02930000564083,
+    "median_query_ms": 1.3977999988128431,
+    "scope": "in-memory structure and exact overlap post-filter, not end-to-end recall"
+  },
+  "benchmark_fixed": {
+    "nodes": 50000,
+    "interval_fraction": 0.05,
+    "windows": 100,
+    "dataset_sha256": "54ee84c28dcece25e475aae9877ff38db020d4f2cbf9158bc170902730523828",
+    "correct_windows": [
+      100,
+      100,
+      100,
+      100,
+      100
+    ],
+    "expected_total_hits": 6031,
+    "actual_total_hits": 6031,
+    "build_ms": [
+      177.3248999961652,
+      159.08979999949224,
+      160.92500000377186,
+      162.74279999925056,
+      165.3197999985423
+    ],
+    "query_ms": [
+      5.425800001830794,
+      5.4390000004787,
+      5.635699999402277,
+      5.540099999052472,
+      5.702900001779199
+    ],
+    "median_build_ms": 162.74279999925056,
+    "median_query_ms": 5.540099999052472,
+    "scope": "in-memory structure and exact overlap post-filter, not end-to-end recall"
+  }
+}
