@@ -1,5 +1,4 @@
 node_modules/
-/lib/
 *.tsbuildinfo
 
 # CodeBuddy 本地配置与计划（不入库）；rules/ 例外：宿主纪律注入面（RULE.mdc 渲染落点），
