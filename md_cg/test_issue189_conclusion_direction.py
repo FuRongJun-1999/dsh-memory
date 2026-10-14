@@ -302,7 +302,8 @@ def s9():
 
 def _git(*args):
     return subprocess.run(["git"] + list(args), cwd=_REPO, capture_output=True,
-                          text=True, timeout=60)
+                          text=True, encoding="utf-8", errors="replace",
+                          timeout=60)
 
 def _is_before(src):
     """修复前源 = **不含本件标记**的版本。"""
