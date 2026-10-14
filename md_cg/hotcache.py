@@ -61,7 +61,10 @@ _KEYED_EXTRA = ("include_work", "roles", "paths", "path_weights", "recall_only",
                 # 失配，无需全清（全清会毁命中率，与 #154 性能面冲突）。
                 # 登记纪律同 env_switch：新增一个就登记一个——不登记等于让下一个人
                 # 看不出它承重（键用整份 extra，故漏登只影响可读性、不影响正确性）。
-                "index_gen")
+                "index_gen",
+                # 相对时间锚定：问句解析出的区间（仅开关开且问句含日期时入键；相对写法
+                # 「上周二」随当天变化，不入键会跨日命中旧区间的结果）。
+                "time_anchor")
 #: 不可稳定规范化的参数（自定义可调用）：非默认即**绕行缓存**（fail-closed）。
 _BYPASS_EXTRA = ("query_expand",)
 #: 影响检索结果的进程级开关（新增一个就登记一个——同 _KEYED_EXTRA 的纪律）。
@@ -78,7 +81,11 @@ _ENV_SWITCHES = ("MDCG_SEMANTIC", "MDCG_EN_ATOMS", "MDCG_UNIFY_QUERY",
                  # 开启后在既有名单门之上追加 whole_tie（任意路）与
                  # floor_mass（有下限声明的路）两条弃权分支 ⇒ 直接改变融合
                  # 结果，同属「漏登即跨口径串味」的一类。
-                 "MDCG_RANK_CREDIBILITY")
+                 "MDCG_RANK_CREDIBILITY",
+                 # 相对时间锚定（2026-10-14）：开关开 ⇒ 写入侧派生 temporal_anchor、查询侧
+                 # 点名日期时追加 time_anchor 路并把区间交集者前置；TZ 改「哪一天」的折算
+                 # ⇒ 两者都改变融合结果，同属「漏登即跨口径串味」的一类。
+                 "MDCG_TIME_ANCHOR", "MDCG_TIME_ANCHOR_TZ")
 
 
 # 生效条件：无必需形参；返回 _ENV_SWITCHES 中每个变量名的 (名, 当前取值或 None) 元组（稳定、可哈希，随 query 缓存键一起参与比对）。
