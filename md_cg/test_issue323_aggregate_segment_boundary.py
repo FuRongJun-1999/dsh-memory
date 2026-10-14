@@ -38,7 +38,7 @@ def _check(name, cond, detail=""):
 
 
 sys.path.insert(0, _REPO)
-from md_cg import forgetting  # noqa: E402
+from md_cg import forgetting, autonomy_modes  # noqa: E402
 
 _STAMP = "10-14 22:00"
 

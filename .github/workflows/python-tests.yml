@@ -27,6 +27,9 @@ jobs:
       # 本地（完整克隆）却全绿。此处拉全历史，让「本地绿」与「CI 绿」同义。
       - uses: actions/checkout@v4
         with:
+          # Several existing guards locate the original buggy source through
+          # git log -S and git show <introduction>^; a shallow checkout cannot
+          # execute their negative controls and must not be treated as ready.
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
