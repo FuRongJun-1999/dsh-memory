@@ -29,7 +29,10 @@ jobs:
           npm init -y
           npm install @furongjun1999/dsh-memory
           echo "--- peer deps tree ---"
-          npm ls @deepseek-ai/dsh-llm @deepseek-ai/cordis 2>&1 | head -10
+          # issue #223：这条诊断查的是本就没装的 peer 包，npm ls 必然返回非零；
+          # GitHub Actions 的 bash 默认 -e -o pipefail，预期失败会经 pipefail 杀掉整步，
+          # 掩盖其后的真实失败（同文件 Diagnose 步已用 continue-on-error 保护同类）。
+          npm ls @deepseek-ai/dsh-llm @deepseek-ai/cordis 2>&1 | head -10 || true
 
       - name: ESM import check
         shell: bash
