@@ -552,7 +552,10 @@ class NameChecker:
             # 读取不得误报；检查后还原（形参不泄漏出函数体，不污染外层同名，
             # 也不参与「未被使用」警告）。
             params = list(getattr(stmt, 'params', None) or [])
-            saved_params = {p: self.symbol_table.get(p) for p in params}
+            # Fix #329: snapshot all keys added during body check, not just params.
+            # Body variables must not leak to outer scope (bypass N271).
+            _saved_keys = set(self.symbol_table.keys())
+            _saved_overwritten = {p: self.symbol_table[p] for p in params if p in self.symbol_table}
             for p in params:
                 self.symbol_table[p] = Symbol(
                     name=p, kind=SymbolKind.VARIABLE,
@@ -566,11 +569,11 @@ class NameChecker:
                 elif stmt.body is not None:
                     self._check_statement(stmt.body)
             finally:
-                for p, old in saved_params.items():
-                    if old is None:
-                        self.symbol_table.pop(p, None)
-                    else:
-                        self.symbol_table[p] = old
+                for key in list(self.symbol_table.keys()):
+                    if key not in _saved_keys:
+                        del self.symbol_table[key]
+                for p, old in _saved_overwritten.items():
+                    self.symbol_table[p] = old
         elif stmt.type == NodeType.RETURN_STMT:
             # 返回语句：返回值表达式同样过字面量/标识符校验
             if stmt.value is not None:
