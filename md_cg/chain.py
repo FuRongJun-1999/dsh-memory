@@ -195,12 +195,15 @@ def adjacency(cg, include_hierarchy=True, skip_archived=True):
     面必消费、维护/管理面直读，见运维文档 §九.5 面的判据）。判据单点
     `lifecycle.is_archived`（缺键=active fail-open）。
     """
+    generation = getattr(cg, "_cache_generation", None)
+    generation = generation() if callable(generation) else None
     cached = getattr(cg, "_chain_adj", None)
     vis = getattr(cg, "_chain_visible", None)
     vis_on = vis is not None
     if (cached is not None and cached[0] == bool(include_hierarchy)
             and cached[1] == vis_on
-            and cached[2] == bool(skip_archived)):
+            and cached[2] == bool(skip_archived)
+            and getattr(cg, "_chain_generation", None) == generation):
         return cached[3]
     from . import subgraph as _sg
     from . import lifecycle as _lc
@@ -233,6 +236,7 @@ def adjacency(cg, include_hierarchy=True, skip_archived=True):
             adj[nid] = out
     try:
         cg._chain_adj = (bool(include_hierarchy), vis_on, bool(skip_archived), adj)
+        cg._chain_generation = generation
     except Exception:
         pass
     return adj

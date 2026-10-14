@@ -632,7 +632,9 @@ def dependents_index(cg, refresh: bool = False) -> dict:
 
     缓存挂在 cg 实例上（与 `subgraph` 的缓存化做法同构）；`refresh=True` 强制重建。
     """
-    if not refresh:
+    generation = getattr(cg, "_cache_generation", None)
+    generation = generation() if callable(generation) else None
+    if not refresh and getattr(cg, "_trust_generation", None) == generation:
         cached = getattr(cg, "_trust_dependents", None)
         if isinstance(cached, dict):
             return cached
@@ -645,6 +647,7 @@ def dependents_index(cg, refresh: bool = False) -> dict:
         idx[k].sort()
     try:
         cg._trust_dependents = idx
+        cg._trust_generation = generation
     except Exception:                                  # noqa: BLE001
         pass
     return idx

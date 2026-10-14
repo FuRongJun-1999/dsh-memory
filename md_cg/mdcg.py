@@ -2360,6 +2360,22 @@ class MdCG:
         return {k: nodes[k] for k in sorted(nodes)}
 
 # 生效条件：每次调用都以 self._scan_nodes() 的结果重建 nodes 与 buckets 并附 _dir_fingerprint()，在 FileLock 下 atomic_write 覆盖 index_path 并 ShardedLog.clear(index_log_dir)，随后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）、清空 _dirty 并返回 idx（无 .md 时也照样覆盖为空索引）；
+    def _cache_generation(self):
+        """O(1) generation for metadata writes and replaced node snapshots.
+
+        Strong references and identity comparisons avoid mapping equality scans
+        and object-id reuse. All supported writes advance _dirty.write_gen;
+        rebuild/reload may instead replace the nodes mapping.
+        """
+        nodes, dirty = self.index.get("nodes"), self._dirty
+        version = getattr(dirty, "write_gen", None)
+        previous = getattr(self, "_cache_generation_state", None)
+        if (previous is None or previous[0] is not nodes
+                or previous[1] is not dirty or previous[2] != version):
+            self._cache_generation_value = getattr(self, "_cache_generation_value", 0) + 1
+            self._cache_generation_state = (nodes, dirty, version)
+        return self._cache_generation_value
+
     def rebuild_index(self):
         nodes = self._scan_nodes()
         idx = {"schema": SCHEMA, "nodes": nodes,
