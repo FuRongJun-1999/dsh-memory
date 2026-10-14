@@ -1010,12 +1010,12 @@ class MdCGOS(MdCG):
         g = getattr(self, "_index_gen", None)
         if g is None:
             g = self._index_gen = 0
-        return g
+        return g + self._cache_generation()
 
     # 生效条件：索引突变后由 _set_index_entry 委派调用；代际 +1（O(1)）并对**该节点**做节点级失效；**不触碰 query 缓存**（全清会毁命中率，与 #154 性能面冲突）；异常一律吞掉，不得冒泡进写路径。
     def _on_index_mutation(self, node_id=None):
         """#153 通用失效单点（**索引突变**语义；与 #152 的密钥面单点分开）。"""
-        self._index_gen = self._index_generation() + 1
+        self._index_gen = getattr(self, "_index_gen", 0) + 1
         try:
             from . import hotcache as _hc
             hc = _hc.get(self)

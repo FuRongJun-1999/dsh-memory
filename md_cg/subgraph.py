@@ -106,8 +106,20 @@ def normalize_edge(tgt, rel, confidence=1.0, verified=0):
 
 
 # 生效条件：cg 的 `_subgraph_children` 不为 None 时原样返回该缓存字典，否则遍历 cg.index["nodes"] 的键，用 declared(fm)["nodes"] 收子节点、并按边 rel 为 part_of/hierarchical（target 记为父、当前 pid 记为子）或 parent_of/contains（当前 pid 记为父、target 记为子，target 为 None 则该边跳过）补全 parent_id→[child_id] 索引，回写 cg._subgraph_children 后返回 idx；
+def _ensure_cache_generation(cg):
+    """Both directions belong to the same current node snapshot."""
+    generation = getattr(cg, "_cache_generation", None)
+    if not callable(generation):
+        return
+    generation = generation()
+    if getattr(cg, "_subgraph_generation", None) != generation:
+        invalidate_cache(cg)
+        cg._subgraph_generation = generation
+
+
 def children_index(cg):
     """全局正查：parent_id → [child_id...]（声明式 ∪ 边式，一次 O(N) 后缓存）。"""
+    _ensure_cache_generation(cg)
     idx = getattr(cg, "_subgraph_children", None)
     if idx is not None:
         return idx
@@ -153,6 +165,7 @@ def children(cg, nid):
 # 生效条件：cg 的 `_subgraph_parents` 不为 None 时原样返回该缓存字典，否则遍历 cg.index["nodes"] 的键，用 declared(fm)["nodes"] 把 pid 记为每个子节点的父、并按边 rel 为 part_of/hierarchical（target 记为 pid 的父）或 parent_of/contains（pid 记为 target 的父，target 为 None 则该边跳过）补全 child_id→[parent_id] 索引，回写 cg._subgraph_parents 后返回 idx；
 def parents_index(cg):
     """全局反查：child_id → [parent_id...]（供 children/validate 复用，一次 O(N)）。"""
+    _ensure_cache_generation(cg)
     idx = getattr(cg, "_subgraph_parents", None)
     if idx is not None:
         return idx
