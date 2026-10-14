@@ -14,6 +14,7 @@ import datetime as dt
 import os
 import sys
 import tempfile
+import time
 import types
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -203,6 +204,7 @@ M1_ANCHOR = ("    x = d - _TD((d.weekday() - w) % 7 or 7)\n    return (x, x)\n\n
 M2_ANCHOR = "            fused_all.sort(key=lambda kv: _ta_tier.get(kv[0], 2))\n"
 M3_ANCHOR = "    d = derive(content, fm.get(\"created_at\"))\n"
 M4_ANCHOR = "    if fm.get(EXPLICIT_FIELD) is not None or fm.get(DERIVED_FIELD) is not None:\n"
+M6_ANCHOR = "    if isinstance(t, str):\n        m = _EXPLICIT_DATE_RE.match(t)\n"
 M5_ANCHOR = "        _ta_q = _timeanchor.parse_query_detail(query) if _timeanchor.enabled() else None\n"
 
 
@@ -315,6 +317,30 @@ def main():
                                                                       "end": "2023-05-07"},
                           "created_at": EVENT_TS}, _mdcg.trust.parse_time)
     check("node_interval：显式 temporal 优先于派生", iv == (D(2023, 1, 1), D(2023, 1, 1), T.SRC_EXPLICIT), iv)
+    # 回归（dsh-bounty #287 维护者复现）：显式 temporal 字符串日期不得随主机时区偏移。
+    # 在若干主机 TZ 下逐一实跑（time.tzset 只在 POSIX 可用；不可用时只跑当前主机时区）。
+    _tz_seen = []
+    _old_tz = os.environ.get("TZ")
+    _tzs = ["UTC", "Asia/Shanghai", "America/Los_Angeles", "Pacific/Kiritimati"] if hasattr(time, "tzset") else [None]
+    try:
+        for _tz in _tzs:
+            if _tz is not None:
+                os.environ["TZ"] = _tz
+                time.tzset()
+            for _raw in ("2023-01-01", "2023/01/01", "2023-01-01 23:30", "2023-01-01T00:10:00Z"):
+                _iv = T.node_interval({"temporal": _raw, "created_at": EVENT_TS}, _mdcg.trust.parse_time)
+                _tz_seen.append((_tz, _raw, _iv[0] if _iv else None))
+    finally:
+        if _tzs != [None]:
+            if _old_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = _old_tz
+            time.tzset()
+    _bad = [x for x in _tz_seen if x[2] != D(2023, 1, 1)]
+    check("node_interval：显式 temporal 字面日期与主机时区无关（%d 组 TZ×写法）" % len(_tz_seen), not _bad, _bad)
+    _ep = T.node_interval({"temporal": EVENT_TS, "created_at": 0}, _mdcg.trust.parse_time)
+    check("node_interval：数值 temporal（UNIX 秒）与 created_at 同口径折算", _ep is not None and _ep[0] == T.ts_to_date(EVENT_TS), _ep)
 
     print("\n[7] 时区（MDCG_TIME_ANCHOR_TZ）")
     ts = _ts(2023, 5, 7, 20)
@@ -365,6 +391,23 @@ def main():
     print("    M5 查询侧无视开关：关时 meta.time_anchor %s -> %s" % (None, meta5.get("time_anchor")))
     check("M5 变异转红：开关关时 meta 出现 time_anchor（零变更被破坏）",
           "time_anchor" in meta5, sorted(meta5))
+
+    if hasattr(time, "tzset"):
+        m6 = mutant(T, [(M6_ANCHOR, M6_ANCHOR.replace("if isinstance(t, str):", "if False:"))],
+                    "m6_roundtrip")
+        _old_tz = os.environ.get("TZ")
+        try:
+            os.environ["TZ"] = "Asia/Shanghai"
+            time.tzset()
+            iv6 = m6.node_interval({"temporal": "2023-01-01", "created_at": EVENT_TS}, _mdcg.trust.parse_time)
+        finally:
+            if _old_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = _old_tz
+            time.tzset()
+        print("    M6 显式日期改回「parse_time→秒→UTC 渲染」往返（UTC+8 主机）：%s" % (iv6,))
+        check("M6 变异转红：UTC+8 主机上显式 2023-01-01 被偏成别的日子", iv6 is None or iv6[0] != D(2023, 1, 1), iv6)
 
     print("\n" + "=" * 68)
     print("通过 %d / 失败 %d" % (PASS, len(FAILS)))
