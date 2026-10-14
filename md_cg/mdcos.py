@@ -5965,6 +5965,42 @@ class MdCGSecure(MdCGOS):
 
     # ---------- 读：密级过滤 ----------
 
+# 生效条件：以 limit（默认 100）取 consistency.history 的留痕后按调用方身份过滤——principal.can_admin 原样返回；否则逐条按记录自带的 sensitivity（缺键＝升级前旧记录，密级不可判）判定，为 public/internal 且 principal.allows 命中时原样保留，其余一律 consistency.scrub_record 去原文后返回；条数与顺序不变。
+    def consistency_history(self, limit=100):
+        """冲突判定留痕：为什么冲突 / 为什么放行（**按密级过滤**）。
+
+        issue #298（2026-10-14 DSH 端）：`_consistency.jsonl` 只要求 write 权限
+        即可读（`mcp_server.py` 的 `"mdcg_consistency": "write"`），而各写角色
+        （record/reflect/sustain/verify/orchestr）都有 write——此前本方法直接转调
+        `consistency.history`，**没有任何可见性过滤**，于是 internal 级令牌能读到
+        private/restricted 写入的条件原文，而同一令牌 `get` 那个节点判 not_found。
+        对照：`status`、`audit` 两个读面都按可见性过滤。
+
+        两态：
+          · can_admin（设计者，需整体判断）——原样返回，与 `_readable` 的
+            绑定档豁免同款；
+          · 其他身份——记录自带 `sensitivity` 为 public/internal 且 clearance
+            覆盖时原样保留；其余（含加密档、以及**升级前写下、没有 sensitivity
+            键**的旧记录）一律去原文。旧记录密级不可判 ⇒ fail-closed 去原文
+            （与 `_readable` 的「密级未知按 secret」同向：宁可少读，不可越权）。
+
+        诚实边界：本过滤是**读面**收口，不改写历史文件——升级前已明文落盘的
+        条件原文仍在 `_consistency.jsonl` 里，需轮转/清理由维护者裁定。
+        """
+        recs = consistency.history(self, limit=limit)
+        if self.principal.can_admin:
+            return recs
+        out = []
+        for r in recs:
+            lvl = str((r or {}).get("sensitivity") or "").strip().lower()
+            if lvl in ("public", "internal") and self.principal.allows(lvl):
+                out.append(r)
+            else:
+                out.append(consistency.scrub_record(r))
+        return out
+
+    # ---------- 读：密级过滤 ----------
+
 # 生效条件：e 的 sensitivity 为假值时先 _read 回填为 fm 的 sensitivity or DEFAULT_SENSITIVITY，再以 self.principal.allows(sens) 的布尔结果为准。
     def _readable(self, e, session=None) -> bool:
         """读可见性单点判定：clearance × sensitivity（密级）∧ 会话绑定（归属）。

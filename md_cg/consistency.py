@@ -60,6 +60,94 @@ from .fsutil import ends_mid_line
 
 LOG_FILE = "_consistency.jsonl"
 
+# ---- issue #298（2026-10-14 DSH 端）：台账的密级面 ----
+#
+# 病灶：`_consistency.jsonl` 是**明文** append-only 台账，而 `check()` 完全不知道
+# 写入的密级。一条声明 `sensitivity=private` 的写入，节点本体加密落盘，同一次判定
+# 的 `pos`/`neg`（生效条件/不适用条件原文）、`conflicts[].pos_side`/`neg_side`、
+# `slot`（功能名前 40 字）、`cond_routes.only_new_side`/`only_existing_side`
+# 却照样明文记下；`consistency.history` 只要求 write 权限、不过可见性过滤，
+# 于是 clearance 仅 internal 的 record/sustain/verify/reflect/orchestr 令牌
+# 能原样读到同一批节点 `get` 判 `not_found` 的条件原文。
+#
+# 修法：**落盘副本**去原文（`check()` 返回给调用方的回执一字不动）。密级取
+# 「调用方声明值」与「本次比对的既有节点各自密级」的最高档——`only_existing_side`
+# 记的正是被比对节点的条件，故既有节点侧必须一起进密级面。
+#
+# 序与 `security.SENSITIVITY_ORDER` 逐位同序（此处复制而非 import：本模块被
+# `mdcos`/`security` 下游大量引用，反向 import 会成环）。
+_LEDGER_LEVELS = ("public", "internal", "restricted", "private", "secret")
+
+# 台账里承载「条件原文 / 功能名槽」的字段——高于 internal 时一律去原文。
+_LEDGER_TEXT_FIELDS = ("pos", "neg")
+_LEDGER_CONFLICT_FIELDS = ("pos_side", "neg_side", "slot")
+_LEDGER_ROUTE_FIELDS = ("only_new_side", "only_existing_side")
+
+
+# 生效条件：形参 level 为 _LEDGER_LEVELS 中的元素时返回其下标；假值返回 None（视为未声明）；非法值返回 len(_LEDGER_LEVELS)（=最高档，fail-closed）。
+def _level_rank(level):
+    """密级序（与 security.SENSITIVITY_ORDER 同序）；假值 None、非法值 fail-closed 最高档。"""
+    s = str(level or "").strip().lower()
+    if not s:
+        return None
+    return (_LEDGER_LEVELS.index(s) if s in _LEDGER_LEVELS
+            else len(_LEDGER_LEVELS))
+
+
+# 生效条件：declared 为调用方声明密级、levels 为本次比对到的既有节点密级序列；取两者最高档，全为假值时回落 internal。
+def ledger_level(declared, levels=None):
+    """本次判定的**落账密级**＝声明值与各被比对既有节点密级中的最高档。
+
+    未声明（None/空串）按 internal（与 #87 缺省档一致，零变化）；
+    非法值 fail-closed 按最高档 secret（宁可多抹，不可越权）。
+    """
+    best = "internal"
+    best_r = _LEDGER_LEVELS.index(best)
+    for x in [declared] + list(levels or []):
+        r = _level_rank(x)
+        if r is None:
+            continue
+        if r > best_r:
+            best_r, best = r, _LEDGER_LEVELS[min(r, len(_LEDGER_LEVELS) - 1)]
+    return best
+
+
+# 生效条件：rec 为判定留痕字典时返回**去原文副本**（原 rec 不被修改）；rec 非字典时原样返回。
+def scrub_record(rec):
+    """去原文副本：条件原文与功能名槽置空，判据数值 / verdict / 节点 id 照常保留。
+
+    只动副本——`check()` 返回给调用方的回执不受影响（复核面需要原文，
+    落盘面不需要）。节点 id 保留是刻意的：台账的可审计性（哪两个节点冲突）
+    不依赖条件原文，而 id 本身已受 `get`/`search` 的密级过滤保护。
+    """
+    if not isinstance(rec, dict):
+        return rec
+    out = dict(rec)
+    for k in _LEDGER_TEXT_FIELDS:
+        if k in out:
+            out[k] = []
+    if isinstance(out.get("conflicts"), list):
+        cs = []
+        for c in out["conflicts"]:
+            if not isinstance(c, dict):
+                cs.append(c)
+                continue
+            c2 = dict(c)
+            for k in _LEDGER_CONFLICT_FIELDS:
+                if k in c2:
+                    c2[k] = [] if isinstance(c2[k], list) else ""
+            cr = c2.get("cond_routes")
+            if isinstance(cr, dict):
+                cr = dict(cr)
+                for k in _LEDGER_ROUTE_FIELDS:
+                    if k in cr:
+                        cr[k] = []
+                c2["cond_routes"] = cr
+            cs.append(c2)
+        out["conflicts"] = cs
+    return out
+
+
 MAX_SCAN = 200       # 单次检测最多比对的既有节点数（防 O(N) 爆炸）
                      # cons200（2026-10-03）：本值是**相关面/保底面各自的限额**，不是
                      # 「索引序前 N」——数值一字未动（契约禁止面）；超限走可观测
@@ -713,12 +801,31 @@ def check(cg, content, layer=None, condition_space=None,
         _probe()
     else:
         _probe = None
+    # issue #298：调用方未声明密级、而 exclude 指向一个**已存在**的节点时，
+    # 该节点当前盘面密级就是本次写入将继承的档位（#297 的继承语义）——
+    # 不取它，一条「未声明」地改写既有 private 节点的写入会把新条件原文
+    # 按 internal 明文记进台账（`writepipe` 的 `cg(op=write)` 动词面走这条路）。
+    # 只在声明值缺失时查一次；查不到（新节点 / 桩无 get）即维持 internal 零变化。
+    if not sensitivity and exclude:
+        try:
+            _en = cg.get(exclude) or {}
+            sensitivity = (_en.get("frontmatter") or {}).get("sensitivity") or None
+        except Exception:
+            sensitivity = None
+    # nid → 该既有节点盘面密级（只对**真进了判定**的节点取值，见下）
+    ledger_sens = {}
     seeds = []
     for nid, e in scan_face:
         node = (cg.get(nid, probe=False) if _probe is not None
                 else cg.get(nid)) or {}
         fm = node.get("frontmatter") or {}
         body = node.get("content") or ""
+        # issue #298：`only_existing_side` / `pos_side` / `neg_side` 记的是
+        # **这个**节点的条件原文，故它自己的密级必须进落账密级面。
+        # 此处只登记不裁决——真正进密级面的只有「进了 allc 的那些节点」，
+        # 否则库里任意一个 private 节点被扫到就会把所有台账记录抹成去原文
+        # （过度抹除同样是有损：台账的可审计性会整体消失）。
+        ledger_sens[nid] = fm.get("sensitivity")
         e_pos, e_neg = _declared(fm, body)
         if not e_pos and not e_neg:
             continue
@@ -906,7 +1013,17 @@ def check(cg, content, layer=None, condition_space=None,
                                               reason, missing, allc,
                                               sensitivity=sensitivity)
     if log_write:
-        log(cg, rec)
+        # issue #298：**落盘副本**带密级、按需去原文；上面返回给调用方的
+        # `rec` 一字不动（复核面要原文，落盘面不要）。
+        _lv = [ledger_sens.get(x) for x in
+               {c.get("with") for c in allc if isinstance(c, dict)}]
+        _lvl = ledger_level(sensitivity, _lv)
+        _lr = _level_rank(_lvl)
+        _redact = bool(_lr is not None and _lr > _LEDGER_LEVELS.index("internal"))
+        _rec = scrub_record(rec) if _redact else dict(rec)
+        _rec["sensitivity"] = _lvl
+        _rec["redacted"] = _redact
+        log(cg, _rec)
     return rec
 
 
