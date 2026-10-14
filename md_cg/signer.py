@@ -318,8 +318,30 @@ def _normalize(pol: dict) -> dict:
     return out
 
 
-# 生效条件：显式 path 非空即返回该 path，否则返回环境变量 SIGNERS_FILE_ENV 的值，两者皆空返回 DEFAULT_SIGNERS_FILE。
+# 生效条件：path 为显式传入的文件路径（任意类型）；合规返回空字符串，否则返回中文理由——非 str/空、含空字节、含 .. 路径段各一条。**单一真源**：signers_file 汇点共用本函数，规则只有一份。
+#
+# 口径说明（issue #279）：只拦截路径穿越（`..`），不拦截绝对路径——
+# 绝对路径是既有语义（DEFAULT_SIGNERS_FILE 本身就是绝对路径，
+# `_gate_link_signers_file` 也用 realpath 比对绝对路径）。
+# `..` 段在相对与绝对两种形态下都会被拦截（含 `..\..` 反斜杠形态）。
+def _signers_file_error(path) -> str:
+    """signers_file 路径参数判据（issue #279）。"""
+    if not isinstance(path, str) or not path.strip():
+        return "signers_file 非字符串或为空"
+    if "\x00" in path:
+        return "signers_file 含空字节"
+    parts = path.replace("\\", "/").split("/")
+    if ".." in parts:
+        return f"signers_file 含 .. 路径穿越：{path!r}"
+    return ""
+
+
+# 生效条件：当传入 path 为真值时先经 _signers_file_error 校验（非法抛 SignerError），再返回 path；否则若环境变量 SIGNERS_FILE_ENV 为真值则返回其值；否则返回模块级常量 DEFAULT_SIGNERS_FILE。
 def signers_file(path: str = None) -> str:
+    if path:
+        err = _signers_file_error(path)
+        if err:
+            raise SignerError(f"signers_file 参数非法（issue #279，fail-closed）：{err}")
     return path or os.environ.get(SIGNERS_FILE_ENV) or DEFAULT_SIGNERS_FILE
 
 
