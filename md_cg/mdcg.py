@@ -2565,6 +2565,31 @@ class MdCG:
         # 签名未变时只有一次 stat（微秒级）；自身未 flush 的写入由
         # `_maybe_reload_index` 的 _dirty 重放保住（与读路径同款语义）。
         self._maybe_reload_index()
+        # issue #350（2026-10-16 DSH 端）：**大小写折叠查重**。节点文件名就是
+        # node_id，而「已存在/受保护/原密级」全部按区分大小写的索引键判断——在
+        # 大小写不敏感文件系统（Windows NTFS、macOS APFS 默认卷）上，
+        # User_Identity.md 与 user_identity.md 是同一个文件：写入 user_identity
+        # 会被当成**新节点**，保护闸/冻结副本/跨层闸/#297 密级继承全部不生效，
+        # os.replace 直接把先写者整份换掉，回执 ok:true，重启后先写者从库里
+        # 消失且库根无任何副本（项目方 Windows 实测命中缺陷 3/3，与报告模拟组一致）。
+        # 口径：**所有平台都拒**（报告建议并请维护者裁定的那条）——库会在机器之间
+        # 同步/拷贝，Linux 上建的库拷到 Windows 会互相顶替；已并存的存量对不受
+        # 影响（对既有 id 的覆写照旧放行，只拦「新 id 与既有 id 只差大小写」）。
+        _nodes350 = self.index.get("nodes") or {}
+        if (node_id not in _nodes350 and isinstance(node_id, str) and node_id):
+            _cf350 = node_id.casefold()
+            # H-4(a)：凡从 cg.index 取回的 nodes，迭代前先取快照（tuple）——
+            # 否则他进程并发写会「dictionary changed size during iteration」。
+            _keys350 = tuple(_nodes350)
+            _hit350 = next((k for k in _keys350
+                            if isinstance(k, str) and k.casefold() == _cf350), None)
+            if _hit350 is not None:
+                raise ValueError(
+                    f"node_id {node_id!r} 与既有节点 {_hit350!r} 只差大小写——"
+                    "在大小写不敏感文件系统（Windows NTFS / macOS APFS 默认卷）上"
+                    "两者是同一个文件，后写者会整份顶替先写者且不留副本"
+                    "（issue #350），拒绝写入。请改用与既有节点完全一致的大小写，"
+                    "或换一个不冲突的 id。")
         protect.guard_write(self, node_id, layer=layer, override=override,
                             actor=extra.get("actor"))
         # 节点间自动冲突检测（智能论 §十一 情绪二阶 / 条件论「反题」/ :273 递归约束）
