@@ -248,15 +248,19 @@ def e_group():
 # ------------------------------------------------------------------ 定点变异
 #: (说明, 相对仓根的路径, 原文, 替换, 预期转红的前缀元组)
 _MUTATIONS = (
+    # #397（28d2e4e 前已合入）把 MERGE 支实参从 kw.get("sensitivity") 改为有效密级
+    # `_sens_eff`，旧锚点命中 0 次、V1/V2 形同虚设（与 #313 V4/V5 随 #345 失效同类）。
+    # 锚点随真源迁到 reinforce 调用处的 `sensitivity=_sens_eff,`；该行在函数内出现
+    # 两次（另一处是 record_drop），故带上紧随其后的 #417 注释行定位到唯一一处。
     ("V1 MERGE 支不再传密级（回到 #315 修前形态）",
      "md_cg/mdcos.py",
-     "\r\n" + " " * 16 + 'sensitivity=kw.get("sensitivity"))',
-     "\r\n" + " " * 16 + "sensitivity=None)",
+     "\r\n" + " " * 16 + "sensitivity=_sens_eff," + "\r\n" + " " * 16 + "# #417",
+     "\r\n" + " " * 16 + "sensitivity=None," + "\r\n" + " " * 16 + "# #417",
      ("A2", "A3", "A5")),
     ("V2 补错常量：传写死的 internal（报告的 P2 对照腿）",
      "md_cg/mdcos.py",
-     "\r\n" + " " * 16 + 'sensitivity=kw.get("sensitivity"))',
-     "\r\n" + " " * 16 + 'sensitivity="internal")',
+     "\r\n" + " " * 16 + "sensitivity=_sens_eff," + "\r\n" + " " * 16 + "# #417",
+     "\r\n" + " " * 16 + 'sensitivity="internal",' + "\r\n" + " " * 16 + "# #417",
      ("A2", "A3", "E3")),
     ("V3 prefeed 支的 reinforce 不再传密级（同族未接线写点）",
      "md_cg/mdcos.py",
