@@ -853,7 +853,11 @@ class MdCGOS(MdCG):
         rec.update(meta)
         try:
             self._rotate_audit_if_needed()
-            append_jsonl(self.audit_log, rec)
+            # issue #549：审计账本是**不可丢**的治理面（被 admission 等消费做状态
+            # 推断；缺行使「发生过」与「没发生过」不可区分），而缺省 append_jsonl
+            # 在 Windows 上多写者并发实测丢 29–39%。故此处走 durable=True ——
+            # 把「判半截行 + 追加」收进 FileLock(strict=True) 临界区。
+            append_jsonl(self.audit_log, rec, durable=True)
         except OSError:
             pass
 

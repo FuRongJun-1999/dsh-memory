@@ -185,22 +185,52 @@ def ends_mid_line(path: str) -> bool:
         return False
 
 
-# 生效条件：record 序列化为 json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"；若 ends_mid_line(path) 为真则在行首再补一个 "\n"；随后建父目录并以 O_CREAT|O_WRONLY|O_APPEND、权限 0o600 打开 path 写入该行 UTF-8 字节后关闭。
-def append_jsonl(path: str, record: dict):
-    """向 append-only 日志追加一条记录（best-effort 语义）。
+# 生效条件：record 序列化为 json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"；若 ends_mid_line(path) 为真则在行首再补一个 "\n"；随后建父目录并以 O_CREAT|O_WRONLY|O_APPEND、权限 0o600 打开 path 写入该行 UTF-8 字节后关闭。durable=True 时整段「追加」收进 FileLock(path, strict=True) 临界区（issue #549：审计账本等不可丢的写面）。
+def append_jsonl(path: str, record: dict, durable: bool = False):
+    """向 append-only 日志追加一条记录。
 
     注意 O_APPEND 的原子性是**平台相关**的：POSIX 保证「定位到末尾 + 写入」是
     一个原子操作，Windows CRT 的 _O_APPEND 则是 lseek(END) + write 两步，并发下
     会偶发交错丢记录（实测 6 进程 × 40 条，每轮丢 ~1 条）。
 
-    因此本函数只用于**丢一条无所谓**的簿记（访问计数）。任何不能丢的东西
-    （比如索引增量）必须用 ShardedLog——每个写者独占一个分片，不共享写入点。
+    因此**缺省**（`durable=False`）仍只用于**丢一条无所谓**的簿记（访问计数）；
+    任何不能丢的东西（索引增量）**首选** ShardedLog——每个写者独占一个分片，
+    不共享写入点，物理上无从冲突。
+
+    issue #549（2026-10-14）：但**审计账本**（`MdCGOS._audit` 的 `_audit.jsonl`）
+    此前也走本函数缺省路径，实测 6 进程 × 20 条在多写者下静默丢
+    **29.2% / 36.7% / 39.2%**（三轮），且 `add` 仍返回成功、worker 零报错 ——
+    而该账本被 `admission` 等消费做状态推断，缺行使审计追溯出现
+    **无法察觉的空洞**（「发生过」与「没发生过」不可区分）。
+    审计账本的写点分散且要参与轮转，改 ShardedLog 需动读面与轮转器；
+    故此处提供 **`durable=True`**：把「判半截行 + 追加」整段收进
+    `FileLock(strict=True)` 临界区（该锁的既有语义即「不能丢的写」），
+    以最小改动关掉静默丢行。
+
+    `durable=True` 的代价是**锁定串行化**（并发写审计会排队）。
+    按既有价值序（`FileLock` 注释：写被拒绝的代价大于一次竞态，而**不能丢的写**
+    宁可让写入者等一下）——审计账本属「不能丢」，故取 strict 语义：
+    锁竞争超时**显式抛错**给调用方，而不是静默退化为无锁并发再丢行。
     """
     line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
-    if ends_mid_line(path):
-        line = "\n" + line
     d = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(d, exist_ok=True)
+    if durable:
+        # 整段临界区：判半截行与追加必须原子（否则两个写者可同时判定
+        # 「上一行完整」而各自直接追加，交错仍会丢）。
+        # 注：不加 ".lock" 后缀的第二把锁——FileLock 内部即以 path + ".lock" 命名，
+        # 与本文件其他写点（inbox/decisions）同构。
+        with FileLock(path, strict=True):
+            if ends_mid_line(path):
+                line = "\n" + line
+            fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+            try:
+                os.write(fd, line.encode("utf-8"))
+            finally:
+                os.close(fd)
+        return
+    if ends_mid_line(path):
+        line = "\n" + line
     fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
     try:
         os.write(fd, line.encode("utf-8"))
