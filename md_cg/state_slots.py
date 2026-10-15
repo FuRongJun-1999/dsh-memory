@@ -16,6 +16,7 @@
 回放规则（分组键 `(subject, slot)`，组内按 `state_events.read()` 的**落盘序**）：
   · `value` 自 None 起：事件 `new` 非空 → `value=new`；`new` 空（撤回）→ `value=None`
     且 `state=retired`；其后带值事件自然复活（事件序自然处理，无特判分支）。
+    「空」＝ `None` **或空白字符串**（#375，2026-10-14；判据单点 `_is_void`）。
   · `state`：**最后一个事件的形态**决定——`new` 空 → `'retired'`；否则 `'active'`。
   · 区间（取值一律用事件行的 `t` 落账时间戳，不另算时间）：
     `t_from`/`seq_from` ＝**最后产生当前值**的那条事件的 `t`/`seq`（retired 态＝
@@ -65,10 +66,25 @@ TIER_UNSPECIFIED = "unspecified"
 _HIST_FIELDS = ("t", "seq", "old", "new", "kind", "evidence", "actor")
 
 
-# 生效条件：rec 为台账记录 dict——`rec.get("new")` 为 None 时返回 True（撤回/值作废），非 None 时返回 False；入参非 dict 时按 `.get` 抛 AttributeError（台账读面保证为 dict，不吞错）。
+# 生效条件：rec 为台账记录 dict——`rec.get("new")` 为 None，或为字符串且 `str.strip()` 后为空（含全空白串）时返回 True（撤回/值作废）；其余（非 None 且非空白字符串，含数字 0、False、非空串）返回 False；入参非 dict 时按 `.get` 抛 AttributeError（台账读面保证为 dict，不吞错）。
 def _is_void(rec) -> bool:
-    """撤回判据（单点）：`new` 为空＝值作废、无新值（口径见模块头）。"""
-    return rec.get("new") is None
+    """撤回判据（单点）：`new` 为空＝值作废、无新值（口径见模块头）。
+
+    #375（2026-10-14）：判据从 `new is None` 放宽为「**None 或空白字符串**」。
+    模块头与 `state_events` 的撤回口径本来写的就是「`new` **为空**」（工具说明也
+    以 `new=""` 记撤回），而旧判据只认 None ⇒ 空串按「有值」进入回放，三处读数
+    同时错：槽位仍 `active`、`status()["retired"]` 少计、默认投影多出一条现值=空串
+    的单元（与「事件是源、槽位是投影」的语义冲突）。
+
+    **台账行与 `history` 条目的 `new` 原值一字不改**（值作废只发生在投影回放里，
+    见 `_hist_item`：七字段原样透传）；空白串一律按无值处理，其后第一条带值事件
+    **自然复活**（回放循环无特判分支）。判据仍只此一处（单点），`state_events.append`
+    的校验口径不在本次改动面内（本条只调投影的无值判据）。
+    """
+    v = rec.get("new")
+    if v is None:
+        return True
+    return isinstance(v, str) and not v.strip()
 
 
 # 生效条件：rec 为一条台账记录 dict 时，返回含 _HIST_FIELDS 七键（缺键取 None）的新 dict——字段集＝单元 schema 的 history 条目逐字（不并入行内其余顶层键：新增键即「发明字段」，故限定枚举）；值原样不改写、不改写入参。

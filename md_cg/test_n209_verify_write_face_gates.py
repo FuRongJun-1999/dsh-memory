@@ -356,12 +356,17 @@ def main():
           and any("layer_denied" in str(x) for x in (prop.get("skipped") or [])),
           "exc=%s prop=%s" % (exc6, str(prop)[:150]), live=True)
     sustain = _secured(_princ("sustain"))
-    ok7, exc7, out7 = _raises(sustain.set_verification, s_ok, "doubted",
+    # #377（2026-10-14，Lead 授权）：夹具由 "doubted" 改 "verified"——s_ok 是
+    # layer="self"（受保护层）且无 verification_state（=unverified），原夹具的
+    # unverified→doubted 是**降级**，按 protect.is_protected 的既有口径必须被层保护
+    # 拦下；本腿原意是「同层正当写面未被（N209 层闸）收紧误伤」，改用**推进**
+    # unverified→verified 后原意由它继续覆盖，断言结构一字未改。
+    ok7, exc7, out7 = _raises(sustain.set_verification, s_ok, "verified",
                               reason="sustain 自层运维", actor="n209-sustain")
     check("3c 反向腿：sustain（layers=('self',)）对 self 层节点推进仍成功"
           "（同层正当写面未被收紧误伤）",
           ok7 and isinstance(out7, dict) and out7.get("ok") is True
-          and _vstate(sustain, s_ok)[0].get("verification_state") == "doubted",
+          and _vstate(sustain, s_ok)[0].get("verification_state") == "verified",
           "exc=%s out=%s" % (exc7, str(out7)[:100]), live=True)
 
     # ---------- ④ 搬迁写面单点：_move_layer ----------
