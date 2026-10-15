@@ -4859,7 +4859,10 @@ class MdCGOS(MdCG):
         _dec = kw.get("sensitivity")
         if _dec:
             _sens_eff = _dec
-        elif node_id:
+        elif node_id and hasattr(self, "_write_sensitivity"):
+            # 单点在 MdCGSecure（加密发生的地方）。MdCGOS / MdCG 基类无加密，
+            # 也就没有「继承既有密级」这一列——保持修前行为（声明值），
+            # 否则基类实例直接 AttributeError（全量 14 项红的现场教训）。
             _sens_eff = self._write_sensitivity(node_id, None)
         else:
             _sens_eff = None
