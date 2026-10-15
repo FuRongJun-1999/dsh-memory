@@ -758,8 +758,7 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
         # 再落一份到收件箱等于绕过 ENCRYPTED_LEVELS ⇒ 不归档并给出理由。
         sealed = sorted({it.get("sensitivity") for it in items
                          if isinstance(it, dict)
-                         and str(it.get("sensitivity") or "").strip().lower()
-                         in _ENCRYPTED_LEVELS})
+                         and _crypto.is_encrypted_level(it.get("sensitivity"))})
         if sealed:
             archive_skipped = ("包内含加密档 %s：归档为明文 JSON，"
                                "跳过以免绕过落盘加密" % "、".join(sealed))

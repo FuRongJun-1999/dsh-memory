@@ -610,8 +610,7 @@ def record_drop(cg, content, node_id, target=None, verdict=None, layer=None,
     """
     flat = " ".join((content or "").split())
     digest = hashlib.sha1(flat.encode("utf-8")).hexdigest()[:12] if flat else ""
-    enc = bool(flat) and str(sensitivity or "").strip().lower() \
-        in crypto.ENCRYPTED_LEVELS
+    enc = bool(flat) and crypto.is_encrypted_level(sensitivity)
     t = time.time()
     trace_id = f"drop-{node_id}-{int(t * 1000)}"
     log(cg, {"t": t, "node_id": node_id, "layer": layer, "verdict": "DROP",

@@ -82,13 +82,11 @@ def _is_encrypted_level(sensitivity) -> bool:
     不适用条件：本函数只判「该不该落签名」——不判降密级（security.merge_downgrades
     单点）、不判读写权限（security 层）、不评价内容相关性。
     """
-    if not isinstance(sensitivity, str):
-        return False
     try:
-        from .crypto import ENCRYPTED_LEVELS as _EL
+        from .crypto import is_encrypted_level as _iel
     except Exception:                                   # noqa: BLE001
         return False
-    return sensitivity.strip().lower() in tuple(_EL)
+    return _iel(sensitivity)
 
 
 # 生效条件：形参 content 为假值返回 None；否则 strip 后若 _RE_TITLE 命中且标题骨架 s 非空且 len(s)>=MIN_SKELETON 返回 "t:"+s，否则返回 None；无标题且 len(text)>=MAX_CONTENT 返回 None；无标题且 len(text)<MAX_CONTENT 时全文骨架 s 非空且 len(s)>=MIN_SKELETON 返回 s，否则返回 None；

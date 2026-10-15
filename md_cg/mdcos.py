@@ -6000,7 +6000,7 @@ class MdCGSecure(MdCGOS):
     def _seal_content(self, node_id, content, sensitivity=None):
         """私有内容（private / secret）写入前加密；无密钥 → fail-closed。"""
         sens = sensitivity or DEFAULT_SENSITIVITY
-        if sens not in crypto.ENCRYPTED_LEVELS or crypto.is_encrypted(content):
+        if not crypto.is_encrypted_level(sens) or crypto.is_encrypted(content):
             return content
         if not self.dek:
             crypto.audit(self.root, {"op": "seal_denied", "node_id": node_id,
@@ -6032,7 +6032,7 @@ class MdCGSecure(MdCGOS):
         取不到写入者已登记的信封 → crypto.LockedError（由调用方 fail-closed 不落盘）。
         """
         owner = str(owner or "").strip()
-        if not owner or (sensitivity or DEFAULT_SENSITIVITY) not in crypto.ENCRYPTED_LEVELS:
+        if not owner or not crypto.is_encrypted_level(sensitivity or DEFAULT_SENSITIVITY):
             return None
         return owner, crypto.unwrap_dek(self.root, self.kek,
                                         self.principal.tenant, owner)
@@ -6052,7 +6052,7 @@ class MdCGSecure(MdCGOS):
         # 一律判不可读并留审计。**不做**「把 sensitivity 绑进 AAD」——那需要
         # 密文格式迁移，属待裁项（本批显式不做）。
         _sens = (fm or {}).get("sensitivity")
-        if _sens not in crypto.ENCRYPTED_LEVELS:
+        if not crypto.is_encrypted_level(_sens, strict=True):
             crypto.audit(self.root, {"op": "read_denied", "node_id": node_id,
                                      "tenant": self.principal.tenant,
                                      "actor": self.principal.actor,

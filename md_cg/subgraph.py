@@ -385,7 +385,7 @@ def _node_terms_and_grams(cg, nid):
             return {"grams": set(), "pos": set(), "neg": set(),
                     "layer": e.get("layer"), "sensitivity": None,
                     "unjudgeable": True}
-        if sens in crypto.ENCRYPTED_LEVELS:
+        if crypto.is_encrypted_level(sens):
             return {"grams": set(), "pos": set(), "neg": set(),
                     "layer": e.get("layer"), "sensitivity": sens,
                     "encrypted": True}
@@ -395,7 +395,7 @@ def _node_terms_and_grams(cg, nid):
     fm = node.get("frontmatter") or {}
     content = node.get("content") or ""
     sens = _sensitivity_of(fm)
-    if sens in crypto.ENCRYPTED_LEVELS:
+    if crypto.is_encrypted_level(sens):
         return {"grams": set(), "pos": set(), "neg": set(),
                 "layer": fm.get("layer"), "sensitivity": sens, "encrypted": True}
     grams = bigrams(forgetting.payload(content))
@@ -641,7 +641,7 @@ def _condition_space(cg, anchor_ids, declared_terms=None):
     for nid in anchor_ids:
         e = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(nid) or {}
         sens = _sensitivity_of(e)
-        if sens in crypto.ENCRYPTED_LEVELS:
+        if crypto.is_encrypted_level(sens):
             per[nid] = {"effective": [], "non_applicable": []}
             continue
         node = cg.get(nid)
