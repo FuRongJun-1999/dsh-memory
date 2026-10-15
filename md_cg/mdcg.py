@@ -448,6 +448,83 @@ CN_STOP_GRAMS = {
     "我们", "你们", "可以", "一个", "的话", "来说", "关于", "对于", "还是",
 }
 
+# issue #363（2026-10-15，P1 检索质量）：**打分侧**功能 bigram 降权表。
+# 与召回侧 `CN_STOP_GRAMS` 刻意分离（两套口径、两个消费点）：
+#   · CN_STOP_GRAMS 服务 `cn_recall_grams`（召回键**剔除**——召回面既有契约）；
+#   · CN_FUNC_GRAMS 服务 `lexical_weights`（打分**降权** α 倍——本件新增）。
+# 若扩表时直接动 CN_STOP_GRAMS，会连带改召回键集合（召回面行为变化，超出
+# 本件靶区）；故打分侧自成一张，底座取 CN_STOP_GRAMS 全量 + 疑问/指代功能
+# bigram（「什么/是什/么是/为什」类，#363 实测中文自然问句的功能词二元组与
+# 实词等权 ⇒ inter/len(qb) 只有 k/len(qb) 几个离散档 ⇒ 大面积同分）。
+CN_FUNC_GRAMS = frozenset(CN_STOP_GRAMS | {
+    "什么", "是什", "么是", "为什", "怎么", "怎样", "么样", "如何", "为何",
+    "哪些", "哪个", "哪里", "是否", "多少", "自己", "大家", "他们", "她们",
+})
+# 功能 bigram 的打分权重乘子（α=1 等价于不降权；α 只在 `lexical_weights` 消费）
+FUNC_GRAM_ALPHA = 0.25
+# issue #363 A/B 开关：MDCG_LEXICAL_IDF=0 关闭即回退「无 IDF/无功能词降权」的
+# 旧行为（与 MDCG_CN_GRAMS 同款「关闭即回退」纪律）。
+LEXICAL_IDF_ENV = "MDCG_LEXICAL_IDF"
+
+
+# 生效条件：环境变量 LEXICAL_IDF_ENV 不为 "0" 时返回 True（缺省开）；否则 False。
+def lexical_idf_on() -> bool:
+    """issue #363 加权路径的 A/B 开关（缺省开，=0 显式回退旧口径）。"""
+    return os.environ.get(LEXICAL_IDF_ENV) != "0"
+
+
+# 生效条件：qb 非空、doc_bigrams 非空、lexical_idf_on() 为真且 effective_mode 不为
+# "jaccard" 时，对 qb 的每个 gram g 按「池内文档频率」df 算平滑 IDF 权重
+# log(1+(N-df+0.5)/(df+0.5))，g ∈ CN_FUNC_GRAMS 再乘 FUNC_GRAM_ALPHA，按 sorted(qb)
+# 序返回 {g: w}（全确定性：求和面由消费方按 sorted 序累加）；任一条件不满足返回
+# None（调用方回退 `lexical_sim` 旧式逐位打分）。
+def lexical_weights(qb, doc_bigrams, effective_mode=None):
+    """issue #363：legacy 口径的查询 bigram 权重表（池内 IDF + 功能词降权）。
+
+    · N = 本批打分文档数（与 bm25 路同款「scoped to the current eligible pool」
+      口径——检索期不读盘、不落盘，池变则表变、可复算）；
+    · df(g) = 池内含 g 的文档数；w(g) = log(1+(N-df+0.5)/(df+0.5))（Lucene 式
+      平滑，恒正）×（g ∈ CN_FUNC_GRAMS 时 FUNC_GRAM_ALPHA）；
+    · **退化即旧序**：池内所有 qb gram 的 df 相同（或池只有一篇）时权重全等
+      ⇒ 加权分与 inter/len(qb) 只差正常数，**本批内排序与 legacy 逐位同序**
+      ——加权只在「池确有判别信息」时才改变排序（最小改动面）。
+    · jaccard 口径（评测侧 eval_common.use_jaccard 显式注入）**不加权**：
+      该口径的长 turn 读数已多份留档，本件不动。
+    """
+    if not lexical_idf_on() or not qb or not doc_bigrams:
+        return None
+    if (effective_mode or SCORE_MODE) == "jaccard":
+        return None
+    n = len(doc_bigrams)
+    df = {}
+    for nb in doc_bigrams:
+        for g in qb & nb:
+            df[g] = df.get(g, 0) + 1
+    weights = {}
+    for g in sorted(qb):
+        d = df.get(g, 0)
+        w = math.log(1.0 + (n - d + 0.5) / (d + 0.5))
+        weights[g] = w * FUNC_GRAM_ALPHA if g in CN_FUNC_GRAMS else w
+    return weights
+
+
+# 生效条件：qb/nb/weights 均非空且 weights 值和 > 0 时，返回 sum(sorted(qb∩nb) 序的
+# weights) / sum(sorted(qb) 序的 weights)；交集为空返回 0.0；weights 为 None/空返回 0.0。
+def lexical_sim_weighted(qb: set, nb: set, weights) -> float:
+    """加权版 lexical_sim（issue #363；**求和按 sorted 序**保证跨进程可复算）。"""
+    if not qb or not nb or not weights:
+        return 0.0
+    inter = qb & nb
+    if not inter:
+        return 0.0
+    num = 0.0
+    for g in sorted(inter):
+        num += weights[g]
+    den = 0.0
+    for g in sorted(qb):
+        den += weights[g]
+    return num / den if den > 0.0 else 0.0
+
 
 # 生效条件：当 query 非空且环境变量 MDCG_CN_GRAMS 不为 "0" 时，对 query 中长度 ≥ max(min_run,2) 的连续中文串切 2-gram，去重且排除 CN_STOP_GRAMS；cap 为 None 时**不限**（返回全部 gram），cap<=0 时逐位保留旧行为（append 后立即返回首个 gram——注意 cap=0 **不是**「不限」）；否则各段 gram 总数 ≤ cap 时按段序拼接返回（与旧实现逐位相同），超过 cap 时**跨段轮转**取键（各段按比例进入召回面，长查询的末尾段不再恒为 0），最多返回 cap 个。
 def cn_recall_grams(query: str, min_run: int = 4, cap: int = 16) -> list:
@@ -633,6 +710,11 @@ def lexical_sim(qb: set, nb: set, mode: str = None) -> float:
     """查询/文档二元组集合的相似度。mode 缺省取模块级 `SCORE_MODE`。
 
     显式传 mode 用于单点 A/B（不改全局口径即可对比两套打分）。
+
+    issue #363 注：本函数保持**无权重**的纯集合口径（S5 负记忆面等 doc-doc
+    相似度仍走这里）；查询-文档打分主链路（`MdCG._score`）在 legacy 口径下
+    改走 `lexical_weights` + `lexical_sim_weighted`（池内 IDF + 功能词降权），
+    jaccard 口径与本函数逐位不变。
     """
     if not qb or not nb:
         return 0.0
@@ -4612,7 +4694,7 @@ class MdCG:
         # 全库入池。Rust `retrieval.rs::like` 同款（跨侧守卫钉住一致性）。
         return any(t and (t in body_l or t.lower() in tags_l) for t in terms)
 
-# 生效条件：semantic_on() 为真、semantic.canonical.pair_hits 导入成功且该 doc 的 fm 有 semantic 时 raw = min(1.0, max(lexical_sim(qb, 该文档 normalize_en 后的 bigram, mode), pair_hits(fm["semantic"], q)) + tag_bonus)，否则 raw = min(1.0, sim + tag_bonus)；tag_bonus 仅在 fm.tags 中有 t 满足 str(t) in q 或 q in str(t) 时为 0.05，否则 0.0；pools 为真值时 raw 再乘 pooling.weight_of(...) 并夹到 [0,1]；返回 scored 列表；
+# 生效条件：legacy 口径（mode/SCORE_MODE 非 jaccard 且 MDCG_LEXICAL_IDF≠0，issue #363）时 sim = lexical_sim_weighted(qb, 该文档 normalize_en 后的 bigram, 池内 IDF 权重表 lexical_weights(qb, 本批全部文档 bigram 集, mode))，否则 sim = lexical_sim(qb, 该 bigram, mode)；semantic_on() 为真、semantic.canonical.pair_hits 导入成功且该 doc 的 fm 有 semantic 时 raw = min(1.0, max(sim, pair_hits(fm["semantic"], q)) + tag_bonus)，否则 raw = min(1.0, sim + tag_bonus)；tag_bonus 仅在 fm.tags 中有 t 满足 str(t) in q 或 q in str(t) 时为 0.05，否则 0.0；pools 为真值时 raw 再乘 pooling.weight_of(...) 并夹到 [0,1]；返回 scored 列表；
     def _score(self, docs, q, qb, pools=None, mode=None):
         # 语义摘要路（MDCG_SEMANTIC=1 opt-in，默认关闭零回归）：
         # doc 侧 fm.semantic 标准原子序列 × query 归一序列的组合窗口共现分
@@ -4645,14 +4727,23 @@ class MdCG:
         _fr_now = freshness.freshness_now() if _fr_on else None
         _fr_gamma = freshness.resolve_gamma(None) if _fr_on else None
         _exact_q = compact_exact_text(q)
+        # issue #363（2026-10-15）：legacy 口径改**两遍**打分——第一遍收齐本批
+        # 文档的归一 bigram 集（复用同一 `_doc_norm_bigrams` 派生面，纯函数、
+        # readcache 覆写时命中缓存，无额外 IO），据此算池内 IDF 权重表；第二遍
+        # 逐文档按 `lexical_sim_weighted`（IDF + 功能词降权）打分。
+        # jaccard 口径 / MDCG_LEXICAL_IDF=0 时 weights=None，逐位走旧
+        # `lexical_sim`（评测侧留档读数与回退开关均不动）。
+        _nbs = [self._doc_norm_bigrams(e, c) for e, fm, c in docs]
+        _w363 = lexical_weights(qb, _nbs, mode)
         scored = []
-        for e, fm, c in docs:
+        for _i, (e, fm, c) in enumerate(docs):
             # 归一化 content 后取 bigram（与 query 侧 normalize_en 对称）；
             # 走可覆写钩子（批次 21，issue #31）：内容不变则派生物不变——
             # readcache 启用时覆写为缓存版（Rust load_docs 预计算同款），
             # 基类默认即算即弃，行为与改动前逐位一致
-            nb = self._doc_norm_bigrams(e, c)
-            sim = lexical_sim(qb, nb, mode)
+            nb = _nbs[_i]
+            sim = (lexical_sim_weighted(qb, nb, _w363)
+                   if _w363 is not None else lexical_sim(qb, nb, mode))
             # issue #150：空 tag（`"" in q` 恒真）与空 q（`q in str(t)` 恒真）都会让
             # 加成恒发 ⇒ 两侧同步加守卫（Rust retrieval.rs 的 tag_bonus 同款）。
             tag_bonus = 0.05 if q and any(

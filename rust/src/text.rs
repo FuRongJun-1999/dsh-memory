@@ -178,6 +178,23 @@ pub const CN_STOP_GRAMS: &[&str] = &[
     "我们", "你们", "可以", "一个", "的话", "来说", "关于", "对于", "还是",
 ];
 
+/// issue #363（与 Python `mdcg.CN_FUNC_GRAMS` 同步）：**打分侧**功能 bigram
+/// 降权表——底座 = 召回侧 `CN_STOP_GRAMS` 全量 + 疑问/指代功能 bigram
+/// （「什么/是什/么是/为什」类）。与 `CN_STOP_GRAMS` 刻意分离：那张服务召回
+/// 键剔除（召回面既有契约），这张只服务打分降权（`lexical_weights`）。
+/// 两侧必须同时改，否则 legacy 口径的分数/名次劈叉。
+pub const CN_FUNC_GRAMS: &[&str] = &[
+    // CN_STOP_GRAMS 底座（召回侧同款 18 个）
+    "的了", "是一", "的在", "有个", "就是", "不是", "没有", "这个", "那个",
+    "我们", "你们", "可以", "一个", "的话", "来说", "关于", "对于", "还是",
+    // 疑问/指代功能 bigram（#363 靶区）
+    "什么", "是什", "么是", "为什", "怎么", "怎样", "么样", "如何", "为何",
+    "哪些", "哪个", "哪里", "是否", "多少", "自己", "大家", "他们", "她们",
+];
+
+/// 功能 bigram 的打分权重乘子（对齐 Python `mdcg.FUNC_GRAM_ALPHA`）。
+pub const FUNC_GRAM_ALPHA: f64 = 0.25;
+
 /// 英文停用词（对齐 `mdcg.EN_STOPWORDS` frozenset）。
 pub const EN_STOPWORDS: &[&str] = &[
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
