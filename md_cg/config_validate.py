@@ -57,6 +57,7 @@ RULES = {
     'MDCG_PLAIN_CACHE_MAX': {'type': 'str'},
     'MDCG_POOLING': {'bool_like': True, 'type': 'bool'},
     'MDCG_PROPOSAL_EMOTION': {'bool_like': True, 'type': 'bool'},
+    'MDCG_QMD_SYS': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
     'MDCG_REACH': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
     'MDCG_REACH_DIFFUSE': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
     'MDCG_REACH_TTL': {'min': 0.0, 'type': 'float'},
