@@ -136,9 +136,51 @@ _check("E2 子串判据 s in have 已不在 aggregate_line 体内（AST 面；s 
 _check("E3 段边界字符集含段连接符「；」与聚合行前缀结束符「】」",
        "；" in forgetting._SEG_BOUNDARY
        and "】" in forgetting._SEG_BOUNDARY, forgetting._SEG_BOUNDARY)
+# issue #347：空白**不得**再是段边界（否则去掉首尾整词的更正被判已覆盖）。
+_check("E5 段边界集不含空格/制表符，且含行界「\\n」（#347 收口方向）",
+       " " not in forgetting._SEG_BOUNDARY
+       and chr(9) not in forgetting._SEG_BOUNDARY
+       and chr(10) in forgetting._SEG_BOUNDARY, repr(forgetting._SEG_BOUNDARY))
 
 _check("E4 段边界判据是独立单点函数（_segment_covered 可被直接调用）",
        callable(getattr(forgetting, "_segment_covered", None)), "")
+
+# ---------------------------------------------------------------- issue #347
+# 去掉首尾整词的更正（尤以去掉否定词最危险：语义正好相反）。修前（#323 那版把
+# 空白也当段边界 + 正文按空格拼成一行）这类更正左右都落在空格上 ⇒ 判已覆盖 ⇒
+# 一字不追加，而 reinforce 照常 +0.05 / merge_count +1，同一更正说三遍就把错误
+# 事实推过 AUTO_PROTECT_IMPORTANCE=0.70 的保护线。
+print("== W 组（#347）：去掉首尾整词的更正必须被追加 ==")
+_w_cases = (
+    ("W1 去掉开头否定词",
+     "do not deploy the billing service on Friday",
+     "deploy the billing service on Friday"),
+    ("W2 去掉结尾限定词",
+     "run the migration only on staging",
+     "run the migration"),
+    ("W3 中英混排去掉开头整词",
+     "禁止 restart gateway 服务",
+     "restart 服务"),
+)
+for _nm, _old, _new in _w_cases:
+    _nb, _ln, _ct = forgetting.aggregate_line(_old, _new)
+    _check(_nm + " → 追加（修前被判 already_covered 而一字不加）",
+           _nb is not None and _ln is not None and _new in _nb,
+           (_nb, _ln))
+    # 同一条更正再写第二次必须零追加（幂等不退化）——由「】」边界守住
+    if _nb is not None:
+        _nb2, _ln2, _ = forgetting.aggregate_line(_nb, _new)
+        _check(_nm + " · 更正再写第二次 → 零追加（幂等仍在）",
+               _ln2 is None and _nb2 is None, (_nb2, _ln2))
+
+print("== K 组（#347）：多行正文的行界语义 ==")
+_multi = "alpha one\nbeta two\ngamma three"
+_k9a, _k9b, _ = forgetting.aggregate_line(_multi, "beta two")
+_check("K9 旧正文的**整行**再写 → 零追加（行界仍是段界）",
+       _k9a is None and _k9b is None, (_k9a, _k9b))
+_k10a, _k10b, _ = forgetting.aggregate_line(_multi, "beta")
+_check("K10 旧正文某行内的**真子串** → 追加（子串不算整段）",
+       _k10b is not None and "beta" in _k10b, (_k10a, _k10b))
 
 print("== A7 端到端：MERGE 后更正落进目标正文且可检索 ==")
 _d = tempfile.mkdtemp(prefix="iss323_e2e_")
@@ -210,16 +252,28 @@ _MUTATIONS = (
      "        left = i == 0 or hay[i - 1] in _SEG_BOUNDARY",
      "        left = True",
      ("A6",)),
+    # 锚点跟随 issue #347 的新字面量（边界集从「；】空白制表」改为「；】行界」）。
     ("V4 段边界集丢掉「；」与「】」（幂等退化：聚合行再写会重复追加）",
      "md_cg/forgetting.py",
-     "_SEG_BOUNDARY = \"；】 \\t\"",
-     "_SEG_BOUNDARY = \" \\t\"",
+     "_SEG_BOUNDARY = \"；】\\n\"",
+     "_SEG_BOUNDARY = \"\\n\"",
      ("K2", "K3")),
     ("V5 段边界集丢掉「】」（聚合行首段再写重复追加）",
      "md_cg/forgetting.py",
-     "_SEG_BOUNDARY = \"；】 \\t\"",
-     "_SEG_BOUNDARY = \"； \\t\"",
+     "_SEG_BOUNDARY = \"；】\\n\"",
+     "_SEG_BOUNDARY = \"；\\n\"",
      ("K3",)),
+    # ---- issue #347 新增两条反向变异 ----
+    ("V6 空白回到段边界集（去掉首尾整词的更正又被判已覆盖，即 #347 修前）",
+     "md_cg/forgetting.py",
+     "_SEG_BOUNDARY = \"；】\\n\"",
+     "_SEG_BOUNDARY = \"；】 \\t\\n\"",
+     ("E5", "W1", "W2")),
+    ("V7 正文按空格拼成一行（行界消失，整词更正又被吞）",
+     "md_cg/forgetting.py",
+     "    have = \"\\n\".join(\" \".join(l.split()) for l in (body or \"\").splitlines())",
+     "    have = \" \".join((body or \"\").split())",
+     ("K9",)),
 )
 
 
