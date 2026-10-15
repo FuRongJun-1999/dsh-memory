@@ -83,6 +83,7 @@ import os
 import time
 
 from .fsutil import append_jsonl, read_jsonl
+from . import protect
 # `_maintain.jsonl` 与保护下限的**单一真源**在 weights（同族留痕共用一份文件名）
 from .weights import (APPLY_DELTA, IMPORTANCE_PROTECT, MAINTAIN_LOG,
                       node_importance)
@@ -240,7 +241,45 @@ def refresh_factor(access_count=0, last_access=0, importance=0.0,
     return 1.0
 
 
-# 生效条件：entry 为可取 protected / importance 的映射；protected 为假值时返回 SCORE_FLOOR；为真值时返回 max(SCORE_FLOOR, min(1.0, IMPORTANCE_PROTECT / importance))（importance 不可转数值或 ≤0 时按 1.0 处理）；
+#: 裸 entry 探针的假 node_id（`protect.is_protected` 的 `(cg, node_id)` 形态所需；
+#: 真实节点 id 来自文件名/显式声明，不含 NUL ⇒ 与既有索引键不可能相撞）。
+_ENTRY_PROBE_ID = "\x00entry-probe"
+
+
+class _EntryProbe:
+    """裸索引条目 → `protect.is_protected` 所需的 `(cg, node_id)` 形态（**零规则载体**）。
+
+    #378（2026-10-14）：衰减下界此前只读 `entry["protected"]` 一位，漏了
+    `protect.is_protected` 的**层保护**（layer ∈ {self, anchor}）与**按分保护**
+    ——layer=anchor 或按分受保护的节点会一路衰减穿过保护线（「自动失去保护」，
+    正是本模块 §7.3 要挡住的移植隐患）。本类**不复制任何判据**——规则单点仍是
+    `protect.is_protected`——只把调用方手里已有的条目摆成该判据所需的索引快照
+    形态。刻意**不提供** `_maybe_reload_index`（探活分支取不到即跳过）且
+    `get()` 恒返回 None（门控字段回退读文件的分支在此无文件可读、**不抛异常**）
+    ⇒ 判定 100% 基于传入映射：零 IO（`entry_weight` 是**检索期取数点**，
+    热路径上**不得读盘**，否则 §7.2 卡点一破）。
+    """
+
+    __slots__ = ("index",)
+
+    def __init__(self, entry):
+        self.index = {"nodes": {_ENTRY_PROBE_ID: entry if isinstance(entry, dict)
+                                else {}}}
+
+    def get(self, node_id=None):        # protect._fm 的回退分支：探针无文件可读
+        return None
+
+
+def _is_protected_entry(entry) -> tuple:
+    """裸索引条目的「不可遗忘」判定 → `(是否受保护, 原因)`。
+
+    判据单点＝**`protect.is_protected`**（层保护 self/anchor ∪ 显式 protected 位 ∪
+    按分保护 ≥0.70 且来源缺省/hint）；本函数只负责把它喂给判据，不自带任何规则。
+    """
+    return protect.is_protected(_EntryProbe(entry), _ENTRY_PROBE_ID)
+
+
+# 生效条件：entry 为可取 protected / layer / importance / importance_source 的映射；经 protect.is_protected（∪ 原显式 protected 位）判为**未受保护**时返回 SCORE_FLOOR；受保护时返回 max(SCORE_FLOOR, min(1.0, IMPORTANCE_PROTECT / importance))（importance 不可转数值或 ≤0 时按 1.0 处理）；
 def protected_floor(entry) -> float:
     """受保护节点的**衰减乘子下界**（§7.3 的第二道闸）。
 
@@ -254,7 +293,12 @@ def protected_floor(entry) -> float:
       乘子取 1.0（不衰减），同样不损失保护。
     """
     e = entry or {}
-    if not e.get("protected"):
+    # #378（2026-10-14）：判据改为**共用** `protect.is_protected`（∪ 原显式
+    # protected 位——超集，那位照旧短路，既有判定一字不变）：层保护（anchor/self）
+    # 与按分保护（≥0.70 且来源缺省/hint）同样享有下界，衰减不可能把它们
+    # 推过保护线。`importance_source` 必须已在取数面（`entry_weight`）里带上，
+    # 否则「机器推断分」会被误当存量缺省而认回保护（issue50-e 的反向）。
+    if not (e.get("protected") or _is_protected_entry(e)[0]):
         return SCORE_FLOOR
     try:
         imp = float(e.get("importance") or 0.0)
@@ -265,7 +309,7 @@ def protected_floor(entry) -> float:
     return max(SCORE_FLOOR, min(1.0, IMPORTANCE_PROTECT / imp))
 
 
-# 生效条件：entry 为可取 created_at / access_count / last_access / importance / protected 的映射；fm 为真值时上述五个键优先取自 fm（缺键回落 entry）；now 为假值（None）时取 freshness_now()；enabled 为 None（缺省）时自算（模块级 enabled()），显式传 bool 时按传入值——两者皆假值即早退返回 (1.0, {"disabled": True})（早退先于 now/γ 解析，与改前同序）；否则无条件返回 (乘子, 依据 dict)——乘子 = decay_factor(gamma, |now-created_at|/86400, protected_floor(取数后的映射), SCORE_CEIL, enabled=…) × refresh_factor(..., enabled=…)；created_at 缺失/不可转数值/≤0 时 dt_days 取 inf（判「距参照无穷远」，由 floor 兜住）；
+# 生效条件：entry 为可取 created_at / access_count / last_access / importance / protected / layer / importance_source 的映射；fm 为真值时上述七个键优先取自 fm（缺键回落 entry）；now 为假值（None）时取 freshness_now()；enabled 为 None（缺省）时自算（模块级 enabled()），显式传 bool 时按传入值——两者皆假值即早退返回 (1.0, {"disabled": True})（早退先于 now/γ 解析，与改前同序）；否则无条件返回 (乘子, 依据 dict)——乘子 = decay_factor(gamma, |now-created_at|/86400, protected_floor(取数后的映射), SCORE_CEIL, enabled=…) × refresh_factor(..., enabled=…)；created_at 缺失/不可转数值/≤0 时 dt_days 取 inf（判「距参照无穷远」，由 floor 兜住）；
 def entry_weight(entry, now=None, gamma=None, fm=None, enabled=None) -> tuple:
     """索引条目 → 分数乘子 `(乘子, 依据)`（**检索期唯一取数点**，免读文件）。
 
@@ -281,8 +325,12 @@ def entry_weight(entry, now=None, gamma=None, fm=None, enabled=None) -> tuple:
     解析语义同改前的 `enabled()`，见 `decay_factor` 同注）。
     """
     e = entry or {}
+    # #378：取数面必须把 `layer` 与 `importance_source` 带上——`protected_floor`
+    # 消费的是本函数的 `src`，漏了这两键就等于给下界判据喂了一份**残件**
+    # （层保护无 layer 可判；按分保护把 heuristic 误当缺省来源）。键集只增不改，
+    # 其余四键的取值口径与优先级（fm > entry > 缺省）逐位不变。
     keys = ("created_at", "access_count", "last_access", "importance",
-            "protected")
+            "protected", "layer", "importance_source")
     if fm is not None:
         src = {k: (fm.get(k) if fm.get(k) is not None else e.get(k))
                for k in keys}

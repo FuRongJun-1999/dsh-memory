@@ -4983,18 +4983,54 @@ class MdCGOS(MdCG):
                                       "entropy": verdict["entropy"],
                                       "actor": self.actor})
                 return _ag
+            # issue #361（2026-10-17 DSH 端）：闸门判定的**去向必须可观测**。
+            # 报告病灶：BLINDSPOT（consistency.check 的 comparable==0，检测前提不
+            # 存在）经 add 的 on_conflict="defer" 出口返回 None，本处就地改写
+            # verdict="DEFER" 后**既不落盘也不入队**，返回体只剩
+            # verdict/node_id/gate/written=None——无 moved_to、无 pid、无 reason，
+            # 调用方无法重试也无法追溯（实测《民法典》批量 200/200 静默丢失，且
+            # 空库自我维持：comparable 恒 0，下一条照样丢）。处置分两层：
+            #   ① **判定层不动**（BLINDSPOT 仍是 BLINDSPOT，四态诚实，只读 check
+            #      面一字不改）；
+            #   ② **路由层对齐写链** `writepipe._gate_consistency`（issue #26 口径）：
+            #      BLINDSPOT 恒放行落盘（判据同源，已由 MdCG.add 收口），REJECT
+            #      仍按 on_conflict 处置。
+            # `consistency_out` 是 #361 新开的**只读回填槽**（由 MdCG.add 写入、
+            # 本处读出）：两条出口都能把本次判定带回调用方，不让「无法比对」变成
+            # 「无声消失」。
+            _cgate = {}
             try:
                 out["written"] = self.add(node_id, content, layer=layer,
                                           override=override,
                                           consistency=do_consistency,
+                                          consistency_out=_cgate,
                                           on_conflict=on_conflict, **kw)
             except consistency.ConsistencyError as e:
                 v = out["verdict"] = "DEFER"
                 out["conflict"] = {"verdict": e.verdict, "reason": e.reason,
                                    "conflicts": e.conflicts}
+                # 去向词复用写链既有 token（writepipe._gate_consistency 的
+                # conflict_rejected），不新造词表。
+                out["moved_to"] = "conflict_rejected"
+                out["reason"] = e.reason
             else:
-                if out.get("written") is None:  # on_conflict=defer：冲突未落盘
+                # 口径：**闸门有读数才随体带回**——verdict=ACCEPT（无冲突）时不新增
+                # 键，让「无冲突写入」的报文与改动前**逐位一致**（不动面对拍
+                # `md_cg/test_mode_parity.py` 的 Q 组即以此为判据：对 HEAD 导出树
+                # 逐项对拍，白名单外的任何新键都会转红）；REJECT/DEFER/BLINDSPOT
+                # 三个非平凡态一律可见。键名与 `writepipe._executor` 的
+                # `out["consistency"]` 同义——同一语义在两个落盘面用同一个键。
+                _cvd = _cgate.get("consistency")
+                if _cvd is not None and _cvd.get("verdict") != "ACCEPT":
+                    out["consistency"] = _cvd
+                if out.get("written") is None:  # on_conflict=defer 且 REJECT
                     v = out["verdict"] = "DEFER"
+                    # 去向词同 mcp_server 的 conflict_deferred（2026-10-12 设计者
+                    # 裁定）——「被冲突闸挡下、未进任何队列」。此前本出口无去向键，
+                    # 判 committed 的调用方读不出「未提交」（#109 的同一面）。
+                    out["moved_to"] = "conflict_deferred"
+                    out["reason"] = ((_cgate.get("consistency") or {}).get("reason")
+                                     or "节点间冲突检测未通过（on_conflict=defer）")
                 else:
                     # 落盘成功 → 签名→节点映射兜底回填（同构聚合的锚点）
                     # issue #313：密级一并记账（加密级由原语内部跳过签名）
