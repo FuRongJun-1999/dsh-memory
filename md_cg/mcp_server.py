@@ -4031,11 +4031,20 @@ def _dispatch(cg, name, args):
 
     if name == "mdcg_ingest":
         from .sources import DSHSessionSource, JsonlSource, Ingestor
+        from .security import check_path_root, whitelist_root_configured
         src_arg = (a.get("source") or "auto").strip()
         # P1-4（批次 26）：报告点名「mdcg_ingest 完全没有权限闸」——权限闸
-        # 已由批次 24 _MDCG_OP_REQUIRE（write）补上，此处补路径根约束；
-        # auto（自动发现 ~/.dsh/sessions）不经路径参数
-        from .security import check_path_root
+        # 已由批次 24 _MDCG_OP_REQUIRE（write）补上，此处补路径根约束。
+        #
+        # issue #326-①：auto **不是「没有路径」**——它经 discover_detailed() 扫
+        # ~/.dsh/sessions 并**整份 ingest**（跨项目数据；实测该目录 2474 文件 /
+        # ≈469MB）。只判 `src_arg != "auto"` 等于把「没有入参」当成了「没有路径」，
+        # auto 遂成绕过白名单的通路。故 auto 也要过**同一条** MDCG_INGEST_ROOT 闸，
+        # 但**仅在白名单根被显式配置时**：未配置时 _whitelist_roots 回落「记忆库根」，
+        # ~/.dsh/sessions 不在其中 ⇒ 无条件给 auto 过闸会把**默认工作流整个拦死**
+        # （报告实测的回归陷阱）。「是否已显式配置」的判据单点在
+        # security.whitelist_root_configured——**本处不另读一次 os.environ**
+        # （同一语义不得两个落点各一份判据）。
         if src_arg != "auto":
             check_path_root(src_arg, "MDCG_INGEST_ROOT", "mdcg_ingest")
         ing = Ingestor(cg)
@@ -4047,6 +4056,9 @@ def _dispatch(cg, name, args):
             if not cands:
                 return {"error": "no_dsh_session_found"}
             picked = cands[0]
+            # 发现到的会话路径过**同一条**白名单闸（仅在显式配置时——见上）。
+            if whitelist_root_configured("MDCG_INGEST_ROOT"):
+                check_path_root(picked[0], "MDCG_INGEST_ROOT", "mdcg_ingest")
             src = DSHSessionSource(picked[0])
         else:
             src = _pick_source(src_arg)

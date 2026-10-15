@@ -88,7 +88,8 @@ class VMResourceError(Exception):
     与 RecursionError（步数上限·既有契约）。
     kind: "wall"（超出墙钟预算）| "mul_scale"（MUL 结果规模越界，申请未发生）
           | "memory"（单步分配失败 MemoryError 转结构化）
-          | "jump"（跳转/调用入口/返回地址越界——N239 地址校验单点 _jump）"""
+          | "jump"（跳转/调用入口/返回地址越界——N239 地址校验单点 _jump）
+        | "call_depth"（CALL 帧深超 VM_MAX_CALL_DEPTH——issue #326-③）"""
 # 生效条件：kind 存入 self.kind，message 交 super().__init__。
     def __init__(self, kind, message):
         self.kind = kind
@@ -124,6 +125,11 @@ VM_MAX_INT_BITS = 1 << 16
 VM_MAX_SEQ_REPEAT = 1 << 24
 #: run 墙钟预算默认秒数（传 None/0 关闭——宿主自担）
 VM_DEFAULT_WALL_SECONDS = 10.0
+#: CALL 帧深上限（fail-closed；issue #326-③）。深递归下「每帧整份拷贝条件空间」
+#: 曾使峰值内存随深度**二次**增长（实测 10s 内 1.0–1.6 GB，两方独立复现）——本上限
+#: 把「深度」这一维钉死（越界即 VMResourceError("call_depth")），配合帧内改「存引用 +
+#: 存长度、返回时按长度截断 + 就地改写前写时复制」把总代价压回**线性**。合法产物远离该值。
+VM_MAX_CALL_DEPTH = 512
 
 
 # 生效条件：对 (a, b) 两个 int（含 bool）估 a.bit_length()+b.bit_length() 超 VM_MAX_INT_BITS、str/list/tuple × int 估 len(seq)*abs(int) 超 VM_MAX_SEQ_REPEAT 时抛 VMResourceError("mul_scale")（乘法申请不发生）；float 参与及其余组合不拦（结果有界或交由既有 TypeError）。
@@ -209,7 +215,7 @@ class ConditionVM:
         # 代码的调用面（调试器单步 vm._exec）保持 None，此时只兜负值回绕。
         self._code_len = None
 
-# 生效条件：code 自 ip=0 逐条执行至 ip 越界；进入循环前把 _code_len 置为 len(code)（N239：跳转地址上界，供 _jump 单点校验）；steps 超过 max_steps（默认 100000）抛 RecursionError；max_wall_seconds 为真值（默认 VM_DEFAULT_WALL_SECONDS=10.0）时起墙钟预算、单步开始前 time.monotonic() 超限即抛 VMResourceError("wall")，为假值（None/0）时关闭；单步分配失败（MemoryError）转抛 VMResourceError("memory")；MUL 结果规模越界在 _exec 内抛 VMResourceError("mul_scale")（申请不发生）；跳转/调用入口/返回地址越界在 _exec 内抛 VMResourceError("jump")（N239）；catch_halt 为真（默认）时捕获 VMHalt 记 halt 并 break，为假时 VMHalt 直接上抛；trace 为假值时返回字典的 trace 字段为 None。
+# 生效条件：code 自 ip=0 逐条执行至 ip 越界；进入循环前把 _code_len 置为 len(code)（N239：跳转地址上界，供 _jump 单点校验）；steps 超过 max_steps（默认 100000）抛 RecursionError；max_wall_seconds 为真值（默认 VM_DEFAULT_WALL_SECONDS=10.0）时起墙钟预算、单步开始前 time.monotonic() 超限即抛 VMResourceError("wall")，为假值（None/0）时关闭；单步分配失败（MemoryError）转抛 VMResourceError("memory")；MUL 结果规模越界在 _exec 内抛 VMResourceError("mul_scale")（申请不发生）；跳转/调用入口/返回地址越界在 _exec 内抛 VMResourceError("jump")（N239）；CALL 帧深超 VM_MAX_CALL_DEPTH 在 _exec 内抛 VMResourceError("call_depth")（issue #326-③，fail-closed）；catch_halt 为真（默认）时捕获 VMHalt 记 halt 并 break，为假时 VMHalt 直接上抛；trace 为假值时返回字典的 trace 字段为 None。
     def run(self, code, trace=False, catch_halt=True, symbols=None,
             trust=0.0, condition_stack=None, max_steps=100000,
             max_wall_seconds=VM_DEFAULT_WALL_SECONDS):
@@ -308,6 +314,14 @@ class ConditionVM:
             return str(top)
         return DEFAULT_CONDITION_SPACE
 
+# 生效条件：无入参；当 self.condition_stack 被任一调用帧**按引用**保存时，先把栈换成副本
+# （写时复制）再返回，否则不动。代价 O(调用栈深)——只在切换条件空间这类**就地改写**前调用
+# （issue #326-③：帧内不再整份拷贝条件空间，就地改写必须自己脱共享）。
+    def _cond_own(self):
+        """写时复制：栈对象可能被调用帧按引用保存，就地改写前先脱共享。"""
+        if any(f[3] is self.condition_stack for f in self.call_stack):
+            self.condition_stack = list(self.condition_stack)
+
 # 生效条件：name 为 '恢复默认' 或 DEFAULT_CONDITION_SPACE 时把 condition_stack 截到首元素、若仍有元素则把栈顶改为默认空间 frame；否则构造 {'name': name, 'trust_at_create': trust_value} 替换栈顶（栈空则压入）。
     def _switch_condition_space(self, name):
         """切换条件空间——使「条件空间切换」在 VM 上真正可执行
@@ -316,12 +330,14 @@ class ConditionVM:
         """
         if name in ("恢复默认", DEFAULT_CONDITION_SPACE):
             self.condition_stack = self.condition_stack[:1]
+            self._cond_own()      # #326-③：就地改写前脱共享（此处为上一步的新列表，无实作代价）
             if self.condition_stack:
                 self.condition_stack[-1] = {
                     "name": DEFAULT_CONDITION_SPACE,
                     "trust_at_create": self.trust_value}
             return
         frame = {"name": name, "trust_at_create": self.trust_value}
+        self._cond_own()              # #326-③：就地改写前脱共享（此处栈对象可能被调用帧引用）
         if self.condition_stack:
             self.condition_stack[-1] = frame
         else:
@@ -455,8 +471,20 @@ class ConditionVM:
                 args.append(self.stack.pop())
             args.reverse()
             # 保存调用帧（返回地址 + 符号表 + 信任 + 条件空间）
+            # issue #326-③：条件空间**按引用**保存 + 记长度，返回时按长度截断以撤销
+            # 被调方的压栈（DAO）。原实现每帧 `list(self.condition_stack)` 整份拷贝，
+            # 而栈随深度线性增长 ⇒ 总拷贝量 O(depth²)、峰值内存随之**二次**增长
+            # （实测 10s 内 1.0–1.6 GB）。就地改写既有栈顶（_switch_condition_space）
+            # 之前另有写时复制（_cond_own）脱共享，故共享引用不会互相污染。
+            if len(self.call_stack) >= VM_MAX_CALL_DEPTH:
+                raise VMResourceError(
+                    "call_depth",
+                    f"CALL 帧深超出上限 {VM_MAX_CALL_DEPTH}（当前 {len(self.call_stack)}）"
+                    f"——深递归 × 每帧保存的调用帧内存上限已被拒绝（issue #326-③；"
+                    f"fail-closed：不静默截断、不 OOM 后回收）")
             self.call_stack.append((self.ip, dict(self.symbols),
-                                    self.trust_value, list(self.condition_stack)))
+                                    self.trust_value, self.condition_stack,
+                                    len(self.condition_stack)))
             # 新作用域：继承全局 + 参数绑定（参数遮蔽同名全局）
             self.symbols = dict(self.symbols)
             for pname, pval in zip(param_names, args):
@@ -465,9 +493,14 @@ class ConditionVM:
         elif op == Opcode.RETURN:
             # 返回值：栈顶保留；恢复调用帧（无帧则程序结束）
             if self.call_stack:
-                ret_ip, saved_symbols, saved_trust, saved_cond = self.call_stack.pop()
+                (ret_ip, saved_symbols, saved_trust, saved_cond,
+                 saved_len) = self.call_stack.pop()
                 self.symbols = saved_symbols
                 self.trust_value = saved_trust
+                # #326-③：被调方可能在**同一对象**上压过栈（DAO）——先按保存的长度
+                # 截断把它撤销，再恢复引用（重绑定型变更由「恢复引用」本身撤销）。
+                if len(saved_cond) > saved_len:
+                    del saved_cond[saved_len:]
                 self.condition_stack = saved_cond
                 self.ip = self._jump(ret_ip)   # N239：返回地址同为跳转目标
             else:

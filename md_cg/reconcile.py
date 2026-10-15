@@ -123,7 +123,10 @@ def _layers():
 # 生效条件：把单条异常以 JSONL 追加进 trace_path(cg)（best-effort：OSError 吞掉不抛——留痕是增益，不得反过来炸启动序列），无返回值。
 def _trace(cg, record: dict) -> None:
     try:
-        append_jsonl(trace_path(cg), record)
+# #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+# 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+# （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+        _ok = append_jsonl(trace_path(cg), record)
     except OSError:
         pass
 

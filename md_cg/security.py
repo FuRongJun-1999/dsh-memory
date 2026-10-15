@@ -462,10 +462,24 @@ def _persist_workspace_root(ws: str) -> bool:
         return False
 
 
+# 生效条件：env_var 环境变量去空白后非空时返回 True（该白名单根被**显式配置**）；否则 False。
+# 判据单点（issue #326-①）：`_whitelist_roots` 的「已配」分支与 mdcg_ingest 的 auto 闸共用本函数，
+# 调用方**不得各自再读一次 os.environ**——「同一语义两个落点判据」是本仓反复栽过的形态。
+def whitelist_root_configured(env_var: str) -> bool:
+    """该根白名单是否被**显式配置**（env 去空白后非空）。
+
+    根白名单有两个语义层：①「已显式配置」→ 用它（os.pathsep 多根）；②「未配置」→
+    回落记忆库根 / 工作区（#85 选 A：不再放开）。需要区分这两层的调用方（如
+    `mdcg_ingest` 的 auto 闸：未配置时 `~/.dsh/sessions` 不在回落根内，无条件过闸
+    会把**默认工作流整个拦死**，issue #326-① 实测的回归陷阱）必须经本函数判断。
+    """
+    return bool((os.environ.get(env_var) or "").strip())
+
+
 # 生效条件：env_var 环境变量去空白后非空时返回其按 os.pathsep 切分、逐段 strip+expanduser+realpath 后的非空根列表；为空时走三级回落链——②级 `_configured_library_root()` 非 None 即返回 `[realpath(该根)]`；否则取 ③级 `_workspace_root()`，非 None 时先 `_persist_workspace_root(ws)` 再返回 `[ws]`；ws 为 None（连 cwd 都取不到）时抛 PermissionError（fail-closed，绝不回落放开）。
 def _whitelist_roots(env_var: str) -> list:
-    raw = (os.environ.get(env_var) or "").strip()
-    if raw:
+    if whitelist_root_configured(env_var):        # 判据单点（见上），不在此另写一份
+        raw = (os.environ.get(env_var) or "").strip()
         out = []
         for p in raw.split(os.pathsep):
             p = p.strip()

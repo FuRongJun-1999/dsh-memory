@@ -21,7 +21,9 @@
 
 · KEK 来源（按优先级）：
     ① 环境变量 `MDCG_MASTER_KEY`（64 位 hex 或 base64）
-    ② 主密钥文件 `~/.mdcg/master.key`（首次自动生成，0600）
+    ② 主密钥文件 `~/.mdcg/master.key`（首次自动生成，**尝试** 0600——POSIX 生效；
+     Windows 上 `os.chmod` 只切只读位、真实保护来自用户目录 ACL，**失败不静默**：
+     进 `crypto.PERM_WARNINGS` 供审计读取，见 `_tighten_perms`，issue #326-⑤）
 · KEK 不落仓库；DEK 被 KEK 包裹后存租户根目录，单独拿走 `_keys.json` 无法解密。
 · **身份一致性识别**：DEK 信封绑定 `(tenant, actor, clearance)`，且节点密文把
   `(node_id, tenant, actor)` 作为 AEAD 的 AAD。因此
@@ -233,6 +235,32 @@ def scrypt_kek(passphrase, salt):
 
 
 # 生效条件：master_file=None、env_var=MASTER_ENV、create=True 为可选入参；从 os.environ.get(env_var) 读取并 strip，若 raw 非空则长度 64 走 bytes.fromhex、否则 _b64d，解码失败抛 CryptoError；否则 path = master_file or MASTER_FILE，若 os.path.exists(path) 为真则读取并 _b64d；若 create 为假返回 None；否则生成 KEY_LEN 随机密钥写入 path 并返回 key。
+#: 权限收紧失败的**有界**告警列表（issue #326-⑤）——口径同 `src/lib/token_store.ts` 的
+#: `writeKeyring`：「不可设则忽略，不因此中断签发」，但**绝不假装成功**：失败在此留痕，
+#: 供启动自检/审计读取（不抛异常，以免在只读介质/受限平台上阻断进程启动）。
+PERM_WARNINGS = []
+_PERM_WARN_LIMIT = 8
+
+
+# 生效条件：path 给定时尝试 os.chmod(path, 0o600)：成功返回 True；抛 OSError（平台不支持/
+# 只读介质/权限拒绝）时追加一条**有界**告警（path、异常类型、截断后的文本，超 _PERM_WARN_LIMIT
+# 不再追加）并返回 False，**不上抛**。
+#
+# **平台事实（2026-10-14 本机实测，务必与声明一致）**：Windows 上 `os.chmod(path, 0o600)`
+# **只切只读位、不产生 POSIX 语义隔离**（TS 式样 / Python 式样 / 完全不设，三者 S_IMODE
+# 同为 0o666）；**真实保护来自用户目录 ACL**。故本函数在 Windows 上的返回值**不代表**已获得
+# 0600 语义——调用方不得据它宣称「已隔离」。修前是 `except OSError: pass`（**静默**），
+# 那正是「声明（0600）与实现（在 Windows 上不生效）不符」长期未被发现的原因。
+def _tighten_perms(path):
+    try:
+        os.chmod(path, 0o600)
+        return True
+    except OSError as e:
+        if len(PERM_WARNINGS) < _PERM_WARN_LIMIT:
+            PERM_WARNINGS.append((path, type(e).__name__, str(e)[:120]))
+        return False
+
+
 def load_master_key(master_file=None, env_var=MASTER_ENV, create=True):
     """KEK 来源：环境变量 → 主密钥文件（可选自动生成）；都没有返回 None。"""
     raw = (os.environ.get(env_var) or "").strip()
@@ -251,10 +279,9 @@ def load_master_key(master_file=None, env_var=MASTER_ENV, create=True):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(_b64e(key))
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+    # issue #326-⑤：收敛失败**不静默**（进 PERM_WARNINGS），也不阻断启动；
+    # Windows 语义限制见 _tighten_perms 的注释（不得据返回值宣称已隔离）。
+    _tighten_perms(path)
     return key
 
 
@@ -328,6 +355,9 @@ def _save_keys(root, data):
             env[k] = v
     atomic_write(keys_path(root),
                  json.dumps(data, ensure_ascii=False, indent=1))
+    # issue #326-⑤：`_keys.json` 与 `master.key` 同为**凭据载体**——同款声明与告警
+    # （修前此处**完全无权限收敛**，两种待遇不一致）。
+    _tighten_perms(keys_path(root))
 
 
 # 生效条件：tenant、actor 为入参，返回 f"{tenant}|{actor}"。
@@ -584,7 +614,7 @@ def _note_audit_write_failure(root, exc):
     return True
 
 
-# 生效条件：root、rec 为入参，复制 rec，若未提供 ts 则设 time.time()，设 payload_free=True；先经 _rotator(root).maybe_rotate() 做写前轮转闸门（阈值内零切分），再 append_jsonl(os.path.join(root, AUDIT_FILE), rec)；轮转或追加抛 (OSError, TimeoutError) 时经 _note_audit_write_failure 记账 + 有界 stderr 告警，不阻断调用方（best-effort 语义不变）。
+# 生效条件：root、rec 为入参，复制 rec，若未提供 ts 则设 time.time()，设 payload_free=True；先经 _rotator(root).maybe_rotate() 做写前轮转闸门（阈值内零切分），再 append_jsonl(os.path.join(root, AUDIT_FILE), rec)；轮转抛 (OSError, TimeoutError) 或**追加返回 False**（issue #326-④ 改后 append_jsonl 不再上抛、以 False 报写失败）时经 _note_audit_write_failure 记账 + 有界 stderr 告警，不阻断调用方（best-effort 语义不变，但**失败不静默**）。
 def audit(root, rec):
     from .fsutil import append_jsonl
     rec = dict(rec)
@@ -595,7 +625,13 @@ def audit(root, rec):
     except (OSError, TimeoutError) as e:      # 轮转失败不得阻断审计写
         _note_audit_write_failure(root, e)
     try:
-        append_jsonl(os.path.join(root, AUDIT_FILE), rec)
+        # issue #326-④ 之后 append_jsonl **不再上抛 OSError**（改返回布尔：成功 True /
+        # 写失败 False）——本处必须读返回值，否则审计写失败会**静默**（N126 口径：容忍 ≠
+        # 静默）。实证：`md_cg.test_crypto_rotate` ⑭ 会转红（计数不增、无 stderr 告警）。
+        # except 分支保留，兜 append_jsonl 之外的 OSError（如 path 组装/编码面）。
+        if append_jsonl(os.path.join(root, AUDIT_FILE), rec) is False:
+            _note_audit_write_failure(
+                root, OSError("append_jsonl 返回 False（写失败，best-effort 已容忍）"))
     except OSError as e:
         _note_audit_write_failure(root, e)
 

@@ -185,9 +185,39 @@ def ends_mid_line(path: str) -> bool:
         return False
 
 
-# 生效条件：record 序列化为 json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"；若 ends_mid_line(path) 为真则在行首再补一个 "\n"；随后建父目录并以 O_CREAT|O_WRONLY|O_APPEND、权限 0o600 打开 path 写入该行 UTF-8 字节后关闭。
-def append_jsonl(path: str, record: dict):
-    """向 append-only 日志追加一条记录（best-effort 语义）。
+# 生效条件：record 序列化为 json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"；若 ends_mid_line(path) 为真则在行首再补一个 "\n"；随后建父目录并以 O_CREAT|O_WRONLY|O_APPEND、权限 0o600 打开 path 写入该行 UTF-8 字节后关闭；成功返回 True；os.makedirs/os.open/os.write 抛 OSError（磁盘满/只读介质/权限拒绝/路径过长）时**兜住并返回 False**（best-effort 契约：簿记写入失败不得升级为业务路径失败，issue #326-④）；KeyboardInterrupt/SystemExit 是 BaseException、不在兜住面内，照常上抛。
+#: 写失败累计计数 + **有界**样本（issue #326-④ B 面）。
+#: 为什么在源头记账：`append_jsonl` 的失败契约是**返回值**（不上抛）——若无本地捕获的
+#: 调用点只是忽略返回值，失败就**静默**了（本仓 121 个调用点属此类）。把失败信号收成
+#: 本模块的**单点可观测项**后，「静默」在结构上不再可能（运维/守卫读 APPEND_FAILURES
+#: 与 _APPEND_FAIL_SAMPLES 即可；口径同 crypto._note_audit_write_failure 的 N126）。
+APPEND_FAILURES = 0            # 累计**写失败次数**（非按路径去重）
+_APPEND_FAIL_SAMPLES = []      # 有界样本：(path, 异常类型名, 截断文本)
+_APPEND_FAIL_SAMPLE_CAP = 8
+_APPEND_FAIL_WARN_CAP = 8      # stderr 告警同样有界（防刷屏）
+
+
+# 生效条件：path/exc 给定时把 APPEND_FAILURES 累加 1、在样本未满 _APPEND_FAIL_SAMPLE_CAP 时
+# 追加一条 (path, 类型名, 文本[:120])、并在累计不超 _APPEND_FAIL_WARN_CAP 时向 stderr 写一行
+# 告警；**无条件返回 False**（供 append_jsonl 直接 `return`）。不抛任何异常。
+def _note_append_failure(path, exc):
+    """登记一次 append_jsonl 写失败 + 有界告警（容忍 ≠ 静默）。"""
+    global APPEND_FAILURES
+    APPEND_FAILURES += 1
+    if len(_APPEND_FAIL_SAMPLES) < _APPEND_FAIL_SAMPLE_CAP:
+        _APPEND_FAIL_SAMPLES.append((str(path), type(exc).__name__, str(exc)[:120]))
+    if APPEND_FAILURES <= _APPEND_FAIL_WARN_CAP:
+        sys.stderr.write(
+            "[fsutil] append_jsonl 写失败（best-effort 已容忍，返回 False）%s：%s: %s"
+            "——进程内累计 %d 次；已登记 fsutil.APPEND_FAILURES / "
+            "_APPEND_FAIL_SAMPLES 供审计读取。排查方向：磁盘满 / 只读介质 / "
+            "权限拒绝 / 路径过长。\n"
+            % (path, type(exc).__name__, str(exc)[:120], APPEND_FAILURES))
+    return False
+
+
+def append_jsonl(path: str, record: dict) -> bool:
+    """向 append-only 日志追加一条记录（best-effort 语义）：成功 True、写失败 False。
 
     注意 O_APPEND 的原子性是**平台相关**的：POSIX 保证「定位到末尾 + 写入」是
     一个原子操作，Windows CRT 的 _O_APPEND 则是 lseek(END) + write 两步，并发下
@@ -195,17 +225,33 @@ def append_jsonl(path: str, record: dict):
 
     因此本函数只用于**丢一条无所谓**的簿记（访问计数）。任何不能丢的东西
     （比如索引增量）必须用 ShardedLog——每个写者独占一个分片，不共享写入点。
+
+    失败契约（issue #326-④）：本文档自陈「丢一条无所谓」，原实现却只有
+    try/finally——os.makedirs/os.open/os.write 的 OSError（磁盘满、只读介质、
+    权限拒绝、路径过长）会**击穿**调用方，把**簿记写入失败升级为业务路径失败**。
+    现按本文档兜住 OSError 并返回 False；**只**兜 OSError——KeyboardInterrupt /
+    SystemExit 是 BaseException，Type/ValueError（如 record 不可 JSON 序列化）
+    是编程错误，一概照常上抛，不把「写失败」与「用错」混为一谈。
     """
     line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
     if ends_mid_line(path):
         line = "\n" + line
     d = os.path.dirname(os.path.abspath(path)) or "."
-    os.makedirs(d, exist_ok=True)
-    fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+    try:
+        os.makedirs(d, exist_ok=True)
+        fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+    except OSError as e:
+        return _note_append_failure(path, e)
     try:
         os.write(fd, line.encode("utf-8"))
+        return True
+    except OSError as e:
+        return _note_append_failure(path, e)
     finally:
-        os.close(fd)
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
 
 # 生效条件：os.path.exists(path) 为假时生成器直接结束不产出；否则逐行 strip，空行跳过，json.loads 成功则 yield 该对象，抛 ValueError 的行跳过，其余异常不捕获。

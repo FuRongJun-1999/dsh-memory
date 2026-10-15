@@ -113,7 +113,10 @@ def log_path(cg):
 # 生效条件：传入 cg 与 rec 时向 log_path(cg) 追加一条 JSONL 记录，OSError 被吞掉且无返回值；
 def _append(cg, rec):
     try:
-        append_jsonl(log_path(cg), rec)
+# #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+# 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+# （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+        _ok = append_jsonl(log_path(cg), rec)
     except OSError:
         pass
 

@@ -428,7 +428,10 @@ def rotate_heartbeat(root: str, reason: str = "size"):
                "kind": HB_KIND_ROTATE, "ok": True, "shard": name,
                "bytes": size, "events": events, "pruned": pruned, "reason": reason}
         try:                               # 自述留痕：轮转本身可审计
-            append_jsonl(path, row)
+    # #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+    # 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+    # （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+            _ok = append_jsonl(path, row)
         except OSError:
             pass
         return {"shard": name, "bytes": size, "events": events, "pruned": pruned}

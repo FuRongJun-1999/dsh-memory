@@ -857,7 +857,10 @@ class MdCGOS(MdCG):
         rec.update(meta)
         try:
             self._rotate_audit_if_needed()
-            append_jsonl(self.audit_log, rec)
+    # #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+    # 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+    # （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+            _ok = append_jsonl(self.audit_log, rec)
         except OSError:
             pass
 

@@ -398,7 +398,10 @@ def _apply_candidate(cg, cand, actor=None):
 # 生效条件：cg 与 rec 传入时经 fsutil.append_jsonl 追加一条生成留痕；仅 OSError 被忽略（留痕失败不阻断主流程，与 autonomy.explore :316-319 同款）；
 def _log(cg, rec):
     try:
-        append_jsonl(goal_log_path(cg), rec)
+# #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+# 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+# （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+        _ok = append_jsonl(goal_log_path(cg), rec)
     except OSError:
         pass
 

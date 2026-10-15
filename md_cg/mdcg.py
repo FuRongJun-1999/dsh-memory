@@ -5244,7 +5244,10 @@ class MdCG:
                              if meta.get("enabled") else None),
         }
         try:
-            append_jsonl(self.reflection_log, reflection)
+    # #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+    # 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+    # （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+            _ok = append_jsonl(self.reflection_log, reflection)
         except OSError:
             pass
         return reflection
@@ -5599,8 +5602,12 @@ class MdCG:
 # 生效条件：无条件尝试把 {"t": time.time(), "ids": list(node_ids), "tier": tier} 追加到 access_log，append 抛 OSError 时静默吞掉；
     def record_access(self, node_ids, tier=None):
         try:
-            append_jsonl(self.access_log,
-                         {"t": time.time(), "ids": _ensure_list(node_ids), "tier": tier})
+    # #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+    # 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+    # （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+            _ok = append_jsonl(self.access_log,
+                               {"t": time.time(), "ids": _ensure_list(node_ids),
+                                "tier": tier})
         except OSError:
             pass
 

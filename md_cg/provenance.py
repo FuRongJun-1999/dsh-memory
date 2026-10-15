@@ -144,7 +144,13 @@ def append(root: str, edges, *, path: str = None) -> int:
         os.makedirs(os.path.dirname(os.path.abspath(p)) or ".", exist_ok=True)
         with FileLock(p, timeout=_LOCK_TIMEOUT):
             for e in edges:
-                append_jsonl(p, e)
+                # #326-④：append_jsonl 不再上抛 OSError（改返回布尔）——本处是
+                # **fail-closed**（写失败必须报 ProvenanceError），故必须读返回值，
+                # 否则「写失败」会静默变成「写成功」（修前由 except OSError 兜住）。
+                if append_jsonl(p, e) is False:
+                    raise ProvenanceError(
+                        f"派生台账写入失败：{p}（append_jsonl 返回 False，"
+                        f"源头已记 fsutil.APPEND_FAILURES）")
     except OSError as exc:
         raise ProvenanceError(f"派生台账写入失败：{p}（{exc}）") from exc
     return len(edges)
