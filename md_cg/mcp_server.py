@@ -3212,6 +3212,15 @@ def _insight_call(cg, a):
     actor = getattr(principal, "actor", None) if principal is not None else None
     if principal is not None and act in ("record", "verify") and not can_write:
         principal.require_admin(f"insight_{act}")     # 无写权 → 抛 AccessDenied
+    # issue #348-A（2026-10-16 DSH 端）：`verify` 是**裁决动作**，与 `mdcg_verify`
+    # 同口径要求 verify op。修前只查 can_write ⇒ record/reflect/sustain（ops_allow
+    # 含 insight、无 verify op，forbidden 明列「裁决与删除」）可以给自己写的洞见
+    # 定案 verified（importance 保底 0.9 + protected=True），也能把属主的洞见判
+    # falsified——#320 在 insight 面的相邻出口。库层不动：直接调
+    # MdCGSecure.insight 的面（N197 守卫 1f/1h）语义不变。
+    if (principal is not None and act == "verify"
+            and hasattr(principal, "require_op")):
+        principal.require_op("verify")
     if principal is not None and act in ("fork", "branch_rewrite",
                                          "branch_merge") and not can_write:
         principal.require_admin(f"insight_{act}")     # 分支写 → 需写权
