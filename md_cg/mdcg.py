@@ -687,7 +687,7 @@ def exact_hit_of(q: str, content: str, *, _prepared=None) -> int:
 NEG_MIN_TERM = 2
 
 
-# 生效条件：neg_conditions 为字符串列表（假值按空列表）；逐条按空白切词、丢弃长度 < NEG_MIN_TERM 的词与已入选的重复词；词出现在 scene_text 中，且（own_topic_text 去全部空白后为空，或该词去全部空白后不是 own_topic_text 去空白文本的子串）才计入；返回按首次出现顺序排列的命中词列表，无命中返回空列表。
+# 生效条件：neg_conditions 为字符串列表（假值按空列表）；两侧先各自归一（NFKC → 去全部空白 → casefold，#362b/#362c）得 item/scene_norm/own；逐条：item 非空且长度 ≥ NEG_MIN_TERM 且为 scene_norm 子串、且（非全部出现都在否定作用域内（命中点前 2 归一字内含 不/非/没/无 即该次出现被否定，#362a））、且（own 为空或 item 不是 own 的子串）→ 计入；否则按空白切词取长度 ≥ NEG_MIN_TERM 的词、同口径归一后须全部为 scene_norm 子串且各自存在未否定出现、且（own 为空或无任一词为 own 子串）→ 计入；返回按首次出现顺序排列的命中词列表，无命中返回空列表。
 def neg_condition_hits(neg_conditions, scene_text, own_topic_text="") -> list:
     """负条件（不适用条件）命中判据——**检索面唯一的负判据单点**。
 
@@ -702,6 +702,19 @@ def neg_condition_hits(neg_conditions, scene_text, own_topic_text="") -> list:
       ④ **自主题豁免**：命中内容出现在节点自己声明的主题面（功能名 + 生效条件，
          见 `MdCG._self_topic_text`）里则不计——它不是「不适用」，而是「本节点
          讲的就是它」。
+      ⑤ **否定作用域**（issue #362a，2026-10-15）：命中点前 2 字（去空白后）
+         内出现否定字（不/非/没/无——「不是/并非/没有/毫无」均含其一）⇒ 该次
+         出现处于否定作用域，不计命中：「现在**不是**梅雨季节」不再被负条件
+         「梅雨季节」拒绝。条目（或词）**每一次**出现都被否定才算未命中——
+         有一处未被否定的出现即照常命中。窗口取 2 不取 3：3 字会把
+         「…不适用<X>」这类边界问句措辞误判成对 X 的否定（守卫语料
+         「什么条件下不适用 <条目>」去空白后恰成 3 字邻接，会误放行）。
+      ⑥ **两侧归一 NFKC + casefold**（issue #362b/#362c）：与 `routing.py`
+         `normalize_domain` 的 NFKC 同口径，另加 casefold——`４Ｇ` vs `4G`、
+         `ＵＳＢ２．０` vs `USB2.0`、`pdf` vs `PDF` 不再因字面形态漏拒。
+         **繁简不在此列**：`載貨電梯` vs `载货电梯` 是不同码位，NFKC 不映射；
+         仓内无繁简映射表（全仓 grep opencc/繁简 无命中），不为此引入大依赖
+         ——留作已知边界（#362c 如实报告，见守卫 G5）。
 
     为什么不能沿用「任一词命中」（三处过粗，各有实测支撑）：
       · **主题词变扳机**：空白切词把中文句里夹的裸标识符切成独立词，于是
@@ -719,21 +732,50 @@ def neg_condition_hits(neg_conditions, scene_text, own_topic_text="") -> list:
     灵敏度**保持不变**（假阴性同样有害）：声明为「问这类问句」的条目照旧否决
     ——`test_neg_condition_hits.py` 有正向对照断言钉住（`问ZXQ7`/`刚才在干什么`/
     `问完全无关主题` 三条语料口径 + 自造多词条目），防「一律不拒」的退化解。
+
+    实现注（守卫兼容）：本函数被 `test_neg_condition_hits.py --branch-baseline`
+    以 `exec(源码, {re, NEG_MIN_TERM})` 独立编译——体内不得引用模块级名字，
+    故 `unicodedata` 就地导入、归一/否定作用域均为嵌套定义。
     """
+    import unicodedata                       # #362b/#362c：NFKC（就地导入，见上注）
+
+    def _norm(s):
+        # #362b/#362c：NFKC → 去全部空白 → casefold（先 NFKC 再去空白：
+        # NBSP 等 compat 空白先归一成普通空白才去得掉）。
+        return re.sub(r"\s+", "", unicodedata.normalize(
+            "NFKC", str(s or ""))).casefold()
+
     scene = scene_text or ""
-    scene_norm = re.sub(r"\s+", "", scene)
-    own = re.sub(r"\s+", "", own_topic_text or "")
+    scene_norm = _norm(scene)
+    own = _norm(own_topic_text)
+
+    def _negated(nd):
+        # #362a：nd（归一形态）在 scene_norm 里的**每一次**出现是否都处在
+        # 否定作用域内（命中点前 2 字含 不/非/没/无）。有一次未被否定即返
+        # False；从未出现也返 False（由调用侧的子串判据负责存在性）。
+        pos, found = 0, False
+        while True:
+            i = scene_norm.find(nd, pos)
+            if i < 0:
+                return found
+            found = True
+            if not any(c in scene_norm[max(0, i - 2):i] for c in "不非没无"):
+                return False
+            pos = i + 1
+
     hits = []
     for n in (neg_conditions or []):
-        item = re.sub(r"\s+", "", str(n))
+        item = _norm(n)
         if not item:
             continue
         if len(item) >= NEG_MIN_TERM and item in scene_norm:
             if not (own and item in own):
-                hits.append(str(n))
+                if not _negated(item):       # #362a：整条档的否定作用域
+                    hits.append(str(n))
             continue
         words = [w for w in str(n).split() if len(w) >= NEG_MIN_TERM]
-        if words and all(w in scene for w in words):
+        words = [_norm(w) or w for w in words]   # #362b/#362c：全词档同口径归一
+        if words and all(w in scene_norm and not _negated(w) for w in words):
             if own and any(w in own for w in words):
                 continue
             hits.append(str(n))
@@ -756,6 +798,15 @@ BOUNDARY_MARKER = "boundary_hit"
 #: 「什么条件下不适用」；其余为同义形态（中文检索面的问句变体）。
 BOUNDARY_QUERY_MARKERS = ("不适用条件", "不适用", "什么条件下不适用",
                           "什么情况下不适用", "何时不适用", "边界条件", "拒绝域")
+
+#: 「边界**枚举**问句」的强标记（issue #362d，2026-10-15）——问的是拒绝域的
+#: **枚举/定义**本身（§5.1 原话「什么条件下不适用」及其同义形态）。单独的
+#: 「不适用」**不在其列**：「…适用吗，还是不适用」是就**已陈述情境**问适用性
+#: 的问句，它命中拒绝域条目说明那是用户的真实处境，不是「问到边界」——
+#: `judge_with_boundary` 只对强标记问句摘词面重跑（防自否定），弱标记问句
+#: 资格判定按原句跑（已确定的 REJECT 不被压掉，边界侧照常报告双语义）。
+BOUNDARY_ENUM_MARKERS = ("不适用条件", "什么条件下不适用", "什么情况下不适用",
+                         "何时不适用", "边界条件", "拒绝域")
 
 #: 「把验证方式当检索键」的问句意图标记——§5.1 检索用法列的原话即
 #: 「是怎么验证的 / 用什么方法证明的」（P2-1 新增的第 5 行「后置条件词」）。
@@ -896,13 +947,28 @@ def boundary_mark(node_dict, query, context=None) -> dict:
 
 # 生效条件：query 为字符串（假值按空串）时，逐个取 BOUNDARY_QUERY_MARKERS 判断是否为子串，任一命中即返回 True，全部不命中返回 False；只做字面可判的**意图识别**，不做分词/语义推断。
 def is_boundary_query(query: str) -> bool:
-    """查询是否在问该节点的**拒绝域本身**（§5.1「不适用条件 → 拒绝域词」）。
+    """查询是否在问该节点的拒绝域本身（§5.1「不适用条件 → 拒绝域词」）。
 
     这是双语义的分界：是 ⇒ 命中属**边界命中**（可召回可展示，不得因此 REJECT）；
     否 ⇒ 命中仍是资格面的负条件（照旧 REJECT，灵敏度不变）。
     """
     q = str(query or "")
     return any(m in q for m in BOUNDARY_QUERY_MARKERS)
+
+
+# 生效条件：query 为字符串（假值按空串）时，逐个取 BOUNDARY_ENUM_MARKERS 判断是否为子串，任一命中即返回 True，全部不命中返回 False；与 is_boundary_query 同款形态，但不含弱标记「不适用」。
+def is_boundary_enum_query(query: str) -> bool:
+    """查询是否在**枚举**该节点的拒绝域（强标记问句，issue #362d）。
+
+    `BOUNDARY_QUERY_MARKERS` 里的 bare「不适用」是弱标记——「…适用吗，还是
+    不适用」这类**适用性问句**也含它。两类的处置不同（`judge_with_boundary`）：
+
+      · 枚举问句（强标记）：照旧摘词面重跑——问的就是边界本身，防自否定；
+      · 适用性问句（仅弱标记）：资格判定按**原句**跑——命中的拒绝域条目是
+        用户已陈述的真实处境，已确定的 REJECT 不被边界抑制覆盖。
+    """
+    q = str(query or "")
+    return any(m in q for m in BOUNDARY_ENUM_MARKERS)
 
 
 # 生效条件：node_dict 为 {frontmatter, content}（缺键按空处理）且 query 为字符串时，以 frontmatter.non_applicable_conditions 为拒绝域词面、以 json({"query":query, **context}) 为情境（与 judge_qualification 同一情境口径）、以 MdCG._self_topic_text(fm, content) 为自主题面，调单点 neg_condition_hits 取命中；返回 {"hit": bool, "terms": [命中原样条目（按首次出现序）], "marker": "boundary_hit" 或 None, "reason": str, "scene": str}。
@@ -3993,7 +4059,7 @@ class MdCG:
             acc = "无情境可比（未做正条件确认）+ " + acc
         return {"state": STATE_ACCEPT, "reason": acc}
 
-    # 生效条件：node_dict 为 {frontmatter, content}（缺键按空处理）、query 为字符串、context 为 dict 或 None；无条件先算边界命中（boundary_hit），再算资格判定——边界命中**且** query 为边界问句（is_boundary_query）时，资格判定改以「摘掉命中拒绝域条目后的 query」重跑（并在返回体的 qualification 上标 boundary_suppressed=True），其余情形资格判定原样跑 judge_qualification(node_dict, query, context)；返回 {"qualification","boundary","counts","recallable","reason"}——counts 内 reject 与 boundary_hit **分开计数**，recallable 为「可召回可展示」（边界命中恒真；无边界命中时 = 资格态不是 REJECT）。
+    # 生效条件：node_dict 为 {frontmatter, content}（缺键按空处理）、query 为字符串、context 为 dict 或 None；无条件先算边界命中（boundary_hit），再算资格判定——边界命中**且** query 为边界问句（is_boundary_query）**且**为边界枚举问句（is_boundary_enum_query，#362d 强标记）时，资格判定改以「摘掉命中拒绝域条目后的 query」重跑（并在返回体的 qualification 上标 boundary_suppressed=True）；其余情形（含仅带弱标记「不适用」的适用性问句）资格判定原样跑 judge_qualification(node_dict, query, context)——已确定的 REJECT 不被压掉，边界侧照常报告双语义；返回 {"qualification","boundary","counts","recallable","reason"}——counts 内 reject 与 boundary_hit **分开计数**，recallable 为「可召回可展示」（边界命中恒真；无边界命中时 = 资格态不是 REJECT）。
     @staticmethod
     def judge_with_boundary(node_dict, query: str, context=None) -> dict:
         """资格判定 + 拒绝域命中——**分开计数、分开呈现**（§5.2 / P0-4）。
@@ -4014,6 +4080,13 @@ class MdCG:
         打回 REJECT（自否定）；非边界问句下资格判定**原样**跑 `judge_qualification`，
         负条件的灵敏度一字不变（情境里真的命中拒绝域 ⇒ 照旧 REJECT）。
 
+        **例外收窄（issue #362d，2026-10-15）**：摘词面重跑只对**边界枚举问句**
+        （`is_boundary_enum_query` 强标记：「什么条件下不适用」一族）生效；
+        仅带弱标记「不适用」的**适用性问句**（「…适用吗，还是不适用」）资格判定
+        按**原句**跑——它命中拒绝域条目说明那是用户已陈述的真实处境，已确定的
+        REJECT 不被压成 DEFER；边界侧（counts.boundary_hit / boundary.*）照常
+        报告双语义。
+
         **已接线（P2-2，2026-10-01）**：本函数与 `boundary_hit` 都**有生产调用方**——
 
           · `MdCG._emit`（`md_cg/mdcg.py:4181`）＝默认打分收口，结果卡带
@@ -4029,7 +4102,11 @@ class MdCG:
         node_dict = node_dict or {}
         bh = boundary_hit(node_dict, query, context)
         bq = is_boundary_query(query)
-        if bh["hit"] and bq:
+        # issue #362d：摘词面重跑只对**边界枚举问句**（强标记）生效——仅带
+        # 弱标记「不适用」的适用性问句（「…适用吗，还是不适用」）按原句判，
+        # 已确定的 REJECT 不被压掉；两种情形边界侧都照常报告双语义。
+        suppress = bool(bh["hit"] and bq and is_boundary_enum_query(query))
+        if suppress:
             qual = dict(MdCG.judge_qualification(
                 node_dict, strip_boundary_terms(query, bh["terms"]), context))
             qual["boundary_suppressed"] = True

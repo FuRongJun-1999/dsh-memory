@@ -298,7 +298,10 @@ def _run_groups() -> int:
 #   M3 判据不复用单点（抄第二份切词实现）→ B1/B1a 红
 _MUTATIONS = (
     ("边界问句不做抑制（改动前形态）", "md_cg/mdcg.py",
-     '        if bh["hit"] and bq:', "        if False:"),
+     # （#362d 后抑制条件收拢为单点变量 suppress，锚点随之同步——变异语义
+     #  不变：关掉「摘词面重跑」这条腿）
+     "suppress = bool(bh[\"hit\"] and bq and is_boundary_enum_query(query))",
+     "suppress = False"),
     # 注：锚点带尾换行——`boundary_mark` 与 `boundary_hit` 各有一行同前缀，
     # 只有 `boundary_hit` 那行以换行收尾（`boundary_mark` 那行后还接了 "why"）
     ("不设展示标记", "md_cg/mdcg.py",
