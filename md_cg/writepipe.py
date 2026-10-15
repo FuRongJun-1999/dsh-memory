@@ -208,8 +208,39 @@ def _commit_visibility(cg, out):
 # issue #82.3：写入硬上限（全 content_kind 统一）。
 MAX_WRITE_BYTES = 1048576        # 1 MiB
 
-# 生效条件：a['content'] 的 UTF-8 字节数超过 MAX_WRITE_BYTES 时返回超限出口响应体
-# （protocol 形态 gate_hard_reject：WRITE_TRIO + gate/error/verdict/hint），否则返回 None。
+# 生效条件：a['content'] 的 UTF-8 字节数 > MAX_WRITE_BYTES，或**其余字段**的 UTF-8 序列化
+# 总字节 > MAX_WRITE_BYTES（issue #324），或 a['node_id'] 不满足既有 1..128 契约
+# （mdcg._NODE_ID_RE，延迟 import 复用同一真源）时，返回超限出口响应体（protocol 形态
+# gate_hard_reject：WRITE_TRIO + gate/field/error/verdict/hint）；否则返回 None。
+def _utf8_len(v):
+    """v 的 UTF-8 字节数（str 直量；其余按 JSON 序列化量；不可序列化记 0）。"""
+    if isinstance(v, str):
+        return len(v.encode("utf-8"))
+    try:
+        import json as _json
+        return len(_json.dumps(v, ensure_ascii=False, default=str).encode("utf-8"))
+    except Exception:                        # noqa: BLE001 —— 量不出来不当作超限
+        return 0
+
+
+def _oversize_body(nid, a, n, limit, field):
+    """写入硬上限的唯一响应体构造点（#82.3 统一形态；#324 起带 field）。"""
+    _f = field or "content"
+    _what = ("正文" if _f == "content" else "入参字段 " + _f)
+    return {"ok": False, "id": nid, "committed": False,
+            "gate": "writelimit_size",
+            "error": ("content 超过写入硬上限（issue #82.3）"
+                      if _f == "content" else
+                      "入参字段 " + _f + " 超过写入硬上限（issue #324）"),
+            "bytes": n, "limit": limit, "field": _f,
+            "verdict": {"state": "REJECT",
+                        "kind": (a.get("content_kind") or "text"),
+                        "evidence": "%s %d 字节 > 上限 %d" % (_f, n, limit)},
+            "hint": ("写入被拒（硬上限，不是工具故障）：%s %d 字节 > 上限 %d 字节。"
+                     "本上限全 content_kind 统一（issue #82.3），重试同样结果——"
+                     "请缩短后重写。" % (_what, n, limit))}
+
+
 def oversize_response(nid, a):
     """写入硬上限的**唯一构造点**（issue #212 缺口 1，2026-10-13 DSH 端）。
 
@@ -223,10 +254,38 @@ def oversize_response(nid, a):
     位置口径与动词面一致：按**原始入参**判，不打码后再判——打码只减不增，
     故本闸不会因打码而漏放。
     """
+    a = a or {}
     c = a.get("content") or ""
     n = len(c.encode("utf-8")) if isinstance(c, str) else 0
-    if n <= MAX_WRITE_BYTES:
-        return None
+    if n > MAX_WRITE_BYTES:
+        return _oversize_body(nid, a, n, MAX_WRITE_BYTES, "content")
+    # issue #324（2026-10-15 DSH 端）：判据此前只量 content——其余字段完全不受
+    # 约束（实测超长 node_id 单次落盘 4,994,888 B；_write_attempts.jsonl 还是无上限
+    # 增长账本 ⇒ 磁盘耗尽型 DoS）。此处补齐两面，不新增常量、只复用既有真源：
+    #   ① 其余字段的 UTF-8 序列化总字节 > MAX_WRITE_BYTES 即拒；
+    #   ② node_id 复用 mdcg._NODE_ID_RE 与 1..128 契约（既有唯一真源，延迟 import
+    #      防环——写面比库层早加载）。二者都只是提前拦住 add() 本就会拒的入参，
+    #      不改任何合法调用的受理结论。
+    worst_k, worst_b, total = None, 0, 0
+    for _k, _v in a.items():
+        if _k == "content":
+            continue
+        _b = _utf8_len(_v)
+        total += _b
+        if _b > worst_b:
+            worst_k, worst_b = _k, _b
+    if total > MAX_WRITE_BYTES:
+        return _oversize_body(nid, a, total, MAX_WRITE_BYTES, worst_k)
+    _nv = a.get("node_id")
+    if isinstance(_nv, str) and _nv:
+        try:
+            from .mdcg import _NODE_ID_RE as _RE   # 延迟 import 防环；复用同一真源
+        except Exception:                        # noqa: BLE001 —— 不可用则不新增闸
+            _RE = None
+        if _RE is not None and (len(_nv) > 128 or not _RE.match(_nv)):
+            return _oversize_body(nid, a, len(_nv.encode("utf-8")),
+                                 128, "node_id")
+    return None
     return {"ok": False, "id": nid, "committed": False,
             "gate": "writelimit_size",
             "error": "content 超过写入硬上限（issue #82.3）",
