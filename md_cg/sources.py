@@ -694,12 +694,17 @@ class FileDispatcher:
                     "ids": [mod.node_id(i) for i in items[:20]],
                     "note": "预演：只抽取计数，未写盘"}
         ref_kind = "code_ref" if kind == "code" else "doc_ref"
+        _cf = []                     # #352-E：同 id 已被另一个源根占用 ⇒ 不覆写
         ids, sens = refindex.add_items(
             self.cg, items, kind=ref_kind,
             root=os.path.dirname(path) or ".", layer=layer,
-            sensitivity=sensitivity)
-        return {"ok": True, "kind": kind, "path": path, "items": len(items),
+            sensitivity=sensitivity, conflicts=_cf)
+        _out = {"ok": True, "kind": kind, "path": path, "items": len(items),
                 "indexed": len(ids), "ids": ids[:20], "sensitivity": sens}
+        if _cf:                      # 冲突不静默（单文件链同样点名）
+            _out["conflict_count"] = len(_cf)
+            _out["conflicts"] = _cf[:20]
+        return _out
 
     # ---- 目录 ----
 
@@ -730,9 +735,14 @@ class FileDispatcher:
                 root, kind=ref_kind, patterns=patterns, max_files=max_files,
                 max_items=max_items, incremental=incremental, ledger=ledger,
                 commit=False)
+            _cf = []                 # #352-E：同 id 已被另一个源根占用 ⇒ 不覆写
             ids, sens = refindex.add_items(self.cg, items, kind=ref_kind,
                                            root=root, layer=layer,
-                                           sensitivity=sensitivity)
+                                           sensitivity=sensitivity,
+                                           conflicts=_cf)
+            for _c in _cf:           # 冲突源文件的水位一并丢掉（否则下次增量跳过）
+                ledger.drop(_c.get("src")
+                            or os.path.join(root, _c.get("path") or ""))
             # 写序（同 op=index_code/index_doc）：节点先落盘，水位随后——
             # 中途被杀只会留下「节点新 + 水位旧」，下次增量重切，不会静默漏漂移。
             ledger.save()
@@ -743,6 +753,9 @@ class FileDispatcher:
                 "skipped_unchanged": stats.get("skipped_unchanged", 0),
                 "skipped_suffixes": stats.get("skipped_suffixes", []),
                 "sensitivity": sens}
+            if _cf:                  # #352-E：冲突不静默
+                out["chains"][key]["conflict_count"] = len(_cf)
+                out["chains"][key]["conflicts"] = _cf[:20]
         # 会话流（.jsonl）逐个增量摄取
         jsons = sorted(glob.glob(os.path.join(root, "**", "*.jsonl"),
                                  recursive=True))[:max_files]

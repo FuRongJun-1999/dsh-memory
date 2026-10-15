@@ -2675,8 +2675,13 @@ def _cg_dispatch(cg, a):
             incremental=bool(a.get("incremental")),
             skip_dirs=a.get("skip_dirs"),
             ledger=led, commit=False)
+        _cf = []                         # #352-E：同 id 已被另一个源根占用 ⇒ 不覆写
         ids, _sens = refindex.add_items(cg, items, kind="code_ref", root=root,
-                                        layer=a.get("layer"))
+                                        layer=a.get("layer"), conflicts=_cf)
+        # 冲突的源文件**水位一并丢掉**：否则下次增量把它判成「未变」跳过，
+        # 冲突从此不可见、被覆写的节点也补不回来（#352-E）。
+        for _c in _cf:
+            led.drop(_c.get("src") or os.path.join(root, _c.get("path") or ""))
         led.save()                       # 节点已落盘 → 水位随后（两步之间被杀即安全方向）
         note = ("只索引注释/接口（AST 已校验），未存完整代码；"
                 "正文用 frontmatter.code_ref + op=ref 指回源文件。"
@@ -2692,6 +2697,13 @@ def _cg_dispatch(cg, a):
             out["truncated_reason"] = stats["truncated_reason"]
             out["note"] = (f"⚠ 索引被截断，结果不完整（{stats['truncated_reason']}），"
                            f"调大 max_files/max_items 后重跑。" + note)
+        if _cf:                          # #352-E：冲突不静默——回执里点名
+            out["conflict_count"] = len(_cf)
+            out["conflicts"] = _cf[:20]
+            out["note"] = (out["note"] + " ⚠ 有 %d 条条目因节点 id 已被**另一个源根**"
+                           "占用而未写入（#352-E）：改 id 键会动存量 id 的稳定性，"
+                           "属单独立项，本轮只止血——多仓同名节点暂时只保留先索引"
+                           "的一侧。" % len(_cf))
         out["pruned"] = _prune_after_index(cg, a, kind="code_ref", root=root,
                                            items=items, stats=stats)
         return out
@@ -2716,9 +2728,12 @@ def _cg_dispatch(cg, a):
             max_items=int(a.get("max_items") or 2000),
             incremental=incremental, skip_dirs=a.get("skip_dirs"),
             ledger=led, commit=False)
+        _cf = []                         # #352-E：同 id 已被另一个源根占用 ⇒ 不覆写
         ids, sens_counts = refindex.add_items(
             cg, items, kind="doc_ref", root=root, layer=layer,
-            sensitivity=a.get("sensitivity"))
+            sensitivity=a.get("sensitivity"), conflicts=_cf)
+        for _c in _cf:                   # 同上：冲突源文件的水位一并丢掉
+            led.drop(_c.get("src") or os.path.join(root, _c.get("path") or ""))
         led.save()
         note = ("只索引章节（level<=3）的标题与摘要，未存全文；正文用 "
                 "frontmatter.doc_ref + op=ref 回读。layer 与密级按计划 §1.3-3 "
@@ -2735,6 +2750,13 @@ def _cg_dispatch(cg, a):
             out["truncated_reason"] = stats["truncated_reason"]
             out["note"] = (f"⚠ 索引被截断，结果不完整（{stats['truncated_reason']}），"
                            f"调大 max_files/max_items 后重跑。" + note)
+        if _cf:                          # #352-E：冲突不静默——回执里点名
+            out["conflict_count"] = len(_cf)
+            out["conflicts"] = _cf[:20]
+            out["note"] = (out["note"] + " ⚠ 有 %d 条条目因节点 id 已被**另一个源根**"
+                           "占用而未写入（#352-E）：改 id 键会动存量 id 的稳定性，"
+                           "属单独立项，本轮只止血——多仓同名节点暂时只保留先索引"
+                           "的一侧。" % len(_cf))
         out["pruned"] = _prune_after_index(cg, a, kind="doc_ref", root=root,
                                            items=items, stats=stats)
         return out
