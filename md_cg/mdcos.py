@@ -2003,9 +2003,12 @@ class MdCGOS(MdCG):
         # _maybe_reload_index 已顺带失效 hotcache/readcache。
         self._maybe_reload_index()
         # 热路径：query 结果缓存命中即返回（不改 RRF 核心）
-        # 时间算子**显式启用时绕开缓存**：缓存键不含时间参数，命中会返回
-        # 未按本次窗口过滤的结果（静默错答比慢更贵）。
-        _time_on = any(x is not None for x in (start_time, end_time,
+        # 显式时间算子或 validity 时绕开结果缓存；后者即使参数与文件未变，
+        # 也会因时钟越过截止点而改变资格。不得把旧 Top-K 再过滤当成补足召回。
+        # validity depends on the current clock, even with unchanged files.
+        # Bypass both result-cache reads and writes, just like time operators;
+        # filtering an old cached Top-K cannot refill an expired first result.
+        _time_on = bool(validity) or any(x is not None for x in (start_time, end_time,
                                               start_operator, end_operator))
         from . import hotcache as _hc
         hc = _hc.get(self)
