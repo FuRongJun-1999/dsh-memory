@@ -3513,7 +3513,11 @@ def call_tool(cg, name, args):
 # mdcg_remember 写入，权限收窄形同虚设。映射用令牌签发域内的既有 op 词
 # （read/write/verify——tokens.ROLE_SPECS 全角色都含 read，写类角色含
 # write），ops_allow=None（不限）令牌零影响。
-_MDCG_OP_REQUIRE = {
+#: 工具名 → **规范面 op 词**（工具面闸词的**唯一来源**）：`_MDCG_OP_REQUIRE` 由本表 ＋
+#: `op_table._OP_TABLE` 的 `require` **派生**（见 `_op_require`），**不再在下面写一遍死值**
+#: ——同一语义只有一处真源。issue #398：本条形态（工具面闸词弱于规范面）在本仓已被修过
+#: N201/N227/N228/N229/#435 五次，逐点修治不住；改派生后「工具面弱于真源」在结构上不再可写。
+_MDCG_TOOL_OP = {
     # 写面
     "mdcg_remember": "write", "mdcg_reflect": "write",
     "mdcg_flywheel": "write", "mdcg_mine_fix_pairs": "write",
@@ -3524,9 +3528,15 @@ _MDCG_OP_REQUIRE = {
     "mdcg_consistency": "write",
     # 读面
     "mdcg_recall": "read", "mdcg_search": "read", "mdcg_get": "read",
-    "mdcg_review_records": "read",
+    # issue #398 站点 2：裁决记录台账属**裁决面**（`cg(op=review, action=records)` 要
+    # require_op("review")），此前映射粗粒度 read ⇒ 无令牌访客（guest，仅 read）可经
+    # 工具面明文读回裁决台账（id/path/tags[含 pid、round]/created_at）。对齐真源 review。
+    "mdcg_review_records": "review",
     "mdcg_identity": "read",
-    "mdcg_metacognition": "read", "mdcg_self_state": "read",
+    # issue #398 站点 1：自我状态机（refresh 会**真写 self 层**状态卡、override=True）
+    # 在规范出口要 require_op("self_state")，此前工具面只查 read ⇒ 无 self_state op 的
+    # 令牌可经工具面驱动它。对齐真源 self_state。
+    "mdcg_metacognition": "read", "mdcg_self_state": "self_state",
     "mdcg_predict": "read", "mdcg_causal": "read",
     "mdcg_health": "read",
     "mdcg_whoami": "read", "mdcg_watermarks": "read",
@@ -3561,6 +3571,20 @@ _MDCG_OP_REQUIRE = {
     # 任一层被绕过都仍拦得住）。
     "mdcg_review_list": "review",
 }
+
+
+# 生效条件：op 为 `op_table._OP_TABLE` 的键时返回其 `require`（缺键时返回 op 自身）；
+# op 不在表中（基础 op 词，如 write/read）时返回 op 自身。不做 IO、不看环境变量。
+def _op_require(op):
+    """op 词 → 规范面的 require 词（**从单一真源派生**，issue #398）。"""
+    from . import op_table as _ot
+    entry = _ot._OP_TABLE.get(op)
+    if not isinstance(entry, dict):
+        return op                      # 基础 op 词（write/read/…）不在表内，自身即闸词
+    return entry.get("require") or op
+
+
+_MDCG_OP_REQUIRE = {name: _op_require(op) for name, op in _MDCG_TOOL_OP.items()}
 
 
 # 生效条件：四个布尔入参任意组合下无条件返回 "max"（当 use_fuzzy 或 use_semantic 或 use_goal 或 use_causal 任一为真）或 None（全为假）；use_temporal 不参与判据；不做 IO、不看环境变量；
