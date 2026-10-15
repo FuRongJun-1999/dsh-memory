@@ -4939,7 +4939,13 @@ class MdCGOS(MdCG):
                            actor=self.actor, session=_writer_session(self, kw),
                            # #148（2026-10-12）：add-路径 CONVERGE 同款接线——
                            # 缺此行则该路径拿不到 incoming 密级、降密级 fail-closed 失效。
-                           sensitivity=kw.get("sensitivity"))}
+                           # issue #397：**形参接上了还不够，取的对象也得对**——必须传
+                           # **有效密级** `_sens_eff`（声明值 ∨ 继承既有节点密级），
+                           # 而不是声明值：「同 id 改写 + 不重传 sensitivity」是本仓常态，
+                           # 那种情形下 `kw.get("sensitivity")` 为 None ⇒ 
+                           # `merge_downgrades(target, None)` 按 DEFAULT 处理 ⇒ 恒 False
+                           # ⇒ restricted 明文并入 internal（本处即报告的第 3 落点，P1）。
+                           sensitivity=_sens_eff)}
                 fv = "MERGE"
             elif lim["verdict"] == "DROP":
                 # 精确重复（与既有节点正文一致）：零新信息，交回旧闸门
@@ -5089,7 +5095,12 @@ class MdCGOS(MdCG):
                 # 则取缺省 None，merge_downgrades(target, None) 恒 False ⇒ 判据放行，
                 # 声明 private 的正文以聚合行并入 internal 节点、按 internal 明文存续。
                 # 同函数 CONVERGE 支（:4865）已接线，本支此前漏接。
-                sensitivity=kw.get("sensitivity"))
+                # issue #397：**接了、但取错了对象**——必须传有效密级 `_sens_eff`。
+                # #315 修的是「形参根本没传」，本条修的是「传的是声明值」；两者叠加
+                # 才是完整接线：不重传 sensitivity 的同 id 改写（常态）声明值为 None
+                # ⇒ 判据恒 False ⇒ private 明文以聚合行并入 internal，internal 档读者
+                # 可读回全文（本处即报告的第 2 落点，P0）。
+                sensitivity=_sens_eff)
                 if tgt else None)
         elif v == "DROP":
             # B3 ④（2026-09-30）：内部确定性来源的近重复（`assess` 的 :214
@@ -5102,7 +5113,12 @@ class MdCGOS(MdCG):
             tgt = verdict["redundancy"]["with"]
             out["dropped"] = forgetting.record_drop(
                 self, content, node_id=node_id, target=tgt, verdict=verdict,
-                layer=layer, sensitivity=kw.get("sensitivity"),
+                layer=layer,
+                # issue #397：同前两处——必须传有效密级 `_sens_eff`。`record_drop` 自述
+                # 「密级为加密级时不落明文」，取声明值（None）时该自述失效：private 正文
+                # **全文**明文落 `_forgetting.jsonl`（content_redacted=false，本处即报告的
+                # 第 1 落点，P0）。
+                sensitivity=_sens_eff,
                 session=_writer_session(self, kw), actor=self.actor)
         elif v == "DEFER":
             # issue50-b（2026-10-01）：遗忘闸门的 DEFER 此前只写一行
