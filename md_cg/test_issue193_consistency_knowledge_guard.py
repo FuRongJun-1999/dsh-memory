@@ -18,16 +18,40 @@ knowledge 节点，可能引入跨层误报；值守要求补「跨层不误报�
     写入出口显式传），层外候选另道收集不进相关面/保底面，方向单向
     contextual→knowledge，structural/anchor 不纳入。
 
-三组判据（与 test_issue193_write_scope.py 的 A/K/E 组互补，不重复）：
+四组判据（与 test_issue193_write_scope.py 的 A/K/E 组互补，不重复）：
   G1 缺陷面   #193 漏比场景（同层形态漏报 BLINDSPOT/ACCEPT）写入面必须抓到；
   G2 阴性判据 跨层不误报（值守点名）：不相关 knowledge 不引发冲突读数，
               且对只读面逐位不可见。非空转由 G1 保证——同一扩面机制在
               G1 已实证发生（write_scope=True 时 scope_layers 含 knowledge）；
   G3 防过修   同层比对既有行为零回归，含 limit 压力下的位移阴性
-              （b4d8af8 实测失效点②）。
+              （b4d8af8 实测失效点②）；
+  G4 钉现状   值守复核补的「已知缺口」判据（2026-10-15 按值守探针读数对拍
+              实测坐实）：**如实钉住当前行为**防意外变化——不是修复面，
+              真正修复在 main 256d587d / #316 拆分件，本件零代码变化。
+              每条断言旁都标注「已知缺口，建议另立 issue；若未来修复则
+              此断言应翻转为反义」。缺口清单（可复现的活文档）：
+              G4a 镜像方向漏报：EXTRA_SCOPE 只有 contextual→knowledge 单向，
+                   knowledge 侧写入 + 既有 contextual 同条件同槽矛盾 ⇒
+                   ACCEPT/comparable=0/scanned=1（双漏报，与 #193 原病象
+                   同形）；
+              G4b 层外额度截断静默：30 条同条件 knowledge 相关节点 +
+                   limit=1（contextual 写入面）⇒ scanned=0/kept=0/
+                   truncated=False/hint 无/ACCEPT——层外候选零进入候选面，
+                   截断连告警都不给；
+              G4c 跨层 discipline 硬冲突面（对抗方另报缺口③）：knowledge
+                   层纪律节点 ⇒ contextual 写入面 REJECT/strength 1.0、
+                   只读面 BLINDSPOT（同一次写入的两面口径分裂）。
 
 变异两向：M1 回退同层形态 ⇒ G1 红、G2/G3 绿（阴性判据不误伤正确收紧）；
 M2 还原 b4d8af8 旧形态 ⇒ G2b/G3c 红（阴性判据与位移判据必须咬得住旧形态）。
+G4 是钉现状判据，钉的是**本形态**读数，在变异形态下读数必然漂移（G4c 的
+写入面随 M1 回退消失 ⇒ BLINDSPOT；G4b2 对照面的 kept 随 M1 回退 1→0；
+G4b 的场景在 M2 旧形态下层外候选进同池 ⇒ scanned/kept 非 0；G4b2 在 M2
+下转可观测（truncated）；G4c 只读面被 M2 拉动 ⇒ REJECT）——这不是守卫
+失效，恰是新旧形态读数差异的佐证。为保 M1/M2 红项读数与本件改前逐位一致
+（本件定位＝零代码变化的回归门，变异自证的对象是 G1-G3 的修复面），变异跑
+按 _MUTATIONS 各条的 skip 清单跳过对应 G4 判据（打印 SKIP 行，不静默）；
+plain 跑与未变异镜像基线**全量执行** G4。
 
 用法：python -X utf8 -m md_cg.test_issue193_consistency_knowledge_guard [--mutate]
 """
@@ -107,6 +131,21 @@ K_OV = ccg("日志保留", "日志策略", "保留 90 天", cond="日志系统",
 K_U1 = ccg("备份节奏", "备份策略", "每日凌晨全量备份", cond="备份窗口")
 K_U2 = ccg("告警阈值", "告警策略", "CPU 告警阈值 90%", cond="监控体系")
 K_U3 = ccg("索引重建", "索引策略", "每周日凌晨重建索引", cond="维护窗口")
+
+# G4（钉现状）用：被检内容取自由正文（无 CCG 条件行）——缺口①②的值守探针
+# 形态都以 no_terms 被检触发（不扩面 / 不进候选面的机制根源）；G4c 用 ccg 形态
+# （纪律命中看正文子串，与条件声明无关）。
+FREE2 = "Redis 端口是 6380"
+K_FREE = "日志归档周期七天"   # knowledge 层无条件声明节点（work_wip 类，
+                              # 不受六要素闸约束；comparable=0 的对照源）
+K_DISC = ccg("端口纪律", "写入纪律", "以既有取值为准",
+             cond="生产环境", na="禁止 Redis 端口是 6380")
+
+
+def _pin_skipped(which):
+    """变异跑中按 _MUTATIONS 的 skip 清单跳过的钉现状判据（plain 跑不跳）。"""
+    skips = {x for x in os.environ.get("ISS193G_SKIP_PINS", "").split(",") if x}
+    return which in skips
 
 
 def _write(cg, nid, content, layer, na=None):
@@ -230,30 +269,160 @@ def g3_group():
            "G3c limit=1 只读面只点名 c_conf（k_ov 对只读面不可见）", _withs(rr))
 
 
+# ------------------------------------------------------- G4 钉现状（缺口）
+def g4_group():
+    """已知缺口「钉现状」判据（值守复核 2026-10-15 补）。
+
+    本组**不断言正确行为**——如实钉住当前读数，作为回归门防意外变化，并当
+    「缺口可复现」的活文档。三条缺口均建议另立 issue（不在本件修：本件定位
+    零代码变化的回归门，consistency.py 一字未动；修复面归 #316 拆分件）。
+    若未来修复（镜像方向入 EXTRA_SCOPE / 层外候选计入 scanned 与告警面 /
+    跨层纪律面统一），对应断言**应翻转为反义**——翻转时同步删去本组注释里
+    的「已知缺口」标注并归档 issue。
+    """
+    print("== G4 钉现状：已知缺口如实读数（建议另立 issue；修复后应翻转） ==")
+    # G4a 镜像方向漏报：EXTRA_SCOPE 单向（contextual→knowledge），反向不覆盖。
+    # 已知缺口（镜像方向）：knowledge 侧写入 + 既有 contextual 同条件同槽
+    # 矛盾（c_conf 取值 6381，被检 6380）⇒ 写入面仍 ACCEPT/comparable=0/
+    # scanned=1（scanned=1 是 knowledge 层那条无条件对照节点；矛盾节点在
+    # contextual 层，EXTRA_SCOPE 无 knowledge 键 ⇒ 层外跳过）——双漏报：
+    # 只读面与写入面读数逐位一致地漏（与 #193 原病象同形，方向相反）。
+    # 本守卫先钉住现状防意外变化，若未来补 knowledge→contextual 方向，
+    # 此断言应翻转为反义（写入面应抓到 c_conf ⇒ DEFER）。
+    if _pin_skipped("G4a"):
+        print("  SKIP G4a（变异跑：钉现状判据不计入变异读数，见模块 docstring）")
+    else:
+        with _Env() as e:
+            _write(e.cg, "c_conf", KB1, "contextual")
+            e.cg.add("k_free", K_FREE, layer="knowledge",
+                     content_kind="work_wip", verification_basis="test",
+                     on_conflict="record")
+            rw = _vd(e.cg, FREE2, "knowledge", True)
+            ok(rw["verdict"] == "ACCEPT"
+               and rw.get("comparable") == 0 and rw.get("scanned") == 1
+               and not (rw.get("conflicts") or [])
+               and rw.get("conflict_strength") == 0.0,
+               "G4a 镜像方向漏报现状：knowledge 写入面对 contextual 同条件"
+               "同槽矛盾读数 ACCEPT/comparable=0/scanned=1（已知缺口，建议"
+               "另立 issue；若补反向扩面应翻转）",
+               (rw["verdict"], rw.get("comparable"), rw.get("scanned"),
+                _withs(rw)))
+            rr = _vd(e.cg, FREE2, "knowledge", False)
+            ok(_face(rr) == _face(rw),
+               "G4a 双漏报同形：只读面与写入面读数逐位一致（都漏 c_conf）",
+               (_face(rr), _face(rw)))
+    # G4b 层外额度截断静默：被检未声明条件（no_terms）时不扩面（extra_layers
+    # 恒空），30 条词面高度相关的 knowledge 同条件同槽候选**零进入**候选面
+    # ⇒ scanned=0/kept=0/truncated=False/hint 无/ACCEPT——截断连告警都不给
+    # （对照组见下：被检带条件时 30 条层外候选按 limit 静默砍到 1 条，同样
+    # 无任何告警读数）。已知缺口（层外额度静默）：建议另立 issue；若未来把
+    # 层外候选计入 scanned/告警面（或 no_terms 也纳入扩面），此断言应翻转
+    # 为反义（scanned 应计入层外候选、截断应可观测）。
+    if _pin_skipped("G4b"):
+        print("  SKIP G4b（变异跑：钉现状判据不计入变异读数，见模块 docstring）")
+    else:
+        with _Env() as e:
+            for i in range(30):
+                _write(e.cg, "k_rel%02d" % i,
+                       ccg("缓存端口", "连接配置",
+                           "Redis 端口取值 %d" % (6400 + i)), "knowledge")
+            r = _vd(e.cg, FREE2, "contextual", True, limit=1)
+            ok(r["verdict"] == "ACCEPT"
+               and r.get("comparable") == 0 and r.get("scanned") == 0
+               and r.get("kept") == 0 and r.get("truncated") is False
+               and "hint" not in r and not (r.get("conflicts") or []),
+               "G4b 层外额度静默现状：30 条同条件 knowledge 相关节点 + "
+               "limit=1 ⇒ scanned=0/kept=0/truncated=False/hint 无/ACCEPT"
+               "（已知缺口，建议另立 issue；修复后应翻转）",
+               (r["verdict"], r.get("comparable"), r.get("scanned"),
+                r.get("kept"), r.get("truncated"), r.get("hint")))
+    # G4b2（G4b 的对照面，同缺口）：被检带条件（扩面激活）时层外候选进
+    # extra_cand 按 limit 静默砍到 1 条——kept=1、truncated 仍 False、hint
+    # 仍无，30 条相关层外候选只剩 1 条进精比面且无任何截断告警。读数依赖
+    # EXTRA_SCOPE 激活（M1 清空即 kept 1→0）与另道收集（M2 同池即转可观测），
+    # 两向变异跑均跳过。若未来把层外候选计入告警面，此断言应翻转。
+    if _pin_skipped("G4b2"):
+        print("  SKIP G4b2（变异跑：钉现状判据不计入变异读数，见模块 docstring）")
+    else:
+        with _Env() as e:
+            for i in range(30):
+                _write(e.cg, "k_rel%02d" % i,
+                       ccg("缓存端口", "连接配置",
+                           "Redis 端口取值 %d" % (6400 + i)), "knowledge")
+            r2 = _vd(e.cg, ccg("缓存端口", "连接配置", FREE2),
+                     "contextual", True, limit=1)
+            ok(r2.get("kept") == 1 and r2.get("scanned") == 0
+               and r2.get("truncated") is False and "hint" not in r2,
+               "G4b2 对照：扩面激活时 30 条层外候选静默砍到 1 条（kept=1、"
+               "truncated=False、hint 无——额度截断在层外面不可观测）",
+               (r2.get("kept"), r2.get("scanned"), r2.get("truncated"),
+                r2.get("hint")))
+    # G4c 跨层 discipline 硬冲突面（对抗方另报缺口③）：knowledge 层纪律节点
+    # （id 前缀 discipline_，negative.reject 命中被检正文）⇒ contextual 写入
+    # 面 REJECT/strength 1.0，**只读面 BLINDSPOT**——同一次判定的两面口径
+    # 分裂（写入面抓跨层纪律、只读面盲）。已知缺口（跨层纪律面不统一）：
+    # 建议另立 issue；若未来统一跨层纪律面（或只读面同样可见），此断言应
+    # 翻转为反义（两面应同为 REJECT）。
+    if _pin_skipped("G4c"):
+        print("  SKIP G4c（变异跑：钉现状判据不计入变异读数，见模块 docstring）")
+    else:
+        with _Env() as e:
+            _write(e.cg, "discipline_port", K_DISC, "knowledge")
+            rw = _vd(e.cg, ccg("缓存端口", "连接配置", FREE2),
+                     "contextual", True)
+            ok(rw["verdict"] == "REJECT" and rw.get("conflict_strength") == 1.0
+               and any(c.get("type") == "discipline"
+                       and c.get("with") == "discipline_port"
+                       and c.get("with_layer") == "knowledge"
+                       for c in rw.get("conflicts") or []),
+               "G4c 跨层纪律写入面现状：REJECT/strength 1.0、条目点名"
+               " knowledge 层纪律节点",
+               (rw["verdict"], rw.get("conflict_strength"), _withs(rw)))
+            rr = _vd(e.cg, ccg("缓存端口", "连接配置", FREE2),
+                     "contextual", False)
+            ok(rr["verdict"] == "BLINDSPOT" and not (rr.get("conflicts") or []),
+               "G4c 只读面现状：同一纪律节点对只读面不可见（BLINDSPOT，"
+               "两面口径分裂——已知缺口，建议另立 issue；统一后应翻转）",
+               (rr["verdict"], _withs(rr)))
+
+
 def main():
-    print("issue #193 返工守卫：扩面三面判据（G1 缺陷／G2 跨层不误报／G3 零回归）")
+    print("issue #193 返工守卫：扩面四面判据（G1 缺陷／G2 跨层不误报／"
+          "G3 零回归／G4 钉现状）")
     g1_group()
     g2_group()
     g3_group()
+    g4_group()
     print("")
     print("issue #193 返工守卫结果：%d 通过 / %d 失败" % (_OK, _FAIL))
     return 1 if _FAIL else 0
 
 
 # 锚点全部单行且唯一（跨行锚点在本仓踩 CRLF：表里的 \n 拼不出 \r\n）。
+# 每条变异第 6 个字段 skip_pins：变异跑（--mutate 的子进程）中跳过的 G4
+# 钉现状判据——它们的读数钉的是**本形态**，在该变异形态下必然漂移（非守卫
+# 失效，见模块 docstring）；跳过的判据打印 SKIP 行，plain 跑不跳。M1/M2 的
+# 期望红项（exp）因此与本件改前逐位一致。
 _MUTATIONS = (
     ("M1 回退 main 的同层形态（EXTRA_SCOPE 清空）：#193 漏比必须复发、"
-     "阴性判据不得误伤（G1 红、G2/G3 绿）",
+     "阴性判据不得误伤（G1 红、G2/G3 绿）；G4c 的写入面读数随扩面回退消失"
+     "（BLINDSPOT）、G4b2 对照面的 kept 随扩面回退 1→0 ⇒ 变异跑跳过 G4b2/G4c"
+     "（G4a/G4b 主断言读数与 EXTRA_SCOPE 无关，仍执行且须绿）",
      "md_cg/consistency.py",
      'EXTRA_SCOPE = {"contextual": ("knowledge",)}',
      "EXTRA_SCOPE = {}",
-     ("G1a", "G1b")),
+     ("G1a", "G1b"),
+     ("G4b2", "G4c")),
     ("M2 还原 b4d8af8 旧形态（层过滤器无条件放行 knowledge：无闸、无另道、"
-     "层外候选同池竞争）：只读面被拉动（G2b）＋同层名额被挤占（G3c）必须转红",
+     "层外候选同池竞争）：只读面被拉动（G2b）＋同层名额被挤占（G3c）必须转红；"
+     "G4b 场景下层外候选进同池（scanned/kept 非 0）、G4b2 转可观测（truncated）"
+     "、G4c 只读面被拉动（REJECT）⇒ 变异跑跳过 G4b/G4b2/G4c（G4a 在该变异下"
+     "层过滤对 knowledge 写入等价，仍执行且须绿）",
      "md_cg/consistency.py",
      '        if layer and e.get("layer") != layer:',
      '        if layer and e.get("layer") != layer and e.get("layer") != "knowledge":',
-     ("G1a", "G1b", "G2b", "G3c")),
+     ("G1a", "G1b", "G2b", "G3c"),
+     ("G4b", "G4b2", "G4c")),
 )
 
 
@@ -278,12 +447,13 @@ def _mirror_build():
     return dst
 
 
-def _reds_in(base):
+def _reds_in(base, skip_pins=()):
     import subprocess
     env = dict(os.environ)
     env["PYTHONPATH"] = base
     env["PYTHONUTF8"] = "1"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["ISS193G_SKIP_PINS"] = ",".join(skip_pins)
     p = subprocess.run([sys.executable, "-X", "utf8", "-m",
                         "md_cg.test_issue193_consistency_knowledge_guard"],
                        capture_output=True, text=True, encoding="utf-8",
@@ -307,7 +477,7 @@ def _mutate_mode():
             bad.append("镜像基线非绿")
             for l in (out0 or "").splitlines()[-14:]:
                 print("      | " + l)
-        for name, rel, old, new, exp in _MUTATIONS:
+        for name, rel, old, new, exp, skip_pins in _MUTATIONS:
             p = os.path.join(base, rel)
             with open(p, encoding="utf-8", newline="") as f:
                 original = f.read()
@@ -318,7 +488,7 @@ def _mutate_mode():
             with open(p, "w", encoding="utf-8", newline="") as f:
                 f.write(original.replace(old, new, 1))
             try:
-                rc2, reds2, out2 = _reds_in(base)
+                rc2, reds2, out2 = _reds_in(base, skip_pins)
             finally:
                 with open(p, "w", encoding="utf-8", newline="") as f:
                     f.write(original)
