@@ -45,13 +45,63 @@
 早已实现却默认关，生产恒不装配，故默认翻转）；`MDCG_READ_CACHE=0` 显式
 关闭（opt-out 零变更退出阀——跨进程改写 md 文件须本进程立即可见的部署，
 或内存受限场景，可一关回到逐次读盘的旧行为）。
+
+装配点（#370，2026-10-16 Lead 裁定）：`install_default` 是**自动装配的唯一
+入口**——`MdCG.__init__`（基类，`_dirty` 建立之后）与 `MdCGOS.__init__`
+共用（幂等）。修前只在 `MdCGOS.__init__` 装配 ⇒ 基类的直接使用者
+（backfill/migrate/build_postings 等全库扫描 CLI）全走无缓存路径，
+同库同查询 4.9×（本机复现 9.9×；节点文件解析 500 次/查询 vs 0）。
 """
+
 import os
 
 # 生效条件：无 required 形参，锚定环境变量名 MDCG_READ_CACHE；未设或值为 "1" 时返回 True（默认开，issue #31 生产 O(n) 全池扫描修复），显式设为其它值（含 "0"）时返回 False。
 def enabled() -> bool:
     """读缓存开关（默认开；=0 显式关闭——opt-out 退出阀）。"""
     return os.environ.get("MDCG_READ_CACHE", "1") == "1"
+
+
+# 生效条件：#370 自动装配唯一入口——enabled() 为真且 cg 尚无 _read_cache 时调 install(cg) 并返回 True；环境变量显式关闭（enabled() 为假）或已装配（cg._read_cache 存在）时不做任何改动并返回 False（不叠加、不丢弃已装条目）。
+def install_default(cg) -> bool:
+    """默认装配单点（基类与 OS 层共用，幂等）——装配面收口，#370。
+
+    修前装配点只有 `MdCGOS.__init__`（issue #31 后续修复）：以 `MdCG(root)`
+    **直接**打开的库（backfill_bigdomain / backfill_bucket_zh / build_postings /
+    migrate 等全库扫描 CLI）全走无缓存路径，每次查询对每个候选
+    open+read+parse。本机复现（500 节点合成库、20 次查询、稳态）：
+    `MdCG` 33.1 ms/查询 / `nodefile.loads` 500 次/查询 / 无 `_read_cache`，
+    `MdCGOS` 3.3 ms/查询 / 0 次 / 已装配（报告机 30.6 vs 6.2 ms，4.9×；
+    读数与机器负载相关，故守卫只用**相对判据 + 命中计数**，不写绝对 ms）。
+
+    为什么落点是基类：读缓存的**失效判据**（`_DirtyDict` 脏集 `path_gen` /
+    `broad_gen`）与**组装面**（`_read_status` / `_read` / `_doc_norm_bigrams` /
+    `_positive_body` / `_doc_exact_text` / `_like_body_lower`）**都在 `MdCG`**——
+    基类与 OS 层共用同一条 `_stage`/flush 写路径，脏集精确失效对基类同样
+    成立；装配不对称没有正确性理由，只有历史原因（#31 只修了生产检索入口）。
+    且这些 CLI 恰是**最重的全库扫描负载**（backfill 遍历全库、migrate 逐行
+    add+get、build_postings 读全部文档）。
+
+    调用点（Lead 裁定 · 装配面必须是单点）：`MdCG.__init__` 末尾（`_dirty`
+    已建立之后——失效判据依赖它）+ `MdCGOS.__init__`（生产检索入口的显式
+    声明；基类已装则为幂等空操作）。**自动装配只走本函数**，`install` 只被
+    本函数与**显式重装**的调用方（测试/基准）调用——`install` 自身语义
+    （重装 = 换一份空缓存）未改动，以保住既有显式调用面的行为。
+
+    退出阀：`MDCG_READ_CACHE=0`（`enabled()` 为假）→ 基类与 OS 层都不装配，
+    回到逐次读盘的旧行为，零变更。
+
+    诚实边界（代价侧，Lead 要求量化后落此）：装配后基类实例的读缓存与 OS 层
+    同款——**内存随本进程读过的节点数线性常驻且无淘汰面**（path 键字典，
+    无 LRU），长跑全库 CLI 会全量驻留；进程内一致性边界（跨进程/外部直改
+    md 文件不保证可见）也随之下移到基类。内存增量实测与一致性边界影响面
+    判定见 `md_cg/test_issue370_readcache_assembly.py` 的「不适用条件」。
+    """
+    if not enabled():
+        return False
+    if getattr(cg, "_read_cache", None) is not None:
+        return False
+    install(cg)
+    return True
 
 
 # 生效条件：cg._read_uncached 属性存在时返回其以 entry 调用的结果（穿透读缓存的盘上真值直读），否则返回 cg._read(entry)（未装缓存时两者等价，零变更）。

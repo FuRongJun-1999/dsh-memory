@@ -763,7 +763,7 @@ class MdCGOS(MdCG):
     HIPPOCAMPUS = "hippocampus"
     TRASH = "trash"
 
-# 生效条件：传入 root 时以 super().__init__(root, autoflush=autoflush) 初始化父类，把 actor 存入 self.actor，并按 root（及类常量 AUDIT_ARCHIVE/HIPPOCAMPUS/TRASH）拼出 audit_log/audit_archive/hippocampus/inbox_log/decisions_log/trash_dir 等路径，同时 makedirs(hippocampus/trash_dir, exist_ok=True)。
+# 生效条件：传入 root 时以 super().__init__(root, autoflush=autoflush) 初始化父类，把 actor 存入 self.actor，并按 root（及类常量 AUDIT_ARCHIVE/HIPPOCAMPUS/TRASH）拼出 audit_log/audit_archive/hippocampus/inbox_log/decisions_log/trash_dir 等路径，同时 makedirs(hippocampus/trash_dir, exist_ok=True)；读缓存装配走 readcache.install_default（#370：自动装配的唯一入口，基类已装则为幂等空操作，MDCG_READ_CACHE=0 时不装配）。
     def __init__(self, root: str, autoflush: int = 64, actor: str = "system"):
         super().__init__(root, autoflush=autoflush)
         self.actor = actor
@@ -832,9 +832,13 @@ class MdCGOS(MdCG):
         # 3300 池实测 ~602ms/查询、万级外推 ~2s+（O(n) 线性）；开关早已
         # 存在但默认关 → 生产恒不装配。MDCG_READ_CACHE=0 显式关闭（opt-out
         # 退出阀：跨进程改写须本进程立即可见 / 内存受限的部署回到旧行为）。
+        # #370（2026-10-16 Lead 裁定）：装配单点已**下沉到基类 MdCG.__init__**
+        # ——修前只在本类装配 ⇒ 以 `MdCG(root)` 直接打开的库（backfill/
+        # migrate/build_postings 等全库扫描 CLI）全走无缓存路径（同库同查询
+        # 4.9×）。本处保留的是对**同一入口**的调用（生产检索入口的显式声明；
+        # 基类已装 ⇒ 幂等空操作，不丢弃已装条目），装配逻辑不再有第二份。
         from . import readcache as _rc
-        if _rc.enabled():
-            _rc.install(self)
+        _rc.install_default(self)
 
     # ================= 6. payload-free 审计 =================
 

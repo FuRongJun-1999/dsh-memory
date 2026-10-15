@@ -1821,7 +1821,7 @@ def _usable_index_snapshot(value):
 
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
-# 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引并以 _index_signature() 记录 _index.json 签名到 self._index_sig（跨进程读面代际感知的基线，P1b-2）、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS；
+# 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引并以 _index_signature() 记录 _index.json 签名到 self._index_sig（跨进程读面代际感知的基线，P1b-2）、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS，最后按 MDCG_READ_CACHE 装配读缓存（#370：readcache.install_default——自动装配的唯一入口，env 门 + 幂等，MDCG_READ_CACHE=0 时不装配）；
     def __init__(self, root: str, autoflush: int = 64):
         self.root = os.path.abspath(root)
         os.makedirs(self.root, exist_ok=True)
@@ -1870,6 +1870,17 @@ class MdCG:
         # 进程退出兜底登记（见模块级 _LIVE_CGS）：一次性脚本漏收尾时索引仍能落盘。
         _LIVE_CGS.add(self)
         _register_atexit_hook()
+        # #370：读缓存装配**下沉到基类**（Lead 裁定 2026-10-16）。修前装配点
+        # 只有 MdCGOS.__init__ ⇒ 直接以 `MdCG(root)` 打开的库（backfill/
+        # migrate/build_postings 等全库扫描 CLI）全走无缓存路径：本机 500 节点
+        # 合成库实测 33.1 vs 3.3 ms/查询、nodefile.loads 500 vs 0 次/查询。
+        # 落点理由：失效判据（_DirtyDict 脏集 path_gen/broad_gen）与组装面
+        # （_read_status / _read / 四个派生钩子）**都在本类**，装配点与它们同层；
+        # 不对称只有历史原因。必须晚于 self._dirty 建立（第 1840 行）。
+        # install_default 是自动装配的**唯一入口**（env 门 + 幂等）——
+        # MDCG_READ_CACHE=0 退出阀语义不变（不装配，回到逐次读盘）。
+        from . import readcache as _readcache
+        _readcache.install_default(self)
 
     # ---------- 索引（派生物，可重建） ----------
 
