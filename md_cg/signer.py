@@ -318,9 +318,47 @@ def _normalize(pol: dict) -> dict:
     return out
 
 
-# 生效条件：显式 path 非空即返回该 path，否则返回环境变量 SIGNERS_FILE_ENV 的值，两者皆空返回 DEFAULT_SIGNERS_FILE。
+# 生效条件：path 为假值时返回环境变量 SIGNERS_FILE_ENV 或 DEFAULT_SIGNERS_FILE（受信面单点，不设闸）；path 非空时归一为绝对路径 norm，须以 .json 结尾（格式闸）且 realpath(norm) 位于受信目录 realpath(dirname(已配置路径)) 之下（os.path.commonpath 判定；跨盘符的 ValueError 按越界处理），越界即 raise ValueError（消息含两侧路径与 #279），全部通过时返回 norm（不返回原串）。
 def signers_file(path: str = None) -> str:
-    return path or os.environ.get(SIGNERS_FILE_ENV) or DEFAULT_SIGNERS_FILE
+    """策略文件路径解析——issue #279 路径闸（realpath 受信目录）。
+
+    判据：显式 path 先归一（abspath）为 norm，再要求
+    realpath(norm) 落在受信目录 = realpath(dirname(环境变量或缺省的
+    已配置路径)) 之下（os.path.commonpath 判定；跨盘符触发的
+    commonpath ValueError 按越界处理——不同盘必然越界）。
+
+    `.json` 后缀只是**格式闸**；路径闸由 realpath+commonpath 承担——
+    后缀挡不住 `<受信>/ok.json/../../evil.json` 穿越与 symlink/junction
+    指向任意目标，realpath+commonpath 能挡。返回 **norm**（归一化后的
+    受信形态），不返回原串——旧实现算了 norm 却把原串返回，校验成了
+    对控制流零影响的死代码（值守 #316/#279 审阅结论）。
+
+    env 与缺省路径是运维侧受信面（MCP 参数改不动进程环境），
+    不设闸、逐位返回原值。
+    """
+    configured = os.environ.get(SIGNERS_FILE_ENV) or DEFAULT_SIGNERS_FILE
+    if not path:
+        return configured
+    norm = os.path.abspath(str(path))
+    if not norm.endswith(".json"):
+        raise ValueError(
+            f"#279 signers_file 只接受 .json 策略文件（实测 {norm!r}）"
+            "——后缀只是格式闸，不得经参数读写任意文件")
+    real = os.path.realpath(norm)
+    trusted = os.path.realpath(os.path.dirname(os.path.abspath(configured)))
+    try:
+        inside = (os.path.commonpath([os.path.normcase(real),
+                                      os.path.normcase(trusted)])
+                  == os.path.normcase(trusted))
+    except ValueError:
+        inside = False  # 跨盘符（Windows 不同盘）/ UNC 混形：必然越界
+    if not inside:
+        raise ValueError(
+            f"#279 signers_file 路径越界：{norm!r}（realpath → {real!r}）"
+            f" 不在受信目录 {trusted!r}"
+            f"（dirname(已配置路径 {configured!r})）之下"
+            "——不得经参数读写受信目录外的文件")
+    return norm
 
 
 # 生效条件：signers_file(path) 处可读出 dict 时补上缺省 schema/subsystems 后返回该 dict，否则返回 {'schema': SCHEMA, 'default_signer': DEFAULT_SIGNER, 'subsystems': {}, 'updated_at': None}。
