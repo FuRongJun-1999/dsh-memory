@@ -91,7 +91,8 @@ def _dir_link(link, target):
     """
     if os.name == "nt":
         pr = subprocess.run(["cmd", "/c", "mklink", "/J", link, target],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
         return pr.returncode == 0
     try:
         os.symlink(target, link, target_is_directory=True)
@@ -125,7 +126,7 @@ def _sha(path):
 
 # 能力探测：末段文件符号链接是否可建（本机无 SeCreateSymbolicLinkPrivilege）
 _T = tempfile.mkdtemp(prefix="iss352c_cap_")
-open(os.path.join(_T, "tgt"), "w").close()
+open(os.path.join(_T, "tgt"), "w", encoding="utf-8").close()
 _FILE_LINK_OK = _file_link(os.path.join(_T, "lnk"), os.path.join(_T, "tgt"))
 print("   [能力] 文件符号链接可建=%s（Windows 无特权时 False；目录链接走 junction，恒可用）"
       % _FILE_LINK_OK)

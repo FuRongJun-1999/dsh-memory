@@ -11,7 +11,7 @@
     · action 分支行 —— dispatch 内 `if action in (...)` 链（元组首项为规范名）
     · action 实现函数 —— 分支内 return 的本模块函数
   docs/功能调用映射表的中文功能描述 —— 本脚本 FUNC_DESC（文档层真源，check 门禁必须全覆盖）
-  仓库远程地址 —— git remote get-url origin（GitHub blob 链接前缀）
+  规范仓库地址 —— package.json 的 repository（GitHub blob 链接前缀，不随 fork origin 变化）
 
 投影（generated sections）：
   README.md                  COGMAP 段（工具面认知图）
@@ -37,8 +37,8 @@
 from __future__ import annotations
 
 import ast
+import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -153,20 +153,21 @@ def _func_span(src_lines: list[str], tree: ast.Module, fname: str) -> tuple[int,
     return None
 
 
-# 生效条件：以模块常量 ROOT 为 cwd 执行 git remote get-url origin 成功、且其 stdout.strip() 能匹配 r"github\.com[:/](.+?)(?:\.git)?/?$" 时返回 f"https://github.com/{m.group(1)}"；子进程抛 OSError 或无匹配则 raise SystemExit；
+# 生效条件：从 ROOT/package.json 的 repository（字符串或含 url 的对象）读取 GitHub 地址，归一为 HTTPS 基址；缺失、损坏或非 GitHub 地址时 raise SystemExit，不回退到本机 origin；
 def _repo_base() -> str:
-    """git origin → GitHub 仓库基址（https://github.com/Owner/repo）。"""
+    """入库的包元数据 → 规范仓库基址；fork 与源码归档生成相同链接。"""
     try:
-        url = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=ROOT, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=10,
-        ).stdout.strip()
-    except OSError as exc:
-        raise SystemExit(f"cogmap_sync 需要 git 读取 origin 远程地址：{exc}") from exc
-    m = re.search(r"github\.com[:/](.+?)(?:\.git)?/?$", url)
+        repository = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["repository"]
+        url = repository["url"] if isinstance(repository, dict) else repository
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise SystemExit(f"cogmap_sync 无法读取 package.json 的 repository：{exc}") from exc
+    m = re.fullmatch(
+        r"(?:(?:git\+)?https://|(?:git\+)?ssh://git@|git@)github\.com[:/]"
+        r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?",
+        url if isinstance(url, str) else "",
+    )
     if not m:
-        raise SystemExit(f"无法从 origin 解析 GitHub 仓库地址：{url!r}")
+        raise SystemExit(f"无法从 package.json repository 解析 GitHub 仓库地址：{url!r}")
     return f"https://github.com/{m.group(1)}"
 
 
