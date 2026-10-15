@@ -3367,6 +3367,28 @@ class MdCGOS(MdCG):
                     _e.get("sensitivity") or DEFAULT_SENSITIVITY)
             protect.guard_write(self, target, override=override,
                                 actor=getattr(self, "actor", None))
+            # #359：merge = 把提案正文并入目标、按目标档可见——这是第四个合并
+            # 落点（另三处 writelimit.converge_into / forgetting.reinforce /
+            # branches.merge 已接 #148 单点）。两步 fail-closed，均在写盘前：
+            # ① 裁决者须读得到该提案（与 review_list 的 N201 过滤同口径），
+            #    否则凭 pid 即可 merge 进自己可写的节点再读回；
+            # ② merge_downgrades(目标档, 提案档) 命中即拒，不写盘。
+            _rd = getattr(self, "_readable", None)
+            _in_sens = (item.get("sensitivity")
+                        or (item.get("extra") or {}).get("sensitivity"))
+            if _rd is not None and not _rd(
+                    {"sensitivity": _in_sens or "secret",
+                     "session": item.get("session")}):
+                return {"ok": False, "error": "proposal_not_visible"}
+            from .security import merge_downgrades as _merge_downgrades
+            _tgt_sens = ((((self.index.get("nodes") or {}).get(target) or {})
+                          .get("sensitivity"))
+                         or tgt["frontmatter"].get("sensitivity")
+                         or DEFAULT_SENSITIVITY)
+            if _merge_downgrades(_tgt_sens, _in_sens):
+                return {"ok": False, "error": "merge_downgrade_refused",
+                        "target_sensitivity": _tgt_sens,
+                        "incoming_sensitivity": _in_sens}
             fm = dict(tgt["frontmatter"])
             merged_content = (tgt["content"].rstrip() + "\n\n" +
                               item["content"].strip() + "\n")
