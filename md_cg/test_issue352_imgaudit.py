@@ -91,7 +91,8 @@ def _dir_link(link, target):
     """
     if os.name == "nt":
         pr = subprocess.run(["cmd", "/c", "mklink", "/J", link, target],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
         return pr.returncode == 0
     try:
         os.symlink(target, link, target_is_directory=True)
