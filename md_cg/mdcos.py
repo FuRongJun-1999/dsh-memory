@@ -4974,6 +4974,22 @@ class MdCGOS(MdCG):
                                                # **有效**密级（单点已解析）——声明值在
                                                # 「同 id 改写 + 未声明」路径上不是有效密级。
                                                sensitivity=_sens_eff)
+                    # issue #361（2026-10-15）：一致性读数透出到返回体。BLINDSPOT
+                    # 按 record 放行后（mdcg.add 不再对 BLINDSPOT 走 defer 的
+                    # return None），「为何落盘了却带 BLINDSPOT 判定」必须在返回体
+                    # 可观测——与 writepipe 链尾执行器的 `out["consistency"] =
+                    # ctx["cvd"]`（#26 的「放行原因可观测」）同形。读数从落盘
+                    # 节点 fm 回读（add 把 extra["consistency"] 落进 fm），不
+                    # 重跑 check（避免第二次判定 + 重复台账行）。consistency=false
+                    # 时 fm 无该键，返回体形状逐位不变。
+                    if do_consistency:
+                        try:
+                            _fm361 = ((self.get(node_id) or {})
+                                      .get("frontmatter") or {})
+                            if _fm361.get("consistency"):
+                                out["consistency"] = _fm361["consistency"]
+                        except Exception:
+                            pass
         elif v == "MERGE":
             tgt = verdict["redundancy"]["with"]
             # 三档自治批次②：档位判定在**遗忘闸四态裁决之后、合并原语之前**

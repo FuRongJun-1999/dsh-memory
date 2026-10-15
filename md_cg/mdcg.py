@@ -2431,7 +2431,7 @@ class MdCG:
 
     # ---------- 写 ----------
 
-# 生效条件：node_id/content 必填；node_id 不匹配 _NODE_ID_RE（^[A-Za-z0-9_.@-]{1,128}$）或含 ".."、或整串精确等值于 _NODE_ID_FORBIDDEN（"None"/"null"，空语义值字符串化污染形态，P3 None.md 缺陷禁写）、或落盘 realpath 越出 self.root 时抛 ValueError（P0-1 白名单+纵深闸）；layer 不在 LAYERS 内、或 verification_basis 非 None 且不在 VERIFICATION_BASIS 内时抛 ValueError；consistency 为真且 _cons.check 判 REJECT 时，on_conflict="reject" 抛 ConsistencyError、on_conflict="defer" 返回 None，verdict 为 BLINDSPOT 且 on_conflict="defer" 同样返回 None，其余情形完成写盘/入索引后返回 node_id。
+# 生效条件：node_id/content 必填；node_id 不匹配 _NODE_ID_RE（^[A-Za-z0-9_.@-]{1,128}$）或含 ".."、或整串精确等值于 _NODE_ID_FORBIDDEN（"None"/"null"，空语义值字符串化污染形态，P3 None.md 缺陷禁写）、或落盘 realpath 越出 self.root 时抛 ValueError（P0-1 白名单+纵深闸）；layer 不在 LAYERS 内、或 verification_basis 非 None 且不在 VERIFICATION_BASIS 内时抛 ValueError；consistency 为真且 _cons.check 判 REJECT 时，on_conflict="reject" 抛 ConsistencyError、on_conflict="defer" 返回 None，其余情形（含 BLINDSPOT——issue #361：无可比对象≠冲突，与 #26 的 writepipe 冲突闸同口径放行，verdict 如实落 fm.consistency）完成写盘/入索引后返回 node_id。
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             tags=None, condition_space=None, importance: float = 0.5,
             confidence: float = 0.6, edges=None, verification_basis: str = None,
@@ -2453,6 +2453,8 @@ class MdCG:
         consistency: 是否做节点间自动冲突检测（三级决策：情绪→反思→递归反思）。
         on_conflict: 冲突处置——"reject" 抛 ConsistencyError（默认）/
                      "defer" 不写盘返回 None / "record" 记录后放行。
+                     仅对 REJECT 生效；BLINDSPOT（无可比对象，检测前提
+                     不存在）按 record 放行（issue #361，与 #26 同口径）。
         derived_from:（G8 派生溯源）本节点来源节点 id，单个或列表。声明后写进
                      frontmatter（单一真相源）并追加派生边到 <root>/_link.jsonl；
                      **建链失败不阻断本次写入**（降级为告警 + .fail 台账留痕）。
@@ -2584,7 +2586,24 @@ class MdCG:
             v = vd["verdict"]
             if v == "REJECT" and on_conflict == "reject":
                 raise _cons.ConsistencyError(v, vd["reason"], vd["conflicts"])
-            if v in ("REJECT", "BLINDSPOT") and on_conflict == "defer":
+            # issue #361（2026-10-15 P0）：BLINDSPOT 不再与 REJECT 同走
+            # on_conflict=defer 的 return None。读码依据：consistency.check
+            # 的 BLINDSPOT 唯一赋值点是 `comparable == 0 and (pos or neg)`
+            # （consistency.py:995-997）——`comparable` 只对**声明了条件的
+            # 既有节点**计数（:854-857），且四态路由是严格 if/elif 链
+            # （hard→REJECT、分歧/互斥→DEFER），comparable>0 时 BLINDSPOT
+            # 分支**结构性不可达**。即 BLINDSPOT 恒等于「无可比对象」＝
+            # 检测前提不存在，不是「已判定的冲突」——与 issue #26 在 writepipe
+            # 冲突闸已裁定的口径一致（BLINDSPOT 恒放行、REJECT 维持拦截）。
+            # 修前此处把 BLINDSPOT 一并 return None，而 mdcos 记忆闸的
+            # written-is-None 出口只改 verdict=DEFER **不入队**：正文不在
+            # 任何节点、不在 hippocampus/inbox.jsonl、任何文件，唯一痕迹是
+            # _consistency.jsonl 一行不含正文的 BLINDSPOT——且**自我维持**
+            # （没有东西落盘 ⇒ comparable 恒 0 ⇒ 下一条也丢；实测《民法典》
+            # 200 条六要素 gated 写入 200/200 丢失、库内 0 节点）。放行后
+            # verdict 如实落 extra["consistency"]（fm.consistency.verdict
+            # =="BLINDSPOT"，与 #26 的「放行原因可观测」同口径）。
+            if v == "REJECT" and on_conflict == "defer":
                 return None
             extra["consistency"] = {
                 "verdict": v, "reason": vd["reason"],
