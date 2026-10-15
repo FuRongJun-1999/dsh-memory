@@ -244,7 +244,21 @@ def adjacency(cg, include_hierarchy=True, skip_archived=True):
     return adj
 
 
-# 生效条件：调用即把 cg._chain_adj 置为 None（赋值抛异常时静默忽略），无返回值；
+# 生效条件：allowed_ids 非 None 时只保留候选内的起点与终点；None 保留既有表。
+def _scoped_adjacency(cg, include_hierarchy, allowed_ids=None):
+    """Induced candidate subgraph: hidden nodes cannot act as bridges.
+
+    A missing scope preserves direct causal/explanation API behavior. The
+    projected table is query-local and never replaces the full adjacency cache.
+    """
+    adj = adjacency(cg, include_hierarchy=include_hierarchy)
+    if allowed_ids is None:
+        return adj
+    return {src: [(dst, edge) for dst, edge in adj.get(src, ())
+                  if dst in allowed_ids] for src in allowed_ids}
+
+
+# 生效条件：调用即把 cg._chain_adj 置为 None（赋值抛异常时静默忽略），无返回值。
 def invalidate_cache(cg):
     """写入/删除节点后丢弃邻接缓存（与 subgraph.invalidate_cache 成对调用）。"""
     try:
@@ -265,7 +279,7 @@ def _reverse(adj):
 # 生效条件：start_id 起步迭代 DFS——max_depth 非 None 时先钳为 max(0, min(int(max_depth), MAX_DEPTH_HARD))，rels 为 (relation_types or ()) 的小写元组（None 或空则不作类型过滤），direction=="in" 时邻接表改用 _reverse(adjacency(cg, include_hierarchy))，每跳要求 rel∈rels（rels 非空时）、tgt 不在 seen、weight*edge_weight(e) ≥ min_weight，链在 max_depth 为 None 或 len(hops+[hop]) ≤ max_depth 时收入、在 max_depth 为 None 或 len(hops+[hop]) < max_depth 时继续下探，首跳且边无显式条件时条件回退 start_id 的 node_conditions，扩展节点数受 max_nodes、收链数受 max_chains 限制，sort=="length" 时按 (depth, -avg_weight) 排序否则按 (-weight, -depth) 排序，返回 chains[:max_chains]；
 def walk(cg, start_id, relation_types=CAUSAL_TYPES, max_depth=MAX_DEPTH_DEFAULT,
          direction="out", max_nodes=MAX_NODES_DEFAULT, min_weight=0.0,
-         max_chains=200, include_hierarchy=True, sort="strength"):
+         max_chains=200, include_hierarchy=True, sort="strength", allowed_ids=None):
     """从 start_id 沿关系链展开，返回链列表（每条链 = 一段条件序列）。
 
     返回的每条链：
@@ -276,7 +290,11 @@ def walk(cg, start_id, relation_types=CAUSAL_TYPES, max_depth=MAX_DEPTH_DEFAULT,
     if max_depth is not None:
         max_depth = max(0, min(int(max_depth), MAX_DEPTH_HARD))
     rels = tuple(str(r).lower() for r in (relation_types or ()))
-    adj = adjacency(cg, include_hierarchy=include_hierarchy)
+    if allowed_ids is not None:
+        allowed_ids = frozenset(allowed_ids)
+        if start_id not in allowed_ids:
+            return []
+    adj = _scoped_adjacency(cg, include_hierarchy, allowed_ids)
     if direction == "in":
         adj = _reverse(adj)
 
@@ -352,7 +370,7 @@ def explain(cg, start_id, **kw):
 def _expand_legacy(cg, seeds, relation_types=CHAIN_TYPES_DEFAULT,
                       max_depth=MAX_DEPTH_DEFAULT, decay=0.9,
                       max_nodes=MAX_NODES_DEFAULT, max_chains=500,
-                      include_hierarchy=True):
+                      include_hierarchy=True, allowed_ids=None):
     """检索用：从带分数的种子出发沿链扩散。
 
     `seeds`: `{node_id: score}` 或 `[(node_id, score)]`。
@@ -375,7 +393,7 @@ def _expand_legacy(cg, seeds, relation_types=CHAIN_TYPES_DEFAULT,
         for c in walk(cg, sid, relation_types=relation_types,
                       max_depth=max_depth, max_nodes=max_nodes,
                       max_chains=max_chains,
-                      include_hierarchy=include_hierarchy):
+                      include_hierarchy=include_hierarchy, allowed_ids=allowed_ids):
             nid = c["nodes"][-1]
             if nid == sid:
                 continue
@@ -478,7 +496,7 @@ def _best_seed(cg, adj, sid, s0, rels, depth_limit, decay, max_nodes,
 def expand_from_seeds(cg, seeds, relation_types=CHAIN_TYPES_DEFAULT,
                       max_depth=MAX_DEPTH_DEFAULT, decay=0.9,
                       max_nodes=MAX_NODES_DEFAULT, max_chains=500,
-                      include_hierarchy=True, stats=None):
+                      include_hierarchy=True, stats=None, allowed_ids=None):
     """Retrieve strongest chains without enumerating redundant DFS paths.
 
     Scores retain seed * round(edge_product, 6) * decay**depth. Among retained
@@ -493,8 +511,14 @@ def expand_from_seeds(cg, seeds, relation_types=CHAIN_TYPES_DEFAULT,
     stats, if supplied, reports per-seed work and whether the bounded search
     completed. Budget exhaustion is not a global-optimality certificate.
     Nonmonotone/custom numeric inputs use the original compatibility path.
+    allowed_ids, when supplied, restricts seeds and every intermediate node to
+    the induced candidate subgraph, including on the legacy fallback. None
+    preserves the unscoped direct API. Query projections are never cached.
     """
     seed_items = list(seeds.items()) if isinstance(seeds, dict) else list(seeds or [])
+    if allowed_ids is not None:
+        allowed_ids = frozenset(allowed_ids)
+        seed_items = [(nid, score) for nid, score in seed_items if nid in allowed_ids]
     parsed = []
     safe = (isinstance(decay, (int, float)) and math.isfinite(decay)
             and 0 <= decay <= 1
@@ -523,11 +547,11 @@ def expand_from_seeds(cg, seeds, relation_types=CHAIN_TYPES_DEFAULT,
               "expanded": 0, "edges_scanned": 0, "dominated": 0}
     if not safe:
         best = _expand_legacy(cg, seed_items, relation_types, max_depth, decay,
-                              max_nodes, max_chains, include_hierarchy)
+                              max_nodes, max_chains, include_hierarchy, allowed_ids)
     else:
         best, choices = {}, {}
         rels = tuple(str(r).lower() for r in (relation_types or ()))
-        adj = adjacency(cg, include_hierarchy=include_hierarchy) if parsed else {}
+        adj = _scoped_adjacency(cg, include_hierarchy, allowed_ids) if parsed else {}
         for sid, score in parsed:
             seed_report = {"start": sid, "expanded": 0, "edges_scanned": 0,
                            "dominated": 0, "enqueued": 0, "stale_pops": 0,
