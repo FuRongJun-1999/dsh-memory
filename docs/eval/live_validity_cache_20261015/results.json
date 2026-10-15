@@ -191,6 +191,16 @@
     "windows": {
       "key": "validity",
       "platform": "windows",
+      "source_head": "12ffe47ab2876026126cb1cc4870bb67036f8400",
+      "production_sha256": {
+        "md_cg/mdcg.py": "1d6da4332571eb193439175ffc1a762267f13755fb757c48c57e021b7bdaa8d2",
+        "md_cg/mdcos.py": "bf0833a298e581aaad3f3b8bfc0c2755f7dcbd3af1058d186a041e8818c8a7c0",
+        "md_cg/trust.py": "183b38a839f4544b8e68f57b0b9f7be92e015297f599410e6eb5d7140afd8534",
+        "md_cg/stgidx.py": "c527267824a9775ecac18740626da0d154cb836fb1ce920376df1ebaaddaa925",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/chain.py": "f376e566b6735aee8d589e6a6a2a91162023c8cfda0309d7efe8ba13f9199a85",
+        "md_cg/reach.py": "4a03c4bccf3a3c1d51521cd3394916ee993cf7f40059cbeecf304e51cd722dd5"
+      },
       "passed": 6,
       "failed": 0,
       "missing": 0,
@@ -199,7 +209,7 @@
           "module": "test_trust",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.625,
+          "seconds": 0.516,
           "command": [
             "py",
             "-3.12",
@@ -214,7 +224,7 @@
           "module": "test_i28_hotcache_prodpath",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.437,
+          "seconds": 0.39,
           "command": [
             "py",
             "-3.12",
@@ -229,7 +239,7 @@
           "module": "test_i32_hotcache_env_key",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.594,
+          "seconds": 0.563,
           "command": [
             "py",
             "-3.12",
@@ -244,7 +254,7 @@
           "module": "test_issue153b_cache_alias_and_canon",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.641,
+          "seconds": 0.562,
           "command": [
             "py",
             "-3.12",
@@ -259,7 +269,7 @@
           "module": "test_bm25",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 36.125,
+          "seconds": 37.844,
           "command": [
             "py",
             "-3.12",
@@ -274,7 +284,7 @@
           "module": "test_rrf_qualified_topk",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 2.859,
+          "seconds": 2.781,
           "command": [
             "py",
             "-3.12",
@@ -285,11 +295,123 @@
           ],
           "log": "reg-validity-windows-test_rrf_qualified_topk.log"
         }
-      ]
+      ],
+      "previous_snapshot": {
+        "phase": "before upstream sync / development attempts; excluded from final counts",
+        "readings": {
+          "key": "validity",
+          "platform": "windows",
+          "passed": 6,
+          "failed": 0,
+          "missing": 0,
+          "results": [
+            {
+              "module": "test_trust",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.625,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_trust"
+              ],
+              "log": "previous/reg-validity-windows-test_trust.log"
+            },
+            {
+              "module": "test_i28_hotcache_prodpath",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.437,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_i28_hotcache_prodpath"
+              ],
+              "log": "previous/reg-validity-windows-test_i28_hotcache_prodpath.log"
+            },
+            {
+              "module": "test_i32_hotcache_env_key",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.594,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_i32_hotcache_env_key"
+              ],
+              "log": "previous/reg-validity-windows-test_i32_hotcache_env_key.log"
+            },
+            {
+              "module": "test_issue153b_cache_alias_and_canon",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.641,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_issue153b_cache_alias_and_canon"
+              ],
+              "log": "previous/reg-validity-windows-test_issue153b_cache_alias_and_canon.log"
+            },
+            {
+              "module": "test_bm25",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 36.125,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25"
+              ],
+              "log": "previous/reg-validity-windows-test_bm25.log"
+            },
+            {
+              "module": "test_rrf_qualified_topk",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 2.859,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_rrf_qualified_topk"
+              ],
+              "log": "previous/reg-validity-windows-test_rrf_qualified_topk.log"
+            }
+          ]
+        }
+      }
     },
     "linux": {
       "key": "validity",
       "platform": "linux",
+      "source_head": "12ffe47ab2876026126cb1cc4870bb67036f8400",
+      "production_sha256": {
+        "md_cg/mdcg.py": "1d6da4332571eb193439175ffc1a762267f13755fb757c48c57e021b7bdaa8d2",
+        "md_cg/mdcos.py": "bf0833a298e581aaad3f3b8bfc0c2755f7dcbd3af1058d186a041e8818c8a7c0",
+        "md_cg/trust.py": "183b38a839f4544b8e68f57b0b9f7be92e015297f599410e6eb5d7140afd8534",
+        "md_cg/stgidx.py": "c527267824a9775ecac18740626da0d154cb836fb1ce920376df1ebaaddaa925",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/chain.py": "f376e566b6735aee8d589e6a6a2a91162023c8cfda0309d7efe8ba13f9199a85",
+        "md_cg/reach.py": "4a03c4bccf3a3c1d51521cd3394916ee993cf7f40059cbeecf304e51cd722dd5"
+      },
       "passed": 6,
       "failed": 0,
       "missing": 0,
@@ -298,7 +420,7 @@
           "module": "test_trust",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 5.703,
+          "seconds": 5.531,
           "command": [
             "wsl",
             "-d",
@@ -320,7 +442,7 @@
           "module": "test_i28_hotcache_prodpath",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 1.016,
+          "seconds": 0.922,
           "command": [
             "wsl",
             "-d",
@@ -342,7 +464,7 @@
           "module": "test_i32_hotcache_env_key",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 1.0,
+          "seconds": 0.891,
           "command": [
             "wsl",
             "-d",
@@ -364,7 +486,7 @@
           "module": "test_issue153b_cache_alias_and_canon",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.922,
+          "seconds": 0.859,
           "command": [
             "wsl",
             "-d",
@@ -386,7 +508,7 @@
           "module": "test_bm25",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 10.906,
+          "seconds": 8.078,
           "command": [
             "wsl",
             "-d",
@@ -408,7 +530,7 @@
           "module": "test_rrf_qualified_topk",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 1.156,
+          "seconds": 1.219,
           "command": [
             "wsl",
             "-d",
@@ -426,7 +548,151 @@
           ],
           "log": "reg-validity-linux-test_rrf_qualified_topk.log"
         }
-      ]
+      ],
+      "previous_snapshot": {
+        "phase": "before upstream sync / development attempts; excluded from final counts",
+        "readings": {
+          "key": "validity",
+          "platform": "linux",
+          "passed": 6,
+          "failed": 0,
+          "missing": 0,
+          "results": [
+            {
+              "module": "test_trust",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 5.703,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-validity-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_trust"
+              ],
+              "log": "previous/reg-validity-linux-test_trust.log"
+            },
+            {
+              "module": "test_i28_hotcache_prodpath",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 1.016,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-validity-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_i28_hotcache_prodpath"
+              ],
+              "log": "previous/reg-validity-linux-test_i28_hotcache_prodpath.log"
+            },
+            {
+              "module": "test_i32_hotcache_env_key",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 1.0,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-validity-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_i32_hotcache_env_key"
+              ],
+              "log": "previous/reg-validity-linux-test_i32_hotcache_env_key.log"
+            },
+            {
+              "module": "test_issue153b_cache_alias_and_canon",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.922,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-validity-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_issue153b_cache_alias_and_canon"
+              ],
+              "log": "previous/reg-validity-linux-test_issue153b_cache_alias_and_canon.log"
+            },
+            {
+              "module": "test_bm25",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 10.906,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-validity-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25"
+              ],
+              "log": "previous/reg-validity-linux-test_bm25.log"
+            },
+            {
+              "module": "test_rrf_qualified_topk",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 1.156,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-validity-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_rrf_qualified_topk"
+              ],
+              "log": "previous/reg-validity-linux-test_rrf_qualified_topk.log"
+            }
+          ]
+        }
+      }
     }
   }
 }
