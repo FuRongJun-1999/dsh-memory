@@ -270,6 +270,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       actor: config.mdcg.actor,
       clearance: config.mdcg.clearance,
       autoIssue: !legacyAuth,
+      // #224-①：租户透传——cordis.yml 的 mdcg.tenant 进自动签发令牌
+      // （非 default 时 `tokens issue --tenant`），否则 md_cg 按退出码 3 拒启。
+      tenant: config.mdcg.tenant,
+      // #224-②：config.env 透传——MDCG_AUX_ROOT 等进密钥环路径解析
+      // （优先级：显式参数 > config.env > 进程 env > 缺省，与 MDCG_TOKEN 同构）。
+      envOverride: config.env,
     })
     cred = resolution
     // 注入子进程 env：显式配置与密钥环都在此汇合成**唯一**的 MDCG_TOKEN。
@@ -313,9 +319,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // 但两者分居两处是历史事故的温床（「以为在同一处」），故一并留痕；
     // 想合并/搬走：设 MDCG_AUX_ROOT（md_cg.datapath.aux_root() 同口径）。
     ctx.logger.info(
-      `dsh-memory: 身份/凭据根（aux）= ${auxRoot()}`
-      + `（密钥环 ${cred?.keyringPath ?? defaultKeyringPath()}；`
-      + `与记忆真源分离，可用 MDCG_AUX_ROOT 覆盖）`,
+      // #224-②：留痕须与实际解析同口径——aux 根与密钥环都按 config.env 覆盖
+      // 后的值打印，否则「日志说 ~/.mdcg、真身在别处」重演历史事故。
+      `dsh-memory: 身份/凭据根（aux）= ${auxRoot(config.env)}`
+      + `（密钥环 ${cred?.keyringPath ?? defaultKeyringPath(config.env)}；`
+      + '与记忆真源分离，可用 MDCG_AUX_ROOT 覆盖）',
     )
     // 包管理器装的插件 + 路径配置还在旧包内位置：pnpm 下次更新会把该文件连目录一起
     // 删除，用户配置随之丢失（回落默认根 → 表现为「记忆不见了」）。只在真的会被删的

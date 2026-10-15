@@ -11,8 +11,10 @@
  * 本模块把这条路径补齐，解析顺序（高 → 低）：
  *   ① `config.env.MDCG_TOKEN` —— 显式配置，原样尊重，**完全不介入**；
  *   ② 进程 env `MDCG_TOKEN` —— 同上；
- *   ③ 密钥环 `~/.mdcg/token`（0600）—— 已签发过则复用；
- *   ④ 都没有 → **首启自动签发**一枚 designer 令牌并写入密钥环。
+ *   ③ 密钥环 `~/.mdcg/token`（0600）—— 已签发过则复用（复用前先 `tokens verify`
+ *      复核，已吊销/失效则清环重签——#224-③，否则吊销后插件永久拒启）；
+ *   ④ 都没有 → **首启自动签发**一枚 designer 令牌并写入密钥环（#224-①：非
+ *      default 租户随 `--tenant` 透传进令牌记录）。
  *
  * 为什么密钥环可以自动签发（安全论证）
  * ------------------------------------------------
@@ -66,6 +68,12 @@ export interface ResolveTokenOptions {
   autoIssue?: boolean
   /** 密钥环路径覆盖（默认 ~/.mdcg/token）。 */
   keyringPath?: string
+  /** 租户标识（写入令牌记录；cordis.yml 的 mdcg.tenant 透传，#224）。
+   *  非 default 时才传给 `tokens issue --tenant`——default 是 md_cg 侧缺省，显式传等值冗余。 */
+  tenant?: string
+  /** config.env 的键值（#224：MDCG_AUX_ROOT 等应读 config.env——与 resolveToken
+   *  对 MDCG_TOKEN 的既有优先级同构：显式参数 > config.env > 进程 env > 缺省）。 */
+  envOverride?: Record<string, string | undefined>
 }
 
 /** 辅助存储根（密钥/令牌/信任/理论/心跳）：与 md_cg 的 `datapath.aux_root()` 同口径。
@@ -73,14 +81,18 @@ export interface ResolveTokenOptions {
  *  默认 `~/.mdcg`（历史值，**逐字保留**——改默认会让存量密钥/令牌失联）；
  *  `MDCG_AUX_ROOT` 可把它们整体搬走（沙箱/多用户/与记忆真源同处的场景）。
  *  与 `config.mdcg.root`（记忆真源）有意分离：身份与信任不随认知图迁移。 */
-export function auxRoot(): string {
+export function auxRoot(envOverride?: Record<string, string | undefined>): string {
+  // #224-②：config.env 的 MDCG_AUX_ROOT 优先于进程 env——密钥环路径须跟随
+  // 配置覆盖（启动日志点名可用它搬走辅助根）；两级都缺才回落历史默认 ~/.mdcg。
+  const fromConfig = (envOverride?.MDCG_AUX_ROOT ?? '').trim()
+  if (fromConfig) return resolve(fromConfig)
   const env = (process.env.MDCG_AUX_ROOT ?? '').trim()
   return env ? resolve(env) : join(homedir(), '.mdcg')
 }
 
 /** 默认密钥环路径：与 md_cg 的 `_tokens.json` 同目录（aux 根下，见 auxRoot()）。 */
-export function defaultKeyringPath(): string {
-  return join(auxRoot(), 'token')
+export function defaultKeyringPath(envOverride?: Record<string, string | undefined>): string {
+  return join(auxRoot(envOverride), 'token')
 }
 
 /** 读取密钥环；不存在 / 不可读 / 空文件一律返回 undefined（不抛异常）。 */
@@ -111,13 +123,18 @@ interface IssueOutcome {
 }
 
 /** 调 `python -m md_cg.tokens issue` 签一枚令牌（同步，仅首启一次）。 */
-function issueToken(python: string, role: string, actor: string, clearance: string): IssueOutcome {
+function issueToken(
+  python: string, role: string, actor: string, clearance: string, tenant?: string,
+): IssueOutcome {
   let r
   try {
     r = spawnSync(
       python,
       ['-m', 'md_cg.tokens', 'issue',
-        '--role', role, '--actor', actor, '--clearance', clearance],
+        '--role', role, '--actor', actor, '--clearance', clearance,
+        // #224-①：租户透传——非 default 才传（default 是 md_cg 侧缺省值，
+        // tokens.py p_i.add_argument("--tenant", default="default")）。
+        ...(tenant && tenant !== 'default' ? ['--tenant', tenant] : [])],
       {
         encoding: 'utf-8',
         windowsHide: true,
@@ -151,6 +168,53 @@ function issueToken(python: string, role: string, actor: string, clearance: stri
   }
 }
 
+/** 密钥环令牌的复核结论（#224-③）。
+ *  - `ok`：verify 退出码 0，令牌仍有效，原样复用；
+ *  - `invalid`：校验器**真的跑过**且拒绝（tokens.py verify 对 TokenError 退出码 2，
+ *    覆盖格式非法/无记录/已吊销/哈希不符/已过期）——可安全清环重签；
+ *  - `unverifiable`：校验器自身没跑成（Python 不可执行 / 超时被杀 / spawn 异常）——
+ *    令牌既不能证实也不能证伪，**不许据此清环**（清了会把可能有效的令牌毁掉）。 */
+export type VerifyOutcome = 'ok' | 'invalid' | 'unverifiable'
+
+/** 调 `python -m md_cg.tokens verify` 复核令牌仍有效（同步，仅密钥环路径用，#224-③）。
+ *
+ *  背景：用户吊销自动签发的令牌后，密钥环里的旧令牌每次被原样复用 ⇒
+ *  md_cg 退出码 3 拒启 ⇒ 桥重试后放弃终态 ⇒ 整套插件永久不可用。
+ *  修法：从密钥环读到令牌后先 verify；`invalid`（含吊销）则清环、重新签发，
+ *  `unverifiable` 则既不清也不复用（fail-closed：落自动签发或降级，绝不带病返回）。
+ */
+export function verifyToken(python: string, token: string): VerifyOutcome {
+  let r
+  try {
+    r = spawnSync(
+      python,
+      ['-m', 'md_cg.tokens', 'verify', '--token', token],
+      {
+        encoding: 'utf-8',
+        windowsHide: true,
+        timeout: 10_000,
+        cwd: runRoot(),
+        env: {
+          ...process.env,
+          PYTHONPATH: pythonPathValue(),
+          PYTHONUTF8: '1',
+          PYTHONIOENCODING: 'utf-8',
+        },
+      },
+    )
+  } catch {
+    return 'unverifiable'
+  }
+  if (r.error) return 'unverifiable' // 无法执行 / 超时被杀：status 为 null
+  if (r.status === 0) return 'ok'
+  return 'invalid' // 真跑过且拒绝（退出码 2 = TokenError；其它非零同为明确拒绝）
+}
+
+/** 清掉密钥环里的失效令牌（吊销后自动恢复用，#224-③）。 */
+function clearKeyring(path: string): void {
+  try { writeFileSync(path, '', { encoding: 'utf-8', mode: 0o600 }) } catch { /* 尽力 */ }
+}
+
 /** `MDCG_AUTO_ISSUE` 是否显式关闭（0/false/no/off，忽略大小写）。 */
 function autoIssueDisabledByEnv(): boolean {
   const v = (process.env.MDCG_AUTO_ISSUE ?? '').trim().toLowerCase()
@@ -164,7 +228,8 @@ function autoIssueDisabledByEnv(): boolean {
  * 状态一致，缓存反而会让「用户刚删了密钥环」的修复动作不生效。
  */
 export function resolveToken(opts: ResolveTokenOptions): TokenResolution {
-  const keyringPath = opts.keyringPath ?? defaultKeyringPath()
+  // #224-②：config.env 的 MDCG_AUX_ROOT 进密钥环路径解析（auxRoot 接受 envOverride）
+  const keyringPath = opts.keyringPath ?? defaultKeyringPath(opts.envOverride)
 
   const configured = (opts.configured ?? '').trim()
   if (configured) return { token: configured, source: 'config', keyringPath }
@@ -173,7 +238,18 @@ export function resolveToken(opts: ResolveTokenOptions): TokenResolution {
   if (fromEnv) return { token: fromEnv, source: 'process-env', keyringPath }
 
   const fromRing = readKeyring(keyringPath)
-  if (fromRing) return { token: fromRing, source: 'keyring', keyringPath }
+  if (fromRing) {
+    // #224-③：密钥环令牌先复核——吊销后不再原样复用（否则插件永久拒启）
+    const verdict = verifyToken(opts.python, fromRing)
+    if (verdict === 'ok') return { token: fromRing, source: 'keyring', keyringPath }
+    if (verdict === 'invalid') {
+      // 已失效（含吊销）⇒ 清掉旧令牌、走下方自动签发恢复
+      clearKeyring(keyringPath)
+    }
+    // 'unverifiable'：校验器没跑成（Python 不可执行/超时）——不清环（令牌可能
+    // 仍有效），也不带病返回（fail-closed）：落下方自动签发；签发成功会覆写
+    // 密钥环，签发失败则原文件保留待下次启动重试。
+  }
 
   if (opts.autoIssue === false) {
     return { source: 'disabled', keyringPath, note: '本场景未启用自动签发（autoIssue=false）' }
@@ -185,7 +261,7 @@ export function resolveToken(opts: ResolveTokenOptions): TokenResolution {
   const role = opts.role ?? 'designer'
   const actor = opts.actor ?? 'dsh-memory'
   const clearance = opts.clearance ?? 'internal'
-  const r = issueToken(opts.python, role, actor, clearance)
+  const r = issueToken(opts.python, role, actor, clearance, opts.tenant)
   if (!r.token) {
     return { source: 'none', keyringPath, note: r.error }
   }
