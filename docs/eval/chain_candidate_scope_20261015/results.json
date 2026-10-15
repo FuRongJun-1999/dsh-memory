@@ -1,0 +1,500 @@
+{
+  "baseline_commit": "fffa4f29572236d5a75cc592ea6e6edb7c0e10bf",
+  "platforms": {
+    "windows": {
+      "baseline": {
+        "tests": 14,
+        "passed": 4,
+        "failed": 10,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_direct_unscoped_api_keeps_existing_behavior (md_cg._frozen_chain_candidate_scope.Guards.test_direct_unscoped_api_keeps_existing_behavior) ... ok\ntest_empty_candidate_pool_returns_no_paths (md_cg._frozen_chain_candidate_scope.Guards.test_empty_candidate_pool_returns_no_paths) ... ok\ntest_expired_node_is_not_a_bridge (md_cg._frozen_chain_candidate_scope.Guards.test_expired_node_is_not_a_bridge) ... FAIL\ntest_explicit_branch_restores_path (md_cg._frozen_chain_candidate_scope.Guards.test_explicit_branch_restores_path) ... ok\ntest_hidden_branch_is_not_a_bridge (md_cg._frozen_chain_candidate_scope.Guards.test_hidden_branch_is_not_a_bridge) ... FAIL\ntest_hidden_intermediate_does_not_consume_budget (md_cg._frozen_chain_candidate_scope.Guards.test_hidden_intermediate_does_not_consume_budget) ... FAIL\ntest_include_work_restores_path (md_cg._frozen_chain_candidate_scope.Guards.test_include_work_restores_path) ... ok\ntest_incoming_walk_keeps_scope (md_cg._frozen_chain_candidate_scope.Guards.test_incoming_walk_keeps_scope) ... FAIL\ntest_layer_filter_constrains_intermediates (md_cg._frozen_chain_candidate_scope.Guards.test_layer_filter_constrains_intermediates) ... FAIL\ntest_nonmonotone_fallback_keeps_scope (md_cg._frozen_chain_candidate_scope.Guards.test_nonmonotone_fallback_keeps_scope) ... FAIL\ntest_real_rrf_has_no_hidden_provenance (md_cg._frozen_chain_candidate_scope.Guards.test_real_rrf_has_no_hidden_provenance) ... FAIL\ntest_scope_does_not_poison_global_adjacency (md_cg._frozen_chain_candidate_scope.Guards.test_scope_does_not_poison_global_adjacency) ... FAIL\ntest_session_filter_also_constrains_intermediates (md_cg._frozen_chain_candidate_scope.Guards.test_session_filter_also_constrains_intermediates) ... FAIL\ntest_work_role_is_not_a_bridge (md_cg._frozen_chain_candidate_scope.Guards.test_work_role_is_not_a_bridge) ... FAIL\n\n======================================================================\nFAIL: test_expired_node_is_not_a_bridge (md_cg._frozen_chain_candidate_scope.Guards.test_expired_node_is_not_a_bridge)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 162, in test_expired_node_is_not_a_bridge\n    self.assertEqual(self.path(seeds, validity=True)[0], [])\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[532 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070510.7075624, 1792074110.7075624]}, 'confidence': 0.6, 'created_at': 1792070510.7075624, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1020 characters long. Set self.maxDiff to None to see it.\n\n======================================================================\nFAIL: test_hidden_branch_is_not_a_bridge (md_cg._frozen_chain_candidate_scope.Guards.test_hidden_branch_is_not_a_bridge)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 142, in test_hidden_branch_is_not_a_bridge\n    self.assertEqual(rows, [])\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[532 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070510.8143866, 1792074110.8143866]}, 'confidence': 0.6, 'created_at': 1792070510.8143866, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1020 characters long. Set self.maxDiff to None to see it.\n\n======================================================================\nFAIL: test_hidden_intermediate_does_not_consume_budget (md_cg._frozen_chain_candidate_scope.Guards.test_hidden_intermediate_does_not_consume_budget)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 218, in test_hidden_intermediate_does_not_consume_budget\n    self.assertIn('allowed_ids', inspect.signature(chain.expand_from_seeds).parameters)\nAssertionError: 'allowed_ids' not found in mappingproxy(OrderedDict({'cg': <Parameter \"cg\">, 'seeds': <Parameter \"seeds\">, 'relation_types': <Parameter \"relation_types=('causal', 'sequential', 'applies_to')\">, 'max_depth': <Parameter \"max_depth=5\">, 'decay': <Parameter \"decay=0.9\">, 'max_nodes': <Parameter \"max_nodes=500\">, 'max_chains': <Parameter \"max_chains=500\">, 'include_hierarchy': <Parameter \"include_hierarchy=True\">, 'stats': <Parameter \"stats=None\">}))\n\n======================================================================\nFAIL: test_incoming_walk_keeps_scope (md_cg._frozen_chain_candidate_scope.Guards.test_incoming_walk_keeps_scope)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 211, in test_incoming_walk_keeps_scope\n    self.assertIn('allowed_ids', inspect.signature(chain.walk).parameters)\nAssertionError: 'allowed_ids' not found in mappingproxy(OrderedDict({'cg': <Parameter \"cg\">, 'start_id': <Parameter \"start_id\">, 'relation_types': <Parameter \"relation_types=('causal',)\">, 'max_depth': <Parameter \"max_depth=5\">, 'direction': <Parameter \"direction='out'\">, 'max_nodes': <Parameter \"max_nodes=500\">, 'min_weight': <Parameter \"min_weight=0.0\">, 'max_chains': <Parameter \"max_chains=200\">, 'include_hierarchy': <Parameter \"include_hierarchy=True\">, 'sort': <Parameter \"sort='strength'\">}))\n\n======================================================================\nFAIL: test_layer_filter_constrains_intermediates (md_cg._frozen_chain_candidate_scope.Guards.test_layer_filter_constrains_intermediates)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 173, in test_layer_filter_constrains_intermediates\n    self.assertEqual(self.path(seeds, layer='knowledge')[0], [])\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[532 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070511.0189538, 1792074111.0189538]}, 'confidence': 0.6, 'created_at': 1792070511.0189538, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1020 characters long. Set self.maxDiff to None to see it.\n\n======================================================================\nFAIL: test_nonmonotone_fallback_keeps_scope (md_cg._frozen_chain_candidate_scope.Guards.test_nonmonotone_fallback_keeps_scope)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 202, in test_nonmonotone_fallback_keeps_scope\n    self.assertIn('allowed_ids', inspect.signature(chain.expand_from_seeds).parameters)\nAssertionError: 'allowed_ids' not found in mappingproxy(OrderedDict({'cg': <Parameter \"cg\">, 'seeds': <Parameter \"seeds\">, 'relation_types': <Parameter \"relation_types=('causal', 'sequential', 'applies_to')\">, 'max_depth': <Parameter \"max_depth=5\">, 'decay': <Parameter \"decay=0.9\">, 'max_nodes': <Parameter \"max_nodes=500\">, 'max_chains': <Parameter \"max_chains=500\">, 'include_hierarchy': <Parameter \"include_hierarchy=True\">, 'stats': <Parameter \"stats=None\">}))\n\n======================================================================\nFAIL: test_real_rrf_has_no_hidden_provenance (md_cg._frozen_chain_candidate_scope.Guards.test_real_rrf_has_no_hidden_provenance)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 179, in test_real_rrf_has_no_hidden_provenance\n    self.assertNotIn('tail', {r[0]['id'] for r in rows})\nAssertionError: 'tail' unexpectedly found in {'seed', 'tail'}\n\n======================================================================\nFAIL: test_scope_does_not_poison_global_adjacency (md_cg._frozen_chain_candidate_scope.Guards.test_scope_does_not_poison_global_adjacency)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 193, in test_scope_does_not_poison_global_adjacency\n    self.assertEqual(self.path(seeds)[0], [])\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[532 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070511.1860845, 1792074111.1860845]}, 'confidence': 0.6, 'created_at': 1792070511.1860845, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1020 characters long. Set self.maxDiff to None to see it.\n\n======================================================================\nFAIL: test_session_filter_also_constrains_intermediates (md_cg._frozen_chain_candidate_scope.Guards.test_session_filter_also_constrains_intermediates)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 169, in test_session_filter_also_constrains_intermediates\n    self.assertEqual(self.path(seeds, session='selected')[0], [])\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[529 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070511.236165, 1792074111.236165]}, 'confidence': 0.6, 'created_at': 1792070511.236165, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1017 characters long. Set self.maxDiff to None to see it.\n\n======================================================================\nFAIL: test_work_role_is_not_a_bridge (md_cg._frozen_chain_candidate_scope.Guards.test_work_role_is_not_a_bridge)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 154, in test_work_role_is_not_a_bridge\n    self.assertEqual(rows, [])\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[532 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070511.2903018, 1792074111.2903018]}, 'confidence': 0.6, 'created_at': 1792070511.2903018, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1020 characters long. Set self.maxDiff to None to see it.\n\n----------------------------------------------------------------------\nRan 14 tests in 0.741s\n\nFAILED (failures=10)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 14,
+          "passed": 14,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_direct_unscoped_api_keeps_existing_behavior (__main__.Guards.test_direct_unscoped_api_keeps_existing_behavior) ... ok\ntest_empty_candidate_pool_returns_no_paths (__main__.Guards.test_empty_candidate_pool_returns_no_paths) ... ok\ntest_expired_node_is_not_a_bridge (__main__.Guards.test_expired_node_is_not_a_bridge) ... ok\ntest_explicit_branch_restores_path (__main__.Guards.test_explicit_branch_restores_path) ... ok\ntest_hidden_branch_is_not_a_bridge (__main__.Guards.test_hidden_branch_is_not_a_bridge) ... ok\ntest_hidden_intermediate_does_not_consume_budget (__main__.Guards.test_hidden_intermediate_does_not_consume_budget) ... ok\ntest_include_work_restores_path (__main__.Guards.test_include_work_restores_path) ... ok\ntest_incoming_walk_keeps_scope (__main__.Guards.test_incoming_walk_keeps_scope) ... ok\ntest_layer_filter_constrains_intermediates (__main__.Guards.test_layer_filter_constrains_intermediates) ... ok\ntest_nonmonotone_fallback_keeps_scope (__main__.Guards.test_nonmonotone_fallback_keeps_scope) ... ok\ntest_real_rrf_has_no_hidden_provenance (__main__.Guards.test_real_rrf_has_no_hidden_provenance) ... ok\ntest_scope_does_not_poison_global_adjacency (__main__.Guards.test_scope_does_not_poison_global_adjacency) ... ok\ntest_session_filter_also_constrains_intermediates (__main__.Guards.test_session_filter_also_constrains_intermediates) ... ok\ntest_work_role_is_not_a_bridge (__main__.Guards.test_work_role_is_not_a_bridge) ... ok\n\n----------------------------------------------------------------------\nRan 14 tests in 0.755s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "C1 allow a hidden target into scoped adjacency",
+            "test": "Guards.test_hidden_intermediate_does_not_consume_budget",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_hidden_intermediate_does_not_consume_budget (__main__.Guards.test_hidden_intermediate_does_not_consume_budget) ... FAIL\n\n======================================================================\nFAIL: test_hidden_intermediate_does_not_consume_budget (__main__.Guards.test_hidden_intermediate_does_not_consume_budget)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 221, in test_hidden_intermediate_does_not_consume_budget\n    self.assertEqual(report['edges_scanned'], 0)\nAssertionError: 1 != 0\n\n----------------------------------------------------------------------\nRan 1 test in 0.054s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "05bda12e530a550a26e5f9e5aa27083faccc3b599f63d901c973f126d3f96ebc"
+          },
+          {
+            "name": "C2 ignore candidate scope entirely",
+            "test": "Guards.test_work_role_is_not_a_bridge",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_work_role_is_not_a_bridge (__main__.Guards.test_work_role_is_not_a_bridge) ... FAIL\n\n======================================================================\nFAIL: test_work_role_is_not_a_bridge (__main__.Guards.test_work_role_is_not_a_bridge)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 154, in test_work_role_is_not_a_bridge\n    self.assertEqual(rows, [])\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[529 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070826.366972, 1792074426.366972]}, 'confidence': 0.6, 'created_at': 1792070826.366972, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1017 characters long. Set self.maxDiff to None to see it.\n\n----------------------------------------------------------------------\nRan 1 test in 0.391s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "05bda12e530a550a26e5f9e5aa27083faccc3b599f63d901c973f126d3f96ebc"
+          },
+          {
+            "name": "C3 drop scope in legacy fallback",
+            "test": "Guards.test_nonmonotone_fallback_keeps_scope",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_nonmonotone_fallback_keeps_scope (__main__.Guards.test_nonmonotone_fallback_keeps_scope) ... FAIL\n\n======================================================================\nFAIL: test_nonmonotone_fallback_keeps_scope (__main__.Guards.test_nonmonotone_fallback_keeps_scope)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 205, in test_nonmonotone_fallback_keeps_scope\n    self.assertEqual(found, {})\nAssertionError: {'bridge': {'score': 0.935, 'chain': {'sta[644 chars]'']}} != {}\nDiff is 1479 characters long. Set self.maxDiff to None to see it.\n\n----------------------------------------------------------------------\nRan 1 test in 0.055s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "05bda12e530a550a26e5f9e5aa27083faccc3b599f63d901c973f126d3f96ebc"
+          },
+          {
+            "name": "C4 forget scope at production RRF call",
+            "test": "Guards.test_real_rrf_has_no_hidden_provenance",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_real_rrf_has_no_hidden_provenance (__main__.Guards.test_real_rrf_has_no_hidden_provenance) ... FAIL\n\n======================================================================\nFAIL: test_real_rrf_has_no_hidden_provenance (__main__.Guards.test_real_rrf_has_no_hidden_provenance)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-chain-20261015\\md_cg\\test_chain_candidate_scope.py\", line 179, in test_real_rrf_has_no_hidden_provenance\n    self.assertNotIn('tail', {r[0]['id'] for r in rows})\nAssertionError: 'tail' unexpectedly found in {'seed', 'tail'}\n\n----------------------------------------------------------------------\nRan 1 test in 0.057s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "68acc7044f893eeab033972c3f9fb3192f1311cbee1c63344057ab900ef1e4bb"
+          }
+        ],
+        "restored": {
+          "tests": 14,
+          "passed": 14,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_direct_unscoped_api_keeps_existing_behavior (__main__.Guards.test_direct_unscoped_api_keeps_existing_behavior) ... ok\ntest_empty_candidate_pool_returns_no_paths (__main__.Guards.test_empty_candidate_pool_returns_no_paths) ... ok\ntest_expired_node_is_not_a_bridge (__main__.Guards.test_expired_node_is_not_a_bridge) ... ok\ntest_explicit_branch_restores_path (__main__.Guards.test_explicit_branch_restores_path) ... ok\ntest_hidden_branch_is_not_a_bridge (__main__.Guards.test_hidden_branch_is_not_a_bridge) ... ok\ntest_hidden_intermediate_does_not_consume_budget (__main__.Guards.test_hidden_intermediate_does_not_consume_budget) ... ok\ntest_include_work_restores_path (__main__.Guards.test_include_work_restores_path) ... ok\ntest_incoming_walk_keeps_scope (__main__.Guards.test_incoming_walk_keeps_scope) ... ok\ntest_layer_filter_constrains_intermediates (__main__.Guards.test_layer_filter_constrains_intermediates) ... ok\ntest_nonmonotone_fallback_keeps_scope (__main__.Guards.test_nonmonotone_fallback_keeps_scope) ... ok\ntest_real_rrf_has_no_hidden_provenance (__main__.Guards.test_real_rrf_has_no_hidden_provenance) ... ok\ntest_scope_does_not_poison_global_adjacency (__main__.Guards.test_scope_does_not_poison_global_adjacency) ... ok\ntest_session_filter_also_constrains_intermediates (__main__.Guards.test_session_filter_also_constrains_intermediates) ... ok\ntest_work_role_is_not_a_bridge (__main__.Guards.test_work_role_is_not_a_bridge) ... ok\n\n----------------------------------------------------------------------\nRan 14 tests in 0.727s\n\nOK\n"
+        },
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      }
+    },
+    "linux": {
+      "baseline": {
+        "tests": 14,
+        "passed": 4,
+        "failed": 10,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_direct_unscoped_api_keeps_existing_behavior (md_cg._frozen_chain_candidate_scope.Guards.test_direct_unscoped_api_keeps_existing_behavior) ... ok\ntest_empty_candidate_pool_returns_no_paths (md_cg._frozen_chain_candidate_scope.Guards.test_empty_candidate_pool_returns_no_paths) ... ok\ntest_expired_node_is_not_a_bridge (md_cg._frozen_chain_candidate_scope.Guards.test_expired_node_is_not_a_bridge) ... FAIL\ntest_explicit_branch_restores_path (md_cg._frozen_chain_candidate_scope.Guards.test_explicit_branch_restores_path) ... ok\ntest_hidden_branch_is_not_a_bridge (md_cg._frozen_chain_candidate_scope.Guards.test_hidden_branch_is_not_a_bridge) ... FAIL\ntest_hidden_intermediate_does_not_consume_budget (md_cg._frozen_chain_candidate_scope.Guards.test_hidden_intermediate_does_not_consume_budget) ... FAIL\ntest_include_work_restores_path (md_cg._frozen_chain_candidate_scope.Guards.test_include_work_restores_path) ... ok\ntest_incoming_walk_keeps_scope (md_cg._frozen_chain_candidate_scope.Guards.test_incoming_walk_keeps_scope) ... FAIL\ntest_layer_filter_constrains_intermediates (md_cg._frozen_chain_candidate_scope.Guards.test_layer_filter_constrains_intermediates) ... FAIL\ntest_nonmonotone_fallback_keeps_scope (md_cg._frozen_chain_candidate_scope.Guards.test_nonmonotone_fallback_keeps_scope) ... FAIL\ntest_real_rrf_has_no_hidden_provenance (md_cg._frozen_chain_candidate_scope.Guards.test_real_rrf_has_no_hidden_provenance) ... FAIL\ntest_scope_does_not_poison_global_adjacency (md_cg._frozen_chain_candidate_scope.Guards.test_scope_does_not_poison_global_adjacency) ... FAIL\ntest_session_filter_also_constrains_intermediates (md_cg._frozen_chain_candidate_scope.Guards.test_session_filter_also_constrains_intermediates) ... FAIL\ntest_work_role_is_not_a_bridge (md_cg._frozen_chain_candidate_scope.Guards.test_work_role_is_not_a_bridge) ... FAIL\n\n======================================================================\nFAIL: test_expired_node_is_not_a_bridge (md_cg._frozen_chain_candidate_scope.Guards.test_expired_node_is_not_a_bridge)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 162, in test_expired_node_is_not_a_bridge\n    self.assertEqual(self.path(seeds, validity=True)[0], [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[529 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070577.400691, 1792074177.400691]}, 'confidence': 0.6, 'created_at': 1792070577.400691, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1017 characters long. Set self.maxDiff to None to see it.\n\n======================================================================\nFAIL: test_hidden_branch_is_not_a_bridge (md_cg._frozen_chain_candidate_scope.Guards.test_hidden_branch_is_not_a_bridge)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 142, in test_hidden_branch_is_not_a_bridge\n    self.assertEqual(rows, [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[532 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070577.4239228, 1792074177.4239228]}, 'confidence': 0.6, 'created_at': 1792070577.4239228, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1020 characters long. Set self.maxDiff to None to see it.\n\n======================================================================\nFAIL: test_hidden_intermediate_does_not_consume_budget (md_cg._frozen_chain_candidate_scope.Guards.test_hidden_intermediate_does_not_consume_budget)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 218, in test_hidden_intermediate_does_not_consume_budget\n    self.assertIn('allowed_ids', inspect.signature(chain.expand_from_seeds).parameters)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'allowed_ids' not found in mappingproxy(OrderedDict({'cg': <Parameter \"cg\">, 'seeds': <Parameter \"seeds\">, 'relation_types': <Parameter \"relation_types=('causal', 'sequential', 'applies_to')\">, 'max_depth': <Parameter \"max_depth=5\">, 'decay': <Parameter \"decay=0.9\">, 'max_nodes': <Parameter \"max_nodes=500\">, 'max_chains': <Parameter \"max_chains=500\">, 'include_hierarchy': <Parameter \"include_hierarchy=True\">, 'stats': <Parameter \"stats=None\">}))\n\n======================================================================\nFAIL: test_incoming_walk_keeps_scope (md_cg._frozen_chain_candidate_scope.Guards.test_incoming_walk_keeps_scope)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 211, in test_incoming_walk_keeps_scope\n    self.assertIn('allowed_ids', inspect.signature(chain.walk).parameters)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'allowed_ids' not found in mappingproxy(OrderedDict({'cg': <Parameter \"cg\">, 'start_id': <Parameter \"start_id\">, 'relation_types': <Parameter \"relation_types=('causal',)\">, 'max_depth': <Parameter \"max_depth=5\">, 'direction': <Parameter \"direction='out'\">, 'max_nodes': <Parameter \"max_nodes=500\">, 'min_weight': <Parameter \"min_weight=0.0\">, 'max_chains': <Parameter \"max_chains=200\">, 'include_hierarchy': <Parameter \"include_hierarchy=True\">, 'sort': <Parameter \"sort='strength'\">}))\n\n======================================================================\nFAIL: test_layer_filter_constrains_intermediates (md_cg._frozen_chain_candidate_scope.Guards.test_layer_filter_constrains_intermediates)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 173, in test_layer_filter_constrains_intermediates\n    self.assertEqual(self.path(seeds, layer='knowledge')[0], [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[529 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070577.464244, 1792074177.464244]}, 'confidence': 0.6, 'created_at': 1792070577.464244, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1017 characters long. Set self.maxDiff to None to see it.\n\n======================================================================\nFAIL: test_nonmonotone_fallback_keeps_scope (md_cg._frozen_chain_candidate_scope.Guards.test_nonmonotone_fallback_keeps_scope)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 202, in test_nonmonotone_fallback_keeps_scope\n    self.assertIn('allowed_ids', inspect.signature(chain.expand_from_seeds).parameters)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'allowed_ids' not found in mappingproxy(OrderedDict({'cg': <Parameter \"cg\">, 'seeds': <Parameter \"seeds\">, 'relation_types': <Parameter \"relation_types=('causal', 'sequential', 'applies_to')\">, 'max_depth': <Parameter \"max_depth=5\">, 'decay': <Parameter \"decay=0.9\">, 'max_nodes': <Parameter \"max_nodes=500\">, 'max_chains': <Parameter \"max_chains=500\">, 'include_hierarchy': <Parameter \"include_hierarchy=True\">, 'stats': <Parameter \"stats=None\">}))\n\n======================================================================\nFAIL: test_real_rrf_has_no_hidden_provenance (md_cg._frozen_chain_candidate_scope.Guards.test_real_rrf_has_no_hidden_provenance)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 179, in test_real_rrf_has_no_hidden_provenance\n    self.assertNotIn('tail', {r[0]['id'] for r in rows})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'tail' unexpectedly found in {'seed', 'tail'}\n\n======================================================================\nFAIL: test_scope_does_not_poison_global_adjacency (md_cg._frozen_chain_candidate_scope.Guards.test_scope_does_not_poison_global_adjacency)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 193, in test_scope_does_not_poison_global_adjacency\n    self.assertEqual(self.path(seeds)[0], [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[532 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070577.5616844, 1792074177.5616844]}, 'confidence': 0.6, 'created_at': 1792070577.5616844, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1020 characters long. Set self.maxDiff to None to see it.\n\n======================================================================\nFAIL: test_session_filter_also_constrains_intermediates (md_cg._frozen_chain_candidate_scope.Guards.test_session_filter_also_constrains_intermediates)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 169, in test_session_filter_also_constrains_intermediates\n    self.assertEqual(self.path(seeds, session='selected')[0], [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[532 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070577.5722492, 1792074177.5722492]}, 'confidence': 0.6, 'created_at': 1792070577.5722492, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1020 characters long. Set self.maxDiff to None to see it.\n\n======================================================================\nFAIL: test_work_role_is_not_a_bridge (md_cg._frozen_chain_candidate_scope.Guards.test_work_role_is_not_a_bridge)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 154, in test_work_role_is_not_a_bridge\n    self.assertEqual(rows, [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[529 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070577.582417, 1792074177.582417]}, 'confidence': 0.6, 'created_at': 1792070577.582417, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1017 characters long. Set self.maxDiff to None to see it.\n\n----------------------------------------------------------------------\nRan 14 tests in 0.225s\n\nFAILED (failures=10)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 14,
+          "passed": 14,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_direct_unscoped_api_keeps_existing_behavior (__main__.Guards.test_direct_unscoped_api_keeps_existing_behavior) ... ok\ntest_empty_candidate_pool_returns_no_paths (__main__.Guards.test_empty_candidate_pool_returns_no_paths) ... ok\ntest_expired_node_is_not_a_bridge (__main__.Guards.test_expired_node_is_not_a_bridge) ... ok\ntest_explicit_branch_restores_path (__main__.Guards.test_explicit_branch_restores_path) ... ok\ntest_hidden_branch_is_not_a_bridge (__main__.Guards.test_hidden_branch_is_not_a_bridge) ... ok\ntest_hidden_intermediate_does_not_consume_budget (__main__.Guards.test_hidden_intermediate_does_not_consume_budget) ... ok\ntest_include_work_restores_path (__main__.Guards.test_include_work_restores_path) ... ok\ntest_incoming_walk_keeps_scope (__main__.Guards.test_incoming_walk_keeps_scope) ... ok\ntest_layer_filter_constrains_intermediates (__main__.Guards.test_layer_filter_constrains_intermediates) ... ok\ntest_nonmonotone_fallback_keeps_scope (__main__.Guards.test_nonmonotone_fallback_keeps_scope) ... ok\ntest_real_rrf_has_no_hidden_provenance (__main__.Guards.test_real_rrf_has_no_hidden_provenance) ... ok\ntest_scope_does_not_poison_global_adjacency (__main__.Guards.test_scope_does_not_poison_global_adjacency) ... ok\ntest_session_filter_also_constrains_intermediates (__main__.Guards.test_session_filter_also_constrains_intermediates) ... ok\ntest_work_role_is_not_a_bridge (__main__.Guards.test_work_role_is_not_a_bridge) ... ok\n\n----------------------------------------------------------------------\nRan 14 tests in 0.229s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "C1 allow a hidden target into scoped adjacency",
+            "test": "Guards.test_hidden_intermediate_does_not_consume_budget",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_hidden_intermediate_does_not_consume_budget (__main__.Guards.test_hidden_intermediate_does_not_consume_budget) ... FAIL\n\n======================================================================\nFAIL: test_hidden_intermediate_does_not_consume_budget (__main__.Guards.test_hidden_intermediate_does_not_consume_budget)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 221, in test_hidden_intermediate_does_not_consume_budget\n    self.assertEqual(report['edges_scanned'], 0)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n----------------------------------------------------------------------\nRan 1 test in 0.015s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "05bda12e530a550a26e5f9e5aa27083faccc3b599f63d901c973f126d3f96ebc"
+          },
+          {
+            "name": "C2 ignore candidate scope entirely",
+            "test": "Guards.test_work_role_is_not_a_bridge",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_work_role_is_not_a_bridge (__main__.Guards.test_work_role_is_not_a_bridge) ... FAIL\n\n======================================================================\nFAIL: test_work_role_is_not_a_bridge (__main__.Guards.test_work_role_is_not_a_bridge)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 154, in test_work_role_is_not_a_bridge\n    self.assertEqual(rows, [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^\nAssertionError: Lists differ: [({'id': 'tail', 'frontmatter': {'access_c[532 chars]225)] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n({'id': 'tail', 'frontmatter': {'access_count': 0, 'condition_space': {'time_window': [1792070859.9082282, 1792074459.9082282]}, 'confidence': 0.6, 'created_at': 1792070859.9082282, 'edges': [], 'evidence_count': 0, 'id': 'tail', 'importance': 0.5, 'last_access': 0, 'layer': 'knowledge', 'lifecycle_state': 'active', 'modality': 'text', 'negative_evidence': 0, 'non_applicable_conditions': [], 'positive_evidence': 0, 'tags': [], 'verification_basis': None, 'verification_state': 'unverified'}, 'content': 'remote destination\\n', 'path': 'knowledge/orphan/tail.md'}, 0.585225)\n\nDiff is 1020 characters long. Set self.maxDiff to None to see it.\n\n----------------------------------------------------------------------\nRan 1 test in 0.011s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "05bda12e530a550a26e5f9e5aa27083faccc3b599f63d901c973f126d3f96ebc"
+          },
+          {
+            "name": "C3 drop scope in legacy fallback",
+            "test": "Guards.test_nonmonotone_fallback_keeps_scope",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_nonmonotone_fallback_keeps_scope (__main__.Guards.test_nonmonotone_fallback_keeps_scope) ... FAIL\n\n======================================================================\nFAIL: test_nonmonotone_fallback_keeps_scope (__main__.Guards.test_nonmonotone_fallback_keeps_scope)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 205, in test_nonmonotone_fallback_keeps_scope\n    self.assertEqual(found, {})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^\nAssertionError: {'bridge': {'score': 0.935, 'chain': {'sta[644 chars]'']}} != {}\nDiff is 1479 characters long. Set self.maxDiff to None to see it.\n\n----------------------------------------------------------------------\nRan 1 test in 0.011s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "05bda12e530a550a26e5f9e5aa27083faccc3b599f63d901c973f126d3f96ebc"
+          },
+          {
+            "name": "C4 forget scope at production RRF call",
+            "test": "Guards.test_real_rrf_has_no_hidden_provenance",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_real_rrf_has_no_hidden_provenance (__main__.Guards.test_real_rrf_has_no_hidden_provenance) ... FAIL\n\n======================================================================\nFAIL: test_real_rrf_has_no_hidden_provenance (__main__.Guards.test_real_rrf_has_no_hidden_provenance)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-chain-20261015/md_cg/test_chain_candidate_scope.py\", line 179, in test_real_rrf_has_no_hidden_provenance\n    self.assertNotIn('tail', {r[0]['id'] for r in rows})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'tail' unexpectedly found in {'tail', 'seed'}\n\n----------------------------------------------------------------------\nRan 1 test in 0.011s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "68acc7044f893eeab033972c3f9fb3192f1311cbee1c63344057ab900ef1e4bb"
+          }
+        ],
+        "restored": {
+          "tests": 14,
+          "passed": 14,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_direct_unscoped_api_keeps_existing_behavior (__main__.Guards.test_direct_unscoped_api_keeps_existing_behavior) ... ok\ntest_empty_candidate_pool_returns_no_paths (__main__.Guards.test_empty_candidate_pool_returns_no_paths) ... ok\ntest_expired_node_is_not_a_bridge (__main__.Guards.test_expired_node_is_not_a_bridge) ... ok\ntest_explicit_branch_restores_path (__main__.Guards.test_explicit_branch_restores_path) ... ok\ntest_hidden_branch_is_not_a_bridge (__main__.Guards.test_hidden_branch_is_not_a_bridge) ... ok\ntest_hidden_intermediate_does_not_consume_budget (__main__.Guards.test_hidden_intermediate_does_not_consume_budget) ... ok\ntest_include_work_restores_path (__main__.Guards.test_include_work_restores_path) ... ok\ntest_incoming_walk_keeps_scope (__main__.Guards.test_incoming_walk_keeps_scope) ... ok\ntest_layer_filter_constrains_intermediates (__main__.Guards.test_layer_filter_constrains_intermediates) ... ok\ntest_nonmonotone_fallback_keeps_scope (__main__.Guards.test_nonmonotone_fallback_keeps_scope) ... ok\ntest_real_rrf_has_no_hidden_provenance (__main__.Guards.test_real_rrf_has_no_hidden_provenance) ... ok\ntest_scope_does_not_poison_global_adjacency (__main__.Guards.test_scope_does_not_poison_global_adjacency) ... ok\ntest_session_filter_also_constrains_intermediates (__main__.Guards.test_session_filter_also_constrains_intermediates) ... ok\ntest_work_role_is_not_a_bridge (__main__.Guards.test_work_role_is_not_a_bridge) ... ok\n\n----------------------------------------------------------------------\nRan 14 tests in 0.110s\n\nOK\n"
+        },
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      }
+    }
+  },
+  "kind": "actual temporary-store guards and in-memory named mutations",
+  "native": {
+    "baseline": {
+      "case": "chain",
+      "kind": "actual temporary-store runtime",
+      "readings": {
+        "main_hits": [
+          "seed",
+          "tail"
+        ],
+        "explicit_branch_hits": [
+          "bridge",
+          "seed",
+          "tail"
+        ],
+        "expected_main_hits": [
+          "seed"
+        ],
+        "hidden_bridge": "bridge"
+      }
+    },
+    "fixed": {
+      "case": "chain",
+      "kind": "actual temporary-store runtime",
+      "readings": {
+        "main_hits": [
+          "seed"
+        ],
+        "explicit_branch_hits": [
+          "bridge",
+          "seed",
+          "tail"
+        ],
+        "expected_main_hits": [
+          "seed"
+        ],
+        "hidden_bridge": "bridge"
+      }
+    }
+  },
+  "regressions": {
+    "windows": {
+      "key": "chain",
+      "platform": "windows",
+      "passed": 7,
+      "failed": 0,
+      "missing": 0,
+      "results": [
+        {
+          "module": "test_chain_best_first",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 1.078,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_chain_best_first"
+          ],
+          "log": "reg-chain-windows-test_chain_best_first.log"
+        },
+        {
+          "module": "test_chain_read_isolate",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.422,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_chain_read_isolate"
+          ],
+          "log": "reg-chain-windows-test_chain_read_isolate.log"
+        },
+        {
+          "module": "test_p8_subgraph_chain",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.61,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_p8_subgraph_chain"
+          ],
+          "log": "reg-chain-windows-test_p8_subgraph_chain.log"
+        },
+        {
+          "module": "test_rrf_unique_votes",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 1.343,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_rrf_unique_votes"
+          ],
+          "log": "reg-chain-windows-test_rrf_unique_votes.log"
+        },
+        {
+          "module": "test_rrf_qualified_topk",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 2.75,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_rrf_qualified_topk"
+          ],
+          "log": "reg-chain-windows-test_rrf_qualified_topk.log"
+        },
+        {
+          "module": "test_c8_search_rrf_gates",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 5.813,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_c8_search_rrf_gates"
+          ],
+          "log": "reg-chain-windows-test_c8_search_rrf_gates.log"
+        },
+        {
+          "module": "test_branches",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 1.156,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_branches"
+          ],
+          "log": "reg-chain-windows-test_branches.log"
+        }
+      ]
+    },
+    "linux": {
+      "key": "chain",
+      "platform": "linux",
+      "passed": 7,
+      "failed": 0,
+      "missing": 0,
+      "results": [
+        {
+          "module": "test_chain_best_first",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 1.297,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-chain-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_chain_best_first"
+          ],
+          "log": "reg-chain-linux-test_chain_best_first.log"
+        },
+        {
+          "module": "test_chain_read_isolate",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 1.016,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-chain-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_chain_read_isolate"
+          ],
+          "log": "reg-chain-linux-test_chain_read_isolate.log"
+        },
+        {
+          "module": "test_p8_subgraph_chain",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.921,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-chain-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_p8_subgraph_chain"
+          ],
+          "log": "reg-chain-linux-test_p8_subgraph_chain.log"
+        },
+        {
+          "module": "test_rrf_unique_votes",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 1.266,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-chain-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_rrf_unique_votes"
+          ],
+          "log": "reg-chain-linux-test_rrf_unique_votes.log"
+        },
+        {
+          "module": "test_rrf_qualified_topk",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 1.078,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-chain-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_rrf_qualified_topk"
+          ],
+          "log": "reg-chain-linux-test_rrf_qualified_topk.log"
+        },
+        {
+          "module": "test_c8_search_rrf_gates",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 1.328,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-chain-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_c8_search_rrf_gates"
+          ],
+          "log": "reg-chain-linux-test_c8_search_rrf_gates.log"
+        },
+        {
+          "module": "test_branches",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.969,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-chain-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_branches"
+          ],
+          "log": "reg-chain-linux-test_branches.log"
+        }
+      ]
+    }
+  }
+}
