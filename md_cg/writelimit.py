@@ -23,7 +23,9 @@ mem_* 节点；主动遗忘闸门（forgetting.assess）MERGE 命中率仅 1%—
     或 lifecycle_state=="converged"）不再进组、不再降权、不再重写，因此周期
     巡检第 2 轮起对同一组零落盘；返回 dict 新增键 already_tidied（跳过计数）。
 
-状态持久化 <root>/_writelimit.json（进程重启不失效）；
+状态持久化 <root>/_writelimit.json（进程重启不失效）；台账是**明文 JSON 的外部输入**，
+顶层非 dict / 时间戳非数值 / 未来时间戳三类脏值一律按「该记账不存在」收敛
+（issue #354 [P1-9]/[P1-10]/[P1-11]）——不崩、也不把限流窗口永久锁死；
 env MDCG_WRITELIMIT=0 整体关闭；importance_hint≥0.7（保护优先语义）
 跳过所有限流。
 """
@@ -128,12 +130,24 @@ def _state_path(cg) -> str:
     return os.path.join(cg.root, STATE_FILE)
 
 
-# 生效条件：形参 cg 使 _state_path(cg) 可读取且 json.load 得到 dict 且 st.get("sigs")/st.get("rate") 均为 dict 时返回 st；否则若读取或解析抛 OSError/ValueError 或该 dict 中 sigs/rate 任一非 dict 则返回 {"sigs": {}, "rate": {}}（顶层非 dict 会在 st.get 处抛 AttributeError）；
+# 生效条件：形参 cg 使 _state_path(cg) 可读取、json.load 得到 **dict** 且 st.get("sigs")/st.get("rate") 均为 dict 时返回 st；否则（读取或解析抛 OSError/ValueError、顶层不是 dict、或 sigs/rate 任一非 dict）一律返回 {"sigs": {}, "rate": {}}——任何损坏形态都不抛异常；
 def _load(cg) -> dict:
+    """读台账；任何不可用形态一律回落空台账，**不抛**。
+
+    issue #354 [P1-9]：旧实现先取值再判类型 ⇒ 顶层是 JSON 数组/标量/null（外部
+    损坏或伪造）时 AttributeError 直接崩到调用方——限流器崩在**写入路径**上，
+    比「限流暂时失效」更坏。现在类型闸在取值**之前**。
+    不判「内容可信」（结构合法 ≠ 内容正确，同本仓 T9 边界）：单条记账的类型/
+    时间戳收敛由 _window_stamps / _window_stamp 在**消费点**做（#354 P1-10/P1-11）。
+    边界（越出 #354 面，归维护者裁）：台账判「不可用」时**静默回落**、不发 stderr——沿用
+    既有 OSError/ValueError 约定（本面只承诺「脏值不崩」，不承诺「脏值要喊」）；改告警会动到
+    所有依赖该约定的调用方，故本批刻意不碰。
+    """
     try:
         with open(_state_path(cg), encoding="utf-8") as f:
             st = json.load(f)
-        if isinstance(st.get("sigs"), dict) and isinstance(st.get("rate"), dict):
+        if (isinstance(st, dict) and isinstance(st.get("sigs"), dict)
+                and isinstance(st.get("rate"), dict)):
             return st
     except (OSError, ValueError):
         pass
@@ -147,11 +161,49 @@ def _save(cg, st: dict) -> None:
         atomic_write(p, json.dumps(st, ensure_ascii=False, sort_keys=True))
 
 
-# 生效条件：调用方传入 st、key、now，st 须含 "rate" 键（st["rate"].get(key, []) 缺该 key 时按空列表处理），按 now - t < RATE_WINDOW 过滤后追加 now，并只回写末尾 RATE_MAX*4 项。
+# 生效条件：调用方传入 st、key、now，st 须含 "rate" 键（st["rate"].get(key) 缺该 key 或值不是序列时按空列表处理），对窗口列表按 _window_stamps 做类型收敛 + 双向界定后追加 now，并只回写末尾 RATE_MAX*4 项。
 def _push_rate(st: dict, key: str, now: float) -> None:
-    win = [t for t in st["rate"].get(key, []) if now - t < RATE_WINDOW]
+    win = _window_stamps(st["rate"].get(key), now, RATE_WINDOW)
     win.append(now)
     st["rate"][key] = win[-RATE_MAX * 4:]
+
+
+# 生效条件：形参 t 为有限数值（bool 除外）且 now - window < t <= now 时返回 float(t)，否则返回 None（不抛）；
+def _window_stamp(t, now, window):
+    """单值时间戳的类型收敛 + 双向界定（issue #354 [P1-9]/[P1-10]/[P1-11] 同族）。
+
+    台账 _writelimit.json 是**明文 JSON**，可被外部损坏或伪造，而旧判据
+    now - t < window 是**单向**的，对三类脏值失守：
+      · 非数值元素/字段 → now - t 抛未捕获 TypeError，闸门崩在调用方（P1-11）；
+      · **未来**时间戳 → now - t 恒为负、恒满足 < window，窗口被**永久**占满、
+        限流**永久锁死**（P1-10：8 个未来戳即把 (layer, role) 永久判 DEFER）；
+      · 无穷/NaN → 比较恒真或恒假，窗口不再有界（现以 t != t 与 ±inf 的比较语义
+        就地收敛，不引 math 之类的额外模块依赖）。
+    故判据改为**双向界定**：时间戳必须落在 (now - window, now] 这一有界区间内。
+    bool 虽为 int 子类但语义不是时间戳，一并剔除；不可判的值返回 None（等价于
+    「该记账不存在」），由调用方按缺失语义处理——不抛、不静默锁死。
+    """
+    if isinstance(t, bool) or not isinstance(t, (int, float)):
+        return None
+    t = float(t)
+    if t != t:                       # NaN：与任何值比较都恒假，先剔（不引 math 依赖）
+        return None
+    if t > now or now - t >= window:  # 双向界定：未来戳剔、窗外旧戳也剔
+        return None
+    return t
+
+
+# 生效条件：形参 raw 为 list/tuple 时逐元素按 _window_stamp 收敛后返回新列表（保持原序）；raw 非序列（None/标量/str/dict 等）返回空列表；
+def _window_stamps(raw, now, window) -> list:
+    """时间戳序列的类型收敛 + 双向界定（判据单点同 _window_stamp）。
+
+    序列本身非 list/tuple（外部把 ratelimit 槽整个写成标量）也归为「无记账」——
+    旧实现直接迭代它会 TypeError（#354 P1-11 的相邻形态，rate[key] 非 list）。
+    """
+    if not isinstance(raw, (list, tuple)):
+        return []
+    return [v for v in (_window_stamp(t, now, window) for t in raw)
+            if v is not None]
 
 
 # ---------- 写入侧：前置限流 + 同构聚合 ----------
@@ -179,7 +231,7 @@ def check(cg, content, layer="contextual", role=None, node_id=None,
     st = _load(cg)
     key = f"{layer}:{role or 'user'}"
     # 1) 同源频率限制
-    win = [t for t in st["rate"].get(key, []) if now - t < RATE_WINDOW]
+    win = _window_stamps(st["rate"].get(key), now, RATE_WINDOW)
     if len(win) >= RATE_MAX:
         win.append(now)
         st["rate"][key] = win[-RATE_MAX * 4:]
@@ -190,8 +242,12 @@ def check(cg, content, layer="contextual", role=None, node_id=None,
     sig = template_signature(content)
     if sig and not _is_encrypted_level(sensitivity):
         rec = st["sigs"].get(sig)
-        if rec and now - float(rec.get("t") or 0) < CONVERGE_WINDOW \
-                and rec.get("nid"):
+        if not isinstance(rec, dict):
+            # 记账被外部损坏（dict 内混入标量/序列）：按「无记录」重占位，不把
+            # 崩溃带给调用方——与 _load 的顶层类型闸同一判据面（#354 P1-9 同族）。
+            rec = None
+        if rec and _window_stamp(rec.get("t"), now, CONVERGE_WINDOW) \
+                is not None and rec.get("nid"):
             tgt = cg.get(rec["nid"])
             if tgt:
                 if (tgt.get("content") or "").strip() \
@@ -237,6 +293,8 @@ def record_accepted(cg, node_id, content, now=None, sensitivity=None) -> None:
     now = float(now if now is not None else time.time())
     st = _load(cg)
     rec = st["sigs"].get(sig)
+    if not isinstance(rec, dict):        # #354 P1-9 同族：坏型按「无记录」处理
+        rec = None
     if rec is None or not rec.get("nid"):
         st["sigs"][sig] = {"nid": node_id, "t": now, "n":
                            int((rec or {}).get("n") or 1), "sk": sig[:60],
@@ -471,7 +529,8 @@ def _demote(cg, e: dict, actor: str = "sustain_tidy") -> None:
 def stats(cg) -> dict:
     """限流状态摘要（诊断面）。"""
     st = _load(cg)
-    live_sigs = sum(1 for r in st["sigs"].values() if r.get("nid"))
+    live_sigs = sum(1 for r in st["sigs"].values()
+                    if isinstance(r, dict) and r.get("nid"))
     return {"enabled": enabled(), "sigs_tracked": len(st["sigs"]),
             "sigs_live": live_sigs,
             "rate_keys": len(st["rate"]),

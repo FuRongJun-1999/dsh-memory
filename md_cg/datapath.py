@@ -53,6 +53,13 @@ DEFAULT_AUX_DIRNAME = ".mdcg"
 #: Windows 保留设备名全集（末段直判用；比对前统一 .upper()，故此处全大写）：
 #: DOS 设备名 CON/PRN/AUX/NUL、控制台伪设备 CONIN$/CONOUT$、COM1-9/LPT1-9，
 #: 以及 Windows 承认的上标数字变体 COM¹²³/LPT¹²³（上标 0 与 4-9 不是保留名）。
+#: **CLOCK$ 刻意不收**（issue #354 [P2-16] 报本清单漏 CLOCK$，本端复核后判定不成立）：
+#: 本机三重实测——ntdll.RtlIsDosDeviceName_U("CLOCK$")==0（CON/PRN/AUX/NUL/CONIN$/
+#: CONOUT$/COM1/LPT1 均非 0）、GetFullPathNameW 不把「<目录>\clock$」吞成 \\.\ 形态、
+#: os.makedirs/CreateDirectoryW 建得成且可写可读——判为**不保留**（与 docs/eval/发布11
+#: 已记「实测 com0/lpt0/com10/lpt10/clock$ 不保留」同一口径）。收进来会让 fail-closed 的
+#: _abs_host_path 误拒合法目录名（aux/data 根末段正好叫 clock$ 时启动即 return 2），
+#: 故**宁缺不假拒**；读数与红绿两态见守卫 md_cg/test_issue354_p2_datapath_clock。
 _RESERVED_DEVICE_NAMES = frozenset(
     ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"]
     + [f"COM{i}" for i in range(1, 10)]
