@@ -4064,7 +4064,8 @@ class MdCGOS(MdCG):
                  mode=None, snapshot_id=None, batch=None, entry_ids=None,
                  content=None, role=None, verification_basis=None,
                  importance_hint=None, node_id=None, write=False,
-                 min_jaccard=None, ids=None, pairs=None, actor=None, **extra):
+                 min_jaccard=None, ids=None, pairs=None, actor=None,
+                 sensitivity=None, **extra):
         """记忆维护（P1）：importance / longterm / prefeed / separate / stat。
 
         只读 action（stat/history/longterm 预演）与写层 action（prefeed）不受
@@ -4072,6 +4073,11 @@ class MdCGOS(MdCG):
 
         reload（P1b-2，DSH 建议 2）：显式触发 _maybe_reload_index（签名变化
         才真重载），返回 {"reloaded": bool} 供外部探活常驻进程的读面代际。
+
+        sensitivity（issue #315/#313，2026-10-15）：仅 action=prefeed 消费——
+        调用方声明的待写内容密级，转发给 `self.prefeed` 的两条落库支
+        （ACCEPT→add / MERGE→forgetting.reinforce）。缺省 None = 未声明，
+        与既有行为一致；其余 action 不读该键（照旧落 **extra）。
         """
         act = str(action or "stat").strip().lower()
         if act == "reload":
@@ -4099,7 +4105,18 @@ class MdCGOS(MdCG):
             return self.prefeed(content, layer=layer or "contextual", role=role,
                                 verification_basis=verification_basis,
                                 importance_hint=importance_hint, node_id=node_id,
-                                write=write)
+                                write=write,
+                                # issue #315/#313（审阅 B1「更深语义缺口」）：prefeed
+                                # 的 sensitivity 形参（本类 :4019）此前**只有直调
+                                # cg.prefeed(...) 才喂得进来**——生产入口是
+                                # maintain(action="prefeed")，而 maintain 没有该形参，
+                                # 调用方声明的密级落进 **extra 即被丢弃 ⇒ 裁决
+                                # MERGE 时 reinforce 收到 None，
+                                # merge_downgrades(target, None) 恒 False ⇒ 声明
+                                # private 的正文以明文聚合行并入 internal 节点。
+                                # 现补形参（缺省 None = 未声明，与既有行为一致）
+                                # 并在 prefeed 分支转发。
+                                sensitivity=sensitivity)
         if act == "separate":
             return subgraph.separate_run(
                 self, layer=layer, pairs=pairs, apply=apply, ids=ids,
