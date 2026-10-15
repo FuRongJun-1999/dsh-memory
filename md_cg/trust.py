@@ -39,6 +39,8 @@ from __future__ import annotations
 
 import os
 import time
+import math
+from datetime import datetime
 
 from . import protect
 from . import security as _security
@@ -263,7 +265,7 @@ def stamp(fm: dict, dst: str, reason: str = None, actor: str = None,
 _MS_EPOCH_THRESHOLD = 1e11
 
 
-def epoch_seconds(value):
+def epoch_seconds(value, *, _allow_nonfinite=False):
     """时间**数值** → epoch 秒（单位归一的**唯一实现点**）；非数值 → None。
 
     为什么需要它（issue #23 根因）：图内规范单位是**秒**——`created_at`、
@@ -273,7 +275,8 @@ def epoch_seconds(value):
     顶到最前，摄取节点**永久占据头部**（auto-recall 取到的「最新 N 条」全是它们）；
     同一根因还让 S2 时间门控把秒节点的区间判成不相交而误剔除。
 
-    口径（不猜测）：数值 `>= _MS_EPOCH_THRESHOLD` → `/1000.0`；其余原样 float。
+    口径（不猜测）：有限数值 `>= _MS_EPOCH_THRESHOLD` → `/1000.0`；其余原样 float。
+    NaN / Infinity / 超出 float 范围的数值返回 None，不得遮蔽合法别名。
     于是「已落库的历史毫秒数据」**无需改盘**即可参与排序与区间比较
     （读取侧归一，零迁移）。
 
@@ -283,16 +286,22 @@ def epoch_seconds(value):
     """
     if not isinstance(value, (int, float)):
         return None
-    v = float(value)
+    try:
+        v = float(value)
+    except (ValueError, OverflowError):
+        return None
+    if not _allow_nonfinite and not math.isfinite(v):
+        return None
     return v / 1000.0 if v >= _MS_EPOCH_THRESHOLD else v
 
 
-def parse_time(value):
+def parse_time(value, *, _allow_nonfinite=False):
     """时间值 → epoch 秒；不可解析返回 None（**不猜测**）。
 
     接受：数字（epoch 秒；**毫秒自动归一**，见 `epoch_seconds`）/ 数字串
     （同左）/ 日期或日期时间字符串（ISO 8601，宽松：空格分隔、`Z` 后缀、
-    日期精度都容忍）。纯标准库实现。
+    日期精度都容忍）。显式 Z / UTC offset 按绝对时刻解析；无时区日期保留
+    既有本地时间语义。纯标准库实现。
 
     单位归一单点落在此处：它是全系统时间数值的**唯一读入口**
     （时间算子 / `validity` / `provenance` 边 / 效力轴端点 / `stg._interval`），
@@ -301,17 +310,25 @@ def parse_time(value):
     if value is None or value == "":
         return None
     if isinstance(value, (int, float)):
-        return epoch_seconds(value)
+        return epoch_seconds(value, _allow_nonfinite=_allow_nonfinite)
     s = str(value).strip()
     if not s:
         return None
     try:
-        return epoch_seconds(float(s))
+        return epoch_seconds(float(s), _allow_nonfinite=_allow_nonfinite)
     except ValueError:
         pass
-    t = s.replace("/", "-").replace("T", " ")
-    if t.endswith("Z"):
-        t = t[:-1].strip()
+    # Explicit offsets denote an instant, independent of the host timezone.
+    # Naive dates below deliberately retain the existing local-time contract.
+    t = s.replace("/", "-")
+    try:
+        aware = datetime.fromisoformat(t)
+        if aware.tzinfo is not None:
+            ts = aware.timestamp()
+            return ts if math.isfinite(ts) else None
+    except (ValueError, OverflowError, OSError):
+        pass
+    t = t.replace("T", " ")
     fmts = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d")
     for f in fmts:
         try:
@@ -432,7 +449,7 @@ def time_axis_of(axis) -> str:
     raise ValueError(f"未知 time_axis {axis!r}（允许：{TIME_AXES}）")
 
 
-def time_window_of(fm, axis: str = "effective"):
+def time_window_of(fm, axis: str = "effective", *, _allow_nonfinite=False):
     """按轴取候选时间窗口 → `(start, end)`；不可判定 → `(None, None)`（不猜测）。
 
     · `effective`：效力轴，走 `first_endpoint(FROM_ALIASES/UNTIL_ALIASES)`
@@ -443,13 +460,15 @@ def time_window_of(fm, axis: str = "effective"):
       （与 `_interval` 的「整体不可用」语义一致）。
 
     `believed_at` **永不参与**（`BELIEVED_FIELD` 不出现于任何轴）。
+    内部 `_allow_nonfinite=True` 仅供派生 STG 索引维持异常时间的保守候选桶；
+    查询入参、效力轴别名与正常消费者均使用有限端点规则。
     """
     if not isinstance(fm, dict):
         return None, None
     if time_axis_of(axis) == "observed":
         t = fm.get(OBSERVED_TIME_FIELD)
         if t is not None:
-            ts = parse_time(t)
+            ts = parse_time(t, _allow_nonfinite=_allow_nonfinite)
             if ts is not None:
                 return ts, ts
         # 兼容两种载体形态：**fm**（`condition_space.time_window`）与**索引扁平快照**
@@ -461,7 +480,7 @@ def time_window_of(fm, axis: str = "effective"):
         if tw is None and isinstance(cs, dict):
             tw = cs.get(OBSERVED_WINDOW_FIELD)
         if isinstance(tw, (list, tuple)) and len(tw) == 2:
-            s, e = parse_time(tw[0]), parse_time(tw[1])
+            s, e = (parse_time(v, _allow_nonfinite=_allow_nonfinite) for v in tw)
             if s is None or e is None:
                 return None, None
             return s, e
