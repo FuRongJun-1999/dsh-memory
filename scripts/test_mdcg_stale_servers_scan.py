@@ -113,6 +113,24 @@ def _run(sandbox, args, reachable_ps=True):
 
 _PS_OK = ("ProcessId      : 4242\nParentProcessId : 1\nName           : python\n"
           "CreationDate   : 2026/10/05 10:00:00\nCommandLine    : python -m md_cg.mcp_server\n\n")
+# issue #318（2026-10-15 DSH 端）夹具：记录**内**的 CommandLine 含换行（多行 --eval，
+# 值里还夹一个空行）。Format-List 是纯文本、不做转义，故续行原样落到 stdout。
+# 修前：续行含冒号即被当成字段 ⇒ 造出缺 Name/ProcessId 的伪记录 ⇒ 判不可用。
+_PS_MULTILINE = ("ProcessId      : 33116\n"
+                 "ParentProcessId : 1\n"
+                 "Name           : node.exe\n"
+                 "CreationDate   : 2026-10-15 10:00:00\n"
+                 'CommandLine    : node --eval "\n'
+                 'const fs = require("node:fs");\n'
+                 "\n"
+                 'if (x) { console.log("a:b"); }\n'
+                 '"\n'
+                 "\n"
+                 "ProcessId      : 9001\n"
+                 "ParentProcessId : 1\n"
+                 "Name           : pwsh.exe\n"
+                 "CreationDate   : 2026-10-15 10:00:01\n"
+                 "CommandLine    : pwsh -c echo hi\n")
 _PS_PSEUDO = "<ERR FileNotFoundError: [WinError 2] 系统找不到指定的文件。>"
 
 
@@ -155,6 +173,11 @@ def main():
             (("", 0), False, "输出为空"),
             ((_PS_PSEUDO, 0), False, "伪记录（<ERR 文本被解析成记录）"),
             ((_PS_OK, 0), True, "正常 Format-List 输出"),
+            # issue #318（2026-10-15 DSH 端）：第七种形态——记录**内**的 CommandLine
+            # 含换行（多行 --eval，值里还夹空行）。修前续行含冒号即造伪记录 ⇒ 判不可用；
+            # 修后按「字段白名单 + 行首锚定」解析，判可用。
+            ((_PS_MULTILINE, 0), True,
+             "CommandLine 含换行（多行 --eval，值内夹空行）"),
         ]
         for (ret, usable, label) in cases:
             mod._ps = lambda *a, _r=ret, **k: _r
