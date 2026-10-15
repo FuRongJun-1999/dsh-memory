@@ -354,11 +354,21 @@ def load_cached(root: str) -> dict:
     return t
 
 
+# 生效条件：level 经 crypto.is_encrypted_level 判为加密档时返回 True；crypto 不可用时返回 False（与 _encrypted_levels 空集同口径）。
+def _crypto_is_encrypted_level(level) -> bool:
+    try:
+        from . import crypto
+    except Exception:
+        return False
+    return crypto.is_encrypted_level(level)
+
+
 # 生效条件：无条件惰性导入 crypto 并返回其 ENCRYPTED_LEVELS 的小写集合；crypto 不可用/无该常量时返回空集（空集=不启用密封面判据，退回旧行为）。
 def _encrypted_levels() -> set:
     try:
         from . import crypto
-        return {str(x).strip().lower() for x in getattr(crypto, "ENCRYPTED_LEVELS", ())}
+        return {crypto.normalize_sensitivity(x)
+                for x in getattr(crypto, "ENCRYPTED_LEVELS", ())} - {None}
     except Exception:
         return set()
 
@@ -376,7 +386,7 @@ def _sealed_node_ids(nodes) -> list:
     if not lv or not nodes:
         return []
     return [nid for nid, e in (nodes or {}).items()
-            if str(((e or {}).get("sensitivity")) or "").strip().lower() in lv]
+            if _crypto_is_encrypted_level((e or {}).get("sensitivity"))]
 
 
 # 生效条件：cg 为假值或取不到 index["nodes"] 时返回 {"nodes":0,"terms":0,"postings":0,"rebuilt":False}；

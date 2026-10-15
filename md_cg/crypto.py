@@ -74,6 +74,42 @@ ENC_SUFFIX = " -->"
 # 需要加密的密级（用户私有内容）
 ENCRYPTED_LEVELS = ("private", "secret")
 
+
+# 生效条件：level 为 str 时返回 strip().lower() 后的值（空串返回 None）；非 str（含 None）返回 None。
+# 不校验是否为 SENSITIVITY_ORDER 成员（校验归 security._rank）——本函数只做**写法归一**。
+def normalize_sensitivity(level):
+    """密级写法归一 —— 全仓唯一归一口径（安全重构 P1）。
+
+    病象：「是不是加密档」的判断散在约 10 个模块，postings / writelimit /
+    evidence / forgetting 做了 strip().lower()，其余直接 `in ENCRYPTED_LEVELS`，
+    同一个 " Private" 在不同路径上判成不同档。
+
+    不适用条件：不判合法性、不判降密级（security.merge_downgrades 单点）、不判读写权限。
+    """
+    if not isinstance(level, str):
+        return None
+    s = level.strip().lower()
+    return s or None
+
+
+# 生效条件：strict=False（缺省）时，normalize_sensitivity(level) 属 ENCRYPTED_LEVELS 即返回 True；
+# strict=True 时要求 level **原样**属 ENCRYPTED_LEVELS（不归一）——仅供「密文必须配规范加密档」
+# 这类**放行**判据使用（归一会把非规范写法放行，方向是放宽，故放行判据走严格口径）。
+def is_encrypted_level(level, *, strict: bool = False) -> bool:
+    """是否属 at-rest 加密档 —— 全仓唯一谓词（安全重构 P1）。
+
+    方向约定（最易用反处）：
+      · 「要不要保护（加密/脱敏/不落明文）」类判据 → 缺省口径（归一后判，写法
+        变体一律按加密档保护，偏严）；
+      · 「密文的密级标注是否合法、可放行读」类判据 → strict=True（非规范写法
+        不放行，偏严）。
+    两种用法都是 fail-closed 方向；模块里**不得**再直接写 `in ENCRYPTED_LEVELS`
+    （守卫：md_cg/test_sensitivity_predicate_single_point.py）。
+    """
+    if strict:
+        return isinstance(level, str) and level in ENCRYPTED_LEVELS
+    return normalize_sensitivity(level) in ENCRYPTED_LEVELS
+
 KEYS_FILE = "_keys.json"
 AUDIT_FILE = "_crypto.jsonl"
 MASTER_ENV = "MDCG_MASTER_KEY"
