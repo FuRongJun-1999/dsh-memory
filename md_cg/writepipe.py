@@ -223,22 +223,37 @@ def _utf8_len(v):
         return 0
 
 
-def _oversize_body(nid, a, n, limit, field):
-    """写入硬上限的唯一响应体构造点（#82.3 统一形态；#324 起带 field）。"""
+def _oversize_body(nid, a, n, limit, field, note=None):
+    """写入硬上限的唯一响应体构造点（#82.3 统一形态；#324 起带 field）。
+    # issue #355：note 非空 = **类型面**拒收（content 非字符串）——文案点名收到的
+    # 类型而非字节超限；响应体仍从这一处构造，不新增第二个 gate 字面量。
+    """
     _f = field or "content"
     _what = ("正文" if _f == "content" else "入参字段 " + _f)
+    if note is not None:
+        # issue #355：类型面出口。判据是**二值**的（非 str 即拒），与字节数无关——
+        # bytes 如实带序列化实测值仅供诊断，不得让调用方误以为「缩短就能过」。
+        _err = "content 类型非法（issue #355）：须为字符串，收到 " + note
+        _evid = "content 非字符串（" + note + "），UTF-8 字节判据不适用"
+        _hint = ("写入被拒（入参类型，不是工具故障）：content 须为字符串，收到 "
+                 "%s。本闸全 content_kind 统一（issue #324/#355），请改为字符串后重写。"
+                 % note)
+    else:
+        _err = ("content 超过写入硬上限（issue #82.3）"
+                if _f == "content" else
+                "入参字段 " + _f + " 超过写入硬上限（issue #324）")
+        _evid = "%s %d 字节 > 上限 %d" % (_f, n, limit)
+        _hint = ("写入被拒（硬上限，不是工具故障）：%s %d 字节 > 上限 %d 字节。"
+                 "本上限全 content_kind 统一（issue #82.3），重试同样结果——"
+                 "请缩短后重写。" % (_what, n, limit))
     return {"ok": False, "id": nid, "committed": False,
             "gate": "writelimit_size",
-            "error": ("content 超过写入硬上限（issue #82.3）"
-                      if _f == "content" else
-                      "入参字段 " + _f + " 超过写入硬上限（issue #324）"),
+            "error": _err,
             "bytes": n, "limit": limit, "field": _f,
             "verdict": {"state": "REJECT",
                         "kind": (a.get("content_kind") or "text"),
-                        "evidence": "%s %d 字节 > 上限 %d" % (_f, n, limit)},
-            "hint": ("写入被拒（硬上限，不是工具故障）：%s %d 字节 > 上限 %d 字节。"
-                     "本上限全 content_kind 统一（issue #82.3），重试同样结果——"
-                     "请缩短后重写。" % (_what, n, limit))}
+                        "evidence": _evid},
+            "hint": _hint}
 
 
 def oversize_response(nid, a):
@@ -255,7 +270,17 @@ def oversize_response(nid, a):
     故本闸不会因打码而漏放。
     """
     a = a or {}
-    c = a.get("content") or ""
+    _cv = a.get("content")
+    if _cv is not None and not isinstance(_cv, str):
+        # issue #355：#324 两条字节判据对非 str content 整体失效——判据①对
+        # dict/list 记 n=0，判据②把 content 排除在总字节之外，1.5MB dict 两条都
+        # 不过、闸放行后击穿库层裸 AttributeError（实测：盘上零放大，但
+        # _write_attempts.jsonl 也零痕迹，#142② 三态对账断在闸前）。此处按
+        # **类型二值**收口（非 str 即拒，与字节数无关），响应体仍走唯一构造点。
+        # 显式 None / 缺省 content 维持既有形态（走 or "" 分支），不扩张本件语义。
+        return _oversize_body(nid, a, _utf8_len(_cv), MAX_WRITE_BYTES,
+                              "content", note=type(_cv).__name__)
+    c = _cv or ""
     n = len(c.encode("utf-8")) if isinstance(c, str) else 0
     if n > MAX_WRITE_BYTES:
         return _oversize_body(nid, a, n, MAX_WRITE_BYTES, "content")
@@ -286,16 +311,6 @@ def oversize_response(nid, a):
             return _oversize_body(nid, a, len(_nv.encode("utf-8")),
                                  128, "node_id")
     return None
-    return {"ok": False, "id": nid, "committed": False,
-            "gate": "writelimit_size",
-            "error": "content 超过写入硬上限（issue #82.3）",
-            "bytes": n, "limit": MAX_WRITE_BYTES,
-            "verdict": {"state": "REJECT",
-                        "kind": (a.get("content_kind") or "text"),
-                        "evidence": "content %d 字节 > 上限 %d" % (n, MAX_WRITE_BYTES)},
-            "hint": ("写入被拒（硬上限，不是工具故障）：正文 %d 字节 > 上限 %d 字节。"
-                     "本上限全 content_kind 统一（issue #82.3），重试同样结果——"
-                     "请缩短正文后重写。" % (n, MAX_WRITE_BYTES))}
 
 
 class WritePipeline:
