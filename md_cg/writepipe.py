@@ -223,22 +223,23 @@ def _utf8_len(v):
         return 0
 
 
-def _oversize_body(nid, a, n, limit, field):
-    """写入硬上限的唯一响应体构造点（#82.3 统一形态；#324 起带 field）。"""
+def _oversize_body(nid, a, n, limit, field, error=None, hint=None):
+    """写入硬上限的唯一响应体构造点（#82.3 统一形态；#324 起带 field；
+    #355 起可覆写 error/hint——类型面拒收的文案与「超上限」不同）。"""
     _f = field or "content"
     _what = ("正文" if _f == "content" else "入参字段 " + _f)
     return {"ok": False, "id": nid, "committed": False,
             "gate": "writelimit_size",
-            "error": ("content 超过写入硬上限（issue #82.3）"
+            "error": (error or ("content 超过写入硬上限（issue #82.3）"
                       if _f == "content" else
-                      "入参字段 " + _f + " 超过写入硬上限（issue #324）"),
+                      "入参字段 " + _f + " 超过写入硬上限（issue #324）")),
             "bytes": n, "limit": limit, "field": _f,
             "verdict": {"state": "REJECT",
                         "kind": (a.get("content_kind") or "text"),
                         "evidence": "%s %d 字节 > 上限 %d" % (_f, n, limit)},
-            "hint": ("写入被拒（硬上限，不是工具故障）：%s %d 字节 > 上限 %d 字节。"
+            "hint": (hint or ("写入被拒（硬上限，不是工具故障）：%s %d 字节 > 上限 %d 字节。"
                      "本上限全 content_kind 统一（issue #82.3），重试同样结果——"
-                     "请缩短后重写。" % (_what, n, limit))}
+                     "请缩短后重写。" % (_what, n, limit)))}
 
 
 def oversize_response(nid, a):
@@ -255,8 +256,18 @@ def oversize_response(nid, a):
     故本闸不会因打码而漏放。
     """
     a = a or {}
-    c = a.get("content") or ""
-    n = len(c.encode("utf-8")) if isinstance(c, str) else 0
+    c = a.get("content")
+    # issue #355（2026-10-16 DSH 端）：content 非 str 时修前两条字节判据都漏——
+    # isinstance 直取 0、下面的总字节循环又把 content 排除在外 ⇒ 大体积 dict/list
+    # 过闸后击穿库层裸异常（.split），且尝试账本零痕迹。此处非 str 且非 None
+    # 直接结构化拒收（field=content，error 点名类型），不再等库层抛裸异常。
+    if c is not None and not isinstance(c, str):
+        return _oversize_body(
+            nid, a, _utf8_len(c), MAX_WRITE_BYTES, "content",
+            error="content 须为字符串（issue #355）：收到 " + type(c).__name__,
+            hint="写入被拒（入参类型，不是工具故障）：content 须为字符串，收到 "
+                 + type(c).__name__ + "。请改为字符串后重写。")
+    n = _utf8_len(c) if c is not None else 0
     if n > MAX_WRITE_BYTES:
         return _oversize_body(nid, a, n, MAX_WRITE_BYTES, "content")
     # issue #324（2026-10-15 DSH 端）：判据此前只量 content——其余字段完全不受
@@ -286,16 +297,6 @@ def oversize_response(nid, a):
             return _oversize_body(nid, a, len(_nv.encode("utf-8")),
                                  128, "node_id")
     return None
-    return {"ok": False, "id": nid, "committed": False,
-            "gate": "writelimit_size",
-            "error": "content 超过写入硬上限（issue #82.3）",
-            "bytes": n, "limit": MAX_WRITE_BYTES,
-            "verdict": {"state": "REJECT",
-                        "kind": (a.get("content_kind") or "text"),
-                        "evidence": "content %d 字节 > 上限 %d" % (n, MAX_WRITE_BYTES)},
-            "hint": ("写入被拒（硬上限，不是工具故障）：正文 %d 字节 > 上限 %d 字节。"
-                     "本上限全 content_kind 统一（issue #82.3），重试同样结果——"
-                     "请缩短正文后重写。" % (n, MAX_WRITE_BYTES))}
 
 
 class WritePipeline:

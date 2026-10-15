@@ -79,6 +79,20 @@ _check("A5 其它字段（evidence）超限 → 拒（判据不挑字段名）",
 _check("A6 反对照：同规模入参去掉超限字段后即放行（证明是字段面判据在起作用）",
        _call(node_id="n324", content="短正文", content_kind="text") is None, "")
 
+# ---- issue #355（2026-10-16 DSH 端）：非 str content 的类型面覆盖 ----
+# 修前两条字节判据都漏：isinstance 直取 0、总字节循环又把 content 排除在外 ⇒
+# 大体积 dict 过闸后击穿库层裸异常（.split），尝试账本零痕迹。
+_a9 = _call(node_id="n324", content={"k": "x" * 1500000}, content_kind="text")
+_check("A9 dict content 1.5 MiB → 拒（非 str 不再漏过字节判据，#355）",
+       isinstance(_a9, dict) and _a9.get("field") == "content"
+       and "issue #355" in str(_a9.get("error")), _a9)
+_a10 = _call(node_id="n324", content={"k": 1}, content_kind="text")
+_check("A10 小体积 dict content → 结构化拒收（不等库层裸异常，#355）",
+       isinstance(_a10, dict) and _a10.get("field") == "content"
+       and "issue #355" in str(_a10.get("error")), _a10)
+_a11 = _call(node_id="n324", content=None, content_kind="text")
+_check("A11 content=None → 本闸不拦（缺参语义归别处，零变化）", _a11 is None, _a11)
+
 print("== E 组：单点与真源复用 ==")
 _src = inspect.getsource(_wp.oversize_response)
 _check("E1 oversize_response 体内遍历了 content 以外的字段",
@@ -111,6 +125,13 @@ _MUTATIONS = (
      "md_cg/writepipe.py", _M2_OLD, _M2_NEW, ("A2", "A3")),
     ("V3 node_id 不用既有 128 契约、自写 4096 阈值（放过 200 字符的非法 id）",
      "md_cg/writepipe.py", _M3_OLD, _M3_NEW, ("A2",)),
+    # ---- issue #355：类型面（修前守卫 V1-V3 全锚在 str 判据与 node_id 契约面，
+    # 没有一条覆盖非 str content——把 isinstance 删掉守卫也不会红）----
+    ("V4 摘掉非 str content 的类型面判据（回到 isinstance 直取 0，即 #355 修前）",
+     "md_cg/writepipe.py",
+     "    if c is not None and not isinstance(c, str):",
+     "    if False:",
+     ("A9", "A10")),
 )
 
 
