@@ -687,7 +687,92 @@ def exact_hit_of(q: str, content: str, *, _prepared=None) -> int:
 NEG_MIN_TERM = 2
 
 
-# 生效条件：neg_conditions 为字符串列表（假值按空列表）；逐条按空白切词、丢弃长度 < NEG_MIN_TERM 的词与已入选的重复词；词出现在 scene_text 中，且（own_topic_text 去全部空白后为空，或该词去全部空白后不是 own_topic_text 去空白文本的子串）才计入；返回按首次出现顺序排列的命中词列表，无命中返回空列表。
+# ---- #362a：否定作用域（负条件命中的**唯一**新增否决项）------------------------
+#: 否定词表——**最长优先**（`_negated_at` 按表序 startswith，故长词必须排在前面）。
+NEG_CUES = ("不属于", "不是", "没有", "并非", "并无", "未有",
+            "不", "非", "没", "无", "未", "别", "莫")
+
+#: 否定词与被否定成分之间**允许**出现的连接字（「不是**这种**X」「不是**的**X」）。
+#: 只有「否定词 + 纯连接字」**紧邻**才算否定——`不`/`无` 是高频字，放宽成
+#: 「窗口内出现否定词就算否定」会把 `不适合梅雨季节的施工`（真负条件）一起吞掉，
+#: 那是过度收紧方向（由守卫 `--mutate` 的 M3 定点变异钉住）。
+NEG_LINK_CHARS = frozenset("是这那该此种个些的了在为之其")
+
+#: 否定作用域窗口（向前最多回看的字符数）：6 够「不是」+「这样的」（2+3），
+#: 又不足以跨过 `不适合X` 里的实义词。窗口两端都有 K 组对照——缩到 1 即红（M2）。
+NEG_SCOPE_WINDOW = 6
+
+
+# 生效条件：text 为任意对象（None 按空串）时返回其匹配面归一串（去全部空白 + NFKC + casefold + 繁简折叠，繁简表当前为空）；归一口径复用 routing.fold_variants 单点。
+def fold_for_match(text) -> str:
+    """匹配面归一人（#362b/c）——**复用路由面的同一份口径**，不新造第二份。
+
+    与 `compact_exact_text`（整串精确命中判据的空白归一）的区别只有一条：本函数
+    额外取 `routing.fold_variants`（NFKC + casefold + 繁简折叠）。之所以不另写一份
+    「全角/大小写」处理，是因为那正是本仓反复出现的**同语义多落点判据分裂**
+    （`routing.nfkc_text` 是 NFKC 的唯一单点，由守卫 E 组做源码面断言）。
+    """
+    return compact_exact_text(routing.fold_variants(text))
+
+
+# 生效条件：text 与 term 均为 str 时，把 text 中所有「与 term 同形（去全部空白 + NFKC + casefold + 繁简折叠后相等）」的区间替换为空格并返回；term 归一后为空或未找到同形区间时原样返回。
+def _strip_variant(text: str, term: str) -> str:
+    """把与 `term` **同形但不同字面**的区间也摘掉（#362b/c 的摘词面腿）。
+
+    为什么必须补这一步：`boundary_hit` 的命中判据（`neg_condition_hits`）在 #362b/c
+    之后按**归一后**的词面命中，而摘词面若只认原样字面，就会出现「归一后命中、
+    却摘不干净」⇒ 边界问句下资格仍 REJECT 而 `boundary_suppressed=True` ⇒
+    `tally_boundary` 的 `self_negation` 不再恒 0（该不变量见 `test_boundary_hit` B4）。
+    两条腿共用同一个 `fold_for_match` 口径，是 §5.2「同一字段两条语义可分」的前提。
+    """
+    target = fold_for_match(term)
+    if not target:
+        return text
+    out = text
+    while True:
+        chars, idx = [], []
+        for i, ch in enumerate(out):
+            for c in fold_for_match(ch):
+                chars.append(c)
+                idx.append(i)
+        k = "".join(chars).find(target)
+        if k < 0:
+            return out
+        i, j = idx[k], idx[k + len(target) - 1] + 1
+        out = out[:i] + " " + out[j:]
+
+
+# 生效条件：s 为归一串、i 为 0 <= i < len(s) 的匹配起址时，向前最多回看 NEG_SCOPE_WINDOW 个字符，若存在否定词 cue 且该 cue 恰好止于 i 之前（不跨进匹配内部）、cue 与 i 之间只由 NEG_LINK_CHARS 组成则返回 True，否则 False。
+def _negated_at(s: str, i: int) -> bool:
+    """`s[i:]` 处的匹配是否落在某个否定词的作用域内（#362a）。"""
+    for back in range(1, NEG_SCOPE_WINDOW + 1):
+        j = i - back
+        if j < 0:
+            break
+        # **正反问（A-not-A）不算否定**：「是不是X」「有没有X」「能不能X」「去不去X」
+        # 里的否定词是正反叠用标记，不是对 X 的否定（X 恰是句子的**主题**）。
+        # 判据：否定词**两侧同字**（`s[j-1] == s[j+1]`）——`不是X` 前面不是「是」
+        # 时照旧算否定，故该豁免只吃掉正反问，不放松真否定（K12/K13 两向钉住）。
+        if j >= 1 and j + 1 < len(s) and s[j - 1] == s[j + 1]:
+            continue
+        for cue in NEG_CUES:
+            if j + len(cue) <= i and s.startswith(cue, j):
+                if all(ch in NEG_LINK_CHARS for ch in s[j + len(cue):i]):
+                    return True
+    return False
+
+
+# 生效条件：hay 与 needle 均为 str 时返回 needle 在 hay 中的全部出现起始下标（左对齐、按升序，含重叠出现）；needle 为空串返回空列表。
+def _occurrences(hay: str, needle: str) -> list:
+    """needle 在 hay 中的全部出现起址（#362a：逐次出现各自判否定作用域）。"""
+    out, i = [], hay.find(needle) if needle else -1
+    while i >= 0:
+        out.append(i)
+        i = hay.find(needle, i + 1)
+    return out
+
+
+# 生效条件：neg_conditions 为字符串列表（假值按空列表）、scene_text/own_topic_text 为字符串（假值按空串）时，两侧都过 fold_for_match 归一（去全部空白 + NFKC + casefold + 繁简折叠）；逐条取其归一后词面——整条（长度 ≥ NEG_MIN_TERM）出现在情境里、且**存在一次出现未被否定作用域覆盖**（_negated_at 为假）、且不落在自主题面上，即命中；否则按空白切词、丢弃归一后长度 < NEG_MIN_TERM 的词，「每个词都出现在情境里」且不落在自主题面上也算命中；返回按首次出现顺序排列的命中原样条目列表，无命中返回空列表。
 def neg_condition_hits(neg_conditions, scene_text, own_topic_text="") -> list:
     """负条件（不适用条件）命中判据——**检索面唯一的负判据单点**。
 
@@ -702,6 +787,19 @@ def neg_condition_hits(neg_conditions, scene_text, own_topic_text="") -> list:
       ④ **自主题豁免**：命中内容出现在节点自己声明的主题面（功能名 + 生效条件，
          见 `MdCG._self_topic_text`）里则不计——它不是「不适用」，而是「本节点
          讲的就是它」。
+      ⑤ **否定作用域**（#362a）：整条命中后**逐次出现**检查紧邻是否有否定词
+         （`NEG_CUES`：不/非/没/无/…）；「否定词 + 纯连接字」紧邻
+         （`不是梅雨季节`、`不是这种梅雨季节`）⇒ 该次出现**不计**命中。
+         任一出现未被否定即命中（`不是梅雨季节，现在是梅雨季节` 仍命中——
+         第二次出现没被否定）。`不适合梅雨季节的施工` **照旧命中**：`适合`
+         不是连接字，否定词作用的是「适合」而不是「梅雨季节」——收紧只落在
+         真正的否定结构上，不落「否定词出现在附近」。
+         **正反问（A-not-A）不算否定**：「是不是X」「有没有X」是否定词两侧同字的
+         正反叠用，X 恰是句子主题 ⇒ 照旧命中（`_negated_at` 的同字判据）。
+      ⑥ **字符归一**（#362b/c）：两侧都过 `fold_for_match`（去全部空白 + NFKC +
+         casefold + 繁简折叠，全部经 `routing` 单点）。全角/半角与大小写因此
+         互通（`４Ｇ单模终端` = `4G单模终端`、`PDF 扫描件` = `pdf 扫描件`）；
+         繁简折叠表**当前为空**（见 `routing.TRAD_TO_SIMP`），该能力未生效。
 
     为什么不能沿用「任一词命中」（三处过粗，各有实测支撑）：
       · **主题词变扳机**：空白切词把中文句里夹的裸标识符切成独立词，于是
@@ -720,20 +818,28 @@ def neg_condition_hits(neg_conditions, scene_text, own_topic_text="") -> list:
     ——`test_neg_condition_hits.py` 有正向对照断言钉住（`问ZXQ7`/`刚才在干什么`/
     `问完全无关主题` 三条语料口径 + 自造多词条目），防「一律不拒」的退化解。
     """
-    scene = scene_text or ""
-    scene_norm = re.sub(r"\s+", "", scene)
-    own = re.sub(r"\s+", "", own_topic_text or "")
+    scene_norm = fold_for_match(scene_text or "")
+    own = fold_for_match(own_topic_text or "")
     hits = []
     for n in (neg_conditions or []):
-        item = re.sub(r"\s+", "", str(n))
+        item = fold_for_match(n)
         if not item:
             continue
         if len(item) >= NEG_MIN_TERM and item in scene_norm:
             if not (own and item in own):
-                hits.append(str(n))
+                # #362a：整条命中后还要过**否定作用域**——任一出现**未被否定**
+                # 即命中（`不是梅雨季节，现在是梅雨季节` 的第二次出现没被否定，
+                # 故仍命中）。逐次判而非「整串搜一次否定词」，正是为了不把
+                # `不适合X` 里的 `不`（作用在「适合」上）当成对 X 的否定。
+                if any(not _negated_at(scene_norm, k)
+                       for k in _occurrences(scene_norm, item)):
+                    hits.append(str(n))
             continue
-        words = [w for w in str(n).split() if len(w) >= NEG_MIN_TERM]
-        if words and all(w in scene for w in words):
+        # 全词命中：词面齐全才算问到点上。归一后的词与归一串同口径比较
+        # （#362b/c；去空白同时把「条目内空白」与「情境内空白」两种写法对齐）。
+        words = [w for w in (fold_for_match(x) for x in str(n).split())
+                 if len(w) >= NEG_MIN_TERM]
+        if words and all(w in scene_norm for w in words):
             if own and any(w in own for w in words):
                 continue
             hits.append(str(n))
@@ -937,7 +1043,7 @@ def boundary_hit(node_dict, query, context=None) -> dict:
             "scene": scene_str}
 
 
-# 生效条件：text 为字符串（假值按空串）、terms 为可迭代条目表时，逐条把其原样字面量与「去空白后的字符间容忍任意空白」形态从 text 中替换为空格；返回替换后的字符串（terms 为空即原样返回）。
+# 生效条件：text 为字符串（假值按空串）、terms 为可迭代条目表时，逐条把其原样字面量、「去空白后的字符间容忍任意空白」形态、以及「同形（去空白 + NFKC + casefold + 繁简折叠后相等，走 _strip_variant）」形态从 text 中替换为空格；返回替换后的字符串（terms 为空即原样返回）。
 def strip_boundary_terms(text: str, terms) -> str:
     """从查询串里摘掉命中的拒绝域条目（只用于**边界问句**的资格判定）。
 
@@ -955,6 +1061,9 @@ def strip_boundary_terms(text: str, terms) -> str:
         ns = re.sub(r"\s+", "", s)
         if ns and ns != s:                     # 条目内含空白 → 容忍任意空白形态
             out = re.sub(r"\s*".join(re.escape(ch) for ch in ns), " ", out)
+        # #362b/c：命中判据已按**归一词面**认（全角/大小写/繁简），摘词面必须同口径，
+        # 否则「归一后命中、却摘不干净」会在边界问句下留下自否定残留。
+        out = _strip_variant(out, s)
     return out
 
 
@@ -4012,7 +4121,7 @@ class MdCG:
             acc = "无情境可比（未做正条件确认）+ " + acc
         return {"state": STATE_ACCEPT, "reason": acc}
 
-    # 生效条件：node_dict 为 {frontmatter, content}（缺键按空处理）、query 为字符串、context 为 dict 或 None；无条件先算边界命中（boundary_hit），再算资格判定——边界命中**且** query 为边界问句（is_boundary_query）时，资格判定改以「摘掉命中拒绝域条目后的 query」重跑（并在返回体的 qualification 上标 boundary_suppressed=True），其余情形资格判定原样跑 judge_qualification(node_dict, query, context)；返回 {"qualification","boundary","counts","recallable","reason"}——counts 内 reject 与 boundary_hit **分开计数**，recallable 为「可召回可展示」（边界命中恒真；无边界命中时 = 资格态不是 REJECT）。
+    # 生效条件：node_dict 为 {frontmatter, content}（缺键按空处理）、query 为字符串、context 为 dict 或 None；无条件先算边界命中（boundary_hit），再算资格判定——边界命中**且** query 为边界问句（is_boundary_query）时，资格判定改以「摘掉命中拒绝域条目后的 query」重跑（并在返回体的 qualification 上标 boundary_suppressed=True），其余情形资格判定原样跑 judge_qualification(node_dict, query, context)；返回 {"qualification","boundary","counts","recallable","reason"}——counts 内 reject 与 boundary_hit **分开计数**，recallable 为「可召回可展示」（边界命中恒真；无边界命中时 = 资格态不是 REJECT）；#362d 案②：抑制确实发生且未摘词面原判 REJECT 时，把该证据并入顶层 reason（键集与 state 不动）。
     @staticmethod
     def judge_with_boundary(node_dict, query: str, context=None) -> dict:
         """资格判定 + 拒绝域命中——**分开计数、分开呈现**（§5.2 / P0-4）。
@@ -4026,12 +4135,23 @@ class MdCG:
                                "blindspot":0|1, "boundary_hit":0|1},
              "recallable":    bool,     # 与既有候选过滤同口径：state 不属
                                         # (REJECT, BLINDSPOT) 即可召回
-             "reason":        str}
+             "reason":        str}      # #362d 案②：边界问句下若「未摘词面
+                                        # 原判 REJECT」，此处并入该证据
 
         **不变量（本判据的核心）**：`boundary.hit` 为真**不构成**资格否定——
         边界问句下资格判定摘掉命中词面再跑，故「问该节点的拒绝域」不会把该节点
         打回 REJECT（自否定）；非边界问句下资格判定**原样**跑 `judge_qualification`，
         负条件的灵敏度一字不变（情境里真的命中拒绝域 ⇒ 照旧 REJECT）。
+
+        **#362d（2026-10-14 Lead 裁定，案②零破坏子形态）**：上面的不变量是
+        P0-4/P2-2 的**有意设计**，不改；真正缺的是**可观测性**——旧返回体在
+        边界问句下只给「资格 DEFER」，看不出「未摘词面时原判 REJECT」。
+        故本函数在**抑制确实发生**且**未摘词面原判 REJECT** 时，把该证据并入
+        既有顶层 `reason` 串：**顶层键集与 qualification 键集一字不动、
+        `state` 一字不动**（`test_boundary_hit` 的 B0c/B0d 逐项键集断言不受
+        影响）。代价如实登记：`mdcos.search_rrf` 与 `MdCG._emit` 都只取
+        `qualification`/`counts`，**不会主动透出该 reason**——透出需改
+        `md_cg/mdcos.py`（不在本轮写面），交后续轮次。
 
         **已接线（P2-2，2026-10-01）**：本函数与 `boundary_hit` 都**有生产调用方**——
 
@@ -4048,13 +4168,19 @@ class MdCG:
         node_dict = node_dict or {}
         bh = boundary_hit(node_dict, query, context)
         bq = is_boundary_query(query)
-        if bh["hit"] and bq:
-            qual = dict(MdCG.judge_qualification(
-                node_dict, strip_boundary_terms(query, bh["terms"]), context))
-            qual["boundary_suppressed"] = True
-        else:
-            qual = dict(MdCG.judge_qualification(node_dict, query, context))
-            qual["boundary_suppressed"] = False
+        suppressed = bool(bh["hit"] and bq)
+        qual = dict(MdCG.judge_qualification(
+            node_dict,
+            strip_boundary_terms(query, bh["terms"]) if suppressed else query,
+            context))
+        qual["boundary_suppressed"] = suppressed
+        # #362d 案②（零破坏子形态）：另算一次**未摘词面**的判定作证据，见下方 reason 段。
+        raw = (dict(MdCG.judge_qualification(node_dict, query, context))
+               if suppressed else qual)
+        # 非边界问句下 raw 即 qual 本身，**不产生第二次判定**（默认口径零位移）；
+        # 该证据只并入顶层 reason——键集与 state 一字不动，§5.2 的不变量保持成立；
+        # 缺的只是**可观测性**（报告抱怨的正是「REJECT 被压掉了、看不到」）。
+        # 完整裁定与覆盖缺口见本函数 docstring 的 #362d 段。
         st = str(qual.get("state") or "")
         counts = {"accept": int(st == STATE_ACCEPT),
                   "reject": int(st == STATE_REJECT),
@@ -4064,14 +4190,21 @@ class MdCG:
         # 可召回与**既有候选过滤同口径**（mdcos 的 `st in (REJECT, BLINDSPOT)`
         # 即剔除）：这两态不进候选，其余（ACCEPT/DEFER）可召回。
         recallable = st not in (STATE_REJECT, STATE_BLINDSPOT)
+        why = ("边界命中（%s）+ 资格 %s" % (bh["marker"], st)
+               if bh["hit"] else "无边界命中 + 资格 %s" % st)
+        # #362d 案②：**证据在场**——边界问句摘掉命中词面后不再 REJECT，但「未摘
+        # 词面的原判」必须让调用方看得见（键集不动，证据进既有 reason 串）。
+        if suppressed and str(raw.get("state") or "") == STATE_REJECT:
+            why += ("；**摘词面前原判 %s**（查询逐字含本节点的拒绝域条目，该 REJECT "
+                    "被边界问句的摘词面抑制；边界命中使其可召回可展示）"
+                    % STATE_REJECT)
         return {"qualification": {"state": qual.get("state"),
                                   "reason": qual.get("reason"),
                                   "boundary_suppressed": qual["boundary_suppressed"]},
                 "boundary": {"hit": bh["hit"], "terms": bh["terms"],
                              "marker": bh["marker"], "reason": bh["reason"]},
                 "counts": counts, "recallable": recallable,
-                "reason": ("边界命中（%s）+ 资格 %s" % (bh["marker"], st)
-                           if bh["hit"] else "无边界命中 + 资格 %s" % st)}
+                "reason": why}
 
     # ---------- 检索（性能阶梯 + 资格判定）----------
 

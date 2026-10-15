@@ -29,6 +29,67 @@ _SKELETON_TAIL = re.compile(r"(知识点)?内容\s*[（(]按骨架填充[)）]\s
 ORPHAN = "orphan"
 
 
+# 生效条件：text 为任意对象（None 按空串）时返回 str(text) 的 NFKC 归一结果；不 strip、不改大小写——**本仓 NFKC 口径的唯一单点**。
+def nfkc_text(text) -> str:
+    """NFKC 归一的**唯一单点**（全角/半角、兼容字形收口，issue #362b/c）。
+
+    `normalize_domain`（路由键）与 `mdcg.neg_condition_hits` / `mdcg.strip_boundary_terms`
+    （负条件判据与边界摘词面）都经此函数取 NFKC。为什么必须抽成函数：本仓的返工教训
+    是「两份实现 + 注释写着同源 = 口径必分叉」（见 `mdcg.py` 里 `_ccg_line` 的副本案）。
+    仓内**不得**再出现第二处 NFKC 归一实现（本模块的单点是唯一入口）——由
+    `md_cg/test_issue362_neg_condition.py` 的 E 组做源码面单点断言钉死。
+    """
+    return unicodedata.normalize("NFKC", "" if text is None else str(text))
+
+
+#: 繁→简折叠表（#362c：**机制在位、数据待补**）。
+#:
+#: 为什么是空表：仓内**没有**既有的繁简映射表（证据与检索口径见
+#: `md_cg/test_issue362_neg_condition.py` 的 C 组注释）。而「只覆盖本 issue 语料的
+#: 最小表」会在守卫里全绿、在真实流量上静默漏拒——那是**假绿**，比没有表更坏。
+#: 故按 Lead 裁定（2026-10-14）：**c 项本轮挂起**，只落机制单点；表默认空 ⇒
+#: 生产行为一字不动。注入点见 `trad_to_simp()` / `set_trad_to_simp()`。
+TRAD_TO_SIMP = {}
+
+
+# 生效条件：无参时返回当前生效的繁→简折叠表（{单字符 str: 单字符 str}）；默认即模块级 `TRAD_TO_SIMP`（空表）。
+def trad_to_simp() -> dict:
+    """繁简折叠表的**读取单点**（#362c 注入点之一）。"""
+    return TRAD_TO_SIMP
+
+
+# 生效条件：table 为 {单字符 str: 单字符 str} 映射时把它设为当前折叠表并返回旧表；table 为假值时复原为空表（返回旧表）。
+def set_trad_to_simp(table) -> dict:
+    """繁简折叠表的**写入单点**（#362c）：真源一旦确定，只在此处接入。
+
+    守卫用它注入 2~3 条**测试用**映射，证明「表一旦有，c 项链路就是通的」——
+    这条非恒真对照要证明的是**机制到位**，而不是「现在没有表」。
+    """
+    global TRAD_TO_SIMP
+    old = TRAD_TO_SIMP
+    TRAD_TO_SIMP = dict(table or {})
+    return old
+
+
+# 生效条件：text 为任意对象（None 按空串）时返回「NFKC → casefold → 繁简折叠（表非空时）」的结果；不删空白、不改标点，除这三步外不做任何其它归一。
+def fold_variants(text) -> str:
+    """检索/判据面的**字符归一人**（#362b/c）：NFKC → casefold → 繁简折叠。
+
+    NFKC 走与 `normalize_domain` 同一个 `nfkc_text` 单点，故两侧**同口径**；
+    casefold 追加大小写折叠（`4G`/`4g`、`PDF`/`pdf`）；繁简折叠表**当前为空**
+    （见 `TRAD_TO_SIMP`），表非空时逐字符替换。
+
+    刻意**不做**超出这三步的任何归一（不删标点、不并同音、不做拼音）——过度归一
+    与归一缺失同样是缺陷：守卫 K 组有 `C++`/`A-B`/`Ⅳ`/`ß` 的非恒真对照把
+    「哪些改写是可接受的既有口径、哪些是越界」逐条钉住。
+    """
+    s = nfkc_text(text).casefold()
+    table = trad_to_simp()
+    if table:
+        s = "".join(table.get(ch, ch) for ch in s)
+    return s
+
+
 # 生效条件：raw 为真值时按 NFKC 归一化并 strip，最多 3 轮剥离 _INSTANCE_TAIL（无变化即停）、再剥 _SKELETON_TAIL、空白转下划线后返回；raw 为假值（None/空串）或处理后为空串时返回 ORPHAN。
 def normalize_domain(raw: str) -> str:
     """把自由文本的域描述归一化成稳定的短键。
@@ -39,7 +100,7 @@ def normalize_domain(raw: str) -> str:
     """
     if not raw:
         return ORPHAN
-    s = unicodedata.normalize("NFKC", str(raw)).strip()
+    s = nfkc_text(raw).strip()
     # 反复剥离实例名尾巴（可能叠加两层，见上面第三个例子）
     for _ in range(3):
         new = _INSTANCE_TAIL.sub("", s)
