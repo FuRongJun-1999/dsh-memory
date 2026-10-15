@@ -245,6 +245,16 @@
     "windows": {
       "key": "time",
       "platform": "windows",
+      "source_head": "f49c9607b3bce43a7ebdab1c92270f3c632a0082",
+      "production_sha256": {
+        "md_cg/mdcg.py": "1d6da4332571eb193439175ffc1a762267f13755fb757c48c57e021b7bdaa8d2",
+        "md_cg/mdcos.py": "87d64aab2c6cd71ad1c757a1922ebbb4963f9fdf414080ce1c92554ca6a078f9",
+        "md_cg/trust.py": "2416818b8e3b677374a75b2f90a47e6e9edb1e2af2d76c13908b8bec74e6aa43",
+        "md_cg/stgidx.py": "8951bd3621c35960d8a533739beacb7d56022a6c3c971fbaaf13cf3fd83ade51",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/chain.py": "f376e566b6735aee8d589e6a6a2a91162023c8cfda0309d7efe8ba13f9199a85",
+        "md_cg/reach.py": "4a03c4bccf3a3c1d51521cd3394916ee993cf7f40059cbeecf304e51cd722dd5"
+      },
       "passed": 6,
       "failed": 0,
       "missing": 0,
@@ -253,7 +263,7 @@
           "module": "test_trust",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.625,
+          "seconds": 0.516,
           "command": [
             "py",
             "-3.12",
@@ -268,7 +278,7 @@
           "module": "test_retr_s8_time",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.593,
+          "seconds": 0.562,
           "command": [
             "py",
             "-3.12",
@@ -283,7 +293,7 @@
           "module": "test_time_core_lint",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 481.063,
+          "seconds": 441.484,
           "command": [
             "py",
             "-3.12",
@@ -298,7 +308,7 @@
           "module": "test_issue52_scan_condition_first",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 5.687,
+          "seconds": 5.532,
           "command": [
             "py",
             "-3.12",
@@ -313,7 +323,7 @@
           "module": "test_stg_time_blocks",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 1.11,
+          "seconds": 1.093,
           "command": [
             "py",
             "-3.12",
@@ -328,7 +338,7 @@
           "module": "test_trust_edge_reachability",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.437,
+          "seconds": 0.438,
           "command": [
             "py",
             "-3.12",
@@ -339,11 +349,123 @@
           ],
           "log": "reg-time-windows-test_trust_edge_reachability.log"
         }
-      ]
+      ],
+      "previous_snapshot": {
+        "phase": "before upstream sync / development attempts; excluded from final counts",
+        "readings": {
+          "key": "time",
+          "platform": "windows",
+          "passed": 6,
+          "failed": 0,
+          "missing": 0,
+          "results": [
+            {
+              "module": "test_trust",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.625,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_trust"
+              ],
+              "log": "previous/reg-time-windows-test_trust.log"
+            },
+            {
+              "module": "test_retr_s8_time",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.593,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_retr_s8_time"
+              ],
+              "log": "previous/reg-time-windows-test_retr_s8_time.log"
+            },
+            {
+              "module": "test_time_core_lint",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 481.063,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_time_core_lint"
+              ],
+              "log": "previous/reg-time-windows-test_time_core_lint.log"
+            },
+            {
+              "module": "test_issue52_scan_condition_first",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 5.687,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_issue52_scan_condition_first"
+              ],
+              "log": "previous/reg-time-windows-test_issue52_scan_condition_first.log"
+            },
+            {
+              "module": "test_stg_time_blocks",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 1.11,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_stg_time_blocks"
+              ],
+              "log": "previous/reg-time-windows-test_stg_time_blocks.log"
+            },
+            {
+              "module": "test_trust_edge_reachability",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.437,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_trust_edge_reachability"
+              ],
+              "log": "previous/reg-time-windows-test_trust_edge_reachability.log"
+            }
+          ]
+        }
+      }
     },
     "linux": {
       "key": "time",
       "platform": "linux",
+      "source_head": "f49c9607b3bce43a7ebdab1c92270f3c632a0082",
+      "production_sha256": {
+        "md_cg/mdcg.py": "1d6da4332571eb193439175ffc1a762267f13755fb757c48c57e021b7bdaa8d2",
+        "md_cg/mdcos.py": "87d64aab2c6cd71ad1c757a1922ebbb4963f9fdf414080ce1c92554ca6a078f9",
+        "md_cg/trust.py": "2416818b8e3b677374a75b2f90a47e6e9edb1e2af2d76c13908b8bec74e6aa43",
+        "md_cg/stgidx.py": "8951bd3621c35960d8a533739beacb7d56022a6c3c971fbaaf13cf3fd83ade51",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/chain.py": "f376e566b6735aee8d589e6a6a2a91162023c8cfda0309d7efe8ba13f9199a85",
+        "md_cg/reach.py": "4a03c4bccf3a3c1d51521cd3394916ee993cf7f40059cbeecf304e51cd722dd5"
+      },
       "passed": 6,
       "failed": 0,
       "missing": 0,
@@ -352,7 +474,7 @@
           "module": "test_trust",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 5.719,
+          "seconds": 5.515,
           "command": [
             "wsl",
             "-d",
@@ -374,7 +496,7 @@
           "module": "test_retr_s8_time",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.969,
+          "seconds": 0.844,
           "command": [
             "wsl",
             "-d",
@@ -396,7 +518,7 @@
           "module": "test_time_core_lint",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 294.92200000000594,
+          "seconds": 303.14,
           "command": [
             "wsl",
             "-d",
@@ -408,144 +530,6 @@
             "TMPDIR=/tmp",
             "GIT_DIR=/mnt/e/Codex/2026-10-08/referenced-chatgpt-conversation-this-is-an/work/dsh-memory-pr77/.git/worktrees/memory-five-new-time-20261015",
             "GIT_WORK_TREE=<work>/memory-five-new-time-20261015",
-            "python3",
-            "-X",
-            "utf8",
-            "-m",
-            "md_cg.test_time_core_lint"
-          ],
-          "log": "reg-time-linux-test_time_core_lint-native-git.log"
-        },
-        {
-          "module": "test_stg_time_blocks",
-          "returncode": 0,
-          "status": "PASS",
-          "seconds": 1.0940000000045984,
-          "command": [
-            "wsl",
-            "-d",
-            "kali-linux",
-            "--cd",
-            "<work>/memory-five-new-time-20261015",
-            "--",
-            "env",
-            "TMPDIR=/tmp",
-            "GIT_DIR=/mnt/e/Codex/2026-10-08/referenced-chatgpt-conversation-this-is-an/work/dsh-memory-pr77/.git/worktrees/memory-five-new-time-20261015",
-            "GIT_WORK_TREE=<work>/memory-five-new-time-20261015",
-            "python3",
-            "-X",
-            "utf8",
-            "-m",
-            "md_cg.test_stg_time_blocks"
-          ],
-          "log": "reg-time-linux-test_stg_time_blocks-native-git.log"
-        },
-        {
-          "module": "test_trust_edge_reachability",
-          "returncode": 0,
-          "status": "PASS",
-          "seconds": 0.719,
-          "command": [
-            "wsl",
-            "-d",
-            "kali-linux",
-            "--cd",
-            "<work>/memory-five-new-time-20261015",
-            "--",
-            "env",
-            "TMPDIR=/tmp",
-            "python3",
-            "-X",
-            "utf8",
-            "-m",
-            "md_cg.test_trust_edge_reachability"
-          ],
-          "log": "reg-time-linux-test_trust_edge_reachability.log"
-        },
-        {
-          "module": "test_issue52_scan_condition_first",
-          "returncode": 0,
-          "status": "PASS",
-          "seconds": 1.1559999999954016,
-          "command": [
-            "wsl",
-            "-d",
-            "kali-linux",
-            "--cd",
-            "<work>/memory-five-new-time-20261015",
-            "--",
-            "env",
-            "TMPDIR=/tmp",
-            "GIT_DIR=/mnt/e/Codex/2026-10-08/referenced-chatgpt-conversation-this-is-an/work/dsh-memory-pr77/.git/worktrees/memory-five-new-time-20261015",
-            "GIT_WORK_TREE=<work>/memory-five-new-time-20261015",
-            "python3",
-            "-X",
-            "utf8",
-            "-m",
-            "md_cg.test_issue52_scan_condition_first"
-          ],
-          "log": "reg-time-linux-test_issue52_scan_condition_first-native-git.log"
-        }
-      ],
-      "initial_attempts": [
-        {
-          "module": "test_trust",
-          "returncode": 0,
-          "status": "PASS",
-          "seconds": 5.719,
-          "command": [
-            "wsl",
-            "-d",
-            "kali-linux",
-            "--cd",
-            "<work>/memory-five-new-time-20261015",
-            "--",
-            "env",
-            "TMPDIR=/tmp",
-            "python3",
-            "-X",
-            "utf8",
-            "-m",
-            "md_cg.test_trust"
-          ],
-          "log": "reg-time-linux-test_trust.log"
-        },
-        {
-          "module": "test_retr_s8_time",
-          "returncode": 0,
-          "status": "PASS",
-          "seconds": 0.969,
-          "command": [
-            "wsl",
-            "-d",
-            "kali-linux",
-            "--cd",
-            "<work>/memory-five-new-time-20261015",
-            "--",
-            "env",
-            "TMPDIR=/tmp",
-            "python3",
-            "-X",
-            "utf8",
-            "-m",
-            "md_cg.test_retr_s8_time"
-          ],
-          "log": "reg-time-linux-test_retr_s8_time.log"
-        },
-        {
-          "module": "test_time_core_lint",
-          "returncode": 124,
-          "status": "FAIL",
-          "seconds": 180.015,
-          "command": [
-            "wsl",
-            "-d",
-            "kali-linux",
-            "--cd",
-            "<work>/memory-five-new-time-20261015",
-            "--",
-            "env",
-            "TMPDIR=/tmp",
             "python3",
             "-X",
             "utf8",
@@ -555,14 +539,9 @@
           "log": "reg-time-linux-test_time_core_lint.log"
         },
         {
-          "module": "test_stg_condition_first",
-          "status": "MISSING",
-          "returncode": null
-        },
-        {
-          "module": "test_stg_time_blocks",
-          "returncode": 1,
-          "status": "FAIL",
+          "module": "test_issue52_scan_condition_first",
+          "returncode": 0,
+          "status": "PASS",
           "seconds": 1.016,
           "command": [
             "wsl",
@@ -577,6 +556,30 @@
             "-X",
             "utf8",
             "-m",
+            "md_cg.test_issue52_scan_condition_first"
+          ],
+          "log": "reg-time-linux-test_issue52_scan_condition_first.log"
+        },
+        {
+          "module": "test_stg_time_blocks",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.969,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-time-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "GIT_DIR=/mnt/e/Codex/2026-10-08/referenced-chatgpt-conversation-this-is-an/work/dsh-memory-pr77/.git/worktrees/memory-five-new-time-20261015",
+            "GIT_WORK_TREE=<work>/memory-five-new-time-20261015",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
             "md_cg.test_stg_time_blocks"
           ],
           "log": "reg-time-linux-test_stg_time_blocks.log"
@@ -585,7 +588,7 @@
           "module": "test_trust_edge_reachability",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.719,
+          "seconds": 0.672,
           "command": [
             "wsl",
             "-d",
@@ -603,7 +606,274 @@
           ],
           "log": "reg-time-linux-test_trust_edge_reachability.log"
         }
-      ]
+      ],
+      "previous_snapshot": {
+        "phase": "before upstream sync / development attempts; excluded from final counts",
+        "readings": {
+          "key": "time",
+          "platform": "linux",
+          "passed": 6,
+          "failed": 0,
+          "missing": 0,
+          "results": [
+            {
+              "module": "test_trust",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 5.719,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-time-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_trust"
+              ],
+              "log": "previous/reg-time-linux-test_trust.log"
+            },
+            {
+              "module": "test_retr_s8_time",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.969,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-time-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_retr_s8_time"
+              ],
+              "log": "previous/reg-time-linux-test_retr_s8_time.log"
+            },
+            {
+              "module": "test_time_core_lint",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 294.92200000000594,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-time-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "GIT_DIR=/mnt/e/Codex/2026-10-08/referenced-chatgpt-conversation-this-is-an/work/dsh-memory-pr77/.git/worktrees/memory-five-new-time-20261015",
+                "GIT_WORK_TREE=<work>/memory-five-new-time-20261015",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_time_core_lint"
+              ],
+              "log": "previous/reg-time-linux-test_time_core_lint-native-git.log"
+            },
+            {
+              "module": "test_stg_time_blocks",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 1.0940000000045984,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-time-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "GIT_DIR=/mnt/e/Codex/2026-10-08/referenced-chatgpt-conversation-this-is-an/work/dsh-memory-pr77/.git/worktrees/memory-five-new-time-20261015",
+                "GIT_WORK_TREE=<work>/memory-five-new-time-20261015",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_stg_time_blocks"
+              ],
+              "log": "previous/reg-time-linux-test_stg_time_blocks-native-git.log"
+            },
+            {
+              "module": "test_trust_edge_reachability",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.719,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-time-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_trust_edge_reachability"
+              ],
+              "log": "previous/reg-time-linux-test_trust_edge_reachability.log"
+            },
+            {
+              "module": "test_issue52_scan_condition_first",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 1.1559999999954016,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-time-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "GIT_DIR=/mnt/e/Codex/2026-10-08/referenced-chatgpt-conversation-this-is-an/work/dsh-memory-pr77/.git/worktrees/memory-five-new-time-20261015",
+                "GIT_WORK_TREE=<work>/memory-five-new-time-20261015",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_issue52_scan_condition_first"
+              ],
+              "log": "previous/reg-time-linux-test_issue52_scan_condition_first-native-git.log"
+            }
+          ],
+          "initial_attempts": [
+            {
+              "module": "test_trust",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 5.719,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-time-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_trust"
+              ],
+              "log": "previous/reg-time-linux-test_trust.log"
+            },
+            {
+              "module": "test_retr_s8_time",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.969,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-time-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_retr_s8_time"
+              ],
+              "log": "previous/reg-time-linux-test_retr_s8_time.log"
+            },
+            {
+              "module": "test_time_core_lint",
+              "returncode": 124,
+              "status": "FAIL",
+              "seconds": 180.015,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-time-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_time_core_lint"
+              ],
+              "log": "previous/reg-time-linux-test_time_core_lint.log"
+            },
+            {
+              "module": "test_stg_condition_first",
+              "status": "MISSING",
+              "returncode": null
+            },
+            {
+              "module": "test_stg_time_blocks",
+              "returncode": 1,
+              "status": "FAIL",
+              "seconds": 1.016,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-time-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_stg_time_blocks"
+              ],
+              "log": "previous/reg-time-linux-test_stg_time_blocks.log"
+            },
+            {
+              "module": "test_trust_edge_reachability",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.719,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-time-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_trust_edge_reachability"
+              ],
+              "log": "previous/reg-time-linux-test_trust_edge_reachability.log"
+            }
+          ]
+        }
+      }
     }
   }
 }
