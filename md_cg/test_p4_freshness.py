@@ -259,8 +259,9 @@ def g4_floor():
             return
     check("受保护节点：importance × 乘子 ≥ IMPORTANCE_PROTECT（跨越 1/10/100 个半衰期）",
           True)
+    # 真未保护样本：importance < 0.70 才不命中按分保护（0.8 属受保护）。
     w_free = F.entry_weight({"created_at": REF - 3650 * DAY,
-                             "importance": 0.8}, now=REF)[0]
+                             "importance": 0.5}, now=REF)[0]
     check("判别力：未保护节点不享有该下界（乘子触 floor）",
           abs(w_free - F.SCORE_FLOOR) < 1e-12, str(w_free))
     check("保护下限口径取自 weights.IMPORTANCE_PROTECT（单一真源）",
