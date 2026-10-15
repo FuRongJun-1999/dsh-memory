@@ -3359,14 +3359,40 @@ class MdCGOS(MdCG):
             # 闸必须在 _record_decision 之前抛出——审计节点写入本就在其
             # try/except 内，闸放那里会被吞成 record_error 形同虚设。
             _p = getattr(self, "principal", None)
+            _e = (self.index.get("nodes") or {}).get(target) or {}
             if _p is not None and hasattr(_p, "require_layer_write"):
-                _e = (self.index.get("nodes") or {}).get(target) or {}
                 _p.require_layer_write(
                     _e.get("layer") or tgt["frontmatter"].get("layer")
                     or tgt["path"].split("/")[0],
                     _e.get("sensitivity") or DEFAULT_SENSITIVITY)
             protect.guard_write(self, target, override=override,
                                 actor=getattr(self, "actor", None))
+            # issue #359（2026-10-16 DSH 端）：merge 是第四个「incoming 并入
+            # target、按 target 档可见」的合并落点——#148/#243 已在另外三处判
+            # 「incoming 密级高于 target 即 fail-closed」，此处漏接 ⇒ private
+            # 提案正文以明文并入 internal 节点、无令牌访客可读。且本分支默认
+            # 裁决者能读到提案，实际无处检查（N201 的可见性过滤只在
+            # review_list）⇒ orchestr 凭 pid 也能 merge 后读回。两步都在拼接
+            # 之前、_record_decision 之前（闸放后面会被审计 try/except 吞掉）。
+            _prop_sens = (item.get("sensitivity")
+                          or (item.get("extra") or {}).get("sensitivity")
+                          or DEFAULT_SENSITIVITY)
+                          # 未记录时按缺省档（internal）：报告建议的 "secret" 会让
+                          # 「提案未声明密级」的普通 merge 全部被拒（实测 n131 G1a/G1b
+                          # 转 red）——而 #148 的语义是判「incoming 高于 target」，
+                          # unknown 视同缺省档即可挡住报告的攻击（private 已被记录）。
+            _tgt_sens = (_e.get("sensitivity")
+                         or tgt["frontmatter"].get("sensitivity")
+                         or DEFAULT_SENSITIVITY)
+            if hasattr(self, "_readable") and not self._readable(
+                    {"sensitivity": _prop_sens,
+                     "session": item.get("session")}):
+                return {"ok": False, "error": "proposal_not_visible",
+                        "proposal_sensitivity": _prop_sens}
+            if _security.merge_downgrades(_tgt_sens, _prop_sens):
+                return {"ok": False, "error": "merge_downgrade_refused",
+                        "target_sensitivity": _tgt_sens,
+                        "incoming_sensitivity": _prop_sens}
             fm = dict(tgt["frontmatter"])
             merged_content = (tgt["content"].rstrip() + "\n\n" +
                               item["content"].strip() + "\n")
