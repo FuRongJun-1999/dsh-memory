@@ -188,9 +188,17 @@ def stamp(fm: dict, dst: str, reason: str = None, actor: str = None,
 
     与 `set_state()` 共用同一裁决点（`check`），供**需与其他字段同批落盘**的
     收口点使用（写入时一次写盘改依赖/时间轴/验证态）。
+
+    降级豁免的 `protected` 形参由本函数从 frontmatter 取出，判据与
+    `protect.is_protected` **同源**（`protect.is_protected_metadata` 纯函数）：
+    层保护（`self`/`anchor`）、显式 `protected` 位、按分保护三类都算受保护；
+    `immutable` 位是既有真源，保留不减。
     """
     src = state_of(fm)
-    prot = bool(fm.get("protected") or fm.get("immutable"))
+    # 三条真源经 protect 纯函数同源；修前只认 protected/immutable 位 ⇒
+    # 层保护节点收不到豁免。既有两个真源原样保留（只加宽，不缩窄）。
+    prot = (bool(fm.get("protected") or fm.get("immutable"))
+            or protect.is_protected_metadata(fm)[0])
     ok, code, why = check(src, dst, protected=prot, override=override)
     if not ok or code == "noop":
         return ok, code, why

@@ -720,12 +720,23 @@ def neg_condition_hits(neg_conditions, scene_text, own_topic_text="") -> list:
     ——`test_neg_condition_hits.py` 有正向对照断言钉住（`问ZXQ7`/`刚才在干什么`/
     `问完全无关主题` 三条语料口径 + 自造多词条目），防「一律不拒」的退化解。
     """
+    # issue #362(b)：两侧先做 NFKC + casefold（与 routing.normalize_domain 同口径）
+    # ——全角/半角与大小写差异此前一律漏拒（负条件「４Ｇ单模终端」对问句
+    # 「4G单模终端」判不出命中；「pdf 扫描件」对「PDF 扫描件」同理）。
+    # unicodedata 在函数内导入：本函数被 test_neg_condition_hits 的
+    # --branch-baseline 以受限命名空间 exec（只注入 re / NEG_MIN_TERM）。
+    import unicodedata
+
+    def _fold(s):
+        return unicodedata.normalize("NFKC", s).casefold()
+
     scene = scene_text or ""
-    scene_norm = re.sub(r"\s+", "", scene)
-    own = re.sub(r"\s+", "", own_topic_text or "")
+    scene_norm = _fold(re.sub(r"\s+", "", scene))
+    own = _fold(re.sub(r"\s+", "", own_topic_text or ""))
+    scene_fold = _fold(scene)
     hits = []
     for n in (neg_conditions or []):
-        item = re.sub(r"\s+", "", str(n))
+        item = _fold(re.sub(r"\s+", "", str(n)))
         if not item:
             continue
         if len(item) >= NEG_MIN_TERM and item in scene_norm:
@@ -733,7 +744,8 @@ def neg_condition_hits(neg_conditions, scene_text, own_topic_text="") -> list:
                 hits.append(str(n))
             continue
         words = [w for w in str(n).split() if len(w) >= NEG_MIN_TERM]
-        if words and all(w in scene for w in words):
+        words = [_fold(w) for w in words]
+        if words and all(w in scene_fold for w in words):
             if own and any(w in own for w in words):
                 continue
             hits.append(str(n))

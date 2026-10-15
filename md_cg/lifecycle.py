@@ -28,8 +28,10 @@
     故取 `lifecycle_state`：语义自明、零歧义。
   · 存量节点**缺 state 即视为 active**（`state_of` 的缺省），故不回填也能工作；
     `backfill()` 提供一次性回填（幂等、可 dry-run）。
-  · **受保护节点豁免降级**：`protected`/`immutable` 节点不接受降级迁移，需
-    `override=True` 显式放行——「保护 = 不可遗忘」在状态层的落点。
+  · **受保护节点豁免降级**：`protect.is_protected` 判为受保护的节点（层保护
+    `self`/`anchor` ／ 显式 `protected` 位 ／ 按分保护）与 `immutable` 节点不
+    接受降级迁移，需 `override=True` 显式放行——「保护 = 不可遗忘」在状态层
+    的落点。
   · 非法迁移**拒绝**（负路由）：`check()` 返回 `(ok, code, reason)`，`set_state()`
     返回 `ok=False` + 机器可读 `error` 而不抛；写路径要硬拒用 `require_transition()`。
   · 永不删除：`archived` 只是状态，节点文件仍在（可逆、可审计）。
@@ -46,6 +48,7 @@ from __future__ import annotations
 import os
 import time
 
+from . import protect
 from .fsutil import append_jsonl
 
 #: 状态全集。顺序即「降级方向」：active → converged → demoted → archived。
@@ -191,7 +194,7 @@ def require_transition(src, dst, protected: bool = False, override: bool = False
     return code
 
 
-# 生效条件：src 取 state_of(fm)，prot 取 bool(fm.get("protected") or fm.get("immutable"))；check 返回 ok 假或 code == "noop" 时原样返回 (ok, code, why) 且不改 fm；否则把 dst 写入 fm[STATE_FIELD]，并把含 at/from/to/reason/actor 的新条目追加到由 fm.get(HISTORY_FIELD) or [] 复制的列表、截取末 HISTORY_KEEP 条写回 fm[HISTORY_FIELD]，返回 (True, code, why)。
+# 生效条件：src 取 state_of(fm)，prot 取 bool(fm.get("protected") or fm.get("immutable")) or protect.is_protected_metadata(fm)[0]；check 返回 ok 假或 code == "noop" 时原样返回 (ok, code, why) 且不改 fm；否则把 dst 写入 fm[STATE_FIELD]，并把含 at/from/to/reason/actor 的新条目追加到由 fm.get(HISTORY_FIELD) or [] 复制的列表、截取末 HISTORY_KEEP 条写回 fm[HISTORY_FIELD]，返回 (True, code, why)。
 def stamp(fm: dict, dst: str, reason: str = None, actor: str = None,
           override: bool = False):
     """在给定 frontmatter 上**就地**推进状态（无 IO）→ `(ok, code, why)`。
@@ -199,10 +202,19 @@ def stamp(fm: dict, dst: str, reason: str = None, actor: str = None,
     与 `set_state()` 共用同一裁决点（`check`），供**需与其他字段同批落盘**的收
     口点使用——`writelimit` 的降权要一次写盘改 tags/importance/状态，`forgetting`
     的强化同理；否则状态得单独再写一次盘（同一节点两倍 IO）。
+
     合法且非幂等时写入 `STATE_FIELD` 并追加 `HISTORY_FIELD`；失败/幂等不动 fm。
+
+    降级豁免的 `protected` 形参由本函数从 frontmatter 取出，判据与
+    `protect.is_protected` **同源**（`protect.is_protected_metadata` 纯函数）：
+    层保护 `self`/`anchor`、显式 `protected` 位、按分保护三类都算受保护；
+    `immutable` 位是既有真源，保留不减。
     """
     src = state_of(fm)
-    prot = bool(fm.get("protected") or fm.get("immutable"))
+    # 三条真源经 protect 纯函数同源；修前只认 protected/immutable 位 ⇒
+    # 层保护节点收不到豁免。既有两个真源原样保留（只加宽，不缩窄）。
+    prot = (bool(fm.get("protected") or fm.get("immutable"))
+            or protect.is_protected_metadata(fm)[0])
     ok, code, why = check(src, dst, protected=prot, override=override)
     if not ok or code == "noop":
         return ok, code, why

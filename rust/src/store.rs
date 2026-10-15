@@ -330,6 +330,35 @@ pub fn candidates(entries: &[Entry]) -> Vec<usize> {
         .collect()
 }
 
+/// 对齐 `md_cg/protect.py` 的 `PROTECTED_LAYERS`（层保护：self/anchor）。
+const PROTECTED_LAYERS: [&str; 2] = ["self", "anchor"];
+/// 对齐 `md_cg/protect.py` 的 `AUTO_PROTECT_IMPORTANCE`（按分自动保护阈值）。
+const AUTO_PROTECT_IMPORTANCE: f64 = 0.70;
+
+/// 不可遗忘判定的装载口镜像（`md_cg/protect.py:139-176 is_protected` 的三条按序）：
+/// ① 层 ∈ self/anchor；② `frontmatter.protected is True`；③ `importance ≥ 0.70`
+/// 且 `importance_source` 缺省或为 `"hint"`（显式 `"heuristic"` 等不按分保护）。
+/// `immutable`（不可覆盖）不参与：不可遗忘 ≠ 不可覆盖。
+/// `importance` 取 `read_doc` 已算出的有效值——判定与乘子必须用同一个数。
+fn is_protected_mirror(fm: &crate::text::Frontmatter, e: &Entry, importance: f64) -> bool {
+    let layer = match fm.get_str("layer") {
+        Some(s) if !s.is_empty() => s,
+        _ => e.layer.clone(),
+    };
+    if PROTECTED_LAYERS.contains(&layer.as_str()) {
+        return true;
+    }
+    if matches!(fm.get_json("protected"), Some(Json::Bool(true))) {
+        return true;
+    }
+    // 来源只认三种：键缺省、null、字符串 "hint"；其余显式来源一律不按分保护。
+    let src_default_or_hint = match fm.get_json("importance_source") {
+        None | Some(Json::Null) => true,
+        Some(v) => v.as_str() == Some("hint"),
+    };
+    importance >= AUTO_PROTECT_IMPORTANCE && src_default_or_hint
+}
+
 fn read_doc(root: &Path, e: &Entry) -> Option<Doc> {
     let p = root.join(&e.path);
     let text = std::fs::read_to_string(&p).ok()?;
@@ -396,10 +425,10 @@ fn read_doc(root: &Path, e: &Entry) -> Option<Doc> {
         let v = fm.get_f64("last_access");
         if v != 0.0 { v } else { e.last_access }
     };
-    let protected = matches!(
-        fm.get_json("protected"),
-        Some(crate::json::Json::Bool(true))
-    );
+    // 衰减下界（P4 §7.3）的 `protected` 位取既有保护语义：只读
+    // `frontmatter.protected` 会让保护层（self/anchor）与按分保护的节点落到
+    // `SCORE_FLOOR`。判据镜像 `is_protected`（层 → 显式位 → 按分）。
+    let protected = is_protected_mirror(&fm, e, importance);
 
     Some(Doc {
         id,
@@ -578,6 +607,168 @@ mod opt_batch1_tests {
         // 小写 term 命中大写正文（terms 已是 normalize_en 产物 = 全小写）
         let hits = crate::retrieval::lexical(&docs, &cand, "hotcache", 1e9, true);
         assert_eq!(hits.len(), 1, "大小写不同不得阻断 LIKE 预筛（R-2 行为面）");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+/// 保护语义镜像单测（与 Python \`md_cg/protect.py:139-176 is_protected\` 同判据）。
+///
+/// 钉的是**装载口**：\`read_doc\` 落在 \`Doc.protected\` 上的布尔值必须等于既有
+/// 不可遗忘判定的三条规则，而不是只看 \`frontmatter.protected\` 一个位。
+#[cfg(test)]
+mod protection_mirror_tests {
+    use super::*;
+
+    fn temp_root(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let d = std::env::temp_dir().join(format!("mdcg_prot_{tag}_{nanos}"));
+        std::fs::create_dir_all(d.join("knowledge")).unwrap();
+        std::fs::create_dir_all(d.join("self")).unwrap();
+        std::fs::create_dir_all(d.join("anchor")).unwrap();
+        std::fs::write(
+            d.join("_index.json"),
+            r#"{"nodes":{
+                "lay_self":{"path":"self/lay_self.md","layer":"self","importance":0.90},
+                "lay_anchor":{"path":"anchor/lay_anchor.md","layer":"anchor","importance":0.90,
+                              "importance_source":"heuristic"},
+                "bit_true":{"path":"knowledge/bit_true.md","layer":"knowledge","importance":0.72,
+                            "protected":true},
+                "heur_high":{"path":"knowledge/heur_high.md","layer":"knowledge","importance":0.90,
+                             "importance_source":"heuristic"},
+                "hint_high":{"path":"knowledge/hint_high.md","layer":"knowledge","importance":0.90,
+                             "importance_source":"hint"},
+                "none_high":{"path":"knowledge/none_high.md","layer":"knowledge","importance":0.90},
+                "imm_only":{"path":"knowledge/imm_only.md","layer":"knowledge","importance":0.95,
+                            "immutable":true,"importance_source":"heuristic"}
+            }}"#,
+        )
+        .unwrap();
+        d
+    }
+
+    /// 节点文件：每个键只写一次——`importance` 由调用方给值，`extra` 只放其余键。
+    fn node(id: &str, layer: &str, importance: &str, extra: &str) -> String {
+        format!("---\nid: \"{id}\"\nlayer: \"{layer}\"\nimportance: {importance}\n{extra}---\n# 正文：{id}\n")
+    }
+
+    fn fixture(tag: &str) -> PathBuf {
+        let root = temp_root(tag);
+        // 保护层（self/anchor）：层本身即保护，frontmatter 不打 protected 位。
+        std::fs::write(root.join("self").join("lay_self.md"),
+                       node("lay_self", "self", "0.90", "")).unwrap();
+        std::fs::write(root.join("anchor").join("lay_anchor.md"),
+                       node("lay_anchor", "anchor", "0.90",
+                            "importance_source: \"heuristic\"\n")).unwrap();
+        // 显式 protected 位（0.72 单独可辨：来源 heuristic 也不得改判）。
+        std::fs::write(root.join("knowledge").join("bit_true.md"),
+                       node("bit_true", "knowledge", "0.72",
+                            "protected: true\nimportance_source: \"heuristic\"\n")).unwrap();
+        // 按分自动保护：来源为显式 heuristic ⇒ **不得**按分保护。
+        std::fs::write(root.join("knowledge").join("heur_high.md"),
+                       node("heur_high", "knowledge", "0.90",
+                            "importance_source: \"heuristic\"\n")).unwrap();
+        // 来源为 hint ⇒ 按分保护（0.90 ≥ 0.70）。
+        std::fs::write(root.join("knowledge").join("hint_high.md"),
+                       node("hint_high", "knowledge", "0.90",
+                            "importance_source: \"hint\"\n")).unwrap();
+        // 来源键缺省 ⇒ 存量节点，按分保护。
+        std::fs::write(root.join("knowledge").join("none_high.md"),
+                       node("none_high", "knowledge", "0.90", "")).unwrap();
+        // 只有 immutable（不可覆盖）位 ⇒ 不可遗忘面不得据此升级。
+        std::fs::write(root.join("knowledge").join("imm_only.md"),
+                       node("imm_only", "knowledge", "0.95",
+                            "immutable: true\nimportance_source: \"heuristic\"\n")).unwrap();
+        root
+    }
+
+    /// 读数表的声明值（id → 夹具声明的 importance），顺序即报告表序。
+    const EXPECTED: [(&str, f64); 7] = [
+        ("lay_self", 0.90),
+        ("lay_anchor", 0.90),
+        ("bit_true", 0.72),
+        ("hint_high", 0.90),
+        ("none_high", 0.90),
+        ("heur_high", 0.90),
+        ("imm_only", 0.95),
+    ];
+    /// 观测时刻、γ、created（显式固定，不看系统时钟与缺省值）：300 天 ⇒ 衰减项必触 floor。
+    const REF_NOW: f64 = 1_800_000_000.0;
+    const GAMMA: &str = "0.023104906018664842";
+    const CREATED: f64 = REF_NOW - 300.0 * crate::freshness::SECONDS_PER_DAY;
+
+    fn fix_env() {
+        std::env::set_var("MDCG_FRESHNESS", "1");
+        std::env::set_var("MDCG_TEMPORAL_GAMMA", GAMMA);
+    }
+
+    /// 真实装载一行的原始读数 → (打印行, d.importance, d.protected, factor, product)。
+    /// access_count=0、last_access=0 ⇒ refresh 乘子恒 1.0。
+    fn raw_reading(root: &Path, id: &str) -> (String, f64, bool, f64, f64) {
+        let entries = load_index(root, Order::Scan).expect("索引可载入");
+        let docs = load_docs(root, &entries, 1);
+        let i = entries.iter().position(|e| e.id == id)
+            .unwrap_or_else(|| panic!("索引里必须有 {id}"));
+        let d = docs[i].as_ref().unwrap_or_else(|| panic!("{id} 必须装载成功"));
+        let f = crate::freshness::factor(CREATED, 0.0, 0.0, d.importance, d.protected, REF_NOW);
+        let product = d.importance * f;
+        let line = format!(
+            "id={id} index_importance={:.17} d.importance={:.17} d.protected={} \
+             factor={:.17} product={:.17} product>=IMPORTANCE_PROTECT({:.2})={} delta={:.17e} \
+             env_MDCG_FRESHNESS={} gamma={:.17e} created={:.17} ref_now={:.17}",
+            entries[i].importance, d.importance, d.protected, f, product,
+            crate::freshness::IMPORTANCE_PROTECT,
+            product >= crate::freshness::IMPORTANCE_PROTECT,
+            product - crate::freshness::IMPORTANCE_PROTECT,
+            std::env::var("MDCG_FRESHNESS").unwrap_or_default(),
+            crate::freshness::gamma(), CREATED, REF_NOW,
+        );
+        (line, d.importance, d.protected, f, product)
+    }
+
+    #[test]
+    fn r3_protected_floor_follows_existing_protection_semantics() {
+        // 判据只看装载结果与乘子；开关/γ/created/ref 显式固定。
+        fix_env();
+        let root = fixture("main");
+        // 先收集并打印全部 7 行原始读数，再断言：隔离旧布尔副本在指定断言处
+        // 失败之前，日志里已经留下全部真实数值。
+        let mut rows = Vec::new();
+        for (id, declared) in EXPECTED {
+            let (line, imp, prot, _, product) = raw_reading(&root, id);
+            println!("R3RAW {line}");
+            rows.push((id, declared, imp, line, prot, product));
+        }
+        // 源数据重要度：装载后的有效值必须等于夹具声明值（读数自洽）。
+        for (id, declared, imp, line, _, _) in &rows {
+            assert_eq!(imp, declared, "{id} 装载后的 d.importance 必须等于声明值：{line}");
+        }
+        // 保护行为：判据三条（层保护／显式位／按分保护）各自至少一个节点，
+        // 装载位与乘子两处都要成立。
+        for (id, _, _, line, prot, product) in &rows {
+            if ["lay_self", "lay_anchor", "bit_true", "hint_high", "none_high"].contains(id) {
+                assert!(*prot, "{id} 装载后必须判为受保护：{line}");
+                assert!(*product >= crate::freshness::IMPORTANCE_PROTECT,
+                        "{id} 被衰减穿过保护线：{line}");
+            }
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn r3_heuristic_source_is_not_auto_protected() {
+        // 行不变列：heuristic 真分（issue50-e 边界③）不得由分数触发按分保护；
+        // 只有 immutable 位（不可覆盖）的节点同样不得据此按分保护。
+        fix_env();
+        let root = fixture("heur");
+        for id in ["heur_high", "imm_only"] {
+            let (line, _, prot, _, product) = raw_reading(&root, id);
+            assert!(!prot, "{id}：heuristic 来源 / 只有 immutable 位不得升级为不可遗忘：{line}");
+            assert!(product < crate::freshness::IMPORTANCE_PROTECT,
+                    "{id} 的乘子不得被抬到保护线：{line}");
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 }

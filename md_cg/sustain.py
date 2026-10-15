@@ -254,8 +254,9 @@ def peers(d: str = None):
 # 本台账补此缺口：**每个心跳周期追加一行**（append-only、只追加不改写历史行），
 # 配合 **分片轮转 + 保留片数上限**（有界，形态照抄 `_audit.jsonl` 轮转）与
 # **节流探测**（把 stat 写入税摊到 1/N），并由只读统计
-# `heartbeat_ledger_stats()` 直接算出「最长连续无断区间 / 断点数 / 最近一次周期
-# 时刻」。位置与 `_sustain.jsonl` **同域**（库根 `<root>/_heartbeat.jsonl`）。
+# `heartbeat_ledger_stats()` 直接算出「最长连续**成功**区间 / 断点数 / 最近一次
+# 成功周期时刻 / 失败档条数与明细」。位置与 `_sustain.jsonl` **同域**
+# （库根 `<root>/_heartbeat.jsonl`）。
 #
 # **零判定变更**（硬边界）：本台账只新增写入与只读统计，不改变任何既有读面——
 # `beat()` 的返回、心跳戳字段、`_sustain.jsonl` 既有记录、`judge()`/`heal()` 的
@@ -279,8 +280,9 @@ HEARTBEAT_GAP_THRESHOLD = 2.0 * DEFAULT_BEAT_INTERVAL
 #: 轮转自述行与心跳周期行的区分标记（统计只取 kind=="beat"，轮转痕不进时间序列）。
 HB_KIND_BEAT = "beat"
 HB_KIND_ROTATE = "rotate"
-#: D2：非 beat 业务档的台账行 kind——失败档**必须在台账可见**（不被
-#: `heartbeat_ledger_stats` 按 kind==HB_KIND_BEAT 的过滤吞掉）。
+#: D2：非 beat 业务档的台账行 kind——失败档**必须在台账可见**：它不进心跳
+#: 时间序列（不是心跳周期），但计入 `heartbeat_ledger_stats` 的 `failed` /
+#: `failures`，不被 kind 过滤吞掉。
 HB_KIND_TICK = "tick"
 
 #: root → 已写次数（进程内；仅用于节流探测步长。跨进程各自计数，不影响正确性
@@ -488,29 +490,49 @@ def _hb_records(root: str):
         yield r
 
 
-# 生效条件：只读统计 root 下全部 kind="beat" 记录（name 非 None 时按周期名过滤）的 t 序列——以相邻 t 间隔 > threshold_s 为断点，返回 {n, threshold_s, shards, file, absent, span_s, span_iso, last_iso, last_age_s, segments, longest_s, longest_iso, count_in_longest, breaks, breaks_top}；无记录时 absent=True 且各读数 None。
+# 生效条件：只读统计 root 下全部 kind ∈ {beat, tick} 记录（name 非 None 时按周期名过滤）——ok is True 的 beat 行进 t 序列（相邻间隔 > threshold_s 为断点），ok is not True 的行进失败读数；返回 {n, threshold_s, shards, file, failed, failures, absent, span_s, span_iso, last_iso, last_age_s, segments, longest_s, longest_iso, count_in_longest, breaks, breaks_top}；既无成功周期又无失败行时 absent=True 且各读数 None（仅有失败行时 absent=False、n=0、时间读数为 None）。
 def heartbeat_ledger_stats(root: str, *, name: str = None,
                            threshold_s: float = HEARTBEAT_GAP_THRESHOLD) -> dict:
-    """只读统计：**最长连续无断区间 / 断点数 / 最近一次周期时刻**。
+    """只读统计：**最长连续成功区间 / 断点数 / 最近一次成功周期时刻 / 失败档读数**。
 
     用途＝闭合答卷 §八 分诊第 4 项的「不可严格测得」——`_sustain.jsonl`（heal 动作
     台账）与心跳戳（覆盖式单点）都答不了，本台账答得了。**只读**：不写、不轮转。
     有界台账（分片 ≤ 保留片数 × 轮转阈值）使该读数代价有界。
+
+    消费口径（D2「失败档必须在台账可见」的兑现面）：
+    · `kind=="beat"` 且 `ok is True` 的行才是一次**正常心跳周期**，进时间序列；
+      `ok is not True` 的 beat 行是**失败心跳**，不计入「连续无断」（n / segments /
+      longest_s 只描述成功周期）；
+    · `kind==HB_KIND_TICK` 的行是业务档失败留痕：不进时间序列（不是心跳周期），
+      但计入 `failed` 并出现在 `failures` 里——**不再被 kind 过滤丢弃**；
+    · `kind=="rotate"` 自述行照旧不进任何读数（`:281` 已兑现的登记）。
+    `failures` 按台账顺序给最近 5 条失败行（台账 append-only ⇒ 顺序即时间序）。
     """
-    ts = []
+    ts, fails = [], []
     for r in _hb_records(root):
-        if not isinstance(r, dict) or r.get("kind") != HB_KIND_BEAT:
+        if not isinstance(r, dict):
             continue
+        kind = r.get("kind")
+        if kind not in (HB_KIND_BEAT, HB_KIND_TICK):
+            continue                       # rotate 自述行不进时间序列（`:281`）
         if name is not None and r.get("name") != name:
             continue
         v = r.get("t")
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
+        ok_t = isinstance(v, (int, float)) and not isinstance(v, bool)
+        if r.get("ok") is not True:        # 失败行**必须在台账可见**（`:283` 的承诺）
+            fails.append({"kind": kind, "name": r.get("name"),
+                          "t": float(v) if ok_t else None,
+                          "iso": _iso(v) if ok_t else None,
+                          "error": r.get("error")})
+            continue
+        if kind == HB_KIND_BEAT and ok_t:
             ts.append(float(v))
     ts.sort()
     out = {"n": len(ts), "threshold_s": float(threshold_s),
-           "shards": len(_hb_shards(root)), "file": HEARTBEAT_LOG}
+           "shards": len(_hb_shards(root)), "file": HEARTBEAT_LOG,
+           "failed": len(fails), "failures": fails[-5:]}
     if not ts:
-        out.update({"absent": True, "segments": 0, "longest_s": None,
+        out.update({"absent": not fails, "segments": 0, "longest_s": None,
                     "longest_iso": None, "count_in_longest": 0,
                     "breaks": 0, "breaks_top": [], "span_s": None,
                     "span_iso": None, "last_iso": None, "last_age_s": None})

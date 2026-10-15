@@ -356,8 +356,10 @@ def main():
           and any("layer_denied" in str(x) for x in (prop.get("skipped") or [])),
           "exc=%s prop=%s" % (exc6, str(prop)[:150]), live=True)
     sustain = _secured(_princ("sustain"))
+    # self 层属不可遗忘层，按既有契约降级需显式 override=True。
     ok7, exc7, out7 = _raises(sustain.set_verification, s_ok, "doubted",
-                              reason="sustain 自层运维", actor="n209-sustain")
+                              reason="sustain 自层运维", actor="n209-sustain",
+                              override=True)
     check("3c 反向腿：sustain（layers=('self',)）对 self 层节点推进仍成功"
           "（同层正当写面未被收紧误伤）",
           ok7 and isinstance(out7, dict) and out7.get("ok") is True

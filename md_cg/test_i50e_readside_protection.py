@@ -519,7 +519,8 @@ def _run_groups():
 
 # ---------------------------------------------------------------- 定点变异自证
 # 表内每项 = (说明, 锚点原文, 替换文, 预期红项数)。锚点必须**逐字**出现在当前
-# is_protected 函数源码里；漂移即 ANCHOR-MISS（fail-closed，exit 2）。
+# is_protected_metadata（判据本体纯函数，is_protected 唯一委托对象）函数源码里；
+# 漂移即 ANCHOR-MISS（fail-closed，exit 2）。
 #   契约 G：m1 把 heuristic 也认保护 → A 红；m2 把缺省键也判不认 → B 红；
 #   m3 按分整支删除 → A/B 同红（A 经 A6 同分缺省对照）。
 _SRC_MUTATIONS = (
@@ -551,20 +552,21 @@ _SRC_MUTATIONS = (
 )
 
 # 静态锚点（默认模式也自检，fail-closed）：
-#   · 改前缺陷形态（无来源闸的按分分支）**不得**回归出现在 is_protected 源码里
+#   · 改前缺陷形态（无来源闸的按分分支）**不得**回归出现在 is_protected_metadata 源码里
 #   · 本批新判据的锚点必须在位
 _ANCHORS_BANNED = (
-    ("is_protected", 'if imp >= AUTO_PROTECT_IMPORTANCE:\n        return True'),
+    ("is_protected_metadata",
+     'if imp >= AUTO_PROTECT_IMPORTANCE:\n        return True'),
 )
 _ANCHORS_REQUIRED = (
-    ("is_protected", '_src = fm.get("importance_source")'),
-    ("is_protected", 'and (_src is None or _src == "hint"):'),
+    ("is_protected_metadata", '_src = fm.get("importance_source")'),
+    ("is_protected_metadata", 'and (_src is None or _src == "hint"):'),
 )
 
 
 def _fn_src(target):
-    if target == "is_protected":
-        return inspect.getsource(protect.is_protected)
+    if target == "is_protected_metadata":
+        return inspect.getsource(protect.is_protected_metadata)
     raise KeyError(target)
 
 
@@ -572,8 +574,8 @@ def _anchor_check():
     """返回 ANCHOR-MISS 说明列表（空 = 全部在位）。"""
     bad = []
     for _name, old, _new, _n in _SRC_MUTATIONS:
-        if old not in _fn_src("is_protected"):
-            bad.append("变异锚点缺失：%r @is_protected" % old)
+        if old not in _fn_src("is_protected_metadata"):
+            bad.append("变异锚点缺失：%r @is_protected_metadata" % old)
     for target, s in _ANCHORS_BANNED:
         if s in _fn_src(target):
             bad.append("缺陷形态回归：%s 可执行源码里仍有 %r" % (target, s))
@@ -585,22 +587,25 @@ def _anchor_check():
 
 @contextlib.contextmanager
 def _patched_ctx(old, new):
-    """把 protect.is_protected 按字面替换变异后安装/还原（不落盘不改源文件）。
+    """把 protect.is_protected_metadata（判据本体）按字面替换变异后安装/还原
+    （不落盘不改源文件）。
 
-    guard_forget / guard_move / stats 经 protect 模块 __dict__ 解析
-    is_protected，mcp_server/scrub/self_state 经 `from . import protect`
-    属性查找——setattr 后全部出口同闸生效。
+    该纯函数是判据的**唯一**定义处：protect.is_protected 经 `_fm` 取 fm 后
+    直接 return 它（guard_forget / guard_move / stats 又经 is_protected），
+    mcp_server/scrub/self_state 经 `from . import protect` 属性查找，
+    freshness/trust/lifecycle 也直接调它——都是调用时按模块属性解析，
+    setattr 后全部出口同闸生效。
     """
-    src = _fn_src("is_protected")
+    src = _fn_src("is_protected_metadata")
     mutated = src.replace(old, new)
     ns = dict(vars(protect))
     exec(compile(mutated, "i50e_mut.py", "exec"), ns)
-    live = protect.is_protected
-    protect.is_protected = ns["is_protected"]
+    live = protect.is_protected_metadata
+    protect.is_protected_metadata = ns["is_protected_metadata"]
     try:
         yield
     finally:
-        protect.is_protected = live
+        protect.is_protected_metadata = live
 
 
 def _mutate_mode():

@@ -30,7 +30,7 @@
   · `history` ＝该槽位全部事件原样（每条＝事件行的 `t/seq/old/new/kind/evidence/
     actor` 七字段，值不改写；缺键取 None）；`history=False` 时**不带该键**。
 
-撤回判据取 **payload**（`new` 为空）而不是 `kind` 标签：台账口径是「撤回＝old 有值而
+撤回判据取 **payload**（`new` 为空＝None 或空白串）而不是 `kind` 标签：台账口径是「撤回＝old 有值而
 new 为空」（`state_events` 模块头），且该模块明言「分类本身不进判据（记账不判语义）」
 ——两者一致时等价；冲突时以 payload 为准（不按标签改写数据）。判据单点＝`_is_void`。
 
@@ -65,10 +65,18 @@ TIER_UNSPECIFIED = "unspecified"
 _HIST_FIELDS = ("t", "seq", "old", "new", "kind", "evidence", "actor")
 
 
-# 生效条件：rec 为台账记录 dict——`rec.get("new")` 为 None 时返回 True（撤回/值作废），非 None 时返回 False；入参非 dict 时按 `.get` 抛 AttributeError（台账读面保证为 dict，不吞错）。
+# 生效条件：rec 为台账记录 dict——`rec.get("new")` 为 None 或空白串（str 且 strip 后为空）时返回 True（撤回/值作废），其余返回 False；入参非 dict 时按 `.get` 抛 AttributeError（台账读面保证为 dict，不吞错）。
 def _is_void(rec) -> bool:
-    """撤回判据（单点）：`new` 为空＝值作废、无新值（口径见模块头）。"""
-    return rec.get("new") is None
+    """撤回判据（单点）：`new` 为空＝值作废、无新值（口径见模块头）。
+
+    「为空」＝None 或空白串。工具面 `cg(op=state_event)` 的 `new` 是 string 参数，
+    说明写着「撤回＝留空」——客户端按说明发 `new=""` 时台账落的就是空串。只认
+    None 会把空串撤回读成「设成空值」：槽位不退役、`status.retired` 不计数、
+    缺省投影仍列出该槽位。空白串一并归为无值（同 `state_events.append` 的
+    `(x or "").strip() or None` 空值归一）。
+    """
+    v = rec.get("new")
+    return v is None or (isinstance(v, str) and not v.strip())
 
 
 # 生效条件：rec 为一条台账记录 dict 时，返回含 _HIST_FIELDS 七键（缺键取 None）的新 dict——字段集＝单元 schema 的 history 条目逐字（不并入行内其余顶层键：新增键即「发明字段」，故限定枚举）；值原样不改写、不改写入参。

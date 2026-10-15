@@ -105,16 +105,9 @@ def _fm(cg, node_id):
     need_fallback = ("protected" not in e or "immutable" not in e
                      or ("self_state" not in e
                          and _layer in PROTECTED_LAYERS))
-    # N213 同根（2026-09-28）：`_node_entry`/`_stage` **恒落**这三键（值可为
-    # None）⇒ 上面的「缺键」判据在本仓所有构造点恒假、第四个析取子句不可达，
-    # `_fm` 100% 信任索引、**从不重读文件**；索引里的 None 被当「未标记」采信，
-    # 而「只改文件、不进索引写日志」的门控写点（`protect.mark` 一类）在陈旧
-    # 条目里正是 None → guard_write/guard_forget/guard_move 静默放行。
-    # 值为 None 即「索引未记录该标记」，唯一权威是文件——但读盘有代价，
-    # 只在**受保护层**（self/anchor，节点数极少；层保护本身已拦 不可覆盖/
-    # 不可遗忘，None 决定的是 self_state 豁免与层间搬迁的细粒度判定）无条件
-    # 回退；非受保护层由「门控写点必须进写日志」承担（`mark` 已随本批接线，
-    # `add(immutable=True)` 本就经 _stage），故不付全池读盘代价。
+    # N213 同根：值为 None =「索引未记录该标记」，唯一权威是文件——但读盘有代价，
+    # 只在**受保护层**（self/anchor）无条件回退；非受保护层由「门控写点必须进
+    # 写日志」承担（`mark` 已接线，`add(immutable=True)` 本就经 _stage）。
     if not need_fallback and _layer in PROTECTED_LAYERS \
             and any(e.get(_k) is None for _k in _GATE_UNKNOWN_KEYS):
         need_fallback = True
@@ -135,29 +128,16 @@ def _fm(cg, node_id):
     return fm
 
 
-# 生效条件：cg 索引无 node_id 条目（_fm 直接返回 None，不走回退读文件）时返回 (False, '')；有条目时按 layer∈PROTECTED_LAYERS 返回 (True, 层保护)；否则 protected is True 时返回 (True, protection_reason 或 '显式保护标记')；否则 importance（缺失/假值/float 转换异常一律按 0.0）≥AUTO_PROTECT_IMPORTANCE 且 importance_source 为 None（键缺省）或 'hint' 时返回 (True, 重要性保护)——issue50-e：'heuristic' 等显式非 hint 来源不得由分数触发；其余返回 (False, '')。
-def is_protected(cg, node_id):
-    """**不可遗忘**判定 → (是否受保护, 原因)。节点不存在返回 (False, "")。
+# 生效条件：fm 为调用方保证的合法映射；按 layer∈PROTECTED_LAYERS 返回 (True, 层保护)；否则 protected is True 时返回 (True, protection_reason 或 '显式保护标记')；否则 importance_source 为 None（键缺省）或 'hint' 且 importance（缺失/假值/float 转换异常一律按 0.0）≥AUTO_PROTECT_IMPORTANCE 时返回 (True, 重要性保护)；其余返回 (False, '')。
+def is_protected_metadata(fm):
+    """frontmatter 映射 → **不可遗忘**判定 (是否受保护, 原因)。**纯函数**：不读 cg、无 IO。
 
-    issue50-e（2026-10-02，使用者裁定「读面也只认显式来源」）：按分自动保护
-    只对**缺省来源或显式 hint** 的分数生效。issue50-d 落盘了启发式真分
-    （importance=0.7x + importance_source="heuristic"、不打保护位），若本
-    判定不看来源，读面（遗忘/搬迁闸、protect.check、scrub 净化与 confidence
-    校准的 skip 判定、stats 盘点）会把机器推断的分数重新认回受保护——写侧
-    「只落分不打位」被读侧单方面推翻。边界：
-    ① 键缺省（None）= 存量节点（既有 cg.add(importance=0.9) 直写、维护路径
-      调分等从未有过该键）⇒ 行为一字不变——按「缺省即不认」会大规模改变
-      既有保护面，禁止；
-    ② "hint" = 显式声明（写侧对 hint 过线本就打位，按分分支只是其无位形态
-      的兜底，语义不变）；
-    ③ "heuristic" 及其它显式来源不得由分数触发——机器推断的重要度不构成
-      不可遗忘的依据。层保护（PROTECTED_LAYERS）、fm.protected 位、
-      is_immutable 一律不动；MERGE 强化（forgetting.reinforce 跨 0.7 置
-      protected=True）是「重复确认」的显式动作，不经本分支，不受影响。
+    判据本体：检索热路径（freshness 下界）与 frontmatter 侧纯函数（trust.stamp /
+    lifecycle.stamp）都只有 fm、拿不到 cg，直接调本函数即与写面同源，无须构造假 cg。
+    三条真源与阈值**逐字**取自本模块（PROTECTED_LAYERS / AUTO_PROTECT_IMPORTANCE），
+    不新增保护类型、不改阈值。形参只有一个映射：调用方保证传入合法映射，
+    本函数不做类型校验、不设外部可覆盖的资格开关。
     """
-    fm = _fm(cg, node_id)
-    if fm is None:
-        return False, ""
     layer = str(fm.get("layer") or "")
     if layer in PROTECTED_LAYERS:
         return True, f"层保护：{layer}（不可遗忘层）"
@@ -167,13 +147,39 @@ def is_protected(cg, node_id):
         imp = float(fm.get("importance") or 0.0)
     except Exception:
         imp = 0.0
-    # issue50-e（2026-10-02）：按分保护**只认缺省或显式 hint 来源**——
-    # 语义与边界见 docstring ①②③；_fm 恒带 importance_source 键（缺省读
-    # None），老索引条目缺键同样落 None ⇒ 存量按分保护一字不变。
+    # issue50-e（2026-10-02，使用者裁定「读面也只认显式来源」）：按分自动保护
+    # 只对**缺省来源或显式 hint** 的分数生效——'heuristic' 及其它显式来源不得
+    # 由分数触发（issue50-d 落盘启发式真分但不打保护位，读面不得单方面认回）。
+    # 键缺省（None）= 存量节点 ⇒ 行为一字不变。下面三行是 i50e 守卫按**源码
+    # 字面**变异的锚点，逐字保留。
     _src = fm.get("importance_source")
     if imp >= AUTO_PROTECT_IMPORTANCE and (_src is None or _src == "hint"):
         return True, f"重要性保护：importance={imp:.2f}≥{AUTO_PROTECT_IMPORTANCE}"
     return False, ""
+
+
+# 生效条件：cg 索引无 node_id 条目（_fm 直接返回 None，不走回退读文件）时返回 (False, '')；否则返回 is_protected_metadata(_fm(cg, node_id)) 的结果——三条保护规则的判据本体只有那一份定义，本函数不重复任何一条；_fm 的真实 cg 读取与原有回退行为不变。
+def is_protected(cg, node_id):
+    """**不可遗忘**判定 → (是否受保护, 原因)。节点不存在返回 (False, "")。
+
+    判据本体 = `is_protected_metadata`（纯函数）；本函数只负责经 `_fm` 从**真实
+    cg** 取 frontmatter（含索引快照缺字段时的回退读文件）。
+
+    issue50-e（2026-10-02，使用者裁定「读面也只认显式来源」）：按分自动保护只对
+    **缺省来源或显式 hint** 的分数生效。issue50-d 落盘了启发式真分
+    （importance=0.7x + importance_source="heuristic"、不打保护位），若判定不看
+    来源，读面（遗忘/搬迁闸、protect.check、scrub 净化与 confidence 校准的 skip
+    判定、stats 盘点）会把机器推断的分数重新认回受保护——写侧「只落分不打位」
+    被读侧单方面推翻。边界：① 键缺省（None）= 存量节点 ⇒ 行为一字不变（按
+    「缺省即不认」会大规模改变既有保护面，禁止）；② "hint" = 显式声明；
+    ③ "heuristic" 及其它显式来源不得由分数触发。层保护、fm.protected 位、
+    is_immutable 一律不动；MERGE 强化（forgetting.reinforce 跨 0.7 置
+    protected=True）是「重复确认」的显式动作，不经本分支，不受影响。
+    """
+    fm = _fm(cg, node_id)
+    if fm is None:
+        return False, ""
+    return is_protected_metadata(fm)
 
 
 # 生效条件：cg 索引无 node_id 条目时返回 (False, '')；有条目时若 self_state is True 一律返回 (False, '')（自我状态豁免）；否则 layer∈PROTECTED_LAYERS 返回 (True, 层保护)；否则 immutable is True 返回 (True, protection_reason 或 '显式不可覆盖标记')；其余返回 (False, '')。

@@ -52,7 +52,8 @@ AEIS 的 `decay_cycle` **无 floor**，而 md_cg 的保护判定是**即时读
 ⇒ 衰减穿过 0.70 会让节点**自动失去保护**。故：
 
   · 衰减项带 floor（`SCORE_FLOOR`，与 P3-temporal 同值同源理由）；
-  · **受保护节点**的衰减乘子另有下界 `IMPORTANCE_PROTECT / importance`，
+  · **受保护节点**（判据 = protect.is_protected 三条真源，经
+    `protect.is_protected_metadata` 复用该单点）的衰减乘子另有下界 `IMPORTANCE_PROTECT / importance`，
     保证 `importance × 乘子 ≥ IMPORTANCE_PROTECT` **恒成立**——保护判定不可能
     被衰减翻转（推导见 `protected_floor`）；
   · 保留 `weights.recalc` 既有的「`after ≥ 0.70` 自动补写 `protected`」行为
@@ -82,6 +83,7 @@ from __future__ import annotations
 import os
 import time
 
+from . import protect
 from .fsutil import append_jsonl, read_jsonl
 # `_maintain.jsonl` 与保护下限的**单一真源**在 weights（同族留痕共用一份文件名）
 from .weights import (APPLY_DELTA, IMPORTANCE_PROTECT, MAINTAIN_LOG,
@@ -240,9 +242,13 @@ def refresh_factor(access_count=0, last_access=0, importance=0.0,
     return 1.0
 
 
-# 生效条件：entry 为可取 protected / importance 的映射；protected 为假值时返回 SCORE_FLOOR；为真值时返回 max(SCORE_FLOOR, min(1.0, IMPORTANCE_PROTECT / importance))（importance 不可转数值或 ≤0 时按 1.0 处理）；
+# 生效条件：entry 为可取 layer / protected / importance / importance_source 的映射；protect.is_protected_metadata(entry) 为假值时返回 SCORE_FLOOR；为真值时返回 max(SCORE_FLOOR, min(1.0, IMPORTANCE_PROTECT / importance))（importance 不可转数值或 ≤0 时按 1.0 处理）；
 def protected_floor(entry) -> float:
     """受保护节点的**衰减乘子下界**（§7.3 的第二道闸）。
+
+    判据 = `protect.is_protected_metadata`（三条真源：层保护 self/anchor ／
+    显式 protected 位 ／ 按分保护）。修前只认显式位，层保护与按分保护
+    两类受保护节点拿到的是 SCORE_FLOOR，与本节承诺不符——已修。
 
     推导（为什么是 `IMPORTANCE_PROTECT / importance`）：
       md_cg 的保护判定是**即时读** `importance ≥ IMPortANCE_PROTECT(0.70)`
@@ -254,7 +260,7 @@ def protected_floor(entry) -> float:
       乘子取 1.0（不衰减），同样不损失保护。
     """
     e = entry or {}
-    if not e.get("protected"):
+    if not protect.is_protected_metadata(e)[0]:
         return SCORE_FLOOR
     try:
         imp = float(e.get("importance") or 0.0)
@@ -265,7 +271,7 @@ def protected_floor(entry) -> float:
     return max(SCORE_FLOOR, min(1.0, IMPORTANCE_PROTECT / imp))
 
 
-# 生效条件：entry 为可取 created_at / access_count / last_access / importance / protected 的映射；fm 为真值时上述五个键优先取自 fm（缺键回落 entry）；now 为假值（None）时取 freshness_now()；enabled 为 None（缺省）时自算（模块级 enabled()），显式传 bool 时按传入值——两者皆假值即早退返回 (1.0, {"disabled": True})（早退先于 now/γ 解析，与改前同序）；否则无条件返回 (乘子, 依据 dict)——乘子 = decay_factor(gamma, |now-created_at|/86400, protected_floor(取数后的映射), SCORE_CEIL, enabled=…) × refresh_factor(..., enabled=…)；created_at 缺失/不可转数值/≤0 时 dt_days 取 inf（判「距参照无穷远」，由 floor 兜住）；
+# 生效条件：entry 为可取 created_at / access_count / last_access / importance / protected / layer / importance_source 的映射；fm 为真值时上述七个键优先取自 fm（缺键回落 entry）；now 为假值（None）时取 freshness_now()；enabled 为 None（缺省）时自算（模块级 enabled()），显式传 bool 时按传入值——两者皆假值即早退返回 (1.0, {"disabled": True})（早退先于 now/γ 解析，与改前同序）；否则无条件返回 (乘子, 依据 dict)——乘子 = decay_factor(gamma, |now-created_at|/86400, protected_floor(取数后的映射), SCORE_CEIL, enabled=…) × refresh_factor(..., enabled=…)；created_at 缺失/不可转数值/≤0 时 dt_days 取 inf（判「距参照无穷远」，由 floor 兜住）；
 def entry_weight(entry, now=None, gamma=None, fm=None, enabled=None) -> tuple:
     """索引条目 → 分数乘子 `(乘子, 依据)`（**检索期唯一取数点**，免读文件）。
 
@@ -275,6 +281,10 @@ def entry_weight(entry, now=None, gamma=None, fm=None, enabled=None) -> tuple:
     `fm` 为可选覆盖源（写面刚落的 frontmatter 可能比索引条目新）：只为
     避免在热路径上拷贝 dict 而设，取数优先级 `fm > entry > 缺省`。
 
+    取数键含 `layer` / `importance_source`：保护下界的判据是
+    `protect.is_protected_metadata`（三条真源），层保护与按分保护两类都要
+    这两个键才判得出来（`_node_entry` 已把两者落进索引条目）。
+
     `enabled`（N274）：None=自算（默认，行为与改动前逐位一致）；显式传
     bool 时不再自算，且向下透传给 `decay_factor`/`refresh_factor`——它们
     同样不再各自读 env。自算分支经 `globals()["enabled"]()`（形参遮蔽，
@@ -282,7 +292,7 @@ def entry_weight(entry, now=None, gamma=None, fm=None, enabled=None) -> tuple:
     """
     e = entry or {}
     keys = ("created_at", "access_count", "last_access", "importance",
-            "protected")
+            "protected", "layer", "importance_source")
     if fm is not None:
         src = {k: (fm.get(k) if fm.get(k) is not None else e.get(k))
                for k in keys}
@@ -312,7 +322,9 @@ def entry_weight(entry, now=None, gamma=None, fm=None, enabled=None) -> tuple:
                        src.get("importance"), enabled=enabled)
     return d * r, {"gamma": g, "dt_days": dt_days, "unit": DT_UNIT,
                    "decay": d, "refresh": r, "floor": floor,
-                   "protected": bool(src.get("protected"))}
+                   # 依据里的保护位与下界的判据同源（修前报的是显式位，
+                   # 与 protected_floor 实际用的判据不一致）
+                   "protected": bool(protect.is_protected_metadata(src)[0])}
 
 
 # --------------------------------------------------------------------------
