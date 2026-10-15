@@ -126,6 +126,9 @@ pub struct SwarmReport {
     pub watermarks: HashMap<String, u64>,
     /// G4b：全局已分配消息 seq
     pub global_seq: u64,
+    /// issue #354 P1-6：WAL 重放区 seq/round 连续性读数（审计面；ok=false 表示
+    /// 已提交区存在丢行/乱序——旧实现对此完全静默）
+    pub wal_continuity: WalContinuity,
     /// G-R2：生效条件空间 space_id（None = 未声明）
     pub condition_space_id: Option<String>,
     /// G-R3：verifier 逐位复算统计（已复核轮数 / 不一致数）
@@ -442,6 +445,72 @@ fn slice_raw_payload(line: &str) -> Option<String> {
     Some(raw.to_string())
 }
 
+/// WAL seq/round 连续性破坏的一条明细（issue #354 P1-6）。
+///
+/// 判据逐字对齐 Python 侧 rust_swarm.verify_wal_signatures 的 continuity_breaks
+/// （同一把尺子：快照行与事件行**共链**，缺失=跳号 / 重复或乱序；一处偏离一条明细、
+/// 链以实际 seq+1 重同步、不级联连坐）。
+#[derive(Debug, Clone)]
+pub struct SeqBreak {
+    /// 1 基行号（对齐 Python verify 的 line_no）
+    pub line: usize,
+    pub expected: u64,
+    pub actual: u64,
+    /// 跳号缺失 / 重复或乱序 / round 倒退 / 快照轮号重复或倒退
+    pub kind: &'static str,
+    pub row_type: String,
+}
+
+/// WAL 重放区完整性读数（issue #354 P1-6）。
+///
+/// **为什么必须有**：单条 HMAC 只锚「这一行没被改」，不锚「行的存在与顺序」——
+/// 整行删除 / 行乱序对逐行验签**不可检**，于是丢行静默（审计面看起来一切正常）。
+/// 加上 seq/round 单调连续性判据后，丢行从不可察觉变为**可察觉**。
+///
+/// **边界（只报不改）**：本判据不自行截断 WAL——截断权归「提交点 / 验签坏行」既有
+/// 纪律（B1）。连续性破损是**审计信号**，经 stderr 与报告 wal_continuity 透出，
+/// 由消费方（Python verify_wal_signatures / 运维）裁决；此处不新增破坏面。
+#[derive(Debug, Clone, Default)]
+pub struct WalContinuity {
+    /// 明细（上限 CONTINUITY_DETAIL_CAP 条——病态 WAL 不得撑爆报告）
+    pub detail: Vec<SeqBreak>,
+    /// 破坏总数（大于等于 detail.len()；超上限后只计数不留明细）
+    pub breaks: u64,
+    /// 判据覆盖行数（已验证并进入重放的 WAL 行；分母，供判覆盖面）
+    pub lines: u64,
+}
+
+impl WalContinuity {
+    /// 连续性完好（零破坏）。
+    pub fn ok(&self) -> bool {
+        self.breaks == 0
+    }
+}
+
+/// 记一条连续性破坏：总数恒加，明细有上限（超限只计数——报告不是坏 WAL 的镜像）。
+fn note_break(
+    c: &mut WalContinuity,
+    line: usize,
+    expected: u64,
+    actual: u64,
+    kind: &'static str,
+    row_type: &str,
+) {
+    c.breaks += 1;
+    if c.detail.len() < CONTINUITY_DETAIL_CAP {
+        c.detail.push(SeqBreak {
+            line,
+            expected,
+            actual,
+            kind,
+            row_type: row_type.to_string(),
+        });
+    }
+}
+
+/// 明细上限（超限只计数）：报告是给人/给消费方读的，不是坏 WAL 的镜像。
+const CONTINUITY_DETAIL_CAP: usize = 64;
+
 /// WAL 重放结果（B1）：恢复所需的全部内存状态。
 struct WalReplay {
     /// 已完成轮数（最后一个快照行的轮号）；None=无快照（不可恢复，从轮 1 重跑）
@@ -472,6 +541,8 @@ struct WalReplay {
     /// gossip 路由的病理配置下，单播行会计入目标 gossip 计数（WAL 行格式
     /// 不区分两者，报文级甄别须协议扩展）。
     gossip_sent: HashMap<String, usize>,
+    /// issue #354 P1-6：重放区的 seq/round 连续性读数（只报不改）
+    continuity: WalContinuity,
 }
 
 /// 重放 WAL 重建状态（对照 langgraph 恢复语义：重建后走正常循环，无特殊路径）。
@@ -517,12 +588,48 @@ fn replay_wal(
         had_wal_file: false,
         watermarks: HashMap::new(),
         gossip_sent: HashMap::new(),
+        continuity: WalContinuity::default(),
     };
-    let raw = match std::fs::read_to_string(wal_path) {
-        Ok(r) => r,
-        Err(_) => return Ok(rp), // 无 WAL = 首跑
+    // issue #354 P0-2：**区分「文件不存在」与「文件损坏」**。
+    //
+    // 旧实现是 read_to_string 的「整文件一次性解码」，且把**所有** Err 一律当
+    // 「无 WAL = 首跑」：文件存在但含非法 UTF-8 时（撕裂写落在多字节字符中间、
+    // 断电残字节）整文件解码失败 → had_wal_file=false 且 completed=None ⇒
+    // open_wal_for_run 走 File::create **原位清空**，已提交历史无痕销毁、连归档
+    // 都没有（故障自愈退化成数据毁灭源）。
+    //
+    // 实测（修前，两个场景只差尾字节是否可解码）：
+    //   · 合法快照+事件前缀 + 尾 0xFF 0xFE  ⇒ 前缀消失、无事件级留痕、无 .corrupt-*；
+    //   · 同一前缀 + 尾是**合法 UTF-8** 的半行 ⇒ 前缀完好（正常 B1 截断）。
+    // 故这里分三步：①文件不存在才算首跑；②存在但读不出 → fail-closed 返回 Err
+    // （绝不自行清空）；③读了字节能解码多少算多少——**行级**容错，坏字节只作废
+    // 其所在那一行（等价于半行/坏行 = 截断点），其前的合法行照常重建。
+    let bytes = match std::fs::read(wal_path) {
+        Ok(b) => b,
+        // 文件不存在 = 首跑（唯一可当「无 WAL」的分支）
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(rp),
+        // 存在但不可读（权限 / IO / 路径是目录）：损坏不得当成空 ⇒ 交调用方，
+        // 由它按「不销毁现场」的路径处置
+        Err(e) => {
+            return Err(format!(
+                "WAL 存在但不可读（issue #354 P0-2：损坏不得当成空，拒绝继续）: {wal_path}: {e}"
+            ))
+        }
     };
     rp.had_wal_file = true;
+    // 按 b'\n' 切行 + 逐行 from_utf8：与 str::lines 同语义（剥尾 CR），但把
+    // 「解码失败」的范围从整文件收窄到**单行**。行号（idx）与 str::lines 一致，
+    // 故下游的提交点下标 / 截断逻辑逐位不变。
+    let lines: Vec<Option<&str>> = bytes
+        .split(|b| *b == b'\n')
+        .map(|chunk| {
+            let chunk = match chunk.last() {
+                Some(b'\r') => &chunk[..chunk.len() - 1],
+                _ => chunk,
+            };
+            std::str::from_utf8(chunk).ok()
+        })
+        .collect();
     // 第一遍：提交点 = 最后一个通过 HMAC 验签的快照行。
     // v0.6.1 修复：旧逻辑在事件行处做「超前轮截断」，而快照行 round 恒为
     // completed+1 → 快照被误伤截断，completed 永远停在 1，≥2 轮重入恒触发
@@ -531,7 +638,10 @@ fn replay_wal(
     // （kill 落在快照写入前）按 B1 回滚——顺序流前缀性下只有「先扫提交点、
     // 再重建前缀」两遍扫描才正确，事件行自身无法预判后续是否有快照。
     let mut commit_idx: Option<usize> = None;
-    for (idx, line) in raw.lines().enumerate() {
+    for (idx, line) in lines.iter().enumerate() {
+        let Some(line) = line else {
+            break; // 非法 UTF-8 行（崩溃残留残字节）→ 提交点搜索止于此
+        };
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -550,10 +660,19 @@ fn replay_wal(
         return Ok(rp); // 无合法快照 = 零提交 → 全回滚（B1）
     };
     // 第二遍：只重建提交点前缀（含快照行与其前散事件）
-    for (idx, line) in raw.lines().enumerate() {
+    // ── issue #354 P1-6：seq/round 单调连续性链（只报不改）──
+    // 三个游标只在**通过验签并进入重放区**的行上步进（验签不过的行是截断点，
+    // 其后的行本就不进重放区，不该参与本判据）。
+    let mut expected_seq: Option<u64> = None;
+    let mut prev_round: Option<u64> = None;
+    let mut last_snap_round: Option<u64> = None;
+    for (idx, line) in lines.iter().enumerate() {
         if idx > commit_idx {
             break; // 未提交尾部散事件 → 回滚截断（B1 重跑重做）
         }
+        let Some(line) = line else {
+            break; // 非法 UTF-8 行 → 截断点（同第一遍）
+        };
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -564,6 +683,50 @@ fn replay_wal(
         if sign_event(secret, &ev) != ev.hmac_hex {
             break;
         }
+        // P1-6：一行一判——链以实际 seq+1 重同步（不级联连坐），与 Python
+        // verify_wal_signatures 的 continuity_breaks 同口径同粒度。
+        if let Some(exp) = expected_seq {
+            if ev.seq != exp {
+                note_break(
+                    &mut rp.continuity,
+                    idx + 1,
+                    exp,
+                    ev.seq,
+                    if ev.seq > exp { "跳号缺失" } else { "重复或乱序" },
+                    &ev.event_type,
+                );
+            }
+        }
+        expected_seq = Some(ev.seq + 1);
+        if let Some(pr) = prev_round {
+            if ev.round_no < pr {
+                note_break(
+                    &mut rp.continuity,
+                    idx + 1,
+                    pr,
+                    ev.round_no,
+                    "round 倒退",
+                    &ev.event_type,
+                );
+            }
+        }
+        prev_round = Some(ev.round_no);
+        if ev.event_type == SNAPSHOT_TYPE {
+            if let Some(lr) = last_snap_round {
+                if ev.round_no <= lr {
+                    note_break(
+                        &mut rp.continuity,
+                        idx + 1,
+                        lr + 1,
+                        ev.round_no,
+                        "快照轮号重复或倒退",
+                        &ev.event_type,
+                    );
+                }
+            }
+            last_snap_round = Some(ev.round_no);
+        }
+        rp.continuity.lines += 1;
         if ev.event_type == SNAPSHOT_TYPE {
             // 快照行：重建信任水位与终态；payload = {"trusts":{..},"states":{..}}
             if let Ok(p) = serde_json_like::parse(&raw_payload) {
@@ -625,6 +788,107 @@ fn replay_wal(
     Ok(rp)
 }
 
+/// WAL 恢复期进程排他锁（issue #354 P1-7）。
+///
+/// **缺陷**：两个 coordinator 对同一 WAL 并发恢复（同一 project 被两个进程拉起、
+/// 或崩溃后运维与自愈自愈路径同时进场）时，旧实现既无锁、临时文件名又是**固定**的
+/// {wal}.tmp ⇒ 两个进程操作的是同一个 inode：A 建(tmp)、B 建(O_TRUNC tmp)、两者
+/// 交替写入 → rename 换入后 WAL 是两份内容的**交错混合**（半行/丢行），失败方还
+/// 只把 Err 丢掉、现场静默。事件行各自有 HMAC，但交错混合后的行**过不了验签**
+/// ——「已提交历史静默丢行」与「留痕自洽」同时被破坏。
+///
+/// **修法**：临界区（恢复重写 / 坏 WAL 归档 / 新建空 WAL）全程持本锁。锁 = 锁文件
+/// create_new（系统调用级原子独占），持锁方写入 pid 与时刻供诊断，Drop 释放。
+/// 等待上限 LOCK_WAIT_MS 到点即**报错退出**（fail-closed，绝不半写、绝不偷锁）；
+/// 锁文件比 LOCK_STALE_MS 更旧时按「持锁进程已崩溃」处理（rename 移走再重建）。
+///
+/// **诚实边界（两条）**：
+///   ① 过期锁的「判旧 → 移走」之间仍有 TOCTOU 窗口（他人可能在两次 stat 之间建了
+///      新锁）。本仓口径是**窄窗 + 长阈值**（阈值远大于任何正常重写窗口）且移走前
+///      二次 stat 复核；真要零窗口需平台级 flock（Windows LockFileEx），与
+///      rust_runtime 的「零第三方依赖」约束冲突，故不在本件范围。
+///   ② 锁只覆盖「恢复改写 / 归档 / 新建」临界区，**不覆盖整轮 append**。两个
+///      coordinator 长期并行写同一 WAL 仍属协议外形态（append 交错、事件 seq 各自
+///      编号）；本件堵的是其中**静默数据毁灭**的那条（并发重写把已提交历史写成
+///      交错混合）。长期并行写需要单写者仲裁，另列。
+struct WalLock {
+    path: String,
+}
+
+/// 等待他人释放锁的上限（毫秒）：重写窗口是毫秒级，5s 足够在高负载/慢盘下退让。
+const LOCK_WAIT_MS: u64 = 5_000;
+/// 轮询间隔（毫秒）。
+const LOCK_POLL_MS: u64 = 25;
+/// 锁过期阈值（毫秒）：超过即视为持锁进程已崩溃（远大于任何正常重写窗口）。
+const LOCK_STALE_MS: u64 = 120_000;
+
+impl WalLock {
+    /// 取锁（阻塞等待至多 LOCK_WAIT_MS，超时返回 Err——调用方据此 fail-closed）。
+    fn acquire(wal_path: &str) -> Result<Self, String> {
+        let path = format!("{wal_path}.lock");
+        let deadline = now_ms() + LOCK_WAIT_MS;
+        loop {
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(mut f) => {
+                    // 锁内容只作诊断用（谁在什么时候持锁）；不参与判据
+                    let _ = writeln!(f, "{} {}", std::process::id(), now_ms());
+                    let _ = f.sync_all();
+                    return Ok(WalLock { path });
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let broke = if lock_is_stale(&path) {
+                        // 二次复核：两次 stat 之间他人可能已建了新锁（TOCTOU 窗），
+                        // 复核仍为过期才移走——移走用 rename（原子），失败不动现场
+                        let stale = format!("{path}.stale-{}", now_ms());
+                        if lock_is_stale(&path) && std::fs::rename(&path, &stale).is_ok() {
+                            let _ = std::fs::remove_file(&stale);
+                            eprintln!("[swarm] 清理过期 WAL 锁（持锁进程已崩溃）：{path}");
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+                    if broke {
+                        continue; // 立刻重试独占创建
+                    }
+                    if now_ms() >= deadline {
+                        return Err(format!(
+                            "WAL 排他锁等待超时（{LOCK_WAIT_MS}ms）：{path} 被另一进程持有——\
+                             拒绝并发恢复重写（issue #354 P1-7：双 coordinator 并发重写同一 WAL \
+                             会静默丢行；确认无进程在跑后可删除该锁文件重试）"
+                        ));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(LOCK_POLL_MS));
+                }
+                Err(e) => return Err(format!("WAL 排他锁创建失败（{path}）: {e}")),
+            }
+        }
+    }
+}
+
+impl Drop for WalLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// 锁文件是否已过期（mtime 早于 LOCK_STALE_MS）。取不到 mtime 一律**不算**过期
+/// ——宁可等待也不偷锁（偷锁 = 重新引入并发重写）。
+fn lock_is_stale(path: &str) -> bool {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| now_ms().saturating_sub(d.as_millis() as u64) > LOCK_STALE_MS)
+        .unwrap_or(false)
+}
+
 /// 恢复/首跑的 WAL 打开（B1 断点恢复）：
 /// - 恢复模式（completed 有值）：好行经「临时文件 + fsync + rename」原子换入
 ///   （物理截断坏尾）→ append 续跑；
@@ -644,6 +908,10 @@ fn open_wal_for_run(
     kept_lines: &[String],
     had_wal_file: bool,
 ) -> Result<std::fs::File, String> {
+    // issue #354 P1-7：整个「重写 / 归档 / 新建」临界区持进程排他锁——锁的
+    // 生命周期比函数体长不行、比单个分支短也不行：三个分支都在改同一个文件，
+    // 锁必须覆盖全部分支。取不到锁即 fail-closed 返回 Err（绝不在无锁下改写）。
+    let _lock = WalLock::acquire(wal_path)?;
     if completed.is_some() {
         // 恢复模式：好行原子换入（物理截断坏尾）→ append 续跑
         rewrite_wal_atomic(wal_path, kept_lines)?;
@@ -660,10 +928,19 @@ fn open_wal_for_run(
     }
 }
 
-/// 好行前缀原子换入在役 WAL：写 <wal>.tmp → flush → fsync → rename 覆盖。
+/// 好行前缀原子换入在役 WAL：写 <wal>.tmp.<pid> → flush → fsync → rename 覆盖。
 /// 中途任何失败：清理临时文件后报错，原 WAL 逐字节不动（无半写窗口）。
+///
+/// issue #354 P1-7：临时文件名**含进程号**——旧实现的固定名 {wal}.tmp 在两个
+/// coordinator 并发恢复时是同一个 inode（O_TRUNC 互相截断 + 交替写入），rename
+/// 换入的 WAL 会是两份内容的交错混合。并发单位是**进程**（同进程内本函数只在
+/// 恢复路径调用一次，无线程并发），故 pid 即够用的唯一性；也不含时间戳，便于
+/// 单测用同一算式推算占位路径来注入「重写窗口故障」。
+///
+/// **前置**：调用方必须已持有 WalLock（见 open_wal_for_run）——本函数不自取锁，
+/// 以免在持锁路径上自锁死。
 fn rewrite_wal_atomic(wal_path: &str, kept_lines: &[String]) -> Result<(), String> {
-    let tmp_path = format!("{wal_path}.tmp");
+    let tmp_path = format!("{wal_path}.tmp.{}", std::process::id());
     let attempt = || -> Result<(), String> {
         let mut f = std::fs::File::create(&tmp_path)
             .map_err(|e| format!("WAL 临时文件创建失败: {e}"))?;
@@ -871,6 +1148,15 @@ pub fn run_swarm(
     // B1 断点恢复：先重放 WAL。有快照 → 从快照轮+1 续跑（append）；
     // 无快照 → 维持旧行为从轮 1 截断重跑；坏尾（半行/篡改）在重放处停住。
     let replay = replay_wal(wal_path, &cfg.shared_secret, &gossip_fps)?;
+    // issue #354 P1-6：连续性破损**必须透出**——旧实现对此完全静默，丢行/乱序
+    // 「不可察觉」正是缺陷本体。stderr 一行 + 报告 wal_continuity 明细双出口。
+    if replay.continuity.breaks > 0 {
+        eprintln!(
+            "[swarm] WAL seq/round 连续性中断 {} 处（重放 {} 行，issue #354 P1-6）——已提交区\
+             可能丢行/乱序；本次照常重放（只报不改，截断权归提交点/验签坏行），明细见报告 wal_continuity",
+            replay.continuity.breaks, replay.continuity.lines
+        );
+    }
     let mut all_events: Vec<Event> = replay.events;
     let mut acks: HashSet<String> = replay.acks;
     let mut inboxes: Inboxes = replay.inboxes;
@@ -933,6 +1219,7 @@ pub fn run_swarm(
             global_seq,
             recalc_checked,
             recalc_mismatches,
+            replay.continuity,
         ));
     }
 
@@ -1396,6 +1683,7 @@ pub fn run_swarm(
         global_seq,
         recalc_checked,
         recalc_mismatches,
+        replay.continuity,
     ))
 }
 
@@ -1414,6 +1702,7 @@ fn aggregate_report(
     global_seq: u64,
     recalc_checked: u64,
     recalc_mismatches: u64,
+    wal_continuity: WalContinuity,
 ) -> SwarmReport {    // G3a 健康评分：从轮次终态序列统计（在线窗口口径）
     // G3c：gossip 覆盖率接入 integrity（对账基准 = 最大实收数）
     let weights = HealthWeights::default();
@@ -1514,6 +1803,7 @@ fn aggregate_report(
             .collect(),
         watermarks,
         global_seq,
+        wal_continuity,
         recalc_checked,
         recalc_mismatches,
     }
@@ -1599,6 +1889,28 @@ pub fn report_json(rep: &SwarmReport) -> String {
     }
     out.push('}');
     out.push_str(&format!(",\"global_seq\":{}", rep.global_seq));
+    // issue #354 P1-6：WAL 重放区 seq/round 连续性读数（审计面）——ok=false 即
+    // 已提交区存在丢行/乱序（旧实现无可回读面，消费方无从察觉）。
+    out.push_str(&format!(
+        ",\"wal_continuity\":{{\"ok\":{},\"breaks\":{},\"lines\":{},\"detail\":[",
+        rep.wal_continuity.ok(),
+        rep.wal_continuity.breaks,
+        rep.wal_continuity.lines
+    ));
+    for (i, b) in rep.wal_continuity.detail.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&format!(
+            "{{\"line\":{},\"expected\":{},\"actual\":{},\"kind\":\"{}\",\"row_type\":\"{}\"}}",
+            b.line,
+            b.expected,
+            b.actual,
+            serde_json_like::escape(b.kind),
+            serde_json_like::escape(&b.row_type)
+        ));
+    }
+    out.push_str("]}");
     // G4a 生效拓扑与各实例角色
     out.push_str(&format!(
         ",\"topology\":\"{}\"",
@@ -1729,8 +2041,10 @@ mod wal_recovery_tests {
         std::fs::write(&wal, &original).unwrap();
         let replay = replay_wal(wal_s, &secret, &HashSet::new()).unwrap();
         assert!(replay.completed.is_some(), "守卫前提：快照行合法应可恢复");
-        // 堵死重写临时文件位置 —— 模拟重写窗口内故障
-        std::fs::create_dir(dir.join("events.jsonl.tmp")).unwrap();
+        // 堵死重写临时文件位置 —— 模拟重写窗口内故障。临时名含**进程号**
+        // （issue #354 P1-7：固定名 {wal}.tmp 在多进程下是同一 inode），故测试
+        // 用同一算式推算本进程的临时名再占位——注入点变了，断言的本体不变。
+        std::fs::create_dir(format!("{}.tmp.{}", wal_s, std::process::id())).unwrap();
         let res = open_wal_for_run(wal_s, replay.completed, &replay.kept_lines, replay.had_wal_file);
         assert!(res.is_err(), "重写窗口故障必须报错退出，不得静默半写");
         let after = std::fs::read_to_string(&wal).unwrap();
@@ -1810,8 +2124,14 @@ mod wal_recovery_tests {
             "重写后 = 好行前缀（坏尾物理截断）"
         );
         assert!(
-            !dir.join("events.jsonl.tmp").exists(),
-            "成功路径不得残留临时文件"
+            // 临时名含进程号（issue #354 P1-7）：按同一算式推算本进程的临时名
+            !dir.join(format!("events.jsonl.tmp.{}", std::process::id())).exists()
+                && !dir.join("events.jsonl.tmp").exists(),
+            "成功路径不得残留临时文件（新旧两种命名都不得残留）"
+        );
+        assert!(
+            !dir.join("events.jsonl.lock").exists(),
+            "成功路径不得残留锁件（issue #354 P1-7）"
         );
         f.write_all(b"{\"seq\":99,\"resume\":true}\n").unwrap();
         f.flush().unwrap();
@@ -1835,6 +2155,205 @@ mod wal_recovery_tests {
         assert_eq!(std::fs::read_to_string(&wal).unwrap(), "");
         let n = std::fs::read_dir(&dir).unwrap().count();
         assert_eq!(n, 1, "目录内只有新 WAL，无归档无残留");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ================= issue #354（2026-10-14）P0-2 / P1-6 / P1-7 =================
+
+    /// G5（#354 P0-2 · 防回退·红证）：WAL 尾部含**非法 UTF-8** 字节时，已提交历史
+    /// 不得被无痕清空。
+    ///
+    /// 病灶（修前）：replay_wal 用 read_to_string 整文件解码，任何 Err（含「文件存在
+    /// 但含残字节」的 InvalidData）都被当成「无 WAL = 首跑」⇒ had_wal_file=false 且
+    /// completed=None ⇒ open_wal_for_run 走 File::create **原位清空**且不归档。
+    /// 实测形态（真二进制）：合法快照+事件前缀 + 尾部 0xFF 0xFE ⇒ 前缀消失、无归档；
+    /// 唯一变量是「尾字节能否解码」（尾部为合法 UTF-8 半行时前缀完好）。
+    ///
+    /// 断言三面：①重放看得见已提交快照；②重写后前缀逐字节仍在、坏尾被物理截断；
+    /// ③成功路径不留临时件/锁件。
+    #[test]
+    fn invalid_utf8_tail_never_erases_committed_history() {
+        let dir = guard_dir("p02");
+        let wal = dir.join("events.jsonl");
+        let wal_s = wal.to_str().unwrap();
+        let secret = dummy_secret();
+        let snap = snapshot_line(&secret, 1, 1);
+        let ev = signed_line(&secret, 2, "MSG", 1, r#"{"x":1}"#);
+        let mut bytes = format!("{snap}\n{ev}\n").into_bytes();
+        bytes.extend_from_slice(&[0xFF, 0xFE]); // 撕裂写残字节（非法 UTF-8 尾）
+        std::fs::write(&wal, &bytes).unwrap();
+
+        let replay = replay_wal(wal_s, &secret, &HashSet::new()).unwrap();
+        assert!(
+            replay.had_wal_file,
+            "文件存在即 had_wal_file——损坏不得当成不存在（P0-2 病灶的入口）"
+        );
+        assert!(
+            replay.completed.is_some(),
+            "非法 UTF-8 尾不得吃掉其前的合法提交点（旧实现：整文件当空）"
+        );
+        let f = open_wal_for_run(wal_s, replay.completed, &replay.kept_lines, replay.had_wal_file);
+        assert!(f.is_ok(), "恢复重写应成功");
+        drop(f.unwrap());
+        let after = std::fs::read(&wal).unwrap();
+        assert!(
+            after.windows(snap.len()).any(|w| w == snap.as_bytes()),
+            "已提交快照行必须逐字节幸存（旧实现：整文件被 File::create 清空）"
+        );
+        assert!(
+            !after.contains(&0xFF),
+            "未提交的坏尾必须被物理截断（B1 语义不变）"
+        );
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            1,
+            "成功路径不得残留临时件或锁件（目录内只剩 WAL）"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// G6（#354 P0-2 · 第二面）：**整段不可解码**（连一个合法行都没有）时不得原位
+    /// 清空——必须归档留痕（与 G2 的零提交语义一致）；had_wal_file 仍为真，绝不
+    /// 退化成「首跑」。
+    #[test]
+    fn fully_undecodable_wal_is_archived_not_destroyed() {
+        let dir = guard_dir("p02b");
+        let wal = dir.join("events.jsonl");
+        let wal_s = wal.to_str().unwrap();
+        let secret = dummy_secret();
+        let original: Vec<u8> = vec![0xFF, 0xFE, 0xFD, b'\n', 0x80, 0x81, b'\n'];
+        std::fs::write(&wal, &original).unwrap();
+        let replay = replay_wal(wal_s, &secret, &HashSet::new()).unwrap();
+        assert!(replay.had_wal_file, "存在但不可解码 ≠ 不存在");
+        assert!(
+            replay.completed.is_none(),
+            "无合法快照 → 零提交（B1 全回滚语义不变）"
+        );
+        let f = open_wal_for_run(wal_s, replay.completed, &replay.kept_lines, replay.had_wal_file);
+        assert!(f.is_ok(), "零提交应正常开空 WAL 从轮 1 重跑");
+        drop(f.unwrap());
+        assert!(std::fs::read(&wal).unwrap().is_empty(), "新 WAL 为空文件");
+        let archives: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().starts_with("events.jsonl.corrupt-"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(archives.len(), 1, "不可解码 WAL 必须归档留痕（恰好一份）");
+        assert_eq!(
+            std::fs::read(&archives[0]).unwrap(),
+            original,
+            "归档必须逐字节保留原 WAL（含非法字节）"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// G7（#354 P1-6 · 防回退·红证）：seq 跳号必须**可察觉**——重放读数里出现明细
+    /// （旧实现完全静默 ⇒ 丢行不可察觉，这正是缺陷本体）。口径与 Python
+    /// verify_wal_signatures 的 continuity_breaks 同源：一处偏离一条明细、链以实际
+    /// seq+1 重同步、不级联连坐。
+    #[test]
+    fn seq_gap_is_reported_as_continuity_break() {
+        let dir = guard_dir("p16");
+        let wal = dir.join("events.jsonl");
+        let wal_s = wal.to_str().unwrap();
+        let secret = dummy_secret();
+        // 行：1(快照 r1),2,[缺 3/4],5,6(快照 r2)——第 3 行起报一次跳号。
+        // 快照轮号取 r2 而非 r1：同一轮写两个快照属另一条判据（G8），此处只隔离
+        // 「seq 跳号」这一条，避免两条判据在同一夹具里互相污染读数。
+        let content = format!(
+            "{}\n{}\n{}\n{}\n",
+            snapshot_line(&secret, 1, 1),
+            signed_line(&secret, 2, "MSG", 1, r#"{"x":1}"#),
+            signed_line(&secret, 5, "MSG", 1, r#"{"x":2}"#),
+            snapshot_line(&secret, 6, 2),
+        );
+        std::fs::write(&wal, &content).unwrap();
+        let rp = replay_wal(wal_s, &secret, &HashSet::new()).unwrap();
+        assert!(rp.completed.is_some(), "守卫前提：快照合法应可恢复");
+        assert_eq!(rp.continuity.breaks, 1, "恰好一处跳号（不级联连坐）");
+        assert!(!rp.continuity.ok(), "ok 必须为假（可回读的察觉面）");
+        assert_eq!(rp.continuity.lines, 4, "四行全部进入重放区（判据不误伤）");
+        let d = &rp.continuity.detail[0];
+        assert_eq!(d.line, 3, "1 基行号");
+        assert_eq!(d.expected, 3);
+        assert_eq!(d.actual, 5);
+        assert_eq!(d.kind, "跳号缺失");
+        // 完好 WAL 不得误报（判据的阴性面）
+        let wal2 = dir.join("ok.jsonl");
+        std::fs::write(
+            &wal2,
+            format!(
+                "{}\n{}\n",
+                snapshot_line(&secret, 1, 1),
+                signed_line(&secret, 2, "MSG", 1, r#"{"x":1}"#),
+            ),
+        )
+        .unwrap();
+        let rp2 = replay_wal(wal2.to_str().unwrap(), &secret, &HashSet::new()).unwrap();
+        assert!(rp2.continuity.ok(), "连续 WAL 不得误报：{:?}", rp2.continuity);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// G8（#354 P1-6）：同一轮出现**两个快照行**（双 coordinator 各写一份的形态）
+    /// 必须报出——单条 HMAC 只锚「这行没被改」，锚不住「轮次语义被写坏」。
+    #[test]
+    fn duplicate_snapshot_round_is_reported() {
+        let dir = guard_dir("p16b");
+        let wal = dir.join("events.jsonl");
+        let wal_s = wal.to_str().unwrap();
+        let secret = dummy_secret();
+        let content = format!(
+            "{}\n{}\n",
+            snapshot_line(&secret, 1, 1),
+            snapshot_line(&secret, 2, 1)
+        );
+        std::fs::write(&wal, &content).unwrap();
+        let rp = replay_wal(wal_s, &secret, &HashSet::new()).unwrap();
+        assert_eq!(rp.continuity.breaks, 1, "重复轮号须报一处");
+        assert_eq!(rp.continuity.detail[0].kind, "快照轮号重复或倒退");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// G9（#354 P1-7 · 防回退·红证）：WAL 锁被他人持有时恢复**必须** fail-closed
+    /// （报错且原 WAL 逐字节不动），不得无锁改写。
+    ///
+    /// 本用例耗时约 LOCK_WAIT_MS（5s）：并发判据只能靠真锁来验，故等待窗口取
+    /// 「高负载下够退让、测试里可接受」的折中值。
+    #[test]
+    fn held_wal_lock_fails_closed_without_touching_wal() {
+        let dir = guard_dir("p17");
+        let wal = dir.join("events.jsonl");
+        let wal_s = wal.to_str().unwrap();
+        let secret = dummy_secret();
+        let original = format!(
+            "{}\n{}\n",
+            snapshot_line(&secret, 1, 1),
+            signed_line(&secret, 2, "MSG", 1, r#"{"x":1}"#)
+        );
+        std::fs::write(&wal, &original).unwrap();
+        let lock = format!("{wal_s}.lock");
+        std::fs::write(&lock, "99999 0\n").unwrap(); // 他人持锁（mtime 新鲜）
+        let replay = replay_wal(wal_s, &secret, &HashSet::new()).unwrap();
+        assert!(replay.completed.is_some());
+        let res = open_wal_for_run(wal_s, replay.completed, &replay.kept_lines, replay.had_wal_file);
+        let err = res.err().expect("锁被持有必须 fail-closed（旧实现无锁照写）");
+        assert!(err.contains("排他锁"), "错误须点名锁（可诊断）：{err}");
+        assert_eq!(
+            std::fs::read_to_string(&wal).unwrap(),
+            original,
+            "未取得锁时在役 WAL 必须逐字节不动"
+        );
+        assert!(std::fs::remove_file(&lock).is_ok());
+        // 释放后同一路径必须可恢复（锁不得变成一次性）
+        let replay2 = replay_wal(wal_s, &secret, &HashSet::new()).unwrap();
+        let f = open_wal_for_run(wal_s, replay2.completed, &replay2.kept_lines,
+                                 replay2.had_wal_file);
+        assert!(f.is_ok(), "他人释放锁后必须可恢复（锁不是一次性）");
+        drop(f.unwrap());
         std::fs::remove_dir_all(&dir).ok();
     }
 
