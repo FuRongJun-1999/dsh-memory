@@ -397,12 +397,22 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
             continue
         lines = [f"\n\n# 整理聚合（tidy {time.strftime('%Y-%m-%d')}）："
                  f"同模板成员 {len(p['members'])} 条"]
+        # issue #360（2026-10-16 DSH 端）：**整理不看成员密级** ⇒ private 成员解密后
+        # 的正文前 48 字被明文追加进组内最早的保留节点（密级沿用保留节点的
+        # internal），internal 身份读那条 private 节点得 None、读保留节点却能看到
+        # 其内容。判据复用 #148 的唯一单点 security.merge_downgrades（成员档高于
+        # 保留档即**跳过、不写摘录、也不降级它**）；与 #359（审核 merge）同根
+        # 不同落点。成员档未记录时 merge_downgrades(..., None) 恒 False ⇒ 行为不变。
+        from .security import merge_downgrades as _md360
+        _ksens = (keep.get("frontmatter") or {}).get("sensitivity")
         for mid in p["members"]:
             m = cg.get(mid)
             if not m:
                 continue
             mfm = dict(m.get("frontmatter") or {})
             if mfm.get("protected") or mfm.get("immutable"):
+                continue
+            if _md360(_ksens, mfm.get("sensitivity")):
                 continue
             first = " ".join((m.get("content") or "").split())[:48]
             lines.append(f"- {mid} {first}")
