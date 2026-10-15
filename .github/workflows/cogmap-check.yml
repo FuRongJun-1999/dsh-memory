@@ -6,6 +6,7 @@ on:
       - README.md
       - docs/mdcg/功能调用映射表_v0.1.md
       - scripts/cogmap_sync.py
+      - package.json
       - scripts/link_check.py
       - md_cg/mcp_server.py
       - md_cg/whitebox.py
@@ -16,6 +17,7 @@ on:
       - README.md
       - docs/mdcg/功能调用映射表_v0.1.md
       - scripts/cogmap_sync.py
+      - package.json
       - scripts/link_check.py
       - md_cg/mcp_server.py
       - md_cg/whitebox.py
