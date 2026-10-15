@@ -1641,7 +1641,13 @@ def _x_run_in_isolated_tree(before_src, tmp):
         "            '# 验证方式：test\\n# 不适用条件：无\\n')",
         "cg.add('old', ccg('不启用缓存'), layer='knowledge',",
         "       verification_basis='test', importance=0.5)",
-        "r = cg.check_consistency(ccg('启用缓存'), layer='knowledge', depth=0) or {}",
+        # issue #193 起 check() 新增 write_scope 等形参，而本夹具是修复前快照。
+        # 按被调方真实签名过滤 kwargs，避免「夹具缺新参」被误判成「修复前判不出 ACCEPT」。
+        "import inspect as _insp",
+        "from md_cg import consistency as _cons",
+        "_kw = {\"layer\": \"knowledge\", \"depth\": 0, \"write_scope\": True}",
+        "_kw = {k: v for k, v in _kw.items() if k in _insp.signature(_cons.check).parameters}",
+        "r = _cons.check(cg, ccg('启用缓存'), **_kw) or {}",
         "print(json.dumps({'verdict': r.get('verdict'),",
         "                  'div': [x for x in (r.get('conflicts') or [])",
         "                          if x.get('type') =="
