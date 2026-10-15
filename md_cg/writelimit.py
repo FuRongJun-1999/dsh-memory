@@ -22,6 +22,9 @@ mem_* 节点；主动遗忘闸门（forgetting.assess）MERGE 命中率仅 1%—
     幂等（2026-10-13，issue #190）：已被整理过的节点（tags 含 tidy:converged
     或 lifecycle_state=="converged"）不再进组、不再降权、不再重写，因此周期
     巡检第 2 轮起对同一组零落盘；返回 dict 新增键 already_tidied（跳过计数）。
+    降密级闸（2026-10-15，issue #360——#304 自述「已知遗留①」立案）：成员密级
+    高于保留节点（security.merge_downgrades 单点）时该成员整体跳过——其解密
+    后的正文摘录不得明文并入低密级保留节点；跳过计数 skipped_private 留痕。
 
 状态持久化 <root>/_writelimit.json（进程重启不失效）；
 env MDCG_WRITELIMIT=0 整体关闭；importance_hint≥0.7（保护优先语义）
@@ -336,7 +339,7 @@ def _already_tidied(e: dict) -> bool:
     return fm.get(lifecycle.STATE_FIELD) == "converged"
 
 
-# 生效条件：形参 cg 的 index["nodes"] 中 layer=="contextual" 且 cg.get 可取的节点按 template_signature 非空分组，扫描到 scanned>=limit（limit=0 立即 break）为止，成员数≥min_group 的组按成员数降序进入 planned（_already_tidied 为真的节点在扫描阶段即跳过、只计入 out["already_tidied"]）；apply 为真且 planned 非空时，逐组循环且累计 n_ap>=MAX_APPLY 后不再开新组（组内成员仍可继续 n_ap 累加超过），跳过 protected/immutable 成员，保留每组最早节点并追加整理聚合、成员降权，输出 out（out["planned"] 仅取 planned[:20]；apply 假或 planned 空直接返回 out）；
+# 生效条件：形参 cg 的 index["nodes"] 中 layer=="contextual" 且 cg.get 可取的节点按 template_signature 非空分组，扫描到 scanned>=limit（limit=0 立即 break）为止，成员数≥min_group 的组按成员数降序进入 planned（_already_tidied 为真的节点在扫描阶段即跳过、只计入 out["already_tidied"]）；apply 为真且 planned 非空时，逐组循环且累计 n_ap>=MAX_APPLY 后不再开新组（组内成员仍可继续 n_ap 累加超过），跳过 protected/immutable 成员，**成员密级经 security.merge_downgrades（target=保留节点密级）判为降密级时也整体跳过（issue #360：不写摘录、不降权、不计数，跳过计数 skipped_private 留痕）**，保留每组最早节点并追加整理聚合（组内全被跳过时不写盘——防 #190 每轮重写复活）、成员降权，输出 out（out["planned"] 仅取 planned[:20]；apply 假或 planned 空直接返回 out；有降密级跳过时 out 含 skipped_private，applied 各项 converged 只数真并入者）；
 def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
                     limit=2000) -> dict:
     """扫描 contextual 层已落盘节点，按模板签名分组并整理。
@@ -351,6 +354,15 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
     lifecycle_state=="converged"）在扫描阶段就跳过——不进组、不再降权、不再
     重写保留节点，所以同一组第 2 轮起 planned 为空、零落盘。返回 dict 新增
     键 already_tidied（本次跳过的已整理节点数），其余键与语义不变。
+
+    降密级闸（issue #360，#304 自述「已知遗留①」立案）：成员密级**高于**保留
+    节点（security.merge_downgrades 单点判降密级，#148 家族同款）时，该成员
+    **整体跳过**——不把其解密后的正文摘录明文写进保留节点、不降权、不计数
+    （fail-closed：高密级明文不得并入低密级节点，与 converge_into / reinforce
+    同向）。留痕：返回 dict 在有跳过时新增键 skipped_private（本次跳过计数），
+    applied 各项在有组内跳过时带 skipped_private（组内计数）——不静默。
+    converged / merge_count 只数**真并入**的成员；全组皆被跳过时保留节点不写盘
+    （防 #190 的每轮重写在 private 组上复活）。
     """
     groups: dict = {}
     already_tidied = 0
@@ -389,14 +401,29 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
     if not apply or not planned:
         return out
     n_ap = 0
+    skipped_private = 0
     for p in planned:
         if n_ap >= MAX_APPLY:
             break
         keep = cg.get(p["keep"])
         if not keep:
             continue
+        # issue #360（#304 自述「已知遗留①」立案，判据同 #148 家族单点）：
+        # 本循环此前把同组 private 成员**解密后的正文前 48 字**明文追加进保留
+        # 节点，而保留节点密级沿用自己 frontmatter 的（如 internal）⇒ 该
+        # private 明文就此获得保留节点档的可见性（internal 身份直接 get 那条
+        # private 节点得 None，但读保留节点就能看到内容；sustain 缺省
+        # auto_tidy=True，无需人工触发）。成员循环先过
+        # security.merge_downgrades（target=保留节点密级、incoming=成员密级），
+        # 命中即**跳过该成员**：不写摘录、不降权、不计数（fail-closed，与
+        # converge_into / forgetting.reinforce 的 #148 闸同款单点），跳过计数
+        # skipped_private 留痕（不静默）。
+        from .security import merge_downgrades as _merge_downgrades
+        keep_sens = (keep.get("frontmatter") or {}).get("sensitivity")
         lines = [f"\n\n# 整理聚合（tidy {time.strftime('%Y-%m-%d')}）："
                  f"同模板成员 {len(p['members'])} 条"]
+        n_merged = 0
+        sk_group = 0
         for mid in p["members"]:
             m = cg.get(mid)
             if not m:
@@ -404,19 +431,34 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
             mfm = dict(m.get("frontmatter") or {})
             if mfm.get("protected") or mfm.get("immutable"):
                 continue
+            if _merge_downgrades(keep_sens, mfm.get("sensitivity")):
+                skipped_private += 1
+                sk_group += 1
+                continue
             first = " ".join((m.get("content") or "").split())[:48]
             lines.append(f"- {mid} {first}")
             _demote(cg, m)
             n_ap += 1
+            n_merged += 1
+        if n_merged == 0:
+            # 全组成员都被跳过（降密级闸 / protected / missing）：保留节点**不
+            # 写盘**——被降密级闸跳过的成员不会被标记收敛，若照写只有一段没有
+            # 成员行的空头、merge_count 空涨，且每轮巡检都重写（#190 的无上限
+            # 增长在 private 组上复活）。跳过计数照常在 out 留痕（不静默）。
+            continue
         kfm = dict(keep.get("frontmatter") or {})
         kfm["merge_count"] = int(kfm.get("merge_count")
-                                 or 0) + len(p["members"])
+                                 or 0) + n_merged
         kfm["last_merge_at"] = time.time()
         cg._write_node(keep["id"], os.path.join(cg.root, keep["path"]),
                        kfm, (keep.get("content") or "") + "\n".join(lines),
                        durable=True)
-        out["applied"].append({"keep": p["keep"],
-                               "converged": len(p["members"])})
+        entry = {"keep": p["keep"], "converged": n_merged}
+        if sk_group:
+            entry["skipped_private"] = sk_group
+        out["applied"].append(entry)
+    if skipped_private:
+        out["skipped_private"] = skipped_private
     out["applied_count"] = n_ap
     flush = getattr(cg, "flush", None)
     if callable(flush):
