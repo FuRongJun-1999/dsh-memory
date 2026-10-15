@@ -3035,15 +3035,25 @@ def _ingest_call(cg, a):
     from . import sources
     from .security import check_path_root
     act = (a.get("action") or "stat").strip().lower()
+    # issue #351（2026-10-16 DSH 端）：dir 的**空 path 不得回落记忆库根**——库根下
+    # 是各层节点文件、trash/、_protected_history/，把它们当外部文档切成 doc_ref
+    # 节点会 (a) 把 restricted 正文抄进 internal 节点（访客可检索）、(b) 把已
+    # forget 并 accept 删除的节点复活。缺省根改由 MDCG_INGEST_ROOT 显式给，
+    # 且**在白名单检查之前**解析，让 env 值照过 check_path_root。
+    _p351 = a.get("path")
+    if act == "dir" and not (_p351 or "").strip():
+        _p351 = os.environ.get("MDCG_INGEST_ROOT") or ""
+        if _p351:
+            a = dict(a, path=_p351)
     # P1-4（批次 26）：ingest 的 path 是模型可控输入——根白名单约束
     # （MDCG_INGEST_ROOT 设置时越界即拒；未设置保持现状）
-    check_path_root(a.get("path"), "MDCG_INGEST_ROOT", "ingest")
+    check_path_root(_p351, "MDCG_INGEST_ROOT", "ingest")
     principal = getattr(cg, "principal", None)
     if act in ("file", "dir", "jsonl") and principal is not None \
             and not getattr(principal, "can_write", False):
         principal.require_admin(f"ingest_{act}")      # 无写权 → 抛 AccessDenied
     return sources.run(
-        cg, action=act, path=a.get("path"), layer=a.get("layer"),
+        cg, action=act, path=_p351, layer=a.get("layer"),
         sensitivity=a.get("sensitivity"), patterns=a.get("patterns"),
         max_files=a.get("max_files"), max_items=a.get("max_items"),
         incremental=a.get("incremental"), dry_run=a.get("dry_run"),

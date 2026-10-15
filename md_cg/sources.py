@@ -796,7 +796,18 @@ def run(cg, action: str = "stat", **kw):
                              sensitivity=kw.get("sensitivity"),
                              dry_run=bool(kw.get("dry_run")))
     if act == "dir":
-        p = kw.get("path") or cg.root
+        # issue #351（2026-10-16 DSH 端）：空 path **不得**回落记忆库根。库根下是
+        # 各层节点文件、trash/、_protected_history/，把它们当外部文档切成 doc_ref
+        # 节点会 (a) 把 restricted 正文抄进 internal 节点（无令牌访客可检索）、
+        # (b) 把已 forget 并 accept 删除的节点复活。缺省根改由调用方显式给 path
+        # 或设 env MDCG_INGEST_ROOT（分派层已在白名单检查之前解析）——这里
+        # fail-closed，不猜扫描根。
+        p = kw.get("path")
+        if not p:
+            return {"ok": False, "error": (
+                "dir 动作需要 path（或设 env MDCG_INGEST_ROOT）——不猜测扫描根"
+                "（issue #351：缺省回落记忆库根会把 restricted/已删除节点"
+                "重新索引成 internal 并可被访客检索）")}
         return d.ingest_dir(p, layer=kw.get("layer"),
                             sensitivity=kw.get("sensitivity"),
                             patterns=kw.get("patterns"),
