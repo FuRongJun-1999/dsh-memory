@@ -5985,10 +5985,30 @@ class MdCGSecure(MdCGOS):
         self._index_sensitivity(nid, sens)
         return nid
 
-# 生效条件：调用方未声明 sensitivity 时先经 _write_sensitivity 解析出 sens（issue #297：既有节点**继承旧密级**——缺省 confirm 档下提案记录若在入队时就已降成 internal，accept 只会照抄该值，故继承必须发生在这里、不能只补落盘面），再 principal.require_layer_write(kw.get("layer", "knowledge"), sens)（缺省与基类 MdCGOS.propose 的 layer="knowledge" 一致——此前误用 or "contextual" 导致校验层与落盘层错位：knowledge-only 身份被误拒 / contextual-only 身份入队成死提案，2026-09-25 缺陷 #5），再转 super().propose(node_id, content, sensitivity=sens) 并返回其结果。
+# 生效条件：调用方未声明 sensitivity 时先经 _write_sensitivity 解析出 sens（issue #297：既有节点**继承旧密级**——缺省 confirm 档下提案记录若在入队时就已降成 internal，accept 只会照抄该值，故继承必须发生在这里、不能只补落盘面），再 principal.require_layer_write(kw.get("layer", "knowledge"), sens)（缺省与基类 MdCGOS.propose 的 layer="knowledge" 一致——此前误用 or "contextual" 导致校验层与落盘层错位：knowledge-only 身份被误拒 / contextual-only 身份入队成死提案，2026-09-25 缺陷 #5）；node_id 为非空字符串且索引中已有该节点时，再按索引条目的既有层与密级过 protect.require_layer（issue #346：提案者 clearance 不足以**直接覆写**既有节点 ⇒ 入队即 AccessDenied，不写 inbox 不占 pid；新节点/裸 id 不受影响），最后转 super().propose(node_id, content, sensitivity=sens) 并返回其结果。
     def propose(self, node_id: str, content: str, sensitivity: str = None, **kw):
         sens = self._write_sensitivity(node_id, sensitivity)
         self.principal.require_layer_write(kw.get("layer", "knowledge"), sens)
+        # issue #346（2026-10-15 DSH 端）：**提案者自己落不了盘的覆写不进队列**。
+        # 上一行只按**声明值**判（声明 internal 即按 internal 放行），而 accept
+        # 执行面照抄声明的 sens 落盘——低 clearance 身份（orchestr/record）对
+        # 属主 private 节点提交「声明 internal」的覆写提案、再由持 review op 的
+        # orchestr 自己批，就把 private 节点整条降密级覆写成 internal 明文
+        # （原密文无副本、无令牌访客可读）。本闸覆盖 cg(op=write) 的审核/一致性
+        # 闸（writepipe._gate_audit）、mdcg_propose、gated DEFER、变更单
+        # propose_mutation 全部入队点——它们都汇到本方法。判据复用
+        # protect.require_layer 单点（按**索引里的既有层与密级**判，与直写面
+        # write_qualify / accept 执行面 MdCG.add 新闸 / merge 支 N131 同口径）：
+        # fail-closed 在入队之前抛出，不写 inbox、不占 pid；新节点无既有条目
+        # 不受影响；属主对自己节点的合法降密提案照旧放行。
+        if isinstance(node_id, str) and node_id:
+            self._maybe_reload_index()
+            _ex346 = (self.index.get("nodes") or {}).get(node_id)
+            if _ex346 is not None:
+                protect.require_layer(self, node_id,
+                                      layer=_ex346.get("layer") or None,
+                                      sensitivity=_ex346.get("sensitivity")
+                                      or None)
         return super().propose(node_id, content, sensitivity=sens, **kw)
 
 # 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 _rank(sens) 并 principal.require_layer_write("goals", sens)，再转 super().add_goal，最后按 gid 调 _index_sensitivity 并返回 gid。
