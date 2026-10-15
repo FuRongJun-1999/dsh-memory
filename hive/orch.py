@@ -581,10 +581,16 @@ def _spawn(a: dict) -> dict:
     # 白名单透传键（H-6 补 depends_on：子任务依赖门禁的透传面——编排者把上游
     # 子任务 job_id（如 poll_subtasks 看到的 id）填进来，子任务即受调度侧
     # deps_gate 约束（全 done 才领取）。显式传值优先、缺省不写。）
-    for k in ("system_prompt", "context_files", "max_tool_rounds", "web_search_backend",
+    for k in ("system_prompt", "context_files", "web_search_backend",
               "mdcg_root", "max_tokens", "temperature", "thinking", "depends_on"):
         if a.get(k) not in (None, "", [], {}):
             sub[k] = a[k]
+    # issue #400：`max_tool_rounds` 是**整数槽**，此前混在上面的白名单里**原样透传** ⇒
+    # 模型回 `'5轮'` 时字符串落进子任务 spec.json，子任务执行器入口 `exec.py` 的
+    # `int(spec.get("max_tool_rounds") or …)` 裸崩 ⇒ 子任务判死。与同函数下方
+    # timeout_s/context_budget_tokens **同模板**收敛（0 = 不传，由执行器取缺省）。
+    sub["max_tool_rounds"] = _ex._int_arg(a, "max_tool_rounds", 0,
+                                          hi=sys.maxsize)
     # 统一子代理默认注入（与 MCP 面同源常量，显式传值优先）。
     # 脏参容错（v2 N13，2026-09-25）：timeout_s/context_budget_tokens 是模型
     # 可控参数，function calling 常见脏值 '600s'/'20k'/[600] 曾从裸 int() 抛

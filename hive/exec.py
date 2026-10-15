@@ -979,7 +979,11 @@ def tool_web_search(args: dict, backend_override: str = None) -> dict:
     query = (args.get("query") or "").strip()
     if not query:
         return {"ok": False, "error": "query 必填"}
-    count = max(1, min(int(args.get("count") or 5), 10))
+    # issue #400：走同文件 `_int_arg` 模板（与 read_file 的 limit/offset/max_chars 同源）
+    # ——脏值（模型 function calling 常回 `'3条'`/`[3]`）回落默认而非裸 int() 抛穿：
+    # 修前该 `int()` 在下方自己的 try **之外**，异常一路逃到 `exec.main` 兜底 ⇒ 整个 job
+    # 判死（EXIT_API）且 `tool_trace` 全丢（工具面契约是「返回 {'ok':False} 而非抛」）。
+    count = _int_arg(args, "count", 5, 10)
     backend = (os.environ.get("HIVE_WEB_SEARCH", "").strip().lower()
                or (backend_override or "").strip().lower() or "zhipu")
     try:
@@ -1394,8 +1398,13 @@ def execute_tool(name: str, args_json: str, job_id: str,
     """执行一次工具调用，返回 (结果dict, trace简报)。未知工具诚实报错。"""
     try:
         args = json.loads(args_json or "{}")
-    except json.JSONDecodeError as e:
-        return ({"ok": False, "error": f"工具参数不是合法 JSON: {e}"}, "")
+    except Exception as e:                       # noqa: BLE001
+        # issue #400：修前只捕 `json.JSONDecodeError`，而 `arguments` 由模型回传时
+        # 可能是**已是对象**（网关/模型直接给 JSON 对象）⇒ `json.loads(dict)` 抛
+        # `TypeError` 逃出工具处理器 ⇒ main 兜底判死整个 job（契约是回 {'ok':False}）。
+        # 非字符串/非 JSON 一律回错误结果，不杀 job（与 _EXTRA_TOOLS 的兜底同模板）。
+        return ({"ok": False,
+                 "error": f"工具参数不可解析（{type(e).__name__}）: {e}"}, "")
     if name == "lingshu_cg":
         out = tool_lingshu_cg(args, job_id, mdcg_root=mdcg_root)
     elif name == "web_search":
@@ -1770,8 +1779,11 @@ def run_with_tools(spec: dict, messages: list, job_id: str,
     _vis = all_schemas()
     names = [t for t in (spec.get("tools") or []) if t in _vis]
     schemas = [_vis[t] for t in names]
-    max_rounds = max(1, int(spec.get("max_tool_rounds")
-                            or DEFAULT_MAX_TOOL_ROUNDS))
+    # issue #400：本处是 `max_tool_rounds` 的**最后一道消费面**（spec.json 可能来自任何
+    # 写入方，不只 orch）——此前裸 `int()`，脏值直接把子任务判死。接同文件 `_int_arg`
+    # 模板（脏值/非正回落默认），与 orch 侧的收敛面同源。
+    max_rounds = _int_arg(spec, "max_tool_rounds", DEFAULT_MAX_TOOL_ROUNDS,
+                          hi=sys.maxsize)
     timeout = float(spec.get("timeout_s") or 300)
     budget = spec.get("context_budget_tokens")
     trace, usage_total = [], {}

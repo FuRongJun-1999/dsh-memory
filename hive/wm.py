@@ -274,7 +274,7 @@ def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
 
 # ---------------------------------------------------------------- 进展面读取
 
-# 生效条件：lines 逐行 strip，空行跳过且不计 total，非空行 total+1 并尝试 json.loads，抛 json.JSONDecodeError 的行不入 entries；返回 entries 在 limit > 0 时取 entries[-limit:]，limit <= 0（含 0）时返回全部 entries，并附非空行总数 total。
+# 生效条件：lines 逐行 strip，空行跳过且不计 total，非空行 total+1 并尝试 json.loads，抛 json.JSONDecodeError 的行不入 entries，**合法 JSON 但非映射（list/str/null/数字）的行同样不入 entries**（issue #399：坏行口径同款，防消费点 .get 抛穿）；返回 entries 在 limit > 0 时取 entries[-limit:]，limit <= 0（含 0）时返回全部 entries，并附非空行总数 total。
 def _parse_progress(lines, limit: int) -> tuple[list[dict], int]:
     """解析进展卡行流：返回 (尾部 limit 条, 总行数)。坏行跳过不炸（诚实降级）。"""
     entries: list[dict] = []
@@ -285,9 +285,15 @@ def _parse_progress(lines, limit: int) -> tuple[list[dict], int]:
             continue
         total += 1
         try:
-            entries.append(json.loads(ln))
+            v = json.loads(ln)
         except json.JSONDecodeError:
             continue
+        # issue #399：坏行口径与「非法 JSON」**同款**——合法 JSON 但顶层非映射
+        # （`[1,2]`/`null`/`"str"`）同样跳过。修前它们进 entries，消费点 `e.get("kind")`
+        # 立刻 AttributeError 把 `wm progress` 打崩（与本函数自述的「坏行跳过不炸」相悖）。
+        if not isinstance(v, dict):
+            continue
+        entries.append(v)
     return (entries[-limit:] if limit > 0 else entries), total
 
 

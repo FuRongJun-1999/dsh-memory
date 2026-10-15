@@ -106,11 +106,26 @@ def read_json(path: str):
         return None
 
 
+# 生效条件：path 给定时读 JSON 并把**非映射**载荷（合法 JSON 的 list/str/number/null）
+# 一律按「读件失败」处理返回 {}；是 dict 则原样返回；缺失/坏件经 read_json 得 None ⇒ {}。
+def _obj(path: str) -> dict:
+    """读件 → 映射；**非映射一律当读件失败**（issue #399；口径同 #155③ `_read_status`）。
+
+    为什么必须单点：`read_json(...) or {}` **只兜空值**——「合法 JSON 但顶层不是对象」
+    （`[1,2,3]` / `"x"` / `123`）会原样留下，下游 `.get(...)` 立刻 AttributeError ⇒ 单个
+    坏件把**整张评分表**打崩（本模块 `:99` 自述契约却是 fail-soft：不因单个坏件中断，
+    只计入 bad_files）。#155③ 已在 `hive_mcp/mcp_server.py._read_status` 立过同款判据，
+    本处复用同一口径，**不另造第二份**。
+    """
+    v = read_json(path)
+    return v if isinstance(v, dict) else {}
+
+
 def job_record(job_dir: str):
     """一个 job 目录 → 记录 dict（含 spec/status/result 的关键面）。"""
-    spec = read_json(os.path.join(job_dir, "spec.json")) or {}
-    status = read_json(os.path.join(job_dir, "status.json")) or {}
-    result = read_json(os.path.join(job_dir, "result.json")) or {}
+    spec = _obj(os.path.join(job_dir, "spec.json"))
+    status = _obj(os.path.join(job_dir, "status.json"))
+    result = _obj(os.path.join(job_dir, "result.json"))
     cmds = spec.get("commands")
     deterministic = bool(cmds) if isinstance(cmds, list) else bool(cmds)
     return {
