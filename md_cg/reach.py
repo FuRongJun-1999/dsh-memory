@@ -185,8 +185,8 @@ class ReachIndex:
         self.built_reads = 0     # 本次重建**已实际读盘**的节点数（含读失败/解密失败；失败时如实暴露 I/O 成本）
         self.built_at = 0.0
 
-    # 生效条件：缓存文件存在且 JSON 可解析、schema 版本相符时载入 post/adj/hashes 并返回 True；文件缺失/损坏/版本不符返回 False（调用方转入重建）。
-# 生效条件：读取 self.path 时若 open/json.load 抛 OSError 或 ValueError、或解析结果不是 dict、或其中 "v" 与模块级常量 SCHEMA_VERSION 不等则返回 False，否则回填 post/adj/hashes/sem/built_at/fp 并返回 True。
+    # 生效条件：schema、容器/成员形态与有限时间戳均合法才整体装载；缺失、
+    # 损坏或不合法返回 False，实例原状态不变，由调用方重建或回退全量检索。
     def load(self) -> bool:
         try:
             with open(self.path, encoding="utf-8") as f:
@@ -195,12 +195,29 @@ class ReachIndex:
             return False
         if not isinstance(d, dict) or d.get("v") != SCHEMA_VERSION:
             return False
-        self.post = {k: list(v) for k, v in (d.get("post") or {}).items() if v}
-        self.adj = d.get("adj") or {}
-        self.hashes = d.get("hashes") or {}
-        self.sem = list(d.get("sem") or [])
-        self.built_at = float(d.get("built_at") or 0.0)
-        self.built_fingerprint = str(d.get("fp") or "")
+        # Derived files are not authoritative. Validate every consumed field
+        # before committing any state; malformed snapshots rebuild normally.
+        post, adj, hashes = d.get("post"), d.get("adj"), d.get("hashes")
+        sem, built_at, fp = d.get("sem", []), d.get("built_at", 0.0), d.get("fp", "")
+        if not all(isinstance(x, dict) for x in (post, adj, hashes)):
+            return False
+        if not all(isinstance(k, str) and isinstance(v, list)
+                   and all(isinstance(p, str) for p in v)
+                   for table in (post, adj) for k, v in table.items()):
+            return False
+        if not all(isinstance(k, str) and isinstance(v, str) for k, v in hashes.items()):
+            return False
+        if not isinstance(sem, list) or not all(isinstance(p, str) for p in sem):
+            return False
+        try:
+            finite_time = isinstance(built_at, (int, float)) and math.isfinite(built_at)
+        except (OverflowError, ValueError):
+            finite_time = False
+        if (not finite_time or isinstance(built_at, bool) or not isinstance(fp, str)):
+            return False
+        self.post = {k: list(v) for k, v in post.items() if v}
+        self.adj, self.hashes, self.sem = adj, hashes, list(sem)
+        self.built_at, self.built_fingerprint = float(built_at), fp
         return True
 
     # 生效条件：cg 有 index["nodes"] 且可逐条 _read 时，全量重建倒排与邻接：文档 token = bigrams(positive_body 小写) ∪ bigrams(标签小写) ∪ bigrams(normalize_en(content))（前者覆盖 LIKE、后者覆盖词法打分）；邻接取 index 内 edges 的 target，仅保留在索引中的目标。
