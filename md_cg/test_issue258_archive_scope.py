@@ -25,6 +25,7 @@
 
 运行：python -X utf8 -m md_cg.test_issue258_archive_scope
       python -X utf8 -m md_cg.test_issue258_archive_scope --mutate=V1   # 定点变异自证
+      退出码：0 全绿 / 1 有红 / 2 盘上源自检不过（残留变异体或加载模块与源不一致）
 """
 import base64 as _b64
 import io
@@ -802,12 +803,39 @@ _MUTATIONS = [  # (编号, 说明, 原串, 变异串, 期望被打红的判据�
 
 
 def _live_ok():
-    """盘上源是否已是本件修复版（防「变异打在未生效的源上」）。"""
+    """盘上源自检 -> (是否可用, 原因)。
+
+    防两类静默事故（第1条在本守卫上真实发生过）：
+    1. 盘上残留上一次 --mutate 未还原的变异体 -> 判据假红（曾报 S1.3 归一失败，
+       而生产代码毫无问题）；
+    2. 加载进进程的模块与盘上源字节码不一致 -> 变异打在未生效的源上。
+    --mutate 子进程用 MDCG_GUARD_MUT_UNDER_TEST 声明正在测的变异，
+    自检跳过那一条的残留检查（那正是被测状态）。
+    """
     import importlib
+    import types
     import md_cg.evidence as ev
     importlib.reload(ev)
-    return callable(getattr(ev, "_pack_sealed_levels", None)) and         callable(getattr(ev, "_pack_has_unarchivable", None))
-
+    if not (callable(getattr(ev, "_pack_sealed_levels", None))
+            and callable(getattr(ev, "_pack_has_unarchivable", None))):
+        return False, "盘上源缺整包扫描面（补丁未生效）"
+    disk = io.open(_SRC_PATH, encoding="utf-8").read()
+    under = os.environ.get("MDCG_GUARD_MUT_UNDER_TEST") or ""
+    for name, desc, old, new, want in _MUTATIONS:
+        if name == under:
+            continue
+        if new in disk:
+            return False, ("盘上源仍处于 %s 变异态：%s（上一次 --mutate 未还原）"
+                           % (name, desc))
+    mod_code = compile(disk, _SRC_PATH, "exec")
+    disk_fns = {c.co_name: c for c in mod_code.co_consts
+                if isinstance(c, types.CodeType)}
+    for fname in ("_pack_sealed_levels", "_pack_has_unarchivable"):
+        c = disk_fns.get(fname)
+        live = getattr(ev, fname, None)
+        if c is None or live is None or c.co_code != live.__code__.co_code:
+            return False, "加载模块与盘上源不一致（%s 字节码漂移）" % fname
+    return True, ""
 
 def _run_mutations(sel):
     import subprocess
@@ -831,7 +859,9 @@ def _run_mutations(sel):
             r = subprocess.run([sys.executable, "-X", "utf8", "-m",
                                "md_cg.test_issue258_archive_scope"],
                               cwd=_REPO, capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", timeout=600)
+                              encoding="utf-8", errors="replace", timeout=600,
+                              env=dict(os.environ,
+                                       MDCG_GUARD_MUT_UNDER_TEST=name))
             out = r.stdout or ""
             reds = [L.strip() for L in out.splitlines() if L.strip().startswith("FAIL ")]
             hit = [L for L in reds if want and want in L]
@@ -862,6 +892,10 @@ def _groups():
 
 
 def main():
+    ok, why = _live_ok()
+    if not ok:
+        print("盘上源自检失败（不跑判据，防止假红/假绿）：%s" % why)
+        return 2
     for gid, fn in _groups():
         try:
             fn()
