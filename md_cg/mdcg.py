@@ -46,6 +46,23 @@ def _ensure_list(x):
         return [x]
     return list(x)
 
+# 生效条件：content 为**明文**正文时取 `# 不适用条件：` 行（nodefile.ccg_field_value 取值单点），按 ccgc 同款 [；;] 拆分、去尾标点、丢占位词，返回非空词条列表；无该行或全被过滤时返回 []。
+def _na_from_body(content) -> list:
+    """正文 `# 不适用条件：` 行 → 结构化词条列表（单点：写入抽取与资格现抽共用）。"""
+    _na_line = nodefile.ccg_field_value(content, "不适用条件")
+    if not _na_line:
+        return []
+    _vals = [s.strip() for s in re.split(r"[；;]", _na_line) if s.strip()]
+    _vals = [re.sub(r"[.．…\s，,；;、]+$", "", v).strip() for v in _vals]
+    return [v for v in _vals if v and not nodefile.is_placeholder_text(v)]
+
+
+# 生效条件：sens 为假值（None/空串）返回 False；否则 str(sens).strip() 属 crypto.ENCRYPTED_LEVELS（at-rest 加密档 private/secret）返回 True，其余返回 False。
+def _is_encrypted_level(sens) -> bool:
+    """at-rest 加密档判据（单点：crypto.ENCRYPTED_LEVELS）。"""
+    from . import crypto
+    return bool(sens) and str(sens).strip() in crypto.ENCRYPTED_LEVELS
+
 # 五层 + 两类负记忆 + 目标槽（白箱记忆七件套工程化：事实/规则→knowledge；
 # 假设→contextual；失败/未解→独立目录；目标→goals）。
 # 第 5 篇第 3 章：「没有目标，检索就没有方向」——goals 层不参与词法正排，
@@ -2723,16 +2740,17 @@ class MdCG:
         # （按正文文本判，health 的 neg_conditions_set 用它）与 non_applicable_conditions
         # （judge_qualification 的 REJECT 路径用它）会长期脱钩——实测历史数据修好后
         # 新写入节点立刻复现（1/73）。正文里字面 `…` 是写入期截断尾巴，按占位丢弃。
-        if not fm.get("non_applicable_conditions"):
-            _na_line = nodefile.ccg_field_value(content, "不适用条件")
-            if _na_line:
-                _na_vals = [s.strip() for s in re.split(r"[；;]", _na_line) if s.strip()]
-                _na_vals = [re.sub(r"[.．…\s，,；;、]+$", "", v).strip()
-                            for v in _na_vals]
-                _na_vals = [v for v in _na_vals
-                            if v and not nodefile.is_placeholder_text(v)]
-                if _na_vals:
-                    fm["non_applicable_conditions"] = _na_vals
+        # issue #348-C：**加密档（private/secret）不做这条抽取**。frontmatter 恒为
+        # 明文，抽进去等于把正文里刚被密封的「不适用条件」原文再抄一份到明文面，
+        # 并经 `rejection_index_terms` 进 `_index.json` 的 rejection_terms。加密档
+        # 的 REJECT 语义改由 `judge_qualification` 按**解密后的**正文现抽承接
+        # （同一单点 `_na_from_body`），语义不变、明文落点消失。调用方**显式**传
+        # non_applicable_conditions 时仍按原样落 fm（那是调用方自己声明要明文存的）。
+        if (not fm.get("non_applicable_conditions")
+                and not _is_encrypted_level(fm.get("sensitivity"))):
+            _na_vals = _na_from_body(content)
+            if _na_vals:
+                fm["non_applicable_conditions"] = _na_vals
         # 生命周期状态（② 显式状态机，真源 `lifecycle.py`）：add 是**全量重建
         # fm** 而非增量更新，故必须显式处理状态——否则已定型/已降权节点会被静默
         # 打回 active（与 ④ rewrite 必须重传 branch_id 同构的坑）。口径：
@@ -3955,6 +3973,12 @@ class MdCG:
         #    + 自主题豁免；原 `any(w in scene for w in n.split())` 会把本节点
         #    自己的主题词当拒绝理由，见该函数说明）。
         neg = fm.get("non_applicable_conditions") or []
+        # issue #348-C：加密档节点不再把正文的 `# 不适用条件：` 行抽进明文
+        # frontmatter（见 `MdCG.add` 同款判据），故此处在 fm 列表为空且节点是
+        # 加密档时按**已解密的**正文现抽（同一单点 `_na_from_body`）。不给这条
+        # 现抽，private/secret 节点的 REJECT 语义会随明文落点一起消失。
+        if not neg and _is_encrypted_level(fm.get("sensitivity")):
+            neg = _na_from_body(content)
         neg_hit = neg_condition_hits(neg, scene_str,
                                      MdCG._self_topic_text(fm, content))
         if neg_hit:

@@ -247,6 +247,22 @@ def record_accepted(cg, node_id, content, now=None, sensitivity=None) -> None:
 # 生效条件：cg.get(target) 为假值返回 {"ok": False, "error": "target_missing"}；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；通过后按 forgetting.aggregate_line（单点）把新正文里目标还没有的行追加为聚合行、fm["merge_count"]=int(fm.get("merge_count") or 0)+1 后 _write_node 落盘（重要性不变），并把 session/actor 归属并列记进 fm（forgetting.note_source）；返回 {"ok": True, "merge_count": 新值, "content_sink": 去向, "source": 归属}。
 def converge_into(cg, target: str, content: str, override=False, actor=None,
                   session=None, sensitivity=None) -> dict:
+    """同构聚合落库的**入口**：整段读改写（含 `cg.get(target)` 的读）在
+    MERGE/CONVERGE 跨进程临界区内执行（issue #348-B，单点 `forgetting.
+    merge_rmw_lock`，与 `forgetting.reinforce` 共用同一把锁）。
+
+    读改写本体是 `_converge_locked`——本函数只负责取锁与转发，两者之间
+    没有第二份判据。
+    """
+    from . import forgetting            # 延迟导入（理由见 _converge_locked 内注）
+    with forgetting.merge_rmw_lock(cg):
+        return _converge_locked(cg, target, content, override=override,
+                                actor=actor, session=session,
+                                sensitivity=sensitivity)
+
+
+def _converge_locked(cg, target, content, override=False, actor=None,
+                     session=None, sensitivity=None) -> dict:
     """同构聚合落库：正文追加一行【聚合】摘要，merge_count+1。
 
     importance **不变**——流水不该越聚越重要（与 forgetting.reinforce

@@ -41,6 +41,8 @@
 一切裁决都写进 `_forgetting.jsonl`（append-only），可审计：
 「这条为什么没被记住」和「为什么被记住」同样有据可查。
 """
+import contextlib
+import functools
 import hashlib
 import json
 import math
@@ -50,7 +52,7 @@ import time
 from . import lifecycle, nodefile, protect
 from . import crypto
 from . import security as _security
-from .fsutil import append_jsonl, atomic_write, publish, read_jsonl
+from .fsutil import FileLock, append_jsonl, atomic_write, publish, read_jsonl
 from .mdcg import bigrams
 
 # ---------------------------------------------------------------- 判据常量
@@ -82,6 +84,43 @@ LOG_FILE = "_forgetting.jsonl"
 # 合并面「新正文去向」/「归属并列」的常量（B3 / H3，2026-09-30）
 MERGE_SOURCES_KEEP = 20         # fm.merge_sources 只保留最近 N 条「新写入方归属」
 AGG_MARK = "聚合"               # 聚合行标记（与 writelimit.converge_into 同款）
+
+
+# ------------------------------------------------- MERGE/CONVERGE 读改写临界区
+
+MERGE_RMW_LOCK = "_merge_rmw"   # 读改写临界区的锁文件名（按根一把，两个落点共用）
+
+
+# 生效条件：cg.root 为真时返回 <root>/_merge_rmw.lock 的 FileLock（strict：超时抛 TimeoutError，不 best-effort 放行）；cg 无 root（测试替身）时返回 nullcontext，不加锁也不报错。
+def merge_rmw_lock(cg):
+    """MERGE/CONVERGE 目标节点**读改写**的跨进程临界区（单点）。
+
+    issue #348-B：`forgetting.reinforce`（MERGE 支）与 `writelimit.converge_into`
+    （CONVERGE 支）都按「读目标正文 → `aggregate_line` 追加 → `_write_node`
+    整文件覆写」处理同一个目标节点，读与写之间没有跨进程互斥。多实例同根
+    （README 的多智能体共享 root）并发把**不同**的近重复并入同一目标时，后写者
+    按自己读到的旧正文整份覆盖前者刚追加的聚合行——两边都回执 MERGE，被覆盖的
+    新值在库里 0 命中、`merge_count` 少加。`_write_node` 只做原子替换、不做比较
+    交换；`FileLock` 此前只锁索引与台账，盖不住这条读改写。
+
+    按根一把锁覆盖两个落点（不按节点，避免为 #322 的写面粒度裁定预设结论）。
+    `strict=True` 沿用 FileLock 的既有取舍（见其 docstring：「不能丢的写」锁竞争
+    超时显式报错，好过静默放行后退化为无锁并发）。
+    """
+    root = getattr(cg, "root", None)
+    if not root:
+        return contextlib.nullcontext()
+    return FileLock(os.path.join(root, MERGE_RMW_LOCK), strict=True)
+
+
+# 生效条件：被装饰函数首个形参为 cg 时，整段函数体（含函数开头的读）在 merge_rmw_lock(cg) 内执行；其它入参/返回值/异常原样透传。
+def merge_rmw_locked(fn):
+    """把整段函数体放进 MERGE/CONVERGE 跨进程临界区（`merge_rmw_lock`）。"""
+    @functools.wraps(fn)
+    def _wrapped(cg, *args, **kwargs):
+        with merge_rmw_lock(cg):
+            return fn(cg, *args, **kwargs)
+    return _wrapped
 
 
 # ---------------------------------------------------------------- 三问
@@ -551,6 +590,9 @@ def record_drop(cg, content, node_id, target=None, verdict=None, layer=None,
 
 
 # 生效条件：cg 与 node_id 必填，delta 默认 0.05，content 默认 None（不传即与改动前逐位一致：只改 frontmatter、正文原样写回）；cg.get(node_id) 抛异常或返回假值时返回 None；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；imp 跨过 PROTECT_IMPORTANCE 即写 protected；content 非 None 时按 forgetting.aggregate_line 把「目标正文没有的」行追加为聚合行（零新增信息则不追加），session/actor 非空时按 forgetting.note_source 并列记归属；写盘后同步内存索引条目并**标脏**（cg._dirty[node_id]=e，推进读缓存代际与索引增量日志）；返回体带 content_sink（新正文去向：节点/行/行号）与 source（归属）。
+# issue #348-B：本函数与 writelimit.converge_into 是同一条读改写的两个落点——
+# 装饰器把整段（含函数开头的 cg.get 读）放进 merge_rmw_lock 的跨进程临界区。
+@merge_rmw_locked
 def reinforce(cg, node_id, delta=0.05, override=False, actor=None,
               content=None, session=None, sensitivity=None):
     """MERGE 的落库动作：不新增节点，把「又一次见到」折算成既有节点的强化。
