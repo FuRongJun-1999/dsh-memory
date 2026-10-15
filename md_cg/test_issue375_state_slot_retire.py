@@ -275,7 +275,7 @@ def _mutate():
         bad = []
         for desc, rel, (old, new), exp in _MUTATIONS:
             p = os.path.join(tree, rel)
-            t = open(p, encoding="utf-8", newline="").read()
+            t = open(p, encoding="utf-8").read()
             if t.count(old) != 1:
                 bad.append("%s —— 锚点在 %s 里命中 %d 次" % (desc, rel, t.count(old)))
                 print("  ANCHOR-MISS " + desc)
