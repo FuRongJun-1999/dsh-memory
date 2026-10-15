@@ -259,8 +259,15 @@ def g4_floor():
             return
     check("受保护节点：importance × 乘子 ≥ IMPORTANCE_PROTECT（跨越 1/10/100 个半衰期）",
           True)
+    # #378（2026-10-14）夹具更正：原夹具只写 importance=0.8 而**不带来源标注**
+    # ——按本仓保护规则（protect.is_protected，AUTO_PROTECT_IMPORTANCE=0.70）
+    # 那是「**缺省来源**高分」＝受保护节点，与「未保护节点」的断言前提冲突
+    # （且写侧对 importance≥0.70 本就会自动置保护位 ⇒ 该 dict 不对应任何真实
+    # 节点）。补上显式非 hint 来源后前提重新成立，断言一字未动（数值前提
+    # importance=0.8 亦保留）。
     w_free = F.entry_weight({"created_at": REF - 3650 * DAY,
-                             "importance": 0.8}, now=REF)[0]
+                             "importance": 0.8,
+                             "importance_source": "heuristic"}, now=REF)[0]
     check("判别力：未保护节点不享有该下界（乘子触 floor）",
           abs(w_free - F.SCORE_FLOOR) < 1e-12, str(w_free))
     check("保护下限口径取自 weights.IMPORTANCE_PROTECT（单一真源）",
