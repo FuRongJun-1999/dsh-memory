@@ -430,9 +430,53 @@ def _domain_of(it: dict) -> str:
     return path.split("/")[0] or "orphan"
 
 
-# 生效条件：kind == 'code_ref' 时按 codeindex.node_id/render 写入 cg（tags 含 'code'、code_ref=_code_ref(it, root)），kind == 'doc_ref' 时按 docindex 写入（tags 含 'doc'、doc_ref=_doc_ref(it, root, src_of(it))、密级取自 docindex.sensitivity_for(it['path'], sensitivity)），其他 kind 抛 ValueError，返回 (ids, sens)。
+
+# 生效条件：cg.get(nid) 不可读或节点不存在时返回 None；节点存在且其 frontmatter[kind]['root'] 非空、且与入参 root 不是同一个源根（_same_root）时返回冲突读数 dict（id/kind/existing_root/root）；节点无该 ref 键 / ref 无 root / 同根时返回 None；只读，不写盘；
+def root_clash(cg, nid, kind, root):
+    """同 id 节点是否已归属**另一个源根**（#352-E 冲突闸）。
+
+    codeindex.node_id / docindex.node_id 只哈希**相对源根**的路径（path::name /
+    path#heading），于是同一记忆库先后索引两个源目录时，同名相对路径会得到同一个
+    id：B 仓的节点**静默覆写** A 仓的（正文与 code_ref.root 一起换成 B），回执照报
+    indexed。而水位按**绝对路径**记，A 此后增量重索引判定「未变」跳过，被覆写的
+    节点再也补不回来（检索与 op=ref 会把 B 的代码当作 A 的上下文）。
+
+    同根判据**复用本模块既有单点** `_same_root`（normcase + abspath，`prune_orphans`
+    / `check_refs` 同源）——**不新造第二份「同一大域」口径**：两处判据一旦分叉，会出现
+    「冲突闸认为异根不写、而 prune_orphans 认为同根可清退」的自相矛盾。
+
+    改 id 键（把源根并进哈希）会动存量 id 的稳定性与幂等，属**单独立项**
+    （仓内 docs/mdcg/缺口单_P0收口_v0.1.md §6.3 同族），故本轮取**止血**：写入前
+    比对既有节点的 ref.root，不同根即**不覆写**、把该条记进返回体的 conflicts，并由
+    调用方把该源文件的**水位一并丢掉**（否则下次增量会把这个文件判成「未变」而跳过，
+    冲突从此不可见）。多仓同名节点暂时只保留先索引的一侧——两仓共存要等 id 键改造。
+    """
+    try:
+        prev = cg.get(nid)
+    except Exception:                                  # noqa: BLE001
+        prev = None
+    if not prev:
+        return None
+    pr = ((prev.get("frontmatter") or {}).get(kind) or {})
+    prev_root = pr.get("root") if isinstance(pr, dict) else None
+    if not prev_root or not root or _same_root(prev_root, root):
+        return None
+    if not os.path.isdir(prev_root):
+        # **陈化豁免**（与 live 判据成对，2026-10-15 实测校准）：旧源根已不在盘上
+        # （临时目录被清、克隆被删、盘符离线）时，那份源码无从核对——节点是孤儿，
+        # 此时**允许**覆写。否则源目录一被移走，该 id 就永远写不进去（实测：
+        # test_p26/p27/p28 的语料根固定而源目录每轮新建，旧根是本机历史临时目录、
+        # 早已不在，加闸后 11/11 条全被判冲突、indexed 归零）。
+        # 判据取「旧根**目录**是否仍在」，不逐条 stat 旧文件：跨仓场景里旧仓目录一定
+        # 在（报告 #352-E 的复现前提），陈化场景里它一定不在。
+        return None
+    return {"id": nid, "kind": kind,
+            "existing_root": prev_root, "root": root}
+
+
+# 生效条件：kind == 'code_ref' 时按 codeindex.node_id/render 写入 cg（tags 含 'code'、code_ref=_code_ref(it, root)），kind == 'doc_ref' 时按 docindex 写入（tags 含 'doc'、doc_ref=_doc_ref(it, root, src_of(it))、密级取自 docindex.sensitivity_for(it['path'], sensitivity)），其他 kind 抛 ValueError；写入前逐条过 root_clash（#352-E）：同 id 已被**另一个源根**占用时不覆写，把该条并入 conflicts（conflicts 为真值时）并**跳过**（该条 id 不进 ids）；返回 (ids, sens)。
 def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
-              layer_of=None, src_of=None, extra_of=None):
+              layer_of=None, src_of=None, extra_of=None, conflicts=None):
     """把索引条目写进认知图（code / doc 的落盘细节收在这里，唯一实现）。
 
     - `layer=None` → 默认 `knowledge`（与代码节点同层，保证进默认召回）。
@@ -454,6 +498,19 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
     for it in items:
         if kind == "code_ref":
             nid = codeindex.node_id(it)
+        elif kind == "doc_ref":
+            nid = docindex.node_id(it)
+        else:
+            raise ValueError(f"未知 ref kind：{kind!r}")
+        # ---- #352-E 冲突闸：同 id 已被另一个源根占用 ⇒ 不覆写、不静默 ----
+        _clash = root_clash(cg, nid, kind, root)
+        if _clash is not None:
+            if conflicts is not None:
+                conflicts.append(dict(_clash, path=it.get("path"),
+                                      src=os.path.join(root,
+                                                       it.get("path") or "")))
+            continue
+        if kind == "code_ref":
             cg.add(
                 nid, codeindex.render(it),
                 layer=(layer_of(nid) if layer_of else None) or layer or "knowledge",
@@ -463,8 +520,7 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
                 verification_basis=it.get("basis") or "compiler",
                 code_ref=_code_ref(it, root),
             )
-        elif kind == "doc_ref":
-            nid = docindex.node_id(it)
+        else:                                      # doc_ref
             level = it.get("level")
             s, _basis = docindex.sensitivity_for(it.get("path") or "", sensitivity)
             sens[s] = sens.get(s, 0) + 1
@@ -480,8 +536,6 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
                 doc_ref=_doc_ref(it, root, src_of(it) if src_of else None),
                 **(extra.get("attrs") or {}),
             )
-        else:
-            raise ValueError(f"未知 ref kind：{kind!r}")
         ids.append(nid)
     return ids, sens
 

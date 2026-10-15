@@ -575,8 +575,9 @@ def mutation_payload(action_class, target, after="", reason="",
             "meta": dict(meta or {})}
 
 
-# 生效条件：payload 支持 dict() 复制（None/假值按空 dict 起底）时返回**新 dict**——原载荷逐键复制后补 kind=KIND_MUTATION 与 executed=True，并仅在实参非 None/非空时覆写 before/impact/rollback（缺省保留原载荷取值，不把 None 伪装成实值）；
-def mutation_executed(payload, before=None, impact=None, rollback=None) -> dict:
+# 生效条件：payload 支持 dict() 复制（None/假值按空 dict 起底）时返回**新 dict**——原载荷逐键复制后补 kind=KIND_MUTATION 与 executed=True，并仅在实参非 None/非空时覆写 before/impact/rollback/after_hash（缺省保留原载荷取值，不把 None 伪装成实值）；
+def mutation_executed(payload, before=None, impact=None, rollback=None,
+                      after_hash=None) -> dict:
     """执行时点补全（**唯一构造点**）：把前像/影响面/回滚命令并进载荷副本。
 
     为什么不原地改载荷：出单时载荷已随队列条目落盘（append-only）——执行记录
@@ -584,6 +585,14 @@ def mutation_executed(payload, before=None, impact=None, rollback=None) -> dict:
     （外部对照时能看见「执行时点才知道的东西在执行时才出现」）。执行桥把本函数
     的返回值放进裁决返回体，`mdcos._record_decision` 再把它落进 decisions.jsonl
     的 rec["mutation"]——回滚命令（CLI）据此读回前像与动作类。
+
+    `after_hash`（#352-A，2026-10-15）：**执行落盘之后**的盘面指纹
+    （`rollback.node_fingerprint`——前像快照**拍不到**它，前像采在执行之前）。
+    回滚入口据它判「执行之后目标是否又被写过」，不等即 fail-closed
+    （`drifted_since_execute`）。改前落盘的执行记录没有本键 ⇒ 回滚退化为
+    扫 decisions.jsonl 的次序判据（见 `rollback._later_executions`），
+    **不是「无键即放行」**。刻意只在实参非 None 时补键（与其余三键同款，
+    不把 None 伪装成实值）。
     """
     out = dict(payload or {})
     out["kind"] = KIND_MUTATION
@@ -594,6 +603,8 @@ def mutation_executed(payload, before=None, impact=None, rollback=None) -> dict:
         out["impact"] = impact
     if rollback:
         out["rollback"] = rollback
+    if after_hash is not None:
+        out["after_hash"] = after_hash
     return out
 
 

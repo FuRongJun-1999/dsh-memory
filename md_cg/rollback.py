@@ -37,9 +37,11 @@
 from __future__ import annotations
 
 import os
+import time
 
 from . import chain
 from . import forgetting as _forgetting
+from . import fsutil
 from . import nodefile
 from . import protect
 from . import subgraph as _subgraph
@@ -49,6 +51,7 @@ __all__ = [
     "RollbackError", "PreimageError",
     "command_for", "preimage", "collect_impact", "read_preimage",
     "strip_aggregate_lines", "rollback_mutation",
+    "node_fingerprint", "preimage_fingerprint",
 ]
 
 #: 影响面「索引条目」对拍键（`collect_impact` 采集、残留核对比对，同一份口径）。
@@ -56,6 +59,42 @@ _INDEX_KEYS = ("present", "path", "layer", "importance", "merge_count",
                "protected", "tags")
 #: 需要前像/可回滚的动作类（设计 §一：B 合并 / C 改写 / D 删除）。
 _ROLLBACK_ACTIONS = ("B", "C", "D")
+#: 盘面指纹取样的 frontmatter 键（**执行后像 / 前像 / 现盘面三侧同口径**）——
+#: 只取判据相关的稳定键：内容哈希之外，「执行之后又被标保护 / 换层 / 重判验证态」
+#: 同样属于「目标被动过」。刻意**不含** updated_at 之类每次落盘都变的键（否则
+#: 「内容没变、只重写了一遍」会大面积误判成漂移，把合法回滚一并拒掉）。
+_FINGERPRINT_FM_KEYS = ("immutable", "protection_reason", "layer", "sensitivity",
+                        "verification_state", "lifecycle_state", "self_state",
+                        "protected")
+#: 回滚留痕的审计 op（`_audit.jsonl` 一行）——常量单点，守卫按同名常量取用。
+ROLLBACK_AUDIT_OP = "rollback"
+
+
+# 生效条件：node 为 cg.get 返回形态（None/非 dict/假值＝目标不在盘）时返回 {"present": False}；否则返回 {"present": True, "content_hash": nodefile.content_hash(content), "fm": {k: fm.get(k) for k in _FINGERPRINT_FM_KEYS}}（正文与 frontmatter 都取不到时按空串/空 dict 计，不抛）；
+def node_fingerprint(node):
+    """盘面指纹（正文内容哈希 + 判据相关 fm 键）——**唯一实现**。
+
+    执行桥（`mdcos._mutation_execute`，执行落盘**之后**采「后像」）与回滚入口
+    （回滚**之前**采「现盘面」）共用同一份口径——两侧各写一份哈希/键表，
+    漂移就会让闸门永远「匹配成功」而静默失效（同 `nodefile.content_hash`
+    的纪律：全仓唯一实现）。
+    """
+    if not isinstance(node, dict) or not node:
+        return {"present": False}
+    fm = node.get("frontmatter") or {}
+    content = node.get("content") or ""
+    return {"present": True,
+            "content_hash": nodefile.content_hash(content),
+            "fm": {k: fm.get(k) for k in _FINGERPRINT_FM_KEYS}}
+
+
+# 生效条件：fm/content 传入（缺省按空 dict/空串）时返回与 node_fingerprint 同形态的前像盘面指纹（present 恒 True、fm 只取 _FINGERPRINT_FM_KEYS 键）；
+def preimage_fingerprint(fm, content):
+    """前像盘面指纹——用于「现盘面是否**已经**等于前像」的幂等重放判定。"""
+    fm = fm or {}
+    return {"present": True,
+            "content_hash": nodefile.content_hash(content or ""),
+            "fm": {k: fm.get(k) for k in _FINGERPRINT_FM_KEYS}}
 
 
 class RollbackError(RuntimeError):
@@ -224,14 +263,50 @@ def strip_aggregate_lines(content, reference):
     return ref + tail, removed
 
 
-# 生效条件：把 fm/content 以 _write_node 落盘到既有 path，随后按 _node_entry（与 _scan_nodes 同源）重算索引条目写入 index["nodes"] 与 _dirty（索引持久化靠 _dirty→flush→_index_log 重放），并失效 subgraph/chain/trust 三个反查缓存；本函数只被本模块的回滚分支调用；
-def _land(cg, node_id, path, fm, content):
-    """回滚的**唯一落盘口**：写盘 + 索引重算 + 缓存失效（三步同口径）。
+# 生效条件：落盘前先过保护闸——protect.is_immutable(cg, node_id) 为真且 preimage_fm 未带同一保护位（immutable is True 或 layer ∈ PROTECTED_LAYERS）时，force 为假即返回拒绝体 dict（不写盘）；随后尝试 protect.snapshot(cg, node_id) 把将被覆盖的当前版本留档（失败不阻断），再经 cg._write_node 落盘、按 _node_entry 重算索引条目写入 index["nodes"] 与 _dirty 并失效 subgraph/chain/trust 三个反查缓存，返回 None（落盘完成）；本函数只被本模块的回滚分支调用；
+def _land(cg, node_id, path, fm, content, preimage_fm=None, force=False,
+          actor=None):
+    """回滚的**唯一落盘口**：保护闸 + 前像快照 + 写盘 + 索引重算 + 缓存失效。
 
     与 `mdcos.review_decide` merge 分支的定向 upsert 同款（`_node_entry`
     与 `_scan_nodes` 同源，字段集零漂移）；走 `_dirty`（**不走 `_stage`**
     ——它会虚增 bucket 计数，目标已在索引）。
+
+    #352-A（2026-10-15）：本口此前**三闸全无**——直接 `cg._write_node`，
+    不走 `protect.guard_overwrite` / `guard_write`，不留 `protect.snapshot`
+    前像副本，不写 `_audit`。后果：目标在执行之后被标 immutable 时，回滚
+    照样覆写并把 immutable 标记一并清掉，且事后无从知道被覆盖的是哪一版。
+
+    保护判据（**避免过度收紧**）：只在「现盘面受保护 **而** 执行时点前像不带
+    同一保护位」时拒绝——保护位是本变更**之后**加的，覆写会把它抹掉。若前像
+    本身就带保护位（原节点本就 immutable / 在保护层），回滚只是把该保护位
+    如实还原，属正常回滚，**不拦**（否则 D 删除回滚永远回不来受保护节点）。
+
+    返回 None＝落盘完成；返回 dict＝拒绝体（`ok: False` + `error`），调用方
+    据此 fail-closed 返回，绝不静默覆写。
     """
+    try:
+        prot, why = protect.is_immutable(cg, node_id)
+    except Exception:                      # noqa: BLE001 —— 判定失败按不拦（读面异常不升级成拒服务）
+        prot, why = False, ""
+    if prot and not force:
+        _pre = preimage_fm or {}
+        _pre_prot = (_pre.get("immutable") is True
+                     or str(_pre.get("layer") or "") in protect.PROTECTED_LAYERS)
+        if not _pre_prot:
+            return {"ok": False, "error": "protected_target",
+                    "protection": why,
+                    "detail": "回滚目标 %s 现受写保护（%s），而执行时点前像不带"
+                              "该保护位——保护位是本变更**之后**加的，覆写会把它"
+                              "一并清掉；fail-closed 未覆写（确认后加 --force）。"
+                              % (node_id, why),
+                    "hint": "如确需回滚：先解除保护（mdcg_protect 面）或对本单"
+                            "显式 --force；二者都会留痕。"}
+    # 落盘前把**将被覆盖的当前版本**留档（protect 面既有单点，不另写第二套）。
+    try:
+        protect.snapshot(cg, node_id)
+    except Exception:                      # noqa: BLE001 —— 留档失败不阻断回滚本身
+        pass
     cg._write_node(node_id, path, fm, content)
     layer = str(fm.get("layer") or "knowledge")
     try:
@@ -270,21 +345,24 @@ def _bytes_equal(path, rel_path):
     return a is not None and b is not None and a == b
 
 
-# 生效条件：C 改写回滚——索引中节点在位（不在位返回 ok False error target_missing）时把前像 (fm0,c0) 落到节点盘面 path（_land）+ flush，返回读数 dict；
-def _rollback_rewrite(cg, tgt, fm0, c0):
+# 生效条件：C 改写回滚——索引中节点在位（不在位返回 ok False error target_missing）时把前像 (fm0,c0) 落到节点盘面 path（_land；保护闸拒绝即原样返回该拒绝体）+ flush，返回读数 dict；
+def _rollback_rewrite(cg, tgt, fm0, c0, force=False, actor=None):
     path = _disk_path(cg, tgt)
     if path is None or _forgetting.prior_node(cg, tgt) is None:
         return {"ok": False, "error": "target_missing",
                 "detail": "C 回滚：目标 %s 不在索引中——本变更之外还有变化，"
                           "fail-closed 不猜落点（如属误删可先 restore）。" % tgt}
-    _land(cg, tgt, path, fm0, c0)
+    refuse = _land(cg, tgt, path, fm0, c0, preimage_fm=fm0, force=force,
+                   actor=actor)
+    if refuse is not None:
+        return refuse
     cg.flush()
     return {"ok": True, "restored_path": os.path.relpath(path, cg.root)
                                  .replace("\\", "/"), "method": "preimage"}
 
 
 # 生效条件：B 合并回滚——目标在位（不在位返回 ok False error target_missing）时先按 strip_aggregate_lines 剥离追加的聚合行，剥离结果与前像正文逐字节相等则正文取剥离结果、否则取前像正文（stripped_ok 如实记录），fm 全量取前像 (fm0)，经 _land 落盘 + flush；返回读数 dict（removed_lines/stripped_ok/method）；
-def _rollback_merge(cg, tgt, fm0, c0):
+def _rollback_merge(cg, tgt, fm0, c0, force=False, actor=None):
     cur = None
     try:
         cur = cg.get(tgt)
@@ -305,7 +383,10 @@ def _rollback_merge(cg, tgt, fm0, c0):
     # 时以快照正文为准——回滚的判据是「回到前像」，stripped_ok 如实记录。
     # fm 全量取前像：merge_count/last_merge_at/importance（+0.05 可被 1.0 截断）/
     # merge_sources/protected/lifecycle_state 等均不可逆，前像是唯一诚实来源。
-    _land(cg, tgt, path, fm0, stripped if stripped_ok else c0)
+    refuse = _land(cg, tgt, path, fm0, stripped if stripped_ok else c0,
+                   preimage_fm=fm0, force=force, actor=actor)
+    if refuse is not None:
+        return refuse
     cg.flush()
     return {"ok": True, "restored_path": os.path.relpath(path, cg.root)
                                  .replace("\\", "/"),
@@ -314,7 +395,7 @@ def _rollback_merge(cg, tgt, fm0, c0):
 
 
 # 生效条件：D 删除回滚——先调既有 cg.restore(tgt, force=True)（trash + 删除清单口径）；restore 失败且（错误非 not_in_trash 或节点仍不在库）时返回 ok False（detail 带 restore 原返回体）；restore 成功、或 not_in_trash 而节点已在库（此前已回滚过＝幂等重放）时继续：按前像做逐字节校准（盘面与快照字节不等时经 _land 以 (fm0,c0) 重写，calibrated=True 如实记录——探针实测 restore 重建会多 sensitivity:null 键），返回读数 dict（replayed 标注重放）；
-def _rollback_delete(cg, tgt, fm0, c0, rel):
+def _rollback_delete(cg, tgt, fm0, c0, rel, force=False, actor=None):
     res = cg.restore(tgt, force=True)
     replayed = (not res.get("ok")) and res.get("error") == "not_in_trash" \
         and _forgetting.prior_node(cg, tgt) is not None
@@ -335,7 +416,10 @@ def _rollback_delete(cg, tgt, fm0, c0, rel):
         # 多 `sensitivity: null` 键）——回滚的判据是「回到前像」，故以快照
         # 重写一次；`restore_bytes_equal=False` 读数保留，不假装 restore
         # 本身逐字节。
-        _land(cg, tgt, path, fm0, c0)
+        refuse = _land(cg, tgt, path, fm0, c0, preimage_fm=fm0, force=force,
+                       actor=actor)
+        if refuse is not None:
+            return refuse
         calibrated = True
     cg.flush()
     return {"ok": True, "restored_path": os.path.relpath(path, cg.root)
@@ -361,14 +445,103 @@ def _residual(before_impact, after):
     }
 
 
-# 生效条件：mutation 为 dict 且含非空 target 与 before（否则返回 ok False error mutation_missing/rollback_gap 带 hint）；before 文件不可读按 RollbackError(code) 返回 ok False；动作类属 C/B/D 时按对应分支回滚，成功再重采影响面做残留对拍并做逐字节比对，返回 {"ok": True, "action","target","preimage","restored_path","bytes_equal_preimage","residual","method",...}；动作类不属 C/B/D 时返回 ok False error rollback_action_unknown；本函数不抛（可预期错误一律返回体）；
-def rollback_mutation(cg, mutation, reason="", actor=None):
+# 生效条件：cg 为 None 或 cg.get 抛异常/返回假值时返回 None，否则返回 cg.get(node_id) 的结果（读面失败一律按「目标不可读」计，不抛）；
+def _node_of(cg, node_id):
+    if cg is None:
+        return None
+    try:
+        return cg.get(node_id)
+    except Exception:                      # noqa: BLE001
+        return None
+
+
+# 生效条件：pid 为真且 cg.decisions() 可读时，返回本 pid 最后一条 decision=="accept" 记录**之后**、decision=="accept" 且 rec["mutation"]["target"] 等于 tgt 的记录 pid 列表（顺序同盘面）；**取不到顺序（pid 为空 / 无该 pid / decisions 不可读）时返回 None**（＝判据不可用，调用方据此不拦——不把「取不到证据」升级成拒绝）；
+def _later_executions(cg, tgt, pid):
+    """本单执行之后、同目标的 accept 执行记录（旧执行记录无 after_hash 时的兜底判据）。
+
+    decisions.jsonl 是 append-only，故「盘面顺序」即「时间顺序」——同一 pid 的
+    最后一条 accept 之后出现的、target 相同的 accept 执行记录，就是「本单之后
+    目标又被执行过一次」的证据面。
+    """
+    if not pid or cg is None:
+        return None
+    try:
+        rows = list(cg.decisions())
+    except Exception:                      # noqa: BLE001
+        return None
+    idx = None
+    for i, r in enumerate(rows):
+        if r.get("pid") == pid and r.get("decision") == "accept":
+            idx = i
+    if idx is None:
+        return None
+    out = []
+    for r in rows[idx + 1:]:
+        if r.get("decision") != "accept":
+            continue
+        mu = r.get("mutation")
+        if isinstance(mu, dict) and str(mu.get("target") or "") == tgt:
+            out.append(r.get("pid"))
+    return out
+
+
+# 生效条件：对任意 cg/tgt/act/rel/res 都无条件返回布尔——先尝试 cg._audit("rollback", tgt, **meta)（MdCGOS 面，带 tenant/session/clearance 归因），失败或 cg 无 _audit 时退化为向 cg.root/_audit.jsonl 追加一行 {"t","op":"rollback","id","actor","action","pid","preimage","reason","method","bytes_equal_preimage"}；两种情况都不抛（留痕失败不阻断已完成的回滚）；
+def _audit_rollback(cg, tgt, act, rel, res, actor=None, pid=None, reason=""):
+    """回滚留痕（`_audit.jsonl` 一行 op="rollback"）——#352-A。
+
+    改前本模块的 docstring 写「审计由各分支的落盘 / restore 留痕承担」，而
+    `_land` 这一支（C/B 以及 D 的校准路径）**一行审计都不写**：回滚是唯一
+    不写台账的破坏性写口（步骤④准入读数第 3 条即为「R3 破坏可逆读数缺失」）。
+    本函数是回滚留痕的**唯一落点**（op 常量集中在 `ROLLBACK_AUDIT_OP`）。
+    """
+    meta = {"action": act, "pid": pid, "preimage": rel,
+            "reason": str(reason or ""), "method": res.get("method"),
+            "bytes_equal_preimage": res.get("bytes_equal_preimage")}
+    fn = getattr(cg, "_audit", None)
+    if callable(fn):
+        try:
+            fn(ROLLBACK_AUDIT_OP, tgt, **meta)
+            return True
+        except Exception:                  # noqa: BLE001 —— 退化为直写
+            pass
+    rec = {"t": time.time(), "op": ROLLBACK_AUDIT_OP, "id": tgt,
+           "actor": actor}
+    rec.update(meta)
+    try:
+        fsutil.append_jsonl(os.path.join(cg.root, "_audit.jsonl"), rec)
+        return True
+    except Exception:                      # noqa: BLE001
+        return False
+
+
+# 生效条件：mutation 为 dict 且含非空 target 与 before（否则返回 ok False error mutation_missing/rollback_gap 带 hint）；before 文件不可读按 RollbackError(code) 返回 ok False；现盘面与执行后像不等且未显式 force 时返回 ok False error drifted_since_execute（现盘面已等于前像＝幂等重放，放行）；dry_run 为真时只返回读数不落盘；动作类属 C/B/D 时按对应分支回滚，成功再重采影响面做残留对拍、做逐字节比对并向 _audit.jsonl 写一行 op="rollback"，返回 {"ok": True, "action","target","preimage","restored_path","bytes_equal_preimage","residual","method",...}；动作类不属 C/B/D 时返回 ok False error rollback_action_unknown；本函数不抛（可预期错误一律返回体）；
+def rollback_mutation(cg, mutation, reason="", actor=None, force=False,
+                      pid=None, dry_run=False):
     """统一回滚入口（设计 §四 四条：C/B/D 分派 + 残留核对 + 逐字节比对）。
 
     输入＝**执行时点载荷**（`autonomy_modes.mutation_executed` 形态，含
-    action/target/before/impact/rollback）；CLI 从 decisions.jsonl 的
-    `rec["mutation"]` 读回。`reason`/`actor` 进返回体（审计由各分支的
-    落盘/restore 留痕承担，本模块不另写第二套台账）。
+    action/target/before/impact/rollback[/after_hash]）；CLI 从 decisions.jsonl
+    的 `rec["mutation"]` 读回。`reason`/`actor`/`pid` 进返回体与回滚留痕。
+
+    #352-A（2026-10-15）**漂移闸**（`drifted_since_execute`）：回滚的语义是
+    「撤销**本变更本身**、不抹第三方改动」（`autonomy_modes.mutation_payload`
+    :551-555 明文），而改前只处理了「提议→执行之间」的第三方改动（前像取执行
+    时点），**没处理「执行→回滚之间」的改动**——回滚用执行时点前像**整体覆写**，
+    执行之后写进去的正文（含另一张合并单追加的聚合行、删除后同 id 的重建、
+    新增的 immutable 标记）一并消失，回执还报 `ok:True`。本闸的比较面：
+
+      · `after_hash`（执行桥在执行落盘**之后**采的「后像」指纹，
+        `md_cg/mdcos.py` 的 `_mutation_execute` 处补全）与现盘面指纹不等 ⇒ 拒；
+      · 旧执行记录（无 `after_hash`）⇒ 退化为扫 decisions.jsonl 同目标、本单
+        **之后**的 accept 执行记录，有则拒；顺序取不到（pid 未知）时不拦
+        （不把「取不到证据」升级成拒绝）。
+
+    **幂等重放豁免**：现盘面**已经等于前像**时直接放行——回滚本身已做过（或
+    节点已处于前像状态），此时「覆写」是无操作，抹不掉任何东西。这条是既有
+    守卫 Q/R/S 组的「回滚命令串二次演练（幂等重放，rc=0）」得以保持的判据。
+
+    `force=True` 跳过漂移闸与 `_land` 的保护闸（`rollback_cli --force`）；
+    `dry_run=True` 只回报将被覆写的差异、不落盘。
     """
     if not isinstance(mutation, dict):
         return {"ok": False, "error": "mutation_missing",
@@ -395,12 +568,51 @@ def rollback_mutation(cg, mutation, reason="", actor=None):
     except RollbackError as exc:
         return {"ok": False, "error": exc.code, "detail": str(exc),
                 "action": act, "target": tgt, "preimage": rel}
+    # ---- 漂移闸（#352-A）：执行之后目标又被写过 ⇒ fail-closed，不整体覆写 ----
+    cur_fp = node_fingerprint(_node_of(cg, tgt))
+    pre_fp = preimage_fingerprint(fm0, c0)
+    drift = None
+    if cur_fp != pre_fp and not force:     # 相等＝幂等重放，放行（见 docstring）
+        want = mutation.get("after_hash")
+        if isinstance(want, dict):
+            if cur_fp != want:
+                drift = {"ok": False, "error": "drifted_since_execute",
+                         "action": act, "target": tgt, "preimage": rel,
+                         "current": cur_fp, "expected_after_execute": want,
+                         "hint": "本单**执行之后**目标又被写过——回滚会用执行时点"
+                                 "前像整体覆写，把这些写入一并抹掉（设计 §四："
+                                 "回滚只撤销本变更本身、不抹第三方改动）。"
+                                 "已 fail-closed 未覆写：先核对上面的 current / "
+                                 "expected_after_execute 差异，确需回滚加 --force。",
+                         "reason": str(reason or ""), "actor": actor}
+        else:
+            later = _later_executions(cg, tgt, pid)
+            if later:
+                drift = {"ok": False, "error": "drifted_since_execute",
+                         "action": act, "target": tgt, "preimage": rel,
+                         "current": cur_fp, "later_executions": later,
+                         "hint": "该执行记录无 after_hash（改前落盘）——按"
+                                 "decisions.jsonl 判据：本单之后同目标还有 accept "
+                                 "执行记录 %s，回滚会抹掉它们的写入；fail-closed "
+                                 "未覆写（确需回滚加 --force）。" % (later,),
+                         "reason": str(reason or ""), "actor": actor}
+    if drift is not None:
+        if dry_run:
+            out = dict(drift, dry_run=True, would_apply=False)
+            return out
+        return drift
+    if dry_run:
+        return {"ok": True, "dry_run": True, "would_apply": True,
+                "action": act, "target": tgt, "preimage": rel,
+                "current": cur_fp, "preimage_state": pre_fp,
+                "expected_after_execute": mutation.get("after_hash"),
+                "reason": str(reason or ""), "actor": actor}
     if act == "C":
-        res = _rollback_rewrite(cg, tgt, fm0, c0)
+        res = _rollback_rewrite(cg, tgt, fm0, c0, force=force, actor=actor)
     elif act == "B":
-        res = _rollback_merge(cg, tgt, fm0, c0)
+        res = _rollback_merge(cg, tgt, fm0, c0, force=force, actor=actor)
     else:                                  # "D"
-        res = _rollback_delete(cg, tgt, fm0, c0, rel)
+        res = _rollback_delete(cg, tgt, fm0, c0, rel, force=force, actor=actor)
     if not res.get("ok"):
         out = dict(res)
         out.update({"action": act, "target": tgt, "preimage": rel})
@@ -413,8 +625,11 @@ def rollback_mutation(cg, mutation, reason="", actor=None):
     disk_p = _disk_path(cg, tgt)
     out = {"ok": True, "action": act, "target": tgt, "preimage": rel,
            "rollback_command": mutation.get("rollback") or "",
-           "reason": str(reason or ""), "actor": actor,
+           "reason": str(reason or ""), "actor": actor, "pid": pid,
            "bytes_equal_preimage": _bytes_equal(disk_p, pre_p),
            "residual": residual, "impact_after": after}
     out.update(res)
+    # 回滚留痕（#352-A）：唯一不变更 _audit 的破坏性写口就此收口。
+    out["audited"] = _audit_rollback(cg, tgt, act, rel, out, actor=actor,
+                                     pid=pid, reason=reason)
     return out

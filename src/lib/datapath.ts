@@ -107,14 +107,62 @@ export function pathsFileSource(): 'user' | 'legacy' {
   return samePath(dirname(pathsFile()), stateRoot()) ? 'user' : 'legacy'
 }
 
-function readUserPaths(): Record<string, unknown> {
-  try {
-    const raw = readFileSync(pathsFile(), 'utf8')
-    const parsed: unknown = JSON.parse(raw)
-    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {}
-  } catch {
-    return {}
+/**
+ * `paths.json` 存在但无法解析 / 顶层不是 JSON 对象（issue #352-D）。
+ *
+ * 改前 `readUserPaths()` 用一个空 `catch` 把「文件不存在」与「文件存在但坏了」
+ * 混成同一个 `{}`，于是坏配置下 `mdcgRoot()` **无声回落到默认库**——用户看到
+ * 的是「原有记忆从检索面消失」，而 python 侧仍按同一份坏文件走，两边分成两个库。
+ *
+ * **为什么响亮失败而不是告警后回落**：本仓先例 #161「打包面静默坏包 ⇒ 改为
+ * 响亮失败」。这里静默的代价是**数据分叉**（比启动失败更难发现、更难收拾），
+ * 故取 fail-closed：直接抛出，错误消息写全恢复路径。若维护者认为「插件起不来」
+ * 的代价更高，可改为「console.error + 在 describeDataPaths / op=info 里点名，
+ * 再回落」——本类即该告警面将来的载体（`code`/`pathsFile` 已留好）。
+ */
+export class PathsConfigError extends Error {
+  readonly code = 'E_PATHS_CONFIG'
+  readonly pathsFile: string
+
+  constructor(message: string, pathsFile: string) {
+    super(message)
+    this.name = 'PathsConfigError'
+    this.pathsFile = pathsFile
   }
+}
+
+function pathsConfigMessage(pf: string, why: string): string {
+  return `${pf} 无法解析（${why}）——**未回落默认库**：记忆真源由该文件决定，`
+    + `静默回落会让原有记忆从检索面消失、新写入分叉到另一个库（#352-D）。`
+    + `请修正该文件（Windows 上常见两种写坏：记事本 / PowerShell 5 存成 `
+    + `UTF-8 BOM；路径里的反斜杠未转义，应写 \\\\ 或改用 /），`
+    + `或删掉它回到用户级默认数据根后重启。`
+}
+
+function readUserPaths(): Record<string, unknown> {
+  const pf = pathsFile()
+  // 「文件不存在」＝用户没配过（合法，返回空表）；「文件在但读不出/解析不出」
+  // ＝配置坏了（响亮失败）——这两件事从此**分开**，不再混成同一个 {}。
+  if (!existsSync(pf)) return {}
+  let raw: string
+  try {
+    raw = readFileSync(pf, 'utf8')
+  } catch (e) {
+    throw new PathsConfigError(pathsConfigMessage(pf, `读取失败：${String(e)}`), pf)
+  }
+  let parsed: unknown
+  try {
+    // BOM：记事本 / PowerShell 5 的 `Set-Content -Encoding UTF8` 会写出 UTF-8 BOM，
+    // `JSON.parse` 直接拒收（与 python 侧 `utf-8-sig` 同一口径）。
+    parsed = JSON.parse(raw.replace(/^\uFEFF/, ''))
+  } catch (e) {
+    throw new PathsConfigError(pathsConfigMessage(pf, String(e)), pf)
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    // 合法 JSON、错形状：同样会让配置位静默失效，同一口径处理。
+    throw new PathsConfigError(pathsConfigMessage(pf, '顶层不是 JSON 对象'), pf)
+  }
+  return parsed as Record<string, unknown>
 }
 
 /** 相对路径一律对「插件仓根」解析（不随宿主 cwd 漂移）。 */

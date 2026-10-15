@@ -267,16 +267,25 @@ def guard_collision(tmp):
         wr(os.path.join(d, "probe_widget.py"), PROBE_SRC)
     cg = MdCG(lib)
     ids_a = _index_into(cg, domA, refindex.Ledger(lib))
-    ids_b = _index_into(cg, domB, refindex.Ledger(lib))
+    # #352-E（2026-10-15）：id 键**仍未**含 root，但写入面加了冲突闸——B 的同名条目
+    # 不再覆写 A，改为「不写入 + 回执 conflicts 点名」。故本钉从「两域 id 集相等」
+    # （＝后写域覆盖）改为「两域算出的 id 仍相同，但 B 一个都不写」。原钉的用途
+    # （键一旦改为含 root 即转红以提示同步迁移）保留：改 id 键后这里仍会转红。
+    _items_b, _eb, _sb = refindex.index_dir(domB, kind="code_ref",
+                                            ledger=refindex.Ledger(lib))
+    _cf = []
+    ids_b, _ = refindex.add_items(cg, _items_b, kind="code_ref", root=domB,
+                                  conflicts=_cf)
     cg.flush()
     nid = sorted(ids_a)[0]
     ref = refindex.ref_of(cg.get(nid))[1] or {}
-    check("7①两域同 rel path + 同 name ⇒ 同一 id（现状：id 不含 root）",
-          bool(ids_a) and set(ids_a) == set(ids_b), f"A={ids_a} B={ids_b}",
-          cid="D1")
-    check("7①同一 id 只留一条节点，ref.root 为后写域（现状钉子，非期望语义）",
+    check("7①两域同 rel path + 同 name ⇒ 仍算出同一 id，但后写域被冲突闸拦下不写入",
+          bool(ids_a) and ids_b == []
+          and {c.get("id") for c in _cf} == set(ids_a),
+          f"A={ids_a} B={ids_b} conflicts={_cf}", cid="D1")
+    check("7①同一 id 只留一条节点，ref.root 仍属**先写域**（#352-E 后的钉子）",
           len(cg.index["nodes"]) == len(ids_a)
-          and refindex._same_root(ref.get("root"), domB),
+          and refindex._same_root(ref.get("root"), domA),
           f"nodes={len(cg.index['nodes'])} root={ref.get('root')}", cid="D1")
     _tamper_ref_hash(os.path.join(lib, cg.index["nodes"][nid]["path"]))
     res = refindex.check_refs(cg, ledger=refindex.Ledger(lib))
@@ -285,11 +294,14 @@ def guard_collision(tmp):
           v["dup"] == 0, str(v["ids"]), cid="D2")
     check("7②水位/节点不一致记 ledger_mismatch 归因行（撞 id 不再静默）",
           v["mm_count"] >= 1, str(v["mm_count"]), cid="D2")
-    check("7②归因行带两侧 root 且 gap=collision_multi_root（可归因到域）",
-          bool(v["mm"]) and all(r.get("watermark_root") and r.get("node_root")
-                                and r.get("kind_of_gap") == "collision_multi_root"
-                                for r in v["mm"]),
-          str(v["mm"][:1]), cid="D2")
+    # #352-E：撞 id 的归因从**巡检面**（watermark/node 两侧 root 不一致）前移到
+    # **写入面回执**（conflicts 带 existing_root/root）——写入面不再让撞 id 落盘，
+    # 巡检面自然不再有「节点归了后写域」这个事实可归因。归因字段本身（两侧 root）
+    # 一个没少，只是换了承担者。
+    check("7②撞 id 归因改由写入面回执承担（conflicts 带两侧 root，可归因到域）",
+          bool(_cf) and all(c.get("existing_root") and c.get("root")
+                            and c.get("id") for c in _cf),
+          str(_cf[:1]), cid="D2")
     # 该现场再推一步：**两域的源都改掉**（合法漂移，不是篡改）。v1 逐条水位条目各自
     # 探测 ⇒ 同一个 node_id 被反复报（本夹具实测 HEAD 4 行 / dup=2 ⇒ v2 2 行 / dup=0，
     # 两个数是该文件的两个节点各一行）。这一步才真正钉住「去重」，且不依赖篡改。
@@ -298,12 +310,15 @@ def guard_collision(tmp):
     v = _verdict(refindex.check_refs(cg, ledger=refindex.Ledger(lib)))
     check("7③两域源都改：同一 node_id 至多一行（v1 会按水位条目重复报）",
           v["dup"] == 0 and bool(v["ids"]), str(v["ids"]), cid="D3")
-    check("7③撞 id 归因行仍在（collision_multi_root，带两侧 root）",
-          v["mm_count"] >= 1
-          and all(r.get("watermark_root") and r.get("node_root")
-                  and r.get("kind_of_gap") == "collision_multi_root"
-                  for r in v["mm"]),
-          str(v["mm"][:1]), cid="D3")
+    _items_b2, _eb2, _sb2 = refindex.index_dir(domB, kind="code_ref",
+                                               ledger=refindex.Ledger(lib))
+    _cf2 = []
+    _ids_b2, _ = refindex.add_items(cg, _items_b2, kind="code_ref",
+                                    root=domB, conflicts=_cf2)
+    check("7③两域源都改后再索引 B：撞 id 仍由回执点名（带两侧 root，可归因到域）",
+          _ids_b2 == [] and bool(_cf2)
+          and all(c.get("existing_root") and c.get("root") for c in _cf2),
+          f"ids={_ids_b2} conflicts={_cf2[:1]}", cid="D3")
 
 
 # ---------------- 12 自愈止血 + 水位保全（H1/H1b/H2/H3/H4/H5/H6 + 写序） ----------------
@@ -460,7 +475,7 @@ DOC_SEC_HEAD = "### 3.1 "
 #: §3.1（归一化后）的 sha1 前 16 位：**判据侧陈化硬失败**——口径一被改写（无论改真源
 #: 还是改守卫）就必须同步本行，才谈得上「措辞与实现同源」。归一化＝空白折叠 ⇒ 换行 /
 #: 缩进 / 表格对齐**不**误红，只有措辞变化才红。失败信息里打印现算值，照抄即恢复。
-DOC_SEC_FP = "5e1c5e8bc53dabdf"
+DOC_SEC_FP = "c482d088cecbe918"
 
 #: §3.1 里必须**逐字**出现的口径字面（缺一条 ⇒ 措辞已从实现侧漂开）。
 DOC_REQUIRED = (
@@ -476,13 +491,13 @@ DOC_REQUIRED = (
 #: 「文档说谁在哪一行」是措辞里最硬的一句——引用漂移（代码增删行）即红，失败信息附
 #: 该符号**现址**，照抄回文档与本表即恢复（陈化可自愈到「人只需抄一次」）。
 DOC_CITATIONS = (
-    ("refindex.py:490", "md_cg/refindex.py", 490, "def _code_ref("),
-    ("refindex.py:504", "md_cg/refindex.py", 504, "def _doc_ref("),
-    ("refindex.py:548", "md_cg/refindex.py", 548,
+    ("refindex.py:544", "md_cg/refindex.py", 544, "def _code_ref("),
+    ("refindex.py:558", "md_cg/refindex.py", 558, "def _doc_ref("),
+    ("refindex.py:602", "md_cg/refindex.py", 602,
      "got = codeindex.region_hash(lines, lineno, end)"),
-    ("refindex.py:565", "md_cg/refindex.py", 565, "def read_ref("),
-    ("refindex.py:633", "md_cg/refindex.py", 633, "def check_refs("),
-    ("refindex.py:830", "md_cg/refindex.py", 830, "def prune_orphans("),
+    ("refindex.py:619", "md_cg/refindex.py", 619, "def read_ref("),
+    ("refindex.py:687", "md_cg/refindex.py", 687, "def check_refs("),
+    ("refindex.py:884", "md_cg/refindex.py", 884, "def prune_orphans("),
     ("srcindex.py:71", "md_cg/srcindex.py", 71, "def src_id("),
     ("srcindex.py:86", "md_cg/srcindex.py", 86, "def file_hash("),
     ("logref.py:119", "md_cg/logref.py", 119, "def node_state("),

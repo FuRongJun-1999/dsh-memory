@@ -326,14 +326,62 @@ def _check_root(root):
     return os.path.realpath(root)
 
 
-def audit_path(root):
-    return os.path.join(root, AUDIT_REL)
+# 生效条件：root 为沙箱根时返回台账落点的**规范化绝对路径**——判定链依次为「.imgskill 目录本身是符号链接 ⇒ 拒」「AUDIT_REL 末段是符号链接 ⇒ 拒」「safe_join(root, AUDIT_REL) 判越界 ⇒ 拒」，三条皆过才返回 realpath；strict 为真（默认）时拒即抛 SkillError(E_PATH_OUT_OF_SCOPE)，为假时返回 None（写面据此降级为「不写台账 + 告警」）；
+def audit_path(root, *, strict=True):
+    """台账落点的**唯一解析口径**（#352-C，2026-10-15）。
+
+    改前本函数只有一句 `os.path.join(root, AUDIT_REL)`——既不 realpath、也不判
+    是否在根内，而 `_audit_write` 用 `open(p, "a")` **跟随符号链接**。沙箱根内
+    可写者只要把 `.imgskill`（目录）或 `.imgskill/audit.jsonl`（文件）换成符号
+    链接，受害者下一次**合法**调用就会把一行审计 JSON 追加到根外任意可写文件
+    （零次 imgskill 调用即可布置）。目标是 `json.dump` 写出的整文件 JSON 时，
+    追加行直接粘在原内容后面，该文件从此解析失败——实测把 `MDCG_TOKEN_FILE`
+    设为目标后，MCP 服务重启即 rc=3 退出，签发/吊销全被拒。
+
+    **真源复用**（不新造第二份路径校验）：路径面一律走本文件既有的
+    `safe_join`（realpath + commonpath，与 src/dst 同一份实现）。上一级目录是
+    链接时 safe_join 的 realpath 会把它解析到根外并被 commonpath 拒掉；末段
+    本身是链接时 realpath 会**把它一起解掉**（只看 realpath 会漏判），故末段与
+    上段各补一次 `os.path.islink` 显式判。
+
+    strict=False 的用途（**刻意不把可信边界问题升级成拒服务面**）：台账落点被
+    链接时，让本次 `run()` 照常返回结果、只是不写台账并在返回体里带
+    `audit_warning`——imgskill 不经 MCP 暴露，把它变成新的拒服务面得不偿失。
+    读面（`read_audit` / `_audit_seq`）走同一条判定，判不安全即按「空表」计，
+    绝不读根外文件。
+    """
+    rel = _rel(AUDIT_REL)
+    d = os.path.join(root, os.path.dirname(AUDIT_REL))
+    p = os.path.join(root, AUDIT_REL)
+    why = None
+    cand = None
+    if os.path.islink(d):
+        why = "%s 是符号链接（台账落点不得经链接指向沙箱根外）" % os.path.dirname(rel)
+    elif os.path.islink(p):
+        why = "%s 是符号链接（台账落点不得经链接指向沙箱根外）" % rel
+    else:
+        try:
+            cand = safe_join(root, AUDIT_REL, what="audit_path")
+        except SkillError as exc:
+            why = exc.message
+    if why is None:
+        return cand
+    if strict:
+        raise SkillError(E_PATH_OUT_OF_SCOPE, why,
+                         {"root": root, "audit_rel": rel,
+                          "resolved": os.path.realpath(p)})
+    return None
 
 
 def read_audit(root):
-    """读回台账（守卫/复跑用）。返回 dict 列表；文件不存在返回 []。"""
-    p = audit_path(root)
-    if not os.path.exists(p):
+    """读回台账（守卫/复跑用）。返回 dict 列表；文件不存在返回 []。
+
+    #352-C：台账落点不可信（`.imgskill`/`audit.jsonl` 是符号链接、或规范化后
+    在根外）时按**空表**计——读面绝不跟随链接去读根外文件（改前会读，且内容
+    参与条目匹配与计数）。
+    """
+    p = audit_path(root, strict=False)
+    if p is None or not os.path.exists(p):
         return []
     out = []
     with open(p, "r", encoding="utf-8") as f:
@@ -841,16 +889,44 @@ def _derive_dst(src_rel, op, nparams, src_fmt_ext):
 
 # ---------------------------------------------------------------- 审计
 
+# 生效条件：台账落点经 audit_path 判定安全时以 O_APPEND|O_CREAT|O_NOFOLLOW（平台无该标志时取 0）打开并追加一行 JSON，返回 None；判定不安全（链接/根外）或打开写入失败时**不写**并返回告警 dict（{"code","message","detail"}），不抛——调用方把告警并进返回体（audit_warning），run() 本身照常给结果；
 def _audit_write(root, rec):
-    p = audit_path(root)
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "a", encoding="utf-8") as f:
-        f.write(json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n")
+    """追加一行台账；落点不可信时**不写 + 告警**（#352-C）。
+
+    为什么是 fail-open（不写台账、照常返回结果）而不是抛错：台账落点的可信边界
+    问题若升级成拒服务，一个本地可写者建个符号链接就能让所有合法调用失败；
+    报告给的边界也是「可人工删掉追加行恢复」。是否需要改为 fail-closed 属维护者
+    裁定——本实现把它做成**可观测的告警**（结果体 `audit_warning`），不静默。
+
+    `O_NOFOLLOW`：末段是符号链接时 POSIX 直接 ELOOP（与判定之间还剩一个很窄的
+    TOCTOU 窗口，同 #325 的残余口径）；Windows 无该标志，靠 audit_path 的
+    realpath 判定兜底。
+    """
+    try:
+        p = audit_path(root)
+    except SkillError as exc:
+        return {"code": exc.code, "message": exc.message,
+                "detail": getattr(exc, "detail", None)}
+    try:
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        flags = (os.O_WRONLY | os.O_APPEND | os.O_CREAT
+                 | getattr(os, "O_NOFOLLOW", 0))
+        fd = os.open(p, flags, 0o600)
+    except OSError as exc:
+        return {"code": E_PERM, "message": "台账不可写：%s" % exc,
+                "detail": {"path": p}}
+    try:
+        with os.fdopen(fd, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n")
+    except Exception as exc:                              # noqa: BLE001
+        return {"code": E_PERM, "message": "台账写入失败：%s" % exc,
+                "detail": {"path": p}}
+    return None
 
 
 def _audit_seq(root):
-    p = audit_path(root)
-    if not os.path.exists(p):
+    p = audit_path(root, strict=False)
+    if p is None or not os.path.exists(p):
         return 1
     n = 0
     with open(p, "r", encoding="utf-8", errors="replace") as f:
@@ -1312,9 +1388,13 @@ def run(req):
                           backend=backend, backend_note=backend_note,
                           sandbox_root=root,
                           idempotency_key=req.get("idempotency_key"))
-        _audit_write(root, rec)
-        return _err_result(e.code, e.message, e.detail, audit_id=rec["audit_id"],
-                           backend=backend)
+        _aw = _audit_write(root, rec)
+        _er = _err_result(e.code, e.message, e.detail, audit_id=rec["audit_id"],
+                          backend=backend)
+        if _aw is not None:
+            # #352-C：台账落点不可信 ⇒ 本次不写台账，但**不静默**（结果体带告警）
+            _er["audit_warning"] = _aw
+        return _er
 
     try:
         # ② caller 必填（进审计，定稿 §3.1）
@@ -1384,11 +1464,14 @@ def run(req):
                     idempotency_key=req.get("idempotency_key"),
                     extra={"reused_from": hit["audit_id"]},
                     output_meta=hit.get("output_meta"))
-                _audit_write(root, rec)
-                return _result(True, artifact_path=hit["output_path"],
-                               asset=hit["output_sha256"],
-                               meta=hit.get("output_meta"), audit_id=rec["audit_id"],
-                               backend=backend)
+                _aw = _audit_write(root, rec)
+                _rr = _result(True, artifact_path=hit["output_path"],
+                              asset=hit["output_sha256"],
+                              meta=hit.get("output_meta"), audit_id=rec["audit_id"],
+                              backend=backend)
+                if _aw is not None:
+                    _rr["audit_warning"] = _aw
+                return _rr
         # ⑪ dst 父目录（仅限根内，已在 safe_join 验过）按需创建
         par = os.path.dirname(dst_abs)
         if par and not os.path.isdir(par):
@@ -1404,8 +1487,11 @@ def run(req):
             backend=backend, backend_note=note, sandbox_root=root,
             idempotency_key=req.get("idempotency_key"),
             output_meta=ctx.get("output_meta"))
-        _audit_write(root, rec)
+        _aw = _audit_write(root, rec)
         res["audit_id"] = rec["audit_id"]
+        if _aw is not None:
+            # #352-C：台账落点不可信 ⇒ 本次不写台账，但**不静默**（结果体带告警）
+            res["audit_warning"] = _aw
         return res
     except SkillError as e:
         # 已探测到后端时把降级留痕带上
