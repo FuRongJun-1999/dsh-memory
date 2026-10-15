@@ -4843,6 +4843,19 @@ class MdCGOS(MdCG):
                     "node_id": node_id,
                     "written": self.add(node_id, content, layer=layer,
                                         override=override, **kw)}
+        # issue #345：限流闸的记账密级用**有效密级**（声明值；未声明时经
+        # MdCGSecure._write_sensitivity 单点继承既有节点、回落默认档），而非
+        # 只看本次 kw 声明——否则同 id 改写未重传 sensitivity 时，节点正文
+        # 仍是密文（#297 单点继承生效），闸却按「非加密级」把去数字明文骨架
+        # 记进明文台账 _writelimit.json（同一写入、两处判据答案不同）。
+        # 解析走下游同一单点，不另立第二份继承逻辑；解析失败或该方法不存在
+        # （裸 MdCGOS 无加密层 / #297 fail-closed）时回落声明值，不改变下游
+        # add 的 fail-closed 时序。
+        try:
+            _sens_eff = self._write_sensitivity(
+                node_id, kw.get("sensitivity"))
+        except Exception:
+            _sens_eff = kw.get("sensitivity")
         # 流水污染治理（写入侧前置限流，工程策略独立于三问裁决）：
         # 同源频率限制 → DEFER；同构聚合 → 并入既有节点（不新增）。
         # 只拦 contextual（自动写入落层），knowledge 手动纪律写入不受限；
@@ -4852,7 +4865,10 @@ class MdCGOS(MdCG):
                                # issue #313：声明密级随签名记账。缺这一行的后果：
                                # 台账 sens 恒 null，且加密级的**明文骨架**照落
                                # （后者由 writelimit._is_encrypted_level 收口）。
-                               sensitivity=kw.get("sensitivity"))
+                               # issue #345：只传声明值时，同 id 改写未重传
+                               # sensitivity 的写入给闸 None＝非加密级，骨架照落
+                               # 明文台账；改传有效密级 _sens_eff（声明或单点继承）。
+                               sensitivity=_sens_eff)
         if lim is not None:
             if lim["verdict"] == "CONVERGE":
                 tgt = lim["target"]
@@ -4950,8 +4966,9 @@ class MdCGOS(MdCG):
                 else:
                     # 落盘成功 → 签名→节点映射兜底回填（同构聚合的锚点）
                     # issue #313：密级一并记账（加密级由原语内部跳过签名）
+                    # issue #345：同上，传有效密级 _sens_eff（声明或单点继承）。
                     writelimit.record_accepted(self, node_id, content,
-                                               sensitivity=kw.get("sensitivity"))
+                                               sensitivity=_sens_eff)
         elif v == "MERGE":
             tgt = verdict["redundancy"]["with"]
             # 三档自治批次②：档位判定在**遗忘闸四态裁决之后、合并原语之前**
