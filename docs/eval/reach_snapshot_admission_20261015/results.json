@@ -235,6 +235,16 @@
     "windows": {
       "key": "reach",
       "platform": "windows",
+      "source_head": "be56d10ec2d98ded04eaef5178b5878d7844a952",
+      "production_sha256": {
+        "md_cg/mdcg.py": "1d6da4332571eb193439175ffc1a762267f13755fb757c48c57e021b7bdaa8d2",
+        "md_cg/mdcos.py": "87d64aab2c6cd71ad1c757a1922ebbb4963f9fdf414080ce1c92554ca6a078f9",
+        "md_cg/trust.py": "183b38a839f4544b8e68f57b0b9f7be92e015297f599410e6eb5d7140afd8534",
+        "md_cg/stgidx.py": "c527267824a9775ecac18740626da0d154cb836fb1ce920376df1ebaaddaa925",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/chain.py": "f376e566b6735aee8d589e6a6a2a91162023c8cfda0309d7efe8ba13f9199a85",
+        "md_cg/reach.py": "f77cb27724e181a0b4698035a91394302d8f411232b77a06e6d832180b4382f9"
+      },
       "passed": 5,
       "failed": 0,
       "missing": 0,
@@ -243,7 +253,7 @@
           "module": "test_reach",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.75,
+          "seconds": 0.703,
           "command": [
             "py",
             "-3.12",
@@ -258,7 +268,7 @@
           "module": "test_reach_keys",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.312,
+          "seconds": 0.281,
           "command": [
             "py",
             "-3.12",
@@ -273,7 +283,7 @@
           "module": "test_reach_meta_exits",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.281,
+          "seconds": 0.266,
           "command": [
             "py",
             "-3.12",
@@ -288,7 +298,7 @@
           "module": "test_rrf_candidates",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 2.813,
+          "seconds": 2.547,
           "command": [
             "py",
             "-3.12",
@@ -303,7 +313,7 @@
           "module": "test_readcache_precise_inval",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 1.234,
+          "seconds": 1.14,
           "command": [
             "py",
             "-3.12",
@@ -314,11 +324,108 @@
           ],
           "log": "reg-reach-windows-test_readcache_precise_inval.log"
         }
-      ]
+      ],
+      "previous_snapshot": {
+        "phase": "before upstream sync / development attempts; excluded from final counts",
+        "readings": {
+          "key": "reach",
+          "platform": "windows",
+          "passed": 5,
+          "failed": 0,
+          "missing": 0,
+          "results": [
+            {
+              "module": "test_reach",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.75,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_reach"
+              ],
+              "log": "previous/reg-reach-windows-test_reach.log"
+            },
+            {
+              "module": "test_reach_keys",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.312,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_reach_keys"
+              ],
+              "log": "previous/reg-reach-windows-test_reach_keys.log"
+            },
+            {
+              "module": "test_reach_meta_exits",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.281,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_reach_meta_exits"
+              ],
+              "log": "previous/reg-reach-windows-test_reach_meta_exits.log"
+            },
+            {
+              "module": "test_rrf_candidates",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 2.813,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_rrf_candidates"
+              ],
+              "log": "previous/reg-reach-windows-test_rrf_candidates.log"
+            },
+            {
+              "module": "test_readcache_precise_inval",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 1.234,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_readcache_precise_inval"
+              ],
+              "log": "previous/reg-reach-windows-test_readcache_precise_inval.log"
+            }
+          ]
+        }
+      }
     },
     "linux": {
       "key": "reach",
       "platform": "linux",
+      "source_head": "be56d10ec2d98ded04eaef5178b5878d7844a952",
+      "production_sha256": {
+        "md_cg/mdcg.py": "1d6da4332571eb193439175ffc1a762267f13755fb757c48c57e021b7bdaa8d2",
+        "md_cg/mdcos.py": "87d64aab2c6cd71ad1c757a1922ebbb4963f9fdf414080ce1c92554ca6a078f9",
+        "md_cg/trust.py": "183b38a839f4544b8e68f57b0b9f7be92e015297f599410e6eb5d7140afd8534",
+        "md_cg/stgidx.py": "c527267824a9775ecac18740626da0d154cb836fb1ce920376df1ebaaddaa925",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/chain.py": "f376e566b6735aee8d589e6a6a2a91162023c8cfda0309d7efe8ba13f9199a85",
+        "md_cg/reach.py": "f77cb27724e181a0b4698035a91394302d8f411232b77a06e6d832180b4382f9"
+      },
       "passed": 5,
       "failed": 0,
       "missing": 0,
@@ -327,7 +434,7 @@
           "module": "test_reach",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 5.578,
+          "seconds": 5.641,
           "command": [
             "wsl",
             "-d",
@@ -349,7 +456,7 @@
           "module": "test_reach_keys",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.563,
+          "seconds": 0.515,
           "command": [
             "wsl",
             "-d",
@@ -371,7 +478,7 @@
           "module": "test_reach_meta_exits",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.578,
+          "seconds": 0.563,
           "command": [
             "wsl",
             "-d",
@@ -393,7 +500,7 @@
           "module": "test_rrf_candidates",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 1.5,
+          "seconds": 1.453,
           "command": [
             "wsl",
             "-d",
@@ -415,7 +522,7 @@
           "module": "test_readcache_precise_inval",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.906,
+          "seconds": 0.844,
           "command": [
             "wsl",
             "-d",
@@ -433,7 +540,129 @@
           ],
           "log": "reg-reach-linux-test_readcache_precise_inval.log"
         }
-      ]
+      ],
+      "previous_snapshot": {
+        "phase": "before upstream sync / development attempts; excluded from final counts",
+        "readings": {
+          "key": "reach",
+          "platform": "linux",
+          "passed": 5,
+          "failed": 0,
+          "missing": 0,
+          "results": [
+            {
+              "module": "test_reach",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 5.578,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-reach-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_reach"
+              ],
+              "log": "previous/reg-reach-linux-test_reach.log"
+            },
+            {
+              "module": "test_reach_keys",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.563,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-reach-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_reach_keys"
+              ],
+              "log": "previous/reg-reach-linux-test_reach_keys.log"
+            },
+            {
+              "module": "test_reach_meta_exits",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.578,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-reach-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_reach_meta_exits"
+              ],
+              "log": "previous/reg-reach-linux-test_reach_meta_exits.log"
+            },
+            {
+              "module": "test_rrf_candidates",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 1.5,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-reach-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_rrf_candidates"
+              ],
+              "log": "previous/reg-reach-linux-test_rrf_candidates.log"
+            },
+            {
+              "module": "test_readcache_precise_inval",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.906,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-reach-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_readcache_precise_inval"
+              ],
+              "log": "previous/reg-reach-linux-test_readcache_precise_inval.log"
+            }
+          ]
+        }
+      }
     }
   }
 }
