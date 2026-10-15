@@ -25,9 +25,10 @@ BLINDSPOT，只读 check 面一字不改），**路由层对齐写链**
 本仓常有数条流同时在改不同文件，全量红项未必是你的。判「这条红是不是我改出来的」
 不要靠推理，靠**只读导出改动前的树**再跑同一个守卫：
 
-    git -C <repo> archive HEAD -o <tmp>\head.tar
-    mkdir <tmp>\tree_head && tar -xf <tmp>\head.tar -C <tmp>\tree_head
-    $env:PYTHONPATH='<tmp>\tree_head'; python -X utf8 -m md_cg.<守卫>
+    git -C <repo> archive HEAD -o <tmp>/head.tar
+    mkdir <tmp>/tree_head && tar -xf <tmp>/head.tar -C <tmp>/tree_head
+    $env:PYTHONPATH='<tmp>/tree_head'; python -X utf8 -m md_cg.<守卫>
+（路径分隔符统一写正斜杠，避免字符串里的反斜杠触发 invalid escape 警告）
 
 导出树**不含未提交改动**，故两边读数之差即「本工作树相对 HEAD 的行为变化」，能把
 「他流的未完成改动」与「自己的改动」干净隔离。本件实测：`md_cg.test_n209_verify_write_face_gates`
