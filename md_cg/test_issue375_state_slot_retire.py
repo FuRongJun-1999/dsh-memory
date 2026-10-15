@@ -207,28 +207,39 @@ else:
     print("issue #375 结果：全部通过")
 
 
-_OLD_BODY = '    v = rec.get("new")' + chr(10) + '    if v is None:' + chr(10) \
-    + '        return True' + chr(10) \
-    + '    return isinstance(v, str) and not v.strip()'
+#: 判据本体的「strip 腿」一行（#383，2026-10-14：判据本体已搬到**源模块**
+#: `md_cg/state_events.py::is_void`——投影侧 `state_slots._is_void` 只是同一函数对象的
+#: 绑定，state_slots.py 里已无判据源码可改，故 M1 的锚点改指该文件；M2 见下（裁定锚在
+#: **重放消费点**，理由与分工写在该条上方））。
+#: 单行锚点同时规避本仓 CRLF/LF 混合的折算（state_events.py 为 CRLF）。
+_OLD_LEG = '    return isinstance(v, str) and not v.strip()'
 
 _MUTATIONS = (
-    ("M1 回缺陷：撤回判据只认 None（空白串按有值进入回放）", "md_cg/state_slots.py",
-     (_OLD_BODY,
-      '    v = rec.get("new")' + chr(10) + '    if v is None:' + chr(10)
-      + '        return True' + chr(10) + '    return False'),
+    ("M1 回缺陷：撤回判据只认 None（空白串按有值进入回放）", "md_cg/state_events.py",
+     (_OLD_LEG, '    return False'),
      # 机制：空白串按「有值」进入回放 ⇒ 退役态/统计/默认投影/闭合点/读口全错
      #（A01–A09、A12、A15、A16），同一条判据的其它消费面随之转红：
      # K04（payload 优先腿）、K06（孤立撤回腿）、K07（status 统计腿）、
      # E03（源码形态腿）。A10/A11 只钉「原值保留」，本变异不动原值 ⇒ 恒绿（如实）。
      ("A01", "A02", "A03", "A04", "A06", "A07", "A08", "A09", "A12",
       "A15", "A16", "K04", "K06", "K07", "E03")),
+    # ⚠ M2 锚在**重放消费点**（`state_slots._replay`），**不**锚判据本体——编排侧裁定
+    # 2026-10-14（方案 F）。为什么：判据被 #383 上收为**跨面共享单点**后，「恒判无值」
+    # 打在判据本体上会连**写入口**一起砖掉——本守卫的**首个**夹具
+    # _evt(old=None, new="别墅") 立即被 append 的双空闸拒（ValueError 崩栈，栈落
+    # state_events.py::append 的 raise），任何 _check 都还没跑到 ⇒ 命名红项恒为空 ⇒
+    # _mutate 记 MISMATCH：rc=1 很响、但**红得不可归因**＝变异腿失效（#353 形态）。
+    # ⚠ 因此本腿**只测消费方向**：判据**本体**的「恒判无值」方向由 **#383 守卫的 M2** 覆盖
+    #（`md_cg/test_issue383_state_event_write_gate.py`，红 19 项、带命名红项）——两面分工：
+    # 本体方向归 #383、消费方向归 #375。**后来者勿在本守卫补一条打在判据本体上的腿**
+    #（会重复踩本坑：不可归因的红）；本体方向要加，加到 #383 那条上。
     ("M2 过度放宽：恒判无值（任何值都作废）", "md_cg/state_slots.py",
-     (_OLD_BODY,
-      '    v = rec.get("new")' + chr(10) + '    if v is None:' + chr(10)
-      + '        return True' + chr(10) + '    return True'),
-     # 机制：恒判无值 ⇒ 一切值都作废（K01/K02/K03/K05 的「有值」路径全断）、
-     # 复活腿失效（A13）、读口读数随之不一致（A14/K07）、源码形态腿 E03 转红。
-     ("A13", "A14", "E03", "K01", "K02", "K03", "K05", "K07")),
+     ('        if _is_void(rec):', '        if True:'),
+     # 机制：重放侧恒判无值 ⇒ 一切值都作废、槽位一律退役：「有值」路径全断
+     #（K01 非空白单字符 / K02 带前后空格的值 / K05 非字符串值 0、False）、复活腿失效
+     #（A13）、消费点计数腿 E02（_replay 里 `_is_void(` 计数 2→1，接线脱焊）转红。
+     # 恒绿项如实说明：A01–A04/A12/A15/A16 仍绿——本变异不碰账本行与写闸，只砖重放。
+     ("A13", "E02", "K01", "K02", "K05")),
 )
 
 

@@ -14,11 +14,18 @@
     落盘位置与 `_evolution` 台账/审计同级：`<root>/_state_events.jsonl`）。
   · **五元结构**：主体 subject ／ 槽位 slot ／ 旧值 old → 新值 new ／ 轮或序号
     seq ／ 出处 evidence（＋ kind 五类变迁事件 ＋ actor 断言者 ＋ t 时间戳）。
+  · **判据单点**（#383，2026-10-14）：`old`/`new` 的「空」＝ `None` **或空白字符串**，
+    判据本体只此一处（`is_void`，源模块）；投影侧 `state_slots._is_void` **直接绑定
+    本函数**（同一对象，不另立一份），写入口对裸值经 `void_value` 走同一条腿。
+    `old` 与 `new` **同空**（含 `""`/全空白串）＝空事件 ⇒ ValueError，且校验先于
+    建目录/写盘 ⇒ **零落盘**。
 
 KINDS 五类对齐《角色扮演一致性锚调研 v0.1》§3.4「变迁事件」：
 迁移 migration ／ 撤回 retraction ／ 启用 enablement ／ 购买获得 acquisition ／
 替换 replacement。「撤回」语义：old 有值而 new 为空（值作废、无新值）；
 「启用」：old 空而 new 有值；「迁移/替换」：old 与 new 皆有值。
+「空」＝ `None` **或空白字符串**（判据单点 `is_void`）；old 与 new **同空**＝空事件
+（既非启用也非撤回）⇒ `append` 拒收，不落任何台账行。
 分类本身不进判据（记账不判语义），只作检索面标签。
 """
 from __future__ import annotations
@@ -57,8 +64,31 @@ def ledger_path(cg) -> str:
     return os.path.join(cg.root, STATE_EVENTS_NAME)
 
 
+# 生效条件：rec 为台账记录 dict——`rec.get("new")` 为 None，或为字符串且 `str.strip()` 后为空（含全空白串）时返回 True（撤回/值作废）；其余（非 None 且非空白字符串，含数字 0、False、非空串）返回 False；入参非 dict 时按 `.get` 抛 AttributeError（台账读面保证为 dict，不吞错）。
+def is_void(rec) -> bool:
+    """撤回判据（**全仓唯一单点**）：`rec["new"]` 无值（None 或空白串）＝值作废、无新值。
+
+    #375（2026-10-14）在投影侧把判据从 `new is None` 放宽为「**None 或空白字符串**」；
+    #383（2026-10-14）把这**同一条腿**上收到源模块，成为全仓唯一判据本体。入参是
+    **台账记录**（行形态）——投影侧 `state_slots._is_void` 绑定本函数（同一对象，
+    不另立一份），写入口对裸值经 `void_value` 适配同一条腿。台账行与 `history`
+    条目的 `old`/`new` **原值一字不改**（值作废只发生在投影回放里，见 `_replay`）。
+    """
+    v = rec.get("new")
+    if v is None:
+        return True
+    return isinstance(v, str) and not v.strip()
+
+
+# 生效条件：v 为待判的**裸值**（写入口的 old/new）——包成记录后走同一单点 `is_void`：v 为 None 或空白字符串时返回 True，其余（含数字 0、False、非空串）返回 False；不复制判据、不改写 v。
+def void_value(v) -> bool:
+    """写入口的值面适配：裸值 → 同一单点 `is_void`（**不另立第二份判据**）。"""
+    return is_void({"new": v})
+
+
 # 生效条件：subject 与 slot 去空白后必须非空（否则 ValueError）；kind 非 None 时必须属于
-# KINDS（否则 ValueError）；old 与 new 不得同时为 None（否则 ValueError）；通过后在
+# KINDS（否则 ValueError）；old 与 new 不得同时为**空**（None 或空白串，判据单点
+# `void_value`，否则 ValueError——校验先于任何建目录/写盘，故零落盘）；通过后在
 # FileLock(ledger_path) 内以追加模式写一行 JSON（ensure_ascii=False，flush+fsync），
 # 返回落盘记录 dict（不改任何既有文件、不读改写、不截断）。
 def append(cg, subject, slot, old=None, new=None, kind=None, seq=None,
@@ -72,7 +102,7 @@ def append(cg, subject, slot, old=None, new=None, kind=None, seq=None,
         raise ValueError("状态事件必须声明槽位（slot）")
     if kind is not None and kind not in KINDS:
         raise ValueError(f"未知变迁事件类型：{kind}（允许：{KINDS}）")
-    if old is None and new is None:
+    if void_value(old) and void_value(new):
         raise ValueError("状态事件 old 与 new 不能同时为空（空事件无意义）")
     rec = {
         "t": time.time(),
