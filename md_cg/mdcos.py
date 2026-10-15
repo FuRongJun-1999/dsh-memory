@@ -3157,7 +3157,7 @@ class MdCGOS(MdCG):
             rollback=(pre or {}).get("rollback"))
         return {"ok": True, "node_id": node_id, "mutation": mpay}
 
-# 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'），且写入前经与 add 同款双闸（N131，2026-09-25：principal 在位先 require_layer_write(目标层, 目标敏感度)——与 MdCGSecure.add 同序同错型；再 protect.guard_write(override=override)——self/anchor 层、immutable 标记，拒绝抛 ProtectionError/AccessDenied 且提案留 pending 不落库）后追加内容并定向索引 upsert（_node_entry 同源条目写入 index/_dirty）+flush，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；kind=mutation 的变更单（三档自治批次②）不走上述分支——accept 经 _mutation_execute 执行对应动作（失败即返回错误、不记裁决、提案保持 pending）、reject 只留痕，其余裁决 fail-closed 返回 mutation_decision_unsupported；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
+# 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'），且写入前经与 add 同款双闸（N131，2026-09-25：principal 在位先 require_layer_write(目标层, 目标敏感度)——与 MdCGSecure.add 同序同错型；再 protect.guard_write(override=override)——self/anchor 层、immutable 标记，拒绝抛 ProtectionError/AccessDenied 且提案留 pending 不落库），随后再过两道闸（issue #359，#148 单点第四处接线：guard_write 之后、拼接之前——①隔离层在位且提案经 _readable({"sensitivity": 提案档 or "secret", "session": item.session}) 判不可见时返回 'proposal_not_visible'（密级取值与 _review_list_visible 的 N201 口径同源，判据异常按不可见，纯 MdCGOS 无 _readable 时本闸不设）；②security.merge_downgrades(目标档, 提案声明档) 命中时返回 'merge_downgrade_refused'（附 target_sensitivity/incoming_sensitivity，不写盘）；两闸命中均不带 record——提案留 pending）后追加内容并定向索引 upsert（_node_entry 同源条目写入 index/_dirty）+flush，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；kind=mutation 的变更单（三档自治批次②）不走上述分支——accept 经 _mutation_execute 执行对应动作（失败即返回错误、不记裁决、提案保持 pending）、reject 只留痕，其余裁决 fail-closed 返回 mutation_decision_unsupported；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
     def review_decide(self, pid: str, decision: str, edits: dict = None,
                       merge_into: str = None, reason: str = "",
                       redteam: dict = None, issues=None,
@@ -3367,6 +3367,65 @@ class MdCGOS(MdCG):
                     _e.get("sensitivity") or DEFAULT_SENSITIVITY)
             protect.guard_write(self, target, override=override,
                                 actor=getattr(self, "actor", None))
+            # --- issue #359：裁决者可见性闸 + 降密级单点（第四个合并落点接线）---
+            # 本分支是「把 incoming 正文并入 target、按 target 档可见」的**第四个**
+            # 合并落点（另三处：writelimit.converge_into / forgetting.reinforce /
+            # branches 合并回写，均已接 #148 的 security.merge_downgrades 单点），
+            # 此前两闸全无：①designer 裁决者把 sensitivity=private 的提案 merge 进
+            # internal 节点 ⇒ ok:true、正文明文落盘、无令牌访客可读（同场景走
+            # CONVERGE/reinforce/branch merge 都是 merge_downgrade_refused）；
+            # ②orchestr（clearance=internal）在 review_list 看不到 private 提案
+            # （N201 过滤），凭 pid 一样 merge 后 get 读回 private 明文——
+            # MdCGSecure.review_decide 只 require_op("review")，不判裁决者能否读
+            # 该提案。两道闸都在拼接之前，且**返回体不带 record**（提案留
+            # pending，与 merge_target_not_found 同款：不落一条「accepted 而
+            # 动作没做」）。提案密级取值与 _review_list_visible 同口径：顶层
+            # （N201 起写入侧落键）→ extra.sensitivity（存量提案）→ fail-closed。
+            _p_sens = (item.get("sensitivity")
+                       or (item.get("extra") or {}).get("sensitivity")
+                       or "secret")
+            _r = getattr(self, "_readable", None)
+            if _r is not None:
+                # 纯 MdCGOS 无身份/密级模型（get/search/_candidates 亦不设读闸）
+                # ⇒ 无 _readable，本闸只在隔离层生效；判据异常按不可见（fail-
+                # closed，与 _review_list_visible 同款）。
+                try:
+                    _vis = _r({"sensitivity": _p_sens,
+                               "session": item.get("session")})
+                except Exception:               # noqa: BLE001 —— 判据不可判即不可见
+                    _vis = False
+                if not _vis:
+                    return {"ok": False, "error": "proposal_not_visible",
+                            "pid": pid, "sensitivity": _p_sens,
+                            "detail": "提案按当前裁决者身份不可见（clearance × "
+                                      "sensitivity ∧ 会话绑定，_readable 单点，与 "
+                                      "review_list 的 N201 过滤同口径）——不可见即"
+                                      "不可裁决，fail-closed 不写盘、提案留 pending"
+                                      "（issue #359）。",
+                            "hint": "review_list 看不到的提案不应被凭 pid 裁决；"
+                                    "换持足够 clearance（或归属会话）的裁决者处理。"}
+            # 降密级闸（#148 单点第四处接线，#243 同族）：判据走**唯一单点**
+            # security.merge_downgrades；判为降密级即 fail-closed **不写盘**（目标
+            # 正文/索引/裁决记录零变化）。incoming 取**声明值**（可为 None——单点
+            # 内部按 DEFAULT_SENSITIVITY 处理，与 writelimit/forgetting/branches
+            # 三处既有调用同形），不用上面的 fail-closed 档：纯 MdCGOS 未声明密级
+            # 的存量提案（sensitivity=None）按缺省档合并，不被本闸误伤。
+            if _security.merge_downgrades(
+                    (tgt["frontmatter"] or {}).get("sensitivity"),
+                    item.get("sensitivity")
+                    or (item.get("extra") or {}).get("sensitivity")):
+                return {"ok": False, "error": "merge_downgrade_refused",
+                        "pid": pid, "target": target,
+                        "target_sensitivity":
+                            (tgt["frontmatter"] or {}).get("sensitivity"),
+                        "incoming_sensitivity": _p_sens,
+                        "detail": "合并会降低该内容的有效密级（提案密级**高于**目标"
+                                  "节点密级 ⇒ 合并后只按目标档可见）——fail-closed 未"
+                                  "写盘：高密级明文不得并入低密级节点（issue #359，"
+                                  "#148 单点第四处接线）。",
+                        "hint": "如需保留该内容：先 accept 成独立节点（保持提案声明"
+                                "密级），或把目标节点整体迁移到不低于提案的密级后"
+                                "再合并。"}
             fm = dict(tgt["frontmatter"])
             merged_content = (tgt["content"].rstrip() + "\n\n" +
                               item["content"].strip() + "\n")
