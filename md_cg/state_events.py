@@ -18,7 +18,9 @@
 KINDS 五类对齐《角色扮演一致性锚调研 v0.1》§3.4「变迁事件」：
 迁移 migration ／ 撤回 retraction ／ 启用 enablement ／ 购买获得 acquisition ／
 替换 replacement。「撤回」语义：old 有值而 new 为空（值作废、无新值）；
-「启用」：old 空而 new 有值；「迁移/替换」：old 与 new 皆有值。
+「启用」：old 空而 new 有值；「迁移/替换」：old 与 new 皆有值；两皆空＝无意义（拒收）。
+「空」的判据单点＝`is_void`：None 或空白串——工具面 `old`/`new` 声明为 string，
+客户端按说明「留空」发出的就是空串，None 只是直调 Python 的另一种拼法。
 分类本身不进判据（记账不判语义），只作检索面标签。
 """
 from __future__ import annotations
@@ -57,8 +59,20 @@ def ledger_path(cg) -> str:
     return os.path.join(cg.root, STATE_EVENTS_NAME)
 
 
+# 生效条件：v 为 None 或空白串（str 且 strip 后为空）时返回 True，其余返回 False。
+def is_void(v) -> bool:
+    """「空」判据（单点）：None 或空白串皆为空（口径见模块头）。
+
+    工具面 `cg(op=state_event)` 的 old/new 是 string 参数，说明写着「撤回＝留空」；
+    客户端「留空」落盘就是空串。写入口的「双空拒收」与投影侧的「撤回判据」必须
+    用同一把尺子量「空」，故判据单点在本模块。
+    """
+    return v is None or (isinstance(v, str) and not v.strip())
+
+
 # 生效条件：subject 与 slot 去空白后必须非空（否则 ValueError）；kind 非 None 时必须属于
-# KINDS（否则 ValueError）；old 与 new 不得同时为 None（否则 ValueError）；通过后在
+# KINDS（否则 ValueError）；old 与 new 不得同时为「空」（is_void：None 或空白串）——
+# 无源撤回（既无旧值也无新值）无意义，否则 ValueError；通过后在
 # FileLock(ledger_path) 内以追加模式写一行 JSON（ensure_ascii=False，flush+fsync），
 # 返回落盘记录 dict（不改任何既有文件、不读改写、不截断）。
 def append(cg, subject, slot, old=None, new=None, kind=None, seq=None,
@@ -72,7 +86,7 @@ def append(cg, subject, slot, old=None, new=None, kind=None, seq=None,
         raise ValueError("状态事件必须声明槽位（slot）")
     if kind is not None and kind not in KINDS:
         raise ValueError(f"未知变迁事件类型：{kind}（允许：{KINDS}）")
-    if old is None and new is None:
+    if is_void(old) and is_void(new):
         raise ValueError("状态事件 old 与 new 不能同时为空（空事件无意义）")
     rec = {
         "t": time.time(),
