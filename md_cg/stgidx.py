@@ -51,8 +51,9 @@ class _TimeBlocks:
     O(sqrt(N)) amortized, instead of shifting N pairs for each timed deletion.
     Iteration/indexing retain the old sequence view for diagnostics/guards.
     """
-    def __init__(self, bulk=False):
+    def __init__(self, bulk=False, lower=None):
         self._blocks, self._maxes = [], []
+        self._lower, self._mins = lower, []
         self._size, self._layout, self._leaf = 0, 1, 32
         self._pending = [] if bulk else None
 
@@ -94,6 +95,8 @@ class _TimeBlocks:
         self._blocks = [items[i:i + self._leaf]
                         for i in range(0, len(items), self._leaf)]
         self._maxes = [block[-1] for block in self._blocks]
+        if self._lower is not None:
+            self._mins = [min(map(self._lower, block)) for block in self._blocks]
 
     def finish(self):
         if self._pending is not None:
@@ -112,16 +115,22 @@ class _TimeBlocks:
             return
         if not self._blocks:
             self._blocks, self._maxes = [[item]], [item]
+            if self._lower is not None:
+                self._mins = [self._lower(item)]
         else:
             i = min(bisect.bisect_left(self._maxes, item), len(self._blocks) - 1)
             block = self._blocks[i]
             bisect.insort(block, item)
             self._maxes[i] = block[-1]
+            if self._lower is not None:
+                self._mins[i] = min(map(self._lower, block))
             if len(block) > 2 * self._leaf:
                 middle = len(block) // 2
                 left, right = block[:middle], block[middle:]
                 self._blocks[i:i + 1] = [left, right]
                 self._maxes[i:i + 1] = [left[-1], right[-1]]
+                if self._lower is not None:
+                    self._mins[i:i + 1] = [min(map(self._lower, left)), min(map(self._lower, right))]
         self._size += 1
         self._resize()
 
@@ -138,14 +147,20 @@ class _TimeBlocks:
         if not block:
             del self._blocks[i]
             del self._maxes[i]
+            if self._lower is not None:
+                del self._mins[i]
         else:
             self._maxes[i] = block[-1]
+            if self._lower is not None:
+                self._mins[i] = min(map(self._lower, block))
             if len(block) < self._leaf // 2 and len(self._blocks) > 1:
                 a = i - 1 if i else 0
                 if len(self._blocks[a]) + len(self._blocks[a + 1]) <= 2 * self._leaf:
                     merged = self._blocks[a] + self._blocks[a + 1]
                     self._blocks[a:a + 2] = [merged]
                     self._maxes[a:a + 2] = [merged[-1]]
+                    if self._lower is not None:
+                        self._mins[a:a + 2] = [min(map(self._lower, merged))]
         self._resize()
 
     def range_ids(self, lo, hi):
@@ -160,6 +175,19 @@ class _TimeBlocks:
                 if t > hi:
                     return out
                 out.append(nid)
+        return out
+
+    def crossing_ids(self, lo):
+        """End >= lo and start < lo, pruning whole blocks by minimum start."""
+        out = []
+        i = bisect.bisect_left(self._maxes, (lo,))
+        for j in range(i, len(self._blocks)):
+            if self._mins[j] >= lo:
+                continue
+            block = self._blocks[j]
+            a = bisect.bisect_left(block, (lo,))
+            out.extend(nid for end, nid in block[a:]
+                       if self._lower((end, nid)) < lo)
         return out
 
 
@@ -197,10 +225,12 @@ def build(index_obj):
         return None
     ix = StgIndex(index_obj)
     ix.by_time = _TimeBlocks(bulk=True)
+    ix.by_end = _TimeBlocks(bulk=True, lower=ix._interval_start)
     for nid in nodes:                      # 快照物理序（dict 插入序）→ pos 即此序
         ix.add(nid, nodes[nid])
     try:
         ix.by_time.finish()
+        ix.by_end.finish()
     except Exception:
         # Bulk sorting postpones comparison errors until after add(). Keep
         # the original fail-closed contract: callers fall back on broken.
@@ -212,6 +242,23 @@ def build(index_obj):
 def verify(ix, nodes):
     """划分不变量自检：返回不一致说明列表（空 = 完好）。"""
     bad = []
+    ends, starts, uncertain = {}, {}, set()
+    for nid, entry in nodes.items():
+        start, end = trust.time_window_of(entry, "observed")
+        if start is not None and end is not None and math.isfinite(start):
+            if not math.isfinite(end):
+                uncertain.add(nid)
+            elif end != start:
+                ends[nid] = end
+                starts[nid] = start
+    if list(ix.by_end) != sorted((end, nid) for nid, end in ends.items()):
+        bad.append("by_end 与观察区间终点不一致")
+    if (ix.interval_ends != ends or ix.uncertain_ends != uncertain
+            or ix.interval_starts != starts):
+        bad.append("区间终点分类与快照不一致")
+    if ix.by_end._mins != [min(ix.interval_starts[nid] for _end, nid in block)
+                           for block in ix.by_end._blocks]:
+        bad.append("区间块最小起点与内容不一致")
     if ix.broken:
         bad.append("broken：增量维护期已记不一致标记（写钩异常）")
     ids = set(nodes)
@@ -314,6 +361,13 @@ class StgIndex:
         self.by_session = {}
         self.by_layer = {}
         self.by_time = _TimeBlocks()
+        # Only non-point intervals need the second endpoint. Point-only stores
+        # keep their existing range lookup; long intervals cannot be reduced to
+        # their start timestamp when the reader asks for overlap/containment.
+        self.interval_starts = {}
+        self.by_end = _TimeBlocks(lower=self._interval_start)
+        self.interval_ends = {}
+        self.uncertain_ends = set()
         self.untimed = []
         self.nonfinite = []
         self.pos = {}
@@ -383,6 +437,13 @@ class StgIndex:
         elif math.isfinite(t):
             bucket = 0
             self.by_time.add((t, nid))
+            _s, end = trust.time_window_of(e, "observed")
+            if not math.isfinite(end):
+                self.uncertain_ends.add(nid)
+            elif end != t:
+                self.interval_ends[nid] = end
+                self.interval_starts[nid] = t
+                self.by_end.add((end, nid))
         else:
             bucket = 1                  # NaN/±inf：见模块 docstring「为什么单列」
             self._push(self.nonfinite, self.ix_nonfinite, nid)
@@ -391,6 +452,11 @@ class StgIndex:
     # 生效条件：nid 必在 cls 中；按分类把 nid 从其所在桶以 swap-pop（O(1)）摘除并同步下标表——桶空则连桶键一并删除；bucket==0 走有序块精确键删除（局部搬移，规模变化时摊还压实）；任一步异常抛给上层置 broken；恒返回 None。
     def _unclassify(self, nid):
         sid, layer, bucket, t = self.cls.pop(nid)
+        end = self.interval_ends.pop(nid, None)
+        if end is not None:
+            self.by_end.remove((end, nid))
+            self.interval_starts.pop(nid, None)
+        self.uncertain_ends.discard(nid)
         self._swap_pop(self.by_session[sid], self.ix_session[sid], nid)
         if not self.by_session[sid]:    # 空桶不保留（表规模读数如实）
             self.by_session.pop(sid, None)
@@ -413,6 +479,24 @@ class StgIndex:
         """`by_time` 区间截取（二分）；返回时间序 id 列表。"""
         return self.by_time.range_ids(lo, hi)
 
+    def _interval_start(self, pair):
+        return self.interval_starts[pair[1]]
+
+    def overlap_ids(self, lo, hi):
+        """Conservative interval-overlap candidates, never just start-in-window.
+
+        Starts inside [lo, hi] are already served by by_time. An additional hit
+        must start before lo and end at/after lo. Non-finite endpoints remain a
+        conservative superset for stg.time_relation's existing exact decision.
+        """
+        if lo > hi:
+            return []
+        ids = set(self.range_ids(lo, hi))
+        if self.interval_ends:
+            ids.update(self.by_end.crossing_ids(lo))
+        ids.update(self.uncertain_ends)
+        return list(ids)
+
     # 生效条件：session/layer 为 MISSING 表示该维不参与（**注意 None 是合法维值**，不表示缺省），time_range 为 None 表示时间维不参与、否则为 (lo, hi)；无任何参与维时返回 (None, ())；否则返回 (候选 id 列表（**索引物理序**）, 实际服务的维名元组)——任一维在表中无键即得空列表（与基线等值比较同语义，非回退）。
     # 生效条件：ids 为可迭代 nid（每个 nid 均应在 self.pos 中，否则 KeyError 抛给上层置 broken）；返回按**物理位序**（pos）升序的**新列表**。为什么出口统一回排（#157）：桶表改为 swap-pop 后不再是物理序，而 subset 的对外契约仍是「索引物理序」——该契约在**读侧单点**（此处）承担 O(k log k)，写侧换来 O(1) 摘除。
     def _in_pos_order(self, ids):
@@ -431,7 +515,7 @@ class StgIndex:
             dims.append("time")
             lo, hi = time_range
             # nonfinite 是保守超集（NaN 在基线上会命中时间窗，见模块 docstring）
-            srcs.append(self.range_ids(lo, hi) + list(self.nonfinite))
+            srcs.append(self.overlap_ids(lo, hi) + list(self.nonfinite))
         if not dims:
             return None, ()
         if len(srcs) > 1:
