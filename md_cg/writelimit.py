@@ -395,6 +395,8 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
         keep = cg.get(p["keep"])
         if not keep:
             continue
+        from .security import merge_downgrades as _merge_downgrades
+        _keep_sens = (keep.get("frontmatter") or {}).get("sensitivity")
         lines = [f"\n\n# 整理聚合（tidy {time.strftime('%Y-%m-%d')}）："
                  f"同模板成员 {len(p['members'])} 条"]
         for mid in p["members"]:
@@ -403,6 +405,12 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
                 continue
             mfm = dict(m.get("frontmatter") or {})
             if mfm.get("protected") or mfm.get("immutable"):
+                continue
+            # #360：摘录 = 成员正文明文并入保留节点、按保留节点档可见——与
+            # converge_into / reinforce / branches.merge / review merge 同属合并
+            # 落点，走同一个 #148 单点。降密级成员整条跳过（不摘录、不降权），
+            # 与上面受保护成员同款处置：宁可少整理，不可降密级。
+            if _merge_downgrades(_keep_sens, mfm.get("sensitivity")):
                 continue
             first = " ".join((m.get("content") or "").split())[:48]
             lines.append(f"- {mid} {first}")
