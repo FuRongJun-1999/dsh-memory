@@ -250,6 +250,11 @@ def e_group():
 
 # ------------------------------------------------------------------ 定点变异
 #: (说明, 相对仓根的路径, 原文, 替换, 预期转红的前缀元组)
+# 2026-10-15：#345 落仓后两调用点已是 _sens_eff 形态，V4/V5 锚点随之重锚；
+# 变异体不变——把 None 塞进调用点仍等价「不传密级」的 #313 病象。
+# 锚点前缀用 \n 而非 \r\n：mdcos.py 的 blob 是 LF（Windows autocrlf 检出才是
+# CRLF，CI 在 ubuntu 上是 LF）——\r\n 锚在 CI 上必然 ANCHOR-MISS；\n 前缀两种
+# 检出都命中，且仍能区分 31/47 缩进两处调用点（47 那行前 31 个空格后还是空格）。
 _MUTATIONS = (
     ("V1 check 不再跳过加密级签名（回到 #313 修前形态）",
      "md_cg/writelimit.py",
@@ -268,12 +273,12 @@ _MUTATIONS = (
      ("A2", "A3")),
     ("V4 生产调用方把 None 传进 check（等价于不传密级，回到 #313 病象）",
      "md_cg/mdcos.py",
-     "\r\n" + " " * 31 + 'sensitivity=kw.get("sensitivity"))',
-     "\r\n" + " " * 31 + "sensitivity=None)",
+     "\n" + " " * 31 + 'sensitivity=_sens_eff)',
+     "\n" + " " * 31 + "sensitivity=None)",
      ("A2", "A3", "E4")),
     ("V5 record_accepted 收到 None（等价于不传密级，ACCEPT 回填又把骨架写回台账）",
      "md_cg/mdcos.py",
-     " " * 47 + 'sensitivity=kw.get("sensitivity"))',
+     " " * 47 + 'sensitivity=_sens_eff)',
      " " * 47 + "sensitivity=None)",
      ("A2", "A3", "E4")),
     ("V6 prefeed 的 sensitivity 槽被摘掉",
