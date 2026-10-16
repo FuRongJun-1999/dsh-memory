@@ -539,20 +539,24 @@ class Ingestor:
                     f"{ev.get('session')}:{ev.get('seq')}")[:10])
                 if nid in self.cg.index["nodes"]:
                     continue          # 幂等
+                # #466（Lead 裁定）：基底取自**来源声明**（事件级 basis 优先，否则源级
+                # default_basis）。取值主体是形参 `source`（= Source 实例）、**不是 `self`**：
+                # 本方法是 `Ingestor.ingest(self, source, …)`，Ingestor 只是**搬运者**、不该
+                # 自己声明基底。写 `self.default_basis` 会让 Ingestor 无此属性 ⇒ AttributeError，
+                # 且被下方 except Exception 吞成 denied 计数 ⇒ **外部内容静默不落库**
+                # （2026-10-15 回归事故根因）。
+                # ★两条通道**必须同源**：CCG 正文行的「验证方式：」与 fm 的
+                # verification_basis 共用**同一个 basis 变量**——正文声明可验、枚举说未验
+                # 会让同一节点自相矛盾（守卫 H01 钉这一点）。
+                basis = ev.get("basis") or source.default_basis
                 body = ("# 功能名：会话事件\n"
                         f"# 生效条件：检索「{str(ev.get('text'))[:20]}」\n"
                         "# 子功能：记录会话事件\n"
                         f"# 执行：{str(ev.get('text'))[:80]}\n"
-                        "# 验证方式：data（会话原始记录）\n"
+                        f"# 验证方式：{basis}（会话原始记录）\n"
                         "# 不适用条件：其它会话\n\n"
                         f"{ev.get('text')}\n")
-                # #466：基底取自**来源声明**（事件级 basis 优先，否则源级 default_basis）。
-                # ★取值主体是形参 `source`（= Source 实例），**不是 `self`**：本方法是
-                # `Ingestor.ingest(self, source, …)`，Ingestor 只是**搬运者**、不该自己
-                # 声明基底；基底该随「来源」声明。写 `self.default_basis` 会让 Ingestor
-                # 无此属性 ⇒ AttributeError，且被下方 except Exception 吞成 denied 计数
-                # ⇒ **外部内容静默不落库**（2026-10-15 回归事故的根因，见守卫）。
-                basis = ev.get("basis") or source.default_basis
+
                 try:
                     self.cg.add(nid, body, layer=self.layer, role=ev.get("role"),
                                 tags=["session", key],

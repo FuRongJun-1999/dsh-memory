@@ -34,6 +34,7 @@ from __future__ import annotations
 import ast
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -232,6 +233,25 @@ _check("B01 前置：扫描面非空转（真的扫到了字面量）", len(_BAS
 _check("G03 ★自指剔除生效：扫描面不含守卫文件自身，且扫到的命中无一来自它"
        "（否则样本表字面量会自证）",
        _SELF not in _SCAN_SRC and all(rel != _SELF for rel, _v in _BASES), _SELF)
+
+# ---- H 组：两条通道**同源**（#466 收尾，Lead 裁定新增）--------------------------
+# ★本腿是 Lead 允许的**退一步判据**（静态面）：断言 sources.py 里 CCG 正文行的
+# 「验证方式：{X}」与 fm 的 `verification_basis=Y` **共用同一个变量名**。
+# **弱点（如实登记）**：静态面**看不出运行时不一致**——同名的两个变量仍可能取到不同的值。
+# 真正跨两条通道的判据应是「**实跑一次 ingest 后读节点**、比对正文行值与 fm 值」；
+# 该版本需先确证 Ingestor/JsonlSource 的运行时 API 与返回形状，本件预算内未落。
+_SRC_SOURCES = io.open(os.path.join(_REPO, "md_cg", "sources.py"),
+                       encoding="utf-8").read()
+_H_BODY = re.search(r"验证方式：\{(\w+)\}", _SRC_SOURCES)
+_H_FM = re.search(r"verification_basis=(\w+),", _SRC_SOURCES)
+_H_DATALINE = "验证方式：data" in _SRC_SOURCES
+print("   [读数] H01 正文行变量=%s fm 变量=%s 正文行仍硬编码 data=%s"
+      % (_H_BODY and _H_BODY.group(1), _H_FM and _H_FM.group(1), _H_DATALINE))
+_check("H01 ★两条通道同源（退一步·静态判据）：CCG 正文行『验证方式：{X}』与 verification_basis=Y 共用同一变量名，且正文行不再硬编码 data",
+       bool(_H_BODY) and bool(_H_FM) and _H_BODY.group(1) == _H_FM.group(1)
+       and not _H_DATALINE,
+       {"body": _H_BODY and _H_BODY.group(1), "fm": _H_FM and _H_FM.group(1),
+        "hardcoded_data": _H_DATALINE})
 
 # ---- G 组：报告的**不截断自检**（#466 收尾修）--------------------------------
 # 为什么要有这条：B01 是「报违规项」的腿；它的清单一旦被截断，读者只能从截断处数数
