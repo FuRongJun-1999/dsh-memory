@@ -635,6 +635,33 @@ DECISION_ACTIONS = (DECISION_ACCEPT, DECISION_REJECT, DECISION_EDIT,
 #: `needs_reapproval` 刻意不在列——红队打回后仍待再审批，必须继续可见。
 TERMINAL_DECISION_STATUS = ("accepted", "rejected", "noop")
 
+#: 待审积压的年龄分桶（#71 治理面读数）：上界为**开区间**，超出末桶者归 AGE_BUCKET_TAIL。
+AGE_BUCKETS = ((3600.0, "lt_1h"), (86400.0, "lt_1d"), (7 * 86400.0, "lt_7d"))
+AGE_BUCKET_TAIL = "gte_7d"
+
+
+# 生效条件：rec 支持 .get 时返回 str(rec.get("content") or rec.get("statement") or "")，否则返回 ""；恒不抛。
+def pending_body(rec) -> str:
+    """待审提案的**正文取数单点**（#69 契约面 · 本批唯一动作）。
+
+    #69 的现行契约是**裁决甲**（`audit.py:72-78/124`：正文落 inbox 不脱敏＝刻意设计；
+    普适判据「隐私是对外隐私；内部交流都以可追溯为标准」）。本函数是**唯一**读正文的入口：
+    将来若维护者推翻甲改乙（入队按密级脱敏/加密）或丙（只存摘要+指针），**只改这一处**，
+    摘要面、检索面、列表面随之收口——本批**不改语义、不动契约**。
+    """
+    try:
+        return str((rec or {}).get("content") or (rec or {}).get("statement") or "")
+    except AttributeError:
+        return ""
+
+
+# 生效条件：取 pending_body(rec) 后把换行替换为空格，按 width（缺省 66，负值按 0）切片，仅当原长 > width 时追加省略号，返回该串；恒不抛。
+def pending_digest(rec, width: int = 66) -> str:
+    """待审提案的**摘要取数单点**（与 `review_cli._brief` 逐位同形：换行压平 + 截断加省略号）。"""
+    text = pending_body(rec).replace("\n", " ")
+    w = max(0, int(width))
+    return text[:w] + ("…" if len(text) > w else "")
+
 
 # 生效条件：cg 有可调用的 _readable（MdCGSecure 的可见性单点，mdcos.py:4028）时返回 bool(判定结果)，判定抛异常返回 False（fail-closed）；cg 无该属性（纯 MdCGOS：无身份/密级模型，其 get/search/_candidates 亦不设读闸）时返回 True。
 def _note_visible(cg, e) -> bool:
@@ -2811,6 +2838,124 @@ class MdCGOS(MdCG):
                 "closed": len(self._closed_pids()),
                 "noop": by.get(DECISION_NOOP, 0),
                 "terminal_status": list(TERMINAL_DECISION_STATUS)}
+
+# 生效条件：恒返回只读汇总 {"pending","oldest_age_s","oldest_pid","by_age","by_sensitivity","by_layer","by_kind","by_source","now"}——样本取 _review_list_visible()（隔离层已按读可见性收窄 ⇒ 低权者看不到越权条目的计数）；now 为假值时取 time.time()。
+    def review_backlog(self, now: float = None) -> dict:
+        """待审积压的**分级汇总**（#71：积压可观测＝条数 + 最老龄 + 分桶）。
+
+        口径（为什么这样取）：① 样本走 `_review_list_visible()`——与 `cg(op=info)` 的
+        `review_pending` 同一可见性面（N201：计数随身份）；② 字段全部来自**元数据**
+        （t/sensitivity/layer/session/actor/kind）⇒ **不读正文** ⇒ 与 #69 保留契约**解耦**
+        （将来改乙/丙，本函数零改动）；③ 只读、恒不抛、无副作用。
+        """
+        from . import autonomy_modes as _am
+        now = float(now if now is not None else time.time())
+        rows = list(self._review_list_visible() or [])
+        by_age = {label: 0 for _ub, label in AGE_BUCKETS}
+        by_age[AGE_BUCKET_TAIL] = 0
+        by_sens, by_layer, by_kind, by_source = {}, {}, {}, {}
+        oldest_age, oldest_pid = 0.0, None
+        for r in rows:
+            try:
+                age = max(0.0, now - float(r.get("t")))
+            except (TypeError, ValueError):
+                age = None
+            if age is not None:
+                for ub, label in AGE_BUCKETS:
+                    if age < ub:
+                        by_age[label] += 1
+                        break
+                else:
+                    by_age[AGE_BUCKET_TAIL] += 1
+                if age > oldest_age:
+                    oldest_age, oldest_pid = age, r.get("pid")
+            for bucket, value in ((by_sens, r.get("sensitivity")),
+                                  (by_layer, r.get("layer")),
+                                  (by_kind, _am.order_kind(r)),
+                                  (by_source, r.get("session") or r.get("actor"))):
+                k = str(value or "?")
+                bucket[k] = bucket.get(k, 0) + 1
+        return {"pending": len(rows), "oldest_age_s": round(oldest_age, 3),
+                "oldest_pid": oldest_pid, "by_age": by_age,
+                "by_sensitivity": by_sens, "by_layer": by_layer,
+                "by_kind": by_kind, "by_source": by_source, "now": now}
+
+# 生效条件：按 older_than_s/kind/sensitivity 过滤 _review_list_visible() 后返回 {"would": [...]（截断 limit）、"counts"、"total"、"filter"、"dry_run": True}；**恒不写 decisions、不改盘**。
+    def review_preview(self, *, older_than_s: float = None, kind: str = None,
+                       sensitivity: str = None, limit: int = 50,
+                       now: float = None) -> dict:
+        """批量处置的 **dry-run / preview**（#71）。
+
+        **本批只做 dry-run**：批量 accept/reject 需要 `can_admin`（授权面），属维护者决策；
+        dry-run 让「积压可处置」先变成**可观测**，且**零权限变更、零副作用**。
+        样本同样走 `_review_list_visible()`（低权者看不到越权条目）。
+        """
+        from . import autonomy_modes as _am
+        now = float(now if now is not None else time.time())
+        rows, counts, out = [], {}, []
+        for r in (self._review_list_visible() or []):
+            k = str(_am.order_kind(r) or "proposal")
+            if kind and k != kind:
+                continue
+            if sensitivity and str(r.get("sensitivity") or "?") != sensitivity:
+                continue
+            try:
+                age = max(0.0, now - float(r.get("t")))
+            except (TypeError, ValueError):
+                age = None
+            if older_than_s is not None and (age is None or age < float(older_than_s)):
+                continue
+            rows.append(r)
+            counts[k] = counts.get(k, 0) + 1
+            if len(out) < max(0, int(limit)):
+                out.append({"pid": r.get("pid"), "kind": k,
+                            "age_s": None if age is None else round(age, 3),
+                            "sensitivity": r.get("sensitivity"),
+                            "digest": pending_digest(r)})
+        return {"would": out, "counts": counts, "total": len(rows),
+                "filter": {"older_than_s": older_than_s, "kind": kind,
+                           "sensitivity": sensitivity}, "now": now,
+                "dry_run": True}
+
+# 生效条件：query 为真值时在 _review_list_visible() 的**摘要面**（pending_digest(rec,80) + pid/id/layer/tags/kind）做大小写不敏感子串匹配，返回 {"hits": [...],"scanned","query"}（截断 limit；include_content 为真时附 content）；query 为假值返回空 hits；只读、恒不抛。
+    def review_search(self, query: str, *, limit: int = 20,
+                      include_content: bool = False, now: float = None) -> dict:
+        """**受门禁的待审检索入口**（#71 选项 2：显式 opt-in + 权限）。
+
+        为什么是独立入口：pending 不在索引里；把它并进 `cg.search` 会改动**全仓最广的默认
+        读面**（本会话多次栽在「改默认语义的连带面」）⇒ 本入口只在 `cg(op=review,
+        action=search)` 显式调用时生效，样本走 `_review_list_visible()`（review op 门禁 +
+        读可见性过滤）。匹配面走 `pending_digest`（#69 单点）⇒ 契约改乙/丙时只换取数点。
+        **摘要面检索**（非全文）：默认只搜摘要 + 元数据，`include_content=True` 才附正文。
+        """
+        from . import autonomy_modes as _am
+        q = str(query or "").strip().lower()
+        rows = list(self._review_list_visible() or [])
+        if not q:
+            return {"hits": [], "scanned": len(rows), "query": query}
+        now = float(now if now is not None else time.time())
+        hits = []
+        for r in rows:
+            hay = " ".join([pending_digest(r, 80), str(r.get("pid") or ""),
+                            str(r.get("id") or ""), str(r.get("layer") or ""),
+                            " ".join(str(t) for t in (r.get("tags") or [])),
+                            str(_am.order_kind(r) or "")]).lower()
+            if q not in hay:
+                continue
+            try:
+                age = round(max(0.0, now - float(r.get("t"))), 3)
+            except (TypeError, ValueError):
+                age = None
+            item = {"pid": r.get("pid"), "id": r.get("id"), "layer": r.get("layer"),
+                    "sensitivity": r.get("sensitivity"),
+                    "kind": _am.order_kind(r), "age_s": age,
+                    "digest": pending_digest(r, 80)}
+            if include_content:
+                item["content"] = pending_body(r)
+            hits.append(item)
+            if len(hits) >= max(0, int(limit)):
+                break
+        return {"hits": hits, "scanned": len(rows), "query": query}
 
 # 生效条件：当 pid 传入时，从 decisions_log 读取并仅保留 r.get("pid")==pid 的记录，映射为含 round/decision/status/redteam/issues/t/actor/record_node_id/record_hash 的列表返回；
     def review_rounds(self, pid: str):

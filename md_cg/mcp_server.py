@@ -752,7 +752,8 @@ KERNEL_TOOLS = [
             marker=_p("string", "whitebox verify_encoding：唯一口令标记（缺省自动生成）"),
             fact=_p("string", "whitebox verify_encoding：待编码事实"),
             questions=_p("array", "whitebox verify_existing：探针问题列表"),
-            action=_p("string", "review: list|decide|rounds|stats；forget: forget|restore；"
+            action=_p("string", "review: list|decide|rounds|stats|backlog|preview|search；"
+                                "forget: forget|restore；"
                                 "protect: stats|check|mark|snapshot|history|forgetting；"
                                 "identity: observe|anchor|trait|profile|positions|catalog|"
                                 "contract|contracts；"
@@ -2602,6 +2603,18 @@ def _cg_dispatch(cg, a):
             return {"pid": pid, "rounds": cg.review_rounds(pid)}
         if act == "records":
             return {"records": cg.review_records(pid=a.get("pid"))}
+        # #71（2026-10-16）：三个**治理面** action——必须注册在下面的 `review_decide` **兜底之前**，
+        # 否则写成 backlog 会被当成「裁决一个 pid 为 backlog 的提案」（该兜底是既有形态，见本文件
+        # 「契约与实现漂移」注释；本批不改变它，只保证新 action 不落进去）。
+        if act == "backlog":
+            return cg.review_backlog()
+        if act == "preview":
+            return cg.review_preview(older_than_s=a.get("older_than_s"),
+                                     kind=a.get("kind"),
+                                     sensitivity=a.get("sensitivity"))
+        if act == "search":
+            return cg.review_search(a.get("query") or a.get("q") or "",
+                                    include_content=bool(a.get("include_content")))
         if act in ("verify_record", "verify"):
             return cg.verify_review_record(a.get("node_id", ""))
         return cg.review_decide(a.get("pid", ""), a.get("decision", ""),

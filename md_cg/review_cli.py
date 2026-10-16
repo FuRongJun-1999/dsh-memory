@@ -67,6 +67,9 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from md_cg.mdcos import MdCGSecure        # noqa: E402
+# #69 契约面（本批唯一动作）：正文/摘要的取数**单点**——本 CLI 不再自写一份截断逻辑，
+# 将来契约若从甲改乙/丙，只改 mdcos 里那两个函数，CLI 自动跟随。
+from md_cg.mdcos import pending_digest    # noqa: E402
 from md_cg.security import Principal      # noqa: E402
 
 
@@ -119,8 +122,9 @@ def _cg(args):
 
 # 生效条件：rec 支持 .get 时，取 rec.get("content") 为假值则取 rec.get("statement")、再为假值则取空串，把其中的换行替换为空格，并按 width（缺省 66）切片后仅当 len(text) > width 才追加 "…"，返回该字符串。
 def _brief(rec, width=66):
-    text = (rec.get("content") or rec.get("statement") or "").replace("\n", " ")
-    return text[:width] + ("…" if len(text) > width else "")
+    # #69 单点委派（2026-10-16）：取正文/statement、换行压平、截断加省略号——实现只在
+    # `mdcos.pending_digest` 一处；本函数保留为既有调用方的兼容入口（输出逐位不变）。
+    return pending_digest(rec, width)
 
 
 # 生效条件：rec 支持 .get 且其 kind 为 "mutation" 时返回「变更单(动作名→目标)」标签，其余（含缺键 = 存量提案）返回「提案」；本函数只读，不产生任何副作用；
