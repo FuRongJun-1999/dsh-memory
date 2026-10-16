@@ -93,6 +93,18 @@ def _sandbox():
     # ⚠ 本机绝对路径不得写进追踪面（check_local_paths 硬门禁），故此处用中性占位。
     # `swarm_dir()` 在**调用时**读该环境变量，故这是唯一有效的沙箱开关。
     os.environ["MDCG_SWARM_DIR"] = os.path.join(aux, "swarm")
+    # issue #453 之后，免签名导入需要**本根策略显式选择 null 签名器**——本守卫
+    # 的合法腿（G2）历来用 sig.signer="null" 的免签包测「pack_id 合法 ⇒ 正常
+    # 导入归档」，故沙箱显式声明 null 签名器策略（这正是 #453 修复的正门）。
+    # 策略档写到沙箱内并通过 MDCG_SIGNERS_FILE 生效（import_pack 不传
+    # signers_file 时经 signers_file() 读该环境变量）。
+    sgn = os.path.join(t, "signers_null.json")
+    io.open(sgn, "w", encoding="utf-8").write(json.dumps(
+        {"schema": 1, "default_signer": "null",
+         "subsystems": {"swarm": {"signer": "null", "sign_on": ["handshake"],
+                                   "require_peer_signature": False,
+                                   "on_verify_fail": "degrade"}}}))
+    os.environ["MDCG_SIGNERS_FILE"] = sgn
     pol = os.path.join(t, "policy.json")
     io.open(pol, "w", encoding="utf-8").write(
         json.dumps({"forbidden": [], "required": []}))

@@ -65,6 +65,16 @@ IMPORT_IMPORTANCE_MAX = 0.5
 #: 已见包版本台账（本根顶层）：xnode id -> 最后一次写入所用包的 created_at。
 SEEN_FILE = "_xnode_seen.json"
 
+# ---- issue #453（2026-10-16）：免签名通道与自报 created_at 的信任前提 ----
+#: 对端自报 `created_at`（重放护栏的「版本号」）的上界偏移（秒）。
+#: 越界（> now + 偏移，或 < 0）**整包拒收**——与 #191-B「非有限值整包拒收」
+#: 同口径。上界防「未来时间戳」把 _seen 台账毒化成天文数字（此后该来源一切
+#: 正常包 created <= 台账值 ⇒ 永久 replayed，回执仍是 ok:true 的静默屏蔽）；
+#: 下界防负值把护栏反过来（created < 0 ⇒ 该条目此后**任何**包都能覆写）。
+CREATED_FUTURE_SKEW = 900.0
+#: 未签名（免验签通道）导入的证据节点打的标记：来源是对端**自报**、无凭据。
+TAG_UNSIGNED = "sig:unsigned"
+
 MAX_ITEMS = 500              # 单包条目上限（防灌包）
 MAX_TEXT = 4000              # 单条正文上限
 
@@ -508,7 +518,7 @@ def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
     return out
 
 
-# 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、且有签名或 signer 等于 "null" 方可通过；通过则对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，importance 默认 0.5，verification_basis 默认 "data"），统计 written/skipped，若 archive 为真则写包到收件箱，返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
+# 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、且有签名或本子系统策略显式选择 null 签名器（issue #453：不看对端自报 sig.signer）方可通过；created_at 为负或超 now+CREATED_FUTURE_SKEW 整包拒收；通过则对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，未签名包再加 TAG_UNSIGNED，importance 默认 0.5，verification_basis 默认 "data"），统计 written/skipped，重放台账 _seen 一律记 ver（签名包为载荷内 created_at，未签名包恒 0），若 archive 为真则写包到收件箱，返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
 def _seen_path(cg) -> str:
     """已见台账路径（本根顶层）。cg.root 不可用时返回空串（调用方按无账处理）。"""
     root = getattr(cg, "root", None)
@@ -572,7 +582,8 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                 signers_file: str = None, archive: bool = True) -> dict:
     """导入对端证据包：验签 → 落本根（带 `source:<node>` 标签）。
 
-    fail-closed：结构不合法、来源即本节点、验签失败、缺签名 → 一律拒收并留痕。
+    fail-closed：结构不合法、来源即本节点、验签失败、缺签名（且策略未显式
+    选择 null 签名器）、created_at 越界 → 一律拒收并留痕（issue #453）。
     """
     try:
         pack = _read_pack(src)
@@ -593,18 +604,40 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
     if not vres.get("ok"):
         return _note_reject(pack, f"验签失败：{vres.get('reason') or '未知'}",
                             swarm=swarm, on_fail=vres.get("on_fail"))
-    if not signature and (pack.get("sig") or {}).get("signer") != "null":
-        return _note_reject(pack, "证据包缺少签名（跨节点证据必须可溯源）",
-                            swarm=swarm)
+    # issue #453（站点 1）：免签名通道必须由**本根策略显式选择**，不是对端声明。
+    # 旧判据看的是包里的 `sig.signer != "null"`——「我没签名」由对端自报即生效：
+    # 默认策略（require_peer_signature=False 只表示「不强制」，不等于「接受无签名」）
+    # 下任何节点写 {"signer":"null","signature":""} 就能免验签导入并落
+    # `source:<自报来源>`。现判据单点：只有本子系统策略把签名器**显式设为 null**
+    # （NullSigner 的观察期/纯本地语义）时空签名包才放行；否则一律 fail-closed。
+    if not signature and (_signer.policy_for(subsystem, signers_file)
+                          .get("signer") != "null"):
+        return _note_reject(
+            pack, "证据包缺少签名（跨节点证据必须可溯源；子系统 "
+            f"{subsystem} 策略未显式选择 null 签名器，不接受无签名包）",
+            swarm=swarm)
 
     # issue #191-B：包版本以**签名载荷里的 created_at** 为准（`_pack_payload` 已含它，
-    # 对端改不了）。缺省按 0（只能新建、不能覆写）；非数值 / 非有限值整包拒收。
+    # 对端改不了——该前提**只在有签名时成立**，见下 #453 两处收口）。缺省按 0
+    # （只能新建、不能覆写）；非数值 / 非有限值整包拒收。
     created = pack.get("created_at")
     if created is None:
         created = 0.0
     elif (isinstance(created, bool) or not isinstance(created, (int, float))
           or not math.isfinite(created)):
         return _note_reject(pack, f"证据包 created_at 非法：{created!r}", swarm=swarm)
+    # issue #453（站点 2 之界）：created_at 是对端自报的版本号——只查「是有限数」
+    # 不够，给它上下界：越界整包拒收（理由留痕，不再静默）。见 CREATED_FUTURE_SKEW。
+    if created < 0.0 or created > time.time() + CREATED_FUTURE_SKEW:
+        return _note_reject(
+            pack, f"证据包 created_at 越界：{created!r}（允许区间 "
+            f"[0, now+{CREATED_FUTURE_SKEW:g}s]，防台账毒化/永久屏蔽）",
+            swarm=swarm)
+    # issue #453（站点 2 之本）：未签名包没有「对端改不了」的前提——其自报
+    # created_at **不得**作为版本号写台账，按 0 处理（与上面缺省按 0 同语义：
+    # 只能新建、不能覆写）。由此未签名内容永远覆写不了已签名内容；对端伪造
+    # created_at 只影响本包字段，影响不了台账单调性，永久屏蔽不可达。
+    ver = created if signature else 0.0
     seen = _load_seen(cg)
     items = pack["items"][:MAX_ITEMS]
     written, skipped, replayed, clamped = [], 0, 0, 0
@@ -632,6 +665,10 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                 reasons.append(why)
                 continue
             tags = [TAG_XNODE, f"{SOURCE_PREFIX}{from_node}"]
+            # issue #453：未签名导入的来源是对端**自报**（无凭据）——打上未验签
+            # 标记，查询侧可区分「已验签他证」与「观察期自报来源」。
+            if not signature:
+                tags.append(TAG_UNSIGNED)
             tags += [t for t in (it.get("tags") or [])
                      if isinstance(t, str) and t
                      and not t.startswith("subject:")
@@ -643,9 +680,10 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
             clamped += c_layer + c_imp
             xid = _xnode_id(from_node, it.get("node_id") or subj)
             # issue #191-B：旧包重放不得把新证据覆写回旧内容（含属主删除后复活）。
+            # #453：比较/落账一律用 ver（未签名包恒 0，签名包为载荷内 created_at）。
             last = seen.get(xid)
             if (isinstance(last, (int, float)) and not isinstance(last, bool)
-                    and created <= last):
+                    and ver <= last):
                 replayed += 1
                 continue
             # issue #191-C：本根里恰好同名的**本地**节点（不带 xnode:cross 标签）不得
@@ -673,7 +711,7 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                 reasons.append("本节点密级不足（sensitivity=%s）" % sens)
                 continue
             written.append(xid)
-            seen[xid] = created
+            seen[xid] = ver
 
     finally:
         _save_seen(cg, seen)
