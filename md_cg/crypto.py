@@ -512,9 +512,23 @@ def envelopes(root):
 
 # ---- 节点正文封装 --------------------------------------------------------
 
-# 生效条件：content 为入参；bool(content) 为假（如空串或 None）时返回 False；否则返回 content.lstrip().startswith(ENC_PREFIX)。
+# 生效条件：content 为入参；bool(content) 为假（如空串或 None）时返回 False；否则按 strip 后的串判定，**首尾同时成立**
+# （startswith(ENC_PREFIX) 且 endswith(ENC_SUFFIX)，且首尾之间至少 1 字符）才返回 True。
 def is_encrypted(content):
-    return bool(content) and content.lstrip().startswith(ENC_PREFIX)
+    """内容是否为**完整的密文信封**（前缀 + 后缀），而非只看开头前缀。
+
+    #429-③ 订正：原判据只查 `lstrip().startswith(ENC_PREFIX)`——**比消费方的前置更弱**。
+    消费方（`backfill` / `ccgc` / `consolidate` 等十余处）拿到 True 即当「已加密、不可读」
+    而跳过；而真正取正文的路径要按 `[len(ENC_PREFIX):-len(ENC_SUFFIX)]` **切掉后缀**
+    ⇒ 只认前缀时，任何以 ENC_PREFIX 起头的**明文**都被误判为密文：低权写者一条伪前缀
+    节点即可令其被全线静默排除（派生字段 / CCG / 合并一律跳过），该判据被写面用作
+    「已密封」短路时同样会被骗过。⇒ 收紧为**首尾都成立**，与消费方切后缀的前置一致。
+    """
+    if not content:
+        return False
+    t = content.strip()
+    return (len(t) > len(ENC_PREFIX) + len(ENC_SUFFIX)
+            and t.startswith(ENC_PREFIX) and t.endswith(ENC_SUFFIX))
 
 
 # 生效条件：content 为入参；非密文（is_encrypted 为假）时返回 None；密文块正文中不含 ":"（旧格式，仅 base64）时返回 None；否则返回 ":" 前的 enc_id_fp 字串（空串亦返回 None）。base64 标准字母表不含 ":"，故该分隔符无歧义；旧格式密文天然无此段 ⇒ 返回 None（调用方走旧路径）。
