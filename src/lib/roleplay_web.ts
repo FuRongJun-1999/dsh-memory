@@ -331,7 +331,7 @@ function rdTab(kind) {
 }
 async function loadRoleDetailItems() {
   const role = $('rd_role').textContent;
-  const r = await fetch('/roleplay/api/roles/' + encodeURIComponent(role) + '/items?kind=' + rdKind).then(x => x.json());
+  const r = await fetch('/roleplay/api/roles/' + encodeURIComponent(role) + '/items?kind=' + rdKind, { headers: apiHeaders() }).then(x => x.json());
   rdItems = r.items || [];
   const box = $('rd_items');
   box.innerHTML = '';
@@ -396,7 +396,7 @@ async function openTrans() {
   const role = $('roleSel').value || 'protocol-guide';
   $('tp_role').textContent = role;
   try {
-    const r = await fetch('/roleplay/api/translate?role_id=' + encodeURIComponent(role)).then(x => x.json());
+    const r = await fetch('/roleplay/api/translate?role_id=' + encodeURIComponent(role), { headers: apiHeaders() }).then(x => x.json());
     transMode = r.mode || 'input_only';
     $('tp_rows').innerHTML = '';
     (r.pairs || []).forEach(p => addTransRow(p.real, p.virtual, p.note));
@@ -724,6 +724,13 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     return Array.isArray(arr) ? arr : [];
                 };
                 if (req.method === 'GET' && url.pathname.startsWith('/roleplay/api/roles/') && url.pathname.endsWith('/items')) {
+                    // issue #490：读端点与写面同款 fail-closed 鉴权——本面返回三导入
+                    // 私有正文/完整转录/翻译表，默认部署不得对任意本机客户端裸奔。
+                    if (!requireEditKey(req)) {
+                        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: editKeyHint() }));
+                        return;
+                    }
                     const role = decodeURIComponent(url.pathname.split('/')[4]);
                     const kind = url.searchParams.get('kind') || 'memory';
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -911,6 +918,12 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     return;
                 }
                 if (req.method === 'GET' && url.pathname === '/roleplay/api/translate') {
+                    // issue #490：读端点鉴权（翻译表属私有数据）。
+                    if (!requireEditKey(req)) {
+                        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: editKeyHint() }));
+                        return;
+                    }
                     const role = url.searchParams.get('role_id') || 'protocol-guide';
                     const settings = readTransSettings();
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -956,6 +969,12 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     return;
                 }
                 if (req.method === 'GET' && url.pathname === '/roleplay/api/history') {
+                    // issue #490：读端点鉴权（完整对话转录属私有数据）。
+                    if (!requireEditKey(req)) {
+                        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: editKeyHint() }));
+                        return;
+                    }
                     const role = url.searchParams.get('role_id') || 'protocol-guide';
                     // P1 完善（会话隔离）：按客户端实例读各自转录
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
