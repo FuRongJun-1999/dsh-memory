@@ -1197,7 +1197,51 @@ def _protect_call(cg, a):
     raise ValueError(f"protect 未知 action：{act}")
 
 
-# 生效条件：当 cg、a 传入时，按 a.get('action') or 'profile'（空串/None 回退 'profile'）并 strip().lower() 分派，subject_id 取 a.get('subject_id') or ''（空串/None 回落 ''）：action=catalog 返回 identity.catalog()；action=positions 返回 {'positions': cg.identity_positions(limit=int(a.get('limit') or 0))}（a.get('limit') 假值回落 0）；action=profile 时若 sid 为假值返回 {'subjects': cg.identity_positions(limit=0), 'hint': '指定 subject_id 可获取完整画像（锚点+位置+特征）'}，否则返回 cg.identity_profile(sid)；action=observe 时以 sid 和 a.get('content') or a.get('text') or '' 调用 cg.identity_observe（含 kind=a.get('subject_kind')、role=a.get('role')、layer=a.get('layer')、tags=a.get('tags')、condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.5))、verification_basis=a.get('verification_basis')、evidence=a.get('evidence')、override=bool(a.get('override'))）；action=trait 时以 sid 和 a.get('trait') or a.get('content') or '' 调用 cg.identity_trait（含 condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.6))、position=a.get('position')、kind=a.get('subject_kind')、verification_basis=a.get('verification_basis') or 'data'、override=bool(a.get('override'))）；action=anchor 时若 cg.principal 非 None 先调用 cg.principal.require_admin('identity_anchor')，再以 sid 和 a.get('content') or a.get('text') or '' 调用 cg.identity_anchor（含 kind=a.get('subject_kind')、condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.9))、override=bool(a.get('override'))、requested_layer=a.get('requested_layer')）；action=history 返回 {'records': cg.identity_history(limit=int(a.get('limit') or 100))}（a.get('limit') 假值回落 100）；action=contract 时若 cg.principal 非 None 先调用 cg.principal.require_admin('identity_contract')（对齐 action=anchor 的管理闸先例，§3.2.1 发出权属设计者位置），再以 a.get('contract_id') 及 grantor/grantee/timestamp/status_summary/doc_ref/condition_ref/state_ref/importance（缺省 1.0）/override 调用 cg.identity_contract；action=contracts 时若 a.get('contract_id') 为真值返回 cg.identity_contract_record(该 id)，否则返回 cg.identity_contracts(subject=a.get('subject_id'))；其他 action 抛 ValueError；
+# ---------------------------------------------------------------- E 面密级实参透传
+
+#: 工具面 identity_* **写侧**的密级实参透传真源表（issue #467 单点；四态登记）。
+#:
+#: 为什么需要它（#397/#414 同族「实参表漏传」）：工具面手写实参表，漏一项不会报错、
+#: 回执也逐字相同，调用方看不出来。密级尤其危险——漏传 ⇒ 调用方声明的密级被**静默
+#: 丢弃**、只能落 DEFAULT_SENSITIVITY。
+#:
+#: 四态（**每条都必须带理由**，理由本身是判据面）：
+#:   · "leaked"             —— 目标库层函数**有** sensitivity 形参，工具面必须透传；
+#:   · "n/a-no-param"       —— 目标函数**无**该形参；补透传既不会报错也不会生效，
+#:                             而是经 mdcos 的 **kw wrapper 直达目标 ⇒ **运行期 TypeError**；
+#:   · "excluded-nonfamily" —— 同名不同物（族枚举按**同构**判，不按 grep 名字收）；
+#:   · "import-unused"      —— 只导入无调用点 ⇒ 不适用；后来者**不要**补不需要的透传。
+#:
+#: 维护者若裁定「库层应让 anchor/trait/contract 也能声明密级」：把对应条目从
+#: n/a-no-param 改成 leaked 即可 —— 守卫的**反向断言**会立刻要求先给库层加形参
+#: （登记了却没有对应形参即红），判据自己把顺序推成「先加能力、再补透传」。
+IDENTITY_SENSITIVITY_PARITY = (
+    {"disposition": "leaked", "callee": "identity_observe",
+     "target": "identity.observe", "params": ("sensitivity",),
+     "reason": "identity.observe 有 sensitivity 形参（与 #397/#414 同类写侧）；漏传 ⇒ "
+               "调用方声明的密级被静默丢弃、只能落 DEFAULT_SENSITIVITY。"},
+    {"disposition": "n/a-no-param", "callee": "identity_anchor",
+     "target": "identity.set_anchor", "params": (),
+     "reason": "目标 set_anchor（anchor 层、不可遗忘）无 sensitivity 形参；"
+               "mdcos.identity_anchor 是 **kw 透传 ⇒ 补了会在运行期 TypeError。"},
+    {"disposition": "n/a-no-param", "callee": "identity_trait",
+     "target": "identity.add_trait", "params": (),
+     "reason": "目标 add_trait（结构层）无 sensitivity 形参；同上 **kw 直达 ⇒ 运行期 "
+               "TypeError。"},
+    {"disposition": "n/a-no-param", "callee": "identity_contract",
+     "target": "identity.set_contract", "params": (),
+     "reason": "目标 set_contract（anchor 层、不可篡改）无 sensitivity 形参；同上。"},
+    {"disposition": "excluded-nonfamily", "site": "md_cg/links.py",
+     "symbol": "observe", "callee": None, "target": None, "params": (),
+     "reason": "links 自有 observe（实参 peer/evidence/positive/peer_signature/"
+               "path/signers_file），与 identity.observe 同名不同物 —— 族枚举按同构判。"},
+    {"disposition": "import-unused", "site": "md_cg/self_state.py",
+     "symbol": "identity", "callee": None, "target": None, "params": (),
+     "reason": "该文件只 from . import identity 导入模块、无 identity_* 调用点 ⇒ 不适用；"
+               "后来者不要补一个不需要的透传。"},
+)
+
+# 生效条件：当 cg、a 传入时，按 a.get('action') or 'profile'（空串/None 回退 'profile'）并 strip().lower() 分派，subject_id 取 a.get('subject_id') or ''（空串/None 回落 ''）：action=catalog 返回 identity.catalog()；action=positions 返回 {'positions': cg.identity_positions(limit=int(a.get('limit') or 0))}（a.get('limit') 假值回落 0）；action=profile 时若 sid 为假值返回 {'subjects': cg.identity_positions(limit=0), 'hint': '指定 subject_id 可获取完整画像（锚点+位置+特征）'}，否则返回 cg.identity_profile(sid)；action=observe 时以 sid 和 a.get('content') or a.get('text') or '' 调用 cg.identity_observe（含 kind=a.get('subject_kind')、role=a.get('role')、layer=a.get('layer')、tags=a.get('tags')、condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.5))、verification_basis=a.get('verification_basis')、evidence=a.get('evidence')、sensitivity=a.get('sensitivity')、override=bool(a.get('override'))）；action=trait 时以 sid 和 a.get('trait') or a.get('content') or '' 调用 cg.identity_trait（含 condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.6))、position=a.get('position')、kind=a.get('subject_kind')、verification_basis=a.get('verification_basis') or 'data'、override=bool(a.get('override'))）；action=anchor 时若 cg.principal 非 None 先调用 cg.principal.require_admin('identity_anchor')，再以 sid 和 a.get('content') or a.get('text') or '' 调用 cg.identity_anchor（含 kind=a.get('subject_kind')、condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.9))、override=bool(a.get('override'))、requested_layer=a.get('requested_layer')）；action=history 返回 {'records': cg.identity_history(limit=int(a.get('limit') or 100))}（a.get('limit') 假值回落 100）；action=contract 时若 cg.principal 非 None 先调用 cg.principal.require_admin('identity_contract')（对齐 action=anchor 的管理闸先例，§3.2.1 发出权属设计者位置），再以 a.get('contract_id') 及 grantor/grantee/timestamp/status_summary/doc_ref/condition_ref/state_ref/importance（缺省 1.0）/override 调用 cg.identity_contract；action=contracts 时若 a.get('contract_id') 为真值返回 cg.identity_contract_record(该 id)，否则返回 cg.identity_contracts(subject=a.get('subject_id'))；其他 action 抛 ValueError；
 def _identity_call(cg, a):
     """身份特征识别统一入口（cg op=identity 与 mdcg_identity 共用）。
 
@@ -1223,7 +1267,13 @@ def _identity_call(cg, a):
             condition_space=a.get("condition_space"),
             importance=float(a.get("importance", 0.5)),
             verification_basis=a.get("verification_basis"),
-            evidence=a.get("evidence"), override=bool(a.get("override")))
+            evidence=a.get("evidence"),
+            # #467（2026-10-15）：本分支是**唯一**透传点漏了 sensitivity 的写侧
+            # （identity.observe 一直有该形参）；漏传 ⇒ 调用方声明的密级被静默丢弃、
+            # 只能落 DEFAULT_SENSITIVITY=internal。工具面其余 identity_* 写侧的目标
+            # 函数均无该形参（n/a-no-param），四态登记见 test_issue467 的单点真源表。
+            sensitivity=a.get("sensitivity"),
+            override=bool(a.get("override")))
     if act == "trait":
         return cg.identity_trait(
             sid, a.get("trait") or a.get("content") or "",
