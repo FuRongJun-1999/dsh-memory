@@ -2433,6 +2433,11 @@ class MdCG:
             # 旧库无此键 → None）——「这条 0.8 是显式声明还是启发式分」免读
             # 文件可判（与既有扁平键同理由：检索期/审计期不读盘）。
             "importance_source": fm.get("importance_source"),
+            # #417（2026-10-16）：把「本节点合并过哪些来源 id」入快照——
+            # twophase 恢复期在**新实例**上判「已合并落盘」必须免读文件可见
+            # （与 merge_sources 同款纪律：写路径同钩镜像 + 重建面同口径，
+            # 漏登记则 rebuild/_scan_nodes 之后该键整类消失、判据静默失效）。
+            "merge_source_ids": fm.get("merge_source_ids") or None,
             "created_at": fm.get("created_at", 0),
             "verification_basis": fm.get("verification_basis"),
             # 多主体世界模型对齐 v0.1（L1）：检验强度入快照（与写入路径 _stage
@@ -5553,19 +5558,17 @@ class MdCG:
         fm[key] = int(fm.get(key) or 0) + 1
         fm.setdefault("evidence_log", []).append(
             {"t": time.time(), "verdict": verdict, "evidence": evidence})
-        demoted = None
-        if (verdict == "weakened" and fm["confidence"] < DEMOTE_CONFIDENCE
-                and (fm.get("layer") or "") == "knowledge"):
-            demoted = self._move_layer(
-                node_id, "contextual",
-                reason=f"confidence {fm['confidence']} < {DEMOTE_CONFIDENCE}")
-            # 层降级 = 生命周期降级（②）：knowledge→contextual 即 state→demoted。
-            # 受保护节点已被 `guard_move` 拦在上一层（走不到这里）；此处仍按负路由
-            # 柔和处理——ok=False 只说明状态不可降，不回滚已完成的层迁移。
-            self.set_state(node_id, "demoted",
-                           reason=f"confidence {fm['confidence']} < {DEMOTE_CONFIDENCE}",
-                           actor="verify:weakened")
-        else:
+        # #410（2026-10-16）：本轮 fm 的**落盘尾**收成**单点**——两个分支都必须过它。
+        # 此前降级分支整段跳过它（只搬层不落盘）⇒ 本轮 confidence/evidence_count/
+        # negative_evidence/evidence_log 只在内存里，回执照报内存值而盘面是旧值
+        # （回执与盘面不一致 = 回执不实），且**触发降级的证据本身丢失**；索引侧
+        # 也不同步、不标脏（同族先例：C-1 / N133 的「写后读」纪律）。
+        def _land_fm():
+            """本轮 fm 的落盘尾（**单点**）：写盘 + 索引同步 + 标脏。
+
+            为何必须单点：分叉过一次（#410 降级轮漏了整段），而「改内存状态」与
+            「落盘」一旦分开写，就会在某个分支上再次漂开——本批把两分支收成同一处。
+            """
             self._write_node(node_id, os.path.join(self.root, node["path"]),
                              fm, node["content"])
             e = self.index["nodes"].get(node_id)
@@ -5578,6 +5581,24 @@ class MdCG:
                 # evidence_count 与盘面漂移、同实例 _read 命中旧 frontmatter
                 #（口径同边域同步 _sync_edge_entry / goal 状态写回）。
                 self._dirty[node_id] = e
+
+        demoted = None
+        if (verdict == "weakened" and fm["confidence"] < DEMOTE_CONFIDENCE
+                and (fm.get("layer") or "") == "knowledge"):
+            # #410：**先落盘本轮 fm，再搬层**——_move_layer 读到的就是这份新 fm，
+            # 搬过去的内容与回执同源（顺序依据见交付汇报）。
+            _land_fm()
+            demoted = self._move_layer(
+                node_id, "contextual",
+                reason=f"confidence {fm['confidence']} < {DEMOTE_CONFIDENCE}")
+            # 层降级 = 生命周期降级（②）：knowledge→contextual 即 state→demoted。
+            # 受保护节点已被 `guard_move` 拦在上一层（走不到这里）；此处仍按负路由
+            # 柔和处理——ok=False 只说明状态不可降，不回滚已完成的层迁移。
+            self.set_state(node_id, "demoted",
+                           reason=f"confidence {fm['confidence']} < {DEMOTE_CONFIDENCE}",
+                           actor="verify:weakened")
+        else:
+            _land_fm()      # #410：与非降级轮**同一条落盘尾**（单点）
         # 验证态流转（可验证记忆单元）：外部证据裁决**就是**验证态迁移。
         #   confirmed → verified（首次转正；已在 verified 则幂等 no-op）
         #   weakened  → doubted（证据被削弱 ⇒ 存疑，待复核）
@@ -5598,8 +5619,18 @@ class MdCG:
         propagation = trust.mark_dependents(
             self, node_id, reason=f"上游验证结论变为 {verdict}",
             actor=f"verify:{verdict}", trigger=f"verify_{verdict}")
-        return {"action": verdict, "confidence": fm["confidence"],
-                "evidence_count": fm["evidence_count"], "demoted": demoted,
+        # #410：回执字段改为**落盘后回读**（回执说什么，盘面就该是什么）；读不到
+        # （异常/节点消失）才回落内存值，绝不把未落盘的值当盘面值报出去。
+        try:
+            _disk = self.get(node_id)
+        except Exception:                  # noqa: BLE001 —— 回读失败不改已完成的裁决
+            _disk = None
+        _dfm = (_disk or {}).get("frontmatter") or {}
+        return {"action": verdict,
+                "confidence": _dfm.get("confidence", fm["confidence"]),
+                "evidence_count": _dfm.get("evidence_count",
+                                           fm["evidence_count"]),
+                "demoted": demoted,
                 "verification": ver, "propagation": propagation}
 
     # ---------- 知识飞轮（白箱第 2 篇第 8 章）----------

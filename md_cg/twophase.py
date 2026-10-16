@@ -52,6 +52,9 @@ STATUS_ABORTED = "aborted"          # 闸门判定不落盘（reject/defer/丢�
 #: 对账判定码
 R_NODE_OK = "node_present_hash_match"   # 落盘已完成 → 补 committed
 R_NODE_MISSING = "node_missing"         # 未落盘 → interrupted
+#: #417：源 id 本就不会落盘（MERGE 把内容并入**目标节点**），而盘面留下了
+#: 「本节点合并过此来源 id」的痕迹 ⇒ 该笔**已合并落盘** → 补 committed（带去向）。
+R_MERGED_INTO = "merged_into_present"
 R_MISMATCH = "content_mismatch"         # 落了别的正文 → interrupted（不覆盖）
 R_UNREADABLE = "node_unreadable"        # 读节点失败 → interrupted（不猜测）
 
@@ -186,9 +189,49 @@ def pending(cg, limit: int = 200) -> list:
     return out[:max(0, int(limit))]
 
 
-# 生效条件：intent 的 id 为假值或 cg.get(nid) 抛异常时返回 (STATUS_INTERRUPTED, R_UNREADABLE)；取回 node 为假值时返回 (STATUS_INTERRUPTED, R_NODE_MISSING)；intent 的 content_hash 为真且与 _norm(node.get("content") or "") 的指纹不等时返回 (STATUS_INTERRUPTED, R_MISMATCH)；否则返回 (STATUS_COMMITTED, R_NODE_OK)。
+# 生效条件：cg 的 index["nodes"] 为映射时——遍历（先 tuple() 取快照）找出「merge_source_ids 含 nid」的条目并取其 id；命中后用 cg.get(该 id) 在**盘面**复核（读不到或 fm 未记 nid 则返回 None）；无索引/无命中/字段形态不符一律返回 None；恒不写盘、不抛。
+def _merge_target(cg, nid):
+    """源 id 是否已被**合并**进某个目标节点（#417）——事实来源＝**盘面**。
+
+    为什么需要它：MERGE 的落盘对象是**目标节点**（`forgetting.reinforce`），
+    源 id 本就不会成文；而崩溃窗口落在「内容已并入目标、`commit` 还没落账」
+    之间 ⇒ 只看源 id 的判据必然误报 `interrupted/node_missing`（与事实相反，
+    且会诱导重做**不可逆**的 MERGE）。
+
+    为什么要读 `merge_source_ids` 而不是 `merge_sources`：后者记的是
+    **写入方归属**（`{session, actor, t}`，`forgetting.note_source`），
+    **不含来源节点 id** —— 拿它反查来源永远查不到（"判据与事实不符"换个地方复发）。
+    故 `forgetting.reinforce` 另立一列把来源 id 落盘（并有界保留），本函数据此反查；
+    索引命中后**仍回盘复核**（索引是派生物，盘面才是事实来源）。
+    """
+    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    for tid, e in tuple(nodes.items()):          # H-4(a)：迭代前取快照
+        if not isinstance(e, dict):
+            continue
+        ids = e.get("merge_source_ids")
+        if not isinstance(ids, (list, tuple)) or nid not in ids:
+            continue
+        try:
+            tgt = cg.get(tid)
+        except Exception:                        # noqa: BLE001 —— 读失败不猜测
+            return None
+        if not tgt:
+            return None
+        fm = tgt.get("frontmatter") or {}
+        if nid in (fm.get("merge_source_ids") or []):
+            return tid
+    return None
+
+
+# 生效条件：intent 的 id 为假值或 cg.get(nid) 抛异常时返回 (STATUS_INTERRUPTED, R_UNREADABLE)；取回 node 为假值时——先经 _merge_target(cg, nid) 查盘面合并痕迹，命中则返回 (STATUS_COMMITTED, R_MERGED_INTO + ":" + 目标 id)，未命中仍返回 (STATUS_INTERRUPTED, R_NODE_MISSING)（**不放宽**）；intent 的 content_hash 为真且与 _norm(node.get("content") or "") 的指纹不等时返回 (STATUS_INTERRUPTED, R_MISMATCH)；否则返回 (STATUS_COMMITTED, R_NODE_OK)。
 def _judge(cg, intent: dict):
-    """判定一笔未结清意图的真实结局 → `(status, code)`。**不猜测**：读不到就如实说。"""
+    """判定一笔未结清意图的真实结局 → `(status, code)`。**不猜测**：读不到就如实说。
+
+    #417（2026-10-16）：源 id 查不到**不再直接等于未落盘**——MERGE 类写入的
+    落盘对象是**目标节点**（事实来源＝盘面合并痕迹，见 `_merge_target`）。
+    命中合并痕迹 ⇒ `committed` + 去向；**未命中 ⇒ 仍判 `interrupted`**
+    （新判据只补「已合并」这一种真实情形，不把未命中放宽成「可能已落盘」）。
+    """
     nid = intent.get("id")
     want = intent.get("content_hash")
     if not nid:
@@ -198,6 +241,9 @@ def _judge(cg, intent: dict):
     except Exception:
         return STATUS_INTERRUPTED, R_UNREADABLE
     if not node:
+        tgt = _merge_target(cg, nid)
+        if tgt:
+            return STATUS_COMMITTED, "%s:%s" % (R_MERGED_INTO, tgt)
         return STATUS_INTERRUPTED, R_NODE_MISSING
     got = nodefile.content_hash(_norm(node.get("content") or ""))
     if want and got != want:

@@ -212,6 +212,22 @@ def _audit(cg, action, node_id, reason, actor=None, snapshot=None):
 
 
 # 生效条件：cg.get(node_id) 抛异常或返回假值时返回 None；否则在 cg.root/HISTORY_DIR/node_id 下以时间戳命名写入当前 frontmatter 与 content，_write_node 抛异常时返回 None，成功则追加一条 action="snapshot" 的审计（_audit，actor 取 cg.actor）并返回相对 cg.root 且以 '/' 分隔的路径。
+#: 前像文件名的**唯一命名单点**（issue #413）。
+#: 两侧（`snapshot()`＝裸守卫 `_allow` 路径；`snapshot_preimage()`＝执行时点前像）都必须经此处
+#: ——「同语义两处实现、只加固了一侧」正是 #413 的病象（与 #326-③ 的 `condition_vm` 双链同形）。
+#: 加固＝**同秒命名冲突规避**：基名仍是 `%Y%m%d-%H%M%S`（既有守卫钉的形态不变），同秒内再次
+#: 拍摄时追加 `-<N>` 序号（已存在即递增）⇒ 先那张前像不再被后来者踩掉。`suffix` 供执行时点
+#: 前像附加微秒（`snapshot_preimage` 的既有形态，另一条既有守卫钉死）。
+def _preimage_name(d, suffix=""):
+    base = time.strftime("%Y%m%d-%H%M%S", time.localtime()) + suffix
+    p = os.path.join(d, base + ".md")
+    _n = 1
+    while os.path.exists(p):
+        p = os.path.join(d, "%s-%d.md" % (base, _n))
+        _n += 1
+    return p
+
+
 def snapshot(cg, node_id):
     """把节点当前版本快照进 `_protected_history/<id>/<ts>.md`，返回相对路径。
 
@@ -232,8 +248,7 @@ def snapshot(cg, node_id):
         return None
     d = os.path.join(cg.root, HISTORY_DIR, node_id)
     os.makedirs(d, exist_ok=True)
-    ts = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-    p = os.path.join(d, f"{ts}.md")
+    p = _preimage_name(d)      # issue #413：经**同一加固单点**（原为裸秒级名，同秒互踩）
     try:
         cg._write_node(node.get("id"), p, node.get("frontmatter") or {},
                        node.get("content") or "")
@@ -278,9 +293,7 @@ def snapshot_preimage(cg, node_id, action="", pid=None, reason="", actor=None):
         return None
     d = os.path.join(cg.root, HISTORY_DIR, node_id)
     os.makedirs(d, exist_ok=True)
-    ts = (time.strftime("%Y%m%d-%H%M%S", time.localtime())
-          + "-%06d" % (time.time_ns() // 1000 % 1000000))
-    p = os.path.join(d, f"{ts}.md")
+    p = _preimage_name(d, "-%06d" % (time.time_ns() // 1000 % 1000000))   # issue #413：同一单点
     try:
         cg._write_node(node.get("id"), p, node.get("frontmatter") or {},
                        node.get("content") or "")

@@ -281,7 +281,9 @@ def g_p():
     # 既有 snapshot() 形态钉（普通节点）
     s0 = protect.snapshot(cg, "p_1")
     ok(bool(s0) and re.match(r"^_protected_history/p_1/\d{8}-\d{6}\.md$", s0),
-       "P 既有 protect.snapshot 命名形态不变（秒级名，无微秒后缀）", s0)
+       # issue #413（task-19）：**这行断言刻意保留**——秒级基名确实没变；「同秒不互踩」改由
+    # 加固单点 `protect._preimage_name()` 的**空闲名探测**保证（见下方 P 组 311 一带的新断言）。
+    "P 既有 protect.snapshot 命名形态不变（秒级名，无微秒后缀）", s0)
     rows_s = [r for r in _audit_rows(cg)
               if r.get("action") == "snapshot" and r.get("node_id") == "p_1"]
     ok(len(rows_s) == 1 and str(rows_s[0].get("reason")).startswith("显式快照（"),
@@ -308,7 +310,10 @@ def g_p():
         got_f = "exc=%s" % type(exc).__name__
     acts2 = sorted(r.get("action") for r in _audit_rows(cg)
                    if r.get("node_id") == "p_s")
-    # 文件数上限 2、下限 1：guard 的秒级名在**同秒**两次看守间会互相覆盖
+    # issue #413（task-19）重钉：原断言把「**同秒互踩**」当预期行为写进计数上下限
+    #（上限 2、下限 1）——那是「守卫把缺陷固化成契约」。现改为**不变量**：
+    # **同秒两次看守必然产生 2 个不同文件**，其保证来自加固单点 `_preimage_name()`
+    # 的「已存在即取下一个空闲名」探测（两侧共用，见 protect.py）。
     # （探针实测：同秒二次 snapshot 返回同一路径）——这是既有行为，判据按
     # 审计面钉（两次 snapshot 各留一条，确定性），文件数只钉区间。
     ok(got_f is True and 1 <= len(protect.history(cg, "p_s")) <= 2
@@ -677,10 +682,12 @@ _SRC_MUTATIONS = (
     #   早先的回滚句柄被踩掉。红 4（实测）：P「同秒两次=两个文件」+ P「两张
     #   各拍各自时点」+ P「既有 snapshot 命名形态不变」（微秒名与秒级名的
     #   判别被打乱）+ P「执行桥场景微秒/秒级各一条」。
-    ("前像名去微秒（同秒互踩）", "mod", protect, "snapshot_preimage",
-     '    ts = (time.strftime("%Y%m%d-%H%M%S", time.localtime())\n'
-     '          + "-%06d" % (time.time_ns() // 1000 % 1000000))',
-     '    ts = time.strftime("%Y%m%d-%H%M%S", time.localtime())', 4),
+    ("前像名去空闲名探测（同秒互踩）", "mod", protect, "_preimage_name",
+     '    _n = 1\n'
+     '    while os.path.exists(p):\n'
+     '        p = os.path.join(d, "%s-%d.md" % (base, _n))\n'
+     '        _n += 1',
+     '    _n = 1   # 变异：去掉空闲名探测（回「同秒互踩」）', 4),
     # ⑧ 执行记录不落 mutation（_record_decision 摘除）——回滚 CLI 读不到载荷
     #   （「回滚命令」的读取源断链）。红 3（实测）：Q/R/S 三条「命令串实测
     #   演练」——CLI 报 decision_not_found 非零退出；进程内入口不受影响

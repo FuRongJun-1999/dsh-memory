@@ -552,7 +552,7 @@ def record_drop(cg, content, node_id, target=None, verdict=None, layer=None,
 
 # 生效条件：cg 与 node_id 必填，delta 默认 0.05，content 默认 None（不传即与改动前逐位一致：只改 frontmatter、正文原样写回）；cg.get(node_id) 抛异常或返回假值时返回 None；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；imp 跨过 PROTECT_IMPORTANCE 即写 protected；content 非 None 时按 forgetting.aggregate_line 把「目标正文没有的」行追加为聚合行（零新增信息则不追加），session/actor 非空时按 forgetting.note_source 并列记归属；写盘后同步内存索引条目并**标脏**（cg._dirty[node_id]=e，推进读缓存代际与索引增量日志）；返回体带 content_sink（新正文去向：节点/行/行号）与 source（归属）。
 def reinforce(cg, node_id, delta=0.05, override=False, actor=None,
-              content=None, session=None, sensitivity=None):
+              content=None, session=None, sensitivity=None, src_id=None):
     """MERGE 的落库动作：不新增节点，把「又一次见到」折算成既有节点的强化。
 
     重要性 +delta，merge_count +1；一旦跨过 0.7 自动打上保护标记
@@ -570,6 +570,11 @@ def reinforce(cg, node_id, delta=0.05, override=False, actor=None,
     H3（2026-09-30）：`session` 槽把「新写入方归属」并列记进目标
     frontmatter（`note_source`，单点）——跨会话合并时目标自己的
     `fm.session` 保留，新写入方记进 `fm.merge_sources`。
+
+    #417（2026-10-16）：`src_id` 槽把**本次被并入的来源节点 id** 记进目标
+    frontmatter（`fm.merge_source_ids`，有界复用 MERGE_SOURCES_KEEP）——两段式
+    恢复期据此把「已合并落盘、commit 未落账」的意图判为 committed（事实来源＝盘面）。
+    与 `merge_sources` 的分工：后者记**写入方归属**（`{session,actor,t}`），不含来源 id。
 
     C-1（2026-09-29）：写盘后**标脏**（`cg._dirty[node_id] = e`，对照
     `md_cg/mdcg.py` 的 update_tags / verify 直写分支先例）——不标脏时
@@ -633,6 +638,18 @@ def reinforce(cg, node_id, delta=0.05, override=False, actor=None,
         new_body, line, line_no = aggregate_line(node.get("content"), content)
     # H3：归属并列（新写入方 → fm.merge_sources；目标自己的 fm.session 不动）
     source = note_source(fm, session=session, actor=actor)
+    # #417（2026-10-16）：把**来源节点 id** 并进目标 frontmatter——恢复期
+    # （twophase._judge）据此把「内容已合并落盘、但 commit 未落账」的意图判为
+    # committed（**事实来源＝盘面**，不再是「源 id 查不到 ⇒ 判未落盘」的推断）。
+    # 为什么另立一列：merge_sources 记的是**写入方归属**（{session,actor,t}），
+    # **不含**来源节点 id ⇒ 拿它反查来源永远查不到（判据与事实不符，正是本族病灶）。
+    # 上限**复用既有常量** MERGE_SOURCES_KEEP（不新增模块级常量——配置登记面有
+    # 「常量逐条登记」校验，新增常量会连带要求登记）。
+    # ⚠ 本函数的 node_id 是**目标节点**（被强化的那个），来源 id 只有调用方知道
+    # （缺省 None ⇒ **不记**，不编造）；记错方向会让反查永远落空（判据与事实不符）。
+    if src_id:
+        _src_ids = [x for x in (fm.get("merge_source_ids") or []) if x != src_id]
+        fm["merge_source_ids"] = (_src_ids + [src_id])[-MERGE_SOURCES_KEEP:]
     cg._write_node(node_id, os.path.join(cg.root, node["path"]),
                    fm, new_body if new_body is not None
                    else (node.get("content") or ""))
@@ -653,6 +670,10 @@ def reinforce(cg, node_id, delta=0.05, override=False, actor=None,
         # （reinforce）的读面行为必须同口径。
         if fm.get("merge_sources"):
             e["merge_sources"] = fm["merge_sources"]
+        # #417：合并**来源 id** 同款镜像（同进程读 cg.index 即见；重建面由
+        # mdcg._node_entry 的同名键承担——两面同口径，否则 rebuild 后整类消失）。
+        if fm.get("merge_source_ids"):
+            e["merge_source_ids"] = fm["merge_source_ids"]
         # 标脏（N133 修复，对照先例 mdcg.py 的 update_tags / verify 直写分支
         # `self._dirty[node_id] = e`）：只改内存 entry 时 path_gen 不推进，
         # 读缓存（默认开，MDCG_READ_CACHE=1）按 `_fresh` 把写盘前的旧 fm 判

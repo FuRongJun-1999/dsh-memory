@@ -651,7 +651,136 @@ def _gate_consistency(ctx):
     return out
 
 
-# 生效条件：ctx["a"] 的 gated 为假值时返 None 放行；为真值时按 cg.remember_gated（a.get("sensitivity") 一并透传——同一漏传族，B2）返回的 verdict 落两段式账，且仅 verdict 为 ACCEPT 时 ok/committed 为 True，verdict 为 MERGE 时记 committed 并置 moved_to="merged_into:"+merged_into，verdict 为 DROP/DEFER 时记 aborted 且 moved_to 为其小写值；
+# ---------------------------------------------------------------- 写链实参真源（#414）
+# 「同一入口、两条出口、两张实参表」是本族的形态：cg(op=write) 有两条**真实落盘**
+# 出口——_gate_gated（gated=true，主动遗忘闸自己落盘）与 _executor（链尾直连）——
+# 两张表各写一遍，于是**同一份声明在一条出口落盘、在另一条静默丢弃**。本仓已在同
+# 一族上修过三次（B2 sensitivity / #186 session / A1 check_strength），第四次
+# （#414）补齐后仍会复发，故本批把两张表收成**一份真源**：
+#   · _write_values(ctx) —— 语义键 → 落盘值的**唯一取值点**（两出口都只许调它）；
+#   · _OUTLET_PARAMS    —— 语义键 → 两出口各自的**形参名**；
+#   · _OUTLET_ONLY      —— 值为 None 的格（该出口无此形参）必须在此登记理由。
+# 守卫 md_cg/test_issue414_write_args_parity.py 用 **AST 抽取两处调用的实参名**，
+# 与 _OUTLET_PARAMS 做全表**双向**断言：漏传 / 新增未登记 / 登记了却没有 —— 三者都红。
+#
+# ★importance vs importance_hint 的等价性判定（#414 报告把 importance 列进差集，
+#   本端实测**不成立**，故它不进漏传集）：
+#   · **拼写等价成立**（callee 面证据）：mdcos.remember_gated 里
+#     hint = kw.pop("importance_hint", kw.get("importance")) ⇒ 二者是同一语义键的
+#     两个拼写，importance_hint 优先。
+#   · **落盘值不等价（设计差异，不是缺陷）**：gated 面的 importance 经
+#     forgetting.assess 裁决（issue50-d：落盘 importance 恒＝裁决 imp["score"]，
+#     并落 importance_source="hint"|"heuristic"）；直连面按**声明值**落、缺省 0.5。
+#   ⇒ 本表把两者作为**两条语义键**分别归属出口，并**禁止**后来者「看到两个值不同就
+#     顺手补齐」——补齐会把 gated 面的裁决语义拆掉（守卫有一条专门断言钉住这点）。
+def _write_values(ctx) -> dict:
+    """语义键 → 落盘值：写链两出口的**唯一取值点**（#414）。
+
+    只在这里读 a / ctx；出口侧只做「形参名映射」（_outlet_kwargs），不再各自
+    a.get(...)——「同一份声明两条出口两张表」正是本族的根因形态。
+    """
+    a = ctx["a"]
+    _imp = a.get("importance")
+    _hint = a.get("importance_hint")
+    if _hint is None and _imp is not None:
+        _hint = float(_imp)
+    return {
+        # B2（2026-09-30）：密级透传。不透传则声明 private 的正文以明文 + fm
+        # internal 落盘（纯漏传，非设计取舍）；**不得**在此自行 _seal_content
+        # （会绕过 fm 与 _write_node 的单一密封点）。
+        "sensitivity": a.get("sensitivity"),
+        # 出口专有（见 _OUTLET_ONLY）：gated 面传给 writelimit 记账用。
+        "role": a.get("role"),
+        "tags": a.get("tags"),
+        "condition_space": a.get("condition_space"),
+        "verification_basis": (a.get("verification_basis")
+                               or (ctx.get("verdict") or {}).get("basis")),
+        "non_applicable_conditions": a.get("non_applicable_conditions"),
+        # gated 专有：**hint 语义**（None ＝ 未声明 ⇒ 交 forgetting 启发式裁决）。
+        "importance_hint": _hint,
+        # direct 专有：**声明值语义**（None ＝ 未声明 ⇒ 缺省 0.5，与 add 缺省同口径；
+        # 显式 0/0.0 等合法 falsy 数值照传）。与上一条**不等价**，理由见文件头注释。
+        "importance": 0.5 if _imp is None else float(_imp),
+        "override": bool(a.get("override")),
+        "consistency": False,
+        "derived_from": _split_ids(a.get("derived_from")),
+        "relation": a.get("relation"),
+        # —— 以下 7 项为 #414 本批补齐（此前只有 _executor 侧有；remember_gated 的
+        #    **kw 原样转发给 add，故「add 侧已支持」不等于「写链已透传」）：
+        # issue #186：显式声明优先（与 mdcos.propose 的单点同口径）；漏传会让同一份
+        # 显式声明在两条路上落成两个不同的 fm.session。
+        "session": a.get("session"),
+        # 可验证记忆单元：依赖边（缺失 ⇒ 上游被证伪时本节点不被判受影响，传播断裂）。
+        "depends_on": trust.as_deps(a.get("depends_on")),
+        # 双时间轴（缺失 ⇒ scrub 的 expired 判据失效：该过期的不判过期、该生效的无起点）。
+        "valid_from": a.get("valid_from"),
+        "valid_until": a.get("valid_until"),
+        # 信任态声明（缺省被 add 写成 unverified —— 方向保守，但同样是声明被静默改写）。
+        "verification_state": a.get("verification_state"),
+        # A1（2026-10-05）：检验强度透传（此前 add 层已支持、写链实参表漏传）。
+        "check_strength": a.get("check_strength"),
+        # A2 幽灵引用标记（正文属性：每次写入按当次检测重算，不继承）。
+        # 取值面在 ctx（由 _gate_ghostref 写入，链序上早于本闸与执行器）——
+        # 故两出口都能取到同一个值，不是「gated 面取不到」。
+        "uncertain_refs": ctx.get("ghost_phrases") or None,
+    }
+
+
+#: 语义键 → (gated 出口形参名, direct 出口形参名)。None ＝ 该出口**无此形参**，
+#: 必须在 _OUTLET_ONLY 登记理由（守卫对该 None 面做**双向**核对）。
+_OUTLET_PARAMS = (
+    ("sensitivity", "sensitivity", "sensitivity"),
+    ("role", "role", None),
+    ("tags", "tags", "tags"),
+    ("condition_space", "condition_space", "condition_space"),
+    ("verification_basis", "verification_basis", "verification_basis"),
+    ("non_applicable_conditions", "non_applicable_conditions",
+     "non_applicable_conditions"),
+    ("importance_hint", "importance_hint", None),
+    ("importance", None, "importance"),
+    ("override", "override", "override"),
+    ("consistency", "consistency", "consistency"),
+    ("derived_from", "derived_from", "derived_from"),
+    ("relation", "relation", "relation"),
+    ("session", "session", "session"),
+    ("depends_on", "depends_on", "depends_on"),
+    ("valid_from", "valid_from", "valid_from"),
+    ("valid_until", "valid_until", "valid_until"),
+    ("verification_state", "verification_state", "verification_state"),
+    ("check_strength", "check_strength", "check_strength"),
+    ("uncertain_refs", "uncertain_refs", "uncertain_refs"),
+)
+
+#: 值为 None 的格（＝该出口无此形参）的**登记理由**。守卫双向核对：
+#: ① 每个 None 格必须在此有登记（新增 None 格不登记即红）；
+#: ② 每条登记必须对应一个真实 None 格（补上/删格后不撤登记即红）——
+#:    只有单向登记会退化成「登记一次永久免死」。
+_OUTLET_ONLY = {
+    ("role", "direct"): (
+        "MdCG.add 无 role 形参（role 由 frontmatter 承载）；gated 面传它是给 "
+        "writelimit 记账用（remember_gated 只 kw.get 不 pop，故它同时随 **kw 进 add）。"
+        "属**出口专有**，不是漏传——不得「补齐」。"),
+    ("importance_hint", "direct"): (
+        "直连面走 importance（声明值语义），不用 hint 语义。两名在 callee 面等价"
+        "（remember_gated 的 kw.pop 双拼写），但**缺省语义不同**："
+        "hint=None 交启发式裁决 / importance=None 落 0.5。"
+        "不得因「两个值可能不同」而把 gated 面也改成 importance。"),
+    ("importance", "gated"): (
+        "gated 面走 importance_hint（上一条的镜像）；理由同。"),
+}
+
+
+# 生效条件：outlet 为 "gated"/"direct" 时，按 _OUTLET_PARAMS 把 _write_values(ctx) 映射为该出口的形参 dict（形参名为 None 的格跳过，其理由见 _OUTLET_ONLY）；其余 outlet 值抛 ValueError（出口名拼错即编程错误，不做静默回落，避免「以为选了口」而实际落空）；
+def _outlet_kwargs(outlet: str, ctx) -> dict:
+    """按真源表把语义键映射为**该出口**的形参 dict（#414 单点）。"""
+    if outlet not in ("gated", "direct"):
+        raise ValueError("未知写链出口：%r（只认 'gated' / 'direct'）" % (outlet,))
+    idx = 1 if outlet == "gated" else 2
+    vals = _write_values(ctx)
+    return {p[idx]: vals[p[0]] for p in _OUTLET_PARAMS if p[idx] is not None}
+
+
+# 生效条件：ctx["a"] 的 gated 为假值时返 None 放行；为真值时以 _write_values(ctx) 的单点取值经 _outlet_kwargs("gated", ctx) 展开为形参调 cg.remember_gated(...)（#414：两出口共用一张真源表），返回的 verdict 落两段式账，且仅 verdict 为 ACCEPT 时 ok/committed 为 True，verdict 为 MERGE 时记 committed 并置 moved_to="merged_into:"+merged_into，verdict 为 DROP/DEFER 时记 aborted 且 moved_to 为其小写值；
 def _gate_gated(ctx):
     """主动遗忘闸（gated=true 时启用）：writelimit 限流 + forgetting 三问四态。
 
@@ -662,29 +791,19 @@ def _gate_gated(ctx):
     cg = ctx["cg"]
     if not a.get("gated"):
         return None
-    hint = a.get("importance_hint")
-    if hint is None and a.get("importance") is not None:
-        hint = float(a["importance"])
+    # #414：hint 的取值（含 importance 回落）已收进 _write_values 单点。
     # ③ 两段式：本闸是**替代执行路径**（自己落盘），意图必须由它先记——
     # 若等 execute 在链后统一记，intent 会晚于本闸内部的写盘，「先行持久化」
     # 就不成立了。落盘前的窗口因此仍然被账本覆盖。
     tok = twophase.begin(cg, ctx["nid"], a.get("content", ""),
                          layer=a.get("layer") or "contextual",
                          actor="writepipe:gated")
+    # #414：gated 面同理——实参表由 _OUTLET_PARAMS 单点生成（remember_gated 只
+    # pop 走 importance_hint/gated/override/consistency/on_conflict，其余 **kw
+    # 原样转发给 add ⇒ 本表补的 7 项在 add 侧本就支持，无需改 mdcos.py）。
     res = cg.remember_gated(
         ctx["nid"], a.get("content", ""), layer=a.get("layer") or "contextual",
-        # B2（2026-09-30）：同一漏传族——gated 分支也是**落盘路径**
-        # （remember_gated → add），不透传则声明 private 在此静默降级 internal。
-        sensitivity=a.get("sensitivity"),
-        role=a.get("role"), tags=a.get("tags"),
-        condition_space=a.get("condition_space"),
-        verification_basis=(a.get("verification_basis")
-                            or (ctx.get("verdict") or {}).get("basis")),
-        non_applicable_conditions=a.get("non_applicable_conditions"),
-        importance_hint=hint, override=bool(a.get("override")),
-        consistency=False,
-        derived_from=_split_ids(a.get("derived_from")),
-        relation=a.get("relation"))
+        **_outlet_kwargs("gated", ctx))
     v = res.get("verdict")
     committed = v == "ACCEPT"
     # 结局如实记：ACCEPT=落盘完成；MERGE=内容并入既有节点（不再以本次内容成
@@ -879,10 +998,8 @@ def _executor(ctx):
     """
     a = ctx["a"]
     cg = ctx["cg"]
-    # importance 显式 null（JSON null→None）时 get 的缺省值不生效，直接
-    # float(None) 抛 TypeError 崩主写路径——回退默认 0.5（与 add 缺省同口径）；
-    # 0 / 0.0 等合法 falsy 数值照传（_gate_gated :304 已是同款 None 判定）。
-    _imp = a.get("importance")
+    # importance 的 None 判定（含 0/0.0 等合法 falsy 照传）已收进
+    # _write_values 单点——与 gated 面同一处取值，不再各写一遍。
     # ⑥（P-9b）：本执行器是**直写落盘点**之一（另一处 = mcp_server 的
     # mdcg_remember 非 gated 分支）。直写不去重是文档化现状（writelimit.py
     # 模块头注 :9-12：限流/同构聚合只作用 contextual 层，knowledge 等手动纪律
@@ -899,44 +1016,13 @@ def _executor(ctx):
     _dup = _forgetting.redundancy(cg, _content,
                                   layer=a.get("layer") or "knowledge",
                                   exclude=ctx["nid"])
-    cg.add(ctx["nid"], _content,
-           # B2（2026-09-30）：密级透传。此前本实参表**缺 sensitivity**，而
-           # 同文件 _gate_audit 的 payload（:219）带着它交给审核闸——两面口径
-           # 分叉：审核闸按调用方声明的密级判，落盘闸按 DEFAULT_SENSITIVITY
-           # 回落 internal，声明 private 的正文以明文 + fm internal 落盘
-           # （纯漏传，非设计取舍）。透传即修好，**不得**在此自行 _seal_content
-           # （会绕过 fm 与 _write_node 的单一密封点）。
-           sensitivity=a.get("sensitivity"),
-           # issue #186 补完（显式声明优先，与 propose 单点同口径）：mdcos.propose
-           # 的单点写的是 `_eff_session = (kw.get("session") or
-           # _attribution_session_of(self, kw.get("sensitivity")))` —— 显式声明优先；
-           # 而本实参表此前**漏传 session**，add 内的单点只能回落归因哈希。于是
-           # 同一份显式声明在「直连」与「入队→accept」两条路上落成两个不同的
-           # fm.session（漏传族又一次发作）。透传即修好；**不得**在此自行推 session
-           # （会绕过 add 的单点，制造第二套口径）。
-           session=a.get("session"),
-           layer=a.get("layer") or "knowledge",
-           tags=a.get("tags"), condition_space=a.get("condition_space"),
-           importance=0.5 if _imp is None else float(_imp),
-           verification_basis=a.get("verification_basis")
-           or (ctx.get("verdict") or {}).get("basis"),
-           non_applicable_conditions=a.get("non_applicable_conditions"),
-           override=bool(a.get("override")), consistency=False,
-           derived_from=_split_ids(a.get("derived_from")),
-           relation=a.get("relation"),
-           # 可验证记忆单元（裁定 D）：依赖/双时间轴/验证态随写入落 fm。
-           # 透传而非丢弃——落盘面丢字段＝上游声明静默失效（比报错难发现）。
-           depends_on=trust.as_deps(a.get("depends_on")),
-           valid_from=a.get("valid_from"), valid_until=a.get("valid_until"),
-           verification_state=a.get("verification_state"),
-           # A1 补接（2026-10-05，路线 C 动工时经 audit 现值面发现）：检验强度
-           # 透传。此前 add 层已支持该形参，但**写链实参表漏传**——经 MCP
-           # op=write 声明 check_strength 一律静默丢弃（与 B2 sensitivity 漏传
-           # 同族：上游声明、落盘面丢字段，比报错难发现）。
-           check_strength=a.get("check_strength"),
-           # A2 幽灵引用标记（正文属性：每次写入按当次检测重算，不继承——
-           # 与 check_strength 的声明继承相反；缺省 None 不落键）。
-           uncertain_refs=ctx.get("ghost_phrases") or None,
+    # #414：与 _gate_gated 共用同一张真源表（_OUTLET_PARAMS）——本出口的形参名
+    # 由该表给出，取值为 _write_values(ctx) 单点。逐键语义（密级/session/依赖/
+    # 双时间轴/验证态/检验强度/幽灵标记）见 _write_values 内的注释。
+    cg.add(ctx["nid"], _content, layer=a.get("layer") or "knowledge",
+           **_outlet_kwargs("direct", ctx),
+           # 超边写入的 fm 扩展键（content_kind=hyperedge 时非 None 者）——
+           # 出口专有，登记见守卫（与 7 项漏传的处置不同，理由在汇报里）。
            **_hyperedge_extra(a))
     out = {"ok": True, "id": ctx["nid"], "committed": True,
            "verdict": ctx["verdict"]}

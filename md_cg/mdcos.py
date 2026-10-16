@@ -3085,10 +3085,22 @@ class MdCGOS(MdCG):
                     # #148（2026-10-12）：reinforce 落盘前的降密级 fail-closed 已就绪
                     # （forgetting.py:552-558），此处必须把 incoming 密级接上，否则
                     # 该路径拿不到 sensitivity ⇒ 判据失效、MERGE 降密级仍会落盘。
+                    # #417（2026-10-16）：把**来源节点 id** 透传给 reinforce——它据此把
+                    # 本来源记进目标 fm.merge_source_ids，供两段式恢复期在**盘面**上
+                    # 反查「内容已并入谁」（否则崩溃窗口内只看到「源 id 不在」⇒
+                    # 已落盘的 MERGE 被误判 interrupted/node_missing，并诱导重做不可逆合并）。
+                    # #417 修正（fix-354-python 实测报障 2026-10-16）：此处**不得**用
+                    # `node_id`——它在 _mutation_execute 里是**本行之后**（:3097）才绑定的
+                    # 局部名，直接引用会 UnboundLocalError（B 合并非 converge_into 分支
+                    # 必崩 ⇒ accept 报 mutation_execute_failed、回滚载荷为空）。
+                    # 来源 id 取**入参票据的 id**（= 本次写入的节点 id，与 _gate_gated 建
+                    # 意图时用的 ctx["nid"] 同源）；缺键时为 None ⇒ reinforce 不记
+                    # merge_source_ids（**不编造**，也不影响本次合并本身）。
                     res = forgetting.reinforce(self, tgt, override=_ovr,
                                                actor=actor, content=after,
                                                session=session,
-                                               sensitivity=sens)
+                                               sensitivity=sens,
+                                               src_id=item.get("id"))
                 node_id = tgt
             elif act == _am.C_REWRITE:
                 # 补强（2026-10-02，复核观察 3）：C 的**目标节点在 accept 执行时
