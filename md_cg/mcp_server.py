@@ -404,6 +404,7 @@ TOOLS = [
                           verification_basis=_p("string", "验证基底"),
                           evidence=_p("string", "证据来源标记"),
                           requested_layer=_p("string", "anchor 目标层（role≠self 时禁止 self）"),
+                          sensitivity=_p("string", "写面密级（anchor/trait 透传 cg.add；缺省 None 零变更，private/secret 仅 designer）"),
                           override=_p("boolean", "覆盖受保护锚点需显式 true"),
                           limit=_p("integer", "positions/history 返回条数"),
                           contract_id=_p("string", "contract/contracts：锚定标识"
@@ -1197,7 +1198,7 @@ def _protect_call(cg, a):
     raise ValueError(f"protect 未知 action：{act}")
 
 
-# 生效条件：当 cg、a 传入时，按 a.get('action') or 'profile'（空串/None 回退 'profile'）并 strip().lower() 分派，subject_id 取 a.get('subject_id') or ''（空串/None 回落 ''）：action=catalog 返回 identity.catalog()；action=positions 返回 {'positions': cg.identity_positions(limit=int(a.get('limit') or 0))}（a.get('limit') 假值回落 0）；action=profile 时若 sid 为假值返回 {'subjects': cg.identity_positions(limit=0), 'hint': '指定 subject_id 可获取完整画像（锚点+位置+特征）'}，否则返回 cg.identity_profile(sid)；action=observe 时以 sid 和 a.get('content') or a.get('text') or '' 调用 cg.identity_observe（含 kind=a.get('subject_kind')、role=a.get('role')、layer=a.get('layer')、tags=a.get('tags')、condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.5))、verification_basis=a.get('verification_basis')、evidence=a.get('evidence')、override=bool(a.get('override'))）；action=trait 时以 sid 和 a.get('trait') or a.get('content') or '' 调用 cg.identity_trait（含 condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.6))、position=a.get('position')、kind=a.get('subject_kind')、verification_basis=a.get('verification_basis') or 'data'、override=bool(a.get('override'))）；action=anchor 时若 cg.principal 非 None 先调用 cg.principal.require_admin('identity_anchor')，再以 sid 和 a.get('content') or a.get('text') or '' 调用 cg.identity_anchor（含 kind=a.get('subject_kind')、condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.9))、override=bool(a.get('override'))、requested_layer=a.get('requested_layer')）；action=history 返回 {'records': cg.identity_history(limit=int(a.get('limit') or 100))}（a.get('limit') 假值回落 100）；action=contract 时若 cg.principal 非 None 先调用 cg.principal.require_admin('identity_contract')（对齐 action=anchor 的管理闸先例，§3.2.1 发出权属设计者位置），再以 a.get('contract_id') 及 grantor/grantee/timestamp/status_summary/doc_ref/condition_ref/state_ref/importance（缺省 1.0）/override 调用 cg.identity_contract；action=contracts 时若 a.get('contract_id') 为真值返回 cg.identity_contract_record(该 id)，否则返回 cg.identity_contracts(subject=a.get('subject_id'))；其他 action 抛 ValueError；
+# 生效条件：当 cg、a 传入时，按 a.get('action') or 'profile'（空串/None 回退 'profile'）并 strip().lower() 分派，subject_id 取 a.get('subject_id') or ''（空串/None 回落 ''）：action=catalog 返回 identity.catalog()；action=positions 返回 {'positions': cg.identity_positions(limit=int(a.get('limit') or 0))}（a.get('limit') 假值回落 0）；action=profile 时若 sid 为假值返回 {'subjects': cg.identity_positions(limit=0), 'hint': '指定 subject_id 可获取完整画像（锚点+位置+特征）'}，否则返回 cg.identity_profile(sid)；action=observe 时以 sid 和 a.get('content') or a.get('text') or '' 调用 cg.identity_observe（含 kind=a.get('subject_kind')、role=a.get('role')、layer=a.get('layer')、tags=a.get('tags')、condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.5))、verification_basis=a.get('verification_basis')、evidence=a.get('evidence')、override=bool(a.get('override'))）；action=trait 时以 sid 和 a.get('trait') or a.get('content') or '' 调用 cg.identity_trait（含 condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.6))、position=a.get('position')、kind=a.get('subject_kind')、verification_basis=a.get('verification_basis') or 'data'、override=bool(a.get('override'))）、sensitivity=a.get('sensitivity')（issue #467）；action=anchor 时若 cg.principal 非 None 先调用 cg.principal.require_admin('identity_anchor')，再以 sid 和 a.get('content') or a.get('text') or '' 调用 cg.identity_anchor（含 kind=a.get('subject_kind')、condition_space=a.get('condition_space')、importance=float(a.get('importance', 0.9))、override=bool(a.get('override'))、requested_layer=a.get('requested_layer')、sensitivity=a.get('sensitivity')（issue #467））；action=history 返回 {'records': cg.identity_history(limit=int(a.get('limit') or 100))}（a.get('limit') 假值回落 100）；action=contract 时若 cg.principal 非 None 先调用 cg.principal.require_admin('identity_contract')（对齐 action=anchor 的管理闸先例，§3.2.1 发出权属设计者位置），再以 a.get('contract_id') 及 grantor/grantee/timestamp/status_summary/doc_ref/condition_ref/state_ref/importance（缺省 1.0）/override 调用 cg.identity_contract；action=contracts 时若 a.get('contract_id') 为真值返回 cg.identity_contract_record(该 id)，否则返回 cg.identity_contracts(subject=a.get('subject_id'))；其他 action 抛 ValueError；
 def _identity_call(cg, a):
     """身份特征识别统一入口（cg op=identity 与 mdcg_identity 共用）。
 
@@ -1231,6 +1232,7 @@ def _identity_call(cg, a):
             importance=float(a.get("importance", 0.6)),
             position=a.get("position"), kind=a.get("subject_kind"),
             verification_basis=a.get("verification_basis") or "data",
+            sensitivity=a.get("sensitivity"),
             override=bool(a.get("override")))
     if act == "anchor":
         principal = getattr(cg, "principal", None)
@@ -1241,6 +1243,7 @@ def _identity_call(cg, a):
             kind=a.get("subject_kind"),
             condition_space=a.get("condition_space"),
             importance=float(a.get("importance", 0.9)),
+            sensitivity=a.get("sensitivity"),
             override=bool(a.get("override")),
             requested_layer=a.get("requested_layer"))
     if act == "history":

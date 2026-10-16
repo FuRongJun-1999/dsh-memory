@@ -202,9 +202,10 @@ def observe(cg, subject_id, text, *, kind=None, role=None, layer=None, tags=None
     return {"ok": True, "node_id": nid, "subject_id": subject_id, "kind": k}
 
 
-# 生效条件：kind 参数为真值时覆盖 split_subject(subject_id) 得到的类型，k 不在 SUBJECT_KIND 时抛 ValueError；k 为 "self" 落 "self" 层、其余落 "anchor" 层，但 requested_layer 等于 "self" 且 k 不为 "self" 时抛 ValueError（不写盘）；节点 id 取自 subject_node_id(subject_id)，返回含 layer 与 protected True。
+# 生效条件：kind 参数为真值时覆盖 split_subject(subject_id) 得到的类型，k 不在 SUBJECT_KIND 时抛 ValueError；k 为 "self" 落 "self" 层、其余落 "anchor" 层，但 requested_layer 等于 "self" 且 k 不为 "self" 时抛 ValueError（不写盘）；sensitivity 为非 None 时随 extra 透传 cg.add（issue #467，缺省 None 行为逐位不变）；节点 id 取自 subject_node_id(subject_id)，返回含 layer 与 protected True。
 def set_anchor(cg, subject_id, text, *, kind=None, condition_space=None,
-               importance=0.9, override=False, requested_layer=None):
+               importance=0.9, override=False, requested_layer=None,
+               sensitivity=None):
     """anchor 接口：写入身份锚点（不可遗忘）。
 
     落层规则（扮演论边界）：
@@ -226,18 +227,24 @@ def set_anchor(cg, subject_id, text, *, kind=None, condition_space=None,
     cs.setdefault("subject", subject_id)
     cs.setdefault("kind", k)
     tg = [f"subject:{subject_id}", TAG_ANCHOR, f"kind:{k}"]
+    # issue #467：sensitivity 透传（缺省 None ⇒ 行为逐位不变，与 #258 同口径）。
+    # 此前该形参不存在 ⇒ designer 声明 private 的身份锚点被静默降 internal 明文落盘。
+    extra = {}
+    if sensitivity is not None:
+        extra["sensitivity"] = sensitivity
     cg.add(nid, text, layer=layer, tags=tg, condition_space=cs,
-           importance=importance, verification_basis="data", override=override)
+           importance=importance, verification_basis="data", override=override,
+           **extra)
     log(cg, {"op": "anchor", "subject": subject_id, "node_id": nid,
              "kind": k, "layer": layer, "override": bool(override)})
     return {"ok": True, "node_id": nid, "subject_id": subject_id, "kind": k,
             "layer": layer, "protected": True}
 
 
-# 生效条件：kind 参数为真值时覆盖 split_subject(subject_id) 得到的类型；node_id 为假值时用 _nid("trait", subject_id, trait[:24]) 生成；落层硬编码为 "structural"；position 为真值时追加 position:<position> 标签；verification_basis 缺省为 "data"，importance 缺省 0.6；返回 layer 为 "structural" 与所用 condition_space。
+# 生效条件：kind 参数为真值时覆盖 split_subject(subject_id) 得到的类型；node_id 为假值时用 _nid("trait", subject_id, trait[:24]) 生成；落层硬编码为 "structural"；position 为真值时追加 position:<position> 标签；verification_basis 缺省为 "data"，importance 缺省 0.6；sensitivity 为非 None 时随 extra 透传 cg.add（issue #467，缺省 None 行为逐位不变）；返回 layer 为 "structural" 与所用 condition_space。
 def add_trait(cg, subject_id, trait, *, condition_space=None, importance=0.6,
               position=None, kind=None, verification_basis="data",
-              override=False, node_id=None):
+              override=False, node_id=None, sensitivity=None):
     """values 接口：写入条件触发的特征/特化价值观。
 
     落 STRUCTURE 层；`condition_space` 即触发时机（扮演论：条件空间 = 触发条件）。
@@ -251,9 +258,13 @@ def add_trait(cg, subject_id, trait, *, condition_space=None, importance=0.6,
     tg = [f"subject:{subject_id}", TAG_TRAIT, f"kind:{k}"]
     if position:
         tg.append(f"position:{position}")
+    # issue #467：sensitivity 透传（缺省 None ⇒ 行为逐位不变，与 #258 同口径）。
+    extra = {}
+    if sensitivity is not None:
+        extra["sensitivity"] = sensitivity
     cg.add(nid, trait, layer="structural", tags=tg, condition_space=cs,
            importance=importance, verification_basis=verification_basis,
-           override=override)
+           override=override, **extra)
     log(cg, {"op": "trait", "subject": subject_id, "node_id": nid,
              "position": position})
     return {"ok": True, "node_id": nid, "subject_id": subject_id, "kind": k,

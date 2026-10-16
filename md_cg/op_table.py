@@ -164,6 +164,7 @@ _OP_TABLE = {
             "trait",
             "position",
             "requested_layer",
+            "sensitivity",
             "contract_id",
             "grantor",
             "grantee",
