@@ -439,10 +439,13 @@ _OP_TABLE = {
     },
     "forget": {
         "doc_order": 7,
-        "doc": "软删除/恢复（受保护节点需 override）；",
+        "doc": "软删除/恢复（受保护节点需 override；同步 restore 需 force 越墓碑、"
+               "覆写同 id 在位节点另需 overwrite_live）；",
         "impl": "inline",
         "require": "forget",
-        "params": (),
+        "params": (
+            "overwrite_live",
+        ),
         "actions": ("forget", ),
         "default_action": "forget",
         "sigs": (),
