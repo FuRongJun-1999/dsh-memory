@@ -44,6 +44,10 @@ CI_WORKFLOW = ".github/workflows/workspace-index-check.yml"
 # —— 职责真源（本脚本即真源；新增顶层目录 / 根级文件必须在此登记，否则 --check 亮红）——
 # 值 = (职责一句话, [关键入口，相对本目录；目录名亦可])
 DIR_ROLES = {
+    #: 收据目录（receipt 机制）：`完成` 必须带可复现命令输出（见 docs/state/会话状态.md 顶部用法）。
+    #: 登记于此是按纪律 #18「新增顶层目录须在 DIR_ROLES 登记后重生成」——本条属**机械连带产物**。
+    "receipts": ("收据（可复现命令输出的证据面）—— scripts/receipt.py 的 --write/--check/--list 落盘目录",
+                 [".gitkeep"]),
     "md_cg": ("灵枢大脑——记忆系统本体（纯 md 认知图 + 确定性裁决），即标准 stdio MCP server",
               ["mcp_server.py", "mdcg.py", "mdcos.py"]),
     "rust": ("Rust 检索引擎——只读侧检索内核（零第三方依赖，库内嵌 / --serve / 评测器三形态）",
