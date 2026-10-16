@@ -66,10 +66,23 @@
      锚 + **对抗值**锚（{1e16,1.4,1.4}：IDF 自然值域 4 值全排列舍入实测相同，
      序依赖仅在对抗值上必现）。平滑常数改错/去掉 log/求和去 sorted 三类公式
      注入任一即转红（改前守卫对此 28/0 全绿零判别力，#381 复核实测）。
+  G6 残余同分夹具（#381 复核返工第⑤条，2026-10-16）：同 gram 集文档（6-gram
+     环走两圈的三个错位旋转——正文两两不同、bigram 集全等，判别源消失来自
+     gram 集全等而非字节全同）⇒ 加权后分数仍全同（==，G6a 跨侧 qb 权重表
+     产出、加权路真在跑）/ 权重表全等退化池（G6b 同侧 df 全同 ⇒ None ⇒ 逐位
+     走旧口径）⇒ 残余同分。断言该形态下名次由 id 字典序决定（id 置换两库
+     ——id 集不变、正文映射与写入序都变——search_rrf 全序 == sorted(ids)、
+     search top1 == min(id)，即 (-score,-importance,id) 兜底既有行为）。
+     **已知边界显式登记**：残余同分是「同分不可分辨词法的真退化」，#363 本件
+     不改此键（单路契约被 test_bm25 钉死）——现役 G4 三问句均不触发该形态，
+     边界此前无判据（不是缺陷，是未判的边界）；本组构造出该形态让边界可复跑
+     （缺省态与回退态均成立——边界与开关无关，不参与 --mutate 转红判据）。
 
 变异协议（--mutate）：用 `MDCG_LEXICAL_IDF=0`（行为级精确回退——比文本变异
 更贴「修前形态」，旧公式代码原样保留在该分支里）在子进程复刻修前态，断言
-G1/G2/G4/G5 **转红**（G3 在回退态平凡通过）；恢复缺省后全绿。两向读数都打印。
+G1/G2/G4/G5 **转红**（G3 在回退态平凡通过；G6 是与开关无关的边界判据——回退
+态 legacy 同样同分、top1 同样由 id 决定，两态均绿，不属转红面）；恢复缺省后
+全绿。两向读数都打印。
 
 运行：
     python -X utf8 -m md_cg.test_issue363_lexical_rank_guard            # 正向
@@ -538,6 +551,73 @@ def anchor_dump():
         A5_SPKY_QB, A5_SPKY_NB, A5_SPKY_W),))
 
 
+# ── G6 残余同分夹具（PR #381 复核返工第⑤条，2026-10-16）─────────────────────
+# 现役 G4 的 3 个问句都不触发的形态：文档彼此 bigram 集完全相同（同 gram 集）
+# ——IDF 与功能词降权的判别源都是「gram 命中模式」，命中模式全同 ⇒ 加权后
+# 分数仍全同 ⇒ 残余同分。该形态此前没有任何判据（不是缺陷，是未判的边界），
+# 本组把它构造出来钉进守卫，让「残余同分仍按既有兜底键」这句话可复跑。
+# 构造：6-gram 环「记忆→检索→索方→方法→法记→记忆」走两圈的三个错位旋转
+# ——正文两两不同、bigram 集全等（判别源消失来自 gram 集全等，非字节全同）。
+G6_Q_CROSS = "什么是记忆检索方法"   # qb 跨侧：{什么,么是}(功能,df=0)+6 实词
+G6_Q_SAME = "记忆检索方法"          # qb 全实词侧且 df 全同 ⇒ 权重表全等退化池
+G6_BODIES = ["记忆检索方法记忆检索方法",
+             "检索方法记忆检索方法记忆",
+             "方法记忆检索方法记忆检索"]
+G6_IDS = ["g6z", "g6m", "g6a"]     # 写入序 z→m→a；字典序最小 g6a（≠首写）
+# 置换库：id 集不变，正文映射与写入序都变（a,z,m 写入；三个 id 的正文全换）
+G6_LIB_PERM = [("g6a", G6_BODIES[1]), ("g6z", G6_BODIES[2]), ("g6m", G6_BODIES[0])]
+
+
+def g6():
+    nbs = [mdcg.bigrams(mdcg.normalize_en(b)) for b in G6_BODIES]
+    ok(len({frozenset(n) for n in nbs}) == 1 and len(set(G6_BODIES)) == 3,
+       "G6 前置：三文档 bigram 集全等（同 gram 集，%d gram）且正文两两不同"
+       "（判别源消失来自 gram 集全等，非字节全同）" % len(nbs[0]))
+    qb_x = mdcg.bigrams(mdcg.normalize_en(G6_Q_CROSS))
+    qb_s = mdcg.bigrams(mdcg.normalize_en(G6_Q_SAME))
+    w_x = mdcg.lexical_weights(qb_x, nbs)
+    w_s = mdcg.lexical_weights(qb_s, nbs)
+    if mdcg.lexical_idf_on():      # 回退态（--mutate）无权重表：跳过前置，边界断言照跑
+        ok(w_x is not None and len(set(w_x.values())) > 1,
+           "G6a 前置：跨侧 qb 权重表产出且不全等（df=0 的 w(是记)=%.6f vs df=3 的"
+           " w(记忆)=%.6f）——加权路真在跑，「加权后分数相同」是加权路的残余同分，"
+           "不是退化跳过" % ((w_x or {}).get("是记", float("nan")),
+                             (w_x or {}).get("记忆", float("nan"))))
+        ok(w_s is None,
+           "G6b 前置：权重表全等退化池（同侧 df 全同 ⇒ lexical_weights=None 逐位走"
+           "旧口径——G3c-1 的判据面在本夹具复现）")
+    libs = [list(zip(G6_IDS, G6_BODIES)), list(G6_LIB_PERM)]
+    reports = []
+    for sub, q in (("a", G6_Q_CROSS), ("b", G6_Q_SAME)):
+        for li, docs in enumerate(libs):
+            which = "原库" if li == 0 else "置换库"
+            cg = build(docs)
+            sc = raw_scores(cg, q)
+            v = next(iter(sc.values())) if sc else float("nan")
+            ok(len(sc) == 3 and len(set(sc.values())) == 1 and v > 0.0,
+               "G6%s[%s] 残余同分在位：同 gram 集 ⇒ %s 分数全等（%.9f，==，"
+               "非仅同档）" % (sub, which,
+                              "加权" if mdcg.lexical_idf_on() else "旧口径", v))
+            # 已知边界：残余同分名次仍按 (-score, -importance, id) 兜底——同分
+            # 不可分辨词法的真退化，#363 本件不改此键（单路契约被 test_bm25
+            # 钉死）；构造出该形态的夹具让边界可复跑。
+            rrf_top = top_ids(cg, q, k=3)
+            srch = cg.search(q, k=1, judge=False, record=False)[0][0]
+            srch_top = (srch.get("id") if isinstance(srch, dict)
+                        else srch[0].get("id"))
+            ok(rrf_top == sorted(G6_IDS) and srch_top == min(G6_IDS),
+               "G6%s[%s] top1 由 id 字典序决定：search_rrf 全序 %s == sorted(ids)、"
+               "search top1=%s（兜底键既有行为，正文映射/写入序变化不动摇）" % (
+                   sub, which, rrf_top, srch_top))
+            cg.close()
+            reports.append((sub, q, v, rrf_top))
+    print("  G6 读数（残余同分 | 分数 | search_rrf 全序 原/置换库）：")
+    for i in (0, 2):               # reports 序：a原库/a置换库/b原库/b置换库
+        sub, q, v, _top = reports[i]
+        print("    G6%s[%s] | %.9f | %s / %s" % (
+            sub, q, v, "→".join(reports[i][3]), "→".join(reports[i + 1][3])))
+
+
 def main(argv):
     if "--anchor-dump" in argv:
         anchor_dump()
@@ -554,6 +634,7 @@ def main(argv):
         g3()
     g4()
     g5()
+    g6()
     n_pass, n_fail = len(_PASS), len(_FAIL)
     print("== 结果：PASS %d / FAIL %d ==" % (n_pass, n_fail))
     if mutate:
