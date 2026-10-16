@@ -142,11 +142,11 @@ class Guards(RuntimeCase):
         with mock.patch('time.time', return_value=self.NOW + 3):
             self.assertEqual([r[0]['id'] for r in self.query()[0]], ['z_stable'])
 
-    def test_validity_queries_do_not_read_or_write_result_cache(self):
+    def test_stable_clock_validity_queries_still_cache(self):
         with mock.patch('time.time', return_value=self.NOW):
             self.query(); _, meta = self.query()
-        self.assertFalse(meta.get('cached', False))
-        self.assertEqual(hotcache.get(self.cg).stats()['query_cache_size'], 0)
+        self.assertTrue(meta.get('cached', False))
+        self.assertEqual(hotcache.get(self.cg).stats()['query_cache_size'], 1)
 
     def test_clock_rollback_can_restore_not_expired_candidate(self):
         with mock.patch('time.time', return_value=self.NOW + 3):
@@ -198,7 +198,59 @@ class Guards(RuntimeCase):
             rows, _ = cg.search_rrf('needle', **args)
         self.assertEqual([r[0]['id'] for r in rows], ['z_stable'])
 
-MUTATIONS = [{'name': 'V1 cache clock dependent results again', 'module': 'md_cg.mdcos', 'symbol': 'MdCGOS.search_rrf', 'targets': ['md_cg.mdcos:MdCGOS.search_rrf'], 'old': '_time_on = bool(validity) or any(', 'new': '_time_on = any(', 'test': 'Guards.test_expiry_replaces_cached_top_one'}, {'name': 'V2 bypass reads but keep writing result cache', 'module': 'md_cg.mdcos', 'symbol': 'MdCGOS.search_rrf', 'targets': ['md_cg.mdcos:MdCGOS.search_rrf'], 'old': 'if hc is not None and results and not _time_on and not _bypass:', 'new': 'if hc is not None and results and not _bypass:', 'test': 'Guards.test_validity_queries_do_not_read_or_write_result_cache'}, {'name': 'V3 disable cache for ordinary queries', 'module': 'md_cg.mdcos', 'symbol': 'MdCGOS.search_rrf', 'targets': ['md_cg.mdcos:MdCGOS.search_rrf'], 'old': '_bypass = query_expand is not None', 'new': '_bypass = True', 'test': 'Guards.test_default_queries_still_cache'}]
+    def test_nonwinner_expiry_changes_bm25_top_one(self):
+        for nid in ('a_expiring', 'z_stable'):
+            self.cg.forget(nid, override=True)
+        self.cg.add('apple', 'apple ' * 4)
+        self.cg.add('pear', 'pear')
+        self.cg.add('nonwinner', 'apple ' * 20, valid_until=self.NOW + 2)
+        options = dict(paths=('bm25',), judge=False, record=False, validity=True, k=1)
+        with mock.patch('time.time', return_value=self.NOW):
+            first, _ = self.cg.search_rrf('apple pear', **options)
+        self.assertEqual([r[0]['id'] for r in first], ['pear'])
+        with mock.patch('time.time', return_value=self.NOW + 3):
+            later, _ = self.cg.search_rrf('apple pear', **options)
+        self.assertEqual([r[0]['id'] for r in later], ['apple'])
+
+    def test_future_start_overrides_past_end_until_start(self):
+        # No unrelated expiry may invalidate this key and mask the start fence.
+        self.cg.forget('a_expiring', override=True)
+        self.cg.add('odd', 'needle', importance=1.0, valid_from=self.NOW + 2,
+                    valid_until=self.NOW - 1)
+        with mock.patch('time.time', return_value=self.NOW):
+            self.assertEqual(self.query()[0][0][0]['id'], 'odd')
+        with mock.patch('time.time', return_value=self.NOW + 2):
+            self.assertNotIn('odd', [r[0]['id'] for r in self.query()[0]])
+
+    def test_query_finishing_after_deadline_is_not_stored(self):
+        clock = [self.NOW]
+        original = self.cg._lexical
+        def slow(*args, **kw):
+            rows = original(*args, **kw)
+            clock[0] = self.NOW + 3
+            return rows
+        with mock.patch('time.time', side_effect=lambda: clock[0]):
+            with mock.patch.object(self.cg, '_lexical', side_effect=slow):
+                self.query()
+            self.assertEqual(hotcache.get(self.cg).stats()['query_cache_size'], 0)
+            self.assertEqual([r[0]['id'] for r in self.query()[0]], ['z_stable'])
+
+    def test_window_lru_and_clear_are_bounded(self):
+        import inspect
+        hc = hotcache.HotCache(max_queries=1)
+        self.assertIn('clock_window', inspect.signature(hc.put_query).parameters)
+        with mock.patch('time.time', return_value=self.NOW):
+            for word in ('one', 'two', 'three'):
+                hc.put_query(word, [{'id': word}], {}, clock_window=(self.NOW, self.NOW + 2))
+            self.assertEqual(len(hc._query_windows), 1)
+            self.assertIsNotNone(hc.get_query('three'))
+            hc.invalidate_all_queries()
+            self.assertEqual(len(hc._query_windows), 0)
+            hc.put_query('four', [], {}, clock_window=(self.NOW, None))
+            hc.clear()
+            self.assertEqual(len(hc._query_windows), 0)
+
+MUTATIONS = [{'name': 'V1 omit the time fence on cache insertion', 'module': 'md_cg.mdcos', 'symbol': 'MdCGOS.search_rrf', 'targets': ['md_cg.mdcos:MdCGOS.search_rrf'], 'old': 'view=view, extra=_cache_extra, clock_window=_query_window)', 'new': 'view=view, extra=_cache_extra)', 'test': 'Guards.test_expiry_replaces_cached_top_one'}, {'name': 'V2 ignore the upper clock bound', 'module': 'md_cg.hotcache', 'symbol': '_within_window', 'targets': ['md_cg.hotcache:_within_window'], 'old': '(window[1] is None or now < window[1])', 'new': 'True', 'test': 'Guards.test_expiry_replaces_cached_top_one'}, {'name': 'V3 ignore clock rollback', 'module': 'md_cg.hotcache', 'symbol': '_within_window', 'targets': ['md_cg.hotcache:_within_window'], 'old': 'now >= window[0]', 'new': 'True', 'test': 'Guards.test_clock_rollback_can_restore_not_expired_candidate'}, {'name': 'V4 fence only the first candidate', 'module': 'md_cg.mdcos', 'symbol': 'MdCGOS.search_rrf', 'targets': ['md_cg.mdcos:MdCGOS.search_rrf'], 'old': '_hc.validity_window(entries, _validity_clock)', 'new': '_hc.validity_window(entries[:1], _validity_clock)', 'test': 'Guards.test_nonwinner_expiry_changes_bm25_top_one'}, {'name': 'V5 omit future start transitions', 'module': 'md_cg.hotcache', 'symbol': 'validity_window', 'targets': ['md_cg.hotcache:validity_window'], 'old': 'for boundary in (start, end):', 'new': 'for boundary in (end,):', 'test': 'Guards.test_future_start_overrides_past_end_until_start'}, {'name': 'V6 retain evicted clock windows', 'module': 'md_cg.hotcache', 'symbol': 'HotCache.put_query', 'targets': ['md_cg.hotcache:HotCache.put_query'], 'old': 'self._query_windows.pop(evicted, None)', 'new': 'pass', 'test': 'Guards.test_window_lru_and_clear_are_bounded'}]
 
 if __name__ == "__main__":
     raise SystemExit(run_guard(globals(), MUTATIONS))
