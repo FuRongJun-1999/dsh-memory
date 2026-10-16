@@ -59,6 +59,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import random
 import time
@@ -529,9 +530,24 @@ def _not_yet(fm, now):
     return None
 
 
-# 生效条件：对 content 取 kv_pairs、bigrams 和 polarity，遍历 related（若 related 为假值则视为空）的前 int(max_compare) 个 r，以 r["node_id"] 调 cg.get；若某 oid 节点可读非空，先在其 content 与 content 的共同键中找到值不同者并返回 {'with':oid,'via':r.get('via'),'why':'同键不同值：...'}；否则若极性乘积 <0 且双方 bigram 非空，且共享 bigram 数 >=3 且 ratio>=0.15，返回 {'with':oid,'via':r.get('via'),'why':'极性相反且共享内容：...'}；全部遍历完无命中则返回 None；
+# 生效条件：返回 str(s) 按 UTF-8 编码的 sha1 十六进制摘要前 8 位（定长 8、不可逆）。
+def _fp(s) -> str:
+    """证据指纹（issue #444）：正文不进证据串，只进它的不可逆短指纹。"""
+    return hashlib.sha1(str(s).encode("utf-8")).hexdigest()[:8]
+
+
+# 生效条件：对 content 取 kv_pairs、bigrams 和 polarity，遍历 related（若 related 为假值则视为空）的前 int(max_compare) 个 r，以 r["node_id"] 调 cg.get；若某 oid 节点可读非空，先在其 content 与 content 的共同键中找到值不同者并返回 {'with':oid,'via':r.get('via'),'why':'同键不同值：<键>（本端 <_fp 指纹> / 对端 <_fp 指纹>）'}——正文原值不进 why；否则若极性乘积 <0 且双方 bigram 非空，且共享 bigram 数 >=3 且 ratio>=0.15，返回 {'with':oid,'via':r.get('via'),'why':'极性相反且共享内容：共享 bigram <n> 个 / 重合率 <百分比>'}——共享词面同样不进 why，只留计数；全部遍历完无命中则返回 None；
 def _contradiction(cg, content, related, max_compare=10):
-    """与同族节点比对：同键不同值 / 极性相反且共享 bigram。"""
+    """与同族节点比对：同键不同值 / 极性相反且共享 bigram。
+
+    why 是**证据串**，不是内容载体（issue #444）：它会经 audit 的 detail →
+    `_weaken` → `verify` 的 evidence 落进**两个**节点的 frontmatter 与
+    `_trust.jsonl`（fm 加密只作用于正文，这两个面都是明文），而 scrub 双方
+    各判一次——把正文原值拼进 why，等于把 private 节点的正文写进 internal
+    对端节点的明文面，低 clearance 身份读对端（合规读）即可取回。故判据只留
+    键名 + 不可逆指纹（同键不同值）/ 只留计数（极性相反且共享内容）——
+    「记谁处置了谁，不复制被处置内容」。
+    """
     kv_a = _kv_pairs(content)
     bg_a, pol_a = bigrams(content or ""), _polarity(content)
     for r in (related or [])[:int(max_compare)]:
@@ -547,15 +563,16 @@ def _contradiction(cg, content, related, max_compare=10):
         for k in sorted(set(kv_a) & set(kv_b)):
             if kv_a[k] != kv_b[k]:
                 return {"with": oid, "via": r.get("via"),
-                        "why": f"同键不同值：{k}={kv_a[k]} vs {kv_b[k]}"}
+                        "why": f"同键不同值：{k}"
+                               f"（本端 {_fp(kv_a[k])} / 对端 {_fp(kv_b[k])}）"}
         bg_b = bigrams(oc)
         if pol_a * _polarity(oc) < 0 and bg_a and bg_b:
             shared = bg_a & bg_b
             ratio = len(shared) / max(1, min(len(bg_a), len(bg_b)))
             if len(shared) >= 3 and ratio >= 0.15:
                 return {"with": oid, "via": r.get("via"),
-                        "why": "极性相反且共享内容：" + "、".join(
-                            sorted(shared)[:5])}
+                        "why": f"极性相反且共享内容：共享 bigram {len(shared)} 个"
+                               f" / 重合率 {ratio:.0%}"}
     return None
 
 
