@@ -169,7 +169,7 @@ class Compiler:
             self.warnings.append(f"L{s.line} 未编译语句类型: {s.type.name}")
 
     # ---- 道德经指令 ----
-# 生效条件：按 s.instruction 分派——DAO 发 (DAO, val)，val 为 None（operands 为空或 _operand_value 返回 None）时用 '无名路径'；DE 发 float(val)，val 为 None 时 0.0、非数值时抛 SyntaxError 名实不符；ZIRAN/WUWEI/ZHI 各发对应无参指令；ZHIZU 以 float(val)（None 时 0.0）为阈值新建标签并挂 pending 与 zhizu_labels；其余指令向 warnings 追加未接入提示。
+# 生效条件：按 s.instruction 分派——DAO 发 (DAO, val)，val 为 None（operands 为空或 _operand_value 返回 None）时用 '无名路径'；DE 发 float(val)，val 为 None 时 0.0、非数值时抛 SyntaxError 名实不符；ZIRAN/WUWEI/ZHI 各发对应无参指令；ZHIZU 以 float(val)（None 时 0.0，非数值时抛 SyntaxError 名实不符，#434）为阈值新建标签并挂 pending 与 zhizu_labels；其余指令向 warnings 追加未接入提示。
     def _instr(self, s):
         op = s.instruction
         operands = s.operands
@@ -190,7 +190,13 @@ class Compiler:
         elif op == TokenType.ZHI:
             self._emit(Opcode.ZHI)
         elif op == TokenType.ZHIZU:
-            threshold = float(val) if val is not None else 0.0
+            try:
+                threshold = float(val) if val is not None else 0.0
+            except (TypeError, ValueError):
+                # 同 德（#434）：非数值阈值编译期拦截——修复前 float('abc')
+                # 的裸 ValueError 穿透 compile_source 的窄捕获直接上抛调用方
+                raise SyntaxError(
+                    f"L{s.line} 知足 的阈值必须是数值，得到 '{val}'（名实不符）")
             lbl = self._new_label()
             self._emit(Opcode.ZHIZU, (threshold, lbl))
             self.pending.append((len(self.code) - 1, lbl))
