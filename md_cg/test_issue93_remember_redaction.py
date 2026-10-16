@@ -76,6 +76,44 @@ def main():
     check("G4 与 policy.json 同源（AKIA 规则在其中）",
           "AKIA" in pol, "")
 
+    # G5 行为级（#429 补）：走**真实 `mdcg_remember` 通路**，断言明文未落盘。
+    # 为什么必须补：G1/G3/G4 只单测 `audit.redact_forbidden`、**完全不碰
+    # `mdcg_remember`**；G2 是**静态 grep**（`"redact_forbidden" in seg`）。
+    # 而 #429 的 M4 变异把写回条件改成 `if False:` —— 调用语句**仍在源码里**，
+    # 故 G2 **照样绿**，行为却已回到「AKIA 明文入库」的缺陷态 ⇒ 假绿。
+    # 只有行为级能区分「调用**存在**」与「调用**生效**」。
+    import shutil
+    import tempfile
+
+    from .mcp_server import _dispatch
+    from .mdcos import MdCGOS
+    tmp = tempfile.mkdtemp(prefix="i93_g5_")
+    try:
+        root = os.path.join(tmp, "root")
+        cg = MdCGOS(root)
+        raw = CASES[0][1]                      # AKIA 原文
+        content = ("# 功能名：G5 行为级打码守卫\n# 生效条件：测试\n# 子功能：无\n"
+                   "# 执行：凭据 %s 须在落盘前打码\n# 验证方式：test\n"
+                   "# 不适用条件：无\n" % raw)
+        _dispatch(cg, "mdcg_remember",
+                  {"content": content, "node_id": "mem_g5_redact",
+                   "layer": "knowledge", "verification_basis": "test",
+                   "check_strength": "hoop"})
+        landed = []
+        for dirpath, _dirs, files in os.walk(root):
+            for fn in files:
+                p = os.path.join(dirpath, fn)
+                try:
+                    with open(p, encoding="utf-8", errors="ignore") as fh:
+                        if raw in fh.read():
+                            landed.append(os.path.relpath(p, root))
+                except OSError:
+                    pass
+        check("G5 行为级：AKIA 明文未落盘（真实 mdcg_remember 通路）",
+              not landed, "命中明文文件=%s" % landed[:3])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
     print("")
     print("=" * 64)
     print("通过 %d ／ 失败 %d" % (PASS, FAIL))
