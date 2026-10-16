@@ -44,7 +44,17 @@ STATE_FALSIFIED = "falsified"
 
 C1_WINDOW_MIN = 0.6                # C1 可检索度开窗门槛
 V1_MIN_EVIDENCE = 3                # V1（可检索/被引用）需 ≥3 条才成立
-IMPORTANCE_FLOOR = 0.9             # verified 后的重要度保底（对齐工具表）
+# verified 后的重要度保底（对齐工具表）。
+# #433（2026-10-16）：原名 `IMPORTANCE_FLOOR = 0.9` 与 `weights.IMPORTANCE_FLOOR = 0.10`
+# **同名不同值**（两处都叫 IMPORTANCE_FLOOR，语义一个是「验证后保底」、一个是「重算下限」），
+# 且 0.9 是**本模块私有阈值**，与全仓保护阈值 0.70（`protect.AUTO_PROTECT_IMPORTANCE` /
+# `weights.IMPORTANCE_PROTECT` / `forgetting.PROTECT_IMPORTANCE`）不一致 ——
+# outlook 的「高重要度未保护」盘点因此漏掉 [0.70, 0.90) 区间。故改名消歧。
+VERIFY_IMPORTANCE_FLOOR = 0.9      # verified 后的重要度保底（对齐工具表）
+# 兼容别名（#433）：既有读面 `mdcos.py` 的 insight catalog 与 `config_registry_bulk.py`
+# 仍按旧名 `IMPORTANCE_FLOOR` 取值——语义未变（同一个 0.9 验证后保底），保留别名
+# 以免改动超出本卡写面；新代码一律用 `VERIFY_IMPORTANCE_FLOOR`（消歧的正名）。
+IMPORTANCE_FLOOR = VERIFY_IMPORTANCE_FLOOR
 CER_MIN_SAMPLES = 20               # 样本 < 20 不判定层状态
 
 PRESSURES = ("low", "medium", "high")
@@ -243,7 +253,9 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
       · V3 外部确证 或 V2 实践重复 → verified；
       · V1 可检索/被引用 需 **≥ V1_MIN_EVIDENCE 条** 才成立；
       · 其余（无证据 / V1 不足）→ **保持 pending 并给出原因**，不判定。
-    verified 后：重要度保底 0.9（``IMPORTANCE_FLOOR``）并置保护位。
+    verified 后：重要度保底 0.9（``VERIFY_IMPORTANCE_FLOOR``，旧名 ``IMPORTANCE_FLOOR`` 仍为
+    兼容别名）并置保护位。注意该 0.9 是**验证后保底**，与 outlook 盘点的**保护阈值**
+    0.70（``protect.AUTO_PROTECT_IMPORTANCE``）是两个不同口径，不可混用（#433）。
     裁决分支落盘前过 ``protect.guard_overwrite``（层闸 + 保护闸），写盘后同步
     内存索引条目并**标脏**（``cg._dirty[node_id]``，C-1）——否则读缓存默认开时
     同进程「verify 后读」拿旧 insight_state/tags/importance。
@@ -443,6 +455,8 @@ def outlook(cg, window_days=None, sample_limit=8, recent_days=7, now=None):
     total = len(nodes)
     layers, basis = {}, {}
     imps, protected, no_neg, recent = [], 0, 0, 0
+    # #433：受保护计数的**分因**构成（层保护 / 显式位 / 按分保护），便于审计对读
+    protected_reasons = {}
     lo_recent = now - float(recent_days) * 86400.0
     hi_imp_unprotected = []
     for nid, e in list(nodes.items()):
@@ -455,9 +469,17 @@ def outlook(cg, window_days=None, sample_limit=8, recent_days=7, now=None):
         except (TypeError, ValueError):
             iv = 0.0
         imps.append(iv)
-        if e.get("protected"):
+        # #433（2026-10-16）：原判据 `if e.get("protected")` **只认显式位**，且高重要度
+        # 阈值取本模块私有的 0.9 —— 后果是 (a) 层保护（self/anchor）节点在 d1.protected
+        # 里**完全隐形**；(b) [0.70, 0.90) 区间的高分未保护节点既不计入 protected、
+        # 也不进 d2.high_importance_unprotected（补保护建议的唯一入口出现盲区）。
+        # 两处判据统一走 protect 的单点：受保护口径 = is_protected_fm（三条真源），
+        # 高分口径 = protect.AUTO_PROTECT_IMPORTANCE(0.70，全仓一致）。
+        _prot, _prot_why = protect.is_protected_fm(e)
+        if _prot:
             protected += 1
-        elif iv >= IMPORTANCE_FLOOR:
+            protected_reasons[_prot_why] = protected_reasons.get(_prot_why, 0) + 1
+        elif iv >= protect.AUTO_PROTECT_IMPORTANCE:
             hi_imp_unprotected.append(nid)
         if not e.get("has_neg_conditions"):
             no_neg += 1
@@ -475,6 +497,9 @@ def outlook(cg, window_days=None, sample_limit=8, recent_days=7, now=None):
         "importance": _quartiles(imps),
         "protected": protected,
         "protected_rate": (round(protected / total, 4) if total else None),
+        # #433：分因构成 + 盘点所用阈值（读数自解释，避免再次出现「谁的 0.9 / 谁的 0.7」歧义）
+        "protected_reasons": dict(sorted(protected_reasons.items())),
+        "protect_threshold": protect.AUTO_PROTECT_IMPORTANCE,
         "verification_basis": dict(sorted(basis.items(), key=lambda kv: (-kv[1], kv[0]))),
         "missing_non_applicable": no_neg,
         "missing_non_applicable_rate": (round(no_neg / total, 4) if total else None),

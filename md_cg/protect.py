@@ -234,6 +234,54 @@ def is_immutable(cg, node_id):
     return False, ""
 
 
+#: 裸 frontmatter 探针的假 node_id（`is_protected_fm` 的 `(cg, node_id)` 形态所需；
+#: 真实节点 id 来自文件名/显式声明，不含 NUL ⇒ 与既有索引键不可能相撞）。
+_FM_PROBE_ID = "\x00fm-probe"
+
+
+class FmProbe:
+    """裸 frontmatter → `is_protected` 所需的 `(cg, node_id)` 形态（**零规则载体**）。
+
+    #377（2026-10-14）与 #430（2026-10-16·同根第四次分叉）：`lifecycle.stamp` /
+    `trust.stamp` / `weights.node_importance` / `consolidate.induce_memories` /
+    `insight.outlook` 这些**拿不到 cg**（或只有索引条目）的纯函数面，此前各自
+    复制了一份「只认 `protected` / `immutable` 位」的收窄判据，漏掉层保护与按分
+    保护 —— 受保护层节点被无痕降级/压低/入池。本类**不复制任何判据**：规则单点仍是
+    `is_protected`，它只把调用方手里已有的 frontmatter 摆成该判据所需的索引快照
+    形态（唯一索引条目＝该映射本身）。
+
+    刻意**不提供** `_maybe_reload_index`（`_fm` 的探活分支取不到即跳过）且
+    `get()` 恒返回 None（门控字段回退读文件的分支在此无文件可读、**不抛异常**）
+    ⇒ 判定 100% 基于传入映射：零 IO、零副作用（调用方都是就地改 fm 的纯函数面）。
+    """
+
+    __slots__ = ("index",)
+
+    def __init__(self, fm):
+        self.index = {"nodes": {_FM_PROBE_ID: fm if isinstance(fm, dict) else {}}}
+
+    def get(self, node_id=None):        # `_fm` 的回退分支：探针无文件可读
+        return None
+
+
+# 生效条件：fm 非映射（None/标量等）时按空映射 `{}` 处理；否则把 fm 置于 FmProbe 的唯一索引条目后调 is_protected——即与 is_protected(cg, node_id) 在「索引条目恰为 fm 且无文件可回退」时逐位同判：layer∈PROTECTED_LAYERS 返回 (True, 层保护)；protected is True 返回 (True, protection_reason 或 '显式保护标记')；importance≥AUTO_PROTECT_IMPORTANCE 且 importance_source 为 None 或 'hint' 返回 (True, 重要性保护)；其余 (False, '')。
+def is_protected_fm(fm) -> tuple:
+    """**裸 frontmatter 的「不可遗忘」判定** → `(是否受保护, 原因)`（纯函数，零 IO）。
+
+    与 `(cg, node_id)` 形态的判定**共用同一个判据本体**（本函数只负责摆形态，
+    规则单点不复制）——这是「拿不到 cg 的纯函数面」的唯一入口：
+
+      · `lifecycle.stamp` / `trust.stamp`（就地改 fm 的状态机推进）
+      · `weights.node_importance`（按索引条目重算重要度及其保护下限）
+      · `consolidate.induce_memories` 的候选池过滤
+      · `insight.outlook` 的受保护/高重要度盘点
+
+    非映射（None、标量）一律按「空 frontmatter」判定 ⇒ `(False, '')`，不抛异常
+    （调用方多为统计盘点，缺条目不得中断整轮）。
+    """
+    return is_protected(FmProbe(fm), _FM_PROBE_ID)
+
+
 # ---------------------------------------------------------------- 留痕
 
 # 生效条件：对任意 cg、action、node_id、reason（actor/snapshot 缺省为 None）都构造含 t/action/node_id/reason/actor/snapshot 的 rec 并返回，同时尝试追加写入 cg.root 下的 AUDIT_FILE，该写入抛出的任何异常被吞掉且不影响返回值。
