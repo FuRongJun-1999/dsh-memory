@@ -824,8 +824,9 @@ KERNEL_TOOLS = [
                                      "传 sensitivity 覆盖时自动退回全量"),
             max_nodes=_p("integer", "ref action=check：最多巡检节点数（默认 2000，"
                                     "越限返回 truncated=true）"),
-            sensitivity=_p("string", "index_doc 的密级（默认 internal 并显式写入；"
-                                     "路径命中私有提示时保守降为 private）"),
+            sensitivity=_p("string", "写面密级：index_doc 默认 internal 并显式写入（路径命中私有提示时"
+                                     "保守降为 private）；goal op=add 透传 cg.add_goal（缺省 internal，"
+                                     "private/secret 仅 designer）"),
             ref=_p("object", "ref op：直接给 code_ref/doc_ref 对象（与 node_id 二选一）"),
             root=_p("string", "ref op：覆盖 ref 里记录的 root（索引结果的跨机器搬迁）"),
             name=_p("string", "sustain：心跳名（默认 md_cg）；"
@@ -2519,6 +2520,9 @@ def _cg_dispatch(cg, a):
         act = (a.get("action") or "list").strip().lower()
         if act == "add":
             gid = cg.add_goal(a.get("goal") or a.get("text") or "",
+                              # issue #426-H：分派层透传 sensitivity（此前被丢 ⇒
+                              # private 目标静默落 internal，访客可读）。
+                              sensitivity=a.get("sensitivity"),
                               priority=float(a.get("priority", 0.5)),
                               deadline=a.get("deadline"),
                               conditions=a.get("conditions") or "",
