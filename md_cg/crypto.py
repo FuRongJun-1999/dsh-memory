@@ -554,6 +554,29 @@ def is_encrypted(content):
     return True
 
 
+# 生效条件：content 为入参；假值返回 False；strip 后以 ENC_PREFIX 开头、以 ENC_SUFFIX 结尾且壳内非空即返回 True——**仅前后缀形状检测**（不验证指纹段与 base64 结构，is_encrypted 的宽松陪集：真密文 ⊂ 载体形状 ⊂ 任意正文）。
+def looks_like_carrier(content):
+    """正文是否呈**载体形状**（issue #53-A / #446 复审，形状单点）。
+
+    与 `is_encrypted`（严格结构判据）的分工：结构判据服务「能不能按密文解」
+    （写面密封 / 读面开关），**伪造 / 折损载体按设计判明文**；但另有一类消费
+    方关心的是「这坨东西是不是**自称**载体」——密文（含伪造前缀、缺垫旧形、
+    换行折损体）都不是可分类的**人类正文**，绝不能交给域词表 / 预览面当明文
+    处理（base64 噪声撞词＝假标签「经济」、折损真密文整块回显＝泄密）。
+    判据只看前后缀形状（`ENC_PREFIX` … `ENC_SUFFIX`、壳内非空）：真密文恒
+    True；结构不合格的伪造 / 折损体也 True（这正是它与 is_encrypted 的差集）。
+    消费方：`routing.classify_text` / `backfill_big_domain`（密文拦截腿）、
+    `stg._preview`（脱敏占位腿）。
+    """
+    if not content:
+        return False
+    t = content.strip()
+    if not (t.startswith(ENC_PREFIX) and t.endswith(ENC_SUFFIX)
+            and len(t) > len(ENC_PREFIX) + len(ENC_SUFFIX)):
+        return False
+    return bool(t[len(ENC_PREFIX):-len(ENC_SUFFIX)].strip())
+
+
 # 生效条件：content 为入参；非密文（is_encrypted 为假）时返回 None；密文块正文中不含 ":"（旧格式，仅 base64）时返回 None；否则返回 ":" 前的 enc_id_fp 字串（空串亦返回 None）。base64 标准字母表不含 ":"，故该分隔符无歧义；旧格式密文天然无此段 ⇒ 返回 None（调用方走旧路径）。
 def enc_id_fp(content):
     """从密文标记块取出**非敏感**身份指纹 `enc_id_fp`（B1）。

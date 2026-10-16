@@ -5689,7 +5689,7 @@ class MdCGSecure(MdCGOS):
             "read_foreign_seen": getattr(self, "_read_foreign_seen", 0),
         }
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，若 sens 不在 crypto.ENCRYPTED_LEVELS 则原样返回 content；content 过严格 is_encrypted 时——self.dek 为假值则原样返回 content（无 dek 无法试解，保持密文重放既有语义），否则以本次封装身份（含 _seal_override）试解 open_node：成功（真密文载体）原样返回 content 不二封，CryptoError（伪造载体）落到下方按明文密封；content 非载体时直接落到下方；self.dek 为假值时写 seal_denied 审计并抛 crypto.LockedError，有 dek 时 seal_node 并写 seal 审计后返回密文。
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，若 sens 不在 crypto.ENCRYPTED_LEVELS 则原样返回 content；content 过严格 is_encrypted（结构合法载体）时——以本次封装身份（含 _seal_override）取可用 (actor, dek)：dek 为假值（locked/无主密钥）则落到下方 no-dek 分支写 seal_denied 审计并抛 crypto.LockedError（#446 复审 A1：结构合法载体在无 DEK 下**不可原样放行**——良构伪装体 16hex+b64 过形状判据，原样落盘即 is_encrypted==True 的明文、b64 零成本还原且零 seal 审计）；dek 可用时试解 open_node：成功（真密文载体）原样返回 content 不二封，CryptoError（伪造载体）落到下方按明文密封；content 非载体时直接落到下方；self.dek 为假值时写 seal_denied 审计并抛 crypto.LockedError，有 dek 时 seal_node 并写 seal 审计后返回密文。
     def _seal_content(self, node_id, content, sensitivity=None):
         """私有内容（private / secret）写入前加密；无密钥 → fail-closed。
 
@@ -5702,9 +5702,15 @@ class MdCGSecure(MdCGOS):
             回写场景）——原样落盘，不二次加密；
           · 解不开（CryptoError）⇒ 伪造载体 ⇒ 按明文走正常密封（盘上
             必为真密文，且照常写 seal 审计）。
-        无 dek（locked / 无主密钥）时无法试解：形状合格者保持「原样放行」
-        的既有语义（密文重放不受锁影响）；形状不合格的伪造体已被严格判据
-        判为明文，落到下方 no-dek 分支 fail-closed 拒写——绝不以伪密文落盘。
+        无 dek（locked / 无主密钥）时**无法试解 ⇒ 无法裁真伪**：#446 复审
+        （A1）收口——**任何**结构合法载体都不再「形状即放行」（修前形态：
+        良构伪装体 16hex+b64 过严格判据 ⇒ `is_encrypted==True` 却逐字节
+        原样落盘，b64 零成本还原、零 seal 审计，与加密级明文落盘同罪），
+        一律落到下方 no-dek 分支 fail-closed 拒写（seal_denied 审计 +
+        LockedError，与形状不合格伪造体同口径）；真密文重放因此要求解锁
+        身份在场（试解＝MAC 裁定真伪的唯一途径，与读面一致）。形状不合格
+        的伪造体本就被严格判据判为明文，同落该分支——locked 实例下加密级
+        内容一概不可落盘。
         """
         sens = sensitivity or DEFAULT_SENSITIVITY
         if sens not in crypto.ENCRYPTED_LEVELS:
@@ -5723,15 +5729,17 @@ class MdCGSecure(MdCGOS):
             return a, d
 
         if crypto.is_encrypted(content):
-            if not self.dek:
-                return content            # 无 dek 无法试解：密文重放既有语义
             _a, _d = _sealer()
-            try:
-                crypto.open_node(content, _d, node_id,
-                                 self.principal.tenant, _a)
-                return content            # 本库可解载体：真密文，原样落盘
-            except crypto.CryptoError:
-                pass                      # 伪造载体 → 下方按明文密封（#446）
+            if _d:
+                try:
+                    crypto.open_node(content, _d, node_id,
+                                     self.principal.tenant, _a)
+                    return content        # 本库可解载体：真密文，原样落盘
+                except crypto.CryptoError:
+                    pass                  # 伪造载体 → 下方按明文密封（#446）
+            # 无可用 dek（locked/无主密钥，含 override 未命中目标节点的情形）
+            # ⇒ 无法试解：结构合法载体**不可原样放行**（#446 复审 A1）——
+            # 落到下方 no-dek 分支 fail-closed 拒写。
         if not self.dek:
             crypto.audit(self.root, {"op": "seal_denied", "node_id": node_id,
                                      "tenant": self.principal.tenant,

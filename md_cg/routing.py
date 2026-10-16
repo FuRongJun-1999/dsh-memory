@@ -471,8 +471,7 @@ def bucket_zh_aliases(key: str, tags, text, limit: int = 6) -> list:
     return out
 
 
-# 生效条件：text 为假值或取不到任何域词时返回 None；否则返回 big_domain_classify(domain_terms(text))
-# 的结果（无有效域信号时亦为 None，调用方据此决定是否落域字段）。
+# 生效条件：text 为假值或取不到任何域词时返回 None；text 过严格 is_encrypted 或仅过载体形状检测 looks_like_carrier（伪造前缀 / 缺垫旧形 / 折损体——非可分类正文）时返回 None；否则返回 big_domain_classify(domain_terms(text)) 的结果（无有效域信号时亦为 None，调用方据此决定是否落域字段）。
 def classify_text(text, limit: int = 400):
     """正文 → 大域名（节点侧域标签真源）。与查询侧共用 big_domain_classify。
 
@@ -484,8 +483,14 @@ def classify_text(text, limit: int = 400):
     词表里唯一的拉丁词 GDP 被 base64 三连子串撞上），且假标签会被 backfill 的
     already 幂等分支永久固化。判据收在此**唯一致敏点**：节点侧全部调用方
     （add 写入面、backfill 回填面）自动同覆盖，无需各自设防。
+
+    #446 复审（A2/A3）：拦截判据不能只押 `is_encrypted`（严格结构判据）——
+    #446 收紧后「缺垫旧形 / 伪造指纹 / 折损体」按设计判**明文**，会从结构腿
+    漏进词表（#53-A 假「经济」标签复发，实测复现）。故本处并押**载体形状**
+    `looks_like_carrier`（仅前后缀形状检测）：凡自称载体者都不是可分类正文，
+    与结构真伪无关。
     """
     from . import crypto        # 延迟导入：routing 是底层模块，避免加载序耦合
-    if crypto.is_encrypted(text):
+    if crypto.is_encrypted(text) or crypto.looks_like_carrier(text):
         return None
     return big_domain_classify(domain_terms(text, limit))

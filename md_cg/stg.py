@@ -383,7 +383,22 @@ def _index_pairs(cg, *, session=stgidx.MISSING, layer=stgidx.MISSING,
     return pairs, _index_meta_hit(ix, served, full)
 
 
-# 生效条件：cg.index["nodes"].get(node_id) 缺失或为假值时返回 ""；否则 cg._readable 可调用且对其返回假值或抛异常时返回 PLACEHOLDER_DENIED；cg._read(e) 的 frontmatter 为 None 时返回 ""；content 非密文时返回 content[:n]（n 默认 200）；content 为密文时，cg._open_content 可调用且取到非 None 且非密文的 opened 才返回 opened[:n]，opened 为 None、抛异常或仍为密文时返回 PLACEHOLDER_LOCKED。
+# 生效条件：content 过严格 is_encrypted 或仅呈载体形状（crypto.looks_like_carrier：伪造前缀/缺垫旧形/换行折损体）时返回 True，其余 False。
+def _carrier_like(content):
+    """预览/取件面的**载体识别**——严格判据 ∪ 载体形状（#446 复审 A4）。
+
+    严格 `is_encrypted` 服务「能不能按密文解」：折损（如中段换行）的真密文
+    按设计判**明文**，写面据此重封、读面据此兜底——但预览面的不变量是
+    「绝不回显密文碎片」：折损体若从结构腿漏过，整块（真）密文会被当明文
+    截给调用方（head 实测复现）。故本面并押 `looks_like_carrier`（仅前后缀
+    形状检测）：凡自称载体者走占位/拒判，与结构真伪无关。`_preview` 与
+    `_qual_node_dict` 共用本判定（口径同一份，不越权）。
+    """
+    from . import crypto
+    return crypto.is_encrypted(content) or crypto.looks_like_carrier(content)
+
+
+# 生效条件：cg.index["nodes"].get(node_id) 缺失或为假值时返回 ""；否则 cg._readable 可调用且对其返回假值或抛异常时返回 PLACEHOLDER_DENIED；cg._read(e) 的 frontmatter 为 None 时返回 ""；content 非载体（_carrier_like 为假）时返回 content[:n]（n 默认 200）；content 为载体（含折损密文）时，cg._open_content 可调用且取到非 None 且非载体的 opened 才返回 opened[:n]，opened 为 None、抛异常或仍为载体时返回 PLACEHOLDER_LOCKED。
 def _preview(cg, node_id, n=200):
     """按需读单个节点正文做预览（只发生在最终返回的条目上）。
 
@@ -391,7 +406,6 @@ def _preview(cg, node_id, n=200):
       · 读隔离拦截的节点 → 占位符，不泄露任何正文；
       · 密文节点：有密钥且能解开 → 明文；否则 → 占位符，**绝不回显密文碎片**。
     """
-    from . import crypto
     e = cg.index["nodes"].get(node_id)
     if not e:
         return ""
@@ -406,7 +420,7 @@ def _preview(cg, node_id, n=200):
     if fm is None:
         return ""
     content = content or ""
-    if not crypto.is_encrypted(content):
+    if not _carrier_like(content):
         return content[:n]
     opener = getattr(cg, "_open_content", None)
     opened = None
@@ -416,20 +430,19 @@ def _preview(cg, node_id, n=200):
         except Exception:                          # noqa: BLE001
             opened = None
     # 父类 _open_content 对密文是恒等返回（无密钥上下文）——再判一次，
-    # 保证任何路径都不会把密文写进预览。
-    if opened is None or crypto.is_encrypted(opened):
+    # 保证任何路径都不会把密文写进预览（折损密文同走占位，#446 复审 A4）。
+    if opened is None or _carrier_like(opened):
         return PLACEHOLDER_LOCKED
     return opened[:n]
 
 
-# 生效条件：cg 有 index["nodes"][node_id] 且（cg._readable 可调用时）该条目过可见性判定、cg._read 取回 fm 非 None 时返回 {"frontmatter": fm, "content": content}——content 为密文且 cg._open_content 可解出非密文时才用解出的明文，仍为密文/解不开亦返回 None；条目不存在、被读隔离拦下、fm 取不回一律返回 None（**拿不到可判定的正文就不做判定**，不猜测）。
+# 生效条件：cg 有 index["nodes"][node_id] 且（cg._readable 可调用时）该条目过可见性判定、cg._read 取回 fm 非 None 时返回 {"frontmatter": fm, "content": content}——content 为载体（_carrier_like，含折损密文）且 cg._open_content 可解出非载体明文时才用解出的明文，仍为载体/解不开亦返回 None；条目不存在、被读隔离拦下、fm 取不回一律返回 None（**拿不到可判定的正文就不做判定**，不猜测）。
 def _qual_node_dict(cg, node_id):
     """资格判定的 node_dict——取件与脱敏口径与 `_preview` **同一份**（判定不越权）。
 
     密文不可解 ⇒ 返回 None ⇒ 该条不附 qualification：**不伪造状态**（若照密文
     判 CCG 完整性，会把「无密钥」误报成「要素不全」，那是拿不到证据时的假话）。
     """
-    from . import crypto
     e = cg.index["nodes"].get(node_id)
     if not e:
         return None
@@ -444,7 +457,7 @@ def _qual_node_dict(cg, node_id):
     if fm is None:
         return None
     content = content or ""
-    if crypto.is_encrypted(content):
+    if _carrier_like(content):
         opener = getattr(cg, "_open_content", None)
         opened = None
         if callable(opener):
@@ -452,7 +465,7 @@ def _qual_node_dict(cg, node_id):
                 opened = opener(node_id, fm, content)
             except Exception:                  # noqa: BLE001
                 opened = None
-        if opened is None or crypto.is_encrypted(opened):
+        if opened is None or _carrier_like(opened):
             return None
         content = opened
     return {"frontmatter": fm, "content": content}

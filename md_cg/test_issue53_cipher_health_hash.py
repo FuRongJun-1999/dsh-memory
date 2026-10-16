@@ -60,10 +60,14 @@ _OPEN = []
 TEST_KEY = bytes(range(32))          # 合成测试钥；绝不触碰真实主密钥面
 
 #: GDP 三连是唯一实测命中形态（BIG_DOMAINS 里唯一的拉丁词是「经济」的 GDP）
-# #446：is_encrypted 收紧为「前缀内结构可解析」后，夹具体须是**合法载体**
-# （19 字符缺 padding 的形状＝伪造前缀＝按设计判明文，密文拦截腿会失真）。
 CIPHER_GDP = "<!-- mdcg-enc:v1:QUJDREVGGDPQUJDREVG= -->"
 CIPHER_PLAIN = "<!-- mdcg-enc:v1:QUJDREVGQUJDREVG -->"
+#: #53-A **原始夹具形态**（19 字符缺 padding）。#446 把 is_encrypted 收紧为
+#: 「前缀内结构可解析」后，该形态按设计判**明文**——若拦截腿只押严格判据，
+#: 它会漏进域词表：classify_text 判「经济」、backfill 写假标签并被 already
+#: 幂等固化（#446 复审 A2/A3，head 实测复现）。故本守卫**两形并钉**：
+#: 合法载体（CIPHER_GDP，真密文形状）与缺垫旧形都必被跳过、不写标签。
+CIPHER_GDP_LEGACY = "<!-- mdcg-enc:v1:QUJDREVGGDPQUJDREVG -->"
 BODY = ("# 功能名：issue53 探针\n"
         "# 生效条件：守卫临时库\n"
         "# 子功能：素材节点\n"
@@ -142,11 +146,13 @@ def _cleanup():
 
 def group_a():
     print("\n【A】issue #53-A：密文不得被当可分类正文")
-    check("A1 classify_text 对密文（含 GDP 撞词形态）恒 None",
+    check("A1 classify_text 对密文（含 GDP 撞词形态）恒 None（合法载体与缺垫旧形并钉）",
           routing.classify_text(CIPHER_GDP) is None
-          and routing.classify_text(CIPHER_PLAIN) is None,
-          "%r / %r" % (routing.classify_text(CIPHER_GDP),
-                       routing.classify_text(CIPHER_PLAIN)))
+          and routing.classify_text(CIPHER_PLAIN) is None
+          and routing.classify_text(CIPHER_GDP_LEGACY) is None,
+          "%r / %r / %r" % (routing.classify_text(CIPHER_GDP),
+                            routing.classify_text(CIPHER_PLAIN),
+                            routing.classify_text(CIPHER_GDP_LEGACY)))
     check("A2 明文对照不误伤：GDP 明文字面仍归「经济」",
           routing.classify_text("GDP 与市场") == "经济",
           repr(routing.classify_text("GDP 与市场")))
@@ -155,6 +161,10 @@ def group_a():
     os.makedirs(lib, exist_ok=True)
     _put_raw(lib, "a_cip_gdp", "contextual", CIPHER_GDP, sens="private")
     _put_raw(lib, "a_cip_ok", "contextual", CIPHER_PLAIN, sens="private")
+    # #446 复审 A2/A3：#53-A 原始夹具形态（缺垫旧形）——严格判据下按设计判
+    # 明文，拦截腿须靠载体形状检测兜住（修前回归：被判「经济」并落盘）。
+    _put_raw(lib, "a_cip_gdp_legacy", "contextual", CIPHER_GDP_LEGACY,
+             sens="private")
     _put_raw(lib, "a_plain", "contextual", "# 功能名：x\n计算机与算法内容\n")
     cg = MdCG(lib)                       # 基类＝backfill CLI 的同款打开方式
     st = cg.backfill_big_domain()
@@ -162,17 +172,19 @@ def group_a():
           st["written"] == 1
           and (cg.get("a_cip_gdp")["frontmatter"] or {}).get("big_domain") is None
           and (cg.get("a_cip_ok")["frontmatter"] or {}).get("big_domain") is None
+          and (cg.get("a_cip_gdp_legacy")["frontmatter"] or {}).get(
+              "big_domain") is None
           and cg.get("a_plain")["frontmatter"].get("big_domain") == "计算机",
           str(st), live=True)
     check("A4 ciphertext 独立计数且各计数为互斥分区（和 == seen）",
-          st.get("ciphertext") == 2
+          st.get("ciphertext") == 3
           and (st["written"] + st["already"] + st["no_signal"]
                + st["unreadable"] + st["ciphertext"] + st["index_synced"]
                == st["seen"]),
           str(st), live=True)
     st2 = cg.backfill_big_domain()
     check("A5 二次回填：密文仍走 ciphertext（不被 already 假确认、不重写）",
-          st2.get("ciphertext") == 2 and st2["already"] == 1
+          st2.get("ciphertext") == 3 and st2["already"] == 1
           and st2["written"] == 0, str(st2))
     cg.close()
 
