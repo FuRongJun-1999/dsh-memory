@@ -5689,12 +5689,49 @@ class MdCGSecure(MdCGOS):
             "read_foreign_seen": getattr(self, "_read_foreign_seen", 0),
         }
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，若 sens 不在 crypto.ENCRYPTED_LEVELS 或 content 已加密则原样返回 content；否则 self.dek 为假值时写 seal_denied 审计并抛 crypto.LockedError，有 dek 时 seal_node 并写 seal 审计后返回密文。
+# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，若 sens 不在 crypto.ENCRYPTED_LEVELS 则原样返回 content；content 过严格 is_encrypted 时——self.dek 为假值则原样返回 content（无 dek 无法试解，保持密文重放既有语义），否则以本次封装身份（含 _seal_override）试解 open_node：成功（真密文载体）原样返回 content 不二封，CryptoError（伪造载体）落到下方按明文密封；content 非载体时直接落到下方；self.dek 为假值时写 seal_denied 审计并抛 crypto.LockedError，有 dek 时 seal_node 并写 seal 审计后返回密文。
     def _seal_content(self, node_id, content, sensitivity=None):
-        """私有内容（private / secret）写入前加密；无密钥 → fail-closed。"""
+        """私有内容（private / secret）写入前加密；无密钥 → fail-closed。
+
+        issue #446：密封短路只认「**本库自己能解开的载体**」。修前只按正文
+        前缀形状短路（`is_encrypted`）——形状是调用方可控的 ⇒ 伪造
+        `<!-- mdcg-enc:v1:` 前缀＝跳过加密＝加密级明文落盘（落盘闸②用同一
+        形状判据，一并 fail-open，且该次写入零 seal 审计留痕）。现以**试解
+        （MAC）为唯一判据**（与读面 `_open_content` 同口径）：
+          · 解得开 ⇒ 本库对该节点、按本次封装身份的真密文（重放 / 裁决
+            回写场景）——原样落盘，不二次加密；
+          · 解不开（CryptoError）⇒ 伪造载体 ⇒ 按明文走正常密封（盘上
+            必为真密文，且照常写 seal 审计）。
+        无 dek（locked / 无主密钥）时无法试解：形状合格者保持「原样放行」
+        的既有语义（密文重放不受锁影响）；形状不合格的伪造体已被严格判据
+        判为明文，落到下方 no-dek 分支 fail-closed 拒写——绝不以伪密文落盘。
+        """
         sens = sensitivity or DEFAULT_SENSITIVITY
-        if sens not in crypto.ENCRYPTED_LEVELS or crypto.is_encrypted(content):
+        if sens not in crypto.ENCRYPTED_LEVELS:
             return content
+
+        # issue #165：裁决落盘时按**提案原始写入者**封装（override 由裁决分支
+        # 置入，仅对本次目标节点生效；不动读面、不新建信封、不改磁盘格式）。
+        # #446：身份解析提到短路判定**之前**——试解必须用**本次封装身份**的
+        # dek/actor（owner 实例重放提案者密文时，用 owner 自己的 dek 试解必
+        # 失败 ⇒ 好密文被误判伪造而二次加密）。
+        def _sealer():
+            a, d = self.principal.actor, self.dek
+            ov = getattr(self, "_seal_override", None)
+            if ov and ov[0] == node_id:   # 仅目标节点（防串到旁节点）
+                a, d = ov[1], ov[2]
+            return a, d
+
+        if crypto.is_encrypted(content):
+            if not self.dek:
+                return content            # 无 dek 无法试解：密文重放既有语义
+            _a, _d = _sealer()
+            try:
+                crypto.open_node(content, _d, node_id,
+                                 self.principal.tenant, _a)
+                return content            # 本库可解载体：真密文，原样落盘
+            except crypto.CryptoError:
+                pass                      # 伪造载体 → 下方按明文密封（#446）
         if not self.dek:
             crypto.audit(self.root, {"op": "seal_denied", "node_id": node_id,
                                      "tenant": self.principal.tenant,
@@ -5702,12 +5739,7 @@ class MdCGSecure(MdCGOS):
                                      "reason": self._crypto_error or "no_dek"})
             raise crypto.LockedError(
                 f"{sens} 内容需加密，但当前无可用密钥（{self._crypto_error}）")
-        # issue #165：裁决落盘时按**提案原始写入者**封装（override 由裁决分支置入，
-        # 仅对本次目标节点生效；不动读面、不新建信封、不改磁盘格式）。
-        actor, dek = self.principal.actor, self.dek
-        ov = getattr(self, "_seal_override", None)
-        if ov and ov[0] == node_id:      # 仅目标节点（防串到旁节点）
-            actor, dek = ov[1], ov[2]
+        actor, dek = _sealer()
         sealed = crypto.seal_node(content, dek, node_id,
                                   self.principal.tenant, actor)
         rec = {"op": "seal", "node_id": node_id, "sensitivity": sens,
@@ -5730,7 +5762,7 @@ class MdCGSecure(MdCGOS):
         return owner, crypto.unwrap_dek(self.root, self.kek,
                                         self.principal.tenant, owner)
 
-# 生效条件：content 为 None 或非加密时原样返回 content；加密时先用**本次读取所得的 frontmatter**（sensitivity/session）复核读可见性，不可见即写 read_denied 审计并返回 None；可见但 self.dek 为假值时写 read_locked 审计并返回 None；随后**无条件**调 crypto.open_node（唯一的完整性校验处）——成功即返回明文（指纹fp 是什么都不影响解密）；仅当抛 CryptoError 时才用**密文自带**的非敏感指纹 enc_id_fp 给这次失败分类：指纹有值且 ≠ 本方指纹 ⇒ 按采样写 read_foreign 审计（预期隔离）；否则写 open_failed 审计（真异常，含旧格式无指纹）。
+# 生效条件：content 为 None 或非加密时原样返回 content；加密时先用**本次读取所得的 frontmatter**（sensitivity/session）复核读可见性，不可见即写 read_denied 审计并返回 None；可见但 self.dek 为假值时写 read_locked 审计并返回 None；随后**无条件**调 crypto.open_node（唯一的完整性校验处）——成功即返回明文（指纹fp 是什么都不影响解密）；抛 CryptoError 时用**密文自带**的非敏感指纹 enc_id_fp 给这次失败分类：指纹有值且 ≠ 本方指纹 ⇒ 按采样写 read_foreign 审计（预期隔离）；否则写 open_failed 审计（真异常，含旧格式无指纹）；抛**任何其余异常**（#446 止血：历史毒化盘面的解码失败族）一律写 open_failed 审计并返回 None，绝不抛给调用方。
     def _open_content(self, node_id, fm, content):
         """密文解封；无密钥 / 身份不符 / **读不可见** → None（不可读），失败留审计。"""
         if content is None or not crypto.is_encrypted(content):
@@ -5828,6 +5860,21 @@ class MdCGSecure(MdCGOS):
                                      "tenant": self.principal.tenant,
                                      "actor": self.principal.actor,
                                      "reason": str(e)[:120]})
+            return None
+        except Exception as e:                    # noqa: BLE001 —— #446 止血
+            # 解密/解码路上**任何**其余异常（历史毒化盘面的非法 base64、
+            # 非 ascii 载体、utf-8 解码失败、未来格式漂移……）都按「损坏
+            # 节点」处理：留 open_failed 审计（带异常类型）、该节点不可读。
+            # get/search/recall 的全部正文水合都经本函数——**绝不把异常
+            # 抛给调用方**（issue #446 站点 1：一条伪前缀节点让属主检索面
+            # 持续 UnicodeEncodeError 抛穿）。正常面先由严格 `is_encrypted`
+            # 与 `open_node` 的「失败只有 CryptoError」契约挡住，本分支是
+            # 纵深兜底。
+            crypto.audit(self.root, {
+                "op": "open_failed", "node_id": node_id,
+                "tenant": self.principal.tenant,
+                "actor": self.principal.actor,
+                "reason": "%s: %s" % (type(e).__name__, str(e)[:100])})
             return None
         self._plain_put(_ck, _plain)
         return _plain

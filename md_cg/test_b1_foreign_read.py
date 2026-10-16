@@ -131,7 +131,10 @@ def main():
         # ---------- ⑤ 反向断言：篡改密文 ⇒ 仍记 open_failed ----------
         with open(os.path.join(tmp, rel), encoding="utf-8") as f:
             fm, content = nodefile.loads(f.read())
-        payload = content[len(crypto.ENC_PREFIX):-len(crypto.ENC_SUFFIX)]
+        # #446：is_encrypted 严格判据要求重构块**良构**——盘面正文经 nodefile
+        # 往返可能带尾随空白，须 strip 后再切壳（否则空白裹进 base64 段
+        # 会被正确地判为伪造形状，篡改断言随之失真）。
+        payload = content.strip()[len(crypto.ENC_PREFIX):-len(crypto.ENC_SUFFIX)]
         if ":" not in payload:
             ok(False, "⑤前置：新格式密文应含 enc_id_fp 段"
                       "（实得旧格式 → 篡改断言不可达）")
@@ -170,7 +173,10 @@ def main():
         # ---------- ⑦ 篡改指纹段（密文本体完好）⇒ 仍解出明文（核心标志） ----------
         with open(os.path.join(tmp, rel), encoding="utf-8") as f:
             fm, content = nodefile.loads(f.read())
-        payload = content[len(crypto.ENC_PREFIX):-len(crypto.ENC_SUFFIX)]
+        # #446：is_encrypted 严格判据要求重构块**良构**——盘面正文经 nodefile
+        # 往返可能带尾随空白，须 strip 后再切壳（否则空白裹进 base64 段
+        # 会被正确地判为伪造形状，篡改断言随之失真）。
+        payload = content.strip()[len(crypto.ENC_PREFIX):-len(crypto.ENC_SUFFIX)]
         fp_seg, b64 = payload.split(":", 1)
         fp_flip_name = "f" * len(fp_seg)
         if fp_flip_name == fp_seg:

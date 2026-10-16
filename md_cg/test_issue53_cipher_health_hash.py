@@ -60,7 +60,9 @@ _OPEN = []
 TEST_KEY = bytes(range(32))          # 合成测试钥；绝不触碰真实主密钥面
 
 #: GDP 三连是唯一实测命中形态（BIG_DOMAINS 里唯一的拉丁词是「经济」的 GDP）
-CIPHER_GDP = "<!-- mdcg-enc:v1:QUJDREVGGDPQUJDREVG -->"
+# #446：is_encrypted 收紧为「前缀内结构可解析」后，夹具体须是**合法载体**
+# （19 字符缺 padding 的形状＝伪造前缀＝按设计判明文，密文拦截腿会失真）。
+CIPHER_GDP = "<!-- mdcg-enc:v1:QUJDREVGGDPQUJDREVG= -->"
 CIPHER_PLAIN = "<!-- mdcg-enc:v1:QUJDREVGQUJDREVG -->"
 BODY = ("# 功能名：issue53 探针\n"
         "# 生效条件：守卫临时库\n"
