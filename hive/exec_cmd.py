@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -276,7 +277,38 @@ def _delegate(job_dir: str, spec: dict | None = None) -> int:
     return p.returncode
 
 
-# 生效条件：job_dir/spec.json 读取抛 OSError/ValueError 即 _fail(..., EXIT_SPEC)；_spec_gate 命中（commands/env/timeout_step_s 脏类型）即 _fail(..., EXIT_SPEC)；_norm_steps 返回 err 即 _fail(..., EXIT_SPEC)、返回 steps 为 None 即转 _delegate(job_dir, spec)；否则 env 由 spec.get("env") 字符串化后叠加在 os.environ 之上并 setdefault PYTHONUTF8="1"，default_cwd 取 spec.get("cwd") or spec.get("workdir") or job_dir，fail_fast 取 spec.get("fail_fast", True)（显式假值则不提前中断），逐步 _run_step 后按 expect_files、expect_stdout_contains 缺失项追加失败记录，写 result.json 并返回 EXIT_OK 或 EXIT_EXEC。
+#: 敏感环境变量模式（issue #464）：serve 固化凭据不得随子进程继承外带。
+#: 只匹配**独立词段**（^/_ 与 $/_ 边界）——MY_KEYSTONE、PASSWORDLESS 这类
+#: 前缀相似的普通变量不误伤。
+_ENV_SENSITIVE_RE = re.compile(
+    r"(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|PWD)(?:$|_)",
+    re.IGNORECASE)
+
+
+# 生效条件：返回合并后的环境 dict——base（通常是 os.environ）中命中 _ENV_SENSITIVE_RE 的
+# 键被剥除、其余原样保留；extra（spec.env 显式声明）全量按 str 键值并入（显式声明语义不变）。
+# 不抛异常；base/extra 为 None 时按空处理。
+def _sanitize_env(base, extra):
+    """子进程环境：剥继承凭据 + 保留显式声明（issue #464）。
+
+    为什么必须剥：run_cmd 原实现 env={**os.environ, **spec_env} 全量继承 serve
+    进程环境，而池内 spec.json 是本地可写面——一条 command=[python,-c,print(env)]
+    即可把 *_KEY/_TOKEN/_SECRET/AEIS_DESIGNER_KEY 等 serve 固化凭据外带（实测
+    LEAK=abc123secret）。本单点**只做剥离**：base 敏感键不进子进程；spec.env
+    显式声明保留（调用方自担，不在本件收紧面）；PATH/PYTHONUTF8/proxy 等非敏感
+    变量保持，既有任务零影响。
+    """
+    out = {}
+    for k, v in (base or {}).items():
+        if _ENV_SENSITIVE_RE.search(str(k)):
+            continue
+        out[str(k)] = v
+    for k, v in (extra or {}).items():
+        out[str(k)] = str(v)
+    return out
+
+
+# 生效条件：job_dir/spec.json 读取抛 OSError/ValueError 即 _fail(..., EXIT_SPEC)；_spec_gate 命中（commands/env/timeout_step_s 脏类型）即 _fail(..., EXIT_SPEC)；_norm_steps 返回 err 即 _fail(..., EXIT_SPEC)、返回 steps 为 None 即转 _delegate(job_dir, spec)；否则 env 先经 _sanitize_env(os.environ, spec_env) 剥离继承中的敏感键（issue #464：*_KEY/TOKEN/SECRET/PASSWORD/PASSWD/CREDENTIAL/AUTH/PWD）再叠加 spec.env 显式声明，并 setdefault PYTHONUTF8="1"，default_cwd 取 spec.get("cwd") or spec.get("workdir") or job_dir，fail_fast 取 spec.get("fail_fast", True)（显式假值则不提前中断），逐步 _run_step 后按 expect_files、expect_stdout_contains 缺失项追加失败记录，写 result.json 并返回 EXIT_OK 或 EXIT_EXEC。
 def run_cmd(job_dir: str) -> int:
     t0 = time.time()
     try:
@@ -294,8 +326,9 @@ def run_cmd(job_dir: str) -> int:
     if steps is None:
         return _delegate(job_dir, spec)
 
-    env = {str(k): str(v) for k, v in (spec.get("env") or {}).items()}
-    env = {**os.environ, **env}
+    # issue #464：先剥继承中的敏感环境键，再并入 spec.env 显式声明。
+    spec_env = {str(k): str(v) for k, v in (spec.get("env") or {}).items()}
+    env = _sanitize_env(os.environ, spec_env)
     env.setdefault("PYTHONUTF8", "1")
     default_cwd = spec.get("cwd") or spec.get("workdir") or job_dir
     fail_fast = spec.get("fail_fast", True)
