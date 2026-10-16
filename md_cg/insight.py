@@ -304,24 +304,31 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
     # （sustain layers=('self',) verify 他人的 contextual 事件）+ 保护腿
     # （self/anchor/immutable 节点被无痕覆写、无快照无审计）都由这一处补闸收口。
     # 层与敏感度取**本节点已读到的 frontmatter 真值**（不靠索引缺字段时的回落）。
+    _disk = os.path.join(cg.root, node["path"])
+    _content = node.get("content") or ""
     protect.guard_overwrite(cg, node_id, layer=fm.get("layer"),
                             sensitivity=fm.get("sensitivity"), actor=actor)
-    cg._write_node(node_id, os.path.join(cg.root, node["path"]), fm,
-                   node.get("content") or "")
-    ent = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)
-    if isinstance(ent, dict):
-        ent["importance"] = fm.get("importance")
-        ent["tags"] = list(tg)
-        ent["insight_state"] = final
-        # 标脏（N133 修复，对照先例 md_cg/mdcg.py 的 update_tags / verify 直写
-        # 分支 `self._dirty[node_id] = e`）：只改内存 entry 时读缓存（默认开）
-        # 的 path_gen 不推进 ⇒ `_fresh` 继续判旧 fm 新鲜，同进程「verify 后读」
-        # 拿到旧 insight_state/tags/importance；标脏同时让本写进
-        # `_dirty → flush → _index_log` 重放。**不下沉进 `_write_node`**（该口
-        # 另有「只对账索引不落盘」的调用方，下沉会凭空产生写入代际与自重载）。
-        _dirty = getattr(cg, "_dirty", None)
-        if isinstance(_dirty, dict):
-            _dirty[node_id] = ent
+    cg._write_node(node_id, _disk, fm, _content)
+    _ent = cg._node_entry(_disk, fm.get("layer"), fm, _content)
+    # 写点专有键：真源不含它，重建后叠加（不是「凭记忆补几键」）。
+    _ent["insight_state"] = final
+    # 落库走 `cg._stage`——索引条目写入的**单点**（`_dirty` + `_set_index_entry`
+    # 的桶计数与 stg 同钩）。旧形态手写两处（ent + _dirty），两处必然漂开；N133
+    # 当年的标脏诉求（读缓存 path_gen 不推进 ⇒ 同进程「verify 后读」拿旧值）由
+    # `_stage` 一并满足。
+    # **不下沉进 `_write_node`**（该口另有「只对账索引不落盘」的调用方，下沉会
+    # 凭空产生写入代际与自重载）。
+    cg._stage(node_id, _ent)
+    # issue #416（2026-10-16 DSH 端）：索引条目**由真源重建**，不再手写键子集。
+    # 旧形态只补 importance/tags/insight_state 三键，而 fm 刚写下的
+    # protected=True / protection_reason="insight_verified"（:295-296）**没有**
+    # 同步进条目 ⇒ `protect._fm` 对**非受保护层**不回退读文件（N213 逐字：恒落
+    # 三键 ⇒ 「缺键」判据恒假 ⇒ 100% 信任索引）⇒ 条目里的 None 被当「未标记」
+    # 采信 ⇒ 盘面写着 protected: true 的节点判 (False, '')，`cg.forget` 无需
+    # override 即软删（零前像、零保护审计行），且跨重启存活（走快照+日志）。
+    # **真源 ＝ MdCG._node_entry**（自述「_scan_nodes 与定向 upsert 共用的唯一
+    # 真源」）——由它重建整条 entry，真源将来加键本写点**自动跟上**；手写子集
+    # 无论补成 3 键还是 4 键，都只是「下一次漏」的形态（#192 同款教训）。
     _append(cg, {"action": "verify", "node_id": node_id, "state": final,
                  "decided": True, "reason": reason or "显式裁决",
                  "evidence": ev, "importance": fm.get("importance"),
