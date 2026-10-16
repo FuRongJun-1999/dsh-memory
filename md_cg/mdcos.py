@@ -6183,10 +6183,25 @@ class MdCGSecure(MdCGOS):
         self._index_sensitivity(nid, sens)
         return nid
 
-# 生效条件：调用方未声明 sensitivity 时先经 _write_sensitivity 解析出 sens（issue #297：既有节点**继承旧密级**——缺省 confirm 档下提案记录若在入队时就已降成 internal，accept 只会照抄该值，故继承必须发生在这里、不能只补落盘面），再 principal.require_layer_write(kw.get("layer", "knowledge"), sens)（缺省与基类 MdCGOS.propose 的 layer="knowledge" 一致——此前误用 or "contextual" 导致校验层与落盘层错位：knowledge-only 身份被误拒 / contextual-only 身份入队成死提案，2026-09-25 缺陷 #5），再转 super().propose(node_id, content, sensitivity=sens) 并返回其结果。
+# 生效条件：调用方未声明 sensitivity 时先经 _write_sensitivity 解析出 sens（issue #297：既有节点**继承旧密级**——缺省 confirm 档下提案记录若在入队时就已降成 internal，accept 只会照抄该值，故继承必须发生在这里、不能只补落盘面），再 principal.require_layer_write(kw.get("layer", "knowledge"), sens)（缺省与基类 MdCGOS.propose 的 layer="knowledge" 一致——此前误用 or "contextual" 导致校验层与落盘层错位：knowledge-only 身份被误拒 / contextual-only 身份入队成死提案，2026-09-25 缺陷 #5），再按**既有节点真层真密级**调 protect.require_layer（#346：提案者自己落不了盘的覆写不入队），最后转 super().propose(node_id, content, sensitivity=sens) 并返回其结果。
     def propose(self, node_id: str, content: str, sensitivity: str = None, **kw):
         sens = self._write_sensitivity(node_id, sensitivity)
         self.principal.require_layer_write(kw.get("layer", "knowledge"), sens)
+        # issue #346（2026-10-17 U05a）：入队面此前只比**声明值**（上面那行是拿
+        # `sens`——显式声明时原样返回——去比写入者自己的 clearance），不比对既有
+        # 节点的真层真密级 ⇒ 低权身份能把「自己落不了盘的覆写」塞进审核队列，再由
+        # 自己/属主 accept 落盘（缺陷形态：orchestr 入队 + orchestr 自批）。
+        # 与直写面 `write_qualify`、merge 支 N131、`MdCG.add` 的新闸同口径：
+        # 判据单点 `protect.require_layer`（取既有节点真层真密级），提案者落不了
+        # 盘的覆写**不入队**。覆盖 cg(op=write) 审核闸 / 一致性闸 / mdcg_propose /
+        # gated DEFER 几个入队点（它们都经本函数）。
+        if isinstance(node_id, str) and node_id:
+            self._maybe_reload_index()
+            _ex = (self.index.get("nodes") or {}).get(node_id)
+            if _ex is not None:
+                protect.require_layer(self, node_id,
+                                      layer=_ex.get("layer") or None,
+                                      sensitivity=_ex.get("sensitivity") or None)
         return super().propose(node_id, content, sensitivity=sens, **kw)
 
 # 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 _rank(sens) 并 principal.require_layer_write("goals", sens)，再转 super().add_goal，最后按 gid 调 _index_sensitivity 并返回 gid。

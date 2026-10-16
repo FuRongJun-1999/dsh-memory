@@ -2997,10 +2997,19 @@ class MdCG:
         # 次序对齐 N131/N209：principal 层闸在先、保护闸在后。
         if prev_entry is not None:
             _prev_layer = str(prev_entry.get("layer") or "")
+            # issue #346（2026-10-17 U05a）：**同层覆写**此前零闸——层闸只按调用方
+            # **声明的**值判（`MdCGSecure.add`/`_write_sensitivity` 用的是同一形参），
+            # 显式声明一个更低的 sensitivity 就绕开了「既有节点真密级 ＞ 写入者
+            # clearance」的比较。而三条落盘出口——直写、审核 accept/edit
+            # （`mdcos.review_decide`）、C 类变更单执行——**全部汇到本函数**，故闸
+            # 收在此处：一次覆盖所有出口，拒绝发生在任何写盘之前（无副作用）。
+            # 判据复用 `protect.require_layer` 单点（与 N131 merge 支、N221 跨层支、
+            # 直写面 `write_qualify` 同口径），不另写第二份「声明↔既有」比较。
+            # 次序与 N221/N131/N209 一致：principal 层闸在先、引擎保护闸在后。
+            protect.require_layer(self, node_id, layer=_prev_layer or None,
+                                  sensitivity=prev_entry.get("sensitivity"),
+                                  actor=extra.get("actor"))
             if _prev_layer and _prev_layer != layer:
-                protect.require_layer(self, node_id, layer=_prev_layer,
-                                      sensitivity=prev_entry.get("sensitivity"),
-                                      actor=extra.get("actor"))
                 protect.guard_move(self, node_id, layer, override=override,
                                    actor=extra.get("actor"))
         prev_state = lifecycle.state_of(prev_entry)
