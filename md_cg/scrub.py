@@ -23,6 +23,9 @@
   这是把「审计即状态」收窄成「**实际改动才是状态**」，属**刻意口径**，不是漏配：
   跑过一轮但没动的条目**下轮仍会报**，那是设计意图（持续观察），不是重复劳动。
   ⇒ 使用者若期望「跑过就不再报」，应改看 already_handled 读数，而非期望幂等名单增长。
+  （issue #411 后写账端对齐该口径：单条台账 `ok` 只在**真处置过**（done 含成功
+  weaken/demote）时为真；处置动作全败——如无权身份的 AccessDenied——记
+  `ok=False`，不占幂等名额，下轮（含有权身份）仍会动手。）
 
 **issue #67（2026-10-09 DSH 端）**：_pick 的 3k 截断**只对有序池成立**；对照组
 （random 池，_pool_candidates 唯一不排序者）此前同样被截断 ⇒「随机基线」退化成
@@ -48,7 +51,8 @@
      · `demote` → `cg._move_layer("contextual")`：降出可信层（走保护闸门）
      · `hint`   → 只给建议（合并 / 补证据需语义判断，不代劳）
    受保护节点（self/anchor/importance≥0.7/显式保护）**跳过**；**永不删除**。
-   幂等：`_scrub.jsonl` 里已处理过的 (节点, 污染类型) 不重复动手。
+   幂等：`_scrub.jsonl` 里已处理过的 (节点, 污染类型) 不重复动手
+   （「已处理」= 真处置过：动作全败的尝试 `ok=False`，不占名额——issue #411）。
 
 ④ **校准偏差（calibrate）**
    用「自报置信 vs 实测正确率」（`metacognition.calibration`）算全局 gap 与
@@ -661,7 +665,7 @@ def _weaken(cg, nid, kind, detail, times=1):
     return res
 
 
-# 生效条件：kinds 为真且 issue 的 kind 不在其中则跳过；kind 为 duplicate/unverified 记 hint，已出现在 _handled 记 skip，protect.is_protected 为真且 override 为假记 skip_protected，dry_run 为真记 planned；仅 dry_run 为假时对余下 issue 执行 _weaken，并在 demote 为真、severity 为 high 或 low 且当前层非 contextual 时降级到 contextual，返回计数与 actions。
+# 生效条件：kinds 为真且 issue 的 kind 不在其中则跳过；kind 为 duplicate/unverified 记 hint，已出现在 _handled 记 skip，protect.is_protected 为真且 override 为假记 skip_protected，dry_run 为真记 planned；仅 dry_run 为假时对余下 issue 执行 _weaken，并在 demote 为真、severity 为 high 或 low 且当前层非 contextual 时降级到 contextual，done 含成功 weaken/demote 才计 applied 且单条台账 ok 为真（全败计 failed、ok=False 不进幂等名单，issue #411），返回计数与 actions。
 def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
                   min_severity: str = "medium", hops: int = 1, actor=None,
                   override: bool = False, weaken_times: int = 1,
@@ -676,11 +680,14 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
     = 本轮检查到、但本轮无任何处置动作（dry_run 登记计划未执行；实修恒 0）；
     两者与 `applied` / `skipped_protected` / `hints` 构成逐条去向的互斥分类
     （`checked_breakdown`，仅读数，不回喂 `_handled`）。
+    issue #411：`applied` / 单条台账 `ok` 的判据回到「真处置」——done 里
+    无任何成功的 weaken/demote（如无权身份的 AccessDenied 全败）时计
+    `failed`、台账 `ok=False`，**不进幂等名单**，下轮仍会动手。
     """
     rep = audit(cg, node_ids, hops=hops, min_severity=min_severity)
     handled = _handled(cg)
     actions = []
-    n_applied = n_prot = n_done = n_hint = n_planned = 0
+    n_applied = n_failed = n_prot = n_done = n_hint = n_planned = 0
 
     for issue in rep["issues"]:
         nid, kind = issue["node_id"], issue["kind"]
@@ -734,17 +741,29 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
                                 f"demote_state:{_st.get('error')}")
             except Exception as exc:                      # noqa: BLE001
                 done.append(f"demote_failed:{type(exc).__name__}")
-        n_applied += 1
-        _log(cg, "decontaminate", node_id=nid, kind=kind, ok=True,
+        # issue #411：写账判据回到「真处置」——done 里没有任何成功的
+        # weaken/demote（如无权身份的 AccessDenied 全败）时，这条 issue
+        # 不计入 n_applied、单条台账记 ok=False ⇒ **不进 `_handled` 幂等
+        # 名单**，下轮（含有权身份）仍会动手；失败尝试不再永久占位。
+        # 收口只在写账这一端——`_handled` 的读法不动（仍只认 ok），
+        # 两处只改一处，防判据分叉。
+        _did = any(x in ("weaken", "demote") for x in done)
+        n_applied += 1 if _did else 0
+        n_failed += 0 if _did else 1
+        _log(cg, "decontaminate", node_id=nid, kind=kind, ok=bool(_did),
              actions=done, severity=issue["severity"], actor=actor)
-        actions.append({"node_id": nid, "kind": kind, "action": "applied",
+        actions.append({"node_id": nid, "kind": kind,
+                        "action": "applied" if _did else "failed",
                         "done": done, "detail": issue["detail"],
-                        "applied": True})
+                        "applied": bool(_did)})
 
-    # 覆盖账（issue #66）：逐条去向的**互斥分类**（五键之和 = 本轮处置循环的
+    # 覆盖账（issue #66）：逐条去向的**互斥分类**（六键之和 = 本轮处置循环的
     # issue 条数，kinds 过滤者除外），**只用于读数**——不回喂 `_handled`
     # （幂等账本仍只认「改过」的单条记录，读法见 `_handled`）。
     #   applied           本轮实际执行了处置动作（weaken/demote）
+    #   failed            处置动作**全败**（issue #411：done 无任何成功的
+    #                     weaken/demote，如越层 AccessDenied）——不再冒充
+    #                     applied；不进幂等名单，下轮仍会动手。
     #   already_handled   命中幂等名单（此前已处置过）→「旧面孔」。
     #                     旧键 `skipped_done` 的**实际含义就是它**——不是「检查
     #                     过并跳过」，正名于此（旧键保留兼容，值恒等）。
@@ -753,9 +772,12 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
     #                     计划未执行）→「本轮检查面」。实修恒 0：检查出的可
     #                     处置问题都会动手。它与 `already_handled` 语义相反：
     #                     一个数「本轮新检查」，一个数「此前已处置（幂等存量）」。
+    #                     （#411 后：实修里「动了但全败」的条目落 failed，
+    #                     planned_dry_run 仍恒 0。）
     #   protected         受保护跳过（`protect.is_protected` 拦下）
     #   hint              声明只给建议（duplicate/unverified/not_yet，不动手）
-    breakdown = {"applied": n_applied, "already_handled": n_done,
+    breakdown = {"applied": n_applied, "failed": n_failed,
+                 "already_handled": n_done,
                  "planned_dry_run": n_planned, "protected": n_prot,
                  "hint": n_hint}
     if not dry_run:
@@ -766,7 +788,8 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
              skipped_protected=n_prot, skipped_done=n_done, hints=n_hint,
              checked_breakdown=breakdown, actor=actor)
     return {"ok": True, "dry_run": dry_run, "n_issues": rep["n_issues"],
-            "applied": n_applied, "skipped_protected": n_prot,
+            "applied": n_applied, "failed": n_failed,
+            "skipped_protected": n_prot,
             # 正名（issue #66）：`skipped_done` = 命中幂等名单，**非「检查并跳过」**；
             # 兼容键保留（值恒等），新读数请用 `already_handled`。
             "already_handled": n_done, "skipped_done": n_done,

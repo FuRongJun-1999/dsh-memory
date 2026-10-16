@@ -317,7 +317,8 @@ def _mutations():
     sustain_p = os.path.join(here, "sustain.py")
     return {
         "M1": (scrub_p,
-               '''    breakdown = {"applied": n_applied, "already_handled": n_done,
+               '''    breakdown = {"applied": n_applied, "failed": n_failed,
+                 "already_handled": n_done,
                  "planned_dry_run": n_planned, "protected": n_prot,
                  "hint": n_hint}''',
                '''    breakdown = {}''',
