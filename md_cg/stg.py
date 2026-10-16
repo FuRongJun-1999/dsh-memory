@@ -65,7 +65,10 @@ def _interval(fm, time_axis="observed"):
 
     `believed_at` **永不参与任何轴**（同 `trust.BELIEVED_FIELD` 的隔离纪律）。
     """
-    s, e = trust.time_window_of(fm, trust.time_axis_of(time_axis))
+    # Legacy observed NaN/inf stays conservative in both the index and scan.
+    # Query endpoints and effective/validity endpoints still require finiteness.
+    axis = trust.time_axis_of(time_axis)
+    s, e = trust.time_window_of(fm, axis, _allow_nonfinite=(axis == "observed"))
     if s is None or e is None:
         return None
     return (float(s), float(e))
