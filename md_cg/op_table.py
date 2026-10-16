@@ -482,7 +482,7 @@ _OP_TABLE = {
     },
     "task": {
         "doc_order": 9,
-        "doc": "结构层任务实体（跨会话的工程台账，与信任/自我/协议同级；action=open 登记或更新（同名即同卡）、status 状态迁移（进行中/受阻/完成/放弃，迁 完成 时结果必填）、plan_add 追加计划变更、get 单卡全字段、list 清单、find 同族提示（只提示不合并）、session 会话装配面（进行中+近期完成）；任务只存骨架，中间过程不入库，任务知识走 knowledge 层）；",
+        "doc": "结构层任务实体（跨会话工程台账；action=open 登记或更新、status 状态迁移、plan_add 追加计划变更、get 单卡、list 清单、find 同族提示、session 会话装配；record_memory 保存会话结果与经验候选，recall_memory 分桶召回，get_memory 完整回读证据。任务卡只存骨架；会话结果落 contextual，经验候选落 knowledge 且 unverified；不自动收集中间过程）；",
         "impl": "_task_call",
         "require": "task",
         "params": (
@@ -495,6 +495,8 @@ _OP_TABLE = {
             "condition",
             "active_limit",
             "done_limit",
+            "memory",
+            "include_history",
         ),
         "actions": (
             "add",
@@ -507,9 +509,13 @@ _OP_TABLE = {
             "set_status",
             "status",
             "upsert",
+            "record_memory",
+            "recall_memory",
+            "get_memory",
         ),
         "default_action": "list",
         "sigs": (
+            ("memory", "record_memory"),
             (
         "name",
         "open",

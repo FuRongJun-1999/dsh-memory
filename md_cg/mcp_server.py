@@ -975,6 +975,11 @@ KERNEL_TOOLS = [
             max_events=_p("integer", "ingest：单次最多摄取事件数"),
             task_status=_p("string", "task op：active|blocked|done|dropped；"
                                      "迁 done 必须同时给 result（缺一不收）"),
+            memory=_p("object", "task action=record_memory：{record_id, fact: "
+                      "{statement,subject,outcome,details?,files?,supersedes?}, "
+                      "experiences?:[{task,solution,conditions,boundary,verification,search_keys?}]}；"
+                      "outcome=succeeded|failed|blocked|partial；经验写为未核验候选"),
+            include_history=_p("boolean", "task action=recall_memory：是否包含已被取代的事实（默认否）"),
             plan=_p("string", "task op：分步计划（每轮覆盖更新，跨会话持久存在）"),
             result=_p("string", "task op：任务结果（done 时必填；本次不传则**保留旧值**，"
                                 "不会被静默清空）"),
@@ -2062,6 +2067,7 @@ def _help_call(cg, a):
 
 
 # 生效条件：当 cg、a 传入时，act=(a.get('action') or '').strip().lower()（空串/None 得空串），若 act 空则 act=_action_sig(a, 'task')[0] or 'list'，name=a.get('name') or a.get('task_name') or a.get('task') or ''，nid=a.get('node_id') or a.get('task_id') or ''，tstat=a.get('task_status') or a.get('new_status') or ''（各假值链回落 ''）：act 为 open/add/upsert 时 importance 取 a.get('importance')，非 None 则 float、转换失败置 None，返回 _t.upsert(cg, name or nid, plan=a.get('plan'), status=tstat or None, result=a.get('result'), condition=a.get('condition'), goal=a.get('goal_text') or a.get('goal'), acceptance=a.get('acceptance'), boundary=a.get('boundary'), change=a.get('change'), note=a.get('note'), tags=a.get('tags'), importance=imp, actor=a.get('actor'))；act 为 status/set_status 时若 tstat 假值返回 {'ok': False, 'error': '缺 task_status', 'hint': '可选 active|blocked|done|dropped；迁 done 必须同时给 result'}，否则返回 _t.set_status(cg, nid or name, tstat, result=a.get('result'), note=a.get('note'), actor=a.get('actor'))；act=plan_add 返回 _t.plan_add(cg, nid or name, a.get('change') or a.get('text'), actor=a.get('actor'))；act=get 返回 _t.get_task(cg, nid or name)；act=find 返回 _t.find_similar(cg, name, k=_int_arg(a, 'k', _int_arg(a, 'limit', 5)))（k/limit 显式原样透传、缺省链回落 5）；act=session 返回 _t.session_tasks(cg, active_limit=int(a.get('active_limit') or 5), done_limit=int(a.get('done_limit') or 5))（各假值回落 5）；act 非 list 时返回 {'ok': False, 'error': '未知 task action：%r' % act, 'hint': '可选 open|status|plan_add|get|list|find|session'}；act=list 返回 _t.list_tasks(cg, status=tstat or None, limit=a.get('limit'))；
+# 生效条件：原任务动作沿用；record_memory/recall_memory/get_memory 分派到 task_memory 的 record/recall/get，参数由库层统一校验；memory 载荷签名优先推导为 record_memory，避免被 name 签名静默吞为 open。
 def _task_call(cg, a):
     """结构层任务实体（op=task）——跨会话的工程台账。
 
@@ -2073,6 +2079,9 @@ def _task_call(cg, a):
       list         任务清单（默认；可按 task_status 过滤）
       find         同族任务提示（**只提示，不自动合并**）
       session      会话装配面（进行中 + 近期完成）——供上下文召回
+      record_memory 保存本次任务结果与零或多条经验候选（不自动验证）
+      recall_memory 分桶召回任务事实/经验（原始证据按引用回读）
+      get_memory   按 node_id 完整读取原始记忆
 
     :param name: 任务名（身份判据：同名即同任务，slug 归一后落节点 id）
     """
@@ -2083,6 +2092,16 @@ def _task_call(cg, a):
     name = a.get("name") or a.get("task_name") or a.get("task") or ""
     nid = a.get("node_id") or a.get("task_id") or ""
     tstat = a.get("task_status") or a.get("new_status") or ""
+
+    if act in ("record_memory", "recall_memory", "get_memory"):
+        from . import task_memory
+        if act == "record_memory":
+            return task_memory.record(cg, nid or name, a.get("memory"))
+        if act == "get_memory":
+            return task_memory.get(cg, nid)
+        return task_memory.recall(cg, nid or name, query=a.get("query", ""),
+                                  limit=a.get("limit", 5),
+                                  include_history=a.get("include_history", False))
 
     if act in ("open", "add", "upsert"):
         imp = a.get("importance")
@@ -2122,7 +2141,7 @@ def _task_call(cg, a):
 
     if act != "list":
         return {"ok": False, "error": "未知 task action：%r" % act,
-                "hint": "可选 open|status|plan_add|get|list|find|session"}
+                "hint": "可选 open|status|plan_add|get|list|find|session|record_memory|recall_memory|get_memory"}
 
     return _t.list_tasks(cg, status=tstat or None, limit=a.get("limit"))
 

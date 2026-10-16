@@ -48,3 +48,7 @@ jobs:
       - name: Python 全量套件（scripts/run_tests.py）
         # 多个 hive 守卫共享临时工作区与生成表；并行执行会产生竞态假红。
         run: python scripts/run_tests.py --jobs 1
+      - name: 原生任务记忆定点变异（每条须点红预注册守卫）
+        run: python -X utf8 -m md_cg.test_task_memory --mutate
+      - name: 原生任务记忆真实 MCP 跨进程回放
+        run: python -X utf8 scripts/verify_task_memory.py
