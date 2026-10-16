@@ -10,15 +10,27 @@
   · #130 的「按真实打分排序的路」断言（_RANK_ABSTAIN_PATHS 注释把 lexical 排除
     在弃权名单外）在中文问句上不成立——lexical 的名次同样只由兜底键决定。
 
-修法（方案②根修，`md_cg/mdcg.py`）：
+修法（方案②根修，`md_cg/mdcg.py`；PR #381 复核返工 2026-10-16）：
   · `lexical_weights`：池内平滑 IDF `log(1+(N-df+0.5)/(df+0.5))`（与 bm25 路
     同款「scoped to the current eligible pool」口径，检索期零额外 IO）；
   · `CN_FUNC_GRAMS`（**打分侧**，底座=召回侧 `CN_STOP_GRAMS` + 疑问/指代功能
-    bigram「什么/是什/么是/为什」类）× `FUNC_GRAM_ALPHA=0.25` 降权；
+    bigram「什么/是什/么是/为什」类）× `FUNC_GRAM_ALPHA=0.25` 降权。
+    #381 复核 P0-③ 裁剪：否定词（没有/不是）、情态/命题性词（可以）与命题
+    性实词（是否/多少/自己）**不降权**——「没有审计日志」与「审计日志」语义
+    相反，降权会抹平否定词的判别度（改前读数 w(没有)=0.173≈w(审计)=0.182，
+    改后 w(没有)=0.693>0.182）。保留纯功能词，共 30 项（Rust 同表同步）；
   · `MdCG._score` 改两遍：先收齐本批文档 bigram 集算权重表，再逐文档
     `lexical_sim_weighted`（求和按 sorted 序，跨进程可复算）；
-  · **退化即旧序**：池内 df 全同 ⇒ 加权分与 legacy 只差正常数（排序逐位同序）
-    ——加权只在池确有判别信息时改变排序；
+  · **退化即旧序（#381 复核 P0-① 修正）**：退化判据=**权重表全等**（df 全同
+    且 qb 全在同侧、或 qb 单 gram，是全等的充分条件；df 全同但 qb 跨侧时
+    w 恰差 α 倍，**不**属退化——反例 qb={"什么","记忆"} df 全同=1 ⇒
+    w=0.173/0.693，名次可翻转）。全等 ⇒ `lexical_weights` 返回 None 逐位走
+    旧 `lexical_sim`（退化池分数与修前**逐位相等**，G3c-1 钉 ==；跨侧不退化
+    的分序由 G3c-2 钉）；
+  · **N 口径（#381 复核 P0-② 对齐）**：Python N=传入 `_score` 的当批全量
+    （`_lexical`/T2 路=LIKE 预筛后的命中全量，GLOBAL_CAP 截断在打分之后）
+    ↔ Rust `retrieval.rs::lexical` 权重池改取「**截断前**命中全量」（空命中
+    =完整候选集；现役调用 cap=1e9 两侧池恒等），两侧注释互指；
   · jaccard 口径逐位不动（评测留档读数 / rank_parity 钉 jaccard 对拍不受影响）；
   · bm25 路不经 `_score`，行为零改动；`MDCG_LEXICAL_IDF=0` 显式回退旧口径。
 
@@ -32,17 +44,32 @@
          jaccard 公式直算逐位相等（IDF 开关两侧亦逐位相等）；
      G3b bm25 路读数不变：`bm25.search` 在 IDF 开/关两侧逐位相等（该路不经
          `_score`）；
-     G3c 退化即旧序：df 全同池上，加权分与 legacy 公式分同序且差 < 1e-12；
+     G3c 退化判据（#381 复核 P0-① 改造，断言均 ≥2 gram）：
+         G3c-1 同侧 df 全同 ⇒ 权重表全等 ⇒ `lexical_weights`=None ⇒ _score
+              与 legacy 公式分**逐位相等（==）**；
+         G3c-2 跨侧（功能词+实词）df 全同 ⇒ 权重恰差 α 倍、不跳过 ⇒ legacy
+              同分处加权分序（实词档>功能档）——「df 全同⇒权重全等」的
+              P0-① 反例入守卫（防跳过条件被误改回 df 判据）。
      G3d 回退开关：`MDCG_LEXICAL_IDF=0` 时 `_score` 与旧公式（inter/len(qb)）
          逐位相等；召回侧 `CN_STOP_GRAMS`/`cn_recall_grams` 不受开关影响。
-  G4 中文问句端到端（12 文档 × 3 问句夹具）：
-     同分率显著下降（加权后 distinct 分数数 > legacy、最大同分块 < legacy）；
-     命中集不变（score>0 集合相等——质量闸语义不动）；legacy top1 因 id 置换
-     漂移的问句，加权后 top1 在 id 置换下稳定。
+  G4 中文问句端到端（17 文档 × 3 问句夹具）：同分块收窄（distinct 分数数
+     加权 > legacy、最大同分块加权 < legacy）、命中集不变（score>0 集合相等
+     ——质量闸语义不动）、legacy top1 因 id 置换漂移的问句加权后稳定。
+     **收益口径（#381 复核 P2-⑤）**：distinct/最大块是**同分结构**读数，不是
+     检索质量读数——值守实测 top1 0/500、MRR +0.0000（命中面不变，本件不
+     改善也不恶化质量指标）；本件收益=「同分名次退化为写入序」的 **bug
+     修复**（名次不再由 id=毫秒时间戳的字典序决定），不是质量提升。
+  G5 公式锚（#381 复核 P1-④；不依赖 --mutate，静态锚死公式每一项）：
+     手算常数精确断言（n=3/df=1 ⇒ w=ln(8/3)，df=0 ⇒ w=ln(8)，精确到 1e-12；
+     端到端 `_score` 分值==手算加权分）；实词权重>功能词权重×(1+阈值=3)；
+     跨进程（PYTHONHASHSEED=1/8 子进程）分值 repr 逐字符相等——自然 IDF 值
+     锚 + **对抗值**锚（{1e16,1.4,1.4}：IDF 自然值域 4 值全排列舍入实测相同，
+     序依赖仅在对抗值上必现）。平滑常数改错/去掉 log/求和去 sorted 三类公式
+     注入任一即转红（改前守卫对此 28/0 全绿零判别力，#381 复核实测）。
 
 变异协议（--mutate）：用 `MDCG_LEXICAL_IDF=0`（行为级精确回退——比文本变异
 更贴「修前形态」，旧公式代码原样保留在该分支里）在子进程复刻修前态，断言
-G1/G2/G4 **转红**（G3 在回退态平凡通过）；恢复缺省后全绿。两向读数都打印。
+G1/G2/G4/G5 **转红**（G3 在回退态平凡通过）；恢复缺省后全绿。两向读数都打印。
 
 运行：
     python -X utf8 -m md_cg.test_issue363_lexical_rank_guard            # 正向
@@ -56,6 +83,7 @@ G1/G2/G4 **转红**（G3 在回退态平凡通过）；恢复缺省后全绿。�
 """
 from __future__ import annotations
 
+import math
 import os
 import subprocess
 import sys
@@ -64,7 +92,9 @@ from collections import Counter
 from unittest.mock import patch
 
 # ── 隔离前置：import md_cg 之前冻结 aux/root 面（与 test_rank_parity_score_mode
-# 同款纪律）；MDCG_LEXICAL_IDF 刻意**透传**（--mutate 靠它在子进程复刻修前态）。
+# 同款纪律）；MDCG_LEXICAL_IDF 刻意**透传**（--mutate 靠它在子进程复刻修前态；
+# --anchor-dump 子进程同样透传父进程口径——G5d 的跨进程可比性依赖它）。
+_ANCHOR_DUMP = "--anchor-dump" in sys.argv
 _TMP = tempfile.mkdtemp(prefix="i363_")
 os.environ["MDCG_AUX_ROOT"] = os.path.join(_TMP, "auxroot")
 os.environ["MDCG_MASTER_KEY"] = "cd" * 32
@@ -76,7 +106,8 @@ for _k in [k for k in os.environ if k.startswith("MDCG_")]:
         os.environ.pop(_k, None)
 os.environ.update(MDCG_HOTCACHE="0", MDCG_READ_CACHE="1", MDCG_FRESHNESS="0",
                   MDCG_UNIFY_QUERY="0", MDCG_EN_ATOMS="0")
-os.environ.pop("MDCG_LEXICAL_IDF", None)      # 正向模式：缺省态（开）
+if not _ANCHOR_DUMP:
+    os.environ.pop("MDCG_LEXICAL_IDF", None)      # 正向模式：缺省态（开）
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -294,17 +325,46 @@ def g3():
        "G3b bm25 路读数：BM25Index.rank 在 IDF 开/关两侧逐位相等（%d 条；"
        "bm25=true 路本体零改动；其 lexical 回落腿受益属预期）" % len(r_on))
 
-    # G3c 退化即旧序：df 全同池（每篇都含全部 qb gram）
-    uni = [("u1", "甲乙丙丁"), ("u2", "甲乙丙丁戊"), ("u3", "乙丙甲丁")]
+    # G3c 退化判据（PR #381 复核 P0-① 改造；旧断言用单 gram 查询「乙丙」，
+    # 退化平凡成立、对公式错误零判别力，且其「df 全同 ⇒ 同序」的口径被反例
+    # 证伪——qb 跨侧时 df 全同 w 恰差 α 倍，名次可翻转）。两条均 ≥2 gram：
+    # G3c-1 同侧 df 全同 ⇒ 权重表全等 ⇒ lexical_weights=None ⇒ _score 逐位
+    #       走旧公式（与 legacy_scores **==**，比旧断言的「同序＋1e-12」强）；
+    # G3c-2 跨侧（功能词+实词）df 全同 ⇒ 权重恰差 α 倍、**不**跳过 ⇒ legacy
+    #       同分处加权分序（P0-① 反例入守卫；防跳过条件被误改回 df 判据——
+    #       那会连 G2 的「同 df 功能/实词必须分序」一起杀掉）。
+    uni = [("u1", "记忆检索方法甲乙"), ("u2", "甲记忆检索方法乙"),
+           ("u3", "乙甲记忆检索方法")]            # 每篇都含全部 qb gram
     cg2 = build(uni)
-    q = "乙丙"
-    sc_w = raw_scores(cg2, q)
-    sc_l = legacy_scores(cg2, q)
-    order_w = sorted(sc_w, key=lambda i: -sc_w[i])
-    order_l = sorted(sc_l, key=lambda i: -sc_l[i])
-    ok(order_w == order_l and all(abs(sc_w[i] - sc_l[i]) < 1e-12 for i in sc_w),
-       "G3c 退化即旧序：df 全同池上加权分与 legacy 同序且差 <1e-12（%s）" % order_w)
+    q_deg = "记忆检索方法"                        # qb 5 gram，全实词侧
+    qb_d = mdcg.bigrams(mdcg.normalize_en(q_deg))
+    nbs_d = [mdcg.bigrams(mdcg.normalize_en(c)) for _, c in uni]
+    w_d = mdcg.lexical_weights(qb_d, nbs_d)
+    sc_w = raw_scores(cg2, q_deg)
+    sc_l = legacy_scores(cg2, q_deg)
+    ok(w_d is None and sc_w == sc_l,
+       "G3c-1 退化即旧序（全等跳过）：df 全同全同侧多 gram 池 lexical_weights=None，"
+       "_score 与 legacy 逐位相等（==，非仅同序）")
     cg2.close()
+
+    mix = [("p1", "什么填充甲"), ("p2", "么记填充乙"), ("p3", "记忆填充丙")]
+    cg3 = build(mix)
+    q_mix = "什么记忆"                            # qb={什么,么记,记忆}：1 功能 + 2 实词
+    qb_m = mdcg.bigrams(mdcg.normalize_en(q_mix))
+    nbs_m = [mdcg.bigrams(mdcg.normalize_en(c)) for _, c in mix]
+    w_m = mdcg.lexical_weights(qb_m, nbs_m)
+    sc_w2 = raw_scores(cg3, q_mix)
+    sc_l2 = legacy_scores(cg3, q_mix)
+    ok(w_m is not None and len(set(w_m.values())) > 1
+       and sc_l2["p1"] == sc_l2["p2"] == sc_l2["p3"],
+       "G3c-2 前置：df 全同（=1）跨侧池 legacy 三档同分 %.6f，权重表产出且不全等"
+       % sc_l2["p1"])
+    ok(w_m is not None and w_m["记忆"] > w_m["什么"] and sc_w2["p3"] > sc_w2["p1"],
+       "G3c-2 df 全同≠权重全等（P0-① 反例）：w(记忆)=%.6f > w(什么)=%.6f（恰 α 倍差，"
+       "不跳过），加权分序 p3(实词)=%.6f > p1(功能)=%.6f（legacy 同分处加权必分序）"
+       % ((w_m or {}).get("记忆", float("nan")), (w_m or {}).get("什么", float("nan")),
+          sc_w2["p3"], sc_w2["p1"]))
+    cg3.close()
 
     # G3d 回退开关逐位回旧行为；召回侧不受开关影响
     q = "什么是有效的记忆检索方法"
@@ -375,7 +435,113 @@ def g4():
             q, d_l, d_w, b_l, b_w, tl, tlr, tw, twr))
 
 
+# ── G5 公式锚（PR #381 复核 P1-④）───────────────────────────────────────────
+# 旧守卫的变异面只有 MDCG_LEXICAL_IDF=0 行为级回退，对「公式本身写错」（平滑
+# 常数改错/去掉 log/求和去 sorted）零判别力（28/0 全绿）。本组用**手算常数**
+# 锚死公式每一项，任一项被改动即在正向模式转红：
+#   · n=3/df=1 ⇒ w=ln(1+(3-1+0.5)/(1+0.5))=ln(8/3)——平滑常数两个 0.5 的锚；
+#   · df=0 分支 ⇒ w=ln(1+(3-0+0.5)/0.5)=ln(8)——N 与 df=0 分支的锚；
+#   · α 乘子只落在功能 gram（w(什么)=α·ln(8/3)≠w(记忆)）；
+#   · 分式 Σw(∩)/Σw(qb)：字面权重 {什么:0.25, 记忆:1.0} ⇒ 1/(1+α)=0.8 精确；
+#   · 跨进程（PYTHONHASHSEED=1/2）repr 逐字符相等——求和序若改走 set 迭代序，
+#     不同哈希种子的末位舍入不同 ⇒ repr 不等 ⇒ 红（「去 sorted」的锚）。
+A5_DOCS = [("a", "记忆的衰减"), ("b", "什么是白名单"), ("c", "填充内容其他")]
+A5_QUERY = "什么是记忆"   # qb={什么,么是,是记,记忆}：2 功能 + 2 实词；df: 1/1/0/1
+A5_ALPHA = 0.25           # = FUNC_GRAM_ALPHA（锚面直读常量，勿 import 以免同错对消）
+A5_L83 = math.log(8.0 / 3.0)
+A5_L8 = math.log(8.0)
+# 「求和序确定性」对抗值锚：{1e16, 1.4, 1.4} 的逐位累加**序敏感**（两个 1.4
+# 先聚再撞 1e16 ⇒ +2；先撞再聚 ⇒ +4——实测 PYTHONHASHSEED=1/8 恰好落两类）。
+# IDF 自然值域（0.1~2.4）的 4 值全排列舍入相同（24/24 实测），「去 sorted」
+# 变异在自然值上不可见；此对抗值把末位舍入的序依赖放大到必现。
+A5_SPKY_QB = {"aa", "bb", "cc"}
+A5_SPKY_NB = {"bb", "cc"}
+A5_SPKY_W = {"aa": 1e16, "bb": 1.4, "cc": 1.4}
+
+
+def _a5_expected():
+    """锚点库手算分值（与实现独立推导：n=3，df(什么)=df(么是)=df(记忆)=1、
+    df(是记)=0）。"""
+    w = {"什么": A5_ALPHA * A5_L83, "么是": A5_ALPHA * A5_L83,
+         "是记": A5_L8, "记忆": A5_L83}
+    den = sum(w[g] for g in sorted(w))
+    return w, den, {"a": w["记忆"] / den,
+                    "b": (w["什么"] + w["么是"]) / den,
+                    "c": 0.0}
+
+
+def g5():
+    # G5a 精确权重锚（n=3/df=1 ⇒ ln(8/3)；平滑常数/log/α 任一改动 ≥1e-3 量级即红）
+    nbs = [{"什么"}, {"记忆"}, {"杂文"}]
+    w = mdcg.lexical_weights({"什么", "记忆"}, nbs)
+    ok(w is not None
+       and abs(w["记忆"] - A5_L83) < 1e-12
+       and abs(w["什么"] - A5_ALPHA * A5_L83) < 1e-12,
+       "G5a 权重锚：n=3/df=1 ⇒ w(记忆)=%.9f==ln(8/3)、w(什么)=%.9f==α·ln(8/3)"
+       "（手算常数，精确 1e-12）" % (
+           (w or {}).get("记忆", float("nan")),
+           (w or {}).get("什么", float("nan"))))
+    ok(w is not None and w["记忆"] > w["什么"] * 3.0,
+       "G5a 实词权重>功能词×(1+阈值=3)：%.6f > %.6f（比值恰 1/α=%.1f）" % (
+           (w or {}).get("记忆", float("nan")),
+           (w or {}).get("什么", float("nan")) * 3.0, 1.0 / A5_ALPHA))
+    # G5b 分式锚（字面权重，与 IDF 无关——α 与 Σ/Σ 公式本身的锚）
+    s = mdcg.lexical_sim_weighted({"什么", "记忆"}, {"记忆"},
+                                  {"什么": A5_ALPHA, "记忆": 1.0})
+    ok(abs(s - 1.0 / (1.0 + A5_ALPHA)) < 1e-12,
+       "G5b 分式锚：Σw(∩)/Σw(qb)=1.0/(1.0+0.25)=%.9f 精确（字面权重 %.9f）" % (
+           1.0 / (1.0 + A5_ALPHA), s))
+    # G5c 端到端分值锚（过 MdCG._score 两遍链路；df=0 分支 ln(8) 一并钉住）
+    cg = build(A5_DOCS)
+    sc = raw_scores(cg, A5_QUERY)
+    _, den, exp = _a5_expected()
+    ok(all(abs(sc[i] - exp[i]) < 1e-12 for i in exp),
+       "G5c 端到端分值锚：_score(a/b/c)=(%.9f/%.9f/%.1f) == 手算 (%.9f/%.9f/0)"
+       "（n=3，df(是记)=0 ⇒ w=ln(8)=%.6f 同锚）" % (
+           sc["a"], sc["b"], sc["c"], exp["a"], exp["b"], A5_L8))
+    ok(sc["a"] > sc["b"] * 1.5,
+       "G5c 分值序：实词档 a=%.6f > 功能档 b×1.5=%.6f（同池同 df，比值恰 "
+       "1/(2α)=%.1f）" % (sc["a"], sc["b"] * 1.5, 1.0 / (2 * A5_ALPHA)))
+    # G5d 跨进程可复算锚（「去 sorted」变异的锚）：两个显式哈希种子的子进程
+    # 与本进程逐字符相等——自然 IDF 值的锚（ANCHOR 行）+ 对抗值锚（ANCHOR2
+    # 行，序敏感必现；种子 1/8 实测分落 +4/+2 两类舍入）。
+    dumps = []
+    for seed in ("1", "8"):
+        env = dict(os.environ)
+        env["PYTHONHASHSEED"] = seed
+        proc = subprocess.run(
+            [sys.executable, "-X", "utf8", "-m",
+             "md_cg.test_issue363_lexical_rank_guard", "--anchor-dump"],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            capture_output=True, text=True, encoding="utf-8", env=env)
+        lines = [ln.strip() for ln in (proc.stdout or "").splitlines()
+                 if ln.startswith("ANCHOR")]
+        dumps.append(lines[:2] if len(lines) >= 2
+                     else ["NO-ANCHOR(rc=%d)" % proc.returncode])
+    spky = mdcg.lexical_sim_weighted(A5_SPKY_QB, A5_SPKY_NB, A5_SPKY_W)
+    want = ["ANCHOR %r %r %r" % (sc["a"], sc["b"], sc["c"]),
+            "ANCHOR2 %r" % (spky,)]
+    ok(dumps[0] == dumps[1] == want,
+       "G5d 跨进程可复算：PYTHONHASHSEED=1/8 子进程与父进程分值 repr 逐字符相等"
+       "（自然值 %r；对抗值 %r——求和序若改走 set 迭代序，两种子末位舍入必劈叉）"
+       % (dumps[0][0] if dumps[0] else "?", dumps[0][1] if len(dumps[0]) > 1 else "?"))
+    cg.close()
+
+
+def anchor_dump():
+    """--anchor-dump 子进程入口：打印锚点分值（repr，往返精确）。"""
+    cg = build(A5_DOCS)
+    sc = raw_scores(cg, A5_QUERY)
+    print("ANCHOR %r %r %r" % (sc["a"], sc["b"], sc["c"]))
+    cg.close()
+    print("ANCHOR2 %r" % (mdcg.lexical_sim_weighted(
+        A5_SPKY_QB, A5_SPKY_NB, A5_SPKY_W),))
+
+
 def main(argv):
+    if "--anchor-dump" in argv:
+        anchor_dump()
+        return 0
     mutate = "--mutate" in argv
     reverted = "--reverted" in argv
     if reverted:
@@ -387,10 +553,11 @@ def main(argv):
     if not reverted:
         g3()
     g4()
+    g5()
     n_pass, n_fail = len(_PASS), len(_FAIL)
     print("== 结果：PASS %d / FAIL %d ==" % (n_pass, n_fail))
     if mutate:
-        # 变异两向：回退态必须红（G1/G2/G4 至少一条失败），缺省态已在本进程外验证
+        # 变异两向：回退态必须红（G1/G2/G4/G5 至少一条失败），缺省态已在本进程外验证
         proc = subprocess.run(
             [sys.executable, "-X", "utf8", "-m",
              "md_cg.test_issue363_lexical_rank_guard", "--reverted"],

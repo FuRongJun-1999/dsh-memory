@@ -453,12 +453,22 @@ CN_STOP_GRAMS = {
 #   · CN_STOP_GRAMS 服务 `cn_recall_grams`（召回键**剔除**——召回面既有契约）；
 #   · CN_FUNC_GRAMS 服务 `lexical_weights`（打分**降权** α 倍——本件新增）。
 # 若扩表时直接动 CN_STOP_GRAMS，会连带改召回键集合（召回面行为变化，超出
-# 本件靶区）；故打分侧自成一张，底座取 CN_STOP_GRAMS 全量 + 疑问/指代功能
-# bigram（「什么/是什/么是/为什」类，#363 实测中文自然问句的功能词二元组与
-# 实词等权 ⇒ inter/len(qb) 只有 k/len(qb) 几个离散档 ⇒ 大面积同分）。
-CN_FUNC_GRAMS = frozenset(CN_STOP_GRAMS | {
+# 本件靶区）；故打分侧自成一张。
+# 词表来源：召回侧 CN_STOP_GRAMS 底座 + 疑问/指代功能 bigram（「什么/是什/
+# 么是/为什」类——#363 实测中文自然问句的功能词二元组与实词等权 ⇒
+# inter/len(qb) 只有 k/len(qb) 几个离散档 ⇒ 大面积同分）。
+# 裁剪依据（PR #381 复核 P0-③，2026-10-16）：底座中的否定词「没有/不是」、
+# 情态/命题性词「可以」与新增表中的命题性实词「是否/多少/自己」**不降权**——
+# 它们承载命题内容：「没有审计日志」与「审计日志」语义相反，查询问的恰是
+# 「没有」；「是否/多少」可直接充当问句焦点，「自己」是反身指认的实词侧。
+# 把它们当纯功能词打 α 折会削弱实词侧本已稀缺的判别度（改前读数：查询
+# 「没有审计日志怎么查」w(没有)=0.173 ≈ w(审计)=0.182——否定词的判别度
+# 被抹平）。保留的是纯功能词：疑问（什么/怎么/如何/哪里…）、指代/称谓
+# （大家/他们/她们/我们…）与虚化连接（的了/是一/的话…）。Rust 侧
+# `rust/src/text.rs::CN_FUNC_GRAMS` 同表同步（两侧必须同时改）。
+CN_FUNC_GRAMS = frozenset((CN_STOP_GRAMS - {"不是", "没有", "可以"}) | {
     "什么", "是什", "么是", "为什", "怎么", "怎样", "么样", "如何", "为何",
-    "哪些", "哪个", "哪里", "是否", "多少", "自己", "大家", "他们", "她们",
+    "哪些", "哪个", "哪里", "大家", "他们", "她们",
 })
 # 功能 bigram 的打分权重乘子（α=1 等价于不降权；α 只在 `lexical_weights` 消费）
 FUNC_GRAM_ALPHA = 0.25
@@ -476,18 +486,28 @@ def lexical_idf_on() -> bool:
 # 生效条件：qb 非空、doc_bigrams 非空、lexical_idf_on() 为真且 effective_mode 不为
 # "jaccard" 时，对 qb 的每个 gram g 按「池内文档频率」df 算平滑 IDF 权重
 # log(1+(N-df+0.5)/(df+0.5))，g ∈ CN_FUNC_GRAMS 再乘 FUNC_GRAM_ALPHA，按 sorted(qb)
-# 序返回 {g: w}（全确定性：求和面由消费方按 sorted 序累加）；任一条件不满足返回
-# None（调用方回退 `lexical_sim` 旧式逐位打分）。
+# 序返回 {g: w}（全确定性：求和面由消费方按 sorted 序累加）；权重表**全等**时也
+# 返回 None（退化跳过，PR #381 复核 P0-①——全等 ⇒ 无判别信息，调用方逐位走
+# `lexical_sim` 旧口径）；其余条件不满足同样返回 None。
 def lexical_weights(qb, doc_bigrams, effective_mode=None):
     """issue #363：legacy 口径的查询 bigram 权重表（池内 IDF + 功能词降权）。
 
-    · N = 本批打分文档数（与 bm25 路同款「scoped to the current eligible pool」
-      口径——检索期不读盘、不落盘，池变则表变、可复算）；
+    · N = 调用方传入 doc_bigrams 的**当批全量**数（与 bm25 路同款「scoped
+      to the current eligible pool」口径——检索期不读盘、不落盘，池变则表变、
+      可复算）。PR #381 复核 P0-② 与 Rust 互指：`_lexical`/search T2 路传入的
+      是 LIKE 预筛后的**命中全量**（GLOBAL_CAP 截断发生在打分**之后**，故 N
+      不含截断效应）↔ Rust `retrieval.rs::lexical` 的权重池同取「截断前 LIKE
+      命中全量」（空命中时=完整候选集；现役调用 cap=1e9 下两侧池恒等）。
     · df(g) = 池内含 g 的文档数；w(g) = log(1+(N-df+0.5)/(df+0.5))（Lucene 式
-      平滑，恒正）×（g ∈ CN_FUNC_GRAMS 时 FUNC_GRAM_ALPHA）；
-    · **退化即旧序**：池内所有 qb gram 的 df 相同（或池只有一篇）时权重全等
-      ⇒ 加权分与 inter/len(qb) 只差正常数，**本批内排序与 legacy 逐位同序**
-      ——加权只在「池确有判别信息」时才改变排序（最小改动面）。
+      平滑，恒正）×（g ∈ CN_FUNC_GRAMS 时 FUNC_GRAM_ALPHA）。
+    · **退化即旧序（PR #381 复核 P0-① 修正）**：退化判据是**权重表全等**
+      （df 全同且 qb 全在同侧、或 qb 只有一个 gram，是全等的充分条件而非
+      判据本身）——全等 ⇒ 返回 None，调用方逐位走 `lexical_sim` 旧口径，
+      退化池分数与修前**逐位相等**（比「同序」更强，守卫 G3c-1 钉 ==）。
+      注意 df 全同**不**蕴含全等：qb 跨侧（功能词×实词并存）时 w 恰差 α
+      倍（反例：qb={"什么","记忆"}、df 全同=1 ⇒ w=0.173/0.693），此时加权
+      照常生效、分序可与 legacy 不同——这正是功能词降权的靶区（守卫
+      G3c-2/G5 钉住：同 df 的功能词对 vs 实词对必须分序）。
     · jaccard 口径（评测侧 eval_common.use_jaccard 显式注入）**不加权**：
       该口径的长 turn 读数已多份留档，本件不动。
     """
@@ -505,6 +525,12 @@ def lexical_weights(qb, doc_bigrams, effective_mode=None):
         d = df.get(g, 0)
         w = math.log(1.0 + (n - d + 0.5) / (d + 0.5))
         weights[g] = w * FUNC_GRAM_ALPHA if g in CN_FUNC_GRAMS else w
+    # PR #381 复核 P0-①：退化判据=**权重表全等**（而非「df 全同」——df 全同
+    # 但 qb 跨侧时 w 差 α 倍，权重不等、加权照常，α 生效是设计靶区）。全等
+    # ⇒ 加权分与 inter/len(qb) 数学上只差正常数，本池内无判别信息 ⇒ 返回
+    # None 让调用方逐位走旧口径（分数与修前逐位相等，G3c-1 钉 ==）。
+    if len(set(weights.values())) <= 1:
+        return None
     return weights
 
 
@@ -4731,8 +4757,9 @@ class MdCG:
         # 文档的归一 bigram 集（复用同一 `_doc_norm_bigrams` 派生面，纯函数、
         # readcache 覆写时命中缓存，无额外 IO），据此算池内 IDF 权重表；第二遍
         # 逐文档按 `lexical_sim_weighted`（IDF + 功能词降权）打分。
-        # jaccard 口径 / MDCG_LEXICAL_IDF=0 时 weights=None，逐位走旧
-        # `lexical_sim`（评测侧留档读数与回退开关均不动）。
+        # jaccard 口径 / MDCG_LEXICAL_IDF=0 / 权重表全等的退化池（PR #381 复核
+        # P0-①：全等 ⇒ 无判别信息）时 weights=None，逐位走旧 `lexical_sim`
+        # （评测侧留档读数与回退开关均不动；退化池与修前逐位相等）。
         _nbs = [self._doc_norm_bigrams(e, c) for e, fm, c in docs]
         _w363 = lexical_weights(qb, _nbs, mode)
         scored = []
