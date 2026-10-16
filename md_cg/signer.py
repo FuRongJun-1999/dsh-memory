@@ -298,16 +298,22 @@ def save_key(key: bytes, path: str = None) -> str:
 
 # 生效条件：无参无外部依赖；返回默认策略 {"signer": None, "sign_on": ["handshake"], "require_peer_signature": False, "on_verify_fail": "degrade"}（调用方需经 policy() 归一化后再用）；
 def _default_policy() -> dict:
+    # #453：`allow_unsigned` 为**显式**免签名开关，默认 False。
+    # 旧行为把「声明 `sig.signer == "null"`」当作免验通行证，而 `required=False`
+    # 本就返回 ok=True ⇒ 任何无密钥对端只要自称 null 即可通过（来源可伪造）。
+    # 免签名必须由策略**显式**声明，默认不得等价于免验。
     return {"signer": None, "sign_on": ["handshake"],
-            "require_peer_signature": False, "on_verify_fail": "degrade"}
+            "require_peer_signature": False, "on_verify_fail": "degrade",
+            "allow_unsigned": False}
 
 
-# 生效条件：pol 中 'signer'/'sign_on'/'require_peer_signature'/'on_verify_fail' 键覆盖默认策略，sign_on 只保留属于 SIGN_ACTIONS 的项，on_verify_fail 不在 ON_VERIFY_FAIL 时回落 'degrade'。
+# 生效条件：pol 中 'signer'/'sign_on'/'require_peer_signature'/'on_verify_fail'/'allow_unsigned' 键覆盖默认策略，sign_on 只保留属于 SIGN_ACTIONS 的项，on_verify_fail 不在 ON_VERIFY_FAIL 时回落 'degrade'。
 def _normalize(pol: dict) -> dict:
     out = _default_policy()
     out.update({k: pol[k] for k in ("signer", "sign_on",
                                     "require_peer_signature",
-                                    "on_verify_fail") if k in pol})
+                                    "on_verify_fail",
+                                    "allow_unsigned") if k in pol})
     on = out.get("sign_on")
     if isinstance(on, str):
         on = [x for x in on.split(",") if x.strip()]
@@ -315,6 +321,7 @@ def _normalize(pol: dict) -> dict:
     if out.get("on_verify_fail") not in ON_VERIFY_FAIL:
         out["on_verify_fail"] = "degrade"
     out["require_peer_signature"] = bool(out.get("require_peer_signature"))
+    out["allow_unsigned"] = bool(out.get("allow_unsigned"))
     return out
 
 

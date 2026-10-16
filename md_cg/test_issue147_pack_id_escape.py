@@ -97,6 +97,14 @@ def _sandbox():
     io.open(pol, "w", encoding="utf-8").write(
         json.dumps({"forbidden": [], "required": []}))
     os.environ["MDCG_POLICY_FILE"] = pol
+    # #453 起：**缺签名的证据包不再靠对端自称 `sig.signer=="null"` 洗白**——
+    # 免签名必须由策略显式声明。本守卫测的是 pack_id 穿越（与签名无关），
+    # 故在此**显式**声明 allow_unsigned；若不声明，G2 那两条会被
+    # 「缺少签名」拦掉（那正是 #453 想要的默认行为，不是本守卫的失败）。
+    sgn = os.path.join(t, "signers.json")
+    io.open(sgn, "w", encoding="utf-8").write(json.dumps(
+        {"subsystems": {ev.SUBSYSTEM: {"allow_unsigned": True}}}))
+    os.environ["MDCG_SIGNERS_FILE"] = sgn
     # fail-closed：沙箱没生效就**拒跑**，绝不在真实 aux 目录上做攻击面验证。
     inbox = os.path.realpath(ev.inbox_dir())
     if not inbox.startswith(os.path.realpath(t) + os.sep):

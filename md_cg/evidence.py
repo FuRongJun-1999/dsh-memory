@@ -593,9 +593,16 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
     if not vres.get("ok"):
         return _note_reject(pack, f"验签失败：{vres.get('reason') or '未知'}",
                             swarm=swarm, on_fail=vres.get("on_fail"))
-    if not signature and (pack.get("sig") or {}).get("signer") != "null":
-        return _note_reject(pack, "证据包缺少签名（跨节点证据必须可溯源）",
-                            swarm=swarm)
+    # #453：缺签名**不能**靠对端自称 `sig.signer == "null"` 洗白——那是可伪造的
+    # 自报字段，等于「无密钥即可导入并伪造 `source:<任意节点>`」。免签名必须由
+    # 策略**显式**声明（`allow_unsigned: true`）才放行；默认拒绝。
+    if not signature:
+        if not _signer.policy_for(subsystem, signers_file).get("allow_unsigned"):
+            return _note_reject(
+                pack,
+                "证据包缺少签名（跨节点证据必须可溯源；"
+                "如确需免签名须策略显式声明 allow_unsigned）",
+                swarm=swarm)
 
     # issue #191-B：包版本以**签名载荷里的 created_at** 为准（`_pack_payload` 已含它，
     # 对端改不了）。缺省按 0（只能新建、不能覆写）；非数值 / 非有限值整包拒收。
