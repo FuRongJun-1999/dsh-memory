@@ -299,6 +299,63 @@ def oversize_response(nid, a):
     return None
 
 
+# 生效条件：传入 cg 与 _nid；cg.root 为 None/空串时返回 contextlib.nullcontext
+# （测试替身信号——无 root 的假 cg，真实 MdCG/MdCGSecure 恒有非空 root）；
+# root 存在但非 str（如 pathlib.Path）时抛 TypeError（fail-closed）；root 为
+# 非空 str 时返回 fsutil.node_write_lock（strict，同线程可重入）。
+def _node_write_lock(cg, nid):
+    """issue #322：本节点写链的跨进程互斥锁（接线层降级只认 None/空串）。
+
+    root 分层（ybyz2 技术审第 5 条，2026-10-16）：修前判据是
+    `not root or not isinstance(root, str)` ⇒ **Path 也被静默降级**成
+    nullcontext 无锁直写——一个把 root 存成 Path 的真实调用方会拿到
+    「看起来在写、实际全程无锁」的静默病态，恰是 #322 要修的那类静默。
+    现口径（fail-closed）：
+      · root 为 None / 空串 ⇒ nullcontext 降级——这是**测试替身信号**
+        （假 cg 无 root 属性），仅此两值降级；
+      · root 存在但非 str（Path / bytes / 其它）⇒ **TypeError 当场响**
+        ——写错类型的调用方必须立刻知道，不得静默放行成无锁。
+    """
+    import contextlib
+    root = getattr(cg, "root", None)
+    if root is None or root == "":
+        return contextlib.nullcontext()
+    if not isinstance(root, str):
+        raise TypeError(
+            "cg.root 须为 str（收到 %s：%r）——issue #322 接线层 fail-closed："
+            "非字符串 root（如 pathlib.Path）此前被静默降级为无锁直写，等于"
+            "把并发互盖请回来；请传 str 形态的库根。" % (type(root).__name__, root))
+    from .fsutil import node_write_lock
+    return node_write_lock(root, nid)
+
+
+# 生效条件：cg 具备可调用的 _maybe_reload_index 时调用一次（异常吞掉），否则
+# 什么都不做——锁内把索引代际刷到最新，使随后 before 链的存在性判据
+# （prior_node / write_qualify 直读 cg.index）看见先持锁者已 flush 的写入。
+def _refresh_index_in_lock(cg):
+    """锁内索引重载——**动词面是 defense-in-depth，不是承重**（归因订正）。
+
+    归因订正（ybyz2 技术审第 2 条，2026-10-16）：修前 docstring 把本函数
+    写成「#322 修复口径：锁内先重加载索引再判存在再写」的承重件——**写反了**。
+    动词面（writepipe.execute）消融实测**零变化**：抽掉本函数，G1/G2 照旧
+    全绿。承重的是 `MdCG.add` 内既有的 N195 `_maybe_reload_index`（写路径
+    代际感知，先于 protect.guard_write / 大小写查重 / 存在性继承面执行）。
+    本函数在动词面保留是纵深防御（未来链序调整或 refresh 链断裂时仍在
+    锁内第一时间刷代际），**不是**该路径正确性的必要条件。
+
+    工具面（mcp_server 的 mdcg_remember 分支，issue #322 R0 补接线）相反：
+    那里的存在性判据 `forgetting.prior_node` **先于** cg.add / 一切会触发
+    代际探活的调用——锁内不刷，输家把覆写判成新增、双 committed 静默丢
+    照旧。故同一条 helper 在工具面是**承重**的（消融可红，见守卫 T 面）。
+    """
+    reload = getattr(cg, "_maybe_reload_index", None)
+    if callable(reload):
+        try:
+            reload()
+        except Exception:                     # noqa: BLE001 —— 刷新失败不阻断写链
+            pass
+
+
 class WritePipeline:
     """写入拦截器链（实例级；default_pipeline() 提供进程级默认单例）。"""
 
@@ -351,12 +408,62 @@ class WritePipeline:
 
     # ---------- 执行 ----------
 
-# 生效条件：传入 cg 与 a（a 为假值如 None 时按 {} 处理，nid 取 a.get("node_id") 或其假值回落 mdcg.mint_auto_id(cg)——自动 id 的**唯一铸造点**，含毫秒位+6 位 hex 随机段与「已存在则换随机段重生成」的有界存在性闸），任一 before 钩子返回非 None 即记 halted_by 并经 _commit_visibility 短路返回该响应，全部放行则记 twophase 意图后跑 _executor（其抛 BaseException 时记 STATUS_ERROR 并原样重抛）再顺序跑 after 链、_commit_visibility 并返回落盘 out；
+# 生效条件：传入 cg 与 a（a 为假值如 None 时按 {} 处理，nid 取 a.get("node_id") 或其假值回落 mdcg.mint_auto_id(cg)——自动 id 的**唯一铸造点**，含毫秒位+6 位 hex 随机段与「已存在则换随机段重生成」的有界存在性闸）；超限（oversize_response 非 None）先记尝试账本再原样返回超限响应；此后按 nid 持**跨进程 per-node 写锁**（issue #322，strict）并在锁内重载索引（_refresh_index_in_lock）后转交 _execute_chain 跑「before 链 → 链尾执行器 → after 链」全段，锁在链返回或异常时释放；
     def execute(self, cg, a):
         """写入请求入口：跑 before 链 → 链尾执行器 → after 链。
 
         before 链任一非 None 返回值即终态响应（与重构前各分支的 return
         形态逐字节一致）；链尾执行器产生落盘响应，after 链只观测不改写。
+
+        issue #322（2026-10-16 DSH 端）：**本入口按 node_id 持跨进程排它锁**
+        （<root>/.locks/<nid>.lock，strict，见 fsutil.node_write_lock）。
+        病灶：判定（_gate_autonomy 的 prior_node / write_qualify 直读本进程
+        内存索引）→ 落盘（cg.add → _write_node）→ 索引可见（_commit_visibility
+        的 flush）全段无跨进程互斥——同一 root 多实例并发写同一 node_id 时两
+        进程都判「不存在」都按新增落盘，后写盖前写，两边都回 committed:true
+        而输家正文全库消失；anchor/knowledge 跨层竞态则两份同 id 文件并存、
+        ProtectionError 语义失效（改前实测 2 进程×5 轮 5/5 静默丢、anchor
+        8/8 轮双文件）。锁的覆盖面是**判定到 flush 的整段**：
+
+          · 锁内先 `_refresh_index_in_lock`（best-effort 重载）——先持锁者
+            出锁前必经 `_commit_visibility`（两个出口都有：短路出口与执行器
+            出口）把本次写入 flush 进 `_index_log` 分片，故后持锁者进门时的
+            重载必然看见先写者（`_index_signature` 覆盖他进程分片），档位闸
+            的存在性判据不再读到陈旧阴性；
+          · 后持锁者据此走**串行语义**：同层同 id ⇒ C 改写 ⇒ 缺省 confirm 档
+            出变更单（committed:false / moved_to:review_queue——与串行第二次
+            写逐位一致，输家不再拿 committed:true 的假应答）；跨层竞态
+            （先 anchor 后 knowledge）⇒ write_qualify 当场 ProtectionError
+            ——串行第二次写的保护语义恢复；
+          · 不同 node_id ⇒ 不同锁文件 ⇒ 互不阻塞（并发不同 id 写零回归）。
+
+        设计取舍（为何锁而非 O_EXCL 占位，issue 修复建议二选一）：
+        `os.open(path, O_CREAT|O_EXCL)` 只能护「**同一路径**的新建」，
+        anchor/knowledge 竞态是**不同层目录下的不同路径**，占位互相看不见
+        （G2 修不了）；且占不到者要改道审核队列仍需重载索引重判存在——等于
+        还是要一段互斥。锁方案对两个竞态面都成立、不动 `_write_node` 的
+        tmp+rename 原子写语义，实现风险更小。
+
+        锁序（防死锁）：node 锁 →（链内 flush/compact 的）index_path 锁，
+        单向；全仓无反向持有点（index 锁的持有者不取 node 锁）。同进程重入
+        由 fsutil 的 `_ReentrantFileLock` 放行（threading.local 计数，副作用 2
+        修复，2026-10-16）——修前同线程同 id 二次取锁等满 30s 再
+        TimeoutError，比无锁时代的快速 RecursionError 更糟；跨进程/跨线程
+        互斥语义不变。
+
+        边界（如实，2026-10-16 R0 补后）：锁接线的写面是**两条**——本入口
+        （cg(op=write) 的写链）与 mcp_server 的 mdcg_remember 分支（工具面，
+        hooks 自动记忆主通路；修前该分支直调 remember_gated/add，锁间谍实测
+        verb_locks=1 / tool_locks=0，最热通路不在锁面内——R0 已补同款三个
+        单点：_node_write_lock / _refresh_index_in_lock / _commit_visibility）。
+        仍不在锁面内的直调 `MdCG.add` 写面：审核 accept 重放、backfill 等
+        ——它们的存在性判定各有 N195/N213 的探活接线护保护语义，但
+        「判定→落盘」的原子性同题修复不在本批。已知边界（修不了，如实
+        登记）：锁文件被外部删除后同名重建会造出不同 inode，互斥静默失效
+        ——见 fsutil.node_write_lock 文档串「已知边界」段。
+
+        超限出口在锁外（不写任何节点状态，无互斥必要）；自动 id 的铸造在
+        锁外（含随机段，跨进程唯一性不依赖本锁）。
         """
         a = a or {}
         # ---- issue #82.2（2026-10-09 DSH 端实施）：work_wip 属过程件，
@@ -390,6 +497,17 @@ class WritePipeline:
             _append_attempt(cg, _nid, a, ATTEMPT_SHORT_CIRCUIT,
                             halted_by="writelimit_size", out=_over)
             return _over
+        # ---- issue #322（2026-10-16 DSH 端）：per-node 跨进程写锁 --------------
+        # 覆盖「锁内重载 → 判存在（before 链）→ 落盘（执行器）→ flush
+        # （_commit_visibility，两个出口）」整段；见 execute 文档串的病灶/取舍/
+        # 锁序/边界四段说明。锁在 return（三处出口）或异常穿出时由 with 释放。
+        with _node_write_lock(cg, _nid):
+            _refresh_index_in_lock(cg)
+            return self._execute_chain(cg, a, _nid)
+
+# 生效条件：由 execute 在 per-node 锁内调用（issue #322）；以 (cg, a, _nid) 建 ctx，任一 before 钩子返回非 None 即记 halted_by 并经 _commit_visibility 短路返回该响应，全部放行则记 twophase 意图后跑 _executor（其抛 BaseException 时记 STATUS_ERROR 并原样重抛）再顺序跑 after 链、_commit_visibility 并返回落盘 out；
+    def _execute_chain(self, cg, a, _nid):
+        """锁内的写链本体（before → 执行器 → after；行为与 #322 之前逐位一致）。"""
         # B1（2026-09-30）：自动 id 的铸造**只有一份实现**（mdcg.mint_auto_id）
         # ——原先此处 `"mem_" + 毫秒` 与 mcp_server 的 mdcg_remember 分支各写一份，
         # 同毫秒自动写入铸出同一 id，被 add 的 upsert 语义静默顶替（无失败信号）。

@@ -1922,7 +1922,7 @@ class MdCG:
         idx["buckets"] = self._count_buckets(idx["nodes"])
         return idx
 
-# 生效条件：nodes 为可 pop / 可赋值的映射（dict 或 _DirtyDict）时，对 ShardedLog.read_all(self.index_log_dir) 的每条记录逐条重放——无 id（假值）跳过；有 id 时 str 归一（legacy P3 自愈腿：旧版本 _stage 落下的 {"id": 123} 不得让 int 键进索引）；e 为 None（tombstone）⇒ nodes.pop(nid, None)，语义一字不改；e 非 dict 且非 None（"[]"/123/"abc" 等合法 JSON 载荷）⇒ **跳过**并经 fsutil.note_bad_payload_rows 记账 + stderr 告警（容忍 ≠ 静默，且不得让非 dict 载荷进 nodes——下游 _count_buckets 对元素裸调 .get，不做类型检查）；其余（dict 载荷）⇒ nodes[nid] = e 覆盖；函数返回传入的 nodes。
+# 生效条件：nodes 为可 pop / 可赋值的映射（dict 或 _DirtyDict）时，对 ShardedLog.read_all(self.index_log_dir) 的每条记录逐条重放——无 id（假值）跳过；有 id 时 str 归一（legacy P3 自愈腿：旧版本 _stage 落下的 {"id": 123} 不得让 int 键进索引）；e 为 None（tombstone）⇒ nodes.pop(nid, None)，语义一字不改；e 非 dict 且非 None（"[]"/123/"abc" 等合法 JSON 载荷）⇒ **跳过**并经 fsutil.note_bad_payload_rows 记账 + stderr 告警（容忍 ≠ 静默，且不得让非 dict 载荷进 nodes——下游 _count_buckets 对元素裸调 .get，不做类型检查）；其余（dict 载荷）⇒ nodes[nid] = e 覆盖；重放循环结束后把 self._quarantined（本次扫描的隔离清单，缺省空）里的 id 一律 nodes.pop 剔除（隔离 id 不得经重放复活回索引，issue #322 R0 连带/#146② 契约）；函数返回传入的 nodes。
     def _apply_log(self, nodes):
         """分片日志重放——**装载面与 compact 面共用的唯一实现**（N225 补强）。
 
@@ -1965,6 +1965,22 @@ class MdCG:
             else:
                 nodes[nid] = e
         note_bad_payload_rows(skips)
+        # issue #322 R0 连带（2026-10-16，#146②/#297 契约）：重放不得把本次
+        # 扫描已隔离的 id 塞回索引。修前该洞被「日志里往往还没有这条」侥幸
+        # 盖住——工具面（mdcg_remember）修前不 flush，写完同 id 的索引记录不
+        # 落分片；R0 给工具面接 _commit_visibility 后，**刚写完即被外部改坏
+        # fm 的节点**其索引记录必在日志里，重放会把隔离 id 复活回索引 ⇒
+        # 改写被判 C 改写 → 档位闸出变更单（review_queue），绕过
+        # MdCGOS._write_sensitivity 的隔离 fail-closed（#297 的 AccessDenied
+        # 契约，test_issue297 S6a 钉死）。隔离契约本就写着「**不进索引**」
+        # ——扫描（判离）与重放（复活）两条上游在此合流后统一执行：隔离 id
+        # 的索引条目就地剔除；写面照旧由 _write_sensitivity 按隔离清单
+        # fail-closed 拒写（无显式 sensitivity 当场 AccessDenied，显式声明
+        # 即逃生口——修好 fm 或显式声明后下次扫描自动回归，自愈腿原样）。
+        # 边界（如实）：快照路径不经扫描、无隔离清单，其信任由 _fingerprint
+        # 指纹闸承担（issue #33 既有口径），本条不扩面。
+        for _qid in (getattr(self, "_quarantined", None) or {}):
+            nodes.pop(_qid, None)
         return nodes
 
 # 生效条件：返回二元组（快照签名, 他进程分片签名元组）：快照签名为 os.stat(self.index_path) 的 (st_mtime_ns, st_size)，stat 抛 OSError 时 None；分片签名为 self.index_log_dir 下以 ".log" 结尾、绝对路径不等于 self._own_shard 的条目按文件名排序后的 (文件名, st_size, st_mtime_ns) 元组（目录不可列或单条目 stat 失败时跳过该条目）；
