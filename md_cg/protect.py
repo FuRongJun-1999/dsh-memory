@@ -430,6 +430,13 @@ def _resolve_target(cg, node_id, layer=None, sensitivity=None):
             f = node.get("frontmatter") or {}
             _layer = _layer or f.get("layer")
             _sens = _sens or f.get("sensitivity")
+    # issue #450（P3·口径登记，行为不改）：三来源皆假值时回落 DEFAULT_SENSITIVITY——
+    # 写面层闸对「缺 sensitivity 键的 legacy 节点」按 internal 判（fail-open）。这与
+    # merge 面 #359 的「unknown 视同缺省档」同向（#359 有登记，但理由是绑定合并场景
+    # 的入方/目标方判据，不能自动外推到写面）；与读面 #298 / consistency_history 的
+    # 「密级不可判 ⇒ fail-closed 去原文」相反。本注释只把现状与依据摊开登记（#450 的
+    # 可报核心＝登记缺失而非漏改），**不代维护者裁定**写面是否应改 fail-closed；
+    # 缺键来源与读面同族（升级前旧数据 / 非 Secure 直写，见 #447）。
     return _layer or "knowledge", _sens or DEFAULT_SENSITIVITY
 
 
