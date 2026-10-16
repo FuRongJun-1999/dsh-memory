@@ -6161,7 +6161,14 @@ class MdCGSecure(MdCGOS):
 
 # 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write("rejected", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_rejected，最后按下发的 nid 调 _index_sensitivity 并返回 nid。
     def add_rejected(self, hypothesis: str, reason: str, sensitivity: str = None, **kw) -> str:
-        sens = sensitivity or DEFAULT_SENSITIVITY
+        # #439：原为 `sensitivity or DEFAULT_SENSITIVITY`——**先于继承判定**就把
+        # 「未声明」钉死成 internal，于是改写既有 restricted/private 节点时不重传密级
+        # ⇒ 静默降级（与 #297 同形，只是漏修了这三个兄弟入口）。改走**同一单点**
+        # `_write_sensitivity`：未声明 + 有既有节点 ⇒ 继承旧密级；新写 ⇒ 缺省档。
+        # 幂等面：基类对同 hypothesis 短路不重写，此时继承值为**旧值本身**，
+        # 末尾 `_index_sensitivity(nid, sens)` 写回同值 ⇒ 不再降档。
+        nid = f"rej_{hashlib.sha1(hypothesis.encode()).hexdigest()[:10]}"
+        sens = self._write_sensitivity(nid, sensitivity)
         self.principal.require_layer_write("rejected", sens)
         self._attribution(kw, sens)
         nid = super().add_rejected(hypothesis, reason, sensitivity=sens, **kw)
@@ -6171,10 +6178,17 @@ class MdCGSecure(MdCGOS):
 # 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write("unresolved", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_unresolved(question, known_clues, goal)，最后调 _index_sensitivity 并返回 nid。
     def add_unresolved(self, question: str, known_clues: str = "", goal: str = "",
                        sensitivity: str = None, **kw) -> str:
-        sens = sensitivity or DEFAULT_SENSITIVITY
+        # #439：同 add_rejected——改走单点 `_write_sensitivity`，未声明时继承既有
+        # 工单密级（既有条目走 `_refresh_unresolved` 只重渲染正文、**不重写 fm**，
+        # 继承值即旧值 ⇒ 不降档）。id 口径与基类幂等键逐字一致。
+        _slug = self._ticket_slug(question, kw.get("topic"))
+        nid = (f"unr_{_slug}" if _slug else
+               f"unr_{hashlib.sha1((question or '').encode()).hexdigest()[:10]}")
+        sens = self._write_sensitivity(nid, sensitivity)
         self.principal.require_layer_write("unresolved", sens)
         self._attribution(kw, sens)
-        nid = super().add_unresolved(question, known_clues, goal, sensitivity=sens, **kw)
+        nid = super().add_unresolved(question, known_clues, goal,
+                                     sensitivity=sens, **kw)
         self._index_sensitivity(nid, sens)
         return nid
 
@@ -6186,7 +6200,17 @@ class MdCGSecure(MdCGOS):
 
 # 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 _rank(sens) 并 principal.require_layer_write("goals", sens)，再转 super().add_goal，最后按 gid 调 _index_sensitivity 并返回 gid。
     def add_goal(self, goal: str, sensitivity: str = None, **kw) -> str:
-        sens = sensitivity or DEFAULT_SENSITIVITY
+        # #439：同 add_rejected——改走单点 `_write_sensitivity`（目标口是**覆盖**语义，
+        # 每调必重写；未声明时继承既有目标密级，而不是折成 internal）。
+        # **必须 hasattr 守卫**：`_write_sensitivity` 只在 `MdCGSecure` 上（加密发生处）；
+        # 普通 `MdCGOS` 无此列，裸调会 AttributeError（与 :5059 同一口径）。
+        gid = f"goal_{hashlib.sha1(goal.encode('utf-8')).hexdigest()[:10]}"
+        if sensitivity:
+            sens = sensitivity
+        elif hasattr(self, "_write_sensitivity"):
+            sens = self._write_sensitivity(gid, None)
+        else:
+            sens = DEFAULT_SENSITIVITY
         _rank(sens)
         self.principal.require_layer_write("goals", sens)
         gid = super().add_goal(goal, sensitivity=sens, **kw)
