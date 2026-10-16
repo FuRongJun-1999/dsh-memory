@@ -516,6 +516,38 @@ def check_path_root(path, env_var: str, what: str) -> None:
         f"设 {env_var}=<根>（os.pathsep 可多根）")
 
 
+# 生效条件：path 为 None/空串时直接返回（无源路径）；lib_root 为假值时返回（无记忆库根可判）；否则对 realpath(expanduser(path)) 与 realpath(lib_root) 做**相交**判定（Windows 经 normcase 归一大小写）——① 源在库内、或 ② 库根在源路径子树内（源是库的祖先，扫描会递归进入库内），任一命中即抛 PermissionError（含 what/原 path/realpath/库根与「库内不是外部源」的指路）；未命中返回。
+def check_ingest_source(path, lib_root, what: str = "ingest") -> None:
+    """ingest 源路径的「库内排除」闸（issue #425）：记忆库内部不是外部文档源。
+
+    为什么另立判据：#351 只堵了 dir 空 path 回落库根；显式 path=<库根>、
+    action=file 指向 trash/<id>.md、或 MDCG_INGEST_ROOT 设为库根上级时，
+    check_path_root 都会放行（白名单缺省回落库根 / 上级根覆盖库根），库内节点
+    （含 restricted 正文与 trash 中已删除节点）被当外部文档重新切成 internal
+    doc_* 节点，无令牌访客可检索。本函数**只加拒绝分支、不新增放行**；库内内容
+    进检索面请走节点写入口。
+    """
+    if path is None or str(path).strip() == "":
+        return
+    lib = str(lib_root or "").strip()
+    if not lib:
+        return
+    real = os.path.realpath(os.path.expanduser(str(path)))
+    lib_real = os.path.realpath(os.path.expanduser(lib))
+    real_n = os.path.normcase(real)
+    lib_n = os.path.normcase(lib_real)
+    in_lib = (real_n == lib_n
+              or real_n.startswith(lib_n.rstrip(os.sep) + os.sep))
+    covers_lib = lib_n.startswith(real_n.rstrip(os.sep) + os.sep)
+    if in_lib or covers_lib:
+        raise PermissionError(
+            f"{what} 源路径与记忆库相交，拒绝摄取：{path} "
+            f"(realpath={real}, 库根={lib_real})——源在库内（节点/trash/"
+            f"_protected_history 不是外部文档源），或源目录覆盖库根"
+            f"（扫描会递归进入库内）；库内内容进检索面请走节点写入口"
+            f"（issue #425）")
+
+
 # 生效条件：path 为 None/空串时直接返回（未指定落点，不触任何判定）；否则按 realpath 判三条——① 落在辅助存储根（datapath.aux_root()，master.key/_signer.key/令牌库缺省位置）内即拒；② 落在记忆库根 lib_root 内时只许**根顶层**且文件名不以 _ / . 开头（与 op=export 缺省落点 <root>/export_*.jsonl 同位；节点只在层目录里，_keys.json/_index.json 以下划线开头）；③ 目标（含悬空符号链接）已存在且 allow_overwrite 为假即拒。全部命中放行。
 def check_export_target(path, lib_root, what: str,
                         allow_overwrite: bool = False) -> None:

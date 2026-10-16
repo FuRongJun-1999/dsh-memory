@@ -3047,7 +3047,7 @@ def _skip_dirs_report(stats, limit=20):
     return out
 
 
-# 生效条件：先经 check_path_root(a.get("path"), "MDCG_INGEST_ROOT", "ingest")（path 空时放行；env 未配置走三级回落链、不再放开，越界抛 PermissionError；2026-10-10 裁定 dsh #85 选 A）；act=(a.get("action") or "stat").strip().lower()；act 属 ("file","dir","jsonl") 且 principal 非 None 且其 can_write 为假时先 require_admin(f"ingest_{act}")，随后以 action=act 及各透传参数调 sources.run 并返回。
+# 生效条件：先经 check_path_root(a.get("path"), "MDCG_INGEST_ROOT", "ingest")（path 空时放行；env 未配置走三级回落链、不再放开，越界抛 PermissionError；2026-10-10 裁定 dsh #85 选 A）与 check_ingest_source(最终 path, cg.root, "ingest")（库内排除，issue #425：库根/trash/层目录不是外部文档源）；act=(a.get("action") or "stat").strip().lower()；act 属 ("file","dir","jsonl") 且 principal 非 None 且其 can_write 为假时先 require_admin(f"ingest_{act}")，随后以 action=act 及各透传参数调 sources.run 并返回。
 def _ingest_call(cg, a):
     """文件摄取分派（P0）：file / dir / jsonl / stat。
 
@@ -3055,7 +3055,7 @@ def _ingest_call(cg, a):
     支持 dry_run 预演（对应计划「可预演」要求）。
     """
     from . import sources
-    from .security import check_path_root
+    from .security import check_path_root, check_ingest_source
     act = (a.get("action") or "stat").strip().lower()
     # issue #351（2026-10-16 DSH 端）：dir 的**空 path 不得回落记忆库根**——库根下
     # 是各层节点文件、trash/、_protected_history/，把它们当外部文档切成 doc_ref
@@ -3070,6 +3070,11 @@ def _ingest_call(cg, a):
     # P1-4（批次 26）：ingest 的 path 是模型可控输入——根白名单约束
     # （MDCG_INGEST_ROOT 设置时越界即拒；未设置保持现状）
     check_path_root(_p351, "MDCG_INGEST_ROOT", "ingest")
+    # issue #425：白名单只判「在根内」——显式 path=<库根>、action=file 指向
+    # trash/<id>.md、或 env 设为库根上级时都会被放行；库内节点/trash/
+    # _protected_history 不是外部文档源，再判一道「库内排除」
+    # （判据单点 security.check_ingest_source）。
+    check_ingest_source(_p351, getattr(cg, "root", None), "ingest")
     principal = getattr(cg, "principal", None)
     if act in ("file", "dir", "jsonl") and principal is not None \
             and not getattr(principal, "can_write", False):
