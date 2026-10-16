@@ -309,8 +309,14 @@ def main(argv=None):
         # 丢弃、无法复盘「某一轮评分相对上一轮变了什么」。改为 JSONL：每次运行追加一行
         # （一行 = 一轮快照；读回取末行即最新）。
         p = os.path.join(args.jobs, "_scoreboard.jsonl")
-        with io.open(p, "a", encoding="utf-8", newline="\n") as fh:
-            fh.write(json.dumps(doc, ensure_ascii=False, sort_keys=True) + "\n")
+        # #465：改走 hive/_append.py 的**跨进程安全追加**（收口，见该文件 docstring）。
+        # 修前逐条 open("a") 无跨进程锁 ⇒ 多 worker 下丢行 + 撕裂半截行（实测 8x2000 丢 9708、768 半截）。
+        try:
+            from hive._append import append_line as _append_line
+        except ImportError:                                # 脚本方式直跑（无包上下文）
+            from _append import append_line as _append_line
+        _append_line(p, json.dumps(doc, ensure_ascii=False, sort_keys=True) + "\n",
+                     tag="scoreboard")
         print()
         print("已追加:", p)
     return 0

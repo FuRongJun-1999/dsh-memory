@@ -713,11 +713,15 @@ def _record_adjudication(args: dict) -> dict:
            "evidence": evidence, "verdict_note": note[:400],
            "session": f"hive_orch_{_CFG.get('job_id') or 'unknown'}"}
     path = os.path.join(_CFG.get("job_dir") or "", _ADJ_FILE)
+    # #465：改走跨进程安全追加。**本站点原为「失败可见」通路**（OSError ⇒ ok:False），
+    # 属 #326-④ 那类不可静默化的面 ⇒ 换 helper 后**仍必须返回 ok:False**，不得变成静默。
     try:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    except OSError as e:
-        return {"ok": False, "error": f"裁决台账写入失败: {e}"}
+        from hive._append import append_line as _append_line
+    except ImportError:                                    # 脚本方式直跑（无包上下文）
+        from _append import append_line as _append_line
+    if not _append_line(path, json.dumps(rec, ensure_ascii=False) + "\n",
+                       tag="adjudication"):
+        return {"ok": False, "error": "裁决台账写入失败（锁超时或 IO 失败，详见 stderr）"}
     _ex.progress(_CFG.get("job_dir"), **{**rec, "kind": "adjudication"})
     return {"ok": True, "recorded": rec, "file": _ADJ_FILE,
             "hint": "裁决已留痕；subject 结果按 kind 语义在收口结论中呈现"}

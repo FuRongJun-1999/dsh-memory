@@ -83,10 +83,13 @@ def _write_result(job_dir: str, obj: dict) -> None:
 # 生效条件：job_dir 与 msg 传入时写 job_dir/log.txt 一行带时间戳日志（观测面——open 失败降级 stderr，绝不打断任务，对齐 exec.py log 同族）。
 def _log(job_dir: str, msg: str) -> None:
     line = f"[{time.strftime('%H:%M:%S')}] {msg}\n"
+    # #465：改走跨进程安全追加；**保住 :83 的既有生效条件**——
+    # 失败/超时一律降级 stderr、**绝不打断任务**（不得把「写失败」变成抛出）。
     try:
-        with open(os.path.join(job_dir, "log.txt"), "a", encoding="utf-8") as f:
-            f.write(line)
-    except (OSError, TypeError):
+        from hive._append import append_line as _append_line
+    except ImportError:                                    # 脚本方式直跑（无包上下文）
+        from _append import append_line as _append_line
+    if not _append_line(os.path.join(job_dir, "log.txt"), line, tag="exec_cmd"):
         sys.stderr.write(line)
 
 
