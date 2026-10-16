@@ -444,7 +444,11 @@ def g_e():
 
 # ---------------------------------------------------------------- F 调用方枚举与逐类读数
 _CALLSITES = {
-    "protect.py": (3, "guard_forget:262 / guard_move:274 / stats:408"),
+    # #432（2026-10-16）：protect.py 新增第 4 处——is_protected_entry:279
+    # （条目形态单点，转发给 is_protected；consolidate 归纳池 / freshness 载体
+    # 经它接入，不直呼 is_protected，故不另列调用行）。
+    "protect.py": (4, "is_protected_entry:279 / guard_forget:431 / "
+                      "guard_move:443 / stats:577"),
     "mcp_server.py": (1, "_protect_call action=check:1216"),
     "scrub.py": (2, "apply skip_protected:665 / _apply_offset skip:728"),
     "self_state.py": (1, "check 8 保护一致:865"),
@@ -465,8 +469,8 @@ def g_f():
         ok(len(lines) == want,
            "F1 %s 的 is_protected( 调用点 == %d（%s）" % (fn, want, label),
            lines)
-    ok(total == 7,
-       "F1+ 全部非测试调用点恰 7 处（枚举完备性——新增调用方须同步本表）",
+    ok(total == 8,
+       "F1+ 全部非测试调用点恰 8 处（枚举完备性——新增调用方须同步本表）",
        total)
     with _cg("a_heur") as cg:
         row_a = (protect.is_protected(cg, "a_heur"),

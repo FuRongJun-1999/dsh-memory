@@ -91,7 +91,7 @@ import time
 import urllib.error
 import urllib.request
 
-from . import crypto, evolution, nodefile, routing
+from . import crypto, evolution, nodefile, protect, routing
 from .fsutil import append_jsonl
 from .mdcg import BUCKETED_LAYERS, bigrams, expand_query_terms_weighted
 from .readcache import direct_read
@@ -1358,7 +1358,7 @@ def _union_terms(term_sets, limit=INDUCE_MAX_TERMS):
     return seen[:limit]
 
 
-# 生效条件：给定 cg、cid、members、reason、actor、batch，为概念节点与成员节点写对称 inferred 边（已存在则跳过），返回含 concept 与 members 的字典。
+# 生效条件：给定 cg、cid、members、reason、actor、batch，为概念节点与成员节点写对称 inferred 边（已存在则跳过），返回含 concept 与 members 的字典；成员写盘前经 protect.guard_overwrite（层闸 + 保护闸，层/敏感度取成员 fm 真值），受保护成员抛 ProtectionError 不落盘。
 def _link_concept(cg, cid, members, reason, actor, batch):
     """写概念↔成员对称 inferred 边（幂等：已存在则不重复写）。"""
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
@@ -1403,6 +1403,17 @@ def _link_concept(cg, cid, members, reason, actor, batch):
         fm[CONSOLIDATED_AT_FIELD] = time.time()
         fm["induced_concept"] = cid
         ent = nodes.get(m) or {}
+        # issue #432（2026-10-16）：成员写盘点补双闸。修前本点直调 cg._write_node
+        # 改写成员 frontmatter 四字段（edges / consolidated_into / consolidated_at /
+        # induced_concept），不过层闸、不过保护闸、无快照无审计——对照
+        # protect.guard_overwrite 对同一节点是 ProtectionError（硬拒）。池过滤
+        # （is_protected_entry 三真源）是第一道闸，这里是纵深防御：扫描与写盘
+        # 之间成员可能被置保护（他进程 / 人工 protect.mark 后经探活可见）。层与
+        # 敏感度取**成员 fm 真值**（对照 forgetting.reinforce / scrub._apply_offset），
+        # 顺序紧邻 _write_node（#416 写点纪律）。
+        protect.guard_overwrite(cg, m, layer=fm.get("layer"),
+                                sensitivity=fm.get("sensitivity"),
+                                override=False, actor=actor)
         cg._write_node(m, os.path.join(cg.root, ent.get("path") or f"{m}.md"),
                        fm, node.get("content") or "")
         if ent:
@@ -1428,7 +1439,7 @@ def _concept_payload(members, common_pos, neg_union):
     )
 
 
-# 生效条件：给定 cg_or_root，从 source_layer 聚类归纳为 target_layer 概念节点，apply=True 才写盘并返回统计 rep。
+# 生效条件：给定 cg_or_root，从 source_layer 聚类归纳为 target_layer 概念节点，apply=True 才写盘并返回统计 rep；候选池排除保护判据三条真源（protect.is_protected_entry）命中的节点并计入 rep 的 skipped_protected，成员写盘前经 protect.guard_overwrite（受保护成员抛 ProtectionError）。
 def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowledge",
                     min_cluster=INDUCE_MIN_CLUSTER, min_jaccard=INDUCE_MIN_JACCARD,
                     max_nodes=INDUCE_MAX_NODES, require_conditions=True,
@@ -1440,6 +1451,10 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
 
     issue #164：概念节点密级 = 成员最高档；任一成员密级判不了则 fail-closed
     不生成（只留 `_maintain.jsonl` 的 sensitivity_not_judgeable 留痕）。
+    issue #432：候选池过滤走保护判据三条真源（protect.is_protected_entry），
+    不再只读 frontmatter `protected` 位——self/anchor 层与按分受保护节点
+    不得被收进归纳池（rep 记 `skipped_protected`）；成员写盘点
+    （`_link_concept`）补 `protect.guard_overwrite` 双闸纵深。
     apply=False（默认）只出候选报表（可预演）；apply=True 才写盘（可留痕、可回溯）。
     幂等：概念 id 由成员清单派生，同成员重复归纳不新增节点。
     """
@@ -1456,10 +1471,23 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
         require_conditions = True
 
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
-    pool = [nid for nid, e in list(nodes.items())
-            if (not source_layer or (e or {}).get("layer") == source_layer)
-            and not (e or {}).get("protected")
-            and not (set(INDUCE_SKIP_TAGS) & set((e or {}).get("tags") or []))]
+    # issue #432（2026-10-16）：池过滤改走保护判据的三条真源（层保护 self/anchor
+    # ∪ 显式 protected 位 ∪ 按分保护 ≥0.70 且来源缺省/hint）。修前只读
+    # `(e or {}).get("protected")` 一位——frontmatter 未打位的 self/anchor 层
+    # 模板节点全被收进归纳池（issue 实测 source_layer='self' 池=6/6），apply 后
+    # 被无痕写 inferred 边与 consolidated_into 指针。判据单点＝
+    # protect.is_protected_entry（#432 抽出的条目形态，与 #377/#378 的 D1/D2
+    # 同源），本处不复制规则；位支照旧（protected=True 是三真源之一）。
+    pool, skipped_protected = [], 0
+    for nid, e in list(nodes.items()):
+        if source_layer and (e or {}).get("layer") != source_layer:
+            continue
+        if protect.is_protected_entry(e)[0]:
+            skipped_protected += 1
+            continue
+        if set(INDUCE_SKIP_TAGS) & set((e or {}).get("tags") or []):
+            continue
+        pool.append(nid)
     pool.sort()
     truncated = len(pool) > int(max_nodes)
     pool = pool[:int(max_nodes)]
@@ -1488,6 +1516,7 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
            "require_conditions": bool(require_conditions),
            "skipped_small": 0, "skipped_no_condition": 0, "skipped_existing": 0,
            "skipped_sensitivity": skipped_sensitivity,
+           "skipped_protected": skipped_protected,
            "clusters": 0, "written": 0, "concepts": [], "samples": [],
            "log": MAINTAIN_LOG}
 
