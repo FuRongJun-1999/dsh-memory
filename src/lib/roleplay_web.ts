@@ -331,7 +331,8 @@ function rdTab(kind) {
 }
 async function loadRoleDetailItems() {
   const role = $('rd_role').textContent;
-  const r = await fetch('/roleplay/api/roles/' + encodeURIComponent(role) + '/items?kind=' + rdKind).then(x => x.json());
+  // #490：读面已过闸 ⇒ 必须带 x-edit-key（与 loadHistory :276 同款；不带会 403 误伤）
+  const r = await fetch('/roleplay/api/roles/' + encodeURIComponent(role) + '/items?kind=' + rdKind, { headers: apiHeaders() }).then(x => x.json());
   rdItems = r.items || [];
   const box = $('rd_items');
   box.innerHTML = '';
@@ -396,7 +397,8 @@ async function openTrans() {
   const role = $('roleSel').value || 'protocol-guide';
   $('tp_role').textContent = role;
   try {
-    const r = await fetch('/roleplay/api/translate?role_id=' + encodeURIComponent(role)).then(x => x.json());
+    // #490：读面已过闸 ⇒ 必须带 x-edit-key（同上）
+    const r = await fetch('/roleplay/api/translate?role_id=' + encodeURIComponent(role), { headers: apiHeaders() }).then(x => x.json());
     transMode = r.mode || 'input_only';
     $('tp_rows').innerHTML = '';
     (r.pairs || []).forEach(p => addTransRow(p.real, p.virtual, p.note));
@@ -724,6 +726,13 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     return Array.isArray(arr) ? arr : [];
                 };
                 if (req.method === 'GET' && url.pathname.startsWith('/roleplay/api/roles/') && url.pathname.endsWith('/items')) {
+                    // #490（2026-10-15）：读面同款 fail-closed 闸——本端点回的是私有正文/转录/翻译表，
+                    // 写面 P1-2 已过闸而读面漏闸＝同族不对称；读侧要求与写侧同一身份（x-edit-key）。
+                    if (!requireEditKey(req)) {
+                        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: editKeyHint() }));
+                        return;
+                    }
                     const role = decodeURIComponent(url.pathname.split('/')[4]);
                     const kind = url.searchParams.get('kind') || 'memory';
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -911,6 +920,13 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     return;
                 }
                 if (req.method === 'GET' && url.pathname === '/roleplay/api/translate') {
+                    // #490（2026-10-15）：读面同款 fail-closed 闸——本端点回的是私有正文/转录/翻译表，
+                    // 写面 P1-2 已过闸而读面漏闸＝同族不对称；读侧要求与写侧同一身份（x-edit-key）。
+                    if (!requireEditKey(req)) {
+                        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: editKeyHint() }));
+                        return;
+                    }
                     const role = url.searchParams.get('role_id') || 'protocol-guide';
                     const settings = readTransSettings();
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -956,6 +972,13 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     return;
                 }
                 if (req.method === 'GET' && url.pathname === '/roleplay/api/history') {
+                    // #490（2026-10-15）：读面同款 fail-closed 闸——本端点回的是私有正文/转录/翻译表，
+                    // 写面 P1-2 已过闸而读面漏闸＝同族不对称；读侧要求与写侧同一身份（x-edit-key）。
+                    if (!requireEditKey(req)) {
+                        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: editKeyHint() }));
+                        return;
+                    }
                     const role = url.searchParams.get('role_id') || 'protocol-guide';
                     // P1 完善（会话隔离）：按客户端实例读各自转录
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
