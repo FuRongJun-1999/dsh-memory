@@ -3008,7 +3008,7 @@ class MdCGOS(MdCG):
                 "verify_hash": src.get("verify_hash"),
                 "source": "hippocampus/decisions.jsonl"}
 
-# 生效条件：item 为 kind=mutation 的队列记录时先经 rollback.preimage 在**执行时点**留前像（目标在位时拍快照 + 采影响面 + 生成回滚命令；目标缺失返回 None 走既有错误路径；拍摄失败抛 PreimageError 被专捕成 preimage_unavailable 错误体），再按载荷 extra.mutation 分派——B：primitive 为 "converge_into" 走 writelimit.converge_into、否则走 forgetting.reinforce（两者都以 rec.actor 为动作发起者、载荷 meta 的 session/override 复现原槽）；C：目标经 forgetting.prior_node 判定——目标已不存在即返回 {"ok": False, "error": "target_missing", ...}（fail-closed，不重建节点、不记 accepted），存在才 self.add(目标, 后像, layer=rec.layer, sensitivity=rec.sensitivity, override, **载荷 meta) 覆写落盘；D：self.forget(目标, override) 软删；动作类不在 {B,C,D} 或原语返回失败（ok 为 False / None / target_missing）时返回 {"ok": False, "error": "mutation_execute_failed"/"mutation_action_unknown", ...} 且**不改动任何节点**；成功返回 {"ok": True, "mutation": <执行时点载荷：原载荷 + kind/executed + before/impact/rollback>, "node_id": ...}；
+# 生效条件：item 为 kind=mutation 的队列记录时先经 rollback.preimage 在**执行时点**留前像（目标在位时拍快照 + 采影响面 + 生成回滚命令；目标缺失返回 None 走既有错误路径；拍摄失败抛 PreimageError 被专捕成 preimage_unavailable 错误体），再按载荷 extra.mutation 分派——B：先取「单面 sensitivity ∨ 载荷 meta.incoming_sensitivity」更严一档（issue #424 纵深防御：单面密级不得低于源有效密级；缺载荷键时行为不变），再按 primitive 为 "converge_into" 走 writelimit.converge_into、否则走 forgetting.reinforce（两者都以 rec.actor 为动作发起者、载荷 meta 的 session/override 复现原槽）；C：目标经 forgetting.prior_node 判定——目标已不存在即返回 {"ok": False, "error": "target_missing", ...}（fail-closed，不重建节点、不记 accepted），存在才 self.add(目标, 后像, layer=rec.layer, sensitivity=rec.sensitivity, override, **载荷 meta) 覆写落盘；D：self.forget(目标, override) 软删；动作类不在 {B,C,D} 或原语返回失败（ok 为 False / None / target_missing）时返回 {"ok": False, "error": "mutation_execute_failed"/"mutation_action_unknown", ...} 且**不改动任何节点**；成功返回 {"ok": True, "mutation": <执行时点载荷：原载荷 + kind/executed + before/impact/rollback>, "node_id": ...}；
     def _mutation_execute(self, item, reason: str = "", override: bool = False):
         """变更单 accept 的执行桥：**显式越过确认判定**，直调对应动作的底层原语。
 
@@ -3076,6 +3076,20 @@ class MdCGOS(MdCG):
                                reason="变更单执行时点前像（%s→%s，pid=%s）"
                                       % (act, tgt, item.get("pid") or "?"))
             if act == _am.B_MERGE:
+                # issue #424（纵深防御）：单面 sensitivity 出自 propose 按**单上 id**
+                # 的继承——B 类单「源≠目标」，若某个出单点把源内容按目标继承出单
+                # （#424 的病灶），单面密级会低于源有效密级。载荷
+                # meta.incoming_sensitivity 是出单时的源有效密级快照：执行时取
+                # 「单面 ∨ 源」更严的一档喂原语，保证原语内 merge_downgrades 判据
+                # 拿到的 incoming **永不低于**源密级；任一侧判不了（非法密级）⇒
+                # 透传载荷侧，原语对非法密级 fail-closed 一律拒。
+                _mis = meta.get("incoming_sensitivity")
+                if _mis:
+                    try:
+                        if _rank(sens or DEFAULT_SENSITIVITY) < _rank(_mis):
+                            sens = _mis
+                    except AccessDenied:
+                        sens = _mis
                 if str(slot.get("primitive") or "") == "converge_into":
                     res = writelimit.converge_into(self, tgt, after,
                                                    override=_ovr, actor=actor,
@@ -4630,9 +4644,9 @@ class MdCGOS(MdCG):
 
     # ---- 主动遗忘（写入侧三问闸门）+ 写保护盘点 ----
 
-# 生效条件：以 autonomy_modes.decide(B_MERGE) 判定——ALLOW 返回 None（调用方照旧执行合并原语，merge 裁决本身一字不改）；FORBID 返回 verdict="FORBID"/moved_to="autonomy_forbidden" 的终态；CONFIRM 经 autonomy_modes.propose_mutation 出变更单（目标 tgt、后像 content、复现参数 override/session 入载荷 meta）并返回 verdict="CONFIRM"/moved_to="review_queue" 的终态（**不调用任何合并原语、不落盘**）；
+# 生效条件：以 autonomy_modes.decide(B_MERGE) 判定——ALLOW 返回 None（调用方照旧执行合并原语，merge 裁决本身一字不改）；FORBID 返回 verdict="FORBID"/moved_to="autonomy_forbidden" 的终态；CONFIRM 先按**源有效密级**判降密级（incoming_sensitivity 高于合并目标密级，判据=security.merge_downgrades 唯一单点）即返回 error="merge_downgrade_refused"/verdict="FORBID"/moved_to="merge_downgrade_refused" 的终态（**不出单、不落盘**——队列不留 accept 必败的单，源正文不进 inbox.jsonl，issue #424），否则经 autonomy_modes.propose_mutation 出变更单（目标 tgt、后像 content、复现参数 override/session 入载荷 meta，另记 source_node_id/incoming_sensitivity 供执行桥复核）并返回 verdict="CONFIRM"/moved_to="review_queue" 的终态（**不调用任何合并原语、不落盘**）；
     def _autonomy_gate_merge(self, node_id, tgt, content, kw, primitive,
-                             reason="", gate=None):
+                             reason="", gate=None, incoming_sensitivity=None):
         """三档自治档位在 **B 合并**出口的判定单点（设计 §三：变更确认档需确认）。
 
         为什么是单点：合并的**两个落点**（`writelimit.check` 的 CONVERGE →
@@ -4641,8 +4655,20 @@ class MdCGOS(MdCG):
         （限流闸 / 遗忘三问），档位不参与裁决（纯加严）。
 
         变更单载荷：动作类 B · 目标 tgt · 后像 = 本次新内容 · 理由 · 复现参数
-        （override/session——merge 原语的两个非默认槽，裁决 accept 时按此重放）。
+        （override/session——merge 原语的两个非默认槽，裁决 accept 时按此重放）；
+        另记 source_node_id / incoming_sensitivity（issue #424：B 类单「源≠目标」，
+        源 id 与源**有效**密级随单走，供执行桥复核与追溯）。
         提议者/会话由 propose 的库端快照自动归属（`actor`/`session` 字段）。
+
+        issue #424（2026-10-16，#397 未闭环腿）：confirm 档 B_MERGE 出单走
+        `propose(sensitivity=声明值)`——未声明时 `MdCGSecure.propose` 按**传入 id**
+        继承密级，而这里传入的是合并目标 tgt（#297 的继承单点为「同 id 改写」
+        设计，对「源≠目标」的 B 类单不适用）⇒ 单面密级换成目标的 internal ⇒
+        accept 后 `_mutation_execute` 把 internal 喂给原语，降密级判「同档」放行，
+        private/restricted 正文以聚合行明文并入 internal 节点（无令牌访客可读）。
+        处置＝**出单前**按源有效密级判降密级（incoming_sensitivity，由
+        `remember_gated` 的 `_sens_eff` 单点喂入）：判中即与 full 档同形
+        fail-closed 拒绝，判据仍走 `security.merge_downgrades` 唯一单点。
         """
         from . import autonomy_modes as _am
         # 资格在先（纯加严）：合并落盘时 reinforce/converge_into 内部的
@@ -4664,6 +4690,30 @@ class MdCGOS(MdCG):
                     "verdict": "FORBID", "node_id": node_id, "gate": gate,
                     "merged_into": tgt, "moved_to": "autonomy_forbidden",
                     "autonomy": aut, "hint": dec["hint"]}
+        # issue #424：降密级判据在**出单之前**（与上方「资格在先」同一口径——
+        # 会拒的必须在出单之前照样拒，否则一张 accept 必败的单把源正文以队列
+        # 条目形式落进 hippocampus/inbox.jsonl）。目标密级读数复用
+        # subgraph.node_sensitivity（索引快照优先，与 _write_sensitivity 同源，
+        # 免解密正文）；判据=security.merge_downgrades 唯一单点，与 full 档
+        # 合并原语内部的 fail-closed 同一判据——三档行为一致。
+        _tgt_sens = subgraph.node_sensitivity(self, tgt)
+        if _security.merge_downgrades(_tgt_sens, incoming_sensitivity):
+            return {"ok": False, "id": node_id, "committed": False,
+                    "error": "merge_downgrade_refused",
+                    "verdict": "FORBID", "node_id": node_id, "gate": gate,
+                    "merged_into": tgt, "moved_to": "merge_downgrade_refused",
+                    "target_sensitivity": _tgt_sens,
+                    "incoming_sensitivity": incoming_sensitivity,
+                    "autonomy": aut,
+                    "detail": "确认档 B 类合并出单前判降密级：本次写入的**有效**"
+                              "密级（%s）高于合并目标 %s（密级 %s）——出单会让单面"
+                              "继承目标密级，accept 后高密级明文并入低密级节点、"
+                              "按目标档可见。fail-closed 未出单、未落盘。"
+                              % (incoming_sensitivity, tgt, _tgt_sens),
+                    "hint": "如需保留该内容：确认其确为该档后以不高于目标节点密级"
+                            "的声明重新写入，或新建独立节点（add，保持其声明密级）；"
+                            "本判据与 full 档合并原语内的 fail-closed 同一单点"
+                            "（security.merge_downgrades）。"}
         # 队列的层闸（MdCGSecure.propose）按**目标节点的真层**校验：合并落点
         # 本来就是目标层，用调用方声明的层会让闸与落点错位（issue50 前车：
         # 校验层与落盘层错位会造死提案）。
@@ -4676,7 +4726,13 @@ class MdCGOS(MdCG):
                               "（原语 %s）" % (tgt, primitive)),
             primitive=primitive,
             meta={"override": bool(kw.get("override")),
-                  "session": _writer_session(self, kw)})
+                  "session": _writer_session(self, kw),
+                  # issue #424：B 类单「源≠目标」——源 id 与源**有效**密级随单走。
+                  # 出单前的降密级判据已放行（incoming ≤ 目标），此处是**纵深防御**
+                  # 的读数源：`_mutation_execute` 的 B 分支取「单面 ∨ 源」更严一档
+                  # 喂原语，防以后别的出单点再按目标继承出一张密级偏低的单。
+                  "source_node_id": node_id,
+                  "incoming_sensitivity": incoming_sensitivity})
         pr = _am.propose_mutation(self, _am.B_MERGE, tgt, payload=pay,
                                   layer=tlayer,
                                   sensitivity=kw.get("sensitivity"), info=True)
@@ -4928,9 +4984,13 @@ class MdCGOS(MdCG):
             if lim["verdict"] == "CONVERGE":
                 tgt = lim["target"]
                 # 三档自治批次②：档位判定在**限流闸裁决之后、合并原语之前**。
+                # issue #424：把**有效密级** `_sens_eff` 一并喂给档位闸——confirm
+                # 档出单面按目标继承密级，缺这一形参则单面换掉源密级（出单前
+                # 降密级判据无从判起）；full 档（ALLOW）该值不被消费、行为逐位不变。
                 _ag = self._autonomy_gate_merge(node_id, tgt, content, kw,
                                                primitive="converge_into",
-                                               gate=lim)
+                                               gate=lim,
+                                               incoming_sensitivity=_sens_eff)
                 if _ag is not None:
                     forgetting.log(self, {"t": time.time(), "node_id": node_id,
                                           "layer": layer,
@@ -5078,7 +5138,11 @@ class MdCGOS(MdCG):
             if tgt:
                 _ag = self._autonomy_gate_merge(node_id, tgt, content, kw,
                                                 primitive="reinforce",
-                                                gate=verdict)
+                                                gate=verdict,
+                                                # issue #424：同 CONVERGE 支——
+                                                # 源有效密级随档位闸走（confirm 档
+                                                # 出单前的降密级判据读它）。
+                                                incoming_sensitivity=_sens_eff)
                 if _ag is not None:
                     forgetting.log(self, {"t": time.time(), "node_id": node_id,
                                           "layer": layer,
