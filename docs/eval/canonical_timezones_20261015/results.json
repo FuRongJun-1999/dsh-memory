@@ -271,17 +271,19 @@
     "windows": {
       "key": "time",
       "platform": "windows",
-      "source_head": "f49c9607b3bce43a7ebdab1c92270f3c632a0082",
+      "source_head": "2671ab6e6add37d9fd5b9d17b2f4e673fcc3cfc3",
       "production_sha256": {
         "md_cg/mdcg.py": "1d6da4332571eb193439175ffc1a762267f13755fb757c48c57e021b7bdaa8d2",
         "md_cg/mdcos.py": "87d64aab2c6cd71ad1c757a1922ebbb4963f9fdf414080ce1c92554ca6a078f9",
         "md_cg/trust.py": "2416818b8e3b677374a75b2f90a47e6e9edb1e2af2d76c13908b8bec74e6aa43",
+        "md_cg/stg.py": "5fc1c7afa0912faafbd021fb49d36b9349a289e3639bf2bb868c345bbfaa22f9",
         "md_cg/stgidx.py": "8951bd3621c35960d8a533739beacb7d56022a6c3c971fbaaf13cf3fd83ade51",
+        "md_cg/hotcache.py": "e54d50d0a288db22c38b77f99ffeb61d7b5c94b2765d6430980f25bce41044ad",
         "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
         "md_cg/chain.py": "f376e566b6735aee8d589e6a6a2a91162023c8cfda0309d7efe8ba13f9199a85",
         "md_cg/reach.py": "4a03c4bccf3a3c1d51521cd3394916ee993cf7f40059cbeecf304e51cd722dd5"
       },
-      "passed": 6,
+      "passed": 7,
       "failed": 0,
       "missing": 0,
       "results": [
@@ -289,7 +291,7 @@
           "module": "test_trust",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.516,
+          "seconds": 0.563,
           "command": [
             "py",
             "-3.12",
@@ -319,7 +321,7 @@
           "module": "test_time_core_lint",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 441.484,
+          "seconds": 453.156,
           "command": [
             "py",
             "-3.12",
@@ -334,7 +336,7 @@
           "module": "test_issue52_scan_condition_first",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 5.532,
+          "seconds": 5.141,
           "command": [
             "py",
             "-3.12",
@@ -349,7 +351,7 @@
           "module": "test_stg_time_blocks",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 1.093,
+          "seconds": 1.047,
           "command": [
             "py",
             "-3.12",
@@ -364,7 +366,7 @@
           "module": "test_trust_edge_reachability",
           "returncode": 0,
           "status": "PASS",
-          "seconds": 0.438,
+          "seconds": 0.406,
           "command": [
             "py",
             "-3.12",
@@ -374,6 +376,21 @@
             "md_cg.test_trust_edge_reachability"
           ],
           "log": "reg-time-windows-test_trust_edge_reachability.log"
+        },
+        {
+          "module": "test_stgidx_index_parity",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 96.453,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_stgidx_index_parity"
+          ],
+          "log": "reg-time-windows-test_stgidx_index_parity.log"
         }
       ],
       "previous_snapshot": {
