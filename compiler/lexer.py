@@ -529,16 +529,23 @@ class Lexer:
         self.column += 1
         result = []
         
+        # #436：未闭合时**不要把换行当结束引号吃掉**。原实现 break 后仍走下面
+        # 「跳过结束引号」的 `pos += 1`，于是 `\n` 被吞、主扫描循环看不到它、
+        # `self.line` 不自增 ⇒ 本行之后所有 token 行号系统性偏小，失真量随
+        # 未闭合字符串个数线性累积（错误定位指向错行，且以行号为判据的解析/
+        # 合并规则一并被带偏）。改为置位 `unterminated`，把换行留给主循环处理。
+        unterminated = False
         while self.pos < len(self.source) and self.source[self.pos] != end_quote:
             ch = self.source[self.pos]
             if ch == "\n":
                 self.errors.append(f"L{self.line}:C{self.column} 字符串未闭合")
+                unterminated = True
                 break
             result.append(ch)
             self.pos += 1
             self.column += 1
         
-        if self.pos < len(self.source):
+        if not unterminated and self.pos < len(self.source):
             self.pos += 1  # 跳过结束引号
             self.column += 1
         
