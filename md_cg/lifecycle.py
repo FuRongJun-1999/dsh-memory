@@ -33,6 +33,8 @@
     #377（2026-10-14）：判据改为**共用** `protect.is_protected`（∪ 原显式两位）
     ——层保护（layer ∈ {self, anchor}）与按分保护同样不受降级，`override=True`
     与 immutable 位两条既有通路逐位不变。
+    #430（2026-10-16）：判据载体（裸 fm 探针）收口进 `protect.is_protected_fm`
+    单点——与 trust / freshness 的三份同构载体不再各养一份。
   · 非法迁移**拒绝**（负路由）：`check()` 返回 `(ok, code, reason)`，`set_state()`
     返回 `ok=False` + 机器可读 `error` 而不抛；写路径要硬拒用 `require_transition()`。
   · 永不删除：`archived` 只是状态，节点文件仍在（可逆、可审计）。
@@ -195,43 +197,7 @@ def require_transition(src, dst, protected: bool = False, override: bool = False
     return code
 
 
-# 生效条件：src 取 state_of(fm)，prot 取 bool(fm.get("protected") or fm.get("immutable"))；check 返回 ok 假或 code == "noop" 时原样返回 (ok, code, why) 且不改 fm；否则把 dst 写入 fm[STATE_FIELD]，并把含 at/from/to/reason/actor 的新条目追加到由 fm.get(HISTORY_FIELD) or [] 复制的列表、截取末 HISTORY_KEEP 条写回 fm[HISTORY_FIELD]，返回 (True, code, why)。
-#: 裸 frontmatter 探针的假 node_id（`protect.is_protected` 的 `(cg, node_id)` 形态所需；
-#: 真实节点 id 来自文件名/显式声明，不含 NUL ⇒ 与既有索引键不可能相撞）。
-_FM_PROBE_ID = "\x00fm-probe"
-
-
-class _FmProbe:
-    """裸 frontmatter → `protect.is_protected` 所需的 `(cg, node_id)` 形态（**零规则载体**）。
-
-    #377（2026-10-14）：本模块的降级判据此前只读 `fm["protected"]` / `fm["immutable"]`
-    两位，漏了 `protect.is_protected` 的**层保护**（layer ∈ {self, anchor}）与**按分保护**
-    ——anchor/self 层节点可被无痕降级。本类**不复制任何判据**——规则单点仍是
-    `protect.is_protected`——只把调用方手里已有的 frontmatter 摆成该判据所需的
-    索引快照形态（唯一索引条目＝该映射本身）。刻意**不提供** `_maybe_reload_index`
-    （`protect._fm` 的探活分支取不到即跳过）且 `get()` 恒返回 None（门控字段回退
-    读文件的分支在此无文件可读、**不抛异常**）⇒ 判定 100% 基于传入映射：
-    零 IO、零副作用（`stamp` 是就地改 fm 的纯函数面）。
-    """
-
-    __slots__ = ("index",)
-
-    def __init__(self, fm):
-        self.index = {"nodes": {_FM_PROBE_ID: fm if isinstance(fm, dict) else {}}}
-
-    def get(self, node_id=None):        # protect._fm 的回退分支：探针无文件可读
-        return None
-
-
-def _is_protected_fm(fm) -> tuple:
-    """裸 frontmatter 的「不可遗忘」判定 → `(是否受保护, 原因)`。
-
-    判据单点＝**`protect.is_protected`**（层保护 self/anchor ∪ 显式 protected 位 ∪
-    按分保护 ≥0.70 且来源缺省/hint）；本函数只负责把它喂给判据，不自带任何规则。
-    """
-    return protect.is_protected(_FmProbe(fm), _FM_PROBE_ID)
-
-
+# 生效条件：src 取 state_of(fm)，prot 取 bool(fm.get("protected") or fm.get("immutable")) or protect.is_protected_fm(fm)[0]（显式两位 ∪ protect 单点判据，#377/#430）；check 返回 ok 假或 code == "noop" 时原样返回 (ok, code, why) 且不改 fm；否则把 dst 写入 fm[STATE_FIELD]，并把含 at/from/to/reason/actor 的新条目追加到由 fm.get(HISTORY_FIELD) or [] 复制的列表、截取末 HISTORY_KEEP 条写回 fm[HISTORY_FIELD]，返回 (True, code, why)。
 def stamp(fm: dict, dst: str, reason: str = None, actor: str = None,
           override: bool = False):
     """在给定 frontmatter 上**就地**推进状态（无 IO）→ `(ok, code, why)`。
@@ -246,10 +212,12 @@ def stamp(fm: dict, dst: str, reason: str = None, actor: str = None,
     # 漏了 `protect.is_protected` 的**层保护**（layer ∈ {self, anchor}）与**按分保护**
     # ——anchor/self 层节点可被无痕降级。改为「显式两位 ∪ is_protected」：
     # **超集**，原判据一字不减（immutable 位照旧、override=True 照旧短路到 check 的
-    # override 分支）⇒ 既有判定与 override 通路逐位不变；判据本体仍是 protect 的单点，
-    # 不在本模块复制一份。
+    # override 分支）⇒ 既有判定与 override 通路逐位不变。
+    # #430（2026-10-16）：#377 放在本模块的探针载体（`_FmProbe`/`_is_protected_fm`，
+    # 与 trust / freshness 逐字同构的同根分叉）收口进 `protect.is_protected_fm`——
+    # 判据本体与载体都在 protect 单点，本模块不再养第二份。
     prot = bool(fm.get("protected") or fm.get("immutable")) \
-        or _is_protected_fm(fm)[0]
+        or protect.is_protected_fm(fm)[0]
     ok, code, why = check(src, dst, protected=prot, override=override)
     if not ok or code == "noop":
         return ok, code, why
