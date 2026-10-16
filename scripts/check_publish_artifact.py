@@ -97,7 +97,14 @@ R1_FILE_RULES = [
 R1_FILE_REGEXES = [(re.compile(pat), reason) for pat, reason in R1_FILE_RULES]
 
 R1_CONTENT_RULES = [
-    ("TOKEN_SK", re.compile(r"sk-[A-Za-z0-9_\-]{20,}")),
+    # ★ 本笔修（R1-b① 左边界）：原为 `sk-[A-Za-z0-9_\-]{20,}`，**无左边界** ⇒ 任何以
+    #   `sk-` 结尾的普通标识后面跟 ≥20 位字母数字即被判 FAIL —— 实测 `risk-` + 25 个 `a`
+    #   即误报（发版门禁把无关代码判红；而门禁红是"操作者要去修"的信号，误报成本实打实）。
+    #   **同仓 PII 族是正确写法**：`hive/exec.py` 的 PII-SK 用了双侧 lookaround
+    #   `(?<![0-9A-Za-z])sk-[A-Za-z0-9_-]{16,}(?![0-9A-Za-z])`（详见 md_cg/test_issue419_pii_redaction.py
+    #   的跨站点矩阵）⇒ 同一形态在两个站点口径分叉。本笔把 R1 的**左边界**对齐该写法。
+    #   右边界与 `{16,}/{20,}` 的差异**本笔不动**（另立议题，避免夹带）。
+    ("TOKEN_SK", re.compile(r"(?<![0-9A-Za-z])sk-[A-Za-z0-9_\-]{20,}")),
     ("TOKEN_GH", re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}")),
     ("TOKEN_NPM", re.compile(r"npm_[A-Za-z0-9]{36}")),
     ("TOKEN_MDCG", re.compile(r"mdcg1\.[A-Za-z0-9._\-]{20,}")),
