@@ -7,6 +7,19 @@
 # 不适用条件：不判 MCP 面的 _coerce_int（#155② 已修，另一派发面）；不判 swarm/rust 侧；`max_tokens`/`temperature`/`thinking` 登记为**非本闸面**（理由见 E03，非缺陷）
 """issue #400 守卫：脏入参闸门（_int_arg 模板）此前只覆盖一条路径。
 
+★ task-16（#422）修订：**E01 的枚举面**原只认「内联 `int(X.get(...))`」的**实参文本**，
+`v = spec.get(k); int(v)` 这类**变量中转**整类逃过（实测 7 处，见 #422）——即「文案声称的
+面 > 实际覆盖的面」。现改为**数据流感知**枚举并配**枚举完备性自证**（E01b：9 类合成样本
+喂同一条 `discover`）+ **回退即绿自证**（R 组：实际回退修复本体，实跑看是否转红）。
+
+**未覆盖（如实，勿读作「全仓 int() 已清零」）**：
+  · 只覆盖 `int(...)`；不含 `float()` / `Decimal()` / `round()` 等同类转型；
+  · 只覆盖「同一函数内」的赋值中转（含多级），**不含跨函数传参后的转型**
+    （如 `_f(spec)` 内部再 `int(x)`）；
+  · 不含 `eval` / `getattr` / 动态拼接等运行期形态；
+  · 「已由 except (TypeError/ValueError/Exception) 兜住」被判非违规（依据：脏值不逃穿、
+    不判死 job；实证 `hive/orch.py:783`）——若将来口径改为「一律须过闸门」，本条需同步收紧。
+
 病象（修前）：① `tool_web_search` 的 `int(args.get("count") or 5)` 在自己 try **之外** ⇒
 模型回 `'3条'` 时异常逃到 `exec.main` 兜底，**整个 job 判死**（EXIT_API）且 `tool_trace` 全丢；
 ② `execute_tool` 只捕 `json.JSONDecodeError` ⇒ `arguments` 已是对象时 `TypeError` 逃穿；
@@ -130,7 +143,104 @@ def _src(rel):
         return f.read()
 
 
-_NAKED = []
+# ---------------------------------------------------------------- 枚举面（issue #422 重写）
+# ⚠ 修前（#400 首版的 E01）：只对 `int(...)` 的**实参源码文本**做子串匹配，只认「内联
+# `int(X.get(...))`」——`v = spec.get(k); int(v)` 这种**变量中转**整类逃过（实测 7 处，
+# 见 #422），而文案却声称「hive 内裸 int() 只剩 _int_arg 本体一处」⇒ **声称面 > 覆盖面**。
+# 现在改为**数据流感知**枚举，并配**枚举完备性自证**（合成样本喂同一条 discover）。
+
+#: 「闸门本体」白名单：这两处**就是**把外部载荷收敛为 int 的实现，不是违规。
+#: 非空转判据：E01c 断言这两个函数确实存在于被扫源码里（防白名单写错后静默放行）。
+_GATE_BODY = {("hive/exec.py", "_int_arg"), ("hive/hive_mcp/mcp_server.py", "_coerce_int")}
+#: 「外部载荷来源」标记：入参/规格对象上的取值形态。
+_SRC_MARKS = ("args.get", "spec.get", "a.get", "kw.get", "args[", "spec[")
+
+
+def _payload_names(fn):
+    """函数内「由外部载荷派生」的局部名（**不定点迭代**，覆盖多级中转）。"""
+    out = {}
+    changed = True
+    while changed:
+        changed = False
+        for sub in ast.walk(fn):
+            if isinstance(sub, ast.Assign) and len(sub.targets) == 1 \
+                    and isinstance(sub.targets[0], ast.Name):
+                nm = sub.targets[0].id
+                if nm in out:
+                    continue
+                v = ast.unparse(sub.value)
+                src_hit = any(k in v for k in _SRC_MARKS)
+                relay_hit = any(isinstance(x, ast.Name) and x.id in out
+                                for x in ast.walk(sub.value))
+                if src_hit or relay_hit:
+                    out[nm] = (sub.lineno, v[:60])
+                    changed = True
+    return out
+
+
+def discover(texts):
+    """**守卫自己的枚举逻辑**（纯函数：{相对路径: 源码} → 命中列表）。
+
+    覆盖的**语义等价形态**（#422 的教训：只认内联会漏掉整类）：
+      ① 内联：`int(args.get("count"))` / `int(spec["k"])`；
+      ② **变量中转**：`v = spec.get("k")` … `int(v)`（修前整类逃过）；
+      ③ 多级中转：`v = spec.get("k"); w = v; int(w)`（不定点迭代覆盖）；
+      ④ 属性/下标/BoolOp 实参：凡实参非字面量且能追到载荷来源者。
+    排除闸门本体（`_int_arg` / `_coerce_int`）——它们正是收敛点。
+    """
+    hits = []
+    for rel, src in sorted(texts.items()):
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            continue
+        _par = {}
+        for _p in ast.walk(tree):
+            for _c in ast.iter_child_nodes(_p):
+                _par[id(_c)] = _p
+
+        def _guarded(node):
+            """该 int() 是否被 except (TypeError/ValueError/Exception/BaseException) 兜住。
+
+            已兜住 ⇒ 脏值不逃穿、不判死 job ⇒ **不构成 #400 类违规**（实测例：
+            `hive/orch.py:783 int(ov["max_subtasks"])` 在 `try/except (TypeError, ValueError)` 内）。
+            """
+            cur = node
+            while cur is not None:
+                if isinstance(cur, ast.Try):
+                    for h in cur.handlers:
+                        t_ = h.type
+                        nm = ast.unparse(t_) if t_ is not None else "BaseException"
+                        if any(k in nm for k in ("TypeError", "ValueError",
+                                                 "Exception")):
+                            return True
+                cur = _par.get(id(cur))
+            return False
+
+        for fn in [x for x in ast.walk(tree) if isinstance(x, ast.FunctionDef)]:
+            names = _payload_names(fn)
+            for n in ast.walk(fn):
+                if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                        and n.func.id == "int" and n.args):
+                    continue
+                a0 = n.args[0]
+                s = ast.unparse(a0)
+                inline = any(k in s for k in _SRC_MARKS)
+                # ③/④：实参表达式里**任意** Name 是载荷派生即算（覆盖 `r.code`、`r["x"]`、`f(r)`）
+                relay = any(isinstance(x, ast.Name) and x.id in names
+                            for x in ast.walk(a0))
+                if not (inline or relay):
+                    continue
+                if (rel, fn.name) in _GATE_BODY:
+                    continue
+                if _guarded(n):
+                    continue
+                hits.append({"file": rel, "line": n.lineno, "fn": fn.name,
+                             "arg": s[:60], "form": "inline" if inline else "relay"})
+    return hits
+
+
+_TEXT = {}
 for _dp, _dn, _fns in os.walk(os.path.join(_REPO, "hive")):
     if "__pycache__" in _dp:
         continue
@@ -138,20 +248,38 @@ for _dp, _dn, _fns in os.walk(os.path.join(_REPO, "hive")):
         if not _fn.endswith(".py") or _fn.startswith("test_"):
             continue
         _p = os.path.join(_dp, _fn)
-        try:
-            _tree = ast.parse(_src(os.path.relpath(_p, _REPO)))
-        except (OSError, SyntaxError):
-            continue
-        for _n in ast.walk(_tree):
-            if isinstance(_n, ast.Call) and isinstance(_n.func, ast.Name) \
-                    and _n.func.id == "int" and _n.args:
-                _s = ast.unparse(_n.args[0])
-                if any(k in _s for k in ("args.get", "spec.get", "a.get", "args[", "spec[")):
-                    _NAKED.append((os.path.relpath(_p, _REPO), _n.lineno, _s[:50]))
-_NAKED_OK = [(r, l, s) for r, l, s in _NAKED if s.strip().startswith("args.get(key)")]
-_check("E01 ★全枚举：hive 内对 args/spec/a 的裸 int() **只剩 _int_arg 本体**一处"
-       "（修前 3 处：count / max_tool_rounds 透传后的消费面 / _int_arg 本体）",
-       len(_NAKED) == 1 and len(_NAKED_OK) == 1, _NAKED)
+        with io.open(_p, encoding="utf-8") as _f:
+            _TEXT[os.path.relpath(_p, _REPO).replace(os.sep, "/")] = _f.read()
+_NAKED = discover(_TEXT)
+_check("E01 ★全枚举（数据流感知·四类形态）：hive 内「外部载荷派生的裸 int()」为 0"
+       "（闸门本体 _int_arg/_coerce_int 已在白名单外）",
+       len(_NAKED) == 0, _NAKED)
+
+import md_cg._guard_kit as _kit          # noqa: E402
+
+#: ★**枚举完备性自证**（task-16 沉淀，参考 #401 A04 / #326-④ E12）：把每一类「应当被抓的
+#: 语义等价形态」做成**合成样本**，喂给**同一条 discover**——必须命中；再喂「不该被抓」的
+#: 样本（闸门本体 / 字面量 / 无载荷来源），必须不命中（**过度收紧方向**）。
+_SAMPLES = [
+    ("①内联-Call", 'def f(args):\n    return int(args.get("count") or 5)\n', True, "synthetic/inline.py"),
+    ("①内联-Subscript", 'def f(spec):\n    return int(spec["timeout_s"])\n', True, "synthetic/sub.py"),
+    ("②中转-Name", 'def f(spec):\n    b = spec.get("context_budget_tokens")\n    return int(b)\n', True, "synthetic/relay.py"),
+    ("③多级中转", 'def f(spec):\n    v = spec.get("k")\n    w = v\n    return int(w)\n', True, "synthetic/relay2.py"),
+    ("④中转-属性链", 'def f(args):\n    r = args.get("count")\n    return int(r.code)\n', True, "synthetic/attr.py"),
+    # 白名单是**路径作用域**的 ⇒ 该样本必须落在真实路径上（这也是「不该命中」的证明面）
+    ("✗闸门本体-不得命中", "def _int_arg(args, key, default, hi):\n    v = int(args.get(key))\n    return v\n", False, "hive/exec.py"),
+    ("✗字面量-不得命中", 'def f():\n    return int("5")\n', False, "synthetic/lit.py"),
+    # 已由 except 兜住 ⇒ 脏值不逃穿、不判死 job ⇒ 不得命中（实测例 orch.py:783）
+    ("✗已兜住-不得命中", 'def f(spec):\n    v = spec.get("k")\n    try:\n        return int(v)\n    except (TypeError, ValueError):\n        return 0\n', False, "synthetic/guarded.py"),
+    ("✗无载荷来源-不得命中", "def f(e, ttl):\n    return int(ttl) + int(e.code or 0)\n", False, "synthetic/none.py"),
+]
+_ok_e, _det_e = _kit.assert_enumeration_complete(discover, _SAMPLES)
+_check("E01b ★枚举完备性自证：%d 类形态各喂合成样本，同一 discover 命中/不命中须符合预期"
+       % len(_SAMPLES), _ok_e, _det_e)
+_check("E01c 白名单非空转：闸门本体两个函数确实存在于被扫源码里（防写错白名单后静默放行）",
+       all(("def %s(" % fn) in _TEXT.get(rel, "") for rel, fn in _GATE_BODY),
+       [rel for rel, _fn in _GATE_BODY if ("def %s(" % _fn) not in _TEXT.get(rel, "")])
+
 _WL = _src("hive/orch.py")[_src("hive/orch.py").index("for k in ("): _src("hive/orch.py").index("for k in (") + 400]
 _check("E02 orch 白名单里不得再出现**整数槽** max_tool_rounds（已移出、走 _int_arg）",
        "\"max_tool_rounds\"," not in _WL
@@ -285,8 +413,29 @@ def _mutate():
         shutil.rmtree(tree, ignore_errors=True)
 
 
+# ---------------------------------------------------------------- R 组：回退即绿自证（实跑，非推演）
+# task-16 要求 2（#421 的指控点）：把**被守护的修复**真的回退一次，实跑守卫看是否转红。
+# 与上方变异表的区别：变异是「等价改写/过度收紧」，本组是**修复本体回退**。
+_REVERT = [
+    (("hive/exec.py", '    count = _int_arg(args, "count", 5, 10)', '    count = max(1, min(int(args.get("count") or 5), 10))')),
+    ]
+
+
+def _revert_proof():
+    _ok, _det = _kit.assert_revert_reddens(_mirror_build, _REVERT, _run_in,
+                                          tuple(["A01","E01"]), "?")
+    print("!! 回退即绿自证：把修复本体回退一次，守卫必须转红（实跑）")
+    print("  %s  红项=%s" % ("OK  " if _ok else "FAIL", _det.get("实际红项")))
+    if not _ok:
+        print("  不合格：回退后未按预期转红 —— " + str(_det)[:400])
+    return 0 if _ok else 1
+
+
 def main():
     _bad = _mutate() if "--mutate" in sys.argv else 0
+    if "--mutate" in sys.argv and _bad == 0:
+        _bad += _revert_proof()
+    return 1 if (FAILS or _bad) else 0
     return 1 if (FAILS or _bad) else 0
 
 

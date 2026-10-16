@@ -1161,37 +1161,260 @@ def _sensitive_read(real: str) -> str | None:
 
 # 读权限分级（批次 27）：PII 内容脱敏——read_file 的文本内容会随 tool 消息
 # 回喂 LLM，「跳过个人敏感信息不入明文」在**内容层**兜底（路径层由
-# _sensitive_read 把守）。正则模式集 v1（诚实面：正则脱敏是概率防线非
-# 密码学保证，新增类别在此扩展）。
-# N174（批次 65，2026-09-27）：四类文本模式的 \b 改显式 ASCII 边界
-# lookaround——\b 是 Unicode 词边界而 CJK 属 \w，中文紧邻（中文语料默认
-# 书写形态）处无边界即全文漏脱敏（read_file / _redact_deep 同源失效）。
-# 负类刻意不含 )：) 非词字符，旧码对「张三(13800138000)」本命中，纳入负类
-# 即回退——新匹配集为旧集严格超集，零回退。
-_PII_PATTERNS = (
-    # 私钥/证书块（整段吞掉，含头尾行）
-    ("私钥块", re.compile(
-        r"-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----.*?-----END [A-Z ]*"
-        r"PRIVATE KEY( BLOCK)?-----", re.S)),
-    # 通用 API key 样式（OpenAI sk- / GitHub ghp_·gho_ / AWS AKIA / Bearer）
-    ("API密钥", re.compile(
-        r"(?<![0-9A-Za-z])(?:sk-[A-Za-z0-9_-]{16,}|"
-        r"gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|"
-        r"Bearer\s+[A-Za-z0-9._-]{20,})(?![0-9A-Za-z])")),
-    # issue #95（2026-10-09 DSH 端）：灵枢令牌形态 mdcg1.<...>（与 data/policy.json
-    # 第 11 条同源）——它是**本仓自己签发**的凭据，实测可经 context_files 外发。
-    ("灵枢令牌", re.compile(r"(?<![0-9A-Za-z])mdcg1\.[A-Za-z0-9._\-]{16,}")),
-    # 身份证（18 位含校验位 X）——先于手机号（避免 17 位段被手机号误吃）
-    ("身份证号", re.compile(r"(?<![0-9A-Za-z])\d{6}(?:19|20)\d{2}"
-                           r"(?:0[1-9]|1[0-2])(?:[0-2]\d|3[01])"
-                           r"\d{3}[\dXx](?![0-9A-Za-z])")),
-    # 手机号（大陆号段）
-    ("手机号", re.compile(r"(?<![0-9A-Za-z])1[3-9]\d{9}(?![0-9A-Za-z])")),
-    # 邮箱
-    ("邮箱", re.compile(
-        r"(?<![0-9A-Za-z])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+"
-        r"\.[A-Za-z]{2,}(?![0-9A-Za-z])")),
+# _sensitive_read 把守）。正则脱敏是概率防线非密码学保证（诚实面）。
+# N174（批次 65，2026-09-27）：文本模式的 \b 改显式 ASCII 边界 lookaround——
+# \b 是 Unicode 词边界而 CJK 属 \w，中文紧邻（中文语料默认书写形态）处无边界
+# 即全文漏脱敏（read_file / _redact_deep 同源失效）。负类刻意不含 )：) 非词
+# 字符，旧码对「张三(13800138000)」本命中，纳入负类即回退——新匹配集为旧集
+# 严格超集，零回退。
+#
+# ★issue #419（2026-10-16 DSH 端）：模式集按「**族**」重建为可枚举、可自证
+# 覆盖度的**单一清单** PII_FAMILIES。旧形态是 6 条手工 (label, pattern) 表，
+# 报告实测 12 类主流 token 前缀族零覆盖（glpat- / AIza / xox*-xapp- / JWT /
+# xai- / gsk_ / pk_live_ / shpat_ / npm_ / ya29. / 裸 hex）——根因不是「少写
+# 几条」，而是**没有「族」这一维**：逐家手工添加 ⇒ 漏项结构性。旁证即同仓
+# 「md_cg/interop.py」的 _FORBIDDEN_RES 早有 AIza 与 xox-，hive 却没有；
+# 反过来 hive 有 sk- / mdcg1.，interop 没有——两处早已漂移。
+# 现每条族带 family（稳定族 id ＝ 跨站点盘点矩阵的键）/ label（替换文案）/
+# pattern / sample（合成样本，供守卫逐族自证覆盖）/ source（依据）。
+#   · **加族的正确姿势**：本表加一条 **且** 守卫
+#     「md_cg/test_issue419_pii_redaction.py」的独立样本表加一条；只做其一即红
+#     （前者由覆盖度自证咬住，后者由「样本数 ≥ 族数」非空转断言咬住）。
+#   · 判据形态 ＝ **注册前缀 + 长度下限**，不锁死具体长度与字符集——锁死长度
+#     正是「换个形态就漏」的来源（对照：npm_ 真实 36 位、shopify 真实 32 位）。
+#   · 样本一律**字符串拼接**书写（"glpat-" + "A" * 20）：明文 token 字面量会
+#     撞本仓发版门禁「scripts/check_publish_artifact.py」的 R1 内容面（该门禁已有
+#     TOKEN_SK / TOKEN_GH / TOKEN_NPM / TOKEN_MDCG / PRIVATE_KEY 等规则）。
+#   · 裸 hex 走**语境门控**档收（族 bare_hex_credential）：只认「凭据标签紧邻」
+#     的形态——无门控档的误伤实测见 PII_EXCLUDED。门控式把标签一并吃掉，与
+#     node 侧孪生「src/hooks.ts」的 api_key[:=]value 规则同一形态（仓内既有惯例）。
+PII_FAMILIES = (
+    {
+        "family": "private_key_block",
+        "label": "私钥块",
+        "pattern": re.compile(
+            r"-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----.*?-----END [A-Z ]*"
+            r"PRIVATE KEY( BLOCK)?-----", re.S),
+        "sample": ("-----BEGIN " + "RSA PRIVATE KEY-----" + "\n"
+                   + "MIIEowIBAAKCAQEA" + "\n"
+                   + "-----END " + "RSA PRIVATE KEY" + "-----"),
+        "source": "PEM 私钥块（RFC 7468）；RSA/OPENSSH/ENCRYPTED/PGP 四变体实测全覆盖",
+        "note": "整段吞掉（含头尾行）——置首，避免后续规则先切碎再留残余密钥体",
+    },
+    {
+        "family": "mdcg_token",
+        "label": "灵枢令牌",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])mdcg1\.[A-Za-z0-9._\-]{16,}"),
+        "sample": ("mdcg1." + "designer" + "." + "tk_" + "0123456789ab" + "."
+                   + "abcdefghijklmnop"),
+        "source": "issue #95；data/policy.json 第 11 条同源（灵枢自签令牌）",
+        "note": "本仓自己签发的凭据，实测可经 context_files 外发",
+    },
+    {
+        "family": "openai_sk",
+        "label": "API密钥",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])sk-[A-Za-z0-9_-]{16,}(?![0-9A-Za-z])"),
+        "sample": "sk-" + "A" * 24,
+        "source": "OpenAI（另被 OpenRouter 的 sk-or-v1- 形态借用）",
+        "note": "长度下限沿用旧码 16",
+    },
+    {
+        "family": "github_token",
+        "label": "API密钥",
+        "pattern": re.compile(
+            r"(?<![0-9A-Za-z])(?:gh[pousr]_[A-Za-z0-9]{20,}"
+            r"|github_pat_[A-Za-z0-9_]{20,})(?![0-9A-Za-z])"),
+        "sample": "ghp_" + "A" * 30,
+        "source": "GitHub；github_pat_ 为细粒度 PAT（issue #419 交叉核对发现："
+                  "md_cg/interop.py 早有、hive 旧码无 ⇒ 第 13 个缺口，随本批补齐）",
+        "note": "github_pat_ 分支为本批新增；gh[pousr]_ 沿用旧码",
+    },
+    {
+        "family": "aws_akid",
+        "label": "API密钥",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])AKIA[0-9A-Z]{16}(?![0-9A-Za-z])"),
+        "sample": "AKIA" + "A" * 16,
+        "source": "AWS Access Key ID",
+        "note": "长度锁死 16 是既有判据，不动（hive/test_exec_tools.py F11c 钉住"
+                "「AKIA…X」不脱敏的边界语义）",
+    },
+    {
+        "family": "gitlab_pat",
+        "label": "API密钥",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])glpat-[A-Za-z0-9_\-]{20,}(?![0-9A-Za-z])"),
+        "sample": "glpat-" + "A" * 24,
+        "source": "issue #419 报告 §B（GitLab personal access token）",
+        "note": "本批新增",
+    },
+    {
+        "family": "google_api_key",
+        "label": "API密钥",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])AIza[0-9A-Za-z_\-]{20,}(?![0-9A-Za-z])"),
+        "sample": "AIza" + "SyA" + "b" * 32,
+        "source": "issue #419 报告 §B（Google API key，真实形态 39 字符）",
+        "note": "本批新增；长度取下限 20 而非锁死 35（前缀 AIza 已足够判别）",
+    },
+    {
+        "family": "google_oauth",
+        "label": "API密钥",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])ya29\.[0-9A-Za-z_\-]{20,}(?![0-9A-Za-z])"),
+        "sample": "ya29." + "a0AfB1" + "c" * 20,
+        "source": "issue #419 报告 §B/§三.3（GCP OAuth access token，已实证外带）",
+        "note": "本批新增",
+    },
+    {
+        "family": "slack_token",
+        "label": "API密钥",
+        "pattern": re.compile(
+            r"(?<![0-9A-Za-z])(?:xox[baprs]-[A-Za-z0-9\-]{10,}"
+            r"|xapp-[A-Za-z0-9\-]{10,})(?![0-9A-Za-z])"),
+        "sample": "xoxb-" + "1234567890" + "-" + "abcdefghijkl",
+        "source": "issue #419 报告 §B（Slack bot/app token）",
+        "note": "本批新增；interop 早有 xox[baprs]-，hive 旧码无",
+    },
+    {
+        "family": "jwt",
+        "label": "API密钥",
+        "pattern": re.compile(
+            r"(?<![0-9A-Za-z])eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}"
+            r"\.[A-Za-z0-9_\-]{8,}(?![0-9A-Za-z])"),
+        "sample": ("eyJ" + "hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" + "."
+                   + "eyJ" + "zdWIiOiIxMjM0NTY3ODkwIn0" + "."
+                   + "dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+        "source": "issue #419 报告 §B（JWT 三段式）",
+        "note": "**刻意要求三段**（裸 eyJ 前缀会把任意 base64 数据吃进来）——"
+                "本仓实测裸 eyJ 命中 2 处、三段式命中 0 处",
+    },
+    {
+        "family": "xai_token",
+        "label": "API密钥",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])xai-[A-Za-z0-9]{20,}(?![0-9A-Za-z])"),
+        "sample": "xai-" + "a" * 32,
+        "source": "issue #419 报告 §B（xAI）",
+        "note": "本批新增",
+    },
+    {
+        "family": "groq_key",
+        "label": "API密钥",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])gsk_[A-Za-z0-9]{20,}(?![0-9A-Za-z])"),
+        "sample": "gsk_" + "a" * 40,
+        "source": "issue #419 报告 §B（Groq）",
+        "note": "本批新增",
+    },
+    {
+        "family": "stripe_key",
+        "label": "API密钥",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])[psr]k_(?:live|test)_[A-Za-z0-9]{20,}(?![0-9A-Za-z])"),
+        "sample": "pk_live_" + "a" * 24,
+        "source": "issue #419 报告 §B（Stripe，pk/sk/rk × live/test）",
+        "note": "本批新增；用下划线形态，与 openai_sk 的连字符形态不冲突",
+    },
+    {
+        "family": "shopify_token",
+        "label": "API密钥",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])shpat_[A-Za-z0-9]{20,}(?![0-9A-Za-z])"),
+        "sample": "shpat_" + "a" * 32,
+        "source": "issue #419 报告 §B（Shopify admin access token）",
+        "note": "本批新增；不锁死 32 位 hex（报告样例即非 hex 形态）",
+    },
+    {
+        "family": "npm_token",
+        "label": "API密钥",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])npm_[A-Za-z0-9]{20,}(?![0-9A-Za-z])"),
+        "sample": "npm_" + "a" * 36,
+        "source": "issue #419 报告 §B（npm token）",
+        "note": "本批新增；发版门禁 TOKEN_NPM 锁死 36 位，本处只取下限 20",
+    },
+    {
+        "family": "bare_hex_credential",
+        "label": "十六进制凭据",
+        "pattern": re.compile(r"(?i)(?:api[_\-]?key|apikey|access[_\-]?token|secret|token|passwd|password|credential|密钥|令牌|口令)\s*[:=：]\s*[0-9a-fA-F]{32,64}(?![0-9A-Za-z])"),
+        "sample": "api_key = " + "a1b2c3d4" * 4,
+        "source": "issue #419 报告 §B 第 2 建议（裸 hex 启发式）+ 其 §四.2"
+                  "「只在高置信上下文（key/secret/token 邻近词）启用」",
+        "note": "**语境门控**：仅在凭据标签紧邻处脱敏（标签随匹配一并吃掉，"
+                "与 src/hooks.ts 同形态）。无门控档实测误伤 6523 处 ⇒ 见 PII_EXCLUDED",
+    },
+    {
+        "family": "bearer",
+        "label": "API密钥",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])Bearer\s+[A-Za-z0-9._-]{20,}(?![0-9A-Za-z])"),
+        "sample": "Bearer " + "A" * 24,
+        "source": "旧码既有（HTTP Authorization 头）",
+        "note": "沿用旧码",
+    },
+    {
+        "family": "cn_id_card",
+        "label": "身份证号",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])\d{6}(?:19|20)\d{2}"
+                              r"(?:0[1-9]|1[0-2])(?:[0-2]\d|3[01])"
+                              r"\d{3}[\dXx](?![0-9A-Za-z])"),
+        "sample": "110101" + "19900307" + "851X",
+        "source": "旧码既有（18 位含校验位 X）",
+        "note": "**必须排在手机号之前**（否则 17 位段被手机号误吃）",
+    },
+    {
+        "family": "cn_mobile",
+        "label": "手机号",
+        "pattern": re.compile(r"(?<![0-9A-Za-z])1[3-9]\d{9}(?![0-9A-Za-z])"),
+        "sample": "138" + "00138000",
+        "source": "旧码既有（大陆号段）",
+        "note": "沿用旧码",
+    },
+    {
+        "family": "email",
+        "label": "邮箱",
+        "pattern": re.compile(
+            r"(?<![0-9A-Za-z])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+"
+            r"\.[A-Za-z]{2,}(?![0-9A-Za-z])"),
+        "sample": "zhangsan" + "@" + "example.com",
+        "source": "旧码既有",
+        "note": "沿用旧码",
+    },
 )
+
+
+#: **刻意不收**的族（理由 + 误伤实测读数）。与 PII_FAMILIES 构成二选一闭集：
+#: 一个族要么被收（有 pattern 且被守卫逐族自证）、要么被显式排除（有理由与读数）
+#: ——不存在「忘了」这第三种形态。守卫断言本表每条的 reason/measured 非空。
+PII_EXCLUDED = (
+    {
+        "family": "bare_hex_ungated",
+        "reason": "**无凭据语境**的 32/64 位裸 hex 不脱敏：本仓实测误伤 169 处（32 位）"
+                  "/ 6523 处（64 位）——MD5/SHA 摘要、评测哈希、节点 id 全是这种形态；"
+                  "data/policy.json 的 _note 亦明记「长 hex（git SHA）等易误伤的模式"
+                  "刻意不收；宁可漏报也不误伤」。故改以**语境门控**档收（族 "
+                  "bare_hex_credential，误伤实测 0 处）——报告 §四.2 对裸 hex 的可选性"
+                  "与「只在高置信上下文启用」建议与此一致。",
+        "measured": {"bare_hex32_hits": 169, "bare_hex64_hits": 6523,
+                     "gated_hex_hits": 0, "repo_files_scanned": 1748,
+                     "scope": "仓内 .md/.py/.ts/.json/.rs 文本（排除 jobs/target/__pycache__）"},
+    },
+    {
+        "family": "labelled_credential_any_value",
+        "reason": "「凭据标签 + **任意值**」宽判据不收：node 侧孪生 src/hooks.ts 有"
+                  "（api_key / access_token / password / 密码 的值类取任意非空白串），"
+                  "hive 没有——**这是已登记的跨站点漂移**，本批只收其高置信子集"
+                  "（标签 + 32/64 位 hex ＝ 族 bare_hex_credential）。不收的理由是实测："
+                  "本仓宽判据命中 288 处，其中大量非凭据（token=会话id、API_KEY:''、"
+                  "secret==硬编码默认值）。要收须先定「值类/上下文」判据，属设计裁定。",
+        "measured": {"broad_labelled_value_hits": 288, "repo_files_scanned": 1748,
+                     "note": "对照：本批所收的 hex 门控档同一语料实测 0 处"},
+    },
+    {
+        "family": "begin_certificate",
+        "reason": "公开证书块（BEGIN CERTIFICATE）不含私钥：脱它零安全收益，"
+                  "却会把正常的 TLS/证书文档改得不可读。issue #419 §二「阴性格」亦判"
+                  "「不匹配（公开证书不含私钥，漏=合理）」。",
+        "measured": {"rationale": "按报告阴性格结论收益为零，故未做误伤计数"},
+    },
+)
+
+
+#: _redact_pii 的替换序——**由 PII_FAMILIES 派生**（单一真源），形状与旧版
+#: (label, pattern) 逐字一致：hive/test_exec_tools.py 与
+#: hive/test_issue95_context_files_creds.py 按该形状消费（for _n, rx in ...）。
+_PII_PATTERNS = tuple((f["label"], f["pattern"]) for f in PII_FAMILIES)
 
 
 # 生效条件：text 为任意字符串；依次以 _PII_PATTERNS 各模式 sub 为「[已脱敏:{类别}]」并返回处理后文本（无命中时原串返回；多类命中各自替换）。
@@ -1785,7 +2008,12 @@ def run_with_tools(spec: dict, messages: list, job_id: str,
     max_rounds = _int_arg(spec, "max_tool_rounds", DEFAULT_MAX_TOOL_ROUNDS,
                           hi=sys.maxsize)
     timeout = float(spec.get("timeout_s") or 300)
-    budget = spec.get("context_budget_tokens")
+    # issue #422：脏值经**变量中转**逃过 #400 的闸门——`budget` 此前是原样值，
+    # 下方 7 处 `int(budget)` 仍是裸转型：模型回 `'200k'`/`[200]`/`'abc'` 时抛
+    # ValueError/TypeError ⇒ 整个 job 判死（与 #400 站点 1 同一缺陷类）。
+    # 此处**一次预收敛为 int**（`_int_arg` 模板：脏值/非正回落 0 = 「无预算」，
+    # 与修前 `if not budget` 的语义一致），下方各消费点不再转型。
+    budget = _int_arg(spec, "context_budget_tokens", 0, hi=sys.maxsize)
     trace, usage_total = [], {}
 
 # 生效条件：无入参，budget 为假值（None/0/空串）时立即返回 (0, "")；否则 total = base_tokens + 对 messages 中 content 为 str 的项累加 est_tokens(content or "")，仅当 total > int(budget) 时返回超预算文案、否则返回空串。
@@ -1802,9 +2030,9 @@ def run_with_tools(spec: dict, messages: list, job_id: str,
             _est["seen"] += 1
         total = _est["total"]
         return total, (
-            f"上下文超预算: 保守估算 {total} tokens > 预算 {int(budget)}"
+            f"上下文超预算: 保守估算 {total} tokens > 预算 {budget}"
             "（工具轮累积所致；请收窄任务或调大 context_budget_tokens）"
-            if total > int(budget) else "")
+            if total > budget else "")
 
     rnd = 0
     while rnd <= max_rounds:
@@ -1812,10 +2040,10 @@ def run_with_tools(spec: dict, messages: list, job_id: str,
         if over:
             if spec.get("context_strict"):
                 progress(job_dir, kind="budget_stop", round=rnd, est_tokens=est,
-                         budget_tokens=int(budget), strict=True)
+                         budget_tokens=budget, strict=True)
                 return {"_error": over, "tool_trace": trace}
             return _handoff(spec, job_dir, trace, usage_total, rnd, est,
-                            int(budget))
+                            budget)
         try:
             data = _post_chat(build_body(spec, messages,
                                          tools=schemas if schemas else None),
@@ -1952,19 +2180,20 @@ def main() -> int:
             return EXIT_SPEC
         messages, ctx_meta = build_messages(spec, job_dir)
         base_tokens = ctx_meta.get("image_tokens", 0)
-        budget = spec.get("context_budget_tokens")
+        # issue #422：同上——一次预收敛，消掉下方 `int(budget)` 裸转型。
+        budget = _int_arg(spec, "context_budget_tokens", 0, hi=sys.maxsize)
         if budget:
             total = base_tokens + sum(est_tokens(m["content"]) for m in messages)
-            if total > int(budget):
+            if total > budget:
                 msg = (
-                    f"上下文超预算: 保守估算 {total} tokens > 预算 {int(budget)}"
+                    f"上下文超预算: 保守估算 {total} tokens > 预算 {budget}"
                     + (f"（含图像折算 {base_tokens}）" if base_tokens else "")
                     + "（估算偏高估；请分片任务或调大 context_budget_tokens）"
                 )
                 write_error_result(job_dir, {"ok": False, "error": msg})
                 log(job_dir, f"超预算拦截 est={total} budget={budget}")
                 progress(job_dir, kind="budget_stop", est_tokens=total,
-                         budget_tokens=int(budget), where="spec")
+                         budget_tokens=budget, where="spec")
                 return EXIT_SPEC
         n_ctx = ctx_meta.get("contexts", 0)
         tool_names = [t for t in (spec.get("tools") or []) if t in all_schemas()]

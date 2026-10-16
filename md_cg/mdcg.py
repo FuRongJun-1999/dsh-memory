@@ -1910,8 +1910,11 @@ class MdCG:
             # 「无快照」路径的兜底行为，成本不劣于改动前）。旧快照无
             # _fingerprint 键 → 同样回退一次（迁移窗口），下次 close
             # 落新快照后恢复快照路径。
-            fp = idx.get("_fingerprint")
-            if fp is None or fp != self._dir_fingerprint():
+            # #409（P0）：判据本体收成**单点** _snapshot_trusted——装载面与
+            # 落盘面（compact_index）调**同一个**实现。此前 compact 面另写一套
+            # 「.md 计数相等」，两套判据对同一个问题（「这份快照可信吗」）各答
+            # 各的，且 compact 还会把当前指纹盖到陈旧快照上把指纹判据一起抹掉。
+            if not self._snapshot_trusted(idx):
                 idx = None
         if idx is None:
             idx = {"schema": SCHEMA, "nodes": self._scan_nodes(), "buckets": {}}
@@ -2165,15 +2168,77 @@ class MdCG:
                     continue
         return fp
 
-# 生效条件：遍历 LAYERS 各层目录树（os.walk，不读文件内容），统计文件名以 ".md" 结尾的文件总数并返回。
-    def _count_md_files(self):
-        """盘面 .md 文件计数（不 open/不解析）——compact 写快照前的账本对账。"""
-        n = 0
+
+# 生效条件：idx 为快照候选（dict）时——其 "_fingerprint" 为真值且等于 self._dir_fingerprint()（当前盘面目录树指纹）返回 True；非 dict / 无该键 / 该键为 None / 指纹不符一律 False；恒不写盘。
+    def _snapshot_trusted(self, idx):
+        """「这份快照**可信**吗」的**唯一**判定（issue #409 收口）。
+
+        **判据本体只此一处**：装载面 `_load_index` 与落盘面 `compact_index`
+        都只调本函数，不得各自内联一份（本仓在
+        `_usable_index_snapshot`（N225 准入闸）与 `_apply_log`（N225 重放）
+        上已有「把 load/compact 的共用判据收成单点」的先例，本条延续同一形态，
+        不是新立机制）。
+
+        回答的问题是**新鲜度**：快照写入后盘面**目录树**是否变过。变过（指纹
+        不符）⇒ 该快照的「节点→path」映射可能已不是当前盘面的事实（改名/
+        换目录/对调/删一加一都不改 .md 计数，却都改映射）。边界与
+        `_dir_fingerprint` 同源：**同目录内容级改写**（不动文件名）不触发，
+        属非合作写者协议外（见该方法 docstring）。
+
+        **不回答**「写完这份快照是否安全」——那是另一个问题，另有其判据
+        `_covers_disk`（完整性/覆盖性）。两个判据**互不调用**：把完整性塞进
+        本函数就又把两套口径并成一套、重新长出 #409 的根因。
+        """
+        if not isinstance(idx, dict):
+            return False
+        fp = idx.get("_fingerprint")
+        return fp is not None and fp == self._dir_fingerprint()
+
+
+# 生效条件：遍历 LAYERS 各层目录树（os.walk，不读文件内容）时，返回盘面全部 .md 相对 root 的路径**集合**（正斜杠归一——与 _scan_nodes/_node_entry 落进条目 path 的口径逐字一致）；恒不写盘。
+    def _md_rel_paths(self):
+        """盘面 .md 相对路径集合（不 open/不解析）——完整性判据的**盘面一侧**。"""
+        out = set()
         for layer in LAYERS:
             base = os.path.join(self.root, layer)
-            for _dp, _dirs, files in os.walk(base):
-                n += sum(1 for fn in files if fn.endswith(".md"))
-        return n
+            for dirpath, _dirs, files in os.walk(base):
+                for fn in files:
+                    if fn.endswith(".md"):
+                        out.add(os.path.relpath(os.path.join(dirpath, fn),
+                                                self.root).replace("\\", "/"))
+        return out
+
+
+# 生效条件：nodes 为映射（元素为 dict 时取其 "path"）时——索引侧 path 集合（反斜杠归一、空值丢弃）与 self._md_rel_paths() **集合相等**，且 len(nodes) == 盘面 .md 文件数，返回 True；否则 False；恒不写盘、不抛（元素非 dict 不计入路径侧，由条数不等兜住）。
+    def _covers_disk(self, nodes):
+        """「写完这份快照**安全**吗」的判定（issue #409）——**不是**「可信吗」。
+
+        与 `_snapshot_trusted` 分工（两者互不调用）：
+          · `_snapshot_trusted`：我**能不能读**这份旧快照（新鲜度）；
+          · 本函数：我写出去的这份 nodes **是否恰好描述当前盘面**（完整性）。
+
+        判据 = **索引路径集合 == 盘面 .md 路径集合**（外加条数相等）。这是
+        原来那条「`.md` 计数相等」的 **sound 版**：集合相等 ⇒ 计数相等，反之
+        不然——#409 的全部形态（改名、换目录、两文件对调、外部删一加一、
+        他实例写已落盘而索引增量还在其 `_dirty`）都恰好是「计数没变而路径
+        变了」，计数判据**必然假阳**。反向也覆盖：幽灵条目（索引有、盘上无）
+        与「在盘上但索引里没有」同时出现时，计数相等同样骗过旧判据，集合
+        判据两边都能看见。
+
+        不过闸 ⇒ 宁重扫（`_scan_nodes` 为唯一真源判据），与 `_load_index` 的
+        兜底同向：**缺账快照会被重开路径的指纹校验放行，节点从此不可见**。
+        """
+        disk = self._md_rel_paths()
+        paths = {str(e.get("path") or "").replace("\\", "/")
+                 for e in nodes.values() if isinstance(e, dict)}
+        paths.discard("")
+        return len(nodes) == len(disk) and paths == disk
+
+
+# 生效条件：遍历 LAYERS 各层目录树（os.walk，不读文件内容），统计文件名以 ".md" 结尾的文件总数并返回（= len(self._md_rel_paths())：计数与路径集合同源，不写第二份走查）。
+    def _count_md_files(self):
+        """盘面 .md 文件计数（不 open/不解析）——compact 写快照前的账本对账。"""
+        return len(self._md_rel_paths())
 
     @staticmethod
 # 生效条件：nodes 须为带 values() 的映射且各元素支持 .get("bucket")；仅当 bucket 取值为真值时才计入返回计数，缺键或假值均跳过。
@@ -2185,7 +2250,7 @@ class MdCG:
                 buckets[b] = buckets.get(b, 0) + 1
         return buckets
 
-# 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析、解析结果为 dict（顶层非对象视同损坏）且 "schema" 等于 SCHEMA 时以该快照为基底；快照不存在用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}}（不重扫目录）；快照损坏（ValueError/OSError）、顶层非对象或 schema 不符时降级以 self._scan_nodes() 全库扫描结果为基底（宁重扫勿清池）；基底确定后经 self._apply_log 对 index_log_dir 逐条重放（N225 补强：与 _load_index **同一实现**——无 id 跳过、e 为 None 则 pop、e 非 dict 且非 None 则跳过并记账、其余覆盖；对账触发重扫后同一实现叠回干净扫描之上），落盘并清空日志后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）并返回 idx；
+# 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析、解析结果为 dict（顶层非对象视同损坏）且 "schema" 等于 SCHEMA 且 self._snapshot_trusted(该快照) 为真时以该快照为基底；快照不存在用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}}（不重扫目录）；快照损坏（ValueError/OSError）、顶层非对象、schema 不符或**指纹不符（#409）**时不作基底——损坏/schema 不符降级 self._scan_nodes() 全库扫描（宁重扫勿清池），仅指纹不符改以本进程内存索引 self.index["nodes"] 的副本为基底；基底确定后经 self._apply_log 对 index_log_dir 逐条重放（N225：与 _load_index **同一实现**），随后**重放之前**过**完整性闸** self._covers_disk（#409：基底路径集合 == 盘面 .md 路径集合且条数相等；**闸在重放之前**——日志条目按合作写者协议是权威写入记录、允许指向盘外路径，见守卫 E3/E6），不过即以 self._scan_nodes() 换基底（宁重扫勿写缺账快照），再对最终基底**恰好重放一次**；落盘（_fingerprint 恒为 self._dir_fingerprint()，**只在过闸之后**写）并清空日志后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）并返回 idx；
     def compact_index(self):
         with FileLock(self.index_path):
             idx = {"schema": SCHEMA, "nodes": {}, "buckets": {}}
@@ -2216,19 +2281,48 @@ class MdCG:
                 idx = {"schema": SCHEMA, "nodes": self._scan_nodes(),
                        "buckets": {}}
 
+            # #409（P0）：**盘上快照只有过 _snapshot_trusted 才可作基底**。
+            # 此前 compact 无条件把盘上那份快照当基底（只比 .md 计数），而
+            # 「净 .md 计数为零」的变化（库外改名 / 换目录 / 两文件内容对调 /
+            # 删一加一 / 另一实例已落盘而其索引增量还在它自己的 _dirty 里）
+            # 都能让计数判据给出**假阳** ⇒ 陈旧映射被原样保留，收尾那行再把
+            # **当前**指纹盖上去 ⇒ 下一次打开指纹相符、不重扫 ⇒ 陈旧映射被
+            # 当真源（get(id) 返回**别人的正文**；一次普通写回后别人的正文
+            # 全库无副本——只有全量 rebuild_index 能救）。
+            # 判据同源：与 _load_index 调**同一个** _snapshot_trusted（「这份
+            # 快照可信吗」的唯一判定）；不可信的旧快照**不作基底**，改吃本
+            # 进程内存索引——它装载时已过同一判据（或已重扫），运行期由写
+            # 路径维护，比一份自己都判不可信的盘上快照更可信。**不**采用
+            # 「不可信一律重扫」：正常 close 路径里「本进程刚写过文件」必然
+            # 使盘上快照指纹失配，一律重扫会退化成每次 close 全库重扫——
+            # 正是 issue #33 要避免的代价。
+            if not scan_fallback and not self._snapshot_trusted(idx):
+                idx = {"schema": SCHEMA,
+                       "nodes": dict(self.index.get("nodes") or {}),
+                       "buckets": {}}
+
+            # #409：基底确定后、**重放之前**先过完整性闸。**这是另一个问题**——
+            # 「写完这份快照是否安全」（完整性），不是「是否可信」（新鲜度，
+            # 只有 _snapshot_trusted 一条，两者互不调用）。判据由「.md **计数**
+            # 相等」升级为「索引**路径集合** == 盘面 .md 路径集合」：集合相等
+            # ⇒ 计数相等，反之不然；#409 的全部形态恰好是「计数没变而路径变了」
+            # （改名/换目录/对调），或同时造出幽灵与不可见（删一加一），计数
+            # 判据必然假阳。不过闸 ⇒ 宁重扫（_scan_nodes 是唯一真源判据），与
+            # _load_index 的兜底同向：缺账快照会被重开路径的指纹校验放行，
+            # 节点从此「在盘上但不可见」。
+            # **闸在重放之前**（不是之后）：闸问的是「我拿到的这份**基底**是否
+            # 恰好描述当前盘面」；增量日志是**权威写入记录**（合作写者协议），
+            # 其条目本就允许指向盘外路径（N225 守卫 E3/E6 钉死「合法 upsert 仍
+            # 生效」），拿重放后的结果去比盘面会把日志的正确性误判成基底不完整，
+            # 并多付一次重放（守卫 E6 的记账面会立刻转红）。
+            if not scan_fallback and not self._covers_disk(idx["nodes"]):
+                idx = {"schema": SCHEMA, "nodes": self._scan_nodes(),
+                       "buckets": {}}
+
             # N225 补强（2026-09-29）：重放改为 self._apply_log——与 _load_index
             # **同一实现**（此处原有的一份同源循环删除，口径不可能再漂开）。
+            # 重放**恰好一次**（重扫分支也只重放一次：先换基底、后统一重放）。
             self._apply_log(idx["nodes"])
-            if not scan_fallback and self._count_md_files() != len(idx["nodes"]):
-                # 计数对账（issue #33）：快照+日志账本与盘面不符——其它存活
-                # 实例未 flush 的写入（文件已落盘、索引增量还在其 _dirty）
-                # 或外部增删文件。宁重扫勿写缺账快照：缺账快照会被重开
-                # 路径的指纹校验放行，节点从此「在盘上但不可见」。
-                # 与 _load_index 的指纹兜底双保险：此处保快照**完整**，
-                # 指纹保快照**新鲜**。
-                idx = {"schema": SCHEMA,
-                       "nodes": self._apply_log(self._scan_nodes()),
-                       "buckets": {}}
             idx["buckets"] = self._count_buckets(idx["nodes"])
             idx["_fingerprint"] = self._dir_fingerprint()
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))

@@ -55,7 +55,8 @@ os.environ.update({"MDCG_ROOT": _TMP + "/brain", "MDCG_STATE_ROOT": _TMP + "/sta
                    "MDCG_TOKEN_FILE": _TMP + "/auxstore/tokens.json"})
 
 from md_cg import mcp_server as _ms          # noqa: E402
-from md_cg import op_table as _ot            # noqa: E402
+from md_cg import op_table as _ot
+import md_cg._guard_kit as _kit          # noqa: E402 —— 回退即绿自证骨架（task-16）            # noqa: E402
 from md_cg import tokens as _tk              # noqa: E402
 from md_cg.mdcos import MdCGSecure           # noqa: E402
 
@@ -334,8 +335,30 @@ def _mutate():
         shutil.rmtree(tree, ignore_errors=True)
 
 
+# ---------------------------------------------------------------- R 组：回退即绿自证（实跑，非推演）
+# task-16 要求 2（#421 的指控点）：把**被守护的修复**真的回退一次，实跑守卫看是否转红。
+# 与上方变异表的区别：变异是「等价改写/过度收紧」，本组是**修复本体回退**。
+_REVERT = [
+    (("md_cg/mcp_server.py", '    "mdcg_metacognition": "read", "mdcg_self_state": "self_state",', '    "mdcg_metacognition": "read", "mdcg_self_state": "read",')),
+    (("md_cg/mcp_server.py", '    "mdcg_review_records": "review",', '    "mdcg_review_records": "read",')),
+    ]
+
+
+def _revert_proof():
+    _ok, _det = _kit.assert_revert_reddens(_mirror_build, _REVERT, _run_in,
+                                          tuple(["A03","A04","A06","E03","E06"]), "?")
+    print("!! 回退即绿自证：把修复本体回退一次，守卫必须转红（实跑）")
+    print("  %s  红项=%s" % ("OK  " if _ok else "FAIL", _det.get("实际红项")))
+    if not _ok:
+        print("  不合格：回退后未按预期转红 —— " + str(_det)[:400])
+    return 0 if _ok else 1
+
+
 def main():
     _bad = _mutate() if "--mutate" in sys.argv else 0
+    if "--mutate" in sys.argv and _bad == 0:
+        _bad += _revert_proof()
+    return 1 if (FAILS or _bad) else 0
     return 1 if (FAILS or _bad) else 0
 
 
