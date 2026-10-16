@@ -241,42 +241,20 @@ def refresh_factor(access_count=0, last_access=0, importance=0.0,
     return 1.0
 
 
-#: 裸 entry 探针的假 node_id（`protect.is_protected` 的 `(cg, node_id)` 形态所需；
-#: 真实节点 id 来自文件名/显式声明，不含 NUL ⇒ 与既有索引键不可能相撞）。
-_ENTRY_PROBE_ID = "\x00entry-probe"
-
-
-class _EntryProbe:
-    """裸索引条目 → `protect.is_protected` 所需的 `(cg, node_id)` 形态（**零规则载体**）。
-
-    #378（2026-10-14）：衰减下界此前只读 `entry["protected"]` 一位，漏了
-    `protect.is_protected` 的**层保护**（layer ∈ {self, anchor}）与**按分保护**
-    ——layer=anchor 或按分受保护的节点会一路衰减穿过保护线（「自动失去保护」，
-    正是本模块 §7.3 要挡住的移植隐患）。本类**不复制任何判据**——规则单点仍是
-    `protect.is_protected`——只把调用方手里已有的条目摆成该判据所需的索引快照
-    形态。刻意**不提供** `_maybe_reload_index`（探活分支取不到即跳过）且
-    `get()` 恒返回 None（门控字段回退读文件的分支在此无文件可读、**不抛异常**）
-    ⇒ 判定 100% 基于传入映射：零 IO（`entry_weight` 是**检索期取数点**，
-    热路径上**不得读盘**，否则 §7.2 卡点一破）。
-    """
-
-    __slots__ = ("index",)
-
-    def __init__(self, entry):
-        self.index = {"nodes": {_ENTRY_PROBE_ID: entry if isinstance(entry, dict)
-                                else {}}}
-
-    def get(self, node_id=None):        # protect._fm 的回退分支：探针无文件可读
-        return None
+# #432（2026-10-16）：探针载体上收 protect 单点——本模块只留同名转发，既有守卫
+# 钉的 `F._EntryProbe` 形态不变（get() 恒 None、无 _maybe_reload_index ⇒ 零 IO）。
+_EntryProbe = protect._EntryProbe
 
 
 def _is_protected_entry(entry) -> tuple:
     """裸索引条目的「不可遗忘」判定 → `(是否受保护, 原因)`。
 
-    判据单点＝**`protect.is_protected`**（层保护 self/anchor ∪ 显式 protected 位 ∪
-    按分保护 ≥0.70 且来源缺省/hint）；本函数只负责把它喂给判据，不自带任何规则。
+    判据单点＝protect.is_protected(...)（层保护 self/anchor ∪ 显式 protected 位 ∪
+    按分保护 ≥0.70 且来源缺省/hint）；#432（2026-10-16）载体上收
+    `protect.is_protected_entry` 单点——本模块只留转发，不再自带第二份探针
+    （「同语义两处实现、只加固一侧」正是要避免的形态）。
     """
-    return protect.is_protected(_EntryProbe(entry), _ENTRY_PROBE_ID)
+    return protect.is_protected_entry(entry)
 
 
 # 生效条件：entry 为可取 protected / layer / importance / importance_source 的映射；经 protect.is_protected（∪ 原显式 protected 位）判为**未受保护**时返回 SCORE_FLOOR；受保护时返回 max(SCORE_FLOOR, min(1.0, IMPORTANCE_PROTECT / importance))（importance 不可转数值或 ≤0 时按 1.0 处理）；

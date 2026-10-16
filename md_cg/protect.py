@@ -234,6 +234,51 @@ def is_immutable(cg, node_id):
     return False, ""
 
 
+# ---------------------------------------------------------------- 条目形态
+
+#: 裸条目探针的假 node_id（`is_protected` 的 `(cg, node_id)` 形态所需；
+#: 真实节点 id 来自文件名/显式声明，不含 NUL ⇒ 与既有索引键不可能相撞）。
+_ENTRY_PROBE_ID = "\x00entry-probe"
+
+
+class _EntryProbe:
+    """裸索引条目 → `is_protected` 所需的 `(cg, node_id)` 形态（**零规则载体**）。
+
+    #432（2026-10-16）抽单点：凡「手里只有索引条目、没有 cg 实例」的判定点，
+    此前要么只读 `protected` 一位（漏层保护与按分保护——consolidate 归纳池、
+    freshness 衰减下界都栽在这），要么各模块自复制一份探针载体
+    （#378 的 freshness._EntryProbe）。载体上收本类：**规则单点仍是
+    `is_protected`**，本类只把调用方手里已有的条目摆成该判据所需的索引快照
+    形态（唯一索引条目＝该映射本身）。刻意**不提供** `_maybe_reload_index`
+    （`_fm` 的探活分支取不到即跳过）且 `get()` 恒返回 None（门控字段回退
+    读文件的分支在此无文件可读、**不抛异常**）⇒ 判定 100% 基于传入映射：
+    零 IO、零副作用（调用方多在扫描 / 取数热路径上）。
+    """
+
+    __slots__ = ("index",)
+
+    def __init__(self, entry):
+        self.index = {"nodes": {_ENTRY_PROBE_ID: entry if isinstance(entry, dict)
+                                else {}}}
+
+    def get(self, node_id=None):        # _fm 的回退分支：探针无文件可读
+        return None
+
+
+# 生效条件：对任意条目 e（None / 非 dict 一律按空条目处理），返回把「e 为唯一索引快照」摆给 is_protected 后的 (是否受保护, 原因) 二元组；全程零 IO（不探活、不读盘）、零异常。
+def is_protected_entry(e):
+    """裸索引条目的「不可遗忘」判定 → `(是否受保护, 原因)`（#432 抽单点）。
+
+    判据单点＝**`is_protected`** 的三条真源（层保护 self/anchor ∪ 显式
+    `protected` 位 ∪ 按分保护 ≥0.70 且来源缺省/hint）；本函数只负责把条目
+    喂给判据，不自带任何规则。调用方：`consolidate.induce_memories` 候选池
+    过滤（#432：修前只读 `protected` 一位，self/anchor 层与按分受保护节点
+    全被收进归纳池、被无痕写 `consolidated_into` 等四字段）、freshness 判据
+    转发（#378 的载体上收）。
+    """
+    return is_protected(_EntryProbe(e), _ENTRY_PROBE_ID)
+
+
 # ---------------------------------------------------------------- 留痕
 
 # 生效条件：对任意 cg、action、node_id、reason（actor/snapshot 缺省为 None）都构造含 t/action/node_id/reason/actor/snapshot 的 rec 并返回，同时尝试追加写入 cg.root 下的 AUDIT_FILE，该写入抛出的任何异常被吞掉且不影响返回值。
