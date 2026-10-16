@@ -512,9 +512,69 @@ def envelopes(root):
 
 # ---- 节点正文封装 --------------------------------------------------------
 
-# 生效条件：content 为入参；bool(content) 为假（如空串或 None）时返回 False；否则返回 content.lstrip().startswith(ENC_PREFIX)。
+# 生效条件：content 为入参；假值（None/空串）返回 False；strip 后整体以 ENC_PREFIX 开头、以 ENC_SUFFIX 结尾、去壳正文非空，且去壳正文为「16 位 hex enc_id_fp + ':' + 合法 base64」（新格式）或「合法 base64」（存量旧格式；base64 字母表不含 ':'，两式无歧义）、base64 须过 validate=True 严格解码，方返回 True；伪造形状（非 ascii / 非法字母表 / 指纹段非 16 位 hex / 前缀后尾随杂文 / 空体）一律返回 False。
 def is_encrypted(content):
-    return bool(content) and content.lstrip().startswith(ENC_PREFIX)
+    """正文是否为本库**密文载体块**——严格结构判据（issue #446，单点）。
+
+    修前只查 `content.lstrip().startswith(ENC_PREFIX)`——正文形状是调用方
+    可控的，而**同一个形状判据被三处消费**（`_seal_content` 的密封短路 /
+    落盘闸② `_check_sensitivity_landing` / 读面 `open_node` 的解密开关），
+    伪造 `<!-- mdcg-enc:v1:` 前缀一举：
+      · 骗过密封短路 ⇒ 加密级明文落盘（闸②用同一判据，一并 fail-open）；
+      · 骗过读面开关 ⇒ `_b64d` 对非 ascii 体在 `encode("ascii")` 抛
+        UnicodeEncodeError、非法字母表抛 binascii.Error，直接抛穿
+        get/search/recall 的正文水合（低权写入 ⇒ 高权检索面持续 DoS）。
+    现要求**前缀内的结构可解析**（真密文天然满足：`seal_node` 产物与存量
+    旧格式均兼容，不迁移）。伪造体一律判**明文**：写面按明文正常密封、
+    读面按明文正常读——形状不再被信任。
+    """
+    if not content:
+        return False
+    t = content.strip()
+    if not (t.startswith(ENC_PREFIX) and t.endswith(ENC_SUFFIX)
+            and len(t) > len(ENC_PREFIX) + len(ENC_SUFFIX)):
+        return False
+    body = t[len(ENC_PREFIX):-len(ENC_SUFFIX)]
+    if ":" in body:
+        fp, _, b64 = body.partition(":")
+        # 指纹段须为 16 位 hex（`identity_fingerprint` 产物）——空串 / 异长 /
+        # 非 hex 都是伪造形状（旧格式天然无 ':'，不会误伤）。
+        if len(fp) != 16 or any(c not in "0123456789abcdefABCDEF"
+                                for c in fp):
+            return False
+    else:
+        b64 = body
+    try:
+        # validate=True：非法字母表 / 垫充错误一律拒绝（seal_node 产物恒合规）。
+        # 非 ascii 体经 `_bytes_from_decode_data` 转 ValueError（内含
+        # UnicodeEncodeError/binascii.Error 两种血统，均 ValueError 子类）。
+        base64.b64decode(b64, validate=True)
+    except ValueError:
+        return False
+    return True
+
+
+# 生效条件：content 为入参；假值返回 False；strip 后以 ENC_PREFIX 开头、以 ENC_SUFFIX 结尾且壳内非空即返回 True——**仅前后缀形状检测**（不验证指纹段与 base64 结构，is_encrypted 的宽松陪集：真密文 ⊂ 载体形状 ⊂ 任意正文）。
+def looks_like_carrier(content):
+    """正文是否呈**载体形状**（issue #53-A / #446 复审，形状单点）。
+
+    与 `is_encrypted`（严格结构判据）的分工：结构判据服务「能不能按密文解」
+    （写面密封 / 读面开关），**伪造 / 折损载体按设计判明文**；但另有一类消费
+    方关心的是「这坨东西是不是**自称**载体」——密文（含伪造前缀、缺垫旧形、
+    换行折损体）都不是可分类的**人类正文**，绝不能交给域词表 / 预览面当明文
+    处理（base64 噪声撞词＝假标签「经济」、折损真密文整块回显＝泄密）。
+    判据只看前后缀形状（`ENC_PREFIX` … `ENC_SUFFIX`、壳内非空）：真密文恒
+    True；结构不合格的伪造 / 折损体也 True（这正是它与 is_encrypted 的差集）。
+    消费方：`routing.classify_text` / `backfill_big_domain`（密文拦截腿）、
+    `stg._preview`（脱敏占位腿）。
+    """
+    if not content:
+        return False
+    t = content.strip()
+    if not (t.startswith(ENC_PREFIX) and t.endswith(ENC_SUFFIX)
+            and len(t) > len(ENC_PREFIX) + len(ENC_SUFFIX)):
+        return False
+    return bool(t[len(ENC_PREFIX):-len(ENC_SUFFIX)].strip())
 
 
 # 生效条件：content 为入参；非密文（is_encrypted 为假）时返回 None；密文块正文中不含 ":"（旧格式，仅 base64）时返回 None；否则返回 ":" 前的 enc_id_fp 字串（空串亦返回 None）。base64 标准字母表不含 ":"，故该分隔符无歧义；旧格式密文天然无此段 ⇒ 返回 None（调用方走旧路径）。
@@ -548,21 +608,36 @@ def seal_node(content, dek, node_id, tenant, actor):
             f"{_b64e(nonce + tag + ct)}{ENC_SUFFIX}")
 
 
-# 生效条件：content、dek、node_id、tenant、actor 为入参；若 is_encrypted(content) 为假则原样返回 content；否则 strip 后切掉 ENC_PREFIX/ENC_SUFFIX，正文含 ":" 时丢弃其前的 enc_id_fp 段（新格式），base64 解出 raw，按 NONCE_LEN、TAG_LEN 切出 nonce/tag/ct，调 aead_decrypt(dek, nonce, ct, tag, _node_aad(node_id, tenant, actor)) 并 utf-8 解码返回；aead_decrypt 失败抛 CryptoError；旧格式（无 ":" 段）与新格式同一路径解密（向后兼容）。
+# 生效条件：content、dek、node_id、tenant、actor 为入参；若 is_encrypted(content) 为假则原样返回 content；否则 strip 后切掉 ENC_PREFIX/ENC_SUFFIX，正文含 ":" 时丢弃其前的 enc_id_fp 段（新格式），base64 解出 raw，按 NONCE_LEN、TAG_LEN 切出 nonce/tag/ct，调 aead_decrypt(dek, nonce, ct, tag, _node_aad(node_id, tenant, actor)) 并 utf-8 解码返回；base64 解码抛 ValueError（含 UnicodeEncodeError/binascii.Error）或 utf-8 解码失败时转抛 CryptoError；aead_decrypt 失败抛 CryptoError；旧格式（无 ":" 段）与新格式同一路径解密（向后兼容）。
 def open_node(content, dek, node_id, tenant, actor):
-    """密文标记块 → 明文；未加密原样返回；失败抛 CryptoError（兼容旧格式）。"""
+    """密文标记块 → 明文；未加密原样返回；失败抛 CryptoError（兼容旧格式）。
+
+    issue #446 止血：修前 `_b64d` 对非 ascii / 非法 base64 体抛
+    UnicodeEncodeError / binascii.Error（均 ValueError 子类）——读面
+    `_open_content` 只接 CryptoError ⇒ 异常抛穿 get/search/recall。现把
+    解码路上的 ValueError 一律转 CryptoError：**本函数的契约是「失败只有
+    CryptoError 一种」**，调用方（读面）单点接住即可全覆盖。
+    """
     if not is_encrypted(content):
         return content
     body = content.strip()
     body = body[len(ENC_PREFIX):-len(ENC_SUFFIX)]
     if ":" in body:                        # 新格式：<enc_id_fp>:<b64>
         body = body.split(":", 1)[1]
-    raw = _b64d(body)
+    try:
+        raw = _b64d(body)
+    except ValueError as e:
+        raise CryptoError(
+            "密文块 base64 载体不可解码（形状伪造/损坏）") from e
     nonce = raw[:NONCE_LEN]
     tag = raw[NONCE_LEN:NONCE_LEN + TAG_LEN]
     ct = raw[NONCE_LEN + TAG_LEN:]
-    return aead_decrypt(dek, nonce, ct, tag,
-                        _node_aad(node_id, tenant, actor)).decode("utf-8")
+    pt = aead_decrypt(dek, nonce, ct, tag,
+                      _node_aad(node_id, tenant, actor))
+    try:
+        return pt.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise CryptoError("密文块明文段 utf-8 解码失败（载体损坏）") from e
 
 
 # ---- 审计（payload-free）-------------------------------------------------

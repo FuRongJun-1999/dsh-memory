@@ -3878,7 +3878,8 @@ class MdCG:
                 st["unreadable"] += 1
                 continue
             from . import crypto
-            if crypto.is_encrypted(content):
+            if (crypto.is_encrypted(content)
+                    or crypto.looks_like_carrier(content)):
                 # issue #53-A：密文不可分类——无密钥实例（backfill CLI 以基类
                 # MdCG 打开库）的 get() 把密文**原样**交出，base64 噪声会碰巧
                 # 命中大域词表（实测唯一命中＝「经济」：词表唯一拉丁词 GDP 被
@@ -3886,6 +3887,10 @@ class MdCG:
                 # 计数**并跳过（不与 no_signal 叠加：各计数是互斥分区）；
                 # classify_text 单点也已同源设防（双层：此层给可观测计数，
                 # 单点层保证任何调用方都不会误分类密文）。
+                # #446 复审（A2/A3）：拦截腿并押载体形状 looks_like_carrier——
+                # 严格判据收紧后「缺垫旧形 / 伪造指纹 / 折损体」按设计判明文，
+                # 只押结构腿会让 #53-A 假标签复发（head 实测复现：旧夹具形态
+                # 被判「经济」并落盘）。
                 st["ciphertext"] += 1
                 continue
             try:
