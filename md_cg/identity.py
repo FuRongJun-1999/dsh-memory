@@ -425,6 +425,12 @@ def infer_position(cg, subject_id):
         if tag not in tg or (tg & {TAG_ANCHOR, TAG_TRAIT}):
             continue
         node = cg.get(nid) or {}
+        # issue #471（(b) 的精确定位）：本函数**已经**经 `cg.get`（`get` 面上有 `_readable`），
+        # 所以**正文拿不到**；但 `n += 1` 在取到空节点时**仍会执行** => 泄漏的不是内容，而是
+        # **计数（evidence_count）** —— 低权读者可由「某主体有多少条证据」推断其存在与活跃度。
+        # 故：**不可见 ⇒ 空 ⇒ 不得计入**（不是再套一层闸，而是「空即跳过」）。
+        if not node:
+            continue
         fm = node.get("frontmatter") or {}
         n += 1
         for pos in _votes(fm.get("role"), e.get("layer"), e.get("tags"),
@@ -461,6 +467,13 @@ def profile(cg, subject_id):
         if tag not in tg:
             continue
         node = cg.get(nid) or {}
+        # issue #471（(c1)）：与 (b) 同款「**空即跳过**」——`cg.get` 已过 `_readable`，
+        # 不可见 ⇒ 空 ⇒ **不得进 anchors/traits**（否则 `content[:400]`/`content[:200]`
+        # 会把 **private 节点正文片段**吐给低权读者 —— 这是本件最重的一项泄漏）。
+        # ★(c2) 本件不做并已登记：profile 的**锚点/指针面**未加闸，因 `_identity_ref`
+        #   (self_state.py:344) 无读者身份参数、无法区分自我调用与外部调用 —— 属**独立设计问题**。
+        if not node:
+            continue
         fm = node.get("frontmatter") or {}
         if TAG_ANCHOR in tg:
             anchors.append({"node_id": nid, "layer": e.get("layer"),
@@ -484,8 +497,15 @@ def profile(cg, subject_id):
 def positions(cg, limit=0):
     """所有主体的位置效应分布（OS 视角：谁在记录/反思/验证/输出/维生）。"""
     nodes = cg.index.get("nodes") or {}
+    # issue #471：**fail-soft 可见性闸** —— 照抄 `rollback.py:501` 的既有先例（getattr + callable）。
+    # ★**纯 MdCGOS 无 `_readable` ⇒ 不过滤（fail-soft）**：这是**有意选择、不是疏漏**。
+    #   理由：**同一函数在两种 cg 类型下语义不同**，而 `_readable` 只在 `MdCGSecure` 面上存在
+    #   —— 这本身就是「**同名不同面**」，故在此显式登记。
+    _rd = getattr(cg, "_readable", None)
     counts = {}
     for _nid_, e in list(nodes.items()):
+        if callable(_rd) and not _rd(e):
+            continue                      # 不可见节点不参与主体枚举（#471 主影响面）
         for t in (e.get("tags") or []):
             if isinstance(t, str) and t.startswith("subject:"):
                 sid = t[len("subject:"):]
