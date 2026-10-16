@@ -4,22 +4,48 @@
 #           before 链之前按 node_id 持**跨进程排它锁**（fsutil.node_write_lock，
 #           <root>/.locks/<sanitized nid>.lock，strict），且锁内先重载索引
 #           （_refresh_index_in_lock）再跑「判存在→落盘→flush」整段；
+#           **工具面（mcp_server._dispatch 的 mdcg_remember 分支——hooks 自动
+#           记忆主通路）同样经 writepipe._node_write_lock 持锁 + 锁内刷代际 +
+#           两个落盘出口 _commit_visibility（issue #322 R0，2026-10-16）**；
 #           沙箱条件：MDCG_ROOT / MDCG_AUX_ROOT / MDCG_MASTER_KEY /
 #           MDCG_POLICY_FILE 全部指向 tempfile.mkdtemp 建的独立目录，绝不触
 #           在役库。
-# 子功能：U  锁原语（路径布局 / sanitize 防穿越 / strict 跨进程互斥超时）
+# 子功能：U  锁原语（路径布局 / sanitize 防穿越 / strict 跨进程互斥超时 /
+#            同线程可重入——副作用 2 修复）
 #         S  串行基线（同 id 二写 → 审核队列；anchor→knowledge → ProtectionError）
 #         G1 并发同 id（2 进程 × 10 轮）：无静默丢——每轮恰一份 committed:true、
 #            另一份 committed:false 进审核队列、盘上恰一份文件、读回=赢家正文
 #         G2 anchor 竞态（2 进程 × 8 轮）：ProtectionError 语义恢复/两份不并存
 #         G3 防过修：串行二次写零回归；不同 id 并发写互不阻塞全 committed
+#         T1 锁间谍：动词面与工具面取锁读数各 =1（R0 回归锚——修前实测
+#            verb_locks=1 / tool_locks=0，最热通路不在锁面内）
+#         T2 工具面并发同 id（2 进程 × 8 轮，模拟 dispatch 面）：恰一份落盘、
+#            无双 committed、读回=赢家（与 G1 同判据、换通路）
 # 执行：python -X utf8 -m md_cg.test_issue322_concurrent_write_guard
-#       定点变异自证：--drop-fix（抽掉 per-node 锁=恢复无锁直写）⇒ G1/G2 必红
-#       （G1 静默丢 > 0、G2 双文件 > 0），恢复即绿；S/G3 两向都绿（串行语义
-#       与锁正交）。
+#       定点变异自证：--drop-fix（抽掉 per-node 锁=恢复无锁直写）⇒ G1/G2/T1/T2
+#       必红（G1 静默丢 > 0、G2 双文件 > 0、T1 tool_locks=0、T2 双 committed），
+#       恢复即绿；S/G3 两向都绿（串行语义与锁正交）。
+#       变异红项读数（值守实测，2026-10-16）：抽锁后红 8 项——G1×5（G1-1/2/4/5/6）
+#       + G2×3（G2-1/2/3）。此前报告口径写 9，**订正为 8**（G1-3「恰一份文件」
+#       在无锁双写下两写同层同路径、后者覆盖前者，盘面仍只见一份文件，
+#       故该项不红——不计入）。补 T 面后变异红项另增 6（T1a/T1b + T2-1/2/4/5；
+#       T2-3 与 G1-3 同理不红），合计 14。
 # 不适用条件：情感交互｜闲聊｜纯查询无改动；
-#             直调 MdCG.add 的写面（mdcg_remember 非 gated 分支等）不在本锁
-#             面内（见 writepipe.execute 文档串「边界」段）。
+#             直调 MdCG.add 的其余写面（审核 accept 重放、backfill 等）不在
+#             本锁面内（见 writepipe.execute 文档串「边界」段）；工具面
+#             mdcg_remember 已入锁面（R0，2026-10-16）。
+#
+# 已知边界（如实登记，不设断言——本件修不了）：
+#   · 锁文件外部删除（ybyz2 技术审副作用 1）：flock/msvcrt.locking 都是
+#     per-inode 的锁，.locks/*.lock 被外部删除后同名重建会让两进程各持不同
+#     inode 的锁、互斥静默失效。彻底关死需 OS 级目录锁或持锁者心跳方案，
+#     超出本件（文件锁原语）能力面；缓解 = 本仓永不删除锁文件（fsutil
+#     node_write_lock「清理口径」）。守卫不为其设断言（该面修不了，设断言
+#     只会产生永远红不了的假判别力）。
+#   · 同线程重入已修（副作用 2，fsutil._ReentrantFileLock：threading.local
+#     计数，同线程重入放行、跨进程/跨线程仍互斥）；同进程**跨线程**同 id
+#     竞争仍要等 OS 锁（超时 30s 后 strict TimeoutError）——串行等待语义，
+#     非静默。
 """issue #322 守卫：多实例共根并发写同一 node_id——静默丢正文与 anchor 竞态。
 
 缺陷（修复前，本守卫 --drop-fix 定点变异实抓）：
@@ -31,10 +57,19 @@
   文件并存、新实例读到 knowledge 份，串行时本该 ProtectionError（改前实测
   2 进程×8 轮 8/8 双文件）。
 
+R0（ybyz2 技术审第 1 条，2026-10-16）：首批修复只锁了动词面
+  （writepipe.execute）——hooks 自动记忆走的**工具面**（mcp_server 的
+  mdcg_remember 分支）直调 remember_gated / cg.add 提前 return，根本到不了
+  锁：锁间谍实测 verb_locks=1 / tool_locks=0，该通路并发同 id 双 committed +
+  输家正文消失完全没有被修。本批给工具面接同款锁（复用 writepipe 三个单点），
+  T1 钉锁间谍读数、T2 钉并发行为。
+
 判别力锚点（每条断言都可定点变异）：
   G1 每轮「恰一 committed:true + 另一份 committed:false/review_queue」——
      抽掉锁后双 committed 复现，静默丢 > 0 必红；
   G2 每轮「不双 committed + 盘上恰一份」——抽掉锁后双文件 > 0 必红；
+  T1 动词面/工具面取锁读数各 =1——抽掉锁后 tool_locks=0 必红（R0 回归锚）；
+  T2 工具面并发同 id 恰一份落盘——抽掉锁后双 committed 复现必红；
   S/G3 钉住串行与不同 id 面：锁不得把串行二次写变成直写、不得把不同 id
      并发写互相阻塞出假失败。
 
@@ -88,6 +123,9 @@ def _apply_drop_fix_if_any():
 
     只替换 writepipe 的两个接线点（锁获取 + 锁内重载），不动库层——与
     「回退修复」等价的最小变异面（test_b1 --drop-fix 同款纪律）。
+    R0 补线后工具面（mcp_server 的 mdcg_remember 分支）经
+    `writepipe._node_write_lock / _refresh_index_in_lock` 属性访问接线，
+    故本变异**同时**抽掉动词面与工具面的锁——两面一起回到 #322 之前。
     """
     if os.environ.get("P322GUARD_DROP_FIX") != "1":
         return
@@ -110,6 +148,19 @@ def _write(cg, nid, content, layer="knowledge"):
     return writepipe.default_pipeline().execute(
         cg, {"node_id": nid, "content": content,
              "content_kind": "text", "layer": layer})
+
+
+def _remember_tool(cg, nid, content, layer="knowledge"):
+    """工具面写入：模拟 MCP dispatch（hooks 自动记忆通路）。
+
+    真实调用面是 serve 的 tools/call → call_tool → _dispatch；此处直接打
+    `_dispatch(cg, "mdcg_remember", ...)` 同一实现（跳过 stdio 循环——
+    循环层不触任何写语义），R0 修的正是这个分支。
+    """
+    from md_cg import mcp_server
+    return mcp_server._dispatch(
+        cg, "mdcg_remember",
+        {"node_id": nid, "content": content, "layer": layer})
 
 
 # ---------------- spawn worker：真进程、Barrier 对齐每轮起跑 ----------------
@@ -435,6 +486,113 @@ def sec_g3():
                os.path.isdir(os.path.join(root, ".locks")), "")
 
 
+# ---------------- T1：锁间谍（两面取锁读数——R0 回归锚） ----------------
+
+def sec_t1():
+    print("== T1 锁间谍：动词面/工具面取锁读数 ==")
+    from . import fsutil
+    root = os.path.join(_SBX, "lib_t1")
+    cg = _mk_cg(root)
+    count = {"n": 0}
+    _orig = fsutil.node_write_lock
+
+    def _spy(_root, _nid, **_kw):
+        count["n"] += 1
+        return _orig(_root, _nid, **_kw)
+
+    # 两个调用点（writepipe._node_write_lock / mcp_server 的 R0 接线）都在
+    # 调用时 `from .fsutil import node_write_lock` 重绑定——只替换 fsutil 面
+    # 即可同时看到两面。
+    fsutil.node_write_lock = _spy
+    try:
+        _write(cg, "t1_verb", "P322REQ t1-verb")
+        verb = count["n"]
+        count["n"] = 0
+        _remember_tool(cg, "t1_tool", "P322REQ t1-tool")
+        tool = count["n"]
+    finally:
+        fsutil.node_write_lock = _orig
+    print("    T1 读数：verb_locks=%d tool_locks=%d" % (verb, tool))
+    _check("T1a 动词面（cg op=write）取锁 verb_locks=1", verb == 1, verb)
+    _check("T1b 工具面（mdcg_remember）取锁 tool_locks=1", tool == 1, tool)
+    cg.close()
+
+
+# ---------------- T2：工具面并发同 id（无静默丢） ----------------
+
+def _worker_tool(q, bar, root, widx, nids):
+    """T2 用：两进程对同一组 nid 经**工具面**（模拟 dispatch）同时写。"""
+    _apply_drop_fix_if_any()
+    cg = _mk_cg(root)
+    recs = []
+    for nid in nids:
+        content = "P322TOOL w=%d nid=%s body-%d" % (widx, nid, widx)
+        bar.wait()                                  # 与对端同轮同时起跑
+        out, err = None, None
+        try:
+            out = _remember_tool(cg, nid, content)
+        except Exception as exc:
+            err = "%s" % type(exc).__name__
+        recs.append({"nid": nid, "widx": widx, "content": content,
+                     "committed": (out or {}).get("committed"),
+                     "moved_to": (out or {}).get("moved_to"), "err": err})
+    cg.close()
+    q.put(recs)
+
+
+def sec_t2(rounds):
+    print("== T2 工具面并发同 id（模拟 dispatch）：2 进程 × %d 轮 ==" % rounds)
+    root = os.path.join(_SBX, "lib_t2")
+    pre = _mk_cg(root)                 # 预热：DEK/身份先落定
+    pre.close()
+    nids = ["p322t2r%d" % i for i in range(rounds)]
+    ctx = mp.get_context("spawn")
+    bar = ctx.Barrier(2)
+    q = ctx.Queue()
+    ps = [ctx.Process(target=_worker_tool, args=(q, bar, root, i, nids))
+          for i in range(2)]
+    for p_ in ps:
+        p_.start()
+    recs = []
+    for _ in range(2):
+        recs.extend(q.get())
+    for p_ in ps:
+        p_.join(timeout=120)
+    rcs = [p_.exitcode for p_ in ps]
+    _check("T2-0 两 worker 全部正常退出（rc=0）", rcs == [0, 0], rcs)
+    both = honest = onefile = oneread = 0
+    for nid in nids:
+        rr = [r for r in recs if r["nid"] == nid]
+        files = _files_of(root, nid)
+        node = _fresh_read(root, nid)
+        body = (node or {}).get("content") or ""
+        winners = [r for r in rr if r["committed"] is True]
+        losers = [r for r in rr if r["committed"] is not True]
+        if all(r["committed"] is True for r in rr):
+            both += 1
+        if len(winners) == 1 and len(losers) == 1:
+            honest += 1
+        if len(files) == 1:
+            onefile += 1
+        if len(winners) == 1 and winners[0]["content"] in body:
+            oneread += 1
+    print("    T2 读数：双committed=%d 恰一真应答=%d 恰一文件=%d 读回=赢家=%d"
+          " / %d 轮" % (both, honest, onefile, oneread, rounds))
+    _check("T2-1 工具面无「双 committed:true」轮", both == 0, both)
+    _check("T2-2 每轮恰一份 committed:true、另一份非 committed",
+           honest == rounds, honest)
+    _check("T2-3 每轮恰一份文件落盘", onefile == rounds, onefile)
+    _check("T2-4 读回正文 = 赢家正文（恰一份存活）", oneread == rounds, oneread)
+    ok_losers = sum(
+        1 for nid in nids
+        for r in [x for x in recs if x["nid"] == nid]
+        if r["committed"] is not True
+        and (r.get("moved_to") == "review_queue" or r.get("err")))
+    _check("T2-5 输家去向 = 审核队列/明确冲突（无假应答）",
+           ok_losers == rounds, ok_losers)
+    return {"both": both, "honest": honest, "rounds": rounds}
+
+
 # ---------------- main ----------------
 
 def main():
@@ -442,20 +600,24 @@ def main():
     if drop:
         os.environ["P322GUARD_DROP_FIX"] = "1"
         _apply_drop_fix_if_any()
-        print("[变异模式] --drop-fix：已抽掉 per-node 写锁（恢复 #322 前的无锁"
-              "直写）——G1/G2 应红、S/G3 应绿")
+        print("[变异模式] --drop-fix：已抽掉 per-node 写锁（动词面 + 工具面，"
+              "恢复 #322 前的无锁直写）——G1/G2/T1/T2 应红、S/G3 应绿")
     try:
         sec_u()
         sec_s()
         g1 = sec_g1(10)
         g2 = sec_g2(8)
         sec_g3()
+        sec_t1()
+        t2 = sec_t2(8)
         if drop:
             # 变异向断言：病必须在多轮中可见（红得稳定：改前实测 5/5 与 8/8）
             _check("MUT-G1 抽锁后静默丢 > 0（10 轮至少 1 轮丢）",
                    g1["silent"] > 0 or g1["both"] > 0, g1)
             _check("MUT-G2 抽锁后双文件 > 0（8 轮至少 1 轮并存）",
                    g2["dual"] > 0 or g2["both"] > 0, g2)
+            _check("MUT-T2 抽锁后工具面双 committed/输家假应答 > 0",
+                   t2["both"] > 0 or t2["honest"] < t2["rounds"], t2)
     finally:
         shutil.rmtree(_SBX, ignore_errors=True)
     print()

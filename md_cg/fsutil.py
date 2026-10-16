@@ -13,6 +13,7 @@
 import os
 import re
 import sys
+import threading
 import time
 import uuid
 import hashlib
@@ -183,9 +184,11 @@ class FileLock:
 # （flush/compact 的 index_path 锁），不护节点写路径。
 #
 # 修复口径：写入链（判定→落盘→flush）按 node_id 持跨进程排它锁，锁内先重载
-# 索引再判存在再写（接线在 writepipe.execute；见该处注释的设计取舍——为何不
-# 用 O_EXCL 占位）。本节只提供**锁文件构造**这一原语：目录布局 + sanitize +
-# 超时/轮询参数（写死，不设 env——按 issue 修复建议的 strict 口径）。
+# 索引再判存在再写（接线在 writepipe.execute〔动词面〕与 mcp_server 的
+# mdcg_remember 分支〔工具面，R0 补，2026-10-16〕；见 writepipe.execute 注释的
+# 设计取舍——为何不用 O_EXCL 占位）。本节只提供**锁文件构造**这一原语：
+# 目录布局 + sanitize + 超时/轮询参数（写死，不设 env——按 issue 修复建议的
+# strict 口径）+ 同线程可重入包装（副作用 2 修复，见 _ReentrantFileLock）。
 
 #: 库根下的锁目录名（隐藏目录，不与 LAYERS 层名/既有 `_` 前缀内部件冲突；
 #: `_scan_nodes`/`_dir_fingerprint`/`_count_md_files` 只走 LAYERS 层目录树，
@@ -203,19 +206,84 @@ _NODE_LOCK_SAFE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]{0,127}$")
 #: 本次要修的病，不能再用 best-effort 放行把病请回来。
 NODE_LOCK_TIMEOUT = 30.0
 NODE_LOCK_POLL = 0.01
+#: 同线程可重入计数（threading.local——键为锁文件绝对路径；见
+#: `_ReentrantFileLock`：跨进程/跨线程互斥仍由底层 OS 锁承担，计数只放行
+#: **同线程**的重入）。
+_NODE_LOCK_DEPTH = threading.local()
+
+
+# 生效条件：以未进入的 FileLock inner 与锁文件绝对路径 key 构造；__enter__ 时取
+# threading.local 计数（键 key）：计数 >0（本线程已持锁）只 +1 放行、不碰 OS 锁；
+# 计数 =0 时经 inner.__enter__() 真正取 OS 锁并置计数 1。__exit__ 时计数 -1，
+# 减到 0 才经 inner.__exit__() 真正解锁，否则只减计数。.path/.acquired 透传
+# inner 同名属性。
+class _ReentrantFileLock:
+    """node_write_lock 的同线程可重入包装（issue #322 副作用 2，2026-10-16）。
+
+    病灶（ybyz2 技术审第 4 条）：FileLock 每次 __enter__ 都新开文件句柄再
+    OS 加锁——同线程对同一 node_id 嵌套二次取锁时，第二个句柄对同一字节
+    区域的加锁同样被拒（Windows msvcrt / POSIX flock 都按「句柄+区域」计，
+    不认「同进程同线程」），只得等满超时再 TimeoutError（修前实测挂起
+    30.01s）——比无锁时代的快速 RecursionError 更糟：错误没避免，还把
+    失败拖慢了 30 秒。处置：threading.local 计数——同线程已持锁时重入
+    **放行**（计数 +1，不碰 OS 锁），出锁计数 -1，归零才真正解锁。
+
+    互斥语义不变（如实声明）：跨进程互斥与同进程跨线程互斥仍完全由
+    底层 OS 锁承担（最外层帧持有）；只有「同线程重入」这一种形态放行，
+    而它本就不是互斥要防的对象（同线程的重入写不存在并发写互盖）。
+    """
+
+    def __init__(self, inner, key):
+        self._inner = inner
+        self._key = key
+
+    @property
+    def path(self):
+        return self._inner.path
+
+    @property
+    def acquired(self):
+        return self._inner.acquired
+
+    def __enter__(self):
+        counts = getattr(_NODE_LOCK_DEPTH, "counts", None)
+        if counts is None:
+            counts = {}
+            _NODE_LOCK_DEPTH.counts = counts
+        cur = counts.get(self._key, 0)
+        if cur > 0:
+            counts[self._key] = cur + 1
+            return self                 # 同线程重入：放行（外层帧已持 OS 锁）
+        self._inner.__enter__()         # 首入：真正取 OS 锁（跨进程/跨线程互斥）
+        counts[self._key] = 1
+        return self
+
+    def __exit__(self, *exc):
+        counts = getattr(_NODE_LOCK_DEPTH, "counts", None) or {}
+        cur = counts.get(self._key, 0)
+        if cur <= 1:
+            counts[self._key] = 0
+            return self._inner.__exit__(*exc)   # 最外层：真正解锁
+        counts[self._key] = cur - 1
+        return False
 
 
 # 生效条件：root 为真值字符串且 node_id 经 sanitize 后（白名单命中原样保留、
 # 否则折 sha256 十六进制——两条路径产物都只含文件名安全字符且不含 '..'）返回
-# 以 os.path.join(root, NODE_LOCK_DIR, <sanitized>) 为基底的 strict FileLock
-# （timeout/poll 取本节写死常量）；root 缺失/非字符串时抛 ValueError——没有
+# 以 os.path.join(root, NODE_LOCK_DIR, <sanitized>) 为基底构造的 strict FileLock
+# 的 _ReentrantFileLock 包装（timeout/poll 取本节写死常量；同线程重入放行、
+# 跨进程/跨线程互斥，见该类文档串）；root 缺失/非字符串时抛 ValueError——没有
 # root 就没有可锁的坐标系，静默无锁等于把 #322 的病请回来。
 def node_write_lock(root, node_id, timeout: float = NODE_LOCK_TIMEOUT,
-                    poll: float = NODE_LOCK_POLL) -> FileLock:
-    """同一 node_id 的跨进程写互斥锁（issue #322；strict，超时抛错）。
+                    poll: float = NODE_LOCK_POLL) -> _ReentrantFileLock:
+    """同一 node_id 的跨进程写互斥锁（issue #322；strict，超时抛错；同线程可重入）。
 
-    返回未进入的 FileLock，调用方 `with` 使用；锁文件落
+    返回未进入的锁对象，调用方 `with` 使用；锁文件落
     `<root>/.locks/<sanitized node_id>.lock`（FileLock 自加 .lock 后缀）。
+
+    可重入（副作用 2 修复，2026-10-16）：同线程对同一 node_id 嵌套取锁放行
+    （threading.local 计数，见 `_ReentrantFileLock`），不再等满 30s 超时；
+    跨进程/跨线程互斥语义不变。
 
     清理口径（有意**不**自动删除，如实声明）：
       · 锁文件是 0 字节占位，删不删都不占空间；但「删除锁文件」会打开经典的
@@ -225,6 +293,16 @@ def node_write_lock(root, node_id, timeout: float = NODE_LOCK_TIMEOUT,
         也不提供 sweep（对比 sweep_stale_temps：临时文件是唯一命名、不存在
         共享 inode 语义，sweep 安全；锁文件相反）。
       · 库根迁移/删除时 `.locks/` 随整库一起处置，无需单独照顾。
+
+    已知边界（如实登记，本件修不了——ybyz2 技术审第 3 条，2026-10-16）：
+      `flock` / `msvcrt.locking` 都是 **per-inode** 的锁。若 `.locks/` 下的
+      锁文件在互斥进行中被**外部删除**（清理脚本 / 人为 / 备份还原）随后
+      同名重建，先后两个 open 拿到的是**不同 inode**——先持旧 inode 锁的
+      进程与后持新 inode 锁的进程互不排斥，互斥静默失效且无任何报错。
+      彻底关死该面需要 OS 级目录锁（对 .locks/ 目录本身的互斥）或持锁者
+      心跳/租约方案，超出本文件「文件锁原语」的能力面，不在本件修复。
+      缓解只有上面那条：本仓自身**永不删除**锁文件（不回收、不 sweep），
+      把删除面收缩到「外部行为」；库根迁移时 `.locks/` 随整库处置。
     """
     if not root or not isinstance(root, str):
         raise ValueError(
@@ -234,8 +312,10 @@ def node_write_lock(root, node_id, timeout: float = NODE_LOCK_TIMEOUT,
     if not _NODE_LOCK_SAFE_RE.match(nid) or ".." in nid:
         nid = "h_" + hashlib.sha256(
             nid.encode("utf-8", "surrogatepass")).hexdigest()
-    return FileLock(os.path.join(root, NODE_LOCK_DIR, nid),
-                    timeout=timeout, poll=poll, strict=True)
+    base = os.path.join(root, NODE_LOCK_DIR, nid)
+    return _ReentrantFileLock(
+        FileLock(base, timeout=timeout, poll=poll, strict=True),
+        os.path.abspath(base + ".lock"))
 
 
 # 生效条件：os.path.getsize(path) 为 0 时返回 False；否则二进制打开 path 并从 size-1 处读 1 字节，返回 f.read(1) != b"\n"；getsize/open/seek/read 抛 OSError 时返回 False。

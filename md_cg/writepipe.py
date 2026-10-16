@@ -299,15 +299,32 @@ def oversize_response(nid, a):
     return None
 
 
-# 生效条件：传入 cg 与 _nid；cg.root 为真值字符串时返回 fsutil.node_write_lock
-# （strict），否则返回 contextlib.nullcontext（测试替身类 cg 无 root 可锁——
-# 降级为无锁并保持既有行为；真实 MdCG/MdCGSecure 恒有 root，不构成常态路径）。
+# 生效条件：传入 cg 与 _nid；cg.root 为 None/空串时返回 contextlib.nullcontext
+# （测试替身信号——无 root 的假 cg，真实 MdCG/MdCGSecure 恒有非空 root）；
+# root 存在但非 str（如 pathlib.Path）时抛 TypeError（fail-closed）；root 为
+# 非空 str 时返回 fsutil.node_write_lock（strict，同线程可重入）。
 def _node_write_lock(cg, nid):
-    """issue #322：本节点写链的跨进程互斥锁（root 缺失时降级为空上下文）。"""
+    """issue #322：本节点写链的跨进程互斥锁（接线层降级只认 None/空串）。
+
+    root 分层（ybyz2 技术审第 5 条，2026-10-16）：修前判据是
+    `not root or not isinstance(root, str)` ⇒ **Path 也被静默降级**成
+    nullcontext 无锁直写——一个把 root 存成 Path 的真实调用方会拿到
+    「看起来在写、实际全程无锁」的静默病态，恰是 #322 要修的那类静默。
+    现口径（fail-closed）：
+      · root 为 None / 空串 ⇒ nullcontext 降级——这是**测试替身信号**
+        （假 cg 无 root 属性），仅此两值降级；
+      · root 存在但非 str（Path / bytes / 其它）⇒ **TypeError 当场响**
+        ——写错类型的调用方必须立刻知道，不得静默放行成无锁。
+    """
     import contextlib
     root = getattr(cg, "root", None)
-    if not root or not isinstance(root, str):
+    if root is None or root == "":
         return contextlib.nullcontext()
+    if not isinstance(root, str):
+        raise TypeError(
+            "cg.root 须为 str（收到 %s：%r）——issue #322 接线层 fail-closed："
+            "非字符串 root（如 pathlib.Path）此前被静默降级为无锁直写，等于"
+            "把并发互盖请回来；请传 str 形态的库根。" % (type(root).__name__, root))
     from .fsutil import node_write_lock
     return node_write_lock(root, nid)
 
@@ -316,11 +333,20 @@ def _node_write_lock(cg, nid):
 # 什么都不做——锁内把索引代际刷到最新，使随后 before 链的存在性判据
 # （prior_node / write_qualify 直读 cg.index）看见先持锁者已 flush 的写入。
 def _refresh_index_in_lock(cg):
-    """锁内索引重载（issue #322 修复口径：「锁内先重加载索引再判存在再写」）。
+    """锁内索引重载——**动词面是 defense-in-depth，不是承重**（归因订正）。
 
-    只做 best-effort 刷新：`_maybe_reload_index` 自身只在签名变化时真正重载
-    （他进程 flush 落了新分片/快照），失败不抛——保护面的 protect._entry 另有
-    自己的探活（N213），此处刷新服务的是档位闸的存在性判据（无探活面）。
+    归因订正（ybyz2 技术审第 2 条，2026-10-16）：修前 docstring 把本函数
+    写成「#322 修复口径：锁内先重加载索引再判存在再写」的承重件——**写反了**。
+    动词面（writepipe.execute）消融实测**零变化**：抽掉本函数，G1/G2 照旧
+    全绿。承重的是 `MdCG.add` 内既有的 N195 `_maybe_reload_index`（写路径
+    代际感知，先于 protect.guard_write / 大小写查重 / 存在性继承面执行）。
+    本函数在动词面保留是纵深防御（未来链序调整或 refresh 链断裂时仍在
+    锁内第一时间刷代际），**不是**该路径正确性的必要条件。
+
+    工具面（mcp_server 的 mdcg_remember 分支，issue #322 R0 补接线）相反：
+    那里的存在性判据 `forgetting.prior_node` **先于** cg.add / 一切会触发
+    代际探活的调用——锁内不刷，输家把覆写判成新增、双 committed 静默丢
+    照旧。故同一条 helper 在工具面是**承重**的（消融可红，见守卫 T 面）。
     """
     reload = getattr(cg, "_maybe_reload_index", None)
     if callable(reload):
@@ -419,15 +445,22 @@ class WritePipeline:
         tmp+rename 原子写语义，实现风险更小。
 
         锁序（防死锁）：node 锁 →（链内 flush/compact 的）index_path 锁，
-        单向；全仓无反向持有点（index 锁的持有者不取 node 锁）。同进程无
-        嵌套 execute（before/after 链均不经本入口递归：REJECT 走 add_rejected、
-        入队走 propose、gated 走 remember_gated，皆直调库层）。
+        单向；全仓无反向持有点（index 锁的持有者不取 node 锁）。同进程重入
+        由 fsutil 的 `_ReentrantFileLock` 放行（threading.local 计数，副作用 2
+        修复，2026-10-16）——修前同线程同 id 二次取锁等满 30s 再
+        TimeoutError，比无锁时代的快速 RecursionError 更糟；跨进程/跨线程
+        互斥语义不变。
 
-        边界（如实）：锁只接线在本入口（cg(op=write) 的写链）。直调
-        `MdCG.add` 的写面（mcp_server.mdcg_remember 非 gated 直写分支、审核
-        accept 重放、backfill 等）不在本锁面内——它们的存在性判定各自另有
-        N195/N213 的探活接线护保护语义，但「判定→落盘」的原子性同题修复
-        需要同时解决其写后可见性（该分支无 flush），风险更大，不在本批。
+        边界（如实，2026-10-16 R0 补后）：锁接线的写面是**两条**——本入口
+        （cg(op=write) 的写链）与 mcp_server 的 mdcg_remember 分支（工具面，
+        hooks 自动记忆主通路；修前该分支直调 remember_gated/add，锁间谍实测
+        verb_locks=1 / tool_locks=0，最热通路不在锁面内——R0 已补同款三个
+        单点：_node_write_lock / _refresh_index_in_lock / _commit_visibility）。
+        仍不在锁面内的直调 `MdCG.add` 写面：审核 accept 重放、backfill 等
+        ——它们的存在性判定各有 N195/N213 的探活接线护保护语义，但
+        「判定→落盘」的原子性同题修复不在本批。已知边界（修不了，如实
+        登记）：锁文件被外部删除后同名重建会造出不同 inode，互斥静默失效
+        ——见 fsutil.node_write_lock 文档串「已知边界」段。
 
         超限出口在锁外（不写任何节点状态，无互斥必要）；自动 id 的铸造在
         锁外（含随机段，跨进程唯一性不依赖本锁）。

@@ -3667,166 +3667,186 @@ def _dispatch(cg, name, args):
                 a["content"] = _red93
         except Exception:                      # noqa: BLE001 —— 打码失败不阻塞写入
             pass
-        hint = a.get("importance_hint")
-        if hint is None and a.get("importance") is not None:
-            hint = float(a["importance"])
-        if a.get("gated"):
-            res = cg.remember_gated(
-                nid, a.get("content", ""), layer=a.get("layer") or "contextual",
-                # B2（2026-09-30）：密级透传（本分支是落盘路径：remember_gated
-                # → add；此前两分支都不传，声明 private 在此静默降级 internal）。
-                sensitivity=a.get("sensitivity"),
-                role=a.get("role"), tags=a.get("tags"),
-                condition_space=a.get("condition_space"),
-                verification_basis=a.get("verification_basis"),
-                # A1 补接（2026-10-05）：检验强度同族透传（remember_gated 内部
-                # add(**kw) 直达；此前声明在 gated 分支静默丢弃）。
-                check_strength=a.get("check_strength"),
-                # 0.8.0 身体×脑对接（四条裁定之二，2026-10-06）：`spatial`
-                # 自定义键**直存**——约定 {"coords3d": {x,y,z}} 米制（可选 bbox
-                # 投影后补）；不改既有 fm.spatial.bbox 的 2D 语义。
-                # 缺省不传（_spatial_kw）——未声明时零落键，既有 fm 形态逐位不变。
-                **_spatial_kw(a),
-                non_applicable_conditions=a.get("non_applicable_conditions"),
-                importance_hint=hint, override=bool(a.get("override")),
-                consistency=bool(a.get("consistency", True)),
-                on_conflict=a.get("on_conflict") or "defer",
-                derived_from=_split_ids(a.get("derived_from")),
-                relation=a.get("relation"))
-            res.setdefault("ok", res.get("verdict") == "ACCEPT")
-            return res
-        # ⑥（P-9b）：直写**不去重**是文档化现状（writelimit.py 模块头注 :9-12：
-        # 限流/同构聚合只作用 contextual 层，knowledge 等手动纪律写入不受限）
-        # ——本分支**不改落盘行为、不改 verdict**，只在返回体给出「同内容已存在」
-        # 的提示（dup_of/dup_ratio）与「本次是覆写」的读数（overwrite_of/
-        # overwrite_ratio），由调用方决定是否处理。判据复用主动遗忘闸门的**同一
-        # 实现**（forgetting.redundancy / prior_node / self_coverage），不另写
-        # 一份重复度算法；两个读数都必须在 `cg.add` **之前**取（add 之后索引里
-        # 必有 nid，覆写判据恒真、覆盖度恒 1.0）。
-        from . import forgetting as _forgetting
-        _layer = a.get("layer") or "knowledge"
-        _content = a.get("content", "")
-        _prior = _forgetting.prior_node(cg, nid)
-        _prior_cov = (_forgetting.self_coverage(cg, _prior, _content)
-                      if _prior is not None else None)
-        _dup = _forgetting.redundancy(cg, _content, layer=_layer, exclude=nid)
-        # 三档自治批次②（设计 §三）：本分支是**热写入路径的第二落点**（另两处 =
-        # writepipe 链尾执行器、remember_gated）——同 id 已存在 ⇒ C 改写、
-        # 不存在 ⇒ A 新增，判据复用 forgetting.prior_node（不另写一份存在性判据）。
-        # 位置：既有 `if a.get("gated")` 分支之后、`cg.add` 之前（直写面没有别的
-        # 资格闸；audit/限流属 gated 分支的链）。确认档 ⇒ 出单且不落盘。
-        from . import autonomy_modes as _am
-        _action = _am.C_REWRITE if _prior is not None else _am.A_ADD
-        if _prior is not None:
-            # 资格在先（纯加严）：见 writepipe._gate_autonomy 同款注释——覆写的
-            # 层闸/写保护闸在 cg.add 内部，档位闸不得抢在它们之前把拒绝变成入队。
-            cg.write_qualify(nid, target_layer=_layer,
+        # ---- issue #322 R0（ybyz2 技术审第 1 条，2026-10-16）：工具面
+        # per-node 跨进程写锁。修前本分支（hooks 自动记忆主通路）直调
+        # remember_gated / cg.add，锁只接在 writepipe.execute（动词面）——
+        # 锁间谍实测 verb_locks=1 / tool_locks=0：最热通路不在锁面内，
+        # 并发同 id 双 committed + 输家正文消失完全没有被修。处置：与
+        # 动词面同款接线，复用 writepipe 的三个单点——
+        #   _node_write_lock（同款 per-node strict 锁；root 分层 fail-closed），
+        #   _refresh_index_in_lock（锁内刷代际——**本面承重**：prior_node
+        #     先于 add 内 N195 重载与一切探活调用，不刷则输家把覆写判成
+        #     新增、双 committed 照旧），
+        #   _commit_visibility（落盘后 flush——先写者出锁前对他进程可见；
+        #     gated 与直写两个落盘出口都接，与动词面同款）。
+        # 锁覆盖「刷代际 → 判存在（prior_node / write_qualify / 档位）→
+        # 落盘 → flush」整段；不同 node_id 不同锁文件互不阻塞；同线程重入
+        # 由 fsutil._ReentrantFileLock 放行（副作用 2 修复，2026-10-16）。
+        from . import writepipe as _wp322
+        with _wp322._node_write_lock(cg, nid):
+            _wp322._refresh_index_in_lock(cg)
+            hint = a.get("importance_hint")
+            if hint is None and a.get("importance") is not None:
+                hint = float(a["importance"])
+            if a.get("gated"):
+                res = cg.remember_gated(
+                    nid, a.get("content", ""), layer=a.get("layer") or "contextual",
+                    # B2（2026-09-30）：密级透传（本分支是落盘路径：remember_gated
+                    # → add；此前两分支都不传，声明 private 在此静默降级 internal）。
+                    sensitivity=a.get("sensitivity"),
+                    role=a.get("role"), tags=a.get("tags"),
+                    condition_space=a.get("condition_space"),
+                    verification_basis=a.get("verification_basis"),
+                    # A1 补接（2026-10-05）：检验强度同族透传（remember_gated 内部
+                    # add(**kw) 直达；此前声明在 gated 分支静默丢弃）。
+                    check_strength=a.get("check_strength"),
+                    # 0.8.0 身体×脑对接（四条裁定之二，2026-10-06）：`spatial`
+                    # 自定义键**直存**——约定 {"coords3d": {x,y,z}} 米制（可选 bbox
+                    # 投影后补）；不改既有 fm.spatial.bbox 的 2D 语义。
+                    # 缺省不传（_spatial_kw）——未声明时零落键，既有 fm 形态逐位不变。
+                    **_spatial_kw(a),
+                    non_applicable_conditions=a.get("non_applicable_conditions"),
+                    importance_hint=hint, override=bool(a.get("override")),
+                    consistency=bool(a.get("consistency", True)),
+                    on_conflict=a.get("on_conflict") or "defer",
+                    derived_from=_split_ids(a.get("derived_from")),
+                    relation=a.get("relation"))
+                res.setdefault("ok", res.get("verdict") == "ACCEPT")
+                _wp322._commit_visibility(cg, res)
+                return res
+            # ⑥（P-9b）：直写**不去重**是文档化现状（writelimit.py 模块头注 :9-12：
+            # 限流/同构聚合只作用 contextual 层，knowledge 等手动纪律写入不受限）
+            # ——本分支**不改落盘行为、不改 verdict**，只在返回体给出「同内容已存在」
+            # 的提示（dup_of/dup_ratio）与「本次是覆写」的读数（overwrite_of/
+            # overwrite_ratio），由调用方决定是否处理。判据复用主动遗忘闸门的**同一
+            # 实现**（forgetting.redundancy / prior_node / self_coverage），不另写
+            # 一份重复度算法；两个读数都必须在 `cg.add` **之前**取（add 之后索引里
+            # 必有 nid，覆写判据恒真、覆盖度恒 1.0）。
+            from . import forgetting as _forgetting
+            _layer = a.get("layer") or "knowledge"
+            _content = a.get("content", "")
+            _prior = _forgetting.prior_node(cg, nid)
+            _prior_cov = (_forgetting.self_coverage(cg, _prior, _content)
+                          if _prior is not None else None)
+            _dup = _forgetting.redundancy(cg, _content, layer=_layer, exclude=nid)
+            # 三档自治批次②（设计 §三）：本分支是**热写入路径的第二落点**（另两处 =
+            # writepipe 链尾执行器、remember_gated）——同 id 已存在 ⇒ C 改写、
+            # 不存在 ⇒ A 新增，判据复用 forgetting.prior_node（不另写一份存在性判据）。
+            # 位置：既有 `if a.get("gated")` 分支之后、`cg.add` 之前（直写面没有别的
+            # 资格闸；audit/限流属 gated 分支的链）。确认档 ⇒ 出单且不落盘。
+            from . import autonomy_modes as _am
+            _action = _am.C_REWRITE if _prior is not None else _am.A_ADD
+            if _prior is not None:
+                # 资格在先（纯加严）：见 writepipe._gate_autonomy 同款注释——覆写的
+                # 层闸/写保护闸在 cg.add 内部，档位闸不得抢在它们之前把拒绝变成入队。
+                cg.write_qualify(nid, target_layer=_layer,
+                                 override=bool(a.get("override")),
+                                 actor=getattr(cg, "actor", None))
+            _dec = _am.decide(_action)
+            if _dec["decision"] != _am.ALLOW:
+                _aut = {"mode": _dec["mode"], "action": _dec["action"],
+                        "action_name": _dec["action_name"],
+                        "decision": _dec["decision"]}
+                if _dec["decision"] == _am.FORBID:
+                    # 同属 gate_short_circuit 形态（兜底拒绝分支）：补 verdict 键，
+                    # 与出单分支同口径——直写面无校验闸，故取 None（不编造裁决）。
+                    return {"ok": False, "id": nid, "committed": False,
+                            "moved_to": "autonomy_forbidden",
+                            "error": "autonomy_forbid", "autonomy": _aut,
+                            "verdict": None,
+                            "hint": _dec["hint"]}
+                _meta = {k: a[k] for k in
+                         ("tags", "condition_space", "verification_basis",
+                          "non_applicable_conditions", "derived_from", "relation",
+                          # A1 补接（2026-10-05）：检验强度入复现 meta——与
+                          # writepipe._AUTONOMY_META_KEYS 同款（两条路径元数据等价）。
+                          "check_strength",
+                          # 0.8.0 对接：spatial 同样随单落复现 meta（入队后
+                          # accept 落盘与直接落盘**元数据等价**，判据不分叉）。
+                          "spatial",
+                          "role", "importance") if a.get(k) is not None}
+                # 直写面的裁决参数（本分支的 add 会自己跑冲突闸）：随单落进复现 meta，
+                # 否则「确认后落盘」与「直接落盘」两条路径的判据不等价。
+                _meta["consistency"] = bool(a.get("consistency", True))
+                _meta["on_conflict"] = a.get("on_conflict") or "reject"
+                _meta["override"] = bool(a.get("override"))
+                _pay = _am.mutation_payload(
+                    _action, nid, after=_content,
+                    reason="mdcg_remember 直写（%s）" % _am.ACTION_NAMES[_action],
+                    primitive="add", meta=_meta)
+                _pr = _am.propose_mutation(cg, _action, nid, payload=_pay,
+                                           layer=_layer,
+                                           sensitivity=a.get("sensitivity"),
+                                           info=True)
+                # 自治档位出单属 protocol.gate_short_circuit 形态：WRITE_TRIO +
+                # moved_to + verdict + hint。**verdict 键必在场**——直写面不跑校验闸
+                # （audit 在 gated 分支的链上），本路径**没有 audit 裁决可透出**，故取
+                # None。
+                # ★2026-10-12 设计者裁定（对 #109 题3(b) 的收束）：None 不是「编造裁决」，
+                # 而是**盲区声明**——「我们知道这里没填」。原裁定「硬补 verdict 等于编造
+                # 判据」的判断仍然成立（那说的是编造一个**有值**的裁决）；正因如此才需要
+                # 为「无法识别/未填」这件事**留一个显式标记**，而盲区就是为这种情况设计的。
+                # 形态见 protocol.VERB_SPECS["write"]["shapes"]["autonomy_ticket"]
+                # （required 含 verdict；None 的语义由 protocol.VERDICT_BLINDSPOT 声明）。
+                return {"ok": True, "id": nid, "committed": False,
+                        "moved_to": "review_queue", "verdict": None,
+                        "pid": _pr["pid"],
+                        "mutation": _pay, "autonomy": _aut,
+                        "hint": "%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
+                                % (_dec["hint"], _pr["pid"], nid)}
+            written = cg.add(nid, _content, layer=_layer,
+                             # B2：同上——落盘面丢字段＝上游声明静默失效。
+                             sensitivity=a.get("sensitivity"),
+                             role=a.get("role"), tags=a.get("tags"),
+                             condition_space=a.get("condition_space"),
+                             importance=float(a.get("importance", 0.5)),
+                             verification_basis=a.get("verification_basis"),
+                             # A1 补接（2026-10-05）：检验强度透传（同 B2）。
+                             check_strength=a.get("check_strength"),
+                             # 0.8.0 对接：spatial 直存透传（同 B2）；缺省不传（零落键）。
+                             **_spatial_kw(a),
+                             non_applicable_conditions=a.get("non_applicable_conditions"),
                              override=bool(a.get("override")),
-                             actor=getattr(cg, "actor", None))
-        _dec = _am.decide(_action)
-        if _dec["decision"] != _am.ALLOW:
-            _aut = {"mode": _dec["mode"], "action": _dec["action"],
-                    "action_name": _dec["action_name"],
-                    "decision": _dec["decision"]}
-            if _dec["decision"] == _am.FORBID:
-                # 同属 gate_short_circuit 形态（兜底拒绝分支）：补 verdict 键，
-                # 与出单分支同口径——直写面无校验闸，故取 None（不编造裁决）。
+                             consistency=bool(a.get("consistency", True)),
+                             on_conflict=a.get("on_conflict") or "reject",
+                             derived_from=_split_ids(a.get("derived_from")),
+                             relation=a.get("relation"))
+            if written is None:
+                # 冲突 DEFER 同属 protocol.gate_short_circuit 形态：WRITE_TRIO +
+                # moved_to + verdict + hint。此前只有 ok/id/verdict/reason ⇒ 判 committed
+                # 的调用方读不到「未提交」，也读不到去向与下一步。
+                # 语义（mdcg.py:2192 生效条件 + :2319-2321）：on_conflict=defer 时
+                # REJECT/BLINDSPOT **既不落盘也不入队**——故去向**不可**写 review_queue，
+                # 用 conflict_deferred 表达「被冲突闸挡下、未进任何队列」。
+                # （去向词：2026-10-12 设计者裁定为 conflict_deferred。）
                 return {"ok": False, "id": nid, "committed": False,
-                        "moved_to": "autonomy_forbidden",
-                        "error": "autonomy_forbid", "autonomy": _aut,
-                        "verdict": None,
-                        "hint": _dec["hint"]}
-            _meta = {k: a[k] for k in
-                     ("tags", "condition_space", "verification_basis",
-                      "non_applicable_conditions", "derived_from", "relation",
-                      # A1 补接（2026-10-05）：检验强度入复现 meta——与
-                      # writepipe._AUTONOMY_META_KEYS 同款（两条路径元数据等价）。
-                      "check_strength",
-                      # 0.8.0 对接：spatial 同样随单落复现 meta（入队后
-                      # accept 落盘与直接落盘**元数据等价**，判据不分叉）。
-                      "spatial",
-                      "role", "importance") if a.get(k) is not None}
-            # 直写面的裁决参数（本分支的 add 会自己跑冲突闸）：随单落进复现 meta，
-            # 否则「确认后落盘」与「直接落盘」两条路径的判据不等价。
-            _meta["consistency"] = bool(a.get("consistency", True))
-            _meta["on_conflict"] = a.get("on_conflict") or "reject"
-            _meta["override"] = bool(a.get("override"))
-            _pay = _am.mutation_payload(
-                _action, nid, after=_content,
-                reason="mdcg_remember 直写（%s）" % _am.ACTION_NAMES[_action],
-                primitive="add", meta=_meta)
-            _pr = _am.propose_mutation(cg, _action, nid, payload=_pay,
-                                       layer=_layer,
-                                       sensitivity=a.get("sensitivity"),
-                                       info=True)
-            # 自治档位出单属 protocol.gate_short_circuit 形态：WRITE_TRIO +
-            # moved_to + verdict + hint。**verdict 键必在场**——直写面不跑校验闸
-            # （audit 在 gated 分支的链上），本路径**没有 audit 裁决可透出**，故取
-            # None。
-            # ★2026-10-12 设计者裁定（对 #109 题3(b) 的收束）：None 不是「编造裁决」，
-            # 而是**盲区声明**——「我们知道这里没填」。原裁定「硬补 verdict 等于编造
-            # 判据」的判断仍然成立（那说的是编造一个**有值**的裁决）；正因如此才需要
-            # 为「无法识别/未填」这件事**留一个显式标记**，而盲区就是为这种情况设计的。
-            # 形态见 protocol.VERB_SPECS["write"]["shapes"]["autonomy_ticket"]
-            # （required 含 verdict；None 的语义由 protocol.VERDICT_BLINDSPOT 声明）。
-            return {"ok": True, "id": nid, "committed": False,
-                    "moved_to": "review_queue", "verdict": None,
-                    "pid": _pr["pid"],
-                    "mutation": _pay, "autonomy": _aut,
-                    "hint": "%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
-                            % (_dec["hint"], _pr["pid"], nid)}
-        written = cg.add(nid, _content, layer=_layer,
-                         # B2：同上——落盘面丢字段＝上游声明静默失效。
-                         sensitivity=a.get("sensitivity"),
-                         role=a.get("role"), tags=a.get("tags"),
-                         condition_space=a.get("condition_space"),
-                         importance=float(a.get("importance", 0.5)),
-                         verification_basis=a.get("verification_basis"),
-                         # A1 补接（2026-10-05）：检验强度透传（同 B2）。
-                         check_strength=a.get("check_strength"),
-                         # 0.8.0 对接：spatial 直存透传（同 B2）；缺省不传（零落键）。
-                         **_spatial_kw(a),
-                         non_applicable_conditions=a.get("non_applicable_conditions"),
-                         override=bool(a.get("override")),
-                         consistency=bool(a.get("consistency", True)),
-                         on_conflict=a.get("on_conflict") or "reject",
-                         derived_from=_split_ids(a.get("derived_from")),
-                         relation=a.get("relation"))
-        if written is None:
-            # 冲突 DEFER 同属 protocol.gate_short_circuit 形态：WRITE_TRIO +
-            # moved_to + verdict + hint。此前只有 ok/id/verdict/reason ⇒ 判 committed
-            # 的调用方读不到「未提交」，也读不到去向与下一步。
-            # 语义（mdcg.py:2192 生效条件 + :2319-2321）：on_conflict=defer 时
-            # REJECT/BLINDSPOT **既不落盘也不入队**——故去向**不可**写 review_queue，
-            # 用 conflict_deferred 表达「被冲突闸挡下、未进任何队列」。
-            # （去向词：2026-10-12 设计者裁定为 conflict_deferred。）
-            return {"ok": False, "id": nid, "committed": False,
-                    "moved_to": "conflict_deferred",
-                    "verdict": "DEFER",
-                    "reason": "节点间冲突检测未通过（on_conflict=defer）",
-                    "hint": "本次未落盘、未入队（defer 语义）：如需落盘请显式处置冲突——"
-                            "修正正文后重写 / on_conflict=reject 取明确拒绝 / "
-                            "override=true 覆写（需相应权限）"}
-        # issue #109 相邻面：工具面**同一返回体**在闸门短路分支给 committed=False，
-        # 成功分支此前却不给 committed ⇒ 判 committed 的调用方会把「成功」读成
-        # 「未提交」（与 #109 报的「把待审读成已提交」是同一处的两面）。
-        # 三键铁律（protocol.WRITE_TRIO / 协议文档 :28「任一形态必含 ok/id/committed」）
-        # 在此补齐：不改写入语义，只补判据键。
-        out = {"ok": True, "id": nid, "committed": True}
-        if _prior is not None:
-            out["overwrite_of"] = _prior
-            out["overwrite_ratio"] = _prior_cov
-        if _dup["with"] and _dup["max"] >= _forgetting.DUP_MERGE:
-            out["dup_of"] = _dup["with"]
-            out["dup_ratio"] = round(_dup["max"], 4)
-            out["dup_compared"] = _dup["compared"]
-            out["dup_hint"] = (
-                "同内容已存在于 %s（覆盖度 %.2f≥%.2f）；本路径是直写"
-                "（gated=false：knowledge 层手动纪律写入不受限流/去重约束，"
-                "见 writelimit.py 模块头注），正文已按原样落盘为新节点——"
-                "如需并入既有节点请显式处理"
-                % (_dup["with"], _dup["max"], _forgetting.DUP_MERGE))
-        return out
+                        "moved_to": "conflict_deferred",
+                        "verdict": "DEFER",
+                        "reason": "节点间冲突检测未通过（on_conflict=defer）",
+                        "hint": "本次未落盘、未入队（defer 语义）：如需落盘请显式处置冲突——"
+                                "修正正文后重写 / on_conflict=reject 取明确拒绝 / "
+                                "override=true 覆写（需相应权限）"}
+            # issue #109 相邻面：工具面**同一返回体**在闸门短路分支给 committed=False，
+            # 成功分支此前却不给 committed ⇒ 判 committed 的调用方会把「成功」读成
+            # 「未提交」（与 #109 报的「把待审读成已提交」是同一处的两面）。
+            # 三键铁律（protocol.WRITE_TRIO / 协议文档 :28「任一形态必含 ok/id/committed」）
+            # 在此补齐：不改写入语义，只补判据键。
+            out = {"ok": True, "id": nid, "committed": True}
+            if _prior is not None:
+                out["overwrite_of"] = _prior
+                out["overwrite_ratio"] = _prior_cov
+            if _dup["with"] and _dup["max"] >= _forgetting.DUP_MERGE:
+                out["dup_of"] = _dup["with"]
+                out["dup_ratio"] = round(_dup["max"], 4)
+                out["dup_compared"] = _dup["compared"]
+                out["dup_hint"] = (
+                    "同内容已存在于 %s（覆盖度 %.2f≥%.2f）；本路径是直写"
+                    "（gated=false：knowledge 层手动纪律写入不受限流/去重约束，"
+                    "见 writelimit.py 模块头注），正文已按原样落盘为新节点——"
+                    "如需并入既有节点请显式处理"
+                    % (_dup["with"], _dup["max"], _forgetting.DUP_MERGE))
+            _wp322._commit_visibility(cg, out)
+            return out
 
     if name == "mdcg_recall":
         use_bm25 = bool(a.get("bm25"))
