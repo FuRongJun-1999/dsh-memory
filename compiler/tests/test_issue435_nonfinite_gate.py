@@ -21,6 +21,17 @@
      （VMBuiltinError('nonfinite')，拒时寄存器保持有限值不被毒化）
   ③ 运行期 DE：先算后验——NaN/inf 操作数与溢出累积（1e308+1e308）同拒
 
+技术审返工（PR #449 复审，ybyz2 09:04）补三面：
+  ④ 超 double 域整数面（阻断①）：math.isfinite 对 10**400 抛 OverflowError
+     而非返回 False——裸调使 `STORE 信任值 <- 10**400` 由 base 的成功变为
+     head 的裸 OverflowError。三处改全函数 _finite_num（OverflowError →
+     False）；DE 补操作数预检（隐式 int→float 转换处不再裸穿）。
+  ⑤ 知足 运行期阈值面（阻断②）：ZHIZU(inf/-inf/nan/超域 int) 阈值补
+     isfinite——-inf 使判定反向（恒达标早退、止 被跳过）、inf 恒不可达、
+     nan 恒不达标。
+  ⑥ 初值注入面（阻断②）：run(trust=…)/symbols 种子合并终值补 isfinite
+     （单点在 reset；分量种子数值但非有限同拒，非数值仍走 N270 丢弃口径）。
+
 对照断言：11 个 inf/nan 形态双入口全拒；德 0.5/0/-0.5 与 知足 0.7 的
 字节码与终值逐位不变；德 abc/甲乙丙 仍按原判据拦；合法写面不误伤。
 """
@@ -248,6 +259,167 @@ for tag, code_rt in [
         ok, det = False, '裸异常 %s: %s' % (type(e).__name__, e)
     check('%s pbc 往返（保真=%s）→ 运行期 nonfinite 拒' % (tag, faithful),
           ok and faithful, det)
+
+print('--- (6) 超 double 域整数面：裸 OverflowError 回归收口（返工·阻断①）---')
+
+# ⑥a/⑥b：STORE 写闸——base 成功、返工前 head 裸 OverflowError，须 nonfinite
+for tag, name, keep in [
+        ('⑥a', '信任值', 0.0),
+        ('⑥b', 'P_trust', ('trust_parts', 'P_trust', 0.0))]:
+    vm, st, exc = store_try(name, 10 ** 400)
+    ok = (isinstance(exc, vmm.VMBuiltinError)
+          and getattr(exc, 'kind', None) == 'nonfinite')
+    if ok and isinstance(keep, tuple):
+        ok = vm.trust_parts[keep[1]] == keep[2]
+    elif ok:
+        ok = vm.trust_value == keep
+    check('%s STORE %s <- 10**400 → nonfinite（非裸 OverflowError）且寄存器不毒化'
+          % (tag, name), ok,
+          '%s: %s' % (type(exc).__name__ if exc else '未拒', str(exc)[:60]))
+
+# ⑥c：assemble('PUSH_CONST 9**400')（展开十进制 → int 常量）经 STORE 同拒
+try:
+    code_h = vmm.assemble('PUSH_CONST %d' % 9 ** 400)
+    is_int = len(code_h) == 1 and isinstance(code_h[0][1], int)
+    try:
+        ConditionVM().run(code_h + [(Opcode.STORE_NAME, '信任值'),
+                                    (Opcode.ZHI, None)])
+        exc_h = None
+    except Exception as e:  # noqa: BLE001
+        exc_h = e
+    check("⑥c assemble('PUSH_CONST 9**400') 经 STORE → nonfinite（非裸 OverflowError）",
+          is_int and isinstance(exc_h, vmm.VMBuiltinError)
+          and getattr(exc_h, 'kind', None) == 'nonfinite',
+          'int常量=%s %s: %s' % (is_int, type(exc_h).__name__ if exc_h else '未拒',
+                                 str(exc_h)[:60] if exc_h else ''))
+except Exception as e:  # noqa: BLE001
+    check("⑥c assemble('PUSH_CONST 9**400') 经 STORE → nonfinite", False,
+          'assemble/run 阶段裸异常 %s: %s' % (type(e).__name__, str(e)[:60]))
+
+# ⑥d：DE 超域 int 操作数——隐式 int→float 转换不再裸穿（预检同归 nonfinite）
+vm, st, exc = de_try([10 ** 400])
+ok = (isinstance(exc, vmm.VMBuiltinError)
+      and getattr(exc, 'kind', None) == 'nonfinite'
+      and vm.trust_value == 0.0)
+check('⑥d 德 10**400 操作数 → nonfinite（非裸 OverflowError）', ok,
+      '%s: %s trust=%r' % (type(exc).__name__ if exc else '未拒',
+                           str(exc)[:60], vm.trust_value))
+
+# ⑥e：int 寄存器 + 超域 int 累积（Python bigint 和不经转换）→ 累积闸同拒
+vm_e = ConditionVM()
+try:
+    vm_e.run([(Opcode.PUSH_CONST, 5), (Opcode.STORE_NAME, '信任值'),
+              (Opcode.DE, 10 ** 400), (Opcode.ZHI, None)])
+    exc_e = None
+except Exception as e:  # noqa: BLE001
+    exc_e = e
+check('⑥e 信任值=5 后 德 10**400（bigint 和非有限）→ nonfinite',
+      isinstance(exc_e, vmm.VMBuiltinError)
+      and getattr(exc_e, 'kind', None) == 'nonfinite'
+      and vm_e.trust_value == 5,
+      '%s: %s trust=%r' % (type(exc_e).__name__ if exc_e else '未拒',
+                           str(exc_e)[:60], vm_e.trust_value))
+
+# 对照：有限 int 不误伤（写面与初值面都不只放 float）
+_, st_int, _ = store_try('信任值', 5)
+check('⑥f STORE 信任值 <- 5（有限 int）不误伤',
+      st_int is not None and st_int['trust'] == 5,
+      str(st_int)[:60] if st_int else '')
+
+print('--- (7) 运行期知足阈值面：ZHIZU 非有限阈值拒（返工·阻断②）---')
+
+
+def zhizu_try(threshold, trust=0.0, addr=3):
+    """ZHIZU (threshold, addr) → DE 0.1 → ZHI；返回 (vm, state|None, 异常|None)。"""
+    vm = ConditionVM()
+    try:
+        st = vm.run([(Opcode.ZHIZU, (threshold, addr)),
+                     (Opcode.DE, 0.1), (Opcode.ZHI, None)], trust=trust)
+        return vm, st, None
+    except Exception as e:  # noqa: BLE001
+        return vm, None, e
+
+
+for tag, th in [('⑦a', float('-inf')), ('⑦b', float('inf')),
+                ('⑦c', float('nan')), ('⑦d', 10 ** 400)]:
+    vm_z, st_z, exc_z = zhizu_try(th)
+    ok = (isinstance(exc_z, vmm.VMBuiltinError)
+          and getattr(exc_z, 'kind', None) == 'nonfinite')
+    check('%s ZHIZU 阈值 %s → nonfinite 拒（判定不得反向/永假）' % (tag, th), ok,
+          '%s: %s' % (type(exc_z).__name__ if exc_z else '未拒（早退/未跳）',
+                      str(exc_z)[:60]))
+
+# ⑦e：pbc 往返（8 字节 double 保真）——编译期闸管不到的落盘注入面
+data_z = serialize([(Opcode.ZHIZU, (float('-inf'), 1)), (Opcode.ZHI, None)])
+rt_z = deserialize(data_z)
+faithful_z = (rt_z[0][1][0] == float('-inf'))
+p_z = os.path.join(_TMP, 'zhizu_ninf.pbc')
+with open(p_z, 'wb') as f:
+    f.write(data_z)
+try:
+    run_pbc(p_z)
+    exc_p = None
+except Exception as e:  # noqa: BLE001
+    exc_p = e
+check('⑦e pbc 往返 ZHIZU -inf（保真=%s）→ 运行期 nonfinite 拒' % faithful_z,
+      faithful_z and isinstance(exc_p, vmm.VMBuiltinError)
+      and getattr(exc_p, 'kind', None) == 'nonfinite',
+      '%s: %s' % (type(exc_p).__name__ if exc_p else '未拒', str(exc_p)[:60]))
+
+# 对照：有限阈值双向不误伤（早退语义 SEMANTICS.md §3 逐位保持）
+_, st_hit, _ = zhizu_try(0.7, trust=0.9)
+check('⑦f 知足 0.7 / trust=0.9 达标早退（halt=None、不再累积）',
+      st_hit is not None and st_hit['halt'] is None and st_hit['trust'] == 0.9,
+      str(st_hit)[:70] if st_hit else '')
+_, st_miss, _ = zhizu_try(0.7, trust=0.5)
+check('⑦g 知足 0.7 / trust=0.5 未达标走 止（halt=halt、trust=0.6）',
+      st_miss is not None and st_miss['halt'] == 'halt'
+      and abs(st_miss['trust'] - 0.6) < 1e-12,
+      str(st_miss)[:70] if st_miss else '')
+
+print('--- (8) 初值注入面：run/reset 初值非有限拒（返工·阻断②）---')
+
+
+def init_try(**kw):
+    vm = ConditionVM()
+    try:
+        st = vm.run([(Opcode.ZHI, None)], **kw)
+        return vm, st, None
+    except Exception as e:  # noqa: BLE001
+        return vm, None, e
+
+
+for tag, kw in [
+        ('⑧a', dict(trust=float('inf'))),
+        ('⑧b', dict(trust=float('nan'))),
+        ('⑧c', dict(trust=10 ** 400)),
+        ('⑧d', dict(symbols={'信任值': float('inf')})),
+        ('⑧e', dict(symbols={'P_trust': float('nan')}))]:
+    vm_i, st_i, exc_i = init_try(**kw)
+    ok = (isinstance(exc_i, vmm.VMBuiltinError)
+          and getattr(exc_i, 'kind', None) == 'nonfinite' and '有限' in str(exc_i))
+    check('%s %s → nonfinite 拒（止 被跳过面收口）' % (tag, kw), ok,
+          '%s: %s' % (type(exc_i).__name__ if exc_i else '未拒', str(exc_i)[:60]))
+
+# 对照：有限初值（含 int/种子/分量种子）不误伤；既有口径不回归
+_, st_t, _ = init_try(trust=0.4)
+check('⑧f run(trust=0.4) 不误伤', st_t is not None and st_t['trust'] == 0.4,
+      str(st_t)[:60] if st_t else '')
+_, st_s, _ = init_try(symbols={'信任值': 0.5})
+check('⑧g 种子 信任值=0.5 归一不误伤', st_s is not None and st_s['trust'] == 0.5,
+      str(st_s)[:60] if st_s else '')
+_, st_p, _ = init_try(symbols={'P_trust': 0.3})
+check('⑧h 分量种子 P_trust=0.3 不误伤',
+      st_p is not None and st_p['trust_parts']['P_trust'] == 0.3,
+      str(st_p)[:60] if st_p else '')
+_, st_d, _ = init_try(symbols={'P_trust': 'abc'})
+check('⑧i 非数值分量种子仍静默丢弃（N270 口径不回归）',
+      st_d is not None and st_d['trust_parts']['P_trust'] == 0.0,
+      str(st_d)[:60] if st_d else '')
+_, _, exc_tt = init_try(symbols={'信任值': 'abc'})
+check('⑧j 信任值 种子非数值仍按 type 拒（判据分工不混）',
+      isinstance(exc_tt, vmm.VMBuiltinError)
+      and getattr(exc_tt, 'kind', None) == 'type', str(exc_tt)[:60])
 
 print('\n=== issue #435 非有限闸守卫: %d/%d 通过 ===' % (pass_n, pass_n + fail_n))
 sys.exit(0 if fail_n == 0 else 1)
