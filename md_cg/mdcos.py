@@ -3085,22 +3085,17 @@ class MdCGOS(MdCG):
                     # #148（2026-10-12）：reinforce 落盘前的降密级 fail-closed 已就绪
                     # （forgetting.py:552-558），此处必须把 incoming 密级接上，否则
                     # 该路径拿不到 sensitivity ⇒ 判据失效、MERGE 降密级仍会落盘。
-                    # #417（2026-10-16）：把**来源节点 id** 透传给 reinforce——它据此把
-                    # 本来源记进目标 fm.merge_source_ids，供两段式恢复期在**盘面**上
-                    # 反查「内容已并入谁」（否则崩溃窗口内只看到「源 id 不在」⇒
-                    # 已落盘的 MERGE 被误判 interrupted/node_missing，并诱导重做不可逆合并）。
-                    # #417 修正（fix-354-python 实测报障 2026-10-16）：此处**不得**用
-                    # `node_id`——它在 _mutation_execute 里是**本行之后**（:3097）才绑定的
-                    # 局部名，直接引用会 UnboundLocalError（B 合并非 converge_into 分支
-                    # 必崩 ⇒ accept 报 mutation_execute_failed、回滚载荷为空）。
-                    # 来源 id 取**入参票据的 id**（= 本次写入的节点 id，与 _gate_gated 建
-                    # 意图时用的 ctx["nid"] 同源）；缺键时为 None ⇒ reinforce 不记
-                    # merge_source_ids（**不编造**，也不影响本次合并本身）。
+                    # #417（2026-10-16）**落点更正**：本处（票据链 accept → B_MERGE）
+                    # **不记** merge_source_ids —— ① 本路径没有未结清的两段式意图
+                    # （`_gate_gated` 在 verdict=CONFIRM 时已把意图 commit 成 aborted），
+                    # 恢复期不会走到本笔，记了也无用；② 本函数里没有「来源 id」可用
+                    # （`item["id"]` 是**目标**票据 id，记它＝记「目标把内容并入了自己」，
+                    # **静默错**——A09 票据链③就是钉这一条的）。真正的 gated-MERGE
+                    # 落点在 `remember_gated`（见其 reinforce 调用处的 src_id 槽）。
                     res = forgetting.reinforce(self, tgt, override=_ovr,
                                                actor=actor, content=after,
                                                session=session,
-                                               sensitivity=sens,
-                                               src_id=item.get("id"))
+                                               sensitivity=sens)
                 node_id = tgt
             elif act == _am.C_REWRITE:
                 # 补强（2026-10-02，复核观察 3）：C 的**目标节点在 accept 执行时
@@ -5112,7 +5107,13 @@ class MdCGOS(MdCG):
                 # 才是完整接线：不重传 sensitivity 的同 id 改写（常态）声明值为 None
                 # ⇒ 判据恒 False ⇒ private 明文以聚合行并入 internal，internal 档读者
                 # 可读回全文（本处即报告的第 2 落点，P0）。
-                sensitivity=_sens_eff)
+                sensitivity=_sens_eff,
+                # #417（2026-10-16）：**来源节点 id**（本函数形参 node_id＝本次写入的
+                # 节点，全程未被重绑定——已用 AST 核过绑定序）——reinforce 据此把它记进
+                # 目标 fm.merge_source_ids，供两段式恢复期在**盘面**反查「内容已并入谁」。
+                # 本处才是 #417 的真实落点：`_gate_gated` 在 verdict=MERGE 时先建意图、
+                # 合并落盘、再 commit；崩溃落在「已落盘、未 commit」窗口时才需要这条痕迹。
+                src_id=node_id)
                 if tgt else None)
         elif v == "DROP":
             # B3 ④（2026-09-30）：内部确定性来源的近重复（`assess` 的 :214

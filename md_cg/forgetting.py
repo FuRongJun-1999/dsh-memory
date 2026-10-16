@@ -143,16 +143,18 @@ def prior_node(cg, node_id):
     **完全不可区分**（审计面全 null，静默洞）。存在性判据收敛在此一处：`assess`
     的 entropy 标注与直写路径的返回体共用，不各写一份。
 
-    边界（如实）：判据读 `cg.index`，与 `redundancy` 同一数据面（同代际假设）；
-    index 陈旧时最坏是漏标一次覆写提示，不影响任何落盘行为。
+    #415 同族更正（2026-10-16，**推翻原边界描述**）：本函数原判据裸读 `cg.index`（无探活），
+    原注说「陈旧时最坏漏标一次覆写提示，不影响落盘」——**实测不成立**：它同时是
+    `rollback.preimage_for` 的**前置闸**（`prior_node(cg, target) is None` ⇒ 直接返回 None），
+    误判会让「执行时点前像」整个不拍、变更单的执行时点回滚载荷为空——**是写路径决策**，
+    不是读面提示。故它并入 T1：判前经**集合形态的探活单点** `protect.known_nodes(cg)`。
     """
     if not node_id:
         return None
     try:
-        nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+        return node_id if node_id in protect.known_nodes(cg) else None
     except Exception:
         return None
-    return node_id if node_id in nodes else None
 
 
 # 生效条件：node_id 为真值且 cg.get(node_id) 返回真值时返回覆盖度（_coverage(bigrams(payload(content)), bigrams(payload(既有正文)))，1.0＝逐字同构的重写）；node_id 为空、节点取不到、既有正文为空时返回 None。

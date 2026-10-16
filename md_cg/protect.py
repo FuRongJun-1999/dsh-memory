@@ -59,7 +59,7 @@ class ProtectionError(PermissionError):
 
 # ---------------------------------------------------------------- 判定
 
-# 生效条件：cg 具备可调用的 _maybe_reload_index 时先调一次（索引代际探活，异常静默）；随后对任意 cg、node_id 返回 `(cg.index 或其假值时的 {})["nodes"]`（该键缺失或假值时为 `{}`）中以 node_id 为键的值，索引无此键时返回 None。
+# 生效条件：cg 具备可调用的 _maybe_reload_index 时先经 _probe 调一次（索引代际探活，异常静默）；随后对任意 cg、node_id 返回 `(cg.index 或其假值时的 {})["nodes"]`（该键缺失或假值时为 `{}`）中以 node_id 为键的值，索引无此键时返回 None。
 def _entry(cg, node_id):
     """索引条目读取单点（判定前**代际探活**）。
 
@@ -73,13 +73,49 @@ def _entry(cg, node_id):
     一次 listdir；重载是稀疏事件）。同理 `_resolve_target` 的探活在本函数外层
     成了冗余的一次廉价检查，保留不动。
     """
+    _probe(cg)                            # 探活实现在 _probe（唯一），本函数不再内联
+    return ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)
+
+# 为何 _probe / known_nodes 放在本判定单点**之后**（而不是之前）：
+# 既有裁定 md_cg/test_n212_n213_n224_generation_gates.py 的 6f 是**源码窗口**断言——
+# 窗口从本单点起、到下一个判定函数（_fm）的定义前为止，窗口内必须出现探活入口
+# （判据名：protect._entry 判定前代际探活（写/删/搬迁三面同闸））。把探活实现留在该
+# 窗口内，既满足既有裁定，又**不把探活复制成两份**（#413「同语义两处实现、只加固一侧」
+# 正是要避免的形态）。
+# ⚠ 本注释**不得**出现窗口两个端点的字面量（前者会改起点、后者会把窗口截断在此——
+# 实测踩过：注释里写了端点字面量 ⇒ 窗口在注释处结束、探活实现落在窗口外，6f 仍红）。
+def _probe(cg):
+    """索引代际探活（**唯一实现**）：_entry（单条目形态）与 known_nodes（集合形态）共用。
+
+    为何抽成一处：探活纪律一旦分叉，就会出现「这面记得探活、那面忘了」的族（#415 正是
+    如此——writepipe._gate_deps 与该函数同宗判据却漏了探活）。
+    """
     _reload = getattr(cg, "_maybe_reload_index", None)
     if callable(_reload):
         try:
             _reload()
-        except Exception:                 # noqa: BLE001 —— 探活失败不得阻断判定本身
+        except Exception:              # noqa: BLE001 —— 探活失败不得阻断判定本身
             pass
-    return ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)
+
+
+# 生效条件：先经 _probe(cg) 探活，随后返回 (cg.index 或其假值时的 {})["nodes"]（该键缺失或假值时为 {}）**本身**（只读契约：调用方不得就地修改）；读面异常时返回 {}，恒不抛。
+def known_nodes(cg):
+    """**集合形态**的索引判据单点（判定前代际探活）—— #415。
+
+    #415 根因（2026-10-16）：writepipe._gate_deps 判「依赖目标是否存在」时**裸读**
+    set((getattr(cg, "index", None) or {}).get("nodes") or {})，判前无探活 ⇒ 他进程
+    （serve 常驻 / 另一实例）刚建的依赖目标在**陈旧条目**里不存在 ⇒ **合法写入被硬拒**
+    （E051 依赖目标不存在）。与 #403「陈旧 ⇒ 误放行覆写」同族、后果相反。
+
+    与 _entry 同形同实现：**一次探活 + 返回同一数据面**（单条目 vs 集合两种形态）。
+    为什么不返回 set：每次判定复制一份 id 集合是 O(N)，而本函数在**写入热路径**上；
+    返回索引**同一映射对象**并约定只读即可——判定只需要 in。
+    """
+    _probe(cg)
+    try:
+        return (getattr(cg, "index", None) or {}).get("nodes") or {}
+    except Exception:                  # noqa: BLE001 —— 读面异常不阻断判定
+        return {}
 
 
 # 生效条件：cg 索引中无 node_id 条目时返回 None；有条目时先取 layer/importance（缺 importance 键回落 0.5）/protected/protection_reason/immutable/self_state/importance_source（issue50-e：缺键读 None），仅当条目缺 protected 或 immutable、或（缺 self_state 且条目 layer∈PROTECTED_LAYERS）、或（条目 layer∈PROTECTED_LAYERS 且 _GATE_UNKNOWN_KEYS 中任一键的值为 None）时再经 cg.get(node_id) 用 frontmatter 覆盖这些键（cg.get 抛异常或返回假值时保留索引值；layer 取 frontmatter.layer or 索引 layer，importance 缺键时回落索引 importance）。

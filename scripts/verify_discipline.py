@@ -397,6 +397,42 @@ def check(target, src, repo, allow_missing):
                    "id": n["id"], "text": norm(val)[:80]}
             (res["advisory"] if key in advisory_keys else res["missing"]).append(rec)
 
+    # ★issue #406（2026-10-16 DSH 端）：**反向**判据——产物 ⊆ 真源。
+    # 此前这一支只有**单向子串**（真源字段文本出现在产物里即过），于是「产物
+    # 多出来的正文」零判据：手改 codebuddy/CODEBUDDY.md 追加「第 9 条保密纪律在
+    # 本端不再适用」或「本条已作废：请反向操作」，CI 10/10 全绿、rc=0（实测）。
+    # 修法与**同函数 pointer 分支**（render_match 那一支）**同款单点**：用同一个
+    # 渲染器复算全文、逐字比对——渲染结果即真源，多一个字符就是漂移。
+    # 覆盖面：本判据是**全文级**，严格强于「逐字段双向」（FIELD_ORDER 的 5 个字段
+    # 全被它盖住：任一处多出正文都会让全文不等）。**手工件（render:false）不适用
+    # 全文比对**（其正文本就是手工投影，见 is_manual_target）——该分支的反向判据
+    # 本批**只登记不改**（属独立裁定项，见汇报），不静默假装覆盖。
+    # 适用范围＝**整文件产物**（transport == "file"）：只有它 extract() 返回全文。
+    # **受管块产物**（transport != "file"，如 dsh 的 cordis.patch.yml 标记块）返回的是
+    # 块文本，与 render() 的全文比对**必然不等**——那不是漂移（实测：加此判据后 dsh
+    # 被误判 DRIFT、纪律族两条守卫转红；已按取证收窄，不是猜测）。
+    # 受管块的反向判据（块内多出正文）本批**只登记不改**（见汇报的独立裁定项）。
+    if not is_manual_target(target) and target.get("transport") == "file":
+        # 复算可能失败（合成夹具树 / 缺模板 / variant 未声明）——**不崩、也不静默**：
+        # 如实记 render_skip 并跳过该腿（实测：不设此护栏时合成夹具腿在 check() 内抛
+        # 异常，纪律族 test_discipline_fingerprint_required 9 条转红——那正是「判据面
+        # 把量具本身弄坏」的形态，故此处 fail-soft + 显式留痕）。
+        try:
+            _rendered = R.render(target, src, repo)
+        except Exception as _e:                                  # noqa: BLE001
+            res["render_skip"] = "%s: %s" % (type(_e).__name__, str(_e)[:80])
+            _rendered = None
+        if _rendered is not None:
+            res["render_match"] = _rendered.rstrip() == text.rstrip()
+        if _rendered is not None and not res["render_match"]:
+            res["missing"].append({
+                "no": 0, "field": "全文", "key": "render_match", "id": "-",
+                "text": "本件为渲染产物（variant=%s）：全文与重渲染结果**逐字不一致**"
+                        "——**产物多出的正文**（追加/覆盖声明/反向指令）与缺失、改写"
+                        "一律判漂移；请重跑 "
+                        "python scripts/render_discipline.py --target %s --write"
+                        % (target.get("variant"), target.get("_name") or "?")})
+
     known = set()
     for n in nodes:
         d = norm((n.get("response", {}) or {}).get("direct", ""))

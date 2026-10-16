@@ -45,7 +45,7 @@ import os
 import sys
 import time
 
-from . import twophase, trust
+from . import protect, twophase, trust
 from .fsutil import append_jsonl
 
 __all__ = ["WritePipeline", "default_pipeline", "oversize_response",
@@ -924,7 +924,13 @@ def _gate_deps(ctx):
                            "若该行只是描述本单元内部构成（自述），去掉 "
                          + nodefile.DEP_REF_MARK + " 引用或改填「无」即可。"
                            "本闸是契约闸门的正常行为，不是工具故障。")}
-    known = set((getattr(cg, "index", None) or {}).get("nodes") or {})
+    # #415（2026-10-16）：判「依赖目标是否存在」**必须先探活**——原实现裸读
+    # `set((getattr(cg, "index", None) or {}).get("nodes") or {})`，判前无 `_maybe_reload_index`
+    # ⇒ 他进程（serve 常驻 / 另一实例）刚建的依赖目标在陈旧条目里查不到 ⇒ **合法写入被硬拒**
+    # （E051）。与 #403「陈旧 ⇒ 误放行覆写」同族、后果相反。
+    # 判据单点：`protect.known_nodes(cg)`（与 `protect._entry` 同形：一次代际探活 + 返回同一
+    # 数据面），不再在本闸内自写一份裸读。
+    known = protect.known_nodes(cg)
     missing = [d for d in deps if d not in known]
     if missing:
         return {"ok": False, "id": ctx["nid"], "committed": False,

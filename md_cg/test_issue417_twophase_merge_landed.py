@@ -118,6 +118,99 @@ _rep_r = twophase.reconcile(_cg_r)
 _check("A07 编制面登记腿：删快照强制**全库重扫**后新实例仍判 committed（重启不失效）",
        _rep_r["committed"] == 1 and _rep_r["interrupted"] == 0, _rep_r["details"])
 _cg_r.close()
+
+# A09（**入口面腿**，补本守卫原来的覆盖缺口）：走**真实票据链** ——
+# mdcg_remember(gated=True) → verdict=CONFIRM（出单）→ review_decide(accept)
+# → _mutation_execute → B_MERGE → forgetting.reinforce。
+# 为什么必须有这条腿（fix-354-python 实测报障）：A 组**直调 reinforce**、绕过票据链 ⇒
+# mdcos.py 里 src_id 引用未绑定局部名（UnboundLocalError）那次崩溃逃过了本守卫 ——
+# 正是「声称的面 > 实际的面」。夹具**逐字照抄** test_mode_parity R2（:812-819）：
+# confirm 档包裹 + 同模板只差一个端口的正文（重叠度够 ⇒ MERGE 提案 ⇒ CONFIRM）。
+import contextlib as _ctx              # noqa: E402
+from md_cg import autonomy_modes as _am   # noqa: E402
+from md_cg import mcp_server as _ms       # noqa: E402
+_ENV_MODE = _am.AUTONOMY_ENV_KEYS["mode"]
+_R_BODY = ("# 功能名：部署面端口约定" + chr(10)
+           + "# 生效条件：载体/位置：prod 集群；时间：2026-09-30 起；方法：部署清单核对；约束：无" + chr(10)
+           + "# 子功能：登记各服务监听端口" + chr(10)
+           + "# 执行：核对 manifest 的 ports 段" + chr(10)
+           + "# 验证方式：test" + chr(10)
+           + "# 不适用条件：无" + chr(10) + chr(10)
+           + "网关监听端口 8080/HTTP；管理面监听端口 8081/HTTP；"
+           + "指标面监听端口 %s/HTTP；日志面监听端口 9091/HTTP" + chr(10))
+
+
+@_ctx.contextmanager
+def _mode(m):
+    """照抄 test_mode_parity._mode：临时置档位 env，退出还原。"""
+    _old = os.environ.get(_ENV_MODE)
+    os.environ[_ENV_MODE] = m
+    try:
+        yield m
+    finally:
+        if _old is None:
+            os.environ.pop(_ENV_MODE, None)
+        else:
+            os.environ[_ENV_MODE] = _old
+
+
+_root_tk = _lib("ticket")
+with _mode("confirm"):
+    _cgt = MdCGOS(_root_tk, autoflush=0)
+    _cgt.add("tk_t", _R_BODY % "8081", layer="knowledge",
+             verification_basis="test")
+    _cgt.flush()
+    _rb = _ms._dispatch(_cgt, "mdcg_remember",
+                        {"content": _R_BODY % "9595", "node_id": "tk_n",
+                         "gated": True, "layer": "knowledge"})
+    _check("A09 票据链①出单：verdict=CONFIRM + moved_to=review_queue + pid",
+           _rb.get("verdict") == "CONFIRM"
+           and _rb.get("moved_to") == "review_queue" and bool(_rb.get("pid")),
+           {k: _rb.get(k) for k in ("verdict", "moved_to", "pid")})
+    _dec = (_cgt.review_decide(_rb["pid"], "accept", reason="守卫演练")
+            if _rb.get("pid") else {})
+    _mut = (_dec or {}).get("mutation") or {}
+    _check("A09 票据链②accept 执行成功（修前 UnboundLocalError ⇒ mutation_execute_failed）",
+           _dec.get("ok") is True,
+           {k: _dec.get(k) for k in ("ok", "error", "detail")})
+    _tk_ids = (((_cgt.get("tk_t") or {}).get("frontmatter") or {})
+               .get("merge_source_ids") or [])
+    _check("A09 票据链③**不得记成目标自己**（本路径无未结清意图 ⇒ 不记；"
+           "把目标当来源＝静默错，本腿就是抓这个的）",
+           "tk_t" not in _tk_ids, _tk_ids)
+    _check("A09 票据链④执行时点回滚载荷完整（rollback 命令非空 ⇒ 回执与盘面同源）",
+           bool(str(_mut.get("rollback") or "").strip()),
+           {k: str(_mut.get(k))[:60] for k in ("before", "rollback")})
+    _cgt.close()
+
+# A10（**真实落点腿**）：`remember_gated` 的 MERGE 支才是 #417 的落点——
+# `_gate_gated` 先建意图、合并落盘、再 commit；**崩溃窗口 = 已落盘、未 commit**。
+# 本腿直接调 remember_gated（不经过 commit），等于把进程停在该窗口，然后新实例对账。
+# （A 组前几条是**直调 reinforce**，只覆盖原语；本腿覆盖**库层入口 + 身份透传**。）
+_root_gm = _lib("gatedmerge")
+with _mode("full"):                      # full 档：判定即执行（不被出单/变更单截住）
+    _cgg = MdCGOS(_root_gm, autoflush=0)
+    _cgg.add("gm_t", _R_BODY % "8081", layer="knowledge",
+             verification_basis="test")
+    _cgg.flush()
+    _src = "gm_n"
+    twophase.begin(_cgg, _src, _R_BODY % "9595", layer="knowledge",
+                   actor="writepipe:gated")           # 模拟 _gate_gated 的先行意图
+    _rg = _cgg.remember_gated(_src, _R_BODY % "9595", layer="knowledge")
+    _cgg.flush()
+    _cgg.close()                                     # 不 commit ⇒ 停在崩溃窗口
+_check("A10 库层入口腿①：remember_gated 判 MERGE 且已落盘（merged_into 目标）",
+       str(_rg.get("verdict")) == "MERGE" and bool(_rg.get("merged_into")),
+       {k: _rg.get(k) for k in ("verdict", "merged_into")})
+_cgg2 = MdCGOS(_root_gm)
+_gm_ids = (((_cgg2.get("gm_t") or {}).get("frontmatter") or {})
+           .get("merge_source_ids") or [])
+_check("A10 库层入口腿②：**来源** id 经该落点落盘（src_id=形参 node_id；不是目标）",
+       _gm_ids == [_src], _gm_ids)
+_rep_gm = twophase.reconcile(_cgg2)
+_check("A10 库层入口腿③：新实例对账判 committed（修前 interrupted/node_missing）",
+       _rep_gm["committed"] == 1 and _rep_gm["interrupted"] == 0, _rep_gm["details"])
+_cgg2.close()
 print("== K 组：非恒真对照（新判据只补「已合并」这一种真实情形） ==")
 _root_k = _lib("absent")
 _cg = MdCGOS(_root_k)
@@ -221,7 +314,7 @@ _MUTATIONS = (
      (_j("        tgt = _merge_target(cg, nid)", "        if tgt:",
          "            return STATUS_COMMITTED, \"%s:%s\" % (R_MERGED_INTO, tgt)"),
       "        pass  # 变异：不查盘面痕迹"),
-     ("A03", "A04", "A05", "A07")),
+     ("A03", "A04", "A05", "A07", "A10")),
     ("M2 过度放宽：未命中痕迹也判 committed", "md_cg/twophase.py",
      ("        return STATUS_INTERRUPTED, R_NODE_MISSING",
       "        return STATUS_COMMITTED, R_MERGED_INTO  # 变异：未命中也放行"),
@@ -230,7 +323,7 @@ _MUTATIONS = (
     ("M3 过度收紧：恒判无痕迹（_merge_target 恒 None）", "md_cg/twophase.py",
      ("    nodes = (getattr(cg, \"index\", None) or {}).get(\"nodes\") or {}",
       "    return None  # 变异：恒判无痕迹"),
-     ("A03", "A04", "A05", "A07")),
+     ("A03", "A04", "A05", "A07", "A10")),
 )
 
 
@@ -305,7 +398,7 @@ def _mutate():
               _j("        tgt = _merge_target(cg, nid)", "        if tgt:",
                   "            return STATUS_COMMITTED, \"%s:%s\" % (R_MERGED_INTO, tgt)"),
               "        pass  # 回退：不查盘面痕迹")],
-            _run_in, ("A03", "A04", "A05", "A07"), "md_cg/twophase.py")
+            _run_in, ("A03", "A04", "A05", "A07", "A10"), "md_cg/twophase.py")
         print("  骨架②回退即红：%s %s" % ("OK" if ok_r else "MISMATCH",
                                           json.dumps(det_r, ensure_ascii=False)[:220]))
         if not ok_r:

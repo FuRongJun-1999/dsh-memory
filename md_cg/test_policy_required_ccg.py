@@ -118,6 +118,11 @@ _SHIMS = ("twophase", "trust", "linkref", "mcp_server", "mdcg", "forgetting",
           "units", "coldverify", "hotcache", "hyperedge", "nodefile",
           "fsutil", "rotate",
           "autonomy_modes", "ghostref")
+# #415（2026-10-16）：writepipe 的依赖判据改经 protect.known_nodes（探活单点）⇒ 基线源新增
+# 一个相对 import，必须登记（否则假包缺模块、断言退化成假绿）。**以追加语句登记而不是改字面量**：
+# 上面那行是 test_autonomy_modes 变异表 ⑭ 的**锚点**（其注释即「锚点随 _SHIMS 文本演进同步」），
+# 改字面量会连带把别家的锚点打红（实测踩过：ANCHOR-MISS fail-closed）。
+_SHIMS = _SHIMS + ("protect",)
 _SHIM_TPL = ("import md_cg.%s as _m\n"
              "globals().update({k: v for k, v in vars(_m).items()\n"
              "                 if not k.startswith('__')})\n")
