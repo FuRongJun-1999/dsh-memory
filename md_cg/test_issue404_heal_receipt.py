@@ -4,7 +4,7 @@
 # 子功能：A 组＝全失败（只读致败）回执==事实；B 组＝全成功；C 组＝空路径集（无事可做不是失败）；D 组＝部分成功如实；E 组＝结构性（applied=执行过/ok=按事实 的既有口径不被改义、审计行必带结果、单点）；F 组＝同族枚举登记；骨架①② + 双向变异
 # 执行：--mutate 时在镜像树里回缺陷（吞异常）/ 过度（空路径集也判失败）/ 审计面回退，守卫必须按指定项转红
 # 验证方式：全部 PASS 即通过（退出码 0）；变异与骨架红项集合须与预期逐项相符
-# 不适用条件：不判 stale_temps 的 severity 分级（info 是既有裁定）；不判 heal 顶层 ok 的语义（它是**诊断面**读数 after["ok"]，非动作聚合，见 E05）；不判 repeat_guard 的退避记忆是否受假成功影响（issue 自陈未实测，另单）；不判 Windows 之外平台的删除失败形态（本件用只读位构造 OSError，跨平台同码）
+# 不适用条件：不判 stale_temps 的 severity 分级（info 是既有裁定）；不判 heal 顶层 ok 的语义（它是**诊断面**读数 after["ok"]，非动作聚合，见 E05）；不判 repeat_guard 的退避记忆是否受假成功影响（issue 自陈未实测，另单）；删除失败在 Windows 用真实只读位，在 POSIX 对指定合成件注入 PermissionError，不将权限位差异误判为业务缺陷
 """issue #404 守卫：自愈动作**不得把「一个都没删掉」上报成成功**。
 
 病象（修前，本守卫 A 组即复现）：sustain.py 的 _sweep 逐个 os.remove 并 `except OSError: pass`，
@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from unittest.mock import patch
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -38,6 +39,9 @@ from md_cg.mdcos import MdCGOS           # noqa: E402
 FAILS = []
 _TMP = tempfile.mkdtemp(prefix="iss404_")
 _Q = chr(34)
+# POSIX 删除权限由父目录决定，chmod(0444) 不能像 Windows 只读位那样阻止 unlink。
+# 仅在这些合成夹具路径上注入同一种 PermissionError；Windows 保留真实只读位置景。
+_DELETE_DENIED = set()
 
 
 def _check(name, cond, detail=""):
@@ -64,12 +68,21 @@ def _mk(tag, n_temps, readonly_idx=()):
         os.utime(p, (old, old))
         if i in readonly_idx:
             os.chmod(p, 0o444)
+            _DELETE_DENIED.add(os.path.abspath(p))
         paths.append(p)
     return cg, root, paths
 
 
 def _rows(cg, root, paths):
-    r = sustain.heal(cg, name="md_cg")
+    remove = os.remove
+
+    def fixture_remove(path, *args, **kwargs):
+        if os.name != "nt" and os.path.abspath(path) in _DELETE_DENIED:
+            raise PermissionError("fixture: synthetic read-only temporary file")
+        return remove(path, *args, **kwargs)
+
+    with patch.object(sustain.os, "remove", fixture_remove):
+        r = sustain.heal(cg, name="md_cg")
     row = [a for a in r.get("actions", []) if a.get("code") == "sweep_temps"]
     ap = os.path.join(root, "_sustain.jsonl")
     led = []
