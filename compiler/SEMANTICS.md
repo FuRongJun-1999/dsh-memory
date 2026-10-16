@@ -24,7 +24,8 @@
 
 写面标「—」的集（`信任阈值`、`伴侣`/`工作`/`默认`/`恢复默认`/`default`）
 **不可写**：编译期 error + 运行期结构化拒，两 VM 同判（N272，见 §6.3）；
-写类型闸（信任值/信任分量须数值、条件空间须字符串）亦两 VM 同判。
+写类型闸（信任值/信任分量须**有限数值**（inf/nan 拒，#435）、条件空间须
+字符串）亦两 VM 同判。
 
 关键不变式：**`德`(DE) 与 `信任值` 指向同一处存储**。
 修复前 `德` 只改寄存器、`信任值` 读符号表，二者互不通信
@@ -180,6 +181,74 @@ python -m swarm.tests.test_swarm_condition_space     # 条件空间卡（10 项�
 `STORE_NAME`/`reset`，对齐 `vm.rs` STORE_NAME 分支）：`信任值`/信任分量
 写非数值、`条件空间` 写非字符串 → 拒；注入初值同口径（信任值须数值、
 条件空间非字符串不切换）。
+
+非有限闸（#435）：Python `float()` 接受 `'inf'/'nan'/'infinity'`（含大小写
+与符号全形态）——`float('inf')` 正是 float，类型闸放行即毒化信任寄存器
+（NaN 破坏等式自反性使 止 永不触发、inf 恒过 知足 阈值使其恒早退，
+静默错答）。收口为双闸：
+- **编译期单点**：`compiler._instr`——`德`/`知足` 操作数 `float()` 后
+  `math.isfinite` 拒（`SyntaxError` 名实不符）；双入口
+  （`compile_source` strict=True / `pbc.compile_to_pbc` strict=False）同拒，
+  非数值阈值同收（修复前 `知足 abc` 的裸 `ValueError` 穿透窄捕获）。
+- **运行期闸**（准确范围＝**写闸＋累积闸＋阈值闸＋初值闸**四面；
+  fb60b581 初版只收前两面、称「双闸」，阈值/初值两面由技术审返工补全，
+  见下）：
+  ①`STORE_NAME` 写闸——信任值/分量须**有限**数值；
+  ②`德`(DE) 累积先算后验——NaN/inf 操作数与溢出累积（1e308+1e308）
+  同拒；
+  ③`知足` 阈值闸——阈值非有限拒（-inf 使判定反向早退、inf 恒不可达、
+  nan 恒不达标）；
+  ④初值闸——`run(trust=…)` 与 `symbols` 种子合并终值、分量种子须有限。
+  非有限一律 `VMBuiltinError('nonfinite')`。两 VM 同判（Rust `vm.rs`）。
+
+技术审返工（PR #449 复审，ybyz2 09:04）三面补全：
+- **超 double 域整数全函数化**：`math.isfinite(10**400)` 不返回 False 而是
+  抛 `OverflowError`（先 int→float）——裸调使闸自身成为新缺陷面（`STORE
+  信任值 <- 10**400` 由 base 的成功变为裸 OverflowError）。运行期判定统一
+  走全函数 `_finite_num`（OverflowError→False）：STORE_NAME 写闸（信任值/
+  分量）、DE 操作数预检与累积后验；`STORE 信任值 <- 10**400` 与
+  `assemble('PUSH_CONST 9**400')` 得 `kind='nonfinite'` 而非裸 OverflowError。
+- **`知足` 运行期阈值面**：`ZHIZU(inf/-inf/nan/超域 int)` 阈值运行期拒
+  ——-inf 使判定反向（任何有限信任恒达标 → 早退、其后的 止 被跳过）、
+  inf 恒不可达、nan 恒不达标。编译期闸管不到手搓字节码与 .pbc 往返
+  （8 字节 double 保真），此注入面由运行期同判收口（两 VM 同）。
+- **初值注入面**：`run(trust=…)` 与 `symbols` 种子合并终值经 `reset`
+  单点补 isfinite（种子与 trust 参数**一处判定**，两条注入路径同归）；
+  分量种子数值但非有限同拒，非数值仍走 N270 丢弃口径。**选修而非声明
+  豁免**的依据：① `VMBuiltinError` 的单点声明本即「初值闸在 reset」——
+  写闸收紧为「须有限数值」后初值不同步收口，等于闸上开洞
+  （`run(trust=inf)` 绕过全部写闸使 止 被跳过）；② Rust 侧 N246 舍入
+  守卫以 inf/nan 初值为夹具的意图是钉 `round3` 单点对特殊值的口径，
+  改在单点直接断言（意图不变、载体换位）后无既有钉子与之冲突。
+  Rust `vm.rs` 的 `run` 初值归一处理同判。
+- 附带（Rust 实跑暴露）：`vm.rs` 信任分量寄存器改**全名投影**（默认 0.0，
+  对齐 Python `reset` 的 `{n: 0.0}`）——修前只在种子注入时建键，空符号表
+  下 `get_mut` 落空使分量写闸整面失效（`信任分量=inf` 静默落 `symbols`）、
+  分量读取报未声明（两 VM 分叉；fb60b581 的 Rust 单测因本机 MSVC linker
+  不可用未真跑而未暴露——本返工经 gnu 工具链 `cargo test` 实跑点名收口）。
+
+**孪生面边界（如实登记）**：`md_cg/whitebox_kb/wisdom/core/{compiler,
+condition_vm}.py`（白箱自举孪生副本）**无**非有限闸——`德 inf` 在孪生链
+仍 `ok=True` 产出 `(DE, inf)`（实测 2026-10-16）。该面非 #435 引入
+（base 同漏），本闸收口范围为**主链双后端**（`compiler/` 与
+`swarm/rust_runtime`）；「闸已在主入口收口」**不覆盖**孪生副本——孪生
+回移沿用 issue #326-② 的孪生对齐守卫范式另件处理，不在本 PR 冒领。
+
+**编译入口第三出口（如实登记）**：编译期闸单点在 `compiler._instr`
+（`德`/`知足` 操作数 `float()` 后 isfinite），而 `compiler/api.py` 的
+`compile_source`（CLI `pc compile` 的 `cmd_compile` 即走此路径）经
+`CodeGenerator` 产 **Python 运行时代码**、**不调** `Compiler._instr`
+——`德 inf` 经该出口仍 `success=True`（实测 2026-10-16），编译期闸与
+上文两 VM 运行期闸**均不覆盖**该出口（其产物不是条件空间字节码/
+`.pbc`，运行期闸无从接手）。收口须把非有限判定上移到两入口共用的
+parser/名实校验层（入口架构改动），不在本返工范围，另行登记为
+needs-owner-decision。
+
+守卫：`compiler/tests/test_issue435_nonfinite_gate.py` +
+`swarm/tests/test_rust_vm_nonfinite_gate_435.py`（Rust 面与双后端同判）＋
+`swarm/rust_runtime` 的 `cargo test`（`nonfinite_gate_tests`：写闸/DE/
+`知足` 阈值/初值注入面；该守卫 cargo 不可用时打**行首 SKIP** 行，
+issue #284 口径——不冒充 PASS）。
 
 修复前：`信任阈值 = 0.9` 落 `symbols` 遮蔽内建读取（两 VM 皆漏）、
 `条件空间 = 0.9` Python 数字成空间名（Rust 拒）、`信任值 = "0.9"`

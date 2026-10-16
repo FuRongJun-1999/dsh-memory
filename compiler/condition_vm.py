@@ -7,6 +7,7 @@ condition_vm.py · 智能论字节码 VM（第六阶段 C1 · 原生编译地基
 零 Python 依赖运行时（VM 自足）——「完全使用智能论的分析方法和逻辑」的 VM 层。
 """
 
+import math
 import time
 from enum import IntEnum
 
@@ -101,17 +102,41 @@ class VMBuiltinError(Exception):
     `VmError::Error`（vm.rs STORE_NAME 分支与 run 初值归一）同判据。
 
     kind: "type"（写类型不符：信任值/信任分量须数值、条件空间须字符串）
-          | "readonly"（SEMANTICS.md §1 写面「—」的只读内建名写入）。
+          | "readonly"（SEMANTICS.md §1 写面「—」的只读内建名写入）
+          | "nonfinite"（#435：inf/nan 非有限——信任寄存器只收**有限**数值；
+            `德`(DE) 累积结果溢出/NaN 同判。修复前 `float('inf')` 正是
+            float、类型闸放行，信任寄存器被毒化且不可观测：NaN 破坏等式
+            自反性使 止 永不触发、inf 恒过 知足 阈值使其恒早退。
+            技术审返工补三面：超 double 域整数（如 10**400）经 _finite_num
+            同判 nonfinite（裸 math.isfinite 对其抛 OverflowError）；
+            `知足`(ZHIZU) 运行期阈值面（-inf 使判定反向早退）；初值注入面
+            （reset/run 初值——种子与 trust 参数合并终值一处判定））。
     修复前：条件空间写数值静默成空间名（cond_name=0.9）、信任值写字符串
     裸 TypeError（末态 round 崩）、信任阈值/空间名写入落 symbols 静默遮蔽
     内建读取——两 VM 皆漏。
-    单点收口：写闸在 STORE_NAME（编译期同判由 name_checker 保护面扩展），
-    初值闸在 reset——不另立第二份判据。
+    单点收口：写闸在 STORE_NAME（编译期同判由 name_checker 保护面扩展，
+    非有限编译期闸单点在 compiler._instr），初值闸在 reset——不另立第二份
+    判据。
     """
 # 生效条件：kind 存入 self.kind，message 交 super().__init__。
     def __init__(self, kind, message):
         self.kind = kind
         super().__init__(message)
+
+
+# 生效条件：v 为 float/int（含 bool）时返回 math.isfinite(v)；v 为超 double 表示域的 int（如 10**400）时 math.isfinite 先做 int→float 转换而抛 OverflowError，本函数捕获并返回 False（按非有限处理）；其余异常不捕获原样上抛。
+def _finite_num(v):
+    """全函数有限性判定（#435 技术审返工·阻断①）。
+
+    math.isfinite 对超 double 域的 int **不返回 False 而是抛 OverflowError**
+    （先转 float）——裸调会把闸自己变成新缺陷面：`STORE 信任值 <- 10**400`
+    由 base 的成功变为 head 的裸 OverflowError。全函数化：转换溢出一律按
+    「非有限」返回 False，交调用方结构化拒（VMBuiltinError('nonfinite')）。
+    """
+    try:
+        return math.isfinite(v)
+    except OverflowError:
+        return False
 
 
 # =============================================================================
@@ -177,7 +202,7 @@ class ConditionVM:
     def __init__(self):
         self.reset()
 
-# 生效条件：symbols 为假值（None/空 dict）时以空 dict 起步、condition_stack 为假值时以空 list 起步；symbols 中 BUILTIN_TRUST_VALUE 键缺失（pop 得 None）时 trust_value 取实参 trust，存在时取该键注入值；TRUST_COMPONENT_NAMES 中的键被 pop 为对应初值；仅当 pop 出的 seed_space 非 None 时才调用 _switch_condition_space。
+# 生效条件：symbols 为假值（None/空 dict）时以空 dict 起步、condition_stack 为假值时以空 list 起步；symbols 中 BUILTIN_TRUST_VALUE 键缺失（pop 得 None）时 trust_value 取实参 trust，存在时取该键注入值（#435：该合并终值经 _finite_num 判为非有限——inf/nan/超 double 域整数——时抛 VMBuiltinError('nonfinite')，寄存器不落毒化值）；TRUST_COMPONENT_NAMES 中的键被 pop 为对应初值（数值但非有限时同抛 VMBuiltinError('nonfinite')，非数值丢弃为 N270 既有口径）；仅当 pop 出的 seed_space 非 None 时才调用 _switch_condition_space。
     def reset(self, symbols=None, trust=0.0, condition_stack=None):
         self.ip = 0
         self.stack = []
@@ -195,6 +220,18 @@ class ConditionVM:
                 "type",
                 f"名实不符：{BUILTIN_TRUST_VALUE} 初值需数值，得到 {seed_trust!r}")
         self.trust_value = trust if seed_trust is None else seed_trust
+        # #435 初值注入面（技术审返工·阻断②）：run(trust=inf) 与 symbols
+        # 注入 inf/nan 此前只判类型不判有限 ⇒ 信任寄存器**初始化即毒化**、
+        # 知足 恒早退使 止 被跳过——写闸收紧为「须有限数值」后，初值闸
+        # （单点在本函数，见 VMBuiltinError 文档）不同步收口即等同闸上开洞。
+        # 种子与 trust 参数**合并后的终值**一处判定（两条注入路径同归）；
+        # Rust vm.rs run 初值归一同判。超 double 域整数经 _finite_num 同拒。
+        if not _finite_num(self.trust_value):
+            raise VMBuiltinError(
+                "nonfinite",
+                f"{BUILTIN_TRUST_VALUE} 初值须有限数值，"
+                f"得到 {self.trust_value!r}"
+                f"（inf/nan/超 double 域整数拒——寄存器不被毒化）")
         # 信任分量寄存器（name_checker 声明的 P_trust/T_pred/T_context/
         # E_weight/情感权重 的运行时投影；符号注入同样归一为初值——
         # 非数值注入丢弃，对齐 Rust run 的 is_num 守卫，N270）
@@ -203,6 +240,14 @@ class ConditionVM:
             if _n in self.symbols:
                 _v = self.symbols.pop(_n)
                 if isinstance(_v, (int, float)):
+                    # #435：分量种子同判初值注入面——非数值丢弃是 N270
+                    # 既有口径（不毒化，静默回落默认 0.0）；数值但非有限
+                    # 是毒化面，须结构化拒而非静默收下（Rust 同判）。
+                    if not _finite_num(_v):
+                        raise VMBuiltinError(
+                            "nonfinite",
+                            f"{_n} 初值须有限数值，得到 {_v!r}"
+                            f"（inf/nan/超 double 域整数拒）")
                     self.trust_parts[_n] = _v
         # 初值空间名：仅字符串才切换（对齐 Rust run 的 Value::Str 分支——
         # 非字符串注入不切换，N270）
@@ -382,6 +427,17 @@ class ConditionVM:
                     raise VMBuiltinError(
                         "type",
                         f"{BUILTIN_TRUST_VALUE} 只能写数值，得到 {_val!r}")
+                if not _finite_num(_val):
+                    # #435：`float('inf')`/`float('nan')` 正是 float——类型闸
+                    # 放行即毒化信任寄存器（NaN 破坏 == 自反性、inf 恒过
+                    # 知足 阈值）。写面契约「须数值」收紧为「须有限数值」，
+                    # 与 Rust vm.rs STORE_NAME 同判（两台 VM 不另立判据）。
+                    # 技术审返工：超 double 域整数（10**400）经 _finite_num
+                    # 同判 nonfinite——裸 math.isfinite 对其抛 OverflowError。
+                    raise VMBuiltinError(
+                        "nonfinite",
+                        f"{BUILTIN_TRUST_VALUE} 只能写有限数值，得到 {_val!r}"
+                        f"（inf/nan 非有限）")
                 self.trust_value = _val
             elif arg == BUILTIN_CONDITION_SPACE: # 写条件空间 → 切换
                 if not isinstance(_val, str):
@@ -394,6 +450,12 @@ class ConditionVM:
                 if not isinstance(_val, (int, float)):
                     raise VMBuiltinError(
                         "type", f"{arg} 只能写数值，得到 {_val!r}")
+                if not _finite_num(_val):
+                    # #435：与 信任值 写闸同判——分量寄存器同受有限性保护
+                    # （超 double 域整数同拒，见 _finite_num）。
+                    raise VMBuiltinError(
+                        "nonfinite",
+                        f"{arg} 只能写有限数值，得到 {_val!r}（inf/nan 非有限）")
                 self.trust_parts[arg] = _val
             elif arg in READONLY_BUILTIN_NAMES:  # 只读内建名（写面「—」）
                 raise VMBuiltinError(
@@ -411,8 +473,26 @@ class ConditionVM:
             # 道：创建协议路径 → 条件空间栈压入（对应灵枢条件路由）
             self.condition_stack.append({"name": arg, "trust_at_create": self.trust_value})
         elif op == Opcode.DE:
-            # 德：信任值累积（信任引擎内建）
-            self.trust_value += arg
+            # 德：信任值累积（信任引擎内建）——#435：先算后验，非有限即拒。
+            # 编译期单点闸在 compiler._instr（float() 后 isfinite）；此处为
+            # 运行期第二闸，覆盖 pbc 落盘往返（8 字节 double 保真）与手搓
+            # 字节码：NaN 操作数/溢出累积（1e308+1e308）同样毒化寄存器。
+            # 与 Rust vm.rs DE 同判；拒绝时寄存器保持拒绝前的有限值。
+            # 技术审返工：操作数预检走 _finite_num——超 double 域整数
+            # （10**400）在 `trust_value + arg` 的隐式 int→float 转换处即抛
+            # 裸 OverflowError（base 既有），预检使其同归 nonfinite 结构化拒。
+            if not _finite_num(arg):
+                raise VMBuiltinError(
+                    "nonfinite",
+                    f"德 的操作数非有限：{arg!r}"
+                    f"（inf/nan/超 double 域整数拒——信任寄存器不被毒化）")
+            _cand = self.trust_value + arg
+            if not _finite_num(_cand):
+                raise VMBuiltinError(
+                    "nonfinite",
+                    f"德 的信任累积结果非有限：{self.trust_value!r} + {arg!r}"
+                    f"（inf/nan 拒——信任寄存器不被毒化）")
+            self.trust_value = _cand
         elif op == Opcode.ZIRAN:
             # 自然：恢复默认条件空间（弹栈到根）
             self.condition_stack = self.condition_stack[:1]
@@ -424,6 +504,17 @@ class ConditionVM:
         elif op == Opcode.ZHIZU:
             # 知足：信任≥阈值跳转（达标判定）
             threshold, addr = arg
+            if not _finite_num(threshold):
+                # #435 运行期阈值面（技术审返工·阻断②）：-inf 阈值使判定
+                # 反向（任何有限信任恒 ≥ -inf → 恒早退、其后的 止 被跳过）、
+                # +inf 恒不可达、nan 破坏比较自反性（恒不达标）——静默语义
+                # 错而非崩溃。编译期单点闸在 compiler._instr（float() 后
+                # isfinite）；此处覆盖手搓字节码与 .pbc 往返（8 字节 double
+                # 保真）的注入面，与 Rust vm.rs ZHIZU 同判。
+                raise VMBuiltinError(
+                    "nonfinite",
+                    f"知足 的阈值非有限：{threshold!r}"
+                    f"（inf/nan/超 double 域整数拒——达标判定不得反向/永假）")
             if self.trust_value >= threshold:
                 self.ip = self._jump(addr)   # N239
         elif op == Opcode.CMP_EQ:

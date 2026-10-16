@@ -10,6 +10,8 @@ AST（protocol-compiler parser）→ VM 指令（condition_vm）：
 若则=if——VM 执行结果与声明语义一致。
 """
 
+import math
+
 from .lexer import tokenize, TokenType
 from .parser import parse_tokens, NodeType
 from .name_checker import NameChecker
@@ -169,7 +171,7 @@ class Compiler:
             self.warnings.append(f"L{s.line} 未编译语句类型: {s.type.name}")
 
     # ---- 道德经指令 ----
-# 生效条件：按 s.instruction 分派——DAO 发 (DAO, val)，val 为 None（operands 为空或 _operand_value 返回 None）时用 '无名路径'；DE 发 float(val)，val 为 None 时 0.0、非数值时抛 SyntaxError 名实不符；ZIRAN/WUWEI/ZHI 各发对应无参指令；ZHIZU 以 float(val)（None 时 0.0）为阈值新建标签并挂 pending 与 zhizu_labels；其余指令向 warnings 追加未接入提示。
+# 生效条件：按 s.instruction 分派——DAO 发 (DAO, val)，val 为 None（operands 为空或 _operand_value 返回 None）时用 '无名路径'；DE 发 float(val)，val 为 None 时 0.0、非数值时抛 SyntaxError 名实不符、结果非有限（inf/nan，#435）时抛 SyntaxError 非有限；ZIRAN/WUWEI/ZHI 各发对应无参指令；ZHIZU 以 float(val)（None 时 0.0，非数值或非有限同抛 SyntaxError，#435）为阈值新建标签并挂 pending 与 zhizu_labels；其余指令向 warnings 追加未接入提示。
     def _instr(self, s):
         op = s.instruction
         operands = s.operands
@@ -178,11 +180,22 @@ class Compiler:
             self._emit(Opcode.DAO, val if val is not None else "无名路径")
         elif op == TokenType.DE:
             try:
-                self._emit(Opcode.DE, float(val) if val is not None else 0.0)
+                _num = float(val) if val is not None else 0.0
             except (TypeError, ValueError):
                 # 以名举实：非数值操作数（未声明标识符）编译期拦截——名实不符
                 raise SyntaxError(
                     f"L{s.line} 德 的操作数必须是数值，得到 '{val}'（名实不符）")
+            if not math.isfinite(_num):
+                # #435：Python float() 接受 'inf'/'nan'/'infinity'（含大小写与
+                # 符号全形态）——「必须是数值」闸被穿透，信任寄存器被毒化：
+                # NaN 破坏等式自反性（止 永不触发）、inf 恒超阈值（知足 恒早退）。
+                # 编译期单点闸；双入口（compile_source strict=True /
+                # pbc.compile_to_pbc strict=False）同拒；运行期第二闸见
+                # condition_vm 的 STORE_NAME 写闸与 DE（两台 VM 同判）。
+                raise SyntaxError(
+                    f"L{s.line} 德 的操作数必须是有限数值，得到 '{val}'"
+                    f"（inf/nan 非有限——名实不符）")
+            self._emit(Opcode.DE, _num)
         elif op == TokenType.ZIRAN:
             self._emit(Opcode.ZIRAN)
         elif op == TokenType.WUWEI:
@@ -190,7 +203,19 @@ class Compiler:
         elif op == TokenType.ZHI:
             self._emit(Opcode.ZHI)
         elif op == TokenType.ZHIZU:
-            threshold = float(val) if val is not None else 0.0
+            try:
+                threshold = float(val) if val is not None else 0.0
+            except (TypeError, ValueError):
+                # 同 德：非数值阈值编译期拦截（修复前 float('abc') 的裸
+                # ValueError 穿透 compile_source 的窄捕获直接上抛调用方）
+                raise SyntaxError(
+                    f"L{s.line} 知足 的阈值必须是数值，得到 '{val}'（名实不符）")
+            if not math.isfinite(threshold):
+                # #435：与 德 同族——inf 阈值恒不可达、nan 阈值比较自反性
+                # 破坏，静默语义错（达标判定永假，其后的 止 被跳过面扩大）。
+                raise SyntaxError(
+                    f"L{s.line} 知足 的阈值必须是有限数值，得到 '{val}'"
+                    f"（inf/nan 非有限——名实不符）")
             lbl = self._new_label()
             self._emit(Opcode.ZHIZU, (threshold, lbl))
             self.pending.append((len(self.code) - 1, lbl))
