@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import os
 import time
+import math
 from collections import OrderedDict
 
 #: 节点缓存上限（env MDCG_HOTCACHE_MAX_NODES 可覆盖——公共评测池 locomo-zh-500
@@ -86,6 +87,36 @@ def env_switch_key():
     return tuple((name, os.environ.get(name)) for name in _ENV_SWITCHES)
 
 
+def validity_window(entries, started):
+    """Clock interval on which a cold query's whole candidate pool is stable.
+
+    Include every candidate, not just returned Top-K: expiry of a nonwinner
+    can change BM25 corpus statistics and therefore the winning rank. Start
+    endpoints also invalidate cached qualification metadata; an inverted
+    future-start/past-end window changes from not_yet to expired at its start.
+    Uncertain/nonfinite endpoints bypass caching. Construction is O(N) only
+    on a miss; a hit checks two scalar clock bounds in O(1).
+    """
+    from . import trust
+    deadline = None
+    for entry in entries:
+        kind, start, end = trust.validity(entry, now=started)
+        if kind == "expired":
+            return None  # The clock moved while candidates were being read.
+        for boundary in (start, end):
+            if boundary is None:
+                continue
+            if not math.isfinite(boundary):
+                return None
+            if boundary >= started:
+                deadline = boundary if deadline is None else min(deadline, boundary)
+    return started, deadline
+
+
+def _within_window(now, window):
+    return now >= window[0] and (window[1] is None or now < window[1])
+
+
 class HotCache:
     """进程内热路径缓存。
 
@@ -98,6 +129,7 @@ class HotCache:
                  query_ttl=QUERY_TTL):
         self._nodes: OrderedDict = OrderedDict()
         self._queries: OrderedDict = OrderedDict()
+        self._query_windows = {}
         self._max_nodes = max_nodes
         self._max_queries = max_queries
         self._query_ttl = query_ttl
@@ -181,8 +213,12 @@ class HotCache:
             self._stats["query_misses"] += 1
             return None
         ts, results, meta = entry
-        if time.time() - ts > self._query_ttl:
+        now = time.time()
+        window = self._query_windows.get(key)
+        if (now - ts > self._query_ttl
+                or (window is not None and not _within_window(now, window))):
             self._queries.pop(key, None)
+            self._query_windows.pop(key, None)
             self._stats["query_misses"] += 1
             return None
         self._stats["query_hits"] += 1
@@ -208,19 +244,30 @@ class HotCache:
 
     def put_query(self, query, results, meta, k=20, layer=None,
                   session=None, branch=None, validity=None, view=None,
-                  extra=None):
+                  extra=None, clock_window=None):
         """写入/更新 query 缓存。"""
         key = self._query_key(query, k, layer, session, branch, validity,
                               view, extra)
-        self._queries[key] = (time.time(), list(results), dict(meta))
+        now = time.time()
+        if clock_window is not None and not _within_window(now, clock_window):
+            self._queries.pop(key, None)
+            self._query_windows.pop(key, None)
+            return
+        self._queries[key] = (now, list(results), dict(meta))
+        if clock_window is None:
+            self._query_windows.pop(key, None)
+        else:
+            self._query_windows[key] = clock_window
         self._queries.move_to_end(key)
         while len(self._queries) > self._max_queries:
-            self._queries.popitem(last=False)
+            evicted, _entry = self._queries.popitem(last=False)
+            self._query_windows.pop(evicted, None)
 
     def invalidate_all_queries(self):
         """清空全部 query 缓存（写入时保守全清）。"""
         n = len(self._queries)
         self._queries.clear()
+        self._query_windows.clear()
         if n:
             self._stats["invalidations"] += 1
 
@@ -235,6 +282,7 @@ class HotCache:
         """清空全部缓存。"""
         self._nodes.clear()
         self._queries.clear()
+        self._query_windows.clear()
 
     def stats(self):
         """返回统计信息。"""
