@@ -1,0 +1,1046 @@
+{
+  "baseline_commit": "5cd2b43ffb50f552a94cf516f1cd970156ff7397",
+  "platforms": {
+    "windows": {
+      "baseline": {
+        "tests": 8,
+        "passed": 5,
+        "failed": 3,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_clock_dependent_pool_bypasses_still_work (md_cg._frozen_bm25_pool_view.Guards.test_clock_dependent_pool_bypasses_still_work) ... ok\ntest_first_public_pool_copy_is_defensive (md_cg._frozen_bm25_pool_view.Guards.test_first_public_pool_copy_is_defensive) ... ok\ntest_internal_candidate_fn_avoids_initial_copies (md_cg._frozen_bm25_pool_view.Guards.test_internal_candidate_fn_avoids_initial_copies) ... FAIL\ntest_internal_wrapper_cannot_mutate_cached_container (md_cg._frozen_bm25_pool_view.Guards.test_internal_wrapper_cannot_mutate_cached_container) ... FAIL\ntest_public_pool_copy_is_defensive (md_cg._frozen_bm25_pool_view.Guards.test_public_pool_copy_is_defensive) ... ok\ntest_role_scope_does_not_reuse_other_pool (md_cg._frozen_bm25_pool_view.Guards.test_role_scope_does_not_reuse_other_pool) ... ok\ntest_warm_query_has_no_full_pool_copy (md_cg._frozen_bm25_pool_view.Guards.test_warm_query_has_no_full_pool_copy) ... FAIL\ntest_write_generation_still_refreshes_pool (md_cg._frozen_bm25_pool_view.Guards.test_write_generation_still_refreshes_pool) ... ok\n\n======================================================================\nFAIL: test_internal_candidate_fn_avoids_initial_copies (md_cg._frozen_bm25_pool_view.Guards.test_internal_candidate_fn_avoids_initial_copies)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-pool-20261015\\md_cg\\test_bm25_pool_view.py\", line 168, in test_internal_candidate_fn_avoids_initial_copies\n    self.assertEqual(copied, 0)\nAssertionError: 192 != 0\n\n======================================================================\nFAIL: test_internal_wrapper_cannot_mutate_cached_container (md_cg._frozen_bm25_pool_view.Guards.test_internal_wrapper_cannot_mutate_cached_container)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-pool-20261015\\md_cg\\test_bm25_pool_view.py\", line 189, in test_internal_wrapper_cannot_mutate_cached_container\n    self.assertFalse(hasattr(entries, 'append'))\nAssertionError: True is not false\n\n======================================================================\nFAIL: test_warm_query_has_no_full_pool_copy (md_cg._frozen_bm25_pool_view.Guards.test_warm_query_has_no_full_pool_copy)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-pool-20261015\\md_cg\\test_bm25_pool_view.py\", line 149, in test_warm_query_has_no_full_pool_copy\n    self.assertEqual(copied, 0, 'hot internal retrieval must not copy all N candidate pointers')\nAssertionError: 96 != 0 : hot internal retrieval must not copy all N candidate pointers\n\n----------------------------------------------------------------------\nRan 8 tests in 11.443s\n\nFAILED (failures=3)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 8,
+          "passed": 8,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_clock_dependent_pool_bypasses_still_work (__main__.Guards.test_clock_dependent_pool_bypasses_still_work) ... ok\ntest_first_public_pool_copy_is_defensive (__main__.Guards.test_first_public_pool_copy_is_defensive) ... ok\ntest_internal_candidate_fn_avoids_initial_copies (__main__.Guards.test_internal_candidate_fn_avoids_initial_copies) ... ok\ntest_internal_wrapper_cannot_mutate_cached_container (__main__.Guards.test_internal_wrapper_cannot_mutate_cached_container) ... ok\ntest_public_pool_copy_is_defensive (__main__.Guards.test_public_pool_copy_is_defensive) ... ok\ntest_role_scope_does_not_reuse_other_pool (__main__.Guards.test_role_scope_does_not_reuse_other_pool) ... ok\ntest_warm_query_has_no_full_pool_copy (__main__.Guards.test_warm_query_has_no_full_pool_copy) ... ok\ntest_write_generation_still_refreshes_pool (__main__.Guards.test_write_generation_still_refreshes_pool) ... ok\n\n----------------------------------------------------------------------\nRan 8 tests in 11.842s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "P1 copy the warm internal pool again",
+            "test": "Guards.test_warm_query_has_no_full_pool_copy",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_warm_query_has_no_full_pool_copy (__main__.Guards.test_warm_query_has_no_full_pool_copy) ... FAIL\n\n======================================================================\nFAIL: test_warm_query_has_no_full_pool_copy (__main__.Guards.test_warm_query_has_no_full_pool_copy)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-pool-20261015\\md_cg\\test_bm25_pool_view.py\", line 149, in test_warm_query_has_no_full_pool_copy\n    self.assertEqual(copied, 0, 'hot internal retrieval must not copy all N candidate pointers')\nAssertionError: 96 != 0 : hot internal retrieval must not copy all N candidate pointers\n\n----------------------------------------------------------------------\nRan 1 test in 1.361s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "3631684ee2d6cd99c1cd628c59c370d02c2352784b15abcef8279d382ae7795d"
+          },
+          {
+            "name": "P2 expose private view to public mutable callers",
+            "test": "Guards.test_public_pool_copy_is_defensive",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_public_pool_copy_is_defensive (__main__.Guards.test_public_pool_copy_is_defensive) ... FAIL\n\n======================================================================\nFAIL: test_public_pool_copy_is_defensive (__main__.Guards.test_public_pool_copy_is_defensive)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-pool-20261015\\md_cg\\test_bm25_pool_view.py\", line 154, in test_public_pool_copy_is_defensive\n    self.assertIsInstance(a, list)\nAssertionError: <md_cg.bm25._runtime_mutant._PoolView object at 0x0000021760395E10> is not an instance of <class 'list'>\n\n----------------------------------------------------------------------\nRan 1 test in 1.308s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "f0c56a086528a6699648d5f13893baa2632c2889548372d6f3ea6a8c4b5cd9ba"
+          },
+          {
+            "name": "P3 ignore pool write generation",
+            "test": "Guards.test_write_generation_still_refreshes_pool",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_write_generation_still_refreshes_pool (__main__.Guards.test_write_generation_still_refreshes_pool) ... FAIL\n\n======================================================================\nFAIL: test_write_generation_still_refreshes_pool (__main__.Guards.test_write_generation_still_refreshes_pool)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-pool-20261015\\md_cg\\test_bm25_pool_view.py\", line 174, in test_write_generation_still_refreshes_pool\n    self.assertIn('new', {r[0]['id'] for r in rows})\nAssertionError: 'new' not found in {'n025', 'n019', 'n003', 'n035', 'n043', 'n045', 'n010', 'n004', 'n029', 'n024', 'n031', 'n038', 'n041', 'n032', 'n048', 'n012', 'n017', 'n042', 'n033', 'n020', 'n049', 'n023', 'n028', 'n000', 'n002', 'n001', 'n026', 'n046', 'n005', 'n037', 'n011', 'n015', 'n009', 'n021', 'n039', 'n047', 'n008', 'n040', 'n030', 'n022', 'n044', 'n036', 'n007', 'n014', 'n016', 'n027', 'n013', 'n006', 'n018', 'n034'}\n\n----------------------------------------------------------------------\nRan 1 test in 1.391s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "f0c56a086528a6699648d5f13893baa2632c2889548372d6f3ea6a8c4b5cd9ba"
+          },
+          {
+            "name": "P4 retain mutable list in internal search",
+            "test": "Guards.test_internal_wrapper_cannot_mutate_cached_container",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_internal_wrapper_cannot_mutate_cached_container (__main__.Guards.test_internal_wrapper_cannot_mutate_cached_container) ... FAIL\n\n======================================================================\nFAIL: test_internal_wrapper_cannot_mutate_cached_container (__main__.Guards.test_internal_wrapper_cannot_mutate_cached_container)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-pool-20261015\\md_cg\\test_bm25_pool_view.py\", line 189, in test_internal_wrapper_cannot_mutate_cached_container\n    self.assertFalse(hasattr(entries, 'append'))\nAssertionError: True is not false\n\n----------------------------------------------------------------------\nRan 1 test in 1.316s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "f0c56a086528a6699648d5f13893baa2632c2889548372d6f3ea6a8c4b5cd9ba"
+          }
+        ],
+        "restored": {
+          "tests": 8,
+          "passed": 8,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_clock_dependent_pool_bypasses_still_work (__main__.Guards.test_clock_dependent_pool_bypasses_still_work) ... ok\ntest_first_public_pool_copy_is_defensive (__main__.Guards.test_first_public_pool_copy_is_defensive) ... ok\ntest_internal_candidate_fn_avoids_initial_copies (__main__.Guards.test_internal_candidate_fn_avoids_initial_copies) ... ok\ntest_internal_wrapper_cannot_mutate_cached_container (__main__.Guards.test_internal_wrapper_cannot_mutate_cached_container) ... ok\ntest_public_pool_copy_is_defensive (__main__.Guards.test_public_pool_copy_is_defensive) ... ok\ntest_role_scope_does_not_reuse_other_pool (__main__.Guards.test_role_scope_does_not_reuse_other_pool) ... ok\ntest_warm_query_has_no_full_pool_copy (__main__.Guards.test_warm_query_has_no_full_pool_copy) ... ok\ntest_write_generation_still_refreshes_pool (__main__.Guards.test_write_generation_still_refreshes_pool) ... ok\n\n----------------------------------------------------------------------\nRan 8 tests in 11.038s\n\nOK\n"
+        },
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      }
+    },
+    "linux": {
+      "baseline": {
+        "tests": 8,
+        "passed": 5,
+        "failed": 3,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_clock_dependent_pool_bypasses_still_work (md_cg._frozen_bm25_pool_view.Guards.test_clock_dependent_pool_bypasses_still_work) ... ok\ntest_first_public_pool_copy_is_defensive (md_cg._frozen_bm25_pool_view.Guards.test_first_public_pool_copy_is_defensive) ... ok\ntest_internal_candidate_fn_avoids_initial_copies (md_cg._frozen_bm25_pool_view.Guards.test_internal_candidate_fn_avoids_initial_copies) ... FAIL\ntest_internal_wrapper_cannot_mutate_cached_container (md_cg._frozen_bm25_pool_view.Guards.test_internal_wrapper_cannot_mutate_cached_container) ... FAIL\ntest_public_pool_copy_is_defensive (md_cg._frozen_bm25_pool_view.Guards.test_public_pool_copy_is_defensive) ... ok\ntest_role_scope_does_not_reuse_other_pool (md_cg._frozen_bm25_pool_view.Guards.test_role_scope_does_not_reuse_other_pool) ... ok\ntest_warm_query_has_no_full_pool_copy (md_cg._frozen_bm25_pool_view.Guards.test_warm_query_has_no_full_pool_copy) ... FAIL\ntest_write_generation_still_refreshes_pool (md_cg._frozen_bm25_pool_view.Guards.test_write_generation_still_refreshes_pool) ... ok\n\n======================================================================\nFAIL: test_internal_candidate_fn_avoids_initial_copies (md_cg._frozen_bm25_pool_view.Guards.test_internal_candidate_fn_avoids_initial_copies)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-pool-20261015/md_cg/test_bm25_pool_view.py\", line 168, in test_internal_candidate_fn_avoids_initial_copies\n    self.assertEqual(copied, 0)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^\nAssertionError: 192 != 0\n\n======================================================================\nFAIL: test_internal_wrapper_cannot_mutate_cached_container (md_cg._frozen_bm25_pool_view.Guards.test_internal_wrapper_cannot_mutate_cached_container)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-pool-20261015/md_cg/test_bm25_pool_view.py\", line 189, in test_internal_wrapper_cannot_mutate_cached_container\n    self.assertFalse(hasattr(entries, 'append'))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: True is not false\n\n======================================================================\nFAIL: test_warm_query_has_no_full_pool_copy (md_cg._frozen_bm25_pool_view.Guards.test_warm_query_has_no_full_pool_copy)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-pool-20261015/md_cg/test_bm25_pool_view.py\", line 149, in test_warm_query_has_no_full_pool_copy\n    self.assertEqual(copied, 0, 'hot internal retrieval must not copy all N candidate pointers')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 96 != 0 : hot internal retrieval must not copy all N candidate pointers\n\n----------------------------------------------------------------------\nRan 8 tests in 0.502s\n\nFAILED (failures=3)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 8,
+          "passed": 8,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_clock_dependent_pool_bypasses_still_work (__main__.Guards.test_clock_dependent_pool_bypasses_still_work) ... ok\ntest_first_public_pool_copy_is_defensive (__main__.Guards.test_first_public_pool_copy_is_defensive) ... ok\ntest_internal_candidate_fn_avoids_initial_copies (__main__.Guards.test_internal_candidate_fn_avoids_initial_copies) ... ok\ntest_internal_wrapper_cannot_mutate_cached_container (__main__.Guards.test_internal_wrapper_cannot_mutate_cached_container) ... ok\ntest_public_pool_copy_is_defensive (__main__.Guards.test_public_pool_copy_is_defensive) ... ok\ntest_role_scope_does_not_reuse_other_pool (__main__.Guards.test_role_scope_does_not_reuse_other_pool) ... ok\ntest_warm_query_has_no_full_pool_copy (__main__.Guards.test_warm_query_has_no_full_pool_copy) ... ok\ntest_write_generation_still_refreshes_pool (__main__.Guards.test_write_generation_still_refreshes_pool) ... ok\n\n----------------------------------------------------------------------\nRan 8 tests in 0.461s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "P1 copy the warm internal pool again",
+            "test": "Guards.test_warm_query_has_no_full_pool_copy",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_warm_query_has_no_full_pool_copy (__main__.Guards.test_warm_query_has_no_full_pool_copy) ... FAIL\n\n======================================================================\nFAIL: test_warm_query_has_no_full_pool_copy (__main__.Guards.test_warm_query_has_no_full_pool_copy)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-pool-20261015/md_cg/test_bm25_pool_view.py\", line 149, in test_warm_query_has_no_full_pool_copy\n    self.assertEqual(copied, 0, 'hot internal retrieval must not copy all N candidate pointers')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 96 != 0 : hot internal retrieval must not copy all N candidate pointers\n\n----------------------------------------------------------------------\nRan 1 test in 0.058s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "3631684ee2d6cd99c1cd628c59c370d02c2352784b15abcef8279d382ae7795d"
+          },
+          {
+            "name": "P2 expose private view to public mutable callers",
+            "test": "Guards.test_public_pool_copy_is_defensive",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_public_pool_copy_is_defensive (__main__.Guards.test_public_pool_copy_is_defensive) ... FAIL\n\n======================================================================\nFAIL: test_public_pool_copy_is_defensive (__main__.Guards.test_public_pool_copy_is_defensive)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-pool-20261015/md_cg/test_bm25_pool_view.py\", line 154, in test_public_pool_copy_is_defensive\n    self.assertIsInstance(a, list)\n    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\nAssertionError: <md_cg.bm25._runtime_mutant._PoolView object at 0x76995d441ff0> is not an instance of <class 'list'>\n\n----------------------------------------------------------------------\nRan 1 test in 0.045s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "f0c56a086528a6699648d5f13893baa2632c2889548372d6f3ea6a8c4b5cd9ba"
+          },
+          {
+            "name": "P3 ignore pool write generation",
+            "test": "Guards.test_write_generation_still_refreshes_pool",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_write_generation_still_refreshes_pool (__main__.Guards.test_write_generation_still_refreshes_pool) ... FAIL\n\n======================================================================\nFAIL: test_write_generation_still_refreshes_pool (__main__.Guards.test_write_generation_still_refreshes_pool)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-pool-20261015/md_cg/test_bm25_pool_view.py\", line 174, in test_write_generation_still_refreshes_pool\n    self.assertIn('new', {r[0]['id'] for r in rows})\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'new' not found in {'n016', 'n000', 'n035', 'n007', 'n012', 'n025', 'n032', 'n003', 'n037', 'n043', 'n049', 'n004', 'n019', 'n018', 'n030', 'n031', 'n034', 'n033', 'n010', 'n024', 'n042', 'n040', 'n036', 'n021', 'n028', 'n015', 'n048', 'n047', 'n029', 'n008', 'n023', 'n027', 'n005', 'n011', 'n013', 'n044', 'n022', 'n026', 'n045', 'n009', 'n006', 'n020', 'n041', 'n014', 'n046', 'n038', 'n039', 'n017', 'n001', 'n002'}\n\n----------------------------------------------------------------------\nRan 1 test in 0.050s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "f0c56a086528a6699648d5f13893baa2632c2889548372d6f3ea6a8c4b5cd9ba"
+          },
+          {
+            "name": "P4 retain mutable list in internal search",
+            "test": "Guards.test_internal_wrapper_cannot_mutate_cached_container",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_internal_wrapper_cannot_mutate_cached_container (__main__.Guards.test_internal_wrapper_cannot_mutate_cached_container) ... FAIL\n\n======================================================================\nFAIL: test_internal_wrapper_cannot_mutate_cached_container (__main__.Guards.test_internal_wrapper_cannot_mutate_cached_container)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-pool-20261015/md_cg/test_bm25_pool_view.py\", line 189, in test_internal_wrapper_cannot_mutate_cached_container\n    self.assertFalse(hasattr(entries, 'append'))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: True is not false\n\n----------------------------------------------------------------------\nRan 1 test in 0.052s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "f0c56a086528a6699648d5f13893baa2632c2889548372d6f3ea6a8c4b5cd9ba"
+          }
+        ],
+        "restored": {
+          "tests": 8,
+          "passed": 8,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_clock_dependent_pool_bypasses_still_work (__main__.Guards.test_clock_dependent_pool_bypasses_still_work) ... ok\ntest_first_public_pool_copy_is_defensive (__main__.Guards.test_first_public_pool_copy_is_defensive) ... ok\ntest_internal_candidate_fn_avoids_initial_copies (__main__.Guards.test_internal_candidate_fn_avoids_initial_copies) ... ok\ntest_internal_wrapper_cannot_mutate_cached_container (__main__.Guards.test_internal_wrapper_cannot_mutate_cached_container) ... ok\ntest_public_pool_copy_is_defensive (__main__.Guards.test_public_pool_copy_is_defensive) ... ok\ntest_role_scope_does_not_reuse_other_pool (__main__.Guards.test_role_scope_does_not_reuse_other_pool) ... ok\ntest_warm_query_has_no_full_pool_copy (__main__.Guards.test_warm_query_has_no_full_pool_copy) ... ok\ntest_write_generation_still_refreshes_pool (__main__.Guards.test_write_generation_still_refreshes_pool) ... ok\n\n----------------------------------------------------------------------\nRan 8 tests in 0.384s\n\nOK\n"
+        },
+        "tests": 4,
+        "passed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      }
+    }
+  },
+  "kind": "actual temporary-store guards and in-memory named mutations",
+  "native": {
+    "baseline": {
+      "case": "pool",
+      "kind": "actual temporary-store runtime",
+      "readings": {
+        "nodes": 1000,
+        "repeats": 9,
+        "copied_candidate_references": 9000,
+        "hits": [
+          "n0000",
+          "n0127",
+          "n0254",
+          "n0381",
+          "n0508",
+          "n0635",
+          "n0762",
+          "n0889"
+        ],
+        "pool_reused": true,
+        "warm_query_ms": [
+          0.3475000000001671,
+          0.22044900000040002,
+          0.1732079999996472,
+          0.15913200000028382,
+          0.15456300000060708,
+          0.14235000000084597,
+          0.13580799999957094,
+          0.1525600000000793,
+          0.14743000000017048
+        ],
+        "median_ms": 0.15456300000060708,
+        "boundary": "1000 actual Markdown nodes; no million-node end-to-end claim"
+      }
+    },
+    "fixed": {
+      "case": "pool",
+      "kind": "actual temporary-store runtime",
+      "readings": {
+        "nodes": 1000,
+        "repeats": 9,
+        "copied_candidate_references": 0,
+        "hits": [
+          "n0000",
+          "n0127",
+          "n0254",
+          "n0381",
+          "n0508",
+          "n0635",
+          "n0762",
+          "n0889"
+        ],
+        "pool_reused": true,
+        "warm_query_ms": [
+          0.300690999999631,
+          0.18243600000111826,
+          0.1550140000006195,
+          0.230397000001048,
+          0.1880869999997259,
+          0.14668900000103235,
+          0.13753100000002405,
+          0.13401499999865507,
+          0.1943489999991499
+        ],
+        "median_ms": 0.18243600000111826,
+        "boundary": "1000 actual Markdown nodes; no million-node end-to-end claim"
+      }
+    }
+  },
+  "regressions": {
+    "windows": {
+      "key": "pool",
+      "platform": "windows",
+      "source_head": "1aa649619055213e815f37b61f6bb8e9abc6c423",
+      "production_sha256": {
+        "md_cg/mdcg.py": "1d6da4332571eb193439175ffc1a762267f13755fb757c48c57e021b7bdaa8d2",
+        "md_cg/mdcos.py": "3631684ee2d6cd99c1cd628c59c370d02c2352784b15abcef8279d382ae7795d",
+        "md_cg/trust.py": "183b38a839f4544b8e68f57b0b9f7be92e015297f599410e6eb5d7140afd8534",
+        "md_cg/stgidx.py": "c527267824a9775ecac18740626da0d154cb836fb1ce920376df1ebaaddaa925",
+        "md_cg/bm25.py": "f0c56a086528a6699648d5f13893baa2632c2889548372d6f3ea6a8c4b5cd9ba",
+        "md_cg/chain.py": "f376e566b6735aee8d589e6a6a2a91162023c8cfda0309d7efe8ba13f9199a85",
+        "md_cg/reach.py": "4a03c4bccf3a3c1d51521cd3394916ee993cf7f40059cbeecf304e51cd722dd5"
+      },
+      "passed": 6,
+      "failed": 0,
+      "missing": 0,
+      "results": [
+        {
+          "module": "test_bm25",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 37.281,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_bm25"
+          ],
+          "log": "reg-pool-windows-test_bm25.log"
+        },
+        {
+          "module": "test_bm25_incremental",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 103.125,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_bm25_incremental"
+          ],
+          "log": "reg-pool-windows-test_bm25_incremental.log"
+        },
+        {
+          "module": "test_bm25_mutations",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 273.157,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_bm25_mutations"
+          ],
+          "log": "reg-pool-windows-test_bm25_mutations.log"
+        },
+        {
+          "module": "test_bm25_incremental_mutations",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 160.218,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_bm25_incremental_mutations"
+          ],
+          "log": "reg-pool-windows-test_bm25_incremental_mutations.log"
+        },
+        {
+          "module": "test_issue153b_cache_alias_and_canon",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.579,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_issue153b_cache_alias_and_canon"
+          ],
+          "log": "reg-pool-windows-test_issue153b_cache_alias_and_canon.log"
+        },
+        {
+          "module": "test_rrf_candidates",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 2.578,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_rrf_candidates"
+          ],
+          "log": "reg-pool-windows-test_rrf_candidates.log"
+        }
+      ],
+      "previous_snapshot": {
+        "phase": "before upstream sync / development attempts; excluded from final counts",
+        "readings": {
+          "key": "pool",
+          "platform": "windows",
+          "passed": 6,
+          "failed": 0,
+          "missing": 0,
+          "results": [
+            {
+              "module": "test_bm25",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 36.688,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25"
+              ],
+              "log": "previous/reg-pool-windows-test_bm25.log"
+            },
+            {
+              "module": "test_bm25_incremental",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 96.391,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25_incremental"
+              ],
+              "log": "previous/reg-pool-windows-test_bm25_incremental.log"
+            },
+            {
+              "module": "test_bm25_mutations",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 254.01499999999942,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25_mutations",
+                "--output",
+                "<evidence>\\pool-old-mutants-windows-extended.json"
+              ],
+              "log": "previous/reg-pool-windows-test_bm25_mutations-extended.log"
+            },
+            {
+              "module": "test_bm25_incremental_mutations",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 172.89,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25_incremental_mutations"
+              ],
+              "log": "previous/reg-pool-windows-test_bm25_incremental_mutations.log"
+            },
+            {
+              "module": "test_issue153b_cache_alias_and_canon",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.61,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_issue153b_cache_alias_and_canon"
+              ],
+              "log": "previous/reg-pool-windows-test_issue153b_cache_alias_and_canon.log"
+            },
+            {
+              "module": "test_rrf_candidates",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 2.562,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_rrf_candidates"
+              ],
+              "log": "previous/reg-pool-windows-test_rrf_candidates.log"
+            }
+          ],
+          "initial_attempts": [
+            {
+              "module": "test_bm25",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 36.688,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25"
+              ],
+              "log": "previous/reg-pool-windows-test_bm25.log"
+            },
+            {
+              "module": "test_bm25_incremental",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 96.391,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25_incremental"
+              ],
+              "log": "previous/reg-pool-windows-test_bm25_incremental.log"
+            },
+            {
+              "module": "test_bm25_mutations",
+              "returncode": 124,
+              "status": "FAIL",
+              "seconds": 180.016,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25_mutations"
+              ],
+              "log": "previous/reg-pool-windows-test_bm25_mutations.log"
+            },
+            {
+              "module": "test_bm25_incremental_mutations",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 172.89,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25_incremental_mutations"
+              ],
+              "log": "previous/reg-pool-windows-test_bm25_incremental_mutations.log"
+            },
+            {
+              "module": "test_issue153b_cache_alias_and_canon",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.61,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_issue153b_cache_alias_and_canon"
+              ],
+              "log": "previous/reg-pool-windows-test_issue153b_cache_alias_and_canon.log"
+            },
+            {
+              "module": "test_rrf_candidates",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 2.562,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_rrf_candidates"
+              ],
+              "log": "previous/reg-pool-windows-test_rrf_candidates.log"
+            }
+          ]
+        }
+      }
+    },
+    "linux": {
+      "key": "pool",
+      "platform": "linux",
+      "source_head": "1aa649619055213e815f37b61f6bb8e9abc6c423",
+      "production_sha256": {
+        "md_cg/mdcg.py": "1d6da4332571eb193439175ffc1a762267f13755fb757c48c57e021b7bdaa8d2",
+        "md_cg/mdcos.py": "3631684ee2d6cd99c1cd628c59c370d02c2352784b15abcef8279d382ae7795d",
+        "md_cg/trust.py": "183b38a839f4544b8e68f57b0b9f7be92e015297f599410e6eb5d7140afd8534",
+        "md_cg/stgidx.py": "c527267824a9775ecac18740626da0d154cb836fb1ce920376df1ebaaddaa925",
+        "md_cg/bm25.py": "f0c56a086528a6699648d5f13893baa2632c2889548372d6f3ea6a8c4b5cd9ba",
+        "md_cg/chain.py": "f376e566b6735aee8d589e6a6a2a91162023c8cfda0309d7efe8ba13f9199a85",
+        "md_cg/reach.py": "4a03c4bccf3a3c1d51521cd3394916ee993cf7f40059cbeecf304e51cd722dd5"
+      },
+      "passed": 6,
+      "failed": 0,
+      "missing": 0,
+      "results": [
+        {
+          "module": "test_bm25",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 8.297,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-pool-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_bm25"
+          ],
+          "log": "reg-pool-linux-test_bm25.log"
+        },
+        {
+          "module": "test_bm25_incremental",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 4.844,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-pool-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_bm25_incremental"
+          ],
+          "log": "reg-pool-linux-test_bm25_incremental.log"
+        },
+        {
+          "module": "test_bm25_mutations",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 11.031,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-pool-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_bm25_mutations"
+          ],
+          "log": "reg-pool-linux-test_bm25_mutations.log"
+        },
+        {
+          "module": "test_bm25_incremental_mutations",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 6.032,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-pool-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_bm25_incremental_mutations"
+          ],
+          "log": "reg-pool-linux-test_bm25_incremental_mutations.log"
+        },
+        {
+          "module": "test_issue153b_cache_alias_and_canon",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.812,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-pool-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_issue153b_cache_alias_and_canon"
+          ],
+          "log": "reg-pool-linux-test_issue153b_cache_alias_and_canon.log"
+        },
+        {
+          "module": "test_rrf_candidates",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 1.219,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-pool-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_rrf_candidates"
+          ],
+          "log": "reg-pool-linux-test_rrf_candidates.log"
+        }
+      ],
+      "previous_snapshot": {
+        "phase": "before upstream sync / development attempts; excluded from final counts",
+        "readings": {
+          "key": "pool",
+          "platform": "linux",
+          "passed": 6,
+          "failed": 0,
+          "missing": 0,
+          "results": [
+            {
+              "module": "test_bm25",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 10.125,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-pool-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25"
+              ],
+              "log": "previous/reg-pool-linux-test_bm25.log"
+            },
+            {
+              "module": "test_bm25_incremental",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 4.219,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-pool-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25_incremental"
+              ],
+              "log": "previous/reg-pool-linux-test_bm25_incremental.log"
+            },
+            {
+              "module": "test_bm25_mutations",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 12.453,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-pool-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25_mutations"
+              ],
+              "log": "previous/reg-pool-linux-test_bm25_mutations.log"
+            },
+            {
+              "module": "test_bm25_incremental_mutations",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 6.031,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-pool-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25_incremental_mutations"
+              ],
+              "log": "previous/reg-pool-linux-test_bm25_incremental_mutations.log"
+            },
+            {
+              "module": "test_issue153b_cache_alias_and_canon",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.891,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-pool-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_issue153b_cache_alias_and_canon"
+              ],
+              "log": "previous/reg-pool-linux-test_issue153b_cache_alias_and_canon.log"
+            },
+            {
+              "module": "test_rrf_candidates",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 1.25,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-pool-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_rrf_candidates"
+              ],
+              "log": "previous/reg-pool-linux-test_rrf_candidates.log"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "benchmark": {
+    "baseline": {
+      "kind": "warm candidate-container microbenchmark",
+      "readings": [
+        {
+          "candidates": 10000,
+          "samples_ms": [
+            0.07999199999986217,
+            0.0925760000001219,
+            0.04125799999954438,
+            0.03957499999884817,
+            0.03795199999956367,
+            0.03720099999959814,
+            0.03714099999996279,
+            0.036890000000511236,
+            0.03698000000085244,
+            0.036830000000875884,
+            0.03704999999953884,
+            0.03693000000026814,
+            0.03726000000092711,
+            0.036919999999440734,
+            0.036768999999381435,
+            0.03684999999897798,
+            0.037000999999037276,
+            0.03659999999960917,
+            0.03695000000014659,
+            0.036329000000279166,
+            0.036830000000875884
+          ],
+          "median_ms": 0.03698000000085244,
+          "one_call_allocated_peak_bytes": 80892,
+          "dataset_sha256": "11fc7b77080d3b6af58318b395d4265f3245628b1da638ff89447ffb070144f6",
+          "execution": "defensive list"
+        },
+        {
+          "candidates": 100000,
+          "samples_ms": [
+            0.7535309999990858,
+            0.923162999999505,
+            0.4764640000001208,
+            0.45066599999898926,
+            0.4515569999998803,
+            0.45170699999985686,
+            0.47072399999947834,
+            0.4922939999989495,
+            0.47690599999938854,
+            0.46552399999910676,
+            0.6707239999990122,
+            0.5762840000009817,
+            0.5044679999990365,
+            0.45994299999918553,
+            0.4576089999996924,
+            0.5287539999994095,
+            0.46885999999979333,
+            0.4490019999998651,
+            0.4576990000000336,
+            0.4569779999989976,
+            0.4673379999999838
+          ],
+          "median_ms": 0.46885999999979333,
+          "one_call_allocated_peak_bytes": 800892,
+          "dataset_sha256": "4d6c7b7d67a17a226eedc05914f6f39dffcee347a6f2377d9ce9e405a36b0b43",
+          "execution": "defensive list"
+        },
+        {
+          "candidates": 1000000,
+          "samples_ms": [
+            17.864881000001276,
+            23.91914600000078,
+            15.94803100000064,
+            14.741100000000174,
+            15.600561999999485,
+            15.750296000000219,
+            14.873932000000423,
+            14.899058999999326,
+            15.811491999999205,
+            15.381375000000475,
+            14.912705000000415,
+            15.478018999999676,
+            15.752389999999394,
+            15.832692000000037,
+            16.24746999999971,
+            16.96068399999895,
+            14.90651399999976,
+            14.926060999998825,
+            15.425059000000019,
+            15.701422999999437,
+            16.1807939999985
+          ],
+          "median_ms": 15.701422999999437,
+          "one_call_allocated_peak_bytes": 8000892,
+          "dataset_sha256": "5168eb17c8f1a409289cc9c4241bb129e8a614075b2774a68c63c8e26ad856fd",
+          "execution": "defensive list"
+        }
+      ],
+      "limits": "Synthetic metadata only. Cold filtering remains O(N); scoring, file I/O, guards, gates and fusion are outside this measurement. Public mutable API deliberately retains O(N) copies."
+    },
+    "fixed": {
+      "kind": "warm candidate-container microbenchmark",
+      "readings": [
+        {
+          "candidates": 10000,
+          "samples_ms": [
+            0.01971699999891996,
+            0.008576000000815043,
+            0.005149999999787269,
+            0.004208000000005541,
+            0.0034570000000400114,
+            0.0035070000006243163,
+            0.0032360000012943146,
+            0.0031459999991767518,
+            0.0030960000003688037,
+            0.0033769999987498522,
+            0.0035070000006243163,
+            0.0032860000001022627,
+            0.003325999999859164,
+            0.0031450000008703682,
+            0.003175999999882606,
+            0.003136000000125705,
+            0.003136000000125705,
+            0.0030960000003688037,
+            0.0031059999994198506,
+            0.003175999999882606,
+            0.003166000000831559
+          ],
+          "median_ms": 0.0032360000012943146,
+          "one_call_allocated_peak_bytes": 1316,
+          "dataset_sha256": "11fc7b77080d3b6af58318b395d4265f3245628b1da638ff89447ffb070144f6",
+          "execution": "read-only view"
+        },
+        {
+          "candidates": 100000,
+          "samples_ms": [
+            0.027200999999976716,
+            0.00839600000013263,
+            0.005770999999654691,
+            0.0038880000001739745,
+            0.003516999999675363,
+            0.003607000000016569,
+            0.0034860000006631253,
+            0.003136000000125705,
+            0.0038880000001739745,
+            0.0036869999995303715,
+            0.003276000001051216,
+            0.003136000000125705,
+            0.0032460000003453615,
+            0.0031460000009531086,
+            0.0031560000000041555,
+            0.0030960000003688037,
+            0.003226000000466911,
+            0.003125999999298301,
+            0.0030560000006119026,
+            0.003055000000529162,
+            0.006281999999302457
+          ],
+          "median_ms": 0.003276000001051216,
+          "one_call_allocated_peak_bytes": 1316,
+          "dataset_sha256": "4d6c7b7d67a17a226eedc05914f6f39dffcee347a6f2377d9ce9e405a36b0b43",
+          "execution": "read-only view"
+        },
+        {
+          "candidates": 1000000,
+          "samples_ms": [
+            0.05240900000025306,
+            0.008005999999838309,
+            0.005260000000006926,
+            0.004238000000711395,
+            0.003527000000502767,
+            0.0033460000015139713,
+            0.004047000000895196,
+            0.0035869999983617618,
+            0.0036869999995303715,
+            0.0035569999994322643,
+            0.003095999998592447,
+            0.0029660000002706965,
+            0.002996000000976551,
+            0.0028860000007568942,
+            0.0030159999990786446,
+            0.002986000000149147,
+            0.003024999999823308,
+            0.002934999999482102,
+            0.0029359999995648423,
+            0.002945999998615889,
+            0.0033070000000634536
+          ],
+          "median_ms": 0.0033070000000634536,
+          "one_call_allocated_peak_bytes": 1316,
+          "dataset_sha256": "5168eb17c8f1a409289cc9c4241bb129e8a614075b2774a68c63c8e26ad856fd",
+          "execution": "read-only view"
+        }
+      ],
+      "limits": "Synthetic metadata only. Cold filtering remains O(N); scoring, file I/O, guards, gates and fusion are outside this measurement. Public mutable API deliberately retains O(N) copies."
+    }
+  }
+}

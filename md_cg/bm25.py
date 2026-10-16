@@ -8,6 +8,7 @@ postings; first builds still read every eligible Markdown source file.
 from __future__ import annotations
 
 from collections import Counter, OrderedDict, defaultdict, deque
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import heapq
@@ -77,7 +78,36 @@ def access_key(cg):
                 "tenant", "actor", "session", "clearance", "role")))
 
 
+class _PoolView(Sequence):
+    """Read-only container for the engine's cached candidate sequence.
+
+    Entries retain the existing read-only metadata contract. The private
+    retrieval pipeline borrows this view in O(1); public callers still receive
+    a defensive list. Slicing explicitly creates a separate container.
+    """
+    __slots__ = ("__items", "pool_key")
+
+    def __init__(self, items, pool_key):
+        self.__items, self.pool_key = items, pool_key
+
+    def __len__(self):
+        return len(self.__items)
+
+    def __getitem__(self, index):
+        return self.__items[index]
+
+    def __iter__(self):
+        return iter(self.__items)
+
+
 def candidate_pool(cg, **options):
+    """Public, independently mutable candidate container (entry dicts read-only)."""
+    entries = candidate_pool_view(cg, **options)
+    key = getattr(entries, "pool_key", None)
+    return _PoolEntries(entries, key) if key is not None else entries
+
+
+def candidate_pool_view(cg, **options):
     """Reuse eligibility, never query results; clock-dependent filters bypass.
 
     The normal candidate method remains the sole filter implementation. Reuse
@@ -101,21 +131,10 @@ def candidate_pool(cg, **options):
     saved = getattr(cg, "_bm25_candidate_pool", None)
     if saved and saved[0] is nodes and saved[1] is dirty and saved[2] == key:
         cg._time_filter_stat = None
-        # #153①（2026-10-12 DSH 端）：**返回防御性副本**——修前直接
-        # `return saved[3]` 把缓存内部 list 交出去，调用方任何原地修改
-        # （append/pop/sort）都写回缓存，下一次同键命中即拿到被污染的候选池
-        # （别名污染 = 静默错答）。元素是索引条目 dict，本函数不拥有它们，
-        # 调用方按约定只读（与 mdcos `_inbox_recs` 的「调用方只读不得变更」
-        # 同款边界）——本层要防的是**容器本身**被改。
-        # 副本携带 `pool_key`：`BM25Index.sync` 的「同一池」复用判定原先靠
-        # `self.entries is entries` 的**对象同一性**，拷贝会让它恒判换池
-        # （池复用失效、build_reads 回退，test_bm25 实测转红）——故把池键
-        # 随副本带过去，复用判定改看池键（等价语义，且对拷贝透明）。
-        return _PoolEntries(saved[3], saved[2])
-    entries = _PoolEntries(cg._candidates(**options), key)
+        return saved[3]
+    entries = _PoolView(cg._candidates(**options), key)
     cg._bm25_candidate_pool = (nodes, dirty, key, entries)
-    # 首次构建也返回副本：缓存内那一份只作复用源，任何调用方都拿不到它。
-    return _PoolEntries(entries, key)
+    return entries
 
 
 def _build_reads(cg, entries, report, stream):
