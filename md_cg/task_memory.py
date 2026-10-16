@@ -15,8 +15,9 @@ from dataclasses import asdict, dataclass
 import hashlib
 import json
 import os
+import re
 
-from . import audit, security, tasks
+from . import audit, crypto, security, tasks
 from .fsutil import FileLock
 from .mdcg import expand_query_terms
 
@@ -24,6 +25,8 @@ FACT_TAG = "task-memory:fact"
 EXPERIENCE_TAG = "task-memory:experience"
 FIELD = "task_memory"
 OUTCOMES = ("succeeded", "failed", "blocked", "partial")
+PAYLOAD_MARKER = "\n\n<!-- task-memory-payload:v1 -->\n```json\n"
+PAYLOAD_END = "\n```\n"
 
 
 def _text(value, field, *, required=True, limit=2000):
@@ -53,6 +56,44 @@ def _json(value):
 
 def _id(prefix, value):
     return prefix + hashlib.sha256(_json(value).encode("utf-8")).hexdigest()[:32]
+
+
+def _metadata(payload):
+    # Frontmatter is plaintext even on private nodes. Keep narrative data in the
+    # body so the native sealing hook protects facts, details and experiences.
+    return {"format": 1, "kind": payload["kind"], "task_id": payload["task_id"],
+            "payload_sha256": hashlib.sha256(_json(payload).encode("utf-8")).hexdigest()}
+
+
+def _stored_content(content, payload):
+    return content + PAYLOAD_MARKER + _json(payload) + PAYLOAD_END
+
+
+def _protected_content(cg, nid, content, sensitivity):
+    if sensitivity not in crypto.ENCRYPTED_LEVELS:
+        return content
+    # Seal before add() derives plaintext routing metadata from CCG lines.
+    sealed = cg._seal_content(nid, content, sensitivity)
+    if not crypto.is_encrypted(sealed):
+        raise ValueError("private task memory requires the native encryption writer")
+    return sealed
+
+
+def _memory(rec):
+    meta = rec["frontmatter"].get(FIELD)
+    content = rec.get("content") or ""
+    if not isinstance(meta, dict) or meta.get("format") != 1:
+        raise ValueError("task memory payload is unavailable")
+    head, separator, tail = content.rpartition(PAYLOAD_MARKER)
+    if not separator or not tail.endswith(PAYLOAD_END):
+        raise ValueError("task memory payload is unavailable")
+    try:
+        data = json.loads(tail[:-len(PAYLOAD_END)])
+    except (ValueError, TypeError) as exc:
+        raise ValueError("task memory payload is unavailable") from exc
+    if not isinstance(data, dict) or _metadata(data) != meta:
+        raise ValueError("task memory payload does not match its routing metadata")
+    return data
 
 
 def _admit(cg, content, sensitivity):
@@ -135,7 +176,7 @@ def _existing(cg, nid, payload):
         if nid in cg.index.get("nodes", {}):
             raise ValueError("memory identity is unavailable")
         return None
-    if _json(rec["frontmatter"].get(FIELD)) != _json(payload):
+    if _json(_memory(rec)) != _json(payload):
         raise ValueError("record_id already names different content; use a new record_id")
     return rec
 
@@ -188,7 +229,7 @@ def record(cg, task, memory):
         previous = _existing(cg, fact_id, payload)
         if fact.supersedes:
             old = cg.get(fact.supersedes)
-            old_data = (old or {}).get("frontmatter", {}).get(FIELD) or {}
+            old_data = _memory(old) if old else {}
             if (fact.supersedes == fact_id or old_data.get("kind") != "fact"
                     or old_data.get("task_id") != task_id
                     or old_data.get("fact", {}).get("subject") != fact.subject):
@@ -202,27 +243,27 @@ def record(cg, task, memory):
                         for nid, exp in exp_items}
         existing = {nid: _existing(cg, nid, exp_payloads[nid]) for nid, _ in exp_items}
         if previous is None:
-            fact_content = _fact_content(task_id, fact)
-            _admit(cg, fact_content + "\n" + _json(payload), sensitivity)
-            cg.add(fact_id, fact_content, layer="contextual",
+            fact_content = _stored_content(_fact_content(task_id, fact), payload)
+            _admit(cg, fact_content, sensitivity)
+            cg.add(fact_id, _protected_content(cg, fact_id, fact_content, sensitivity), layer="contextual",
                    tags=[FACT_TAG, f"task:{task_id}"], importance=0.5, confidence=0.5,
                    role="assistant", sensitivity=sensitivity, verification_state="unverified",
                    derived_from=[task_id] + ([fact.supersedes] if fact.supersedes else []),
-                   **{FIELD: payload})
+                   **{FIELD: _metadata(payload)})
         written, reused, errors = [], [], []
         for nid, exp in exp_items:
             if existing[nid] is not None:
                 reused.append(nid)
                 continue
             try:
-                exp_content = _experience_content(exp)
-                _admit(cg, exp_content + "\n" + _json(exp_payloads[nid]), sensitivity)
-                cg.add(nid, exp_content, layer="knowledge",
+                exp_content = _stored_content(_experience_content(exp), exp_payloads[nid])
+                _admit(cg, exp_content, sensitivity)
+                cg.add(nid, _protected_content(cg, nid, exp_content, sensitivity), layer="knowledge",
                        tags=[EXPERIENCE_TAG, f"task:{task_id}"], importance=0.6,
                        confidence=0.5, role="assistant", sensitivity=sensitivity,
                        verification_state="unverified", derived_from=[fact_id],
                        depends_on=[fact_id],
-                       **{FIELD: exp_payloads[nid]})
+                       **{FIELD: _metadata(exp_payloads[nid])})
                 written.append(nid)
             except Exception as exc:
                 errors.append({"id": nid, "error": type(exc).__name__, "reason": str(exc)})
@@ -241,8 +282,8 @@ def get(cg, node_id):
     rec = cg.get(_text(node_id, "node_id", limit=128))
     if not rec or not security.visible_to(cg, rec["frontmatter"]):
         raise ValueError("task memory is unavailable")
-    data = rec["frontmatter"].get(FIELD)
-    if not isinstance(data, dict) or data.get("kind") not in ("fact", "experience"):
+    data = _memory(rec)
+    if data.get("kind") not in ("fact", "experience"):
         raise ValueError("task memory is unavailable")
     _task(cg, data.get("task_id"))
     return {"ok": True, "id": node_id, "memory": data,
@@ -270,7 +311,7 @@ def recall(cg, task, *, query="", limit=5, include_history=False):
         rec = cg.get(nid)
         if not rec or not security.visible_to(cg, rec["frontmatter"]):
             continue
-        data = rec["frontmatter"].get(FIELD) or {}
+        data = _memory(rec)
         if data.get("task_id") != task_id:
             continue
         item = {"id": nid, "data": data, "fm": rec["frontmatter"], "rec": rec}
@@ -297,7 +338,15 @@ def recall(cg, task, *, query="", limit=5, include_history=False):
                 value = dict(data["experience"])
                 search_text = " ".join([value["task"], value["solution"], value["conditions"],
                                         value["boundary"], *value["search_keys"]])
-                qualification = cg.judge_qualification(item["rec"], query or value["conditions"])
+                qualification_rec = item["rec"]
+                if fm.get("sensitivity") in crypto.ENCRYPTED_LEVELS:
+                    # Reconstruct the native boundary field only after an authorized
+                    # decrypt; private phrases must not enter plaintext FM/index.
+                    boundary = [re.sub(r"[.．…\s，,；;、]+$", "", part).strip()
+                                for part in re.split(r"[；;]", value["boundary"]) if part.strip()]
+                    qualification_rec = {**qualification_rec, "frontmatter": {
+                        **fm, "non_applicable_conditions": boundary}}
+                qualification = cg.judge_qualification(qualification_rec, query or value["conditions"])
                 if qualification.get("state") == "REJECT":
                     continue
                 value["qualification"] = qualification

@@ -36,14 +36,14 @@ python -X utf8 scripts/verify_task_memory.py
 
 ## 守卫与反面证明
 
-Windows / Python 3.12：`python -X utf8 -m md_cg.test_task_memory`，18 项通过，0 失败，
+Windows / Python 3.12：`python -X utf8 -m md_cg.test_task_memory`，19 项通过，0 失败，
 新增守卫无 SKIP。覆盖真实 stdio、重启持久化、历史保留、重复请求、跨任务/主体拒绝、
 密级/会话隔离、原生与 MCP 两层权限、写入策略、隐藏元数据审核、独立返回预算和来源失效。
 
 `python -X utf8 -m md_cg.test_task_memory --mutate` 的原始结论：
 
 ```text
-Mutations: 13/13 killed; failures=[]
+Mutations: 15/15 killed; failures=[]
 ```
 
 每组先确认对应未变异守卫为绿，再只运行预注册的同一守卫；修改在内存模块中进行，
@@ -64,6 +64,14 @@ Mutations: 13/13 killed; failures=[]
 | M11 | 不声明来源依赖 | experience_is_doubted_when_its_evidence_is_falsified |
 | M12 | 跳过结果写入审核 | unavailable_write_policy_blocks_persistence |
 | M13 | 跳过经验写入审核 | admission_checks_metadata_and_preserves_fact_on_rejected_experience |
+| M14 | 把完整草稿回流到明文元数据 | private_payload_never_appears_in_plaintext_metadata |
+| M15 | 获权解密后不恢复私有边界 | private_payload_never_appears_in_plaintext_metadata |
+
+私有守卫对结果、主体、原文、文件、记录编号与经验各字段设置不同标记，检查节点、
+内存索引及测试根下全部落盘文件均不含明文；新实例获权回读完整草稿，并验证边界
+命中时仍拒绝经验。完整草稿位于正文的版本化 JSON 载荷；frontmatter 只含路由标识
+与校验值。私有内容在元数据派生前使用原生钩子密封，私有边界只在获权解密后于内存
+供原生资格判定消费。M14/M15 分别验证这两个约束，不能以接口隔离替代落盘隔离。
 
 ## 相关回归与交付检查
 

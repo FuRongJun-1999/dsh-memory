@@ -191,7 +191,7 @@ class TaskMemoryTests(unittest.TestCase):
         self.call("record_memory", memory=draft(experiences=[experience("older"), experience("newer")]))
         original = self.cg.judge_qualification
         def reject_newer(rec, query, context=None):
-            if rec["frontmatter"][task_memory.FIELD]["experience"]["task"] == "newer":
+            if task_memory._memory(rec)["experience"]["task"] == "newer":
                 return {"state": "REJECT", "reason": "injected inapplicable candidate"}
             return original(rec, query, context)
         with patch.object(self.cg, "judge_qualification", side_effect=reject_newer):
@@ -223,6 +223,43 @@ class TaskMemoryTests(unittest.TestCase):
             task_memory.recall(self.cg, "private")
         with self.assertRaises(ValueError):
             task_memory.get(self.cg, result["fact_id"])
+
+    def test_private_payload_never_appears_in_plaintext_metadata(self):
+        self.cg.principal.clearance = "private"
+        self.cg.principal.can_admin = False
+        self.cg.add("task_private", "private task", layer="structural", tags=["task"],
+                    sensitivity="private", importance=0.5)
+        payload = draft(experiences=[experience()])
+        markers = ("PRIVATE_STATEMENT_731", "PRIVATE_SUBJECT_732", "PRIVATE_DETAILS_733",
+                   "PRIVATE_TASK_734", "PRIVATE_SOLUTION_735", "PRIVATE_KEYS_736",
+                   "PRIVATE_CONDITIONS_737", "PRIVATE_BOUNDARY_738", "PRIVATE_VERIFICATION_739",
+                   "PRIVATE_FILE_740", "PRIVATE_RECORD_741")
+        payload["record_id"] = markers[10]
+        payload["fact"].update(statement=markers[0], subject=markers[1], details=markers[2], files=[markers[9]])
+        payload["experiences"][0].update(task=markers[3], solution=markers[4], search_keys=[markers[5]],
+                                          conditions=markers[6], boundary=markers[7], verification=markers[8])
+        result = task_memory.record(self.cg, "private", payload)
+        self.assertFalse(result["partial"], result)
+        for nid in [result["fact_id"], *result["experience_ids"]]:
+            raw = Path(self.root, self.cg.index["nodes"][nid]["path"]).read_text(encoding="utf-8")
+            for marker in markers:
+                self.assertNotIn(marker, raw)
+                self.assertNotIn(marker, json.dumps(self.cg.index, ensure_ascii=False))
+        for path in Path(self.root).rglob("*"):
+            if path.is_file():
+                stored = path.read_bytes().decode("utf-8", errors="replace")
+                for marker in markers:
+                    self.assertNotIn(marker, stored, str(path.relative_to(self.root)))
+        again = MdCGSecure(self.root, principal=self.cg.principal)
+        try:
+            full = task_memory.get(again, result["fact_id"])
+            self.assertEqual(full["memory"]["fact"], {**payload["fact"], "supersedes": ""})
+            exp = task_memory.get(again, result["experience_ids"][0])
+            self.assertEqual(exp["memory"]["experience"]["solution"], markers[4])
+            blocked = task_memory.recall(again, "private", query=markers[7])
+            self.assertEqual(blocked["experiences_total"], 0)
+        finally:
+            again.close()
 
     def test_invalid_limits_and_types_fail_closed(self):
         for limit in (-1, 101, True, "5"):
@@ -308,9 +345,14 @@ def mutations():
         ("M11", "source invalidation", "test_experience_is_doubted_when_its_evidence_is_falsified",
          [('depends_on=[fact_id],', '')]),
         ("M12", "write admission", "test_unavailable_write_policy_blocks_persistence",
-         [('_admit(cg, fact_content + "\\n" + _json(payload), sensitivity)', 'pass')]),
+         [('_admit(cg, fact_content, sensitivity)', 'pass')]),
         ("M13", "candidate admission", "test_admission_checks_metadata_and_preserves_fact_on_rejected_experience",
-         [('_admit(cg, exp_content + "\\n" + _json(exp_payloads[nid]), sensitivity)', 'pass')]),
+         [('_admit(cg, exp_content, sensitivity)', 'pass')]),
+        ("M14", "encrypted payload stays out of plaintext metadata", "test_private_payload_never_appears_in_plaintext_metadata",
+         [('return {"format": 1, "kind": payload["kind"], "task_id": payload["task_id"],',
+           'return {"debug_payload": payload, "format": 1, "kind": payload["kind"], "task_id": payload["task_id"],')]),
+        ("M15", "private qualification retains its boundary", "test_private_payload_never_appears_in_plaintext_metadata",
+         [('**fm, "non_applicable_conditions": boundary}', '**fm, "non_applicable_conditions": []}')]),
     ]
     failures = []
     package = sys.modules["md_cg"]
