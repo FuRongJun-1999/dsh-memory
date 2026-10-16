@@ -508,7 +508,7 @@ def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
     return out
 
 
-# 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、且有签名或 signer 等于 "null" 方可通过；通过则对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，importance 默认 0.5，verification_basis 默认 "data"），统计 written/skipped，若 archive 为真则写包到收件箱，返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
+# 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、且有签名或 signer 等于 "null" 方可通过；通过则**先以 cg._maybe_reload_index() 做一次代际探活**（issue #403：#191-C 判据载体是本进程内存索引，他进程写入的节点须在判据前可见；无该方法/不可调用的载体跳过），再对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，importance 默认 0.5，verification_basis 默认 "data"），统计 written/skipped，若 archive 为真则写包到收件箱，返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
 def _seen_path(cg) -> str:
     """已见台账路径（本根顶层）。cg.root 不可用时返回空串（调用方按无账处理）。"""
     root = getattr(cg, "root", None)
@@ -607,6 +607,17 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
         return _note_reject(pack, f"证据包 created_at 非法：{created!r}", swarm=swarm)
     seen = _load_seen(cg)
     items = pack["items"][:MAX_ITEMS]
+    # issue #403：#191-C 的判据载体是**本进程内存索引**（cg.index），而 import_pack
+    # 全程只在 items 循环里读它；唯一一次代际探活在判据**之后**（MdCG.add 内
+    # _maybe_reload_index）——为时已晚，同名本地节点已被 override=True 顶替。
+    # 部署形态是仓内明文承认的多进程共享库（mdcg.py 的 N195 注记点名 serve 常驻
+    # 外的 review_cli / hive worker / 脚本写方）：他进程刚写入并落盘的本地节点在
+    # 本进程索引里不存在 ⇒ prev is None ⇒ 判据放行 ⇒ 旧正文被静默顶替且全库不留
+    # 副本（回执 imported=1, skipped=0）。故**进判据前、循环外单探一次**
+    # （N195/N196/N209/N213/N276 同款口径；无探活面的载体跳过，行为零变）。
+    _reload = getattr(cg, "_maybe_reload_index", None)
+    if callable(_reload):
+        _reload()
     written, skipped, replayed, clamped = [], 0, 0, 0
     #: issue #258：拒收理由留痕（此前降级**不可见**——返回体只说 imported: N）
     reasons = []
