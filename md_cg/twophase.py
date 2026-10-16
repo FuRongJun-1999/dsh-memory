@@ -189,7 +189,7 @@ def pending(cg, limit: int = 200) -> list:
     return out[:max(0, int(limit))]
 
 
-# 生效条件：cg 的 index["nodes"] 为映射时——遍历（先 tuple() 取快照）找出「merge_source_ids 含 nid」的条目并取其 id；命中后用 cg.get(该 id) 在**盘面**复核（读不到或 fm 未记 nid 则返回 None）；无索引/无命中/字段形态不符一律返回 None；恒不写盘、不抛。
+# 生效条件：cg 的 index["nodes"] 为映射时——遍历（先 tuple() 取快照）找出「merge_source_ids 含 nid」的条目并取其 id；命中后用 cg.get(该 id) 在**盘面**复核（读不到或 fm 未记 nid 则返回 None）；**索引落空时回退盘面全扫**（cg 提供 `_scan_nodes` 时复用仓内唯一扫描实现，扫出的条目再走同一条复核）；无索引/无命中/字段形态不符一律返回 None；恒不写盘、不抛。
 def _merge_target(cg, nid):
     """源 id 是否已被**合并**进某个目标节点（#417）——事实来源＝**盘面**。
 
@@ -203,8 +203,34 @@ def _merge_target(cg, nid):
     **不含来源节点 id** —— 拿它反查来源永远查不到（"判据与事实不符"换个地方复发）。
     故 `forgetting.reinforce` 另立一列把来源 id 落盘（并有界保留），本函数据此反查；
     索引命中后**仍回盘复核**（索引是派生物，盘面才是事实来源）。
+
+    ★issue #498（2026-10-16 实测）：**索引落空时也必须回盘** —— 索引是派生物，
+    崩溃窗口内可能**根本还没持久化**：写链 gated MERGE 在 `twophase.commit` 处被
+    硬杀（`os._exit(7)`，无 flush）后，盘面目标节点的 `merge_source_ids` **已在**
+    （实测 `n_t.md` 有 `["n_x"]`、聚合行也在），而磁盘 `_index.json` 里该键**缺失**
+    ⇒ 只查索引的实现判 `interrupted/node_missing`，与盘面相反（且 `_maybe_reload_index()`
+    也救不回来——它读的还是那份陈旧索引）。故索引落空后再走一次**盘面扫描**：
+    复用仓内**唯一扫描实现** `cg._scan_nodes()`（`mdcg._scan_nodes` 走 `os.walk`
+    逐文件读 frontmatter，`_node_entry` 已登记 `merge_source_ids`），扫出的条目
+    交给**同一条**复合判据（仍 `cg.get` 回盘复核）——不新写第二套遍历、不放宽语义
+    （盘面上**确无**痕迹时照样 `interrupted`，见本文件 K01 反向腿）。
     """
-    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    hit = _merge_target_in(cg, (getattr(cg, "index", None) or {}).get("nodes") or {}, nid)
+    if hit:
+        return hit
+    scan = getattr(cg, "_scan_nodes", None)
+    if not callable(scan):
+        return None
+    try:
+        fresh = scan() or {}
+    except Exception:                            # noqa: BLE001 —— 扫不动不猜测
+        return None
+    return _merge_target_in(cg, fresh, nid)
+
+
+# 生效条件：nodes 为映射时，遍历（先 tuple() 取快照）其中「merge_source_ids 含 nid」的条目并取其 id；命中后用 cg.get(该 id) 在**盘面**复核（读不到或 fm 未记 nid 则返回 None）；否则返回 None。
+def _merge_target_in(cg, nodes, nid):
+    """`_merge_target` 的**同一条**复合判据（索引面 / 盘面扫描面共用，避免两套口径）。"""
     for tid, e in tuple(nodes.items()):          # H-4(a)：迭代前取快照
         if not isinstance(e, dict):
             continue
