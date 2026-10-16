@@ -27,7 +27,7 @@
  * 旧数据接手：`migrateLegacyData()` 在默认数据根生效且旧包内位置仍有内容时
  * 一次性**复制**（不删除、不覆盖）到用户级位置——见该函数注释。
  */
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -60,22 +60,41 @@ export const ENV_STATE_ROOT = 'MDCG_STATE_ROOT'
 let cachedStateRoot: string | null = null
 
 /**
- * 路径环境变量的 `~` 形态展开（#386）。
+ * 路径的波浪线展开——**本判据在 TS 侧的唯一实现**（N167 先例 + N117 双口径分叉）。
  *
- * 背景：改前 Node 侧四个 env 入口（`MDCG_STATE_ROOT` / `MDCG_DATA_ROOT` /
- * `MDCG_ROOT` / `MDCG_CHILD_CWD`）直接 `resolve()`，`~` 被当成普通目录名 ——
- * `MDCG_STATE_ROOT=~/.dsh-memory` 落到 `<仓根>/~/.dsh-memory`；而 Python 侧
- * `datapath._abs_host_path()` 用 `os.path.expanduser` 落到 `<家目录>/.dsh-memory`。
- * 同一份配置两侧各写一个库（Node 写 A、Python 读 B），是最难发现的分叉形态。
+ * 判据（**与 python 侧 `md_cg/datapath.py::_expand_home` 逐条同口径**）：
+ *   `~`    → 家目录
+ *   `~/x`  → 家目录/x
+ *   `~\x` → 家目录/x（分隔符不按平台分派：N167 的 --root 先例即把 `~\` 一并算作
+ *             可用分隔符，POSIX 上同样判——见 python 侧同一条登记的对照读数）
+ *   `~user` / `~abc` / 其余（含相对路径、空串）→ **原样返回**
  *
- * 规则（**单点**，四个 env 入口共用）：
- *   · 仅展开「`~` 本身」与「`~` 后紧跟分隔符」（`~/x`、`~\x`）；
- *   · `~user` 形态**原样保留**（与 PR #385 的裁定一致；Python 的 expanduser
- *     会展开 `~user`，属已知的残留分叉，见本单元返回的 residual）；
- *   · 其余原样返回，由调用方按既有口径 `resolve()`。
+ * 为什么必须展开（事故形态，可复现）：本模块的 env 覆盖值在 python 侧一律先做波浪线
+ * 展开再 abspath，node 侧不展开就会把 `MDCG_ROOT=~/mem` 解析成 `<插件仓根>/~/mem`
+ * 字面 `~` 目录——同一台机器上 python CLI（`datapath.mdcg_root()` / sleep / mreview）
+ * 落 `<家目录>/mem`，插件落仓内 `~/mem`，**记忆真源分裂成互不可见的两处**。
+ * `runRoot()` 的覆盖值落进包内还会触发该函数自己文档写明要避免的 `ERR_PNPM_EBUSY`
+ * （cwd 在包内 → pnpm 更新 rmdir 包目录必失败）。
  *
- * paths.json 的 `data_root` / `root` **不**走本函数：Python 侧对这两个键只做
- * abspath（不 expanduser），两侧同为字面量；在此展开反而会造出新的分叉。
+ * **`~user` 两侧都不展开（方案 a，2026-10-16 维护者裁定项 §二格 1）——双侧对称登记**：
+ * 本行是 TS 侧登记，python 侧在 `md_cg/datapath.py::_expand_home` 的 docstring 里有
+ * 一条对等登记，仓内留档见 `docs/eval/路径解析点盘点_同口径判定_v1.0.md`。
+ * 取 (a) 而非 (b) 的理由：`~user` 的语义是「查账号库拿该用户的 home」，两侧都做不到
+ * 同一种查询——posix 的 `os.path.expanduser` 走 `pwd.getpwnam`（查得到就展开，查不到
+ * 原样保留，结果随本机账号而变），ntpath 只在用户名等于当前用户时才展开。同一份 env
+ * 在两端落点不同 = 正是本 issue（分叉）本身，故**宁两侧同留字面量**。
+ * 收敛代价（如实）：POSIX 上 `MDCG_ROOT=~ybyz/mem` 从「展开成 /home/ybyz/mem」变成
+ * 「原样 `~ybyz/mem`」——该形态在两侧都不再自动指向别人家目录，需用户写全路径。
+ *
+ * **唯一实现**：`src/init.ts` 的 `--root` 展开已改为调用本函数（原 `expandHomeTilde`
+ * 已删），源码面断言见 `test/datapath-expandhome.test.ts`——该断言扫 `src/` 下全部
+ * `.ts`（递归），发现第二处同判据即报红（反例读数为证）。
+ *
+ * **适用边界**：只用于 env 覆盖值与 `init.ts` 的 `--root`。`paths.json` 的取值**不接**
+ * ——两侧对配置文件里的相对值（含 `~/...`）都是「先拼插件仓根再归一」，单方面展开会
+ * 新造一条分叉；该面同口径的实测见留档文档。
+ *
+ * @param home 家目录（缺省 `os.homedir()`；可注入，供测试与 `init.ts` 的 `--home` 语义）
  */
 export function expandHome(p: string, home: string = homedir()): string {
   if (p === '~') return home
@@ -93,7 +112,6 @@ export function stateRoot(): string {
   if (cachedStateRoot) return cachedStateRoot
   const env = process.env[ENV_STATE_ROOT]
   if (env) {
-    // #386：`~` 形态按 expandHome 展开（与 Python expanduser 同落点）。
     cachedStateRoot = resolve(expandHome(env))
     return cachedStateRoot
   }
@@ -222,57 +240,6 @@ function isEmptyDir(p: string): boolean {
 }
 
 /**
- * 递归复制目录树，**不覆盖**目标已有文件。
- *
- * 为什么不用 `node:fs` 的 `cpSync`：本机实测（Windows + Node v22.23.1）——
- * **源路径含非 ASCII 字符**时 `cpSync(src, dst, { recursive: true })` 以
- * `0xC0000409`（STATUS_STACK_BUFFER_OVERRUN）**硬崩整个进程**：不是抛异常，
- * `try/catch` 接不住，宿主看不到任何栈。二分实测（同机同内容，逐条可复现）：
- *
- * | 用例 | 结果 |
- * |---|---|
- * | 源目录在纯 ASCII 路径 → `cpSync` 递归 | 通过 |
- * | 同一份内容先落到 ASCII 路径再复制 | 通过（排除内容因素） |
- * | 源目录在含中文路径（如 `E:\DS\插件\…`）→ `cpSync` 递归 | **必崩 0xC0000409** |
- * | 同一中文路径下 `copyFileSync` 单文件 | 通过（非「路径不可读」） |
- * | PowerShell `Copy-Item -Recurse` 同路径 | 通过（非权限/ACL 问题） |
- *
- * 命中面正是本模块：迁移的源是 `repoRoot()/data`，仓落在中文路径下即触发。
- * 而迁移是**启动路径上的增益步骤**（见 `migrateLegacyData` 注释：增益不该成为
- * 启动失败源），一旦硬崩就是整插件起不来，故不依赖 `cpSync`、自实现逐项复制。
- *
- * 语义对齐（与 `cpSync(src, dst, { recursive: true, force: false, errorOnExist: false })`
- * 同用途等价——迁移场景数据面无符号链接）：目录递归下钻、目标已存在即跳过。
- * 链接面语义有意收紧：按 `realpath` 去环、同一实体只搬一份——与 `cpSync` 默认
- * `dereference: false` 不同，对含链接的源树行为有差异，本模块数据面不依赖该差异。
- * - 断链／不可读条目静默跳过（由调用方按顶层条目计入 `failed`），不阻断其余条目。
- */
-function copyTreeNoOverwrite(src: string, dst: string, seen: Set<string> = new Set()): void {
-  let st
-  try {
-    st = statSync(src) // 跟随符号链接；断链在此抛出 → 跳过
-  } catch {
-    return
-  }
-  if (st.isDirectory()) {
-    let real: string
-    try {
-      real = realpathSync(src)
-    } catch {
-      real = src
-    }
-    if (seen.has(real)) return // 符号链接成环：跳过，不无限递归
-    seen.add(real)
-    mkdirSync(dst, { recursive: true })
-    for (const name of readdirSync(src)) copyTreeNoOverwrite(join(src, name), join(dst, name), seen)
-    return
-  }
-  if (!st.isFile()) return // 设备/管道等非常规条目：不搬
-  if (existsSync(dst)) return // force:false + errorOnExist:false ⇒ 已存在即跳过
-  copyFileSync(src, dst)
-}
-
-/**
  * 一次性迁移：把旧版留在**插件包内** `data/` 的数据面复制到用户级默认数据根。
  *
  * 触发条件（三条同时满足，缺一不动）：
@@ -321,7 +288,7 @@ export function migrateLegacyData(): LegacyMigration {
     if (existsSync(dst) && !isEmptyDir(dst)) continue
     try {
       mkdirSync(to, { recursive: true })
-      copyTreeNoOverwrite(src, dst)
+      cpSync(src, dst, { recursive: true, force: false, errorOnExist: false })
       out.copied += 1
     } catch {
       out.failed.push(name)
@@ -364,8 +331,6 @@ export function runRoot(): string {
   if (cachedRunRoot) return cachedRunRoot
   const candidates: string[] = []
   const override = process.env[ENV_CHILD_CWD]
-  // #386：`~` 形态先展开再 resolve——否则 `MDCG_CHILD_CWD=~/run` 会把子进程
-  // cwd 定到 `<仓根>/~/run`（与本函数「cwd 必须在包外」的声明相反）。
   if (override) candidates.push(resolve(expandHome(override)))
   const dshHome = process.env['DSH_HOME']
   if (dshHome) candidates.push(join(resolve(dshHome), '.dsh-memory', 'run'))
@@ -388,7 +353,7 @@ export function runRoot(): string {
 /** 数据根（记忆/账本/运行态的父目录）。 */
 export function dataRoot(): string {
   const env = process.env[ENV_DATA_ROOT]
-  // #386：env 的 `~` 形态展开（paths.json 的取值不展开——两侧同为字面量）。
+  // env 覆盖值先做波浪线展开再定锚（唯一实现 expandHome；N117）
   if (env) return anchor(expandHome(env))
   const cfg = readUserPaths()['data_root']
   if (typeof cfg === 'string' && cfg) return anchor(cfg)
@@ -401,7 +366,7 @@ export function dataRoot(): string {
  */
 export function mdcgRoot(configured?: string): string {
   const env = process.env[ENV_MDCG_ROOT]
-  // #386：env 的 `~` 形态展开（paths.json / config 的取值不展开）。
+  // env 覆盖值先做波浪线展开再定锚（唯一实现 expandHome；N117）
   if (env) return anchor(expandHome(env))
   const cfg = readUserPaths()['root']
   if (typeof cfg === 'string' && cfg) return anchor(cfg)

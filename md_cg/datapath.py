@@ -101,8 +101,27 @@ _REPLACEMENT_CHAR = "\ufffd"
 # 不判定。归一是纯字符串操作不触盘，路径无需存在即可复现。env_key 传覆盖键名
 # （env 变量名或 paths.json 键），仅用于错误消息定位误配来源；为空时消息以
 # 「该路径」指代。
+# issue #385（PR 来源）：波浪线展开在 python 侧的**唯一实现**。此前的 os.path.expanduser
+# 是平台相关的——POSIX 会走 pwd.getpwnam 把 ~user 查成 /home/user，而 ntpath 只在用户名
+# 等于当前用户时展开 ⇒ 同一份 env 在两端落点不同；而 node 侧
+# src/lib/datapath.ts::expandHome 早已是自实现 ⇒ **两侧口径分叉**（正是该 issue 本身）。
+# 现两侧同名同判据：~ / ~/x / ~\x 展开；~user 与其余原样（方案 a——两侧无共同的
+# 「查账号库」语义，宁同留字面量）。
+# 收敛代价（如实）：POSIX 上 MDCG_ROOT=~someone/mem 从「展开成 /home/someone/mem」
+# 变成「原样 ~someone/mem」，需用户写全路径。
+# 源码面断言：md_cg/test_datapath_tilde_home.py（扫 md_cg/ 与 scripts/ 的 .py，第二处
+# 同判据即报红）。
+def _expand_home(p: str) -> str:
+    """波浪线展开——本判据在 python 侧的唯一实现（与 node 侧 expandHome 同口径）。"""
+    if p == "~":
+        return os.path.expanduser("~")
+    if p.startswith("~/") or p.startswith("~\\"):
+        return os.path.expanduser("~") + os.sep + p[2:]
+    return p
+
+
 def _abs_host_path(p: str, env_key: str = "") -> str:
-    r = os.path.abspath(os.path.expanduser(p))
+    r = os.path.abspath(_expand_home(p))          # #385：与 node 侧 expandHome 同口径
     if _REPLACEMENT_CHAR in r:
         who = env_key or "该路径"
         raise ValueError(
