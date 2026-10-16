@@ -2815,6 +2815,25 @@ class MdCG:
                     "两者是同一个文件，后写者会整份顶替先写者且不留副本"
                     "（issue #350），拒绝写入。请改用与既有节点完全一致的大小写，"
                     "或换一个不冲突的 id。")
+        # issue #346（2026-10-15 DSH 端）：**同层覆写也必须过既有密级闸**。
+        # `MdCGSecure.add` 的层闸只认**调用方声明的** layer/sensitivity（声明
+        # internal 即按 internal 判），下方 N221 只拦**跨层**覆写——同层覆写
+        # 没有任何一处比对「目标原密级 private ＞ 写入者 clearance internal」。
+        # 于是审核通道（accept/edit 落盘、C 类变更单执行、库层直调 add）把
+        # 属主 private 节点整条降密级覆写成 internal 明文：不抛错、原密文无
+        # 副本、无令牌访客可读。MCP 直写面靠 mcp_server 的 write_qualify 拦，
+        # 但 accept 执行链不经过它。判据复用 protect.require_layer 单点（按
+        # **索引里的既有层与密级**判，与直写面 write_qualify / merge 支 N131
+        # 同口径）：低 clearance 身份对既有高密级节点的覆写在此 fail-closed，
+        # 拒绝发生在冲突检测 / guard_write / 任何写盘之前，无副作用；裸 MdCG
+        # （无 principal）时该单点本就空转，零回归。属主（clearance 足够）的
+        # 显式降密照旧放行。
+        _ex346 = (self.index.get("nodes") or {}).get(node_id)
+        if _ex346 is not None:
+            protect.require_layer(self, node_id,
+                                  layer=_ex346.get("layer") or None,
+                                  sensitivity=_ex346.get("sensitivity") or None,
+                                  actor=extra.get("actor"))
         protect.guard_write(self, node_id, layer=layer, override=override,
                             actor=extra.get("actor"))
         # 节点间自动冲突检测（智能论 §十一 情绪二阶 / 条件论「反题」/ :273 递归约束）
