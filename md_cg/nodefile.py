@@ -141,7 +141,18 @@ def is_ccg_mark(name: str) -> bool:
 #   · 来源一致性档（文科）：textbook（人教版教材表述一致）/ public_kb（公开知识库一致）
 #     —— 文科知识不是可复现的物理事实，以「权威来源表述一致」为足够基底
 VERIFICATION_BASIS = ("compiler", "test", "measurement", "formal_proof", "data",
-                      "textbook", "public_kb", "other")
+                      "textbook", "public_kb", "other",
+                      # issue #466：外部 ingest 的内容基底。
+                      #   · 在**可接受集**（本词表）内，**不在** forgetting.VERIFIED_BASES
+                      #     （已验集）——「不在前者」与「不在后者」是两件事；判据函数是
+                      #     verification_basis_valid（可接受），不是 is_verified。
+                      #   · 与 trust 的**验证态列**（unverified/verified/…）**不是同一面**：
+                      #     那一列描述「这条记忆被验到什么程度」，本词表描述「断言凭什么成立」。
+                      #   · 沿用 :107 口径「值域控制已有真源，勿另造词表」⇒ 本件是**扩既有词表**。
+                      #   · 子档归属：**在两档外**（REPRODUCIBLE_BASIS / CONSISTENCY_BASIS）——
+                      #     外部内容既非可复现、亦非来源一致，归任何一档都是错的。
+                      #     守卫 md_cg/test_issue466_basis_registry.py 的 A 组钉住这三点。
+                      "untrusted")
 
 #: 可复现档：理科断言必须落在这一档（复现证据）
 REPRODUCIBLE_BASIS = ("compiler", "test", "measurement", "formal_proof", "data")

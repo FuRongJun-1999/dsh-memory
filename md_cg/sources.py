@@ -48,6 +48,15 @@ class Source:
 
     name = "source"
 
+    #: #466：**来源声明面**（本件新增）。外部内容经 ingest 落库时，基底/密级取自来源声明，
+    #: 不再由写入点硬编码——「同一份外部文本走不同链得到不同基底」的根因就是硬编码。
+    #: 基底缺省 `untrusted`：在 `nodefile.VERIFICATION_BASIS`（**可接受集**）内，
+    #: 但**不在** `forgetting.VERIFIED_BASES`（**已验**集）里，也不在理科/文科两档内——
+    #: 外部内容本就不应作为可信基底进入权威记忆。
+    #: 密级缺省 `internal`（**本件不降级**：降 public 会放宽外带面，与本件方向相反）。
+    default_basis = "untrusted"
+    default_sensitivity = "internal"
+
 # 生效条件：任何调用都直接 raise NotImplementedError（基类占位，无其它分支）。
     def events(self):
         raise NotImplementedError
@@ -67,6 +76,9 @@ class JsonlSource(Source):
       role_key   —— 角色字段（默认 "role"）
       text_key   —— 文本字段（默认 "text"）
     """
+
+    default_basis = "untrusted"        # #466：外部 JSONL 会话 ⇒ 未验基底
+    default_sensitivity = "internal"
 
 # 生效条件：传入 path；name 为假值（None/空串）时回落为 "jsonl:"+os.path.basename(path)，t_key/role_key/text_key/default_role 原样存为属性（默认值 "time"/"role"/"text"/"user"）。
     def __init__(self, path: str, name: str = None, t_key="time", role_key="role",
@@ -139,6 +151,9 @@ class DSHSessionSource(Source):
       tool/call         → role=command（"name(args)" 形式）
       tool/result       → role=tool-output
     """
+
+    default_basis = "untrusted"        # #466：外部会话转录 ⇒ 未验基底
+    default_sensitivity = "internal"
 
 # 生效条件：传入 path 即成立，include_reasoning 原样存为属性（默认 False），name 固定为 "dsh:"+os.path.basename(os.path.dirname(path))。
     def __init__(self, path: str, include_reasoning: bool = False):
@@ -288,6 +303,11 @@ class HiveJobsSource(Source):
     """
 
     name = "hive_jobs"
+
+    #: #466：hive 任务面同为**外部**内容 ⇒ 基底缺省 untrusted；
+    #: 密级保持 internal **不变**（本件不带宽外带面），只是改为可声明。
+    default_basis = "untrusted"
+    default_sensitivity = "internal"
 
     def __init__(self, root: str, error_sensitivity: str = "private"):
         self.root = os.path.abspath(root)
@@ -526,13 +546,16 @@ class Ingestor:
                         "# 验证方式：data（会话原始记录）\n"
                         "# 不适用条件：其它会话\n\n"
                         f"{ev.get('text')}\n")
+                # #466：基底取自**来源声明**（事件级 basis 优先，否则源级 default_basis）。
+                basis = ev.get("basis") or self.default_basis
                 try:
                     self.cg.add(nid, body, layer=self.layer, role=ev.get("role"),
                                 tags=["session", key],
                                 # 事件级密级覆盖（M6 §5.5）：error 事件建议 private
                                 # （失败细节可能含路径/配置），缺省回落源级默认
                                 sensitivity=ev.get("sensitivity") or self.sensitivity,
-                                verification_basis="data",
+                                # #466：不再硬编码 "data"（外部内容不得自带权威基底）。
+                                verification_basis=basis,
                                 condition_space={"observation_position": key,
                                                  "observation_tool": "会话流",
                                                  "time_window": [ev.get("t") or 0,
