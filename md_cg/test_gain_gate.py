@@ -71,7 +71,9 @@ def main():
         root = os.path.join(tmp, "root")
         os.makedirs(root, exist_ok=True)
         cg = MdCGOS(root)
-        bid = metacognition._key("反应堆冷却方案")
+        # issue #445：盲区簇 bid = q_key 指纹（与 autonomy.proposals/explore、
+        # metacognition.blindspots 的邻域键同一口径——明文 _key 前缀不再作 bid）。
+        bid = metacognition.q_key_fp("反应堆冷却方案")
 
         # ---------- ① 首探放行 ----------
         g0 = autonomy.gain_gate(cg, bid, now=250.0)

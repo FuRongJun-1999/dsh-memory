@@ -277,7 +277,9 @@ TOOLS = [
     },
     {
         "name": "mdcg_reflect",
-        "description": "反思单元：记录本次查询的信息差 D(t,C) 与二阶 d²D/dt²，写 _reflection.jsonl。",
+        "description": "反思单元：记录本次查询的信息差 D(t,C) 与二阶 d²D/dt²，写 _reflection.jsonl"
+                       "（issue #445：台账只记查询的不可逆摘要 q_sha/q_key/q_len，"
+                       "原文不落盘——回执仍回显调用方自己的查询）。",
         "inputSchema": _s("", query=_p("string", "查询", True), k=_p("integer", "取前 k 条"),
                           feedback=_p("string", "用户反馈（可选）")),
     },

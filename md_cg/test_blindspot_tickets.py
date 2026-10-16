@@ -21,7 +21,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from . import blindspot_tickets, tasks
+from . import blindspot_tickets, metacognition, tasks
 from .fsutil import append_jsonl
 from .mdcos import MdCGOS
 
@@ -47,8 +47,9 @@ def _sig(cg, t, query, states):
                   "n_results": 1, "feedback": None})
 
 
-def _card(cg, ttype, q):
-    nid = tasks.TASK_PREFIX + tasks.slugify("票据:%s:%s" % (ttype, q[:24]))
+def _card(cg, ttype, qk):
+    """按生产同名规则取卡：票据名 = 票据:<type>:<q_key 指纹>（issue #445）。"""
+    nid = tasks.TASK_PREFIX + tasks.slugify("票据:%s:%s" % (ttype, qk))
     node = cg.get(nid) or {}
     return node, nid
 
@@ -64,6 +65,8 @@ def main():
         Q_G = "上次说的那个修复方案细节"       # defer×2     → grilling
         Q_P = "数据迁移的回滚口径"             # blindspot×1 → prototype
         Q_T = "跨库事务一致性边界"             # blindspot×1 + unresolved 首行命中 → task
+        # issue #445：票据恒等键 = q_key 指纹（与生产 blindspots 簇键同一口径）
+        K = {q: metacognition.q_key_fp(q) for q in (Q_R, Q_G, Q_P, Q_T)}
 
         # ---------- ① 空库诚实 ----------
         r0 = blindspot_tickets.make_tickets(cg)
@@ -90,14 +93,14 @@ def main():
         dry = blindspot_tickets.make_tickets(cg)
         ok(dry["ok"] and dry["scanned"] == 4 and dry["applied"] is False,
            "③四簇入池、预演不落库")
-        by_q = {tk["query"]: tk for tk in dry["tickets"]}
+        by_q = {tk["q_key"]: tk for tk in dry["tickets"]}
         ok(all(tk.get("dry_run") for tk in dry["tickets"]),
            "③b预演票据全 dry_run 标记")
         ok(len(tasks.list_tasks(cg)["tasks"]) == 0,
            "③c预演零落库")
-        ok(by_q[Q_T]["type"] == "task" and by_q[Q_R]["type"] == "research"
-           and by_q[Q_G]["type"] == "grilling" and by_q[Q_P]["type"] == "prototype",
-           "③d四类分类各就位（task 判据优先于 b/d 计数）")
+        ok(by_q[K[Q_T]]["type"] == "task" and by_q[K[Q_R]]["type"] == "research"
+           and by_q[K[Q_G]]["type"] == "grilling" and by_q[K[Q_P]]["type"] == "prototype",
+           "③d四类分类各就位（task 判据＝q_sha 指纹命中首行指纹，优先于 b/d 计数）")
 
         # ---------- ④ apply 落卡 ----------
         r1 = blindspot_tickets.make_tickets(cg, apply=True, actor="test")
@@ -108,13 +111,13 @@ def main():
         tags_ok = True
         for ttype, q in (("research", Q_R), ("grilling", Q_G),
                          ("prototype", Q_P), ("task", Q_T)):
-            node_i, _ = _card(cg, ttype, q)
+            node_i, _ = _card(cg, ttype, K[q])
             fm_i = (node_i or {}).get("frontmatter") or {}
             if "ticket:%s" % ttype not in (fm_i.get("tags") or []):
                 tags_ok = False
         ok(tags_ok, "④c四卡 fm tags 带 ticket:<type> 族标")
         # 分类落卡实体抽查
-        node_r, _ = _card(cg, "research", Q_R)
+        node_r, _ = _card(cg, "research", K[Q_R])
         ok(node_r and "ticket:research" in (node_r["frontmatter"].get("tags") or []),
            "④dresearch 卡以 ticket:research 落库")
 
@@ -126,11 +129,11 @@ def main():
 
         # ---------- ⑥ types 过滤（仅过滤，不改判据） ----------
         r3 = blindspot_tickets.make_tickets(cg, types=["research"], apply=True)
-        tk3 = {tk["query"]: tk for tk in r3["tickets"]}
-        ok(r3["ok"] and tk3[Q_R].get("node_id") and tk3[Q_G].get("skipped")
-           and tk3[Q_T].get("skipped") and tk3[Q_P].get("skipped"),
+        tk3 = {tk["q_key"]: tk for tk in r3["tickets"]}
+        ok(r3["ok"] and tk3[K[Q_R]].get("node_id") and tk3[K[Q_G]].get("skipped")
+           and tk3[K[Q_T]].get("skipped") and tk3[K[Q_P]].get("skipped"),
            "⑥types=research → 其余三类 skipped（判据未被 types 改写）")
-        ok(tk3[Q_R].get("created") is False,
+        ok(tk3[K[Q_R]].get("created") is False,
            "⑥bresearch 卡幂等更新（created=False，重复过滤轮不重复建）")
 
         # ---------- ⑦ 非法 types ----------
@@ -140,19 +143,20 @@ def main():
            "⑦非法类型 → ok=False 点名可选集、零落库")
 
         # ---------- ⑧⑨ 卡正文边界与关联 ----------
-        node_g, _ = _card(cg, "grilling", Q_G)
+        node_g, _ = _card(cg, "grilling", K[Q_G])
         plan_g = node_g["content"] if node_g else ""
         ok(node_g and "宿主侧访谈" in plan_g and "不越权代答" in plan_g,
            "⑧grilling 卡如实声明执行通道=宿主侧访谈")
-        node_t, _ = _card(cg, "task", Q_T)
+        node_t, _ = _card(cg, "task", K[Q_T])
         plan_t = node_t["content"] if node_t else ""
         ok(node_t and "t_unres" in plan_t and "关联悬挂" in plan_t,
            "⑨task 卡携带关联 unresolved node_id")
 
         # ---------- ⑩ min_blindspot 资格过滤 ----------
         r5 = blindspot_tickets.make_tickets(cg, min_blindspot=3)
-        qs5 = {tk["query"] for tk in r5["tickets"] if not tk.get("skipped")}
-        ok(Q_R in qs5 and Q_G in qs5 and Q_P not in qs5 and Q_T not in qs5,
+        qs5 = {tk["q_key"] for tk in r5["tickets"] if not tk.get("skipped")}
+        ok(K[Q_R] in qs5 and K[Q_G] in qs5
+           and K[Q_P] not in qs5 and K[Q_T] not in qs5,
            "⑩min_blindspot=3 → 仅 research(b=3) 与 grilling(d≥1) 入池")
 
         print("[test_blindspot_tickets] PASS=%d FAIL=%d" % (PASS, FAIL))

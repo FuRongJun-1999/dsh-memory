@@ -214,7 +214,7 @@ def budget_gate(cg, now: float | None = None) -> dict:
             "used": used, "exhausted": bool(declared and used >= mx)}
 
 
-# 生效条件：cg 的反思记录经 metacognition._reflections 取末 int(window) 条切片（window=0 时切片即全量），按非空 query 聚合后仅 score=W_D2*d2_abs+W_BLINDSPOT*blindspot+W_DEFER*defer>0 的项进入 out（**资格判据先于加分**：score<=0 即 continue，D_meta 与情绪均不构成资格），其中 enforce_gain 为真值时还须 gain_gate(cg, …, now)["sigma"]>0 否则该项标 deferred_exhausted 转入 deferred，enforce_gain 为假值时不做增益筛选全数进入 out；D_meta 加分 W_DMETA*d_meta.pressure(d_meta.compute(cg, window), DMETA_PROXY) 每轮只算一次并在循环内复用，只写入 sort_score 与 reason 证据（不改 score、不改资格、不改 σ），MDCG_D_META 关闭或未启用时该加分为 0.0；情绪加分 emotion_bonus=W_EMO*D2_EMOTION*sign（sign 由 d2_mean=d2_sum/samples 经 metacognition._emotion 三判：approaching=+1/avoiding=-1/stable=0，eps=D2_EMOTION 即硬上限）仅在 MDCG_PROPOSAL_EMOTION=="1" 时生效、否则恒 0.0，只并入 sort_score（= score + d_meta 加分 + 情绪加分）与 reason/emotion 逐条证据（不改 score、不改资格、不改 σ）；最终 out 按 (-sort_score, -last_t) 排序后截取 max(1, int(limit)) 条（limit=0 或负数也返回 1 条）并随 n_signals=len(agg) 返回；
+# 生效条件：cg 的反思记录经 metacognition._reflections 取末 int(window) 条切片（window=0 时切片即全量），按 q_key 指纹（metacognition._r_qmeta：新档直读、旧档明文折算，分组语义与修前 _key(q) 一致；issue #445 条目不携带查询原文）聚合后仅 score=W_D2*d2_abs+W_BLINDSPOT*blindspot+W_DEFER*defer>0 的项进入 out（**资格判据先于加分**：score<=0 即 continue，D_meta 与情绪均不构成资格），其中 enforce_gain 为真值时还须 gain_gate(cg, …, now)["sigma"]>0 否则该项标 deferred_exhausted 转入 deferred，enforce_gain 为假值时不做增益筛选全数进入 out；D_meta 加分 W_DMETA*d_meta.pressure(d_meta.compute(cg, window), DMETA_PROXY) 每轮只算一次并在循环内复用，只写入 sort_score 与 reason 证据（不改 score、不改资格、不改 σ），MDCG_D_META 关闭或未启用时该加分为 0.0；情绪加分 emotion_bonus=W_EMO*D2_EMOTION*sign（sign 由 d2_mean=d2_sum/samples 经 metacognition._emotion 三判：approaching=+1/avoiding=-1/stable=0，eps=D2_EMOTION 即硬上限）仅在 MDCG_PROPOSAL_EMOTION=="1" 时生效、否则恒 0.0，只并入 sort_score（= score + d_meta 加分 + 情绪加分）与 reason/emotion 逐条证据（不改 score、不改资格、不改 σ）；最终 out 按 (-sort_score, -last_t) 排序后截取 max(1, int(limit)) 条（limit=0 或负数也返回 1 条）并随 n_signals=len(agg) 返回；
 def proposals(cg, window: int = 200, limit: int = 3,
               enforce_gain: bool = True) -> dict:
     """从反思日志聚合信息差信号，产出排序后的探索提案。
@@ -241,13 +241,15 @@ def proposals(cg, window: int = 200, limit: int = 3,
     recs = metacognition._reflections(cg)[-int(window):]
     agg = {}
     for r in recs:
-        q = str(r.get("query") or "").strip()
-        if not q:
+        # #445：聚合键 = q_key 指纹（新档直读，旧档明文折算——分组语义与修前
+        # _key(q) 一致），条目不携带查询原文。
+        _sha, key, qlen = metacognition._r_qmeta(r)
+        if not key or not qlen:
             continue
-        k = metacognition._key(q)
-        a = agg.setdefault(k, {"query": q, "d2_sum": 0.0, "d2_abs": 0.0,
-                               "blindspot": 0, "defer": 0, "samples": 0,
-                               "last_t": 0.0})
+        a = agg.setdefault(key, {"q_key": key, "q_len": qlen,
+                                 "d2_sum": 0.0, "d2_abs": 0.0,
+                                 "blindspot": 0, "defer": 0, "samples": 0,
+                                 "last_t": 0.0})
         d2 = r.get("d2")
         if isinstance(d2, (int, float)):
             a["d2_sum"] = round(a["d2_sum"] + float(d2), 6)
@@ -294,7 +296,7 @@ def proposals(cg, window: int = 200, limit: int = 3,
                           d_meta.pressure(mv, DMETA_PROXY), emotion_bonus,
                           bias, d2_mean))
         if enforce_gain:                   # P-T-40 增益门槛：资格由实现值裁决
-            gate = gain_gate(cg, metacognition._key(a["query"]), now=now)
+            gate = gain_gate(cg, a["q_key"], now=now)
             a["gain_gate"] = gate
             if gate["sigma"] <= 0:
                 a["status"] = "deferred_exhausted"
@@ -314,7 +316,7 @@ def proposals(cg, window: int = 200, limit: int = 3,
                             "D_meta/情绪只加排序分、不改资格（DEV-002a）")}
 
 
-# 生效条件：cg 必需，该符号始终返回 ok=True、action="explore"；budget_gate(cg) 已声明（MDCG_EXPLORE_BUDGET_MAX 为正整数）且窗口未耗尽时，bypass_gain=True 才实授豁免（granted=True）并以 enforce_gain=False 调 proposals，否则（未请求/未声明/已耗尽）以 enforce_gain=True 调（回落任务定价，window/limit 原样透传）；逐条提案用 apply/actor 调 predict.learn_blindspots 并把其首个 step 的 terminal 记入 outcomes[bid]，同一 blindspot_id 本轮已见则记为 skipped，调用抛异常则记为 error（"%s: %s" % (type(exc).__name__, exc)），并额外取本轮 d_meta.compute（append 前状态）与上一条 explore 留痕的 meta_outcomes.before，并列写入 meta_outcomes={before, prev_before, delta, proxy, enabled}（**outcomes 值类型不变**），并把本轮 proposals 原样并入 rec 的 proposals 键（W4 只增：含 emotion/emotion_bonus 观测面，既有键与 outcomes 值类型不变），最后一处 append_jsonl 写 _explore_log_path(cg) 时仅 OSError 被忽略；rec["bypass_gain"] 记**生效值**（granted），显式请求（req）时另加 rec["budget"]={requested,declared,granted,window,max,used,exhausted}（默认路径无此键 ⇒ 零变更），返回体同法（req 时含 budget 键并追加 note）；
+# 生效条件：cg 必需，该符号始终返回 ok=True、action="explore"；budget_gate(cg) 已声明（MDCG_EXPLORE_BUDGET_MAX 为正整数）且窗口未耗尽时，bypass_gain=True 才实授豁免（granted=True）并以 enforce_gain=False 调 proposals，否则（未请求/未声明/已耗尽）以 enforce_gain=True 调（回落任务定价，window/limit 原样透传）；逐条提案用 apply/actor 调 predict.learn_blindspots（blindspot_id 取提案的 q_key 指纹，issue #445）并把其首个 step 的 terminal 记入 outcomes[bid]，同一 blindspot_id 本轮已见则记为 skipped，调用抛异常则记为 error（"%s: %s" % (type(exc).__name__, exc)），并额外取本轮 d_meta.compute（append 前状态）与上一条 explore 留痕的 meta_outcomes.before，并列写入 meta_outcomes={before, prev_before, delta, proxy, enabled}（**outcomes 值类型不变**），并把本轮 proposals 原样并入 rec 的 proposals 键（W4 只增：含 emotion/emotion_bonus 观测面，既有键与 outcomes 值类型不变），最后一处 append_jsonl 写 _explore_log_path(cg) 时仅 OSError 被忽略；rec["bypass_gain"] 记**生效值**（granted），显式请求（req）时另加 rec["budget"]={requested,declared,granted,window,max,used,exhausted}（默认路径无此键 ⇒ 零变更），返回体同法（req 时含 budget 键并追加 note）；
 def explore(cg, apply: bool = False, limit: int = 3, window: int = 200,
             actor: str = "autonomy", bypass_gain: bool = False) -> dict:
     """最小探索闭环：提案 → 逐盲区五态验证 →（apply）回写待补线索。
@@ -353,7 +355,9 @@ def explore(cg, apply: bool = False, limit: int = 3, window: int = 200,
         prev = mo.get("before") if isinstance(mo, dict) else None
     steps, outcomes, seen = [], {}, set()
     for p in pr["proposals"]:
-        bid = metacognition._key(p["query"])
+        bid = str(p.get("q_key") or "").strip()   # #445：盲区簇键＝q_key 指纹
+        if not bid:
+            continue
         if bid in seen:                    # ②循环保护：本轮防重复
             steps.append({"proposal": p, "blindspot_id": bid,
                           "terminal": "skipped",
@@ -396,7 +400,7 @@ def explore(cg, apply: bool = False, limit: int = 3, window: int = 200,
                "delta": d_meta.diff(prev, mv),
                "proxy": DMETA_PROXY,
                "enabled": bool(mv.get("enabled"))},
-           "gain_deferred": [(d.get("query"), d.get("gain_gate", {}).get("reason"))
+           "gain_deferred": [(d.get("q_key"), d.get("gain_gate", {}).get("reason"))
                              for d in (pr.get("deferred") or [])],
            # W4 情绪→决策通路（**只增**）：proposals 原样并入台账——含读期情绪读数
            #（emotion{bias,d2_mean,source}）与排序加分 emotion_bonus（默认关时 0.0），
