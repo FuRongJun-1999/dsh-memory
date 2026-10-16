@@ -357,9 +357,32 @@ def history(cg, node_id):
 
 # ---------------------------------------------------------------- 守卫
 
-# 生效条件：对任意 cg、node_id、why、action、override、actor 都无条件返回 {'override': True, 'reason': why, 'snapshot': snapshot(...) 的结果, 'audit': _audit(cg, action, node_id, why, actor, snap) 的结果}，override 形参本身不改变返回内容。
+# 生效条件：对任意 cg、node_id、why、action、override、actor——先拍前像（`snapshot`）；**前像不可得**
+# （写者读不到该节点、或前像落盘失败 ⇒ `snapshot` 返回 None）时**fail-closed**：留一条
+# `<action>_denied` 审计行并抛 `ProtectionError`，不返回放行字典；前像可得时返回
+# {'override': True, 'reason': why, 'snapshot': snap, 'audit': _audit(...)}。
 def _allow(cg, node_id, why, action, override, actor):
+    """受保护节点 override 的唯一放行点（前像不可得 ⇒ 拒）。
+
+    issue #413 站点2（2026-10-16 实测，HEAD dd8a9640）：此前 `snapshot()` 返回 None
+    （该身份**读不到**这个节点，例如 self 层 private 节点 + internal 档写者、或跨会话）
+    时**照样返回 `override: True`** ⇒ 覆写静默落盘而 `_protected_history/<id>/` 一件不落、
+    审计行 `snapshot: null`：受保护节点的原内容**不可回滚地消失**（N228 逐字：「这些快照
+    是后续 override 快照链的基线」）。实测四写者变体里 `designer/internal/sessB` 走到该
+    分支：覆写后节点 `sensitivity` 由 private 变 internal、原文（AEAD 密文）无从恢复，
+    internal 档读者随后可读。
+    ⇒ 判据：**override 的价值来自「可回滚」，前像拍不出来就不该放行**（与 N228 快照留痕、
+    与 #413 站点1 的同秒不踩踏同一族）。需要放行的内部路径应改用能读到该节点的主语
+    （或先 `cg.unlock`/换身份），而不是让不可回滚的覆写通过。
+    """
     snap = snapshot(cg, node_id)
+    if snap is None:
+        rec = _audit(cg, action + "_denied", node_id,
+                     why + "；前像不可得 ⇒ fail-closed（issue #413 站点2）", actor, None)
+        raise ProtectionError(
+            f"节点 {node_id} 受保护（{why}）；override 需要前像，但前像不可得"
+            f"（该身份读不到此节点，或前像落盘失败）——本次覆写/搬迁/遗忘被拒（fail-closed）"
+            f"（N228/#413-2：无前像的 override 不可回滚）")
     rec = _audit(cg, action, node_id, why, actor, snap)
     return {"override": True, "reason": why, "snapshot": snap, "audit": rec}
 
