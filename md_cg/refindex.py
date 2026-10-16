@@ -860,16 +860,46 @@ def _forget_many(cg, plan, why: str) -> tuple:
     return done, blocked
 
 
-# 生效条件：cg 具备可调用的 _unstage 时对 ghosts 逐个调用并收集成功 id（单条异常跳过），cg 无该能力时返回 []（不假装成功）。
-def _drop_ghosts(cg, ghosts) -> list:
+# 生效条件：逐 ghost 过 protect.is_protected（层保护/显式保护位/按分保护），受保护或判定异常（fail-closed）者进 skipped、不摘；其余具备 _unstage 时逐个调用并收集成功 id（单条异常跳过），cg 无该能力时全部进 skipped（不假装成功）。
+def _ghost_protected(cg, nid):
+    """幽灵条目的保护判定（issue #463）：节点文件已不在，但索引条目仍在，保护位可判。
+
+    判定异常一律 **fail-closed**（视为受保护、不摘）——幽灵摘除不可逆（无 trash/
+    快照），宁可留一条脏索引等人审，也不越权清掉不可遗忘节点。
+    """
+    try:
+        from . import protect
+        ok, why = protect.is_protected(cg, nid)
+        return bool(ok), str(why or "")
+    except Exception as exc:                  # noqa: BLE001
+        return True, "保护判定异常（fail-closed）：%s" % exc
+
+
+# 生效条件：把 ghosts 分流为 (可摘 plain, 受保护 skipped)——skipped 元素为 {"node_id","error"}，与 _forget_many 的 blocked 同形。
+def _partition_ghosts(cg, ghosts):
+    """幽灵分流：受保护的不进摘除计划（issue #463）。"""
+    plain, skipped = [], []
+    for nid in ghosts:
+        protected, why = _ghost_protected(cg, nid)
+        if protected:
+            skipped.append({"node_id": nid, "error": "protected: " + why})
+        else:
+            plain.append(nid)
+    return plain, skipped
+
+
+# 生效条件：plain 中每个 nid 经 cg._unstage 摘除并收集成功 id（单条异常跳过）；cg 无该能力时返回 ([], 全部条目 error)（不假装成功）。
+def _drop_ghosts(cg, ghosts) -> tuple:
     """摘除幽灵条目的索引记录（节点文件已不存在，没有可软删的实体）。
 
-    走 `MdCG._unstage`：它顺带落删除记录，保证幽灵不会再次从分片日志里复活。
-    基础层没有该能力时如实返回空列表（不假装成功）。
+    issue #463：传入的 ghosts 必须已经过 `_partition_ghosts` 分流（受保护不摘）；
+    本函数只处理可摘清单，走 `MdCG._unstage`（顺带落删除记录，保证幽灵不会再次
+    从分片日志里复活）。基础层没有该能力时如实返回空列表（不假装成功）。
     """
     drop = getattr(cg, "_unstage", None)
     if not callable(drop):
-        return []
+        return [], [{"node_id": n, "error": "无 _unstage 能力（不假装成功）"}
+                    for n in sorted(ghosts)]
     out = []
     for nid in ghosts:
         try:
@@ -877,7 +907,7 @@ def _drop_ghosts(cg, ghosts) -> list:
             out.append(nid)
         except Exception:                 # 单条失败不拖垮整批
             continue
-    return out
+    return out, []
 
 
 # 生效条件：items 中同 kind 的节点若其 ref['path'] 命中本次 items 的文件、id 不在本次产出内且 ref['root'] 与入参 root 同一（_same_root），则列入清退计划；dry_run 为真只返回计划，否则经 _forget_many 软删；items 为空时返回 count 0。
@@ -1022,15 +1052,18 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
             "max_nodes": max_nodes,
             # 被排除的可再生节点数（原本会因转写被清理而列入 dangling）——不静默
             "regenerable_skipped": len(regenerable_skipped)}
+    # issue #463：幽灵摘除前按保护单点分流——层保护/显式保护位/按分保护的
+    # 节点文件缺失是「幽灵态」，索引条目仍是保护判定的真源，不得无闸摘除。
+    ghost_ok, ghost_blocked = _partition_ghosts(cg, ghost_plan)
     if dry_run:
         return {**base, "ok": True, "count": len(plan), "pruned": sorted(plan)[:50],
-                "ghost_pruned": ghost_plan[:50],
-                "skipped_protected": [], "reason": why}
+                "ghost_pruned": ghost_ok[:50],
+                "skipped_protected": ghost_blocked[:20], "reason": why}
     done, blocked = _forget_many(cg, plan, why)
-    dropped = _drop_ghosts(cg, ghost_plan)
+    dropped, _ = _drop_ghosts(cg, ghost_ok)
     return {**base, "ok": True, "count": len(done), "pruned": done[:50],
             "ghost_pruned": dropped[:50],
-            "skipped_protected": blocked[:20],
+            "skipped_protected": (blocked + ghost_blocked)[:20],
             "regenerable_skipped_ids": sorted(regenerable_skipped)[:20],
             "reason": why}
 
