@@ -111,6 +111,12 @@ llm-adapter-poc/
 # 故迭代目录不入库、仅本地留存。
 /hive/interop/iter-*/
 
+# 收据（receipt 机制，scripts/receipt.py）：**关于某次运行的证据**，属运行期产物 ⇒ **不入库**。
+# 理由：入库会（a）陈化、（b）被误当「现在绿」—— 正是 C4 docstring 里写的 (a) 之弊。
+# 保留 receipts/.gitkeep（空目录占位；该目录已在 scripts/workspace_index.py::DIR_ROLES 登记）。
+/receipts/*.json
+!/receipts/.gitkeep
+
 # 实验工作区（docs/experiments）：实验脚本 / result_*.json / _store 数据目录
 # 均为本地实验产物，不入库（_store 含 _index.json 与 *.lock，可由同目录
 # run_*.py 重跑再生；实验结论沉淀在 docs/ 的评测报告 md 中）
