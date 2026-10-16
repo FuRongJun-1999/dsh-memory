@@ -23,6 +23,11 @@ import os
 import re
 import sys
 
+try:
+    from .atomic_append import append_line
+except ImportError:                              # 脚本式直跑（python hive/scoreboard.py）
+    from atomic_append import append_line
+
 # ---- 口径单点（改口径只改这里）------------------------------------------------
 
 #: 蜂巢五单元闭集（id 契约）。
@@ -309,8 +314,8 @@ def main(argv=None):
         # 丢弃、无法复盘「某一轮评分相对上一轮变了什么」。改为 JSONL：每次运行追加一行
         # （一行 = 一轮快照；读回取末行即最新）。
         p = os.path.join(args.jobs, "_scoreboard.jsonl")
-        with io.open(p, "a", encoding="utf-8", newline="\n") as fh:
-            fh.write(json.dumps(doc, ensure_ascii=False, sort_keys=True) + "\n")
+        # issue #465：跨进程原子追加单点（池级互斥 + 单次 write；失败上抛不静默丢）。
+        append_line(p, json.dumps(doc, ensure_ascii=False, sort_keys=True))
         print()
         print("已追加:", p)
     return 0

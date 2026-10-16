@@ -35,6 +35,11 @@ import sys
 import tempfile
 import time
 
+try:
+    from .atomic_append import append_line
+except ImportError:                              # 脚本式直跑（python hive/exec_cmd.py）
+    from atomic_append import append_line
+
 HEAD_CHARS = 4000
 DEFAULT_STEP_TIMEOUT_S = 600
 EXIT_OK, EXIT_SPEC, EXIT_EXEC = 0, 2, 3
@@ -84,8 +89,8 @@ def _write_result(job_dir: str, obj: dict) -> None:
 def _log(job_dir: str, msg: str) -> None:
     line = f"[{time.strftime('%H:%M:%S')}] {msg}\n"
     try:
-        with open(os.path.join(job_dir, "log.txt"), "a", encoding="utf-8") as f:
-            f.write(line)
+        # issue #465：跨进程原子追加单点（池级互斥 + 单次 write）；观测面失败仍降级 stderr。
+        append_line(os.path.join(job_dir, "log.txt"), line.rstrip("\n"))
     except (OSError, TypeError):
         sys.stderr.write(line)
 
