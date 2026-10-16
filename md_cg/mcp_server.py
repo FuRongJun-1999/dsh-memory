@@ -3683,37 +3683,6 @@ def _dispatch(cg, name, args):
         # 铸出同一 id → add 的 upsert 语义静默顶替（返回 committed 却 0 命中）。
         from .mdcg import mint_auto_id
         nid = a.get("node_id") or mint_auto_id(cg)
-        # ★issue #418（2026-10-16 DSH 端）：**role 类型闸**。
-        # 病象：工具面接受 role=[1,2,3]（声明为 string 却传 list）→ 节点照常落盘、
-        # 回执 {"ok": true, "committed": true}；而下次装载时 nodefile.frontmatter_problem
-        # 判「role 类型非法」⇒ 该节点进**隔离**（不进索引、不改盘）⇒ get 返回 not_found、
-        # search 扫不到，而四个运维读面（health/health_os/mdcg_health/service_info）
-        # **都不报隔离** —— 用户视角＝「说存住了，其实读不到」。
-        # 处置：**入口 fail-closed 拒收**（与 check_recent_event 的 docstring 逐字同款：
-        # 「类型错 ⇒ 不静默降级，写面抛异常」；同族先例另有 #355 content 类型、
-        # bounty #88 recent 事件、add 拒 node_id=True）。**不选「回执改为落盘后回读」**：
-        # 回读只是把「不可达」变可见，脏值仍落盘、仍被隔离、仍污染读数。
-        # 判据走**单点谓词** nodefile.valid_role（三处引用同一实现，不各写 isinstance）。
-        # 位置口径：与 #212 的写入上限闸同——在**分支分叉之前**（gated 与直写两条
-        # 出口共用），按**原始入参**判。
-        from . import nodefile as _nf418
-        _role418 = a.get("role")
-        if not _nf418.valid_role(_role418):
-            # 返回体形态**照协议声明面**（test_write_return_shape / op_table_parity 面）：
-            #   · WRITE_TRIO = (ok, id, committed) —— 键名是 `id` 不是 `node_id`；
-            #   · 声明形态取 `gate_hard_reject`（「契约缺失硬拒」，required = ok/id/committed/
-            #     gate/error/verdict/hint）——本支正是「前置契约硬拒」，与 E050/E051 同类；
-            #   · 未 committed ⇒ 必须给去向（本处给 gate）；
-            #   · `verdict: None` 是**盲区声明**（协议 VERDICT_BLINDSPOT：本路径没有 audit
-            #     裁决可透出，用键在场+值 None 表达，而不是让键缺席）。
-            # got_type 是形态声明之外的**附加诊断键**（判据不禁止附加键，且可机器判读）。
-            return {"ok": False, "id": nid, "committed": False,
-                    "gate": "role_type", "error": "role_not_str",
-                    "verdict": None,
-                    "got_type": type(_role418).__name__,
-                    "hint": "role 须为字符串（省略该参数即合法，缺省 None 合法）；"
-                            "非字符串会让节点落盘后被自家装载器判 frontmatter 损坏而"
-                            "**隔离**（不进索引、get/search 都读不到）——故写入前 fail-closed 拒收。"}
         # issue #212 缺口 1（2026-10-13 DSH 端）：**工具面此前完全不过写入硬上限**。
         # 同一内容走 cg(op=write) 被 writepipe 入口的 MAX_WRITE_BYTES 闸硬拒
         # （gate='writelimit_size'），走 mdcg_remember 却 committed=True 落盘
@@ -3747,6 +3716,20 @@ def _dispatch(cg, name, args):
         hint = a.get("importance_hint")
         if hint is None and a.get("importance") is not None:
             hint = float(a["importance"])
+        # ★issue #418：role 类型闸（**分叉之前**，gated 与直写两出口共用）。
+        # 非法 role 落盘后会被装载器判 frontmatter 损坏而**隔离**（get/search 读不到），
+        # 而修前回执仍是 committed=true ⇒ 入口 fail-closed 拒收（与 check_recent_event
+        # 的「类型错 ⇒ 不静默降级」逐字同款）；判据走单点 nodefile.valid_role。
+        # 位置：紧邻分叉点——既在两条出口之前，也不推移本分支上半段的源码窗口。
+        from . import nodefile as _nf418
+        if not _nf418.valid_role(a.get("role")):
+            # 返回体照协议声明面：WRITE_TRIO 用 id；形态取 gate_hard_reject
+            # （ok/id/committed/gate/error/verdict/hint）；verdict=None 是盲区声明。
+            return {"ok": False, "id": nid, "committed": False,
+                    "gate": "role_type", "error": "role_not_str", "verdict": None,
+                    "got_type": type(a.get("role")).__name__,
+                    "hint": "role 须为字符串（省略即合法）；非字符串会让节点落盘后被自家"
+                            "装载器判 frontmatter 损坏而**隔离**（不进索引、get/search 读不到）。"}
         if a.get("gated"):
             res = cg.remember_gated(
                 nid, a.get("content", ""), layer=a.get("layer") or "contextual",
