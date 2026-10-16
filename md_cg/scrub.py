@@ -758,7 +758,11 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
             try:
                 fm = _fm_of(cg, nid, None)
                 if str(fm.get("layer") or "") != "contextual":
-                    cg._move_layer(nid, "contextual", reason=f"scrub:{kind}")
+                    # #469：override 必须下传——否则受保护节点在此必然
+                    # ProtectionError（skip-gate 已按 override 放行，此处却退化为
+                    # 无权路径），且仍进幂等名单 ⇒ 后续永久不可 demote。
+                    cg._move_layer(nid, "contextual", reason=f"scrub:{kind}",
+                                   override=override, actor=actor or "scrub")
                     # 层降级 = 生命周期降级（②）：状态同批推进（负路由，失败不抛）
                     _st = cg.set_state(nid, "demoted", reason=f"scrub:{kind}",
                                        actor=actor or "scrub")
