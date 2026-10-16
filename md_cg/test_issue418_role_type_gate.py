@@ -228,7 +228,7 @@ def _run_in(tree):
 #: 回退 = **本批全部改动**（三个文件）：写面闸摘除 + 两处引用退回各写 isinstance。
 _REVERT = [
     ("md_cg/mcp_server.py",
-     "        if not _nf418.valid_role(_role418):",
+     '        if not _nf418.valid_role(a.get("role")):',
      "        if False:  # 回退：#418 写面闸整段禁用（＝修复前形态）"),
     ("md_cg/mdcg.py",
      "    if role and not nodefile.valid_role(role):",

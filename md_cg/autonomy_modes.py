@@ -447,6 +447,116 @@ def _plan_actions(plan):
 # 故判定经本函数（对 `decide` 的具名再出口），返回体与返回语义见下。
 
 # 生效条件：恒返回 decide(E_WEIGHT, plan=plan, environ=environ) 的**原样体**（含 mode/action/action_name/decision/hint 五键，decision ∈ ALLOW/CONFIRM/FORBID）；plan 为 None（本批现状：计划输入面无接线）时 plan 档 E 判 FORBID（fail-closed 带 hint）；confirm/full 两档恒 ALLOW（与 E 列矩阵逐格一致 ⇒ 调用方原链原样）；environ 显式传参（非进程级 os.environ）时不参与准入折算（同 decide）；非法 env 值仍由 mode() fail-closed 抛 AutonomyModeError；本函数零 IO、零副作用；
+#: ── E 面接线边界**单点真源**（issue #408）─────────────────────────────
+#: 背景：E 面闸（`e_gate`）此前只在 docstring 里用**自由文本**登记「未接闸的入口」，
+#: 而正文是一张会腐化的清单：issue #408 照该清单核账，发现 `insight.verify` /
+#: `MdCGSecure.verify` 两处**写 E 类字段却不在清单里**（plan 档照旧写盘），
+#: 且全仓同族候选远不止这两处（AST 实测 27 处写/裁决入口 ⇒ 同族 8 处+）。
+#: 故把清单收成**本表**：docstring 的「边界」段由它渲染（改表即改文档，勿手改正文），
+#: 守卫 `md_cg/test_issue408_eface_registry.py` 用 AST 枚举全仓写/裁决入口做**双向**
+#: 全表断言（新增未登记即红 ∧ 登记却不存在也红）。
+#:
+#: 处置（disposition）三值闭集：
+#:   · `wired`              —— 已接 `e_gate()`（守卫**实调 AST 验证**该函数体内确有 e_gate 调用，
+#:                             防「清单说已接、实际没接」的静默腐化）；
+#:   · `exempt_with_reason` —— 明确**不接**，理由须是仓内已定的规矩（非本批新立）；
+#:   · `pending_decision`   —— **归属待裁**：结论与疑点都留下，动作交维护者。
+E_FACE_ENTRIES = (
+    {"entry": "weights.recalc", "disposition": "wired",
+     "reason": (
+               "E 面写盘前闸接线（补强批次 v1.2）：apply 路径写 importance/权重字段。")},
+    {"entry": "freshness.recalc", "disposition": "wired",
+     "reason": (
+               "E 面写盘前闸接线（补强批次 v1.2）：apply 路径写 freshness 分数类字段。")},
+    {"entry": "lifecycle.set_state", "disposition": "wired",
+     "reason": (
+               "E 面写盘前闸接线（补强批次 v1.2）：写生命周期状态（E 类「生命周期」面）。")},
+    {"entry": "lifecycle.backfill", "disposition": "wired",
+     "reason": (
+               "E 面写盘前闸接线（补强批次 v1.2）：批量回填路径写各节点的生命周期"
+               "状态字段（lifecycle.STATE_FIELD），与 lifecycle.set_state 同一处置面。")},
+    {"entry": "lifecycle.stamp", "disposition": "exempt_with_reason",
+     "reason": (
+               "无 IO 纯函数（就地改 fm 副本，落盘由调用方做）；其两个调用方 "
+               "forgetting.reinforce / writelimit.converge_into 都属 **B 合并/趋同链**"
+               "（B 已有自己的闸，plan 档先于此处 fail-closed）；在 E 闸里再拦一次＝用 E 判定"
+               "去挡 B 动作，语义交叉且与 G 组「合并原语不含档位判据」的机制前提相抵。")},
+    {"entry": "MdCG.add 的 lifecycle.require_transition", "disposition": "exempt_with_reason",
+     "reason": (
+               "**库层禁接线**（守卫 G 组结构判据钉死）：「accept 执行桥直调库层越过确认判定」"
+               "正是建立在此前提上。")},
+    {"entry": "insight.verify", "disposition": "pending_decision",
+     "reason": (
+               "【本批判定：**应纳入**】issue #408 实测 plan 档照旧写盘——它把 importance 顶到 "
+               "0.9 **并置 protected=True**（「不可遗忘」语义，不只是打分变化）；E 类定义逐字为"
+               "「权重与生命周期」，它改的正是权重+保护位。**归属疑点**：保护位是否属 E 面，"
+               "还是应给独立保护面（与 protect.mark 同键，见下条）。")},
+    {"entry": "MdCGSecure.verify", "disposition": "pending_decision",
+     "reason": (
+               "【本批判定：**应纳入**】同档写 confidence / positive_evidence / evidence_count / "
+               "verification_state（权重+验证态，与 weights/trust 同类）。**位置**：本体在 "
+               "mdcg.py 的 MdCG.verify，mdcos.py 侧是薄壳。")},
+    {"entry": "trust.stamp", "disposition": "pending_decision",
+     "reason": (
+               "归属疑点：写验证态（生命周期族）与 E 类同形；但 #375–#378 刚改过 trust 面，"
+               "接线前须先核与那批（层保护/降级判据）的边界，避免两批判据交叉。")},
+    {"entry": "trust.set_state", "disposition": "pending_decision",
+     "reason": (
+               "归属疑点：写验证态列（trust.STATE_FIELD）——与 lifecycle 族同形的「状态列写入」；"
+               "与 trust.stamp 是同一归属问题，待二者一并裁定后再接线。")},
+    {"entry": "trust.backfill", "disposition": "pending_decision",
+     "reason": (
+               "归属疑点：批量回填验证态列（trust 面的 backfill 入口），与 lifecycle.backfill "
+               "同类名、不同载体；归属随 trust.set_state 一并定。")},
+    {"entry": "forgetting.reinforce", "disposition": "pending_decision",
+     "reason": (
+               "归属疑点：它改 importance/merge_count，是 **MERGE 落盘原语**、与主动遗忘闸门同链；"
+               "在 E 闸里拦它可能与 B 链交叉（同 lifecycle.stamp 的理由形态）。")},
+    {"entry": "protect.mark", "disposition": "pending_decision",
+     "reason": (
+               "★**裁定时最需要看的一条**：它写的 protected / protection_reason 与 insight.verify 是"
+               "**同一对键**，但语义是「显式保护动作」而非「权重动作」⇒ 裁定须先定「保护位写入属"
+               "E 面，还是独立保护面」——这一条定不下来，insight.verify 的归属也定不下来。")},
+    {"entry": "bm25.mark", "disposition": "pending_decision",
+     "reason": (
+               "归属疑点：批处理/打分面，与 E 类「分数类」相邻。")},
+    {"entry": "backfill.apply", "disposition": "pending_decision",
+     "reason": (
+               "归属疑点：批量回填面（与 lifecycle.backfill 同类名、不同载体）。")},
+    {"entry": "vision_evidence.apply", "disposition": "pending_decision",
+     "reason": (
+               "归属疑点：外部证据面（写证据/置信读数）。")},
+    {"entry": "freshness.rollback / weights.rollback", "disposition": "pending_decision",
+     "reason": (
+               "分数类**回滚**面：回滚是「破坏可逆」准入读数（R3）与设计 §四 第 4 条的兑现面；"
+               "在 plan 档拦回滚与设计语义相抵，属**设计面待裁**（不在本批自行扩面）。")},
+)
+
+
+
+# 生效条件：无入参；把 E_FACE_ENTRIES 渲染成 e_gate docstring 的「边界」段（按 disposition 分组、逐条带理由），返回多行文本；表为空时返回占位说明（不静默返回空串）。
+def _render_e_face_boundary() -> str:
+    """由 E_FACE_ENTRIES（**单点真源**）渲染 e_gate 的边界段——改表即改文档。
+
+    为什么渲染而不是手写：本段此前是自由文本，issue #408 照它核账即发现**两处漏登记**
+    ——自由文本没有判据面，腐化不可见。渲染后「表 ≠ 文档」由守卫断言钉死。
+    """
+    if not E_FACE_ENTRIES:
+        return "边界：（E_FACE_ENTRIES 为空——判据体未装载，不假装已登记）"
+    _order = (("wired", "已接闸（守卫 AST 实测）"),
+              ("exempt_with_reason", "明确不接（理由为仓内既有规矩）"),
+              ("pending_decision", "归属待裁（结论留下、动作交维护者）"))
+    lines = ["边界（由 E_FACE_ENTRIES 渲染，勿手改——改表即改此处）："]
+    for _k, _label in _order:
+        _rows = [e for e in E_FACE_ENTRIES if e["disposition"] == _k]
+        if not _rows:
+            continue
+        lines.append("  【%s】" % _label)
+        for e in _rows:
+            lines.append("   · %s —— %s" % (e["entry"], e["reason"]))
+    return "\n".join(lines)
+
+
 def e_gate(plan=None, environ=None) -> dict:
     """E 类动作**写盘前**的档位判定（**唯一入口**：E 面各写盘入口共用）。
 
@@ -463,20 +573,15 @@ def e_gate(plan=None, environ=None) -> dict:
     节点不存在一律照旧先判、各回各的 error），也**不放宽**任何既有判据
     （放行分支＝返回 None 级别的「什么都不做」）。
 
-    边界（如实登记：**未接闸**的 E 面入口与理由——留池项据此收窄）：
-      · `lifecycle.stamp` —— **无 IO 纯函数**（就地改 fm 副本，落盘由调用方
-        做），其两个调用方 `forgetting.reinforce` / `writelimit.converge_into`
-        都属 **B 合并/趋同链**（B 已有自己的闸，plan 档先于此处 fail-closed）；
-        在 E 闸里再拦一次＝用 E 判定去挡 B 动作，语义交叉且与 G 组「合并原语
-        不含档位判据」的机制前提相抵。故不接。
-      · `MdCG.add` 的 `lifecycle.require_transition` 面 —— **库层禁接线**
-        （守卫 G 组结构判据钉死）：「accept 执行桥直调库层越过确认判定」正是
-        建立在此前提上。
-      · 分数类**回滚**面（`freshness.rollback` / `weights.rollback`）——回滚是
-        「破坏可逆」准入读数（R3）与设计 §四 第 4 条的兑现面：在 plan 档拦
-        回滚与设计语义相抵，属**设计面待裁**（不在本批自行扩面）。
+    @@E_FACE_BOUNDARY@@
     """
     return decide(E_WEIGHT, plan=plan, environ=environ)
+
+
+# issue #408：边界段由 E_FACE_ENTRIES **渲染**进 docstring（单一真源）。
+# 放在定义之后而不是写死在字面量里：改表即改文档，不需手改 docstring（也就不会漂）。
+e_gate.__doc__ = e_gate.__doc__.replace('@@E_FACE_BOUNDARY@@',
+                                        _render_e_face_boundary())
 
 
 # 生效条件：dec 支持 .get 时返回新 dict {"ok":False,"error":"autonomy_forbidden","autonomy":{mode,action,action_name,decision}（四键取自 dec，缺键回落 None）,"hint":dec["hint"] 或 ""}，并把 **extra 的键值原样并入（各写盘面补自己的上下文键）；不落盘、不出单、不改任何状态；

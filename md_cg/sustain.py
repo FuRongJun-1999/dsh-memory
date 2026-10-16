@@ -1163,14 +1163,21 @@ def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
         except Exception as e:                       # 自愈失败不能拖垮进程
             actions.append({"code": code, "detail": detail, "applied": True,
                             "ok": False, "error": f"{type(e).__name__}: {e}"})
+            # #404：台账是**外部可见读数**，必须与事实一致——失败时把「清理 N 个…」改写成
+            # 带结果的形态再落账，否则 `_audit` 会照写一行「已清理 N 个」的假账（issue 期望 #2）。
+            # 只改 detail（不动 applied/ok 语义）。
+            detail = "%s → 失败：%s: %s" % (detail, type(e).__name__, e)
         else:
             # `fn()` 跑完 ≠ 修好：返回 dict 且 ok is False（或 truncated）时
             # 如实记 ok=False——「重建失败」绝不能被记成 ok=True。
             bad = _bad_result(res)
             row = {"code": code, "detail": detail, "applied": True, "ok": not bad}
             if isinstance(res, dict):
+                # #404：白名单是**回执的判据面**——诚实计数（removed/planned）必须进得来，
+                # 否则「删了几个」到不了外部读数（本件首版就被自己的守卫抓到这一点）。
                 brief = {k: res[k] for k in ("ok", "indexed", "files", "truncated",
-                                             "roots_missing", "errors")
+                                             "roots_missing", "errors",
+                                             "removed", "planned")
                          if k in res}
                 if isinstance(brief.get("errors"), list):
                     brief["errors"] = brief["errors"][:1]
@@ -1211,13 +1218,27 @@ def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
     if "stale_temps" in codes:
         paths = _list_stale_temps(root, stale_temp_age)
 
-# 生效条件：对闭包变量 paths 中每个路径尝试 os.remove(p)，单个路径的 OSError 被吞掉后继续处理后续路径；
+# 生效条件：对闭包变量 paths 逐个 os.remove 并按**实际结果**返回 {"ok","removed","planned","errors"}——单条失败记入 errors 后继续；paths 非空而**一个都没删掉**时抛 OSError（让 act 如实记 ok=False，不假装成功）；paths 为空时返回 ok=True/removed=0（无事可做不是失败）。
         def _sweep():
+            # #404（2026-10-16）根因：原实现 `except OSError: pass` 吞掉失败、且返回 None ⇒
+            # act 的 `_bad_result(None)` 为假 ⇒ 回执 `applied=True/ok=True`，`_audit` 同时照写
+            # 「清理 N 个陈旧临时文件」——**回执与台账都与事实相反**（同函数内 seal_half_lines
+            # 不吞异常，本处是唯一把失败吞成成功的动作，与「绝不假装成功」正面对撞）。
+            # 修法：按实际结果回报 + 全失败即抛（fail-loud）；**不改 act 的 applied 语义**——
+            # 沿用仓内既有口径（scrub.py 的 #411 修法：applied=动作跑过、ok=按事实判）。
+            done, failed = 0, []
             for p in paths:
                 try:
                     os.remove(p)
-                except OSError:
-                    pass
+                except OSError as e:
+                    failed.append("%s: %s" % (os.path.basename(p), e))
+                else:
+                    done += 1
+            if paths and done == 0:
+                raise OSError("陈旧临时件一个都没删掉（%d/%d）：%s"
+                              % (done, len(paths), "；".join(failed[:3])))
+            return {"ok": not failed, "removed": done, "planned": len(paths),
+                    "errors": failed[:3]}
         act("sweep_temps", f"清理 {len(paths)} 个陈旧临时文件", _sweep)
     if "half_line_logs" in codes:
         paths = _half_line_logs(root)

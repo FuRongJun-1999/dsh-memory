@@ -83,6 +83,10 @@ GIT_USER_EMAIL = "sleep@lingshu.local"
 #: 历史里**零命中**才合规的禁入路径（§4.5 机械判据）。
 FORBIDDEN_BASENAMES = ("_keys.json", "_access.log", "_index.json")
 FORBIDDEN_SUFFIXES = (".tmp", ".lock")
+#: #405：原子写临时件的**真实**形态是 `.<name>.md.tmp-<rand>`（`.tmp-` 是**中缀**而非后缀），
+#: 而 §4.5 判据一原用 `endswith` 判 ⇒ 对真实临时件**零命中**（同一份历史里老式 `junk.tmp`
+#: 被命中、`.n_a.md.tmp-k1lled` 漏报，两条机械判据同时报绿）。故补中缀判据（同一单点内）。
+FORBIDDEN_INFIXES = (".tmp-", ".lock-")
 DEFAULT_LOCK_TIMEOUT = 30.0
 #: 单条 git 子进程的**硬超时**（秒）——issue #63 主修（单点可调）。
 #: 取值依据：本机 git 操作为秒级（init / add / commit / rev-parse / worktree /
@@ -309,6 +313,32 @@ def worktree_git_dir(shadow: str) -> str:
 
 
 # 生效条件：root 为目录路径时返回 8 个 LAYERS 目录中**盘上存在且其下至少有一个文件**者的目录名列表（顺序同 LAYERS）；root 下无任何命中时返回空列表。只 walk 目录、不读文件内容，命中即 break。
+# 生效条件：root 下各层中含 .md 者，返回 [":(glob)<层>/**/*.md", ...]（add 的**真源面 pathspec 单点**）；无 .md 的层不返回；root 非目录返回 []。
+def add_pathspecs(root: str) -> list:
+    """`git add` 的 pathspec **单点**（#405）：只入册真源面 `.md`。
+
+    #405 根因：`_stage_and_commit` 原把 `pathspecs(root)`（**层目录名**）当 pathspec 用，
+    而 `git add -- <层名>` 会暂存该目录下**任何**未跟踪/已修改文件——层目录内的运行态、
+    原子写临时件（`.<name>.md.tmp-<rand>`）、手工投放件都会进 `lib.git` **不可逆历史**
+    （真库只读取证：29726 条历史路径里 3 条非 .md，全部是这种临时件）。
+    本形态与 #145 的既定口径一致（文件 glob，注释逐字「不含 .tmp/.lock 等」）。
+
+    **为什么不改 `pathspecs()` 的返回形态**：既有裁定 `test_sleep.py:220` 钉住它返回
+    **层名**，且 `_stage_and_commit` 的 stale 分支需要层名做「整层清索引」⇒ 本件只让
+    **add** 收窄（修改既有裁定不是修复该做的事）。
+    """
+    out = []
+    for layer in LAYERS:
+        base = os.path.join(root, layer)
+        if not os.path.isdir(base):
+            continue
+        for _dp, _dn, files in os.walk(base):
+            if any(f.endswith(".md") for f in files):
+                out.append(":(glob)%s/**/*.md" % layer)
+                break
+    return out
+
+
 def pathspecs(root: str) -> list:
     """`add` 的**显式 pathspec 白名单**：`md_cg.mdcg.LAYERS` 中盘上非空者。
 
@@ -509,8 +539,11 @@ def _stage_and_commit(git_dir_path: str, work_tree: str, message: str) -> dict:
     if not ps and not stale:
         return {"committed": False, "reason": "白名单为空（真源面无任何 .md）",
                 "pathspecs": ps}
-    if ps:
-        _git_ok(git_dir_path, work_tree, "add", "--", *ps)
+    # #405：add 走**只含 .md 的 glob**（add_pathspecs 单点）——层目录内的非 .md / 临时件
+    # 因此不再进不可逆历史；`ps`（层名）仍用于空集判据、stale 清索引与回执字段（既有裁定）。
+    aps = add_pathspecs(work_tree)
+    if aps:
+        _git_ok(git_dir_path, work_tree, "add", "--", *aps)
     if stale:
         _git_ok(git_dir_path, work_tree, "rm", "-r", "-q", "--cached", "--",
                 *stale)
@@ -641,8 +674,15 @@ def reconcile_and_commit(root: str = None, *, git_dir_path: str = None,
     提交落到 `main` 而影子分支停在基线（见该函数说明的实测）。
     """
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
-    S = shadow or shadow_dir()
+    # #405 站点 3：**必须按 root 取库与影子**——原实现 `git_dir()` / `shadow_dir()` 不传 root，
+    # 于是即使调用方给了 root=B，落点仍是**默认根**的 lib.git/影子：返回 ok=True/committed=True，
+    # 提交信息却是 B 轮次，B 的改动根本没被提交（跨根错提交，不可逆）。
+    G = git_dir_path or git_dir(root=root)
+    S = shadow or shadow_dir(root=root)
+    _be = _bind_error(G, root)          # #295 同款绑定闸（同文件另外四入口均已接）
+    if _be:
+        return {"ok": False, "busy": False, "lock_held": False,
+                "phase": "reconcile_and_commit", "error": _be, "git_dir": G}
     before = source_face_hashes(root)
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
@@ -810,15 +850,21 @@ def history_paths(root: str = None, *, git_dir_path: str = None) -> list:
     return [ln.strip() for ln in out.splitlines() if ln.strip()]
 
 
-# 生效条件：对 history_paths 去重后逐个取 basename；basename 属于 FORBIDDEN_BASENAMES 或以 FORBIDDEN_SUFFIXES 之一结尾者计入命中；返回按路径排序的命中表（零命中 = 合规）。
+# 生效条件：对 history_paths 去重后逐个取 basename；basename 属于 FORBIDDEN_BASENAMES、或以 FORBIDDEN_SUFFIXES 之一结尾、或含 FORBIDDEN_INFIXES 之一者计入命中；返回按路径排序的命中表（零命中 = 合规）。
 def history_forbidden_hits(root: str = None, *,
                            git_dir_path: str = None) -> list:
     """历史里的禁入路径（§4.5：`_keys.json` / `_access.log` / `_index.json` /
-    `*.tmp` / `*.lock` **零命中**）。"""
+    `*.tmp` / `*.lock` **零命中**）。
+
+    #405：判据形态必须**覆盖真实命名**——原子写临时件是 `.<name>.md.tmp-<rand>`
+    （中缀），原 `endswith` 判据对它零命中；补 `FORBIDDEN_INFIXES` 后同一份历史里
+    这类件会被如实命中（与「判据与自述对象一致」同一纪律）。
+    """
     hits = []
     for p in sorted(set(history_paths(root, git_dir_path=git_dir_path))):
         base = p.rsplit("/", 1)[-1]
-        if base in FORBIDDEN_BASENAMES or base.endswith(FORBIDDEN_SUFFIXES):
+        if (base in FORBIDDEN_BASENAMES or base.endswith(FORBIDDEN_SUFFIXES)
+                or any(x in base for x in FORBIDDEN_INFIXES)):
             hits.append(p)
     return hits
 
