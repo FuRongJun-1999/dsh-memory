@@ -35,6 +35,7 @@
     处置，故显式 `force=True` 且 `reason` 写入返回体，不静默绕过。
 """
 from __future__ import annotations
+import sys
 
 import os
 import time
@@ -502,10 +503,31 @@ def _audit_rollback(cg, tgt, act, rel, res, actor=None, pid=None, reason=""):
         try:
             fn(ROLLBACK_AUDIT_OP, tgt, **meta)
             return True
-        except Exception:                  # noqa: BLE001 —— 退化为直写
-            pass
+        except Exception as e:             # noqa: BLE001 —— 退化为直写
+            # #472 站点 2：**退化不再静默**（原为 `pass`）——写 stderr 留痕，并把本行标记为
+            # 「链外（已知退化）」，使 mdcos._audit_chain_verify 判为 known_degraded（**软信号**），
+            # **而非** unknown_foreign（后者是「有人插入」，安全要报）——**两者不得同一信号**。
+            try:
+                from .mdcos import AUDIT_KNOWN_DEGRADED as _KD
+            except Exception:              # 循环导入等：退化为字面量
+                # ⚠️ **已登记的已知偏差**（issue #472，Lead 裁定「允许但必须登记」）：
+                #   1) **这是回落副本、不是真源** —— 真源是 `mdcos.AUDIT_KNOWN_DEGRADED`；
+                #   2) **回落触发条件**：`from .mdcos import ...` 失败（循环导入等）；
+                #   3) **已知漂移风险**：若有人只改 mdcos 侧的值，**回落到字面量的这条路径会静默
+                #      地用旧值** —— 这是「两份副本必然漂」在语言机制层的又一次落地。
+                #   ⇒ 该偏差**已被腿钉住**：`md_cg/test_issue472_audit_chain.py` 的 C2 腿断言
+                #      「本回落字面量 == mdcos.AUDIT_KNOWN_DEGRADED 的真值」（AST 静态比对，
+                #      不需构造循环导入 ⇒ 可行）。
+                _KD = "AUDIT_KNOWN_DEGRADED"
+            sys.stderr.write("[rollback] cg._audit 不可用，退化直写（链外·已知退化）：%s: %s"
+                             % (type(e).__name__, e) + chr(10))
+            _degraded_mark = _KD
+    else:
+        _degraded_mark = None
     rec = {"t": time.time(), "op": ROLLBACK_AUDIT_OP, "id": tgt,
            "actor": actor}
+    if _degraded_mark:
+        rec["chain"] = _degraded_mark
     rec.update(meta)
     try:
         fsutil.append_jsonl(os.path.join(cg.root, "_audit.jsonl"), rec)

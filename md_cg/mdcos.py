@@ -17,6 +17,7 @@
 零第三方依赖（D-005）。
 """
 from __future__ import annotations
+import io, sys
 
 import hashlib
 import json
@@ -883,6 +884,10 @@ class MdCGOS(MdCG):
                "session": _attribution_session_of(self, sens)}
         rec.update(meta)
         try:
+            try:
+                _audit_chain_link(self.audit_log, rec)
+            except OSError:
+                pass
             self._rotate_audit_if_needed()
     # #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
     # 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
@@ -6650,3 +6655,93 @@ class MdCGSecure(MdCGOS):
             s = e.get("sensitivity") or DEFAULT_SENSITIVITY
             c[s] = c.get(s, 0) + 1
         return c
+
+# ---- issue #472：审计追加段哈希链（本件载体；校验面单独抽出以便腿可独立调用）---------
+# 复用 md_cg/signer.py（签名面/完整性），**不复用** crypto.py（AEAD/加密面）——
+# 「先找轮子」的精化：不是「有就用」，而是「对象要对」。0 新增密钥面。
+AUDIT_CHAIN_GENESIS = 'hmac1.genesis'
+AUDIT_CHAIN_MARK = 'chain'                      #: 该字段=已知退化（链外，系统可预期）
+AUDIT_CHAIN_BROKEN = 'AUDIT_CHAIN_BROKEN'       # 1 链内被改行（敌对，硬失败）
+AUDIT_KNOWN_DEGRADED = 'AUDIT_KNOWN_DEGRADED'   # 2 已知退化链外行（可预期，软信号）
+AUDIT_UNKNOWN_FOREIGN = 'AUDIT_UNKNOWN_FOREIGN' # 3 未知链外插入（可疑/敌对，硬失败）
+
+
+# 生效条件：rec 为 dict 即成立；返回剔除 sig 后按 sort_keys 的 json 文本（签名与验签共用同一规范化，避免表示歧义）。
+def _audit_sign_body(rec):
+    body = {k: v for k, v in rec.items() if k != 'sig'}
+    return json.dumps(body, ensure_ascii=False, sort_keys=True)
+
+
+# 生效条件：path 不存在/无有效末行/解析失败时返回 AUDIT_CHAIN_GENESIS；否则返回末行记录的 sig（缺则 GENESIS）。
+def _audit_last_sig(path):
+    last = ''
+    try:
+        with io.open(path, encoding='utf-8') as f:
+            for ln in f:
+                if ln.strip():
+                    last = ln
+    except OSError:
+        return AUDIT_CHAIN_GENESIS
+    try:
+        return json.loads(last).get('sig') or AUDIT_CHAIN_GENESIS
+    except Exception:
+        return AUDIT_CHAIN_GENESIS
+
+
+# 生效条件：log_path 与 rec 传入即成立；正常时补 prev（上一行 sig）与 sig 并返回 rec；
+# **签名器不可用时标记 AUDIT_CHAIN_MARK=已知退化并写 stderr（不静默）**，同样返回 rec。
+def _audit_chain_link(log_path, rec):
+    try:
+        from . import signer as _sg
+        s = _sg.get_signer()
+    except Exception as e:
+        rec[AUDIT_CHAIN_MARK] = AUDIT_KNOWN_DEGRADED
+        sys.stderr.write('[audit] 签名不可用，本次审计行标记为链外(已知退化)：%s: %s'
+                         % (type(e).__name__, e) + chr(10))
+        return rec
+    rec['prev'] = _audit_last_sig(log_path)
+    rec['sig'] = s.sign(_sg.canonical(_audit_sign_body(rec)))
+    return rec
+
+
+# 生效条件：path 可读即成立；返回 (verdict, reason, detail)，verdict ∈ {ok, tampered, known_degraded, unknown_foreign}。
+# ★可判性边界（如实，不许改弱）：本函数**不能判**「哈希链的信任根是否被持有者换过」——若被审计方
+#   同时握有链密钥与写权限，它可以**重算整条链**使校验通过；那已越出「可判」，进入「权限模型」。
+# ★三档信号**互不相同**（不同原因不得产出同一信号）：链内被改行=硬失败；已知退化链外行=**软信号**
+#   （降级，运维要知道）；未知链外插入=硬失败（安全要报）。
+def _audit_chain_verify(path, signer=None):
+    try:
+        from . import signer as _sg
+        s = signer or _sg.get_signer()
+    except Exception:
+        s = None
+    prev = AUDIT_CHAIN_GENESIS
+    detail = {'lines': 0}
+    try:
+        fh = io.open(path, encoding='utf-8')
+    except OSError:
+        return 'ok', None, {'lines': 0, 'note': '文件不存在'}
+    with fh:
+        for i, ln in enumerate(fh, 1):
+            if not ln.strip():
+                continue
+            detail['lines'] = i
+            try:
+                rec = json.loads(ln)
+            except Exception:
+                return 'tampered', AUDIT_CHAIN_BROKEN, {'line': i, 'why': '非 JSON'}
+            if rec.get(AUDIT_CHAIN_MARK) == AUDIT_KNOWN_DEGRADED and not rec.get('sig'):
+                detail.setdefault('degraded', []).append(i)
+                continue
+            if not rec.get('sig'):
+                return 'unknown_foreign', AUDIT_UNKNOWN_FOREIGN, {'line': i, 'why': '无 sig 且无退化标记'}
+            if s is None:
+                return 'tampered', AUDIT_CHAIN_BROKEN, {'line': i, 'why': '无签名器'}
+            if rec.get('prev') != prev:
+                return 'tampered', AUDIT_CHAIN_BROKEN, {'line': i, 'why': 'prev 断链'}
+            if not s.verify(_sg.canonical(_audit_sign_body(rec)), rec['sig']):
+                return 'tampered', AUDIT_CHAIN_BROKEN, {'line': i, 'why': 'sig 不符'}
+            prev = rec['sig']
+    if detail.get('degraded'):
+        return 'known_degraded', AUDIT_KNOWN_DEGRADED, detail
+    return 'ok', None, detail

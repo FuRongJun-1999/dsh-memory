@@ -30,6 +30,8 @@
   ——「一次调用堵死通道」不在轮转路径上复现。
 """
 from __future__ import annotations
+import sys
+import io
 
 import json
 import os
@@ -77,6 +79,8 @@ def _default_clock():
 
 
 # 生效条件：以 root/basename/archive_name 及可选阈值与回调构造实例；active/archive/lock 路径由 root 与基名拼接，_index 缓存与 writes 计数初值为 None/0；不读盘、不建目录、不抛异常。
+PRUNE_LEDGER = "_prune_ledger.jsonl"   #: #472：剪枝对账单（**不在 shards() 命名空间内**）
+
 class Rotator:
     """参数化分片轮转器：一次实现，审计面与 crypto 面共用。
 
@@ -217,6 +221,24 @@ class Rotator:
         if not gone:
             return []
         idx = self.load_index()
+        # issue #472 站点 3：剪前写**独立对账单**（被剪分片名 + 各自行数 + 汇总）。
+        # **文件名不得落在 self.shards() 命名空间内**（否则会被同一 prune 剪掉 —— 那正是原病）。
+        _led = os.path.join(self.archive, PRUNE_LEDGER)
+        try:
+            _lines = {}
+            for _n in gone:
+                try:
+                    _lines[_n] = sum(1 for _l in io.open(                        os.path.join(self.archive, _n), encoding="utf-8") if _l.strip())
+                except OSError:
+                    _lines[_n] = None
+            _rec = {"t": time.time(), "kept": keep, "pruned": list(gone),
+                    "lines": _lines,
+                    "lines_total": sum(v for v in _lines.values() if v)}
+            with io.open(_led, "a", encoding="utf-8") as _f:
+                _f.write(json.dumps(_rec, ensure_ascii=False) + chr(10))
+        except Exception as _e:      # #472 站点 3：**对账单失败不静默**（与站点 2 同精神）
+            sys.stderr.write("[rotate] prune 对账单写入失败（剪枝继续）：%s: %s"
+                             % (type(_e).__name__, _e) + chr(10))
         for n in gone:
             try:
                 os.remove(os.path.join(self.archive, n))
