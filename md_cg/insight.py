@@ -310,6 +310,15 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
                             sensitivity=fm.get("sensitivity"), actor=actor)
     cg._write_node(node_id, _disk, fm, _content)
     _ent = cg._node_entry(_disk, fm.get("layer"), fm, _content)
+    # 安全面/归因三键（sensitivity/writer/harness）与重建路径走**同一组装
+    # 单点**（#448 审④）：`_node_entry` 是基类真源、不产这三键（基类无密级
+    # 概念），只重建不回填 ⇒ 条目丢 sensitivity ⇒ 跨进程（快照+日志）reload
+    # 后 `_e.get("sensitivity") or DEFAULT_SENSITIVITY` fail-open，private 被
+    # 记成 internal（orchestr 获得写权）。纯基类 MdCG 实例无该钩子（无密级
+    # 概念），条目维持基类形态——与 `_move_layer` 不给基类条目凭空长键同款。
+    _hook = getattr(cg, "_entry_security_keys", None)
+    if _hook is not None:
+        _hook(_ent, fm)
     # 写点专有键：真源不含它，重建后叠加（不是「凭记忆补几键」）。
     _ent["insight_state"] = final
     # 落库走 `cg._stage`——索引条目写入的**单点**（`_dirty` + `_set_index_entry`

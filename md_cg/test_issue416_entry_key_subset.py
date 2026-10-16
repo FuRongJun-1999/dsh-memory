@@ -3,7 +3,7 @@
 # 生效条件：python -X utf8 -m md_cg.test_issue416_entry_key_subset [--mutate]；被测面=md_cg/insight.py 的 verify 索引同步段 + mdcg.MdCG._node_entry 真源 + md_cg 内「索引条目直接键写入」枚举面
 # 子功能：A=端到端（盘面 vs 判据面 vs 删除闸 + **新实例重扫后仍成立**）；B=真源子集与写点专有键；C=全仓「索引条目直接键写入点」枚举 + **双向登记**；E=枚举完备性自证（_guard_kit 骨架①）；R=回退即绿自证（_guard_kit 骨架②）
 # 执行：--mutate 时先跑双向定点变异，再跑 _guard_kit 的回退即绿自证（实跑，不接受推演）
-# 验证方式：全部 PASS 即通过（断言总数 >= FLOOR）；--mutate 下每条变异的指定命中须与预期一致、回退后红项集合须恰为 {"A02","A05","C02"}
+# 验证方式：全部 PASS 即通过（断言总数 >= FLOOR）；--mutate 下每条变异的指定命中须与预期一致、回退后红项集合须恰为 {"A02","A03","A04","A05","B02","B03","C01","C02"}（#448 审④同修：--mutate 面修前因 3 元组对 4 名解包必 ValueError、V3 锚点又指向错误文件——变异从未真跑过，本次一并收口并补 V4）
 # 不适用条件：不判「写点是否该覆盖全部真源键」（本守卫只钉门控标记子集与写点专有键）；不判 protect._fm 的回退策略本身（N213 面）；C 组枚举规则按「同一函数内经含 nodes 的取值取得的条目上的字符串常量下标赋值」——**不覆盖跨函数中转/别名**（该形态由 E 组合成样本显式钉住「必须命中」，故不是静默盲区）
 """issue #416 守卫：写「带门控标记的节点条目」的写点必须携带门控标记键集。
 
@@ -17,6 +17,15 @@ protection_reason="insight_verified" **没有**同步 ⇒ protect._fm 对非受�
 修法（#192 同款）：**用真源重建整条 entry**（mdcg.MdCG._node_entry，自述唯一真源）
 + 叠加写点专有键（insight_state）→ cg._stage（索引写入单点）。手写子集无论 3 键还是
 4 键都只是「下一次漏」的形态；真源加键则本写点自动跟上。
+
+#448 审④（2026-10-16）：真源重建**只解决基类键**——sensitivity/writer/harness
+是 MdCGSecure 的条目键（`_node_entry` 不产，基类无密级概念），只重建不回填 ⇒
+条目丢 sensitivity ⇒ 跨进程（快照+日志）reload 后 `_e.get("sensitivity") or
+DEFAULT_SENSITIVITY` fail-open：private 被记成 internal，orchestr 获得写权
+（B02 旧断言 `∪ {insight_state}` 恰好把这个缺口**固化成契约**，已同步改）。
+修法：安全面三键收成 `MdCGSecure._entry_security_keys` 组装**单点**
+（`_scan_nodes` 重建路径与写点同钩），写点经 getattr 同钩调用；A06 钉
+「跨进程 reload 后密级保持」。
 """
 from __future__ import annotations
 
@@ -41,7 +50,7 @@ from .security import Principal                                  # noqa: E402
 import md_cg._guard_kit as _kit                                  # noqa: E402
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FLOOR = 14
+FLOOR = 16
 PASS, FAIL = 0, 0
 FAILS = []
 _KEK = os.urandom(32)
@@ -133,6 +142,44 @@ _check("A05 反向：新实例的 forget 同样被拒（契约跨重启成立，
        _F2[0] == "ProtectionError", _F2)
 _CG.close()
 _CG2.close()
+
+# ★#448 审④：跨进程 reload 后**密级保持**。verify 写点重建整条条目，但
+# `_node_entry`（基类真源）不产 sensitivity/writer/harness——只重建不回填 ⇒
+# 条目丢 sensitivity ⇒ 快照/日志重放出的新实例里 `_e.get("sensitivity") or
+# DEFAULT_SENSITIVITY` fail-open：private 记成 internal（orchestr 获得写权）。
+# 三代生命周期强制命中 compact 路径：gen0 暖库落 snapshot（否则空库 close 走
+# rebuild 全量重扫、密级被重扫回填，病象被掩盖）；gen1 record(private)+verify
+# +flush+close（close→compact：写点重建的条目经日志并入快照）；gen2 重载
+# （快照指纹匹配 ⇒ 不重扫）。
+def _probe_sens():
+    _g0 = _mk("sens")
+    _g0.add("warm", "warmup", layer="contextual")
+    _g0.close()
+    _g1 = _mk("sens")
+    _rec = insight.record(_g1, statement="448 审④ private 探针",
+                          conditions={"device": "x"}, sensitivity="private",
+                          actor="probe")
+    _nid_s = _rec["node_id"]
+    _r_s = insight.verify(_g1, _nid_s, verdict="verified",
+                          evidence=[{"type": "V3", "ref": "probe", "note": "x"}],
+                          actor="probe")
+    _ent1 = _g1.index["nodes"].get(_nid_s)
+    _g1.flush()
+    _g1.close()
+    _g2 = _mk("sens")                    # gen2：快照路径重载（不重扫）
+    return _r_s, _ent1, _g2.index["nodes"].get(_nid_s), _g2
+
+
+_RS, _ES1, _ES2, _CGS2 = _probe_sens()
+_check("A06 ★#448 审④（同进程）：verify 写点重建条目后 sensitivity 保持 private"
+       "（_node_entry 不产安全面键——写点必须经 _entry_security_keys 同钩回填）",
+       _RS.get("ok") is True and (_ES1 or {}).get("sensitivity") == "private",
+       {"verify": _RS.get("ok"), "写点条目": (_ES1 or {}).get("sensitivity")})
+_check("A06 ★#448 审④（跨进程 reload）：快照路径重载后 sensitivity 仍 private"
+       "（修前为 None，`or DEFAULT_SENSITIVITY` fail-open 把 private 记成 internal）",
+       (_ES2 or {}).get("sensitivity") == "private",
+       {"reload 条目": (_ES2 or {}).get("sensitivity")})
+_CGS2.close()
 # ---------------------------------------------------------------- B 组：真源子集与写点专有键
 print("")
 print("== B 组：真源子集 / 写点专有键 ==")
@@ -150,9 +197,13 @@ _check("B02 前置：真源 _node_entry 可复算（判据有效）",
        isinstance(_REBUILT, dict) and _GATE_KEYS <= set(_REBUILT),
        type(_REBUILT).__name__)
 
-# 写点专有键**双向**：写点条目 == 真源条目 ∪ 专有键集（多一个少一个都红）
-_OWN = {"insight_state"}
-_check("B02 ★写点条目 == 真源条目 ∪ 写点专有键（双向：多/少都红）",
+# 写点条目 == 真源条目 ∪ 安全面三键 ∪ 专有键（**双向**：多一个少一个都红）。
+# #448 审④：`_node_entry` 是基类真源、不产 sensitivity/writer/harness（基类无
+# 密级概念）；写点经 `MdCGSecure._entry_security_keys` 单点（与 `_scan_nodes`
+# 重建路径同钩）回填安全面三键——旧断言 `∪ {insight_state}` 恰好把「条目丢
+# sensitivity ⇒ reload 后 fail-open 成 internal」固化成契约，故三键入集。
+_OWN = {"insight_state", "sensitivity", "writer", "harness"}
+_check("B02 ★写点条目 == 真源条目 ∪ 安全面三键 ∪ 写点专有键（双向：多/少都红）",
        isinstance(_REBUILT, dict)
        and set(_ENT) == (set(_REBUILT) | _OWN)
        and (set(_ENT) - set(_REBUILT)) == _OWN,
@@ -390,14 +441,31 @@ _TARGET = "md_cg/insight.py"
 
 _MUTATIONS = (
     ("V1 覆盖方向：写点退回手写 3 键（#416 形态回归）",
+     "md_cg/insight.py",
      '    _ent = cg._node_entry(_disk, fm.get("layer"), fm, _content)',
-     '    _ent = cg.index["nodes"].get(node_id) or {}'),
-    ("V2 过度收紧方向：把门控键集判据放宽成「任何键都算」（写点空转）",
-     '       _GATE_KEYS <= set(_ENT), sorted(_GATE_KEYS - set(_ENT)))',
-     '       bool(set(_ENT)), "")'),
-    ("V3 登记方向：撤掉一条已登记的写点（双向核对失守）",
+     '    _ent = cg.index["nodes"].get(node_id) or {}',
+     ("A02", "A03", "A04", "A05", "B02")),
+    ("V2 多余键方向：写点多叠一个契约外键（B02 双向：多一个也红）",
+     "md_cg/insight.py",
+     '    _ent["insight_state"] = final',
+     '    _ent["insight_state"] = final\n'
+     '    _ent["insight_ghost_key"] = final',
+     ("B02",)),
+    ("V3 登记方向：撤掉一条已登记的写点（双向核对失守；变异落在本守卫文件）",
+     "md_cg/test_issue416_entry_key_subset.py",
+     '    ("md_cg/mdcos.py", "session"),\n'
      '    ("md_cg/writelimit.py", "merge_sources"),',
-     '    ("md_cg/writelimit.py", "merge_sources_UNREGISTERED"),'),
+     '    ("md_cg/mdcos.py", "session"),\n'
+     '    ("md_cg/writelimit.py", "merge_sources_UNREGISTERED"),',
+     ("C02",)),
+    ("V4 #448 审④：写点撤安全面三键同钩（_entry_security_keys 不回填"
+     "——条目丢 sensitivity，reload 后 fail-open 成 internal）",
+     "md_cg/insight.py",
+     '    _hook = getattr(cg, "_entry_security_keys", None)\n'
+     '    if _hook is not None:\n'
+     '        _hook(_ent, fm)',
+     '    pass  # （#448 审④变异：安全面键同钩已撤）',
+     ("A06", "B02")),
 )
 
 
@@ -456,8 +524,8 @@ def _mutate():
         if rc0 != 0 or reds0:
             bad += 1
             print("\n".join(out0.splitlines()[-20:]))
-        for desc, old, new, exp in _MUTATIONS:
-            bak, why = _apply(tree, _TARGET, old, new)
+        for desc, rel, old, new, exp in _MUTATIONS:
+            bak, why = _apply(tree, rel, old, new)
             if bak is None:
                 bad += 1
                 print("  ANCHOR-MISS %s —— %s" % (desc, why))
@@ -466,7 +534,7 @@ def _mutate():
                 if os.path.basename(root) == "__pycache__":
                     shutil.rmtree(root, ignore_errors=True)
             rc2, reds2, out2 = _run_in(tree)
-            with io.open(os.path.join(tree, _TARGET.replace("/", os.sep)),
+            with io.open(os.path.join(tree, rel.replace("/", os.sep)),
                          "w", encoding="utf-8", newline="") as f:
                 f.write(bak)
             hit = sorted({r.split(" ")[0] for r in reds2})
@@ -487,6 +555,15 @@ def _mutate():
 _REVERT = [
     ("md_cg/insight.py",
      '    _ent = cg._node_entry(_disk, fm.get("layer"), fm, _content)\n'
+     '    # 安全面/归因三键（sensitivity/writer/harness）与重建路径走**同一组装\n'
+     '    # 单点**（#448 审④）：`_node_entry` 是基类真源、不产这三键（基类无密级\n'
+     '    # 概念），只重建不回填 ⇒ 条目丢 sensitivity ⇒ 跨进程（快照+日志）reload\n'
+     '    # 后 `_e.get("sensitivity") or DEFAULT_SENSITIVITY` fail-open，private 被\n'
+     '    # 记成 internal（orchestr 获得写权）。纯基类 MdCG 实例无该钩子（无密级\n'
+     '    # 概念），条目维持基类形态——与 `_move_layer` 不给基类条目凭空长键同款。\n'
+     '    _hook = getattr(cg, "_entry_security_keys", None)\n'
+     '    if _hook is not None:\n'
+     '        _hook(_ent, fm)\n'
      '    # 写点专有键：真源不含它，重建后叠加（不是「凭记忆补几键」）。\n'
      '    _ent["insight_state"] = final',
      '    _ent = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)\n'
@@ -501,7 +578,7 @@ def _revert_proof():
     print("!! 回退即绿自证（_guard_kit.assert_revert_reddens，实跑）")
     _ok, _det = _kit.assert_revert_reddens(
         _mirror_build, _REVERT, _run_in,
-        tuple(["A02", "A03", "A04", "A05", "B01", "B02"]), "?")
+        ("A02", "A03", "A04", "A05", "B02", "B03", "C01", "C02"), "?")
     print("  %s 红项=%s" % ("OK  " if _ok else "FAIL", _det.get("实际红项")))
     if not _ok:
         print("  不合格：" + str(_det)[:600])

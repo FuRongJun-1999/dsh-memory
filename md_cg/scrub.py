@@ -62,10 +62,11 @@ from __future__ import annotations
 import hashlib
 import os
 import random
+import secrets
 import time
 
 from . import forgetting, nodefile, protect
-from .fsutil import append_jsonl, read_jsonl
+from .fsutil import append_jsonl, atomic_write, read_jsonl
 from .mdcg import bigrams
 
 SCRUB_LOG = "_scrub.jsonl"
@@ -530,13 +531,57 @@ def _not_yet(fm, now):
     return None
 
 
-# 生效条件：返回 str(s) 按 UTF-8 编码的 sha1 十六进制摘要前 8 位（定长 8、不可逆）。
-def _fp(s) -> str:
-    """证据指纹（issue #444）：正文不进证据串，只进它的不可逆短指纹。"""
-    return hashlib.sha1(str(s).encode("utf-8")).hexdigest()[:8]
+# 生效条件：返回 str(s) 前置拼接 salt 后按 UTF-8 编码的 sha256 十六进制摘要前 16 位（定长 16）；salt 为空串时退化为无盐指纹。
+def _fp(s, salt: str = "") -> str:
+    """证据指纹（issue #444）：正文不进证据串，只进它的短指纹。
+
+    诚实边界（#448 审②）：这是**短指纹**（sha256 前 16 hex = 64bit），不是
+    「不可逆」——短值/低熵值在**无盐**场景等价明文（可枚举、可撞库，8hex 的
+    旧形态实测 20 万样本即碰撞）；加盐后反推需**盐＋离线穷举**（盐存库根
+    本地、不进审计面，见 `_fp_salt`）。指纹的承诺是「同一性可比对」（同值
+    同纹、异值异纹），不承诺密码学单向性。
+    """
+    return hashlib.sha256((salt + str(s)).encode("utf-8")).hexdigest()[:16]
 
 
-# 生效条件：对 content 取 kv_pairs、bigrams 和 polarity，遍历 related（若 related 为假值则视为空）的前 int(max_compare) 个 r，以 r["node_id"] 调 cg.get；若某 oid 节点可读非空，先在其 content 与 content 的共同键中找到值不同者并返回 {'with':oid,'via':r.get('via'),'why':'同键不同值：<键>（本端 <_fp 指纹> / 对端 <_fp 指纹>）'}——正文原值不进 why；否则若极性乘积 <0 且双方 bigram 非空，且共享 bigram 数 >=3 且 ratio>=0.15，返回 {'with':oid,'via':r.get('via'),'why':'极性相反且共享内容：共享 bigram <n> 个 / 重合率 <百分比>'}——共享词面同样不进 why，只留计数；全部遍历完无命中则返回 None；
+# 每库随机盐（#448 审②）：库根本地文件，**不进审计面/快照/证据串**。
+_FP_SALT_FILE = "_scrub_salt"
+_fp_salts = {}                 # root → salt（进程内缓存：同库同盐，指纹库内可复现）
+
+
+# 生效条件：cg 无 root 时返回空串；root 已有缓存盐则直接返回；否则读库根 _FP_SALT_FILE（缺失或短于 16 字符即生成 secrets.token_hex(16) 并经 atomic_write 落盘，读写任何失败降级为空串），进程内缓存后返回。
+def _fp_salt(cg) -> str:
+    """每库随机盐（#448 审②）：短指纹加盐后，反推需「盐＋离线穷举」。
+
+    盐存库根 `_scrub_salt`（本地文件）：拿到证据串（明文审计面）的对抗方
+    拿不到盐，无法按键名/短值建彩虹表——穷举成本从「16 核 107s 全空间」
+    变成「先得拿到盐」。读写失败（只读库等）降级为无盐空串：此时短指纹按
+    `_fp` 诚实措辞等价明文——盐是提高攻击成本，不是密码学边界，可用性优先。
+    """
+    root = str(getattr(cg, "root", "") or "")
+    if not root:
+        return ""
+    hit = _fp_salts.get(root)
+    if hit is not None:
+        return hit
+    p = os.path.join(root, _FP_SALT_FILE)
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            s = f.read().strip()
+    except OSError:
+        s = ""
+    if len(s) < 16:
+        s = secrets.token_hex(16)
+        try:
+            os.makedirs(root, exist_ok=True)
+            atomic_write(p, s)
+        except Exception:                                 # noqa: BLE001
+            pass                                          # 只读库：降级无盐
+    _fp_salts[root] = s
+    return s
+
+
+# 生效条件：对 content 取 kv_pairs、bigrams 和 polarity，取 _fp_salt(cg) 为本库盐，遍历 related（若 related 为假值则视为空）的前 int(max_compare) 个 r，以 r["node_id"] 调 cg.get；若某 oid 节点可读非空，先在其 content 与 content 的共同键中找到值不同者并返回 {'with':oid,'via':r.get('via'),'why':'同键不同值：<键的 _fp 指纹>（本端 <_fp 指纹> / 对端 <_fp 指纹>）'}——正文原值与键名都不进 why（键名同样来自 private 正文，#448 审①）；否则若极性乘积 <0 且双方 bigram 非空，且共享 bigram 数 >=3 且 ratio>=0.15，返回 {'with':oid,'via':r.get('via'),'why':'极性相反且共享内容：共享 bigram <n> 个 / 重合率 <百分比>'}——共享词面同样不进 why，只留计数；全部遍历完无命中则返回 None；
 def _contradiction(cg, content, related, max_compare=10):
     """与同族节点比对：同键不同值 / 极性相反且共享 bigram。
 
@@ -545,11 +590,17 @@ def _contradiction(cg, content, related, max_compare=10):
     `_trust.jsonl`（fm 加密只作用于正文，这两个面都是明文），而 scrub 双方
     各判一次——把正文原值拼进 why，等于把 private 节点的正文写进 internal
     对端节点的明文面，低 clearance 身份读对端（合规读）即可取回。故判据只留
-    键名 + 不可逆指纹（同键不同值）/ 只留计数（极性相反且共享内容）——
+    键名指纹 + 值短指纹（同键不同值）/ 只留计数（极性相反且共享内容）——
     「记谁处置了谁，不复制被处置内容」。
+
+    #448 审①：键名**同样**来自 private 正文（`_kv_pairs` 只放行 2–12 字符
+    动态键，schema 键在 `_SKIP_KEYS` 已排除、根本不进比对），原样进 why 与
+    原值泄漏同罪——一并走 `_fp`。#448 审②：指纹 sha256[:16] 并加每库随机
+    盐（`_fp_salt`），短值反推需盐＋离线穷举。
     """
     kv_a = _kv_pairs(content)
     bg_a, pol_a = bigrams(content or ""), _polarity(content)
+    salt = _fp_salt(cg)                    # 同库同盐：指纹库内可复现、跨库不可对拼
     for r in (related or [])[:int(max_compare)]:
         oid = r["node_id"]
         try:
@@ -563,8 +614,9 @@ def _contradiction(cg, content, related, max_compare=10):
         for k in sorted(set(kv_a) & set(kv_b)):
             if kv_a[k] != kv_b[k]:
                 return {"with": oid, "via": r.get("via"),
-                        "why": f"同键不同值：{k}"
-                               f"（本端 {_fp(kv_a[k])} / 对端 {_fp(kv_b[k])}）"}
+                        "why": f"同键不同值：{_fp(k, salt)}"
+                               f"（本端 {_fp(kv_a[k], salt)}"
+                               f" / 对端 {_fp(kv_b[k], salt)}）"}
         bg_b = bigrams(oc)
         if pol_a * _polarity(oc) < 0 and bg_a and bg_b:
             shared = bg_a & bg_b

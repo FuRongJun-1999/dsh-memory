@@ -5913,17 +5913,34 @@ class MdCGSecure(MdCGOS):
             kw.setdefault("harness", self.principal.harness)
         return kw
 
-# 生效条件：在 super()._scan_nodes() 结果上逐节点重新 _read，仅当读出的 fm 为真值时把 role、sensitivity（假值回落 DEFAULT_SENSITIVITY）、writer、session、content_kind（角色化读取视图的候选资格维度，第四阶段 6.1）写回该条目。
+# 生效条件：对传入 entry 原地写入安全面/归因三键——sensitivity（fm 缺失回落 DEFAULT_SENSITIVITY）、writer、harness（后两者 fm 缺失即 None）——并返回该 entry。
+    def _entry_security_keys(self, e, fm):
+        """安全面/归因条目键组装**单点**（#448 审④）。
+
+        `_node_entry` 是基类真源，不产 sensitivity/writer/harness（基类无密级
+        概念——`_move_layer` 的 #192 注记同款口径）；MdCGSecure 的条目形态 =
+        真源 ∪ 本组键。此前只有两条路径带它们：重建（`_scan_nodes` 逐节点回填）
+        与新增/覆写（`add` → `_stage` + `_index_sensitivity`）。定向覆写写点
+        （insight.verify，#416 起改由真源重建整条）两条都不经过 ⇒ 条目丢
+        sensitivity ⇒ 跨进程（快照+日志）reload 后 `_e.get("sensitivity") or
+        DEFAULT_SENSITIVITY` fail-open：private 被记成 internal，orchestr 获
+        得写权。凡「真源重建整条条目」的写点，重建后必须走**同一组装**。
+        """
+        e["sensitivity"] = fm.get("sensitivity") or DEFAULT_SENSITIVITY
+        e["writer"] = fm.get("writer")
+        e["harness"] = fm.get("harness")
+        return e
+
+# 生效条件：在 super()._scan_nodes() 结果上逐节点重新 _read，仅当读出的 fm 为真值时把 role、session、content_kind（角色化读取视图的候选资格维度，第四阶段 6.1）与安全面/归因三键（sensitivity/writer/harness，经 _entry_security_keys 单点，与定向覆写写点同钩）写回该条目。
     def _scan_nodes(self):
         nodes = super()._scan_nodes()
         for nid, e in nodes.items():
             fm, _c = self._read(e)
             if fm:
                 e["role"] = fm.get("role")
-                e["sensitivity"] = fm.get("sensitivity") or DEFAULT_SENSITIVITY
-                e["writer"] = fm.get("writer")
                 e["session"] = fm.get("session")
                 e["content_kind"] = fm.get("content_kind")
+                self._entry_security_keys(e, fm)
         return nodes
 
 # 生效条件：仅当 self.index["nodes"] 中已存在 nid 时，把该条目的 sensitivity 置为 sens 并标记进 self._dirty；nid 不存在则不做任何事、无返回。
