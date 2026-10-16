@@ -17,7 +17,8 @@
     ``parse_json``）、``TanPowasd/agm/confluence/qx.py``（题面扩展提示词与 ``clean``）、
     ``hive_extract.py`` / ``extract.py``（源图抽取提示词）。提示词文本逐字取自原型。
   · 原型审计 dsh-bounty#466：追问缓存未按系统提示词隔离、产物按臂名存在即复用 ⇒ 本模块的缓存键
-    含（角色、模型、地址、实际发出的 system 文本、prompt），条目内另存身份并在读出时逐项比对。
+    含（角色、模型、地址、密钥摘要、max_tokens、实际发出的 system 文本、prompt），条目内另存身份并在
+    读出时逐项比对。密钥只以 sha256 摘要进身份，明文不写入任何缓存文件（PR #395 对抗复核补）。
 
 生效条件（白箱三问之二）
 ------------------------
@@ -128,7 +129,8 @@ def _sha(s: str) -> str:
 class Cache:
     """按调用身份隔离的结果缓存：一调用一文件，文件名 = 身份的 sha256。
 
-    身份 = （角色，模型，地址，实际发出的 system 文本的 sha256 或 None，prompt 的 sha256）。
+    身份 = （角色，模型，地址，密钥的 sha256，max_tokens（未给为 None），实际发出的 system 文本的 sha256 或 None，
+    prompt 的 sha256）。密钥只存摘要，明文不落盘。
     读出时把条目里存的身份与本次逐项比对，不一致抛 CacheIdentityError（不复用、不覆盖）。
     """
 
@@ -136,11 +138,12 @@ class Cache:
         self.root = os.fspath(root)
         os.makedirs(self.root, exist_ok=True)
 
+    # 生效条件：给定 role、prompt、cfg 与 max_tokens，返回身份字典；max_tokens 取假值时记 None（与 chat 不传该字段一致），密钥只记 sha256。
     @staticmethod
-    def identity(role: str, prompt: str, cfg: dict) -> dict:
+    def identity(role: str, prompt: str, cfg: dict, max_tokens: int = None) -> dict:
         s = system_for(role)
-        return {"role": role, "model": cfg["model"], "base": cfg["base"],
-                "system_sha": _sha(s) if s else None, "prompt_sha": _sha(prompt)}
+        return {"role": role, "model": cfg["model"], "base": cfg["base"], "key_sha": _sha(cfg["key"]),
+                "max_tokens": max_tokens or None, "system_sha": _sha(s) if s else None, "prompt_sha": _sha(prompt)}
 
     # 生效条件：给定 identity 字典，返回其规范 JSON 的 sha256 作为缓存文件名主干。
     @staticmethod
@@ -150,9 +153,9 @@ class Cache:
     def _path(self, ident):
         return os.path.join(self.root, self.key(ident) + ".json")
 
-    # 生效条件：给定 role、prompt、cfg：缓存文件不存在返回 None；存在且条目身份与本次相同返回其文本；身份不同抛 CacheIdentityError。
-    def get(self, role: str, prompt: str, cfg: dict):
-        ident = self.identity(role, prompt, cfg)
+    # 生效条件：给定 role、prompt、cfg、max_tokens：缓存文件不存在返回 None；存在且条目身份与本次相同返回其文本；身份不同抛 CacheIdentityError。
+    def get(self, role: str, prompt: str, cfg: dict, max_tokens: int = None):
+        ident = self.identity(role, prompt, cfg, max_tokens)
         p = self._path(ident)
         if not os.path.exists(p):
             return None
@@ -162,25 +165,26 @@ class Cache:
             raise CacheIdentityError(f"{p} 的身份 {d.get('identity')} ≠ 本次 {ident}")
         return d["text"]
 
-    # 生效条件：给定 role、prompt、cfg 与文本，把 {"identity","text"} 写入身份对应的缓存文件。
-    def put(self, role: str, prompt: str, cfg: dict, text: str) -> None:
-        ident = self.identity(role, prompt, cfg)
+    # 生效条件：给定 role、prompt、cfg、文本与 max_tokens，把 {"identity","text"} 写入身份对应的缓存文件。
+    def put(self, role: str, prompt: str, cfg: dict, text: str, max_tokens: int = None) -> None:
+        ident = self.identity(role, prompt, cfg, max_tokens)
         with open(self._path(ident), "w", encoding="utf-8") as f:
             json.dump({"identity": ident, "text": text}, f, ensure_ascii=False)
 
 
-# 生效条件：给定 role、prompt：cache 命中则返回缓存文本（counter 不变）；否则调用 chat，结果写入 cache（若给）并给 counter["calls"] 加一后返回。
+# 生效条件：给定 role、prompt：cache 命中则返回缓存文本（counter 不变）；否则调用 chat，结果写入 cache（若给）并给 counter["calls"] 加一后返回；kw 里的 max_tokens 同时进缓存身份。
 def call(role: str, prompt: str, cfg: dict = None, cache: Cache = None, counter: dict = None, **kw) -> str:
     cfg = cfg or config()
+    mt = kw.get("max_tokens")
     if cache is not None:
-        hit = cache.get(role, prompt, cfg)
+        hit = cache.get(role, prompt, cfg, mt)
         if hit is not None:
             return hit
     if counter is not None:
         counter["calls"] = counter.get("calls", 0) + 1
     txt = chat(role, prompt, cfg=cfg, **kw)
     if cache is not None:
-        cache.put(role, prompt, cfg, txt)
+        cache.put(role, prompt, cfg, txt, mt)
     return txt
 
 

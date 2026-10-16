@@ -6,6 +6,7 @@
   P2  打开态：MDCG_QMD_SYS="1" 时 extract、query、answer 首条为 system，文本 = SYSTEM（sha256 钉死）
   P3  判官隔离：judge 在开/关两态都不带 system；实际发出的请求体里也没有 system
   P4  缓存隔离：同一 prompt 在开态与关态的缓存身份不同；关态写入后开态读不到（干净 miss），反之亦然
+      另：max_tokens 不同 ⇒ 干净 miss；不同 key 同 base+model ⇒ 干净 miss；缓存文件不含 key 明文（身份只存 sha256）
   P5  缓存身份校验：条目里存的身份被改动 ⇒ 读出抛 CacheIdentityError（不静默复用）
   P6  无配置显式边界：缺 BASE / MODEL / KEY 任一 ⇒ LLMUnavailable 且点名；网关调用 0 次
   P7  不回落其它厂商密钥：只设 MDCG_LLM_KEY / DEEPSEEK_API_KEY ⇒ 仍是 LLMUnavailable
@@ -222,6 +223,26 @@ def run():
                 except L.CacheIdentityError:
                     red = True
                 check("P5 条目身份被改 ⇒ CacheIdentityError", red)
+            with _Env(**FAKE):                       # PR #395 对抗复核补：max_tokens 与密钥摘要进身份
+                gw = _Gateway(); cnt = {}
+                L.call("extract", "抽", cfg=dict(cfg), cache=c, counter=cnt, opener=gw, max_tokens=100)
+                d_miss = c.get("extract", "抽", cfg, 200)
+                L.call("extract", "抽", cfg=dict(cfg), cache=c, counter=cnt, opener=gw, max_tokens=200)
+                d_hit = c.get("extract", "抽", cfg, 100)
+                check("P4 max_tokens 不同 ⇒ 干净 miss",
+                      d_miss is None and d_hit is not None and cnt.get("calls") == 2
+                      and [b.get("max_tokens") for b in gw.bodies] == [100, 200],
+                      f"{d_miss!r} {cnt} {[b.get('max_tokens') for b in gw.bodies]}")
+                cfg2 = dict(cfg, key="GOV-IMPL-DUMMY-KEY-2")
+                L.call("judge", "钥", cfg=dict(cfg), cache=c, opener=gw)   # 先用第一把 key 写入（另取 prompt，避开 P5 篡改过的条目）
+                k_miss = c.get("judge", "钥", cfg2)      # 同 base+model、另一把 key
+                gw2 = _Gateway(); cnt2 = {}
+                L.call("judge", "钥", cfg=dict(cfg2), cache=c, counter=cnt2, opener=gw2)
+                check("P4 不同 key 同 base+model ⇒ 干净 miss", k_miss is None and cnt2.get("calls") == 1,
+                      f"{k_miss!r} {cnt2}")
+                blobs = "".join(open(os.path.join(td, f), encoding="utf-8").read() for f in os.listdir(td))
+                check("P4 缓存文件不含 key 明文", bool(blobs) and cfg["key"] not in blobs and cfg2["key"] not in blobs,
+                      "缓存文件里出现了密钥明文")
     guarded("P4-P5", p45)
 
     # ---------------- P6 / P7 / P8
@@ -403,6 +424,12 @@ MUTATIONS = [
      {"P12 有 hint 时零交集答句排第 1", "P14 夹具排序与原型金标逐位相同"}),
     ("M11 单条失败静默丢弃", "md_cg.qmd_llm", '            missing.append((miss[0][0], repr(err) if err else "输出缺该条"))', "            pass",
      {"P15 拆半补抽：q0–q2 抽到，q3 进 missing"}),
+    ("M12 缓存身份不含 max_tokens", "md_cg.qmd_llm", '"max_tokens": max_tokens or None, ', "",
+     {"P4 max_tokens 不同 ⇒ 干净 miss"}),
+    ("M13 缓存身份不含密钥摘要", "md_cg.qmd_llm", '"key_sha": _sha(cfg["key"]),', "",
+     {"P4 不同 key 同 base+model ⇒ 干净 miss"}),
+    ("M14 缓存身份存密钥明文", "md_cg.qmd_llm", '"key_sha": _sha(cfg["key"])', '"key_sha": cfg["key"]',
+     {"P4 缓存文件不含 key 明文"}),
 ]
 
 
