@@ -6014,19 +6014,21 @@ class MdCGSecure(MdCGOS):
         self._index_sensitivity(nid, sens)
         return nid
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write("rejected", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_rejected，最后按下发的 nid 调 _index_sensitivity 并返回 nid。
+# 生效条件：先经 _rejected_nid（基类幂等键单点）算出 nid，未声明 sensitivity 时经 _write_sensitivity 解析 sens（issue #439：既有否决节点**继承旧密级**——基类对同 hypothesis 幂等短路不重写正文，本层却按缺省档 _index_sensitivity 即「正文没动、密级被降」，最易被「幂等=没动」的直觉漏过；新节点回落 DEFAULT_SENSITIVITY、判不了 fail-closed 抛 AccessDenied），先 principal.require_layer_write("rejected", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_rejected（sensitivity=sens 下传），最后按下发的 nid 调 _index_sensitivity（sens 已是继承值：幂等分支重申同值、不再是降档）并返回 nid。
     def add_rejected(self, hypothesis: str, reason: str, sensitivity: str = None, **kw) -> str:
-        sens = sensitivity or DEFAULT_SENSITIVITY
+        nid = self._rejected_nid(hypothesis)
+        sens = self._write_sensitivity(nid, sensitivity)
         self.principal.require_layer_write("rejected", sens)
         self._attribution(kw, sens)
         nid = super().add_rejected(hypothesis, reason, sensitivity=sens, **kw)
         self._index_sensitivity(nid, sens)
         return nid
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write("unresolved", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_unresolved(question, known_clues, goal)，最后调 _index_sensitivity 并返回 nid。
+# 生效条件：先经 _unresolved_nid（基类工单幂等键单点，topic 自 kw 透传）算出 nid，未声明 sensitivity 时经 _write_sensitivity 解析 sens（issue #439：既有工单**继承旧密级**——_refresh_unresolved 只覆写正文保 fm，本层索引不得按缺省档降级；新工单回落 DEFAULT_SENSITIVITY、判不了 fail-closed 抛 AccessDenied），先 principal.require_layer_write("unresolved", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_unresolved(question, known_clues, goal)，最后调 _index_sensitivity 并返回 nid。
     def add_unresolved(self, question: str, known_clues: str = "", goal: str = "",
                        sensitivity: str = None, **kw) -> str:
-        sens = sensitivity or DEFAULT_SENSITIVITY
+        nid = self._unresolved_nid(question, kw.get("topic"))
+        sens = self._write_sensitivity(nid, sensitivity)
         self.principal.require_layer_write("unresolved", sens)
         self._attribution(kw, sens)
         nid = super().add_unresolved(question, known_clues, goal, sensitivity=sens, **kw)
@@ -6039,9 +6041,10 @@ class MdCGSecure(MdCGOS):
         self.principal.require_layer_write(kw.get("layer", "knowledge"), sens)
         return super().propose(node_id, content, sensitivity=sens, **kw)
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 _rank(sens) 并 principal.require_layer_write("goals", sens)，再转 super().add_goal，最后按 gid 调 _index_sensitivity 并返回 gid。
+# 生效条件：先经 _goal_nid（基类幂等键单点，strip 后哈希同口径）算出 gid，未声明 sensitivity 时经 _write_sensitivity 解析 sens（issue #439：同 gid 改写既有目标是**全量重建**，未声明即按缺省档重建＝静默降级——与 #297 的 add 同形），再 _rank(sens) 并 principal.require_layer_write("goals", sens)，转 super().add_goal，最后按 gid 调 _index_sensitivity 并返回 gid。
     def add_goal(self, goal: str, sensitivity: str = None, **kw) -> str:
-        sens = sensitivity or DEFAULT_SENSITIVITY
+        gid = self._goal_nid(goal)
+        sens = self._write_sensitivity(gid, sensitivity)
         _rank(sens)
         self.principal.require_layer_write("goals", sens)
         gid = super().add_goal(goal, sensitivity=sens, **kw)
