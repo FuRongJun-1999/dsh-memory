@@ -27,7 +27,7 @@
  * 旧数据接手：`migrateLegacyData()` 在默认数据根生效且旧包内位置仍有内容时
  * 一次性**复制**（不删除、不覆盖）到用户级位置——见该函数注释。
  */
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -197,6 +197,57 @@ function isEmptyDir(p: string): boolean {
 }
 
 /**
+ * 递归复制目录树，**不覆盖**目标已有文件。
+ *
+ * 为什么不用 `node:fs` 的 `cpSync`：本机实测（Windows + Node v22.23.1）——
+ * **源路径含非 ASCII 字符**时 `cpSync(src, dst, { recursive: true })` 以
+ * `0xC0000409`（STATUS_STACK_BUFFER_OVERRUN）**硬崩整个进程**：不是抛异常，
+ * `try/catch` 接不住，宿主看不到任何栈。二分实测（同机同内容，逐条可复现）：
+ *
+ * | 用例 | 结果 |
+ * |---|---|
+ * | 源目录在纯 ASCII 路径 → `cpSync` 递归 | 通过 |
+ * | 同一份内容先落到 ASCII 路径再复制 | 通过（排除内容因素） |
+ * | 源目录在含中文路径（如 `E:\DS\插件\…`）→ `cpSync` 递归 | **必崩 0xC0000409** |
+ * | 同一中文路径下 `copyFileSync` 单文件 | 通过（非「路径不可读」） |
+ * | PowerShell `Copy-Item -Recurse` 同路径 | 通过（非权限/ACL 问题） |
+ *
+ * 命中面正是本模块：迁移的源是 `repoRoot()/data`，仓落在中文路径下即触发。
+ * 而迁移是**启动路径上的增益步骤**（见 `migrateLegacyData` 注释：增益不该成为
+ * 启动失败源），一旦硬崩就是整插件起不来，故不依赖 `cpSync`、自实现逐项复制。
+ *
+ * 语义对齐（与 `cpSync(src, dst, { recursive: true, force: false, errorOnExist: false })`
+ * 同用途等价——迁移场景数据面无符号链接）：目录递归下钻、目标已存在即跳过。
+ * 链接面语义有意收紧：按 `realpath` 去环、同一实体只搬一份——与 `cpSync` 默认
+ * `dereference: false` 不同，对含链接的源树行为有差异，本模块数据面不依赖该差异。
+ * - 断链／不可读条目静默跳过（由调用方按顶层条目计入 `failed`），不阻断其余条目。
+ */
+function copyTreeNoOverwrite(src: string, dst: string, seen: Set<string> = new Set()): void {
+  let st
+  try {
+    st = statSync(src) // 跟随符号链接；断链在此抛出 → 跳过
+  } catch {
+    return
+  }
+  if (st.isDirectory()) {
+    let real: string
+    try {
+      real = realpathSync(src)
+    } catch {
+      real = src
+    }
+    if (seen.has(real)) return // 符号链接成环：跳过，不无限递归
+    seen.add(real)
+    mkdirSync(dst, { recursive: true })
+    for (const name of readdirSync(src)) copyTreeNoOverwrite(join(src, name), join(dst, name), seen)
+    return
+  }
+  if (!st.isFile()) return // 设备/管道等非常规条目：不搬
+  if (existsSync(dst)) return // force:false + errorOnExist:false ⇒ 已存在即跳过
+  copyFileSync(src, dst)
+}
+
+/**
  * 一次性迁移：把旧版留在**插件包内** `data/` 的数据面复制到用户级默认数据根。
  *
  * 触发条件（三条同时满足，缺一不动）：
@@ -245,7 +296,7 @@ export function migrateLegacyData(): LegacyMigration {
     if (existsSync(dst) && !isEmptyDir(dst)) continue
     try {
       mkdirSync(to, { recursive: true })
-      cpSync(src, dst, { recursive: true, force: false, errorOnExist: false })
+      copyTreeNoOverwrite(src, dst)
       out.copied += 1
     } catch {
       out.failed.push(name)
