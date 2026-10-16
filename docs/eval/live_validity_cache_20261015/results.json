@@ -1,0 +1,817 @@
+{
+  "baseline_commit": "5cd2b43ffb50f552a94cf516f1cd970156ff7397",
+  "platforms": {
+    "windows": {
+      "baseline": {
+        "tests": 13,
+        "passed": 5,
+        "failed": 8,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_bm25_pool_and_result_both_refresh (md_cg._frozen_live_validity_cache.Guards.test_bm25_pool_and_result_both_refresh) ... FAIL\ntest_clock_rollback_can_restore_not_expired_candidate (md_cg._frozen_live_validity_cache.Guards.test_clock_rollback_can_restore_not_expired_candidate) ... FAIL\ntest_default_queries_still_cache (md_cg._frozen_live_validity_cache.Guards.test_default_queries_still_cache) ... ok\ntest_equal_deadline_is_still_active (md_cg._frozen_live_validity_cache.Guards.test_equal_deadline_is_still_active) ... ok\ntest_expiry_replaces_cached_top_one (md_cg._frozen_live_validity_cache.Guards.test_expiry_replaces_cached_top_one) ... FAIL\ntest_false_validity_keeps_cache (md_cg._frozen_live_validity_cache.Guards.test_false_validity_keeps_cache) ... ok\ntest_future_start_overrides_past_end_until_start (md_cg._frozen_live_validity_cache.Guards.test_future_start_overrides_past_end_until_start) ... FAIL\ntest_nonwinner_expiry_changes_bm25_top_one (md_cg._frozen_live_validity_cache.Guards.test_nonwinner_expiry_changes_bm25_top_one) ... FAIL\ntest_not_yet_remains_in_pool (md_cg._frozen_live_validity_cache.Guards.test_not_yet_remains_in_pool) ... ok\ntest_query_finishing_after_deadline_is_not_stored (md_cg._frozen_live_validity_cache.Guards.test_query_finishing_after_deadline_is_not_stored) ... FAIL\ntest_secure_wrapper_refills_after_expiration (md_cg._frozen_live_validity_cache.Guards.test_secure_wrapper_refills_after_expiration) ... FAIL\ntest_stable_clock_validity_queries_still_cache (md_cg._frozen_live_validity_cache.Guards.test_stable_clock_validity_queries_still_cache) ... ok\ntest_window_lru_and_clear_are_bounded (md_cg._frozen_live_validity_cache.Guards.test_window_lru_and_clear_are_bounded) ... FAIL\n\n======================================================================\nFAIL: test_bm25_pool_and_result_both_refresh (md_cg._frozen_live_validity_cache.Guards.test_bm25_pool_and_result_both_refresh)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 162, in test_bm25_pool_and_result_both_refresh\n    self.assertEqual([r[0]['id'] for r in rows], ['z_stable'])\nAssertionError: Lists differ: ['a_expiring'] != ['z_stable']\n\nFirst differing element 0:\n'a_expiring'\n'z_stable'\n\n- ['a_expiring']\n+ ['z_stable']\n\n======================================================================\nFAIL: test_clock_rollback_can_restore_not_expired_candidate (md_cg._frozen_live_validity_cache.Guards.test_clock_rollback_can_restore_not_expired_candidate)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 155, in test_clock_rollback_can_restore_not_expired_candidate\n    self.assertEqual([r[0]['id'] for r in self.query()[0]], ['a_expiring'])\nAssertionError: Lists differ: ['z_stable'] != ['a_expiring']\n\nFirst differing element 0:\n'z_stable'\n'a_expiring'\n\n- ['z_stable']\n+ ['a_expiring']\n\n======================================================================\nFAIL: test_expiry_replaces_cached_top_one (md_cg._frozen_live_validity_cache.Guards.test_expiry_replaces_cached_top_one)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 143, in test_expiry_replaces_cached_top_one\n    self.assertEqual([r[0]['id'] for r in self.query()[0]], ['z_stable'])\nAssertionError: Lists differ: ['a_expiring'] != ['z_stable']\n\nFirst differing element 0:\n'a_expiring'\n'z_stable'\n\n- ['a_expiring']\n+ ['z_stable']\n\n======================================================================\nFAIL: test_future_start_overrides_past_end_until_start (md_cg._frozen_live_validity_cache.Guards.test_future_start_overrides_past_end_until_start)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 223, in test_future_start_overrides_past_end_until_start\n    self.assertNotIn('odd', [r[0]['id'] for r in self.query()[0]])\nAssertionError: 'odd' unexpectedly found in ['odd']\n\n======================================================================\nFAIL: test_nonwinner_expiry_changes_bm25_top_one (md_cg._frozen_live_validity_cache.Guards.test_nonwinner_expiry_changes_bm25_top_one)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 213, in test_nonwinner_expiry_changes_bm25_top_one\n    self.assertEqual([r[0]['id'] for r in later], ['apple'])\nAssertionError: Lists differ: ['pear'] != ['apple']\n\nFirst differing element 0:\n'pear'\n'apple'\n\n- ['pear']\n+ ['apple']\n\n======================================================================\nFAIL: test_query_finishing_after_deadline_is_not_stored (md_cg._frozen_live_validity_cache.Guards.test_query_finishing_after_deadline_is_not_stored)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 235, in test_query_finishing_after_deadline_is_not_stored\n    self.assertEqual(hotcache.get(self.cg).stats()['query_cache_size'], 0)\nAssertionError: 1 != 0\n\n======================================================================\nFAIL: test_secure_wrapper_refills_after_expiration (md_cg._frozen_live_validity_cache.Guards.test_secure_wrapper_refills_after_expiration)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 199, in test_secure_wrapper_refills_after_expiration\n    self.assertEqual([r[0]['id'] for r in rows], ['z_stable'])\nAssertionError: Lists differ: [] != ['z_stable']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'z_stable'\n\n- []\n+ ['z_stable']\n\n======================================================================\nFAIL: test_window_lru_and_clear_are_bounded (md_cg._frozen_live_validity_cache.Guards.test_window_lru_and_clear_are_bounded)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 241, in test_window_lru_and_clear_are_bounded\n    self.assertIn('clock_window', inspect.signature(hc.put_query).parameters)\nAssertionError: 'clock_window' not found in mappingproxy(OrderedDict({'query': <Parameter \"query\">, 'results': <Parameter \"results\">, 'meta': <Parameter \"meta\">, 'k': <Parameter \"k=20\">, 'layer': <Parameter \"layer=None\">, 'session': <Parameter \"session=None\">, 'branch': <Parameter \"branch=None\">, 'validity': <Parameter \"validity=None\">, 'view': <Parameter \"view=None\">, 'extra': <Parameter \"extra=None\">}))\n\n----------------------------------------------------------------------\nRan 13 tests in 0.796s\n\nFAILED (failures=8)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 13,
+          "passed": 13,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_bm25_pool_and_result_both_refresh (__main__.Guards.test_bm25_pool_and_result_both_refresh) ... ok\ntest_clock_rollback_can_restore_not_expired_candidate (__main__.Guards.test_clock_rollback_can_restore_not_expired_candidate) ... ok\ntest_default_queries_still_cache (__main__.Guards.test_default_queries_still_cache) ... ok\ntest_equal_deadline_is_still_active (__main__.Guards.test_equal_deadline_is_still_active) ... ok\ntest_expiry_replaces_cached_top_one (__main__.Guards.test_expiry_replaces_cached_top_one) ... ok\ntest_false_validity_keeps_cache (__main__.Guards.test_false_validity_keeps_cache) ... ok\ntest_future_start_overrides_past_end_until_start (__main__.Guards.test_future_start_overrides_past_end_until_start) ... ok\ntest_nonwinner_expiry_changes_bm25_top_one (__main__.Guards.test_nonwinner_expiry_changes_bm25_top_one) ... ok\ntest_not_yet_remains_in_pool (__main__.Guards.test_not_yet_remains_in_pool) ... ok\ntest_query_finishing_after_deadline_is_not_stored (__main__.Guards.test_query_finishing_after_deadline_is_not_stored) ... ok\ntest_secure_wrapper_refills_after_expiration (__main__.Guards.test_secure_wrapper_refills_after_expiration) ... ok\ntest_stable_clock_validity_queries_still_cache (__main__.Guards.test_stable_clock_validity_queries_still_cache) ... ok\ntest_window_lru_and_clear_are_bounded (__main__.Guards.test_window_lru_and_clear_are_bounded) ... ok\n\n----------------------------------------------------------------------\nRan 13 tests in 0.796s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "V1 omit the time fence on cache insertion",
+            "test": "Guards.test_expiry_replaces_cached_top_one",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_expiry_replaces_cached_top_one (__main__.Guards.test_expiry_replaces_cached_top_one) ... FAIL\n\n======================================================================\nFAIL: test_expiry_replaces_cached_top_one (__main__.Guards.test_expiry_replaces_cached_top_one)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 143, in test_expiry_replaces_cached_top_one\n    self.assertEqual([r[0]['id'] for r in self.query()[0]], ['z_stable'])\nAssertionError: Lists differ: ['a_expiring'] != ['z_stable']\n\nFirst differing element 0:\n'a_expiring'\n'z_stable'\n\n- ['a_expiring']\n+ ['z_stable']\n\n----------------------------------------------------------------------\nRan 1 test in 0.044s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "5ed1f681d102c1895b7b1f4668566e36ae488920712662b432649fc42233019f"
+          },
+          {
+            "name": "V2 ignore the upper clock bound",
+            "test": "Guards.test_expiry_replaces_cached_top_one",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_expiry_replaces_cached_top_one (__main__.Guards.test_expiry_replaces_cached_top_one) ... FAIL\n\n======================================================================\nFAIL: test_expiry_replaces_cached_top_one (__main__.Guards.test_expiry_replaces_cached_top_one)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 143, in test_expiry_replaces_cached_top_one\n    self.assertEqual([r[0]['id'] for r in self.query()[0]], ['z_stable'])\nAssertionError: Lists differ: ['a_expiring'] != ['z_stable']\n\nFirst differing element 0:\n'a_expiring'\n'z_stable'\n\n- ['a_expiring']\n+ ['z_stable']\n\n----------------------------------------------------------------------\nRan 1 test in 0.042s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "af0b22297332558c96bae8541f1e43ea3bbfdf9ebbb4948b1b99d049834f7be8"
+          },
+          {
+            "name": "V3 ignore clock rollback",
+            "test": "Guards.test_clock_rollback_can_restore_not_expired_candidate",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_clock_rollback_can_restore_not_expired_candidate (__main__.Guards.test_clock_rollback_can_restore_not_expired_candidate) ... FAIL\n\n======================================================================\nFAIL: test_clock_rollback_can_restore_not_expired_candidate (__main__.Guards.test_clock_rollback_can_restore_not_expired_candidate)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 155, in test_clock_rollback_can_restore_not_expired_candidate\n    self.assertEqual([r[0]['id'] for r in self.query()[0]], ['a_expiring'])\nAssertionError: Lists differ: ['z_stable'] != ['a_expiring']\n\nFirst differing element 0:\n'z_stable'\n'a_expiring'\n\n- ['z_stable']\n+ ['a_expiring']\n\n----------------------------------------------------------------------\nRan 1 test in 0.039s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "af0b22297332558c96bae8541f1e43ea3bbfdf9ebbb4948b1b99d049834f7be8"
+          },
+          {
+            "name": "V4 fence only the first candidate",
+            "test": "Guards.test_nonwinner_expiry_changes_bm25_top_one",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_nonwinner_expiry_changes_bm25_top_one (__main__.Guards.test_nonwinner_expiry_changes_bm25_top_one) ... FAIL\n\n======================================================================\nFAIL: test_nonwinner_expiry_changes_bm25_top_one (__main__.Guards.test_nonwinner_expiry_changes_bm25_top_one)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 213, in test_nonwinner_expiry_changes_bm25_top_one\n    self.assertEqual([r[0]['id'] for r in later], ['apple'])\nAssertionError: Lists differ: ['pear'] != ['apple']\n\nFirst differing element 0:\n'pear'\n'apple'\n\n- ['pear']\n+ ['apple']\n\n----------------------------------------------------------------------\nRan 1 test in 0.137s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "5ed1f681d102c1895b7b1f4668566e36ae488920712662b432649fc42233019f"
+          },
+          {
+            "name": "V5 omit future start transitions",
+            "test": "Guards.test_future_start_overrides_past_end_until_start",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_future_start_overrides_past_end_until_start (__main__.Guards.test_future_start_overrides_past_end_until_start) ... FAIL\n\n======================================================================\nFAIL: test_future_start_overrides_past_end_until_start (__main__.Guards.test_future_start_overrides_past_end_until_start)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 223, in test_future_start_overrides_past_end_until_start\n    self.assertNotIn('odd', [r[0]['id'] for r in self.query()[0]])\nAssertionError: 'odd' unexpectedly found in ['odd']\n\n----------------------------------------------------------------------\nRan 1 test in 0.081s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "af0b22297332558c96bae8541f1e43ea3bbfdf9ebbb4948b1b99d049834f7be8"
+          },
+          {
+            "name": "V6 retain evicted clock windows",
+            "test": "Guards.test_window_lru_and_clear_are_bounded",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_window_lru_and_clear_are_bounded (__main__.Guards.test_window_lru_and_clear_are_bounded) ... FAIL\n\n======================================================================\nFAIL: test_window_lru_and_clear_are_bounded (__main__.Guards.test_window_lru_and_clear_are_bounded)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-five-new-validity-20261015\\md_cg\\test_live_validity_cache.py\", line 245, in test_window_lru_and_clear_are_bounded\n    self.assertEqual(len(hc._query_windows), 1)\nAssertionError: 3 != 1\n\n----------------------------------------------------------------------\nRan 1 test in 0.044s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "af0b22297332558c96bae8541f1e43ea3bbfdf9ebbb4948b1b99d049834f7be8"
+          }
+        ],
+        "restored": {
+          "tests": 13,
+          "passed": 13,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_bm25_pool_and_result_both_refresh (__main__.Guards.test_bm25_pool_and_result_both_refresh) ... ok\ntest_clock_rollback_can_restore_not_expired_candidate (__main__.Guards.test_clock_rollback_can_restore_not_expired_candidate) ... ok\ntest_default_queries_still_cache (__main__.Guards.test_default_queries_still_cache) ... ok\ntest_equal_deadline_is_still_active (__main__.Guards.test_equal_deadline_is_still_active) ... ok\ntest_expiry_replaces_cached_top_one (__main__.Guards.test_expiry_replaces_cached_top_one) ... ok\ntest_false_validity_keeps_cache (__main__.Guards.test_false_validity_keeps_cache) ... ok\ntest_future_start_overrides_past_end_until_start (__main__.Guards.test_future_start_overrides_past_end_until_start) ... ok\ntest_nonwinner_expiry_changes_bm25_top_one (__main__.Guards.test_nonwinner_expiry_changes_bm25_top_one) ... ok\ntest_not_yet_remains_in_pool (__main__.Guards.test_not_yet_remains_in_pool) ... ok\ntest_query_finishing_after_deadline_is_not_stored (__main__.Guards.test_query_finishing_after_deadline_is_not_stored) ... ok\ntest_secure_wrapper_refills_after_expiration (__main__.Guards.test_secure_wrapper_refills_after_expiration) ... ok\ntest_stable_clock_validity_queries_still_cache (__main__.Guards.test_stable_clock_validity_queries_still_cache) ... ok\ntest_window_lru_and_clear_are_bounded (__main__.Guards.test_window_lru_and_clear_are_bounded) ... ok\n\n----------------------------------------------------------------------\nRan 13 tests in 0.746s\n\nOK\n"
+        },
+        "tests": 6,
+        "passed": 6,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      }
+    },
+    "linux": {
+      "baseline": {
+        "tests": 13,
+        "passed": 5,
+        "failed": 8,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_bm25_pool_and_result_both_refresh (md_cg._frozen_live_validity_cache.Guards.test_bm25_pool_and_result_both_refresh) ... FAIL\ntest_clock_rollback_can_restore_not_expired_candidate (md_cg._frozen_live_validity_cache.Guards.test_clock_rollback_can_restore_not_expired_candidate) ... FAIL\ntest_default_queries_still_cache (md_cg._frozen_live_validity_cache.Guards.test_default_queries_still_cache) ... ok\ntest_equal_deadline_is_still_active (md_cg._frozen_live_validity_cache.Guards.test_equal_deadline_is_still_active) ... ok\ntest_expiry_replaces_cached_top_one (md_cg._frozen_live_validity_cache.Guards.test_expiry_replaces_cached_top_one) ... FAIL\ntest_false_validity_keeps_cache (md_cg._frozen_live_validity_cache.Guards.test_false_validity_keeps_cache) ... ok\ntest_future_start_overrides_past_end_until_start (md_cg._frozen_live_validity_cache.Guards.test_future_start_overrides_past_end_until_start) ... FAIL\ntest_nonwinner_expiry_changes_bm25_top_one (md_cg._frozen_live_validity_cache.Guards.test_nonwinner_expiry_changes_bm25_top_one) ... FAIL\ntest_not_yet_remains_in_pool (md_cg._frozen_live_validity_cache.Guards.test_not_yet_remains_in_pool) ... ok\ntest_query_finishing_after_deadline_is_not_stored (md_cg._frozen_live_validity_cache.Guards.test_query_finishing_after_deadline_is_not_stored) ... FAIL\ntest_secure_wrapper_refills_after_expiration (md_cg._frozen_live_validity_cache.Guards.test_secure_wrapper_refills_after_expiration) ... FAIL\ntest_stable_clock_validity_queries_still_cache (md_cg._frozen_live_validity_cache.Guards.test_stable_clock_validity_queries_still_cache) ... ok\ntest_window_lru_and_clear_are_bounded (md_cg._frozen_live_validity_cache.Guards.test_window_lru_and_clear_are_bounded) ... FAIL\n\n======================================================================\nFAIL: test_bm25_pool_and_result_both_refresh (md_cg._frozen_live_validity_cache.Guards.test_bm25_pool_and_result_both_refresh)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 162, in test_bm25_pool_and_result_both_refresh\n    self.assertEqual([r[0]['id'] for r in rows], ['z_stable'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['a_expiring'] != ['z_stable']\n\nFirst differing element 0:\n'a_expiring'\n'z_stable'\n\n- ['a_expiring']\n+ ['z_stable']\n\n======================================================================\nFAIL: test_clock_rollback_can_restore_not_expired_candidate (md_cg._frozen_live_validity_cache.Guards.test_clock_rollback_can_restore_not_expired_candidate)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 155, in test_clock_rollback_can_restore_not_expired_candidate\n    self.assertEqual([r[0]['id'] for r in self.query()[0]], ['a_expiring'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['z_stable'] != ['a_expiring']\n\nFirst differing element 0:\n'z_stable'\n'a_expiring'\n\n- ['z_stable']\n+ ['a_expiring']\n\n======================================================================\nFAIL: test_expiry_replaces_cached_top_one (md_cg._frozen_live_validity_cache.Guards.test_expiry_replaces_cached_top_one)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 143, in test_expiry_replaces_cached_top_one\n    self.assertEqual([r[0]['id'] for r in self.query()[0]], ['z_stable'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['a_expiring'] != ['z_stable']\n\nFirst differing element 0:\n'a_expiring'\n'z_stable'\n\n- ['a_expiring']\n+ ['z_stable']\n\n======================================================================\nFAIL: test_future_start_overrides_past_end_until_start (md_cg._frozen_live_validity_cache.Guards.test_future_start_overrides_past_end_until_start)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 223, in test_future_start_overrides_past_end_until_start\n    self.assertNotIn('odd', [r[0]['id'] for r in self.query()[0]])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'odd' unexpectedly found in ['odd']\n\n======================================================================\nFAIL: test_nonwinner_expiry_changes_bm25_top_one (md_cg._frozen_live_validity_cache.Guards.test_nonwinner_expiry_changes_bm25_top_one)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 213, in test_nonwinner_expiry_changes_bm25_top_one\n    self.assertEqual([r[0]['id'] for r in later], ['apple'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['pear'] != ['apple']\n\nFirst differing element 0:\n'pear'\n'apple'\n\n- ['pear']\n+ ['apple']\n\n======================================================================\nFAIL: test_query_finishing_after_deadline_is_not_stored (md_cg._frozen_live_validity_cache.Guards.test_query_finishing_after_deadline_is_not_stored)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 235, in test_query_finishing_after_deadline_is_not_stored\n    self.assertEqual(hotcache.get(self.cg).stats()['query_cache_size'], 0)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n======================================================================\nFAIL: test_secure_wrapper_refills_after_expiration (md_cg._frozen_live_validity_cache.Guards.test_secure_wrapper_refills_after_expiration)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 199, in test_secure_wrapper_refills_after_expiration\n    self.assertEqual([r[0]['id'] for r in rows], ['z_stable'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != ['z_stable']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'z_stable'\n\n- []\n+ ['z_stable']\n\n======================================================================\nFAIL: test_window_lru_and_clear_are_bounded (md_cg._frozen_live_validity_cache.Guards.test_window_lru_and_clear_are_bounded)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 241, in test_window_lru_and_clear_are_bounded\n    self.assertIn('clock_window', inspect.signature(hc.put_query).parameters)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'clock_window' not found in mappingproxy(OrderedDict({'query': <Parameter \"query\">, 'results': <Parameter \"results\">, 'meta': <Parameter \"meta\">, 'k': <Parameter \"k=20\">, 'layer': <Parameter \"layer=None\">, 'session': <Parameter \"session=None\">, 'branch': <Parameter \"branch=None\">, 'validity': <Parameter \"validity=None\">, 'view': <Parameter \"view=None\">, 'extra': <Parameter \"extra=None\">}))\n\n----------------------------------------------------------------------\nRan 13 tests in 0.234s\n\nFAILED (failures=8)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 13,
+          "passed": 13,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_bm25_pool_and_result_both_refresh (__main__.Guards.test_bm25_pool_and_result_both_refresh) ... ok\ntest_clock_rollback_can_restore_not_expired_candidate (__main__.Guards.test_clock_rollback_can_restore_not_expired_candidate) ... ok\ntest_default_queries_still_cache (__main__.Guards.test_default_queries_still_cache) ... ok\ntest_equal_deadline_is_still_active (__main__.Guards.test_equal_deadline_is_still_active) ... ok\ntest_expiry_replaces_cached_top_one (__main__.Guards.test_expiry_replaces_cached_top_one) ... ok\ntest_false_validity_keeps_cache (__main__.Guards.test_false_validity_keeps_cache) ... ok\ntest_future_start_overrides_past_end_until_start (__main__.Guards.test_future_start_overrides_past_end_until_start) ... ok\ntest_nonwinner_expiry_changes_bm25_top_one (__main__.Guards.test_nonwinner_expiry_changes_bm25_top_one) ... ok\ntest_not_yet_remains_in_pool (__main__.Guards.test_not_yet_remains_in_pool) ... ok\ntest_query_finishing_after_deadline_is_not_stored (__main__.Guards.test_query_finishing_after_deadline_is_not_stored) ... ok\ntest_secure_wrapper_refills_after_expiration (__main__.Guards.test_secure_wrapper_refills_after_expiration) ... ok\ntest_stable_clock_validity_queries_still_cache (__main__.Guards.test_stable_clock_validity_queries_still_cache) ... ok\ntest_window_lru_and_clear_are_bounded (__main__.Guards.test_window_lru_and_clear_are_bounded) ... ok\n\n----------------------------------------------------------------------\nRan 13 tests in 0.241s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "V1 omit the time fence on cache insertion",
+            "test": "Guards.test_expiry_replaces_cached_top_one",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_expiry_replaces_cached_top_one (__main__.Guards.test_expiry_replaces_cached_top_one) ... FAIL\n\n======================================================================\nFAIL: test_expiry_replaces_cached_top_one (__main__.Guards.test_expiry_replaces_cached_top_one)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 143, in test_expiry_replaces_cached_top_one\n    self.assertEqual([r[0]['id'] for r in self.query()[0]], ['z_stable'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['a_expiring'] != ['z_stable']\n\nFirst differing element 0:\n'a_expiring'\n'z_stable'\n\n- ['a_expiring']\n+ ['z_stable']\n\n----------------------------------------------------------------------\nRan 1 test in 0.014s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "5ed1f681d102c1895b7b1f4668566e36ae488920712662b432649fc42233019f"
+          },
+          {
+            "name": "V2 ignore the upper clock bound",
+            "test": "Guards.test_expiry_replaces_cached_top_one",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_expiry_replaces_cached_top_one (__main__.Guards.test_expiry_replaces_cached_top_one) ... FAIL\n\n======================================================================\nFAIL: test_expiry_replaces_cached_top_one (__main__.Guards.test_expiry_replaces_cached_top_one)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 143, in test_expiry_replaces_cached_top_one\n    self.assertEqual([r[0]['id'] for r in self.query()[0]], ['z_stable'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['a_expiring'] != ['z_stable']\n\nFirst differing element 0:\n'a_expiring'\n'z_stable'\n\n- ['a_expiring']\n+ ['z_stable']\n\n----------------------------------------------------------------------\nRan 1 test in 0.011s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "af0b22297332558c96bae8541f1e43ea3bbfdf9ebbb4948b1b99d049834f7be8"
+          },
+          {
+            "name": "V3 ignore clock rollback",
+            "test": "Guards.test_clock_rollback_can_restore_not_expired_candidate",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_clock_rollback_can_restore_not_expired_candidate (__main__.Guards.test_clock_rollback_can_restore_not_expired_candidate) ... FAIL\n\n======================================================================\nFAIL: test_clock_rollback_can_restore_not_expired_candidate (__main__.Guards.test_clock_rollback_can_restore_not_expired_candidate)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 155, in test_clock_rollback_can_restore_not_expired_candidate\n    self.assertEqual([r[0]['id'] for r in self.query()[0]], ['a_expiring'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['z_stable'] != ['a_expiring']\n\nFirst differing element 0:\n'z_stable'\n'a_expiring'\n\n- ['z_stable']\n+ ['a_expiring']\n\n----------------------------------------------------------------------\nRan 1 test in 0.010s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "af0b22297332558c96bae8541f1e43ea3bbfdf9ebbb4948b1b99d049834f7be8"
+          },
+          {
+            "name": "V4 fence only the first candidate",
+            "test": "Guards.test_nonwinner_expiry_changes_bm25_top_one",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_nonwinner_expiry_changes_bm25_top_one (__main__.Guards.test_nonwinner_expiry_changes_bm25_top_one) ... FAIL\n\n======================================================================\nFAIL: test_nonwinner_expiry_changes_bm25_top_one (__main__.Guards.test_nonwinner_expiry_changes_bm25_top_one)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 213, in test_nonwinner_expiry_changes_bm25_top_one\n    self.assertEqual([r[0]['id'] for r in later], ['apple'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['pear'] != ['apple']\n\nFirst differing element 0:\n'pear'\n'apple'\n\n- ['pear']\n+ ['apple']\n\n----------------------------------------------------------------------\nRan 1 test in 0.013s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "5ed1f681d102c1895b7b1f4668566e36ae488920712662b432649fc42233019f"
+          },
+          {
+            "name": "V5 omit future start transitions",
+            "test": "Guards.test_future_start_overrides_past_end_until_start",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_future_start_overrides_past_end_until_start (__main__.Guards.test_future_start_overrides_past_end_until_start) ... FAIL\n\n======================================================================\nFAIL: test_future_start_overrides_past_end_until_start (__main__.Guards.test_future_start_overrides_past_end_until_start)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 223, in test_future_start_overrides_past_end_until_start\n    self.assertNotIn('odd', [r[0]['id'] for r in self.query()[0]])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'odd' unexpectedly found in ['odd']\n\n----------------------------------------------------------------------\nRan 1 test in 0.012s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "af0b22297332558c96bae8541f1e43ea3bbfdf9ebbb4948b1b99d049834f7be8"
+          },
+          {
+            "name": "V6 retain evicted clock windows",
+            "test": "Guards.test_window_lru_and_clear_are_bounded",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_window_lru_and_clear_are_bounded (__main__.Guards.test_window_lru_and_clear_are_bounded) ... FAIL\n\n======================================================================\nFAIL: test_window_lru_and_clear_are_bounded (__main__.Guards.test_window_lru_and_clear_are_bounded)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-five-new-validity-20261015/md_cg/test_live_validity_cache.py\", line 245, in test_window_lru_and_clear_are_bounded\n    self.assertEqual(len(hc._query_windows), 1)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 3 != 1\n\n----------------------------------------------------------------------\nRan 1 test in 0.009s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "af0b22297332558c96bae8541f1e43ea3bbfdf9ebbb4948b1b99d049834f7be8"
+          }
+        ],
+        "restored": {
+          "tests": 13,
+          "passed": 13,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_bm25_pool_and_result_both_refresh (__main__.Guards.test_bm25_pool_and_result_both_refresh) ... ok\ntest_clock_rollback_can_restore_not_expired_candidate (__main__.Guards.test_clock_rollback_can_restore_not_expired_candidate) ... ok\ntest_default_queries_still_cache (__main__.Guards.test_default_queries_still_cache) ... ok\ntest_equal_deadline_is_still_active (__main__.Guards.test_equal_deadline_is_still_active) ... ok\ntest_expiry_replaces_cached_top_one (__main__.Guards.test_expiry_replaces_cached_top_one) ... ok\ntest_false_validity_keeps_cache (__main__.Guards.test_false_validity_keeps_cache) ... ok\ntest_future_start_overrides_past_end_until_start (__main__.Guards.test_future_start_overrides_past_end_until_start) ... ok\ntest_nonwinner_expiry_changes_bm25_top_one (__main__.Guards.test_nonwinner_expiry_changes_bm25_top_one) ... ok\ntest_not_yet_remains_in_pool (__main__.Guards.test_not_yet_remains_in_pool) ... ok\ntest_query_finishing_after_deadline_is_not_stored (__main__.Guards.test_query_finishing_after_deadline_is_not_stored) ... ok\ntest_secure_wrapper_refills_after_expiration (__main__.Guards.test_secure_wrapper_refills_after_expiration) ... ok\ntest_stable_clock_validity_queries_still_cache (__main__.Guards.test_stable_clock_validity_queries_still_cache) ... ok\ntest_window_lru_and_clear_are_bounded (__main__.Guards.test_window_lru_and_clear_are_bounded) ... ok\n\n----------------------------------------------------------------------\nRan 13 tests in 0.111s\n\nOK\n"
+        },
+        "tests": 6,
+        "passed": 6,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      }
+    }
+  },
+  "kind": "actual temporary-store guards and in-memory named mutations",
+  "native": {
+    "baseline": {
+      "case": "validity",
+      "kind": "actual temporary-store runtime",
+      "readings": {
+        "before": [
+          "a_expiring"
+        ],
+        "after_deadline": [
+          "a_expiring"
+        ],
+        "cached": true,
+        "seconds_past_deadline": 0.10031890869140625,
+        "query_ttl": 300.0,
+        "clock": "real wall clock; no mocked clock"
+      }
+    },
+    "fixed": {
+      "case": "validity",
+      "kind": "actual temporary-store runtime",
+      "readings": {
+        "before": [
+          "a_expiring"
+        ],
+        "after_deadline": [
+          "z_stable"
+        ],
+        "cached": false,
+        "seconds_past_deadline": 0.10057830810546875,
+        "query_ttl": 300.0,
+        "clock": "real wall clock; no mocked clock"
+      }
+    }
+  },
+  "regressions": {
+    "windows": {
+      "key": "validity",
+      "platform": "windows",
+      "source_head": "89912d05a750facae950d790a4edc17199ecd171",
+      "production_sha256": {
+        "md_cg/mdcg.py": "1d6da4332571eb193439175ffc1a762267f13755fb757c48c57e021b7bdaa8d2",
+        "md_cg/mdcos.py": "5ed1f681d102c1895b7b1f4668566e36ae488920712662b432649fc42233019f",
+        "md_cg/trust.py": "183b38a839f4544b8e68f57b0b9f7be92e015297f599410e6eb5d7140afd8534",
+        "md_cg/stg.py": "85da06348e352c3ace147cae0f0b4353fd1a125bc64ebbbe51d99653f2160cfd",
+        "md_cg/stgidx.py": "c527267824a9775ecac18740626da0d154cb836fb1ce920376df1ebaaddaa925",
+        "md_cg/hotcache.py": "af0b22297332558c96bae8541f1e43ea3bbfdf9ebbb4948b1b99d049834f7be8",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/chain.py": "f376e566b6735aee8d589e6a6a2a91162023c8cfda0309d7efe8ba13f9199a85",
+        "md_cg/reach.py": "4a03c4bccf3a3c1d51521cd3394916ee993cf7f40059cbeecf304e51cd722dd5"
+      },
+      "passed": 7,
+      "failed": 0,
+      "missing": 0,
+      "results": [
+        {
+          "module": "test_trust",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.547,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_trust"
+          ],
+          "log": "reg-validity-windows-test_trust.log"
+        },
+        {
+          "module": "test_i28_hotcache_prodpath",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.422,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_i28_hotcache_prodpath"
+          ],
+          "log": "reg-validity-windows-test_i28_hotcache_prodpath.log"
+        },
+        {
+          "module": "test_i32_hotcache_env_key",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.578,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_i32_hotcache_env_key"
+          ],
+          "log": "reg-validity-windows-test_i32_hotcache_env_key.log"
+        },
+        {
+          "module": "test_issue153b_cache_alias_and_canon",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.64,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_issue153b_cache_alias_and_canon"
+          ],
+          "log": "reg-validity-windows-test_issue153b_cache_alias_and_canon.log"
+        },
+        {
+          "module": "test_bm25",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 33.891,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_bm25"
+          ],
+          "log": "reg-validity-windows-test_bm25.log"
+        },
+        {
+          "module": "test_rrf_qualified_topk",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 2.891,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_rrf_qualified_topk"
+          ],
+          "log": "reg-validity-windows-test_rrf_qualified_topk.log"
+        },
+        {
+          "module": "test_validity_filter",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.671,
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_validity_filter"
+          ],
+          "log": "reg-validity-windows-test_validity_filter.log"
+        }
+      ],
+      "previous_snapshot": {
+        "phase": "before upstream sync / development attempts; excluded from final counts",
+        "readings": {
+          "key": "validity",
+          "platform": "windows",
+          "passed": 6,
+          "failed": 0,
+          "missing": 0,
+          "results": [
+            {
+              "module": "test_trust",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.625,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_trust"
+              ],
+              "log": "previous/reg-validity-windows-test_trust.log"
+            },
+            {
+              "module": "test_i28_hotcache_prodpath",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.437,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_i28_hotcache_prodpath"
+              ],
+              "log": "previous/reg-validity-windows-test_i28_hotcache_prodpath.log"
+            },
+            {
+              "module": "test_i32_hotcache_env_key",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.594,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_i32_hotcache_env_key"
+              ],
+              "log": "previous/reg-validity-windows-test_i32_hotcache_env_key.log"
+            },
+            {
+              "module": "test_issue153b_cache_alias_and_canon",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.641,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_issue153b_cache_alias_and_canon"
+              ],
+              "log": "previous/reg-validity-windows-test_issue153b_cache_alias_and_canon.log"
+            },
+            {
+              "module": "test_bm25",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 36.125,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25"
+              ],
+              "log": "previous/reg-validity-windows-test_bm25.log"
+            },
+            {
+              "module": "test_rrf_qualified_topk",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 2.859,
+              "command": [
+                "py",
+                "-3.12",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_rrf_qualified_topk"
+              ],
+              "log": "previous/reg-validity-windows-test_rrf_qualified_topk.log"
+            }
+          ]
+        }
+      }
+    },
+    "linux": {
+      "key": "validity",
+      "platform": "linux",
+      "source_head": "89912d05a750facae950d790a4edc17199ecd171",
+      "production_sha256": {
+        "md_cg/mdcg.py": "1d6da4332571eb193439175ffc1a762267f13755fb757c48c57e021b7bdaa8d2",
+        "md_cg/mdcos.py": "5ed1f681d102c1895b7b1f4668566e36ae488920712662b432649fc42233019f",
+        "md_cg/trust.py": "183b38a839f4544b8e68f57b0b9f7be92e015297f599410e6eb5d7140afd8534",
+        "md_cg/stg.py": "85da06348e352c3ace147cae0f0b4353fd1a125bc64ebbbe51d99653f2160cfd",
+        "md_cg/stgidx.py": "c527267824a9775ecac18740626da0d154cb836fb1ce920376df1ebaaddaa925",
+        "md_cg/hotcache.py": "af0b22297332558c96bae8541f1e43ea3bbfdf9ebbb4948b1b99d049834f7be8",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/chain.py": "f376e566b6735aee8d589e6a6a2a91162023c8cfda0309d7efe8ba13f9199a85",
+        "md_cg/reach.py": "4a03c4bccf3a3c1d51521cd3394916ee993cf7f40059cbeecf304e51cd722dd5"
+      },
+      "passed": 7,
+      "failed": 0,
+      "missing": 0,
+      "results": [
+        {
+          "module": "test_trust",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.812,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-validity-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_trust"
+          ],
+          "log": "reg-validity-linux-test_trust.log"
+        },
+        {
+          "module": "test_i28_hotcache_prodpath",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 1.016,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-validity-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_i28_hotcache_prodpath"
+          ],
+          "log": "reg-validity-linux-test_i28_hotcache_prodpath.log"
+        },
+        {
+          "module": "test_i32_hotcache_env_key",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.922,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-validity-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_i32_hotcache_env_key"
+          ],
+          "log": "reg-validity-linux-test_i32_hotcache_env_key.log"
+        },
+        {
+          "module": "test_issue153b_cache_alias_and_canon",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.922,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-validity-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_issue153b_cache_alias_and_canon"
+          ],
+          "log": "reg-validity-linux-test_issue153b_cache_alias_and_canon.log"
+        },
+        {
+          "module": "test_bm25",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 9.734,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-validity-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_bm25"
+          ],
+          "log": "reg-validity-linux-test_bm25.log"
+        },
+        {
+          "module": "test_rrf_qualified_topk",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.984,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-validity-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_rrf_qualified_topk"
+          ],
+          "log": "reg-validity-linux-test_rrf_qualified_topk.log"
+        },
+        {
+          "module": "test_validity_filter",
+          "returncode": 0,
+          "status": "PASS",
+          "seconds": 0.844,
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-five-new-validity-20261015",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_validity_filter"
+          ],
+          "log": "reg-validity-linux-test_validity_filter.log"
+        }
+      ],
+      "previous_snapshot": {
+        "phase": "before upstream sync / development attempts; excluded from final counts",
+        "readings": {
+          "key": "validity",
+          "platform": "linux",
+          "passed": 6,
+          "failed": 0,
+          "missing": 0,
+          "results": [
+            {
+              "module": "test_trust",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 5.703,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-validity-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_trust"
+              ],
+              "log": "previous/reg-validity-linux-test_trust.log"
+            },
+            {
+              "module": "test_i28_hotcache_prodpath",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 1.016,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-validity-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_i28_hotcache_prodpath"
+              ],
+              "log": "previous/reg-validity-linux-test_i28_hotcache_prodpath.log"
+            },
+            {
+              "module": "test_i32_hotcache_env_key",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 1.0,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-validity-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_i32_hotcache_env_key"
+              ],
+              "log": "previous/reg-validity-linux-test_i32_hotcache_env_key.log"
+            },
+            {
+              "module": "test_issue153b_cache_alias_and_canon",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 0.922,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-validity-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_issue153b_cache_alias_and_canon"
+              ],
+              "log": "previous/reg-validity-linux-test_issue153b_cache_alias_and_canon.log"
+            },
+            {
+              "module": "test_bm25",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 10.906,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-validity-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_bm25"
+              ],
+              "log": "previous/reg-validity-linux-test_bm25.log"
+            },
+            {
+              "module": "test_rrf_qualified_topk",
+              "returncode": 0,
+              "status": "PASS",
+              "seconds": 1.156,
+              "command": [
+                "wsl",
+                "-d",
+                "kali-linux",
+                "--cd",
+                "<work>/memory-five-new-validity-20261015",
+                "--",
+                "env",
+                "TMPDIR=/tmp",
+                "python3",
+                "-X",
+                "utf8",
+                "-m",
+                "md_cg.test_rrf_qualified_topk"
+              ],
+              "log": "previous/reg-validity-linux-test_rrf_qualified_topk.log"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

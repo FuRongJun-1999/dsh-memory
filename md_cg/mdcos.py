@@ -1896,12 +1896,14 @@ class MdCGOS(MdCG):
         # _maybe_reload_index 已顺带失效 hotcache/readcache。
         self._maybe_reload_index()
         # 热路径：query 结果缓存命中即返回（不改 RRF 核心）
-        # 时间算子**显式启用时绕开缓存**：缓存键不含时间参数，命中会返回
-        # 未按本次窗口过滤的结果（静默错答比慢更贵）。
+        # 显式时间算子绕行；validity 的缓存改按候选全池的下一时间端点失效，
+        # 保留稳定期间命中，并在失效后重新排序补足 Top-K。
         _time_on = any(x is not None for x in (start_time, end_time,
                                               start_operator, end_operator))
         from . import hotcache as _hc
         hc = _hc.get(self)
+        _validity_clock = time.time() if validity and hc is not None else None
+        _query_window = None
         # 口径参数**整体入键**（v14 缺陷 C 修复）：include_work/roles 改变候选
         # 资格、paths/fusion/judge_ranking/goal_text 等改变排序——不入键会让
         # 默认查询命中工作角色口径的缓存（资格泄漏），方向与时间算子同属
@@ -1950,6 +1952,11 @@ class MdCGOS(MdCG):
             if _tf:
                 _m["time_filter"] = _tf
             return [], _m
+
+        if validity and hc is not None and not _time_on and not _bypass:
+            _query_window = _hc.validity_window(entries, _validity_clock)
+            if _query_window is None:
+                _bypass = True
 
         # S1/S1b/S2 收敛 + S4 审计——**与 MdCGOS.search / MdCG.search 同一实现**
         # （C-8：本入口此前整段不含门控——gates 键不出现、scanned 恒全表；同一
@@ -2269,7 +2276,7 @@ class MdCGOS(MdCG):
                          "path_fingerprint": _path_fp, **_tf_meta,
                          **_gates_meta, **_bnd_meta, **_index_meta}, k=k, layer=layer,
                          session=session, branch=branch, validity=validity,
-                         view=view, extra=_cache_extra)
+                         view=view, extra=_cache_extra, clock_window=_query_window)
         return results, {"tier": "RRF", "scanned": stat["scanned"],
                          "paths": per_path, "fused": len(results),
                          "judge_ranking": bool(judge and judge_ranking),
