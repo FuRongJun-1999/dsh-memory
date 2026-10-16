@@ -3790,9 +3790,15 @@ class MdCGOS(MdCG):
     def is_tombstoned(self, node_id: str):
         return any(r.get("id") == node_id for r in read_jsonl(self.deletions_log))
 
-# 生效条件：当 node_id 传入时，若 deletions_log 中存在该 id 且 force=False 返回 tombstoned 拒绝；否则检查 trash_dir/{node_id}.md，os.path.exists 为 False 返回 not_in_trash；文件含坏字节（非 UTF-8）无法解析时返回 error=corrupt 且 trash 源原样保留（不删不移）；可打开则读取并以 add(override=True) + trash frontmatter 元数据全量透传（显式形参逐项传，其余键经 **extra 回写；lifecycle_state 仅在 active→该态合法迁移时透传）恢复、移除 trash 源、audit，返回 ok True/id/forced=bool(force)；
-    def restore(self, node_id: str, force: bool = False):
-        """恢复：若在删除清单中且未 force → 拒绝（恢复时删除检查）。"""
+# 生效条件：当 node_id 传入时，若 deletions_log 中存在该 id 且 force=False 返回 tombstoned 拒绝；随后索引在位（_maybe_reload_index 后同 id 有条目）且 overwrite_live 非真时返回 live_exists 拒绝（issue #426-E：force 只越过墓碑，不等于允许整份覆写现行版）；否则检查 trash_dir/{node_id}.md，os.path.exists 为 False 返回 not_in_trash；文件含坏字节（非 UTF-8）无法解析时返回 error=corrupt 且 trash 源原样保留（不删不移）；可打开则读取并以 add(override=True) + trash frontmatter 元数据全量透传（显式形参逐项传，其余键经 **extra 回写；lifecycle_state 仅在 active→该态合法迁移时透传）恢复、移除 trash 源、audit，返回 ok True/id/forced=bool(force)；
+    def restore(self, node_id: str, force: bool = False, overwrite_live: bool = False):
+        """恢复：若在删除清单中且未 force → 拒绝（恢复时删除检查）。
+
+        issue #426-E：force 只回答「越过墓碑」，不回答「允许整份覆写同 id 在位
+        节点」——稳定 id 删除后重建很常见（user_profile/task_*/sess_*），无闸时
+        回收站旧版会顶掉现行正文，且现行版在 trash/_protected_history/jsonl
+        全无副本。故在位节点存在时必须显式 overwrite_live=True 才继续。
+        """
         # issue #172（P1，路径穿越）：入口**先拦后读**——node_id 非法即返回，
         # **不触碰文件系统**（不读 deletions_log、不 os.path.exists、不 open）。
         # 合法 id 行为不变；判据单点见模块级 _restore_id_ok（与 add 的 P0-1 白名单同源）。
@@ -3802,6 +3808,13 @@ class MdCGOS(MdCG):
         if tomb and not force:
             return {"ok": False, "error": "tombstoned",
                     "reason": tomb[-1].get("reason", ""), "t": tomb[-1].get("t")}
+        # issue #426-E：在位节点保护——与「越过墓碑」的 force 分离的独立确认开关。
+        self._maybe_reload_index()
+        if (node_id in (self.index.get("nodes") or {})) and not overwrite_live:
+            return {"ok": False, "error": "live_exists",
+                    "hint": "同 id 存在在位节点：restore 会整份覆写现行版（现行正文"
+                            "零副本）。如确要覆写，请显式传 overwrite_live=true"
+                            "（与越过墓碑的 force 分离）。"}
         src = os.path.join(self.trash_dir, f"{node_id}.md")
         if not os.path.exists(src):
             return {"ok": False, "error": "not_in_trash"}
@@ -6533,10 +6546,12 @@ class MdCGSecure(MdCGOS):
         self._forget_admin()
         return super().forget_gated(node_id, reason, override=override)
 
-# 生效条件：先 principal.require_admin("restore")，再转 super().restore(node_id, force=force)。
-    def restore(self, node_id: str, force: bool = False):
+# 生效条件：先 principal.require_admin("restore")，再转 super().restore(node_id, force=force, overwrite_live=overwrite_live)。
+    def restore(self, node_id: str, force: bool = False,
+                overwrite_live: bool = False):
         self.principal.require_admin("restore")
-        return super().restore(node_id, force=force)
+        return super().restore(node_id, force=force,
+                               overwrite_live=overwrite_live)
 
 # 生效条件：先 principal.require_op("review")（与 review_decide 同款：审核队列是裁决面，不是普通读面），再转 _review_list_visible()。
     def review_list(self):

@@ -571,8 +571,11 @@ TOOLS = [
     },
     {
         "name": "mdcg_restore",
-        "description": "恢复被 forget 的节点；若在删除清单中且未 force 则拒绝（恢复时删除检查）。",
-        "inputSchema": _s("", node_id=_p("string", "节点 id", True), force=_p("boolean", "强制恢复")),
+        "description": "恢复被 forget 的节点；若在删除清单中且未 force 则拒绝（恢复时删除检查）。"
+                       "同 id 存在在位节点时默认拒绝（issue #426-E），需显式 overwrite_live=true 才整份覆写。",
+        "inputSchema": _s("", node_id=_p("string", "节点 id", True),
+                          force=_p("boolean", "越过墓碑（恢复时删除检查）"),
+                          overwrite_live=_p("boolean", "显式允许整份覆写同 id 在位节点（默认拒绝；现行版无副本）")),
     },
     {
         "name": "mdcg_health",
@@ -802,7 +805,9 @@ KERNEL_TOOLS = [
             redteam=_p("object", "红队裁决 {verdict:pass|reject, issues:[], round:n}"),
             issues=_p("array", "问题清单（红队打回理由）"),
             reason=_p("string", "原因；consolidate contextualize 的归位理由（写台账）"),
-            force=_p("boolean", "restore 强制"),
+            force=_p("boolean", "restore 越过墓碑（恢复时删除检查）"),
+            overwrite_live=_p("boolean", "restore 显式允许整份覆写同 id 在位节点"
+                                        "（默认拒绝；现行版无副本）"),
             path=_p("string", "index_code/index_doc 的目录（大域）；link import 的证据包文件"),
             patterns=_p("array", "index_code/index_doc 的文件后缀，默认取各自注册表"
                                  "（代码 .py/.ts/.tsx/.js/.mjs/.cjs；文档 .md/.markdown）"),
@@ -2625,7 +2630,9 @@ def _cg_dispatch(cg, a):
 
     if op == "forget":
         if (a.get("action") or "forget").strip().lower() == "restore":
-            return cg.restore(a.get("node_id", ""), force=bool(a.get("force")))
+            # issue #426-E：force 越过墓碑；覆写同 id 在位节点需独立 overwrite_live。
+            return cg.restore(a.get("node_id", ""), force=bool(a.get("force")),
+                              overwrite_live=bool(a.get("overwrite_live")))
         # 三档自治批次②（设计 §三 D 删除）：工具面经 forget_gated——档位判定在
         # 既有资格闸（not_found / protect.guard_forget）**之后**，变更确认档
         # 出变更单且不软删；库层 forget 语义不变（脚本通道不接，本批边界）。
@@ -4045,7 +4052,9 @@ def _dispatch(cg, name, args):
                                override=bool(a.get("override")))
 
     if name == "mdcg_restore":
-        return cg.restore(a.get("node_id", ""), force=bool(a.get("force")))
+        # issue #426-E：覆写同 id 在位节点需显式 overwrite_live（与 force 分离）。
+        return cg.restore(a.get("node_id", ""), force=bool(a.get("force")),
+                          overwrite_live=bool(a.get("overwrite_live")))
 
     if name == "mdcg_protect":
         return _protect_call(cg, a)
