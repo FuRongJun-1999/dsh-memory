@@ -3476,10 +3476,16 @@ class MdCG:
         return True
 
 # 生效条件：nid（"rej_"+sha1(hypothesis) 前 10 位）已在 self.index["nodes"] 中时直接返回该 nid 不写盘（幂等）；否则以 hypothesis/reason/verification_basis（默认 "test"）拼正文并 add(..., layer="rejected", importance=0.0, **extra) 返回新 nid；
+    @staticmethod
+# 生效条件：恒返回 "rej_"+sha1(hypothesis utf-8) 前 10 位十六进制；幂等键单点（issue #439：基类去重与 MdCGSecure.add_rejected 的密级继承判定必须同键——安全层若另算一份哈希，strip/编码口径一旦漂移即继承失配，回落缺省档＝静默降级）。
+    def _rejected_nid(hypothesis: str) -> str:
+        """否决节点幂等键（rej_<sha1(hypothesis)[:10]>）——单点真源。"""
+        return f"rej_{hashlib.sha1(hypothesis.encode()).hexdigest()[:10]}"
+
     def add_rejected(self, hypothesis: str, reason: str, verification_basis: str = "test",
                      tags=None, **extra) -> str:
         """第 5 篇 L2：负记忆——失败/否决的假设库。重复证伪幂等。"""
-        nid = f"rej_{hashlib.sha1(hypothesis.encode()).hexdigest()[:10]}"
+        nid = self._rejected_nid(hypothesis)
         if nid in self.index["nodes"]:
             return nid  # 幂等：重复证伪不重复记录
         content = (f"# 假设：{hypothesis}\n"
@@ -3506,6 +3512,13 @@ class MdCG:
         raw = " ".join(str(topic or question or "").split())
         return _tasks.slugify(raw)
 
+# 生效条件：_ticket_slug(question, topic) 非空时返回 "unr_"+slug、否则返回 "unr_"+sha1(question or "") 前 10 位十六进制；工单幂等键单点（issue #439：基类同单判定与 MdCGSecure.add_unresolved 的密级继承判定必须同键，另算一份即继承失配）。
+    def _unresolved_nid(self, question, topic=None) -> str:
+        """未解工单幂等键（unr_<slug>，slug 空回落 unr_<sha1>）——单点真源。"""
+        _slug = self._ticket_slug(question, topic)
+        return (f"unr_{_slug}" if _slug else
+                f"unr_{hashlib.sha1((question or '').encode()).hexdigest()[:10]}")
+
 # 生效条件：nid（"unr_"+slug，slug 空时回落 "unr_"+sha1(question) 前 10 位）已在 self.index["nodes"] 中时——以同一模板重新渲染正文，与盘面不一致时经 _refresh_unresolved 就地覆写正文（fm/id/created_at/归属原样保留）后返回 nid；否则拼接 question、known_clues（假值渲染「（暂无）」）、context 非空才追加「现场」行、goal（假值渲染「（未设定）」）与 verification_basis 后 add(layer="unresolved", importance=0.3)；
     def add_unresolved(self, question: str, known_clues: str = "",
                        goal: str = "", verification_basis: str = "data",
@@ -3525,9 +3538,7 @@ class MdCG:
                     + f"# 目标：{goal or '（未设定）'}\n"
                     f"# 验证：{verification_basis}\n")
 
-        _slug = self._ticket_slug(question, topic)
-        nid = (f"unr_{_slug}" if _slug else
-               f"unr_{hashlib.sha1((question or '').encode()).hexdigest()[:10]}")
+        nid = self._unresolved_nid(question, topic)
         entry = self.index["nodes"].get(nid)
         if entry is not None:
             # 同 id ＝ 同一张工单（**不新建、不改 id/去重机制**）。改前此处直接
@@ -3575,6 +3586,12 @@ class MdCG:
                 f"# 验证方式：other\n"
                 f"# 不适用条件：目标状态为 done/dropped 时不再参与定向\n")
 
+    @staticmethod
+# 生效条件：goal 折叠首尾空白后返回 "goal_"+sha1(utf-8) 前 10 位十六进制（与 add_goal 的 strip-then-hash 同口径）；目标幂等键单点（issue #439：MdCGSecure.add_goal 的密级继承判定必须同键——不 strip 会与基类算出不同 gid，继承失配即回落缺省档＝静默降级）。
+    def _goal_nid(goal: str) -> str:
+        """目标节点幂等键（goal_<sha1(goal.strip())[:10]>）——单点真源。"""
+        return f"goal_{hashlib.sha1((goal or '').strip().encode('utf-8')).hexdigest()[:10]}"
+
 # 生效条件：status 不属于模块级 GOAL_STATUSES 时抛 ValueError；goal 经 (goal or "").strip() 后为空（None/空串/纯空白）时抛 ValueError("goal 不能为空")；否则按 "goal_"+sha1(goal utf-8) 前 10 位生成 gid 并 add(layer="goals", importance=float(priority), goal_status=status, deadline=deadline, ...)；
     def add_goal(self, goal: str, priority: float = 0.5, deadline=None,
                  conditions: str = "", action: str = "", tags=None,
@@ -3589,7 +3606,7 @@ class MdCG:
         goal = (goal or "").strip()
         if not goal:
             raise ValueError("goal 不能为空")
-        gid = f"goal_{hashlib.sha1(goal.encode('utf-8')).hexdigest()[:10]}"
+        gid = self._goal_nid(goal)
         content = self._goal_content(goal, conditions, action)
         return self.add(gid, content, layer="goals", tags=tags,
                         importance=float(priority), confidence=1.0,
