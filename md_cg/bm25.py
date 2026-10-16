@@ -542,13 +542,35 @@ def search(cg, query, entries, stat):
         idx = cg._bm25_index = BM25Index()
     try:
         allowed = idx.sync(cg, entries, report)
-        ranked = idx.rank(query, allowed, report)
-        scores = dict(ranked)
-        docs = cg._read_many([allowed[path] for path, _ in ranked], stat)
-        report["hydrated"] = len(docs)
-        report["unavailable"] += len(ranked) - len(docs)
-        for path in scores.keys() - {e["path"] for e, _fm, _c in docs}:
-            idx.remove(path)
+        hydrated = {}
+        report.update(hydration_rounds=0, hydration_reads=0)
+        while True:
+            ranked = idx.rank(query, allowed, report)
+            scores = dict(ranked)
+            # Keep at most this ranked batch's payloads, even across retries.
+            hydrated = {path: doc for path, doc in hydrated.items() if path in scores}
+            pending = [allowed[path] for path, _ in ranked if path not in hydrated]
+            if pending:
+                report["hydration_rounds"] += 1
+                report["hydration_reads"] += len(pending)
+                for doc in cg._read_many(pending, stat):
+                    hydrated[doc[0]["path"]] = doc
+            unavailable = scores.keys() - hydrated.keys()
+            if not unavailable:
+                break
+            # A missing source changes both Top-K eligibility and corpus IDF /
+            # average length. Re-rank all winners with the updated statistics;
+            # appending the next old rank would mix incompatible scores.
+            report["unavailable"] += len(unavailable)
+            before = len(idx.docs)
+            for path in unavailable:
+                idx.remove(path)
+            if len(idx.docs) >= before:
+                raise RuntimeError("BM25 hydration made no progress")
+            # Each retry removes at least one indexed document. A later query
+            # can retry it through sync's existing incomplete-pool condition.
+        docs = [hydrated[path] for path, _ in ranked]
+        report.update(hydrated=len(docs), documents=len(idx.docs), tokens=idx.total_length)
         rows = [({"id": fm["id"], "path": e["path"],
                   "frontmatter": fm, "content": content}, scores[e["path"]])
                 for e, fm, content in docs]
