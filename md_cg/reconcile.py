@@ -8,7 +8,8 @@
 
 **三类 diff（v0 判据面）**：
   1. **多索引条目**（幽灵）：索引有条目、盘面无其文件（或该文件已归属他 id）
-     → 摘除条目（tombstone，与 `_unstage` 同口径）；
+     → 摘除条目（tombstone，与 `_unstage` 同口径）；**受保护节点（issue #463）**
+     不摘，进 `kept_protected` 透出，交人审；
   2. **缺索引条目**：盘面有节点文件、索引无条目（非合作写者/日志丢失）
      → 以 `_node_entry` 重建条目补入（与 rebuild_index 逐字段同源）；
   3. **内容漂移**：条目 path 与盘面落点不符、或 content_hash 与盘面重算不符
@@ -179,8 +180,20 @@ def reconcile_state(cg, apply: bool = True) -> dict:
             missing.append(nid)
 
     repaired = {"unstaged": 0, "staged": 0}
+    kept_protected = []
     if apply:
         for nid in ghost:
+            # issue #463：幽灵条目摘除前过保护单点（层保护/显式保护位/按分保护）；
+            # 受保护或判定异常（fail-closed）者保留条目、进 kept_protected 透出，
+            # 不无闸 _unstage（幽灵摘除不可逆——无 trash/快照）。
+            try:
+                from . import protect
+                _p, _why = protect.is_protected(cg, nid)
+            except Exception:               # noqa: BLE001
+                _p, _why = True, "保护判定异常（fail-closed）"
+            if _p:
+                kept_protected.append(nid)
+                continue
             cg._unstage(nid)                # tombstone + 立即持久化
             repaired["unstaged"] += 1
         for nid in missing + drift:
@@ -204,6 +217,8 @@ def reconcile_state(cg, apply: bool = True) -> dict:
     }
     if kept_unreadable:
         rep["kept_unreadable"] = kept_unreadable
+    if kept_protected:
+        rep["kept_protected"] = kept_protected
 
     # 告警 + 留痕（diff 非空才发声；干净库零输出零写盘）
     if ghost or missing or drift or problems or kept_unreadable:
@@ -212,7 +227,9 @@ def reconcile_state(cg, apply: bool = True) -> dict:
               % (len(ghost), len(missing), len(drift), len(problems),
                  "已按盘面增量修复索引面" if apply else "dry-run 未修复"))
         for nid in ghost[:SAMPLE_CAP]:
-            _warn("  幽灵条目（盘面无文件→摘除）: %s" % (nid,))
+            # issue #463：受保护幽灵不摘——告警必须如实说「保留」，不得写「→摘除」。
+            _warn("  幽灵条目（盘面无文件→%s）: %s"
+                  % ("受保护·保留，未摘除" if nid in kept_protected else "摘除", nid))
         for nid in kept_unreadable[:SAMPLE_CAP]:
             _warn("  条目保留（真源暂不可读，不猜测不摘除）: %s" % (nid,))
         for pr in problems[:SAMPLE_CAP]:
@@ -226,6 +243,7 @@ def reconcile_state(cg, apply: bool = True) -> dict:
             "drift": drift[:SAMPLE_CAP], "drift_n": len(drift),
             "problems": problems[:SAMPLE_CAP], "problems_n": len(problems),
             "kept_unreadable": kept_unreadable[:SAMPLE_CAP],
+            "kept_protected": kept_protected[:SAMPLE_CAP],
             "repaired": repaired,
         })
     return rep
