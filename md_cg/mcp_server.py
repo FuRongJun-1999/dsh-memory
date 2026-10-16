@@ -3842,12 +3842,14 @@ def _dispatch(cg, name, args):
             # 为「无法识别/未填」这件事**留一个显式标记**，而盲区就是为这种情况设计的。
             # 形态见 protocol.VERB_SPECS["write"]["shapes"]["autonomy_ticket"]
             # （required 含 verdict；None 的语义由 protocol.VERDICT_BLINDSPOT 声明）。
-            return {"ok": True, "id": nid, "committed": False,
-                    "moved_to": "review_queue", "verdict": None,
-                    "pid": _pr["pid"],
-                    "mutation": _pay, "autonomy": _aut,
-                    "hint": "%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
-                            % (_dec["hint"], _pr["pid"], nid)}
+            # issue #426-A：入队回执透出 dedup 归因。
+            return _am.apply_dedup(
+                {"ok": True, "id": nid, "committed": False,
+                 "moved_to": "review_queue", "verdict": None,
+                 "pid": _pr["pid"],
+                 "mutation": _pay, "autonomy": _aut,
+                 "hint": "%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
+                         % (_dec["hint"], _pr["pid"], nid)}, _pr)
         written = cg.add(nid, _content, layer=_layer,
                          # B2：同上——落盘面丢字段＝上游声明静默失效。
                          sensitivity=a.get("sensitivity"),

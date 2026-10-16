@@ -756,3 +756,26 @@ def propose_mutation(cg, action_class, target, after="", reason="",
                       dedup_key=mutation_dedup_key(pay["action"], pay["target"],
                                                    pay["after"]),
                       info=info, **ex)
+
+
+# 生效条件：pr 为 dict 且 pr.get("dedup") 为真时，把 dedup/dup_of/dup_status 三键并入 out（只增，
+# 不覆盖既有键）并在 out["hint"] 尾部追加「同键提案已存在…本次并入已有单、未新入队」说明；否则 out
+# 原样返回；不抛、不写盘；
+def apply_dedup(out: dict, pr) -> dict:
+    """入队回执的 dedup 归因透出（issue #426-A 建议 3，唯一单点）。
+
+    propose(info=True) 命中同键去重时返回 dedup/dup_of/dup_status，但 gated 面
+    （forget/merge/write_gated/remember 直写/写链覆写）此前只取 pr["pid"]——
+    agent 收到「已入审核队列」却无从知道本次其实**并入了一张既有单**（可能是
+    已裁决旧单，见 #426-A 建议 1 的取舍）。本单点只增字段与 hint 说明，不改
+    并单语义、不改 pid/hint 前段。
+    """
+    if isinstance(pr, dict) and pr.get("dedup"):
+        out["dedup"] = True
+        out["dup_of"] = pr.get("pid")
+        out["dup_status"] = pr.get("dup_status")
+        _st = pr.get("dup_status") or "pending"
+        out["hint"] = (out.get("hint") or "") + (
+            "注意：同键提案已存在（pid=%s，状态=%s）——本次**并入已有单**、"
+            "未新入队；后续裁决按该 pid 走。" % (pr.get("pid"), _st))
+    return out
