@@ -443,8 +443,12 @@ def g_e():
 
 
 # ---------------------------------------------------------------- F 调用方枚举与逐类读数
+# #430（2026-10-16）同步：protect.py 新增 is_protected_fm:255（裸 frontmatter 判据
+# 载体单点，委托 is_protected）——本表按守卫自身要求「新增调用方须同步本表」随
+# cherry-pick 依赖同批更新（原 #430 分支漏同步，F1 曾红）。
 _CALLSITES = {
-    "protect.py": (3, "guard_forget:262 / guard_move:274 / stats:408"),
+    "protect.py": (4, "guard_forget:430 / guard_move:442 / stats:576 / "
+                      "is_protected_fm:255"),
     "mcp_server.py": (1, "_protect_call action=check:1216"),
     "scrub.py": (2, "apply skip_protected:665 / _apply_offset skip:728"),
     "self_state.py": (1, "check 8 保护一致:865"),
@@ -465,8 +469,9 @@ def g_f():
         ok(len(lines) == want,
            "F1 %s 的 is_protected( 调用点 == %d（%s）" % (fn, want, label),
            lines)
-    ok(total == 7,
-       "F1+ 全部非测试调用点恰 7 处（枚举完备性——新增调用方须同步本表）",
+    ok(total == 8,
+       "F1+ 全部非测试调用点恰 8 处（枚举完备性——新增调用方须同步本表；"
+       "#430 的 is_protected_fm 计入后 7→8）",
        total)
     with _cg("a_heur") as cg:
         row_a = (protect.is_protected(cg, "a_heur"),

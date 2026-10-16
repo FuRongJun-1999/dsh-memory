@@ -17,6 +17,9 @@ lifecycle：active→converged），而同一节点在 `protect.is_protected` �
 一字不减（immutable 位照旧、`override=True` 短路通路照旧）；判据本体仍是
 `protect` 的单点，两个模块各用一份**零规则载体**的 frontmatter→(cg, node_id)
 探针把它喂进去，不复制规则。
+#430（2026-10-16）后续收口：两份探针载体（连同 freshness 的第三份同构载体）
+收进 `protect.is_protected_fm` 单点，两个模块改喂这一份；本守卫 E 组随之
+改钉新接线形态（E01–E03），行为腿（A/K 组）一字不动。
 
 **判据面边界（本守卫钉住的口径）**：保护只拦**降级**（`is_downgrade`），回升
 不受限（K08/K09）；按分保护只对**缺省来源或显式 hint** 生效，`heuristic` 等
@@ -190,18 +193,20 @@ _r = L.set_state(_cg2, "n_know", "converged")
 _check("K14 隔离库：knowledge 节点 lifecycle 降级 → 照常放行并落盘（对照 A09）",
        _r.get("ok") is True and _r.get("changed") is True, _r)
 
-print("== E 组：接线单点存在性 ==")
+print("== E 组：接线单点存在性（#430 后形态：判据载体收口 protect.is_protected_fm） ==")
 _src_t = inspect.getsource(T.stamp)
 _src_l = inspect.getsource(L.stamp)
-_check("E01 trust.stamp 体内经 _is_protected_fm 接入判据（接线未脱焊）",
-       "_is_protected_fm(fm)" in _src_t, [l for l in _src_t.splitlines()
-                                          if "_is_protected" in l])
-_check("E02 lifecycle.stamp 体内经 _is_protected_fm 接入判据（接线未脱焊）",
-       "_is_protected_fm(fm)" in _src_l, [l for l in _src_l.splitlines()
-                                          if "_is_protected" in l])
-_check("E03 两处探针都交给 protect.is_protected（判据本体不在本模块复制）",
-       "protect.is_protected(" in inspect.getsource(T._is_protected_fm)
-       and "protect.is_protected(" in inspect.getsource(L._is_protected_fm), "")
+_check("E01 trust.stamp 体内经 protect.is_protected_fm 接入判据（接线未脱焊）",
+       "protect.is_protected_fm(fm)" in _src_t, [l for l in _src_t.splitlines()
+                                                 if "is_protected" in l])
+_check("E02 lifecycle.stamp 体内经 protect.is_protected_fm 接入判据（接线未脱焊）",
+       "protect.is_protected_fm(fm)" in _src_l, [l for l in _src_l.splitlines()
+                                                 if "is_protected" in l])
+_check("E03 判据本体不在本模块复制：protect.is_protected_fm 委托 is_protected，"
+       "且两模块不再各养探针载体（#430 分叉收敛）",
+       "return is_protected(" in inspect.getsource(P.is_protected_fm)
+       and "class _FmProbe" not in inspect.getsource(T)
+       and "class _FmProbe" not in inspect.getsource(L), "")
 _check("E04 原显式两位判据仍在（immutable 豁免未被改写）",
        'bool(fm.get("protected") or fm.get("immutable"))' in _src_t
        and 'bool(fm.get("protected") or fm.get("immutable"))' in _src_l, "")
@@ -215,26 +220,26 @@ else:
 
 
 _MUTATIONS = (
+    # 注：锚点一律**单行**（工作树为 CRLF，跨行锚点在 Windows 检出上必失配）；
+    # 判据块第二行 `or protect.is_protected_fm(fm)[0]` 换成 `or False` 即等价
+    # 「回改动前的收窄判据（只认显式两位）」，换成 `or True` 即「恒判受保护」。
     ("M1 trust 去接线（回改动前的收窄判据）", "md_cg/trust.py",
-     ('    prot = bool(fm.get("protected") or fm.get("immutable")) \\' + chr(10)
-      + '        or _is_protected_fm(fm)[0]',
-      '    prot = bool(fm.get("protected") or fm.get("immutable"))'),
+     ('        or protect.is_protected_fm(fm)[0]',
+      '        or False'),
      # 机制：收窄判据只认显式两位 ⇒ 无 protected/immutable 位的 anchor/self 层
      # 与「缺省来源高分」「self_state 卡」一律不再受保护，降级照常写入；
      # E01 是源码形态腿（接线被删即脱焊，本就该红）。
      ("A01", "A02", "A03", "A07", "A08", "K11", "K12", "E01")),
     ("M2 lifecycle 去接线（回改动前的收窄判据）", "md_cg/lifecycle.py",
-     ('    prot = bool(fm.get("protected") or fm.get("immutable")) \\' + chr(10)
-      + '        or _is_protected_fm(fm)[0]',
-      '    prot = bool(fm.get("protected") or fm.get("immutable"))'),
+     ('        or protect.is_protected_fm(fm)[0]',
+      '        or False'),
      ("A04", "A05", "A06", "A09", "E02")),
     ("M3 trust 过度收紧（恒判受保护）", "md_cg/trust.py",
-     ('    prot = bool(fm.get("protected") or fm.get("immutable")) \\' + chr(10)
-      + '        or _is_protected_fm(fm)[0]',
-      '    prot = True'),
+     ('        or protect.is_protected_fm(fm)[0]',
+      '        or True'),
      # 机制：恒判受保护 ⇒ 未保护路径全部被误拦（K 组判别力自证）；
-     # E01/E04 是源码形态腿（判据块被整体替换，接线与显式两位串都不再出现在源码里）。
-     ("K01", "K02", "K10", "K13", "E01", "E04")),
+     # E01 是源码形态腿（接线被改写即脱焊）。E04 不红：显式两位串仍在首行。
+     ("K01", "K02", "K10", "K13", "E01")),
 )
 
 

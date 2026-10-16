@@ -49,6 +49,7 @@ import math
 import os
 import time
 
+from . import protect
 from .fsutil import append_jsonl, read_jsonl
 
 # --------------------------------------------------------------------------
@@ -440,7 +441,7 @@ def redundancy_map(cg, layer=None) -> dict:
     return out
 
 
-# 生效条件：cg.index 的 nodes 为 dict 且 entry 非 None 或 nodes.get(nid) 命中时，e 按 entry 优先否则 nodes.get(nid)；indeg/red 分别仅在为 None 时回落 coverage_index(cg)/redundancy_map(cg, layer=e.get("layer"))（空容器不回落）；按 IMPORTANCE_MIX、COV_SAT 及 e.get("verification_basis") 的 basis_trust 计算 coverage/redundancy/basis 分量，按 bool(e.get("protected")) 选择 IMPORTANCE_PROTECT 或 IMPORTANCE_FLOOR 作下限、IMPORTANCE_CEIL 作上限，返回含 before（e.get("importance",0.5) or 0.5）、after、components、protected 的 dict；entry 与 nodes.get(nid) 均为 None 返回 None；
+# 生效条件：cg.index 的 nodes 为 dict 且 entry 非 None 或 nodes.get(nid) 命中时，e 按 entry 优先否则 nodes.get(nid)；indeg/red 分别仅在为 None 时回落 coverage_index(cg)/redundancy_map(cg, layer=e.get("layer"))（空容器不回落）；按 IMPORTANCE_MIX、COV_SAT 及 e.get("verification_basis") 的 basis_trust 计算 coverage/redundancy/basis 分量，按「bool(e.get("protected")) ∪ protect.is_protected_fm(e)（层保护 self/anchor ∪ 按分保护 ≥0.70 且来源缺省/hint）」选择 IMPORTANCE_PROTECT 或 IMPORTANCE_FLOOR 作下限、IMPORTANCE_CEIL 作上限，返回含 before（e.get("importance",0.5) or 0.5）、after、components、protected 的 dict；entry 与 nodes.get(nid) 均为 None 返回 None；
 def node_importance(cg, nid, indeg=None, red=None, entry=None):
     """单节点结构重要性分解（可审计：给出分量而非只给分）。"""
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
@@ -456,7 +457,15 @@ def node_importance(cg, nid, indeg=None, red=None, entry=None):
     score = (IMPORTANCE_MIX["basis"] * bt
              + IMPORTANCE_MIX["coverage"] * cov
              + IMPORTANCE_MIX["redundancy"] * (1.0 - rr))
-    protected = bool(e.get("protected"))
+    # #431（2026-10-16）：下限判据改为「原显式 protected 位 ∪ protect.is_protected_fm
+    # 单点」——修前只认位，self/anchor 层节点（不置位）与「缺省来源高分」节点拿到
+    # 0.10 普通下限，recalc(apply=True) 把自我层/锚点 importance 系统性压低
+    # （0.5→0.35 实测）。与 freshness.protected_floor（#378/#430 修的同一根因在
+    # 衰减面的分叉）同判据同载体：位照旧短路（超集，既有判定一字不变），层保护
+    # 与按分保护同样享有 IMPORTANCE_PROTECT 下限。`e` 是索引条目，
+    # layer/importance/importance_source 三键都在（`_node_entry`/`_stage` 恒落），
+    # 判定零 IO、零副作用（探针载体不触发 `_fm` 的回退读文件分支）。
+    protected = bool(e.get("protected")) or protect.is_protected_fm(e)[0]
     floor = IMPORTANCE_PROTECT if protected else IMPORTANCE_FLOOR
     score = max(floor, min(IMPORTANCE_CEIL, score))
     return {"node_id": nid,
@@ -469,9 +478,9 @@ def node_importance(cg, nid, indeg=None, red=None, entry=None):
             "protected_floor": protected}
 
 
-# 生效条件：给定 cg 且 nodes = cg.index["nodes"] 时按 layer 过滤、limit 为真值才 ids = ids[:int(limit)] 逐节点重算，abs(after-before) < float(min_delta) 记 unchanged（**预演面不接档位闸**）；仅 apply=True 才在**任何写盘之前**先经 autonomy_modes.e_gate() 档位判定（补强批次 v1.2·E 面接线）——非 ALLOW（plan 档无计划）即经 forbidden_result() fail-closed 早退（零写盘、零审计行），ALLOW（confirm/full）才把 frontmatter.importance/importance_source/importance_components 写回（after >= IMPORTANCE_PROTECT 且未 protected 时补写 protected/protection_reason），并向 cg.root 下 append_jsonl(..., MAINTAIN_LOG) 记 batch 后 rebuild_index。
+# 生效条件：给定 cg 且 nodes = cg.index["nodes"] 时按 layer 过滤、limit 为真值才 ids = ids[:int(limit)] 逐节点重算，abs(after-before) < float(min_delta) 记 unchanged（**预演面不接档位闸**）；仅 apply=True 才在**任何写盘之前**先经 autonomy_modes.e_gate() 档位判定（补强批次 v1.2·E 面接线）——非 ALLOW（plan 档无计划）即经 forbidden_result() fail-closed 早退（零写盘、零审计行），ALLOW（confirm/full）才把 frontmatter.importance/importance_source/importance_components 写回（after >= IMPORTANCE_PROTECT 且未 protected 时补写 protected/protection_reason），且**每节点**在 _write_node 前经 protect.guard_overwrite(cg, nid, layer=节点真层, sensitivity=节点真密级, override=override 形参缺省 False, actor=actor)——self/anchor/immutable 节点未 override 即抛 ProtectionError（fail-closed，对照 insight.verify / forgetting.reinforce 同款接线）、override=True 时先快照进 _protected_history 并写 _protected_audit.jsonl；随后向 cg.root 下 append_jsonl(..., MAINTAIN_LOG) 记 batch 后 rebuild_index。
 def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
-           actor="maintain", dry_run_samples=10):
+           actor="maintain", dry_run_samples=10, override=False):
     """结构重要性重算：覆盖度 + 冗余度 + 验证基底 → 重排节点重要性。
 
     apply=False（默认）只出报表，不写盘（对应计划「可预演」）。
@@ -482,6 +491,16 @@ def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
     `autonomy_modes.e_gate()`（设计 §三 plan 档 E「须命中计划步骤」）——plan 档
     无计划 ⇒ `forbidden_result()` fail-closed 早退（零写盘、零审计行）；confirm/
     full ⇒ ALLOW、**原链原样**（逐位不变）。`apply=False`（预演）不接闸。
+
+    **保护闸（issue #431）**：apply 逐节点 `_write_node` 前过
+    `protect.guard_overwrite`（principal 层闸 + 引擎级写保护闸，单点，对照
+    `insight.verify` / `forgetting.reinforce` 的同款接线）。修前本函数对既有
+    节点（含 self/anchor/immutable）**裸调 `_write_node`**——同一身份对同层的
+    `add` 会被双闸拒绝，这条批量腿照样无痕覆写：零快照、零 `_protected_audit`
+    行（实测）。`override` 形参与 `forgetting.reinforce` 同口径：缺省 False ⇒
+    受保护节点抛 `ProtectionError`（fail-closed，不静默跳过——批量腿半途而废
+    也好过「清了 N 条看着成功」）；显式 override=True ⇒ 先快照后写、留审计行，
+    「保护不等于黑箱」。预演面（apply=False）零写盘，不接闸。
     """
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     indeg = coverage_index(cg)
@@ -549,6 +568,12 @@ def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
                                            f"≥{IMPORTANCE_PROTECT}")
             path = os.path.join(cg.root, (nodes.get(nid) or {}).get("path")
                                 or node.get("path") or f"{nid}.md")
+            # issue #431：批量改写既有节点 = 覆写面——`_write_node` 前过统一双闸
+            # （#416 裁定「写点顺序保持 guard_overwrite 紧邻」）。层与敏感度取
+            # 本节点已读到的 frontmatter 真值（不靠索引缺字段时的回落）；判据读
+            # 索引条目，上方 fm 的就地改动不影响守卫裁决。override=True 时守卫
+            # 先把旧版本快照进 _protected_history 并写 _protected_audit.jsonl。
+            protect.guard_overwrite(cg, nid, layer=fm.get("layer"), sensitivity=fm.get("sensitivity"), override=override, actor=actor)
             cg._write_node(nid, path, fm, node.get("content") or "")
             e = nodes.get(nid)
             if e is not None:
