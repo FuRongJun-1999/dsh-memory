@@ -456,6 +456,7 @@ _OP_TABLE = {
             "goal",
             "goal_status",
             "priority",
+            "sensitivity",
             "deadline",
             "conditions",
             "action_hint",
