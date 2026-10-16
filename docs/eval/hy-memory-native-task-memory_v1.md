@@ -89,10 +89,13 @@ Linux CI 另行执行上述变异与跨进程回放。
 更新；PR 当前 head 的 CI 链接与完整套件 PASS/SKIP 清单在提交说明中单独记录，
 不能用本地定向测试替代。
 
-本机 `scripts/check_local_paths.py` 有一项既有 FAIL：
+基线的 `scripts/check_local_paths.py` 有一项既有 FAIL：
 `md_cg/test_issue405_git_pathspec.py:131` 被判命中 DSH 本机 home 前缀；在上述基线检出
-运行相同检查得到同一文件、同一行的 FAIL。该项不计为本次通过，也未在此功能 PR
-修改无关测试。远端干净环境的检查结果须独立核对。
+运行相同检查得到同一文件、同一行的 FAIL；PR #516 第一轮 Linux CI 亦复现。
+说明性注释中的本机字面量已在独立共享前置
+[PR #517](https://github.com/FuRongJun-1999/dsh-memory/pull/517) 改成中性路径，
+未修改可执行代码、断言、扫描规则或豁免名单。此分支包含同一前置清理，
+用于跑完整门禁，不作为任务双层记忆的核心贡献重复申报。前置清理后本机路径扫描退出 0。
 
 ## 验收状态
 
