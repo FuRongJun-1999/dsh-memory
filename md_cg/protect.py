@@ -201,7 +201,7 @@ class _FmProbe:
     def __init__(self, fm):
         self.index = {"nodes": {_FM_PROBE_ID: fm if isinstance(fm, dict) else {}}}
 
-    def get(self, node_id=None):        # _fm 的回退分支：探针无文件可读
+    def get(self, node_id=None):        # protect._fm 的探活分支：探针无文件可读
         return None
 
 

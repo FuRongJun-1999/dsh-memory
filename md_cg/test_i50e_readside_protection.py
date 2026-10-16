@@ -46,7 +46,9 @@ is_protected=True「重要性保护：importance=0.78≥0.7」。
   三类节点改前改后均放行——「不再要求 override」落地为「无 override 放行」
   的恒真锚（契约 A），列标【不变】。
 
-调用方枚举（F 组静态枚举实测：4 文件、非注释/非 def 的 is_protected( 调用 7 处）
+调用方枚举（F 组静态枚举实测：4 文件、AST 口径的真实消费调用恰 7 处；
+is_protected_fm 体内的单点自委托 return 不计——那是判据载体自身的接线，
+不是消费面；#430 复审整改 P0-1 由文本普查改 AST，理由见 _ast_callsites）
 ------------------------------------------------------------------------
   protect.guard_forget(:262) / protect.guard_move(:274) / protect.stats(:408)
   / mcp_server._protect_call action=check(:1216)（protect.check 工具读面）
@@ -77,6 +79,7 @@ test_i50d_importance_source.py / test_neg_condition_hits.py 同口径）：
 """
 from __future__ import annotations
 
+import ast
 import contextlib
 import inspect
 import io
@@ -451,20 +454,54 @@ _CALLSITES = {
 }
 
 
+def _ast_callsites(src):
+    """F1 普查口径（AST）：数 is_protected( 的**真实消费调用**，排除单点自委托。
+
+    #430 复审整改（P0-1）：朴素文本普查（"is_protected(" in ln 且非注释/非 def）
+    把 protect.is_protected_fm 体内的委托 return（`return is_protected(
+    _FmProbe(fm), _FM_PROBE_ID)`）误计成第 4 个调用点（实测总数 7→8 假红、
+    守卫由绿转红）。改走 ast 解析：只数 Name/Attribute 为 is_protected 的
+    Call 节点，并**按结构**排除 is_protected_fm 函数体内的调用——委托是判据
+    载体自身的接线（判据单点就是 is_protected，见 protect.py 的收口注释），
+    不是消费面。为何不用文本白名单（排除 "return is_protected(" 行）：
+    白名单会把恰好以 return 收尾的**真实消费方**一并误杀（完备性判据恰是
+    本组的守护对象，假阴性比假阳性更危险），且与排版/换行强耦合；AST 口径
+    天然免疫注释、docstring 与折行。新增消费方仍须同步 _CALLSITES（完备性
+    判据不变）。
+    """
+    tree = ast.parse(src)
+    found = []
+
+    def walk(node, in_delegate):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                # is_protected_fm 体内（含嵌套作用域）整棵不算消费面（粘性标记）
+                walk(child, in_delegate or child.name == "is_protected_fm")
+            else:
+                if isinstance(child, ast.Call):
+                    name = (getattr(child.func, "id", None)
+                            or getattr(child.func, "attr", None))
+                    if name == "is_protected" and not in_delegate:
+                        found.append(child.lineno)
+                walk(child, in_delegate)
+
+    walk(tree, False)
+    lines = src.splitlines()
+    return [(ln, lines[ln - 1].strip()) for ln in found]
+
+
 def g_f():
     print("== F 调用方枚举与逐类读数 ==")
     pkg = os.path.dirname(os.path.abspath(__file__))
     total = 0
     for fn, (want, label) in _CALLSITES.items():
         with open(os.path.join(pkg, fn), encoding="utf-8") as fh:
-            lines = [ln for ln in fh.read().splitlines()
-                     if "is_protected(" in ln
-                     and not ln.strip().startswith("#")
-                     and "def is_protected" not in ln]
-        total += len(lines)
-        ok(len(lines) == want,
+            src = fh.read()
+        found = _ast_callsites(src)
+        total += len(found)
+        ok(len(found) == want,
            "F1 %s 的 is_protected( 调用点 == %d（%s）" % (fn, want, label),
-           lines)
+           ["%s:%d %s" % (fn, ln, txt) for ln, txt in found])
     ok(total == 7,
        "F1+ 全部非测试调用点恰 7 处（枚举完备性——新增调用方须同步本表）",
        total)
