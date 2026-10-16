@@ -517,7 +517,7 @@ def envelopes(root):
 def is_encrypted(content):
     """内容是否为**完整的密文信封**（前缀 + 后缀），而非只看开头前缀。
 
-    #429-③ 订正：原判据只查 `lstrip().startswith(ENC_PREFIX)`——**比消费方的前置更弱**。
+    #446 订正：原判据只查 `lstrip().startswith(ENC_PREFIX)`——**比消费方的前置更弱**。
     消费方（`backfill` / `ccgc` / `consolidate` 等十余处）拿到 True 即当「已加密、不可读」
     而跳过；而真正取正文的路径要按 `[len(ENC_PREFIX):-len(ENC_SUFFIX)]` **切掉后缀**
     ⇒ 只认前缀时，任何以 ENC_PREFIX 起头的**明文**都被误判为密文：低权写者一条伪前缀

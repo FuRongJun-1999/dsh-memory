@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""#429-③ `crypto.is_encrypted` 判据守卫：必须是**完整信封**，不是只看前缀。
+"""#446 `crypto.is_encrypted` 判据守卫：必须是**完整信封**，不是只看前缀。
 
 原判据 `content.lstrip().startswith(ENC_PREFIX)` 只查前缀，**弱于消费方的前置**——
 消费方（backfill / ccgc / consolidate 十余处）拿到 True 即当「已加密、不可读」而跳过，
@@ -61,7 +61,7 @@ def _sliceable(x):
 
 def run():
     del _FAIL[:]
-    print("is_encrypted：完整信封判据（#429-③）")
+    print("is_encrypted：完整信封判据（#446）")
 
     check("A 伪前缀（无后缀）不得判为密文", C.is_encrypted(_FAKE_PREFIX_ONLY) is False,
           f"实得 {C.is_encrypted(_FAKE_PREFIX_ONLY)}")
@@ -122,7 +122,7 @@ def _once():
     """
     code = ("import sys\n"
             "sys.path.insert(0, %r)\n"
-            "import md_cg.test_issue429_is_encrypted_envelope as M\n"
+            "import md_cg.test_issue446_is_encrypted_envelope as M\n"
             "M.run()\n"
             "print('RED ' + '||'.join(M._FAIL))\n" % REPO)
     r = subprocess.run([sys.executable, "-X", "utf8", "-c", code], capture_output=True,
