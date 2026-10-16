@@ -345,7 +345,38 @@ class Ledger:
 # 统一 index_dir：调度 + 水位 + 落盘（供 op=index_code / op=index_doc / heal 共用）
 # --------------------------------------------------------------------------
 
-# 生效条件：root 为源大域根、kind 为 'code_ref'/'doc_ref' 时经 _mod(kind) 调度底层 index_dir 并返回 (items, errors, stats)；ledger 非空时逐文件 record，incremental 为真时跳过 ledger.is_fresh 为真的文件，stats 未截断且 seen 非空时执行 reconcile，commit 为假时不 save（由调用方在节点写成功后 save）。
+# 生效条件：lib_root 与 scan_root 各经 normcase(realpath(str(...))) 归一；两者任一为空、相等、或 real_lib 不以 real_root+os.sep 为前缀（记忆库不在扫描根内，含 relpath 逃逸与跨盘符）时返回 None；否则返回 relpath(real_lib, real_root) 的 "\"→"/" 归一串（两侧 strip("/")，供 skip_matcher 的路径规则剪掉库根整枝）；relpath/OSError/ValueError 抛出时返回 None（不剪不炸）。
+def _lib_subtree_rule(lib_root, scan_root):
+    """issue #425 修复方向 2：扫描根是记忆库根的祖先时，给出剪掉库根子树的规则。
+
+    白名单/显式 path 等于库根或落在库内的情形已由 sources.run 的第二道闸
+    （security.check_ingest_source）整体拒绝；但 MDCG_INGEST_ROOT 设成库根的
+    **祖先**（如把整个工作区登记为可摄取）时，空 path 经 env 解析成祖先目录、
+    显式 path=祖先目录都合法过闸——walk 会钻进库根把各层节点、trash/、
+    _protected_history/ 当外部文档重切（C7）。此处的处置是**遍历剪枝**：库根
+    子树整枝剪掉、与 SKIP_DIRS 同处生效，`stats["skipped_dirs"]` 如实回报
+    （不静默），其余目录照常索引（保留「工作区即摄取面」的合法用法）。
+
+    返回的是相对 scan_root 的路径规则（skip_matcher 的含 `/` 形态）。跨盘符
+    （Windows 的 relpath 抛 ValueError）即「库不在根内」→ None，不剪不炸。
+    """
+    try:
+        real_lib = os.path.normcase(os.path.realpath(str(lib_root or "")))
+        real_root = os.path.normcase(os.path.realpath(str(scan_root or "")))
+        if not real_lib or not real_root or real_lib == real_root:
+            return None
+        if not real_lib.startswith(real_root.rstrip(os.sep) + os.sep):
+            return None
+        rel = os.path.relpath(real_lib, real_root).replace("\\", "/")
+        rel = rel.strip("/")
+        if not rel or rel.startswith("../"):
+            return None
+        return rel
+    except (OSError, ValueError):
+        return None
+
+
+# 生效条件：root 为源大域根、kind 为 'code_ref'/'doc_ref' 时经 _mod(kind) 调度底层 index_dir 并返回 (items, errors, stats)；ledger 非空时先算 _lib_subtree_rule(ledger.root, root)（ledger.root 即记忆库根），有规则则并入 skip_dirs（只增不减，issue #425 C7 剪枝；stats["skipped_dirs"] 回报）；ledger 非空时逐文件 record，incremental 为真时跳过 ledger.is_fresh 为真的文件，stats 未截断且 seen 非空时执行 reconcile，commit 为假时不 save（由调用方在节点写成功后 save）。
 def index_dir(root: str, *, kind: str, patterns=None, max_files: int = 500,
               max_items: int = 2000, incremental: bool = False,
               ledger: "Ledger" = None, skip_dirs=None, commit: bool = True):
@@ -370,6 +401,14 @@ def index_dir(root: str, *, kind: str, patterns=None, max_files: int = 500,
     `node_modules` 等不可被关闭），见 `codeindex.skip_matcher`。实际排掉了哪些目录
     由 `stats["skipped_dirs"]` 回报，仍不静默。
     """
+    # issue #425（C7）：ledger.root 即记忆库根——扫描根是它的祖先时，把库根
+    # 子树剪掉（与 SKIP_DIRS 同处生效、skipped_dirs 回报），库内节点文件不
+    # 会被当外部文档重切。给了 ledger 的调用方（op=index_code/index_doc、
+    # heal/rebuild、sources.ingest_dir）全部自动受益；不给 ledger 的直调
+    # （测试/旁路）行为不变。
+    _lib_rule = _lib_subtree_rule(ledger.root, root) if ledger is not None else None
+    if _lib_rule:
+        skip_dirs = tuple(skip_dirs or ()) + (_lib_rule,)
     mod = _mod(kind)
     fresh = None
     on_file = None
